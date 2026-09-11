@@ -1,4 +1,5 @@
 #pragma once
+#include "RHICompletion.h"
 
 #include "RHIDefinitions.h"
 #include "RHIPipelineCreation.h"
@@ -139,6 +140,7 @@ namespace Durin::VulkanRHI
 			uint64 CompletionToken;
 			uint64 Handle;
 			FVulkanAllocation Allocation;
+			FRHIRetirementPrerequisites Prerequisites;
 		};
 
 		auto EnqueueGenericResource(EType Type, uint64 Handle) -> void;
@@ -195,6 +197,7 @@ namespace Durin::VulkanRHI
 		auto SupportsSynchronization2() const -> bool { return bSupportsSynchronization2; }
 
 		auto GetGraphicsQueue() const -> FVulkanQueue* { return GraphicsQueue; }
+		auto GetQueueCapabilities() const -> const FRHIQueueCapabilities& { return QueueCapabilities; }
 
 		auto GetMemoryManager() -> FVulkanMemoryManager& { return MemoryManager; }
 
@@ -293,6 +296,7 @@ namespace Durin::VulkanRHI
 		mutable std::recursive_mutex PipelineCacheStatisticsMutex;
 
 		FVulkanQueue* GraphicsQueue = nullptr;
+		FRHIQueueCapabilities QueueCapabilities;
 
 		FVulkanQueue* ComputeQueue = nullptr;
 

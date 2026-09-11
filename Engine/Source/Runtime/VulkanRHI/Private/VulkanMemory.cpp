@@ -481,6 +481,16 @@ namespace Durin::VulkanRHI
 		Fence = nullptr;
 	}
 
+	auto FVulkanFenceManager::DestroyFenceAfterDeviceStopped(FVulkanFence*& InFence) -> void
+	{
+		std::lock_guard Lock(FenceMutex);
+		const auto It = std::ranges::find(UsedFences, InFence);
+		require(It != UsedFences.end());
+		UsedFences.erase(It);
+		DestroyFence(InFence);
+		InFence = nullptr;
+	}
+
 	auto FVulkanFenceManager::WaitForFence(FVulkanFence* InFence, uint64 TimeoutInNanoseconds) -> bool
 	{
 		return InFence->Wait(TimeoutInNanoseconds);

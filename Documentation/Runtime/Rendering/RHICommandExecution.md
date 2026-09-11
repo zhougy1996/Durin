@@ -36,8 +36,13 @@ all record before executor replay.
 
 Each recorded command owns the data needed after its caller returns. Raw byte
 payloads, attachment values, parameter arrays, and upload rows are copied into
-command storage. Referenced RHI resources are retained until the containing
-submission group has replayed its commands and ordered backend events.
+command storage. The executor retains this storage through replay and ordered
+events. `RHISetReplayStorageOwner` additionally gives GPU contexts an owning
+storage lease before replay begins. Vulkan attaches that lease to every
+payload touched by the group, including intermediate upload/readback
+submissions and work recorded without `SubmitToGPU`. Clearing the active
+replay owner does not clear pending or in-flight payload leases. CPU-only
+contexts need no GPU retention.
 
 The recorder never obtains an `IRHICommandContext` or native Vulkan command
 buffer. Only executor replay resolves the active context and invokes it. This
@@ -79,13 +84,33 @@ Ordered events execute in this sequence:
 2. optionally submit backend commands;
 3. optionally end the frame and, only after successful backend `RHIEndFrame`,
    advance the executor-owned `FrameNumber` once;
-4. release all batch-owned payloads and RHI references;
+4. release the executor's command-storage ownership, preserving backend leases;
 5. optionally drain deferred RHI deletion;
 6. publish the completed serial.
 
 An executor fence targets one exact accepted serial. CPU completion means replay
 and the ordered executor events above have finished; it does not imply GPU idle.
 Vulkan submission tokens and their pooled fences represent queue completion.
+
+`FRHIGPUCompletionPoint` qualifies a queue-local value with physical queue
+identity and RHI-owned device generation. An owning
+`FRHIGPUSubmissionTicket` observes pending, submitted, completed, canceled,
+failed or device-lost metadata independently of CPU fences. Metadata survives
+backend teardown without holding a native fence or backend pointer. Foreign
+device completion queries return Invalid. Queue capabilities currently publish
+one physical graphics queue shared by the compute role.
+
+`FRHIRetirementPrerequisites` is a conjunction of queue prefixes. It merges
+values only in the same queue and generation. Cancellation remains distinct
+from successful content production. A canceled maximum becomes retireable only
+after its earlier queue prefix retires; otherwise compression could hide older
+GPU uses. Failure and device loss never authorize ordinary retirement.
+
+`RHIGetCompletionStatus` reads published metadata without dispatch or GPU waits.
+`RHIWaitForCompletion` waits an exact submitted ticket with a GPU timeout and
+returns separate pending, timeout, cancellation, failure and device-loss
+outcomes. CPU dispatch latency is outside that GPU timeout. The wait does not
+submit pending GPU work or infer completion from another device generation.
 
 The executor `FrameNumber` starts at zero and advances only after a successful
 replayed `RHIEndFrame`; callers do not supply it. Ordered `BeginFrame` passes the
@@ -196,7 +221,7 @@ relative to recorded commands without adding a device-wide wait.
 
 Vulkan reserves a queue token while recording and publishes it only after
 successful submission. CPU replay completion can release command-list storage,
-but submitted payloads, command buffers, fences, native dependencies, transfer
+but backend command-storage leases, submitted payloads, command buffers, fences, native dependencies, transfer
 ranges, uniform pages, and descriptor pools remain retained until their exact
 token completes. See [Vulkan memory and GPU completion](VulkanMemoryAndGPUCompletion.md).
 

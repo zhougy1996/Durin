@@ -17,6 +17,9 @@ namespace Durin
 	{
 	public:
 		virtual ~IRHICommandContext() = default;
+		// GPU backends retain this owner in every payload touched during replay,
+		// including intermediate submissions. CPU-only contexts need no retention.
+		virtual auto RHISetReplayStorageOwner(std::shared_ptr<void> Owner) -> void {}
 		virtual auto RHIBeginFrame(const FRHIBeginFrameArgs& Args) -> void = 0;
 		virtual auto RHISubmitCommands() -> void = 0;
 		virtual auto RHIEndFrame() -> void = 0;

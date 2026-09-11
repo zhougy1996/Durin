@@ -12,6 +12,7 @@ durin_register_native_test(RHIPipelineCreationTests
 
 add_durin_test(RHICommandListTests
 	Private/RHICommandListTests.cpp
+	Private/RHICompletionTests.cpp
 )
 target_link_libraries(RHICommandListTests PRIVATE
 	Core

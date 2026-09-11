@@ -89,9 +89,20 @@ namespace Durin::VulkanRHI
 	FVulkanCommandListContext::~FVulkanCommandListContext()
 	{
 		CheckVulkanRHIThread();
+		// Submitted payloads moved to the completion tracker. Only detached,
+		// unsubmitted recordings remain here when the device stops this context.
+		for (auto* Payload : Payloads) delete Payload;
+		Payloads.clear();
 		PendingGfxState.reset();
 		PendingComputeState.reset();
 		delete Pool;
+	}
+
+	auto FVulkanCommandListContext::RHISetReplayStorageOwner(std::shared_ptr<void> Owner) -> void
+	{
+		CheckVulkanRHIThread();
+		ReplayStorageOwner = std::move(Owner);
+		if (ReplayStorageOwner) GetPayload();
 	}
 
 	auto FVulkanCommandListContext::RHISetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void
@@ -1013,10 +1024,16 @@ namespace Durin::VulkanRHI
 		// Currently only support one payload per submit.
 		if (Payloads.empty())
 		{
-			Payloads.push_back(new FVulkanPayload(
-				*Queue, Device.GetCompletionTracker().ReserveToken()));
+			Payloads.reserve(1);
+			auto Payload = std::make_unique<FVulkanPayload>(
+				*Queue, Device.GetCompletionTracker().ReserveToken());
+			Payloads.push_back(Payload.release());
 		}
-		return *Payloads.back();
+		auto& Payload = *Payloads.back();
+		if (ReplayStorageOwner && (Payload.ReplayStorageOwners.empty()
+			|| Payload.ReplayStorageOwners.back() != ReplayStorageOwner))
+			Payload.ReplayStorageOwners.push_back(ReplayStorageOwner);
+		return Payload;
 	}
 
 	auto FVulkanDynamicRHI::RHIGetDefaultContext() -> IRHICommandContext*

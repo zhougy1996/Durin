@@ -1,6 +1,7 @@
 #pragma once
 
 #include "RHIAPI.h"
+#include "RHICompletion.h"
 #include "RHIFwd.h"
 #include "RHIInitialization.h"
 #include "RHIPresentation.h"
@@ -210,6 +211,14 @@ namespace Durin
 		// Initializes the backend from one complete context on the RHI execution thread.
 		virtual auto Init(const FRHIInitializationContext& Context) -> void = 0;
 		virtual auto Shutdown() -> void = 0;
+		RHI_API virtual auto RHIGetQueueCapabilities() const -> const FRHIQueueCapabilities&;
+		// Observes published metadata without dispatching CPU work or waiting for GPU.
+		RHI_API virtual auto RHIGetCompletionStatus(const FRHIGPUSubmissionTicket& Ticket) const
+			-> ERHIGPUSubmissionState;
+		// GPU timeout excludes the CPU dispatch needed to reach the backend owner.
+		// Intended for readback, bounded pool pressure, pacing and shutdown only.
+		RHI_API virtual auto RHIWaitForCompletion(const FRHIGPUSubmissionTicket& Ticket,
+			uint64 TimeoutNanoseconds) -> ERHIGPUWaitResult;
 		RHI_API auto RHIGetCapabilities() const -> const FRHICapabilities*;
 		// Counters accumulate for the device lifetime until explicitly reset.
 		RHI_API virtual auto RHIGetPipelineCacheStatistics() const

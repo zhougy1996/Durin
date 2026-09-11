@@ -362,6 +362,14 @@ namespace Durin::VulkanRHI
 		}
 	}
 
+	auto GetLastVulkanSubmissionTicketForTesting() -> FRHIGPUSubmissionTicket
+	{
+		CheckVulkanRHIThread();
+		auto* Device = FVulkanDynamicRHI::Get().GetDeviceForTesting();
+		return Device ? Device->GetCompletionTracker().GetLastReservedTicket()
+			: FRHIGPUSubmissionTicket{};
+	}
+
 	auto GetVulkanCompletionTestStats() -> FVulkanCompletionTestStats
 	{
 		CheckVulkanRHIThread();

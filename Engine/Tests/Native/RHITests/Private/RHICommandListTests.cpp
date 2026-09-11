@@ -100,6 +100,12 @@ namespace Durin
 		class FRecordingCommandContext final : public IRHICommandContext
 		{
 		public:
+			bool bRetainGPUStorage = false;
+			std::vector<std::shared_ptr<void>> GPUStorage;
+			auto RHISetReplayStorageOwner(std::shared_ptr<void> Owner) -> void override
+			{
+				if (bRetainGPUStorage && Owner) GPUStorage.push_back(std::move(Owner));
+			}
 			auto RHIBeginFrame(const FRHIBeginFrameArgs& Args) -> void override
 			{
 				Operations.emplace_back("BeginFrame");
@@ -445,6 +451,24 @@ namespace Durin
 		Executor.Submit({}, ERHISubmitFlags::DeleteResources);
 
 		EXPECT_TRUE(bObservedDuringReplay);
+		EXPECT_TRUE(bDestroyed);
+	}
+
+	TEST(FRHICommandListTests, BackendRetainsStorageAcrossCPUCompletionWithoutSubmission)
+	{
+		FRecordingCommandContext Context;
+		Context.bRetainGPUStorage = true;
+		FRHICommandListExecutor Executor(Context);
+		bool bDestroyed = false;
+		auto Resource = MakeRefCount<FTrackedRHIResource>(bDestroyed);
+		Executor.GetImmediateCommandList().EnqueueLambda([Owned = Resource] {}, 0);
+		Resource = nullptr;
+		Executor.Submit({}, ERHISubmitFlags::DeleteResources);
+		EXPECT_EQ(Executor.GetCompletedSerial(), Executor.GetLastSubmittedSerial());
+		EXPECT_FALSE(bDestroyed);
+		ASSERT_EQ(Context.GPUStorage.size(), 1u);
+		Context.GPUStorage.clear();
+		RHIFlushDeferredResources();
 		EXPECT_TRUE(bDestroyed);
 	}
 

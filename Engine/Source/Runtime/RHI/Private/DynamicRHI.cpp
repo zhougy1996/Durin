@@ -4,6 +4,29 @@
 
 namespace Durin
 {
+	const FRHIQueueCapabilities& FDynamicRHI::RHIGetQueueCapabilities() const
+	{
+		static const FRHIQueueCapabilities Unsupported;
+		return Unsupported;
+	}
+
+	auto FDynamicRHI::RHIGetCompletionStatus(const FRHIGPUSubmissionTicket& Ticket) const
+		-> ERHIGPUSubmissionState
+	{
+		const auto& Capabilities = RHIGetQueueCapabilities();
+		const auto Point = Ticket.GetPoint();
+		if (Point.DeviceGeneration == 0 || Point.DeviceGeneration != Capabilities.DeviceGeneration
+			|| std::ranges::find(Capabilities.Queues, Point.Queue, &FRHIQueueInfo::Id) == Capabilities.Queues.end())
+			return ERHIGPUSubmissionState::Invalid;
+		return Ticket.GetState();
+	}
+
+	auto FDynamicRHI::RHIWaitForCompletion(const FRHIGPUSubmissionTicket&, uint64)
+		-> ERHIGPUWaitResult
+	{
+		return ERHIGPUWaitResult::Invalid;
+	}
+
 	auto FDynamicRHI::GetPipelineCreationService() -> FRHIPipelineCreationService*
 	{
 		std::lock_guard Lock(PipelineCreationMutex);

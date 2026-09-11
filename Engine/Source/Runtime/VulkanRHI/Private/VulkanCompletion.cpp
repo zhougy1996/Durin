@@ -9,79 +9,96 @@
 
 namespace Durin::VulkanRHI
 {
-	auto FVulkanCompletionWatermark::AllocateToken() -> FVulkanCompletionToken
-	{
-		requiref(NextToken != 0, "Vulkan completion token space is exhausted.");
-		return NextToken++;
-	}
-
-	auto FVulkanCompletionWatermark::ObserveCompleted(
-		FVulkanCompletionToken Token) -> void
-	{
-		if (Token == 0 || Token <= CompletedToken)
-		{
-			return;
-		}
-		requiref(Token < NextToken,
-			"Cannot complete an unallocated Vulkan token: token={}, next={}",
-			Token, NextToken);
-		ObservedCompletedTokens.insert(Token);
-		while (ObservedCompletedTokens.erase(CompletedToken + 1) != 0)
-		{
-			++CompletedToken;
-		}
-	}
-
-	auto FVulkanCompletionWatermark::GetCompletedToken() const
-		-> FVulkanCompletionToken
-	{
-		return CompletedToken;
-	}
-
-	auto FVulkanCompletionWatermark::IsRetirementEligible(
-		FVulkanCompletionToken Token) const -> bool
-	{
-		return Token == 0 || Token <= CompletedToken;
-	}
-
 	FVulkanCompletionTracker::FVulkanCompletionTracker(FVulkanDevice& InDevice)
 		: Device(InDevice)
+		, Timeline(DeviceGeneration, FRHIQueueId{0})
 	{
 	}
 
 	auto FVulkanCompletionTracker::ReserveToken() -> FVulkanCompletionToken
 	{
 		CheckVulkanRHIThread();
-		LastReservedToken = Watermark.AllocateToken();
+		const auto Ticket = Timeline.Reserve();
+		require(Ticket.GetState() == ERHIGPUSubmissionState::Pending);
+		LastReservedToken = Ticket.GetPoint().Value;
+		require(Ticket.GetPoint().Value == LastReservedToken.load());
+		{
+			std::lock_guard Lock(TicketMutex);
+			LastReservedTicket = Ticket;
+		}
 		return LastReservedToken;
 	}
 
-	auto FVulkanCompletionTracker::TrackSubmitted(
+	auto FVulkanCompletionTracker::GetLastReservedTicket() const -> FRHIGPUSubmissionTicket
+	{
+		std::lock_guard Lock(TicketMutex);
+		return LastReservedTicket;
+	}
+
+	auto FVulkanCompletionTracker::PrepareSubmission(
 		FVulkanCompletionToken Token, FVulkanFence* Fence,
-		std::span<FVulkanPayload* const> Payloads) -> FVulkanCompletionToken
+		std::span<FVulkanPayload* const> Payloads) -> void
 	{
 		CheckVulkanRHIThread();
-		check(Fence && !Payloads.empty());
-		check(Token > LastSubmittedToken.load()
-			&& Token <= LastReservedToken.load());
-		LastSubmittedToken = Token;
-		FSubmission& Submission = Submissions.emplace_back();
+		require(!bFailed && Fence && !Payloads.empty());
+		require(Submissions.empty() || Submissions.back().bSubmitted);
+		FSubmission Submission;
 		Submission.Token = Token;
 		Submission.Fence = Fence;
 		Submission.Payloads.assign(Payloads.begin(), Payloads.end());
-		return Token;
+		Submission.Ticket = GetLastReservedTicket();
+		require(Submission.Ticket.GetPoint().Value == Token
+			&& Timeline.CanSubmit(Submission.Ticket));
+		Submissions.push_back(std::move(Submission));
+	}
+
+	auto FVulkanCompletionTracker::CommitSubmission() -> FVulkanCompletionToken
+	{
+		CheckVulkanRHIThread();
+		require(!bFailed && !Submissions.empty() && !Submissions.back().bSubmitted);
+		auto& Submission = Submissions.back();
+		const bool bAccepted = Timeline.MarkSubmitted(Submission.Ticket);
+		require(bAccepted);
+		Submission.bSubmitted = true;
+		LastSubmittedToken = Submission.Token;
+		return Submission.Token;
+	}
+
+	auto FVulkanCompletionTracker::FailSubmission(bool bDeviceLost) -> void
+	{
+		CheckVulkanRHIThread();
+		bFailed = true;
+		Timeline.Fail(bDeviceLost);
+	}
+
+	auto FVulkanCompletionTracker::ReleaseAfterDeviceStopped() -> void
+	{
+		CheckVulkanRHIThread();
+		// Teardown is not successful completion. Command buffers remain in their
+		// owning pool; quarantined fences are destroyed without reuse or reset.
+		Timeline.Fail();
+		for (auto& Submission : Submissions)
+		{
+			for (auto* Payload : Submission.Payloads) delete Payload;
+			Device.GetFenceManager().DestroyFenceAfterDeviceStopped(Submission.Fence);
+		}
+		Submissions.clear();
 	}
 
 	auto FVulkanCompletionTracker::Poll() -> void
 	{
 		CheckVulkanRHIThread();
+		if (bFailed) return;
 		for (FSubmission& Submission : Submissions)
 		{
+			if (!Submission.bSubmitted) break;
 			if (!Device.GetFenceManager().IsFenceSignaled(Submission.Fence))
 			{
 				break;
 			}
-			Watermark.ObserveCompleted(Submission.Token);
+			const bool bObserved = Timeline.ObserveCompleted(Submission.Ticket);
+			require(bObserved);
+			CompletedToken.store(Submission.Token, std::memory_order_release);
 		}
 		ReleaseCompleted();
 	}
@@ -90,7 +107,8 @@ namespace Durin::VulkanRHI
 		FVulkanCompletionToken Token) -> void
 	{
 		CheckVulkanRHIThread();
-		if (Token == 0 || Token <= Watermark.GetCompletedToken())
+		requiref(!bFailed, "Cannot wait for failed Vulkan submission as normal GPU completion.");
+		if (Token == 0 || Token <= CompletedToken.load(std::memory_order_acquire))
 		{
 			return;
 		}
@@ -98,7 +116,7 @@ namespace Durin::VulkanRHI
 			&FSubmission::Token);
 		requiref(It != Submissions.end(),
 			"Unknown Vulkan completion token: token={}, completed={}, submitted={}",
-			Token, Watermark.GetCompletedToken(), LastSubmittedToken.load());
+			Token, CompletedToken.load(std::memory_order_acquire), LastSubmittedToken.load());
 		const auto WaitStart = std::chrono::steady_clock::now();
 		const bool bCompleted = Device.GetFenceManager().WaitForFence(
 			It->Fence, UINT64_MAX);
@@ -110,8 +128,47 @@ namespace Durin::VulkanRHI
 		ReleaseCompleted();
 	}
 
+	auto FVulkanCompletionTracker::WaitForTicket(const FRHIGPUSubmissionTicket& Ticket,
+		uint64 TimeoutNanoseconds) -> ERHIGPUWaitResult
+	{
+		CheckVulkanRHIThread();
+		if (!Timeline.Owns(Ticket)) return ERHIGPUWaitResult::Invalid;
+		try
+		{
+			Poll();
+			switch (Ticket.GetState())
+			{
+			case ERHIGPUSubmissionState::Complete: return ERHIGPUWaitResult::Complete;
+			case ERHIGPUSubmissionState::Pending: return ERHIGPUWaitResult::Pending;
+			case ERHIGPUSubmissionState::Canceled: return ERHIGPUWaitResult::Canceled;
+			case ERHIGPUSubmissionState::Failed: return ERHIGPUWaitResult::Failed;
+			case ERHIGPUSubmissionState::DeviceLost: return ERHIGPUWaitResult::DeviceLost;
+			case ERHIGPUSubmissionState::Invalid: return ERHIGPUWaitResult::Invalid;
+			case ERHIGPUSubmissionState::Submitted: break;
+			}
+			const auto Token = Ticket.GetPoint().Value;
+			const auto It = std::ranges::find(Submissions, Token, &FSubmission::Token);
+			require(It != Submissions.end() && It->bSubmitted);
+			const auto Start = std::chrono::steady_clock::now();
+			const bool bComplete = Device.GetFenceManager().WaitForFence(It->Fence, TimeoutNanoseconds);
+			GVulkanMemoryBaselineTracker.RecordFrameFenceWait(std::chrono::duration_cast<std::chrono::nanoseconds>(
+				std::chrono::steady_clock::now() - Start).count());
+			if (!bComplete) return ERHIGPUWaitResult::Timeout;
+			ObserveThrough(Token);
+			ReleaseCompleted();
+			return ERHIGPUWaitResult::Complete;
+		}
+		catch (const vk::SystemError& Error)
+		{
+			const bool bDeviceLost = Error.code().value() == static_cast<int>(vk::Result::eErrorDeviceLost);
+			FailSubmission(bDeviceLost);
+			return bDeviceLost ? ERHIGPUWaitResult::DeviceLost : ERHIGPUWaitResult::Failed;
+		}
+	}
+
 	auto FVulkanCompletionTracker::WaitForAll() -> void
 	{
+		if (bFailed) return;
 		WaitForToken(LastSubmittedToken.load());
 	}
 
@@ -130,7 +187,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanCompletionTracker::GetCompletedToken() const
 		-> FVulkanCompletionToken
 	{
-		return Watermark.GetCompletedToken();
+		return CompletedToken.load(std::memory_order_acquire);
 	}
 
 	auto FVulkanCompletionTracker::GetPendingSubmissionCount() const -> uint64
@@ -151,14 +208,16 @@ namespace Durin::VulkanRHI
 			requiref(Device.GetFenceManager().IsFenceSignaled(Submission.Fence),
 				"Vulkan queue completion was not contiguous at token {}.",
 				Submission.Token);
-			Watermark.ObserveCompleted(Submission.Token);
+			const bool bObserved = Timeline.ObserveCompleted(Submission.Ticket);
+			require(bObserved);
+			CompletedToken.store(Submission.Token, std::memory_order_release);
 		}
 	}
 
 	auto FVulkanCompletionTracker::ReleaseCompleted() -> void
 	{
 		while (!Submissions.empty()
-			&& Submissions.front().Token <= Watermark.GetCompletedToken())
+			&& Submissions.front().Ticket.IsRetirementEligible())
 		{
 			FSubmission& Submission = Submissions.front();
 			for (FVulkanPayload* Payload : Submission.Payloads)

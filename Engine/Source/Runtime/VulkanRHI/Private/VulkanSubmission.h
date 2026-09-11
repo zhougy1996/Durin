@@ -28,6 +28,7 @@ namespace Durin::VulkanRHI
 	private:
 		FVulkanQueue& Queue;
 		uint64 Token = 0;
+		std::vector<std::shared_ptr<void>> ReplayStorageOwners;
 
 		std::vector<vk::PipelineStageFlags> WaitFlags; // Pipeline stages to wait on for each wait semaphore. Must match 1:1 with WaitSemaphores.
 		std::vector<FVulkanSemaphore*> WaitSemaphores;

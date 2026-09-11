@@ -51,7 +51,6 @@ namespace Durin::VulkanRHI
 			SubmitInfo.setWaitSemaphores(WaitSemaphores);
 
 			std::ranges::transform(Payload->CommandBuffers, std::back_inserter(CmdBuffers), &FVulkanCommandBuffer::GetHandle);
-			std::ranges::for_each(Payload->CommandBuffers, &FVulkanCommandBuffer::SetSubmitted);
 			SubmitInfo.setCommandBuffers(CmdBuffers);
 
 			std::ranges::transform(Payload->SignalSemaphores, std::back_inserter(SignalSemaphores), &FVulkanSemaphore::GetHandle);
@@ -61,18 +60,36 @@ namespace Durin::VulkanRHI
 		}
 
 		FVulkanFence* Fence = Device->GetFenceManager().AllocateFence(false);
+		auto& Tracker = Device->GetCompletionTracker();
+		check(Payloads.size() == 1);
 		try
 		{
-			Queue.submit(SubmitInfos, Fence->GetHandle());
+			Tracker.PrepareSubmission(Payloads.front()->Token, Fence, Payloads);
 		}
 		catch (...)
 		{
 			Device->GetFenceManager().ReleaseFence(Fence);
 			throw;
 		}
-		check(Payloads.size() == 1);
-		return Device->GetCompletionTracker().TrackSubmitted(
-			Payloads.front()->Token, Fence, Payloads);
+		try
+		{
+			Queue.submit(SubmitInfos, Fence->GetHandle());
+		}
+		catch (const vk::SystemError& Error)
+		{
+			Tracker.FailSubmission(Error.code().value() == static_cast<int>(vk::Result::eErrorDeviceLost));
+			Payloads.clear();
+			throw;
+		}
+		catch (...)
+		{
+			Tracker.FailSubmission();
+			Payloads.clear();
+			throw;
+		}
+		for (auto* Payload : Payloads)
+			std::ranges::for_each(Payload->CommandBuffers, &FVulkanCommandBuffer::SetSubmitted);
+		return Tracker.CommitSubmission();
 	}
 
 	auto FVulkanQueue::GetHandle() const -> vk::Queue

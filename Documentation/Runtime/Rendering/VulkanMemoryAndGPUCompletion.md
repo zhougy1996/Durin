@@ -8,21 +8,24 @@ Modules: RHI, VulkanRHI
 ## Completion Domains
 
 CPU executor serial completion and Vulkan queue completion are different
-proofs. An executor serial proves command replay and command-storage release;
+proofs. An executor serial proves replay and release of executor storage ownership;
 it never proves that the GPU has stopped referencing native resources.
 
 The supported Vulkan topology has one ordered graphics/present queue. Recording
 reserves a monotonically increasing completion token, and successful
-`vkQueueSubmit` publishes that token with one pooled fence. Polling or an exact
+`vkQueueSubmit` publishes that token with one pooled fence and a queue-qualified
+RHI submission ticket. Polling or an exact
 wait advances a contiguous completed-token watermark; it cannot skip an older
 unsignaled submission. Submission failure publishes no completion and remains
 terminal.
 
-Submitted payloads, command buffers, and fences stay owned by the completion
-tracker until their token completes. Native buffers, images, views, samplers,
+Submitted payloads, replay-storage leases, command buffers, and fences stay
+owned by the completion tracker until their ticket retires. Native buffers, images, views, samplers,
 pipelines, layouts, framebuffers, descriptor objects, and other deferred
-handles record the last token that may reference them and retire only when the
-watermark reaches it. Frame number, CPU serial, cache age, and object age are
+handles retain queue-qualified retirement prerequisites. The current one-queue
+path conservatively captures the last reserved ticket; the numeric token is
+retained for single-queue pool policy and diagnostic lag, not as a cross-queue
+comparison. Frame number, CPU serial, cache age, and object age are
 not GPU-lifetime evidence. Present fences and semaphores remain owned by each
 viewport's frame resources because presentation completion is a distinct WSI
 contract.
@@ -129,6 +132,14 @@ second memory counter store. See
 [RHI Diagnostics and Conformance](RHIDiagnosticsAndConformance.md).
 
 ## Shutdown and Failure
+
+Queue submission prepares its tracker entry, payload vector and fence ownership
+before calling Vulkan. The successful commit allocates no ownership storage.
+If the native call fails, its payloads and fence remain quarantined; neither
+the signal value nor normal retirement is published. Device teardown stops
+native work (or observes device loss), then destroys quarantined fences without
+reset/reuse and detaches payloads before destroying their command pools.
+Outstanding ticket metadata becomes terminal failure, never synthetic success.
 
 Shutdown stops new work through the existing executor contract, drains CPU
 replay, waits all published completion tokens, destroys command contexts and

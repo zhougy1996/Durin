@@ -9,16 +9,19 @@ Completed:
 
 ## Current Status
 
-Stage 0 is in progress. The source ownership audit and selected submission
-protocol are recorded below. Runtime implementation has not started; no
-multi-queue acceptance gate is complete.
+Stage 0's ownership audit is recorded below; its performance measurement is
+deferred by explicit operator instruction. Stage 1's single-queue correctness
+gates passed; Stage 2 is next. The runtime still uses one physical queue; no async compute,
+split-barrier or transient-aliasing acceptance gate is complete.
 
-The remaining Stage 0 prerequisite is an authoritative performance baseline.
-On 2026-09-11 the operator confirmed that an exclusive quiet GPU lane cannot
-currently be guaranteed. Under the repository's performance-qualification
-rules, concurrent-machine timings are diagnostic only. Do not freeze budgets,
-start Stage 1, or mark this plan complete from those timings. Resume with the
-measurement procedure below when an exclusive lane becomes available.
+On 2026-09-11 the operator authorized continuing implementation and deferring
+performance measurements because an exclusive quiet GPU lane is unavailable.
+This explicitly relaxes the Stage 0 baseline-before-Stage-1 ordering only.
+Implementation may proceed; concurrent-machine timings remain diagnostic and
+the final performance gate remains outstanding. Use the recorded pre-change
+revision for the eventual baseline, with the same instrumentation applied to
+both revisions. Do not claim frozen budgets or complete the performance gate
+without authoritative measurements.
 
 Fresh correctness evidence at `3f541aa0a98c468be7226881be6c83a399db9d8d`, using
 the default `Win64-Debug-DurinEditor` profile:
@@ -329,8 +332,9 @@ partial graph submission, extraction producer failure, fan-out readers and
 descriptor/upload reuse under delayed compute completion. Run affected tests
 and the mandatory shared-API `all` build after implementation changes.
 
-Before Stage 1, instrument and measure these representative workloads on the
-unchanged single-queue runtime in an exclusive quiet lane:
+As authorized above, measurement is deferred until an exclusive quiet lane is
+available. Instrument and measure these representative workloads on both the
+recorded unchanged single-queue revision and the implementation revision:
 
 1. CPU RDG: the existing 128-pass same-buffer hazard chain, a graphics/compute
    fork/join graph, and a production frame graph. Record compile, prepare,
@@ -351,8 +355,8 @@ samples in each of three consecutive runs; preserve any longer warm-up already
 required by an existing qualification. Record median/p95, adapter/driver,
 profile, validation configuration and source revision. Also record peak
 transient/retained bytes, retirement backlog and count/duration/purpose of waits.
-Freeze numerical regression budgets from those results, with explicit
-justification for any noise allowance, before modifying execution behavior.
+Freeze numerical regression budgets from the baseline revision's results, with
+explicit justification for any noise allowance, before accepting performance.
 Keep topology, resolution and warm-up identical for later full/split and
 single/multi-queue comparisons. No numerical thresholds have been frozen yet;
 the Stage 0 measurement checkbox intentionally remains open.
@@ -364,21 +368,56 @@ Dependencies: Stage 0.
 Outcome: explicit GPU completion and resource retirement contracts operate
 through the existing single-queue execution path.
 
-- [ ] Introduce typed queue identities, GPU completion points, and retirement
+- [x] Introduce typed queue identities, GPU completion points, and retirement
   prerequisite sets in RHI; keep CPU replay fences distinct.
-- [ ] Adapt Vulkan completion tracking to queue-qualified points and preserve
+- [x] Adapt Vulkan completion tracking to queue-qualified points and preserve
   submission fence and payload ownership through GPU completion.
-- [ ] Integrate pending-command retention, backend in-flight retention, resource
+- [x] Integrate pending-command retention, backend in-flight retention, resource
   deletion, descriptor/upload recycling, and allocation eviction with the
   selected ownership contract.
-- [ ] Provide nonblocking completion polling and bounded-purpose waits. Keep
+- [x] Provide nonblocking completion polling and bounded-purpose waits. Keep
   ordinary reclamation free of device-idle calls and per-resource GPU waits.
-- [ ] Test delayed and out-of-order completion observations, unsubmitted work,
+- [x] Test delayed and out-of-order completion observations, unsubmitted work,
   failed/canceled submissions, stale device generations, and shutdown.
 
 Completion: early CPU replay completion cannot release GPU-used storage;
 single-queue behavior remains equivalent, and affected tests plus the shared
 Engine API `all` build pass.
+
+Stage 1 uses `RHICompletion.h` for queue-qualified tickets and retirement
+prefixes. The old independent Vulkan watermark was removed. Queue capabilities,
+metadata observation and bounded exact waits are exposed through `FDynamicRHI`.
+Vulkan tracker publication now has prepare/commit boundaries; native failure
+quarantines payload and fence ownership until device teardown. Pending and
+submitted command storage retains RHI references, and native deletion entries
+carry owning retirement prerequisites. Existing descriptor/upload/frame pool
+values remain explicitly local to the sole graphics queue; their multi-queue
+use-set migration belongs to Stage 3.
+
+Implementation refinement: this first retention boundary shares the complete
+immutable command-storage vector with payloads, rather than introducing a
+second per-command resource enumerator. This preserves views, copied uploads,
+pipeline dependencies and opaque command-owned references across intermediate
+submissions. It conservatively retains CPU payload bytes until GPU retirement.
+Measure this cost at the deferred baseline gate before deciding whether a
+deduplicated resource-only bundle is justified. CPU admission budget counters
+still describe queued/active replay work, not total in-flight GPU storage.
+
+Fresh Stage 1 validation on `Win64-Debug-DurinEditor`:
+
+- `@domain=renderer,kind=contract`: all 10 registered targets passed, including
+  eight RHI completion cases and pending backend-storage retention. Log:
+  `Build/.agent-state/logs/20260911-170600-692797-36260-ctest.log`.
+- `VulkanRHIIntegrationTests`: 74/74 passed, including real pending/submitted
+  ticket observation, bounded completion wait and rejection of an old ticket
+  after backend replacement. Log:
+  `Build/.agent-state/logs/20260911-170859-097833-11376-VulkanRHIIntegrationTests.log`.
+- Cross-project searches covered Engine, Sandbox and RoadWeaver source/test
+  roots for the changed context, completion and queue capability symbols.
+- Default-profile `all` build passed in 15.02 seconds. Log:
+  `Build/.agent-state/logs/20260911-170925-957453-32116-cmake.log`.
+- Native failure/cancellation state-machine tests are deterministic CPU
+  fixtures; physical device-loss injection has not been performed.
 
 ### Stage 2: Compile and Submit an Explicit Execution Plan
 

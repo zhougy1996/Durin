@@ -150,6 +150,8 @@ namespace Durin::VulkanRHI
 		auto AllocateFence(bool bInCreateSignaled) -> FVulkanFence*;
 
 		auto ReleaseFence(FVulkanFence*& InFence) -> void;
+		// Teardown only: the device is idle or lost. Do not reset/recycle this fence.
+		auto DestroyFenceAfterDeviceStopped(FVulkanFence*& InFence) -> void;
 
 		auto WaitForFence(FVulkanFence* InFence, uint64 InTimeoutInNanoseconds) -> bool;
 

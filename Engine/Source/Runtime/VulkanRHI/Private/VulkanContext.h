@@ -29,6 +29,7 @@ namespace Durin::VulkanRHI
 		FVulkanCommandListContext(FVulkanDynamicRHI* InRHI, FVulkanDevice& InDevice, FVulkanQueue* InQueue);
 
 		~FVulkanCommandListContext() override;
+		auto RHISetReplayStorageOwner(std::shared_ptr<void> Owner) -> void override;
 
 		auto RHISetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void override;
 
@@ -156,6 +157,7 @@ namespace Durin::VulkanRHI
 		uint32 BoundIndexBufferOffset = 0;
 
 		std::vector<FVulkanPayload*> Payloads;
+		std::shared_ptr<void> ReplayStorageOwner;
 		// Own recorded intervals until submission transfers them to the timing
 		// manager; the caller may release its query after recording ends.
 		std::vector<TRefCountPtr<FVulkanGPUTimingQuery>> PendingTimingQueries;

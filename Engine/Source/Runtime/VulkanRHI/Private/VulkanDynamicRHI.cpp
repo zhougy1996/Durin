@@ -187,6 +187,23 @@ namespace Durin::VulkanRHI
 		DiagnosticAvailability = {};
 	}
 
+	auto FVulkanDynamicRHI::RHIGetQueueCapabilities() const -> const FRHIQueueCapabilities&
+	{
+		return Device ? Device->GetQueueCapabilities() : FDynamicRHI::RHIGetQueueCapabilities();
+	}
+
+	auto FVulkanDynamicRHI::RHIWaitForCompletion(const FRHIGPUSubmissionTicket& Ticket,
+		uint64 TimeoutNanoseconds) -> ERHIGPUWaitResult
+	{
+		ERHIGPUWaitResult Result = ERHIGPUWaitResult::Invalid;
+		auto Wait = [&] {
+			if (Device) Result = Device->GetCompletionTracker().WaitForTicket(Ticket, TimeoutNanoseconds);
+		};
+		if (IsInRHIThread()) Wait();
+		else GCommandListExecutor.ExecuteSynchronousOperation(false, Wait);
+		return Result;
+	}
+
 	auto FVulkanDynamicRHI::RHICollectCompletedResources() -> void
 	{
 		GCommandListExecutor.ExecuteSynchronousOperation(false, [this] {

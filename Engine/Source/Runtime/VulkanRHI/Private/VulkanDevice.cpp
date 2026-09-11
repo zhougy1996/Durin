@@ -181,10 +181,8 @@ namespace Durin::VulkanRHI
 			{
 				std::lock_guard<std::mutex> Lock(Mutex);
 
-				const uint64 CompletedToken =
-					Device->GetCompletionTracker().GetCompletedToken();
 				auto DeleteSubRange = std::ranges::partition(Entries, [&](const FEntry& Entry) {
-					return Entry.CompletionToken > CompletedToken;
+					return !Entry.Prerequisites.IsRetirementEligible();
 				});
 
 				if (DeleteSubRange.begin() != Entries.end())
@@ -217,19 +215,30 @@ namespace Durin::VulkanRHI
 
 	auto FDeferredDeletionQueue::EnqueueGenericResource(EType Type, uint64 Handle) -> void
 	{
-		const uint64 CompletionToken =
-			Device->GetCompletionTracker().GetLastReservedToken();
+		const auto Ticket = Device->GetCompletionTracker().GetLastReservedTicket();
+		FEntry Entry{.Type = Type, .CompletionToken = Ticket.GetPoint().Value, .Handle = Handle};
+		if (Ticket.GetState() != ERHIGPUSubmissionState::Invalid)
+		{
+			const bool bAdded = Entry.Prerequisites.Add(Ticket);
+			require(bAdded);
+		}
 		std::lock_guard<std::mutex> Lock(Mutex);
-		Entries.emplace_back(Type, CompletionToken, Handle);
+		Entries.push_back(std::move(Entry));
 		GVulkanMemoryBaselineTracker.RecordDeferredDeleteEnqueued();
 	}
 
 	auto FDeferredDeletionQueue::EnqueueAllocatedResource(EType Type, uint64 Handle, const FVulkanAllocation& Allocation) -> void
 	{
-		const uint64 CompletionToken =
-			Device->GetCompletionTracker().GetLastReservedToken();
+		const auto Ticket = Device->GetCompletionTracker().GetLastReservedTicket();
+		FEntry Entry{.Type = Type, .CompletionToken = Ticket.GetPoint().Value,
+			.Handle = Handle, .Allocation = Allocation};
+		if (Ticket.GetState() != ERHIGPUSubmissionState::Invalid)
+		{
+			const bool bAdded = Entry.Prerequisites.Add(Ticket);
+			require(bAdded);
+		}
 		std::lock_guard<std::mutex> Lock(Mutex);
-		Entries.emplace_back(Type, CompletionToken, Handle, Allocation); // Copy allocation here
+		Entries.push_back(std::move(Entry));
 		GVulkanMemoryBaselineTracker.RecordDeferredDeleteEnqueued();
 	}
 
@@ -330,6 +339,13 @@ namespace Durin::VulkanRHI
 			TransferQueueFamilyIndex == GraphicsQueueFamilyIndex || TransferQueueFamilyIndex == ComputeQueueFamilyIndex ? "shared" : "separate");
 		MemoryManager.Init(this);
 		CompletionTracker = new FVulkanCompletionTracker(*this);
+		QueueCapabilities.DeviceGeneration = CompletionTracker->GetDeviceGeneration();
+		const auto& GraphicsProperties = QueueFamilyProps[GraphicsQueueFamilyIndex];
+		QueueCapabilities.Queues.push_back({.Id = {0},
+			.OwnershipDomain = static_cast<uint32>(GraphicsQueueFamilyIndex),
+			.bGraphics = true,
+			.bCompute = bool(GraphicsProperties.queueFlags & vk::QueueFlagBits::eCompute),
+			.bCopy = true, .bTimestamps = GraphicsProperties.timestampValidBits != 0});
 		GPUTimingManager = new FVulkanGPUTimingManager(*this);
 		UploadArena = new FVulkanTransferArena(*this, {
 			.AllocationClass = EVulkanAllocationClassCandidate::TransferUpload,
@@ -562,11 +578,20 @@ namespace Durin::VulkanRHI
 		{
 			return;
 		}
-		WaitUtilIdle();
+		try
+		{
+			WaitUtilIdle();
+		}
+		catch (const vk::SystemError& Error)
+		{
+			if (Error.code().value() != static_cast<int>(vk::Result::eErrorDeviceLost)) throw;
+			if (CompletionTracker) CompletionTracker->FailSubmission(true);
+		}
 		if (CompletionTracker)
 		{
 			CompletionTracker->WaitForAll();
 			GPUTimingManager->Poll();
+			CompletionTracker->ReleaseAfterDeviceStopped();
 		}
 
 		delete ImmediateContext;

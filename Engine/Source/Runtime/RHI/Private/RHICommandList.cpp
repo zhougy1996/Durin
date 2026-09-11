@@ -1350,10 +1350,10 @@ namespace Durin
 				ERHISubmitFlags InFlags,
 				std::vector<FBatch>&& InBatches)
 				: Flags(InFlags)
-				, Batches(std::move(InBatches))
+				, Batches(std::make_shared<std::vector<FBatch>>(std::move(InBatches)))
 			{
-				BatchCount = Batches.size();
-				for (const FBatch& Batch : Batches)
+				BatchCount = Batches->size();
+				for (const FBatch& Batch : *Batches)
 				{
 					for (const auto& Dependency : Batch.GetDependencies())
 						if (std::ranges::find(Dependencies, Dependency) == Dependencies.end()) Dependencies.push_back(Dependency);
@@ -1393,7 +1393,7 @@ namespace Durin
 
 			auto Replay(FRHICommandReplayContext& ReplayContext) -> void
 			{
-				for (FBatch& Batch : Batches)
+				for (FBatch& Batch : *Batches)
 				{
 					Batch.Replay(ReplayContext);
 				}
@@ -1401,13 +1401,14 @@ namespace Durin
 
 			auto ReleaseBatches() -> void
 			{
-				Batches.clear();
+				Batches.reset();
 			}
 
 			auto TakeBatches() -> std::vector<FBatch>
 			{
-				return std::move(Batches);
+				return std::move(*Batches);
 			}
+			auto GetStorageOwner() const -> std::shared_ptr<void> { return Batches; }
 
 			auto GetFlags() const -> ERHISubmitFlags { return Flags; }
 			auto GetBatchCount() const -> size_t { return BatchCount; }
@@ -1416,7 +1417,7 @@ namespace Durin
 
 		private:
 			const ERHISubmitFlags Flags;
-			std::vector<FBatch> Batches;
+			std::shared_ptr<std::vector<FBatch>> Batches;
 			size_t BatchCount = 0;
 			size_t CommandCount = 0;
 			size_t PayloadBytes = 0;
@@ -2459,6 +2460,19 @@ namespace Durin
 					GDynamicRHI->RHIBeginFrame(BeginFrameArgs);
 				}
 			}
+			// Uploads/readbacks may submit midway through replay. Unwinding detaches
+			// this active owner while preserving every backend payload lease.
+			struct FStorageOwnerScope
+			{
+				IRHICommandContext* Context = nullptr;
+				~FStorageOwnerScope() { if (Context) Context->RHISetReplayStorageOwner({}); }
+			} StorageOwnerScope;
+			if (Group.GetCommandCount() != 0
+				&& (GDynamicRHI || State->ReplayContext.HasGraphicsContextOverride()))
+			{
+				StorageOwnerScope.Context = &State->ReplayContext.GetOperationContext("Replay storage");
+				StorageOwnerScope.Context->RHISetReplayStorageOwner(Group.GetStorageOwner());
+			}
 			Group.Replay(State->ReplayContext);
 			const auto ReplayEnd = std::chrono::steady_clock::now();
 			State->ReplayDurationNanoseconds.fetch_add(
@@ -2488,6 +2502,11 @@ namespace Durin
 					"RHI executor frame number exhausted.");
 				State->FrameNumber.store(
 					FrameNumber + 1, std::memory_order_release);
+			}
+			if (StorageOwnerScope.Context)
+			{
+				StorageOwnerScope.Context->RHISetReplayStorageOwner({});
+				StorageOwnerScope.Context = nullptr;
 			}
 			Group.ReleaseBatches();
 			if (EnumHasAnyFlags(Group.GetFlags(), ERHISubmitFlags::DeleteResources))

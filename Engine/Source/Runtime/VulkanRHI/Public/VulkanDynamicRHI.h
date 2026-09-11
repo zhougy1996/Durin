@@ -38,6 +38,9 @@ namespace Durin::VulkanRHI
 
 		auto Init(const FRHIInitializationContext& Context) -> void override;
 		auto Shutdown() -> void override;
+		auto RHIGetQueueCapabilities() const -> const FRHIQueueCapabilities& override;
+		auto RHIWaitForCompletion(const FRHIGPUSubmissionTicket& Ticket,
+			uint64 TimeoutNanoseconds) -> ERHIGPUWaitResult override;
 
 		auto RHIBeginFrame(const FRHIBeginFrameArgs& Args) -> void override;
 		auto RHIBeginFrame_RenderThread(

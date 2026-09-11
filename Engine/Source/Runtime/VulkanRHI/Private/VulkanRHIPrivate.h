@@ -1,6 +1,7 @@
 #pragma once
 
 #include "PixelFormat.h"
+#include "RHICompletion.h"
 #include "RHIDefinitions.h"
 #include "Threading/RunnableThread.h"
 #include "VulkanRHIAPI.h"
@@ -152,6 +153,7 @@ namespace Durin::VulkanRHI
 		uint64 PendingSubmissionCount = 0;
 	};
 
+	VULKANRHI_API auto GetLastVulkanSubmissionTicketForTesting() -> FRHIGPUSubmissionTicket;
 	VULKANRHI_API auto GetVulkanCompletionTestStats()
 		-> FVulkanCompletionTestStats;
 	struct FVulkanBackendPoolTestStats

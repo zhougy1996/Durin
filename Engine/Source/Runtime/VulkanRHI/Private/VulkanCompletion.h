@@ -1,6 +1,7 @@
 #pragma once
 
 #include "VulkanRHIAPI.h"
+#include "RHICompletion.h"
 
 namespace Durin::VulkanRHI
 {
@@ -10,21 +11,6 @@ namespace Durin::VulkanRHI
 
 	using FVulkanCompletionToken = uint64;
 
-	// Models ordered queue completion independently from Vulkan fence observation.
-	class VULKANRHI_API FVulkanCompletionWatermark
-	{
-	public:
-		auto AllocateToken() -> FVulkanCompletionToken;
-		auto ObserveCompleted(FVulkanCompletionToken Token) -> void;
-		auto GetCompletedToken() const -> FVulkanCompletionToken;
-		auto IsRetirementEligible(FVulkanCompletionToken Token) const -> bool;
-
-	private:
-		FVulkanCompletionToken NextToken = 1;
-		FVulkanCompletionToken CompletedToken = 0;
-		std::set<FVulkanCompletionToken> ObservedCompletedTokens;
-	};
-
 	// Owns per-submit fences and releases payload storage in queue-token order.
 	class FVulkanCompletionTracker
 	{
@@ -32,8 +18,17 @@ namespace Durin::VulkanRHI
 		explicit FVulkanCompletionTracker(FVulkanDevice& InDevice);
 
 		auto ReserveToken() -> FVulkanCompletionToken;
-		auto TrackSubmitted(FVulkanCompletionToken Token, FVulkanFence* Fence,
-			std::span<FVulkanPayload* const> Payloads) -> FVulkanCompletionToken;
+		// Allocate ownership storage before vkQueueSubmit; commit never allocates.
+		auto PrepareSubmission(FVulkanCompletionToken Token, FVulkanFence* Fence,
+			std::span<FVulkanPayload* const> Payloads) -> void;
+		auto CommitSubmission() -> FVulkanCompletionToken;
+		// Quarantine ambiguous native failure until device teardown, without recycling.
+		auto FailSubmission(bool bDeviceLost = false) -> void;
+		auto ReleaseAfterDeviceStopped() -> void;
+		auto GetLastReservedTicket() const -> FRHIGPUSubmissionTicket;
+		auto WaitForTicket(const FRHIGPUSubmissionTicket& Ticket, uint64 TimeoutNanoseconds)
+			-> ERHIGPUWaitResult;
+		auto GetDeviceGeneration() const -> uint64 { return DeviceGeneration; }
 		auto Poll() -> void;
 		auto WaitForToken(FVulkanCompletionToken Token) -> void;
 		auto WaitForAll() -> void;
@@ -49,13 +44,21 @@ namespace Durin::VulkanRHI
 			FVulkanCompletionToken Token = 0;
 			FVulkanFence* Fence = nullptr;
 			std::vector<FVulkanPayload*> Payloads;
+			FRHIGPUSubmissionTicket Ticket;
+			bool bSubmitted = false;
 		};
 
 		auto ObserveThrough(FVulkanCompletionToken Token) -> void;
 		auto ReleaseCompleted() -> void;
 
 		FVulkanDevice& Device;
-		FVulkanCompletionWatermark Watermark;
+		// Compatibility observation for existing one-queue arenas and statistics.
+		std::atomic<FVulkanCompletionToken> CompletedToken = 0;
+		const uint64 DeviceGeneration = AllocateRHIDeviceGeneration();
+		FRHIGPUQueueTimeline Timeline;
+		mutable std::mutex TicketMutex;
+		FRHIGPUSubmissionTicket LastReservedTicket;
+		bool bFailed = false;
 		std::deque<FSubmission> Submissions;
 		std::atomic<FVulkanCompletionToken> LastSubmittedToken = 0;
 		std::atomic<FVulkanCompletionToken> LastReservedToken = 0;
