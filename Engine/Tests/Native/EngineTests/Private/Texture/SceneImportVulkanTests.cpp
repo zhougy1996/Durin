@@ -11,6 +11,9 @@
 #include "EngineTestSupport.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
+#include "Materials/MaterialProgramCompiler.h"
+#include "Image/ImageEncoder.h"
+#include "Misc/FileHelper.h"
 #include "Modules/ModuleManager.h"
 #include "Modules/ModuleTestSupport.h"
 #include "Misc/Paths.h"
@@ -46,6 +49,18 @@
 
 namespace
 {
+	auto SaveImportedFunctionBaseline(std::string_view Name,
+		const Durin::FByteBuffer& Pixels) -> void
+	{
+		Durin::FByteBuffer Png;
+		ASSERT_TRUE(Durin::Image::EncodeRgba8Png(Pixels, 64, 64, Png));
+		const auto Directory = Durin::Testing::GetTestWorkDirectory()
+			/ "ReusableMaterialFunctions";
+		std::filesystem::create_directories(Directory);
+		ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(Png,
+			Directory / (std::string(Name) + ".png")));
+	}
+
 	std::vector<Durin::FViewRenderTelemetry>* GSceneImportTelemetrySnapshots = nullptr;
 
 	auto CaptureSceneImportTelemetrySnapshot(
@@ -599,6 +614,11 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		ASSERT_EQ(ImportedPixels.size(), 64u * 64u * 4u);
 		ASSERT_EQ(TextureOnlyPixels.size(), ImportedPixels.size());
 		ASSERT_EQ(FactorOnlyPixels.size(), ImportedPixels.size());
+		SaveImportedFunctionBaseline("imported-texture-and-factor", ImportedPixels);
+		SaveImportedFunctionBaseline("imported-texture-only", TextureOnlyPixels);
+		SaveImportedFunctionBaseline("imported-factor-only", FactorOnlyPixels);
+		SaveImportedFunctionBaseline("imported-automatic-lod", AutomaticLODPixels);
+		SaveImportedFunctionBaseline("imported-forced-lod0", ForcedLOD0Pixels);
 		const size_t Center = (32u * 64u + 32u) * 4u;
 		EXPECT_GT(std::to_integer<uint8>(ImportedPixels[Center + 3]), 0u);
 		EXPECT_GT(ImportedPixels[Center + 2], ImportedPixels[Center]);
@@ -649,6 +669,58 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 			EXPECT_EQ(Telemetry.GBuffer.GBufferRejectedDraws, 0u);
 			EXPECT_EQ(Telemetry.Deferred.HybridDeferredEnabledViews, 1u);
 		}
+		// Retain the actual importer output for packed source channels, independent
+		// derived textures, transformed UV1, normal strength and masked rendering.
+		Durin::AssetForge::Builtins::FSceneImportResult PbrImport;
+		ASSERT_TRUE(Durin::AssetForge::Builtins::ImportSceneAssets(
+			(std::filesystem::path(DURIN_TEST_DATA_DIR)
+				/ "StaticModelMaterials/ImportedPbrContract.gltf").generic_string(),
+			MakeAssetPath("/SceneImportVulkan/Imports/PbrBaseline"),
+			Durin::FStaticMeshImportSettings::MakeDurin(), PbrImport)) << PbrImport.Message;
+		Durin::FPackagePath PbrMeshPath;
+		for (const auto& Output : PbrImport.Outputs)
+			if (Output.AssetClassName == Durin::DStaticMesh::StaticClass()->GetQualifiedName().ToString())
+				PbrMeshPath = Output.AssetPath;
+		ASSERT_TRUE(PbrMeshPath.IsValid());
+		Durin::DStaticMesh* PbrMesh = nullptr;
+		ASSERT_TRUE(Durin::LoadObject(
+			Durin::Testing::MakePackageLeafAssetObjectPathForTests(PbrMeshPath), PbrMesh));
+		Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*PbrMesh);
+		const auto* PbrSlot = PbrMesh->GetMaterialSlot(0);
+		ASSERT_NE(PbrSlot, nullptr);
+		auto* PbrMaterial = Durin::Cast<Durin::DMaterialInstance>(PbrSlot->DefaultMaterial.Get());
+		ASSERT_NE(PbrMaterial, nullptr);
+		Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*PbrMaterial);
+		const auto PbrProgram = PbrMaterial->GetAcceptedCompiledProgram();
+		ASSERT_NE(PbrProgram, nullptr);
+		const auto PbrPixels = Capture(PbrMesh, PbrMaterial);
+		SaveImportedFunctionBaseline("imported-packed-source-independent-maps-uv1-mask", PbrPixels);
+		std::cout << "[FunctionMigrationBaseline] case=imported-packed-source-independent-maps-uv1-mask"
+			<< " resources=" << PbrProgram->Layout.ResourceFieldCount
+			<< " uniform_fields=" << PbrProgram->Layout.UniformFieldCount
+			<< " uniform_bytes=" << PbrProgram->Layout.UniformPayloadSize
+			<< " generated_bytes=" << PbrProgram->GeneratedSource.size() << '\n';
+		const auto ImportedProgram = ReloadedMaterial->GetAcceptedCompiledProgram();
+		ASSERT_NE(ImportedProgram, nullptr);
+		std::cout << "[FunctionMigrationBaseline] case=imported-texture-and-factor"
+			<< " resources=" << ImportedProgram->Layout.ResourceFieldCount
+			<< " uniform_fields=" << ImportedProgram->Layout.UniformFieldCount
+			<< " uniform_bytes=" << ImportedProgram->Layout.UniformPayloadSize
+			<< " generated_bytes=" << ImportedProgram->GeneratedSource.size() << '\n';
+		ASSERT_TRUE(Durin::UnloadPackage(PbrMeshPath));
+		for (const auto& Output : PbrImport.Outputs)
+			if (Output.AssetClassName == Durin::DMaterialInstance::StaticClass()->GetQualifiedName().ToString())
+				ASSERT_TRUE(Durin::UnloadPackage(Output.AssetPath));
+		for (const auto& Output : PbrImport.Outputs)
+			if (Output.AssetClassName == Durin::DTexture2D::StaticClass()->GetQualifiedName().ToString())
+				ASSERT_TRUE(Durin::UnloadPackage(Output.AssetPath));
+		ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(PbrMeshPath));
+		for (const auto& Output : PbrImport.Outputs)
+			if (Output.AssetClassName == Durin::DMaterialInstance::StaticClass()->GetQualifiedName().ToString())
+				ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(Output.AssetPath));
+		for (const auto& Output : PbrImport.Outputs)
+			if (Output.AssetClassName == Durin::DTexture2D::StaticClass()->GetQualifiedName().ToString())
+				ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(Output.AssetPath));
 		struct FEndSceneImportFrame
 		{
 			static constexpr auto GetName() -> const char* { return "EndSceneImportFrame"; }

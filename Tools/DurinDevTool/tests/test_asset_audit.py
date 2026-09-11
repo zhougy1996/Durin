@@ -81,21 +81,19 @@ def with_deprecated_route_evidence(value: dict[str, object]) -> dict[str, object
         "declaringType": "Durin::DExample",
         "storedFieldName": "OldValue",
         "deprecatedPropertyName": "OldValue_DEPRECATED",
-        "customVersionGuid": "00000000-0000-0000-0000-000000000001",
-        "sourceVersion": 1,
-        "deprecatedBefore": 2,
-        "migrationTargets": ["CurrentValue"],
     }]
     return value
 
 
-def run_handler(tmp_path: Path, report_text: str, format_name: str = "json") -> tuple[int, str, str]:
+def run_handler(
+    tmp_path: Path, report_text: str, format_name: str = "json", command: str = "check",
+) -> tuple[int, str, str]:
     executable = tmp_path / "DurinAssetTool.exe"
     executable.touch()
     project = tmp_path / "Test.dproject"
     project.write_text("{}", encoding="utf-8")
     namespace = type("Namespace", (), {
-        "asset_command": "check",
+        "asset_command": command,
         "project_path": project,
         "format_name": format_name,
         "baseline": False,
@@ -112,6 +110,18 @@ def run_handler(tmp_path: Path, report_text: str, format_name: str = "json") -> 
         command_runner=lambda *_args, **_kwargs: report_text,
     )
     return result, output.getvalue(), errors.getvalue()
+
+
+def test_identity_audit_preserves_native_inventory(tmp_path: Path) -> None:
+    inventory = json.dumps({"schemaVersion": 1, "packages": [{
+        "packagePath": "/Game/Example",
+        "objects": [{"id": 1, "path": "Example"}],
+        "references": [{"kind": "Hard", "target": "/Engine/Materials/ImportedSurface.ImportedSurface"}],
+    }]})
+    result, output, errors = run_handler(tmp_path, inventory, command="identity-audit")
+    assert result == 0
+    assert json.loads(output) == json.loads(inventory)
+    assert errors == ""
 
 
 def test_asset_production_path_uses_runtime_program_service(tmp_path: Path) -> None:
@@ -347,7 +357,9 @@ def test_checked_in_schema_freezes_public_enum_names() -> None:
     assert set(schema["$defs"]["canonicalizationEvidence"]["properties"]["kind"]["enum"]) == {
         "Class", "Struct", "Enum", "Property",
     }
-    assert schema["$defs"]["deprecatedRouteEvidence"]["properties"]["sourceVersion"]["minimum"] == -1
+    assert set(schema["$defs"]["deprecatedRouteEvidence"]["required"]) == {
+        "objectPath", "declaringType", "storedFieldName", "deprecatedPropertyName",
+    }
 
 
 def test_checked_in_report_fixtures_match_their_schemas() -> None:
@@ -384,7 +396,7 @@ def test_human_output_exposes_resave_evidence(tmp_path: Path) -> None:
     assert "1 resave recommended" in output
     assert "Resave recommended (1):" in output
     assert "Durin::OldAsset -> Durin::CurrentAsset" in output
-    assert "Durin::DExample.OldValue -> CurrentValue" in output
+    assert "Durin::DExample.OldValue -> OldValue_DEPRECATED" in output
 
 
 def test_rejects_unstable_order_and_unknown_schema_names(tmp_path: Path) -> None:

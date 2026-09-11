@@ -29,6 +29,13 @@ COMMAND_SPEC = CommandSpec(
     "check, resave, or inspect authored assets",
     subcommands=(
         CommandSpec(
+            "identity-audit",
+            "write read-only package object and reference inventory as JSON",
+            HANDLER,
+            required_modules=("rich",),
+            arguments=CONTEXT_ARGUMENTS + (PROJECT_ARGUMENT,),
+        ),
+        CommandSpec(
             "check",
             "inspect authored packages without changing them",
             HANDLER,

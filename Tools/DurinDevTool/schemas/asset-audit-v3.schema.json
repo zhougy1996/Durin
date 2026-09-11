@@ -43,16 +43,12 @@
     "deprecatedRouteEvidence": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["objectPath", "declaringType", "storedFieldName", "deprecatedPropertyName", "customVersionGuid", "sourceVersion", "deprecatedBefore", "migrationTargets"],
+      "required": ["objectPath", "declaringType", "storedFieldName", "deprecatedPropertyName"],
       "properties": {
         "objectPath": { "type": "string" },
         "declaringType": { "type": "string", "minLength": 1 },
         "storedFieldName": { "type": "string", "minLength": 1 },
-        "deprecatedPropertyName": { "type": "string", "minLength": 1 },
-        "customVersionGuid": { "type": "string", "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$" },
-        "sourceVersion": { "type": "integer", "minimum": -1 },
-        "deprecatedBefore": { "type": "integer", "minimum": 0 },
-        "migrationTargets": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+        "deprecatedPropertyName": { "type": "string", "minLength": 1 }
       }
     },
     "finding": {

@@ -1,0 +1,855 @@
+{
+  "schemaVersion": 1,
+  "captured": "2026-09-11",
+  "sourceRevision": "2a962b3f9",
+  "packages": [
+    {
+      "project": "Sandbox",
+      "physicalPath": "Engine/Content/Materials/DefaultMaterial.dasset",
+      "sha256": "0b79131a86c9876c98bac9d493082305f7d84561f468246654f7a160580fbe0a",
+      "inspection": "Ready",
+      "packagePath": "/Engine/Materials/DefaultMaterial",
+      "assetClass": "Durin::DMaterial",
+      "objects": [
+        {
+          "id": 1,
+          "outerId": 0,
+          "name": "DefaultMaterial",
+          "class": "Durin::DMaterial",
+          "path": "DefaultMaterial"
+        }
+      ],
+      "referenceInspection": "Ready",
+      "references": [],
+      "migrationStatus": "Pending"
+    },
+    {
+      "project": "Sandbox",
+      "physicalPath": "Engine/Content/Materials/ImportedSurface.dasset",
+      "sha256": "68e0a2bc09bc2ef53e70da0c518d04da34620c3da9667ee1da9dcbb54942be28",
+      "inspection": "Ready",
+      "packagePath": "/Engine/Materials/ImportedSurface",
+      "assetClass": "Durin::DMaterial",
+      "objects": [
+        {
+          "id": 1,
+          "outerId": 0,
+          "name": "ImportedSurface",
+          "class": "Durin::DMaterial",
+          "path": "ImportedSurface"
+        }
+      ],
+      "referenceInspection": "Ready",
+      "references": [],
+      "migrationStatus": "Pending"
+    },
+    {
+      "project": "Sandbox",
+      "physicalPath": "Engine/Content/Models/Box.dasset",
+      "sha256": "80905ae617fe4c775450760a25e2073b20777cb3051e34020f15ec9ac56d95f1",
+      "inspection": "Ready",
+      "packagePath": "/Engine/Models/Box",
+      "assetClass": "Durin::DStaticMesh",
+      "objects": [
+        {
+          "id": 1,
+          "outerId": 0,
+          "name": "Box",
+          "class": "Durin::DStaticMesh",
+          "path": "Box"
+        },
+        {
+          "id": 2,
+          "outerId": 1,
+          "name": "AssetImportData",
+          "class": "Durin::AssetForge::Builtins::DStaticMeshImportData",
+          "path": "Box/AssetImportData"
+        }
+      ],
+      "referenceInspection": "Ready",
+      "references": [],
+      "migrationStatus": "Pending"
+    },
+    {
+      "project": "Sandbox",
+      "physicalPath": "Engine/Content/Models/Sphere.dasset",
+      "sha256": "200d65cf6824e5b4792c3ee3ce1383d67a76217776419c90fa58b744603fb120",
+      "inspection": "Ready",
+      "packagePath": "/Engine/Models/Sphere",
+      "assetClass": "Durin::DStaticMesh",
+      "objects": [
+        {
+          "id": 1,
+          "outerId": 0,
+          "name": "Sphere",
+          "class": "Durin::DStaticMesh",
+          "path": "Sphere"
+        },
+        {
+          "id": 2,
+          "outerId": 1,
+          "name": "AssetImportData",
+          "class": "Durin::AssetForge::Builtins::DStaticMeshImportData",
+          "path": "Sphere/AssetImportData"
+        }
+      ],
+      "referenceInspection": "Ready",
+      "references": [],
+      "migrationStatus": "Pending"
+    },
+    {
+      "project": "Sandbox",
+      "physicalPath": "Engine/Content/Models/SplineBox.dasset",
+      "sha256": "1c3d05d38d909498bf1e1d26fc1ff1e7113608f3b11f3702b6162b8ed173880e",
+      "inspection": "Ready",
+      "packagePath": "/Engine/Models/SplineBox",
+      "assetClass": "Durin::DStaticMesh",
+      "objects": [
+        {
+          "id": 1,
+          "outerId": 0,
+          "name": "SplineBox",
+          "class": "Durin::DStaticMesh",
+          "path": "SplineBox"
+        },
+        {
+          "id": 2,
+          "outerId": 1,
+          "name": "AssetImportData",
+          "class": "Durin::AssetForge::Builtins::DStaticMeshImportData",
+          "path": "SplineBox/AssetImportData"
+        }
+      ],
+      "referenceInspection": "Ready",
+      "references": [],
+      "migrationStatus": "Pending"
+    },
+    {
+      "project": "Sandbox",
+      "physicalPath": "Engine/Content/Renderer/DefaultStudioCube.dasset",
+      "sha256": "a46b91082518efcebab29ca65f9a7c7a3be30261746adbfc3009477c04dcc429",
+      "inspection": "Ready",
+      "packagePath": "/Engine/Renderer/DefaultStudioCube",
+      "assetClass": "Durin::DTextureCube",
+      "objects": [
+        {
+          "id": 1,
+          "outerId": 0,
+          "name": "DefaultStudioCube",
+          "class": "Durin::DTextureCube",
+          "path": "DefaultStudioCube"
+        }
+      ],
+      "referenceInspection": "Ready",
+      "references": [],
+      "migrationStatus": "Pending"
+    },
+    {
+      "project": "Sandbox",
+      "physicalPath": "Sandbox/Content/Levels/GrayboxStage15.dasset",
+      "sha256": "9228b66a02586962e6dc7da3ceb08d2d9f45155485fb56953ae45b0966a02eef",
+      "inspection": "Ready",
+      "packagePath": "/Game/Levels/GrayboxStage15",
+      "assetClass": "Durin::DLevel",
+      "objects": [
+        {
+          "id": 1,
+          "outerId": 0,
+          "name": "GrayboxStage15",
+          "class": "Durin::DLevel",
+          "path": "GrayboxStage15"
+        },
+        {
+          "id": 2,
+          "outerId": 1,
+          "name": "DirectionalLight",
+          "class": "Durin::ADirectionalLightActor",
+          "path": "GrayboxStage15/DirectionalLight"
+        },
+        {
+          "id": 3,
+          "outerId": 2,
+          "name": "DirectionalLightComponent",
+          "class": "Durin::DDirectionalLightComponent",
+          "path": "GrayboxStage15/DirectionalLight/DirectionalLightComponent"
+        },
+        {
+          "id": 4,
+          "outerId": 1,
+          "name": "Graybox_Floor",
+          "class": "Durin::AStaticMeshActor",
+          "path": "GrayboxStage15/Graybox_Floor"
+        },
+        {
+          "id": 5,
+          "outerId": 4,
+          "name": "DStaticMeshComponent",
+          "class": "Durin::DStaticMeshComponent",
+          "path": "GrayboxStage15/Graybox_Floor/DStaticMeshComponent"
+        },
+        {
+          "id": 6,
+          "outerId": 1,
+          "name": "Graybox_WallEast",
+          "class": "Durin::AStaticMeshActor",
+          "path": "GrayboxStage15/Graybox_WallEast"
+        },
+        {
+          "id": 7,
+          "outerId": 6,
+          "name": "DStaticMeshComponent",
+          "class": "Durin::DStaticMeshComponent",
+          "path": "GrayboxStage15/Graybox_WallEast/DStaticMeshComponent"
+        },
+        {
+          "id": 8,
+          "outerId": 1,
+          "name": "Graybox_WallNorth",
+          "class": "Durin::AStaticMeshActor",
+          "path": "GrayboxStage15/Graybox_WallNorth"
+        },
+        {
+          "id": 9,
+          "outerId": 8,
+          "name": "DStaticMeshComponent",
+          "class": "Durin::DStaticMeshComponent",
+          "path": "GrayboxStage15/Graybox_WallNorth/DStaticMeshComponent"
+        },
+        {
+          "id": 10,
+          "outerId": 1,
+          "name": "Graybox_WallSouth",
+          "class": "Durin::AStaticMeshActor",
+          "path": "GrayboxStage15/Graybox_WallSouth"
+        },
+        {
+          "id": 11,
+          "outerId": 10,
+          "name": "DStaticMeshComponent",
+          "class": "Durin::DStaticMeshComponent",
+          "path": "GrayboxStage15/Graybox_WallSouth/DStaticMeshComponent"
+        },
+        {
+          "id": 12,
+          "outerId": 1,
+          "name": "Graybox_WallWest",
+          "class": "Durin::AStaticMeshActor",
+          "path": "GrayboxStage15/Graybox_WallWest"
+        },
+        {
+          "id": 13,
+          "outerId": 12,
+          "name": "DStaticMeshComponent",
+          "class": "Durin::DStaticMeshComponent",
+          "path": "GrayboxStage15/Graybox_WallWest/DStaticMeshComponent"
+        },
+        {
+          "id": 14,
+          "outerId": 1,
+          "name": "PlayerStart",
+          "class": "Durin::APlayerStart",
+          "path": "GrayboxStage15/PlayerStart"
+        },
+        {
+          "id": 15,
+          "outerId": 14,
+          "name": "Root",
+          "class": "Durin::DSceneComponent",
+          "path": "GrayboxStage15/PlayerStart/Root"
+        },
+        {
+          "id": 16,
+          "outerId": 1,
+          "name": "Sky",
+          "class": "Durin::ASkyBoxActor",
+          "path": "GrayboxStage15/Sky"
+        },
+        {
+          "id": 17,
+          "outerId": 16,
+          "name": "SkyBoxComponent",
+          "class": "Durin::DSkyBoxComponent",
+          "path": "GrayboxStage15/Sky/SkyBoxComponent"
+        },
+        {
+          "id": 18,
+          "outerId": 1,
+          "name": "StudioSkyLight",
+          "class": "Durin::ASkyLightActor",
+          "path": "GrayboxStage15/StudioSkyLight"
+        },
+        {
+          "id": 19,
+          "outerId": 18,
+          "name": "SkyLightComponent",
+          "class": "Durin::DSkyLightComponent",
+          "path": "GrayboxStage15/StudioSkyLight/SkyLightComponent"
+        },
+        {
+          "id": 20,
+          "outerId": 1,
+          "name": "VolumetricCloudActor",
+          "class": "Durin::AVolumetricCloudActor",
+          "path": "GrayboxStage15/VolumetricCloudActor"
+        },
+        {
+          "id": 21,
+          "outerId": 20,
+          "name": "VolumetricCloudComponent",
+          "class": "Durin::DVolumetricCloudComponent",
+          "path": "GrayboxStage15/VolumetricCloudActor/VolumetricCloudComponent"
+        }
+      ],
+      "referenceInspection": "Ready",
+      "references": [
+        {
+          "kind": "Hard",
+          "sourceObjectId": 5,
+          "route": "StaticMesh",
+          "target": "/Engine/Models/Box.Box"
+        },
+        {
+          "kind": "Hard",
+          "sourceObjectId": 7,
+          "route": "StaticMesh",
+          "target": "/Engine/Models/Box.Box"
+        },
+        {
+          "kind": "Hard",
+          "sourceObjectId": 9,
+          "route": "StaticMesh",
+          "target": "/Engine/Models/Box.Box"
+        },
+        {
+          "kind": "Hard",
+          "sourceObjectId": 11,
+          "route": "StaticMesh",
+          "target": "/Engine/Models/Box.Box"
+        },
+        {
+          "kind": "Hard",
+          "sourceObjectId": 13,
+          "route": "StaticMesh",
+          "target": "/Engine/Models/Box.Box"
+        },
+        {
+          "kind": "Hard",
+          "sourceObjectId": 19,
+          "route": "TextureCube",
+          "target": "/Engine/Renderer/DefaultStudioCube.DefaultStudioCube"
+        },
+        {
+          "kind": "Hard",
+          "sourceObjectId": 17,
+          "route": "TextureCube",
+          "target": "/Game/Textures/TEXCUBE_PureSky_512x512.TEXCUBE_PureSky_512x512"
+        },
+        {
+          "kind": "Hard",
+          "sourceObjectId": 21,
+          "route": "BaseDensityTexture",
+          "target": "/Game/Volumes/VolumetricCloud/VT_Cloud_Base_Voronoi_128.VT_Cloud_Base_Voronoi_128"
+        },
+        {
+          "kind": "Hard",
+          "sourceObjectId": 21,
+          "route": "DetailDensityTexture",
+          "target": "/Game/Volumes/VolumetricCloud/VT_Cloud_Detail_Voronoi_64.VT_Cloud_Detail_Voronoi_64"
+        }
+      ],
+      "migrationStatus": "Pending"
+    },
+    {
+      "project": "Sandbox",
+      "physicalPath": "Sandbox/Content/Models/GrayboxPawn.dasset",
+      "sha256": "ba6fb242dd3f699eab390dd2c871beb5672f62b6f1d3c3f1943270242f78fd85",
+      "inspection": "Ready",
+      "packagePath": "/Game/Models/GrayboxPawn",
+      "assetClass": "Durin::DStaticMesh",
+      "objects": [
+        {
+          "id": 1,
+          "outerId": 0,
+          "name": "GrayboxPawn",
+          "class": "Durin::DStaticMesh",
+          "path": "GrayboxPawn"
+        },
+        {
+          "id": 2,
+          "outerId": 1,
+          "name": "AssetImportData",
+          "class": "Durin::AssetForge::Builtins::DStaticMeshImportData",
+          "path": "GrayboxPawn/AssetImportData"
+        }
+      ],
+      "referenceInspection": "Ready",
+      "references": [],
+      "migrationStatus": "Pending"
+    },
+    {
+      "project": "Sandbox",
+      "physicalPath": "Sandbox/Content/Models/VintageLighter/Materials/vintage_lighter.dasset",
+      "sha256": "db8680be5e57c555005b686a7a25ae376d23c8ab745e85e646aaa92b90dd4c55",
+      "inspection": "Ready",
+      "packagePath": "/Game/Models/VintageLighter/Materials/vintage_lighter",
+      "assetClass": "Durin::DMaterialInstance",
+      "objects": [
+        {
+          "id": 1,
+          "outerId": 0,
+          "name": "vintage_lighter",
+          "class": "Durin::DMaterialInstance",
+          "path": "vintage_lighter"
+        }
+      ],
+      "referenceInspection": "Ready",
+      "references": [
+        {
+          "kind": "Hard",
+          "sourceObjectId": 1,
+          "route": "Parent",
+          "target": "/Engine/Materials/ImportedSurface.ImportedSurface"
+        },
+        {
+          "kind": "Hard",
+          "sourceObjectId": 1,
+          "route": "ParameterOverrides[4].Value.TextureValue",
+          "target": "/Game/Models/VintageLighter/Textures/vintage_lighter_diff_BaseColor.vintage_lighter_diff_BaseColor"
+        },
+        {
+          "kind": "Hard",
+          "sourceObjectId": 1,
+          "route": "ParameterOverrides[5].Value.TextureValue",
+          "target": "/Game/Models/VintageLighter/Textures/vintage_lighter_metal_vintage_lighter_rough_Metallic.vintage_lighter_metal_vintage_lighter_rough_Metallic"
+        },
+        {
+          "kind": "Hard",
+          "sourceObjectId": 1,
+          "route": "ParameterOverrides[6].Value.TextureValue",
+          "target": "/Game/Models/VintageLighter/Textures/vintage_lighter_metal_vintage_lighter_rough_Roughness.vintage_lighter_metal_vintage_lighter_rough_Roughness"
+        },
+        {
+          "kind": "Hard",
+          "sourceObjectId": 1,
+          "route": "ParameterOverrides[7].Value.TextureValue",
+          "target": "/Game/Models/VintageLighter/Textures/vintage_lighter_nor_gl_Normal.vintage_lighter_nor_gl_Normal"
+        }
+      ],
+      "migrationStatus": "Pending"
+    },
+    {
+      "project": "Sandbox",
+      "physicalPath": "Sandbox/Content/Models/VintageLighter/Materials/vintage_lighter_alpha.dasset",
+      "sha256": "3693f3f9676749417be83196616081847097cd20094431fa1a6e1d37cfdd90c1",
+      "inspection": "Ready",
+      "packagePath": "/Game/Models/VintageLighter/Materials/vintage_lighter_alpha",
+      "assetClass": "Durin::DMaterialInstance",
+      "objects": [
+        {
+          "id": 1,
+          "outerId": 0,
+          "name": "vintage_lighter_alpha",
+          "class": "Durin::DMaterialInstance",
+          "path": "vintage_lighter_alpha"
+        }
+      ],
+      "referenceInspection": "Ready",
+      "references": [
+        {
+          "kind": "Hard",
+          "sourceObjectId": 1,
+          "route": "Parent",
+          "target": "/Engine/Materials/ImportedSurface.ImportedSurface"
+        },
+        {
+          "kind": "Hard",
+          "sourceObjectId": 1,
+          "route": "ParameterOverrides[4].Value.TextureValue",
+          "target": "/Game/Models/VintageLighter/Textures/vintage_lighter_diff_BaseColor.vintage_lighter_diff_BaseColor"
+        },
+        {
+          "kind": "Hard",
+          "sourceObjectId": 1,
+          "route": "ParameterOverrides[5].Value.TextureValue",
+          "target": "/Game/Models/VintageLighter/Textures/vintage_lighter_diff_Opacity.vintage_lighter_diff_Opacity"
+        },
+        {
+          "kind": "Hard",
+          "sourceObjectId": 1,
+          "route": "ParameterOverrides[6].Value.TextureValue",
+          "target": "/Game/Models/VintageLighter/Textures/vintage_lighter_metal_vintage_lighter_rough_Metallic.vintage_lighter_metal_vintage_lighter_rough_Metallic"
+        },
+        {
+          "kind": "Hard",
+          "sourceObjectId": 1,
+          "route": "ParameterOverrides[7].Value.TextureValue",
+          "target": "/Game/Models/VintageLighter/Textures/vintage_lighter_metal_vintage_lighter_rough_Roughness.vintage_lighter_metal_vintage_lighter_rough_Roughness"
+        },
+        {
+          "kind": "Hard",
+          "sourceObjectId": 1,
+          "route": "ParameterOverrides[8].Value.TextureValue",
+          "target": "/Game/Models/VintageLighter/Textures/vintage_lighter_nor_gl_Normal.vintage_lighter_nor_gl_Normal"
+        }
+      ],
+      "migrationStatus": "Pending"
+    },
+    {
+      "project": "Sandbox",
+      "physicalPath": "Sandbox/Content/Models/VintageLighter/Meshes/vintage_lighter_1k.dasset",
+      "sha256": "3d1d97747b66cb3645944d038bdfa1c7bec9c9b372b2190fb09fe8a52b552617",
+      "inspection": "Ready",
+      "packagePath": "/Game/Models/VintageLighter/Meshes/vintage_lighter_1k",
+      "assetClass": "Durin::DStaticMesh",
+      "objects": [
+        {
+          "id": 1,
+          "outerId": 0,
+          "name": "vintage_lighter_1k",
+          "class": "Durin::DStaticMesh",
+          "path": "vintage_lighter_1k"
+        },
+        {
+          "id": 2,
+          "outerId": 1,
+          "name": "AssetImportData",
+          "class": "Durin::AssetForge::Builtins::DStaticMeshImportData",
+          "path": "vintage_lighter_1k/AssetImportData"
+        }
+      ],
+      "referenceInspection": "Ready",
+      "references": [
+        {
+          "kind": "Hard",
+          "sourceObjectId": 1,
+          "route": "MaterialSlots[0].DefaultMaterial",
+          "target": "/Game/Models/VintageLighter/Materials/vintage_lighter.vintage_lighter"
+        },
+        {
+          "kind": "Hard",
+          "sourceObjectId": 1,
+          "route": "MaterialSlots[1].DefaultMaterial",
+          "target": "/Game/Models/VintageLighter/Materials/vintage_lighter_alpha.vintage_lighter_alpha"
+        }
+      ],
+      "migrationStatus": "Pending"
+    },
+    {
+      "project": "Sandbox",
+      "physicalPath": "Sandbox/Content/Models/VintageLighter/Textures/vintage_lighter_diff_BaseColor.dasset",
+      "sha256": "cc9958a8be3ab028732e01aa455c20bdda14f6137fb8a3176b8d823376ed1aa5",
+      "inspection": "Ready",
+      "packagePath": "/Game/Models/VintageLighter/Textures/vintage_lighter_diff_BaseColor",
+      "assetClass": "Durin::DTexture2D",
+      "objects": [
+        {
+          "id": 1,
+          "outerId": 0,
+          "name": "vintage_lighter_diff_BaseColor",
+          "class": "Durin::DTexture2D",
+          "path": "vintage_lighter_diff_BaseColor"
+        },
+        {
+          "id": 2,
+          "outerId": 1,
+          "name": "Texture2DImportData",
+          "class": "Durin::AssetForge::Builtins::DTexture2DImportData",
+          "path": "vintage_lighter_diff_BaseColor/Texture2DImportData"
+        }
+      ],
+      "referenceInspection": "Ready",
+      "references": [],
+      "migrationStatus": "Pending"
+    },
+    {
+      "project": "Sandbox",
+      "physicalPath": "Sandbox/Content/Models/VintageLighter/Textures/vintage_lighter_diff_Opacity.dasset",
+      "sha256": "9a235b5ea92f3836cc97864dd2007ca7692affa25a815da32d5c9dbfffddfe6d",
+      "inspection": "Ready",
+      "packagePath": "/Game/Models/VintageLighter/Textures/vintage_lighter_diff_Opacity",
+      "assetClass": "Durin::DTexture2D",
+      "objects": [
+        {
+          "id": 1,
+          "outerId": 0,
+          "name": "vintage_lighter_diff_Opacity",
+          "class": "Durin::DTexture2D",
+          "path": "vintage_lighter_diff_Opacity"
+        },
+        {
+          "id": 2,
+          "outerId": 1,
+          "name": "Texture2DImportData",
+          "class": "Durin::AssetForge::Builtins::DTexture2DImportData",
+          "path": "vintage_lighter_diff_Opacity/Texture2DImportData"
+        }
+      ],
+      "referenceInspection": "Ready",
+      "references": [],
+      "migrationStatus": "Pending"
+    },
+    {
+      "project": "Sandbox",
+      "physicalPath": "Sandbox/Content/Models/VintageLighter/Textures/vintage_lighter_metal_vintage_lighter_rough_Metallic.dasset",
+      "sha256": "d1c8b8dec8894d835c60b4b40dadd4c25565c4184bf99708a7a61445209006ae",
+      "inspection": "Ready",
+      "packagePath": "/Game/Models/VintageLighter/Textures/vintage_lighter_metal_vintage_lighter_rough_Metallic",
+      "assetClass": "Durin::DTexture2D",
+      "objects": [
+        {
+          "id": 1,
+          "outerId": 0,
+          "name": "vintage_lighter_metal_vintage_lighter_rough_Metallic",
+          "class": "Durin::DTexture2D",
+          "path": "vintage_lighter_metal_vintage_lighter_rough_Metallic"
+        },
+        {
+          "id": 2,
+          "outerId": 1,
+          "name": "Texture2DImportData",
+          "class": "Durin::AssetForge::Builtins::DTexture2DImportData",
+          "path": "vintage_lighter_metal_vintage_lighter_rough_Metallic/Texture2DImportData"
+        }
+      ],
+      "referenceInspection": "Ready",
+      "references": [],
+      "migrationStatus": "Pending"
+    },
+    {
+      "project": "Sandbox",
+      "physicalPath": "Sandbox/Content/Models/VintageLighter/Textures/vintage_lighter_metal_vintage_lighter_rough_Roughness.dasset",
+      "sha256": "8443d5a864c4897d93d1dd85113884b4722dbfc0dc91af16b2167c33e332cf04",
+      "inspection": "Ready",
+      "packagePath": "/Game/Models/VintageLighter/Textures/vintage_lighter_metal_vintage_lighter_rough_Roughness",
+      "assetClass": "Durin::DTexture2D",
+      "objects": [
+        {
+          "id": 1,
+          "outerId": 0,
+          "name": "vintage_lighter_metal_vintage_lighter_rough_Roughness",
+          "class": "Durin::DTexture2D",
+          "path": "vintage_lighter_metal_vintage_lighter_rough_Roughness"
+        },
+        {
+          "id": 2,
+          "outerId": 1,
+          "name": "Texture2DImportData",
+          "class": "Durin::AssetForge::Builtins::DTexture2DImportData",
+          "path": "vintage_lighter_metal_vintage_lighter_rough_Roughness/Texture2DImportData"
+        }
+      ],
+      "referenceInspection": "Ready",
+      "references": [],
+      "migrationStatus": "Pending"
+    },
+    {
+      "project": "Sandbox",
+      "physicalPath": "Sandbox/Content/Models/VintageLighter/Textures/vintage_lighter_nor_gl_Normal.dasset",
+      "sha256": "389ab1064c5cffc10aec5dbc13ce9f142e874bb13e20e6e27b46e1f30d026dae",
+      "inspection": "Ready",
+      "packagePath": "/Game/Models/VintageLighter/Textures/vintage_lighter_nor_gl_Normal",
+      "assetClass": "Durin::DTexture2D",
+      "objects": [
+        {
+          "id": 1,
+          "outerId": 0,
+          "name": "vintage_lighter_nor_gl_Normal",
+          "class": "Durin::DTexture2D",
+          "path": "vintage_lighter_nor_gl_Normal"
+        },
+        {
+          "id": 2,
+          "outerId": 1,
+          "name": "Texture2DImportData",
+          "class": "Durin::AssetForge::Builtins::DTexture2DImportData",
+          "path": "vintage_lighter_nor_gl_Normal/Texture2DImportData"
+        }
+      ],
+      "referenceInspection": "Ready",
+      "references": [],
+      "migrationStatus": "Pending"
+    },
+    {
+      "project": "Sandbox",
+      "physicalPath": "Sandbox/Content/Textures/TEXCUBE_PureSky_512x512.dasset",
+      "sha256": "34f2559a10e6f46ac2ef450f521e47140f175cb6e901308dc79ec5620037452c",
+      "inspection": "Ready",
+      "packagePath": "/Game/Textures/TEXCUBE_PureSky_512x512",
+      "assetClass": "Durin::DTextureCube",
+      "objects": [
+        {
+          "id": 1,
+          "outerId": 0,
+          "name": "TEXCUBE_PureSky_512x512",
+          "class": "Durin::DTextureCube",
+          "path": "TEXCUBE_PureSky_512x512"
+        },
+        {
+          "id": 2,
+          "outerId": 1,
+          "name": "AssetImportData",
+          "class": "Durin::AssetForge::Builtins::DTextureCubeImportData",
+          "path": "TEXCUBE_PureSky_512x512/AssetImportData"
+        }
+      ],
+      "referenceInspection": "Ready",
+      "references": [],
+      "migrationStatus": "Pending"
+    },
+    {
+      "project": "Sandbox",
+      "physicalPath": "Sandbox/Content/Textures/TEX_StoneHead.dasset",
+      "sha256": "1fd9902014b7fdfc33a7b452b266548526b97549d0ff0a19a4935d78ea179506",
+      "inspection": "Ready",
+      "packagePath": "/Game/Textures/TEX_StoneHead",
+      "assetClass": "Durin::DTexture2D",
+      "objects": [
+        {
+          "id": 1,
+          "outerId": 0,
+          "name": "TEX_StoneHead",
+          "class": "Durin::DTexture2D",
+          "path": "TEX_StoneHead"
+        },
+        {
+          "id": 2,
+          "outerId": 1,
+          "name": "Texture2DImportData",
+          "class": "Durin::AssetForge::Builtins::DTexture2DImportData",
+          "path": "TEX_StoneHead/Texture2DImportData"
+        }
+      ],
+      "referenceInspection": "Ready",
+      "references": [],
+      "migrationStatus": "Pending"
+    },
+    {
+      "project": "Sandbox",
+      "physicalPath": "Sandbox/Content/Volumes/VolumetricCloud/VT_Cloud_Base_Voronoi_128.dasset",
+      "sha256": "0b3ef44054071e6103dc67c31d2cb30dfd9256df71c1abb7da0d8434f0ed1532",
+      "inspection": "Ready",
+      "packagePath": "/Game/Volumes/VolumetricCloud/VT_Cloud_Base_Voronoi_128",
+      "assetClass": "Durin::DVolumeTexture",
+      "objects": [
+        {
+          "id": 1,
+          "outerId": 0,
+          "name": "VT_Cloud_Base_Voronoi_128",
+          "class": "Durin::DVolumeTexture",
+          "path": "VT_Cloud_Base_Voronoi_128"
+        }
+      ],
+      "referenceInspection": "Ready",
+      "references": [],
+      "migrationStatus": "Pending"
+    },
+    {
+      "project": "Sandbox",
+      "physicalPath": "Sandbox/Content/Volumes/VolumetricCloud/VT_Cloud_Detail_Voronoi_64.dasset",
+      "sha256": "dad9453ab3bdd19fef84c01bb1397e323c9a5db84263ef41989b07b058b7f6d6",
+      "inspection": "Ready",
+      "packagePath": "/Game/Volumes/VolumetricCloud/VT_Cloud_Detail_Voronoi_64",
+      "assetClass": "Durin::DVolumeTexture",
+      "objects": [
+        {
+          "id": 1,
+          "outerId": 0,
+          "name": "VT_Cloud_Detail_Voronoi_64",
+          "class": "Durin::DVolumeTexture",
+          "path": "VT_Cloud_Detail_Voronoi_64"
+        }
+      ],
+      "referenceInspection": "Ready",
+      "references": [],
+      "migrationStatus": "Pending"
+    },
+    {
+      "project": "RoadWeaver",
+      "physicalPath": "RoadWeaver/Content/Levels/L_RoadNet.dasset",
+      "sha256": "99747a56518b935257086c4c7580707a40b070dc77c0614fc3401214633e5204",
+      "inspection": "Ready",
+      "packagePath": "/Game/Levels/L_RoadNet",
+      "assetClass": "Durin::DLevel",
+      "objects": [
+        {
+          "id": 1,
+          "outerId": 0,
+          "name": "NewLevel",
+          "class": "Durin::DLevel",
+          "path": "NewLevel"
+        },
+        {
+          "id": 2,
+          "outerId": 1,
+          "name": "RoadNetPreview",
+          "class": "Durin::RoadNet::ARoadNetActor",
+          "path": "NewLevel/RoadNetPreview"
+        },
+        {
+          "id": 3,
+          "outerId": 2,
+          "name": "MigratedRoadNet",
+          "class": "Durin::RoadNet::DRoadNet",
+          "path": "NewLevel/RoadNetPreview/MigratedRoadNet"
+        },
+        {
+          "id": 4,
+          "outerId": 2,
+          "name": "RoadRoot",
+          "class": "Durin::RoadNet::DRoadSceneRoot",
+          "path": "NewLevel/RoadNetPreview/RoadRoot"
+        },
+        {
+          "id": 5,
+          "outerId": 1,
+          "name": "StudioSkyLight",
+          "class": "Durin::ASkyLightActor",
+          "path": "NewLevel/StudioSkyLight"
+        },
+        {
+          "id": 6,
+          "outerId": 5,
+          "name": "SkyLightComponent",
+          "class": "Durin::DSkyLightComponent",
+          "path": "NewLevel/StudioSkyLight/SkyLightComponent"
+        }
+      ],
+      "referenceInspection": "Ready",
+      "references": [
+        {
+          "kind": "Hard",
+          "sourceObjectId": 2,
+          "route": "PreviewMesh",
+          "target": "/Engine/Models/SplineBox.SplineBox"
+        },
+        {
+          "kind": "Hard",
+          "sourceObjectId": 6,
+          "route": "TextureCube",
+          "target": "/Engine/Renderer/DefaultStudioCube.DefaultStudioCube"
+        }
+      ],
+      "migrationStatus": "Pending"
+    },
+    {
+      "project": "RoadWeaver",
+      "physicalPath": "RoadWeaver/Content/NewRoadNet.dasset",
+      "sha256": "cb51033f21e18539cd3f5e4d7cbcb5f4163eee46f72362a06f01a77f8028d329",
+      "inspection": "Ready",
+      "packagePath": "/Game/NewRoadNet",
+      "assetClass": "Durin::RoadNet::DRoadNet",
+      "objects": [
+        {
+          "id": 1,
+          "outerId": 0,
+          "name": "NewRoadNet",
+          "class": "Durin::RoadNet::DRoadNet",
+          "path": "NewRoadNet"
+        }
+      ],
+      "referenceInspection": "Ready",
+      "references": [],
+      "migrationStatus": "Pending"
+    }
+  ]
+}

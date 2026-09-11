@@ -109,10 +109,9 @@ def _render_human(report: Mapping[str, Any], stdout: TextIO) -> None:
                     file=stdout,
                 )
             for evidence in package["deprecatedRouteEvidence"]:
-                targets = ", ".join(evidence["migrationTargets"])
                 print(
                     f"    [DeprecatedRoute] {evidence['declaringType']}."
-                    f"{evidence['storedFieldName']} -> {targets}",
+                    f"{evidence['storedFieldName']} -> {evidence['deprecatedPropertyName']}",
                     file=stdout,
                 )
 
@@ -279,6 +278,20 @@ def run(
         )
     )
     command = getattr(namespace, "asset_command", "check")
+    if command == "identity-audit":
+        project = _project_from_namespace(namespace, repository)
+        native_output = _invoke_asset_program(
+            selection,
+            executable,
+            ["identity-audit", f"--project={project}"],
+            stderr=stderr,
+            interruption_message="Asset identity audit cancelled.",
+            command_runner=command_runner,
+        )
+        if native_output is None:
+            return 130
+        print(native_output, file=stdout)
+        return 0
     if command == "check":
         return _run_check(
             namespace,

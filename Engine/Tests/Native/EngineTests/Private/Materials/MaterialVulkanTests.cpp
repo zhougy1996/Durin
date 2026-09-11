@@ -28,6 +28,8 @@
 #include "Thumbnail/TextureCubeThumbnailRenderer.h"
 #include "Texture/TextureCubeRenderResource.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
+#include "Image/ImageEncoder.h"
+#include "Misc/FileHelper.h"
 
 #include <array>
 #include <cmath>
@@ -38,6 +40,19 @@
 
 namespace
 {
+	// Retain pre-migration images for comparison on the same GPU and driver.
+	auto SaveFunctionMigrationBaseline(std::string_view Name,
+		const Durin::FByteBuffer& Pixels) -> void
+	{
+		Durin::FByteBuffer Png;
+		ASSERT_TRUE(Durin::Image::EncodeRgba8Png(Pixels, 64, 64, Png));
+		const auto Directory = Durin::Testing::GetTestWorkDirectory()
+			/ "ReusableMaterialFunctions";
+		std::filesystem::create_directories(Directory);
+		ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(Png,
+			Directory / (std::string(Name) + ".png")));
+	}
+
 	auto MapSrgbChannelThroughDisplay(uint8 Source) -> uint8
 	{
 		const float Encoded = static_cast<float>(Source) / 255.0f;
@@ -706,6 +721,13 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 		ClampSampler.AddressV = Durin::EMaterialSamplerAddressMode::ClampToEdge;
 		ASSERT_TRUE(SetBaseColorSampler(ClampSampler));
 		const Durin::FByteBuffer ClampPixels = Capture(CaptureMaterial);
+		SaveFunctionMigrationBaseline("missing-texture", UntexturedPixels);
+		SaveFunctionMigrationBaseline("uv0", UV0Pixels);
+		SaveFunctionMigrationBaseline("missing-uv", MissingUVFallbackPixels);
+		SaveFunctionMigrationBaseline("transformed-uv", TransformedUVPixels);
+		SaveFunctionMigrationBaseline("rotated-uv", RotatedUVPixels);
+		SaveFunctionMigrationBaseline("repeat", RepeatPixels);
+		SaveFunctionMigrationBaseline("clamp", ClampPixels);
 		EXPECT_NE(RepeatPixels, ClampPixels);
 		EXPECT_EQ(
 			GetMaterialBinding(CaptureMaterial->GetRenderData()).Samplers[0],
@@ -794,6 +816,20 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			Durin::FVector3(0.0)));
 		const Durin::FByteBuffer PbrBaselinePixels =
 			Capture(CaptureMaterial);
+		SaveFunctionMigrationBaseline("pbr-neutral", PbrBaselinePixels);
+		// Independent bindings remain independent even when their texture object agrees.
+		for (size_t Role = 0; Role < RoleTextures.size(); ++Role)
+			ASSERT_TRUE(CaptureMaterial->SetTextureParameterValue(
+				*TextureNames[Role], RoleTextures[Role]));
+		SaveFunctionMigrationBaseline("pbr-independent-maps", Capture(CaptureMaterial));
+		for (size_t Role = 0; Role < RoleTextures.size(); ++Role)
+			ASSERT_TRUE(CaptureMaterial->SetTextureParameterValue(*TextureNames[Role], nullptr));
+		for (const size_t Role : {2u, 3u, 4u})
+			ASSERT_TRUE(CaptureMaterial->SetTextureParameterValue(
+				*TextureNames[Role], DataTextureResult.Asset));
+		SaveFunctionMigrationBaseline("pbr-packed-source", Capture(CaptureMaterial));
+		for (const size_t Role : {2u, 3u, 4u})
+			ASSERT_TRUE(CaptureMaterial->SetTextureParameterValue(*TextureNames[Role], nullptr));
 		const Durin::FMaterialProgram CanonicalProgram =
 			*CaptureMaterial->GetMaterialProgram();
 		Durin::FMaterialProgram EditedProgram = CanonicalProgram;

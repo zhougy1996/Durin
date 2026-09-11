@@ -9,6 +9,14 @@ Completed:
 
 ## Current Status
 
+Stage 0 completed on 2026-09-11. The interface and bounds are frozen below;
+the 22 source packages have recorded identities, references and SHA-256 hashes.
+MaterialVulkanTests retains shader baselines, and SceneImportVulkanTests now
+retains actual imported PBR, UV1/transform, packed-source/independent-map and
+masked captures with resource counts. Audit schema drift and registered struct
+alias misclassification are corrected. Stage 1 is next; Stages 1-5 are not yet
+implemented.
+
 The 2026-09-11 prerequisite refactor changes current compilation failure and
 admission rejection to retire the owner's accepted renderable generation and
 publish ErrorMaterial. Pending work retains a valid prior generation. This
@@ -28,8 +36,8 @@ instance without compilation or package mutation. Together these runs cover all
 `20260911-152515-821753-36484-TextureCookIntegrationTests.log`.
 
 Selected by the user on 2026-09-11 after the RenderProxy parameter pass-through
-fix (`5b1ea1344`). This commit records the implementation proposal only; no
-implementation stage is complete. Stage 0 is next. The user permits aggressive
+fix (`5b1ea1344`). The initial commit recorded the implementation proposal only;
+Stage 0 execution is now complete. The user permits aggressive
 schema changes and upgrades or modification of the small existing asset set.
 This authorization permits a coordinated content migration; it does not require
 maintaining a permanent legacy compiler or silently discarding authored edits.
@@ -237,15 +245,243 @@ idempotent. Record saved/failed packages and a recoverable checkpoint for interr
 multi-package migration. Rebuild derived artifacts instead of treating them as
 source assets. Re-run migration to verify no additional changes.
 
+## Stage 0 Execution Record
+
+### Frozen function representation
+
+Keep `FMaterialProgramLink.SourceNodeId` and `SourceOutputIndex` for built-in
+nodes; add `SourceOutputId` for function outputs. A function output link requires
+a valid output GUID and zero positional index. Built-in links require an invalid
+output GUID. Never interpret a missing function GUID as positional port zero.
+Calls store a base-typed asset reference and a separate array of
+`{InputId, ExpectedType, Source}` bindings. Store expected output types on call
+interface records too, so retyping diagnoses even when the consuming operation
+would accept both types. Renaming/reordering changes display order only.
+FunctionInput/FunctionOutput terminals store their declaration GUID. Duplicate
+port GUIDs, duplicate bindings and orphan bindings diagnose at the call/port.
+
+Each declaration stores GUID, exact type, name, display order, advanced flag,
+required flag and a tagged default. Default alternatives are numeric literal,
+texture fallback plus sampling policy, Surface attributes, another input GUID,
+or UV0. Input references must match types; validate their directed graph for
+cycles before substitution. No arbitrary expression language is needed for
+defaults. Functions own nodes and terminals separately from material Surface
+outputs and cannot declare root parameters.
+
+Texture values carry their resource origin, sampler and fallback through every
+call. A connected caller value takes precedence as one complete tuple, including
+when its resource is null or temporarily unavailable. Only an absent connection
+uses the callee's default tuple. A nested call must never replace a connected
+texture's fallback with its own default. Default sampling is the existing
+`FMaterialSamplerState{}` contract. Per-sample usage requirements remain explicit
+and cannot depend on standard-library names or parameter GUIDs.
+
+Freeze limits at 256 authored nodes and 1024 links per document; retain the
+built-in eight-pin signature limit. Function signatures allow 64 inputs and 16
+outputs, independently of built-in pin arrays. Allow 16 nested calls, 64 distinct
+function dependencies, 4096 expanded nodes and 16384 expanded links, bounded
+before pruning. Lowered expression depth remains 64. Limit each document to
+1 MiB canonical payload and the detached closure to 8 MiB. Retain 128 root
+parameters, 64 render resources, 256 render fields, 16 KiB uniform payload and
+64 diagnostics of at most 512 bytes. Device/compiler admission still applies
+its stricter sampled-image and sampler limits (default policy 16 each, with
+existing renderer reservations); 64 is not an advertised device texture budget.
+Expansion must use its own bounded intermediate representation instead of
+silently raising the authored-document limit.
+
+Reserve authored program schema 5, function schema 1 and function presentation
+schema 1. Keep material presentation schema 2 and parameter schema 2: root
+parameter storage and node-position representation do not change. Reserve IR 4,
+generator 5 and compiler envelope 7 for the lowering change. Retain pass contract
+2 and layout version 4 unless implementation changes their wire semantics.
+Keep DMAT payload 5 when lowered artifacts remain wire-identical; advance the
+material Cook recipe from 3 to 4 to invalidate old dependency recipes. DAST v9
+remains the container format. These reservations are design decisions, not yet
+changes to production constants.
+
+### Standard library ports and import channel matrix
+
+`StandardPBR` has eight Texture2D inputs named `<Role>Texture`, eight factors
+named as the roles below, Float2 `UV`, and eight advanced Float2 `<Role>UV`
+inputs. All are optional. `UV` defaults to UV0; each map UV defaults to `UV`.
+The sole output `Surface` has type Surface. Normal and Emissive factors use
+Float3, as does BaseColor; the remaining factors use Float. Common display pins
+are BaseColorTexture, BaseColor, NormalTexture, Metallic, Roughness and UV.
+Other pins are advanced. Persist deterministic standard port GUIDs once in the
+library asset definitions; display text never computes identity at runtime.
+
+| Role | Factor default | Texture default | Sample channels and current composition |
+| --- | --- | --- | --- |
+| BaseColor | `(0.5,0.5,0.5)` | White, Color | RGB multiplied by saturated factor |
+| Normal | `(0,0,1)` | FlatRGNormal, Normal | RG decode followed by safe RNM with factor |
+| Metallic | `0` | White, DataMask | saturated B times saturated factor |
+| Roughness | `0.5` | White, DataMask | saturated G times saturated factor; clamp to `[0.045,1]` |
+| AmbientOcclusion | `1` | White, DataMask | saturated R times saturated factor |
+| Emissive | `(0,0,0)` | Black, Color | nonnegative RGB plus nonnegative factor |
+| Opacity | `1` | White, DataMask | saturated A times saturated factor |
+| OpacityMask | `1` | White, DataMask | saturated R times saturated factor |
+
+`UVTransform` takes Float2 UV (UV0), Scale `(1,1)`, Offset `(0,0)` and Float
+Rotation `0` in radians; output is `rotate(UV * Scale) + Offset`. ImportedSurface
+keeps all existing per-role channel/scale/offset/rotation parameter GUIDs and
+uses UVChannel plus UVTransform calls outside its one StandardPBR call.
+`SampleNormal` takes Texture2D (FlatRGNormal), Float2 UV (UV0), Float Strength
+`1` and Float3 Normal `(0,0,1)`; imported already-scaled textures use strength 1.
+`SampleORM` takes Texture2D (White, DataMask) and Float2 UV (UV0), with Float
+Occlusion/Roughness/Metallic outputs reading R/G/B from one sample.
+`StandardPBR_ORM` replaces the independent metallic/roughness/AO textures and
+UVs with ORMTexture and ORMUV, retaining their individual factors and sharing
+composition helpers. Other inputs match StandardPBR.
+
+Actual `SceneImport.cpp` translation is independent-map production: glTF
+metallic/roughness is split into Blue/Green derived packages; occlusion derives
+Red, opacity derives Alpha, normal strength may be baked into ScaledNormal,
+and emissive factor is baked into ScaledColor. Do not apply baked factors twice.
+Do not collapse those packages during migration. The packed entry is reusable
+for authored packed inputs; selecting it for a future import requires an actual
+shared texture/UV/sampler contract, not merely a common source image.
+
+### Storage, migration route and shared seams
+
+The selected workspace contains Engine, Sandbox and RoadWeaver projects.
+Sandbox and RoadWeaver each mount their own Content as `/Game`; package paths
+must therefore always be recorded with project ownership. Source packages are
+DAST v9 files in their Content directories. Git LFS uses
+`D:/Studyspace/Durin-LfsStorage`; relevant external objects are texture `.dbulk`
+companions, not a second editable material catalog. Test fixtures and historical
+branch archives are not production migration targets.
+
+| Physical package or group | Disposition |
+| --- | --- |
+| Engine/Content/Materials/ImportedSurface.dasset | Inspect exact graph, preserve identity and 48 root parameter GUIDs; replace only recognized template with function call graph |
+| Engine/Content/Materials/DefaultMaterial.dasset | Upgrade authored schema; preserve custom graph and identity |
+| Sandbox/Content/Models/VintageLighter/Materials/vintage_lighter.dasset | Preserve instance identity, parent and overrides; verify deprecated-field upgrade |
+| Sandbox/Content/Models/VintageLighter/Materials/vintage_lighter_alpha.dasset | Same, additionally verify alpha/static-property overrides |
+| Engine/Content/Models/{Box,Sphere,SplineBox}.dasset | Preserve material slots; audit currently reports ImportedData struct-signature incompatibility |
+| Sandbox/Content/Models/GrayboxPawn.dasset | Preserve material slots; same audit finding |
+| Sandbox/Content/Models/VintageLighter/Meshes/vintage_lighter_1k.dasset | Preserve both material slots; same audit finding |
+| Sandbox/Content/Models/VintageLighter/Textures/*.dasset (5) | Preserve source, derivation, usage, sampler associations and external bulk; no repacking |
+| Sandbox/Content/Levels/GrayboxStage15.dasset | Preserve mesh/material references; verify after parent migration |
+| RoadWeaver/Content/{Levels/L_RoadNet,NewRoadNet}.dasset | Preserve references and authored data; inspect embedded material consumers |
+| Engine/Content/Renderer/DefaultStudioCube.dasset | Unchanged environment fixture |
+| Sandbox/Content/Textures/{TEX_StoneHead,TEXCUBE_PureSky_512x512}.dasset | Unchanged texture sources and bulk |
+| Sandbox/Content/Volumes/VolumetricCloud/{VT_Cloud_Base_Voronoi_128,VT_Cloud_Detail_Voronoi_64}.dasset | Unchanged volume sources and bulk |
+
+Use AssetMaintenance inspection/planning and AssetTools creation/SavePackage
+publication. Persist function dependencies first, then the parent, then any
+instances requiring an authored resave. Record before/after package fingerprints,
+old object paths and references, disposition and saved/failed status in a durable
+migration checkpoint. Restart verifies already-saved fingerprints before skipping;
+an edited package requires fresh inspection. Run canonical resave preview before
+apply; a compatible header is not proof of matching template semantics. Derived
+Cook/DDC artifacts are rebuilt. The source identity/reference inventory is linked
+below; semantic graph recognition and idempotent executable migration remain
+Stage 4 implementation work.
+
+Owning changes span Engine Materials (types, validation, normalization, codegen,
+snapshot/lifecycle, dependency routing and DMAT), AssetMaintenance/AssetTools
+(inspection, migration and creation), AssetForgeBuiltins (bootstrap and scene
+translation), MaterialEditor (documents, commands, clipboard, diagnostics and
+previews), and the native material/import/Cook lanes. Renderer remains a lowered
+program consumer. M13 already owns complete accepted instance generations,
+effective static properties, root-parameter identity and DMAT v5. Function edits
+must invalidate all affected effective variants through that lifecycle. M13 also
+records that Scene import is creation-only: the reimport gates here cannot be
+claimed through another fresh import and remain an explicit integration gap.
+
+### Baseline receipts and outstanding evidence
+
+On Win64-Debug-DurinEditor, SceneImportVulkanTests passed 1/1; receipt:
+`Build/.agent-state/logs/20260911-155740-628394-15488-SceneImportVulkanTests.log`.
+The focused compiler baseline passed 1/1; receipt:
+`Build/.agent-state/logs/20260911-160105-915811-14708-MaterialTests.log`.
+It measured 202 authored/IR nodes, eight sample expressions, 9870 canonical
+bytes, 15087 generated source bytes, 126148 SPIR-V bytes and 130749 cooked bytes.
+Source hash: `169173b413b631ef6784c9abac6f3f8e`. Existing reflection assertions
+cover 24 forward bindings, 17 GBuffer bindings and no shadow bindings for this
+opaque baseline. Shared texture object identity does not reduce the eight
+authored sample expressions.
+
+The final baseline-capture MaterialVulkanTests passed 1/1; receipt:
+`Build/.agent-state/logs/20260911-160408-351842-10884-MaterialVulkanTests.log`.
+Ten 64x64 PNGs are written under the test run's `ReusableMaterialFunctions`
+directory. This run used `DURIN_TEST_KEEP_WORK=1`; a retained copy is under
+`Build/.agent-state/evidence/ReusableMaterialFunctions-Stage0/ReusableMaterialFunctions/`.
+Capture names distinguish a packed source with independent sample
+bindings from the future single-fetch ORM implementation. The capture additions
+restore all texture bindings before the existing graph-edit and pass checks.
+
+Sandbox's raw audit is
+`Build/.agent-state/logs/20260911-155833-526101-27144-DurinAssetTool.log`:
+20 packages inspected, 15 compatible and five incompatible. The DevTool wrapper
+rejects its deprecated-route entries because the native report omits
+`customVersionGuid`, `sourceVersion`, `deprecatedBefore` and `migrationTargets`
+required by its schema. Rebuilding DurinAssetTool does not correct the source
+contract mismatch. This initial audit-tool defect is resolved in the completion
+receipts below; it did not indicate a failed asset load or authorization issue.
+The initial RoadWeaver audit succeeded and was retained in
+`Build/ReusableMaterialFunctions-RoadWeaver-audit.json` (eight packages, three
+shared Engine mesh incompatibilities). No source packages have been modified.
+
+### Stage 0 completion receipts
+
+The [source inventory](Evidence/ReusableMaterialFunctions-Inventory.json) records
+all 22 packages, physical ownership, SHA-256 hashes, reflected objects and exact
+reference routes. Engine packages are shared between projects and recorded once.
+All object/reference inspections succeeded. This is a pre-migration checkpoint;
+each package remains `Pending` until Stage 4 records its disposition and verifies
+the before/after identity and references. No source package has been changed.
+
+`DevTool asset identity-audit` exposes the existing native read-only inventory
+through the normal runtime selection service. The audit JSON schema and human
+renderer now match the native deprecated-route contract. Schema inspection
+canonicalizes registered struct/enum/reference type aliases using its immutable
+reflection catalog before comparing signatures, retaining the stored identity
+in canonicalization evidence. This corrects the mesh false positives without
+accepting unregistered types or changing stored package bytes.
+
+Sandbox now audits 20/20 compatible and RoadWeaver 8/8 compatible. The Sandbox
+canonical-resave preview marks the five aliased meshes and two material instances
+ready, with the five derived textures skipped; no apply was performed. Receipts:
+`Build/ReusableMaterialFunctions-Sandbox-audit.json`,
+`Build/ReusableMaterialFunctions-RoadWeaver-audit.json`, and
+`Build/ReusableMaterialFunctions-Sandbox-resave-preview.json`.
+
+AssetPackageTests passed 148/148 including the new historical mesh struct alias
+case, which checks compatibility, retained evidence and unchanged file bytes.
+Receipt: `Build/.agent-state/logs/20260911-161816-064463-9716-AssetPackageTests.log`.
+The final SceneImportVulkanTests passed 1/1; receipt:
+`Build/.agent-state/logs/20260911-162116-831265-25916-SceneImportVulkanTests.log`.
+Six imported PNGs are retained under
+`Build/.agent-state/evidence/ReusableMaterialFunctions-Stage0/Imported-Final/`.
+The PBR case imports `ImportedPbrContract.gltf`: metallic/roughness/AO derive
+independent images from its packed source; it also exercises normal strength,
+emissive, opacity/mask, UV1, transforms and non-default sampler addressing.
+Both this masked case and the opaque texture/factor case report eight resource
+fields, 40 uniform fields, 656 uniform bytes and 15087 generated source bytes.
+The texture-free factor control and existing shader captures retain fallback
+and UV baselines. The packed source baseline intentionally has eight sample
+expressions; Stage 5 must separately demonstrate the new SampleORM single-fetch
+implementation. Images were visually inspected to confirm visible geometry.
+
+DevTool asset/command tests passed 29/29. A broader Python run also exposed a
+pre-existing bootstrap manifest-count assertion (expected 10, actual 11); no
+dependency manifests were changed by this work. The two command snapshot failures
+introduced by adding identity-audit were corrected and passed in the focused run.
+Native selection expands to most Engine targets for the private codec change;
+the bounded package suite plus actual mounted audits and import GPU execution
+cover its changed behavior. Full shared-API/editor validation remains a Stage 5
+gate after function implementation.
+
 ## Implementation Stages
 
 ### Stage 0: Freeze interfaces and migration inventory
 
-- [ ] Enumerate material/function change sites, import channel layouts, existing
+- [x] Enumerate material/function change sites, import channel layouts, existing
   packages and M13 overlaps; record the actual storage and upgrade execution path.
-- [ ] Freeze StandardPBR ports/defaults, sampler precedence, stable pin schema,
+- [x] Freeze StandardPBR ports/defaults, sampler precedence, stable pin schema,
   bounded expansion limits and schema/version changes in this plan.
-- [ ] Capture current representative imported-material render results and resource
+- [x] Capture current representative imported-material render results and resource
   counts; include independent maps, packed maps, missing textures and custom UVs.
 
 Exit: concrete interface tables, per-asset dispositions and baseline fixtures;

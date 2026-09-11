@@ -1674,6 +1674,64 @@ TEST(FPackageAssetTests, SchemaInspectionClassifiesReadFailuresAsIoErrors)
 	EXPECT_FALSE(Result.Message.empty());
 }
 
+TEST(FPackageAssetTests, SchemaInspectionAcceptsRegisteredStructAliasesAndRetainsEvidence)
+{
+	InitializeAssetTests();
+	using namespace Durin;
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/AliasedMeshSource", Path));
+	DStaticMesh* Mesh = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Mesh));
+	FStaticMeshDecodedGeometry Geometry;
+	Geometry.MaterialSlots.push_back({"Material", 0, "Material"});
+	auto& Triangle = Geometry.Meshes.emplace_back();
+	Triangle.Name = "Triangle";
+	Triangle.Positions = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}};
+	Triangle.Indices = {0, 1, 2};
+	FStaticMeshSource Source;
+	std::string Error;
+	ASSERT_TRUE(Source.Initialize(std::move(Geometry), Error)) << Error;
+	auto* Field = DStaticMesh::StaticClass()->FindPropertyByName("Source");
+	ASSERT_NE(Field, nullptr);
+	*Field->ContainerPtrToValuePtr<FStaticMeshSource>(Mesh) = std::move(Source);
+	ASSERT_TRUE(SavePackage(Mesh->GetPackage()));
+	ASSERT_NO_FATAL_FAILURE(RewriteSchemaTestPackage(Path, [](auto& Linker) {
+		const auto RenameType = [](auto&& Self, auto& Type) -> void {
+			if (Type.QualifiedName == "Durin::FStaticMeshSource")
+				Type.QualifiedName = "Durin::FStaticMeshImportedData";
+			for (auto& Child : Type.Children) Self(Self, Child);
+		};
+		for (auto& Type : Linker.Types) RenameType(RenameType, Type);
+		for (auto& Schema : Linker.Schemas)
+		{
+			if (Schema.QualifiedName == "Durin::FStaticMeshSource")
+				Schema.QualifiedName = "Durin::FStaticMeshImportedData";
+			for (auto& Property : Schema.Fields) RenameType(RenameType, Property.Type);
+		}
+		for (auto& Export : Linker.Exports)
+			for (auto& Property : Export.Properties) RenameType(RenameType, Property.Type);
+		RenameSchemaTestField(Linker, "Durin::DStaticMesh", "Source", "ImportedData");
+	}));
+	const auto File = FindAssetExact(Path);
+	ASSERT_TRUE(File);
+	FByteBuffer Before, After;
+	ASSERT_TRUE(FFileHelper::LoadFileToArray(Before, File->PhysicalPath));
+	auto Handle = FFileHelper::OpenRead(File->PhysicalPath);
+	ASSERT_NE(Handle, nullptr);
+	FPackageSchemaInspection Inspection;
+	ASSERT_TRUE(InspectAssetPackageSchema(*Handle, Path,
+		FReflectionSchemaCatalog::Capture(), Inspection));
+	EXPECT_EQ(Inspection.Status, EPackageSchemaStatus::Compatible);
+	EXPECT_TRUE(Inspection.Issues.empty());
+	EXPECT_TRUE(std::ranges::any_of(Inspection.CanonicalizationEvidence, [](const auto& Evidence) {
+		return Evidence.StoredIdentity == "Durin::FStaticMeshImportedData"
+			&& Evidence.CurrentIdentity == "Durin::FStaticMeshSource"
+			&& Evidence.Kind == EAssetReflectedIdentityKind::Struct;
+	}));
+	ASSERT_TRUE(FFileHelper::LoadFileToArray(After, File->PhysicalPath));
+	EXPECT_EQ(Before, After);
+}
+
 TEST(FPackageAssetTests, SaveOmitsTransientSubtreesAndTheirHardReferences)
 {
 	InitializeAssetTests();

@@ -32,11 +32,7 @@
           "objectPath": "/Engine/Materials/DefaultMaterial.DefaultMaterial",
           "declaringType": "Durin::DMaterial",
           "storedFieldName": "Roughness",
-          "deprecatedPropertyName": "Roughness_DEPRECATED",
-          "customVersionGuid": "12345678-90ab-cdef-1234-567890abcdef",
-          "sourceVersion": -1,
-          "deprecatedBefore": 1,
-          "migrationTargets": ["SurfaceRoughness"]
+          "deprecatedPropertyName": "Roughness_DEPRECATED"
         }
       ]
     }

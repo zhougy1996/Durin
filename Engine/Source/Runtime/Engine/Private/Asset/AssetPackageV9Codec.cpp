@@ -157,6 +157,30 @@ namespace Durin::AssetPrivate::DastV9
 				std::max<uint32>(1, ScalarBytes(Type.Kind)));
 		}
 
+		auto CanonicalizeInspectionType(ObjectPackage::FSerializedType& Type,
+			const FReflectionSchemaCatalog& Catalog, const FPackagePath& Path,
+			std::string_view LogicalPath,
+			std::vector<FAssetCanonicalizationEvidence>& Evidence) -> void
+		{
+			using K = ObjectPackage::EValueKind;
+			std::optional<EAssetReflectedIdentityKind> Kind;
+			if (Type.Kind == K::Struct) Kind = EAssetReflectedIdentityKind::Struct;
+			else if (Type.Kind == K::Enum) Kind = EAssetReflectedIdentityKind::Enum;
+			else if (Type.Kind == K::HardReference || Type.Kind == K::SoftReference)
+				Kind = EAssetReflectedIdentityKind::Class;
+			if (Kind)
+				if (const auto* Alias = Catalog.FindSerializedAlias(Type.QualifiedName);
+					Alias && Alias->Kind == *Kind)
+				{
+					Evidence.push_back({Path, Type.QualifiedName, Alias->CurrentIdentity,
+						*Kind, EAssetSerializedIdentityLocation::TypeDescriptor,
+						std::string(LogicalPath)});
+					Type.QualifiedName = Alias->CurrentIdentity;
+				}
+			for (auto& Child : Type.Children)
+				CanonicalizeInspectionType(Child, Catalog, Path, LogicalPath, Evidence);
+		}
+
 		template<typename T>
 		auto AppendNative(FByteBuffer& Out, const T& Value) -> void
 		{
@@ -579,13 +603,18 @@ namespace Durin::AssetPrivate::DastV9
 				{
 					const auto Kind = PropertyKind(Property.Type.Kind);
 					const std::string Signature = TypeSignature(Property.Type);
+					auto CanonicalType = Property.Type;
+					CanonicalizeInspectionType(CanonicalType, Catalog, Path,
+						std::format("{}.{}", ObjectPath, Property.FieldName),
+						Record.CanonicalizationEvidence);
+					const std::string CanonicalSignature = TypeSignature(CanonicalType);
 					const auto* Alias = Catalog.FindSerializedPropertyAlias(Property.DeclaringType, Property.FieldName);
 					const std::string& FieldName = Alias ? Alias->CurrentName : Property.FieldName;
 					const auto* Expected = Catalog.FindField(
 						*Class, Property.DeclaringType, FieldName);
 					const bool bKnownOwner = std::ranges::binary_search(Class->Ancestry, Property.DeclaringType);
 					if (bKnownOwner)
-						if (const auto* Route = Catalog.FindDeprecatedPropertyRoute(Property.DeclaringType, FieldName, Kind, Signature))
+						if (const auto* Route = Catalog.FindDeprecatedPropertyRoute(Property.DeclaringType, FieldName, Kind, CanonicalSignature))
 						{
 							Record.DeprecatedRouteEvidence.push_back({Path, ObjectPath, Property.DeclaringType,
 								Property.FieldName, Route->DeprecatedPropertyName});
@@ -597,7 +626,7 @@ namespace Durin::AssetPrivate::DastV9
 					const bool bRemoved = !Expected && !bKnownHistoricalName
 						&& !Alias && bKnownOwner;
 					if (!Expected || Expected->Kind != Kind
-						|| Expected->TypeSignature != Signature)
+						|| Expected->TypeSignature != CanonicalSignature)
 					{
 						if (!bRemoved && Record.Status == EPackageSchemaStatus::Compatible)
 							Record.Status = EPackageSchemaStatus::Incompatible;
