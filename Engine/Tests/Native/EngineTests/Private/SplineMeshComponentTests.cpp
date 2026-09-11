@@ -127,10 +127,42 @@ TEST(FSplineMeshComponentTests, BuiltInSplineBoxProvidesLongitudinalDeformationS
 		Path, EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
 
-TEST(FSplineMeshComponentTests, PublishesNormalizedExactLOD0AndConservativeBounds)
+TEST(FSplineMeshComponentTests, RenderUpdatesDeferExactGeometryUntilRequested)
 {
 	auto [Component, Mesh] = MakeComponentWithMesh();
 	const auto Initial = Component->GetDerivedState();
+	ASSERT_TRUE(Initial && Initial->IsValid());
+	EXPECT_TRUE(Initial->DeformedLOD0Positions.empty());
+	EXPECT_TRUE(Initial->LOD0Indices.empty());
+	EXPECT_EQ(Initial->EditorAcceleration, nullptr);
+	const auto Query = Component->GetDerivedStateForQueries();
+	ASSERT_TRUE(Query && !Query->DeformedLOD0Positions.empty());
+	EXPECT_EQ(Query->DeformationRevision, Initial->DeformationRevision);
+	EXPECT_EQ(Component->GetDerivedStateForQueries(), Query);
+	EXPECT_TRUE(Initial->DeformedLOD0Positions.empty());
+
+	auto Params = Component->GetSplineMeshParams();
+	Params.EndPosition.y += 20.0;
+	ASSERT_TRUE(Component->SetSplineMeshParams(Params));
+	const auto Updated = Component->GetDerivedState();
+	ASSERT_TRUE(Updated && Updated->IsValid());
+	EXPECT_GT(Updated->DeformationRevision, Query->DeformationRevision);
+	EXPECT_TRUE(Updated->DeformedLOD0Positions.empty());
+	const auto UpdatedQuery = Component->GetDerivedStateForQueries();
+	ASSERT_NE(UpdatedQuery, nullptr);
+	EXPECT_NE(UpdatedQuery->DeformedLOD0Positions, Query->DeformedLOD0Positions);
+	EXPECT_EQ(UpdatedQuery->DeformationRevision, Updated->DeformationRevision);
+
+	ASSERT_TRUE(Component->SetSplineMeshParams(Params));
+	EXPECT_EQ(Component->GetDerivedState(), UpdatedQuery);
+	Component->SetStaticMesh(nullptr);
+	EXPECT_FALSE(Component->GetDerivedStateForQueries()->IsValid());
+}
+
+TEST(FSplineMeshComponentTests, PublishesNormalizedExactLOD0AndConservativeBounds)
+{
+	auto [Component, Mesh] = MakeComponentWithMesh();
+	const auto Initial = Component->GetDerivedStateForQueries();
 	ASSERT_TRUE(Initial && Initial->IsValid()) << (Initial ? Initial->Diagnostic : "missing state");
 	EXPECT_EQ(Initial->DeformedLOD0Positions.size(), 3u);
 	EXPECT_EQ(Initial->LOD0Indices, (std::vector<uint32>{0, 1, 2}));
@@ -154,7 +186,7 @@ TEST(FSplineMeshComponentTests, PublishesNormalizedExactLOD0AndConservativeBound
 	Params.EndTangent = {0.0, 100.0, 0.0};
 	std::string Error;
 	ASSERT_TRUE(Component->SetSplineMeshParams(Params, &Error)) << Error;
-	const auto Curved = Component->GetDerivedState();
+	const auto Curved = Component->GetDerivedStateForQueries();
 	ASSERT_TRUE(Curved && Curved->IsValid());
 	EXPECT_GT(Curved->DeformationRevision, Initial->DeformationRevision);
 	EXPECT_NE(Curved->CollisionInputIdentity, Initial->CollisionInputIdentity);
@@ -211,8 +243,8 @@ TEST(FSplineMeshComponentTests, DuplicateRebuildsIndependentEquivalentSnapshot)
 	ASSERT_NE(Duplicate, nullptr);
 	EXPECT_EQ(Duplicate->GetStaticMesh(), Mesh);
 	EXPECT_EQ(Duplicate->GetSplineMeshParams(), Source->GetSplineMeshParams());
-	const auto SourceState = Source->GetDerivedState();
-	const auto DuplicateState = Duplicate->GetDerivedState();
+	const auto SourceState = Source->GetDerivedStateForQueries();
+	const auto DuplicateState = Duplicate->GetDerivedStateForQueries();
 	ASSERT_TRUE(SourceState && DuplicateState && DuplicateState->IsValid());
 	EXPECT_NE(SourceState, DuplicateState);
 	EXPECT_EQ(DuplicateState->Params, SourceState->Params);
@@ -386,7 +418,7 @@ TEST(FSplineMeshComponentTests, LevelPackageRoundTripsAuthoredFieldsAndRebuildsD
 	EXPECT_EQ(Loaded->GetSplineMeshParams().EndPosition, Params.EndPosition);
 	EXPECT_DOUBLE_EQ(Loaded->GetSplineMeshParams().EndRollRadians, Params.EndRollRadians);
 	EXPECT_EQ(Loaded->GetSplineMeshParams().EndScale, Params.EndScale);
-	const auto State = Loaded->GetDerivedState();
+	const auto State = Loaded->GetDerivedStateForQueries();
 	ASSERT_TRUE(State && State->IsValid()) << (State ? State->Diagnostic : "missing state");
 	EXPECT_EQ(State->Params, Loaded->GetSplineMeshParams());
 	EXPECT_EQ(State->DeformedLOD0Positions.size(), 3u);

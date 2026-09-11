@@ -263,10 +263,8 @@ namespace Durin::Editor::Level
 				auto* Component = Cast<DSplineMeshComponent>(Target.Component.Get());
 				if (!Component) return {};
 				++Context.Diagnostics.ApplicableSplineMeshTargets;
-				const auto State = Component->GetDerivedState();
-				if (!Component->IsRegistered() || !State || !State->IsValid()
-					|| State->DeformedLOD0Positions.empty() || State->LOD0Indices.size() < 3
-					|| State->LOD0Indices.size() % 3 != 0)
+				auto State = Component->GetDerivedState();
+				if (!Component->IsRegistered() || !State || !State->IsValid())
 				{
 					++Context.Diagnostics.InvalidSplineMeshTargets;
 					return {EViewportGeometryQueryStatus::InvalidComponent, std::nullopt};
@@ -284,6 +282,13 @@ namespace Durin::Editor::Level
 				{
 					++Context.Diagnostics.SplineMeshBoundsRejects;
 					return {EViewportGeometryQueryStatus::Miss, std::nullopt};
+				}
+				State = Component->GetDerivedStateForQueries();
+				if (!State || State->DeformedLOD0Positions.empty() || State->LOD0Indices.size() < 3
+					|| State->LOD0Indices.size() % 3 != 0)
+				{
+					++Context.Diagnostics.InvalidSplineMeshTargets;
+					return {EViewportGeometryQueryStatus::InvalidComponent, std::nullopt};
 				}
 				std::optional<FViewportPickingBackendHit> Best;
 				for (size_t Index = 0; Index < State->LOD0Indices.size(); Index += 3)

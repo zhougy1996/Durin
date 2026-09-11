@@ -28,11 +28,12 @@ namespace Durin
 		DeformedTriangleMesh
 	};
 
-	// Immutable CPU authority used by bounds, exact editor queries, collision, and shader parity.
+	// Immutable deformation snapshot. Exact CPU geometry is populated only on demand.
 	struct FSplineMeshDerivedState
 	{
 		FSplineMeshParams Params;
 		FBox ConservativeLocalBounds;
+		// Empty in a valid render-only snapshot; request GetDerivedStateForQueries for exact geometry.
 		std::vector<FVector3f> DeformedLOD0Positions;
 		std::vector<uint32> LOD0Indices;
 		std::shared_ptr<const FStaticMeshLODResources::FRayQueryAcceleration> EditorAcceleration;
@@ -61,7 +62,11 @@ namespace Durin
 		auto GetDeformationRevision() const -> uint64 { return DeformationRevision; }
 		auto GetSplineMeshCollisionMode() const -> ESplineMeshCollisionMode { return CollisionMode; }
 		ENGINE_API auto SetSplineMeshCollisionMode(ESplineMeshCollisionMode InMode) -> void;
+		// Reads the published snapshot without building CPU geometry. IsValid describes render readiness.
 		ENGINE_API auto GetDerivedState() const -> std::shared_ptr<const FSplineMeshDerivedState>;
+		// Call on the component's owning thread. Builds and caches exact geometry for this revision;
+		// returns null on failure without changing the published render state.
+		ENGINE_API auto GetDerivedStateForQueries() -> std::shared_ptr<const FSplineMeshDerivedState>;
 		ENGINE_API auto BuildCollisionGeometry(
 			FCollisionGeometryRef& OutGeometry, FTransform& OutWorldTransform) const -> bool override;
 
@@ -87,6 +92,7 @@ namespace Durin
 		ENGINE_API auto BuildMaterialRenderProxyBindingUpdate(
 			FMaterialRenderProxyBindingUpdate& OutUpdate) -> bool override;
 		auto RebuildDerivedState(std::string* OutError = nullptr) -> bool;
+		auto BuildDerivedGeometry(FSplineMeshDerivedState& Candidate, std::string* OutError) const -> bool;
 		auto HandleStaticMeshRenderDataChanged(DStaticMesh* ChangedMesh) -> void;
 		auto PushDynamicDataToScene() -> void;
 		auto ValidateOverrideMaterials(std::span<const TObjectPtr<DMaterialInterface>> Overrides, std::string& OutError) const -> bool;

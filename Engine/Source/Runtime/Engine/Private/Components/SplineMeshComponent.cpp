@@ -102,7 +102,8 @@ namespace Durin
 
 	auto DSplineMeshComponent::RebuildCollisionGeometryForPublishedState() -> void
 	{
-		const auto Published = GetDerivedState();
+		const auto Published = CollisionMode == ESplineMeshCollisionMode::DeformedTriangleMesh
+			? GetDerivedStateForQueries() : GetDerivedState();
 		if (!Published || !Published->IsValid()) return;
 		auto Candidate = std::make_shared<FSplineMeshDerivedState>(*Published);
 		Candidate->CollisionGeometry = {};
@@ -164,31 +165,15 @@ namespace Durin
 
 		Candidate->Params = Params;
 		Candidate->ConservativeLocalBounds = FSplineMeshDeformer::ComputeConservativeBounds(Params, RenderData->LocalBounds);
-		Candidate->DeformedLOD0Positions.reserve(Positions.size());
-		for (const FVector3f& Position : Positions)
+		if (!Candidate->ConservativeLocalBounds.bIsValid
+			|| !Math::IsFinite(Candidate->ConservativeLocalBounds.Min)
+			|| !Math::IsFinite(Candidate->ConservativeLocalBounds.Max))
 		{
-			const FVector3 Deformed = FSplineMeshDeformer::DeformPosition(Params, FVector3(Position));
-			if (!Math::IsFinite(Deformed))
-			{
-				if (OutError) *OutError = "SplineMesh deformation produced a non-finite position.";
-				return false;
-			}
-			Candidate->DeformedLOD0Positions.emplace_back(Deformed);
+			if (OutError) *OutError = "SplineMesh deformation produced invalid bounds.";
+			return false;
 		}
-		Candidate->LOD0Indices = Indices;
-		for (uint32 Index : Indices)
-		{
-			if (Index >= Candidate->DeformedLOD0Positions.size())
-			{
-				if (OutError) *OutError = "StaticMesh LOD 0 contains an out-of-range index.";
-				return false;
-			}
-		}
-		FStaticMeshLODResources QueryLOD;
-		QueryLOD.VertexBuffers.PositionVertexBuffer.Init(Candidate->DeformedLOD0Positions);
-		QueryLOD.IndexBuffer.Init(Candidate->LOD0Indices);
-		QueryLOD.LocalBounds = Candidate->ConservativeLocalBounds;
-		Candidate->EditorAcceleration = BuildStaticMeshRayQueryAcceleration(QueryLOD);
+		if (CollisionMode == ESplineMeshCollisionMode::DeformedTriangleMesh
+			&& !BuildDerivedGeometry(*Candidate, OutError)) return false;
 		Candidate->DeformationRevision = DeformationRevision + 1;
 		Candidate->CollisionInputIdentity = MakeCollisionInputIdentity(
 			Candidate->SourceRenderResourceRevision, Candidate->DeformationRevision);
@@ -208,6 +193,59 @@ namespace Durin
 		std::atomic_store_explicit(&DerivedState, std::shared_ptr<const FSplineMeshDerivedState>(Candidate), std::memory_order_release);
 		if (OutError) OutError->clear();
 		return true;
+	}
+
+	auto DSplineMeshComponent::BuildDerivedGeometry(
+		FSplineMeshDerivedState& Candidate, std::string* OutError) const -> bool
+	{
+		const FStaticMeshRenderData* RenderData = StaticMesh ? StaticMesh->GetRenderData() : nullptr;
+		if (!RenderData || RenderData->LODResources.empty()
+			|| StaticMesh->GetRenderResourceStatus().Revision != Candidate.SourceRenderResourceRevision)
+		{
+			if (OutError) *OutError = "SplineMesh source geometry is unavailable or has changed.";
+			return false;
+		}
+		const auto& SourceLOD = RenderData->LODResources[0];
+		const auto& Positions = SourceLOD.VertexBuffers.PositionVertexBuffer.GetPositions();
+		const auto& Indices = SourceLOD.IndexBuffer.GetIndices();
+		Candidate.DeformedLOD0Positions.reserve(Positions.size());
+		for (const FVector3f& Position : Positions)
+		{
+			const FVector3 Deformed = FSplineMeshDeformer::DeformPosition(Candidate.Params, FVector3(Position));
+			if (!Math::IsFinite(Deformed))
+			{
+				if (OutError) *OutError = "SplineMesh deformation produced a non-finite position.";
+				return false;
+			}
+			Candidate.DeformedLOD0Positions.emplace_back(Deformed);
+		}
+		Candidate.LOD0Indices = Indices;
+		for (uint32 Index : Indices)
+		{
+			if (Index >= Candidate.DeformedLOD0Positions.size())
+			{
+				if (OutError) *OutError = "StaticMesh LOD 0 contains an out-of-range index.";
+				return false;
+			}
+		}
+		FStaticMeshLODResources QueryLOD;
+		QueryLOD.VertexBuffers.PositionVertexBuffer.Init(Candidate.DeformedLOD0Positions);
+		QueryLOD.IndexBuffer.Init(Candidate.LOD0Indices);
+		QueryLOD.LocalBounds = Candidate.ConservativeLocalBounds;
+		Candidate.EditorAcceleration = BuildStaticMeshRayQueryAcceleration(QueryLOD);
+		return true;
+	}
+
+	auto DSplineMeshComponent::GetDerivedStateForQueries() -> std::shared_ptr<const FSplineMeshDerivedState>
+	{
+		const auto Published = GetDerivedState();
+		if (!Published || !Published->IsValid()) return Published;
+		if (!Published->DeformedLOD0Positions.empty()) return Published;
+		auto Candidate = std::make_shared<FSplineMeshDerivedState>(*Published);
+		if (!BuildDerivedGeometry(*Candidate, nullptr)) return nullptr;
+		std::atomic_store_explicit(&DerivedState,
+			std::shared_ptr<const FSplineMeshDerivedState>(Candidate), std::memory_order_release);
+		return Candidate;
 	}
 
 	auto DSplineMeshComponent::BuildCollisionGeometry(
