@@ -3,7 +3,7 @@
 #include "DynamicRHI.h"
 #include "RHICommandList.h"
 #include "RHIGlobals.h"
-#include "Threading/AtomicSharedPtr.h"
+#include "Templates/AtomicSharedPtr.h"
 #include "Threading/RunnableThread.h"
 
 namespace Durin
