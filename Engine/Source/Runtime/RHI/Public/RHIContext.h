@@ -12,6 +12,7 @@ namespace Durin
 	class FRHIViewport;
 	class FRHITexture;
 	class FRHIGPUTimingQuery;
+	class FRHIQueueTransfer;
 
 	// Defines the backend command-recording operations consumed by RHI command lists.
 	class IRHICommandContext
@@ -27,6 +28,10 @@ namespace Durin
 		{ requiref(false, "This RHI context does not support explicit GPU submissions."); }
 		virtual auto RHIEndGPUSubmission(const FRHIGPUSubmissionReceipt& Signal) -> void
 		{ requiref(false, "This RHI context does not support explicit GPU submissions."); }
+		virtual auto RHIReleaseQueueOwnership(const std::shared_ptr<FRHIQueueTransfer>& Transfer) -> void
+		{ requiref(false, "This RHI context does not support queue ownership transfers."); }
+		virtual auto RHIAcquireQueueOwnership(const std::shared_ptr<FRHIQueueTransfer>& Transfer) -> void
+		{ requiref(false, "This RHI context does not support queue ownership transfers."); }
 		virtual auto RHIBeginFrame(const FRHIBeginFrameArgs& Args) -> void = 0;
 		virtual auto RHISubmitCommands() -> void = 0;
 		virtual auto RHIEndFrame() -> void = 0;

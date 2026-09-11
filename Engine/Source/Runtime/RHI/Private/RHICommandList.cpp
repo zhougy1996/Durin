@@ -445,6 +445,7 @@ namespace Durin
 		// payload retirement cannot cancel an end marker still waiting for replay.
 		struct FGPUSubmissionRecordingLease final
 		{
+			FRHIQueueId Queue;
 			FRHIGPUSubmissionReceipt Signal = FRHIGPUSubmissionReceipt::CreatePending();
 			~FGPUSubmissionRecordingLease() { Signal.CancelUnresolved(); }
 		};
@@ -463,6 +464,18 @@ namespace Durin
 			std::shared_ptr<FGPUSubmissionRecordingLease> Lease;
 			auto Execute(void* Context) -> void
 			{ GetReplayContext(Context).GetOperationContext("EndGPUSubmission").RHIEndGPUSubmission(Lease->Signal); }
+		};
+
+		struct FQueueOwnershipCommand
+		{
+			std::shared_ptr<FRHIQueueTransfer> Transfer;
+			bool bRelease;
+			auto Execute(void* Context) -> void
+			{
+				auto& RHIContext = GetReplayContext(Context).GetOperationContext("QueueOwnership");
+				if (bRelease) RHIContext.RHIReleaseQueueOwnership(Transfer);
+				else RHIContext.RHIAcquireQueueOwnership(Transfer);
+			}
 		};
 
 		struct FSwitchPipelineCommand
@@ -1689,6 +1702,7 @@ namespace Durin
 		for (const auto& Wait : Desc.Waits)
 			requiref(Wait.GetState() != ERHIGPUSubmissionState::Invalid, "GPU submission has an invalid dependency.");
 		auto Lease = std::make_shared<FGPUSubmissionRecordingLease>();
+		Lease->Queue = Desc.Queue;
 		RecordCommand<FBeginGPUSubmissionCommand>(Desc, Lease);
 		ActiveGPUSubmissionLease = Lease;
 		return Lease->Signal;
@@ -1700,6 +1714,24 @@ namespace Durin
 		RecordCommand<FEndGPUSubmissionCommand>(
 			std::static_pointer_cast<FGPUSubmissionRecordingLease>(ActiveGPUSubmissionLease));
 		ActiveGPUSubmissionLease.reset();
+	}
+
+	auto FRHICommandListBase::ReleaseQueueOwnership(std::shared_ptr<FRHIQueueTransfer> Transfer) -> void
+	{
+		requiref(Transfer && !bInsideRenderPass, "Queue release requires a transfer outside a render pass.");
+		if (ActiveGPUSubmissionLease)
+			requiref(std::static_pointer_cast<FGPUSubmissionRecordingLease>(ActiveGPUSubmissionLease)->Queue == Transfer->GetSourceQueue(),
+				"Queue release must belong to the active GPU submission queue.");
+		RecordCommand<FQueueOwnershipCommand>(std::move(Transfer), true);
+	}
+
+	auto FRHICommandListBase::AcquireQueueOwnership(std::shared_ptr<FRHIQueueTransfer> Transfer) -> void
+	{
+		requiref(Transfer && !bInsideRenderPass, "Queue acquire requires a transfer outside a render pass.");
+		if (ActiveGPUSubmissionLease)
+			requiref(std::static_pointer_cast<FGPUSubmissionRecordingLease>(ActiveGPUSubmissionLease)->Queue == Transfer->GetDestinationQueue(),
+				"Queue acquire must belong to the active GPU submission queue.");
+		RecordCommand<FQueueOwnershipCommand>(std::move(Transfer), false);
 	}
 
 	auto FRHICommandListBase::SwitchPipeline(ERHIPipeline Pipeline) -> void

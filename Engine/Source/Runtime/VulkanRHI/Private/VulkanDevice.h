@@ -15,6 +15,8 @@ namespace Durin::VulkanRHI
 		bool bSupportsPresentation = false;
 	};
 
+	enum class EVulkanComputeQueuePolicy : uint8 { Disabled, Automatic, SameFamily, DedicatedFamily };
+
 	struct FVulkanPhysicalDeviceCandidateInput
 	{
 		std::string DeviceName;
@@ -30,6 +32,8 @@ namespace Durin::VulkanRHI
 		bool bIndependentBlend = false;
 		bool bShaderDrawParameters = false;
 		bool bSynchronization2Feature = false;
+		bool bTimelineSemaphoreFeature = false;
+		EVulkanComputeQueuePolicy ComputeQueuePolicy = EVulkanComputeQueuePolicy::Disabled;
 		bool bSwapchainMaintenanceFeature = false;
 		bool bHasSwapchainMaintenanceInstanceDependencies = false;
 		bool bRequirePortabilitySubset = false;
@@ -43,6 +47,9 @@ namespace Durin::VulkanRHI
 		std::vector<std::string> RejectionReasons;
 		std::vector<std::string> EnabledExtensions;
 		int32 GraphicsPresentQueueFamilyIndex = -1;
+		int32 ComputeQueueFamilyIndex = -1;
+		uint32 ComputeQueueIndex = 0;
+		bool bEnableTimelineSemaphores = false;
 		bool bEnableSynchronization2 = false;
 		bool bEnableSwapchainMaintenance1 = false;
 
@@ -190,22 +197,28 @@ namespace Durin::VulkanRHI
 		auto GetRenderPassManager() const -> FVulkanRenderPassManager&;
 
 		auto GetImmediateContext() const -> FVulkanCommandListContext* { return ImmediateContext; }
+		auto GetQueueContext(FRHIQueueId Id) const -> FVulkanCommandListContext*;
 
 		auto GetPresentQueue() const -> FVulkanQueue* { return PresentQueue; }
 
 		auto SupportsSwapchainMaintenance1() const -> bool { return bSupportsSwapchainMaintenance1; }
 		auto SupportsSynchronization2() const -> bool { return bSupportsSynchronization2; }
+		auto SupportsTimelineSemaphores() const -> bool { return bSupportsTimelineSemaphores; }
+		auto GetComputeQueue() const -> FVulkanQueue* { return ComputeQueue; }
 
 		auto GetGraphicsQueue() const -> FVulkanQueue* { return GraphicsQueue; }
 		auto GetQueueCapabilities() const -> const FRHIQueueCapabilities& { return QueueCapabilities; }
+		auto GetDeviceGeneration() const -> uint64 { return DeviceGeneration; }
+		auto FindQueue(FRHIQueueId Id) const -> FVulkanQueue*;
+		auto PollQueues() const -> void;
+		// Conservative native-deletion floor; payload ownership retains exact users.
+		auto GetLastReservedUses() const -> FRHIRetirementPrerequisites;
 
 		auto GetMemoryManager() -> FVulkanMemoryManager& { return MemoryManager; }
 
 		auto GetFenceManager() -> FVulkanFenceManager& { return FenceManager; }
-		auto GetCompletionTracker() -> FVulkanCompletionTracker&
-		{
-			return *CompletionTracker;
-		}
+		// Graphics-only compatibility path for consumers not yet migrated to use sets.
+		auto GetCompletionTracker() const -> FVulkanCompletionTracker&;
 		auto GetUploadArena() -> FVulkanTransferArena& { return *UploadArena; }
 		auto GetReadbackArena() -> FVulkanTransferArena& { return *ReadbackArena; }
 		auto GetGPUTimingManager() -> FVulkanGPUTimingManager& { return *GPUTimingManager; }
@@ -272,7 +285,11 @@ namespace Durin::VulkanRHI
 		FVulkanMemoryManager MemoryManager;
 
 		FVulkanFenceManager FenceManager;
-		FVulkanCompletionTracker* CompletionTracker = nullptr;
+		const uint64 DeviceGeneration = AllocateRHIDeviceGeneration();
+		bool bSupportsTimelineSemaphores = false;
+		uint32 ComputeQueueIndex = 0;
+		// Owns each physical queue once; role pointers may alias these entries.
+		std::vector<FVulkanQueue*> PhysicalQueues;
 		FVulkanTransferArena* UploadArena = nullptr;
 		FVulkanTransferArena* ReadbackArena = nullptr;
 		FVulkanGPUTimingManager* GPUTimingManager = nullptr;
@@ -316,6 +333,7 @@ namespace Durin::VulkanRHI
 		int32 TransferQueueFamilyIndex = -1;
 
 		FVulkanCommandListContext* ImmediateContext = nullptr;
+		FVulkanCommandListContext* ComputeContext = nullptr;
 
 		EGpuVendorId VendorId = EGpuVendorId::Unknown;
 

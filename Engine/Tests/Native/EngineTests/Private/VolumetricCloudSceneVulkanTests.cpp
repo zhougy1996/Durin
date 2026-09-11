@@ -343,11 +343,22 @@ namespace Durin
 		const std::array<uint32, 6> ExpectedDependencies{11, 11, 21, 21, 21, 21};
 		// RDG also emits entry handoffs for discarded render-pass attachments and
 		// same-state writes; render-pass-owned final transitions do not replace them.
-		const std::array<uint32, 6> ExpectedTextureTransitions{13, 13, 30, 16, 30, 16};
+		// Logical handoffs preserve each of the three directional-shadow layers.
+		const std::array<uint32, 6> ExpectedTextureTransitions{15, 15, 32, 18, 32, 18};
 		for (size_t Index = 0; Index < GSceneCloudGraphCaptures.size(); ++Index)
 		{
 			const auto& Statistics = GSceneCloudGraphCaptures[Index].Statistics;
 			const auto& Capture = GSceneCloudGraphCaptures[Index];
+			const auto Shadow = std::ranges::find(Capture.Resources, "Scene.DirectionalShadow", &FRDGResourceCapture::Name);
+			ASSERT_NE(Shadow, Capture.Resources.end());
+			for (uint16 Layer = 0; Layer < 3; ++Layer)
+				EXPECT_EQ(std::ranges::count_if(Capture.Transitions, [&](const auto& Transition) {
+					return Transition.ResourceId == Shadow->ResourceId
+						&& Transition.Kind == ERDGTransitionKind::RHIBarrier
+						&& Transition.bDiscardContents && !Transition.bFinal
+						&& Transition.TextureRange.FirstArrayLayer == Layer
+						&& Transition.TextureRange.NumArrayLayers == 1;
+				}), 1) << "shadow layer=" << Layer << " capture=" << Index;
 			// Frame-local backing has no external final-state consumer.
 			for (const auto& Transition : Capture.Transitions)
 				if (Transition.bFinal)

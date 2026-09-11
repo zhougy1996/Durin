@@ -21,6 +21,7 @@ namespace Durin::VulkanRHI
 	class FVulkanComputePipelineState;
 	class FVulkanTexture;
 	class FVulkanGPUTimingQuery;
+	class FVulkanQueueTransfer;
 
 	// Translates backend-neutral command-list operations into Vulkan command recording.
 	class FVulkanCommandListContext : public IRHICommandContext
@@ -32,6 +33,10 @@ namespace Durin::VulkanRHI
 		auto RHISetReplayStorageOwner(std::shared_ptr<void> Owner) -> void override;
 		auto RHIBeginGPUSubmission(const FRHIGPUSubmissionDesc& Desc) -> void override;
 		auto RHIEndGPUSubmission(const FRHIGPUSubmissionReceipt& Signal) -> void override;
+		auto RHIReleaseQueueOwnership(const std::shared_ptr<FRHIQueueTransfer>& Transfer) -> void override;
+		auto RHIAcquireQueueOwnership(const std::shared_ptr<FRHIQueueTransfer>& Transfer) -> void override;
+		auto ReleaseQueueOwnership(const std::shared_ptr<FVulkanQueueTransfer>& Transfer) -> void;
+		auto AcquireQueueOwnership(const std::shared_ptr<FVulkanQueueTransfer>& Transfer) -> void;
 
 		auto RHISetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void override;
 

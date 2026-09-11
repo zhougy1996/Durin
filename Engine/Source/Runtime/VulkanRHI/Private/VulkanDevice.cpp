@@ -93,6 +93,30 @@ namespace Durin::VulkanRHI
 				? "no queue family provides graphics, compute, and presentation for the startup surface"
 				: "no queue family provides graphics and compute");
 		if (!Result.IsSuitable()) return Result;
+		Result.ComputeQueueFamilyIndex = Result.GraphicsPresentQueueFamilyIndex;
+		Result.bEnableTimelineSemaphores = Input.bTimelineSemaphoreFeature
+			&& (Input.ApiVersion >= VK_API_VERSION_1_2
+				|| HasExtension(Input.AvailableExtensions, VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME));
+		if (Result.bEnableTimelineSemaphores && Input.ApiVersion < VK_API_VERSION_1_2)
+			Result.EnabledExtensions.emplace_back(VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME);
+		if (Result.bEnableTimelineSemaphores && Input.ComputeQueuePolicy != EVulkanComputeQueuePolicy::Disabled)
+		{
+			if (Input.ComputeQueuePolicy != EVulkanComputeQueuePolicy::SameFamily)
+				for (uint32 Index = 0; Index < Input.QueueFamilies.size(); ++Index)
+				{
+					const auto& Queue = Input.QueueFamilies[Index];
+					if (Queue.QueueCount && (Queue.Flags & vk::QueueFlagBits::eCompute)
+						&& !(Queue.Flags & vk::QueueFlagBits::eGraphics))
+					{
+						Result.ComputeQueueFamilyIndex = static_cast<int32>(Index);
+						break;
+					}
+				}
+			if (Result.ComputeQueueFamilyIndex == Result.GraphicsPresentQueueFamilyIndex
+				&& Input.ComputeQueuePolicy != EVulkanComputeQueuePolicy::DedicatedFamily
+				&& Input.QueueFamilies[Result.GraphicsPresentQueueFamilyIndex].QueueCount > 1)
+				Result.ComputeQueueIndex = 1;
+		}
 
 		Result.EnabledExtensions.emplace_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
 		if (Input.bRequirePortabilitySubset)
@@ -217,11 +241,7 @@ namespace Durin::VulkanRHI
 	{
 		const auto Ticket = Device->GetCompletionTracker().GetLastReservedTicket();
 		FEntry Entry{.Type = Type, .CompletionToken = Ticket.GetPoint().Value, .Handle = Handle};
-		if (Ticket.GetState() != ERHIGPUSubmissionState::Invalid)
-		{
-			const bool bAdded = Entry.Prerequisites.Add(Ticket);
-			require(bAdded);
-		}
+		Entry.Prerequisites = Device->GetLastReservedUses();
 		std::lock_guard<std::mutex> Lock(Mutex);
 		Entries.push_back(std::move(Entry));
 		GVulkanMemoryBaselineTracker.RecordDeferredDeleteEnqueued();
@@ -232,11 +252,7 @@ namespace Durin::VulkanRHI
 		const auto Ticket = Device->GetCompletionTracker().GetLastReservedTicket();
 		FEntry Entry{.Type = Type, .CompletionToken = Ticket.GetPoint().Value,
 			.Handle = Handle, .Allocation = Allocation};
-		if (Ticket.GetState() != ERHIGPUSubmissionState::Invalid)
-		{
-			const bool bAdded = Entry.Prerequisites.Add(Ticket);
-			require(bAdded);
-		}
+		Entry.Prerequisites = Device->GetLastReservedUses();
 		std::lock_guard<std::mutex> Lock(Mutex);
 		Entries.push_back(std::move(Entry));
 		GVulkanMemoryBaselineTracker.RecordDeferredDeleteEnqueued();
@@ -310,7 +326,9 @@ namespace Durin::VulkanRHI
 	{
 		check(InEvaluation.IsSuitable());
 		GraphicsQueueFamilyIndex = InEvaluation.GraphicsPresentQueueFamilyIndex;
-		ComputeQueueFamilyIndex = GraphicsQueueFamilyIndex;
+		ComputeQueueFamilyIndex = InEvaluation.ComputeQueueFamilyIndex;
+		ComputeQueueIndex = InEvaluation.ComputeQueueIndex;
+		bSupportsTimelineSemaphores = InEvaluation.bEnableTimelineSemaphores;
 		TransferQueueFamilyIndex = GraphicsQueueFamilyIndex;
 		DeviceExtensions = std::move(InEvaluation.EnabledExtensions);
 		bSupportsSwapchainMaintenance1 = InEvaluation.bEnableSwapchainMaintenance1;
@@ -338,14 +356,23 @@ namespace Durin::VulkanRHI
 			ComputeQueueFamilyIndex, ComputeQueueFamilyIndex == GraphicsQueueFamilyIndex ? "shared" : "separate", TransferQueueFamilyIndex,
 			TransferQueueFamilyIndex == GraphicsQueueFamilyIndex || TransferQueueFamilyIndex == ComputeQueueFamilyIndex ? "shared" : "separate");
 		MemoryManager.Init(this);
-		CompletionTracker = new FVulkanCompletionTracker(*this);
-		QueueCapabilities.DeviceGeneration = CompletionTracker->GetDeviceGeneration();
+		QueueCapabilities.DeviceGeneration = DeviceGeneration;
 		const auto& GraphicsProperties = QueueFamilyProps[GraphicsQueueFamilyIndex];
 		QueueCapabilities.Queues.push_back({.Id = {0},
 			.OwnershipDomain = static_cast<uint32>(GraphicsQueueFamilyIndex),
 			.bGraphics = true,
 			.bCompute = bool(GraphicsProperties.queueFlags & vk::QueueFlagBits::eCompute),
 			.bCopy = true, .bTimestamps = GraphicsProperties.timestampValidBits != 0});
+		if (ComputeQueue != GraphicsQueue)
+		{
+			const auto& Properties = QueueFamilyProps[ComputeQueueFamilyIndex];
+			QueueCapabilities.Compute = ComputeQueue->GetId();
+			QueueCapabilities.Queues.push_back({.Id = ComputeQueue->GetId(),
+				.OwnershipDomain = static_cast<uint32>(ComputeQueueFamilyIndex),
+				.bGraphics = bool(Properties.queueFlags & vk::QueueFlagBits::eGraphics),
+				.bCompute = true, .bCopy = true, .bTimestamps = Properties.timestampValidBits != 0});
+			// Physical provisioning alone does not authorize production async scheduling.
+		}
 		GPUTimingManager = new FVulkanGPUTimingManager(*this);
 		UploadArena = new FVulkanTransferArena(*this, {
 			.AllocationClass = EVulkanAllocationClassCandidate::TransferUpload,
@@ -359,6 +386,8 @@ namespace Durin::VulkanRHI
 			.DebugName = "VulkanReadbackArena"});
 
 		ImmediateContext = new FVulkanCommandListContext(RHI, *this, GraphicsQueue);
+		if (ComputeQueue != GraphicsQueue)
+			ComputeContext = new FVulkanCommandListContext(RHI, *this, ComputeQueue);
 
 		RenderPassManager = new FVulkanRenderPassManager(*this);
 		PipelineManager = new FVulkanPipelineManager(*this);
@@ -404,11 +433,12 @@ namespace Durin::VulkanRHI
 	auto FVulkanDevice::CreateDevice() -> void
 	{
 		assert(Device == VK_NULL_HANDLE);
-		const float QueuePriority = 1.0f;
-		vk::DeviceQueueCreateInfo QueueCreateInfo;
-		QueueCreateInfo.setQueueFamilyIndex(GraphicsQueueFamilyIndex)
-			.setQueueCount(1)
-			.setPQueuePriorities(&QueuePriority);
+		const std::array<float, 2> QueuePriorities{1.0f, 1.0f};
+		std::vector<vk::DeviceQueueCreateInfo> QueueCreateInfos;
+		QueueCreateInfos.emplace_back(vk::DeviceQueueCreateFlags{}, GraphicsQueueFamilyIndex,
+			ComputeQueueFamilyIndex == GraphicsQueueFamilyIndex ? ComputeQueueIndex + 1 : 1, QueuePriorities.data());
+		if (ComputeQueueFamilyIndex != GraphicsQueueFamilyIndex)
+			QueueCreateInfos.emplace_back(vk::DeviceQueueCreateFlags{}, ComputeQueueFamilyIndex, 1, QueuePriorities.data());
 
 		vk::PhysicalDeviceFeatures DeviceFeatures;
 		const vk::PhysicalDeviceFeatures AvailableFeatures = Gpu.getFeatures();
@@ -424,10 +454,11 @@ namespace Durin::VulkanRHI
 		vk::PhysicalDeviceVulkan13Features Vulkan13Features;
 		vk::PhysicalDeviceSynchronization2FeaturesKHR Synchronization2Features;
 		vk::PhysicalDeviceSwapchainMaintenance1FeaturesEXT SwapchainMaintenanceFeatures;
+		vk::PhysicalDeviceTimelineSemaphoreFeatures TimelineFeatures;
 		std::vector<const char*> DeviceExtensionNames;
 		for (const std::string& Extension : DeviceExtensions)
 			DeviceExtensionNames.push_back(Extension.c_str());
-		DeviceInfo.setQueueCreateInfos(QueueCreateInfo);
+		DeviceInfo.setQueueCreateInfos(QueueCreateInfos);
 		DeviceInfo.setPEnabledFeatures(&DeviceFeatures);
 		DeviceInfo.setEnabledExtensionCount(static_cast<uint32>(DeviceExtensionNames.size()));
 		DeviceInfo.setPpEnabledExtensionNames(DeviceExtensionNames.data());
@@ -456,6 +487,12 @@ namespace Durin::VulkanRHI
 			else if (FeatureTail == &Synchronization2Features) Synchronization2Features.setPNext(&SwapchainMaintenanceFeatures);
 			else Vulkan11Features.setPNext(&SwapchainMaintenanceFeatures);
 		}
+		if (bSupportsTimelineSemaphores)
+		{
+			TimelineFeatures.timelineSemaphore = vk::True;
+			TimelineFeatures.setPNext(&Vulkan11Features);
+			DeviceInfo.setPNext(&TimelineFeatures);
+		}
 
 		try
 		{
@@ -472,23 +509,31 @@ namespace Durin::VulkanRHI
 			throw std::runtime_error(std::format(
 				"Vulkan logical-device creation failed: result={}, queueFamilies={}, extensions={}, error={}",
 				vk::to_string(static_cast<vk::Result>(err.code().value())),
-				1, DeviceExtensions.size(), err.what()));
+				QueueCreateInfos.size(), DeviceExtensions.size(), err.what()));
 		}
 		catch (const std::runtime_error& err)
 		{
 			throw std::runtime_error(std::format(
 				"Vulkan logical-device creation failed: result=unavailable, queueFamilies={}, extensions={}, error={}",
-				1, DeviceExtensions.size(), err.what()));
+				QueueCreateInfos.size(), DeviceExtensions.size(), err.what()));
 		}
 
-		GraphicsQueue = new FVulkanQueue(this, GraphicsQueueFamilyIndex);
+		PhysicalQueues.reserve(2);
+		GraphicsQueue = new FVulkanQueue(this, GraphicsQueueFamilyIndex, 0, {0});
+		PhysicalQueues.push_back(GraphicsQueue);
 		RHI->GetDebugUtils().NameObject(
 			GraphicsQueue->GetHandle(), "Durin.Queue.GraphicsPresent");
 		ComputeQueue = GraphicsQueue;
+		if (ComputeQueueFamilyIndex != GraphicsQueueFamilyIndex || ComputeQueueIndex != 0)
+		{
+			ComputeQueue = new FVulkanQueue(this, ComputeQueueFamilyIndex, ComputeQueueIndex, {1});
+			PhysicalQueues.push_back(ComputeQueue);
+			RHI->GetDebugUtils().NameObject(ComputeQueue->GetHandle(), "Durin.Queue.Compute");
+		}
 		TransferQueue = GraphicsQueue;
 		PresentQueue = GraphicsQueue;
-		DURIN_DEBUG("Vulkan queue selection: family={} shared by graphics, compute, transfer, and presentation.",
-			GraphicsQueueFamilyIndex);
+		DURIN_DEBUG("Vulkan queue selection: graphics=({},0), compute=({},{}), timeline={}; transfer and presentation use graphics.",
+			GraphicsQueueFamilyIndex, ComputeQueueFamilyIndex, ComputeQueueIndex, bSupportsTimelineSemaphores);
 	}
 
 	auto FVulkanDevice::SetupPresentQueue(vk::SurfaceKHR InSurface) -> bool
@@ -506,10 +551,7 @@ namespace Durin::VulkanRHI
 	{
 		CheckVulkanRHIThread();
 		Device.waitIdle();
-		if (CompletionTracker)
-		{
-			CompletionTracker->Poll();
-		}
+		PollQueues();
 	}
 
 	vk::Device FVulkanDevice::GetHandle() const
@@ -571,6 +613,42 @@ namespace Durin::VulkanRHI
 			ImmediateContext->NotifyDeleted_ComputePipeline(PipelineState);
 	}
 
+	auto FVulkanDevice::GetQueueContext(FRHIQueueId Id) const -> FVulkanCommandListContext*
+	{
+		if (GraphicsQueue && GraphicsQueue->GetId() == Id) return ImmediateContext;
+		if (ComputeQueue && ComputeQueue->GetId() == Id) return ComputeContext;
+		return nullptr;
+	}
+
+	auto FVulkanDevice::FindQueue(FRHIQueueId Id) const -> FVulkanQueue*
+	{
+		for (auto* Queue : PhysicalQueues)
+			if (Queue->GetId() == Id) return Queue;
+		return nullptr;
+	}
+
+	auto FVulkanDevice::PollQueues() const -> void
+	{
+		for (auto* Queue : PhysicalQueues) Queue->GetCompletionTracker().Poll();
+	}
+
+	auto FVulkanDevice::GetLastReservedUses() const -> FRHIRetirementPrerequisites
+	{
+		FRHIRetirementPrerequisites Result;
+		for (auto* Queue : PhysicalQueues)
+		{
+			const auto Ticket = Queue->GetCompletionTracker().GetLastReservedTicket();
+			if (Ticket.GetState() != ERHIGPUSubmissionState::Invalid)
+				require(Result.Add(Ticket));
+		}
+		return Result;
+	}
+
+	auto FVulkanDevice::GetCompletionTracker() const -> FVulkanCompletionTracker&
+	{
+		return GraphicsQueue->GetCompletionTracker();
+	}
+
 	auto FVulkanDevice::Destroy() -> void
 	{
 		CheckVulkanRHIThread();
@@ -585,17 +663,19 @@ namespace Durin::VulkanRHI
 		catch (const vk::SystemError& Error)
 		{
 			if (Error.code().value() != static_cast<int>(vk::Result::eErrorDeviceLost)) throw;
-			if (CompletionTracker) CompletionTracker->FailSubmission(true);
+			for (auto* Queue : PhysicalQueues) Queue->GetCompletionTracker().FailSubmission(true);
 		}
-		if (CompletionTracker)
+		for (auto* Queue : PhysicalQueues)
 		{
-			CompletionTracker->WaitForAll();
-			GPUTimingManager->Poll();
-			CompletionTracker->ReleaseAfterDeviceStopped();
+			Queue->GetCompletionTracker().WaitForAll();
+			Queue->GetCompletionTracker().ReleaseAfterDeviceStopped();
 		}
+		if (GPUTimingManager) GPUTimingManager->Poll();
 
 		delete ImmediateContext;
 		ImmediateContext = nullptr;
+		delete ComputeContext;
+		ComputeContext = nullptr;
 
 		for (auto*& Frame : Frames)
 		{
@@ -640,14 +720,12 @@ namespace Durin::VulkanRHI
 		DeferredDeletionQueue.Clear();
 		MemoryManager.Deinit();
 
-		delete GraphicsQueue;
+		for (auto* Queue : PhysicalQueues) delete Queue;
+		PhysicalQueues.clear();
 		GraphicsQueue = nullptr;
 		ComputeQueue = nullptr;
 		TransferQueue = nullptr;
 		PresentQueue = nullptr;
-
-		delete CompletionTracker;
-		CompletionTracker = nullptr;
 
 		FenceManager.Deinit();
 

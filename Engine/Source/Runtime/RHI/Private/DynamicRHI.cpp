@@ -10,6 +10,9 @@ namespace Durin
 		return Unsupported;
 	}
 
+	auto FDynamicRHI::RHICreateQueueTransfer(const FRHIQueueTransferDesc&) -> std::shared_ptr<FRHIQueueTransfer>
+	{ return {}; }
+
 	auto FDynamicRHI::RHIGetCompletionStatus(const FRHIGPUSubmissionTicket& Ticket) const
 		-> ERHIGPUSubmissionState
 	{

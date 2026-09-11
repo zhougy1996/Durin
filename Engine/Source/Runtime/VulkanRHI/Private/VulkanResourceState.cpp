@@ -27,6 +27,119 @@ namespace Durin::VulkanRHI
 		}
 	}
 
+	FVulkanQueueOwnershipTracker::FVulkanQueueOwnershipTracker(uint64 Size)
+		: TotalSize(Size), Intervals{{0, Size}}
+	{
+		require(Size != 0);
+	}
+
+	auto FVulkanQueueOwnershipTracker::InBounds(uint64 Offset, uint64 Size) const -> bool
+	{ return Size != 0 && Offset < TotalSize && Size <= TotalSize - Offset; }
+
+	auto FVulkanQueueOwnershipTracker::CanUse(uint64 Offset, uint64 Size, uint32 Family) const -> bool
+	{
+		if (Family == VK_QUEUE_FAMILY_IGNORED || !InBounds(Offset, Size)) return false;
+		for (const auto& Interval : Intervals)
+			if (Interval.Offset < Offset + Size && Offset < Interval.Offset + Interval.Size
+				&& (Interval.TransferId != 0 || (Interval.Family != VK_QUEUE_FAMILY_IGNORED && Interval.Family != Family)))
+				return false;
+		return true;
+	}
+
+	auto FVulkanQueueOwnershipTracker::IsReleased(uint64 Offset, uint64 Size) const -> bool
+	{
+		if (!InBounds(Offset, Size)) return true;
+		return std::ranges::any_of(Intervals, [&](const auto& Interval) {
+			return Interval.Offset < Offset + Size && Offset < Interval.Offset + Interval.Size && Interval.TransferId != 0;
+		});
+	}
+
+	auto FVulkanQueueOwnershipTracker::Assign(uint64 Offset, uint64 Size, uint32 Family, uint64 TransferId) -> void
+	{
+		std::vector<FInterval> Updated;
+		Updated.reserve(Intervals.size() + 2);
+		auto Append = [&](FInterval Interval) {
+			if (!Updated.empty() && Updated.back().Offset + Updated.back().Size == Interval.Offset
+				&& Updated.back().Family == Interval.Family && Updated.back().TransferId == Interval.TransferId)
+				Updated.back().Size += Interval.Size;
+			else Updated.push_back(Interval);
+		};
+		const auto End = Offset + Size;
+		for (const auto& Interval : Intervals)
+		{
+			const auto IntervalEnd = Interval.Offset + Interval.Size;
+			if (IntervalEnd <= Offset || Interval.Offset >= End) { Append(Interval); continue; }
+			if (Interval.Offset < Offset) Append({Interval.Offset, Offset - Interval.Offset, Interval.Family, Interval.TransferId});
+			const auto Begin = std::max(Offset, Interval.Offset);
+			Append({Begin, std::min(End, IntervalEnd) - Begin, Family, TransferId});
+			if (IntervalEnd > End) Append({End, IntervalEnd - End, Interval.Family, Interval.TransferId});
+		}
+		Intervals = std::move(Updated);
+	}
+
+	auto FVulkanQueueOwnershipTracker::Claim(uint64 Offset, uint64 Size, uint32 Family) -> bool
+	{
+		if (!CanUse(Offset, Size, Family)) return false;
+		if (std::ranges::all_of(Intervals, [&](const auto& Interval) {
+			return Interval.Offset >= Offset + Size || Offset >= Interval.Offset + Interval.Size || Interval.Family == Family;
+		})) return true;
+		Assign(Offset, Size, Family, 0);
+		return true;
+	}
+
+	auto FVulkanQueueOwnershipTracker::Release(uint64 Offset, uint64 Size, uint32 Source,
+		uint32 Destination, uint64 TransferId) -> bool
+	{
+		const FRange Range{Offset, Size};
+		return ReleaseRanges(std::span{&Range, 1}, Source, Destination, TransferId);
+	}
+
+	auto FVulkanQueueOwnershipTracker::Acquire(uint64 Offset, uint64 Size, uint32 Source,
+		uint32 Destination, uint64 TransferId) -> bool
+	{
+		const FRange Range{Offset, Size};
+		return AcquireRanges(std::span{&Range, 1}, Source, Destination, TransferId);
+	}
+
+	auto FVulkanQueueOwnershipTracker::ReleaseRanges(std::span<const FRange> Ranges,
+		uint32 Source, uint32 Destination, uint64 TransferId) -> bool
+	{
+		if (Ranges.empty() || !TransferId || Destination == VK_QUEUE_FAMILY_IGNORED || Transfers.contains(TransferId)) return false;
+		std::vector<FRange> OwnedRanges(Ranges.begin(), Ranges.end());
+		std::ranges::sort(OwnedRanges, {}, &FRange::Offset);
+		uint64 PreviousEnd = 0;
+		for (const auto& Range : OwnedRanges)
+		{
+			if (Range.Offset < PreviousEnd || !CanUse(Range.Offset, Range.Size, Source)) return false;
+			PreviousEnd = Range.Offset + Range.Size;
+		}
+		auto Previous = Intervals;
+		const auto Found = Transfers.emplace(TransferId, FTransfer{std::move(OwnedRanges), Source, Destination}).first;
+		try
+		{
+			for (const auto& Range : Found->second.Ranges) Assign(Range.Offset, Range.Size, Source, TransferId);
+		}
+		catch (...) { Intervals = std::move(Previous); Transfers.erase(Found); throw; }
+		return true;
+	}
+
+	auto FVulkanQueueOwnershipTracker::AcquireRanges(std::span<const FRange> Ranges,
+		uint32 Source, uint32 Destination, uint64 TransferId) -> bool
+	{
+		const auto Found = Transfers.find(TransferId);
+		if (Found == Transfers.end()) return false;
+		const auto& Transfer = Found->second;
+		if (Transfer.Source != Source || Transfer.Destination != Destination) return false;
+		std::vector<FRange> OwnedRanges(Ranges.begin(), Ranges.end());
+		std::ranges::sort(OwnedRanges, {}, &FRange::Offset);
+		if (OwnedRanges != Transfer.Ranges) return false;
+		auto Previous = Intervals;
+		try { for (const auto& Range : OwnedRanges) Assign(Range.Offset, Range.Size, Destination, 0); }
+		catch (...) { Intervals = std::move(Previous); throw; }
+		Transfers.erase(Found);
+		return true;
+	}
+
 	auto MapVulkanResourceState(ERHIAccess Access) -> FVulkanResourceStateMapping
 	{
 		FVulkanResourceStateMapping Result;
@@ -156,7 +269,7 @@ namespace Durin::VulkanRHI
 	}
 
 	FVulkanBufferStateTracker::FVulkanBufferStateTracker(uint64 Size)
-		: Intervals{{0, Size, ERHIAccess::None}}
+		: Intervals{{0, Size, ERHIAccess::None}}, Ownership(Size)
 	{
 		check(Size > 0);
 	}
@@ -164,6 +277,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanBufferStateTracker::Validate(uint64 Offset, uint64 Size,
 		ERHIAccess Expected, ERHIAccess& OutTracked) const -> bool
 	{
+		if (Ownership.IsReleased(Offset, Size)) return false;
 		bool bFound = false;
 		for (const FInterval& Interval : Intervals)
 		{
@@ -186,6 +300,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanBufferStateTracker::Apply(uint64 Offset, uint64 Size, ERHIAccess Access) -> void
 	{
+		requiref(!Ownership.IsReleased(Offset, Size), "Cannot change access while queue ownership is released.");
 		std::vector<FInterval> Result;
 		for (const FInterval& Interval : Intervals)
 		{
@@ -208,6 +323,7 @@ namespace Durin::VulkanRHI
 
 	FVulkanTextureStateTracker::FVulkanTextureStateTracker(uint32 NumMips, uint32 NumLayers)
 		: MipCount(NumMips), LayerCount(NumLayers), States(static_cast<size_t>(NumMips) * NumLayers * 3, ERHIAccess::None)
+		, Ownership(static_cast<uint64>(NumMips) * NumLayers * 3)
 	{
 		check(NumMips > 0 && NumLayers > 0);
 	}
@@ -233,6 +349,7 @@ namespace Durin::VulkanRHI
 				for (uint32 Mip = Range.FirstMip; Mip < Range.FirstMip + Range.NumMips; ++Mip)
 				{
 					const ERHIAccess Tracked = Get(Aspect, Mip, Layer);
+					if (Ownership.IsReleased(GetIndex(Aspect, Mip, Layer), 1)) bValid = false;
 					if (!bFound) { OutTracked = Tracked; bFound = true; }
 					if (Expected != ERHIAccess::Discard && Tracked != Expected) bValid = false;
 				}
@@ -257,12 +374,68 @@ namespace Durin::VulkanRHI
 		return Result;
 	}
 
+	auto FVulkanTextureStateTracker::CanUseOwnership(const FRHITextureSubresourceRange& Range, uint32 Family) const -> bool
+	{
+		if (Range.NumMips == 0 || Range.NumArrayLayers == 0 || Range.FirstMip >= MipCount
+			|| Range.NumMips > MipCount - Range.FirstMip || Range.FirstArrayLayer >= LayerCount
+			|| Range.NumArrayLayers > LayerCount - Range.FirstArrayLayer || Range.Aspects == ERHITextureAspect::None)
+			return false;
+		if (EnumHasAnyFlags(Range.Aspects, ~(ERHITextureAspect::Color | ERHITextureAspect::Depth | ERHITextureAspect::Stencil))) return false;
+		bool bValid = true;
+		ForEachAspect(Range.Aspects, [&](ERHITextureAspect Aspect) {
+			for (uint32 Layer = Range.FirstArrayLayer; Layer < Range.FirstArrayLayer + Range.NumArrayLayers; ++Layer)
+				bValid &= Ownership.CanUse(GetIndex(Aspect, Range.FirstMip, Layer), Range.NumMips, Family);
+		});
+		return bValid;
+	}
+
+	auto FVulkanTextureStateTracker::ClaimOwnership(const FRHITextureSubresourceRange& Range, uint32 Family) -> bool
+	{
+		if (!CanUseOwnership(Range, Family)) return false;
+		ForEachAspect(Range.Aspects, [&](ERHITextureAspect Aspect) {
+			for (uint32 Layer = Range.FirstArrayLayer; Layer < Range.FirstArrayLayer + Range.NumArrayLayers; ++Layer)
+				require(Ownership.Claim(GetIndex(Aspect, Range.FirstMip, Layer), Range.NumMips, Family));
+		});
+		return true;
+	}
+
+	auto FVulkanTextureStateTracker::GetOwnershipRanges(const FRHITextureSubresourceRange& Range) const
+		-> std::vector<FVulkanQueueOwnershipTracker::FRange>
+	{
+		if (Range.NumMips == 0 || Range.NumArrayLayers == 0 || Range.FirstMip >= MipCount
+			|| Range.NumMips > MipCount - Range.FirstMip || Range.FirstArrayLayer >= LayerCount
+			|| Range.NumArrayLayers > LayerCount - Range.FirstArrayLayer || Range.Aspects == ERHITextureAspect::None
+			|| EnumHasAnyFlags(Range.Aspects, ~(ERHITextureAspect::Color | ERHITextureAspect::Depth | ERHITextureAspect::Stencil))) return {};
+		std::vector<FVulkanQueueOwnershipTracker::FRange> Result;
+		ForEachAspect(Range.Aspects, [&](ERHITextureAspect Aspect) {
+			for (uint32 Layer = Range.FirstArrayLayer; Layer < Range.FirstArrayLayer + Range.NumArrayLayers; ++Layer)
+				Result.push_back({GetIndex(Aspect, Range.FirstMip, Layer), Range.NumMips});
+		});
+		return Result;
+	}
+
+	auto FVulkanTextureStateTracker::ReleaseOwnership(const FRHITextureSubresourceRange& Range,
+		uint32 Source, uint32 Destination, uint64 TransferId) -> bool
+	{ return Ownership.ReleaseRanges(GetOwnershipRanges(Range), Source, Destination, TransferId); }
+
+	auto FVulkanTextureStateTracker::AcquireOwnership(const FRHITextureSubresourceRange& Range,
+		uint32 Source, uint32 Destination, uint64 TransferId) -> bool
+	{ return Ownership.AcquireRanges(GetOwnershipRanges(Range), Source, Destination, TransferId); }
+
 	auto FVulkanTextureStateTracker::Apply(const FRHITextureSubresourceRange& Range, ERHIAccess Access) -> void
 	{
+		bool bReleased = false;
+		ForEachAspect(Range.Aspects, [&](ERHITextureAspect Aspect) {
+			for (uint32 Layer = Range.FirstArrayLayer; Layer < Range.FirstArrayLayer + Range.NumArrayLayers; ++Layer)
+				bReleased |= Ownership.IsReleased(GetIndex(Aspect, Range.FirstMip, Layer), Range.NumMips);
+		});
+		requiref(!bReleased, "Cannot change access while queue ownership is released.");
 		ForEachAspect(Range.Aspects, [&](ERHITextureAspect Aspect) {
 			for (uint32 Layer = Range.FirstArrayLayer; Layer < Range.FirstArrayLayer + Range.NumArrayLayers; ++Layer)
 				for (uint32 Mip = Range.FirstMip; Mip < Range.FirstMip + Range.NumMips; ++Mip)
+				{
 					States[GetIndex(Aspect, Mip, Layer)] = Access;
+				}
 		});
 	}
 

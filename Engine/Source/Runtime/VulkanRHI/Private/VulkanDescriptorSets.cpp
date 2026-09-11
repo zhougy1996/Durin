@@ -2,6 +2,7 @@
 
 #include "VulkanDevice.h"
 #include "VulkanCompletion.h"
+#include "VulkanQueue.h"
 #include "VulkanDiagnostics.h"
 #include "VulkanDynamicRHI.h"
 #include "VulkanRHIPrivate.h"
@@ -205,22 +206,15 @@ namespace Durin::VulkanRHI
 		}
 	}
 
-	auto FVulkanDescriptorPool::MarkUsed(FVulkanCompletionToken Token) -> void
-	{
-		check(Token > 0 && NumAllocatedDescriptorSets > 0);
-		LastUseToken = std::max(LastUseToken, Token);
-	}
-
 	auto FVulkanDescriptorPool::Reset(
-		FVulkanCompletionToken CompletedToken) -> void
+		const FRHIRetirementPrerequisites& Uses) -> void
 	{
-		check(LastUseToken <= CompletedToken);
+		require(Uses.IsRetirementEligible());
 		Device->GetHandle().resetDescriptorPool(DescriptorPool);
 		GVulkanMemoryBaselineTracker.RecordDescriptorPoolReset(
 			NumAllocatedDescriptorSets);
 		NumAllocatedDescriptorSets = 0;
 		NumAllocatedDescriptors.clear();
-		LastUseToken = 0;
 	}
 
 	auto FVulkanGlobalDescriptorPool::GetActiveBatch() -> FPoolBatch&
@@ -327,12 +321,10 @@ namespace Durin::VulkanRHI
 	{
 		CheckVulkanRHIThread();
 		check(ActiveBatchIndex == std::numeric_limits<uint32>::max());
-		auto& Tracker = Device.GetCompletionTracker();
-		Tracker.Poll();
-		FVulkanCompletionToken Completed = Tracker.GetCompletedToken();
+		Device.PollQueues();
 		for (uint32 Index = 0; Index < Batches.size(); ++Index)
 		{
-			if (Batches[Index].LastUseToken <= Completed)
+			if (Batches[Index].Uses.IsRetirementEligible())
 			{
 				ActiveBatchIndex = Index;
 				break;
@@ -347,24 +339,36 @@ namespace Durin::VulkanRHI
 		if (ActiveBatchIndex == std::numeric_limits<uint32>::max())
 		{
 			const auto Oldest = std::ranges::min_element(
-				Batches, {}, &FPoolBatch::LastUseToken);
-			check(Oldest != Batches.end() && Oldest->LastUseToken > 0);
-			Tracker.WaitForToken(Oldest->LastUseToken);
-			Completed = Tracker.GetCompletedToken();
+				Batches, {}, &FPoolBatch::RetirementOrder);
+			check(Oldest != Batches.end());
+			for (const auto& Ticket : Oldest->Uses.GetTickets())
+			{
+				if (Ticket.IsRetirementEligible()) continue;
+				auto* Queue = Device.FindQueue(Ticket.GetPoint().Queue);
+				require(Queue && Queue->GetCompletionTracker().WaitForTicket(Ticket, UINT64_MAX)
+					== ERHIGPUWaitResult::Complete);
+			}
 			ActiveBatchIndex = static_cast<uint32>(
 				std::distance(Batches.begin(), Oldest));
 		}
 		FPoolBatch& Batch = GetActiveBatch();
-		check(Batch.LastUseToken <= Completed);
+		require(Batch.Uses.IsRetirementEligible());
 		for (const auto& Pool : Batch.Pools)
 		{
-			Pool->Reset(Completed);
+			Pool->Reset(Batch.Uses);
 		}
-		Batch.LastUseToken = 0;
+		Batch.Uses = {};
 	}
 
-	auto FVulkanGlobalDescriptorPool::RetireUsedPools(
-		FVulkanCompletionToken Token) -> void
+	auto FVulkanGlobalDescriptorPool::MarkUsed(const FRHIGPUSubmissionTicket& Ticket) -> void
+	{
+		CheckVulkanRHIThread();
+		auto* Queue = Device.FindQueue(Ticket.GetPoint().Queue);
+		require(Queue && Queue->GetCompletionTracker().Owns(Ticket));
+		require(GetActiveBatch().Uses.Add(Ticket));
+	}
+
+	auto FVulkanGlobalDescriptorPool::RetireUsedPools() -> void
 	{
 		CheckVulkanRHIThread();
 		if (ActiveBatchIndex == std::numeric_limits<uint32>::max())
@@ -372,16 +376,7 @@ namespace Durin::VulkanRHI
 			return;
 		}
 		FPoolBatch& Batch = GetActiveBatch();
-		bool bUsed = false;
-		for (const auto& Pool : Batch.Pools)
-		{
-			if (Pool->GetAllocatedSets() > 0)
-			{
-				Pool->MarkUsed(Token);
-				bUsed = true;
-			}
-		}
-		Batch.LastUseToken = bUsed ? Token : 0;
+		Batch.RetirementOrder = NextRetirementOrder++;
 		ActiveBatchIndex = std::numeric_limits<uint32>::max();
 	}
 
@@ -391,7 +386,10 @@ namespace Durin::VulkanRHI
 		std::array<FVulkanCompletionToken, FrameInFlight> Result{};
 		for (uint32 Index = 0; Index < Batches.size(); ++Index)
 		{
-			Result[Index] = Batches[Index].LastUseToken;
+			// Compatibility diagnostics project graphics only; never used for reuse.
+			for (const auto& Ticket : Batches[Index].Uses.GetTickets())
+				if (Ticket.GetPoint().Queue == Device.GetGraphicsQueue()->GetId())
+					Result[Index] = Ticket.GetPoint().Value;
 		}
 		return Result;
 	}

@@ -1,4 +1,5 @@
 #pragma once
+#include "RHICompletion.h"
 
 namespace Durin::VulkanRHI
 {
@@ -24,11 +25,18 @@ namespace Durin::VulkanRHI
 		}
 
 		~FVulkanPayload() = default;
+		auto AddCompletionWait(const FRHIGPUSubmissionTicket& Ticket) -> void
+		{
+			// Preserve every success dependency until its authority/state is validated.
+			CompletionWaits.push_back(Ticket);
+		}
 
 	private:
 		FVulkanQueue& Queue;
 		uint64 Token = 0;
 		std::vector<std::shared_ptr<void>> ReplayStorageOwners;
+		std::vector<std::shared_ptr<void>> RetainedTransitions;
+		std::vector<FRHIGPUSubmissionTicket> CompletionWaits;
 
 		std::vector<vk::PipelineStageFlags> WaitFlags; // Pipeline stages to wait on for each wait semaphore. Must match 1:1 with WaitSemaphores.
 		std::vector<FVulkanSemaphore*> WaitSemaphores;

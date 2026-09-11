@@ -11,19 +11,33 @@ CPU executor serial completion and Vulkan queue completion are different
 proofs. An executor serial proves replay and release of executor storage ownership;
 it never proves that the GPU has stopped referencing native resources.
 
-The supported Vulkan topology has one ordered graphics/present queue. Recording
+The default Vulkan topology has one ordered graphics/present queue; diagnostic
+provisioning can add an independent compute queue. Recording
 reserves a monotonically increasing completion token, and successful
 `vkQueueSubmit` publishes that token with one pooled fence and a queue-qualified
 RHI submission ticket. Polling or an exact
 wait advances a contiguous completed-token watermark; it cannot skip an older
 unsignaled submission. Submission failure publishes no completion and remains
-terminal.
+terminal. Each physical `FVulkanQueue` owns its completion tracker; queue roles
+may alias the same queue but cannot create a second authority for it. Device
+generation is allocated once per device and shared by its queue timelines.
+Exact waits route by queue ID and verify ticket ownership, including rejection
+of a foreign timeline claiming identical device/queue coordinates. Polling and
+device teardown enumerate physical queues once. Native payloads may submit only
+through their owning queue. When supported, each queue additionally owns a
+timeline semaphore and signals its ticket value at native submission. Cross-queue
+payload waits require accepted producer tickets from this device; every success
+dependency is validated before native waits are reduced to one maximum per
+producer queue. Binary WSI waits/signals remain distinct and use zero values in
+the mixed timeline submit descriptor. Native queue waits do not substitute for
+resource access/layout barriers or exclusive-family ownership transfers.
 
 Submitted payloads, replay-storage leases, command buffers, and fences stay
 owned by the completion tracker until their ticket retires. Native buffers, images, views, samplers,
 pipelines, layouts, framebuffers, descriptor objects, and other deferred
-handles retain queue-qualified retirement prerequisites. The current one-queue
-path conservatively captures the last reserved ticket; the numeric token is
+handles retain queue-qualified retirement prerequisites. Native deletion
+conservatively captures the last reserved ticket from every physical queue;
+the default topology contains one queue. The numeric graphics token is
 retained for single-queue pool policy and diagnostic lag, not as a cross-queue
 comparison. Frame number, CPU serial, cache age, and object age are
 not GPU-lifetime evidence. Present fences and semaphores remain owned by each
@@ -95,9 +109,15 @@ producer is bounded to eight chunks, including tracked oversize chunks. Public
 `FRHIUniformBufferRange` buffer/offset/size behavior and alignment remain
 unchanged.
 
-Descriptor allocation rotates between at most two pool batches. Pools record
-the maximum end-frame token that may reference their allocated sets and reset
-only after it completes. Command-context descriptor snapshots remain bounded
+Descriptor allocation rotates between at most two pool batches. Every graphics
+or compute descriptor bind, including cache hits, adds its physical queue's
+reserved ticket to the active batch's retirement prerequisites. The batch can
+reset only after every queue prefix is retirement-eligible. Frame retirement
+seals the batch without substituting a graphics token for compute use. If both
+batches remain busy, allocation waits the tickets of the batch retired earliest
+on the CPU; token values from different queues are never compared. The legacy
+test token array projects graphics uses for diagnostics only.
+Command-context descriptor snapshots remain bounded
 and frame-local as binding caches, but clearing a snapshot never authorizes an
 in-flight native pool reset. Command buffers and submission fences return to
 their pools directly from completion-tracker retirement, not from a frame-age

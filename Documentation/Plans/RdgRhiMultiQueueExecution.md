@@ -13,7 +13,12 @@ Stage 0's ownership audit is recorded below; its performance measurement is
 deferred by explicit operator instruction. Stage 1's single-queue correctness
 gates passed in `24ba95e5e`. Stage 2 now includes execution-local physical
 transition preparation and recorded RHI wait/signal submission scopes with
-single-queue Vulkan lowering. The runtime still uses one physical queue; no async compute,
+single-queue Vulkan lowering. Production recording still uses graphics;
+diagnostic Vulkan provisioning supports an independent compute queue and native
+timeline waits. Shared RHI ownership-transfer commands now retain paired
+resource barriers and route them to graphics or diagnostic compute contexts.
+Descriptor batches now track actual binding tickets across physical queues.
+No production async compute,
 split-barrier or transient-aliasing acceptance gate is complete.
 
 On 2026-09-11 the operator authorized continuing implementation and deferring
@@ -194,8 +199,9 @@ Fence polling remains sufficient for the Stage 1 path.
 family 0 has 16 graphics/compute/transfer queues, family 2 has eight
 compute/transfer queues, and family 1 has two transfer queues. Both same-family
 and distinct-family compute integration are therefore candidates on this host;
-enumeration is not execution evidence. The current backend still creates only
-family 0, queue 0. Startup also loaded `VK_LAYER_OBS_HOOK`; that observation
+enumeration is not execution evidence. The default backend creates only
+family 0, queue 0; Stage 3 diagnostic provisioning can also create family 0,
+queue 1 or family 2, queue 0. Startup also loaded `VK_LAYER_OBS_HOOK`; that observation
 alone neither proves nor disproves an active capture workload.
 
 Queue semaphore waits/signals establish execution dependencies. Resource
@@ -537,6 +543,143 @@ dependencies, fallback behavior, and resource retirement.
 Completion: cross-queue correctness and reclamation tests pass, single-queue
 fallback passes, shared API builds pass, and enabled production wiring has an
 identified integration test.
+
+Stage 3 infrastructure checkpoint: physical Vulkan queues now own distinct
+completion trackers, using one device-owned generation and explicit queue IDs
+and native queue indices. Submission validates payload queue ownership;
+completion waits route by the ticket's queue identity and reject foreign
+timeline authority even when numeric coordinates match. Device polling,
+teardown and conservative native-deletion prerequisites enumerate physical
+queues, while graphics-only pool and arena compatibility consumers remain
+explicitly identified for migration. Initialization-failure cleanup handles a
+queue created before the GPU timing manager. This checkpoint still creates
+only the graphics queue and does not satisfy async execution acceptance.
+
+`VulkanRHIIntegrationTests`: 78/78 passed, including initialization-failure
+injection, foreign queue authority rejection and the prior submission/lifetime
+cases. Log:
+`Build/.agent-state/logs/20260911-174822-319269-26236-VulkanRHIIntegrationTests.log`.
+The `all` build passed in 3.22 seconds. Log:
+`Build/.agent-state/logs/20260911-174930-144387-24768-cmake.log`.
+
+Native synchronization checkpoint: candidate evaluation gates timeline
+semaphores on the feature plus Vulkan 1.2 or its Vulkan 1.1 extension. The
+diagnostic `DURIN_VULKAN_COMPUTE_QUEUE` override selects `same-family`,
+`dedicated`, `auto`, or `disabled` (the current default). Automatic selection
+prefers a compute-only family, then the second queue in the graphics family;
+unavailable requested topologies fall back to graphics. Production async
+capability remains disabled pending the remaining lifetime/ownership gates.
+Each physical queue owns a timeline semaphore. Native submission validates
+every producer ticket before deduplicating same-queue waits, includes binary
+WSI semaphore values correctly, and signals the queue-local ticket value.
+
+The native test holds compute behind a host-signaled timeline gate, submits a
+graphics consumer through the production queue submission path, proves that
+the consumer and retirement prerequisites remain blocked, then releases the
+gate and observes both queue completions. This ran successfully on GTX 1060
+with `(family,index)` pairs graphics `(0,0)` / compute `(0,1)` and graphics
+`(0,0)` / compute `(2,0)`. These empty-payload tests prove native queue ordering,
+not resource ownership transfers, shader output equivalence or production RDG
+async execution; those remain outstanding.
+
+- `VulkanRHIIntegrationTests`: 82/82 passed, no skipped tests or validation VUID
+  errors in `Build/.agent-state/logs/20260911-175730-938659-18580-VulkanRHIIntegrationTests.log`.
+- `RendererResourceReloadVulkanTests`: 1/1 passed. Log:
+  `Build/.agent-state/logs/20260911-175814-938207-36356-RendererResourceReloadVulkanTests.log`.
+- `all` build passed in 1.07 seconds. Log:
+  `Build/.agent-state/logs/20260911-175848-274536-36600-cmake.log`.
+
+Ownership-state checkpoint: Vulkan now tracks exclusive byte/subresource
+ownership independently of access/layout state. Buffer ranges and texture
+aspect/mip/layer sets can be released under an identity; only an exact matching
+source/destination/range acquire restores access. Pending ranges reject normal
+validation even for discard. Disjoint ranges and out-of-order independent
+acquires remain valid. Multi-range operations validate before mutation and
+restore metadata on allocation failure. Ordinary transitions check the whole
+batch before native recording and claim ownership after it succeeds. This
+supplies the state machine for the next native paired-barrier implementation;
+it does not yet emit ownership transfers or enable RDG async scheduling.
+
+- `VulkanRHIIntegrationTests`: 88/88 passed, including six ownership tests for
+  exact pairing, pending discard rejection, independent intervals, texture
+  subresource sets, invalid ranges and transactional rejection. Log:
+  `Build/.agent-state/logs/20260911-181200-679494-8088-VulkanRHIIntegrationTests.log`.
+- `RendererResourceReloadVulkanTests`: 1/1 passed. Log:
+  `Build/.agent-state/logs/20260911-181240-372191-37424-RendererResourceReloadVulkanTests.log`.
+- `all` build passed in 1.01 seconds. Log:
+  `Build/.agent-state/logs/20260911-181243-003460-24528-cmake.log`.
+
+Native ownership checkpoint: `FVulkanQueueTransfer` retains all participating
+resources, captures source scopes/layouts once, emits paired release/acquire
+barriers, and commits prepared ownership/access state only after recording.
+Context payloads own the pair through completion; acquire adds the accepted
+producer ticket as a native timeline wait. Distinct-family image pairs use
+identical old/new layouts and queue indices; shared-family pairs change layout
+once and omit family ownership indices. Both synchronization2 and legacy paths
+use the saved portable access mappings. This is a backend protocol checkpoint;
+shared RHI command admission, production RDG routing, and resource-pool use-set
+migration remain outstanding, so Stage 3 is not complete.
+
+The native integration writes a buffer and one texture mip on graphics,
+transfers selected ranges to compute, copies both into mapped readback storage,
+and verifies exact bytes after compute completion. It also checks that
+unselected ranges stay unchanged and payloads retain/release the pair at the
+correct observed completion boundaries. All four combinations of same-family
+and dedicated-family queues with synchronization2 and legacy ownership
+barriers passed on the GTX 1060. These transfer-command tests do not establish
+production asynchronous shader scheduling or final performance acceptance.
+
+- `VulkanRHIIntegrationTests`: 92/92 passed, no skips or validation VUID errors.
+  Log: `Build/.agent-state/logs/20260911-182309-004085-31124-VulkanRHIIntegrationTests.log`.
+- `RendererResourceReloadVulkanTests`: 1/1 passed. Log:
+  `Build/.agent-state/logs/20260911-182345-179695-33248-RendererResourceReloadVulkanTests.log`.
+- `all` build passed in 0.94 seconds. Log:
+  `Build/.agent-state/logs/20260911-182427-644350-32928-cmake.log`.
+
+Shared RHI ownership checkpoint: metadata-only `RHICreateQueueTransfer` creates
+an owning release/acquire handle. Typed commands retain that handle through
+recording, reject render-pass placement and mismatched active submission queues,
+and route Vulkan replay to device-owned physical queue contexts. GPU submission
+drains pending graphics and compute contexts. Acquire still requires explicit
+producer submission; production GPU scope routing, RDG async assignment and
+resource-pool use-set migration remain outstanding.
+
+- Ten renderer contract targets passed, including command order and discarded
+  recording ownership tests. Log:
+  `Build/.agent-state/logs/20260911-183700-615210-24948-ctest.log`.
+- `VulkanRHIIntegrationTests`: 94/94 passed, including public RHI texture
+  ownership round trips through same-family and dedicated-family compute.
+  No skips or validation VUID errors. Log:
+  `Build/.agent-state/logs/20260911-183823-424953-35636-VulkanRHIIntegrationTests.log`.
+- `RendererResourceReloadVulkanTests`: 1/1 passed. Log:
+  `Build/.agent-state/logs/20260911-184134-478986-31560-RendererResourceReloadVulkanTests.log`.
+- Shared API consumer search covered all workspace source/test roots; `all`
+  build passed in 16.04 seconds. Log:
+  `Build/.agent-state/logs/20260911-184143-298600-35688-cmake.log`.
+
+Descriptor retirement checkpoint: every native graphics/compute descriptor
+bind records the physical queue's ticket, including snapshot cache hits. Pool
+batch reuse requires all recorded queue prefixes; bounded pressure selects by
+CPU retirement order and waits queue-qualified tickets. Frame retirement no
+longer assigns graphics completion to the pool, and both provisioned contexts
+clear their descriptor snapshots at frame start. Mapped allocation and frame
+reuse migrations remain outstanding before production async compute.
+
+- `VulkanRHIIntegrationTests`: 94/94 passed. The same-family and dedicated-family
+  native signal-gate fixtures now allocate descriptor pools, complete independent
+  graphics work, verify compute still prevents batch reuse, then verify reuse
+  after both queue prefixes complete. Log:
+  `Build/.agent-state/logs/20260911-184835-225889-28804-VulkanRHIIntegrationTests.log`.
+- `RendererResourceReloadVulkanTests`, `VolumetricCloudSceneVulkanTests`, and
+  `VolumetricCloudVulkanTests`: each passed 1/1. Logs:
+  `Build/.agent-state/logs/20260911-184942-617920-18448-RendererResourceReloadVulkanTests.log`,
+  `Build/.agent-state/logs/20260911-185152-720150-26348-VolumetricCloudSceneVulkanTests.log`,
+  `Build/.agent-state/logs/20260911-185208-563874-36940-VolumetricCloudVulkanTests.log`.
+  The scene test exposed stale transition totals from before logical barrier
+  recording preserved all three shadow layers. Its totals now include those
+  three entry barriers, with separate assertions covering each layer.
+- `all` build passed. Log:
+  `Build/.agent-state/logs/20260911-185231-275819-34652-cmake.log`.
 
 ### Stage 4: Add Split-Barrier Scheduling and Transition Preparation
 

@@ -250,6 +250,13 @@ interrupt surrounding diagnostic and GPU-timing scopes. Existing explicit
 submission, frame pacing and upload-pressure boundaries still submit payloads.
 No cross-queue semaphore behavior is implied by this single-queue mapping.
 
+Explicit `ReleaseQueueOwnership` and `AcquireQueueOwnership` commands retain
+shared transfer pairs through replay and route each side by its physical queue
+identity. They require an accepted producer submission before acquire replay;
+their lifetime and placement rules are defined in
+[RHI resource transitions](RHIResourceTransitions.md). This explicit protocol
+does not change GPU submission scope routing or enable production async compute.
+
 ## Runtime Drain And Diagnostics
 
 `FFrameSync::EndFrame` preserves the two-slot render-command pacing fence and

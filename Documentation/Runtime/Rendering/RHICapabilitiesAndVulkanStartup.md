@@ -103,9 +103,17 @@ failure reports a bounded device-qualified reason set. Logical-device extension
 names, feature chains, and queue create infos retain candidate-owned backing
 storage until native creation completes.
 
-The selected lowest compatible family owns one synchronous queue shared by
-graphics, current compute-backed operations, transfer operations, and
-presentation. No asynchronous queue capability is advertised. A later main or
+The selected lowest compatible family owns the graphics/presentation queue.
+Production command recording, compute-backed operations and transfers use it.
+For native topology qualification, `DURIN_VULKAN_COMPUTE_QUEUE` accepts
+`disabled` (default), `same-family`, `dedicated`, or `auto`. Automatic selection
+prefers a compute-only family, then queue 1 in the graphics family. Forced
+choices fall back to graphics when unavailable. Independent provisioning
+requires the timeline-semaphore feature and either Vulkan 1.2 or the Vulkan
+1.1 timeline extension; feature and extension enablement use the candidate's
+owned feature chain. Provisioned physical IDs appear in `RHIGetQueueCapabilities`,
+but `bIndependentCompute` remains false until production resource-use and
+ownership migration is complete. A later main or
 ImGui detached surface must support that provisioned family.
 `FVulkanDevice::SetupPresentQueue` only validates compatibility; it never creates
 a wrapper for an unprovisioned family. An incompatible surface fails its new

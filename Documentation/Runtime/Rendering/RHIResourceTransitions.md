@@ -94,13 +94,45 @@ acquire and present do not imply queue-family ownership transfer.
 
 ## Boundary and Follow-ups
 
-The current contract is single-queue and does not provide queue-family
-ownership transfer, asynchronous scheduling, render-graph barrier synthesis,
-or GPU-completion retirement. Counted resource views and recorded transfers
+Vulkan additionally tracks exclusive queue-family ownership by buffer byte
+range and texture aspect/mip/layer range. Ordinary barrier recording first
+validates the entire batch against that ownership and claims unowned ranges
+only after recording succeeds. The ownership state machine can release a
+range set under a transfer identity and acquire only the identical set with
+matching source and destination families. Released ranges reject accesses,
+including discard; unrelated ranges retain their prior ownership. Multi-range
+release/acquire rejects mismatches before mutation and rolls metadata back if
+allocation fails. Ownership state is recorded execution order, not GPU
+completion or permission to recycle storage.
+
+`FVulkanQueueTransfer` owns an immutable resource/range description and a
+single-use native release/acquire pair. Source recording captures actual
+access scopes and layouts; both sides retain identical ranges, and distinct
+families retain identical source/destination family indices and old/new
+layouts. Shared-family handoffs omit ownership indices and perform the image
+layout change once, on release. Acquire waits for the accepted release ticket
+through the native queue's timeline dependencies. Synchronization2 and legacy
+lowering use the same saved access mapping. Context payloads retain the pair
+and its resource references until their respective queue completions. State
+changes are prepared on copies before recording and committed afterward, so
+allocation or pairing rejection cannot partially change the tracked resources.
+`RHICreateQueueTransfer` exposes this protocol as a shared `FRHIQueueTransfer`.
+Creation copies metadata and retains resources without submitting GPU work or
+waiting for RHI replay. Invalid or unsupported descriptions return null.
+`ReleaseQueueOwnership` and `AcquireQueueOwnership` record owning references
+outside render passes; within a GPU submission scope, their source or destination
+must match the scope's physical queue. Discarding a recording releases its
+references without replay. Vulkan routes each side to the corresponding
+device-owned context and retains the pair in that context's native payload.
+The producer must be explicitly submitted before acquire replay; acquire adds
+a GPU timeline wait and does not wait on the CPU. Explicit GPU submission drains
+both provisioned contexts. Production RDG scheduling still uses graphics.
+
+Ordinary transition commands still emit full barriers on the graphics queue.
+Counted resource views and recorded transfers
 consume these exact ranges through the separate
 [RHI resource views and transfers](RHIResourceViewsAndTransfers.md) contract. Compute access intent and Vulkan
-mapping are available for the synchronous compute pipeline, but compute PSO
-creation and dispatch remain a separate milestone. New transfer commands and
+mapping are available for the synchronous compute pipeline. New transfer commands and
 views consume these exact range semantics rather than defining another state
 system.
 

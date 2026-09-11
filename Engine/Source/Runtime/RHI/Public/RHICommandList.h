@@ -37,6 +37,8 @@ namespace Durin
 		// Records a signal and owned waits without dispatching or reserving native work.
 		RHI_API auto BeginGPUSubmission(const FRHIGPUSubmissionDesc& Desc) -> FRHIGPUSubmissionReceipt;
 		RHI_API auto EndGPUSubmission() -> void;
+		RHI_API auto ReleaseQueueOwnership(std::shared_ptr<FRHIQueueTransfer> Transfer) -> void;
+		RHI_API auto AcquireQueueOwnership(std::shared_ptr<FRHIQueueTransfer> Transfer) -> void;
 
 		FRHICommandListBase(const FRHICommandListBase&) = delete;
 		auto operator=(const FRHICommandListBase&) -> FRHICommandListBase& = delete;

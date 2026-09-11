@@ -5,6 +5,7 @@
 #include "VulkanContext.h"
 #include "VulkanGenericPlatform.h"
 #include "VulkanCompletion.h"
+#include "VulkanQueueTransfer.h"
 #include "VulkanExtensions.h"
 #include "VulkanDevice.h"
 #include "VulkanGPUTiming.h"
@@ -192,12 +193,32 @@ namespace Durin::VulkanRHI
 		return Device ? Device->GetQueueCapabilities() : FDynamicRHI::RHIGetQueueCapabilities();
 	}
 
+	auto FVulkanDynamicRHI::RHICreateQueueTransfer(const FRHIQueueTransferDesc& Desc) -> std::shared_ptr<FRHIQueueTransfer>
+	{
+		if (!Device || Desc.Source == Desc.Destination || !Device->FindQueue(Desc.Source)
+			|| !Device->FindQueue(Desc.Destination) || (Desc.Buffers.empty() && Desc.Textures.empty())) return {};
+		std::string Error;
+		if (!ValidateBufferTransitions(Desc.Buffers, Error) || !ValidateTextureTransitions(Desc.Textures, Error)) return {};
+		return std::make_shared<FVulkanQueueTransfer>(*Device, Desc.Source, Desc.Destination, Desc.Buffers, Desc.Textures);
+	}
+
+	auto FVulkanDynamicRHI::RHIGetCompletionStatus(const FRHIGPUSubmissionTicket& Ticket) const
+		-> ERHIGPUSubmissionState
+	{
+		if (Device && Ticket.GetPoint().DeviceGeneration == Device->GetDeviceGeneration())
+			if (auto* Queue = Device->FindQueue(Ticket.GetPoint().Queue))
+				if (Queue->GetCompletionTracker().Owns(Ticket)) return Ticket.GetState();
+		return ERHIGPUSubmissionState::Invalid;
+	}
+
 	auto FVulkanDynamicRHI::RHIWaitForCompletion(const FRHIGPUSubmissionTicket& Ticket,
 		uint64 TimeoutNanoseconds) -> ERHIGPUWaitResult
 	{
 		ERHIGPUWaitResult Result = ERHIGPUWaitResult::Invalid;
 		auto Wait = [&] {
-			if (Device) Result = Device->GetCompletionTracker().WaitForTicket(Ticket, TimeoutNanoseconds);
+			if (Device && Ticket.GetPoint().DeviceGeneration == Device->GetDeviceGeneration())
+				if (auto* Queue = Device->FindQueue(Ticket.GetPoint().Queue))
+					Result = Queue->GetCompletionTracker().WaitForTicket(Ticket, TimeoutNanoseconds);
 		};
 		if (IsInRHIThread()) Wait();
 		else GCommandListExecutor.ExecuteSynchronousOperation(false, Wait);
@@ -208,7 +229,7 @@ namespace Durin::VulkanRHI
 	{
 		GCommandListExecutor.ExecuteSynchronousOperation(false, [this] {
 			RHIFlushDeferredResources();
-			Device->GetCompletionTracker().Poll();
+			Device->PollQueues();
 			Device->GetDeferredDeletionQueue().ReleaseResources(false);
 		});
 	}
@@ -221,13 +242,15 @@ namespace Durin::VulkanRHI
 		const uint32 FrameIndex = static_cast<uint32>(
 			Args.FrameNumber % FrameInFlight);
 		GVulkanMemoryBaselineTracker.BeginFrame();
-		Device->GetCompletionTracker().Poll();
+		Device->PollQueues();
 		Device->GetGPUTimingManager().Poll();
 		Device->SetCurrentFrameIndex(FrameIndex);
 		FVulkanFrame& Frame = Device->GetCurrentFrame();
 		Frame.Prepare();
 		Device->GetGlobalDescriptorPool().PrepareForUse();
 		Device->GetImmediateContext()->RHIBeginFrame(Args);
+		if (auto* Compute = Device->GetQueueContext(Device->GetComputeQueue()->GetId()); Compute && Compute != Device->GetImmediateContext())
+			Compute->RHIBeginFrame(Args);
 	}
 
 	auto FVulkanDynamicRHI::RHICreateGPUTimingQuery()
@@ -268,9 +291,9 @@ namespace Durin::VulkanRHI
 		Device->GetImmediateContext()->RHIEndFrame();
 		const FVulkanCompletionToken Token =
 			Device->GetCompletionTracker().GetLastSubmittedToken();
-		Device->GetGlobalDescriptorPool().RetireUsedPools(Token);
+		Device->GetGlobalDescriptorPool().RetireUsedPools();
 		Device->GetDynamicUniformBufferAllocator().RetireProducer(Token);
-		Device->GetCompletionTracker().Poll();
+		Device->PollQueues();
 		Device->GetDeferredDeletionQueue().ReleaseResources();
 	}
 
@@ -682,6 +705,25 @@ namespace Durin::VulkanRHI
 			vk::PhysicalDeviceFeatures2 Features2;
 			Features2.setPNext(&Vulkan11Features);
 			Gpu.getFeatures2(&Features2);
+			if (Properties.apiVersion >= VK_API_VERSION_1_2
+				|| std::ranges::find(Candidate.Input.AvailableExtensions,
+					VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME) != Candidate.Input.AvailableExtensions.end())
+			{
+				vk::PhysicalDeviceTimelineSemaphoreFeatures TimelineFeatures;
+				Features2.setPNext(&TimelineFeatures);
+				Gpu.getFeatures2(&Features2);
+				Candidate.Input.bTimelineSemaphoreFeature = TimelineFeatures.timelineSemaphore == vk::True;
+			}
+			// Provisioning override for topology qualification; RDG async stays gated.
+			if (const char* Policy = std::getenv("DURIN_VULKAN_COMPUTE_QUEUE"))
+			{
+				const std::string_view Value(Policy);
+				if (Value == "auto") Candidate.Input.ComputeQueuePolicy = EVulkanComputeQueuePolicy::Automatic;
+				else if (Value == "same-family") Candidate.Input.ComputeQueuePolicy = EVulkanComputeQueuePolicy::SameFamily;
+				else if (Value == "dedicated") Candidate.Input.ComputeQueuePolicy = EVulkanComputeQueuePolicy::DedicatedFamily;
+				else if (!Value.empty() && Value != "disabled")
+					throw std::runtime_error("Invalid DURIN_VULKAN_COMPUTE_QUEUE policy.");
+			}
 			Candidate.Input.bShaderDrawParameters = Vulkan11Features.shaderDrawParameters == vk::True;
 			if (Properties.apiVersion >= VK_API_VERSION_1_3)
 			{

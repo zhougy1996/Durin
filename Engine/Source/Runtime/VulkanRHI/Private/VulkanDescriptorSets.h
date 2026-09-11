@@ -1,4 +1,5 @@
 #pragma once
+#include "RHICompletion.h"
 
 namespace Durin::VulkanRHI
 {
@@ -253,12 +254,7 @@ namespace Durin::VulkanRHI
 		auto GetDescriptorCapacity(vk::DescriptorType Type) const -> uint32;
 		auto CanAllocate(const FVulkanDescriptorRequirements& Requirements) const -> bool;
 		auto CommitAllocation(const FVulkanDescriptorRequirements& Requirements) -> void;
-		auto MarkUsed(FVulkanCompletionToken Token) -> void;
-		auto Reset(FVulkanCompletionToken CompletedToken) -> void;
-		auto GetLastUseToken() const -> FVulkanCompletionToken
-		{
-			return LastUseToken;
-		}
+		auto Reset(const FRHIRetirementPrerequisites& Uses) -> void;
 
 	private:
 		FVulkanDevice* Device;
@@ -270,7 +266,6 @@ namespace Durin::VulkanRHI
 		uint32 PeakAllocatedDescriptorSets;
 		std::unordered_map<vk::DescriptorType, uint32> DescriptorCapacities;
 		std::unordered_map<vk::DescriptorType, uint32> NumAllocatedDescriptors;
-		FVulkanCompletionToken LastUseToken = 0;
 	};
 
 	// Reuses descriptor sets whose bound-resource identity remains unchanged.
@@ -297,15 +292,19 @@ namespace Durin::VulkanRHI
 		) -> std::vector<vk::DescriptorSet>;
 
 		auto PrepareForUse() -> void;
-		auto RetireUsedPools(FVulkanCompletionToken Token) -> void;
+		auto MarkUsed(const FRHIGPUSubmissionTicket& Ticket) -> void;
+		auto RetireUsedPools() -> void;
 		auto GetBatchTokensForTesting() const
 			-> std::array<FVulkanCompletionToken, FrameInFlight>;
+		auto GetBatchUsesForTesting(uint32 Index) const -> const FRHIRetirementPrerequisites&
+		{ return Batches.at(Index).Uses; }
 
 	private:
 		struct FPoolBatch
 		{
 			std::vector<std::unique_ptr<FVulkanDescriptorPool>> Pools;
-			FVulkanCompletionToken LastUseToken = 0;
+			FRHIRetirementPrerequisites Uses;
+			uint64 RetirementOrder = 0;
 			uint32 ExpansionCount = 0;
 		};
 		auto CreatePool(const FVulkanDescriptorRequirements& Requirements,
@@ -315,6 +314,7 @@ namespace Durin::VulkanRHI
 		FVulkanDevice& Device;
 		std::vector<FPoolBatch> Batches;
 		uint32 ActiveBatchIndex = std::numeric_limits<uint32>::max();
+		uint64 NextRetirementOrder = 1;
 	};
 } // namespace Durin::VulkanRHI
 

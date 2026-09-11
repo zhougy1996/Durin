@@ -2,6 +2,7 @@
 
 #include "RHIAPI.h"
 #include "RHICompletion.h"
+#include "RHIQueueTransfer.h"
 #include "RHIFwd.h"
 #include "RHIInitialization.h"
 #include "RHIPresentation.h"
@@ -212,6 +213,9 @@ namespace Durin
 		virtual auto Init(const FRHIInitializationContext& Context) -> void = 0;
 		virtual auto Shutdown() -> void = 0;
 		RHI_API virtual auto RHIGetQueueCapabilities() const -> const FRHIQueueCapabilities&;
+		// Creates owning metadata without a native submission or an RHI-thread wait.
+		// Unsupported topology or invalid descriptions return null.
+		RHI_API virtual auto RHICreateQueueTransfer(const FRHIQueueTransferDesc& Desc) -> std::shared_ptr<FRHIQueueTransfer>;
 		// Observes published metadata without dispatching CPU work or waiting for GPU.
 		RHI_API virtual auto RHIGetCompletionStatus(const FRHIGPUSubmissionTicket& Ticket) const
 			-> ERHIGPUSubmissionState;

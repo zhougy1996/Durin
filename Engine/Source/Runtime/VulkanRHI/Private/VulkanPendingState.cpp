@@ -3,6 +3,8 @@
 #include "VulkanBuffer.h"
 #include "VulkanCommandBuffer.h"
 #include "VulkanContext.h"
+#include "VulkanQueue.h"
+#include "VulkanCompletion.h"
 #include "VulkanDescriptorSets.h"
 #include "VulkanDevice.h"
 #include "VulkanPipeline.h"
@@ -247,10 +249,14 @@ namespace Durin::VulkanRHI
 			}
 		}
 		if (!CachedDescriptorSets.empty())
+		{
+			InContext.GetCommandBuffer();
+			Device.GetGlobalDescriptorPool().MarkUsed(InContext.GetQueue()->GetCompletionTracker().GetLastReservedTicket());
 			InContext.GetCommandBuffer()->GetHandle().bindDescriptorSets(
 				vk::PipelineBindPoint::eCompute,
 				CurrentPipelineState->GetPipelineLayout(), 0,
 				CachedDescriptorSets, DynamicOffsets);
+		}
 	}
 
 	auto FVulkanPendingComputeState::Dispatch(FVulkanCommandListContext& InContext,
@@ -367,6 +373,7 @@ namespace Durin::VulkanRHI
 		FVulkanGraphicsPipelineDescriptorState::FDescriptorSetsForDraw DescriptorSetsForDraw = CurrentDescriptorState->GetOrCreateDescriptorSetsForDraw(Device, *CurrentPipelineState);
 		if (DescriptorSetsForDraw.DescriptorSets && !DescriptorSetsForDraw.DescriptorSets->empty())
 		{
+			Device.GetGlobalDescriptorPool().MarkUsed(InContext.GetQueue()->GetCompletionTracker().GetLastReservedTicket());
 			CmdBuffer->GetHandle().bindDescriptorSets(
 				vk::PipelineBindPoint::eGraphics,
 				CurrentPipelineState->GetPipelineLayout(),

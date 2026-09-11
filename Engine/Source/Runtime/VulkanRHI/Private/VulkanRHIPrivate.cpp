@@ -12,6 +12,9 @@
 #include "VulkanCompletion.h"
 #include "VulkanContext.h"
 #include "VulkanDynamicRHI.h"
+#include "VulkanQueue.h"
+#include "VulkanQueueTransfer.h"
+#include "VulkanTexture.h"
 
 namespace Durin::VulkanRHI
 {
@@ -362,6 +365,166 @@ namespace Durin::VulkanRHI
 		}
 	}
 
+	auto RunVulkanQueueTransferForTesting(bool bSynchronization2) -> FVulkanQueueTransferTestResult
+	{
+		CheckVulkanRHIThread();
+		auto& RHI = FVulkanDynamicRHI::Get();
+		auto& Device = *RHI.GetDeviceForTesting();
+		auto& Graphics = *Device.GetImmediateContext();
+		auto& SourceQueue = *Device.GetGraphicsQueue();
+		auto& DestinationQueue = *Device.GetComputeQueue();
+		require(&SourceQueue != &DestinationQueue);
+		TRefCountPtr<FVulkanBuffer> Shared = new FVulkanBuffer(Device,
+			FRHIBufferCreateDesc::Create("QueueHandoffBuffer", 64, 4,
+				EBufferUsageFlags::Static | EBufferUsageFlags::SourceCopy | EBufferUsageFlags::DestinationCopy));
+		TRefCountPtr<FVulkanBuffer> Readback = new FVulkanBuffer(Device,
+			FRHIBufferCreateDesc::Create("QueueHandoffReadback", 64, 4,
+				EBufferUsageFlags::Dynamic | EBufferUsageFlags::DestinationCopy | EBufferUsageFlags::KeepCPUAccessible));
+		TRefCountPtr<FVulkanTexture> Texture = new FVulkanTexture(Device,
+			FRHITextureCreateDesc::Create2D("QueueHandoffTexture", 4, 4, EPixelFormat::RGBA8_UNORM)
+				.SetNumMips(2).SetFlags(ETextureCreateFlags::SourceCopy | ETextureCreateFlags::DestinationCopy));
+		FVulkanCommandListContext Compute(&RHI, Device, &DestinationQueue);
+		struct FDrainBeforePoolDestruction
+		{
+			FVulkanDevice& Device;
+			~FDrainBeforePoolDestruction() { try { Device.WaitUtilIdle(); } catch (const vk::SystemError&) {} }
+		} Drain{Device};
+		const FRHITextureSubresourceRange Range{ERHITextureAspect::Color, 1, 1, 0, 1};
+		const std::array InitializeBuffer{FRHIBufferTransition{Shared.GetReference(), 0, 64, ERHIAccess::None, ERHIAccess::TransferWrite}};
+		const std::array InitializeTexture{FRHITextureTransition{Texture.GetReference(), Range, ERHIAccess::None, ERHIAccess::TransferWrite}};
+		Graphics.RHITransitionBuffers(InitializeBuffer);
+		Graphics.RHITransitionTextures(InitializeTexture);
+		Graphics.GetCommandBuffer()->GetHandle().fillBuffer(Shared->GetHandle(), 0, 64, 0x12345678);
+		Graphics.GetCommandBuffer()->GetHandle().clearColorImage(Texture->Image, vk::ImageLayout::eTransferDstOptimal,
+			vk::ClearColorValue(std::array<float, 4>{1, 0, 0, 1}), vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 1, 1, 0, 1));
+		const std::array BufferTransitions{FRHIBufferTransition{Shared.GetReference(), 16, 16, ERHIAccess::TransferWrite, ERHIAccess::TransferRead}};
+		const std::array TextureTransitions{FRHITextureTransition{Texture.GetReference(), Range, ERHIAccess::TransferWrite, ERHIAccess::TransferRead}};
+		auto Transfer = std::make_shared<FVulkanQueueTransfer>(Device, SourceQueue.GetId(), DestinationQueue.GetId(),
+			BufferTransitions, TextureTransitions, bSynchronization2);
+		Graphics.ReleaseQueueOwnership(Transfer);
+		Graphics.RHISubmitCommands();
+		Compute.AcquireQueueOwnership(Transfer);
+		const std::array InitializeReadback{FRHIBufferTransition{Readback.GetReference(), 0, 64, ERHIAccess::None, ERHIAccess::TransferWrite}};
+		Compute.RHITransitionBuffers(InitializeReadback);
+		Compute.GetCommandBuffer()->GetHandle().copyBuffer(Shared->GetHandle(), Readback->GetHandle(), vk::BufferCopy(16, 0, 16));
+		const vk::BufferImageCopy ImageCopy(16, 0, 0, {vk::ImageAspectFlagBits::eColor, 1, 0, 1}, {0, 0, 0}, {2, 2, 1});
+		Compute.GetCommandBuffer()->GetHandle().copyImageToBuffer(Texture->Image, vk::ImageLayout::eTransferSrcOptimal, Readback->GetHandle(), ImageCopy);
+		const std::array HostRead{FRHIBufferTransition{Readback.GetReference(), 0, 64, ERHIAccess::TransferWrite, ERHIAccess::HostRead}};
+		Compute.RHITransitionBuffers(HostRead);
+		Compute.RHISubmitCommands();
+		const auto Completion = DestinationQueue.GetCompletionTracker().GetLastReservedTicket();
+		std::weak_ptr<FVulkanQueueTransfer> Observer = Transfer;
+		Transfer.reset();
+		FVulkanQueueTransferTestResult Result;
+		Result.bRetainedUntilCompletion = !Observer.expired();
+		require(DestinationQueue.GetCompletionTracker().WaitForTicket(Completion, 1'000'000'000) == ERHIGPUWaitResult::Complete);
+		Device.PollQueues();
+		Result.bReleasedAfterCompletion = Observer.expired();
+		Readback->InvalidateMappedMemory(0, 32);
+		const auto* Words = static_cast<const uint32*>(Readback->GetMappedPointer());
+		Result.bBufferMatched = std::ranges::all_of(std::span{Words, 4}, [](uint32 Value) { return Value == 0x12345678; });
+		Result.bTextureMatched = std::ranges::all_of(std::span{Words + 4, 4}, [](uint32 Value) { return Value == 0xff0000ff; });
+		Result.bUnselectedRangesPreserved = Shared->GetStateTracker().GetOwnership().CanUse(0, 16, SourceQueue.GetFamilyIndex())
+			&& Texture->GetStateTracker().Get(ERHITextureAspect::Color, 0, 0) == ERHIAccess::None;
+		return Result;
+	}
+
+	auto RunVulkanCrossQueueWaitForTesting() -> FVulkanCrossQueueWaitTestResult
+	{
+		CheckVulkanRHIThread();
+		auto& Device = *FVulkanDynamicRHI::Get().GetDeviceForTesting();
+		auto& Compute = *Device.GetComputeQueue();
+		auto& Graphics = *Device.GetGraphicsQueue();
+		require(&Compute != &Graphics && Device.SupportsTimelineSemaphores());
+		vk::SemaphoreTypeCreateInfo GateType(vk::SemaphoreType::eTimeline, 0);
+		vk::SemaphoreCreateInfo GateInfo;
+		GateInfo.setPNext(&GateType);
+		const auto Gate = Device.GetHandle().createSemaphore(GateInfo);
+		bool bGateReleased = false;
+		auto ReleaseGate = [&] {
+			if (bGateReleased) return;
+			const vk::SemaphoreSignalInfo Signal(Gate, 1);
+			if (Device.GetGpuProperties().apiVersion >= VK_API_VERSION_1_2)
+				Device.GetHandle().signalSemaphore(Signal);
+			else Device.GetHandle().signalSemaphoreKHR(Signal);
+			bGateReleased = true;
+		};
+		auto Submit = [&](FVulkanQueue& Queue, const FRHIGPUSubmissionTicket& Wait) {
+			auto& Tracker = Queue.GetCompletionTracker();
+			auto Payload = std::make_unique<FVulkanPayload>(Queue, Tracker.ReserveToken());
+			if (Wait.GetState() != ERHIGPUSubmissionState::Invalid)
+			{
+				Payload->AddCompletionWait(Wait);
+				Payload->AddCompletionWait(Wait); // Native fan-in must deduplicate semaphore handles.
+			}
+			std::vector<FVulkanPayload*> Payloads{Payload.get()};
+			try { Queue.SubmitPayloads(Payloads); }
+			catch (...) { if (Payloads.empty()) Payload.release(); throw; }
+			Payload.release(); // The queue tracker owns accepted storage.
+			return Tracker.GetLastReservedTicket();
+		};
+		FVulkanCrossQueueWaitTestResult Result;
+		try
+		{
+			const uint64 GateValue = 1;
+			const vk::PipelineStageFlags Stage = vk::PipelineStageFlagBits::eAllCommands;
+			vk::TimelineSemaphoreSubmitInfo GateTimeline;
+			GateTimeline.setWaitSemaphoreValues(GateValue);
+			vk::SubmitInfo GateSubmit;
+			GateSubmit.setPNext(&GateTimeline).setWaitSemaphores(Gate).setWaitDstStageMask(Stage);
+			Compute.GetHandle().submit(GateSubmit);
+			const auto Producer = Submit(Compute, {});
+			// Graphics completion alone must not reset a pool also used by compute.
+			const auto Independent = Submit(Graphics, {});
+			require(Graphics.GetCompletionTracker().WaitForTicket(Independent, 1'000'000'000) == ERHIGPUWaitResult::Complete);
+			const vk::DescriptorSetLayoutBinding Binding(0, vk::DescriptorType::eSampler, 1, vk::ShaderStageFlagBits::eCompute);
+			const auto Layout = Device.GetHandle().createDescriptorSetLayout(vk::DescriptorSetLayoutCreateInfo().setBindings(Binding));
+			struct FLayoutOwner
+			{
+				FVulkanDevice& Device;
+				vk::DescriptorSetLayout Layout;
+				~FLayoutOwner() { Device.GetHandle().destroyDescriptorSetLayout(Layout); }
+			} LayoutOwner{Device, Layout};
+			const std::array Layouts{Layout};
+			FVulkanDescriptorRequirements Requirements;
+			Requirements.MaxSets = 1;
+			Requirements.DescriptorCounts[vk::DescriptorType::eSampler] = 1;
+			FVulkanGlobalDescriptorPool TestPools(Device);
+			TestPools.PrepareForUse();
+			require(TestPools.AllocateDescriptorSets(Layouts, Requirements).size() == 1);
+			TestPools.MarkUsed(Producer);
+			TestPools.MarkUsed(Independent);
+			TestPools.RetireUsedPools();
+			TestPools.PrepareForUse();
+			Result.bDescriptorReuseBlocked = !TestPools.GetBatchUsesForTesting(0).IsRetirementEligible()
+				&& TestPools.GetBatchUsesForTesting(0).GetTickets().size() == 2;
+			TestPools.RetireUsedPools();
+			const auto Consumer = Submit(Graphics, Producer);
+			const auto Uses = Device.GetLastReservedUses();
+			Result.Producer = Producer.GetPoint();
+			Result.Consumer = Consumer.GetPoint();
+			Result.bConsumerBlocked = Graphics.GetCompletionTracker().WaitForTicket(Consumer, 0) == ERHIGPUWaitResult::Timeout;
+			Result.bRetirementBlocked = !Uses.IsRetirementEligible();
+			ReleaseGate();
+			Result.bCompleted = Graphics.GetCompletionTracker().WaitForTicket(Consumer, 1'000'000'000) == ERHIGPUWaitResult::Complete
+				&& Compute.GetCompletionTracker().WaitForTicket(Producer, 1'000'000'000) == ERHIGPUWaitResult::Complete
+				&& Uses.IsRetirementEligible();
+			TestPools.PrepareForUse();
+			Result.bDescriptorReusedAfterCompletion = TestPools.GetBatchUsesForTesting(0).GetTickets().empty();
+			require(TestPools.AllocateDescriptorSets(Layouts, Requirements).size() == 1);
+			Device.WaitUtilIdle();
+		}
+		catch (...)
+		{
+			ReleaseGate();
+			Device.WaitUtilIdle();
+			Device.GetHandle().destroySemaphore(Gate);
+			throw;
+		}
+		Device.GetHandle().destroySemaphore(Gate);
+		return Result;
+	}
+
 	auto GetLastVulkanSubmissionTicketForTesting() -> FRHIGPUSubmissionTicket
 	{
 		CheckVulkanRHIThread();
@@ -407,7 +570,7 @@ namespace Durin::VulkanRHI
 		FVulkanDevice* Device = FVulkanDynamicRHI::Get().GetDeviceForTesting();
 		const FVulkanCompletionToken Token =
 			Device->GetImmediateContext()->Finalize();
-		Device->GetGlobalDescriptorPool().RetireUsedPools(Token);
+		Device->GetGlobalDescriptorPool().RetireUsedPools();
 		return Token;
 	}
 

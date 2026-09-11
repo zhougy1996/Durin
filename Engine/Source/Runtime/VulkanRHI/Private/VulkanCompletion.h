@@ -15,7 +15,7 @@ namespace Durin::VulkanRHI
 	class FVulkanCompletionTracker
 	{
 	public:
-		explicit FVulkanCompletionTracker(FVulkanDevice& InDevice);
+		FVulkanCompletionTracker(FVulkanDevice& InDevice, uint64 InDeviceGeneration, FRHIQueueId InQueue);
 
 		auto ReserveToken() -> FVulkanCompletionToken;
 		// Allocate ownership storage before vkQueueSubmit; commit never allocates.
@@ -55,7 +55,7 @@ namespace Durin::VulkanRHI
 		FVulkanDevice& Device;
 		// Compatibility observation for existing one-queue arenas and statistics.
 		std::atomic<FVulkanCompletionToken> CompletedToken = 0;
-		const uint64 DeviceGeneration = AllocateRHIDeviceGeneration();
+		const uint64 DeviceGeneration;
 		FRHIGPUQueueTimeline Timeline;
 		mutable std::mutex TicketMutex;
 		FRHIGPUSubmissionTicket LastReservedTicket;

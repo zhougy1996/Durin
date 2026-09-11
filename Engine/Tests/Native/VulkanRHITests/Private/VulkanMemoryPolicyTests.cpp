@@ -19,6 +19,97 @@
 
 namespace Durin::VulkanRHI
 {
+	namespace
+	{
+		auto CheckNativeComputeWait(const char* Policy, bool bSameFamily, std::optional<bool> TransferSync2 = {}, bool bRHITransfer = false) -> void
+		{
+			struct FPolicyScope
+			{
+				std::string Previous = std::getenv("DURIN_VULKAN_COMPUTE_QUEUE")
+					? std::getenv("DURIN_VULKAN_COMPUTE_QUEUE") : "";
+				~FPolicyScope() { _putenv_s("DURIN_VULKAN_COMPUTE_QUEUE", Previous.c_str()); }
+			} PolicyScope;
+			_putenv_s("DURIN_VULKAN_COMPUTE_QUEUE", Policy);
+			FInlineRHITestScope Scope;
+			ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
+			const auto& Queues = GDynamicRHI->RHIGetQueueCapabilities();
+			if (Queues.Compute == Queues.Graphics) GTEST_SKIP() << "Requested independent compute topology unavailable: " << Policy;
+			ASSERT_EQ(Queues.Queues.size(), 2u);
+			EXPECT_EQ(Queues.Queues[0].OwnershipDomain == Queues.Queues[1].OwnershipDomain, bSameFamily);
+			if (bRHITransfer)
+			{
+				auto& Commands = FRHICommandListImmediate::Get();
+				auto Texture = GDynamicRHI->RHICreateTexture(Commands,
+					FRHITextureCreateDesc::Create2D("RHIQueueRoundTrip", 4, 4, EPixelFormat::RGBA8_UNORM)
+						.SetFlags(ETextureCreateFlags::ShaderResource | ETextureCreateFlags::CPUReadback));
+				ASSERT_TRUE(Texture);
+				std::array<uint8, 64> Expected;
+				for (uint32 Index = 0; Index < Expected.size(); ++Index) Expected[Index] = static_cast<uint8>(Index + 31);
+				GDynamicRHI->RHIUpdateTexture2D(Commands, Texture, 0, 0,
+					FUpdateTextureRegion2D(0, 0, 0, 0, 4, 4), 16, std::as_bytes(std::span{Expected}));
+				FRHIQueueTransferDesc Forward{.Source = Queues.Graphics, .Destination = Queues.Compute,
+					.Textures = {FRHITextureTransition::Whole(Texture.GetReference(), ERHIAccess::GraphicsShaderRead, ERHIAccess::ComputeShaderRead)}};
+				FRHIQueueTransferDesc Backward{.Source = Queues.Compute, .Destination = Queues.Graphics,
+					.Textures = {FRHITextureTransition::Whole(Texture.GetReference(), ERHIAccess::ComputeShaderRead, ERHIAccess::GraphicsShaderRead)}};
+				auto ToCompute = GDynamicRHI->RHICreateQueueTransfer(Forward);
+				auto ToGraphics = GDynamicRHI->RHICreateQueueTransfer(Backward);
+				ASSERT_TRUE(ToCompute && ToGraphics);
+				EXPECT_FALSE(GDynamicRHI->RHICreateQueueTransfer({}));
+				Forward.Destination = Forward.Source;
+				EXPECT_FALSE(GDynamicRHI->RHICreateQueueTransfer(Forward));
+				Commands.ReleaseQueueOwnership(ToCompute);
+				Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
+				Commands.AcquireQueueOwnership(ToCompute);
+				Commands.ReleaseQueueOwnership(ToGraphics);
+				Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
+				Commands.AcquireQueueOwnership(ToGraphics);
+				ToCompute.reset(); ToGraphics.reset();
+				FByteBuffer Actual;
+				ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(Commands, Texture, 0, 0, Actual));
+				const auto Bytes = std::as_bytes(std::span{Expected});
+				EXPECT_EQ(Actual, (FByteBuffer(Bytes.begin(), Bytes.end())));
+				return;
+			}
+			if (TransferSync2)
+			{
+				if (*TransferSync2 && !GDynamicRHI->RHIGetCapabilities()->bSupportsSynchronization2)
+					GTEST_SKIP() << "Synchronization2 ownership barriers unavailable";
+				const auto Result = RunVulkanQueueTransferForTesting(*TransferSync2);
+				EXPECT_TRUE(Result.bBufferMatched);
+				EXPECT_TRUE(Result.bTextureMatched);
+				EXPECT_TRUE(Result.bRetainedUntilCompletion);
+				EXPECT_TRUE(Result.bReleasedAfterCompletion);
+				EXPECT_TRUE(Result.bUnselectedRangesPreserved);
+				return;
+			}
+			const auto Result = RunVulkanCrossQueueWaitForTesting();
+			EXPECT_TRUE(Result.bConsumerBlocked);
+			EXPECT_TRUE(Result.bRetirementBlocked);
+			EXPECT_TRUE(Result.bDescriptorReuseBlocked);
+			EXPECT_TRUE(Result.bDescriptorReusedAfterCompletion);
+			EXPECT_TRUE(Result.bCompleted);
+			EXPECT_NE(Result.Producer.Queue, Result.Consumer.Queue);
+			EXPECT_EQ(Result.Producer.DeviceGeneration, Result.Consumer.DeviceGeneration);
+		}
+	}
+
+	TEST(FVulkanCompletionIntegrationTests, SameFamilyComputeQueueWaitsForNativeTimelineSignal)
+	{ CheckNativeComputeWait("same-family", true); }
+	TEST(FVulkanCompletionIntegrationTests, DedicatedComputeFamilyWaitsForNativeTimelineSignal)
+	{ CheckNativeComputeWait("dedicated", false); }
+	TEST(FVulkanCompletionIntegrationTests, SharedRHIQueueTransferRoundTripsOnSameFamily)
+	{ CheckNativeComputeWait("same-family", true, {}, true); }
+	TEST(FVulkanCompletionIntegrationTests, SharedRHIQueueTransferRoundTripsOnDedicatedFamily)
+	{ CheckNativeComputeWait("dedicated", false, {}, true); }
+	TEST(FVulkanCompletionIntegrationTests, SameFamilyOwnershipReadbackMatchesWithSynchronization2)
+	{ CheckNativeComputeWait("same-family", true, true); }
+	TEST(FVulkanCompletionIntegrationTests, DedicatedFamilyOwnershipReadbackMatchesWithSynchronization2)
+	{ CheckNativeComputeWait("dedicated", false, true); }
+	TEST(FVulkanCompletionIntegrationTests, SameFamilyOwnershipReadbackMatchesWithLegacyBarriers)
+	{ CheckNativeComputeWait("same-family", true, false); }
+	TEST(FVulkanCompletionIntegrationTests, DedicatedFamilyOwnershipReadbackMatchesWithLegacyBarriers)
+	{ CheckNativeComputeWait("dedicated", false, false); }
+
 	TEST(FVulkanDescriptorPoolGrowthTests,
 		ScalesEveryDescriptorTypeWithAllocationCapacity)
 	{
@@ -467,6 +558,23 @@ namespace Durin::VulkanRHI
 		EXPECT_EQ(Completed.PendingSubmissionCount, 0u);
 		EXPECT_EQ(Ticket.GetState(), ERHIGPUSubmissionState::Complete);
 		EXPECT_TRUE(Ticket.IsRetirementEligible());
+	}
+
+	TEST(FVulkanCompletionIntegrationTests, MatchingCoordinatesCannotImpersonateAQueueAuthority)
+	{
+		FInlineRHITestScope Scope;
+		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
+		const auto& Queues = GDynamicRHI->RHIGetQueueCapabilities();
+		FRHIGPUQueueTimeline Impostor(Queues.DeviceGeneration, Queues.Graphics);
+		const auto Ticket = Impostor.Reserve();
+		ASSERT_TRUE(Impostor.MarkSubmitted(Ticket));
+		ASSERT_TRUE(Impostor.ObserveCompleted(Ticket));
+		EXPECT_EQ(GDynamicRHI->RHIGetCompletionStatus(Ticket), ERHIGPUSubmissionState::Invalid);
+		EXPECT_EQ(GDynamicRHI->RHIWaitForCompletion(Ticket, 0), ERHIGPUWaitResult::Invalid);
+		FRHIGPUQueueTimeline Unknown(Queues.DeviceGeneration, {UINT32_MAX});
+		const auto UnknownTicket = Unknown.Reserve();
+		EXPECT_EQ(GDynamicRHI->RHIGetCompletionStatus(UnknownTicket), ERHIGPUSubmissionState::Invalid);
+		EXPECT_EQ(GDynamicRHI->RHIWaitForCompletion(UnknownTicket, 0), ERHIGPUWaitResult::Invalid);
 	}
 
 	TEST(FVulkanCompletionIntegrationTests, CompletedTicketCannotAddressAReplacementDevice)

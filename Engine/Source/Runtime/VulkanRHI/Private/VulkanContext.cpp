@@ -18,6 +18,7 @@
 #include "VulkanRHIPrivate.h"
 #include "VulkanResourceState.h"
 #include "VulkanView.h"
+#include "VulkanQueueTransfer.h"
 
 namespace Durin::VulkanRHI
 {
@@ -109,13 +110,13 @@ namespace Durin::VulkanRHI
 	{
 		CheckVulkanRHIThread();
 		requiref(!bInsideGPUSubmission, "GPU submissions cannot nest.");
-		requiref(Desc.Queue == Device.GetQueueCapabilities().Graphics,
+		requiref(Desc.Queue == Queue->GetId(),
 			"This backend context only accepts the graphics queue.");
 		for (const auto& Wait : Desc.Waits)
 		{
 			const auto Ticket = Wait.GetTicket();
 			const auto State = Ticket.GetState();
-			requiref(Device.GetCompletionTracker().Owns(Ticket)
+			requiref(Queue->GetCompletionTracker().Owns(Ticket)
 				&& (State == ERHIGPUSubmissionState::Pending
 					|| State == ERHIGPUSubmissionState::Submitted
 					|| State == ERHIGPUSubmissionState::Complete),
@@ -132,9 +133,46 @@ namespace Durin::VulkanRHI
 		CheckVulkanRHIThread();
 		requiref(bInsideGPUSubmission, "GPU submission end requires a matching begin.");
 		GetPayload();
-		requiref(Signal.Resolve(Device.GetCompletionTracker().GetLastReservedTicket()),
+		requiref(Signal.Resolve(Queue->GetCompletionTracker().GetLastReservedTicket()),
 			"GPU submission signal must be unresolved and live.");
 		bInsideGPUSubmission = false;
+	}
+
+	auto FVulkanCommandListContext::RHIReleaseQueueOwnership(const std::shared_ptr<FRHIQueueTransfer>& Transfer) -> void
+	{
+		auto Native = std::dynamic_pointer_cast<FVulkanQueueTransfer>(Transfer);
+		require(Native);
+		auto* Context = Device.GetQueueContext(Native->GetSourceQueue());
+		require(Context);
+		Context->ReleaseQueueOwnership(Native);
+	}
+
+	auto FVulkanCommandListContext::RHIAcquireQueueOwnership(const std::shared_ptr<FRHIQueueTransfer>& Transfer) -> void
+	{
+		auto Native = std::dynamic_pointer_cast<FVulkanQueueTransfer>(Transfer);
+		require(Native);
+		auto* Context = Device.GetQueueContext(Native->GetDestinationQueue());
+		require(Context);
+		Context->AcquireQueueOwnership(Native);
+	}
+
+	auto FVulkanCommandListContext::ReleaseQueueOwnership(const std::shared_ptr<FVulkanQueueTransfer>& Transfer) -> void
+	{
+		CheckVulkanRHIThread();
+		require(Transfer && PendingAttachmentStates.empty());
+		auto& Payload = GetPayload();
+		Payload.RetainedTransitions.push_back(Transfer);
+		Transfer->RecordRelease(*Queue, GetCommandBuffer()->GetHandle(), Queue->GetCompletionTracker().GetLastReservedTicket());
+	}
+
+	auto FVulkanCommandListContext::AcquireQueueOwnership(const std::shared_ptr<FVulkanQueueTransfer>& Transfer) -> void
+	{
+		CheckVulkanRHIThread();
+		require(Transfer && PendingAttachmentStates.empty());
+		auto& Payload = GetPayload();
+		Payload.RetainedTransitions.push_back(Transfer);
+		Payload.AddCompletionWait(Transfer->GetReleaseTicket());
+		Transfer->RecordAcquire(*Queue, GetCommandBuffer()->GetHandle());
 	}
 
 	auto FVulkanCommandListContext::RHISetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void
@@ -171,6 +209,9 @@ namespace Durin::VulkanRHI
 		{
 			Finalize();
 		}
+		if (Queue == Device.GetGraphicsQueue())
+			if (auto* Compute = Device.GetQueueContext(Device.GetComputeQueue()->GetId()); Compute && Compute != this)
+				Compute->RHISubmitCommands();
 	}
 
 	auto FVulkanCommandListContext::RHIEndFrame() -> void
@@ -178,6 +219,8 @@ namespace Durin::VulkanRHI
 		CheckVulkanRHIThread();
 		FVulkanFrame& Frame = Device.GetCurrentFrame();
 		Frame.SetLastSubmittedToken(Finalize());
+		if (auto* Compute = Device.GetQueueContext(Device.GetComputeQueue()->GetId()); Compute && Compute != this)
+			Compute->RHISubmitCommands();
 
 		Pool->FreeUnusedCommandBuffers(Queue);
 	}
@@ -520,6 +563,9 @@ namespace Durin::VulkanRHI
 		std::span<const FRHIBufferTransition> Transitions) -> void
 	{
 		CheckVulkanRHIThread();
+		for (const auto& Transition : Transitions)
+			requiref(static_cast<FVulkanBuffer*>(Transition.Buffer)->GetStateTracker().GetOwnership().CanUse(
+				Transition.Offset, Transition.Size, Queue->GetFamilyIndex()), "Buffer range is owned by another queue family or awaiting acquire.");
 		vk::CommandBuffer CommandBuffer = GetCommandBuffer()->GetHandle();
 		const FRHICapabilities* Capabilities = RHI->RHIGetCapabilities();
 		check(Capabilities);
@@ -592,6 +638,8 @@ namespace Durin::VulkanRHI
 		}
 		for (const FRHIBufferTransition& Transition : Transitions)
 		{
+			require(static_cast<FVulkanBuffer*>(Transition.Buffer)->GetStateTracker().GetOwnership().Claim(
+				Transition.Offset, Transition.Size, Queue->GetFamilyIndex()));
 			static_cast<FVulkanBuffer*>(Transition.Buffer)->GetStateTracker().Apply(
 				Transition.Offset, Transition.Size, Transition.RequiredAfter);
 		}
@@ -601,6 +649,9 @@ namespace Durin::VulkanRHI
 		std::span<const FRHITextureTransition> Transitions) -> void
 	{
 		CheckVulkanRHIThread();
+		for (const auto& Transition : Transitions)
+			requiref(static_cast<FVulkanTexture*>(Transition.Texture)->GetStateTracker().CanUseOwnership(
+				Transition.Range, Queue->GetFamilyIndex()), "Texture range is owned by another queue family or awaiting acquire.");
 		vk::CommandBuffer CommandBuffer = GetCommandBuffer()->GetHandle();
 		const FRHICapabilities* Capabilities = RHI->RHIGetCapabilities();
 		check(Capabilities);
@@ -685,6 +736,8 @@ namespace Durin::VulkanRHI
 		}
 		for (const FRHITextureTransition& Transition : Transitions)
 		{
+			require(static_cast<FVulkanTexture*>(Transition.Texture)->GetStateTracker().ClaimOwnership(
+				Transition.Range, Queue->GetFamilyIndex()));
 			static_cast<FVulkanTexture*>(Transition.Texture)->GetStateTracker().Apply(
 				Transition.Range, Transition.RequiredAfter);
 		}
@@ -1058,7 +1111,7 @@ namespace Durin::VulkanRHI
 		{
 			Payloads.reserve(1);
 			auto Payload = std::make_unique<FVulkanPayload>(
-				*Queue, Device.GetCompletionTracker().ReserveToken());
+				*Queue, Queue->GetCompletionTracker().ReserveToken());
 			Payloads.push_back(Payload.release());
 		}
 		auto& Payload = *Payloads.back();

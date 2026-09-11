@@ -407,6 +407,50 @@ namespace Durin::VulkanRHI
 		}
 	}
 
+	TEST(FVulkanDeviceCandidateTests, ComputeTopologyPreferenceAndForcedFallbackAreDeterministic)
+	{
+		auto Input = MakePhysicalDeviceCandidateInput();
+		Input.ApiVersion = VK_API_VERSION_1_2;
+		Input.bTimelineSemaphoreFeature = true;
+		Input.QueueFamilies[0].QueueCount = 2;
+		Input.QueueFamilies.push_back({vk::QueueFlagBits::eCompute | vk::QueueFlagBits::eTransfer, 1, false});
+		Input.ComputeQueuePolicy = EVulkanComputeQueuePolicy::Automatic;
+		auto Result = EvaluateVulkanPhysicalDeviceCandidate(Input);
+		ASSERT_TRUE(Result.IsSuitable());
+		EXPECT_EQ(Result.ComputeQueueFamilyIndex, 1);
+		EXPECT_EQ(Result.ComputeQueueIndex, 0u);
+		Input.ComputeQueuePolicy = EVulkanComputeQueuePolicy::SameFamily;
+		Result = EvaluateVulkanPhysicalDeviceCandidate(Input);
+		EXPECT_EQ(Result.ComputeQueueFamilyIndex, 0);
+		EXPECT_EQ(Result.ComputeQueueIndex, 1u);
+		Input.QueueFamilies.pop_back();
+		Input.ComputeQueuePolicy = EVulkanComputeQueuePolicy::DedicatedFamily;
+		Result = EvaluateVulkanPhysicalDeviceCandidate(Input);
+		EXPECT_EQ(Result.ComputeQueueFamilyIndex, 0);
+		EXPECT_EQ(Result.ComputeQueueIndex, 0u);
+		Input.ComputeQueuePolicy = EVulkanComputeQueuePolicy::Automatic;
+		Result = EvaluateVulkanPhysicalDeviceCandidate(Input);
+		EXPECT_EQ(Result.ComputeQueueIndex, 1u);
+		Input.bTimelineSemaphoreFeature = false;
+		Result = EvaluateVulkanPhysicalDeviceCandidate(Input);
+		EXPECT_FALSE(Result.bEnableTimelineSemaphores);
+		EXPECT_EQ(Result.ComputeQueueIndex, 0u);
+	}
+
+	TEST(FVulkanDeviceCandidateTests, TimelineFeatureRequiresCoreVersionOrExtensionAndCanStayDisabled)
+	{
+		auto Input = MakePhysicalDeviceCandidateInput();
+		Input.ApiVersion = VK_API_VERSION_1_1;
+		Input.bTimelineSemaphoreFeature = true;
+		Input.QueueFamilies[0].QueueCount = 2;
+		EXPECT_FALSE(EvaluateVulkanPhysicalDeviceCandidate(Input).bEnableTimelineSemaphores);
+		Input.AvailableExtensions.emplace_back(VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME);
+		const auto Result = EvaluateVulkanPhysicalDeviceCandidate(Input);
+		EXPECT_TRUE(Result.bEnableTimelineSemaphores);
+		EXPECT_NE(std::ranges::find(Result.EnabledExtensions, VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME), Result.EnabledExtensions.end());
+		EXPECT_EQ(Result.ComputeQueueIndex, 0u); // Explicitly disabled policy preserves one queue.
+	}
+
 	TEST(FVulkanDeviceCandidateTests, SelectsLowestCompleteQueueAndOptionalFeatures)
 	{
 		FVulkanPhysicalDeviceCandidateInput Input = MakePhysicalDeviceCandidateInput();

@@ -9,9 +9,11 @@
 
 namespace Durin::VulkanRHI
 {
-	FVulkanCompletionTracker::FVulkanCompletionTracker(FVulkanDevice& InDevice)
+	FVulkanCompletionTracker::FVulkanCompletionTracker(FVulkanDevice& InDevice,
+		uint64 InDeviceGeneration, FRHIQueueId InQueue)
 		: Device(InDevice)
-		, Timeline(DeviceGeneration, FRHIQueueId{0})
+		, DeviceGeneration(InDeviceGeneration)
+		, Timeline(DeviceGeneration, InQueue)
 	{
 	}
 

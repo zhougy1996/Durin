@@ -154,6 +154,26 @@ namespace Durin::VulkanRHI
 	};
 
 	VULKANRHI_API auto GetLastVulkanSubmissionTicketForTesting() -> FRHIGPUSubmissionTicket;
+	struct FVulkanCrossQueueWaitTestResult
+	{
+		bool bConsumerBlocked = false;
+		bool bRetirementBlocked = false;
+		bool bDescriptorReuseBlocked = false;
+		bool bDescriptorReusedAfterCompletion = false;
+		bool bCompleted = false;
+		FRHIGPUCompletionPoint Producer;
+		FRHIGPUCompletionPoint Consumer;
+	};
+	VULKANRHI_API auto RunVulkanCrossQueueWaitForTesting() -> FVulkanCrossQueueWaitTestResult;
+	struct FVulkanQueueTransferTestResult
+	{
+		bool bBufferMatched = false;
+		bool bTextureMatched = false;
+		bool bRetainedUntilCompletion = false;
+		bool bReleasedAfterCompletion = false;
+		bool bUnselectedRangesPreserved = false;
+	};
+	VULKANRHI_API auto RunVulkanQueueTransferForTesting(bool bSynchronization2) -> FVulkanQueueTransferTestResult;
 	VULKANRHI_API auto GetVulkanCompletionTestStats()
 		-> FVulkanCompletionTestStats;
 	struct FVulkanBackendPoolTestStats

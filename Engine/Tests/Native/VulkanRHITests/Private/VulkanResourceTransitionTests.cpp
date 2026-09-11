@@ -64,6 +64,110 @@ namespace Durin::VulkanRHI
 		};
 	} // namespace
 
+	TEST(FVulkanQueueOwnershipTests, RequiresExactAcquireAndPreservesUntransferredRanges)
+	{
+		FVulkanQueueOwnershipTracker State(64);
+		ASSERT_TRUE(State.Claim(0, 64, 0));
+		ASSERT_TRUE(State.Release(16, 16, 0, 2, 1));
+		EXPECT_FALSE(State.CanUse(16, 16, 0));
+		EXPECT_FALSE(State.CanUse(16, 16, 2));
+		EXPECT_FALSE(State.Acquire(16, 8, 0, 2, 1));
+		EXPECT_FALSE(State.Acquire(16, 16, 0, 1, 1));
+		EXPECT_FALSE(State.Acquire(16, 16, 1, 2, 1));
+		EXPECT_FALSE(State.Acquire(16, 16, 0, 2, 2));
+		EXPECT_FALSE(State.Release(16, 16, 0, 2, 2));
+		EXPECT_FALSE(State.Claim(16, 16, 0));
+		EXPECT_TRUE(State.CanUse(0, 16, 0));
+		EXPECT_TRUE(State.CanUse(32, 32, 0));
+		ASSERT_TRUE(State.Acquire(16, 16, 0, 2, 1));
+		EXPECT_FALSE(State.Acquire(16, 16, 0, 2, 1));
+		EXPECT_TRUE(State.CanUse(16, 16, 2));
+		EXPECT_FALSE(State.CanUse(0, 64, 0));
+		EXPECT_FALSE(State.CanUse(0, 64, 2));
+		ASSERT_TRUE(State.Release(16, 16, 2, 0, 3));
+		ASSERT_TRUE(State.Acquire(16, 16, 2, 0, 3));
+		EXPECT_TRUE(State.CanUse(0, 64, 0));
+	}
+
+	TEST(FVulkanQueueOwnershipTests, IndependentTransfersAndInvalidRangesDoNotMutateOwnership)
+	{
+		FVulkanQueueOwnershipTracker State(64);
+		ASSERT_TRUE(State.Release(0, 16, 0, 2, 1));
+		ASSERT_TRUE(State.Release(32, 16, 0, 1, 2));
+		EXPECT_FALSE(State.Release(16, 16, 0, 1, 1));
+		EXPECT_FALSE(State.Release(63, UINT64_MAX, 0, 1, 3));
+		EXPECT_FALSE(State.Claim(64, 1, 0));
+		EXPECT_FALSE(State.Claim(0, 0, 0));
+		EXPECT_FALSE(State.Claim(16, 16, VK_QUEUE_FAMILY_IGNORED));
+		ASSERT_TRUE(State.Acquire(32, 16, 0, 1, 2));
+		EXPECT_TRUE(State.CanUse(32, 16, 1));
+		EXPECT_TRUE(State.IsReleased(0, 16));
+		EXPECT_TRUE(State.Claim(16, 16, 2));
+		EXPECT_FALSE(State.Claim(16, 16, 0));
+	}
+
+	TEST(FVulkanQueueOwnershipTests, ReleasedBufferRejectsEvenDiscardUntilAcquire)
+	{
+		FVulkanBufferStateTracker State(64);
+		State.Apply(0, 64, ERHIAccess::TransferWrite);
+		ASSERT_TRUE(State.GetOwnership().Release(16, 16, 0, 2, 1));
+		ERHIAccess Tracked = ERHIAccess::None;
+		EXPECT_FALSE(State.Validate(16, 16, ERHIAccess::Discard, Tracked));
+		EXPECT_TRUE(State.Validate(0, 16, ERHIAccess::TransferWrite, Tracked));
+		ASSERT_TRUE(State.GetOwnership().Acquire(16, 16, 0, 2, 1));
+		EXPECT_TRUE(State.Validate(16, 16, ERHIAccess::TransferWrite, Tracked));
+	}
+
+	TEST(FVulkanQueueOwnershipTests, TextureOwnershipSeparatesAspectsLayersAndMips)
+	{
+		FVulkanTextureStateTracker State(3, 2);
+		const FRHITextureSubresourceRange Depth{ERHITextureAspect::Depth, 1, 1, 0, 1};
+		ASSERT_TRUE(State.ClaimOwnership(Depth, 0));
+		EXPECT_FALSE(State.ClaimOwnership(Depth, 2));
+		EXPECT_FALSE(State.ClaimOwnership({ERHITextureAspect::Depth, 0, 3, 0, 2}, 2));
+		EXPECT_TRUE(State.ClaimOwnership({ERHITextureAspect::Depth, 0, 1, 0, 1}, 1));
+		EXPECT_TRUE(State.ClaimOwnership({ERHITextureAspect::Depth, 1, 1, 1, 1}, 2));
+		EXPECT_TRUE(State.ClaimOwnership({ERHITextureAspect::Stencil, 1, 1, 0, 1}, 2));
+		EXPECT_FALSE(State.ClaimOwnership({ERHITextureAspect::Color, 2, UINT32_MAX, 0, 1}, 0));
+	}
+
+	TEST(FVulkanQueueOwnershipTests, TextureAcquireMustCoverTheEntireReleasedSubresourceSet)
+	{
+		FVulkanTextureStateTracker State(3, 2);
+		const auto Aspects = ERHITextureAspect::Depth | ERHITextureAspect::Stencil;
+		const FRHITextureSubresourceRange Range{Aspects, 1, 2, 0, 2};
+		State.Apply(Range, ERHIAccess::TransferWrite);
+		ASSERT_TRUE(State.ClaimOwnership(Range, 0));
+		ASSERT_TRUE(State.ReleaseOwnership(Range, 0, 2, 1));
+		ERHIAccess Tracked = ERHIAccess::None;
+		EXPECT_FALSE(State.Validate(Range, ERHIAccess::Discard, Tracked));
+		EXPECT_FALSE(State.ClaimOwnership(Range, 0));
+		EXPECT_FALSE(State.ClaimOwnership(Range, 2));
+		EXPECT_FALSE(State.AcquireOwnership({ERHITextureAspect::Depth, 1, 2, 0, 2}, 0, 2, 1));
+		EXPECT_FALSE(State.AcquireOwnership({Aspects, 1, 2, 0, 1}, 0, 2, 1));
+		EXPECT_FALSE(State.AcquireOwnership({Aspects, 0, 3, 0, 2}, 0, 2, 1));
+		EXPECT_TRUE(State.ClaimOwnership({Aspects, 0, 1, 0, 2}, 1));
+		ASSERT_TRUE(State.AcquireOwnership(Range, 0, 2, 1));
+		EXPECT_TRUE(State.ClaimOwnership(Range, 2));
+		EXPECT_TRUE(State.Validate(Range, ERHIAccess::TransferWrite, Tracked));
+		EXPECT_FALSE(State.AcquireOwnership(Range, 0, 2, 1));
+	}
+
+	TEST(FVulkanQueueOwnershipTests, RejectedMultiRangeReleaseIsTransactional)
+	{
+		FVulkanQueueOwnershipTracker State(64);
+		ASSERT_TRUE(State.Claim(32, 16, 2));
+		const std::array Ranges{FVulkanQueueOwnershipTracker::FRange{0, 16},
+			FVulkanQueueOwnershipTracker::FRange{32, 16}};
+		EXPECT_FALSE(State.ReleaseRanges(Ranges, 0, 1, 3));
+		EXPECT_TRUE(State.Claim(0, 16, 1));
+		EXPECT_FALSE(State.IsReleased(32, 16));
+		const std::array Overlap{FVulkanQueueOwnershipTracker::FRange{16, 16},
+			FVulkanQueueOwnershipTracker::FRange{24, 8}};
+		EXPECT_FALSE(State.ReleaseRanges(Overlap, 0, 1, 4));
+		EXPECT_TRUE(State.Claim(16, 16, 2));
+	}
+
 	TEST(FVulkanResourceTransitionMappingTests, SeparatesGraphicsAndComputeShaderIntent)
 	{
 		const auto Graphics = MapVulkanResourceState(ERHIAccess::GraphicsShaderRead);

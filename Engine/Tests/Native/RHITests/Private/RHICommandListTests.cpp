@@ -100,6 +100,10 @@ namespace Durin
 		class FRecordingCommandContext final : public IRHICommandContext
 		{
 		public:
+			auto RHIReleaseQueueOwnership(const std::shared_ptr<FRHIQueueTransfer>& Transfer) -> void override
+			{ Operations.emplace_back("ReleaseQueueOwnership"); }
+			auto RHIAcquireQueueOwnership(const std::shared_ptr<FRHIQueueTransfer>& Transfer) -> void override
+			{ Operations.emplace_back("AcquireQueueOwnership"); }
 			bool bRetainGPUStorage = false;
 			std::vector<std::shared_ptr<void>> GPUStorage;
 			auto RHISetReplayStorageOwner(std::shared_ptr<void> Owner) -> void override
@@ -465,6 +469,41 @@ namespace Durin
 
 		EXPECT_TRUE(bObservedDuringReplay);
 		EXPECT_TRUE(bDestroyed);
+	}
+
+	TEST(FRHICommandListTests, QueueTransferCommandsOwnTheirPairAndPreserveReplayOrder)
+	{
+		struct FTransfer : FRHIQueueTransfer { FTransfer() : FRHIQueueTransfer({0}, {1}) {} };
+		FRecordingCommandContext Context;
+		FRHICommandListExecutor Executor(Context);
+		auto Pair = std::make_shared<FTransfer>();
+		std::weak_ptr<FRHIQueueTransfer> Observer = Pair;
+		auto& Commands = Executor.GetImmediateCommandList();
+		Commands.ReleaseQueueOwnership(Pair);
+		Commands.AcquireQueueOwnership(Pair);
+		Pair.reset();
+		EXPECT_FALSE(Observer.expired());
+		EXPECT_TRUE(Context.Operations.empty());
+		Executor.Submit({}, ERHISubmitFlags::None);
+		EXPECT_EQ(Context.Operations, (std::vector<std::string>{"ReleaseQueueOwnership", "AcquireQueueOwnership"}));
+		EXPECT_TRUE(Observer.expired());
+	}
+
+	TEST(FRHICommandListTests, DiscardedQueueTransferCommandsReleaseTheirPairWithoutReplay)
+	{
+		struct FTransfer : FRHIQueueTransfer { FTransfer() : FRHIQueueTransfer({0}, {1}) {} };
+		std::weak_ptr<FRHIQueueTransfer> Observer;
+		{
+			FRHICommandList Commands;
+			auto Pair = std::make_shared<FTransfer>();
+			Observer = Pair;
+			Commands.ReleaseQueueOwnership(Pair);
+			Commands.AcquireQueueOwnership(Pair);
+			Commands.FinishRecording();
+			Pair.reset();
+			EXPECT_FALSE(Observer.expired());
+		}
+		EXPECT_TRUE(Observer.expired());
 	}
 
 	TEST(FRHICommandListTests, BackendRetainsStorageAcrossCPUCompletionWithoutSubmission)
