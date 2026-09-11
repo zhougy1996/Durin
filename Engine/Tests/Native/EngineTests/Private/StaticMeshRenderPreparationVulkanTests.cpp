@@ -275,11 +275,12 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 	auto* StaticMesh = Durin::NewObject<Durin::DStaticMesh>(nullptr, "CpuOnlyStaticMesh");
 	EXPECT_FALSE(StaticMesh->HasPendingRenderResourceInitialization());
 	std::string Error;
-	ASSERT_TRUE(StaticMesh->TryReplaceRenderData(MakeRenderData(), {
+	StaticMesh->ReplaceRenderData(MakeRenderData(), {
 		{.Name = Durin::FName("Section0"), .SourceMaterialIndex = 0},
 		{.Name = Durin::FName("Section1"), .SourceMaterialIndex = 1},
 		{.Name = Durin::FName("Section2"), .SourceMaterialIndex = 2},
-		{.Name = Durin::FName("Section3"), .SourceMaterialIndex = 3}}, Error)) << Error;
+		{.Name = Durin::FName("Section3"), .SourceMaterialIndex = 3}});
+	ASSERT_TRUE(StaticMesh->GetRenderDataUpdateError().empty()) << StaticMesh->GetRenderDataUpdateError();
 	ASSERT_EQ(Durin::GDynamicRHI, nullptr);
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
 	Durin::RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
@@ -374,11 +375,12 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(AuthoredPath, AuthoredMesh));
 	ASSERT_NE(AuthoredMesh, nullptr);
 	std::string Error;
-	ASSERT_TRUE(AuthoredMesh->TryReplaceRenderData(MakeRenderData(), {
+	AuthoredMesh->ReplaceRenderData(MakeRenderData(), {
 			{.Name = Durin::FName("Section0"), .SourceMaterialIndex = 0},
 			{.Name = Durin::FName("Section1"), .SourceMaterialIndex = 1},
 			{.Name = Durin::FName("Section2"), .SourceMaterialIndex = 2},
-			{.Name = Durin::FName("Section3"), .SourceMaterialIndex = 3}}, Error)) << Error;
+			{.Name = Durin::FName("Section3"), .SourceMaterialIndex = 3}});
+	ASSERT_TRUE(AuthoredMesh->GetRenderDataUpdateError().empty()) << AuthoredMesh->GetRenderDataUpdateError();
 
 	Durin::FCookContext CookContext(
 		Durin::ECookTargetPlatform::Win64,
@@ -1571,6 +1573,56 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 	Snapshot = {};
 	Geometries = {};
 	RendererLifecycle.Shutdown();
+	ShutdownRenderingThread();
+	RHIExit();
+}
+
+TEST(FStaticMeshRenderPreparationVulkanTests, ReplacementRetiresOldResourcesAndGpuFailureCanRetry)
+{
+	using namespace Durin;
+	if (!GIsGameThreadIdInitialized)
+	{
+		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+		GIsGameThreadIdInitialized = true;
+	}
+	InitializeDObjectSystem();
+	auto* Mesh = NewObject<DStaticMesh>(nullptr, "ReplacementGpuFailure");
+	auto Replace = [&] {
+		Mesh->ReplaceRenderData(MakeRenderData(), {
+			{.Name = FName("Section0"), .SourceMaterialIndex = 0},
+			{.Name = FName("Section1"), .SourceMaterialIndex = 1},
+			{.Name = FName("Section2"), .SourceMaterialIndex = 2},
+			{.Name = FName("Section3"), .SourceMaterialIndex = 3}});
+	};
+	Replace();
+	ASSERT_TRUE(Mesh->GetRenderDataUpdateError().empty());
+	FModuleManager::Get().LoadModule("RenderCore");
+	RHIInit(Tests::GetVulkanEngineTestInitializationContext());
+	ASSERT_NE(GDynamicRHI, nullptr);
+	InitRenderingThread();
+	Mesh->InitResources();
+	FlushRenderingCommands();
+	ASSERT_TRUE(Mesh->GetRenderResourceStatus().IsReady());
+	const auto Revision = Mesh->GetRenderResourceStatus().Revision;
+	VulkanRHI::ArmVulkanCreateFailure(VulkanRHI::EVulkanCreateFailurePoint::Buffer);
+	Replace();
+	FlushRenderingCommands();
+	EXPECT_TRUE(Mesh->GetRenderDataUpdateError().empty());
+	ASSERT_NE(Mesh->GetRenderData(), nullptr);
+	EXPECT_EQ(Mesh->GetRenderResourceStatus().Readiness, EStaticMeshRenderResourceReadiness::Failed);
+	EXPECT_GT(Mesh->GetRenderResourceStatus().Revision, Revision);
+	EXPECT_EQ(Mesh->GetRenderData()->GetNumInitializedResources(), 0u);
+	Mesh->InitResources();
+	FlushRenderingCommands();
+	EXPECT_TRUE(Mesh->GetRenderResourceStatus().IsReady());
+	Mesh->ReplaceRenderData(nullptr, {});
+	EXPECT_EQ(Mesh->GetRenderData(), nullptr);
+	EXPECT_FALSE(Mesh->GetRenderDataUpdateError().empty());
+	EXPECT_EQ(Mesh->RequestRenderDataAndResources().CpuPhase, ECookedMeshCpuPhase::Failed);
+	EXPECT_FALSE(Mesh->GetRenderResourceStatus().IsReady());
+	MarkAsGarbage(Mesh);
+	CollectGarbage();
+	FlushRenderingCommands();
 	ShutdownRenderingThread();
 	RHIExit();
 }

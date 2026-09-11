@@ -467,8 +467,9 @@ TEST(FPhysicsWorldTests, StaticMeshCollisionPolicyRepublishesSharedSceneGeometry
 	ImportedMesh.SourceMaterialIndex = 0;
 	ASSERT_TRUE(Durin::BuildStaticMeshSynchronously(
 		*Mesh, std::move(Imported), Error)) << Error;
-	ASSERT_TRUE(Mesh->TryUpdateCollisionSourceMode(
-		Durin::EBodySetupCollisionSourceMode::TriangleMeshFromLOD0, Error)) << Error;
+	Mesh->SetCollisionSourceMode(Durin::EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
+	ASSERT_EQ(Mesh->GetCollisionBuildStatus(), Durin::EStaticMeshCollisionBuildStatus::Ready)
+		<< Mesh->GetCollisionBuildError();
 	auto AddMesh = [&](Durin::DWorld& World, std::string_view Name) {
 		auto* Actor = World.SpawnActor<Durin::AStaticMeshActor>(Durin::FName(Name));
 		Actor->GetStaticMeshComponent()->SetStaticMesh(Mesh);
@@ -496,16 +497,28 @@ TEST(FPhysicsWorldTests, StaticMeshCollisionPolicyRepublishesSharedSceneGeometry
 		{Bounds->Max.x + 1.0, Center.y, Center.z}, Durin::ECollisionChannel::Visibility));
 	EXPECT_EQ(Hit.Component, First);
 
-	ASSERT_TRUE(Mesh->TryUpdateCollisionQueryPolicy(
-		Durin::EBodySetupCollisionQueryPolicy::SimpleOnly, Error)) << Error;
+	Mesh->SetCollisionQueryPolicy(Durin::EBodySetupCollisionQueryPolicy::SimpleOnly);
+	ASSERT_EQ(Mesh->GetCollisionBuildStatus(), Durin::EStaticMeshCollisionBuildStatus::Ready)
+		<< Mesh->GetCollisionBuildError();
 	EXPECT_FALSE(First->GetPhysicsActorHandle().IsValid());
 	EXPECT_FALSE(Second->GetPhysicsActorHandle().IsValid());
 	EXPECT_EQ(First->GetCollisionProfileName(), Durin::CollisionProfile::WorldStatic);
-	ASSERT_TRUE(Mesh->TryUpdateCollisionQueryPolicy(
-		Durin::EBodySetupCollisionQueryPolicy::ComplexOnly, Error)) << Error;
+	Mesh->SetCollisionQueryPolicy(Durin::EBodySetupCollisionQueryPolicy::ComplexOnly);
+	ASSERT_EQ(Mesh->GetCollisionBuildStatus(), Durin::EStaticMeshCollisionBuildStatus::Ready)
+		<< Mesh->GetCollisionBuildError();
 	EXPECT_TRUE(First->GetPhysicsActorHandle().IsValid());
 	EXPECT_TRUE(Second->GetPhysicsActorHandle().IsValid());
 	EXPECT_EQ(First->GetPublishedBodySetupRevision(), Mesh->GetBodySetup()->GetRevision());
+
+	Mesh->ReplaceRenderData(nullptr, {});
+	EXPECT_FALSE(Mesh->GetRenderDataUpdateError().empty());
+	EXPECT_EQ(Mesh->GetRenderData(), nullptr);
+	EXPECT_FALSE(First->GetPhysicsActorHandle().IsValid());
+	EXPECT_FALSE(Second->GetPhysicsActorHandle().IsValid());
+	ASSERT_TRUE(Durin::BuildStaticMeshSynchronously(*Mesh, Mesh->GetSource(), Error)) << Error;
+	EXPECT_TRUE(Mesh->GetRenderDataUpdateError().empty());
+	EXPECT_TRUE(First->GetPhysicsActorHandle().IsValid());
+	EXPECT_TRUE(Second->GetPhysicsActorHandle().IsValid());
 
 	First->SetStaticMesh(nullptr);
 	EXPECT_FALSE(First->GetPhysicsActorHandle().IsValid());

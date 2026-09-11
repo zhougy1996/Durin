@@ -156,16 +156,25 @@ namespace Durin
 		FStaticMeshSource Source, FStaticMeshBuildResult Product, std::string& OutError,
 		bool bMarkPackageDirty) -> bool
 	{
-		if (!Mesh.TryReplaceSourceRenderData(std::move(Source),
+		Mesh.ReplaceSourceRenderData(std::move(Source),
 			std::move(Product.RenderData), std::move(Product.MaterialSlots),
-			Product.NormalizedSize, OutError)) return false;
-		if (Product.bSlotMetadataChanged)
+			Product.NormalizedSize);
+		const bool bPublishedRenderData = Mesh.GetRenderDataUpdateError().empty();
+		if (bPublishedRenderData && Product.bSlotMetadataChanged)
 		{
 			ReportAssetLoadMutation(&Mesh, "Engine.StaticMesh.MaterialSlotsV1",
 				"Static mesh material-slot identity metadata was upgraded.",
 				EAssetLoadMutationKind::Upgrade);
 		}
-		if (bMarkPackageDirty || Product.bSlotMetadataChanged) Mesh.MarkPackageDirty();
+		// Source settings can change even if the subsequent build fails.
+		if (bMarkPackageDirty || (bPublishedRenderData && Product.bSlotMetadataChanged)) Mesh.MarkPackageDirty();
+		OutError = Mesh.GetRenderDataUpdateError();
+		if (!OutError.empty()) return false;
+		if (Mesh.GetCollisionBuildStatus() == EStaticMeshCollisionBuildStatus::Failed)
+		{
+			OutError = Mesh.GetCollisionBuildError();
+			return false;
+		}
 		return true;
 	}
 

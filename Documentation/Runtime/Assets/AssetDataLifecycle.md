@@ -251,9 +251,15 @@ Metadata-only warm loads do not read authored geometry; a miss acquires an
 immutable decoded geometry handle before calling the recipe. Fresh source
 initialization encodes once and seeds the same handle without a decode round trip.
 The authored replacement is passed separately to application; build results do
-not own source storage. `TryReplaceSourceRenderData` and `TryReplaceRenderData`
-validate candidates before rollback-safe resource replacement; Engine
-application separately decides dirtying and material-slot upgrade notification.
+not own source storage. Direct `ReplaceSourceRenderData` and `ReplaceRenderData`
+operations cancel superseded work and invalidate old render/collision data before
+validation. They log CPU replacement failures and expose `GetRenderDataUpdateError`;
+CPU residency and GPU readiness remain separate. Valid source settings are retained
+even when replacement fails. Collision rebuild failure leaves the new render data
+usable with no derived collision. Engine application separately decides dirtying
+and material-slot upgrade notification; requested dirtying also applies when a
+direct build fails after accepting source settings. The async authored-candidate path retains
+its separate preparation/commit contract for import and reimport.
 Cook reports existing payload capture rather than inferring an old build origin
 from the asset.
 `AssetForgeBuiltins` owns only explicit import/reimport providers and editor

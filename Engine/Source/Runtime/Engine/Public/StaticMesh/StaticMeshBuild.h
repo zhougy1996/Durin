@@ -150,7 +150,7 @@ namespace Durin
 	// Capture on the asset's owner thread before dispatching detached work.
 	ENGINE_API auto CaptureStaticMeshReconciliation(const DStaticMesh& Mesh)
 		-> FStaticMeshReconciliationSnapshot;
-	// Applies on the owner thread; candidate failure preserves existing resources.
+	// Applies directly on the owner thread without rollback; reports CPU/collision build failure.
 	ENGINE_API auto ApplyStaticMeshBuildResult(DStaticMesh& Mesh,
 		FStaticMeshSource Source, FStaticMeshBuildResult Product, std::string& OutError,
 		bool bMarkPackageDirty = true) -> bool;

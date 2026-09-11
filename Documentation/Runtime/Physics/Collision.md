@@ -84,9 +84,16 @@ returns the same identity; successful collision-relevant setters invalidate
 geometry. Material, thumbnail, and render-readiness changes do not.
 The BodySetup source-mode and query-policy setters require declared enum values
 and return void; external input is validated before calling them.
-The mesh-level `TryUpdateCollisionSourceMode` and `TryUpdateCollisionQueryPolicy`
-operations retain recoverable diagnostics because they also prepare collision
-geometry. Preparation occurs before installing the new mode, policy, or resources.
+The mesh-level `SetCollisionSourceMode` and `SetCollisionQueryPolicy` accept
+configuration, invalidate derived collision, and rebuild when CPU data is resident.
+Without CPU data, configuration is retained for later publication. `RebuildCollision`
+explicitly retries; absent CPU data is a failure unless compilation is pending.
+Failure keeps the new configuration with no derived collision, leaves rendering
+usable, and logs the asset path and cause. `GetCollisionBuildStatus` reports
+Unavailable, Pending, Ready (including disabled derived collision), or Failed;
+`GetCollisionBuildError` retains the direct build error until invalidation or a
+successful publication. Async compilation retains its own terminal diagnostics.
+Setting an unchanged value does not retry; callers use `RebuildCollision`.
 
 `DStaticMesh` retains its setup and a detached canonical LOD 0 collision snapshot
 independently from render data. Collision is opt-in: `None`, `SimpleHull`, or
@@ -97,7 +104,7 @@ continues to derive its authored Box setup from verified LOD 0 bounds.
 
 Editor derived data uses the separate `StaticMeshCollision/Objects` namespace
 and a key containing collision builder/schema/platform versions, exact source
-identity, import-space settings, mode/policy, and canonical bytes. Builds and
+identity, import-space settings, mode/policy, and canonical bytes. Async authored builds and
 reimports replace render data, BodySetup state, collision resources, and revisions
 transactionally. Engine-owned operation results retain cache origin, key,
 payload bytes, and persistence diagnostics; neither asset nor physics owner

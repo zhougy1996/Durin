@@ -557,6 +557,8 @@ namespace Durin
 			PublishRenderResourceState(CandidateState);
 			if (OldRenderData) RetireStaticMeshRenderData(OldRenderData);
 		}
+		RenderDataUpdateError.clear();
+		CollisionBuildError.clear();
 		OutError.clear();
 		return true;
 	}
@@ -687,30 +689,66 @@ namespace Durin
 		return Mesh;
 	}
 
-	auto DStaticMesh::TryReplaceSourceRenderData(
+	auto DStaticMesh::InvalidateRenderData() -> void
+	{
+		CancelStaticMeshCompilation(*this);
+		if (auto* Manager = GetCookedMeshLoadManager()) Manager->Cancel(MakeObjectHandle(this));
+		CookedLoadGeneration.fetch_add(1, std::memory_order_acq_rel);
+		// Superseded cooked bytes must not restore geometry after a failed authored replacement.
+		CookedRenderData = {};
+		CookedCollisionData = {};
+		CookedLoadPhase.store(ECookedMeshCpuPhase::Failed, std::memory_order_release);
+		RetireStaticMeshRenderData(RenderData);
+		RenderData.reset();
+		PublishRenderResourceState(EStaticMeshRenderResourceState::Uninitialized);
+		CollisionBuildError.clear();
+		if (BodySetup) BodySetup->ClearCollisionGeometry();
+		// The qualified Box shape is derived from render bounds, unlike authored primitives.
+		if (BodySetup && BodySetup->GetCollisionSourceMode() == EBodySetupCollisionSourceMode::None
+			&& GetObjectPath().starts_with("/Engine/Models/Box")) BodySetup = nullptr;
+	}
+
+	auto DStaticMesh::ReplaceSourceRenderData(
 		FStaticMeshSource InSource,
 		std::unique_ptr<FStaticMeshRenderData> InRenderData,
 		std::vector<FMeshMaterialSlotDefinition> InMaterialSlots,
-		float InNormalizedSize, std::string& OutError) -> bool
+		float InNormalizedSize) -> void
 	{
 		CheckStaticMeshUpdateThread();
-		if (!InSource.IsValid()
-			|| !std::isfinite(InNormalizedSize) || InNormalizedSize <= 0.0f)
+		if (!InSource.IsValid() || !std::isfinite(InNormalizedSize) || InNormalizedSize <= 0.0f)
 		{
-			OutError = "StaticMesh replacement requires valid imported values and normalization.";
-			return false;
+			FStaticMeshRenderStateRecreateContext RecreateContext(this);
+			InvalidateRenderData();
+			RenderDataUpdateError = "StaticMesh replacement requires valid imported values and normalization.";
+			DURIN_ERROR("Static mesh '{}' source replacement failed: {}", GetObjectPath(), RenderDataUpdateError);
+			return;
 		}
-		if (!TryReplaceRenderData(std::move(InRenderData), std::move(InMaterialSlots), OutError))
-			return false;
 		NormalizedSize = InNormalizedSize;
-		// Assets retain canonical storage. Operation handles and other source copies remain valid.
 		InSource.ReleaseGeometry();
 		Source = std::move(InSource);
-		NotifyStaticMeshCompilationMutation(*this);
-		return true;
+		ReplaceRenderData(std::move(InRenderData), std::move(InMaterialSlots));
 	}
 
-	auto DStaticMesh::TryReplaceRenderData(
+	auto DStaticMesh::ReplaceRenderData(
+		std::unique_ptr<FStaticMeshRenderData> InRenderData,
+		std::vector<FMeshMaterialSlotDefinition> InMaterialSlots) -> void
+	{
+		CheckStaticMeshUpdateThread();
+		FStaticMeshRenderStateRecreateContext RecreateContext(this);
+		const bool bInitializeResources = RenderData != nullptr;
+		InvalidateRenderData();
+		RenderDataUpdateError.clear();
+		if (!ValidateAndReplaceRenderData(std::move(InRenderData), std::move(InMaterialSlots), RenderDataUpdateError))
+		{
+			DURIN_ERROR("Static mesh '{}' render-data replacement failed: {}", GetObjectPath(), RenderDataUpdateError);
+			return;
+		}
+		CookedLoadPhase.store(ECookedMeshCpuPhase::CpuReady, std::memory_order_release);
+		RebuildCollisionData(false);
+		if (bInitializeResources) InitResources();
+	}
+
+	auto DStaticMesh::ValidateAndReplaceRenderData(
 		std::unique_ptr<FStaticMeshRenderData> InRenderData,
 		std::vector<FMeshMaterialSlotDefinition> InMaterialSlots,
 		std::string& OutError) -> bool
@@ -740,7 +778,7 @@ namespace Durin
 			}
 		FStaticMeshPayloadData ValidatedPayload;
 		if (!MakeStaticMeshPayloadData(*InRenderData, ValidatedPayload, OutError)
-			|| !CommitRenderDataCandidate(std::move(InRenderData), &InMaterialSlots, OutError))
+			|| !CommitRenderDataCandidate(std::move(InRenderData), &InMaterialSlots, OutError, false))
 			return false;
 		NotifyStaticMeshCompilationMutation(*this);
 		OutError.clear();

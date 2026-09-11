@@ -90,6 +90,9 @@ namespace Durin
 
 	struct FStaticMeshRenderData;
 
+	// Owner-thread readiness of derived collision for the current mesh configuration.
+	enum class EStaticMeshCollisionBuildStatus : uint8 { Unavailable, Pending, Ready, Failed };
+
 	// Owns imported mesh metadata, material slots, and rebuilt render resources.
 	DCLASS()
 	class DStaticMesh : public DObject
@@ -124,15 +127,16 @@ namespace Durin
 		ENGINE_API auto GetLOD0VolumetricBounds() const -> std::optional<FBox>;
 		ENGINE_API auto GetBodySetup() const -> DBodySetup*;
 		ENGINE_API auto SetBodySetup(DBodySetup* InBodySetup) -> bool;
-		// May build collision geometry; preparation failures leave the installed state unchanged.
-		ENGINE_API auto TryUpdateCollisionSourceMode(
-			EBodySetupCollisionSourceMode Mode,
-			std::string& OutError) -> bool;
-		// May rebuild collision geometry for the new query policy before publishing it.
-		ENGINE_API auto TryUpdateCollisionQueryPolicy(
-			EBodySetupCollisionQueryPolicy Policy,
-			std::string& OutError) -> bool;
-		ENGINE_API auto RebuildCollision(std::string& OutError) -> bool;
+		// Accepts declared enum values on the owner thread, invalidates old collision and
+		// rebuilds from resident CPU data. Otherwise a later CPU publication builds collision.
+		// Build failure retains the new configuration with no derived collision and logs once.
+		ENGINE_API auto SetCollisionSourceMode(EBodySetupCollisionSourceMode Mode) -> void;
+		ENGINE_API auto SetCollisionQueryPolicy(EBodySetupCollisionQueryPolicy Policy) -> void;
+		// Explicit retry; missing CPU data is reported unless compilation is pending.
+		ENGINE_API auto RebuildCollision() -> void;
+		ENGINE_API auto GetCollisionBuildStatus() const -> EStaticMeshCollisionBuildStatus;
+		// Last direct collision build error; async compilation has separate diagnostics.
+		auto GetCollisionBuildError() const -> const std::string& { return CollisionBuildError; }
 		// Creates the qualified built-in Box setup from verified CPU bounds; arbitrary meshes remain collision-free.
 		ENGINE_API auto EnsureQualifiedBoxBodySetup() -> DBodySetup*;
 		// Queues GPU initialization for resident CPU data; query GetRenderResourceStatus()
@@ -170,20 +174,23 @@ namespace Durin
 	public:
 
 		ENGINE_API static auto CreateDebugTriangle(DObject* Outer = nullptr) -> DStaticMesh*;
-		// Validates CPU values and prepares render/collision resources before replacement.
-		// Authored inputs and package dirty state are unchanged.
-		ENGINE_API auto TryReplaceRenderData(
+		// Owner-thread replacement invalidates old render/collision data first. Failure
+		// leaves CPU data unavailable and logs a diagnostic; no rollback is performed.
+		// Collision failure alone leaves the new CPU render data usable.
+		// Does not change source metadata or dirty the package. GPU readiness is separate.
+		ENGINE_API auto ReplaceRenderData(
 			std::unique_ptr<FStaticMeshRenderData> InRenderData,
-			std::vector<FMeshMaterialSlotDefinition> InMaterialSlots,
-			std::string& OutError) -> bool;
-		// Validates detached values before atomic render/collision replacement.
-		// Does not dirty the package or retain build-operation diagnostics.
-		ENGINE_API auto TryReplaceSourceRenderData(
+			std::vector<FMeshMaterialSlotDefinition> InMaterialSlots) -> void;
+		// Also installs valid source settings before rebuilding, retaining them on failure.
+		// Package dirtying remains the operation owner's responsibility.
+		ENGINE_API auto ReplaceSourceRenderData(
 			FStaticMeshSource InSource,
 			std::unique_ptr<FStaticMeshRenderData> InRenderData,
 			std::vector<FMeshMaterialSlotDefinition> InMaterialSlots,
-			float InNormalizedSize,
-			std::string& OutError) -> bool;
+			float InNormalizedSize) -> void;
+		// Last direct CPU replacement error, cleared by successful CPU publication.
+		// Async compilation and GPU initialization expose their own status/diagnostics.
+		auto GetRenderDataUpdateError() const -> const std::string& { return RenderDataUpdateError; }
 		// Requires an existing slot index on the owner thread. Null clears its default.
 		ENGINE_API auto SetMaterialSlotDefaultMaterial(
 			uint32 SlotIndex, DMaterialInterface* Material) -> void;
@@ -232,6 +239,10 @@ namespace Durin
 			EStaticMeshRenderResourceState State) -> bool;
 		auto AdvanceRenderResourceRevision() -> void;
 		auto ReleaseResources() -> void;
+		auto InvalidateRenderData() -> void;
+		auto ValidateAndReplaceRenderData(std::unique_ptr<FStaticMeshRenderData> InRenderData,
+			std::vector<FMeshMaterialSlotDefinition> InMaterialSlots, std::string& OutError) -> bool;
+		auto RebuildCollisionData(bool bAllowUnavailable) -> void;
 		auto CommitRenderDataCandidate(
 			std::unique_ptr<FStaticMeshRenderData> InRenderData,
 			std::vector<FMeshMaterialSlotDefinition>*
@@ -270,6 +281,8 @@ namespace Durin
 		TObjectPtr<DBodySetup> BodySetup;
 
 		std::unique_ptr<FStaticMeshRenderData> RenderData;
+		std::string RenderDataUpdateError;
+		std::string CollisionBuildError;
 		FBulkData CookedRenderData;
 		FBulkData CookedCollisionData;
 		FRenderCommandFence ReleaseResourcesFence;

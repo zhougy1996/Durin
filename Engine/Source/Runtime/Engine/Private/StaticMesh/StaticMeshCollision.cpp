@@ -1,6 +1,9 @@
 #include "StaticMesh/StaticMesh.h"
 
 #include "Math/Operations.h"
+#include "CoreGlobals.h"
+#include "Logging/LogMacros.h"
+#include "Threading/RunnableThread.h"
 #include "Physics/BodySetup.h"
 #include "StaticMesh/StaticMeshBuild.h"
 #include "StaticMesh/StaticMeshCompilation.h"
@@ -19,6 +22,7 @@ namespace Durin
 		if (BodySetup == InBodySetup) return true;
 		FStaticMeshRenderStateRecreateContext RecreateContext(this);
 		BodySetup = InBodySetup;
+		CollisionBuildError.clear();
 		NotifyStaticMeshCompilationMutation(*this);
 		MarkPackageDirty();
 		return true;
@@ -40,121 +44,87 @@ namespace Durin
 		OutComplex = std::move(Product.Complex);
 		return true;
 	}
-	auto DStaticMesh::TryUpdateCollisionSourceMode(
-		EBodySetupCollisionSourceMode Mode,
-		std::string& OutError) -> bool
+	auto DStaticMesh::SetCollisionSourceMode(EBodySetupCollisionSourceMode Mode) -> void
 	{
-		if (Mode != EBodySetupCollisionSourceMode::None
-			&& Mode != EBodySetupCollisionSourceMode::ConvexHullFromLOD0
-			&& Mode != EBodySetupCollisionSourceMode::TriangleMeshFromLOD0)
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		require(Mode == EBodySetupCollisionSourceMode::None
+			|| Mode == EBodySetupCollisionSourceMode::ConvexHullFromLOD0
+			|| Mode == EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
+		if (BodySetup && BodySetup->GetCollisionSourceMode() == Mode) return;
+		if (!BodySetup && Mode == EBodySetupCollisionSourceMode::None) return;
+		FStaticMeshRenderStateRecreateContext RecreateContext(this);
+		if (!BodySetup)
 		{
-			OutError = "Static-mesh collision source mode is invalid.";
-			return false;
+			BodySetup = NewObject<DBodySetup>(this, "BodySetup", GetConstructionPurpose());
+			require(BodySetup);
+			NotifyStaticMeshCompilationMutation(*this);
 		}
-		if (!RenderData && HasPendingStaticMeshCompilation(*this))
+		BodySetup->SetCollisionSourceMode(Mode);
+		RebuildCollisionData(true);
+	}
+
+	auto DStaticMesh::SetCollisionQueryPolicy(EBodySetupCollisionQueryPolicy Policy) -> void
+	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		require(Policy == EBodySetupCollisionQueryPolicy::SimpleOnly
+			|| Policy == EBodySetupCollisionQueryPolicy::ComplexOnly
+			|| Policy == EBodySetupCollisionQueryPolicy::SimpleAndComplex);
+		if (BodySetup && BodySetup->GetCollisionQueryPolicy() == Policy) return;
+		FStaticMeshRenderStateRecreateContext RecreateContext(this);
+		if (!BodySetup)
 		{
-			if (!BodySetup)
-			{
-				BodySetup = NewObject<DBodySetup>(this, "BodySetup", GetConstructionPurpose());
-				if (!BodySetup) { OutError = "Static mesh could not allocate BodySetup."; return false; }
-				NotifyStaticMeshCompilationMutation(*this);
-			}
-			BodySetup->SetCollisionSourceMode(Mode);
-			OutError.clear();
-			return true;
+			BodySetup = NewObject<DBodySetup>(this, "BodySetup", GetConstructionPurpose());
+			require(BodySetup);
+			NotifyStaticMeshCompilationMutation(*this);
 		}
-		if (Mode == EBodySetupCollisionSourceMode::None)
-		{
-			if (!BodySetup) { OutError.clear(); return true; }
-			FStaticMeshRenderStateRecreateContext RecreateContext(this);
-			BodySetup->SetCollisionSourceMode(Mode);
-			BodySetup->ClearCollisionGeometry();
-			OutError.clear();
-			return true;
-		}
+		BodySetup->SetCollisionQueryPolicy(Policy);
+		RebuildCollisionData(true);
+	}
+
+	auto DStaticMesh::RebuildCollision() -> void
+	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		FStaticMeshRenderStateRecreateContext RecreateContext(this);
+		RebuildCollisionData(false);
+	}
+
+	auto DStaticMesh::RebuildCollisionData(bool bAllowUnavailable) -> void
+	{
+		CollisionBuildError.clear();
+		if (!BodySetup) return;
+		BodySetup->ClearCollisionGeometry();
+		const auto Mode = BodySetup->GetCollisionSourceMode();
+		if (Mode == EBodySetupCollisionSourceMode::None) return;
 		if (!RenderData)
 		{
-			OutError = "Static-mesh collision build requires published CPU render data.";
-			return false;
+			if (bAllowUnavailable || HasPendingStaticMeshCompilation(*this)) return;
+			CollisionBuildError = "Static-mesh collision build requires published CPU render data.";
 		}
-		const EBodySetupCollisionQueryPolicy Policy = BodySetup
-			? BodySetup->GetCollisionQueryPolicy()
-			: EBodySetupCollisionQueryPolicy::SimpleAndComplex;
-		FCollisionGeometryRef Simple;
-		FCollisionGeometryRef Complex;
-		if (!BuildCollisionCandidate(*RenderData, Mode, Policy, Simple, Complex,
-			OutError)) return false;
-		DBodySetup* Setup = BodySetup.Get();
-		if (!Setup)
+		else
 		{
-			Setup = NewObject<DBodySetup>(this, "BodySetup", GetConstructionPurpose());
-			if (!Setup) { OutError = "Static mesh could not allocate BodySetup."; return false; }
-			BodySetup = Setup;
-		}
-		FStaticMeshRenderStateRecreateContext RecreateContext(this);
-		Setup->SetCollisionSourceMode(Mode);
-		if (!Setup->SetCollisionGeometry(Simple, Complex))
-		{
-			OutError = "Static mesh could not publish collision state.";
-			return false;
-		}
-		OutError.clear();
-		return true;
-	}
-
-	auto DStaticMesh::TryUpdateCollisionQueryPolicy(
-		EBodySetupCollisionQueryPolicy Policy,
-		std::string& OutError) -> bool
-	{
-		if (Policy != EBodySetupCollisionQueryPolicy::SimpleOnly
-			&& Policy != EBodySetupCollisionQueryPolicy::ComplexOnly
-			&& Policy != EBodySetupCollisionQueryPolicy::SimpleAndComplex)
-		{
-			OutError = "Static-mesh collision query policy is invalid.";
-			return false;
-		}
-		if (!RenderData && BodySetup && HasPendingStaticMeshCompilation(*this))
-		{
-			BodySetup->SetCollisionQueryPolicy(Policy);
-			OutError.clear();
-			return true;
-		}
-		if (!BodySetup || BodySetup->GetCollisionSourceMode() == EBodySetupCollisionSourceMode::None)
-		{
-			if (!BodySetup)
+			FCollisionGeometryRef Simple;
+			FCollisionGeometryRef Complex;
+			if (BuildCollisionCandidate(*RenderData, Mode, BodySetup->GetCollisionQueryPolicy(),
+				Simple, Complex, CollisionBuildError))
 			{
-				BodySetup = NewObject<DBodySetup>(this, "BodySetup", GetConstructionPurpose());
-				if (!BodySetup) { OutError = "Static mesh could not allocate BodySetup."; return false; }
+				if (BodySetup->SetCollisionGeometry(Simple, Complex)) return;
+				CollisionBuildError = "Static mesh could not publish collision geometry.";
 			}
-			BodySetup->SetCollisionQueryPolicy(Policy);
-			OutError.clear();
-			return true;
 		}
-		if (!RenderData) { OutError = "Static mesh has no CPU data for collision policy rebuild."; return false; }
-		const EBodySetupCollisionSourceMode Mode = BodySetup->GetCollisionSourceMode();
-		FCollisionGeometryRef Simple;
-		FCollisionGeometryRef Complex;
-		if (!BuildCollisionCandidate(*RenderData, Mode, Policy, Simple, Complex,
-			OutError)) return false;
-		FStaticMeshRenderStateRecreateContext RecreateContext(this);
-		BodySetup->SetCollisionQueryPolicy(Policy);
-		if (!BodySetup->SetCollisionGeometry(Simple, Complex))
-		{
-			OutError = "Static mesh could not publish collision policy state.";
-			return false;
-		}
-		OutError.clear();
-		return true;
+		DURIN_ERROR("Static mesh '{}' collision build failed: {}", GetObjectPath(), CollisionBuildError);
 	}
 
-	auto DStaticMesh::RebuildCollision(std::string& OutError) -> bool
+	auto DStaticMesh::GetCollisionBuildStatus() const -> EStaticMeshCollisionBuildStatus
 	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		// Published geometry is authoritative, including cooked and async publication.
 		if (!BodySetup || BodySetup->GetCollisionSourceMode() == EBodySetupCollisionSourceMode::None)
-		{
-			OutError.clear();
-			return true;
-		}
-		return TryUpdateCollisionSourceMode(BodySetup->GetCollisionSourceMode(), OutError);
+			return EStaticMeshCollisionBuildStatus::Ready;
+		if (BodySetup->GetResidentSimpleGeometry() || BodySetup->GetResidentComplexGeometry())
+			return EStaticMeshCollisionBuildStatus::Ready;
+		if (HasPendingStaticMeshCompilation(*this)) return EStaticMeshCollisionBuildStatus::Pending;
+		if (!CollisionBuildError.empty()) return EStaticMeshCollisionBuildStatus::Failed;
+		return EStaticMeshCollisionBuildStatus::Unavailable;
 	}
 
 	auto DStaticMesh::EnsureQualifiedBoxBodySetup() -> DBodySetup*
