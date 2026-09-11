@@ -13,7 +13,7 @@ namespace Durin
 		UnsupportedDescriptor,
 	};
 
-	constexpr uint32 kFrameInFlight = 2;
+	constexpr uint32 FrameInFlight = 2;
 
 	// Carries executor-owned RHI frame identity during ordered BeginFrame replay.
 	struct FRHIBeginFrameArgs

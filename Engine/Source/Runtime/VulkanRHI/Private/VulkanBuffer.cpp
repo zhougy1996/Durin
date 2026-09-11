@@ -359,9 +359,9 @@ namespace Durin::VulkanRHI
 	}
 
 	auto FVulkanDynamicUniformBufferAllocator::GetProducerTokensForTesting()
-		const -> std::array<FVulkanCompletionToken, kFrameInFlight>
+		const -> std::array<FVulkanCompletionToken, FrameInFlight>
 	{
-		std::array<FVulkanCompletionToken, kFrameInFlight> Result{};
+		std::array<FVulkanCompletionToken, FrameInFlight> Result{};
 		for (uint32 Index = 0; Index < ProducerStates.size(); ++Index)
 		{
 			Result[Index] = ProducerStates[Index].GetLastUseToken();
@@ -411,7 +411,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanDynamicStorageBufferAllocator::BeginFrameProducer(uint32 FrameIndex) -> void
 	{
-		FFrameState& Frame = Frames[FrameIndex % kFrameInFlight];
+		FFrameState& Frame = Frames[FrameIndex % FrameInFlight];
 		Frame.CurrentChunkIndex = 0;
 		Frame.RequestedBytes = 0;
 		for (FChunk& Chunk : Frame.Chunks) Chunk.Offset = 0;
@@ -426,7 +426,7 @@ namespace Durin::VulkanRHI
 			|| Size > MaximumBytesPerFrame) return false;
 		const uint32 Alignment = GetAlignment();
 		const uint32 AllocationSize = AlignUp(Size, Alignment);
-		FFrameState& Frame = Frames[FrameIndex % kFrameInFlight];
+		FFrameState& Frame = Frames[FrameIndex % FrameInFlight];
 		if (Frame.RequestedBytes + AllocationSize > MaximumBytesPerFrame
 			|| Frame.Chunks.empty()) return false;
 		FChunk* Chunk = &Frame.Chunks[Frame.CurrentChunkIndex];
@@ -458,7 +458,7 @@ namespace Durin::VulkanRHI
 		uint32 FrameIndex, uint32 MinSize) -> void
 	{
 		CheckVulkanRHIThread();
-		FFrameState& Frame = Frames[FrameIndex % kFrameInFlight];
+		FFrameState& Frame = Frames[FrameIndex % FrameInFlight];
 		if (MinSize == 0 || MinSize > MaximumBytesPerFrame
 			|| Frame.Chunks.size() >= MaximumChunksPerFrame) return;
 		Frame.Chunks.push_back(CreateChunk(MinSize));

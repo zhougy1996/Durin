@@ -581,7 +581,7 @@ namespace Durin::MonaImGui
 		{
 			// Draw-data snapshots may still be queued on the render thread. Keep the
 			// indirection valid until every in-flight frame that can reference it has completed.
-			if (InTex->UnusedFrames >= kFrameInFlight)
+			if (InTex->UnusedFrames >= FrameInFlight)
 			{
 				ImGuiRHIImpl_DestroyTexture(InTex);
 			}
@@ -749,7 +749,7 @@ namespace Durin::MonaImGui
 
 		ENQUEUE_RENDER_COMMAND(RenderWindow)([ViewportRHI = InViewport, DrawData, WindowRenderBuffers, ClearValue, bPresent](FRHICommandListImmediate& CommandList) {
 			check(WindowRenderBuffers != nullptr);
-			auto& RenderBuffersCurrentFrame = WindowRenderBuffers->FrameRenderBuffers[GRenderFrameCounterRenderThread % kFrameInFlight];
+			auto& RenderBuffersCurrentFrame = WindowRenderBuffers->FrameRenderBuffers[GRenderFrameCounterRenderThread % FrameInFlight];
 			CommandList.SwitchPipeline(ERHIPipeline::Graphics);
 
 			CommandList.BeginDrawingViewport(ViewportRHI, nullptr);

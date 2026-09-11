@@ -18,7 +18,7 @@ namespace Durin::Editor::Level
 {
 	namespace
 	{
-		constexpr double kHandleScale = 1.0 / 3.0;
+		constexpr double HandleScale = 1.0 / 3.0;
 
 		auto ToColor(MonaImGui::EUIThemeColor ThemeColor) -> FVector4f
 		{
@@ -117,8 +117,8 @@ namespace Durin::Editor::Level
 				DSplineComponent* Resolved = Spline.Get();
 				if (!Point || !Resolved) return Result;
 				FVector3 LocalPosition = Point->Position;
-				if (Element.Kind == EEditorSubElementKind::ArriveTangent) LocalPosition -= Point->ArriveTangent * kHandleScale;
-				if (Element.Kind == EEditorSubElementKind::LeaveTangent) LocalPosition += Point->LeaveTangent * kHandleScale;
+				if (Element.Kind == EEditorSubElementKind::ArriveTangent) LocalPosition -= Point->ArriveTangent * HandleScale;
+				if (Element.Kind == EEditorSubElementKind::LeaveTangent) LocalPosition += Point->LeaveTangent * HandleScale;
 				Result.Translation = LocalToWorld(*Resolved, LocalPosition);
 				return Result;
 			}
@@ -135,7 +135,7 @@ namespace Durin::Editor::Level
 				else
 				{
 					const FVector3 Tangent = (Element.Kind == EEditorSubElementKind::ArriveTangent)
-						? (Point.Position - LocalPosition) / kHandleScale : (LocalPosition - Point.Position) / kHandleScale;
+						? (Point.Position - LocalPosition) / HandleScale : (LocalPosition - Point.Position) / HandleScale;
 					if (Element.Kind == EEditorSubElementKind::ArriveTangent) Point.ArriveTangent = Tangent;
 					else Point.LeaveTangent = Tangent;
 					if (Point.TangentMode == ESplineTangentMode::ManualAligned)
@@ -206,8 +206,8 @@ namespace Durin::Editor::Level
 					PointBox.Element = PointElement;
 					Collector.AddBox(PointBox);
 					if (Point->TangentMode != ESplineTangentMode::ManualAligned && Point->TangentMode != ESplineTangentMode::ManualBroken) continue;
-					const FVector3 Arrive = LocalToWorld(*Spline, Point->Position - Point->ArriveTangent * kHandleScale);
-					const FVector3 Leave = LocalToWorld(*Spline, Point->Position + Point->LeaveTangent * kHandleScale);
+					const FVector3 Arrive = LocalToWorld(*Spline, Point->Position - Point->ArriveTangent * HandleScale);
+					const FVector3 Leave = LocalToWorld(*Spline, Point->Position + Point->LeaveTangent * HandleScale);
 					for (const auto& [Handle, Kind] : {std::pair{Arrive, EEditorSubElementKind::ArriveTangent}, std::pair{Leave, EEditorSubElementKind::LeaveTangent}})
 					{
 						FEditorVisualizationLine Stem{WorldPoint, Handle, ToColor(MonaImGui::EUIThemeColor::Info), 1.5f, 6.0f, 40, Actor, Spline};

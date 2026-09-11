@@ -15,8 +15,8 @@ namespace Durin::Editor::Level
 {
 	namespace
 	{
-		constexpr double kIntersectionEpsilon = 1.e-8;
-		constexpr double kInfluenceWeightEpsilon = 1.e-4;
+		constexpr double IntersectionEpsilon = 1.e-8;
+		constexpr double InfluenceWeightEpsilon = 1.e-4;
 
 		enum class EViewportGeometryQueryStatus : uint8
 		{
@@ -55,7 +55,7 @@ namespace Durin::Editor::Level
 			double TMax = std::numeric_limits<double>::max();
 			for (uint32 Axis = 0; Axis < 3; ++Axis)
 			{
-				if (std::abs(Direction[Axis]) <= kIntersectionEpsilon)
+				if (std::abs(Direction[Axis]) <= IntersectionEpsilon)
 				{
 					if (Origin[Axis] < Box.Min[Axis] || Origin[Axis] > Box.Max[Axis]) return false;
 					continue;
@@ -78,7 +78,7 @@ namespace Durin::Editor::Level
 			double FarDistance = std::numeric_limits<double>::max();
 			for (uint32 Axis = 0; Axis < 3; ++Axis)
 			{
-				if (std::abs(Direction[Axis]) <= kIntersectionEpsilon)
+				if (std::abs(Direction[Axis]) <= IntersectionEpsilon)
 				{
 					if (Origin[Axis] < Box.Min[Axis] || Origin[Axis] > Box.Max[Axis]) return false;
 					continue;
@@ -102,14 +102,14 @@ namespace Durin::Editor::Level
 			const FVector3 Edge2 = C - A;
 			const FVector3 P = Math::Cross(Direction, Edge2);
 			const double Determinant = Math::Dot(Edge1, P);
-			if (!std::isfinite(Determinant) || std::abs(Determinant) <= kIntersectionEpsilon) return false;
+			if (!std::isfinite(Determinant) || std::abs(Determinant) <= IntersectionEpsilon) return false;
 			const double InvDeterminant = 1.0 / Determinant;
 			const FVector3 T = Origin - A;
 			const double U = Math::Dot(T, P) * InvDeterminant;
-			if (U < -kIntersectionEpsilon || U > 1.0 + kIntersectionEpsilon) return false;
+			if (U < -IntersectionEpsilon || U > 1.0 + IntersectionEpsilon) return false;
 			const FVector3 Q = Math::Cross(T, Edge1);
 			const double V = Math::Dot(Direction, Q) * InvDeterminant;
-			if (V < -kIntersectionEpsilon || U + V > 1.0 + kIntersectionEpsilon) return false;
+			if (V < -IntersectionEpsilon || U + V > 1.0 + IntersectionEpsilon) return false;
 			OutDistance = Math::Dot(Edge2, Q) * InvDeterminant;
 			return std::isfinite(OutDistance) && OutDistance >= 0.0;
 		}
@@ -150,7 +150,7 @@ namespace Durin::Editor::Level
 				if (Positions.empty() || Indices.size() < 3) return {EViewportGeometryQueryStatus::Miss, std::nullopt};
 				const FMatrix LocalToWorld = Component->GetRenderMatrix();
 				const double Determinant = Math::Determinant(LocalToWorld);
-				if (!std::isfinite(Determinant) || std::abs(Determinant) <= kIntersectionEpsilon)
+				if (!std::isfinite(Determinant) || std::abs(Determinant) <= IntersectionEpsilon)
 					return {EViewportGeometryQueryStatus::Miss, std::nullopt};
 				const FMatrix WorldToLocal = Math::Inverse(LocalToWorld);
 				const FVector3 LocalOrigin = FVector3(WorldToLocal * FVector4(Request.RayOrigin, 1.0));
@@ -201,7 +201,7 @@ namespace Durin::Editor::Level
 					{
 						const FTraversalEntry Entry = Stack.back();
 						Stack.pop_back();
-						if (Best && Entry.Near * WorldDirectionLength > Best->Distance + kIntersectionEpsilon) continue;
+						if (Best && Entry.Near * WorldDirectionLength > Best->Distance + IntersectionEpsilon) continue;
 						if (Entry.Node >= Acceleration->Nodes.size())
 						{
 							++Context.Diagnostics.StaticReferenceFallbacks;
@@ -273,7 +273,7 @@ namespace Durin::Editor::Level
 				}
 				FMatrix WorldToLocal(1.0);
 				const FMatrix LocalToWorld = Component->GetRenderMatrix();
-				if (!Math::TryInverse(LocalToWorld, WorldToLocal, kIntersectionEpsilon))
+				if (!Math::TryInverse(LocalToWorld, WorldToLocal, IntersectionEpsilon))
 				{
 					++Context.Diagnostics.InvalidSplineMeshTargets;
 					return {EViewportGeometryQueryStatus::InvalidComponent, std::nullopt};
@@ -331,8 +331,8 @@ namespace Durin::Editor::Level
 						if (Result.Status == EViewportGeometryQueryStatus::Failed)
 							return {EViewportPickStatus::Failed, std::nullopt, Context.Diagnostics};
 						if (const std::optional<FViewportPickingBackendHit>& Candidate = Result.Hit;
-							Candidate && (!Best || Candidate->Distance < Best->Distance - kIntersectionEpsilon
-								|| (std::abs(Candidate->Distance - Best->Distance) <= kIntersectionEpsilon
+							Candidate && (!Best || Candidate->Distance < Best->Distance - IntersectionEpsilon
+								|| (std::abs(Candidate->Distance - Best->Distance) <= IntersectionEpsilon
 									&& Target.StableTieKey < BestStableKey)))
 						{
 							Best = Candidate;
@@ -369,7 +369,7 @@ namespace Durin::Editor::Level
 				FViewportPickingBackendCompletion AcceleratedCompletion = Accelerated->Submit(std::move(Request));
 				const bool bSameHit = ReferenceCompletion.Hit.has_value() == AcceleratedCompletion.Hit.has_value()
 					&& (!ReferenceCompletion.Hit || (ReferenceCompletion.Hit->Token == AcceleratedCompletion.Hit->Token
-						&& std::abs(ReferenceCompletion.Hit->Distance - AcceleratedCompletion.Hit->Distance) <= kIntersectionEpsilon));
+						&& std::abs(ReferenceCompletion.Hit->Distance - AcceleratedCompletion.Hit->Distance) <= IntersectionEpsilon));
 				if (ReferenceCompletion.Status != AcceleratedCompletion.Status || !bSameHit)
 				{
 					++ReferenceCompletion.Diagnostics.ParityMismatches;
@@ -415,8 +415,8 @@ namespace Durin::Editor::Level
 	auto IsViewportPickHitPreferred(const FViewportPickHit& Candidate, const FViewportPickHit& Current) -> bool
 	{
 		if (Candidate.bDepthIndependent != Current.bDepthIndependent) return Candidate.bDepthIndependent;
-		if (Candidate.Distance < Current.Distance - kIntersectionEpsilon) return true;
-		if (Candidate.Distance > Current.Distance + kIntersectionEpsilon) return false;
+		if (Candidate.Distance < Current.Distance - IntersectionEpsilon) return true;
+		if (Candidate.Distance > Current.Distance + IntersectionEpsilon) return false;
 		if (Candidate.Kind != Current.Kind) return Candidate.Kind == EViewportPickHitKind::SceneGeometry;
 		if (Candidate.Priority != Current.Priority) return Candidate.Priority > Current.Priority;
 		return Candidate.StableTieKey < Current.StableTieKey;

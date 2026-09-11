@@ -162,7 +162,7 @@ namespace Durin::VulkanRHI
 		if (Input.Capabilities.maxImageCount > 0)
 			Configuration.ImageCount = FMath::Min(
 				Configuration.ImageCount, Input.Capabilities.maxImageCount);
-		if (Configuration.ImageCount < kFrameInFlight)
+		if (Configuration.ImageCount < FrameInFlight)
 			return Fail("Vulkan swapchain selection failed: the supported image count is below the frames-in-flight requirement.");
 		Configuration.ImageUsage = RequiredSwapchainImageUsage;
 		Configuration.PreTransform = Input.Capabilities.currentTransform;

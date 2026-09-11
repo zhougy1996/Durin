@@ -298,7 +298,7 @@ namespace Durin::VulkanRHI
 			}
 		}
 
-		uint32 TargetMaxSets = kInitialDescriptorPoolSetCapacity;
+		uint32 TargetMaxSets = InitialDescriptorPoolSetCapacity;
 		if (!Pools.empty())
 		{
 			TargetMaxSets = GetNextDescriptorPoolSetCapacity(
@@ -339,7 +339,7 @@ namespace Durin::VulkanRHI
 			}
 		}
 		if (ActiveBatchIndex == std::numeric_limits<uint32>::max()
-			&& Batches.size() < kFrameInFlight)
+			&& Batches.size() < FrameInFlight)
 		{
 			ActiveBatchIndex = static_cast<uint32>(Batches.size());
 			Batches.emplace_back();
@@ -386,9 +386,9 @@ namespace Durin::VulkanRHI
 	}
 
 	auto FVulkanGlobalDescriptorPool::GetBatchTokensForTesting() const
-		-> std::array<FVulkanCompletionToken, kFrameInFlight>
+		-> std::array<FVulkanCompletionToken, FrameInFlight>
 	{
-		std::array<FVulkanCompletionToken, kFrameInFlight> Result{};
+		std::array<FVulkanCompletionToken, FrameInFlight> Result{};
 		for (uint32 Index = 0; Index < Batches.size(); ++Index)
 		{
 			Result[Index] = Batches[Index].LastUseToken;

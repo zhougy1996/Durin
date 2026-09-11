@@ -202,7 +202,7 @@ namespace Durin::VulkanRHI
 		CheckVulkanRHIThread();
 		ViewCache->Trim(Args.FrameNumber);
 		const uint32 FrameIndex = static_cast<uint32>(
-			Args.FrameNumber % kFrameInFlight);
+			Args.FrameNumber % FrameInFlight);
 		GVulkanMemoryBaselineTracker.BeginFrame();
 		Device->GetCompletionTracker().Poll();
 		Device->GetGPUTimingManager().Poll();
@@ -242,7 +242,7 @@ namespace Durin::VulkanRHI
 			[&Allocator]() { Allocator.PrepareForProducer(); });
 		Device->GetDynamicStorageBufferAllocator().BeginFrameProducer(
 			static_cast<uint32>(
-				GCommandListExecutor.GetFrameNumber() % kFrameInFlight));
+				GCommandListExecutor.GetFrameNumber() % FrameInFlight));
 	}
 
 	auto FVulkanDynamicRHI::RHIEndFrame() -> void
@@ -423,7 +423,7 @@ namespace Durin::VulkanRHI
 			|| Size > FVulkanDynamicStorageBufferAllocator::MaximumBytesPerFrame)
 			return {};
 		const uint32 FrameIndex = static_cast<uint32>(
-			GCommandListExecutor.GetFrameNumber() % kFrameInFlight);
+			GCommandListExecutor.GetFrameNumber() % FrameInFlight);
 		auto& Allocator = Device->GetDynamicStorageBufferAllocator();
 		FRHIStorageBufferRange Result;
 		if (Allocator.TryAllocate(FrameIndex, Data, Size, Result)) return Result;

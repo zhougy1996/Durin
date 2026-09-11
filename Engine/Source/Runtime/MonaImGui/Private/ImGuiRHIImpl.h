@@ -17,7 +17,7 @@ namespace Durin::MonaImGui
 	// Rotates ImGui render buffers across the engine's frames in flight.
 	struct FImGuiRHIImpl_WindowRenderBuffers
 	{
-		std::array<FImGuiRHIImpl_FrameRenderBuffers, kFrameInFlight> FrameRenderBuffers;
+		std::array<FImGuiRHIImpl_FrameRenderBuffers, FrameInFlight> FrameRenderBuffers;
 
 		auto Clear() -> void;
 	};

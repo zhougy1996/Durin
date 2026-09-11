@@ -7,12 +7,12 @@ namespace Durin::Editor::Level
 {
 	namespace
 	{
-		constexpr double kRayEpsilon = 1.e-8;
-		constexpr double kFatBoundsScale = 0.1;
-		constexpr double kMinimumFatMargin = 0.01;
-		constexpr uint64 kSceneMemoryBudget = 64ull * 1024ull * 1024ull;
-		constexpr uint64 kMaximumBytesPerPrimitive = 384;
-		constexpr uint32 kInvalidNode = std::numeric_limits<uint32>::max();
+		constexpr double RayEpsilon = 1.e-8;
+		constexpr double FatBoundsScale = 0.1;
+		constexpr double MinimumFatMargin = 0.01;
+		constexpr uint64 SceneMemoryBudget = 64ull * 1024ull * 1024ull;
+		constexpr uint64 MaximumBytesPerPrimitive = 384;
+		constexpr uint32 InvalidNode = std::numeric_limits<uint32>::max();
 
 		auto UnionBounds(const FBox& A, const FBox& B) -> FBox
 		{
@@ -35,7 +35,7 @@ namespace Durin::Editor::Level
 			double FarDistance = std::numeric_limits<double>::max();
 			for (uint32 Axis = 0; Axis < 3; ++Axis)
 			{
-				if (std::abs(Direction[Axis]) <= kRayEpsilon)
+				if (std::abs(Direction[Axis]) <= RayEpsilon)
 				{
 					if (Origin[Axis] < Box.Min[Axis] || Origin[Axis] > Box.Max[Axis]) return false;
 					continue;
@@ -64,7 +64,7 @@ namespace Durin::Editor::Level
 		PendingBatches.clear();
 		Leaves.clear();
 		Nodes.clear();
-		Root = kInvalidNode;
+		Root = InvalidNode;
 		bComplete = false;
 		bNeedsRebuild = false;
 		Diagnostics.RetainedBytes = 0;
@@ -102,7 +102,7 @@ namespace Durin::Editor::Level
 
 	auto FViewportPickingSceneIndex::MakeFatBounds(const FBox& Exact) -> FBox
 	{
-		const FVector3 Margin = Math::Max(Exact.GetExtent() * kFatBoundsScale, FVector3(kMinimumFatMargin));
+		const FVector3 Margin = Math::Max(Exact.GetExtent() * FatBoundsScale, FVector3(MinimumFatMargin));
 		return {Exact.Min - Margin, Exact.Max + Margin};
 	}
 
@@ -231,12 +231,12 @@ namespace Durin::Editor::Level
 	{
 		const auto BuildStart = std::chrono::steady_clock::now();
 		Nodes.clear();
-		Root = kInvalidNode;
+		Root = InvalidNode;
 		const uint64 EstimatedBytes = Leaves.size() * sizeof(FLeaf)
 			+ (Leaves.empty() ? 0 : (Leaves.size() * 2 - 1) * sizeof(FNode));
 		Diagnostics.RetainedBytes = EstimatedBytes;
-		if (EstimatedBytes > kSceneMemoryBudget
-			|| (!Leaves.empty() && EstimatedBytes / Leaves.size() > kMaximumBytesPerPrimitive)) return false;
+		if (EstimatedBytes > SceneMemoryBudget
+			|| (!Leaves.empty() && EstimatedBytes / Leaves.size() > MaximumBytesPerPrimitive)) return false;
 		if (!Leaves.empty())
 		{
 			std::vector<FPrimitiveComponentId> Ids;
@@ -248,7 +248,7 @@ namespace Durin::Editor::Level
 			}
 			std::ranges::sort(Ids, {}, &FPrimitiveComponentId::Value);
 			Nodes.reserve(Ids.size() * 2 - 1);
-			Root = BuildRange(Ids, 0, Ids.size(), kInvalidNode);
+			Root = BuildRange(Ids, 0, Ids.size(), InvalidNode);
 		}
 		bNeedsRebuild = false;
 		++Diagnostics.Rebuilds;
@@ -259,7 +259,7 @@ namespace Durin::Editor::Level
 
 	auto FViewportPickingSceneIndex::Refit(uint32 NodeIndex) -> void
 	{
-		while (NodeIndex != kInvalidNode)
+		while (NodeIndex != InvalidNode)
 		{
 			FNode& Node = Nodes[NodeIndex];
 			if (Node.LeafId != InvalidPrimitiveComponentId) Node.Bounds = Leaves.at(Node.LeafId.Value).FatBounds;
@@ -277,7 +277,7 @@ namespace Durin::Editor::Level
 			++Diagnostics.ReferenceFallbacks;
 			return false;
 		}
-		if (Root == kInvalidNode) return true;
+		if (Root == InvalidNode) return true;
 		std::vector<uint32> Stack{Root};
 		while (!Stack.empty())
 		{

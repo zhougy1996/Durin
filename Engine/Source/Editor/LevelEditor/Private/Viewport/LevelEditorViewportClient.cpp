@@ -22,20 +22,20 @@ namespace Durin::Editor::Level
 {
 	namespace
 	{
-		constexpr float kLookSensitivity = 0.15f;
-		constexpr float kOrbitSensitivity = 0.2f;
-		constexpr float kPanSensitivity = 0.01f;
-		constexpr float kSpeedWheelScale = 1.2f;
-		constexpr float kMinMovementSpeed = 0.05f;
-		constexpr float kMaxMovementSpeed = 10000.0f;
-		constexpr float kShiftSpeedMultiplier = 4.0f;
-		constexpr float kFocusDistance = 5.0f;
-		constexpr float kMaxNavigationDeltaSeconds = 1.0f / 30.0f;
-		constexpr float kLookSmoothingRate = 30.0f;
-		constexpr float kMovementSmoothingRate = 24.0f;
-		constexpr uint32 kCollisionCircleSegments = 24;
-		constexpr FVector4f kCollisionBodyColor{0.1f, 0.85f, 0.35f, 0.9f};
-		constexpr FVector4f kCollisionHitColor{1.0f, 0.25f, 0.1f, 1.0f};
+		constexpr float LookSensitivity = 0.15f;
+		constexpr float OrbitSensitivity = 0.2f;
+		constexpr float PanSensitivity = 0.01f;
+		constexpr float SpeedWheelScale = 1.2f;
+		constexpr float MinMovementSpeed = 0.05f;
+		constexpr float MaxMovementSpeed = 10000.0f;
+		constexpr float ShiftSpeedMultiplier = 4.0f;
+		constexpr float FocusDistance = 5.0f;
+		constexpr float MaxNavigationDeltaSeconds = 1.0f / 30.0f;
+		constexpr float LookSmoothingRate = 30.0f;
+		constexpr float MovementSmoothingRate = 24.0f;
+		constexpr uint32 CollisionCircleSegments = 24;
+		constexpr FVector4f CollisionBodyColor{0.1f, 0.85f, 0.35f, 0.9f};
+		constexpr FVector4f CollisionHitColor{1.0f, 0.25f, 0.1f, 1.0f};
 
 		template <typename T>
 		auto SmoothVelocityAndIntegrate(T& Velocity, const T& TargetVelocity, float SmoothingRate, float DeltaSeconds) -> T
@@ -62,16 +62,16 @@ namespace Durin::Editor::Level
 			SubmitXRayVisibleLine(View,
 				TransformCollisionPoint(Transform, Start),
 				TransformCollisionPoint(Transform, End),
-				kCollisionBodyColor, {.WidthPixels = 1.5f});
+				CollisionBodyColor, {.WidthPixels = 1.5f});
 		}
 
 		template<typename PointFactory>
 		auto AddCollisionLoop(FSceneView& View, const FMatrix& Transform, PointFactory&& MakePoint) -> void
 		{
-			for (uint32 Segment = 0; Segment < kCollisionCircleSegments; ++Segment)
+			for (uint32 Segment = 0; Segment < CollisionCircleSegments; ++Segment)
 			{
-				const double StartAngle = Math::TwoPi<double>() * static_cast<double>(Segment) / kCollisionCircleSegments;
-				const double EndAngle = Math::TwoPi<double>() * static_cast<double>(Segment + 1) / kCollisionCircleSegments;
+				const double StartAngle = Math::TwoPi<double>() * static_cast<double>(Segment) / CollisionCircleSegments;
+				const double EndAngle = Math::TwoPi<double>() * static_cast<double>(Segment + 1) / CollisionCircleSegments;
 				AddCollisionLine(View, Transform, MakePoint(StartAngle), MakePoint(EndAngle));
 			}
 		}
@@ -97,7 +97,7 @@ namespace Durin::Editor::Level
 					SubmitXRayVisibleWireBox(View,
 						Transform
 							* Math::ScaleMatrix(Body.Shape.GetBoxHalfExtent() * 2.0),
-						kCollisionBodyColor);
+						CollisionBodyColor);
 					break;
 				case ECollisionShapeType::Sphere:
 				{
@@ -130,7 +130,7 @@ namespace Durin::Editor::Level
 			{
 				const FHitResult& Hit = *Snapshot.LastBlockingHit;
 				SubmitXRayVisibleLine(View, Hit.ImpactPoint,
-					Hit.ImpactPoint + Hit.ImpactNormal, kCollisionHitColor,
+					Hit.ImpactPoint + Hit.ImpactNormal, CollisionHitColor,
 					{.WidthPixels = 3.0f});
 			}
 		}
@@ -285,14 +285,14 @@ namespace Durin::Editor::Level
 		if (Actor == nullptr) return;
 		if (const DSceneComponent* RootComponent = Actor->GetRootComponent())
 		{
-			CameraTransform.Focus(RootComponent->GetWorldLocation(), kFocusDistance);
+			CameraTransform.Focus(RootComponent->GetWorldLocation(), FocusDistance);
 			InvalidatePreparedSceneView();
 		}
 	}
 
 	auto FLevelEditorViewportClient::FocusLocation(const FVector3& WorldLocation) -> void
 	{
-		CameraTransform.Focus(WorldLocation, kFocusDistance);
+		CameraTransform.Focus(WorldLocation, FocusDistance);
 		InvalidatePreparedSceneView();
 	}
 
@@ -341,7 +341,7 @@ namespace Durin::Editor::Level
 	auto FLevelEditorViewportClient::SetMovementSpeed(float Speed) -> void
 	{
 		if (!std::isfinite(Speed)) return;
-		MovementSpeed = std::clamp(Speed, kMinMovementSpeed, kMaxMovementSpeed);
+		MovementSpeed = std::clamp(Speed, MinMovementSpeed, MaxMovementSpeed);
 	}
 
 	auto FLevelEditorViewportClient::SetCameraLocation(const FVector3& WorldLocation) -> void
@@ -411,14 +411,14 @@ namespace Durin::Editor::Level
 
 		if (bFlyNavigation)
 		{
-			const float DeltaSeconds = std::clamp(Input.DeltaSeconds, 0.0f, kMaxNavigationDeltaSeconds);
+			const float DeltaSeconds = std::clamp(Input.DeltaSeconds, 0.0f, MaxNavigationDeltaSeconds);
 			const FVector2f TargetLookVelocity = DeltaSeconds > 0.0f
-				? FVector2f(Input.MouseDelta.x * kLookSensitivity, -Input.MouseDelta.y * kLookSensitivity) / DeltaSeconds
+				? FVector2f(Input.MouseDelta.x * LookSensitivity, -Input.MouseDelta.y * LookSensitivity) / DeltaSeconds
 				: FVector2f(0.0f);
-			const FVector2f LookDelta = SmoothVelocityAndIntegrate(FlyLookVelocity, TargetLookVelocity, kLookSmoothingRate, DeltaSeconds);
+			const FVector2f LookDelta = SmoothVelocityAndIntegrate(FlyLookVelocity, TargetLookVelocity, LookSmoothingRate, DeltaSeconds);
 			if (Input.MouseWheel != 0.0f)
 			{
-				MovementSpeed = std::clamp(MovementSpeed * std::pow(kSpeedWheelScale, Input.MouseWheel), kMinMovementSpeed, kMaxMovementSpeed);
+				MovementSpeed = std::clamp(MovementSpeed * std::pow(SpeedWheelScale, Input.MouseWheel), MinMovementSpeed, MaxMovementSpeed);
 			}
 			FVector3 TargetMovementVelocity(0.0);
 			if (!Input.bWantTextInput)
@@ -430,14 +430,14 @@ namespace Durin::Editor::Level
 				if (Math::LengthSquared(Direction) > 0.0f)
 				{
 					Direction = Math::Normalize(Direction);
-					const float Speed = MovementSpeed * (Input.bShift ? kShiftSpeedMultiplier : 1.0f);
+					const float Speed = MovementSpeed * (Input.bShift ? ShiftSpeedMultiplier : 1.0f);
 					TargetMovementVelocity = Direction * static_cast<FReal>(Speed);
 				}
 			}
 			const FVector3 MovementDelta = SmoothVelocityAndIntegrate(
 				FlyMovementVelocity,
 				TargetMovementVelocity,
-				kMovementSmoothingRate,
+				MovementSmoothingRate,
 				DeltaSeconds
 			);
 			CameraTransform.Rotate(LookDelta.x * 0.5f, LookDelta.y * 0.5f);
@@ -446,11 +446,11 @@ namespace Durin::Editor::Level
 		}
 		else if (bOrbitNavigation)
 		{
-			CameraTransform.Orbit(Input.MouseDelta.x * kOrbitSensitivity, -Input.MouseDelta.y * kOrbitSensitivity);
+			CameraTransform.Orbit(Input.MouseDelta.x * OrbitSensitivity, -Input.MouseDelta.y * OrbitSensitivity);
 		}
 		else if (bPanNavigation)
 		{
-			const float Scale = static_cast<float>(std::max(1.0, CameraTransform.GetOrbitDistance())) * kPanSensitivity;
+			const float Scale = static_cast<float>(std::max(1.0, CameraTransform.GetOrbitDistance())) * PanSensitivity;
 			CameraTransform.Pan(-Input.MouseDelta.x * Scale, Input.MouseDelta.y * Scale);
 		}
 		else if (Input.bHovered && Input.MouseWheel != 0.0f)

@@ -156,8 +156,8 @@ namespace Durin::VulkanRHI
 		-> FVulkanCompletionTestStats;
 	struct FVulkanBackendPoolTestStats
 	{
-		std::array<uint64, kFrameInFlight> DynamicUniformTokens = {};
-		std::array<uint64, kFrameInFlight> DescriptorPoolTokens = {};
+		std::array<uint64, FrameInFlight> DynamicUniformTokens = {};
+		std::array<uint64, FrameInFlight> DescriptorPoolTokens = {};
 	};
 	VULKANRHI_API auto GetVulkanBackendPoolTestStats()
 		-> FVulkanBackendPoolTestStats;

@@ -48,15 +48,15 @@ namespace Durin::VulkanRHI
 		}
 	};
 
-	inline constexpr uint32 kInitialDescriptorPoolSetCapacity = 512;
-	inline constexpr uint32 kMaxDescriptorPoolSetCapacity = 65536;
+	inline constexpr uint32 InitialDescriptorPoolSetCapacity = 512;
+	inline constexpr uint32 MaxDescriptorPoolSetCapacity = 65536;
 
 	constexpr auto GetNextDescriptorPoolSetCapacity(uint32 CurrentCapacity)
 		-> uint32
 	{
-		return CurrentCapacity >= kMaxDescriptorPoolSetCapacity
-			? kMaxDescriptorPoolSetCapacity
-			: std::min(kMaxDescriptorPoolSetCapacity, CurrentCapacity * 2u);
+		return CurrentCapacity >= MaxDescriptorPoolSetCapacity
+			? MaxDescriptorPoolSetCapacity
+			: std::min(MaxDescriptorPoolSetCapacity, CurrentCapacity * 2u);
 	}
 
 	// Describes the array of descriptor set layouts which will be used to create pipeline layouts.
@@ -299,7 +299,7 @@ namespace Durin::VulkanRHI
 		auto PrepareForUse() -> void;
 		auto RetireUsedPools(FVulkanCompletionToken Token) -> void;
 		auto GetBatchTokensForTesting() const
-			-> std::array<FVulkanCompletionToken, kFrameInFlight>;
+			-> std::array<FVulkanCompletionToken, FrameInFlight>;
 
 	private:
 		struct FPoolBatch

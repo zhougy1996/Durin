@@ -72,7 +72,7 @@ namespace Durin::VulkanRHI
 		// an ordered synchronous operation when its prepared pages overflow.
 		auto ReservePage(uint32 MinSize) -> void;
 		auto GetProducerTokensForTesting() const
-			-> std::array<FVulkanCompletionToken, kFrameInFlight>;
+			-> std::array<FVulkanCompletionToken, FrameInFlight>;
 
 	private:
 		// Owns one persistently mapped backing buffer used for uniform suballocation.
@@ -102,7 +102,7 @@ namespace Durin::VulkanRHI
 
 		FVulkanDevice& Device;
 
-		std::array<FProducerState, kFrameInFlight> ProducerStates;
+		std::array<FProducerState, FrameInFlight> ProducerStates;
 		uint32 ActiveProducerIndex = std::numeric_limits<uint32>::max();
 		uint32 NextProducerIndex = 0;
 
@@ -136,7 +136,7 @@ namespace Durin::VulkanRHI
 		auto GetAlignment() const -> uint32;
 		static auto AlignUp(uint32 Value, uint32 Alignment) -> uint32;
 		FVulkanDevice& Device;
-		std::array<FFrameState, kFrameInFlight> Frames;
+		std::array<FFrameState, FrameInFlight> Frames;
 	};
 
 } // namespace Durin::VulkanRHI

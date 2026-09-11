@@ -6,8 +6,8 @@ namespace Durin::Editor::Level
 {
 	namespace
 	{
-		constexpr FReal kMaxPitch = 89.0;
-		constexpr FReal kMinOrbitDistance = 0.05;
+		constexpr FReal MaxPitch = 89.0;
+		constexpr FReal MinOrbitDistance = 0.05;
 	}
 
 	auto FViewportCameraTransform::SetFromTransform(const FVector3& InLocation, const FQuat& InRotation) -> void
@@ -23,8 +23,8 @@ namespace Durin::Editor::Level
 	{
 		Location = State.Location;
 		OrbitPivot = State.OrbitPivot;
-		OrbitDistance = std::max(kMinOrbitDistance, State.OrbitDistance);
-		Pitch = std::clamp(State.Pitch, -kMaxPitch, kMaxPitch);
+		OrbitDistance = std::max(MinOrbitDistance, State.OrbitDistance);
+		Pitch = std::clamp(State.Pitch, -MaxPitch, MaxPitch);
 		Yaw = State.Yaw;
 	}
 
@@ -36,7 +36,7 @@ namespace Durin::Editor::Level
 	auto FViewportCameraTransform::Rotate(float DeltaYawDegrees, float DeltaPitchDegrees) -> void
 	{
 		Yaw += DeltaYawDegrees;
-		Pitch = std::clamp(Pitch + DeltaPitchDegrees, -kMaxPitch, kMaxPitch);
+		Pitch = std::clamp(Pitch + DeltaPitchDegrees, -MaxPitch, MaxPitch);
 		OrbitPivot = Location + GetForwardVector() * OrbitDistance;
 	}
 
@@ -57,13 +57,13 @@ namespace Durin::Editor::Level
 	auto FViewportCameraTransform::Orbit(float DeltaYawDegrees, float DeltaPitchDegrees) -> void
 	{
 		Yaw += DeltaYawDegrees;
-		Pitch = std::clamp(Pitch + DeltaPitchDegrees, -kMaxPitch, kMaxPitch);
+		Pitch = std::clamp(Pitch + DeltaPitchDegrees, -MaxPitch, MaxPitch);
 		Location = OrbitPivot - GetForwardVector() * OrbitDistance;
 	}
 
 	auto FViewportCameraTransform::Dolly(float Distance) -> void
 	{
-		const FReal NewDistance = std::max(kMinOrbitDistance, OrbitDistance - static_cast<FReal>(Distance));
+		const FReal NewDistance = std::max(MinOrbitDistance, OrbitDistance - static_cast<FReal>(Distance));
 		Location = OrbitPivot - GetForwardVector() * NewDistance;
 		OrbitDistance = NewDistance;
 	}
@@ -71,7 +71,7 @@ namespace Durin::Editor::Level
 	auto FViewportCameraTransform::Focus(const FVector3& Target, float Distance) -> void
 	{
 		OrbitPivot = Target;
-		OrbitDistance = std::max(kMinOrbitDistance, static_cast<FReal>(Distance));
+		OrbitDistance = std::max(MinOrbitDistance, static_cast<FReal>(Distance));
 		Location = OrbitPivot - GetForwardVector() * OrbitDistance;
 	}
 

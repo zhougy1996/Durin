@@ -53,7 +53,7 @@ namespace Durin::VulkanRHI
 			vk::DescriptorType::eUniformBuffer), 855u);
 		EXPECT_EQ(GetNextDescriptorPoolSetCapacity(512), 1024u);
 		EXPECT_EQ(GetNextDescriptorPoolSetCapacity(
-			kMaxDescriptorPoolSetCapacity), kMaxDescriptorPoolSetCapacity);
+			MaxDescriptorPoolSetCapacity), MaxDescriptorPoolSetCapacity);
 	}
 
 	TEST(FVulkanCompletionWatermarkTests,

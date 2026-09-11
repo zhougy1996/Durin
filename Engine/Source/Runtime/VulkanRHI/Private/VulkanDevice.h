@@ -285,7 +285,7 @@ namespace Durin::VulkanRHI
 		FVulkanDynamicUniformBufferAllocator* DynamicUniformBufferAllocator = nullptr;
 		FVulkanDynamicStorageBufferAllocator* DynamicStorageBufferAllocator = nullptr;
 
-		std::array<FVulkanFrame*, kFrameInFlight> Frames = {};
+		std::array<FVulkanFrame*, FrameInFlight> Frames = {};
 		uint32 CurrentFrameIndex = 0;
 
 		FRHIPipelineMetadataBudget CacheMetadata;
