@@ -251,7 +251,7 @@ Metadata-only warm loads do not read authored geometry; a miss acquires an
 immutable decoded geometry handle before calling the recipe. Fresh source
 initialization encodes once and seeds the same handle without a decode round trip.
 The authored replacement is passed separately to application; build results do
-not own source storage. `SetImportedRenderData` and `SetRenderData`
+not own source storage. `TryReplaceSourceRenderData` and `TryReplaceRenderData`
 validate candidates before rollback-safe resource replacement; Engine
 application separately decides dirtying and material-slot upgrade notification.
 Cook reports existing payload capture rather than inferring an old build origin

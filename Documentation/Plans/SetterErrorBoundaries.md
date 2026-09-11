@@ -15,7 +15,9 @@ Stage 2 is complete: AssetImportDataTests (3), AssetImportTests (14), SceneImpor
 and the single-asset/volume import selection in TextureTests (10) passed.
 Stage 3 is complete: material/update coverage in StaticMeshTests (14) and SceneImportTests (4)
 passed; StaticMeshThumbnailTests compiled after fixture migration.
-Stage 4 is next. The initial checkout was clean.
+Stage 4 is complete: StaticMeshTests (110) and PhysicsSceneTests (43) passed, including
+invalid-input preservation and failed collision-build rollback.
+Stage 5 is next. The initial checkout was clean.
 
 ## Goal
 
@@ -47,8 +49,8 @@ Depends on Stage 2.
 
 Depends on Stage 3.
 
-- [ ] Give collision and render-data replacement operations explicit fallible names; keep preparation before publication and document their contracts.
-- [ ] Validate collision/render replacement coverage and commit independently.
+- [x] Give collision and render-data replacement operations explicit fallible names; keep preparation before publication and document their contracts.
+- [x] Validate collision/render replacement coverage and commit independently.
 
 ### Stage 5: Enforce compiler manager startup contracts
 

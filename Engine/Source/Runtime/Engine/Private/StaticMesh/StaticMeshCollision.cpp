@@ -40,7 +40,7 @@ namespace Durin
 		OutComplex = std::move(Product.Complex);
 		return true;
 	}
-	auto DStaticMesh::SetCollisionSourceMode(
+	auto DStaticMesh::TryUpdateCollisionSourceMode(
 		EBodySetupCollisionSourceMode Mode,
 		std::string& OutError) -> bool
 	{
@@ -102,7 +102,7 @@ namespace Durin
 		return true;
 	}
 
-	auto DStaticMesh::SetCollisionQueryPolicy(
+	auto DStaticMesh::TryUpdateCollisionQueryPolicy(
 		EBodySetupCollisionQueryPolicy Policy,
 		std::string& OutError) -> bool
 	{
@@ -154,7 +154,7 @@ namespace Durin
 			OutError.clear();
 			return true;
 		}
-		return SetCollisionSourceMode(BodySetup->GetCollisionSourceMode(), OutError);
+		return TryUpdateCollisionSourceMode(BodySetup->GetCollisionSourceMode(), OutError);
 	}
 
 	auto DStaticMesh::EnsureQualifiedBoxBodySetup() -> DBodySetup*

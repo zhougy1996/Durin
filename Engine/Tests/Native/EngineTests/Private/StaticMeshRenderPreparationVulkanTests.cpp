@@ -275,7 +275,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 	auto* StaticMesh = Durin::NewObject<Durin::DStaticMesh>(nullptr, "CpuOnlyStaticMesh");
 	EXPECT_FALSE(StaticMesh->HasPendingRenderResourceInitialization());
 	std::string Error;
-	ASSERT_TRUE(StaticMesh->SetRenderData(MakeRenderData(), {
+	ASSERT_TRUE(StaticMesh->TryReplaceRenderData(MakeRenderData(), {
 		{.Name = Durin::FName("Section0"), .SourceMaterialIndex = 0},
 		{.Name = Durin::FName("Section1"), .SourceMaterialIndex = 1},
 		{.Name = Durin::FName("Section2"), .SourceMaterialIndex = 2},
@@ -374,7 +374,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(AuthoredPath, AuthoredMesh));
 	ASSERT_NE(AuthoredMesh, nullptr);
 	std::string Error;
-	ASSERT_TRUE(AuthoredMesh->SetRenderData(MakeRenderData(), {
+	ASSERT_TRUE(AuthoredMesh->TryReplaceRenderData(MakeRenderData(), {
 			{.Name = Durin::FName("Section0"), .SourceMaterialIndex = 0},
 			{.Name = Durin::FName("Section1"), .SourceMaterialIndex = 1},
 			{.Name = Durin::FName("Section2"), .SourceMaterialIndex = 2},

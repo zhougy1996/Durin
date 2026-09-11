@@ -124,10 +124,12 @@ namespace Durin
 		ENGINE_API auto GetLOD0VolumetricBounds() const -> std::optional<FBox>;
 		ENGINE_API auto GetBodySetup() const -> DBodySetup*;
 		ENGINE_API auto SetBodySetup(DBodySetup* InBodySetup) -> bool;
-		ENGINE_API auto SetCollisionSourceMode(
+		// May build collision geometry; preparation failures leave the installed state unchanged.
+		ENGINE_API auto TryUpdateCollisionSourceMode(
 			EBodySetupCollisionSourceMode Mode,
 			std::string& OutError) -> bool;
-		ENGINE_API auto SetCollisionQueryPolicy(
+		// May rebuild collision geometry for the new query policy before publishing it.
+		ENGINE_API auto TryUpdateCollisionQueryPolicy(
 			EBodySetupCollisionQueryPolicy Policy,
 			std::string& OutError) -> bool;
 		ENGINE_API auto RebuildCollision(std::string& OutError) -> bool;
@@ -168,15 +170,15 @@ namespace Durin
 	public:
 
 		ENGINE_API static auto CreateDebugTriangle(DObject* Outer = nullptr) -> DStaticMesh*;
-		// Installs validated CPU values with rollback-safe render/collision replacement.
+		// Validates CPU values and prepares render/collision resources before replacement.
 		// Authored inputs and package dirty state are unchanged.
-		ENGINE_API auto SetRenderData(
+		ENGINE_API auto TryReplaceRenderData(
 			std::unique_ptr<FStaticMeshRenderData> InRenderData,
 			std::vector<FMeshMaterialSlotDefinition> InMaterialSlots,
 			std::string& OutError) -> bool;
 		// Validates detached values before atomic render/collision replacement.
 		// Does not dirty the package or retain build-operation diagnostics.
-		ENGINE_API auto SetSourceRenderData(
+		ENGINE_API auto TryReplaceSourceRenderData(
 			FStaticMeshSource InSource,
 			std::unique_ptr<FStaticMeshRenderData> InRenderData,
 			std::vector<FMeshMaterialSlotDefinition> InMaterialSlots,

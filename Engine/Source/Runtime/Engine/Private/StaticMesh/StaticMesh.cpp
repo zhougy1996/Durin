@@ -687,7 +687,7 @@ namespace Durin
 		return Mesh;
 	}
 
-	auto DStaticMesh::SetSourceRenderData(
+	auto DStaticMesh::TryReplaceSourceRenderData(
 		FStaticMeshSource InSource,
 		std::unique_ptr<FStaticMeshRenderData> InRenderData,
 		std::vector<FMeshMaterialSlotDefinition> InMaterialSlots,
@@ -700,7 +700,7 @@ namespace Durin
 			OutError = "StaticMesh replacement requires valid imported values and normalization.";
 			return false;
 		}
-		if (!SetRenderData(std::move(InRenderData), std::move(InMaterialSlots), OutError))
+		if (!TryReplaceRenderData(std::move(InRenderData), std::move(InMaterialSlots), OutError))
 			return false;
 		NormalizedSize = InNormalizedSize;
 		// Assets retain canonical storage. Operation handles and other source copies remain valid.
@@ -710,7 +710,7 @@ namespace Durin
 		return true;
 	}
 
-	auto DStaticMesh::SetRenderData(
+	auto DStaticMesh::TryReplaceRenderData(
 		std::unique_ptr<FStaticMeshRenderData> InRenderData,
 		std::vector<FMeshMaterialSlotDefinition> InMaterialSlots,
 		std::string& OutError) -> bool

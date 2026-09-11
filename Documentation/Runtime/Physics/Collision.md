@@ -84,6 +84,9 @@ returns the same identity; successful collision-relevant setters invalidate
 geometry. Material, thumbnail, and render-readiness changes do not.
 The BodySetup source-mode and query-policy setters require declared enum values
 and return void; external input is validated before calling them.
+The mesh-level `TryUpdateCollisionSourceMode` and `TryUpdateCollisionQueryPolicy`
+operations retain recoverable diagnostics because they also prepare collision
+geometry. Preparation occurs before installing the new mode, policy, or resources.
 
 `DStaticMesh` retains its setup and a detached canonical LOD 0 collision snapshot
 independently from render data. Collision is opt-in: `None`, `SimpleHull`, or

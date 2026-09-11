@@ -1068,7 +1068,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage5Tests, Ins
 	DStaticMesh* Mesh = AssetForge::Builtins::CreateTransientStaticMeshFromFile(
 		Source.generic_string(), nullptr, "M3CollisionInspectionFixture", Error);
 	ASSERT_NE(Mesh, nullptr) << Error;
-	ASSERT_TRUE(Mesh->SetCollisionSourceMode(
+	ASSERT_TRUE(Mesh->TryUpdateCollisionSourceMode(
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0, Error)) << Error;
 	const FStaticMeshCollisionInspection Inspection = InspectStaticMeshCollision(*Mesh);
 	EXPECT_EQ(Inspection.Mode, EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
@@ -1108,7 +1108,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Sta
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
 		EBodySetupCollisionQueryPolicy::SimpleAndComplex, Cold, Error)) << Error;
 	EXPECT_EQ(Cold.Origin, EStaticMeshBuildOrigin::Rebuilt);
-	ASSERT_TRUE(Mesh->SetCollisionSourceMode(
+	ASSERT_TRUE(Mesh->TryUpdateCollisionSourceMode(
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0, Error)) << Error;
 	DBodySetup* Setup = Mesh->GetBodySetup();
 	ASSERT_NE(Setup, nullptr);
@@ -1131,7 +1131,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Sta
 	EXPECT_NE(CachedGeometry.GetIdentity(), FirstIdentity);
 	EXPECT_EQ(CachedGeometry.GetTriangleCount(), FirstGeometry.GetTriangleCount());
 
-	EXPECT_FALSE(Mesh->SetCollisionSourceMode(
+	EXPECT_FALSE(Mesh->TryUpdateCollisionSourceMode(
 		EBodySetupCollisionSourceMode::ConvexHullFromLOD0, Error));
 	EXPECT_EQ(Setup->GetCollisionSourceMode(),
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
@@ -1144,10 +1144,10 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Sta
 		EBodySetupCollisionQueryPolicy::ComplexOnly, Changed, Error)) << Error;
 	EXPECT_NE(Changed.DerivedDataKey, FirstKey);
 	EXPECT_EQ(Changed.Origin, EStaticMeshBuildOrigin::Rebuilt);
-	ASSERT_TRUE(Mesh->SetCollisionQueryPolicy(
+	ASSERT_TRUE(Mesh->TryUpdateCollisionQueryPolicy(
 		EBodySetupCollisionQueryPolicy::ComplexOnly, Error)) << Error;
 	EXPECT_EQ(Setup->GetCollisionQueryPolicy(), EBodySetupCollisionQueryPolicy::ComplexOnly);
-	ASSERT_TRUE(Mesh->SetCollisionSourceMode(EBodySetupCollisionSourceMode::None, Error));
+	ASSERT_TRUE(Mesh->TryUpdateCollisionSourceMode(EBodySetupCollisionSourceMode::None, Error));
 	EXPECT_FALSE(Setup->BuildComplexGeometry(Preserved));
 	FPaths::SetDerivedDataCacheDirForTests(PreviousCache);
 	MarkObjectHierarchyAsGarbage(Mesh);

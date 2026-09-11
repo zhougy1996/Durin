@@ -467,7 +467,7 @@ TEST(FPhysicsWorldTests, StaticMeshCollisionPolicyRepublishesSharedSceneGeometry
 	ImportedMesh.SourceMaterialIndex = 0;
 	ASSERT_TRUE(Durin::BuildStaticMeshSynchronously(
 		*Mesh, std::move(Imported), Error)) << Error;
-	ASSERT_TRUE(Mesh->SetCollisionSourceMode(
+	ASSERT_TRUE(Mesh->TryUpdateCollisionSourceMode(
 		Durin::EBodySetupCollisionSourceMode::TriangleMeshFromLOD0, Error)) << Error;
 	auto AddMesh = [&](Durin::DWorld& World, std::string_view Name) {
 		auto* Actor = World.SpawnActor<Durin::AStaticMeshActor>(Durin::FName(Name));
@@ -496,12 +496,12 @@ TEST(FPhysicsWorldTests, StaticMeshCollisionPolicyRepublishesSharedSceneGeometry
 		{Bounds->Max.x + 1.0, Center.y, Center.z}, Durin::ECollisionChannel::Visibility));
 	EXPECT_EQ(Hit.Component, First);
 
-	ASSERT_TRUE(Mesh->SetCollisionQueryPolicy(
+	ASSERT_TRUE(Mesh->TryUpdateCollisionQueryPolicy(
 		Durin::EBodySetupCollisionQueryPolicy::SimpleOnly, Error)) << Error;
 	EXPECT_FALSE(First->GetPhysicsActorHandle().IsValid());
 	EXPECT_FALSE(Second->GetPhysicsActorHandle().IsValid());
 	EXPECT_EQ(First->GetCollisionProfileName(), Durin::CollisionProfile::WorldStatic);
-	ASSERT_TRUE(Mesh->SetCollisionQueryPolicy(
+	ASSERT_TRUE(Mesh->TryUpdateCollisionQueryPolicy(
 		Durin::EBodySetupCollisionQueryPolicy::ComplexOnly, Error)) << Error;
 	EXPECT_TRUE(First->GetPhysicsActorHandle().IsValid());
 	EXPECT_TRUE(Second->GetPhysicsActorHandle().IsValid());

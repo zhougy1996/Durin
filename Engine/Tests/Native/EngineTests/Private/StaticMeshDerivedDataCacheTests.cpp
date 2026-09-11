@@ -389,7 +389,7 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedCollisionCompanionIsDeterministicAn
 	FStaticMeshCacheFixture Fixture = ImportCacheFixture("StaticMeshCookedCollisionConsumer");
 	ASSERT_NE(Fixture.Mesh, nullptr);
 	std::string Error;
-	ASSERT_TRUE(Fixture.Mesh->SetCollisionSourceMode(
+	ASSERT_TRUE(Fixture.Mesh->TryUpdateCollisionSourceMode(
 		Durin::EBodySetupCollisionSourceMode::TriangleMeshFromLOD0, Error)) << Error;
 	ASSERT_NE(Fixture.Mesh->GetBodySetup(), nullptr);
 	Durin::FCollisionGeometryRef AuthoredGeometry;
@@ -1066,7 +1066,7 @@ TEST(FStaticMeshAuthoredCompilationTests, SealedCandidatePublishesWithoutProvide
 	auto* Mesh = NewObject<DStaticMesh>(nullptr, FName("AuthoredCandidateTest"));
 	std::string Error;
 	ASSERT_TRUE(BuildStaticMeshSynchronously(*Mesh, MakeResidencyGeometry(), Error)) << Error;
-	ASSERT_TRUE(Mesh->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0, Error));
+	ASSERT_TRUE(Mesh->TryUpdateCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0, Error));
 	const auto Snapshot = CaptureStaticMeshReconciliation(*Mesh);
 	std::unique_ptr<FStaticMeshAuthoredCandidate> Candidate;
 	ASSERT_TRUE(BuildStaticMeshAuthoredCandidate(MakeStaticMeshAuthoredBuildRequest(
@@ -1102,7 +1102,7 @@ TEST(FStaticMeshAuthoredCompilationTests, CancelledAndStaleCandidatesPreserveLiv
 		ASSERT_TRUE(BuildStaticMeshAuthoredCandidate(MakeStaticMeshAuthoredBuildRequest(
 			Mesh->GetSource(), Snapshot), Candidate, Error)) << Error;
 		if (Scenario == 1) ASSERT_TRUE(Mesh->RenameMaterialSlot(0, FName("Changed"), Error));
-		if (Scenario == 2) ASSERT_TRUE(Mesh->SetCollisionQueryPolicy(EBodySetupCollisionQueryPolicy::SimpleOnly, Error));
+		if (Scenario == 2) ASSERT_TRUE(Mesh->TryUpdateCollisionQueryPolicy(EBodySetupCollisionQueryPolicy::SimpleOnly, Error));
 		const auto* Original = Mesh->GetRenderData();
 		const auto SourceIdentity = Mesh->GetSource().GetIdentity();
 		const auto Revision = Mesh->GetRenderResourceStatus().Revision;
@@ -1709,7 +1709,7 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerRecapturesReflectedFactsAndInit
 
 	auto* Initial = NewObject<DStaticMesh>(nullptr, FName("ManagerInitialCollision"));
 	ASSERT_TRUE(SubmitStaticMeshCompilation(*Initial, {.Source = Source}, Error));
-	ASSERT_TRUE(Initial->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0, Error));
+	ASSERT_TRUE(Initial->TryUpdateCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0, Error));
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Initial);
 	FCollisionGeometryRef Collision;
 	ASSERT_NE(nullptr, Initial->GetBodySetup());
@@ -1933,8 +1933,8 @@ TEST(FStaticMeshAuthoredCompilationTests, InitialMutationRequeuesAtCapacityAndEx
 		ASSERT_TRUE(SubmitStaticMeshCompilation(*Meshes[Index], {.Source = Source, .bPersistDerivedData = false}, Error));
 	}
 	ASSERT_TRUE(Barrier.Wait(2));
-	ASSERT_TRUE(Meshes[0]->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0, Error));
-	ASSERT_TRUE(Meshes[1]->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0, Error));
+	ASSERT_TRUE(Meshes[0]->TryUpdateCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0, Error));
+	ASSERT_TRUE(Meshes[1]->TryUpdateCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0, Error));
 	CancelStaticMeshCompilation(*Meshes[1]);
 	FAssetCompilingManager::Get().ProcessAsyncTasks();
 	EXPECT_EQ(32u, GetStaticMeshCompilationManagerDiagnostics().OutstandingRecords);
@@ -2140,7 +2140,7 @@ TEST(FStaticMeshPayloadInspectionTests, AuthoredAndCookedMetadataDoesNotDependOn
 	EXPECT_EQ(Snapshot.Fields[0].Identity, Identity);
 	EXPECT_EQ(Snapshot.Fields[0].State, "Metadata present");
 	std::string Error;
-	ASSERT_TRUE(Fixture.Mesh->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0, Error));
+	ASSERT_TRUE(Fixture.Mesh->TryUpdateCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0, Error));
 	const auto CookRoot = std::filesystem::absolute(Fixture.Root / "Cook");
 	FCookContext Context(ECookTargetPlatform::Win64, ECookTargetProfile::Game);
 	ASSERT_TRUE(ContributeEngineCookAsset(*Fixture.Mesh, "/Game/InspectionMesh", Context, Error)) << Error;
@@ -2175,4 +2175,32 @@ TEST(FStaticMeshPayloadInspectionTests, MetadataModeDoesNotHashInlinePayloadOrRe
 	Field.Payload.pop_back();
 	EXPECT_TRUE(Field.TryReadBulkDataStorageDescriptor(Descriptor, false));
 	EXPECT_EQ(Descriptor.StorageKind, EEditorBulkDataStorageKind::External);
+}
+
+TEST(FStaticMeshReplacementTests, InvalidInputsPreservePublishedState)
+{
+	InitializeDObjectSystem();
+	auto* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
+	ASSERT_NE(Mesh, nullptr);
+	const auto* OriginalRenderData = Mesh->GetRenderData();
+	const auto OriginalSlot = *Mesh->GetMaterialSlot(0);
+	const auto OriginalRevision = Mesh->GetRenderResourceStatus().Revision;
+	const auto* OriginalBody = Mesh->GetBodySetup();
+	std::string Error;
+	EXPECT_FALSE(Mesh->TryReplaceRenderData(nullptr, {}, Error));
+	EXPECT_FALSE(Error.empty());
+	EXPECT_FALSE(Mesh->TryReplaceSourceRenderData({}, nullptr, {}, 0.0f, Error));
+	EXPECT_FALSE(Error.empty());
+	EXPECT_FALSE(Mesh->TryUpdateCollisionSourceMode(
+		static_cast<Durin::EBodySetupCollisionSourceMode>(255), Error));
+	EXPECT_FALSE(Error.empty());
+	EXPECT_FALSE(Mesh->TryUpdateCollisionQueryPolicy(
+		static_cast<Durin::EBodySetupCollisionQueryPolicy>(255), Error));
+	EXPECT_FALSE(Error.empty());
+	EXPECT_EQ(Mesh->GetRenderData(), OriginalRenderData);
+	EXPECT_EQ(Mesh->GetRenderResourceStatus().Revision, OriginalRevision);
+	EXPECT_EQ(Mesh->GetBodySetup(), OriginalBody);
+	EXPECT_EQ(Mesh->GetMaterialSlot(0)->Name, OriginalSlot.Name);
+	EXPECT_EQ(Mesh->GetMaterialSlot(0)->DefaultMaterial, OriginalSlot.DefaultMaterial);
+	Durin::MarkObjectHierarchyAsGarbage(Mesh);
 }

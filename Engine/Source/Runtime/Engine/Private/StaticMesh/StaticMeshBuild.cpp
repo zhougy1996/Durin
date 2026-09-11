@@ -156,7 +156,7 @@ namespace Durin
 		FStaticMeshSource Source, FStaticMeshBuildResult Product, std::string& OutError,
 		bool bMarkPackageDirty) -> bool
 	{
-		if (!Mesh.SetSourceRenderData(std::move(Source),
+		if (!Mesh.TryReplaceSourceRenderData(std::move(Source),
 			std::move(Product.RenderData), std::move(Product.MaterialSlots),
 			Product.NormalizedSize, OutError)) return false;
 		if (Product.bSlotMetadataChanged)
