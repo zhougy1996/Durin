@@ -112,7 +112,7 @@ namespace Durin::Editor::Level
 	{
 		if (!Line.Actor.IsValid() || !Line.Component.IsValid() || !std::isfinite(Line.WidthPixels) || !std::isfinite(Line.HitTolerancePixels)
 			|| !std::isfinite(Line.PatternPeriodPixels)) return;
-		if (Math::Length(Line.End - Line.Start) <= kSmallNumber) return;
+		if (Math::Length(Line.End - Line.Start) <= SmallNumber) return;
 		Lines.push_back(Line);
 	}
 

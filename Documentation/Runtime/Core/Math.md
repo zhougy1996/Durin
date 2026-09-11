@@ -83,7 +83,7 @@ Use the checked forms for authored or otherwise untrusted values:
 - `TryNormalize` rejects a non-finite input or threshold, a negative threshold,
   squared length less than or equal to the threshold, and a non-finite result.
   Its output is unchanged on failure. The default squared-length threshold is
-  `kSmallNumber` for float values and `kDoubleSmallNumber` for double values.
+  `SmallNumber` for float values and `DoubleSmallNumber` for double values.
 - `NormalizeOr` uses the same checks and returns the caller-supplied fallback
   verbatim on failure.
 - `TryInverse` rejects a non-finite matrix or threshold, a negative threshold,

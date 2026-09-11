@@ -10,7 +10,7 @@ namespace Durin
 		auto SafeNormalize(const FVector3& Value) -> FVector3
 		{
 			const double LengthSquared = Math::LengthSquared(Value);
-			return LengthSquared > kSmallNumber ? Value / std::sqrt(LengthSquared) : FVectorConstants::Zero;
+			return LengthSquared > SmallNumber ? Value / std::sqrt(LengthSquared) : FVectorConstants::Zero;
 		}
 	} // namespace
 

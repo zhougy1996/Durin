@@ -12,7 +12,7 @@ namespace Durin
 		{
 			FVector3 UnitForward = Math::Normalize(Forward);
 			FVector3 UnitRight = Math::Cross(FVectorConstants::Up, UnitForward);
-			if (Math::LengthSquared(UnitRight) < kSmallNumber)
+			if (Math::LengthSquared(UnitRight) < SmallNumber)
 			{
 				UnitRight = FVectorConstants::Right;
 			}
@@ -223,7 +223,7 @@ namespace Durin
 		FTransform Transform = GetWorldTransform();
 		Transform.Translation = InLocation;
 		const FVector3 Forward = InTarget - InLocation;
-		if (Math::LengthSquared(Forward) >= kSmallNumber)
+		if (Math::LengthSquared(Forward) >= SmallNumber)
 		{
 			Transform.Rotation = MakeCameraBasisRotation(Forward);
 		}

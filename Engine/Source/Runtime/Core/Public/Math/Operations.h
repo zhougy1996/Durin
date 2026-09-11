@@ -54,8 +54,8 @@ namespace Durin::Math
 		template<CNormalizable TValue>
 		[[nodiscard]] constexpr auto DefaultMinLengthSquared() -> TScalar<TValue>
 		{
-			if constexpr (std::same_as<TScalar<TValue>, float>) return kSmallNumber;
-			else return kDoubleSmallNumber;
+			if constexpr (std::same_as<TScalar<TValue>, float>) return SmallNumber;
+			else return DoubleSmallNumber;
 		}
 	}
 
@@ -288,8 +288,8 @@ namespace Durin::Math
 	[[nodiscard]] FORCEINLINE auto AreRotationsEquivalent(
 		const FQuat& Left,
 		const FQuat& Right,
-		FReal Tolerance = kDoubleDelta,
-		FReal MinLengthSquared = kDoubleSmallNumber) -> bool
+		FReal Tolerance = DoubleEpsilon,
+		FReal MinLengthSquared = DoubleSmallNumber) -> bool
 	{
 		if (!std::isfinite(Tolerance) || Tolerance < 0.0 || Tolerance > 1.0) return false;
 		FQuat NormalizedLeft;
@@ -326,7 +326,7 @@ namespace Durin::Math
 	[[nodiscard]] FORCEINLINE auto TryInverse(
 		const FMatrix& Matrix,
 		FMatrix& OutInverse,
-		FReal MinAbsDeterminant = kDoubleSmallNumber) -> bool
+		FReal MinAbsDeterminant = DoubleSmallNumber) -> bool
 	{
 		if (!IsFinite(Matrix) || !std::isfinite(MinAbsDeterminant) || MinAbsDeterminant < 0.0) return false;
 		const FReal MatrixDeterminant = Determinant(Matrix);

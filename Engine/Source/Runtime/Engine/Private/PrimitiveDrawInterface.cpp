@@ -71,7 +71,7 @@ namespace Durin
 		if (!CanAdmit(DepthPriorityGroup) || !Math::IsFinite(Start)
 			|| !Math::IsFinite(End) || !IsFinite(Color)
 			|| !IsValidStyle(Style)
-			|| Math::LengthSquared(End - Start) <= kSmallNumber)
+			|| Math::LengthSquared(End - Start) <= SmallNumber)
 		{
 			if (Submission != nullptr && !Submission->bSealed
 				&& ProducerThreadId == FPlatformLTS::GetCurrentThreadId())
@@ -95,7 +95,7 @@ namespace Durin
 		if (!CanAdmit(DepthPriorityGroup) || !Math::IsFinite(Start)
 			|| !Math::IsFinite(End) || !IsFinite(Color)
 			|| !IsValidStyle(Style) || Color.w <= 0.0f
-			|| Math::LengthSquared(End - Start) <= kSmallNumber)
+			|| Math::LengthSquared(End - Start) <= SmallNumber)
 		{
 			if (Submission != nullptr && !Submission->bSealed
 				&& ProducerThreadId == FPlatformLTS::GetCurrentThreadId())

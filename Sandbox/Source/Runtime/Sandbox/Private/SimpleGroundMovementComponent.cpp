@@ -25,7 +25,7 @@ namespace Durin::Sandbox
 		{
 			const FVector2 Difference = Desired - Current;
 			const double Distance = Math::Length(Difference);
-			if (Distance <= kDoubleSmallNumber || Rate <= 0.0)
+			if (Distance <= DoubleSmallNumber || Rate <= 0.0)
 				return {.Velocity = Desired, .Displacement = Desired * DeltaSeconds};
 			const FVector2 Direction = Difference / Distance;
 			const double AccelerationTime = std::min(DeltaSeconds, Distance / Rate);
@@ -135,7 +135,7 @@ namespace Durin::Sandbox
 
 		FVector3 Velocity = GetVelocity();
 		const FVector2 CurrentHorizontal{Velocity.x, Velocity.y};
-		const double Rate = Math::LengthSquared(DesiredHorizontal) > kDoubleSmallNumber
+		const double Rate = Math::LengthSquared(DesiredHorizontal) > DoubleSmallNumber
 			? GameplayTuning::HorizontalAcceleration
 			: GameplayTuning::HorizontalDeceleration;
 		const FHorizontalStep Horizontal = IntegrateHorizontal(

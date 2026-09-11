@@ -238,7 +238,7 @@ namespace Durin
 		}
 
 		// Error-tolerant comparison.
-		FORCEINLINE bool Equals(const FLinearColor& ColorB, float Tolerance = kKindaSmallNumber) const
+		FORCEINLINE bool Equals(const FLinearColor& ColorB, float Tolerance = KindaSmallNumber) const
 		{
 			return FMath::Abs(this->R - ColorB.R) < Tolerance && FMath::Abs(this->G - ColorB.G) < Tolerance && FMath::Abs(this->B - ColorB.B) < Tolerance && FMath::Abs(this->A - ColorB.A) < Tolerance;
 		}

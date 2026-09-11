@@ -11,7 +11,7 @@ namespace Durin
 	{
 		auto SafeNormalize(const FQuat& Rotation) -> FQuat
 		{
-			return Math::LengthSquared(Rotation) > kSmallNumber
+			return Math::LengthSquared(Rotation) > SmallNumber
 				? Math::Normalize(Rotation) : FQuatConstants::Identity;
 		}
 
@@ -20,7 +20,7 @@ namespace Durin
 			FVector3 Result(0.0);
 			for (uint32 Axis = 0; Axis < 3; ++Axis)
 			{
-				if (std::abs(Value[Axis]) > kSmallNumber)
+				if (std::abs(Value[Axis]) > SmallNumber)
 				{
 					Result[Axis] = 1.0 / Value[Axis];
 				}
@@ -60,7 +60,7 @@ namespace Durin
 		FVector3 Skew;
 		FVector4 Perspective;
 		if (!glm::decompose(Matrix, Scale, Rotation, Translation, Skew, Perspective)) return false;
-		if (!std::isfinite(Math::Length(Rotation)) || Math::LengthSquared(Rotation) <= kSmallNumber) return false;
+		if (!std::isfinite(Math::Length(Rotation)) || Math::LengthSquared(Rotation) <= SmallNumber) return false;
 		for (uint32 Axis = 0; Axis < 3; ++Axis)
 		{
 			if (!std::isfinite(Scale[Axis]) || !std::isfinite(Translation[Axis])) return false;

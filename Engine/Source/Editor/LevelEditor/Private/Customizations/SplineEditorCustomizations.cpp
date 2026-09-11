@@ -95,7 +95,7 @@ namespace Durin::Editor::Level
 				}
 				if (Mode == ESplineTangentMode::ManualAligned)
 				{
-					const FVector3 Seed = Math::Length(Point.LeaveTangent) > kSmallNumber ? Point.LeaveTangent : Point.ArriveTangent;
+					const FVector3 Seed = Math::Length(Point.LeaveTangent) > SmallNumber ? Point.LeaveTangent : Point.ArriveTangent;
 					Point.ArriveTangent = Point.LeaveTangent = Seed;
 				}
 			}
@@ -605,7 +605,7 @@ namespace Durin::Editor::Level
 
 		const FVector3 LastChord = LastPosition - Spline.GetSplinePoint(PointCount - 2)->Position;
 		const double LastChordLength = Math::Length(LastChord);
-		if (LastChordLength <= kSmallNumber) return LastPosition + FVectorConstants::Forward * DefaultAppendDistance;
+		if (LastChordLength <= SmallNumber) return LastPosition + FVectorConstants::Forward * DefaultAppendDistance;
 		return LastPosition + LastChord / LastChordLength * std::min(LastChordLength, DefaultAppendDistance);
 	}
 

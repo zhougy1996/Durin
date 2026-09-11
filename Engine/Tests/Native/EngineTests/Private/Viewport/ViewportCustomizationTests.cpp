@@ -721,7 +721,7 @@ TEST(FCameraComponentVisualizerTests, UsesTheActualFarPlaneAtExtremeFieldOfView)
 	EXPECT_NEAR(Durin::Math::Dot(Collector.GetLines()[2].End - Origin, Forward), 1000.0, 1.e-4);
 	EXPECT_TRUE(std::ranges::all_of(Collector.GetLines(), [](const Durin::Editor::Level::FEditorVisualizationLine& Line) {
 		return Durin::Math::IsFinite(Line.End - Line.Start)
-			&& Durin::Math::Length(Line.End - Line.Start) > Durin::kSmallNumber;
+			&& Durin::Math::Length(Line.End - Line.Start) > Durin::SmallNumber;
 	}));
 }
 
@@ -760,7 +760,7 @@ TEST(FDirectionalLightComponentVisualizerTests, DrawsSelectableIconAndSelectedDi
 	EXPECT_FLOAT_EQ(Shaft.WidthPixels, Durin::MonaImGui::ScaleUI(2.0f));
 	EXPECT_TRUE(std::ranges::all_of(Selected.GetLines(), [](const auto& Line) {
 		return Durin::Math::IsFinite(Line.End - Line.Start)
-			&& Durin::Math::Length(Line.End - Line.Start) > Durin::kSmallNumber;
+			&& Durin::Math::Length(Line.End - Line.Start) > Durin::SmallNumber;
 	}));
 	EXPECT_TRUE(Selected.GetIcons().front().bDepthIndependentHit);
 }

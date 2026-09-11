@@ -339,7 +339,7 @@ namespace Durin::Editor
 		}
 		if (Environment.TextureReference == nullptr
 			|| !Math::IsFinite(Environment.Rotation)
-			|| Math::LengthSquared(Environment.Rotation) <= kDoubleSmallNumber
+			|| Math::LengthSquared(Environment.Rotation) <= DoubleSmallNumber
 			|| !Math::IsFinite(Environment.Tint)
 			|| !std::isfinite(Environment.Intensity)
 			|| Environment.Intensity < 0.0f)
