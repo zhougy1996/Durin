@@ -17,10 +17,11 @@ namespace Durin
 		{
 			// Accepted reference initialization must run even after close.
 			if (bInitializeReference) Reference.InitResource(Commands);
+			Reference.ResetToFallback_RenderThread();
 			bool bInitialize = false;
 			{
 				std::lock_guard Lock(Mutex);
-				bInitialize = !bClosed;
+				bInitialize = !bClosed && !bDiscarded;
 			}
 			if (bInitialize)
 			{
@@ -28,7 +29,7 @@ namespace Durin
 				if (Candidate->GetTextureRHI_RenderThread())
 				{
 					std::lock_guard Lock(Mutex);
-					if (!bClosed)
+					if (!bClosed && !bDiscarded)
 					{
 						Candidate->PublishTexture_RenderThread();
 						bPublished = true;
@@ -43,7 +44,7 @@ namespace Durin
 		}
 		{
 			std::lock_guard Lock(Mutex);
-			State.store(bClosed ? ETextureResourceUpdateState::Closed
+			State.store(bClosed || bDiscarded ? ETextureResourceUpdateState::Closed
 				: bPublished ? ETextureResourceUpdateState::Succeeded
 				: ETextureResourceUpdateState::Failed, std::memory_order_release);
 			bComplete.store(true, std::memory_order_release);
@@ -79,6 +80,15 @@ namespace Durin
 		State.store(ETextureResourceUpdateState::Failed, std::memory_order_release);
 		bComplete.store(true, std::memory_order_release);
 		CV.notify_all();
+	}
+
+	auto FTextureResourceUpdate::Discard() -> void
+	{
+		CheckGameThread();
+		Successor.reset();
+		std::lock_guard Lock(Mutex);
+		bDiscarded = true;
+		if (IsComplete()) State.store(ETextureResourceUpdateState::Closed, std::memory_order_release);
 	}
 
 	auto FTextureResourceUpdate::Close() -> void

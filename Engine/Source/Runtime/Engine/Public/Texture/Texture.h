@@ -44,7 +44,7 @@ namespace Durin
 
 		auto GetSource() const -> const FTextureSource& { return Source; }
 		// GameThread only. Adopts prepared source compatible with this texture family,
-		// binds ownership and cancels pending authored builds; does not read or validate payloads.
+		// binds ownership and invalidates authored builds, CPU data and GPU publication; does not read payloads.
 		ENGINE_API auto SetSource(FTextureSource Value) -> void;
 		// GameThread storage-only commit. Rejects different pixels, descriptors or bulk
 		// instance identity; preserves build state, ownership and acquired byte buffers.
@@ -74,8 +74,9 @@ namespace Durin
 		// On failure, logs the texture path and reason and returns false.
 		ENGINE_API auto EnsurePlatformDataLoadedBlocking() -> bool;
 
-		// Asynchronously uploads installed platform data; failed replacement retains the prior allocation.
+		// Asynchronously uploads installed platform data; direct updates invalidate the prior allocation.
 		ENGINE_API auto UpdateResource() -> void;
+		auto GetResourceUpdateError() const -> const std::string& { return ResourceUpdateError; }
 
 		ENGINE_API auto GetTextureReferenceRHI() const
 			-> FRHITextureReferenceRef;
@@ -93,6 +94,7 @@ namespace Durin
 	protected:
 		ENGINE_API explicit DTexture(const FObjectInitializer& ObjectInitializer);
 		ENGINE_API auto InvalidateAuthoredBuild() -> void;
+		ENGINE_API auto InvalidateRenderResource() -> void;
 		// Restricted to family serializers and blocking loaders.
 		auto GetMutableCookedPlatformData() -> FBulkData&
 		{
@@ -127,6 +129,7 @@ namespace Durin
 		std::unique_ptr<FTextureReference> TextureReference;
 		std::unique_ptr<FTextureResource> RenderResource;
 		std::shared_ptr<FTextureResourceUpdate> PendingUpdate;
+		std::string ResourceUpdateError;
 		ETextureResourceUpdateState LastUpdateState = ETextureResourceUpdateState::Idle;
 		bool bTextureReferenceInitializationQueued = false;
 		bool bAcceptingRenderResourceBuilds = true;

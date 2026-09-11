@@ -214,6 +214,7 @@ namespace Durin
 		std::unique_ptr<FTextureCubePlatformData> Data) -> void
 	{
 		CheckGameThread();
+		InvalidateRenderResource();
 		PlatformData = std::move(Data);
 	}
 

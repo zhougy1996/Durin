@@ -180,6 +180,7 @@ namespace Durin
 		std::unique_ptr<FVolumeTexturePlatformData> Data) -> void
 	{
 		CheckGameThread();
+		InvalidateRenderResource();
 		PlatformData = std::move(Data);
 	}
 

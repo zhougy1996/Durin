@@ -2079,7 +2079,8 @@ TEST(FTexture2DTests, AsyncBuildSettingCancellationAndSupersessionPreserveTransa
 		Condition.notify_all();
 	}
 	Durin::AssetPrivate::SetTexture2DCompilationPhaseHookForTests({});
-	ASSERT_TRUE(Durin::WaitForTexture2DCompilation(*Texture, 10.0));
+	EXPECT_FALSE(Durin::WaitForTexture2DCompilation(*Texture, 10.0));
+	EXPECT_FALSE(Texture->HasPlatformData());
 	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::Color);
 	EXPECT_FALSE(Texture->GetPackage()->IsDirty());
 	EXPECT_FALSE(Transactions->CanUndo());

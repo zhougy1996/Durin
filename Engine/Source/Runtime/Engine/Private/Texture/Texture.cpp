@@ -125,7 +125,7 @@ namespace Durin
 
 	auto DTexture::GetResourceUpdateState() const -> ETextureResourceUpdateState
 	{
-		return PendingUpdate ? PendingUpdate->GetState() : LastUpdateState;
+		return PendingUpdate && !PendingUpdate->IsDiscarded() ? PendingUpdate->GetState() : LastUpdateState;
 	}
 
 	auto DTexture::HasUsableResource() const -> bool { return RenderResource != nullptr; }
@@ -175,6 +175,26 @@ namespace Durin
 	{
 		CheckGameThread();
 		FAssetCompilingManager::Get().MarkCompilationAsCanceled(*this);
+		ResetPlatformData();
+		CookedPlatformData = {};
+		InvalidateRenderResource();
+	}
+
+	auto DTexture::InvalidateRenderResource() -> void
+	{
+		CheckGameThread();
+		if (PendingUpdate) PendingUpdate->Discard();
+		if (bTextureReferenceInitializationQueued)
+		{
+			// FIFO ordering clears an already-published candidate before any successor upload.
+			TryEnqueueRenderCommand("InvalidateTextureReference",
+				[Reference = TextureReference.get()](FRHICommandListImmediate&) {
+					Reference->ResetToFallback_RenderThread();
+				});
+		}
+		RetireTextureResource(std::move(RenderResource));
+		ResourceUpdateError.clear();
+		LastUpdateState = ETextureResourceUpdateState::Idle;
 	}
 
 	auto DTexture::SetAssetImportData(DAssetImportData& Value) -> void
@@ -194,8 +214,11 @@ namespace Durin
 				GetObjectPath());
 			return;
 		}
+		InvalidateRenderResource();
 		if (!HasPlatformData())
 		{
+			LastUpdateState = ETextureResourceUpdateState::Failed;
+			ResourceUpdateError = "Texture platform data is unavailable or invalid.";
 			DURIN_WARN(
 				"Texture render-resource build rejected without valid platform data. (texture: {})",
 				GetObjectPath());
@@ -207,7 +230,11 @@ namespace Durin
 		Candidate->SetDebugOwner(GetPackage()
 			? FName(GetPackage()->GetPackagePath()) : FName("<transient DTexture>"));
 #endif
-		if (PendingUpdate) PendingUpdate->SetSuccessor(std::move(Candidate));
+		if (PendingUpdate)
+		{
+			PendingUpdate->SetSuccessor(std::move(Candidate));
+			LastUpdateState = ETextureResourceUpdateState::Pending;
+		}
 		else StartResourceUpdate(std::move(Candidate));
 	}
 
@@ -252,19 +279,28 @@ namespace Durin
 	auto DTexture::ConsumeResourceUpdate() -> void
 	{
 		if (!PendingUpdate || !PendingUpdate->IsComplete()) return;
-		LastUpdateState = PendingUpdate->GetState();
+		const auto CompletedState = PendingUpdate->GetState();
+		// A discarded completion must not overwrite a newer direct failure or idle state.
+		if (CompletedState != ETextureResourceUpdateState::Closed) LastUpdateState = CompletedState;
 		auto Candidate = PendingUpdate->TakeCandidate();
-		if (LastUpdateState == ETextureResourceUpdateState::Succeeded)
+		if (CompletedState == ETextureResourceUpdateState::Succeeded)
 		{
 			RetireTextureResource(std::move(RenderResource));
 			RenderResource = std::move(Candidate);
 		}
-		else
-			DURIN_WARN("Texture resource update failed; retaining any previous allocation. See preceding diagnostics. (texture: {})", GetObjectPath());
+		else if (CompletedState == ETextureResourceUpdateState::Failed)
+		{
+			ResourceUpdateError = "Texture upload failed; see render initialization diagnostics.";
+			DURIN_WARN("Texture resource update failed; using fallback. (texture: {})", GetObjectPath());
+		}
 		RetireTextureResource(std::move(Candidate));
 		auto Successor = PendingUpdate->TakeSuccessor();
 		PendingUpdate.reset();
-		if (Successor) StartResourceUpdate(std::move(Successor));
+		if (Successor)
+		{
+			ResourceUpdateError.clear();
+			StartResourceUpdate(std::move(Successor));
+		}
 	}
 
 	auto DTexture::EnsurePlatformDataLoadedBlocking() -> bool

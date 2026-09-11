@@ -20,6 +20,9 @@ namespace Durin
 		auto SetCompletionTask(FTaskHandle Task) -> void { CompletionTask = std::move(Task); }
 		ENGINE_API auto Reject() -> void;
 		ENGINE_API auto Close() -> void;
+		// Invalidates publication without canceling the cleanup handoff or blocking the owner.
+		ENGINE_API auto Discard() -> void;
+		auto IsDiscarded() const -> bool { return bDiscarded.load(std::memory_order_acquire); }
 		ENGINE_API auto Wait() -> void;
 		auto IsComplete() const -> bool { return bComplete.load(std::memory_order_acquire); }
 		auto GetState() const -> ETextureResourceUpdateState { return State.load(std::memory_order_acquire); }
@@ -36,6 +39,7 @@ namespace Durin
 		std::mutex Mutex;
 		std::condition_variable CV;
 		bool bClosed = false;
+		std::atomic<bool> bDiscarded = false;
 		std::atomic<bool> bComplete = false;
 		std::atomic<ETextureResourceUpdateState> State = ETextureResourceUpdateState::Pending;
 	};

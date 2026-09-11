@@ -224,8 +224,8 @@ the matching failure phase; idle textures do not persist those facts.
 
 Normal-frame completion drains retain the 64-item cap; callback duration is
 diagnostic rather than a separate time limit. A 16K source has a 1 GiB decoded
-allocation, about 1.33 GiB uncompressed mip chain, and 170.67¨C341.33 MiB BC
-result. Its 2.50¨C2.67 GiB source/intermediate/result working set is admitted
+allocation, about 1.33 GiB uncompressed mip chain, and 170.67-341.33 MiB BC
+result. Its 2.50-2.67 GiB source/intermediate/result working set is admitted
 alone. Two typical 4K builds remain below the 1 GiB admission budget, while
 larger requests serialize. These are allocation bounds, not wall-clock promises;
 the full 16K high-quality matrix is not a routine gate.
@@ -251,8 +251,11 @@ rebuilding it, and the edit session registers one transaction and one Dirty
 transition. Cancel, Undo, and Redo use the same asynchronous proposal path.
 Changing usage resets sRGB to that preset's default; editing sRGB afterward is
 an explicit override. Committed edits dirty the package through the shared
-reflected transaction path. Direct build-setting setters follow the same
-rebuild rule and dirty the package after success.
+reflected transaction path. Direct source and build-setting setters cancel authored work and invalidate
+installed platform data, obsolete cooked bytes, and GPU publication. They do not
+build or mark the package dirty themselves; the operation applying those values
+owns rebuilding and dirty marking. `SetPlatformData()` invalidates GPU publication
+before adopting its CPU input. Call `UpdateResource()` to upload installed data.
 
 ## Render-Thread Boundary
 
@@ -277,9 +280,11 @@ An explicit retry constructs a new candidate from installed asset platform data.
 The update operation owns its candidate and coalesces one uninitialized
 successor. During execution, another `UpdateResource()` replaces that successor.
 Only the latest retained input starts after the active result is consumed.
-An already admitted operation may publish before its successor; no request
-revision or token comparison suppresses it. Closing the operation discards its
-successor without initializing it.
+Direct invalidation marks the active operation discarded under its publication
+mutex and removes its previous successor. Discarded work cannot publish; its
+existing handoff retires it and starts the latest successor without blocking the
+GameThread. A queued reference reset also clears an allocation published before
+the discard. Closing the operation discards its successor without initializing it.
 
 RenderThread initializes the candidate and records every mip upload before
 publication. `FUpdateTexture2DCommand` and `FUpdateTexture3DCommand` copy upload
@@ -295,7 +300,10 @@ counted copies of this stable identity and observe replacements without
 reacquiring the asset. The operation owns the published candidate until
 GameThread acquires its terminal handoff. Successful consumption installs the
 candidate as the asset's current resource and retires the previous resource;
-failure retires only the candidate and preserves the last successful resource.
+failure retires the candidate and leaves the stable reference at fallback.
+Direct updates retire the old resource and queue fallback before uploading, so
+failed updates cannot silently display old pixels. The fallback target may be
+null; consumers retain their existing family-specific default-binding policy.
 Delayed release resets the stable target only when it still matches the released
 allocation, so retiring an old resource cannot unbind its replacement.
 
@@ -324,11 +332,13 @@ as the rendering thread.
 `HasUsableResource()` reports availability of a consumed successful allocation;
 `IsResourceUpdatePending()` includes terminal-but-not-consumed operations.
 `GetResourceUpdateState()` reports CPU update progress/result independently.
-There is no retained failure-category enum on the asset or resource. Unsupported
+The asset exposes `GetResourceUpdateError()` for the latest consumed upload failure
+or rejected update; successful retries and direct invalidation clear it. Unsupported
 descriptions, failed allocation, missing RHI, exceptions, and rejected command
-admission are logged; the operation retains only its completion state. Editors
+admission are logged; the operation retains its completion state. Editors
 use that state for generic failure and explicit update retry, with details in
-the log. Missing platform data rejects before admission. The exact descriptor
+the log. Missing platform data rejects before admission and records `Failed`.
+Usable CPU data survives GPU upload failure so `UpdateResource()` can retry. The exact descriptor
 support check precedes allocation; see
 [RHI Capabilities and Vulkan Startup](RHICapabilitiesAndVulkanStartup.md).
 
@@ -356,8 +366,8 @@ exists. Editor CPU previews compare source identity and weak ownership of
 immutable platform data. Upload candidates share that installed data until
 initialization completes, avoiding a second pixel-buffer copy. Thumbnail
 sessions validate weak asset identity, asset revisions and the actual captured
-GPU allocation. A failed replacement that retains the same allocation does not
-by itself invalidate a thumbnail; no resource-update generation is stored.
+GPU allocation. Direct invalidation clears the captured allocation, invalidating dependent
+thumbnail sessions; no resource-update generation is stored.
 
 RHI pixel-format metadata also owns the tightly packed block layout calculation.
 Platform-data validation and Vulkan uploads use the same block count, row pitch,

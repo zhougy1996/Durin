@@ -603,33 +603,34 @@ namespace
 		Durin::VulkanRHI::ArmVulkanCreateFailure(Durin::VulkanRHI::EVulkanCreateFailurePoint::Image);
 		Texture->UpdateResource();
 		ConsumeTextureUpdate();
-		EXPECT_TRUE(Texture->HasUsableResource());
-		EXPECT_EQ(Texture->GetPublishedTexture(), OldSnapshot);
+		EXPECT_FALSE(Texture->HasUsableResource());
+		EXPECT_EQ(Texture->GetPublishedTexture(), nullptr);
+		EXPECT_FALSE(Texture->GetResourceUpdateError().empty());
 		EXPECT_EQ(Texture->GetResourceUpdateState(), Durin::ETextureResourceUpdateState::Failed);
 		Durin::FRHITexture* Observed = nullptr;
 		Durin::TryEnqueueRenderCommand("CheckFailedTextureFallback", [StableReference, &Observed](Durin::FRHICommandListImmediate&) {
 			Observed = StableReference->GetReferencedTexture_RenderThread();
 		});
 		Durin::FlushRenderingCommands();
-		EXPECT_EQ(Observed, OldSnapshot.GetReference());
+		EXPECT_EQ(Observed, nullptr);
 
 		std::latch Blocked(1), Resume(1);
 		Durin::TryEnqueueRenderCommand("HoldTextureAdmission", [&](Durin::FRHICommandListImmediate&) {
 			Blocked.count_down(); Resume.wait();
 		});
 		Blocked.wait();
-		Texture->UpdateResource(); // A retains 0x11 as live platform data is replaced.
+		Texture->UpdateResource(); // A is discarded when its input is replaced.
 		InstallUpdateInput(*Texture, std::byte{0x22});
 		Texture->UpdateResource(); // B never initializes.
 		InstallUpdateInput(*Texture, std::byte{0x33});
-		Texture->UpdateResource(); // Only C follows A.
+		Texture->UpdateResource(); // Only C may publish.
 		Resume.count_down();
 		Durin::FlushRenderingCommands();
 		EXPECT_TRUE(Texture->IsResourceUpdatePending());
-		EXPECT_EQ(Texture->GetPublishedTexture(), OldSnapshot);
+		EXPECT_EQ(Texture->GetPublishedTexture(), nullptr);
 		Durin::PumpGameThreadDeferredWork({.MaxCallbacks = 1});
 		const auto Intermediate = Texture->GetPublishedTexture();
-		EXPECT_NE(Intermediate, OldSnapshot);
+		EXPECT_EQ(Intermediate, nullptr);
 		EXPECT_TRUE(Texture->IsResourceUpdatePending());
 		ConsumeTextureUpdate();
 		EXPECT_FALSE(Texture->IsResourceUpdatePending());
@@ -640,14 +641,27 @@ namespace
 		{
 			Durin::FByteBuffer Earlier, Latest;
 			const auto Current = Texture->GetPublishedTexture();
-			Durin::TryEnqueueRenderCommand("ReadOwnedTextureSnapshots", [Intermediate, Current, &Earlier, &Latest](Durin::FRHICommandListImmediate& Commands) {
-				EXPECT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(Commands, Intermediate, 0, 0, Earlier));
+			Durin::TryEnqueueRenderCommand("ReadOwnedTextureSnapshots", [OldSnapshot, Current, &Earlier, &Latest](Durin::FRHICommandListImmediate& Commands) {
+				EXPECT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(Commands, OldSnapshot, 0, 0, Earlier));
 				EXPECT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(Commands, Current, 0, 0, Latest));
 			});
 			Durin::FlushRenderingCommands();
 			EXPECT_EQ(Earlier, Durin::FByteBuffer(4, std::byte{0x11}));
 			EXPECT_EQ(Latest, Durin::FByteBuffer(4, std::byte{0x33}));
 		}
+		EXPECT_TRUE(Texture->GetResourceUpdateError().empty());
+		// Direct source mutation invalidates both CPU and GPU data across every family.
+		Texture->SetSource({});
+		EXPECT_FALSE(Texture->HasPlatformData());
+		EXPECT_FALSE(Texture->HasUsableResource());
+		Texture->UpdateResource();
+		EXPECT_EQ(Texture->GetResourceUpdateState(), Durin::ETextureResourceUpdateState::Failed);
+		ConsumeTextureUpdate();
+		Durin::TryEnqueueRenderCommand("CheckInvalidSourceFallback", [StableReference](Durin::FRHICommandListImmediate&) {
+			EXPECT_EQ(StableReference->GetReferencedTexture_RenderThread(), nullptr);
+		});
+		Durin::FlushRenderingCommands();
+		InstallUpdateInput(*Texture, std::byte{0x44});
 		// Close between publication and consumption reconciles both owners.
 		Texture->UpdateResource();
 		Durin::FlushRenderingCommands();
@@ -659,7 +673,7 @@ namespace
 	}
 }
 
-TEST(FTextureCookTests, OwnedUpdatesRetainFallbackCoalesceInputsAndCloseAcrossAllFamilies)
+TEST(FTextureCookTests, OwnedUpdatesInvalidateOldDataCoalesceInputsAndCloseAcrossAllFamilies)
 {
 	InitializeDObjectSystem();
 	ASSERT_TRUE(Durin::InitializeTaskScheduler());
@@ -684,7 +698,7 @@ TEST(FTextureCookTests, OwnedUpdatesRetainFallbackCoalesceInputsAndCloseAcrossAl
 	Durin::FlushRenderingCommands();
 	Durin::ShutdownTaskSystem(Durin::ETaskShutdownMode::Drain);
 	EXPECT_FALSE(Draining->IsResourceUpdatePending());
-	EXPECT_TRUE(Draining->HasUsableResource());
+	EXPECT_FALSE(Draining->HasUsableResource());
 	EXPECT_EQ(Draining->GetResourceUpdateState(), Durin::ETextureResourceUpdateState::Failed);
 	Durin::RemoveFromRoot(Draining);
 	Durin::MarkAsGarbage(Draining);

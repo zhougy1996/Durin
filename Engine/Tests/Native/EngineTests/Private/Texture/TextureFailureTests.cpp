@@ -391,7 +391,7 @@ namespace
 	};
 }
 
-TEST_F(FTextureResourceUpdateTests, FailedReplacementRetainsAllocationAndLateReleasePreservesNewTarget)
+TEST_F(FTextureResourceUpdateTests, FailedReplacementUsesFallbackAndLateReleasePreservesNewTarget)
 {
 	Durin::FTextureReference Reference;
 	FUpdateResourceObservations OldEvents, FailedEvents, NewEvents;
@@ -405,7 +405,7 @@ TEST_F(FTextureResourceUpdateTests, FailedReplacementRetainsAllocationAndLateRel
 	Start(Failed, Reference);
 	Failed->Wait();
 	EXPECT_EQ(Failed->GetState(), Durin::ETextureResourceUpdateState::Failed);
-	EXPECT_EQ(Resolve(Reference), OldSnapshot.GetReference());
+	EXPECT_EQ(Resolve(Reference), nullptr);
 	Retire(Failed);
 	EXPECT_EQ(FailedEvents.Released, 1);
 	EXPECT_EQ(FailedEvents.Destroyed, 1);
@@ -472,6 +472,32 @@ TEST_F(FTextureResourceUpdateTests, CloseDuringInitializationPreventsPublication
 	Durin::FlushRenderingCommands();
 }
 
+TEST_F(FTextureResourceUpdateTests, DiscardDuringInitializationPreventsStalePublicationAndAcceptsSuccessor)
+{
+	Durin::FTextureReference Reference;
+	FUpdateResourceObservations Events, SuccessorEvents;
+	std::latch Started(1), Resume(1);
+	auto Update = std::make_shared<Durin::FTextureResourceUpdate>(std::make_unique<FUpdateTestResource>(Reference, Events,
+		false, [&]() { Started.count_down(); Resume.wait(); }));
+	Start(Update, Reference, true);
+	Started.wait();
+	Update->Discard();
+	Update->SetSuccessor(std::make_unique<FUpdateTestResource>(Reference, SuccessorEvents));
+	Resume.count_down();
+	Update->Wait();
+	EXPECT_EQ(Update->GetPublishedTexture(), nullptr);
+	EXPECT_EQ(Resolve(Reference), nullptr);
+	auto Successor = std::make_shared<Durin::FTextureResourceUpdate>(Update->TakeSuccessor());
+	Start(Successor, Reference);
+	Successor->Wait();
+	EXPECT_NE(Successor->GetPublishedTexture(), nullptr);
+	Retire(Update);
+	EXPECT_EQ(Resolve(Reference), Successor->GetPublishedTexture().GetReference());
+	Retire(Successor);
+	Reference.BeginRelease_GameThread();
+	Durin::FlushRenderingCommands();
+}
+
 TEST_F(FTextureResourceUpdateTests, CloseBeforeExecutionSkipsCandidateInitialization)
 {
 	Durin::FTextureReference Reference;
@@ -497,7 +523,8 @@ TEST(FTextureResourceAdmissionTests, MissingPlatformDataDoesNotAdmitWork)
 	Texture->UpdateResource();
 	EXPECT_FALSE(Texture->IsResourceUpdatePending());
 	EXPECT_FALSE(Texture->HasUsableResource());
-	EXPECT_EQ(Texture->GetResourceUpdateState(), Durin::ETextureResourceUpdateState::Idle);
+	EXPECT_EQ(Texture->GetResourceUpdateState(), Durin::ETextureResourceUpdateState::Failed);
+	EXPECT_FALSE(Texture->GetResourceUpdateError().empty());
 }
 
 TEST(FTextureResourceAdmissionTests, MissingRHIRejectsSynchronouslyWithoutTaskExecutor)
