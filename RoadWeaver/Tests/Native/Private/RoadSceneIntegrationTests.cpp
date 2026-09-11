@@ -2,6 +2,7 @@
 #include "RoadNet/RoadNetBuilder.h"
 #include "Components/SplineMeshComponent.h"
 #include "StaticMesh/StaticMesh.h"
+#include "StaticMesh/StaticMeshSource.h"
 #include "Asset/PackageSerialization.h"
 #include "Asset/PackageInspection.h"
 #include "Engine/Level.h"
@@ -61,7 +62,7 @@ TEST(RoadSceneIntegration, LoadedPreviewMeshFinishesCompilationBeforeConstructio
 	Section.Indices = {0, 1, 2};
 	Section.SourceMaterialIndex = 0;
 	std::string Error;
-	FStaticMeshImportedData Source;
+	FStaticMeshSource Source;
 	ASSERT_TRUE(Source.Initialize(std::move(Geometry), Error)) << Error;
 	ASSERT_TRUE(SubmitStaticMeshCompilation(*Mesh,
 		{.Source = std::move(Source), .bPersistDerivedData = false, .bMarkPackageDirty = false}, Error)) << Error;
