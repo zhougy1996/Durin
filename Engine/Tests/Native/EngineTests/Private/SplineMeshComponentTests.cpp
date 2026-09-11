@@ -159,6 +159,78 @@ TEST(FSplineMeshComponentTests, RenderUpdatesDeferExactGeometryUntilRequested)
 	EXPECT_FALSE(Component->GetDerivedStateForQueries()->IsValid());
 }
 
+TEST(FSplineMeshComponentTests, DeferredEditsPublishOnceAndCleanUpdatesDoNothing)
+{
+	auto [Component, Mesh] = MakeComponentWithMesh();
+	const auto Initial = Component->GetDerivedState();
+	auto Params = Component->GetSplineMeshParams();
+	Params.EndPosition.y += 5.0;
+	ASSERT_TRUE(Component->SetSplineMeshParams(Params, false));
+	Params.EndPosition.y += 10.0;
+	ASSERT_TRUE(Component->SetSplineMeshParams(Params, false));
+	Component->SetSplineMeshCollisionMode(ESplineMeshCollisionMode::DeformedTriangleMesh, false);
+	EXPECT_TRUE(Component->IsMeshDirty());
+	EXPECT_EQ(Component->GetDerivedState(), Initial);
+	EXPECT_EQ(Component->GetSplineMeshParams(), Params);
+	ASSERT_TRUE(Component->UpdateMesh());
+	const auto Updated = Component->GetDerivedState();
+	ASSERT_TRUE(Updated && Updated->CollisionGeometry.IsValid());
+	EXPECT_EQ(Updated->DeformationRevision, Initial->DeformationRevision + 1);
+	EXPECT_EQ(Updated->Params, Params);
+	EXPECT_FALSE(Component->IsMeshDirty());
+	ASSERT_TRUE(Component->UpdateMesh());
+	EXPECT_EQ(Component->GetDerivedState(), Updated);
+	Component->SetSplineMeshCollisionMode(ESplineMeshCollisionMode::Disabled, false);
+	FCollisionGeometryRef Geometry;
+	FTransform Transform;
+	EXPECT_TRUE(Component->BuildCollisionGeometry(Geometry, Transform));
+	ASSERT_TRUE(Component->UpdateMesh());
+	EXPECT_FALSE(Component->BuildCollisionGeometry(Geometry, Transform));
+	EXPECT_EQ(Component->GetDeformationRevision(), Updated->DeformationRevision);
+}
+
+TEST(FSplineMeshComponentTests, DeferredSourceAndParamsUseOnlyTheFinalMesh)
+{
+	auto [Component, Mesh] = MakeComponentWithMesh();
+	const auto Initial = Component->GetDerivedState();
+	auto* Replacement = DStaticMesh::CreateDebugTriangle();
+	Component->SetStaticMesh(Replacement, false);
+	EXPECT_EQ(Component->GetDerivedState(), Initial);
+	EXPECT_EQ(Component->GetDerivedStateForQueries(), nullptr);
+	auto Params = Component->GetSplineMeshParams();
+	Params.EndPosition.z += 3.0;
+	ASSERT_TRUE(Component->SetSplineMeshParams(Params, false));
+	Component->SetSplineMeshCollisionMode(ESplineMeshCollisionMode::DeformedTriangleMesh, false);
+	ASSERT_TRUE(Component->UpdateMesh());
+	EXPECT_EQ(Component->GetDeformationRevision(), Initial->DeformationRevision + 1);
+	EXPECT_TRUE(Component->GetDerivedState()->CollisionGeometry.IsValid());
+	EXPECT_EQ(Component->GetStaticMesh(), Replacement);
+	Params.EndPosition.z += 2.0;
+	ASSERT_TRUE(Component->SetSplineMeshParams(Params, false));
+	Component->SetStaticMesh(Replacement);
+	EXPECT_FALSE(Component->IsMeshDirty());
+	EXPECT_EQ(Component->GetDerivedState()->Params, Params);
+}
+
+TEST(FSplineMeshComponentTests, FailedDeferredUpdatePreservesSnapshotAndCanBeCorrected)
+{
+	auto [Component, Mesh] = MakeComponentWithMesh();
+	const auto Initial = Component->GetDerivedState();
+	auto Params = Component->GetSplineMeshParams();
+	Params.StartOffset = FVector2(std::numeric_limits<double>::max());
+	Params.EndOffset = Params.StartOffset;
+	ASSERT_TRUE(Component->SetSplineMeshParams(Params, false));
+	std::string Error;
+	EXPECT_FALSE(Component->UpdateMesh(&Error));
+	EXPECT_FALSE(Error.empty());
+	EXPECT_TRUE(Component->IsMeshDirty());
+	EXPECT_EQ(Component->GetDerivedState(), Initial);
+	ASSERT_TRUE(Component->SetSplineMeshParams(Initial->Params, false));
+	ASSERT_TRUE(Component->UpdateMesh(&Error));
+	EXPECT_TRUE(Error.empty());
+	EXPECT_FALSE(Component->IsMeshDirty());
+}
+
 TEST(FSplineMeshComponentTests, PublishesNormalizedExactLOD0AndConservativeBounds)
 {
 	auto [Component, Mesh] = MakeComponentWithMesh();
@@ -357,7 +429,14 @@ TEST(FSplineMeshCollisionTests, RegisteredMutationReplacesBodiesWithoutStaleHand
 	FSplineMeshParams Params = Component->GetSplineMeshParams();
 	Params.EndPosition = {2.0, 1.0, 0.25};
 	Params.EndTangent = {1.0, 1.0, 0.0};
-	ASSERT_TRUE(Component->SetSplineMeshParams(Params));
+	const uint64 DeformationBeforeBatch = Component->GetDeformationRevision();
+	ASSERT_TRUE(Component->SetSplineMeshParams(Params, false));
+	Params.EndPosition.z += 0.25;
+	ASSERT_TRUE(Component->SetSplineMeshParams(Params, false));
+	EXPECT_EQ(Component->GetPhysicsActorHandle(), FirstHandle);
+	EXPECT_EQ(Component->GetPublishedBodySetupRevision(), FirstRevision);
+	ASSERT_TRUE(Component->UpdateMesh());
+	EXPECT_EQ(Component->GetDeformationRevision(), DeformationBeforeBatch + 1);
 	ASSERT_EQ(PhysicsScene.GetBodyCount(), 1u);
 	EXPECT_FALSE(PhysicsScene.ContainsBody(FirstHandle));
 	EXPECT_TRUE(Component->GetPhysicsActorHandle().IsValid());

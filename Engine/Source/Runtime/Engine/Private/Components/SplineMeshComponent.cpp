@@ -47,19 +47,24 @@ namespace Durin
 		return std::atomic_load_explicit(&DerivedState, std::memory_order_acquire);
 	}
 
-	auto DSplineMeshComponent::SetStaticMesh(DStaticMesh* InStaticMesh) -> void
+	auto DSplineMeshComponent::SetStaticMesh(DStaticMesh* InStaticMesh, bool bUpdateMesh) -> void
 	{
-		if (StaticMesh == InStaticMesh) return;
-		StaticMesh = InStaticMesh;
-		if (StaticMesh) StaticMesh->RequestRenderDataAndResources();
-		++MaterialComponentRevision;
-		RebuildDerivedState();
-		MarkPackageDirty();
-		MarkRenderStateDirty();
-		RecreatePhysicsState();
+		if (StaticMesh != InStaticMesh)
+		{
+			StaticMesh = InStaticMesh;
+			bSourceDirty = true;
+			MarkPackageDirty();
+		}
+		if (bUpdateMesh) UpdateMesh();
 	}
 
 	auto DSplineMeshComponent::SetSplineMeshParams(const FSplineMeshParams& InParams, std::string* OutError) -> bool
+	{
+		return SetSplineMeshParams(InParams, true, OutError);
+	}
+
+	auto DSplineMeshComponent::SetSplineMeshParams(
+		const FSplineMeshParams& InParams, bool bUpdateMesh, std::string* OutError) -> bool
 	{
 		FSplineMeshParams Candidate = InParams;
 		if (const std::optional<FBox> SourceBounds = StaticMesh ? StaticMesh->GetLOD0LocalBounds() : std::nullopt)
@@ -70,41 +75,72 @@ namespace Durin
 		}
 		FSplineMeshParams Normalized;
 		if (!FSplineMeshDeformer::Normalize(Candidate, Normalized, OutError)) return false;
-		if (SplineMeshParams == Normalized)
-		{
-			if (OutError) OutError->clear();
-			return true;
-		}
+		if (SplineMeshParams == Normalized) return !bUpdateMesh || UpdateMesh(OutError);
 		const FSplineMeshParams Previous = SplineMeshParams;
+		const bool bWasDeformationDirty = bDeformationDirty;
 		SplineMeshParams = Normalized;
-		if (!RebuildDerivedState(OutError))
+		bDeformationDirty = true;
+		if (bUpdateMesh && !UpdateMesh(OutError))
 		{
 			SplineMeshParams = Previous;
+			bDeformationDirty = bWasDeformationDirty;
 			return false;
 		}
 		MarkPackageDirty();
+		return true;
+	}
+
+	auto DSplineMeshComponent::SetSplineMeshCollisionMode(ESplineMeshCollisionMode InMode, bool bUpdateMesh) -> void
+	{
+		if (CollisionMode != InMode)
+		{
+			CollisionMode = InMode;
+			bCollisionDirty = true;
+			MarkPackageDirty();
+		}
+		if (bUpdateMesh) UpdateMesh();
+	}
+
+	auto DSplineMeshComponent::UpdateMesh(std::string* OutError) -> bool
+	{
+		if (OutError) OutError->clear();
+		if (bUpdatingMesh || !IsMeshDirty()) return true;
+		bUpdatingMesh = true;
+		if (bSourceDirty && StaticMesh) StaticMesh->RequestRenderDataAndResources();
+		const bool bRebuildDeformation = bSourceDirty || bDeformationDirty;
+		const bool bRecreateRenderState = bSourceDirty;
+		const bool bSuccess = bRebuildDeformation
+			? RebuildDerivedState(OutError) : RebuildCollisionGeometryForPublishedState();
+		bUpdatingMesh = false;
+		if (!bSuccess)
+		{
+			if (OutError && OutError->empty()) *OutError = "SplineMesh collision geometry is unavailable.";
+			return false;
+		}
+		PublishedCollisionMode = CollisionMode;
+		bSourceDirty = bDeformationDirty = bCollisionDirty = false;
+		if (bRecreateRenderState)
+		{
+			++MaterialComponentRevision;
+			MarkRenderStateDirty();
+		}
+		else if (bRebuildDeformation)
+		{
 #if DURIN_WITH_EDITOR
-		if (IsRegistered()) NotifyEditorPickingMutation();
+			if (IsRegistered()) NotifyEditorPickingMutation();
 #endif
-		PushDynamicDataToScene();
+			PushDynamicDataToScene();
+		}
 		RecreatePhysicsState();
 		return true;
 	}
 
-	auto DSplineMeshComponent::SetSplineMeshCollisionMode(ESplineMeshCollisionMode InMode) -> void
-	{
-		if (CollisionMode == InMode) return;
-		CollisionMode = InMode;
-		RebuildCollisionGeometryForPublishedState();
-		MarkPackageDirty();
-		RecreatePhysicsState();
-	}
-
-	auto DSplineMeshComponent::RebuildCollisionGeometryForPublishedState() -> void
+	auto DSplineMeshComponent::RebuildCollisionGeometryForPublishedState() -> bool
 	{
 		const auto Published = CollisionMode == ESplineMeshCollisionMode::DeformedTriangleMesh
 			? GetDerivedStateForQueries() : GetDerivedState();
-		if (!Published || !Published->IsValid()) return;
+		if (!Published) return false;
+		if (!Published->IsValid()) return true;
 		auto Candidate = std::make_shared<FSplineMeshDerivedState>(*Published);
 		Candidate->CollisionGeometry = {};
 		if (CollisionMode == ESplineMeshCollisionMode::DeformedTriangleMesh)
@@ -118,6 +154,7 @@ namespace Durin
 		}
 		std::atomic_store_explicit(&DerivedState,
 			std::shared_ptr<const FSplineMeshDerivedState>(Candidate), std::memory_order_release);
+		return true;
 	}
 
 	auto DSplineMeshComponent::RebuildDerivedState(std::string* OutError) -> bool
@@ -241,6 +278,8 @@ namespace Durin
 		const auto Published = GetDerivedState();
 		if (!Published || !Published->IsValid()) return Published;
 		if (!Published->DeformedLOD0Positions.empty()) return Published;
+		// A pending mesh replacement must not deform the new source with the old snapshot.
+		if (bSourceDirty) return nullptr;
 		auto Candidate = std::make_shared<FSplineMeshDerivedState>(*Published);
 		if (!BuildDerivedGeometry(*Candidate, nullptr)) return nullptr;
 		std::atomic_store_explicit(&DerivedState,
@@ -251,7 +290,7 @@ namespace Durin
 	auto DSplineMeshComponent::BuildCollisionGeometry(
 		FCollisionGeometryRef& OutGeometry, FTransform& OutWorldTransform) const -> bool
 	{
-		if (CollisionMode != ESplineMeshCollisionMode::DeformedTriangleMesh) return false;
+		if (PublishedCollisionMode != ESplineMeshCollisionMode::DeformedTriangleMesh) return false;
 		const auto State = GetDerivedState();
 		if (!State || !State->IsValid() || !State->CollisionGeometry.IsValid()) return false;
 		OutGeometry = State->CollisionGeometry;
@@ -262,7 +301,7 @@ namespace Durin
 	auto DSplineMeshComponent::GetCollisionStateRevision() const -> uint64
 	{
 		const auto State = GetDerivedState();
-		return CollisionMode == ESplineMeshCollisionMode::DeformedTriangleMesh && State
+		return PublishedCollisionMode == ESplineMeshCollisionMode::DeformedTriangleMesh && State
 			? State->CollisionInputIdentity : 0;
 	}
 
@@ -324,7 +363,7 @@ namespace Durin
 	{
 		if (!StaticMesh) return nullptr;
 		StaticMesh->RequestRenderDataAndResources();
-		if (!RebuildDerivedState()) return nullptr;
+		if (IsMeshDirty()) return nullptr;
 		const auto State = GetDerivedState();
 		if (!State || !State->IsValid()) return nullptr;
 		const FStaticMeshRenderData* RenderData = StaticMesh->GetRenderData();
@@ -348,6 +387,11 @@ namespace Durin
 	auto DSplineMeshComponent::OnRegister() -> void
 	{
 		if (StaticMesh) StaticMesh->RequestRenderDataAndResources();
+		const auto State = GetDerivedState();
+		if (StaticMesh && (!State || !State->IsValid()
+			|| State->SourceRenderResourceRevision != StaticMesh->GetRenderResourceStatus().Revision))
+			bSourceDirty = true;
+		UpdateMesh();
 		Super::OnRegister();
 	}
 
@@ -379,7 +423,8 @@ namespace Durin
 			OverrideMaterials.clear();
 		}
 		ComponentMaterialOverride::TrimTrailingNulls(OverrideMaterials);
-		if (!RebuildDerivedState(&Error))
+		bSourceDirty = true;
+		if (!UpdateMesh(&Error))
 		{
 			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
 			return;
@@ -434,19 +479,15 @@ namespace Durin
 		}
 		if (Name == FName("CollisionMode"))
 		{
-			RebuildCollisionGeometryForPublishedState();
-			RecreatePhysicsState();
+			bCollisionDirty = true;
+			UpdateMesh();
 			return;
 		}
 		if (Name == FName("StaticMesh") || Name == FName("SplineMeshParams"))
 		{
-			RebuildDerivedState();
-			if (Name == FName("StaticMesh")) MarkRenderStateDirty();
-#if DURIN_WITH_EDITOR
-			else if (IsRegistered()) NotifyEditorPickingMutation();
-#endif
-			if (Name == FName("SplineMeshParams")) PushDynamicDataToScene();
-			RecreatePhysicsState();
+			bSourceDirty |= Name == FName("StaticMesh");
+			bDeformationDirty = true;
+			UpdateMesh();
 		}
 	}
 
@@ -464,10 +505,9 @@ namespace Durin
 	auto DSplineMeshComponent::HandleStaticMeshRenderDataChanged(DStaticMesh* ChangedMesh) -> void
 	{
 		if (!ChangedMesh || ChangedMesh != StaticMesh.Get()) return;
-		++MaterialComponentRevision;
-		RebuildDerivedState();
-		MarkRenderStateDirty();
-		RecreatePhysicsState();
+		const bool bHadPendingEdits = IsMeshDirty();
+		bSourceDirty = true;
+		if (!bHadPendingEdits) UpdateMesh();
 	}
 
 	auto DSplineMeshComponent::BuildMaterialRenderProxyBindingUpdate(

@@ -55,17 +55,24 @@ namespace Durin
 	public:
 		ENGINE_API explicit DSplineMeshComponent(const FObjectInitializer& ObjectInitializer);
 
-		ENGINE_API auto SetStaticMesh(DStaticMesh* InStaticMesh) -> void;
+		// Deferred setters change authored values only. Call UpdateMesh before leaving the batch;
+		// registration flushes pending edits. Existing render/physics snapshots remain published meanwhile.
+		ENGINE_API auto SetStaticMesh(DStaticMesh* InStaticMesh, bool bUpdateMesh = true) -> void;
 		auto GetStaticMesh() const -> DStaticMesh* { return StaticMesh.Get(); }
 		ENGINE_API auto SetSplineMeshParams(const FSplineMeshParams& InParams, std::string* OutError = nullptr) -> bool;
+		ENGINE_API auto SetSplineMeshParams(const FSplineMeshParams& InParams, bool bUpdateMesh, std::string* OutError = nullptr) -> bool;
 		auto GetSplineMeshParams() const -> const FSplineMeshParams& { return SplineMeshParams; }
 		auto GetDeformationRevision() const -> uint64 { return DeformationRevision; }
 		auto GetSplineMeshCollisionMode() const -> ESplineMeshCollisionMode { return CollisionMode; }
-		ENGINE_API auto SetSplineMeshCollisionMode(ESplineMeshCollisionMode InMode) -> void;
+		ENGINE_API auto SetSplineMeshCollisionMode(ESplineMeshCollisionMode InMode, bool bUpdateMesh = true) -> void;
+		// Applies all pending edits once. Failure preserves the published state and leaves edits dirty for retry.
+		ENGINE_API auto UpdateMesh(std::string* OutError = nullptr) -> bool;
+		auto IsMeshDirty() const -> bool { return bSourceDirty || bDeformationDirty || bCollisionDirty; }
 		// Reads the published snapshot without building CPU geometry. IsValid describes render readiness.
 		ENGINE_API auto GetDerivedState() const -> std::shared_ptr<const FSplineMeshDerivedState>;
 		// Call on the component's owning thread. Builds and caches exact geometry for this revision;
-		// returns null on failure without changing the published render state.
+		// Returns null on failure or when uncached geometry belongs to a pending source replacement,
+		// without changing the published render state.
 		ENGINE_API auto GetDerivedStateForQueries() -> std::shared_ptr<const FSplineMeshDerivedState>;
 		ENGINE_API auto BuildCollisionGeometry(
 			FCollisionGeometryRef& OutGeometry, FTransform& OutWorldTransform) const -> bool override;
@@ -98,7 +105,7 @@ namespace Durin
 		auto ValidateOverrideMaterials(std::span<const TObjectPtr<DMaterialInterface>> Overrides, std::string& OutError) const -> bool;
 		auto GetMaterialOverride(uint32 SlotIndex) const -> DMaterialInterface*;
 		auto GetCollisionStateRevision() const -> uint64 override;
-		auto RebuildCollisionGeometryForPublishedState() -> void;
+		auto RebuildCollisionGeometryForPublishedState() -> bool;
 
 		DPROPERTY(Edit)
 		TObjectPtr<DStaticMesh> StaticMesh;
@@ -116,5 +123,12 @@ namespace Durin
 		uint64 DeformationRevision = 0;
 		uint64 MaterialComponentRevision = 1;
 		uint32 PendingMaterialSlotIndex = 0;
+		bool bSourceDirty = false;
+		bool bDeformationDirty = false;
+		bool bCollisionDirty = false;
+		// Resource requests can synchronously notify this component while UpdateMesh is rebuilding it.
+		bool bUpdatingMesh = false;
+		// Physics reads the applied mode until deferred authored edits are successfully published.
+		ESplineMeshCollisionMode PublishedCollisionMode = ESplineMeshCollisionMode::Disabled;
 	};
 }
