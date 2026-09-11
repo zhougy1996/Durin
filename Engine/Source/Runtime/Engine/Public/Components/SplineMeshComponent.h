@@ -59,8 +59,8 @@ namespace Durin
 		// registration flushes pending edits. Existing render/physics snapshots remain published meanwhile.
 		ENGINE_API auto SetStaticMesh(DStaticMesh* InStaticMesh, bool bUpdateMesh = true) -> void;
 		auto GetStaticMesh() const -> DStaticMesh* { return StaticMesh.Get(); }
-		ENGINE_API auto SetSplineMeshParams(const FSplineMeshParams& InParams, std::string* OutError = nullptr) -> bool;
-		ENGINE_API auto SetSplineMeshParams(const FSplineMeshParams& InParams, bool bUpdateMesh, std::string* OutError = nullptr) -> bool;
+		// Stores authored parameters; validation and normalization happen during UpdateMesh.
+		ENGINE_API auto SetSplineMeshParams(const FSplineMeshParams& InParams, bool bUpdateMesh = true) -> void;
 		auto GetSplineMeshParams() const -> const FSplineMeshParams& { return SplineMeshParams; }
 		auto GetDeformationRevision() const -> uint64 { return DeformationRevision; }
 		auto GetSplineMeshCollisionMode() const -> ESplineMeshCollisionMode { return CollisionMode; }

@@ -58,36 +58,15 @@ namespace Durin
 		if (bUpdateMesh) UpdateMesh();
 	}
 
-	auto DSplineMeshComponent::SetSplineMeshParams(const FSplineMeshParams& InParams, std::string* OutError) -> bool
+	auto DSplineMeshComponent::SetSplineMeshParams(const FSplineMeshParams& InParams, bool bUpdateMesh) -> void
 	{
-		return SetSplineMeshParams(InParams, true, OutError);
-	}
-
-	auto DSplineMeshComponent::SetSplineMeshParams(
-		const FSplineMeshParams& InParams, bool bUpdateMesh, std::string* OutError) -> bool
-	{
-		FSplineMeshParams Candidate = InParams;
-		if (const std::optional<FBox> SourceBounds = StaticMesh ? StaticMesh->GetLOD0LocalBounds() : std::nullopt)
+		if (SplineMeshParams != InParams)
 		{
-			const auto [Minimum, Maximum] = SourceForwardRange(*SourceBounds, Candidate.ForwardAxis);
-			Candidate.SourceForwardMin = Minimum;
-			Candidate.SourceForwardMax = Maximum;
+			SplineMeshParams = InParams;
+			bDeformationDirty = true;
+			MarkPackageDirty();
 		}
-		FSplineMeshParams Normalized;
-		if (!FSplineMeshDeformer::Normalize(Candidate, Normalized, OutError)) return false;
-		if (SplineMeshParams == Normalized) return !bUpdateMesh || UpdateMesh(OutError);
-		const FSplineMeshParams Previous = SplineMeshParams;
-		const bool bWasDeformationDirty = bDeformationDirty;
-		SplineMeshParams = Normalized;
-		bDeformationDirty = true;
-		if (bUpdateMesh && !UpdateMesh(OutError))
-		{
-			SplineMeshParams = Previous;
-			bDeformationDirty = bWasDeformationDirty;
-			return false;
-		}
-		MarkPackageDirty();
-		return true;
+		if (bUpdateMesh) UpdateMesh();
 	}
 
 	auto DSplineMeshComponent::SetSplineMeshCollisionMode(ESplineMeshCollisionMode InMode, bool bUpdateMesh) -> void

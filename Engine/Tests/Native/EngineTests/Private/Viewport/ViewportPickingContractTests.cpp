@@ -317,7 +317,7 @@ TEST(FViewportPickingContractTests, IntersectsExactSplineMeshDerivedLOD0Surface)
 	Params.StartTangent = {100.0, 0.0, 0.0};
 	Params.EndPosition = {100.0, 0.0, 0.0};
 	Params.EndTangent = {100.0, 0.0, 0.0};
-	ASSERT_TRUE(Component->SetSplineMeshParams(Params));
+	Component->SetSplineMeshParams(Params);
 	Component->SetWorldLocation({0.0, 0.0, 3.0});
 	ASSERT_TRUE(Component->IsRegistered());
 

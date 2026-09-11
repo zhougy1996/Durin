@@ -172,7 +172,7 @@ namespace Durin
 			Component->SetSplineMeshCollisionMode(bEnablePathCollision
 				? ESplineMeshCollisionMode::DeformedTriangleMesh : ESplineMeshCollisionMode::Disabled, false);
 			Component->SetStaticMesh(PathMesh.Get(), false);
-			if (!Component->SetSplineMeshParams(Specs[SegmentIndex].Params, false, &OutError)) return false;
+			Component->SetSplineMeshParams(Specs[SegmentIndex].Params, false);
 			if (!Component->UpdateMesh(&OutError)) return false;
 			Component->ClearMaterialOverrides();
 			if (PathMaterial && !Component->SetMaterial(PathMaterial.Get()))
