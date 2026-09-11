@@ -466,8 +466,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 		ASSERT_TRUE(Durin::BuildStaticMeshSynchronously(
 			*StaticMeshFixture, std::move(ImportedMesh),
 			Error)) << Error;
-		ASSERT_TRUE(StaticMeshFixture->SetImportedDefaultMaterial(
-			0, CaptureMaterial, Error)) << Error;
+		StaticMeshFixture->SetMaterialSlotDefaultMaterial(0, CaptureMaterial);
 		StaticMeshFixture->InitResources();
 		Durin::FlushRenderingCommands();
 		ASSERT_EQ(
@@ -533,8 +532,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			Durin::MaterialParameters::BaseColorName(),
 			Durin::FVector3(0.85, 0.12, 0.18)));
 		ASSERT_TRUE(Durin::SavePackage(StaticMeshAssetMaterial->GetPackage()));
-		ASSERT_TRUE(StaticMeshFixture->SetImportedDefaultMaterial(
-			0, StaticMeshAssetMaterial, Error)) << Error;
+		StaticMeshFixture->SetMaterialSlotDefaultMaterial(0, StaticMeshAssetMaterial);
 		ASSERT_TRUE(Durin::SavePackage(StaticMeshFixture->GetPackage()));
 		ASSERT_TRUE(Durin::RefreshAssetRegistry(
 			Durin::EAssetRegistryScanMode::FullValidation));

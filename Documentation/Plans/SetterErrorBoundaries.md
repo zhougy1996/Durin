@@ -13,7 +13,9 @@ Stage 1 is complete: PhysicsSceneTests passed and StaticMeshTests passed all 109
 A separate Renderer prerequisite fix removed a conflicting local Pi constant; Renderer rebuilt successfully.
 Stage 2 is complete: AssetImportDataTests (3), AssetImportTests (14), SceneImportTests (4),
 and the single-asset/volume import selection in TextureTests (10) passed.
-Stage 3 is next. The initial checkout was clean.
+Stage 3 is complete: material/update coverage in StaticMeshTests (14) and SceneImportTests (4)
+passed; StaticMeshThumbnailTests compiled after fixture migration.
+Stage 4 is next. The initial checkout was clean.
 
 ## Goal
 
@@ -38,8 +40,8 @@ Depends on Stage 1.
 
 Depends on Stage 2.
 
-- [ ] Resolve imported material slots at the import boundary and use an infallible indexed setter.
-- [ ] Validate material binding success and failure and commit independently.
+- [x] Resolve imported material slots at the import boundary and use an infallible indexed setter.
+- [x] Validate material binding success and failure and commit independently.
 
 ### Stage 4: Clarify StaticMesh preparation and publication
 

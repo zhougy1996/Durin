@@ -444,12 +444,11 @@ namespace Durin::Tests
 		Mesh.SourceMaterialIndex = 0;
 		if (!BuildStaticMeshSynchronously(
 				*OutFixtures.StaticMesh, std::move(ImportedMesh),
-				OutError)
-			|| !OutFixtures.StaticMesh->SetImportedDefaultMaterial(
-				0, OutFixtures.Material, OutError))
+				OutError))
 		{
 			return false;
 		}
+		OutFixtures.StaticMesh->SetMaterialSlotDefaultMaterial(0, OutFixtures.Material);
 		Result = SavePackage(OutFixtures.StaticMesh->GetPackage());
 		if (!Result) return Fail(Result.Message);
 

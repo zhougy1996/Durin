@@ -23,6 +23,29 @@ namespace Durin::AssetForge::Builtins
 {
 	namespace
 	{
+		auto ResolveImportedMaterialSlot(const DStaticMesh& Mesh, uint32 SourceMaterialIndex,
+			uint32& OutSlotIndex, std::string& OutError) -> bool
+		{
+			const auto Slots = Mesh.GetMaterialSlots();
+			const auto Slot = std::ranges::find(Slots, SourceMaterialIndex,
+				&FMeshMaterialSlotDefinition::SourceMaterialIndex);
+			if (Slot == Slots.end())
+			{
+				OutError = std::format("Static mesh has no slot for source material {}.", SourceMaterialIndex);
+				return false;
+			}
+			if (std::find_if(std::next(Slot), Slots.end(), [&](const auto& Other) {
+				return Other.SourceMaterialIndex == SourceMaterialIndex;
+			}) != Slots.end())
+			{
+				OutError = std::format("Static mesh has ambiguous slots for source material {}.", SourceMaterialIndex);
+				return false;
+			}
+			OutSlotIndex = static_cast<uint32>(std::distance(Slots.begin(), Slot));
+			OutError.clear();
+			return true;
+		}
+
 		auto GetScenePublicationMutex() -> std::mutex&
 		{
 			static std::mutex Mutex;
@@ -524,8 +547,9 @@ namespace Durin::AssetForge::Builtins
 					if (Candidate.Kind == ESceneOutputKind::MaterialInstance)
 					{
 						FPreparedSceneOutput* Material = FindOutput(Candidate.StableIdentity);
-						if (!Material || !Mesh->SetImportedDefaultMaterial(Candidate.SourceIndex,
-							Cast<DMaterialInstance>(Material->Candidate), Error))
+						uint32 SlotIndex = 0;
+						if (!Material || !ResolveImportedMaterialSlot(*Mesh, Candidate.SourceIndex,
+							SlotIndex, Error))
 						{
 							Abandon(Prepared);
 							return AddError(OutResult, EImportDiagnosticCategory::MissingDependency,
@@ -533,6 +557,8 @@ namespace Durin::AssetForge::Builtins
 									? "Scene material dependency is unavailable." : std::move(Error),
 								Descriptor.StableIdentity);
 						}
+						Mesh->SetMaterialSlotDefaultMaterial(SlotIndex,
+							Cast<DMaterialInstance>(Material->Candidate));
 					}
 			}
 			Output.Candidate->MarkPackageDirty();

@@ -182,10 +182,9 @@ namespace Durin
 			std::vector<FMeshMaterialSlotDefinition> InMaterialSlots,
 			float InNormalizedSize,
 			std::string& OutError) -> bool;
-		ENGINE_API auto SetImportedDefaultMaterial(
-			uint32 SourceMaterialIndex,
-			DMaterialInterface* Material,
-			std::string& OutError) -> bool;
+		// Requires an existing slot index on the owner thread. Null clears its default.
+		ENGINE_API auto SetMaterialSlotDefaultMaterial(
+			uint32 SlotIndex, DMaterialInterface* Material) -> void;
 		ENGINE_API auto BeginDestroy() -> void override;
 		ENGINE_API auto IsReadyForFinishDestroy() -> bool override;
 		ENGINE_API auto FinishDestroy() -> void override;

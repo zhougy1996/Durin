@@ -30,6 +30,11 @@ state, return void, and only install fields and notify compilation changes.
 Invalid external input is reported before calling the setter; object `Validate`
 continues to check already stored metadata after loading.
 
+Scene imports resolve source material indices to unique mesh slot indices before
+assignment and report missing or ambiguous mappings as import diagnostics.
+`DStaticMesh::SetMaterialSlotDefaultMaterial` requires an existing slot index on
+the owner thread; it updates the default and invalidates dependent render state.
+
 ## Texture source storage compression
 
 `FTextureSource` owns lossless storage: Raw (0), byte-run RunLength (1) and

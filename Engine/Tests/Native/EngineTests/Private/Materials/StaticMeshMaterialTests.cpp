@@ -249,7 +249,12 @@ TEST(FStaticMeshMaterialTests, StaticMeshMaterialSlotReconciliationPreservesStab
 	Durin::DMaterial* PreservedDefault = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(PreservedDefaultPath, PreservedDefault));
 	ASSERT_TRUE(Durin::SavePackage(PreservedDefault->GetPackage()));
-	ASSERT_TRUE(Renamed->SetImportedDefaultMaterial(0, PreservedDefault, RenameError)) << RenameError;
+	const auto OtherDefault = Reordered->GetMaterialSlot(1)->DefaultMaterial;
+	Reordered->SetMaterialSlotDefaultMaterial(0, PreservedDefault);
+	EXPECT_EQ(Reordered->GetMaterialSlot(0)->SourceMaterialIndex, 1u);
+	EXPECT_EQ(Reordered->GetMaterialSlot(0)->DefaultMaterial.Get(), PreservedDefault);
+	EXPECT_EQ(Reordered->GetMaterialSlot(1)->DefaultMaterial, OtherDefault);
+	Renamed->SetMaterialSlotDefaultMaterial(0, PreservedDefault);
 	ASSERT_TRUE(Renamed->RenameMaterialSlot(0, Durin::FName("Body"), RenameError)) << RenameError;
 	Rebuild(Renamed, "Renamed", R"({ "name": "Crimson" }, { "name": "Blue" })");
 	ASSERT_EQ(Renamed->GetNumMaterialSlots(), 2u);

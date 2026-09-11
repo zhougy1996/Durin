@@ -747,38 +747,16 @@ namespace Durin
 		return true;
 	}
 
-	auto DStaticMesh::SetImportedDefaultMaterial(
-		uint32 SourceMaterialIndex,
-		DMaterialInterface* Material,
-		std::string& OutError) -> bool
+	auto DStaticMesh::SetMaterialSlotDefaultMaterial(
+		uint32 SlotIndex, DMaterialInterface* Material) -> void
 	{
-		const auto Slot = std::ranges::find(
-			MaterialSlots,
-			SourceMaterialIndex,
-			&FMeshMaterialSlotDefinition::SourceMaterialIndex);
-		if (Slot == MaterialSlots.end())
-		{
-			OutError = std::format(
-				"Static mesh has no slot for source material {}.", SourceMaterialIndex);
-			return false;
-		}
-		if (std::ranges::find(
-			std::next(Slot),
-			MaterialSlots.end(),
-			SourceMaterialIndex,
-			&FMeshMaterialSlotDefinition::SourceMaterialIndex) != MaterialSlots.end())
-		{
-			OutError = std::format(
-				"Static mesh has ambiguous slots for source material {}.", SourceMaterialIndex);
-			return false;
-		}
-		if (Slot->DefaultMaterial == Material) { OutError.clear(); return true; }
+		CheckStaticMeshUpdateThread();
+		require(SlotIndex < MaterialSlots.size());
+		FMeshMaterialSlotDefinition& Slot = MaterialSlots[SlotIndex];
+		if (Slot.DefaultMaterial == Material) return;
 		FStaticMeshRenderStateRecreateContext RecreateContext(this);
-		Slot->DefaultMaterial = Material;
+		Slot.DefaultMaterial = Material;
 		NotifyStaticMeshCompilationMutation(*this);
 		MarkPackageDirty();
-		OutError.clear();
-		return true;
 	}
-
 }
