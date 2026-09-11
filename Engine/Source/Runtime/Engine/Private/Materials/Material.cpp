@@ -51,6 +51,29 @@ namespace Durin
 		InvalidateMaterialCompilation(false);
 	}
 
+	auto DMaterial::SetEditCompileMode(EMaterialEditCompileMode Mode) -> void
+	{
+		if (EditCompileMode == Mode) return;
+		EditCompileMode = Mode;
+		for (const auto Handle : GetLoadedMaterialDependents(this))
+			if (auto* Owner = Cast<DMaterialInterface>(ResolveObjectHandle(Handle)); IsValid(Owner))
+			{
+				const auto State = Owner->GetMaterialCompileStatus().State;
+				if (State == EMaterialCompileState::NeedsCompile || State == EMaterialCompileState::Scheduled)
+					Private::FMaterialCompilationLifecycle::ScheduleEdit(*Owner);
+			}
+	}
+
+	auto DMaterial::CompileEdits() -> bool
+	{
+		bool bAccepted = RequestMaterialRecompile(*this);
+		for (const auto Handle : GetLoadedMaterialDependents(this))
+			if (auto* Owner = Cast<DMaterialInterface>(ResolveObjectHandle(Handle));
+				IsValid(Owner) && Owner != this)
+				bAccepted = RequestMaterialRecompile(*Owner) && bAccepted;
+		return bAccepted;
+	}
+
 	auto DMaterial::GetRenderableStaticProperties() const
 		-> FMaterialStaticProperties
 	{
@@ -75,7 +98,7 @@ namespace Durin
 		Program = std::move(InProgram);
 		AdvanceRevision(MaterialProgramRevision);
 		AdvanceAuthoredRevision();
-		RequestProgramCompile(Program, StaticProperties);
+		Private::FMaterialCompilationLifecycle::ScheduleEdit(*this);
 		MarkPackageDirty();
 		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ShaderMap);
 		return Validation;
@@ -109,7 +132,7 @@ namespace Durin
 		AdvanceRevision(MaterialProgramRevision);
 		AdvanceRevision(MaterialGraphPresentationRevision);
 		AdvanceAuthoredRevision();
-		RequestProgramCompile(Program, StaticProperties);
+		Private::FMaterialCompilationLifecycle::ScheduleEdit(*this);
 		MarkPackageDirty();
 		MarkRenderDataDirty(EMaterialRenderDirtyFlags::AllRenderState);
 		return {};
@@ -270,7 +293,7 @@ namespace Durin
 		if (bShaderIdentityChanged)
 		{
 			AdvanceRevision(CompilationOwner.MaterialCompileStatus.AuthoredRevision);
-			RequestProgramCompile(Program, StaticProperties);
+			Private::FMaterialCompilationLifecycle::ScheduleEdit(*this);
 		}
 		InvalidateMaterialCompilation(false, true);
 		MarkPackageDirty();
@@ -472,12 +495,12 @@ namespace Durin
 		const FName Name = Event.MemberProperty->NamePrivate;
 		if (Name == FName("StaticProperties")) InvalidateMaterialCompilation(false, true);
 		if (Name == FName("Program") || (Name == FName("StaticProperties")
-			&& CanonicalizeMaterialShaderProperties(StaticProperties) != CompilationOwner.LastRequestedShaderProperties))
+			&& CanonicalizeMaterialShaderProperties(StaticProperties) != CompilationOwner.LastObservedShaderProperties))
 		{
 			if (Name == FName("Program"))
 				AdvanceRevision(MaterialProgramRevision);
 			AdvanceAuthoredRevision();
-			RequestProgramCompile(Program, StaticProperties);
+			Private::FMaterialCompilationLifecycle::ScheduleEdit(*this);
 			MarkRenderDataDirty(EMaterialRenderDirtyFlags::ShaderMap);
 		}
 		else if (Name == FName("GraphPresentation"))
@@ -491,10 +514,10 @@ namespace Durin
 			for (const auto& Definition : ParameterDefinitions)
 				Declarations.push_back({Definition.Id, Definition.Type});
 			std::ranges::sort(Declarations, {}, &FMaterialCompilerParameterDeclaration::Id);
-			if (Declarations != CompilationOwner.LastRequestedParameters)
+			if (Declarations != CompilationOwner.LastObservedParameters)
 			{
 				AdvanceAuthoredRevision();
-				RequestProgramCompile(Program, StaticProperties);
+				Private::FMaterialCompilationLifecycle::ScheduleEdit(*this);
 			}
 		}
 	}

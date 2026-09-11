@@ -24,6 +24,7 @@ namespace Durin::Editor::Material
 		}
 
 		const FYamlNodeView Root = Document.GetRootView();
+		bAutoCompile = Root.GetView("AutoCompile").GetBool(true);
 		const FYamlNodeView Layout = Root.GetView("Layout");
 		bPreviewVisible = Layout.GetView("PreviewVisible").GetBool(true);
 		bDetailsVisible = Layout.GetView("DetailsVisible").GetBool(true);
@@ -53,6 +54,7 @@ namespace Durin::Editor::Material
 		FYamlDocument Document;
 		FYamlNodeRef Root = Document.GetMutableRoot();
 		Root.EnsureMap();
+		Root.SetChildValue("AutoCompile", bAutoCompile);
 		FYamlNodeRef Layout = Root.AddMap("Layout");
 		Layout.SetChildValue("PreviewVisible", bPreviewVisible);
 		Layout.SetChildValue("DetailsVisible", bDetailsVisible);

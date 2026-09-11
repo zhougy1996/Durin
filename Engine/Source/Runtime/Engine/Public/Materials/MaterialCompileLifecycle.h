@@ -19,6 +19,14 @@ namespace Durin
 	inline constexpr uint64 MaterialCompileMaxRequestBytes = 2ull * 1024ull * 1024ull;
 	inline constexpr uint64 MaterialCompileMaxResultBytes = 8ull * 1024ull * 1024ull;
 
+	// Editor policy for authored edits; explicit requests and loading bypass it.
+	enum class EMaterialEditCompileMode : uint8
+	{
+		Immediate,
+		Automatic,
+		Manual,
+	};
+
 	// Separates authored freshness from the terminal state of the latest request.
 	enum class EMaterialCompileState : uint8
 	{
@@ -32,6 +40,8 @@ namespace Durin
 		Superseded,
 		Rejected,
 		Shutdown,
+		NeedsCompile,
+		Scheduled,
 	};
 
 	// Adds lifecycle failures that are intentionally outside the synchronous compiler taxonomy.
@@ -134,6 +144,11 @@ namespace Durin
 			return State == EMaterialCompileState::Ready
 				&& RequestedIdentity == CompiledIdentity;
 		}
+		auto HasUnsubmittedEdits() const -> bool
+		{
+			return State == EMaterialCompileState::NeedsCompile
+				|| State == EMaterialCompileState::Scheduled;
+		}
 	};
 
 	// Fixed aggregate counters retain no per-request history.
@@ -168,6 +183,8 @@ namespace Durin
 	{
 		struct FMaterialCompilationLifecycle
 		{
+			// Coalesces edits before compiler-input construction, using the root's policy.
+			ENGINE_API static auto ScheduleEdit(DMaterialInterface& Material) -> void;
 			ENGINE_API static auto Submit(
 				DMaterialInterface& Material,
 				FMaterialCompilerInput Input,

@@ -7,6 +7,7 @@
 #include "Materials/MaterialRenderProxy.h"
 #include "Materials/MaterialTypes.h"
 #include "Materials/MaterialCompileLifecycle.h"
+#include <chrono>
 
 #include "MaterialInterface.gen.h"
 
@@ -56,11 +57,13 @@ namespace Durin
 	{
 		// The render-safe contract remains available while a replacement compiles.
 		FMaterialLocalRenderLayer RenderLayer;
-		FMaterialStaticProperties LastRequestedShaderProperties;
-		std::vector<FMaterialCompilerParameterDeclaration> LastRequestedParameters;
+		// Last scheduled or submitted schema, used to classify reflected dynamic edits.
+		FMaterialStaticProperties LastObservedShaderProperties;
+		std::vector<FMaterialCompilerParameterDeclaration> LastObservedParameters;
 		FMaterialCompileStatus MaterialCompileStatus;
 		std::vector<FMaterialCompileDiagnostic> MaterialCompileDiagnostics;
 		bool bDeferredForceRecompile = false;
+		std::chrono::steady_clock::time_point EditCompileDeadline;
 	};
 
 	// Defines the shared parameter-resolution and render-update contract for materials.

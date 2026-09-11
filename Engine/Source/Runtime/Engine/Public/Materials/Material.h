@@ -53,6 +53,12 @@ namespace Durin
 		}
 		ENGINE_API auto GetAcceptedCompiledProgram() const
 			-> std::shared_ptr<const FMaterialCompilerResult> override;
+		// Transient editor preference, inherited by loaded instances. Switching policy
+		// reschedules unsubmitted edits without modifying authored or saved state.
+		ENGINE_API auto SetEditCompileMode(EMaterialEditCompileMode Mode) -> void;
+		auto GetEditCompileMode() const -> EMaterialEditCompileMode { return EditCompileMode; }
+		// Explicitly submits the current root and all loaded dependent variants, using caches.
+		ENGINE_API auto CompileEdits() -> bool;
 		[[nodiscard]] ENGINE_API auto SetMaterialProgram(
 			FMaterialProgram InProgram) -> FMaterialProgramValidationResult;
 		// Commits definitions and references together only after complete validation.
@@ -105,6 +111,7 @@ namespace Durin
 
 	private:
 		auto AdvanceAuthoredRevision() -> void;
+		EMaterialEditCompileMode EditCompileMode = EMaterialEditCompileMode::Immediate;
 		// These values are inherited by instances and will form shader and pipeline keys.
 		DPROPERTY(Edit)
 		FMaterialStaticProperties StaticProperties;

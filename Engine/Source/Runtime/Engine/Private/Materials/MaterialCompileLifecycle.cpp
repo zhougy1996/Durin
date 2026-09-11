@@ -611,7 +611,8 @@ namespace Durin
 			std::vector<DMaterialInterface*> Result;
 			for (DObject* Object : GDObjectArray.Snapshot(EObjectQueryScope::LiveOnly))
 				if (auto* Material = Cast<DMaterialInterface>(Object); IsValid(Material)
-					&& Material->GetMaterialCompileStatus().State == EMaterialCompileState::Deferred)
+					&& (Material->GetMaterialCompileStatus().State == EMaterialCompileState::Deferred
+						|| Material->GetMaterialCompileStatus().State == EMaterialCompileState::Scheduled))
 					Result.push_back(Material);
 			return Result;
 		}
@@ -710,7 +711,11 @@ namespace Durin
 				std::vector<FObjectHandle> Owners;
 				for (DObject* Object : Objects)
 					if (auto* Material = Cast<DMaterialInterface>(Object); IsValid(Material))
+					{
+						if (Material->GetMaterialCompileStatus().State == EMaterialCompileState::Scheduled)
+							Private::FMaterialCompilationLifecycle::RequestCurrent(*Material, false);
 						Owners.push_back(MakeObjectHandle(Material));
+					}
 				while (std::ranges::any_of(Owners, [this](FObjectHandle Owner) {
 					auto* Material = Cast<DMaterialInterface>(ResolveObjectHandle(Owner));
 					return State.HasOwner(Owner) || (IsValid(Material)
@@ -772,6 +777,42 @@ namespace Durin
 
 	namespace Private
 	{
+		auto FMaterialCompilationLifecycle::ScheduleEdit(DMaterialInterface& Material) -> void
+		{
+			CheckMaterialCompileGameThread();
+			if (GetAssetRuntimeConfiguration().RequiresCookedPayload()) return;
+			DMaterialInterface* Root = &Material;
+			for (uint32 Depth = 0; Root && Root->GetParent() && Depth < MaterialMaximumParentDepth; ++Depth)
+				Root = Root->GetParent();
+			const auto* Base = Cast<DMaterial>(Root);
+			const auto Mode = Base ? Base->GetEditCompileMode() : EMaterialEditCompileMode::Immediate;
+			if (Mode == EMaterialEditCompileMode::Immediate)
+			{
+				RequestCurrent(Material, false);
+				return;
+			}
+			CancelMaterialCompileDomain(Material);
+			Material.CompilationOwner.LastObservedShaderProperties =
+				CanonicalizeMaterialShaderProperties(Material.GetStaticProperties());
+			auto& Declarations = Material.CompilationOwner.LastObservedParameters;
+			Declarations.clear();
+			for (const auto& Definition : Material.GetParameterDefinitions())
+				Declarations.push_back({Definition.Id, Definition.Type});
+			std::ranges::sort(Declarations, {}, &FMaterialCompilerParameterDeclaration::Id);
+			auto& Status = Material.CompilationOwner.MaterialCompileStatus;
+			Status.State = Mode == EMaterialEditCompileMode::Automatic
+				? EMaterialCompileState::Scheduled : EMaterialCompileState::NeedsCompile;
+			Status.ResultCategory = EMaterialCompileResultCategory::None;
+			Status.CacheOutcome = EMaterialCompileCacheOutcome::None;
+			Status.TaskId = 0;
+			Status.bHasLastKnownGood = Material.CompilationOwner.AcceptedGeneration.Program != nullptr;
+			Status.bLastKnownGoodDisplayed = Status.bHasLastKnownGood;
+			Material.CompilationOwner.MaterialCompileDiagnostics.clear();
+			Material.CompilationOwner.bDeferredForceRecompile = false;
+			Material.CompilationOwner.EditCompileDeadline =
+				std::chrono::steady_clock::now() + std::chrono::milliseconds(400);
+		}
+
 		auto FMaterialCompilationLifecycle::Submit(
 			DMaterialInterface& Material,
 			FMaterialCompilerInput Input,
@@ -791,6 +832,7 @@ namespace Durin
 					EMaterialCompileState::NeverRequested;
 				return true;
 			}
+			Material.CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Pending;
 			const FMaterialNormalizationResult Normalized =
 					NormalizeMaterialProgram(Input);
 				Material.CompilationOwner.MaterialCompileStatus.RequestGeneration = AdvanceNonzero(
@@ -938,6 +980,7 @@ namespace Durin
 		{
 				CheckMaterialCompileGameThread();
 				FMaterialCompileStatus& Status = Material.CompilationOwner.MaterialCompileStatus;
+				if (Status.HasUnsubmittedEdits()) return false;
 				if (Result.Generation != Status.RequestGeneration
 					|| Result.AuthoredRevision != Status.AuthoredRevision
 					|| Result.DependencyRevision != Status.DependencyRevision
@@ -1028,6 +1071,8 @@ namespace Durin
 
 		auto FMaterialCompilationLifecycle::RetryDeferred(DMaterialInterface& Material) -> void
 		{
+			if (Material.GetMaterialCompileStatus().State == EMaterialCompileState::Scheduled
+				&& std::chrono::steady_clock::now() < Material.CompilationOwner.EditCompileDeadline) return;
 			RequestCurrent(Material, Material.CompilationOwner.bDeferredForceRecompile);
 		}
 
@@ -1095,7 +1140,8 @@ namespace Durin
 			const auto Manager = GetMaterialCompilingManager();
 			const bool bCanceled = Manager
 				&& Manager->GetState().CancelOwner(MakeObjectHandle(&Material));
-			if (bCanceled || Material.GetMaterialCompileStatus().State == EMaterialCompileState::Deferred)
+			if (bCanceled || Material.GetMaterialCompileStatus().State == EMaterialCompileState::Deferred
+				|| Material.GetMaterialCompileStatus().State == EMaterialCompileState::Scheduled)
 				Private::FMaterialCompilationLifecycle::MarkCanceled(Material);
 			return bCanceled;
 		}

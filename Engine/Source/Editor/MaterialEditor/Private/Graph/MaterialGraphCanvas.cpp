@@ -698,7 +698,8 @@ namespace Durin::Editor::Material
 			DrawList->AddRectFilled(CanvasMinimum, CanvasMaximum,
 				IM_COL32(24, 27, 32, 255));
 			const FMaterialCompileStatus& CompileStatus = Material.GetMaterialCompileStatus();
-			if (CompileStatus.State == EMaterialCompileState::Deferred
+			if (CompileStatus.HasUnsubmittedEdits()
+				|| CompileStatus.State == EMaterialCompileState::Deferred
 				|| CompileStatus.State == EMaterialCompileState::Pending
 				|| CompileStatus.State == EMaterialCompileState::Running
 				|| CompileStatus.State == EMaterialCompileState::Failed
@@ -706,7 +707,11 @@ namespace Durin::Editor::Material
 			{
 				const bool bFailed = CompileStatus.State == EMaterialCompileState::Failed
 					|| CompileStatus.State == EMaterialCompileState::Rejected;
-				const char* Label = bFailed
+				const char* Label = CompileStatus.HasUnsubmittedEdits()
+					? (Material.GetAcceptedCompiledProgram()
+						? "Needs compile - preview is last known good"
+						: "Needs compile - preview uses fallback")
+					: bFailed
 					? "Compile failed - preview uses error material"
 					: (Material.GetAcceptedCompiledProgram()
 						? "Compiling - preview is last known good"

@@ -76,7 +76,9 @@ it against the live parameter definitions and all M5 bounds, and commits through
 `DMaterial::SetMaterialProgram()` only on success. Rejection and no-op results
 leave program, presentation, dirty state, transaction history, authored
 revision, and compile generation unchanged. A successful semantic command
-submits exactly one M6 compile generation. Presentation-only commands sanitize
+advances authored state once and schedules compilation through the root material's
+edit policy. Immediate callers submit one generation; automatic editor edits
+coalesce before submission, and manual edits remain unsubmitted. Presentation-only commands sanitize
 and commit positions, mark the package dirty, and never compile or invalidate
 render data.
 
@@ -120,7 +122,7 @@ commands retain only changed node or Material Output positions; parameter-only
 commands retain only the parameter GUID and before/after values. Every custom
 change reports its owned native allocations to the bounded transaction buffer.
 Undo and Redo restore semantic state through the ordinary material mutation
-boundary, so semantic restores compile while presentation-only and
+boundary, so semantic restores follow the current compile policy while presentation-only and
 parameter-only restores do not. Activating an editable asset document establishes
 its package's saved revision checkpoint, and a successful save advances that
 checkpoint. Undoing back to the open or most recently saved revision therefore
@@ -262,10 +264,27 @@ and required channel swizzle or normal decode nodes before replacing the surface
 connection in one candidate-validated transaction. Neither workflow creates a
 hidden branch.
 
-Compile state is observational. Pending states identify whether the preview
-shows last-known-good output; failed states show ErrorMaterial. Neither blocks
-canvas input or replaces the M6 publication policy. Display hints derive from
-the accepted program and request freshness, rather than stored status flags. Diagnostic activation uses the retained
+The toolbar exposes Compile and a user-scoped Auto Compile preference, enabled
+by default. Opening a base material applies the preference to its transient Engine
+edit policy; loaded instances inherit that policy. Automatic edits wait for a
+400 ms quiet period before compiler-input construction. Each subsequent semantic
+edit restarts the deadline. Switching to manual removes scheduled submission;
+switching back schedules any unsubmitted edits. Compile immediately submits the
+root and loaded dependent variants through ordinary cache reuse. Cancel Compile
+cancels their pending work. The policy remains on the loaded material after its
+document closes; automatic deadlines are pumped by Engine, not by visible UI.
+Reopening or package replacement reapplies the current preference.
+
+Save persists authored changes independently of compilation. The unsaved marker
+and Needs Compile status have separate meanings. Manual edits retain the accepted
+preview until explicitly compiled; Cook still requires a current successful result.
+Graph validation and dynamic parameter updates remain immediate in both modes.
+
+Compile state is observational. Unsubmitted and pending states identify whether
+the preview shows last-known-good output; failed states show ErrorMaterial.
+Neither blocks canvas input or replaces the M6 publication policy. Display hints
+derive from the accepted program and request freshness, rather than stored status
+flags. Diagnostic activation uses the retained
 `Program`, `Node`, `Input`, or `SurfaceOutput` location. Live node/input targets
 select and frame their node; a surface target highlights its fixed output.
 Program-wide, invalid, or generation-stale locations remain visible as text and

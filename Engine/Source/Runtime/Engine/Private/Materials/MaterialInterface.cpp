@@ -135,7 +135,7 @@ namespace Durin
 		bool bForceRecompile) -> bool
 	{
 		if (GetAssetRuntimeConfiguration().RequiresCookedPayload()) return false;
-		CompilationOwner.LastRequestedShaderProperties = CanonicalizeMaterialShaderProperties(CandidateProperties);
+		CompilationOwner.LastObservedShaderProperties = CanonicalizeMaterialShaderProperties(CandidateProperties);
 		FModuleManager::Get().LoadModule("RenderCore");
 		FMaterialCompilerEnvironment Environment;
 		std::string EnvironmentError;
@@ -169,7 +169,7 @@ namespace Durin
 			Input.Parameters.push_back({Definition.Id, Definition.Type});
 		std::ranges::sort(Input.Parameters, {},
 			&FMaterialCompilerParameterDeclaration::Id);
-		CompilationOwner.LastRequestedParameters = Input.Parameters;
+		CompilationOwner.LastObservedParameters = Input.Parameters;
 		return Private::FMaterialCompilationLifecycle::Submit(
 			*this, std::move(Input), bForceRecompile);
 	}
@@ -184,13 +184,13 @@ namespace Durin
 			if (!IsValid(Owner) || (!bIncludeSelf && Owner == this)) continue;
 			if (bOnlyIfShaderChanged
 				&& CanonicalizeMaterialShaderProperties(Owner->GetStaticProperties())
-					== Owner->CompilationOwner.LastRequestedShaderProperties) continue;
+					== Owner->CompilationOwner.LastObservedShaderProperties) continue;
 			auto& Status = Owner->CompilationOwner.MaterialCompileStatus;
 			Status.AuthoredRevision = Status.AuthoredRevision == std::numeric_limits<uint64>::max()
 				? 1 : Status.AuthoredRevision + 1;
 			Status.ParentChainRevision = Status.ParentChainRevision == std::numeric_limits<uint64>::max()
 				? 1 : Status.ParentChainRevision + 1;
-			RequestMaterialRecompile(*Owner);
+			Private::FMaterialCompilationLifecycle::ScheduleEdit(*Owner);
 		}
 	}
 

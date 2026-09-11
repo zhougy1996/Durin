@@ -24,6 +24,7 @@ namespace Durin::Editor::Material
 		auto MoveViewport(std::string_view OldResourceId,
 			std::string_view NewResourceId) -> void;
 
+		bool bAutoCompile = true;
 		bool bPreviewVisible = true;
 		bool bDetailsVisible = true;
 		bool bDiagnosticsVisible = false;

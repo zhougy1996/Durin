@@ -208,7 +208,16 @@ compiler call to the `Engine/MaterialCompile` task scope. Workers retain no
 only synchronous compatibility path is process bootstrap or tooling without an
 active compiling manager; construction in a running engine does not compile
 before its object handle exists. `PostLoad`, authored edits, reload, and the
-explicit editor action use the asynchronous owner.
+explicit editor action use the asynchronous owner. MaterialEditor selects a
+transient root edit policy: Automatic coalesces semantic edits for 400 ms, Manual
+records `NeedsCompile` without submitting, and Immediate preserves non-editor
+callers' existing behavior. Loaded instances inherit the root policy. Scheduled
+edits use `Scheduled` state and the manager's bounded retry scan, without taking
+compiler snapshots or advancing request generations until submission. Selected
+finish flushes scheduled automatic work; manual work requires an explicit request.
+Late results cannot replace a material with unsubmitted edits. See
+[Material graph authoring](../../Editor/Architecture/MaterialGraphOperations.md)
+for toolbar and save behavior.
 
 Authored revision, nonzero request generation, dependency generation, latest
 terminal result, and accepted renderable program are independent state. A new

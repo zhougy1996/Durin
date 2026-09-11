@@ -109,6 +109,8 @@ namespace Durin::Editor::Material
 			switch (State)
 			{
 			case EMaterialCompileState::NeverRequested: return "Not compiled";
+			case EMaterialCompileState::NeedsCompile: return "Needs compile";
+			case EMaterialCompileState::Scheduled: return "Waiting for edits to finish";
 			case EMaterialCompileState::Deferred: return "Waiting for compiler capacity";
 			case EMaterialCompileState::Pending: return "Compiling";
 			case EMaterialCompileState::Running: return "Compiling";
@@ -322,6 +324,9 @@ namespace Durin::Editor::Material
 			SetError(Result ? "The selected asset is not a material." : Result.Message);
 			return ::Durin::Editor::EDocumentOpenResult::Rejected;
 		}
+		if (auto* Base = Cast<DMaterial>(Material))
+			Base->SetEditCompileMode(SessionSettings->bAutoCompile
+				? EMaterialEditCompileMode::Automatic : EMaterialEditCompileMode::Manual);
 		OpenMaterials.emplace(Document.ResourceId, Material);
 		return ::Durin::Editor::EDocumentOpenResult::Opened;
 	}
@@ -382,6 +387,9 @@ namespace Durin::Editor::Material
 			if (Open.Get() && Open->GetPackage() == Previous)
 			{
 				Open = Cast<DMaterialInterface>(Replacement->FindTopLevelAsset(Open->GetFName()));
+				if (auto* Base = Cast<DMaterial>(Open.Get()))
+					Base->SetEditCompileMode(SessionSettings->bAutoCompile
+						? EMaterialEditCompileMode::Automatic : EMaterialEditCompileMode::Manual);
 				ReboundResources.insert(ResourceId);
 			}
 		if (ReboundResources.contains(std::string(Documents.GetActiveResourceId())))
@@ -525,20 +533,36 @@ namespace Durin::Editor::Material
 		ImGui::SameLine();
 		if (Material)
 		{
+			if (auto* Base = Cast<DMaterial>(Material))
+			{
+				if (ImGui::Button("Compile")) Base->CompileEdits();
+				ImGui::SameLine();
+				if (ImGui::Checkbox("Auto Compile", &SessionSettings->bAutoCompile))
+				{
+					for (const auto& [Resource, Open] : OpenMaterials)
+						if (auto* OpenBase = Cast<DMaterial>(Open.Get()))
+							OpenBase->SetEditCompileMode(SessionSettings->bAutoCompile
+								? EMaterialEditCompileMode::Automatic : EMaterialEditCompileMode::Manual);
+					SessionSettings->Save();
+				}
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("Compile after editing pauses. Disable to compile changes manually.");
+			}
+			else if (ImGui::Button("Compile")) RequestMaterialRecompile(*Material);
 			const FMaterialCompileStatus& Status = Material->GetMaterialCompileStatus();
 			const bool bPending = Status.State == EMaterialCompileState::Deferred
 				|| Status.State == EMaterialCompileState::Pending
+				|| Status.State == EMaterialCompileState::Scheduled
 				|| Status.State == EMaterialCompileState::Running;
 			if (bPending)
 			{
+				ImGui::SameLine();
 				if (ImGui::Button("Cancel Compile"))
-					FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Material);
-			}
-			else if (ImGui::Button(Status.State == EMaterialCompileState::Failed
-				|| Status.State == EMaterialCompileState::Rejected
-					? "Retry Compile" : "Recompile"))
-			{
-				RequestMaterialRecompile(*Material, true);
+				{
+					for (const auto Handle : GetLoadedMaterialDependents(Material))
+						if (auto* Owner = ResolveObjectHandle(Handle); IsValid(Owner))
+							FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Owner);
+				}
 			}
 			ImGui::SameLine();
 			ImGui::TextDisabled("%s%s", FormatCompileState(Status.State),

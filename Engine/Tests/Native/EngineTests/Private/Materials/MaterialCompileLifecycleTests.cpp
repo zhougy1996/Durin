@@ -27,7 +27,8 @@ namespace
 				Material.GetMaterialCompileStatus().State;
 			if (State != Durin::EMaterialCompileState::Pending
 				&& State != Durin::EMaterialCompileState::Running
-				&& State != Durin::EMaterialCompileState::Deferred)
+				&& State != Durin::EMaterialCompileState::Deferred
+				&& State != Durin::EMaterialCompileState::Scheduled)
 				return State == Durin::EMaterialCompileState::Ready;
 		std::this_thread::sleep_for(std::chrono::milliseconds(1));
 		}
@@ -42,6 +43,88 @@ namespace
 		Program.Outputs.RoughnessDefault.X += Delta;
 		return Program;
 	}
+}
+
+namespace
+{
+auto QualifyEditScheduling() -> void
+{
+	using namespace Durin;
+	auto* Root = NewObject<DMaterial>(nullptr, "ScheduledRoot");
+	auto* Child = NewObject<DMaterialInstance>(nullptr, "ScheduledChild");
+	struct FObjects
+	{
+		DMaterial* Root;
+		DMaterialInstance* Child;
+		~FObjects() { MarkAsGarbage(Child); MarkAsGarbage(Root); CollectGarbage(); }
+	} Objects{Root, Child};
+	ASSERT_TRUE(Child->SetParent(Root));
+	ASSERT_TRUE(Root->CompileEdits());
+	ASSERT_TRUE(WaitForMaterialCompile(*Root));
+	ASSERT_TRUE(WaitForMaterialCompile(*Child));
+	const auto Previous = Root->GetAcceptedCompiledProgram();
+	const auto Generation = Root->GetMaterialCompileStatus().RequestGeneration;
+	const auto ChildGeneration = Child->GetMaterialCompileStatus().RequestGeneration;
+
+	Root->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	ASSERT_TRUE(Root->SetMaterialProgram(EditFirstScalarConstant(*Root, 0.1f)));
+	ASSERT_TRUE(Root->SetMaterialProgram(EditFirstScalarConstant(*Root, 0.1f)));
+	FAssetCompilingManager::Get().ProcessAsyncTasks();
+	EXPECT_EQ(Root->GetMaterialCompileStatus().State, EMaterialCompileState::NeedsCompile);
+	EXPECT_EQ(Child->GetMaterialCompileStatus().State, EMaterialCompileState::NeedsCompile);
+	EXPECT_EQ(Root->GetMaterialCompileStatus().RequestGeneration, Generation);
+	EXPECT_EQ(Child->GetMaterialCompileStatus().RequestGeneration, ChildGeneration);
+	EXPECT_EQ(Root->GetAcceptedCompiledProgram(), Previous);
+	EXPECT_TRUE(Root->GetMaterialCompileStatus().bLastKnownGoodDisplayed);
+	FMaterialParameterDefinition Extra;
+	Extra.Id = FGuid::NewGuid();
+	Extra.Name = FName("PendingScalar");
+	Extra.Type = EMaterialParameterType::Scalar;
+	ASSERT_TRUE(Root->CreateParameterDefinition(Extra));
+	const auto Revision = Root->GetMaterialCompileStatus().AuthoredRevision;
+	ASSERT_TRUE(Root->SetScalarParameterValue(MaterialParameters::MetallicName(), 0.25f));
+	Root->PostEditChangeProperty({
+		.MemberProperty = Root->GetClass()->FindPropertyByName("ParameterDefinitions")});
+	EXPECT_EQ(Root->GetMaterialCompileStatus().AuthoredRevision, Revision);
+	auto Invalid = *Root->GetMaterialProgram();
+	Invalid.SchemaVersion = 0;
+	EXPECT_FALSE(Root->SetMaterialProgram(std::move(Invalid)));
+	EXPECT_EQ(Root->GetMaterialCompileStatus().AuthoredRevision, Revision);
+	ASSERT_TRUE(Root->CompileEdits());
+	ASSERT_TRUE(WaitForMaterialCompile(*Root));
+	ASSERT_TRUE(WaitForMaterialCompile(*Child));
+	EXPECT_TRUE(Root->GetMaterialCompileStatus().IsCurrent());
+	EXPECT_TRUE(Child->GetMaterialCompileStatus().IsCurrent());
+	EXPECT_EQ(Root->GetMaterialCompileStatus().RequestGeneration, Generation + 1);
+
+	Root->SetEditCompileMode(EMaterialEditCompileMode::Automatic);
+	ASSERT_TRUE(Root->SetMaterialProgram(EditFirstScalarConstant(*Root, 0.05f)));
+	std::this_thread::sleep_for(std::chrono::milliseconds(250));
+	ASSERT_TRUE(Root->SetMaterialProgram(EditFirstScalarConstant(*Root, 0.05f)));
+	std::this_thread::sleep_for(std::chrono::milliseconds(200));
+	FAssetCompilingManager::Get().ProcessAsyncTasks();
+	EXPECT_EQ(Root->GetMaterialCompileStatus().State, EMaterialCompileState::Scheduled);
+	EXPECT_EQ(Root->GetMaterialCompileStatus().RequestGeneration, Generation + 1);
+	ASSERT_TRUE(WaitForMaterialCompile(*Root));
+	ASSERT_TRUE(WaitForMaterialCompile(*Child));
+	EXPECT_EQ(Root->GetMaterialCompileStatus().RequestGeneration, Generation + 2);
+
+	ASSERT_TRUE(Root->SetMaterialProgram(EditFirstScalarConstant(*Root, 0.01f)));
+	Root->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	std::this_thread::sleep_for(std::chrono::milliseconds(450));
+	FAssetCompilingManager::Get().ProcessAsyncTasks();
+	EXPECT_EQ(Root->GetMaterialCompileStatus().State, EMaterialCompileState::NeedsCompile);
+	EXPECT_EQ(Root->GetMaterialCompileStatus().RequestGeneration, Generation + 2);
+	Root->SetEditCompileMode(EMaterialEditCompileMode::Automatic);
+	ASSERT_TRUE(WaitForMaterialCompile(*Root));
+	ASSERT_TRUE(WaitForMaterialCompile(*Child));
+	EXPECT_EQ(Root->GetMaterialCompileStatus().RequestGeneration, Generation + 3);
+	ASSERT_TRUE(Root->SetMaterialProgram(EditFirstScalarConstant(*Root, 0.01f)));
+	FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Root);
+	EXPECT_EQ(Root->GetMaterialCompileStatus().State, EMaterialCompileState::Canceled);
+	EXPECT_EQ(Root->GetMaterialCompileStatus().RequestGeneration, Generation + 3);
+}
+
 }
 
 TEST(FMaterialCompileLifecycleTests,
@@ -302,6 +385,8 @@ TEST(FMaterialCompileLifecycleTests,
 		Durin::MarkAsGarbage(Instance);
 		Durin::MarkAsGarbage(Root);
 	}
+
+	QualifyEditScheduling();
 
 	Durin::MarkAsGarbage(PendingInstance);
 	Durin::MarkAsGarbage(Second);
