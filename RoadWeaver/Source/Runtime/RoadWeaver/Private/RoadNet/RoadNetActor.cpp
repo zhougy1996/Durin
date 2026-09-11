@@ -144,8 +144,10 @@ namespace Durin::RoadNet
 			if (!Probe) return Fail("Preview preflight allocation failed.");
 			Probe->SetStaticMesh(PreviewMesh.Get(), false);
 			Probe->SetSplineMeshParams(Spec.Params, false);
-			const bool Valid = Probe->UpdateMesh(&OutError)
-				&& Probe->GetDerivedState() && Probe->GetDerivedState()->IsValid();
+			Probe->UpdateMesh();
+			OutError = Probe->GetMeshUpdateError();
+			const auto State = Probe->GetDerivedState();
+			const bool Valid = OutError.empty() && State && State->IsValid();
 			if (!Valid && OutError.empty()) OutError = "Preview mesh has invalid or unavailable source geometry.";
 			Probe->DestroyComponent();
 			if (!Valid) return Fail(OutError);
@@ -163,7 +165,8 @@ namespace Durin::RoadNet
 			auto* Component = Components[Index];
 			Component->SetStaticMesh(PreviewMesh.Get(), false);
 			Component->SetSplineMeshParams(Specs[Index].Params, false);
-			if (!Component->UpdateMesh(&OutError)) return Fail(OutError);
+			Component->UpdateMesh();
+			if (!Component->GetMeshUpdateError().empty()) return Fail(Component->GetMeshUpdateError());
 			Component->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 			Component->SetVisible(true);
 		}

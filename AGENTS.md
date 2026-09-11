@@ -9,6 +9,10 @@ when it changes or needed context is unavailable.
   route to the matching repository guidance.
 - If module ownership is unclear, read `Documentation/Workspace/CodeModules.md`
   and search only the smallest plausible module set.
+- When changing a shared API, search its symbols across the source and test
+  roots of every project declared in `Durin.dworkspace`; migrate all consumers.
+  Validate affected project targets as well as the owning module. For shared
+  Engine API migrations, complete an `all` build before handoff.
 
 ## Repository Rules
 

@@ -65,9 +65,17 @@ physical root communicates ownership but does not select them for a target.
 
 ## Project Modules
 
-Game projects own their own module mapping. For the repository sample project,
+Game projects own their own module mapping; discover build membership from
+[`Durin.dworkspace`](../../Durin.dworkspace). For the repository sample project,
 [`Sandbox/Sandbox.dproject`](../../Sandbox/Sandbox.dproject) maps the `Sandbox`
 gameplay module to [`Sandbox/Source/Runtime/Sandbox`](../../Sandbox/Source/Runtime/Sandbox).
+[`RoadWeaver/RoadWeaver.dproject`](../../RoadWeaver/RoadWeaver.dproject) maps
+`RoadWeaver` road definitions, alignment, and scene preview construction to
+[`RoadWeaver/Source/Runtime/RoadWeaver`](../../RoadWeaver/Source/Runtime/RoadWeaver)
+and `RoadWeaverEditor` road authoring to
+[`RoadWeaver/Source/Editor/RoadWeaverEditor`](../../RoadWeaver/Source/Editor/RoadWeaverEditor).
+Shared Engine API migrations must include these project consumers and their
+declared native-test roots, even when the implementation belongs to Engine.
 
 ## Common Cross-Module Routes
 
