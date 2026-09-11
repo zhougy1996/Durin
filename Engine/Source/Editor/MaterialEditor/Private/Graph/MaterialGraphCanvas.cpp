@@ -707,10 +707,8 @@ namespace Durin::Editor::Material
 				const bool bFailed = CompileStatus.State == EMaterialCompileState::Failed
 					|| CompileStatus.State == EMaterialCompileState::Rejected;
 				const char* Label = bFailed
-					? (CompileStatus.bLastKnownGoodDisplayed
-						? "Compile failed - preview is last known good"
-						: "Compile failed - preview uses fallback")
-					: (CompileStatus.bLastKnownGoodDisplayed
+					? "Compile failed - preview uses error material"
+					: (Material.GetAcceptedCompiledProgram()
 						? "Compiling - preview is last known good"
 						: "Compiling material graph");
 				DrawList->AddText(Add(CanvasMinimum, {12.0f, 10.0f}),

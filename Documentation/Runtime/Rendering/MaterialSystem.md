@@ -218,8 +218,21 @@ last-known-good program visible. GameThread admits a mailbox result only when
 the live object-handle generation, authored revision, request generation,
 dependency generation, parent-chain revision, target, and program identity all match. Successful
 admission atomically replaces the complete three-stage result and proxy state;
-failure, cancellation, supersession, rejection, deletion, or shutdown cannot
-replace it. A material with no accepted result uses ErrorMaterial.
+current compilation failure or admission rejection retires the complete accepted
+program, layout, values and resources and publishes ErrorMaterial through the
+ordinary render proxy path. This includes normalization and dependency failures
+before worker submission. Diagnostics no longer report last-known-good display.
+Cancellation, supersession and stale results do not replace the visible generation.
+A material with no accepted result uses ErrorMaterial, including during retries
+after failure; successful admission restores ordinary rendering. Root materials
+and instance variants apply this rule to their own compile requests. Immutable
+compiler cache entries remain reusable after renderable generation retirement.
+The owner stores this contract using the same `FMaterialLocalRenderLayer` value
+published to its proxy; shader properties derive from that layer's static
+properties. There is no separate accepted-generation type, compiled authored
+revision or last-known-good display flag. Current readiness requires Ready state
+and matching requested/compiled identities; owner and revision checks remain at
+result admission.
 
 The Material compiling manager admits at most 64 distinct flights and 256 consumers. Requests are
 bounded to 2 MiB, results to 8 MiB, diagnostics to the M5 64-record/512-byte
@@ -255,15 +268,16 @@ mismatches before publishing an immutable result. Runtime loading therefore
 requires neither authored IR/generated source, Shader source files, editor DDC,
 nor live compilation.
 
-Both material asset kinds publish a complete `FMaterialAcceptedGeneration`:
-shared immutable compiler result, canonical shader contract, accepted pipeline
-properties, and native parameter/resource values. Admission validates the entire
+Both material asset kinds publish a complete `FMaterialLocalRenderLayer`:
+shared immutable compiler result, accepted static properties, and native
+parameter/resource values. Canonical shader properties derive from that layer. Admission validates the entire
 candidate before swapping. Values resolve through the bounded authored chain by
 stable GUID/type against the variant's active layout; no packed parent bytes or
 parent compilation success are required. Removed declarations retain accepted
 native values/resources until replacement. Dynamic edits refresh compatible
 values and dependent publications without compiling. A shader/pipeline edit
-retains the complete old configuration while pending or failed; pipeline-only
+retains the complete old configuration while pending; current failure clears
+the layer and uses normal ErrorMaterial fallback. Pipeline-only
 edits apply immediately when compatible with accepted shader properties.
 
 Cook checks current owner/dependency state and rejects stale/error results.

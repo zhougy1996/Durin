@@ -982,3 +982,77 @@ TEST(FMaterialRenderProxyTests, StressSharedUsersSlotsInterleavedPublicationAndD
 	Harness.Shutdown();
 	Durin::CollectGarbage();
 }
+
+TEST(FMaterialRenderProxyTests, FailedCompilationPublishesErrorAndRecoveryForEachOwner)
+{
+	FRenderSceneHarness Harness;
+	auto* Root = MakeExpandedMaterial(nullptr, "FailedCompileProxyRoot");
+	ASSERT_NE(Root, nullptr);
+	auto* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "FailedCompileProxyInstance");
+	ASSERT_TRUE(Instance->SetParent(Root));
+	Durin::FAssetCompilingManager::Get().FinishAllCompilation();
+	for (Durin::DMaterialInterface* Owner : {static_cast<Durin::DMaterialInterface*>(Instance), static_cast<Durin::DMaterialInterface*>(Root)})
+	{
+		ASSERT_TRUE(Owner->GetAcceptedCompiledProgram());
+		auto Proxy = Owner->GetMaterialRenderProxy();
+		const auto Before = CaptureMaterialProxy(Proxy);
+		const auto Status = Owner->GetMaterialCompileStatus();
+		Durin::FMaterialCompileResult Failed{
+			.Owner = Durin::MakeObjectHandle(Owner),
+			.AuthoredRevision = Status.AuthoredRevision,
+			.Generation = Status.RequestGeneration,
+			.DependencyRevision = Status.DependencyRevision,
+			.ParentChainRevision = Status.ParentChainRevision,
+			.ProgramIdentity = Status.RequestedIdentity,
+			.Target = Status.Target,
+			.State = Durin::EMaterialCompileState::Failed,
+			.Category = Durin::EMaterialCompileResultCategory::Compile,
+			.Diagnostics = {{.Category = Durin::EMaterialCompileResultCategory::Compile}}};
+		EXPECT_FALSE(Durin::Private::FMaterialCompilationLifecycle::Admit(*Owner, std::move(Failed)));
+		EXPECT_FALSE(Owner->GetAcceptedCompiledProgram());
+		EXPECT_EQ(Owner->GetMaterialCompileDiagnostics().front().Category,
+			Durin::EMaterialCompileResultCategory::Compile);
+		const auto Error = CaptureMaterialProxy(Proxy);
+		EXPECT_GT(Error.LocalVersion, Before.LocalVersion);
+		ExpectRenderDataMatches(Error.RenderData, Durin::GetErrorMaterialRenderData());
+		ExpectRenderDataMatches(Owner->GetRenderData(), Error.RenderData);
+		ASSERT_TRUE(Durin::RequestMaterialRecompile(*Owner));
+		Durin::FAssetCompilingManager::Get().FinishAllCompilation();
+		ASSERT_TRUE(Owner->GetMaterialCompileStatus().IsCurrent());
+		const auto Recovered = CaptureMaterialProxy(Proxy);
+		EXPECT_GT(Recovered.LocalVersion, Error.LocalVersion);
+		ExpectRenderDataMatches(Recovered.RenderData, Before.RenderData);
+
+		Durin::FMaterialCompilerInput InvalidInput;
+		InvalidInput.Program = *Owner->GetMaterialProgram();
+		InvalidInput.Program.SchemaVersion = 0;
+		InvalidInput.StaticProperties = Owner->GetStaticProperties();
+		std::string EnvironmentError;
+		ASSERT_TRUE(Durin::BuildDefaultMaterialCompilerEnvironment(InvalidInput.Environment, EnvironmentError));
+		EXPECT_FALSE(Durin::Private::FMaterialCompilationLifecycle::Submit(*Owner, std::move(InvalidInput), false));
+		EXPECT_EQ(Owner->GetMaterialCompileStatus().State, Durin::EMaterialCompileState::Failed);
+		ExpectRenderDataMatches(CaptureMaterialProxy(Proxy).RenderData, Durin::GetErrorMaterialRenderData());
+		ASSERT_TRUE(Durin::RequestMaterialRecompile(*Owner));
+		Durin::FAssetCompilingManager::Get().FinishAllCompilation();
+		const auto Ready = Owner->GetMaterialCompileStatus();
+		ASSERT_TRUE(Ready.IsCurrent());
+		Durin::FMaterialCompileResult Rejected{
+			.Owner = Durin::MakeObjectHandle(Owner),
+			.AuthoredRevision = Ready.AuthoredRevision,
+			.Generation = Ready.RequestGeneration,
+			.DependencyRevision = Ready.DependencyRevision,
+			.ParentChainRevision = Ready.ParentChainRevision,
+			.ProgramIdentity = Ready.RequestedIdentity,
+			.Target = Ready.Target,
+			.State = Durin::EMaterialCompileState::Ready};
+		EXPECT_FALSE(Durin::Private::FMaterialCompilationLifecycle::Admit(*Owner, std::move(Rejected)));
+		EXPECT_EQ(Owner->GetMaterialCompileStatus().State, Durin::EMaterialCompileState::Rejected);
+		ExpectRenderDataMatches(CaptureMaterialProxy(Proxy).RenderData, Durin::GetErrorMaterialRenderData());
+		Durin::ReleaseMaterialRenderProxy_GameThread(std::move(Proxy));
+	}
+	Durin::MarkAsGarbage(Instance);
+	Durin::MarkAsGarbage(Root);
+	WaitForRenderingThread();
+	Harness.Shutdown();
+	Durin::CollectGarbage();
+}

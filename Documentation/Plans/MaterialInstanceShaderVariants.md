@@ -9,6 +9,11 @@ Completed:
 
 ## Current Status
 
+The 2026-09-11 prerequisite refactor changes current compilation failure and
+admission rejection to retire the owner's accepted renderable generation and
+publish ErrorMaterial. Pending work retains a valid prior generation. This
+updates the shared lifecycle contract without completing a stage of this plan.
+
 Stages 0–2 are committed. Implementation of complete accepted instance
 generations, shared DMAT v5 instance payloads, editor controls and import readiness
 is present; final regression qualification is in progress. The plan remains
@@ -122,8 +127,9 @@ a large instance fan-out cannot silently remain stale after capacity is released
 
 Publish a compatible program, active parameter contract/layout, shader properties,
 resolved values/resources and pass state as one accepted generation. Keep authored
-intent, pending request and accepted state distinct. Failed or pending changes
-retain a valid complete prior generation; without one use ErrorMaterial. Cook must
+intent, pending request and accepted state distinct. Pending changes retain a
+valid complete prior generation; current compilation failure or admission
+rejection retires it to ErrorMaterial. Cook must
 reject stale/error results. Deletion or broken parent state cannot retain dangling
 references and must expose an explicit diagnostic.
 
@@ -266,8 +272,8 @@ available in the current source.
   Selected finish/all finish include deferred owners, pump capacity, and continue
   admission until terminal. Cancel/delete clears intent, shutdown stops retries,
   and invalid/oversized requests remain terminal with diagnostics.
-- `FMaterialAcceptedGeneration` owns the immutable compiler result, canonical
-  shader contract, accepted pipeline properties and complete parameter values
+- `FMaterialLocalRenderLayer` owns the immutable compiler result, accepted static
+  properties and complete parameter values
   as `FMaterialLocalRenderParameter` entries. Build values on GameThread by stable
   ID/type against that result's active layout, including native texture references.
   Admission prepares the complete candidate before swapping. Removed/retyped
@@ -585,7 +591,7 @@ starting points for Stage 0, not invented command names.
 | --- | --- |
 | Identity | Same effective input shares one flight/result while retained; path/flags/dynamic values excluded; only Masked cutoff differences change identity; pipeline changes preserve identity |
 | Inheritance | Three-level chains, override/reset, parent changes and reparenting; no stale completion after root/chain revisions; explicit equal overrides survive reload |
-| Publication | Pending/failure retains complete accepted configuration; child layout resolves all inherited values by ID/type; missing parent/no accepted result is explicit; compatible dynamic edits still work |
+| Publication | Pending retains complete accepted configuration; current failure retires it to ErrorMaterial; child layout resolves all inherited values by ID/type; missing parent/no accepted result is explicit; compatible dynamic edits still work |
 | Lifecycle | Shared consumer cancellation, deletion/unload, shader reload, stale mailbox, capacity saturation/retry and shutdown; existing bounds respected and counts return to baseline after drain |
 | Cook | Cold load of opaque/masked/translucent nested assets without compiler/DDC; strict corruption/version/contract rejection; current target only; no stale fallback cook |
 | Import/editor | All alpha modes, two cutoffs, two-sided state, one graph, reimport, Undo/Redo, save/reload, diagnostics, preview and thumbnails |

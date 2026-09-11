@@ -48,28 +48,23 @@ namespace Durin
 		}
 		Read.Lock.Reset();
 
-		CompilationOwner.AcceptedGeneration.Program = std::move(ProgramCandidate);
-		CompilationOwner.AcceptedGeneration.Properties = PayloadProperties;
-		CompilationOwner.AcceptedGeneration.ShaderProperties = CanonicalizeMaterialShaderProperties(PayloadProperties);
+		CompilationOwner.RenderLayer.CompiledProgram = std::move(ProgramCandidate);
+		CompilationOwner.RenderLayer.StaticProperties = PayloadProperties;
 		CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Ready;
 		CompilationOwner.MaterialCompileStatus.ResultCategory =
 			EMaterialCompileResultCategory::None;
 		CompilationOwner.MaterialCompileStatus.CacheOutcome =
 			EMaterialCompileCacheOutcome::None;
 		CompilationOwner.MaterialCompileStatus.RequestGeneration = 1;
-		CompilationOwner.MaterialCompileStatus.CompiledAuthoredRevision =
-			CompilationOwner.MaterialCompileStatus.AuthoredRevision;
 		CompilationOwner.MaterialCompileStatus.RequestedIdentity =
-			CompilationOwner.AcceptedGeneration.Program->Identity;
+			CompilationOwner.RenderLayer.CompiledProgram->Identity;
 		CompilationOwner.MaterialCompileStatus.CompiledIdentity =
-			CompilationOwner.AcceptedGeneration.Program->Identity;
-		CompilationOwner.MaterialCompileStatus.Target = CompilationOwner.AcceptedGeneration.Program->Target;
-		CompilationOwner.MaterialCompileStatus.bHasLastKnownGood = true;
-		CompilationOwner.MaterialCompileStatus.bLastKnownGoodDisplayed = false;
+			CompilationOwner.RenderLayer.CompiledProgram->Identity;
+		CompilationOwner.MaterialCompileStatus.Target = CompilationOwner.RenderLayer.CompiledProgram->Target;
 		CompilationOwner.MaterialCompileDiagnostics.clear();
 		MaterialCookDiagnostic = std::format(
 			"Loaded cooked material program {} for '{}'.",
-			CompilationOwner.AcceptedGeneration.Program->Identity.ToString(), GetObjectPath());
+			CompilationOwner.RenderLayer.CompiledProgram->Identity.ToString(), GetObjectPath());
 		PublishMaterialRenderProxyState();
 		OutError.clear();
 		return true;
@@ -88,10 +83,12 @@ namespace Durin
 		FBulkData* FieldValue = &CookedProgramData;
 		if (Ar.IsSaving())
 		{
-			if (!CompilationOwner.MaterialCompileStatus.IsCurrent() || !CompilationOwner.AcceptedGeneration.Program
+			if (!CompilationOwner.MaterialCompileStatus.IsCurrent() || !CompilationOwner.RenderLayer.CompiledProgram
 				|| (!GetAssetRuntimeConfiguration().RequiresCookedPayload()
 					&& CompilationOwner.MaterialCompileStatus.DependencyRevision != GetShaderReloadGeneration())
-				|| CanonicalizeMaterialShaderProperties(GetStaticProperties()) != CompilationOwner.AcceptedGeneration.ShaderProperties)
+				|| !CompilationOwner.RenderLayer.StaticProperties
+				|| CanonicalizeMaterialShaderProperties(GetStaticProperties())
+					!= CanonicalizeMaterialShaderProperties(*CompilationOwner.RenderLayer.StaticProperties))
 			{
 				Ar.Fail(EArchiveFailureCode::InvalidData,
 					"Material cooked program data is unavailable.");
@@ -100,7 +97,7 @@ namespace Durin
 			FByteBuffer Bytes;
 			std::string Error;
 			if (!EncodeMaterialCookedProgram(
-					*CompilationOwner.AcceptedGeneration.Program, GetRenderableStaticProperties(),
+					*CompilationOwner.RenderLayer.CompiledProgram, GetRenderableStaticProperties(),
 					ECookTargetPlatform::Win64,
 					ECookTargetProfile::Game, Bytes, Error)
 				|| !FBulkData::TryCreateDetached(Bytes, Projection, &Error))
@@ -126,15 +123,17 @@ namespace Durin
 			return Fail(std::format(
 				"Material '{}' supports only the Win64 game cook target.",
 				GetObjectPath()), &OutError);
-		if (!CompilationOwner.MaterialCompileStatus.IsCurrent() || !CompilationOwner.AcceptedGeneration.Program
+		if (!CompilationOwner.MaterialCompileStatus.IsCurrent() || !CompilationOwner.RenderLayer.CompiledProgram
 			|| CompilationOwner.MaterialCompileStatus.DependencyRevision != GetShaderReloadGeneration()
-			|| CanonicalizeMaterialShaderProperties(GetStaticProperties()) != CompilationOwner.AcceptedGeneration.ShaderProperties)
+			|| !CompilationOwner.RenderLayer.StaticProperties
+			|| CanonicalizeMaterialShaderProperties(GetStaticProperties())
+				!= CanonicalizeMaterialShaderProperties(*CompilationOwner.RenderLayer.StaticProperties))
 			return Fail(std::format(
 				"Material '{}' cannot cook because authored revision {} does not have a complete latest target result.",
 				GetObjectPath(), CompilationOwner.MaterialCompileStatus.AuthoredRevision), &OutError);
-		if (CompilationOwner.AcceptedGeneration.Program->Target
+		if (CompilationOwner.RenderLayer.CompiledProgram->Target
 			!= CompilationOwner.MaterialCompileStatus.Target
-			|| CompilationOwner.AcceptedGeneration.Program->PassContractVersion
+			|| CompilationOwner.RenderLayer.CompiledProgram->PassContractVersion
 				!= CurrentMaterialPassContractVersion)
 			return Fail(std::format(
 				"Material '{}' compiled target or pass contract is incompatible with Cook.",

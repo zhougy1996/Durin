@@ -262,9 +262,10 @@ and required channel swizzle or normal decode nodes before replacing the surface
 connection in one candidate-validated transaction. Neither workflow creates a
 hidden branch.
 
-Compile state is observational. Pending and failed states identify whether the
-preview is showing last-known-good output, but never block canvas input or
-replace the M6 publication policy. Diagnostic activation uses the retained
+Compile state is observational. Pending states identify whether the preview
+shows last-known-good output; failed states show ErrorMaterial. Neither blocks
+canvas input or replaces the M6 publication policy. Display hints derive from
+the accepted program and request freshness, rather than stored status flags. Diagnostic activation uses the retained
 `Program`, `Node`, `Input`, or `SurfaceOutput` location. Live node/input targets
 select and frame their node; a surface target highlights its fixed output.
 Program-wide, invalid, or generation-stale locations remain visible as text and

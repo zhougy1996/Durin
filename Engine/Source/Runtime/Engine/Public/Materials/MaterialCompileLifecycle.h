@@ -72,7 +72,6 @@ namespace Durin
 		std::string AssetPath;
 		FMaterialProgramIdentity ProgramIdentity;
 		uint64 Generation = 0;
-		bool bLastKnownGoodDisplayed = false;
 	};
 
 	// Immutable value-owned request captured on GameThread before Worker admission.
@@ -117,7 +116,6 @@ namespace Durin
 	{
 		uint64 AuthoredRevision = 1;
 		uint64 RequestGeneration = 0;
-		uint64 CompiledAuthoredRevision = 0;
 		uint64 DependencyRevision = 0;
 		uint64 ParentChainRevision = 0;
 		uint64 TaskId = 0;
@@ -130,13 +128,11 @@ namespace Durin
 		FMaterialProgramIdentity CompiledIdentity;
 		std::string Target;
 		uint64 DurationMicroseconds = 0;
-		bool bHasLastKnownGood = false;
-		bool bLastKnownGoodDisplayed = false;
 
 		auto IsCurrent() const -> bool
 		{
 			return State == EMaterialCompileState::Ready
-				&& AuthoredRevision == CompiledAuthoredRevision;
+				&& RequestedIdentity == CompiledIdentity;
 		}
 	};
 

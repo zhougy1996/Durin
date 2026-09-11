@@ -487,7 +487,7 @@ namespace Durin
 		}
 		if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
-			CompilationOwner.AcceptedGeneration = {};
+			CompilationOwner.RenderLayer = {};
 			if (CookedProgramData.GetMetadata().LogicalSize == 0)
 			{
 				MaterialCookDiagnostic = "Cooked material instance requires its own ProgramData field.";

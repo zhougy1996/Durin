@@ -73,7 +73,7 @@ reuse remain evidence-gated on measurements after M10.
 Artists can author bounded, typed surface programs; the engine validates and
 compiles them deterministically; every supported geometry family consumes the
 result through the existing material/pass boundary; editor and runtime updates
-remain responsive; and failures retain a last-known-good or explicit error
+remain responsive; and failures select an explicit error
 surface with actionable diagnostics.
 
 Materials declare their own bounded typed inputs independently of surface
@@ -223,7 +223,8 @@ preserves identity; merge/retype cannot silently reinterpret overrides. Opcode
 types stay enums until a concrete plugin-extension requirement justifies change.
 
 A renderable generation owns compatible program, layout, resolved values and
-counted resources. Pending or failed edits cannot pair old code with new layout.
+counted resources. Pending edits retain that complete generation; failed edits retire it and display
+ErrorMaterial. Neither path can pair old code with new layout.
 Dynamic values remain outside program/PSO identity. Input declarations are
 independent of the eight surface outputs; M10 does not expand shading models.
 
@@ -274,7 +275,7 @@ program into a human canvas and structured automation workflow.
 | --- | --- |
 | Asset/schema | Deterministic round trip, bounded counts/depth, stable IDs, malformed/cyclic/type-invalid rejection, dependency enumeration, duplication, and strict compatibility behavior |
 | Compiler/IR | Schedule-independent normalization, stable keys, source/IR determinism, compiler/reflection failure diagnostics, dependency invalidation, and no reflected-object access outside the owning thread |
-| Renderer | Exact layout/binding validation, last-known-good or ErrorMaterial fallback, StaticMesh/SplineMesh parity, forward/GBuffer/shadow coverage, reload, and device recovery |
+| Renderer | Exact layout/binding validation, pending last-known-good and failed ErrorMaterial fallback, StaticMesh/SplineMesh parity, forward/GBuffer/shadow coverage, reload, and device recovery |
 | Async lifecycle | Coalescing, supersession, cancellation, stale-result rejection, bounded queues/storage, GameThread publication, module unload, and engine shutdown |
 | Cook/runtime | Warm and miss paths, artifact corruption recovery, cooked load without authored-only state, deterministic missing-artifact policy, and package dependency correctness |
 | Editor | Graph operations, Undo/Redo, save/reload, multi-document preview, diagnostic navigation, asset move/delete, and failure recovery |
@@ -299,8 +300,9 @@ targets, fixtures, profiles, budgets, and final evidence.
   cross to Worker or rendering threads. Compilation inputs are immutable owned
   snapshots and publication returns through explicit owner-thread seams.
 - **Failure flicker or data loss:** async work can supersede a valid material.
-  M6 must preserve last-known-good state, separate authored dirty state from
-  compiled readiness, and reject stale generations before publication.
+  Preserve last-known-good state while compiling, retire failed generations to
+  ErrorMaterial, separate authored dirty state from compiled readiness, and reject
+  stale generations before publication.
 - **Premature scalability machinery:** existing proxy coalescing may already
   cover many update cases. M8 remains evidence-gated and adds only mechanisms
   justified by measured compiled-material workloads.

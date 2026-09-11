@@ -45,7 +45,7 @@ namespace
 }
 
 TEST(FMaterialCompileLifecycleTests,
-	LatestGenerationSingleFlightLastKnownGoodAndShutdownAreBounded)
+	LatestGenerationSingleFlightFailureFallbackAndShutdownAreBounded)
 {
 	InitializeDObjectSystem();
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
@@ -123,7 +123,7 @@ TEST(FMaterialCompileLifecycleTests,
 		EditFirstScalarConstant(*First, 0.03125f));
 	ASSERT_TRUE(Validation);
 	EXPECT_EQ(First->GetAcceptedCompiledProgram(), InitialProgram);
-	EXPECT_TRUE(First->GetMaterialCompileStatus().bLastKnownGoodDisplayed);
+	EXPECT_FALSE(First->GetMaterialCompileStatus().IsCurrent());
 	ASSERT_TRUE((Validation = First->SetMaterialProgram(
 		EditFirstScalarConstant(*First, 0.0625f))));
 	EXPECT_EQ(First->GetMaterialCompileStatus().RequestGeneration,
@@ -138,7 +138,7 @@ TEST(FMaterialCompileLifecycleTests,
 	ASSERT_TRUE(First->GetAcceptedCompiledProgram());
 	EXPECT_NE(First->GetAcceptedCompiledProgram()->Identity,
 		InitialProgram->Identity);
-	EXPECT_FALSE(First->GetMaterialCompileStatus().bLastKnownGoodDisplayed);
+	EXPECT_TRUE(First->GetMaterialCompileStatus().IsCurrent());
 
 	auto ParameterValidation = First->SetMaterialProgram(
 		Durin::MakePBRMaterialProgram());
@@ -153,8 +153,6 @@ TEST(FMaterialCompileLifecycleTests,
 	ASSERT_TRUE(First->SetVectorParameterValue(
 		Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.2, 0.6, 0.8)));
 	const auto LastKnownGood = First->GetAcceptedCompiledProgram();
-	const Durin::FMaterialStaticProperties LastKnownGoodProperties =
-		First->GetRenderableStaticProperties();
 	Durin::FMaterialStaticProperties FailedProperties =
 		First->GetStaticProperties();
 	FailedProperties.BlendMode = Durin::EMaterialBlendMode::Translucent;
@@ -175,22 +173,20 @@ TEST(FMaterialCompileLifecycleTests,
 		.State = Durin::EMaterialCompileState::Failed,
 		.Category = Durin::EMaterialCompileResultCategory::Compile,
 	};
+	// An obsolete failure cannot retire a newer request's visible generation.
+	auto StaleFailure = Failed;
+	--StaleFailure.Generation;
+	EXPECT_FALSE(Durin::Private::FMaterialCompilationLifecycle::Admit(
+		*First, std::move(StaleFailure)));
+	EXPECT_EQ(First->GetAcceptedCompiledProgram(), LastKnownGood);
 	EXPECT_FALSE(Durin::Private::FMaterialCompilationLifecycle::Admit(
 		*First, std::move(Failed)));
-	EXPECT_EQ(First->GetAcceptedCompiledProgram(), LastKnownGood);
-	EXPECT_FALSE(First->GetAcceptedCompiledProgram()->ActiveParameters.empty());
-	ExpectColorNear(GetMaterialBinding(First->GetRenderData()).BaseColor,
-		Durin::FVector4f(0.2f, 0.6f, 0.8f, 1.0f));
+	EXPECT_FALSE(First->GetAcceptedCompiledProgram());
 	EXPECT_EQ(First->GetMaterialCompileStatus().State,
 		Durin::EMaterialCompileState::Failed);
-	EXPECT_TRUE(First->GetMaterialCompileStatus().bLastKnownGoodDisplayed);
-	const Durin::FMaterialStaticProperties RenderableProperties =
-		First->GetRenderableStaticProperties();
-	EXPECT_EQ(RenderableProperties.BlendMode,
-		LastKnownGoodProperties.BlendMode);
-	EXPECT_EQ(RenderableProperties.bTwoSided, LastKnownGoodProperties.bTwoSided);
-	EXPECT_EQ(First->GetRenderData().PlanningPassIdentity.ShaderMap.BlendMode,
-		LastKnownGoodProperties.BlendMode);
+	EXPECT_FALSE(First->GetMaterialCompileStatus().IsCurrent());
+	ExpectColorNear(GetMaterialBinding(First->GetRenderData()).BaseColor,
+		GetMaterialBinding(Durin::GetErrorMaterialRenderData()).BaseColor);
 
 	Durin::FMaterialCompileResult Stale{
 		.Owner = Durin::MakeObjectHandle(First),
@@ -204,7 +200,7 @@ TEST(FMaterialCompileLifecycleTests,
 	};
 	EXPECT_FALSE(Durin::Private::FMaterialCompilationLifecycle::Admit(
 		*First, std::move(Stale)));
-	EXPECT_EQ(First->GetAcceptedCompiledProgram(), LastKnownGood);
+	EXPECT_FALSE(First->GetAcceptedCompiledProgram());
 	Durin::FMaterialCompileResult WrongTarget{
 		.Owner = Durin::MakeObjectHandle(First),
 		.AuthoredRevision = Pending.AuthoredRevision,
@@ -229,9 +225,15 @@ TEST(FMaterialCompileLifecycleTests,
 	};
 	EXPECT_FALSE(Durin::Private::FMaterialCompilationLifecycle::Admit(
 		*First, std::move(WrongDependency)));
-	EXPECT_EQ(First->GetAcceptedCompiledProgram(), LastKnownGood);
+	EXPECT_FALSE(First->GetAcceptedCompiledProgram());
 
-	// Failed replacement retains the old schema after authored declarations are deleted.
+	// Recovery replaces the error terminal, including after stale results were rejected.
+	ASSERT_TRUE(Durin::RequestMaterialRecompile(*First));
+	ASSERT_TRUE(WaitForMaterialCompile(*First));
+	EXPECT_TRUE(First->GetAcceptedCompiledProgram());
+	EXPECT_TRUE(First->GetMaterialCompileStatus().IsCurrent());
+
+	// Pending replacements retain deleted declarations; failed owners retire them.
 	{
 		auto* Root = Durin::NewObject<Durin::DMaterial>(nullptr, "RetainedDeclarationRoot");
 		ASSERT_TRUE(Root->SetMaterialProgram(Durin::MakePBRMaterialProgram()));
@@ -243,7 +245,6 @@ TEST(FMaterialCompileLifecycleTests,
 		ASSERT_TRUE(WaitForMaterialCompile(*Instance));
 		ASSERT_TRUE(Root->SetScalarParameterValue(Durin::MaterialParameters::MetallicName(), 0.65f));
 		ASSERT_TRUE(Instance->SetScalarParameterValue(Durin::MaterialParameters::MetallicName(), 0.9f));
-		const auto Accepted = Root->GetAcceptedCompiledProgram();
 		Durin::FMaterialParameterDefinition Definition;
 		Definition.Id = Durin::FGuid::NewGuid();
 		Definition.Name = "IndependentAmount";
@@ -273,6 +274,8 @@ TEST(FMaterialCompileLifecycleTests,
 				}).GetCompletion().GetTaskHandle());
 			ASSERT_TRUE(Started.WaitFor(2.0));
 			ASSERT_TRUE(Root->SetMaterialDefinitionsAndProgram({Definition}, Program));
+			EXPECT_FLOAT_EQ(GetMaterialBinding(Root->GetRenderData()).Metallic, 0.65f);
+			EXPECT_FLOAT_EQ(GetMaterialBinding(Instance->GetRenderData()).Metallic, 0.9f);
 			const auto Pending = Root->GetMaterialCompileStatus();
 			Durin::FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Root);
 			Durin::FMaterialCompileResult Failed{
@@ -286,9 +289,16 @@ TEST(FMaterialCompileLifecycleTests,
 				.Category = Durin::EMaterialCompileResultCategory::Compile};
 			EXPECT_FALSE(Durin::Private::FMaterialCompilationLifecycle::Admit(*Root, std::move(Failed)));
 		}
-		EXPECT_EQ(Root->GetAcceptedCompiledProgram(), Accepted);
-		EXPECT_FLOAT_EQ(GetMaterialBinding(Root->GetRenderData()).Metallic, 0.65f);
-		EXPECT_FLOAT_EQ(GetMaterialBinding(Instance->GetRenderData()).Metallic, 0.9f);
+		EXPECT_FALSE(Root->GetAcceptedCompiledProgram());
+		ExpectColorNear(GetMaterialBinding(Root->GetRenderData()).BaseColor,
+			GetMaterialBinding(Durin::GetErrorMaterialRenderData()).BaseColor);
+		// Each variant owns its result: the child's successful compilation can still publish.
+		ASSERT_TRUE(WaitForMaterialCompile(*Instance));
+		EXPECT_TRUE(Instance->GetAcceptedCompiledProgram());
+		ASSERT_TRUE(Durin::RequestMaterialRecompile(*Root));
+		ASSERT_TRUE(WaitForMaterialCompile(*Root));
+		EXPECT_EQ(Root->GetAcceptedCompiledProgram()->Identity,
+			Instance->GetAcceptedCompiledProgram()->Identity);
 		Durin::MarkAsGarbage(Instance);
 		Durin::MarkAsGarbage(Root);
 	}

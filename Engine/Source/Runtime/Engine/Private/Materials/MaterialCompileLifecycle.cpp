@@ -115,8 +115,7 @@ namespace Durin
 		auto MakeDiagnostic(
 			const FMaterialCompileRequest& Request,
 			EMaterialCompileResultCategory Category,
-			FMaterialProgramDiagnostic Source,
-			bool bLastKnownGood) -> FMaterialCompileDiagnostic
+			FMaterialProgramDiagnostic Source) -> FMaterialCompileDiagnostic
 		{
 			if (Source.Message.size() > MaterialProgramMaxDiagnosticMessageBytes)
 				Source.Message.resize(MaterialProgramMaxDiagnosticMessageBytes);
@@ -129,7 +128,6 @@ namespace Durin
 				.AssetPath = std::move(AssetPath),
 				.ProgramIdentity = Request.ProgramIdentity,
 				.Generation = Request.Generation,
-				.bLastKnownGoodDisplayed = bLastKnownGood,
 			};
 		}
 
@@ -422,7 +420,7 @@ namespace Durin
 				Result.Diagnostics.push_back(MakeDiagnostic(
 					Request, Category,
 					{.Category = EMaterialProgramDiagnosticCategory::Compile,
-					 .Message = std::move(Message)}, false));
+					 .Message = std::move(Message)}));
 				return Result;
 			}
 
@@ -507,7 +505,7 @@ namespace Durin
 						Result.Diagnostics.push_back(MakeDiagnostic(
 							Consumer, Category,
 							{.Category = EMaterialProgramDiagnosticCategory::Compile,
-							 .Message = "Material compilation was canceled."}, false));
+							 .Message = "Material compilation was canceled."}));
 					}
 					else
 					{
@@ -518,7 +516,7 @@ namespace Durin
 								>= MaterialProgramMaxDiagnosticCount) break;
 							Result.Diagnostics.push_back(MakeDiagnostic(
 								Consumer, MapProgramCategory(Diagnostic.Category),
-								Diagnostic, false));
+								Diagnostic));
 						}
 					}
 					Mailbox.push_back(std::move(Result));
@@ -805,10 +803,6 @@ namespace Durin
 				Material.CompilationOwner.MaterialCompileStatus.TaskId = 0;
 				Material.CompilationOwner.MaterialCompileStatus.CacheOutcome =
 					EMaterialCompileCacheOutcome::None;
-				Material.CompilationOwner.MaterialCompileStatus.bHasLastKnownGood =
-					Material.CompilationOwner.AcceptedGeneration.Program != nullptr;
-				Material.CompilationOwner.MaterialCompileStatus.bLastKnownGoodDisplayed =
-					Material.CompilationOwner.AcceptedGeneration.Program != nullptr;
 				Material.CompilationOwner.MaterialCompileDiagnostics.clear();
 
 				FMaterialCompileRequest Request{
@@ -838,9 +832,9 @@ namespace Durin
 						if (Material.CompilationOwner.MaterialCompileDiagnostics.size()
 							>= MaterialProgramMaxDiagnosticCount) break;
 						Material.CompilationOwner.MaterialCompileDiagnostics.push_back(MakeDiagnostic(
-							Request, MapProgramCategory(Diagnostic.Category), Diagnostic,
-							Material.CompilationOwner.AcceptedGeneration.Program != nullptr));
+							Request, MapProgramCategory(Diagnostic.Category), Diagnostic));
 					}
+					Material.RetireFailedMaterialGeneration();
 					return false;
 				}
 
@@ -853,7 +847,7 @@ namespace Durin
 					{
 						auto* Owner = Cast<DMaterialInterface>(Object);
 						if (!IsValid(Owner)) continue;
-						const auto Program = Owner->CompilationOwner.AcceptedGeneration.Program;
+						const auto Program = Owner->CompilationOwner.RenderLayer.CompiledProgram;
 						if (Program && Program->Identity == Request.ProgramIdentity)
 						{
 							return Admit(Material, {
@@ -904,8 +898,7 @@ namespace Durin
 						for (const FMaterialProgramDiagnostic& Diagnostic
 							: Compiled.Diagnostics)
 							Result.Diagnostics.push_back(MakeDiagnostic(
-								Request, MapProgramCategory(Diagnostic.Category), Diagnostic,
-								Material.CompilationOwner.AcceptedGeneration.Program != nullptr));
+								Request, MapProgramCategory(Diagnostic.Category), Diagnostic));
 					Admit(Material, std::move(Result));
 					return Material.CompilationOwner.MaterialCompileStatus.State
 						== EMaterialCompileState::Ready;
@@ -931,8 +924,8 @@ namespace Durin
 					Material.CompilationOwner.MaterialCompileDiagnostics.push_back(MakeDiagnostic(
 						DiagnosticRequest, EMaterialCompileResultCategory::Admission,
 						{.Category = EMaterialProgramDiagnosticCategory::Compile,
-						 .Message = "Material compile admission was rejected."},
-						Material.CompilationOwner.AcceptedGeneration.Program != nullptr));
+						 .Message = "Material compile admission was rejected."}));
+					Material.RetireFailedMaterialGeneration();
 					return false;
 				}
 				Material.CompilationOwner.bDeferredForceRecompile = bForceRecompile;
@@ -972,25 +965,23 @@ namespace Durin
 				Status.CacheOutcome = Result.CacheOutcome;
 				Status.TaskId = Result.TaskId;
 				Material.CompilationOwner.MaterialCompileDiagnostics = std::move(Result.Diagnostics);
-				Status.bHasLastKnownGood = Material.CompilationOwner.AcceptedGeneration.Program != nullptr;
 				if (Result.State == EMaterialCompileState::Ready
 					&& Result.CompiledProgram
 					&& Result.ProgramIdentity == Status.RequestedIdentity
 					&& Result.CompiledProgram->Identity == Result.ProgramIdentity
 					&& ValidateMaterialCompilerResult(*Result.CompiledProgram))
 				{
-					FMaterialAcceptedGeneration Candidate;
-					Candidate.Program = Result.CompiledProgram;
-					Candidate.ShaderProperties = CanonicalizeMaterialShaderProperties(Result.StaticProperties);
-					Candidate.Properties = Material.GetStaticProperties();
-					Candidate.Properties.OpacityMaskThreshold = Candidate.ShaderProperties.OpacityMaskThreshold;
-					if (CanonicalizeMaterialShaderProperties(Candidate.Properties) != Candidate.ShaderProperties)
+					FMaterialLocalRenderLayer Candidate;
+					Candidate.CompiledProgram = Result.CompiledProgram;
+					const auto ShaderProperties = CanonicalizeMaterialShaderProperties(Result.StaticProperties);
+					Candidate.StaticProperties = Material.GetStaticProperties();
+					Candidate.StaticProperties->OpacityMaskThreshold = ShaderProperties.OpacityMaskThreshold;
+					if (CanonicalizeMaterialShaderProperties(*Candidate.StaticProperties) != ShaderProperties)
 					{
 						Status.State = EMaterialCompileState::Superseded;
-						Status.bLastKnownGoodDisplayed = Status.bHasLastKnownGood;
 						return false;
 					}
-					for (const auto& Parameter : Candidate.Program->ActiveParameters)
+					for (const auto& Parameter : Candidate.CompiledProgram->ActiveParameters)
 					{
 						FResolvedMaterialParameter Resolved;
 						if (!Material.ResolveParameterValue(Parameter.Id, Resolved)
@@ -998,21 +989,18 @@ namespace Durin
 						{
 							Status.State = EMaterialCompileState::Rejected;
 							Status.ResultCategory = EMaterialCompileResultCategory::Admission;
-							Status.bLastKnownGoodDisplayed = Status.bHasLastKnownGood;
+							Material.RetireFailedMaterialGeneration();
 							return false;
 						}
 						Candidate.Parameters.push_back(BuildMaterialLocalRenderParameter(
 							Parameter.Id, Parameter.Type, Resolved.Value));
 					}
-					Material.CompilationOwner.AcceptedGeneration = std::move(Candidate);
+					Material.CompilationOwner.RenderLayer = std::move(Candidate);
 					Status.CompiledIdentity = Result.ProgramIdentity;
-					Status.CompiledAuthoredRevision = Result.AuthoredRevision;
 					Status.DurationMicroseconds =
-						Material.CompilationOwner.AcceptedGeneration.Program->Timings.NormalizationMicroseconds
-						+ Material.CompilationOwner.AcceptedGeneration.Program->Timings.GenerationMicroseconds
-						+ Material.CompilationOwner.AcceptedGeneration.Program->Timings.CompilationMicroseconds;
-					Status.bHasLastKnownGood = true;
-					Status.bLastKnownGoodDisplayed = false;
+						Material.CompilationOwner.RenderLayer.CompiledProgram->Timings.NormalizationMicroseconds
+						+ Material.CompilationOwner.RenderLayer.CompiledProgram->Timings.GenerationMicroseconds
+						+ Material.CompilationOwner.RenderLayer.CompiledProgram->Timings.CompilationMicroseconds;
 					Material.MarkRenderDataDirty(
 						EMaterialRenderDirtyFlags::ShaderMap
 							| EMaterialRenderDirtyFlags::PipelineState);
@@ -1024,10 +1012,9 @@ namespace Durin
 					Status.State = EMaterialCompileState::Rejected;
 					Status.ResultCategory = EMaterialCompileResultCategory::Admission;
 				}
-				Status.bLastKnownGoodDisplayed = Material.CompilationOwner.AcceptedGeneration.Program != nullptr;
-				for (FMaterialCompileDiagnostic& Diagnostic
-					: Material.CompilationOwner.MaterialCompileDiagnostics)
-					Diagnostic.bLastKnownGoodDisplayed = Status.bLastKnownGoodDisplayed;
+				if (Status.State == EMaterialCompileState::Failed
+					|| Status.State == EMaterialCompileState::Rejected)
+					Material.RetireFailedMaterialGeneration();
 				return false;
 		}
 
@@ -1037,8 +1024,6 @@ namespace Durin
 			Material.CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Canceled;
 			Material.CompilationOwner.MaterialCompileStatus.ResultCategory =
 				EMaterialCompileResultCategory::Cancellation;
-			Material.CompilationOwner.MaterialCompileStatus.bLastKnownGoodDisplayed =
-				Material.CompilationOwner.AcceptedGeneration.Program != nullptr;
 		}
 
 		auto FMaterialCompilationLifecycle::RetryDeferred(DMaterialInterface& Material) -> void
@@ -1058,16 +1043,13 @@ namespace Durin
 					Material.CompilationOwner.MaterialCompileStatus.RequestGeneration);
 				Material.CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Failed;
 				Material.CompilationOwner.MaterialCompileStatus.ResultCategory = EMaterialCompileResultCategory::Dependency;
-				Material.CompilationOwner.AcceptedGeneration.Program.reset();
-				Material.CompilationOwner.AcceptedGeneration.Parameters.clear();
-				Material.CompilationOwner.MaterialCompileStatus.bHasLastKnownGood = false;
-				Material.CompilationOwner.MaterialCompileStatus.bLastKnownGoodDisplayed = false;
 				Material.CompilationOwner.MaterialCompileDiagnostics = {{
 					.Category = EMaterialCompileResultCategory::Dependency,
 					.Source = {.Category = EMaterialProgramDiagnosticCategory::Dependency,
 						.Message = Error.empty() ? "Material has no authored program." : Error},
 					.AssetPath = Material.GetObjectPath(),
 					.Generation = Material.CompilationOwner.MaterialCompileStatus.RequestGeneration}};
+				Material.RetireFailedMaterialGeneration();
 				return false;
 			}
 			return Material.RequestProgramCompile(

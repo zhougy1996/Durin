@@ -9,6 +9,24 @@ Completed:
 
 ## Current Status
 
+The 2026-09-11 prerequisite refactor changes current compilation failure and
+admission rejection to retire the owner's accepted renderable generation and
+publish ErrorMaterial. Pending work retains a valid prior generation. This
+updates the shared lifecycle contract without completing a stage of this plan.
+
+Prerequisite validation: the default `all` build passed, MaterialTests passed
+143/143, and the final affected selection passed 81/83 targets. Independent
+reruns reproduce the two remaining failures: MaterialVulkanTests still expects
+retained texture publications after injected allocation failure; the current
+texture path clears them. TextureCookIntegrationTests constructs an authored
+sample material after entering cooked-only runtime, where compilation is
+prohibited, then fails its readiness assertion and scene cleanup. These texture
+fixtures were not changed by this prerequisite. Evidence is under
+`Build/.agent-state/logs/`: `20260911-151707-641828-36276-cmake.log`,
+`20260911-151749-246446-18452-ctest.log`,
+`20260911-152027-423811-30072-MaterialVulkanTests.log`, and
+`20260911-152055-875063-36360-TextureCookIntegrationTests.log`.
+
 Selected by the user on 2026-09-11 after the RenderProxy parameter pass-through
 fix (`5b1ea1344`). This commit records the implementation proposal only; no
 implementation stage is complete. Stage 0 is next. The user permits aggressive
@@ -179,8 +197,11 @@ Dynamic root parameter values and bound texture identities stay out of shader
 keys. Test warm/cold compilation and two calls with different bindings.
 
 Extend existing reference enumeration, reload/relocation/deletion handling and
-compile lifecycle. Pending or failed function edits retain the complete accepted
-program/layout/value contract or select the existing error terminal. Stale closure
+compile lifecycle. Pending function edits retain the complete accepted
+program/layout/value contract when available; current compilation failure or
+admission rejection retires it and publishes the existing error terminal.
+This prerequisite follows the shared Material System failure contract and does
+not advance a function implementation stage. Stale closure
 snapshots cannot publish. Cook resolves function dependencies ahead of compilation;
 cooked runtime loads accepted artifacts without authored functions or a compiler.
 Do not add another scheduler, DDC or render publication path.

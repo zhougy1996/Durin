@@ -51,19 +51,11 @@ namespace Durin
 		-> FMaterialLoadedQueryDiagnostics;
 	ENGINE_API auto ResetMaterialLoadedQueryDiagnostics() -> void;
 
-	// Complete value-owned render contract swapped only after candidate validation.
-	struct FMaterialAcceptedGeneration
-	{
-		std::shared_ptr<const FMaterialCompilerResult> Program;
-		FMaterialStaticProperties ShaderProperties;
-		FMaterialStaticProperties Properties;
-		std::vector<FMaterialLocalRenderParameter> Parameters;
-	};
-
 	// Per-asset compilation state never retains another material owner.
 	struct FMaterialCompilationOwnerState
 	{
-		FMaterialAcceptedGeneration AcceptedGeneration;
+		// The render-safe contract remains available while a replacement compiles.
+		FMaterialLocalRenderLayer RenderLayer;
 		FMaterialStaticProperties LastRequestedShaderProperties;
 		std::vector<FMaterialCompilerParameterDeclaration> LastRequestedParameters;
 		FMaterialCompileStatus MaterialCompileStatus;
@@ -158,6 +150,8 @@ namespace Durin
 			std::string& OutError) -> bool;
 	private:
 		friend struct Private::FMaterialCompilationLifecycle;
+		// Retires the failed owner's complete renderable generation and publishes ErrorMaterial.
+		auto RetireFailedMaterialGeneration() -> void;
 		auto SubmitMaterialRenderProxyState() const -> void;
 
 		uint64 RenderStateVersion = 1;

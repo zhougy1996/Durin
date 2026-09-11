@@ -542,7 +542,7 @@ namespace Durin::Editor::Material
 			}
 			ImGui::SameLine();
 			ImGui::TextDisabled("%s%s", FormatCompileState(Status.State),
-				Status.bLastKnownGoodDisplayed ? " (showing last known good)" : "");
+				(Material->GetAcceptedCompiledProgram() && !Status.IsCurrent()) ? " (showing last known good)" : "");
 		}
 		ImGui::SameLine();
 		if (ImGui::Button("Window")) ImGui::OpenPopup("MaterialWindows");
@@ -665,7 +665,7 @@ namespace Durin::Editor::Material
 		if (Status.DurationMicroseconds != 0)
 			ImGui::Text("Duration: %.2f ms",
 				static_cast<double>(Status.DurationMicroseconds) / 1000.0);
-		if (Status.bLastKnownGoodDisplayed)
+		if (Material->GetAcceptedCompiledProgram() && !Status.IsCurrent())
 			ImGui::TextDisabled("Preview uses the last known good program.");
 		uint32 DiagnosticIndex = 0;
 		for (const FMaterialCompileDiagnostic& Diagnostic

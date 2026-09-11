@@ -100,7 +100,7 @@ namespace Durin
 				return {EMaterialParameterError::TypeConflict, Definition.Id};
 		}
 		if (Definitions == ParameterDefinitions && InProgram == Program) return {};
-		CompilationOwner.AcceptedGeneration.Parameters = BuildMaterialLocalRenderLayer().Parameters;
+		CompilationOwner.RenderLayer.Parameters = BuildMaterialLocalRenderLayer().Parameters;
 		ParameterDefinitions = std::move(Definitions);
 		ParameterDeclarationSchemaVersion = 2;
 		Program = std::move(InProgram);
@@ -439,7 +439,7 @@ namespace Durin
 				DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
 				return;
 			}
-			CompilationOwner.AcceptedGeneration.Program.reset();
+			CompilationOwner.RenderLayer.CompiledProgram.reset();
 			CompilationOwner.MaterialCompileDiagnostics.clear();
 			MaterialCookDiagnostic = std::format(
 				"Loaded cooked Material metadata for '{}'.", GetObjectPath());
