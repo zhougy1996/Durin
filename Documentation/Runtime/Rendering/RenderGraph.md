@@ -86,7 +86,7 @@ execution state. Compilation never mutates a command list.
   Explicit final states remain for external boundaries and extraction.
 - `QueueTextureExtraction` and `QueueBufferExtraction` make a resource an
   explicit terminal consumer (`RDG.Export`) of its complete byte or
-  aspect/mip/layer range. This node requires valid stored contents in every
+  aspect/mip/layer range. This node requires valid stored texture contents in every
   cell, retains the final producers through ordinary value dependencies,
   extends allocation lifetimes through export, and applies the requested final
   access. It appears in scheduled passes, captures, and structural budgets;
@@ -96,9 +96,13 @@ execution state. Compilation never mutates a command list.
   every destination unchanged. Duplicate resource or destination extraction
   is a deterministic declaration error.
 - Every use declares one nonempty exact byte range or texture
-  aspect/mip/layer range. The compiler partitions partially overlapping
-  declarations into exact buffer intervals and texture aspect/mip/layer cells;
-  disjoint cells remain independent.
+  aspect/mip/layer range. Texture tracking uses fixed aspect/mip/layer indices;
+  distinct subresources remain independent. Buffers use one resource-wide
+  dependency and barrier state. Byte ranges remain authoritative for bindings
+  and parameter authorization, but do not establish independent graph resources.
+  Buffer production checks require an initial value or a prior writer; they do
+  not prove byte coverage, including at extraction. Authors must initialize all
+  bytes that consumers will read.
 - Required access cannot contain `Discard`. Discard is producer intent and
   is carried separately from the expected-before access state.
 - An attachment `Load` requires prior contents. A `DontCare` store invalidates
@@ -120,11 +124,15 @@ backward declaration must move the producer before the consumer, with resource
 versions and callback capture lifetimes reviewed. Explicit edges cannot repair
 a resource read declared before its producer.
 
-Each normalized range carries a produced-value version. Value edges connect a
-producer to readers and read/write consumers; explicit edges also participate
+Each texture subresource and whole buffer carries a produced-value version.
+Value edges connect a producer to readers and read/write consumers; explicit edges also participate
 in reachability. A separate minimal execution frontier preserves required RAW,
 WAR, and WAW order without making overwritten values reachable. A discard
-write starts a new version. Every generated dependency also points forward;
+write starts a new version. Buffer writes conservatively retain the previous
+producer, including disjoint and discard writes, so partial updates cannot
+lose earlier contents through culling. Same-pass buffer declarations combine
+access masks and advance the resource version once. Every generated dependency
+also points forward;
 compilation performs no reordering. A same-range overwrite chain therefore
 produces linear rather than all-pairs dependencies.
 
@@ -161,13 +169,16 @@ do not authorize physical aliasing.
 ## Transition and Execution Contract
 
 Each compiled pass owns the buffer and texture transition batches that precede
-its callback. State is tracked per exact declared range. A discard producer
+its callback. State is tracked per texture subresource and whole buffer. A
+discard producer
 sets `bDiscardContents` and preserves the prior compiled access, including
 after a `DontCare` store. Content validity and value reachability are separate
 from execution dependencies and access state. Only a logical resource's first
 use carries the compatibility `Discard` wildcard so the backend can recover
 the physical allocation's prior accesses on pool reuse. Final transition batches restore each used imported
-or explicitly finalized range after the last pass.
+or explicitly finalized texture subresource or buffer used by retained passes.
+Unused texture subresources receive no final transition. Partial buffer discards
+never discard the whole resource; buffer barriers cover the complete allocation.
 
 `FRDGBuilder::Execute` records each pre-pass batch, invokes the pass
 callback with a pass-scoped resource view, and then records final batches.
@@ -213,7 +224,11 @@ Only actual RHI barriers enter executable batches and transition budgets; a
 same-state read does not gain an artificial entry barrier in Capture. Managed
 exit events retain the declared entry/result pair even when the accesses match.
 Detailed range uses and event arrays are materialized only on explicit inspection;
-compilation reuses its existing partition without retaining diagnostic history.
+compilation reuses its existing layout without retaining diagnostic history.
+The layout is read-only to both phases. Dependency producer/reader state is
+local to dependency analysis; barrier traversal starts with fresh access state.
+Version counters belong only to lazy diagnostics. Texture uses are reported per
+subresource; buffer uses retain declared byte ranges with resource-wide versions.
 
 ## Graph-Owned Typed Values
 
@@ -379,6 +394,9 @@ transitions. This order makes a route-selected absent fallback distinguishable
 from a missing compiler use and preserves the declaration/compiler boundary.
 
 `FRDGBudget` separates structural safety limits from regression budgets.
+`MaxRangeCells` and `MaxRangeCellCandidates` bound fixed layout cells, including
+unused subresources of referenced textures. `MaxCellVisits` counts layout
+construction, dependency analysis, and execution-plan traversal.
 The `Max*` structural limits are deliberately broad deterministic compile gates
 that protect graph construction from catastrophic growth. Errors name the
 exceeded dimension and include actual and limit values. `RegressionMax*`
@@ -390,7 +408,8 @@ compilation, aborts execution, or changes renderer correctness.
 
 CPU timing uses Core's monotonic `FTime` clock and scope timers. Statistics and
 captures expose `Phases`: validation (including export construction, explicit
-edges, and resource-use indexing), range partitioning, hazard dependencies,
+edges, and resource-use indexing), resource layout construction, hazard
+dependencies,
 culling, and execution-plan generation (barriers, lifetimes, allocation requests,
 and publication). `CompileMicroseconds` covers the whole private compile call.
 `ExecuteMicroseconds` retains its preparation-plus-recording meaning:

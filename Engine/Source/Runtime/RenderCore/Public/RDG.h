@@ -984,7 +984,8 @@ namespace Durin
 		uint32 BufferStride = 0;
 	};
 
-	// Records one exact pointer-free pass use after range normalization.
+	// Records a pointer-free use: texture subresource or declared buffer byte range.
+	// Buffer versions are resource-wide and advance once per writing pass.
 	struct FRDGUseCapture final
 	{
 		uint32 PassDeclarationIndex = 0;
@@ -1085,7 +1086,8 @@ namespace Durin
 		uint32 MaxResources = 65'536;
 		uint32 MaxUses = 1'048'576;
 		uint32 MaxRangeCells = 262'144;
-		// Candidates include swept gaps; visits include sweep intervals, hazards and transitions.
+		// Candidates count fixed layout cells; visits include layout construction,
+		// dependency analysis and barrier traversal. Unused texture cells still count.
 		uint32 MaxRangeCellCandidates = 1'048'576;
 		uint32 MaxCellVisits = 16'777'216;
 		uint64 MaxCompileMicroseconds = std::numeric_limits<uint64>::max();
@@ -1229,7 +1231,8 @@ namespace Durin
 		// must have valid stored contents; Destination is published only after success.
 		RENDERCORE_API auto QueueTextureExtraction(FRDGTextureHandle Texture,
 			FTextureRHIRef* Destination, ERHIAccess FinalAccess) -> void;
-		// Requires valid contents across the entire buffer and publishes only after success.
+		// Requires an initial value or prior writer; byte coverage is the author's
+		// responsibility. Conservatively retains the buffer write chain and publishes only after success.
 		RENDERCORE_API auto QueueBufferExtraction(FRDGBufferHandle Buffer,
 			FBufferRHIRef* Destination, ERHIAccess FinalAccess) -> void;
 		template<typename T, typename... Args>

@@ -2195,10 +2195,12 @@ namespace Durin
 
 		auto Result = FRDGBuilderTestAccessor::Compile(Builder);
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Result.Message;
-		ASSERT_EQ(Builder.GetDependencies().size(), 2u);
+		ASSERT_EQ(Builder.GetDependencies().size(), 3u);
 		EXPECT_EQ(Builder.GetDependencies()[0].Kind,
 			ERDGDependencyKind::Value);
 		EXPECT_EQ(Builder.GetDependencies()[1].Kind,
+			ERDGDependencyKind::Value);
+		EXPECT_EQ(Builder.GetDependencies()[2].Kind,
 			ERDGDependencyKind::Execution);
 		EXPECT_EQ(Builder.GetPasses()[0].BufferTransitions[0].ExpectedBefore,
 			ERHIAccess::Discard);
@@ -2209,7 +2211,7 @@ namespace Durin
 		EXPECT_TRUE(Builder.GetPasses()[2].BufferTransitions[0].bDiscardContents);
 	}
 
-	TEST_F(FRDGTests, SameStateWritesSynchronizeExactBufferAndTextureRanges)
+	TEST_F(FRDGTests, SameStateWritesSynchronizeWholeBuffersAndExactTextureSubresources)
 	{
 		for (const ERDGUse NextUse : {ERDGUse::Write, ERDGUse::ReadWrite})
 		{
@@ -2237,14 +2239,14 @@ namespace Durin
 			const auto& Pass = Builder.GetPasses()[1];
 			ASSERT_EQ(Pass.BufferTransitions.size(), 1u);
 			EXPECT_EQ(Pass.BufferTransitions[0], (FRHIBufferTransition{
-				nullptr, 16, 16, ERHIAccess::ComputeShaderReadWrite,
+				nullptr, 0, 64, ERHIAccess::ComputeShaderReadWrite,
 				ERHIAccess::ComputeShaderReadWrite}));
 			ASSERT_EQ(Pass.TextureTransitions.size(), 1u);
 			EXPECT_EQ(Pass.TextureTransitions[0], (FRHITextureTransition{
 				nullptr, Mip, ERHIAccess::ComputeShaderReadWrite,
 				ERHIAccess::ComputeShaderReadWrite}));
 			const auto Capture = Builder.Capture();
-			EXPECT_EQ(Capture.Statistics.BufferTransitions, 4u);
+			EXPECT_EQ(Capture.Statistics.BufferTransitions, 2u);
 			EXPECT_EQ(Capture.Statistics.TextureTransitions, 3u);
 		}
 	}
@@ -2412,17 +2414,16 @@ namespace Durin
 		{
 			FRDGBuilder Builder;
 			if (bCull) Builder.EnablePassCulling();
-			const auto Buffer = Builder.CreateBuffer({.Buffer = FRHIBufferDesc(
-				64, 4, EBufferUsageFlags::UnorderedAccess)}, "Buffer");
+			const auto Texture = CreateTestTexture(Builder, "Texture", MakeGraphTexture("Texture"));
 			const auto Token = Builder.CreateToken("Value");
 			const auto First = FRDGBuilderTestAccessor::AddPass(Builder, "First", ERDGPassType::Compute);
-			FRDGBuilderTestAccessor::UseBuffer(Builder, First, Buffer, 0, 64, ERDGUse::Write,
+			FRDGBuilderTestAccessor::UseTexture(Builder, First, Texture, WholeColor(), ERDGUse::Write,
 				ERHIAccess::ComputeShaderReadWrite, true);
 			FRDGBuilderTestAccessor::UseToken(Builder, First, Token, ERDGUse::Write);
 			FRDGBuilderTestAccessor::AddPass(Builder, "Unused", ERDGPassType::Compute);
 			const auto Second = FRDGBuilderTestAccessor::AddPass(Builder, "Second", ERDGPassType::Compute);
-			// The buffer inserts an Execution edge; the token then upgrades it to Value.
-			FRDGBuilderTestAccessor::UseBuffer(Builder, Second, Buffer, 0, 64, ERDGUse::Write,
+			// The texture inserts an Execution edge; the token then upgrades it to Value.
+			FRDGBuilderTestAccessor::UseTexture(Builder, Second, Texture, WholeColor(), ERDGUse::Write,
 				ERHIAccess::ComputeShaderReadWrite, true);
 			FRDGBuilderTestAccessor::UseToken(Builder, Second, Token, ERDGUse::Read);
 			const auto Left = FRDGBuilderTestAccessor::AddPass(Builder, "Left", ERDGPassType::Compute);
@@ -2591,7 +2592,7 @@ namespace Durin
 		ASSERT_EQ(Partial.GetDependencies().size(), 1u);
 		EXPECT_EQ(Partial.GetDependencies()[0].Kind,
 			ERDGDependencyKind::Value);
-		EXPECT_EQ(Partial.GetPasses()[0].TextureTransitions.size(), 3u);
+		EXPECT_EQ(Partial.GetPasses()[0].TextureTransitions.size(), 4u);
 		EXPECT_EQ(Partial.GetPasses()[1].TextureTransitions.size(), 1u);
 	}
 
@@ -3194,7 +3195,7 @@ namespace Durin
 		}
 	}
 
-	TEST_F(FRDGTests, ExtractionRequiresCompleteBufferContents)
+	TEST_F(FRDGTests, BufferExtractionRequiresAProducerWithoutProvingByteCoverage)
 	{
 		for (bool Cull : {false, true})
 			for (uint64 WrittenSize : {0u, 32u, 64u})
@@ -3217,7 +3218,7 @@ namespace Durin
 				FTestRDGAllocator Allocator;
 				FRDGExecutionContext Context{Allocator};
 				const auto Result = Builder.Execute(GetCommandList(), &Context);
-				EXPECT_EQ(Result.IsSuccess(), WrittenSize == 64) << Result.Result.Message;
+				EXPECT_EQ(Result.IsSuccess(), WrittenSize != 0) << Result.Result.Message;
 				if (Result.IsSuccess())
 				{
 					EXPECT_EQ(Builder.GetPasses().back().Name, "RDG.Export");
@@ -3231,7 +3232,7 @@ namespace Durin
 			}
 	}
 
-	TEST_F(FRDGTests, ExtractionRetainsOnlyFinalRangeProducers)
+	TEST_F(FRDGTests, BufferExtractionConservativelyRetainsEarlierPartialProducers)
 	{
 		FRDGBuilder Builder;
 		Builder.EnablePassCulling();
@@ -3249,11 +3250,11 @@ namespace Durin
 		Builder.QueueBufferExtraction(Buffer, &Destination, ERHIAccess::ComputeShaderRead);
 		const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Result.Message;
-		ASSERT_EQ(Builder.GetPasses().size(), 3u);
-		EXPECT_EQ(Builder.GetPasses()[0].Name, "Write1");
-		EXPECT_EQ(Builder.GetPasses()[1].Name, "Write2");
-		EXPECT_EQ(Builder.GetResourceLifetimes()[1].LastPass, 2u);
-		EXPECT_EQ(Builder.GetDependencies().size(), 2u);
+		ASSERT_EQ(Builder.GetPasses().size(), 4u);
+		EXPECT_EQ(Builder.GetPasses()[0].Name, "Write0");
+		EXPECT_EQ(Builder.GetPasses()[1].Name, "Write1");
+		EXPECT_EQ(Builder.GetResourceLifetimes()[1].LastPass, 3u);
+		EXPECT_EQ(Builder.GetDependencies().size(), 3u);
 		const auto Capture = Builder.Capture();
 		ASSERT_EQ(Capture.Uses.size(), 4u);
 		for (const auto& Use : Capture.Uses) EXPECT_EQ(Use.ResourceId, 1u);
@@ -3664,7 +3665,7 @@ namespace Durin
 			auto Desc = DescribeGraphTexture(*MakeGraphTexture("Sparse", 4));
 			Desc.Texture.ArraySize = 4;
 			const auto Texture = Builder.CreateTexture(Desc, "Sparse");
-			// Four diagonal cells must not enumerate the twelve uncovered combinations.
+			// Fixed layout includes all sixteen subresources, even with sparse uses.
 			for (uint32 Index = 0; Index < 4; ++Index)
 			{
 				const auto Pass = FRDGBuilderTestAccessor::AddPass(Builder, "Write" + std::to_string(Index), ERDGPassType::Compute);
@@ -3683,16 +3684,16 @@ namespace Durin
 			"render graph safety limit exceeded: range-cell-candidates actual=4 limit=3");
 		EXPECT_EQ(Compile({.MaxCellVisits = 0}),
 			"render graph safety limit exceeded: cell-visits actual=1 limit=0");
-		EXPECT_TRUE(Compile({.MaxRangeCells = 4, .MaxRangeCellCandidates = 4}).empty());
+		EXPECT_TRUE(Compile({.MaxRangeCells = 16, .MaxRangeCellCandidates = 16}).empty());
 	}
 
-	TEST_F(FRDGTests, BufferUseIndexVisitsOnlyCoveredCells)
+	TEST_F(FRDGTests, BufferTrackingUsesOneCellRegardlessOfByteRanges)
 	{
 		for (uint32 Count : {32u, 256u})
 		{
 			FRDGBuilder Builder;
-			// Sweep costs 2N-1 visits; dependency and transition walks cost 2N each.
-			Builder.SetBudget({.MaxRangeCells = Count, .MaxCellVisits = 6 * Count});
+			// One layout cell and one visit per resource access in each traversal.
+			Builder.SetBudget({.MaxRangeCells = 1, .MaxCellVisits = 6 * Count});
 			const auto Buffer = Builder.CreateBuffer({.Buffer = FRHIBufferCreateDesc::Create(
 				"Sparse", Count * 16, 4, EBufferUsageFlags::UnorderedAccess)}, "Sparse");
 			for (uint32 Index = Count; Index-- > 0;)
@@ -3706,14 +3707,14 @@ namespace Durin
 			const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
 			ASSERT_TRUE(Result.IsSuccess()) << Result.Result.Message;
 			const auto Capture = Builder.Capture();
-			EXPECT_EQ(Capture.Dependencies.size(), Count);
+			EXPECT_EQ(Capture.Dependencies.size(), 3 * Count - 2);
 			ASSERT_EQ(Capture.Uses.size(), 2u * Count);
 			EXPECT_EQ(Capture.Transitions.size(), 2u * Count);
 			for (uint32 Index = 0; Index < Capture.Uses.size(); ++Index)
 			{
 				EXPECT_EQ(Capture.Uses[Index].BufferOffset, (Count - 1 - Index / 2) * 16u);
 				EXPECT_EQ(Capture.Uses[Index].BufferSize, 8u);
-				EXPECT_EQ(Capture.Uses[Index].Version, 1u);
+				EXPECT_EQ(Capture.Uses[Index].Version, Index / 2 + 1);
 			}
 		}
 	}
@@ -3756,8 +3757,8 @@ namespace Durin
 		FRDGBuilder Builder;
 		constexpr uint32 Layers = 64;
 		constexpr uint32 Mips = 4;
-		// Includes sparse sweep work and two visits per use, with no full row scans.
-		Builder.SetBudget({.MaxRangeCells = Layers * Mips, .MaxCellVisits = 6 * Layers * Mips});
+		// Fixed layout includes unused layers; visits address subresources directly.
+		Builder.SetBudget({.MaxRangeCells = 2 * Layers * Mips, .MaxCellVisits = 6 * Layers * Mips});
 		auto Desc = DescribeGraphTexture(*MakeGraphTexture("SparseLayers", Mips));
 		Desc.Texture.ArraySize = Layers * 2;
 		const auto Texture = Builder.CreateTexture(Desc, "SparseLayers");
@@ -3991,7 +3992,7 @@ namespace Durin
 		EXPECT_EQ(Capture.Uses[0].TextureRange.FirstMip, 1u);
 	}
 
-	TEST_F(FRDGTests, SweptTextureRangesMatchCartesianReferencePartition)
+	TEST_F(FRDGTests, FixedTextureSubresourcesMatchIndependentCoverageOracle)
 	{
 		const std::array<FRHITextureSubresourceRange, 6> Ranges{{
 			{ERHITextureAspect::Color, 0, 2, 0, 2},
@@ -4004,40 +4005,32 @@ namespace Durin
 		auto Desc = DescribeGraphTexture(*MakeGraphTexture("Sweep", 6));
 		Desc.Texture.ArraySize = 6;
 		const auto Texture = Builder.CreateTexture(Desc, "Sweep");
-		std::vector<uint32> Mips;
-		std::vector<uint32> Layers;
 		for (uint32 Index = 0; Index < Ranges.size(); ++Index)
 		{
 			const auto& Range = Ranges[Index];
 			const auto Pass = FRDGBuilderTestAccessor::AddPass(Builder, "Write" + std::to_string(Index), ERDGPassType::Compute);
 			FRDGBuilderTestAccessor::UseTexture(Builder, Pass, Texture, Range, ERDGUse::Write,
 				ERHIAccess::ComputeShaderReadWrite, true);
-			Mips.insert(Mips.end(), {Range.FirstMip, Range.FirstMip + Range.NumMips});
-			Layers.insert(Layers.end(), {Range.FirstArrayLayer, Range.FirstArrayLayer + Range.NumArrayLayers});
 		}
-		std::ranges::sort(Mips);
-		std::ranges::sort(Layers);
-		Mips.erase(std::unique(Mips.begin(), Mips.end()), Mips.end());
-		Layers.erase(std::unique(Layers.begin(), Layers.end()), Layers.end());
 		const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Result.Message;
 		const auto Capture = Builder.Capture();
 		std::array<std::array<uint32, 6>, 6> Versions{};
 		size_t ExpectedIndex = 0;
-		// Deliberately use a small brute-force Cartesian oracle, independent of the sweep.
+		// Check every subresource against declaration coverage, without using layout helpers.
 		for (uint32 PassIndex = 0; PassIndex < Ranges.size(); ++PassIndex)
-			for (size_t Mip = 1; Mip < Mips.size(); ++Mip)
-				for (size_t Layer = 1; Layer < Layers.size(); ++Layer)
+			for (uint32 Mip = 0; Mip < 6; ++Mip)
+				for (uint32 Layer = 0; Layer < 6; ++Layer)
 				{
 					const auto& Range = Ranges[PassIndex];
-					if (Mips[Mip - 1] < Range.FirstMip || Mips[Mip] > Range.FirstMip + Range.NumMips
-						|| Layers[Layer - 1] < Range.FirstArrayLayer
-						|| Layers[Layer] > Range.FirstArrayLayer + Range.NumArrayLayers) continue;
+					if (Mip < Range.FirstMip || (Mip + 1) > Range.FirstMip + Range.NumMips
+						|| Layer < Range.FirstArrayLayer
+						|| (Layer + 1) > Range.FirstArrayLayer + Range.NumArrayLayers) continue;
 					ASSERT_LT(ExpectedIndex, Capture.Uses.size());
 					ASSERT_LT(ExpectedIndex, Capture.Transitions.size());
 					const auto& Use = Capture.Uses[ExpectedIndex];
 					const auto& Transition = Capture.Transitions[ExpectedIndex++];
-					auto& Version = Versions[Mips[Mip - 1]][Layers[Layer - 1]];
+					auto& Version = Versions[Mip][Layer];
 					EXPECT_EQ(Transition.Before, Version == 0 ? ERHIAccess::Discard : ERHIAccess::ComputeShaderReadWrite);
 					EXPECT_EQ(Transition.After, ERHIAccess::ComputeShaderReadWrite);
 					EXPECT_EQ(Transition.PassIndex, PassIndex);
@@ -4046,17 +4039,17 @@ namespace Durin
 					EXPECT_EQ(Use.Version, ++Version);
 					for (const auto& Actual : {Use.TextureRange, Transition.TextureRange})
 					{
-						EXPECT_EQ(Actual.FirstMip, Mips[Mip - 1]);
-						EXPECT_EQ(Actual.NumMips, Mips[Mip] - Mips[Mip - 1]);
-						EXPECT_EQ(Actual.FirstArrayLayer, Layers[Layer - 1]);
-						EXPECT_EQ(Actual.NumArrayLayers, Layers[Layer] - Layers[Layer - 1]);
+						EXPECT_EQ(Actual.FirstMip, Mip);
+						EXPECT_EQ(Actual.NumMips, 1u);
+						EXPECT_EQ(Actual.FirstArrayLayer, Layer);
+						EXPECT_EQ(Actual.NumArrayLayers, 1u);
 					}
 				}
 		EXPECT_EQ(Capture.Uses.size(), ExpectedIndex);
 		EXPECT_EQ(Capture.Transitions.size(), ExpectedIndex);
 	}
 
-	TEST_F(FRDGTests, SweptBufferRangesPreserveGapsAndPartialWriteVersions)
+	TEST_F(FRDGTests, BufferTrackingPreservesDeclaredRangesWithResourceVersions)
 	{
 		FRDGBuilder Builder;
 		Builder.CreateToken("UnusedBefore");
@@ -4073,20 +4066,78 @@ namespace Durin
 		const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Result.Message;
 		const auto Capture = Builder.Capture();
-		const std::array<uint64, 7> Offsets{0, 8, 32, 40, 8, 16, 32};
-		const std::array<uint64, 7> Sizes{8, 8, 8, 8, 8, 16, 8};
-		const std::array<uint32, 7> Versions{1, 1, 1, 1, 2, 1, 2};
-		ASSERT_EQ(Capture.Uses.size(), Offsets.size());
-		ASSERT_EQ(Capture.Transitions.size(), Offsets.size());
-		for (size_t Index = 0; Index < Offsets.size(); ++Index)
+		ASSERT_EQ(Capture.Uses.size(), Ranges.size());
+		ASSERT_EQ(Capture.Transitions.size(), Ranges.size());
+		for (size_t Index = 0; Index < Ranges.size(); ++Index)
 		{
 			EXPECT_EQ(Capture.Uses[Index].ResourceId, 1u);
-			EXPECT_EQ(Capture.Uses[Index].BufferOffset, Offsets[Index]);
-			EXPECT_EQ(Capture.Uses[Index].BufferSize, Sizes[Index]);
-			EXPECT_EQ(Capture.Uses[Index].Version, Versions[Index]);
-			EXPECT_EQ(Capture.Transitions[Index].BufferOffset, Offsets[Index]);
-			EXPECT_EQ(Capture.Transitions[Index].BufferSize, Sizes[Index]);
+			EXPECT_EQ(Capture.Uses[Index].BufferOffset, Ranges[Index].first);
+			EXPECT_EQ(Capture.Uses[Index].BufferSize, Ranges[Index].second);
+			EXPECT_EQ(Capture.Uses[Index].Version, Index + 1);
+			EXPECT_EQ(Capture.Transitions[Index].BufferOffset, 0u);
+			EXPECT_EQ(Capture.Transitions[Index].BufferSize, 64u);
+			EXPECT_FALSE(Capture.Transitions[Index].bDiscardContents);
 		}
+	}
+
+	TEST_F(FRDGTests, CombinesSamePassBufferAccessWithoutLosingBindingRanges)
+	{
+		FRDGBuilder Builder;
+		Builder.EnablePassCulling();
+		const auto Buffer = Builder.CreateBuffer({.Buffer = FRHIBufferDesc(
+			64, 4, EBufferUsageFlags::UnorderedAccess)}, "Buffer");
+		const auto Initialize = FRDGBuilderTestAccessor::AddPass(Builder, "Initialize", ERDGPassType::Compute);
+		FRDGBuilderTestAccessor::UseBuffer(Builder, Initialize, Buffer, 0, 64,
+			ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
+		const auto Mixed = FRDGBuilderTestAccessor::AddPass(Builder, "Mixed", ERDGPassType::Compute);
+		FRDGBuilderTestAccessor::UseBuffer(Builder, Mixed, Buffer, 0, 16,
+			ERDGUse::Read, ERHIAccess::ComputeShaderRead);
+		FRDGBuilderTestAccessor::UseBuffer(Builder, Mixed, Buffer, 16, 16,
+			ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
+		FRDGBuilderTestAccessor::UseBuffer(Builder, Mixed, Buffer, 32, 16,
+			ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
+		Builder.MarkPassRoot(Mixed);
+		const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
+		ASSERT_TRUE(Result.IsSuccess()) << Result.Result.Message;
+		ASSERT_EQ(Builder.GetPasses().size(), 2u);
+		ASSERT_EQ(Builder.GetDependencies().size(), 1u);
+		EXPECT_EQ(Builder.GetDependencies()[0].Kind, ERDGDependencyKind::Value);
+		const auto& Barriers = Builder.GetPasses()[1].BufferTransitions;
+		ASSERT_EQ(Barriers.size(), 1u);
+		EXPECT_EQ(Barriers[0].RequiredAfter,
+			ERHIAccess::ComputeShaderRead | ERHIAccess::ComputeShaderReadWrite);
+		EXPECT_EQ(Barriers[0].Offset, 0u);
+		EXPECT_EQ(Barriers[0].Size, 64u);
+		EXPECT_FALSE(Barriers[0].bDiscardContents);
+		const auto Capture = Builder.Capture();
+		ASSERT_EQ(Capture.Uses.size(), 4u);
+		for (uint32 Index = 1; Index < 4; ++Index)
+		{
+			EXPECT_EQ(Capture.Uses[Index].BufferOffset, (Index - 1) * 16u);
+			EXPECT_EQ(Capture.Uses[Index].BufferSize, 16u);
+			EXPECT_EQ(Capture.Uses[Index].Version, 2u);
+		}
+		ExpectCapturedBarriersMatchPlan(Builder);
+	}
+
+	TEST_F(FRDGTests, FixedTextureLayoutFinalizesOnlyRetainedUsedSubresources)
+	{
+		FRDGBuilder Builder;
+		Builder.EnablePassCulling();
+		const auto Texture = Builder.RegisterExternalTexture(MakeGraphTexture("Imported", 4),
+			"Imported", ERHIAccess::GraphicsShaderRead, ERHIAccess::TransferRead);
+		const auto Used = FRDGBuilderTestAccessor::AddPass(Builder, "Used", ERDGPassType::Compute);
+		FRDGBuilderTestAccessor::UseTexture(Builder, Used, Texture,
+			{ERHITextureAspect::Color, 1, 1, 0, 1}, ERDGUse::Read, ERHIAccess::ComputeShaderRead);
+		Builder.MarkPassRoot(Used);
+		const auto Culled = FRDGBuilderTestAccessor::AddPass(Builder, "Culled", ERDGPassType::Compute);
+		FRDGBuilderTestAccessor::UseTexture(Builder, Culled, Texture,
+			{ERHITextureAspect::Color, 3, 1, 0, 1}, ERDGUse::Read, ERHIAccess::ComputeShaderRead);
+		const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
+		ASSERT_TRUE(Result.IsSuccess()) << Result.Result.Message;
+		ASSERT_EQ(Builder.GetFinalTextureTransitions().size(), 1u);
+		EXPECT_EQ(Builder.GetFinalTextureTransitions()[0].Range.FirstMip, 1u);
+		ExpectCapturedBarriersMatchPlan(Builder);
 	}
 
 	TEST_F(FRDGTests, IndexedNameValidationPreservesDuplicateErrors)
