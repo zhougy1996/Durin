@@ -50,13 +50,15 @@ namespace
 			for (Durin::FMaterialProgramLink& Link : Node.Inputs)
 				Link.SourceNodeId = Remapping.at(Link.SourceNodeId);
 		}
-		std::array<Durin::FMaterialProgramLink*, 8> Outputs{
+		std::array<Durin::FMaterialProgramLink*, 9> Outputs{
 			&Program.Outputs.BaseColor, &Program.Outputs.Normal,
 			&Program.Outputs.Metallic, &Program.Outputs.Roughness,
 			&Program.Outputs.AmbientOcclusion, &Program.Outputs.Emissive,
-			&Program.Outputs.Opacity, &Program.Outputs.OpacityMask};
+			&Program.Outputs.Opacity, &Program.Outputs.OpacityMask,
+			&Program.Outputs.Surface};
 		for (Durin::FMaterialProgramLink* Output : Outputs)
-			Output->SourceNodeId = Remapping.at(Output->SourceNodeId);
+			if (Output->SourceNodeId.IsValid())
+				Output->SourceNodeId = Remapping.at(Output->SourceNodeId);
 	}
 
 	auto MakeExpandedMaterial(const char* Name) -> Durin::DMaterial*
@@ -801,6 +803,55 @@ TEST(FMaterialProgramNormalizationTests,
 	DeadNode.Literal.X = -0.0f;
 	WithDeadNode.Program.Nodes.push_back(std::move(DeadNode));
 	ExpectEquivalent(std::move(WithDeadNode));
+}
+
+TEST(FMaterialProgramNormalizationTests, SharedDagKeysRemainBoundedAtMaximumDepth)
+{
+	using namespace Durin;
+	auto Input = MakeSyntheticMaterialCompilerInput();
+	Input.Program = {};
+	Input.Parameters.clear();
+	// Two independent equal DAGs force structural comparisons rather than the
+	// identical-node shortcut. Expanded keys would double at every level.
+	std::array<FGuid, 2> Roots;
+	for (uint32 Branch = 0; Branch < 2; ++Branch)
+	{
+		FGuid Previous;
+		for (uint32 Level = 0; Level < MaterialProgramMaxDepth - 1; ++Level)
+		{
+			FMaterialProgramNode Node;
+			Node.Id = {0xfeed0001, Branch + 1, Level + 1, 1};
+			Node.Opcode = Level == 0 ? EMaterialProgramOpcode::Constant
+				: EMaterialProgramOpcode::Add;
+			Node.Literal.X = Level == 0 ? 0.25f : 0.0f;
+			if (Level != 0) Node.Inputs = {{Previous}, {Previous}};
+			Previous = Node.Id;
+			Input.Program.Nodes.push_back(std::move(Node));
+		}
+		Roots[Branch] = Previous;
+	}
+	FMaterialProgramNode Root;
+	Root.Id = {0xfeed0002, 1, 1, 1};
+	Root.Opcode = EMaterialProgramOpcode::Add;
+	Root.Inputs = {{Roots[0]}, {Roots[1]}};
+	Input.Program.Outputs.Metallic = {Root.Id};
+	Input.Program.Nodes.push_back(Root);
+	const auto Baseline = NormalizeMaterialProgram(Input);
+	ASSERT_TRUE(Baseline);
+	EXPECT_EQ(Baseline.IR.Nodes.size(), Input.Program.Nodes.size());
+	EXPECT_LT(Baseline.CanonicalBytes.size(), MaterialProgramMaxCanonicalBytes);
+	std::swap(Input.Program.Nodes.back().Inputs[0], Input.Program.Nodes.back().Inputs[1]);
+	std::ranges::reverse(Input.Program.Nodes);
+	RemapMaterialProgramNodeIds(Input.Program);
+	const auto Reordered = NormalizeMaterialProgram(Input);
+	ASSERT_TRUE(Reordered);
+	EXPECT_EQ(Reordered.Identity, Baseline.Identity);
+	EXPECT_EQ(Reordered.CanonicalBytes, Baseline.CanonicalBytes);
+	for (auto& Node : Input.Program.Nodes)
+		if (Node.Opcode == EMaterialProgramOpcode::Constant) Node.Literal.X = 0.5f;
+	const auto Changed = NormalizeMaterialProgram(Input);
+	ASSERT_TRUE(Changed);
+	EXPECT_NE(Changed.Identity, Baseline.Identity);
 }
 
 TEST(FMaterialProgramNormalizationTests,

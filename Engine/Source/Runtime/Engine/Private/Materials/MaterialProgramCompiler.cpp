@@ -39,7 +39,7 @@ namespace Durin
 			EMaterialSurfaceOutput::Emissive,
 			EMaterialSurfaceOutput::Opacity,
 			EMaterialSurfaceOutput::OpacityMask};
-		inline constexpr uint32 MaterialProgramIdentitySchemaVersion = 3;
+		inline constexpr uint32 MaterialProgramIdentitySchemaVersion = 4;
 
 		auto IsCommutative(EMaterialProgramOpcode Opcode) -> bool
 		{
@@ -364,29 +364,58 @@ namespace Durin
 		std::unordered_map<FGuid, uint32> NormalizedIndices;
 		NormalizedIndices.reserve(IR.Nodes.capacity());
 
-		std::unordered_map<FGuid, FByteBuffer> StructuralKeys;
-		StructuralKeys.reserve(IR.Nodes.capacity());
-		std::function<const FByteBuffer&(const FGuid&)>
-			BuildStructuralKey = [&](const FGuid& Id)
-				-> const FByteBuffer& {
-			if (const auto Existing = StructuralKeys.find(Id);
-				Existing != StructuralKeys.end()) return Existing->second;
-			const FMaterialProgramNode& Node =
-				Input.Program.Nodes[AuthoredIndices.at(Id)];
+		// Retain the DAG, not recursively expanded key bytes. Pairwise memoization
+		// bounds comparison work even for distinct but structurally equal subgraphs.
+		struct FStructuralKey
+		{
+			FByteBuffer Header;
+			std::vector<size_t> Inputs;
+			bool bBuilt = false;
+		};
+		const size_t NodeCount = Input.Program.Nodes.size();
+		std::vector<FStructuralKey> StructuralKeys(NodeCount);
+		std::vector<int8> Comparisons(NodeCount * NodeCount, 2);
+		std::function<int8(size_t, size_t)> CompareKeys = [&](size_t A, size_t B) -> int8 {
+			if (A == B) return 0;
+			int8& Cached = Comparisons[A * NodeCount + B];
+			if (Cached != 2) return Cached;
+			const auto& Left = StructuralKeys[A];
+			const auto& Right = StructuralKeys[B];
+			int8 Order = Left.Header < Right.Header ? -1
+				: Left.Header > Right.Header ? 1 : 0;
+			for (size_t Index = 0; Order == 0
+				&& Index < std::min(Left.Inputs.size(), Right.Inputs.size()); ++Index)
+				Order = CompareKeys(Left.Inputs[Index], Right.Inputs[Index]);
+			if (Order == 0)
+				Order = Left.Inputs.size() < Right.Inputs.size() ? -1
+					: Left.Inputs.size() > Right.Inputs.size() ? 1 : 0;
+			Cached = Order;
+			Comparisons[B * NodeCount + A] = -Order;
+			return Order;
+		};
+		std::function<void(size_t)> BuildStructuralKey = [&](size_t Index) {
+			auto& Key = StructuralKeys[Index];
+			if (Key.bBuilt) return;
+			const auto& Node = Input.Program.Nodes[Index];
 			FMaterialIRNode Header;
 			Header.Opcode = Node.Opcode;
 			Header.ResultType = Node.ResultType;
 			CopyRelevantImmediates(Node, Header);
-			FByteBuffer Key;
-			AppendIRNode(Key, Header);
-			std::vector<FByteBuffer> InputKeys;
-			InputKeys.reserve(Node.Inputs.size());
-			for (const FMaterialProgramLink& Link : Node.Inputs)
-				InputKeys.push_back(BuildStructuralKey(Link.SourceNodeId));
-			if (IsCommutative(Node.Opcode)) std::ranges::sort(InputKeys);
-			for (const auto& InputKey : InputKeys) AppendBytes(Key, InputKey);
-			return StructuralKeys.emplace(Id, std::move(Key)).first->second;
+			AppendIRNode(Key.Header, Header);
+			for (const auto& Link : Node.Inputs)
+			{
+				const size_t Child = AuthoredIndices.at(Link.SourceNodeId);
+				BuildStructuralKey(Child);
+				Key.Inputs.push_back(Child);
+			}
+			if (IsCommutative(Node.Opcode))
+				std::ranges::stable_sort(Key.Inputs, [&](size_t A, size_t B) {
+					return CompareKeys(A, B) < 0;
+				});
+			Key.bBuilt = true;
 		};
+		for (size_t Index = 0; Index < NodeCount; ++Index)
+			if (Reachable[Index]) BuildStructuralKey(Index);
 
 		std::function<uint32(const FGuid&)> EmitNode = [&](const FGuid& Id) {
 			if (const auto Existing = NormalizedIndices.find(Id);
@@ -397,9 +426,8 @@ namespace Durin
 			if (IsCommutative(Node.Opcode))
 				std::ranges::stable_sort(OrderedInputs, [&](const auto& A,
 					const auto& B) {
-					return std::ranges::lexicographical_compare(
-						BuildStructuralKey(A.SourceNodeId),
-						BuildStructuralKey(B.SourceNodeId));
+					return CompareKeys(AuthoredIndices.at(A.SourceNodeId),
+						AuthoredIndices.at(B.SourceNodeId)) < 0;
 				});
 			for (const FMaterialProgramLink& Link : OrderedInputs)
 				EmitNode(Link.SourceNodeId);
