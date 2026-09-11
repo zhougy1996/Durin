@@ -51,6 +51,40 @@ namespace Durin
 			std::string AllocationDisposition;
 		};
 
+		// Reused across batches; the RHI command list copies each submitted payload.
+		struct FBarrierRecordingScratch final
+		{
+			std::vector<FRHIBufferTransition> Buffers;
+			std::vector<FRHITextureTransition> Textures;
+		};
+
+		// Preparation has validated all retained backings before any batch is recorded.
+		auto RecordBarrierBatch(FRHICommandListImmediate& CommandList,
+			const FRDGBarrierBatch& Batch, std::span<const FGraphResourceBacking> Backings,
+			FBarrierRecordingScratch& Scratch) -> void
+		{
+			Scratch.Buffers.clear();
+			Scratch.Textures.clear();
+			Scratch.Buffers.reserve(Batch.GetBufferTransitions().size());
+			Scratch.Textures.reserve(Batch.GetTextureTransitions().size());
+			for (const auto& Transition : Batch.GetBufferTransitions())
+			{
+				check(Transition.ResourceId < Backings.size());
+				Scratch.Buffers.push_back({Backings[Transition.ResourceId].Buffer.GetReference(),
+					Transition.Offset, Transition.Size, Transition.ExpectedBefore,
+					Transition.RequiredAfter, Transition.bDiscardContents});
+			}
+			for (const auto& Transition : Batch.GetTextureTransitions())
+			{
+				check(Transition.ResourceId < Backings.size());
+				Scratch.Textures.push_back({Backings[Transition.ResourceId].Texture.GetReference(),
+					Transition.Range, Transition.ExpectedBefore,
+					Transition.RequiredAfter, Transition.bDiscardContents});
+			}
+			if (!Scratch.Buffers.empty()) CommandList.TransitionBuffers(Scratch.Buffers);
+			if (!Scratch.Textures.empty()) CommandList.TransitionTextures(Scratch.Textures);
+		}
+
 		struct FGraphUse
 		{
 			uint32 ResourceIndex = 0;
@@ -1605,8 +1639,6 @@ namespace Durin
 			std::span<const FOptionalAlias> OptionalAliases;
 			std::vector<uint32> ResourceIndices;
 			std::vector<std::pair<uint32, ERDGUse>> ValueUses;
-			std::vector<uint32> BufferTransitionResources;
-			std::vector<uint32> TextureTransitionResources;
 		};
 
 		uint64 Owner = 0;
@@ -1619,10 +1651,7 @@ namespace Durin
 		std::vector<FRDGResourceLifetime> ResourceLifetimes;
 		std::vector<bool> Retained;
 		FGraphPass ExportPass;
-		std::vector<FRHIBufferTransition> FinalBufferTransitions;
-		std::vector<FRHITextureTransition> FinalTextureTransitions;
-		std::vector<uint32> FinalBufferTransitionResources;
-		std::vector<uint32> FinalTextureTransitionResources;
+		FRDGBarrierBatch FinalBarriers;
 		std::vector<FRDGAllocationRequest> AllocationRequests;
 		FRDGBudget Budget;
 		FRDGAllocationStatistics AllocationStatistics;
@@ -2484,10 +2513,7 @@ namespace Durin
 				else if (Use.Kind == ERDGResourceKind::Texture) ++TextureUseCount;
 			}
 			Runtime.ValueUses.reserve(ValueUseCount);
-			Runtime.BufferTransitionResources.reserve(BufferUseCount);
-			Runtime.TextureTransitionResources.reserve(TextureUseCount);
-			CompiledPass.BufferTransitions.reserve(BufferUseCount);
-			CompiledPass.TextureTransitions.reserve(TextureUseCount);
+			CompiledPass.Barriers.Reserve(BufferUseCount, TextureUseCount);
 			for (const auto& Use : Pass.Uses)
 			{
 				if (LastResourcePass[Use.ResourceIndex] != CompiledPassIndex)
@@ -2516,25 +2542,19 @@ namespace Durin
 				{
 					if (++TextureTransitionCount > State->Budget.MaxTextureTransitions)
 						return SafetyLimit("texture-transitions", TextureTransitionCount, State->Budget.MaxTextureTransitions);
-					auto& Transitions = Event.bFinal ? CompiledState->FinalTextureTransitions
-						: CompiledState->Passes[Event.PassIndex].TextureTransitions;
-					auto& ResourceIndices = Event.bFinal ? CompiledState->FinalTextureTransitionResources
-						: CompiledState->RuntimePasses[Event.PassIndex].TextureTransitionResources;
-					Transitions.push_back({Resource.Texture.GetReference(), Event.TextureRange,
+					auto& Barriers = Event.bFinal ? CompiledState->FinalBarriers
+						: CompiledState->Passes[Event.PassIndex].Barriers;
+					Barriers.AddTransition(FRDGTextureTransition{Event.ResourceId, Event.TextureRange,
 						Event.Before, Event.After, Event.bDiscardContents});
-					ResourceIndices.push_back(Event.ResourceId);
 				}
 				else
 				{
 					if (++BufferTransitionCount > State->Budget.MaxBufferTransitions)
 						return SafetyLimit("buffer-transitions", BufferTransitionCount, State->Budget.MaxBufferTransitions);
-					auto& Transitions = Event.bFinal ? CompiledState->FinalBufferTransitions
-						: CompiledState->Passes[Event.PassIndex].BufferTransitions;
-					auto& ResourceIndices = Event.bFinal ? CompiledState->FinalBufferTransitionResources
-						: CompiledState->RuntimePasses[Event.PassIndex].BufferTransitionResources;
-					Transitions.push_back({Resource.Buffer.GetReference(), Event.BufferOffset,
+					auto& Barriers = Event.bFinal ? CompiledState->FinalBarriers
+						: CompiledState->Passes[Event.PassIndex].Barriers;
+					Barriers.AddTransition(FRDGBufferTransition{Event.ResourceId, Event.BufferOffset,
 						Event.BufferSize, Event.Before, Event.After, Event.bDiscardContents});
-					ResourceIndices.push_back(Event.ResourceId);
 				}
 				return {};
 			}, [](uint32, const FGraphUse&, size_t, const FRangeCell&, bool) {});
@@ -2691,10 +2711,9 @@ namespace Durin
 		EnsureDiagnostics();
 		return Diagnostics->CullingDecisions;
 	}
-	auto FRDGBuilder::GetFinalBufferTransitions() const
-		-> std::span<const FRHIBufferTransition> { return Compiled->FinalBufferTransitions; }
-	auto FRDGBuilder::GetFinalTextureTransitions() const
-		-> std::span<const FRHITextureTransition> { return Compiled->FinalTextureTransitions; }
+	auto FRDGBuilder::GetFinalBarriers() const -> const FRDGBarrierBatch&
+	{ return Compiled->FinalBarriers; }
+
 	auto FRDGBuilder::GetCompileMicroseconds() const -> uint64
 	{
 		return State->CompileMicroseconds;
@@ -2713,13 +2732,13 @@ namespace Durin
 		Result.CulledPasses = Result.DeclaredPasses - Result.ScheduledPasses;
 		Result.Dependencies = static_cast<uint32>(Compiled->Dependencies.size());
 		Result.BufferTransitions = static_cast<uint32>(
-			Compiled->FinalBufferTransitions.size());
+			Compiled->FinalBarriers.GetBufferTransitions().size());
 		Result.TextureTransitions = static_cast<uint32>(
-			Compiled->FinalTextureTransitions.size());
+			Compiled->FinalBarriers.GetTextureTransitions().size());
 		for (const auto& Pass : Compiled->Passes)
 		{
-			Result.BufferTransitions += static_cast<uint32>(Pass.BufferTransitions.size());
-			Result.TextureTransitions += static_cast<uint32>(Pass.TextureTransitions.size());
+			Result.BufferTransitions += static_cast<uint32>(Pass.Barriers.GetBufferTransitions().size());
+			Result.TextureTransitions += static_cast<uint32>(Pass.Barriers.GetTextureTransitions().size());
 		}
 		Result.Phases = State->Phases;
 		Result.CompileMicroseconds = State->CompileMicroseconds;
@@ -2760,8 +2779,8 @@ namespace Durin
 		for (const auto& Pass : Compiled->Passes)
 			Result.Passes.push_back({Pass.Name, Pass.Type, Pass.DeclarationIndex,
 				Pass.ParameterStructName,
-				static_cast<uint32>(Pass.BufferTransitions.size()),
-				static_cast<uint32>(Pass.TextureTransitions.size())});
+				static_cast<uint32>(Pass.Barriers.GetBufferTransitions().size()),
+				static_cast<uint32>(Pass.Barriers.GetTextureTransitions().size())});
 		return Result;
 	}
 
@@ -2789,8 +2808,8 @@ namespace Durin
 			const auto& Pass = Compiled->Passes[Index];
 			Output << "pass " << Index << " decl=" << Pass.DeclarationIndex
 				<< " type=" << PassTypeName(Pass.Type) << " name=" << Pass.Name
-				<< " buffers=" << Pass.BufferTransitions.size()
-				<< " textures=" << Pass.TextureTransitions.size();
+				<< " buffers=" << Pass.Barriers.GetBufferTransitions().size()
+				<< " textures=" << Pass.Barriers.GetTextureTransitions().size();
 			if (!Pass.ParameterStructName.empty())
 				Output << " parameters=" << Pass.ParameterStructName;
 			Output << '\n';
@@ -2799,8 +2818,8 @@ namespace Durin
 			Output << "edge " << Edge.BeforePass << "->" << Edge.AfterPass
 				<< " kind=" << DependencyKindName(Edge.Kind)
 				<< " cause=" << Edge.Cause << '\n';
-		Output << "final buffers=" << Compiled->FinalBufferTransitions.size()
-			<< " textures=" << Compiled->FinalTextureTransitions.size() << '\n';
+		Output << "final buffers=" << Compiled->FinalBarriers.GetBufferTransitions().size()
+			<< " textures=" << Compiled->FinalBarriers.GetTextureTransitions().size() << '\n';
 		for (const auto& Lifetime : Compiled->ResourceLifetimes)
 			Output << "lifetime name=" << Lifetime.Name << " first="
 				   << Lifetime.FirstPass << " last=" << Lifetime.LastPass
@@ -2965,20 +2984,12 @@ namespace Durin
 		State->ExecutionResult.Status = ERDGExecutionStatus::InvalidState;
 		State->ExecutionResult.Result =
 			{ERDGError::InvalidState, "render graph recording did not complete"};
+		FBarrierRecordingScratch BarrierScratch;
 		for (uint32 Index = 0; Index < Compiled->Passes.size(); ++Index)
 		{
-			auto& Pass = Compiled->Passes[Index];
-			auto& Runtime = Compiled->RuntimePasses[Index];
-			for (uint32 TransitionIndex = 0;
-				TransitionIndex < Pass.BufferTransitions.size(); ++TransitionIndex)
-				Pass.BufferTransitions[TransitionIndex].Buffer = Compiled->Backings[Runtime.BufferTransitionResources[TransitionIndex]].Buffer.GetReference();
-			for (uint32 TransitionIndex = 0;
-				TransitionIndex < Pass.TextureTransitions.size(); ++TransitionIndex)
-				Pass.TextureTransitions[TransitionIndex].Texture = Compiled->Backings[Runtime.TextureTransitionResources[TransitionIndex]].Texture.GetReference();
-			if (!Pass.BufferTransitions.empty())
-				CommandList.TransitionBuffers(Pass.BufferTransitions);
-			if (!Pass.TextureTransitions.empty())
-				CommandList.TransitionTextures(Pass.TextureTransitions);
+			const auto& Pass = Compiled->Passes[Index];
+			const auto& Runtime = Compiled->RuntimePasses[Index];
+			RecordBarrierBatch(CommandList, Pass.Barriers, Compiled->Backings, BarrierScratch);
 			if (Runtime.ParameterizedExecute != nullptr && *Runtime.ParameterizedExecute)
 			{
 				const FRDGPassResources Resources(*this, Index);
@@ -2989,14 +3000,7 @@ namespace Durin
 				(*Runtime.ParameterizedExecute)(CommandList, Resolver);
 			}
 		}
-		for (uint32 Index = 0; Index < Compiled->FinalBufferTransitions.size(); ++Index)
-			Compiled->FinalBufferTransitions[Index].Buffer = Compiled->Backings[Compiled->FinalBufferTransitionResources[Index]].Buffer.GetReference();
-		for (uint32 Index = 0; Index < Compiled->FinalTextureTransitions.size(); ++Index)
-			Compiled->FinalTextureTransitions[Index].Texture = Compiled->Backings[Compiled->FinalTextureTransitionResources[Index]].Texture.GetReference();
-		if (!Compiled->FinalBufferTransitions.empty())
-			CommandList.TransitionBuffers(Compiled->FinalBufferTransitions);
-		if (!Compiled->FinalTextureTransitions.empty())
-			CommandList.TransitionTextures(Compiled->FinalTextureTransitions);
+		RecordBarrierBatch(CommandList, Compiled->FinalBarriers, Compiled->Backings, BarrierScratch);
 		for (uint32 Index = 0; Index < Compiled->Resources.size(); ++Index)
 		{
 			const auto& Resource = Compiled->Resources[Index];

@@ -14,6 +14,15 @@ valid only for their originating builder. There is no public compile operation
 or independently owned executable graph. Frozen resource declarations
 remain in builder storage; compiled records borrow them and keep physical
 backing and allocation observations in a separate execution table.
+Compiled passes and the final epilogue own `FRDGBarrierBatch` records. Each
+`FRDGBufferTransition` or `FRDGTextureTransition` carries its graph-local
+resource ID, exact range, access handoff, and discard intent together. There
+are no parallel resource-ID arrays or physical pointers in these batches.
+`GetPasses()` and `GetFinalBarriers()` expose the same logical plan before and
+after preparation and recording. One recording boundary resolves validated
+backings into reusable temporary RHI batches; command recording copies those
+payloads without modifying the compiled plan.
+
 Graph-created textures and buffers use description-first `CreateTexture`/`CreateBuffer` declarations.
 
 Non-const `Execute(CommandList, ExecutionContext)` compiles, prepares retained

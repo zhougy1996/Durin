@@ -396,8 +396,8 @@ namespace Durin::VulkanRHI
 				ERHIAccess::TransferWrite, true);
 			const auto Handoff = Next.Execute(Commands);
 			ASSERT_TRUE(Handoff.IsSuccess()) << Handoff.Result.Message;
-			ASSERT_EQ(Next.GetPasses()[0].BufferTransitions.size(), 1u);
-			EXPECT_EQ(Next.GetPasses()[0].BufferTransitions[0].ExpectedBefore,
+			ASSERT_EQ(Next.GetPasses()[0].Barriers.GetBufferTransitions().size(), 1u);
+			EXPECT_EQ(Next.GetPasses()[0].Barriers.GetBufferTransitions()[0].ExpectedBefore,
 				ERHIAccess::VertexBufferRead);
 			const auto CommandCount = Commands.GetNumRecordedCommands();
 			EXPECT_EQ(Next.Execute(Commands).Status, ERDGExecutionStatus::InvalidState);

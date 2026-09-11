@@ -1166,6 +1166,55 @@ namespace Durin
 		std::string Dump;
 	};
 
+	// A graph-local buffer handoff; physical backing is resolved only for recording.
+	struct FRDGBufferTransition final
+	{
+		uint32 ResourceId = std::numeric_limits<uint32>::max();
+		uint64 Offset = 0;
+		uint64 Size = 0;
+		ERHIAccess ExpectedBefore = ERHIAccess::None;
+		ERHIAccess RequiredAfter = ERHIAccess::None;
+		bool bDiscardContents = false;
+
+		auto operator==(const FRDGBufferTransition&) const -> bool = default;
+	};
+
+	// A graph-local texture handoff retaining its exact subresource range.
+	struct FRDGTextureTransition final
+	{
+		uint32 ResourceId = std::numeric_limits<uint32>::max();
+		FRHITextureSubresourceRange Range{};
+		ERHIAccess ExpectedBefore = ERHIAccess::None;
+		ERHIAccess RequiredAfter = ERHIAccess::None;
+		bool bDiscardContents = false;
+
+		auto operator==(const FRDGTextureTransition&) const -> bool = default;
+	};
+
+	// Owns logical barriers for a pass or the graph epilogue. Each record carries
+	// its resource identity; compiled batches are observed without physical pointers.
+	class FRDGBarrierBatch final
+	{
+	public:
+		auto Reserve(size_t BufferCount, size_t TextureCount) -> void
+		{
+			BufferTransitions.reserve(BufferCount);
+			TextureTransitions.reserve(TextureCount);
+		}
+		auto AddTransition(FRDGBufferTransition Transition) -> void
+		{ BufferTransitions.push_back(Transition); }
+		auto AddTransition(FRDGTextureTransition Transition) -> void
+		{ TextureTransitions.push_back(Transition); }
+		auto GetBufferTransitions() const -> std::span<const FRDGBufferTransition>
+		{ return BufferTransitions; }
+		auto GetTextureTransitions() const -> std::span<const FRDGTextureTransition>
+		{ return TextureTransitions; }
+
+	private:
+		std::vector<FRDGBufferTransition> BufferTransitions;
+		std::vector<FRDGTextureTransition> TextureTransitions;
+	};
+
 	// Owns the compiled pass order and transition batches for one graph.
 	struct FRDGCompiledPass final
 	{
@@ -1173,8 +1222,7 @@ namespace Durin
 		ERDGPassType Type = ERDGPassType::Graphics;
 		uint32 DeclarationIndex = 0;
 		std::string ParameterStructName;
-		std::vector<FRHIBufferTransition> BufferTransitions;
-		std::vector<FRHITextureTransition> TextureTransitions;
+		FRDGBarrierBatch Barriers;
 	};
 
 	// CPU recording outcome; Recorded does not imply GPU completion.
@@ -1339,10 +1387,7 @@ namespace Durin
 			-> std::span<const FRDGResourceLifetime>;
 		RENDERCORE_API auto GetCullingDecisions() const
 			-> std::span<const FRDGCullingDecision>;
-		RENDERCORE_API auto GetFinalBufferTransitions() const
-			-> std::span<const FRHIBufferTransition>;
-		RENDERCORE_API auto GetFinalTextureTransitions() const
-			-> std::span<const FRHITextureTransition>;
+		RENDERCORE_API auto GetFinalBarriers() const -> const FRDGBarrierBatch&;
 		RENDERCORE_API auto GetCompileMicroseconds() const -> uint64;
 		RENDERCORE_API auto GetBudget() const -> const FRDGBudget&;
 		RENDERCORE_API auto GetStatistics() const -> FRDGStatistics;
