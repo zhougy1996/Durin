@@ -1,6 +1,7 @@
 #include "Widgets/MMaterialEditor.h"
 #include "Widgets/MaterialParameterPanelModel.h"
 #include "Widgets/MaterialPreview.h"
+#include "Widgets/MaterialEditingSession.h"
 #include "Graph/MaterialGraphCanvas.h"
 #include "Settings/MaterialEditorSessionSettings.h"
 
@@ -299,6 +300,7 @@ namespace Durin::Editor::Material
 		SessionSettings->Save();
 		MaterialPreviews.clear();
 		MaterialGraphCanvases.clear();
+		EditingSessions.clear();
 	}
 
 	auto MMaterialEditor::GetWorkspaceType() const -> const ::Durin::Editor::FWorkspaceTypeId&
@@ -324,10 +326,12 @@ namespace Durin::Editor::Material
 			SetError(Result ? "The selected asset is not a material." : Result.Message);
 			return ::Durin::Editor::EDocumentOpenResult::Rejected;
 		}
-		if (auto* Base = Cast<DMaterial>(Material))
-			Base->SetEditCompileMode(SessionSettings->bAutoCompile
-				? EMaterialEditCompileMode::Automatic : EMaterialEditCompileMode::Manual);
 		OpenMaterials.emplace(Document.ResourceId, Material);
+		if (!ResetEditingSession(Document.ResourceId))
+		{
+			OpenMaterials.erase(Document.ResourceId);
+			return ::Durin::Editor::EDocumentOpenResult::Rejected;
+		}
 		return ::Durin::Editor::EDocumentOpenResult::Opened;
 	}
 
@@ -351,7 +355,10 @@ namespace Durin::Editor::Material
 	auto MMaterialEditor::RequestCloseDocument(const ::Durin::Editor::FDocumentTab& Document) -> ::Durin::Editor::EDocumentCloseResult
 	{
 		CancelCanvasInteraction(Document.Id.Value);
-		if (PropertyView.IsEditingObject(FindOpenMaterial(Document.ResourceId)) && !FinishActivePropertyEdit(true))
+		const auto SessionIt = EditingSessions.find(Document.ResourceId);
+		auto* EditingMaterial = SessionIt == EditingSessions.end()
+			? FindOpenMaterial(Document.ResourceId) : SessionIt->second->GetWorkingMaterial();
+		if (PropertyView.IsEditingObject(EditingMaterial) && !FinishActivePropertyEdit(true))
 			return ::Durin::Editor::EDocumentCloseResult::Rejected;
 		if (IsDocumentDirty(Document)) return ::Durin::Editor::EDocumentCloseResult::PendingConfirmation;
 		CaptureCanvasViewport(Document);
@@ -359,6 +366,7 @@ namespace Durin::Editor::Material
 		OpenMaterials.erase(Document.ResourceId);
 		MaterialPreviews.erase(Document.Id.Value);
 		MaterialGraphCanvases.erase(Document.Id.Value);
+		EditingSessions.erase(Document.ResourceId);
 		PendingLayoutResets.erase(Document.Id.Value);
 		Documents.Close(Document.ResourceId);
 		return ::Durin::Editor::EDocumentCloseResult::Closed;
@@ -374,6 +382,19 @@ namespace Durin::Editor::Material
 		CancelCanvasInteraction(Document.Id.Value);
 		DMaterialInterface* Material = FindOpenMaterial(Document.ResourceId);
 		if (!Material) return false;
+		if (!FinishActivePropertyEdit(true)) return false;
+		if (auto* Session = FindEditingSession(Material))
+		{
+			Session->CancelApply();
+			Material = Session->GetSourceMaterial();
+			if (!Material) return false;
+			if (!Material->GetPackage()->IsDirty())
+			{
+				MaterialPreviews.erase(Document.Id.Value);
+				MaterialGraphCanvases.erase(Document.Id.Value);
+				return ResetEditingSession(Document.ResourceId);
+			}
+		}
 		return Documents.Discard(Material, {},
 			[this](DPackage* Previous, DPackage* Replacement) {
 				WorkspaceManager.NotifyPackageReloaded(Previous, Replacement);
@@ -382,14 +403,12 @@ namespace Durin::Editor::Material
 
 	auto MMaterialEditor::OnPackageReloaded(DPackage* Previous, DPackage* Replacement) -> void
 	{
+		FinishActivePropertyEdit(true);
 		std::unordered_set<std::string> ReboundResources;
 		for (auto& [ResourceId, Open] : OpenMaterials)
 			if (Open.Get() && Open->GetPackage() == Previous)
 			{
 				Open = Cast<DMaterialInterface>(Replacement->FindTopLevelAsset(Open->GetFName()));
-				if (auto* Base = Cast<DMaterial>(Open.Get()))
-					Base->SetEditCompileMode(SessionSettings->bAutoCompile
-						? EMaterialEditCompileMode::Automatic : EMaterialEditCompileMode::Manual);
 				ReboundResources.insert(ResourceId);
 			}
 		if (ReboundResources.contains(std::string(Documents.GetActiveResourceId())))
@@ -398,14 +417,19 @@ namespace Durin::Editor::Material
 			if (Document.WorkspaceType == Workspace::Type
 				&& ReboundResources.contains(Document.ResourceId))
 			{
+				CancelCanvasInteraction(Document.Id.Value);
 				MaterialPreviews.erase(Document.Id.Value);
 				MaterialGraphCanvases.erase(Document.Id.Value);
+				ResetEditingSession(Document.ResourceId);
 			}
 	}
 
 	auto MMaterialEditor::IsDocumentDirty(const ::Durin::Editor::FDocumentTab& Document) const -> bool
 	{
-		return Documents.IsDirty(FindOpenMaterial(Document.ResourceId));
+		const auto* Material = FindOpenMaterial(Document.ResourceId);
+		if (const auto* Session = FindEditingSession(Material))
+			return Session->HasUnappliedChanges() || Documents.IsDirty(Session->GetSourceMaterial());
+		return Documents.IsDirty(Material);
 	}
 
 	auto MMaterialEditor::CanSaveActiveDocument() const -> bool
@@ -421,6 +445,12 @@ namespace Durin::Editor::Material
 	auto MMaterialEditor::DrawWorkspace(bool bActive) -> bool
 	{
 		if (!bActive && PropertyView.IsEditing()) FinishActivePropertyEdit(true);
+		for (auto& [ResourceId, Session] : EditingSessions)
+		{
+			std::string Error;
+			Session->Tick(Error);
+			if (!Error.empty()) SetError(std::move(Error));
+		}
 		std::vector<::Durin::Editor::FDocumentId> DeletedDocuments;
 		for (const ::Durin::Editor::FDocumentTab& Document : WorkspaceManager.GetDocuments())
 		{
@@ -469,8 +499,42 @@ namespace Durin::Editor::Material
 	auto MMaterialEditor::FindOpenMaterial(std::string_view ResourceId) const -> DMaterialInterface*
 	{
 		const auto It = OpenMaterials.find(std::string(ResourceId));
-		return It == OpenMaterials.end() || !It->second.IsValid()
-			? nullptr : It->second.Get();
+		if (It == OpenMaterials.end() || !It->second.IsValid()) return nullptr;
+		const auto Session = EditingSessions.find(std::string(ResourceId));
+		return Session == EditingSessions.end() ? It->second.Get()
+			: Session->second->GetWorkingMaterial();
+	}
+
+	auto MMaterialEditor::FindEditingSession(const DMaterialInterface* Working) const
+		-> FMaterialEditingSession*
+	{
+		if (!Working) return nullptr;
+		for (const auto& [ResourceId, Session] : EditingSessions)
+			if (Session->GetWorkingMaterial() == Working) return Session.get();
+		return nullptr;
+	}
+
+	auto MMaterialEditor::ResetEditingSession(std::string_view ResourceId) -> bool
+	{
+		const std::string Key(ResourceId);
+		EditingSessions.erase(Key);
+		MaterialParameterPanelCache = std::make_unique<FMaterialParameterPanelCache>();
+		const auto It = OpenMaterials.find(Key);
+		if (It == OpenMaterials.end()) return false;
+		auto* Source = Cast<DMaterial>(It->second.Get());
+		if (!Source) return true;
+		auto Session = std::make_unique<FMaterialEditingSession>();
+		std::string Error;
+		if (!Session->Initialize(*Source, SessionSettings->bAutoCompile
+			? EMaterialEditCompileMode::Automatic : EMaterialEditCompileMode::Manual, Error,
+			GEditor ? GEditor->GetTransactor() : nullptr))
+		{
+			SetError(std::move(Error));
+			It->second = nullptr;
+			return false;
+		}
+		EditingSessions.emplace(Key, std::move(Session));
+		return true;
 	}
 
 	auto MMaterialEditor::GetActiveMaterial() const -> DMaterialInterface*
@@ -480,9 +544,24 @@ namespace Durin::Editor::Material
 
 	auto MMaterialEditor::SaveMaterial(DMaterialInterface* Material) -> bool
 	{
+		if (const auto* Active = WorkspaceManager.GetActiveDocument())
+			CancelCanvasInteraction(Active->Id.Value);
+		if (!FinishActivePropertyEdit(false)) return false;
+		auto* Session = FindEditingSession(Material);
+		if (Session)
+		{
+			std::string Error;
+			if (!Session->FinishAndApply(Error))
+			{
+				SetError(std::move(Error));
+				return false;
+			}
+			Material = Session->GetSourceMaterial();
+		}
 		if (!Documents.Save(Material, {}, [this](std::string Message) {
 			SetError(std::move(Message));
 		})) return false;
+		if (Session) Session->MarkSaved();
 		return true;
 	}
 
@@ -535,18 +614,39 @@ namespace Durin::Editor::Material
 		{
 			if (auto* Base = Cast<DMaterial>(Material))
 			{
-				if (ImGui::Button("Compile")) Base->CompileEdits();
+				auto* Session = FindEditingSession(Material);
+				if (Session)
+				{
+					ImGui::BeginDisabled(!Session->HasUnappliedChanges() || Session->IsApplyPending());
+					if (ImGui::Button(Session->IsApplyPending() ? "Applying..." : "Apply")
+						&& FinishActivePropertyEdit(false))
+					{
+						if (const auto* Active = WorkspaceManager.GetActiveDocument())
+							CancelCanvasInteraction(Active->Id.Value);
+						std::string Error;
+						if (!Session->RequestApply(Error)) SetError(std::move(Error));
+					}
+					ImGui::EndDisabled();
+					if (ImGui::IsItemHovered()) ImGui::SetTooltip("Apply the preview changes to the source material and scene.");
+					ImGui::SameLine();
+				}
+				if (ImGui::Button("Compile") && FinishActivePropertyEdit(false)) Base->CompileEdits();
 				ImGui::SameLine();
 				if (ImGui::Checkbox("Auto Compile", &SessionSettings->bAutoCompile))
 				{
-					for (const auto& [Resource, Open] : OpenMaterials)
-						if (auto* OpenBase = Cast<DMaterial>(Open.Get()))
+					for (const auto& [Resource, OpenSession] : EditingSessions)
+						if (auto* OpenBase = OpenSession->GetWorkingMaterial())
 							OpenBase->SetEditCompileMode(SessionSettings->bAutoCompile
 								? EMaterialEditCompileMode::Automatic : EMaterialEditCompileMode::Manual);
 					SessionSettings->Save();
 				}
 				if (ImGui::IsItemHovered())
 					ImGui::SetTooltip("Compile after editing pauses. Disable to compile changes manually.");
+				if (Session && Session->HasUnappliedChanges())
+				{
+					ImGui::SameLine();
+					ImGui::TextDisabled("Unapplied changes");
+				}
 			}
 			else if (ImGui::Button("Compile")) RequestMaterialRecompile(*Material);
 			const FMaterialCompileStatus& Status = Material->GetMaterialCompileStatus();
@@ -559,14 +659,25 @@ namespace Durin::Editor::Material
 				ImGui::SameLine();
 				if (ImGui::Button("Cancel Compile"))
 				{
+					if (auto* Session = FindEditingSession(Material)) Session->CancelApply();
 					for (const auto Handle : GetLoadedMaterialDependents(Material))
 						if (auto* Owner = ResolveObjectHandle(Handle); IsValid(Owner))
 							FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Owner);
 				}
 			}
 			ImGui::SameLine();
-			ImGui::TextDisabled("%s%s", FormatCompileState(Status.State),
+			auto* EditingSession = FindEditingSession(Material);
+			ImGui::TextDisabled("%s: %s%s", EditingSession ? "Preview" : "Compile", FormatCompileState(Status.State),
 				(Material->GetAcceptedCompiledProgram() && !Status.IsCurrent()) ? " (showing last known good)" : "");
+			if (EditingSession && EditingSession->GetSourceMaterial())
+			{
+				const auto& SourceStatus = EditingSession->GetSourceMaterial()->GetMaterialCompileStatus();
+				if (!SourceStatus.IsCurrent())
+				{
+					ImGui::SameLine();
+					ImGui::TextDisabled("Scene: %s", FormatCompileState(SourceStatus.State));
+				}
+			}
 		}
 		ImGui::SameLine();
 		if (ImGui::Button("Window")) ImGui::OpenPopup("MaterialWindows");
@@ -691,6 +802,13 @@ namespace Durin::Editor::Material
 				static_cast<double>(Status.DurationMicroseconds) / 1000.0);
 		if (Material->GetAcceptedCompiledProgram() && !Status.IsCurrent())
 			ImGui::TextDisabled("Preview uses the last known good program.");
+		if (const auto* Session = FindEditingSession(Material); Session && Session->GetSourceMaterial())
+		{
+			const auto* Source = Session->GetSourceMaterial();
+			ImGui::Text("Scene material: %s", FormatCompileState(Source->GetMaterialCompileStatus().State));
+			for (const auto& Diagnostic : Source->GetMaterialCompileDiagnostics())
+				ImGui::TextWrapped("Scene: %s", Diagnostic.Source.Message.c_str());
+		}
 		uint32 DiagnosticIndex = 0;
 		for (const FMaterialCompileDiagnostic& Diagnostic
 			: Material->GetMaterialCompileDiagnostics())
@@ -1221,6 +1339,11 @@ namespace Durin::Editor::Material
 		for (const FMove& Move : Moves)
 		{
 			OpenMaterials[Move.Destination] = Move.Material;
+			if (auto Node = EditingSessions.extract(Move.Source); !Node.empty())
+			{
+				Node.key() = Move.Destination;
+				EditingSessions.insert(std::move(Node));
+			}
 			SessionSettings->MoveViewport(Move.Source, Move.Destination);
 			WorkspaceManager.RemapResourceId(Move.Source, Move.Destination);
 		}

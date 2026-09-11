@@ -21,6 +21,7 @@ namespace Durin::Editor::Material
 	class FMaterialParameterPanelCache;
 	class FMaterialParameterPanelModel;
 	class FMaterialEditorSessionSettings;
+	class FMaterialEditingSession;
 	struct FMaterialParameterPanelEntry;
 
 	// Hosts one material document with preview and parameter editing state.
@@ -56,6 +57,8 @@ namespace Durin::Editor::Material
 		class FMaterialParameterRowScope;
 
 		auto FindOpenMaterial(std::string_view ResourceId) const -> DMaterialInterface*;
+		auto FindEditingSession(const DMaterialInterface* Working) const -> FMaterialEditingSession*;
+		auto ResetEditingSession(std::string_view ResourceId) -> bool;
 		auto GetActiveMaterial() const -> DMaterialInterface*;
 		auto SaveMaterial(DMaterialInterface* Material) -> bool;
 		auto DrawDocument(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void;
@@ -89,6 +92,7 @@ namespace Durin::Editor::Material
 
 		::Durin::Editor::FWorkspaceManager& WorkspaceManager;
 		std::unordered_map<std::string, TObjectPtr<DMaterialInterface>> OpenMaterials;
+		std::unordered_map<std::string, std::unique_ptr<FMaterialEditingSession>> EditingSessions;
 		::Durin::Editor::FEditableAssetDocumentModel Documents;
 		std::unordered_map<uint64, std::unique_ptr<FMaterialPreview>> MaterialPreviews;
 		std::unordered_map<uint64, std::unique_ptr<FMaterialGraphCanvas>> MaterialGraphCanvases;

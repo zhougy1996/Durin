@@ -805,8 +805,6 @@ namespace Durin
 			Status.ResultCategory = EMaterialCompileResultCategory::None;
 			Status.CacheOutcome = EMaterialCompileCacheOutcome::None;
 			Status.TaskId = 0;
-			Status.bHasLastKnownGood = Material.CompilationOwner.AcceptedGeneration.Program != nullptr;
-			Status.bLastKnownGoodDisplayed = Status.bHasLastKnownGood;
 			Material.CompilationOwner.MaterialCompileDiagnostics.clear();
 			Material.CompilationOwner.bDeferredForceRecompile = false;
 			Material.CompilationOwner.EditCompileDeadline =

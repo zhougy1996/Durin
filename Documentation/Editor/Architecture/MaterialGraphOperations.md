@@ -8,10 +8,13 @@ Last reviewed: 2026-09-11
 
 ## Ownership
 
-`DMaterial` remains the package and semantic authority. Its reflected
+`DMaterial` remains the semantic authority. Its reflected
 `FMaterialProgram` is the only authored graph; nodes and pins are bounded values
 addressed by stable GUID and input/output indices rather than `DObject`
 subobjects or canvas coordinates. Material instances never own or edit a graph.
+Base-material documents edit a transient working `DMaterial`; Apply transfers
+its authored state to the existing package-owned source material. Graph commands
+remain reusable against either owner and never implicitly select a source asset.
 
 `DMaterial::GraphPresentation` is a separate `EditorOnly` reflected value. It
 contains schema version 2, exactly one integral graph-space position for every
@@ -264,21 +267,33 @@ and required channel swizzle or normal decode nodes before replacing the surface
 connection in one candidate-validated transaction. Neither workflow creates a
 hidden branch.
 
-The toolbar exposes Compile and a user-scoped Auto Compile preference, enabled
-by default. Opening a base material applies the preference to its transient Engine
-edit policy; loaded instances inherit that policy. Automatic edits wait for a
+The toolbar exposes Compile, Apply, and a user-scoped Auto Compile preference,
+enabled by default. Opening a base material applies the preference to its working
+copy's Engine edit policy. Automatic edits wait for a
 400 ms quiet period before compiler-input construction. Each subsequent semantic
 edit restarts the deadline. Switching to manual removes scheduled submission;
 switching back schedules any unsubmitted edits. Compile immediately submits the
-root and loaded dependent variants through ordinary cache reuse. Cancel Compile
-cancels their pending work. The policy remains on the loaded material after its
-document closes; automatic deadlines are pumped by Engine, not by visible UI.
-Reopening or package replacement reapplies the current preference.
+working material through ordinary cache reuse. Cancel Compile cancels its pending
+work and pending Apply intent. Engine pumps automatic deadlines even for hidden
+documents. Closing the document cancels compilation and retires the working copy.
+Reopening or package replacement creates a fresh working copy with the preference.
 
-Save persists authored changes independently of compilation. The unsaved marker
-and Needs Compile status have separate meanings. Manual edits retain the accepted
-preview until explicitly compiled; Cook still requires a current successful result.
-Graph validation and dynamic parameter updates remain immediate in both modes.
+Apply requests compilation if necessary and publishes after the current preview
+has compiled successfully. Editing again while Apply is waiting cancels that
+publication intent. A failed or canceled compilation leaves the source unchanged.
+Apply refuses to overwrite authored source changes made outside the document;
+relocation or sibling-package edits with unchanged source values are allowed.
+Publication updates the existing source through material mutation boundaries and
+submits its changed root and loaded dependent variants together. Scene references
+keep their identity and runtime compilation retains its last-good failure policy.
+Apply does not save the package to disk.
+
+Save finishes the selected preview's compilation, applies it, then saves the
+source package. It never drains unrelated compiler jobs. Unapplied changes,
+preview compilation status, and source disk dirtiness are separate states. The
+document unsaved marker includes either unapplied changes or a dirty source
+package. Graph validation and dynamic parameter updates remain immediate on the
+working copy; they reach the source and its scene dependents only through Apply.
 
 Compile state is observational. Unsubmitted and pending states identify whether
 the preview shows last-known-good output; failed states show ErrorMaterial.
@@ -310,6 +325,22 @@ value and makes that override eligible again.
 
 Base-material documents own canvases; instance documents retain the parameter
 override workflow and direct users to the root base material for graph editing.
+`FMaterialEditingSession` strongly owns the working material and its unique
+transient package under the source mount. The transient material is not a
+top-level asset export. That package supplies isolated transaction revisions;
+it is never saved or used as the document resource identity. Undo/Redo edits the
+working copy, including after Apply, and does not implicitly republish to the
+source. Apply invalidates the source's saved checkpoint; successful Save marks
+both source and working checkpoints. Closing or resetting the working copy
+forgets its transaction records and cancels its compile jobs before retirement.
+
+Discard cancels pending Apply. If the source is clean, it simply recreates the
+working copy from the source. If the source has unsaved applied changes, the
+ordinary package-discard reload restores disk state and rebuilds the working
+copy. External package replacement also resets the working copy; relocation
+retains it while remapping the existing document. Deletion and module shutdown
+release the working copy with its canvas and preview. Material-instance documents
+continue editing their own overrides live and see base edits only after Apply.
 Canvas maps use document IDs, so selection cannot leak across materials or
 instances. User-scoped material-editor session settings retain the left, right,
 and diagnostic pane proportions and the pan/zoom viewport for each material

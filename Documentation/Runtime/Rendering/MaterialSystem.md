@@ -209,7 +209,7 @@ only synchronous compatibility path is process bootstrap or tooling without an
 active compiling manager; construction in a running engine does not compile
 before its object handle exists. `PostLoad`, authored edits, reload, and the
 explicit editor action use the asynchronous owner. MaterialEditor selects a
-transient root edit policy: Automatic coalesces semantic edits for 400 ms, Manual
+transient working-copy root edit policy: Automatic coalesces semantic edits for 400 ms, Manual
 records `NeedsCompile` without submitting, and Immediate preserves non-editor
 callers' existing behavior. Loaded instances inherit the root policy. Scheduled
 edits use `Scheduled` state and the manager's bounded retry scan, without taking
@@ -218,6 +218,10 @@ finish flushes scheduled automatic work; manual work requires an explicit reques
 Late results cannot replace a material with unsubmitted edits. See
 [Material graph authoring](../../Editor/Architecture/MaterialGraphOperations.md)
 for toolbar and save behavior.
+The editor working copy has no scene dependents. Its compilation and dynamic
+edits affect only preview rendering; Apply copies authored state to the source
+root and requests its changed dependent variants. Runtime source identity and
+publication rules remain unchanged.
 
 Authored revision, nonzero request generation, dependency generation, latest
 terminal result, and accepted renderable program are independent state. A new

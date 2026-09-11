@@ -194,6 +194,7 @@ durin_add_engine_functional_test(MaterialTests
 	SOURCES
 		Private/Materials/MaterialSchemaAndEditingTests.cpp
 		Private/Materials/MaterialGraphOperationsTests.cpp
+		Private/Materials/MaterialEditingSessionTests.cpp
 		Private/Materials/MaterialCompileLifecycleTests.cpp
 		Private/Materials/MaterialDependencyTests.cpp
 		Private/Materials/MaterialRenderProxyTests.cpp
@@ -205,6 +206,7 @@ durin_add_engine_functional_test(MaterialTests
 		${_durin_material_editor_private}/Graph/MaterialGraphCanvas.cpp
 		${_durin_material_editor_private}/Graph/MaterialGraphCreationMenu.cpp
 		${_durin_material_editor_private}/Widgets/MaterialPreview.cpp
+		${_durin_material_editor_private}/Widgets/MaterialEditingSession.cpp
 		${_durin_material_editor_private}/Widgets/MaterialParameterPanelModel.cpp
 	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
 	LIBRARIES

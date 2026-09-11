@@ -10,6 +10,8 @@
 
 #include <iostream>
 
+auto QualifyMaterialEditingSessionAsync() -> void;
+
 namespace
 {
 	auto MeasureInstanceVariantQualificationBaseline() -> void;
@@ -75,7 +77,7 @@ auto QualifyEditScheduling() -> void
 	EXPECT_EQ(Root->GetMaterialCompileStatus().RequestGeneration, Generation);
 	EXPECT_EQ(Child->GetMaterialCompileStatus().RequestGeneration, ChildGeneration);
 	EXPECT_EQ(Root->GetAcceptedCompiledProgram(), Previous);
-	EXPECT_TRUE(Root->GetMaterialCompileStatus().bLastKnownGoodDisplayed);
+	EXPECT_FALSE(Root->GetMaterialCompileStatus().IsCurrent());
 	FMaterialParameterDefinition Extra;
 	Extra.Id = FGuid::NewGuid();
 	Extra.Name = FName("PendingScalar");
@@ -387,6 +389,7 @@ TEST(FMaterialCompileLifecycleTests,
 	}
 
 	QualifyEditScheduling();
+	QualifyMaterialEditingSessionAsync();
 
 	Durin::MarkAsGarbage(PendingInstance);
 	Durin::MarkAsGarbage(Second);
