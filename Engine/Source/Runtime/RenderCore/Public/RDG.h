@@ -1027,6 +1027,13 @@ namespace Durin
 		ERHIBindingType ShaderBindingType = ERHIBindingType::Texture;
 	};
 
+	// Separates command-list barriers from transitions owned by a pass body.
+	enum class ERDGTransitionKind : uint8
+	{
+		RHIBarrier,
+		PassManaged
+	};
+
 	// Records one exact pointer-free transition at a pass or graph boundary.
 	struct FRDGTransitionCapture final
 	{
@@ -1039,6 +1046,7 @@ namespace Durin
 		uint64 BufferSize = 0;
 		bool bFinal = false;
 		bool bDiscardContents = false;
+		ERDGTransitionKind Kind = ERDGTransitionKind::RHIBarrier;
 	};
 
 	// Reports the retained scheduled interval of one declared resource.

@@ -4,7 +4,7 @@ Summary: Define the deterministic frame-local graph compiler and its boundary wi
 
 Modules: RenderCore, RHI
 
-Last reviewed: 2026-09-10
+Last reviewed: 2026-09-11
 
 ## Ownership Boundary
 
@@ -205,6 +205,15 @@ intent and exit access, emits an entry handoff for prior accesses even when
 the attachment is cleared or discarded, and continues state tracking from the
 render pass's declared final access. The render pass still owns its internal
 attachment transitions.
+
+Compilation and lazy diagnostics share one traversal for range-state advancement
+and transition events, including final boundaries. `FRDGTransitionCapture::Kind`
+distinguishes `RHIBarrier` events from `PassManaged` events owned by the pass body.
+Only actual RHI barriers enter executable batches and transition budgets; a
+same-state read does not gain an artificial entry barrier in Capture. Managed
+exit events retain the declared entry/result pair even when the accesses match.
+Detailed range uses and event arrays are materialized only on explicit inspection;
+compilation reuses its existing partition without retaining diagnostic history.
 
 ## Graph-Owned Typed Values
 

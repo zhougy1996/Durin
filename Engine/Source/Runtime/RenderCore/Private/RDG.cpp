@@ -1126,6 +1126,66 @@ namespace Durin
 			}
 		};
 
+		// Both compilation and lazy diagnostics consume this event stream. The caller
+		// owns the partition; no diagnostic records are retained by normal compilation.
+		template <typename FTransitionVisitor, typename FUseVisitor>
+		auto TraverseExecutionStates(FResourceCells& Cells,
+			std::span<const FGraphResource> Resources, const FGraphPassView& Passes,
+			std::span<const FRDGCompiledPass> ScheduledPasses,
+			std::span<const FRDGResourceLifetime> Lifetimes, FRangeWork* Work,
+			FTransitionVisitor&& OnTransition, FUseVisitor&& OnUse) -> FRDGResult
+		{
+			for (auto& Cell : Cells.States)
+			{
+				const auto& Resource = Resources[Cell.Use.ResourceIndex];
+				Cell.Access = Resource.InitialAccess;
+				Cell.bProduced = Resource.HasInitialContents();
+				Cell.Version = 0;
+				Cell.Readers.clear();
+			}
+			for (uint32 PassIndex = 0; PassIndex < ScheduledPasses.size(); ++PassIndex)
+			{
+				const uint32 DeclarationIndex = ScheduledPasses[PassIndex].DeclarationIndex;
+				for (const auto& Use : Passes[DeclarationIndex].Uses)
+				{
+					if (auto Error = Cells.VisitUse(Use, [&](FRangeState& Cell) -> FRDGResult
+					{
+						if (Work != nullptr && !Work->Visit()) return Work->Error();
+						auto Emit = [&](ERHIAccess Before, ERHIAccess After,
+							ERDGTransitionKind Kind, bool bDiscard) -> FRDGResult {
+							return OnTransition(FRDGTransitionCapture{Use.ResourceIndex,
+								PassIndex, Before, After, Cell.Use.TextureRange,
+								Cell.Use.BufferOffset, Cell.Use.BufferSize, false, bDiscard, Kind});
+						};
+						if (Use.Kind != ERDGResourceKind::Token && NeedsRangeBarrier(Cell, Use))
+							if (auto Error = Emit(Cell.Access, Use.Access,
+								ERDGTransitionKind::RHIBarrier, Use.bDiscard); !Error.IsSuccess())
+								return Error;
+						if (Use.bPassManagedTransition)
+							if (auto Error = Emit(Use.Access, Use.ResultAccess,
+								ERDGTransitionKind::PassManaged, false); !Error.IsSuccess())
+								return Error;
+						AdvanceRangeState(Cell, Use);
+						OnUse(DeclarationIndex, Use, Cell);
+						return {};
+					}); !Error.IsSuccess()) return Error;
+				}
+			}
+			for (const auto& Cell : Cells.States)
+			{
+				const auto& Resource = Resources[Cell.Use.ResourceIndex];
+				if (Cell.Use.Kind == ERDGResourceKind::Token
+					|| Lifetimes[Cell.Use.ResourceIndex].bCulled
+					|| Resource.FinalAccess == ERHIAccess::None
+					|| Resource.FinalAccess == Cell.Access) continue;
+				if (auto Error = OnTransition(FRDGTransitionCapture{Cell.Use.ResourceIndex,
+					std::numeric_limits<uint32>::max(), Cell.Access, Resource.FinalAccess,
+					Cell.Use.TextureRange, Cell.Use.BufferOffset, Cell.Use.BufferSize, true});
+					!Error.IsSuccess()) return Error;
+			}
+			return {};
+		}
+
 		// Owns canonical typed edges and endpoint deduplication during analysis.
 		struct FDependencyGraph final
 		{
@@ -2474,15 +2534,6 @@ namespace Durin
 			CompiledState->ResourceLifetimes.push_back({Resource.Name, std::numeric_limits<uint32>::max(), 0, Resource.bExternal, true});
 		}
 
-		FResourceCells ExecutionCells = std::move(Cells);
-		for (auto& Cell : ExecutionCells.States)
-		{
-			const auto& Resource = State->Resources[Cell.Use.ResourceIndex];
-			Cell.Access = Resource.InitialAccess;
-			Cell.bProduced = Resource.HasInitialContents();
-			Cell.Version = 0;
-			Cell.Readers.clear();
-		}
 		std::vector<uint32> LastResourcePass(ResourceCount, std::numeric_limits<uint32>::max());
 		size_t BufferTransitionCount = 0;
 		size_t TextureTransitionCount = 0;
@@ -2531,61 +2582,44 @@ namespace Durin
 				Lifetime.FirstPass = std::min(Lifetime.FirstPass, CompiledPassIndex);
 				Lifetime.LastPass = CompiledPassIndex;
 				Lifetime.bCulled = false;
-				const auto& Resource = State->Resources[Use.ResourceIndex];
-				if (auto Error = ExecutionCells.VisitUse(Use, [&](FRangeState& Cell) -> FRDGResult
-				{
-					if (!Work.Visit()) return Work.Error();
-					const ERHIAccess Before = Cell.Access;
-					if (Use.Kind != ERDGResourceKind::Token
-						&& NeedsRangeBarrier(Cell, Use))
-					{
-						if (Use.Kind == ERDGResourceKind::Texture)
-						{
-							if (++TextureTransitionCount > State->Budget.MaxTextureTransitions)
-								return SafetyLimit("texture-transitions", TextureTransitionCount, State->Budget.MaxTextureTransitions);
-							CompiledPass.TextureTransitions.push_back({Resource.Texture.GetReference(), Cell.Use.TextureRange, Before, Use.Access, Use.bDiscard});
-							Runtime.TextureTransitionResources.push_back(Use.ResourceIndex);
-						}
-						else
-						{
-							if (++BufferTransitionCount > State->Budget.MaxBufferTransitions)
-								return SafetyLimit("buffer-transitions", BufferTransitionCount, State->Budget.MaxBufferTransitions);
-							CompiledPass.BufferTransitions.push_back({Resource.Buffer.GetReference(), Cell.Use.BufferOffset, Cell.Use.BufferSize, Before, Use.Access, Use.bDiscard});
-							Runtime.BufferTransitionResources.push_back(Use.ResourceIndex);
-						}
-					}
-					AdvanceRangeState(Cell, Use);
-					return {};
-				}); !Error.IsSuccess()) return Error;
 			}
 			CompiledState->Passes.push_back(std::move(CompiledPass));
 			CompiledState->RuntimePasses.push_back(std::move(Runtime));
 		}
 
-		for (const auto& Cell : ExecutionCells.States)
-		{
-			const auto& Resource = State->Resources[Cell.Use.ResourceIndex];
-			if (Cell.Use.Kind == ERDGResourceKind::Token
-				|| CompiledState->ResourceLifetimes[Cell.Use.ResourceIndex].bCulled
-				|| Resource.FinalAccess == ERHIAccess::None
-				|| Resource.FinalAccess == Cell.Access) continue;
-			if (Cell.Use.Kind == ERDGResourceKind::Texture)
+		const auto TransitionError = TraverseExecutionStates(Cells, State->Resources,
+			Passes, CompiledState->Passes, CompiledState->ResourceLifetimes, &Work,
+			[&](const FRDGTransitionCapture& Event) -> FRDGResult
 			{
-				if (++TextureTransitionCount > State->Budget.MaxTextureTransitions)
-					return SafetyLimit("texture-transitions", TextureTransitionCount, State->Budget.MaxTextureTransitions);
-				CompiledState->FinalTextureTransitions.push_back({Resource.Texture.GetReference(), Cell.Use.TextureRange, Cell.Access, Resource.FinalAccess});
-				CompiledState->FinalTextureTransitionResources.push_back(
-					Cell.Use.ResourceIndex);
-			}
-			else
-			{
-				if (++BufferTransitionCount > State->Budget.MaxBufferTransitions)
-					return SafetyLimit("buffer-transitions", BufferTransitionCount, State->Budget.MaxBufferTransitions);
-				CompiledState->FinalBufferTransitions.push_back({Resource.Buffer.GetReference(), Cell.Use.BufferOffset, Cell.Use.BufferSize, Cell.Access, Resource.FinalAccess});
-				CompiledState->FinalBufferTransitionResources.push_back(
-					Cell.Use.ResourceIndex);
-			}
-		}
+				if (Event.Kind != ERDGTransitionKind::RHIBarrier) return {};
+				const auto& Resource = State->Resources[Event.ResourceId];
+				if (Resource.Kind == ERDGResourceKind::Texture)
+				{
+					if (++TextureTransitionCount > State->Budget.MaxTextureTransitions)
+						return SafetyLimit("texture-transitions", TextureTransitionCount, State->Budget.MaxTextureTransitions);
+					auto& Transitions = Event.bFinal ? CompiledState->FinalTextureTransitions
+						: CompiledState->Passes[Event.PassIndex].TextureTransitions;
+					auto& ResourceIndices = Event.bFinal ? CompiledState->FinalTextureTransitionResources
+						: CompiledState->RuntimePasses[Event.PassIndex].TextureTransitionResources;
+					Transitions.push_back({Resource.Texture.GetReference(), Event.TextureRange,
+						Event.Before, Event.After, Event.bDiscardContents});
+					ResourceIndices.push_back(Event.ResourceId);
+				}
+				else
+				{
+					if (++BufferTransitionCount > State->Budget.MaxBufferTransitions)
+						return SafetyLimit("buffer-transitions", BufferTransitionCount, State->Budget.MaxBufferTransitions);
+					auto& Transitions = Event.bFinal ? CompiledState->FinalBufferTransitions
+						: CompiledState->Passes[Event.PassIndex].BufferTransitions;
+					auto& ResourceIndices = Event.bFinal ? CompiledState->FinalBufferTransitionResources
+						: CompiledState->RuntimePasses[Event.PassIndex].BufferTransitionResources;
+					Transitions.push_back({Resource.Buffer.GetReference(), Event.BufferOffset,
+						Event.BufferSize, Event.Before, Event.After, Event.bDiscardContents});
+					ResourceIndices.push_back(Event.ResourceId);
+				}
+				return {};
+			}, [](uint32, const FGraphUse&, const FRangeState&) {});
+		if (!TransitionError.IsSuccess()) return TransitionError;
 
 		for (uint32 ResourceIndex = 0; ResourceIndex < State->Resources.size(); ++ResourceIndex)
 		{
@@ -2698,45 +2732,21 @@ namespace Durin
 		FResourceCells Cells;
 		const auto Error = BuildRangeCells(Compiled->Resources, ResourceUses, Work, Cells);
 		requiref(Error.IsSuccess(), "compiled RDG diagnostic partition failed: {}", Error.Message);
-		for (uint32 PassIndex = 0; PassIndex < Compiled->Passes.size(); ++PassIndex)
-		{
-			const uint32 DeclarationIndex = Compiled->Passes[PassIndex].DeclarationIndex;
-			for (const auto& Use : Passes[DeclarationIndex].Uses)
+		const auto VisitError = TraverseExecutionStates(Cells, Compiled->Resources,
+			Passes, Compiled->Passes, Compiled->ResourceLifetimes, nullptr,
+			[&](const FRDGTransitionCapture& Event) -> FRDGResult
 			{
-				const auto VisitError = Cells.VisitUse(Use, [&](FRangeState& Cell) -> FRDGResult
-				{
-					const ERHIAccess Before = Cell.Access;
-					if ((Use.Kind != ERDGResourceKind::Token && NeedsRangeBarrier(Cell, Use))
-						|| Use.bPassManagedTransition)
-						Result->Transitions.push_back({Use.ResourceIndex, PassIndex,
-							Before, Use.Access, Cell.Use.TextureRange, Cell.Use.BufferOffset,
-							Cell.Use.BufferSize, false, Use.bDiscard});
-					if (Use.bPassManagedTransition)
-						Result->Transitions.push_back({Use.ResourceIndex, PassIndex,
-							Use.Access, Use.ResultAccess, Cell.Use.TextureRange,
-							Cell.Use.BufferOffset, Cell.Use.BufferSize, false});
-					AdvanceRangeState(Cell, Use);
-					Result->Uses.push_back({DeclarationIndex, Use.ResourceIndex,
-						Use.Use, Use.Access, Cell.Use.TextureRange, Cell.Use.BufferOffset,
-						Cell.Use.BufferSize, Cell.Version, Use.bDiscard, Use.bStore,
-						std::string(Use.ParameterPath), std::string(Use.ShaderBindingName),
-						Use.ShaderBindingType});
-					return {};
-				});
-				requiref(VisitError.IsSuccess(), "compiled RDG diagnostic traversal failed: {}", VisitError.Message);
-			}
-		}
-		for (const auto& Cell : Cells.States)
-		{
-			const auto& Resource = Compiled->Resources[Cell.Use.ResourceIndex];
-			if (Cell.Use.Kind == ERDGResourceKind::Token
-				|| Compiled->ResourceLifetimes[Cell.Use.ResourceIndex].bCulled
-				|| Resource.FinalAccess == ERHIAccess::None
-				|| Resource.FinalAccess == Cell.Access) continue;
-			Result->Transitions.push_back({Cell.Use.ResourceIndex,
-				std::numeric_limits<uint32>::max(), Cell.Access, Resource.FinalAccess,
-				Cell.Use.TextureRange, Cell.Use.BufferOffset, Cell.Use.BufferSize, true});
-		}
+				Result->Transitions.push_back(Event);
+				return {};
+			}, [&](uint32 DeclarationIndex, const FGraphUse& Use, const FRangeState& Cell)
+			{
+				Result->Uses.push_back({DeclarationIndex, Use.ResourceIndex,
+					Use.Use, Use.Access, Cell.Use.TextureRange, Cell.Use.BufferOffset,
+					Cell.Use.BufferSize, Cell.Version, Use.bDiscard, Use.bStore,
+					std::string(Use.ParameterPath), std::string(Use.ShaderBindingName),
+					Use.ShaderBindingType});
+			});
+		requiref(VisitError.IsSuccess(), "compiled RDG diagnostic traversal failed: {}", VisitError.Message);
 		Diagnostics = std::move(Result);
 	}
 
@@ -2945,6 +2955,8 @@ namespace Durin
 				<< Transition.TextureRange.NumArrayLayers << " offset="
 				<< Transition.BufferOffset << " size=" << Transition.BufferSize
 				<< " discard=" << Transition.bDiscardContents
+				<< " kind=" << (Transition.Kind == ERDGTransitionKind::RHIBarrier
+					? "rhi-barrier" : "pass-managed")
 				<< " final=" << Transition.bFinal << '\n';
 		return Output.str();
 	}

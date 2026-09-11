@@ -26,6 +26,43 @@ namespace Durin
 		static_assert(!CPublicRawPass<FRDGBuilder>);
 		static_assert(!CPublicManualUse<FRDGBuilder>);
 
+		auto ExpectCapturedBarriersMatchPlan(const FRDGBuilder& Builder) -> void
+		{
+			const auto Capture = Builder.Capture();
+			for (uint32 PassIndex = 0; PassIndex <= Builder.GetPasses().size(); ++PassIndex)
+			{
+				const bool bFinal = PassIndex == Builder.GetPasses().size();
+				const auto Buffers = bFinal ? Builder.GetFinalBufferTransitions()
+					: std::span<const FRHIBufferTransition>(Builder.GetPasses()[PassIndex].BufferTransitions);
+				const auto Textures = bFinal ? Builder.GetFinalTextureTransitions()
+					: std::span<const FRHITextureTransition>(Builder.GetPasses()[PassIndex].TextureTransitions);
+				size_t BufferIndex = 0;
+				size_t TextureIndex = 0;
+				for (const auto& Event : Capture.Transitions)
+				{
+					if (Event.Kind != ERDGTransitionKind::RHIBarrier || Event.bFinal != bFinal
+						|| (!bFinal && Event.PassIndex != PassIndex)) continue;
+					ASSERT_LT(Event.ResourceId, Capture.Resources.size());
+					if (Capture.Resources[Event.ResourceId].Kind == ERDGResourceKind::Texture)
+					{
+						ASSERT_LT(TextureIndex, Textures.size());
+						const auto& Barrier = Textures[TextureIndex++];
+						EXPECT_EQ(Barrier, (FRHITextureTransition{Barrier.Texture, Event.TextureRange,
+							Event.Before, Event.After, Event.bDiscardContents}));
+					}
+					else
+					{
+						ASSERT_LT(BufferIndex, Buffers.size());
+						const auto& Barrier = Buffers[BufferIndex++];
+						EXPECT_EQ(Barrier, (FRHIBufferTransition{Barrier.Buffer, Event.BufferOffset,
+							Event.BufferSize, Event.Before, Event.After, Event.bDiscardContents}));
+					}
+				}
+				EXPECT_EQ(BufferIndex, Buffers.size());
+				EXPECT_EQ(TextureIndex, Textures.size());
+			}
+		}
+
 		class FRDGTests : public testing::Test
 		{
 		protected:
@@ -2121,6 +2158,7 @@ namespace Durin
 		FRDGExecutionContext Context{Allocator};
 		const auto Result = Builder.Execute(GetCommandList(), &Context);
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Result.Message;
+		ExpectCapturedBarriersMatchPlan(Builder);
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Result.Message;
 		ASSERT_EQ(Builder.GetPasses().size(), 3u);
 		EXPECT_EQ(Builder.GetPasses()[0].Name, "Independent");
@@ -2195,6 +2233,7 @@ namespace Durin
 				ERHIAccess::ComputeShaderReadWrite);
 			auto Result = FRDGBuilderTestAccessor::Compile(Builder);
 			ASSERT_TRUE(Result.IsSuccess()) << Result.Result.Message;
+			ExpectCapturedBarriersMatchPlan(Builder);
 			const auto& Pass = Builder.GetPasses()[1];
 			ASSERT_EQ(Pass.BufferTransitions.size(), 1u);
 			EXPECT_EQ(Pass.BufferTransitions[0], (FRHIBufferTransition{
@@ -2235,6 +2274,34 @@ namespace Durin
 			EXPECT_TRUE(Pass.TextureTransitions.empty());
 		}
 		EXPECT_TRUE(Builder.Capture().Transitions.empty());
+	}
+
+	TEST_F(FRDGTests, ManagedReadCaptureDoesNotInventEntryBarrier)
+	{
+		FRDGBuilder Builder;
+		const auto Texture = Builder.RegisterExternalTexture(MakeGraphTexture("ManagedRead"),
+			"ManagedRead", ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+		const auto Pass = FRDGBuilderTestAccessor::AddPass(Builder, "ManagedRead", ERDGPassType::Graphics);
+		FRDGBuilderTestAccessor::UseManagedTexture(Builder, Pass, Texture, WholeColor(),
+			ERDGUse::Read, ERHIAccess::GraphicsShaderRead, ERHIAccess::TransferRead);
+		// The internal transition must not consume the one-barrier budget needed at exit.
+		Builder.SetBudget({.MaxTextureTransitions = 1});
+		const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
+		ASSERT_TRUE(Result.IsSuccess()) << Result.Result.Message;
+		EXPECT_FALSE(FRDGBuilderTestAccessor::HasDiagnostics(Builder));
+		EXPECT_TRUE(Builder.GetPasses()[0].TextureTransitions.empty());
+		ASSERT_EQ(Builder.GetFinalTextureTransitions().size(), 1u);
+		const auto Capture = Builder.Capture();
+		ASSERT_EQ(Capture.Transitions.size(), 2u);
+		EXPECT_EQ(Capture.Transitions[0].Kind, ERDGTransitionKind::PassManaged);
+		EXPECT_EQ(Capture.Transitions[0].Before, ERHIAccess::GraphicsShaderRead);
+		EXPECT_EQ(Capture.Transitions[0].After, ERHIAccess::TransferRead);
+		EXPECT_EQ(Capture.Transitions[1].Kind, ERDGTransitionKind::RHIBarrier);
+		EXPECT_TRUE(Capture.Transitions[1].bFinal);
+		EXPECT_EQ(Capture.Transitions[1].Before, ERHIAccess::TransferRead);
+		EXPECT_EQ(Capture.Statistics.TextureTransitions, 1u);
+		ExpectCapturedBarriersMatchPlan(Builder);
+		EXPECT_EQ(Builder.Capture().Transitions.size(), Capture.Transitions.size());
 	}
 
 	TEST_F(FRDGTests, ManagedAttachmentLoadSynchronizesSameStateWrites)
@@ -2824,6 +2891,7 @@ namespace Durin
 			ERHIAccess::ComputeShaderRead);
 		auto Result = FRDGBuilderTestAccessor::Compile(Builder);
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Result.Message;
+		ExpectCapturedBarriersMatchPlan(Builder);
 		ASSERT_EQ(Builder.GetPasses()[0].TextureTransitions.size(), 1u);
 		EXPECT_TRUE(Builder.GetPasses()[0].TextureTransitions[0].bDiscardContents);
 		ASSERT_EQ(Builder.GetPasses()[1].TextureTransitions.size(), 1u);
@@ -3517,6 +3585,8 @@ namespace Durin
 			const ERHIAccess AttachmentAccess = Index < 4
 				? ERHIAccess::ColorAttachmentReadWrite
 				: ERHIAccess::DepthStencilReadWrite;
+			EXPECT_EQ(Entry.Kind, ERDGTransitionKind::RHIBarrier);
+			EXPECT_EQ(Exit.Kind, ERDGTransitionKind::PassManaged);
 			EXPECT_EQ(Entry.ResourceId, Index);
 			EXPECT_EQ(Entry.PassIndex, 0u);
 			EXPECT_EQ(Entry.Before, ERHIAccess::Discard);
