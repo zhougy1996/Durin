@@ -15,6 +15,9 @@ implementation stage is complete. Stage 0 is next. The user permits aggressive
 schema changes and upgrades or modification of the small existing asset set.
 This authorization permits a coordinated content migration; it does not require
 maintaining a permanent legacy compiler or silently discarding authored edits.
+The user subsequently selected an abstract `DMaterialFunctionInterface` asset
+base, with `DMaterialFunction` as its first concrete implementation. Function
+instances remain deferred; this is a design update, not completed implementation.
 
 This is M11 of the [Material System roadmap](../Roadmaps/MaterialSystem.md).
 [Material Instance Shader Variants](MaterialInstanceShaderVariants.md) has
@@ -59,8 +62,30 @@ compiled material programs; Renderer never loads function assets or graph nodes.
 
 ### Function assets and stable interfaces
 
-Introduce `DMaterialFunction` as an Engine-owned asset with a bounded reflected
-function graph, ordered typed input/output declarations and editor presentation.
+Introduce an Engine-owned abstract `DMaterialFunctionInterface` asset base and
+derive `DMaterialFunction` from it. The base is specific to material functions,
+not a general script interface. It provides the read-only function signature,
+dependency queries and owning-thread entry point for a detached compilation
+snapshot. It does not require an editable graph or own graph presentation.
+
+`DMaterialFunction` owns the bounded reflected function graph, ordered typed
+input/output declarations and editor presentation, and implements the base
+contract. Graph mutations and transactions target this concrete graph owner;
+callers and dependency resolution consume the abstract contract. Keep snapshot
+creation on the owning thread and reuse the existing compile lifecycle rather
+than introducing per-subclass scheduling or runtime virtual shader execution.
+
+FunctionCall references `DMaterialFunctionInterface` through the existing asset
+reference machinery, not a concrete `DMaterialFunction` reference. Validation,
+reference enumeration, asset picking and snapshot closure use that declared base
+type, while creation offers only supported concrete types. Do not require callers
+to downcast to obtain the signature or effective compilation snapshot.
+
+The first implementation contains only `DMaterialFunction`. Reserve the base
+boundary for a future `DMaterialFunctionInstance`, but do not add instance assets,
+override storage or inherited-function semantics in this plan. This class-level
+interface is separate from the stable input/output port identities below.
+
 Reuse common node/link values, but give functions their own terminals rather than
 pretending that every function has a material Surface root.
 
@@ -209,7 +234,11 @@ no unresolved schema/default decisions block Stage 1.
 
 Depends on Stage 0.
 
-- [ ] Implement reflected function assets, typed stable interfaces, call bindings,
+- [ ] Implement the abstract DMaterialFunctionInterface asset contract and concrete
+  DMaterialFunction graph owner; call references and snapshot/dependency queries
+  use the base without concrete downcasts. Verify abstract asset creation is
+  rejected and base-typed references survive serialization and asset operations.
+- [ ] Implement typed stable interfaces, call bindings,
   snapshot closure, bounded expansion, multi-output lowering and source maps.
 - [ ] Add Surface Get/Set and validate nested numeric, texture and Surface calls.
 - [ ] Test round trips, reordered/renamed/deleted ports, recursion, missing assets,
