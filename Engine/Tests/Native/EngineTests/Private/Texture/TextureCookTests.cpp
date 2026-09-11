@@ -17,6 +17,7 @@
 #include "Texture/TextureFactoryTestSupport.h"
 #include "Hash/XxHash.h"
 #include "Materials/Material.h"
+#include "Materials/MaterialInstance.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPathTestSupport.h"
@@ -204,11 +205,26 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 		*ImportedSource;
 	const bool bPackageDirtyBeforeCook = Import.Asset->GetPackage()->IsDirty();
 
+	// Runtime sampling uses a cooked material; only its dynamic texture value is bound later.
+	Durin::FPackagePath SourceMaterialPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureCookTests/SampleMaterial", SourceMaterialPath));
+	auto* SourceMaterialPackage = Durin::CreatePackage(SourceMaterialPath);
+	ASSERT_NE(SourceMaterialPackage, nullptr);
+	auto* SourceMaterial = Durin::NewObject<Durin::DMaterial>(SourceMaterialPackage, "SampleMaterial");
+	ASSERT_TRUE(SourceMaterial->SetMaterialProgram(Durin::MakePBRMaterialProgram()));
+	ASSERT_TRUE(SourceMaterial->SetVectorParameterValue(
+		Durin::MaterialParameters::BaseColorName(), Durin::FVector3(1.0)));
+	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*SourceMaterial);
+	ASSERT_TRUE(SourceMaterial->GetMaterialCompileStatus().IsCurrent());
+	const auto ExpectedMaterialIdentity = SourceMaterial->GetAcceptedCompiledProgram()->Identity;
+
 	Durin::FCookContext First(
 		Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game);
 	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
 		*Import.Asset, "/Game/CookedTexture", First, Error)) << Error;
+	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
+		*SourceMaterial, "/Game/SampleMaterial", First, Error)) << Error;
 	ASSERT_TRUE(Durin::PublishCookContext(First, CookRoot, &Error)) << Error;
 	EXPECT_EQ(Import.Asset->GetSource().GetIdentity(), SourceIdentityBeforeCook);
 
@@ -217,6 +233,8 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 		Durin::ECookTargetProfile::Game);
 	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
 		*Import.Asset, "/Game/CookedTexture", Second, Error)) << Error;
+	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
+		*SourceMaterial, "/Game/SampleMaterial", Second, Error)) << Error;
 	ASSERT_TRUE(Durin::PublishCookContext(Second, SecondCookRoot, &Error)) << Error;
 
 	Durin::FCookContext Diagnostic(
@@ -225,6 +243,8 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 		true);
 	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
 		*Import.Asset, "/Game/CookedTexture", Diagnostic, Error)) << Error;
+	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
+		*SourceMaterial, "/Game/SampleMaterial", Diagnostic, Error)) << Error;
 	ASSERT_TRUE(Durin::PublishCookContext(Diagnostic, DiagnosticCookRoot, &Error)) << Error;
 	ASSERT_NE(Import.Asset->GetAssetImportData(), nullptr);
 	ImportedSource = Import.Asset->GetAssetImportData()->GetSourceData().FindByRole("source");
@@ -356,19 +376,26 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 			ExpectedPlatformData.Mips.front().Width);
 		TexCoord = {(Width - 0.5f) / Width, 0.0f};
 	}
-	auto* SampleMaterial =
-		Durin::NewObject<Durin::DMaterial>(nullptr, "CookedTextureSampleMaterial");
-	const auto SampleMaterialValidation = SampleMaterial->SetMaterialProgram(
-		Durin::MakePBRMaterialProgram());
-	ASSERT_TRUE(SampleMaterialValidation);
-	ASSERT_TRUE(SampleMaterial->SetVectorParameterValue(
-		Durin::MaterialParameters::BaseColorName(), Durin::FVector3(1.0)));
+	Durin::FPackagePath SampleMaterialPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/SampleMaterial", SampleMaterialPath));
+	Durin::DMaterial* CookedMaterial = nullptr;
+	const auto MaterialLoad = Durin::LoadObject(
+		Durin::Testing::MakePackageLeafAssetObjectPathForTests(SampleMaterialPath), CookedMaterial);
+	ASSERT_TRUE(MaterialLoad) << MaterialLoad.Message;
+	ASSERT_NE(CookedMaterial, nullptr);
+	ASSERT_TRUE(CookedMaterial->GetAcceptedCompiledProgram());
+	EXPECT_EQ(CookedMaterial->GetAcceptedCompiledProgram()->Identity, ExpectedMaterialIdentity);
+	ASSERT_TRUE(CookedMaterial->GetMaterialCompileStatus().IsCurrent());
+	auto* SampleMaterial = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "CookedTextureSampleInstance");
+	ASSERT_TRUE(SampleMaterial->SetParent(CookedMaterial));
+	EXPECT_EQ(SampleMaterial->GetAcceptedCompiledProgram(), CookedMaterial->GetAcceptedCompiledProgram());
+	const auto MaterialGeneration = SampleMaterial->GetMaterialCompileStatus().RequestGeneration;
 	ASSERT_TRUE(SampleMaterial->SetTextureParameterValue(
 		Durin::MaterialParameters::BaseColorTextureName(), CookedTexture));
-	Durin::DObject* SampleMaterialCompilationObject = SampleMaterial;
-	Durin::FAssetCompilingManager::Get().FinishCompilationForObjects(
-		std::span<Durin::DObject* const>(&SampleMaterialCompilationObject, 1));
-	ASSERT_TRUE(SampleMaterial->GetMaterialCompileStatus().IsCurrent());
+	EXPECT_EQ(SampleMaterial->GetMaterialCompileStatus().RequestGeneration, MaterialGeneration);
+	EXPECT_FALSE(Durin::RequestMaterialRecompile(*SampleMaterial));
+	EXPECT_FALSE(CookedMaterial->GetPackage()->IsDirty());
+
 	auto* SampleComponent =
 		Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "CookedTextureSampleMesh");
 	SampleComponent->SetStaticMesh(SampleMesh);
@@ -471,7 +498,10 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	Durin::MarkAsGarbage(SampleComponent);
 	Durin::MarkAsGarbage(SampleMesh);
 	Durin::MarkAsGarbage(SampleMaterial);
+	Durin::FlushRenderingCommands();
 	Durin::CollectGarbage();
+	ASSERT_TRUE(Durin::UnloadPackage(SampleMaterialPath));
+	CookedMaterial = nullptr;
 	ASSERT_TRUE(Durin::UnloadPackage(CookedPath));
 	CookedTexture = nullptr;
 	ASSERT_TRUE(AssetRuntime.Restore());

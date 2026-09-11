@@ -14,18 +14,18 @@ admission rejection to retire the owner's accepted renderable generation and
 publish ErrorMaterial. Pending work retains a valid prior generation. This
 updates the shared lifecycle contract without completing a stage of this plan.
 
-Prerequisite validation: the default `all` build passed, MaterialTests passed
-143/143, and the final affected selection passed 81/83 targets. Independent
-reruns reproduce the two remaining failures: MaterialVulkanTests still expects
-retained texture publications after injected allocation failure; the current
-texture path clears them. TextureCookIntegrationTests constructs an authored
-sample material after entering cooked-only runtime, where compilation is
-prohibited, then fails its readiness assertion and scene cleanup. These texture
-fixtures were not changed by this prerequisite. Evidence is under
-`Build/.agent-state/logs/`: `20260911-151707-641828-36276-cmake.log`,
+Prerequisite validation: the default `all` build passed and MaterialTests passed
+143/143. The affected selection passed 81/83 targets; the two texture fixture
+failures were then corrected and independently passed. MaterialVulkanTests (1/1)
+now rejects old thumbnail captures after allocation failure retires publication.
+TextureCookIntegrationTests (3/3) cooks its sample material before entering
+cooked-only runtime, then loads the artifact and binds the texture on a transient
+instance without compilation or package mutation. Together these runs cover all
+83 selected targets. Evidence is under `Build/.agent-state/logs/`:
+`20260911-151707-641828-36276-cmake.log`,
 `20260911-151749-246446-18452-ctest.log`,
-`20260911-152027-423811-30072-MaterialVulkanTests.log`, and
-`20260911-152055-875063-36360-TextureCookIntegrationTests.log`.
+`20260911-152543-389311-10264-MaterialVulkanTests.log`, and
+`20260911-152515-821753-36484-TextureCookIntegrationTests.log`.
 
 Selected by the user on 2026-09-11 after the RenderProxy parameter pass-through
 fix (`5b1ea1344`). This commit records the implementation proposal only; no

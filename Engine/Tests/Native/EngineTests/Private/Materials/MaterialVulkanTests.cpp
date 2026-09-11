@@ -952,13 +952,13 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			ASSERT_TRUE(Pool.GetPreviewScene().BeginCapture(Error)) << Error;
 			Durin::FlushRenderingCommands();
 			ASSERT_TRUE(Session->ValidateRevisions(Loaded.AssetRevision, Ready.ResourceRevision, Error)) << Error;
-			// A failed replacement keeps the captured thumbnail valid while its GPU allocation survives.
+			// Failed publication retires the resource and invalidates the earlier capture.
 			Durin::VulkanRHI::ArmVulkanCreateFailure(Durin::VulkanRHI::EVulkanCreateFailurePoint::Image);
 			CaptureCube->UpdateResource();
 			ASSERT_TRUE(WaitForResourcePublication([&] { return !CaptureCube->IsResourceUpdatePending(); }));
 			EXPECT_EQ(CaptureCube->GetResourceUpdateState(), Durin::ETextureResourceUpdateState::Failed);
-			EXPECT_EQ(CaptureCube->GetPublishedTexture(), Snapshot);
-			EXPECT_TRUE(Session->ValidateRevisions(Loaded.AssetRevision, Ready.ResourceRevision, Error)) << Error;
+			EXPECT_EQ(CaptureCube->GetPublishedTexture(), nullptr);
+			EXPECT_FALSE(Session->ValidateRevisions(Loaded.AssetRevision, Ready.ResourceRevision, Error));
 			CaptureCube->UpdateResource();
 			ASSERT_TRUE(WaitForResourcePublication([&] { return !CaptureCube->IsResourceUpdatePending(); }));
 			EXPECT_EQ(CaptureCube->GetTextureReferenceRHI(), CaptureCubeReference);
@@ -1010,7 +1010,8 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			TextureResult.Asset->UpdateResource();
 			ASSERT_TRUE(WaitForResourcePublication([&] { return !TextureResult.Asset->IsResourceUpdatePending(); }));
 			EXPECT_EQ(TextureResult.Asset->GetResourceUpdateState(), Durin::ETextureResourceUpdateState::Failed);
-			EXPECT_TRUE(Session->ValidateRevisions(Loaded.AssetRevision, Ready.ResourceRevision, Error)) << Error;
+			EXPECT_EQ(TextureResult.Asset->GetPublishedTexture(), nullptr);
+			EXPECT_FALSE(Session->ValidateRevisions(Loaded.AssetRevision, Ready.ResourceRevision, Error));
 			TextureResult.Asset->UpdateResource();
 			ASSERT_TRUE(WaitForResourcePublication([&] { return !TextureResult.Asset->IsResourceUpdatePending(); }));
 			EXPECT_EQ(TextureResult.Asset->GetTextureReferenceRHI(), Stable);
