@@ -47,6 +47,7 @@ namespace Durin::RoadNet
 		DPROPERTY(Edit)
 		TObjectPtr<DStaticMesh> PreviewMesh;
 
+		// Last construction result: Empty, Ready, or Error. Failure discards all generated preview output.
 		DPROPERTY(Edit, ReadOnly, Transient)
 		std::string GenerationState = "Empty";
 

@@ -5,7 +5,6 @@
 #include "DObject/Property.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Math/Operations.h"
-#include "Logging/LogMacros.h"
 
 namespace Durin::RoadNet
 {
@@ -74,19 +73,25 @@ namespace Durin::RoadNet
 
 	auto ARoadNetActor::OnNativeConstruct(FActorConstructionContext& Context, std::string& OutError) -> bool
 	{
-		if (!Super::OnNativeConstruct(Context, OutError)) return false;
 		BindAsset();
 		auto Fail = [&](std::string Message) {
+			// Construction rollback only retires new candidates; explicitly discard reused output too.
+			for (auto* Component : FindComponentsByClass<DSplineMeshComponent>())
+				if (Component->GetCreationMethod() == EComponentCreationMethod::Generated)
+					Component->DestroyComponent();
+			Alignments.clear();
 			Diagnostic = std::move(Message);
-			GenerationState = Alignments.empty() ? "Error" : "Stale";
+			GenerationState = "Error";
 			OutError = Diagnostic;
 			return false;
 		};
+		if (!Super::OnNativeConstruct(Context, OutError)) return Fail(OutError);
 		if (!RoadNet)
 		{
 			Alignments.clear();
 			GenerationState = "Empty";
 			Diagnostic.clear();
+			OutError.clear();
 			return true;
 		}
 		if (RoadNet->GetSchemaVersion() != RoadNetSchemaVersion) return Fail("Road asset has an unsupported schema.");
@@ -137,21 +142,6 @@ namespace Durin::RoadNet
 			}
 			Candidates.push_back(std::move(Alignment));
 		}
-		// Validate the complete source/deformation path on detached components before touching reused output.
-		for (const auto& Spec : Specs)
-		{
-			auto* Probe = NewObject<DSplineMeshComponent>(nullptr, FName("RoadPreflight"));
-			if (!Probe) return Fail("Preview preflight allocation failed.");
-			Probe->SetStaticMesh(PreviewMesh.Get(), false);
-			Probe->SetSplineMeshParams(Spec.Params, false);
-			Probe->UpdateMesh();
-			OutError = Probe->GetMeshUpdateError();
-			const auto State = Probe->GetDerivedState();
-			const bool Valid = OutError.empty() && State && State->IsValid();
-			if (!Valid && OutError.empty()) OutError = "Preview mesh has invalid or unavailable source geometry.";
-			Probe->DestroyComponent();
-			if (!Valid) return Fail(OutError);
-		}
 		std::vector<DSplineMeshComponent*> Components;
 		for (const auto& Spec : Specs)
 		{
@@ -166,7 +156,9 @@ namespace Durin::RoadNet
 			Component->SetStaticMesh(PreviewMesh.Get(), false);
 			Component->SetSplineMeshParams(Specs[Index].Params, false);
 			Component->UpdateMesh();
-			if (!Component->GetMeshUpdateError().empty()) return Fail(Component->GetMeshUpdateError());
+			const auto State = Component->GetDerivedState();
+			if (!State || !State->IsValid())
+				return Fail("Road preview generation failed: a spline mesh is unavailable.");
 			Component->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 			Component->SetVisible(true);
 		}

@@ -84,9 +84,14 @@ cubics; see [Spline System](SplineSystem.md).
 
 Preview meshes currently require constant left/right widths across sections.
 Generated `DSplineMeshComponent` objects remain transient, keyed derived output.
-All candidates preflight before output reuse. Failed reconstruction retains a
-last valid snapshot as Stale, or reports Error when none exists. A preview does
-not mark packages Dirty merely by regenerating.
+Road inputs are validated before output reuse; temporary SplineMesh preflight
+components are not created. SplineMesh owns update diagnostics and invalidation.
+The road actor checks published render readiness, not error strings, and reports
+an overall preview failure if a generated mesh is unavailable. Failed construction
+discards all generated preview components and alignments and reports Error;
+there is no retained Stale preview. GenerationState describes the last construction
+result (Empty, Ready, or Error), not ongoing GPU readiness. A preview does not mark
+packages Dirty merely by regenerating.
 
 ## Compatibility
 

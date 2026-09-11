@@ -87,7 +87,7 @@ TEST(RoadSceneIntegration, LoadedPreviewMeshFinishesCompilationBeforeConstructio
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
 }
 
-TEST(RoadSceneIntegration, ReuseStaleRecoveryAndDetach)
+TEST(RoadSceneIntegration, ReuseFailureCleanupRecoveryAndDetach)
 {
 	Testing::InitializeDObjectSystemForTests();
 	auto* Asset = NewObject<DRoadNet>(nullptr, "SceneRoad");
@@ -100,16 +100,20 @@ TEST(RoadSceneIntegration, ReuseStaleRecoveryAndDetach)
 	ASSERT_EQ(Actor->GetGenerationState(), "Ready") << Actor->GetDiagnostic();
 	auto Components = Actor->FindComponentsByClass<DSplineMeshComponent>();
 	ASSERT_EQ(Components.size(), 1);
-	const auto OriginalState = Components[0]->GetDerivedState();
-	const auto OriginalAlignment = Actor->GetAlignments().front();
 	ASSERT_TRUE(Actor->RequestNativeReconstruction());
 	EXPECT_EQ(Actor->FindComponentsByClass<DSplineMeshComponent>()[0], Components[0]);
 	Actor->SetPreviewMesh(nullptr);
-	EXPECT_EQ(Actor->GetGenerationState(), "Stale");
-	EXPECT_EQ(Actor->FindComponentsByClass<DSplineMeshComponent>()[0], Components[0]);
-	EXPECT_EQ(Components[0]->GetDerivedState()->DeformedLOD0Positions, OriginalState->DeformedLOD0Positions);
+	EXPECT_EQ(Actor->GetGenerationState(), "Error");
+	EXPECT_FALSE(Actor->GetDiagnostic().empty());
+	EXPECT_TRUE(Actor->FindComponentsByClass<DSplineMeshComponent>().empty());
+	EXPECT_TRUE(Actor->GetAlignments().empty());
+	EXPECT_TRUE(Components[0]->IsPendingKill());
+	EXPECT_FALSE(Actor->RequestNativeReconstruction());
 	Actor->SetPreviewMesh(Mesh);
 	ASSERT_EQ(Actor->GetGenerationState(), "Ready") << Actor->GetDiagnostic();
+	EXPECT_TRUE(Actor->GetDiagnostic().empty());
+	ASSERT_EQ(Actor->FindComponentsByClass<DSplineMeshComponent>().size(), 1);
+	EXPECT_NE(Actor->FindComponentsByClass<DSplineMeshComponent>()[0], Components[0]);
 	auto Changed = Asset->GetDefinition();
 	const auto BeforeMutation = Actor->GetAlignments().front();
 	Changed.Roads[0].Name = "Revised";
