@@ -226,17 +226,12 @@ namespace Durin
 		return Instance;
 	}
 
-	auto FAssetCompilingManager::Start(std::string* OutError) -> bool
+	auto FAssetCompilingManager::Start() -> void
 	{
-		if (!IsSupportedThread()) return SetError(OutError,
-			"Asset compiling manager must start on GameThread.");
+		requiref(IsSupportedThread(), "Asset compiling manager must start on GameThread.");
 		std::lock_guard Lock(GAssetCompilingMutex);
-		if (GRunning) return true;
-		if (GShutdown) return SetError(OutError,
-			"Asset compiling manager cannot restart after terminal shutdown.");
+		requiref(!GShutdown, "Asset compiling manager cannot restart after terminal shutdown.");
 		GRunning = true;
-		if (OutError) OutError->clear();
-		return true;
 	}
 
 	auto FAssetCompilingManager::RegisterCompiler(
@@ -479,7 +474,7 @@ namespace Durin
 	{
 		auto& Aggregate = FAssetCompilingManager::Get();
 		std::string Error;
-		if (!Aggregate.Start(&Error)) return false;
+		Aggregate.Start();
 		auto MaterialRegistration = Aggregate.RegisterCompiler({
 			.Name = FName("Durin.Material"),
 			.AssetClasses = {DMaterial::StaticClass(), DMaterialInstance::StaticClass()},

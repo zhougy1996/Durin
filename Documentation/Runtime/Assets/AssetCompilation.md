@@ -14,6 +14,11 @@ post-compile notification, and shutdown placement. It does not impose one
 typeless compiler payload, DDC key, queue, or result-application policy;
 each Engine-owned typed manager retains its values and invariants.
 
+Aggregate `Start` returns void and is idempotent while running. It requires the
+GameThread once thread identity is established and cannot run after terminal
+shutdown. Those violations are process contracts; individual compiler `Start`
+operations may still fail and return diagnostics through compiler registration.
+
 The built-in compilers are `Durin.Material`, routed from `DMaterial` and `DMaterialInstance`, and
 `Durin.Texture`, routed from `DTexture2D`, and `Durin.StaticMesh`, routed from
 `DStaticMesh`. Optional modules may register additional

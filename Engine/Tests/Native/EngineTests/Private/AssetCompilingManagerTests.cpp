@@ -25,6 +25,7 @@ namespace
 		uint32 FinishAllCount = 0;
 		uint32 ShutdownCount = 0;
 		bool bCanceled = false;
+		bool bStartSucceeds = true;
 	};
 
 	class FSyntheticManager final : public IAssetCompilingManager
@@ -33,11 +34,12 @@ namespace
 		FSyntheticManager(std::string InName, std::shared_ptr<FSyntheticState> InState)
 			: Name(std::move(InName)), State(std::move(InState)) {}
 
-		auto Start(std::string*) -> bool override
+		auto Start(std::string* OutError) -> bool override
 		{
 			++State->StartCount;
 			Record("start");
-			return true;
+			if (!State->bStartSucceeds && OutError) *OutError = "Synthetic provider startup failed.";
+			return State->bStartSucceeds;
 		}
 		auto StopAdmission() -> void override { Record("stop"); }
 		auto GetNumRemainingAssets() const -> uint64 override { return State->Remaining; }
@@ -99,7 +101,8 @@ TEST(FAssetCompilingManagerTests, RoutesClassesBatchesObjectsAndOwnsCompilerLife
 	InitializeDObjectSystem();
 	auto& Aggregate = FAssetCompilingManager::Get();
 	std::string Error;
-	ASSERT_TRUE(Aggregate.Start(&Error)) << Error;
+	Aggregate.Start();
+	EXPECT_TRUE(Aggregate.IsAcceptingRequests());
 	FModuleTestOwner Owner("AssetCompilingManagerTests.Provider");
 
 	std::vector<std::string> Calls;
@@ -133,6 +136,21 @@ TEST(FAssetCompilingManagerTests, RoutesClassesBatchesObjectsAndOwnsCompilerLife
 	ASSERT_TRUE(Derived.IsValid()) << Error;
 	EXPECT_EQ(BaseState->StartCount, 1u);
 	EXPECT_EQ(Aggregate.GetDiagnostics().CompilerCount, 2u);
+	Aggregate.Start();
+	EXPECT_EQ(Aggregate.GetDiagnostics().CompilerCount, 2u);
+	EXPECT_EQ(BaseState->StartCount, 1u);
+	EXPECT_EQ(DerivedState->StartCount, 1u);
+
+	auto FailedState = std::make_shared<FSyntheticState>();
+	FailedState->bStartSucceeds = false;
+	auto Failed = Aggregate.RegisterCompiler({
+		.Name = FName("Durin.Tests.Failed"),
+		.AssetClasses = {DMaterialInstance::StaticClass()},
+		.Manager = std::make_shared<FSyntheticManager>("failed", FailedState)}, &Error);
+	EXPECT_FALSE(Failed.IsValid());
+	EXPECT_EQ(Error, "Synthetic provider startup failed.");
+	EXPECT_EQ(Aggregate.GetDiagnostics().CompilerCount, 2u);
+	EXPECT_TRUE(Aggregate.IsAcceptingRequests());
 
 	EXPECT_FALSE(Aggregate.RegisterCompiler({
 		.Name = FName("Durin.Tests.Base"),
@@ -196,4 +214,5 @@ TEST(FAssetCompilingManagerTests, RoutesClassesBatchesObjectsAndOwnsCompilerLife
 	EXPECT_EQ(RetiredState->FinishAllCount, 1u);
 	EXPECT_EQ(RetiredState->ShutdownCount, 1u);
 	Aggregate.Shutdown();
+	EXPECT_FALSE(Aggregate.IsAcceptingRequests());
 }

@@ -36,7 +36,7 @@ namespace
 			InitializeDObjectSystem();
 			if (Durin::GetStaticMeshCompilationManagerDiagnostics().bAcceptingRequests) return;
 			auto& Aggregate = Durin::FAssetCompilingManager::Get();
-			if (!Aggregate.Start()) return;
+			Aggregate.Start();
 			Registration = Aggregate.RegisterCompiler({
 				.Name = Durin::FName("Durin.StaticMesh"),
 				.AssetClasses = {Durin::DStaticMesh::StaticClass()},

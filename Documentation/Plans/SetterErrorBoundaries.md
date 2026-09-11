@@ -4,8 +4,8 @@ Summary: Separate infallible state mutation from validation, lookup, and fallibl
 
 Last reviewed: 2026-09-11
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-09-11
 
 ## Current Status
 
@@ -17,7 +17,16 @@ Stage 3 is complete: material/update coverage in StaticMeshTests (14) and SceneI
 passed; StaticMeshThumbnailTests compiled after fixture migration.
 Stage 4 is complete: StaticMeshTests (110) and PhysicsSceneTests (43) passed, including
 invalid-input preservation and failed collision-build rollback.
-Stage 5 is next. The initial checkout was clean.
+Stage 5 is complete: AssetCompilingManagerTests passed, including idempotent startup
+and recoverable provider startup failure. MaterialTests passed seven selected
+lighting/preview cases. The default all build passed. MaterialVulkanTests and
+StaticMeshRenderPreparationVulkanTests compiled; GPU execution was not needed
+for this API migration.
+
+The requested RoadWeaver follow-up was committed independently: deferred spline
+setters now precede explicit UpdateMesh, and the test fixture uses FStaticMeshSource.
+RoadWeaverEditor built and RoadSceneIntegrationTests passed all five tests.
+The initial checkout was clean.
 
 ## Goal
 
@@ -56,8 +65,8 @@ Depends on Stage 3.
 
 Depends on Stage 4.
 
-- [ ] Convert manager startup to void if callers confirm failures are lifecycle violations; retain compiler-provider startup failures.
-- [ ] Validate manager lifecycle coverage, complete an all build for the public API migration, and commit independently.
+- [x] Convert manager startup to void if callers confirm failures are lifecycle violations; retain compiler-provider startup failures.
+- [x] Validate manager lifecycle coverage, complete an all build for the public API migration, and commit independently.
 
 ## Validation
 

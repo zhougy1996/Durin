@@ -110,7 +110,9 @@ namespace Durin
 	{
 	public:
 		ENGINE_API static auto Get() -> FAssetCompilingManager&;
-		ENGINE_API auto Start(std::string* OutError = nullptr) -> bool;
+		// GameThread only once its identity is established. Idempotent while running;
+		// restarting after terminal Shutdown violates the process lifecycle contract.
+		ENGINE_API auto Start() -> void;
 		// GameThread only. Reset the handle outside compiler callbacks before module
 		// unload; reset stops admission, finishes compilation, and shuts down the provider.
 		ENGINE_API auto RegisterCompiler(
