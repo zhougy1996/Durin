@@ -178,14 +178,28 @@ namespace Durin
 			std::vector<std::shared_ptr<FGraphParameterAllocation>> Allocations;
 		};
 
-		struct FRangeState
+		// Immutable geometry shared by analysis and execution-plan traversal.
+		struct FRangeCell final
 		{
-			FGraphUse Use;
-			ERHIAccess Access = ERHIAccess::Discard;
+			ERDGResourceKind Kind;
+			uint32 ResourceIndex;
+			FRHITextureSubresourceRange TextureRange;
+			uint64 BufferOffset;
+			uint64 BufferSize;
+		};
+
+		// Exists only while constructing dependency edges in declaration order.
+		struct FDependencyCellState final
+		{
 			bool bProduced = false;
 			uint32 Producer = std::numeric_limits<uint32>::max();
 			std::vector<uint32> Readers;
-			uint32 Version = 0;
+		};
+
+		// Fresh access history for each traversal of retained passes.
+		struct FBarrierCellState final
+		{
+			ERHIAccess Access = ERHIAccess::Discard;
 		};
 
 		struct FLoweredParameterUse final
@@ -331,18 +345,16 @@ namespace Durin
 			return EnumHasAnyFlags(Access, Writes);
 		}
 
-		auto NeedsRangeBarrier(const FRangeState& Cell, const FGraphUse& Use) -> bool
+		auto NeedsRangeBarrier(const FBarrierCellState& Cell, const FGraphUse& Use) -> bool
 		{
 			// Equal writable access still requires a memory dependency.
 			return Cell.Access != Use.Access || AccessHasWrite(Cell.Access) || Use.bDiscard;
 		}
 
-		auto AdvanceRangeState(FRangeState& Cell, const FGraphUse& Use) -> void
+		auto AdvanceBarrierState(FBarrierCellState& Cell, const FGraphUse& Use) -> void
 		{
-			if (IsWriteUse(Use.Use)) ++Cell.Version;
 			Cell.Access = Use.Kind == ERDGResourceKind::Token ? ERHIAccess::None
 				: (Use.bPassManagedTransition ? Use.ResultAccess : Use.Access);
-			Cell.bProduced = Use.bStore && (Cell.bProduced || IsWriteUse(Use.Use));
 		}
 
 		auto DescribeTexture(const FRHITexture& Texture) -> FRHITextureDesc
@@ -1043,7 +1055,7 @@ namespace Durin
 		};
 
 		// Indexes the immutable partition; state changes never change cell order or bounds.
-		struct FResourceCells final
+		struct FRangePartition final
 		{
 			struct FTextureRow final
 			{
@@ -1051,13 +1063,13 @@ namespace Durin
 				size_t Begin;
 				size_t End;
 			};
-			std::vector<FRangeState> States;
+			std::vector<FRangeCell> Ranges;
 			std::vector<size_t> Offsets;
 			std::vector<FTextureRow> TextureRows;
 			std::vector<size_t> TextureRowOffsets;
-			auto ForResource(uint32 Index) -> std::span<FRangeState>
+			auto ForResource(uint32 Index) const -> std::span<const FRangeCell>
 			{
-				return std::span(States).subspan(Offsets[Index],
+				return std::span(Ranges).subspan(Offsets[Index],
 					Offsets[Index + 1] - Offsets[Index]);
 			}
 
@@ -1069,13 +1081,13 @@ namespace Durin
 					TextureRowOffsets[Resource] = TextureRows.size();
 					for (size_t Cell = Offsets[Resource]; Cell < Offsets[Resource + 1];)
 					{
-						if (States[Cell].Use.Kind != ERDGResourceKind::Texture) break;
-						const auto& Range = States[Cell].Use.TextureRange;
+						if (Ranges[Cell].Kind != ERDGResourceKind::Texture) break;
+						const auto& Range = Ranges[Cell].TextureRange;
 						const auto Key = std::pair{Range.Aspects, Range.FirstMip};
 						const size_t Begin = Cell++;
 						while (Cell < Offsets[Resource + 1]
-							&& States[Cell].Use.TextureRange.Aspects == Key.first
-							&& States[Cell].Use.TextureRange.FirstMip == Key.second) ++Cell;
+							&& Ranges[Cell].TextureRange.Aspects == Key.first
+							&& Ranges[Cell].TextureRange.FirstMip == Key.second) ++Cell;
 						TextureRows.push_back({Key, Begin, Cell});
 					}
 				}
@@ -1086,21 +1098,21 @@ namespace Durin
 			// endpoint is a cell boundary. Binary searches therefore need only starts.
 			// The visitor preserves canonical order and stops at the first error.
 			template <typename FVisitor>
-			auto VisitUse(const FGraphUse& Use, FVisitor&& Visitor) -> FRDGResult
+			auto VisitUse(const FGraphUse& Use, FVisitor&& Visitor) const -> FRDGResult
 			{
 				auto Visit = [&](auto Begin, auto End) -> FRDGResult {
 					for (auto It = Begin; It != End; ++It)
-						if (auto Error = Visitor(*It); !Error.IsSuccess()) return Error;
+						if (auto Error = Visitor(static_cast<size_t>(&*It - Ranges.data()), *It); !Error.IsSuccess()) return Error;
 					return {};
 				};
 				auto Cells = ForResource(Use.ResourceIndex);
 				if (Use.Kind == ERDGResourceKind::Token) return Visit(Cells.begin(), Cells.end());
 				if (Use.Kind == ERDGResourceKind::Buffer)
 				{
-					auto Offset = [](const FRangeState& Cell) { return Cell.Use.BufferOffset; };
+					auto Offset = [](const FRangeCell& Cell) { return Cell.BufferOffset; };
 					const auto Begin = std::ranges::lower_bound(Cells, Use.BufferOffset, {}, Offset);
 					const auto End = std::lower_bound(Begin, Cells.end(), Use.BufferOffset + Use.BufferSize,
-						[&](const FRangeState& Cell, uint64 Value) { return Offset(Cell) < Value; });
+						[&](const FRangeCell& Cell, uint64 Value) { return Offset(Cell) < Value; });
 					return Visit(Begin, End);
 				}
 				const auto Rows = std::span(TextureRows).subspan(TextureRowOffsets[Use.ResourceIndex],
@@ -1114,11 +1126,11 @@ namespace Durin
 						{}, &FTextureRow::Key); Row != Rows.end() && Row->Key.first == Aspect
 						&& Row->Key.second < Range.FirstMip + Range.NumMips; ++Row)
 					{
-						auto Layers = std::span(States).subspan(Row->Begin, Row->End - Row->Begin);
-						auto Layer = [](const FRangeState& Cell) { return Cell.Use.TextureRange.FirstArrayLayer; };
+						auto Layers = std::span(Ranges).subspan(Row->Begin, Row->End - Row->Begin);
+						auto Layer = [](const FRangeCell& Cell) { return Cell.TextureRange.FirstArrayLayer; };
 						const auto Begin = std::ranges::lower_bound(Layers, Range.FirstArrayLayer, {}, Layer);
 						const auto End = std::lower_bound(Begin, Layers.end(), Range.FirstArrayLayer + Range.NumArrayLayers,
-							[&](const FRangeState& Cell, uint32 Value) { return Layer(Cell) < Value; });
+							[&](const FRangeCell& Cell, uint32 Value) { return Layer(Cell) < Value; });
 						if (auto Error = Visit(Begin, End); !Error.IsSuccess()) return Error;
 					}
 				}
@@ -1129,33 +1141,30 @@ namespace Durin
 		// Both compilation and lazy diagnostics consume this event stream. The caller
 		// owns the partition; no diagnostic records are retained by normal compilation.
 		template <typename FTransitionVisitor, typename FUseVisitor>
-		auto TraverseExecutionStates(FResourceCells& Cells,
+		auto TraverseExecutionStates(const FRangePartition& Cells,
 			std::span<const FGraphResource> Resources, const FGraphPassView& Passes,
 			std::span<const FRDGCompiledPass> ScheduledPasses,
 			std::span<const FRDGResourceLifetime> Lifetimes, FRangeWork* Work,
 			FTransitionVisitor&& OnTransition, FUseVisitor&& OnUse) -> FRDGResult
 		{
-			for (auto& Cell : Cells.States)
-			{
-				const auto& Resource = Resources[Cell.Use.ResourceIndex];
-				Cell.Access = Resource.InitialAccess;
-				Cell.bProduced = Resource.HasInitialContents();
-				Cell.Version = 0;
-				Cell.Readers.clear();
-			}
+			std::vector<FBarrierCellState> States(Cells.Ranges.size());
+			for (size_t Index = 0; Index < Cells.Ranges.size(); ++Index)
+				States[Index].Access = Resources[Cells.Ranges[Index].ResourceIndex].InitialAccess;
+
 			for (uint32 PassIndex = 0; PassIndex < ScheduledPasses.size(); ++PassIndex)
 			{
 				const uint32 DeclarationIndex = ScheduledPasses[PassIndex].DeclarationIndex;
 				for (const auto& Use : Passes[DeclarationIndex].Uses)
 				{
-					if (auto Error = Cells.VisitUse(Use, [&](FRangeState& Cell) -> FRDGResult
+					if (auto Error = Cells.VisitUse(Use, [&](size_t CellIndex, const FRangeCell& Range) -> FRDGResult
 					{
+						auto& Cell = States[CellIndex];
 						if (Work != nullptr && !Work->Visit()) return Work->Error();
 						auto Emit = [&](ERHIAccess Before, ERHIAccess After,
 							ERDGTransitionKind Kind, bool bDiscard) -> FRDGResult {
 							return OnTransition(FRDGTransitionCapture{Use.ResourceIndex,
-								PassIndex, Before, After, Cell.Use.TextureRange,
-								Cell.Use.BufferOffset, Cell.Use.BufferSize, false, bDiscard, Kind});
+								PassIndex, Before, After, Range.TextureRange,
+								Range.BufferOffset, Range.BufferSize, false, bDiscard, Kind});
 						};
 						if (Use.Kind != ERDGResourceKind::Token && NeedsRangeBarrier(Cell, Use))
 							if (auto Error = Emit(Cell.Access, Use.Access,
@@ -1165,22 +1174,24 @@ namespace Durin
 							if (auto Error = Emit(Use.Access, Use.ResultAccess,
 								ERDGTransitionKind::PassManaged, false); !Error.IsSuccess())
 								return Error;
-						AdvanceRangeState(Cell, Use);
-						OnUse(DeclarationIndex, Use, Cell);
+						AdvanceBarrierState(Cell, Use);
+						OnUse(DeclarationIndex, Use, CellIndex, Range);
 						return {};
 					}); !Error.IsSuccess()) return Error;
 				}
 			}
-			for (const auto& Cell : Cells.States)
+			for (size_t CellIndex = 0; CellIndex < Cells.Ranges.size(); ++CellIndex)
 			{
-				const auto& Resource = Resources[Cell.Use.ResourceIndex];
-				if (Cell.Use.Kind == ERDGResourceKind::Token
-					|| Lifetimes[Cell.Use.ResourceIndex].bCulled
+				const auto& Range = Cells.Ranges[CellIndex];
+				const auto& Cell = States[CellIndex];
+				const auto& Resource = Resources[Range.ResourceIndex];
+				if (Range.Kind == ERDGResourceKind::Token
+					|| Lifetimes[Range.ResourceIndex].bCulled
 					|| Resource.FinalAccess == ERHIAccess::None
 					|| Resource.FinalAccess == Cell.Access) continue;
-				if (auto Error = OnTransition(FRDGTransitionCapture{Cell.Use.ResourceIndex,
+				if (auto Error = OnTransition(FRDGTransitionCapture{Range.ResourceIndex,
 					std::numeric_limits<uint32>::max(), Cell.Access, Resource.FinalAccess,
-					Cell.Use.TextureRange, Cell.Use.BufferOffset, Cell.Use.BufferSize, true});
+					Range.TextureRange, Range.BufferOffset, Range.BufferSize, true});
 					!Error.IsSuccess()) return Error;
 			}
 			return {};
@@ -1323,19 +1334,16 @@ namespace Durin
 
 		auto BuildRangeCells(std::span<const FGraphResource> Resources,
 			const FResourceUseTable& ResourceUses, FRangeWork& Work,
-			FResourceCells& Result) -> FRDGResult
+			FRangePartition& Result) -> FRDGResult
 		{
-			auto& Cells = Result.States;
+			auto& Cells = Result.Ranges;
 			Result.Offsets.resize(Resources.size() + 1);
-			auto AddCell = [&](const FGraphUse& CellUse, const FGraphResource& Resource)
+			auto AddCell = [&](const FGraphUse& CellUse)
 				-> FRDGResult {
 				if (Cells.size() >= Work.Budget.MaxRangeCells)
 					return SafetyLimit("range-cells", Cells.size() + 1, Work.Budget.MaxRangeCells);
-				FRangeState Cell;
-				Cell.Use = CellUse;
-				Cell.bProduced = Resource.HasInitialContents();
-				Cell.Access = Resource.InitialAccess;
-				Cells.push_back(std::move(Cell));
+				Cells.push_back({CellUse.Kind, CellUse.ResourceIndex, CellUse.TextureRange,
+					CellUse.BufferOffset, CellUse.BufferSize});
 				return {};
 			};
 			auto Candidate = [&]() -> FRDGResult {
@@ -1352,7 +1360,7 @@ namespace Durin
 				if (Uses.empty()) continue;
 				if (Resource.Kind == ERDGResourceKind::Token)
 				{
-					if (auto Error = AddCell(*Uses.front(), Resource); !Error.IsSuccess()) return Error;
+					if (auto Error = AddCell(*Uses.front()); !Error.IsSuccess()) return Error;
 					continue;
 				}
 				if (Resource.Kind == ERDGResourceKind::Buffer)
@@ -1378,7 +1386,7 @@ namespace Durin
 						FGraphUse CellUse = *Uses.front();
 						CellUse.BufferOffset = Begin;
 						CellUse.BufferSize = Events[Index].first - Begin;
-						if (auto Error = AddCell(CellUse, Resource); !Error.IsSuccess()) return Error;
+						if (auto Error = AddCell(CellUse); !Error.IsSuccess()) return Error;
 					}
 					continue;
 				}
@@ -1446,7 +1454,7 @@ namespace Durin
 								FGraphUse CellUse = *Uses.front();
 								CellUse.TextureRange = {Aspect, Mip, Events[Index].Mip - Mip,
 									*Cut, *std::next(Cut) - *Cut};
-								if (auto Error = AddCell(CellUse, Resource); !Error.IsSuccess()) return Error;
+								if (auto Error = AddCell(CellUse); !Error.IsSuccess()) return Error;
 							}
 						}
 					}
@@ -1459,13 +1467,17 @@ namespace Durin
 
 		auto BuildHazardDependencies(FGraphPassView Passes,
 			std::span<const FGraphResource> Resources,
-			FResourceCells& Cells, FDependencyGraph& Graph, FRangeWork& Work)
+			const FRangePartition& Cells, FDependencyGraph& Graph, FRangeWork& Work)
 			-> FRDGResult
 		{
+			std::vector<FDependencyCellState> States(Cells.Ranges.size());
+			for (size_t Index = 0; Index < Cells.Ranges.size(); ++Index)
+				States[Index].bProduced = Resources[Cells.Ranges[Index].ResourceIndex].HasInitialContents();
 			for (uint32 PassIndex = 0; PassIndex < Passes.size(); ++PassIndex)
 				for (const auto& Use : Passes[PassIndex].Uses)
-					if (auto Error = Cells.VisitUse(Use, [&](FRangeState& Cell) -> FRDGResult
+					if (auto Error = Cells.VisitUse(Use, [&](size_t CellIndex, const FRangeCell&) -> FRDGResult
 					{
+						auto& Cell = States[CellIndex];
 						if (!Work.Visit()) return Work.Error();
 						const auto& Resource = Resources[Use.ResourceIndex];
 						if (Use.Use != ERDGUse::Write && !Use.bDiscard
@@ -1495,7 +1507,6 @@ namespace Durin
 							&& Cell.Producer != std::numeric_limits<uint32>::max())
 							if (auto Error = AddDependencyEdge(Graph, Cell.Producer, PassIndex,
 								Resource.Name, ERDGDependencyKind::Execution); !Error.IsSuccess()) return Error;
-						++Cell.Version;
 						Cell.Producer = Use.bStore
 							? PassIndex : std::numeric_limits<uint32>::max();
 						Cell.bProduced = Use.bStore;
@@ -2491,7 +2502,7 @@ namespace Durin
 		ValidationTimer.Stop();
 		FScopedMicrosecondTimer RangeTimer(State->Phases.RangeMicroseconds);
 		FRangeWork Work{State->Budget};
-		FResourceCells Cells;
+		FRangePartition Cells;
 		if (auto Error = BuildRangeCells(State->Resources, ResourceUses, Work, Cells);
 			!Error.IsSuccess()) return Error;
 
@@ -2618,7 +2629,7 @@ namespace Durin
 					ResourceIndices.push_back(Event.ResourceId);
 				}
 				return {};
-			}, [](uint32, const FGraphUse&, const FRangeState&) {});
+			}, [](uint32, const FGraphUse&, size_t, const FRangeCell&) {});
 		if (!TransitionError.IsSuccess()) return TransitionError;
 
 		for (uint32 ResourceIndex = 0; ResourceIndex < State->Resources.size(); ++ResourceIndex)
@@ -2729,20 +2740,22 @@ namespace Durin
 		// Reconstruct the same deterministic partition only on explicit inspection.
 		// This does not schedule, allocate, execute, or alter the compiled plan.
 		FRangeWork Work{Compiled->Budget};
-		FResourceCells Cells;
+		FRangePartition Cells;
 		const auto Error = BuildRangeCells(Compiled->Resources, ResourceUses, Work, Cells);
 		requiref(Error.IsSuccess(), "compiled RDG diagnostic partition failed: {}", Error.Message);
+		std::vector<uint32> Versions(Cells.Ranges.size(), 0);
 		const auto VisitError = TraverseExecutionStates(Cells, Compiled->Resources,
 			Passes, Compiled->Passes, Compiled->ResourceLifetimes, nullptr,
 			[&](const FRDGTransitionCapture& Event) -> FRDGResult
 			{
 				Result->Transitions.push_back(Event);
 				return {};
-			}, [&](uint32 DeclarationIndex, const FGraphUse& Use, const FRangeState& Cell)
+			}, [&](uint32 DeclarationIndex, const FGraphUse& Use, size_t CellIndex, const FRangeCell& Cell)
 			{
+				if (IsWriteUse(Use.Use)) ++Versions[CellIndex];
 				Result->Uses.push_back({DeclarationIndex, Use.ResourceIndex,
-					Use.Use, Use.Access, Cell.Use.TextureRange, Cell.Use.BufferOffset,
-					Cell.Use.BufferSize, Cell.Version, Use.bDiscard, Use.bStore,
+					Use.Use, Use.Access, Cell.TextureRange, Cell.BufferOffset,
+					Cell.BufferSize, Versions[CellIndex], Use.bDiscard, Use.bStore,
 					std::string(Use.ParameterPath), std::string(Use.ShaderBindingName),
 					Use.ShaderBindingType});
 			});
