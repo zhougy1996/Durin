@@ -7,6 +7,30 @@ Modules: RHI, VulkanRHI
 
 ## Completion Domains
 
+Context `Finalize()` seals recording and returns a uniquely owned payload; it
+does not submit native work. `FVulkanSubmissionCoordinator` is the single
+native submission entry on the existing RHI thread. Explicit flush, frame end,
+presentation, readback and bounded allocator pressure use that entry. Contexts
+never submit one another directly. Payloads carry their own reserved ticket,
+recorded storage and timing-query references, so a later reservation cannot
+change an earlier payload's completion identity. Logical submission receipts and
+ownership releases publish that recording payload's ticket, never the queue's
+latest reservation, including when multiple contexts interleave on one queue.
+Discarding an unsubmitted
+payload cancels its ticket and resets its command buffers; ambiguous native
+submission failure transfers ownership to quarantine instead of this path.
+
+The coordinator seals all participating contexts before submitting a batch.
+It validates dependency authority and success state, includes implicit queue-local
+reservation order, and constructs a deterministic topological order before native
+submission. Pending producers must belong to the same batch; missing producers
+and dependency cycles reject the batch and discard its unsubmitted payloads.
+Native submission still requires accepted producers. If a native call fails after
+earlier payloads were accepted, those earlier submissions retain their normal
+completion ownership, the ambiguous call stays quarantined, and remaining
+unsubmitted payloads are discarded. Batch validation does not roll back replayed
+resource-state metadata or GPU work already accepted by a previous batch.
+
 CPU executor serial completion and Vulkan queue completion are different
 proofs. An executor serial proves replay and release of executor storage ownership;
 it never proves that the GPU has stopped referencing native resources.
@@ -38,7 +62,7 @@ pipelines, layouts, framebuffers, descriptor objects, and other deferred
 handles retain queue-qualified retirement prerequisites. Native deletion
 conservatively captures the last reserved ticket from every physical queue;
 the default topology contains one queue. The numeric graphics token is
-retained for single-queue pool policy and diagnostic lag, not as a cross-queue
+retained for graphics-only transfer/timing policy and diagnostic lag, not as a cross-queue
 comparison. Frame number, CPU serial, cache age, and object age are
 not GPU-lifetime evidence. Present fences and semaphores remain owned by each
 viewport's frame resources because presentation completion is a distinct WSI
@@ -87,36 +111,55 @@ The device owns two bounded, persistently mapped arenas:
 
 Suballocations align to at least 16 bytes, the noncoherent atom size, the
 required copy-offset alignment, and the texture block size where applicable.
-Free intervals split and coalesce. Every live range carries the reserved token
-of the payload that records its copy; it cannot return to the free set until
-that token completes. At capacity, the context submits the current payload if
-the oldest range is only reserved, waits that exact oldest token, and retries.
-It does not grow past the cap or wait for unrelated device work.
+Free intervals split and coalesce. Each live range exposes an allocation lease
+retained by both the CPU range and its recording payload. Retiring or destroying
+the CPU range cannot free an interval while a payload still retains it. Reuse
+requires lease expiration, including after unsubmitted payload cancellation;
+failed submissions keep their leases in quarantine. Each page has physical-queue affinity;
+fully free pages may be replaced for another queue within the capacity bound.
+At capacity, CPU retirement order selects a retired range. The coordinator
+uses the range's queue-qualified ticket to locate and submit its producer if
+necessary, then waits the actual payload owners through the coordinator and
+retries. The ticket is a producer locator, not an independent reuse authority.
+Normal pressure does not wait for unrelated device work. Arena teardown
+drains submitted queues before destroying native pages.
 
 Static device-local buffer writes and texture updates use upload ranges while
 retaining the public transition/copy authority. Scoped texture readback uses a
-readback range, finalizes its producing payload, waits its exact token,
+readback range, submits its producing payload through the coordinator, waits its exact ticket,
 invalidates the range, copies exact packed bytes, and then retires the range.
 Repeated operations therefore reuse native pages without overwriting in-flight
 bytes or allocating one Vulkan buffer per operation.
 
 ## Uniform, Descriptor, Command, and Fence Reuse
 
-Dynamic uniforms keep two producer states with one 4 MiB base page each. The
-RHI thread selects a state only when every used chunk's maximum token is
-complete; if both states are pending, it waits the older exact token. Each
-producer is bounded to eight chunks, including tracked oversize chunks. Public
+Frame retirement first submits both provisioned command contexts, then captures
+the physical queue prefixes. Reusing a frame waits all of those prerequisites.
+The render-thread begin-frame flush completes that wait before resetting the
+frame's mapped storage producer, so graphics completion alone cannot authorize
+CPU overwrite while compute remains in flight.
+
+Dynamic uniforms keep two producer states with one 4 MiB base page each. Pages
+are frame-owned and conservatively inherit all queue prefixes from their frame,
+rather than a graphics-only token. The RHI thread selects a state only when
+those prerequisites retire; if both states remain busy, it waits the state
+retired earliest on the CPU. Each producer is bounded to eight chunks, including
+tracked oversize chunks. Public
 `FRHIUniformBufferRange` buffer/offset/size behavior and alignment remain
 unchanged.
 
 Descriptor allocation rotates between at most two pool batches. Every graphics
-or compute descriptor bind, including cache hits, adds its physical queue's
-reserved ticket to the active batch's retirement prerequisites. The batch can
-reset only after every queue prefix is retirement-eligible. Frame retirement
-seals the batch without substituting a graphics token for compute use. If both
-batches remain busy, allocation waits the tickets of the batch retired earliest
-on the CPU; token values from different queues are never compared. The legacy
-test token array projects graphics uses for diagnostics only.
+or compute descriptor bind, including cache hits, retains the active batch's
+allocation lease in its payload. Frame retirement drops the allocator's active
+lease; a batch can reset only after all recording and in-flight owners release
+it. Discarding an unsubmitted payload returns its lease; normal GPU completion
+returns submitted leases, and failed submissions keep them quarantined.
+The pool stores no ticket set or completion watermark. If both batches remain
+busy, the coordinator finds the actual submissions holding the oldest retired
+batch and waits their queue-qualified tickets. Unsubmitted external owners are
+rejected as a pressure wait target. This lookup is limited to pressure and
+diagnostics, not ordinary binds. The legacy test token array derives its graphics
+projection from payload ownership and never controls reuse.
 Command-context descriptor snapshots remain bounded
 and frame-local as binding caches, but clearing a snapshot never authorizes an
 in-flight native pool reset. Command buffers and submission fences return to

@@ -2,6 +2,7 @@
 
 #include "VulkanCommandBuffer.h"
 #include "VulkanDevice.h"
+#include "VulkanGPUTiming.h"
 #include "VulkanDiagnostics.h"
 #include "VulkanMemory.h"
 #include "VulkanRHIPrivate.h"
@@ -31,6 +32,12 @@ namespace Durin::VulkanRHI
 		return LastReservedToken;
 	}
 
+	auto FVulkanCompletionTracker::CancelUnsubmitted(const FRHIGPUSubmissionTicket& Ticket) -> void
+	{
+		CheckVulkanRHIThread();
+		require(Timeline.Cancel(Ticket));
+	}
+
 	auto FVulkanCompletionTracker::GetLastReservedTicket() const -> FRHIGPUSubmissionTicket
 	{
 		std::lock_guard Lock(TicketMutex);
@@ -48,7 +55,8 @@ namespace Durin::VulkanRHI
 		Submission.Token = Token;
 		Submission.Fence = Fence;
 		Submission.Payloads.assign(Payloads.begin(), Payloads.end());
-		Submission.Ticket = GetLastReservedTicket();
+		require(Payloads.size() == 1);
+		Submission.Ticket = Payloads.front()->GetTicket();
 		require(Submission.Ticket.GetPoint().Value == Token
 			&& Timeline.CanSubmit(Submission.Ticket));
 		Submissions.push_back(std::move(Submission));
@@ -216,12 +224,28 @@ namespace Durin::VulkanRHI
 		}
 	}
 
+	auto FVulkanCompletionTracker::AppendAllocationUses(const std::shared_ptr<void>& Owner,
+		FRHIRetirementPrerequisites& Uses) const -> void
+	{
+		CheckVulkanRHIThread();
+		for (const auto& Submission : Submissions)
+			for (const auto* Payload : Submission.Payloads)
+				if (std::ranges::find(Payload->AllocationOwners, Owner) != Payload->AllocationOwners.end())
+				{
+					require(Uses.Add(Submission.Ticket));
+					break;
+				}
+	}
+
 	auto FVulkanCompletionTracker::ReleaseCompleted() -> void
 	{
 		while (!Submissions.empty()
 			&& Submissions.front().Ticket.IsRetirementEligible())
 		{
 			FSubmission& Submission = Submissions.front();
+			for (FVulkanPayload* Payload : Submission.Payloads)
+				if (!Payload->TimingQueries.empty()
+					&& !Device.GetGPUTimingManager().ResolveCompleted(Payload->TimingQueries)) return;
 			for (FVulkanPayload* Payload : Submission.Payloads)
 			{
 				for (FVulkanCommandBuffer* CommandBuffer : Payload->CommandBuffers)

@@ -8,6 +8,7 @@
 #include "VulkanDevice.h"
 #include "VulkanDiagnostics.h"
 #include "VulkanContext.h"
+#include "VulkanQueue.h"
 
 namespace Durin::VulkanRHI
 {
@@ -203,29 +204,16 @@ namespace Durin::VulkanRHI
 		}
 	}
 
-	auto FVulkanDynamicUniformBufferAllocator::FProducerState::GetLastUseToken()
-		const -> FVulkanCompletionToken
-	{
-		FVulkanCompletionToken Result = 0;
-		for (const FChunk& Chunk : Chunks)
-		{
-			Result = std::max(Result, Chunk.LastUseToken);
-		}
-		return Result;
-	}
-
 	auto FVulkanDynamicUniformBufferAllocator::PrepareForProducer() -> void
 	{
 		CheckVulkanRHIThread();
 		check(ActiveProducerIndex == std::numeric_limits<uint32>::max());
-		auto& Tracker = Device.GetCompletionTracker();
-		Tracker.Poll();
-		FVulkanCompletionToken Completed = Tracker.GetCompletedToken();
+		Device.PollQueues();
 		for (uint32 Offset = 0; Offset < ProducerStates.size(); ++Offset)
 		{
 			const uint32 Index = (NextProducerIndex + Offset)
 				% static_cast<uint32>(ProducerStates.size());
-			if (ProducerStates[Index].GetLastUseToken() <= Completed)
+			if (ProducerStates[Index].Uses.IsRetirementEligible())
 			{
 				ActiveProducerIndex = Index;
 				break;
@@ -234,22 +222,20 @@ namespace Durin::VulkanRHI
 		if (ActiveProducerIndex == std::numeric_limits<uint32>::max())
 		{
 			auto Oldest = std::ranges::min_element(ProducerStates, {},
-				&FProducerState::GetLastUseToken);
-			check(Oldest != ProducerStates.end()
-				&& Oldest->GetLastUseToken() > 0);
+				&FProducerState::RetirementOrder);
+			check(Oldest != ProducerStates.end());
 			GVulkanMemoryBaselineTracker.RecordArenaWait(
 				EVulkanAllocationClassCandidate::DynamicUpload);
-			Tracker.WaitForToken(Oldest->GetLastUseToken());
-			Completed = Tracker.GetCompletedToken();
+			Device.WaitForUses(Oldest->Uses);
 			ActiveProducerIndex = static_cast<uint32>(
 				std::distance(ProducerStates.begin(), Oldest));
 		}
 		FProducerState& State = ProducerStates[ActiveProducerIndex];
-		check(State.GetLastUseToken() <= Completed && !State.Chunks.empty());
+		require(State.Uses.IsRetirementEligible() && !State.Chunks.empty());
 		State.CurrentChunkIndex = 0;
 		for (FChunk& Chunk : State.Chunks)
 		{
-			check(!Chunk.bUsed && Chunk.LastUseToken <= Completed);
+			check(!Chunk.bUsed);
 			if (Chunk.LiveRequestedBytes > 0)
 			{
 				GVulkanMemoryBaselineTracker.RecordArenaRangeReclaimed(
@@ -257,27 +243,30 @@ namespace Durin::VulkanRHI
 					Chunk.LiveRequestedBytes);
 			}
 			Chunk.Offset = 0;
-			Chunk.LastUseToken = 0;
 			Chunk.LiveRequestedBytes = 0;
 		}
 		NextProducerIndex = (ActiveProducerIndex + 1)
 			% static_cast<uint32>(ProducerStates.size());
+		State.Uses = {};
 	}
 
 	auto FVulkanDynamicUniformBufferAllocator::RetireProducer(
-		FVulkanCompletionToken Token) -> void
+		const FRHIRetirementPrerequisites& Uses) -> void
 	{
 		CheckVulkanRHIThread();
-		check(Token > 0);
 		if (ActiveProducerIndex >= ProducerStates.size())
 		{
 			return;
 		}
-		for (FChunk& Chunk : ProducerStates[ActiveProducerIndex].Chunks)
+		auto& State = ProducerStates[ActiveProducerIndex];
+		// Producer pages are frame-owned; conservatively retain every queue prefix
+		// in that frame, including compute work that consumes uploaded uniforms.
+		State.Uses = Uses;
+		State.RetirementOrder = NextRetirementOrder++;
+		for (FChunk& Chunk : State.Chunks)
 		{
 			if (Chunk.bUsed)
 			{
-				Chunk.LastUseToken = std::max(Chunk.LastUseToken, Token);
 				Chunk.bUsed = false;
 			}
 		}
@@ -364,7 +353,10 @@ namespace Durin::VulkanRHI
 		std::array<FVulkanCompletionToken, FrameInFlight> Result{};
 		for (uint32 Index = 0; Index < ProducerStates.size(); ++Index)
 		{
-			Result[Index] = ProducerStates[Index].GetLastUseToken();
+			// Graphics projection for legacy diagnostics, never a reuse authority.
+			for (const auto& Ticket : ProducerStates[Index].Uses.GetTickets())
+				if (Ticket.GetPoint().Queue == Device.GetGraphicsQueue()->GetId())
+					Result[Index] = Ticket.GetPoint().Value;
 		}
 		return Result;
 	}

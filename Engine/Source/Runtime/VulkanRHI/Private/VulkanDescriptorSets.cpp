@@ -1,6 +1,7 @@
 #include "VulkanDescriptorSets.h"
 
 #include "VulkanDevice.h"
+#include "VulkanSubmission.h"
 #include "VulkanCompletion.h"
 #include "VulkanQueue.h"
 #include "VulkanDiagnostics.h"
@@ -206,10 +207,8 @@ namespace Durin::VulkanRHI
 		}
 	}
 
-	auto FVulkanDescriptorPool::Reset(
-		const FRHIRetirementPrerequisites& Uses) -> void
+	auto FVulkanDescriptorPool::Reset() -> void
 	{
-		require(Uses.IsRetirementEligible());
 		Device->GetHandle().resetDescriptorPool(DescriptorPool);
 		GVulkanMemoryBaselineTracker.RecordDescriptorPoolReset(
 			NumAllocatedDescriptorSets);
@@ -324,7 +323,7 @@ namespace Durin::VulkanRHI
 		Device.PollQueues();
 		for (uint32 Index = 0; Index < Batches.size(); ++Index)
 		{
-			if (Batches[Index].Uses.IsRetirementEligible())
+			if (Batches[Index].Owner.expired())
 			{
 				ActiveBatchIndex = Index;
 				break;
@@ -341,31 +340,19 @@ namespace Durin::VulkanRHI
 			const auto Oldest = std::ranges::min_element(
 				Batches, {}, &FPoolBatch::RetirementOrder);
 			check(Oldest != Batches.end());
-			for (const auto& Ticket : Oldest->Uses.GetTickets())
-			{
-				if (Ticket.IsRetirementEligible()) continue;
-				auto* Queue = Device.FindQueue(Ticket.GetPoint().Queue);
-				require(Queue && Queue->GetCompletionTracker().WaitForTicket(Ticket, UINT64_MAX)
-					== ERHIGPUWaitResult::Complete);
-			}
+			Device.GetSubmissionCoordinator().WaitForAllocation(Oldest->Owner);
 			ActiveBatchIndex = static_cast<uint32>(
 				std::distance(Batches.begin(), Oldest));
 		}
 		FPoolBatch& Batch = GetActiveBatch();
-		require(Batch.Uses.IsRetirementEligible());
+		require(Batch.Owner.expired());
+		auto Owner = std::make_shared<FAllocationLease>();
 		for (const auto& Pool : Batch.Pools)
 		{
-			Pool->Reset(Batch.Uses);
+			Pool->Reset();
 		}
-		Batch.Uses = {};
-	}
-
-	auto FVulkanGlobalDescriptorPool::MarkUsed(const FRHIGPUSubmissionTicket& Ticket) -> void
-	{
-		CheckVulkanRHIThread();
-		auto* Queue = Device.FindQueue(Ticket.GetPoint().Queue);
-		require(Queue && Queue->GetCompletionTracker().Owns(Ticket));
-		require(GetActiveBatch().Uses.Add(Ticket));
+		ActiveOwner = std::move(Owner);
+		Batch.Owner = ActiveOwner;
 	}
 
 	auto FVulkanGlobalDescriptorPool::RetireUsedPools() -> void
@@ -377,6 +364,7 @@ namespace Durin::VulkanRHI
 		}
 		FPoolBatch& Batch = GetActiveBatch();
 		Batch.RetirementOrder = NextRetirementOrder++;
+		ActiveOwner.reset();
 		ActiveBatchIndex = std::numeric_limits<uint32>::max();
 	}
 
@@ -387,9 +375,13 @@ namespace Durin::VulkanRHI
 		for (uint32 Index = 0; Index < Batches.size(); ++Index)
 		{
 			// Compatibility diagnostics project graphics only; never used for reuse.
-			for (const auto& Ticket : Batches[Index].Uses.GetTickets())
-				if (Ticket.GetPoint().Queue == Device.GetGraphicsQueue()->GetId())
-					Result[Index] = Ticket.GetPoint().Value;
+			if (const auto Owner = Batches[Index].Owner.lock())
+			{
+				const auto Uses = Device.GetSubmissionCoordinator().GetAllocationUses(Owner);
+				for (const auto& Ticket : Uses.GetTickets())
+					if (Ticket.GetPoint().Queue == Device.GetGraphicsQueue()->GetId())
+						Result[Index] = Ticket.GetPoint().Value;
+			}
 		}
 		return Result;
 	}

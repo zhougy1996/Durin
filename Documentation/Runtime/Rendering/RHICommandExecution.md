@@ -252,8 +252,8 @@ No cross-queue semaphore behavior is implied by this single-queue mapping.
 
 Explicit `ReleaseQueueOwnership` and `AcquireQueueOwnership` commands retain
 shared transfer pairs through replay and route each side by its physical queue
-identity. They require an accepted producer submission before acquire replay;
-their lifetime and placement rules are defined in
+identity. Acquire can record after release without an intermediate native submit;
+the coordinator validates and orders their sealed payloads. Their lifetime and placement rules are defined in
 [RHI resource transitions](RHIResourceTransitions.md). This explicit protocol
 does not change GPU submission scope routing or enable production async compute.
 

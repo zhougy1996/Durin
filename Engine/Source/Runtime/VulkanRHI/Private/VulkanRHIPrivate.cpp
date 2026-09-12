@@ -1,4 +1,5 @@
 #include "VulkanRHIPrivate.h"
+#include "VulkanGPUTiming.h"
 #include "VulkanCreationTiming.h"
 
 #include "RHICommandList.h"
@@ -15,6 +16,7 @@
 #include "VulkanQueue.h"
 #include "VulkanQueueTransfer.h"
 #include "VulkanTexture.h"
+#include "VulkanTransferArena.h"
 
 namespace Durin::VulkanRHI
 {
@@ -401,8 +403,11 @@ namespace Durin::VulkanRHI
 		const std::array TextureTransitions{FRHITextureTransition{Texture.GetReference(), Range, ERHIAccess::TransferWrite, ERHIAccess::TransferRead}};
 		auto Transfer = std::make_shared<FVulkanQueueTransfer>(Device, SourceQueue.GetId(), DestinationQueue.GetId(),
 			BufferTransitions, TextureTransitions, bSynchronization2);
+		// A canceled later recording must not replace the release's producer ticket.
+		FVulkanCommandListContext OtherGraphics(&RHI, Device, &SourceQueue);
+		auto LaterGraphics = OtherGraphics.Finalize();
 		Graphics.ReleaseQueueOwnership(Transfer);
-		Graphics.RHISubmitCommands();
+		LaterGraphics.reset();
 		Compute.AcquireQueueOwnership(Transfer);
 		const std::array InitializeReadback{FRHIBufferTransition{Readback.GetReference(), 0, 64, ERHIAccess::None, ERHIAccess::TransferWrite}};
 		Compute.RHITransitionBuffers(InitializeReadback);
@@ -411,7 +416,8 @@ namespace Durin::VulkanRHI
 		Compute.GetCommandBuffer()->GetHandle().copyImageToBuffer(Texture->Image, vk::ImageLayout::eTransferSrcOptimal, Readback->GetHandle(), ImageCopy);
 		const std::array HostRead{FRHIBufferTransition{Readback.GetReference(), 0, 64, ERHIAccess::TransferWrite, ERHIAccess::HostRead}};
 		Compute.RHITransitionBuffers(HostRead);
-		Compute.RHISubmitCommands();
+		// Seal consumer first; the coordinator orders its still-unsubmitted release.
+		Device.GetSubmissionCoordinator().SubmitPendingContexts(&Compute);
 		const auto Completion = DestinationQueue.GetCompletionTracker().GetLastReservedTicket();
 		std::weak_ptr<FVulkanQueueTransfer> Observer = Transfer;
 		Transfer.reset();
@@ -449,34 +455,44 @@ namespace Durin::VulkanRHI
 			else Device.GetHandle().signalSemaphoreKHR(Signal);
 			bGateReleased = true;
 		};
-		auto Submit = [&](FVulkanQueue& Queue, const FRHIGPUSubmissionTicket& Wait) {
+		FVulkanTransferArena TestTransfers(Device, {
+			.AllocationClass = EVulkanAllocationClassCandidate::TransferUpload,
+			.PageSize = 256, .MaxPageCount = 1, .DebugName = "DelayedComputeTransfer"});
+		auto Submit = [&](FVulkanQueue& Queue, const FRHIGPUSubmissionTicket& Wait, std::shared_ptr<void> Owner = {}, FVulkanGPUTimingQuery* Timing = nullptr) {
 			auto& Tracker = Queue.GetCompletionTracker();
-			auto Payload = std::make_unique<FVulkanPayload>(Queue, Tracker.ReserveToken());
+			std::unique_ptr<FVulkanPayload> Payload;
+			if (Timing)
+			{
+				auto& Context = *Device.GetQueueContext(Queue.GetId());
+				require(Timing->TryReserveRecording());
+				Context.RHIBeginGPUTimingQuery(Timing);
+				Context.RHIEndGPUTimingQuery(Timing);
+				Payload = Context.Finalize();
+			}
+			else Payload = std::make_unique<FVulkanPayload>(Queue, Tracker.ReserveToken());
+			if (&Queue == &Compute)
+			{
+				auto Allocation = TestTransfers.Acquire(256, 16, Payload->GetTicket());
+				require(Allocation.Range);
+				Payload->RetainAllocation(Allocation.Range.GetAllocationOwner());
+				// Destruction before submission must preserve the payload's interval.
+			}
+			if (Owner) Payload->RetainAllocation(std::move(Owner));
 			if (Wait.GetState() != ERHIGPUSubmissionState::Invalid)
 			{
 				Payload->AddCompletionWait(Wait);
 				Payload->AddCompletionWait(Wait); // Native fan-in must deduplicate semaphore handles.
 			}
-			std::vector<FVulkanPayload*> Payloads{Payload.get()};
-			try { Queue.SubmitPayloads(Payloads); }
-			catch (...) { if (Payloads.empty()) Payload.release(); throw; }
-			Payload.release(); // The queue tracker owns accepted storage.
-			return Tracker.GetLastReservedTicket();
+			return Device.GetSubmissionCoordinator().Submit(std::move(Payload));
 		};
 		FVulkanCrossQueueWaitTestResult Result;
+		Result.bTimingSupported = Device.GetQueueFamilyProperties(Compute.GetFamilyIndex()).timestampValidBits != 0;
+		DURIN_DEBUG("Compute timestamp validation: family={}, supported={}", Compute.GetFamilyIndex(), Result.bTimingSupported);
+		auto Timing = Result.bTimingSupported ? Device.GetGPUTimingManager().CreateQuery() : nullptr;
+		require(!Result.bTimingSupported || Timing);
+		FVulkanGlobalDescriptorPool TestPools(Device);
 		try
 		{
-			const uint64 GateValue = 1;
-			const vk::PipelineStageFlags Stage = vk::PipelineStageFlagBits::eAllCommands;
-			vk::TimelineSemaphoreSubmitInfo GateTimeline;
-			GateTimeline.setWaitSemaphoreValues(GateValue);
-			vk::SubmitInfo GateSubmit;
-			GateSubmit.setPNext(&GateTimeline).setWaitSemaphores(Gate).setWaitDstStageMask(Stage);
-			Compute.GetHandle().submit(GateSubmit);
-			const auto Producer = Submit(Compute, {});
-			// Graphics completion alone must not reset a pool also used by compute.
-			const auto Independent = Submit(Graphics, {});
-			require(Graphics.GetCompletionTracker().WaitForTicket(Independent, 1'000'000'000) == ERHIGPUWaitResult::Complete);
 			const vk::DescriptorSetLayoutBinding Binding(0, vk::DescriptorType::eSampler, 1, vk::ShaderStageFlagBits::eCompute);
 			const auto Layout = Device.GetHandle().createDescriptorSetLayout(vk::DescriptorSetLayoutCreateInfo().setBindings(Binding));
 			struct FLayoutOwner
@@ -489,15 +505,38 @@ namespace Durin::VulkanRHI
 			FVulkanDescriptorRequirements Requirements;
 			Requirements.MaxSets = 1;
 			Requirements.DescriptorCounts[vk::DescriptorType::eSampler] = 1;
-			FVulkanGlobalDescriptorPool TestPools(Device);
 			TestPools.PrepareForUse();
 			require(TestPools.AllocateDescriptorSets(Layouts, Requirements).size() == 1);
-			TestPools.MarkUsed(Producer);
-			TestPools.MarkUsed(Independent);
+			const uint64 GateValue = 1;
+			const vk::PipelineStageFlags Stage = vk::PipelineStageFlagBits::eAllCommands;
+			vk::TimelineSemaphoreSubmitInfo GateTimeline;
+			GateTimeline.setWaitSemaphoreValues(GateValue);
+			vk::SubmitInfo GateSubmit;
+			GateSubmit.setPNext(&GateTimeline).setWaitSemaphores(Gate).setWaitDstStageMask(Stage);
+			Compute.GetHandle().submit(GateSubmit);
+			const auto Producer = Submit(Compute, {}, TestPools.GetAllocationOwner(), Timing.GetReference());
+			// Graphics completion alone must not reset a pool also used by compute.
+			const auto Independent = Submit(Graphics, {}, TestPools.GetAllocationOwner());
+			require(Graphics.GetCompletionTracker().WaitForTicket(Independent, 1'000'000'000) == ERHIGPUWaitResult::Complete);
+			Device.PollQueues();
+			Result.bTimingBlocked = Timing && Timing->GetResult().State == ERHIGPUTimingResultState::Pending;
+			Result.bTransferReuseBlocked = !TestTransfers.Acquire(256, 16, Producer).Range;
+			FVulkanDynamicUniformBufferAllocator TestUniforms(Device);
+			TestUniforms.PrepareForProducer();
+			const uint32 UniformData = 0x12345678;
+			FRHIUniformBufferRange FirstUniform, SecondUniform, ReusedUniform;
+			require(TestUniforms.TryAllocate(&UniformData, sizeof(UniformData), FirstUniform));
+			const auto FrameUses = Device.GetLastReservedUses();
+			TestUniforms.RetireProducer(FrameUses);
+			TestUniforms.PrepareForProducer();
+			require(TestUniforms.TryAllocate(&UniformData, sizeof(UniformData), SecondUniform));
+			Result.bUniformReuseBlocked = FirstUniform.Buffer != SecondUniform.Buffer;
+			TestUniforms.RetireProducer(FrameUses);
+			std::weak_ptr<void> PoolOwner = TestPools.GetAllocationOwner();
 			TestPools.RetireUsedPools();
 			TestPools.PrepareForUse();
-			Result.bDescriptorReuseBlocked = !TestPools.GetBatchUsesForTesting(0).IsRetirementEligible()
-				&& TestPools.GetBatchUsesForTesting(0).GetTickets().size() == 2;
+			Result.bDescriptorReuseBlocked = TestPools.IsBatchRetainedForTesting(0)
+				&& TestPools.GetActiveBatchIndexForTesting() == 1;
 			TestPools.RetireUsedPools();
 			const auto Consumer = Submit(Graphics, Producer);
 			const auto Uses = Device.GetLastReservedUses();
@@ -506,13 +545,62 @@ namespace Durin::VulkanRHI
 			Result.bConsumerBlocked = Graphics.GetCompletionTracker().WaitForTicket(Consumer, 0) == ERHIGPUWaitResult::Timeout;
 			Result.bRetirementBlocked = !Uses.IsRetirementEligible();
 			ReleaseGate();
+			Device.GetSubmissionCoordinator().WaitForAllocation(PoolOwner);
+			Result.bTimingCompleted = Timing && Timing->GetResult().State == ERHIGPUTimingResultState::Ready;
+			Result.bTransferReusedAfterCompletion = bool(TestTransfers.Acquire(256, 16, Producer).Range);
 			Result.bCompleted = Graphics.GetCompletionTracker().WaitForTicket(Consumer, 1'000'000'000) == ERHIGPUWaitResult::Complete
 				&& Compute.GetCompletionTracker().WaitForTicket(Producer, 1'000'000'000) == ERHIGPUWaitResult::Complete
 				&& Uses.IsRetirementEligible();
+			TestUniforms.PrepareForProducer();
+			require(TestUniforms.TryAllocate(&UniformData, sizeof(UniformData), ReusedUniform));
+			Result.bUniformReusedAfterCompletion = FirstUniform.Buffer == ReusedUniform.Buffer
+				&& FirstUniform.Offset == ReusedUniform.Offset;
 			TestPools.PrepareForUse();
-			Result.bDescriptorReusedAfterCompletion = TestPools.GetBatchUsesForTesting(0).GetTickets().empty();
+			Result.bDescriptorReusedAfterCompletion = TestPools.GetActiveBatchIndexForTesting() == 0;
 			require(TestPools.AllocateDescriptorSets(Layouts, Requirements).size() == 1);
 			Device.WaitUtilIdle();
+			auto MakePayload = [](FVulkanQueue& Queue) {
+				return std::make_unique<FVulkanPayload>(Queue, Queue.GetCompletionTracker().ReserveToken());
+			};
+			auto ProducerPayload = MakePayload(Compute);
+			const auto BatchProducer = ProducerPayload->GetTicket();
+			auto ConsumerPayload = MakePayload(Graphics);
+			const auto BatchConsumer = ConsumerPayload->GetTicket();
+			ConsumerPayload->AddCompletionWait(BatchProducer);
+			std::vector<std::unique_ptr<FVulkanPayload>> Batch;
+			Batch.push_back(std::move(ConsumerPayload)); // Admission order is deliberately reversed.
+			Batch.push_back(std::move(ProducerPayload));
+			Device.GetSubmissionCoordinator().SubmitBatch(std::move(Batch));
+			Result.bBatchOrdered = Graphics.GetCompletionTracker().WaitForTicket(BatchConsumer,
+				1'000'000'000) == ERHIGPUWaitResult::Complete;
+			Device.PollQueues();
+			Result.bBatchOrdered &= BatchProducer.GetState() == ERHIGPUSubmissionState::Complete;
+			Result.bBatchCycleRejected = true;
+			for (bool bSameQueue : {false, true})
+			{
+				auto First = MakePayload(Graphics);
+				auto Second = MakePayload(bSameQueue ? Graphics : Compute);
+				const auto FirstTicket = First->GetTicket(), SecondTicket = Second->GetTicket();
+				First->AddCompletionWait(SecondTicket);
+				if (!bSameQueue) Second->AddCompletionWait(FirstTicket);
+				const auto Before = Graphics.GetCompletionTracker().GetLastSubmittedToken();
+				std::vector<std::unique_ptr<FVulkanPayload>> Cycle;
+				Cycle.push_back(std::move(First)); Cycle.push_back(std::move(Second));
+				bool bRejected = false;
+				try { Device.GetSubmissionCoordinator().SubmitBatch(std::move(Cycle)); }
+				catch (const std::runtime_error&) { bRejected = true; }
+				Result.bBatchCycleRejected &= bRejected && FirstTicket.GetState() == ERHIGPUSubmissionState::Canceled
+					&& SecondTicket.GetState() == ERHIGPUSubmissionState::Canceled
+					&& Graphics.GetCompletionTracker().GetLastSubmittedToken() == Before;
+			}
+			auto Missing = MakePayload(Compute);
+			auto Dependent = MakePayload(Graphics);
+			const auto DependentTicket = Dependent->GetTicket();
+			Dependent->AddCompletionWait(Missing->GetTicket());
+			try { Device.GetSubmissionCoordinator().Submit(std::move(Dependent)); }
+			catch (const std::runtime_error&) { Result.bBatchMissingProducerRejected = true; }
+			Result.bBatchMissingProducerRejected &= DependentTicket.GetState() == ERHIGPUSubmissionState::Canceled
+				&& Missing->GetTicket().GetState() == ERHIGPUSubmissionState::Pending;
 		}
 		catch (...)
 		{
@@ -522,6 +610,67 @@ namespace Durin::VulkanRHI
 			throw;
 		}
 		Device.GetHandle().destroySemaphore(Gate);
+		return Result;
+	}
+
+	auto TestVulkanSubmissionBoundary() -> FVulkanSubmissionBoundaryTestResult
+	{
+		CheckVulkanRHIThread();
+		auto& Device = *FVulkanDynamicRHI::Get().GetDeviceForTesting();
+		auto& Context = *Device.GetImmediateContext();
+		auto& Tracker = Context.GetQueue()->GetCompletionTracker();
+		const auto Before = Tracker.GetLastSubmittedToken();
+		FVulkanSubmissionBoundaryTestResult Result;
+		{
+			// Independent contexts can interleave reservations on one physical queue.
+			// Publishing the earlier recording must not capture the later reservation.
+			Context.RHIBeginGPUSubmission({Context.GetQueue()->GetId(), {}});
+			FVulkanCommandListContext Other(&FVulkanDynamicRHI::Get(), Device, Context.GetQueue());
+			auto Later = Other.Finalize();
+			const auto Receipt = FRHIGPUSubmissionReceipt::CreatePending();
+			Context.RHIEndGPUSubmission(Receipt);
+			auto Earlier = Context.Finalize();
+			Result.bReceiptUsesRecordingTicket = Receipt.GetTicket().GetPoint() == Earlier->GetTicket().GetPoint()
+				&& Receipt.GetTicket().GetPoint() != Later->GetTicket().GetPoint();
+			Later.reset();
+			Earlier.reset();
+			Result.bReceiptUsesRecordingTicket &= Receipt.GetState() == ERHIGPUSubmissionState::Canceled;
+		}
+		auto First = Context.Finalize();
+		const auto FirstTicket = First->GetTicket();
+		auto Storage = std::make_shared<int>(1);
+		FVulkanGlobalDescriptorPool TestPools(Device);
+		TestPools.PrepareForUse();
+		Context.RetainAllocation(TestPools.GetAllocationOwner());
+		std::weak_ptr<int> Weak = Storage;
+		Context.RHISetReplayStorageOwner(Storage);
+		auto Timing = Device.GetGPUTimingManager().CreateQuery();
+		require(Timing && Timing->TryReserveRecording());
+		Context.RHIBeginGPUTimingQuery(Timing);
+		Context.RHIEndGPUTimingQuery(Timing);
+		auto Second = Context.Finalize();
+		const auto SecondTicket = Second->GetTicket();
+		Context.RHISetReplayStorageOwner({});
+		Storage.reset();
+		TestPools.RetireUsedPools();
+		Result.bAllocationRetained = TestPools.IsBatchRetainedForTesting(0);
+		Result.bSealDidNotSubmit = Tracker.GetLastSubmittedToken() == Before
+			&& FirstTicket.GetState() == ERHIGPUSubmissionState::Pending
+			&& SecondTicket.GetState() == ERHIGPUSubmissionState::Pending;
+		Result.bStorageRetained = !Weak.expired();
+		Device.GetSubmissionCoordinator().Submit(std::move(First));
+		Result.bEarlierTicketSubmitted = FirstTicket.GetState() == ERHIGPUSubmissionState::Submitted
+			&& SecondTicket.GetState() == ERHIGPUSubmissionState::Pending;
+		Second.reset();
+		Result.bDiscardCanceled = SecondTicket.GetState() == ERHIGPUSubmissionState::Canceled;
+		Result.bTimingDiscarded = Timing->GetResult().State == ERHIGPUTimingResultState::Invalid
+			&& Timing->TryReserveRecording();
+		Timing->CancelRecording();
+		Result.bStorageReleased = Weak.expired();
+		Result.bAllocationReturned = !TestPools.IsBatchRetainedForTesting(0);
+		TestPools.PrepareForUse();
+		Result.bAllocationReturned &= TestPools.GetActiveBatchIndexForTesting() == 0;
+		require(Tracker.WaitForTicket(FirstTicket, 1'000'000'000) == ERHIGPUWaitResult::Complete);
 		return Result;
 	}
 
@@ -569,7 +718,7 @@ namespace Durin::VulkanRHI
 		CheckVulkanRHIThread();
 		FVulkanDevice* Device = FVulkanDynamicRHI::Get().GetDeviceForTesting();
 		const FVulkanCompletionToken Token =
-			Device->GetImmediateContext()->Finalize();
+			Device->GetSubmissionCoordinator().SubmitContext(*Device->GetImmediateContext()).GetPoint().Value;
 		Device->GetGlobalDescriptorPool().RetireUsedPools();
 		return Token;
 	}

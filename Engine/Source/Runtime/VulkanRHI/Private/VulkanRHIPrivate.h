@@ -154,12 +154,35 @@ namespace Durin::VulkanRHI
 	};
 
 	VULKANRHI_API auto GetLastVulkanSubmissionTicketForTesting() -> FRHIGPUSubmissionTicket;
+	struct FVulkanSubmissionBoundaryTestResult
+	{
+		bool bReceiptUsesRecordingTicket = false;
+		bool bSealDidNotSubmit = false;
+		bool bEarlierTicketSubmitted = false;
+		bool bDiscardCanceled = false;
+		bool bStorageRetained = false;
+		bool bStorageReleased = false;
+		bool bAllocationRetained = false;
+		bool bAllocationReturned = false;
+		bool bTimingDiscarded = false;
+	};
+	VULKANRHI_API auto TestVulkanSubmissionBoundary() -> FVulkanSubmissionBoundaryTestResult;
 	struct FVulkanCrossQueueWaitTestResult
 	{
 		bool bConsumerBlocked = false;
 		bool bRetirementBlocked = false;
 		bool bDescriptorReuseBlocked = false;
 		bool bDescriptorReusedAfterCompletion = false;
+		bool bUniformReuseBlocked = false;
+		bool bUniformReusedAfterCompletion = false;
+		bool bTimingSupported = false;
+		bool bTimingBlocked = false;
+		bool bTimingCompleted = false;
+		bool bTransferReuseBlocked = false;
+		bool bTransferReusedAfterCompletion = false;
+		bool bBatchOrdered = false;
+		bool bBatchCycleRejected = false;
+		bool bBatchMissingProducerRejected = false;
 		bool bCompleted = false;
 		FRHIGPUCompletionPoint Producer;
 		FRHIGPUCompletionPoint Consumer;

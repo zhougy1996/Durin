@@ -39,7 +39,8 @@ namespace Durin::VulkanRHI
 		auto GetBuffer() const -> FVulkanBuffer* { return Buffer; }
 		auto GetOffset() const -> uint64 { return Offset; }
 		auto GetSize() const -> uint64 { return Size; }
-		auto GetToken() const -> FVulkanCompletionToken { return Token; }
+		auto GetTicket() const -> const FRHIGPUSubmissionTicket& { return Ticket; }
+		auto GetAllocationOwner() const -> const std::shared_ptr<void>& { return AllocationOwner; }
 		auto GetMappedPointer() const -> std::byte*;
 		auto Flush() const -> void;
 		auto Invalidate() const -> void;
@@ -53,18 +54,20 @@ namespace Durin::VulkanRHI
 		FVulkanBuffer* Buffer = nullptr;
 		uint64 Offset = 0;
 		uint64 Size = 0;
-		FVulkanCompletionToken Token = 0;
+		FRHIGPUSubmissionTicket Ticket;
+		std::shared_ptr<void> AllocationOwner;
 		bool bOversize = false;
 	};
 
 	struct FVulkanTransferAcquireResult
 	{
 		FVulkanTransferRange Range;
-		FVulkanCompletionToken WaitToken = 0;
+		FRHIGPUSubmissionTicket WaitTicket;
+		std::weak_ptr<void> WaitOwner;
 		bool bAllocationFailed = false;
 	};
 
-	// Owns bounded persistently mapped pages and recycles ranges by exact token.
+	// Owns bounded mapped pages; range reuse follows CPU and payload lease release.
 	class VULKANRHI_API FVulkanTransferArena
 	{
 	public:
@@ -76,7 +79,7 @@ namespace Durin::VulkanRHI
 			-> FVulkanTransferArena& = delete;
 
 		auto Acquire(uint64 Size, uint64 Alignment,
-			FVulkanCompletionToken Token) -> FVulkanTransferAcquireResult;
+			const FRHIGPUSubmissionTicket& Ticket) -> FVulkanTransferAcquireResult;
 		auto ReclaimCompleted() -> void;
 		auto GetConfig() const -> const FVulkanTransferArenaConfig&
 		{
@@ -95,21 +98,24 @@ namespace Durin::VulkanRHI
 		{
 			uint64 Offset = 0;
 			uint64 Size = 0;
-			FVulkanCompletionToken Token = 0;
+			FRHIGPUSubmissionTicket Ticket;
+			std::weak_ptr<void> AllocationOwner;
+			uint64 RetirementOrder = 0;
 		};
 		struct FPage
 		{
 			TRefCountPtr<FVulkanBuffer> Buffer;
+			FRHIQueueId Queue;
 			uint64 Size = 0;
 			bool bOversize = false;
 			bool bHasServedAllocation = false;
 			std::vector<FFreeRange> FreeRanges;
 			std::vector<FRetiredRange> RetiredRanges;
 		};
-		auto CreatePage(uint64 Size, bool bOversize) -> FPage*;
+		auto CreatePage(uint64 Size, bool bOversize, FRHIQueueId Queue) -> FPage*;
 		auto TryAllocateFromPage(FPage& Page, uint64 Size, uint64 Alignment,
-			FVulkanCompletionToken Token) -> FVulkanTransferRange;
-		auto GetOldestRetiredToken() const -> FVulkanCompletionToken;
+			const FRHIGPUSubmissionTicket& Ticket) -> FVulkanTransferRange;
+		auto GetOldestRetiredRange() const -> const FRetiredRange*;
 		auto Cancel(FVulkanTransferRange& Range) -> void;
 		auto Retire(FVulkanTransferRange& Range) -> void;
 		auto InsertFreeRange(FPage& Page, FFreeRange Range) -> void;
@@ -119,5 +125,6 @@ namespace Durin::VulkanRHI
 		FVulkanTransferArenaConfig Config;
 		std::vector<std::unique_ptr<FPage>> Pages;
 		std::vector<std::unique_ptr<FPage>> OversizePages;
+		uint64 NextRetirementOrder = 1;
 	};
 }

@@ -53,6 +53,16 @@ replay the same typed arguments. Vulkan lowers these records directly to
 
 ## Reflected Binding Snapshots
 
+Vulkan command contexts preserve binding state across native command-buffer
+boundaries caused by submission or allocator pressure. A new command buffer
+rebinds active graphics/compute pipelines, vertex streams and the index buffer,
+then restores recorded push-constant words with their original stage masks and
+latest-write order. Constant storage is bounded by device limits and stage masks;
+incompatible pipeline layouts or deletion of the current pipeline clear it.
+Bound vertex/index buffers have context-owned references until replaced or
+unbound. Descriptor sets and dynamic draw state continue to be applied before
+draw/dispatch by their existing authorities.
+
 Merged shader reflection is authoritative for every graphics PSO layout.
 Typed C++ parameter metadata supports scalars and fixed `std::array` resource
 members. RenderCore flattens arrays into deterministic

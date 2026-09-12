@@ -10,6 +10,7 @@ namespace Durin::VulkanRHI
 	class FVulkanCommandBuffer;
 	class FVulkanDevice;
 	class FVulkanDynamicRHI;
+	class FVulkanQueue;
 	class FVulkanGPUTimingManager;
 
 	VULKANRHI_API auto ConvertVulkanTimestampDuration(
@@ -50,7 +51,10 @@ namespace Durin::VulkanRHI
 		uint32 PageIndex = 0;
 		uint32 IntervalIndex = 0;
 		uint32 Generation = 0;
-		FVulkanCompletionToken SubmissionToken = 0;
+		FRHIQueueId RecordingQueue;
+		uint32 TimestampValidBits = 0;
+		bool bNeedsResult = false;
+		bool bSubmitted = false;
 		bool bCountedReady = false;
 		auto SetReady(uint64 DurationNanoseconds) -> void
 		{
@@ -68,13 +72,13 @@ namespace Durin::VulkanRHI
 		~FVulkanGPUTimingManager();
 
 		auto CreateQuery() -> TRefCountPtr<FVulkanGPUTimingQuery>;
-		auto Begin(FVulkanCommandBuffer& CommandBuffer,
+		auto Begin(FVulkanQueue& Queue, FVulkanCommandBuffer& CommandBuffer,
 			FVulkanGPUTimingQuery& Query) -> void;
-		auto End(FVulkanCommandBuffer& CommandBuffer,
+		auto End(FVulkanQueue& Queue, FVulkanCommandBuffer& CommandBuffer,
 			FVulkanGPUTimingQuery& Query) -> void;
-		auto MarkSubmitted(FVulkanCompletionToken Token,
-			std::span<const TRefCountPtr<FVulkanGPUTimingQuery>> Queries) -> void;
-		auto Poll() -> void;
+		auto MarkSubmitted(std::span<const TRefCountPtr<FVulkanGPUTimingQuery>> Queries) -> void;
+		auto ResolveCompleted(std::span<const TRefCountPtr<FVulkanGPUTimingQuery>> Queries) -> bool;
+		auto Discard(std::span<const TRefCountPtr<FVulkanGPUTimingQuery>> Queries) -> void;
 		auto Snapshot() const -> FVulkanGPUTimingStatistics;
 		auto ResetStatistics() -> void;
 
@@ -94,8 +98,6 @@ namespace Durin::VulkanRHI
 
 		FVulkanDevice& Device;
 		std::vector<FPage> Pages;
-		std::vector<TRefCountPtr<FVulkanGPUTimingQuery>> PendingQueries;
-		uint32 TimestampValidBits = 0;
 		double NanosecondsPerTick = 0.0;
 		FVulkanGPUTimingStatistics Statistics;
 

@@ -1,4 +1,5 @@
 #include "VulkanViewport.h"
+#include "VulkanSubmission.h"
 #include "VulkanPresentationCandidate.h"
 
 #include "RHICommandList.h"
@@ -308,7 +309,7 @@ namespace Durin::VulkanRHI
 		FVulkanSemaphore* RenderingDoneSemaphore = FrameResource.RenderingDoneSemaphore;
 		check(RenderingDoneSemaphore != nullptr);
 		InContext.AddSignalSemaphore(RenderingDoneSemaphore);
-		InContext.Finalize();
+		Device.GetSubmissionCoordinator().SubmitContext(InContext);
 		const bool bTrackPresent = Device.SupportsSwapchainMaintenance1();
 		const FVulkanPresentOutcome PresentOutcome =
 			Swapchain->Present(&InPresentQueue, RenderingDoneSemaphore, bTrackPresent ? FrameResource.PresentFence : VK_NULL_HANDLE);

@@ -1263,6 +1263,8 @@ namespace Durin
 					.SetIndex = 0, .BindingIndex = 1,
 					.Type = ERHIBindingType::StorageImage}};
 			Commands.SetShaderParameters(Shader, Parameters);
+			// A native boundary must preserve pipeline, descriptors and constants.
+			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
 			Commands.Dispatch(4, 1, 1);
 			Commands.SwitchPipeline(ERHIPipeline::None);
 			Commands.TransitionBuffers(std::array{FRHIBufferTransition{
@@ -1277,6 +1279,7 @@ namespace Durin
 			Commands.PushConstants(EShaderStageFlags::Compute, 0,
 				sizeof(Increment), &Increment);
 			Commands.SetShaderParameters(SecondShader, Parameters);
+			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
 			Commands.Dispatch(4, 1, 1);
 			Commands.SwitchPipeline(ERHIPipeline::None);
 			Commands.TransitionBuffers(std::array{FRHIBufferTransition{

@@ -8,6 +8,7 @@
 
 namespace Durin::VulkanRHI
 {
+	class FVulkanSubmissionCoordinator;
 	struct FVulkanQueueFamilyCandidate
 	{
 		vk::QueueFlags Flags;
@@ -211,6 +212,8 @@ namespace Durin::VulkanRHI
 		auto GetDeviceGeneration() const -> uint64 { return DeviceGeneration; }
 		auto FindQueue(FRHIQueueId Id) const -> FVulkanQueue*;
 		auto PollQueues() const -> void;
+		auto WaitForUses(const FRHIRetirementPrerequisites& Uses) const -> void;
+		auto GetSubmissionCoordinator() const -> FVulkanSubmissionCoordinator& { return *SubmissionCoordinator; }
 		// Conservative native-deletion floor; payload ownership retains exact users.
 		auto GetLastReservedUses() const -> FRHIRetirementPrerequisites;
 
@@ -334,6 +337,7 @@ namespace Durin::VulkanRHI
 
 		FVulkanCommandListContext* ImmediateContext = nullptr;
 		FVulkanCommandListContext* ComputeContext = nullptr;
+		std::unique_ptr<FVulkanSubmissionCoordinator> SubmissionCoordinator;
 
 		EGpuVendorId VendorId = EGpuVendorId::Unknown;
 

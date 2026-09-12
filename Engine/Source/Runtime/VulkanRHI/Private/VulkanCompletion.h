@@ -18,6 +18,7 @@ namespace Durin::VulkanRHI
 		FVulkanCompletionTracker(FVulkanDevice& InDevice, uint64 InDeviceGeneration, FRHIQueueId InQueue);
 
 		auto ReserveToken() -> FVulkanCompletionToken;
+		auto CancelUnsubmitted(const FRHIGPUSubmissionTicket& Ticket) -> void;
 		// Allocate ownership storage before vkQueueSubmit; commit never allocates.
 		auto PrepareSubmission(FVulkanCompletionToken Token, FVulkanFence* Fence,
 			std::span<FVulkanPayload* const> Payloads) -> void;
@@ -33,6 +34,7 @@ namespace Durin::VulkanRHI
 		auto Poll() -> void;
 		auto WaitForToken(FVulkanCompletionToken Token) -> void;
 		auto WaitForAll() -> void;
+		auto AppendAllocationUses(const std::shared_ptr<void>& Owner, FRHIRetirementPrerequisites& Uses) const -> void;
 
 		auto GetLastSubmittedToken() const -> FVulkanCompletionToken;
 		auto GetLastReservedToken() const -> FVulkanCompletionToken;

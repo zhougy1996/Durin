@@ -1,6 +1,7 @@
 #pragma once
 
 #include "RHIResources.h"
+#include "RHICompletion.h"
 #include "VulkanMemory.h"
 #include "VulkanResourceState.h"
 
@@ -59,9 +60,9 @@ namespace Durin::VulkanRHI
 
 		~FVulkanDynamicUniformBufferAllocator();
 
-		// Selects a producer state only after every used page token has completed.
+		// Selects a producer only after its prior frame's queue prefixes retire.
 		auto PrepareForProducer() -> void;
-		auto RetireProducer(FVulkanCompletionToken Token) -> void;
+		auto RetireProducer(const FRHIRetirementPrerequisites& Uses) -> void;
 
 		auto TryAllocate(
 			const void* Data,
@@ -80,7 +81,6 @@ namespace Durin::VulkanRHI
 		{
 			TRefCountPtr<FVulkanBuffer> Buffer;
 			uint32 Offset = 0;
-			FVulkanCompletionToken LastUseToken = 0;
 			bool bUsed = false;
 			bool bHasServedAllocation = false;
 			uint64 LiveRequestedBytes = 0;
@@ -91,7 +91,8 @@ namespace Durin::VulkanRHI
 		{
 			std::vector<FChunk> Chunks;
 			uint32 CurrentChunkIndex = 0;
-			auto GetLastUseToken() const -> FVulkanCompletionToken;
+			FRHIRetirementPrerequisites Uses;
+			uint64 RetirementOrder = 0;
 		};
 
 		auto CreateChunk(uint32 MinSize) -> FChunk;
@@ -105,6 +106,7 @@ namespace Durin::VulkanRHI
 		std::array<FProducerState, FrameInFlight> ProducerStates;
 		uint32 ActiveProducerIndex = std::numeric_limits<uint32>::max();
 		uint32 NextProducerIndex = 0;
+		uint64 NextRetirementOrder = 1;
 
 	};
 

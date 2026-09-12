@@ -243,7 +243,6 @@ namespace Durin::VulkanRHI
 			Args.FrameNumber % FrameInFlight);
 		GVulkanMemoryBaselineTracker.BeginFrame();
 		Device->PollQueues();
-		Device->GetGPUTimingManager().Poll();
 		Device->SetCurrentFrameIndex(FrameIndex);
 		FVulkanFrame& Frame = Device->GetCurrentFrame();
 		Frame.Prepare();
@@ -289,10 +288,8 @@ namespace Durin::VulkanRHI
 	{
 		CheckVulkanRHIThread();
 		Device->GetImmediateContext()->RHIEndFrame();
-		const FVulkanCompletionToken Token =
-			Device->GetCompletionTracker().GetLastSubmittedToken();
 		Device->GetGlobalDescriptorPool().RetireUsedPools();
-		Device->GetDynamicUniformBufferAllocator().RetireProducer(Token);
+		Device->GetDynamicUniformBufferAllocator().RetireProducer(Device->GetLastReservedUses());
 		Device->PollQueues();
 		Device->GetDeferredDeletionQueue().ReleaseResources();
 	}

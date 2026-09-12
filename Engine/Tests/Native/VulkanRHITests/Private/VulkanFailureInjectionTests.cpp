@@ -716,6 +716,15 @@ namespace Durin::VulkanRHI
 		Immediate.EndDiagnosticRegion();
 		Immediate.ImmediateFlush(EImmediateFlushType::FlushRHIThread,
 			ERHISubmitFlags::SubmitToGPU);
+		GCommandListExecutor.ExecuteSynchronousOperation(false, [] {
+			auto* Context = GDynamicRHI->RHIGetDefaultContext();
+			Context->RHIBeginDiagnosticRegion("NativeOuter");
+			Context->RHIBeginDiagnosticRegion("NativeInner");
+			Context->RHISubmitCommands();
+			Context->RHIEndDiagnosticRegion();
+			Context->RHIEndDiagnosticRegion();
+			Context->RHISubmitCommands();
+		});
 
 		const std::vector<FVulkanDebugUtilsTestEvent> Events =
 			GetVulkanDebugUtilsEventsForTest();
@@ -738,7 +747,9 @@ namespace Durin::VulkanRHI
 				LabelEvents.emplace_back("End");
 		}
 		EXPECT_EQ(LabelEvents, (std::vector<std::string>{
-			"Begin:Stage2Outer", "Begin:Stage2Inner", "End", "End"}));
+			"Begin:Stage2Outer", "Begin:Stage2Inner", "End", "End",
+			"Begin:NativeOuter", "Begin:NativeInner", "End", "End",
+			"Begin:NativeOuter", "Begin:NativeInner", "End", "End"}));
 
 		ResetVulkanDebugUtilsEventsForTest();
 		FRHITextureCreateDesc RenderTargetDesc = FRHITextureCreateDesc::Create2D(

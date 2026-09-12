@@ -254,7 +254,7 @@ namespace Durin::VulkanRHI
 		auto GetDescriptorCapacity(vk::DescriptorType Type) const -> uint32;
 		auto CanAllocate(const FVulkanDescriptorRequirements& Requirements) const -> bool;
 		auto CommitAllocation(const FVulkanDescriptorRequirements& Requirements) -> void;
-		auto Reset(const FRHIRetirementPrerequisites& Uses) -> void;
+		auto Reset() -> void;
 
 	private:
 		FVulkanDevice* Device;
@@ -292,18 +292,18 @@ namespace Durin::VulkanRHI
 		) -> std::vector<vk::DescriptorSet>;
 
 		auto PrepareForUse() -> void;
-		auto MarkUsed(const FRHIGPUSubmissionTicket& Ticket) -> void;
+		auto GetAllocationOwner() const -> std::shared_ptr<void> { require(ActiveOwner); return ActiveOwner; }
 		auto RetireUsedPools() -> void;
 		auto GetBatchTokensForTesting() const
 			-> std::array<FVulkanCompletionToken, FrameInFlight>;
-		auto GetBatchUsesForTesting(uint32 Index) const -> const FRHIRetirementPrerequisites&
-		{ return Batches.at(Index).Uses; }
+		auto IsBatchRetainedForTesting(uint32 Index) const -> bool { return !Batches.at(Index).Owner.expired(); }
+		auto GetActiveBatchIndexForTesting() const -> uint32 { return ActiveBatchIndex; }
 
 	private:
 		struct FPoolBatch
 		{
 			std::vector<std::unique_ptr<FVulkanDescriptorPool>> Pools;
-			FRHIRetirementPrerequisites Uses;
+			std::weak_ptr<void> Owner;
 			uint64 RetirementOrder = 0;
 			uint32 ExpansionCount = 0;
 		};
@@ -315,6 +315,8 @@ namespace Durin::VulkanRHI
 		std::vector<FPoolBatch> Batches;
 		uint32 ActiveBatchIndex = std::numeric_limits<uint32>::max();
 		uint64 NextRetirementOrder = 1;
+		struct FAllocationLease {};
+		std::shared_ptr<void> ActiveOwner;
 	};
 } // namespace Durin::VulkanRHI
 

@@ -87,10 +87,38 @@ namespace Durin::VulkanRHI
 			EXPECT_TRUE(Result.bRetirementBlocked);
 			EXPECT_TRUE(Result.bDescriptorReuseBlocked);
 			EXPECT_TRUE(Result.bDescriptorReusedAfterCompletion);
+			EXPECT_TRUE(Result.bTransferReuseBlocked);
+			EXPECT_TRUE(Result.bTransferReusedAfterCompletion);
+			EXPECT_TRUE(Result.bBatchOrdered);
+			EXPECT_TRUE(Result.bBatchCycleRejected);
+			EXPECT_TRUE(Result.bBatchMissingProducerRejected);
+			EXPECT_TRUE(Result.bUniformReuseBlocked);
+			EXPECT_TRUE(Result.bUniformReusedAfterCompletion);
+			if (Result.bTimingSupported)
+			{
+				EXPECT_TRUE(Result.bTimingBlocked);
+				EXPECT_TRUE(Result.bTimingCompleted);
+			}
 			EXPECT_TRUE(Result.bCompleted);
 			EXPECT_NE(Result.Producer.Queue, Result.Consumer.Queue);
 			EXPECT_EQ(Result.Producer.DeviceGeneration, Result.Consumer.DeviceGeneration);
 		}
+	}
+
+	TEST(FVulkanCompletionIntegrationTests, SealingOwnsRecordingWithoutSubmittingAndDiscardCancels)
+	{
+		FInlineRHITestScope Scope;
+		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
+		const auto Result = TestVulkanSubmissionBoundary();
+		EXPECT_TRUE(Result.bReceiptUsesRecordingTicket);
+		EXPECT_TRUE(Result.bSealDidNotSubmit);
+		EXPECT_TRUE(Result.bEarlierTicketSubmitted);
+		EXPECT_TRUE(Result.bDiscardCanceled);
+		EXPECT_TRUE(Result.bStorageRetained);
+		EXPECT_TRUE(Result.bStorageReleased);
+		EXPECT_TRUE(Result.bAllocationRetained);
+		EXPECT_TRUE(Result.bAllocationReturned);
+		EXPECT_TRUE(Result.bTimingDiscarded);
 	}
 
 	TEST(FVulkanCompletionIntegrationTests, SameFamilyComputeQueueWaitsForNativeTimelineSignal)
@@ -347,29 +375,49 @@ namespace Durin::VulkanRHI
 
 		// A small independent arena makes alignment, holes, cap exhaustion,
 		// oversize fallback, cancellation, and allocation failure deterministic.
+		auto& Recording = FRHICommandListImmediate::Get();
+		const auto Signal = Recording.BeginGPUSubmission({.Queue = GDynamicRHI->RHIGetQueueCapabilities().Graphics});
+		Recording.EndGPUSubmission();
+		Recording.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+		const auto Ticket = Signal.GetTicket();
 		{
 			FVulkanTransferArena Arena(*Device, {
 				.AllocationClass = EVulkanAllocationClassCandidate::TransferUpload,
 				.PageSize = 256,
 				.MaxPageCount = 1,
 				.DebugName = "TransferArenaUnitPage"});
-			auto First = Arena.Acquire(48, 64, 1);
-			auto Middle = Arena.Acquire(64, 64, 1);
-			auto Tail = Arena.Acquire(64, 64, 1);
+			auto First = Arena.Acquire(48, 64, Ticket);
+			auto Middle = Arena.Acquire(64, 64, Ticket);
+			auto Tail = Arena.Acquire(64, 64, Ticket);
 			ASSERT_TRUE(First.Range && Middle.Range && Tail.Range);
 			EXPECT_EQ(First.Range.GetOffset(), 0u);
 			EXPECT_EQ(Middle.Range.GetOffset(), 64u);
 			EXPECT_EQ(Tail.Range.GetOffset(), 128u);
 			Middle.Range = {};
-			auto Fragmented = Arena.Acquire(96, 16, 1);
+			auto Fragmented = Arena.Acquire(96, 16, Ticket);
 			EXPECT_FALSE(Fragmented.Range);
-			EXPECT_EQ(Fragmented.WaitToken, 0u);
-			auto ReusedHole = Arena.Acquire(64, 16, 1);
+			EXPECT_EQ(Fragmented.WaitTicket.GetState(), ERHIGPUSubmissionState::Invalid);
+			auto ReusedHole = Arena.Acquire(64, 16, Ticket);
 			ASSERT_TRUE(ReusedHole.Range);
 			EXPECT_EQ(ReusedHole.Range.GetOffset(), 48u);
-			auto Oversize = Arena.Acquire(320, 64, 1);
+			auto Oversize = Arena.Acquire(320, 64, Ticket);
 			ASSERT_TRUE(Oversize.Range);
 			EXPECT_EQ(Oversize.Range.GetOffset(), 0u);
+		}
+		{
+			FVulkanTransferArena Arena(*Device, {
+				.AllocationClass = EVulkanAllocationClassCandidate::TransferUpload,
+				.PageSize = 128, .MaxPageCount = 1, .DebugName = "TransferLeaseRetention"});
+			auto Allocation = Arena.Acquire(128, 16, Ticket);
+			ASSERT_TRUE(Allocation.Range);
+			auto Lease = Allocation.Range.GetAllocationOwner();
+			Allocation.Range = {};
+			Recording.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
+			ASSERT_EQ(GDynamicRHI->RHIWaitForCompletion(Ticket, 1'000'000'000), ERHIGPUWaitResult::Complete);
+			// Completion alone cannot reclaim storage retained outside the submission.
+			EXPECT_FALSE(Arena.Acquire(128, 16, Ticket).Range);
+			Lease.reset();
+			EXPECT_TRUE(Arena.Acquire(128, 16, Ticket).Range);
 		}
 		{
 			FVulkanTransferArena FailingArena(*Device, {
@@ -378,7 +426,7 @@ namespace Durin::VulkanRHI
 				.MaxPageCount = 1,
 				.DebugName = "TransferArenaFailure"});
 			ArmVulkanCreateFailure(EVulkanCreateFailurePoint::Buffer);
-			auto Failed = FailingArena.Acquire(64, 16, 1);
+			auto Failed = FailingArena.Acquire(64, 16, Ticket);
 			EXPECT_TRUE(Failed.bAllocationFailed);
 			EXPECT_FALSE(Failed.Range);
 		}

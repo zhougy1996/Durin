@@ -6,7 +6,7 @@ and diagnostic shutdown ownership.
 
 Modules: RHI, VulkanRHI, RenderCore, ApplicationCore
 
-Last reviewed: 2026-09-10
+Last reviewed: 2026-09-12
 
 ## Diagnostic Configuration and Lifetime
 
@@ -54,6 +54,13 @@ increments the saturating invalid-region observation. Render-pass and internal
 transfer labels nest inside public regions; every successful begin owns one
 matching end.
 
+Public command-list flush admission requires closed diagnostic and timing
+regions. Internal Vulkan submissions during replay may split a native command
+buffer: the context closes its native diagnostic labels before sealing and
+reopens their owned names in nesting order on the next command buffer. Logical
+region scope remains open until the recorded end; native label statistics count
+the actual close/reopen operations.
+
 ## GPU Timing
 
 The immutable capability snapshot publishes `bSupportsGPUTimestamps` and
@@ -71,19 +78,25 @@ recording or pending. `RHIGetGPUTimingResult` is a const, nonblocking read with
 waits, resets a query, or changes ordering.
 
 After replay records an interval end, the Vulkan command context retains the
-query until GPU submission transfers ownership to the timing manager. That
-manager retains it through completion. Dropping the caller's reference between
-CPU replay and native submission is valid; neither the context nor the manager
-may rely on a raw pointer across that ownership boundary.
+query until context finalization transfers ownership to its submission payload.
+The physical queue's completion tracker retains that payload through completion
+and resolves its queries before releasing it. Dropping the caller's reference
+between CPU replay and native submission is valid. Discarding an unsubmitted
+payload invalidates its intervals and permits recording them again; failed
+submissions retain their query owners in quarantine until device shutdown.
 
 Vulkan lazily allocates at most twenty pages of 64 intervals (128 timestamp
 slots per page, 1,280 live intervals total). Each pair is reset and written in
-its recording command buffer, associated with the exact submission token, and
-polled without a wait flag only after that token completes. Slot reuse requires
+its recording command buffer, retained by the exact submission payload, and
+read without a wait flag only after that payload's queue ticket completes.
+The timing manager owns query slots, conversion and statistics; it does not
+maintain a separate completion timeline or pending-query owner list. Slot reuse requires
 completion and a released query generation. Exhaustion fails without waiting;
 page-creation failure publishes no partial page.
 
-Timestamp subtraction masks both samples to the selected queue width and uses
+Each interval captures its recording queue's timestamp width and requires its
+end on the same physical queue. Timestamp subtraction masks both samples to
+that width and uses
 modular unsigned subtraction. Conversion multiplies once in extended precision,
 rounds to the nearest nanosecond, and saturates on overflow. Native ticks,
 query-pool handles, and queue properties remain backend-private.

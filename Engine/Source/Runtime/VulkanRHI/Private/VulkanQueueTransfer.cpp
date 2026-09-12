@@ -182,7 +182,8 @@ namespace Durin::VulkanRHI
 		require(State->Phase == FState::EPhase::Released && Queue.GetId() == State->Destination);
 		require(State->Device.FindQueue(Queue.GetId()) == &Queue);
 		const auto Status = State->Signal.GetState();
-		require(Status == ERHIGPUSubmissionState::Submitted || Status == ERHIGPUSubmissionState::Complete);
+		require(Status == ERHIGPUSubmissionState::Pending
+			|| Status == ERHIGPUSubmissionState::Submitted || Status == ERHIGPUSubmissionState::Complete);
 		const auto SourceFamily = State->Device.FindQueue(State->Source)->GetFamilyIndex();
 		const auto DestinationFamily = Queue.GetFamilyIndex();
 		std::unordered_map<FVulkanBuffer*, FVulkanBufferStateTracker> BufferStates;

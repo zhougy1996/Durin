@@ -1,5 +1,6 @@
 #include "VulkanCreationTiming.h"
 #include "VulkanTexture.h"
+#include "VulkanSubmission.h"
 
 #include "RHICommandList.h"
 #include "VulkanBuffer.h"
@@ -775,9 +776,11 @@ namespace Durin::VulkanRHI
 			ERHIAccess::TransferWrite, ERHIAccess::HostRead}};
 		Context.RHITransitionBuffers(HostTransition);
 
-		const FVulkanCompletionToken ProducingToken = Context.Finalize();
-		check(ProducingToken == Readback.GetToken());
-		Device->GetCompletionTracker().WaitForToken(ProducingToken);
+		const auto ProducingTicket = Device->GetSubmissionCoordinator().SubmitContext(Context);
+		check(ProducingTicket.GetPoint() == Readback.GetTicket().GetPoint());
+		FRHIRetirementPrerequisites ReadbackUses;
+		require(ReadbackUses.Add(Readback.GetTicket()));
+		Device->WaitForUses(ReadbackUses);
 		Readback.Invalidate();
 		const auto* MappedData = Readback.GetMappedPointer();
 		if (MappedData == nullptr)

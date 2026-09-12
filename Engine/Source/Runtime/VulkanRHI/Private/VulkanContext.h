@@ -131,8 +131,10 @@ namespace Durin::VulkanRHI
 		auto NotifyDeleted_ComputePipeline(
 			FVulkanComputePipelineState* PipelineState) -> void;
 
-		// Submit and reset context
-		auto Finalize() -> FVulkanCompletionToken;
+		// Seals and transfers ownership; native submission is coordinator-owned.
+		auto Finalize() -> std::unique_ptr<FVulkanPayload>;
+		auto HasPendingCommands() const -> bool { return !Payloads.empty(); }
+		auto RetainAllocation(std::shared_ptr<void> Owner) -> void;
 		auto AcquireTransferRange(EVulkanAllocationClassCandidate AllocationClass,
 			uint64 Size, uint64 Alignment) -> FVulkanTransferRange;
 
@@ -153,19 +155,28 @@ namespace Durin::VulkanRHI
 
 		std::unique_ptr<FVulkanPendingGraphicsState> PendingGfxState;
 		std::unique_ptr<FVulkanPendingComputeState> PendingComputeState;
+		struct FPushConstantWord
+		{
+			EShaderStageFlags Stages;
+			uint32 Offset;
+			std::array<std::byte, 4> Data;
+		};
+		std::vector<FPushConstantWord> GraphicsPushConstants;
+		std::vector<FPushConstantWord> ComputePushConstants;
 
 		struct FBoundVertexBuffer
 		{
-			FRHIBuffer* Buffer = nullptr;
+			TRefCountPtr<FRHIBuffer> Buffer;
 			uint32 Offset = 0;
 		};
 		std::unordered_map<uint32, FBoundVertexBuffer> BoundVertexBuffers;
-		FRHIBuffer* BoundIndexBuffer = nullptr;
+		TRefCountPtr<FRHIBuffer> BoundIndexBuffer;
 		uint32 BoundIndexBufferOffset = 0;
 
 		std::vector<FVulkanPayload*> Payloads;
 		std::shared_ptr<void> ReplayStorageOwner;
 		bool bInsideGPUSubmission = false;
+		std::vector<std::string> DiagnosticRegions;
 		// Own recorded intervals until submission transfers them to the timing
 		// manager; the caller may release its query after recording ends.
 		std::vector<TRefCountPtr<FVulkanGPUTimingQuery>> PendingTimingQueries;

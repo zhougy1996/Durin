@@ -12,8 +12,7 @@ namespace Durin::VulkanRHI
 	auto PollVulkanGPUTimingForTest(FVulkanDynamicRHI& RHI) -> void
 	{
 		auto& Device = *RHI.GetDeviceForTesting();
-		Device.GetCompletionTracker().Poll();
-		Device.GetGPUTimingManager().Poll();
+		Device.PollQueues();
 	}
 
 	auto GetVulkanGPUTimingStatisticsForTest(FVulkanDynamicRHI& RHI)
@@ -65,15 +64,12 @@ namespace Durin::VulkanRHI
 	FVulkanGPUTimingManager::FVulkanGPUTimingManager(FVulkanDevice& InDevice)
 		: Device(InDevice)
 	{
-		const uint32 Family = Device.GetGraphicsQueue()->GetFamilyIndex();
-		TimestampValidBits =
-			Device.GetQueueFamilyProperties(Family).timestampValidBits;
 		NanosecondsPerTick = Device.GetGpuProperties().limits.timestampPeriod;
 	}
 
 	FVulkanGPUTimingManager::~FVulkanGPUTimingManager()
 	{
-		check(PendingQueries.empty());
+		check(Statistics.PendingIntervals == 0);
 		for (const FPage& Page : Pages)
 		{
 			check(Page.Used.none());
@@ -160,9 +156,12 @@ namespace Durin::VulkanRHI
 		}
 	}
 
-	auto FVulkanGPUTimingManager::Begin(FVulkanCommandBuffer& CommandBuffer,
+	auto FVulkanGPUTimingManager::Begin(FVulkanQueue& Queue, FVulkanCommandBuffer& CommandBuffer,
 		FVulkanGPUTimingQuery& Query) -> void
 	{
+		Query.TimestampValidBits = Device.GetQueueFamilyProperties(Queue.GetFamilyIndex()).timestampValidBits;
+		require(Query.TimestampValidBits > 0 && !Query.bNeedsResult);
+		Query.RecordingQueue = Queue.GetId();
 		if (Query.bCountedReady)
 		{
 			Query.bCountedReady = false;
@@ -176,60 +175,74 @@ namespace Durin::VulkanRHI
 			vk::PipelineStageFlagBits::eTopOfPipe, Page.Handle, First);
 	}
 
-	auto FVulkanGPUTimingManager::End(FVulkanCommandBuffer& CommandBuffer,
+	auto FVulkanGPUTimingManager::End(FVulkanQueue& Queue, FVulkanCommandBuffer& CommandBuffer,
 		FVulkanGPUTimingQuery& Query) -> void
 	{
+		require(Query.RecordingQueue == Queue.GetId());
 		FPage& Page = Pages[Query.PageIndex];
 		CommandBuffer.GetHandle().writeTimestamp(
 			vk::PipelineStageFlagBits::eBottomOfPipe, Page.Handle,
 			Query.IntervalIndex * 2 + 1);
 		check(Query.CommitRecording());
+		Query.bNeedsResult = true;
 	}
 
-	auto FVulkanGPUTimingManager::MarkSubmitted(FVulkanCompletionToken Token,
+	auto FVulkanGPUTimingManager::MarkSubmitted(
 		std::span<const TRefCountPtr<FVulkanGPUTimingQuery>> Queries) -> void
 	{
 		for (const auto& Query : Queries)
 		{
-			Query->SubmissionToken = Token;
-			PendingQueries.emplace_back(Query);
+			require(Query->bNeedsResult && !Query->bSubmitted);
+			Query->bSubmitted = true;
 			++Statistics.PendingIntervals;
 		}
 	}
 
-	auto FVulkanGPUTimingManager::Poll() -> void
+	auto FVulkanGPUTimingManager::ResolveCompleted(std::span<const TRefCountPtr<FVulkanGPUTimingQuery>> Queries) -> bool
 	{
-		const FVulkanCompletionToken Completed =
-			Device.GetCompletionTracker().GetCompletedToken();
-		auto NewEnd = std::remove_if(PendingQueries.begin(), PendingQueries.end(),
-			[&](const TRefCountPtr<FVulkanGPUTimingQuery>& Query) {
-				if (Query->SubmissionToken > Completed) return false;
-				++Statistics.ResultPollCount;
-				const FPage& Page = Pages[Query->PageIndex];
-				std::array<uint64, 2> Values{};
-				const VkResult Result = vkGetQueryPoolResults(
-					static_cast<VkDevice>(Device.GetHandle()),
-					static_cast<VkQueryPool>(Page.Handle), Query->IntervalIndex * 2, 2,
-					sizeof(Values), Values.data(), sizeof(uint64), VK_QUERY_RESULT_64_BIT);
-				if (Result == VK_NOT_READY) return false;
-				if (Result != VK_SUCCESS)
-				{
-					Query->SetInvalid();
-					--Statistics.PendingIntervals;
-					return true;
-				}
-				bool bOverflow = false;
-				Query->SetReady(ConvertVulkanTimestampDuration(
-					Values[0], Values[1], TimestampValidBits,
-					NanosecondsPerTick, bOverflow));
-				--Statistics.PendingIntervals;
-				++Statistics.ReadyIntervals;
-				++Statistics.ReadyResultCount;
-				if (bOverflow) ++Statistics.ConversionOverflowCount;
-				Query->bCountedReady = true;
-				return true;
-			});
-		PendingQueries.erase(NewEnd, PendingQueries.end());
+		bool bResolved = true;
+		for (const auto& Query : Queries)
+		{
+			if (!Query->bNeedsResult) continue;
+			require(Query->bSubmitted);
+			++Statistics.ResultPollCount;
+			const FPage& Page = Pages[Query->PageIndex];
+			std::array<uint64, 2> Values{};
+			const VkResult Result = vkGetQueryPoolResults(
+				static_cast<VkDevice>(Device.GetHandle()),
+				static_cast<VkQueryPool>(Page.Handle), Query->IntervalIndex * 2, 2,
+				sizeof(Values), Values.data(), sizeof(uint64), VK_QUERY_RESULT_64_BIT);
+			if (Result == VK_NOT_READY) { bResolved = false; continue; }
+			Query->bNeedsResult = false;
+			Query->bSubmitted = false;
+			--Statistics.PendingIntervals;
+			if (Result != VK_SUCCESS)
+			{
+				Query->SetInvalid();
+				continue;
+			}
+			bool bOverflow = false;
+			Query->SetReady(ConvertVulkanTimestampDuration(
+				Values[0], Values[1], Query->TimestampValidBits,
+				NanosecondsPerTick, bOverflow));
+			++Statistics.ReadyIntervals;
+			++Statistics.ReadyResultCount;
+			if (bOverflow) ++Statistics.ConversionOverflowCount;
+			Query->bCountedReady = true;
+		}
+		return bResolved;
+	}
+
+	auto FVulkanGPUTimingManager::Discard(std::span<const TRefCountPtr<FVulkanGPUTimingQuery>> Queries) -> void
+	{
+		for (const auto& Query : Queries)
+		{
+			if (!Query->bNeedsResult) continue;
+			if (Query->bSubmitted) --Statistics.PendingIntervals;
+			Query->bSubmitted = false;
+			Query->bNeedsResult = false;
+			Query->SetInvalid();
+		}
 	}
 
 	auto FVulkanGPUTimingManager::ReleaseSlot(uint32 PageIndex,

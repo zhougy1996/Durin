@@ -2,6 +2,7 @@
 
 #include "VulkanBuffer.h"
 #include "VulkanDevice.h"
+#include "VulkanQueue.h"
 #include "VulkanRHIPrivate.h"
 
 namespace Durin::VulkanRHI
@@ -44,7 +45,8 @@ namespace Durin::VulkanRHI
 		Buffer = std::exchange(Other.Buffer, nullptr);
 		Offset = std::exchange(Other.Offset, 0);
 		Size = std::exchange(Other.Size, 0);
-		Token = std::exchange(Other.Token, 0);
+		Ticket = std::exchange(Other.Ticket, {});
+		AllocationOwner = std::move(Other.AllocationOwner);
 		bOversize = std::exchange(Other.bOversize, false);
 		return *this;
 	}
@@ -101,7 +103,8 @@ namespace Durin::VulkanRHI
 	FVulkanTransferArena::~FVulkanTransferArena()
 	{
 		CheckVulkanRHIThread();
-		Device.GetCompletionTracker().WaitForAll();
+		for (const auto& Queue : Device.GetQueueCapabilities().Queues)
+			Device.FindQueue(Queue.Id)->GetCompletionTracker().WaitForAll();
 		ReclaimCompleted();
 		for (auto& Page : OversizePages)
 		{
@@ -116,18 +119,23 @@ namespace Durin::VulkanRHI
 	}
 
 	auto FVulkanTransferArena::Acquire(uint64 Size, uint64 Alignment,
-		FVulkanCompletionToken Token) -> FVulkanTransferAcquireResult
+		const FRHIGPUSubmissionTicket& Ticket) -> FVulkanTransferAcquireResult
 	{
 		CheckVulkanRHIThread();
 		check(Size > 0 && Size <= std::numeric_limits<uint32>::max()
-			&& Alignment > 0 && Token > 0);
+			&& Alignment > 0);
+		auto* Queue = Device.FindQueue(Ticket.GetPoint().Queue);
+		require(Queue && Queue->GetCompletionTracker().Owns(Ticket));
+		require(Ticket.GetState() == ERHIGPUSubmissionState::Pending
+			|| Ticket.GetState() == ERHIGPUSubmissionState::Submitted
+			|| Ticket.GetState() == ERHIGPUSubmissionState::Complete);
 		ReclaimCompleted();
 		if (Size > Config.PageSize)
 		{
 			try
 			{
-				FPage* Page = CreatePage(Size, true);
-				auto Range = TryAllocateFromPage(*Page, Size, Alignment, Token);
+				FPage* Page = CreatePage(Size, true, Ticket.GetPoint().Queue);
+				auto Range = TryAllocateFromPage(*Page, Size, Alignment, Ticket);
 				check(Range);
 				return {.Range = std::move(Range)};
 			}
@@ -141,17 +149,24 @@ namespace Durin::VulkanRHI
 
 		for (const auto& Page : Pages)
 		{
-			if (auto Range = TryAllocateFromPage(*Page, Size, Alignment, Token))
+			if (auto Range = TryAllocateFromPage(*Page, Size, Alignment, Ticket))
 			{
 				return {.Range = std::move(Range)};
 			}
 		}
+		if (Pages.size() >= Config.MaxPageCount)
+			std::erase_if(Pages, [&](const auto& Page) {
+				if (Page->Queue == Ticket.GetPoint().Queue || !Page->RetiredRanges.empty()
+					|| Page->FreeRanges.size() != 1 || Page->FreeRanges[0].Size != Page->Size) return false;
+				DestroyPage(*Page);
+				return true;
+			});
 		if (Pages.size() < Config.MaxPageCount)
 		{
 			try
 			{
-				FPage* Page = CreatePage(Config.PageSize, false);
-				auto Range = TryAllocateFromPage(*Page, Size, Alignment, Token);
+				FPage* Page = CreatePage(Config.PageSize, false, Ticket.GetPoint().Queue);
+				auto Range = TryAllocateFromPage(*Page, Size, Alignment, Ticket);
 				check(Range);
 				return {.Range = std::move(Range)};
 			}
@@ -165,20 +180,20 @@ namespace Durin::VulkanRHI
 		}
 
 		GVulkanMemoryBaselineTracker.RecordArenaOverflow(Config.AllocationClass);
-		return {.WaitToken = GetOldestRetiredToken()};
+		const auto* Oldest = GetOldestRetiredRange();
+		if (!Oldest) return {};
+		return {.WaitTicket = Oldest->Ticket, .WaitOwner = Oldest->AllocationOwner};
 	}
 
 	auto FVulkanTransferArena::ReclaimCompleted() -> void
 	{
 		CheckVulkanRHIThread();
-		Device.GetCompletionTracker().Poll();
-		const FVulkanCompletionToken Completed =
-			Device.GetCompletionTracker().GetCompletedToken();
+		Device.PollQueues();
 		for (auto& Page : Pages)
 		{
 			std::erase_if(Page->RetiredRanges,
-				[this, &Page, Completed](const FRetiredRange& Range) {
-					if (Range.Token > Completed)
+				[this, &Page](const FRetiredRange& Range) {
+					if (!Range.AllocationOwner.expired())
 					{
 						return false;
 					}
@@ -189,9 +204,9 @@ namespace Durin::VulkanRHI
 				});
 		}
 		std::erase_if(OversizePages,
-			[this, Completed](const std::unique_ptr<FPage>& Page) {
+			[this](const std::unique_ptr<FPage>& Page) {
 				if (Page->RetiredRanges.empty()
-					|| Page->RetiredRanges.front().Token > Completed)
+					|| !Page->RetiredRanges.front().AllocationOwner.expired())
 				{
 					return false;
 				}
@@ -207,7 +222,7 @@ namespace Durin::VulkanRHI
 		return static_cast<uint32>(Pages.size());
 	}
 
-	auto FVulkanTransferArena::CreatePage(uint64 Size, bool bOversize) -> FPage*
+	auto FVulkanTransferArena::CreatePage(uint64 Size, bool bOversize, FRHIQueueId Queue) -> FPage*
 	{
 		check(Size <= std::numeric_limits<uint32>::max());
 		EBufferUsageFlags Usage = EBufferUsageFlags::Dynamic;
@@ -222,6 +237,7 @@ namespace Durin::VulkanRHI
 				| EBufferUsageFlags::KeepCPUAccessible;
 		}
 		auto Page = std::make_unique<FPage>();
+		Page->Queue = Queue;
 		Page->Size = Size;
 		Page->bOversize = bOversize;
 		Page->Buffer = new FVulkanBuffer(Device, FRHIBufferCreateDesc::Create(
@@ -242,8 +258,9 @@ namespace Durin::VulkanRHI
 	}
 
 	auto FVulkanTransferArena::TryAllocateFromPage(FPage& Page, uint64 Size,
-		uint64 Alignment, FVulkanCompletionToken Token) -> FVulkanTransferRange
+		uint64 Alignment, const FRHIGPUSubmissionTicket& Ticket) -> FVulkanTransferRange
 	{
+		if (Page.Queue != Ticket.GetPoint().Queue) return {};
 		for (auto It = Page.FreeRanges.begin(); It != Page.FreeRanges.end(); ++It)
 		{
 			const uint64 AlignedOffset = AlignUp(It->Offset, Alignment);
@@ -253,6 +270,8 @@ namespace Durin::VulkanRHI
 				continue;
 			}
 			const FFreeRange Original = *It;
+			// Allocate the lease before removing the free interval.
+			auto AllocationOwner = std::make_shared<uint8>(0);
 			It = Page.FreeRanges.erase(It);
 			if (AlignedOffset > Original.Offset)
 			{
@@ -277,34 +296,41 @@ namespace Durin::VulkanRHI
 			Result.Buffer = Page.Buffer.GetReference();
 			Result.Offset = AlignedOffset;
 			Result.Size = Size;
-			Result.Token = Token;
+			Result.Ticket = Ticket;
+			Result.AllocationOwner = std::move(AllocationOwner);
 			Result.bOversize = Page.bOversize;
 			return Result;
 		}
 		return {};
 	}
 
-	auto FVulkanTransferArena::GetOldestRetiredToken() const
-		-> FVulkanCompletionToken
+	auto FVulkanTransferArena::GetOldestRetiredRange() const
+		-> const FRetiredRange*
 	{
-		FVulkanCompletionToken Oldest = 0;
-		auto Consider = [&Oldest](const FPage& Page) {
+		const FRetiredRange* Oldest = nullptr;
+		uint64 Order = UINT64_MAX;
+		auto Consider = [&Oldest, &Order](const FPage& Page) {
 			for (const FRetiredRange& Range : Page.RetiredRanges)
 			{
-				if (Oldest == 0 || Range.Token < Oldest)
+				if (Range.RetirementOrder < Order)
 				{
-					Oldest = Range.Token;
+					Oldest = &Range;
+					Order = Range.RetirementOrder;
 				}
 			}
 		};
 		for (const auto& Page : Pages) Consider(*Page);
-		for (const auto& Page : OversizePages) Consider(*Page);
 		return Oldest;
 	}
 
 	auto FVulkanTransferArena::Cancel(FVulkanTransferRange& Range) -> void
 	{
 		check(Range.Owner == this && Range.Page);
+		if (Range.AllocationOwner.use_count() > 1)
+		{
+			Retire(Range);
+			return;
+		}
 		auto& Page = *static_cast<FPage*>(Range.Page);
 		GVulkanMemoryBaselineTracker.RecordArenaRangeReclaimed(
 			Config.AllocationClass, Range.Size);
@@ -325,16 +351,19 @@ namespace Durin::VulkanRHI
 		Range.Owner = nullptr;
 		Range.Page = nullptr;
 		Range.Buffer = nullptr;
+		Range.AllocationOwner.reset();
 	}
 
 	auto FVulkanTransferArena::Retire(FVulkanTransferRange& Range) -> void
 	{
-		check(Range.Owner == this && Range.Page && Range.Token > 0);
+		check(Range.Owner == this && Range.Page);
 		auto& Page = *static_cast<FPage*>(Range.Page);
-		Page.RetiredRanges.push_back({Range.Offset, Range.Size, Range.Token});
+		Page.RetiredRanges.push_back({Range.Offset, Range.Size, Range.Ticket,
+			Range.AllocationOwner, NextRetirementOrder++});
 		Range.Owner = nullptr;
 		Range.Page = nullptr;
 		Range.Buffer = nullptr;
+		Range.AllocationOwner.reset();
 	}
 
 	auto FVulkanTransferArena::InsertFreeRange(FPage& Page, FFreeRange Range)

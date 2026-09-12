@@ -386,6 +386,7 @@ namespace Durin::VulkanRHI
 			.DebugName = "VulkanReadbackArena"});
 
 		ImmediateContext = new FVulkanCommandListContext(RHI, *this, GraphicsQueue);
+		SubmissionCoordinator = std::make_unique<FVulkanSubmissionCoordinator>(*this);
 		if (ComputeQueue != GraphicsQueue)
 			ComputeContext = new FVulkanCommandListContext(RHI, *this, ComputeQueue);
 
@@ -644,6 +645,19 @@ namespace Durin::VulkanRHI
 		return Result;
 	}
 
+	auto FVulkanDevice::WaitForUses(const FRHIRetirementPrerequisites& Uses) const -> void
+	{
+		CheckVulkanRHIThread();
+		for (const auto& Ticket : Uses.GetTickets())
+		{
+			if (Ticket.IsRetirementEligible()) continue;
+			auto* Queue = FindQueue(Ticket.GetPoint().Queue);
+			require(Queue && Queue->GetCompletionTracker().WaitForTicket(Ticket, UINT64_MAX)
+				== ERHIGPUWaitResult::Complete);
+		}
+		require(Uses.IsRetirementEligible());
+	}
+
 	auto FVulkanDevice::GetCompletionTracker() const -> FVulkanCompletionTracker&
 	{
 		return GraphicsQueue->GetCompletionTracker();
@@ -670,7 +684,6 @@ namespace Durin::VulkanRHI
 			Queue->GetCompletionTracker().WaitForAll();
 			Queue->GetCompletionTracker().ReleaseAfterDeviceStopped();
 		}
-		if (GPUTimingManager) GPUTimingManager->Poll();
 
 		delete ImmediateContext;
 		ImmediateContext = nullptr;

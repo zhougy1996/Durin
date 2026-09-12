@@ -124,9 +124,12 @@ outside render passes; within a GPU submission scope, their source or destinatio
 must match the scope's physical queue. Discarding a recording releases its
 references without replay. Vulkan routes each side to the corresponding
 device-owned context and retains the pair in that context's native payload.
-The producer must be explicitly submitted before acquire replay; acquire adds
-a GPU timeline wait and does not wait on the CPU. Explicit GPU submission drains
-both provisioned contexts. Production RDG scheduling still uses graphics.
+Acquire replay may reference a recorded, unsubmitted release; it adds a GPU
+timeline wait and does not wait on the CPU. Explicit GPU submission seals both
+provisioned contexts and the coordinator orders producer before consumer using
+the [submission batch contract](VulkanMemoryAndGPUCompletion.md#completion-domains).
+An unsubmitted producer must be present in that batch. Production RDG scheduling
+still uses graphics.
 
 Ordinary transition commands still emit full barriers on the graphics queue.
 Counted resource views and recorded transfers

@@ -2,7 +2,7 @@
 
 Summary: Introduce explicit GPU queue submission, completion, and resource retirement contracts across RDG, RHI, and Vulkan, then enable asynchronous compute, split barriers, and safe transient aliasing.
 
-Last reviewed: 2026-09-11
+Last reviewed: 2026-09-12
 
 Status: Active
 Completed:
@@ -17,7 +17,27 @@ single-queue Vulkan lowering. Production recording still uses graphics;
 diagnostic Vulkan provisioning supports an independent compute queue and native
 timeline waits. Shared RHI ownership-transfer commands now retain paired
 resource barriers and route them to graphics or diagnostic compute contexts.
-Descriptor batches now track actual binding tickets across physical queues.
+Descriptor batch leases are retained by recording and in-flight payloads.
+Transfer ranges likewise retain allocation leases through both CPU access and
+payload lifetime; queue tickets only locate producers for bounded pressure.
+Frame reuse and mapped uniform producers now wait all frame queue prefixes.
+The UE-informed submission refactor separates context sealing from native
+submission and gives each payload its own completion identity.
+The coordinator now seals participating contexts into one batch and validates
+explicit dependencies plus queue reservation order before native submission.
+Native command-buffer replacement now restores pipeline, vertex/index and
+push-constant bindings before subsequent work.
+Nested diagnostic labels likewise close and reopen across internal native
+submissions without changing public command-list flush admission.
+Logical submission receipts and ownership releases now use the recording
+payload's exact ticket when other contexts reserve later work on the same queue.
+The interleaved-context regression and all 95 Vulkan integration cases passed
+in `20260912-161503-859640-25188-VulkanRHIIntegrationTests.log`; ownership
+readback covers same-family and dedicated queues with both barrier lowerings.
+Cloud-scene and resource-reload Vulkan cases also passed (log prefixes
+`20260912-161539-903609-7200` and `20260912-161548-292378-28592`).
+GPU timing results now resolve through that payload's physical queue completion;
+the query manager no longer polls a graphics-only submission token.
 No production async compute,
 split-barrier or transient-aliasing acceptance gate is complete.
 
@@ -680,6 +700,175 @@ reuse migrations remain outstanding before production async compute.
   three entry barriers, with separate assertions covering each layer.
 - `all` build passed. Log:
   `Build/.agent-state/logs/20260911-185231-275819-34652-cmake.log`.
+
+Frame and mapped-uniform checkpoint: frame retirement now captures queue
+prefixes after submitting both provisioned contexts. Frame reuse waits their
+conjunction before the render thread resets its mapped storage producer.
+Uniform producer pages conservatively inherit the frame's queue prefixes;
+bounded allocation pressure selects a producer by CPU retirement order and
+waits queue-qualified tickets. This preserves frame ownership and existing
+capacity bounds; it does not introduce waits between passes. Transfer arena,
+GPU timing, resource readiness and Renderer pool migrations remain outstanding.
+
+- `VulkanRHIIntegrationTests`: 94/94 passed. Same-family and dedicated-family
+  signal-gate fixtures now verify uniform allocation selects another backing
+  while compute is pending despite completed graphics work, then reuses the
+  original backing and offset after completion. Log:
+  `Build/.agent-state/logs/20260912-143224-952399-31196-VulkanRHIIntegrationTests.log`.
+- Cloud scene and resource reload integration each passed 1/1; native logs
+  contain no validation VUID errors or skipped tests. Logs:
+  `Build/.agent-state/logs/20260912-143318-726172-30232-VolumetricCloudSceneVulkanTests.log`,
+  `Build/.agent-state/logs/20260912-143345-166309-10888-RendererResourceReloadVulkanTests.log`.
+- `all` build passed. Log:
+  `Build/.agent-state/logs/20260912-143348-597656-18972-cmake.log`.
+
+Submission-boundary refactor (operator requested on 2026-09-12): local UE 5.8
+`VulkanContext.cpp`, `VulkanSubmission.h/.cpp`, `VulkanQueue.cpp`, and
+`RenderGraphBuilder.cpp` informed the responsibility boundaries. Contexts now
+seal and detach unique payloads; one RHI-thread coordinator handles native
+submission for flush, frame end, presentation, readback and transfer pressure.
+No new submission thread is introduced. Payloads retain timing query references
+and their own reserved tickets. Completion preparation uses the payload ticket,
+not the queue's newest reservation. Unsubmitted destruction cancels the ticket
+and resets command buffers; native failure quarantine remains separate.
+
+The previously uncommitted transfer migration is incorporated at this boundary:
+ranges carry queue-qualified tickets and pressure requests producer submission
+through the coordinator. Native pages have physical-queue affinity; only fully
+free pages can be replaced for another queue under the existing capacity bound.
+Retirement selection uses CPU order rather than cross-queue token comparisons.
+This is not the final pool-ownership migration: descriptor/transfer leases,
+query completion, dependency-ready pending submissions and RDG queue routing
+still require follow-up before enabling production async compute.
+
+- `VulkanRHIIntegrationTests`: 95/95 passed. The new native boundary test proves
+  sealing alone does not submit, an earlier sealed payload submits with its own
+  ticket after a later reservation, and discarded storage releases its owners
+  while canceling its ticket. Log:
+  `Build/.agent-state/logs/20260912-145522-918568-28800-VulkanRHIIntegrationTests.log`.
+- Cloud scene and resource reload integration each passed 1/1. Logs:
+  `Build/.agent-state/logs/20260912-145615-304966-37300-VolumetricCloudSceneVulkanTests.log`,
+  `Build/.agent-state/logs/20260912-145619-862354-37224-RendererResourceReloadVulkanTests.log`.
+- `all` build passed. Log:
+  `Build/.agent-state/logs/20260912-145645-717022-28200-cmake.log`.
+
+Descriptor ownership refactor: descriptor batches now expose allocation leases
+retained by every binding payload, including cache hits. Frame retirement drops
+the active allocator owner. Batch reset depends on lease expiration rather than
+an allocator-owned ticket set; completion and unsubmitted discard release the
+payload owners, while failure quarantine retains them. Bounded pressure asks
+the submission coordinator to find the actual owning submissions and wait their
+queue-qualified tickets. Compatibility token diagnostics are derived from that
+same ownership lookup. The two-batch capacity and frame-local cache policy are
+preserved. Transfer leases and queue-aware query completion remain pending.
+
+- `VulkanRHIIntegrationTests`: 95/95 passed, including same-family and
+  dedicated-family payload retention under delayed compute, coordinator pressure
+  waits, and pool return after unsubmitted payload discard. Log:
+  `Build/.agent-state/logs/20260912-150416-994101-24788-VulkanRHIIntegrationTests.log`.
+- Cloud scene and resource reload integration each passed 1/1. Logs:
+  `Build/.agent-state/logs/20260912-150511-509377-33056-VolumetricCloudSceneVulkanTests.log`,
+  `Build/.agent-state/logs/20260912-150524-154187-18472-RendererResourceReloadVulkanTests.log`.
+- `all` build passed. Log:
+  `Build/.agent-state/logs/20260912-150527-141313-19336-cmake.log`.
+
+Timing ownership refactor: sealed payloads retain ended intervals through their
+physical queue's completion. The query manager now owns slots, conversion and
+statistics without a separate pending-query list or graphics completion token.
+Intervals capture the recording queue's timestamp width; unsubmitted payload
+discard invalidates them and allows recording again. Native failure quarantine
+retains query ownership until device shutdown. Production RDG queue routing and
+the remaining Stage 3 acceptance gates are still outstanding.
+
+- `VulkanRHIIntegrationTests`: 95/95 passed. Delayed compute fixtures prove
+  completed independent graphics work does not resolve compute queries, then
+  observe ready results after compute completion. Both family 0 and family 2
+  reported timestamp support; unsubmitted discard and re-record admission also
+  passed. No validation VUID errors or skipped tests. Log:
+  `Build/.agent-state/logs/20260912-152600-436077-23428-VulkanRHIIntegrationTests.log`.
+- Cloud scene and resource reload integration each passed 1/1. Logs:
+  `Build/.agent-state/logs/20260912-152856-654940-9424-VolumetricCloudSceneVulkanTests.log`,
+  `Build/.agent-state/logs/20260912-152911-888778-37276-RendererResourceReloadVulkanTests.log`.
+- `all` build passed. Log:
+  `Build/.agent-state/logs/20260912-152924-622537-31940-cmake.log`.
+
+Transfer ownership refactor: CPU ranges and recording payloads share allocation
+leases. Destroying a range before native submission preserves its interval while
+the payload owns it. Normal and oversize recycling observe lease expiration;
+the arena no longer independently interprets ticket completion as permission to
+reuse. Pressure uses the exact payload ticket to locate a pending producer, then
+asks the coordinator to wait the actual allocation owners. Existing capacity,
+queue affinity and CPU readback ownership are preserved.
+
+- `VulkanRHIIntegrationTests`: 95/95 passed. Same-family and dedicated-family
+  delayed compute fixtures now retain transfer storage after the CPU range is
+  destroyed and independent graphics work completes, then reuse it after compute
+  completion. A bounded arena additionally rejects reuse after GPU completion
+  while a CPU lease remains. Existing upload pressure, oversize, fragmentation,
+  readback and failure cases passed. No validation VUID errors or skips. Log:
+  `Build/.agent-state/logs/20260912-153645-460040-36344-VulkanRHIIntegrationTests.log`.
+- Cloud scene and resource reload integration each passed 1/1. Logs:
+  `Build/.agent-state/logs/20260912-153715-369359-16804-VolumetricCloudSceneVulkanTests.log`,
+  `Build/.agent-state/logs/20260912-153719-958172-32192-RendererResourceReloadVulkanTests.log`.
+- `all` build passed. Log:
+  `Build/.agent-state/logs/20260912-153722-895042-33968-cmake.log`.
+
+Submission dependency checkpoint: the coordinator now seals all participating
+contexts and validates a deterministic batch dependency order before native
+submission. Explicit waits and implicit queue-local reservation order both
+participate in cycle detection. Missing pending producers and unsuccessful or
+foreign dependencies reject admission. Acquire replay can record against a
+pending release in the same eventual batch. Native acceptance and failure
+quarantine remain queue-owned; no persistent submission thread or scheduler was
+added. RDG async assignment and GPU scope routing remain outstanding.
+
+- `VulkanRHIIntegrationTests`: 95/95 passed. Both compute topologies validate
+  reversed batch admission, explicit cross-queue cycles, implicit same-queue
+  cycles, and missing producer cancellation. Native buffer/texture ownership
+  tests now seal the consumer before its pending producer and verify exact bytes
+  using both synchronization2 and legacy barriers on both topologies. No VUID
+  errors or skipped tests. Log:
+  `Build/.agent-state/logs/20260912-154304-788493-28856-VulkanRHIIntegrationTests.log`.
+- Cloud scene and resource reload integration each passed 1/1. Logs:
+  `Build/.agent-state/logs/20260912-154331-679985-35872-VolumetricCloudSceneVulkanTests.log`,
+  `Build/.agent-state/logs/20260912-154336-142666-34524-RendererResourceReloadVulkanTests.log`.
+- `all` build passed. Log:
+  `Build/.agent-state/logs/20260912-154338-826253-19236-cmake.log`.
+
+Command-buffer state checkpoint: native command-buffer replacement now restores
+current graphics/compute pipelines, vertex/index buffers and retained push
+constants. Constant updates retain original stage masks and latest-write order;
+incompatible layouts and deleted current pipelines clear saved constants. Bound
+vertex/index buffers now have explicit context ownership. This addresses a
+pre-existing submission/allocator-pressure boundary hazard before adding RDG
+queue routing; diagnostic/timing scope boundaries still need separate handling.
+
+- `VulkanRHIIntegrationTests`: 95/95 passed. The public compute storage-buffer
+  and storage-image test now submits after setting constants/descriptors and
+  before dispatch, preserving exact results in inline and threaded modes.
+  No validation VUID errors or skipped tests. Log:
+  `Build/.agent-state/logs/20260912-155435-671779-25320-VulkanRHIIntegrationTests.log`.
+- Cloud scene and resource reload integration each passed 1/1. Logs:
+  `Build/.agent-state/logs/20260912-155507-116069-25164-VolumetricCloudSceneVulkanTests.log`,
+  `Build/.agent-state/logs/20260912-155511-898457-28336-RendererResourceReloadVulkanTests.log`.
+- `all` build passed. Log:
+  `Build/.agent-state/logs/20260912-155514-711056-33100-cmake.log`.
+
+Diagnostic boundary checkpoint: contexts retain owned logical region names,
+close native labels before sealing, and reopen them in nesting order on the
+next native command buffer. Explicit public command-list flush still requires
+closed diagnostic/timing scopes. The test exercises the internal backend
+submission boundary directly; it does not claim cross-queue timing scope support.
+
+- `VulkanRHIIntegrationTests`: 95/95 passed, including exact nested label
+  close/reopen event ordering on a native submission boundary. No VUID errors or
+  skipped tests. Log:
+  `Build/.agent-state/logs/20260912-155916-002545-29992-VulkanRHIIntegrationTests.log`.
+- Cloud scene and resource reload integration each passed 1/1. Logs:
+  `Build/.agent-state/logs/20260912-155938-146917-32912-VolumetricCloudSceneVulkanTests.log`,
+  `Build/.agent-state/logs/20260912-155942-752810-19244-RendererResourceReloadVulkanTests.log`.
+- `all` build passed. Log:
+  `Build/.agent-state/logs/20260912-155945-595021-4872-cmake.log`.
 
 ### Stage 4: Add Split-Barrier Scheduling and Transition Preparation
 

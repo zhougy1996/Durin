@@ -26,6 +26,7 @@ namespace Durin::VulkanRHI
 
 		auto GetIndex() const -> uint32;
 		auto GetId() const -> FRHIQueueId { return Id; }
+		auto GetDevice() const -> FVulkanDevice& { return *Device; }
 		auto GetCompletionTracker() const -> FVulkanCompletionTracker& { return *CompletionTracker; }
 		auto GetTimelineSemaphore() const -> vk::Semaphore { return TimelineSemaphore; }
 

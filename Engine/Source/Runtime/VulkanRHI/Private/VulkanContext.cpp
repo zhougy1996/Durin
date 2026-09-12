@@ -94,6 +94,7 @@ namespace Durin::VulkanRHI
 		// unsubmitted recordings remain here when the device stops this context.
 		for (auto* Payload : Payloads) delete Payload;
 		Payloads.clear();
+		if (!PendingTimingQueries.empty()) Device.GetGPUTimingManager().Discard(PendingTimingQueries);
 		PendingGfxState.reset();
 		PendingComputeState.reset();
 		delete Pool;
@@ -111,7 +112,7 @@ namespace Durin::VulkanRHI
 		CheckVulkanRHIThread();
 		requiref(!bInsideGPUSubmission, "GPU submissions cannot nest.");
 		requiref(Desc.Queue == Queue->GetId(),
-			"This backend context only accepts the graphics queue.");
+			"GPU submission queue must match its recording context.");
 		for (const auto& Wait : Desc.Waits)
 		{
 			const auto Ticket = Wait.GetTicket();
@@ -132,8 +133,7 @@ namespace Durin::VulkanRHI
 	{
 		CheckVulkanRHIThread();
 		requiref(bInsideGPUSubmission, "GPU submission end requires a matching begin.");
-		GetPayload();
-		requiref(Signal.Resolve(Queue->GetCompletionTracker().GetLastReservedTicket()),
+		requiref(Signal.Resolve(GetPayload().GetTicket()),
 			"GPU submission signal must be unresolved and live.");
 		bInsideGPUSubmission = false;
 	}
@@ -162,7 +162,7 @@ namespace Durin::VulkanRHI
 		require(Transfer && PendingAttachmentStates.empty());
 		auto& Payload = GetPayload();
 		Payload.RetainedTransitions.push_back(Transfer);
-		Transfer->RecordRelease(*Queue, GetCommandBuffer()->GetHandle(), Queue->GetCompletionTracker().GetLastReservedTicket());
+		Transfer->RecordRelease(*Queue, GetCommandBuffer()->GetHandle(), Payload.GetTicket());
 	}
 
 	auto FVulkanCommandListContext::AcquireQueueOwnership(const std::shared_ptr<FVulkanQueueTransfer>& Transfer) -> void
@@ -205,23 +205,17 @@ namespace Durin::VulkanRHI
 	auto FVulkanCommandListContext::RHISubmitCommands() -> void
 	{
 		CheckVulkanRHIThread();
-		if (!Payloads.empty())
-		{
-			Finalize();
-		}
-		if (Queue == Device.GetGraphicsQueue())
-			if (auto* Compute = Device.GetQueueContext(Device.GetComputeQueue()->GetId()); Compute && Compute != this)
-				Compute->RHISubmitCommands();
+		Device.GetSubmissionCoordinator().SubmitPendingContexts(this);
 	}
 
 	auto FVulkanCommandListContext::RHIEndFrame() -> void
 	{
 		CheckVulkanRHIThread();
 		FVulkanFrame& Frame = Device.GetCurrentFrame();
-		Frame.SetLastSubmittedToken(Finalize());
-		if (auto* Compute = Device.GetQueueContext(Device.GetComputeQueue()->GetId()); Compute && Compute != this)
-			Compute->RHISubmitCommands();
+		GetPayload(); // Preserve an end-frame completion point even for an empty frame.
+		Device.GetSubmissionCoordinator().SubmitPendingContexts(this);
 
+		Frame.SetRetirementUses(Device.GetLastReservedUses());
 		Pool->FreeUnusedCommandBuffers(Queue);
 	}
 
@@ -230,18 +224,21 @@ namespace Durin::VulkanRHI
 	{
 		CheckVulkanRHIThread();
 		GetCommandBuffer()->BeginDiagnosticRegion(Name);
+		DiagnosticRegions.emplace_back(Name);
 	}
 
 	auto FVulkanCommandListContext::RHIEndDiagnosticRegion() -> void
 	{
 		CheckVulkanRHIThread();
+		require(!DiagnosticRegions.empty());
 		GetCommandBuffer()->EndDiagnosticRegion();
+		DiagnosticRegions.pop_back();
 	}
 
 	auto FVulkanCommandListContext::RHIBeginGPUTimingQuery(
 		FRHIGPUTimingQuery* Query) -> void
 	{
-		Device.GetGPUTimingManager().Begin(*GetCommandBuffer(),
+		Device.GetGPUTimingManager().Begin(*Queue, *GetCommandBuffer(),
 			*static_cast<FVulkanGPUTimingQuery*>(Query));
 	}
 
@@ -249,7 +246,7 @@ namespace Durin::VulkanRHI
 		FRHIGPUTimingQuery* Query) -> void
 	{
 		auto* VulkanQuery = static_cast<FVulkanGPUTimingQuery*>(Query);
-		Device.GetGPUTimingManager().End(*GetCommandBuffer(), *VulkanQuery);
+		Device.GetGPUTimingManager().End(*Queue, *GetCommandBuffer(), *VulkanQuery);
 		PendingTimingQueries.emplace_back(VulkanQuery);
 	}
 
@@ -500,6 +497,9 @@ namespace Durin::VulkanRHI
 	auto FVulkanCommandListContext::RHISetGraphicsPipelineState(FRHIGraphicsPipelineState& GraphicsPipelineState) -> void
 	{
 		CheckVulkanRHIThread();
+		const auto* Previous = PendingGfxState->GetPipelineState();
+		if (!Previous || Previous->GetKey().PipelineLayout != static_cast<FVulkanGraphicsPipelineState&>(GraphicsPipelineState).GetKey().PipelineLayout)
+			GraphicsPushConstants.clear();
 		PendingGfxState->SetGraphicsPipelineState(static_cast<FVulkanGraphicsPipelineState&>(GraphicsPipelineState), GetCommandBuffer()->GetHandle());
 	}
 
@@ -507,6 +507,9 @@ namespace Durin::VulkanRHI
 		FRHIComputePipelineState& ComputePipelineState) -> void
 	{
 		CheckVulkanRHIThread();
+		const auto* Previous = PendingComputeState->GetPipelineState();
+		if (!Previous || Previous->GetKey().PipelineLayout != static_cast<FVulkanComputePipelineState&>(ComputePipelineState).GetKey().PipelineLayout)
+			ComputePushConstants.clear();
 		PendingComputeState->SetComputePipelineState(
 			static_cast<FVulkanComputePipelineState&>(ComputePipelineState),
 			GetCommandBuffer()->GetHandle());
@@ -842,13 +845,26 @@ namespace Durin::VulkanRHI
 	auto FVulkanCommandListContext::RHIBlockUntilGPUIdle() -> void
 	{
 		CheckVulkanRHIThread();
-		Finalize();
+		Device.GetSubmissionCoordinator().SubmitPendingContexts(this);
 		Device.WaitUtilIdle();
 	}
 
 	auto FVulkanCommandListContext::RHIPushConstants(EShaderStageFlags StageFlags, uint32 Offset, uint32 Size, const void* Data) -> void
 	{
 		CheckVulkanRHIThread();
+		require(Data && Size && Offset % 4 == 0 && Size % 4 == 0
+			&& uint64(Offset) + Size <= Device.GetGpuProperties().limits.maxPushConstantsSize);
+		auto& Words = StageFlags == EShaderStageFlags::Compute ? ComputePushConstants : GraphicsPushConstants;
+		// One latest value per stage mask and aligned word bounds retained state even
+		// when callers repeatedly overwrite overlapping constant ranges.
+		for (uint32 Byte = 0; Byte < Size; Byte += 4)
+		{
+			std::erase_if(Words, [&](const auto& Word) {
+				return Word.Stages == StageFlags && Word.Offset == Offset + Byte;
+			});
+			auto& Word = Words.emplace_back(StageFlags, Offset + Byte);
+			std::memcpy(Word.Data.data(), static_cast<const std::byte*>(Data) + Byte, 4);
+		}
 		if (StageFlags == EShaderStageFlags::Compute)
 		{
 			PendingComputeState->PushConstants(*this, StageFlags, Offset, Size, Data);
@@ -957,7 +973,7 @@ namespace Durin::VulkanRHI
 		checkf(static_cast<uint64>(Arguments.FirstIndex) + Arguments.IndexCount
 			<= AvailableIndices, "Indexed draw range exceeds the bound index buffer.");
 		const auto* VulkanIndexBuffer =
-			static_cast<const FVulkanBuffer*>(BoundIndexBuffer);
+			static_cast<const FVulkanBuffer*>(BoundIndexBuffer.GetReference());
 		const uint64 IndexValidationOffset = BoundIndexBufferOffset
 			+ static_cast<uint64>(Arguments.FirstIndex)
 				* BoundIndexBuffer->GetStride();
@@ -1031,6 +1047,7 @@ namespace Durin::VulkanRHI
 		FVulkanGraphicsPipelineState* PipelineState) -> void
 	{
 		CheckVulkanRHIThread();
+		if (PendingGfxState->GetPipelineState() == PipelineState) GraphicsPushConstants.clear();
 		PendingGfxState->NotifyDeletedPipeline(PipelineState);
 	}
 
@@ -1038,18 +1055,27 @@ namespace Durin::VulkanRHI
 		FVulkanComputePipelineState* PipelineState) -> void
 	{
 		CheckVulkanRHIThread();
+		if (PendingComputeState->GetPipelineState() == PipelineState) ComputePushConstants.clear();
 		PendingComputeState->NotifyDeletedPipeline(PipelineState);
 	}
 
-	auto FVulkanCommandListContext::Finalize() -> FVulkanCompletionToken
+	auto FVulkanCommandListContext::RetainAllocation(std::shared_ptr<void> Owner) -> void
+	{
+		GetPayload().RetainAllocation(std::move(Owner));
+	}
+
+	auto FVulkanCommandListContext::Finalize() -> std::unique_ptr<FVulkanPayload>
 	{
 		CheckVulkanRHIThread();
-		GetCommandBuffer()->End();
-		const FVulkanCompletionToken Token = Queue->SubmitPayloads(Payloads);
-		Device.GetGPUTimingManager().MarkSubmitted(Token, PendingTimingQueries);
-		PendingTimingQueries.clear();
+		auto* Commands = GetCommandBuffer();
+		for (size_t Index = DiagnosticRegions.size(); Index > 0; --Index)
+			Commands->EndDiagnosticRegion();
+		Commands->End();
+		require(Payloads.size() == 1);
+		std::unique_ptr<FVulkanPayload> Result(Payloads.front());
+		Result->TimingQueries = std::move(PendingTimingQueries);
 		Payloads.clear();
-		return Token;
+		return Result;
 	}
 
 	auto FVulkanCommandListContext::AcquireTransferRange(
@@ -1065,11 +1091,12 @@ namespace Durin::VulkanRHI
 			? Device.GetUploadArena() : Device.GetReadbackArena();
 		for (;;)
 		{
-			const FVulkanCompletionToken Token = GetPayload().Token;
+			auto& Payload = GetPayload();
 			FVulkanTransferAcquireResult Result =
-				Arena.Acquire(Size, Alignment, Token);
+				Arena.Acquire(Size, Alignment, Payload.GetTicket());
 			if (Result.Range)
 			{
+				Payload.RetainAllocation(Result.Range.GetAllocationOwner());
 				return std::move(Result.Range);
 			}
 			if (Result.bAllocationFailed)
@@ -1078,19 +1105,17 @@ namespace Durin::VulkanRHI
 					"Vulkan transfer arena allocation failed: class={}, bytes={}.",
 					static_cast<uint32>(AllocationClass), Size));
 			}
-			requiref(Result.WaitToken != 0,
+			requiref(Result.WaitTicket.GetState() != ERHIGPUSubmissionState::Invalid,
 				"Vulkan transfer arena exhausted without a retireable range: class={}, bytes={}.",
 				static_cast<uint32>(AllocationClass), Size);
-			if (Result.WaitToken
-				> Device.GetCompletionTracker().GetLastSubmittedToken())
+			if (Result.WaitTicket.GetState() == ERHIGPUSubmissionState::Pending)
 			{
-				const FVulkanCompletionToken Submitted = Finalize();
-				requiref(Submitted >= Result.WaitToken,
-					"Transfer arena range token {} was not submitted by flush token {}.",
-					Result.WaitToken, Submitted);
+				auto* Producer = Device.GetQueueContext(Result.WaitTicket.GetPoint().Queue);
+				require(Producer);
+				Device.GetSubmissionCoordinator().SubmitContext(*Producer);
 			}
 			GVulkanMemoryBaselineTracker.RecordArenaWait(AllocationClass);
-			Device.GetCompletionTracker().WaitForToken(Result.WaitToken);
+			Device.GetSubmissionCoordinator().WaitForAllocation(Result.WaitOwner);
 		}
 	}
 
@@ -1101,6 +1126,22 @@ namespace Durin::VulkanRHI
 		FVulkanCommandBuffer* NewCmdBuffer = Pool->Create();
 		InPayload.CommandBuffers.push_back(NewCmdBuffer);
 		NewCmdBuffer->Begin();
+		for (const auto& Name : DiagnosticRegions) NewCmdBuffer->BeginDiagnosticRegion(Name);
+		const auto Commands = NewCmdBuffer->GetHandle();
+		auto RestorePipeline = [&](auto* Pipeline, const auto& Words) {
+			if (!Pipeline) return;
+			Pipeline->Bind(Commands);
+			for (const auto& Word : Words)
+				Commands.pushConstants(Pipeline->GetPipelineLayout(),
+					ToVulkan_ShaderStageFlags(Word.Stages), Word.Offset, 4, Word.Data.data());
+		};
+		RestorePipeline(PendingGfxState->GetPipelineState(), GraphicsPushConstants);
+		RestorePipeline(PendingComputeState->GetPipelineState(), ComputePushConstants);
+		for (const auto& [Stream, Binding] : BoundVertexBuffers)
+			Commands.bindVertexBuffers(Stream, static_cast<FVulkanBuffer*>(Binding.Buffer.GetReference())->GetHandle(), {Binding.Offset});
+		if (BoundIndexBuffer)
+			Commands.bindIndexBuffer(static_cast<FVulkanBuffer*>(BoundIndexBuffer.GetReference())->GetHandle(),
+				BoundIndexBufferOffset, DeduceIndexType(BoundIndexBuffer->GetStride()));
 	}
 
 	auto FVulkanCommandListContext::GetPayload() -> FVulkanPayload&
