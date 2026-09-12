@@ -4,7 +4,7 @@ Summary: Define material assets, parameters, render proxies, invalidation, passe
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-09-11
+Last reviewed: 2026-09-12
 
 Durin's material architecture keeps declaration ownership, instance resolution,
 editor presentation, and renderer consumption at explicit boundaries.
@@ -15,7 +15,7 @@ representation, builder, pipeline identity, and fallback declarations live in
 `Materials/MaterialRenderTypes.h`; `MaterialRenderProxy.h` includes that narrow
 surface directly. Their implementations are separated into authored schema,
 compiled-layout representation/builder, and diagnostics files. The production
-render boundary accepts only material-specific layout v4 data. Built-in role knowledge is confined to explicit PBR template construction.
+render boundary accepts only material-specific layout v4 data. Built-in role knowledge is confined to editor-owned standard function authoring and import binding.
 
 ## Parameter Domain
 
@@ -86,8 +86,8 @@ render boundary accepts only material-specific layout v4 data. Built-in role kno
   so a pipeline-only change does not rebuild the shader map.
   `CanonicalizeMaterialShaderProperties` uses cutoff `0.333f` outside Masked,
   normalizes Masked signed zero, and excludes culling/depth from compiler input
-  identity. Authored inactive cutoffs remain unchanged. Compiler identity schema
-  3/envelope 6 invalidate old keys; generated cutoff macros, accepted renderer
+  identity. Authored inactive cutoffs remain unchanged. IR version 4/compiler
+  envelope 7 invalidate old keys; generated cutoff macros, accepted renderer
   shader keys and Cook metadata comparison use the same canonical semantics.
 - Opaque sections disable blending; Masked sections additionally discard the
   saturated OpacityMask constant/texture product only when it is strictly below
@@ -115,7 +115,7 @@ Texture2D fields receive compact resource/sampler indices. Layout identity,
 counts, field types, offsets, and shader reflection are accepted as one schema.
 
 `DMaterial` additionally persists one reflected material program defined by
-`Materials/MaterialProgramTypes.h`. Version 4 is a bounded typed expression DAG
+`Materials/MaterialProgramTypes.h`. Version 5 is a bounded typed expression DAG
 with stable node/parameter/link identities, eight typed surface outputs,
 and an optional aggregate `Surface` input.
 Each surface input stores a retained fallback literal and an optional source
@@ -134,7 +134,7 @@ BaseColor `(0.5, 0.5, 0.5)`, Normal `(0, 0, 1)`, Metallic `0`, Roughness
 OpacityMask `1`. Aggregate mode accepts one Surface source and requires all
 eight property links to be disconnected; per-property mode requires the
 aggregate source to be disconnected. Retained fallbacks survive either mode.
-Repository material packages persist schema 4. Older and unknown schemas fail
+Repository material packages persist schema 5. Older and unknown schemas fail
 without rewriting authored data. An unknown-version or
 malformed program fails bounded validation, which
 rejects invalid enums and GUIDs, count/string/byte/input/depth limits, dangling
@@ -166,8 +166,8 @@ only and do not enter this program digest. Normalized IR owns one special
 Surface Root outside its ordinary node vector. Per-property inputs contain an
 earlier exact-typed expression or an inline finite literal; aggregate mode names
 one earlier Surface expression. A default material therefore has zero ordinary
-IR nodes. Migrated and newly templated PBR materials normalize the same ordinary
-nodes that the editor displays.
+IR nodes. Function calls expand into ordinary expressions before normalization; the editor
+retains the compact authored calls and their stable port identities.
 
 The default material compiler environment represents the dedicated
 `/Engine/MaterialCompilerEnvironment` dependency graph with one
@@ -195,6 +195,71 @@ material texture-sample expressions or texture-role bindings.
 The complete value-owned result includes identity, IR, source, dependencies,
 three compiled stages, phase timings, and bounded diagnostics; any failure
 retains no publishable partial stage set.
+
+## Reusable Functions and Standard Library
+
+`DMaterialFunctionInterface` is an abstract asset contract for typed signatures,
+semantic revisions, dependencies and detached graph snapshots. `DMaterialFunction`
+is its concrete editable graph owner. Root materials retain a value-only program
+plus reflected base-typed function references and bindings; instances retain no
+function graph. Function graphs and presentation are `EditorOnly`.
+
+Ports have persistent GUIDs, names, types, ordering, required/advanced flags and
+typed defaults. Calls bind by port GUID, and multi-output links retain output
+GUIDs rather than declaration indices. Reordering or renaming preserves wiring;
+deleting or incompatibly changing a used port produces a diagnostic. Functions
+accept Float, Float2, Float3, Float4, Texture2D and Surface. `GetSurfaceAttributes`
+and `SetSurfaceAttributes` compose existing Surface fields. Functions cannot own
+root parameter declarations; callers supply parameter expressions explicitly.
+Texture inputs carry resource, sampler and fallback together. Optional unbound
+textures use the declared white, black or flat-RG fallback; connected values keep
+the caller's complete sampling policy. Surface defaults retain all eight fields.
+
+GameThread captures the transitive closure into immutable values. Expansion
+substitutes each invocation's independent bindings, validates required inputs,
+rejects recursion and missing/incompatible ports, and lowers to the existing
+opcode domain before normalization. No worker follows live asset references.
+Limits are 256 nodes/1,024 links per authored graph, 64 inputs/16 outputs per
+function, 16 call levels, 64 distinct dependencies, 4,096 expanded nodes/16,384
+links, expression depth 64, 1 MiB per graph and 8 MiB per closure. Diagnostics
+retain the originating function, node and call stack for editor navigation.
+
+Semantic function edits, reload, relocation and dependency replacement invalidate
+loaded callers through the existing compilation manager. Publication rechecks
+the captured closure's live owner stamps; stale completion cannot publish after a
+nested edit. Presentation and authoring provenance do not change program identity.
+Cook fingerprints every source function, including on warm hits. A versioned
+`material-function-source` contributor declares the complete source/schema/package
+inputs and overrides generic asset contributors so function dependencies remain
+incrementally reusable. Explicit function runtime roots are rejected; Cook emits
+no runtime function packages. DMAT contains the expanded compiled stages; cooked
+loading needs no function graph, function source package or compiler.
+
+AssetForgeBuiltins owns five ordinary source assets under
+`/Engine/Materials/Functions`: `UVTransform`, `SampleNormal`, `SampleORM`,
+`StandardPBR` and `StandardPBR_ORM`. UVTransform computes rotation of scaled UV
+plus offset. SampleNormal preserves RG decode, strength and RNM composition.
+SampleORM samples once and exposes R occlusion, G roughness and B metallic.
+StandardPBR accepts independent maps and per-map UVs; its ORM variant shares one
+map/UV binding for those three channels. Missing maps retain existing PBR defaults
+and import-derived channel layouts remain unchanged. Normal strength and emissive
+factors already baked during import are not applied a second time.
+
+`ImportedSurface` retains its 48 parameter GUIDs and one final StandardPBR call,
+with eight UVTransform calls and a Surface output (65 authored nodes, nine calls).
+The independent form generates eight texture samples/resources; the explicitly
+packed variant generates six. Equal texture objects in independent bindings do
+not silently merge sampling policies. Function GUIDs have no runtime lowering
+rules and there is no production expanded PBR builder.
+
+Library assets record editor-only authoring source/version 1. Repeated bootstrap
+preserves compatible implementation edits and rejects incompatible interfaces.
+The explicit material-functions maintenance command upgrades only the two exact
+known historical ImportedSurface graphs, retaining package identity, declarations,
+instance overrides and slots. Modified graphs require explicit author decisions;
+ordinary loading does not rewrite them. See
+[Canonical Asset Resave](../../Editor/Guides/CanonicalResave.md) for the
+upgrade command and durable inventory/checkpoint workflow.
 
 ## Compile Lifecycle and Cooked Programs
 
@@ -452,7 +517,7 @@ material-specific: it deterministically packs only reachable declarations and
 is validated against the accepted program and reflected pass bindings. Material
 assets persist authored values rather than this transient representation; DMAT
 v4 persists the accepted layout and code needed by Game loading. Old render
-layouts are rejected with a migration/recompile diagnostic. Generator version 4
+layouts are rejected with a migration/recompile diagnostic. Generator version 5
 invalidates executable identities from the retired compatibility path. The
 independent error terminal uses the same v4 boundary as custom materials.
 
@@ -542,7 +607,7 @@ publish through the stable proxy and dynamic-only changes reuse shader identity.
 
 Repository content in Engine, Sandbox and RoadWeaver was explicitly resaved
 before retiring old authored readers. Only declaration schema 2, program schema
-4 and DMAT v4 are supported. Packed sampler scalars, implicit role-dependent
+5, function schema 1 and DMAT v5 are supported. Packed sampler scalars, implicit role-dependent
 expressions and automatic graph upgrades are removed. Sampling policy is stored
 on Texture2D parameter values. Old Cook outputs must be discarded and rebuilt.
 

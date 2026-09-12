@@ -1243,3 +1243,89 @@ TEST(FMaterialFunctionTests, ExpandedBoundsApplyBeforePruningWithoutRaisingAutho
 	MarkAsGarbage(Function);
 	CollectGarbage();
 }
+
+TEST(FMaterialFunctionTests, ShippedStandardMaterialCooksAndLoadsWithoutAuthoredFunctionAssets)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	FScopedOfflinePreparation Offline;
+	const auto Root = Testing::CreateTestFixtureDirectory("CookShippedStandardMaterial");
+	const auto Source = std::filesystem::path(FPaths::EngineContentDir()) / "Materials";
+	std::filesystem::create_directories(Root / "Content/Materials/Functions");
+	for (const std::string_view File : {"ImportedSurface.dasset", "Functions/UVTransform.dasset",
+		"Functions/SampleNormal.dasset", "Functions/SampleORM.dasset", "Functions/StandardPBR.dasset",
+		"Functions/StandardPBR_ORM.dasset"})
+		std::filesystem::copy_file(Source / File, Root / "Content/Materials" / File);
+	const std::array Mounts{FMountPoint{.VirtualRoot = "/Engine/", .Owner = EMountOwner::Test,
+		.Root = Root / "Content", .bAutoScan = true, .bContentWritable = true}};
+	Testing::FScopedMountRegistryFixture Registry(Mounts);
+	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
+	ASSERT_TRUE(RefreshAssetRegistry());
+	std::vector<FCookContributorHandle> Handles;
+	std::string Error;
+	ASSERT_TRUE(RegisterEngineCookContributors(Handles, Error)) << Error;
+	struct FRetire { std::vector<FCookContributorHandle>& Handles; ~FRetire() { for (auto Handle : Handles) UnregisterCookContributor(Handle); } } Retire{Handles};
+	// The standalone host registers this unversioned fallback for generic assets.
+	// It must not make transitive function dependencies permanently uncacheable.
+	const auto Generic = RegisterCookContributor(DObject::StaticClass(), {"generic-package", 1, 1,
+		[](DObject& Object, std::string_view Path, FCookContext& Context) -> FAssetResult {
+			std::string Error;
+			if (!Context.AddPackage(std::string(Path), Object.GetPackage(), &Error))
+				return {EAssetError::InvalidPackageType, Error};
+			return {};
+		}});
+	ASSERT_NE(Generic, 0u);
+	Handles.push_back(Generic);
+
+	FPackagePath MaterialPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/Engine/Materials/ImportedSurface", MaterialPath));
+	DMaterial* Material = nullptr;
+	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), Material));
+	ASSERT_NE(Material, nullptr);
+	ASSERT_EQ(Material->GetMaterialFunctionCalls().size(), 9u);
+	ASSERT_TRUE(FinishMaterialCompileForTest(*Material));
+	const auto ExpectedIdentity = Material->GetAcceptedCompiledProgram()->Identity;
+	FCookRequest Request{.OutputRoot = Root / "Cooked", .TargetPlatform = ECookTargetPlatform::Win64,
+		.TargetProfile = ECookTargetProfile::Game, .ExplicitRoots = {MaterialPath}};
+	FCookRunResult Result;
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Result.Code << ": " << Result.Diagnostic;
+	ASSERT_EQ(Result.Packages.size(), 1u);
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Result.Diagnostic;
+	ASSERT_EQ(Result.Packages.size(), 1u);
+	EXPECT_EQ(Result.Packages.front().Status, ECookPackageStatus::CookHit);
+	EXPECT_FALSE(std::filesystem::exists(Request.OutputRoot / "Engine/Materials/Functions"));
+	FPackagePath FunctionPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/Engine/Materials/Functions/StandardPBR", FunctionPath));
+	auto FunctionRootRequest = Request;
+	FunctionRootRequest.OutputRoot = Root / "RejectedFunctionRoot";
+	FunctionRootRequest.ExplicitRoots = {FunctionPath};
+	EXPECT_FALSE(FCookCoordinator().Run(FunctionRootRequest, Result));
+	EXPECT_NE(Result.Diagnostic.find("authoring-only"), std::string::npos);
+	EXPECT_FALSE(std::filesystem::exists(FunctionRootRequest.OutputRoot / "CookManifest.bin"));
+
+	ASSERT_TRUE(UnloadPackage(MaterialPath));
+	ShutdownAssetManager();
+	CollectGarbage();
+	auto Configuration = FAssetRuntimeConfiguration::Authored();
+	ASSERT_TRUE(FAssetRuntimeConfiguration::Cooked(Request.OutputRoot, Configuration));
+	ASSERT_TRUE(InitializeAssetManager(std::move(Configuration)));
+	{
+		const std::array CookMounts{FMountPoint{.VirtualRoot = "/Engine/", .Owner = EMountOwner::Test,
+			.Root = Request.OutputRoot / "Engine", .bAutoScan = true}};
+		Testing::FScopedMountRegistryFixture CookRegistry(CookMounts);
+		ASSERT_TRUE(CookRegistry.IsValid()) << CookRegistry.GetError();
+		ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
+		DMaterial* Loaded = nullptr;
+		ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), Loaded));
+		ASSERT_NE(Loaded, nullptr);
+		ASSERT_NE(Loaded->GetAcceptedCompiledProgram(), nullptr);
+		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->Identity, ExpectedIdentity);
+		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->Layout.ResourceFieldCount, 8u);
+		EXPECT_TRUE(Loaded->GetMaterialProgram()->Nodes.empty());
+		EXPECT_TRUE(Loaded->GetMaterialFunctionCalls().empty());
+		EXPECT_TRUE(Loaded->GetAcceptedCompiledProgram()->GeneratedSource.empty());
+	}
+	ShutdownAssetManager();
+	CollectGarbage();
+	ASSERT_TRUE(InitializeAssetManager());
+}

@@ -1,4 +1,4 @@
-#include "Materials/LegacyMaterialProgramTestFixture.h"
+#include "Materials/StandardMaterialFunctionTestFixture.h"
 #include "CoreGlobals.h"
 #include "VulkanEngineTestSupport.h"
 #include "DynamicRHI.h"
@@ -124,7 +124,7 @@ namespace
 		if (!Durin::IsValid(Root))
 		{
 			Root = Durin::NewObject<Durin::DMaterial>(nullptr, "GBufferVariantRoot");
-			if (!Root || !Root->SetMaterialProgram(Durin::Testing::MakeLegacyPBRMaterialProgram()))
+			if (!Root || !Durin::Testing::SetStandardMaterialProgramForTest(*Root))
 			{
 				ADD_FAILURE() << "Failed to create the shared variant graph.";
 				return {};
@@ -1319,7 +1319,6 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 	std::vector<uint64> ProductionDeferredDurations;
 	std::vector<uint64> ProductionDeferredWithoutAODurations;
 	std::vector<uint64> ProductionRetainedOpaqueDurations;
-	std::vector<uint64> ProductionVolumetricCloudDurations;
 	std::vector<uint64> ProductionSortedTranslucencyDurations;
 	std::vector<uint64> ProductionRetainedDurations;
 	std::vector<uint64> ProductionPostProcessDurations;
@@ -1462,7 +1461,6 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 								 &ProductionRetainedOpaqueQueries,
 								 &ProductionRetainedOpaqueDurations,
 								 &ProductionVolumetricCloudQueries,
-								 &ProductionVolumetricCloudDurations,
 								 &ProductionSortedTranslucencyQueries,
 								 &ProductionSortedTranslucencyDurations,
 								 &ProductionPostProcessQueries,
@@ -1517,10 +1515,8 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 			ProductionRetainedOpaqueQueries,
 			ProductionRetainedOpaqueDurations,
 			WarmupFrames, MeasuredFrames);
-		CollectProductionDurations(
-			ProductionVolumetricCloudQueries,
-			ProductionVolumetricCloudDurations,
-			WarmupFrames, MeasuredFrames);
+		// This fixture has no cloud proxy; the disabled route emits no timing query.
+		EXPECT_TRUE(ProductionVolumetricCloudQueries.empty());
 		CollectProductionDurations(
 			ProductionSortedTranslucencyQueries,
 			ProductionSortedTranslucencyDurations,
@@ -1631,7 +1627,6 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 		ProductionDeferredDurations.size(), MeasuredFrames);
 	ASSERT_EQ(ProductionDeferredWithoutAODurations.size(), MeasuredFrames);
 	ASSERT_EQ(ProductionRetainedOpaqueDurations.size(), MeasuredFrames);
-	ASSERT_EQ(ProductionVolumetricCloudDurations.size(), MeasuredFrames);
 	ASSERT_EQ(ProductionSortedTranslucencyDurations.size(), MeasuredFrames);
 	ASSERT_EQ(
 		ProductionPostProcessDurations.size(), MeasuredFrames);
@@ -1649,7 +1644,6 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 	{
 		ProductionRetainedDurations.push_back(
 			ProductionRetainedOpaqueDurations[Index]
-			+ ProductionVolumetricCloudDurations[Index]
 			+ ProductionSortedTranslucencyDurations[Index]);
 		ProductionTotalDurations.push_back(
 			ProductionShadowDurations[Index]
@@ -1663,7 +1657,6 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 	std::ranges::sort(ProductionDeferredDurations);
 	std::ranges::sort(ProductionDeferredWithoutAODurations);
 	std::ranges::sort(ProductionRetainedOpaqueDurations);
-	std::ranges::sort(ProductionVolumetricCloudDurations);
 	std::ranges::sort(ProductionSortedTranslucencyDurations);
 	std::ranges::sort(ProductionRetainedDurations);
 	std::ranges::sort(ProductionPostProcessDurations);
@@ -1685,8 +1678,6 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 		ProductionDeferredMedian > ProductionDeferredWithoutAOMedian ? ProductionDeferredMedian - ProductionDeferredWithoutAOMedian : 0u;
 	const uint64 ProductionRetainedOpaqueMedian =
 		Median(ProductionRetainedOpaqueDurations);
-	const uint64 ProductionVolumetricCloudMedian =
-		Median(ProductionVolumetricCloudDurations);
 	const uint64 ProductionSortedTranslucencyMedian =
 		Median(ProductionSortedTranslucencyDurations);
 	const uint64 ProductionRetainedMedian = Median(ProductionRetainedDurations);
@@ -1720,8 +1711,6 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 		Percentile95(ProductionDeferredDurations);
 	const uint64 ProductionRetainedOpaqueP95 =
 		Percentile95(ProductionRetainedOpaqueDurations);
-	const uint64 ProductionVolumetricCloudP95 =
-		Percentile95(ProductionVolumetricCloudDurations);
 	const uint64 ProductionSortedTranslucencyP95 =
 		Percentile95(ProductionSortedTranslucencyDurations);
 	const uint64 ProductionRetainedP95 =
@@ -1774,7 +1763,6 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 	EXPECT_GT(ProductionGBufferMedian, 0u);
 	EXPECT_GT(ProductionDeferredMedian, 0u);
 	EXPECT_GT(ProductionRetainedOpaqueMedian, 0u);
-	EXPECT_GT(ProductionVolumetricCloudMedian, 0u);
 	EXPECT_GT(ProductionSortedTranslucencyMedian, 0u);
 	EXPECT_GT(ProductionRetainedMedian, 0u);
 	EXPECT_GT(ProductionPostProcessMedian, 0u);
@@ -1860,9 +1848,6 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 			  << ",retained_opaque_median_ns="
 			  << ProductionRetainedOpaqueMedian
 			  << ",retained_opaque_p95_ns=" << ProductionRetainedOpaqueP95
-			  << ",volumetric_cloud_median_ns="
-			  << ProductionVolumetricCloudMedian
-			  << ",volumetric_cloud_p95_ns=" << ProductionVolumetricCloudP95
 			  << ",volumetric_cloud_enabled_views="
 			  << ProductionRouteTelemetry.VolumetricCloud.VolumetricCloudEnabledViews
 			  << ",sorted_translucency_median_ns="

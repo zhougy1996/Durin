@@ -148,6 +148,14 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		std::filesystem::create_directories(Directory);
 	}
 	std::filesystem::create_directories(Root / "Engine/Content/Renderer");
+	// Exercise the migrated shipped parent and function packages in an isolated mount.
+	// Newly imported instances below then render against these exact authored assets.
+	const auto MaterialSource = std::filesystem::path(Durin::FPaths::EngineContentDir()) / "Materials";
+	std::filesystem::create_directories(Root / "Engine/Content/Materials/Functions");
+	for (const std::string_view File : {"ImportedSurface.dasset", "Functions/UVTransform.dasset",
+		"Functions/SampleNormal.dasset", "Functions/SampleORM.dasset", "Functions/StandardPBR.dasset",
+		"Functions/StandardPBR_ORM.dasset"})
+		std::filesystem::copy_file(MaterialSource / File, Root / "Engine/Content/Materials" / File);
 	for (const std::string_view File : {
 		"DefaultStudioCube.dasset"})
 	{

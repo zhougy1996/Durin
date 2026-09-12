@@ -1,4 +1,5 @@
 #include "LegacyMaterialProgramTestFixture.h"
+#include "StandardMaterialFunctionTestFixture.h"
 #include "Threading/Task.h"
 #include "NativeAssetTestSupport.h"
 #include "Misc/MountPathTestSupport.h"
@@ -377,6 +378,21 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			Pool.Reset();
 			return Pixels;
 		};
+		Durin::TStrongObjectPtr<Durin::DMaterial> FunctionComparison(
+			Durin::NewObject<Durin::DMaterial>(nullptr, "StandardFunctionComparison"));
+		ASSERT_TRUE(Durin::Testing::SetStandardMaterialProgramForTest(*FunctionComparison));
+		auto CompareFunction = [&](const char* Name, const Durin::FByteBuffer& Expected) {
+			SCOPED_TRACE(Name);
+			const auto Definitions = CaptureMaterial->GetParameterDefinitions();
+			const auto Calls = FunctionComparison->GetMaterialFunctionCalls();
+			ASSERT_TRUE(FunctionComparison->SetMaterialDefinitionsAndProgram(
+				{Definitions.begin(), Definitions.end()}, *FunctionComparison->GetMaterialProgram(),
+				{Calls.begin(), Calls.end()}));
+			ASSERT_TRUE(FunctionComparison->SetStaticProperties(CaptureMaterial->GetStaticProperties()));
+			const auto Actual = Capture(FunctionComparison.Get());
+			EXPECT_EQ(Actual, Expected);
+			SaveFunctionMigrationBaseline(std::format("function-{}", Name), Actual);
+		};
 		// Exercise the same seven-declaration fixture as the CPU publication test
 		// through production thumbnail rendering and real texture references.
 		{
@@ -650,6 +666,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			Durin::MaterialParameters::BaseColorTextureName(), nullptr));
 		const Durin::FByteBuffer UntexturedPixels =
 			Capture(CaptureMaterial);
+		CompareFunction("missing-texture", UntexturedPixels);
 		ASSERT_TRUE(CaptureMaterial->SetTextureParameterValue(
 			Durin::MaterialParameters::BaseColorTextureName(), TextureResult.Asset));
 		ASSERT_TRUE(CaptureMaterial->SetVector2ParameterValue(
@@ -659,16 +676,19 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 		Durin::DStaticMesh* TriangleCaptureMesh = CaptureMesh;
 		CaptureMesh = CaptureSphere;
 		const Durin::FByteBuffer UV0Pixels = Capture(CaptureMaterial);
+		CompareFunction("uv0", UV0Pixels);
 		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
 			Durin::FName("BaseColorUVChannel"), 3.0f));
 		const Durin::FByteBuffer MissingUVFallbackPixels =
 			Capture(CaptureMaterial);
+		CompareFunction("missing-uv", MissingUVFallbackPixels);
 		ASSERT_TRUE(CaptureMaterial->SetVector2ParameterValue(
 			Durin::FName("BaseColorUVScale"), Durin::FVector2(-1.0, 1.0)));
 		ASSERT_TRUE(CaptureMaterial->SetVector2ParameterValue(
 			Durin::FName("BaseColorUVOffset"), Durin::FVector2(1.0, 0.0)));
 		const Durin::FByteBuffer TransformedUVPixels =
 			Capture(CaptureMaterial);
+		CompareFunction("transformed-uv", TransformedUVPixels);
 		EXPECT_EQ(UV0Pixels.size(), MissingUVFallbackPixels.size());
 		EXPECT_EQ(TransformedUVPixels.size(), UV0Pixels.size());
 		const auto TransformedUVBinding = GetMaterialBinding(CaptureMaterial->GetRenderData());
@@ -704,6 +724,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
 			Durin::FName("BaseColorUVRotation"), 1.57079633f));
 		const Durin::FByteBuffer RotatedUVPixels = Capture(CaptureMaterial);
+		CompareFunction("rotated-uv", RotatedUVPixels);
 		EXPECT_NE(RotatedUVPixels, UV0Pixels);
 		EXPECT_FLOAT_EQ(
 			GetMaterialBinding(CaptureMaterial->GetRenderData()).UVRotations[0],
@@ -717,11 +738,13 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			Durin::FName("BaseColorUVOffset"), Durin::FVector2(0.75, 0.75)));
 		ASSERT_TRUE(SetBaseColorSampler(RepeatSampler));
 		const Durin::FByteBuffer RepeatPixels = Capture(CaptureMaterial);
+		CompareFunction("repeat", RepeatPixels);
 		Durin::FMaterialSamplerState ClampSampler = RepeatSampler;
 		ClampSampler.AddressU = Durin::EMaterialSamplerAddressMode::ClampToEdge;
 		ClampSampler.AddressV = Durin::EMaterialSamplerAddressMode::ClampToEdge;
 		ASSERT_TRUE(SetBaseColorSampler(ClampSampler));
 		const Durin::FByteBuffer ClampPixels = Capture(CaptureMaterial);
+		CompareFunction("clamp", ClampPixels);
 		SaveFunctionMigrationBaseline("missing-texture", UntexturedPixels);
 		SaveFunctionMigrationBaseline("uv0", UV0Pixels);
 		SaveFunctionMigrationBaseline("missing-uv", MissingUVFallbackPixels);
@@ -817,18 +840,23 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			Durin::FVector3(0.0)));
 		const Durin::FByteBuffer PbrBaselinePixels =
 			Capture(CaptureMaterial);
+		CompareFunction("pbr-neutral", PbrBaselinePixels);
 		SaveFunctionMigrationBaseline("pbr-neutral", PbrBaselinePixels);
 		// Independent bindings remain independent even when their texture object agrees.
 		for (size_t Role = 0; Role < RoleTextures.size(); ++Role)
 			ASSERT_TRUE(CaptureMaterial->SetTextureParameterValue(
 				*TextureNames[Role], RoleTextures[Role]));
-		SaveFunctionMigrationBaseline("pbr-independent-maps", Capture(CaptureMaterial));
+		const auto IndependentMapsPixels = Capture(CaptureMaterial);
+		SaveFunctionMigrationBaseline("pbr-independent-maps", IndependentMapsPixels);
+		CompareFunction("pbr-independent-maps", IndependentMapsPixels);
 		for (size_t Role = 0; Role < RoleTextures.size(); ++Role)
 			ASSERT_TRUE(CaptureMaterial->SetTextureParameterValue(*TextureNames[Role], nullptr));
 		for (const size_t Role : {2u, 3u, 4u})
 			ASSERT_TRUE(CaptureMaterial->SetTextureParameterValue(
 				*TextureNames[Role], DataTextureResult.Asset));
-		SaveFunctionMigrationBaseline("pbr-packed-source", Capture(CaptureMaterial));
+		const auto PackedSourcePixels = Capture(CaptureMaterial);
+		SaveFunctionMigrationBaseline("pbr-packed-source", PackedSourcePixels);
+		CompareFunction("pbr-packed-source", PackedSourcePixels);
 		for (const size_t Role : {2u, 3u, 4u})
 			ASSERT_TRUE(CaptureMaterial->SetTextureParameterValue(*TextureNames[Role], nullptr));
 		const Durin::FMaterialProgram CanonicalProgram =

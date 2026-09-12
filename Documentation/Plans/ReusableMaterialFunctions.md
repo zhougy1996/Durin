@@ -4,8 +4,8 @@ Summary: Add typed material function assets and replace expanded imported PBR gr
 
 Last reviewed: 2026-09-12
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-09-12
 
 ## Current Status
 
@@ -32,7 +32,11 @@ Stage 4 completed on 2026-09-12: the five standard functions, provenance, compac
 graph and explicit upgrade command are implemented. All 22 inventoried packages
 and five new functions have verified identities, references and fingerprints;
 repeat migration makes no source changes. Import and family reimport validation passes.
-Stage 5 has not started.
+Stage 5 completed on 2026-09-12: forward images match the historical and same-run
+legacy baselines exactly; standard-function GBuffer/shadow, CPU/editor/import,
+source-free cooked loading and actual inventory Cook pass. The final all build
+passes, lasting contracts are documented, and M11 is complete. See the Stage 5
+execution record and durable qualification receipts below.
 
 The 2026-09-11 prerequisite refactor changes current compilation failure and
 admission rejection to retire the owner's accepted renderable generation and
@@ -829,6 +833,81 @@ or group reimport semantics.
 The final workspace all build passed, receipt
 `Build/.agent-state/logs/20260912-160212-848174-28564-cmake.log`.
 
+## Stage 5 Execution Record
+
+The final fixtures render the standard authored graphs through the existing
+compiler and renderer. SceneImportVulkanTests copies the six shipped source
+packages (ImportedSurface plus five functions) into its isolated mount before
+importing new instances. MaterialVulkanTests retains an independent frozen
+expanded graph and compares each capture immediately against a standard-function
+root with the same parameter values, sampling policy, properties and geometry.
+
+All six imported captures and ten forward captures match Stage 0 pixel for pixel
+at 64x64. The ten same-run old/new comparisons also match exactly. The durable
+[qualification record](Evidence/ReusableMaterialFunctions-Qualification.json)
+contains per-image hashes and zero-difference metrics; retained images are under
+`Build/.agent-state/evidence/ReusableMaterialFunctions-Stage5/Imported/` and
+`Build/.agent-state/evidence/ReusableMaterialFunctions-Stage5/Forward/`.
+Independent maps retain eight resources, 40 uniform fields and 656 uniform bytes;
+generated source is 15,151 bytes versus 15,087 before migration. The explicit
+StandardPBR_ORM variant has six resources. SceneImportTests verifies eight/six
+TextureSample2D IR nodes and eight/six actual generated `.Sample(` expressions,
+so sharing packed channels introduces no extra fetches.
+
+GBufferQualificationTests and DirectionalShadowBaselineVulkanTests now construct
+ordinary standard functions. They cover StaticMesh/SplineMesh, the supported
+lighting routes, masked shadow casters, filter parity, motion and contact shadows.
+GPU execution used NVIDIA GeForce GTX 1060 6GB, Vulkan 1.4.312. Timing output is
+observation only; no RTX 3090 performance acceptance is claimed or required by
+this material-correctness gate.
+
+Two stale qualification assertions were repaired without changing renderer code:
+the no-cloud fixture now asserts no cloud timing queries instead of requiring a
+nonexistent interval; the shadow graph expects 15 texture transitions. Both the
+frozen legacy graph and new functions independently produced 15 transitions on
+the same fixture (legacy reproduction receipt
+`Build/.agent-state/logs/20260912-163442-268672-37636-ctest.log`). The existing
+shadow correctness checks passed in both runs. No pixel threshold was relaxed.
+
+Actual project Cook exposed a missing source-only contributor: the standalone
+host's unversioned generic DObject recipe made function-dependent materials
+permanently uncacheable despite identical dependency fingerprints. The Engine
+now registers a versioned material-function-source contributor that captures
+ordinary source/schema/package inputs and rejects explicit runtime function
+roots. The shipped-asset test reproduces the standalone generic fallback, checks
+warm hits and rejected function roots, and loads the cooked root with only the
+cooked mount and no authored graphs. No shader or function source is needed at
+runtime. Existing nested-edit and missing-function warm-hit tests remain active.
+
+The registry's affected selection broadens to the whole Engine test project for
+shared qualification registration edits. This stage uses the bounded owning
+material/import/Cook/reload/thumbnail targets and explicit GPU qualification,
+with the final all build covering the shared Engine/editor dependency closure.
+
+Final validation receipts are recorded in the qualification JSON. MaterialTests
+passed 180/180 before the final Cook contributor correction; all 23 function
+cases then passed again with that correction. SceneImportTests passed 6/6,
+AssetCookTests 21/21, AssetPackageReloadTests 13/13, MaterialThumbnailTests 8/8 and
+StandaloneCookProcessTests 2/2. MaterialVulkanTests and SceneImportVulkanTests
+passed 1/1 each. GBuffer passed its complete target; shadow preparation/contact
+passed in the full run and the capture case passed after the independently
+reproduced stale assertion was repaired.
+
+Explicit inventory-root Cook covers all 22 source packages: Sandbox publishes
+20 packages and reuses 19 on its warm run; RoadWeaver publishes its two inventoried
+packages plus two shared Engine dependencies and reuses those two dependencies.
+All material/instance packages hit on warm runs. The existing unversioned generic
+recipe deliberately recaptures Level/RoadNet packages. Function packages are not
+published. All 27 source package hashes still equal the Stage 4 checkpoint.
+Cold/warm receipts and per-package outcomes are retained in the qualification
+record and `Build/.agent-state/evidence/ReusableMaterialFunctions-Stage5/`.
+
+The final all build passed:
+`Build/.agent-state/logs/20260912-164946-929242-19816-cmake.log`.
+Implemented function, standard-library and migration contracts now live in
+MaterialSystem and MaterialGraphOperations; this completes roadmap M11 without
+claiming completion of M13's separately owned remaining gates.
+
 ## Implementation Stages
 
 ### Stage 0: Freeze interfaces and migration inventory
@@ -904,12 +983,12 @@ output, no expanded sampling/math chain; every inventoried asset is accounted fo
 
 Depends on Stage 4.
 
-- [ ] Run bounded CPU/editor/import/Cook suites selected from the native registry.
-- [ ] Qualify migrated and newly imported materials on supported forward, GBuffer
+- [x] Run bounded CPU/editor/import/Cook suites selected from the native registry.
+- [x] Qualify migrated and newly imported materials on supported forward, GBuffer
   and shadow paths, including StaticMesh/SplineMesh and masked materials.
-- [ ] Compare Stage 0 renders and texture/resource counts; inspect generated code
+- [x] Compare Stage 0 renders and texture/resource counts; inspect generated code
   to confirm packed-map reuse and no unexpected sampling expansion.
-- [ ] Build the editor; document implemented contracts in MaterialSystem and
+- [x] Build the editor; document implemented contracts in MaterialSystem and
   MaterialGraphOperations, record receipts, and complete M11 in the roadmap.
 
 Exit: all gates pass, migration is repeatable, edited function assets propagate
@@ -922,8 +1001,7 @@ Discover exact target ownership through the registry during Stage 0. MaterialTes
 scene-import tests and material Vulkan/Cook coverage are candidate lanes, not a
 substitute for registry selection. GPU visual qualification is a required Stage 5
 gate because template execution and asset content change. Unavailable GPU access
-must be reported as outstanding, not counted as a pass. This proposal-only commit
-requires documentation validation, not compilation.
+must be reported as outstanding, not counted as a pass. The completed implementation receipts above satisfy these gates.
 
 Each implementation commit updates the stage checklist and evidence and uses the
 repository Plan/Stage trailers. Persist lasting contracts in the owning Runtime

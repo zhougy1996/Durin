@@ -1,4 +1,4 @@
-#include "Materials/LegacyMaterialProgramTestFixture.h"
+#include "Materials/StandardMaterialFunctionTestFixture.h"
 #include "CoreGlobals.h"
 #include "Components/ProceduralSkyComponent.h"
 #include "Components/SkyLightComponent.h"
@@ -336,7 +336,7 @@ namespace
 		if (!Durin::IsValid(Root))
 		{
 			Root = Durin::NewObject<Durin::DMaterial>(nullptr, "DirectionalShadowVariantRoot");
-			if (!Root || !Root->SetMaterialProgram(Durin::Testing::MakeLegacyPBRMaterialProgram()))
+			if (!Root || !Durin::Testing::SetStandardMaterialProgramForTest(*Root))
 			{
 				ADD_FAILURE() << "Failed to create the shared variant graph.";
 				return {};
@@ -1207,9 +1207,9 @@ TEST(FDirectionalShadowBaselineVulkanTests, CapturesFrozenLitArtifactsAndSubTexe
 	EXPECT_LE(GLastSceneRenderGraphCapture.Statistics.DeclaredPasses, 12u);
 	EXPECT_LE(GLastSceneRenderGraphCapture.Statistics.Dependencies, 24u);
 	EXPECT_EQ(GLastSceneRenderGraphCapture.Statistics.BufferTransitions, 0u);
-	// Managed attachments now include their entry handoffs in graph transitions,
-	// in addition to the final scene pass's sampled-depth to attachment boundary.
-	EXPECT_EQ(GLastSceneRenderGraphCapture.Statistics.TextureTransitions, 13u);
+	// Current graph handoffs total 15 transitions for both the frozen expanded
+	// material and the standard function material on this same fixture.
+	EXPECT_EQ(GLastSceneRenderGraphCapture.Statistics.TextureTransitions, 15u);
 	EXPECT_FALSE(
 		GLastSceneRenderGraphCapture.Statistics.bCompileBudgetExceeded);
 	EXPECT_FALSE(

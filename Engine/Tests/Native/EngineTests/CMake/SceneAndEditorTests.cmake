@@ -115,9 +115,9 @@ durin_add_engine_functional_test(StaticMeshRenderPreparationVulkanTests
 durin_add_engine_functional_test(DirectionalShadowBaselineVulkanTests
 	KIND qualification
 	DOMAINS renderer shadow
-	MODULES engine renderer
+	MODULES asset-forge-builtins engine renderer
 	BACKENDS vulkan
-	STACKS renderer
+	STACKS editor renderer
 	GPU
 	TIMEOUT 900
 	RUNTIME_STACK_RATIONALE
@@ -126,7 +126,7 @@ durin_add_engine_functional_test(DirectionalShadowBaselineVulkanTests
 		"RHIInit selects VulkanRHI dynamically for the hardware-backed baseline captures."
 	RUNTIME_ONLY_TARGETS VulkanRHI
 	SOURCES Private/DirectionalShadowBaselineVulkanTests.cpp
-	LIBRARIES ApplicationCore RenderCore Renderer
+	LIBRARIES AssetForgeBuiltins ApplicationCore RenderCore Renderer
 	DATA_DIRECTORIES
 		${CMAKE_CURRENT_SOURCE_DIR}/Data/DirectionalShadowQ0
 		${CMAKE_CURRENT_SOURCE_DIR}/Data/DirectionalShadowQ1
@@ -153,15 +153,15 @@ durin_add_engine_functional_test(HDRDisplayMappingQualificationTests
 durin_add_engine_functional_test(GBufferQualificationTests
 	KIND qualification
 	DOMAINS renderer
-	MODULES engine renderer vulkan-rhi
+	MODULES asset-forge-builtins engine renderer vulkan-rhi
 	BACKENDS vulkan
-	STACKS renderer
+	STACKS editor renderer
 	GPU
 	TIMEOUT 900
 	RUNTIME_STACK_RATIONALE
 		"Measures the four-family GBuffer path and applies the frozen 1920x1080 RTX 3090 gate only when the selected Vulkan adapter matches it."
 	SOURCES Private/GBufferQualificationTests.cpp
-	LIBRARIES ApplicationCore RenderCore Renderer VulkanRHI Vulkan::Vulkan
+	LIBRARIES AssetForgeBuiltins ApplicationCore RenderCore Renderer VulkanRHI Vulkan::Vulkan
 	INCLUDE_DIRECTORIES
 		${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
 )

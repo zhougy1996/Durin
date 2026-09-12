@@ -2,18 +2,21 @@
 
 Summary: Evolve authored materials from fixed PBR inputs to material-owned parameters, compiled layouts, reusable graphs, and runtime instances.
 
-Last reviewed: 2026-09-11
+Last reviewed: 2026-09-12
 
 Status: Active
 Completed:
 
 ## Current Status
 
-On 2026-09-11 the user selected the
-[Reusable Material Functions plan](../Plans/ReusableMaterialFunctions.md) as M11:
-typed function assets, texture-driven StandardPBR calls, Surface access, editor
-authoring and explicit upgrades of the small existing asset set. The proposal is
-recorded; Stage 0 is next and no implementation stage is complete.
+The [Reusable Material Functions plan](../Plans/ReusableMaterialFunctions.md)
+completed M11 on 2026-09-12: typed function assets, bounded compiler expansion,
+shared editor authoring, dependency invalidation, source-free cooked execution,
+five standard PBR functions and explicit migration of all 22 inventoried packages.
+Historical and same-run forward images match exactly; GBuffer/shadow, import,
+Cook and the final all build pass. Actual project warm Cook reuses material
+packages without publishing runtime function assets. Detailed receipts and
+hardware limits remain in the child plan.
 
 On 2026-09-10 the user selected the
 [Material Instance Shader Variants plan](../Plans/MaterialInstanceShaderVariants.md)
@@ -30,8 +33,8 @@ fixed-v3 compiler and Renderer adapters are retired. On 2026-09-10 the user
 cancelled the unavailable historical pre/post image and performance baseline;
 current CPU/GPU correctness, migration, Cook and resource-bound checks remain
 required. See the child plan for final receipts and unrelated macOS test exceptions.
-M1-M7 retain their historical completion. M8 follows M10, and reusable functions
-follow as M11; these future slices are not delivered by the M10 plan.
+M1-M7 retain their historical completion. M11 now delivers reusable functions;
+M8 still follows M13 and remains outside the completed M10/M11 plans.
 
 The compiled-layout material stack is production-capable. Material and material-
 instance assets provide stable parameter identities, inheritance, serialization,
@@ -186,9 +189,6 @@ transition and qualification across StaticMesh, SplineMesh,
   remains active.
   M13 owns per-field inheritance, instance compilation/publication, Cook and the
   editor/import workflow. Its detailed acceptance gates belong to the child plan.
-- Reusable explicit-input functions remain absent and belong to M11. Legacy
-  role knowledge is confined to authored migration; the independent error
-  terminal uses the resource-free compiled-layout boundary.
 - There is no transient non-asset material instance API. Existing proxy
   coalescing handles ordinary asset edits, but runtime batching, allocation,
   reuse, and stress limits have not been measured.
@@ -212,7 +212,7 @@ transition and qualification across StaticMesh, SplineMesh,
 | Milestone | State | Dependencies and entry gate | Deliverable and completion condition |
 | --- | --- | --- | --- |
 | 10. Material-owned parameters and compiled layouts | Complete; historical baseline cancelled by user | Landed M5-M7; current correctness and resource bounds | Custom numeric/Texture2D inputs through editor, instances, renderer and Cook; rust-material vertical slice, migrated-content correctness, fixed-role production bindings retired |
-| 11. Reusable material functions | Selected; plan active | M10's parameter/layout contract is stable | Explicit typed function calls, dependency lifecycle and standard PBR templates; shared edits invalidate callers safely and separate calls keep independent inputs |
+| 11. Reusable material functions | Complete | M10's parameter/layout contract is stable | Explicit typed function calls, dependency lifecycle and standard PBR templates; shared edits invalidate callers safely and separate calls keep independent inputs |
 | 12. Context expressions and output extensions | Conditional | Concrete effect selected after M10; M11 where useful | Selected time/world/view inputs, or a separately scoped vertex/shading/domain extension; geometry, shadow, Cook and recovery qualification for that effect |
 | 13. Material instance shader variants | Implementation landed; qualification active | M10 complete; reuse M5/M6 lifecycle and current geometry interfaces | One graph with per-field instance configurations, shared matching programs, atomic publication, authored migration, Cook and editor/import qualification |
 
@@ -237,10 +237,9 @@ resource scheduler or payload publication mechanism.
 
 ## Child Plan Boundaries
 
-M10 is complete; M11 is selected for function and Import refactoring. M13 establishes the
-accepted variant boundary before M8. M11 remains independently selectable after
-M10, but overlapping material source changes must be sequenced or integrated in
-separate writer checkouts. M12 creates only the bounded plan demanded by an actual
+M10 and M11 are complete. M13 establishes the accepted variant boundary before
+M8. Further overlapping material source changes must be sequenced or integrated
+in separate writer checkouts. M12 creates only the bounded plan demanded by an actual
 effect. M13 keeps runtime dynamic edits outside shader compilation.
 
 | Proposed or completed plan | Milestone | Boundary | Activation |
@@ -259,7 +258,7 @@ effect. M13 keeps runtime dynamic edits outside shader compilation.
 | [Material Parameters and Compiled Layouts](../Plans/Archive/2026-09/MaterialParametersAndCompiledLayouts.md) | M10 | Declarations, compiled bindings, instances, editor, migration and Cook | Complete; historical baseline cancelled by user |
 | [Material Instance Shader Variants](../Plans/MaterialInstanceShaderVariants.md) | M13 | Per-field configuration, shared variant lifecycle, rendering, migration, Cook and editor/import integration | Implemented; final qualification in progress |
 | Runtime Dynamic Material Instances | M8 | Non-asset instances and measured updates; advanced reuse requires profiling evidence | Create after M13 |
-| [Reusable Material Functions](../Plans/ReusableMaterialFunctions.md) | M11 | Typed function assets, Surface access, texture-driven PBR library, editor workflow and asset migration | Selected; Stage 0 next |
+| [Reusable Material Functions](../Plans/ReusableMaterialFunctions.md) | M11 | Typed function assets, Surface access, texture-driven PBR library, editor workflow and asset migration | Complete |
 | Material Context and Output Extensions | M12 | One selected effect or output domain per bounded plan | Conditional on concrete effect and stage contract |
 | Remaining Material Editor Polish | M9 | Explicit parent-chain inspection and any newly selected workflow coverage; excludes graph/compiler design | Select only when a concrete post-M7 workflow is unserved |
 

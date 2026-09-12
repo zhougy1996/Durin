@@ -239,6 +239,13 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 	ASSERT_TRUE(Normalized) << (Normalized.Diagnostics.empty() ? "no diagnostic" : Normalized.Diagnostics.front().Message);
 	EXPECT_EQ(Normalized.Layout.ResourceFieldCount, 8u);
 	EXPECT_EQ(std::ranges::count(Normalized.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &FMaterialIRNode::Opcode), 8);
+	const auto NormalizedSource = GenerateMaterialProgramSlang(Normalized.IR, Normalized.Layout);
+	ASSERT_TRUE(NormalizedSource);
+	size_t NormalizedSamples = 0;
+	for (size_t Offset = 0; (Offset = NormalizedSource.Source.find(".Sample(", Offset)) != std::string::npos; ++Offset)
+		++NormalizedSamples;
+	EXPECT_EQ(NormalizedSamples, 8u);
+
 	const auto Compact = *Material->GetMaterialProgram();
 	const std::vector<FMaterialFunctionCall> CompactCalls(Material->GetMaterialFunctionCalls().begin(), Material->GetMaterialFunctionCalls().end());
 	auto Packed = Compact;
@@ -262,6 +269,13 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 	ASSERT_TRUE(PackedNormalized) << (PackedNormalized.Diagnostics.empty() ? "no diagnostic" : PackedNormalized.Diagnostics.front().Message);
 	EXPECT_EQ(PackedNormalized.Layout.ResourceFieldCount, 6u);
 	EXPECT_EQ(std::ranges::count(PackedNormalized.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &FMaterialIRNode::Opcode), 6);
+	const auto PackedNormalizedSource = GenerateMaterialProgramSlang(PackedNormalized.IR, PackedNormalized.Layout);
+	ASSERT_TRUE(PackedNormalizedSource);
+	size_t PackedNormalizedSamples = 0;
+	for (size_t Offset = 0; (Offset = PackedNormalizedSource.Source.find(".Sample(", Offset)) != std::string::npos; ++Offset)
+		++PackedNormalizedSamples;
+	EXPECT_EQ(PackedNormalizedSamples, 6u);
+
 	ASSERT_TRUE(Material->SetMaterialProgramAndFunctionCalls(Compact, CompactCalls));
 	const auto Original = Functions.StandardPBR->GetFunctionGraph();
 	auto Edited = Original;

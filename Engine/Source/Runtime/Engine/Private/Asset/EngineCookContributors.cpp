@@ -4,6 +4,7 @@
 
 #include "Asset/AssetCompilingManager.h"
 #include "Materials/Material.h"
+#include "Materials/MaterialFunctionInterface.h"
 #include "Materials/MaterialInstance.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshCompilation.h"
@@ -15,6 +16,26 @@ namespace Durin
 {
 	namespace
 	{
+		auto RegisterFunctionSource(std::vector<FCookContributorHandle>& Handles) -> bool
+		{
+			// Override generic DObject contributors: function graphs are complete,
+			// versioned build inputs, never runtime packages or unversioned recipes.
+			const auto Handle = RegisterCookContributor(DMaterialFunctionInterface::StaticClass(),
+				{"material-function-source", 1, 1,
+					[](DObject&, std::string_view, FCookContext&) -> FAssetResult {
+						return {EAssetError::UnsupportedProperty,
+							"Material functions are authoring-only build dependencies and cannot be cooked as runtime roots."};
+					}, {}, {},
+					[](const FCookDependencyRequest&, std::vector<FCookDependencyDeclaration>&) -> FAssetResult {
+						// Source bytes, reflected schema and transitive package references
+						// are already captured by ordinary Cook dependency discovery.
+						return {};
+					}});
+			if (Handle == 0) return false;
+			Handles.push_back(Handle);
+			return true;
+		}
+
 		template<typename T>
 		auto RegisterFamily(
 			std::string Name,
@@ -105,7 +126,8 @@ namespace Durin
 			&& RegisterFamily<DVolumeTexture>("volume-texture", OutHandles)
 			&& RegisterFamily<DStaticMesh>("static-mesh", OutHandles)
 			&& RegisterFamily<DMaterial>("material", OutHandles)
-			&& RegisterFamily<DMaterialInstance>("material-instance", OutHandles);
+			&& RegisterFamily<DMaterialInstance>("material-instance", OutHandles)
+			&& RegisterFunctionSource(OutHandles);
 		if (bRegistered)
 		{
 			OutError.clear();

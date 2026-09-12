@@ -1,0 +1,719 @@
+{
+  "plan": "Documentation/Plans/ReusableMaterialFunctions.md",
+  "stage": "Stage 5: End-to-end qualification and handoff",
+  "date": "2026-09-12",
+  "adapter": "NVIDIA GeForce GTX 1060 6GB",
+  "vulkan": "1.4.312",
+  "driver": 2442166272,
+  "timing_acceptance": "Diagnostic only; no RTX 3090 performance claim",
+  "imported_stage0_comparisons": [
+    {
+      "case": "imported-automatic-lod",
+      "size": [
+        64,
+        64
+      ],
+      "changed_pixels": 0,
+      "max_channel_delta": 0,
+      "mean_channel_delta": 0.0,
+      "actual_png_sha256": "39eb2ec1bad78321836ab07ced00eeca544c4902d4075fbe9a275ddada569142",
+      "reference_png_sha256": "39eb2ec1bad78321836ab07ced00eeca544c4902d4075fbe9a275ddada569142"
+    },
+    {
+      "case": "imported-factor-only",
+      "size": [
+        64,
+        64
+      ],
+      "changed_pixels": 0,
+      "max_channel_delta": 0,
+      "mean_channel_delta": 0.0,
+      "actual_png_sha256": "811c77b699131e34e8bd1d6b72d86257d685131f4e1d25046722afc083d207d2",
+      "reference_png_sha256": "811c77b699131e34e8bd1d6b72d86257d685131f4e1d25046722afc083d207d2"
+    },
+    {
+      "case": "imported-forced-lod0",
+      "size": [
+        64,
+        64
+      ],
+      "changed_pixels": 0,
+      "max_channel_delta": 0,
+      "mean_channel_delta": 0.0,
+      "actual_png_sha256": "b85bf5c06313c219a74a20180009e417ce9c1bc3824c88e2a4dd3de4e4eaec1b",
+      "reference_png_sha256": "b85bf5c06313c219a74a20180009e417ce9c1bc3824c88e2a4dd3de4e4eaec1b"
+    },
+    {
+      "case": "imported-packed-source-independent-maps-uv1-mask",
+      "size": [
+        64,
+        64
+      ],
+      "changed_pixels": 0,
+      "max_channel_delta": 0,
+      "mean_channel_delta": 0.0,
+      "actual_png_sha256": "4783d054a5a408dbd05aab37cb0c4200b0da2ee078f83925ee86d8af236a4f25",
+      "reference_png_sha256": "4783d054a5a408dbd05aab37cb0c4200b0da2ee078f83925ee86d8af236a4f25"
+    },
+    {
+      "case": "imported-texture-and-factor",
+      "size": [
+        64,
+        64
+      ],
+      "changed_pixels": 0,
+      "max_channel_delta": 0,
+      "mean_channel_delta": 0.0,
+      "actual_png_sha256": "5cf05bb327753e061fb4353591442cdc88f9eba4936daa8b7d24279de135af4f",
+      "reference_png_sha256": "5cf05bb327753e061fb4353591442cdc88f9eba4936daa8b7d24279de135af4f"
+    },
+    {
+      "case": "imported-texture-only",
+      "size": [
+        64,
+        64
+      ],
+      "changed_pixels": 0,
+      "max_channel_delta": 0,
+      "mean_channel_delta": 0.0,
+      "actual_png_sha256": "8ab551428734d1f277aab6e3ee29f668e1d0152312d12b9e1f14665bb7743528",
+      "reference_png_sha256": "8ab551428734d1f277aab6e3ee29f668e1d0152312d12b9e1f14665bb7743528"
+    }
+  ],
+  "forward_comparisons": [
+    {
+      "case": "function-clamp",
+      "reference": "same_run_legacy",
+      "size": [
+        64,
+        64
+      ],
+      "changed_pixels": 0,
+      "max_channel_delta": 0,
+      "mean_channel_delta": 0.0,
+      "actual_png_sha256": "34fd12edd6131f096b9710401248d49f9024b7a14281933cc33ba953807f0232",
+      "reference_png_sha256": "34fd12edd6131f096b9710401248d49f9024b7a14281933cc33ba953807f0232"
+    },
+    {
+      "case": "function-clamp",
+      "reference": "stage0_legacy",
+      "size": [
+        64,
+        64
+      ],
+      "changed_pixels": 0,
+      "max_channel_delta": 0,
+      "mean_channel_delta": 0.0,
+      "actual_png_sha256": "34fd12edd6131f096b9710401248d49f9024b7a14281933cc33ba953807f0232",
+      "reference_png_sha256": "34fd12edd6131f096b9710401248d49f9024b7a14281933cc33ba953807f0232"
+    },
+    {
+      "case": "function-missing-texture",
+      "reference": "same_run_legacy",
+      "size": [
+        64,
+        64
+      ],
+      "changed_pixels": 0,
+      "max_channel_delta": 0,
+      "mean_channel_delta": 0.0,
+      "actual_png_sha256": "141e3372d8cdfd9f37a20028cb9979af005ae3d2f29a7d68e4d465fb097ed2c5",
+      "reference_png_sha256": "141e3372d8cdfd9f37a20028cb9979af005ae3d2f29a7d68e4d465fb097ed2c5"
+    },
+    {
+      "case": "function-missing-texture",
+      "reference": "stage0_legacy",
+      "size": [
+        64,
+        64
+      ],
+      "changed_pixels": 0,
+      "max_channel_delta": 0,
+      "mean_channel_delta": 0.0,
+      "actual_png_sha256": "141e3372d8cdfd9f37a20028cb9979af005ae3d2f29a7d68e4d465fb097ed2c5",
+      "reference_png_sha256": "141e3372d8cdfd9f37a20028cb9979af005ae3d2f29a7d68e4d465fb097ed2c5"
+    },
+    {
+      "case": "function-missing-uv",
+      "reference": "same_run_legacy",
+      "size": [
+        64,
+        64
+      ],
+      "changed_pixels": 0,
+      "max_channel_delta": 0,
+      "mean_channel_delta": 0.0,
+      "actual_png_sha256": "6de6fcc2a6fcfdb86b40a4c51ad2aa18aebdf00034633dfa6bffc5ff0900d67f",
+      "reference_png_sha256": "6de6fcc2a6fcfdb86b40a4c51ad2aa18aebdf00034633dfa6bffc5ff0900d67f"
+    },
+    {
+      "case": "function-missing-uv",
+      "reference": "stage0_legacy",
+      "size": [
+        64,
+        64
+      ],
+      "changed_pixels": 0,
+      "max_channel_delta": 0,
+      "mean_channel_delta": 0.0,
+      "actual_png_sha256": "6de6fcc2a6fcfdb86b40a4c51ad2aa18aebdf00034633dfa6bffc5ff0900d67f",
+      "reference_png_sha256": "6de6fcc2a6fcfdb86b40a4c51ad2aa18aebdf00034633dfa6bffc5ff0900d67f"
+    },
+    {
+      "case": "function-pbr-independent-maps",
+      "reference": "same_run_legacy",
+      "size": [
+        64,
+        64
+      ],
+      "changed_pixels": 0,
+      "max_channel_delta": 0,
+      "mean_channel_delta": 0.0,
+      "actual_png_sha256": "f93c17474e6153eac47f8010ff9225d7b126229c7d952c897b9be6f44d634cf5",
+      "reference_png_sha256": "f93c17474e6153eac47f8010ff9225d7b126229c7d952c897b9be6f44d634cf5"
+    },
+    {
+      "case": "function-pbr-independent-maps",
+      "reference": "stage0_legacy",
+      "size": [
+        64,
+        64
+      ],
+      "changed_pixels": 0,
+      "max_channel_delta": 0,
+      "mean_channel_delta": 0.0,
+      "actual_png_sha256": "f93c17474e6153eac47f8010ff9225d7b126229c7d952c897b9be6f44d634cf5",
+      "reference_png_sha256": "f93c17474e6153eac47f8010ff9225d7b126229c7d952c897b9be6f44d634cf5"
+    },
+    {
+      "case": "function-pbr-neutral",
+      "reference": "same_run_legacy",
+      "size": [
+        64,
+        64
+      ],
+      "changed_pixels": 0,
+      "max_channel_delta": 0,
+      "mean_channel_delta": 0.0,
+      "actual_png_sha256": "d4d0c0e559b1e0102cde70237bfbcf620423bd1261f29c91d7bde51cc7e6dbbd",
+      "reference_png_sha256": "d4d0c0e559b1e0102cde70237bfbcf620423bd1261f29c91d7bde51cc7e6dbbd"
+    },
+    {
+      "case": "function-pbr-neutral",
+      "reference": "stage0_legacy",
+      "size": [
+        64,
+        64
+      ],
+      "changed_pixels": 0,
+      "max_channel_delta": 0,
+      "mean_channel_delta": 0.0,
+      "actual_png_sha256": "d4d0c0e559b1e0102cde70237bfbcf620423bd1261f29c91d7bde51cc7e6dbbd",
+      "reference_png_sha256": "d4d0c0e559b1e0102cde70237bfbcf620423bd1261f29c91d7bde51cc7e6dbbd"
+    },
+    {
+      "case": "function-pbr-packed-source",
+      "reference": "same_run_legacy",
+      "size": [
+        64,
+        64
+      ],
+      "changed_pixels": 0,
+      "max_channel_delta": 0,
+      "mean_channel_delta": 0.0,
+      "actual_png_sha256": "d4d0c0e559b1e0102cde70237bfbcf620423bd1261f29c91d7bde51cc7e6dbbd",
+      "reference_png_sha256": "d4d0c0e559b1e0102cde70237bfbcf620423bd1261f29c91d7bde51cc7e6dbbd"
+    },
+    {
+      "case": "function-pbr-packed-source",
+      "reference": "stage0_legacy",
+      "size": [
+        64,
+        64
+      ],
+      "changed_pixels": 0,
+      "max_channel_delta": 0,
+      "mean_channel_delta": 0.0,
+      "actual_png_sha256": "d4d0c0e559b1e0102cde70237bfbcf620423bd1261f29c91d7bde51cc7e6dbbd",
+      "reference_png_sha256": "d4d0c0e559b1e0102cde70237bfbcf620423bd1261f29c91d7bde51cc7e6dbbd"
+    },
+    {
+      "case": "function-repeat",
+      "reference": "same_run_legacy",
+      "size": [
+        64,
+        64
+      ],
+      "changed_pixels": 0,
+      "max_channel_delta": 0,
+      "mean_channel_delta": 0.0,
+      "actual_png_sha256": "a7f8aa79e84cf52086b4be42fa605a4c9c21340e7461635ab154be72737f6587",
+      "reference_png_sha256": "a7f8aa79e84cf52086b4be42fa605a4c9c21340e7461635ab154be72737f6587"
+    },
+    {
+      "case": "function-repeat",
+      "reference": "stage0_legacy",
+      "size": [
+        64,
+        64
+      ],
+      "changed_pixels": 0,
+      "max_channel_delta": 0,
+      "mean_channel_delta": 0.0,
+      "actual_png_sha256": "a7f8aa79e84cf52086b4be42fa605a4c9c21340e7461635ab154be72737f6587",
+      "reference_png_sha256": "a7f8aa79e84cf52086b4be42fa605a4c9c21340e7461635ab154be72737f6587"
+    },
+    {
+      "case": "function-rotated-uv",
+      "reference": "same_run_legacy",
+      "size": [
+        64,
+        64
+      ],
+      "changed_pixels": 0,
+      "max_channel_delta": 0,
+      "mean_channel_delta": 0.0,
+      "actual_png_sha256": "b68928749e7dacda1c468bf3ef0367156938e0139aad3073349d1788cc330b66",
+      "reference_png_sha256": "b68928749e7dacda1c468bf3ef0367156938e0139aad3073349d1788cc330b66"
+    },
+    {
+      "case": "function-rotated-uv",
+      "reference": "stage0_legacy",
+      "size": [
+        64,
+        64
+      ],
+      "changed_pixels": 0,
+      "max_channel_delta": 0,
+      "mean_channel_delta": 0.0,
+      "actual_png_sha256": "b68928749e7dacda1c468bf3ef0367156938e0139aad3073349d1788cc330b66",
+      "reference_png_sha256": "b68928749e7dacda1c468bf3ef0367156938e0139aad3073349d1788cc330b66"
+    },
+    {
+      "case": "function-transformed-uv",
+      "reference": "same_run_legacy",
+      "size": [
+        64,
+        64
+      ],
+      "changed_pixels": 0,
+      "max_channel_delta": 0,
+      "mean_channel_delta": 0.0,
+      "actual_png_sha256": "6de6fcc2a6fcfdb86b40a4c51ad2aa18aebdf00034633dfa6bffc5ff0900d67f",
+      "reference_png_sha256": "6de6fcc2a6fcfdb86b40a4c51ad2aa18aebdf00034633dfa6bffc5ff0900d67f"
+    },
+    {
+      "case": "function-transformed-uv",
+      "reference": "stage0_legacy",
+      "size": [
+        64,
+        64
+      ],
+      "changed_pixels": 0,
+      "max_channel_delta": 0,
+      "mean_channel_delta": 0.0,
+      "actual_png_sha256": "6de6fcc2a6fcfdb86b40a4c51ad2aa18aebdf00034633dfa6bffc5ff0900d67f",
+      "reference_png_sha256": "6de6fcc2a6fcfdb86b40a4c51ad2aa18aebdf00034633dfa6bffc5ff0900d67f"
+    },
+    {
+      "case": "function-uv0",
+      "reference": "same_run_legacy",
+      "size": [
+        64,
+        64
+      ],
+      "changed_pixels": 0,
+      "max_channel_delta": 0,
+      "mean_channel_delta": 0.0,
+      "actual_png_sha256": "0c7a406acded194f355df848338e2dffc6df0020a42485e8309a699428ad9f08",
+      "reference_png_sha256": "0c7a406acded194f355df848338e2dffc6df0020a42485e8309a699428ad9f08"
+    },
+    {
+      "case": "function-uv0",
+      "reference": "stage0_legacy",
+      "size": [
+        64,
+        64
+      ],
+      "changed_pixels": 0,
+      "max_channel_delta": 0,
+      "mean_channel_delta": 0.0,
+      "actual_png_sha256": "0c7a406acded194f355df848338e2dffc6df0020a42485e8309a699428ad9f08",
+      "reference_png_sha256": "0c7a406acded194f355df848338e2dffc6df0020a42485e8309a699428ad9f08"
+    }
+  ],
+  "resources": {
+    "independent_maps": {
+      "texture_resources": 8,
+      "texture_sample_expressions": 8,
+      "uniform_fields": 40,
+      "uniform_bytes": 656,
+      "generated_bytes_before": 15087,
+      "generated_bytes_after": 15151
+    },
+    "explicit_packed_orm": {
+      "texture_resources": 6,
+      "texture_sample_expressions": 6
+    }
+  },
+  "receipts": [
+    {
+      "selection": "MaterialTests",
+      "result": "180/180 passed; prior to final source contributor fix",
+      "log": "Build/.agent-state/logs/20260912-163748-931546-23644-MaterialTests.log"
+    },
+    {
+      "selection": "SceneImportTests",
+      "result": "6/6 passed, including generated sample counts",
+      "log": "Build/.agent-state/logs/20260912-163956-527515-27548-SceneImportTests.log"
+    },
+    {
+      "selection": "MaterialVulkanTests",
+      "result": "1/1 passed",
+      "log": "Build/.agent-state/logs/20260912-162958-621702-22292-MaterialVulkanTests.log"
+    },
+    {
+      "selection": "SceneImportVulkanTests",
+      "result": "1/1 passed",
+      "log": "Build/.agent-state/logs/20260912-160348-650857-22076-SceneImportVulkanTests.log"
+    },
+    {
+      "selection": "GBufferQualificationTests --mode qualification",
+      "result": "1/1 passed; timing observation only",
+      "log": "Build/.agent-state/logs/20260912-163401-658091-37576-ctest.log"
+    },
+    {
+      "selection": "DirectionalShadowBaselineVulkanTests --mode qualification",
+      "result": "preparation and contact shadow cases passed; capture case required stale transition assertion repair",
+      "log": "Build/.agent-state/logs/20260912-163224-424880-36648-ctest.log"
+    },
+    {
+      "selection": "DirectionalShadowBaselineVulkanTests FDirectionalShadowBaselineVulkanTests.CapturesFrozenLitArtifactsAndSubTexelMotion --mode qualification",
+      "result": "1/1 passed with repaired transition assertion",
+      "log": "Build/.agent-state/logs/20260912-163629-702070-37152-ctest.log"
+    },
+    {
+      "selection": "AssetPackageReloadTests",
+      "result": "13/13 passed",
+      "log": "Build/.agent-state/logs/20260912-164037-814348-27012-AssetPackageReloadTests.log"
+    },
+    {
+      "selection": "MaterialThumbnailTests",
+      "result": "8/8 passed",
+      "log": "Build/.agent-state/logs/20260912-164100-477721-26428-MaterialThumbnailTests.log"
+    },
+    {
+      "selection": "MaterialTests FMaterialFunctionTests.*",
+      "result": "23/23 passed after final contributor fix",
+      "log": "Build/.agent-state/logs/20260912-164817-314856-21320-MaterialTests.log"
+    },
+    {
+      "selection": "StandaloneCookProcessTests",
+      "result": "2/2 passed",
+      "log": "Build/.agent-state/logs/20260912-164912-934105-33344-StandaloneCookProcessTests.log"
+    },
+    {
+      "selection": "AssetCookTests",
+      "result": "21/21 passed after final contributor fix",
+      "log": "Build/.agent-state/logs/20260912-164945-773247-36740-AssetCookTests.log"
+    },
+    {
+      "selection": "build (all)",
+      "result": "passed, Win64-Debug-DurinEditor",
+      "log": "Build/.agent-state/logs/20260912-164946-929242-19816-cmake.log"
+    }
+  ],
+  "project_cook": {
+    "Sandbox": {
+      "cold": {
+        "receipt": "Build/.agent-state/evidence/ReusableMaterialFunctions-Stage5/Sandbox-cold.json",
+        "changed_bytes": 13100863,
+        "reused_bytes": 0,
+        "packages": [
+          {
+            "packagePath": "/Engine/Materials/DefaultMaterial",
+            "contributor": "material",
+            "status": "captured"
+          },
+          {
+            "packagePath": "/Engine/Materials/ImportedSurface",
+            "contributor": "material",
+            "status": "captured"
+          },
+          {
+            "packagePath": "/Engine/Models/Box",
+            "contributor": "static-mesh",
+            "status": "captured"
+          },
+          {
+            "packagePath": "/Engine/Models/Sphere",
+            "contributor": "static-mesh",
+            "status": "captured"
+          },
+          {
+            "packagePath": "/Engine/Models/SplineBox",
+            "contributor": "static-mesh",
+            "status": "captured"
+          },
+          {
+            "packagePath": "/Engine/Renderer/DefaultStudioCube",
+            "contributor": "texture-cube",
+            "status": "captured"
+          },
+          {
+            "packagePath": "/Game/Levels/GrayboxStage15",
+            "contributor": "generic-package",
+            "status": "captured"
+          },
+          {
+            "packagePath": "/Game/Models/GrayboxPawn",
+            "contributor": "static-mesh",
+            "status": "captured"
+          },
+          {
+            "packagePath": "/Game/Models/VintageLighter/Materials/vintage_lighter",
+            "contributor": "material-instance",
+            "status": "captured"
+          },
+          {
+            "packagePath": "/Game/Models/VintageLighter/Materials/vintage_lighter_alpha",
+            "contributor": "material-instance",
+            "status": "captured"
+          },
+          {
+            "packagePath": "/Game/Models/VintageLighter/Meshes/vintage_lighter_1k",
+            "contributor": "static-mesh",
+            "status": "captured"
+          },
+          {
+            "packagePath": "/Game/Models/VintageLighter/Textures/vintage_lighter_diff_BaseColor",
+            "contributor": "texture2d",
+            "status": "captured"
+          },
+          {
+            "packagePath": "/Game/Models/VintageLighter/Textures/vintage_lighter_diff_Opacity",
+            "contributor": "texture2d",
+            "status": "captured"
+          },
+          {
+            "packagePath": "/Game/Models/VintageLighter/Textures/vintage_lighter_metal_vintage_lighter_rough_Metallic",
+            "contributor": "texture2d",
+            "status": "captured"
+          },
+          {
+            "packagePath": "/Game/Models/VintageLighter/Textures/vintage_lighter_metal_vintage_lighter_rough_Roughness",
+            "contributor": "texture2d",
+            "status": "captured"
+          },
+          {
+            "packagePath": "/Game/Models/VintageLighter/Textures/vintage_lighter_nor_gl_Normal",
+            "contributor": "texture2d",
+            "status": "captured"
+          },
+          {
+            "packagePath": "/Game/Textures/TEXCUBE_PureSky_512x512",
+            "contributor": "texture-cube",
+            "status": "captured"
+          },
+          {
+            "packagePath": "/Game/Textures/TEX_StoneHead",
+            "contributor": "texture2d",
+            "status": "captured"
+          },
+          {
+            "packagePath": "/Game/Volumes/VolumetricCloud/VT_Cloud_Base_Voronoi_128",
+            "contributor": "volume-texture",
+            "status": "captured"
+          },
+          {
+            "packagePath": "/Game/Volumes/VolumetricCloud/VT_Cloud_Detail_Voronoi_64",
+            "contributor": "volume-texture",
+            "status": "captured"
+          }
+        ]
+      },
+      "warm": {
+        "receipt": "Build/.agent-state/evidence/ReusableMaterialFunctions-Stage5/Sandbox-warm.json",
+        "changed_bytes": 7375,
+        "reused_bytes": 13093488,
+        "packages": [
+          {
+            "packagePath": "/Engine/Materials/DefaultMaterial",
+            "contributor": "material",
+            "status": "cook-hit"
+          },
+          {
+            "packagePath": "/Engine/Materials/ImportedSurface",
+            "contributor": "material",
+            "status": "cook-hit"
+          },
+          {
+            "packagePath": "/Engine/Models/Box",
+            "contributor": "static-mesh",
+            "status": "cook-hit"
+          },
+          {
+            "packagePath": "/Engine/Models/Sphere",
+            "contributor": "static-mesh",
+            "status": "cook-hit"
+          },
+          {
+            "packagePath": "/Engine/Models/SplineBox",
+            "contributor": "static-mesh",
+            "status": "cook-hit"
+          },
+          {
+            "packagePath": "/Engine/Renderer/DefaultStudioCube",
+            "contributor": "texture-cube",
+            "status": "cook-hit"
+          },
+          {
+            "packagePath": "/Game/Levels/GrayboxStage15",
+            "contributor": "generic-package",
+            "status": "captured"
+          },
+          {
+            "packagePath": "/Game/Models/GrayboxPawn",
+            "contributor": "static-mesh",
+            "status": "cook-hit"
+          },
+          {
+            "packagePath": "/Game/Models/VintageLighter/Materials/vintage_lighter",
+            "contributor": "material-instance",
+            "status": "cook-hit"
+          },
+          {
+            "packagePath": "/Game/Models/VintageLighter/Materials/vintage_lighter_alpha",
+            "contributor": "material-instance",
+            "status": "cook-hit"
+          },
+          {
+            "packagePath": "/Game/Models/VintageLighter/Meshes/vintage_lighter_1k",
+            "contributor": "static-mesh",
+            "status": "cook-hit"
+          },
+          {
+            "packagePath": "/Game/Models/VintageLighter/Textures/vintage_lighter_diff_BaseColor",
+            "contributor": "texture2d",
+            "status": "cook-hit"
+          },
+          {
+            "packagePath": "/Game/Models/VintageLighter/Textures/vintage_lighter_diff_Opacity",
+            "contributor": "texture2d",
+            "status": "cook-hit"
+          },
+          {
+            "packagePath": "/Game/Models/VintageLighter/Textures/vintage_lighter_metal_vintage_lighter_rough_Metallic",
+            "contributor": "texture2d",
+            "status": "cook-hit"
+          },
+          {
+            "packagePath": "/Game/Models/VintageLighter/Textures/vintage_lighter_metal_vintage_lighter_rough_Roughness",
+            "contributor": "texture2d",
+            "status": "cook-hit"
+          },
+          {
+            "packagePath": "/Game/Models/VintageLighter/Textures/vintage_lighter_nor_gl_Normal",
+            "contributor": "texture2d",
+            "status": "cook-hit"
+          },
+          {
+            "packagePath": "/Game/Textures/TEXCUBE_PureSky_512x512",
+            "contributor": "texture-cube",
+            "status": "cook-hit"
+          },
+          {
+            "packagePath": "/Game/Textures/TEX_StoneHead",
+            "contributor": "texture2d",
+            "status": "cook-hit"
+          },
+          {
+            "packagePath": "/Game/Volumes/VolumetricCloud/VT_Cloud_Base_Voronoi_128",
+            "contributor": "volume-texture",
+            "status": "cook-hit"
+          },
+          {
+            "packagePath": "/Game/Volumes/VolumetricCloud/VT_Cloud_Detail_Voronoi_64",
+            "contributor": "volume-texture",
+            "status": "cook-hit"
+          }
+        ]
+      }
+    },
+    "RoadWeaver": {
+      "cold": {
+        "receipt": "Build/.agent-state/evidence/ReusableMaterialFunctions-Stage5/RoadWeaver-cold.json",
+        "changed_bytes": 2130587,
+        "reused_bytes": 0,
+        "packages": [
+          {
+            "packagePath": "/Engine/Models/SplineBox",
+            "contributor": "static-mesh",
+            "status": "captured"
+          },
+          {
+            "packagePath": "/Engine/Renderer/DefaultStudioCube",
+            "contributor": "texture-cube",
+            "status": "captured"
+          },
+          {
+            "packagePath": "/Game/Levels/L_RoadNet",
+            "contributor": "generic-package",
+            "status": "captured"
+          },
+          {
+            "packagePath": "/Game/NewRoadNet",
+            "contributor": "generic-package",
+            "status": "captured"
+          }
+        ]
+      },
+      "warm": {
+        "receipt": "Build/.agent-state/evidence/ReusableMaterialFunctions-Stage5/RoadWeaver-warm.json",
+        "changed_bytes": 20345,
+        "reused_bytes": 2110242,
+        "packages": [
+          {
+            "packagePath": "/Engine/Models/SplineBox",
+            "contributor": "static-mesh",
+            "status": "cook-hit"
+          },
+          {
+            "packagePath": "/Engine/Renderer/DefaultStudioCube",
+            "contributor": "texture-cube",
+            "status": "cook-hit"
+          },
+          {
+            "packagePath": "/Game/Levels/L_RoadNet",
+            "contributor": "generic-package",
+            "status": "captured"
+          },
+          {
+            "packagePath": "/Game/NewRoadNet",
+            "contributor": "generic-package",
+            "status": "captured"
+          }
+        ]
+      }
+    }
+  },
+  "source_verification": {
+    "inventory_packages_covered": 22,
+    "unchanged_package_hashes": 22,
+    "unchanged_standard_function_hashes": 5
+  },
+  "document_validation": {
+    "changed_documents": 4,
+    "all_plans": {
+      "active": 5,
+      "completed": 2,
+      "archived": 353
+    },
+    "all_roadmaps": {
+      "active": 2,
+      "completed": 0,
+      "archived": 25
+    },
+    "result": "passed"
+  }
+}

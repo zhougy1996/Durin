@@ -84,6 +84,29 @@ snapshots, shader-map identity, derived data, and the cooked DMAT payload.
 MaterialEditor owns transient pan, zoom, hover, selection, marquee, link drag,
 and per-document controller state. None of those values are serialized.
 
+## Standard function authoring
+
+The shipped library lives in `/Engine/Materials/Functions` and uses the same
+function workspace, typed calls and transactions as user assets. ImportedSurface
+shows one StandardPBR call and per-role UVTransform calls in intentional lanes.
+Open a call to edit its function; shared semantic edits update loaded callers and
+previews through the ordinary dependency lifecycle. Preserve port GUIDs when
+renaming or reordering interfaces. Required inputs are collected during insertion;
+optional defaults can remain hidden until needed.
+
+`StandardPBR` keeps independent map and UV inputs. Choose `StandardPBR_ORM` only
+when occlusion, roughness and metallic deliberately share one texture and sampling
+policy. Its nested SampleORM call exposes three outputs from one fetch. Imported
+source channels converted into independent derived textures continue to use the
+independent form. Numeric parameters remain declarations of the calling material;
+functions never create hidden root declarations.
+
+The maintenance command preserves compatible edits to the library implementation
+and refuses incompatible standard signatures or modified historical parent graphs.
+Its provenance fields identify the authoring recipe, not a runtime opcode or a
+special canvas behavior. Source asset migration is explicit; normal Save/Apply
+continues to use the document lifecycle above.
+
 ## Editor panels
 
 Each material document owns an isolated ImGui dock space, keyed by its stable
@@ -149,7 +172,7 @@ coalesce before submission, and manual edits remain unsubmitted. Presentation-on
 and commit positions, mark the package dirty, and never compile or invalidate
 render data.
 
-Program schema 4 keeps ordinary node inputs mandatory but makes each of the
+Program schema 5 keeps ordinary node inputs mandatory but makes each of the
 eight fixed Material Output inputs optionally connected. Disconnecting or
 deleting a surface source clears its link and returns to the retained typed
 fallback; disconnecting an ordinary required node input still rejects. The
