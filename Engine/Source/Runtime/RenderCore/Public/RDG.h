@@ -884,6 +884,17 @@ namespace Durin
 		FRHICommandListImmediate&, const FRDGPassResources&)>;
 	using FRDGParameterizedPassExecute = std::function<void(
 		FRHICommandListImmediate&, const FRDGParameterResolver&)>;
+	// A successful terminal graph join proves completion of every using queue.
+	// Unpublished, canceled and failed recordings never authorize pool reuse.
+	class FRDGAllocationRetirement final
+	{
+	public:
+		auto IsReusable() const -> bool { return Completion.GetState() == ERHIGPUSubmissionState::Complete; }
+	private:
+		friend class FRDGBuilder;
+		FRHIGPUSubmissionReceipt Completion;
+	};
+
 	// Describes one retained graph-created resource for execution allocation.
 	// Diagnostic names are deliberately absent from allocation identity.
 	struct FRDGAllocationRequest final
@@ -898,6 +909,7 @@ namespace Durin
 		// Exported allocations must leave the reusable pool before Allocate returns.
 		// Their counted references own them thereafter; no implicit pool return.
 		bool bExtracted = false;
+		std::shared_ptr<const FRDGAllocationRetirement> Retirement;
 	};
 
 	struct FRDGAllocationStatistics final

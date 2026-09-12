@@ -197,8 +197,10 @@ accept only their corresponding graphics/attachment, compute, and transfer
 access families.
 
 After successful private compilation, the execution allocator receives immutable `FRDGAllocationRequest`
-records containing only resource ID, kind, exact description, and retained
-lifetime, observation tag, and explicit `bExtracted` ownership intent.
+records containing resource ID, kind, exact description, retained lifetime,
+observation tag, and explicit `bExtracted` ownership intent. For independent
+queue execution, execution-local copies additionally carry a shared
+`FRDGAllocationRetirement` proof; compiled logical requests remain ticket-free.
 Allocators detach extracted allocations from reusable storage before returning
 success; counted references then own the exported resource, with no implicit
 return to the pool when those references expire. Renderer may promote an
@@ -212,6 +214,18 @@ and backend transitions. Across independent timelines, reuse requires explicit
 GPU completion or synchronization. Neither an `Execute` return nor extraction
 publication proves GPU completion; external consumers must order their GPU uses
 and RHI retains responsibility for native resource retirement.
+
+Renderer opts into independent queues by retaining this proof with each pool
+entry. Reuse and ordinary pressure eviction require the graph's explicit
+terminal join receipt to be `Complete`; the join depends on both queue tails.
+Unpublished, pending, canceled, failed, or device-lost receipts never authorize
+reuse. Selection for eviction is captured before compaction so concurrent GPU
+progress cannot remove an entry absent from eviction accounting. This is a
+conservative whole-graph completion requirement, not graph-local aliasing.
+If retained entries cannot be evicted within the pool's structural budget,
+allocation fails before creating new resources. It neither exceeds the budget
+nor recycles outstanding GPU uses; later attempts can succeed after completion
+or explicit pool invalidation.
 
 Allocation is atomic: returning false, omitting one resource, or
 publishing an incompatible description records nothing, publishes no

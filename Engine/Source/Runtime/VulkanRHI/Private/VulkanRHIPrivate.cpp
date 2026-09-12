@@ -436,6 +436,59 @@ namespace Durin::VulkanRHI
 		return Result;
 	}
 
+	auto RunVulkanComputeGateForTesting(
+		const std::function<void(const std::function<void()>&)>& Test) -> void
+	{
+		auto& Device = *FVulkanDynamicRHI::Get().GetDeviceForTesting();
+		auto& Compute = *Device.GetComputeQueue();
+		require(&Compute != Device.GetGraphicsQueue() && Device.SupportsTimelineSemaphores());
+		vk::Semaphore Gate;
+		GCommandListExecutor.ExecuteSynchronousOperation(false, [&] {
+			CheckVulkanRHIThread();
+			vk::SemaphoreTypeCreateInfo Type(vk::SemaphoreType::eTimeline, 0);
+			vk::SemaphoreCreateInfo Info;
+			Info.setPNext(&Type);
+			Gate = Device.GetHandle().createSemaphore(Info);
+		});
+		bool bReleased = false;
+		const std::function<void()> Release = [&] {
+			if (bReleased) return;
+			GCommandListExecutor.ExecuteSynchronousOperation(false, [&] {
+				const vk::SemaphoreSignalInfo Signal(Gate, 1);
+				if (Device.GetGpuProperties().apiVersion >= VK_API_VERSION_1_2)
+					Device.GetHandle().signalSemaphore(Signal);
+				else Device.GetHandle().signalSemaphoreKHR(Signal);
+			});
+			bReleased = true;
+		};
+		auto Cleanup = [&] {
+			Release();
+			GCommandListExecutor.ExecuteSynchronousOperation(false, [&] {
+				Compute.GetHandle().waitIdle();
+				Device.GetHandle().destroySemaphore(Gate);
+			});
+		};
+		try
+		{
+			GCommandListExecutor.ExecuteSynchronousOperation(false, [&] {
+				const uint64 Value = 1;
+				const vk::PipelineStageFlags Stage = vk::PipelineStageFlagBits::eAllCommands;
+				vk::TimelineSemaphoreSubmitInfo Timeline;
+				Timeline.setWaitSemaphoreValues(Value);
+				vk::SubmitInfo Submit;
+				Submit.setPNext(&Timeline).setWaitSemaphores(Gate).setWaitDstStageMask(Stage);
+				Compute.GetHandle().submit(Submit);
+			});
+			Test(Release);
+		}
+		catch (...)
+		{
+			Cleanup();
+			throw;
+		}
+		Cleanup();
+	}
+
 	auto RunVulkanCrossQueueWaitForTesting() -> FVulkanCrossQueueWaitTestResult
 	{
 		CheckVulkanRHIThread();

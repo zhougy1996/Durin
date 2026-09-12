@@ -59,10 +59,54 @@ Handoffs and transition captures retain their source queue. Physical paired
 lowering now creates release/acquire objects during preparation, removes the
 corresponding ordinary barriers, and records producer-tail releases and
 consumer-prologue acquires. Initially graphics-owned ranges use an explicit
-release preamble. Pool integration remains outstanding: allocators default to
-rejecting async reuse through `SupportsAsyncCompute()`, so graphs with such
-allocation requests fall back to graphics. External-resource-only graphs can
-use a provisioned independent queue with opt-in policy.
+release preamble. Allocators default to rejecting async reuse through
+`SupportsAsyncCompute()`. Renderer now opts in by retaining execution-local
+allocation retirement proofs: only successful completion of the graph's explicit
+terminal join permits pool reuse or ordinary pressure eviction. Independent
+graphs recorded before completion receive different physical allocations.
+Unpublished and unsuccessful recordings remain quarantined until pool release.
+Pressure eviction snapshots the selected entries so completion advancing during
+compaction cannot invalidate retained-byte accounting. Delayed native completion
+and unpublished-proof pressure coverage now pass. Native submission-failure
+coverage and production eligibility remain outstanding.
+Pool integration validation passed 166 RenderContractTests, 54 Renderer scene
+contract tests, two Renderer resource reload Vulkan tests, 97 Vulkan integration
+tests, and the default-profile `all` build. The resource pool fixture checks
+pending graph isolation and reuse after the terminal join on both compute
+topologies. Logs use prefixes `20260912-171713-793785-10304`,
+`20260912-171604-570484-28888`, `20260912-171630-515157-27984`,
+`20260912-171524-615687-32880`, and `20260912-171641-908639-22852`.
+Native logs contain no VUID errors, failed cases, or skipped cases.
+The pool fixture additionally throws during an async pass callback, then records
+and completes later graphs. The failed graph's allocation remains unavailable
+even after the partial command prefix has drained; subsequent successful graphs
+reuse their own completed allocation. Both compute topologies passed in
+`20260912-171914-312619-35796-RendererResourceReloadVulkanTests.log` (2/2 tests,
+no VUID errors or skips). This covers recording failure, not native submission
+failure or memory-pressure recovery.
+Native delayed-pool validation now gates compute with a host-signaled timeline
+semaphore. The graph's submitted terminal join times out while compute is held;
+another graph selects different storage. After release and successful completion,
+the old allocation is reused. Shared-family and dedicated-family configurations
+both passed in inline and threaded replay modes. The production pool now rejects
+allocation when outstanding uses prevent sufficient eviction under its 640 MiB
+structural ceiling. A CPU fixture covers mixed texture/buffer quarantine,
+eviction of eligible entries, exact retained-byte accounting, and pool-release
+recovery without allocating VRAM.
+
+- RendererSceneContractTests: 55/55 passed, log
+  `20260912-172721-670184-35124-RendererSceneContractTests.log`.
+- RendererResourceReloadVulkanTests: 2/2 passed with all four topology/replay
+  combinations, log `20260912-172800-384867-32772-RendererResourceReloadVulkanTests.log`.
+- VulkanRHIIntegrationTests: 97/97 passed with `--output full`, log
+  `20260912-173050-520076-28320-VulkanRHIIntegrationTests.log`. Two preceding compact
+  runs ended with access violation `0xc0000005` at different lifecycle positions
+  (logs `20260912-172847-067008-26520` and `20260912-172940-337485-30012`).
+  The failure is not localized; the full-output pass does not establish that the
+  intermittent lifecycle crash is fixed. Keep this stability gap open.
+- The successful native logs contain no VUID errors, failed cases, or skips.
+  The default-profile `all` build passed, log `20260912-173138-001701-1560-cmake.log`.
+
 Physical lowering validation passed 166 RenderContractTests, 97 Vulkan
 integration tests, 54 RendererSceneContractTests and the default-profile `all`
 build. Logs use prefixes `20260912-165633-415673-19372`,
@@ -78,7 +122,7 @@ distinct-family queues in inline and threaded modes. All 97 Vulkan integration
 tests passed in `20260912-170405-940301-26104-VulkanRHIIntegrationTests.log`,
 without VUID, failure or skip diagnostics. Native single-queue fallback with
 enabled RDG policy is included. Allocator reuse and production renderer
-eligibility remain to be qualified.
+eligibility remain to be fully qualified.
 Queue-only transition validation passed 166 RenderContractTests, 97 Vulkan
 integration tests, 54 RendererSceneContractTests and the default-profile `all`
 build. The corresponding log prefixes are `20260912-165057-079070-19020`,
@@ -643,7 +687,7 @@ dependencies, fallback behavior, and resource retirement.
   transfers for both shared-family and distinct-family configurations.
 - [ ] Track every using queue in retirement prerequisites. Cover concurrent
   reads, write/read handoffs, compute-only final uses, and graph boundaries.
-- [ ] Integrate Renderer resource pools and reuse: require completed uses or
+- [x] Integrate Renderer resource pools and reuse: require completed uses or
   explicitly scheduled dependencies before reuse; never assume frame number,
   pass index, or graphics completion covers outstanding compute work.
 - [ ] Test fork/join, fan-in/fan-out, multiple readers, empty batches, culling,

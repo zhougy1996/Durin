@@ -191,6 +191,10 @@ namespace Durin::VulkanRHI
 		FRHIGPUCompletionPoint Consumer;
 	};
 	VULKANRHI_API auto RunVulkanCrossQueueWaitForTesting() -> FVulkanCrossQueueWaitTestResult;
+	// Holds compute progress while Test runs on its calling thread. Native gate
+	// operations execute through the RHI executor; Release is synchronous.
+	VULKANRHI_API auto RunVulkanComputeGateForTesting(
+		const std::function<void(const std::function<void()>&)>& Test) -> void;
 	struct FVulkanQueueTransferTestResult
 	{
 		bool bBufferMatched = false;

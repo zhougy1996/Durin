@@ -2444,6 +2444,21 @@ namespace Durin::Tests
 			FDynamicRHI* Previous;
 		};
 
+		class FUnpublishedAllocator final : public FRDGAllocator
+		{
+		public:
+			explicit FUnpublishedAllocator(FRendererRDGAllocator& InPool) : Pool(InPool) {}
+			auto Allocate(std::span<const FRDGAllocationRequest> Requests,
+				FRDGAllocatedResources& Resources, std::string& Error) -> bool override
+			{
+				std::vector<FRDGAllocationRequest> Copies(Requests.begin(), Requests.end());
+				for (auto& Copy : Copies) Copy.Retirement = std::make_shared<FRDGAllocationRetirement>();
+				return Pool.Allocate(Copies, Resources, Error);
+			}
+		private:
+			FRendererRDGAllocator& Pool;
+		};
+
 		struct FRDGTestRequest final
 		{
 			bool bTexture;
@@ -2451,7 +2466,7 @@ namespace Durin::Tests
 			bool bExtracted = false;
 		};
 
-		auto ExecuteAllocationBatch(FRendererRDGAllocator& Allocator,
+		auto ExecuteAllocationBatch(FRDGAllocator& Allocator,
 			std::span<const FRDGTestRequest> Requests) -> FRDGCapture
 		{
 			FRHICommandListExecutor Executor;
@@ -2494,12 +2509,39 @@ namespace Durin::Tests
 			return Builder.Capture();
 		}
 
-		auto ExecuteAllocationBatch(FRendererRDGAllocator& Allocator,
+		auto ExecuteAllocationBatch(FRDGAllocator& Allocator,
 			std::initializer_list<FRDGTestRequest> Requests) -> FRDGCapture
 		{
 			return ExecuteAllocationBatch(Allocator,
 				std::span<const FRDGTestRequest>(Requests.begin(), Requests.size()));
 		}
+	}
+
+	TEST(FRendererSceneContractTests, RDGUnpublishedRetirementCannotEvictOrExceedThePoolBudget)
+	{
+		FRenderingThreadScope RenderingThread;
+		EnqueueRenderCommand<FRDGAllocatorTestCommand>([](FRHICommandListImmediate&) {
+			FRDGAllocationTestRHI RHI;
+			FRendererResourceCoordinator Coordinator;
+			FRendererRDGAllocator Allocator(Coordinator);
+			FUnpublishedAllocator Unpublished(Allocator);
+			const auto Held = ExecuteAllocationBatch(Unpublished, {{true, 160}, {false, 320}});
+			EXPECT_EQ(Held.AllocationStatistics.RetainedBytes, 480 * MiB);
+			const auto Full = ExecuteAllocationBatch(Allocator, {{false, 160}});
+			EXPECT_EQ(Full.AllocationStatistics.RetainedBytes, 640 * MiB);
+			const auto Rejected = ExecuteAllocationBatch(Allocator, {{false, 161}});
+			EXPECT_EQ(Rejected.AllocationStatistics.ActiveResources, 0u);
+			EXPECT_EQ(Rejected.AllocationStatistics.Failures, 1u);
+			EXPECT_EQ(Rejected.AllocationStatistics.Evictions, 1u);
+			EXPECT_EQ(Rejected.AllocationStatistics.RetainedBytes, 480 * MiB);
+			EXPECT_EQ(Rejected.AllocationStatistics.RetainedResources, 2u);
+			EXPECT_EQ(RHI.Creates, 3u);
+			EXPECT_LE(RHI.PeakBytes, 640 * MiB);
+			Allocator.Release_RenderThread();
+			const auto Recovered = ExecuteAllocationBatch(Allocator, {{false, 161}});
+			EXPECT_EQ(Recovered.AllocationStatistics.ActiveResources, 1u);
+		});
+		FlushRenderingCommands();
 	}
 
 	TEST(FRendererSceneContractTests, RDGBucketsReserveDuplicateDescriptorsInCreationOrder)

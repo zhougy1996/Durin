@@ -48,6 +48,7 @@ namespace Durin
 		explicit FRendererRDGAllocator(
 			FRendererResourceCoordinator& InCoordinator);
 		~FRendererRDGAllocator();
+		auto SupportsAsyncCompute() const -> bool override { return true; }
 
 		auto GetObservedRetainedBytes_RenderThread(
 			ERDGAllocationObservation Observation) const -> uint64;

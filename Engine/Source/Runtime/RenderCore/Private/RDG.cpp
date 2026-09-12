@@ -1647,6 +1647,7 @@ namespace Durin
 		ERDGBuilderState Lifecycle = ERDGBuilderState::Building;
 		FRDGExecutionResult ExecutionResult;
 		std::vector<FRHIGPUSubmissionReceipt> SubmissionReceipts;
+		std::shared_ptr<FRDGAllocationRetirement> AllocationRetirement;
 		bool bCompiled = false;
 		uint32 PendingConstructions = 0;
 		FGraphParameterStorage ParameterStorage;
@@ -3049,8 +3050,19 @@ namespace Durin
 			FRDGAllocatedResources Candidate(
 				static_cast<uint32>(Compiled->Resources.size()));
 			std::string Error;
+			std::span<const FRDGAllocationRequest> Requests = Compiled->AllocationRequests;
+			std::vector<FRDGAllocationRequest> AsyncRequests;
+			if (State->bAsyncComputeEnabled && GDynamicRHI
+				&& GDynamicRHI->RHIGetQueueCapabilities().bIndependentCompute
+				&& Context->Allocator.SupportsAsyncCompute())
+			{
+				State->AllocationRetirement = std::make_shared<FRDGAllocationRetirement>();
+				AsyncRequests = Compiled->AllocationRequests;
+				for (auto& Request : AsyncRequests) Request.Retirement = State->AllocationRetirement;
+				Requests = AsyncRequests;
+			}
 			const bool bAllocated = Context->Allocator.Allocate(
-				Compiled->AllocationRequests, Candidate, Error);
+				Requests, Candidate, Error);
 			Compiled->AllocationStatistics = Candidate.Statistics;
 			if (!bAllocated)
 			{
@@ -3230,6 +3242,11 @@ namespace Durin
 				}
 			}
 			for (const auto& Transfer : Releases[Batch.Id.Index]) CommandList.ReleaseQueueOwnership(Transfer);
+		}
+		if (State->AllocationRetirement)
+		{
+			require(!State->SubmissionReceipts.empty());
+			State->AllocationRetirement->Completion = State->SubmissionReceipts.back();
 		}
 		for (uint32 Index = 0; Index < Compiled->Resources.size(); ++Index)
 		{

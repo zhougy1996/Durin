@@ -89,11 +89,11 @@ durin_add_engine_functional_test(RendererResourceReloadVulkanTests
 	STACKS renderer
 	GPU
 	TIMEOUT 900
-	RUNTIME_STACK_RATIONALE "Exercises in-process renderer shader failure, reload, and recovery on Vulkan."
-	RUNTIME_ONLY_RATIONALE "RHIInit selects VulkanRHI dynamically for this Vulkan-backed test."
-	RUNTIME_ONLY_TARGETS VulkanRHI
+	RUNTIME_STACK_RATIONALE "Exercises renderer shader recovery and resource-pool reuse with controlled native compute completion."
 	SOURCES Private/RendererResourceReloadVulkanTests.cpp
-	LIBRARIES ApplicationCore DerivedDataCache RenderCore Renderer ShaderBuild Slang_Imported
+	LIBRARIES ApplicationCore DerivedDataCache RenderCore Renderer ShaderBuild Slang_Imported VulkanRHI Vulkan::Vulkan
+	INCLUDE_DIRECTORIES ${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
+	COMPILE_DEFINITIONS DURIN_VULKAN_TEST_FAILURE_INJECTION=1
 )
 
 durin_add_engine_functional_test(StaticMeshRenderPreparationVulkanTests

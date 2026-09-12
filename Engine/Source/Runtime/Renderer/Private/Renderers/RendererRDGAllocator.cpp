@@ -137,6 +137,7 @@ namespace Durin
 		{
 			Descriptor Key;
 			Resource Physical;
+			std::shared_ptr<const FRDGAllocationRetirement> Retirement;
 			uint64 Sequence = 0;
 			uint64 LogicalBytes = 0;
 			std::optional<FRenderResourceGeneration> FailedGeneration;
@@ -404,6 +405,12 @@ namespace Durin
 				const auto& Bucket = BucketIt->second;
 				auto& Cursor = BucketCursors.try_emplace(
 					&Bucket, Bucket.Physical.begin()).first->second;
+				while (Cursor != Bucket.Physical.end())
+				{
+					const auto& Entry = Entries.Entries[*Cursor];
+					if (!Entry.Retirement || Entry.Retirement->IsReusable()) break;
+					++Cursor;
+				}
 				if (Cursor != Bucket.Physical.end())
 				{
 					const uint64 Id = Entries.Entries[*Cursor++].Sequence + 1;
@@ -451,21 +458,22 @@ namespace Durin
 			if (State->RetainedBytes <= Limit) return;
 			size_t TextureIndex = 0;
 			size_t BufferIndex = 0;
-			std::optional<uint64> LastEvictedSequence;
+			std::unordered_set<uint64> EvictedSequences;
 			auto SkipReserved = [&](auto& Entries, size_t& Index) {
 				while (Index < Entries.size()
 					&& (!Entries[Index].Physical
+						|| (Entries[Index].Retirement && !Entries[Index].Retirement->IsReusable())
 						|| ActiveAllocationIds.contains(Entries[Index].Sequence + 1)))
 					++Index;
 			};
 			auto Select = [&](const auto& Entry) {
-				LastEvictedSequence = Entry.Sequence;
+				EvictedSequences.insert(Entry.Sequence);
 				State->RetainedBytes -= Entry.LogicalBytes;
 				--State->RetainedResources;
 				++State->Evictions;
 			};
-			// Both pools are sequence ordered. Merge once, then compact each pool
-			// once; reserved and failed entries survive the selected prefix.
+			// Snapshot selection: completion may advance before compaction, but
+			// only entries accounted for here may be removed from the pools.
 			while (State->RetainedBytes > Limit)
 			{
 				SkipReserved(State->Textures, TextureIndex);
@@ -480,11 +488,10 @@ namespace Durin
 				else
 					Select(State->Buffers[BufferIndex++]);
 			}
-			if (LastEvictedSequence)
+			if (!EvictedSequences.empty())
 			{
 				auto Remove = [&](const auto& Entry) {
-					return Entry.Physical && Entry.Sequence <= *LastEvictedSequence
-						&& !ActiveAllocationIds.contains(Entry.Sequence + 1);
+					return EvictedSequences.contains(Entry.Sequence);
 				};
 				State->Textures.EraseIf(Remove);
 				State->Buffers.EraseIf(Remove);
@@ -492,6 +499,8 @@ namespace Durin
 		};
 		const auto PreviousEvictions = State->Evictions;
 		EvictUntil(FRendererRDGAllocationPolicy::MaximumRetainedBytes - MissingBytes);
+		if (State->RetainedBytes > FRendererRDGAllocationPolicy::MaximumRetainedBytes - MissingBytes)
+			return Fail("RDG allocation is waiting for outstanding GPU uses within the structural budget");
 		if (MissingBytes != 0
 			&& (State->Evictions != PreviousEvictions || State->bNeedsCollection))
 		{
@@ -548,6 +557,7 @@ namespace Durin
 				++State->RetainedResources;
 			}
 			It->ObservationTag = Request.ObservationTag;
+			It->Retirement = Request.Retirement;
 			Candidate.AllocationId = It->Sequence + 1;
 			ActiveAllocationIds.insert(Candidate.AllocationId);
 			AssignPhysical(Candidate, It->Physical);

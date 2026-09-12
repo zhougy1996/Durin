@@ -1,5 +1,9 @@
 #include <gtest/gtest.h>
+#include "../../RDGTestAccess.h"
+#include "Renderers/RendererRDGAllocator.h"
 #include "VulkanEngineTestSupport.h"
+#include <vulkan/vulkan.hpp>
+#include "VulkanRHIPrivate.h"
 
 #include "Console/ConsoleCommand.h"
 #include "CoreGlobals.h"
@@ -130,6 +134,107 @@ float4 FragmentMain() : SV_Target
 			EXPECT_NEAR(std::to_integer<uint8>(Pixels[Center + 1]), ExpectedGreen, 8);
 			EXPECT_NEAR(std::to_integer<uint8>(Pixels[Center + 2]), 0, 8);
 			EXPECT_NEAR(std::to_integer<uint8>(Pixels[Center + 3]), 255, 8);
+		}
+	}
+
+	TEST(FRendererResourceReloadVulkanTests, AsyncPoolReuseWaitsForTheRecordedTerminalJoin)
+	{
+		if (!GIsGameThreadIdInitialized)
+		{
+			GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+			GIsGameThreadIdInitialized = true;
+		}
+		for (const char* Execution : {"inline", "threaded"})
+		for (const char* Policy : {"same-family", "dedicated"})
+		{
+			SCOPED_TRACE(Execution);
+			SCOPED_TRACE(Policy);
+			struct FScope
+			{
+				std::string Previous = std::getenv("DURIN_VULKAN_COMPUTE_QUEUE") ? std::getenv("DURIN_VULKAN_COMPUTE_QUEUE") : "";
+				std::string PreviousExecution = std::getenv("DURIN_RHI_EXECUTION") ? std::getenv("DURIN_RHI_EXECUTION") : "";
+				bool bRendering = false;
+				~FScope()
+				{
+					if (bRendering) ShutdownRenderingThread();
+					if (GDynamicRHI) RHIExit();
+					_putenv_s("DURIN_VULKAN_COMPUTE_QUEUE", Previous.c_str());
+					_putenv_s("DURIN_RHI_EXECUTION", PreviousExecution.c_str());
+				}
+			} Scope;
+			_putenv_s("DURIN_VULKAN_COMPUTE_QUEUE", Policy);
+			_putenv_s("DURIN_RHI_EXECUTION", Execution);
+			FModuleManager::Get().LoadModule("RenderCore");
+			ASSERT_TRUE(RHIInit(Tests::GetVulkanEngineTestInitializationContext()));
+			ASSERT_TRUE(GDynamicRHI->RHIGetQueueCapabilities().bIndependentCompute);
+			InitRenderingThread();
+			Scope.bRendering = true;
+			struct FPoolTestCommand { static constexpr auto GetName() -> const char* { return "AsyncPoolReuseTest"; } };
+			EnqueueRenderCommand<FPoolTestCommand>([](FRHICommandListImmediate& Commands) {
+				FRendererResourceCoordinator Coordinator;
+				FRendererRDGAllocator Allocator(Coordinator);
+				auto Record = [&](bool bFailRecording = false) {
+					FRDGBuilder Graph;
+					Graph.SetAsyncComputeEnabled(true);
+					const auto Buffer = Graph.CreateBuffer({.Buffer = FRHIBufferDesc(64, 4, EBufferUsageFlags::UnorderedAccess)}, "Pooled");
+					const auto Pass = FRDGBuilderTestAccessor::AddPass(Graph, "Write", ERDGPassType::Compute,
+						[bFailRecording](FRHICommandListImmediate&, const FRDGPassResources&) {
+							if (bFailRecording) throw std::runtime_error("controlled recording failure");
+						});
+					Graph.SetPassAsyncComputeEligible(Pass);
+					FRDGBuilderTestAccessor::UseBuffer(Graph, Pass, Buffer, 0, 64, ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
+					FRDGExecutionContext Context{Allocator};
+					if (bFailRecording)
+					{
+						EXPECT_THROW(Graph.Execute(Commands, &Context), std::runtime_error);
+						EXPECT_EQ(Graph.GetState(), ERDGBuilderState::Failed);
+					}
+					else
+					{
+						const auto Result = Graph.Execute(Commands, &Context);
+						EXPECT_TRUE(Result.IsSuccess()) << Result.Result.Message;
+						if (!Result.IsSuccess()) return std::pair{uint64(0), FRHIGPUSubmissionReceipt{}};
+					}
+					return std::pair{Graph.Capture().Resources[0].PhysicalAllocationId, Graph.GetSubmissionReceipts().back()};
+				};
+				const auto First = Record();
+				const auto Second = Record();
+				EXPECT_NE(First.first, Second.first);
+				EXPECT_EQ(First.second.GetState(), ERHIGPUSubmissionState::Pending);
+				Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
+				EXPECT_EQ(GDynamicRHI->RHIWaitForCompletion(Second.second.GetTicket(), 1'000'000'000), ERHIGPUWaitResult::Complete);
+				const auto Third = Record();
+				EXPECT_EQ(Third.first, First.first);
+				Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
+				EXPECT_EQ(GDynamicRHI->RHIWaitForCompletion(Third.second.GetTicket(), 1'000'000'000), ERHIGPUWaitResult::Complete);
+				VulkanRHI::RunVulkanComputeGateForTesting([&](const std::function<void()>& Release) {
+					const auto Blocked = Record();
+					Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
+					EXPECT_EQ(GDynamicRHI->RHIWaitForCompletion(Blocked.second.GetTicket(), 0), ERHIGPUWaitResult::Timeout);
+					EXPECT_EQ(Blocked.second.GetState(), ERHIGPUSubmissionState::Submitted);
+					const auto WhileBlocked = Record();
+					EXPECT_NE(WhileBlocked.first, Blocked.first);
+					Release();
+					Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
+					EXPECT_EQ(GDynamicRHI->RHIWaitForCompletion(WhileBlocked.second.GetTicket(), 1'000'000'000), ERHIGPUWaitResult::Complete);
+					const auto Reused = Record();
+					EXPECT_EQ(Reused.first, Blocked.first);
+					Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
+					EXPECT_EQ(GDynamicRHI->RHIWaitForCompletion(Reused.second.GetTicket(), 1'000'000'000), ERHIGPUWaitResult::Complete);
+				});
+				const auto Failed = Record(true);
+				const auto AfterFailure = Record();
+				EXPECT_NE(AfterFailure.first, Failed.first);
+				Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
+				EXPECT_EQ(GDynamicRHI->RHIWaitForCompletion(AfterFailure.second.GetTicket(), 1'000'000'000), ERHIGPUWaitResult::Complete);
+				const auto AfterDrain = Record();
+				EXPECT_NE(AfterDrain.first, Failed.first);
+				EXPECT_EQ(AfterDrain.first, AfterFailure.first);
+				Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
+				EXPECT_EQ(GDynamicRHI->RHIWaitForCompletion(AfterDrain.second.GetTicket(), 1'000'000'000), ERHIGPUWaitResult::Complete);
+				Allocator.Release_RenderThread();
+			});
+			FlushRenderingCommands();
 		}
 	}
 
