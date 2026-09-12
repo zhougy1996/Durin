@@ -3643,7 +3643,7 @@ namespace Durin
 		}
 	}
 
-	TEST_F(FRDGTests, BufferExtractionRequiresAProducerWithoutProvingByteCoverage)
+	TEST_F(FRDGTests, BufferExtractionRequiresCompleteByteCoverage)
 	{
 		for (bool Cull : {false, true})
 			for (uint64 WrittenSize : {0u, 32u, 64u})
@@ -3666,7 +3666,7 @@ namespace Durin
 				FTestRDGAllocator Allocator;
 				FRDGExecutionContext Context{Allocator};
 				const auto Result = Builder.Execute(GetCommandList(), &Context);
-				EXPECT_EQ(Result.IsSuccess(), WrittenSize != 0) << Result.Result.Message;
+				EXPECT_EQ(Result.IsSuccess(), WrittenSize == 64) << Result.Result.Message;
 				if (Result.IsSuccess())
 				{
 					EXPECT_EQ(Builder.GetPasses().back().Name, "RDG.Export");
@@ -3678,6 +3678,82 @@ namespace Durin
 				else
 					EXPECT_NE(Result.Result.Message.find("before its producer"), std::string::npos);
 			}
+	}
+
+	TEST_F(FRDGTests, BufferCoverageJoinsPartialWritesAndRejectsGapsAtExport)
+	{
+		for (const bool bCull : {false, true})
+			for (const bool bCloseGap : {false, true})
+			{
+				FRDGBuilder Builder;
+				if (bCull) Builder.EnablePassCulling();
+				const auto Buffer = Builder.CreateBuffer({.Buffer = FRHIBufferDesc(
+					64, 4, EBufferUsageFlags::UnorderedAccess)}, "PartialOutput");
+				// Initialize out of order, then optionally bridge the middle gap.
+				const std::array<std::pair<uint64, uint64>, 3> Ranges{{{32, 32}, {0, 16}, {16, 16}}};
+				for (uint32 Index = 0; Index < (bCloseGap ? 3u : 2u); ++Index)
+				{
+					const auto Write = FRDGBuilderTestAccessor::AddPass(Builder,
+						"Write" + std::to_string(Index), ERDGPassType::Compute);
+					FRDGBuilderTestAccessor::UseBuffer(Builder, Write, Buffer, Ranges[Index].first, Ranges[Index].second,
+						ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
+				}
+				FBufferRHIRef Destination;
+				Builder.QueueBufferExtraction(Buffer, &Destination, ERHIAccess::ComputeShaderRead);
+				const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
+				EXPECT_EQ(Result.IsSuccess(), bCloseGap) << Result.Result.Message;
+				if (bCloseGap) EXPECT_EQ(Builder.GetPasses().size(), 4u);
+				else
+				{
+					EXPECT_EQ(Result.Result.Error, ERDGError::MissingProducer);
+					EXPECT_NE(Result.Result.Message.find("PartialOutput"), std::string::npos);
+					EXPECT_NE(Result.Result.Message.find("[0, 64)"), std::string::npos);
+				}
+			}
+	}
+
+	TEST_F(FRDGTests, BufferReadsValidateTheirByteRangesBeforeSamePassWrites)
+	{
+		for (const bool bInitialize : {false, true})
+			for (const uint64 ReadOffset : {0u, 8u, 16u})
+			{
+				FRDGBuilder Builder;
+				const auto Buffer = Builder.CreateBuffer({.Buffer = FRHIBufferDesc(
+					64, 4, EBufferUsageFlags::UnorderedAccess)}, "PartialInput");
+				if (bInitialize)
+				{
+					const auto Initialize = FRDGBuilderTestAccessor::AddPass(Builder, "Initialize", ERDGPassType::Compute);
+					FRDGBuilderTestAccessor::UseBuffer(Builder, Initialize, Buffer, 0, 16,
+						ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
+				}
+				const auto Mixed = FRDGBuilderTestAccessor::AddPass(Builder, "Mixed", ERDGPassType::Compute);
+				FRDGBuilderTestAccessor::UseBuffer(Builder, Mixed, Buffer, 32, 32,
+					ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
+				FRDGBuilderTestAccessor::UseBuffer(Builder, Mixed, Buffer, ReadOffset, 16,
+					ERDGUse::Read, ERHIAccess::ComputeShaderRead);
+				const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
+				EXPECT_EQ(Result.IsSuccess(), bInitialize && ReadOffset == 0) << Result.Result.Message;
+				if (!Result.IsSuccess()) EXPECT_EQ(Result.Result.Error, ERDGError::MissingProducer);
+			}
+	}
+
+	TEST_F(FRDGTests, SamePassDiscardWritesCanInitializeDisjointBufferRanges)
+	{
+		FRDGBuilder Builder;
+		Builder.EnablePassCulling();
+		const auto Buffer = Builder.CreateBuffer({.Buffer = FRHIBufferDesc(
+			64, 4, EBufferUsageFlags::UnorderedAccess)}, "Output");
+		const auto Write = FRDGBuilderTestAccessor::AddPass(Builder, "Write", ERDGPassType::Compute);
+		FRDGBuilderTestAccessor::UseBuffer(Builder, Write, Buffer, 0, 32,
+			ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
+		FRDGBuilderTestAccessor::UseBuffer(Builder, Write, Buffer, 32, 32,
+			ERDGUse::ReadWrite, ERHIAccess::ComputeShaderReadWrite, true);
+		FBufferRHIRef Destination;
+		Builder.QueueBufferExtraction(Buffer, &Destination, ERHIAccess::ComputeShaderRead);
+		const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
+		ASSERT_TRUE(Result.IsSuccess()) << Result.Result.Message;
+		EXPECT_EQ(Builder.GetPasses().size(), 2u);
+		ExpectCapturedBarriersMatchPlan(Builder);
 	}
 
 	TEST_F(FRDGTests, FullBufferDiscardCullsOverwrittenProducerButPreservesExecutionOrder)
@@ -4173,8 +4249,8 @@ namespace Durin
 		for (uint32 Count : {32u, 256u})
 		{
 			FRDGBuilder Builder;
-			// One layout cell and one visit per resource access in each traversal.
-			Builder.SetBudget({.MaxRangeCells = 1, .MaxCellVisits = 6 * Count});
+			// One layout cell, two state traversals, and separate byte-coverage checks.
+			Builder.SetBudget({.MaxRangeCells = 1, .MaxCellVisits = 7 * Count});
 			const auto Buffer = Builder.CreateBuffer({.Buffer = FRHIBufferCreateDesc::Create(
 				"Sparse", Count * 16, 4, EBufferUsageFlags::UnorderedAccess)}, "Sparse");
 			for (uint32 Index = Count; Index-- > 0;)
@@ -4327,7 +4403,7 @@ namespace Durin
 		{
 			FRDGBuilder Builder;
 			Builder.SetBudget({.MaxBufferTransitions = 0, .MaxTextureTransitions = 0,
-				.MaxCellVisits = 4});
+				.MaxCellVisits = bTexture ? 4u : 6u});
 			const auto First = FRDGBuilderTestAccessor::AddPass(Builder, "First", ERDGPassType::Compute);
 			const auto Second = FRDGBuilderTestAccessor::AddPass(Builder, "Second", ERDGPassType::Compute);
 			if (bTexture)
@@ -4345,7 +4421,7 @@ namespace Durin
 					FRDGBuilderTestAccessor::UseBuffer(Builder, Pass, Buffer, 0, 64, ERDGUse::Write,
 						ERHIAccess::ComputeShaderReadWrite, true);
 			}
-			// One coverage visit and two hazard visits precede the first transition.
+			// Layout and hazard visits (plus buffer coverage) precede the first transition.
 			// Permit that transition visit, but no later use visit.
 			EXPECT_EQ(FRDGBuilderTestAccessor::Compile(Builder).Result.Message,
 				std::string("render graph safety limit exceeded: ")

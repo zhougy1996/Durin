@@ -109,9 +109,11 @@ execution state. Compilation never mutates a command list.
   distinct subresources remain independent. Buffers use one resource-wide
   dependency and barrier state. Byte ranges remain authoritative for bindings
   and parameter authorization, but do not establish independent graph resources.
-  Buffer production checks require an initial value or a prior writer; they do
-  not prove byte coverage, including at extraction. Authors must initialize all
-  bytes that consumers will read.
+  Buffer initialization is checked separately using coalesced byte intervals.
+  Reads require prior stored writes or imported contents covering every declared
+  input byte; extraction requires complete buffer coverage. Same-pass writes
+  cannot initialize that pass's inputs. This validates declared coverage, not
+  shader execution or the values actually written by callbacks.
 - Required access cannot contain `Discard`. Discard is producer intent and
   is carried separately from the expected-before access state.
 - An attachment `Load` requires prior contents. A `DontCare` store invalidates
@@ -482,7 +484,8 @@ to compacted entries; `MaxTextureTransitions` bounds pre-compaction events so
 compaction cannot hide excessive compiler work.
 `MaxRangeCells` and `MaxRangeCellCandidates` bound fixed layout cells, including
 unused subresources of referenced textures. `MaxCellVisits` counts layout
-construction, dependency analysis, and execution-plan traversal.
+construction, buffer coverage checks and interval merges, dependency analysis,
+and execution-plan traversal.
 The `Max*` structural limits are deliberately broad deterministic compile gates
 that protect graph construction from catastrophic growth. Errors name the
 exceeded dimension and include actual and limit values. `RegressionMax*`

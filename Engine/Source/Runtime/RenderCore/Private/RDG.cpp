@@ -8,6 +8,7 @@
 
 #include <unordered_map>
 #include <unordered_set>
+#include <map>
 
 namespace Durin
 {
@@ -1517,11 +1518,73 @@ namespace Durin
 			return {};
 		}
 
+		// Initialization coverage is independent of whole-buffer synchronization.
+		// Disjoint initialized intervals stay sorted and adjacent intervals coalesce.
+		struct FBufferContentCoverage final
+		{
+			std::map<uint64, uint64> Intervals;
+
+			auto Contains(uint64 Begin, uint64 End) const -> bool
+			{
+				auto It = Intervals.upper_bound(Begin);
+				return It != Intervals.begin() && std::prev(It)->second >= End;
+			}
+
+			auto Include(uint64 Begin, uint64 End, FRangeWork& Work) -> FRDGResult
+			{
+				if (Contains(Begin, End)) return {};
+				auto It = Intervals.lower_bound(Begin);
+				if (It != Intervals.begin() && std::prev(It)->second >= Begin) --It;
+				while (It != Intervals.end() && It->first <= End)
+				{
+					if (!Work.Visit()) return Work.Error();
+					Begin = std::min(Begin, It->first);
+					End = std::max(End, It->second);
+					It = Intervals.erase(It);
+				}
+				Intervals.emplace_hint(It, Begin, End);
+				return {};
+			}
+		};
+
+		auto ValidateBufferContents(FGraphPassView Passes,
+			std::span<const FGraphResource> Resources, FRangeWork& Work) -> FRDGResult
+		{
+			std::unordered_map<uint32, FBufferContentCoverage> Coverage;
+			for (uint32 PassIndex = 0; PassIndex < Passes.size(); ++PassIndex)
+			{
+				const auto& Pass = Passes[PassIndex];
+				// Every input must exist before this pass; sibling output declarations
+				// cannot initialize an input merely by appearing earlier in metadata.
+				for (const auto& Use : Pass.Uses)
+				{
+					if (Use.Kind != ERDGResourceKind::Buffer) continue;
+					if (!Work.Visit()) return Work.Error();
+					const auto& Resource = Resources[Use.ResourceIndex];
+					auto [It, bInserted] = Coverage.try_emplace(Use.ResourceIndex);
+					if (bInserted && Resource.HasInitialContents())
+						It->second.Intervals.emplace(0, Resource.BufferDesc.Size);
+					if (Use.Use != ERDGUse::Write && !Use.bDiscard
+						&& !It->second.Contains(Use.BufferOffset, Use.BufferOffset + Use.BufferSize))
+						return {ERDGError::MissingProducer, PassUsePrefix(Pass, Use)
+							+ " reads buffer '" + Resource.Name + "' before its producer covers bytes ["
+							+ std::to_string(Use.BufferOffset) + ", "
+							+ std::to_string(Use.BufferOffset + Use.BufferSize) + ")"};
+				}
+				for (const auto& Use : Pass.Uses)
+					if (Use.Kind == ERDGResourceKind::Buffer && IsWriteUse(Use.Use))
+						if (auto Error = Coverage.at(Use.ResourceIndex).Include(
+							Use.BufferOffset, Use.BufferOffset + Use.BufferSize, Work); !Error.IsSuccess()) return Error;
+			}
+			return {};
+		}
+
 		auto BuildHazardDependencies(FGraphPassView Passes,
 			std::span<const FGraphResource> Resources,
 			const FTrackingLayout& Cells, FDependencyGraph& Graph, FRangeWork& Work)
 			-> FRDGResult
 		{
+			if (auto Error = ValidateBufferContents(Passes, Resources, Work); !Error.IsSuccess()) return Error;
 			std::vector<FDependencyCellState> States(Cells.Ranges.size());
 			for (size_t Index = 0; Index < Cells.Ranges.size(); ++Index)
 				States[Index].bProduced = Resources[Cells.Ranges[Index].ResourceIndex].HasInitialContents();
@@ -1532,7 +1595,7 @@ namespace Durin
 						auto& Cell = States[CellIndex];
 						if (!Work.Visit()) return Work.Error();
 						const auto& Resource = Resources[Use.ResourceIndex];
-						if (Use.Use != ERDGUse::Write && !Use.bDiscard
+						if (Use.Kind != ERDGResourceKind::Buffer && Use.Use != ERDGUse::Write && !Use.bDiscard
 							&& !Cell.bProduced)
 							return {ERDGError::MissingProducer, PassUsePrefix(Passes[PassIndex], Use)
 								+ " reads resource '" + Resource.Name

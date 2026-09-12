@@ -1357,8 +1357,8 @@ namespace Durin
 		// must have valid stored contents; Destination is published only after success.
 		RENDERCORE_API auto QueueTextureExtraction(FRDGTextureHandle Texture,
 			FTextureRHIRef* Destination, ERHIAccess FinalAccess) -> void;
-		// Requires an initial value or prior writer; byte coverage is the author's
-		// responsibility. Conservatively retains the buffer write chain and publishes only after success.
+		// Requires prior stored writes or imported contents covering every byte.
+		// Partial writes retain earlier producers; publication occurs only after success.
 		RENDERCORE_API auto QueueBufferExtraction(FRDGBufferHandle Buffer,
 			FBufferRHIRef* Destination, ERHIAccess FinalAccess) -> void;
 		template<typename T, typename... Args>
