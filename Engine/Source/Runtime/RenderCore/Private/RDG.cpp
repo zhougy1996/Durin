@@ -1549,9 +1549,12 @@ namespace Durin
 							return {};
 						}
 						// Resource-level buffer writes preserve earlier producers: a
-						// partial write cannot prove that their contents are dead.
+						// partial write cannot prove that their contents are dead. An
+						// explicit full discard can, without dropping WAR/WAW ordering.
+						const bool bFullBufferDiscard = Use.Kind == ERDGResourceKind::Buffer
+							&& Use.bDiscard && Use.BufferOffset == 0 && Use.BufferSize == Resource.BufferDesc.Size;
 						if (((Use.Use == ERDGUse::ReadWrite && !Use.bDiscard)
-							|| Use.Kind == ERDGResourceKind::Buffer)
+							|| (Use.Kind == ERDGResourceKind::Buffer && !bFullBufferDiscard))
 							&& Cell.Producer != std::numeric_limits<uint32>::max())
 							if (auto Error = AddDependencyEdge(Graph, Cell.Producer, PassIndex,
 								Resource.Name, ERDGDependencyKind::Value); !Error.IsSuccess()) return Error;

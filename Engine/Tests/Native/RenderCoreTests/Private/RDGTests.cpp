@@ -2407,12 +2407,10 @@ namespace Durin
 
 		auto Result = FRDGBuilderTestAccessor::Compile(Builder);
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Result.Message;
-		ASSERT_EQ(Builder.GetDependencies().size(), 3u);
+		ASSERT_EQ(Builder.GetDependencies().size(), 2u);
 		EXPECT_EQ(Builder.GetDependencies()[0].Kind,
 			ERDGDependencyKind::Value);
 		EXPECT_EQ(Builder.GetDependencies()[1].Kind,
-			ERDGDependencyKind::Value);
-		EXPECT_EQ(Builder.GetDependencies()[2].Kind,
 			ERDGDependencyKind::Execution);
 		EXPECT_EQ(Builder.GetPasses()[0].Barriers.GetBufferTransitions()[0].ExpectedBefore,
 			ERHIAccess::Discard);
@@ -3679,6 +3677,39 @@ namespace Durin
 				}
 				else
 					EXPECT_NE(Result.Result.Message.find("before its producer"), std::string::npos);
+			}
+	}
+
+	TEST_F(FRDGTests, FullBufferDiscardCullsOverwrittenProducerButPreservesExecutionOrder)
+	{
+		for (const bool bRootFirst : {false, true})
+			for (const uint64 WrittenSize : {32u, 64u})
+			{
+				FRDGBuilder Builder;
+				Builder.EnablePassCulling();
+				const auto Buffer = Builder.CreateBuffer({.Buffer = FRHIBufferDesc(
+					64, 4, EBufferUsageFlags::UnorderedAccess)}, "Buffer");
+				const auto First = FRDGBuilderTestAccessor::AddPass(Builder, "First", ERDGPassType::Compute);
+				FRDGBuilderTestAccessor::UseBuffer(Builder, First, Buffer, 0, 64,
+					ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
+				if (bRootFirst) Builder.MarkPassRoot(First);
+				const auto Overwrite = FRDGBuilderTestAccessor::AddPass(Builder, "Overwrite", ERDGPassType::Compute);
+				FRDGBuilderTestAccessor::UseBuffer(Builder, Overwrite, Buffer, 0, WrittenSize,
+					ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
+				FBufferRHIRef Destination;
+				Builder.QueueBufferExtraction(Buffer, &Destination, ERHIAccess::ComputeShaderRead);
+				const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
+				ASSERT_TRUE(Result.IsSuccess()) << Result.Result.Message;
+				const bool bRetainFirst = bRootFirst || WrittenSize != 64;
+				EXPECT_EQ(Builder.GetPasses().size(), bRetainFirst ? 3u : 2u);
+				EXPECT_EQ(Builder.GetPasses()[0].Name, bRetainFirst ? "First" : "Overwrite");
+				if (bRetainFirst)
+				{
+					ASSERT_FALSE(Builder.GetDependencies().empty());
+					EXPECT_EQ(Builder.GetDependencies()[0].Kind, WrittenSize == 64
+						? ERDGDependencyKind::Execution : ERDGDependencyKind::Value);
+				}
+				ExpectCapturedBarriersMatchPlan(Builder);
 			}
 	}
 

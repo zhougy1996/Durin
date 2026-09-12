@@ -138,8 +138,10 @@ Value edges connect a producer to readers and read/write consumers; explicit edg
 in reachability. A separate minimal execution frontier preserves required RAW,
 WAR, and WAW order without making overwritten values reachable. A discard
 write starts a new version. Buffer writes conservatively retain the previous
-producer, including disjoint and discard writes, so partial updates cannot
-lose earlier contents through culling. Same-pass buffer declarations combine
+producer for partial updates, including disjoint and partial discard writes.
+A single full-buffer discard declaration can sever that value dependency,
+while preserving required execution ordering for retained passes.
+Same-pass buffer declarations combine
 access masks and advance the resource version once. Every generated dependency
 also points forward;
 compilation performs no reordering. A same-range overwrite chain therefore
