@@ -394,13 +394,13 @@ namespace Durin
 			DURIN_WARN(
 				"Scene render graph regression budget exceeded: passes={}/{} "
 				"dependencies={}/{} buffer-transitions={}/{} "
-				"texture-transitions={}/{}",
+				"texture-transitions={}/{} texture-subresource-transitions={}",
 				Statistics.DeclaredPasses, Budget.RegressionMaxPasses,
 				Statistics.Dependencies, Budget.RegressionMaxDependencies,
 				Statistics.BufferTransitions,
 				Budget.RegressionMaxBufferTransitions,
 				Statistics.TextureTransitions,
-				Budget.RegressionMaxTextureTransitions);
+				Budget.RegressionMaxTextureTransitions, Statistics.TextureTransitionSubresources);
 			Observation.bReportedRegressionOverage = true;
 		}
 		const bool Executed = Result.IsSuccess();

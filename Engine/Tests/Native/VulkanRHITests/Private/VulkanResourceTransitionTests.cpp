@@ -534,6 +534,21 @@ namespace Durin::VulkanRHI
 			EXPECT_EQ(VulkanTexture->GetStateTracker().Get(
 				ERHITextureAspect::Color, 0, 0), ERHIAccess::None);
 
+			FRDGBuilder Compact;
+			const auto CompactTexture = Compact.RegisterExternalTexture(Texture, "CompactTexture",
+				ERHIAccess::Discard, ERHIAccess::GraphicsShaderRead);
+			const auto CompactWrite = FRDGBuilderTestAccessor::AddPass(Compact, "CompactWrite", ERDGPassType::Copy);
+			FRDGBuilderTestAccessor::UseTexture(Compact, CompactWrite, CompactTexture,
+				{ERHITextureAspect::Color, 0, 2, 0, 1}, ERDGUse::Write, ERHIAccess::TransferWrite, true);
+			const auto CompactResult = Compact.Execute(Commands);
+			ASSERT_TRUE(CompactResult.IsSuccess()) << CompactResult.Result.Message;
+			EXPECT_EQ(Compact.GetStatistics().TextureTransitions, 2u);
+			EXPECT_EQ(Compact.GetStatistics().TextureTransitionSubresources, 4u);
+			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
+			for (uint32 Mip = 0; Mip < 2; ++Mip)
+				EXPECT_EQ(VulkanTexture->GetStateTracker().Get(
+					ERHITextureAspect::Color, Mip, 0), ERHIAccess::GraphicsShaderRead);
+
 			FRDGBuilder Next;
 			const auto External = Next.RegisterExternalBuffer(Buffer, "ExternalHandoff",
 				ERHIAccess::VertexBufferRead, ERHIAccess::TransferWrite);

@@ -1095,6 +1095,7 @@ namespace Durin
 		// Counts unique declared edges before culling; regression budgets count retained edges.
 		uint32 MaxDependencies = std::numeric_limits<uint32>::max();
 		uint32 MaxBufferTransitions = std::numeric_limits<uint32>::max();
+		// Bounds generated subresource events before executable range compaction.
 		uint32 MaxTextureTransitions = std::numeric_limits<uint32>::max();
 		uint32 RegressionMaxPasses = std::numeric_limits<uint32>::max();
 		uint32 RegressionMaxDependencies = std::numeric_limits<uint32>::max();
@@ -1135,7 +1136,10 @@ namespace Durin
 		uint32 CulledPasses = 0;
 		uint32 Dependencies = 0;
 		uint32 BufferTransitions = 0;
+		// Executable entries after range compaction; regression budgets use this count.
 		uint32 TextureTransitions = 0;
+		// Subresource barrier events before compaction, including repeated transitions.
+		uint32 TextureTransitionSubresources = 0;
 		uint64 CompileMicroseconds = 0;
 		// Includes preparation and recording; excludes compilation and authoring.
 		uint64 ExecuteMicroseconds = 0;

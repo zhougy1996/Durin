@@ -470,6 +470,14 @@ transitions. This order makes a route-selected absent fallback distinguishable
 from a missing compiler use and preserves the declaration/compiler boundary.
 
 `FRDGBudget` separates structural safety limits from regression budgets.
+`TextureTransitions` counts compacted executable entries;
+`TextureTransitionSubresources` counts the original per-subresource barrier
+events, including repeated transitions. Compaction merges consecutive layers,
+then mip ranges, only within the same batch and with identical resource,
+aspect, access, discard intent, source queue, and producer submissions. Detailed
+capture events remain per-subresource. `RegressionMaxTextureTransitions` applies
+to compacted entries; `MaxTextureTransitions` bounds pre-compaction events so
+compaction cannot hide excessive compiler work.
 `MaxRangeCells` and `MaxRangeCellCandidates` bound fixed layout cells, including
 unused subresources of referenced textures. `MaxCellVisits` counts layout
 construction, dependency analysis, and execution-plan traversal.

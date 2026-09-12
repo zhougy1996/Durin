@@ -1207,9 +1207,9 @@ TEST(FDirectionalShadowBaselineVulkanTests, CapturesFrozenLitArtifactsAndSubTexe
 	EXPECT_LE(GLastSceneRenderGraphCapture.Statistics.DeclaredPasses, 12u);
 	EXPECT_LE(GLastSceneRenderGraphCapture.Statistics.Dependencies, 24u);
 	EXPECT_EQ(GLastSceneRenderGraphCapture.Statistics.BufferTransitions, 0u);
-	// Current graph handoffs total 15 transitions for both the frozen expanded
-	// material and the standard function material on this same fixture.
-	EXPECT_EQ(GLastSceneRenderGraphCapture.Statistics.TextureTransitions, 15u);
+	// Preserve the subresource baseline independently of executable compaction.
+	EXPECT_EQ(GLastSceneRenderGraphCapture.Statistics.TextureTransitionSubresources, 15u);
+	EXPECT_LE(GLastSceneRenderGraphCapture.Statistics.TextureTransitions, 15u);
 	EXPECT_FALSE(
 		GLastSceneRenderGraphCapture.Statistics.bCompileBudgetExceeded);
 	EXPECT_FALSE(

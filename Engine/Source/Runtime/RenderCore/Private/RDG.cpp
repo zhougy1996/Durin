@@ -67,6 +67,86 @@ namespace Durin
 			size_t FirstTexture = 0, NumTextures = 0;
 		};
 
+		// Keep subresource analysis exact; compact only consecutive barriers with
+		// identical submission provenance. No barrier is moved across another use.
+		auto CompactTextureBarriers(std::span<FRDGCompiledPass> Passes,
+			FRDGBarrierBatch& FinalBarriers, FRDGExecutionPlan& Execution) -> void
+		{
+			struct FEntry
+			{
+				FRDGResourceHandoff Handoff;
+				FRDGTextureTransition Texture;
+			};
+			auto Batch = [&](uint32 Index) -> FRDGBarrierBatch& {
+				return Index == Passes.size() ? FinalBarriers : Passes[Index].Barriers;
+			};
+			std::vector<FEntry> Entries;
+			Entries.reserve(Execution.Handoffs.size());
+			for (auto& Handoff : Execution.Handoffs)
+			{
+				const auto Texture = Handoff.bTexture
+					? Batch(Handoff.Consumer.Index).GetTextureTransitions()[Handoff.TransitionIndex]
+					: FRDGTextureTransition{};
+				Entries.push_back({std::move(Handoff), Texture});
+			}
+			for (const bool bLayers : {true, false})
+			{
+				size_t Count = 0;
+				for (size_t Index = 0; Index < Entries.size(); ++Index)
+				{
+					auto& Entry = Entries[Index];
+					if (Count != 0 && Entry.Handoff.bTexture)
+					{
+						auto& Previous = Entries[Count - 1];
+						auto& A = Previous.Texture;
+						const auto& B = Entry.Texture;
+						const bool bCompatible = Previous.Handoff.bTexture
+							&& Previous.Handoff.Consumer == Entry.Handoff.Consumer
+							&& Previous.Handoff.SourceQueue == Entry.Handoff.SourceQueue
+							&& Previous.Handoff.Producers == Entry.Handoff.Producers
+							&& A.ResourceId == B.ResourceId && A.ExpectedBefore == B.ExpectedBefore
+							&& A.RequiredAfter == B.RequiredAfter && A.bDiscardContents == B.bDiscardContents
+							&& A.Range.Aspects == B.Range.Aspects;
+						if (bCompatible && (bLayers
+							? A.Range.FirstMip == B.Range.FirstMip && A.Range.NumMips == B.Range.NumMips
+								&& A.Range.FirstArrayLayer + A.Range.NumArrayLayers == B.Range.FirstArrayLayer
+							: A.Range.FirstArrayLayer == B.Range.FirstArrayLayer
+								&& A.Range.NumArrayLayers == B.Range.NumArrayLayers
+								&& A.Range.FirstMip + A.Range.NumMips == B.Range.FirstMip))
+						{
+							if (bLayers) A.Range.NumArrayLayers += B.Range.NumArrayLayers;
+							else A.Range.NumMips += B.Range.NumMips;
+							continue;
+						}
+					}
+					if (Count != Index) Entries[Count] = std::move(Entry);
+					++Count;
+				}
+				Entries.resize(Count);
+			}
+			std::vector<FRDGBarrierBatch> Batches(Passes.size() + 1);
+			Execution.Handoffs.clear();
+			for (auto& Entry : Entries)
+			{
+				auto& Handoff = Entry.Handoff;
+				auto& Destination = Batches[Handoff.Consumer.Index];
+				if (Handoff.bTexture)
+				{
+					Handoff.TransitionIndex = static_cast<uint32>(Destination.GetTextureTransitions().size());
+					Destination.AddTransition(Entry.Texture);
+				}
+				else
+				{
+					const auto Transition = Batch(Handoff.Consumer.Index).GetBufferTransitions()[Handoff.TransitionIndex];
+					Handoff.TransitionIndex = static_cast<uint32>(Destination.GetBufferTransitions().size());
+					Destination.AddTransition(Transition);
+				}
+				Execution.Handoffs.push_back(std::move(Handoff));
+			}
+			for (uint32 Index = 0; Index < Batches.size(); ++Index)
+				Batch(Index) = std::move(Batches[Index]);
+		}
+
 		// Resolve every barrier before recording callbacks or emitting any graph work.
 		auto PrepareBarrierBatch(
 			const FRDGBarrierBatch& Batch, std::span<const FGraphResourceBacking> Backings,
@@ -2632,6 +2712,7 @@ namespace Durin
 				RangeUsers[CellIndex][bAsync ? 1 : 0] = DeclarationToSubmission[Declaration];
 			});
 		if (!TransitionError.IsSuccess()) return TransitionError;
+		CompactTextureBarriers(CompiledState->Passes, CompiledState->FinalBarriers, Execution);
 
 		Execution.Batches.reserve(ScheduledCount + (ScheduledCount != 0));
 		for (uint32 Index = 0; Index < ScheduledCount; ++Index)
@@ -2852,8 +2933,14 @@ namespace Durin
 			Compiled->FinalBarriers.GetBufferTransitions().size());
 		Result.TextureTransitions = static_cast<uint32>(
 			Compiled->FinalBarriers.GetTextureTransitions().size());
+		auto CountSubresources = [&](const FRDGBarrierBatch& Batch) {
+			for (const auto& Transition : Batch.GetTextureTransitions())
+				Result.TextureTransitionSubresources += Transition.Range.NumMips * Transition.Range.NumArrayLayers;
+		};
+		CountSubresources(Compiled->FinalBarriers);
 		for (const auto& Pass : Compiled->Passes)
 		{
+			CountSubresources(Pass.Barriers);
 			Result.BufferTransitions += static_cast<uint32>(Pass.Barriers.GetBufferTransitions().size());
 			Result.TextureTransitions += static_cast<uint32>(Pass.Barriers.GetTextureTransitions().size());
 		}
@@ -2909,6 +2996,9 @@ namespace Durin
 		std::ostringstream Output;
 		Output << "render-graph passes=" << Compiled->Passes.size()
 			<< " edges=" << Compiled->Dependencies.size() << '\n';
+		const auto Statistics = GetStatistics();
+		Output << "texture-transitions=" << Statistics.TextureTransitions
+			<< " texture-subresource-transitions=" << Statistics.TextureTransitionSubresources << '\n';
 		for (const auto& Batch : Compiled->ExecutionPlan.Batches)
 			Output << "submission " << Batch.Id.Index << " queue="
 				<< (Batch.Queue == ERDGQueueAssignment::Graphics ? "graphics" : "async-compute")

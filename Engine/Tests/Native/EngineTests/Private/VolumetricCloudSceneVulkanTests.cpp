@@ -344,7 +344,9 @@ namespace Durin
 		// RDG also emits entry handoffs for discarded render-pass attachments and
 		// same-state writes; render-pass-owned final transitions do not replace them.
 		// Logical handoffs preserve each of the three directional-shadow layers.
-		const std::array<uint32, 6> ExpectedTextureTransitions{15, 15, 32, 18, 32, 18};
+		const std::array<uint32, 6> ExpectedTextureSubresources{15, 15, 32, 18, 32, 18};
+		// Three directional-shadow layers share one compatible entry barrier.
+		const std::array<uint32, 6> ExpectedTextureTransitions{13, 13, 30, 16, 30, 16};
 		for (size_t Index = 0; Index < GSceneCloudGraphCaptures.size(); ++Index)
 		{
 			const auto& Statistics = GSceneCloudGraphCaptures[Index].Statistics;
@@ -401,6 +403,7 @@ namespace Durin
 			EXPECT_EQ(Statistics.ScheduledPasses, ExpectedPasses[Index]) << Index;
 			EXPECT_EQ(Statistics.Dependencies, ExpectedDependencies[Index]) << Index;
 			EXPECT_EQ(Statistics.BufferTransitions, 0u) << Index;
+			EXPECT_EQ(Statistics.TextureTransitionSubresources, ExpectedTextureSubresources[Index]) << Index;
 			EXPECT_EQ(Statistics.TextureTransitions,
 				ExpectedTextureTransitions[Index]) << Index << '\n' << GSceneCloudGraphCaptures[Index].Dump;
 			// Wall-clock RDG timings vary with host contention and cold driver work.

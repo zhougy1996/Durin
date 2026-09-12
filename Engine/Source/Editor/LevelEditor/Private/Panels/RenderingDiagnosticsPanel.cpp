@@ -241,6 +241,7 @@ namespace Durin::Editor::Level
 			DrawCountRow("Culled passes", Statistics.CulledPasses);
 			DrawCountRow("Dependencies", Statistics.Dependencies);
 			DrawCountRow("Texture transitions", Statistics.TextureTransitions);
+			DrawCountRow("Texture subresource transitions", Statistics.TextureTransitionSubresources);
 			DrawCountRow("Buffer transitions", Statistics.BufferTransitions);
 			DrawValueRow("Compile CPU", std::format("{} us",
 				Statistics.CompileMicroseconds));
@@ -272,8 +273,10 @@ namespace Durin::Editor::Level
 				Statistics.bDependencyRegressionBudgetExceeded);
 			DrawBudgetRow("Texture transitions", Statistics.TextureTransitions,
 				Budget.RegressionMaxTextureTransitions,
-				Budget.MaxTextureTransitions,
+				std::numeric_limits<uint32>::max(),
 				Statistics.bTextureTransitionRegressionBudgetExceeded);
+			DrawBudgetRow("Texture subresource transitions", Statistics.TextureTransitionSubresources,
+				std::numeric_limits<uint32>::max(), Budget.MaxTextureTransitions, false);
 			DrawBudgetRow("Buffer transitions", Statistics.BufferTransitions,
 				Budget.RegressionMaxBufferTransitions,
 				Budget.MaxBufferTransitions,
