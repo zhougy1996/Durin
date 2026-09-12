@@ -49,6 +49,61 @@ the query manager no longer polls a graphics-only submission token.
 No production async compute,
 split-barrier or transient-aliasing acceptance gate is complete.
 
+Resource handoffs now carry the latest prior range use on every logical queue,
+with cross-queue producer-to-consumer execution edges. The existing range
+traversal supplies these endpoints without a second resource analysis. Initial
+transitions have no graph producer; final transitions retain the used range's
+queue frontier. Equal-access queue changes now emit logical ownership handoffs,
+including the first move from graphics and the final return of async ranges.
+Handoffs and transition captures retain their source queue. Physical paired
+lowering now creates release/acquire objects during preparation, removes the
+corresponding ordinary barriers, and records producer-tail releases and
+consumer-prologue acquires. Initially graphics-owned ranges use an explicit
+release preamble. Pool integration remains outstanding: allocators default to
+rejecting async reuse through `SupportsAsyncCompute()`, so graphs with such
+allocation requests fall back to graphics. External-resource-only graphs can
+use a provisioned independent queue with opt-in policy.
+Physical lowering validation passed 166 RenderContractTests, 97 Vulkan
+integration tests, 54 RendererSceneContractTests and the default-profile `all`
+build. Logs use prefixes `20260912-165633-415673-19372`,
+`20260912-165741-544178-4920`, `20260912-165905-317760-10396`, and
+`20260912-165920-070746-19392`. Native fixtures verify graph receipts on
+compute/graphics/compute/graphics, pending state after CPU-only replay, and
+exact texture bytes after the final join on both topologies and replay modes.
+That fixture provides barrier/ownership coverage. Actual shader dispatch is now
+covered by `PublicComputePipelineWritesBufferAndImageInlineAndThreaded`: three
+RDG compute passes write a storage buffer and image, followed by graphics
+sampling and exact byte comparisons. It exercises default, shared-family and
+distinct-family queues in inline and threaded modes. All 97 Vulkan integration
+tests passed in `20260912-170405-940301-26104-VulkanRHIIntegrationTests.log`,
+without VUID, failure or skip diagnostics. Native single-queue fallback with
+enabled RDG policy is included. Allocator reuse and production renderer
+eligibility remain to be qualified.
+Queue-only transition validation passed 166 RenderContractTests, 97 Vulkan
+integration tests, 54 RendererSceneContractTests and the default-profile `all`
+build. The corresponding log prefixes are `20260912-165057-079070-19020`,
+`20260912-165131-865382-36896`, `20260912-165218-331114-19032`, and
+`20260912-165229-592812-1088`. The new fixture checks equal-access ownership
+changes at both graph boundaries and their absence with async policy disabled.
+Producer-endpoint validation passed 165 RenderContractTests, 97 Vulkan
+integration tests, 54 RendererSceneContractTests and the default-profile `all`
+build. Logs have prefixes `20260912-164455-370805-15500`,
+`20260912-164538-716658-28840`, `20260912-164624-192229-19132`, and
+`20260912-164631-243073-35444`. Coverage includes the latest reader on both
+logical queues and final texture endpoints after subresource culling.
+
+RDG now accepts building-only compute-pass async eligibility and a separate
+opt-in scheduling policy. Logical batches preserve FIFO per queue and join both
+terminal prefixes at the epilogue; independent branches no longer gain global
+consecutive-pass edges when the policy is enabled. Physical RDG recording uses
+independent queues when topology and allocator safety permit. The earlier 164 RenderContractTests passed
+with deterministic/culling/policy/invalid-declaration coverage in
+`20260912-163721-089031-3084-RenderContractTests.log`.
+Integration validation also passed 97 Vulkan tests, 54 Renderer scene contract
+tests and the default-profile `all` build (log prefixes
+`20260912-163828-124302-23496`, `20260912-163915-826307-31116`, and
+`20260912-163931-989195-21804`).
+
 RHI executor replay now resolves explicit submission contexts by physical queue,
 routes both pipeline and operation commands within the scope, and propagates
 the recording-storage lease to every selected context. Inline and threaded
@@ -57,9 +112,9 @@ storage retention. Vulkan now resolves provisioned physical contexts and seals
 multi-queue scopes into coordinator-owned pending payloads. Submission drains
 these together with recording contexts; cancellation and shutdown release them
 before command pools are destroyed. Diagnostic/timing intervals must close at
-physical queue changes. Production RDG assignment and allocator integration
-remain outstanding, so independent compute capability is still not advertised
-for automatic scheduling.
+physical queue changes. Provisioned independent Vulkan queues now advertise
+that capability; RDG additionally checks graph policy and allocator reuse safety.
+Renderer pool integration and production pass eligibility remain outstanding.
 Native scope routing passed 97 Vulkan integration tests, including public
 graphics/compute/graphics ownership round trips on same-family and dedicated
 queues in both inline and threaded replay. The receipts remain pending after
@@ -574,15 +629,17 @@ qualify independent-queue execution, which belongs to Stage 3.
 
 ### Stage 3: Enable Async Compute with Multi-Queue Lifetime Safety
 
-Dependencies: Stage 2. Async execution remains disabled until all gates in this
-stage pass together.
+Dependencies: Stage 2. Automatic production async scheduling remains disabled
+until all gates in this stage pass together. Explicit diagnostic queue
+provisioning and graph policy may exercise validated paths while completing
+these gates; allocators must independently opt into multi-queue reuse.
 
 Outcome: eligible compute work executes on a separate queue with correct
 dependencies, fallback behavior, and resource retirement.
 
-- [ ] Add explicit async eligibility and deterministic queue-assignment policy,
+- [x] Add explicit async eligibility and deterministic queue-assignment policy,
   including graphics-queue fallback and a diagnostic override for comparisons.
-- [ ] Implement Vulkan cross-queue waits/signals and required resource ownership
+- [x] Implement Vulkan cross-queue waits/signals and required resource ownership
   transfers for both shared-family and distinct-family configurations.
 - [ ] Track every using queue in retirement prerequisites. Cover concurrent
   reads, write/read handoffs, compute-only final uses, and graph boundaries.
@@ -592,7 +649,7 @@ dependencies, fallback behavior, and resource retirement.
 - [ ] Test fork/join, fan-in/fan-out, multiple readers, empty batches, culling,
   external resources, extraction/readiness, submission failure, and delayed
   compute completion. Validate that the submission graph is acyclic.
-- [ ] Run Vulkan integration on an independent compute queue, inspect validation
+- [x] Run Vulkan integration on an independent compute queue, inspect validation
   output, and compare rendered/read-back results with single-queue execution.
   Record unavailable queue-family coverage as outstanding, not passing.
 

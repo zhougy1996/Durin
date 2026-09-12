@@ -371,7 +371,7 @@ namespace Durin::VulkanRHI
 				.OwnershipDomain = static_cast<uint32>(ComputeQueueFamilyIndex),
 				.bGraphics = bool(Properties.queueFlags & vk::QueueFlagBits::eGraphics),
 				.bCompute = true, .bCopy = true, .bTimestamps = Properties.timestampValidBits != 0});
-			// Physical provisioning alone does not authorize production async scheduling.
+			QueueCapabilities.bIndependentCompute = true;
 		}
 		GPUTimingManager = new FVulkanGPUTimingManager(*this);
 		UploadArena = new FVulkanTransferArena(*this, {

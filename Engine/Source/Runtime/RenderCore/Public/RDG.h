@@ -43,6 +43,9 @@ namespace Durin
 		Copy,
 	};
 
+	// Logical scheduling role, independent of physical backend topology.
+	enum class ERDGQueueAssignment : uint8 { Graphics, AsyncCompute };
+
 	// Describes whether a pass observes or replaces one declared resource range.
 	enum class ERDGUse : uint8
 	{
@@ -945,6 +948,8 @@ namespace Durin
 	{
 	public:
 		virtual ~FRDGAllocator() = default;
+		// Opt in only when reuse accounts for all prior GPU queue uses.
+		virtual auto SupportsAsyncCompute() const -> bool { return false; }
 		virtual auto Allocate(std::span<const FRDGAllocationRequest> Requests,
 			FRDGAllocatedResources& OutResources, std::string& OutError)
 			-> bool = 0;
@@ -1049,6 +1054,8 @@ namespace Durin
 		bool bFinal = false;
 		bool bDiscardContents = false;
 		ERDGTransitionKind Kind = ERDGTransitionKind::RHIBarrier;
+		ERDGQueueAssignment SourceQueue = ERDGQueueAssignment::Graphics;
+		ERDGQueueAssignment DestinationQueue = ERDGQueueAssignment::Graphics;
 	};
 
 	// Reports the retained scheduled interval of one declared resource.
@@ -1145,7 +1152,6 @@ namespace Durin
 	};
 
 	// Logical scheduling role; the backend may map both roles to one physical queue.
-	enum class ERDGQueueAssignment : uint8 { Graphics, AsyncCompute };
 
 	// Contiguous scheduled pass interval, or a graph epilogue with no pass callback.
 	struct FRDGSubmissionBatch final
@@ -1176,6 +1182,9 @@ namespace Durin
 		FRDGSubmissionId Consumer;
 		uint32 TransitionIndex = 0;
 		bool bTexture = false;
+		// Latest prior use per logical queue for this exact tracked range.
+		std::vector<FRDGSubmissionId> Producers;
+		ERDGQueueAssignment SourceQueue = ERDGQueueAssignment::Graphics;
 		auto operator==(const FRDGResourceHandoff&) const -> bool = default;
 	};
 
@@ -1395,6 +1404,10 @@ namespace Durin
 		RENDERCORE_API auto MarkPassRoot(FRDGPassHandle Pass,
 			std::string_view Reason = "side-effect") -> void;
 		RENDERCORE_API auto EnablePassCulling() -> void;
+		// Eligibility is an author declaration; enabling the policy does not imply
+		// that an independent physical queue is available during execution.
+		RENDERCORE_API auto SetPassAsyncComputeEligible(FRDGPassHandle Pass, bool bEligible = true) -> void;
+		RENDERCORE_API auto SetAsyncComputeEnabled(bool bEnabled) -> void;
 		RENDERCORE_API auto SetBudget(const FRDGBudget& Budget) -> void;
 
 		template<typename ParameterStruct>

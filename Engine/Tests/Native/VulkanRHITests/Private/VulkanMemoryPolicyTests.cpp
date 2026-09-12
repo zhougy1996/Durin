@@ -1,4 +1,6 @@
 #include <gtest/gtest.h>
+#include "../../RDGTestAccess.h"
+#include "RDG.h"
 
 #include "PCH.VulkanRHI.h"
 #include "DynamicRHI.h"
@@ -82,6 +84,35 @@ namespace Durin::VulkanRHI
 				const auto Bytes = std::as_bytes(std::span{Expected});
 				EXPECT_EQ(Actual, (FByteBuffer(Bytes.begin(), Bytes.end())));
 				EXPECT_EQ(Join.GetState(), ERHIGPUSubmissionState::Complete);
+				FRDGBuilder Graph;
+				Graph.SetAsyncComputeEnabled(true);
+				const auto Imported = Graph.RegisterExternalTexture(Texture, "Imported",
+					ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+				for (uint32 Index = 0; Index < 3; ++Index)
+				{
+					const bool bCompute = Index != 1;
+					const auto Pass = FRDGBuilderTestAccessor::AddPass(Graph, std::to_string(Index),
+						bCompute ? ERDGPassType::Compute : ERDGPassType::Graphics);
+					if (bCompute) Graph.SetPassAsyncComputeEligible(Pass);
+					FRDGBuilderTestAccessor::UseTexture(Graph, Pass, Imported,
+						{ERHITextureAspect::Color, 0, 1, 0, 1}, ERDGUse::Read,
+						bCompute ? ERHIAccess::ComputeShaderRead : ERHIAccess::GraphicsShaderRead);
+				}
+				const auto Recorded = Graph.Execute(Commands);
+				ASSERT_TRUE(Recorded.IsSuccess()) << Recorded.Result.Message;
+				Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::None);
+				ASSERT_EQ(Graph.GetSubmissionReceipts().size(), 4u);
+				for (uint32 Index = 0; Index < 4; ++Index)
+				{
+					EXPECT_EQ(Graph.GetSubmissionReceipts()[Index].GetState(), ERHIGPUSubmissionState::Pending);
+					EXPECT_EQ(Graph.GetSubmissionReceipts()[Index].GetTicket().GetPoint().Queue,
+						Index % 2 == 0 ? Queues.Compute : Queues.Graphics);
+				}
+				Actual.clear();
+				ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(Commands, Texture, 0, 0, Actual));
+				EXPECT_EQ(Actual, (FByteBuffer(Bytes.begin(), Bytes.end())));
+				for (const auto& Receipt : Graph.GetSubmissionReceipts())
+					EXPECT_EQ(Receipt.GetState(), ERHIGPUSubmissionState::Complete);
 				return;
 			}
 			if (TransferSync2)

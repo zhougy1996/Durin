@@ -1,4 +1,6 @@
 #include <gtest/gtest.h>
+#include "../../RDGTestAccess.h"
+#include "RDG.h"
 
 #include "PCH.VulkanRHI.h"
 #include "CoreGlobals.h"
@@ -1117,9 +1119,17 @@ namespace Durin
 		ASSERT_TRUE(BuildPipelineLayoutFromReflection(
 			InteropReflections, InteropLayout, ReflectionError)) << ReflectionError;
 
+		for (const char* QueuePolicy : {"", "same-family", "dedicated"})
 		for (const char* Mode : {"inline", "threaded"})
 		{
 			SCOPED_TRACE(Mode);
+			SCOPED_TRACE(QueuePolicy);
+			struct FQueuePolicyScope
+			{
+				std::string Previous = std::getenv("DURIN_VULKAN_COMPUTE_QUEUE") ? std::getenv("DURIN_VULKAN_COMPUTE_QUEUE") : "";
+				~FQueuePolicyScope() { _putenv_s("DURIN_VULKAN_COMPUTE_QUEUE", Previous.c_str()); }
+			} QueuePolicyScope;
+			_putenv_s("DURIN_VULKAN_COMPUTE_QUEUE", QueuePolicy);
 			struct FRHIScope
 			{
 				explicit FRHIScope(const char* Value)
@@ -1244,60 +1254,100 @@ namespace Durin
 
 			const FRHITextureSubresourceRange WholeColor{
 				ERHITextureAspect::Color, 0, 1, 0, 1};
-			Commands.TransitionBuffers(std::array{FRHIBufferTransition{
-				OutputBuffer, 0, 16, ERHIAccess::Discard,
-				ERHIAccess::ComputeShaderReadWrite}});
-			Commands.TransitionTextures(std::array{FRHITextureTransition{
-				OutputImage, WholeColor, ERHIAccess::Discard,
-				ERHIAccess::ComputeShaderReadWrite}});
-			Commands.SwitchPipeline(ERHIPipeline::Compute);
-			Commands.SetComputePipelineState(*Pipeline);
-			const uint32 NoIncrement = 0;
-			Commands.PushConstants(EShaderStageFlags::Compute, 0,
-				sizeof(NoIncrement), &NoIncrement);
-			std::array Parameters{
-				FRHIShaderParameterResource{.Resource = BufferView.GetReference(),
-					.SetIndex = 0, .BindingIndex = 0,
-					.Type = ERHIBindingType::StorageBuffer},
-				FRHIShaderParameterResource{.Resource = ImageView.GetReference(),
-					.SetIndex = 0, .BindingIndex = 1,
-					.Type = ERHIBindingType::StorageImage}};
-			Commands.SetShaderParameters(Shader, Parameters);
-			// A native boundary must preserve pipeline, descriptors and constants.
-			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
-			Commands.Dispatch(4, 1, 1);
-			Commands.SwitchPipeline(ERHIPipeline::None);
-			Commands.TransitionBuffers(std::array{FRHIBufferTransition{
-				OutputBuffer, 0, 16, ERHIAccess::ComputeShaderReadWrite,
-				ERHIAccess::ComputeShaderReadWrite}});
-			Commands.TransitionTextures(std::array{FRHITextureTransition{
-				OutputImage, WholeColor, ERHIAccess::ComputeShaderReadWrite,
-				ERHIAccess::ComputeShaderReadWrite}});
-			Commands.SwitchPipeline(ERHIPipeline::Compute);
-			Commands.SetComputePipelineState(*SecondPipeline);
-			const uint32 Increment = 1;
-			Commands.PushConstants(EShaderStageFlags::Compute, 0,
-				sizeof(Increment), &Increment);
-			Commands.SetShaderParameters(SecondShader, Parameters);
-			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
-			Commands.Dispatch(4, 1, 1);
-			Commands.SwitchPipeline(ERHIPipeline::None);
-			Commands.TransitionBuffers(std::array{FRHIBufferTransition{
-				OutputBuffer, 0, 16, ERHIAccess::ComputeShaderReadWrite,
-				ERHIAccess::ComputeShaderReadWrite}});
-			Commands.TransitionTextures(std::array{FRHITextureTransition{
-				OutputImage, WholeColor, ERHIAccess::ComputeShaderReadWrite,
-				ERHIAccess::ComputeShaderReadWrite}});
-			Commands.SwitchPipeline(ERHIPipeline::Compute);
-			Commands.SetComputePipelineState(*SecondPipeline);
-			Commands.PushConstants(EShaderStageFlags::Compute, 0,
-				sizeof(Increment), &Increment);
-			Commands.SetShaderParameters(SecondShader, Parameters);
-			Commands.Dispatch(4, 1, 1);
-			Commands.SwitchPipeline(ERHIPipeline::None);
-			Commands.TransitionTextures(std::array{FRHITextureTransition{
-				OutputImage, WholeColor, ERHIAccess::ComputeShaderReadWrite,
-				ERHIAccess::GraphicsShaderRead}});
+			{
+				const auto& Queues = GDynamicRHI->RHIGetQueueCapabilities();
+				if (*QueuePolicy) ASSERT_TRUE(Queues.bIndependentCompute);
+				FRDGBuilder Graph;
+				Graph.SetAsyncComputeEnabled(true);
+				const auto GraphBuffer = Graph.RegisterExternalBuffer(OutputBuffer, "Buffer",
+					ERHIAccess::Discard, ERHIAccess::ComputeShaderReadWrite);
+				const auto GraphImage = Graph.RegisterExternalTexture(OutputImage, "Image",
+					ERHIAccess::Discard, ERHIAccess::GraphicsShaderRead);
+				for (uint32 Index = 0; Index < 3; ++Index)
+				{
+					const auto Pass = FRDGBuilderTestAccessor::AddPass(Graph, "Dispatch" + std::to_string(Index),
+						ERDGPassType::Compute, [&, Index](FRHICommandListImmediate& List, const FRDGPassResources&) {
+							List.SwitchPipeline(ERHIPipeline::Compute);
+							List.SetComputePipelineState(Index == 0 ? *Pipeline : *SecondPipeline);
+							const uint32 Increment = Index == 0 ? 0 : 1;
+							List.PushConstants(EShaderStageFlags::Compute, 0, sizeof(Increment), &Increment);
+							std::array Parameters{
+								FRHIShaderParameterResource{.Resource = BufferView.GetReference(), .SetIndex = 0, .BindingIndex = 0, .Type = ERHIBindingType::StorageBuffer},
+								FRHIShaderParameterResource{.Resource = ImageView.GetReference(), .SetIndex = 0, .BindingIndex = 1, .Type = ERHIBindingType::StorageImage}};
+							List.SetShaderParameters(Index == 0 ? Shader : SecondShader, Parameters);
+							List.Dispatch(4, 1, 1);
+							List.SwitchPipeline(ERHIPipeline::None);
+						});
+					Graph.SetPassAsyncComputeEligible(Pass);
+					FRDGBuilderTestAccessor::UseBuffer(Graph, Pass, GraphBuffer, 0, 16,
+						Index == 0 ? ERDGUse::Write : ERDGUse::ReadWrite, ERHIAccess::ComputeShaderReadWrite, Index == 0);
+					FRDGBuilderTestAccessor::UseTexture(Graph, Pass, GraphImage, WholeColor,
+						Index == 0 ? ERDGUse::Write : ERDGUse::ReadWrite, ERHIAccess::ComputeShaderReadWrite, Index == 0);
+				}
+				const auto Result = Graph.Execute(Commands);
+				ASSERT_TRUE(Result.IsSuccess()) << Result.Result.Message;
+				Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::None);
+				ASSERT_EQ(Graph.GetSubmissionReceipts().size(), 4u);
+				for (uint32 Index = 0; Index < 3; ++Index)
+					EXPECT_EQ(Graph.GetSubmissionReceipts()[Index].GetTicket().GetPoint().Queue, Queues.Compute);
+			}
+			if (!*QueuePolicy)
+			{
+				Commands.TransitionBuffers(std::array{FRHIBufferTransition{
+					OutputBuffer, 0, 16, ERHIAccess::Discard,
+					ERHIAccess::ComputeShaderReadWrite}});
+				Commands.TransitionTextures(std::array{FRHITextureTransition{
+					OutputImage, WholeColor, ERHIAccess::Discard,
+					ERHIAccess::ComputeShaderReadWrite}});
+				Commands.SwitchPipeline(ERHIPipeline::Compute);
+				Commands.SetComputePipelineState(*Pipeline);
+				const uint32 NoIncrement = 0;
+				Commands.PushConstants(EShaderStageFlags::Compute, 0,
+					sizeof(NoIncrement), &NoIncrement);
+				std::array Parameters{
+					FRHIShaderParameterResource{.Resource = BufferView.GetReference(),
+						.SetIndex = 0, .BindingIndex = 0,
+						.Type = ERHIBindingType::StorageBuffer},
+					FRHIShaderParameterResource{.Resource = ImageView.GetReference(),
+						.SetIndex = 0, .BindingIndex = 1,
+						.Type = ERHIBindingType::StorageImage}};
+				Commands.SetShaderParameters(Shader, Parameters);
+				// A native boundary must preserve pipeline, descriptors and constants.
+				Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
+				Commands.Dispatch(4, 1, 1);
+				Commands.SwitchPipeline(ERHIPipeline::None);
+				Commands.TransitionBuffers(std::array{FRHIBufferTransition{
+					OutputBuffer, 0, 16, ERHIAccess::ComputeShaderReadWrite,
+					ERHIAccess::ComputeShaderReadWrite}});
+				Commands.TransitionTextures(std::array{FRHITextureTransition{
+					OutputImage, WholeColor, ERHIAccess::ComputeShaderReadWrite,
+					ERHIAccess::ComputeShaderReadWrite}});
+				Commands.SwitchPipeline(ERHIPipeline::Compute);
+				Commands.SetComputePipelineState(*SecondPipeline);
+				const uint32 Increment = 1;
+				Commands.PushConstants(EShaderStageFlags::Compute, 0,
+					sizeof(Increment), &Increment);
+				Commands.SetShaderParameters(SecondShader, Parameters);
+				Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
+				Commands.Dispatch(4, 1, 1);
+				Commands.SwitchPipeline(ERHIPipeline::None);
+				Commands.TransitionBuffers(std::array{FRHIBufferTransition{
+					OutputBuffer, 0, 16, ERHIAccess::ComputeShaderReadWrite,
+					ERHIAccess::ComputeShaderReadWrite}});
+				Commands.TransitionTextures(std::array{FRHITextureTransition{
+					OutputImage, WholeColor, ERHIAccess::ComputeShaderReadWrite,
+					ERHIAccess::ComputeShaderReadWrite}});
+				Commands.SwitchPipeline(ERHIPipeline::Compute);
+				Commands.SetComputePipelineState(*SecondPipeline);
+				Commands.PushConstants(EShaderStageFlags::Compute, 0,
+					sizeof(Increment), &Increment);
+				Commands.SetShaderParameters(SecondShader, Parameters);
+				Commands.Dispatch(4, 1, 1);
+				Commands.SwitchPipeline(ERHIPipeline::None);
+				Commands.TransitionTextures(std::array{FRHITextureTransition{
+					OutputImage, WholeColor, ERHIAccess::ComputeShaderReadWrite,
+					ERHIAccess::GraphicsShaderRead}});
+			}
 			FTextureViewRHIRef SampledOutput = GDynamicRHI->RHICreateTextureView(
 				OutputImage, MakeDefaultTextureViewDesc(*OutputImage,
 					ERHITextureViewUsage::Sampled));

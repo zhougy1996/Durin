@@ -4,6 +4,7 @@
 #include "RHICommandList.h"
 #include "DynamicRHI.h"
 #include "RHIGlobals.h"
+#include "RHIQueueTransfer.h"
 
 #include <unordered_map>
 #include <unordered_set>
@@ -58,6 +59,7 @@ namespace Durin
 		{
 			std::vector<FRHIBufferTransition> Buffers;
 			std::vector<FRHITextureTransition> Textures;
+			std::vector<bool> TransferredBuffers, TransferredTextures;
 		};
 		struct FPreparedBarrierBatch final
 		{
@@ -92,10 +94,20 @@ namespace Durin
 		auto RecordBarrierBatch(FRHICommandListImmediate& CommandList,
 			const FPreparedBarrierBatch& Batch, const FPreparedTransitions& Prepared) -> void
 		{
-			if (Batch.NumBuffers) CommandList.TransitionBuffers(
-				std::span{Prepared.Buffers}.subspan(Batch.FirstBuffer, Batch.NumBuffers));
-			if (Batch.NumTextures) CommandList.TransitionTextures(
-				std::span{Prepared.Textures}.subspan(Batch.FirstTexture, Batch.NumTextures));
+			auto Record = [](size_t First, size_t Count, const auto& Transferred, auto&& Emit) {
+				const size_t End = First + Count;
+				while (First < End)
+				{
+					while (First < End && !Transferred.empty() && Transferred[First]) ++First;
+					const size_t Begin = First;
+					while (First < End && (Transferred.empty() || !Transferred[First])) ++First;
+					if (First != Begin) Emit(Begin, First - Begin);
+				}
+			};
+			Record(Batch.FirstBuffer, Batch.NumBuffers, Prepared.TransferredBuffers,
+				[&](size_t First, size_t Count) { CommandList.TransitionBuffers(std::span{Prepared.Buffers}.subspan(First, Count)); });
+			Record(Batch.FirstTexture, Batch.NumTextures, Prepared.TransferredTextures,
+				[&](size_t First, size_t Count) { CommandList.TransitionTextures(std::span{Prepared.Textures}.subspan(First, Count)); });
 		}
 
 		struct FGraphUse
@@ -150,6 +162,7 @@ namespace Durin
 		{
 			std::string Name;
 			ERDGPassType Type = ERDGPassType::Graphics;
+			bool bAsyncComputeEligible = false;
 			std::vector<FGraphUse> Uses;
 			std::vector<uint32> Prerequisites;
 			FRDGParameterizedPassExecute ParameterizedExecute;
@@ -246,6 +259,7 @@ namespace Durin
 		struct FBarrierCellState final
 		{
 			ERHIAccess Access = ERHIAccess::Discard;
+			ERDGQueueAssignment Queue = ERDGQueueAssignment::Graphics;
 			bool bUsed = false;
 		};
 
@@ -1180,7 +1194,7 @@ namespace Durin
 		auto TraverseExecutionStates(const FTrackingLayout& Cells,
 			std::span<const FGraphResource> Resources, const FGraphPassView& Passes,
 			std::span<const FRDGCompiledPass> ScheduledPasses,
-			std::span<const FRDGResourceLifetime> Lifetimes, FRangeWork* Work,
+			std::span<const FRDGResourceLifetime> Lifetimes, FRangeWork* Work, bool bAsyncEnabled,
 			FTransitionVisitor&& OnTransition, FUseVisitor&& OnUse) -> FRDGResult
 		{
 			std::vector<FBarrierCellState> States(Cells.Ranges.size());
@@ -1190,6 +1204,8 @@ namespace Durin
 			for (uint32 PassIndex = 0; PassIndex < ScheduledPasses.size(); ++PassIndex)
 			{
 				const uint32 DeclarationIndex = ScheduledPasses[PassIndex].DeclarationIndex;
+				const auto Queue = bAsyncEnabled && Passes[DeclarationIndex].bAsyncComputeEligible
+					? ERDGQueueAssignment::AsyncCompute : ERDGQueueAssignment::Graphics;
 				const auto Tracking = BuildTrackingUses(Passes[DeclarationIndex].Uses);
 				for (const auto& Use : Tracking.Uses)
 				{
@@ -1201,9 +1217,10 @@ namespace Durin
 							ERDGTransitionKind Kind, bool bDiscard) -> FRDGResult {
 							return OnTransition(FRDGTransitionCapture{Use.ResourceIndex,
 								PassIndex, Before, After, Range.TextureRange,
-								Range.BufferOffset, Range.BufferSize, false, bDiscard, Kind});
+								Range.BufferOffset, Range.BufferSize, false, bDiscard, Kind,
+								Kind == ERDGTransitionKind::RHIBarrier ? Cell.Queue : Queue, Queue}, CellIndex);
 						};
-						if (Use.Kind != ERDGResourceKind::Token && NeedsRangeBarrier(Cell, Use))
+						if (Use.Kind != ERDGResourceKind::Token && (NeedsRangeBarrier(Cell, Use) || Cell.Queue != Queue))
 							if (auto Error = Emit(Cell.Access, Use.Access,
 								ERDGTransitionKind::RHIBarrier, Use.bDiscard
 									&& (Use.Kind != ERDGResourceKind::Buffer
@@ -1214,6 +1231,7 @@ namespace Durin
 								ERDGTransitionKind::PassManaged, false); !Error.IsSuccess())
 								return Error;
 						AdvanceBarrierState(Cell, Use);
+						Cell.Queue = Queue;
 						Cell.bUsed = true;
 						if (Use.Kind == ERDGResourceKind::Buffer)
 						{
@@ -1232,11 +1250,13 @@ namespace Durin
 				const auto& Resource = Resources[Range.ResourceIndex];
 				if (!Cell.bUsed || Range.Kind == ERDGResourceKind::Token
 					|| Lifetimes[Range.ResourceIndex].bCulled
-					|| Resource.FinalAccess == ERHIAccess::None
-					|| Resource.FinalAccess == Cell.Access) continue;
+					|| ((Resource.FinalAccess == ERHIAccess::None || Resource.FinalAccess == Cell.Access)
+						&& Cell.Queue == ERDGQueueAssignment::Graphics)) continue;
 				if (auto Error = OnTransition(FRDGTransitionCapture{Range.ResourceIndex,
-					std::numeric_limits<uint32>::max(), Cell.Access, Resource.FinalAccess,
-					Range.TextureRange, Range.BufferOffset, Range.BufferSize, true});
+					std::numeric_limits<uint32>::max(), Cell.Access,
+					Resource.FinalAccess == ERHIAccess::None ? Cell.Access : Resource.FinalAccess,
+					Range.TextureRange, Range.BufferOffset, Range.BufferSize, true, false,
+					ERDGTransitionKind::RHIBarrier, Cell.Queue, ERDGQueueAssignment::Graphics}, CellIndex);
 					!Error.IsSuccess()) return Error;
 			}
 			return {};
@@ -1613,6 +1633,7 @@ namespace Durin
 
 	struct FRDGBuilder::FState
 	{
+		bool bAsyncComputeEnabled = false;
 		uint64 CompileMicroseconds = 0;
 		uint64 ExecuteMicroseconds = 0;
 		FRDGPhaseTimings Phases;
@@ -2193,6 +2214,25 @@ namespace Durin
 		State->Passes[Pass.Index].RootReason = std::string(Reason);
 	}
 
+	auto FRDGBuilder::SetPassAsyncComputeEligible(FRDGPassHandle Pass, bool bEligible) -> void
+	{
+		RequireBuilding();
+		if (Pass.Owner != State->Owner || Pass.Index >= State->Passes.size()
+			|| (bEligible && State->Passes[Pass.Index].Type != ERDGPassType::Compute))
+		{
+			State->DeclarationErrors.push_back({ERDGError::InvalidDeclaration,
+				"async eligibility requires a compute pass owned by this graph"});
+			return;
+		}
+		State->Passes[Pass.Index].bAsyncComputeEligible = bEligible;
+	}
+
+	auto FRDGBuilder::SetAsyncComputeEnabled(bool bEnabled) -> void
+	{
+		RequireBuilding();
+		State->bAsyncComputeEnabled = bEnabled;
+	}
+
 	auto FRDGBuilder::EnablePassCulling() -> void
 	{
 		RequireBuilding();
@@ -2547,18 +2587,34 @@ namespace Durin
 			CompiledState->RuntimePasses.push_back(std::move(Runtime));
 		}
 
+		auto& Execution = CompiledState->ExecutionPlan;
+		const uint32 ScheduledCount = static_cast<uint32>(CompiledState->Passes.size());
+		std::vector<uint32> DeclarationToSubmission(PassCount, UINT32_MAX);
+		for (uint32 Index = 0; Index < ScheduledCount; ++Index)
+			DeclarationToSubmission[CompiledState->Passes[Index].DeclarationIndex] = Index;
+		std::vector<std::array<uint32, 2>> RangeUsers(Cells.Ranges.size(), {UINT32_MAX, UINT32_MAX});
 		const auto TransitionError = TraverseExecutionStates(Cells, State->Resources,
-			Passes, CompiledState->Passes, CompiledState->ResourceLifetimes, &Work,
-			[&](const FRDGTransitionCapture& Event) -> FRDGResult
+			Passes, CompiledState->Passes, CompiledState->ResourceLifetimes, &Work, State->bAsyncComputeEnabled,
+			[&](const FRDGTransitionCapture& Event, size_t CellIndex) -> FRDGResult
 			{
 				if (Event.Kind != ERDGTransitionKind::RHIBarrier) return {};
 				const auto& Resource = State->Resources[Event.ResourceId];
+				auto& Barriers = Event.bFinal ? CompiledState->FinalBarriers
+					: CompiledState->Passes[Event.PassIndex].Barriers;
+				FRDGResourceHandoff Handoff{Event.ResourceId,
+					{Event.bFinal ? ScheduledCount : Event.PassIndex},
+					static_cast<uint32>(Resource.Kind == ERDGResourceKind::Texture
+						? Barriers.GetTextureTransitions().size() : Barriers.GetBufferTransitions().size()),
+					Resource.Kind == ERDGResourceKind::Texture};
+				Handoff.SourceQueue = Event.SourceQueue;
+				for (uint32 Producer : RangeUsers[CellIndex])
+					if (Producer != UINT32_MAX && Producer != Handoff.Consumer.Index)
+						Handoff.Producers.push_back({Producer});
+				Execution.Handoffs.push_back(std::move(Handoff));
 				if (Resource.Kind == ERDGResourceKind::Texture)
 				{
 					if (++TextureTransitionCount > State->Budget.MaxTextureTransitions)
 						return SafetyLimit("texture-transitions", TextureTransitionCount, State->Budget.MaxTextureTransitions);
-					auto& Barriers = Event.bFinal ? CompiledState->FinalBarriers
-						: CompiledState->Passes[Event.PassIndex].Barriers;
 					Barriers.AddTransition(FRDGTextureTransition{Event.ResourceId, Event.TextureRange,
 						Event.Before, Event.After, Event.bDiscardContents});
 				}
@@ -2566,23 +2622,24 @@ namespace Durin
 				{
 					if (++BufferTransitionCount > State->Budget.MaxBufferTransitions)
 						return SafetyLimit("buffer-transitions", BufferTransitionCount, State->Budget.MaxBufferTransitions);
-					auto& Barriers = Event.bFinal ? CompiledState->FinalBarriers
-						: CompiledState->Passes[Event.PassIndex].Barriers;
 					Barriers.AddTransition(FRDGBufferTransition{Event.ResourceId, Event.BufferOffset,
 						Event.BufferSize, Event.Before, Event.After, Event.bDiscardContents});
 				}
 				return {};
-			}, [](uint32, const FGraphUse&, size_t, const FRangeCell&, bool) {});
+			}, [&](uint32 Declaration, const FGraphUse&, size_t CellIndex, const FRangeCell&, bool) {
+				const bool bAsync = State->bAsyncComputeEnabled && Passes[Declaration].bAsyncComputeEligible;
+				RangeUsers[CellIndex][bAsync ? 1 : 0] = DeclarationToSubmission[Declaration];
+			});
 		if (!TransitionError.IsSuccess()) return TransitionError;
 
-		auto& Execution = CompiledState->ExecutionPlan;
-		const uint32 ScheduledCount = static_cast<uint32>(CompiledState->Passes.size());
-		std::vector<uint32> DeclarationToSubmission(PassCount, UINT32_MAX);
 		Execution.Batches.reserve(ScheduledCount + (ScheduledCount != 0));
 		for (uint32 Index = 0; Index < ScheduledCount; ++Index)
 		{
-			DeclarationToSubmission[CompiledState->Passes[Index].DeclarationIndex] = Index;
-			Execution.Batches.push_back({.Id = {Index}, .FirstPass = Index, .NumPasses = 1});
+			const auto Declaration = CompiledState->Passes[Index].DeclarationIndex;
+			const bool bAsync = State->bAsyncComputeEnabled && Passes[Declaration].bAsyncComputeEligible;
+			Execution.Batches.push_back({.Id = {Index},
+				.Queue = bAsync ? ERDGQueueAssignment::AsyncCompute : ERDGQueueAssignment::Graphics,
+				.FirstPass = Index, .NumPasses = 1});
 		}
 		if (ScheduledCount != 0 || !CompiledState->FinalBarriers.GetBufferTransitions().empty()
 			|| !CompiledState->FinalBarriers.GetTextureTransitions().empty())
@@ -2596,22 +2653,23 @@ namespace Durin
 			require(Before != UINT32_MAX && After != UINT32_MAX && Before < After);
 			Execution.Dependencies.push_back({{Before}, {After}, Edge.Kind, Edge.Cause});
 		}
-		// Stage 2 maps every batch to graphics. Keep its physical FIFO order
-		// explicit, including the final publication/transition boundary.
-		for (uint32 Index = 1; Index < Execution.Batches.size(); ++Index)
-			Execution.Dependencies.push_back({{Index - 1}, {Index},
-				ERDGDependencyKind::Execution, "queue-order"});
+		// Preserve FIFO within each logical queue without serializing independent
+		// branches. Publication joins both terminal queue prefixes.
+		std::array<uint32, 2> QueueTails{UINT32_MAX, UINT32_MAX};
 		for (const auto& Batch : Execution.Batches)
 		{
-			const auto& Barriers = Batch.bEpilogue ? CompiledState->FinalBarriers
-				: CompiledState->Passes[Batch.FirstPass].Barriers;
-			const auto Buffers = Barriers.GetBufferTransitions();
-			for (uint32 Index = 0; Index < Buffers.size(); ++Index)
-				Execution.Handoffs.push_back({Buffers[Index].ResourceId, Batch.Id, Index, false});
-			const auto Textures = Barriers.GetTextureTransitions();
-			for (uint32 Index = 0; Index < Textures.size(); ++Index)
-				Execution.Handoffs.push_back({Textures[Index].ResourceId, Batch.Id, Index, true});
+			auto& Tail = QueueTails[static_cast<size_t>(Batch.Queue)];
+			if (Tail != UINT32_MAX)
+				Execution.Dependencies.push_back({{Tail}, Batch.Id, ERDGDependencyKind::Execution, "queue-order"});
+			if (Batch.bEpilogue && QueueTails[1] != UINT32_MAX)
+				Execution.Dependencies.push_back({{QueueTails[1]}, Batch.Id, ERDGDependencyKind::Execution, "queue-join"});
+			Tail = Batch.Id.Index;
 		}
+		for (const auto& Handoff : Execution.Handoffs)
+			for (const auto Producer : Handoff.Producers)
+				if (Execution.Batches[Producer.Index].Queue != Execution.Batches[Handoff.Consumer.Index].Queue)
+					Execution.Dependencies.push_back({Producer, Handoff.Consumer,
+						ERDGDependencyKind::Execution, "resource-handoff"});
 
 		for (uint32 ResourceIndex = 0; ResourceIndex < State->Resources.size(); ++ResourceIndex)
 		{
@@ -2727,8 +2785,8 @@ namespace Durin
 		std::vector<uint32> Versions(Cells.Ranges.size(), 0);
 		std::vector<uint32> VersionPasses(Cells.Ranges.size(), std::numeric_limits<uint32>::max());
 		const auto VisitError = TraverseExecutionStates(Cells, Compiled->Resources,
-			Passes, Compiled->Passes, Compiled->ResourceLifetimes, nullptr,
-			[&](const FRDGTransitionCapture& Event) -> FRDGResult
+			Passes, Compiled->Passes, Compiled->ResourceLifetimes, nullptr, State->bAsyncComputeEnabled,
+			[&](const FRDGTransitionCapture& Event, size_t) -> FRDGResult
 			{
 				Result->Transitions.push_back(Event);
 				return {};
@@ -2859,8 +2917,13 @@ namespace Durin
 			Output << "submission-dependency " << Edge.Before.Index << " -> " << Edge.After.Index
 				<< " kind=" << static_cast<uint32>(Edge.Kind) << " cause=" << Edge.Cause << '\n';
 		for (const auto& Handoff : Compiled->ExecutionPlan.Handoffs)
+		{
 			Output << "handoff resource=" << Handoff.ResourceId << " submission=" << Handoff.Consumer.Index
-				<< " texture=" << Handoff.bTexture << " transition=" << Handoff.TransitionIndex << '\n';
+				<< " texture=" << Handoff.bTexture << " transition=" << Handoff.TransitionIndex
+				<< " source-queue=" << static_cast<uint32>(Handoff.SourceQueue) << " producers=";
+			for (const auto Producer : Handoff.Producers) Output << Producer.Index << ',';
+			Output << '\n';
+		}
 		Output << "allocation active-resources="
 			<< Compiled->AllocationStatistics.ActiveResources
 			<< " retained-resources="
@@ -3056,6 +3119,53 @@ namespace Durin
 		const auto PreparedEpilogue = PrepareBarrierBatch(Compiled->FinalBarriers, Compiled->Backings, PreparedTransitions);
 		const auto* Queues = GDynamicRHI ? &GDynamicRHI->RHIGetQueueCapabilities() : nullptr;
 		const bool bExplicitSubmissions = Queues && !Queues->Queues.empty();
+		const bool bAsync = State->bAsyncComputeEnabled && bExplicitSubmissions
+			&& Queues->bIndependentCompute && Queues->Compute != Queues->Graphics
+			&& (Compiled->AllocationRequests.empty() || (Context && Context->Allocator.SupportsAsyncCompute()));
+		auto PhysicalQueue = [&](ERDGQueueAssignment Queue) {
+			return bAsync && Queue == ERDGQueueAssignment::AsyncCompute ? Queues->Compute : Queues->Graphics;
+		};
+		using FTransfers = std::vector<std::shared_ptr<FRHIQueueTransfer>>;
+		std::vector<FTransfers> Acquires(Compiled->ExecutionPlan.Batches.size()), Releases(Acquires.size());
+		FTransfers InitialReleases;
+		std::vector<bool> WaitForInitial(Acquires.size(), false);
+		if (bAsync)
+		{
+			PreparedTransitions.TransferredBuffers.resize(PreparedTransitions.Buffers.size(), false);
+			PreparedTransitions.TransferredTextures.resize(PreparedTransitions.Textures.size(), false);
+			for (const auto& Handoff : Compiled->ExecutionPlan.Handoffs)
+			{
+				const auto& Consumer = Compiled->ExecutionPlan.Batches[Handoff.Consumer.Index];
+				if (Handoff.SourceQueue == Consumer.Queue) continue;
+				FRHIQueueTransferDesc Desc{.Source = PhysicalQueue(Handoff.SourceQueue), .Destination = PhysicalQueue(Consumer.Queue)};
+				const auto& Barrier = Consumer.bEpilogue ? PreparedEpilogue : PreparedPassBarriers[Consumer.FirstPass];
+				if (Handoff.bTexture)
+				{
+					const size_t Index = Barrier.FirstTexture + Handoff.TransitionIndex;
+					Desc.Textures.push_back(PreparedTransitions.Textures[Index]);
+					PreparedTransitions.TransferredTextures[Index] = true;
+				}
+				else
+				{
+					const size_t Index = Barrier.FirstBuffer + Handoff.TransitionIndex;
+					Desc.Buffers.push_back(PreparedTransitions.Buffers[Index]);
+					PreparedTransitions.TransferredBuffers[Index] = true;
+				}
+				auto Transfer = GDynamicRHI->RHICreateQueueTransfer(Desc);
+				if (!Transfer) return {ERDGError::AllocationFailed, "failed to prepare render graph queue transfer"};
+				Acquires[Consumer.Id.Index].push_back(Transfer);
+				const auto Producer = std::ranges::find_if(Handoff.Producers, [&](const auto Id) {
+					return Compiled->ExecutionPlan.Batches[Id.Index].Queue == Handoff.SourceQueue;
+				});
+				if (Producer != Handoff.Producers.end()) Releases[Producer->Index].push_back(std::move(Transfer));
+				else
+				{
+					require(Handoff.SourceQueue == ERDGQueueAssignment::Graphics);
+					InitialReleases.push_back(std::move(Transfer));
+					WaitForInitial[Consumer.Id.Index] = true;
+				}
+			}
+		}
 		std::vector<std::vector<uint32>> Predecessors(Compiled->ExecutionPlan.Batches.size());
 		if (bExplicitSubmissions)
 		{
@@ -3074,11 +3184,19 @@ namespace Durin
 		State->ExecutionResult.Status = ERDGExecutionStatus::InvalidState;
 		State->ExecutionResult.Result =
 			{ERDGError::InvalidState, "render graph recording did not complete"};
+		FRHIGPUSubmissionReceipt InitialSignal;
+		if (!InitialReleases.empty())
+		{
+			InitialSignal = CommandList.BeginGPUSubmission({.Queue = Queues->Graphics});
+			for (const auto& Transfer : InitialReleases) CommandList.ReleaseQueueOwnership(Transfer);
+			CommandList.EndGPUSubmission();
+		}
 		for (const auto& Batch : Compiled->ExecutionPlan.Batches)
 		{
 			if (bExplicitSubmissions)
 			{
-				FRHIGPUSubmissionDesc Desc{.Queue = Queues->Graphics};
+				FRHIGPUSubmissionDesc Desc{.Queue = PhysicalQueue(Batch.Queue)};
+				if (WaitForInitial[Batch.Id.Index]) Desc.Waits.push_back(InitialSignal);
 				for (uint32 Input : Predecessors[Batch.Id.Index])
 					Desc.Waits.push_back(State->SubmissionReceipts[Input]);
 				State->SubmissionReceipts[Batch.Id.Index] = CommandList.BeginGPUSubmission(Desc);
@@ -3089,9 +3207,11 @@ namespace Durin
 				bool bEnabled;
 				~FCloseSubmission() { if (bEnabled) Commands.EndGPUSubmission(); }
 			} CloseSubmission{CommandList, bExplicitSubmissions};
+			for (const auto& Transfer : Acquires[Batch.Id.Index]) CommandList.AcquireQueueOwnership(Transfer);
 			if (Batch.bEpilogue)
 			{
 				RecordBarrierBatch(CommandList, PreparedEpilogue, PreparedTransitions);
+				for (const auto& Transfer : Releases[Batch.Id.Index]) CommandList.ReleaseQueueOwnership(Transfer);
 				continue;
 			}
 			for (uint32 Index = Batch.FirstPass; Index < Batch.FirstPass + Batch.NumPasses; ++Index)
@@ -3109,6 +3229,7 @@ namespace Durin
 					(*Runtime.ParameterizedExecute)(CommandList, Resolver);
 				}
 			}
+			for (const auto& Transfer : Releases[Batch.Id.Index]) CommandList.ReleaseQueueOwnership(Transfer);
 		}
 		for (uint32 Index = 0; Index < Compiled->Resources.size(); ++Index)
 		{

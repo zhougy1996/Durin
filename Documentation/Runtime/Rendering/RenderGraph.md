@@ -4,7 +4,7 @@ Summary: Define the deterministic frame-local graph compiler and its boundary wi
 
 Modules: RenderCore, RHI
 
-Last reviewed: 2026-09-11
+Last reviewed: 2026-09-12
 
 ## Ownership Boundary
 
@@ -362,18 +362,50 @@ path. Uncomposed and manual uses retain their previous capture form.
 ## Diagnostics and Budgets
 
 `GetExecutionPlan()` exposes immutable logical submission records. Each
-retained pass currently occupies one graphics-assigned batch, followed by an
+retained pass occupies one batch, followed by an
 epilogue batch when the graph has work. Empty graphs create no synthetic batch.
 Batch pass intervals index the compact scheduled pass array, not declaration
 indices; culling therefore cannot leave a dangling submission reference.
-Dependencies preserve compiler causes and explicitly record the shared queue's
-FIFO edges. Resource handoffs identify exact transition indices in their
+`SetPassAsyncComputeEligible` marks only compute passes owned by the builder;
+invalid or foreign handles produce declaration errors. `SetAsyncComputeEnabled`
+controls the graph's scheduling policy and defaults to false. When enabled,
+eligible retained passes receive the logical async-compute role. Other passes
+retain the graphics role. Eligibility, policy and physical hardware availability
+are separate inputs. Both setters are building-only declarations.
+Dependencies preserve compiler causes, add FIFO edges within each logical
+queue and join both terminal prefixes at the epilogue. Independent branches on
+different logical queues receive no artificial consecutive-pass edge.
+Resource handoffs identify exact transition indices in their
 consumer prologue or epilogue without retaining a physical resource pointer.
+Each handoff also records the latest prior use of that tracked range on each
+logical queue. Queue FIFO makes each recorded use cover earlier uses on the
+same queue; it never replaces a use on another queue. Cross-queue producers add
+execution dependencies to the handoff consumer. Initial transitions have no
+graph producer. Texture ranges use exact aspect/mip/layer cells; buffers retain
+the compiler's conservative whole-resource tracking. Captures and dumps retain
+these producer endpoints separately from physical completion tickets.
+Range ownership starts on the logical graphics queue. A queue change emits a
+handoff even for equal read access, and records the source queue independently
+of its producer endpoints. The epilogue returns ranges last used on async
+compute to graphics, preserving the current access when no final access was
+requested for a transient resource. Disabling async policy removes these
+queue-only transitions. Logical ownership changes are conservatively ordered;
+they do not claim concurrent cross-queue sharing of one range.
 
 Preparation resolves all logical barriers into execution-local physical
 transition arrays before any graph callback or command is recorded. Recording
 traverses the batch intervals and emits RHI GPU submission scopes with owning
-wait receipts. The current Vulkan mapping coalesces same-queue batches into
+wait receipts. Physical async lowering requires enabled graph policy, an
+independent queue capability, and either no allocation requests or an allocator
+whose `SupportsAsyncCompute()` explicitly accepts multi-queue reuse. Other
+graphs map both roles to graphics. The allocator default is false.
+Preparation creates every cross-queue release/acquire object before graph
+recording. These owning objects replace their ordinary barrier entries and are
+recorded at the source producer's tail and consumer's prologue. A separate
+graphics preamble releases initially graphics-owned ranges with no graph
+producer; only affected consumers wait its receipt. Transfer creation failure
+fails preparation before callbacks or graph commands are recorded.
+The current single-queue Vulkan mapping coalesces same-queue batches into
 native payloads and satisfies their dependencies through FIFO execution and
 resource barriers, without a CPU wait between passes. `GetSubmissionReceipts()`
 exposes runtime signals in batch order; these are separate from the immutable

@@ -35,6 +35,8 @@ namespace Durin
 			for (const auto& Handoff : Capture.ExecutionPlan.Handoffs)
 			{
 				ASSERT_LT(Handoff.Consumer.Index, Capture.ExecutionPlan.Batches.size());
+				for (const auto Producer : Handoff.Producers)
+					EXPECT_LT(Producer.Index, Handoff.Consumer.Index);
 				const auto& Batch = Capture.ExecutionPlan.Batches[Handoff.Consumer.Index];
 				const auto& Barriers = Batch.bEpilogue ? Builder.GetFinalBarriers()
 					: Builder.GetPasses()[Batch.FirstPass].Barriers;
@@ -2906,6 +2908,130 @@ namespace Durin
 		EXPECT_EQ(Before.ExecutionPlan, Builder.Capture().ExecutionPlan);
 	}
 
+	TEST_F(FRDGTests, AsyncPolicySeparatesEligibilityFromQueueOrderAndJoinsTerminalPrefixes)
+	{
+		for (bool bEnabled : {false, true})
+		{
+			FRDGExecutionPlan Previous;
+			for (int Run = 0; Run < 2; ++Run)
+			{
+				FRDGBuilder Builder;
+				Builder.EnablePassCulling();
+				Builder.SetAsyncComputeEnabled(bEnabled);
+				const auto Dead = FRDGBuilderTestAccessor::AddPass(Builder, "Dead", ERDGPassType::Compute);
+				Builder.SetPassAsyncComputeEligible(Dead);
+				const auto G0 = FRDGBuilderTestAccessor::AddPass(Builder, "G0", ERDGPassType::Graphics);
+				const auto C0 = FRDGBuilderTestAccessor::AddPass(Builder, "C0", ERDGPassType::Compute);
+				const auto G1 = FRDGBuilderTestAccessor::AddPass(Builder, "IneligibleCompute", ERDGPassType::Compute);
+				const auto C1 = FRDGBuilderTestAccessor::AddPass(Builder, "C1", ERDGPassType::Compute);
+				for (auto Pass : {G0, C0, G1, C1}) Builder.MarkPassRoot(Pass);
+				Builder.SetPassAsyncComputeEligible(C0);
+				Builder.SetPassAsyncComputeEligible(C1);
+				Builder.AddPassDependency(G0, C0);
+				ASSERT_TRUE(FRDGBuilderTestAccessor::Compile(Builder).IsSuccess());
+				const auto& Plan = Builder.GetExecutionPlan();
+				ASSERT_EQ(Plan.Batches.size(), 5u);
+				EXPECT_EQ(Plan.Batches[0].Queue, ERDGQueueAssignment::Graphics);
+				EXPECT_EQ(Plan.Batches[2].Queue, ERDGQueueAssignment::Graphics);
+				for (size_t Index : {1u, 3u})
+					EXPECT_EQ(Plan.Batches[Index].Queue, bEnabled ? ERDGQueueAssignment::AsyncCompute : ERDGQueueAssignment::Graphics);
+				auto HasEdge = [&](uint32 Before, uint32 After) {
+					return std::ranges::any_of(Plan.Dependencies, [&](const auto& Edge) {
+						return Edge.Before.Index == Before && Edge.After.Index == After;
+					});
+				};
+				EXPECT_TRUE(HasEdge(0, 1));
+				EXPECT_TRUE(HasEdge(3, 4));
+				if (bEnabled)
+				{
+					EXPECT_TRUE(HasEdge(0, 2));
+					EXPECT_TRUE(HasEdge(1, 3));
+					EXPECT_TRUE(HasEdge(2, 4));
+					EXPECT_FALSE(HasEdge(1, 2));
+					EXPECT_FALSE(HasEdge(2, 3));
+				}
+				if (Run != 0) EXPECT_EQ(Plan, Previous);
+				Previous = Plan;
+			}
+		}
+	}
+
+	TEST_F(FRDGTests, ResourceHandoffRetainsLatestReaderOnEveryLogicalQueue)
+	{
+		FRDGBuilder Builder;
+		Builder.SetAsyncComputeEnabled(true);
+		const auto Buffer = Builder.CreateBuffer({.Buffer = FRHIBufferDesc(64, 4,
+			EBufferUsageFlags::UnorderedAccess | EBufferUsageFlags::ShaderResource)}, "Shared");
+		for (uint32 Index = 0; Index < 5; ++Index)
+		{
+			const auto Pass = FRDGBuilderTestAccessor::AddPass(Builder, std::to_string(Index), ERDGPassType::Compute);
+			if (Index == 2) Builder.SetPassAsyncComputeEligible(Pass);
+			const bool bWrite = Index == 0 || Index == 4;
+			FRDGBuilderTestAccessor::UseBuffer(Builder, Pass, Buffer, 0, 64,
+				bWrite ? ERDGUse::Write : ERDGUse::Read,
+				bWrite ? ERHIAccess::ComputeShaderReadWrite : ERHIAccess::ComputeShaderRead, bWrite);
+		}
+		const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
+		ASSERT_TRUE(Result.IsSuccess()) << Result.Result.Message;
+		const auto& Plan = Builder.GetExecutionPlan();
+		const auto Handoff = std::ranges::find_if(Plan.Handoffs, [](const auto& Item) { return Item.Consumer.Index == 4; });
+		ASSERT_NE(Handoff, Plan.Handoffs.end());
+		EXPECT_EQ(Handoff->Producers, (std::vector<FRDGSubmissionId>{{3}, {2}}));
+		EXPECT_TRUE(std::ranges::any_of(Plan.Dependencies, [](const auto& Edge) {
+			return Edge.Before.Index == 2 && Edge.After.Index == 4 && Edge.Cause == "resource-handoff";
+		}));
+		ExpectCapturedBarriersMatchPlan(Builder);
+	}
+
+	TEST_F(FRDGTests, EqualAccessQueueHandoffsIncludeInitialAndFinalGraphicsOwnership)
+	{
+		for (bool bEnabled : {false, true})
+		{
+			FRDGBuilder Builder;
+			Builder.SetAsyncComputeEnabled(bEnabled);
+			const auto Physical = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create(
+				"Input", 64, 4, EBufferUsageFlags::ShaderResource));
+			const auto Buffer = Builder.RegisterExternalBuffer(Physical, "Input",
+				ERHIAccess::ComputeShaderRead, ERHIAccess::ComputeShaderRead);
+			const auto Pass = FRDGBuilderTestAccessor::AddPass(Builder, "Read", ERDGPassType::Compute);
+			Builder.SetPassAsyncComputeEligible(Pass);
+			FRDGBuilderTestAccessor::UseBuffer(Builder, Pass, Buffer, 0, 64,
+				ERDGUse::Read, ERHIAccess::ComputeShaderRead);
+			const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
+			ASSERT_TRUE(Result.IsSuccess()) << Result.Result.Message;
+			const auto& Plan = Builder.GetExecutionPlan();
+			ASSERT_EQ(Plan.Handoffs.size(), bEnabled ? 2u : 0u);
+			if (bEnabled)
+			{
+				EXPECT_EQ(Plan.Handoffs[0].SourceQueue, ERDGQueueAssignment::Graphics);
+				EXPECT_TRUE(Plan.Handoffs[0].Producers.empty());
+				EXPECT_EQ(Plan.Handoffs[1].SourceQueue, ERDGQueueAssignment::AsyncCompute);
+				EXPECT_EQ(Plan.Handoffs[1].Producers, (std::vector<FRDGSubmissionId>{{0}}));
+				EXPECT_TRUE(Plan.Batches[Plan.Handoffs[1].Consumer.Index].bEpilogue);
+				const auto Capture = Builder.Capture();
+				ASSERT_EQ(Capture.Transitions.size(), 2u);
+				for (const auto& Transition : Capture.Transitions)
+				{
+					EXPECT_EQ(Transition.Before, Transition.After);
+					EXPECT_NE(Transition.SourceQueue, Transition.DestinationQueue);
+				}
+			}
+			ExpectCapturedBarriersMatchPlan(Builder);
+		}
+	}
+
+	TEST_F(FRDGTests, AsyncEligibilityRejectsForeignAndNonComputePasses)
+	{
+		for (bool bForeign : {false, true})
+		{
+			FRDGBuilder Builder, Other;
+			const auto Pass = FRDGBuilderTestAccessor::AddPass(bForeign ? Other : Builder,
+				"Invalid", bForeign ? ERDGPassType::Compute : ERDGPassType::Graphics);
+			Builder.SetPassAsyncComputeEligible(Pass);
+			EXPECT_FALSE(FRDGBuilderTestAccessor::Compile(Builder).IsSuccess());
+		}
+	}
+
 	TEST_F(FRDGTests, EmptyGraphHasNoSyntheticSubmission)
 	{
 		FRDGBuilder Builder;
@@ -4381,6 +4507,10 @@ namespace Durin
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Result.Message;
 		ASSERT_EQ(Builder.GetFinalBarriers().GetTextureTransitions().size(), 1u);
 		EXPECT_EQ(Builder.GetFinalBarriers().GetTextureTransitions()[0].Range.FirstMip, 1u);
+		ASSERT_EQ(Builder.GetExecutionPlan().Handoffs.size(), 2u);
+		EXPECT_TRUE(Builder.GetExecutionPlan().Handoffs[0].Producers.empty());
+		EXPECT_EQ(Builder.GetExecutionPlan().Handoffs[1].Producers,
+			(std::vector<FRDGSubmissionId>{{0}}));
 		ExpectCapturedBarriersMatchPlan(Builder);
 	}
 
