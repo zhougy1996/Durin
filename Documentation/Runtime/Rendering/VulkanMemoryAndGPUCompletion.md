@@ -20,16 +20,34 @@ Discarding an unsubmitted
 payload cancels its ticket and resets its command buffers; ambiguous native
 submission failure transfers ownership to quarantine instead of this path.
 
+The coordinator owns sealed, pending payloads between submission scopes.
+Enqueueing a context seals its current recording without submitting native work.
+Explicit submission, presentation, readback and allocator pressure drain these
+payloads together with participating contexts. Cancellation and device shutdown
+discard queued recordings while their context command pools still exist.
 The coordinator seals all participating contexts before submitting a batch.
 It validates dependency authority and success state, includes implicit queue-local
 reservation order, and constructs a deterministic topological order before native
-submission. Pending producers must belong to the same batch; missing producers
+submission. Each physical timeline also preflights its ordered pending prefix;
+an earlier pending reservation outside the batch rejects the entire batch before
+any queue submits, including independent work on other queues. Submitted and
+canceled reservations do not create missing-work failures. RHI
+`CanSubmitBatch` only observes admission; it never marks tickets submitted.
+Pending producers must belong to the same batch; missing producers
 and dependency cycles reject the batch and discard its unsubmitted payloads.
 Native submission still requires accepted producers. If a native call fails after
 earlier payloads were accepted, those earlier submissions retain their normal
 completion ownership, the ambiguous call stays quarantined, and remaining
 unsubmitted payloads are discarded. Batch validation does not roll back replayed
 resource-state metadata or GPU work already accepted by a previous batch.
+
+Vulkan resolves public submission scopes to the requested provisioned physical
+queue. When independent queues exist, scope end seals the producer into the
+coordinator; a later graphics join cannot be merged into that producer's payload.
+Cross-queue waits retain the producer ticket for batch ordering and native
+timeline lowering. Same-queue scopes retain the coalescing path on single-queue
+devices. Diagnostic and timing intervals must close before changing physical
+queues, including the return from a compute scope to the default graphics context.
 
 CPU executor serial completion and Vulkan queue completion are different
 proofs. An executor serial proves replay and release of executor storage ownership;

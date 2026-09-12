@@ -604,6 +604,8 @@ namespace Durin::VulkanRHI
 		{
 			ImmediateContext->NotifyDeleted_GraphicsPipeline(PipelineState);
 		}
+		if (ComputeContext && ComputeContext != ImmediateContext)
+			ComputeContext->NotifyDeleted_GraphicsPipeline(PipelineState);
 	}
 
 	auto FVulkanDevice::NotifyDeleted_ComputePipeline(
@@ -612,6 +614,8 @@ namespace Durin::VulkanRHI
 		CheckVulkanRHIThread();
 		if (ImmediateContext)
 			ImmediateContext->NotifyDeleted_ComputePipeline(PipelineState);
+		if (ComputeContext && ComputeContext != ImmediateContext)
+			ComputeContext->NotifyDeleted_ComputePipeline(PipelineState);
 	}
 
 	auto FVulkanDevice::GetQueueContext(FRHIQueueId Id) const -> FVulkanCommandListContext*
@@ -679,6 +683,9 @@ namespace Durin::VulkanRHI
 			if (Error.code().value() != static_cast<int>(vk::Result::eErrorDeviceLost)) throw;
 			for (auto* Queue : PhysicalQueues) Queue->GetCompletionTracker().FailSubmission(true);
 		}
+		// Sealed recordings still refer to context command pools. Detach them before
+		// terminal timeline teardown and before destroying those pools.
+		if (SubmissionCoordinator) SubmissionCoordinator->DiscardPending();
 		for (auto* Queue : PhysicalQueues)
 		{
 			Queue->GetCompletionTracker().WaitForAll();

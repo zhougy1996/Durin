@@ -39,6 +39,9 @@ namespace Durin::VulkanRHI
 	auto FVulkanSubmissionCoordinator::SubmitBatch(std::vector<std::unique_ptr<FVulkanPayload>> Payloads) -> void
 	{
 		CheckVulkanRHIThread();
+		Payloads.reserve(Payloads.size() + PendingPayloads.size());
+		for (auto& Pending : PendingPayloads) Payloads.push_back(std::move(Pending));
+		PendingPayloads.clear();
 		// Build the entire dependency order before accepting any native work.
 		// Queue-local reservations also impose edges, even without explicit waits.
 		std::vector<std::vector<size_t>> Dependencies(Payloads.size());
@@ -85,6 +88,17 @@ namespace Durin::VulkanRHI
 			if (Order.size() == Before)
 				throw std::runtime_error("Vulkan submission batch contains a dependency cycle.");
 		}
+		// Topological edges alone cannot detect a reservation owned outside this batch.
+		// Validate every queue's complete pending prefix before the first native call.
+		for (const auto& QueueInfo : Device.GetQueueCapabilities().Queues)
+		{
+			std::vector<FRHIGPUSubmissionTicket> Tickets;
+			for (size_t Index : Order)
+				if (Payloads[Index]->Ticket.GetPoint().Queue == QueueInfo.Id)
+					Tickets.push_back(Payloads[Index]->Ticket);
+			if (!Tickets.empty() && !Device.FindQueue(QueueInfo.Id)->GetCompletionTracker().CanSubmitBatch(Tickets))
+				throw std::runtime_error("Vulkan batch is missing an earlier queue reservation.");
+		}
 		for (size_t Index : Order) SubmitNative(std::move(Payloads[Index]));
 	}
 
@@ -106,7 +120,24 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanSubmissionCoordinator::SubmitContext(FVulkanCommandListContext& Context) -> FRHIGPUSubmissionTicket
 	{
-		return Submit(Context.Finalize());
+		const auto Ticket = EnqueueContext(Context);
+		SubmitPendingContexts();
+		return Ticket;
+	}
+
+	auto FVulkanSubmissionCoordinator::EnqueueContext(FVulkanCommandListContext& Context) -> FRHIGPUSubmissionTicket
+	{
+		CheckVulkanRHIThread();
+		auto Payload = Context.Finalize();
+		const auto Ticket = Payload->GetTicket();
+		PendingPayloads.push_back(std::move(Payload));
+		return Ticket;
+	}
+
+	auto FVulkanSubmissionCoordinator::DiscardPending() -> void
+	{
+		CheckVulkanRHIThread();
+		PendingPayloads.clear();
 	}
 
 	auto FVulkanSubmissionCoordinator::SubmitPendingContexts(FVulkanCommandListContext* CallingContext) -> void

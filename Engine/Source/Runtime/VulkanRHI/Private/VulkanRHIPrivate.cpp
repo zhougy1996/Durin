@@ -408,6 +408,7 @@ namespace Durin::VulkanRHI
 		auto LaterGraphics = OtherGraphics.Finalize();
 		Graphics.ReleaseQueueOwnership(Transfer);
 		LaterGraphics.reset();
+		Device.GetSubmissionCoordinator().EnqueueContext(Graphics);
 		Compute.AcquireQueueOwnership(Transfer);
 		const std::array InitializeReadback{FRHIBufferTransition{Readback.GetReference(), 0, 64, ERHIAccess::None, ERHIAccess::TransferWrite}};
 		Compute.RHITransitionBuffers(InitializeReadback);
@@ -593,6 +594,28 @@ namespace Durin::VulkanRHI
 					&& SecondTicket.GetState() == ERHIGPUSubmissionState::Canceled
 					&& Graphics.GetCompletionTracker().GetLastSubmittedToken() == Before;
 			}
+			{
+				auto First = MakePayload(Graphics);
+				auto MissingReservation = MakePayload(Graphics);
+				auto Last = MakePayload(Graphics);
+				auto Independent = MakePayload(Compute);
+				const auto FirstTicket = First->GetTicket(), LastTicket = Last->GetTicket();
+				const auto IndependentTicket = Independent->GetTicket();
+				const auto BeforeGraphics = Graphics.GetCompletionTracker().GetLastSubmittedToken();
+				const auto BeforeCompute = Compute.GetCompletionTracker().GetLastSubmittedToken();
+				std::vector<std::unique_ptr<FVulkanPayload>> Incomplete;
+				Incomplete.push_back(std::move(Independent));
+				Incomplete.push_back(std::move(First));
+				Incomplete.push_back(std::move(Last));
+				try { Device.GetSubmissionCoordinator().SubmitBatch(std::move(Incomplete)); }
+				catch (const std::runtime_error&) { Result.bBatchMissingReservationRejected = true; }
+				Result.bBatchMissingReservationRejected &= FirstTicket.GetState() == ERHIGPUSubmissionState::Canceled
+					&& LastTicket.GetState() == ERHIGPUSubmissionState::Canceled
+					&& IndependentTicket.GetState() == ERHIGPUSubmissionState::Canceled
+					&& MissingReservation->GetTicket().GetState() == ERHIGPUSubmissionState::Pending
+					&& Graphics.GetCompletionTracker().GetLastSubmittedToken() == BeforeGraphics
+					&& Compute.GetCompletionTracker().GetLastSubmittedToken() == BeforeCompute;
+			}
 			auto Missing = MakePayload(Compute);
 			auto Dependent = MakePayload(Graphics);
 			const auto DependentTicket = Dependent->GetTicket();
@@ -671,6 +694,32 @@ namespace Durin::VulkanRHI
 		TestPools.PrepareForUse();
 		Result.bAllocationReturned &= TestPools.GetActiveBatchIndexForTesting() == 0;
 		require(Tracker.WaitForTicket(FirstTicket, 1'000'000'000) == ERHIGPUWaitResult::Complete);
+		for (bool bDiscard : {false, true})
+		{
+			auto Owner = std::make_shared<int>(42);
+			std::weak_ptr<int> Observer = Owner;
+			Context.RHISetReplayStorageOwner(Owner);
+			Context.RetainAllocation(Owner);
+			const auto Queued = Device.GetSubmissionCoordinator().EnqueueContext(Context);
+			Context.RHISetReplayStorageOwner({});
+			Owner.reset();
+			bool bPassed = !Observer.expired() && Queued.GetState() == ERHIGPUSubmissionState::Pending;
+			if (bDiscard)
+			{
+				Device.GetSubmissionCoordinator().DiscardPending();
+				Result.bQueuedStorageDiscarded = bPassed && Observer.expired()
+					&& Queued.GetState() == ERHIGPUSubmissionState::Canceled;
+			}
+			else
+			{
+				// Submitting a new context recording drains its sealed predecessor too.
+				const auto Last = Device.GetSubmissionCoordinator().SubmitContext(Context);
+				bPassed &= Last.GetPoint().Value > Queued.GetPoint().Value;
+				bPassed &= Tracker.WaitForTicket(Last, 1'000'000'000) == ERHIGPUWaitResult::Complete;
+				Result.bQueuedStorageRetired = bPassed && Observer.expired()
+					&& Queued.GetState() == ERHIGPUSubmissionState::Complete;
+			}
+		}
 		return Result;
 	}
 

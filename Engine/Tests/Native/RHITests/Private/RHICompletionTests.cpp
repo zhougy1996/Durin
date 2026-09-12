@@ -3,6 +3,30 @@
 
 namespace Durin
 {
+	TEST(FRHICompletionTests, BatchPreflightRequiresAnOwnedOrderedPendingPrefixWithoutMutation)
+	{
+		const auto Generation = AllocateRHIDeviceGeneration();
+		FRHIGPUQueueTimeline Queue(Generation, {0}), Impostor(Generation, {0});
+		const auto First = Queue.Reserve(), Hole = Queue.Reserve(), Last = Queue.Reserve();
+		const auto Foreign = Impostor.Reserve();
+		EXPECT_FALSE(Queue.CanSubmitBatch(std::array{First, Last}));
+		EXPECT_FALSE(Queue.CanSubmitBatch(std::array{Hole, First, Last}));
+		EXPECT_FALSE(Queue.CanSubmitBatch(std::array{First, First}));
+		EXPECT_FALSE(Queue.CanSubmitBatch(std::array{Foreign}));
+		EXPECT_FALSE(Queue.CanSubmitBatch(std::array{FRHIGPUSubmissionTicket{}}));
+		EXPECT_TRUE(Queue.CanSubmitBatch(std::array{First, Hole, Last}));
+		EXPECT_TRUE(Queue.CanSubmitBatch(std::array{First}));
+		EXPECT_EQ(First.GetState(), ERHIGPUSubmissionState::Pending);
+		ASSERT_TRUE(Queue.Cancel(Hole));
+		EXPECT_TRUE(Queue.CanSubmitBatch(std::array{First, Last}));
+		EXPECT_FALSE(Queue.CanSubmitBatch(std::array{First, Hole, Last}));
+		ASSERT_TRUE(Queue.MarkSubmitted(First));
+		EXPECT_TRUE(Queue.CanSubmitBatch(std::array{Last}));
+		EXPECT_FALSE(Queue.CanSubmitBatch(std::array{First, Last}));
+		Queue.Fail();
+		EXPECT_FALSE(Queue.CanSubmitBatch(std::array{Last}));
+	}
+
 	TEST(FRHICompletionTests, RecordedSignalTracksNativeAcceptanceAndFailure)
 	{
 		FRHIGPUQueueTimeline Queue(AllocateRHIDeviceGeneration(), {0});

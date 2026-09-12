@@ -157,6 +157,8 @@ namespace Durin::VulkanRHI
 	struct FVulkanSubmissionBoundaryTestResult
 	{
 		bool bReceiptUsesRecordingTicket = false;
+		bool bQueuedStorageRetired = false;
+		bool bQueuedStorageDiscarded = false;
 		bool bSealDidNotSubmit = false;
 		bool bEarlierTicketSubmitted = false;
 		bool bDiscardCanceled = false;
@@ -183,6 +185,7 @@ namespace Durin::VulkanRHI
 		bool bBatchOrdered = false;
 		bool bBatchCycleRejected = false;
 		bool bBatchMissingProducerRejected = false;
+		bool bBatchMissingReservationRejected = false;
 		bool bCompleted = false;
 		FRHIGPUCompletionPoint Producer;
 		FRHIGPUCompletionPoint Consumer;

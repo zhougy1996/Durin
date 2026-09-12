@@ -107,21 +107,40 @@ namespace Durin::VulkanRHI
 		if (ReplayStorageOwner) GetPayload();
 	}
 
+	auto FVulkanCommandListContext::RHIGetQueueContext(FRHIQueueId Id) -> IRHICommandContext*
+	{
+		CheckVulkanRHIThread();
+		auto* Target = Device.GetQueueContext(Id);
+		require(Target);
+		if (Target != this)
+		{
+			requiref(DiagnosticRegions.empty() && ActiveTimingQueries.empty(),
+				"Diagnostic and timing intervals must close before changing physical queues.");
+			if (HasPendingCommands()) Device.GetSubmissionCoordinator().EnqueueContext(*this);
+		}
+		return Target;
+	}
+
 	auto FVulkanCommandListContext::RHIBeginGPUSubmission(const FRHIGPUSubmissionDesc& Desc) -> void
 	{
 		CheckVulkanRHIThread();
 		requiref(!bInsideGPUSubmission, "GPU submissions cannot nest.");
 		requiref(Desc.Queue == Queue->GetId(),
 			"GPU submission queue must match its recording context.");
+		auto& Payload = GetPayload();
 		for (const auto& Wait : Desc.Waits)
 		{
 			const auto Ticket = Wait.GetTicket();
 			const auto State = Ticket.GetState();
-			requiref(Queue->GetCompletionTracker().Owns(Ticket)
+			auto* Producer = Device.FindQueue(Ticket.GetPoint().Queue);
+			requiref(Producer && Producer->GetCompletionTracker().Owns(Ticket)
 				&& (State == ERHIGPUSubmissionState::Pending
 					|| State == ERHIGPUSubmissionState::Submitted
 					|| State == ERHIGPUSubmissionState::Complete),
-				"GPU dependency must resolve to earlier work on this queue.");
+				"GPU dependency must resolve to live work owned by this device.");
+			if (Producer != Queue) Payload.AddCompletionWait(Ticket);
+			else requiref(Ticket.GetPoint().Value <= Payload.GetTicket().GetPoint().Value,
+				"Same-queue dependencies must precede their consumer recording.");
 		}
 		// Same-queue dependencies use FIFO execution and the recorded resource barriers.
 		// Logical batches can share one native payload without extra CPU or GPU waits.
@@ -133,9 +152,14 @@ namespace Durin::VulkanRHI
 	{
 		CheckVulkanRHIThread();
 		requiref(bInsideGPUSubmission, "GPU submission end requires a matching begin.");
+		if (Queue != Device.GetGraphicsQueue())
+			requiref(DiagnosticRegions.empty() && ActiveTimingQueries.empty(),
+				"Diagnostic and timing intervals must close before returning to graphics.");
 		requiref(Signal.Resolve(GetPayload().GetTicket()),
 			"GPU submission signal must be unresolved and live.");
 		bInsideGPUSubmission = false;
+		if (Device.GetQueueCapabilities().Queues.size() > 1)
+			Device.GetSubmissionCoordinator().EnqueueContext(*this);
 	}
 
 	auto FVulkanCommandListContext::RHIReleaseQueueOwnership(const std::shared_ptr<FRHIQueueTransfer>& Transfer) -> void
@@ -240,6 +264,7 @@ namespace Durin::VulkanRHI
 	{
 		Device.GetGPUTimingManager().Begin(*Queue, *GetCommandBuffer(),
 			*static_cast<FVulkanGPUTimingQuery*>(Query));
+		ActiveTimingQueries.push_back(Query);
 	}
 
 	auto FVulkanCommandListContext::RHIEndGPUTimingQuery(
@@ -247,6 +272,7 @@ namespace Durin::VulkanRHI
 	{
 		auto* VulkanQuery = static_cast<FVulkanGPUTimingQuery*>(Query);
 		Device.GetGPUTimingManager().End(*Queue, *GetCommandBuffer(), *VulkanQuery);
+		std::erase(ActiveTimingQueries, Query);
 		PendingTimingQueries.emplace_back(VulkanQuery);
 	}
 

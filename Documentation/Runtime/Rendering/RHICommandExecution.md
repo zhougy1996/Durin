@@ -44,6 +44,15 @@ submissions and work recorded without `SubmitToGPU`. Clearing the active
 replay owner does not clear pending or in-flight payload leases. CPU-only
 contexts need no GPU retention.
 
+Explicit GPU submission replay resolves `RHIGetQueueContext` from the default
+context. Pipeline and non-pipeline commands use that selected context until
+the matching end restores the default context. Pipeline switches change the
+command domain without changing the selected physical queue. Each newly
+selected context receives the group's storage owner before its first command;
+normal completion and exception unwinding detach active owners from every
+touched context. Their retained GPU leases remain independent. Single-context
+backends keep the default resolver and validate their supported queue at begin.
+
 The recorder never obtains an `IRHICommandContext` or native Vulkan command
 buffer. Only executor replay resolves the active context and invokes it. This
 keeps an immutable batch movable to another CPU thread without changing its
@@ -97,8 +106,14 @@ identity and RHI-owned device generation. An owning
 `FRHIGPUSubmissionTicket` observes pending, submitted, completed, canceled,
 failed or device-lost metadata independently of CPU fences. Metadata survives
 backend teardown without holding a native fence or backend pointer. Foreign
-device completion queries return Invalid. Queue capabilities currently publish
-one physical graphics queue shared by the compute role.
+device completion queries return Invalid. Queue capabilities publish physical
+identity separately from command roles; roles may share one queue.
+
+`FRHIGPUQueueTimeline::CanSubmitBatch` preflights an ordered pending prefix
+without changing ticket states. Every earlier pending reservation must appear
+in that prefix; submitted and canceled positions may be omitted. Duplicate,
+foreign, terminal, and out-of-order tickets reject admission. Native acceptance
+still precedes each `MarkSubmitted` call.
 
 `FRHIRetirementPrerequisites` is a conjunction of queue prefixes. It merges
 values only in the same queue and generation. Cancellation remains distinct

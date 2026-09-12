@@ -100,6 +100,17 @@ namespace Durin
 		class FRecordingCommandContext final : public IRHICommandContext
 		{
 		public:
+			IRHICommandContext* SecondaryQueue = nullptr;
+			bool bStorageAttached = false;
+			auto RHIGetQueueContext(FRHIQueueId Queue) -> IRHICommandContext* override
+			{ return Queue.Index == 1 ? SecondaryQueue : this; }
+			auto RHIBeginGPUSubmission(const FRHIGPUSubmissionDesc&) -> void override
+			{
+				EXPECT_TRUE(bStorageAttached);
+				Operations.emplace_back("BeginSubmission");
+			}
+			auto RHIEndGPUSubmission(const FRHIGPUSubmissionReceipt&) -> void override
+			{ Operations.emplace_back("EndSubmission"); }
 			auto RHIReleaseQueueOwnership(const std::shared_ptr<FRHIQueueTransfer>& Transfer) -> void override
 			{ Operations.emplace_back("ReleaseQueueOwnership"); }
 			auto RHIAcquireQueueOwnership(const std::shared_ptr<FRHIQueueTransfer>& Transfer) -> void override
@@ -108,6 +119,7 @@ namespace Durin
 			std::vector<std::shared_ptr<void>> GPUStorage;
 			auto RHISetReplayStorageOwner(std::shared_ptr<void> Owner) -> void override
 			{
+				bStorageAttached = bool(Owner);
 				if (bRetainGPUStorage && Owner) GPUStorage.push_back(std::move(Owner));
 			}
 			auto RHIBeginFrame(const FRHIBeginFrameArgs& Args) -> void override
@@ -366,6 +378,50 @@ namespace Durin
 			bool ObservedLockToVsync = false;
 			bool bFailEndFrame = false;
 		};
+	}
+
+	TEST(FRHICommandListTests, SubmissionQueueRoutesPipelineAndOperationCommandsWithSharedStorage)
+	{
+		for (bool bThreaded : {false, true})
+		{
+			FRecordingCommandContext Primary, Secondary;
+			Primary.SecondaryQueue = &Secondary;
+			Primary.bRetainGPUStorage = Secondary.bRetainGPUStorage = true;
+			FRHIThread Thread;
+			FRHICommandListExecutor Executor(Primary);
+			if (bThreaded)
+			{
+				ASSERT_TRUE(Thread.Start());
+				Executor.SetThreadedMode(Thread);
+			}
+			auto& Commands = Executor.GetImmediateCommandList();
+			Commands.SwitchPipeline(ERHIPipeline::Graphics);
+			Commands.BeginGPUSubmission({.Queue = {1}});
+			Commands.SetViewport(1, 0, 0, 16, 16, 1);
+			Commands.BeginDiagnosticRegion("Secondary");
+			Commands.EndDiagnosticRegion();
+			Commands.SwitchPipeline(ERHIPipeline::None);
+			Commands.SwitchPipeline(ERHIPipeline::Graphics);
+			Commands.SetViewport(2, 0, 0, 16, 16, 1);
+			Commands.EndGPUSubmission();
+			Commands.SetViewport(3, 0, 0, 16, 16, 1);
+			Executor.Submit({}, ERHISubmitFlags::SubmitToGPU);
+			Executor.CreateFence().Wait();
+			EXPECT_EQ(Secondary.Operations, (std::vector<std::string>{
+				"BeginSubmission", "Viewport1", "BeginRegion:Secondary", "EndRegion", "Viewport2", "EndSubmission"}));
+			EXPECT_EQ(Primary.Operations, (std::vector<std::string>{"Viewport3", "SubmitToGPU"}));
+			EXPECT_FALSE(Primary.bStorageAttached);
+			EXPECT_FALSE(Secondary.bStorageAttached);
+			ASSERT_EQ(Primary.GPUStorage.size(), 1u);
+			ASSERT_EQ(Secondary.GPUStorage.size(), 1u);
+			EXPECT_EQ(Primary.GPUStorage.front(), Secondary.GPUStorage.front());
+			std::weak_ptr<void> Owner = Primary.GPUStorage.front();
+			Primary.GPUStorage.clear();
+			EXPECT_FALSE(Owner.expired());
+			Secondary.GPUStorage.clear();
+			EXPECT_TRUE(Owner.expired());
+			if (bThreaded) { Executor.SetInlineMode(); Thread.Stop(); }
+		}
 	}
 
 	TEST(FRHICommandListTests, DiscardedRecordingCancelsItsUnresolvedGPUSignal)

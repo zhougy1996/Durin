@@ -129,12 +129,19 @@ namespace Durin
 
 	auto FRHIGPUQueueTimeline::CanSubmit(const FRHIGPUSubmissionTicket& Ticket) const -> bool
 	{
-		if (bClosed || !Owns(Ticket) || Ticket.GetState() != ERHIGPUSubmissionState::Pending)
-			return false;
-		for (const auto& Earlier : Pending)
+		return CanSubmitBatch(std::span{&Ticket, 1});
+	}
+
+	auto FRHIGPUQueueTimeline::CanSubmitBatch(std::span<const FRHIGPUSubmissionTicket> Tickets) const -> bool
+	{
+		if (bClosed) return false;
+		if (Tickets.empty()) return true;
+		size_t Index = 0;
+		for (const auto& Reservation : Pending)
 		{
-			if (Earlier == Ticket.State) return true;
-			if (Earlier->Status.load() == ERHIGPUSubmissionState::Pending) return false;
+			if (Reservation->Status.load() != ERHIGPUSubmissionState::Pending) continue;
+			if (Reservation != Tickets[Index].State) return false;
+			if (++Index == Tickets.size()) return true;
 		}
 		return false;
 	}

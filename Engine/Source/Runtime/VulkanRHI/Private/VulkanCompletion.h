@@ -31,6 +31,7 @@ namespace Durin::VulkanRHI
 			-> ERHIGPUWaitResult;
 		auto GetDeviceGeneration() const -> uint64 { return DeviceGeneration; }
 		auto Owns(const FRHIGPUSubmissionTicket& Ticket) const -> bool { return Timeline.Owns(Ticket); }
+		auto CanSubmitBatch(std::span<const FRHIGPUSubmissionTicket> Tickets) const -> bool { return Timeline.CanSubmitBatch(Tickets); }
 		auto Poll() -> void;
 		auto WaitForToken(FVulkanCompletionToken Token) -> void;
 		auto WaitForAll() -> void;

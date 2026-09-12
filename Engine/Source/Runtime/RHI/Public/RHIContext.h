@@ -19,6 +19,9 @@ namespace Durin
 	{
 	public:
 		virtual ~IRHICommandContext() = default;
+		// Resolve a physical queue for an explicit submission. Single-context
+		// backends validate the requested queue in RHIBeginGPUSubmission.
+		virtual auto RHIGetQueueContext(FRHIQueueId Queue) -> IRHICommandContext* { return this; }
 		// GPU backends retain this owner in every payload touched during replay,
 		// including intermediate submissions. CPU-only contexts need no retention.
 		virtual auto RHISetReplayStorageOwner(std::shared_ptr<void> Owner) -> void {}

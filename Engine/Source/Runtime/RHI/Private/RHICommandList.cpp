@@ -125,6 +125,33 @@ namespace Durin
 		{
 		}
 
+		auto SetStorageOwner(std::shared_ptr<void> Owner) -> void
+		{
+			for (auto* Context : StorageContexts) Context->RHISetReplayStorageOwner({});
+			StorageContexts.clear();
+			StorageOwner = std::move(Owner);
+			if (StorageOwner) AttachStorage(GetOperationContext("Replay storage"));
+		}
+
+		auto BeginGPUSubmission(const FRHIGPUSubmissionDesc& Desc) -> void
+		{
+			require(!SubmissionContext);
+			auto* Context = GetOperationContext("BeginGPUSubmission").RHIGetQueueContext(Desc.Queue);
+			require(Context);
+			AttachStorage(*Context);
+			Context->RHIBeginGPUSubmission(Desc);
+			SubmissionContext = Context;
+			if (ActivePipeline != ERHIPipeline::None) ActiveContext = Context;
+		}
+
+		auto EndGPUSubmission(const FRHIGPUSubmissionReceipt& Signal) -> void
+		{
+			require(SubmissionContext);
+			SubmissionContext->RHIEndGPUSubmission(Signal);
+			SubmissionContext = nullptr;
+			SwitchPipeline(ActivePipeline);
+		}
+
 		auto SwitchPipeline(ERHIPipeline Pipeline) -> void
 		{
 			ActivePipeline = Pipeline;
@@ -132,7 +159,11 @@ namespace Durin
 			{
 			case ERHIPipeline::Graphics:
 			case ERHIPipeline::Compute:
-				if (GraphicsContextOverride)
+				if (SubmissionContext)
+				{
+					ActiveContext = SubmissionContext;
+				}
+				else if (GraphicsContextOverride)
 				{
 					ActiveContext = GraphicsContextOverride;
 				}
@@ -183,6 +214,7 @@ namespace Durin
 		auto GetOperationContext(const char* OperationName) const
 			-> IRHICommandContext&
 		{
+			if (SubmissionContext) return *SubmissionContext;
 			IRHICommandContext* Context = GraphicsContextOverride;
 			if (!Context)
 			{
@@ -200,6 +232,17 @@ namespace Durin
 		}
 
 	private:
+		auto AttachStorage(IRHICommandContext& Context) -> void
+		{
+			if (StorageOwner && std::ranges::find(StorageContexts, &Context) == StorageContexts.end())
+			{
+				StorageContexts.push_back(&Context);
+				Context.RHISetReplayStorageOwner(StorageOwner);
+			}
+		}
+		std::shared_ptr<void> StorageOwner;
+		std::vector<IRHICommandContext*> StorageContexts;
+		IRHICommandContext* SubmissionContext = nullptr;
 		IRHICommandContext* GraphicsContextOverride = nullptr;
 		IRHICommandContext* ActiveContext = nullptr;
 		ERHIPipeline ActivePipeline = ERHIPipeline::None;
@@ -455,7 +498,7 @@ namespace Durin
 			FRHIGPUSubmissionDesc Desc;
 			std::shared_ptr<FGPUSubmissionRecordingLease> Lease;
 			auto Execute(void* Context) -> void
-			{ GetReplayContext(Context).GetOperationContext("BeginGPUSubmission").RHIBeginGPUSubmission(Desc); }
+			{ GetReplayContext(Context).BeginGPUSubmission(Desc); }
 			auto GetOwnedPayloadBytes() const -> size_t
 			{ return Desc.Waits.capacity() * sizeof(FRHIGPUSubmissionReceipt); }
 		};
@@ -463,7 +506,7 @@ namespace Durin
 		{
 			std::shared_ptr<FGPUSubmissionRecordingLease> Lease;
 			auto Execute(void* Context) -> void
-			{ GetReplayContext(Context).GetOperationContext("EndGPUSubmission").RHIEndGPUSubmission(Lease->Signal); }
+			{ GetReplayContext(Context).EndGPUSubmission(Lease->Signal); }
 		};
 
 		struct FQueueOwnershipCommand
@@ -2543,14 +2586,14 @@ namespace Durin
 			// this active owner while preserving every backend payload lease.
 			struct FStorageOwnerScope
 			{
-				IRHICommandContext* Context = nullptr;
-				~FStorageOwnerScope() { if (Context) Context->RHISetReplayStorageOwner({}); }
+				FRHICommandReplayContext* Context = nullptr;
+				~FStorageOwnerScope() { if (Context) Context->SetStorageOwner({}); }
 			} StorageOwnerScope;
 			if (Group.GetCommandCount() != 0
 				&& (GDynamicRHI || State->ReplayContext.HasGraphicsContextOverride()))
 			{
-				StorageOwnerScope.Context = &State->ReplayContext.GetOperationContext("Replay storage");
-				StorageOwnerScope.Context->RHISetReplayStorageOwner(Group.GetStorageOwner());
+				StorageOwnerScope.Context = &State->ReplayContext;
+				StorageOwnerScope.Context->SetStorageOwner(Group.GetStorageOwner());
 			}
 			Group.Replay(State->ReplayContext);
 			const auto ReplayEnd = std::chrono::steady_clock::now();
@@ -2584,7 +2627,7 @@ namespace Durin
 			}
 			if (StorageOwnerScope.Context)
 			{
-				StorageOwnerScope.Context->RHISetReplayStorageOwner({});
+				StorageOwnerScope.Context->SetStorageOwner({});
 				StorageOwnerScope.Context = nullptr;
 			}
 			Group.ReleaseBatches();

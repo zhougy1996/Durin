@@ -30,6 +30,7 @@ namespace Durin::VulkanRHI
 		FVulkanCommandListContext(FVulkanDynamicRHI* InRHI, FVulkanDevice& InDevice, FVulkanQueue* InQueue);
 
 		~FVulkanCommandListContext() override;
+		auto RHIGetQueueContext(FRHIQueueId Id) -> IRHICommandContext* override;
 		auto RHISetReplayStorageOwner(std::shared_ptr<void> Owner) -> void override;
 		auto RHIBeginGPUSubmission(const FRHIGPUSubmissionDesc& Desc) -> void override;
 		auto RHIEndGPUSubmission(const FRHIGPUSubmissionReceipt& Signal) -> void override;
@@ -177,6 +178,7 @@ namespace Durin::VulkanRHI
 		std::shared_ptr<void> ReplayStorageOwner;
 		bool bInsideGPUSubmission = false;
 		std::vector<std::string> DiagnosticRegions;
+		std::vector<FRHIGPUTimingQuery*> ActiveTimingQueries;
 		// Own recorded intervals until submission transfers them to the timing
 		// manager; the caller may release its query after recording ends.
 		std::vector<TRefCountPtr<FVulkanGPUTimingQuery>> PendingTimingQueries;

@@ -21,7 +21,7 @@ namespace Durin::VulkanRHI
 {
 	namespace
 	{
-		auto CheckNativeComputeWait(const char* Policy, bool bSameFamily, std::optional<bool> TransferSync2 = {}, bool bRHITransfer = false) -> void
+		auto CheckNativeComputeWait(const char* Policy, bool bSameFamily, std::optional<bool> TransferSync2 = {}, bool bRHITransfer = false, bool bThreaded = false) -> void
 		{
 			struct FPolicyScope
 			{
@@ -31,6 +31,7 @@ namespace Durin::VulkanRHI
 			} PolicyScope;
 			_putenv_s("DURIN_VULKAN_COMPUTE_QUEUE", Policy);
 			FInlineRHITestScope Scope;
+			if (bThreaded) _putenv_s("DURIN_RHI_EXECUTION", "threaded");
 			ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
 			const auto& Queues = GDynamicRHI->RHIGetQueueCapabilities();
 			if (Queues.Compute == Queues.Graphics) GTEST_SKIP() << "Requested independent compute topology unavailable: " << Policy;
@@ -57,17 +58,30 @@ namespace Durin::VulkanRHI
 				EXPECT_FALSE(GDynamicRHI->RHICreateQueueTransfer({}));
 				Forward.Destination = Forward.Source;
 				EXPECT_FALSE(GDynamicRHI->RHICreateQueueTransfer(Forward));
+				const auto Release = Commands.BeginGPUSubmission({.Queue = Queues.Graphics});
 				Commands.ReleaseQueueOwnership(ToCompute);
-				Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
+				Commands.EndGPUSubmission();
+				const auto Compute = Commands.BeginGPUSubmission({.Queue = Queues.Compute, .Waits = {Release}});
+				Commands.BeginDiagnosticRegion("ComputeHandoff");
 				Commands.AcquireQueueOwnership(ToCompute);
 				Commands.ReleaseQueueOwnership(ToGraphics);
-				Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
+				Commands.EndDiagnosticRegion();
+				Commands.EndGPUSubmission();
+				const auto Join = Commands.BeginGPUSubmission({.Queue = Queues.Graphics, .Waits = {Compute}});
 				Commands.AcquireQueueOwnership(ToGraphics);
+				Commands.EndGPUSubmission();
+				Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::None);
+				EXPECT_EQ(Release.GetState(), ERHIGPUSubmissionState::Pending);
+				EXPECT_EQ(Compute.GetState(), ERHIGPUSubmissionState::Pending);
+				EXPECT_EQ(Join.GetState(), ERHIGPUSubmissionState::Pending);
+				EXPECT_EQ(Compute.GetTicket().GetPoint().Queue, Queues.Compute);
+				EXPECT_GT(Join.GetTicket().GetPoint().Value, Release.GetTicket().GetPoint().Value);
 				ToCompute.reset(); ToGraphics.reset();
 				FByteBuffer Actual;
 				ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(Commands, Texture, 0, 0, Actual));
 				const auto Bytes = std::as_bytes(std::span{Expected});
 				EXPECT_EQ(Actual, (FByteBuffer(Bytes.begin(), Bytes.end())));
+				EXPECT_EQ(Join.GetState(), ERHIGPUSubmissionState::Complete);
 				return;
 			}
 			if (TransferSync2)
@@ -92,6 +106,7 @@ namespace Durin::VulkanRHI
 			EXPECT_TRUE(Result.bBatchOrdered);
 			EXPECT_TRUE(Result.bBatchCycleRejected);
 			EXPECT_TRUE(Result.bBatchMissingProducerRejected);
+			EXPECT_TRUE(Result.bBatchMissingReservationRejected);
 			EXPECT_TRUE(Result.bUniformReuseBlocked);
 			EXPECT_TRUE(Result.bUniformReusedAfterCompletion);
 			if (Result.bTimingSupported)
@@ -111,6 +126,8 @@ namespace Durin::VulkanRHI
 		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
 		const auto Result = TestVulkanSubmissionBoundary();
 		EXPECT_TRUE(Result.bReceiptUsesRecordingTicket);
+		EXPECT_TRUE(Result.bQueuedStorageRetired);
+		EXPECT_TRUE(Result.bQueuedStorageDiscarded);
 		EXPECT_TRUE(Result.bSealDidNotSubmit);
 		EXPECT_TRUE(Result.bEarlierTicketSubmitted);
 		EXPECT_TRUE(Result.bDiscardCanceled);
@@ -129,6 +146,10 @@ namespace Durin::VulkanRHI
 	{ CheckNativeComputeWait("same-family", true, {}, true); }
 	TEST(FVulkanCompletionIntegrationTests, SharedRHIQueueTransferRoundTripsOnDedicatedFamily)
 	{ CheckNativeComputeWait("dedicated", false, {}, true); }
+	TEST(FVulkanCompletionIntegrationTests, ThreadedSubmissionScopesRoundTripOnSameFamily)
+	{ CheckNativeComputeWait("same-family", true, {}, true, true); }
+	TEST(FVulkanCompletionIntegrationTests, ThreadedSubmissionScopesRoundTripOnDedicatedFamily)
+	{ CheckNativeComputeWait("dedicated", false, {}, true, true); }
 	TEST(FVulkanCompletionIntegrationTests, SameFamilyOwnershipReadbackMatchesWithSynchronization2)
 	{ CheckNativeComputeWait("same-family", true, true); }
 	TEST(FVulkanCompletionIntegrationTests, DedicatedFamilyOwnershipReadbackMatchesWithSynchronization2)

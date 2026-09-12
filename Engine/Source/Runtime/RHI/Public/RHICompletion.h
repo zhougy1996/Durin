@@ -116,6 +116,9 @@ namespace Durin
 		auto operator=(const FRHIGPUQueueTimeline&) -> FRHIGPUQueueTimeline& = delete;
 		RHI_API auto Reserve() -> FRHIGPUSubmissionTicket;
 		RHI_API auto CanSubmit(const FRHIGPUSubmissionTicket& Ticket) const -> bool;
+		// Read-only preflight of an ordered prefix of outstanding reservations.
+		// Submitted/canceled holes are allowed; missing pending work is not.
+		RHI_API auto CanSubmitBatch(std::span<const FRHIGPUSubmissionTicket> Tickets) const -> bool;
 		RHI_API auto MarkSubmitted(const FRHIGPUSubmissionTicket& Ticket) -> bool;
 		RHI_API auto ObserveCompleted(const FRHIGPUSubmissionTicket& Ticket) -> bool;
 		RHI_API auto Cancel(const FRHIGPUSubmissionTicket& Ticket) -> bool;

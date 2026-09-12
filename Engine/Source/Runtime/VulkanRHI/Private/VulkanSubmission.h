@@ -62,6 +62,8 @@ namespace Durin::VulkanRHI
 	{
 	public:
 		explicit FVulkanSubmissionCoordinator(FVulkanDevice& InDevice) : Device(InDevice) {}
+		auto EnqueueContext(FVulkanCommandListContext& Context) -> FRHIGPUSubmissionTicket;
+		auto DiscardPending() -> void;
 		auto Submit(std::unique_ptr<FVulkanPayload> Payload) -> FRHIGPUSubmissionTicket;
 		auto SubmitBatch(std::vector<std::unique_ptr<FVulkanPayload>> Payloads) -> void;
 		auto SubmitContext(FVulkanCommandListContext& Context) -> FRHIGPUSubmissionTicket;
@@ -71,6 +73,7 @@ namespace Durin::VulkanRHI
 	private:
 		auto SubmitNative(std::unique_ptr<FVulkanPayload> Payload) -> void;
 		FVulkanDevice& Device;
+		std::vector<std::unique_ptr<FVulkanPayload>> PendingPayloads;
 	};
 
 	// Retains submitted payloads until their GPU work completes and resources can recycle.

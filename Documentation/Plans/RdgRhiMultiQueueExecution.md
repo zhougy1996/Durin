@@ -13,9 +13,9 @@ Stage 0's ownership audit is recorded below; its performance measurement is
 deferred by explicit operator instruction. Stage 1's single-queue correctness
 gates passed in `24ba95e5e`. Stage 2 now includes execution-local physical
 transition preparation and recorded RHI wait/signal submission scopes with
-single-queue Vulkan lowering. Production recording still uses graphics;
-diagnostic Vulkan provisioning supports an independent compute queue and native
-timeline waits. Shared RHI ownership-transfer commands now retain paired
+Vulkan lowering. Production RDG recording still uses graphics;
+explicit RHI scopes can route to a provisioned independent compute queue with
+native timeline waits. Shared RHI ownership-transfer commands now retain paired
 resource barriers and route them to graphics or diagnostic compute contexts.
 Descriptor batch leases are retained by recording and in-flight payloads.
 Transfer ranges likewise retain allocation leases through both CPU access and
@@ -25,6 +25,14 @@ The UE-informed submission refactor separates context sealing from native
 submission and gives each payload its own completion identity.
 The coordinator now seals participating contexts into one batch and validates
 explicit dependencies plus queue reservation order before native submission.
+The preflight now checks each physical timeline's complete pending prefix,
+including reservations owned outside the batch, before submitting any queue.
+This passed 85 RHI command/completion tests, 95 Vulkan integration tests, and
+the default-profile `all` build. Logs use prefixes `20260912-161903-912771-31192`,
+`20260912-161958-030568-26628`, and `20260912-162016-244967-22584`, respectively.
+The native regression rejects a missing middle reservation before either queue
+accepts work; the omitted recording remains pending and batch-owned recordings
+are canceled. This does not change the remaining production-routing gates.
 Native command-buffer replacement now restores pipeline, vertex/index and
 push-constant bindings before subsequent work.
 Nested diagnostic labels likewise close and reopen across internal native
@@ -40,6 +48,34 @@ GPU timing results now resolve through that payload's physical queue completion;
 the query manager no longer polls a graphics-only submission token.
 No production async compute,
 split-barrier or transient-aliasing acceptance gate is complete.
+
+RHI executor replay now resolves explicit submission contexts by physical queue,
+routes both pipeline and operation commands within the scope, and propagates
+the recording-storage lease to every selected context. Inline and threaded
+contract coverage verifies routing, default-context restoration and independent
+storage retention. Vulkan now resolves provisioned physical contexts and seals
+multi-queue scopes into coordinator-owned pending payloads. Submission drains
+these together with recording contexts; cancellation and shutdown release them
+before command pools are destroyed. Diagnostic/timing intervals must close at
+physical queue changes. Production RDG assignment and allocator integration
+remain outstanding, so independent compute capability is still not advertised
+for automatic scheduling.
+Native scope routing passed 97 Vulkan integration tests, including public
+graphics/compute/graphics ownership round trips on same-family and dedicated
+queues in both inline and threaded replay. The receipts remain pending after
+CPU-only replay, then exact readback completes the joined queue chain. Queued
+storage retention, retirement and cancellation also passed. Final native log:
+`20260912-163332-704069-25824-VulkanRHIIntegrationTests.log`. Cloud-scene and
+resource-reload tests passed with prefixes `20260912-163248-211934-25872` and
+`20260912-163300-976384-25960`; the final `all` build passed with prefix
+`20260912-163354-779196-25660`. These tests do not yet qualify RDG async
+dispatch, cross-graph pool reuse or performance.
+Validation passed: 86 `RHICommandListTests`, 12 `RHIThreadTests`, 162
+`RenderContractTests`, 95 `VulkanRHIIntegrationTests`, and the default-profile
+`all` build. Reproducible logs are under `Build/.agent-state/logs/` with prefixes
+`20260912-162432-600165-33160`, `20260912-162604-794085-28088`,
+`20260912-162617-814259-24548`, `20260912-162528-535593-10368`, and
+`20260912-162638-208789-25288`, respectively.
 
 On 2026-09-11 the operator authorized continuing implementation and deferring
 performance measurements because an exclusive quiet GPU lane is unavailable.
