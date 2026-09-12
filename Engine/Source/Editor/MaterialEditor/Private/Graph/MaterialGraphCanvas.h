@@ -8,6 +8,7 @@
 namespace Durin
 {
 	class DTransactor;
+	class DMaterialFunction;
 }
 
 namespace Durin::Editor::Material
@@ -30,6 +31,9 @@ namespace Durin::Editor::Material
 			float Height,
 			const FReportError& ReportError) -> void;
 		auto SelectAndFrame(const FGuid& NodeId) -> bool;
+		auto DrawFunction(DMaterialFunction& Function, ::Durin::DTransactor& Transactions,
+			float Height, const FReportError& ReportError,
+			const std::function<void(std::string_view)>& OpenFunction) -> void;
 		auto SelectAndFrameDiagnostic(
 			const FMaterialProgramDiagnostic& Diagnostic) -> bool;
 		auto CancelInteraction() -> void;

@@ -2,9 +2,25 @@
 
 #include "Materials/MaterialProgramTypes.h"
 #include "Materials/MaterialTypes.h"
+#include "Materials/MaterialFunctionTypes.h"
 
 namespace Durin::Editor::Material
 {
+	inline constexpr std::array MaterialSurfaceNames{"Base Color", "Normal", "Metallic", "Roughness", "Ambient Occlusion", "Emissive", "Opacity", "Opacity Mask"};
+	inline auto DescribeFunctionDefault(const FMaterialFunctionDefault& Value) -> std::string
+	{
+		switch (Value.Kind)
+		{
+		case EMaterialFunctionDefaultKind::None: return "No default";
+		case EMaterialFunctionDefaultKind::Numeric: return std::format("Default: ({:g}, {:g}, {:g}, {:g})", Value.Numeric.X, Value.Numeric.Y, Value.Numeric.Z, Value.Numeric.W);
+		case EMaterialFunctionDefaultKind::Texture: return Value.TextureFallback == EMaterialTextureFallback::White ? "Default: white texture"
+			: Value.TextureFallback == EMaterialTextureFallback::Black ? "Default: black texture" : "Default: flat RG normal texture";
+		case EMaterialFunctionDefaultKind::Surface: return "Default: declared Surface attributes";
+		case EMaterialFunctionDefaultKind::Input: return "Default: another function input";
+		case EMaterialFunctionDefaultKind::UV0: return "Default: UV channel 0";
+		}
+		return "Unknown default";
+	}
 	inline auto GetProgramType(EMaterialParameterType Type)
 		-> EMaterialProgramValueType
 	{

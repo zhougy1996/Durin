@@ -1313,6 +1313,158 @@ TEST(FMaterialGraphOperationsTests, CanvasPositionRefreshPreservesTopologyStorag
 	CollectGarbage();
 }
 
+TEST(FMaterialGraphOperationsTests, FunctionClipboardRetainsDependenciesAndRemapsCompleteLinks)
+{
+	InitializeDObjectSystem();
+	auto* Function = NewObject<DMaterialFunction>(nullptr, "ClipboardFunction");
+	auto* Source = NewObject<DMaterial>(nullptr, "ClipboardFunctionSource");
+	auto* Target = NewObject<DMaterial>(nullptr, "ClipboardFunctionTarget");
+	FStrongObjectPtr RetainedTarget(Target);
+	Source->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	Target->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	FMaterialGraphDocument SourceDocument(*Source), TargetDocument(*Target);
+	const auto Call = SourceDocument.InsertFunctionCall(*Function, 0, 0);
+	ASSERT_TRUE(Call);
+	const auto OutputId = Function->GetFunctionSignature().Outputs[0].Id;
+	ASSERT_TRUE(SourceDocument.AssignMaterialOutput(std::nullopt, {Call.GeneratedNodeIds[0], 0, OutputId}));
+	FMaterialGraphClipboardPayload Payload;
+	ASSERT_TRUE(SourceDocument.CopySelection(Call.GeneratedNodeIds, Payload));
+	ASSERT_EQ(Payload.Calls.size(), 1u);
+	TWeakObjectPtr<DMaterialFunction> WeakFunction(Function);
+	MarkAsGarbage(Source);
+	CollectGarbage();
+	ASSERT_TRUE(WeakFunction.IsValid());
+	EXPECT_FALSE(Payload.SourceRoot.IsValid());
+	Durin::Tests::FTestTransactorOwner Transactions;
+	const auto Before = *Target->GetMaterialProgram();
+	const auto Pasted = TargetDocument.Paste(Payload, 100, 100, Transactions.Get());
+	ASSERT_TRUE(Pasted) << Pasted.Message;
+	EXPECT_NE(Pasted.GeneratedNodeIds[0], Call.GeneratedNodeIds[0]);
+	EXPECT_EQ(Target->GetMaterialProgram()->Outputs.Surface.SourceOutputId, OutputId);
+	EXPECT_EQ(Target->GetMaterialProgram()->Outputs.Surface.SourceNodeId, Pasted.GeneratedNodeIds[0]);
+	EXPECT_EQ(Target->GetMaterialFunctionCalls()[0].Function.Get(), WeakFunction.Get());
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(*Target->GetMaterialProgram(), Before);
+	EXPECT_TRUE(Target->GetMaterialFunctionCalls().empty());
+	ASSERT_TRUE(Transactions->Redo());
+	FMaterialGraphDocument FunctionDocument(*WeakFunction.Get());
+	const auto FunctionBefore = WeakFunction.Get()->GetFunctionGraph();
+	EXPECT_FALSE(FunctionDocument.Paste(Payload, 0, 0));
+	EXPECT_EQ(WeakFunction.Get()->GetFunctionGraph(), FunctionBefore);
+	Transactions->Reset();
+	Payload = {};
+	RetainedTarget.Reset();
+	MarkAsGarbage(Target);
+	MarkAsGarbage(WeakFunction.Get());
+	CollectGarbage();
+}
+
+TEST(FMaterialGraphOperationsTests, FunctionClipboardCopiesPortsAndSurfaceBindingsAtomically)
+{
+	InitializeDObjectSystem();
+	auto* Source = NewObject<DMaterialFunction>(nullptr, "ClipboardPortSource");
+	auto* Target = NewObject<DMaterialFunction>(nullptr, "ClipboardPortTarget");
+	FMaterialGraphDocument Document(*Source), Destination(*Target);
+	FMaterialFunctionPort Value{.Name = "Amount", .Default = {.Kind = EMaterialFunctionDefaultKind::Numeric}};
+	const auto Input = Document.AddPort(false, Value);
+	ASSERT_TRUE(Input);
+	const auto OriginalInputId = Source->GetFunctionSignature().Inputs.back().Id;
+	ASSERT_TRUE(Document.AddPort(false, {.Name = "Follow", .Default = {.Kind = EMaterialFunctionDefaultKind::Input, .InputId = OriginalInputId}}));
+	const auto SurfaceId = Source->GetFunctionGraph().Nodes.front().Id;
+	const auto Set = Document.CreateNode({.Node = {.Opcode = EMaterialProgramOpcode::SetSurfaceAttributes,
+		.ResultType = EMaterialProgramValueType::Surface, .Inputs = {{SurfaceId}},
+		.SurfaceAttributes = {{EMaterialSurfaceOutput::Metallic, {Input.GeneratedNodeIds[0]}}}}});
+	ASSERT_TRUE(Set);
+	ASSERT_TRUE(Document.AddPort(true, {.Type = EMaterialProgramValueType::Surface, .Name = "Modified"}, {Set.GeneratedNodeIds[0]}));
+	std::vector<FGuid> Selection;
+	for (const auto& Node : Source->GetFunctionGraph().Nodes) Selection.push_back(Node.Id);
+	FMaterialGraphClipboardPayload Payload;
+	ASSERT_TRUE(Document.CopySelection(Selection, Payload));
+	const auto Before = Target->GetFunctionGraph();
+	Durin::Tests::FTestTransactorOwner Transactions;
+	const auto Pasted = Destination.Paste(Payload, 400, 100, Transactions.Get());
+	ASSERT_TRUE(Pasted) << Pasted.Message;
+	const auto& Graph = Target->GetFunctionGraph();
+	EXPECT_EQ(Graph.Signature.Inputs.size(), 4u);
+	const auto Follow = std::ranges::find(Graph.Signature.Inputs, std::string("Follow"), &FMaterialFunctionPort::Name);
+	ASSERT_NE(Follow, Graph.Signature.Inputs.end());
+	EXPECT_NE(Follow->Default.InputId, OriginalInputId);
+	EXPECT_NE(std::ranges::find(Graph.Signature.Inputs, Follow->Default.InputId, &FMaterialFunctionPort::Id), Graph.Signature.Inputs.end());
+	EXPECT_EQ(Graph.Signature.Outputs.size(), 3u);
+	std::unordered_set<FGuid> NewIds(Pasted.GeneratedNodeIds.begin(), Pasted.GeneratedNodeIds.end());
+	for (const auto& Node : Graph.Nodes)
+		if (NewIds.contains(Node.Id))
+		{
+			for (const auto& Link : Node.Inputs) EXPECT_TRUE(NewIds.contains(Link.SourceNodeId));
+			for (const auto& Attribute : Node.SurfaceAttributes) EXPECT_TRUE(NewIds.contains(Attribute.Source.SourceNodeId));
+		}
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(Target->GetFunctionGraph(), Before);
+	ASSERT_TRUE(Transactions->Redo());
+	FMaterialGraphClipboardPayload Cut;
+	ASSERT_TRUE(Destination.CutSelection(Pasted.GeneratedNodeIds, Cut, Transactions.Get()));
+	EXPECT_EQ(Target->GetFunctionGraph(), Before);
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(Target->GetFunctionGraph().Signature.Outputs.size(), 3u);
+	Transactions->Reset();
+	MarkAsGarbage(Source); MarkAsGarbage(Target); CollectGarbage();
+}
+
+TEST(FMaterialGraphOperationsTests, FunctionCanvasConnectsAndMovesNodesWithUndo)
+{
+	InitializeDObjectSystem();
+	auto* Function = NewObject<DMaterialFunction>(nullptr, "InteractiveFunction");
+	FMaterialGraphDocument Document(*Function);
+	const auto Constant = Document.CreateNode({.Node = {.Literal = {.X = 0.5f}}, .X = 0, .Y = 300});
+	ASSERT_TRUE(Constant);
+	const auto Other = Document.CreateNode({.Node = {.Literal = {.X = 0.9f}}, .X = 0, .Y = 550});
+	ASSERT_TRUE(Other);
+	const auto Port = Document.AddPort(true, {.Name = "Amount"}, {Constant.GeneratedNodeIds[0]}, 350, 300);
+	ASSERT_TRUE(Port);
+	ImGuiContext* Context = ImGui::CreateContext();
+	auto& IO = ImGui::GetIO();
+	IO.DisplaySize = {1200, 1000}; IO.DeltaTime = 1.0f / 60.0f; IO.IniFilename = nullptr;
+	IO.Fonts->AddFontDefault(); IO.Fonts->Build();
+	Durin::Tests::FTestTransactorOwner Transactions;
+	FMaterialGraphCanvas Canvas;
+	Canvas.SetViewport(1, {40, 40});
+	ImVec2 Origin;
+	int Errors = 0;
+	const auto Frame = [&](ImVec2 Mouse, bool Down) {
+		IO.AddMousePosEvent(Mouse.x, Mouse.y); IO.AddMouseButtonEvent(ImGuiMouseButton_Left, Down);
+		ImGui::NewFrame();
+		ImGui::SetNextWindowPos({0, 0}); ImGui::SetNextWindowSize({1200, 1000});
+		ImGui::Begin("Function Canvas", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize);
+		Canvas.DrawFunction(*Function, *Transactions.Get(), 900, [&](std::string) { ++Errors; }, [](std::string_view) {});
+		const auto* Child = ImGui::GetCurrentWindow()->DC.ChildWindows.back();
+		Origin = {Child->Pos.x + Child->WindowPadding.x + 40, Child->Pos.y + Child->WindowPadding.y + 40};
+		ImGui::End(); ImGui::Render();
+	};
+	Frame({1100, 950}, false); Frame({1100, 950}, false);
+	const auto& Metrics = FMaterialGraphGeometry::GetMetrics();
+	const float PinY = Metrics.HeaderHeight + Metrics.SecondaryHeight + Metrics.BodyPadding;
+	const ImVec2 Source{Origin.x + Metrics.NodeWidth, Origin.y + 550 + PinY};
+	const ImVec2 Destination{Origin.x + 350, Origin.y + 300 + PinY};
+	IO.AddKeyEvent(ImGuiMod_Shift, true);
+	Frame(Source, false); Frame(Source, true); Frame(Destination, true); Frame(Destination, false);
+	EXPECT_EQ(Errors, 0);
+	const auto& Nodes = Function->GetFunctionGraph().Nodes;
+	const auto Output = std::ranges::find(Nodes, Port.GeneratedNodeIds[0], &FMaterialProgramNode::Id);
+	ASSERT_NE(Output, Nodes.end());
+	EXPECT_EQ(Output->Inputs[0].SourceNodeId, Other.GeneratedNodeIds[0]);
+	ASSERT_TRUE(Transactions->Undo());
+	const auto Before = Function->GetFunctionPresentation();
+	const auto Revision = Function->GetFunctionRevision();
+	const ImVec2 Header{Origin.x + 20, Origin.y + 300 + 12};
+	Frame(Header, false); Frame(Header, true); Frame({Header.x + 60, Header.y + 40}, true); Frame({Header.x + 60, Header.y + 40}, false);
+	EXPECT_NE(Function->GetFunctionPresentation(), Before);
+	EXPECT_EQ(Function->GetFunctionRevision(), Revision);
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(Function->GetFunctionPresentation(), Before);
+	ImGui::DestroyContext(Context);
+	Transactions->Reset(); MarkAsGarbage(Function); CollectGarbage();
+}
+
 TEST(FMaterialGraphOperationsTests, CanvasConnectsASecondFunctionOutputAndRefreshesItsInterface)
 {
 	InitializeDObjectSystem();

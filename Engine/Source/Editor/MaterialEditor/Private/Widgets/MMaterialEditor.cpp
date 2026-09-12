@@ -1,4 +1,5 @@
 #include "Widgets/MMaterialEditor.h"
+#include "Widgets/MMaterialFunctionEditor.h"
 #include "Widgets/MaterialParameterPanelModel.h"
 #include "Widgets/MaterialPreview.h"
 #include "Widgets/MaterialEditingSession.h"
@@ -366,6 +367,7 @@ namespace Durin::Editor::Material
 		OpenMaterials.erase(Document.ResourceId);
 		MaterialPreviews.erase(Document.Id.Value);
 		MaterialGraphCanvases.erase(Document.Id.Value);
+		FunctionCallPickers.erase(Document.Id.Value);
 		EditingSessions.erase(Document.ResourceId);
 		PendingLayoutResets.erase(Document.Id.Value);
 		Documents.Close(Document.ResourceId);
@@ -774,6 +776,17 @@ namespace Durin::Editor::Material
 			return;
 		}
 		FMaterialGraphCanvas& Canvas = GetOrCreateCanvas(Document);
+		FunctionCallPickers[Document.Id.Value].Draw(*Base, *GEditor->GetTransactor(), ErrorMessage);
+		const std::vector Calls(Base->GetMaterialFunctionCalls().begin(), Base->GetMaterialFunctionCalls().end());
+		for (const auto& Selected : Canvas.GetSelection())
+			if (const auto* Id = std::get_if<FGuid>(&Selected))
+				for (const auto& Call : Calls)
+					if (Call.NodeId == *Id && Call.Function.IsValid())
+					{
+						if (ImGui::Button("Open Function")) WorkspaceManager.OpenAsset(Call.Function->GetObjectPath(),
+							Call.Function->GetClass()->GetQualifiedName().ToString());
+						DrawMaterialFunctionCallInputs(*Base, Call.NodeId, *GEditor->GetTransactor(), ErrorMessage);
+					}
 		Canvas.Draw(*Base, *GEditor->GetTransactor(), Height,
 			[this](std::string Message) { SetError(std::move(Message)); });
 		const auto [Zoom, Pan] = Canvas.GetViewport();
@@ -832,6 +845,13 @@ namespace Durin::Editor::Material
 				break;
 			}
 			const bool bStale = Diagnostic.Generation != Status.RequestGeneration;
+			if (!bStale && !Diagnostic.Source.FunctionAssetPath.empty())
+			{
+				if (ImGui::SmallButton("Open Function"))
+					if (const auto Editor = std::dynamic_pointer_cast<MMaterialFunctionEditor>(WorkspaceManager.FindWorkspace(MaterialFunctionWorkspaceType)))
+						Editor->NavigateToNode(Diagnostic.Source.FunctionAssetPath, Diagnostic.Source.NodeId);
+				ImGui::SameLine();
+			}
 			if (bCanNavigateGraph && bLocated && !bStale)
 			{
 				if (ImGui::SmallButton("Go"))

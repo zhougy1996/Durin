@@ -15,6 +15,8 @@ namespace Durin::Editor::Material
 			{
 			case EMaterialProgramOpcode::UVChannel: Names = {"Channel"}; break;
 			case EMaterialProgramOpcode::MakeSurface: Names = {"Base Color", "Normal", "Metallic", "Roughness", "Ambient Occlusion", "Emissive", "Opacity", "Opacity Mask"}; break;
+			case EMaterialProgramOpcode::GetSurfaceAttributes:
+			case EMaterialProgramOpcode::SetSurfaceAttributes: Names = {"Surface"}; break;
 			case EMaterialProgramOpcode::TextureSample2D: Names = {"Texture", "UV"}; break;
 			case EMaterialProgramOpcode::Add:
 			case EMaterialProgramOpcode::Subtract:
@@ -46,7 +48,9 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::TextureSample2D:
 			case EMaterialProgramOpcode::DecodeNormalRG:
 			case EMaterialProgramOpcode::BlendNormalsRNM: return "Textures";
-			case EMaterialProgramOpcode::MakeSurface: return "Surface";
+			case EMaterialProgramOpcode::MakeSurface:
+			case EMaterialProgramOpcode::GetSurfaceAttributes:
+			case EMaterialProgramOpcode::SetSurfaceAttributes: return "Surface";
 			case EMaterialProgramOpcode::Swizzle:
 			case EMaterialProgramOpcode::MakeFloat2:
 			case EMaterialProgramOpcode::MakeFloat3:
@@ -151,6 +155,8 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::Sine: Entry.Description = "Returns the component-wise sine in radians."; break;
 			case EMaterialProgramOpcode::Cosine: Entry.Description = "Returns the component-wise cosine in radians."; break;
 			case EMaterialProgramOpcode::MakeSurface: Entry.Description = "Combines eight explicit surface properties without hidden parameter access."; break;
+			case EMaterialProgramOpcode::GetSurfaceAttributes: Entry.Description = "Reads selected attributes from a Surface."; break;
+			case EMaterialProgramOpcode::SetSurfaceAttributes: Entry.Description = "Overrides selected attributes while retaining the base Surface."; break;
 			}
 			Entry.NodeTemplate.Opcode = Opcode;
 			Entry.NodeTemplate.ResultType = ResultType;
@@ -359,7 +365,7 @@ namespace Durin::Editor::Material
 	{
 		std::vector<FMaterialGraphCatalogEntry> Result;
 		for (uint8 OpcodeValue = static_cast<uint8>(EMaterialProgramOpcode::Constant);
-			OpcodeValue <= static_cast<uint8>(EMaterialProgramOpcode::MakeSurface); ++OpcodeValue)
+			OpcodeValue <= static_cast<uint8>(EMaterialProgramOpcode::SetSurfaceAttributes); ++OpcodeValue)
 			for (uint8 TypeValue = static_cast<uint8>(EMaterialProgramValueType::Float);
 				TypeValue <= static_cast<uint8>(EMaterialProgramValueType::Surface); ++TypeValue)
 			{
@@ -368,6 +374,7 @@ namespace Durin::Editor::Material
 				const auto Signature = GetMaterialProgramNodeSignature(Opcode, Type);
 				if (!Signature) continue;
 				auto Entry = MakeCatalogEntry(Opcode, Type, *Signature);
+				if (Opcode == EMaterialProgramOpcode::GetSurfaceAttributes) Entry.NodeTemplate.SurfaceAttributeMask = 0xff;
 				if (Opcode == EMaterialProgramOpcode::Parameter
 					|| Opcode == EMaterialProgramOpcode::TextureParameter)
 				{

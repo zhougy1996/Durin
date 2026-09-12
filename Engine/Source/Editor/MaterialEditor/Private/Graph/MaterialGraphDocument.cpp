@@ -117,7 +117,34 @@ namespace Durin::Editor::Material
 		}
 		else if (Candidate.Signature != FMaterialFunctionSignature{})
 			return MakeRejected("Material graphs cannot declare function ports.");
+		const auto IncludeOutput = [&](const FMaterialProgramLink& Source) {
+			if (!Source.SourceOutputId.IsValid()) return;
+			auto Call = std::ranges::find(Candidate.Calls, Source.SourceNodeId, &FMaterialFunctionCall::NodeId);
+			if (Call == Candidate.Calls.end() || !Call->Function.IsValid()
+				|| std::ranges::find(Call->Outputs, Source.SourceOutputId, &FMaterialFunctionOutputBinding::OutputId) != Call->Outputs.end()) return;
+			const auto& Ports = Call->Function->GetFunctionSignature().Outputs;
+			if (const auto Port = std::ranges::find(Ports, Source.SourceOutputId, &FMaterialFunctionPort::Id); Port != Ports.end())
+				Call->Outputs.push_back({Port->Id, Port->Type});
+		};
+		for (const auto& Node : Candidate.Program.Nodes)
+		{
+			for (const auto& Input : Node.Inputs) IncludeOutput(Input);
+			for (const auto& Attribute : Node.SurfaceAttributes) IncludeOutput(Attribute.Source);
+		}
+		for (const auto& Call : Candidate.Calls) for (const auto& Input : Call.Inputs) IncludeOutput(Input.Source);
+		IncludeOutput(Candidate.Program.Outputs.Surface);
+		for (uint32 Index = 0; Index < 8; ++Index) IncludeOutput(GetMaterialSurfaceOutputLink(Candidate.Program.Outputs, static_cast<EMaterialSurfaceOutput>(Index)));
 		if (Before == Candidate) return {.Status = EMaterialGraphCommandStatus::NoChange};
+		if (Candidate.bFunction && Candidate.Calls != Before.Calls)
+		{
+			std::vector<DMaterialFunctionInterface*> Roots;
+			for (const auto& Call : Candidate.Calls) Roots.push_back(Call.Function.Get());
+			FMaterialFunctionClosure Closure;
+			auto Validation = SnapshotMaterialFunctionClosure(Roots, Closure);
+			if (!Validation) return MakeRejected("The function dependencies are invalid.", std::move(Validation.Diagnostics));
+			if (std::ranges::any_of(Closure.Functions, [&](const auto& Dependency) { return Dependency.AssetPath == Owner.Get()->GetObjectPath(); }))
+				return MakeRejected("This change would introduce recursive function dependencies.");
+		}
 		if (auto* Function = Cast<DMaterialFunction>(Owner.Get()))
 		{
 			FMaterialFunctionGraph Graph;
@@ -216,6 +243,46 @@ namespace Durin::Editor::Material
 		return Result;
 	}
 
+	auto FMaterialGraphDocument::CreateNodeWithDefaultInputs(FMaterialGraphCreateNodeRequest Request,
+		FMaterialProgramLink FirstInput, DTransactor* Transactions) const -> FMaterialGraphCommandResult
+	{
+		FMaterialGraphDocumentState State;
+		if (!Capture(State)) return {.Status = EMaterialGraphCommandStatus::StaleOwner};
+		const auto Signature = GetMaterialProgramNodeSignature(Request.Node.Opcode, Request.Node.ResultType);
+		if (!Signature || Request.Node.ParameterId.IsValid()) return MakeRejected("This node is not available in a function graph.");
+		if (!State.bFunction)
+		{
+			std::vector<std::vector<EMaterialProgramValueType>> Types;
+			Request.Node.Inputs.resize(Signature->InputCount);
+			if (!Request.Node.Inputs.empty()) Request.Node.Inputs[0] = FirstInput;
+			for (uint32 Index = 0; Index < Signature->InputCount; ++Index)
+				Types.emplace_back(Signature->Inputs[Index].begin(), Signature->Inputs[Index].end());
+			return FMaterialGraphOperations::CreateNodeWithDefaultInputs(*Cast<DMaterial>(Owner.Get()), Request, Types, Transactions);
+		}
+		Request.Node.Id = FGuid::NewGuid();
+		Request.Node.Inputs.clear();
+		std::vector<FGuid> Generated{Request.Node.Id};
+		for (uint32 Index = 0; Index < Signature->InputCount; ++Index)
+		{
+			if (Index == 0 && FirstInput.SourceNodeId.IsValid()) { Request.Node.Inputs.push_back(FirstInput); continue; }
+			const auto Type = Signature->Inputs[Index].front();
+			if (Type >= EMaterialProgramValueType::Texture2D)
+				return MakeRejected("Create this node by dragging from a compatible texture or Surface output.");
+			FMaterialProgramNode Default{.Id = FGuid::NewGuid(), .ResultType = Type};
+			if (Request.Node.Opcode == EMaterialProgramOpcode::MakeSurface)
+				Default.Literal = GetMaterialSurfaceOutputDefault(State.Program.Outputs, static_cast<EMaterialSurfaceOutput>(Index));
+			Request.Node.Inputs.push_back({Default.Id});
+			Generated.push_back(Default.Id);
+			State.Presentation.Nodes.push_back({Default.Id, Request.X - 320, Request.Y + static_cast<int32>(Index) * 140});
+			State.Program.Nodes.push_back(std::move(Default));
+		}
+		State.Presentation.Nodes.push_back({Request.Node.Id, Request.X, Request.Y});
+		State.Program.Nodes.push_back(std::move(Request.Node));
+		auto Result = Commit(std::move(State), "Create Graph Node", Transactions);
+		if (Result) Result.AffectedNodeIds = Result.GeneratedNodeIds = std::move(Generated);
+		return Result;
+	}
+
 	auto FMaterialGraphDocument::ReplaceNode(FMaterialProgramNode Node,
 		DTransactor* Transactions) const -> FMaterialGraphCommandResult
 	{
@@ -237,6 +304,13 @@ namespace Durin::Editor::Material
 		FMaterialGraphDocumentState State;
 		if (!Capture(State)) return {.Status = EMaterialGraphCommandStatus::StaleOwner};
 		const std::unordered_set<FGuid> Removed(NodeIds.begin(), NodeIds.end());
+		if (State.bFunction)
+			for (const auto& Node : State.Program.Nodes)
+				if (Removed.contains(Node.Id) && Node.FunctionPortId.IsValid())
+				{
+					auto& Ports = Node.Opcode == EMaterialProgramOpcode::FunctionOutput ? State.Signature.Outputs : State.Signature.Inputs;
+					std::erase_if(Ports, [&](const auto& Port) { return Port.Id == Node.FunctionPortId; });
+				}
 		std::erase_if(State.Program.Nodes, [&](const auto& Node) { return Removed.contains(Node.Id); });
 		std::erase_if(State.Calls, [&](const auto& Call) { return Removed.contains(Call.NodeId); });
 		for (auto& Call : State.Calls)
@@ -303,6 +377,13 @@ namespace Durin::Editor::Material
 	auto FMaterialGraphDocument::InsertFunctionCall(DMaterialFunctionInterface& Function,
 		int32 X, int32 Y, DTransactor* Transactions) const -> FMaterialGraphCommandResult
 	{
+		return InsertFunctionCall(Function, X, Y, {}, Transactions);
+	}
+
+	auto FMaterialGraphDocument::InsertFunctionCall(DMaterialFunctionInterface& Function,
+		int32 X, int32 Y, std::span<const FMaterialFunctionInputBinding> Inputs,
+		DTransactor* Transactions) const -> FMaterialGraphCommandResult
+	{
 		FMaterialGraphDocumentState State;
 		if (!Capture(State)) return {.Status = EMaterialGraphCommandStatus::StaleOwner};
 		FMaterialFunctionClosure Closure;
@@ -314,7 +395,10 @@ namespace Durin::Editor::Material
 		const FGuid Id = FGuid::NewGuid();
 		State.Program.Nodes.push_back({.Id = Id, .Opcode = EMaterialProgramOpcode::FunctionCall});
 		FMaterialFunctionCall Call{.NodeId = Id, .Function = &Function};
+		Call.Inputs.assign(Inputs.begin(), Inputs.end());
 		for (const auto& Output : Function.GetFunctionSignature().Outputs) Call.Outputs.push_back({Output.Id, Output.Type});
+		Validation = ValidateMaterialFunctionCallSignature({Call.NodeId, Function.GetObjectPath(), Call.Inputs, Call.Outputs}, Function.GetFunctionSignature());
+		if (!Validation) return MakeRejected("Bind the function's required inputs before inserting the call.", std::move(Validation.Diagnostics));
 		State.Calls.push_back(std::move(Call));
 		State.Presentation.Nodes.push_back({Id, X, Y});
 		auto Result = Commit(std::move(State), "Insert Function Call", Transactions);

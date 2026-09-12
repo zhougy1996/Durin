@@ -2,6 +2,7 @@
     "ModuleName": "MaterialEditor",
     "LinkType": "Shared",
     "PCH": "SharedPCH_MonaEditor",
+	"ReflectHeaders": ["Public/MaterialGraphClipboardReferences.h"],
     "PrivateDependencies": [
 		"AssetTools",
         "Core",

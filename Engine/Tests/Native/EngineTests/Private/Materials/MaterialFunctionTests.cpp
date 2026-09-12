@@ -9,6 +9,12 @@
 #include "NativeAssetTestSupport.h"
 #include "NativeTestSupport.h"
 #include "MaterialGraphDocument.h"
+#include "MaterialFunctionPreview.h"
+#include "MaterialEditorModule.h"
+#include "Widgets/MMaterialFunctionEditor.h"
+#include "Editor/WorkspaceManager.h"
+#include "Thumbnail/ThumbnailManager.h"
+#include "Modules/ModuleTestSupport.h"
 #include "Editor/EditorTransactionTestSupport.h"
 
 namespace
@@ -31,6 +37,146 @@ namespace
 		Graph.Nodes[1].Inputs[0] = {.SourceNodeId = CallId, .SourceOutputId = Output.Id};
 		ASSERT_TRUE(Caller.SetFunctionGraph(std::move(Graph)));
 	}
+}
+
+TEST(FMaterialFunctionTests, WorkspaceSavesAndReloadsFunctionsAcrossOpenDocuments)
+{
+	using namespace Durin;
+	using namespace Durin::Editor;
+	using namespace Durin::Editor::Material;
+	InitializeDObjectSystem();
+	const auto Root = Testing::CreateTestFixtureDirectory("FunctionWorkspace");
+	const std::array Mounts{FMountPoint{.VirtualRoot = "/FunctionWorkspace/", .Owner = EMountOwner::Test,
+		.Root = Root, .bAutoScan = true, .bContentWritable = true}};
+	Testing::FScopedMountRegistryFixture Registry(Mounts);
+	ASSERT_TRUE(Registry.IsValid());
+	ASSERT_TRUE(RefreshAssetRegistry());
+	FPackagePath FirstPath, SecondPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/FunctionWorkspace/First", FirstPath));
+	ASSERT_TRUE(FPackagePath::TryCreate("/FunctionWorkspace/Second", SecondPath));
+	DMaterialFunction* First = nullptr;
+	DMaterialFunction* Second = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(FirstPath, First));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(SecondPath, Second));
+	ASSERT_TRUE(FMaterialGraphDocument(*Second).InsertFunctionCall(*First, 0, 300));
+	ASSERT_TRUE(SavePackage(First->GetPackage()));
+	ASSERT_TRUE(SavePackage(Second->GetPackage()));
+	FWorkspaceManager Manager;
+	DThumbnailManager Thumbnails;
+	FMaterialEditorModule Module;
+	FModuleTestHarness Harness("MaterialEditor");
+	Harness.Start(Module);
+	ASSERT_TRUE(Module.RegisterMaterialEditor(Manager, Thumbnails));
+	const auto Class = DMaterialFunction::StaticClass()->GetQualifiedName().ToString();
+	const auto Resource = First->GetObjectPath();
+	ASSERT_TRUE(Manager.OpenAsset(Resource, Class));
+	ASSERT_TRUE(Manager.OpenAsset(Resource, Class));
+	ASSERT_EQ(Manager.GetDocuments().size(), 1u);
+	const auto FirstTab = *Manager.GetActiveDocument();
+	ASSERT_TRUE(Manager.OpenAsset(Second->GetObjectPath(), Class));
+	ASSERT_EQ(Manager.GetDocuments().size(), 2u);
+	const auto Workspace = Manager.FindWorkspace(FWorkspaceTypeId("MaterialFunctionEditor"));
+	ASSERT_TRUE(Workspace);
+	auto Signature = First->GetFunctionSignature();
+	Signature.Outputs[0].Name = "Saved Surface";
+	ASSERT_TRUE(FMaterialGraphDocument(*First).SetSignature(Signature));
+	EXPECT_TRUE(Workspace->IsDocumentDirty(FirstTab));
+	EXPECT_EQ(Manager.RequestCloseDocument(FirstTab.Id), EDocumentCloseResult::PendingConfirmation);
+	ASSERT_TRUE(Workspace->SaveDocument(FirstTab));
+	EXPECT_FALSE(Workspace->IsDocumentDirty(FirstTab));
+	const auto CopiedCallId = Second->GetFunctionGraph().Calls[0].NodeId;
+	FMaterialGraphClipboardPayload Clipboard;
+	ASSERT_TRUE(FMaterialGraphDocument(*Second).CopySelection(std::span(&CopiedCallId, 1), Clipboard));
+	Signature.Outputs[0].Name = "Discarded Surface";
+	ASSERT_TRUE(FMaterialGraphDocument(*First).SetSignature(Signature));
+	const bool Discarded = Workspace->DiscardDocument(FirstTab);
+	if (!Discarded)
+	{
+		const auto Error = std::string(static_cast<MMaterialFunctionEditor*>(Workspace.get())->GetLastError());
+		Module.UnregisterMaterialEditor(); Harness.Shutdown();
+		FAIL() << Error;
+	}
+	DMaterialFunction* Reloaded = nullptr;
+	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(FirstPath), Reloaded));
+	ASSERT_NE(Reloaded, nullptr);
+	EXPECT_EQ(Reloaded->GetFunctionSignature().Outputs[0].Name, "Saved Surface");
+	EXPECT_EQ(Second->GetFunctionGraph().Calls[0].Function.Get(), Reloaded);
+	const auto Pasted = FMaterialGraphDocument(*Second).Paste(Clipboard, 300, 300);
+	EXPECT_TRUE(Pasted) << Pasted.Message;
+	EXPECT_EQ(Second->GetFunctionGraph().Calls.back().Function.Get(), Reloaded);
+	EXPECT_FALSE(Workspace->IsDocumentDirty(FirstTab));
+	Module.UnregisterMaterialEditor();
+	Harness.Shutdown();
+}
+
+TEST(FMaterialFunctionTests, PreviewWrappersCompileEveryOutputTypeWithoutChangingTheFunction)
+{
+	using namespace Durin;
+	using namespace Durin::Editor::Material;
+	InitializeDObjectSystem();
+	FScopedOfflinePreparation Offline;
+	auto* Function = NewObject<DMaterialFunction>(nullptr, "PreviewFunction");
+	auto* Preview = NewObject<DMaterial>(nullptr, "PreviewWrapper");
+	Preview->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	for (uint32 Index = 0; Index < 6; ++Index)
+	{
+		const auto Type = static_cast<EMaterialProgramValueType>(Index);
+		auto Input = FunctionPort(1, Type, "Input");
+		Input.bRequired = true;
+		const auto Output = FunctionPort(2, Type, "Output");
+		FMaterialFunctionGraph Graph;
+		Graph.Signature = {{Input}, {Output}};
+		Graph.Nodes = {{.Id = {1, 1, 1, 1}, .Opcode = EMaterialProgramOpcode::FunctionInput,
+			.ResultType = Type, .FunctionPortId = Input.Id},
+			{.Id = {1, 1, 1, 2}, .Opcode = EMaterialProgramOpcode::FunctionOutput,
+			.ResultType = Type, .Inputs = {{{1, 1, 1, 1}}}, .FunctionPortId = Output.Id}};
+		ASSERT_TRUE(Function->SetFunctionGraph(Graph));
+		const auto Revision = Function->GetFunctionRevision();
+		FMaterialGraphDocumentState State;
+		FMaterialStaticProperties Properties;
+		const auto Built = BuildMaterialFunctionPreview(*Function, Output.Id, State, Properties);
+		ASSERT_TRUE(Built) << Built.Message;
+		ASSERT_EQ(State.Calls.size(), 1u);
+		EXPECT_EQ(State.Calls[0].Outputs[0].OutputId, Output.Id);
+		ASSERT_TRUE(FMaterialGraphDocument(*Preview).Commit(State, "Build Preview"));
+		ASSERT_TRUE(Preview->SetStaticProperties(Properties));
+		ASSERT_TRUE(Preview->CompileEdits());
+		ASSERT_TRUE(Preview->GetAcceptedCompiledProgram());
+		EXPECT_EQ(Function->GetFunctionGraph(), Graph);
+		EXPECT_EQ(Function->GetFunctionRevision(), Revision);
+		const auto Before = State;
+		EXPECT_FALSE(BuildMaterialFunctionPreview(*Function, FGuid::NewGuid(), State, Properties));
+		EXPECT_EQ(State, Before);
+	}
+	MarkAsGarbage(Preview); MarkAsGarbage(Function); CollectGarbage();
+}
+
+TEST(FMaterialFunctionTests, CallInsertionBindsRequiredInputsAndAdmitsNewOutputPorts)
+{
+	using namespace Durin;
+	using namespace Durin::Editor::Material;
+	InitializeDObjectSystem();
+	auto* Function = NewObject<DMaterialFunction>(nullptr, "RequiredCallFunction");
+	auto* Material = NewObject<DMaterial>(nullptr, "RequiredCallMaterial");
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	FMaterialGraphDocument Graph(*Function), Root(*Material);
+	auto Port = FunctionPort(50, EMaterialProgramValueType::Float, "Required Amount");
+	Port.bRequired = true;
+	const auto Input = Graph.AddPort(false, Port);
+	ASSERT_TRUE(Input);
+	const auto Constant = Root.CreateNode({.Node = {.Literal = {.X = 0.6f}}});
+	ASSERT_TRUE(Constant);
+	EXPECT_FALSE(Root.InsertFunctionCall(*Function, 0, 0));
+	const std::array Inputs{FMaterialFunctionInputBinding{Port.Id, Port.Type, {Constant.GeneratedNodeIds[0]}}};
+	const auto Call = Root.InsertFunctionCall(*Function, 0, 0, Inputs);
+	ASSERT_TRUE(Call);
+	const auto Output = FunctionPort(51, EMaterialProgramValueType::Float, "New Amount");
+	ASSERT_TRUE(Graph.AddPort(true, Output, {Input.GeneratedNodeIds[0]}));
+	ASSERT_EQ(Material->GetMaterialFunctionCalls()[0].Outputs.size(), 1u);
+	ASSERT_TRUE(Root.AssignMaterialOutput(EMaterialSurfaceOutput::Roughness, {Call.GeneratedNodeIds[0], 0, Output.Id}));
+	ASSERT_EQ(Material->GetMaterialFunctionCalls()[0].Outputs.size(), 2u);
+	EXPECT_EQ(Material->GetMaterialProgram()->Outputs.Roughness.SourceOutputId, Output.Id);
+	MarkAsGarbage(Material); MarkAsGarbage(Function); CollectGarbage();
 }
 
 TEST(FMaterialFunctionTests, SharedDocumentsEditStableCallsAndInterfacesWithUndo)

@@ -37,6 +37,8 @@ namespace Durin::Editor::Material
 			DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto CreateNode(FMaterialGraphCreateNodeRequest Request,
 			DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API auto CreateNodeWithDefaultInputs(FMaterialGraphCreateNodeRequest Request,
+			FMaterialProgramLink FirstInput = {}, DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto ReplaceNode(FMaterialProgramNode Node,
 			DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto RemoveNodes(std::span<const FGuid> NodeIds,
@@ -49,11 +51,20 @@ namespace Durin::Editor::Material
 			FMaterialProgramLink Source, DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto InsertFunctionCall(DMaterialFunctionInterface& Function,
 			int32 X, int32 Y, DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API auto InsertFunctionCall(DMaterialFunctionInterface& Function,
+			int32 X, int32 Y, std::span<const FMaterialFunctionInputBinding> Inputs,
+			DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto ConnectCallInput(const FGuid& CallNodeId, const FGuid& InputId,
 			FMaterialProgramLink Source, bool bReplaceExisting = false,
 			DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto DisconnectCallInput(const FGuid& CallNodeId, const FGuid& InputId,
 			DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API auto CopySelection(std::span<const FGuid> NodeIds,
+			FMaterialGraphClipboardPayload& OutPayload) const -> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API auto Paste(const FMaterialGraphClipboardPayload& Payload,
+			int32 X, int32 Y, DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API auto CutSelection(std::span<const FGuid> NodeIds,
+			FMaterialGraphClipboardPayload& OutPayload, DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
 	private:
 		TWeakObjectPtr<DObject> Owner;
 	};

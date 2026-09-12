@@ -4,7 +4,7 @@ Summary: Define the shared MaterialEditor command, presentation, canvas, transac
 
 Modules: MaterialEditor, Engine, DurinEd
 
-Last reviewed: 2026-09-11
+Last reviewed: 2026-09-12
 
 ## Ownership
 
@@ -37,8 +37,39 @@ terminal types atomically and reject incompatible retained wiring. Shared node
 creation/replacement/removal and positional-input connection work for both graph
 kinds. Material Output assignment accepts the full source link, including a
 function output GUID. Removing a call also removes its call record and restores
-disconnected material output fallbacks. Function document widgets and clipboard
-remain under implementation in the active reusable-functions plan.
+disconnected material output fallbacks. Insertion accepts required input bindings
+in the same transaction. Connecting a newly declared output adds its typed call
+record without changing existing output identities.
+
+The Content Browser creates and opens `DMaterialFunction` assets in a dedicated
+workspace with shared graph commands, geometry, links and clipboard state. Function
+edits apply directly to the asset and update loaded callers. Save and Discard use
+the ordinary editable-asset document model; relocation preserves document identity
+and reload rebinds the open resource. Native document references do not pin the
+old asset generation against package replacement.
+
+Function Details edits named typed ports, order, advanced/required flags, typed
+defaults, constants, swizzles and Surface attributes. Port and node drafts commit
+on Apply as one validated transaction. The canvas supports typed link dragging,
+Shift replacement, node movement, copy/cut/paste and function navigation. Numeric
+node creation supplies explicit default constants; texture and Surface operations
+can be created by dragging a compatible output into the node menu. Movement commits
+presentation only on release and Escape cancels its transient positions.
+
+Material and function documents share a call picker that collects required input
+connections before insertion. Pin tooltips and selected-call controls display
+defaults; optional connected inputs can explicitly return to their defaults.
+Diagnostics open the originating function and frame its node by retained identity.
+
+`BuildMaterialFunctionPreview` constructs a transient root material for one stable
+output GUID. Surface outputs connect directly; scalar values splat to RGB, Float2
+maps to RG with zero blue, Float3 maps to RGB, Float4 uses RGB, and Texture2D samples
+UV0 before RGB display. Numeric and texture wrappers use unlit emissive output.
+Required inputs use explicit neutral preview values and optional inputs keep their
+declared defaults. The wrapper uses existing compilation, dependency invalidation
+and preview rendering. Closing a function document cancels and retires its wrapper.
+An unavailable output displays diagnostics without presenting an earlier wrapper
+as the selected result.
 
 `DMaterial::GraphPresentation` is a separate `EditorOnly` reflected value. It
 contains schema version 2, exactly one integral graph-space position for every
@@ -174,10 +205,13 @@ canvas and move session.
 
 ## Clipboard and layout
 
-`FMaterialGraphClipboardPayload` schema 3 contains at most 256 complete nodes,
-relative positions, referenced declaration snapshots and a weak source-root
-object-generation identity. Counted collector-visible strong references retain
-texture defaults independently of the source material. Replacing or clearing
+`FMaterialGraphClipboardPayload` schema 4 contains at most 256 complete nodes,
+relative positions, referenced declaration snapshots, function ports and calls,
+and a weak source-owner
+object-generation identity. A strongly retained transient reference object owns
+reflected texture and function slots, retaining dependencies independently of the
+source asset while allowing package replacement to update them. Paste resolves
+those updated slots before committing copied calls and declarations. Replacing or clearing
 the payload releases those references. Clipboard state is process-local; it
 contains no compiler result or viewport state.
 
@@ -190,6 +224,14 @@ same-name/type declaration only when default and metadata match. Missing,
 duplicate, invalid and conflicting declarations reject the entire operation.
 Node placement, declaration creation and graph references commit once and
 Undo/Redo together. Unknown clipboard versions are rejected.
+
+Material and function documents share copy, paste and cut commands. Paste remaps
+ordinary inputs, Surface attribute bindings and function-call inputs while keeping
+callee port GUIDs and selected output identities. Copied interface terminals gain
+new port GUIDs and unique names in the destination function; root parameters cannot
+enter a function and terminals cannot enter a material. Removing terminals removes
+their port declarations in the same validated transaction. Function dependency
+changes reject recursive closures before mutation, including clipboard insertion.
 
 Retired StandardSurface and role-dependent TextureCoordinate opcode values are
 invalid in both authored graphs and clipboard payloads. Custom parameters are

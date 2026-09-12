@@ -665,6 +665,194 @@ namespace Durin::Editor::Material
 		ImGui::EndPopup();
 	}
 
+	auto FMaterialGraphCanvas::DrawFunction(DMaterialFunction& Function, DTransactor& Transactions,
+		float Height, const FReportError& ReportError,
+		const std::function<void(std::string_view)>& OpenFunction) -> void
+	{
+		FMaterialGraphDocument Document(Function);
+		CachedView = Document.Inspect();
+		CachedNodeIndices.clear();
+		for (size_t Index = 0; Index < CachedView.Nodes.size(); ++Index) CachedNodeIndices.emplace(CachedView.Nodes[Index].Node.Id, Index);
+		bVisualGraphTopologyStale = true;
+		const auto Selection = GetSelectedProgramNodes();
+		const auto Report = [&](FMaterialGraphCommandResult Result) { ReportCommand(Result, ReportError); return static_cast<bool>(Result); };
+		if (ImGui::Button("Frame All")) FrameNodes(CachedView, ImGui::GetContentRegionAvail(), EFrameScope::All);
+		ImGui::SameLine();
+		if (ImGui::Button("Add Node")) Interaction = FNodeCreationMenuInteraction{.GraphPosition = {0, 0}};
+		ImGui::SameLine();
+		if (ImGui::Button("Copy"))
+		{
+			FMaterialGraphClipboardPayload Payload;
+			if (Report(Document.CopySelection(Selection, Payload))) GraphClipboard = std::move(Payload);
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Cut"))
+		{
+			FMaterialGraphClipboardPayload Payload;
+			if (Report(Document.CutSelection(Selection, Payload, &Transactions))) GraphClipboard = std::move(Payload);
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Paste") && GraphClipboard) Report(Document.Paste(*GraphClipboard, 40, 40, &Transactions));
+		ImGui::SameLine();
+		if (ImGui::Button("Delete")) Report(Document.RemoveNodes(Selection, &Transactions));
+		if (!ImGui::BeginChild("FunctionGraph", {0, Height}, ImGuiChildFlags_Borders,
+			ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) { ImGui::EndChild(); return; }
+		const auto Minimum = ImGui::GetCursorScreenPos();
+		const auto Size = ImGui::GetContentRegionAvail();
+		const auto Maximum = Add(Minimum, Size);
+		const auto Mouse = ImGui::GetIO().MousePos;
+		ImGui::InvisibleButton("FunctionGraphInput", Size, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonMiddle);
+		const bool Hovered = ImGui::IsItemHovered();
+		const bool Keyboard = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && !ImGui::GetIO().WantTextInput;
+		if (Keyboard && ImGui::IsKeyPressed(ImGuiKey_Escape)) ResetInteraction();
+		if (Keyboard && std::holds_alternative<FIdleInteraction>(Interaction))
+		{
+			if (ImGui::IsKeyPressed(ImGuiKey_Delete)) Report(Document.RemoveNodes(Selection, &Transactions));
+			if (ImGui::GetIO().KeyCtrl && (ImGui::IsKeyPressed(ImGuiKey_C) || ImGui::IsKeyPressed(ImGuiKey_X)))
+			{
+				FMaterialGraphClipboardPayload Payload;
+				const auto Result = ImGui::IsKeyPressed(ImGuiKey_X) ? Document.CutSelection(Selection, Payload, &Transactions) : Document.CopySelection(Selection, Payload);
+				if (Report(Result)) GraphClipboard = std::move(Payload);
+			}
+			if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_V) && GraphClipboard)
+				Report(Document.Paste(*GraphClipboard, 40, 40, &Transactions));
+		}
+		if (Hovered && ImGui::IsMouseDragging(ImGuiMouseButton_Middle)) Pan = Add(Pan, ImGui::GetIO().MouseDelta);
+		if (Hovered && ImGui::GetIO().MouseWheel != 0)
+		{
+			const float NextZoom = std::clamp(Zoom * std::pow(1.1f, ImGui::GetIO().MouseWheel), 0.25f, 2.0f);
+			Pan = Subtract(Subtract(Mouse, Minimum), Multiply(Subtract(Subtract(Mouse, Minimum), Pan), NextZoom / Zoom));
+			Zoom = NextZoom;
+		}
+		if (PendingFrameNode.IsValid())
+		{
+			FrameNodes(CachedView, Size, EFrameScope::Selection);
+			PendingFrameNode = {};
+		}
+		if (auto* Moving = std::get_if<FMovingInteraction>(&Interaction))
+		{
+			const auto Delta = Multiply(Subtract(Mouse, Moving->StartMouse), 1.0f / Zoom);
+			for (auto& Node : CachedView.Nodes)
+				if (const auto Start = Moving->StartPositions.find(Node.Node.Id); Start != Moving->StartPositions.end())
+				{
+					Node.Presentation.X = Start->second.X + static_cast<int32>(Delta.x);
+					Node.Presentation.Y = Start->second.Y + static_cast<int32>(Delta.y);
+				}
+			if (ImGui::IsMouseReleased(ImGuiMouseButton_Left))
+			{
+				FMaterialGraphDocumentState State;
+				if (Document.Capture(State))
+				{
+					State.Presentation.Nodes.clear();
+					for (const auto& Node : CachedView.Nodes) State.Presentation.Nodes.push_back(Node.Presentation);
+					Report(Document.Commit(std::move(State), "Move Function Nodes", &Transactions));
+				}
+				ResetInteraction();
+			}
+		}
+		const auto& Visual = PrepareVisualGraph(CachedView, Minimum);
+		auto& DrawList = *ImGui::GetWindowDrawList();
+		DrawList.PushClipRect(Minimum, Maximum, true);
+		DrawLinks(Visual, Minimum, Maximum, DrawList);
+		const FVisualNode* HoveredNode = nullptr;
+		std::optional<FMaterialProgramLink> Output;
+		const FMaterialGraphPinView* Input = nullptr;
+		FGuid InputNode;
+		for (const auto& Node : Visual.Nodes)
+		{
+			if (!Intersects(Node.Minimum, Node.Maximum, Minimum, Maximum)) continue;
+			DrawList.AddRectFilled(Node.Minimum, Node.Maximum, IM_COL32(40, 44, 52, 255), 5);
+			DrawList.AddRect(Node.Minimum, Node.Maximum, SelectedNodes.contains(Node.View->Node.Id)
+				? IM_COL32(220, 170, 70, 255) : IM_COL32(80, 86, 100, 255), 5);
+			DrawList.AddText(Add(Node.Minimum, {8, 5}), IM_COL32(235, 235, 240, 255), Node.View->PrimaryLabel.c_str());
+			DrawList.AddText(Add(Node.Minimum, {8, 25}), IM_COL32(175, 180, 190, 255), Node.View->SecondaryLabel.c_str());
+			if (Contains(Node.Minimum, Node.Maximum, Mouse)) HoveredNode = &Node;
+			for (size_t Index = 0; Index < Node.OutputPins.size(); ++Index)
+			{
+				const auto& Pin = Node.View->Outputs[Index];
+				DrawList.AddCircleFilled(Node.OutputPins[Index], 5, TypeColor(Pin.Type));
+				const auto Label = Ellipsize(Pin.Name, NodeWidth * Zoom * 0.45f);
+				DrawList.AddText(Add(Node.OutputPins[Index], {-8 - ImGui::CalcTextSize(Label.c_str()).x, -7}), IM_COL32(200, 205, 210, 255), Label.c_str());
+				if (std::hypot(Mouse.x - Node.OutputPins[Index].x, Mouse.y - Node.OutputPins[Index].y) < 9)
+					Output = {Node.View->Node.Id, Pin.OutputIndex, Pin.PortId};
+			}
+			for (size_t Index = 0; Index < Node.InputPins.size(); ++Index)
+			{
+				const auto& Pin = Node.View->Inputs[Index];
+				DrawList.AddCircleFilled(Node.InputPins[Index], 5, TypeColor(Pin.AcceptedTypes.empty() ? Pin.SourceType : Pin.AcceptedTypes[0]));
+				const auto Label = Ellipsize(Pin.Name, NodeWidth * Zoom * 0.45f);
+				DrawList.AddText(Add(Node.InputPins[Index], {8, -7}), IM_COL32(200, 205, 210, 255), Label.c_str());
+				if (std::hypot(Mouse.x - Node.InputPins[Index].x, Mouse.y - Node.InputPins[Index].y) < 9)
+				{
+					Input = &Pin; InputNode = Node.View->Node.Id;
+					ImGui::SetTooltip("%s%s%s\n%s", Pin.Name.c_str(), Pin.bRequired ? " (required)" : "", Pin.bMissing ? " (missing port)" : "",
+						DescribeFunctionDefault(Pin.Default).c_str());
+				}
+			}
+		}
+		if (Hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+		{
+			if (Output) Interaction = FLinkingInteraction{Output->SourceNodeId, Output->SourceOutputIndex, Output->SourceOutputId};
+			else if (HoveredNode)
+			{
+				const auto Id = HoveredNode->View->Node.Id;
+				if (!ImGui::GetIO().KeyCtrl && !SelectedNodes.contains(Id)) SelectedNodes.clear();
+				SelectedNodes.insert(Id);
+				FMovingInteraction Moving{.StartMouse = Mouse};
+				for (const auto& Node : CachedView.Nodes)
+					if (SelectedNodes.contains(Node.Node.Id)) Moving.StartPositions.emplace(Node.Node.Id, Node.Presentation);
+				Interaction = std::move(Moving);
+				if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && !HoveredNode->View->FunctionPath.empty())
+					OpenFunction(HoveredNode->View->FunctionPath);
+			}
+			else SelectedNodes.clear();
+		}
+		if (const auto* Linking = std::get_if<FLinkingInteraction>(&Interaction))
+		{
+			const FMaterialProgramLink Source{Linking->SourceNode, Linking->SourceOutputIndex, Linking->SourceOutputId};
+			if (const auto It = Visual.Indices.find(Source.SourceNodeId); It != Visual.Indices.end())
+				DrawCulledLink(DrawList, Visual.Nodes[It->second].OutputPosition(Source), Mouse, Minimum, Maximum, IM_COL32(230, 210, 120, 255), 2);
+			if (ImGui::IsMouseReleased(ImGuiMouseButton_Left))
+			{
+				ResetInteraction();
+				if (Input)
+					Report(Input->PortId.IsValid() ? Document.ConnectCallInput(InputNode, Input->PortId, Source, ImGui::GetIO().KeyShift, &Transactions)
+						: Document.ConnectInput(InputNode, Input->InputIndex, Source, ImGui::GetIO().KeyShift, &Transactions));
+				else if (Hovered && !HoveredNode) Interaction = FNodeCreationMenuInteraction{.SourceNode = Source.SourceNodeId,
+					.SourceOutputIndex = Source.SourceOutputIndex, .SourceOutputId = Source.SourceOutputId,
+					.GraphPosition = Multiply(Subtract(Subtract(Mouse, Minimum), Pan), 1 / Zoom)};
+			}
+		}
+		DrawList.PopClipRect();
+		if (Hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) Interaction = FNodeCreationMenuInteraction{
+			.GraphPosition = Multiply(Subtract(Subtract(Mouse, Minimum), Pan), 1 / Zoom)};
+		if (auto* Menu = std::get_if<FNodeCreationMenuInteraction>(&Interaction))
+		{
+			if (Menu->bOpenRequested) { ImGui::OpenPopup("FunctionNodeMenu"); Menu->bOpenRequested = false; }
+			ImGui::SetNextWindowSize({420, 480}, ImGuiCond_Appearing);
+			if (ImGui::BeginPopup("FunctionNodeMenu"))
+			{
+				ImGui::InputTextWithHint("##Search", "Find node...", Menu->Search.data(), Menu->Search.size());
+				for (const auto& Entry : FMaterialGraphOperations::SearchCatalog(Menu->Search.data()))
+				{
+					if (Entry.NodeTemplate.Opcode == EMaterialProgramOpcode::Parameter || Entry.NodeTemplate.Opcode == EMaterialProgramOpcode::TextureParameter) continue;
+					const auto Label = std::format("{} ({})", Entry.OperationName, GetProgramTypeName(Entry.NodeTemplate.ResultType));
+					if (ImGui::Selectable(Label.c_str()))
+					{
+						const auto Result = Document.CreateNodeWithDefaultInputs({Entry.NodeTemplate, static_cast<int32>(Menu->GraphPosition.x), static_cast<int32>(Menu->GraphPosition.y)},
+							{Menu->SourceNode, Menu->SourceOutputIndex, Menu->SourceOutputId}, &Transactions);
+						if (Report(Result)) SelectedNodes = {Result.GeneratedNodeIds[0]};
+						ResetInteraction();
+						break;
+					}
+				}
+				ImGui::EndPopup();
+			}
+			else if (!Menu->bOpenRequested) ResetInteraction();
+		}
+		ImGui::EndChild();
+	}
+
 	auto FMaterialGraphCanvas::Draw(
 		DMaterial& Material,
 		DTransactor& Transactions,
@@ -964,6 +1152,9 @@ namespace Durin::Editor::Material
 					{
 						HoveredInputNode = &Visual;
 						HoveredInputIndex = static_cast<uint32>(Index);
+						const auto& Pin = Visual.View->Inputs[Index];
+						if (Pin.PortId.IsValid()) ImGui::SetTooltip("%s%s%s\n%s", Pin.Name.c_str(), Pin.bRequired ? " (required)" : "",
+							Pin.bMissing ? " (missing port)" : "", DescribeFunctionDefault(Pin.Default).c_str());
 					}
 				}
 				if (DetailLevel != EMaterialGraphDetailLevel::Overview)

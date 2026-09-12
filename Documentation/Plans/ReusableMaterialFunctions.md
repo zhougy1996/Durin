@@ -2,7 +2,7 @@
 
 Summary: Add typed material function assets and replace expanded imported PBR graphs with texture-driven StandardPBR calls, including editor workflows and explicit asset migration.
 
-Last reviewed: 2026-09-11
+Last reviewed: 2026-09-12
 
 Status: Active
 Completed:
@@ -23,10 +23,12 @@ Stage 2 completed on 2026-09-11: semantic edits and asset relocation/reload upda
 loaded callers through the existing scheduler, publication admits captured
 closures, and Cook includes function build inputs without runtime function graphs.
 Nested asynchronous sharing, cancellation, stale results and shutdown are
-qualified. Stage 3 is in progress: material working copies preserve function
-call bindings and use atomic authored-state publication. Shared document inspection
-exposes typed function ports, and the material canvas connects individual function
-outputs by GUID. Stages 4-5 have not started.
+qualified. Stage 3 completed on 2026-09-12: functions can be created and edited
+through their workspace, shared commands and typed canvas. Call insertion, port
+defaults, Surface editing, previews and diagnostic navigation are implemented.
+Clipboard, mouse gestures, Undo/Redo and multi-document save/reload are qualified,
+including retained clipboard references across resource replacement.
+Stages 4-5 have not started.
 
 The 2026-09-11 prerequisite refactor changes current compilation failure and
 admission rejection to retire the owner's accepted renderable generation and
@@ -729,9 +731,49 @@ MaterialTests passed 173/173, receipt
 `Build/.agent-state/logs/20260911-185817-811894-25336-MaterialTests.log`.
 The workspace `all` build passed, receipt
 `Build/.agent-state/logs/20260911-185937-879704-26540-cmake.log`.
+Clipboard schema 4 retains function dependencies, copies interface ports and
+remaps node links, call inputs and Surface attributes atomically across owners.
+Terminals receive new port identities; function output identities remain stable.
+Cut removes terminal declarations together with their nodes. Shared document
+commits reject recursive dependency insertion. The graph command suite passed
+37/37, including new dependency-retention and cross-function port/cut/Undo tests:
+`Build/.agent-state/logs/20260912-143354-745963-34908-MaterialTests.log`.
+MaterialTests passed 175/175, receipt
+`Build/.agent-state/logs/20260912-143409-275301-17416-MaterialTests.log`;
+the workspace `all` build passed, receipt
+`Build/.agent-state/logs/20260912-143601-914761-34552-cmake.log`.
 Function document widgets, function canvas, previews,
-clipboard and nested diagnostic navigation remain outstanding; no Stage 3
-checkbox is complete yet.
+and nested diagnostic navigation are now implemented. The Content Browser creates
+and opens function assets in an isolated workspace. Function authoring uses shared
+transactions, clipboard values, graph geometry and typed link operations. Port
+drafts expose typed defaults, required and advanced flags, order and stable names;
+node drafts edit constants, swizzles and Surface attributes. Material and function
+call pickers admit required bindings atomically. Newly added output ports become
+usable without replacing existing call links. Explicit preview wrappers cover all
+six output types without modifying the function and use the existing compiler and
+renderer. Save/Discard, package replacement and relocation reuse asset lifecycle
+contracts; diagnostics open the originating function node.
+Focused evidence: all six wrapper types compile in
+`Build/.agent-state/logs/20260912-143935-156787-36036-MaterialTests.log`;
+the graph suite including real ImGui link/move/Undo gestures passed 38/38 in
+`Build/.agent-state/logs/20260912-145602-531214-34820-MaterialTests.log`;
+multi-document save/discard/reload passed in
+`Build/.agent-state/logs/20260912-150209-485809-11232-MaterialTests.log`;
+required input admission and newly declared output links passed in
+`Build/.agent-state/logs/20260912-151002-468953-484-MaterialTests.log`.
+Clipboard retention now uses reflected slots on a transient reference owner,
+allowing package replacement to update retained function and texture references.
+The multi-document fixture also keeps a call in the clipboard across Discard and
+pastes it with the replacement function, receipt
+`Build/.agent-state/logs/20260912-151554-796702-10272-MaterialTests.log`.
+Final Stage 3 validation: MaterialTests 179/179,
+`Build/.agent-state/logs/20260912-151706-587109-19788-MaterialTests.log`;
+MaterialThumbnailTests 8/8,
+`Build/.agent-state/logs/20260912-151158-663651-10884-MaterialThumbnailTests.log`;
+workspace `all` build,
+`Build/.agent-state/logs/20260912-151850-641325-32364-cmake.log`.
+Changed-document validation passed. Pixel-level GPU equivalence remains the
+explicit Stage 5 gate; these authoring checks do not replace it.
 
 ## Implementation Stages
 
@@ -781,10 +823,10 @@ for runtime. Reconcile shared seams with M13 before either plan edits them again
 
 Depends on Stages 1 and 2.
 
-- [ ] Generalize MaterialEditor graph documents and semantic commands for functions.
-- [ ] Implement port editing, call insertion/navigation, default visibility,
+- [x] Generalize MaterialEditor graph documents and semantic commands for functions.
+- [x] Implement port editing, call insertion/navigation, default visibility,
   preview wrappers, Surface editing and nested diagnostic navigation.
-- [ ] Verify Undo/Redo, clipboard, save/reload and multi-document dependency edits
+- [x] Verify Undo/Redo, clipboard, save/reload and multi-document dependency edits
   through both structured commands and human canvas workflows.
 
 Exit: authors can build and reuse a function without source edits or raw asset

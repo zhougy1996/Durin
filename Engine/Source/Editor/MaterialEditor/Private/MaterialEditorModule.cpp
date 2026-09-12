@@ -16,6 +16,8 @@
 #include "Thumbnail/MaterialThumbnailRenderer.h"
 #include "Thumbnail/ThumbnailManager.h"
 #include "Widgets/MMaterialEditor.h"
+#include "Widgets/MMaterialFunctionEditor.h"
+#include "Materials/MaterialFunction.h"
 
 namespace Durin
 {
@@ -98,6 +100,12 @@ namespace Durin
 		::Durin::Editor::FWorkspaceRegistrationHandle Registration = WorkspaceManager.RegisterBatch({
 			.Workspaces = {
 				{
+					.Descriptor = {.WorkspaceType = MaterialFunctionWorkspaceType, .DisplayName = "Material Function Editor",
+						.RootKey = "MaterialFunctionEditor", .bShowInWindowMenu = false, .bOpenByDefault = false,
+						.DefaultHostDockPreference = ::Durin::Editor::EWorkspaceHostDockPreference::Center},
+					.Workspace = std::make_shared<MMaterialFunctionEditor>(WorkspaceManager),
+				},
+				{
 					.Descriptor = {
 						.WorkspaceType = Workspace::Type,
 						.DisplayName = "Material Editor",
@@ -110,6 +118,11 @@ namespace Durin
 				},
 			},
 			.AssetEditors = {
+				{
+					.AssetClassName = DMaterialFunction::StaticClass()->GetQualifiedName().ToString(),
+					.WorkspaceType = MaterialFunctionWorkspaceType,
+					.DocumentPolicy = ::Durin::Editor::EDocumentPolicy::PerResource, .bClosable = true,
+				},
 				{
 					.AssetClassName = DMaterial::StaticClass()->GetQualifiedName().ToString(),
 					.WorkspaceType = Workspace::Type,
@@ -184,6 +197,19 @@ namespace Durin
 			return false;
 		}
 		std::string PresentationError;
+		{
+			auto Handle = Editor::ContentBrowser::RegisterAssetCreation({
+				.Id = "material.create-function", .Label = "Material Function", .DefaultName = "NewMaterialFunction", .Order = 220,
+				.Create = CreateMaterialAsset<DMaterialFunction>,
+				.AssetClassNameToOpen = DMaterialFunction::StaticClass()->GetQualifiedName().ToString()}, PresentationError);
+			if (!Handle.IsValid()) { UnregisterMaterialEditor(); return false; }
+			Integration->ContentBrowserExtensions.push_back(std::move(Handle));
+			auto Presentation = Editor::ContentBrowser::RegisterAssetTypePresentation({
+				.AssetClassName = DMaterialFunction::StaticClass()->GetQualifiedName().ToString(), .DisplayName = "Material Function",
+				.Category = Editor::ContentBrowser::EAssetCategory::Material, .Icon = Icons::FileLines}, PresentationError);
+			if (!Presentation.IsValid()) { UnregisterMaterialEditor(); return false; }
+			Integration->TypePresentations.push_back(std::move(Presentation));
+		}
 		{
 			auto Handle = Editor::ContentBrowser::RegisterAssetTypePresentation({
 				.AssetClassName = DMaterial::StaticClass()->GetQualifiedName().ToString(),

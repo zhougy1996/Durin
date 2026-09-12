@@ -6,6 +6,7 @@
 #include "MaterialEditorAPI.h"
 #include "DObject/ObjectPtr.h"
 #include "Editor/PropertyView.h"
+#include "Widgets/MaterialFunctionCallPicker.h"
 
 namespace Durin
 {
@@ -96,6 +97,7 @@ namespace Durin::Editor::Material
 		::Durin::Editor::FEditableAssetDocumentModel Documents;
 		std::unordered_map<uint64, std::unique_ptr<FMaterialPreview>> MaterialPreviews;
 		std::unordered_map<uint64, std::unique_ptr<FMaterialGraphCanvas>> MaterialGraphCanvases;
+		std::unordered_map<uint64, FMaterialFunctionCallPicker> FunctionCallPickers;
 		std::unique_ptr<FMaterialParameterPanelCache> MaterialParameterPanelCache;
 		std::unique_ptr<FMaterialEditorSessionSettings> SessionSettings;
 		std::array<char, 128> ParentSearchText{};

@@ -17,7 +17,7 @@ namespace Durin
 
 namespace Durin::Editor::Material
 {
-	inline constexpr uint32 CurrentMaterialGraphClipboardSchemaVersion = 3;
+	inline constexpr uint32 CurrentMaterialGraphClipboardSchemaVersion = 4;
 
 	// Identifies the stable outcome of one graph inspection or mutation request.
 	enum class EMaterialGraphCommandStatus : uint8
@@ -145,16 +145,20 @@ namespace Durin::Editor::Material
 		int32 RelativeY = 0;
 	};
 
-	// Retains texture defaults independently of the source root's lifetime.
+	// Retains texture defaults and called functions independently of the source owner.
 	struct FMaterialGraphClipboardPayload
 	{
 		uint32 SchemaVersion = CurrentMaterialGraphClipboardSchemaVersion;
-		TWeakObjectPtr<DMaterial> SourceRoot;
+		TWeakObjectPtr<DObject> SourceRoot;
 		std::vector<FMaterialParameterDefinition> Definitions;
-		std::vector<FStrongObjectPtr> RetainedTextures;
+		FStrongObjectPtr RetainedReferences;
 		std::vector<FMaterialGraphClipboardNode> Nodes;
+		FMaterialFunctionSignature Signature;
+		std::vector<FMaterialFunctionCall> Calls;
 		bool bConnectAggregateSurface = false;
 		FGuid AggregateSourceNodeId;
+		uint8 AggregateSourceOutputIndex = 0;
+		FGuid AggregateSourceOutputId;
 	};
 
 	// Defines stable logical canvas dimensions shared by layout, rendering, and tests.
