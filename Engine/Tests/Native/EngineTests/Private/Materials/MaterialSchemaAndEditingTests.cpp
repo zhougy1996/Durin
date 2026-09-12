@@ -1,3 +1,4 @@
+#include "LegacyMaterialProgramTestFixture.h"
 #include "MaterialTestSupport.h"
 #include "Editor/EditorTransactionTestSupport.h"
 
@@ -18,7 +19,7 @@ namespace
 		-> Durin::FMaterialCompilerInput
 	{
 		Durin::FMaterialCompilerInput Input;
-		Input.Program = Durin::MakePBRMaterialProgram();
+		Input.Program = Durin::Testing::MakeLegacyPBRMaterialProgram();
 		for (const Durin::FMaterialParameterDefinition& Definition
 			: Durin::GetPBRMaterialParameterDefinitions())
 			Input.Parameters.push_back({Definition.Id, Definition.Type});
@@ -66,7 +67,7 @@ namespace
 		auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, Name);
 		if (!Material || !Material->SetMaterialDefinitionsAndProgram(
 			Durin::MakePBRMaterialParameterDefinitions(),
-			Durin::MakePBRMaterialProgram())) return nullptr;
+			Durin::Testing::MakeLegacyPBRMaterialProgram())) return nullptr;
 		if (!FinishMaterialCompileForTest(*Material)) return nullptr;
 		return Material;
 	}
@@ -403,9 +404,9 @@ TEST(FMaterialProgramSchemaTests,
 {
 	InitializeDObjectSystem();
 	const Durin::FMaterialProgram First =
-		Durin::MakePBRMaterialProgram();
+		Durin::Testing::MakeLegacyPBRMaterialProgram();
 	const Durin::FMaterialProgram Second =
-		Durin::MakePBRMaterialProgram();
+		Durin::Testing::MakeLegacyPBRMaterialProgram();
 	EXPECT_EQ(First, Second);
 	EXPECT_EQ(
 		First.SchemaVersion,
@@ -471,14 +472,14 @@ TEST(FMaterialProgramSchemaTests,
 	};
 
 	Durin::FMaterialProgram UnknownVersion =
-		Durin::MakePBRMaterialProgram();
+		Durin::Testing::MakeLegacyPBRMaterialProgram();
 	UnknownVersion.SchemaVersion = 999;
 	ExpectCategory(
 		UnknownVersion,
 		Durin::EMaterialProgramDiagnosticCategory::Schema);
 
 	Durin::FMaterialProgram InvalidEnums =
-		Durin::MakePBRMaterialProgram();
+		Durin::Testing::MakeLegacyPBRMaterialProgram();
 	InvalidEnums.Nodes.front().Opcode =
 		static_cast<Durin::EMaterialProgramOpcode>(0xff);
 	ExpectCategory(
@@ -486,14 +487,14 @@ TEST(FMaterialProgramSchemaTests,
 		Durin::EMaterialProgramDiagnosticCategory::Schema);
 
 	Durin::FMaterialProgram DuplicateIdentity =
-		Durin::MakePBRMaterialProgram();
+		Durin::Testing::MakeLegacyPBRMaterialProgram();
 	DuplicateIdentity.Nodes[1].Id = DuplicateIdentity.Nodes[0].Id;
 	ExpectCategory(
 		DuplicateIdentity,
 		Durin::EMaterialProgramDiagnosticCategory::Schema);
 
 	Durin::FMaterialProgram Dangling =
-		Durin::MakePBRMaterialProgram();
+		Durin::Testing::MakeLegacyPBRMaterialProgram();
 	Dangling.Nodes.front().Inputs.push_back({
 		.SourceNodeId = Durin::FGuid{1, 2, 3, 4},
 		.SourceOutputIndex = 0});
@@ -502,7 +503,7 @@ TEST(FMaterialProgramSchemaTests,
 		Durin::EMaterialProgramDiagnosticCategory::Graph);
 
 	Durin::FMaterialProgram WrongOutput =
-		Durin::MakePBRMaterialProgram();
+		Durin::Testing::MakeLegacyPBRMaterialProgram();
 	WrongOutput.Outputs.Metallic = WrongOutput.Outputs.BaseColor;
 	const auto WrongOutputValidation = ExpectCategory(
 		WrongOutput,
@@ -519,7 +520,7 @@ TEST(FMaterialProgramSchemaTests,
 		WrongOutputValidation.Diagnostics.end());
 
 	Durin::FMaterialProgram NonFinite =
-		Durin::MakePBRMaterialProgram();
+		Durin::Testing::MakeLegacyPBRMaterialProgram();
 	const auto ConstantIt = std::ranges::find(
 		NonFinite.Nodes, Durin::EMaterialProgramOpcode::Constant,
 		&Durin::FMaterialProgramNode::Opcode);
@@ -530,7 +531,7 @@ TEST(FMaterialProgramSchemaTests,
 		Durin::EMaterialProgramDiagnosticCategory::Type);
 
 	Durin::FMaterialProgram UnknownParameter =
-		Durin::MakePBRMaterialProgram();
+		Durin::Testing::MakeLegacyPBRMaterialProgram();
 	const auto ParameterIt = std::ranges::find(
 		UnknownParameter.Nodes, Durin::EMaterialProgramOpcode::Parameter,
 		&Durin::FMaterialProgramNode::Opcode);
@@ -541,7 +542,7 @@ TEST(FMaterialProgramSchemaTests,
 		Durin::EMaterialProgramDiagnosticCategory::Type);
 
 	Durin::FMaterialProgram Cycle =
-		Durin::MakePBRMaterialProgram();
+		Durin::Testing::MakeLegacyPBRMaterialProgram();
 	Durin::FMaterialProgramNode FirstCycle;
 	FirstCycle.Id = {0xc1c1e001, 1, 1, 1};
 	FirstCycle.Opcode = Durin::EMaterialProgramOpcode::Negate;
@@ -555,7 +556,7 @@ TEST(FMaterialProgramSchemaTests,
 	ExpectCategory(Cycle, Durin::EMaterialProgramDiagnosticCategory::Graph);
 
 	Durin::FMaterialProgram ExcessiveDepth =
-		Durin::MakePBRMaterialProgram();
+		Durin::Testing::MakeLegacyPBRMaterialProgram();
 	Durin::FGuid Previous = ExcessiveDepth.Outputs.Metallic.SourceNodeId;
 	for (uint32 Index = 0;
 		Index <= Durin::MaterialProgramMaxDepth; ++Index)
@@ -573,7 +574,7 @@ TEST(FMaterialProgramSchemaTests,
 		Durin::EMaterialProgramDiagnosticCategory::Bounds);
 
 	Durin::FMaterialProgram ExcessiveNodes =
-		Durin::MakePBRMaterialProgram();
+		Durin::Testing::MakeLegacyPBRMaterialProgram();
 	while (ExcessiveNodes.Nodes.size()
 		<= Durin::MaterialProgramMaxNodeCount)
 	{
@@ -588,7 +589,7 @@ TEST(FMaterialProgramSchemaTests,
 		Durin::EMaterialProgramDiagnosticCategory::Bounds);
 
 	Durin::FMaterialProgram ExcessiveInputs =
-		Durin::MakePBRMaterialProgram();
+		Durin::Testing::MakeLegacyPBRMaterialProgram();
 	ExcessiveInputs.Nodes.front().Inputs.assign(
 		Durin::MaterialProgramMaxNodeInputCount + 1,
 		ExcessiveInputs.Outputs.Metallic);
@@ -597,7 +598,7 @@ TEST(FMaterialProgramSchemaTests,
 		Durin::EMaterialProgramDiagnosticCategory::Bounds);
 
 	Durin::FMaterialProgram LongName =
-		Durin::MakePBRMaterialProgram();
+		Durin::Testing::MakeLegacyPBRMaterialProgram();
 	LongName.Nodes.front().DisplayName.assign(
 		Durin::MaterialProgramMaxDisplayNameBytes + 1, 'x');
 	const auto Forward = ExpectCategory(
@@ -714,7 +715,7 @@ TEST(FMaterialProgramNormalizationTests,
 
 TEST(FMaterialProgramSchemaTests, AggregateAndPropertyOutputsAreExclusive)
 {
-	Durin::FMaterialProgram Program = Durin::MakePBRMaterialProgram();
+	Durin::FMaterialProgram Program = Durin::Testing::MakeLegacyPBRMaterialProgram();
 	Program.Outputs.Surface = Program.Outputs.BaseColor;
 	auto Validation = Durin::ValidateMaterialProgram(
 		Program, Durin::GetPBRMaterialParameterDefinitions());
@@ -1864,14 +1865,14 @@ TEST(FMaterialProgramSchemaTests, RetiredSchemasAndOpcodesAreRejectedWithoutMuta
 	const auto Original = *Material->GetMaterialProgram();
 	for (uint32 Version : {2u, 3u, 99u})
 	{
-		auto Program = MakePBRMaterialProgram();
+		auto Program = Durin::Testing::MakeLegacyPBRMaterialProgram();
 		Program.SchemaVersion = Version;
 		EXPECT_FALSE(Material->SetMaterialProgram(Program));
 		EXPECT_EQ(*Material->GetMaterialProgram(), Original);
 	}
 	for (uint8 Opcode : {uint8(3), uint8(30)})
 	{
-		auto Program = MakePBRMaterialProgram();
+		auto Program = Durin::Testing::MakeLegacyPBRMaterialProgram();
 		Program.Nodes.front().Opcode = static_cast<EMaterialProgramOpcode>(Opcode);
 		EXPECT_FALSE(ValidateMaterialProgram(Program, Material->GetParameterDefinitions()));
 		EXPECT_FALSE(Material->SetMaterialProgram(Program));

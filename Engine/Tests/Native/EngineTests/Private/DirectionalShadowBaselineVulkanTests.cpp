@@ -1,3 +1,4 @@
+#include "Materials/LegacyMaterialProgramTestFixture.h"
 #include "CoreGlobals.h"
 #include "Components/ProceduralSkyComponent.h"
 #include "Components/SkyLightComponent.h"
@@ -335,7 +336,7 @@ namespace
 		if (!Durin::IsValid(Root))
 		{
 			Root = Durin::NewObject<Durin::DMaterial>(nullptr, "DirectionalShadowVariantRoot");
-			if (!Root || !Root->SetMaterialProgram(Durin::MakePBRMaterialProgram()))
+			if (!Root || !Root->SetMaterialProgram(Durin::Testing::MakeLegacyPBRMaterialProgram()))
 			{
 				ADD_FAILURE() << "Failed to create the shared variant graph.";
 				return {};

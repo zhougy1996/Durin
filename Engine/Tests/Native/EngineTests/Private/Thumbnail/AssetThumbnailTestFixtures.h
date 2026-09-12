@@ -1,3 +1,4 @@
+#include "../Materials/LegacyMaterialProgramTestFixture.h"
 #include "Asset/AssetCompilingManager.h"
 #pragma once
 #include "NativeDObjectTestSupport.h"
@@ -391,7 +392,7 @@ namespace Durin::Tests
 		auto Created = CreatePackageLeafAssetForTesting(MaterialPath, OutFixtures.Material);
 		if (!Created) return Fail(Created.Message);
 		if (!OutFixtures.Material->SetMaterialProgram(
-			MakePBRMaterialProgram()))
+			Durin::Testing::MakeLegacyPBRMaterialProgram()))
 			return Fail("Could not assign the expanded material fixture program.");
 		if (!OutFixtures.Material->SetVectorParameterValue(
 				MaterialParameters::BaseColorName(), FVector3(0.35, 0.55, 0.75))

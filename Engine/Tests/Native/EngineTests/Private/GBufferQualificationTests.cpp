@@ -1,3 +1,4 @@
+#include "Materials/LegacyMaterialProgramTestFixture.h"
 #include "CoreGlobals.h"
 #include "VulkanEngineTestSupport.h"
 #include "DynamicRHI.h"
@@ -123,7 +124,7 @@ namespace
 		if (!Durin::IsValid(Root))
 		{
 			Root = Durin::NewObject<Durin::DMaterial>(nullptr, "GBufferVariantRoot");
-			if (!Root || !Root->SetMaterialProgram(Durin::MakePBRMaterialProgram()))
+			if (!Root || !Root->SetMaterialProgram(Durin::Testing::MakeLegacyPBRMaterialProgram()))
 			{
 				ADD_FAILURE() << "Failed to create the shared variant graph.";
 				return {};

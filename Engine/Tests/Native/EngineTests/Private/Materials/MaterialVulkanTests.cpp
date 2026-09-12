@@ -1,3 +1,4 @@
+#include "LegacyMaterialProgramTestFixture.h"
 #include "Threading/Task.h"
 #include "NativeAssetTestSupport.h"
 #include "Misc/MountPathTestSupport.h"
@@ -103,7 +104,7 @@ namespace
 		if (!Durin::IsValid(Material)) return nullptr;
 		if (!Material->SetMaterialDefinitionsAndProgram(
 			Durin::MakePBRMaterialParameterDefinitions(),
-			Durin::MakePBRMaterialProgram()))
+			Durin::Testing::MakeLegacyPBRMaterialProgram()))
 			return nullptr;
 		if (!FinishMaterialCompileForTest(*Material)) return nullptr;
 		return Material;
@@ -1006,7 +1007,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			Pool.Reset();
 		}
 		{
-			auto Validation = StaticMeshAssetMaterial->SetMaterialProgram(Durin::MakePBRMaterialProgram());
+			auto Validation = StaticMeshAssetMaterial->SetMaterialProgram(Durin::Testing::MakeLegacyPBRMaterialProgram());
 			ASSERT_TRUE(Validation);
 			ASSERT_TRUE(StaticMeshAssetMaterial->SetTextureParameterValue(
 				Durin::MaterialParameters::BaseColorTextureName(), TextureResult.Asset));

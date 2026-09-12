@@ -1,4 +1,7 @@
 #include "Asset/PackageSerialization.h"
+#if DURIN_WITH_EDITOR
+#include "AssetForge/Builtins/SceneImport.h"
+#endif
 #include "AssetRegistry/Scan.h"
 #include "Asset/Mutation.h"
 #include "Asset/Load.h"
@@ -58,6 +61,7 @@ namespace
 		Resave,
 		StorageInventory,
 		IdentityAudit,
+		MaterialFunctions,
 		Cook,
 	};
 
@@ -96,6 +100,7 @@ namespace
 		case EOperation::Resave: return "resave";
 		case EOperation::StorageInventory: return "storage-inventory";
 		case EOperation::IdentityAudit: return "identity-audit";
+		case EOperation::MaterialFunctions: return "material-functions";
 		case EOperation::Cook: return "cook";
 		}
 		return "check";
@@ -150,6 +155,7 @@ namespace
 			<< "  resave option: --recompress-texture-sources (includes current packages)\n"
 			<< "  DurinAssetTool storage-inventory --project=<project.dproject>\n"
 			<< "  DurinAssetTool identity-audit --project=<project.dproject>\n"
+			<< "  DurinAssetTool material-functions --project=<project.dproject> --apply\n"
 			<< "  DurinAssetTool cook --project=<project.dproject> --output=<absolute-path> "
 			<< "--target=win64 --profile=game [--root=/Game/Path]... "
 			<< "[--no-incremental] [--dry-run] [--json]\n";
@@ -184,7 +190,7 @@ namespace
 								| OptionBit(EOption::Target) | OptionBit(EOption::Profile)
 								| OptionBit(EOption::Root) | OptionBit(EOption::NoIncremental)
 								| OptionBit(EOption::DryRun);
-		const uint16 Allowed = Options.Operation == EOperation::Resave ? Resave : Options.Operation == EOperation::Check ? Check :
+		const uint16 Allowed = Options.Operation == EOperation::MaterialFunctions ? Storage | OptionBit(EOption::Apply) : Options.Operation == EOperation::Resave ? Resave : Options.Operation == EOperation::Check ? Check :
 															  Options.Operation == EOperation::Cook		 ? Cook : Storage;
 		const uint16 Unexpected = Options.SpecifiedOptions & ~Allowed;
 		constexpr EOption OrderedOptions[] = {
@@ -216,6 +222,11 @@ namespace
 				return false;
 			}
 			return true;
+		}
+		if (Options.Operation == EOperation::MaterialFunctions && !Options.bApply)
+		{
+			OutError = "material-functions requires --apply; inspect asset identity-audit and canonical-resave preview first.";
+			return false;
 		}
 		if (Options.Operation != EOperation::Resave) return true;
 		if (Options.Scopes.empty() && !Options.bWholeProject)
@@ -254,6 +265,8 @@ namespace
 			OutOptions.Operation = EOperation::StorageInventory;
 		else if (Command == "identity-audit")
 			OutOptions.Operation = EOperation::IdentityAudit;
+		else if (Command == "material-functions")
+			OutOptions.Operation = EOperation::MaterialFunctions;
 		else if (Command == "cook")
 			OutOptions.Operation = EOperation::Cook;
 		else
@@ -1000,6 +1013,25 @@ int main(int ArgC, char** ArgV)
 		Durin::FModuleManager::Get().LoadModuleChecked(Durin::FName(Module));
 	(void)Durin::DLevel::StaticClass(); // Force the Engine reflection module into this process.
 	if (Options.Operation == EOperation::Cook) return RunCook(Options);
+	if (Options.Operation == EOperation::MaterialFunctions)
+	{
+#if DURIN_WITH_EDITOR
+		const auto Refresh = Durin::RefreshAssetRegistry(Durin::EAssetRegistryScanMode::FullValidation);
+		if (!Refresh || !Refresh.bPublished) return 1;
+		Durin::FModuleManager::Get().LoadModuleChecked("ShaderBuild");
+		std::string Error;
+		if (!Durin::AssetForge::Builtins::EnsureImportedSurfaceMaterial(Error))
+		{
+			std::cerr << "Material function upgrade failed: " << Error << '\n';
+			return 1;
+		}
+		std::cout << "Standard material functions and ImportedSurface are current.\n";
+		return 0;
+#else
+		std::cerr << "Material function upgrade requires the editor asset host.\n";
+		return 1;
+#endif
+	}
 	const Durin::FReflectionCompatibilityCatalog Catalog =
 		Durin::FReflectionCompatibilityCatalog::Capture();
 	Durin::FAssetPackageDiscoverySnapshot Snapshot =

@@ -393,9 +393,6 @@ namespace Durin
 	};
 
 	ENGINE_API auto MakeDefaultMaterialProgram() -> FMaterialProgram;
-	// Built-in PBR template expressed entirely through ordinary parameter,
-	// numeric, UV, texture-sample, and surface-construction nodes.
-	ENGINE_API auto MakePBRMaterialProgram() -> FMaterialProgram;
 	ENGINE_API auto GetMaterialSurfaceOutputType(EMaterialSurfaceOutput Output)
 		-> EMaterialProgramValueType;
 	ENGINE_API auto GetMaterialSurfaceOutputLink(

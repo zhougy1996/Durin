@@ -1,4 +1,5 @@
 
+import argparse
 import io
 import json
 from dataclasses import replace
@@ -507,3 +508,27 @@ def test_texture_recompression_flag_preserves_preview_apply_boundary(tmp_path: P
     assert "--recompress-texture-sources" in calls[0]
     assert "--all" in calls[0]
     assert ("--apply" in calls[0]) == apply
+
+
+@pytest.mark.parametrize("apply", [False, True])
+def test_material_function_upgrade_requires_explicit_apply(tmp_path: Path, apply: bool) -> None:
+    executable = tmp_path / "DurinAssetTool.exe"
+    executable.touch()
+    project = tmp_path / "Test.dproject"
+    project.write_text("{}", encoding="utf-8")
+    namespace = argparse.Namespace(asset_command="material-functions", project_path=project, apply=apply)
+    calls = []
+    def runner(arguments, **kwargs):
+        calls.append(arguments)
+        return "Standard material functions and ImportedSurface are current."
+    def run():
+        return asset.run(namespace, repository_root=tmp_path, repository_context=REPOSITORY,
+            stdout=io.StringIO(), stderr=io.StringIO(),
+            executable_resolver=lambda *_: executable, command_runner=runner)
+    if apply:
+        assert run() == 0
+        assert calls == [[str(executable), "material-functions", f"--project={project}", "--apply"]]
+    else:
+        with pytest.raises(DevToolError, match="requires --apply"):
+            run()
+        assert calls == []

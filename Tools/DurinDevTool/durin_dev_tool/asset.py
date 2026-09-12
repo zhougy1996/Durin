@@ -278,14 +278,19 @@ def run(
         )
     )
     command = getattr(namespace, "asset_command", "check")
-    if command == "identity-audit":
+    if command in ("identity-audit", "material-functions"):
         project = _project_from_namespace(namespace, repository)
+        arguments = [command, f"--project={project}"]
+        if command == "material-functions":
+            if not bool(getattr(namespace, "apply", False)):
+                raise DevToolError("Material function upgrade requires --apply.")
+            arguments.append("--apply")
         native_output = _invoke_asset_program(
             selection,
             executable,
-            ["identity-audit", f"--project={project}"],
+            arguments,
             stderr=stderr,
-            interruption_message="Asset identity audit cancelled.",
+            interruption_message=f"Asset {command} cancelled.",
             command_runner=command_runner,
         )
         if native_output is None:

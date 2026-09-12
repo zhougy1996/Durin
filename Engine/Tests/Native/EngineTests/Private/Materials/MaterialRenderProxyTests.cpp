@@ -1,3 +1,4 @@
+#include "LegacyMaterialProgramTestFixture.h"
 #include "MaterialTestSupport.h"
 
 #include "Materials/MaterialRenderProxy.h"
@@ -16,7 +17,7 @@ namespace
 			Outer, std::forward<TName>(Name));
 		if (!Material || !Material->SetMaterialDefinitionsAndProgram(
 			Durin::MakePBRMaterialParameterDefinitions(),
-			Durin::MakePBRMaterialProgram())) return nullptr;
+			Durin::Testing::MakeLegacyPBRMaterialProgram())) return nullptr;
 		if (!FinishMaterialCompileForTest(*Material)) return nullptr;
 		return Material;
 	}
@@ -108,7 +109,7 @@ TEST(FMaterialRenderProxyTests, ParentProgramChangesReevaluateDormantOverrides)
 	EXPECT_TRUE(Instance->IsParameterOverrideOrphan(
 		Durin::MaterialParameters::GetBuiltinParameterIds(
 			Durin::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value));
-	ASSERT_TRUE((Validation = Base->SetMaterialProgram(Durin::MakePBRMaterialProgram())));
+	ASSERT_TRUE((Validation = Base->SetMaterialProgram(Durin::Testing::MakeLegacyPBRMaterialProgram())));
 	const auto Restored = CaptureMaterialProxy(Proxy);
 	EXPECT_GT(Restored.LocalVersion, Dormant.LocalVersion);
 	ExpectColorNear(GetMaterialBinding(Restored.RenderData).BaseColor,
@@ -471,7 +472,7 @@ TEST(FMaterialRenderProxyTests, TemplateIdentitiesDoNotOverrideEditedDeclaration
 		}
 	}
 	ASSERT_TRUE(Base->SetMaterialDefinitionsAndProgram(
-		std::move(Definitions), Durin::MakePBRMaterialProgram()));
+		std::move(Definitions), Durin::Testing::MakeLegacyPBRMaterialProgram()));
 	ASSERT_TRUE(FinishMaterialCompileForTest(*Base));
 	auto Proxy = Base->GetMaterialRenderProxy();
 	const auto Snapshot = CaptureMaterialProxy(Proxy);

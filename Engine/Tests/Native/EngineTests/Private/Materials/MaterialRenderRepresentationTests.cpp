@@ -1,3 +1,4 @@
+#include "LegacyMaterialProgramTestFixture.h"
 #include "Misc/MountPathTestSupport.h"
 #include "NativeDObjectTestSupport.h"
 #include "MaterialTestSupport.h"
@@ -18,7 +19,7 @@ namespace
 		auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, Name);
 		if (!Material || !Material->SetMaterialDefinitionsAndProgram(
 			Durin::MakePBRMaterialParameterDefinitions(),
-			Durin::MakePBRMaterialProgram())) return nullptr;
+			Durin::Testing::MakeLegacyPBRMaterialProgram())) return nullptr;
 		if (!FinishMaterialCompileForTest(*Material)) return nullptr;
 		return Material;
 	}
@@ -423,7 +424,7 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Source, nullptr);
 	auto Validation = Source->SetMaterialProgram(
-		Durin::MakePBRMaterialProgram());
+		Durin::Testing::MakeLegacyPBRMaterialProgram());
 	ASSERT_TRUE(Validation);
 	ASSERT_TRUE(Source->SetVectorParameterValue(
 		Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.2, 0.4, 0.7)));

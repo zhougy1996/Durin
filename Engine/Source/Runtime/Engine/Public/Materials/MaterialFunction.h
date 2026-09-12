@@ -21,6 +21,10 @@ namespace Durin
 		ENGINE_API auto BuildFunctionSnapshot(FMaterialFunctionSnapshot& OutSnapshot) const
 			-> FMaterialProgramValidationResult override;
 		auto GetFunctionGraph() const -> const FMaterialFunctionGraph& { return Graph; }
+		// Bootstrap provenance is editor metadata, never part of compiler semantics.
+		auto GetAuthoringSource() const -> const std::string& { return AuthoringSource; }
+		auto GetAuthoringSourceVersion() const -> uint32 { return AuthoringSourceVersion; }
+		ENGINE_API auto SetAuthoringSource(std::string Source, uint32 Version) -> void;
 		// Owning-thread atomic edit. Invalid candidates leave the authored graph unchanged.
 		[[nodiscard]] ENGINE_API auto SetFunctionGraph(FMaterialFunctionGraph Candidate)
 			-> FMaterialProgramValidationResult;
@@ -36,6 +40,12 @@ namespace Durin
 
 		DPROPERTY(EditorOnly)
 		FMaterialFunctionPresentation Presentation;
+
+		DPROPERTY(EditorOnly)
+		std::string AuthoringSource;
+
+		DPROPERTY(EditorOnly)
+		uint32 AuthoringSourceVersion = 0;
 		uint64 Revision = 1;
 	};
 }

@@ -1,3 +1,4 @@
+#include "LegacyMaterialProgramTestFixture.h"
 #include "Misc/MountPathTestSupport.h"
 #include "MaterialGraphOperations.h"
 #include "MaterialGraphDocument.h"
@@ -91,7 +92,7 @@ namespace
 		DMaterial* Material = NewObject<DMaterial>(nullptr, Name);
 		if (!Material || !Material->SetMaterialDefinitionsAndProgram(
 			MakePBRMaterialParameterDefinitions(),
-			MakePBRMaterialProgram())
+			Durin::Testing::MakeLegacyPBRMaterialProgram())
 			|| !FMaterialGraphOperations::Layout(*Material)) return nullptr;
 		return Material;
 	}
@@ -290,7 +291,7 @@ TEST(FMaterialGraphOperationsTests,
 				|| Value.NodeTemplate.Opcode
 					== static_cast<EMaterialProgramOpcode>(3);
 		}));
-	FMaterialProgram AggregateProgram = MakePBRMaterialProgram();
+	FMaterialProgram AggregateProgram = Durin::Testing::MakeLegacyPBRMaterialProgram();
 	FMaterialProgramNode Surface;
 	Surface.Id = FGuid::NewGuid();
 	Surface.Opcode = EMaterialProgramOpcode::MakeSurface;
@@ -336,7 +337,7 @@ TEST(FMaterialGraphOperationsTests,
 
 TEST(FMaterialGraphOperationsTests, PresentationSanitizationIsIndependentAndBounded)
 {
-	const FMaterialProgram Program = MakePBRMaterialProgram();
+	const FMaterialProgram Program = Durin::Testing::MakeLegacyPBRMaterialProgram();
 	ASSERT_GE(Program.Nodes.size(), 2u);
 	FMaterialGraphPresentation Presentation;
 	Presentation.SchemaVersion = 99;
@@ -956,7 +957,7 @@ TEST(FMaterialGraphOperationsTests,
 		Package, "InitializedGraphLayoutMaterial");
 	ASSERT_NE(Material, nullptr);
 	auto Validation = Material->SetMaterialProgram(
-		MakePBRMaterialProgram());
+		Durin::Testing::MakeLegacyPBRMaterialProgram());
 	ASSERT_TRUE(Validation);
 	std::string Error;
 	ASSERT_TRUE(PrepareNewMaterialForEditing(*Material, Error)) << Error;

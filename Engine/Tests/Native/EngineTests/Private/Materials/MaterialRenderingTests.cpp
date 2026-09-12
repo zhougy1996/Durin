@@ -1,3 +1,4 @@
+#include "LegacyMaterialProgramTestFixture.h"
 #include "StaticMesh/StaticMeshCompilation.h"
 #include "Misc/MountPathTestSupport.h"
 #include "MaterialTestSupport.h"
@@ -52,7 +53,7 @@ namespace
 		auto* Material = Durin::NewObject<Durin::DMaterial>(Outer, Name);
 		if (!Material || !Material->SetMaterialDefinitionsAndProgram(
 			Durin::MakePBRMaterialParameterDefinitions(),
-			Durin::MakePBRMaterialProgram())) return nullptr;
+			Durin::Testing::MakeLegacyPBRMaterialProgram())) return nullptr;
 		if (!FinishMaterialCompileForTest(*Material)) return nullptr;
 		return Material;
 	}

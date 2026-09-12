@@ -28,7 +28,11 @@ through their workspace, shared commands and typed canvas. Call insertion, port
 defaults, Surface editing, previews and diagnostic navigation are implemented.
 Clipboard, mouse gestures, Undo/Redo and multi-document save/reload are qualified,
 including retained clipboard references across resource replacement.
-Stages 4-5 have not started.
+Stage 4 completed on 2026-09-12: the five standard functions, provenance, compact importer
+graph and explicit upgrade command are implemented. All 22 inventoried packages
+and five new functions have verified identities, references and fingerprints;
+repeat migration makes no source changes. Import and family reimport validation passes.
+Stage 5 has not started.
 
 The 2026-09-11 prerequisite refactor changes current compilation failure and
 admission rejection to retire the owner's accepted renderable generation and
@@ -775,6 +779,56 @@ workspace `all` build,
 Changed-document validation passed. Pixel-level GPU equivalence remains the
 explicit Stage 5 gate; these authoring checks do not replace it.
 
+## Stage 4 Execution Record
+
+The library ships UVTransform, SampleNormal, SampleORM, StandardPBR and
+StandardPBR_ORM as ordinary editable function assets. Persistent port slots do not
+depend on labels. Authoring source/version metadata is editor-only. Bootstrap
+saves dependencies first, preserves edited implementations and rejects incompatible
+interfaces or provenance. ImportedSurface retains all 48 parameter GUIDs in a
+65-node graph: eight UVChannel nodes, eight UVTransform calls and one StandardPBR
+call. Surface composition is shared by both PBR entries; SampleORM supplies three
+outputs from one sample. Native normalization confirms eight resources/samples for
+independent maps and six for the packed entry.
+
+The runtime MakePBRMaterialProgram API is retired. Its frozen expanded graph is
+isolated in explicit upgrade recognition and independent test baselines; normal
+production construction uses the function library. Inspection of historical commit
+8e5b7eb8f established the second exact template: the 203-node StandardSurface
+resave expansion with deterministic MIGR node identities. The recognizer accepts
+that complete graph, not just its familiar root GUID. A modified node is rejected.
+
+The [migration checkpoint](Evidence/ReusableMaterialFunctions-Migration.json)
+records all source fingerprints and dispositions. ImportedSurface was replaced;
+DefaultMaterial, five meshes and two material instances were canonically resaved.
+The other 13 existing packages remained byte-identical. All original object records
+and references are preserved; only the parent gains function references. The five
+new function assets remain byte-identical after retry. The first attempt stopped
+after saving dependencies because the historical parent variant was unrecognized;
+the corrected retry preserved those dependencies and completed the parent save.
+
+Read-only inventories and resave reports are under
+`Build/.agent-state/evidence/ReusableMaterialFunctions-Stage4/`:
+Sandbox/RoadWeaver before/after, Sandbox-preview, DefaultMaterial-preview,
+Sandbox-resave-apply and Sandbox-repeat. The repeated canonical apply succeeds
+with no selected changes. SceneImportTests passed 6/6 including interface conflict,
+implementation preservation, save/reload and both exact legacy templates, receipt
+`Build/.agent-state/logs/20260912-155113-574132-21076-SceneImportTests.log`.
+MaterialTests passed 179/179, receipt
+`Build/.agent-state/logs/20260912-155227-804693-37768-MaterialTests.log`.
+The asset command Python suite passed 20/20. The workspace all build passed in
+`Build/.agent-state/logs/20260912-153914-154435-19252-cmake.log`; the subsequent
+upgrade-recognition host build passed in
+`Build/.agent-state/logs/20260912-154619-878908-5200-cmake.log`.
+Final SceneImportTests passed 6/6 with the compilation-manager lifecycle and a
+family StaticMesh reimport retaining the standard-function material slot, receipt
+`Build/.agent-state/logs/20260912-160040-929384-29548-SceneImportTests.log`.
+Reimport qualification uses the existing family route. Multi-output Scene import
+remains create-only and rejects collisions; this plan does not add scene ownership
+or group reimport semantics.
+The final workspace all build passed, receipt
+`Build/.agent-state/logs/20260912-160212-848174-28564-cmake.log`.
+
 ## Implementation Stages
 
 ### Stage 0: Freeze interfaces and migration inventory
@@ -836,11 +890,11 @@ patches; interface changes retain stable connections and actionable diagnostics.
 
 Depends on Stages 1-3.
 
-- [ ] Author standard functions, replace Import graph construction/validation,
+- [x] Author standard functions, replace Import graph construction/validation,
   and generate intentional compact graph presentation.
-- [ ] Upgrade the inventoried assets and preserve instance bindings and slots;
+- [x] Upgrade the inventoried assets and preserve instance bindings and slots;
   remove retired expanded PBR production builders and migrate their fixtures.
-- [ ] Verify fresh import, reimport, missing resource fallback, save/reload,
+- [x] Verify fresh import, reimport, missing resource fallback, save/reload,
   modified assets and interrupted/repeated migration.
 
 Exit: ImportedSurface has one standard function call with inputs and Surface

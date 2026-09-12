@@ -44,6 +44,18 @@ projects. Repeat with `--project` for each project descriptor; shared Engine
 content needs only one pass. Project modules are loaded before schema capture
 so project-defined asset classes participate in inspection and resave.
 
+For the reusable material function migration, first retain `asset identity-audit`
+and canonical-resave preview reports, then run
+`DevTool.bat asset material-functions --project <descriptor> --apply`.
+This saves missing standard function dependencies before upgrading ImportedSurface.
+Only the exact shipped expanded templates are replaced, including the historical
+StandardSurface resave expansion. Existing function implementations are preserved;
+incompatible provenance or interfaces and modified parent graphs are reported.
+Each package save is atomic, so a retry resumes from the compatible saved functions.
+Retain package fingerprints in the migration checkpoint, verify them before a
+retry, and rerun both the upgrade and canonical-resave audit after publication.
+Instances and meshes use the ordinary canonical-resave operation below.
+
 Folder scopes and `--all` select recommended identity repairs. To force a plain
 load-and-save of an already canonical package, pass its exact package path.
 This is required when persisting an in-memory domain upgrade before removing

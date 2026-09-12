@@ -1,4 +1,6 @@
 #include "AssetForge/Builtins/SceneImport.h"
+#include "ImportedSurfaceLegacyUpgrade.h"
+#include "AssetForge/Builtins/StandardMaterialFunctions.h"
 
 #include "Asset/PackageSerialization.h"
 #include "Asset/Asset.h"
@@ -12,33 +14,60 @@ namespace Durin::AssetForge::Builtins
 	using namespace Durin;
 	namespace
 	{
-		auto MakeTemplatePresentation(const FMaterialProgram& Program)
-			-> FMaterialGraphPresentation
-		{
-			FMaterialGraphPresentation Result{
-				.bHasMaterialOutputPosition = true,
-				.MaterialOutputX = 1280,
-				.MaterialOutputY = 0,
-			};
-			Result.Nodes.reserve(Program.Nodes.size());
-			for (size_t Index = 0; Index < Program.Nodes.size(); ++Index)
-				Result.Nodes.push_back({Program.Nodes[Index].Id,
-					static_cast<int32>((Index % 8) * 160),
-					static_cast<int32>((Index / 8) * 96)});
-			return Result;
-		}
-
-		auto EnsureTemplateProgram(DMaterial& Material,
+		auto EnsureTemplateProgram(DMaterial& Material, const FStandardMaterialFunctions& Functions,
 			std::string& OutError) -> bool
 		{
-			const FMaterialProgram Expected = MakePBRMaterialProgram();
-			if (*Material.GetMaterialProgram() == Expected) return true;
-			OutError = "ImportedSurface has a modified or stale material program; restore the current built-in template before importing.";
-			return false;
+			std::vector<FMaterialFunctionCall> Calls;
+			FMaterialGraphPresentation Presentation;
+			const auto Expected = MakeImportedSurfaceFunctionProgram(Functions, Calls, Presentation);
+			if (*Material.GetMaterialProgram() == Expected
+				&& std::ranges::equal(Material.GetMaterialFunctionCalls(), Calls)) return true;
+			// Only the exact shipped expanded template is eligible for automatic replacement.
+			if (!Material.GetMaterialFunctionCalls().empty()
+				|| (*Material.GetMaterialProgram() != LegacyUpgrade::MakeImportedSurfaceProgram()
+					&& *Material.GetMaterialProgram() != LegacyUpgrade::MakeImportedSurfaceAggregateProgram()))
+			{
+				OutError = "ImportedSurface has a modified material graph; preserve it and resolve the template conflict before importing.";
+				const auto& Actual = *Material.GetMaterialProgram();
+				const auto Legacy = LegacyUpgrade::MakeImportedSurfaceProgram();
+				OutError += std::format(" Schema {}, nodes {} (expected {}), calls {}.", Actual.SchemaVersion,
+					Actual.Nodes.size(), Legacy.Nodes.size(), Material.GetMaterialFunctionCalls().size());
+				for (size_t I = 0; I < std::min(Actual.Nodes.size(), Legacy.Nodes.size()); ++I)
+					if (Actual.Nodes[I] != Legacy.Nodes[I])
+					{
+						OutError += std::format(" First differing node {}: opcode {} (expected {}), name '{}', identity matches {}, inputs match {}.",
+							I, static_cast<uint32>(Actual.Nodes[I].Opcode), static_cast<uint32>(Legacy.Nodes[I].Opcode),
+							Actual.Nodes[I].DisplayName, Actual.Nodes[I].Id == Legacy.Nodes[I].Id, Actual.Nodes[I].Inputs == Legacy.Nodes[I].Inputs);
+						break;
+					}
+				return false;
+			}
+			const auto PreviousProgram = *Material.GetMaterialProgram();
+			const auto PreviousPresentation = Material.GetMaterialGraphPresentation();
+			const bool bWasDirty = Material.GetPackage()->IsDirty();
+			const auto Applied = Material.SetMaterialProgramAndFunctionCalls(Expected, std::move(Calls));
+			if (!Applied)
+			{
+				OutError = Applied.Diagnostics.empty() ? "ImportedSurface upgrade failed." : Applied.Diagnostics.front().Message;
+				return false;
+			}
+			Material.SetMaterialGraphPresentation(std::move(Presentation));
+			const auto Saved = SavePackage(Material.GetPackage());
+			if (!Saved)
+			{
+				(void)Material.SetMaterialProgramAndFunctionCalls(PreviousProgram, {});
+				Material.SetMaterialGraphPresentation(PreviousPresentation);
+				if (!bWasDirty) Material.GetPackage()->ClearDirty();
+				OutError = Saved.Message;
+				return false;
+			}
+			return true;
 		}
 	}
 	auto EnsureImportedSurfaceMaterial(std::string& OutError) -> DMaterial*
 	{
+		FStandardMaterialFunctions Functions;
+		if (!EnsureStandardMaterialFunctions(Functions, OutError)) return nullptr;
 		FPackagePath MaterialPath;
 		if (!FPackagePath::TryCreate(
 			ImportedSurfaceMaterialPackagePath, MaterialPath, &OutError)) return nullptr;
@@ -67,7 +96,7 @@ namespace Durin::AssetForge::Builtins
 					DeclarationValidation.Error));
 				return nullptr;
 			}
-			if (!EnsureTemplateProgram(*Loaded, OutError)) return nullptr;
+			if (!EnsureTemplateProgram(*Loaded, Functions, OutError)) return nullptr;
 			OutError.clear();
 			return Loaded;
 		}
@@ -97,7 +126,7 @@ namespace Durin::AssetForge::Builtins
 				UnloadPackage(MaterialPath);
 				return nullptr;
 			}
-			if (!EnsureTemplateProgram(*Loaded, OutError))
+			if (!EnsureTemplateProgram(*Loaded, Functions, OutError))
 			{
 				UnloadPackage(MaterialPath);
 				return nullptr;
@@ -124,9 +153,11 @@ namespace Durin::AssetForge::Builtins
 					? "the asset tool returned no material" : CreateResult.Message);
 			return nullptr;
 		}
-		const FMaterialProgram TemplateProgram = MakePBRMaterialProgram();
+		std::vector<FMaterialFunctionCall> Calls;
+		FMaterialGraphPresentation Presentation;
+		const auto TemplateProgram = MakeImportedSurfaceFunctionProgram(Functions, Calls, Presentation);
 		const auto TemplateResult = Created->SetMaterialDefinitionsAndProgram(
-			MakePBRMaterialParameterDefinitions(), TemplateProgram);
+			MakePBRMaterialParameterDefinitions(), TemplateProgram, std::move(Calls));
 		if (!TemplateResult)
 		{
 			OutError = TemplateResult.Diagnostics.empty()
@@ -137,7 +168,7 @@ namespace Durin::AssetForge::Builtins
 			return nullptr;
 		}
 		if (!Created->SetMaterialGraphPresentation(
-			MakeTemplatePresentation(TemplateProgram)))
+			std::move(Presentation)))
 		{
 			OutError = "Failed to initialize the standard imported-surface material graph presentation.";
 			UnloadPackage(Created->GetPackage(),

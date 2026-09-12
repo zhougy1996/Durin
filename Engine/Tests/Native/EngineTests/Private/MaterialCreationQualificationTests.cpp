@@ -1,3 +1,4 @@
+#include "Materials/LegacyMaterialProgramTestFixture.h"
 #include "EngineTestSupport.h"
 #include "Asset/AssetCompilingManager.h"
 #include "Materials/Material.h"
@@ -154,7 +155,7 @@ namespace Durin
 			Life.Material = NewObject<DMaterial>(nullptr, std::format("MeasuredMaterial{}", Round));
 			ASSERT_NE(Life.Material, nullptr);
 			FMaterialProgramValidationResult Validation;
-			ASSERT_TRUE(Life.Material->SetMaterialProgram(MakePBRMaterialProgram(), Validation));
+			ASSERT_TRUE(Life.Material->SetMaterialProgram(Durin::Testing::MakeLegacyPBRMaterialProgram(), Validation));
 			ASSERT_TRUE(Life.Material->SetStaticProperties({.BlendMode=EMaterialBlendMode::Opaque,
 				.ShadingModel=EMaterialShadingModel::Unlit, .bTwoSided=true}));
 			ASSERT_TRUE(Life.Material->SetVectorParameterValue(MaterialParameters::BaseColorName(), SurfaceColor));

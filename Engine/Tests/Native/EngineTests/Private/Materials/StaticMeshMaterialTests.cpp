@@ -1,3 +1,4 @@
+#include "LegacyMaterialProgramTestFixture.h"
 #include "Misc/MountPathTestSupport.h"
 #include "NativeDObjectTestSupport.h"
 #include "MaterialTestSupport.h"
@@ -17,7 +18,7 @@ namespace
 	auto SetExpandedProgram(Durin::DMaterial& Material) -> bool
 	{
 		return Material.SetMaterialProgram(
-			Durin::MakePBRMaterialProgram());
+			Durin::Testing::MakeLegacyPBRMaterialProgram());
 	}
 
 	auto RelocateAssetForTest(
@@ -638,7 +639,7 @@ TEST(FMaterialProgramPackageTests,
 	Durin::DMaterial* Material = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(Path, Material));
 	Durin::FMaterialProgram Authored =
-		Durin::MakePBRMaterialProgram();
+		Durin::Testing::MakeLegacyPBRMaterialProgram();
 	std::ranges::reverse(Authored.Nodes);
 	Authored.Nodes.front().DisplayName = "Persisted presentation metadata";
 	auto Validation = Material->SetMaterialProgram(Authored);

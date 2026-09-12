@@ -11,6 +11,7 @@ durin_target_enable_windows_long_paths(DurinAssetTool)
 durin_target_apply_common_definitions(DurinAssetTool "DurinAssetTool")
 target_link_libraries(DurinAssetTool PRIVATE AssetMaintenance AssetRegistry Engine)
 if(DURIN_WITH_EDITOR)
+    target_link_libraries(DurinAssetTool PRIVATE AssetForgeBuiltins)
     # Canonical-resave apply loads AssetForgeBuiltins dynamically so uncooked assets can
     # run their uncooked post-load policy without expanding read-only audits.
     add_dependencies(DurinAssetTool StaticMeshBuild TextureBuild AssetForgeBuiltins ShaderBuild Renderer)

@@ -1,3 +1,4 @@
+#include "LegacyMaterialProgramTestFixture.h"
 #include "Threading/TaskComposition.h"
 #include "MaterialTestSupport.h"
 
@@ -228,7 +229,7 @@ TEST(FMaterialCompileLifecycleTests,
 	EXPECT_TRUE(First->GetMaterialCompileStatus().IsCurrent());
 
 	auto ParameterValidation = First->SetMaterialProgram(
-		Durin::MakePBRMaterialProgram());
+		Durin::Testing::MakeLegacyPBRMaterialProgram());
 
 	ASSERT_TRUE(ParameterValidation);
 	auto* PendingInstance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "PendingParameterEdit");
@@ -323,7 +324,7 @@ TEST(FMaterialCompileLifecycleTests,
 	// Pending replacements retain deleted declarations; failed owners retire them.
 	{
 		auto* Root = Durin::NewObject<Durin::DMaterial>(nullptr, "RetainedDeclarationRoot");
-		ASSERT_TRUE(Root->SetMaterialProgram(Durin::MakePBRMaterialProgram()));
+		ASSERT_TRUE(Root->SetMaterialProgram(Durin::Testing::MakeLegacyPBRMaterialProgram()));
 		ASSERT_TRUE(WaitForMaterialCompile(*Root));
 		ASSERT_NE(Root, nullptr);
 		ASSERT_NE(Root->GetAcceptedCompiledProgram(), nullptr);
@@ -427,7 +428,7 @@ auto QualifyInstanceCompilationOwners() -> void
 	} Scope;
 	auto* Root = Durin::NewObject<Durin::DMaterial>(nullptr, "InstanceCompileRoot");
 	Scope.Objects.push_back(Root);
-	ASSERT_TRUE(Root->SetMaterialProgram(Durin::MakePBRMaterialProgram()));
+	ASSERT_TRUE(Root->SetMaterialProgram(Durin::Testing::MakeLegacyPBRMaterialProgram()));
 	ASSERT_TRUE(WaitForMaterialCompile(*Root));
 	auto* Child = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "InstanceCompileChild");
 	auto* Grandchild = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "InstanceCompileGrandchild");
@@ -511,7 +512,7 @@ auto MeasureInstanceVariantQualificationBaseline() -> void
 	} Scope;
 	auto* Root = Durin::NewObject<Durin::DMaterial>(nullptr, "VariantFixtureRoot");
 	Scope.Objects.push_back(Root);
-	ASSERT_TRUE(Root->SetMaterialProgram(Durin::MakePBRMaterialProgram()));
+	ASSERT_TRUE(Root->SetMaterialProgram(Durin::Testing::MakeLegacyPBRMaterialProgram()));
 	ASSERT_TRUE(WaitForMaterialCompile(*Root));
 	Durin::FMaterialCompilerInput Input;
 	Input.Program = *Root->GetMaterialProgram();
@@ -709,7 +710,7 @@ TEST(FMaterialCompileLifecycleTests,
 	auto* Material = Durin::NewObject<Durin::DMaterial>(
 		nullptr, "CookedProgramRoundTrip");
 	auto Validation = Material->SetMaterialProgram(
-		Durin::MakePBRMaterialProgram());
+		Durin::Testing::MakeLegacyPBRMaterialProgram());
 	ASSERT_TRUE(Validation);
 	ASSERT_TRUE(Material->GetAcceptedCompiledProgram());
 

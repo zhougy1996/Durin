@@ -1,3 +1,4 @@
+#include "Materials/LegacyMaterialProgramTestFixture.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Editor/EditorTransactionTestSupport.h"
 #include "EngineTestSupport.h"
@@ -37,7 +38,7 @@ namespace
 	{
 		auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, Name);
 		if (!Material || !Material->SetMaterialProgram(
-			Durin::MakePBRMaterialProgram())) return nullptr;
+			Durin::Testing::MakeLegacyPBRMaterialProgram())) return nullptr;
 		return Material;
 	}
 }
@@ -397,7 +398,7 @@ TEST(FMaterialParameterPanelModelTests, RefreshReusesDependenciesAndInvalidatesF
 	EXPECT_TRUE(Model.Refresh());
 	ASSERT_EQ(Model.GetEntries().size(), 1u);
 	EXPECT_TRUE(Model.GetEntries().front().bOrphan);
-	ASSERT_TRUE(Base->SetMaterialProgram(Durin::MakePBRMaterialProgram()));
+	ASSERT_TRUE(Base->SetMaterialProgram(Durin::Testing::MakeLegacyPBRMaterialProgram()));
 	EXPECT_TRUE(Model.Refresh());
 	EXPECT_FALSE(FindEntry(Model, Id)->bOrphan);
 	ASSERT_TRUE(Parent->SetParent(OtherBase));

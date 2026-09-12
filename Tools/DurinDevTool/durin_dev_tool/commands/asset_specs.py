@@ -29,6 +29,17 @@ COMMAND_SPEC = CommandSpec(
     "check, resave, or inspect authored assets",
     subcommands=(
         CommandSpec(
+            "material-functions",
+            "bootstrap standard functions and upgrade the recognized ImportedSurface template",
+            HANDLER,
+            required_modules=("rich",),
+            arguments=CONTEXT_ARGUMENTS + (
+                PROJECT_ARGUMENT,
+                argument("--apply", action="store_true", required=True,
+                         help="save function dependencies and the recognized parent template"),
+            ),
+        ),
+        CommandSpec(
             "identity-audit",
             "write read-only package object and reference inventory as JSON",
             HANDLER,
