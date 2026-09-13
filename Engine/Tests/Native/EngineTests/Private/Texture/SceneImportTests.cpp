@@ -16,7 +16,7 @@
 #include "EditorReimportHandler.h"
 #include "StaticMesh/StaticMeshFactoryTestSupport.h"
 #include "Asset/AssetCompilingManager.h"
-#include "../Materials/LegacyMaterialProgramTestFixture.h"
+#include "../Materials/ExplicitMaterialProgramTestFixture.h"
 #include "StaticMesh/StaticMesh.h"
 
 namespace
@@ -222,13 +222,15 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 	ASSERT_TRUE(EnsureStandardMaterialFunctions(Functions, Error)) << Error;
 	auto* Material = EnsureImportedSurfaceMaterial(Error);
 	ASSERT_NE(Material, nullptr) << Error;
-	EXPECT_EQ(Material->GetMaterialProgram()->Nodes.size(), 10u);
+	EXPECT_EQ(Material->GetMaterialProgram()->Nodes.size(), 58u);
 	EXPECT_EQ(Material->GetMaterialFunctionCalls().size(), 2u);
 	EXPECT_EQ(Material->GetParameterDefinitions().size(), 48u);
 	EXPECT_TRUE(Material->GetMaterialProgram()->Outputs.Surface.SourceOutputId.IsValid());
 	for (const auto& Node : Material->GetMaterialProgram()->Nodes)
 		EXPECT_TRUE(Node.Opcode == EMaterialProgramOpcode::TextureSampleParameter2D
-			|| Node.Opcode == EMaterialProgramOpcode::FunctionCall);
+			|| Node.Opcode == EMaterialProgramOpcode::FunctionCall
+			|| Node.Opcode == EMaterialProgramOpcode::Parameter
+			|| Node.Opcode == EMaterialProgramOpcode::TextureCoordinates);
 	FMaterialCompilerInput Input;
 	FMaterialCompilerEnvironment Environment;
 	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Environment, Error)) << Error;
@@ -246,22 +248,27 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 
 	const auto Compact = *Material->GetMaterialProgram();
 	const std::vector<FMaterialFunctionCall> CompactCalls(Material->GetMaterialFunctionCalls().begin(), Material->GetMaterialFunctionCalls().end());
-	std::vector<FMaterialFunctionCall> PackedCalls;
-	FMaterialGraphPresentation PackedPresentation;
-	auto Packed = MakeLegacyImportedSurfaceFunctionProgram(Functions, PackedCalls, PackedPresentation);
-	auto& PackedCall = PackedCalls.back();
+	auto Packed = Compact;
+	const auto CallId = Packed.Outputs.Surface.SourceNodeId;
+	std::erase_if(Packed.Nodes, [&](const auto& Node) { return Node.Opcode == EMaterialProgramOpcode::FunctionCall && Node.Id != CallId; });
+	FMaterialFunctionCall PackedCall{.NodeId = CallId, .Function = Functions.StandardPBR_ORM.Get()};
 	const auto PortId = [](uint32 Slot) { return StandardMaterialPortId(EStandardMaterialFunction::StandardPBR, Slot); };
-	const auto ORMTexture = std::ranges::find(PackedCall.Inputs, PortId(22), &FMaterialFunctionInputBinding::InputId)->Source;
-	const auto ORMUV = std::ranges::find(PackedCall.Inputs, PortId(32), &FMaterialFunctionInputBinding::InputId)->Source;
-	std::erase_if(PackedCall.Inputs, [&](const auto& Binding) {
-		for (uint32 Slot : {22u, 23u, 24u, 32u, 33u, 34u}) if (Binding.InputId == PortId(Slot)) return true;
-		return false;
-	});
-	PackedCall.Inputs.push_back({PortId(40), EMaterialProgramValueType::Texture2D, ORMTexture});
-	PackedCall.Inputs.push_back({PortId(41), EMaterialProgramValueType::Float2, ORMUV});
-	PackedCall.Function = Functions.StandardPBR_ORM.Get();
+	for (uint32 Role = 0; Role < 8; ++Role)
+	{
+		const auto Owner = [&](MaterialParameters::EMaterialBuiltinParameterKind Kind) -> const FMaterialProgramNode& {
+			const auto Id = GetMaterialSurfaceParameterId(static_cast<EMaterialSurfaceOutput>(Role), Kind);
+			return *std::ranges::find_if(Packed.Nodes, [&](const auto& Node) { return Node.Parameter.Id == Id; });
+		};
+		const auto& Factor = Owner(MaterialParameters::EMaterialBuiltinParameterKind::Value);
+		PackedCall.Inputs.push_back({PortId(10 + Role), Factor.ResultType, {Factor.Id}});
+		if (Role == 3 || Role == 4) continue;
+		const auto& Sample = Owner(MaterialParameters::EMaterialBuiltinParameterKind::Texture);
+		PackedCall.Inputs.push_back({PortId(Role == 2 ? 40 : 20 + Role), EMaterialProgramValueType::Texture2D, {Sample.Id, 7}});
+		PackedCall.Inputs.push_back({PortId(Role == 2 ? 41 : 30 + Role), EMaterialProgramValueType::Float2, Sample.Inputs.front()});
+	}
 	PackedCall.Outputs = {{StandardMaterialPortId(EStandardMaterialFunction::StandardPBR_ORM, 100), EMaterialProgramValueType::Surface}};
 	Packed.Outputs.Surface.SourceOutputId = PackedCall.Outputs.front().OutputId;
+	std::vector<FMaterialFunctionCall> PackedCalls{PackedCall};
 	ASSERT_TRUE(Material->SetMaterialProgramAndFunctionCalls(Packed, PackedCalls));
 	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Material, Environment, Input));
 	const auto PackedNormalized = NormalizeMaterialProgram(Input);
@@ -307,52 +314,25 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 	EXPECT_EQ(Material->GetMaterialFunctionCalls().back().Function.Get(), Functions.ImportedSurfaceValues.Get());
 }
 
-TEST(FSceneImportTests, RecognizedLegacyParentUpgradesOnceAndModifiedParentIsPreserved)
+TEST(FSceneImportTests, ModifiedParentRequiresRebuildAndIsPreserved)
 {
 	using namespace Durin;
 	using namespace Durin::AssetForge::Builtins;
-	const auto Fixture = InitializeFixture("LegacyParent");
+	const auto Fixture = InitializeFixture("OwnedParent");
 	std::string Error;
 	auto* Material = EnsureImportedSurfaceMaterial(Error);
 	ASSERT_NE(Material, nullptr) << Error;
-	const auto Compact = *Material->GetMaterialProgram();
-	const std::vector<FMaterialFunctionCall> CompactCalls(Material->GetMaterialFunctionCalls().begin(), Material->GetMaterialFunctionCalls().end());
+	const auto Current = *Material->GetMaterialProgram();
+	const std::vector<FMaterialFunctionCall> Calls(Material->GetMaterialFunctionCalls().begin(), Material->GetMaterialFunctionCalls().end());
 	const auto Identity = Material->GetObjectPath();
-	FStandardMaterialFunctions Functions;
-	ASSERT_TRUE(EnsureStandardMaterialFunctions(Functions, Error));
-	std::vector<FMaterialFunctionCall> PreviousCalls;
-	FMaterialGraphPresentation PreviousPresentation;
-	const auto Previous = MakeLegacyImportedSurfaceFunctionProgram(Functions, PreviousCalls, PreviousPresentation);
-	ASSERT_TRUE(Material->SetMaterialProgramAndFunctionCalls(Previous, PreviousCalls));
-	const auto OriginalUV = Functions.UVTransform->GetFunctionGraph();
-	auto EditedUV = OriginalUV;
-	const auto Add = std::ranges::find(EditedUV.Nodes, EMaterialProgramOpcode::Add, &FMaterialProgramNode::Opcode);
-	ASSERT_NE(Add, EditedUV.Nodes.end());
-	Add->Opcode = EMaterialProgramOpcode::Subtract;
-	ASSERT_TRUE(Functions.UVTransform->SetFunctionGraph(EditedUV));
-	EXPECT_EQ(EnsureImportedSurfaceMaterial(Error), nullptr);
-	EXPECT_NE(Error.find("edited dependency"), std::string::npos);
-	EXPECT_EQ(*Material->GetMaterialProgram(), Previous);
-	EXPECT_EQ(Functions.UVTransform->GetFunctionGraph(), EditedUV);
-	ASSERT_TRUE(Functions.UVTransform->SetFunctionGraph(OriginalUV));
-	EXPECT_EQ(EnsureImportedSurfaceMaterial(Error), Material) << Error;
-	EXPECT_EQ(*Material->GetMaterialProgram(), Compact);
-	EXPECT_TRUE(std::ranges::equal(Material->GetMaterialFunctionCalls(), CompactCalls));
-	const auto Legacy = Testing::MakeLegacyPBRMaterialProgram();
-	ASSERT_TRUE(Material->SetMaterialProgramAndFunctionCalls(Legacy, {}));
-	ASSERT_TRUE(SavePackage(Material->GetPackage()));
-	EXPECT_EQ(EnsureImportedSurfaceMaterial(Error), Material) << Error;
-	EXPECT_EQ(Material->GetObjectPath(), Identity);
-	EXPECT_EQ(*Material->GetMaterialProgram(), Compact);
-	EXPECT_EQ(EnsureImportedSurfaceMaterial(Error), Material) << Error;
-	ASSERT_TRUE(Material->SetMaterialProgramAndFunctionCalls(Testing::MakeLegacyAggregatePBRMaterialProgram(), {}));
-	ASSERT_TRUE(SavePackage(Material->GetPackage()));
-	EXPECT_EQ(EnsureImportedSurfaceMaterial(Error), Material) << Error;
-	EXPECT_EQ(*Material->GetMaterialProgram(), Compact);
-	auto Modified = Legacy;
-	Modified.Nodes.front().DisplayName = "My custom graph";
+	EXPECT_EQ(EnsureImportedSurfaceMaterial(Error), Material);
+	auto Modified = Testing::MakePBRMaterialProgramForTest();
 	ASSERT_TRUE(Material->SetMaterialProgramAndFunctionCalls(Modified, {}));
+	ASSERT_TRUE(SavePackage(Material->GetPackage()));
 	EXPECT_EQ(EnsureImportedSurfaceMaterial(Error), nullptr);
+	EXPECT_NE(Error.find("rebuild"), std::string::npos);
 	EXPECT_EQ(*Material->GetMaterialProgram(), Modified);
-	ASSERT_TRUE(Material->SetMaterialProgramAndFunctionCalls(Compact, CompactCalls));
+	EXPECT_EQ(Material->GetObjectPath(), Identity);
+	ASSERT_TRUE(Material->SetMaterialProgramAndFunctionCalls(Current, Calls));
+	EXPECT_EQ(EnsureImportedSurfaceMaterial(Error), Material) << Error;
 }

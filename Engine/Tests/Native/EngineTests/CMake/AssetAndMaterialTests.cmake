@@ -211,6 +211,10 @@ durin_add_engine_functional_test(MaterialTests
 		${_durin_material_editor_private}/Widgets/MaterialPreview.cpp
 		${_durin_material_editor_private}/Widgets/MaterialEditingSession.cpp
 		${_durin_material_editor_private}/Widgets/MaterialParameterPanelModel.cpp
+		${_durin_material_editor_private}/Widgets/MMaterialEditor.cpp
+		${_durin_material_editor_private}/Widgets/MMaterialFunctionEditor.cpp
+		${_durin_material_editor_private}/Widgets/MaterialFunctionCallPicker.cpp
+		${_durin_material_editor_private}/Settings/MaterialEditorSessionSettings.cpp
 	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
 	LIBRARIES
 		ApplicationCore

@@ -6,6 +6,7 @@
 #include "Engine/ProjectGameSettings.h"
 #include "Engine/World.h"
 #include "Misc/Project.h"
+#include "Modules/ModuleManager.h"
 #include "Application/MonaApplication.h"
 #include "Client/SceneViewport.h"
 #include "Rendering/MonaRenderer.h"
@@ -25,6 +26,13 @@ namespace Durin
 		if (FEngineInitializationResult Result = DEngine::Init(Context); !Result)
 			return Result;
 		StartupError.clear();
+		if (const FProjectInfo* Project = GetCurrentProject())
+		{
+			for (const std::string& ModuleName : Project->EnabledRootModules)
+				if (!FModuleManager::Get().LoadModule(FName(ModuleName)))
+					return FEngineInitializationResult::Failure(std::format(
+						"Game initialization could not load project module '{}'.", ModuleName));
+		}
 
 		std::shared_ptr<MWindow> GameWindow = Context.StartupWindow;
 		if (!GameWindow || !GameWindow->GetNativeWindow())

@@ -1,4 +1,5 @@
 #include "Widgets/MMaterialFunctionEditor.h"
+#include "DObject/Class.h"
 #include "Widgets/MaterialPreview.h"
 #include "Widgets/MaterialFunctionCallPicker.h"
 #include "Graph/MaterialGraphCanvas.h"

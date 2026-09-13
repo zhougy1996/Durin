@@ -36,7 +36,7 @@ namespace Durin::Editor::Material
 		for (const auto& Node : Material.GetMaterialProgram()->Nodes)
 		{
 			if (Node.Opcode != EMaterialProgramOpcode::TextureParameter && Node.Opcode != EMaterialProgramOpcode::TextureSampleParameter2D) continue;
-			const auto* Definition = Material.FindParameterDefinition(Node.ParameterId);
+			const auto* Definition = Material.FindParameterDefinition(Node.Parameter.Id);
 			if (!Definition || !Definition->Value.TextureValue.IsValid()) continue;
 			auto Allocation = Definition->Value.TextureValue->GetPublishedTexture();
 			if (!Allocation) continue;
@@ -96,9 +96,8 @@ namespace Durin::Editor::Material
 						Definition.DisplayName = Definition.Name.ToString();
 						Definition.Type = EMaterialParameterType::Texture;
 						Definition.Value = FMaterialParameterValue::MakeTexture(Texture);
-						State.Definitions.push_back(Definition);
 						FMaterialProgramNode Node{.Id = FGuid::NewGuid(), .Opcode = EMaterialProgramOpcode::TextureSampleParameter2D,
-							.ResultType = EMaterialProgramValueType::Float4, .Inputs = {{}}, .ParameterId = Definition.Id};
+							.ResultType = EMaterialProgramValueType::Float4, .Inputs = {{}}, .Parameter = Definition};
 						State.Program.Nodes.push_back(Node);
 						const auto Mouse = ImGui::GetMousePos();
 						State.Presentation.Nodes.push_back({Node.Id, static_cast<int32>((Mouse.x - CanvasMinimum.x - Pan.x) / Zoom),

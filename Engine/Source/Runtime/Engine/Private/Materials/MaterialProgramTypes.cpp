@@ -20,6 +20,8 @@ namespace Durin
 		-> std::optional<EMaterialProgramValueType>
 	{
 		if (Link.SourceOutputId.IsValid()) return {};
+		if (Node.Opcode == EMaterialProgramOpcode::TextureSampleParameter2D && Link.SourceOutputIndex == 7)
+			return EMaterialProgramValueType::Texture2D;
 		if (IsMaterialSamplingNode(Node.Opcode))
 		{
 			constexpr std::array Types{EMaterialProgramValueType::Float4, EMaterialProgramValueType::Float3,
@@ -252,13 +254,13 @@ namespace Durin
 			case EMaterialProgramOpcode::TextureSampleParameter2D:
 			{
 				const FMaterialParameterDefinition* Definition =
-					FindParameter(Definitions, Node.ParameterId);
-				if (!Node.ParameterId.IsValid() || Definition == nullptr)
+					FindParameter(Definitions, Node.Parameter.Id);
+				if (!Node.Parameter.Id.IsValid() || Definition == nullptr)
 				{
 					AddType(0, "Material program parameter reference is missing or unknown.");
 					break;
 				}
-				ReferencedParameters.insert(Node.ParameterId);
+				ReferencedParameters.insert(Node.Parameter.Id);
 				{
 					const EMaterialProgramValueType Expected = GetProgramType(Definition->Type);
 					const bool bTextureOpcode = Node.Opcode == EMaterialProgramOpcode::TextureParameter
@@ -293,6 +295,53 @@ namespace Durin
 		}
 	}
 
+	auto DeriveMaterialParameterSchema(const FMaterialProgram& Program,
+		std::vector<FMaterialParameterDefinition>& OutDefinitions) -> FMaterialProgramValidationResult
+	{
+		FMaterialProgramValidationResult Result;
+		const auto Fail = [&](FGuid Node, std::string Message) {
+			AddDiagnostic(Result.Diagnostics, EMaterialProgramDiagnosticCategory::Schema,
+				EMaterialProgramDiagnosticLocationKind::Node, Node, 0, std::move(Message));
+		};
+		if (Program.SchemaVersion != CurrentMaterialProgramSchemaVersion)
+			Fail({}, "Unsupported material graph schema; rebuild this material.");
+		if (Program.Nodes.size() > MaterialProgramMaxNodeCount)
+			Fail({}, "Material graph exceeds the node limit.");
+		if (!Result.Diagnostics.empty()) return Result;
+		std::vector<FMaterialParameterDefinition> Definitions;
+		std::unordered_set<FGuid> NodeIds;
+		for (const auto& Node : Program.Nodes) NodeIds.insert(Node.Id);
+		for (const auto& Node : Program.Nodes)
+		{
+			const bool Owner = Node.Opcode == EMaterialProgramOpcode::Parameter
+				|| Node.Opcode == EMaterialProgramOpcode::TextureParameter
+				|| Node.Opcode == EMaterialProgramOpcode::TextureSampleParameter2D;
+			if (!Owner)
+			{
+				if (Node.Parameter != FMaterialParameterDefinition{})
+					Fail(Node.Id, "Only parameter nodes may own a parameter definition.");
+				continue;
+			}
+			if (!Node.Parameter.Id.IsValid() || NodeIds.contains(Node.Parameter.Id))
+				Fail(Node.Id, "Parameter identity must be valid and distinct from node identity.");
+			const auto Type = Node.Opcode == EMaterialProgramOpcode::TextureSampleParameter2D
+				? EMaterialProgramValueType::Texture2D : Node.ResultType;
+			if (Type != GetProgramType(Node.Parameter.Type))
+				Fail(Node.Id, "Parameter node type does not match its owned definition.");
+			Definitions.push_back(Node.Parameter);
+		}
+		const auto Validation = ValidateMaterialParameterDefinitions(Definitions);
+		if (!Validation) Fail({}, std::string(GetMaterialParameterErrorText(Validation.Error)));
+		SortAndBoundDiagnostics(Result.Diagnostics);
+		Result.bSucceeded = Result.Diagnostics.empty();
+		if (Result)
+		{
+			std::ranges::sort(Definitions, {}, &FMaterialParameterDefinition::Id);
+			OutDefinitions = std::move(Definitions);
+		}
+		return Result;
+	}
+
 	auto Private::ResolveMaterialInputDefaultType(const FMaterialInputDefault& Value,
 		std::span<const FMaterialParameterDefinition> Definitions) -> std::optional<EMaterialProgramValueType>
 	{
@@ -300,13 +349,8 @@ namespace Durin
 		if (Value.Kind == EMaterialInputDefaultKind::Literal)
 		{
 			if (std::isfinite(Value.Literal.X) && std::isfinite(Value.Literal.Y)
-				&& std::isfinite(Value.Literal.Z) && std::isfinite(Value.Literal.W) && !Value.ParameterId.IsValid())
+				&& std::isfinite(Value.Literal.Z) && std::isfinite(Value.Literal.W))
 				return Value.Type;
-		}
-		else if (Value.Kind == EMaterialInputDefaultKind::Parameter)
-		{
-			const auto* Definition = FindParameter(Definitions, Value.ParameterId);
-			if (Definition && GetProgramType(Definition->Type) == Value.Type) return Value.Type;
 		}
 		return {};
 	}
@@ -651,7 +695,7 @@ namespace Durin
 			if (Node.Opcode == EMaterialProgramOpcode::FunctionCall)
 			{
 				const auto Call = CallNodes.find(Node.Id);
-				if (Call == CallNodes.end() || !Node.Inputs.empty() || Node.ParameterId.IsValid())
+				if (Call == CallNodes.end() || !Node.Inputs.empty() || Node.Parameter.Id.IsValid())
 					AddDiagnostic(Diagnostics, EMaterialProgramDiagnosticCategory::Graph,
 						EMaterialProgramDiagnosticLocationKind::Node, Node.Id, 0,
 						"Function call requires a record with stable port bindings.");
@@ -660,7 +704,6 @@ namespace Durin
 					const auto& Binding = Call->second->Inputs[Index];
 					const bool bEmpty = !Binding.Source.SourceNodeId.IsValid()
 						&& !Binding.Source.SourceOutputId.IsValid() && Binding.Source.SourceOutputIndex == 0;
-					if (Binding.Default.Kind == EMaterialInputDefaultKind::Parameter) ReferencedParameters.insert(Binding.Default.ParameterId);
 					const auto DefaultType = Private::ResolveMaterialInputDefaultType(Binding.Default, ParameterDefinitions);
 					if ((Binding.Default.Kind != EMaterialInputDefaultKind::None && DefaultType != Binding.ExpectedType)
 						|| (Binding.Default.Kind == EMaterialInputDefaultKind::None && Binding.Default != FMaterialInputDefault{})
@@ -892,29 +935,33 @@ namespace Durin
 				.GroupName = Definition->GroupName,
 				.SortOrder = Definition->SortOrder});
 		};
-		std::function<void(const FGuid&)> Visit = [&](const FGuid& Id) {
-			if (!VisitedNodes.insert(Id).second) return;
+		std::function<void(const FMaterialProgramLink&)> Visit = [&](const FMaterialProgramLink& Link) {
+			const auto& Id = Link.SourceNodeId;
 			const auto It = Nodes.find(Id);
 			if (It == Nodes.end()) return;
 			const FMaterialProgramNode& Node = *It->second;
+			if (Node.Opcode == EMaterialProgramOpcode::TextureSampleParameter2D && Link.SourceOutputIndex == 7)
+			{
+				Add(Node.Id, Node.Parameter.Id);
+				return;
+			}
+			if (!VisitedNodes.insert(Id).second) return;
 			if (Node.Opcode == EMaterialProgramOpcode::FunctionCall)
 			{
 				const auto Call = std::ranges::find(Calls, Node.Id, &FMaterialFunctionCall::NodeId);
 				if (Call != Calls.end())
 					for (const auto& Binding : Call->Inputs)
 					{
-						Visit(Binding.Source.SourceNodeId);
-						if (!Binding.Source.SourceNodeId.IsValid() && Binding.Default.Kind == EMaterialInputDefaultKind::Parameter)
-							Add(Node.Id, Binding.Default.ParameterId);
+						Visit(Binding.Source);
 					}
 			}
 			for (const FMaterialProgramLink& Input : Node.Inputs)
-				Visit(Input.SourceNodeId);
-			for (const auto& Binding : Node.SurfaceAttributes) Visit(Binding.Source.SourceNodeId);
+				Visit(Input);
+			for (const auto& Binding : Node.SurfaceAttributes) Visit(Binding.Source);
 			for (const auto& Id : GetMaterialNodeParameterReferences(Node, true)) Add(Node.Id, Id);
 		};
 		if (Program.Outputs.Surface.SourceNodeId.IsValid())
-			Visit(Program.Outputs.Surface.SourceNodeId);
+			Visit(Program.Outputs.Surface);
 		for (EMaterialSurfaceOutput Output : {
 			EMaterialSurfaceOutput::BaseColor,
 			EMaterialSurfaceOutput::Normal,
@@ -925,9 +972,8 @@ namespace Durin
 			EMaterialSurfaceOutput::Opacity,
 			EMaterialSurfaceOutput::OpacityMask})
 		{
-			const FGuid& Source = GetMaterialSurfaceOutputLink(
-				Program.Outputs, Output).SourceNodeId;
-			if (Source.IsValid()) Visit(Source);
+			const auto& Source = GetMaterialSurfaceOutputLink(Program.Outputs, Output);
+			if (Source.SourceNodeId.IsValid()) Visit(Source);
 		}
 		return Result;
 	}

@@ -11,7 +11,7 @@ namespace Durin::AssetForge::Builtins
 		UVTransform = 1, SampleNormal = 2, SampleORM = 3, StandardPBR = 4, StandardPBR_ORM = 5,
 		ImportedSurfaceValues = 6, DecodeImportedNormalRG = 7,
 	};
-	inline constexpr uint32 StandardMaterialFunctionVersion = 1;
+	inline constexpr uint32 StandardMaterialFunctionVersion = 2;
 	constexpr auto StandardMaterialPortId(EStandardMaterialFunction Function, uint32 Slot) -> FGuid
 	{
 		return {0x78e431b9, 0x4afe4982, static_cast<uint32>(Function), Slot};
@@ -28,10 +28,6 @@ namespace Durin::AssetForge::Builtins
 	ASSETFORGEBUILTINS_API auto EnsureStandardMaterialFunctions(
 		FStandardMaterialFunctions& OutFunctions, std::string& OutError) -> bool;
 	ASSETFORGEBUILTINS_API auto MakeImportedSurfaceFunctionProgram(
-		const FStandardMaterialFunctions& Functions, std::vector<FMaterialFunctionCall>& OutCalls,
-		FMaterialGraphPresentation& OutPresentation) -> FMaterialProgram;
-	// Exact previous shipped recipe, retained only for bounded migration eligibility.
-	ASSETFORGEBUILTINS_API auto MakeLegacyImportedSurfaceFunctionProgram(
 		const FStandardMaterialFunctions& Functions, std::vector<FMaterialFunctionCall>& OutCalls,
 		FMaterialGraphPresentation& OutPresentation) -> FMaterialProgram;
 }

@@ -101,7 +101,6 @@ namespace Durin::Editor::Material
 			bool bOpenRequested = true;
 			int32 Selection = 0;
 			std::array<char, 96> Search{};
-			std::optional<FMaterialProgramNode> PendingParameter;
 			std::array<char, 96> ParameterFilter{};
 		};
 		struct FContextMenuInteraction

@@ -74,9 +74,8 @@ namespace Durin::Editor::Material
 		if (!Input.Default || Input.Source->SourceNodeId.IsValid() || Input.Default->Kind == EMaterialInputDefaultKind::None)
 			return MakeRejected("Only an unconnected explicit numeric binding can be extracted.");
 		const auto Value = *Input.Default;
-		FMaterialProgramNode Node{.Id = FGuid::NewGuid(), .Opcode = Value.Kind == EMaterialInputDefaultKind::Parameter
-			? EMaterialProgramOpcode::Parameter : EMaterialProgramOpcode::Constant,
-			.ResultType = Value.Type, .Literal = Value.Literal, .ParameterId = Value.ParameterId};
+		FMaterialProgramNode Node{.Id = FGuid::NewGuid(), .Opcode = EMaterialProgramOpcode::Constant,
+			.ResultType = Value.Type, .Literal = Value.Literal};
 		*Input.Source = {Node.Id};
 		const auto Position = std::ranges::find(State.Presentation.Nodes, NodeId, &FMaterialGraphNodePresentation::NodeId);
 		if (Position == State.Presentation.Nodes.end()) return MakeRejected("The input owner has no authored position.");
@@ -97,11 +96,10 @@ namespace Durin::Editor::Material
 		if (!Input.Source || Input.Source->SourceOutputIndex != 0 || Input.Source->SourceOutputId.IsValid())
 			return MakeRejected("This source cannot be represented by an inline binding.");
 		const auto* Source = FindNode(State.Program, Input.Source->SourceNodeId);
-		if (!Source || (Source->Opcode != EMaterialProgramOpcode::Constant && Source->Opcode != EMaterialProgramOpcode::Parameter))
-			return MakeRejected("Only numeric constants and parameter references can be inlined.");
+		if (!Source || Source->Opcode != EMaterialProgramOpcode::Constant)
+			return MakeRejected("Only numeric constants can be inlined; parameter exposure remains an explicit node.");
 		const auto SourceId = Source->Id;
-		*Input.Default = {.Kind = Source->Opcode == EMaterialProgramOpcode::Parameter ? EMaterialInputDefaultKind::Parameter
-			: EMaterialInputDefaultKind::Literal, .Type = Source->ResultType, .Literal = Source->Literal, .ParameterId = Source->ParameterId};
+		*Input.Default = {.Kind = EMaterialInputDefaultKind::Literal, .Type = Source->ResultType, .Literal = Source->Literal};
 		*Input.Source = {};
 		if (!HasConsumer(State, SourceId)) std::erase_if(State.Program.Nodes, [&](const auto& Node) { return Node.Id == SourceId; });
 		return Commit(std::move(State), "Inline Input Node", Transactions);

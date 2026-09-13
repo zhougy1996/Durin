@@ -11,7 +11,6 @@ namespace Durin::Editor::Material
 	{
 		bool bFunction = false;
 		FMaterialProgram Program;
-		std::vector<FMaterialParameterDefinition> Definitions;
 		FMaterialFunctionSignature Signature;
 		std::vector<FMaterialFunctionCall> Calls;
 		FMaterialGraphPresentation Presentation;

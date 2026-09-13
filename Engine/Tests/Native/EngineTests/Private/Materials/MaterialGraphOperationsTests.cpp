@@ -1,4 +1,4 @@
-#include "LegacyMaterialProgramTestFixture.h"
+#include "ExplicitMaterialProgramTestFixture.h"
 #include "StandardMaterialFunctionTestFixture.h"
 #include "Image/ImageEncoder.h"
 #include "Misc/MountPathTestSupport.h"
@@ -9,6 +9,8 @@
 #include "Graph/MaterialGraphCanvas.h"
 #include "Workspace/MaterialEditorWorkspace.h"
 #include "Widgets/MaterialPreviewFraming.h"
+#include "Widgets/MMaterialEditor.h"
+#include "Editor/WorkspaceManager.h"
 
 #include "MaterialTestSupport.h"
 
@@ -30,6 +32,11 @@
 
 namespace Durin::Editor::Material
 {
+	struct FMaterialEditorTestAccess
+	{
+		static auto DrawInstance(MMaterialEditor& Editor, DMaterialInstance& Instance) -> void
+		{ Editor.DrawDetailsPanel({}, &Instance); }
+	};
 	struct FMaterialGraphCanvasTestAccess
 	{
 		static auto Select(FMaterialGraphCanvas& Canvas,
@@ -151,9 +158,7 @@ namespace
 	auto MakeExpandedGraphMaterial(const char* Name) -> DMaterial*
 	{
 		DMaterial* Material = NewObject<DMaterial>(nullptr, Name);
-		if (!Material || !Material->SetMaterialDefinitionsAndProgram(
-			MakePBRMaterialParameterDefinitions(),
-			Durin::Testing::MakeLegacyPBRMaterialProgram())
+		if (!Material || !Material->SetMaterialProgram(Durin::Testing::MakePBRMaterialProgramForTest())
 			|| !FMaterialGraphOperations::Layout(*Material)) return nullptr;
 		return Material;
 	}
@@ -175,7 +180,10 @@ TEST(FMaterialGraphOperationsTests, CustomDeclarationsPersistAndDuplicateTheirId
 	Definition.Name = "LayerTint";
 	Definition.Type = EMaterialParameterType::Vector4;
 	Definition.Value = FMaterialParameterValue::MakeVector4({0.1, 0.2, 0.3, 0.4});
-	ASSERT_TRUE(Material->SetMaterialDefinitionsAndProgram({Definition}, {}));
+	FMaterialProgram Program;
+	Program.Nodes.push_back({.Id = FGuid::NewGuid(), .Opcode = EMaterialProgramOpcode::Parameter,
+		.ResultType = EMaterialProgramValueType::Float4, .Parameter = Definition});
+	ASSERT_TRUE(Material->SetMaterialProgram(Program));
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));
 	auto* Duplicate = Cast<DMaterial>(DuplicateObject(Material, nullptr, "CopiedCustomDeclarations"));
 	ASSERT_NE(Duplicate, nullptr);
@@ -206,14 +214,14 @@ TEST(FMaterialGraphOperationsTests, DeclarationAndFloat4ReferenceUndoTogether)
 	FMaterialProgram Program;
 	FMaterialProgramNode Parameter;
 	Parameter.Id = FGuid::NewGuid();
-	Parameter.ParameterId = Definition.Id;
+	Parameter.Parameter = Definition;
 	Parameter.Opcode = EMaterialProgramOpcode::Parameter;
 	Parameter.ResultType = EMaterialProgramValueType::Float4;
 	Program.Nodes.push_back(Parameter);
 	const auto Original = *Material->GetMaterialProgram();
 	const uint64 Revision = Material->GetMaterialCompileStatus().AuthoredRevision;
-	ASSERT_TRUE(FMaterialGraphOperations::ReplaceDefinitionsAndProgram(
-		*Material, {Definition}, Program, Transactions.Get()));
+	ASSERT_TRUE(FMaterialGraphOperations::ReplaceProgram(
+		*Material, Program, Transactions.Get()));
 	EXPECT_EQ(Material->GetMaterialCompileStatus().AuthoredRevision, Revision + 1);
 	ASSERT_NE(Material->FindParameterDefinition(Definition.Id), nullptr);
 	EXPECT_EQ(Material->FindParameterDefinition(Definition.Id)->Value.Vector4Value,
@@ -225,8 +233,8 @@ TEST(FMaterialGraphOperationsTests, DeclarationAndFloat4ReferenceUndoTogether)
 	EXPECT_EQ(*Material->GetMaterialProgram(), Program);
 	ASSERT_NE(Material->FindParameterDefinition(Definition.Id), nullptr);
 	EXPECT_EQ(Material->FindParameterDefinition(Definition.Id)->Type, EMaterialParameterType::Vector4);
-	const auto NoChange = FMaterialGraphOperations::ReplaceDefinitionsAndProgram(
-		*Material, {Definition}, Program, Transactions.Get());
+	const auto NoChange = FMaterialGraphOperations::ReplaceProgram(
+		*Material, Program, Transactions.Get());
 	EXPECT_EQ(NoChange.Status, EMaterialGraphCommandStatus::NoChange);
 	MarkAsGarbage(Material);
 	CollectGarbage();
@@ -236,7 +244,7 @@ TEST(FMaterialGraphOperationsTests,
 	GraphViewRevisionsTrackRelevantAuthoredState)
 {
 	InitializeDObjectSystem();
-	DMaterial* Material = NewObject<DMaterial>(nullptr, "GraphViewRevisions");
+	DMaterial* Material = MakeExpandedGraphMaterial("GraphViewRevisions");
 	ASSERT_NE(Material, nullptr);
 	const uint64 InitialProgramRevision = Material->GetMaterialProgramRevision();
 	const uint64 InitialPresentationRevision =
@@ -352,7 +360,7 @@ TEST(FMaterialGraphOperationsTests,
 				|| Value.NodeTemplate.Opcode
 					== static_cast<EMaterialProgramOpcode>(3);
 		}));
-	FMaterialProgram AggregateProgram = Durin::Testing::MakeLegacyPBRMaterialProgram();
+	FMaterialProgram AggregateProgram = Durin::Testing::MakePBRMaterialProgramForTest();
 	FMaterialProgramNode Surface;
 	Surface.Id = FGuid::NewGuid();
 	Surface.Opcode = EMaterialProgramOpcode::MakeSurface;
@@ -365,8 +373,7 @@ TEST(FMaterialGraphOperationsTests,
 		AggregateProgram.Outputs.OpacityMask};
 	AggregateProgram.Nodes.push_back(Surface);
 	AggregateProgram.Outputs = {.Surface = {Surface.Id, 0}};
-	ASSERT_TRUE(Material->SetMaterialDefinitionsAndProgram(
-		MakePBRMaterialParameterDefinitions(), AggregateProgram));
+	ASSERT_TRUE(Material->SetMaterialProgram(AggregateProgram));
 	const FGuid SurfaceId = Material->GetMaterialProgram()->Outputs.Surface.SourceNodeId;
 	ASSERT_TRUE(SurfaceId.IsValid());
 	FMaterialGraphPresentation AggregatePresentation;
@@ -398,7 +405,7 @@ TEST(FMaterialGraphOperationsTests,
 
 TEST(FMaterialGraphOperationsTests, PresentationSanitizationIsIndependentAndBounded)
 {
-	const FMaterialProgram Program = Durin::Testing::MakeLegacyPBRMaterialProgram();
+	const FMaterialProgram Program = Durin::Testing::MakePBRMaterialProgramForTest();
 	ASSERT_GE(Program.Nodes.size(), 2u);
 	FMaterialGraphPresentation Presentation;
 	Presentation.SchemaVersion = 99;
@@ -611,7 +618,7 @@ TEST(FMaterialGraphOperationsTests, CatalogPinsAgreeWithRuntimeValidation)
 					if (ValueType == Type::Texture2D)
 					{
 						Node.Opcode = EMaterialProgramOpcode::TextureParameter;
-						Node.ParameterId = Texture.Id;
+						Node.Parameter = Texture;
 					}
 					else if (ValueType == Type::Surface)
 					{
@@ -624,7 +631,7 @@ TEST(FMaterialGraphOperationsTests, CatalogPinsAgreeWithRuntimeValidation)
 					return Node.Id;
 				};
 				FMaterialProgramNode Target = Entry.NodeTemplate;
-				if (Target.Opcode == EMaterialProgramOpcode::TextureSampleParameter2D) Target.ParameterId = Texture.Id;
+				if (Target.Opcode == EMaterialProgramOpcode::TextureSampleParameter2D) Target.Parameter = Texture;
 				Target.Id = FGuid::NewGuid();
 				// A zero mask permits every numeric source width; payload bounds are tested separately.
 				Target.SwizzleX = Target.SwizzleY = Target.SwizzleZ = Target.SwizzleW = 0;
@@ -797,15 +804,98 @@ TEST(FMaterialGraphOperationsTests, HiddenAdvancedPinsRetainStableIdentitiesAndR
 	CollectGarbage();
 }
 
+TEST(FMaterialGraphOperationsTests, OwnedParameterWorkflowsRenderAtWideAndNarrowSizes)
+{
+	InitializeDObjectSystem();
+	const auto Root = Testing::CreateTestFixtureDirectory("OwnedParameterUI");
+	const std::array Mounts{FMountPoint{.VirtualRoot = "/OwnedParameterUI/", .Owner = EMountOwner::Test,
+		.Root = Root, .bAutoScan = true, .bContentWritable = true}};
+	Testing::FScopedMountRegistryFixture Registry(Mounts);
+	ASSERT_TRUE(Registry.IsValid());
+	FPackagePath MaterialPath, InstancePath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/OwnedParameterUI/Surface", MaterialPath));
+	ASSERT_TRUE(FPackagePath::TryCreate("/OwnedParameterUI/Instance", InstancePath));
+	DMaterial* Material = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(MaterialPath, Material));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	DMaterialInstance* Instance = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(InstancePath, Instance));
+	ASSERT_TRUE(Instance->SetParent(Material));
+	ImGuiContext* Context = ImGui::CreateContext();
+	auto& IO = ImGui::GetIO();
+	IO.DisplaySize = {1400, 900}; IO.DeltaTime = 1.f / 60; IO.IniFilename = nullptr;
+	IO.Fonts->AddFontDefault(); IO.Fonts->Build();
+	Durin::Tests::FTestTransactorOwner Transactions;
+	{
+		FWorkspaceManager Manager;
+		MMaterialEditor Editor(Manager);
+		FMaterialGraphCanvas Canvas;
+		Canvas.SetViewport(.8f, {20, 40});
+		int Errors = 0;
+		bool bInstance = false;
+		const auto Frame = [&] {
+			ImGui::NewFrame();
+			const float DetailsWidth = IO.DisplaySize.x < 1000 ? 330.f : 440.f;
+			const float GraphWidth = IO.DisplaySize.x - DetailsWidth;
+			ImGui::SetNextWindowPos({0, 0}); ImGui::SetNextWindowSize({GraphWidth, IO.DisplaySize.y});
+			ImGui::Begin("Material Graph", nullptr, ImGuiWindowFlags_NoResize);
+			Canvas.Draw(*Material, *Transactions.Get(), IO.DisplaySize.y - 60, [&](std::string) { ++Errors; });
+			ImGui::End();
+			ImGui::SetNextWindowPos({GraphWidth, 0}); ImGui::SetNextWindowSize({DetailsWidth, IO.DisplaySize.y});
+			ImGui::Begin(bInstance ? "Instance Details" : "Node Details", nullptr, ImGuiWindowFlags_NoResize);
+			if (bInstance) FMaterialEditorTestAccess::DrawInstance(Editor, *Instance);
+			else Canvas.DrawSelectionDetails(*Material, *Transactions.Get(), [&](std::string) { ++Errors; });
+			ImGui::End(); ImGui::Render();
+		};
+		const auto Capture = [&](std::string_view Name) { Frame(); Frame(); SaveCanvasEvidence(Name); };
+		Capture("owned-empty");
+		FMaterialProgram Program;
+		const FGuid NodeId{0x142adc7e, 1, 2, 1}, ParameterId{0x142adc7e, 1, 3, 1};
+		Program.Nodes = {{.Id = NodeId, .Opcode = EMaterialProgramOpcode::Parameter,
+			.ResultType = EMaterialProgramValueType::Float,
+			.Parameter = {.Id = ParameterId, .Name = FName("SurfaceWeight"),
+				.Type = EMaterialParameterType::Scalar, .Value = {.ScalarValue = .4f},
+				.DisplayName = "Surface Weight", .GroupName = FName("Surface"),
+				.bHasRange = true, .MinimumValue = 0, .MaximumValue = 1}}};
+		Program.Outputs.Roughness = {NodeId};
+		ASSERT_TRUE(Material->SetMaterialProgram(Program));
+		ASSERT_TRUE(Material->SetMaterialGraphPresentation({.Nodes = {{NodeId, 0, 80}},
+			.bHasMaterialOutputPosition = true, .MaterialOutputX = 420, .MaterialOutputY = 0}));
+		FMaterialGraphCanvasTestAccess::Select(Canvas, {NodeId});
+		Capture("owned-parameter-details");
+		Program.Outputs.Metallic = {NodeId};
+		ASSERT_TRUE(Material->SetMaterialProgram(Program));
+		Capture("owned-shared-output");
+		IO.DisplaySize = {900, 900};
+		Canvas.SetViewport(.7f, {8, 40});
+		Capture("owned-parameter-narrow");
+		ASSERT_TRUE(Instance->SetScalarParameterValue(FName("SurfaceWeight"), .75f));
+		ASSERT_TRUE(SavePackage(Material->GetPackage()));
+		ASSERT_TRUE(SavePackage(Instance->GetPackage()));
+		bInstance = true;
+		Capture("owned-instance-narrow");
+		IO.DisplaySize = {1400, 900};
+		Capture("owned-instance-override");
+		EXPECT_EQ(Errors, 0);
+	}
+	ImGui::DestroyContext(Context);
+	ASSERT_TRUE(UnloadPackage(InstancePath));
+	ASSERT_TRUE(UnloadPackage(MaterialPath));
+	CollectGarbage();
+}
+
 TEST(FMaterialGraphOperationsTests, CompactCanvasRendersBindingsAndUVExtractionDetails)
 {
 	InitializeDObjectSystem();
 	auto* Material = NewObject<DMaterial>(nullptr, "CompactCanvasEvidence");
 	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
-	ASSERT_TRUE(Material->SetMaterialDefinitionsAndProgram(MakePBRMaterialParameterDefinitions(), {}));
+	ASSERT_TRUE(Material->SetMaterialProgram({}));
 	ASSERT_TRUE(Testing::SetStandardMaterialProgramForTest(*Material));
 	FMaterialGraphDocument Document(*Material);
-	const auto SampleId = Material->GetMaterialProgram()->Nodes.front().Id;
+	const auto Sample = std::ranges::find(Material->GetMaterialProgram()->Nodes,
+		EMaterialProgramOpcode::TextureSampleParameter2D, &FMaterialProgramNode::Opcode);
+	ASSERT_NE(Sample, Material->GetMaterialProgram()->Nodes.end());
+	const auto SampleId = Sample->Id;
 	ImGuiContext* Context = ImGui::CreateContext();
 	auto& IO = ImGui::GetIO();
 	IO.DisplaySize = {1660, 1500}; IO.DeltaTime = 1.f / 60; IO.IniFilename = nullptr;
@@ -819,7 +909,7 @@ TEST(FMaterialGraphOperationsTests, CompactCanvasRendersBindingsAndUVExtractionD
 		const auto Frame = [&] {
 			ImGui::NewFrame();
 			ImGui::SetNextWindowPos({0, 0}); ImGui::SetNextWindowSize({1210, 1500});
-			ImGui::Begin("Imported Surface - 10 expressions + output", nullptr, ImGuiWindowFlags_NoResize);
+			ImGui::Begin("Imported Surface - graph-owned parameters", nullptr, ImGuiWindowFlags_NoResize);
 			Canvas.Draw(*Material, *Transactions.Get(), 1450, [&](std::string) { ++Errors; });
 			ImGui::End();
 			ImGui::SetNextWindowPos({1210, 0}); ImGui::SetNextWindowSize({450, 1500});
@@ -836,6 +926,7 @@ TEST(FMaterialGraphOperationsTests, CompactCanvasRendersBindingsAndUVExtractionD
 			{SampleId, 2}, true, Transactions.Get()));
 		Frame(); Frame(); SaveCanvasEvidence("channel-fanout");
 		ASSERT_TRUE(Transactions->Undo());
+		ASSERT_TRUE(Document.ConnectInput(SampleId, 0, {}, true, Transactions.Get()));
 		const auto Extracted = Document.ExtractUVSettings(SampleId, Transactions.Get());
 		ASSERT_TRUE(Extracted);
 		Canvas.SetViewport(1, {350, 24});
@@ -898,14 +989,9 @@ TEST(FMaterialGraphOperationsTests, CompactSamplingClipboardRemapsRetainedUVBind
 	const auto Id = Created.GeneratedNodeIds[0];
 	FMaterialGraphDocumentState State;
 	ASSERT_TRUE(Document.Capture(State));
-	FMaterialParameterDefinition Channel;
-	Channel.Id = FGuid::NewGuid();
-	Channel.Name = "IndependentUV";
-	Channel.Value = FMaterialParameterValue::MakeScalar(1);
-	State.Definitions.push_back(Channel);
 	std::ranges::find(State.Program.Nodes, Id, &FMaterialProgramNode::Id)->UVSettings.Channel = {
-		.Kind = EMaterialInputDefaultKind::Parameter, .ParameterId = Channel.Id};
-	ASSERT_TRUE(Document.Commit(State, "Bind UV"));
+		.Kind = EMaterialInputDefaultKind::Literal, .Literal = {1}};
+	ASSERT_TRUE(Document.Commit(State, "Set UV literal"));
 	const auto Before = *Material->GetMaterialProgram();
 	const auto Extracted = Document.ExtractUVSettings(Id, Transactions.Get());
 	ASSERT_TRUE(Extracted) << Extracted.Message;
@@ -918,15 +1004,14 @@ TEST(FMaterialGraphOperationsTests, CompactSamplingClipboardRemapsRetainedUVBind
 	ASSERT_TRUE(Transactions->Redo());
 	FMaterialGraphClipboardPayload Payload;
 	ASSERT_TRUE(Document.CopySelection(std::array{Id, CoordinatesId}, Payload));
-	EXPECT_EQ(Payload.Definitions.size(), 2u);
+	EXPECT_EQ(Payload.Nodes.size(), 2u);
 	const auto Pasted = FMaterialGraphDocument(*Target).Paste(Payload, 0, 0);
 	ASSERT_TRUE(Pasted) << Pasted.Message;
+	ASSERT_EQ(Target->GetParameterDefinitions().size(), 1u);
+	EXPECT_NE(Target->GetParameterDefinitions().front().Id, Material->GetParameterDefinitions().front().Id);
 	for (const auto& Node : Target->GetMaterialProgram()->Nodes)
 		if (Node.Opcode == EMaterialProgramOpcode::TextureCoordinates || IsMaterialSamplingNode(Node.Opcode))
-		{
-			EXPECT_NE(Node.UVSettings.Channel.ParameterId, Channel.Id);
-			EXPECT_NE(Target->FindParameterDefinition(Node.UVSettings.Channel.ParameterId), nullptr);
-		}
+			EXPECT_FLOAT_EQ(Node.UVSettings.Channel.Literal.X, 1);
 	auto* Function = NewObject<DMaterialFunction>(nullptr, "RejectRootBindings");
 	EXPECT_FALSE(FMaterialGraphDocument(*Function).Paste(Payload, 0, 0));
 	MarkAsGarbage(Function);
@@ -981,49 +1066,35 @@ TEST(FMaterialGraphOperationsTests, ConstantPaletteUsesOneEntryAndTypeChangesPre
 	CollectGarbage();
 }
 
-TEST(FMaterialGraphOperationsTests, ExistingParameterCreationDoesNotAddDeclarationsAndUsesLiveLabels)
+TEST(FMaterialGraphOperationsTests, ParameterSharingUsesLinksAndRenamePreservesOwner)
 {
 	InitializeDObjectSystem();
-	DMaterial* Material = NewObject<DMaterial>(nullptr, "SharedParameterCreation");
-	ASSERT_NE(Material, nullptr);
-	const auto Catalog = FMaterialGraphOperations::EnumerateCatalog();
-	EXPECT_TRUE(std::ranges::none_of(Catalog, [](const auto& Entry) {
-		return Entry.NodeTemplate.ParameterId.IsValid();
-	}));
+	auto* Material = NewObject<DMaterial>(nullptr, "SharedParameter");
 	FMaterialParameterDefinition Definition;
-	Definition.Name = FName("SharedValue");
-	Definition.Type = EMaterialParameterType::Vector4;
-	Definition.Value = FMaterialParameterValue::MakeVector4({1.0, 2.0, 3.0, 4.0});
-	ASSERT_TRUE(FMaterialGraphOperations::CreateParameter(*Material, Definition));
-	const auto* Stored = Material->FindParameterDefinition(Definition.Name);
-	ASSERT_NE(Stored, nullptr);
-	const auto ParameterId = Stored->Id;
-	const size_t DefinitionCount = Material->GetParameterDefinitions().size();
-	const auto Before = *Material->GetMaterialProgram();
+	Definition.Name = "SharedValue";
+	Definition.Value = FMaterialParameterValue::MakeScalar(0.4f);
+	const auto Created = FMaterialGraphOperations::CreateParameter(*Material, Definition);
+	ASSERT_TRUE(Created) << Created.Message;
+	ASSERT_EQ(Created.GeneratedNodeIds.size(), 1u);
+	const auto OwnerId = Created.GeneratedNodeIds.front();
+	const auto ParameterId = Created.AffectedParameterIds.front();
 	Durin::Tests::FTestTransactorOwner Transactions;
-	for (int Index = 0; Index < 2; ++Index)
-	{
-		FMaterialProgramNode Node;
-		Node.Opcode = EMaterialProgramOpcode::Parameter;
-		Node.ResultType = EMaterialProgramValueType::Float4;
-		Node.ParameterId = ParameterId;
-		const auto Result = FMaterialGraphOperations::CreateNodeWithDefaultInputs(*Material,
-			{.Node = Node}, {}, Transactions.Get());
-		ASSERT_TRUE(Result) << Result.Message;
-		EXPECT_EQ(Material->GetParameterDefinitions().size(), DefinitionCount);
-		EXPECT_EQ(Material->GetMaterialProgram()->Nodes.back().ParameterId, ParameterId);
-	}
+	FMaterialGraphDocument Document(*Material);
+	ASSERT_TRUE(Document.AssignMaterialOutput(EMaterialSurfaceOutput::Metallic, {OwnerId}, Transactions.Get()));
+	ASSERT_TRUE(Document.AssignMaterialOutput(EMaterialSurfaceOutput::Roughness, {OwnerId}, Transactions.Get()));
+	EXPECT_EQ(Material->GetParameterDefinitions().size(), 1u);
+	EXPECT_EQ(Material->GetMaterialProgram()->Nodes.size(), 1u);
+	auto DuplicateOwner = Material->GetMaterialProgram()->Nodes.front();
+	DuplicateOwner.Id = FGuid::NewGuid();
+	EXPECT_FALSE(Document.CreateNode({.Node = DuplicateOwner}));
+	ASSERT_TRUE(FMaterialGraphOperations::RenameParameter(*Material, ParameterId, "RenamedShared", Transactions.Get()));
+	EXPECT_EQ(Material->FindParameterDefinition("RenamedShared")->Id, ParameterId);
+	EXPECT_EQ(Material->GetMaterialProgram()->Nodes.front().Id, OwnerId);
 	ASSERT_TRUE(Transactions->Undo());
-	ASSERT_TRUE(Transactions->Undo());
-	EXPECT_EQ(*Material->GetMaterialProgram(), Before);
-	EXPECT_EQ(Material->GetParameterDefinitions().size(), DefinitionCount);
+	EXPECT_NE(Material->FindParameterDefinition("SharedValue"), nullptr);
 	ASSERT_TRUE(Transactions->Redo());
-	ASSERT_TRUE(FMaterialGraphOperations::RenameParameter(*Material, ParameterId, FName("RenamedShared")));
-	const auto View = FMaterialGraphOperations::Inspect(*Material, Catalog);
-	const auto* Node = FindViewNode(View, Material->GetMaterialProgram()->Nodes.back().Id);
-	ASSERT_NE(Node, nullptr);
-	EXPECT_EQ(Node->SecondaryLabel, Material->FindParameterDefinition(ParameterId)->DisplayName);
-	EXPECT_EQ(FMaterialGraphOperations::EnumerateCatalog().size(), Catalog.size());
+	const auto View = FMaterialGraphOperations::Inspect(*Material);
+	EXPECT_EQ(FindViewNode(View, OwnerId)->PrimaryLabel, Material->FindParameterDefinition(ParameterId)->DisplayName);
 	MarkAsGarbage(Material);
 	CollectGarbage();
 }
@@ -1043,7 +1114,7 @@ TEST(FMaterialGraphOperationsTests, GenericParametersCreateIndependentDeclaratio
 	Durin::Tests::FTestTransactorOwner Transactions;
 	for (const auto& Entry : Entries)
 	{
-		EXPECT_FALSE(Entry.NodeTemplate.ParameterId.IsValid());
+		EXPECT_FALSE(Entry.NodeTemplate.Parameter.Id.IsValid());
 		const auto Before = *Material->GetMaterialProgram();
 		const auto BeforePresentation = Material->GetMaterialGraphPresentation();
 		const std::vector<FMaterialParameterDefinition> BeforeDefinitions(
@@ -1056,7 +1127,7 @@ TEST(FMaterialGraphOperationsTests, GenericParametersCreateIndependentDeclaratio
 		EXPECT_EQ(Material->GetParameterDefinitions().size(), BeforeDefinitions.size() + 1);
 		const auto After = *Material->GetMaterialProgram();
 		const auto AfterPresentation = Material->GetMaterialGraphPresentation();
-		EXPECT_EQ(After.Nodes.back().ParameterId, Created.AffectedParameterIds.front());
+		EXPECT_EQ(After.Nodes.back().Parameter.Id, Created.AffectedParameterIds.front());
 		EXPECT_EQ(After.Nodes.back().ResultType, Entry.NodeTemplate.ResultType);
 		ASSERT_TRUE(Transactions->Undo());
 		EXPECT_EQ(*Material->GetMaterialProgram(), Before);
@@ -1076,10 +1147,10 @@ TEST(FMaterialGraphOperationsTests, GenericParametersCreateIndependentDeclaratio
 		ASSERT_NE(SecondDefinition, nullptr);
 		EXPECT_NE(FirstDefinition->Name, SecondDefinition->Name);
 		auto SharedNode = Material->GetMaterialProgram()->Nodes.back();
-		SharedNode.ParameterId = FirstDefinition->Id;
+		SharedNode.Parameter.Id = FirstDefinition->Id;
 		SharedNode.DisplayName = FirstDefinition->DisplayName;
-		ASSERT_TRUE(FMaterialGraphOperations::ReplaceNode(*Material, SharedNode, Transactions.Get()));
-		EXPECT_EQ(Material->GetMaterialProgram()->Nodes.back().ParameterId, Created.AffectedParameterIds.front());
+		EXPECT_FALSE(FMaterialGraphOperations::ReplaceNode(*Material, SharedNode, Transactions.Get()));
+		EXPECT_EQ(Material->GetMaterialProgram()->Nodes.back().Parameter.Id, Second.AffectedParameterIds.front());
 		EXPECT_EQ(std::ranges::count_if(FMaterialGraphOperations::SearchCatalog("parameter"), IsParameter), 5);
 	}
 	MarkAsGarbage(Material);
@@ -1173,7 +1244,7 @@ TEST(FMaterialGraphOperationsTests,
 		Package, "InitializedGraphLayoutMaterial");
 	ASSERT_NE(Material, nullptr);
 	auto Validation = Material->SetMaterialProgram(
-		Durin::Testing::MakeLegacyPBRMaterialProgram());
+		Durin::Testing::MakePBRMaterialProgramForTest());
 	ASSERT_TRUE(Validation);
 	std::string Error;
 	ASSERT_TRUE(PrepareNewMaterialForEditing(*Material, Error)) << Error;
@@ -1494,10 +1565,10 @@ TEST(FMaterialGraphOperationsTests, CanvasPositionRefreshPreservesTopologyStorag
 	FMaterialProgram Program;
 	Program.Nodes = {
 		{.Id = ParameterId, .Opcode = EMaterialProgramOpcode::Parameter,
-			.ResultType = EMaterialProgramValueType::Float, .ParameterId = Definition.Id},
+			.ResultType = EMaterialProgramValueType::Float, .Parameter = Definition},
 		{.Id = FGuid::NewGuid(), .Opcode = EMaterialProgramOpcode::Saturate,
 			.ResultType = EMaterialProgramValueType::Float, .Inputs = {{ParameterId, 0}}}};
-	ASSERT_TRUE(Material->SetMaterialDefinitionsAndProgram({Definition}, Program));
+	ASSERT_TRUE(Material->SetMaterialProgram(Program));
 	ASSERT_TRUE(FMaterialGraphOperations::Layout(*Material));
 	FMaterialGraphCanvas Canvas;
 	const auto& View = FMaterialGraphCanvasTestAccess::Prepare(Canvas, *Material);
@@ -1522,12 +1593,12 @@ TEST(FMaterialGraphOperationsTests, CanvasPositionRefreshPreservesTopologyStorag
 			EXPECT_EQ(View.Nodes[Index].Inputs.data(), Pins[Index]);
 	}
 	const auto ParameterNode = std::ranges::find_if(View.Nodes,
-		[](const auto& Node) { return Node.Node.ParameterId.IsValid(); });
+		[](const auto& Node) { return Node.Node.Parameter.Id.IsValid(); });
 	ASSERT_NE(ParameterNode, View.Nodes.end());
-	ASSERT_TRUE(Material->RenameParameterDefinition(ParameterNode->Node.ParameterId,
+	ASSERT_TRUE(FMaterialGraphOperations::RenameParameter(*Material, ParameterNode->Node.Parameter.Id,
 		FName("RenamedCanvasParameter")));
 	FMaterialGraphCanvasTestAccess::Prepare(Canvas, *Material);
-	EXPECT_EQ(FindViewNode(View, ParameterId)->SecondaryLabel,
+	EXPECT_EQ(FindViewNode(View, ParameterId)->PrimaryLabel,
 		Material->FindParameterDefinition(Definition.Id)->DisplayName);
 	MarkAsGarbage(Material);
 	CollectGarbage();
@@ -2093,8 +2164,7 @@ TEST(FMaterialGraphOperationsTests,
 	InitializeDObjectSystem();
 	DMaterial* Material = NewObject<DMaterial>(nullptr, "MaterialOutputCommands");
 	ASSERT_NE(Material, nullptr);
-	ASSERT_TRUE(Material->SetMaterialDefinitionsAndProgram(
-		MakePBRMaterialParameterDefinitions(), MakeDefaultMaterialProgram()));
+	ASSERT_TRUE(Material->SetMaterialProgram(MakeDefaultMaterialProgram()));
 	ASSERT_TRUE(Material->GetMaterialProgram()->Nodes.empty());
 	Durin::Tests::FTestTransactorOwner Transactions;
 
@@ -2113,7 +2183,7 @@ TEST(FMaterialGraphOperationsTests,
 	EXPECT_TRUE(Material->GetMaterialProgram()->Outputs.BaseColor.SourceNodeId.IsValid());
 	FVector3 BaseColor;
 	ASSERT_TRUE(Material->GetVectorParameterValue(
-		MaterialParameters::BaseColorName(), BaseColor));
+		Material->FindParameterDefinition(Promoted.AffectedParameterIds.front())->Name, BaseColor));
 	EXPECT_NEAR(BaseColor.x, 0.2, 1.e-6);
 	EXPECT_NEAR(BaseColor.y, 0.3, 1.e-6);
 	EXPECT_NEAR(BaseColor.z, 0.4, 1.e-6);
@@ -2121,21 +2191,21 @@ TEST(FMaterialGraphOperationsTests,
 		*Material->GetMaterialProgram(), Material->GetParameterDefinitions());
 	ASSERT_EQ(PromotedDependencies.size(), 1u);
 	EXPECT_EQ(PromotedDependencies.front().ParameterId,
-		MaterialParameters::GetBuiltinParameterIds(MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value);
+		Promoted.AffectedParameterIds.front());
 	const uint64 CompileGeneration =
 		Material->GetMaterialCompileStatus().RequestGeneration;
 	ASSERT_TRUE(FMaterialGraphOperations::SetParameterValue(
-		*Material, MaterialParameters::GetBuiltinParameterIds(MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value,
+		*Material, Promoted.AffectedParameterIds.front(),
 		FMaterialParameterValue::MakeVector({0.7, 0.6, 0.5}),
 		Transactions.Get()));
 	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestGeneration,
 		CompileGeneration);
 	ASSERT_TRUE(Material->GetVectorParameterValue(
-		MaterialParameters::BaseColorName(), BaseColor));
+		Material->FindParameterDefinition(Promoted.AffectedParameterIds.front())->Name, BaseColor));
 	EXPECT_EQ(BaseColor, FVector3(0.7, 0.6, 0.5));
 	ASSERT_TRUE(Transactions->Undo());
 	ASSERT_TRUE(Material->GetVectorParameterValue(
-		MaterialParameters::BaseColorName(), BaseColor));
+		Material->FindParameterDefinition(Promoted.AffectedParameterIds.front())->Name, BaseColor));
 	EXPECT_NEAR(BaseColor.x, 0.2, 1.e-6);
 	EXPECT_NEAR(BaseColor.y, 0.3, 1.e-6);
 	EXPECT_NEAR(BaseColor.z, 0.4, 1.e-6);
@@ -2144,9 +2214,7 @@ TEST(FMaterialGraphOperationsTests,
 
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_TRUE(Material->GetMaterialProgram()->Nodes.empty());
-	ASSERT_TRUE(Material->GetVectorParameterValue(
-		MaterialParameters::BaseColorName(), BaseColor));
-	EXPECT_EQ(BaseColor, FVector3(0.5));
+	EXPECT_TRUE(Material->GetParameterDefinitions().empty());
 	ASSERT_TRUE(Transactions->Redo());
 	ASSERT_TRUE(FMaterialGraphOperations::DisconnectSurfaceOutput(
 		*Material, EMaterialSurfaceOutput::BaseColor, Transactions.Get()));
@@ -2168,9 +2236,9 @@ TEST(FMaterialGraphOperationsTests,
 		*Material->GetMaterialProgram(), Material->GetParameterDefinitions());
 	ASSERT_EQ(TextureDependencies.size(), 1u);
 	EXPECT_EQ(TextureDependencies.front().ParameterId,
-		MaterialParameters::GetBuiltinParameterIds(MaterialParameters::EMaterialBuiltinParameterRole::Normal).Texture);
+		Textured.AffectedParameterIds.front());
 	EXPECT_EQ(TextureDependencies.back().ParameterId,
-		MaterialParameters::GetBuiltinParameterIds(MaterialParameters::EMaterialBuiltinParameterRole::Normal).Texture);
+		Textured.AffectedParameterIds.front());
 	const FMaterialNormalizationResult Normalized = Normalize(*Material);
 	ASSERT_TRUE(Normalized);
 	EXPECT_EQ(Normalized.IR.Nodes.size(), 6u);
@@ -2194,13 +2262,12 @@ TEST(FMaterialGraphOperationsTests,
 	ASSERT_TRUE(FMaterialGraphOperations::PromoteSurfaceOutputToParameter(
 		*Material, {.Output = EMaterialSurfaceOutput::BaseColor}));
 
-	const FGuid ParameterId = MaterialParameters::GetBuiltinParameterIds(
-		MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value;
+	const FGuid ParameterId = Material->GetParameterDefinitions().front().Id;
 	const uint64 CompileGeneration =
 		Material->GetMaterialCompileStatus().RequestGeneration;
 	FVector3 OriginalBaseColor;
 	ASSERT_TRUE(Material->GetVectorParameterValue(
-		MaterialParameters::BaseColorName(), OriginalBaseColor));
+		Material->FindParameterDefinition(ParameterId)->Name, OriginalBaseColor));
 	Durin::Tests::FTestTransactorOwner Transactions;
 	FMaterialGraphParameterEditSession Session;
 	ASSERT_TRUE(Session.Begin(*Material, ParameterId, Transactions.Get()));
@@ -2208,14 +2275,14 @@ TEST(FMaterialGraphOperationsTests,
 		{0.4, 0.5, 0.6})));
 	FVector3 BaseColor;
 	ASSERT_TRUE(Material->GetVectorParameterValue(
-		MaterialParameters::BaseColorName(), BaseColor));
+		Material->FindParameterDefinition(ParameterId)->Name, BaseColor));
 	EXPECT_EQ(BaseColor, FVector3(0.4, 0.5, 0.6));
 	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestGeneration,
 		CompileGeneration);
 	ASSERT_TRUE(Session.Apply(FMaterialParameterValue::MakeVector(
 		{0.7, 0.8, 0.9})));
 	ASSERT_TRUE(Material->GetVectorParameterValue(
-		MaterialParameters::BaseColorName(), BaseColor));
+		Material->FindParameterDefinition(ParameterId)->Name, BaseColor));
 	EXPECT_EQ(BaseColor, FVector3(0.7, 0.8, 0.9));
 	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestGeneration,
 		CompileGeneration);
@@ -2225,13 +2292,13 @@ TEST(FMaterialGraphOperationsTests,
 
 	ASSERT_TRUE(Transactions->Undo());
 	ASSERT_TRUE(Material->GetVectorParameterValue(
-		MaterialParameters::BaseColorName(), BaseColor));
+		Material->FindParameterDefinition(ParameterId)->Name, BaseColor));
 	EXPECT_EQ(BaseColor, OriginalBaseColor);
 	EXPECT_EQ(Material->GetMaterialGraphPresentation().MaterialOutputX, 713);
 	EXPECT_EQ(Material->GetMaterialGraphPresentation().MaterialOutputY, -91);
 	ASSERT_TRUE(Transactions->Redo());
 	ASSERT_TRUE(Material->GetVectorParameterValue(
-		MaterialParameters::BaseColorName(), BaseColor));
+		Material->FindParameterDefinition(ParameterId)->Name, BaseColor));
 	EXPECT_EQ(BaseColor, FVector3(0.7, 0.8, 0.9));
 
 	ASSERT_TRUE(Session.Begin(*Material, ParameterId, Transactions.Get()));
@@ -2239,7 +2306,7 @@ TEST(FMaterialGraphOperationsTests,
 		{0.1, 0.1, 0.1})));
 	ASSERT_TRUE(Session.Cancel());
 	ASSERT_TRUE(Material->GetVectorParameterValue(
-		MaterialParameters::BaseColorName(), BaseColor));
+		Material->FindParameterDefinition(ParameterId)->Name, BaseColor));
 	EXPECT_EQ(BaseColor, FVector3(0.7, 0.8, 0.9));
 	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestGeneration,
 		CompileGeneration);
@@ -2301,16 +2368,16 @@ TEST(FMaterialGraphOperationsTests, ForeignClipboardOwnsLocalDeclarationsAndReje
 	FMaterialProgram Program;
 	FMaterialProgramNode Node;
 	Node.Id = FGuid::NewGuid();
-	Node.ParameterId = Definition.Id;
+	Node.Parameter = Definition;
 	Node.Opcode = EMaterialProgramOpcode::Parameter;
 	Node.ResultType = EMaterialProgramValueType::Float4;
 	Program.Nodes.push_back(Node);
-	ASSERT_TRUE(Source->SetMaterialDefinitionsAndProgram({Definition}, Program));
+	ASSERT_TRUE(Source->SetMaterialProgram(Program));
 	ASSERT_TRUE(FMaterialGraphOperations::Layout(*Source));
-	ASSERT_TRUE(Target->SetMaterialDefinitionsAndProgram({}, {}));
+	ASSERT_TRUE(Target->SetMaterialProgram({}));
 	FMaterialGraphClipboardPayload Payload;
 	ASSERT_TRUE(FMaterialGraphOperations::CopySelection(*Source, std::span(&Node.Id, 1), Payload));
-	ASSERT_EQ(Payload.Definitions.size(), 1u);
+	ASSERT_EQ(Payload.Nodes.size(), 1u);
 	Durin::Tests::FTestTransactorOwner Transactions;
 	const auto BeforeRevision = Target->GetMaterialCompileStatus().AuthoredRevision;
 	const auto Pasted = FMaterialGraphOperations::Paste(*Target, Payload, 300, 200, Transactions.Get());
@@ -2318,7 +2385,7 @@ TEST(FMaterialGraphOperationsTests, ForeignClipboardOwnsLocalDeclarationsAndReje
 	ASSERT_EQ(Target->GetParameterDefinitions().size(), 1u);
 	const auto LocalId = Target->GetParameterDefinitions().front().Id;
 	EXPECT_NE(LocalId, Definition.Id);
-	EXPECT_EQ(Target->GetMaterialProgram()->Nodes.front().ParameterId, LocalId);
+	EXPECT_EQ(Target->GetMaterialProgram()->Nodes.front().Parameter.Id, LocalId);
 	EXPECT_EQ(Target->GetMaterialCompileStatus().AuthoredRevision, BeforeRevision + 1);
 	const auto AfterPresentation = Target->GetMaterialGraphPresentation();
 	ASSERT_TRUE(Transactions->Undo());
@@ -2328,18 +2395,18 @@ TEST(FMaterialGraphOperationsTests, ForeignClipboardOwnsLocalDeclarationsAndReje
 	EXPECT_EQ(Target->GetParameterDefinitions().front().Id, LocalId);
 	EXPECT_EQ(Target->GetMaterialGraphPresentation(), AfterPresentation);
 	ASSERT_TRUE(FMaterialGraphOperations::Paste(*Target, Payload, 600, 200));
-	EXPECT_EQ(Target->GetParameterDefinitions().size(), 1u);
-	EXPECT_EQ(Target->GetMaterialProgram()->Nodes.back().ParameterId, LocalId);
+	EXPECT_EQ(Target->GetParameterDefinitions().size(), 2u);
+	EXPECT_NE(Target->GetMaterialProgram()->Nodes.back().Parameter.Id, LocalId);
 
 	const auto BeforeProgram = *Target->GetMaterialProgram();
 	const auto BeforePresentation = Target->GetMaterialGraphPresentation();
 	const auto Revision = Target->GetMaterialCompileStatus().AuthoredRevision;
-	Payload.Definitions.front().Value.Vector4Value.x = 9;
+	Payload.Nodes.front().Node.Parameter.Name = {};
 	EXPECT_FALSE(FMaterialGraphOperations::Paste(*Target, Payload, 0, 0));
 	EXPECT_EQ(*Target->GetMaterialProgram(), BeforeProgram);
 	EXPECT_EQ(Target->GetMaterialGraphPresentation(), BeforePresentation);
 	EXPECT_EQ(Target->GetMaterialCompileStatus().AuthoredRevision, Revision);
-	Payload.Definitions.clear();
+	Payload.Nodes.front().Node.Parameter = {};
 	EXPECT_FALSE(FMaterialGraphOperations::Paste(*Target, Payload, 0, 0));
 	EXPECT_EQ(*Target->GetMaterialProgram(), BeforeProgram);
 	MarkAsGarbage(Source);
@@ -2347,7 +2414,7 @@ TEST(FMaterialGraphOperationsTests, ForeignClipboardOwnsLocalDeclarationsAndReje
 	CollectGarbage();
 }
 
-TEST(FMaterialGraphOperationsTests, SameRootClipboardUsesCurrentNamesAndDefaults)
+TEST(FMaterialGraphOperationsTests, SameRootClipboardCreatesIndependentSnapshotOwners)
 {
 	InitializeDObjectSystem();
 	DMaterial* Material = NewObject<DMaterial>(nullptr, "ClipboardRename");
@@ -2358,21 +2425,21 @@ TEST(FMaterialGraphOperationsTests, SameRootClipboardUsesCurrentNamesAndDefaults
 	FMaterialProgram Program;
 	FMaterialProgramNode Node;
 	Node.Id = FGuid::NewGuid();
-	Node.ParameterId = Definition.Id;
+	Node.Parameter = Definition;
 	Node.Opcode = EMaterialProgramOpcode::Parameter;
 	Program.Nodes.push_back(Node);
-	ASSERT_TRUE(Material->SetMaterialDefinitionsAndProgram({Definition}, Program));
+	ASSERT_TRUE(Material->SetMaterialProgram(Program));
 	ASSERT_TRUE(FMaterialGraphOperations::Layout(*Material));
 	FMaterialGraphClipboardPayload Payload;
 	ASSERT_TRUE(FMaterialGraphOperations::CopySelection(*Material, std::span(&Node.Id, 1), Payload));
-	ASSERT_TRUE(Material->RenameParameterDefinition(Definition.Id, "RenamedAmount"));
+	ASSERT_TRUE(FMaterialGraphOperations::RenameParameter(*Material, Definition.Id, "RenamedAmount"));
 	ASSERT_TRUE(FMaterialGraphOperations::Paste(*Material, Payload, 400, 0));
-	EXPECT_EQ(Material->GetMaterialProgram()->Nodes.back().ParameterId, Definition.Id);
-	EXPECT_EQ(Material->GetMaterialProgram()->Nodes.back().DisplayName, "RenamedAmount");
+	EXPECT_NE(Material->GetMaterialProgram()->Nodes.back().Parameter.Id, Definition.Id);
+	EXPECT_EQ(Material->GetMaterialProgram()->Nodes.back().Parameter.Name, Definition.Name);
+	EXPECT_EQ(Material->GetParameterDefinitions().size(), 2u);
+	ASSERT_TRUE(Material->SetMaterialProgram({}));
+	EXPECT_TRUE(FMaterialGraphOperations::Paste(*Material, Payload, 400, 0));
 	EXPECT_EQ(Material->GetParameterDefinitions().size(), 1u);
-	ASSERT_TRUE(Material->SetMaterialDefinitionsAndProgram({}, {}));
-	EXPECT_FALSE(FMaterialGraphOperations::Paste(*Material, Payload, 400, 0));
-	EXPECT_TRUE(Material->GetParameterDefinitions().empty());
 	MarkAsGarbage(Material);
 	CollectGarbage();
 }
@@ -2382,7 +2449,7 @@ TEST(FMaterialGraphOperationsTests, DeclarationCommandsAndConstantPromotionShare
 {
 	InitializeDObjectSystem();
 	DMaterial* Material = NewObject<DMaterial>(nullptr, "DeclarationCommands");
-	ASSERT_TRUE(Material->SetMaterialDefinitionsAndProgram({}, {}));
+	ASSERT_TRUE(Material->SetMaterialProgram({}));
 	Durin::Tests::FTestTransactorOwner Transactions;
 	FMaterialParameterDefinition Definition;
 	Definition.Name = "Amount";
@@ -2395,8 +2462,7 @@ TEST(FMaterialGraphOperationsTests, DeclarationCommandsAndConstantPromotionShare
 	ASSERT_TRUE(Id.IsValid());
 	Definition.Value = FMaterialParameterValue::MakeScalar(0.75f);
 	const auto Reused = FMaterialGraphOperations::CreateParameter(*Material, Definition, Transactions.Get());
-	EXPECT_EQ(Reused.Status, EMaterialGraphCommandStatus::NoChange);
-	EXPECT_EQ(Reused.AffectedParameterIds.front(), Id);
+	EXPECT_FALSE(Reused);
 	EXPECT_EQ(Material->FindParameterDefinition(Id)->Value.ScalarValue, 0.25f);
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_TRUE(Material->GetParameterDefinitions().empty());
@@ -2429,13 +2495,15 @@ TEST(FMaterialGraphOperationsTests, DeclarationCommandsAndConstantPromotionShare
 	EXPECT_EQ(Material->GetMaterialCompileStatus().AuthoredRevision, Revision + 1);
 	EXPECT_EQ(Material->FindParameterDefinition(TintId)->Value.Vector4Value, FVector4(1, 2, 3, 4));
 	EXPECT_EQ(Material->GetMaterialProgram()->Nodes.front().Id, Constant.Id);
-	EXPECT_EQ(Material->GetMaterialProgram()->Nodes.front().ParameterId, TintId);
-	EXPECT_FALSE(FMaterialGraphOperations::DeleteParameter(*Material, TintId, Transactions.Get()));
+	EXPECT_EQ(Material->GetMaterialProgram()->Nodes.front().Parameter.Id, TintId);
+	ASSERT_TRUE(FMaterialGraphOperations::DeleteParameter(*Material, TintId, Transactions.Get()));
+	EXPECT_TRUE(Material->GetParameterDefinitions().empty());
+	ASSERT_TRUE(Transactions->Undo());
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Material->FindParameterDefinition(TintId), nullptr);
 	EXPECT_EQ(*Material->GetMaterialProgram(), Program);
 	ASSERT_TRUE(Transactions->Redo());
-	EXPECT_EQ(Material->GetMaterialProgram()->Nodes.front().ParameterId, TintId);
+	EXPECT_EQ(Material->GetMaterialProgram()->Nodes.front().Parameter.Id, TintId);
 	Transactions->Reset();
 	MarkAsGarbage(Material);
 	CollectGarbage();
@@ -2456,10 +2524,10 @@ TEST(FMaterialGraphOperationsTests, ClipboardRetainsTextureDefaultsAfterSourceCo
 	FMaterialProgramNode Node;
 	Node.Id = FGuid::NewGuid();
 	Node.Opcode = EMaterialProgramOpcode::TextureParameter;
-	Node.ParameterId = Definition.Id;
+	Node.Parameter = Definition;
 	Node.ResultType = EMaterialProgramValueType::Texture2D;
 	Program.Nodes.push_back(Node);
-	ASSERT_TRUE(Source->SetMaterialDefinitionsAndProgram({Definition}, Program));
+	ASSERT_TRUE(Source->SetMaterialProgram(Program));
 	ASSERT_TRUE(FMaterialGraphOperations::Layout(*Source));
 	FMaterialGraphClipboardPayload Payload;
 	ASSERT_TRUE(FMaterialGraphOperations::CopySelection(*Source, std::span(&Node.Id, 1), Payload));
@@ -2468,7 +2536,7 @@ TEST(FMaterialGraphOperationsTests, ClipboardRetainsTextureDefaultsAfterSourceCo
 	ASSERT_NE(WeakTexture.Get(), nullptr);
 	EXPECT_EQ(Payload.SourceRoot.Get(), nullptr);
 	DMaterial* Target = NewObject<DMaterial>(nullptr, "ClipboardTextureTarget");
-	ASSERT_TRUE(Target->SetMaterialDefinitionsAndProgram({}, {}));
+	ASSERT_TRUE(Target->SetMaterialProgram({}));
 	ASSERT_TRUE(FMaterialGraphOperations::Paste(*Target, Payload, 0, 0));
 	EXPECT_EQ(Target->GetParameterDefinitions().front().Value.TextureValue.Get(), WeakTexture.Get());
 	MarkAsGarbage(Target);
@@ -2514,7 +2582,7 @@ TEST(FMaterialGraphOperationsTests, DocumentDockLayoutsRemainIsolatedAndSurviveH
 				Frame == 2 ? ImGuiDockNodeFlags_KeepAliveOnly : ImGuiDockNodeFlags_None);
 			if (Frame != 2)
 			{
-				for (const char* Key : {"Graph", "Preview", "Details", "Parameters", "Diagnostics"})
+				for (const char* Key : {"Graph", "Preview", "Details", "Diagnostics"})
 				{
 					if (Frame == 0 && std::string_view(Key) == "Diagnostics") continue;
 					WorkspaceUI::BeginDockablePanel(DockType, Key, Key);
@@ -2535,19 +2603,7 @@ TEST(FMaterialGraphOperationsTests, DocumentDockLayoutsRemainIsolatedAndSurviveH
 					else if (std::string_view(Key) == "Diagnostics")
 						EXPECT_NE(Window->DockId, GraphId);
 					else if (std::string_view(Key) == "Details") DetailsId = Window->DockId;
-					else if (std::string_view(Key) == "Parameters")
-					{
-						EXPECT_NE(Window->DockId, DetailsId);
-						const auto* Graph = ImGui::DockBuilderGetNode(GraphId);
-						const auto* Preview = ImGui::DockBuilderGetNode(PreviewId);
-						const auto* Details = ImGui::DockBuilderGetNode(DetailsId);
-						const auto* Parameters = ImGui::DockBuilderGetNode(Window->DockId);
-						EXPECT_LT(Preview->Pos.x, Graph->Pos.x);
-						EXPECT_LT(Preview->Pos.y, Details->Pos.y);
-						EXPECT_LT(Details->Pos.y, Parameters->Pos.y);
-						EXPECT_FLOAT_EQ(Preview->Pos.x, Parameters->Pos.x);
-						EXPECT_GT(Graph->Size.y, Preview->Size.y);
-					}
+
 					ImGui::End();
 				}
 			}

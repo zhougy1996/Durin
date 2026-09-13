@@ -1,6 +1,8 @@
 #include "Asset/PackageSerialization.h"
 #if DURIN_WITH_EDITOR
 #include "AssetForge/Builtins/SceneImport.h"
+#include "AssetTools/IAssetTools.h"
+#include "Materials/DefaultMaterialService.h"
 #include "AssetForge/Builtins/StandardMaterialFunctions.h"
 #endif
 #include "AssetRegistry/Scan.h"
@@ -1060,7 +1062,7 @@ int main(int ArgC, char** ArgV)
 			if (!Durin::FObjectPath::TryCreate(std::format("{}.{}", Package.PackagePath.ToString(), Package.PackagePath.GetPackageName()), Path)
 				|| !Durin::LoadObject(Path, Object) || !Object)
 			{
-				Row.SetChildValue("status", "Load failed; no migration writes permitted");
+				Row.SetChildValue("status", "Load failed; rebuild required before writes");
 				bInventoryValid = false;
 				continue;
 			}
@@ -1075,10 +1077,10 @@ int main(int ArgC, char** ArgV)
 				{
 					std::vector<Durin::FMaterialFunctionCall> Calls;
 					Durin::FMaterialGraphPresentation Presentation;
-					const auto Legacy = Durin::AssetForge::Builtins::MakeLegacyImportedSurfaceFunctionProgram(Functions, Calls, Presentation);
-					const bool Exact = *Material->GetMaterialProgram() == Legacy && std::ranges::equal(Material->GetMaterialFunctionCalls(), Calls);
-					Row.SetChildValue("exactPreviousFunctionRecipe", Exact);
-					Row.SetChildValue("eligiblePreviousFunctionRecipe", Exact && bExactDependencies);
+					const auto Expected = Durin::AssetForge::Builtins::MakeImportedSurfaceFunctionProgram(Functions, Calls, Presentation);
+					const bool Exact = *Material->GetMaterialProgram() == Expected && std::ranges::equal(Material->GetMaterialFunctionCalls(), Calls);
+					Row.SetChildValue("exactCurrentFunctionRecipe", Exact);
+					Row.SetChildValue("currentRecipeDependenciesMatch", Exact && bExactDependencies);
 				}
 				auto Definitions = Row.AddArray("parameters");
 				for (const auto& Definition : Material->GetParameterDefinitions())
@@ -1122,13 +1124,25 @@ int main(int ArgC, char** ArgV)
 		std::string Error;
 		if (!Durin::AssetForge::Builtins::EnsureImportedSurfaceMaterial(Error))
 		{
-			std::cerr << "Material function upgrade failed: " << Error << '\n';
+			std::cerr << "Material recipe initialization failed: " << Error << '\n';
 			return 1;
 		}
-		std::cout << "Standard material functions and ImportedSurface are current.\n";
+		Durin::FPackagePath DefaultPath;
+		if (!Durin::FPackagePath::TryCreate(Durin::DefaultMaterialPackagePath, DefaultPath)) return 1;
+		if (!Durin::FindAssetExact(DefaultPath))
+		{
+			Durin::FTopLevelAssetPath AssetPath;
+			if (!Durin::FTopLevelAssetPath::TryCreate(DefaultPath, DefaultPath.GetPackageName(), AssetPath)) return 1;
+			const auto Created = Durin::IAssetTools::Get().CreateAsset(AssetPath, Durin::DMaterial::StaticClass());
+			auto* Material = Durin::Cast<Durin::DMaterial>(Created.Asset);
+			if (!Created || !Material) { std::cerr << Created.Message << '\n'; return 1; }
+			const auto Saved = Durin::SavePackage(Material->GetPackage());
+			if (!Saved) { std::cerr << Saved.Message << '\n'; return 1; }
+		}
+		std::cout << "Standard material functions, ImportedSurface and DefaultMaterial are current.\n";
 		return 0;
 #else
-		std::cerr << "Material function upgrade requires the editor asset host.\n";
+		std::cerr << "Material recipe initialization requires the editor asset host.\n";
 		return 1;
 #endif
 	}

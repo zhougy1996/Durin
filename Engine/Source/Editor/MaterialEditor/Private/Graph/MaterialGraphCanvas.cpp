@@ -25,14 +25,9 @@ namespace Durin::Editor::Material
 			if (Pin.Link.SourceNodeId.IsValid()) return Pin.Name;
 			if (IsMaterialSampleUVInput(Node.Node, Pin.InputIndex))
 			{
-				for (uint32 Index = 0; Index < 4; ++Index)
-					if (GetMaterialUVSetting(Node.Node.UVSettings, Index).Kind == EMaterialInputDefaultKind::Parameter) return "UV [parameters]";
 				return std::format("UV {:g} (local)", Node.Node.UVSettings.Channel.Literal.X);
 			}
 			const auto& Value = Pin.InlineDefault;
-			if (Value.Kind == EMaterialInputDefaultKind::Parameter && Material)
-				if (const auto* Definition = Material->FindParameterDefinition(Value.ParameterId))
-					return std::format("{} [{}]", Pin.Name, Definition->Name.ToString());
 			if (Value.Kind == EMaterialInputDefaultKind::Literal)
 			{
 				if (Value.Type == EMaterialProgramValueType::Float) return std::format("{}: {:g}", Pin.Name, Value.Literal.X);
@@ -280,15 +275,13 @@ namespace Durin::Editor::Material
 		{
 			for (FMaterialGraphNodeView& Node : CachedView.Nodes)
 			{
-				Node.SecondaryLabel = Node.Node.DisplayName;
-				if (Node.Node.ParameterId.IsValid())
-					if (const auto* Definition = Material.FindParameterDefinition(Node.Node.ParameterId))
-						Node.SecondaryLabel = Definition->DisplayName;
-				if (Node.Node.Opcode == EMaterialProgramOpcode::TextureParameter || Node.Node.Opcode == EMaterialProgramOpcode::TextureSampleParameter2D)
+				if (Node.Node.Parameter.Id.IsValid())
 				{
-					if (!Node.SecondaryLabel.empty()) Node.PrimaryLabel = Node.SecondaryLabel;
-					Node.SecondaryLabel = Node.Node.Opcode == EMaterialProgramOpcode::TextureParameter ? "Texture Object Parameter" : "Texture Sample Parameter 2D";
+					if (const auto* Definition = Material.FindParameterDefinition(Node.Node.Parameter.Id))
+						Node.PrimaryLabel = Definition->DisplayName.empty()
+							? Definition->Name.ToString() : Definition->DisplayName;
 				}
+				else Node.SecondaryLabel = Node.Node.DisplayName;
 			}
 			CachedSchemaRevision = SchemaRevision;
 		}
@@ -612,24 +605,6 @@ namespace Durin::Editor::Material
 				ContextSelection = GetSelectedProgramNodes();
 			else ContextSelection = {ContextNodeView->Node.Id};
 			FMaterialProgramNode Edited = ContextNodeView->Node;
-			if ((Edited.Opcode == EMaterialProgramOpcode::Parameter
-				|| Edited.Opcode == EMaterialProgramOpcode::TextureParameter) && ImGui::BeginMenu("Parameter"))
-			{
-				for (const auto& Definition : Material.GetParameterDefinitions())
-				{
-					if (GetProgramType(Definition.Type) != Edited.ResultType) continue;
-					ImGui::PushID(Definition.Id.ToString().c_str());
-					if (ImGui::MenuItem(Definition.Name.ToString().c_str()))
-					{
-						Edited.ParameterId = Definition.Id;
-						Edited.DisplayName = Definition.DisplayName;
-						ReportCommand(FMaterialGraphOperations::ReplaceNode(
-							Material, Edited, &Transactions), ReportError);
-					}
-					ImGui::PopID();
-				}
-				ImGui::EndMenu();
-			}
 			if (Edited.Opcode == EMaterialProgramOpcode::Constant && ImGui::BeginMenu("Type"))
 			{
 				for (EMaterialProgramValueType Type : {EMaterialProgramValueType::Float,
@@ -1297,7 +1272,7 @@ namespace Durin::Editor::Material
 							Visual.View->Node.Opcode == EMaterialProgramOpcode::Parameter
 							&& SelectedNodes.contains(Visual.View->Node.Id)
 							&& Material.ResolveParameterValue(
-								Visual.View->Node.ParameterId, Resolved);
+								Visual.View->Node.Parameter.Id, Resolved);
 						if (bEditValue)
 						{
 							const auto Literal = ReadParameterLiteral(Visual.View->Node.ResultType, Resolved.Value);
@@ -1327,7 +1302,7 @@ namespace Durin::Editor::Material
 									{ConstantDraft[0], ConstantDraft[1], ConstantDraft[2], ConstantDraft[3]});
 								if (!ParameterEditSession.IsActive())
 									ReportCommand(ParameterEditSession.Begin(Material,
-										Visual.View->Node.ParameterId, &Transactions), ReportError);
+										Visual.View->Node.Parameter.Id, &Transactions), ReportError);
 								if (ParameterEditSession.IsActive())
 									ReportCommand(ParameterEditSession.Apply(std::move(Value)), ReportError);
 							}
@@ -1346,27 +1321,7 @@ namespace Durin::Editor::Material
 						}
 						else
 						{
-							const char* Preview = Visual.View->SecondaryLabel.empty()
-								? "Select parameter" : Visual.View->SecondaryLabel.c_str();
-							if (ImGui::BeginCombo("##InlineParameter", Preview))
-							{
-								for (const auto& Definition : Material.GetParameterDefinitions())
-								{
-									if (GetProgramType(Definition.Type) != Visual.View->Node.ResultType) continue;
-									if (ImGui::Selectable((Definition.DisplayName + "##" + Definition.Id.ToString()).c_str(),
-										Definition.Id == Visual.View->Node.ParameterId))
-									{
-										FMaterialProgramNode Edited = Visual.View->Node;
-										Edited.ParameterId = Definition.Id;
-										Edited.DisplayName = Definition.DisplayName;
-										ReportCommand(FMaterialGraphOperations::ReplaceNode(
-											Material, std::move(Edited), &Transactions), ReportError);
-									}
-								}
-								ImGui::EndCombo();
-							}
-							bEmbeddedControlHoveredOrActive |=
-								ImGui::IsItemHovered() || ImGui::IsItemActive();
+							ImGui::TextUnformatted(Visual.View->SecondaryLabel.c_str());
 						}
 						ImGui::PopStyleVar(2);
 						ImGui::PopFont();

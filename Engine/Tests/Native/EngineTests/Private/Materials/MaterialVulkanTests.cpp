@@ -1,4 +1,4 @@
-#include "LegacyMaterialProgramTestFixture.h"
+#include "ExplicitMaterialProgramTestFixture.h"
 #include "StandardMaterialFunctionTestFixture.h"
 #include "Threading/Task.h"
 #include "NativeAssetTestSupport.h"
@@ -103,9 +103,7 @@ namespace
 	{
 		auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, Name);
 		if (!Durin::IsValid(Material)) return nullptr;
-		if (!Material->SetMaterialDefinitionsAndProgram(
-			Durin::MakePBRMaterialParameterDefinitions(),
-			Durin::Testing::MakeLegacyPBRMaterialProgram()))
+		if (!Material->SetMaterialProgram(Durin::Testing::MakePBRMaterialProgramForTest()))
 			return nullptr;
 		if (!FinishMaterialCompileForTest(*Material)) return nullptr;
 		return Material;
@@ -378,16 +376,26 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			Pool.Reset();
 			return Pixels;
 		};
+		Durin::FObjectPath ShippedPath;
+		ASSERT_TRUE(Durin::FObjectPath::TryCreate("/Engine/Materials/ImportedSurface.ImportedSurface", ShippedPath));
+		Durin::DMaterial* ShippedImported = nullptr;
+		ASSERT_TRUE(Durin::LoadObject(ShippedPath, ShippedImported));
 		Durin::TStrongObjectPtr<Durin::DMaterial> FunctionComparison(
-			Durin::NewObject<Durin::DMaterial>(nullptr, "StandardFunctionComparison"));
-		ASSERT_TRUE(Durin::Testing::SetStandardMaterialProgramForTest(*FunctionComparison));
+			Durin::Cast<Durin::DMaterial>(Durin::DuplicateObject(ShippedImported, nullptr, "ShippedFunctionComparison")));
+		ASSERT_NE(FunctionComparison.Get(), nullptr);
+		ASSERT_EQ(FunctionComparison->GetParameterDefinitions().size(), 48u);
+		SaveFunctionMigrationBaseline("rebuilt-imported-surface", Capture(FunctionComparison.Get()));
+		ASSERT_NE(FunctionComparison->GetAcceptedCompiledProgram(), nullptr);
+		ASSERT_TRUE(Durin::FObjectPath::TryCreate("/Engine/Materials/DefaultMaterial.DefaultMaterial", ShippedPath));
+		Durin::DMaterial* ShippedDefault = nullptr;
+		ASSERT_TRUE(Durin::LoadObject(ShippedPath, ShippedDefault));
+		SaveFunctionMigrationBaseline("rebuilt-default-material", Capture(ShippedDefault));
+		ASSERT_NE(ShippedDefault->GetAcceptedCompiledProgram(), nullptr);
+		EXPECT_TRUE(ShippedDefault->GetParameterDefinitions().empty());
 		auto CompareFunction = [&](const char* Name, const Durin::FByteBuffer& Expected) {
 			SCOPED_TRACE(Name);
-			const auto Definitions = CaptureMaterial->GetParameterDefinitions();
-			const auto Calls = FunctionComparison->GetMaterialFunctionCalls();
-			ASSERT_TRUE(FunctionComparison->SetMaterialDefinitionsAndProgram(
-				{Definitions.begin(), Definitions.end()}, *FunctionComparison->GetMaterialProgram(),
-				{Calls.begin(), Calls.end()}));
+			for (const auto& Definition : CaptureMaterial->GetParameterDefinitions())
+				ASSERT_TRUE(FunctionComparison->SetParameterValue(Definition.Id, Definition.Value));
 			ASSERT_TRUE(FunctionComparison->SetStaticProperties(CaptureMaterial->GetStaticProperties()));
 			const auto Actual = Capture(FunctionComparison.Get());
 			EXPECT_EQ(Actual, Expected);
@@ -406,7 +414,9 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			auto* Rust = NewObject<DMaterial>(nullptr, "RenderedDualLayerRust");
 			auto* Light = NewObject<DMaterialInstance>(nullptr, "RenderedLightRust");
 			auto* Heavy = NewObject<DMaterialInstance>(nullptr, "RenderedHeavyRust");
-			ASSERT_TRUE(Rust->SetMaterialDefinitionsAndProgram(Definitions, Program));
+			for (auto& Node : Program.Nodes)
+				if (Node.Parameter.Id.IsValid()) Node.Parameter = *std::ranges::find(Definitions, Node.Parameter.Id, &FMaterialParameterDefinition::Id);
+			ASSERT_TRUE(Rust->SetMaterialProgram(Program));
 			ASSERT_TRUE(FinishMaterialCompileForTest(*Rust));
 			const auto Accepted = Rust->GetAcceptedCompiledProgram();
 			ASSERT_NE(Accepted, nullptr);
@@ -434,7 +444,9 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 				OtherDefinitions[Index].Value = Definitions[Index].Value;
 			OtherDefinitions[5].Value = FMaterialParameterValue::MakeScalar(0.1f);
 			auto* Unrelated = NewObject<DMaterial>(nullptr, "UnrelatedRenderedRust");
-			ASSERT_TRUE(Unrelated->SetMaterialDefinitionsAndProgram(OtherDefinitions, OtherProgram));
+			for (auto& Node : OtherProgram.Nodes)
+				if (Node.Parameter.Id.IsValid()) Node.Parameter = *std::ranges::find(OtherDefinitions, Node.Parameter.Id, &FMaterialParameterDefinition::Id);
+			ASSERT_TRUE(Unrelated->SetMaterialProgram(OtherProgram));
 			ASSERT_TRUE(FinishMaterialCompileForTest(*Unrelated));
 			EXPECT_EQ(Capture(Unrelated), LightPixels);
 			ASSERT_TRUE(Unrelated->SetScalarParameterValue(FName("RustAmount"), 0.9f));
@@ -560,6 +572,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			StaticMeshMaterialPath,
 			StaticMeshAssetMaterial));
 		ASSERT_NE(StaticMeshAssetMaterial, nullptr);
+		ASSERT_TRUE(StaticMeshAssetMaterial->SetMaterialProgram(Durin::Testing::MakePBRMaterialProgramForTest()));
 		ASSERT_TRUE(StaticMeshAssetMaterial->SetVectorParameterValue(
 			Durin::MaterialParameters::BaseColorName(),
 			Durin::FVector3(0.85, 0.12, 0.18)));
@@ -864,13 +877,13 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 		const Durin::FMaterialProgram CanonicalProgram =
 			*CaptureMaterial->GetMaterialProgram();
 		Durin::FMaterialProgram EditedProgram = CanonicalProgram;
-		const auto RoughnessMaximum = std::ranges::find_if(
-			EditedProgram.Nodes, [](const auto& Node) {
-				return Node.Opcode == Durin::EMaterialProgramOpcode::Constant
-					&& Node.ResultType
-						== Durin::EMaterialProgramValueType::Float
-					&& Node.Literal.X == 1.0f;
-			});
+		const auto RoughnessClamp = std::ranges::find(EditedProgram.Nodes,
+			EditedProgram.Outputs.Roughness.SourceNodeId, &Durin::FMaterialProgramNode::Id);
+		ASSERT_NE(RoughnessClamp, EditedProgram.Nodes.end());
+		ASSERT_EQ(RoughnessClamp->Opcode, Durin::EMaterialProgramOpcode::Clamp);
+		ASSERT_EQ(RoughnessClamp->Inputs.size(), 3u);
+		const auto RoughnessMaximum = std::ranges::find(EditedProgram.Nodes,
+			RoughnessClamp->Inputs[2].SourceNodeId, &Durin::FMaterialProgramNode::Id);
 		ASSERT_NE(RoughnessMaximum, EditedProgram.Nodes.end());
 		RoughnessMaximum->Literal.X = 0.2f;
 		const Durin::FMaterialProgramIdentity CanonicalProgramIdentity =
@@ -1037,7 +1050,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			Pool.Reset();
 		}
 		{
-			auto Validation = StaticMeshAssetMaterial->SetMaterialProgram(Durin::Testing::MakeLegacyPBRMaterialProgram());
+			auto Validation = StaticMeshAssetMaterial->SetMaterialProgram(Durin::Testing::MakePBRMaterialProgramForTest());
 			ASSERT_TRUE(Validation);
 			ASSERT_TRUE(StaticMeshAssetMaterial->SetTextureParameterValue(
 				Durin::MaterialParameters::BaseColorTextureName(), TextureResult.Asset));

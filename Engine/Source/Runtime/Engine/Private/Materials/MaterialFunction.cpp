@@ -1,26 +1,25 @@
 #include "Materials/MaterialFunction.h"
 
 #include "DObject/Property.h"
+#include "DObject/Archive.h"
 #include "DObject/Package.h"
 #include "Threading/RunnableThread.h"
 
 namespace Durin
 {
-	auto DMaterialFunction::PostLoad() -> void
+	auto DMaterialFunction::Serialize(FArchive& Ar) -> void
 	{
-		Super::PostLoad();
-		if (Graph.SchemaVersion != 1 || Graph.Nodes.size() > MaterialProgramMaxNodeCount
-			|| !std::ranges::all_of(Graph.Nodes, [](const auto& Node) {
-				return Node.Opcode <= EMaterialProgramOpcode::SetSurfaceAttributes
-					&& Node.InputDefaults.empty() && Node.UVSettings == FMaterialUVSettings{};
-			}) || !std::ranges::all_of(Graph.Calls, [](const auto& Call) {
-				return std::ranges::all_of(Call.Inputs, [](const auto& Input) { return Input.Default == FMaterialInputDefault{}; });
-			})) return;
-		auto Candidate = Graph;
-		Candidate.SchemaVersion = CurrentMaterialFunctionSchemaVersion;
-		if (!ValidateMaterialFunctionGraph(Candidate)) return;
-		Graph = std::move(Candidate);
-		if (auto* Package = GetPackage()) Package->SetCanonicalResaveRecommended(true);
+		if (Ar.IsLoading()) GraphOwnershipVersion = 0;
+		Super::Serialize(Ar);
+		if (GraphOwnershipVersion != 1 || Ar.HasError())
+		{
+			Ar.Fail(EArchiveFailureCode::UnsupportedVersion,
+				"Unsupported material function schema; rebuild this function.");
+			return;
+		}
+		if (!Ar.HasError() && Ar.GetPurpose() == EArchivePurpose::AuthoredPackage
+			&& !ValidateMaterialFunctionGraph(Graph))
+			Ar.Fail(EArchiveFailureCode::InvalidData, "Invalid material function graph; rebuild this function.");
 	}
 
 	auto DMaterialFunction::SetAuthoringSource(std::string Source, uint32 Version) -> void

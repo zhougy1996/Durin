@@ -27,7 +27,6 @@ namespace Durin::Editor::Material
 		bool bAutoCompile = true;
 		bool bPreviewVisible = true;
 		bool bDetailsVisible = true;
-		bool bParametersVisible = true;
 		bool bDiagnosticsVisible = false;
 
 	private:

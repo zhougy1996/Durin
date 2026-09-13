@@ -3,11 +3,14 @@
 
 #include "Asset/AssetCompilingManager.h"
 #include "Materials/MaterialCompileLifecycle.h"
+#include "Materials/MaterialFunction.h"
 #include "Materials/MaterialCookedProgram.h"
 #include "Materials/MaterialProgramCompiler.h"
 #include "Materials/MaterialRenderTypes.h"
 #include "Asset/Asset.h"
 #include "DObject/Property.h"
+#include "DObject/Archive.h"
+#include "DObject/Class.h"
 #include "DObject/Package.h"
 #include "Modules/ModuleManager.h"
 #include "MaterialProgramValidation.h"
@@ -26,18 +29,28 @@ namespace Durin
 				? 1 : Revision + 1;
 		}
 
+		auto MakeCodeOnlyProgram(FMaterialProgram Program) -> FMaterialProgram
+		{
+			for (auto& Node : Program.Nodes)
+			{
+				Node.Parameter = {.Id = Node.Parameter.Id, .Type = Node.Parameter.Type};
+				Node.DisplayName.clear();
+			}
+			return Program;
+		}
+
 
 	}
 
 	DMaterial::DMaterial(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
-		, ParameterDefinitions(MakePBRMaterialParameterDefinitions())
 		, Program(MakeDefaultMaterialProgram())
 		, GraphPresentation({
 			.bHasMaterialOutputPosition = true,
 			.MaterialOutputX = 96,
 			.MaterialOutputY = 0})
 	{
+		ObservedCodeProgram = MakeCodeOnlyProgram(Program);
 		if (!IsTemplateConstructionPurpose(ObjectInitializer.Purpose))
 		{
 			if (!IsMaterialCompilationAcceptingRequests())
@@ -98,109 +111,29 @@ namespace Durin
 				.Message = "Material program schema version is unsupported."});
 			return Validation;
 		}
-		auto Validation = ValidateMaterialProgramWithFunctions(
-			InProgram, ParameterDefinitions, InCalls);
+		std::vector<FMaterialParameterDefinition> Schema;
+		auto Validation = DeriveMaterialParameterSchema(InProgram, Schema);
+		if (!Validation) return Validation;
+		Validation = ValidateMaterialProgramWithFunctions(InProgram, Schema, InCalls);
 		if (!Validation) return Validation;
 		if (Program == InProgram && FunctionCalls == InCalls) return Validation;
+		auto CodeProgram = MakeCodeOnlyProgram(InProgram);
+		const bool bShaderChanged = CodeProgram != ObservedCodeProgram || FunctionCalls != InCalls;
+		ObservedCodeProgram = std::move(CodeProgram);
+		if (ParameterSchema != Schema) AdvanceRevision(ParameterDefinitionSchemaRevision);
+		ParameterSchema = std::move(Schema);
 		Program = std::move(InProgram);
 		FunctionCalls = std::move(InCalls);
 		AdvanceRevision(MaterialProgramRevision);
-		AdvanceAuthoredRevision();
-		Private::FMaterialCompilationLifecycle::ScheduleEdit(*this);
+		if (bShaderChanged)
+		{
+			AdvanceAuthoredRevision();
+			Private::FMaterialCompilationLifecycle::ScheduleEdit(*this);
+		}
 		MarkPackageDirty();
-		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ShaderMap);
+		MarkRenderDataDirty(bShaderChanged ? EMaterialRenderDirtyFlags::ShaderMap
+			: EMaterialRenderDirtyFlags::DynamicParameters);
 		return Validation;
-	}
-
-	auto DMaterial::SetMaterialDefinitionsAndProgram(
-		std::vector<FMaterialParameterDefinition> Definitions,
-		FMaterialProgram InProgram) -> FMaterialParameterEditResult
-	{
-		return SetMaterialDefinitionsAndProgram(std::move(Definitions), std::move(InProgram), FunctionCalls);
-	}
-
-	auto DMaterial::SetMaterialDefinitionsAndProgram(
-		std::vector<FMaterialParameterDefinition> Definitions,
-		FMaterialProgram InProgram, std::vector<FMaterialFunctionCall> InCalls) -> FMaterialParameterEditResult
-	{
-		const auto Declarations = ValidateMaterialParameterDefinitions(Definitions);
-		if (!Declarations) return {Declarations.Error, Declarations.ParameterId};
-		if (InProgram.SchemaVersion != CurrentMaterialProgramSchemaVersion)
-			return {.Error = EMaterialParameterError::UnsupportedProgramSchema};
-		auto Validation = ValidateMaterialProgramWithFunctions(InProgram, Definitions, InCalls);
-		if (!Validation)
-			return {.Error = EMaterialParameterError::InvalidProgram,
-				.Diagnostics = std::move(Validation.Diagnostics)};
-		for (const auto& Definition : Definitions)
-		{
-			const auto* Previous = FindParameterDefinition(Definition.Id);
-			if (Previous && Previous->Type != Definition.Type)
-				return {EMaterialParameterError::TypeConflict, Definition.Id};
-		}
-		if (Definitions == ParameterDefinitions && InProgram == Program && InCalls == FunctionCalls) return {};
-		CompilationOwner.RenderLayer.Parameters = BuildMaterialLocalRenderLayer().Parameters;
-		ParameterDefinitions = std::move(Definitions);
-		ParameterDeclarationSchemaVersion = 2;
-		Program = std::move(InProgram);
-		FunctionCalls = std::move(InCalls);
-		GraphPresentation = SanitizeMaterialGraphPresentation(GraphPresentation, Program);
-		AdvanceRevision(ParameterDefinitionSchemaRevision);
-		AdvanceRevision(MaterialProgramRevision);
-		AdvanceRevision(MaterialGraphPresentationRevision);
-		AdvanceAuthoredRevision();
-		Private::FMaterialCompilationLifecycle::ScheduleEdit(*this);
-		MarkPackageDirty();
-		MarkRenderDataDirty(EMaterialRenderDirtyFlags::AllRenderState);
-		return {};
-	}
-
-	auto DMaterial::CreateParameterDefinition(
-		FMaterialParameterDefinition Definition) -> FMaterialParameterEditResult
-	{
-		if (const auto* Existing = FindParameterDefinition(Definition.Name))
-		{
-			if (Existing->Type != Definition.Type)
-				return {EMaterialParameterError::TypeConflict, Existing->Id};
-			return {.ParameterId = Existing->Id};
-		}
-		if (!Definition.Id.IsValid()) Definition.Id = FGuid::NewGuid();
-		const FGuid Id = Definition.Id;
-		auto Candidate = ParameterDefinitions;
-		Candidate.push_back(std::move(Definition));
-		auto Result = SetMaterialDefinitionsAndProgram(std::move(Candidate), Program);
-		if (Result) Result.ParameterId = Id;
-		return Result;
-	}
-
-	auto DMaterial::RenameParameterDefinition(
-		const FGuid& Id, FName Name) -> FMaterialParameterEditResult
-	{
-		const auto* Existing = FindParameterDefinition(Id);
-		if (!Existing) return {EMaterialParameterError::NotFound, Id};
-		if (Name.IsNone()) return {EMaterialParameterError::InvalidName, Id};
-		if (const auto* Occupant = FindParameterDefinition(Name); Occupant && Occupant->Id != Id)
-			return {EMaterialParameterError::DuplicateName, Id};
-		if (Existing->Name == Name) return {.ParameterId = Id};
-		auto Candidate = ParameterDefinitions;
-		auto& Definition = *std::ranges::find(Candidate, Id, &FMaterialParameterDefinition::Id);
-		Definition.Name = Name;
-		Definition.DisplayName = Name.ToString();
-		auto CandidateProgram = Program;
-		for (auto& Node : CandidateProgram.Nodes)
-			if (Node.ParameterId == Id) Node.DisplayName = Definition.DisplayName;
-		auto Result = SetMaterialDefinitionsAndProgram(std::move(Candidate), std::move(CandidateProgram));
-		if (!Result.ParameterId.IsValid()) Result.ParameterId = Id;
-		return Result;
-	}
-
-	auto DMaterial::DeleteParameterDefinition(const FGuid& Id) -> FMaterialParameterEditResult
-	{
-		auto Candidate = ParameterDefinitions;
-		if (!std::erase_if(Candidate, [&](const auto& Definition) { return Definition.Id == Id; }))
-			return {EMaterialParameterError::NotFound, Id};
-		auto Result = SetMaterialDefinitionsAndProgram(std::move(Candidate), Program);
-		if (!Result.ParameterId.IsValid()) Result.ParameterId = Id;
-		return Result;
 	}
 
 	auto DMaterial::SetMaterialGraphPresentation(
@@ -283,7 +216,7 @@ namespace Durin
 
 	auto DMaterial::GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition>
 	{
-		return ParameterDefinitions;
+		return ParameterSchema;
 	}
 
 	auto DMaterial::ResolveParameterValue(const FGuid& Id, FResolvedMaterialParameter& OutParameter) const -> bool
@@ -321,91 +254,52 @@ namespace Durin
 
 	auto DMaterial::SetScalarParameterValue(FName Name, float Value) -> bool
 	{
-		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
-		if (!Definition || Definition->Type != EMaterialParameterType::Scalar) return false;
-		auto& Mutable = ParameterDefinitions[static_cast<size_t>(Definition - ParameterDefinitions.data())].Value.ScalarValue;
-		if (Mutable == Value) return true;
-		Mutable = Value;
-		MarkPackageDirty();
-		MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters);
-		return true;
+		const auto* Definition = FindParameterDefinition(Name);
+		return Definition && Definition->Type == EMaterialParameterType::Scalar
+			&& SetParameterValue(Definition->Id, FMaterialParameterValue::MakeScalar(Value));
 	}
 
 	auto DMaterial::SetVector2ParameterValue(FName Name, const FVector2& Value) -> bool
 	{
-		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
-		if (!Definition || Definition->Type != EMaterialParameterType::Vector2) return false;
-		auto& Mutable = ParameterDefinitions[static_cast<size_t>(Definition - ParameterDefinitions.data())].Value.Vector2Value;
-		if (Mutable == Value) return true;
-		Mutable = Value;
-		MarkPackageDirty();
-		MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters);
-		return true;
+		const auto* Definition = FindParameterDefinition(Name);
+		return Definition && Definition->Type == EMaterialParameterType::Vector2
+			&& SetParameterValue(Definition->Id, FMaterialParameterValue::MakeVector2(Value));
 	}
 
 	auto DMaterial::SetVectorParameterValue(FName Name, const FVector3& Value) -> bool
 	{
-		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
-		if (!Definition || Definition->Type != EMaterialParameterType::Vector) return false;
-		auto& Mutable = ParameterDefinitions[static_cast<size_t>(Definition - ParameterDefinitions.data())].Value.VectorValue;
-		if (Mutable == Value) return true;
-		Mutable = Value;
-		MarkPackageDirty();
-		MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters);
-		return true;
+		const auto* Definition = FindParameterDefinition(Name);
+		return Definition && Definition->Type == EMaterialParameterType::Vector
+			&& SetParameterValue(Definition->Id, FMaterialParameterValue::MakeVector(Value));
 	}
 
 	auto DMaterial::SetTextureParameterValue(FName Name, DTexture2D* Value) -> bool
 	{
-		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
+		const auto* Definition = FindParameterDefinition(Name);
 		if (!Definition || Definition->Type != EMaterialParameterType::Texture) return false;
-		auto& Mutable = ParameterDefinitions[static_cast<size_t>(Definition - ParameterDefinitions.data())].Value.TextureValue;
-		if (Mutable.Get() == Value) return true;
-		Mutable = Value;
+		auto Candidate = Definition->Value;
+		Candidate.TextureValue = Value;
+		return SetParameterValue(Definition->Id, Candidate);
+	}
+
+	auto DMaterial::SetParameterValue(const FGuid& Id, const FMaterialParameterValue& Value) -> bool
+	{
+		if (!Id.IsValid()) return false;
+		auto Entry = std::ranges::find(ParameterSchema, Id, &FMaterialParameterDefinition::Id);
+		if (Entry == ParameterSchema.end()) return false;
+		const bool bCooked = GetAssetRuntimeConfiguration().RequiresCookedPayload();
+		auto Node = std::ranges::find_if(Program.Nodes,
+			[&](const auto& Item) { return Item.Parameter.Id == Id; });
+		if (!bCooked && Node == Program.Nodes.end()) return false;
+		auto Definition = bCooked ? *Entry : Node->Parameter;
+		Definition.Value = Value;
+		if (!ValidateMaterialParameterDefinitions(std::span(&Definition, 1))) return false;
+		if (*Entry == Definition) return true;
+		if (!bCooked) Node->Parameter = Definition;
+		*Entry = std::move(Definition);
 		MarkPackageDirty();
 		MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters);
 		return true;
-	}
-
-	auto DMaterial::SetParameterValue(
-		const FGuid& Id, const FMaterialParameterValue& Value) -> bool
-	{
-		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Id);
-		if (!Definition) return false;
-		switch (Definition->Type)
-		{
-		case EMaterialParameterType::Scalar:
-			return SetScalarParameterValue(Definition->Name, Value.ScalarValue);
-		case EMaterialParameterType::Vector2:
-			return SetVector2ParameterValue(Definition->Name, Value.Vector2Value);
-		case EMaterialParameterType::Vector4:
-		{
-			if (!std::isfinite(Value.Vector4Value.x) || !std::isfinite(Value.Vector4Value.y)
-				|| !std::isfinite(Value.Vector4Value.z) || !std::isfinite(Value.Vector4Value.w))
-				return false;
-			auto& Mutable = ParameterDefinitions[static_cast<size_t>(
-				Definition - ParameterDefinitions.data())].Value.Vector4Value;
-			if (Mutable == Value.Vector4Value) return true;
-			Mutable = Value.Vector4Value;
-			MarkPackageDirty();
-			MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters);
-			return true;
-		}
-		case EMaterialParameterType::Vector:
-			return SetVectorParameterValue(Definition->Name, Value.VectorValue);
-		case EMaterialParameterType::Texture:
-		{
-			if (!IsValidMaterialSampling(Value.SamplerState, Value.TextureFallback)) return false;
-			auto& Mutable = ParameterDefinitions[static_cast<size_t>(Definition - ParameterDefinitions.data())].Value;
-			const auto Canonical = FMaterialParameterValue::MakeTexture(Value.TextureValue.Get(), Value.SamplerState, Value.TextureFallback);
-			if (Mutable == Canonical) return true;
-			Mutable = Canonical;
-			MarkPackageDirty();
-			MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters);
-			return true;
-		}
-		}
-		return false;
 	}
 
 	auto DMaterial::GetScalarParameterValue(FName Name, float& OutValue) const -> bool
@@ -452,16 +346,61 @@ namespace Durin
 		return Super::GetAcceptedCompiledProgram();
 	}
 
+	auto DMaterial::Serialize(FArchive& Ar) -> void
+	{
+		if (Ar.IsLoading()) GraphOwnershipVersion = 0;
+		Super::Serialize(Ar);
+		if (GraphOwnershipVersion != 1 || Ar.HasError())
+		{
+			Ar.Fail(EArchiveFailureCode::UnsupportedVersion,
+				"Unsupported material parameter ownership schema; rebuild this material.");
+			return;
+		}
+		if (Ar.GetPurpose() == EArchivePurpose::AuthoredPackage)
+		{
+			std::vector<FMaterialParameterDefinition> Schema;
+			if (!DeriveMaterialParameterSchema(Program, Schema)
+				|| FunctionCalls.size() > Program.Nodes.size()
+				|| (Ar.IsSaving() && !ValidateMaterialProgramWithFunctions(Program, Schema, FunctionCalls)))
+			{
+				Ar.Fail(EArchiveFailureCode::InvalidData, "Invalid material graph ownership; rebuild this material.");
+				return;
+			}
+			if (Ar.IsLoading())
+			{
+				// Validate local links before package publication. Callee bodies may still
+				// be deserializing; their complete closure is checked by PostLoad.
+				std::vector<FMaterialFunctionCallSnapshot> Calls;
+				for (const auto& Call : FunctionCalls)
+					Calls.push_back({Call.NodeId, Call.Function ? Call.Function->GetObjectPath() : std::string{},
+						Call.Inputs, Call.Outputs});
+				if (!ValidateMaterialProgram(Program, Schema, Calls))
+					Ar.Fail(EArchiveFailureCode::InvalidData, "Invalid material graph links; rebuild this material.");
+			}
+		}
+	}
+
+	auto DMaterial::SerializeCooked(FArchive& Ar) -> void
+	{
+		if (Ar.IsSaving() && !GetAssetRuntimeConfiguration().RequiresCookedPayload()
+			&& !DeriveMaterialParameterSchema(Program, ParameterSchema))
+		{
+			Ar.Fail(EArchiveFailureCode::InvalidData, "Cannot Cook an invalid material parameter schema.");
+			return;
+		}
+		Super::SerializeCooked(Ar);
+		if (Ar.HasError()) return;
+		auto* Property = StaticClass()->FindPropertyByName(FName("ParameterSchema"));
+		require(Property);
+		SerializeReflectedPropertyValue(Ar, *Property, this);
+		if (!Ar.HasError() && !ValidateMaterialParameterDefinitions(ParameterSchema))
+			Ar.Fail(EArchiveFailureCode::InvalidData, "Invalid generated cooked material parameter schema.");
+	}
+
 	auto DMaterial::PostLoad() -> void
 	{
 		std::string Error;
 		Super::PostLoad();
-		const auto Validation = ValidateMaterialParameterDefinitions(ParameterDefinitions);
-		if (ParameterDeclarationSchemaVersion != 2 || !Validation)
-		{
-			DURIN_ERROR("PostLoad '{}': invalid or unsupported material declarations.", GetObjectPath());
-			return;
-		}
 		if (!ValidateMaterialStaticProperties(StaticProperties, Error))
 		{
 			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
@@ -484,37 +423,14 @@ namespace Durin
 				"Loaded cooked Material metadata for '{}'.", GetObjectPath());
 			return;
 		}
-		if (Program.SchemaVersion == 4 && FunctionCalls.empty()
-			&& Program.Nodes.size() <= MaterialProgramMaxNodeCount
-			&& std::ranges::all_of(Program.Nodes, [](const auto& Node) {
-				return Node.Opcode <= EMaterialProgramOpcode::MakeSurface
-					&& Node.SurfaceAttributeMask == 0 && Node.SurfaceAttributes.empty()
-					&& Node.InputDefaults.empty() && Node.UVSettings == FMaterialUVSettings{};
-			})
-			&& Private::ValidateMaterialProgramGraph({CurrentMaterialProgramSchemaVersion,
-				Program.Nodes, Program.Outputs}, ParameterDefinitions, {}, false))
+		const auto SchemaValidation = DeriveMaterialParameterSchema(Program, ParameterSchema);
+		if (!SchemaValidation)
 		{
-			Program.SchemaVersion = CurrentMaterialProgramSchemaVersion;
-			if (auto* Package = GetPackage()) Package->SetCanonicalResaveRecommended(true);
-		}
-		if (Program.SchemaVersion == 5 && Program.Nodes.size() <= MaterialProgramMaxNodeCount
-			&& std::ranges::all_of(Program.Nodes, [](const auto& Node) {
-				return Node.Opcode <= EMaterialProgramOpcode::SetSurfaceAttributes
-					&& Node.InputDefaults.empty() && Node.UVSettings == FMaterialUVSettings{};
-			}) && std::ranges::all_of(FunctionCalls, [](const auto& Call) {
-				return std::ranges::all_of(Call.Inputs, [](const auto& Input) { return Input.Default == FMaterialInputDefault{}; });
-			}))
-		{
-			auto Candidate = Program;
-			Candidate.SchemaVersion = CurrentMaterialProgramSchemaVersion;
-			if (ValidateMaterialProgramWithFunctions(Candidate, ParameterDefinitions, FunctionCalls))
-			{
-				Program = std::move(Candidate);
-				if (auto* Package = GetPackage()) Package->SetCanonicalResaveRecommended(true);
-			}
+			DURIN_ERROR("PostLoad '{}': unsupported material graph; rebuild this material.", GetObjectPath());
+			return;
 		}
 		const FMaterialProgramValidationResult ProgramValidation =
-			ValidateMaterialProgramWithFunctions(Program, ParameterDefinitions, FunctionCalls);
+			ValidateMaterialProgramWithFunctions(Program, ParameterSchema, FunctionCalls);
 		if (!ProgramValidation)
 		{
 			Error = ProgramValidation.Diagnostics.empty()
@@ -523,6 +439,7 @@ namespace Durin
 			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
 			return;
 		}
+		ObservedCodeProgram = MakeCodeOnlyProgram(Program);
 		GraphPresentation = SanitizeMaterialGraphPresentation(
 			GraphPresentation, Program);
 		AdvanceRevision(MaterialProgramRevision);
@@ -543,7 +460,22 @@ namespace Durin
 			&& CanonicalizeMaterialShaderProperties(StaticProperties) != CompilationOwner.LastObservedShaderProperties))
 		{
 			if (Name == FName("Program") || Name == FName("FunctionCalls"))
+			{
+				std::vector<FMaterialParameterDefinition> Schema;
+				if (!DeriveMaterialParameterSchema(Program, Schema)
+					|| !ValidateMaterialProgramWithFunctions(Program, Schema, FunctionCalls)) return;
+				ParameterSchema = std::move(Schema);
+				AdvanceRevision(ParameterDefinitionSchemaRevision);
+				auto CodeProgram = MakeCodeOnlyProgram(Program);
+				const bool bShaderChanged = Name == FName("FunctionCalls") || CodeProgram != ObservedCodeProgram;
+				ObservedCodeProgram = std::move(CodeProgram);
+				if (!bShaderChanged)
+				{
+					MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters);
+					return;
+				}
 				AdvanceRevision(MaterialProgramRevision);
+			}
 			AdvanceAuthoredRevision();
 			Private::FMaterialCompilationLifecycle::ScheduleEdit(*this);
 			MarkRenderDataDirty(EMaterialRenderDirtyFlags::ShaderMap);
@@ -552,19 +484,7 @@ namespace Durin
 		{
 			AdvanceRevision(MaterialGraphPresentationRevision);
 		}
-		else if (Name == FName("ParameterDefinitions"))
-		{
-			AdvanceRevision(ParameterDefinitionSchemaRevision);
-			std::vector<FMaterialCompilerParameterDeclaration> Declarations;
-			for (const auto& Definition : ParameterDefinitions)
-				Declarations.push_back({Definition.Id, Definition.Type});
-			std::ranges::sort(Declarations, {}, &FMaterialCompilerParameterDeclaration::Id);
-			if (Declarations != CompilationOwner.LastObservedParameters)
-			{
-				AdvanceAuthoredRevision();
-				Private::FMaterialCompilationLifecycle::ScheduleEdit(*this);
-			}
-		}
+
 	}
 
 	auto DMaterial::BeginDestroy() -> void

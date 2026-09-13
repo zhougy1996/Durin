@@ -55,6 +55,7 @@ namespace Durin::Editor::Material
 		MATERIALEDITOR_API auto ResetLayout() -> void override;
 
 	private:
+		friend struct FMaterialEditorTestAccess;
 		class FMaterialParameterRowScope;
 
 		auto FindOpenMaterial(std::string_view ResourceId) const -> DMaterialInterface*;
@@ -70,8 +71,6 @@ namespace Durin::Editor::Material
 		auto DrawGraphPanel(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material, float Height) -> void;
 		auto DrawDetailsPanel(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void;
 		auto DrawSelectedFunction(const ::Durin::Editor::FDocumentTab& Document, DMaterial* Base) -> void;
-		auto DrawMaterial(DMaterial* Material) -> void;
-		auto DrawParameterDeclarations(DMaterial* Material) -> void;
 		auto DrawMaterialInstance(DMaterialInstance* Instance) -> void;
 		auto DrawParentPicker(DMaterialInstance* Instance) -> void;
 		auto DrawMaterialParameters(DMaterialInterface* Material) -> void;

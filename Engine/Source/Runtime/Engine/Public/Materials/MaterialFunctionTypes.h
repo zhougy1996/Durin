@@ -19,7 +19,7 @@ namespace Durin
 		auto operator==(const FMaterialFunctionOwnerStamp&) const -> bool = default;
 	};
 
-	inline constexpr uint32 CurrentMaterialFunctionSchemaVersion = 2;
+	inline constexpr uint32 CurrentMaterialFunctionSchemaVersion = 3;
 	inline constexpr uint32 CurrentMaterialFunctionPresentationSchemaVersion = 1;
 	inline constexpr uint32 MaterialFunctionMaxInputs = 64;
 	inline constexpr uint32 MaterialFunctionMaxOutputs = 16;

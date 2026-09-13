@@ -1,4 +1,4 @@
-#include "Materials/LegacyMaterialProgramTestFixture.h"
+#include "Materials/ExplicitMaterialProgramTestFixture.h"
 #include "Asset/AssetCompilingManager.h"
 #include <gtest/gtest.h>
 
@@ -278,7 +278,7 @@ namespace Durin
 		DMaterial* Material = nullptr;
 		ASSERT_TRUE(CreatePackageLeafAssetForTesting(MaterialPath, Material));
 		const auto ProgramValidation = Material->SetMaterialProgram(
-			Durin::Testing::MakeLegacyPBRMaterialProgram());
+			Durin::Testing::MakePBRMaterialProgramForTest());
 		ASSERT_TRUE(ProgramValidation);
 		Material->SetTextureParameterValue(MaterialParameters::BaseColorTextureName(), TextureImport.Asset);
 		FinishMaterialCompilation(*Material);

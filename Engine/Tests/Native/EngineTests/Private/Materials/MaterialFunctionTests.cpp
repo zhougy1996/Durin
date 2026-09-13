@@ -1,4 +1,5 @@
 #include "MaterialTestSupport.h"
+#include "ExplicitMaterialProgramTestFixture.h"
 #include "StandardMaterialFunctionTestFixture.h"
 #include "Materials/MaterialFunction.h"
 #include "Asset/Testing.h"
@@ -40,36 +41,21 @@ namespace
 	}
 }
 
-TEST(FMaterialFunctionTests, FrozenImportedSurfacePreservesCompilationAndIndependentOverrides)
+TEST(FMaterialFunctionTests, ExpandedAndFunctionRecipesPreserveCompilationAndIndependentOverrides)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
 	FScopedOfflinePreparation Offline;
-	const auto Root = Testing::CreateTestFixtureDirectory("FrozenImportedSurface");
-	const auto Source = std::filesystem::path(FPaths::EngineDir()) / "Tests/Data/Materials/GraphAuthoringV5";
-	std::filesystem::create_directories(Root / "Materials/Functions");
-	for (const std::string_view File : {"ImportedSurface.dasset", "Functions/UVTransform.dasset",
-		"Functions/SampleNormal.dasset", "Functions/SampleORM.dasset", "Functions/StandardPBR.dasset",
-		"Functions/StandardPBR_ORM.dasset"})
-		std::filesystem::copy_file(Source / File, Root / "Materials" / File);
-	const std::array Mounts{FMountPoint{.VirtualRoot = "/Engine/", .Owner = EMountOwner::Test,
-		.Root = Root, .bAutoScan = true, .bContentWritable = true}};
-	Testing::FScopedMountRegistryFixture Registry(Mounts);
-	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
-	ASSERT_TRUE(RefreshAssetRegistry());
-	FPackagePath MaterialPath;
-	ASSERT_TRUE(FPackagePath::TryCreate("/Engine/Materials/ImportedSurface", MaterialPath));
-	DMaterial* Frozen = nullptr;
-	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), Frozen));
+	auto* Frozen = NewObject<DMaterial>(nullptr, "ExpandedBaseline");
 	ASSERT_NE(Frozen, nullptr);
+	ASSERT_TRUE(Frozen->SetMaterialProgram(Testing::MakeAggregatePBRMaterialProgramForTest()));
 	ASSERT_EQ(Frozen->GetParameterDefinitions().size(), 48u);
 
 	auto* Current = NewObject<DMaterial>(nullptr, "CurrentImportedSurface");
 	ASSERT_NE(Current, nullptr);
 	Current->SetEditCompileMode(EMaterialEditCompileMode::Manual);
-	ASSERT_TRUE(Current->SetMaterialDefinitionsAndProgram(MakePBRMaterialParameterDefinitions(), {}));
 	ASSERT_TRUE(Testing::SetStandardMaterialProgramForTest(*Current));
-	EXPECT_EQ(Current->GetMaterialProgram()->Nodes.size(), 10u);
+	EXPECT_EQ(Current->GetMaterialProgram()->Nodes.size(), 58u);
 	FMaterialCompilerInput FrozenInput, CurrentInput;
 	const FMaterialCompilerEnvironment Environment{.CompilerIdentity = "ImportedSurfaceParity"};
 	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Frozen, Environment, FrozenInput));
@@ -134,38 +120,28 @@ TEST(FMaterialFunctionTests, FrozenImportedSurfacePreservesCompilationAndIndepen
 	CollectGarbage();
 }
 
-TEST(FMaterialFunctionTests, InlineBindingsMatchExplicitNodesAndRetainInactiveParameters)
+TEST(FMaterialFunctionTests, LiteralDefaultsMatchExplicitConstantsAndValidateTypes)
 {
 	using namespace Durin;
-	const FGuid Parameter{0x98abc101, 1, 1, 1}, Constant{0x98abc101, 1, 1, 2}, Product{0x98abc101, 1, 1, 3};
+	const FGuid Constant{0x98abc101, 1, 1, 2}, Product{0x98abc101, 1, 1, 3};
 	FMaterialCompilerInput Compact;
-	Compact.Environment.CompilerIdentity = "InlineBindingParity";
-	Compact.Parameters = {{Parameter, EMaterialParameterType::Scalar}};
+	Compact.Environment.CompilerIdentity = "LiteralBindingParity";
 	Compact.Program.Nodes = {{.Id = Constant, .Literal = {.X = .5f}},
 		{.Id = Product, .Opcode = EMaterialProgramOpcode::Multiply, .Inputs = {{Constant}, {}},
-			.InputDefaults = {{}, {.Kind = EMaterialInputDefaultKind::Parameter, .ParameterId = Parameter}}}};
+			.InputDefaults = {{}, {.Kind = EMaterialInputDefaultKind::Literal, .Literal = {.X = .25f}}}}};
 	Compact.Program.Outputs.Roughness = {Product};
 	const auto Baseline = NormalizeMaterialProgram(Compact);
 	ASSERT_TRUE(Baseline);
-	ASSERT_EQ(Baseline.ActiveParameters.size(), 1u);
+	EXPECT_TRUE(Baseline.ActiveParameters.empty());
 	auto Explicit = Compact;
-	const FGuid ParameterNode{0x98abc101, 1, 1, 4};
-	Explicit.Program.Nodes[1].Inputs[1] = {ParameterNode};
+	const FGuid ValueNode{0x98abc101, 1, 1, 4};
+	Explicit.Program.Nodes[1].Inputs[1] = {ValueNode};
 	Explicit.Program.Nodes[1].InputDefaults.clear();
-	Explicit.Program.Nodes.push_back({.Id = ParameterNode, .Opcode = EMaterialProgramOpcode::Parameter, .ParameterId = Parameter});
+	Explicit.Program.Nodes.push_back({.Id = ValueNode, .Literal = {.X = .25f}});
 	const auto Expanded = NormalizeMaterialProgram(Explicit);
 	ASSERT_TRUE(Expanded);
 	EXPECT_EQ(Baseline.CanonicalBytes, Expanded.CanonicalBytes);
 	EXPECT_EQ(Baseline.Layout, Expanded.Layout);
-	Compact.Program.Nodes[1].Inputs[1] = {Constant};
-	const auto Connected = NormalizeMaterialProgram(Compact);
-	ASSERT_TRUE(Connected);
-	EXPECT_TRUE(Connected.ActiveParameters.empty());
-	Compact.Parameters.clear();
-	EXPECT_FALSE(NormalizeMaterialProgram(Compact));
-	Compact.Parameters = {{Parameter, EMaterialParameterType::Scalar}};
-	Compact.Program.Nodes[1].Inputs[1] = {};
-	EXPECT_EQ(NormalizeMaterialProgram(Compact).CanonicalBytes, Baseline.CanonicalBytes);
 	Compact.Program.Nodes[1].InputDefaults[1].Type = EMaterialProgramValueType::Float2;
 	EXPECT_FALSE(NormalizeMaterialProgram(Compact));
 	Compact.Program.Nodes[1].InputDefaults[1] = {.Kind = EMaterialInputDefaultKind::Literal,
@@ -181,9 +157,13 @@ TEST(FMaterialFunctionTests, CompactSamplingSharesFetchAndPreservesUVParameterRe
 	Compact.Environment.CompilerIdentity = "CompactSampleParity";
 	Compact.Parameters = {{TextureId, EMaterialParameterType::Texture}, {ChannelId, EMaterialParameterType::Scalar}};
 	FMaterialProgramNode Sample{.Id = SampleId, .Opcode = EMaterialProgramOpcode::TextureSampleParameter2D,
-		.ResultType = EMaterialProgramValueType::Float4, .Inputs = {{}}, .ParameterId = TextureId};
-	Sample.UVSettings.Channel = {.Kind = EMaterialInputDefaultKind::Parameter, .ParameterId = ChannelId};
-	Compact.Program.Nodes = {Sample};
+		.ResultType = EMaterialProgramValueType::Float4, .Inputs = {{}}, .Parameter = {.Id = TextureId, .Type = EMaterialParameterType::Texture}};
+	const FGuid ChannelNode{0x98abc102, 1, 1, 6}, UVNode{0x98abc102, 1, 1, 7};
+	Sample.Inputs = {{UVNode}};
+	Compact.Program.Nodes = {Sample,
+		{.Id = ChannelNode, .Opcode = EMaterialProgramOpcode::Parameter, .Parameter = {.Id = ChannelId}},
+		{.Id = UVNode, .Opcode = EMaterialProgramOpcode::TextureCoordinates,
+			.ResultType = EMaterialProgramValueType::Float2, .Inputs = {{ChannelNode}, {}, {}, {}}}};
 	Compact.Program.Outputs.BaseColor = {.SourceNodeId = SampleId, .SourceOutputIndex = 1};
 	Compact.Program.Outputs.Roughness = {.SourceNodeId = SampleId, .SourceOutputIndex = 3};
 	Compact.Program.Outputs.Metallic = {.SourceNodeId = SampleId, .SourceOutputIndex = 4};
@@ -196,13 +176,11 @@ TEST(FMaterialFunctionTests, CompactSamplingSharesFetchAndPreservesUVParameterRe
 	auto Explicit = Compact;
 	const FGuid TextureNode{0x98abc102, 1, 1, 4}, CoordinatesNode{0x98abc102, 1, 1, 5};
 	Explicit.Program.Nodes[0].Opcode = EMaterialProgramOpcode::TextureSample2D;
-	Explicit.Program.Nodes[0].ParameterId = {};
-	Explicit.Program.Nodes[0].Inputs = {{TextureNode}, {CoordinatesNode}};
+	Explicit.Program.Nodes[0].Parameter = {};
+	Explicit.Program.Nodes[0].Inputs = {{TextureNode}, {UVNode}};
 	Explicit.Program.Nodes[0].UVSettings = {};
 	Explicit.Program.Nodes.push_back({.Id = TextureNode, .Opcode = EMaterialProgramOpcode::TextureParameter,
-		.ResultType = EMaterialProgramValueType::Texture2D, .ParameterId = TextureId});
-	Explicit.Program.Nodes.push_back({.Id = CoordinatesNode, .Opcode = EMaterialProgramOpcode::TextureCoordinates,
-		.ResultType = EMaterialProgramValueType::Float2, .Inputs = {{}, {}, {}, {}}, .UVSettings = Sample.UVSettings});
+		.ResultType = EMaterialProgramValueType::Texture2D, .Parameter = {.Id = TextureId, .Type = EMaterialParameterType::Texture}});
 	const auto Expanded = NormalizeMaterialProgram(Explicit);
 	ASSERT_TRUE(Expanded);
 	EXPECT_EQ(Baseline.CanonicalBytes, Expanded.CanonicalBytes);
@@ -213,10 +191,60 @@ TEST(FMaterialFunctionTests, CompactSamplingSharesFetchAndPreservesUVParameterRe
 	const auto Connected = NormalizeMaterialProgram(Compact);
 	ASSERT_TRUE(Connected);
 	EXPECT_EQ(Connected.ActiveParameters.size(), 1u);
-	Compact.Program.Nodes[0].Inputs[0] = {};
+	Compact.Program.Nodes[0].Inputs[0] = {UVNode};
 	EXPECT_EQ(NormalizeMaterialProgram(Compact).CanonicalBytes, Baseline.CanonicalBytes);
 	Compact.Program.Outputs.Metallic.SourceOutputIndex = 7;
 	EXPECT_FALSE(NormalizeMaterialProgram(Compact));
+}
+
+TEST(FMaterialFunctionTests, ResourceOutputSkipsOwnerUVAndPreservesIndependentSamples)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	FScopedOfflinePreparation Offline;
+	auto* Material = NewObject<DMaterial>(nullptr, "ResourceFanOut");
+	auto* Texture = NewObject<DTexture2D>(nullptr, "OwnedTexture");
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	FMaterialProgramNode Channel{.Id = FGuid::NewGuid(), .Opcode = EMaterialProgramOpcode::Parameter};
+	Channel.Parameter = {.Id = FGuid::NewGuid(), .Name = "UnusedOwnerUV"};
+	FMaterialProgramNode Coordinates{.Id = FGuid::NewGuid(), .Opcode = EMaterialProgramOpcode::TextureCoordinates,
+		.ResultType = EMaterialProgramValueType::Float2, .Inputs = {{Channel.Id}, {}, {}, {}}};
+	FMaterialProgramNode Owner{.Id = FGuid::NewGuid(), .Opcode = EMaterialProgramOpcode::TextureSampleParameter2D,
+		.ResultType = EMaterialProgramValueType::Float4, .Inputs = {{Coordinates.Id}}};
+	Owner.Parameter = {.Id = FGuid::NewGuid(), .Name = "SharedTexture", .Type = EMaterialParameterType::Texture,
+		.Value = FMaterialParameterValue::MakeTexture(Texture)};
+	FMaterialProgramNode UV1{.Id = FGuid::NewGuid(), .ResultType = EMaterialProgramValueType::Float2,
+		.Literal = {.1f, .2f}};
+	FMaterialProgramNode UV2{.Id = FGuid::NewGuid(), .ResultType = EMaterialProgramValueType::Float2,
+		.Literal = {.7f, .8f}};
+	FMaterialProgramNode Sample1{.Id = FGuid::NewGuid(), .Opcode = EMaterialProgramOpcode::TextureSample2D,
+		.ResultType = EMaterialProgramValueType::Float4, .Inputs = {{Owner.Id, 7}, {UV1.Id}}};
+	FMaterialProgramNode Sample2{.Id = FGuid::NewGuid(), .Opcode = EMaterialProgramOpcode::TextureSample2D,
+		.ResultType = EMaterialProgramValueType::Float4, .Inputs = {{Owner.Id, 7}, {UV2.Id}}};
+	FMaterialProgram Program;
+	Program.Nodes = {Channel, Coordinates, Owner, UV1, UV2, Sample1, Sample2};
+	Program.Outputs.BaseColor = {Sample1.Id, 1};
+	Program.Outputs.Emissive = {Sample2.Id, 1};
+	ASSERT_TRUE(Material->SetMaterialProgram(Program));
+	EXPECT_EQ(Material->GetParameterDefinitions().size(), 2u);
+	const auto Dependencies = InspectMaterialParameterDependencies(Program, Material->GetParameterDefinitions());
+	ASSERT_EQ(Dependencies.size(), 1u);
+	EXPECT_EQ(Dependencies.front().ParameterId, Owner.Parameter.Id);
+	FMaterialCompilerInput Snapshot;
+	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Material, {.CompilerIdentity = "ResourceFanOut"}, Snapshot));
+	for (const auto& Node : Snapshot.Program.Nodes)
+	{
+		EXPECT_EQ(Node.Parameter.Value.TextureValue.Get(), nullptr);
+		EXPECT_TRUE(Node.Parameter.Name.IsNone());
+	}
+	const auto Normalized = NormalizeMaterialProgram(Snapshot);
+	ASSERT_TRUE(Normalized) << (Normalized.Diagnostics.empty() ? "" : Normalized.Diagnostics.front().Message);
+	ASSERT_EQ(Normalized.ActiveParameters.size(), 1u);
+	EXPECT_EQ(Normalized.ActiveParameters.front().Id, Owner.Parameter.Id);
+	EXPECT_EQ(std::ranges::count(Normalized.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &FMaterialIRNode::Opcode), 2);
+	EXPECT_EQ(std::ranges::count(Normalized.IR.Nodes, EMaterialProgramOpcode::UVChannel, &FMaterialIRNode::Opcode), 0);
+	EXPECT_EQ(Normalized.Layout.ResourceFieldCount, 1u);
+	MarkAsGarbage(Material); MarkAsGarbage(Texture); CollectGarbage();
 }
 
 TEST(FMaterialFunctionTests, InlineCallBindingsRespectFunctionDefaultsAndRootOwnership)
@@ -257,9 +285,8 @@ TEST(FMaterialFunctionTests, InlineCallBindingsRespectFunctionDefaultsAndRootOwn
 	ASSERT_TRUE(Function->SetFunctionGraph(Graph));
 	ASSERT_TRUE(SnapshotMaterialFunctionClosure(Roots, Input.Functions));
 	EXPECT_FALSE(NormalizeMaterialProgram(Input));
-	Graph.Nodes.push_back({.Id = CallId, .Opcode = EMaterialProgramOpcode::Multiply,
-		.Inputs = {{InputNode}, {}}, .InputDefaults = {{}, {.Kind = EMaterialInputDefaultKind::Parameter,
-			.ParameterId = {0x98abc103, 2, 1, 1}}}});
+	Graph.Nodes.push_back({.Id = CallId, .Opcode = EMaterialProgramOpcode::Parameter,
+		.Parameter = {.Id = {0x98abc103, 2, 1, 1}, .Name = "ForbiddenOwner"}});
 	EXPECT_FALSE(Function->SetFunctionGraph(Graph));
 	MarkAsGarbage(Function);
 	CollectGarbage();
@@ -876,7 +903,7 @@ TEST(FMaterialFunctionTests, NestedTextureDefaultsYieldToConnectedRootResource)
 			&& Node.Literal == FMaterialProgramLiteral{0.5f, 0.5f, 1, 1};
 	}));
 	Input.Program.Nodes.push_back({.Id = ParameterNode, .Opcode = EMaterialProgramOpcode::TextureParameter,
-		.ResultType = EMaterialProgramValueType::Texture2D, .ParameterId = ParameterId});
+		.ResultType = EMaterialProgramValueType::Texture2D, .Parameter = {.Id = ParameterId, .Type = EMaterialParameterType::Texture}});
 	Input.Parameters.push_back({ParameterId, EMaterialParameterType::Texture});
 	Input.FunctionCalls[0].Inputs.push_back({Graph.Signature.Inputs[0].Id, EMaterialProgramValueType::Texture2D, {ParameterNode}});
 	const auto Connected = NormalizeMaterialProgram(Input);
@@ -988,7 +1015,7 @@ TEST(FMaterialFunctionTests, CompactDefaultsRoundtripAndRejectSpoofedLegacySchem
 	ASSERT_TRUE(Document.AssignMaterialOutput(std::nullopt, {Call.GeneratedNodeIds[0], 0, Function->GetFunctionSignature().Outputs[0].Id}));
 	const auto Expected = *Material->GetMaterialProgram();
 	const auto ExpectedFunction = Function->GetFunctionGraph();
-	const auto TextureId = Material->GetMaterialProgram()->Nodes.front().ParameterId;
+	const auto TextureId = Material->GetMaterialProgram()->Nodes.front().Parameter.Id;
 	ASSERT_TRUE(SavePackage(Function->GetPackage()));
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));
 	ASSERT_TRUE(UnloadPackage(MaterialPath));
@@ -1020,7 +1047,7 @@ TEST(FMaterialFunctionTests, CompactDefaultsRoundtripAndRejectSpoofedLegacySchem
 	CollectGarbage();
 }
 
-TEST(FMaterialFunctionTests, LegacyRootUpgradeAndFunctionReferencesSurvivePackageLoad)
+TEST(FMaterialFunctionTests, RejectsOldRootSchemaAndPreservesCurrentFunctionReferences)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
@@ -1037,16 +1064,11 @@ TEST(FMaterialFunctionTests, LegacyRootUpgradeAndFunctionReferencesSurvivePackag
 	DMaterialFunction* Function = nullptr;
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(MaterialPath, Material));
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(FunctionPath, Function));
-	// Produce a bounded schema 4 fixture through the current package codec.
+	// Saving unsupported authored versions must fail without rewriting the graph.
 	const_cast<FMaterialProgram*>(Material->GetMaterialProgram())->SchemaVersion = 4;
-	ASSERT_TRUE(SavePackage(Material->GetPackage()));
-	ASSERT_TRUE(UnloadPackage(MaterialPath));
-	CollectGarbage();
-	Material = nullptr;
-	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), Material));
-	EXPECT_EQ(Material->GetMaterialProgram()->SchemaVersion, CurrentMaterialProgramSchemaVersion);
-	EXPECT_TRUE(Material->GetPackage()->IsCanonicalResaveRecommended());
-	EXPECT_FALSE(Material->GetPackage()->IsDirty());
+	EXPECT_FALSE(SavePackage(Material->GetPackage()));
+	EXPECT_EQ(Material->GetMaterialProgram()->SchemaVersion, 4u);
+	const_cast<FMaterialProgram*>(Material->GetMaterialProgram())->SchemaVersion = CurrentMaterialProgramSchemaVersion;
 	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	FMaterialProgram Program;
 	const FGuid CallId{42, 1, 1, 1};

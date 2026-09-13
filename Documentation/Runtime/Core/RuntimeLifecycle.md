@@ -4,7 +4,7 @@ Summary: Define application startup, frame execution, project admission, and shu
 
 Modules: Launch, ApplicationCore, Engine, MonaCore, Mona, MonaImGui
 
-Last reviewed: 2026-09-08
+Last reviewed: 2026-09-14
 
 This document defines Durin's process startup, frame entry, lifecycle
 integration boundaries, and explicit process-exit ordering.
@@ -139,7 +139,10 @@ Engine, RHI, and render-command admission but before scene proxies can be
 created. Material loading, fallback, and render-proxy semantics are defined by
 [Material System](../Rendering/MaterialSystem.md).
 
-`DGameEngine` loads the project's `Game` settings and configured default level
+`DGameEngine` first loads every project root module enabled for the Game runtime,
+so project-owned reflected classes are available when loading the default level.
+A required module load failure fails initialization. It then loads the project's
+`Game` settings and configured default level
 after creating its window and scene viewport. It resolves the optional exact
 `Game.NativeModule` and fully qualified `Game.GameModeClass` pair, then begins
 play with an explicit World request. A missing pair selects lifecycle-only

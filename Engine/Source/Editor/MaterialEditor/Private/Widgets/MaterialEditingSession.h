@@ -31,7 +31,6 @@ namespace Durin::Editor::Material
 		struct FAuthoredState
 		{
 			FMaterialProgram Program;
-			std::vector<FMaterialParameterDefinition> Definitions;
 			FMaterialStaticProperties Properties;
 			FMaterialGraphPresentation Presentation;
 			std::vector<FMaterialFunctionCall> FunctionCalls;

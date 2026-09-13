@@ -105,9 +105,8 @@ namespace Durin::Private
 			{
 				if (Value.Kind == EMaterialInputDefaultKind::None)
 				{ Fail(Context, Origin, "Required input has no retained value.", EMaterialProgramDiagnosticCategory::Type, PortId); return {}; }
-				return Emit(Context, {.Opcode = Value.Kind == EMaterialInputDefaultKind::Parameter
-					? EMaterialProgramOpcode::Parameter : EMaterialProgramOpcode::Constant,
-					.ResultType = Value.Type, .Literal = Value.Literal, .ParameterId = Value.ParameterId}, Origin, true, PortId);
+				return Emit(Context, {.Opcode = EMaterialProgramOpcode::Constant,
+					.ResultType = Value.Type, .Literal = Value.Literal}, Origin, true, PortId);
 			}
 
 			auto Coordinates(FInvocation& Context, const FMaterialProgramNode& Node) -> FExpandedValue
@@ -236,6 +235,9 @@ namespace Durin::Private
 					if (Output == Outputs.end()) { Fail(Context, Node->Id, "Function output terminal is missing."); return {}; }
 					return Output->second;
 				}
+				if (Node->Opcode == EMaterialProgramOpcode::TextureSampleParameter2D && Source.SourceOutputIndex == 7)
+					return Emit(Context, {.Opcode = EMaterialProgramOpcode::TextureParameter,
+						.ResultType = EMaterialProgramValueType::Texture2D, .Parameter = Node->Parameter}, Node->Id, true);
 				const auto Expanded = Value(Context, Source.SourceNodeId);
 				if (IsMaterialSamplingNode(Node->Opcode) && Source.SourceOutputIndex != 0)
 				{
@@ -287,7 +289,7 @@ namespace Durin::Private
 					std::vector<FExpandedValue> Inputs;
 					if (Node->Opcode == EMaterialProgramOpcode::TextureSampleParameter2D)
 						Inputs.push_back(Emit(Context, {.Opcode = EMaterialProgramOpcode::TextureParameter,
-							.ResultType = EMaterialProgramValueType::Texture2D, .ParameterId = Node->ParameterId}, NodeId, true));
+							.ResultType = EMaterialProgramValueType::Texture2D, .Parameter = Node->Parameter}, NodeId, true));
 					for (uint32 Index = 0; Index < Node->Inputs.size(); ++Index)
 					{
 						const auto& Source = Node->Inputs[Index];
@@ -304,7 +306,7 @@ namespace Durin::Private
 					if (Node->Opcode == EMaterialProgramOpcode::TextureSampleParameter2D)
 					{
 						Lowered.Opcode = EMaterialProgramOpcode::TextureSample2D;
-						Lowered.ParameterId = {};
+						Lowered.Parameter = {};
 					}
 					if (IsMaterialSamplingNode(Node->Opcode) && Inputs[0].bDefaultTexture)
 					{

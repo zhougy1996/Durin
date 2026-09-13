@@ -4,7 +4,7 @@ Summary: Define the shared MaterialEditor command, presentation, canvas, transac
 
 Modules: MaterialEditor, Engine, DurinEd
 
-Last reviewed: 2026-09-13
+Last reviewed: 2026-09-14
 
 ## Ownership
 
@@ -15,15 +15,15 @@ subobjects or canvas coordinates. Material instances never own or edit a graph.
 Base-material documents edit a transient working `DMaterial`; Apply transfers
 its authored state to the existing package-owned source material. Graph commands
 remain reusable against either owner and never implicitly select a source asset.
-Working state includes function call bindings as well as the value-only program.
-Initialization and Apply commit declarations, program and call references through
+Working state includes owned node payloads and function call bindings.
+Initialization and Apply commit program owners and call references through
 one validated Engine boundary, so a changed callee without changed node IDs is
 still an unapplied edit. Invalid call records leave the source unchanged.
 Ordinary semantic commands validate the owner's call records alongside its
 program, allowing node edits and Undo/Redo in materials that already use functions.
 
 `FMaterialGraphDocument` is the shared owning-thread command boundary for both
-owners. It captures declarations, program nodes, function interface/calls and
+owners. It captures program nodes with owned parameters, function interface/calls and
 presentation, validates candidate state through the owning Engine asset, and
 records a complete undoable change. Function state cannot contain root parameter
 declarations or Material Output bindings. Transaction reference collection retains
@@ -111,24 +111,23 @@ continues to use the document lifecycle above.
 
 Each material document owns an isolated ImGui dock space, keyed by its stable
 `DocumentKey`, using the shared WorkspaceUI panel and docking helpers. Preview,
-Material Graph, Details, Parameters, and Diagnostics are dockable windows. Wide initial
-layouts reserve the left 30% for Preview above separate Details and Parameters
-windows; the graph fills the remaining width and height. Diagnostics shares the
+Material Graph, Details and Diagnostics are dockable windows. Wide initial
+layouts reserve the left 30% for Preview above Details; the graph fills the remaining width and height. Diagnostics shares the
 Details dock as an optional tab; small initial layouts use dock tabs. Resizing does not rebuild a
 user's arrangement. Hidden document roots keep their dock spaces alive.
 
 Function insertion opens a bounded popup above the graph. Selected-call navigation
 lives in Details alongside the shared input editor, so selection does not resize
-or displace the canvas. Parameters owns base-material declaration management and
-instance parameter overrides; Details owns selection and instance inheritance/rendering
-properties. New materials contain only
+or displace the canvas. Details owns selected-node authoring and instance
+inheritance, rendering properties and parameter overrides. There is no base-material
+Parameters manager or docking slot. New materials contain only
 Material Output with eight property inputs and retained defaults, without expression
 nodes or function calls.
 
 Window controls reopen optional panels and reset the default layout. Material
 Info is a collapsed section in Details shown only when no graph node is selected.
-Base-material values are edited through selected parameter nodes and bound inputs
-in Details, without a duplicate full value list in Parameters. Instances retain
+Base-material values and metadata are edited through selected parameter owners
+and literal inputs in Details. Instances retain
 their parameter override list because they do not own a graph. Parameter groups
 omit a sole outer container with no direct values.
 ImGui persists docking geometry; the
@@ -190,10 +189,10 @@ coalesce before submission, and manual edits remain unsubmitted. Presentation-on
 and commit positions, mark the package dirty, and never compile or invalidate
 render data.
 
-Program schema 6 permits typed retained numeric defaults on ordinary inputs and makes each of the
+Program schema 7 permits typed retained numeric defaults on ordinary inputs and makes each of the
 eight fixed Material Output inputs optionally connected. Disconnecting or
 deleting a surface source clears its link and returns to the retained typed
-fallback; ordinary inputs similarly restore retained literals or parameter bindings. Required inputs without any fallback still reject. The
+fallback; ordinary inputs similarly restore retained literals. Required inputs without any fallback still reject. The
 canvas makes input replacement explicit with Shift and uses the same command
 result for invalid-target feedback. Aggregate and per-property sources cannot
 coexist in a valid program.
@@ -208,48 +207,42 @@ parameter-only editor and expose Open Parent Material for explicit graph navigat
 
 The shared document commands SetInputDefault, ExtractInputDefault,
 InlineInputNode and ExtractUVSettings operate on roots and function documents.
-Extraction retains the fallback and adds one normal editable expression. Inlining
-removes a constant/parameter source only after its last consumer is gone. Each
-operation commits one validated Undo/Redo transaction. Clipboard remapping includes
-inactive input defaults, call defaults and all four UV fields; foreign roots receive
-new declaration GUIDs, and function paste rejects root parameter declarations.
+Extraction retains literal fallbacks and adds editable expressions. Inlining accepts
+constants and removes a source only after its last consumer is gone. Parameters stay
+visible owners: sharing uses explicit links. Each operation commits one validated
+Undo/Redo transaction. Function paste rejects all root parameter payloads.
 
-Texture Object Parameter outputs a resource; Texture Sample Parameter 2D outputs
-sampled channels. A texture asset drop into a root graph atomically creates a unique
-named declaration and one sample node. Nodes show parameter names, resource previews
-and stable RGBA/RGB/R/G/B/A/RG pins. Resource assignment, parameter rebinding and
-numeric/UV defaults are available in Selected Node details. Bind Existing and Create
-Parameter identify declarations explicitly rather than choosing a surface role.
-Numeric inputs show retained values or named parameter badges. Connected UV marks
-local settings inactive; extracting settings creates Texture Coordinates with the
-same independent bindings. Function graphs offer literal inputs and coordinates
-without declaring root parameters. Texture preview registration shares published
-RHI allocations across canvases and retires registrations when no canvas uses them.
+Texture Object Parameter owns a Texture2D resource. Texture Sample Parameter 2D
+owns a resource and exposes RGBA/RGB/R/G/B/A/RG slots 0–6 plus Texture2D slot 7.
+The resource slot does not execute that node's UV transform or sample. A texture
+drop creates one uniquely named owner and sample node atomically. Selected-node
+Details edits name, display name, type, group/order, presentation/range hints,
+texture usage, resource, sampler/fallback policy and numeric defaults. Type changes
+which invalidate links reject with diagnostics. Resource assignment is undoable.
+
+Connected UV replaces local literal settings. Extracting unconnected settings
+creates TextureCoordinates with the retained literals; parameterized UV uses
+explicit owners connected to its channel/scale/offset/rotation inputs. Function
+graphs expose literals and interface ports without owning root parameters.
+Texture previews share published RHI allocations and retire registrations after
+their last canvas consumer.
+
 ## Transactions and gestures
 
-`ReplaceDefinitionsAndProgram` commits material-owned declarations and graph
-references through one Engine validation boundary and one transaction. Its
-Undo/Redo state retains definitions, graph and presentation; texture defaults
-are enumerated to the reference collector, and owned storage is accounted to
-the transaction buffer. Float4 declarations use the four-component vector
-editor. The overload accepting presentation commits node placement with the
-same declaration and graph transaction. `CreateParameter`, `RenameParameter`
-and `DeleteParameter` wrap Engine's identity-safe mutation results in this
-history boundary. Reuse and rejected edits add no undo entry. Results carry
-parameter GUIDs separately from expression node GUIDs.
+`ReplaceProgram` commits graph owners and references through one Engine validation
+boundary and one transaction; the presentation overload includes placement. Undo/Redo
+retains the graph, nested texture references and presentation. The shared document
+transaction also retains function calls. Storage accounting includes nested arrays
+and strings. `CreateParameter`, `RenameParameter` and `DeleteParameter` create, edit
+or remove the owning node. Invalid candidates add no undo entry. Names and parameter
+GUIDs must be unique; there is no name-based reuse.
 
-The root details panel exposes create/reuse, rename and delete, marks declarations
-with no graph references as Unused without deleting them, and displays
-all declaration defaults, including unreachable declarations. Instances retain
-reachable controls and inspectable orphan overrides with explicit removal.
-The canvas constant-node menu and `PromoteConstantToParameter` share one
-operation: preserve the node GUID and links, create or reuse a named numeric
-declaration, and replace the constant with a reference. Float through Float4
-are supported; same-name/type reuse preserves the existing default and metadata.
-Surface-output promotion creates an ordinary Parameter reference. Texture-branch
-creation emits an explicit TextureParameter, constant UV channel, `UVChannel`,
-TextureSample, and required swizzle or normal-decode branch; sampler/fallback
-policy remains typed data on the Texture2D declaration.
+Disconnected owners remain editable through selection. Instances retain reachable
+controls and inspectable orphan overrides with explicit removal. Constant promotion
+preserves the node GUID and links while creating a fresh parameter GUID and carrying
+its typed literal into the owned default. Surface-output promotion creates a new
+owner and link. Texture-branch creation emits an explicit resource owner, UV channel,
+sample and required swizzle/decode operations; resource policy remains on the owner.
 
 One user-visible command produces one global editor transaction. Semantic
 commands retain before/after program and presentation values; presentation-only
@@ -273,25 +266,19 @@ canvas and move session.
 
 ## Clipboard and layout
 
-`FMaterialGraphClipboardPayload` schema 5 contains at most 256 complete nodes,
-relative positions, referenced declaration snapshots, function ports and calls,
-and a weak source-owner
-object-generation identity. A strongly retained transient reference object owns
-reflected texture and function slots, retaining dependencies independently of the
-source asset while allowing package replacement to update them. Paste resolves
-those updated slots before committing copied calls and declarations. Replacing or clearing
-the payload releases those references. Clipboard state is process-local; it
-contains no compiler result or viewport state.
+`FMaterialGraphClipboardPayload` schema 6 contains at most 256 complete nodes with
+owned payloads, relative positions, function ports/calls and a weak source-owner
+identity. Its strongly retained reference object owns reflected texture/function
+slots so package replacement updates dependencies independently of the source asset.
+Paste resolves these slots before validating owners. Clearing the payload releases
+them. Compiler results and viewport state are excluded.
 
-Copy orders nodes by GUID and retains external links for same-root paste.
-Paste generates new node GUIDs and remaps internal links. Same-root paste
-requires each declaration GUID/type to remain available and uses current labels
-and defaults. Foreign paste rejects external links even if a destination node
-happens to have the same GUID. It creates local parameter GUIDs, or reuses a
-same-name/type declaration only when default and metadata match. Missing,
-duplicate, invalid and conflicting declarations reject the entire operation.
-Node placement, declaration creation and graph references commit once and
-Undo/Redo together. Unknown clipboard versions are rejected.
+Copy orders nodes by GUID. Every paste generates fresh node and parameter GUIDs and
+unique names, preserving copied default/metadata values. Internal links are remapped
+together. Same-root external links can remain; foreign external links reject even
+when destination GUIDs happen to match. Duplicate owner identities/names, missing
+retained resources and unsupported versions reject atomically. Placement, owners,
+links and derived schemas commit and Undo/Redo together.
 
 Material and function documents share copy, paste and cut commands. Paste remaps
 ordinary inputs, Surface attribute bindings and function-call inputs while keeping
@@ -371,16 +358,12 @@ and links, rejects incompatible consumers atomically, and records successful
 changes in Undo/Redo. Constants remain independent literals unless the graph
 explicitly fans out one node's output or promotes it to a named parameter.
 
-Parameter creation exposes five generic entries: Scalar, Vector2, Vector3,
-Vector4, and Texture Parameter. Selecting a type opens a choice inside the same
-menu: create a new parameter or filter and reference an existing declaration of
-that type. Only creating a new parameter adds a uniquely named declaration; both
-paths create and place the reference node in one transaction. Cancelling the
-choice does not mutate the graph or declarations. The node catalog is independent
-of material declarations: inspection resolves labels from live declarations, and
-binding controls enumerate declarations directly. A node's Parameter menu binds any existing declaration of the
-same type, allowing multiple nodes to share one value without changing links.
-PBR role names and UV controls remain template declarations, not node kinds.
+Parameter creation exposes Scalar, Vector2, Vector3, Vector4 and texture owner
+entries. Selecting an entry creates and places a fresh uniquely named owner in one
+transaction. The catalog has no existing-parameter rebind mode. Sharing connects the
+existing owner's output to more consumers. Inspection reads labels from the node's
+owned payload. PBR roles and UV controls are explicit template-owned parameters,
+not distinct node kinds.
 
 The node creation context menu opens at the pointer from an empty-canvas right
 click, Space, an empty-canvas double click, or an output link dropped on empty
@@ -450,13 +433,12 @@ do not fabricate a target.
 
 ## Reachable parameter views
 
-MaterialEditor consumes Engine's detached
-`InspectMaterialParameterDependencies` snapshot rather than enumerating the
-material-owned definition catalog. Base Details contains one row per reachable
-declaration in deterministic first-use order. Parameter-node inline controls
-and Details submit the same nested definition-value edit, so continuous edits
-coalesce through the shared property transaction path and produce dynamic render
-updates without compilation.
+MaterialEditor consumes Engine's detached `InspectMaterialParameterDependencies`
+projection for reachable instance controls. Base Details edits the selected owner,
+including disconnected owners. Numeric inline edits and Details update the same
+node-owned default through parameter commands/sessions. Dynamic value changes do
+not request shader compilation. Resource-only combined-node outputs contribute the
+resource dependency without traversing the unused sampling UV branch.
 
 Instance rows use the resolved root program's same snapshot for override
 eligibility and source labels. A local override which becomes unreachable moves

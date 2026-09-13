@@ -5,14 +5,15 @@
 #include <functional>
 #include <unordered_map>
 
-// Frozen pre-function template, used only for exact upgrade recognition.
-namespace Durin::AssetForge::Builtins::LegacyUpgrade
+// Explicit expanded graph for independent compiler regression fixtures.
+// Production authoring uses standard function assets.
+namespace Durin::Testing
 {
 	constexpr auto MakeCanonicalNodeId(uint32 Index) -> FGuid
 	{ return {0x4d350001u, 0x7a6b4c21u, 0x91d2e3f4u, Index + 1u}; }
 	inline auto MakeLink(const FMaterialProgramNode& Node) -> FMaterialProgramLink
 	{ return {.SourceNodeId = Node.Id}; }
-	inline auto MakeImportedSurfaceProgram() -> FMaterialProgram
+	inline auto MakePBRMaterialProgramForTest() -> FMaterialProgram
 	{
 		using Role = MaterialParameters::EMaterialBuiltinParameterRole;
 		const auto& BaseIds = MaterialParameters::GetBuiltinParameterIds(Role::BaseColor);
@@ -38,7 +39,11 @@ namespace Durin::AssetForge::Builtins::LegacyUpgrade
 			Node.Opcode = Opcode;
 			Node.ResultType = Type;
 			Node.Inputs = std::move(Inputs);
-			Node.ParameterId = ParameterId;
+			if (ParameterId.IsValid())
+			{
+				const auto& Definitions = GetPBRMaterialParameterDefinitions();
+				Node.Parameter = *std::ranges::find(Definitions, ParameterId, &FMaterialParameterDefinition::Id);
+			}
 			Node.Literal = Literal;
 			Program.Nodes.push_back(std::move(Node));
 			return Program.Nodes.back();
@@ -106,9 +111,15 @@ namespace Durin::AssetForge::Builtins::LegacyUpgrade
 		auto& NormalSample = Sample(NormalIds.Texture);
 		auto& NormalRg = Swizzle(
 			NormalSample, EMaterialProgramValueType::Float2, {0, 1});
+		auto& Half = AddNode(EMaterialProgramOpcode::Constant, EMaterialProgramValueType::Float2, {}, {}, {.5f, .5f});
+		auto& CenteredNormal = Binary(EMaterialProgramOpcode::Subtract, NormalRg, Half);
+		auto& Strength = AddNode(EMaterialProgramOpcode::Constant, EMaterialProgramValueType::Float, {}, {}, {1});
+		auto& Strength2 = AddNode(EMaterialProgramOpcode::Splat2, EMaterialProgramValueType::Float2, {MakeLink(Strength)});
+		auto& ScaledNormal = Binary(EMaterialProgramOpcode::Multiply, CenteredNormal, Strength2);
+		auto& EncodedNormal = Binary(EMaterialProgramOpcode::Add, ScaledNormal, Half);
 		auto& DecodedNormal = AddNode(
 			EMaterialProgramOpcode::DecodeNormalRG,
-			EMaterialProgramValueType::Float3, {MakeLink(NormalRg)});
+			EMaterialProgramValueType::Float3, {MakeLink(EncodedNormal)});
 		auto& Normal = Binary(
 			EMaterialProgramOpcode::BlendNormalsRNM,
 			NormalParameter, DecodedNormal);
@@ -186,7 +197,11 @@ namespace Durin::AssetForge::Builtins::LegacyUpgrade
 			Node.Opcode = Opcode;
 			Node.ResultType = Type;
 			Node.Inputs = std::move(Inputs);
-			Node.ParameterId = ParameterId;
+			if (ParameterId.IsValid())
+			{
+				const auto& Definitions = GetPBRMaterialParameterDefinitions();
+				Node.Parameter = *std::ranges::find(Definitions, ParameterId, &FMaterialParameterDefinition::Id);
+			}
 			Node.Literal = Literal;
 			Program.Nodes.push_back(std::move(Node));
 			return MakeLink(Program.Nodes.back());
@@ -263,9 +278,9 @@ namespace Durin::AssetForge::Builtins::LegacyUpgrade
 
 
 	// Exact result of the pre-8e5b7eb8f StandardSurface resave route.
-	inline auto MakeImportedSurfaceAggregateProgram() -> FMaterialProgram
+	inline auto MakeAggregatePBRMaterialProgramForTest() -> FMaterialProgram
 	{
-		const auto Template = MakeImportedSurfaceProgram();
+		const auto Template = MakePBRMaterialProgramForTest();
 		FMaterialProgram Result;
 		Result.Nodes.push_back({.Id = MakeCanonicalNodeId(0), .Opcode = EMaterialProgramOpcode::MakeSurface,
 			.ResultType = EMaterialProgramValueType::Surface, .DisplayName = "Standard Surface"});

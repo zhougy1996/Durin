@@ -478,7 +478,7 @@ namespace Durin
 		Super::PostEditChangeProperty(Event);
 		if (!Event.MemberProperty) return;
 		const FName Name = Event.MemberProperty->NamePrivate;
-		if (Name == FName("ParameterDefinitions") || Name == FName("ParameterOverrides"))
+		if (Name == FName("ParameterOverrides"))
 		{
 			// Reflected editor transactions restore collection storage directly. Route every
 			// phase through the same render invalidation normally supplied by setters.

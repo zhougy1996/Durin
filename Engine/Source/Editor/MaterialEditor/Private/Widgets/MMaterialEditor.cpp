@@ -10,6 +10,7 @@
 #include "Asset/Mutation.h"
 #include "Asset/Asset.h"
 #include "DObject/Package.h"
+#include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "Editor/AssetPicker.h"
 #include "Editor/EditorEngine.h"
@@ -492,7 +493,6 @@ namespace Durin::Editor::Material
 	{
 		SessionSettings->bPreviewVisible = true;
 		SessionSettings->bDetailsVisible = true;
-		SessionSettings->bParametersVisible = true;
 		SessionSettings->bDiagnosticsVisible = false;
 		for (const auto& Document : WorkspaceManager.GetDocuments())
 			if (Document.WorkspaceType == Workspace::Type)
@@ -688,7 +688,6 @@ namespace Durin::Editor::Material
 		{
 			ImGui::MenuItem("Preview", nullptr, &SessionSettings->bPreviewVisible);
 			ImGui::MenuItem("Details", nullptr, &SessionSettings->bDetailsVisible);
-			ImGui::MenuItem("Parameters", nullptr, &SessionSettings->bParametersVisible);
 			ImGui::MenuItem("Diagnostics", nullptr, &SessionSettings->bDiagnosticsVisible);
 			ImGui::Separator();
 			if (ImGui::MenuItem("Reset Layout")) ResetLayout();
@@ -735,19 +734,6 @@ namespace Durin::Editor::Material
 		{
 			if (BeginPanel("Details", "Details", &SessionSettings->bDetailsVisible))
 				DrawDetailsPanel(Document, Material);
-			ImGui::End();
-		}
-		if (SessionSettings->bParametersVisible)
-		{
-			if (BeginPanel("Parameters", "Parameters", &SessionSettings->bParametersVisible))
-			{
-				if (auto* Base = Cast<DMaterial>(Material)) DrawMaterial(Base);
-				else if (MonaImGui::PropertyEdit::BeginTable("MaterialInstanceParameters", MakeMaterialPropertyTableConfig()))
-				{
-					DrawMaterialParameters(Material);
-					MonaImGui::PropertyEdit::EndTable();
-				}
-			}
 			ImGui::End();
 		}
 		if (SessionSettings->bDiagnosticsVisible)
@@ -916,7 +902,15 @@ namespace Durin::Editor::Material
 			ImGui::TextWrapped("%s", Material->GetClass()->GetQualifiedName().ToString().c_str());
 			ImGui::Spacing();
 		}
-		if (auto* Instance = Cast<DMaterialInstance>(Material)) DrawMaterialInstance(Instance);
+		if (auto* Instance = Cast<DMaterialInstance>(Material))
+		{
+			DrawMaterialInstance(Instance);
+			if (MonaImGui::PropertyEdit::BeginTable("MaterialInstanceParameters", MakeMaterialPropertyTableConfig()))
+			{
+				DrawMaterialParameters(Instance);
+				MonaImGui::PropertyEdit::EndTable();
+			}
+		}
 		else if (auto* BaseMaterial = Cast<DMaterial>(Material))
 		{
 			if (GEditor && GEditor->GetTransactor())
@@ -925,75 +919,6 @@ namespace Durin::Editor::Material
 				GetOrCreateCanvas(Document).DrawSelectionDetails(*BaseMaterial, *GEditor->GetTransactor(),
 					[this](std::string Message) { SetError(std::move(Message)); });
 			}
-		}
-	}
-
-	auto MMaterialEditor::DrawMaterial(DMaterial* Material) -> void
-	{
-		DrawParameterDeclarations(Material);
-	}
-
-	auto MMaterialEditor::DrawParameterDeclarations(DMaterial* Material) -> void
-	{
-		if (!ImGui::CollapsingHeader("Manage Parameters", ImGuiTreeNodeFlags_DefaultOpen)) return;
-		auto* Transactions = GEditor ? GEditor->GetTransactor() : nullptr;
-		ImGui::InputTextWithHint("##NewParameterName", "Parameter name", ParameterNameDraft.data(), ParameterNameDraft.size());
-		ImGui::Combo("Type", &ParameterTypeDraft, "Float\0Float2\0Float3\0Float4\0Texture2D\0");
-		if (ImGui::Button("Create / Reuse") && FinishActivePropertyEdit(false))
-		{
-			constexpr std::array Types{EMaterialParameterType::Scalar, EMaterialParameterType::Vector2,
-				EMaterialParameterType::Vector, EMaterialParameterType::Vector4, EMaterialParameterType::Texture};
-			FMaterialParameterDefinition Definition;
-			Definition.Name = FName(ParameterNameDraft.data());
-			Definition.DisplayName = ParameterNameDraft.data();
-			Definition.Type = Types[ParameterTypeDraft];
-			const auto Result = FMaterialGraphOperations::CreateParameter(*Material, std::move(Definition), Transactions);
-			if (!Result) SetError(Result.Message);
-		}
-		// Commands may replace the material's declaration storage during this frame.
-		const std::vector<FMaterialParameterDefinition> Definitions(
-			Material->GetParameterDefinitions().begin(), Material->GetParameterDefinitions().end());
-		std::unordered_set<FGuid> ReferencedParameters;
-		for (const auto& Node : Material->GetMaterialProgram()->Nodes)
-			for (const auto& Parameter : GetMaterialNodeParameterReferences(Node)) ReferencedParameters.insert(Parameter);
-		for (const auto& Call : Material->GetMaterialFunctionCalls())
-			for (const auto& Input : Call.Inputs)
-				if (Input.Default.Kind == EMaterialInputDefaultKind::Parameter) ReferencedParameters.insert(Input.Default.ParameterId);
-		for (const auto& Definition : Definitions)
-		{
-			ImGui::PushID(Definition.Id.ToString().c_str());
-			ImGui::TextUnformatted(Definition.Name.ToString().c_str());
-			if (!ReferencedParameters.contains(Definition.Id))
-			{
-				ImGui::SameLine();
-				ImGui::TextDisabled("(Unused)");
-			}
-			ImGui::SameLine();
-			if (ImGui::SmallButton("Rename"))
-			{
-				const auto Name = Definition.Name.ToString();
-				std::snprintf(ParameterRenameDraft.data(), ParameterRenameDraft.size(), "%s", Name.c_str());
-				ImGui::OpenPopup("Rename Parameter");
-			}
-			if (ImGui::BeginPopup("Rename Parameter"))
-			{
-				ImGui::InputText("Name", ParameterRenameDraft.data(), ParameterRenameDraft.size());
-				if (ImGui::Button("Apply") && FinishActivePropertyEdit(false))
-				{
-					const auto Result = FMaterialGraphOperations::RenameParameter(*Material, Definition.Id,
-						FName(ParameterRenameDraft.data()), Transactions);
-					if (!Result) SetError(Result.Message);
-					else ImGui::CloseCurrentPopup();
-				}
-				ImGui::EndPopup();
-			}
-			ImGui::SameLine();
-			if (ImGui::SmallButton("Delete") && FinishActivePropertyEdit(false))
-			{
-				const auto Result = FMaterialGraphOperations::DeleteParameter(*Material, Definition.Id, Transactions);
-				if (!Result) SetError(Result.Message);
-			}
-			ImGui::PopID();
 		}
 	}
 

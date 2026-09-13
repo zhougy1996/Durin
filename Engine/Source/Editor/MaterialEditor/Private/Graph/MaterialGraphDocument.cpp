@@ -25,8 +25,8 @@ namespace Durin::Editor::Material
 				{
 					for (const auto& Call : State->Calls)
 						if (DObject* Function = Call.Function.Get()) Collector.AddReferencedObject(Function);
-					for (const auto& Definition : State->Definitions)
-						if (DObject* Texture = Definition.Value.TextureValue.Get()) Collector.AddReferencedObject(Texture);
+					for (const auto& Node : State->Program.Nodes)
+						if (DObject* Texture = Node.Parameter.Value.TextureValue.Get()) Collector.AddReferencedObject(Texture);
 				}
 			}
 			auto GetAllocatedSize() const -> size_t override
@@ -35,11 +35,10 @@ namespace Durin::Editor::Material
 				for (const auto* State : {&Before, &After})
 				{
 					Bytes += State->Program.Nodes.capacity() * sizeof(FMaterialProgramNode)
-						+ State->Definitions.capacity() * sizeof(FMaterialParameterDefinition)
 						+ State->Calls.capacity() * sizeof(FMaterialFunctionCall)
 						+ State->Presentation.Nodes.capacity() * sizeof(FMaterialGraphNodePresentation);
 					for (const auto& Node : State->Program.Nodes)
-						Bytes += Node.DisplayName.capacity() + Node.Inputs.capacity() * sizeof(FMaterialProgramLink)
+						Bytes += Node.Parameter.DisplayName.capacity() + Node.DisplayName.capacity() + Node.Inputs.capacity() * sizeof(FMaterialProgramLink)
 							+ Node.InputDefaults.capacity() * sizeof(FMaterialInputDefault)
 							+ Node.SurfaceAttributes.capacity() * sizeof(FMaterialSurfaceAttributeBinding);
 					for (const auto& Call : State->Calls)
@@ -50,7 +49,6 @@ namespace Durin::Editor::Material
 						Bytes += Ports->capacity() * sizeof(FMaterialFunctionPort);
 						for (const auto& Port : *Ports) Bytes += Port.Name.capacity();
 					}
-					for (const auto& Definition : State->Definitions) Bytes += Definition.DisplayName.capacity();
 				}
 				return Bytes;
 			}
@@ -74,7 +72,6 @@ namespace Durin::Editor::Material
 		if (const auto* Material = Cast<DMaterial>(Owner.Get()))
 		{
 			State.Program = *Material->GetMaterialProgram();
-			State.Definitions.assign(Material->GetParameterDefinitions().begin(), Material->GetParameterDefinitions().end());
 			State.Calls.assign(Material->GetMaterialFunctionCalls().begin(), Material->GetMaterialFunctionCalls().end());
 			State.Presentation = Material->GetMaterialGraphPresentation();
 		}
@@ -103,7 +100,7 @@ namespace Durin::Editor::Material
 		Candidate.Presentation = SanitizeMaterialGraphPresentation(Candidate.Presentation, Candidate.Program);
 		if (Candidate.bFunction)
 		{
-			if (!Candidate.Definitions.empty() || Candidate.Program.Outputs != FMaterialSurfaceOutputs{})
+			if (Candidate.Program.Outputs != FMaterialSurfaceOutputs{})
 				return MakeRejected("Function graphs cannot own root parameters or material output bindings.");
 			Candidate.Presentation.bHasMaterialOutputPosition = false;
 			Candidate.Presentation.MaterialOutputX = Candidate.Presentation.MaterialOutputY = 0;
@@ -159,16 +156,8 @@ namespace Durin::Editor::Material
 		else
 		{
 			auto* Material = Cast<DMaterial>(Owner.Get());
-			if (Candidate.Definitions == Before.Definitions)
-			{
-				auto Validation = Material->SetMaterialProgramAndFunctionCalls(Candidate.Program, Candidate.Calls);
-				if (!Validation) return MakeRejected("The material graph is invalid.", std::move(Validation.Diagnostics));
-			}
-			else
-			{
-				auto Validation = Material->SetMaterialDefinitionsAndProgram(Candidate.Definitions, Candidate.Program, Candidate.Calls);
-				if (!Validation) return MakeRejected("The material graph is invalid.", std::move(Validation.Diagnostics));
-			}
+			auto Validation = Material->SetMaterialProgramAndFunctionCalls(Candidate.Program, Candidate.Calls);
+			if (!Validation) return MakeRejected("The material graph is invalid.", std::move(Validation.Diagnostics));
 			Material->SetMaterialGraphPresentation(Candidate.Presentation);
 		}
 		if (Transactions)
@@ -250,7 +239,7 @@ namespace Durin::Editor::Material
 		FMaterialGraphDocumentState State;
 		if (!Capture(State)) return {.Status = EMaterialGraphCommandStatus::StaleOwner};
 		const auto Signature = GetMaterialProgramNodeSignature(Request.Node.Opcode, Request.Node.ResultType);
-		if (!Signature || Request.Node.ParameterId.IsValid()) return MakeRejected("This node is not available in a function graph.");
+		if (!Signature || Request.Node.Parameter.Id.IsValid()) return MakeRejected("This node is not available in a function graph.");
 		if (!State.bFunction)
 		{
 			std::vector<std::vector<EMaterialProgramValueType>> Types;

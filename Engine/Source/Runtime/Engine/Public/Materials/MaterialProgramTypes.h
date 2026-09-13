@@ -4,6 +4,7 @@
 #include "DObject/ObjectMacros.h"
 #include "Misc/Guid.h"
 #include "EngineAPI.h"
+#include "Materials/MaterialTypes.h"
 
 #include "MaterialProgramTypes.gen.h"
 
@@ -15,12 +16,13 @@ namespace Durin
 {
 	struct FMaterialParameterDefinition;
 	struct FMaterialFunctionCallSnapshot;
+	struct FMaterialProgramValidationResult;
 	namespace MaterialParameters
 	{
 		enum class EMaterialBuiltinParameterKind : uint8;
 	}
 
-	inline constexpr uint32 CurrentMaterialProgramSchemaVersion = 6;
+	inline constexpr uint32 CurrentMaterialProgramSchemaVersion = 7;
 	inline constexpr uint32 MaterialProgramMaxNodeCount = 256;
 	inline constexpr uint32 MaterialProgramMaxLinkCount = 1024;
 	inline constexpr uint32 MaterialProgramMaxReferencedParameterCount = 128;
@@ -176,7 +178,6 @@ namespace Durin
 	{
 		None,
 		Literal,
-		Parameter,
 	};
 
 	// Retained numeric input value. Connections override it without erasing author intent.
@@ -193,9 +194,6 @@ namespace Durin
 
 		DPROPERTY()
 		FMaterialProgramLiteral Literal;
-
-		DPROPERTY()
-		FGuid ParameterId;
 
 		auto operator==(const FMaterialInputDefault&) const -> bool = default;
 	};
@@ -242,7 +240,7 @@ namespace Durin
 		FMaterialProgramLiteral Literal;
 
 		DPROPERTY()
-		FGuid ParameterId;
+		FMaterialParameterDefinition Parameter;
 
 		DPROPERTY()
 		uint8 SwizzleLength = 0;
@@ -370,6 +368,12 @@ namespace Durin
 
 		auto operator==(const FMaterialProgram&) const -> bool = default;
 	};
+
+	// Derives every graph-owned parameter, including disconnected owners, in GUID
+	// order. Failure leaves the caller's schema unchanged.
+	ENGINE_API auto DeriveMaterialParameterSchema(const FMaterialProgram& Program,
+		std::vector<FMaterialParameterDefinition>& OutDefinitions)
+		-> FMaterialProgramValidationResult;
 
 	// Stores one package-persisted editor position for a live material-program node.
 	DSTRUCT()

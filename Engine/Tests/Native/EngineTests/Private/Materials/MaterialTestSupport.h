@@ -551,25 +551,25 @@ namespace
 	auto MakeMaterialValueTarget(Durin::DMaterial* Material, const Durin::FGuid& Id, Durin::FName FieldName)
 		-> std::optional<Durin::Editor::FPropertyEditTarget>
 	{
-		Durin::FProperty* DefinitionsProperty = Material->GetClass()->FindPropertyByName("ParameterDefinitions");
-		if (!DefinitionsProperty || DefinitionsProperty->GetKind() != Durin::DurinCodeGen::EPropertyGenFlags::Array) return std::nullopt;
-		auto* Definitions = static_cast<Durin::FArrayProperty*>(DefinitionsProperty);
-		if (!Definitions->GetInner()
-			|| Definitions->GetInner()->GetKind() != Durin::DurinCodeGen::EPropertyGenFlags::Struct) return std::nullopt;
-		auto* DefinitionProperty = static_cast<Durin::FStructProperty*>(Definitions->GetInner());
-		Durin::FProperty* ValueProperty = DefinitionProperty->GetStruct()->FindPropertyByName("Value");
-		if (!ValueProperty || ValueProperty->GetKind() != Durin::DurinCodeGen::EPropertyGenFlags::Struct) return std::nullopt;
-		auto* ValueStructProperty = static_cast<Durin::FStructProperty*>(ValueProperty);
-		Durin::FProperty* Field = ValueStructProperty->GetStruct()->FindPropertyByName(FieldName);
+		using namespace Durin;
+		auto* ProgramProperty = static_cast<FStructProperty*>(Material->GetClass()->FindPropertyByName("Program"));
+		if (!ProgramProperty) return std::nullopt;
+		auto* NodesProperty = static_cast<FArrayProperty*>(ProgramProperty->GetStruct()->FindPropertyByName("Nodes"));
+		if (!NodesProperty) return std::nullopt;
+		auto* NodeProperty = static_cast<FStructProperty*>(NodesProperty->GetInner());
+		auto* ParameterProperty = static_cast<FStructProperty*>(NodeProperty->GetStruct()->FindPropertyByName("Parameter"));
+		if (!ParameterProperty) return std::nullopt;
+		auto* ValueProperty = static_cast<FStructProperty*>(ParameterProperty->GetStruct()->FindPropertyByName("Value"));
+		if (!ValueProperty) return std::nullopt;
+		auto* Field = ValueProperty->GetStruct()->FindPropertyByName(FieldName);
 		if (!Field) return std::nullopt;
-		const std::span DefinitionsView = Material->GetParameterDefinitions();
-		const auto It = std::ranges::find(DefinitionsView, Id, &Durin::FMaterialParameterDefinition::Id);
-		if (It == DefinitionsView.end()) return std::nullopt;
-		const uint64 Index = static_cast<uint64>(It - DefinitionsView.begin());
-		void* Definition = Definitions->GetMutableElementPtr(Material, Index);
-		void* Value = ValueProperty->GetValuePtr(Definition);
-		return Durin::Editor::FPropertyEditTarget::ForMember(Material, Definitions)
-			.ForArrayElement(Definitions->GetInner(), Index)
+		const auto& Nodes = Material->GetMaterialProgram()->Nodes;
+		const auto It = std::ranges::find_if(Nodes, [&](const auto& Node) { return Node.Parameter.Id == Id; });
+		if (It == Nodes.end()) return std::nullopt;
+		return Editor::FPropertyEditTarget::ForMember(Material, ProgramProperty)
+			.ForStructMember(NodesProperty)
+			.ForArrayElement(NodeProperty, static_cast<uint64>(It - Nodes.begin()))
+			.ForStructMember(ParameterProperty)
 			.ForStructMember(ValueProperty)
 			.ForStructMember(Field);
 	}
@@ -616,7 +616,8 @@ namespace
 			std::vector<FMaterialProgramLink> Inputs = {}, FGuid ParameterId = {}) {
 			FMaterialProgramNode Node;
 			Node.Id = FGuid::NewGuid(); Node.Opcode = Opcode; Node.ResultType = Type;
-			Node.Inputs = std::move(Inputs); Node.ParameterId = ParameterId;
+			Node.Inputs = std::move(Inputs);
+			if (ParameterId.IsValid()) Node.Parameter = *std::ranges::find(Definitions, ParameterId, &FMaterialParameterDefinition::Id);
 			Program.Nodes.push_back(Node);
 			return FMaterialProgramLink{Node.Id, 0};
 		};

@@ -49,12 +49,10 @@ namespace Durin::Editor::Material
 		std::vector<FGuid> Ordered(Selected.begin(), Selected.end());
 		std::ranges::sort(Ordered);
 		OutPayload.SourceRoot = Owner.Get();
-		std::unordered_set<FGuid> Referenced;
 		OutPayload.Nodes.reserve(Ordered.size());
 		for (const FGuid& Id : Ordered)
 		{
 			FMaterialProgramNode Node = *FindNode(Program, Id);
-			for (const auto& Parameter : GetMaterialNodeParameterReferences(Node)) Referenced.insert(Parameter);
 			if (Node.Opcode == EMaterialProgramOpcode::FunctionInput || Node.Opcode == EMaterialProgramOpcode::FunctionOutput)
 			{
 				const bool bOutput = Node.Opcode == EMaterialProgramOpcode::FunctionOutput;
@@ -74,19 +72,7 @@ namespace Durin::Editor::Material
 			if (Selected.contains(Call.NodeId))
 			{
 				OutPayload.Calls.push_back(Call);
-				for (const auto& Input : Call.Inputs)
-					if (Input.Default.Kind == EMaterialInputDefaultKind::Parameter) Referenced.insert(Input.Default.ParameterId);
 			}
-		for (const auto& Definition : State.Definitions)
-			if (Referenced.contains(Definition.Id))
-			{
-				OutPayload.Definitions.push_back(Definition);
-			}
-		if (OutPayload.Definitions.size() != Referenced.size())
-		{
-			OutPayload = {};
-			return MakeRejected("A copied parameter declaration is unavailable.");
-		}
 		if (Selected.contains(Program.Outputs.Surface.SourceNodeId))
 		{
 			OutPayload.bConnectAggregateSurface = true;
@@ -94,12 +80,12 @@ namespace Durin::Editor::Material
 			OutPayload.AggregateSourceOutputIndex = Program.Outputs.Surface.SourceOutputIndex;
 			OutPayload.AggregateSourceOutputId = Program.Outputs.Surface.SourceOutputId;
 		}
-		if (!OutPayload.Calls.empty() || !OutPayload.Definitions.empty())
+		if (!OutPayload.Nodes.empty())
 		{
 			auto* References = NewObject<DMaterialGraphClipboardReferences>(DMaterialGraphClipboardReferences::StaticClass(), nullptr,
 				NAME_None, EObjectFlags::Transient);
 			for (const auto& Call : OutPayload.Calls) References->Functions.emplace_back(Call.Function.Get());
-			for (const auto& Definition : OutPayload.Definitions) References->Textures.emplace_back(Definition.Value.TextureValue.Get());
+			for (const auto& Entry : OutPayload.Nodes) References->Textures.emplace_back(Entry.Node.Parameter.Value.TextureValue.Get());
 			OutPayload.RetainedReferences = FStrongObjectPtr(References);
 		}
 		return {
@@ -133,45 +119,24 @@ namespace Durin::Editor::Material
 
 		const bool bSameRoot = Payload.SourceRoot.Get() == Owner.Get();
 		const auto* References = Cast<DMaterialGraphClipboardReferences>(Payload.RetainedReferences.Get());
-		if (References && (References->Functions.size() != Payload.Calls.size() || References->Textures.size() != Payload.Definitions.size()))
+		if (References && (References->Functions.size() != Payload.Calls.size() || References->Textures.size() != Payload.Nodes.size()))
 			return MakeRejected("Clipboard retained references do not match the payload.");
-		if (State.bFunction && !Payload.Definitions.empty())
-			return MakeRejected("Function graphs cannot receive root parameter declarations.");
 		if (!State.bFunction && (!Payload.Signature.Inputs.empty() || !Payload.Signature.Outputs.empty()))
 			return MakeRejected("Function interface terminals can only be pasted into a function.");
-		const auto DeclarationValidation = ValidateMaterialParameterDefinitions(Payload.Definitions);
-		if (!DeclarationValidation)
-			return MakeRejected(std::format("Clipboard declaration {}: {}",
-				DeclarationValidation.ParameterId.ToString(),
-				GetMaterialParameterErrorText(DeclarationValidation.Error)));
-		auto& Definitions = State.Definitions;
-		std::unordered_map<FGuid, FGuid> ParameterRemap;
-		for (size_t DefinitionIndex = 0; DefinitionIndex < Payload.Definitions.size(); ++DefinitionIndex)
+		FMaterialProgram Copied;
+		for (size_t Index = 0; Index < Payload.Nodes.size(); ++Index)
 		{
-			auto Source = Payload.Definitions[DefinitionIndex];
-			if (References) Source.Value.TextureValue = Cast<DTexture2D>(References->Textures[DefinitionIndex].Get());
-			const auto Existing = std::ranges::find_if(Definitions, [&](const auto& Definition) {
-				return bSameRoot ? Definition.Id == Source.Id : Definition.Name == Source.Name;
-			});
-			if (Existing != Definitions.end())
-			{
-				auto Comparable = Source;
-				Comparable.Id = Existing->Id;
-				if (Existing->Type != Source.Type || (!bSameRoot && *Existing != Comparable))
-					return MakeRejected(std::format("Clipboard declaration {} conflicts with the destination name, type, default or metadata.", Source.Id.ToString()));
-				ParameterRemap.emplace(Source.Id, Existing->Id);
-			}
-			else
-			{
-				if (bSameRoot)
-					return MakeRejected(std::format("Clipboard declaration {} no longer exists in the source root.", Source.Id.ToString()));
-				auto Local = Source;
-				do Local.Id = FGuid::NewGuid(); while (std::ranges::any_of(Definitions,
-					[&](const auto& Definition) { return Definition.Id == Local.Id; }));
-				ParameterRemap.emplace(Source.Id, Local.Id);
-				Definitions.push_back(std::move(Local));
-			}
+			auto Node = Payload.Nodes[Index].Node;
+			if (References) Node.Parameter.Value.TextureValue = Cast<DTexture2D>(References->Textures[Index].Get());
+			Copied.Nodes.push_back(std::move(Node));
 		}
+		std::vector<FMaterialParameterDefinition> CopiedSchema;
+		const auto Validation = DeriveMaterialParameterSchema(Copied, CopiedSchema);
+		if (!Validation) return MakeRejected("Invalid clipboard parameter owners.", Validation.Diagnostics);
+		if (State.bFunction && !CopiedSchema.empty()) return MakeRejected("Functions cannot own root parameters.");
+		if (!References && std::ranges::any_of(Copied.Nodes,
+			[](const auto& Node) { return Node.Parameter.Value.TextureValue.Get() != nullptr; }))
+			return MakeRejected("Clipboard texture references are not retained.");
 		std::unordered_map<FGuid, FGuid> Remap;
 		Remap.reserve(Payload.Nodes.size());
 		for (const FMaterialGraphClipboardNode& ClipboardNode : Payload.Nodes)
@@ -229,13 +194,6 @@ namespace Durin::Editor::Material
 			else if (!bSameRoot || !FindNode(Candidate, Input.SourceNodeId)) return false;
 			return true;
 		};
-		const auto RemapDefault = [&](FMaterialInputDefault& Value) {
-			if (Value.Kind != EMaterialInputDefaultKind::Parameter) return true;
-			const auto Parameter = ParameterRemap.find(Value.ParameterId);
-			if (Parameter == ParameterRemap.end()) return false;
-			Value.ParameterId = Parameter->second;
-			return true;
-		};
 		for (size_t CallIndex = 0; CallIndex < Payload.Calls.size(); ++CallIndex)
 		{
 			auto Call = Payload.Calls[CallIndex];
@@ -243,38 +201,37 @@ namespace Durin::Editor::Material
 			if (!Remap.contains(Call.NodeId)) return MakeRejected("A clipboard call has no selected node.");
 			Call.NodeId = Remap.at(Call.NodeId);
 			for (auto& Input : Call.Inputs)
-				if (!RemapLink(Input.Source) || !RemapDefault(Input.Default))
+				if (!RemapLink(Input.Source))
 					return MakeRejected("A copied function call references an unavailable input or parameter.");
 			State.Calls.push_back(std::move(Call));
 		}
 		auto& Presentation = State.Presentation;
 		std::vector<FGuid> Generated;
 		Generated.reserve(Payload.Nodes.size());
-		for (const FMaterialGraphClipboardNode& ClipboardNode : Payload.Nodes)
+		for (size_t ClipboardIndex = 0; ClipboardIndex < Payload.Nodes.size(); ++ClipboardIndex)
 		{
+			const auto& ClipboardNode = Payload.Nodes[ClipboardIndex];
 			FMaterialProgramNode Node = ClipboardNode.Node;
+			if (References) Node.Parameter.Value.TextureValue = Cast<DTexture2D>(References->Textures[ClipboardIndex].Get());
 			Node.Id = Remap.at(ClipboardNode.Node.Id);
 			if (Node.FunctionPortId.IsValid())
 			{
 				if (!PortRemap.contains(Node.FunctionPortId)) return MakeRejected("A clipboard terminal has no port declaration.");
 				Node.FunctionPortId = PortRemap.at(Node.FunctionPortId);
 			}
-			if (Node.ParameterId.IsValid())
+			if (Node.Parameter.Id.IsValid())
 			{
-				const auto Parameter = ParameterRemap.find(Node.ParameterId);
-				if (Parameter == ParameterRemap.end())
-					return MakeRejected("The clipboard is missing a referenced parameter declaration.");
-				Node.ParameterId = Parameter->second;
-				const auto Definition = std::ranges::find(Definitions, Node.ParameterId,
-					&FMaterialParameterDefinition::Id);
-				Node.DisplayName = Definition->DisplayName;
+				do Node.Parameter.Id = FGuid::NewGuid();
+				while (Node.Parameter.Id == Node.Id || std::ranges::any_of(Candidate.Nodes,
+					[&](const auto& Existing) { return Existing.Parameter.Id == Node.Parameter.Id; }));
+				const auto BaseName = Node.Parameter.Name.ToString();
+				for (uint32 Suffix = 2; std::ranges::any_of(Candidate.Nodes,
+					[&](const auto& Existing) { return Existing.Parameter.Id.IsValid() && Existing.Parameter.Name == Node.Parameter.Name; }); ++Suffix)
+					Node.Parameter.Name = FName(std::format("{}{}", BaseName, Suffix));
+				if (Node.Parameter.DisplayName == BaseName) Node.Parameter.DisplayName = Node.Parameter.Name.ToString();
 			}
 			for (FMaterialProgramLink& Input : Node.Inputs)
 				if (!RemapLink(Input)) return MakeRejected("The material graph clipboard references an unavailable external input.");
-			for (auto& Value : Node.InputDefaults)
-				if (!RemapDefault(Value)) return MakeRejected("An input default references an unavailable parameter.");
-			for (auto* Value : {&Node.UVSettings.Channel, &Node.UVSettings.Scale, &Node.UVSettings.Offset, &Node.UVSettings.Rotation})
-				if (!RemapDefault(*Value)) return MakeRejected("A UV setting references an unavailable parameter.");
 			for (auto& Attribute : Node.SurfaceAttributes)
 				if (!RemapLink(Attribute.Source)) return MakeRejected("A copied Surface attribute references an unavailable external input.");
 			const int64 PositionX = static_cast<int64>(X) + ClipboardNode.RelativeX;

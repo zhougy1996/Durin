@@ -297,52 +297,11 @@ namespace Durin::AssetForge::Builtins
 		return true;
 	}
 
-	auto MakeLegacyImportedSurfaceFunctionProgram(const FStandardMaterialFunctions& Functions,
-		std::vector<FMaterialFunctionCall>& OutCalls, FMaterialGraphPresentation& OutPresentation) -> FMaterialProgram
-	{
-		FBuilder B{Entry::StandardPBR};
-		FMaterialGraphPresentation Presentation{.bHasMaterialOutputPosition = true, .MaterialOutputX = 1920, .MaterialOutputY = 0};
-		std::vector<FMaterialFunctionInputBinding> PBRInputs;
-		using ParameterKind = MaterialParameters::EMaterialBuiltinParameterKind;
-		for (uint32 I = 0; I < 8; ++I)
-		{
-			const auto Role = static_cast<EMaterialSurfaceOutput>(I);
-			const auto Parameter = [&](ParameterKind Kind, Type ValueType, int32 Column, int32 Row) {
-				const auto Result = B.Node(ValueType == Type::Texture2D ? Op::TextureParameter : Op::Parameter, ValueType);
-				B.Graph.Nodes.back().ParameterId = GetMaterialSurfaceParameterId(Role, Kind);
-				Presentation.Nodes.push_back({Result.SourceNodeId, Column * 320, static_cast<int32>(I) * 600 + Row * 170});
-				return Result;
-			};
-			const auto ValueType = GetMaterialSurfaceOutputType(Role);
-			const auto Factor = Parameter(ParameterKind::Value, ValueType, 3, 0);
-			const auto Tex = Parameter(ParameterKind::Texture, Type::Texture2D, 3, 1);
-			const auto Channel = Parameter(ParameterKind::UVChannel, Type::Float, 0, 0);
-			const auto UV = B.Node(Op::UVChannel, Type::Float2, {Channel});
-			Presentation.Nodes.push_back({UV.SourceNodeId, 320, static_cast<int32>(I) * 600});
-			const auto Scale = Parameter(ParameterKind::UVScale, Type::Float2, 0, 1);
-			const auto Offset = Parameter(ParameterKind::UVOffset, Type::Float2, 0, 2);
-			const auto Rotation = Parameter(ParameterKind::UVRotation, Type::Float, 1, 2);
-			const auto Transformed = B.Call(Functions.UVTransform.Get(), {
-				{Id(Entry::UVTransform, 1), Type::Float2, UV}, {Id(Entry::UVTransform, 2), Type::Float2, Scale},
-				{Id(Entry::UVTransform, 3), Type::Float2, Offset}, {Id(Entry::UVTransform, 4), Type::Float, Rotation}});
-			Presentation.Nodes.push_back({Transformed.SourceNodeId, 640, static_cast<int32>(I) * 600});
-			PBRInputs.push_back({Id(Entry::StandardPBR, 10 + I), ValueType, Factor});
-			PBRInputs.push_back({Id(Entry::StandardPBR, 20 + I), Type::Texture2D, Tex});
-			PBRInputs.push_back({Id(Entry::StandardPBR, 30 + I), Type::Float2, Transformed});
-		}
-		FMaterialProgram Result;
-		Result.Outputs.Surface = B.Call(Functions.StandardPBR.Get(), std::move(PBRInputs));
-		Presentation.Nodes.push_back({Result.Outputs.Surface.SourceNodeId, 1440, 0});
-		Result.Nodes = std::move(B.Graph.Nodes);
-		OutCalls = std::move(B.Graph.Calls);
-		OutPresentation = std::move(Presentation);
-		return Result;
-	}
-
 	auto MakeImportedSurfaceFunctionProgram(const FStandardMaterialFunctions& Functions,
 		std::vector<FMaterialFunctionCall>& OutCalls, FMaterialGraphPresentation& OutPresentation) -> FMaterialProgram
 	{
 		FBuilder B{Entry::ImportedSurfaceValues};
+		const auto Recipe = MakePBRMaterialParameterDefinitions();
 		FMaterialGraphPresentation Presentation{.bHasMaterialOutputPosition = true, .MaterialOutputX = 1120, .MaterialOutputY = 400};
 		std::vector<FMaterialFunctionInputBinding> Inputs;
 		using ParameterKind = MaterialParameters::EMaterialBuiltinParameterKind;
@@ -350,15 +309,26 @@ namespace Durin::AssetForge::Builtins
 		for (uint32 I = 0; I < 8; ++I)
 		{
 			const auto Role = static_cast<EMaterialSurfaceOutput>(I);
-			const auto Binding = [&](ParameterKind Kind, Type ValueType) -> FMaterialInputDefault {
-				return {.Kind = EMaterialInputDefaultKind::Parameter, .Type = ValueType, .ParameterId = GetMaterialSurfaceParameterId(Role, Kind)};
+			const auto Parameter = [&](ParameterKind Kind, Type ValueType, int32 Column, int32 Row) {
+				const auto Id = GetMaterialSurfaceParameterId(Role, Kind);
+				const auto Definition = std::ranges::find(Recipe, Id, &FMaterialParameterDefinition::Id);
+				require(Definition != Recipe.end());
+				const auto Link = B.Node(ValueType == Type::Texture2D ? Op::TextureParameter : Op::Parameter, ValueType);
+				B.Graph.Nodes.back().Parameter = *Definition;
+				Presentation.Nodes.push_back({Link.SourceNodeId, Column * 320, static_cast<int32>(I) * 600 + Row * 130});
+				return Link;
 			};
-			auto Sample = B.Node(Op::TextureSampleParameter2D, Type::Float4, {{}});
-			auto& Node = B.Graph.Nodes.back();
-			Node.ParameterId = GetMaterialSurfaceParameterId(Role, ParameterKind::Texture);
-			Node.UVSettings = {Binding(ParameterKind::UVChannel, Type::Float), Binding(ParameterKind::UVScale, Type::Float2),
-				Binding(ParameterKind::UVOffset, Type::Float2), Binding(ParameterKind::UVRotation, Type::Float)};
-			Presentation.Nodes.push_back({Node.Id, 0, static_cast<int32>(I) * 280});
+			const auto Factor = Parameter(ParameterKind::Value, GetMaterialSurfaceOutputType(Role), 2, 0);
+			const auto Channel = Parameter(ParameterKind::UVChannel, Type::Float, -2, 0);
+			const auto Scale = Parameter(ParameterKind::UVScale, Type::Float2, -2, 1);
+			const auto Offset = Parameter(ParameterKind::UVOffset, Type::Float2, -2, 2);
+			const auto Rotation = Parameter(ParameterKind::UVRotation, Type::Float, -2, 3);
+			const auto UV = B.Node(Op::TextureCoordinates, Type::Float2, {Channel, Scale, Offset, Rotation});
+			Presentation.Nodes.push_back({UV.SourceNodeId, -320, static_cast<int32>(I) * 600});
+			auto Sample = B.Node(Op::TextureSampleParameter2D, Type::Float4, {UV});
+			const auto TextureId = GetMaterialSurfaceParameterId(Role, ParameterKind::Texture);
+			B.Graph.Nodes.back().Parameter = *std::ranges::find(Recipe, TextureId, &FMaterialParameterDefinition::Id);
+			Presentation.Nodes.push_back({Sample.SourceNodeId, 0, static_cast<int32>(I) * 600});
 			Sample.SourceOutputIndex = Channels[I];
 			if (I == 1)
 			{
@@ -366,7 +336,7 @@ namespace Durin::AssetForge::Builtins
 				Presentation.Nodes.push_back({Sample.SourceNodeId, 350, 280});
 			}
 			const auto ValueType = GetMaterialSurfaceOutputType(Role);
-			Inputs.push_back({Id(Entry::ImportedSurfaceValues, 10 + I), ValueType, {}, Binding(ParameterKind::Value, ValueType)});
+			Inputs.push_back({Id(Entry::ImportedSurfaceValues, 10 + I), ValueType, Factor});
 			Inputs.push_back({Id(Entry::ImportedSurfaceValues, 20 + I), ValueType, Sample});
 		}
 		FMaterialProgram Result;

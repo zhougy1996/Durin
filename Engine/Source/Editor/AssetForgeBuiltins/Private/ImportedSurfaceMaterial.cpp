@@ -1,5 +1,4 @@
 #include "AssetForge/Builtins/SceneImport.h"
-#include "ImportedSurfaceLegacyUpgrade.h"
 #include "AssetForge/Builtins/StandardMaterialFunctions.h"
 
 #include "Asset/PackageSerialization.h"
@@ -22,61 +21,8 @@ namespace Durin::AssetForge::Builtins
 			const auto Expected = MakeImportedSurfaceFunctionProgram(Functions, Calls, Presentation);
 			if (*Material.GetMaterialProgram() == Expected
 				&& std::ranges::equal(Material.GetMaterialFunctionCalls(), Calls)) return true;
-			std::vector<FMaterialFunctionCall> LegacyCalls;
-			FMaterialGraphPresentation LegacyPresentation;
-			const auto LegacyFunctionProgram = MakeLegacyImportedSurfaceFunctionProgram(Functions, LegacyCalls, LegacyPresentation);
-			const bool bExactFunctionParent = *Material.GetMaterialProgram() == LegacyFunctionProgram
-				&& std::ranges::equal(Material.GetMaterialFunctionCalls(), LegacyCalls);
-			const bool bExactHistoricalParent = Material.GetMaterialFunctionCalls().empty()
-				&& (*Material.GetMaterialProgram() == LegacyUpgrade::MakeImportedSurfaceProgram()
-					|| *Material.GetMaterialProgram() == LegacyUpgrade::MakeImportedSurfaceAggregateProgram());
-			if (!bExactFunctionParent && !bExactHistoricalParent)
-			{
-				OutError = "ImportedSurface has a modified material graph; preserve it and resolve the template conflict before importing.";
-				const auto& Actual = *Material.GetMaterialProgram();
-				const auto Legacy = LegacyUpgrade::MakeImportedSurfaceProgram();
-				OutError += std::format(" Schema {}, nodes {} (expected {}), calls {}.", Actual.SchemaVersion,
-					Actual.Nodes.size(), Legacy.Nodes.size(), Material.GetMaterialFunctionCalls().size());
-				for (size_t I = 0; I < std::min(Actual.Nodes.size(), Legacy.Nodes.size()); ++I)
-					if (Actual.Nodes[I] != Legacy.Nodes[I])
-					{
-						OutError += std::format(" First differing node {}: opcode {} (expected {}), name '{}', identity matches {}, inputs match {}.",
-							I, static_cast<uint32>(Actual.Nodes[I].Opcode), static_cast<uint32>(Legacy.Nodes[I].Opcode),
-							Actual.Nodes[I].DisplayName, Actual.Nodes[I].Id == Legacy.Nodes[I].Id, Actual.Nodes[I].Inputs == Legacy.Nodes[I].Inputs);
-						break;
-					}
-				return false;
-			}
-			// Signatures alone cannot prove that replacing a dependency preserves shading.
-			const std::array Dependencies{Functions.UVTransform.Get(), Functions.SampleNormal.Get(), Functions.SampleORM.Get(),
-				Functions.StandardPBR.Get(), Functions.StandardPBR_ORM.Get(), Functions.ImportedSurfaceValues.Get(), Functions.DecodeImportedNormalRG.Get()};
-			for (uint32 Index = 0; Index < Dependencies.size(); ++Index)
-				if (Dependencies[Index]->GetFunctionGraph() != MakeStandardMaterialFunctionGraph(static_cast<EStandardMaterialFunction>(Index + 1), Functions))
-				{
-					OutError = std::format("ImportedSurface migration skipped: edited dependency {}. Existing graph and overrides are preserved.", Dependencies[Index]->GetObjectPath());
-					return false;
-				}
-			const auto PreviousProgram = *Material.GetMaterialProgram();
-			const std::vector<FMaterialFunctionCall> PreviousCalls(Material.GetMaterialFunctionCalls().begin(), Material.GetMaterialFunctionCalls().end());
-			const auto PreviousPresentation = Material.GetMaterialGraphPresentation();
-			const bool bWasDirty = Material.GetPackage()->IsDirty();
-			const auto Applied = Material.SetMaterialProgramAndFunctionCalls(Expected, std::move(Calls));
-			if (!Applied)
-			{
-				OutError = Applied.Diagnostics.empty() ? "ImportedSurface upgrade failed." : Applied.Diagnostics.front().Message;
-				return false;
-			}
-			Material.SetMaterialGraphPresentation(std::move(Presentation));
-			const auto Saved = SavePackage(Material.GetPackage());
-			if (!Saved)
-			{
-				(void)Material.SetMaterialProgramAndFunctionCalls(PreviousProgram, PreviousCalls);
-				Material.SetMaterialGraphPresentation(PreviousPresentation);
-				if (!bWasDirty) Material.GetPackage()->ClearDirty();
-				OutError = Saved.Message;
-				return false;
-			}
-			return true;
+			OutError = "ImportedSurface differs from the current graph-owned recipe; rebuild the shipped template before importing.";
+			return false;
 		}
 	}
 	auto EnsureImportedSurfaceMaterial(std::string& OutError) -> DMaterial*
@@ -171,8 +117,7 @@ namespace Durin::AssetForge::Builtins
 		std::vector<FMaterialFunctionCall> Calls;
 		FMaterialGraphPresentation Presentation;
 		const auto TemplateProgram = MakeImportedSurfaceFunctionProgram(Functions, Calls, Presentation);
-		const auto TemplateResult = Created->SetMaterialDefinitionsAndProgram(
-			MakePBRMaterialParameterDefinitions(), TemplateProgram, std::move(Calls));
+		const auto TemplateResult = Created->SetMaterialProgramAndFunctionCalls(TemplateProgram, std::move(Calls));
 		if (!TemplateResult)
 		{
 			OutError = TemplateResult.Diagnostics.empty()

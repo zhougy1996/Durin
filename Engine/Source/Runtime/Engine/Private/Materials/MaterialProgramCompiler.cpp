@@ -40,7 +40,7 @@ namespace Durin
 			EMaterialSurfaceOutput::Emissive,
 			EMaterialSurfaceOutput::Opacity,
 			EMaterialSurfaceOutput::OpacityMask};
-		inline constexpr uint32 MaterialProgramIdentitySchemaVersion = 4;
+		inline constexpr uint32 MaterialProgramIdentitySchemaVersion = 5;
 
 		auto IsCommutative(EMaterialProgramOpcode Opcode) -> bool
 		{
@@ -141,7 +141,7 @@ namespace Durin
 				break;
 			case EMaterialProgramOpcode::Parameter:
 			case EMaterialProgramOpcode::TextureParameter:
-				OutNode.ParameterId = Node.ParameterId;
+				OutNode.ParameterId = Node.Parameter.Id;
 				break;
 			case EMaterialProgramOpcode::Swizzle:
 				OutNode.SwizzleLength = Node.SwizzleLength;
@@ -212,14 +212,24 @@ namespace Durin
 				.Message = "Material has no root authored program."});
 			return Validation;
 		}
-		const auto Definitions = Material.GetParameterDefinitions();
-		auto Validation = ValidateMaterialProgramWithFunctions(*Program, Definitions, Material.GetMaterialFunctionCalls());
+		std::vector<FMaterialParameterDefinition> Definitions;
+		auto Validation = DeriveMaterialParameterSchema(*Program, Definitions);
+		if (!Validation) return Validation;
+		Validation = ValidateMaterialProgramWithFunctions(*Program, Definitions, Material.GetMaterialFunctionCalls());
 		if (!Validation) return Validation;
 
 		FMaterialCompilerInput Snapshot;
 		Validation = SnapshotMaterialFunctionCalls(Material.GetMaterialFunctionCalls(), Snapshot.FunctionCalls, Snapshot.Functions);
 		if (!Validation) return Validation;
 		Snapshot.Program = *Program;
+		for (auto& Node : Snapshot.Program.Nodes)
+		{
+			const auto Id = Node.Parameter.Id;
+			const auto Type = Node.Parameter.Type;
+			Node.Parameter = {};
+			Node.Parameter.Id = Id;
+			Node.Parameter.Type = Type;
+		}
 		Snapshot.StaticProperties = Material.GetStaticProperties();
 		Snapshot.Environment = std::move(Environment);
 		Snapshot.Parameters.reserve(Definitions.size());

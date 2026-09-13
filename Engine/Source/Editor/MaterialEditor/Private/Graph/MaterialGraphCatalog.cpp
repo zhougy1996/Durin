@@ -206,7 +206,8 @@ namespace Durin::Editor::Material
 		const DMaterial& Material,
 		std::span<const FMaterialGraphCatalogEntry> Catalog)
 		-> FMaterialGraphView
-	{		return FMaterialGraphDocument(const_cast<DMaterial&>(Material)).Inspect(Catalog);
+	{
+		return FMaterialGraphDocument(const_cast<DMaterial&>(Material)).Inspect(Catalog);
 	}
 
 	auto FMaterialGraphDocument::Inspect() const -> FMaterialGraphView
@@ -245,6 +246,8 @@ namespace Durin::Editor::Material
 			}
 			const auto Source = NodesById.find(Link.SourceNodeId);
 			if (Source == NodesById.end()) return EMaterialProgramValueType::Float;
+			if (Source->second->Opcode == EMaterialProgramOpcode::TextureSampleParameter2D && Link.SourceOutputIndex == 7)
+				return EMaterialProgramValueType::Texture2D;
 			if (IsMaterialSamplingNode(Source->second->Opcode) && Link.SourceOutputIndex != 0)
 				return Link.SourceOutputIndex == 1 ? EMaterialProgramValueType::Float3
 					: Link.SourceOutputIndex == 6 ? EMaterialProgramValueType::Float2 : EMaterialProgramValueType::Float;
@@ -271,13 +274,11 @@ namespace Durin::Editor::Material
 			View.PrimaryLabel = Shape
 				? Shape->OperationName : GetOpcodeName(Node.Opcode);
 			View.SecondaryLabel = Node.DisplayName;
-			if (Node.ParameterId.IsValid())
-				if (const auto Definition = std::ranges::find(State.Definitions, Node.ParameterId, &FMaterialParameterDefinition::Id); Definition != State.Definitions.end())
-					View.SecondaryLabel = Definition->DisplayName;
-			if (Node.Opcode == EMaterialProgramOpcode::TextureParameter || Node.Opcode == EMaterialProgramOpcode::TextureSampleParameter2D)
+			if (Node.Parameter.Id.IsValid())
 			{
-				if (!View.SecondaryLabel.empty()) View.PrimaryLabel = View.SecondaryLabel;
-				View.SecondaryLabel = GetOpcodeName(Node.Opcode);
+				View.SecondaryLabel = View.PrimaryLabel;
+				View.PrimaryLabel = Node.Parameter.DisplayName.empty()
+					? Node.Parameter.Name.ToString() : Node.Parameter.DisplayName;
 			}
 			View.Inputs.reserve(Node.Inputs.size());
 			for (uint32 InputIndex = 0; InputIndex < Node.Inputs.size(); ++InputIndex)
@@ -342,6 +343,8 @@ namespace Durin::Editor::Material
 					View.Outputs.push_back({.OutputIndex = Index, .Name = Names[Index],
 						.Type = Index == 0 ? EMaterialProgramValueType::Float4 : Index == 1 ? EMaterialProgramValueType::Float3
 						: Index == 6 ? EMaterialProgramValueType::Float2 : EMaterialProgramValueType::Float});
+				if (Node.Opcode == EMaterialProgramOpcode::TextureSampleParameter2D)
+					View.Outputs.push_back({.OutputIndex = 7, .Name = "Texture", .Type = EMaterialProgramValueType::Texture2D});
 			}
 			else if (Node.Opcode == EMaterialProgramOpcode::GetSurfaceAttributes)
 			{
@@ -515,8 +518,8 @@ namespace Durin::Editor::Material
 				return EntryA.OperationName < EntryB.OperationName;
 			if (EntryA.NodeTemplate.ResultType != EntryB.NodeTemplate.ResultType)
 				return EntryA.NodeTemplate.ResultType < EntryB.NodeTemplate.ResultType;
-			if (EntryA.NodeTemplate.ParameterId != EntryB.NodeTemplate.ParameterId)
-				return EntryA.NodeTemplate.ParameterId < EntryB.NodeTemplate.ParameterId;
+			if (EntryA.NodeTemplate.Parameter.Id != EntryB.NodeTemplate.Parameter.Id)
+				return EntryA.NodeTemplate.Parameter.Id < EntryB.NodeTemplate.Parameter.Id;
 			return A.Ordinal < B.Ordinal;
 		});
 		std::vector<size_t> Result;

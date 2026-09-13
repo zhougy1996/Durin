@@ -11,17 +11,7 @@
 
 namespace Durin
 {
-	struct FMaterialParameterEditResult
-	{
-		EMaterialParameterError Error = EMaterialParameterError::None;
-		// Created/reused/edited parameter on success, offending parameter on failure.
-		// Batch and program-wide results may have no parameter identity.
-		FGuid ParameterId;
-		std::vector<FMaterialProgramDiagnostic> Diagnostics;
-		explicit operator bool() const { return Error == EMaterialParameterError::None; }
-	};
-
-	// Owns base-material declarations, their default values and authored references.
+	// Owns the base-material graph and its parameter definitions.
 	DCLASS()
 	class DMaterial : public DMaterialInterface
 	{
@@ -68,22 +58,6 @@ namespace Durin
 		[[nodiscard]] ENGINE_API auto SetMaterialProgramAndFunctionCalls(
 			FMaterialProgram InProgram, std::vector<FMaterialFunctionCall> InCalls)
 			-> FMaterialProgramValidationResult;
-		// Commits definitions and references together only after complete validation.
-		// Callers deleting a referenced definition must remove its references too.
-		[[nodiscard]] ENGINE_API auto SetMaterialDefinitionsAndProgram(
-			std::vector<FMaterialParameterDefinition> Definitions,
-			FMaterialProgram InProgram) -> FMaterialParameterEditResult;
-		[[nodiscard]] ENGINE_API auto SetMaterialDefinitionsAndProgram(
-			std::vector<FMaterialParameterDefinition> Definitions,
-			FMaterialProgram InProgram, std::vector<FMaterialFunctionCall> InCalls)
-			-> FMaterialParameterEditResult;
-		// A same-name/type request reuses the existing definition unchanged.
-		[[nodiscard]] ENGINE_API auto CreateParameterDefinition(
-			FMaterialParameterDefinition Definition) -> FMaterialParameterEditResult;
-		[[nodiscard]] ENGINE_API auto RenameParameterDefinition(
-			const FGuid& Id, FName Name) -> FMaterialParameterEditResult;
-		[[nodiscard]] ENGINE_API auto DeleteParameterDefinition(
-			const FGuid& Id) -> FMaterialParameterEditResult;
 		ENGINE_API auto SetMaterialGraphPresentation(
 			FMaterialGraphPresentation InPresentation) -> bool;
 		// Applies bounded graph-position edits without copying or sanitizing the
@@ -110,6 +84,8 @@ namespace Durin
 		ENGINE_API auto GetVector2ParameterValue(FName Name, FVector2& OutValue) const -> bool override;
 		ENGINE_API auto GetVectorParameterValue(FName Name, FVector3& OutValue) const -> bool override;
 		ENGINE_API auto GetTextureParameterValue(FName Name, DTexture2D*& OutValue) const -> bool override;
+		ENGINE_API auto Serialize(FArchive& Ar) -> void override;
+		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;
 		ENGINE_API auto PostLoad() -> void override;
 	public:
 		ENGINE_API auto PostEditChangeProperty(
@@ -121,19 +97,19 @@ namespace Durin
 			-> FMaterialLocalRenderLayer override;
 
 	private:
+		DPROPERTY()
+		uint32 GraphOwnershipVersion = 1;
+
 		auto AdvanceAuthoredRevision() -> void;
 		EMaterialEditCompileMode EditCompileMode = EMaterialEditCompileMode::Immediate;
 		// These values are inherited by instances and will form shader and pipeline keys.
 		DPROPERTY(Edit)
 		FMaterialStaticProperties StaticProperties;
 
-		// Shared semantic commands own structural edits and reference validation.
-		DPROPERTY()
-		std::vector<FMaterialParameterDefinition> ParameterDefinitions;
-
-		// Version of the authored declaration contract.
-		DPROPERTY()
-		uint32 ParameterDeclarationSchemaVersion = 2;
+		// Read-only projection of graph owners, or generated metadata loaded from Cook.
+		// Transient reflection retains resources without serializing an authored table.
+		DPROPERTY(Transient)
+		std::vector<FMaterialParameterDefinition> ParameterSchema;
 
 		// PostLoad validates the current authored program before publication.
 		DPROPERTY(EditorOnly)
@@ -146,6 +122,9 @@ namespace Durin
 		DPROPERTY(EditorOnly)
 		FMaterialGraphPresentation GraphPresentation;
 
+
+		// Detached code checkpoint classifies reflected default/metadata edits without retaining resources.
+		FMaterialProgram ObservedCodeProgram;
 
 		// Transient monotonic revisions invalidate editor graph caches independently.
 		uint64 MaterialProgramRevision = 1;

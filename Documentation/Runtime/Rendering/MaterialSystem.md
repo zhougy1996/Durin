@@ -4,7 +4,7 @@ Summary: Define material assets, parameters, render proxies, invalidation, passe
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-09-13
+Last reviewed: 2026-09-14
 
 Durin's material architecture keeps declaration ownership, instance resolution,
 editor presentation, and renderer consumption at explicit boundaries.
@@ -26,33 +26,32 @@ render boundary accepts only material-specific layout v4 data. Built-in role kno
   type, base value, display metadata, ordering, presentation, numeric range, and
   texture-usage hint. The Material Editor consumes this schema and does not own
   a parallel descriptor table.
-- `DMaterial` stores one ordered reflected definition collection. Declaration
-  schema 2 permits up to 128 material-owned declarations; older declaration
-  schemas are unsupported.
-  `SetMaterialDefinitionsAndProgram` validates definitions and graph references
-  before committing either, and submits one compile request. Create reuses an
-  existing same-name/type definition without changing its default; rename keeps
-  the GUID and updates referencing labels. In-place retyping is rejected.
-  Deleting a referenced declaration requires removing its references in the
-  same atomic operation. A definition becomes
-  active only when a reachable parameter expression or inline parameter binding declares
-  it. Definitions reject invalid/duplicate
-  GUIDs, `None`/duplicate names, oversized text, invalid metadata and nonfinite
-  active defaults. Float4 is an appended reflected value alternative. Reachable
-  declarations compile into the accepted material-specific layout and are
-  populated by GUID before Renderer consumes compact offsets and indices.
-- Declaration validation returns `FMaterialParameterValidationResult` with an
-  `EMaterialParameterError` and offending parameter GUID. Declaration edits and
-  atomic definition-plus-graph replacement return `FMaterialParameterEditResult`;
-  create/reuse returns the parameter GUID, and graph failures retain every
-  `FMaterialProgramDiagnostic`. Failures leave authored state and revisions
-  unchanged. Callers inspect codes rather than parse text; editor/logging
-  boundaries use `GetMaterialParameterErrorText` for presentation.
-  `SetMaterialProgram` and `SnapshotMaterialCompilerInput` return
-  `FMaterialProgramValidationResult` directly; no separate boolean or validation
-  out-parameter duplicates the outcome. Snapshot data remains a separate output
-  and is assigned only on success. Result boolean conversion is a convenience
-  for conditional checks.
+- Parameter nodes own their complete `FMaterialParameterDefinition` in
+  `FMaterialProgramNode::Parameter`. Each owner has a parameter GUID distinct from
+  all node GUIDs and a unique case-insensitive name. Numeric owners, texture
+  resource owners and combined sample owners share this contract. Disconnected
+  owners remain authored until explicitly deleted.
+- `DMaterial::GetParameterDefinitions()` exposes a read-only, GUID-sorted
+  projection of the graph. There is no independently authored root parameter
+  table or table mutation API. `DeriveMaterialParameterSchema` rejects duplicate
+  identities/names, oversized text, invalid metadata, non-finite active defaults,
+  owner/type mismatches and payloads attached to ordinary nodes.
+- `SetMaterialProgramAndFunctionCalls` validates the complete candidate before
+  publishing its graph, calls and derived schema. Rename keeps node and parameter
+  identities. Retyping must leave valid links; GUID/type-mismatched instance
+  overrides remain inspectable orphans. Deleting an owner removes its connections
+  through the graph command boundary. Rejected edits leave revisions unchanged.
+- Defaults and display metadata are excluded from shader identity. Default edits
+  update the owner and projection together; structural changes invalidate shader
+  compilation. Compiler snapshots strip node payloads to GUID/type before worker
+  enqueueing, retaining no authored texture pointers. Graph-stripped Cooked roots
+  load generated parameter descriptors/defaults and permit dynamic value updates
+  without recreating an authored graph.
+- Parameter validation returns `FMaterialParameterValidationResult` with an
+  error and offending GUID. Graph replacement and compiler snapshots return
+  `FMaterialProgramValidationResult`; output snapshots are assigned only on
+  success. Editor commands retain bounded diagnostics and distinguish parameter
+  GUIDs from node GUIDs.
 - `DMaterialInstance` references a parent material interface and stores one
   ordered collection of GUID/value overrides plus reflected
   `FMaterialPropertyOverrides`. Its five flags independently select blend,
@@ -87,7 +86,7 @@ render boundary accepts only material-specific layout v4 data. Built-in role kno
   `CanonicalizeMaterialShaderProperties` uses cutoff `0.333f` outside Masked,
   normalizes Masked signed zero, and excludes culling/depth from compiler input
   identity. Authored inactive cutoffs remain unchanged. IR version 4/compiler
-  envelope 7 invalidate old keys; generated cutoff macros, accepted renderer
+  envelope 8 invalidate old keys; generated cutoff macros, accepted renderer
   shader keys and Cook metadata comparison use the same canonical semantics.
 - Opaque sections disable blending; Masked sections additionally discard the
   saturated OpacityMask constant/texture product only when it is strictly below
@@ -128,20 +127,21 @@ conversion, and per-property links. `DMaterialInstance`
 stores no graph and resolves the root base program through its existing parent
 chain, so dynamic GUID overrides remain independent of authored node order.
 
-Ordinary numeric inputs retain typed `InputDefaults` alongside their source
-links. A connected source overrides the retained literal or parameter GUID;
-disconnecting restores it. Inactive parameter references remain validated and
-protected against deletion but do not allocate runtime fields. Function graphs
-accept numeric literals and explicit ports, never root material parameter GUIDs.
-Function-call inputs retain the same fallback model; None selects a declared
-optional callee default, while unbound required inputs reject.
+Ordinary numeric inputs retain typed None/Literal `InputDefaults` alongside source
+links. A connected source overrides the literal; disconnection restores it.
+Exposing a default creates a visible parameter owner and explicit link. Functions
+accept literals and interface ports and cannot contain any root parameter payload.
+Function-call None defaults select declared optional callee defaults; required
+inputs without a value reject. Signature InputId dependencies remain supported.
 
-TextureParameter remains a resource reference (Texture Object Parameter in the
-editor). TextureSampleParameter2D combines a declaration reference and sampling.
-Both sampling forms expose stable outputs 0 RGBA, 1 RGB, 2 R, 3 G, 4 B, 5 A,
-6 RG, lowering to one sample and explicit swizzles. Missing UV links use retained
-Channel/Scale/Offset/Rotation settings; external UV replaces the entire transform.
-TextureCoordinates exposes the same transform with optional explicit field inputs.
+TextureParameter owns a resource and exposes Texture2D output 0.
+TextureSampleParameter2D owns a resource and optionally samples it. Both sampling
+forms expose slots 0 RGBA, 1 RGB, 2 R, 3 G, 4 B, 5 A and 6 RG. Only the combined
+owner also exposes slot 7 Texture2D: consuming that slot lowers the resource without
+executing its sample or UV transform. Multiple consumers retain independent samples
+and UVs. Missing sample UV links use literal Channel/Scale/Offset/Rotation settings.
+TextureCoordinates inputs 0 Float, 1 Float2, 2 Float2 and 3 Float permit explicit
+parameterized channel, scale, offset and rotation.
 UV channel rounding/clamping remains floor(channel + 0.5), clamped to 0..3;
 missing mesh channels remain zero. Scale precedes origin rotation in radians,
 then offset. Synthetic expression source records retain authored node, input or
@@ -154,8 +154,10 @@ BaseColor `(0.5, 0.5, 0.5)`, Normal `(0, 0, 1)`, Metallic `0`, Roughness
 OpacityMask `1`. Aggregate mode accepts one Surface source and requires all
 eight property links to be disconnected; per-property mode requires the
 aggregate source to be disconnected. Retained fallbacks survive either mode.
-New material packages persist schema 6. PostLoad upgrades bounded schema-4/5 payloads only when new binding fields are empty; functions similarly upgrade schema 1 to 2. Other older and unknown schemas fail
-without rewriting authored data. An unknown-version or
+New materials use program schema 7 and functions use schema 3. The reflected
+GraphOwnershipVersion contract marker is reset before load so a missing stored
+marker cannot become current by default. Unsupported old material/function data
+must be rebuilt; there are no material PostLoad graph converters. An unknown-version or
 malformed program fails bounded validation, which
 rejects invalid enums and GUIDs, count/string/byte/input/depth limits, dangling
 links, cycles, non-finite constants, bad parameter references, input types, and
@@ -265,24 +267,20 @@ map/UV binding for those three channels. Missing maps retain existing PBR defaul
 and import-derived channel layouts remain unchanged. Normal strength and emissive
 factors already baked during import are not applied a second time.
 
-`ImportedSurface` retains all 48 parameter GUIDs through eight texture sample
-parameters, one DecodeImportedNormalRG call and one ImportedSurfaceValues call:
-10 expression nodes plus Material Output. Each sample retains four independent
-UV bindings, and the composition call binds eight factors inline.
-The independent form generates eight texture samples/resources; the explicitly
-packed variant generates six. Equal texture objects in independent bindings do
-not silently merge sampling policies. Function GUIDs have no runtime lowering
-rules and there is no production expanded PBR builder.
+`ImportedSurface` has 58 expression nodes plus Material Output: 48 explicit
+parameter owners, eight TextureCoordinates nodes, one DecodeImportedNormalRG call
+and one ImportedSurfaceValues call. Each map has independent factor and UV owners.
+The ordinary recipe samples eight resources; an explicitly packed ORM recipe can
+sample six. Resource-output sharing never implicitly merges separate UV operations.
+Function GUIDs have no special lowering rules.
 
-Library assets record editor-only authoring source/version 1. Repeated bootstrap
-preserves compatible implementation edits and rejects incompatible interfaces.
-The explicit material-functions maintenance command upgrades the exact previous
-function-based recipe and two historical ImportedSurface graphs after checking
-dependency bodies as well as interfaces, retaining package identity, declarations,
-instance overrides and slots. Modified graphs require explicit author decisions;
-ordinary loading does not rewrite them. See
-[Canonical Asset Resave](../../Editor/Guides/CanonicalResave.md) for the
-upgrade command and durable inventory/checkpoint workflow.
+Library assets record editor-only authoring source/version 2. Bootstrap preserves
+compatible function implementation edits and rejects incompatible interfaces or
+provenance. The material-functions maintenance command initializes missing standard
+functions, ImportedSurface and DefaultMaterial from current recipes. Existing custom
+or unsupported material graphs are preserved and require deliberate reconstruction;
+there is no previous-recipe conversion path. See
+[Canonical Asset Resave](../../Editor/Guides/CanonicalResave.md).
 
 ## Compile Lifecycle and Cooked Programs
 
@@ -356,7 +354,7 @@ artifacts follow ShaderBuild's cache-miss/repair contract.
 
 Cook requires a current successful Win64 Game result and never substitutes
 ErrorMaterial. Authored `Program` data is editor-only in a cooked package. One
-DMAT v5 value per material or instance in the `DMaterialInterface::ProgramData`
+DMAT v6 value per material or instance in the `DMaterialInterface::ProgramData`
 BulkData field stores the exact
 compiler/target/pass/version envelope, program identity, canonical shader properties and separate pipeline metadata,
 active declaration contract, compiled layout, and complete shader
@@ -395,10 +393,10 @@ state with a dependency diagnostic and ErrorMaterial.
 authority. It traverses connected surface branches in fixed surface/input order,
 de-duplicates shared declarations by first use. Texture sampling contributes its
 explicit Texture2D and UV-expression dependencies; sampler/fallback data travels
-with the texture value rather than through a packed scalar role. Base
-Details, instance eligibility/orphans, and local render layers consume this same
+with the texture value rather than through a packed scalar role. Instance
+eligibility/orphans and local render layers consume this same
 snapshot. Serialized but unreachable values remain intact and are excluded from
-ordinary controls and active local bindings.
+instance controls and active local bindings; base Details can still edit a selected disconnected owner.
 
 Production Renderer resource slots key generated shader maps, PSOs, diagnostics,
 and deterministic draw ordering by the material-program digest plus the exact
@@ -628,11 +626,13 @@ publish through the stable proxy and dynamic-only changes reuse shader identity.
 
 ## Compatibility Boundary
 
-Repository content in Engine, Sandbox and RoadWeaver was explicitly resaved
-before retiring old authored readers. Only declaration schema 2, program schema
-6, function schema 2 and DMAT v5 are supported. Packed sampler scalars, implicit role-dependent
-expressions and automatic graph upgrades are removed. Sampling policy is stored
-on Texture2D parameter values. Old Cook outputs must be discarded and rebuilt.
+Retained Engine material/function content is reconstructed under graph ownership.
+Program schema 7, function schema 3, ownership marker 1, compiler identity 5,
+compiler envelope 8 and DMAT v6 form the current contract. IR v4, generator v5,
+layout v4, pass contracts and DAST v9 are unchanged. Separate authored parameter
+tables, parameter-bound input defaults and material-only PostLoad converters are
+removed. Sampling policy remains typed resource-value data. Old Cook outputs must
+be discarded and rebuilt; unrelated property/package migrations remain intact.
 
 Static-mesh components persist only the positional `OverrideMaterials`
 collection, and StaticMesh slots persist no GUID or slot-schema version. The

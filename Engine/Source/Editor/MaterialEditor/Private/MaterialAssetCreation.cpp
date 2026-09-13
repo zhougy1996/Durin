@@ -10,12 +10,11 @@ namespace Durin
 		DMaterial& Material, std::string& OutError) -> bool
 	{
 		OutError.clear();
-		const auto Reset = Material.SetMaterialDefinitionsAndProgram(
-			{}, MakeDefaultMaterialProgram());
+		const auto Reset = Material.SetMaterialProgram(MakeDefaultMaterialProgram());
 		if (!Reset)
 		{
 			OutError = Reset.Diagnostics.empty()
-				? std::string(GetMaterialParameterErrorText(Reset.Error))
+				? std::string("Invalid empty material graph.")
 				: Reset.Diagnostics.front().Message;
 			return false;
 		}

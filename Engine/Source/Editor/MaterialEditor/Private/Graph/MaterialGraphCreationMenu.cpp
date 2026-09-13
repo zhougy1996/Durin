@@ -75,70 +75,6 @@ namespace Durin::Editor::Material
 			return;
 		}
 
-		if (CreationMenu->PendingParameter)
-		{
-			const FMaterialProgramNode Template = *CreationMenu->PendingParameter;
-			if (ImGui::Button("Back"))
-			{
-				CreationMenu->PendingParameter.reset();
-				ImGui::EndPopup();
-				return;
-			}
-			ImGui::SameLine();
-			ImGui::TextUnformatted(GetProgramTypeName(Template.ResultType));
-			ImGui::SetNextItemWidth(-FLT_MIN);
-			ImGui::InputTextWithHint("##ParameterFilter", "Filter existing parameters...",
-				CreationMenu->ParameterFilter.data(), CreationMenu->ParameterFilter.size());
-			std::optional<FMaterialProgramNode> Chosen;
-			if (ImGui::Button("Create New Parameter")) Chosen = Template;
-			ImGui::SeparatorText("Use Existing Parameter");
-			if (ImGui::BeginChild("ParameterBindings", {0.0f, -ImGui::GetFrameHeightWithSpacing()}))
-			{
-				std::string Filter = CreationMenu->ParameterFilter.data();
-				std::ranges::transform(Filter, Filter.begin(), [](unsigned char C) { return static_cast<char>(std::tolower(C)); });
-				bool bHasMatch = false;
-				for (const auto& Definition : Material.GetParameterDefinitions())
-				{
-					if (GetProgramType(Definition.Type) != Template.ResultType) continue;
-					const std::string Name = Definition.Name.ToString();
-					std::string SearchName = Name;
-					std::ranges::transform(SearchName, SearchName.begin(), [](unsigned char C) { return static_cast<char>(std::tolower(C)); });
-					if (SearchName.find(Filter) == std::string::npos) continue;
-					bHasMatch = true;
-					if (ImGui::Selectable(Name.c_str(), false, ImGuiSelectableFlags_NoAutoClosePopups))
-					{
-						Chosen = Template;
-						Chosen->ParameterId = Definition.Id;
-						Chosen->DisplayName = Definition.DisplayName;
-					}
-				}
-				if (!bHasMatch) ImGui::TextDisabled("No matching parameters.");
-			}
-			ImGui::EndChild();
-			if (Chosen)
-			{
-				const auto Created = FMaterialGraphOperations::CreateNodeWithDefaultInputs(Material,
-					{.Node = *Chosen,
-						.X = static_cast<int32>(std::round(CreationMenu->GraphPosition.x)),
-						.Y = static_cast<int32>(std::round(CreationMenu->GraphPosition.y))}, {}, &Transactions);
-				ReportCommand(Created, ReportError);
-				if (Created)
-				{
-					SelectedNodes = {Created.GeneratedNodeIds.front()};
-					RememberCreation(Template);
-					ResetInteraction();
-					ImGui::CloseCurrentPopup();
-				}
-			}
-			if (ImGui::IsKeyPressed(ImGuiKey_Escape))
-			{
-				ResetInteraction();
-				ImGui::CloseCurrentPopup();
-			}
-			ImGui::EndPopup();
-			return;
-		}
-
 		if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
 		ImGui::SetNextItemWidth(-FLT_MIN);
 		const bool bSearchSubmitted = ImGui::InputTextWithHint(
@@ -271,13 +207,6 @@ namespace Durin::Editor::Material
 		{
 			const FMaterialGraphCatalogEntry& Entry = Catalog[
 				Results[static_cast<size_t>(CreationMenu->Selection)]];
-			if (Entry.NodeTemplate.Opcode == EMaterialProgramOpcode::Parameter
-				|| Entry.NodeTemplate.Opcode == EMaterialProgramOpcode::TextureParameter)
-			{
-				CreationMenu->PendingParameter = Entry.NodeTemplate;
-				ImGui::EndPopup();
-				return;
-			}
 			FMaterialProgramNode Candidate = Entry.NodeTemplate;
 			if (SourceType) Candidate.Inputs.front() = {CreationMenu->SourceNode, CreationMenu->SourceOutputIndex, CreationMenu->SourceOutputId};
 			const FMaterialGraphCommandResult Created =

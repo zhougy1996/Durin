@@ -107,7 +107,7 @@ TEST_F(FMaterialEditingSessionTests, FunctionCallDraftIsCompleteAndAppliesBindin
 	FMaterialProgram Program;
 	Program.Nodes = {{.Id = CallId, .Opcode = EMaterialProgramOpcode::FunctionCall}};
 	Program.Outputs.Surface = {.SourceNodeId = CallId, .SourceOutputId = Output.Id};
-	ASSERT_TRUE(Source->SetMaterialDefinitionsAndProgram({}, Program,
+	ASSERT_TRUE(Source->SetMaterialProgramAndFunctionCalls(Program,
 		{{.NodeId = CallId, .Function = First, .Outputs = {{Output.Id, Output.Type}}}}));
 	Tests::FTestTransactorOwner Transactions;
 	FMaterialEditingSession Session;
@@ -136,7 +136,7 @@ TEST_F(FMaterialEditingSessionTests, FunctionCallDraftIsCompleteAndAppliesBindin
 	EXPECT_FALSE(Session.HasUnappliedChanges());
 	const auto Revision = Source->GetMaterialCompileStatus().AuthoredRevision;
 	Calls[0].NodeId = FGuid::NewGuid();
-	EXPECT_FALSE(Source->SetMaterialDefinitionsAndProgram({}, Program, Calls));
+	EXPECT_FALSE(Source->SetMaterialProgramAndFunctionCalls(Program, Calls));
 	EXPECT_EQ(Source->GetMaterialCompileStatus().AuthoredRevision, Revision);
 	EXPECT_EQ(Source->GetMaterialFunctionCalls()[0].NodeId, CallId);
 }
@@ -154,7 +154,10 @@ TEST_F(FMaterialEditingSessionTests, DefaultsStaticPropertiesAndPresentationStay
 	Definition.Name = FName("DraftValue");
 	Definition.Type = EMaterialParameterType::Scalar;
 	Definition.Value.ScalarValue = 0.23f;
-	ASSERT_TRUE(Draft->CreateParameterDefinition(Definition));
+	auto OwnerProgram = *Draft->GetMaterialProgram();
+	OwnerProgram.Nodes.push_back({.Id = FGuid::NewGuid(), .Opcode = EMaterialProgramOpcode::Parameter,
+		.Parameter = Definition});
+	ASSERT_TRUE(Draft->SetMaterialProgram(std::move(OwnerProgram)));
 	auto Properties = OriginalProperties;
 	Properties.bTwoSided = !Properties.bTwoSided;
 	ASSERT_TRUE(Draft->SetStaticProperties(Properties));

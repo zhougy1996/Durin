@@ -2,7 +2,7 @@
 
 Summary: Canonicalize reflected identities without reimporting source data.
 
-Last reviewed: 2026-09-13
+Last reviewed: 2026-09-14
 
 Use canonical resave when the Asset Compatibility window or a package context
 menu says **Resave recommended**. This is maintenance of serialized type names;
@@ -118,23 +118,28 @@ enabled mounts and deduplicate physical packages. Engine content is mounted by
 normal game projects; `Engine.dproject` itself is not a standalone asset-tool
 project because its root list includes the launcher program.
 
-## Compact imported-material migration
+## Material recipe initialization and reconstruction
 
-Preview material/function provenance, loaded schemas, exact prior-recipe eligibility,
-parameter GUIDs and instance overrides before changing the shared imported parent:
+Inspect material/function provenance, current schemas, parameter owners and
+instance overrides before changing shared material content:
 
 ```powershell
 .\DevTool.bat asset material-functions --project Sandbox/Sandbox.dproject
 .\DevTool.bat asset material-functions --project Sandbox/Sandbox.dproject --apply
 ```
 
-Apply repeats the inventory before writing. It creates the two additive ordinary
-functions ImportedSurfaceValues and DecodeImportedNormalRG and replaces only an
-exact recognized ImportedSurface recipe with matching dependency bodies. Edited
-functions and custom templates are preserved; conflicts report a skip/failure.
-The parent keeps all 48 declaration identities and instance packages are not
-rewritten. Successful repeat application is a no-op. Package saves are atomic;
-a failed parent save restores its graph, calls, presentation and prior dirty state.
-Keep a byte backup or source-control checkpoint before applying project maintenance.
-Ordinary schema upgrades initialize new empty binding fields without compacting
-custom graphs; compaction is separate from canonical resave.
+Apply repeats the inventory before writing. It initializes missing standard
+functions, ImportedSurface and DefaultMaterial from current graph-owned recipes.
+Existing functions retain compatible implementation edits; incompatible provenance
+or interfaces fail. Existing ImportedSurface must match the current recipe.
+Modified or unsupported graphs require explicit reconstruction and are not converted.
+Repeated application to current assets is a no-op.
+
+For reconstruction, first inventory exact files and inbound references, preserve a
+byte backup or source-control checkpoint, then remove only the approved affected
+assets from mounted content and initialize replacements. Rebuild retained instance,
+mesh and scene references deliberately and audit every workspace project afterward.
+Current material owners use program schema 7 and function schema 3 with a required
+ownership marker. Old material data cannot be made current by canonical resave;
+there are no historical material graph readers or automatic parameter-table adapters.
+Cooked outputs must be regenerated after reconstruction.

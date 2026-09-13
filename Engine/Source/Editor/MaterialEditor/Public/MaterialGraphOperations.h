@@ -17,7 +17,7 @@ namespace Durin
 
 namespace Durin::Editor::Material
 {
-	inline constexpr uint32 CurrentMaterialGraphClipboardSchemaVersion = 5;
+	inline constexpr uint32 CurrentMaterialGraphClipboardSchemaVersion = 6;
 
 	// Identifies the stable outcome of one graph inspection or mutation request.
 	enum class EMaterialGraphCommandStatus : uint8
@@ -152,7 +152,6 @@ namespace Durin::Editor::Material
 	{
 		uint32 SchemaVersion = CurrentMaterialGraphClipboardSchemaVersion;
 		TWeakObjectPtr<DObject> SourceRoot;
-		std::vector<FMaterialParameterDefinition> Definitions;
 		FStrongObjectPtr RetainedReferences;
 		std::vector<FMaterialGraphClipboardNode> Nodes;
 		FMaterialFunctionSignature Signature;
@@ -245,15 +244,13 @@ namespace Durin::Editor::Material
 		MATERIALEDITOR_API static auto PromoteConstantToParameter(
 			DMaterial& Material, const FGuid& NodeId, FName Name,
 			DTransactor* Transactions = nullptr) -> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API static auto ReplaceDefinitionsAndProgram(
+		MATERIALEDITOR_API static auto ReplaceProgram(
 			DMaterial& Material,
-			std::vector<FMaterialParameterDefinition> Definitions,
 			FMaterialProgram Program,
 			DTransactor* Transactions = nullptr)
 			-> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API static auto ReplaceDefinitionsAndProgram(
+		MATERIALEDITOR_API static auto ReplaceProgram(
 			DMaterial& Material,
-			std::vector<FMaterialParameterDefinition> Definitions,
 			FMaterialProgram Program,
 			FMaterialGraphPresentation Presentation,
 			DTransactor* Transactions)

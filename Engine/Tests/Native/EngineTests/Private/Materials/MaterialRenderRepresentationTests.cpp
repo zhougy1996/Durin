@@ -1,4 +1,4 @@
-#include "LegacyMaterialProgramTestFixture.h"
+#include "ExplicitMaterialProgramTestFixture.h"
 #include "Misc/MountPathTestSupport.h"
 #include "NativeDObjectTestSupport.h"
 #include "MaterialTestSupport.h"
@@ -17,9 +17,7 @@ namespace
 	auto MakeExpandedMaterial(const char* Name) -> Durin::DMaterial*
 	{
 		auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, Name);
-		if (!Material || !Material->SetMaterialDefinitionsAndProgram(
-			Durin::MakePBRMaterialParameterDefinitions(),
-			Durin::Testing::MakeLegacyPBRMaterialProgram())) return nullptr;
+		if (!Material || !Material->SetMaterialProgram(Durin::Testing::MakePBRMaterialProgramForTest())) return nullptr;
 		if (!FinishMaterialCompileForTest(*Material)) return nullptr;
 		return Material;
 	}
@@ -194,7 +192,9 @@ TEST(FMaterialProgramCharacterizationTests,
 	auto* Root = NewObject<DMaterial>(nullptr, "DualLayerRust");
 	auto* LightRust = NewObject<DMaterialInstance>(nullptr, "LightRust");
 	auto* HeavyRust = NewObject<DMaterialInstance>(nullptr, "HeavyRust");
-	ASSERT_TRUE(Root->SetMaterialDefinitionsAndProgram(Definitions, Program));
+	for (auto& Node : Program.Nodes)
+		if (Node.Parameter.Id.IsValid()) Node.Parameter = *std::ranges::find(Definitions, Node.Parameter.Id, &FMaterialParameterDefinition::Id);
+	ASSERT_TRUE(Root->SetMaterialProgram(Program));
 	ASSERT_TRUE(FinishMaterialCompileForTest(*Root));
 	ASSERT_TRUE(LightRust->SetParent(Root));
 	ASSERT_TRUE(HeavyRust->SetParent(Root));
@@ -424,7 +424,7 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Source, nullptr);
 	auto Validation = Source->SetMaterialProgram(
-		Durin::Testing::MakeLegacyPBRMaterialProgram());
+		Durin::Testing::MakePBRMaterialProgramForTest());
 	ASSERT_TRUE(Validation);
 	ASSERT_TRUE(Source->SetVectorParameterValue(
 		Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.2, 0.4, 0.7)));
@@ -796,9 +796,10 @@ TEST(FMaterialRenderRepresentationTests, CompilationPreservesAuthoredInputsAndRe
 	EXPECT_EQ(Binding.UVOffsets[0], Durin::FVector2f(2048.0f, -2048.0f));
 	EXPECT_EQ(Binding.Textures[1], WrongUsageTexture->GetTextureReferenceRHI());
 
-	ASSERT_TRUE(Material->SetScalarParameterValue(Durin::MaterialParameters::RoughnessName(),
+	EXPECT_FALSE(Material->SetScalarParameterValue(Durin::MaterialParameters::RoughnessName(),
 		std::numeric_limits<float>::quiet_NaN()));
-	EXPECT_TRUE(Material->GetRenderData().Representation.IsError());
+	EXPECT_FLOAT_EQ(GetMaterialBinding(Material->GetRenderData()).Roughness, 2.5f);
+	EXPECT_FALSE(Material->GetRenderData().Representation.IsError());
 
 	Durin::MarkAsGarbage(WrongUsageTexture);
 	Durin::MarkAsGarbage(Material);
@@ -875,14 +876,14 @@ TEST(FMaterialRenderRepresentationTests, TextureSamplingOverridesChangePayloadWi
 	FMaterialProgram Program;
 	FMaterialProgramNode Texture, UV, Sample, Color;
 	Texture.Id = FGuid::NewGuid(); Texture.Opcode = EMaterialProgramOpcode::TextureParameter;
-	Texture.ResultType = EMaterialProgramValueType::Texture2D; Texture.ParameterId = Definition.Id;
+	Texture.ResultType = EMaterialProgramValueType::Texture2D; Texture.Parameter = Definition;
 	UV.Id = FGuid::NewGuid(); UV.ResultType = EMaterialProgramValueType::Float2;
 	Sample.Id = FGuid::NewGuid(); Sample.Opcode = EMaterialProgramOpcode::TextureSample2D;
 	Sample.ResultType = EMaterialProgramValueType::Float4; Sample.Inputs = {{Texture.Id, 0}, {UV.Id, 0}};
 	Color.Id = FGuid::NewGuid(); Color.Opcode = EMaterialProgramOpcode::TruncateToFloat3;
 	Color.ResultType = EMaterialProgramValueType::Float3; Color.Inputs = {{Sample.Id, 0}};
 	Program.Nodes = {Texture, UV, Sample, Color}; Program.Outputs.BaseColor = {Color.Id, 0};
-	ASSERT_TRUE(Root->SetMaterialDefinitionsAndProgram({Definition}, Program));
+	ASSERT_TRUE(Root->SetMaterialProgram(Program));
 	ASSERT_TRUE(FinishMaterialCompileForTest(*Root));
 	ASSERT_TRUE(Child->SetParent(Root));
 	const auto Accepted = Root->GetAcceptedCompiledProgram();
@@ -932,7 +933,7 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 		std::vector<FMaterialProgramLink> Inputs = {}) {
 		FMaterialProgramNode Node;
 		Node.Id = FGuid::NewGuid(); Node.Opcode = Opcode; Node.ResultType = Type;
-		Node.ParameterId = Id; Node.Inputs = std::move(Inputs); Program.Nodes.push_back(Node);
+		if (Id.IsValid()) Node.Parameter = Id == Tint.Id ? Tint : Texture; Node.Inputs = std::move(Inputs); Program.Nodes.push_back(Node);
 		return FMaterialProgramLink{Node.Id, 0};
 	};
 	const auto TintNode = Add(EMaterialProgramOpcode::Parameter, EMaterialProgramValueType::Float4, Tint.Id);
@@ -941,7 +942,7 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 	const auto UV = Add(EMaterialProgramOpcode::Constant, EMaterialProgramValueType::Float2);
 	const auto Sample = Add(EMaterialProgramOpcode::TextureSample2D, EMaterialProgramValueType::Float4, {}, {TextureNode, UV});
 	Program.Outputs.Emissive = Add(EMaterialProgramOpcode::TruncateToFloat3, EMaterialProgramValueType::Float3, {}, {Sample});
-	ASSERT_TRUE(Source->SetMaterialDefinitionsAndProgram({Tint, Texture}, Program));
+	ASSERT_TRUE(Source->SetMaterialProgram(Program));
 	ASSERT_NE(Source->GetAcceptedCompiledProgram(), nullptr);
 	const auto ExpectedLayout = Source->GetAcceptedCompiledProgram()->Layout;
 	auto* Instance = NewObject<DMaterialInstance>(Source->GetPackage(), "CustomCookedOverrides");

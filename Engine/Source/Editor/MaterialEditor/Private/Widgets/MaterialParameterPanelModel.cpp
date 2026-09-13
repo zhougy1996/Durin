@@ -260,19 +260,7 @@ namespace Durin::Editor::Material
 					}
 				});
 		}
-		auto* BaseMaterial = Cast<DMaterial>(Material);
-		FArrayProperty* Property = FindArrayProperty(BaseMaterial, FName("ParameterDefinitions"));
-		return SubmitRootArrayEdit(PropertyView, Context, BaseMaterial, Property, Entry.ParameterId,
-			EPropertyChangeKind::ValueSet, bContinuous,
-			[Id = Entry.ParameterId, CanonicalValue](const FArrayProperty& ScratchProperty,
-				void* ScratchContainer, uint32 ScratchArrayIndex) {
-				if (auto* Definition = FindScratchEntry<FMaterialParameterDefinition>(
-					ScratchProperty, ScratchContainer, ScratchArrayIndex, Id,
-					&FMaterialParameterDefinition::Id))
-				{
-					Definition->Value = CanonicalValue;
-				}
-			});
+		return false;
 	}
 
 	auto FMaterialParameterPanelModel::SetOverrideEnabled(

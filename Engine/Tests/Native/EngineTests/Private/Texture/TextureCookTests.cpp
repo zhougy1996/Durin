@@ -1,4 +1,4 @@
-#include "../Materials/LegacyMaterialProgramTestFixture.h"
+#include "../Materials/ExplicitMaterialProgramTestFixture.h"
 #include "Threading/Task.h"
 #include "NativeAssetTestSupport.h"
 #include "NativeAssetRuntimeTestSupport.h"
@@ -212,7 +212,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	auto* SourceMaterialPackage = Durin::CreatePackage(SourceMaterialPath);
 	ASSERT_NE(SourceMaterialPackage, nullptr);
 	auto* SourceMaterial = Durin::NewObject<Durin::DMaterial>(SourceMaterialPackage, "SampleMaterial");
-	ASSERT_TRUE(SourceMaterial->SetMaterialProgram(Durin::Testing::MakeLegacyPBRMaterialProgram()));
+	ASSERT_TRUE(SourceMaterial->SetMaterialProgram(Durin::Testing::MakePBRMaterialProgramForTest()));
 	ASSERT_TRUE(SourceMaterial->SetVectorParameterValue(
 		Durin::MaterialParameters::BaseColorName(), Durin::FVector3(1.0)));
 	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*SourceMaterial);

@@ -1,4 +1,4 @@
-#include "LegacyMaterialProgramTestFixture.h"
+#include "ExplicitMaterialProgramTestFixture.h"
 #include "MaterialTestSupport.h"
 #include "Editor/EditorTransactionTestSupport.h"
 
@@ -19,7 +19,7 @@ namespace
 		-> Durin::FMaterialCompilerInput
 	{
 		Durin::FMaterialCompilerInput Input;
-		Input.Program = Durin::Testing::MakeLegacyPBRMaterialProgram();
+		Input.Program = Durin::Testing::MakePBRMaterialProgramForTest();
 		for (const Durin::FMaterialParameterDefinition& Definition
 			: Durin::GetPBRMaterialParameterDefinitions())
 			Input.Parameters.push_back({Definition.Id, Definition.Type});
@@ -65,78 +65,50 @@ namespace
 	auto MakeExpandedMaterial(const char* Name) -> Durin::DMaterial*
 	{
 		auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, Name);
-		if (!Material || !Material->SetMaterialDefinitionsAndProgram(
-			Durin::MakePBRMaterialParameterDefinitions(),
-			Durin::Testing::MakeLegacyPBRMaterialProgram())) return nullptr;
+		if (!Material || !Material->SetMaterialProgram(Durin::Testing::MakePBRMaterialProgramForTest())) return nullptr;
 		if (!FinishMaterialCompileForTest(*Material)) return nullptr;
 		return Material;
 	}
 }
 
-TEST(FMaterialTests, CustomDeclarationsReuseRenameAndRejectPartialMutations)
+TEST(FMaterialTests, OwnedParametersRejectDuplicateIdentityAndNameAtomically)
 {
+	using namespace Durin;
 	InitializeDObjectSystem();
-	auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "CustomDeclarations");
+	auto* Material = NewObject<DMaterial>(nullptr, "OwnedParameters");
 	ASSERT_NE(Material, nullptr);
-	Durin::FMaterialParameterDefinition Definition;
-	Definition.Name = "RustAmount";
-	Definition.Value = Durin::FMaterialParameterValue::MakeScalar(0.25f);
-	const auto Created = Material->CreateParameterDefinition(Definition);
-	ASSERT_TRUE(Created);
-	const auto Id = Created.ParameterId;
-	ASSERT_TRUE(Id.IsValid());
-	const uint64 Revision = Material->GetParameterDefinitionSchemaRevision();
-	Definition.Name = "rustamount";
-	Definition.Value.ScalarValue = 0.9f;
-	const auto Reused = Material->CreateParameterDefinition(Definition);
-	ASSERT_TRUE(Reused);
-	EXPECT_EQ(Reused.ParameterId, Id);
-	EXPECT_EQ(Material->FindParameterDefinition(Id)->Value.ScalarValue, 0.25f);
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	FMaterialProgram Program;
+	FMaterialProgramNode Owner;
+	Owner.Id = FGuid::NewGuid();
+	Owner.Opcode = EMaterialProgramOpcode::Parameter;
+	Owner.Parameter.Id = FGuid::NewGuid();
+	Owner.Parameter.Name = "RustAmount";
+	Owner.Parameter.Value = FMaterialParameterValue::MakeScalar(0.25f);
+	Program.Nodes.push_back(Owner);
+	ASSERT_TRUE(Material->SetMaterialProgram(Program));
+	ASSERT_EQ(Material->GetParameterDefinitions().size(), 1u);
+	const auto Revision = Material->GetParameterDefinitionSchemaRevision();
+	auto Duplicate = Owner;
+	Duplicate.Id = FGuid::NewGuid();
+	Program.Nodes.push_back(Duplicate);
+	EXPECT_FALSE(Material->SetMaterialProgram(Program));
+	Program.Nodes.back().Parameter.Id = FGuid::NewGuid();
+	Program.Nodes.back().Parameter.Name = "rustamount";
+	EXPECT_FALSE(Material->SetMaterialProgram(Program));
 	EXPECT_EQ(Material->GetParameterDefinitionSchemaRevision(), Revision);
-	Definition.Type = Durin::EMaterialParameterType::Vector;
-	const auto Conflict = Material->CreateParameterDefinition(Definition);
-	EXPECT_FALSE(Conflict);
-	EXPECT_EQ(Conflict.Error, Durin::EMaterialParameterError::TypeConflict);
-	EXPECT_EQ(Conflict.ParameterId, Id);
-	EXPECT_EQ(Material->GetParameterDefinitionSchemaRevision(), Revision);
-	const auto MissingId = Durin::FGuid::NewGuid();
-	const auto Missing = Material->RenameParameterDefinition(MissingId, "Unused");
-	EXPECT_EQ(Missing.Error, Durin::EMaterialParameterError::NotFound);
-	EXPECT_EQ(Missing.ParameterId, MissingId);
-	EXPECT_EQ(Material->DeleteParameterDefinition(MissingId).Error,
-		Durin::EMaterialParameterError::NotFound);
-	EXPECT_EQ(Material->RenameParameterDefinition(Id, {}).Error,
-		Durin::EMaterialParameterError::InvalidName);
-	EXPECT_EQ(Material->RenameParameterDefinition(Id, Durin::MaterialParameters::MetallicName()).Error,
-		Durin::EMaterialParameterError::DuplicateName);
-	EXPECT_EQ(Material->GetParameterDefinitionSchemaRevision(), Revision);
-
-	Durin::FMaterialProgram Program;
-	Durin::FMaterialProgramNode Parameter;
-	Parameter.Id = Durin::FGuid::NewGuid();
-	Parameter.Opcode = Durin::EMaterialProgramOpcode::Parameter;
-	Parameter.ParameterId = Id;
-	Program.Nodes.push_back(Parameter);
-	Program.Outputs.Roughness.SourceNodeId = Parameter.Id;
-	auto Validation = Material->SetMaterialProgram(Program);
-	ASSERT_TRUE(Validation);
-	ASSERT_TRUE(Material->RenameParameterDefinition(Id, "Weathering"));
-	EXPECT_EQ(Material->FindParameterDefinition("Weathering")->Id, Id);
-	EXPECT_EQ(Material->GetMaterialProgram()->Nodes.front().DisplayName, "Weathering");
-	const auto Before = *Material->GetMaterialProgram();
-	const auto Deleted = Material->DeleteParameterDefinition(Id);
-	EXPECT_FALSE(Deleted);
-	EXPECT_EQ(Deleted.Error, Durin::EMaterialParameterError::InvalidProgram);
-	EXPECT_EQ(Deleted.ParameterId, Id);
-	EXPECT_EQ(Deleted.Diagnostics, Durin::ValidateMaterialProgram(Before, {}).Diagnostics);
-	EXPECT_EQ(*Material->GetMaterialProgram(), Before);
-	EXPECT_NE(Material->FindParameterDefinition(Id), nullptr);
-	auto Definitions = std::vector<Durin::FMaterialParameterDefinition>(
-		Material->GetParameterDefinitions().begin(), Material->GetParameterDefinitions().end());
-	std::erase_if(Definitions, [&](const auto& Item) { return Item.Id == Id; });
-	ASSERT_TRUE(Material->SetMaterialDefinitionsAndProgram(Definitions, {}));
-	EXPECT_EQ(Material->FindParameterDefinition(Id), nullptr);
-	Durin::MarkAsGarbage(Material);
+	ASSERT_EQ(Material->GetMaterialProgram()->Nodes.size(), 1u);
+	Program.Nodes.pop_back();
+	Program.Nodes.front().Parameter.Name = "Weathering";
+	ASSERT_TRUE(Material->SetMaterialProgram(Program));
+	EXPECT_EQ(Material->FindParameterDefinition("Weathering")->Id, Owner.Parameter.Id);
+	EXPECT_EQ(Material->GetMaterialProgram()->Nodes.front().Id, Owner.Id);
+	EXPECT_TRUE(Material->SetParameterValue(Owner.Parameter.Id,
+		FMaterialParameterValue::MakeScalar(0.75f)));
+	EXPECT_EQ(Material->GetMaterialProgram()->Nodes.front().Parameter.Value.ScalarValue, 0.75f);
+	ASSERT_TRUE(Material->SetMaterialProgram({}));
+	EXPECT_TRUE(Material->GetParameterDefinitions().empty());
+	MarkAsGarbage(Material);
 }
 
 TEST(FMaterialTests, CustomDeclarationOverridesRetainOrphansAndRejectRetyping)
@@ -153,10 +125,10 @@ TEST(FMaterialTests, CustomDeclarationOverridesRetainOrphansAndRejectRetyping)
 	Durin::FMaterialProgramNode Parameter;
 	Parameter.Id = Durin::FGuid::NewGuid();
 	Parameter.Opcode = Durin::EMaterialProgramOpcode::Parameter;
-	Parameter.ParameterId = Definition.Id;
+	Parameter.Parameter = Definition;
 	Program.Nodes.push_back(Parameter);
 	Program.Outputs.Roughness.SourceNodeId = Parameter.Id;
-	ASSERT_TRUE(Root->SetMaterialDefinitionsAndProgram({Definition}, Program));
+	ASSERT_TRUE(Root->SetMaterialProgram(Program));
 	ASSERT_TRUE(Parent->SetParent(Root));
 	ASSERT_TRUE(Child->SetParent(Parent));
 	ASSERT_TRUE(Parent->SetParameterOverride(Definition.Id, Definition.Type,
@@ -164,16 +136,23 @@ TEST(FMaterialTests, CustomDeclarationOverridesRetainOrphansAndRejectRetyping)
 	float Value = 0;
 	ASSERT_TRUE(Child->GetScalarParameterValue(Definition.Name, Value));
 	EXPECT_EQ(Value, 0.75f);
-	auto Retyped = Definition;
-	Retyped.Type = Durin::EMaterialParameterType::Vector;
-	const auto Retype = Root->SetMaterialDefinitionsAndProgram({Retyped}, {});
-	EXPECT_FALSE(Retype);
-	EXPECT_EQ(Retype.Error, Durin::EMaterialParameterError::TypeConflict);
-	EXPECT_EQ(Retype.ParameterId, Definition.Id);
-	ASSERT_TRUE(Root->SetMaterialDefinitionsAndProgram({}, {}));
+	auto RetypedProgram = Program;
+	RetypedProgram.Nodes.front().Parameter.Type = Durin::EMaterialParameterType::Vector;
+	// Changing the owner type without its output type is rejected atomically.
+	EXPECT_FALSE(Root->SetMaterialProgram(RetypedProgram));
+	EXPECT_EQ(*Root->GetMaterialProgram(), Program);
+	RetypedProgram.Nodes.front().ResultType = Durin::EMaterialProgramValueType::Float3;
+	RetypedProgram.Nodes.front().Parameter.Value = Durin::FMaterialParameterValue::MakeVector({.2, .3, .4});
+	RetypedProgram.Outputs.Roughness = {};
+	ASSERT_TRUE(Root->SetMaterialProgram(RetypedProgram));
+	EXPECT_TRUE(Parent->IsParameterOverrideOrphan(Definition.Id));
+	Durin::FVector3 Vector;
+	ASSERT_TRUE(Child->GetVectorParameterValue(Definition.Name, Vector));
+	EXPECT_EQ(Vector, Durin::FVector3(.2, .3, .4));
+	ASSERT_TRUE(Root->SetMaterialProgram({}));
 	EXPECT_TRUE(Parent->IsParameterOverrideOrphan(Definition.Id));
 	EXPECT_EQ(Parent->GetParameterOverrides().size(), 1u);
-	ASSERT_TRUE(Root->SetMaterialDefinitionsAndProgram({Definition}, Program));
+	ASSERT_TRUE(Root->SetMaterialProgram(Program));
 	EXPECT_FALSE(Parent->IsParameterOverrideOrphan(Definition.Id));
 	ASSERT_TRUE(Child->GetScalarParameterValue(Definition.Name, Value));
 	EXPECT_EQ(Value, 0.75f);
@@ -302,7 +281,7 @@ TEST(FMaterialTests, StaticPropertiesHaveStableDefaultsAndInstanceInheritance)
 TEST(FMaterialTests, RuntimeSchemaHasStableIdentityOrderAndMetadata)
 {
 	InitializeDObjectSystem();
-	Durin::DMaterial* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "SchemaMaterial");
+	Durin::DMaterial* Material = MakeExpandedMaterial("SchemaMaterial");
 	const std::span Definitions = Material->GetParameterDefinitions();
 	ASSERT_EQ(Definitions.size(), 48u);
 	using Durin::MaterialParameters::EMaterialBuiltinParameterKind;
@@ -344,6 +323,7 @@ TEST(FMaterialTests, RuntimeSchemaHasStableIdentityOrderAndMetadata)
 	EXPECT_FALSE(Durin::MaterialParameters::GetBuiltinParameterId(
 		static_cast<EMaterialBuiltinParameterRole>(255),
 		EMaterialBuiltinParameterKind::Value).IsValid());
+	std::ranges::sort(ExpectedIds);
 	std::unordered_set<Durin::FGuid> Ids;
 	std::unordered_set<Durin::FName> Names;
 	for (size_t Index = 0; Index < Definitions.size(); ++Index)
@@ -354,8 +334,12 @@ TEST(FMaterialTests, RuntimeSchemaHasStableIdentityOrderAndMetadata)
 		EXPECT_TRUE(Names.insert(Definition.Name).second);
 		EXPECT_FALSE(Definition.Name.IsNone());
 		EXPECT_FALSE(Definition.DisplayName.empty());
-		EXPECT_EQ(Definition.SortOrder, static_cast<int32>((Index / 6) * 7 + Index % 6));
-		if (Index % 6 == 3 || Index % 6 == 4)
+		const auto& Recipe = Durin::GetPBRMaterialParameterDefinitions();
+		const auto Expected = std::ranges::find(Recipe, Definition.Id, &Durin::FMaterialParameterDefinition::Id);
+		ASSERT_NE(Expected, Recipe.end());
+		EXPECT_EQ(Definition, *Expected);
+		if (Durin::MaterialParameters::IsBuiltinParameter(Definition.Id, EMaterialBuiltinParameterKind::UVScale)
+			|| Durin::MaterialParameters::IsBuiltinParameter(Definition.Id, EMaterialBuiltinParameterKind::UVOffset))
 		{
 			EXPECT_EQ(Definition.Type, Durin::EMaterialParameterType::Vector2);
 		}
@@ -404,9 +388,9 @@ TEST(FMaterialProgramSchemaTests,
 {
 	InitializeDObjectSystem();
 	const Durin::FMaterialProgram First =
-		Durin::Testing::MakeLegacyPBRMaterialProgram();
+		Durin::Testing::MakePBRMaterialProgramForTest();
 	const Durin::FMaterialProgram Second =
-		Durin::Testing::MakeLegacyPBRMaterialProgram();
+		Durin::Testing::MakePBRMaterialProgramForTest();
 	EXPECT_EQ(First, Second);
 	EXPECT_EQ(
 		First.SchemaVersion,
@@ -472,14 +456,14 @@ TEST(FMaterialProgramSchemaTests,
 	};
 
 	Durin::FMaterialProgram UnknownVersion =
-		Durin::Testing::MakeLegacyPBRMaterialProgram();
+		Durin::Testing::MakePBRMaterialProgramForTest();
 	UnknownVersion.SchemaVersion = 999;
 	ExpectCategory(
 		UnknownVersion,
 		Durin::EMaterialProgramDiagnosticCategory::Schema);
 
 	Durin::FMaterialProgram InvalidEnums =
-		Durin::Testing::MakeLegacyPBRMaterialProgram();
+		Durin::Testing::MakePBRMaterialProgramForTest();
 	InvalidEnums.Nodes.front().Opcode =
 		static_cast<Durin::EMaterialProgramOpcode>(0xff);
 	ExpectCategory(
@@ -487,14 +471,14 @@ TEST(FMaterialProgramSchemaTests,
 		Durin::EMaterialProgramDiagnosticCategory::Schema);
 
 	Durin::FMaterialProgram DuplicateIdentity =
-		Durin::Testing::MakeLegacyPBRMaterialProgram();
+		Durin::Testing::MakePBRMaterialProgramForTest();
 	DuplicateIdentity.Nodes[1].Id = DuplicateIdentity.Nodes[0].Id;
 	ExpectCategory(
 		DuplicateIdentity,
 		Durin::EMaterialProgramDiagnosticCategory::Schema);
 
 	Durin::FMaterialProgram Dangling =
-		Durin::Testing::MakeLegacyPBRMaterialProgram();
+		Durin::Testing::MakePBRMaterialProgramForTest();
 	Dangling.Nodes.front().Inputs.push_back({
 		.SourceNodeId = Durin::FGuid{1, 2, 3, 4},
 		.SourceOutputIndex = 0});
@@ -503,7 +487,7 @@ TEST(FMaterialProgramSchemaTests,
 		Durin::EMaterialProgramDiagnosticCategory::Graph);
 
 	Durin::FMaterialProgram WrongOutput =
-		Durin::Testing::MakeLegacyPBRMaterialProgram();
+		Durin::Testing::MakePBRMaterialProgramForTest();
 	WrongOutput.Outputs.Metallic = WrongOutput.Outputs.BaseColor;
 	const auto WrongOutputValidation = ExpectCategory(
 		WrongOutput,
@@ -520,7 +504,7 @@ TEST(FMaterialProgramSchemaTests,
 		WrongOutputValidation.Diagnostics.end());
 
 	Durin::FMaterialProgram NonFinite =
-		Durin::Testing::MakeLegacyPBRMaterialProgram();
+		Durin::Testing::MakePBRMaterialProgramForTest();
 	const auto ConstantIt = std::ranges::find(
 		NonFinite.Nodes, Durin::EMaterialProgramOpcode::Constant,
 		&Durin::FMaterialProgramNode::Opcode);
@@ -531,18 +515,18 @@ TEST(FMaterialProgramSchemaTests,
 		Durin::EMaterialProgramDiagnosticCategory::Type);
 
 	Durin::FMaterialProgram UnknownParameter =
-		Durin::Testing::MakeLegacyPBRMaterialProgram();
+		Durin::Testing::MakePBRMaterialProgramForTest();
 	const auto ParameterIt = std::ranges::find(
 		UnknownParameter.Nodes, Durin::EMaterialProgramOpcode::Parameter,
 		&Durin::FMaterialProgramNode::Opcode);
 	ASSERT_NE(ParameterIt, UnknownParameter.Nodes.end());
-	ParameterIt->ParameterId = {0xbad00001, 2, 3, 4};
+	ParameterIt->Parameter.Id = {0xbad00001, 2, 3, 4};
 	ExpectCategory(
 		UnknownParameter,
 		Durin::EMaterialProgramDiagnosticCategory::Type);
 
 	Durin::FMaterialProgram Cycle =
-		Durin::Testing::MakeLegacyPBRMaterialProgram();
+		Durin::Testing::MakePBRMaterialProgramForTest();
 	Durin::FMaterialProgramNode FirstCycle;
 	FirstCycle.Id = {0xc1c1e001, 1, 1, 1};
 	FirstCycle.Opcode = Durin::EMaterialProgramOpcode::Negate;
@@ -556,7 +540,7 @@ TEST(FMaterialProgramSchemaTests,
 	ExpectCategory(Cycle, Durin::EMaterialProgramDiagnosticCategory::Graph);
 
 	Durin::FMaterialProgram ExcessiveDepth =
-		Durin::Testing::MakeLegacyPBRMaterialProgram();
+		Durin::Testing::MakePBRMaterialProgramForTest();
 	Durin::FGuid Previous = ExcessiveDepth.Outputs.Metallic.SourceNodeId;
 	for (uint32 Index = 0;
 		Index <= Durin::MaterialProgramMaxDepth; ++Index)
@@ -574,7 +558,7 @@ TEST(FMaterialProgramSchemaTests,
 		Durin::EMaterialProgramDiagnosticCategory::Bounds);
 
 	Durin::FMaterialProgram ExcessiveNodes =
-		Durin::Testing::MakeLegacyPBRMaterialProgram();
+		Durin::Testing::MakePBRMaterialProgramForTest();
 	while (ExcessiveNodes.Nodes.size()
 		<= Durin::MaterialProgramMaxNodeCount)
 	{
@@ -589,7 +573,7 @@ TEST(FMaterialProgramSchemaTests,
 		Durin::EMaterialProgramDiagnosticCategory::Bounds);
 
 	Durin::FMaterialProgram ExcessiveInputs =
-		Durin::Testing::MakeLegacyPBRMaterialProgram();
+		Durin::Testing::MakePBRMaterialProgramForTest();
 	ExcessiveInputs.Nodes.front().Inputs.assign(
 		Durin::MaterialProgramMaxNodeInputCount + 1,
 		ExcessiveInputs.Outputs.Metallic);
@@ -598,7 +582,7 @@ TEST(FMaterialProgramSchemaTests,
 		Durin::EMaterialProgramDiagnosticCategory::Bounds);
 
 	Durin::FMaterialProgram LongName =
-		Durin::Testing::MakeLegacyPBRMaterialProgram();
+		Durin::Testing::MakePBRMaterialProgramForTest();
 	LongName.Nodes.front().DisplayName.assign(
 		Durin::MaterialProgramMaxDisplayNameBytes + 1, 'x');
 	const auto Forward = ExpectCategory(
@@ -647,8 +631,7 @@ TEST(FMaterialProgramNormalizationTests,
 	SnapshotIsDetachedAndExcludesDynamicParameterValues)
 {
 	InitializeDObjectSystem();
-	auto* Material = Durin::NewObject<Durin::DMaterial>(
-		nullptr, "CompilerSnapshotMaterial");
+	auto* Material = MakeExpandedMaterial("CompilerSnapshotMaterial");
 	Durin::FMaterialCompilerEnvironment Environment =
 		MakeSyntheticMaterialCompilerInput().Environment;
 	Durin::FMaterialCompilerInput Before;
@@ -661,7 +644,12 @@ TEST(FMaterialProgramNormalizationTests,
 	ASSERT_TRUE((Validation = Durin::SnapshotMaterialCompilerInput(
 		*Material, Environment, After)));
 	EXPECT_EQ(Before, After);
-	EXPECT_EQ(Before.Program, *Material->GetMaterialProgram());
+	EXPECT_NE(Before.Program, *Material->GetMaterialProgram());
+	for (const auto& Node : Before.Program.Nodes)
+	{
+		EXPECT_TRUE(Node.Parameter.Name.IsNone());
+		EXPECT_EQ(Node.Parameter.Value.TextureValue.Get(), nullptr);
+	}
 	EXPECT_EQ(Before.Parameters.size(),
 		Material->GetParameterDefinitions().size());
 	Durin::MarkAsGarbage(Material);
@@ -715,7 +703,7 @@ TEST(FMaterialProgramNormalizationTests,
 
 TEST(FMaterialProgramSchemaTests, AggregateAndPropertyOutputsAreExclusive)
 {
-	Durin::FMaterialProgram Program = Durin::Testing::MakeLegacyPBRMaterialProgram();
+	Durin::FMaterialProgram Program = Durin::Testing::MakePBRMaterialProgramForTest();
 	Program.Outputs.Surface = Program.Outputs.BaseColor;
 	auto Validation = Durin::ValidateMaterialProgram(
 		Program, Durin::GetPBRMaterialParameterDefinitions());
@@ -1040,8 +1028,7 @@ TEST(FMaterialProgramPublicationTests,
 	BasePublishesCompleteProgramAndInstancesReuseDynamicIdentity)
 {
 	InitializeDObjectSystem();
-	auto* Base = Durin::NewObject<Durin::DMaterial>(
-		nullptr, "CompiledProgramBase");
+	auto* Base = MakeExpandedMaterial("CompiledProgramBase");
 	auto* Instance = Durin::NewObject<Durin::DMaterialInstance>(
 		nullptr, "CompiledProgramInstance");
 	ASSERT_TRUE(Instance->SetParent(Base));
@@ -1266,7 +1253,7 @@ TEST(FMaterialTests, StaticMeshComponentValidatesPositionalOverrides)
 TEST(FMaterialTests, ReflectedParameterEditCoalescesAndInvalidatesRenderDataAcrossUndoRedo)
 {
 	InitializeDObjectSystem();
-	Durin::DMaterial* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "TransactionalMaterial");
+	Durin::DMaterial* Material = MakeExpandedMaterial("TransactionalMaterial");
 	const auto Target = MakeMaterialValueTarget(Material, Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value, Durin::FName("ScalarValue"));
 	ASSERT_TRUE(Target.has_value());
 	Durin::Tests::FTestTransactorOwner Transactions;
@@ -1306,7 +1293,7 @@ TEST(FMaterialTests, ReflectedPropertyViewTracksPresentedOwnerSeparatelyFromEdit
 {
 	InitializeDObjectSystem();
 	Durin::DMaterialInstance* Owner = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "PropertyViewOwner");
-	Durin::DMaterial* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "PropertyViewTarget");
+	Durin::DMaterial* Material = MakeExpandedMaterial("PropertyViewTarget");
 	const auto Target = MakeMaterialValueTarget(Material, Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value, Durin::FName("ScalarValue"));
 	ASSERT_TRUE(Target.has_value());
 	Durin::Tests::FTestTransactorOwner Transactions;
@@ -1710,7 +1697,7 @@ TEST(FMaterialProgramCompilerTests, CustomNumericTextureAndResourceFreeProgramsC
 		FGuid Parameter, std::vector<FMaterialProgramLink> Links = {}) {
 		FMaterialProgramNode Node;
 		Node.Id = FGuid::NewGuid(); Node.Opcode = Opcode; Node.ResultType = Type;
-		Node.ParameterId = Parameter; Node.Inputs = std::move(Links);
+		Node.Parameter.Id = Parameter; Node.Inputs = std::move(Links);
 		Input.Program.Nodes.push_back(Node);
 		return FMaterialProgramLink{Node.Id, 0};
 	};
@@ -1821,7 +1808,7 @@ TEST(FMaterialProgramCompilerTests, ExplicitUVAndSurfaceCompositionUseOnlyAuthor
 		std::vector<FMaterialProgramLink> Links = {}, FGuid Parameter = {}, FMaterialProgramLiteral Literal = {}) {
 		FMaterialProgramNode Node;
 		Node.Id = FGuid::NewGuid(); Node.Opcode = Op; Node.ResultType = Type;
-		Node.Inputs = std::move(Links); Node.ParameterId = Parameter; Node.Literal = Literal;
+		Node.Inputs = std::move(Links); Node.Parameter.Id = Parameter; Node.Literal = Literal;
 		Input.Program.Nodes.push_back(Node);
 		return FMaterialProgramLink{Node.Id, 0};
 	};
@@ -1865,14 +1852,14 @@ TEST(FMaterialProgramSchemaTests, RetiredSchemasAndOpcodesAreRejectedWithoutMuta
 	const auto Original = *Material->GetMaterialProgram();
 	for (uint32 Version : {2u, 3u, 99u})
 	{
-		auto Program = Durin::Testing::MakeLegacyPBRMaterialProgram();
+		auto Program = Durin::Testing::MakePBRMaterialProgramForTest();
 		Program.SchemaVersion = Version;
 		EXPECT_FALSE(Material->SetMaterialProgram(Program));
 		EXPECT_EQ(*Material->GetMaterialProgram(), Original);
 	}
 	for (uint8 Opcode : {uint8(3), uint8(30)})
 	{
-		auto Program = Durin::Testing::MakeLegacyPBRMaterialProgram();
+		auto Program = Durin::Testing::MakePBRMaterialProgramForTest();
 		Program.Nodes.front().Opcode = static_cast<EMaterialProgramOpcode>(Opcode);
 		EXPECT_FALSE(ValidateMaterialProgram(Program, Material->GetParameterDefinitions()));
 		EXPECT_FALSE(Material->SetMaterialProgram(Program));

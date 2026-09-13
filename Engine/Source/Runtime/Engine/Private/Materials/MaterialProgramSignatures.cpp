@@ -36,26 +36,7 @@ namespace Durin
 
 	auto GetMaterialNodeParameterReferences(const FMaterialProgramNode& Node, bool bActiveOnly) -> std::vector<FGuid>
 	{
-		std::vector<FGuid> Result;
-		if (Node.ParameterId.IsValid()) Result.push_back(Node.ParameterId);
-		const auto Add = [&](const FMaterialInputDefault& Value) {
-			if (Value.Kind == EMaterialInputDefaultKind::Parameter && Value.ParameterId.IsValid())
-				Result.push_back(Value.ParameterId);
-		};
-		for (uint32 Index = 0; Index < Node.InputDefaults.size(); ++Index)
-			if (!bActiveOnly || Index >= Node.Inputs.size() || !Node.Inputs[Index].SourceNodeId.IsValid())
-				Add(Node.InputDefaults[Index]);
-		if (Node.Opcode == EMaterialProgramOpcode::TextureCoordinates || IsMaterialSamplingNode(Node.Opcode))
-		{
-			const uint32 UVIndex = Node.Opcode == EMaterialProgramOpcode::TextureSample2D ? 1 : 0;
-			for (uint32 Index = 0; Index < 4; ++Index)
-			{
-				const uint32 InputIndex = Node.Opcode == EMaterialProgramOpcode::TextureCoordinates ? Index : UVIndex;
-				if (!bActiveOnly || InputIndex >= Node.Inputs.size() || !Node.Inputs[InputIndex].SourceNodeId.IsValid())
-					Add(GetMaterialUVSetting(Node.UVSettings, Index));
-			}
-		}
-		return Result;
+		return Node.Parameter.Id.IsValid() ? std::vector<FGuid>{Node.Parameter.Id} : std::vector<FGuid>{};
 	}
 
 	auto GetMaterialProgramNodeSignature(

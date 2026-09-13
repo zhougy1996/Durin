@@ -1,4 +1,4 @@
-#include "LegacyMaterialProgramTestFixture.h"
+#include "ExplicitMaterialProgramTestFixture.h"
 #include "Misc/MountPathTestSupport.h"
 #include "NativeDObjectTestSupport.h"
 #include "MaterialTestSupport.h"
@@ -18,7 +18,7 @@ namespace
 	auto SetExpandedProgram(Durin::DMaterial& Material) -> bool
 	{
 		return Material.SetMaterialProgram(
-			Durin::Testing::MakeLegacyPBRMaterialProgram());
+			Durin::Testing::MakePBRMaterialProgramForTest());
 	}
 
 	auto RelocateAssetForTest(
@@ -624,7 +624,7 @@ TEST(FStaticMeshMaterialTests, MaterialInstanceAssetsRoundTripParentAndOverrides
 }
 
 TEST(FMaterialProgramPackageTests,
-	ProgramRoundTripsDuplicatesAndLoadsMalformedDataForRepair)
+	ProgramRoundTripsDuplicatesAndRejectsMalformedSaves)
 {
 	InitializeDObjectSystem();
 	const std::filesystem::path Root =
@@ -639,7 +639,7 @@ TEST(FMaterialProgramPackageTests,
 	Durin::DMaterial* Material = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(Path, Material));
 	Durin::FMaterialProgram Authored =
-		Durin::Testing::MakeLegacyPBRMaterialProgram();
+		Durin::Testing::MakePBRMaterialProgramForTest();
 	std::ranges::reverse(Authored.Nodes);
 	Authored.Nodes.front().DisplayName = "Persisted presentation metadata";
 	auto Validation = Material->SetMaterialProgram(Authored);
@@ -698,25 +698,41 @@ TEST(FMaterialProgramPackageTests,
 	ASSERT_NE(MutableProgram, nullptr);
 	MutableProgram->Nodes.clear();
 	MalformedLoaded->MarkPackageDirty();
-	ASSERT_TRUE(Durin::SavePackage(MalformedLoaded->GetPackage()));
-	ASSERT_TRUE(Durin::UnloadPackage(Path));
-	Durin::DMaterial* LoadedForRepair = nullptr;
-	const Durin::FAssetResult LoadResult =
-		Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), LoadedForRepair);
-	ASSERT_TRUE(LoadResult) << LoadResult.Message;
-	ASSERT_NE(LoadedForRepair, nullptr);
-	EXPECT_EQ(Durin::FindResidentPackage(Path), LoadedForRepair->GetPackage());
-	EXPECT_FALSE(Durin::ValidateMaterialProgram(
-		*LoadedForRepair->GetMaterialProgram(), LoadedForRepair->GetParameterDefinitions()));
-	EXPECT_TRUE((Validation = LoadedForRepair->SetMaterialProgram(Authored)));
-	EXPECT_TRUE(Durin::ValidateMaterialProgram(
-		*LoadedForRepair->GetMaterialProgram(), LoadedForRepair->GetParameterDefinitions()));
+	EXPECT_FALSE(Durin::SavePackage(MalformedLoaded->GetPackage()));
 	ASSERT_TRUE(Durin::UnloadPackage(Path, Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
+	Durin::DMaterial* Reloaded = nullptr;
+	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Reloaded));
+	EXPECT_EQ(*Reloaded->GetMaterialProgram(), Authored);
+	ASSERT_TRUE(Durin::UnloadPackage(Path));
+	// A well-formed package envelope must not publish a graph with dangling links.
+	Durin::ObjectPackage::FLinkerTables Linker;
+	ASSERT_TRUE(Durin::ObjectPackage::ReadPackageV9(FirstSerialization, {}, Path, Linker));
+	bool bRemovedNodes = false;
+	for (auto& Export : Linker.Exports)
+		for (auto& Property : Export.Properties)
+			if (Property.FieldName == "Program")
+			{
+				const auto Field = std::ranges::find(Property.Value.FieldNames, "Nodes");
+				ASSERT_NE(Field, Property.Value.FieldNames.end());
+				Property.Value.Elements[Field - Property.Value.FieldNames.begin()].Elements.clear();
+				bRemovedNodes = true;
+			}
+	ASSERT_TRUE(bRemovedNodes);
+	Durin::FByteBuffer MalformedBytes, Bulk;
+	ASSERT_TRUE(Durin::ObjectPackage::WritePackageV9(Linker, MalformedBytes, Bulk));
+	ASSERT_TRUE(Bulk.empty());
+	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(MalformedBytes, Root / "Base.dasset"));
+	Reloaded = nullptr;
+	const auto RejectedLoad = Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Reloaded);
+	EXPECT_FALSE(RejectedLoad);
+	EXPECT_NE(RejectedLoad.Message.find("rebuild"), std::string::npos) << RejectedLoad.Message;
+	EXPECT_EQ(Reloaded, nullptr);
+	EXPECT_EQ(Durin::FindResidentPackage(Path), nullptr);
 
 	Durin::CollectGarbage();
 }
 
-TEST(FStaticMeshMaterialTests, RemovedLegacyParameterMapsAreDiscardedWithoutRevivingOverrides)
+TEST(FStaticMeshMaterialTests, MissingOwnershipMarkerRejectsParentAndInstanceWithoutPublication)
 {
 	InitializeDObjectSystem();
 	const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "LegacyMaterials";
@@ -746,7 +762,7 @@ TEST(FStaticMeshMaterialTests, RemovedLegacyParameterMapsAreDiscardedWithoutRevi
 	Durin::FByteBuffer BaseBytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(BaseBytes, (Root / "Base.dasset")));
 	ASSERT_TRUE(RewriteSerializedFieldAsLegacyMap(
-		BaseBytes, BasePath, "ParameterDefinitions", "VectorParameters"));
+		BaseBytes, BasePath, "GraphOwnershipVersion", "VectorParameters"));
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(std::as_bytes(std::span(BaseBytes)), Root / "Base.dasset"));
 
 	Durin::FByteBuffer InstanceBytes;
@@ -758,12 +774,17 @@ TEST(FStaticMeshMaterialTests, RemovedLegacyParameterMapsAreDiscardedWithoutRevi
 	Durin::DMaterialInstance* LoadedInstance = nullptr;
 	const Durin::FAssetResult Load =
 		Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(InstancePath), LoadedInstance);
-	ASSERT_TRUE(Load) << Load.Message;
-	ASSERT_NE(LoadedInstance, nullptr);
-	ASSERT_NE(LoadedInstance->GetParent(), nullptr);
-	EXPECT_TRUE(LoadedInstance->GetParameterOverrides().empty());
-	EXPECT_TRUE(LoadedInstance->GetPackage()->IsCanonicalResaveRecommended());
-	EXPECT_TRUE(LoadedInstance->GetParent()->GetPackage()->IsCanonicalResaveRecommended());
-	EXPECT_FALSE(LoadedInstance->GetPackage()->IsDirty());
-	EXPECT_FALSE(LoadedInstance->GetParent()->GetPackage()->IsDirty());
+	EXPECT_FALSE(Load);
+	EXPECT_EQ(LoadedInstance, nullptr);
+	EXPECT_EQ(Durin::FindResidentPackage(BasePath), nullptr);
+	EXPECT_EQ(Durin::FindResidentPackage(InstancePath), nullptr);
+	Durin::DMaterial* LoadedBase = nullptr;
+	const auto BaseLoad = Durin::LoadObject(
+		Durin::Testing::MakePackageLeafAssetObjectPathForTests(BasePath), LoadedBase);
+	EXPECT_FALSE(BaseLoad);
+	EXPECT_NE(BaseLoad.Message.find("rebuild"), std::string::npos) << BaseLoad.Message;
+	EXPECT_EQ(LoadedBase, nullptr);
+	Durin::FByteBuffer After;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(After, Root / "Base.dasset"));
+	EXPECT_EQ(After, BaseBytes);
 }

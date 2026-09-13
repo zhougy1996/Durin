@@ -1,4 +1,4 @@
-#include "../Materials/LegacyMaterialProgramTestFixture.h"
+#include "../Materials/ExplicitMaterialProgramTestFixture.h"
 #include "Actors/ProceduralSkyActor.h"
 #include "Resources/RendererResourceCoordinator.h"
 #include "Actors/SkyLightActor.h"
@@ -172,7 +172,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	auto* OcclusionMesh = Durin::DStaticMesh::CreateDebugTriangle();
 	auto* OcclusionMaterial = Durin::NewObject<Durin::DMaterial>(nullptr, "SkyBoxOcclusionMaterial");
 	const auto OcclusionMaterialValidation = OcclusionMaterial->SetMaterialProgram(
-		Durin::Testing::MakeLegacyPBRMaterialProgram());
+		Durin::Testing::MakePBRMaterialProgramForTest());
 	ASSERT_TRUE(OcclusionMaterialValidation);
 	Durin::FMaterialStaticProperties OcclusionProperties;
 	OcclusionProperties.bTwoSided = true;

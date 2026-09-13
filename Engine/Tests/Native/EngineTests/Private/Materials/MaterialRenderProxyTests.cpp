@@ -1,4 +1,4 @@
-#include "LegacyMaterialProgramTestFixture.h"
+#include "ExplicitMaterialProgramTestFixture.h"
 #include "MaterialTestSupport.h"
 
 #include "Materials/MaterialRenderProxy.h"
@@ -15,9 +15,7 @@ namespace
 	{
 		auto* Material = Durin::NewObject<Durin::DMaterial>(
 			Outer, std::forward<TName>(Name));
-		if (!Material || !Material->SetMaterialDefinitionsAndProgram(
-			Durin::MakePBRMaterialParameterDefinitions(),
-			Durin::Testing::MakeLegacyPBRMaterialProgram())) return nullptr;
+		if (!Material || !Material->SetMaterialProgram(Durin::Testing::MakePBRMaterialProgramForTest())) return nullptr;
 		if (!FinishMaterialCompileForTest(*Material)) return nullptr;
 		return Material;
 	}
@@ -109,7 +107,7 @@ TEST(FMaterialRenderProxyTests, ParentProgramChangesReevaluateDormantOverrides)
 	EXPECT_TRUE(Instance->IsParameterOverrideOrphan(
 		Durin::MaterialParameters::GetBuiltinParameterIds(
 			Durin::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value));
-	ASSERT_TRUE((Validation = Base->SetMaterialProgram(Durin::Testing::MakeLegacyPBRMaterialProgram())));
+	ASSERT_TRUE((Validation = Base->SetMaterialProgram(Durin::Testing::MakePBRMaterialProgramForTest())));
 	const auto Restored = CaptureMaterialProxy(Proxy);
 	EXPECT_GT(Restored.LocalVersion, Dormant.LocalVersion);
 	ExpectColorNear(GetMaterialBinding(Restored.RenderData).BaseColor,
@@ -407,9 +405,12 @@ TEST(FMaterialRenderProxyTests, AuthoredValuesMatchDirectCompilationForBasesAndI
 			ASSERT_LT(TextureRole, size_t{8});
 			const Durin::FRHITextureReferenceRef ExpectedTexture =
 				OverrideTexture->GetTextureReferenceRHI();
-			EXPECT_EQ(
-				GetMaterialBinding(Overridden.RenderData).Textures[TextureRole],
-				ExpectedTexture);
+			size_t RoleIndex = 0;
+			for (; RoleIndex < 8; ++RoleIndex)
+				if (Durin::GetMaterialSurfaceParameterId(static_cast<Durin::EMaterialSurfaceOutput>(RoleIndex),
+					Durin::MaterialParameters::EMaterialBuiltinParameterKind::Texture) == Definition.Id) break;
+			ASSERT_LT(RoleIndex, size_t{8});
+			EXPECT_EQ(GetMaterialBinding(Overridden.RenderData).Textures[RoleIndex], ExpectedTexture);
 			++TextureRole;
 		}
 
@@ -471,8 +472,10 @@ TEST(FMaterialRenderProxyTests, TemplateIdentitiesDoNotOverrideEditedDeclaration
 			Definition.Value.TextureValue = Texture;
 		}
 	}
-	ASSERT_TRUE(Base->SetMaterialDefinitionsAndProgram(
-		std::move(Definitions), Durin::Testing::MakeLegacyPBRMaterialProgram()));
+	auto Program = Durin::Testing::MakePBRMaterialProgramForTest();
+	for (auto& Node : Program.Nodes)
+		if (Node.Parameter.Id.IsValid()) Node.Parameter = *std::ranges::find(Definitions, Node.Parameter.Id, &Durin::FMaterialParameterDefinition::Id);
+	ASSERT_TRUE(Base->SetMaterialProgram(std::move(Program)));
 	ASSERT_TRUE(FinishMaterialCompileForTest(*Base));
 	auto Proxy = Base->GetMaterialRenderProxy();
 	const auto Snapshot = CaptureMaterialProxy(Proxy);

@@ -485,7 +485,7 @@ float4 FragmentMain(
 			Authored.Opcode = Node.Opcode;
 			Authored.ResultType = Node.ResultType;
 			Authored.Literal = Node.Literal;
-			Authored.ParameterId = Node.ParameterId;
+			Authored.Parameter.Id = Node.ParameterId;
 			Authored.SwizzleLength = Node.SwizzleLength;
 			Authored.SwizzleX = Node.SwizzleX; Authored.SwizzleY = Node.SwizzleY;
 			Authored.SwizzleZ = Node.SwizzleZ; Authored.SwizzleW = Node.SwizzleW;

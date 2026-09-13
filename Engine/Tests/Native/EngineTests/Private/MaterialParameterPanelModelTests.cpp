@@ -1,4 +1,6 @@
-#include "Materials/LegacyMaterialProgramTestFixture.h"
+#include "Materials/ExplicitMaterialProgramTestFixture.h"
+#include "Materials/MaterialTestSupport.h"
+#include "MaterialGraphOperations.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Editor/EditorTransactionTestSupport.h"
 #include "EngineTestSupport.h"
@@ -38,7 +40,7 @@ namespace
 	{
 		auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, Name);
 		if (!Material || !Material->SetMaterialProgram(
-			Durin::Testing::MakeLegacyPBRMaterialProgram())) return nullptr;
+			Durin::Testing::MakePBRMaterialProgramForTest())) return nullptr;
 		return Material;
 	}
 }
@@ -89,7 +91,10 @@ TEST(FMaterialParameterPanelModelTests, BuildsControlsAndResolvedSourceFromRunti
 TEST(FMaterialParameterPanelModelTests, IntegerPresentationCanonicalizesSubmittedValues)
 {
 	InitializeDObjectSystem();
-	auto* Material = MakeExpandedBase("PanelIntegerMaterial");
+	auto* Base = MakeExpandedBase("PanelIntegerMaterial");
+	auto* Material = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "PanelIntegerInstance");
+	ASSERT_TRUE(Material->SetParent(Base));
+	ASSERT_TRUE(Material->SetScalarParameterValue(Durin::FName("BaseColorUVChannel"), 0));
 	FPropertyTransactionHarness Transactions;
 	Durin::Editor::FPropertyView PropertyView;
 	std::string Error;
@@ -113,6 +118,7 @@ TEST(FMaterialParameterPanelModelTests, IntegerPresentationCanonicalizesSubmitte
 
 	Transactions->Reset();
 	Durin::MarkAsGarbage(Material);
+	Durin::MarkAsGarbage(Base);
 	Durin::CollectGarbage();
 }
 
@@ -269,7 +275,7 @@ TEST(FMaterialParameterPanelModelTests, BaseAndTexturePickerValuesUseSharedUndoH
 	ASSERT_NE(BaseOpacity, nullptr);
 	auto ScalarValue = BaseOpacity->Value;
 	ScalarValue.ScalarValue = 0.7f;
-	ASSERT_TRUE(BaseModel.SubmitValueEdit(PropertyView, Context, *BaseOpacity, ScalarValue, false));
+	ASSERT_TRUE(Durin::Editor::Material::FMaterialGraphOperations::SetParameterValue(*Base, BaseOpacity->ParameterId, ScalarValue, Transactions.Get()));
 	float Opacity = 0.0f;
 	ASSERT_TRUE(Base->GetScalarParameterValue(Durin::MaterialParameters::OpacityName(), Opacity));
 	EXPECT_FLOAT_EQ(Opacity, 0.7f);
@@ -330,7 +336,7 @@ TEST(FMaterialParameterPanelModelTests, BaseAndTexturePickerValuesUseSharedUndoH
 	Durin::CollectGarbage();
 }
 
-TEST(FMaterialParameterPanelModelTests, RootSnapshotContinuousSessionsRemainParameterScoped)
+TEST(FMaterialParameterPanelModelTests, GraphDefaultSessionsRemainParameterScoped)
 {
 	InitializeDObjectSystem();
 	auto* Base = MakeExpandedBase("PanelIdentityBase");
@@ -346,13 +352,17 @@ TEST(FMaterialParameterPanelModelTests, RootSnapshotContinuousSessionsRemainPara
 
 	auto OpacityValue = Opacity->Value;
 	OpacityValue.ScalarValue = 0.55f;
-	ASSERT_TRUE(Model.SubmitValueEdit(PropertyView, Context, *Opacity, OpacityValue, true));
+	Durin::Editor::Material::FMaterialGraphParameterEditSession OpacitySession, ColorSession;
+	ASSERT_TRUE(OpacitySession.Begin(*Base, Opacity->ParameterId, Transactions.Get()));
+	ASSERT_TRUE(OpacitySession.Apply(OpacityValue));
+	ASSERT_TRUE(OpacitySession.Commit());
 	auto ColorValue = BaseColor->Value;
 	ColorValue.VectorValue = Durin::FVector3(0.1, 0.2, 0.3);
-	ASSERT_TRUE(Model.SubmitValueEdit(PropertyView, Context, *BaseColor, ColorValue, true));
+	ASSERT_TRUE(ColorSession.Begin(*Base, BaseColor->ParameterId, Transactions.Get()));
+	ASSERT_TRUE(ColorSession.Apply(ColorValue));
 	// Switching logical GUIDs commits the first continuous edit. Cancelling the
 	// second must not restore the entire collection to the first edit's origin.
-	ASSERT_TRUE(PropertyView.FinishActiveEdit(&Context, true));
+	ASSERT_TRUE(ColorSession.Cancel());
 
 	float ResolvedOpacity = 0.0f;
 	ASSERT_TRUE(Base->GetScalarParameterValue(Durin::MaterialParameters::OpacityName(), ResolvedOpacity));
@@ -398,7 +408,7 @@ TEST(FMaterialParameterPanelModelTests, RefreshReusesDependenciesAndInvalidatesF
 	EXPECT_TRUE(Model.Refresh());
 	ASSERT_EQ(Model.GetEntries().size(), 1u);
 	EXPECT_TRUE(Model.GetEntries().front().bOrphan);
-	ASSERT_TRUE(Base->SetMaterialProgram(Durin::Testing::MakeLegacyPBRMaterialProgram()));
+	ASSERT_TRUE(Base->SetMaterialProgram(Durin::Testing::MakePBRMaterialProgramForTest()));
 	EXPECT_TRUE(Model.Refresh());
 	EXPECT_FALSE(FindEntry(Model, Id)->bOrphan);
 	ASSERT_TRUE(Parent->SetParent(OtherBase));
@@ -432,8 +442,12 @@ TEST(FMaterialParameterPanelModelTests, ReflectedDefaultEditsRefreshValuesWithou
 	const auto Context = MakeContext(Transactions, Error);
 	ASSERT_NE(FindEntry(BaseModel, Id), nullptr);
 	const auto SchemaRevision = Base->GetParameterDefinitionSchemaRevision();
-	ASSERT_TRUE(BaseModel.SubmitValueEdit(PropertyView, Context, *FindEntry(BaseModel, Id),
-		Durin::FMaterialParameterValue::MakeScalar(0.35f), true));
+	const auto Target = MakeMaterialValueTarget(Base, Id, "ScalarValue");
+	ASSERT_TRUE(Target.has_value());
+	ASSERT_TRUE(PropertyView.SubmitPropertyValueEdit(Context, *Target,
+		[](Durin::FProperty* Property, void* Container, uint32 Index) {
+			*Property->ContainerPtrToValuePtr<float>(Container, Index) = 0.35f;
+		}, true));
 	EXPECT_GT(Base->GetParameterDefinitionSchemaRevision(), SchemaRevision);
 	EXPECT_FALSE(Model.Refresh());
 	EXPECT_FALSE(BaseModel.Refresh());
@@ -459,7 +473,10 @@ TEST(FMaterialParameterPanelModelTests, RootPanelIncludesUnreachableCustomDefaul
 	Definition.Name = "UnusedTint";
 	Definition.Type = Durin::EMaterialParameterType::Vector4;
 	Definition.Value = Durin::FMaterialParameterValue::MakeVector4({1, 2, 3, 4});
-	ASSERT_TRUE(Material->SetMaterialDefinitionsAndProgram({Definition}, {}));
+	Durin::FMaterialProgram Program;
+	Program.Nodes.push_back({.Id = Durin::FGuid::NewGuid(), .Opcode = Durin::EMaterialProgramOpcode::Parameter,
+		.ResultType = Durin::EMaterialProgramValueType::Float4, .Parameter = Definition});
+	ASSERT_TRUE(Material->SetMaterialProgram(Program));
 	const Durin::Editor::Material::FMaterialParameterPanelModel Model(Material);
 	ASSERT_EQ(Model.GetEntries().size(), 1u);
 	const auto& Entry = Model.GetEntries().front();

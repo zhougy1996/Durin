@@ -336,7 +336,7 @@ namespace
 		if (!Durin::IsValid(Root))
 		{
 			Root = Durin::NewObject<Durin::DMaterial>(nullptr, "DirectionalShadowVariantRoot");
-			if (!Root || !Durin::Testing::SetStandardMaterialProgramForTest(*Root, std::getenv("DURIN_TEST_MATERIAL_LEGACY_RECIPE") != nullptr))
+			if (!Root || !Durin::Testing::SetStandardMaterialProgramForTest(*Root))
 			{
 				ADD_FAILURE() << "Failed to create the shared variant graph.";
 				return {};

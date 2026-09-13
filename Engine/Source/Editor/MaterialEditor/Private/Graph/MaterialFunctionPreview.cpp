@@ -47,8 +47,7 @@ namespace Durin::Editor::Material
 					else if (Port.Type == Type::Texture2D)
 					{
 						const auto Id = FGuid::NewGuid();
-						State.Definitions.push_back({.Id = Id, .Name = "PreviewTexture", .Type = EMaterialParameterType::Texture});
-						Source = Add({.Opcode = Opcode::TextureParameter, .ResultType = Type::Texture2D, .ParameterId = Id});
+						Source = Add({.Opcode = Opcode::TextureParameter, .ResultType = Type::Texture2D, .Parameter = {.Id = Id, .Name = FName(std::format("PreviewTexture{}", State.Program.Nodes.size())), .Type = EMaterialParameterType::Texture}});
 					}
 					else Source = Add({.ResultType = Port.Type});
 				}

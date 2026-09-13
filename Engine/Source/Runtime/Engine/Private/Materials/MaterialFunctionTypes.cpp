@@ -176,8 +176,8 @@ namespace Durin
 				|| Node.SurfaceAttributes.size() > 8 || !IsType(Node.ResultType)
 				|| Node.DisplayName.size() > MaterialProgramMaxDisplayNameBytes)
 				Error(Result, "Function node type, input count or name is invalid.", Node.Id);
-			if (!GetMaterialNodeParameterReferences(Node).empty())
-				Error(Result, "Function nodes cannot reference root material parameter identities.", Node.Id);
+			if (Node.Parameter != FMaterialParameterDefinition{})
+				Error(Result, "Function nodes cannot own root material parameter definitions.", Node.Id);
 		}
 		for (const auto& Call : Graph.Calls)
 		{

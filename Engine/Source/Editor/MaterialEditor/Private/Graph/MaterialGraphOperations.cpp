@@ -11,24 +11,44 @@ namespace Durin::Editor::Material
 		DMaterial& Material, FMaterialParameterDefinition Definition, DTransactor* Transactions)
 		-> FMaterialGraphCommandResult
 	{
-		return CommitDeclarationEdit(Material, Transactions,
-			[&] { return Material.CreateParameterDefinition(std::move(Definition)); });
+		FMaterialProgramNode Node;
+		Node.Id = FGuid::NewGuid();
+		if (!Definition.Id.IsValid()) Definition.Id = FGuid::NewGuid();
+		Node.Opcode = Definition.Type == EMaterialParameterType::Texture
+			? EMaterialProgramOpcode::TextureParameter : EMaterialProgramOpcode::Parameter;
+		Node.ResultType = GetProgramType(Definition.Type);
+		Node.Parameter = std::move(Definition);
+		const auto Id = Node.Parameter.Id;
+		auto Result = CreateNode(Material, {.Node = std::move(Node)}, Transactions);
+		if (Result) Result.AffectedParameterIds = {Id};
+		return Result;
 	}
 
 	auto FMaterialGraphOperations::RenameParameter(
 		DMaterial& Material, const FGuid& ParameterId, FName Name, DTransactor* Transactions)
 		-> FMaterialGraphCommandResult
 	{
-		return CommitDeclarationEdit(Material, Transactions,
-			[&] { return Material.RenameParameterDefinition(ParameterId, Name); });
+		auto Program = *Material.GetMaterialProgram();
+		auto Node = std::ranges::find_if(Program.Nodes,
+			[&](const auto& Item) { return Item.Parameter.Id == ParameterId; });
+		if (Node == Program.Nodes.end()) return MakeRejected("Parameter owner is unavailable.");
+		Node->Parameter.Name = Name;
+		Node->Parameter.DisplayName = Name.ToString();
+		auto Result = ReplaceProgram(Material, std::move(Program), Transactions);
+		if (Result) Result.AffectedParameterIds = {ParameterId};
+		return Result;
 	}
 
 	auto FMaterialGraphOperations::DeleteParameter(
 		DMaterial& Material, const FGuid& ParameterId, DTransactor* Transactions)
 		-> FMaterialGraphCommandResult
 	{
-		return CommitDeclarationEdit(Material, Transactions,
-			[&] { return Material.DeleteParameterDefinition(ParameterId); });
+		const auto& Nodes = Material.GetMaterialProgram()->Nodes;
+		const auto Node = std::ranges::find_if(Nodes,
+			[&](const auto& Item) { return Item.Parameter.Id == ParameterId; });
+		if (Node == Nodes.end()) return MakeRejected("Parameter owner is unavailable.");
+		const auto Id = Node->Id;
+		return RemoveNodes(Material, std::span(&Id, 1), Transactions);
 	}
 
 	auto FMaterialGraphOperations::PromoteConstantToParameter(
@@ -48,20 +68,11 @@ namespace Durin::Editor::Material
 			return MakeRejected("Only a numeric constant can be promoted to a parameter.");
 		Definition.Type = *Type;
 		Definition.Value = MakeParameterValue(Node->ResultType, Node->Literal);
-		std::vector<FMaterialParameterDefinition> Definitions(
-			Material.GetParameterDefinitions().begin(), Material.GetParameterDefinitions().end());
-		if (const auto* Existing = Material.FindParameterDefinition(Name))
-		{
-			if (Existing->Type != Definition.Type)
-				return MakeRejected("The parameter name is already used by a different type.");
-			Definition = *Existing;
-		}
-		else Definitions.push_back(Definition);
 		Node->Opcode = EMaterialProgramOpcode::Parameter;
-		Node->ParameterId = Definition.Id;
+		Node->Parameter = Definition;
 		Node->DisplayName = Definition.DisplayName;
 		Node->Literal = {};
-		auto Result = ReplaceDefinitionsAndProgram(Material, std::move(Definitions), std::move(Program), Transactions);
+		auto Result = ReplaceProgram(Material, std::move(Program), Transactions);
 		if (Result)
 		{
 			Result.AffectedNodeIds = {NodeId};
@@ -70,54 +81,22 @@ namespace Durin::Editor::Material
 		return Result;
 	}
 
-	auto FMaterialGraphOperations::ReplaceDefinitionsAndProgram(
-		DMaterial& Material,
-		std::vector<FMaterialParameterDefinition> Definitions,
-		FMaterialProgram Program,
-		DTransactor* Transactions) -> FMaterialGraphCommandResult
+	auto FMaterialGraphOperations::ReplaceProgram(DMaterial& Material,
+		FMaterialProgram Program, DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
-		return ReplaceDefinitionsAndProgram(Material, std::move(Definitions),
-			std::move(Program), Material.GetMaterialGraphPresentation(), Transactions);
+		return ReplaceProgram(Material, std::move(Program), Material.GetMaterialGraphPresentation(), Transactions);
 	}
 
-	auto FMaterialGraphOperations::ReplaceDefinitionsAndProgram(
-		DMaterial& Material,
-		std::vector<FMaterialParameterDefinition> Definitions,
-		FMaterialProgram Program,
-		FMaterialGraphPresentation Presentation,
+	auto FMaterialGraphOperations::ReplaceProgram(DMaterial& Material,
+		FMaterialProgram Program, FMaterialGraphPresentation Presentation,
 		DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
-		if (!IsValid(&Material))
-			return {.Status = EMaterialGraphCommandStatus::StaleOwner};
-		if (Transactions && Transactions->HasPendingOperation())
-			return MakeRejected("The editor transactor is busy.");
-		FMaterialDeclarationState Before{
-			.Definitions = {Material.GetParameterDefinitions().begin(), Material.GetParameterDefinitions().end()},
-			.Program = *Material.GetMaterialProgram(),
-			.Presentation = Material.GetMaterialGraphPresentation()};
-		Presentation = SanitizeMaterialGraphPresentation(Presentation, Program);
-		if (Before.Definitions == Definitions && Before.Program == Program
-			&& Before.Presentation == Presentation)
-			return {.Status = EMaterialGraphCommandStatus::NoChange};
-		auto Result = Material.SetMaterialDefinitionsAndProgram(Definitions, Program);
-		if (!Result)
-		{
-			std::string Message(GetMaterialParameterErrorText(Result.Error));
-			if (Result.ParameterId.IsValid())
-				Message += std::format(" Parameter: {}", Result.ParameterId.ToString());
-			return MakeRejected(std::move(Message), std::move(Result.Diagnostics));
-		}
-		Material.SetMaterialGraphPresentation(std::move(Presentation));
-		if (Transactions)
-		{
-			FMaterialDeclarationState After{
-				.Definitions = std::move(Definitions), .Program = *Material.GetMaterialProgram(),
-				.Presentation = Material.GetMaterialGraphPresentation()};
-			const auto bRecorded = Transactions->CommitApplied(
-				MakeMaterialDeclarationTransaction(Material, std::move(Before), std::move(After)));
-			check(bRecorded);
-		}
-		return {.Status = EMaterialGraphCommandStatus::Succeeded};
+		FMaterialGraphDocument Document(Material);
+		FMaterialGraphDocumentState State;
+		if (!Document.Capture(State)) return {.Status = EMaterialGraphCommandStatus::StaleOwner};
+		State.Program = std::move(Program);
+		State.Presentation = std::move(Presentation);
+		return Document.Commit(std::move(State), "Edit Material Graph", Transactions);
 	}
 
 	auto FMaterialGraphOperations::CreateNode(
@@ -136,7 +115,7 @@ namespace Durin::Editor::Material
 	{
 		if (AcceptedInputTypes.size() != Request.Node.Inputs.size())
 			return MakeRejected("The node palette input shape is stale.");
-		if (!Request.Node.ParameterId.IsValid()
+		if (!Request.Node.Parameter.Id.IsValid()
 			&& (Request.Node.Opcode == EMaterialProgramOpcode::Parameter
 				|| Request.Node.Opcode == EMaterialProgramOpcode::TextureParameter
 				|| Request.Node.Opcode == EMaterialProgramOpcode::TextureSampleParameter2D))
@@ -153,19 +132,15 @@ namespace Durin::Editor::Material
 			for (uint32 Suffix = 1; Material.FindParameterDefinition(Definition.Name); ++Suffix)
 				Definition.Name = FName(std::format("{}{}", BaseName, Suffix));
 			Definition.DisplayName = Definition.Name.ToString();
-			std::vector<FMaterialParameterDefinition> Definitions(
-				Material.GetParameterDefinitions().begin(), Material.GetParameterDefinitions().end());
-			Definitions.push_back(Definition);
 			if (!Request.Node.Id.IsValid()) Request.Node.Id = FGuid::NewGuid();
 			const FGuid NodeId = Request.Node.Id;
-			Request.Node.ParameterId = Definition.Id;
+			Request.Node.Parameter = Definition;
 			Request.Node.DisplayName = Definition.DisplayName;
 			auto Program = *Material.GetMaterialProgram();
 			Program.Nodes.push_back(std::move(Request.Node));
 			auto Presentation = Material.GetMaterialGraphPresentation();
 			Presentation.Nodes.push_back({NodeId, Request.X, Request.Y});
-			auto Result = ReplaceDefinitionsAndProgram(Material, std::move(Definitions),
-				std::move(Program), std::move(Presentation), Transactions);
+			auto Result = ReplaceProgram(Material, std::move(Program), std::move(Presentation), Transactions);
 			if (Result)
 			{
 				Result.GeneratedNodeIds = {NodeId};
@@ -392,13 +367,6 @@ namespace Durin::Editor::Material
 	{
 		if (Transactions && Transactions->HasPendingOperation())
 			return MakeRejected("The editor transactor is busy.");
-		const std::vector Dependencies = InspectMaterialParameterDependencies(
-			*Material.GetMaterialProgram(), Material.GetParameterDefinitions(), Material.GetMaterialFunctionCalls());
-		if (std::ranges::none_of(Dependencies, [&](const auto& Dependency) {
-			return Dependency.ParameterId == ParameterId;
-		}))
-			return MakeRejected(
-				"Only a reachable material graph parameter can be edited here.");
 		FResolvedMaterialParameter Resolved;
 		if (!Material.ResolveParameterValue(ParameterId, Resolved)
 			|| !Resolved.Definition)
@@ -418,7 +386,7 @@ namespace Durin::Editor::Material
 		}
 		std::vector<FGuid> AffectedNodes;
 		for (const FMaterialProgramNode& Node : Material.GetMaterialProgram()->Nodes)
-			if (Node.ParameterId == ParameterId) AffectedNodes.push_back(Node.Id);
+			if (Node.Parameter.Id == ParameterId) AffectedNodes.push_back(Node.Id);
 		return {.Status = EMaterialGraphCommandStatus::Succeeded,
 			.AffectedNodeIds = std::move(AffectedNodes)};
 	}
@@ -440,57 +408,32 @@ namespace Durin::Editor::Material
 				"Only an unconnected material surface output can be promoted.");
 		if (BeforeProgram.Nodes.size() >= MaterialProgramMaxNodeCount)
 			return MakeRejected("The material graph node limit has been reached.");
-		const FGuid ParameterId = GetMaterialSurfaceParameterId(Request.Output,
-			MaterialParameters::EMaterialBuiltinParameterKind::Value);
-		FResolvedMaterialParameter BeforeResolved;
-		if (!Material.ResolveParameterValue(ParameterId, BeforeResolved))
-			return MakeRejected(
-				"The material surface parameter definition is unavailable.");
-		const EMaterialProgramValueType Type =
-			GetMaterialSurfaceOutputType(Request.Output);
-		const FMaterialParameterValue AfterValue = MakeParameterValue(
-			Type, GetMaterialSurfaceOutputDefault(
-				BeforeProgram.Outputs, Request.Output));
-
-		FMaterialProgram Candidate = BeforeProgram;
+		auto Candidate = BeforeProgram;
 		FMaterialProgramNode Node;
 		Node.Id = FGuid::NewGuid();
 		Node.Opcode = EMaterialProgramOpcode::Parameter;
-		Node.ResultType = Type;
-		Node.ParameterId = ParameterId;
-		if (const FMaterialParameterDefinition* Definition =
-			Material.FindParameterDefinition(ParameterId))
-			Node.DisplayName = Definition->DisplayName;
-		const FGuid NodeId = Node.Id;
+		Node.ResultType = GetMaterialSurfaceOutputType(Request.Output);
+		Node.Parameter.Id = FGuid::NewGuid();
+		const std::string Name = "SurfaceParameter";
+		Node.Parameter.Name = FName(Name);
+		for (uint32 Suffix = 1; Material.FindParameterDefinition(Node.Parameter.Name); ++Suffix)
+			Node.Parameter.Name = FName(std::format("{}{}", Name, Suffix));
+		Node.Parameter.DisplayName = Node.Parameter.Name.ToString();
+		Node.Parameter.Type = *GetParameterType(Node.ResultType);
+		Node.Parameter.Value = MakeParameterValue(Node.ResultType,
+			GetMaterialSurfaceOutputDefault(Candidate.Outputs, Request.Output));
+		const auto Id = Node.Id;
+		const auto ParameterId = Node.Parameter.Id;
 		Candidate.Nodes.push_back(std::move(Node));
-		GetMaterialSurfaceOutputLink(Candidate.Outputs, Request.Output) =
-			{NodeId, 0};
-		FMaterialGraphPresentation CandidatePresentation =
-			Material.GetMaterialGraphPresentation();
-		CandidatePresentation.Nodes.push_back(
-			{NodeId, Request.X, Request.Y});
-		const FMaterialGraphPresentation BeforePresentation =
-			Material.GetMaterialGraphPresentation();
-		FMaterialGraphCommandResult Result = CommitSemanticChange(Material, Candidate,
-			CandidatePresentation, "Promote Material Surface Parameter",
-			{NodeId}, {NodeId}, nullptr);
-		if (!Result) return Result;
-		if (!Material.SetParameterValue(ParameterId, AfterValue))
+		GetMaterialSurfaceOutputLink(Candidate.Outputs, Request.Output) = {Id};
+		auto Presentation = Material.GetMaterialGraphPresentation();
+		Presentation.Nodes.push_back({Id, Request.X, Request.Y});
+		auto Result = ReplaceProgram(Material, std::move(Candidate), std::move(Presentation), Transactions);
+		if (Result)
 		{
-			const auto RollbackValidation = Material.SetMaterialProgram(BeforeProgram);
-			Material.SetMaterialGraphPresentation(BeforePresentation);
-			return MakeRejected(
-				"The promoted material parameter value could not be initialized.");
-		}
-		if (Transactions)
-		{
-			const auto bRecorded = Transactions->CommitApplied(
-				MakeMaterialGraphSemanticTransaction(Material,
-					BeforeProgram, BeforePresentation, Candidate,
-					CandidatePresentation,
-					"Promote Material Surface Parameter", ParameterId,
-					BeforeResolved.Value, AfterValue));
-			check(bRecorded);
+			Result.GeneratedNodeIds = {Id};
+			Result.AffectedNodeIds = {Id};
+			Result.AffectedParameterIds = {ParameterId};
 		}
 		return Result;
 	}
@@ -512,8 +455,7 @@ namespace Durin::Editor::Material
 			> MaterialProgramMaxNodeCount)
 			return MakeRejected(
 				"Adding the texture branch would exceed the material graph node limit.");
-		const FGuid TextureRole = GetMaterialSurfaceParameterId(Request.Output,
-			MaterialParameters::EMaterialBuiltinParameterKind::Texture);
+
 		FMaterialGraphPresentation Presentation =
 			Material.GetMaterialGraphPresentation();
 		std::vector<FGuid> Generated;
@@ -536,11 +478,19 @@ namespace Durin::Editor::Material
 			EMaterialProgramOpcode::TextureParameter,
 			EMaterialProgramValueType::Texture2D, {},
 			Request.X - 640, Request.Y - 80);
-		Texture.ParameterId = TextureRole;
-		if (const FMaterialParameterDefinition* Definition =
-			Material.FindParameterDefinition(TextureRole))
-			Texture.DisplayName = Definition->DisplayName;
+		Texture.Parameter.Id = FGuid::NewGuid();
+		Texture.Parameter.Type = EMaterialParameterType::Texture;
+		Texture.Parameter.Name = FName("TextureParameter");
+		for (uint32 Suffix = 1; Material.FindParameterDefinition(Texture.Parameter.Name); ++Suffix)
+			Texture.Parameter.Name = FName(std::format("TextureParameter{}", Suffix));
+		Texture.Parameter.DisplayName = Texture.Parameter.Name.ToString();
+		if (bNormal)
+		{
+			Texture.Parameter.TextureUsage = ETextureUsage::Normal;
+			Texture.Parameter.Value.TextureFallback = EMaterialTextureFallback::FlatRGNormal;
+		}
 		const FGuid TextureId = Texture.Id;
+		const FGuid ParameterId = Texture.Parameter.Id;
 		FMaterialProgramNode& Channel = AddNode(
 			EMaterialProgramOpcode::Constant,
 			EMaterialProgramValueType::Float, {},
@@ -592,8 +542,9 @@ namespace Durin::Editor::Material
 		}
 		GetMaterialSurfaceOutputLink(Candidate.Outputs, Request.Output) =
 			{ResultId, 0};
-		return CommitSemanticChange(Material, std::move(Candidate), std::move(Presentation),
-			"Add Material Surface Texture", Generated, Generated,
-			Transactions);
+		auto Result = CommitSemanticChange(Material, std::move(Candidate), std::move(Presentation),
+			"Add Material Surface Texture", Generated, Generated, Transactions);
+		if (Result) Result.AffectedParameterIds = {ParameterId};
+		return Result;
 	}
 }

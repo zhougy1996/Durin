@@ -287,12 +287,6 @@ namespace Durin::Editor::Material
 				.Message = "The material graph owner is no longer available."};
 		if (Transactions && Transactions->HasPendingOperation())
 			return MakeRejected("The editor transactor is busy.");
-		const std::vector Dependencies = InspectMaterialParameterDependencies(
-			*Material.GetMaterialProgram(), Material.GetParameterDefinitions(), Material.GetMaterialFunctionCalls());
-		if (std::ranges::none_of(Dependencies, [&](const auto& Dependency) {
-			return Dependency.ParameterId == ParameterId;
-		}))
-			return MakeRejected("Only a reachable material graph parameter can be edited here.");
 		FResolvedMaterialParameter Resolved;
 		if (!Material.ResolveParameterValue(ParameterId, Resolved)
 			|| !Resolved.Definition)
@@ -325,7 +319,7 @@ namespace Durin::Editor::Material
 		Impl->CurrentValue = std::move(Value);
 		std::vector<FGuid> AffectedNodes;
 		for (const FMaterialProgramNode& Node : Material->GetMaterialProgram()->Nodes)
-			if (Node.ParameterId == Impl->ParameterId) AffectedNodes.push_back(Node.Id);
+			if (Node.Parameter.Id == Impl->ParameterId) AffectedNodes.push_back(Node.Id);
 		return {.Status = EMaterialGraphCommandStatus::Succeeded,
 			.AffectedNodeIds = std::move(AffectedNodes)};
 	}
