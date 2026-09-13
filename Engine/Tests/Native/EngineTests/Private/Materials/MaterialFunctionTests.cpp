@@ -1,4 +1,5 @@
 #include "MaterialTestSupport.h"
+#include "StandardMaterialFunctionTestFixture.h"
 #include "Materials/MaterialFunction.h"
 #include "Asset/Testing.h"
 #include "Asset/References.h"
@@ -37,6 +38,99 @@ namespace
 		Graph.Nodes[1].Inputs[0] = {.SourceNodeId = CallId, .SourceOutputId = Output.Id};
 		ASSERT_TRUE(Caller.SetFunctionGraph(std::move(Graph)));
 	}
+}
+
+TEST(FMaterialFunctionTests, FrozenImportedSurfacePreservesCompilationAndIndependentOverrides)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	FScopedOfflinePreparation Offline;
+	const auto Root = Testing::CreateTestFixtureDirectory("FrozenImportedSurface");
+	const auto Source = std::filesystem::path(FPaths::EngineDir()) / "Tests/Data/Materials/GraphAuthoringV5";
+	std::filesystem::create_directories(Root / "Materials/Functions");
+	for (const std::string_view File : {"ImportedSurface.dasset", "Functions/UVTransform.dasset",
+		"Functions/SampleNormal.dasset", "Functions/SampleORM.dasset", "Functions/StandardPBR.dasset",
+		"Functions/StandardPBR_ORM.dasset"})
+		std::filesystem::copy_file(Source / File, Root / "Materials" / File);
+	const std::array Mounts{FMountPoint{.VirtualRoot = "/Engine/", .Owner = EMountOwner::Test,
+		.Root = Root, .bAutoScan = true, .bContentWritable = true}};
+	Testing::FScopedMountRegistryFixture Registry(Mounts);
+	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
+	ASSERT_TRUE(RefreshAssetRegistry());
+	FPackagePath MaterialPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/Engine/Materials/ImportedSurface", MaterialPath));
+	DMaterial* Frozen = nullptr;
+	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), Frozen));
+	ASSERT_NE(Frozen, nullptr);
+	ASSERT_EQ(Frozen->GetParameterDefinitions().size(), 48u);
+
+	auto* Current = NewObject<DMaterial>(nullptr, "CurrentImportedSurface");
+	ASSERT_NE(Current, nullptr);
+	Current->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	ASSERT_TRUE(Current->SetMaterialDefinitionsAndProgram(MakePBRMaterialParameterDefinitions(), {}));
+	ASSERT_TRUE(Testing::SetStandardMaterialProgramForTest(*Current));
+	FMaterialCompilerInput FrozenInput, CurrentInput;
+	const FMaterialCompilerEnvironment Environment{.CompilerIdentity = "ImportedSurfaceParity"};
+	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Frozen, Environment, FrozenInput));
+	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Current, Environment, CurrentInput));
+	const auto Baseline = NormalizeMaterialProgram(FrozenInput);
+	const auto Candidate = NormalizeMaterialProgram(CurrentInput);
+	ASSERT_TRUE(Baseline);
+	ASSERT_TRUE(Candidate);
+	EXPECT_EQ(Baseline.CanonicalBytes, Candidate.CanonicalBytes);
+	EXPECT_EQ(Baseline.Layout.Fields, Candidate.Layout.Fields);
+	const auto BaselineSource = GenerateMaterialProgramSlang(Baseline.IR, Baseline.Layout);
+	const auto CandidateSource = GenerateMaterialProgramSlang(Candidate.IR, Candidate.Layout);
+	ASSERT_TRUE(BaselineSource);
+	ASSERT_TRUE(CandidateSource);
+	EXPECT_EQ(BaselineSource.Source, CandidateSource.Source);
+	ASSERT_EQ(Baseline.Layout.Fields.size(), 48u);
+	const auto ArtifactRoot = Testing::GetTestWorkDirectory() / "MaterialAuthoringBaseline";
+	std::filesystem::create_directories(ArtifactRoot);
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Baseline.CanonicalBytes, ArtifactRoot / "canonical-ir.bin"));
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(std::as_bytes(std::span(BaselineSource.Source)),
+		ArtifactRoot / "generated.slang"));
+	RecordProperty("BaselineExpressionCount", static_cast<int>(Baseline.IR.Nodes.size()));
+	RecordProperty("BaselineParameterCount", static_cast<int>(Baseline.Layout.Fields.size()));
+
+	// A nonidentity override on one map must never become a shared UV default.
+	auto* Parent = NewObject<DMaterialInstance>(nullptr, "IndependentUVParent");
+	auto* Child = NewObject<DMaterialInstance>(nullptr, "IndependentUVChild");
+	ASSERT_TRUE(Parent->SetParent(Frozen));
+	ASSERT_TRUE(Child->SetParent(Parent));
+	using Kind = MaterialParameters::EMaterialBuiltinParameterKind;
+	for (uint32 Index = 0; Index < 8; ++Index)
+	{
+		const auto Role = static_cast<EMaterialSurfaceOutput>(Index);
+		for (const auto ParameterKind : {Kind::UVChannel, Kind::UVScale, Kind::UVOffset, Kind::UVRotation})
+		{
+			const auto Id = GetMaterialSurfaceParameterId(Role, ParameterKind);
+			const auto* Definition = Frozen->FindParameterDefinition(Id);
+			ASSERT_NE(Definition, nullptr);
+			const auto Value = ParameterKind == Kind::UVScale || ParameterKind == Kind::UVOffset
+				? FMaterialParameterValue::MakeVector2({1.25f + Index, -.125f * Index})
+				: FMaterialParameterValue::MakeScalar(ParameterKind == Kind::UVChannel
+					? static_cast<float>(Index % 4) : .2f * (Index + 1));
+			ASSERT_TRUE(Parent->SetParameterOverride(Id, Definition->Type, Value));
+			FResolvedMaterialParameter Resolved;
+			ASSERT_TRUE(Child->ResolveParameterValue(Id, Resolved));
+			EXPECT_EQ(Resolved.Value, Value);
+			EXPECT_FALSE(Child->IsParameterOverrideOrphan(Id));
+		}
+	}
+	// Switching to the new recipe must preserve inherited values by GUID.
+	ASSERT_TRUE(Parent->SetParent(Current));
+	for (const auto& Override : Parent->GetParameterOverrides())
+	{
+		FResolvedMaterialParameter Resolved;
+		ASSERT_TRUE(Child->ResolveParameterValue(Override.ParameterId, Resolved));
+		EXPECT_EQ(Resolved.Value, Override.Value);
+		EXPECT_FALSE(Parent->IsParameterOverrideOrphan(Override.ParameterId));
+	}
+	MarkAsGarbage(Child);
+	MarkAsGarbage(Parent);
+	MarkAsGarbage(Current);
+	CollectGarbage();
 }
 
 TEST(FMaterialFunctionTests, WorkspaceSavesAndReloadsFunctionsAcrossOpenDocuments)

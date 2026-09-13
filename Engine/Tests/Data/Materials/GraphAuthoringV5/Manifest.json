@@ -1,0 +1,40 @@
+{
+  "SourceCommit": "78c7b7d15",
+  "Captured": "2026-09-13",
+  "ProgramSchema": 5,
+  "FunctionSchema": 1,
+  "DeclarationSchema": 2,
+  "Description": "Immutable pre-refactor packages. Preserve original bytes for schema migration and semantic parity tests; do not regenerate from the current recipe.",
+  "Files": [
+    {
+      "Path": "ImportedSurface.dasset",
+      "Bytes": 39689,
+      "SHA256": "4A536EF82B67FAD061F6EE2FCFE512AAE8C3C8BC781479B2D5D5883A139B38F8"
+    },
+    {
+      "Path": "Functions/UVTransform.dasset",
+      "Bytes": 12384,
+      "SHA256": "405E2F80A2C5F0C27A3CE50660B6BEA9A6E9FD88391F772FCAD1827434B6103B"
+    },
+    {
+      "Path": "Functions/SampleNormal.dasset",
+      "Bytes": 11192,
+      "SHA256": "5C9C3362DC015F4F1A8AF3ECAAB43D8F6B148BA9DA95BA69623B1141DC0C6598"
+    },
+    {
+      "Path": "Functions/SampleORM.dasset",
+      "Bytes": 9927,
+      "SHA256": "E51F07D0B0B07F0DB9AA53446EAC50644022659FE1EC3756A1176A18991B30AF"
+    },
+    {
+      "Path": "Functions/StandardPBR.dasset",
+      "Bytes": 43465,
+      "SHA256": "E95C0478B0A487332A9602015331449E8455E81818277EC1998A9268A5FAB3CA"
+    },
+    {
+      "Path": "Functions/StandardPBR_ORM.dasset",
+      "Bytes": 37999,
+      "SHA256": "08A58B41D8541F383B7AB9A68E3BBD48B0A2DCE60383BC32B21E3D539C3C0E1D"
+    }
+  ]
+}

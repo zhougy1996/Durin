@@ -9,10 +9,29 @@ Completed:
 
 ## Current Status
 
-Design recorded; implementation has not started. This plan addresses the user's
+Stage 0 execution started on 2026-09-13. Immutable schema-5 parent and schema-1
+function package fixtures are saved in `Engine/Tests/Data/Materials/GraphAuthoringV5`
+with byte sizes and SHA-256 hashes. A native regression compares their normalized
+IR, compiled layout and generated Slang against the current recipe and exercises
+all 32 independent UV overrides through nested instances and parent replacement.
+The new regression passed on 2026-09-13 (MaterialTests, 1/1), followed by the
+complete MaterialTests target (181/181). MaterialVulkanTests passed (1/1), and
+the complete directional shadow qualification target passed. Retained forward
+and shadow images are copied under `Build/MaterialGraphAuthoringBaseline` for
+same-machine final comparison. The focused regression also writes canonical IR
+and generated Slang when test work is retained. Stage 1 can proceed against the
+frozen fixtures; project-wide runtime asset eligibility inventory remains a
+required gate before Stage 3 migration writes, not before additive API work.
+
+Receipts: `20260913-155009-217735-21884-MaterialTests.log`,
+`20260913-155347-205182-2492-MaterialVulkanTests.log`,
+`20260913-155427-769340-9016-ctest.log`, and
+`20260913-155641-734577-13648-MaterialTests.log` under `Build/.agent-state/logs`.
+
+This plan addresses the user's
 imported-material screenshots and questions about texture roles and UV channels.
 It supersedes the initial suggestion to solve the problem primarily with visual
-node groups. No runtime behavior or assets change in this design commit.
+node groups. The initial design commit is `78c7b7d15`.
 
 The current `MakeImportedSurfaceFunctionProgram` generates 65 expression nodes:
 48 parameter references, eight UVChannel reads, eight UVTransform calls and one
@@ -230,6 +249,45 @@ retain recoverable old package bytes. Re-running successful migration is a no-op
 
 ## Implementation Stages
 
+### Stage 0 Findings
+
+- `SelectAuthoredUV` in MaterialProgramGenerator emits
+  `(uint)clamp(floor(channel + 0.5), 0.0, 3.0)`: four supported channels,
+  nearest integer with half steps toward positive infinity, then clamping.
+  StaticMeshBuildOperations fills missing imported UV channels with (0,0),
+  and StaticMeshBasePass forwards all four channels. Do not substitute UV0
+  for missing channels during compact lowering.
+- The current UVTransform function applies scale, rotation in radians about
+  (0,0), then offset. Expanded origin records contain NodeId, FunctionAssetPath
+  and CallPath; compact lowering must additionally identify the authored field.
+- Reserve program schema 6, function schema 2 and clipboard schema 5 for this
+  change. Keep declaration schema 2, graph presentation 2 and function
+  presentation 1 unless actual storage changes require otherwise. Cooked layout
+  remains 4; compiler identity/envelope changes require a separate compatibility
+  review after normalized behavior is measured.
+- Storage decision after code inspection: retain the serialized `Inputs` link
+  arrays and append typed `InputDefaults` at matching indices. Function-call
+  bindings likewise retain Source and append Default. This realizes the selected
+  connection-plus-retained-value model without changing old field meanings or
+  requiring deprecated array readers. Schema upgrades must require empty new
+  fields in old-version payloads, then validate the candidate before promotion.
+- DMaterial::PostLoad currently contains a bounded schema-4-to-5 upgrade before
+  ValidateMaterialProgramWithFunctions. Extend this entrypoint with a bounded
+  5-to-6 conversion, preserving the existing older route. DMaterialFunction has
+  no PostLoad override today; add a 1-to-2 upgrade before its graph can be used
+  by BuildFunctionSnapshot. New binding fields must not reinterpret serialized
+  old `Inputs` link arrays: preserve them and initialize separate default storage.
+  Cover reflected function-call input records
+  as well as positional inputs. API setters continue rejecting unsupported input.
+- Selected registry targets are MaterialTests, MaterialThumbnailTests and
+  MaterialVulkanTests. Run MaterialTests first, then bounded GPU baseline and
+  final affected coverage. MaterialCreationQualificationTests concerns resource
+  creation failures and is not the initial semantic baseline target.
+- The six frozen packages preserve the complete shipped function dependency
+  set, including ORM. They are source fixtures, not yet evidence that loaded
+  assets match their expected recipes. The current project also contains two
+  VintageLighter material packages requiring runtime override inventory.
+
 ### Stage 0: Freeze fixtures and compatibility inventory
 
 Outcome: executable baseline and a schema rollout that cannot strand old assets.
@@ -238,9 +296,9 @@ Outcome: executable baseline and a schema rollout that cannot strand old assets.
   record schemas, override GUIDs, node counts and edited implementations.
 - [ ] Capture baseline IR, parameter layouts and representative forward,
   GBuffer and masked-shadow images, including nonidentity independent UVs.
-- [ ] Record current UV channel edge behavior and origin mappings needed by
+- [x] Record current UV channel edge behavior and origin mappings needed by
   lowering; specify exact version numbers and old-schema decode entrypoints.
-- [ ] Select affected native tests using [testing guidance](../Agents/Testing.md).
+- [x] Select affected native tests using [testing guidance](../Agents/Testing.md).
 
 Gate: fixtures cover all eight roles, nested instances, UV0/UV1, sampler/fallback,
 normal decode and edited standard-function dependencies before schema mutation.
