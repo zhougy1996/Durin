@@ -10,8 +10,9 @@ Completed:
 ## Current Status
 
 Stage 0 source and mounted-content audits are complete at execution baseline
-`2d3eef2fa1af59da8d7a86c428398bd28fc0765b`. Stage 1 implementation and validation
-are complete; Stages 2 through 5 remain open. The next stage is root authoring.
+`2d3eef2fa1af59da8d7a86c428398bd28fc0765b`. Stages 1 and 2 implementation and
+validation are complete; Stages 3 through 5 remain open. The next stage is minimal
+structural import parents and instance reconciliation.
 The frozen decisions and validation receipts below govern subsequent stages.
 Stage 1 implements final-value evaluation and compiler invalidation. Its generated
 parent's redundant policy and exact recipe checkpoint changed together: the one
@@ -192,14 +193,14 @@ no duplicate sampling, decoding, or output clamping is introduced.
 
 ### Stage 2: Unify root authoring and default creation
 
-- [ ] Present one Surface root with material identity/settings, supported property
+- [x] Present one Surface root with material identity/settings, supported property
   inputs, and appropriate Lit/Unlit and blend-mode feedback.
-- [ ] Make DefaultMaterial and new-material creation use the same default contract.
-- [ ] Preserve aggregate/per-property switching, fallback restoration, validation,
+- [x] Make DefaultMaterial and new-material creation use the same default contract.
+- [x] Preserve aggregate/per-property switching, fallback restoration, validation,
   selection, layout, diagnostics, Apply/Discard, and atomic Undo/Redo.
-- [ ] Keep unused controls compact while retaining connected/editable data; never
+- [x] Keep unused controls compact while retaining connected/editable data; never
   silently discard bindings when a property becomes inactive.
-- [ ] Capture and inspect actual editor output for empty/default materials, a
+- [x] Capture and inspect actual editor output for empty/default materials, a
   direct texture connection, a normal function, and narrow-window editing.
 
 Gate: no authoring path requires two visible output nodes or Factor/Sample pairs.
@@ -454,6 +455,42 @@ Validation on Win64-Debug-DurinEditor:
   `Build/.agent-state/logs/20260914-033602-036463-33688-cmake.log`.
 - Local reconstruction and follow-up mounted recipe inventories are retained under
   `Documentation/Local/MaterialSurfaceBaseline/stage1-*.txt`.
+
+## Stage 2 Receipt
+
+The existing final anchor is displayed as Surface with material identity and
+current shading/blend modes. Selecting it or clearing node selection exposes
+Surface Settings in Details. The supported domain is Surface only; Lit/Unlit,
+blend, masked cutoff, two-sided state and depth-write policy remain distinct.
+These controls submit through the existing reflected-property transaction boundary
+on the working document. Inactive cutoff data and all inactive graph bindings are
+retained. Only inactive input label styling changes; values remain editable.
+Terminal identity, compiler reachability and aggregate/per-property exclusion are
+unchanged. No serialized graph version or duplicate output node was introduced.
+
+DefaultMaterial and fresh material creation already use the same Engine default
+program. Existing creation, default, aggregate, fallback, transaction and session
+tests were retained and passed. Source/default material assets were not rewritten
+for the presentation change.
+
+Actual ImGui draw-data captures (using the existing headless rasterizer) were
+inspected for empty Surface, direct Base Color sample, SampleNormal call, and a
+900-pixel-wide Unlit/Masked window with settings and retained normal connection.
+They are retained at `Documentation/Local/MaterialSurfaceBaseline/Stage2Images/`
+as `surface-empty.png`, `surface-texture.png`, `surface-normal.png` and
+`surface-narrow-unlit.png`. This is rendered editor canvas evidence, not a native
+desktop-window capture. The new fixture also asserts that switching shading/blend
+properties leaves the complete bound program unchanged.
+
+Validation on Win64-Debug-DurinEditor:
+
+- `MaterialTests`: 194/194 passed in 105.694 seconds, receipt
+  `Build/.agent-state/logs/20260914-034433-685517-32600-MaterialTests.log`.
+- Final canvas hover gating change: `FMaterialGraphOperationsTests.*`, 46/46
+  passed in 25.054 seconds, receipt
+  `Build/.agent-state/logs/20260914-034638-552567-33132-MaterialTests.log`.
+- Final workspace `all` build passed, receipt
+  `Build/.agent-state/logs/20260914-034704-129488-14268-cmake.log`.
 
 ## Execution References
 

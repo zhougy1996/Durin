@@ -358,7 +358,7 @@ namespace Durin::Editor::Material
 	{
 		FMaterialGraphDocumentState State;
 		if (!Capture(State)) return {.Status = EMaterialGraphCommandStatus::StaleOwner};
-		if (State.bFunction) return MakeRejected("Function documents expose output ports instead of Material Output.");
+		if (State.bFunction) return MakeRejected("Function documents expose output ports instead of Surface.");
 		if (Attribute)
 		{
 			if (static_cast<uint32>(*Attribute) >= 8) return MakeRejected("The material output attribute is invalid.");
@@ -372,7 +372,7 @@ namespace Durin::Editor::Material
 				for (uint32 Index = 0; Index < 8; ++Index)
 					GetMaterialSurfaceOutputLink(State.Program.Outputs, static_cast<EMaterialSurfaceOutput>(Index)) = {};
 		}
-		return Commit(std::move(State), "Connect Material Output", Transactions);
+		return Commit(std::move(State), "Connect Surface", Transactions);
 	}
 
 	auto FMaterialGraphDocument::InsertFunctionCall(DMaterialFunctionInterface& Function,

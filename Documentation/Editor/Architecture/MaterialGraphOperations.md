@@ -26,7 +26,7 @@ program, allowing node edits and Undo/Redo in materials that already use functio
 owners. It captures program nodes with owned parameters, function interface/calls and
 presentation, validates candidate state through the owning Engine asset, and
 records a complete undoable change. Function state cannot contain root parameter
-declarations or Material Output bindings. Transaction reference collection retains
+declarations or Surface bindings. Transaction reference collection retains
 function and texture dependencies. Material canvas semantic commits use this same
 boundary. Interface replacement, call insertion and call input connection commands
 use stable GUIDs; insertion rejects a dependency closure that would recurse into
@@ -35,7 +35,7 @@ same transaction; output creation requires a source link. Removing a port reject
 if retained graph links still require its terminal. Interface type edits update
 terminal types atomically and reject incompatible retained wiring. Shared node
 creation/replacement/removal and positional-input connection work for both graph
-kinds. Material Output assignment accepts the full source link, including a
+kinds. Surface assignment accepts the full source link, including a
 function output GUID. Removing a call also removes its call record and restores
 disconnected material output fallbacks. Insertion accepts required input bindings
 in the same transaction. Connecting a newly declared output adds its typed call
@@ -73,7 +73,7 @@ as the selected result.
 
 `DMaterial::GraphPresentation` is a separate `EditorOnly` reflected value. It
 contains schema version 2, exactly one integral graph-space position for every
-live node GUID, and one integral Material Output position. New material and
+live node GUID, and one integral Surface position. New material and
 node creation establish those positions before publication. Sanitization retains
 the first valid record and removes duplicate, dangling, invalid, and out-of-range
 entries; an incomplete presentation violates the editable graph contract rather
@@ -88,7 +88,9 @@ and per-document controller state. None of those values are serialized.
 
 The shipped library lives in `/Engine/Materials/Functions` and uses the same
 function workspace, typed calls and transactions as user assets. ImportedSurface
-shows eight texture sample parameters, an explicit normal decoder and an ImportedSurfaceValues call: ten expression nodes plus Material Output.
+currently has 65 expression nodes, including 48 owners, eight samples and one
+normal decode call, connected to the same Surface root as new materials. Final
+numerical output policy belongs to Engine's evaluator, not imported Clamp nodes.
 Open a call to edit its function; shared semantic edits update loaded callers and
 previews through the ordinary dependency lifecycle. Preserve port GUIDs when
 renaming or reordering interfaces. Required inputs are collected during insertion;
@@ -121,8 +123,18 @@ lives in Details alongside the shared input editor, so selection does not resize
 or displace the canvas. Details owns selected-node authoring and instance
 inheritance, rendering properties and parameter overrides. There is no base-material
 Parameters manager or docking slot. New materials contain only
-Material Output with eight property inputs and retained defaults, without expression
+Surface with eight property inputs and retained defaults, without expression
 nodes or function calls.
+
+The single nondeletable Surface root displays the material identity, shading model
+and blend mode. Selecting it (or clearing the graph selection) exposes Surface
+Settings in Details: the supported Surface domain, Lit/Unlit shading, blend mode,
+masked cutoff, two-sided rendering and depth-write policy. Settings use reflected
+property transactions on the working material, so Apply/Discard and Undo/Redo
+retain their ordinary atomic behavior. Inactive cutoff values remain stored.
+Inactive property labels are dimmed without removing connections or editable
+defaults. The compiler's explicit final anchor and aggregate/per-property
+exclusion rule are unchanged; reusable Surface values do not become extra roots.
 
 Window controls reopen optional panels and reset the default layout. Material
 Info is a collapsed section in Details shown only when no graph node is selected.
@@ -167,7 +179,7 @@ ordered by display order and GUID. Detached pin records retain stable port GUIDs
 types, names, defaults, required flags and missing-port markers. Function terminals
 have typed named pins; Surface attribute pins retain their fixed attribute indices.
 The material canvas draws each output separately and preserves the full source
-link through drag, reconnection, Material Output assignment and node creation.
+link through drag, reconnection, Surface assignment and node creation.
 Callee authored revisions refresh the cached inspection, including interface-only
 renames. Surface attribute reconnection uses the same document command boundary.
 
@@ -193,14 +205,14 @@ and commit positions, mark the package dirty, and never compile or invalidate
 render data.
 
 Program schema 7 permits typed retained numeric defaults on ordinary inputs and makes each of the
-eight fixed Material Output inputs optionally connected. Disconnecting or
+eight fixed Surface inputs optionally connected. Disconnecting or
 deleting a surface source clears its link and returns to the retained typed
 fallback; ordinary inputs similarly restore retained literals. Required inputs without any fallback still reject. The
 canvas makes input replacement explicit with Shift and uses the same command
 result for invalid-target feedback. Aggregate and per-property sources cannot
 coexist in a valid program.
 
-ImportedSurface uses the same Material Output as a new material: each input accepts
+ImportedSurface uses the same Surface as a new material: each input accepts
 the final property value. Factor/sample composition lives upstream, so the template
 has no ImportedSurfaceValues wrapper or second Surface output node. Reusable
 functions can still return an aggregate Surface through the existing aggregate mode.
@@ -254,7 +266,7 @@ sample and required swizzle/decode operations; resource policy remains on the ow
 
 One user-visible command produces one global editor transaction. Semantic
 commands retain before/after program and presentation values; presentation-only
-commands retain only changed node or Material Output positions; parameter-only
+commands retain only changed node or Surface positions; parameter-only
 commands retain only the parameter GUID and before/after values. Every custom
 change reports its owned native allocations to the bounded transaction buffer.
 Undo and Redo restore semantic state through the ordinary material mutation
@@ -265,7 +277,7 @@ checkpoint. Undoing back to the open or most recently saved revision therefore
 clears the package dirty state and removes the unsaved marker; Redo marks it dirty
 again when it moves away from that checkpoint.
 
-Node and Material Output movement use `FMaterialGraphMoveSession`. Pointer-down
+Node and Surface movement use `FMaterialGraphMoveSession`. Pointer-down
 captures the selection and presentation, every drag sample previews sanitized
 positions, and pointer-up records one applied transaction. Escape, document
 switch, deactivation, discard, close, destruction, or stale owner cancels the
@@ -318,7 +330,7 @@ order, node IDs, links, outputs, normalized IR, or identity. New material
 creation persists the initial complete layout before the asset is first
 published. Opening, panning, zooming, selection framing, and diagnostic framing
 never synthesize or persist missing positions. Explicit Auto Layout and node or
-Material Output movement persist presentation through ordinary transactions.
+Surface movement persist presentation through ordinary transactions.
 
 ## Canvas and diagnostics
 
@@ -339,7 +351,7 @@ keeps silhouettes, selection, focus, pan, and framing while disabling pin
 mutation. Readable mode adds clipped operation titles. Editing mode adds
 secondary identity, named pins, output type, tooltips, and inline constant
 controls. Frame All includes the derived surface proxy; Frame Selection uses
-only the selection. The derived `Material Output` terminal is initially placed
+only the selection. The derived `Surface` terminal is initially placed
 one logical column after the rightmost node and remains stable during manual
 node arrangement. Its header displays the material asset name with `Material
 Output` as secondary identity. The terminal can be selected and dragged like a
@@ -392,7 +404,7 @@ reconnection, movement, and inline edit drafts without dirtying or compiling
 the material. Every mutation still routes to the stateless
 `FMaterialGraphOperations` operation boundary.
 
-`Promote to Parameter` is available on an unconnected Material Output input. It
+`Promote to Parameter` is available on an unconnected Surface input. It
 creates the compatible material-owned Parameter node one column upstream, copies the
 fallback into the definition value, connects the input, and records program,
 presentation, and value as one Undo/Redo transaction. `Add Texture` explicitly

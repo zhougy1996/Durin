@@ -36,6 +36,8 @@ namespace Durin::Editor::Material
 	{
 		static auto DrawInstance(MMaterialEditor& Editor, DMaterialInstance& Instance) -> void
 		{ Editor.DrawDetailsPanel({}, &Instance); }
+		static auto DrawBase(MMaterialEditor& Editor, DMaterial& Material) -> void
+		{ Editor.DrawDetailsPanel({}, &Material); }
 	};
 	struct FMaterialGraphCanvasTestAccess
 	{
@@ -959,15 +961,21 @@ TEST(FMaterialGraphOperationsTests, CompactCanvasRendersBindingsAndUVExtractionD
 		Canvas.SetViewport(.62f, {24, 24});
 		FMaterialGraphCanvasTestAccess::Select(Canvas, {SampleId});
 		int Errors = 0;
+		FWorkspaceManager Manager;
+		MMaterialEditor Editor(Manager);
+		bool bSurfaceEvidence = false;
 		const auto Frame = [&] {
 			ImGui::NewFrame();
-			ImGui::SetNextWindowPos({0, 0}); ImGui::SetNextWindowSize({1210, 1500});
+			const float DetailsWidth = IO.DisplaySize.x < 1000 ? 330.f : 450.f;
+			const float GraphWidth = IO.DisplaySize.x - DetailsWidth;
+			ImGui::SetNextWindowPos({0, 0}); ImGui::SetNextWindowSize({GraphWidth, IO.DisplaySize.y});
 			ImGui::Begin("Imported Surface - graph-owned parameters", nullptr, ImGuiWindowFlags_NoResize);
-			Canvas.Draw(*Material, *Transactions.Get(), 1450, [&](std::string) { ++Errors; });
+			Canvas.Draw(*Material, *Transactions.Get(), IO.DisplaySize.y - 50, [&](std::string) { ++Errors; });
 			ImGui::End();
-			ImGui::SetNextWindowPos({1210, 0}); ImGui::SetNextWindowSize({450, 1500});
+			ImGui::SetNextWindowPos({GraphWidth, 0}); ImGui::SetNextWindowSize({DetailsWidth, IO.DisplaySize.y});
 			ImGui::Begin("Node Details", nullptr, ImGuiWindowFlags_NoResize);
-			Canvas.DrawSelectionDetails(*Material, *Transactions.Get(), [&](std::string) { ++Errors; });
+			if (bSurfaceEvidence) FMaterialEditorTestAccess::DrawBase(Editor, *Material);
+			else Canvas.DrawSelectionDetails(*Material, *Transactions.Get(), [&](std::string) { ++Errors; });
 			ImGui::End(); ImGui::Render();
 		};
 		Frame(); Frame(); SaveCanvasEvidence("imported-parent");
@@ -993,6 +1001,30 @@ TEST(FMaterialGraphOperationsTests, CompactCanvasRendersBindingsAndUVExtractionD
 		ASSERT_TRUE(Transactions->Undo());
 		FMaterialGraphCanvasTestAccess::Select(Canvas, {SampleId});
 		Frame(); Frame();
+		bSurfaceEvidence = true;
+		ASSERT_TRUE(Material->SetMaterialProgramAndFunctionCalls(MakeDefaultMaterialProgram(), {}));
+		ASSERT_TRUE(Material->SetMaterialGraphPresentation({.bHasMaterialOutputPosition = true,
+			.MaterialOutputX = 900, .MaterialOutputY = 80}));
+		FMaterialGraphCanvasTestAccess::Select(Canvas, {EMaterialGraphTerminal::MaterialOutput});
+		Canvas.SetViewport(.8f, {24, 24});
+		Frame(); Frame(); SaveCanvasEvidence("surface-empty");
+		ASSERT_TRUE(FMaterialGraphOperations::AddTextureToSurfaceOutput(*Material,
+			{.Output = EMaterialSurfaceOutput::BaseColor, .X = 0, .Y = 80}, Transactions.Get()));
+		Frame(); Frame(); SaveCanvasEvidence("surface-texture");
+		ASSERT_TRUE(FMountPaths::InitDefaultMountPoints());
+		ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
+		ASSERT_TRUE(FMaterialGraphOperations::AddTextureToSurfaceOutput(*Material,
+			{.Output = EMaterialSurfaceOutput::Normal, .X = 400, .Y = 420}, Transactions.Get()));
+		Frame(); Frame(); SaveCanvasEvidence("surface-normal");
+		const auto BoundProgram = *Material->GetMaterialProgram();
+		auto Unlit = Material->GetStaticProperties();
+		Unlit.ShadingModel = EMaterialShadingModel::Unlit;
+		Unlit.BlendMode = EMaterialBlendMode::Masked;
+		ASSERT_TRUE(Material->SetStaticProperties(Unlit));
+		IO.DisplaySize = {900, 900};
+		Canvas.SetViewport(1.f, {-850, 24});
+		Frame(); Frame(); SaveCanvasEvidence("surface-narrow-unlit");
+		EXPECT_EQ(*Material->GetMaterialProgram(), BoundProgram);
 		EXPECT_EQ(Errors, 0);
 	}
 	ImGui::DestroyContext(Context);

@@ -1037,6 +1037,13 @@ namespace Durin::Editor::Material
 				});
 			const bool bAggregateOutput = View.Outputs.Surface.SourceNodeId.IsValid()
 				|| bConnectingAggregate;
+			const auto& SurfaceProperties = Material.GetStaticProperties();
+			const auto IsSurfaceInputActive = [&](size_t Index) {
+				if (Index >= 1 && Index <= 4) return SurfaceProperties.ShadingModel == EMaterialShadingModel::Lit;
+				if (Index == 6) return SurfaceProperties.BlendMode == EMaterialBlendMode::Translucent;
+				if (Index == 7) return SurfaceProperties.BlendMode == EMaterialBlendMode::Masked;
+				return true;
+			};
 			std::vector<size_t> ActiveSurfaceIndices;
 			if (bAggregateOutput) ActiveSurfaceIndices = {8};
 			else ActiveSurfaceIndices = {0, 1, 2, 3, 4, 5, 6, 7};
@@ -1434,11 +1441,17 @@ namespace Durin::Editor::Material
 				DrawList->AddText(ImGui::GetFont(), FontSize,
 					Add(SurfaceMinimum, {10.0f * Zoom, 6.0f * Zoom}),
 					IM_COL32(235, 238, 242, 255), MaterialName.c_str(), nullptr, 0.0f, &Clip);
+				const std::string SurfaceLabel = std::format("Surface | {} | {}",
+					SurfaceProperties.ShadingModel == EMaterialShadingModel::Lit ? "Lit" : "Unlit",
+					SurfaceProperties.BlendMode == EMaterialBlendMode::Opaque ? "Opaque"
+						: SurfaceProperties.BlendMode == EMaterialBlendMode::Masked ? "Masked" : "Translucent");
 				DrawList->AddText(ImGui::GetFont(), SecondaryFontSize,
 					Add(SurfaceMinimum,
 						{10.0f * Zoom, 24.0f * Zoom}),
-					IM_COL32(165, 172, 186, 255), "Material Output", nullptr, 0.0f, &Clip);
+					IM_COL32(165, 172, 186, 255), SurfaceLabel.c_str(), nullptr, 0.0f, &Clip);
 			}
+			if (bHovered && bHoveredMaterialOutputHeader)
+				ImGui::SetTooltip("Surface domain. Select this root to edit material settings.\nDim inputs are inactive in the current mode; their values and bindings are retained.");
 			for (size_t Index : ActiveSurfaceIndices)
 			{
 				if (SelectedSurfaceOutput
@@ -1460,7 +1473,8 @@ namespace Durin::Editor::Material
 					DrawList->AddText(ImGui::GetFont(), GraphBodyFontSize,
 						Add(SurfacePins[Index],
 							{NodePadding * Zoom, -GraphBodyFontSize * 0.5f}),
-						IM_COL32(210, 214, 222, 255), SurfaceNames[Index],
+						IsSurfaceInputActive(Index) ? IM_COL32(210, 214, 222, 255)
+							: IM_COL32(125, 132, 145, 255), SurfaceNames[Index],
 						nullptr, 0.0f, &LabelClip);
 					if (DetailLevel == EMaterialGraphDetailLevel::Readable
 						&& Index < 8 && !OutputLinks[Index]->SourceNodeId.IsValid())

@@ -127,7 +127,7 @@ namespace Durin::Editor::Material
 	{
 		if (!Impl->bActive) return MakeRejected("No material graph move is active.");
 		if (Impl->bMaterialOutput)
-			return MakeRejected("The active move addresses Material Output, not graph nodes.");
+			return MakeRejected("The active move addresses Surface, not graph nodes.");
 		DMaterial* Material = Impl->Material.Get();
 		if (!Material)
 		{
@@ -171,7 +171,7 @@ namespace Durin::Editor::Material
 	{
 		if (!Impl->bActive) return MakeRejected("No material graph move is active.");
 		if (!Impl->bMaterialOutput)
-			return MakeRejected("The active move addresses graph nodes, not Material Output.");
+			return MakeRejected("The active move addresses graph nodes, not Surface.");
 		DMaterial* Material = Impl->Material.Get();
 		if (!Material)
 		{
@@ -187,12 +187,12 @@ namespace Durin::Editor::Material
 			|| Y < -MaterialGraphPresentationCoordinateLimit
 			|| Y > MaterialGraphPresentationCoordinateLimit)
 			return MakeRejected(
-				"The Material Output move preview is outside the supported coordinate range.");
+				"The Surface move preview is outside the supported coordinate range.");
 		const uint64 BeforeRevision =
 			Material->GetMaterialGraphPresentationRevision();
 		if (!Material->ApplyMaterialGraphOutputPosition(
 			X, Y, Impl->AuthoredRevision))
-			return MakeRejected("The material rejected the Material Output move preview.");
+			return MakeRejected("The material rejected the Surface move preview.");
 		return {.Status = Material->GetMaterialGraphPresentationRevision()
 			== BeforeRevision ? EMaterialGraphCommandStatus::NoChange
 			: EMaterialGraphCommandStatus::Succeeded};
@@ -224,7 +224,7 @@ namespace Durin::Editor::Material
 					Impl->BeforePresentation,
 					CurrentPresentation,
 					Impl->bMaterialOutput
-						? "Move Material Output" : "Move Material Nodes"));
+						? "Move Surface" : "Move Material Nodes"));
 			check(bRecorded);
 		}
 		std::vector<FGuid> Affected(Impl->NodeIds.begin(), Impl->NodeIds.end());

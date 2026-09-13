@@ -82,14 +82,14 @@ namespace Durin::Editor::Material
 			|| Y < -MaterialGraphPresentationCoordinateLimit
 			|| Y > MaterialGraphPresentationCoordinateLimit)
 			return MakeRejected(
-				"The Material Output position is outside the supported coordinate range.");
+				"The Surface position is outside the supported coordinate range.");
 		FMaterialGraphPresentation Presentation =
 			Material.GetMaterialGraphPresentation();
 		Presentation.bHasMaterialOutputPosition = true;
 		Presentation.MaterialOutputX = X;
 		Presentation.MaterialOutputY = Y;
 		return CommitPresentationChange(Material, std::move(Presentation),
-			"Move Material Output", {}, Transactions);
+			"Move Surface", {}, Transactions);
 	}
 
 	auto FMaterialGraphOperations::CalculateLayout(

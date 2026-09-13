@@ -913,6 +913,33 @@ namespace Durin::Editor::Material
 		}
 		else if (auto* BaseMaterial = Cast<DMaterial>(Material))
 		{
+			const auto& Selection = GetOrCreateCanvas(Document).GetSelection();
+			if ((Selection.empty() || Selection.contains(EMaterialGraphTerminal::MaterialOutput))
+				&& ImGui::CollapsingHeader("Surface Settings", ImGuiTreeNodeFlags_DefaultOpen))
+			{
+				ImGui::TextDisabled("Domain: Surface");
+				auto Properties = BaseMaterial->GetStaticProperties();
+				int Shading = static_cast<int>(Properties.ShadingModel);
+				int Blend = static_cast<int>(Properties.BlendMode);
+				int Depth = static_cast<int>(Properties.DepthWritePolicy);
+				bool bChanged = ImGui::Combo("Shading", &Shading, "Lit\0Unlit\0");
+				bChanged |= ImGui::Combo("Blend", &Blend, "Opaque\0Masked\0Translucent\0");
+				Properties.ShadingModel = static_cast<EMaterialShadingModel>(Shading);
+				Properties.BlendMode = static_cast<EMaterialBlendMode>(Blend);
+				if (Properties.BlendMode == EMaterialBlendMode::Masked)
+					bChanged |= ImGui::InputFloat("Mask cutoff", &Properties.OpacityMaskThreshold,
+						0, 0, "%.3f", ImGuiInputTextFlags_EnterReturnsTrue);
+				bChanged |= ImGui::Checkbox("Two sided", &Properties.bTwoSided);
+				bChanged |= ImGui::Combo("Depth write", &Depth, "Automatic\0Enabled\0Disabled\0");
+				Properties.DepthWritePolicy = static_cast<EMaterialDepthWritePolicy>(Depth);
+				if (bChanged)
+					if (auto* Property = BaseMaterial->GetClass()->FindPropertyByName(FName("StaticProperties")))
+						PropertyView.SubmitPropertyValueEdit(MakePropertyViewContext(),
+							::Durin::Editor::FPropertyEditTarget::ForMember(BaseMaterial, Property),
+							[&](FProperty* ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
+								*ScratchProperty->ContainerPtrToValuePtr<FMaterialStaticProperties>(ScratchContainer, ScratchArrayIndex) = Properties;
+							}, false);
+			}
 			if (GEditor && GEditor->GetTransactor())
 			{
 				DrawSelectedFunction(Document, BaseMaterial);

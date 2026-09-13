@@ -286,7 +286,7 @@ namespace Durin::Editor::Material
 		if (!Current) return MakeRejected("The material has no authored program.");
 		const FMaterialProgramNode* Source = FindNode(*Current, SourceNodeId);
 		if (!Source || Source->ResultType != EMaterialProgramValueType::Surface)
-			return MakeRejected("Aggregate Material Output requires a Surface node.");
+			return MakeRejected("Aggregate Surface requires a Surface node.");
 		FMaterialProgram Candidate = *Current;
 		for (EMaterialSurfaceOutput Output : {
 			EMaterialSurfaceOutput::BaseColor, EMaterialSurfaceOutput::Normal,
