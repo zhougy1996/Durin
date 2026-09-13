@@ -24,6 +24,7 @@
 #include "StaticMesh/StaticMeshFactoryTestSupport.h"
 #include "AssetForge/Builtins/StaticMeshImportData.h"
 #include "Thumbnail/AssetThumbnailPool.h"
+#include "Texture/Texture2D.h"
 
 #include <gtest/gtest.h>
 
@@ -2007,6 +2008,70 @@ TEST_F(FContentBrowserModelTests, DeletionBlocksFailedCompanionInspectionBeforeC
 	EXPECT_FALSE(bCalled);
 	EXPECT_TRUE(std::filesystem::exists(File));
 	EXPECT_NE(FindAssetExact(Path), nullptr);
+	// Later ownership queries also inspect catalog entries from earlier fixtures.
+	ASSERT_TRUE(std::filesystem::remove(File));
+}
+
+TEST_F(FContentBrowserModelTests, StandardCompanionOwnershipUsesMetadataWithoutValidatingPayload)
+{
+	InitializeDObjectSystem();
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/MetadataCompanion", Path));
+	DTexture2D* Texture = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Texture));
+	Image::FImage Image;
+	ASSERT_TRUE(Image::FImage::TryCreate({.Width = 512, .Height = 512,
+		.Format = Image::ERawImageFormat::RGBA8, .GammaSpace = Image::EImageGammaSpace::SRGB},
+		FByteBuffer(512 * 512 * 4, std::byte{71}), Image));
+	FTextureSource Source;
+	ASSERT_TRUE(Source.Init2D(Image.GetView(), 4, 0, ETextureSourceCompression::Raw));
+	Texture->SetSource(Source);
+	ASSERT_TRUE(SavePackage(Texture->GetPackage()));
+	ASSERT_TRUE(UnloadPackage(Path));
+	const auto Data = FindAssetExact(Path);
+	ASSERT_NE(Data, nullptr);
+	ASSERT_GT(Data->BulkSegmentExtent, 0u);
+	std::filesystem::path BulkPath = Data->PhysicalPath;
+	BulkPath.replace_extension(".dbulk");
+	{
+		// Same-size payload damage changes integrity, but not package ownership.
+		std::fstream Bulk(BulkPath, std::ios::binary | std::ios::in | std::ios::out);
+		ASSERT_TRUE(Bulk.is_open());
+		char Byte = 0;
+		Bulk.read(&Byte, 1);
+		ASSERT_TRUE(Bulk.good());
+		Byte ^= 1;
+		Bulk.seekp(0);
+		Bulk.write(&Byte, 1);
+		ASSERT_TRUE(Bulk.good());
+	}
+	FAssetPackageInspection Inspection;
+	EXPECT_FALSE(InspectAssetPackage(Data->PhysicalPath, Path, Inspection));
+	FAssetCompanionOwnership Ownership;
+	const auto OwnershipResult = QueryAssetCompanionOwnership(BulkPath, Ownership);
+	ASSERT_TRUE(OwnershipResult) << OwnershipResult.Message;
+	EXPECT_EQ(Ownership.State, EAssetCompanionOwnershipState::Owned);
+	ASSERT_EQ(Ownership.Owners.size(), 1u);
+	EXPECT_EQ(Ownership.Owners.front(), Path);
+	FAssetDeletionOperation Operation;
+	ASSERT_TRUE(IAssetTools::Get().PrepareDeletion({.AssetPaths = {Path}}, Operation));
+	ASSERT_EQ(Operation.GetEntries().size(), 1u);
+	ASSERT_EQ(Operation.GetEntries().front().CompanionFiles.size(), 1u);
+	EXPECT_EQ(Operation.GetEntries().front().CompanionFiles.front(), BulkPath);
+
+	// Fresh metadata inspection must still reject a missing/truncated segment,
+	// even though the catalog has not been refreshed.
+	std::filesystem::resize_file(BulkPath, Data->BulkSegmentExtent - 1);
+	EXPECT_FALSE(QueryAssetCompanionOwnership(BulkPath, Ownership));
+	bool bCalled = false;
+	EXPECT_FALSE(Operation.Delete({.Delete = [&]() -> FAssetResult {
+		bCalled = true;
+		return {};
+	}}));
+	EXPECT_FALSE(bCalled);
+	EXPECT_TRUE(std::filesystem::exists(Data->PhysicalPath));
+	ASSERT_TRUE(std::filesystem::remove(Data->PhysicalPath));
+	ASSERT_TRUE(std::filesystem::remove(BulkPath));
 }
 
 TEST_F(FContentBrowserModelTests, DeletionCompanionInspectionDoesNotLoadPackageDependencies)

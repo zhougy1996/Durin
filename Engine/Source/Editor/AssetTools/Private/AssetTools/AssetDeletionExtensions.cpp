@@ -1,5 +1,5 @@
 #include "AssetDeletionInternal.h"
-#include "Asset/EditorBulkDataStorage.h"
+#include "AssetRegistry/PackageHeader.h"
 
 #include "DObject/Class.h"
 #include "Misc/MountPaths.h"
@@ -39,14 +39,31 @@ namespace Durin
 	{
 		OutFiles.clear();
 		if (OutHasContributor) *OutHasContributor = false;
-		FAssetPackageInspection Inspection;
-		FAssetResult InspectionResult = InspectAssetPackage(
-			Data.PhysicalPath, Data.PackagePath, Inspection);
-		if (!InspectionResult) return InspectionResult;
-		std::string BulkError;
-		if (!InspectEditorBulkDataCompanionPaths(
-				Data.PhysicalPath, Inspection, OutFiles, &BulkError))
-			return Error(EAssetError::CorruptFile, std::move(BulkError));
+		// Ownership is a package metadata fact, not a payload-integrity check.
+		// Read current bounded front matter so external edits cannot hide behind
+		// a stale catalog entry; the reader also checks the physical bulk extent.
+		FAssetPackageHeader Header;
+		const FAssetRegistryResult HeaderResult = ReadAssetPackageHeader(
+			Data.PhysicalPath, Data.PackagePath, Header);
+		if (!HeaderResult)
+		{
+			EAssetError Code = EAssetError::CorruptFile;
+			switch (HeaderResult.Error)
+			{
+			case EAssetRegistryError::IoError: Code = EAssetError::IoError; break;
+			case EAssetRegistryError::InvalidPath: Code = EAssetError::InvalidPath; break;
+			case EAssetRegistryError::UnsupportedVersion: Code = EAssetError::UnsupportedVersion; break;
+			default: break;
+			}
+			return Error(Code, HeaderResult.Message);
+		}
+		if (Header.BulkSegmentExtent != 0)
+		{
+			std::filesystem::path BulkPath =
+				std::filesystem::absolute(Data.PhysicalPath).lexically_normal();
+			BulkPath.replace_extension(".dbulk");
+			OutFiles.push_back(std::move(BulkPath));
+		}
 		if (OutHasContributor && !OutFiles.empty()) *OutHasContributor = true;
 		DClass* AssetClass = FindClassByQualifiedName(FName(Data.AssetClassName));
 		for (DClass* Class = AssetClass; Class; Class = Class->GetSuperClass())
@@ -54,6 +71,11 @@ namespace Durin
 			const auto It = GetDeleteContributors().find(Class);
 			if (It == GetDeleteContributors().end()) continue;
 			if (OutHasContributor) *OutHasContributor = true;
+			// Custom contributors retain the complete field-inspection contract.
+			FAssetPackageInspection Inspection;
+			const FAssetResult InspectionResult = InspectAssetPackage(
+				Data.PhysicalPath, Data.PackagePath, Inspection);
+			if (!InspectionResult) return InspectionResult;
 			FAssetDeleteContribution Contribution;
 			FAssetResult Result = It->second.Contributor(Data, Inspection, Contribution);
 			if (!Result) return Result;

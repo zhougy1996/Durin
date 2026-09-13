@@ -260,12 +260,19 @@ Inline-only saves publish no empty segment and remove a stale prior companion
 only after the new main package is committed. Cook publication and rollback
 follow [Asset Data Lifecycle](AssetDataLifecycle.md#cook-and-publication-rules).
 
-Move, duplicate, delete, inventory, orphan detection, source-control closure,
+Move, duplicate, inventory, orphan detection, source-control closure,
 and canonical resave derive companion ownership from validated v9 Registry and
 Bulk Directory facts. A suffix scan is never authority. Atomic temporaries and
 `.durin-backup` files are recovery state, not authored companions. Git LFS
 pointer text, absent content, truncated companions, and partial clones fail
 closure validation and never publish a live package.
+
+Editor deletion companion ownership reads current bounded Registry front matter
+and checks the physical external extent. A nonzero declared extent owns the
+normalized `.dbulk` sibling; zero extent does not claim a file by suffix alone.
+This query does not read or verify payload bytes. Custom deletion contributors
+still receive complete Engine package inspection. Loading and mutation closure
+validation retain their full integrity checks.
 
 ## Qualification Budget
 
