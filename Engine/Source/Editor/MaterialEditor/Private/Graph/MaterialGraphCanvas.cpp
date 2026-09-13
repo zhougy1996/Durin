@@ -11,8 +11,23 @@ namespace Durin::Editor::Material
 	namespace
 	{
 		std::optional<FMaterialGraphClipboardPayload> GraphClipboard;
-		auto HideUnusedAdvancedInputs(FMaterialGraphView& View) -> void
+		auto HideUnusedAdvancedPins(FMaterialGraphView& View) -> void
 		{
+			std::unordered_map<FGuid, uint8> UsedSampleOutputs;
+			const auto MarkOutput = [&](const FMaterialProgramLink& Link) {
+				if (Link.SourceNodeId.IsValid() && !Link.SourceOutputId.IsValid() && Link.SourceOutputIndex < 8)
+					UsedSampleOutputs[Link.SourceNodeId] |= static_cast<uint8>(1u << Link.SourceOutputIndex);
+			};
+			for (const auto& Node : View.Nodes)
+				for (const auto& Pin : Node.Inputs) MarkOutput(Pin.Link);
+			for (uint32 Index = 0; Index < 8; ++Index)
+				MarkOutput(GetMaterialSurfaceOutputLink(View.Outputs, static_cast<EMaterialSurfaceOutput>(Index)));
+			for (auto& Node : View.Nodes)
+				if (IsMaterialSamplingNode(Node.Node.Opcode))
+					std::erase_if(Node.Outputs, [&](const auto& Pin) {
+						return Pin.OutputIndex >= 6 && !(UsedSampleOutputs[Node.Node.Id] & (1u << Pin.OutputIndex));
+					});
+
 			for (auto& Node : View.Nodes)
 				std::erase_if(Node.Inputs, [](const auto& Pin) {
 					return Pin.bAdvanced && !Pin.bRequired && !Pin.Link.SourceNodeId.IsValid()
@@ -260,7 +275,7 @@ namespace Durin::Editor::Material
 			|| CachedProgramRevision != ProgramRevision)
 		{
 			CachedView = FMaterialGraphOperations::Inspect(Material, Catalog);
-			if (!bShowAdvancedInputs) HideUnusedAdvancedInputs(CachedView);
+			if (!bShowAdvancedInputs) HideUnusedAdvancedPins(CachedView);
 			CachedNodeIndices.clear();
 			CachedNodeIndices.reserve(CachedView.Nodes.size());
 			for (size_t Index = 0; Index < CachedView.Nodes.size(); ++Index)
@@ -682,9 +697,9 @@ namespace Durin::Editor::Material
 		const std::function<void(std::string_view)>& OpenFunction) -> void
 	{
 		FMaterialGraphDocument Document(Function);
-		if (ImGui::Checkbox("Advanced inputs", &bShowAdvancedInputs)) ResetInteraction();
+		if (ImGui::Checkbox("Advanced pins", &bShowAdvancedInputs)) ResetInteraction();
 		CachedView = Document.Inspect();
-		if (!bShowAdvancedInputs) HideUnusedAdvancedInputs(CachedView);
+		if (!bShowAdvancedInputs) HideUnusedAdvancedPins(CachedView);
 		CachedNodeIndices.clear();
 		for (size_t Index = 0; Index < CachedView.Nodes.size(); ++Index) CachedNodeIndices.emplace(CachedView.Nodes[Index].Node.Id, Index);
 		bVisualGraphTopologyStale = true;
@@ -881,7 +896,7 @@ namespace Durin::Editor::Material
 		{
 			const bool bFrameAllRequested = ImGui::Button("Frame All");
 			ImGui::SameLine();
-			if (ImGui::Checkbox("Advanced inputs", &bShowAdvancedInputs))
+			if (ImGui::Checkbox("Advanced pins", &bShowAdvancedInputs))
 			{
 				CachedMaterial = nullptr;
 				ResetInteraction();

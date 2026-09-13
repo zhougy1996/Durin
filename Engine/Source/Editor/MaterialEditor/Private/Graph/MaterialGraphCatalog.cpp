@@ -129,9 +129,9 @@ namespace Durin::Editor::Material
 			switch (Opcode)
 			{
 			case EMaterialProgramOpcode::Constant: Entry.Description = "A literal numeric value. Choose Float, Float2, Float3, or Float4 from the node type menu."; break;
-			case EMaterialProgramOpcode::Parameter:
-			case EMaterialProgramOpcode::TextureParameter: Entry.Description = "A value exposed by the material parameter definition."; break;
-			case EMaterialProgramOpcode::TextureSample2D: Entry.Description = "Samples a 2D texture at the supplied coordinates."; break;
+			case EMaterialProgramOpcode::Parameter: Entry.Description = "A value exposed by the material parameter definition."; break;
+			case EMaterialProgramOpcode::TextureParameter: Entry.Description = "A texture resource for function inputs or multiple samples. For ordinary texture mapping, use Texture Sample Parameter 2D."; break;
+			case EMaterialProgramOpcode::TextureSample2D: Entry.Description = "Samples a connected texture resource. For a standalone replaceable texture, use Texture Sample Parameter 2D."; break;
 			case EMaterialProgramOpcode::TextureSampleParameter2D: Entry.Description = "Samples a named texture parameter with local UV settings or a connected UV expression. Outputs share one fetch."; break;
 			case EMaterialProgramOpcode::TextureCoordinates: Entry.Description = "Selects a mesh UV channel, scales, rotates in radians, then offsets it."; break;
 			case EMaterialProgramOpcode::Add: Entry.Description = "Adds two values component by component."; break;
@@ -339,7 +339,7 @@ namespace Durin::Editor::Material
 			else if (IsMaterialSamplingNode(Node.Opcode))
 			{
 				constexpr std::array Names{"RGBA", "RGB", "R", "G", "B", "A", "RG"};
-				for (uint8 Index = 0; Index < Names.size(); ++Index)
+				for (const uint8 Index : {1, 2, 3, 4, 5, 0, 6})
 					View.Outputs.push_back({.OutputIndex = Index, .Name = Names[Index],
 						.Type = Index == 0 ? EMaterialProgramValueType::Float4 : Index == 1 ? EMaterialProgramValueType::Float3
 						: Index == 6 ? EMaterialProgramValueType::Float2 : EMaterialProgramValueType::Float});
@@ -417,7 +417,8 @@ namespace Durin::Editor::Material
 						: Type == EMaterialProgramValueType::Float2 ? "Vector2 Parameter"
 						: Type == EMaterialProgramValueType::Float3 ? "Vector3 Parameter"
 						: Type == EMaterialProgramValueType::Float4 ? "Vector4 Parameter" : "Texture Object Parameter";
-					Entry.Description = "Create a new parameter or reference an existing parameter of this type.";
+					if (Opcode == EMaterialProgramOpcode::Parameter)
+						Entry.Description = "Create a new numeric parameter exposed to material instances.";
 				}
 				if (Opcode == EMaterialProgramOpcode::Swizzle)
 				{

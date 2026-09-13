@@ -199,8 +199,8 @@ coexist in a valid program.
 
 ## Compact input and texture authoring
 
-Advanced inputs are hidden initially. The toggle hides only optional unconnected inputs with no retained
-binding. Connected or explicitly bound inputs remain visible; row filtering never
+Advanced pins are hidden initially. For inputs, the toggle hides only optional
+unconnected inputs with no retained binding. Connected or explicitly bound inputs remain visible; row filtering never
 changes stable input indices or function port GUIDs. Material instances retain their
 parameter-only editor and expose Open Parent Material for explicit graph navigation.
 
@@ -377,8 +377,8 @@ Right-clicking a node or surface input retains its editing context menu. Search 
 prefix, and substring matches, then uses stable category, operation, type,
 parameter GUID, and catalog order ties. Opening from a source output filters the
 first input by compatible type. Selection creates and connects the requested
-node as one command; missing numeric inputs receive visible default Constant
-nodes in the same transaction, while resource inputs without a default reject.
+node as one command; missing numeric inputs receive inline literal defaults
+in the same transaction, while resource inputs without a default reject.
 Escape and every document lifecycle cancellation close the palette and discard
 reconnection, movement, and inline edit drafts without dirtying or compiling
 the material. Every mutation still routes to the stateless
@@ -388,10 +388,15 @@ the material. Every mutation still routes to the stateless
 creates the compatible material-owned Parameter node one column upstream, copies the
 fallback into the definition value, connects the input, and records program,
 presentation, and value as one Undo/Redo transaction. `Add Texture` explicitly
-creates the role's TextureParameter, constant channel, UVChannel, TextureSample,
-and required channel swizzle or normal decode nodes before replacing the surface
-connection in one candidate-validated transaction. Neither workflow creates a
-hidden branch.
+creates one TextureSampleParameter2D with local UV settings and connects its
+RGB or scalar channel output directly. Normal creates a texture object parameter feeding the shipped
+SampleNormal function, which owns sampling, decoding, and strength processing. The entire branch and connection form one candidate-validated
+Undo/Redo transaction. Extract UV settings only when explicit coordinate
+expressions are needed; texture objects remain available for function inputs
+and independent sampling. Sampling nodes show RGB, R, G, B, A, and RGBA in that
+order by default. The Advanced pins toggle reveals RG and Texture resource outputs;
+connected outputs remain visible even when advanced pins are hidden. Display order
+and visibility never change serialized output indices.
 
 The toolbar exposes Compile, Apply, and a user-scoped Auto Compile preference,
 enabled by default. Opening a base material applies the preference to its working

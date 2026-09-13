@@ -1,5 +1,6 @@
 #include "MaterialGraphEditInternals.h"
 #include "MaterialGraphDocument.h"
+#include "Asset/Asset.h"
 
 #include "Graph/MaterialGraphValueTypes.h"
 
@@ -446,18 +447,18 @@ namespace Durin::Editor::Material
 		if (static_cast<uint8>(Request.Output)
 			> static_cast<uint8>(EMaterialSurfaceOutput::OpacityMask))
 			return MakeRejected("The material surface output is invalid.");
-		FMaterialProgram Candidate = *Material.GetMaterialProgram();
+		FMaterialGraphDocument Document(Material);
+		FMaterialGraphDocumentState State;
+		if (!Document.Capture(State)) return {.Status = EMaterialGraphCommandStatus::StaleOwner};
+		auto& Candidate = State.Program;
 		const bool bNormal = Request.Output == EMaterialSurfaceOutput::Normal;
-		const bool bVector = GetMaterialSurfaceOutputType(Request.Output)
-			== EMaterialProgramValueType::Float3;
-		const size_t RequiredNodeCount = bNormal ? 6u : 5u;
+		const size_t RequiredNodeCount = bNormal ? 2u : 1u;
 		if (Candidate.Nodes.size() + RequiredNodeCount
 			> MaterialProgramMaxNodeCount)
 			return MakeRejected(
 				"Adding the texture branch would exceed the material graph node limit.");
 
-		FMaterialGraphPresentation Presentation =
-			Material.GetMaterialGraphPresentation();
+		auto& Presentation = State.Presentation;
 		std::vector<FGuid> Generated;
 		auto AddNode = [&](EMaterialProgramOpcode Opcode,
 			EMaterialProgramValueType Type,
@@ -475,9 +476,10 @@ namespace Durin::Editor::Material
 			return Candidate.Nodes.back();
 		};
 		FMaterialProgramNode& Texture = AddNode(
-			EMaterialProgramOpcode::TextureParameter,
-			EMaterialProgramValueType::Texture2D, {},
-			Request.X - 640, Request.Y - 80);
+			bNormal ? EMaterialProgramOpcode::TextureParameter : EMaterialProgramOpcode::TextureSampleParameter2D,
+			bNormal ? EMaterialProgramValueType::Texture2D : EMaterialProgramValueType::Float4,
+			bNormal ? std::vector<FMaterialProgramLink>{} : std::vector<FMaterialProgramLink>{{}},
+			bNormal ? Request.X - 320 : Request.X, Request.Y);
 		Texture.Parameter.Id = FGuid::NewGuid();
 		Texture.Parameter.Type = EMaterialParameterType::Texture;
 		Texture.Parameter.Name = FName("TextureParameter");
@@ -489,62 +491,38 @@ namespace Durin::Editor::Material
 			Texture.Parameter.TextureUsage = ETextureUsage::Normal;
 			Texture.Parameter.Value.TextureFallback = EMaterialTextureFallback::FlatRGNormal;
 		}
-		const FGuid TextureId = Texture.Id;
+		Texture.DisplayName = Texture.Parameter.DisplayName;
 		const FGuid ParameterId = Texture.Parameter.Id;
-		FMaterialProgramNode& Channel = AddNode(
-			EMaterialProgramOpcode::Constant,
-			EMaterialProgramValueType::Float, {},
-			Request.X - 960, Request.Y + 80);
-		Channel.Literal = {};
-		FMaterialProgramNode& UV = AddNode(
-			EMaterialProgramOpcode::UVChannel,
-			EMaterialProgramValueType::Float2, {{Channel.Id, 0}},
-			Request.X - 640, Request.Y + 80);
-		const FGuid UVId = UV.Id;
-		FMaterialProgramNode& Sample = AddNode(
-			EMaterialProgramOpcode::TextureSample2D,
-			EMaterialProgramValueType::Float4,
-			{{TextureId, 0}, {UVId, 0}}, Request.X - 320, Request.Y);
-		FGuid ResultId = Sample.Id;
-
-		FMaterialProgramNode& Swizzle = AddNode(
-			EMaterialProgramOpcode::Swizzle,
-			bNormal ? EMaterialProgramValueType::Float2
-				: GetMaterialSurfaceOutputType(Request.Output),
-			{{Sample.Id, 0}}, Request.X, Request.Y);
+		constexpr std::array<uint8, 8> Channels{1, 6, 4, 3, 2, 1, 5, 2};
+		FMaterialProgramLink Output{Texture.Id, Channels[static_cast<size_t>(Request.Output)]};
 		if (bNormal)
 		{
-			Swizzle.SwizzleLength = 2;
-			Swizzle.SwizzleX = 0;
-			Swizzle.SwizzleY = 1;
+			FObjectPath Path;
+			DMaterialFunction* Function = nullptr;
+			if (!FObjectPath::TryCreate("/Engine/Materials/Functions/SampleNormal.SampleNormal", Path)
+				|| !LoadObject(Path, Function) || !Function)
+				return MakeRejected("The SampleNormal material function is unavailable.");
+			const auto& Signature = Function->GetFunctionSignature();
+			const auto Input = std::ranges::find(Signature.Inputs, "Texture", &FMaterialFunctionPort::Name);
+			const auto Normal = std::ranges::find(Signature.Outputs, "Normal", &FMaterialFunctionPort::Name);
+			if (Input == Signature.Inputs.end() || Input->Type != EMaterialProgramValueType::Texture2D
+				|| Normal == Signature.Outputs.end() || Normal->Type != EMaterialProgramValueType::Float3)
+				return MakeRejected("The SampleNormal material function has an incompatible interface.");
+			const auto TextureId = Texture.Id;
+			const auto& CallNode = AddNode(EMaterialProgramOpcode::FunctionCall,
+				EMaterialProgramValueType::Float3, {}, Request.X, Request.Y);
+			State.Calls.push_back({.NodeId = CallNode.Id, .Function = Function,
+				.Inputs = {{Input->Id, EMaterialProgramValueType::Texture2D, {TextureId, 0}}},
+				.Outputs = {{Normal->Id, Normal->Type}}});
+			Output = {.SourceNodeId = CallNode.Id, .SourceOutputId = Normal->Id};
 		}
-		else if (bVector)
+		GetMaterialSurfaceOutputLink(Candidate.Outputs, Request.Output) = Output;
+		auto Result = Document.Commit(std::move(State), "Add Material Surface Texture", Transactions);
+		if (Result)
 		{
-			Swizzle.SwizzleLength = 3;
-			Swizzle.SwizzleX = 0;
-			Swizzle.SwizzleY = 1;
-			Swizzle.SwizzleZ = 2;
+			Result.AffectedNodeIds = Result.GeneratedNodeIds = std::move(Generated);
+			Result.AffectedParameterIds = {ParameterId};
 		}
-		else
-		{
-			constexpr std::array<uint8, 8> Components{0, 0, 2, 1, 0, 0, 3, 0};
-			Swizzle.SwizzleLength = 1;
-			Swizzle.SwizzleX = Components[static_cast<size_t>(Request.Output)];
-		}
-		ResultId = Swizzle.Id;
-		if (bNormal)
-		{
-			FMaterialProgramNode& Decode = AddNode(
-				EMaterialProgramOpcode::DecodeNormalRG,
-				EMaterialProgramValueType::Float3,
-				{{Swizzle.Id, 0}}, Request.X + 320, Request.Y);
-			ResultId = Decode.Id;
-		}
-		GetMaterialSurfaceOutputLink(Candidate.Outputs, Request.Output) =
-			{ResultId, 0};
-		auto Result = CommitSemanticChange(Material, std::move(Candidate), std::move(Presentation),
-			"Add Material Surface Texture", Generated, Generated, Transactions);
-		if (Result) Result.AffectedParameterIds = {ParameterId};
 		return Result;
 	}
 }
