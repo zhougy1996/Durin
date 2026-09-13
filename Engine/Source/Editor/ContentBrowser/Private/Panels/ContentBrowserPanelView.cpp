@@ -748,7 +748,9 @@ namespace Durin::Editor::ContentBrowser::Private
 						}
 						ImGui::TextDisabled(Item.VirtualPath.empty() ? "Path" : "Virtual Path");
 						ImGui::PushTextWrapPos(ImGui::GetFontSize() * 30.0f);
-						ImGui::TextUnformatted((Item.VirtualPath.empty() ? Item.PhysicalPath : Item.VirtualPath).c_str());
+						ImGui::TextUnformatted((Item.PackagePath.IsValid()
+							? Item.PackagePath.ToString()
+							: (Item.VirtualPath.empty() ? Item.PhysicalPath : Item.VirtualPath)).c_str());
 						ImGui::PopTextWrapPos();
 						ImGui::EndTooltip();
 					}
@@ -1012,7 +1014,9 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (ImGui::BeginMenu("Copy Details"))
 		{
 			if (ImGui::MenuItem("Name")) CopyToClipboard(Item.Name);
-			if (!Item.VirtualPath.empty() && ImGui::MenuItem("Virtual Path")) CopyToClipboard(Item.VirtualPath);
+			if (!Item.VirtualPath.empty() && ImGui::MenuItem("Virtual Path"))
+				CopyToClipboard(Item.PackagePath.IsValid() ? Item.PackagePath.ToString() : Item.VirtualPath);
+			if (Item.PackagePath.IsValid() && ImGui::MenuItem("Object Path")) CopyToClipboard(Item.VirtualPath);
 			if (ImGui::MenuItem("Physical Path")) CopyToClipboard(Item.PhysicalPath);
 			ImGui::EndMenu();
 		}
