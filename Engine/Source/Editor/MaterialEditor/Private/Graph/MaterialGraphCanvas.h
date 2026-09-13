@@ -189,7 +189,7 @@ namespace Durin::Editor::Material
 		std::unique_ptr<FVisualGraph> CachedVisualGraph;
 		std::shared_ptr<FTexturePreviewState> TexturePreviews;
 		bool bVisualGraphTopologyStale = true;
-		bool bShowAdvancedInputs = true;
+		bool bShowAdvancedInputs = false;
 		std::array<std::array<float, 4>, 8> SurfaceDefaultDrafts{};
 		std::array<bool, 8> bSurfaceDefaultDraftInitialized{};
 		std::array<char, 129> PromotionNameDraft{};

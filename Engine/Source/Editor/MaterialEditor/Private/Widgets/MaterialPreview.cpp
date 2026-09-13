@@ -1,5 +1,6 @@
 #include "StaticMesh/StaticMeshCompilation.h"
 #include "Widgets/MaterialPreview.h"
+#include "Widgets/MaterialPreviewFraming.h"
 
 #include "Asset/AssetRetention.h"
 #include "Components/StaticMeshComponent.h"
@@ -17,8 +18,8 @@ namespace Durin::Editor::Material
 	namespace
 	{
 		constexpr float PreviewRotationSensitivity = 0.25f;
-		constexpr double PreviewMinDistance = 1.5;
-		constexpr double PreviewMaxDistance = 12.0;
+		constexpr double PreviewMinZoom = 0.4;
+		constexpr double PreviewMaxZoom = 4.0;
 		constexpr double PreviewZoomScale = 0.85;
 		constexpr std::string_view PreviewSpherePath = "/Engine/Models/Sphere.Sphere";
 		constexpr std::string_view PreviewBoxPath = "/Engine/Models/Box.Box";
@@ -36,18 +37,22 @@ namespace Durin::Editor::Material
 		public:
 			auto Zoom(float MouseWheel) -> void
 			{
-				Distance = std::clamp(
-					Distance * std::pow(PreviewZoomScale, static_cast<double>(MouseWheel)),
-					PreviewMinDistance, PreviewMaxDistance);
+				ZoomScale = std::clamp(
+					ZoomScale * std::pow(PreviewZoomScale, static_cast<double>(MouseWheel)),
+					PreviewMinZoom, PreviewMaxZoom);
 			}
+
+			auto Fit() -> void { ZoomScale = 1.0; }
+			auto SetRadius(double InRadius) -> void { Radius = std::max(InRadius, 0.01); }
 
 			auto CalcSceneView(uint32 Width, uint32 Height, FSceneView& OutView) const -> bool override
 			{
 				if (!IsPreviewEnabled() || Width == 0 || Height == 0) return false;
 
-				constexpr float FieldOfViewDegrees = 42.0f;
 				constexpr float NearClip = 0.1f;
-				constexpr float FarClip = 100.0f;
+				const float AspectRatio = static_cast<float>(Width) / static_cast<float>(Height);
+				const double Distance = CalculateMaterialPreviewDistance(Radius, AspectRatio) * ZoomScale;
+				const float FarClip = static_cast<float>(std::max(100.0, Distance + Radius * 2.0));
 				const FVector3 Eye = Math::Normalize(FVector3(2.6, -2.6, 1.8)) * Distance;
 				const FVector3 Forward = Math::Normalize(-Eye);
 				const FVector3 Right = Math::Normalize(Math::Cross(FVectorConstants::Up, Forward));
@@ -70,8 +75,7 @@ namespace Durin::Editor::Material
 				OutView.ViewMatrix[2][2] = Up.z;
 				OutView.ViewMatrix[3][2] = -Math::Dot(Up, Eye);
 
-				const float AspectRatio = static_cast<float>(Width) / static_cast<float>(Height);
-				if (!SceneViewProjection::BuildPerspectiveProjection(FieldOfViewDegrees,
+				if (!SceneViewProjection::BuildPerspectiveProjection(MaterialPreviewFieldOfView,
 					AspectRatio, NearClip, FarClip, ESceneDepthConvention::ReversedZ,
 					OutView.ProjectionMatrix)) return false;
 				OutView.NearClipDistance = NearClip;
@@ -82,7 +86,8 @@ namespace Durin::Editor::Material
 			}
 
 		private:
-			double Distance = 4.1;
+			double ZoomScale = 1.0;
+			double Radius = 1.0;
 		};
 	}
 
@@ -167,11 +172,14 @@ namespace Durin::Editor::Material
 					{
 						Shape = Candidate;
 						bProxyDirty = true;
+						ViewportClient->Fit();
 					}
 				}
 				ImGui::EndCombo();
 			}
 
+			ImGui::SameLine();
+			if (ImGui::Button("Fit")) ViewportClient->Fit();
 			UpdateScene(Material);
 			if (!SceneStatus.empty())
 			{
@@ -226,6 +234,12 @@ namespace Durin::Editor::Material
 				}
 				SceneStatus.clear();
 				PreviewMesh->SetStaticMesh(Mesh);
+				if (const auto Bounds = Mesh->GetLOD0LocalBounds())
+				{
+					const auto Extent = Bounds->GetExtent();
+					ViewportClient->SetRadius(Math::Length(Bounds->GetCenter()) + (Shape == EMaterialPreviewShape::Sphere
+						? std::max({Extent.x, Extent.y, Extent.z}) : Math::Length(Extent)));
+				}
 				for (uint32 SlotIndex = 0; SlotIndex < PreviewMesh->GetNumMaterials(); ++SlotIndex)
 					PreviewMesh->SetMaterial(SlotIndex, Material);
 				PreviewMesh->SetWorldRotation(PreviewRotation);

@@ -111,13 +111,27 @@ continues to use the document lifecycle above.
 
 Each material document owns an isolated ImGui dock space, keyed by its stable
 `DocumentKey`, using the shared WorkspaceUI panel and docking helpers. Preview,
-Material Graph, Details, and Diagnostics are dockable windows. Wide initial
-layouts place Preview on the left, Details on the right, and Diagnostics below
-the graph; small initial layouts use dock tabs. Resizing does not rebuild a
+Material Graph, Details, Parameters, and Diagnostics are dockable windows. Wide initial
+layouts reserve the left 30% for Preview above separate Details and Parameters
+windows; the graph fills the remaining width and height. Diagnostics shares the
+Details dock as an optional tab; small initial layouts use dock tabs. Resizing does not rebuild a
 user's arrangement. Hidden document roots keep their dock spaces alive.
 
+Function insertion opens a bounded popup above the graph. Selected-call navigation
+lives in Details alongside the shared input editor, so selection does not resize
+or displace the canvas. Parameters owns base-material declaration management and
+instance parameter overrides; Details owns selection and instance inheritance/rendering
+properties. New materials contain only
+Material Output with eight property inputs and retained defaults, without expression
+nodes or function calls.
+
 Window controls reopen optional panels and reset the default layout. Material
-Info is a collapsed section in Details. ImGui persists docking geometry; the
+Info is a collapsed section in Details shown only when no graph node is selected.
+Base-material values are edited through selected parameter nodes and bound inputs
+in Details, without a duplicate full value list in Parameters. Instances retain
+their parameter override list because they do not own a graph. Parameter groups
+omit a sole outer container with no direct values.
+ImGui persists docking geometry; the
 material session settings retain panel visibility and per-asset graph viewports.
 Preview visibility follows the actual preview panel, including dock-tab hiding.
 
@@ -128,6 +142,10 @@ Material Preview acquires shared `/Engine/Models/Sphere` and
 editor retention service. Multiple documents coalesce by virtual asset identity;
 preview creation performs no transient OBJ import, and retained handles provide
 the GC lifetime edge.
+
+Preview framing fits the selected mesh to both viewport axes with a margin and
+adapts to panel aspect-ratio changes. Mouse-wheel zoom is relative to that framing;
+Fit and mesh changes restore the fitted view.
 
 Preview rendering follows [Material System](../../Runtime/Rendering/MaterialSystem.md).
 Thumbnail sessions follow [Asset Thumbnails](AssetThumbnails.md).
@@ -182,7 +200,7 @@ coexist in a valid program.
 
 ## Compact input and texture authoring
 
-The Advanced inputs toggle hides only optional unconnected inputs with no retained
+Advanced inputs are hidden initially. The toggle hides only optional unconnected inputs with no retained
 binding. Connected or explicitly bound inputs remain visible; row filtering never
 changes stable input indices or function port GUIDs. Material instances retain their
 parameter-only editor and expose Open Parent Material for explicit graph navigation.

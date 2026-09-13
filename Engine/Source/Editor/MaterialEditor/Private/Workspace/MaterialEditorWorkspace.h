@@ -8,7 +8,7 @@ namespace Durin::Editor::Material::Workspace
 {
 	inline const ::Durin::Editor::FWorkspaceTypeId Type("MaterialEditor");
 	inline constexpr std::string_view RootKey = "MaterialEditor";
-	inline constexpr uint32 LayoutVersion = 1;
+	inline constexpr uint32 LayoutVersion = 2;
 
 	// Isolates panel docking and persisted layouts for each material document.
 	inline auto MakeDocumentDockType(const ::Durin::Editor::FDocumentTab& Document)
@@ -30,12 +30,14 @@ namespace Durin::Editor::Material::Workspace
 		ImGuiID GraphId = DockSpaceId;
 		ImGuiID PreviewId = GraphId;
 		ImGuiID DetailsId = GraphId;
+		ImGuiID ParametersId = GraphId;
 		ImGuiID DiagnosticsId = GraphId;
 		if (Size.x >= MonaImGui::ScaleUI(980.0f))
 		{
-			DetailsId = ImGui::DockBuilderSplitNode(GraphId, ImGuiDir_Right, 0.26f, nullptr, &GraphId);
-			PreviewId = ImGui::DockBuilderSplitNode(GraphId, ImGuiDir_Left, 0.28f, nullptr, &GraphId);
-			DiagnosticsId = ImGui::DockBuilderSplitNode(GraphId, ImGuiDir_Down, 0.25f, nullptr, &GraphId);
+			ImGuiID LeftId = ImGui::DockBuilderSplitNode(GraphId, ImGuiDir_Left, 0.30f, nullptr, &GraphId);
+			PreviewId = ImGui::DockBuilderSplitNode(LeftId, ImGuiDir_Up, 0.42f, nullptr, &LeftId);
+			DetailsId = ImGui::DockBuilderSplitNode(LeftId, ImGuiDir_Up, 0.45f, nullptr, &ParametersId);
+			DiagnosticsId = DetailsId;
 		}
 		// Small initial windows use real dock tabs; resizing never overwrites the user's arrangement.
 		const auto DockPanel = [&](const char* Label, const char* Key, ImGuiID NodeId) {
@@ -45,6 +47,7 @@ namespace Durin::Editor::Material::Workspace
 		DockPanel("Material Graph", "Graph", GraphId);
 		DockPanel("Preview", "Preview", PreviewId);
 		DockPanel("Details", "Details", DetailsId);
+		DockPanel("Parameters", "Parameters", ParametersId);
 		DockPanel("Diagnostics", "Diagnostics", DiagnosticsId);
 		ImGui::DockBuilderFinish(DockSpaceId);
 	}

@@ -69,6 +69,7 @@ namespace Durin::Editor::Material
 		auto DrawPreviewPanel(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material, float Height) -> void;
 		auto DrawGraphPanel(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material, float Height) -> void;
 		auto DrawDetailsPanel(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void;
+		auto DrawSelectedFunction(const ::Durin::Editor::FDocumentTab& Document, DMaterial* Base) -> void;
 		auto DrawMaterial(DMaterial* Material) -> void;
 		auto DrawParameterDeclarations(DMaterial* Material) -> void;
 		auto DrawMaterialInstance(DMaterialInstance* Instance) -> void;

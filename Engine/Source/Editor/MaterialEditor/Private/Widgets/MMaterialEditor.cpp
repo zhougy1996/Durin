@@ -492,6 +492,7 @@ namespace Durin::Editor::Material
 	{
 		SessionSettings->bPreviewVisible = true;
 		SessionSettings->bDetailsVisible = true;
+		SessionSettings->bParametersVisible = true;
 		SessionSettings->bDiagnosticsVisible = false;
 		for (const auto& Document : WorkspaceManager.GetDocuments())
 			if (Document.WorkspaceType == Workspace::Type)
@@ -687,6 +688,7 @@ namespace Durin::Editor::Material
 		{
 			ImGui::MenuItem("Preview", nullptr, &SessionSettings->bPreviewVisible);
 			ImGui::MenuItem("Details", nullptr, &SessionSettings->bDetailsVisible);
+			ImGui::MenuItem("Parameters", nullptr, &SessionSettings->bParametersVisible);
 			ImGui::MenuItem("Diagnostics", nullptr, &SessionSettings->bDiagnosticsVisible);
 			ImGui::Separator();
 			if (ImGui::MenuItem("Reset Layout")) ResetLayout();
@@ -735,6 +737,19 @@ namespace Durin::Editor::Material
 				DrawDetailsPanel(Document, Material);
 			ImGui::End();
 		}
+		if (SessionSettings->bParametersVisible)
+		{
+			if (BeginPanel("Parameters", "Parameters", &SessionSettings->bParametersVisible))
+			{
+				if (auto* Base = Cast<DMaterial>(Material)) DrawMaterial(Base);
+				else if (MonaImGui::PropertyEdit::BeginTable("MaterialInstanceParameters", MakeMaterialPropertyTableConfig()))
+				{
+					DrawMaterialParameters(Material);
+					MonaImGui::PropertyEdit::EndTable();
+				}
+			}
+			ImGui::End();
+		}
 		if (SessionSettings->bDiagnosticsVisible)
 		{
 			if (BeginPanel("Diagnostics", "Diagnostics", &SessionSettings->bDiagnosticsVisible))
@@ -776,21 +791,33 @@ namespace Durin::Editor::Material
 			return;
 		}
 		FMaterialGraphCanvas& Canvas = GetOrCreateCanvas(Document);
-		FunctionCallPickers[Document.Id.Value].Draw(*Base, *GEditor->GetTransactor(), ErrorMessage);
+		if (ImGui::Button("Insert Function Call")) ImGui::OpenPopup("InsertFunctionCall");
+		ImGui::SetNextWindowSize(ImVec2(480.0f, 420.0f), ImGuiCond_Appearing);
+		if (ImGui::BeginPopup("InsertFunctionCall"))
+		{
+			FunctionCallPickers[Document.Id.Value].Draw(*Base, *GEditor->GetTransactor(), ErrorMessage);
+			ImGui::EndPopup();
+		}
+		Canvas.Draw(*Base, *GEditor->GetTransactor(), Height,
+			[this](std::string Message) { SetError(std::move(Message)); });
+		const auto [Zoom, Pan] = Canvas.GetViewport();
+		SessionSettings->SetViewport(Document.ResourceId, {.Zoom = Zoom, .Pan = Pan});
+	}
+
+	auto MMaterialEditor::DrawSelectedFunction(const ::Durin::Editor::FDocumentTab& Document, DMaterial* Base) -> void
+	{
+		auto& Canvas = GetOrCreateCanvas(Document);
 		const std::vector Calls(Base->GetMaterialFunctionCalls().begin(), Base->GetMaterialFunctionCalls().end());
 		for (const auto& Selected : Canvas.GetSelection())
 			if (const auto* Id = std::get_if<FGuid>(&Selected))
 				for (const auto& Call : Calls)
 					if (Call.NodeId == *Id && Call.Function.IsValid())
 					{
+						ImGui::PushID(Id->ToString().c_str());
 						if (ImGui::Button("Open Function")) WorkspaceManager.OpenAsset(Call.Function->GetObjectPath(),
 							Call.Function->GetClass()->GetQualifiedName().ToString());
-						DrawMaterialFunctionCallInputs(*Base, Call.NodeId, *GEditor->GetTransactor(), ErrorMessage);
+						ImGui::PopID();
 					}
-		Canvas.Draw(*Base, *GEditor->GetTransactor(), Height,
-			[this](std::string Message) { SetError(std::move(Message)); });
-		const auto [Zoom, Pan] = Canvas.GetViewport();
-		SessionSettings->SetViewport(Document.ResourceId, {.Zoom = Zoom, .Pan = Pan});
 	}
 
 	auto MMaterialEditor::DrawCompileStatus(
@@ -879,7 +906,9 @@ namespace Durin::Editor::Material
 	auto MMaterialEditor::DrawDetailsPanel(
 		const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void
 	{
-		if (ImGui::CollapsingHeader("Material Info"))
+		const bool bHasSelection = Cast<DMaterial>(Material)
+			&& !GetOrCreateCanvas(Document).GetSelection().empty();
+		if (!bHasSelection && ImGui::CollapsingHeader("Material Info"))
 		{
 			ImGui::TextDisabled("Asset");
 			ImGui::TextWrapped("%s", Document.ResourceId.c_str());
@@ -891,24 +920,22 @@ namespace Durin::Editor::Material
 		else if (auto* BaseMaterial = Cast<DMaterial>(Material))
 		{
 			if (GEditor && GEditor->GetTransactor())
+			{
+				DrawSelectedFunction(Document, BaseMaterial);
 				GetOrCreateCanvas(Document).DrawSelectionDetails(*BaseMaterial, *GEditor->GetTransactor(),
 					[this](std::string Message) { SetError(std::move(Message)); });
-			DrawMaterial(BaseMaterial);
+			}
 		}
 	}
 
 	auto MMaterialEditor::DrawMaterial(DMaterial* Material) -> void
 	{
 		DrawParameterDeclarations(Material);
-		ImGui::Spacing();
-		if (!MonaImGui::PropertyEdit::BeginTable("MaterialParameters", MakeMaterialPropertyTableConfig())) return;
-		DrawMaterialParameters(Material);
-		MonaImGui::PropertyEdit::EndTable();
 	}
 
 	auto MMaterialEditor::DrawParameterDeclarations(DMaterial* Material) -> void
 	{
-		if (!ImGui::CollapsingHeader("Manage Parameters")) return;
+		if (!ImGui::CollapsingHeader("Manage Parameters", ImGuiTreeNodeFlags_DefaultOpen)) return;
 		auto* Transactions = GEditor ? GEditor->GetTransactor() : nullptr;
 		ImGui::InputTextWithHint("##NewParameterName", "Parameter name", ParameterNameDraft.data(), ParameterNameDraft.size());
 		ImGui::Combo("Type", &ParameterTypeDraft, "Float\0Float2\0Float3\0Float4\0Texture2D\0");
@@ -1034,10 +1061,6 @@ namespace Durin::Editor::Material
 						*ScratchProperty->ContainerPtrToValuePtr<FMaterialPropertyOverrides>(ScratchContainer, ScratchArrayIndex) = Overrides;
 					}, false);
 		}
-		ImGui::SeparatorText("Parameter Overrides");
-		if (!MonaImGui::PropertyEdit::BeginTable("MaterialInstanceParameters", MakeMaterialPropertyTableConfig())) return;
-		DrawMaterialParameters(Instance);
-		MonaImGui::PropertyEdit::EndTable();
 	}
 
 	auto MMaterialEditor::DrawParentPicker(DMaterialInstance* Instance) -> void
@@ -1102,7 +1125,12 @@ namespace Durin::Editor::Material
 				DrawMaterialParameter(Model, Entries[EntryIndex]);
 			}
 		};
-		DrawGroup(DrawGroup, MaterialParameterPanelCache->GetRoot(), 0);
+		const auto* Root = &MaterialParameterPanelCache->GetRoot();
+		// A sole container adds no grouping information; keep the actual parameter categories.
+		while (Root->EntryIndices.empty() && Root->Children.size() == 1
+			&& Root->Children.front().EntryIndices.empty())
+			Root = &Root->Children.front();
+		DrawGroup(DrawGroup, *Root, 0);
 	}
 
 	auto MMaterialEditor::DrawMaterialParameter(

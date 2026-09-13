@@ -65,6 +65,23 @@ namespace Durin::Editor::Material
 				ImGui::EndCombo();
 			}
 		}
+		auto DrawParameterDefault = [&](const FMaterialParameterDefinition& Parameter, EMaterialProgramValueType Type)
+		{
+			ImGui::Text("Parameter: %s", Parameter.Name.ToString().c_str());
+			const auto Literal = ReadParameterLiteral(Type, Parameter.Value);
+			std::array<float, 4> Components{Literal.X, Literal.Y, Literal.Z, Literal.W};
+			const int Count = Type == EMaterialProgramValueType::Float ? 1 : Type == EMaterialProgramValueType::Float2 ? 2
+				: Type == EMaterialProgramValueType::Float3 ? 3 : 4;
+			if (ImGui::InputScalarN("Parameter default", ImGuiDataType_Float, Components.data(), Count, nullptr, nullptr, "%.4g", ImGuiInputTextFlags_EnterReturnsTrue))
+			{
+				auto Candidate = State;
+				std::ranges::find(Candidate.Definitions, Parameter.Id, &FMaterialParameterDefinition::Id)->Value =
+					MakeParameterValue(Type, {Components[0], Components[1], Components[2], Components[3]});
+				Submit(Document.Commit(std::move(Candidate), "Edit Parameter Default", &Transactions));
+			}
+		};
+		if (Definition != State.Definitions.end() && Selected->Node.Opcode == EMaterialProgramOpcode::Parameter)
+			DrawParameterDefault(*Definition, Selected->Node.ResultType);
 		auto DrawValue = [&](const char* Label, FMaterialInputDefault Value, bool Connected,
 			const std::function<void(FMaterialInputDefault, std::optional<FMaterialParameterDefinition>)>& Assign)
 		{
@@ -72,20 +89,7 @@ namespace Durin::Editor::Material
 			if (Connected) ImGui::TextDisabled("Connected; retained value is inactive");
 			const auto Parameter = std::ranges::find(State.Definitions, Value.ParameterId, &FMaterialParameterDefinition::Id);
 			if (Value.Kind == EMaterialInputDefaultKind::Parameter && Parameter != State.Definitions.end())
-			{
-				ImGui::Text("Parameter: %s", Parameter->Name.ToString().c_str());
-				auto Literal = ReadParameterLiteral(Value.Type, Parameter->Value);
-				std::array<float, 4> Components{Literal.X, Literal.Y, Literal.Z, Literal.W};
-				const int Count = Value.Type == EMaterialProgramValueType::Float ? 1 : Value.Type == EMaterialProgramValueType::Float2 ? 2
-					: Value.Type == EMaterialProgramValueType::Float3 ? 3 : 4;
-				if (ImGui::InputScalarN("Parameter default", ImGuiDataType_Float, Components.data(), Count, nullptr, nullptr, "%.4g", ImGuiInputTextFlags_EnterReturnsTrue))
-				{
-					auto Candidate = State;
-					std::ranges::find(Candidate.Definitions, Parameter->Id, &FMaterialParameterDefinition::Id)->Value =
-						MakeParameterValue(Value.Type, {Components[0], Components[1], Components[2], Components[3]});
-					Submit(Document.Commit(std::move(Candidate), "Edit Parameter Default", &Transactions));
-				}
-			}
+				DrawParameterDefault(*Parameter, Value.Type);
 			if (Value.Kind == EMaterialInputDefaultKind::Literal)
 			{
 				std::array<float, 4> Components{Value.Literal.X, Value.Literal.Y, Value.Literal.Z, Value.Literal.W};

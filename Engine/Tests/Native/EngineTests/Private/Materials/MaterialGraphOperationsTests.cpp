@@ -8,6 +8,7 @@
 #include "MaterialAssetCreation.h"
 #include "Graph/MaterialGraphCanvas.h"
 #include "Workspace/MaterialEditorWorkspace.h"
+#include "Widgets/MaterialPreviewFraming.h"
 
 #include "MaterialTestSupport.h"
 
@@ -1178,6 +1179,9 @@ TEST(FMaterialGraphOperationsTests,
 	ASSERT_TRUE(PrepareNewMaterialForEditing(*Material, Error)) << Error;
 	const FMaterialGraphPresentation& Presentation =
 		Material->GetMaterialGraphPresentation();
+	EXPECT_TRUE(Material->GetMaterialProgram()->Nodes.empty());
+	EXPECT_TRUE(Material->GetMaterialFunctionCalls().empty());
+	EXPECT_FALSE(Material->GetMaterialProgram()->Outputs.Surface.SourceNodeId.IsValid());
 	EXPECT_EQ(Presentation.Nodes.size(),
 		Material->GetMaterialProgram()->Nodes.size());
 	EXPECT_TRUE(Presentation.bHasMaterialOutputPosition);
@@ -2494,6 +2498,7 @@ TEST(FMaterialGraphOperationsTests, DocumentDockLayoutsRemainIsolatedAndSurviveH
 	EXPECT_NE(WorkspaceUI::MakeDockClassId(WideType), WorkspaceUI::MakeDockClassId(NarrowType));
 	ImGuiID GraphId = 0;
 	ImGuiID PreviewId = 0;
+	ImGuiID DetailsId = 0;
 	for (int Frame = 0; Frame < 5; ++Frame)
 	{
 		ImGui::NewFrame();
@@ -2509,7 +2514,7 @@ TEST(FMaterialGraphOperationsTests, DocumentDockLayoutsRemainIsolatedAndSurviveH
 				Frame == 2 ? ImGuiDockNodeFlags_KeepAliveOnly : ImGuiDockNodeFlags_None);
 			if (Frame != 2)
 			{
-				for (const char* Key : {"Graph", "Preview", "Details", "Diagnostics"})
+				for (const char* Key : {"Graph", "Preview", "Details", "Parameters", "Diagnostics"})
 				{
 					if (Frame == 0 && std::string_view(Key) == "Diagnostics") continue;
 					WorkspaceUI::BeginDockablePanel(DockType, Key, Key);
@@ -2529,6 +2534,20 @@ TEST(FMaterialGraphOperationsTests, DocumentDockLayoutsRemainIsolatedAndSurviveH
 					}
 					else if (std::string_view(Key) == "Diagnostics")
 						EXPECT_NE(Window->DockId, GraphId);
+					else if (std::string_view(Key) == "Details") DetailsId = Window->DockId;
+					else if (std::string_view(Key) == "Parameters")
+					{
+						EXPECT_NE(Window->DockId, DetailsId);
+						const auto* Graph = ImGui::DockBuilderGetNode(GraphId);
+						const auto* Preview = ImGui::DockBuilderGetNode(PreviewId);
+						const auto* Details = ImGui::DockBuilderGetNode(DetailsId);
+						const auto* Parameters = ImGui::DockBuilderGetNode(Window->DockId);
+						EXPECT_LT(Preview->Pos.x, Graph->Pos.x);
+						EXPECT_LT(Preview->Pos.y, Details->Pos.y);
+						EXPECT_LT(Details->Pos.y, Parameters->Pos.y);
+						EXPECT_FLOAT_EQ(Preview->Pos.x, Parameters->Pos.x);
+						EXPECT_GT(Graph->Size.y, Preview->Size.y);
+					}
 					ImGui::End();
 				}
 			}
@@ -2537,4 +2556,18 @@ TEST(FMaterialGraphOperationsTests, DocumentDockLayoutsRemainIsolatedAndSurviveH
 		ImGui::Render();
 	}
 	ImGui::DestroyContext(Context);
+}
+
+TEST(FMaterialGraphOperationsTests, PreviewFramingFitsBothAxesAcrossViewportShapes)
+{
+	for (const double Aspect : {0.2, 0.5, 1.0, 2.0, 5.0})
+		for (const double Radius : {0.5, 1.0, 3.0})
+		{
+			const double Distance = CalculateMaterialPreviewDistance(Radius, Aspect);
+			ASSERT_GT(Distance, Radius);
+			const double ProjectedRadius = Radius / std::sqrt(Distance * Distance - Radius * Radius);
+			const double VerticalTangent = std::tan(Math::DegreesToRadians(MaterialPreviewFieldOfView) * 0.5);
+			EXPECT_LE(ProjectedRadius / VerticalTangent, 0.800001);
+			EXPECT_LE(ProjectedRadius / (VerticalTangent * Aspect), 0.800001);
+		}
 }

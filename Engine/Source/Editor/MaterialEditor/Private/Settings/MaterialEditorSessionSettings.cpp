@@ -28,6 +28,7 @@ namespace Durin::Editor::Material
 		const FYamlNodeView Layout = Root.GetView("Layout");
 		bPreviewVisible = Layout.GetView("PreviewVisible").GetBool(true);
 		bDetailsVisible = Layout.GetView("DetailsVisible").GetBool(true);
+		bParametersVisible = Layout.GetView("ParametersVisible").GetBool(true);
 		bDiagnosticsVisible = Layout.GetView("DiagnosticsVisible").GetBool(false);
 
 		const FYamlNodeView Entries = Root.GetView("GraphViewports");
@@ -58,6 +59,7 @@ namespace Durin::Editor::Material
 		FYamlNodeRef Layout = Root.AddMap("Layout");
 		Layout.SetChildValue("PreviewVisible", bPreviewVisible);
 		Layout.SetChildValue("DetailsVisible", bDetailsVisible);
+		Layout.SetChildValue("ParametersVisible", bParametersVisible);
 		Layout.SetChildValue("DiagnosticsVisible", bDiagnosticsVisible);
 
 		FYamlNodeRef Entries = Root.AddSequence("GraphViewports");
