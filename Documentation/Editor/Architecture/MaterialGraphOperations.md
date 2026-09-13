@@ -197,6 +197,11 @@ canvas makes input replacement explicit with Shift and uses the same command
 result for invalid-target feedback. Aggregate and per-property sources cannot
 coexist in a valid program.
 
+ImportedSurface uses the same Material Output as a new material: each input accepts
+the final property value. Factor/sample composition lives upstream, so the template
+has no ImportedSurfaceValues wrapper or second Surface output node. Reusable
+functions can still return an aggregate Surface through the existing aggregate mode.
+
 ## Compact input and texture authoring
 
 Advanced pins are hidden initially. For inputs, the toggle hides only optional

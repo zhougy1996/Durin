@@ -267,9 +267,14 @@ map/UV binding for those three channels. Missing maps retain existing PBR defaul
 and import-derived channel layouts remain unchanged. Normal strength and emissive
 factors already baked during import are not applied a second time.
 
-`ImportedSurface` has 58 expression nodes plus Material Output: 48 explicit
-parameter owners, eight TextureCoordinates nodes, one DecodeImportedNormalRG call
-and one ImportedSurfaceValues call. Each map has independent factor and UV owners.
+`ImportedSurface` connects final property values directly to Material Output.
+There is no ImportedSurfaceValues call or intermediate aggregate Surface wire in
+this template. Its 82 expression nodes include 48 parameter owners, eight
+TextureCoordinates nodes, one DecodeImportedNormalRG call and explicit upstream
+factor/sample composition. Each map retains independent factor and UV owners.
+The output has one input per property, without separate Sample inputs. Surface
+remains an aggregate value type for reusable functions; it is not a material-domain
+selector. The current renderer does not expose other material domains.
 The ordinary recipe samples eight resources; an explicitly packed ORM recipe can
 sample six. Resource-output sharing never implicitly merges separate UV operations.
 Function GUIDs have no special lowering rules.

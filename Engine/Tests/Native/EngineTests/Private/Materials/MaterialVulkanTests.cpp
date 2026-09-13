@@ -383,6 +383,8 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 		Durin::TStrongObjectPtr<Durin::DMaterial> FunctionComparison(
 			Durin::Cast<Durin::DMaterial>(Durin::DuplicateObject(ShippedImported, nullptr, "ShippedFunctionComparison")));
 		ASSERT_NE(FunctionComparison.Get(), nullptr);
+		ASSERT_TRUE(Durin::Testing::SetStandardMaterialProgramForTest(*FunctionComparison));
+		EXPECT_FALSE(FunctionComparison->GetMaterialProgram()->Outputs.Surface.SourceNodeId.IsValid());
 		ASSERT_EQ(FunctionComparison->GetParameterDefinitions().size(), 48u);
 		SaveFunctionMigrationBaseline("rebuilt-imported-surface", Capture(FunctionComparison.Get()));
 		ASSERT_NE(FunctionComparison->GetAcceptedCompiledProgram(), nullptr);

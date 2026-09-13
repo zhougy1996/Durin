@@ -48,14 +48,20 @@ TEST(FMaterialFunctionTests, ExpandedAndFunctionRecipesPreserveCompilationAndInd
 	FScopedOfflinePreparation Offline;
 	auto* Frozen = NewObject<DMaterial>(nullptr, "ExpandedBaseline");
 	ASSERT_NE(Frozen, nullptr);
-	ASSERT_TRUE(Frozen->SetMaterialProgram(Testing::MakeAggregatePBRMaterialProgramForTest()));
+	ASSERT_TRUE(Frozen->SetMaterialProgram(Testing::MakePBRMaterialProgramForTest()));
 	ASSERT_EQ(Frozen->GetParameterDefinitions().size(), 48u);
 
 	auto* Current = NewObject<DMaterial>(nullptr, "CurrentImportedSurface");
 	ASSERT_NE(Current, nullptr);
 	Current->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	ASSERT_TRUE(Testing::SetStandardMaterialProgramForTest(*Current));
-	EXPECT_EQ(Current->GetMaterialProgram()->Nodes.size(), 58u);
+	EXPECT_EQ(Current->GetMaterialProgram()->Nodes.size(), 82u);
+	EXPECT_FALSE(Current->GetMaterialProgram()->Outputs.Surface.SourceNodeId.IsValid());
+	ASSERT_EQ(Current->GetMaterialFunctionCalls().size(), 1u);
+	EXPECT_EQ(Current->GetMaterialFunctionCalls().front().Function->GetName(), "StandardFunction7");
+	for (uint32 Role = 0; Role < 8; ++Role)
+		EXPECT_TRUE(GetMaterialSurfaceOutputLink(Current->GetMaterialProgram()->Outputs,
+			static_cast<EMaterialSurfaceOutput>(Role)).SourceNodeId.IsValid());
 	FMaterialCompilerInput FrozenInput, CurrentInput;
 	const FMaterialCompilerEnvironment Environment{.CompilerIdentity = "ImportedSurfaceParity"};
 	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Frozen, Environment, FrozenInput));
@@ -1591,7 +1597,15 @@ TEST(FMaterialFunctionTests, ShippedStandardMaterialCooksAndLoadsWithoutAuthored
 	DMaterial* Material = nullptr;
 	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), Material));
 	ASSERT_NE(Material, nullptr);
-	ASSERT_EQ(Material->GetMaterialFunctionCalls().size(), 2u);
+	AssetForge::Builtins::FStandardMaterialFunctions Functions;
+	ASSERT_TRUE(AssetForge::Builtins::EnsureStandardMaterialFunctions(Functions, Error)) << Error;
+	std::vector<FMaterialFunctionCall> Calls;
+	FMaterialGraphPresentation Presentation;
+	auto Program = AssetForge::Builtins::MakeImportedSurfaceFunctionProgram(Functions, Calls, Presentation);
+	ASSERT_TRUE(Material->SetMaterialProgramAndFunctionCalls(std::move(Program), std::move(Calls)));
+	ASSERT_TRUE(Material->SetMaterialGraphPresentation(std::move(Presentation)));
+	ASSERT_TRUE(SavePackage(Material->GetPackage()));
+	ASSERT_EQ(Material->GetMaterialFunctionCalls().size(), 1u);
 	ASSERT_TRUE(FinishMaterialCompileForTest(*Material));
 	const auto ExpectedIdentity = Material->GetAcceptedCompiledProgram()->Identity;
 	FCookRequest Request{.OutputRoot = Root / "Cooked", .TargetPlatform = ECookTargetPlatform::Win64,

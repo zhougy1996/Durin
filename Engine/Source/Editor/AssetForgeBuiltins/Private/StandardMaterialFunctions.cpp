@@ -81,6 +81,28 @@ namespace Durin::AssetForge::Builtins
 				return {.SourceNodeId = Result.SourceNodeId, .SourceOutputId = Graph.Calls.back().Outputs.front().OutputId};
 			}
 		};
+
+		auto ComposeSurfaceValue(FBuilder& B, uint32 Role, Link Factor, Link Sample) -> Link
+		{
+			const auto ValueType = GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(Role));
+			if (Role == 1) return B.Node(Op::BlendNormalsRNM, Type::Float3, {Factor, Sample});
+			if (Role == 5)
+			{
+				const auto Zero = B.Constant(Type::Float3, 0, 0, 0);
+				Factor = B.Node(Op::Maximum, Type::Float3, {Factor, Zero});
+				Sample = B.Node(Op::Maximum, Type::Float3, {Sample, Zero});
+				return B.Node(Op::Add, Type::Float3, {Factor, Sample});
+			}
+			Factor = B.Node(Op::Saturate, ValueType, {Factor});
+			if (Role != 0) Sample = B.Node(Op::Saturate, ValueType, {Sample});
+			auto Value = B.Node(Op::Multiply, ValueType, {Factor, Sample});
+			if (Role == 3)
+			{
+				const auto Min = B.Constant(Type::Float, .045f), Max = B.Constant(Type::Float, 1);
+				Value = B.Node(Op::Clamp, Type::Float, {Value, Min, Max});
+			}
+			return Value;
+		}
 	}
 
 	auto MakeStandardMaterialFunctionGraph(Entry Function, const FStandardMaterialFunctions& Dependencies)
@@ -187,7 +209,7 @@ namespace Durin::AssetForge::Builtins
 				{
 					if (bValues)
 					{
-						Values[I] = B.Node(Op::BlendNormalsRNM, Type::Float3, {Factors[I], Textures[I]});
+						Values[I] = ComposeSurfaceValue(B, I, Factors[I], Textures[I]);
 						continue;
 					}
 					Values[I] = B.Call(Dependencies.SampleNormal.Get(), {
@@ -206,24 +228,7 @@ namespace Durin::AssetForge::Builtins
 					const auto Sample = B.Node(Op::TextureSample2D, Type::Float4, {Textures[I], UVs[I]});
 					Channel = B.Swizzle(Sample, ValueType, Channels[I], 1, 2);
 				}
-				if (I == 5)
-				{
-					const auto Zero = B.Constant(Type::Float3, 0, 0, 0);
-					const auto Factor = B.Node(Op::Maximum, Type::Float3, {Factors[I], Zero});
-					const auto Sample = B.Node(Op::Maximum, Type::Float3, {Channel, Zero});
-					Values[I] = B.Node(Op::Add, Type::Float3, {Factor, Sample});
-				}
-				else
-				{
-					const auto Factor = B.Node(Op::Saturate, ValueType, {Factors[I]});
-					if (I != 0) Channel = B.Node(Op::Saturate, ValueType, {Channel});
-					Values[I] = B.Node(Op::Multiply, ValueType, {Factor, Channel});
-					if (I == 3)
-					{
-						const auto Min = B.Constant(Type::Float, .045f), Max = B.Constant(Type::Float, 1);
-						Values[I] = B.Node(Op::Clamp, Type::Float, {Values[I], Min, Max});
-					}
-				}
+				Values[I] = ComposeSurfaceValue(B, I, Factors[I], Channel);
 			}
 			B.Output(100, "Surface", Type::Surface, B.Node(Op::MakeSurface, Type::Surface, {Values.begin(), Values.end()}));
 		}
@@ -302,8 +307,8 @@ namespace Durin::AssetForge::Builtins
 	{
 		FBuilder B{Entry::ImportedSurfaceValues};
 		const auto Recipe = MakePBRMaterialParameterDefinitions();
-		FMaterialGraphPresentation Presentation{.bHasMaterialOutputPosition = true, .MaterialOutputX = 1120, .MaterialOutputY = 400};
-		std::vector<FMaterialFunctionInputBinding> Inputs;
+		FMaterialGraphPresentation Presentation{.bHasMaterialOutputPosition = true, .MaterialOutputX = 2000, .MaterialOutputY = 400};
+		FMaterialProgram Result;
 		using ParameterKind = MaterialParameters::EMaterialBuiltinParameterKind;
 		constexpr std::array<uint8, 8> Channels{1, 6, 4, 3, 2, 1, 5, 2};
 		for (uint32 I = 0; I < 8; ++I)
@@ -333,15 +338,15 @@ namespace Durin::AssetForge::Builtins
 			if (I == 1)
 			{
 				Sample = B.Call(Functions.DecodeImportedNormalRG.Get(), {{Id(Entry::DecodeImportedNormalRG, 1), Type::Float2, Sample}});
-				Presentation.Nodes.push_back({Sample.SourceNodeId, 350, 280});
+				Presentation.Nodes.push_back({Sample.SourceNodeId, 320, static_cast<int32>(I) * 600 + 150});
 			}
-			const auto ValueType = GetMaterialSurfaceOutputType(Role);
-			Inputs.push_back({Id(Entry::ImportedSurfaceValues, 10 + I), ValueType, Factor});
-			Inputs.push_back({Id(Entry::ImportedSurfaceValues, 20 + I), ValueType, Sample});
+			const auto FirstCompositionNode = B.Graph.Nodes.size();
+			GetMaterialSurfaceOutputLink(Result.Outputs, Role) = ComposeSurfaceValue(B, I, Factor, Sample);
+			for (size_t N = FirstCompositionNode; N < B.Graph.Nodes.size(); ++N)
+				Presentation.Nodes.push_back({B.Graph.Nodes[N].Id,
+					960 + static_cast<int32>((N - FirstCompositionNode) % 3) * 320,
+					static_cast<int32>(I) * 600 + static_cast<int32>((N - FirstCompositionNode) / 3) * 170});
 		}
-		FMaterialProgram Result;
-		Result.Outputs.Surface = B.Call(Functions.ImportedSurfaceValues.Get(), std::move(Inputs));
-		Presentation.Nodes.push_back({Result.Outputs.Surface.SourceNodeId, 720, 400});
 		Result.Nodes = std::move(B.Graph.Nodes);
 		OutCalls = std::move(B.Graph.Calls);
 		OutPresentation = std::move(Presentation);

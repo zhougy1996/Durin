@@ -222,15 +222,13 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 	ASSERT_TRUE(EnsureStandardMaterialFunctions(Functions, Error)) << Error;
 	auto* Material = EnsureImportedSurfaceMaterial(Error);
 	ASSERT_NE(Material, nullptr) << Error;
-	EXPECT_EQ(Material->GetMaterialProgram()->Nodes.size(), 58u);
-	EXPECT_EQ(Material->GetMaterialFunctionCalls().size(), 2u);
+	EXPECT_EQ(Material->GetMaterialProgram()->Nodes.size(), 82u);
+	EXPECT_EQ(Material->GetMaterialFunctionCalls().size(), 1u);
 	EXPECT_EQ(Material->GetParameterDefinitions().size(), 48u);
-	EXPECT_TRUE(Material->GetMaterialProgram()->Outputs.Surface.SourceOutputId.IsValid());
-	for (const auto& Node : Material->GetMaterialProgram()->Nodes)
-		EXPECT_TRUE(Node.Opcode == EMaterialProgramOpcode::TextureSampleParameter2D
-			|| Node.Opcode == EMaterialProgramOpcode::FunctionCall
-			|| Node.Opcode == EMaterialProgramOpcode::Parameter
-			|| Node.Opcode == EMaterialProgramOpcode::TextureCoordinates);
+	EXPECT_FALSE(Material->GetMaterialProgram()->Outputs.Surface.SourceNodeId.IsValid());
+	for (uint32 Role = 0; Role < 8; ++Role)
+		EXPECT_TRUE(GetMaterialSurfaceOutputLink(Material->GetMaterialProgram()->Outputs,
+			static_cast<EMaterialSurfaceOutput>(Role)).SourceNodeId.IsValid());
 	FMaterialCompilerInput Input;
 	FMaterialCompilerEnvironment Environment;
 	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Environment, Error)) << Error;
@@ -249,8 +247,17 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 	const auto Compact = *Material->GetMaterialProgram();
 	const std::vector<FMaterialFunctionCall> CompactCalls(Material->GetMaterialFunctionCalls().begin(), Material->GetMaterialFunctionCalls().end());
 	auto Packed = Compact;
-	const auto CallId = Packed.Outputs.Surface.SourceNodeId;
-	std::erase_if(Packed.Nodes, [&](const auto& Node) { return Node.Opcode == EMaterialProgramOpcode::FunctionCall && Node.Id != CallId; });
+	const auto CallId = FGuid::NewGuid();
+	// Keep the resource/UV owners; replace the output expression network explicitly.
+	std::erase_if(Packed.Nodes, [](const auto& Node) {
+		return Node.Opcode != EMaterialProgramOpcode::Parameter
+			&& Node.Opcode != EMaterialProgramOpcode::TextureSampleParameter2D
+			&& Node.Opcode != EMaterialProgramOpcode::TextureCoordinates;
+	});
+	Packed.Nodes.push_back({.Id = CallId, .Opcode = EMaterialProgramOpcode::FunctionCall,
+		.ResultType = EMaterialProgramValueType::Surface});
+	Packed.Outputs = {};
+	Packed.Outputs.Surface.SourceNodeId = CallId;
 	FMaterialFunctionCall PackedCall{.NodeId = CallId, .Function = Functions.StandardPBR_ORM.Get()};
 	const auto PortId = [](uint32 Slot) { return StandardMaterialPortId(EStandardMaterialFunction::StandardPBR, Slot); };
 	for (uint32 Role = 0; Role < 8; ++Role)
@@ -311,7 +318,7 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 	ASSERT_TRUE(EnsureStandardMaterialFunctions(Functions, Error)) << Error;
 	EXPECT_EQ(Functions.StandardPBR->GetFunctionGraph(), Original);
 	EXPECT_EQ(Functions.StandardPBR->GetAuthoringSourceVersion(), StandardMaterialFunctionVersion);
-	EXPECT_EQ(Material->GetMaterialFunctionCalls().back().Function.Get(), Functions.ImportedSurfaceValues.Get());
+	EXPECT_EQ(Material->GetMaterialFunctionCalls().back().Function.Get(), Functions.DecodeImportedNormalRG.Get());
 }
 
 TEST(FSceneImportTests, ModifiedParentRequiresRebuildAndIsPreserved)

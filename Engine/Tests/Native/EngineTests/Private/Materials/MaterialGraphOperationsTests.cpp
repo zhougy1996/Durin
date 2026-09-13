@@ -971,12 +971,12 @@ TEST(FMaterialGraphOperationsTests, CompactCanvasRendersBindingsAndUVExtractionD
 			ImGui::End(); ImGui::Render();
 		};
 		Frame(); Frame(); SaveCanvasEvidence("imported-parent");
+		Canvas.SetViewport(1, {-1900, -320});
+		Frame(); Frame(); SaveCanvasEvidence("material-output-direct");
 		Canvas.SetViewport(1, {24, 24});
 		Frame(); Frame(); SaveCanvasEvidence("sample-details");
-		const auto CompositionId = Material->GetMaterialFunctionCalls().back().NodeId;
-		ASSERT_TRUE(Document.ConnectCallInput(CompositionId,
-			AssetForge::Builtins::StandardMaterialPortId(AssetForge::Builtins::EStandardMaterialFunction::ImportedSurfaceValues, 22),
-			{SampleId, 2}, true, Transactions.Get()));
+		ASSERT_TRUE(FMaterialGraphOperations::AssignSurfaceOutput(*Material,
+			{.Output = EMaterialSurfaceOutput::Metallic, .SourceNodeId = SampleId, .SourceOutputIndex = 2}, Transactions.Get()));
 		Frame(); Frame(); SaveCanvasEvidence("channel-fanout");
 		ASSERT_TRUE(Transactions->Undo());
 		ASSERT_TRUE(Document.ConnectInput(SampleId, 0, {}, true, Transactions.Get()));
