@@ -2183,6 +2183,36 @@ TEST_F(FContentBrowserModelTests, DeletionRejectsChangedContributorRegistration)
 	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(Path));
 }
 
+TEST_F(FContentBrowserModelTests, UnrelatedStandardPackageDamageDoesNotInvalidateDeletion)
+{
+	InitializeDObjectSystem();
+	FPackagePath SelectedPath, OutsidePath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/ScopedDelete", SelectedPath));
+	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/UnrelatedDelete", OutsidePath));
+	DMaterial* Selected = nullptr;
+	DMaterial* Outside = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(SelectedPath, Selected));
+	ASSERT_TRUE(SavePackage(Selected->GetPackage()));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(OutsidePath, Outside));
+	ASSERT_TRUE(SavePackage(Outside->GetPackage()));
+	ASSERT_TRUE(UnloadPackage(OutsidePath));
+	const auto SelectedFile = FindAssetExact(SelectedPath)->PhysicalPath;
+	const auto OutsideFile = FindAssetExact(OutsidePath)->PhysicalPath;
+	FContentBrowserOperationService Service;
+	const FContentBrowserItem Item{.Kind = EContentBrowserItemKind::File,
+		.Name = "ScopedDelete", .PhysicalPath = SelectedFile};
+	const auto Plan = Service.BuildDeletionPlan(std::span{&Item, 1});
+	ASSERT_TRUE(Plan->CanExecute());
+	std::ofstream(OutsideFile, std::ios::binary | std::ios::trunc) << "unrelated corrupt package";
+	FAssetCompanionOwnership Ownership;
+	ASSERT_TRUE(QueryAssetCompanionOwnership(Root / "Content/unclaimed.txt", Ownership));
+	EXPECT_EQ(Ownership.State, EAssetCompanionOwnershipState::Unclaimed);
+	ASSERT_TRUE(Service.ExecuteDeletion(Plan));
+	EXPECT_FALSE(std::filesystem::exists(SelectedFile));
+	EXPECT_TRUE(std::filesystem::exists(OutsideFile));
+	ASSERT_TRUE(std::filesystem::remove(OutsideFile));
+}
+
 TEST_F(FContentBrowserModelTests, DeletionRevalidatesExternalProviderFingerprint)
 {
 	InitializeDObjectSystem();

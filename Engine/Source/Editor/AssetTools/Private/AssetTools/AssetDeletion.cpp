@@ -52,6 +52,7 @@ namespace Durin
 		std::vector<FAssetDeletionWarning> Warnings;
 		std::vector<FAssetDeletionBlocker> Blockers;
 		std::vector<std::filesystem::path> PhysicalRoots;
+		std::vector<std::filesystem::path> CompanionScope;
 		bool bPrepared = false;
 		bool bDeleted = false;
 		bool bForwardPending = false;
@@ -256,6 +257,7 @@ namespace Durin
 		for (const auto& [Path, Data] : Current.Catalog.Assets)
 		{
 			if (Selected.contains(Path)) continue;
+			if (!AssetToolsPrivate::MayOwnCompanionInRoots(Data, CompanionScope)) continue;
 			std::vector<std::filesystem::path> Files;
 			if (!AssetToolsPrivate::InspectAssetCompanionFilesForDeletion(Data, Files)) continue;
 			Companions.emplace(Path, std::move(Files));
@@ -283,6 +285,8 @@ namespace Durin
 				return Error(EAssetError::InUse, "Remaining asset bytes changed during deletion recovery.");
 		}
 		RegistryRevision = Current.Revision;
+		if (ContributorRevision != AssetToolsPrivate::GetDeleteContributorRevision())
+			return Error(EAssetError::StaleData, "Deletion contributors changed during recovery validation.");
 		return {};
 	}
 
@@ -376,18 +380,33 @@ namespace Durin
 					CompanionResult.Message);
 			OutToken.Entries.push_back(std::move(Entry));
 		}
+		CompanionScope = OutToken.PhysicalRoots;
+		for (const auto& Entry : Entries)
+			CompanionScope.insert(CompanionScope.end(), Entry.CompanionFiles.begin(), Entry.CompanionFiles.end());
 
 		// Deletion is closed over final targets and every alias that resolves to them.
 		// This prevents an alias-only delete from silently invalidating authored old paths,
 		// and prevents a target delete from leaving redirectors with no destination.
+		const FAssetReferenceIndex& ReferenceIndex = RecoverySnapshot.References;
 		std::unordered_map<FPackagePath, std::vector<FPackagePath>> RedirectorsByTarget;
-		for (const auto& [AliasPath, AliasData] : CaptureAssetCatalogSnapshot().Assets)
+		for (const auto& Target : SortedPaths)
 		{
-			if (AliasData.EntryKind != EAssetRegistryEntryKind::Redirector) continue;
-			const FAssetPathResolveResult Resolution =
-				Durin::ResolveAssetPathForOperation(AliasPath);
-			if (!Resolution) continue;
-			RedirectorsByTarget[Resolution.FinalPath].push_back(AliasPath);
+			const auto* TargetData = RecoverySnapshot.Catalog.FindExact(Target);
+			if (!TargetData || TargetData->EntryKind == EAssetRegistryEntryKind::Redirector) continue;
+			std::vector<FPackagePath> Pending{Target};
+			std::unordered_set<FPackagePath> Visited{Target};
+			for (size_t Index = 0; Index < Pending.size(); ++Index)
+				for (const auto& Edge : ReferenceIndex.FindReferencers(Pending[Index]))
+				{
+					if (Edge.Kind != EAssetReferenceKind::Redirect
+						|| !Visited.insert(Edge.SourcePackage).second) continue;
+					const auto* Alias = RecoverySnapshot.Catalog.FindExact(Edge.SourcePackage);
+					if (!Alias || Alias->EntryKind != EAssetRegistryEntryKind::Redirector) continue;
+					const auto Resolution = Durin::ResolveAssetPathForOperation(Edge.SourcePackage);
+					if (!Resolution || Resolution.FinalPath != Target) continue;
+					RedirectorsByTarget[Target].push_back(Edge.SourcePackage);
+					Pending.push_back(Edge.SourcePackage);
+				}
 		}
 		for (auto& [AssetPath, Redirectors] : RedirectorsByTarget)
 			std::ranges::sort(
@@ -456,7 +475,6 @@ namespace Durin
 						Path.ToString(), Found->second.size())});
 		}
 
-		const FAssetReferenceIndex ReferenceIndex = CaptureAssetReferenceIndex();
 		for (const FPackagePath& Path : SortedPaths)
 		{
 			std::vector<FPackagePath> SoftReferencers;
@@ -514,37 +532,27 @@ namespace Durin
 				return A.Details < B.Details;
 			});
 
-		for (const auto& [OtherPath, OtherData] : CaptureAssetCatalogSnapshot().Assets)
-		{
-			if (DeletionSet.contains(OtherPath)) continue;
-			for (const FPackagePath& Dependency : OtherData.Dependencies)
+		for (const auto& Path : SortedPaths)
+			for (const auto& Edge : ReferenceIndex.FindReferencers(Path))
 			{
-				if (!DeletionSet.contains(Dependency)) continue;
+				if (Edge.Kind == EAssetReferenceKind::SoftObject || DeletionSet.contains(Edge.SourcePackage)) continue;
+				const auto* Other = RecoverySnapshot.Catalog.FindExact(Edge.SourcePackage);
 				// Redirect hard blockers have dedicated actionable closure diagnostics.
-				if (OtherData.EntryKind == EAssetRegistryEntryKind::Redirector)
-					continue;
-				const bool bLoadedReference = FindResidentPackage(OtherPath) != nullptr;
-				AddBlocker(
-					bLoadedReference
-						? EAssetDeletionBlocker::ExternalLoadedReference
-						: EAssetDeletionBlocker::ExternalPersistentReference,
-					Dependency,
-					OtherPath,
-					OtherData.PhysicalPath,
-					std::format(
-						"Asset {} is referenced by {}.",
-						Dependency.ToString(),
-						OtherPath.ToString()));
+				if (!Other || Other->EntryKind == EAssetRegistryEntryKind::Redirector) continue;
+				AddBlocker(FindResidentPackage(Edge.SourcePackage)
+					? EAssetDeletionBlocker::ExternalLoadedReference : EAssetDeletionBlocker::ExternalPersistentReference,
+					Path, Edge.SourcePackage, Other->PhysicalPath,
+					std::format("Asset {} is referenced by {}.", Path.ToString(), Edge.SourcePackage.ToString()));
 			}
-		}
 
 		std::unordered_map<std::string, std::vector<FPackagePath>> CompanionOwners;
 		for (const auto& Entry : Entries)
 			for (const auto& File : Entry.CompanionFiles)
 				CompanionOwners[File.generic_string()].push_back(Entry.RegistryEntry.PackagePath);
-		for (const auto& [OwnerPath, OwnerData] : CaptureAssetCatalogSnapshot().Assets)
+		for (const auto& [OwnerPath, OwnerData] : RecoverySnapshot.Catalog.Assets)
 		{
 			if (DeletionSet.contains(OwnerPath)) continue;
+			if (!AssetToolsPrivate::MayOwnCompanionInRoots(OwnerData, CompanionScope)) continue;
 			std::vector<std::filesystem::path> Files;
 			if (!AssetToolsPrivate::InspectAssetCompanionFilesForDeletion(
 					OwnerData, Files))
@@ -662,6 +670,7 @@ namespace Durin
 			if (std::ranges::any_of(Entries, [&](const auto& Entry) {
 				return Entry.RegistryEntry.PackagePath == Path;
 			})) continue;
+			if (!AssetToolsPrivate::MayOwnCompanionInRoots(Data, CompanionScope)) continue;
 			std::vector<std::filesystem::path> Files;
 			if (!AssetToolsPrivate::InspectAssetCompanionFilesForDeletion(Data, Files)) continue;
 			Companions.emplace(Path, std::move(Files));

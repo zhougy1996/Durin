@@ -20,27 +20,26 @@ namespace Durin
 			return Error(EAssetError::ReadOnlyMode, "Cooked packages cannot be removed.");
 		if (GetAssetCatalogRevision() != ExpectedRevision)
 			return Error(EAssetError::StaleData, "The package catalog changed before removal.");
-		FAssetPublicationState Prepared = Registry.CapturePreparedState();
+		const FAssetRegistrySnapshot Prepared = CaptureAssetRegistrySnapshot();
+		if (Prepared.Revision != ExpectedRevision)
+			return Error(EAssetError::StaleData, "The package catalog changed before removal.");
 		std::unordered_set<FPackagePath> DeletionSet;
 		for (const FAssetData& Entry : Entries)
 			DeletionSet.insert(Entry.PackagePath);
 		for (const FAssetData& Entry : Entries)
 		{
-			const auto Current = Prepared.Assets.find(Entry.PackagePath);
-			if (Current == Prepared.Assets.end() || !(Current->second == Entry))
+			const auto* Current = Prepared.Catalog.FindExact(Entry.PackagePath);
+			if (!Current || !(*Current == Entry))
 				return Error(EAssetError::InUse, std::format(
 					"Asset {} changed before registry removal.",
 					Entry.PackagePath.ToString()));
 		}
-		for (const auto& [OtherPath, OtherData] : Prepared.Assets)
-		{
-			if (DeletionSet.contains(OtherPath)) continue;
-			for (const FPackagePath& Dependency : OtherData.Dependencies)
-				if (DeletionSet.contains(Dependency))
+		for (const auto& Entry : Entries)
+			for (const auto& Edge : Prepared.References.FindReferencers(Entry.PackagePath))
+				if (Edge.Kind != EAssetReferenceKind::SoftObject && !DeletionSet.contains(Edge.SourcePackage))
 					return Error(EAssetError::InUse, std::format(
 						"Asset {} gained external referencer {}.",
-						Dependency.ToString(), OtherPath.ToString()));
-		}
+						Entry.PackagePath.ToString(), Edge.SourcePackage.ToString()));
 		return {};
 	}
 

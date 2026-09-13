@@ -3,6 +3,7 @@
 
 #include "DObject/Class.h"
 #include "Misc/MountPaths.h"
+#include "Misc/Paths.h"
 
 namespace Durin
 {
@@ -98,6 +99,24 @@ namespace Durin
 	namespace AssetToolsPrivate
 	{
 		auto GetDeleteContributorRevision() -> uint64 { return DeleteContributorRevision; }
+
+		auto MayOwnCompanionInRoots(const FAssetData& Data,
+			std::span<const std::filesystem::path> NormalizedRoots) -> bool
+		{
+			for (DClass* Class = FindClassByQualifiedName(FName(Data.AssetClassName));
+				Class; Class = Class->GetSuperClass())
+				if (GetDeleteContributors().contains(Class)) return true;
+			std::filesystem::path BulkPath =
+				std::filesystem::absolute(Data.PhysicalPath).lexically_normal();
+			BulkPath.replace_extension(".dbulk");
+			const auto Candidate = BulkPath.generic_string();
+			// Do not filter on cached bulk extent: an external edit may add a segment.
+			return std::ranges::any_of(NormalizedRoots, [&](const auto& Root) {
+				const auto PhysicalRoot = Root.generic_string();
+				return Candidate == PhysicalRoot
+					|| FPaths::IsLexicalDescendantPath(Candidate, PhysicalRoot, true);
+			});
+		}
 		auto InspectAssetCompanionFilesForDeletion(
 			const FAssetData& Data,
 			std::vector<std::filesystem::path>& OutFiles) -> FAssetResult
@@ -143,6 +162,7 @@ namespace Durin
 			std::filesystem::absolute(PhysicalPath).lexically_normal();
 		for (const auto& [Path, Data] : CaptureAssetCatalogSnapshot().Assets)
 		{
+			if (!AssetToolsPrivate::MayOwnCompanionInRoots(Data, std::span{&Candidate, 1})) continue;
 			if (!FMountPaths::FindMountForVirtualPath(Path.GetView()))
 				continue;
 			std::error_code ExistenceError;

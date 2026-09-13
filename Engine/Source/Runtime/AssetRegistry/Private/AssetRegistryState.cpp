@@ -229,10 +229,10 @@ namespace Durin
 	auto FAssetReferenceIndex::FindReferencers(
 		const FPackagePath& Target) const -> std::vector<FAssetPackageReferenceEdge>
 	{
-		std::vector<FAssetPackageReferenceEdge> Result;
-		for (const FAssetPackageReferenceEdge& Reference : Edges)
-			if (Reference.TargetPath == Target) Result.push_back(Reference);
-		return Result;
+		// Snapshot edges are ordered by target, source, and kind at capture.
+		const auto Range = std::ranges::equal_range(Edges, Target.GetView(), {},
+			[](const auto& Edge) { return Edge.TargetPath.GetView(); });
+		return {Range.begin(), Range.end()};
 	}
 
 	auto FAssetReferenceIndex::FindTargets(

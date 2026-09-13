@@ -221,7 +221,11 @@ owns deletion contributors and companion-ownership queries; package and `.dbulk`
 inspection remain Engine mechanisms. Standard deletion companion ownership uses
 AssetRegistry's current bounded package-header reader and physical bulk extent,
 without reading package values or bulk payloads. Only matching custom deletion
-contributors request complete Engine package inspection. External reference-store registration stays
+contributors request complete Engine package inspection. Ownership queries filter
+standard packages by whether their fixed `.dbulk` sibling intersects the selected
+physical roots or confirmed companion paths before any package I/O. Custom
+contributors remain conservative candidates. Cached zero bulk extent never
+excludes a candidate, since external edits may add a segment. External reference-store registration stays
 in Engine for shared Cook/fix-up use. `CaptureAssetReferenceStores` returns owned
 snapshots under provider gates; AssetTools interprets them as deletion warnings
 and revalidates their fingerprints and registration revision before execution.
