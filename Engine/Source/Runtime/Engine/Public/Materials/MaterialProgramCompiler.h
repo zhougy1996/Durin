@@ -106,6 +106,8 @@ namespace Durin
 		FGuid PortId;
 		std::string FunctionAssetPath;
 		std::vector<FGuid> CallPath;
+		std::optional<uint32> InputIndex;
+		std::optional<uint32> UVFieldIndex;
 	};
 
 	struct FMaterialNormalizationResult

@@ -116,8 +116,13 @@ namespace Durin::Private
 				using Type = EMaterialProgramValueType;
 				std::array<FExpandedValue, 4> Settings;
 				for (uint32 Index = 0; Index < 4; ++Index)
+				{
 					Settings[Index] = Node.Opcode == Op::TextureCoordinates && Node.Inputs[Index].SourceNodeId.IsValid()
 						? Link(Context, Node.Inputs[Index]) : Default(Context, GetMaterialUVSetting(Node.UVSettings, Index), Node.Id);
+					if (!(Node.Opcode == Op::TextureCoordinates && Node.Inputs[Index].SourceNodeId.IsValid()))
+						if (auto Source = Program.Sources.find(Settings[Index].Link.SourceNodeId); Source != Program.Sources.end())
+							Source->second.UVFieldIndex = Index;
+				}
 				const auto Operation = [&](Op Opcode, Type ResultType, std::vector<FMaterialProgramLink> Inputs) {
 					return Emit(Context, {.Opcode = Opcode, .ResultType = ResultType, .Inputs = std::move(Inputs)}, Node.Id, true);
 				};
@@ -289,6 +294,9 @@ namespace Durin::Private
 						Inputs.push_back(Source.SourceNodeId.IsValid() ? Link(Context, Source)
 							: IsMaterialSampleUVInput(*Node, Index) ? Coordinates(Context, *Node)
 							: Default(Context, GetMaterialNodeInputDefault(*Node, Index), NodeId));
+						if (!Source.SourceNodeId.IsValid() && !IsMaterialSampleUVInput(*Node, Index))
+							if (auto Origin = Program.Sources.find(Inputs.back().Link.SourceNodeId); Origin != Program.Sources.end())
+								Origin->second.InputIndex = Index;
 					}
 					if (!Result.Diagnostics.empty()) return {};
 					auto Lowered = *Node;
@@ -424,6 +432,8 @@ namespace Durin::Private
 					{
 						Diagnostic.NodeId = Source->second.NodeId;
 						Diagnostic.PortId = Source->second.PortId;
+						Diagnostic.InputIndex = Source->second.InputIndex;
+						Diagnostic.UVFieldIndex = Source->second.UVFieldIndex;
 						Diagnostic.FunctionAssetPath = Source->second.FunctionAssetPath;
 						Diagnostic.CallPath = Source->second.CallPath;
 					}

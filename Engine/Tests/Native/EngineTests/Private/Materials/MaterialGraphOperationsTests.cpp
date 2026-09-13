@@ -1,4 +1,6 @@
 #include "LegacyMaterialProgramTestFixture.h"
+#include "StandardMaterialFunctionTestFixture.h"
+#include "Image/ImageEncoder.h"
 #include "Misc/MountPathTestSupport.h"
 #include "MaterialGraphOperations.h"
 #include "MaterialGraphDocument.h"
@@ -42,6 +44,8 @@ namespace Durin::Editor::Material
 		}
 		static auto ProgramSelection(const FMaterialGraphCanvas& Canvas) -> std::vector<FGuid>
 		{ return Canvas.GetSelectedProgramNodes(); }
+		static auto HideAdvanced(FMaterialGraphCanvas& Canvas) -> void
+		{ Canvas.bShowAdvancedInputs = false; Canvas.CachedMaterial = nullptr; }
 		static auto Prepare(FMaterialGraphCanvas& Canvas, DMaterial& Material)
 			-> const FMaterialGraphView& { return Canvas.PrepareView(Material); }
 		static auto PrepareVisuals(FMaterialGraphCanvas& Canvas) -> void
@@ -71,6 +75,62 @@ namespace
 		const auto It = std::ranges::find(View.Nodes, Id,
 			[](const FMaterialGraphNodeView& Node) { return Node.Node.Id; });
 		return It == View.Nodes.end() ? nullptr : &*It;
+	}
+
+	// Rasterize actual ImGui draw data for headless canvas evidence, including the font atlas.
+	auto SaveCanvasEvidence(std::string_view Name) -> void
+	{
+		const auto* DrawData = ImGui::GetDrawData();
+		const int Width = static_cast<int>(DrawData->DisplaySize.x), Height = static_cast<int>(DrawData->DisplaySize.y);
+		Durin::FByteBuffer Pixels(static_cast<size_t>(Width) * Height * 4, std::byte{0});
+		unsigned char* Atlas = nullptr;
+		int AtlasWidth = 0, AtlasHeight = 0;
+		ImGui::GetIO().Fonts->GetTexDataAsRGBA32(&Atlas, &AtlasWidth, &AtlasHeight);
+		for (const auto* List : DrawData->CmdLists)
+			for (const auto& Command : List->CmdBuffer)
+			{
+				if (Command.UserCallback) continue;
+				const auto* Texture = Command.TexRef._TexData;
+				const auto* TexturePixels = Texture && Texture->Pixels ? Texture->Pixels : Atlas;
+				const int TextureWidth = Texture && Texture->Pixels ? Texture->Width : AtlasWidth;
+				const int TextureHeight = Texture && Texture->Pixels ? Texture->Height : AtlasHeight;
+				const int PixelStride = Texture && Texture->Pixels ? Texture->BytesPerPixel : 4;
+				for (uint32 Index = 0; Index + 2 < Command.ElemCount; Index += 3)
+				{
+					const auto& A = List->VtxBuffer[List->IdxBuffer[Command.IdxOffset + Index] + Command.VtxOffset];
+					const auto& B = List->VtxBuffer[List->IdxBuffer[Command.IdxOffset + Index + 1] + Command.VtxOffset];
+					const auto& C = List->VtxBuffer[List->IdxBuffer[Command.IdxOffset + Index + 2] + Command.VtxOffset];
+					const auto Edge = [](ImVec2 P, ImVec2 Q, ImVec2 R) { return (Q.x - P.x) * (R.y - P.y) - (Q.y - P.y) * (R.x - P.x); };
+					const float Area = Edge(A.pos, B.pos, C.pos);
+					if (std::abs(Area) < .00001f) continue;
+					const int X0 = std::max(0, static_cast<int>(std::max(Command.ClipRect.x, std::floor(std::min({A.pos.x, B.pos.x, C.pos.x})))));
+					const int Y0 = std::max(0, static_cast<int>(std::max(Command.ClipRect.y, std::floor(std::min({A.pos.y, B.pos.y, C.pos.y})))));
+					const int X1 = std::min(Width, static_cast<int>(std::min(Command.ClipRect.z, std::ceil(std::max({A.pos.x, B.pos.x, C.pos.x})))));
+					const int Y1 = std::min(Height, static_cast<int>(std::min(Command.ClipRect.w, std::ceil(std::max({A.pos.y, B.pos.y, C.pos.y})))));
+					for (int Y = Y0; Y < Y1; ++Y) for (int X = X0; X < X1; ++X)
+					{
+						const ImVec2 P{X + .5f, Y + .5f};
+						const float U = Edge(B.pos, C.pos, P) / Area, V = Edge(C.pos, A.pos, P) / Area, W = 1 - U - V;
+						if (U < 0 || V < 0 || W < 0) continue;
+						const int TX = std::clamp(static_cast<int>((A.uv.x * U + B.uv.x * V + C.uv.x * W) * TextureWidth), 0, TextureWidth - 1);
+						const int TY = std::clamp(static_cast<int>((A.uv.y * U + B.uv.y * V + C.uv.y * W) * TextureHeight), 0, TextureHeight - 1);
+						const float Alpha = (((A.col >> 24) & 255) * U + ((B.col >> 24) & 255) * V + ((C.col >> 24) & 255) * W)
+							* TexturePixels[(TY * TextureWidth + TX) * PixelStride + PixelStride - 1] / (255.f * 255.f);
+						for (uint32 Channel = 0; Channel < 3; ++Channel)
+						{
+							const float Color = ((A.col >> (Channel * 8)) & 255) * U + ((B.col >> (Channel * 8)) & 255) * V + ((C.col >> (Channel * 8)) & 255) * W;
+							auto& Pixel = Pixels[(Y * Width + X) * 4 + Channel];
+							Pixel = std::byte(static_cast<uint8>(std::clamp(Color * Alpha + std::to_integer<uint8>(Pixel) * (1 - Alpha), 0.f, 255.f)));
+						}
+						Pixels[(Y * Width + X) * 4 + 3] = std::byte{255};
+					}
+				}
+			}
+		Durin::FByteBuffer Png;
+		ASSERT_TRUE(Durin::Image::EncodeRgba8Png(Pixels, Width, Height, Png));
+		const auto Directory = Durin::Testing::GetTestWorkDirectory() / "CompactCanvas";
+		std::filesystem::create_directories(Directory);
+		ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(Png, Directory / (std::string(Name) + ".png")));
 	}
 
 	auto Normalize(const DMaterial& Material) -> FMaterialNormalizationResult
@@ -563,6 +623,7 @@ TEST(FMaterialGraphOperationsTests, CatalogPinsAgreeWithRuntimeValidation)
 					return Node.Id;
 				};
 				FMaterialProgramNode Target = Entry.NodeTemplate;
+				if (Target.Opcode == EMaterialProgramOpcode::TextureSampleParameter2D) Target.ParameterId = Texture.Id;
 				Target.Id = FGuid::NewGuid();
 				// A zero mask permits every numeric source width; payload bounds are tested separately.
 				Target.SwizzleX = Target.SwizzleY = Target.SwizzleZ = Target.SwizzleW = 0;
@@ -681,40 +742,194 @@ TEST(FMaterialGraphOperationsTests, PaletteCreationAddsVisibleDefaultsInOneTrans
 			.Y = 200,
 		}, Multiply->AcceptedInputTypes, Transactions.Get());
 	ASSERT_TRUE(Created) << Created.Message;
-	ASSERT_EQ(Created.GeneratedNodeIds.size(), 3u);
+	ASSERT_EQ(Created.GeneratedNodeIds.size(), 1u);
 	const FMaterialGraphView View = FMaterialGraphOperations::Inspect(*Material);
 	const FMaterialGraphNodeView* Node = FindViewNode(View, Created.GeneratedNodeIds.front());
 	ASSERT_NE(Node, nullptr);
 	ASSERT_EQ(Node->Node.Inputs.size(), 2u);
-	for (const FMaterialProgramLink& Link : Node->Node.Inputs)
+	ASSERT_EQ(Node->Node.InputDefaults.size(), 2u);
+	for (const auto& Pin : Node->Inputs)
 	{
-		EXPECT_TRUE(Link.SourceNodeId.IsValid());
-		const FMaterialGraphNodeView* Default = FindViewNode(View, Link.SourceNodeId);
-		ASSERT_NE(Default, nullptr);
-		EXPECT_EQ(Default->Node.Opcode, EMaterialProgramOpcode::Constant);
-		EXPECT_EQ(Default->Node.ResultType, EMaterialProgramValueType::Float3);
-		EXPECT_EQ(Default->Presentation.NodeId, Default->Node.Id);
+		EXPECT_FALSE(Pin.Link.SourceNodeId.IsValid());
+		EXPECT_EQ(Pin.InlineDefault.Kind, EMaterialInputDefaultKind::Literal);
+		EXPECT_EQ(Pin.InlineDefault.Type, EMaterialProgramValueType::Float3);
 	}
-	const float DefaultHeight = FMaterialGraphGeometry::GetNodeHeight(0);
-	const float DefaultGap = FMaterialGraphGeometry::GetMetrics().RowGap;
-	std::vector<int32> DefaultRows;
-	for (const FMaterialProgramLink& Link : Node->Node.Inputs)
-	{
-		const FMaterialGraphNodeView* Default = FindViewNode(View, Link.SourceNodeId);
-		ASSERT_NE(Default, nullptr);
-		DefaultRows.push_back(Default->Presentation.Y);
-	}
-	std::ranges::sort(DefaultRows);
-	for (size_t Index = 1; Index < DefaultRows.size(); ++Index)
-		EXPECT_GE(DefaultRows[Index] - DefaultRows[Index - 1],
-			static_cast<int32>(DefaultHeight + DefaultGap));
-	const FMaterialGraphNodeView* IdentityDefault =
-		FindViewNode(View, Node->Node.Inputs[1].SourceNodeId);
-	ASSERT_NE(IdentityDefault, nullptr);
-	EXPECT_FLOAT_EQ(IdentityDefault->Node.Literal.X, 1.0f);
+	EXPECT_FLOAT_EQ(Node->Node.InputDefaults[1].Literal.X, 1.0f);
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(*Material->GetMaterialProgram(), Before);
 
+	MarkAsGarbage(Material);
+	CollectGarbage();
+}
+
+TEST(FMaterialGraphOperationsTests, HiddenAdvancedPinsRetainStableIdentitiesAndRevealBindings)
+{
+	InitializeDObjectSystem();
+	auto* Material = NewObject<DMaterial>(nullptr, "AdvancedPins");
+	auto* Function = NewObject<DMaterialFunction>(nullptr, "AdvancedFunction");
+	FMaterialGraphDocument FunctionDocument(*Function), Document(*Material);
+	const FGuid Advanced = FGuid::NewGuid(), Visible = FGuid::NewGuid();
+	ASSERT_TRUE(FunctionDocument.AddPort(false, {.Id = Advanced, .Name = "Advanced", .bAdvanced = true,
+		.Default = {.Kind = EMaterialFunctionDefaultKind::Numeric}}));
+	ASSERT_TRUE(FunctionDocument.AddPort(false, {.Id = Visible, .Name = "Visible", .DisplayOrder = 1,
+		.Default = {.Kind = EMaterialFunctionDefaultKind::Numeric}}));
+	const auto Call = Document.InsertFunctionCall(*Function, 0, 0);
+	ASSERT_TRUE(Call);
+	EXPECT_TRUE(std::ranges::find(Function->GetFunctionSignature().Inputs, Advanced, &FMaterialFunctionPort::Id)->bAdvanced);
+	FMaterialGraphCanvas Canvas;
+	FMaterialGraphCanvasTestAccess::HideAdvanced(Canvas);
+	const auto& Hidden = FMaterialGraphCanvasTestAccess::Prepare(Canvas, *Material);
+	const auto* CallView = FindViewNode(Hidden, Call.GeneratedNodeIds[0]);
+	ASSERT_NE(CallView, nullptr);
+	ASSERT_EQ(CallView->Inputs.size(), 2u); // The default Surface input remains visible.
+	EXPECT_EQ(CallView->Inputs.back().PortId, Visible);
+	EXPECT_EQ(CallView->Inputs.back().InputIndex, 2u);
+	ASSERT_TRUE(Document.SetInputDefault(Call.GeneratedNodeIds[0], 0,
+		{.Kind = EMaterialInputDefaultKind::Literal, .Literal = {.X = .7f}}, Advanced));
+	const auto& Revealed = FMaterialGraphCanvasTestAccess::Prepare(Canvas, *Material);
+	CallView = FindViewNode(Revealed, Call.GeneratedNodeIds[0]);
+	ASSERT_EQ(CallView->Inputs.size(), 3u);
+	EXPECT_NE(std::ranges::find(CallView->Inputs, Advanced, &FMaterialGraphPinView::PortId), CallView->Inputs.end());
+	EXPECT_EQ(CallView->Inputs.back().PortId, Visible);
+	MarkAsGarbage(Material);
+	MarkAsGarbage(Function);
+	CollectGarbage();
+}
+
+TEST(FMaterialGraphOperationsTests, CompactCanvasRendersBindingsAndUVExtractionDetails)
+{
+	InitializeDObjectSystem();
+	auto* Material = NewObject<DMaterial>(nullptr, "CompactCanvasEvidence");
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	ASSERT_TRUE(Material->SetMaterialDefinitionsAndProgram(MakePBRMaterialParameterDefinitions(), {}));
+	ASSERT_TRUE(Testing::SetStandardMaterialProgramForTest(*Material));
+	FMaterialGraphDocument Document(*Material);
+	const auto SampleId = Material->GetMaterialProgram()->Nodes.front().Id;
+	ImGuiContext* Context = ImGui::CreateContext();
+	auto& IO = ImGui::GetIO();
+	IO.DisplaySize = {1660, 1500}; IO.DeltaTime = 1.f / 60; IO.IniFilename = nullptr;
+	IO.Fonts->AddFontDefault(); IO.Fonts->Build();
+	Durin::Tests::FTestTransactorOwner Transactions;
+	{
+		FMaterialGraphCanvas Canvas;
+		Canvas.SetViewport(.62f, {24, 24});
+		FMaterialGraphCanvasTestAccess::Select(Canvas, {SampleId});
+		int Errors = 0;
+		const auto Frame = [&] {
+			ImGui::NewFrame();
+			ImGui::SetNextWindowPos({0, 0}); ImGui::SetNextWindowSize({1210, 1500});
+			ImGui::Begin("Imported Surface - 10 expressions + output", nullptr, ImGuiWindowFlags_NoResize);
+			Canvas.Draw(*Material, *Transactions.Get(), 1450, [&](std::string) { ++Errors; });
+			ImGui::End();
+			ImGui::SetNextWindowPos({1210, 0}); ImGui::SetNextWindowSize({450, 1500});
+			ImGui::Begin("Node Details", nullptr, ImGuiWindowFlags_NoResize);
+			Canvas.DrawSelectionDetails(*Material, *Transactions.Get(), [&](std::string) { ++Errors; });
+			ImGui::End(); ImGui::Render();
+		};
+		Frame(); Frame(); SaveCanvasEvidence("imported-parent");
+		Canvas.SetViewport(1, {24, 24});
+		Frame(); Frame(); SaveCanvasEvidence("sample-details");
+		const auto CompositionId = Material->GetMaterialFunctionCalls().back().NodeId;
+		ASSERT_TRUE(Document.ConnectCallInput(CompositionId,
+			AssetForge::Builtins::StandardMaterialPortId(AssetForge::Builtins::EStandardMaterialFunction::ImportedSurfaceValues, 22),
+			{SampleId, 2}, true, Transactions.Get()));
+		Frame(); Frame(); SaveCanvasEvidence("channel-fanout");
+		ASSERT_TRUE(Transactions->Undo());
+		const auto Extracted = Document.ExtractUVSettings(SampleId, Transactions.Get());
+		ASSERT_TRUE(Extracted);
+		Canvas.SetViewport(1, {350, 24});
+		FMaterialGraphCanvasTestAccess::Select(Canvas, {Extracted.GeneratedNodeIds[0]});
+		Frame(); Frame(); SaveCanvasEvidence("extracted-uv");
+		FMaterialGraphCanvasTestAccess::Select(Canvas, {SampleId});
+		Frame(); Frame(); SaveCanvasEvidence("external-uv");
+		ASSERT_TRUE(Document.ConnectInput(SampleId, 0, {}, true, Transactions.Get()));
+		Frame(); Frame(); SaveCanvasEvidence("restored-local-uv");
+		ASSERT_TRUE(Transactions->Undo());
+		ASSERT_TRUE(Transactions->Undo());
+		FMaterialGraphCanvasTestAccess::Select(Canvas, {SampleId});
+		Frame(); Frame();
+		EXPECT_EQ(Errors, 0);
+	}
+	ImGui::DestroyContext(Context);
+	MarkAsGarbage(Material);
+	CollectGarbage();
+}
+
+TEST(FMaterialGraphOperationsTests, CompactInputCommandsPreserveSharingFallbacksAndUndo)
+{
+	InitializeDObjectSystem();
+	auto* Material = NewObject<DMaterial>(nullptr, "CompactInputCommands");
+	FMaterialGraphDocument Document(*Material);
+	Durin::Tests::FTestTransactorOwner Transactions;
+	const auto Created = Document.CreateNodeWithDefaultInputs({.Node = {.Opcode = EMaterialProgramOpcode::Multiply,
+		.Inputs = {{}, {}}}, .X = 400, .Y = 200}, {}, Transactions.Get());
+	ASSERT_TRUE(Created) << Created.Message;
+	const auto Id = Created.GeneratedNodeIds[0];
+	const auto Before = *Material->GetMaterialProgram();
+	const auto Extracted = Document.ExtractInputDefault(Id, 1, {}, Transactions.Get());
+	ASSERT_TRUE(Extracted) << Extracted.Message;
+	const auto ExtractedId = Extracted.GeneratedNodeIds[0];
+	ASSERT_TRUE(Document.ConnectInput(Id, 0, {ExtractedId}, false, Transactions.Get()));
+	ASSERT_TRUE(Document.InlineInputNode(Id, 1, {}, Transactions.Get()));
+	EXPECT_NE(std::ranges::find(Material->GetMaterialProgram()->Nodes, ExtractedId, &FMaterialProgramNode::Id), Material->GetMaterialProgram()->Nodes.end());
+	ASSERT_TRUE(Document.InlineInputNode(Id, 0, {}, Transactions.Get()));
+	EXPECT_EQ(std::ranges::find(Material->GetMaterialProgram()->Nodes, ExtractedId, &FMaterialProgramNode::Id), Material->GetMaterialProgram()->Nodes.end());
+	for (int Index = 0; Index < 4; ++Index) ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(*Material->GetMaterialProgram(), Before);
+	for (int Index = 0; Index < 4; ++Index) ASSERT_TRUE(Transactions->Redo());
+	const auto& Node = *std::ranges::find(Material->GetMaterialProgram()->Nodes, Id, &FMaterialProgramNode::Id);
+	EXPECT_FLOAT_EQ(Node.InputDefaults[0].Literal.X, 1);
+	EXPECT_FLOAT_EQ(Node.InputDefaults[1].Literal.X, 1);
+	MarkAsGarbage(Material);
+	CollectGarbage();
+}
+
+TEST(FMaterialGraphOperationsTests, CompactSamplingClipboardRemapsRetainedUVBindingsAndExtractsAtomically)
+{
+	InitializeDObjectSystem();
+	auto* Material = NewObject<DMaterial>(nullptr, "CompactSamplingCommands");
+	auto* Target = NewObject<DMaterial>(nullptr, "CompactSamplingTarget");
+	FMaterialGraphDocument Document(*Material);
+	Durin::Tests::FTestTransactorOwner Transactions;
+	const auto Created = Document.CreateNodeWithDefaultInputs({.Node = {.Opcode = EMaterialProgramOpcode::TextureSampleParameter2D,
+		.ResultType = EMaterialProgramValueType::Float4, .Inputs = {{}}}, .X = 400}, {}, Transactions.Get());
+	ASSERT_TRUE(Created) << Created.Message;
+	const auto Id = Created.GeneratedNodeIds[0];
+	FMaterialGraphDocumentState State;
+	ASSERT_TRUE(Document.Capture(State));
+	FMaterialParameterDefinition Channel;
+	Channel.Id = FGuid::NewGuid();
+	Channel.Name = "IndependentUV";
+	Channel.Value = FMaterialParameterValue::MakeScalar(1);
+	State.Definitions.push_back(Channel);
+	std::ranges::find(State.Program.Nodes, Id, &FMaterialProgramNode::Id)->UVSettings.Channel = {
+		.Kind = EMaterialInputDefaultKind::Parameter, .ParameterId = Channel.Id};
+	ASSERT_TRUE(Document.Commit(State, "Bind UV"));
+	const auto Before = *Material->GetMaterialProgram();
+	const auto Extracted = Document.ExtractUVSettings(Id, Transactions.Get());
+	ASSERT_TRUE(Extracted) << Extracted.Message;
+	const auto CoordinatesId = Extracted.GeneratedNodeIds[0];
+	const auto& Nodes = Material->GetMaterialProgram()->Nodes;
+	EXPECT_EQ(std::ranges::find(Nodes, CoordinatesId, &FMaterialProgramNode::Id)->UVSettings,
+		std::ranges::find(Nodes, Id, &FMaterialProgramNode::Id)->UVSettings);
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(*Material->GetMaterialProgram(), Before);
+	ASSERT_TRUE(Transactions->Redo());
+	FMaterialGraphClipboardPayload Payload;
+	ASSERT_TRUE(Document.CopySelection(std::array{Id, CoordinatesId}, Payload));
+	EXPECT_EQ(Payload.Definitions.size(), 2u);
+	const auto Pasted = FMaterialGraphDocument(*Target).Paste(Payload, 0, 0);
+	ASSERT_TRUE(Pasted) << Pasted.Message;
+	for (const auto& Node : Target->GetMaterialProgram()->Nodes)
+		if (Node.Opcode == EMaterialProgramOpcode::TextureCoordinates || IsMaterialSamplingNode(Node.Opcode))
+		{
+			EXPECT_NE(Node.UVSettings.Channel.ParameterId, Channel.Id);
+			EXPECT_NE(Target->FindParameterDefinition(Node.UVSettings.Channel.ParameterId), nullptr);
+		}
+	auto* Function = NewObject<DMaterialFunction>(nullptr, "RejectRootBindings");
+	EXPECT_FALSE(FMaterialGraphDocument(*Function).Paste(Payload, 0, 0));
+	MarkAsGarbage(Function);
+	MarkAsGarbage(Target);
 	MarkAsGarbage(Material);
 	CollectGarbage();
 }

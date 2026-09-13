@@ -40,6 +40,7 @@ namespace Durin::Editor::Material
 						+ State->Presentation.Nodes.capacity() * sizeof(FMaterialGraphNodePresentation);
 					for (const auto& Node : State->Program.Nodes)
 						Bytes += Node.DisplayName.capacity() + Node.Inputs.capacity() * sizeof(FMaterialProgramLink)
+							+ Node.InputDefaults.capacity() * sizeof(FMaterialInputDefault)
 							+ Node.SurfaceAttributes.capacity() * sizeof(FMaterialSurfaceAttributeBinding);
 					for (const auto& Call : State->Calls)
 						Bytes += Call.Inputs.capacity() * sizeof(FMaterialFunctionInputBinding)
@@ -261,20 +262,27 @@ namespace Durin::Editor::Material
 		}
 		Request.Node.Id = FGuid::NewGuid();
 		Request.Node.Inputs.clear();
+		Request.Node.InputDefaults.clear();
 		std::vector<FGuid> Generated{Request.Node.Id};
 		for (uint32 Index = 0; Index < Signature->InputCount; ++Index)
 		{
-			if (Index == 0 && FirstInput.SourceNodeId.IsValid()) { Request.Node.Inputs.push_back(FirstInput); continue; }
+			Request.Node.Inputs.push_back(Index == 0 ? FirstInput : FMaterialProgramLink{});
+			Request.Node.InputDefaults.push_back({});
+			if (Request.Node.Inputs.back().SourceNodeId.IsValid() || IsMaterialSampleUVInput(Request.Node, Index)
+				|| Request.Node.Opcode == EMaterialProgramOpcode::TextureCoordinates) continue;
 			const auto Type = Signature->Inputs[Index].front();
 			if (Type >= EMaterialProgramValueType::Texture2D)
 				return MakeRejected("Create this node by dragging from a compatible texture or Surface output.");
 			FMaterialProgramNode Default{.Id = FGuid::NewGuid(), .ResultType = Type};
+			float Value = 0;
+			if (((Request.Node.Opcode == EMaterialProgramOpcode::Multiply || Request.Node.Opcode == EMaterialProgramOpcode::Divide) && Index == 1)
+				|| (Request.Node.Opcode == EMaterialProgramOpcode::Clamp && Index == 2) || Request.Node.Opcode == EMaterialProgramOpcode::Normalize) Value = 1;
+			else if (Request.Node.Opcode == EMaterialProgramOpcode::Lerp) Value = Index == 1 ? 1.f : Index == 2 ? .5f : 0.f;
+			Default.Literal = {Value, Value, Value, Value};
 			if (Request.Node.Opcode == EMaterialProgramOpcode::MakeSurface)
 				Default.Literal = GetMaterialSurfaceOutputDefault(State.Program.Outputs, static_cast<EMaterialSurfaceOutput>(Index));
-			Request.Node.Inputs.push_back({Default.Id});
-			Generated.push_back(Default.Id);
-			State.Presentation.Nodes.push_back({Default.Id, Request.X - 320, Request.Y + static_cast<int32>(Index) * 140});
-			State.Program.Nodes.push_back(std::move(Default));
+			Request.Node.InputDefaults.back() = {.Kind = EMaterialInputDefaultKind::Literal,
+				.Type = Type, .Literal = Default.Literal};
 		}
 		State.Presentation.Nodes.push_back({Request.Node.Id, Request.X, Request.Y});
 		State.Program.Nodes.push_back(std::move(Request.Node));
@@ -313,8 +321,12 @@ namespace Durin::Editor::Material
 				}
 		std::erase_if(State.Program.Nodes, [&](const auto& Node) { return Removed.contains(Node.Id); });
 		std::erase_if(State.Calls, [&](const auto& Call) { return Removed.contains(Call.NodeId); });
+		for (auto& Node : State.Program.Nodes)
+			for (auto& Input : Node.Inputs)
+				if (Removed.contains(Input.SourceNodeId)) Input = {};
 		for (auto& Call : State.Calls)
-			std::erase_if(Call.Inputs, [&](const auto& Binding) { return Removed.contains(Binding.Source.SourceNodeId); });
+			for (auto& Binding : Call.Inputs)
+				if (Removed.contains(Binding.Source.SourceNodeId)) Binding.Source = {};
 		for (uint32 Index = 0; Index < 8; ++Index)
 		{
 			auto& Link = GetMaterialSurfaceOutputLink(State.Program.Outputs, static_cast<EMaterialSurfaceOutput>(Index));
@@ -419,8 +431,9 @@ namespace Durin::Editor::Material
 		auto Binding = std::ranges::find(Call->Inputs, InputId, &FMaterialFunctionInputBinding::InputId);
 		if (Binding != Call->Inputs.end())
 		{
-			if (!bReplaceExisting && Binding->Source != Source) return MakeRejected("The function input is already connected.");
-			*Binding = {InputId, Port->Type, Source};
+			if (!bReplaceExisting && Binding->Source.SourceNodeId.IsValid() && Binding->Source != Source)
+				return MakeRejected("The function input is already connected.");
+			Binding->Source = Source;
 		}
 		else Call->Inputs.push_back({InputId, Port->Type, Source});
 		return Commit(std::move(State), "Connect Function Input", Transactions);
@@ -433,7 +446,11 @@ namespace Durin::Editor::Material
 		if (!Capture(State)) return {.Status = EMaterialGraphCommandStatus::StaleOwner};
 		auto Call = std::ranges::find(State.Calls, CallNodeId, &FMaterialFunctionCall::NodeId);
 		if (Call == State.Calls.end()) return MakeRejected("The function call no longer exists.");
-		std::erase_if(Call->Inputs, [&](const auto& Binding) { return Binding.InputId == InputId; });
+		for (auto& Binding : Call->Inputs)
+			if (Binding.InputId == InputId) Binding.Source = {};
+		std::erase_if(Call->Inputs, [&](const auto& Binding) {
+			return Binding.InputId == InputId && Binding.Default.Kind == EMaterialInputDefaultKind::None;
+		});
 		return Commit(std::move(State), "Disconnect Function Input", Transactions);
 	}
 }

@@ -31,6 +31,8 @@ namespace Durin::Editor::Material
 			float Height,
 			const FReportError& ReportError) -> void;
 		auto SelectAndFrame(const FGuid& NodeId) -> bool;
+		auto DrawSelectionDetails(DObject& Owner, DTransactor& Transactions,
+			const FReportError& ReportError) -> void;
 		auto DrawFunction(DMaterialFunction& Function, ::Durin::DTransactor& Transactions,
 			float Height, const FReportError& ReportError,
 			const std::function<void(std::string_view)>& OpenFunction) -> void;
@@ -60,6 +62,11 @@ namespace Durin::Editor::Material
 		friend struct FMaterialGraphCanvasTestAccess;
 		struct FVisualNode;
 		struct FVisualGraph;
+		struct FTexturePreviewState;
+		auto UpdateTexturePreviews(DMaterial& Material) -> void;
+		auto DrawTexturePreview(const FGuid& NodeId, const ImVec2& Position, float Size) -> void;
+		auto AcceptTextureDrop(DMaterial& Material, DTransactor& Transactions,
+			const ImVec2& CanvasMinimum, const FReportError& ReportError) -> void;
 
 		struct FIdleInteraction {};
 		struct FMovingInteraction
@@ -158,6 +165,7 @@ namespace Durin::Editor::Material
 		std::optional<ImVec2> SurfaceGraphPosition;
 		std::unordered_set<FMaterialGraphCanvasNodeId> SelectedNodes;
 		FGuid PendingFrameNode;
+		std::optional<FMaterialProgramDiagnostic> SelectedDiagnostic;
 		std::optional<EMaterialSurfaceOutput> SelectedSurfaceOutput;
 		bool bPendingFrameSurface = false;
 		std::vector<std::string> RecentCreationMenuEntries;
@@ -179,10 +187,13 @@ namespace Durin::Editor::Material
 		FMaterialGraphView CachedView;
 		std::unordered_map<FGuid, size_t> CachedNodeIndices;
 		std::unique_ptr<FVisualGraph> CachedVisualGraph;
+		std::shared_ptr<FTexturePreviewState> TexturePreviews;
 		bool bVisualGraphTopologyStale = true;
+		bool bShowAdvancedInputs = true;
 		std::array<std::array<float, 4>, 8> SurfaceDefaultDrafts{};
 		std::array<bool, 8> bSurfaceDefaultDraftInitialized{};
 		std::array<char, 129> PromotionNameDraft{};
+		std::array<char, 256> NodeTextureSearch{};
 		FInteraction Interaction = FIdleInteraction{};
 		FMaterialGraphMoveSession MoveSession;
 		FMaterialGraphParameterEditSession ParameterEditSession;

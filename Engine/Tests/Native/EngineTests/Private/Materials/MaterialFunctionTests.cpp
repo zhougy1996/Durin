@@ -69,6 +69,7 @@ TEST(FMaterialFunctionTests, FrozenImportedSurfacePreservesCompilationAndIndepen
 	Current->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	ASSERT_TRUE(Current->SetMaterialDefinitionsAndProgram(MakePBRMaterialParameterDefinitions(), {}));
 	ASSERT_TRUE(Testing::SetStandardMaterialProgramForTest(*Current));
+	EXPECT_EQ(Current->GetMaterialProgram()->Nodes.size(), 10u);
 	FMaterialCompilerInput FrozenInput, CurrentInput;
 	const FMaterialCompilerEnvironment Environment{.CompilerIdentity = "ImportedSurfaceParity"};
 	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Frozen, Environment, FrozenInput));
@@ -958,6 +959,67 @@ TEST(FMaterialFunctionTests, RootCallsCommitAtomicallyAndSnapshotThroughInstance
 	CollectGarbage();
 }
 
+TEST(FMaterialFunctionTests, CompactDefaultsRoundtripAndRejectSpoofedLegacySchemas)
+{
+	using namespace Durin;
+	using namespace Durin::Editor::Material;
+	InitializeDObjectSystem();
+	FScopedOfflinePreparation Offline;
+	const auto Root = Testing::CreateTestFixtureDirectory("CompactRoundtrip");
+	const std::array Mounts{FMountPoint{.VirtualRoot = "/CompactRoundtrip/", .Owner = EMountOwner::Test,
+		.Root = Root, .bAutoScan = true, .bContentWritable = true}};
+	Testing::FScopedMountRegistryFixture Registry(Mounts);
+	ASSERT_TRUE(Registry.IsValid());
+	ASSERT_TRUE(RefreshAssetRegistry());
+	FPackagePath MaterialPath, FunctionPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/CompactRoundtrip/Material", MaterialPath));
+	ASSERT_TRUE(FPackagePath::TryCreate("/CompactRoundtrip/Function", FunctionPath));
+	DMaterial* Material = nullptr;
+	DMaterialFunction* Function = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(MaterialPath, Material));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(FunctionPath, Function));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	FMaterialGraphDocument Document(*Material), FunctionDocument(*Function);
+	ASSERT_TRUE(Document.CreateNodeWithDefaultInputs({.Node = {.Opcode = EMaterialProgramOpcode::TextureSampleParameter2D,
+		.ResultType = EMaterialProgramValueType::Float4, .Inputs = {{}}}}));
+	ASSERT_TRUE(FunctionDocument.CreateNodeWithDefaultInputs({.Node = {.Opcode = EMaterialProgramOpcode::Multiply, .Inputs = {{}, {}}}}));
+	const auto Call = Document.InsertFunctionCall(*Function, 300, 0);
+	ASSERT_TRUE(Call);
+	ASSERT_TRUE(Document.AssignMaterialOutput(std::nullopt, {Call.GeneratedNodeIds[0], 0, Function->GetFunctionSignature().Outputs[0].Id}));
+	const auto Expected = *Material->GetMaterialProgram();
+	const auto ExpectedFunction = Function->GetFunctionGraph();
+	const auto TextureId = Material->GetMaterialProgram()->Nodes.front().ParameterId;
+	ASSERT_TRUE(SavePackage(Function->GetPackage()));
+	ASSERT_TRUE(SavePackage(Material->GetPackage()));
+	ASSERT_TRUE(UnloadPackage(MaterialPath));
+	ASSERT_TRUE(UnloadPackage(FunctionPath));
+	CollectGarbage();
+	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), Material));
+	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(FunctionPath), Function));
+	EXPECT_EQ(*Material->GetMaterialProgram(), Expected);
+	EXPECT_EQ(Function->GetFunctionGraph(), ExpectedFunction);
+	EXPECT_NE(Material->FindParameterDefinition(TextureId), nullptr);
+	EXPECT_EQ(Material->GetMaterialFunctionCalls()[0].Function.Get(), Function);
+	// Old schema tags must not reinterpret a payload that already contains new semantics.
+	const_cast<FMaterialProgram*>(Material->GetMaterialProgram())->SchemaVersion = 5;
+	Material->PostLoad();
+	EXPECT_EQ(Material->GetMaterialProgram()->SchemaVersion, 5u);
+	const_cast<FMaterialProgram*>(Material->GetMaterialProgram())->SchemaVersion = CurrentMaterialProgramSchemaVersion;
+	const_cast<FMaterialFunctionGraph&>(Function->GetFunctionGraph()).SchemaVersion = 1;
+	Function->PostLoad();
+	EXPECT_EQ(Function->GetFunctionGraph().SchemaVersion, 1u);
+	const_cast<FMaterialFunctionGraph&>(Function->GetFunctionGraph()).SchemaVersion = CurrentMaterialFunctionSchemaVersion;
+	auto Invalid = Expected;
+	Invalid.Nodes.front().UVSettings.Rotation.Literal.X = std::numeric_limits<float>::infinity();
+	const auto Rejected = ValidateMaterialProgramWithFunctions(Invalid, Material->GetParameterDefinitions(), Material->GetMaterialFunctionCalls());
+	EXPECT_FALSE(Rejected);
+	ASSERT_FALSE(Rejected.Diagnostics.empty());
+	EXPECT_EQ(Rejected.Diagnostics.front().UVFieldIndex, 3u);
+	ASSERT_TRUE(UnloadPackage(MaterialPath));
+	ASSERT_TRUE(UnloadPackage(FunctionPath));
+	CollectGarbage();
+}
+
 TEST(FMaterialFunctionTests, LegacyRootUpgradeAndFunctionReferencesSurvivePackageLoad)
 {
 	using namespace Durin;
@@ -1479,7 +1541,7 @@ TEST(FMaterialFunctionTests, ShippedStandardMaterialCooksAndLoadsWithoutAuthored
 	std::filesystem::create_directories(Root / "Content/Materials/Functions");
 	for (const std::string_view File : {"ImportedSurface.dasset", "Functions/UVTransform.dasset",
 		"Functions/SampleNormal.dasset", "Functions/SampleORM.dasset", "Functions/StandardPBR.dasset",
-		"Functions/StandardPBR_ORM.dasset"})
+		"Functions/StandardPBR_ORM.dasset", "Functions/ImportedSurfaceValues.dasset", "Functions/DecodeImportedNormalRG.dasset"})
 		std::filesystem::copy_file(Source / File, Root / "Content/Materials" / File);
 	const std::array Mounts{FMountPoint{.VirtualRoot = "/Engine/", .Owner = EMountOwner::Test,
 		.Root = Root / "Content", .bAutoScan = true, .bContentWritable = true}};
@@ -1507,7 +1569,7 @@ TEST(FMaterialFunctionTests, ShippedStandardMaterialCooksAndLoadsWithoutAuthored
 	DMaterial* Material = nullptr;
 	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), Material));
 	ASSERT_NE(Material, nullptr);
-	ASSERT_EQ(Material->GetMaterialFunctionCalls().size(), 9u);
+	ASSERT_EQ(Material->GetMaterialFunctionCalls().size(), 2u);
 	ASSERT_TRUE(FinishMaterialCompileForTest(*Material));
 	const auto ExpectedIdentity = Material->GetAcceptedCompiledProgram()->Identity;
 	FCookRequest Request{.OutputRoot = Root / "Cooked", .TargetPlatform = ECookTargetPlatform::Win64,

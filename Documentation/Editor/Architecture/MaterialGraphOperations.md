@@ -4,7 +4,7 @@ Summary: Define the shared MaterialEditor command, presentation, canvas, transac
 
 Modules: MaterialEditor, Engine, DurinEd
 
-Last reviewed: 2026-09-12
+Last reviewed: 2026-09-13
 
 ## Ownership
 
@@ -52,7 +52,7 @@ Function Details edits named typed ports, order, advanced/required flags, typed
 defaults, constants, swizzles and Surface attributes. Port and node drafts commit
 on Apply as one validated transaction. The canvas supports typed link dragging,
 Shift replacement, node movement, copy/cut/paste and function navigation. Numeric
-node creation supplies explicit default constants; texture and Surface operations
+node creation supplies typed inline literal defaults; texture and Surface operations
 can be created by dragging a compatible output into the node menu. Movement commits
 presentation only on release and Escape cancels its transient positions.
 
@@ -88,7 +88,7 @@ and per-document controller state. None of those values are serialized.
 
 The shipped library lives in `/Engine/Materials/Functions` and uses the same
 function workspace, typed calls and transactions as user assets. ImportedSurface
-shows one StandardPBR call and per-role UVTransform calls in intentional lanes.
+shows eight texture sample parameters, an explicit normal decoder and an ImportedSurfaceValues call: ten expression nodes plus Material Output.
 Open a call to edit its function; shared semantic edits update loaded callers and
 previews through the ordinary dependency lifecycle. Preserve port GUIDs when
 renaming or reordering interfaces. Required inputs are collected during insertion;
@@ -172,14 +172,41 @@ coalesce before submission, and manual edits remain unsubmitted. Presentation-on
 and commit positions, mark the package dirty, and never compile or invalidate
 render data.
 
-Program schema 5 keeps ordinary node inputs mandatory but makes each of the
+Program schema 6 permits typed retained numeric defaults on ordinary inputs and makes each of the
 eight fixed Material Output inputs optionally connected. Disconnecting or
 deleting a surface source clears its link and returns to the retained typed
-fallback; disconnecting an ordinary required node input still rejects. The
+fallback; ordinary inputs similarly restore retained literals or parameter bindings. Required inputs without any fallback still reject. The
 canvas makes input replacement explicit with Shift and uses the same command
 result for invalid-target feedback. Aggregate and per-property sources cannot
 coexist in a valid program.
 
+## Compact input and texture authoring
+
+The Advanced inputs toggle hides only optional unconnected inputs with no retained
+binding. Connected or explicitly bound inputs remain visible; row filtering never
+changes stable input indices or function port GUIDs. Material instances retain their
+parameter-only editor and expose Open Parent Material for explicit graph navigation.
+
+
+The shared document commands SetInputDefault, ExtractInputDefault,
+InlineInputNode and ExtractUVSettings operate on roots and function documents.
+Extraction retains the fallback and adds one normal editable expression. Inlining
+removes a constant/parameter source only after its last consumer is gone. Each
+operation commits one validated Undo/Redo transaction. Clipboard remapping includes
+inactive input defaults, call defaults and all four UV fields; foreign roots receive
+new declaration GUIDs, and function paste rejects root parameter declarations.
+
+Texture Object Parameter outputs a resource; Texture Sample Parameter 2D outputs
+sampled channels. A texture asset drop into a root graph atomically creates a unique
+named declaration and one sample node. Nodes show parameter names, resource previews
+and stable RGBA/RGB/R/G/B/A/RG pins. Resource assignment, parameter rebinding and
+numeric/UV defaults are available in Selected Node details. Bind Existing and Create
+Parameter identify declarations explicitly rather than choosing a surface role.
+Numeric inputs show retained values or named parameter badges. Connected UV marks
+local settings inactive; extracting settings creates Texture Coordinates with the
+same independent bindings. Function graphs offer literal inputs and coordinates
+without declaring root parameters. Texture preview registration shares published
+RHI allocations across canvases and retires registrations when no canvas uses them.
 ## Transactions and gestures
 
 `ReplaceDefinitionsAndProgram` commits material-owned declarations and graph
@@ -228,7 +255,7 @@ canvas and move session.
 
 ## Clipboard and layout
 
-`FMaterialGraphClipboardPayload` schema 4 contains at most 256 complete nodes,
+`FMaterialGraphClipboardPayload` schema 5 contains at most 256 complete nodes,
 relative positions, referenced declaration snapshots, function ports and calls,
 and a weak source-owner
 object-generation identity. A strongly retained transient reference object owns

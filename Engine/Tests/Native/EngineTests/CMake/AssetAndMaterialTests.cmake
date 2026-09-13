@@ -205,6 +205,8 @@ durin_add_engine_functional_test(MaterialTests
 		Private/MaterialParameterPanelModelTests.cpp
 	PRIVATE_SOURCES
 		${_durin_material_editor_private}/Graph/MaterialGraphCanvas.cpp
+		${_durin_material_editor_private}/Graph/MaterialGraphTexturePreviews.cpp
+		${_durin_material_editor_private}/Graph/MaterialGraphInputDetails.cpp
 		${_durin_material_editor_private}/Graph/MaterialGraphCreationMenu.cpp
 		${_durin_material_editor_private}/Widgets/MaterialPreview.cpp
 		${_durin_material_editor_private}/Widgets/MaterialEditingSession.cpp

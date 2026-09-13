@@ -1,10 +1,12 @@
 #include "Asset/PackageSerialization.h"
 #if DURIN_WITH_EDITOR
 #include "AssetForge/Builtins/SceneImport.h"
+#include "AssetForge/Builtins/StandardMaterialFunctions.h"
 #endif
 #include "AssetRegistry/Scan.h"
 #include "Asset/Mutation.h"
 #include "Asset/Load.h"
+#include "Asset/Asset.h"
 #include "Asset/AssetCook.h"
 #include "AssetMaintenance/CanonicalResave.h"
 #include "AssetMaintenance/CompatibilityAudit.h"
@@ -30,6 +32,8 @@
 #include "Misc/Project.h"
 #include "Modules/ModuleManager.h"
 #include "Materials/Material.h"
+#include "Materials/MaterialInstance.h"
+#include "Materials/MaterialFunction.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Threading/Task.h"
 #include "Texture/Texture2D.h"
@@ -155,7 +159,7 @@ namespace
 			<< "  resave option: --recompress-texture-sources (includes current packages)\n"
 			<< "  DurinAssetTool storage-inventory --project=<project.dproject>\n"
 			<< "  DurinAssetTool identity-audit --project=<project.dproject>\n"
-			<< "  DurinAssetTool material-functions --project=<project.dproject> --apply\n"
+			<< "  DurinAssetTool material-functions --project=<project.dproject> [--apply]\n"
 			<< "  DurinAssetTool cook --project=<project.dproject> --output=<absolute-path> "
 			<< "--target=win64 --profile=game [--root=/Game/Path]... "
 			<< "[--no-incremental] [--dry-run] [--json]\n";
@@ -222,11 +226,6 @@ namespace
 				return false;
 			}
 			return true;
-		}
-		if (Options.Operation == EOperation::MaterialFunctions && !Options.bApply)
-		{
-			OutError = "material-functions requires --apply; inspect asset identity-audit and canonical-resave preview first.";
-			return false;
 		}
 		if (Options.Operation != EOperation::Resave) return true;
 		if (Options.Scopes.empty() && !Options.bWholeProject)
@@ -1019,6 +1018,107 @@ int main(int ArgC, char** ArgV)
 		const auto Refresh = Durin::RefreshAssetRegistry(Durin::EAssetRegistryScanMode::FullValidation);
 		if (!Refresh || !Refresh.bPublished) return 1;
 		Durin::FModuleManager::Get().LoadModuleChecked("ShaderBuild");
+		// Runtime inventory is collected before any library or template write.
+		const auto Inventory = Durin::CaptureMountedAssetPackageSnapshot([] { return GCancelled.load(); });
+		if (Inventory.Status != Durin::EAssetPackageSnapshotStatus::Completed) return 1;
+		Durin::FJsonDocument Report;
+		auto Root = Report.GetMutableRoot();
+		Root.EnsureObject();
+		Root.SetChildValue("operation", Options.bApply ? "material-functions apply preflight" : "material-functions preview");
+		auto Assets = Root.AddArray("assets");
+		bool bInventoryValid = true;
+		Durin::AssetForge::Builtins::FStandardMaterialFunctions Functions;
+		const std::array FunctionNames{"UVTransform", "SampleNormal", "SampleORM", "StandardPBR", "StandardPBR_ORM", "ImportedSurfaceValues", "DecodeImportedNormalRG"};
+		const std::array FunctionSlots{&Functions.UVTransform, &Functions.SampleNormal, &Functions.SampleORM, &Functions.StandardPBR,
+			&Functions.StandardPBR_ORM, &Functions.ImportedSurfaceValues, &Functions.DecodeImportedNormalRG};
+		bool bExactDependencies = true;
+		for (uint32 Index = 0; Index < FunctionSlots.size(); ++Index)
+		{
+			Durin::FPackagePath PackagePath;
+			Durin::FPackagePath::TryCreate(std::format("/Engine/Materials/Functions/{}", FunctionNames[Index]), PackagePath);
+			if (!Durin::FindAssetExact(PackagePath)) continue;
+			Durin::FObjectPath Path;
+			Durin::FObjectPath::TryCreate(std::format("{}.{}", PackagePath.ToString(), FunctionNames[Index]), Path);
+			Durin::DMaterialFunction* Function = nullptr;
+			if (!Durin::LoadObject(Path, Function) || !Function) { bInventoryValid = false; continue; }
+			*FunctionSlots[Index] = Function;
+			if ((Index == 3 || Index == 4) && (!Functions.SampleNormal.IsValid() || !Functions.SampleORM.IsValid())) { bInventoryValid = false; continue; }
+			bExactDependencies &= Function->GetFunctionGraph() == Durin::AssetForge::Builtins::MakeStandardMaterialFunctionGraph(
+				static_cast<Durin::AssetForge::Builtins::EStandardMaterialFunction>(Index + 1), Functions);
+		}
+		Root.SetChildValue("existingBuiltinDependenciesMatch", bExactDependencies);
+		for (const auto& Package : Inventory.Packages)
+		{
+			Durin::FAssetPackageInspection Inspection;
+			if (!Durin::InspectAssetPackage(Package.PhysicalPath, Package.PackagePath, Inspection)) { bInventoryValid = false; continue; }
+			if (Inspection.Header.AssetClassName.find("Material") == std::string::npos) continue;
+			auto Row = Assets.AppendObject();
+			Row.SetChildValue("package", Package.PackagePath.ToString());
+			Row.SetChildValue("class", Inspection.Header.AssetClassName);
+			Durin::FObjectPath Path;
+			Durin::DObject* Object = nullptr;
+			if (!Durin::FObjectPath::TryCreate(std::format("{}.{}", Package.PackagePath.ToString(), Package.PackagePath.GetPackageName()), Path)
+				|| !Durin::LoadObject(Path, Object) || !Object)
+			{
+				Row.SetChildValue("status", "Load failed; no migration writes permitted");
+				bInventoryValid = false;
+				continue;
+			}
+			if (const auto* Material = Durin::Cast<Durin::DMaterial>(Object))
+			{
+				Row.SetChildValue("schema", Material->GetMaterialProgram()->SchemaVersion);
+				Row.SetChildValue("nodes", static_cast<uint32>(Material->GetMaterialProgram()->Nodes.size()));
+				Row.SetChildValue("calls", static_cast<uint32>(Material->GetMaterialFunctionCalls().size()));
+				Row.SetChildValue("status", Package.PackagePath.ToString() == "/Engine/Materials/ImportedSurface"
+					? "Template candidate; exact graph and dependency checks required before replacement" : "Skipped: custom material");
+				if (Package.PackagePath.ToString() == "/Engine/Materials/ImportedSurface" && Functions.StandardPBR.IsValid() && Functions.UVTransform.IsValid())
+				{
+					std::vector<Durin::FMaterialFunctionCall> Calls;
+					Durin::FMaterialGraphPresentation Presentation;
+					const auto Legacy = Durin::AssetForge::Builtins::MakeLegacyImportedSurfaceFunctionProgram(Functions, Calls, Presentation);
+					const bool Exact = *Material->GetMaterialProgram() == Legacy && std::ranges::equal(Material->GetMaterialFunctionCalls(), Calls);
+					Row.SetChildValue("exactPreviousFunctionRecipe", Exact);
+					Row.SetChildValue("eligiblePreviousFunctionRecipe", Exact && bExactDependencies);
+				}
+				auto Definitions = Row.AddArray("parameters");
+				for (const auto& Definition : Material->GetParameterDefinitions())
+				{
+					auto Parameter = Definitions.AppendObject();
+					Parameter.SetChildValue("id", Definition.Id.ToString());
+					Parameter.SetChildValue("name", Definition.Name.ToString());
+					Parameter.SetChildValue("type", static_cast<uint32>(Definition.Type));
+				}
+			}
+			else if (const auto* Instance = Durin::Cast<Durin::DMaterialInstance>(Object))
+			{
+				Row.SetChildValue("parent", Instance->GetParent() ? Instance->GetParent()->GetObjectPath() : "");
+				Row.SetChildValue("status", "Preserved: instance override identities and values");
+				auto Overrides = Row.AddArray("overrides");
+				for (const auto& Override : Instance->GetParameterOverrides())
+				{
+					auto Value = Overrides.AppendObject();
+					Value.SetChildValue("id", Override.ParameterId.ToString());
+					Value.SetChildValue("type", static_cast<uint32>(Override.Type));
+					Value.SetChildValue("orphan", Instance->IsParameterOverrideOrphan(Override.ParameterId));
+					Value.SetChildValue("scalar", Override.Value.ScalarValue);
+					Value.SetChildValue("vector", std::format("{},{},{},{}", Override.Value.Vector4Value.x, Override.Value.Vector4Value.y, Override.Value.Vector4Value.z, Override.Value.Vector4Value.w));
+					Value.SetChildValue("vector2", std::format("{},{}", Override.Value.Vector2Value.x, Override.Value.Vector2Value.y));
+					Value.SetChildValue("vector3", std::format("{},{},{}", Override.Value.VectorValue.x, Override.Value.VectorValue.y, Override.Value.VectorValue.z));
+					Value.SetChildValue("texture", Override.Value.TextureValue.IsValid() ? Override.Value.TextureValue->GetObjectPath() : "");
+				}
+			}
+			else if (const auto* Function = Durin::Cast<Durin::DMaterialFunction>(Object))
+			{
+				Row.SetChildValue("schema", Function->GetFunctionGraph().SchemaVersion);
+				Row.SetChildValue("nodes", static_cast<uint32>(Function->GetFunctionGraph().Nodes.size()));
+				Row.SetChildValue("source", Function->GetAuthoringSource());
+				Row.SetChildValue("version", Function->GetAuthoringSourceVersion());
+				Row.SetChildValue("status", "Preserved: existing function implementation");
+			}
+		}
+		std::cout << Report.ToString() << '\n';
+		if (!bInventoryValid) return 1;
+		if (!Options.bApply) return 0;
 		std::string Error;
 		if (!Durin::AssetForge::Builtins::EnsureImportedSurfaceMaterial(Error))
 		{

@@ -54,7 +54,7 @@ namespace Durin::Editor::Material
 		for (const FGuid& Id : Ordered)
 		{
 			FMaterialProgramNode Node = *FindNode(Program, Id);
-			if (Node.ParameterId.IsValid()) Referenced.insert(Node.ParameterId);
+			for (const auto& Parameter : GetMaterialNodeParameterReferences(Node)) Referenced.insert(Parameter);
 			if (Node.Opcode == EMaterialProgramOpcode::FunctionInput || Node.Opcode == EMaterialProgramOpcode::FunctionOutput)
 			{
 				const bool bOutput = Node.Opcode == EMaterialProgramOpcode::FunctionOutput;
@@ -74,6 +74,8 @@ namespace Durin::Editor::Material
 			if (Selected.contains(Call.NodeId))
 			{
 				OutPayload.Calls.push_back(Call);
+				for (const auto& Input : Call.Inputs)
+					if (Input.Default.Kind == EMaterialInputDefaultKind::Parameter) Referenced.insert(Input.Default.ParameterId);
 			}
 		for (const auto& Definition : State.Definitions)
 			if (Referenced.contains(Definition.Id))
@@ -227,6 +229,13 @@ namespace Durin::Editor::Material
 			else if (!bSameRoot || !FindNode(Candidate, Input.SourceNodeId)) return false;
 			return true;
 		};
+		const auto RemapDefault = [&](FMaterialInputDefault& Value) {
+			if (Value.Kind != EMaterialInputDefaultKind::Parameter) return true;
+			const auto Parameter = ParameterRemap.find(Value.ParameterId);
+			if (Parameter == ParameterRemap.end()) return false;
+			Value.ParameterId = Parameter->second;
+			return true;
+		};
 		for (size_t CallIndex = 0; CallIndex < Payload.Calls.size(); ++CallIndex)
 		{
 			auto Call = Payload.Calls[CallIndex];
@@ -234,7 +243,8 @@ namespace Durin::Editor::Material
 			if (!Remap.contains(Call.NodeId)) return MakeRejected("A clipboard call has no selected node.");
 			Call.NodeId = Remap.at(Call.NodeId);
 			for (auto& Input : Call.Inputs)
-				if (!RemapLink(Input.Source)) return MakeRejected("A copied function call references an unavailable external input.");
+				if (!RemapLink(Input.Source) || !RemapDefault(Input.Default))
+					return MakeRejected("A copied function call references an unavailable input or parameter.");
 			State.Calls.push_back(std::move(Call));
 		}
 		auto& Presentation = State.Presentation;
@@ -261,6 +271,10 @@ namespace Durin::Editor::Material
 			}
 			for (FMaterialProgramLink& Input : Node.Inputs)
 				if (!RemapLink(Input)) return MakeRejected("The material graph clipboard references an unavailable external input.");
+			for (auto& Value : Node.InputDefaults)
+				if (!RemapDefault(Value)) return MakeRejected("An input default references an unavailable parameter.");
+			for (auto* Value : {&Node.UVSettings.Channel, &Node.UVSettings.Scale, &Node.UVSettings.Offset, &Node.UVSettings.Rotation})
+				if (!RemapDefault(*Value)) return MakeRejected("A UV setting references an unavailable parameter.");
 			for (auto& Attribute : Node.SurfaceAttributes)
 				if (!RemapLink(Attribute.Source)) return MakeRejected("A copied Surface attribute references an unavailable external input.");
 			const int64 PositionX = static_cast<int64>(X) + ClipboardNode.RelativeX;

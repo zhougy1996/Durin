@@ -888,7 +888,13 @@ namespace Durin::Editor::Material
 			ImGui::Spacing();
 		}
 		if (auto* Instance = Cast<DMaterialInstance>(Material)) DrawMaterialInstance(Instance);
-		else if (auto* BaseMaterial = Cast<DMaterial>(Material)) DrawMaterial(BaseMaterial);
+		else if (auto* BaseMaterial = Cast<DMaterial>(Material))
+		{
+			if (GEditor && GEditor->GetTransactor())
+				GetOrCreateCanvas(Document).DrawSelectionDetails(*BaseMaterial, *GEditor->GetTransactor(),
+					[this](std::string Message) { SetError(std::move(Message)); });
+			DrawMaterial(BaseMaterial);
+		}
 	}
 
 	auto MMaterialEditor::DrawMaterial(DMaterial* Material) -> void
@@ -922,7 +928,10 @@ namespace Durin::Editor::Material
 			Material->GetParameterDefinitions().begin(), Material->GetParameterDefinitions().end());
 		std::unordered_set<FGuid> ReferencedParameters;
 		for (const auto& Node : Material->GetMaterialProgram()->Nodes)
-			if (Node.ParameterId.IsValid()) ReferencedParameters.insert(Node.ParameterId);
+			for (const auto& Parameter : GetMaterialNodeParameterReferences(Node)) ReferencedParameters.insert(Parameter);
+		for (const auto& Call : Material->GetMaterialFunctionCalls())
+			for (const auto& Input : Call.Inputs)
+				if (Input.Default.Kind == EMaterialInputDefaultKind::Parameter) ReferencedParameters.insert(Input.Default.ParameterId);
 		for (const auto& Definition : Definitions)
 		{
 			ImGui::PushID(Definition.Id.ToString().c_str());
@@ -963,6 +972,8 @@ namespace Durin::Editor::Material
 
 	auto MMaterialEditor::DrawMaterialInstance(DMaterialInstance* Instance) -> void
 	{
+		if (auto* Parent = Instance->GetParent(); Parent && ImGui::Button("Open Parent Material"))
+			WorkspaceManager.OpenAsset(Parent->GetObjectPath(), Parent->GetClass()->GetQualifiedName().ToString());
 		ImGui::SeparatorText("Inheritance");
 		if (MonaImGui::PropertyEdit::BeginTable("MaterialInstanceParent", MakeMaterialPropertyTableConfig()))
 		{

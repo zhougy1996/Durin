@@ -138,11 +138,13 @@ namespace Durin::Editor::Material
 			return MakeRejected("The node palette input shape is stale.");
 		if (!Request.Node.ParameterId.IsValid()
 			&& (Request.Node.Opcode == EMaterialProgramOpcode::Parameter
-				|| Request.Node.Opcode == EMaterialProgramOpcode::TextureParameter))
+				|| Request.Node.Opcode == EMaterialProgramOpcode::TextureParameter
+				|| Request.Node.Opcode == EMaterialProgramOpcode::TextureSampleParameter2D))
 		{
 			FMaterialParameterDefinition Definition;
 			Definition.Id = FGuid::NewGuid();
-			const auto Type = GetParameterType(Request.Node.ResultType);
+			const auto Type = GetParameterType(Request.Node.Opcode == EMaterialProgramOpcode::TextureSampleParameter2D
+				? EMaterialProgramValueType::Texture2D : Request.Node.ResultType);
 			if (!Type) return MakeRejected("Unsupported parameter type.");
 			Definition.Type = *Type;
 			const std::string BaseName = Definition.Type == EMaterialParameterType::Texture
@@ -177,13 +179,16 @@ namespace Durin::Editor::Material
 		if (FindNode(Candidate, Request.Node.Id))
 			return MakeRejected("The requested material graph node GUID already exists.");
 
-		std::vector<FMaterialProgramNode> Defaults;
+		Request.Node.InputDefaults.resize(Request.Node.Inputs.size());
 		for (size_t InputIndex = 0; InputIndex < Request.Node.Inputs.size(); ++InputIndex)
 		{
 			if (Request.Node.Inputs[InputIndex].SourceNodeId.IsValid()) continue;
+			if (IsMaterialSampleUVInput(Request.Node, static_cast<uint32>(InputIndex))
+				|| Request.Node.Opcode == EMaterialProgramOpcode::TextureCoordinates) continue;
+			if (Request.Node.InputDefaults[InputIndex].Kind != EMaterialInputDefaultKind::None) continue;
 			const auto NumericType = std::ranges::find_if(AcceptedInputTypes[InputIndex],
 				[](EMaterialProgramValueType Type) {
-					return Type != EMaterialProgramValueType::Texture2D;
+					return Type < EMaterialProgramValueType::Texture2D;
 				});
 			if (NumericType == AcceptedInputTypes[InputIndex].end())
 				return MakeRejected("This node requires a resource input that has no default value.");
@@ -205,25 +210,15 @@ namespace Durin::Editor::Material
 			if (Request.Node.Opcode == EMaterialProgramOpcode::MakeSurface)
 				Default.Literal = GetMaterialSurfaceOutputDefault(FMaterialSurfaceOutputs{},
 					static_cast<EMaterialSurfaceOutput>(InputIndex));
-			Request.Node.Inputs[InputIndex] = {Default.Id, 0};
-			Defaults.push_back(std::move(Default));
+			Request.Node.InputDefaults[InputIndex] = {.Kind = EMaterialInputDefaultKind::Literal,
+				.Type = Default.ResultType, .Literal = Default.Literal};
 		}
-		if (Candidate.Nodes.size() + Defaults.size() + 1 > MaterialProgramMaxNodeCount)
+		if (Candidate.Nodes.size() + 1 > MaterialProgramMaxNodeCount)
 			return MakeRejected("The material graph node limit has been reached.");
 
 		const FGuid NodeId = Request.Node.Id;
 		std::vector<FGuid> Generated{NodeId};
 		FMaterialGraphPresentation Presentation = Material.GetMaterialGraphPresentation();
-		const FMaterialGraphCanvasMetrics& Metrics = FMaterialGraphGeometry::GetMetrics();
-		for (size_t Index = 0; Index < Defaults.size(); ++Index)
-		{
-			Generated.push_back(Defaults[Index].Id);
-			Presentation.Nodes.push_back({Defaults[Index].Id,
-				Request.X - static_cast<int32>(Metrics.NodeWidth + Metrics.ColumnGap),
-				Request.Y + static_cast<int32>(Index
-					* (FMaterialGraphGeometry::GetNodeHeight(0) + Metrics.RowGap))});
-			Candidate.Nodes.push_back(std::move(Defaults[Index]));
-		}
 		Candidate.Nodes.push_back(std::move(Request.Node));
 		Presentation.Nodes.push_back({NodeId, Request.X, Request.Y});
 		return CommitSemanticChange(Material, std::move(Candidate), std::move(Presentation),

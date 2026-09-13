@@ -222,14 +222,12 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 	ASSERT_TRUE(EnsureStandardMaterialFunctions(Functions, Error)) << Error;
 	auto* Material = EnsureImportedSurfaceMaterial(Error);
 	ASSERT_NE(Material, nullptr) << Error;
-	EXPECT_EQ(Material->GetMaterialProgram()->Nodes.size(), 65u);
-	EXPECT_EQ(Material->GetMaterialFunctionCalls().size(), 9u);
+	EXPECT_EQ(Material->GetMaterialProgram()->Nodes.size(), 10u);
+	EXPECT_EQ(Material->GetMaterialFunctionCalls().size(), 2u);
 	EXPECT_EQ(Material->GetParameterDefinitions().size(), 48u);
 	EXPECT_TRUE(Material->GetMaterialProgram()->Outputs.Surface.SourceOutputId.IsValid());
 	for (const auto& Node : Material->GetMaterialProgram()->Nodes)
-		EXPECT_TRUE(Node.Opcode == EMaterialProgramOpcode::Parameter
-			|| Node.Opcode == EMaterialProgramOpcode::TextureParameter
-			|| Node.Opcode == EMaterialProgramOpcode::UVChannel
+		EXPECT_TRUE(Node.Opcode == EMaterialProgramOpcode::TextureSampleParameter2D
 			|| Node.Opcode == EMaterialProgramOpcode::FunctionCall);
 	FMaterialCompilerInput Input;
 	FMaterialCompilerEnvironment Environment;
@@ -248,8 +246,9 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 
 	const auto Compact = *Material->GetMaterialProgram();
 	const std::vector<FMaterialFunctionCall> CompactCalls(Material->GetMaterialFunctionCalls().begin(), Material->GetMaterialFunctionCalls().end());
-	auto Packed = Compact;
-	auto PackedCalls = CompactCalls;
+	std::vector<FMaterialFunctionCall> PackedCalls;
+	FMaterialGraphPresentation PackedPresentation;
+	auto Packed = MakeLegacyImportedSurfaceFunctionProgram(Functions, PackedCalls, PackedPresentation);
 	auto& PackedCall = PackedCalls.back();
 	const auto PortId = [](uint32 Slot) { return StandardMaterialPortId(EStandardMaterialFunction::StandardPBR, Slot); };
 	const auto ORMTexture = std::ranges::find(PackedCall.Inputs, PortId(22), &FMaterialFunctionInputBinding::InputId)->Source;
@@ -305,7 +304,7 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 	ASSERT_TRUE(EnsureStandardMaterialFunctions(Functions, Error)) << Error;
 	EXPECT_EQ(Functions.StandardPBR->GetFunctionGraph(), Original);
 	EXPECT_EQ(Functions.StandardPBR->GetAuthoringSourceVersion(), StandardMaterialFunctionVersion);
-	EXPECT_EQ(Material->GetMaterialFunctionCalls().back().Function.Get(), Functions.StandardPBR.Get());
+	EXPECT_EQ(Material->GetMaterialFunctionCalls().back().Function.Get(), Functions.ImportedSurfaceValues.Get());
 }
 
 TEST(FSceneImportTests, RecognizedLegacyParentUpgradesOnceAndModifiedParentIsPreserved)
@@ -319,6 +318,26 @@ TEST(FSceneImportTests, RecognizedLegacyParentUpgradesOnceAndModifiedParentIsPre
 	const auto Compact = *Material->GetMaterialProgram();
 	const std::vector<FMaterialFunctionCall> CompactCalls(Material->GetMaterialFunctionCalls().begin(), Material->GetMaterialFunctionCalls().end());
 	const auto Identity = Material->GetObjectPath();
+	FStandardMaterialFunctions Functions;
+	ASSERT_TRUE(EnsureStandardMaterialFunctions(Functions, Error));
+	std::vector<FMaterialFunctionCall> PreviousCalls;
+	FMaterialGraphPresentation PreviousPresentation;
+	const auto Previous = MakeLegacyImportedSurfaceFunctionProgram(Functions, PreviousCalls, PreviousPresentation);
+	ASSERT_TRUE(Material->SetMaterialProgramAndFunctionCalls(Previous, PreviousCalls));
+	const auto OriginalUV = Functions.UVTransform->GetFunctionGraph();
+	auto EditedUV = OriginalUV;
+	const auto Add = std::ranges::find(EditedUV.Nodes, EMaterialProgramOpcode::Add, &FMaterialProgramNode::Opcode);
+	ASSERT_NE(Add, EditedUV.Nodes.end());
+	Add->Opcode = EMaterialProgramOpcode::Subtract;
+	ASSERT_TRUE(Functions.UVTransform->SetFunctionGraph(EditedUV));
+	EXPECT_EQ(EnsureImportedSurfaceMaterial(Error), nullptr);
+	EXPECT_NE(Error.find("edited dependency"), std::string::npos);
+	EXPECT_EQ(*Material->GetMaterialProgram(), Previous);
+	EXPECT_EQ(Functions.UVTransform->GetFunctionGraph(), EditedUV);
+	ASSERT_TRUE(Functions.UVTransform->SetFunctionGraph(OriginalUV));
+	EXPECT_EQ(EnsureImportedSurfaceMaterial(Error), Material) << Error;
+	EXPECT_EQ(*Material->GetMaterialProgram(), Compact);
+	EXPECT_TRUE(std::ranges::equal(Material->GetMaterialFunctionCalls(), CompactCalls));
 	const auto Legacy = Testing::MakeLegacyPBRMaterialProgram();
 	ASSERT_TRUE(Material->SetMaterialProgramAndFunctionCalls(Legacy, {}));
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));

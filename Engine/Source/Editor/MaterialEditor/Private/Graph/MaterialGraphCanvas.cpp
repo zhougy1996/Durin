@@ -11,6 +11,36 @@ namespace Durin::Editor::Material
 	namespace
 	{
 		std::optional<FMaterialGraphClipboardPayload> GraphClipboard;
+		auto HideUnusedAdvancedInputs(FMaterialGraphView& View) -> void
+		{
+			for (auto& Node : View.Nodes)
+				std::erase_if(Node.Inputs, [](const auto& Pin) {
+					return Pin.bAdvanced && !Pin.bRequired && !Pin.Link.SourceNodeId.IsValid()
+						&& Pin.InlineDefault.Kind == EMaterialInputDefaultKind::None;
+				});
+		}
+
+		auto InputLabel(const FMaterialGraphNodeView& Node, const FMaterialGraphPinView& Pin, const DMaterial* Material = nullptr) -> std::string
+		{
+			if (Pin.Link.SourceNodeId.IsValid()) return Pin.Name;
+			if (IsMaterialSampleUVInput(Node.Node, Pin.InputIndex))
+			{
+				for (uint32 Index = 0; Index < 4; ++Index)
+					if (GetMaterialUVSetting(Node.Node.UVSettings, Index).Kind == EMaterialInputDefaultKind::Parameter) return "UV [parameters]";
+				return std::format("UV {:g} (local)", Node.Node.UVSettings.Channel.Literal.X);
+			}
+			const auto& Value = Pin.InlineDefault;
+			if (Value.Kind == EMaterialInputDefaultKind::Parameter && Material)
+				if (const auto* Definition = Material->FindParameterDefinition(Value.ParameterId))
+					return std::format("{} [{}]", Pin.Name, Definition->Name.ToString());
+			if (Value.Kind == EMaterialInputDefaultKind::Literal)
+			{
+				if (Value.Type == EMaterialProgramValueType::Float) return std::format("{}: {:g}", Pin.Name, Value.Literal.X);
+				if (Value.Type == EMaterialProgramValueType::Float2) return std::format("{}: {:g}, {:g}", Pin.Name, Value.Literal.X, Value.Literal.Y);
+				return std::format("{}: ({:g}, {:g}, {:g})", Pin.Name, Value.Literal.X, Value.Literal.Y, Value.Literal.Z);
+			}
+			return Pin.Name;
+		}
 
 		const auto& Metrics = FMaterialGraphGeometry::GetMetrics();
 		const float NodeWidth = Metrics.NodeWidth;
@@ -109,7 +139,7 @@ namespace Durin::Editor::Material
 			{
 				const float Y = static_cast<float>(Node.Presentation.Y);
 				const float Height = FMaterialGraphGeometry::GetNodeHeight(
-					static_cast<uint32>(std::max(Node.Inputs.size(), Node.Outputs.size())));
+					static_cast<uint32>(std::max({Node.Inputs.size(), Node.Outputs.size(), Node.Node.Opcode == EMaterialProgramOpcode::TextureParameter ? size_t(5) : size_t(0)})));
 				MaximumX = std::max(MaximumX,
 					static_cast<float>(Node.Presentation.X) + Metrics.NodeWidth);
 				if (!bFound) { MinimumY = Y; MaximumY = Y + Height; bFound = true; }
@@ -179,6 +209,7 @@ namespace Durin::Editor::Material
 	auto FMaterialGraphCanvas::SelectAndFrameDiagnostic(
 		const FMaterialProgramDiagnostic& Diagnostic) -> bool
 	{
+		SelectedDiagnostic = Diagnostic;
 		switch (Diagnostic.LocationKind)
 		{
 		case EMaterialProgramDiagnosticLocationKind::Node:
@@ -234,6 +265,7 @@ namespace Durin::Editor::Material
 			|| CachedProgramRevision != ProgramRevision)
 		{
 			CachedView = FMaterialGraphOperations::Inspect(Material, Catalog);
+			if (!bShowAdvancedInputs) HideUnusedAdvancedInputs(CachedView);
 			CachedNodeIndices.clear();
 			CachedNodeIndices.reserve(CachedView.Nodes.size());
 			for (size_t Index = 0; Index < CachedView.Nodes.size(); ++Index)
@@ -252,6 +284,11 @@ namespace Durin::Editor::Material
 				if (Node.Node.ParameterId.IsValid())
 					if (const auto* Definition = Material.FindParameterDefinition(Node.Node.ParameterId))
 						Node.SecondaryLabel = Definition->DisplayName;
+				if (Node.Node.Opcode == EMaterialProgramOpcode::TextureParameter || Node.Node.Opcode == EMaterialProgramOpcode::TextureSampleParameter2D)
+				{
+					if (!Node.SecondaryLabel.empty()) Node.PrimaryLabel = Node.SecondaryLabel;
+					Node.SecondaryLabel = Node.Node.Opcode == EMaterialProgramOpcode::TextureParameter ? "Texture Object Parameter" : "Texture Sample Parameter 2D";
+				}
 			}
 			CachedSchemaRevision = SchemaRevision;
 		}
@@ -304,7 +341,7 @@ namespace Durin::Editor::Material
 				static_cast<float>(Node.Presentation.X),
 				static_cast<float>(Node.Presentation.Y));
 			const float NodeHeight = FMaterialGraphGeometry::GetNodeHeight(
-				static_cast<uint32>(std::max(Node.Inputs.size(), Node.Outputs.size())));
+				static_cast<uint32>(std::max({Node.Inputs.size(), Node.Outputs.size(), Node.Node.Opcode == EMaterialProgramOpcode::TextureParameter ? size_t(5) : size_t(0)})));
 			Visual.Minimum = Add(CanvasMinimum, Add(Pan, Multiply(GraphPosition, Zoom)));
 			Visual.Maximum = Add(Visual.Minimum,
 				Multiply({NodeWidth, NodeHeight}, Zoom));
@@ -346,7 +383,7 @@ namespace Durin::Editor::Material
 				static_cast<float>(Node.Presentation.X),
 				static_cast<float>(Node.Presentation.Y));
 			const float Height = FMaterialGraphGeometry::GetNodeHeight(
-				static_cast<uint32>(std::max(Node.Inputs.size(), Node.Outputs.size())));
+				static_cast<uint32>(std::max({Node.Inputs.size(), Node.Outputs.size(), Node.Node.Opcode == EMaterialProgramOpcode::TextureParameter ? size_t(5) : size_t(0)})));
 			if (!bFound)
 			{
 				Minimum = Position;
@@ -670,7 +707,9 @@ namespace Durin::Editor::Material
 		const std::function<void(std::string_view)>& OpenFunction) -> void
 	{
 		FMaterialGraphDocument Document(Function);
+		if (ImGui::Checkbox("Advanced inputs", &bShowAdvancedInputs)) ResetInteraction();
 		CachedView = Document.Inspect();
+		if (!bShowAdvancedInputs) HideUnusedAdvancedInputs(CachedView);
 		CachedNodeIndices.clear();
 		for (size_t Index = 0; Index < CachedView.Nodes.size(); ++Index) CachedNodeIndices.emplace(CachedView.Nodes[Index].Node.Id, Index);
 		bVisualGraphTopologyStale = true;
@@ -835,7 +874,8 @@ namespace Durin::Editor::Material
 				ImGui::InputTextWithHint("##Search", "Find node...", Menu->Search.data(), Menu->Search.size());
 				for (const auto& Entry : FMaterialGraphOperations::SearchCatalog(Menu->Search.data()))
 				{
-					if (Entry.NodeTemplate.Opcode == EMaterialProgramOpcode::Parameter || Entry.NodeTemplate.Opcode == EMaterialProgramOpcode::TextureParameter) continue;
+					if (Entry.NodeTemplate.Opcode == EMaterialProgramOpcode::Parameter || Entry.NodeTemplate.Opcode == EMaterialProgramOpcode::TextureParameter
+						|| Entry.NodeTemplate.Opcode == EMaterialProgramOpcode::TextureSampleParameter2D) continue;
 					const auto Label = std::format("{} ({})", Entry.OperationName, GetProgramTypeName(Entry.NodeTemplate.ResultType));
 					if (ImGui::Selectable(Label.c_str()))
 					{
@@ -865,6 +905,12 @@ namespace Durin::Editor::Material
 				| ImGuiWindowFlags_NoScrollWithMouse))
 		{
 			const bool bFrameAllRequested = ImGui::Button("Frame All");
+			ImGui::SameLine();
+			if (ImGui::Checkbox("Advanced inputs", &bShowAdvancedInputs))
+			{
+				CachedMaterial = nullptr;
+				ResetInteraction();
+			}
 			ImGui::SameLine();
 			const bool bFrameSelectionRequested = ImGui::Button("Frame Selection");
 			ImGui::SameLine();
@@ -897,6 +943,8 @@ namespace Durin::Editor::Material
 					| ImGuiButtonFlags_MouseButtonMiddle
 					| ImGuiButtonFlags_MouseButtonRight);
 			const bool bHovered = ImGui::IsItemHovered();
+			AcceptTextureDrop(Material, Transactions, CanvasMinimum, ReportError);
+			UpdateTexturePreviews(Material);
 			ImDrawList* DrawList = ImGui::GetWindowDrawList();
 			DrawList->PushClipRect(CanvasMinimum, CanvasMaximum, true);
 			DrawList->AddRectFilled(CanvasMinimum, CanvasMaximum,
@@ -1101,6 +1149,11 @@ namespace Durin::Editor::Material
 					}
 				}
 				const float PinRadius = std::max(2.0f, 5.0f * Zoom);
+				if (DetailLevel != EMaterialGraphDetailLevel::Overview
+					&& (Visual.View->Node.Opcode == EMaterialProgramOpcode::TextureParameter
+						|| Visual.View->Node.Opcode == EMaterialProgramOpcode::TextureSampleParameter2D))
+					DrawTexturePreview(Visual.View->Node.Id, Add(Visual.Minimum,
+						{12 * Zoom, (NodeHeaderHeight + Metrics.SecondaryHeight + PinSpacing * 1.5f) * Zoom}), 80 * Zoom);
 				for (size_t Index = 0; Index < Visual.OutputPins.size(); ++Index)
 					DrawList->AddCircleFilled(Visual.OutputPins[Index], PinRadius, TypeColor(Visual.View->Outputs[Index].Type));
 				const bool bInlineEditorVisible =
@@ -1109,7 +1162,6 @@ namespace Durin::Editor::Material
 					&& SelectedNodes.contains(Visual.View->Node.Id)
 					&& (Visual.View->Node.Opcode == EMaterialProgramOpcode::Constant
 						|| Visual.View->Node.Opcode == EMaterialProgramOpcode::Parameter
-						|| Visual.View->Node.Opcode == EMaterialProgramOpcode::TextureParameter
 						|| Visual.View->Node.Opcode == EMaterialProgramOpcode::Swizzle);
 				if (DetailLevel == EMaterialGraphDetailLevel::Editing
 					&& !bInlineEditorVisible)
@@ -1135,7 +1187,9 @@ namespace Durin::Editor::Material
 							Add(Visual.InputPins[Index],
 								{9.0f * Zoom, -GraphBodyFontSize * 0.5f}),
 							IM_COL32(205, 210, 220, 255),
-							Visual.View->Inputs[Index].Name.c_str());
+							Ellipsize(InputLabel(*Visual.View, Visual.View->Inputs[Index], &Material),
+								(NodeWidth - (Index < Visual.OutputPins.size() ? 85.f : 20.f)) * Zoom
+									* ImGui::GetFontSize() / GraphBodyFontSize).c_str());
 					if (LinkSourceType)
 					{
 						const bool bAccepted = std::ranges::find(
@@ -1224,8 +1278,7 @@ namespace Durin::Editor::Material
 						ImGui::SetCursorScreenPos(SavedCursor);
 						ImGui::Dummy({0.0f, 0.0f});
 					}
-					else if ((Visual.View->Node.Opcode == EMaterialProgramOpcode::Parameter
-						|| Visual.View->Node.Opcode == EMaterialProgramOpcode::TextureParameter)
+					else if ((Visual.View->Node.Opcode == EMaterialProgramOpcode::Parameter)
 						&& Intersects(Visual.Minimum, Visual.Maximum, CanvasMinimum, CanvasMaximum))
 					{
 						const ImVec2 SavedCursor = ImGui::GetCursorScreenPos();

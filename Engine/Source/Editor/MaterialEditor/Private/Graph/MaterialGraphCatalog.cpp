@@ -18,6 +18,8 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::GetSurfaceAttributes:
 			case EMaterialProgramOpcode::SetSurfaceAttributes: Names = {"Surface"}; break;
 			case EMaterialProgramOpcode::TextureSample2D: Names = {"Texture", "UV"}; break;
+			case EMaterialProgramOpcode::TextureSampleParameter2D: Names = {"UV"}; break;
+			case EMaterialProgramOpcode::TextureCoordinates: Names = {"Channel", "Scale", "Offset", "Rotation"}; break;
 			case EMaterialProgramOpcode::Add:
 			case EMaterialProgramOpcode::Subtract:
 			case EMaterialProgramOpcode::Multiply:
@@ -44,7 +46,9 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::Constant:
 			case EMaterialProgramOpcode::Parameter:
 			case EMaterialProgramOpcode::TextureParameter:
-			case EMaterialProgramOpcode::UVChannel: return "Inputs";
+			case EMaterialProgramOpcode::UVChannel:
+			case EMaterialProgramOpcode::TextureCoordinates: return "Inputs";
+			case EMaterialProgramOpcode::TextureSampleParameter2D:
 			case EMaterialProgramOpcode::TextureSample2D:
 			case EMaterialProgramOpcode::DecodeNormalRG:
 			case EMaterialProgramOpcode::BlendNormalsRNM: return "Textures";
@@ -71,7 +75,9 @@ namespace Durin::Editor::Material
 			{
 			case EMaterialProgramOpcode::Constant: return "Constant";
 			case EMaterialProgramOpcode::Parameter: return "Parameter";
-			case EMaterialProgramOpcode::TextureParameter: return "Texture Parameter";
+			case EMaterialProgramOpcode::TextureParameter: return "Texture Object Parameter";
+			case EMaterialProgramOpcode::TextureSampleParameter2D: return "Texture Sample Parameter 2D";
+			case EMaterialProgramOpcode::TextureCoordinates: return "Texture Coordinates";
 			case EMaterialProgramOpcode::TextureSample2D: return "Texture Sample 2D";
 			case EMaterialProgramOpcode::Add: return "Add";
 			case EMaterialProgramOpcode::Subtract: return "Subtract";
@@ -126,6 +132,8 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::Parameter:
 			case EMaterialProgramOpcode::TextureParameter: Entry.Description = "A value exposed by the material parameter definition."; break;
 			case EMaterialProgramOpcode::TextureSample2D: Entry.Description = "Samples a 2D texture at the supplied coordinates."; break;
+			case EMaterialProgramOpcode::TextureSampleParameter2D: Entry.Description = "Samples a named texture parameter with local UV settings or a connected UV expression. Outputs share one fetch."; break;
+			case EMaterialProgramOpcode::TextureCoordinates: Entry.Description = "Selects a mesh UV channel, scales, rotates in radians, then offsets it."; break;
 			case EMaterialProgramOpcode::Add: Entry.Description = "Adds two values component by component."; break;
 			case EMaterialProgramOpcode::Subtract: Entry.Description = "Subtracts the second value from the first."; break;
 			case EMaterialProgramOpcode::Multiply: Entry.Description = "Multiplies two values component by component."; break;
@@ -162,6 +170,8 @@ namespace Durin::Editor::Material
 			Entry.NodeTemplate.ResultType = ResultType;
 			Entry.NodeTemplate.Inputs.resize(Signature.InputCount);
 			Entry.InputNames = GetInputNames(Opcode, Signature.InputCount);
+			if (Opcode == EMaterialProgramOpcode::TextureSampleParameter2D) Entry.InputNames = {"UV"};
+			if (Opcode == EMaterialProgramOpcode::TextureCoordinates) Entry.InputNames = {"Channel", "Scale", "Offset", "Rotation"};
 			for (uint8 Index = 0; Index < Signature.InputCount; ++Index)
 				Entry.AcceptedInputTypes.emplace_back(
 					Signature.Inputs[Index].begin(), Signature.Inputs[Index].end());
@@ -235,6 +245,9 @@ namespace Durin::Editor::Material
 			}
 			const auto Source = NodesById.find(Link.SourceNodeId);
 			if (Source == NodesById.end()) return EMaterialProgramValueType::Float;
+			if (IsMaterialSamplingNode(Source->second->Opcode) && Link.SourceOutputIndex != 0)
+				return Link.SourceOutputIndex == 1 ? EMaterialProgramValueType::Float3
+					: Link.SourceOutputIndex == 6 ? EMaterialProgramValueType::Float2 : EMaterialProgramValueType::Float;
 			if (Source->second->Opcode == EMaterialProgramOpcode::GetSurfaceAttributes && Link.SourceOutputIndex < 8)
 				return GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(Link.SourceOutputIndex));
 			return Source->second->ResultType;
@@ -261,6 +274,11 @@ namespace Durin::Editor::Material
 			if (Node.ParameterId.IsValid())
 				if (const auto Definition = std::ranges::find(State.Definitions, Node.ParameterId, &FMaterialParameterDefinition::Id); Definition != State.Definitions.end())
 					View.SecondaryLabel = Definition->DisplayName;
+			if (Node.Opcode == EMaterialProgramOpcode::TextureParameter || Node.Opcode == EMaterialProgramOpcode::TextureSampleParameter2D)
+			{
+				if (!View.SecondaryLabel.empty()) View.PrimaryLabel = View.SecondaryLabel;
+				View.SecondaryLabel = GetOpcodeName(Node.Opcode);
+			}
 			View.Inputs.reserve(Node.Inputs.size());
 			for (uint32 InputIndex = 0; InputIndex < Node.Inputs.size(); ++InputIndex)
 			{
@@ -275,6 +293,10 @@ namespace Durin::Editor::Material
 				if (Shape
 					&& InputIndex < Shape->AcceptedInputTypes.size())
 					Pin.AcceptedTypes = Shape->AcceptedInputTypes[InputIndex];
+				Pin.InlineDefault = GetMaterialNodeInputDefault(Node, InputIndex);
+				if (!Pin.Link.SourceNodeId.IsValid() && Pin.InlineDefault.Kind != EMaterialInputDefaultKind::None)
+					Pin.SourceType = Pin.InlineDefault.Type;
+				else if (!Pin.Link.SourceNodeId.IsValid() && !Pin.AcceptedTypes.empty()) Pin.SourceType = Pin.AcceptedTypes.front();
 				View.Inputs.push_back(std::move(Pin));
 			}
 			if (Node.Opcode == EMaterialProgramOpcode::FunctionCall)
@@ -296,7 +318,9 @@ namespace Durin::Editor::Material
 							const auto Link = Binding == Call->Inputs.end() ? FMaterialProgramLink{} : Binding->Source;
 							View.Inputs.push_back({.InputIndex = static_cast<uint32>(View.Inputs.size()), .Name = Port.Name,
 								.Link = Link, .SourceType = Link.SourceNodeId.IsValid() ? SourceType(Link) : Port.Type,
-								.AcceptedTypes = {Port.Type}, .PortId = Port.Id, .bRequired = Port.bRequired, .Default = Port.Default});
+								.AcceptedTypes = {Port.Type}, .PortId = Port.Id, .bRequired = Port.bRequired, .Default = Port.Default,
+								.InlineDefault = Binding == Call->Inputs.end() ? FMaterialInputDefault{} : Binding->Default,
+								.bAdvanced = Port.bAdvanced});
 						}
 						for (const auto& Port : Outputs) View.Outputs.push_back({.PortId = Port.Id, .Name = Port.Name, .Type = Port.Type});
 					}
@@ -310,6 +334,14 @@ namespace Durin::Editor::Material
 						if (std::ranges::none_of(View.Outputs, [&](const auto& Pin) { return Pin.PortId == Binding.OutputId; }))
 							View.Outputs.push_back({.PortId = Binding.OutputId, .Name = "Missing output", .Type = Binding.ExpectedType, .bMissing = true});
 				}
+			}
+			else if (IsMaterialSamplingNode(Node.Opcode))
+			{
+				constexpr std::array Names{"RGBA", "RGB", "R", "G", "B", "A", "RG"};
+				for (uint8 Index = 0; Index < Names.size(); ++Index)
+					View.Outputs.push_back({.OutputIndex = Index, .Name = Names[Index],
+						.Type = Index == 0 ? EMaterialProgramValueType::Float4 : Index == 1 ? EMaterialProgramValueType::Float3
+						: Index == 6 ? EMaterialProgramValueType::Float2 : EMaterialProgramValueType::Float});
 			}
 			else if (Node.Opcode == EMaterialProgramOpcode::GetSurfaceAttributes)
 			{
@@ -365,7 +397,7 @@ namespace Durin::Editor::Material
 	{
 		std::vector<FMaterialGraphCatalogEntry> Result;
 		for (uint8 OpcodeValue = static_cast<uint8>(EMaterialProgramOpcode::Constant);
-			OpcodeValue <= static_cast<uint8>(EMaterialProgramOpcode::SetSurfaceAttributes); ++OpcodeValue)
+			OpcodeValue <= static_cast<uint8>(EMaterialProgramOpcode::TextureCoordinates); ++OpcodeValue)
 			for (uint8 TypeValue = static_cast<uint8>(EMaterialProgramValueType::Float);
 				TypeValue <= static_cast<uint8>(EMaterialProgramValueType::Surface); ++TypeValue)
 			{
@@ -381,7 +413,7 @@ namespace Durin::Editor::Material
 					Entry.OperationName = Type == EMaterialProgramValueType::Float ? "Scalar Parameter"
 						: Type == EMaterialProgramValueType::Float2 ? "Vector2 Parameter"
 						: Type == EMaterialProgramValueType::Float3 ? "Vector3 Parameter"
-						: Type == EMaterialProgramValueType::Float4 ? "Vector4 Parameter" : "Texture Parameter";
+						: Type == EMaterialProgramValueType::Float4 ? "Vector4 Parameter" : "Texture Object Parameter";
 					Entry.Description = "Create a new parameter or reference an existing parameter of this type.";
 				}
 				if (Opcode == EMaterialProgramOpcode::Swizzle)

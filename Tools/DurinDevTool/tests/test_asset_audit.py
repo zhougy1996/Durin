@@ -511,7 +511,7 @@ def test_texture_recompression_flag_preserves_preview_apply_boundary(tmp_path: P
 
 
 @pytest.mark.parametrize("apply", [False, True])
-def test_material_function_upgrade_requires_explicit_apply(tmp_path: Path, apply: bool) -> None:
+def test_material_function_upgrade_previews_unless_explicit_apply(tmp_path: Path, apply: bool) -> None:
     executable = tmp_path / "DurinAssetTool.exe"
     executable.touch()
     project = tmp_path / "Test.dproject"
@@ -525,10 +525,5 @@ def test_material_function_upgrade_requires_explicit_apply(tmp_path: Path, apply
         return asset.run(namespace, repository_root=tmp_path, repository_context=REPOSITORY,
             stdout=io.StringIO(), stderr=io.StringIO(),
             executable_resolver=lambda *_: executable, command_runner=runner)
-    if apply:
-        assert run() == 0
-        assert calls == [[str(executable), "material-functions", f"--project={project}", "--apply"]]
-    else:
-        with pytest.raises(DevToolError, match="requires --apply"):
-            run()
-        assert calls == []
+    assert run() == 0
+    assert calls == [[str(executable), "material-functions", f"--project={project}"] + (["--apply"] if apply else [])]

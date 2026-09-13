@@ -2,7 +2,7 @@
 
 Summary: Canonicalize reflected identities without reimporting source data.
 
-Last reviewed: 2026-09-10
+Last reviewed: 2026-09-13
 
 Use canonical resave when the Asset Compatibility window or a package context
 menu says **Resave recommended**. This is maintenance of serialized type names;
@@ -117,3 +117,24 @@ For repository-wide work, enumerate workspace project descriptors and their
 enabled mounts and deduplicate physical packages. Engine content is mounted by
 normal game projects; `Engine.dproject` itself is not a standalone asset-tool
 project because its root list includes the launcher program.
+
+## Compact imported-material migration
+
+Preview material/function provenance, loaded schemas, exact prior-recipe eligibility,
+parameter GUIDs and instance overrides before changing the shared imported parent:
+
+```powershell
+.\DevTool.bat asset material-functions --project Sandbox/Sandbox.dproject
+.\DevTool.bat asset material-functions --project Sandbox/Sandbox.dproject --apply
+```
+
+Apply repeats the inventory before writing. It creates the two additive ordinary
+functions ImportedSurfaceValues and DecodeImportedNormalRG and replaces only an
+exact recognized ImportedSurface recipe with matching dependency bodies. Edited
+functions and custom templates are preserved; conflicts report a skip/failure.
+The parent keeps all 48 declaration identities and instance packages are not
+rewritten. Successful repeat application is a no-op. Package saves are atomic;
+a failed parent save restores its graph, calls, presentation and prior dirty state.
+Keep a byte backup or source-control checkpoint before applying project maintenance.
+Ordinary schema upgrades initialize new empty binding fields without compacting
+custom graphs; compaction is separate from canonical resave.

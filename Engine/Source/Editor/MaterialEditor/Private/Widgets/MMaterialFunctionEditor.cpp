@@ -290,6 +290,10 @@ namespace Durin::Editor::Material
 				if (Node == Nodes.end()) continue;
 				if (Document.EditingNode != *Id) { Document.EditingNode = *Id; Document.NodeDraft = *Node; }
 				auto& Draft = Document.NodeDraft;
+				// Shared input commands may edit the selected node while this draft is open.
+				Draft.Inputs = Node->Inputs;
+				Draft.InputDefaults = Node->InputDefaults;
+				Draft.UVSettings = Node->UVSettings;
 				if (Draft.Opcode == EMaterialProgramOpcode::Constant) ImGui::InputFloat4("Value", &Draft.Literal.X);
 				if (Draft.Opcode == EMaterialProgramOpcode::Swizzle)
 				{
@@ -371,7 +375,12 @@ namespace Durin::Editor::Material
 			Document.Canvas.DrawFunction(Function, *GEditor->GetTransactor(), 0, [this](std::string Message) { Error = std::move(Message); },
 				[this](std::string_view Path) { Manager.OpenAsset(std::string(Path), DMaterialFunction::StaticClass()->GetQualifiedName().ToString()); });
 		ImGui::End();
-		if (WorkspaceUI::BeginDockablePanel(DockType, "Details", "Details")) DrawInterface(Document);
+		if (WorkspaceUI::BeginDockablePanel(DockType, "Details", "Details"))
+		{
+			Document.Canvas.DrawSelectionDetails(Function, *GEditor->GetTransactor(),
+				[this](std::string Message) { Error = std::move(Message); });
+			DrawInterface(Document);
+		}
 		ImGui::End();
 		const bool PreviewVisible = WorkspaceUI::BeginDockablePanel(DockType, "Preview", "Preview");
 		Document.Preview->SetVisible(PreviewVisible);

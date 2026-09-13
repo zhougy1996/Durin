@@ -16,6 +16,8 @@ namespace Durin::Editor::Material
 			for (const FMaterialProgramNode& Node : Program.Nodes)
 			{
 				Size += Node.Inputs.capacity() * sizeof(FMaterialProgramLink);
+				Size += Node.InputDefaults.capacity() * sizeof(FMaterialInputDefault);
+				Size += Node.SurfaceAttributes.capacity() * sizeof(FMaterialSurfaceAttributeBinding);
 				Size += Node.DisplayName.capacity();
 			}
 			return Size;

@@ -4,7 +4,7 @@ Summary: Define material assets, parameters, render proxies, invalidation, passe
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-09-12
+Last reviewed: 2026-09-13
 
 Durin's material architecture keeps declaration ownership, instance resolution,
 editor presentation, and renderer consumption at explicit boundaries.
@@ -35,7 +35,7 @@ render boundary accepts only material-specific layout v4 data. Built-in role kno
   the GUID and updates referencing labels. In-place retyping is rejected.
   Deleting a referenced declaration requires removing its references in the
   same atomic operation. A definition becomes
-  active only when a reachable Parameter or TextureParameter graph node declares
+  active only when a reachable parameter expression or inline parameter binding declares
   it. Definitions reject invalid/duplicate
   GUIDs, `None`/duplicate names, oversized text, invalid metadata and nonfinite
   active defaults. Float4 is an appended reflected value alternative. Reachable
@@ -115,7 +115,7 @@ Texture2D fields receive compact resource/sampler indices. Layout identity,
 counts, field types, offsets, and shader reflection are accepted as one schema.
 
 `DMaterial` additionally persists one reflected material program defined by
-`Materials/MaterialProgramTypes.h`. Version 5 is a bounded typed expression DAG
+`Materials/MaterialProgramTypes.h`. Version 6 is a bounded typed expression DAG
 with stable node/parameter/link identities, eight typed surface outputs,
 and an optional aggregate `Surface` input.
 Each surface input stores a retained fallback literal and an optional source
@@ -128,13 +128,33 @@ conversion, and per-property links. `DMaterialInstance`
 stores no graph and resolves the root base program through its existing parent
 chain, so dynamic GUID overrides remain independent of authored node order.
 
+Ordinary numeric inputs retain typed `InputDefaults` alongside their source
+links. A connected source overrides the retained literal or parameter GUID;
+disconnecting restores it. Inactive parameter references remain validated and
+protected against deletion but do not allocate runtime fields. Function graphs
+accept numeric literals and explicit ports, never root material parameter GUIDs.
+Function-call inputs retain the same fallback model; None selects a declared
+optional callee default, while unbound required inputs reject.
+
+TextureParameter remains a resource reference (Texture Object Parameter in the
+editor). TextureSampleParameter2D combines a declaration reference and sampling.
+Both sampling forms expose stable outputs 0 RGBA, 1 RGB, 2 R, 3 G, 4 B, 5 A,
+6 RG, lowering to one sample and explicit swizzles. Missing UV links use retained
+Channel/Scale/Offset/Rotation settings; external UV replaces the entire transform.
+TextureCoordinates exposes the same transform with optional explicit field inputs.
+UV channel rounding/clamping remains floor(channel + 0.5), clamped to 0..3;
+missing mesh channels remain zero. Scale precedes origin rotation in radians,
+then offset. Synthetic expression source records retain authored node, input or
+UV field and call path. These authoring forms lower before normalization and do
+not change layout v4 or cooked shader semantics. DecodeImportedNormalRG retains
+the previous strength-one encoded RG arithmetic before explicit DecodeNormalRG.
 Fresh materials own zero expression nodes and eight unconnected defaults:
 BaseColor `(0.5, 0.5, 0.5)`, Normal `(0, 0, 1)`, Metallic `0`, Roughness
 `0.5`, AmbientOcclusion `1`, Emissive `(0, 0, 0)`, Opacity `1`, and
 OpacityMask `1`. Aggregate mode accepts one Surface source and requires all
 eight property links to be disconnected; per-property mode requires the
 aggregate source to be disconnected. Retained fallbacks survive either mode.
-Repository material packages persist schema 5. Older and unknown schemas fail
+New material packages persist schema 6. PostLoad upgrades bounded schema-4/5 payloads only when new binding fields are empty; functions similarly upgrade schema 1 to 2. Other older and unknown schemas fail
 without rewriting authored data. An unknown-version or
 malformed program fails bounded validation, which
 rejects invalid enums and GUIDs, count/string/byte/input/depth limits, dangling
@@ -235,9 +255,9 @@ incrementally reusable. Explicit function runtime roots are rejected; Cook emits
 no runtime function packages. DMAT contains the expanded compiled stages; cooked
 loading needs no function graph, function source package or compiler.
 
-AssetForgeBuiltins owns five ordinary source assets under
+AssetForgeBuiltins owns seven ordinary source assets under
 `/Engine/Materials/Functions`: `UVTransform`, `SampleNormal`, `SampleORM`,
-`StandardPBR` and `StandardPBR_ORM`. UVTransform computes rotation of scaled UV
+`StandardPBR`, `StandardPBR_ORM`, `ImportedSurfaceValues` and `DecodeImportedNormalRG`. UVTransform computes rotation of scaled UV
 plus offset. SampleNormal preserves RG decode, strength and RNM composition.
 SampleORM samples once and exposes R occlusion, G roughness and B metallic.
 StandardPBR accepts independent maps and per-map UVs; its ORM variant shares one
@@ -245,8 +265,10 @@ map/UV binding for those three channels. Missing maps retain existing PBR defaul
 and import-derived channel layouts remain unchanged. Normal strength and emissive
 factors already baked during import are not applied a second time.
 
-`ImportedSurface` retains its 48 parameter GUIDs and one final StandardPBR call,
-with eight UVTransform calls and a Surface output (65 authored nodes, nine calls).
+`ImportedSurface` retains all 48 parameter GUIDs through eight texture sample
+parameters, one DecodeImportedNormalRG call and one ImportedSurfaceValues call:
+10 expression nodes plus Material Output. Each sample retains four independent
+UV bindings, and the composition call binds eight factors inline.
 The independent form generates eight texture samples/resources; the explicitly
 packed variant generates six. Equal texture objects in independent bindings do
 not silently merge sampling policies. Function GUIDs have no runtime lowering
@@ -254,8 +276,9 @@ rules and there is no production expanded PBR builder.
 
 Library assets record editor-only authoring source/version 1. Repeated bootstrap
 preserves compatible implementation edits and rejects incompatible interfaces.
-The explicit material-functions maintenance command upgrades only the two exact
-known historical ImportedSurface graphs, retaining package identity, declarations,
+The explicit material-functions maintenance command upgrades the exact previous
+function-based recipe and two historical ImportedSurface graphs after checking
+dependency bodies as well as interfaces, retaining package identity, declarations,
 instance overrides and slots. Modified graphs require explicit author decisions;
 ordinary loading does not rewrite them. See
 [Canonical Asset Resave](../../Editor/Guides/CanonicalResave.md) for the
@@ -607,7 +630,7 @@ publish through the stable proxy and dynamic-only changes reuse shader identity.
 
 Repository content in Engine, Sandbox and RoadWeaver was explicitly resaved
 before retiring old authored readers. Only declaration schema 2, program schema
-5, function schema 1 and DMAT v5 are supported. Packed sampler scalars, implicit role-dependent
+6, function schema 2 and DMAT v5 are supported. Packed sampler scalars, implicit role-dependent
 expressions and automatic graph upgrades are removed. Sampling policy is stored
 on Texture2D parameter values. Old Cook outputs must be discarded and rebuilt.
 

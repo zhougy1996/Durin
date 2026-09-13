@@ -4,56 +4,60 @@ Summary: Replace parameter and UV wiring boilerplate with typed inline bindings 
 
 Last reviewed: 2026-09-13
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-09-13
 
 ## Current Status
 
-Stage 0 execution started on 2026-09-13. Immutable schema-5 parent and schema-1
-function package fixtures are saved in `Engine/Tests/Data/Materials/GraphAuthoringV5`
-with byte sizes and SHA-256 hashes. A native regression compares their normalized
-IR, compiled layout and generated Slang against the current recipe and exercises
-all 32 independent UV overrides through nested instances and parent replacement.
-The new regression passed on 2026-09-13 (MaterialTests, 1/1), followed by the
-complete MaterialTests target (181/181). MaterialVulkanTests passed (1/1), and
-the complete directional shadow qualification target passed. Retained forward
-and shadow images are copied under `Build/MaterialGraphAuthoringBaseline` for
-same-machine final comparison. The focused regression also writes canonical IR
-and generated Slang when test work is retained. Stage 1 can proceed against the
-frozen fixtures; project-wide runtime asset eligibility inventory remains a
-required gate before Stage 3 migration writes, not before additive API work.
+Completed on 2026-09-13. The shipped ImportedSurface parent now contains eight
+Texture Sample Parameter 2D nodes, an explicit normal decoder, a values-composition
+call and Material Output: 11 visible elements instead of 66. All 48 declaration
+GUIDs/types/defaults remain intact. The two inventoried VintageLighter instances
+retain their original package bytes, eight/nine overrides and zero orphan overrides.
+New imports use the same compact parent. Exact old-template migration and repeated
+application passed; modified templates or standard-function bodies are preserved.
 
-Receipts: `20260913-155009-217735-21884-MaterialTests.log`,
-`20260913-155347-205182-2492-MaterialVulkanTests.log`,
-`20260913-155427-769340-9016-ctest.log`, and
-`20260913-155641-734577-13648-MaterialTests.log` under `Build/.agent-state/logs`.
+Program schema 6, function schema 2 and clipboard schema 5 are implemented with
+bounded old-schema readers. Frozen schema-5/schema-1 fixtures match the compact
+recipe's normalized IR, generated Slang and parameter layout exactly. Cooked
+layout remains 4; no renderer ABI or compiler identity change was necessary.
+Numeric bindings, retained UV settings, channel outputs, shared editor commands,
+asset picking, advanced-input visibility and explicit parent navigation are implemented.
 
-This plan addresses the user's
-imported-material screenshots and questions about texture roles and UV channels.
-It supersedes the initial suggestion to solve the problem primarily with visual
-node groups. The initial design commit is `78c7b7d15`.
+Validation receipts under `Build/.agent-state/logs`:
 
-Stage 1 core implementation now passes MaterialTests (184/184), including frozen
-package loading through the 5-to-6 / 1-to-2 upgrade paths, inline/explicit IR
-equivalence, inactive parameter retention, single-fetch channel fan-out and
-optional/required function input bindings. Receipt:
-`Build/.agent-state/logs/20260913-160733-710575-24288-MaterialTests.log`.
-Stage 2 editor integration is in progress; final shared-API `all` build, extended
-roundtrip/diagnostic tests and full migration qualification remain required.
+| Coverage | Result | Receipt |
+| --- | --- | --- |
+| Complete MaterialTests, including serialization, nested overrides and graph-stripped Cook/load | 188/188 passed | `20260913-165709-366899-23536-MaterialTests.log` |
+| Final graph commands and advanced pin identity coverage | 42/42 passed | `20260913-170352-581076-22004-MaterialTests.log` |
+| Expanded canvas capture, channel fan-out, UV extract/disconnect/undo | 1/1 passed | `20260913-170526-356721-12696-MaterialTests.log` |
+| Scene import and edited-dependency migration rejection | 6/6 passed | `20260913-170010-323579-12636-SceneImportTests.log` |
+| Forward Vulkan material rendering | 1/1 passed | `20260913-164822-660257-16376-MaterialVulkanTests.log` |
+| Material thumbnails | 8/8 passed | `20260913-165120-240204-8356-MaterialThumbnailTests.log` |
+| Directional shadow qualification with legacy/compact GBuffer captures | Both passed | `20260913-165310-387922-11280-ctest.log`, `20260913-165454-997198-23692-ctest.log` |
+| Final all-project build (Engine, Sandbox, RoadWeaver) | Passed | `20260913-170427-422198-1680-cmake.log` |
 
-The current `MakeImportedSurfaceFunctionProgram` generates 65 expression nodes:
-48 parameter references, eight UVChannel reads, eight UVTransform calls and one
-StandardPBR call. The derived Material Output brings the visible count to 66.
-The texture dropdown in MaterialGraphCanvas selects a declaration GUID filtered
-by type, not a surface role. SceneDirectImport already creates material instances
-of the shared ImportedSurface parent. The architectural problem is redundant
-authoring expressions and misleading controls, not missing instancing.
+DurinDevTool asset and command contract tests passed (31/31). Same-machine SHA-256
+comparisons matched all 20 forward captures, 82 shadow baseline files and 11
+GBuffer/material-input captures. The additional GBuffer baseline was captured using
+the retained exact legacy recipe, then compared with the compact recipe in the same
+qualification executable. Evidence, original package backups, eligibility inventories,
+instance hashes and migration idempotence results are retained under
+`Build/MaterialGraphAuthoringBaseline`.
 
-Authoritative existing contracts: [Material System](../Runtime/Rendering/MaterialSystem.md)
-and [Material Graph Operations](../Editor/Architecture/MaterialGraphOperations.md).
-The concurrent [Material Instance Shader Variants plan](MaterialInstanceShaderVariants.md)
-owns instance configuration, publication and Cook; this plan must preserve those
-paths and adds no competing compilation lifecycle.
+The six canvas PNGs in that directory are software captures of actual ImGui canvas
+and Details draw data, using unassigned-resource placeholders. Normal-zoom Details
+shows the four independent UV bindings; captures also record channel fan-out,
+extraction, inactive external UV settings and restored local settings. These are
+headless UI evidence, not GPU thumbnail captures. Instance behavior is covered by
+the parameter-panel and nested-instance regressions; the explicit Open Parent
+Material control uses the existing asset workspace navigation.
+
+Implementation contracts are maintained in [Material System](../Runtime/Rendering/MaterialSystem.md),
+[Material Graph Operations](../Editor/Architecture/MaterialGraphOperations.md) and
+[Canonical Resave](../Editor/Guides/CanonicalResave.md). This plan preserves the
+instance configuration/publication/Cook lifecycle owned by
+[Material Instance Shader Variants](MaterialInstanceShaderVariants.md).
 
 ## Goal
 
@@ -170,9 +174,18 @@ Validation must reject inappropriate combinations and nonexistent indices.
 
 All outputs share one sample operation. Lower channel selection to ordinary
 swizzles; multiple consumers must not emit independent fetches. Normal decoding
-stays an explicit DecodeNormalRG node consuming RG. This avoids equating a
+stays an explicit decoder consuming RG. This avoids equating a
 texture name or destination with normal interpretation. Broader normal formats
 are outside scope; preserve current RG decode and RNM behavior.
+
+Implementation finding (2026-09-13): the shipped SampleNormal graph performs
+strength-one encoded RG centering/scaling before DecodeNormalRG. Removing those
+operations changes normalized arithmetic. The compact parent therefore uses an
+additive DecodeImportedNormalRG function containing that exact arithmetic and
+DecodeNormalRG; RNM remains in ImportedSurfaceValues. It still occupies one
+explicit decoder node and retains the 11-element target. Frozen-v5 versus compact
+IR, layout and generated Slang equality passed on 2026-09-13, receipt
+`20260913-162856-876203-18824-MaterialTests.log`.
 
 ## Editor Experience
 
@@ -205,7 +218,7 @@ returns Surface. Preserve existing StandardPBR and StandardPBR_ORM signatures
 and implementations for their current callers; the new function is additive.
 
 The compact parent consists of eight Texture Sample Parameter nodes, one
-DecodeNormalRG, one ImportedSurfaceValues call and Material Output: 11 visible
+DecodeImportedNormalRG function call, one ImportedSurfaceValues call and Material Output: 11 visible
 elements rather than 66. The call binds eight factor parameters inline. Each
 sample retains one texture GUID and four UV GUID bindings. All 48 existing
 declarations retain identity, type, default, metadata and instance eligibility.
@@ -300,9 +313,9 @@ retain recoverable old package bytes. Re-running successful migration is a no-op
 
 Outcome: executable baseline and a schema rollout that cannot strand old assets.
 
-- [ ] Inventory current material/function packages and template dependencies;
+- [x] Inventory current material/function packages and template dependencies;
   record schemas, override GUIDs, node counts and edited implementations.
-- [ ] Capture baseline IR, parameter layouts and representative forward,
+- [x] Capture baseline IR, parameter layouts and representative forward,
   GBuffer and masked-shadow images, including nonidentity independent UVs.
 - [x] Record current UV channel edge behavior and origin mappings needed by
   lowering; specify exact version numbers and old-schema decode entrypoints.
@@ -315,13 +328,13 @@ normal decode and edited standard-function dependencies before schema mutation.
 
 Depends on Stage 0. Outcome: compact programs validate and compile without UI.
 
-- [ ] Implement bindings, parameter reachability, stable multi-output typing,
+- [x] Implement bindings, parameter reachability, stable multi-output typing,
   UV settings, compact sample nodes, lowering and source diagnostics.
-- [ ] Implement old-schema decoding, validation bounds and serialization tests
+- [x] Implement old-schema decoding, validation bounds and serialization tests
   for both root materials and functions; preserve the root-parameter boundary.
-- [ ] Prove inline/explicit equivalence, one-fetch channel fan-out, independent
+- [x] Prove inline/explicit equivalence, one-fetch channel fan-out, independent
   instance updates, inactive fallback restoration and unchanged cooked behavior.
-- [ ] Search all affected shared API symbols across source/test roots of every
+- [x] Search all affected shared API symbols across source/test roots of every
   project in Durin.dworkspace and migrate all consumers.
 
 Gate: roundtrips and negative validation pass, layouts retain parameter GUIDs,
@@ -331,14 +344,16 @@ and equivalent compact/explicit graphs produce equivalent normalized semantics.
 
 Depends on Stage 1. Outcome: users can author compact graphs without raw storage edits.
 
-- [ ] Add inline controls, resource picking, named parameter actions, UV Details,
+- [x] Add inline controls, resource picking, named parameter actions, UV Details,
   output pins, explicit extraction and safe inlining to shared graph commands.
-- [ ] Migrate copy/paste, duplicate, delete, inspection, layout, Undo/Redo,
+- [x] Migrate copy/paste, duplicate, delete, inspection, layout, Undo/Redo,
   function previews and diagnostic navigation to the new binding sources.
-- [ ] Verify foreign-root parameter remapping and function clipboard rejection;
+- [x] Verify foreign-root parameter remapping and function clipboard rejection;
   retain texture/callee references through GC, reload and transaction history.
-- [ ] Capture UI evidence for creating a material, channel fan-out, UV extraction,
-  reconnect/disconnect, and instance versus parent editing at usable zoom.
+- [x] Capture actual canvas/Details evidence for a newly constructed compact
+  material, channel fan-out and UV extract/disconnect/undo at normal editing zoom;
+  verify instance versus parent editing through parameter-panel regressions and
+  explicit parent navigation. Headless captures do not claim live GPU thumbnails.
 
 Gate: the same operations work through command tests and canvas, preserve
 fallbacks and sharing, and create exactly one undo record per user action.
@@ -347,11 +362,11 @@ fallbacks and sharing, and create exactly one undo record per user action.
 
 Depends on Stage 2. Outcome: a newly imported scene uses the 11-element parent.
 
-- [ ] Add ImportedSurfaceValues and the compact parent recipe; preserve all
+- [x] Add ImportedSurfaceValues and the compact parent recipe; preserve all
   existing declaration identities and standard-function signatures.
-- [ ] Add exact-graph/dependency eligibility, inventory reports, rollback and
+- [x] Add exact-graph/dependency eligibility, inventory reports, rollback and
   idempotent maintenance migration, including historical shipped templates.
-- [ ] Validate new import and existing nested instances, sampler and missing
+- [x] Validate new import and existing nested instances, sampler and missing
   textures, independent map UVs, customized functions and modified-template skips.
 
 Gate: 10 authored expression nodes plus output, all 48 declarations active for
@@ -361,13 +376,13 @@ the complete parent, no hidden replacement graph, and baseline shading parity.
 
 Depends on Stage 3. Outcome: authoring, migrated assets and cooked projects agree.
 
-- [ ] Run affected project/test targets and a final `all` build using
+- [x] Run affected project/test targets and a final `all` build using
   [build guidance](../Agents/BuildAndRun.md); serialize build ownership.
-- [ ] Compare captured same-environment images and normalized computations;
+- [x] Compare captured same-environment images and normalized computations;
   investigate mismatches rather than accepting node-count improvements alone.
-- [ ] Verify forward, GBuffer, masked shadows, graph-stripped Cook/load and
+- [x] Verify forward, GBuffer, masked shadows, graph-stripped Cook/load and
   instance shader variants without runtime authored-graph dependencies.
-- [ ] Update implemented Material System and Material Graph Operations contracts;
+- [x] Update implemented Material System and Material Graph Operations contracts;
   record migration/validation receipts and complete this plan only after gates pass.
 
 ## Ownership and Exclusions

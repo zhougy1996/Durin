@@ -281,9 +281,7 @@ def run(
     if command in ("identity-audit", "material-functions"):
         project = _project_from_namespace(namespace, repository)
         arguments = [command, f"--project={project}"]
-        if command == "material-functions":
-            if not bool(getattr(namespace, "apply", False)):
-                raise DevToolError("Material function upgrade requires --apply.")
+        if command == "material-functions" and bool(getattr(namespace, "apply", False)):
             arguments.append("--apply")
         native_output = _invoke_asset_program(
             selection,

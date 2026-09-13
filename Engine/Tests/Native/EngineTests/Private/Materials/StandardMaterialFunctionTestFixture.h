@@ -7,12 +7,12 @@
 namespace Durin::Testing
 {
 	// Transient ordinary functions, with the same authored graph definitions as shipped assets.
-	inline auto SetStandardMaterialProgramForTest(DMaterial& Material) -> bool
+	inline auto SetStandardMaterialProgramForTest(DMaterial& Material, bool bLegacyRecipe = false) -> bool
 	{
 		using namespace AssetForge::Builtins;
 		FStandardMaterialFunctions Functions;
 		const std::array Slots{&Functions.UVTransform, &Functions.SampleNormal, &Functions.SampleORM,
-			&Functions.StandardPBR, &Functions.StandardPBR_ORM};
+			&Functions.StandardPBR, &Functions.StandardPBR_ORM, &Functions.ImportedSurfaceValues, &Functions.DecodeImportedNormalRG};
 		for (uint32 I = 0; I < Slots.size(); ++I)
 		{
 			auto* Function = NewObject<DMaterialFunction>(&Material, FName(std::format("StandardFunction{}", I + 1)));
@@ -22,7 +22,8 @@ namespace Durin::Testing
 		}
 		std::vector<FMaterialFunctionCall> Calls;
 		FMaterialGraphPresentation Presentation;
-		auto Program = MakeImportedSurfaceFunctionProgram(Functions, Calls, Presentation);
+		auto Program = bLegacyRecipe ? MakeLegacyImportedSurfaceFunctionProgram(Functions, Calls, Presentation)
+			: MakeImportedSurfaceFunctionProgram(Functions, Calls, Presentation);
 		if (!Material.SetMaterialProgramAndFunctionCalls(std::move(Program), std::move(Calls))) return false;
 		return Material.SetMaterialGraphPresentation(std::move(Presentation));
 	}

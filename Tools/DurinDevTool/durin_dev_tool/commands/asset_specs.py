@@ -35,7 +35,7 @@ COMMAND_SPEC = CommandSpec(
             required_modules=("rich",),
             arguments=CONTEXT_ARGUMENTS + (
                 PROJECT_ARGUMENT,
-                argument("--apply", action="store_true", required=True,
+                argument("--apply", action="store_true",
                          help="save function dependencies and the recognized parent template"),
             ),
         ),

@@ -336,7 +336,7 @@ namespace
 		if (!Durin::IsValid(Root))
 		{
 			Root = Durin::NewObject<Durin::DMaterial>(nullptr, "DirectionalShadowVariantRoot");
-			if (!Root || !Durin::Testing::SetStandardMaterialProgramForTest(*Root))
+			if (!Root || !Durin::Testing::SetStandardMaterialProgramForTest(*Root, std::getenv("DURIN_TEST_MATERIAL_LEGACY_RECIPE") != nullptr))
 			{
 				ADD_FAILURE() << "Failed to create the shared variant graph.";
 				return {};
@@ -2205,6 +2205,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 		Durin::EGBufferDebugMode::ViewPosition,
 		Durin::EGBufferDebugMode::ReconstructionError
 	};
+	const auto GBufferDirectory = Durin::Testing::CreateTestFixtureDirectory("MaterialGBufferParity");
 	std::vector<Durin::FByteBuffer> GBufferDebugImages;
 	for (const Durin::EGBufferDebugMode Mode : GBufferDebugModes)
 	{
@@ -2216,6 +2217,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 		EXPECT_EQ(DebugViewTelemetry.GBuffer.GBufferEnabledViews, 1u);
 		EXPECT_EQ(DebugViewTelemetry.GBuffer.GBufferDebugViews, 1u);
 		EXPECT_EQ(DebugViewTelemetry.GBuffer.GBufferDebugFailures, 0u);
+		WritePpm(GBufferDirectory / std::format("gbuffer-{}.ppm", static_cast<uint32>(Mode)), Image);
 		EXPECT_NE(Image, PixelsOff);
 		EXPECT_TRUE(std::ranges::any_of(Image, [](std::byte Value) {
 			return Value != std::byte{0};
@@ -2253,6 +2255,8 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	);
 	EXPECT_EQ(MaterialABTelemetry.GBuffer.GBufferDebugViews, 1u);
 	ASSERT_EQ(DecodedMaterialInputs.size(), ForwardMaterialInputs.size());
+	WritePpm(GBufferDirectory / "gbuffer-material-inputs.ppm", DecodedMaterialInputs);
+	WritePpm(GBufferDirectory / "forward-material-inputs.ppm", ForwardMaterialInputs);
 	for (size_t Offset = 0; Offset < DecodedMaterialInputs.size(); ++Offset)
 	{
 		EXPECT_LE(std::abs(static_cast<int>(DecodedMaterialInputs[Offset]) - static_cast<int>(ForwardMaterialInputs[Offset])), 2);

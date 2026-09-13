@@ -18,7 +18,7 @@ namespace Durin::AssetForge::Builtins
 		using Link = FMaterialProgramLink;
 		constexpr std::array RoleNames{"BaseColor", "Normal", "Metallic", "Roughness",
 			"AmbientOcclusion", "Emissive", "Opacity", "OpacityMask"};
-		constexpr std::array EntryNames{"UVTransform", "SampleNormal", "SampleORM", "StandardPBR", "StandardPBR_ORM"};
+		constexpr std::array EntryNames{"UVTransform", "SampleNormal", "SampleORM", "StandardPBR", "StandardPBR_ORM", "ImportedSurfaceValues", "DecodeImportedNormalRG"};
 		constexpr auto Id(Entry Function, uint32 Slot) -> FGuid { return StandardMaterialPortId(Function, Slot); }
 		auto Numeric(float X, float Y = 0, float Z = 0) -> FMaterialFunctionDefault
 			{ return {.Kind = Kind::Numeric, .Numeric = {.X = X, .Y = Y, .Z = Z}}; }
@@ -134,10 +134,23 @@ namespace Durin::AssetForge::Builtins
 				B.Output(102, "Metallic", Type::Float, B.Swizzle(Sample, Type::Float, 2));
 			}
 		}
+		else if (Function == Entry::DecodeImportedNormalRG)
+		{
+			const auto RG = B.Input(1, "RG", Type::Float2, Numeric(.5f, .5f));
+			// Retain the shipped SampleNormal strength-one arithmetic exactly.
+			const auto Half = B.Constant(Type::Float2, .5f, .5f);
+			const auto Centered = B.Node(Op::Subtract, Type::Float2, {RG, Half});
+			const auto Strength = B.Constant(Type::Float, 1);
+			const auto Strength2 = B.Node(Op::Splat2, Type::Float2, {Strength});
+			const auto Scaled = B.Node(Op::Multiply, Type::Float2, {Centered, Strength2});
+			const auto Encoded = B.Node(Op::Add, Type::Float2, {Scaled, Half});
+			B.Output(100, "Normal", Type::Float3, B.Node(Op::DecodeNormalRG, Type::Float3, {Encoded}));
+		}
 		else
 		{
 			const bool bPacked = Function == Entry::StandardPBR_ORM;
-			B.Input(1, "UV", Type::Float2, {.Kind = Kind::UV0});
+			const bool bValues = Function == Entry::ImportedSurfaceValues;
+			if (!bValues) B.Input(1, "UV", Type::Float2, {.Kind = Kind::UV0});
 			std::array<Link, 8> Factors, Textures, UVs, Values;
 			for (uint32 I = 0; I < 8; ++I)
 			{
@@ -145,6 +158,12 @@ namespace Durin::AssetForge::Builtins
 				const auto Default = I == 0 ? Numeric(.5f, .5f, .5f) : I == 1 ? Numeric(0, 0, 1)
 					: I == 3 ? Numeric(.5f) : I == 4 || I >= 6 ? Numeric(1) : Numeric(0);
 				Factors[I] = B.Input(10 + I, RoleNames[I], ValueType, Default, I == 1 || I >= 4);
+				if (bValues)
+				{
+					Textures[I] = B.Input(20 + I, std::string(RoleNames[I]) + "Sample", ValueType,
+						I == 1 ? Numeric(0, 0, 1) : I == 5 ? Numeric(0, 0, 0) : Numeric(1, 1, 1));
+					continue;
+				}
 				if (bPacked && I >= 2 && I <= 4) continue;
 				Textures[I] = B.Input(20 + I, std::string(RoleNames[I]) + "Texture", Type::Texture2D,
 					Texture(I == 1 ? EMaterialTextureFallback::FlatRGNormal : I == 5
@@ -166,6 +185,11 @@ namespace Durin::AssetForge::Builtins
 			{
 				if (I == 1)
 				{
+					if (bValues)
+					{
+						Values[I] = B.Node(Op::BlendNormalsRNM, Type::Float3, {Factors[I], Textures[I]});
+						continue;
+					}
 					Values[I] = B.Call(Dependencies.SampleNormal.Get(), {
 						{Id(Entry::SampleNormal, 1), Type::Texture2D, Textures[I]},
 						{Id(Entry::SampleNormal, 2), Type::Float2, UVs[I]},
@@ -174,7 +198,8 @@ namespace Durin::AssetForge::Builtins
 				}
 				const auto ValueType = GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(I));
 				Link Channel;
-				if (bPacked && I >= 2 && I <= 4)
+				if (bValues) Channel = Textures[I];
+				else if (bPacked && I >= 2 && I <= 4)
 					Channel = {.SourceNodeId = ORM.SourceNodeId, .SourceOutputId = Id(Entry::SampleORM, 100 + Channels[I])};
 				else
 				{
@@ -209,7 +234,7 @@ namespace Durin::AssetForge::Builtins
 	{
 		FStandardMaterialFunctions Result;
 		const std::array Slots{&Result.UVTransform, &Result.SampleNormal, &Result.SampleORM,
-			&Result.StandardPBR, &Result.StandardPBR_ORM};
+			&Result.StandardPBR, &Result.StandardPBR_ORM, &Result.ImportedSurfaceValues, &Result.DecodeImportedNormalRG};
 		for (uint32 I = 0; I < Slots.size(); ++I)
 		{
 			const auto EntryKind = static_cast<Entry>(I + 1);
@@ -272,7 +297,7 @@ namespace Durin::AssetForge::Builtins
 		return true;
 	}
 
-	auto MakeImportedSurfaceFunctionProgram(const FStandardMaterialFunctions& Functions,
+	auto MakeLegacyImportedSurfaceFunctionProgram(const FStandardMaterialFunctions& Functions,
 		std::vector<FMaterialFunctionCall>& OutCalls, FMaterialGraphPresentation& OutPresentation) -> FMaterialProgram
 	{
 		FBuilder B{Entry::StandardPBR};
@@ -308,6 +333,45 @@ namespace Durin::AssetForge::Builtins
 		FMaterialProgram Result;
 		Result.Outputs.Surface = B.Call(Functions.StandardPBR.Get(), std::move(PBRInputs));
 		Presentation.Nodes.push_back({Result.Outputs.Surface.SourceNodeId, 1440, 0});
+		Result.Nodes = std::move(B.Graph.Nodes);
+		OutCalls = std::move(B.Graph.Calls);
+		OutPresentation = std::move(Presentation);
+		return Result;
+	}
+
+	auto MakeImportedSurfaceFunctionProgram(const FStandardMaterialFunctions& Functions,
+		std::vector<FMaterialFunctionCall>& OutCalls, FMaterialGraphPresentation& OutPresentation) -> FMaterialProgram
+	{
+		FBuilder B{Entry::ImportedSurfaceValues};
+		FMaterialGraphPresentation Presentation{.bHasMaterialOutputPosition = true, .MaterialOutputX = 1120, .MaterialOutputY = 400};
+		std::vector<FMaterialFunctionInputBinding> Inputs;
+		using ParameterKind = MaterialParameters::EMaterialBuiltinParameterKind;
+		constexpr std::array<uint8, 8> Channels{1, 6, 4, 3, 2, 1, 5, 2};
+		for (uint32 I = 0; I < 8; ++I)
+		{
+			const auto Role = static_cast<EMaterialSurfaceOutput>(I);
+			const auto Binding = [&](ParameterKind Kind, Type ValueType) -> FMaterialInputDefault {
+				return {.Kind = EMaterialInputDefaultKind::Parameter, .Type = ValueType, .ParameterId = GetMaterialSurfaceParameterId(Role, Kind)};
+			};
+			auto Sample = B.Node(Op::TextureSampleParameter2D, Type::Float4, {{}});
+			auto& Node = B.Graph.Nodes.back();
+			Node.ParameterId = GetMaterialSurfaceParameterId(Role, ParameterKind::Texture);
+			Node.UVSettings = {Binding(ParameterKind::UVChannel, Type::Float), Binding(ParameterKind::UVScale, Type::Float2),
+				Binding(ParameterKind::UVOffset, Type::Float2), Binding(ParameterKind::UVRotation, Type::Float)};
+			Presentation.Nodes.push_back({Node.Id, 0, static_cast<int32>(I) * 280});
+			Sample.SourceOutputIndex = Channels[I];
+			if (I == 1)
+			{
+				Sample = B.Call(Functions.DecodeImportedNormalRG.Get(), {{Id(Entry::DecodeImportedNormalRG, 1), Type::Float2, Sample}});
+				Presentation.Nodes.push_back({Sample.SourceNodeId, 350, 280});
+			}
+			const auto ValueType = GetMaterialSurfaceOutputType(Role);
+			Inputs.push_back({Id(Entry::ImportedSurfaceValues, 10 + I), ValueType, {}, Binding(ParameterKind::Value, ValueType)});
+			Inputs.push_back({Id(Entry::ImportedSurfaceValues, 20 + I), ValueType, Sample});
+		}
+		FMaterialProgram Result;
+		Result.Outputs.Surface = B.Call(Functions.ImportedSurfaceValues.Get(), std::move(Inputs));
+		Presentation.Nodes.push_back({Result.Outputs.Surface.SourceNodeId, 720, 400});
 		Result.Nodes = std::move(B.Graph.Nodes);
 		OutCalls = std::move(B.Graph.Calls);
 		OutPresentation = std::move(Presentation);

@@ -318,6 +318,7 @@ namespace Durin
 		const auto Fail = [&](uint32 Index, std::string Message) {
 			AddDiagnostic(Result.Diagnostics, EMaterialProgramDiagnosticCategory::Type,
 				EMaterialProgramDiagnosticLocationKind::Input, Node.Id, Index, std::move(Message));
+			Result.Diagnostics.back().InputIndex = Index;
 		};
 		if (Node.InputDefaults.size() > Node.Inputs.size() || Node.InputDefaults.size() > MaterialProgramMaxNodeInputCount)
 			Fail(0, "Input defaults exceed the node input count.");
@@ -342,7 +343,11 @@ namespace Durin
 			{
 				const auto Type = ResolveMaterialInputDefaultType(GetMaterialUVSetting(Node.UVSettings, Index), Definitions);
 				if (Type != (Index == 1 || Index == 2 ? EMaterialProgramValueType::Float2 : EMaterialProgramValueType::Float))
+				{
 					Fail(Index, "UV setting has an invalid numeric value or parameter binding.");
+					Result.Diagnostics.back().InputIndex.reset();
+					Result.Diagnostics.back().UVFieldIndex = Index;
+				}
 			}
 		}
 		else if (Node.UVSettings != FMaterialUVSettings{}) Fail(0, "UV settings require a sampling or coordinate node.");

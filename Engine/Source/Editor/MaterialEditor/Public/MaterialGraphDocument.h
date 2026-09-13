@@ -59,6 +59,14 @@ namespace Durin::Editor::Material
 			DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto DisconnectCallInput(const FGuid& CallNodeId, const FGuid& InputId,
 			DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API auto SetInputDefault(const FGuid& NodeId, uint32 InputIndex,
+			FMaterialInputDefault Value, FGuid PortId = {}, DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API auto ExtractInputDefault(const FGuid& NodeId, uint32 InputIndex,
+			FGuid PortId = {}, DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API auto InlineInputNode(const FGuid& NodeId, uint32 InputIndex,
+			FGuid PortId = {}, DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API auto ExtractUVSettings(const FGuid& NodeId,
+			DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto CopySelection(std::span<const FGuid> NodeIds,
 			FMaterialGraphClipboardPayload& OutPayload) const -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto Paste(const FMaterialGraphClipboardPayload& Payload,
