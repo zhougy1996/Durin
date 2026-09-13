@@ -9,9 +9,9 @@ Completed:
 
 ## Current Status
 
-Planning only; implementation has not started. This plan records the user's
-request for one Surface root shared by default, new, and imported materials,
-without a second visible Material Output or a fully expanded PBR template.
+Stage 0 source and mounted-content audits are complete at execution baseline
+`2d3eef2fa1af59da8d7a86c428398bd28fc0765b`. Implementation has not started.
+The frozen decisions and validation receipts below govern subsequent stages.
 
 The current baseline is commit `88aaedfb1`, following `42df4b322` and
 `41fcd8de4`:
@@ -155,15 +155,15 @@ change storage versions only when the serialized contract actually changes.
 
 ### Stage 0: Freeze evaluation rules and import structures
 
-- [ ] Audit current manual, default, and imported evaluation, including actual
+- [x] Audit current manual, default, and imported evaluation, including actual
   shader-side clamping and the operations emitted by ComposeSurfaceValue.
-- [ ] Record an input policy table covering defaults, units/space, valid ranges,
+- [x] Record an input policy table covering defaults, units/space, valid ranges,
   nonfinite handling, Lit/Unlit relevance, and each affected render pass.
-- [ ] Classify every current import operation as source-authored behavior,
+- [x] Classify every current import operation as source-authored behavior,
   renderer policy, or removable identity work; identify any intended visual changes.
-- [ ] Freeze structural parent keys, generated asset provenance, instance exposure
+- [x] Freeze structural parent keys, generated asset provenance, instance exposure
   rules, reimport transitions, and the treatment of the existing ImportedSurface path.
-- [ ] Inventory affected assets and all source/test consumers across projects in
+- [x] Inventory affected assets and all source/test consumers across projects in
   Durin.dworkspace; capture reference, image, and override baselines.
 
 Gate: no unresolved semantic or parent-ownership decision remains before coding.
@@ -238,6 +238,173 @@ simplification has not moved costs into redundant hidden work.
 
 Gate: every preceding gate is satisfied, documentation matches implementation, and
 the user's default/new/imported material workflows use the unified Surface model.
+
+## Stage 0 Decisions And Evidence
+
+### Evaluation audit and selected boundary
+
+`MaterialProgramGenerator.cpp` returns property values or the aggregate directly.
+Forward, thumbnail, GBuffer and masked-shadow fragments all call that generated
+function; opaque shadow needs no material evaluation. Cook stores these compiled
+stages. `EvaluateMaterialSurface` in `SurfaceMaterial.slang` has no callers in
+workspace source/shaders: its old factor/sample API is not the runtime boundary.
+`FilterSpecularRoughnessFromVariance` currently clamps roughness to 0.045..1 and
+recovers nonfinite roughness to 0.5; direct BRDF evaluation also clamps roughness.
+GBuffer base color is RGBA8_UNORM, and emissive is R11G11B10_FLOAT. Thus preserving
+unbounded Base Color only in forward rendering would violate pass parity.
+
+The Engine generator will apply one final-value evaluator to either root mode.
+Reusable Surface aggregates remain raw composable data until they reach this
+boundary. All authored literals/parameter defaults continue to reject nonfinite
+values; the runtime rules below additionally handle expression overflow and NaN.
+No texture fetch, normal decode, vertex-color multiply or parameter lookup occurs
+at this boundary. The table describes evaluated values, not destructive edits to
+the retained authored inputs.
+
+| Input | Root default | Units/space and evaluated range | Nonfinite expression handling | Pass relevance |
+| --- | --- | --- | --- | --- |
+| Base Color | (0.5,0.5,0.5) | Linear RGB reflectance, saturate to 0..1 | Replace each nonfinite component with 0.5 | Lit forward/GBuffer; Unlit forward |
+| Normal | (0,0,1) | Decoded tangent direction; safe normalization; squared length threshold 1e-8 | Invalid vector or nonfinite squared length becomes flat normal | Lit forward/GBuffer, then world frame |
+| Metallic | 0 | Unitless, saturate to 0..1 | 0 | Lit forward/GBuffer |
+| Roughness | 0.5 | Perceptual roughness, 0.045..1 | 0.5 | Lit forward/GBuffer before derivative AA |
+| Ambient Occlusion | 1 | Unitless visibility, saturate to 0..1 | 1 | Lit environment lighting/GBuffer |
+| Emissive | (0,0,0) | Nonnegative scene-linear RGB; HDR retained up to (65024,65024,64512), the finite GBuffer channel maxima | Replace each nonfinite component with 0 | Lit and Unlit forward/GBuffer |
+| Opacity | 1 | Straight alpha, saturate to 0..1 | 1 | Translucent forward; retained for other modes |
+| Opacity Mask | 1 | Coverage, saturate to 0..1; reject strictly below cutoff | 1 | Masked forward, GBuffer/depth, shadow; Lit and Unlit |
+
+Base Color outside 0..1, negative/overflow emissive, invalid normals, and
+out-of-range scalar outputs will intentionally become consistent across passes
+and authoring paths. HDR emission belongs in Emissive, including Unlit materials.
+Keep the BRDF and specular-AA numerical safeguards: those routines have consumers
+outside the graph boundary and AA must still bound its newly computed roughness.
+Version the compiler envelope; do not change graph or package storage versions
+solely for evaluation semantics.
+
+### Import operation classification
+
+- Preserve source-authored Base Color/alpha, metallic and roughness multiplication.
+  Current `ComposeSurfaceValue` saturates factors before multiplication, and
+  scalar samples before multiplication; for validated source values in 0..1 these
+  are identity work. New generated recipes omit them and use final-value policy.
+  Customized reusable functions retain their authored pre-multiply behavior.
+- Roughness-floor Clamp and its two constants are renderer policy, moved to the
+  boundary. Default factor owners, multiply-by-one, flat-normal RNM, zero-emissive
+  Add, absent-map samples and identity UV owner scaffolds are removable work.
+- Normal decode, nonidentity normal strength and explicit artist normal blending
+  are authored operations. Preserve import-time normal-strength baking and decode
+  once. Do not multiply the baked strength again.
+- Existing emissive composition is nonnegative factor plus nonnegative sample.
+  Import already bakes source emissive multiplication into ScaledColor textures;
+  its graph factor is zero. Preserve the baked texture directly; a textureless
+  source emissive factor must become an actual final value (currently omitted by
+  SceneDirectImport). Do not globally turn artist-authored Add into Multiply.
+- Source UV channel/scale/offset/rotation and complete sampler state must survive.
+  SceneImport parses them, but SceneDirectImport currently publishes only texture
+  object pointers. Restoring source sampling is an intentional correctness change.
+- Current import derives separate metallic B, roughness G, occlusion R and alpha
+  images. Compatible data channels will instead share one resource/sample with
+  direct output slots. Never merge color-sRGB and linear-data resources merely
+  because the source image matches. Preserve derivation/baking where required.
+- Masked source alpha factor must bind Opacity Mask; the current importer writes
+  only Opacity, leaving mask factor at one. Correct that mapping explicitly.
+
+### Structural parent and publication contract
+
+Use recipe version 1 with a fixed ordered, textual encoding prefixed
+`Durin.ImportedSurface:1`. For the eight roles in surface-output enum order,
+encode: default/value/sample mode; optional nonidentity factor operation;
+sample-group index and direct channel slot; decode mode; and four UV exposure
+bits (channel, scale, offset, rotation). Group indices are assigned by first role
+occurrence. Resource grouping requires equal source resource derivation, color
+space, sampler and coordinate semantics. Encode the resulting equality groups,
+not source image identities, paths, floating-point values or serialized memory.
+Static blend/cutoff/two-sided overrides remain instance properties and enter the
+key only if they change generated property branches, such as alpha consumption.
+
+Use a stable hash of this encoding in
+`/Game/Materials/ImportedParents/Surface_v1_<digest>`; shared Engine content is not
+an import destination. Persist recipe identifier, version and full canonical key
+as editor-only generated provenance. Reuse requires matching provenance and exact
+expected graph/schema; a modified/colliding parent produces a diagnostic instead
+of being overwritten. Presentation edits are not structural conflicts. Additive
+provenance fields are storage changes and must be tested through save/load.
+
+Default-valued absent properties stay root literals. Nondefault textureless source
+values expose numeric owners so equivalent structures with different values share
+a parent. Identity factors on present textures expose no numeric owner; other
+factors do. Identity UV fields remain local; nonidentity fields expose only their
+required owners so ordinary numeric transform values remain outside the key.
+Each sample group has one texture owner, using the first participating role's
+existing registry GUID. Retained numeric/UV roles use existing registry GUIDs;
+graph node identity must remain distinct from parameter identity. Overrides are
+published against this explicit role-to-owner mapping, never the old 48-field set.
+
+Adding/removing maps, identity transitions, UV requirements and packing changes
+select a new parent. Reimport must reconcile by stable source output identity,
+preserve surviving user overrides, retain disappearing user roles as diagnosed
+orphans, and remove only obsolete importer-owned overrides. Persist the last
+imported role/value snapshot to distinguish user edits from importer values.
+For shared-to-split texture groups, use the saved logical-role mapping to transfer
+applicable overrides; never infer equivalence from display names alone.
+
+The current `ImportSceneAssets` explicitly rejects existing outputs and provides
+no scene reimport transaction. Stage 3 therefore includes extending staged
+publication/reconciliation, not calling the create-only entry point as reimport.
+New parents are private candidates, compiled before publication and saved with
+instances/textures/meshes in the same atomic bundle. Reused parents are read-only
+dependencies. Rollback must discard newly created parents and restore every
+replaced output and registry entry; retries must not mutate unrelated imports.
+
+The historical `/Engine/Materials/ImportedSurface` is no longer selected by new
+imports after Stage 3. Preserve customized content; reconstruct/retire only the
+exact shipped recipe after reference audit. It is not a permanent converter or
+an alias for every structural parent. Ordinary standard functions remain reusable;
+retirement of unused shipped helpers requires the Stage 4 reference check.
+
+### Inventory and baseline receipts
+
+Both `asset material-functions` and `asset identity-audit` succeeded for
+`Sandbox/Sandbox.dproject` and `RoadWeaver/RoadWeaver.dproject`. Their shared Engine
+mount covers `Engine/Engine.dproject`; Engine alone is not an asset-tool project.
+The combined mounted inventory contains 21 physical packages, two materials,
+seven functions and zero material instances. DefaultMaterial has zero nodes and
+owners; ImportedSurface has 82 nodes, one call and 48 owners. Both audits report
+the exact current recipe/dependencies. There are no saved instance overrides to
+reconstruct in the checked-in project content.
+
+Exact material assets are `Engine/Content/Materials/DefaultMaterial.dasset`,
+`ImportedSurface.dasset`, and `Functions/{UVTransform,SampleNormal,SampleORM,
+StandardPBR,StandardPBR_ORM,ImportedSurfaceValues,DecodeImportedNormalRG}.dasset`.
+The complete material inbound-edge inventory is:
+
+- StandardPBR -> SampleNormal.
+- StandardPBR_ORM -> SampleNormal and SampleORM.
+- ImportedSurface -> DecodeImportedNormalRG.
+- No other mounted package references these material/function assets.
+
+Source/test searches covered Engine, Sandbox and RoadWeaver roots. Direct recipe
+consumers are AssetForgeBuiltins (StandardMaterialFunctions, ImportedSurfaceMaterial,
+SceneImport, SceneDirectImport), LevelEditor SceneImportDialog, DurinAssetTool,
+StandardMaterialFunctionTestFixture, MaterialFunctionTests, SceneImportTests,
+SceneImportVulkanTests, MaterialVulkanTests, MaterialGraphOperationsTests and
+MaterialThumbnailRendererTests. Engine compiler/types/validation/generator and
+MaterialEditor graph/creation own the shared contracts. Renderer SurfaceMaterial,
+StaticMeshRenderer, GBufferRenderer, the generated fragments and deferred lighting
+are downstream evaluation consumers. No additional project-owned recipe API
+consumers were found. Historical GraphAuthoringV5 rejection fixtures are retained.
+
+Local pre-change evidence is under `Documentation/Local/MaterialSurfaceBaseline`:
+two material inventories, two full reference reports, byte copies of all nine
+material/function assets, `asset-hashes.json` (SHA-256 and byte counts), and
+22 PNG captures in `Images`. These ignored working receipts must remain available
+until reconstruction and visual comparison finish; the Git baseline also retains
+the authored bytes. Inspected default and independent-map captures show the
+expected gray and red test geometry, respectively.
+
+`DevTool.bat test MaterialVulkanTests` passed 1/1 at the baseline. The retained
+capture run with `DURIN_TEST_KEEP_WORK=1` also passed 1/1 in 24.693 seconds;
+receipt `Build/.agent-state/logs/20260914-031928-372220-31912-MaterialVulkanTests.log`.
+These are baseline tests, not implementation acceptance or editor screenshots.
 
 ## Execution References
 
