@@ -50,6 +50,9 @@ namespace Durin::Editor::ContentBrowser
 		int Creations = 0;
 		int Notifications = 0;
 		std::string Revealed;
+		std::string Opened;
+		DLevel* OpenedLevel = nullptr;
+		std::string OpenError;
 		DPackage* CreatedPackage = nullptr;
 		struct FPackageCleanup
 		{
@@ -66,11 +69,22 @@ namespace Durin::Editor::ContentBrowser
 				const auto Saved = SavePackage(Created.Package);
 				Error = Saved.Message;
 				return Saved.Succeeded();
-			}});
+			},
+			.AssetClassNameToOpen = DLevel::StaticClass()->GetQualifiedName().ToString()});
 		const FExtensionInvocation Invocation{
 			.Context = {.VirtualDirectory = "/DeferredCreation"},
 			.RevealAsset = [&](std::string_view Path) { Revealed = Path; return true; },
-			.NotifyMountedContentChanged = [&] { ++Notifications; }};
+			.OpenAsset = [&](std::string_view Path, std::string_view ClassName) {
+				Opened = Path;
+				EXPECT_EQ(ClassName, DLevel::StaticClass()->GetQualifiedName().ToString());
+				FObjectPath ObjectPath;
+				if (!FObjectPath::TryCreate(Path, ObjectPath, &OpenError)) return false;
+				const auto Result = LoadObject(ObjectPath, OpenedLevel);
+				OpenError = Result.Message;
+				return Result.Succeeded();
+			},
+			.NotifyMountedContentChanged = [&] { ++Notifications; },
+			.ReportError = [&](std::string Message) { ADD_FAILURE() << Message; }};
 		Dialog.Open(Invocation);
 		EXPECT_EQ(Creations, 0);
 		EXPECT_TRUE(std::filesystem::is_empty(Root));
@@ -88,7 +102,10 @@ namespace Durin::Editor::ContentBrowser
 		EXPECT_FALSE(Dialog.Confirm(true));
 		EXPECT_EQ(Creations, 1);
 		EXPECT_EQ(Notifications, 1);
-		EXPECT_EQ(Revealed, "/DeferredCreation/FinalLevel");
+		EXPECT_EQ(Revealed, "/DeferredCreation/FinalLevel.FinalLevel");
+		EXPECT_EQ(Opened, Revealed);
+		ASSERT_NE(OpenedLevel, nullptr) << OpenError;
+		EXPECT_EQ(OpenedLevel->GetObjectPath(), Opened);
 		EXPECT_TRUE(std::filesystem::is_regular_file(Root / "FinalLevel.dasset"));
 		EXPECT_FALSE(std::filesystem::exists(Root / "NewLevel.dasset"));
 		FPackagePath DefaultPath;

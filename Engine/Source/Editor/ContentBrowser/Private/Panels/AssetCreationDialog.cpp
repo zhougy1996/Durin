@@ -53,7 +53,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			if (Error.empty()) Error = "Could not create the asset.";
 			return false;
 		}
-		const std::string Path = AssetPath.GetPackagePath().ToString();
+		const std::string Path = AssetPath.ToString();
 		if (Invocation.NotifyMountedContentChanged) Invocation.NotifyMountedContentChanged();
 		if (Invocation.RevealAsset) Invocation.RevealAsset(Path);
 		if (!Descriptor.AssetClassNameToOpen.empty() && Invocation.OpenAsset
