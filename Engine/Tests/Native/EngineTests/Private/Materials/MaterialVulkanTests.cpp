@@ -19,6 +19,7 @@
 #include "MonaTestFixtures.h"
 #include "NativeTestSupport.h"
 #include "PBRLighting.h"
+#include "Preview/PreviewMeshResources.h"
 #include "RHICommandList.h"
 #include "RHIGlobals.h"
 #include "StaticMesh/StaticMeshBuild.h"
@@ -193,6 +194,16 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 	RendererLifecycle.Start(Renderer);
 	Engine.SetTestRendererModule(&Renderer);
 	Durin::GEngine = &Engine;
+	Durin::Editor::FPreviewMeshResources PreviewMeshes;
+	ASSERT_TRUE(PreviewMeshes.Initialize(Error)) << Error;
+	ASSERT_EQ(PreviewMeshes.GetSphere(), PreloadedSphere.Get());
+	ASSERT_NE(PreviewMeshes.GetBox(), nullptr);
+	ASSERT_EQ(PreviewMeshes.GetSphere()->GetRenderResourceStatus().Readiness,
+		Durin::EStaticMeshRenderResourceReadiness::Ready);
+	ASSERT_EQ(PreviewMeshes.GetBox()->GetRenderResourceStatus().Readiness,
+		Durin::EStaticMeshRenderResourceReadiness::Ready);
+	const uint64 SphereResourceRevision = PreviewMeshes.GetSphere()->GetRenderResourceStatus().Revision;
+	const uint64 BoxResourceRevision = PreviewMeshes.GetBox()->GetRenderResourceStatus().Revision;
 
 	Durin::Editor::FThumbnailVisualContract Contract;
 	Contract.Output.Width = 64;
@@ -1414,6 +1425,12 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 	Durin::MarkAsGarbage(CaptureMesh);
 	Durin::MarkAsGarbage(LowRoughnessMaterial);
 	Durin::MarkAsGarbage(LowRoughnessMesh);
+	EXPECT_EQ(PreviewMeshes.GetSphere()->GetRenderResourceStatus().Revision, SphereResourceRevision);
+	EXPECT_EQ(PreviewMeshes.GetBox()->GetRenderResourceStatus().Revision, BoxResourceRevision);
+	PreviewMeshes.Reset();
+	Durin::FObjectPath BoxPath;
+	ASSERT_TRUE(Durin::FObjectPath::TryCreate(Durin::Editor::FPreviewMeshResources::BoxAssetPath, BoxPath));
+	ASSERT_TRUE(Durin::UnloadPackage(BoxPath.GetPackagePath()));
 	PreloadedSphere = {};
 	ASSERT_TRUE(Durin::UnloadPackage(SpherePath.GetPackagePath()));
 	Durin::CollectGarbage();

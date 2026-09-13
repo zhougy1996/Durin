@@ -3,6 +3,7 @@
 #include "Editor/EditorNotificationSubsystem.h"
 #include "Editor/Transaction.h"
 #include "Editor/Transactor.h"
+#include "Preview/PreviewMeshResources.h"
 
 #include "Asset/Mutation.h"
 #include "Asset/Asset.h"
@@ -97,6 +98,18 @@ namespace Durin
 			&FModuleManager::LoadModuleChecked<IEditorHost>("MainFrame");
 		if (auto Result = InitializeEditorSubsystems(); !Result)
 			return FEngineInitializationResult::Failure(Result.Message);
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.PreviewMeshes");
+			// Bootstrap previously activated this provider only after shell creation.
+			// Mesh PostLoad needs it before the eager acquisition below.
+			if (!FModuleManager::Get().LoadModule("StaticMeshBuild"))
+				return FEngineInitializationResult::Failure(
+					"Editor initialization requires StaticMeshBuild for preview mesh warmup.");
+			PreviewMeshResources = std::make_unique<Editor::FPreviewMeshResources>();
+			std::string Error;
+			if (!PreviewMeshResources->Initialize(Error))
+				DURIN_WARN("Editor preview mesh warmup failed: {}", Error);
+		}
 		Profiling::SetStartupProjectMode(HasCurrentProject());
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::EditorShellBegin);
 		{
@@ -224,6 +237,7 @@ namespace Durin
 		if (EditorWorld) EditorWorld->Shutdown();
 		if (EditorHost) EditorHost->DestroyEditorHost();
 		EditorSubsystems.Shutdown();
+		PreviewMeshResources.reset();
 	}
 
 	auto DEditorEngine::PrepareForShutdown() -> void { Super::PrepareForShutdown(); }

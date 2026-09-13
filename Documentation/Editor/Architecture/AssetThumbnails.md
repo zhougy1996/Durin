@@ -60,6 +60,22 @@ keys preserve wide environment orientation and visual-contract versions.
 Texture2D derives fixed output from canonical pixels stored in the asset rather
 than following an external reimport hint.
 
+`DEditorEngine` owns `FPreviewMeshResources` for the editor session. Before
+creating the shell, it acquires `/Engine/Models/Sphere.Sphere` and
+`/Engine/Models/Box.Box`, finishes their mesh compilation or CPU payload loading,
+and initializes their render resources. A single startup render-command flush
+completes resource initialization when RHI is available; non-rendering hosts
+prepare CPU data only. Initialization is idempotent. Partial failures retain
+available assets and emit a diagnostic without preventing editor startup.
+
+Thumbnail sessions and material preview documents acquire their existing
+`FAssetRetentionService` handles against these same resident objects. Closing
+documents, resetting captures, and garbage collection do not release the
+editor's handles or require rebuilding their buffers. The editor releases its
+ownership after the shell and editor subsystems retire, before renderer shutdown.
+Isolated tools without an editor-session owner retain their acquisition-based
+lifetime. This fixed pair is shared outside individual thumbnail pool budgets.
+
 Every completion revalidates asset identity, request serial, renderer generation,
 key, and captured asset/resource revisions. Save, move, delete, reimport,
 dependency change, resource rebuild, explicit dirty refresh, renderer
@@ -87,8 +103,8 @@ all reject the retired generation.
 The shared preview pool owns its world, camera/view, environment value, light,
 output target, capture, and readback. Scene renderers attach only session-owned
 content and detach it in reset. TextureCube supplies an immutable allocation snapshot with a fixed counted RHI
-environment value and creates no world content. `DurinEd` contains no concrete
-asset casts, readiness rules, framing rules, or feature diagnostics.
+environment value and creates no world content. The shared capture implementation
+contains no concrete asset casts, readiness rules, framing rules, or feature diagnostics.
 
 Texture-dependent sessions also retain the actual successful allocation snapshots.
 Cube uses its fixed reference for capture; Material retains all built-in texture

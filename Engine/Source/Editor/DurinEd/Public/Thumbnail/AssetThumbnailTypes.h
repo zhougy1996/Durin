@@ -3,6 +3,7 @@
 #include "CoreGlobals.h"
 #include "DObject/AssetPath.h"
 #include "DurinEdAPI.h"
+#include "Preview/PreviewMeshResources.h"
 
 namespace Durin
 {
@@ -67,7 +68,7 @@ namespace Durin
 	struct FThumbnailVisualContract
 	{
 		static constexpr uint32 SchemaVersion = 1;
-		static constexpr std::string_view SphereAssetPath = "/Engine/Models/Sphere.Sphere";
+		static constexpr std::string_view SphereAssetPath = FPreviewMeshResources::SphereAssetPath;
 		static constexpr uint32 SphereFixtureVersion = 1;
 		static constexpr std::string_view TextureCubeEnvironmentViewIdentity =
 			"/Engine/Editor/TextureCubePreview/WideEnvironment";

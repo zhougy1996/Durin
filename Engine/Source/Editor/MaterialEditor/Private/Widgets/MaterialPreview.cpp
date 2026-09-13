@@ -9,6 +9,7 @@
 #include "Math/Operations.h"
 #include "MonaImGui.h"
 #include "Preview/AssetPreviewHost.h"
+#include "Preview/PreviewMeshResources.h"
 #include "SceneView.h"
 #include "SceneViewProjection.h"
 #include "StaticMesh/StaticMesh.h"
@@ -21,8 +22,6 @@ namespace Durin::Editor::Material
 		constexpr double PreviewMinZoom = 0.4;
 		constexpr double PreviewMaxZoom = 4.0;
 		constexpr double PreviewZoomScale = 0.85;
-		constexpr std::string_view PreviewSpherePath = "/Engine/Models/Sphere.Sphere";
-		constexpr std::string_view PreviewBoxPath = "/Engine/Models/Box.Box";
 
 		// Selects the mesh used to visualize a material in the preview scene.
 		enum class EMaterialPreviewShape : uint8
@@ -114,8 +113,8 @@ namespace Durin::Editor::Material
 
 			FObjectPath SpherePath;
 			FObjectPath BoxPath;
-			if (!FObjectPath::TryCreate(PreviewSpherePath, SpherePath, &Error)
-				|| !FObjectPath::TryCreate(PreviewBoxPath, BoxPath, &Error)
+			if (!FObjectPath::TryCreate(FPreviewMeshResources::SphereAssetPath, SpherePath, &Error)
+				|| !FObjectPath::TryCreate(FPreviewMeshResources::BoxAssetPath, BoxPath, &Error)
 				|| !::Durin::Editor::FAssetRetentionService::Acquire(SpherePath, SphereAsset, Error)
 				|| !::Durin::Editor::FAssetRetentionService::Acquire(BoxPath, BoxAsset, Error))
 			{

@@ -15,6 +15,7 @@ namespace Durin
 namespace Durin::Editor
 {
 	class FNotificationManager;
+	class FPreviewMeshResources;
 
 	// Tracks the lifecycle transition of a play-in-editor session.
 	enum class EPlayState : uint8
@@ -140,6 +141,8 @@ namespace Durin
 		DURINED_API auto RetireHostConsumers() -> void override;
 		DURINED_API auto AreHostConsumersIdle() -> bool override;
 		FEditorSubsystemCollection EditorSubsystems;
+		// Retained across preview windows and thumbnail jobs; retired after the shell.
+		std::unique_ptr<Editor::FPreviewMeshResources> PreviewMeshResources;
 		bool bEditorInitStarted = false;
 	protected:
 		DURINED_API auto InitializeEditorSubsystems() -> FSubsystemResult;

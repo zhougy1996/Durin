@@ -140,7 +140,10 @@ Material Preview acquires shared `/Engine/Models/Sphere` and
 `/Engine/Models/Box` StaticMesh assets through the canonical
 editor retention service. Multiple documents coalesce by virtual asset identity;
 preview creation performs no transient OBJ import, and retained handles provide
-the GC lifetime edge.
+the GC lifetime edge. The editor session also owns this fixed pair and prepares
+their CPU and GPU resources before opening the shell, so closing every material
+document does not evict them. Startup preparation and retirement follow the
+[shared preview-mesh lifetime](AssetThumbnails.md#identity-and-output-size).
 
 Preview framing fits the selected mesh to both viewport axes with a margin and
 adapts to panel aspect-ratio changes. Mouse-wheel zoom is relative to that framing;
