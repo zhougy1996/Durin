@@ -53,9 +53,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		UnknownPackage,
 	};
 
-	// Detects replacement and in-place modification without reading package payloads.
-	// Directory digests cover the sorted relative path, kind, size, and timestamp of
-	// every descendant; file digests cover normalized path, kind, size, and timestamp.
+	// Complete file-byte identities detect in-place edits even when size and time
+	// are preserved. Directory digests include every descendant's identity.
 	struct FContentDeletionFingerprint
 	{
 		std::string PhysicalPath;
@@ -125,7 +124,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		auto GetDetails() const -> const std::string& { return Details; }
 
 	private:
-		auto ValidatePhysicalState() -> bool;
+		auto ValidatePhysicalState(FAssetDeletionFileIdentities* OutIdentities = nullptr) -> bool;
 		auto DeletePhysicalRoots() -> FAssetResult;
 		auto Fail(std::string Message) -> bool;
 

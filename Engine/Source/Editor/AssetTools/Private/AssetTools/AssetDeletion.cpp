@@ -57,12 +57,12 @@ namespace Durin
 		bool bDeleted = false;
 		bool bForwardPending = false;
 		FAssetRegistrySnapshot RecoverySnapshot;
-		std::unordered_map<std::string, FXxHash128> ConfirmedBytes;
+		FAssetDeletionFileIdentities ConfirmedBytes;
 		std::unordered_set<std::string> RemovedFiles;
 		std::unordered_map<FPackagePath, std::vector<std::filesystem::path>> OutsideCompanions;
 
-		auto CaptureRecoveryState() -> FAssetResult;
-		auto ValidateRecoveryState() -> FAssetResult;
+		auto CaptureRecoveryState(const FAssetDeletionCommit& Commit) -> FAssetResult;
+		auto ValidateRecoveryState(const FAssetDeletionCommit& Commit) -> FAssetResult;
 		auto RecordRemovedFiles() -> void;
 
 		auto Prepare(std::span<const FPackagePath> Paths,
@@ -130,16 +130,19 @@ namespace Durin
 				"The asset deletion job has no destructive callback.");
 
 		FAssetResult Result =
-			bForwardPending ? ValidateRecoveryState() : Validate();
+			bForwardPending ? ValidateRecoveryState(Commit) : Validate();
 		if (!Result) return Result;
 		if (GetAssetCatalogRevision() != RegistryRevision)
 			return Error(EAssetError::StaleData,
 				"The asset Registry changed after deletion confirmation.");
 		if (!bForwardPending)
 		{
-			Result = CaptureRecoveryState();
+			Result = CaptureRecoveryState(Commit);
 			if (!Result) return Result;
 		}
+		if (GetAssetCatalogRevision() != RegistryRevision
+			|| ContributorRevision != AssetToolsPrivate::GetDeleteContributorRevision())
+			return Error(EAssetError::StaleData, "Deletion metadata changed during file validation.");
 		std::vector<FAssetData> Packages;
 		for (const FAssetDeletionEntry& Entry : Entries)
 			if (FindAssetExact(Entry.RegistryEntry.PackagePath))
@@ -187,20 +190,35 @@ namespace Durin
 	// Recovery keeps the original safety scope even when some selected packages
 	// have disappeared. Outside state must remain identical; new scope needs a new
 	// user decision and can never be silently folded into destructive retry.
-	auto FAssetDeletionOperation::FState::CaptureRecoveryState() -> FAssetResult
+	auto FAssetDeletionOperation::FState::CaptureRecoveryState(const FAssetDeletionCommit& Commit) -> FAssetResult
 	{
 		ConfirmedBytes.clear();
+		FAssetDeletionFileIdentities VerifiedFiles;
+		if (Commit.ValidateFiles)
+		{
+			const auto Result = Commit.ValidateFiles(VerifiedFiles);
+			if (!Result) return Result;
+		}
 		for (const auto& Entry : Entries)
 		{
 			std::vector<std::filesystem::path> Files = Entry.CompanionFiles;
 			Files.push_back(Entry.RegistryEntry.PhysicalPath);
 			for (const auto& File : Files)
 			{
+				const auto Key = std::filesystem::absolute(File).lexically_normal().generic_string();
+				if (ConfirmedBytes.contains(Key)) continue;
 				FXxHash128 Identity;
 				std::error_code ErrorCode;
-				if (!FFileHelper::HashFileXx128(File, Identity, ErrorCode))
+				if (Commit.ValidateFiles)
+				{
+					const auto Found = VerifiedFiles.find(Key);
+					if (Found == VerifiedFiles.end())
+						return Error(EAssetError::StaleData, "Host validation omitted a deletion participant.");
+					Identity = Found->second;
+				}
+				else if (!FFileHelper::HashFileXx128(File, Identity, ErrorCode))
 					return Error(EAssetError::IoError, "Could not capture deletion recovery byte identity.");
-				ConfirmedBytes.emplace(File.generic_string(), Identity);
+				ConfirmedBytes.emplace(Key, Identity);
 			}
 		}
 		return {};
@@ -217,7 +235,7 @@ namespace Durin
 		}
 	}
 
-	auto FAssetDeletionOperation::FState::ValidateRecoveryState() -> FAssetResult
+	auto FAssetDeletionOperation::FState::ValidateRecoveryState(const FAssetDeletionCommit& Commit) -> FAssetResult
 	{
 		if (ContributorRevision != AssetToolsPrivate::GetDeleteContributorRevision())
 			return Error(EAssetError::StaleData, "Deletion contributors changed during recovery.");
@@ -269,6 +287,12 @@ namespace Durin
 				|| (FindResidentPackage(Entry.RegistryEntry.PackagePath)
 					&& FindResidentPackage(Entry.RegistryEntry.PackagePath)->IsDirty()))
 				return Error(EAssetError::InUse, "A deletion participant is loading or dirty.");
+		FAssetDeletionFileIdentities VerifiedFiles;
+		if (Commit.ValidateFiles)
+		{
+			const auto Result = Commit.ValidateFiles(VerifiedFiles);
+			if (!Result) return Result;
+		}
 		for (const auto& [File, Expected] : ConfirmedBytes)
 		{
 			std::error_code ErrorCode;
@@ -280,8 +304,18 @@ namespace Durin
 				return Error(EAssetError::InUse, "A deleted asset file was replaced.");
 			}
 			FXxHash128 Actual;
-			if (ErrorCode || !std::filesystem::is_regular_file(Status)
-				|| !FFileHelper::HashFileXx128(File, Actual, ErrorCode) || Actual != Expected)
+			if (ErrorCode || !std::filesystem::is_regular_file(Status))
+				return Error(EAssetError::InUse, "Remaining asset file changed during deletion recovery.");
+			if (Commit.ValidateFiles)
+			{
+				const auto Found = VerifiedFiles.find(File);
+				if (Found == VerifiedFiles.end())
+					return Error(EAssetError::StaleData, "Host validation omitted a remaining deletion participant.");
+				Actual = Found->second;
+			}
+			else if (!FFileHelper::HashFileXx128(File, Actual, ErrorCode))
+				return Error(EAssetError::IoError, "Could not verify remaining asset bytes.");
+			if (Actual != Expected)
 				return Error(EAssetError::InUse, "Remaining asset bytes changed during deletion recovery.");
 		}
 		RegistryRevision = Current.Revision;

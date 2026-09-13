@@ -34,9 +34,10 @@ namespace Durin::Editor::ContentBrowser::Private
 		return false;
 	}
 
-	auto FContentDeletionOperation::ValidatePhysicalState() -> bool
+	auto FContentDeletionOperation::ValidatePhysicalState(FAssetDeletionFileIdentities* OutIdentities) -> bool
 	{
 		if (!Plan) return Fail("The deletion plan is unavailable.");
+		FAssetDeletionFileIdentities VerifiedFiles;
 		std::unordered_set<std::string> ExpectedPaths;
 		for (const FContentDeletionFingerprint& Entry : Plan->Entries)
 		{
@@ -75,6 +76,7 @@ namespace Durin::Editor::ContentBrowser::Private
 					|| Identity != Entry.ByteIdentity)
 					return Fail(std::format(
 						"Deletion source bytes changed: {}.", Path.generic_string()));
+				if (OutIdentities) VerifiedFiles.emplace(Path.generic_string(), Identity);
 			}
 			const auto WriteTime = std::filesystem::last_write_time(Path, Error);
 			if (Error || (!(bStarted && bDirectory)
@@ -100,6 +102,7 @@ namespace Durin::Editor::ContentBrowser::Private
 					"Could not inspect deletion source {}: {}",
 					Path.generic_string(), Error.message()));
 		}
+		if (OutIdentities) *OutIdentities = std::move(VerifiedFiles);
 		return true;
 	}
 
@@ -139,13 +142,12 @@ namespace Durin::Editor::ContentBrowser::Private
 		Details.clear();
 		if (!Plan || !Plan->CanExecute())
 			return {.Kind = EAssetOperationKind::Delete, .State = EAssetOperationTerminalState::Rejected, .Message = "Deletion is blocked or unavailable."};
-		if (!ValidatePhysicalState())
-		{
-			FAssetOperationResult Failure{.Kind = EAssetOperationKind::Delete, .State = EAssetOperationTerminalState::Rejected, .Message = Details};
-			if (bStarted) Failure.State = EAssetOperationTerminalState::ForwardPending;
-			return Failure;
-		}
-		Result = AssetOperation.Delete({.Delete = [this] { return DeletePhysicalRoots(); }});
+		Result = AssetOperation.Delete({
+			.Delete = [this] { return DeletePhysicalRoots(); },
+			.ValidateFiles = [this](FAssetDeletionFileIdentities& Identities) -> FAssetResult {
+				return ValidatePhysicalState(&Identities)
+					? FAssetResult{} : FAssetResult{EAssetError::StaleData, Details};
+			}});
 		Details = Result.Message;
 		return Result;
 	}

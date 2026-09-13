@@ -257,6 +257,14 @@ callback, `PublishPackageRemoval` removes matching catalog entries only when
 their package files are absent. An empty, moved-from, blocked, or completed
 AssetTools operation cannot invoke the callback.
 
+ContentBrowser hashes each surviving confirmed file once per execution attempt,
+after asset policy validation, and shares those freshly verified identities through
+`FAssetDeletionCommit::ValidateFiles`. AssetTools requires complete participant
+coverage and retains the same identities for forward retry instead of rehashing
+the files. Retry compares fresh identities with the retained values and rejects
+replaced removed files. Hosts without this callback use AssetTools' own hashing.
+Neither size/timestamp matches nor cached hashes replace the final byte check.
+
 Fix Up is the only path-canonicalizing asset-mutation job. It rewrites
 tagged hard and soft package fields plus registered external stores, reopens
 package-level candidates to verify that no exact incoming occurrence remains,

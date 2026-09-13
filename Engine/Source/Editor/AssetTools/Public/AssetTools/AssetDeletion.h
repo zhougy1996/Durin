@@ -65,10 +65,20 @@ namespace Durin
 		bool bLoaded = false;
 	};
 
-	// Host-owned physical I/O; invoked after validation and batch residency release.
+	// Keys are normalized absolute generic paths; values identify complete file bytes.
+	using FAssetDeletionFileIdentities = std::unordered_map<std::string, FXxHash128>;
+
+	// Host-owned physical I/O; deletion runs after validation and batch residency release.
 	struct FAssetDeletionCommit
 	{
 		std::function<FAssetResult()> Delete;
+		// Optional host validation of its complete immutable physical selection. Called
+		// once per attempt after asset policy validation, before residency release.
+		// It must freshly hash surviving files, reject changes/replaced removed paths,
+		// and return verified identities for every surviving package and companion.
+		// AssetTools shares these identities for recovery; absent callbacks use its
+		// own hashing. Returning only cached identities does not satisfy this contract.
+		std::function<FAssetResult(FAssetDeletionFileIdentities&)> ValidateFiles;
 	};
 
 	// Includes physical roots so companion ownership can be checked for mixed selections.

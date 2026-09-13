@@ -16,6 +16,7 @@
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
 #include "Misc/Paths.h"
+#include "Misc/FileHelper.h"
 #include "Misc/MountPaths.h"
 #include "Misc/MountPathTestSupport.h"
 #include "NativeTestSupport.h"
@@ -2211,6 +2212,72 @@ TEST_F(FContentBrowserModelTests, UnrelatedStandardPackageDamageDoesNotInvalidat
 	EXPECT_FALSE(std::filesystem::exists(SelectedFile));
 	EXPECT_TRUE(std::filesystem::exists(OutsideFile));
 	ASSERT_TRUE(std::filesystem::remove(OutsideFile));
+}
+
+TEST_F(FContentBrowserModelTests, DeletionSharesFreshHostHashesAndRequiresCompleteEvidence)
+{
+	InitializeDObjectSystem();
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/SharedDeletionHash", Path));
+	DMaterial* Material = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Material));
+	ASSERT_TRUE(SavePackage(Material->GetPackage()));
+	ASSERT_TRUE(UnloadPackage(Path));
+	const std::filesystem::path File = FindAssetExact(Path)->PhysicalPath;
+	FAssetDeletionOperation Operation;
+	ASSERT_TRUE(IAssetTools::Get().PrepareDeletion({.AssetPaths = {Path}}, Operation));
+	uint32 Deletes = 0;
+	uint32 Hashes = 0;
+	bool bOmitIdentity = true;
+#ifdef _WIN32
+	struct FReadGuard
+	{
+		HANDLE Handle = INVALID_HANDLE_VALUE;
+		auto Reset() -> void { if (Handle != INVALID_HANDLE_VALUE) CloseHandle(std::exchange(Handle, INVALID_HANDLE_VALUE)); }
+		~FReadGuard() { Reset(); }
+	} Guard;
+#endif
+	const FAssetDeletionCommit Commit{
+		.Delete = [&]() -> FAssetResult {
+#ifdef _WIN32
+			Guard.Reset();
+#endif
+			if (++Deletes == 1) return {EAssetError::IoError, "Retry without deleting a file."};
+			std::error_code Error;
+			std::filesystem::remove(File, Error);
+			return Error ? FAssetResult{EAssetError::IoError, Error.message()} : FAssetResult{};
+		},
+		.ValidateFiles = [&](FAssetDeletionFileIdentities& Identities) -> FAssetResult {
+			if (bOmitIdentity) return {};
+			FXxHash128 Identity;
+			std::error_code Error;
+			if (!FFileHelper::HashFileXx128(File, Identity, Error))
+				return {EAssetError::IoError, Error.message()};
+			++Hashes;
+			Identities.emplace(File.generic_string(), Identity);
+#ifdef _WIN32
+			// A duplicate AssetTools payload read would fail until the physical callback.
+			Guard.Handle = CreateFileW(File.c_str(), GENERIC_READ, FILE_SHARE_DELETE,
+				nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+			if (Guard.Handle == INVALID_HANDLE_VALUE)
+				return {EAssetError::IoError, "Could not guard the verified file against duplicate reads."};
+#endif
+			return {};
+		}};
+	EXPECT_FALSE(Operation.Delete(Commit));
+	EXPECT_EQ(Deletes, 0u);
+	bOmitIdentity = false;
+	EXPECT_EQ(Operation.Delete(Commit).State, EAssetOperationTerminalState::ForwardPending);
+	EXPECT_EQ(Deletes, 1u);
+	EXPECT_EQ(Hashes, 1u);
+	bOmitIdentity = true;
+	EXPECT_FALSE(Operation.Delete(Commit));
+	EXPECT_EQ(Deletes, 1u);
+	bOmitIdentity = false;
+	ASSERT_TRUE(Operation.Delete(Commit));
+	EXPECT_EQ(Deletes, 2u);
+	EXPECT_EQ(Hashes, 2u);
+	EXPECT_FALSE(std::filesystem::exists(File));
 }
 
 TEST_F(FContentBrowserModelTests, DeletionRevalidatesExternalProviderFingerprint)
