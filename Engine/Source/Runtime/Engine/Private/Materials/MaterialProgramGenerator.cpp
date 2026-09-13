@@ -248,7 +248,7 @@ FMaterialSurface EvaluateGeneratedMaterial(VSOutput input)
 				OutSource.clear();
 				return false;
 			}
-			OutSource += std::format("    return {};\n}}\n", Expressions[IR.SurfaceRoot.AggregateExpressionIndex]);
+			OutSource += std::format("    return EvaluateMaterialSurface({});\n}}\n", Expressions[IR.SurfaceRoot.AggregateExpressionIndex]);
 		}
 		else
 		{
@@ -277,7 +277,7 @@ FMaterialSurface EvaluateGeneratedMaterial(VSOutput input)
     result.emissive = {};
     result.opacity = {};
     result.opacityMask = {};
-    return result;
+    return EvaluateMaterialSurface(result);
 }}
 )", Outputs[0], Outputs[1], Outputs[2], Outputs[3], Outputs[4], Outputs[5],
 			Outputs[6], Outputs[7]);

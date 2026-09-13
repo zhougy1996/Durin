@@ -222,7 +222,7 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 	ASSERT_TRUE(EnsureStandardMaterialFunctions(Functions, Error)) << Error;
 	auto* Material = EnsureImportedSurfaceMaterial(Error);
 	ASSERT_NE(Material, nullptr) << Error;
-	EXPECT_EQ(Material->GetMaterialProgram()->Nodes.size(), 82u);
+	EXPECT_EQ(Material->GetMaterialProgram()->Nodes.size(), 65u);
 	EXPECT_EQ(Material->GetMaterialFunctionCalls().size(), 1u);
 	EXPECT_EQ(Material->GetParameterDefinitions().size(), 48u);
 	EXPECT_FALSE(Material->GetMaterialProgram()->Outputs.Surface.SourceNodeId.IsValid());

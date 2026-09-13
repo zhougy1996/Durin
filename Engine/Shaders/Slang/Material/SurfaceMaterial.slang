@@ -2,18 +2,6 @@ module SurfaceMaterial;
 
 internal static const float MinVectorLengthSquared = 1.0e-8;
 
-public struct FMaterialSampleSet
-{
-    public float4 baseColor;
-    public float3 normal;
-    public float metallic;
-    public float roughness;
-    public float ambientOcclusion;
-    public float3 emissive;
-    public float opacity;
-    public float opacityMask;
-};
-
 public struct FMaterialSurface
 {
     public float3 baseColor;
@@ -35,7 +23,8 @@ public struct FMaterialNormalFrame
 public float3 SafeSurfaceNormal(float3 value)
 {
     float lengthSquared = dot(value, value);
-    return lengthSquared > MinVectorLengthSquared
+    return all(isfinite(value)) && isfinite(lengthSquared)
+        && lengthSquared > MinVectorLengthSquared
         ? value * rsqrt(lengthSquared)
         : float3(0.0, 0.0, 1.0);
 }
@@ -59,31 +48,32 @@ public float3 BlendSurfaceNormalsRNM(float3 baseNormal, float3 detailNormal)
         first * dot(first, second) / max(first.z, 1.0e-5) - second);
 }
 
-public FMaterialSurface EvaluateMaterialSurface(
-    float4 constantBaseColor,
-    float4 constantEmissiveMetallic,
-    float4 constantNormalRoughness,
-    float4 constantSurfaceParams,
-    float4 vertexColor,
-    FMaterialSampleSet samples)
+internal float FiniteSurfaceValue(float value, float fallback)
 {
-    FMaterialSurface result;
-    result.baseColor = saturate(constantBaseColor.rgb)
-        * samples.baseColor.rgb * vertexColor.rgb;
-    result.opacity = saturate(constantBaseColor.a)
-        * saturate(samples.opacity) * saturate(vertexColor.a);
-    result.ambientOcclusion = saturate(constantSurfaceParams.x)
-        * saturate(samples.ambientOcclusion);
-    result.opacityMask = saturate(
-        constantSurfaceParams.y * samples.opacityMask);
-    result.emissive = max(constantEmissiveMetallic.xyz, 0.0)
-        + max(samples.emissive, 0.0);
-    result.tangentNormal = BlendSurfaceNormalsRNM(
-        constantNormalRoughness.xyz, samples.normal);
-    result.metallic = saturate(constantEmissiveMetallic.w)
-        * saturate(samples.metallic);
-    result.roughness = clamp(saturate(constantNormalRoughness.w)
-        * saturate(samples.roughness), 0.045, 1.0);
+    return isfinite(value) ? value : fallback;
+}
+
+internal float3 FiniteSurfaceColor(float3 value, float fallback)
+{
+    return float3(FiniteSurfaceValue(value.x, fallback),
+        FiniteSurfaceValue(value.y, fallback),
+        FiniteSurfaceValue(value.z, fallback));
+}
+
+// The final-output boundary accepts decoded, composed values. Surface aggregates
+// remain ordinary data until the generated root calls this evaluator.
+public FMaterialSurface EvaluateMaterialSurface(FMaterialSurface result)
+{
+    result.baseColor = saturate(FiniteSurfaceColor(result.baseColor, 0.5));
+    result.tangentNormal = SafeSurfaceNormal(result.tangentNormal);
+    result.metallic = saturate(FiniteSurfaceValue(result.metallic, 0.0));
+    result.roughness = clamp(FiniteSurfaceValue(result.roughness, 0.5), 0.045, 1.0);
+    result.ambientOcclusion = saturate(FiniteSurfaceValue(result.ambientOcclusion, 1.0));
+    // Preserve HDR without overflowing the finite R11G11B10 GBuffer transport.
+    result.emissive = clamp(FiniteSurfaceColor(result.emissive, 0.0),
+        float3(0.0), float3(65024.0, 65024.0, 64512.0));
+    result.opacity = saturate(FiniteSurfaceValue(result.opacity, 1.0));
+    result.opacityMask = saturate(FiniteSurfaceValue(result.opacityMask, 1.0));
     return result;
 }
 

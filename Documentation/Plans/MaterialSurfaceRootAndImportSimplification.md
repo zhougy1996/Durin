@@ -10,8 +10,17 @@ Completed:
 ## Current Status
 
 Stage 0 source and mounted-content audits are complete at execution baseline
-`2d3eef2fa1af59da8d7a86c428398bd28fc0765b`. Implementation has not started.
+`2d3eef2fa1af59da8d7a86c428398bd28fc0765b`. Stage 1 implementation and validation
+are complete; Stages 2 through 5 remain open. The next stage is root authoring.
 The frozen decisions and validation receipts below govern subsequent stages.
+Stage 1 implements final-value evaluation and compiler invalidation. Its generated
+parent's redundant policy and exact recipe checkpoint changed together: the one
+already-backed-up parent was reconstructed during Stage 1, ahead of the broader
+Stage 4 reconstruction. No mounted assets reference it and no saved instance
+overrides exist. Ordinary reusable function graphs remain unchanged. This ordering
+avoids leaving the installed parent incompatible with the recipe validator between
+stages. ImportedSurface now has 65 expression nodes and still has 48 owners;
+conditional parent generation is not yet implemented.
 
 The current baseline is commit `88aaedfb1`, following `42df4b322` and
 `41fcd8de4`:
@@ -170,12 +179,12 @@ Gate: no unresolved semantic or parent-ownership decision remains before coding.
 
 ### Stage 1: Implement the shared Surface evaluation contract
 
-- [ ] Centralize final-property validation/evaluation in Engine and connect every
+- [x] Centralize final-property validation/evaluation in Engine and connect every
   affected shader/pass path, including aggregate function outputs and cooked runtime.
-- [ ] Remove import-only implementations of renderer policy without removing real
+- [x] Remove import-only implementations of renderer policy without removing real
   factor/normal/UV authoring operations.
-- [ ] Update compiler identity and derived-data invalidation where necessary.
-- [ ] Test equivalent manual/imported inputs and boundary values independently of
+- [x] Update compiler identity and derived-data invalidation where necessary.
+- [x] Test equivalent manual/imported inputs and boundary values independently of
   the previous graph layout, including defaults, HDR, masked alpha, and normals.
 
 Gate: equal inputs produce equal surface behavior across creation paths and passes;
@@ -405,6 +414,46 @@ expected gray and red test geometry, respectively.
 capture run with `DURIN_TEST_KEEP_WORK=1` also passed 1/1 in 24.693 seconds;
 receipt `Build/.agent-state/logs/20260914-031928-372220-31912-MaterialVulkanTests.log`.
 These are baseline tests, not implementation acceptance or editor screenshots.
+
+## Stage 1 Receipt
+
+The final evaluator is implemented in `Material/SurfaceMaterial.slang` and called
+from both root modes in `MaterialProgramGenerator.cpp`. Compiler envelope 9
+invalidates prior compiled/Cook identities; serialized program schemas are
+unchanged. Removed the unused factor/sample shader API after its consumer audit.
+The generated import recipe now contains 65 nodes, with no Saturate/Clamp nodes;
+normal decoding/blending, factor multiplication, emissive addition and independent
+UV owners remain authored operations. Existing ordinary function assets retain
+their exact bytes and implementations.
+
+Reconstructed only `Engine/Content/Materials/ImportedSurface.dasset`, after checking
+its SHA-256 against the Stage 0 backup. The replacement is 56,753 bytes, SHA-256
+`FBE52CA9E8ADE0E8230ED1BBAD1A51CABED4BD4F33BB1DD6B3371D238366EA1C`.
+DefaultMaterial and all seven function assets remain unchanged. The 48 retained
+parameter GUIDs and compiled layouts are unchanged; expression identities differ
+because redundant numerical operations were removed. Structural parent selection,
+instance reconciliation, compact UI and broader Cook regeneration remain pending.
+
+Validation on Win64-Debug-DurinEditor:
+
+- `MaterialTests`: 194/194 passed before recipe reconstruction. Final registry set
+  `@domain=material+asset-import,kind=feature+integration`: 6/6 targets passed after
+  reconstruction (AssetImportTests, MaterialTests, MaterialThumbnailTests,
+  MaterialVulkanTests, SceneImportTests, SceneImportVulkanTests), 98.18 seconds.
+  Receipt: `Build/.agent-state/logs/20260914-033400-092323-36788-ctest.log`.
+- New production thumbnail coverage compares raw/expected final values in both
+  root modes across Lit/Unlit and all three blend modes, distinguishes HDR
+  Emissive 2 from 1, and verifies runtime Infinity/NaN recovery from finite
+  parameter operands. Existing old-expanded/imported recipe image parity,
+  independent map/UV overrides, normal and missing-resource coverage passed.
+- `GBufferQualificationTests --mode qualification`: passed after shared evaluator
+  changes. Receipt: `Build/.agent-state/logs/20260914-033156-335442-40112-ctest.log`.
+  Use this for correctness coverage; timing is diagnostic because an exclusive
+  external-application-free GPU lane was not established.
+- Final workspace `all` build passed, receipt
+  `Build/.agent-state/logs/20260914-033602-036463-33688-cmake.log`.
+- Local reconstruction and follow-up mounted recipe inventories are retained under
+  `Documentation/Local/MaterialSurfaceBaseline/stage1-*.txt`.
 
 ## Execution References
 

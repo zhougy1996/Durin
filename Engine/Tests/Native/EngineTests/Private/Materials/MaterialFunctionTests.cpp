@@ -55,7 +55,12 @@ TEST(FMaterialFunctionTests, ExpandedAndFunctionRecipesPreserveCompilationAndInd
 	ASSERT_NE(Current, nullptr);
 	Current->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	ASSERT_TRUE(Testing::SetStandardMaterialProgramForTest(*Current));
-	EXPECT_EQ(Current->GetMaterialProgram()->Nodes.size(), 82u);
+	EXPECT_EQ(Current->GetMaterialProgram()->Nodes.size(), 65u);
+	for (const auto& Node : Current->GetMaterialProgram()->Nodes)
+	{
+		EXPECT_NE(Node.Opcode, EMaterialProgramOpcode::Saturate);
+		EXPECT_NE(Node.Opcode, EMaterialProgramOpcode::Clamp);
+	}
 	EXPECT_FALSE(Current->GetMaterialProgram()->Outputs.Surface.SourceNodeId.IsValid());
 	ASSERT_EQ(Current->GetMaterialFunctionCalls().size(), 1u);
 	EXPECT_EQ(Current->GetMaterialFunctionCalls().front().Function->GetName(), "StandardFunction7");
@@ -70,13 +75,14 @@ TEST(FMaterialFunctionTests, ExpandedAndFunctionRecipesPreserveCompilationAndInd
 	const auto Candidate = NormalizeMaterialProgram(CurrentInput);
 	ASSERT_TRUE(Baseline);
 	ASSERT_TRUE(Candidate);
-	EXPECT_EQ(Baseline.CanonicalBytes, Candidate.CanonicalBytes);
+	EXPECT_NE(Baseline.CanonicalBytes, Candidate.CanonicalBytes);
 	EXPECT_EQ(Baseline.Layout.Fields, Candidate.Layout.Fields);
 	const auto BaselineSource = GenerateMaterialProgramSlang(Baseline.IR, Baseline.Layout);
 	const auto CandidateSource = GenerateMaterialProgramSlang(Candidate.IR, Candidate.Layout);
 	ASSERT_TRUE(BaselineSource);
 	ASSERT_TRUE(CandidateSource);
-	EXPECT_EQ(BaselineSource.Source, CandidateSource.Source);
+	EXPECT_NE(BaselineSource.Source, CandidateSource.Source);
+	EXPECT_NE(CandidateSource.Source.find("return EvaluateMaterialSurface(result)"), std::string::npos);
 	ASSERT_EQ(Baseline.Layout.Fields.size(), 48u);
 	const auto ArtifactRoot = Testing::GetTestWorkDirectory() / "MaterialAuthoringBaseline";
 	std::filesystem::create_directories(ArtifactRoot);

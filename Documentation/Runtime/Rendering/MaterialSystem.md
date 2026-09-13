@@ -86,7 +86,7 @@ render boundary accepts only material-specific layout v4 data. Built-in role kno
   `CanonicalizeMaterialShaderProperties` uses cutoff `0.333f` outside Masked,
   normalizes Masked signed zero, and excludes culling/depth from compiler input
   identity. Authored inactive cutoffs remain unchanged. IR version 4/compiler
-  envelope 8 invalidate old keys; generated cutoff macros, accepted renderer
+  envelope 9 invalidate old keys; generated cutoff macros, accepted renderer
   shader keys and Cook metadata comparison use the same canonical semantics.
 - Opaque sections disable blending; Masked sections additionally discard the
   saturated OpacityMask constant/texture product only when it is strictly below
@@ -218,6 +218,31 @@ The complete value-owned result includes identity, IR, source, dependencies,
 three compiled stages, phase timings, and bounded diagnostics; any failure
 retains no publishable partial stage set.
 
+### Final surface evaluation
+
+The generated root calls `EvaluateMaterialSurface(FMaterialSurface)` in
+`Material/SurfaceMaterial.slang` once, for both per-property and aggregate inputs.
+Ordinary Surface expressions remain composable data until this final boundary.
+Forward, material previews, GBuffer/depth and masked-shadow fragments use the same
+generated evaluation; Cook retains its compiled stages. Opaque shadows do not need
+surface evaluation. The evaluator performs no texture lookup, normal decoding,
+factor composition, vertex-color multiplication or hidden parameter lookup.
+
+Base Color is linear reflectance clamped to 0..1, matching RGBA8 GBuffer transport
+for Lit and Unlit authoring. Metallic, AO, opacity and mask also clamp to 0..1;
+perceptual roughness clamps to 0.045..1 before specular AA. Emissive preserves
+nonnegative HDR up to the finite R11G11B10 channel maxima (65024,65024,64512).
+Use Emissive for HDR output, including Unlit materials. This evaluates values
+without rewriting retained literals or graph expressions.
+
+Nonfinite expression components use root defaults: 0.5 for Base Color and
+roughness, zero for metallic/emissive, and one for AO/opacity/mask. Decoded tangent
+normals normalize safely; nonfinite vectors, nonfinite squared lengths and squared
+lengths at most 1e-8 recover to (0,0,1). Authored nonfinite literals/defaults still
+fail validation. Mask rejection remains strictly below cutoff. BRDF and specular-AA
+helpers retain their independent numerical safeguards; AA bounds its newly
+computed roughness and deferred lighting does not apply AA again.
+
 ## Reusable Functions and Standard Library
 
 `DMaterialFunctionInterface` is an abstract asset contract for typed signatures,
@@ -269,9 +294,11 @@ factors already baked during import are not applied a second time.
 
 `ImportedSurface` connects final property values directly to Material Output.
 There is no ImportedSurfaceValues call or intermediate aggregate Surface wire in
-this template. Its 82 expression nodes include 48 parameter owners, eight
+this template. Its 65 expression nodes include 48 parameter owners, eight
 TextureCoordinates nodes, one DecodeImportedNormalRG call and explicit upstream
-factor/sample composition. Each map retains independent factor and UV owners.
+factor/sample composition. Renderer-only clamps are evaluated at the shared root,
+while ordinary reusable function graphs retain their authored operations.
+Each map retains independent factor and UV owners.
 The output has one input per property, without separate Sample inputs. Surface
 remains an aggregate value type for reusable functions; it is not a material-domain
 selector. The current renderer does not expose other material domains.

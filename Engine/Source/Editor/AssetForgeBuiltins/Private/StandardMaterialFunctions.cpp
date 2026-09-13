@@ -82,10 +82,15 @@ namespace Durin::AssetForge::Builtins
 			}
 		};
 
-		auto ComposeSurfaceValue(FBuilder& B, uint32 Role, Link Factor, Link Sample) -> Link
+		auto ComposeSurfaceValue(FBuilder& B, uint32 Role, Link Factor, Link Sample,
+			bool bEvaluateAtRoot = false) -> Link
 		{
 			const auto ValueType = GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(Role));
 			if (Role == 1) return B.Node(Op::BlendNormalsRNM, Type::Float3, {Factor, Sample});
+			// Generated imports compose source values; the Engine root owns numerical
+			// output policy. Reusable function implementations retain authored operations.
+			if (bEvaluateAtRoot)
+				return B.Node(Role == 5 ? Op::Add : Op::Multiply, ValueType, {Factor, Sample});
 			if (Role == 5)
 			{
 				const auto Zero = B.Constant(Type::Float3, 0, 0, 0);
@@ -341,7 +346,7 @@ namespace Durin::AssetForge::Builtins
 				Presentation.Nodes.push_back({Sample.SourceNodeId, 320, static_cast<int32>(I) * 600 + 150});
 			}
 			const auto FirstCompositionNode = B.Graph.Nodes.size();
-			GetMaterialSurfaceOutputLink(Result.Outputs, Role) = ComposeSurfaceValue(B, I, Factor, Sample);
+			GetMaterialSurfaceOutputLink(Result.Outputs, Role) = ComposeSurfaceValue(B, I, Factor, Sample, true);
 			for (size_t N = FirstCompositionNode; N < B.Graph.Nodes.size(); ++N)
 				Presentation.Nodes.push_back({B.Graph.Nodes[N].Id,
 					960 + static_cast<int32>((N - FirstCompositionNode) % 3) * 320,

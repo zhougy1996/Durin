@@ -387,6 +387,124 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			Pool.Reset();
 			return Pixels;
 		};
+		// Compare final values against independently authored expected surfaces through
+		// production rendering; neither side uses an imported factor/sample recipe.
+		{
+			using namespace Durin;
+			TStrongObjectPtr<DMaterial> Raw(NewObject<DMaterial>(nullptr, "SurfaceBoundaryRaw"));
+			TStrongObjectPtr<DMaterial> Expected(NewObject<DMaterial>(nullptr, "SurfaceBoundaryExpected"));
+			auto RawProgram = MakeDefaultMaterialProgram();
+			auto ExpectedProgram = MakeDefaultMaterialProgram();
+			RawProgram.Outputs.BaseColorDefault = {2.0f, -1.0f, 0.25f};
+			ExpectedProgram.Outputs.BaseColorDefault = {1.0f, 0.0f, 0.25f};
+			RawProgram.Outputs.EmissiveDefault = {-2.0f, 2.0f, 0.0f};
+			ExpectedProgram.Outputs.EmissiveDefault = {0.0f, 2.0f, 0.0f};
+			RawProgram.Outputs.NormalDefault = {0.0f, 0.0f, 0.0f};
+			RawProgram.Outputs.MetallicDefault.X = 2.0f;
+			ExpectedProgram.Outputs.MetallicDefault.X = 1.0f;
+			RawProgram.Outputs.RoughnessDefault.X = -1.0f;
+			ExpectedProgram.Outputs.RoughnessDefault.X = 0.045f;
+			RawProgram.Outputs.AmbientOcclusionDefault.X = 2.0f;
+			RawProgram.Outputs.OpacityDefault.X = 2.0f;
+			RawProgram.Outputs.OpacityMaskDefault.X = 2.0f;
+			for (const auto Shading : {EMaterialShadingModel::Lit, EMaterialShadingModel::Unlit})
+			{
+				for (const auto Blend : {EMaterialBlendMode::Opaque, EMaterialBlendMode::Masked,
+					EMaterialBlendMode::Translucent})
+				{
+					FMaterialStaticProperties Properties;
+					Properties.ShadingModel = Shading;
+					Properties.BlendMode = Blend;
+					ASSERT_TRUE(Raw->SetStaticProperties(Properties));
+					ASSERT_TRUE(Expected->SetStaticProperties(Properties));
+					ASSERT_TRUE(Raw->SetMaterialProgram(RawProgram));
+					ASSERT_TRUE(Expected->SetMaterialProgram(ExpectedProgram));
+					const auto ExpectedPixels = Capture(Expected.Get());
+					EXPECT_EQ(Capture(Raw.Get()), ExpectedPixels);
+					// An ordinary MakeSurface aggregate is evaluated at the same root.
+					auto Aggregate = MakeDefaultMaterialProgram();
+					std::vector<FMaterialProgramLink> Inputs;
+					for (uint32 Role = 0; Role < 8; ++Role)
+					{
+						const auto Output = static_cast<EMaterialSurfaceOutput>(Role);
+						const FGuid Id{0x854c71a2, 1, 1, Role + 1};
+						Aggregate.Nodes.push_back({.Id = Id, .Opcode = EMaterialProgramOpcode::Constant,
+							.ResultType = GetMaterialSurfaceOutputType(Output),
+							.Literal = GetMaterialSurfaceOutputDefault(RawProgram.Outputs, Output)});
+						Inputs.push_back({.SourceNodeId = Id});
+					}
+					const FGuid SurfaceId{0x854c71a2, 1, 1, 9};
+					Aggregate.Nodes.push_back({.Id = SurfaceId, .Opcode = EMaterialProgramOpcode::MakeSurface,
+						.ResultType = EMaterialProgramValueType::Surface, .Inputs = std::move(Inputs)});
+					Aggregate.Outputs.Surface = {.SourceNodeId = SurfaceId};
+					ASSERT_TRUE(Raw->SetMaterialProgram(std::move(Aggregate)));
+					EXPECT_EQ(Capture(Raw.Get()), ExpectedPixels);
+				}
+			}
+			auto Hdr = MakeDefaultMaterialProgram();
+			Hdr.Outputs.BaseColorDefault = {};
+			Hdr.Outputs.EmissiveDefault = {0.0f, 2.0f, 0.0f};
+			FMaterialStaticProperties Unlit;
+			Unlit.ShadingModel = EMaterialShadingModel::Unlit;
+			ASSERT_TRUE(Raw->SetStaticProperties(Unlit));
+			ASSERT_TRUE(Raw->SetMaterialProgram(Hdr));
+			const auto HdrPixels = Capture(Raw.Get());
+			Hdr.Outputs.EmissiveDefault.Y = 1.0f;
+			ASSERT_TRUE(Raw->SetMaterialProgram(Hdr));
+			EXPECT_NE(Capture(Raw.Get()), HdrPixels);
+			const FGuid ParameterNode{0x854c71a2, 2, 1, 1};
+			const FGuid OverflowNode{0x854c71a2, 2, 1, 2};
+			const FGuid VectorNode{0x854c71a2, 2, 1, 3};
+			const FGuid ParameterId{0x854c71a2, 3, 1, 1};
+			auto Nonfinite = MakeDefaultMaterialProgram();
+			Nonfinite.Nodes.push_back({.Id = ParameterNode, .Opcode = EMaterialProgramOpcode::Parameter,
+				.ResultType = EMaterialProgramValueType::Float,
+				.Parameter = {.Id = ParameterId, .Name = FName("FiniteOperand"),
+					.Type = EMaterialParameterType::Scalar,
+					.Value = FMaterialParameterValue::MakeScalar(3.0e38f)}});
+			Nonfinite.Nodes.push_back({.Id = OverflowNode, .Opcode = EMaterialProgramOpcode::Multiply,
+				.ResultType = EMaterialProgramValueType::Float,
+				.Inputs = {{.SourceNodeId = ParameterNode}, {.SourceNodeId = ParameterNode}}});
+			Nonfinite.Nodes.push_back({.Id = VectorNode, .Opcode = EMaterialProgramOpcode::Splat3,
+				.ResultType = EMaterialProgramValueType::Float3, .Inputs = {{.SourceNodeId = OverflowNode}}});
+			for (uint32 Role = 0; Role < 8; ++Role)
+			{
+				const auto Output = static_cast<EMaterialSurfaceOutput>(Role);
+				GetMaterialSurfaceOutputLink(Nonfinite.Outputs, Output) = {.SourceNodeId =
+					GetMaterialSurfaceOutputType(Output) == EMaterialProgramValueType::Float3
+						? VectorNode : OverflowNode};
+			}
+			ASSERT_TRUE(Raw->SetStaticProperties({}));
+			ASSERT_TRUE(Expected->SetStaticProperties({}));
+			ASSERT_TRUE(Expected->SetMaterialProgram(MakeDefaultMaterialProgram()));
+			ASSERT_TRUE(Raw->SetMaterialProgram(Nonfinite));
+			const auto DefaultPixels = Capture(Expected.Get());
+			EXPECT_EQ(Capture(Raw.Get()), DefaultPixels);
+			// Inf - Inf exercises NaN recovery without accepting nonfinite authored data.
+			const FGuid NanNode{0x854c71a2, 2, 1, 4};
+			const FGuid OtherParameterNode{0x854c71a2, 2, 1, 5};
+			const FGuid OtherOverflowNode{0x854c71a2, 2, 1, 6};
+			Nonfinite.Nodes.push_back({.Id = OtherParameterNode, .Opcode = EMaterialProgramOpcode::Parameter,
+				.ResultType = EMaterialProgramValueType::Float,
+				.Parameter = {.Id = {0x854c71a2, 3, 1, 2}, .Name = FName("OtherFiniteOperand"),
+					.Type = EMaterialParameterType::Scalar,
+					.Value = FMaterialParameterValue::MakeScalar(2.0e38f)}});
+			Nonfinite.Nodes.push_back({.Id = OtherOverflowNode, .Opcode = EMaterialProgramOpcode::Multiply,
+				.ResultType = EMaterialProgramValueType::Float,
+				.Inputs = {{.SourceNodeId = OtherParameterNode}, {.SourceNodeId = OtherParameterNode}}});
+			Nonfinite.Nodes.push_back({.Id = NanNode, .Opcode = EMaterialProgramOpcode::Subtract,
+				.ResultType = EMaterialProgramValueType::Float,
+				.Inputs = {{.SourceNodeId = OverflowNode}, {.SourceNodeId = OtherOverflowNode}}});
+			Nonfinite.Nodes[2].Inputs[0].SourceNodeId = NanNode;
+			for (uint32 Role = 0; Role < 8; ++Role)
+			{
+				const auto Output = static_cast<EMaterialSurfaceOutput>(Role);
+				if (GetMaterialSurfaceOutputType(Output) == EMaterialProgramValueType::Float)
+					GetMaterialSurfaceOutputLink(Nonfinite.Outputs, Output).SourceNodeId = NanNode;
+			}
+			ASSERT_TRUE(Raw->SetMaterialProgram(std::move(Nonfinite)));
+			EXPECT_EQ(Capture(Raw.Get()), DefaultPixels);
+		}
 		Durin::FObjectPath ShippedPath;
 		ASSERT_TRUE(Durin::FObjectPath::TryCreate("/Engine/Materials/ImportedSurface.ImportedSurface", ShippedPath));
 		Durin::DMaterial* ShippedImported = nullptr;
