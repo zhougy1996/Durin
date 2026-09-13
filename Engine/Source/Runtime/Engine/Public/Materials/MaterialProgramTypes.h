@@ -20,7 +20,7 @@ namespace Durin
 		enum class EMaterialBuiltinParameterKind : uint8;
 	}
 
-	inline constexpr uint32 CurrentMaterialProgramSchemaVersion = 5;
+	inline constexpr uint32 CurrentMaterialProgramSchemaVersion = 6;
 	inline constexpr uint32 MaterialProgramMaxNodeCount = 256;
 	inline constexpr uint32 MaterialProgramMaxLinkCount = 1024;
 	inline constexpr uint32 MaterialProgramMaxReferencedParameterCount = 128;
@@ -86,6 +86,8 @@ namespace Durin
 		FunctionCall,
 		GetSurfaceAttributes,
 		SetSurfaceAttributes,
+		TextureSampleParameter2D,
+		TextureCoordinates,
 	};
 
 	DENUM()
@@ -169,6 +171,56 @@ namespace Durin
 		auto operator==(const FMaterialProgramLiteral&) const -> bool = default;
 	};
 
+	DENUM()
+	enum class EMaterialInputDefaultKind : uint8
+	{
+		None,
+		Literal,
+		Parameter,
+	};
+
+	// Retained numeric input value. Connections override it without erasing author intent.
+	DSTRUCT()
+	struct FMaterialInputDefault
+	{
+		GENERATED_BODY()
+
+		DPROPERTY()
+		EMaterialInputDefaultKind Kind = EMaterialInputDefaultKind::None;
+
+		DPROPERTY()
+		EMaterialProgramValueType Type = EMaterialProgramValueType::Float;
+
+		DPROPERTY()
+		FMaterialProgramLiteral Literal;
+
+		DPROPERTY()
+		FGuid ParameterId;
+
+		auto operator==(const FMaterialInputDefault&) const -> bool = default;
+	};
+
+	// A sample's local coordinates, replaced in full by its connected UV expression.
+	DSTRUCT()
+	struct FMaterialUVSettings
+	{
+		GENERATED_BODY()
+
+		DPROPERTY()
+		FMaterialInputDefault Channel = {EMaterialInputDefaultKind::Literal};
+
+		DPROPERTY()
+		FMaterialInputDefault Scale = {EMaterialInputDefaultKind::Literal, EMaterialProgramValueType::Float2, {1, 1}};
+
+		DPROPERTY()
+		FMaterialInputDefault Offset = {EMaterialInputDefaultKind::Literal, EMaterialProgramValueType::Float2};
+
+		DPROPERTY()
+		FMaterialInputDefault Rotation = {EMaterialInputDefaultKind::Literal};
+
+		auto operator==(const FMaterialUVSettings&) const -> bool = default;
+	};
+
 	DSTRUCT()
 	struct FMaterialProgramNode
 	{
@@ -221,8 +273,25 @@ namespace Durin
 		DPROPERTY()
 		std::vector<FMaterialSurfaceAttributeBinding> SurfaceAttributes;
 
+		// Same positional indices as Inputs; omitted entries have no retained value.
+		DPROPERTY()
+		std::vector<FMaterialInputDefault> InputDefaults;
+
+		DPROPERTY()
+		FMaterialUVSettings UVSettings;
+
 		auto operator==(const FMaterialProgramNode&) const -> bool = default;
 	};
+
+	ENGINE_API auto IsMaterialSamplingNode(EMaterialProgramOpcode Opcode) -> bool;
+	ENGINE_API auto IsMaterialSampleUVInput(const FMaterialProgramNode& Node, uint32 Index) -> bool;
+	ENGINE_API auto GetMaterialUVSetting(const FMaterialUVSettings& Settings, uint32 Index)
+		-> const FMaterialInputDefault&;
+	ENGINE_API auto GetMaterialNodeInputDefault(const FMaterialProgramNode& Node, uint32 Index)
+		-> FMaterialInputDefault;
+	// Includes inactive retained references by default, for deletion and clipboard identity safety.
+	ENGINE_API auto GetMaterialNodeParameterReferences(const FMaterialProgramNode& Node, bool bActiveOnly = false)
+		-> std::vector<FGuid>;
 
 	DSTRUCT()
 	struct FMaterialSurfaceOutputs

@@ -33,6 +33,14 @@ imported-material screenshots and questions about texture roles and UV channels.
 It supersedes the initial suggestion to solve the problem primarily with visual
 node groups. The initial design commit is `78c7b7d15`.
 
+Stage 1 core implementation now passes MaterialTests (184/184), including frozen
+package loading through the 5-to-6 / 1-to-2 upgrade paths, inline/explicit IR
+equivalence, inactive parameter retention, single-fetch channel fan-out and
+optional/required function input bindings. Receipt:
+`Build/.agent-state/logs/20260913-160733-710575-24288-MaterialTests.log`.
+Stage 2 editor integration is in progress; final shared-API `all` build, extended
+roundtrip/diagnostic tests and full migration qualification remain required.
+
 The current `MakeImportedSurfaceFunctionProgram` generates 65 expression nodes:
 48 parameter references, eight UVChannel reads, eight UVTransform calls and one
 StandardPBR call. The derived Material Output brings the visible count to 66.

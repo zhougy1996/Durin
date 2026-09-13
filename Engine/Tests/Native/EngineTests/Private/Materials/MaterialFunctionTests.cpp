@@ -133,6 +133,137 @@ TEST(FMaterialFunctionTests, FrozenImportedSurfacePreservesCompilationAndIndepen
 	CollectGarbage();
 }
 
+TEST(FMaterialFunctionTests, InlineBindingsMatchExplicitNodesAndRetainInactiveParameters)
+{
+	using namespace Durin;
+	const FGuid Parameter{0x98abc101, 1, 1, 1}, Constant{0x98abc101, 1, 1, 2}, Product{0x98abc101, 1, 1, 3};
+	FMaterialCompilerInput Compact;
+	Compact.Environment.CompilerIdentity = "InlineBindingParity";
+	Compact.Parameters = {{Parameter, EMaterialParameterType::Scalar}};
+	Compact.Program.Nodes = {{.Id = Constant, .Literal = {.X = .5f}},
+		{.Id = Product, .Opcode = EMaterialProgramOpcode::Multiply, .Inputs = {{Constant}, {}},
+			.InputDefaults = {{}, {.Kind = EMaterialInputDefaultKind::Parameter, .ParameterId = Parameter}}}};
+	Compact.Program.Outputs.Roughness = {Product};
+	const auto Baseline = NormalizeMaterialProgram(Compact);
+	ASSERT_TRUE(Baseline);
+	ASSERT_EQ(Baseline.ActiveParameters.size(), 1u);
+	auto Explicit = Compact;
+	const FGuid ParameterNode{0x98abc101, 1, 1, 4};
+	Explicit.Program.Nodes[1].Inputs[1] = {ParameterNode};
+	Explicit.Program.Nodes[1].InputDefaults.clear();
+	Explicit.Program.Nodes.push_back({.Id = ParameterNode, .Opcode = EMaterialProgramOpcode::Parameter, .ParameterId = Parameter});
+	const auto Expanded = NormalizeMaterialProgram(Explicit);
+	ASSERT_TRUE(Expanded);
+	EXPECT_EQ(Baseline.CanonicalBytes, Expanded.CanonicalBytes);
+	EXPECT_EQ(Baseline.Layout, Expanded.Layout);
+	Compact.Program.Nodes[1].Inputs[1] = {Constant};
+	const auto Connected = NormalizeMaterialProgram(Compact);
+	ASSERT_TRUE(Connected);
+	EXPECT_TRUE(Connected.ActiveParameters.empty());
+	Compact.Parameters.clear();
+	EXPECT_FALSE(NormalizeMaterialProgram(Compact));
+	Compact.Parameters = {{Parameter, EMaterialParameterType::Scalar}};
+	Compact.Program.Nodes[1].Inputs[1] = {};
+	EXPECT_EQ(NormalizeMaterialProgram(Compact).CanonicalBytes, Baseline.CanonicalBytes);
+	Compact.Program.Nodes[1].InputDefaults[1].Type = EMaterialProgramValueType::Float2;
+	EXPECT_FALSE(NormalizeMaterialProgram(Compact));
+	Compact.Program.Nodes[1].InputDefaults[1] = {.Kind = EMaterialInputDefaultKind::Literal,
+		.Literal = {std::numeric_limits<float>::infinity()}};
+	EXPECT_FALSE(NormalizeMaterialProgram(Compact));
+}
+
+TEST(FMaterialFunctionTests, CompactSamplingSharesFetchAndPreservesUVParameterReachability)
+{
+	using namespace Durin;
+	const FGuid TextureId{0x98abc102, 1, 1, 1}, ChannelId{0x98abc102, 1, 1, 2}, SampleId{0x98abc102, 1, 1, 3};
+	FMaterialCompilerInput Compact;
+	Compact.Environment.CompilerIdentity = "CompactSampleParity";
+	Compact.Parameters = {{TextureId, EMaterialParameterType::Texture}, {ChannelId, EMaterialParameterType::Scalar}};
+	FMaterialProgramNode Sample{.Id = SampleId, .Opcode = EMaterialProgramOpcode::TextureSampleParameter2D,
+		.ResultType = EMaterialProgramValueType::Float4, .Inputs = {{}}, .ParameterId = TextureId};
+	Sample.UVSettings.Channel = {.Kind = EMaterialInputDefaultKind::Parameter, .ParameterId = ChannelId};
+	Compact.Program.Nodes = {Sample};
+	Compact.Program.Outputs.BaseColor = {.SourceNodeId = SampleId, .SourceOutputIndex = 1};
+	Compact.Program.Outputs.Roughness = {.SourceNodeId = SampleId, .SourceOutputIndex = 3};
+	Compact.Program.Outputs.Metallic = {.SourceNodeId = SampleId, .SourceOutputIndex = 4};
+	const auto Baseline = NormalizeMaterialProgram(Compact);
+	ASSERT_TRUE(Baseline);
+	EXPECT_EQ(std::ranges::count(Baseline.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &FMaterialIRNode::Opcode), 1);
+	EXPECT_EQ(Baseline.ActiveParameters.size(), 2u);
+	const auto Source = GenerateMaterialProgramSlang(Baseline.IR, Baseline.Layout);
+	ASSERT_TRUE(Source);
+	auto Explicit = Compact;
+	const FGuid TextureNode{0x98abc102, 1, 1, 4}, CoordinatesNode{0x98abc102, 1, 1, 5};
+	Explicit.Program.Nodes[0].Opcode = EMaterialProgramOpcode::TextureSample2D;
+	Explicit.Program.Nodes[0].ParameterId = {};
+	Explicit.Program.Nodes[0].Inputs = {{TextureNode}, {CoordinatesNode}};
+	Explicit.Program.Nodes[0].UVSettings = {};
+	Explicit.Program.Nodes.push_back({.Id = TextureNode, .Opcode = EMaterialProgramOpcode::TextureParameter,
+		.ResultType = EMaterialProgramValueType::Texture2D, .ParameterId = TextureId});
+	Explicit.Program.Nodes.push_back({.Id = CoordinatesNode, .Opcode = EMaterialProgramOpcode::TextureCoordinates,
+		.ResultType = EMaterialProgramValueType::Float2, .Inputs = {{}, {}, {}, {}}, .UVSettings = Sample.UVSettings});
+	const auto Expanded = NormalizeMaterialProgram(Explicit);
+	ASSERT_TRUE(Expanded);
+	EXPECT_EQ(Baseline.CanonicalBytes, Expanded.CanonicalBytes);
+	EXPECT_EQ(Baseline.Layout, Expanded.Layout);
+	Compact.Program.Nodes.push_back({.Id = CoordinatesNode, .ResultType = EMaterialProgramValueType::Float2,
+		.Literal = {.X = .25f, .Y = .75f}});
+	Compact.Program.Nodes[0].Inputs[0] = {CoordinatesNode};
+	const auto Connected = NormalizeMaterialProgram(Compact);
+	ASSERT_TRUE(Connected);
+	EXPECT_EQ(Connected.ActiveParameters.size(), 1u);
+	Compact.Program.Nodes[0].Inputs[0] = {};
+	EXPECT_EQ(NormalizeMaterialProgram(Compact).CanonicalBytes, Baseline.CanonicalBytes);
+	Compact.Program.Outputs.Metallic.SourceOutputIndex = 7;
+	EXPECT_FALSE(NormalizeMaterialProgram(Compact));
+}
+
+TEST(FMaterialFunctionTests, InlineCallBindingsRespectFunctionDefaultsAndRootOwnership)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	auto* Function = NewObject<DMaterialFunction>(nullptr, "InlineCallFunction");
+	const auto In = FunctionPort(1, EMaterialProgramValueType::Float, "Value");
+	const auto Out = FunctionPort(2, EMaterialProgramValueType::Float, "Result");
+	FMaterialFunctionGraph Graph;
+	Graph.Signature.Inputs = {In};
+	Graph.Signature.Inputs[0].Default = {.Kind = EMaterialFunctionDefaultKind::Numeric, .Numeric = {.X = .75f}};
+	Graph.Signature.Outputs = {Out};
+	const FGuid InputNode{0x98abc103, 1, 1, 1}, OutputNode{0x98abc103, 1, 1, 2};
+	Graph.Nodes = {{.Id = InputNode, .Opcode = EMaterialProgramOpcode::FunctionInput, .FunctionPortId = In.Id},
+		{.Id = OutputNode, .Opcode = EMaterialProgramOpcode::FunctionOutput, .Inputs = {{InputNode}}, .FunctionPortId = Out.Id}};
+	ASSERT_TRUE(Function->SetFunctionGraph(Graph));
+	FMaterialCompilerInput Input;
+	Input.Environment.CompilerIdentity = "InlineCallDefaults";
+	const FGuid CallId{0x98abc103, 1, 1, 3};
+	Input.Program.Nodes = {{.Id = CallId, .Opcode = EMaterialProgramOpcode::FunctionCall}};
+	Input.Program.Outputs.Roughness = {.SourceNodeId = CallId, .SourceOutputId = Out.Id};
+	Input.FunctionCalls = {{.NodeId = CallId, .FunctionPath = Function->GetObjectPath(),
+		.Inputs = {{In.Id, In.Type, {}, {.Kind = EMaterialInputDefaultKind::Literal, .Literal = {.X = .25f}}}},
+		.Outputs = {{Out.Id, Out.Type}}}};
+	const std::array<DMaterialFunctionInterface*, 1> Roots{Function};
+	ASSERT_TRUE(SnapshotMaterialFunctionClosure(Roots, Input.Functions));
+	const auto Bound = NormalizeMaterialProgram(Input);
+	ASSERT_TRUE(Bound);
+	ASSERT_EQ(Bound.IR.Nodes.size(), 1u);
+	EXPECT_EQ(Bound.IR.Nodes[0].Literal.X, .25f);
+	Input.FunctionCalls[0].Inputs[0].Default = {};
+	const auto Defaulted = NormalizeMaterialProgram(Input);
+	ASSERT_TRUE(Defaulted);
+	EXPECT_EQ(Defaulted.IR.Nodes[0].Literal.X, .75f);
+	Graph.Signature.Inputs[0].bRequired = true;
+	Graph.Signature.Inputs[0].Default = {};
+	ASSERT_TRUE(Function->SetFunctionGraph(Graph));
+	ASSERT_TRUE(SnapshotMaterialFunctionClosure(Roots, Input.Functions));
+	EXPECT_FALSE(NormalizeMaterialProgram(Input));
+	Graph.Nodes.push_back({.Id = CallId, .Opcode = EMaterialProgramOpcode::Multiply,
+		.Inputs = {{InputNode}, {}}, .InputDefaults = {{}, {.Kind = EMaterialInputDefaultKind::Parameter,
+			.ParameterId = {0x98abc103, 2, 1, 1}}}});
+	EXPECT_FALSE(Function->SetFunctionGraph(Graph));
+	MarkAsGarbage(Function);
+	CollectGarbage();
+}
+
 TEST(FMaterialFunctionTests, WorkspaceSavesAndReloadsFunctionsAcrossOpenDocuments)
 {
 	using namespace Durin;

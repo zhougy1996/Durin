@@ -488,13 +488,30 @@ namespace Durin
 			&& Program.Nodes.size() <= MaterialProgramMaxNodeCount
 			&& std::ranges::all_of(Program.Nodes, [](const auto& Node) {
 				return Node.Opcode <= EMaterialProgramOpcode::MakeSurface
-					&& Node.SurfaceAttributeMask == 0 && Node.SurfaceAttributes.empty();
+					&& Node.SurfaceAttributeMask == 0 && Node.SurfaceAttributes.empty()
+					&& Node.InputDefaults.empty() && Node.UVSettings == FMaterialUVSettings{};
 			})
 			&& Private::ValidateMaterialProgramGraph({CurrentMaterialProgramSchemaVersion,
 				Program.Nodes, Program.Outputs}, ParameterDefinitions, {}, false))
 		{
 			Program.SchemaVersion = CurrentMaterialProgramSchemaVersion;
 			if (auto* Package = GetPackage()) Package->SetCanonicalResaveRecommended(true);
+		}
+		if (Program.SchemaVersion == 5 && Program.Nodes.size() <= MaterialProgramMaxNodeCount
+			&& std::ranges::all_of(Program.Nodes, [](const auto& Node) {
+				return Node.Opcode <= EMaterialProgramOpcode::SetSurfaceAttributes
+					&& Node.InputDefaults.empty() && Node.UVSettings == FMaterialUVSettings{};
+			}) && std::ranges::all_of(FunctionCalls, [](const auto& Call) {
+				return std::ranges::all_of(Call.Inputs, [](const auto& Input) { return Input.Default == FMaterialInputDefault{}; });
+			}))
+		{
+			auto Candidate = Program;
+			Candidate.SchemaVersion = CurrentMaterialProgramSchemaVersion;
+			if (ValidateMaterialProgramWithFunctions(Candidate, ParameterDefinitions, FunctionCalls))
+			{
+				Program = std::move(Candidate);
+				if (auto* Package = GetPackage()) Package->SetCanonicalResaveRecommended(true);
+			}
 		}
 		const FMaterialProgramValidationResult ProgramValidation =
 			ValidateMaterialProgramWithFunctions(Program, ParameterDefinitions, FunctionCalls);

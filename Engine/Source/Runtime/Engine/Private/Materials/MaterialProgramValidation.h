@@ -5,6 +5,10 @@
 
 namespace Durin::Private
 {
+	auto ResolveMaterialInputDefaultType(const FMaterialInputDefault& Value,
+		std::span<const FMaterialParameterDefinition> Definitions) -> std::optional<EMaterialProgramValueType>;
+	auto ValidateMaterialNodeDefaults(const FMaterialProgramNode& Node,
+		std::span<const FMaterialParameterDefinition> Definitions) -> FMaterialProgramValidationResult;
 	auto ValidateMaterialSurfacePayload(const FMaterialProgramNode& Node,
 		const std::function<std::optional<EMaterialProgramValueType>(const FMaterialProgramLink&)>& ResolveType)
 		-> FMaterialProgramValidationResult;

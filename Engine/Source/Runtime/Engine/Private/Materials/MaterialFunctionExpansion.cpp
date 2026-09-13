@@ -80,6 +80,8 @@ namespace Durin::Private
 				Node.SurfaceAttributeMask = 0;
 				Node.SurfaceAttributes.clear();
 				Node.DisplayName.clear();
+				Node.InputDefaults.clear();
+				Node.UVSettings = {};
 				if (!Node.Id.IsValid() || Program.Sources.contains(Node.Id))
 				{
 					Fail(Context, Origin, "Function expansion node namespace collided.");
@@ -97,6 +99,44 @@ namespace Durin::Private
 			{
 				return Emit(Context, {.Opcode = EMaterialProgramOpcode::Constant, .ResultType = Type, .Literal = Value},
 				{}, true, PortId);
+			}
+
+			auto Default(FInvocation& Context, const FMaterialInputDefault& Value, FGuid Origin, FGuid PortId = {}) -> FExpandedValue
+			{
+				if (Value.Kind == EMaterialInputDefaultKind::None)
+				{ Fail(Context, Origin, "Required input has no retained value.", EMaterialProgramDiagnosticCategory::Type, PortId); return {}; }
+				return Emit(Context, {.Opcode = Value.Kind == EMaterialInputDefaultKind::Parameter
+					? EMaterialProgramOpcode::Parameter : EMaterialProgramOpcode::Constant,
+					.ResultType = Value.Type, .Literal = Value.Literal, .ParameterId = Value.ParameterId}, Origin, true, PortId);
+			}
+
+			auto Coordinates(FInvocation& Context, const FMaterialProgramNode& Node) -> FExpandedValue
+			{
+				using Op = EMaterialProgramOpcode;
+				using Type = EMaterialProgramValueType;
+				std::array<FExpandedValue, 4> Settings;
+				for (uint32 Index = 0; Index < 4; ++Index)
+					Settings[Index] = Node.Opcode == Op::TextureCoordinates && Node.Inputs[Index].SourceNodeId.IsValid()
+						? Link(Context, Node.Inputs[Index]) : Default(Context, GetMaterialUVSetting(Node.UVSettings, Index), Node.Id);
+				const auto Operation = [&](Op Opcode, Type ResultType, std::vector<FMaterialProgramLink> Inputs) {
+					return Emit(Context, {.Opcode = Opcode, .ResultType = ResultType, .Inputs = std::move(Inputs)}, Node.Id, true);
+				};
+				const auto UV = Operation(Op::UVChannel, Type::Float2, {Settings[0].Link});
+				const auto Scale = Operation(Op::Multiply, Type::Float2, {UV.Link, Settings[1].Link});
+				const auto Sine = Operation(Op::Sine, Type::Float, {Settings[3].Link});
+				const auto Cosine = Operation(Op::Cosine, Type::Float, {Settings[3].Link});
+				const auto X = Emit(Context, {.Opcode = Op::Swizzle, .ResultType = Type::Float,
+					.Inputs = {Scale.Link}, .SwizzleLength = 1}, Node.Id, true);
+				const auto Y = Emit(Context, {.Opcode = Op::Swizzle, .ResultType = Type::Float,
+					.Inputs = {Scale.Link}, .SwizzleLength = 1, .SwizzleX = 1}, Node.Id, true);
+				const auto CX = Operation(Op::Multiply, Type::Float, {Cosine.Link, X.Link});
+				const auto SY = Operation(Op::Multiply, Type::Float, {Sine.Link, Y.Link});
+				const auto SX = Operation(Op::Multiply, Type::Float, {Sine.Link, X.Link});
+				const auto CY = Operation(Op::Multiply, Type::Float, {Cosine.Link, Y.Link});
+				const auto RX = Operation(Op::Subtract, Type::Float, {CX.Link, SY.Link});
+				const auto RY = Operation(Op::Add, Type::Float, {SX.Link, CY.Link});
+				const auto Rotated = Operation(Op::MakeFloat2, Type::Float2, {RX.Link, RY.Link});
+				return Operation(Op::Add, Type::Float2, {Rotated.Link, Settings[2].Link});
 			}
 
 			auto Input(FInvocation& Context, const FGuid& PortId) -> FExpandedValue
@@ -160,7 +200,12 @@ namespace Durin::Private
 				const auto& Snapshot = *Function->second;
 				FInvocation Child{.Nodes = Snapshot.Nodes, .Calls = Snapshot.Calls, .Function = &Snapshot, .Path = Context.Path};
 				Child.Path.push_back(NodeId);
-				for (const auto& Binding : Record->Inputs) Child.Inputs.emplace(Binding.InputId, Link(Context, Binding.Source));
+				for (const auto& Binding : Record->Inputs)
+				{
+					if (Binding.Source.SourceNodeId.IsValid()) Child.Inputs.emplace(Binding.InputId, Link(Context, Binding.Source));
+					else if (Binding.Default.Kind != EMaterialInputDefaultKind::None)
+						Child.Inputs.emplace(Binding.InputId, Default(Context, Binding.Default, NodeId, Binding.InputId));
+				}
 				if (!Result.Diagnostics.empty() || !Admit(Child)) return false;
 				ActiveFunctions.push_back(Record->FunctionPath);
 				if (!All(Child)) return false;
@@ -187,6 +232,15 @@ namespace Durin::Private
 					return Output->second;
 				}
 				const auto Expanded = Value(Context, Source.SourceNodeId);
+				if (IsMaterialSamplingNode(Node->Opcode) && Source.SourceOutputIndex != 0)
+				{
+					const uint8 Slot = Source.SourceOutputIndex;
+					const auto Type = Slot == 1 ? EMaterialProgramValueType::Float3
+						: Slot == 6 ? EMaterialProgramValueType::Float2 : EMaterialProgramValueType::Float;
+					return Emit(Context, {.Opcode = EMaterialProgramOpcode::Swizzle, .ResultType = Type,
+						.Inputs = {Expanded.Link}, .SwizzleLength = static_cast<uint8>(Slot == 1 ? 3 : Slot == 6 ? 2 : 1),
+						.SwizzleX = static_cast<uint8>(Slot >= 2 && Slot <= 5 ? Slot - 2 : 0), .SwizzleY = 1, .SwizzleZ = 2}, Node->Id, true);
+				}
 				if (Node->Opcode == EMaterialProgramOpcode::GetSurfaceAttributes)
 				{
 					const auto Surface = std::ranges::find(Program.Nodes, Expanded.Link.SourceNodeId, &FMaterialProgramNode::Id);
@@ -207,6 +261,7 @@ namespace Durin::Private
 				if (Node == Context.Nodes.end()) { Fail(Context, NodeId, "Function node is missing."); return {}; }
 				FExpandedValue Expanded;
 				if (Node->Opcode == EMaterialProgramOpcode::FunctionInput) Expanded = Input(Context, Node->FunctionPortId);
+				else if (Node->Opcode == EMaterialProgramOpcode::TextureCoordinates) Expanded = Coordinates(Context, *Node);
 				else if (Node->Opcode == EMaterialProgramOpcode::FunctionOutput) Expanded = Link(Context, Node->Inputs[0]);
 				else if (Node->Opcode == EMaterialProgramOpcode::GetSurfaceAttributes) Expanded = Link(Context, Node->Inputs[0]);
 				else if (Node->Opcode == EMaterialProgramOpcode::SetSurfaceAttributes)
@@ -225,11 +280,25 @@ namespace Durin::Private
 				else
 				{
 					std::vector<FExpandedValue> Inputs;
-					for (const auto& Source : Node->Inputs) Inputs.push_back(Link(Context, Source));
+					if (Node->Opcode == EMaterialProgramOpcode::TextureSampleParameter2D)
+						Inputs.push_back(Emit(Context, {.Opcode = EMaterialProgramOpcode::TextureParameter,
+							.ResultType = EMaterialProgramValueType::Texture2D, .ParameterId = Node->ParameterId}, NodeId, true));
+					for (uint32 Index = 0; Index < Node->Inputs.size(); ++Index)
+					{
+						const auto& Source = Node->Inputs[Index];
+						Inputs.push_back(Source.SourceNodeId.IsValid() ? Link(Context, Source)
+							: IsMaterialSampleUVInput(*Node, Index) ? Coordinates(Context, *Node)
+							: Default(Context, GetMaterialNodeInputDefault(*Node, Index), NodeId));
+					}
 					if (!Result.Diagnostics.empty()) return {};
 					auto Lowered = *Node;
 					Lowered.Inputs.clear();
-					if (Node->Opcode == EMaterialProgramOpcode::TextureSample2D && Inputs[0].bDefaultTexture)
+					if (Node->Opcode == EMaterialProgramOpcode::TextureSampleParameter2D)
+					{
+						Lowered.Opcode = EMaterialProgramOpcode::TextureSample2D;
+						Lowered.ParameterId = {};
+					}
+					if (IsMaterialSamplingNode(Node->Opcode) && Inputs[0].bDefaultTexture)
 					{
 						Lowered.Opcode = EMaterialProgramOpcode::Constant;
 						Lowered.Literal = Inputs[0].Fallback == EMaterialTextureFallback::White ? FMaterialProgramLiteral{1, 1, 1, 1}
@@ -280,6 +349,7 @@ namespace Durin::Private
 			{ Expander.Fail(Root, {}, "Detached function exceeds document bounds.", EMaterialProgramDiagnosticCategory::Bounds); break; }
 			uint64 DocumentBytes = sizeof(Function) + Function.AssetPath.size();
 			for (const auto& Node : Function.Nodes) DocumentBytes += sizeof(Node) + Node.DisplayName.size() + Node.Inputs.size() * sizeof(FMaterialProgramLink)
+				+ Node.InputDefaults.size() * sizeof(FMaterialInputDefault)
 				+ Node.SurfaceAttributes.size() * sizeof(FMaterialSurfaceAttributeBinding);
 			for (const auto& Call : Function.Calls) DocumentBytes += sizeof(Call) + Call.FunctionPath.size()
 				+ Call.Inputs.size() * sizeof(FMaterialFunctionInputBinding) + Call.Outputs.size() * sizeof(FMaterialFunctionOutputBinding);

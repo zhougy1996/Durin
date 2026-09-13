@@ -138,8 +138,13 @@ namespace Durin
 				Error(Result, "Function output was removed, retyped or recorded more than once.", Call.NodeId, Binding.OutputId);
 		}
 		for (const auto& Port : Signature.Inputs)
-			if (Port.bRequired && !BoundInputs.contains(Port.Id))
-				Error(Result, "Required function input is not connected.", Call.NodeId, Port.Id);
+			if (Port.bRequired)
+			{
+				const auto Binding = std::ranges::find(Call.Inputs, Port.Id, &FMaterialFunctionInputBinding::InputId);
+				if (Binding == Call.Inputs.end() || (!Binding->Source.SourceNodeId.IsValid()
+					&& Binding->Default.Kind == EMaterialInputDefaultKind::None))
+					Error(Result, "Required function input is not connected or bound.", Call.NodeId, Port.Id);
+			}
 		for (auto& Diagnostic : Result.Diagnostics) Diagnostic.FunctionAssetPath = Call.FunctionPath;
 		Result.bSucceeded = Result.Diagnostics.empty();
 		return Result;
@@ -165,11 +170,13 @@ namespace Durin
 			Links += Node.Inputs.size() + Node.SurfaceAttributes.size();
 			Strings += Node.DisplayName.size();
 			Bytes += sizeof(Node) + Node.DisplayName.size() + Node.Inputs.size() * sizeof(FMaterialProgramLink)
+				+ Node.InputDefaults.size() * sizeof(FMaterialInputDefault)
 				+ Node.SurfaceAttributes.size() * sizeof(FMaterialSurfaceAttributeBinding);
-			if (Node.Inputs.size() > MaterialProgramMaxNodeInputCount || Node.SurfaceAttributes.size() > 8 || !IsType(Node.ResultType)
+			if (Node.Inputs.size() > MaterialProgramMaxNodeInputCount || Node.InputDefaults.size() > MaterialProgramMaxNodeInputCount
+				|| Node.SurfaceAttributes.size() > 8 || !IsType(Node.ResultType)
 				|| Node.DisplayName.size() > MaterialProgramMaxDisplayNameBytes)
 				Error(Result, "Function node type, input count or name is invalid.", Node.Id);
-			if (Node.ParameterId.IsValid())
+			if (!GetMaterialNodeParameterReferences(Node).empty())
 				Error(Result, "Function nodes cannot reference root material parameter identities.", Node.Id);
 		}
 		for (const auto& Call : Graph.Calls)
@@ -221,11 +228,15 @@ namespace Durin
 		for (const auto& Node : Graph.Nodes)
 		{
 			std::vector<EMaterialProgramValueType> InputTypes;
+			for (auto& Diagnostic : Private::ValidateMaterialNodeDefaults(Node, {}).Diagnostics)
+				if (Result.Diagnostics.size() < MaterialProgramMaxDiagnosticCount) Result.Diagnostics.push_back(std::move(Diagnostic));
 			for (auto& Diagnostic : Private::ValidateMaterialSurfacePayload(Node, LinkType).Diagnostics)
 				if (Result.Diagnostics.size() < MaterialProgramMaxDiagnosticCount) Result.Diagnostics.push_back(std::move(Diagnostic));
-			for (const auto& Link : Node.Inputs)
+			for (uint32 Index = 0; Index < Node.Inputs.size(); ++Index)
 			{
-				const auto Type = LinkType(Link);
+				const auto& Link = Node.Inputs[Index];
+				const auto Type = Link.SourceNodeId.IsValid() ? LinkType(Link)
+					: (IsDisconnected(Link) ? Private::ResolveMaterialInputDefaultType(GetMaterialNodeInputDefault(Node, Index), {}) : std::nullopt);
 				if (!Type) Error(Result, "Function link has no matching source output.", Node.Id);
 				InputTypes.push_back(Type.value_or(EMaterialProgramValueType::Float));
 			}
@@ -245,7 +256,10 @@ namespace Durin
 				if (Call == Calls.end() || !Node.Inputs.empty() || Node.FunctionPortId.IsValid())
 					Error(Result, "Function call requires a call record and stable port bindings.", Node.Id);
 				else for (const auto& Binding : Call->second->Inputs)
-					if (LinkType(Binding.Source) != Binding.ExpectedType)
+					if ((Binding.Default.Kind != EMaterialInputDefaultKind::None
+						&& Private::ResolveMaterialInputDefaultType(Binding.Default, {}) != Binding.ExpectedType)
+						|| (Binding.Default.Kind == EMaterialInputDefaultKind::None && Binding.Default != FMaterialInputDefault{})
+						|| (!IsDisconnected(Binding.Source) && LinkType(Binding.Source) != Binding.ExpectedType))
 						Error(Result, "Function call input source has an incompatible type.", Node.Id, Binding.InputId);
 			}
 			else

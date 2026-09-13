@@ -2,6 +2,62 @@
 
 namespace Durin
 {
+	auto IsMaterialSamplingNode(EMaterialProgramOpcode Opcode) -> bool
+	{
+		return Opcode == EMaterialProgramOpcode::TextureSample2D
+			|| Opcode == EMaterialProgramOpcode::TextureSampleParameter2D;
+	}
+
+	auto IsMaterialSampleUVInput(const FMaterialProgramNode& Node, uint32 Index) -> bool
+	{
+		return (Node.Opcode == EMaterialProgramOpcode::TextureSample2D && Index == 1)
+			|| (Node.Opcode == EMaterialProgramOpcode::TextureSampleParameter2D && Index == 0);
+	}
+
+	auto GetMaterialUVSetting(const FMaterialUVSettings& Settings, uint32 Index) -> const FMaterialInputDefault&
+	{
+		switch (Index)
+		{
+		case 0: return Settings.Channel;
+		case 1: return Settings.Scale;
+		case 2: return Settings.Offset;
+		default: return Settings.Rotation;
+		}
+	}
+
+	auto GetMaterialNodeInputDefault(const FMaterialProgramNode& Node, uint32 Index) -> FMaterialInputDefault
+	{
+		if (Node.Opcode == EMaterialProgramOpcode::TextureCoordinates && Index < 4)
+			return GetMaterialUVSetting(Node.UVSettings, Index);
+		if (IsMaterialSampleUVInput(Node, Index))
+			return {.Kind = EMaterialInputDefaultKind::Literal, .Type = EMaterialProgramValueType::Float2};
+		return Index < Node.InputDefaults.size() ? Node.InputDefaults[Index] : FMaterialInputDefault{};
+	}
+
+	auto GetMaterialNodeParameterReferences(const FMaterialProgramNode& Node, bool bActiveOnly) -> std::vector<FGuid>
+	{
+		std::vector<FGuid> Result;
+		if (Node.ParameterId.IsValid()) Result.push_back(Node.ParameterId);
+		const auto Add = [&](const FMaterialInputDefault& Value) {
+			if (Value.Kind == EMaterialInputDefaultKind::Parameter && Value.ParameterId.IsValid())
+				Result.push_back(Value.ParameterId);
+		};
+		for (uint32 Index = 0; Index < Node.InputDefaults.size(); ++Index)
+			if (!bActiveOnly || Index >= Node.Inputs.size() || !Node.Inputs[Index].SourceNodeId.IsValid())
+				Add(Node.InputDefaults[Index]);
+		if (Node.Opcode == EMaterialProgramOpcode::TextureCoordinates || IsMaterialSamplingNode(Node.Opcode))
+		{
+			const uint32 UVIndex = Node.Opcode == EMaterialProgramOpcode::TextureSample2D ? 1 : 0;
+			for (uint32 Index = 0; Index < 4; ++Index)
+			{
+				const uint32 InputIndex = Node.Opcode == EMaterialProgramOpcode::TextureCoordinates ? Index : UVIndex;
+				if (!bActiveOnly || InputIndex >= Node.Inputs.size() || !Node.Inputs[InputIndex].SourceNodeId.IsValid())
+					Add(GetMaterialUVSetting(Node.UVSettings, Index));
+			}
+		}
+		return Result;
+	}
+
 	auto GetMaterialProgramNodeSignature(
 		EMaterialProgramOpcode Opcode, EMaterialProgramValueType ResultType)
 		-> std::optional<FMaterialProgramNodeSignature>
@@ -31,6 +87,18 @@ namespace Durin
 		case EMaterialProgramOpcode::UVChannel:
 			if (ResultType != Type::Float2) return std::nullopt;
 			Same(1, Type::Float);
+			break;
+		case EMaterialProgramOpcode::TextureCoordinates:
+			if (ResultType != Type::Float2) return std::nullopt;
+			Signature.InputCount = 4;
+			Signature.Inputs[0] = One(Type::Float);
+			Signature.Inputs[1] = One(Type::Float2);
+			Signature.Inputs[2] = One(Type::Float2);
+			Signature.Inputs[3] = One(Type::Float);
+			break;
+		case EMaterialProgramOpcode::TextureSampleParameter2D:
+			if (ResultType != Type::Float4) return std::nullopt;
+			Same(1, Type::Float2);
 			break;
 		case EMaterialProgramOpcode::MakeSurface:
 			if (ResultType != Type::Surface) return std::nullopt;

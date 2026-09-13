@@ -33,6 +33,7 @@ namespace Durin
 		// Position-only edits never advance the semantic dependency revision.
 		ENGINE_API auto SetFunctionPresentation(FMaterialFunctionPresentation Candidate) -> bool;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
+		ENGINE_API auto PostLoad() -> void override;
 	private:
 
 		DPROPERTY(EditorOnly)
