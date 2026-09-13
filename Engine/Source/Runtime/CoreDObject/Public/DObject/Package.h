@@ -84,7 +84,9 @@ namespace Durin
 	private:
 		bool bGraphPrivate = false;
 		bool bPrepared = false;
-		auto CommitPreparedPackageRegistration(DPackage& Previous) noexcept -> void;
+		auto ReservePreparedPackageRegistration() -> bool;
+		auto ReleasePreparedPackageRegistration() noexcept -> void;
+		auto CommitPreparedPackageRegistration(DPackage* Previous) noexcept -> void;
 		friend class FObjectGraphReplacement;
 		// Mounted package identity; invalid only for compiled-in metadata packages.
 		FPackagePath PackagePath;

@@ -250,18 +250,20 @@ namespace Durin
 			return Fail(E::BudgetExceeded, "Replacement package count is empty or exceeds its budget.");
 		const auto All = GDObjectArray.GetAll(EObjectQueryScope::IncludeUnpublished);
 		std::unordered_set<DPackage*> Seen;
+		std::unordered_set<std::string> Paths;
 		for (const auto& Pair : Packages)
 		{
-			if (!IsValid(Pair.Current) || !IsValid(Pair.Prepared) || Pair.Current == Pair.Prepared
-				|| !Pair.Current->IsAssetPackage() || Pair.Current->IsGraphPrivate()
+			if (!IsValid(Pair.Prepared) || Pair.Current == Pair.Prepared
+				|| (Pair.Current && (!IsValid(Pair.Current) || !Pair.Current->IsAssetPackage() || Pair.Current->IsGraphPrivate()))
 				|| !Pair.Prepared->IsPreparedAssetPackage()
 				|| FindPackage(Pair.Prepared->GetPackagePath()) != Pair.Current
-				|| !Seen.insert(Pair.Current).second || !Seen.insert(Pair.Prepared).second)
+				|| (Pair.Current && !Seen.insert(Pair.Current).second) || !Seen.insert(Pair.Prepared).second
+				|| !Paths.insert(Pair.Prepared->GetPackagePath()).second)
 				return Fail(E::InvalidGraph, "Expected unique live/prepared package pairs at the same path.");
 			std::unordered_map<std::vector<FName>, DObject*, FRelativeNamesHash> Old, New;
 			for (DObject* Object : All)
 			{
-				if (Object->GetPackage() != Pair.Current && Object->GetPackage() != Pair.Prepared) continue;
+				if (Object->GetPackage() != Pair.Prepared && (!Pair.Current || Object->GetPackage() != Pair.Current)) continue;
 				if (!IsValid(Object) || Object->IsTemplateObject()) return Fail(E::InvalidGraph, "Graph contains a dead/template object.");
 				auto& Graph = Object->GetPackage() == Pair.Current ? Old : New;
 				auto Names = RelativeNames(Object, Object->GetPackage());
@@ -468,6 +470,11 @@ namespace Durin
 	}
 
 	auto FObjectGraphReplacement::GetMap() const -> const FObjectReplacementMap& { return Impl->Map; }
+	auto FObjectGraphReplacement::OwnsPreparedPackage(const DPackage& Package) const -> bool
+	{
+		return Impl->State == FImpl::EState::Prepared && Package.IsPreparedAssetPackage() &&
+			std::ranges::any_of(Impl->Packages, [&](const auto& Pair) { return Pair.Prepared == &Package; });
+	}
 
 	auto FObjectGraphReplacement::Prepare(std::span<const FObjectReplacementPackagePair> Packages,
 		std::span<const std::shared_ptr<IObjectReplacementParticipant>> Participants,
@@ -479,6 +486,7 @@ namespace Durin
 		GReplacementActive = true;
 		size_t PreparedParticipants = 0;
 		auto Reject = [&](FObjectReplacementResult Result) {
+			for (const auto& Pair : Impl->Packages) if (!Pair.Current) Pair.Prepared->ReleasePreparedPackageRegistration();
 			while (PreparedParticipants) Impl->Participants[--PreparedParticipants]->Abort();
 			Impl->Pins.clear();
 			Impl->Participants.clear();
@@ -492,6 +500,9 @@ namespace Durin
 			if (!Result) return Reject(std::move(Result));
 			Impl->Budget = Budget;
 			Impl->Packages.assign(Packages.begin(), Packages.end());
+			for (const auto& Pair : Packages)
+				if (!Pair.Current && !Pair.Prepared->ReservePreparedPackageRegistration())
+					return Reject(Fail(E::InvalidGraph, "New package path is already reserved."));
 			Impl->Participants.assign(Participants.begin(), Participants.end());
 			std::unordered_set<const IObjectReplacementParticipant*> Unique;
 			for (const auto& P : Impl->Participants)
@@ -510,7 +521,7 @@ namespace Durin
 			}
 			for (const auto& Pair : Packages)
 			{
-				Impl->PackageRevisions.push_back(Pair.Current->GetEditRevision());
+				Impl->PackageRevisions.push_back(Pair.Current ? Pair.Current->GetEditRevision() : 0);
 				Impl->PackageRevisions.push_back(Pair.Prepared->GetEditRevision());
 			}
 			for (const auto& P : Impl->Participants)
@@ -531,7 +542,7 @@ namespace Durin
 		catch (...) { return Reject(Fail(E::ParticipantRejected, "Replacement preparation callback threw.")); }
 	}
 
-	auto FObjectGraphReplacement::TryCommit() -> FObjectReplacementResult
+	auto FObjectGraphReplacement::TryCommit(const std::function<FObjectReplacementResult()>& Persist) -> FObjectReplacementResult
 	{
 		CheckThread();
 		if (GReplacementExecuting || Impl->State != FImpl::EState::Prepared) return Fail(E::Busy, "Replacement is not prepared or is executing.");
@@ -552,7 +563,7 @@ namespace Durin
 				const auto& Pair = Impl->Packages[I];
 				if (FindPackage(Pair.Prepared->GetPackagePath()) != Pair.Current
 					|| !Pair.Prepared->IsPreparedAssetPackage()
-					|| Pair.Current->GetEditRevision() != Impl->PackageRevisions[I * 2]
+					|| (Pair.Current && Pair.Current->GetEditRevision() != Impl->PackageRevisions[I * 2])
 					|| Pair.Prepared->GetEditRevision() != Impl->PackageRevisions[I * 2 + 1])
 					return Fail(E::Stale, "Package registration or edit revision changed.");
 			}
@@ -569,6 +580,11 @@ namespace Durin
 			if (GDObjectArray.GetRevision() != Impl->ArrayRevision || !Impl->CheckStrongOwners())
 				return Fail(E::Stale, "Validation changed object membership or ownership.");
 			// All fallible traversal, copies, collision checks and participant validation precede this call.
+			if (Persist)
+			{
+				const auto Persisted = Persist();
+				if (!Persisted) return Persisted;
+			}
 			CommitPrepared();
 			return {};
 		}
@@ -580,9 +596,9 @@ namespace Durin
 	{
 		for (const auto& Pair : Impl->Packages)
 		{
-			Pair.Prepared->SetStandaloneResidency(Pair.Current->HasAnyObjectFlags(EObjectFlags::Standalone));
-			Pair.Current->SetStandaloneResidency(false);
-			Pair.Prepared->CommitPreparedPackageRegistration(*Pair.Current);
+			Pair.Prepared->SetStandaloneResidency(!Pair.Current || Pair.Current->HasAnyObjectFlags(EObjectFlags::Standalone));
+			if (Pair.Current) Pair.Current->SetStandaloneResidency(false);
+			Pair.Prepared->CommitPreparedPackageRegistration(Pair.Current);
 		}
 		Impl->References.Impl->Commit();
 		for (const auto& P : Impl->Participants) P->Commit();
@@ -596,6 +612,7 @@ namespace Durin
 		if (GReplacementExecuting || Impl->State != FImpl::EState::Prepared) return;
 		FExecutionScope Execution;
 		for (auto It = Impl->Participants.rbegin(); It != Impl->Participants.rend(); ++It) (*It)->Abort();
+		for (const auto& Pair : Impl->Packages) if (!Pair.Current) Pair.Prepared->ReleasePreparedPackageRegistration();
 		for (DObject* Object : Impl->Map.GetPreparedObjects()) if (IsValid(Object)) MarkAsGarbage(Object);
 		Impl->Pins.clear();
 		Impl->State = FImpl::EState::Finished;

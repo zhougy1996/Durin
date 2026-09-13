@@ -18,9 +18,6 @@ namespace Durin::Editor::Level
 		SourcePathBuffer.fill(0);
 		Coordinates.Reset();
 		DestinationDirectory.Reset(InDestinationDirectory);
-		std::string Error;
-		if (!AssetForge::Builtins::EnsureImportedSurfaceMaterial(Error))
-			SetError(std::move(Error));
 		ModalState.RequestOpen();
 	}
 

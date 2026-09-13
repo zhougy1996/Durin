@@ -292,7 +292,23 @@ map/UV binding for those three channels. Missing maps retain existing PBR defaul
 and import-derived channel layouts remain unchanged. Normal strength and emissive
 factors already baked during import are not applied a second time.
 
-`ImportedSurface` connects final property values directly to Surface.
+New scene imports select a structural parent under the destination mount's
+`Materials/ImportedParents/Surface_v1_<digest>` directory. The key records sample
+groups, channel outputs and required value/UV operations, excluding resource paths
+and ordinary parameter values. Parents carry editor-only recipe provenance and
+must exactly match the generated program before reuse; authored changes are
+preserved and reported as conflicts. Instances publish only declared owners and
+retain a logical-role/value import receipt. Equal linear ORM resources, UVs and
+samplers share one sample; different sampling requirements remain separate.
+Identity UVs stay local. Source samplers, transforms and alpha factors are retained;
+normal strength, emissive color and nonidentity occlusion strength are baked once.
+New scene parents and outputs remain private through compilation and persistence.
+Failed saves restore package/bulk bytes and discard candidates; successful saves
+publish the complete in-memory set together. Reused parents remain read-only.
+The current scene entry point still rejects existing output paths; coordinated
+scene reimport is not yet available.
+
+The historical `ImportedSurface` connects final property values directly to Surface.
 There is no ImportedSurfaceValues call or intermediate aggregate Surface wire in
 this template. Its 65 expression nodes include 48 parameter owners, eight
 TextureCoordinates nodes, one DecodeImportedNormalRG call and explicit upstream

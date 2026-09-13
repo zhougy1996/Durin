@@ -2,6 +2,7 @@
 
 #include "CoreDObjectAPI.h"
 #include "DObject/ObjectHandle.h"
+#include <functional>
 
 namespace Durin
 {
@@ -24,6 +25,7 @@ namespace Durin
 	};
 
 	// Current stays registered until Prepared and every reference plan can commit together.
+	// A null Current denotes a new package; its reserved path remains invisible until commit.
 	struct FObjectReplacementPackagePair
 	{
 		DPackage* Current = nullptr;
@@ -105,11 +107,16 @@ namespace Durin
 			std::span<const std::shared_ptr<IObjectReplacementParticipant>> Participants = {},
 			const FObjectReplacementBudget& Budget = {}) -> FObjectReplacementResult;
 		// Revalidates and consumes the prepared writes without yielding to an observer.
-		COREDOBJECT_API auto TryCommit() -> FObjectReplacementResult;
+		// Optional persistence runs after final validation and before the non-failing
+		// memory commit. It must be synchronous, must not mutate object graphs or
+		// reenter replacement/GC, and must roll back its own writes on failure.
+		COREDOBJECT_API auto TryCommit(
+			const std::function<FObjectReplacementResult()>& Persist = {}) -> FObjectReplacementResult;
 		COREDOBJECT_API auto Abort() noexcept -> void;
 		// False means a participant or new external strong reference still retains the old graph.
 		COREDOBJECT_API auto Retire() -> bool;
 		COREDOBJECT_API auto GetMap() const -> const FObjectReplacementMap&;
+		COREDOBJECT_API auto OwnsPreparedPackage(const DPackage& Package) const -> bool;
 
 	private:
 		struct FImpl;

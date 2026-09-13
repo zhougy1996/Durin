@@ -11,6 +11,8 @@
 #include "RenderingThread.h"
 #include "AssetForge/Builtins/SceneImport.h"
 #include "AssetForge/Builtins/StandardMaterialFunctions.h"
+#include "AssetForge/Builtins/ImportedSurfaceRecipe.h"
+#include "Hash/XxHash.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialProgramCompiler.h"
 #include "EditorReimportHandler.h"
@@ -90,7 +92,7 @@ namespace
 					.Root = Root / "Project/Content", .bAutoScan = true,
 					.bContentWritable = true, .Dependencies = {"/Engine/"}}});
 		EXPECT_TRUE(Mounts->IsValid()) << Mounts->GetError();
-		EXPECT_NE(Durin::AssetForge::Builtins::EnsureImportedSurfaceMaterial(Error), nullptr) << Error;
+		EXPECT_TRUE(Durin::RefreshAssetRegistry());
 		const std::filesystem::path Input = std::filesystem::path(DURIN_TEST_DATA_DIR)
 			/ FixturePath;
 		const std::string Extension = Input.extension().generic_string();
@@ -132,6 +134,15 @@ TEST(FSceneImportTests, AssetForgePublishesHeterogeneousGraph)
 		EXPECT_NE(Object, nullptr);
 		if (auto* Material = Durin::Cast<Durin::DMaterialInstance>(Object))
 		{
+			auto* Parent = Durin::Cast<Durin::DMaterial>(Material->GetParent());
+			ASSERT_NE(Parent, nullptr);
+			EXPECT_TRUE(Parent->GetPackage()->GetPackagePath().starts_with("/SceneImportTests/Materials/ImportedParents/Surface_v1_"));
+			EXPECT_EQ(Parent->GetImportProvenance().StructuralKey, Material->GetImportProvenance().StructuralKey);
+			EXPECT_EQ(Material->GetImportProvenance().OutputIdentity, Output.StableIdentity);
+			EXPECT_LT(Parent->GetParameterDefinitions().size(), 48u);
+			EXPECT_EQ(Material->GetParameterOverrides().size(), Parent->GetParameterDefinitions().size());
+			EXPECT_EQ(std::ranges::count(Parent->GetMaterialProgram()->Nodes,
+				Durin::EMaterialProgramOpcode::TextureSampleParameter2D, &Durin::FMaterialProgramNode::Opcode), 1);
 			EXPECT_TRUE(Material->GetMaterialCompileStatus().IsCurrent());
 			EXPECT_TRUE(Material->GetAcceptedCompiledProgram());
 			EXPECT_TRUE(Material->GetPropertyOverrides().bOverrideBlendMode);
@@ -173,6 +184,203 @@ TEST(FSceneImportTests, AssetForgePublishesHeterogeneousGraph)
 	ASSERT_TRUE(Reimported) << Reimported.Message;
 	EXPECT_TRUE(std::ranges::equal(ReimportMesh.Asset->GetMaterialSlots(), Slots));
 
+}
+
+TEST(FSceneImportTests, FailedPublicationDiscardsGeneratedParentAndRetrySucceeds)
+{
+	using namespace Durin;
+	using namespace Durin::AssetForge::Builtins;
+	const auto Fixture = InitializeFixture("PublicationRollback");
+	std::ifstream Input(Fixture.Source);
+	std::string Source((std::istreambuf_iterator<char>(Input)), {});
+	Input.close();
+	const std::string Factor = "\"baseColorFactor\": [0.5, 0.75, 0.25, 1.0]";
+	const auto Position = Source.find(Factor);
+	ASSERT_NE(Position, std::string::npos);
+	Source.replace(Position, Factor.size(), "\"baseColorFactor\":[1,1,1,1],\"metallicFactor\":0,\"roughnessFactor\":0.5");
+	std::ofstream OutputFile(Fixture.Source, std::ios::trunc);
+	OutputFile << Source;
+	OutputFile.close();
+	std::array<FImportedSurfaceRole, 8> Roles;
+	const FMaterialSurfaceOutputs Defaults;
+	for (uint32 I = 0; I < 8; ++I) Roles[I].Value = GetMaterialSurfaceOutputDefault(Defaults, static_cast<EMaterialSurfaceOutput>(I));
+	Roles[0].Value = {1, 1, 1};
+	Roles[0].Sample = FImportedSurfaceSample{.ResourceIdentity = "irrelevant"};
+	const auto Recipe = MakeImportedSurfaceRecipe(Roles);
+	const auto ParentPath = MakeAssetPath("/SceneImportTests/Materials/ImportedParents/Surface_v1_" +
+		FXxHash128::HashBuffer(std::as_bytes(std::span(Recipe.CanonicalKey))).ToString());
+	ASSERT_FALSE(FindAssetExact(ParentPath));
+	ASSERT_EQ(FindResidentPackage(ParentPath), nullptr);
+	for (const auto Failure : {EAssetBundleSavePhase::CreateDirectories, EAssetBundleSavePhase::StagePackage,
+		EAssetBundleSavePhase::PublishPackage, EAssetBundleSavePhase::PublishRootPackage, EAssetBundleSavePhase::PublishRegistry})
+	{
+		FSceneImportResult Failed;
+		bool bInjected = false;
+		ASSERT_FALSE(ImportSceneAssets(Fixture.Source, Fixture.DestinationDirectory,
+			FStaticMeshImportSettings::MakeDurin(), Failed, {}, {.ShouldFail = [&](EAssetBundleSavePhase Phase, size_t) {
+				EXPECT_EQ(FindResidentPackage(ParentPath), nullptr);
+				for (const auto& Output : Failed.Outputs) EXPECT_EQ(FindResidentPackage(Output.AssetPath), nullptr);
+				if (Phase != Failure) return false;
+				bInjected = true;
+				return true;
+			}}));
+		EXPECT_TRUE(bInjected);
+		EXPECT_FALSE(Failed.bSucceeded);
+		EXPECT_FALSE(Failed.bPersisted);
+		EXPECT_EQ(FindResidentPackage(ParentPath), nullptr);
+		EXPECT_FALSE(FindAssetExact(ParentPath));
+		for (const auto& Output : Failed.Outputs)
+		{
+			EXPECT_EQ(FindResidentPackage(Output.AssetPath), nullptr);
+			EXPECT_FALSE(FindAssetExact(Output.AssetPath));
+		}
+	}
+	const auto Retried = RunScene(Fixture);
+	ASSERT_TRUE(Retried) << Retried.Message;
+	EXPECT_TRUE(Retried.bPersisted);
+	EXPECT_TRUE(FindAssetExact(ParentPath));
+	auto* Parent = Cast<DMaterial>(FindResidentPackage(ParentPath)->FindTopLevelAsset(FName(ParentPath.GetPackageName())));
+	ASSERT_NE(Parent, nullptr);
+	EXPECT_EQ(Parent->GetMaterialProgram()->Nodes.size(), 1u);
+	EXPECT_EQ(Parent->GetParameterDefinitions().size(), 1u);
+}
+
+TEST(FSceneImportTests, SourceTransformsMaskFactorAndTexturelessEmissiveArePublished)
+{
+	using namespace Durin;
+	const auto Fixture = InitializeFixture("SourceValues");
+	std::ifstream Input(Fixture.Source);
+	std::string Source((std::istreambuf_iterator<char>(Input)), {});
+	Input.close();
+	const auto Replace = [&](std::string_view Old, std::string_view New) {
+		const auto Position = Source.find(Old);
+		if (Position == std::string::npos) return false;
+		Source.replace(Position, Old.size(), New);
+		return true;
+	};
+	ASSERT_TRUE(Replace("\"baseColorTexture\": {\"index\": 0}",
+		R"("baseColorTexture": {"index":0,"texCoord":1,"extensions":{"KHR_texture_transform":{"offset":[0.25,0.5],"scale":[2,3],"rotation":0.4}}})"));
+	ASSERT_TRUE(Replace("[0.5, 0.75, 0.25, 1.0]", "[0.5, 0.75, 0.25, 0.4]"));
+	ASSERT_TRUE(Replace("\"textures\": [{\"source\": 0}]",
+		R"("samplers":[{"minFilter":9728,"magFilter":9728,"wrapS":33071,"wrapT":33648}],"textures":[{"source":0,"sampler":0}])"));
+	ASSERT_TRUE(Replace("\"pbrMetallicRoughness\":", "\"alphaMode\":\"MASK\",\"emissiveFactor\":[2,3,4],\"pbrMetallicRoughness\":"));
+	std::ofstream OutputFile(Fixture.Source, std::ios::trunc);
+	OutputFile << Source;
+	OutputFile.close();
+	const auto Imported = RunScene(Fixture);
+	ASSERT_TRUE(Imported) << Imported.Message;
+	DMaterialInstance* Instance = nullptr;
+	for (const auto& Output : Imported.Outputs)
+		if (Output.Role == "MaterialInstance")
+			ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath), Instance));
+	ASSERT_NE(Instance, nullptr);
+	using Kind = MaterialParameters::EMaterialBuiltinParameterKind;
+	FResolvedMaterialParameter Parameter;
+	ASSERT_TRUE(Instance->ResolveParameterValue(GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::BaseColor, Kind::Texture), Parameter));
+	EXPECT_EQ(Parameter.Value.SamplerState.MinFilter, EMaterialSamplerMinFilter::Nearest);
+	EXPECT_EQ(Parameter.Value.SamplerState.MagFilter, EMaterialSamplerMagFilter::Nearest);
+	EXPECT_EQ(Parameter.Value.SamplerState.AddressU, EMaterialSamplerAddressMode::ClampToEdge);
+	EXPECT_EQ(Parameter.Value.SamplerState.AddressV, EMaterialSamplerAddressMode::MirroredRepeat);
+	ASSERT_TRUE(Instance->ResolveParameterValue(GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::BaseColor, Kind::UVChannel), Parameter));
+	EXPECT_EQ(Parameter.Value.ScalarValue, 1);
+	ASSERT_TRUE(Instance->ResolveParameterValue(GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::BaseColor, Kind::UVScale), Parameter));
+	EXPECT_EQ(Parameter.Value.Vector2Value, FVector2(2, 3));
+	ASSERT_TRUE(Instance->ResolveParameterValue(GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::BaseColor, Kind::UVOffset), Parameter));
+	EXPECT_EQ(Parameter.Value.Vector2Value, FVector2(.25, .5));
+	ASSERT_TRUE(Instance->ResolveParameterValue(GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::BaseColor, Kind::UVRotation), Parameter));
+	EXPECT_FLOAT_EQ(Parameter.Value.ScalarValue, .4f);
+	ASSERT_TRUE(Instance->ResolveParameterValue(GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::OpacityMask, Kind::Value), Parameter));
+	EXPECT_FLOAT_EQ(Parameter.Value.ScalarValue, .4f);
+	ASSERT_TRUE(Instance->ResolveParameterValue(GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::Emissive, Kind::Value), Parameter));
+	EXPECT_EQ(Parameter.Value.VectorValue, FVector3(2, 3, 4));
+	EXPECT_EQ(Instance->FindParameterDefinition(GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::Emissive, Kind::Texture)), nullptr);
+	EXPECT_EQ(Instance->FindParameterDefinition(GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::Opacity, Kind::Value)), nullptr);
+}
+
+TEST(FSceneImportTests, PackedSourceChannelsPublishOneLinearSampleOwner)
+{
+	using namespace Durin;
+	const auto Fixture = InitializeFixture("PackedChannels");
+	std::ifstream Input(Fixture.Source);
+	std::string Source((std::istreambuf_iterator<char>(Input)), {});
+	Input.close();
+	const std::string TextureField = "\"baseColorTexture\": {\"index\": 0}";
+	const auto TexturePosition = Source.find(TextureField);
+	ASSERT_NE(TexturePosition, std::string::npos);
+	Source.replace(TexturePosition, TextureField.size(), "\"metallicRoughnessTexture\": {\"index\": 0}");
+	const auto MaterialPosition = Source.find("\"pbrMetallicRoughness\":");
+	ASSERT_NE(MaterialPosition, std::string::npos);
+	Source.insert(MaterialPosition, "\"occlusionTexture\": {\"index\": 0}, ");
+	std::ofstream OutputFile(Fixture.Source, std::ios::trunc);
+	OutputFile << Source;
+	OutputFile.close();
+	const auto Imported = RunScene(Fixture);
+	ASSERT_TRUE(Imported) << Imported.Message;
+	DMaterialInstance* Instance = nullptr;
+	uint32 TextureCount = 0;
+	for (const auto& Output : Imported.Outputs)
+	{
+		if (Output.AssetClassName == "Durin::DTexture2D") ++TextureCount;
+		if (Output.Role == "MaterialInstance")
+			ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath), Instance));
+	}
+	ASSERT_NE(Instance, nullptr);
+	EXPECT_EQ(TextureCount, 1u);
+	const auto& Program = *Instance->GetMaterialProgram();
+	EXPECT_EQ(std::ranges::count(Program.Nodes, EMaterialProgramOpcode::TextureSampleParameter2D,
+		&FMaterialProgramNode::Opcode), 1);
+	EXPECT_EQ(Program.Outputs.Metallic.SourceNodeId, Program.Outputs.Roughness.SourceNodeId);
+	EXPECT_EQ(Program.Outputs.Metallic.SourceNodeId, Program.Outputs.AmbientOcclusion.SourceNodeId);
+	EXPECT_EQ(Program.Outputs.Metallic.SourceOutputIndex, 4);
+	EXPECT_EQ(Program.Outputs.Roughness.SourceOutputIndex, 3);
+	EXPECT_EQ(Program.Outputs.AmbientOcclusion.SourceOutputIndex, 2);
+	EXPECT_EQ(Instance->GetParameterDefinitions().size(), 2u);
+	EXPECT_EQ(Instance->GetParameterOverrides().size(), 2u);
+	EXPECT_EQ(Instance->GetImportProvenance().Parameters.size(), 4u);
+	DTexture2D* Texture = nullptr;
+	ASSERT_TRUE(Instance->GetTextureParameterValue(MaterialParameters::MetallicTextureName(), Texture));
+	ASSERT_NE(Texture, nullptr);
+	EXPECT_EQ(Texture->GetUsage(), ETextureUsage::DataMask);
+}
+
+TEST(FSceneImportTests, StructuralParentsReuseAcrossDestinationsAndRejectAuthoredChanges)
+{
+	using namespace Durin;
+	using namespace Durin::AssetForge::Builtins;
+	const auto Fixture = InitializeFixture("ParentReuse");
+	const auto First = RunScene(Fixture);
+	ASSERT_TRUE(First) << First.Message;
+	DMaterialInstance* Instance = nullptr;
+	for (const auto& Output : First.Outputs)
+		if (Output.Role == "MaterialInstance")
+			ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath), Instance));
+	ASSERT_NE(Instance, nullptr);
+	auto* Parent = Cast<DMaterial>(Instance->GetParent());
+	ASSERT_NE(Parent, nullptr);
+	const auto Revision = Parent->GetPackage()->GetEditRevision();
+	FSceneImportResult Second;
+	ASSERT_TRUE(ImportSceneAssets(Fixture.Source, MakeAssetPath("/SceneImportTests/Second"),
+		FStaticMeshImportSettings::MakeDurin(), Second)) << Second.Message;
+	for (const auto& Output : Second.Outputs)
+		if (Output.Role == "MaterialInstance")
+		{
+			DMaterialInstance* Reused = nullptr;
+			ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath), Reused));
+			EXPECT_EQ(Reused->GetParent(), Parent);
+		}
+	EXPECT_EQ(Parent->GetPackage()->GetEditRevision(), Revision);
+	EXPECT_FALSE(Parent->GetPackage()->IsDirty());
+	const auto Original = *Parent->GetMaterialProgram();
+	auto Changed = Original;
+	Changed.Outputs.AmbientOcclusionDefault.X = .3f;
+	ASSERT_TRUE(Parent->SetMaterialProgram(Changed));
+	FSceneImportResult Rejected;
+	EXPECT_FALSE(ImportSceneAssets(Fixture.Source, MakeAssetPath("/SceneImportTests/Rejected"),
+		FStaticMeshImportSettings::MakeDurin(), Rejected));
+	EXPECT_NE(Rejected.Message.find("modified"), std::string::npos);
+	EXPECT_EQ(*Parent->GetMaterialProgram(), Changed);
+	for (const auto& Output : Rejected.Outputs) EXPECT_FALSE(FindAssetExact(Output.AssetPath));
+	ASSERT_TRUE(Parent->SetMaterialProgram(Original));
 }
 
 TEST(FSceneImportTests, AssetForgeRejectsUnsupportedSceneFeaturesWithoutPartialPublication)

@@ -1,6 +1,7 @@
 #include "MaterialTestSupport.h"
 #include "ExplicitMaterialProgramTestFixture.h"
 #include "StandardMaterialFunctionTestFixture.h"
+#include "AssetForge/Builtins/ImportedSurfaceRecipe.h"
 #include "Materials/MaterialFunction.h"
 #include "Asset/Testing.h"
 #include "Asset/References.h"
@@ -39,6 +40,64 @@ namespace
 		Graph.Nodes[1].Inputs[0] = {.SourceNodeId = CallId, .SourceOutputId = Output.Id};
 		ASSERT_TRUE(Caller.SetFunctionGraph(std::move(Graph)));
 	}
+}
+
+TEST(FMaterialFunctionTests, StructuralImportRecipesExposeOnlyRequiredOwners)
+{
+	using namespace Durin;
+	using namespace Durin::AssetForge::Builtins;
+	InitializeDObjectSystem();
+	FScopedOfflinePreparation Offline;
+	std::array<FImportedSurfaceRole, 8> Roles;
+	const FMaterialSurfaceOutputs Defaults;
+	for (uint32 I = 0; I < 8; ++I)
+		Roles[I].Value = GetMaterialSurfaceOutputDefault(Defaults, static_cast<EMaterialSurfaceOutput>(I));
+	const auto Empty = MakeImportedSurfaceRecipe(Roles);
+	EXPECT_TRUE(Empty.Program.Nodes.empty());
+	EXPECT_TRUE(Empty.Owners.empty());
+	Roles[0].Sample = FImportedSurfaceSample{.ResourceIdentity = "first"};
+	Roles[0].Value = {1, 1, 1};
+	const auto Plain = MakeImportedSurfaceRecipe(Roles);
+	ASSERT_EQ(Plain.Program.Nodes.size(), 1u);
+	EXPECT_EQ(Plain.Owners.size(), 1u);
+	Roles[0].Sample->ResourceIdentity = "second";
+	Roles[0].Sample->Sampler.AddressU = EMaterialSamplerAddressMode::ClampToEdge;
+	const auto Renamed = MakeImportedSurfaceRecipe(Roles);
+	EXPECT_EQ(Plain.CanonicalKey, Renamed.CanonicalKey);
+	EXPECT_EQ(Plain.Program, Renamed.Program);
+	Roles[0].Value = {.2f, .3f, .4f};
+	Roles[0].Sample->UVOffset = {.25f, .5f};
+	const auto Transformed = MakeImportedSurfaceRecipe(Roles);
+	EXPECT_EQ(Transformed.Program.Nodes.size(), 5u);
+	EXPECT_EQ(Transformed.Owners.size(), 3u);
+	Roles[0].Value = {.6f, .7f, .8f};
+	Roles[0].Sample->UVOffset = {.75f, .25f};
+	const auto OtherValues = MakeImportedSurfaceRecipe(Roles);
+	EXPECT_EQ(Transformed.CanonicalKey, OtherValues.CanonicalKey);
+	EXPECT_EQ(Transformed.Program, OtherValues.Program);
+	auto* Material = NewObject<DMaterial>(nullptr, "StructuralImportRecipe");
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	ASSERT_TRUE(Material->SetMaterialProgram(OtherValues.Program));
+	Roles[2].Value = {1};
+	Roles[3].Value = {1};
+	Roles[2].Sample = FImportedSurfaceSample{.ResourceIdentity = "packed", .Usage = ETextureUsage::DataMask, .OutputIndex = 4};
+	Roles[3].Sample = FImportedSurfaceSample{.ResourceIdentity = "packed", .Usage = ETextureUsage::DataMask, .OutputIndex = 3};
+	const auto Packed = MakeImportedSurfaceRecipe(Roles);
+	EXPECT_EQ(Packed.Program.Nodes.size(), 6u);
+	EXPECT_EQ(Packed.Program.Outputs.Metallic.SourceNodeId, Packed.Program.Outputs.Roughness.SourceNodeId);
+	ASSERT_TRUE(Material->SetMaterialProgram(Packed.Program));
+	Roles[3].Sample->UVChannel = {1};
+	const auto Split = MakeImportedSurfaceRecipe(Roles);
+	EXPECT_NE(Packed.CanonicalKey, Split.CanonicalKey);
+	EXPECT_NE(Split.Program.Outputs.Metallic.SourceNodeId, Split.Program.Outputs.Roughness.SourceNodeId);
+	ASSERT_TRUE(Material->SetMaterialProgram(Split.Program));
+	Roles[1].Sample = FImportedSurfaceSample{.ResourceIdentity = "normal", .Usage = ETextureUsage::Normal,
+		.OutputIndex = 6, .bDecodeNormal = true};
+	const auto Normal = MakeImportedSurfaceRecipe(Roles);
+	EXPECT_EQ(Normal.Program.Nodes.size(), Split.Program.Nodes.size() + 2);
+	ASSERT_TRUE(Material->SetMaterialProgram(Normal.Program));
+	Roles[1].Sample.reset();
+	EXPECT_EQ(MakeImportedSurfaceRecipe(Roles).Program, Split.Program);
 }
 
 TEST(FMaterialFunctionTests, ExpandedAndFunctionRecipesPreserveCompilationAndIndependentOverrides)
@@ -995,6 +1054,104 @@ TEST(FMaterialFunctionTests, RootCallsCommitAtomicallyAndSnapshotThroughInstance
 	MarkAsGarbage(Instance);
 	MarkAsGarbage(Material);
 	MarkAsGarbage(Function);
+	CollectGarbage();
+}
+
+TEST(FMaterialFunctionTests, ImportedOverridesSurviveSplitAndRejectConflictingMerge)
+{
+	using namespace Durin;
+	using namespace Durin::AssetForge::Builtins;
+	const FGuid A{1, 2, 3, 1}, B{1, 2, 3, 2};
+	const auto Value = [](float X) { return FMaterialParameterValue::MakeScalar(X); };
+	FMaterialImportProvenance Shared, Split;
+	Shared.Parameters = {{A, A, EMaterialParameterType::Scalar, Value(1)},
+		{B, A, EMaterialParameterType::Scalar, Value(1)}};
+	Split.Parameters = {{A, A, EMaterialParameterType::Scalar, Value(.2f)},
+		{B, B, EMaterialParameterType::Scalar, Value(.3f)}};
+	std::vector<FMaterialParameterOverride> Local{{A, EMaterialParameterType::Scalar, Value(.7f)}};
+	std::vector<FMaterialParameterOverride> Result;
+	std::vector<std::string> Diagnostics;
+	ASSERT_TRUE(ReconcileImportedSurfaceOverrides(Shared, Local, Split, Result, Diagnostics));
+	ASSERT_EQ(Result.size(), 2u);
+	EXPECT_EQ(Result[0].Value, Value(.7f));
+	EXPECT_EQ(Result[1].Value, Value(.7f));
+	Local = Result;
+	Local[1].Value = Value(.8f);
+	Result.clear();
+	EXPECT_FALSE(ReconcileImportedSurfaceOverrides(Split, Local, Shared, Result, Diagnostics));
+	EXPECT_TRUE(Result.empty());
+	EXPECT_FALSE(Diagnostics.empty());
+	Local[1].Value = Value(.7f);
+	ASSERT_TRUE(ReconcileImportedSurfaceOverrides(Split, Local, Shared, Result, Diagnostics));
+	ASSERT_EQ(Result.size(), 1u);
+	EXPECT_EQ(Result[0].Value, Value(.7f));
+	FMaterialImportProvenance Absent;
+	ASSERT_TRUE(ReconcileImportedSurfaceOverrides(Split, Local, Absent, Result, Diagnostics));
+	EXPECT_EQ(Result.size(), 2u);
+	EXPECT_EQ(Diagnostics.size(), 2u);
+	Local = {{A, EMaterialParameterType::Scalar, Value(.2f)},
+		{B, EMaterialParameterType::Scalar, Value(.3f)}};
+	ASSERT_TRUE(ReconcileImportedSurfaceOverrides(Split, Local, Absent, Result, Diagnostics));
+	EXPECT_TRUE(Result.empty());
+	EXPECT_TRUE(Diagnostics.empty());
+	ASSERT_TRUE(ReconcileImportedSurfaceOverrides(Split, Local, Shared, Result, Diagnostics));
+	ASSERT_EQ(Result.size(), 1u);
+	EXPECT_EQ(Result[0].Value, Value(1));
+}
+
+TEST(FMaterialFunctionTests, ImportProvenanceRoundtripsWithoutChangingGraphOrCompileRevision)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	FScopedOfflinePreparation Offline;
+	const auto Root = Testing::CreateTestFixtureDirectory("ImportProvenance");
+	const std::array Mounts{FMountPoint{.VirtualRoot = "/ImportProvenance/", .Owner = EMountOwner::Test,
+		.Root = Root, .bAutoScan = true, .bContentWritable = true}};
+	Testing::FScopedMountRegistryFixture Registry(Mounts);
+	ASSERT_TRUE(Registry.IsValid());
+	ASSERT_TRUE(RefreshAssetRegistry());
+	FPackagePath ParentPath, InstancePath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/ImportProvenance/Parent", ParentPath));
+	ASSERT_TRUE(FPackagePath::TryCreate("/ImportProvenance/Instance", InstancePath));
+	DMaterial* Parent = nullptr;
+	DMaterialInstance* Instance = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(ParentPath, Parent));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(InstancePath, Instance));
+	Parent->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	ASSERT_TRUE(Instance->SetParent(Parent));
+	const auto Program = *Parent->GetMaterialProgram();
+	const auto Revision = Parent->GetMaterialCompileStatus().AuthoredRevision;
+	const FMaterialImportProvenance ParentReceipt{.RecipeId = "Durin.ImportedSurface", .RecipeVersion = 1,
+		.StructuralKey = "Durin.ImportedSurface:1;d;d;d;d;d;d;d;d"};
+	auto InstanceReceipt = ParentReceipt;
+	InstanceReceipt.SourceIdentity = "source.gltf";
+	InstanceReceipt.OutputIdentity = "scene:material:stable";
+	const auto LogicalId = GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::Metallic,
+		MaterialParameters::EMaterialBuiltinParameterKind::Value);
+	InstanceReceipt.Parameters.push_back({LogicalId, LogicalId, EMaterialParameterType::Scalar,
+		FMaterialParameterValue::MakeScalar(.4f)});
+	ASSERT_TRUE(Parent->SetImportProvenance(ParentReceipt));
+	ASSERT_TRUE(Instance->SetImportProvenance(InstanceReceipt));
+	EXPECT_EQ(Parent->GetMaterialCompileStatus().AuthoredRevision, Revision);
+	EXPECT_EQ(*Parent->GetMaterialProgram(), Program);
+	EXPECT_TRUE(Parent->GetParameterDefinitions().empty());
+	auto Invalid = InstanceReceipt;
+	Invalid.Parameters.push_back(Invalid.Parameters.front());
+	EXPECT_FALSE(Instance->SetImportProvenance(Invalid));
+	EXPECT_EQ(Instance->GetImportProvenance(), InstanceReceipt);
+	ASSERT_TRUE(SavePackage(Parent->GetPackage()));
+	ASSERT_TRUE(SavePackage(Instance->GetPackage()));
+	ASSERT_TRUE(UnloadPackage(InstancePath));
+	ASSERT_TRUE(UnloadPackage(ParentPath));
+	CollectGarbage();
+	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(InstancePath), Instance));
+	Parent = Cast<DMaterial>(Instance->GetParent());
+	ASSERT_NE(Parent, nullptr);
+	EXPECT_EQ(Parent->GetImportProvenance(), ParentReceipt);
+	EXPECT_EQ(Instance->GetImportProvenance(), InstanceReceipt);
+	EXPECT_EQ(*Parent->GetMaterialProgram(), Program);
+	ASSERT_TRUE(UnloadPackage(InstancePath));
+	ASSERT_TRUE(UnloadPackage(ParentPath));
 	CollectGarbage();
 }
 

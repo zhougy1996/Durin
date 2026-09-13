@@ -282,6 +282,14 @@ restores the prior closure and leaves the package retryably Dirty. Registry
 failure after authored commit keeps valid bytes, fences the affected path, and
 returns `ContentCommittedProjectionPending` for reconciliation.
 
+Transactions owning a complete candidate set can opt into
+`bRollbackOnRegistryFailure`, restoring prior package/bulk bytes instead of
+committing a projection-pending result. A `PreparedPublication` token admits only
+private packages owned by that active object-graph operation. Scene import uses
+both options inside the operation's final persistence callback: successful disk
+and Registry publication is immediately followed by the non-failing memory
+commit. Other save callers retain the ordinary policy above.
+
 Load resolves v9 policy, validates the complete main/bulk closure, and obtains
 one detached `FLinkerTables`. Engine then validates registered classes and
 fields, creates all package/export skeletons and Outer links unpublished,

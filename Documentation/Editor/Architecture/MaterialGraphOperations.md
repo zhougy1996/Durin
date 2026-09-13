@@ -87,9 +87,11 @@ and per-document controller state. None of those values are serialized.
 ## Standard function authoring
 
 The shipped library lives in `/Engine/Materials/Functions` and uses the same
-function workspace, typed calls and transactions as user assets. ImportedSurface
-currently has 65 expression nodes, including 48 owners, eight samples and one
-normal decode call, connected to the same Surface root as new materials. Final
+function workspace, typed calls and transactions as user assets. New scene imports
+use structural parents with only source-required owners and sample branches.
+Open Parent Material on an imported instance to inspect its generated graph.
+The historical ImportedSurface has 65 expression nodes and is no longer selected
+by new scene imports. Both use the same Surface root as new materials. Final
 numerical output policy belongs to Engine's evaluator, not imported Clamp nodes.
 Open a call to edit its function; shared semantic edits update loaded callers and
 previews through the ordinary dependency lifecycle. Preserve port GUIDs when

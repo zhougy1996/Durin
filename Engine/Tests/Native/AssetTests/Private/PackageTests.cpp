@@ -2928,6 +2928,53 @@ TEST(FPackageAssetTests, PreparedClosureReadsSavedBytesWithoutChangingLivePackag
 	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(Path));
 }
 
+TEST(FPackageAssetTests, TransactionalRegistryFailureRestoresOldAndNewClosures)
+{
+	using namespace Durin;
+	InitializeAssetTests();
+	FPackagePath ExistingPath, NewPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/TransactionalExisting", ExistingPath));
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/TransactionalNew", NewPath));
+	DBulkPackageAssetForTest* Existing = nullptr;
+	DBulkPackageAssetForTest* Added = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(ExistingPath, Existing));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(NewPath, Added));
+	const FByteBuffer Original(EditorBulkDataExternalThreshold + 1, std::byte{0x51});
+	const FByteBuffer Edited(Original.size(), std::byte{0x73});
+	ASSERT_TRUE(Existing->Payload.UpdatePayload(Original));
+	ASSERT_TRUE(SavePackage(Existing->GetPackage()));
+	const auto Root = Testing::GetTestWorkDirectory() / "Assets";
+	FByteBuffer BeforeMain, BeforeBulk;
+	ASSERT_TRUE(FFileHelper::LoadFileToArray(BeforeMain, Root / "TransactionalExisting.dasset"));
+	ASSERT_TRUE(FFileHelper::LoadFileToArray(BeforeBulk, Root / "TransactionalExisting.dbulk"));
+	ASSERT_TRUE(Existing->Payload.UpdatePayload(Edited));
+	ASSERT_TRUE(Added->Payload.UpdatePayload(Edited));
+	Existing->GetPackage()->MarkDirty();
+	Added->GetPackage()->MarkDirty();
+	const auto Projection = CaptureAssetRegistryPublication();
+	DPackage* Packages[]{Existing->GetPackage(), Added->GetPackage()};
+	const auto Failed = SavePackagesAtomically(Packages, {.RootPackage = Added->GetPackage(),
+		.ShouldFail = [](EAssetBundleSavePhase Phase, size_t) { return Phase == EAssetBundleSavePhase::PublishRegistry; },
+		.bRollbackOnRegistryFailure = true});
+	EXPECT_FALSE(Failed);
+	EXPECT_NE(Failed.Disposition, EAssetResultDisposition::ContentCommittedProjectionPending);
+	FByteBuffer AfterMain, AfterBulk;
+	ASSERT_TRUE(FFileHelper::LoadFileToArray(AfterMain, Root / "TransactionalExisting.dasset"));
+	ASSERT_TRUE(FFileHelper::LoadFileToArray(AfterBulk, Root / "TransactionalExisting.dbulk"));
+	EXPECT_EQ(AfterMain, BeforeMain);
+	EXPECT_EQ(AfterBulk, BeforeBulk);
+	EXPECT_FALSE(std::filesystem::exists(Root / "TransactionalNew.dasset"));
+	EXPECT_FALSE(std::filesystem::exists(Root / "TransactionalNew.dbulk"));
+	EXPECT_TRUE(Existing->GetPackage()->IsDirty());
+	EXPECT_TRUE(Added->GetPackage()->IsDirty());
+	EXPECT_EQ(CaptureAssetRegistryPublication().ExpectedRevision, Projection.ExpectedRevision);
+	EXPECT_FALSE(IsAssetRegistryProjectionFenced(ExistingPath));
+	EXPECT_FALSE(IsAssetRegistryProjectionFenced(NewPath));
+	ASSERT_TRUE(SavePackagesAtomically(Packages, {.bRollbackOnRegistryFailure = true}));
+	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(NewPath));
+	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(ExistingPath));
+}
+
 TEST(FPackageAssetTests, RegistryFailureKeepsCommittedStableClosure)
 {
 	InitializeAssetTests();

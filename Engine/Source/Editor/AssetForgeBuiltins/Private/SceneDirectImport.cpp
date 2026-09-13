@@ -1,10 +1,12 @@
 #include "AssetForge/Builtins/SceneImport.h"
+#include "Hash/XxHash.h"
 
 #include "Asset/Asset.h"
 #include "Asset/AssetCompilingManager.h"
 #include "Asset/SourceHint.h"
 #include "Asset/PackageSerialization.h"
 #include "DObject/Package.h"
+#include "DObject/ObjectGraphReplacement.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Asset/AssetImportData.h"
@@ -61,6 +63,17 @@ namespace Durin::AssetForge::Builtins
 			FSceneTextureBuildProduct Texture;
 			DObject* Candidate = nullptr;
 			DPackage* Package = nullptr;
+		};
+		struct FGeneratedParentScope
+		{
+			std::vector<DPackage*> Packages;
+			bool bRetain = false;
+			~FGeneratedParentScope()
+			{
+				if (!bRetain)
+					for (auto It = Packages.rbegin(); It != Packages.rend(); ++It)
+						if (IsValid(*It)) MarkObjectHierarchyAsGarbage(*It);
+			}
 		};
 
 		auto AddError(FSceneImportResult& Result, EImportDiagnosticCategory Category,
@@ -149,15 +162,16 @@ namespace Durin::AssetForge::Builtins
 
 		auto Abandon(std::vector<FPreparedSceneOutput>& Outputs) -> void
 		{
-			std::vector<FPackagePath> Paths;
+			std::vector<DObject*> Objects;
+			for (const auto& Output : Outputs) if (Output.Candidate) Objects.push_back(Output.Candidate);
+			FAssetCompilingManager::Get().MarkCompilationAsCanceled(Objects);
+			FAssetCompilingManager::Get().FinishCompilationForObjects(Objects);
 			for (FPreparedSceneOutput& Output : Outputs)
 			{
-				if (Output.Package) Paths.push_back(Output.AssetPath);
+				if (Output.Package && IsValid(Output.Package)) MarkObjectHierarchyAsGarbage(Output.Package);
 				Output.Candidate = nullptr;
 				Output.Package = nullptr;
 			}
-			for (auto It = Paths.rbegin(); It != Paths.rend(); ++It)
-				(void)UnloadPackage(*It, EAssetPackageUnloadPolicy::DiscardUnsaved);
 		}
 
 		template<typename T>
@@ -167,8 +181,8 @@ namespace Durin::AssetForge::Builtins
 			std::string& OutError) -> bool
 		{
 			OutAsset = nullptr;
-			DPackage* Package = CreatePackage(AssetPath.GetPackagePath());
-			if (!Package)
+			DPackage* Package = NewObject<DPackage>(nullptr, FName(AssetPath.GetAssetName()), EObjectFlags::Standalone);
+			if (!Package || !Package->InitializePreparedAssetPackage(AssetPath.GetPackagePath()))
 			{
 				OutError = "The scene candidate package could not be created.";
 				return false;
@@ -249,7 +263,8 @@ namespace Durin::AssetForge::Builtins
 		const FPackagePath& DestinationDirectory,
 		const FStaticMeshImportSettings& Settings,
 		FSceneImportResult& OutResult,
-		const std::function<bool()>& IsCancellationRequested) -> bool
+		const std::function<bool()>& IsCancellationRequested,
+		const FSceneImportPublicationOptions& PublicationOptions) -> bool
 	{
 		OutResult = {};
 		::Durin::AssetForge::Builtins::Private::FScopedSceneImportCancellation CancellationScope(
@@ -463,20 +478,67 @@ namespace Durin::AssetForge::Builtins
 			return It == Prepared.end() ? nullptr : Cast<DMaterialInterface>(It->Candidate);
 		};
 
+		FGeneratedParentScope GeneratedParents;
+		auto ResolveParent = [&](const FImportedSurfaceRecipe& Recipe, std::string& Error) -> DMaterial* {
+			const auto Destination = DestinationDirectory.GetView();
+			const auto MountEnd = Destination.find('/', 1);
+			const auto Name = "Surface_v1_" + FXxHash128::HashBuffer(std::as_bytes(std::span(Recipe.CanonicalKey))).ToString();
+			FPackagePath Path;
+			if (!FPackagePath::TryCreate(std::string(Destination.substr(0, MountEnd)) +
+				"/Materials/ImportedParents/" + Name, Path, &Error)) return nullptr;
+			DMaterial* Parent = nullptr;
+			const auto Local = std::ranges::find_if(GeneratedParents.Packages, [&](const DPackage* Package) {
+				return Package->GetPackagePathIdentity() == Path;
+			});
+			if (Local != GeneratedParents.Packages.end()) Parent = Cast<DMaterial>((*Local)->FindTopLevelAsset(FName(Name)));
+			else if (auto* Package = FindResidentPackage(Path))
+				Parent = Cast<DMaterial>(Package->FindTopLevelAsset(FName(Name)));
+			else if (FindAssetExact(Path))
+			{
+				FObjectPath ObjectPath;
+				if (!FObjectPath::TryCreate(Path.ToString() + "." + Name, ObjectPath, &Error) ||
+					!LoadObject(ObjectPath, Parent)) return nullptr;
+			}
+			else
+			{
+				FTopLevelAssetPath AssetPath;
+				if (!FTopLevelAssetPath::TryCreate(Path, Name, AssetPath) ||
+					!ConstructSceneCandidate(AssetPath, Parent, Error)) return nullptr;
+				GeneratedParents.Packages.push_back(Parent->GetPackage());
+				Parent->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+				const auto Valid = Parent->SetMaterialProgram(Recipe.Program);
+				if (!Valid)
+				{
+					Error = Valid.Diagnostics.empty() ? "Generated surface program is invalid." : Valid.Diagnostics.front().Message;
+					return nullptr;
+				}
+				if (!Parent->SetMaterialGraphPresentation(Recipe.Presentation) ||
+					!Parent->SetImportProvenance({.RecipeId = "Durin.ImportedSurface", .RecipeVersion = 1,
+						.StructuralKey = Recipe.CanonicalKey})) return nullptr;
+			}
+			if (!Parent || Parent->GetImportProvenance().RecipeId != "Durin.ImportedSurface" ||
+				Parent->GetImportProvenance().RecipeVersion != 1 ||
+				Parent->GetImportProvenance().StructuralKey != Recipe.CanonicalKey ||
+				*Parent->GetMaterialProgram() != Recipe.Program || !Parent->GetMaterialFunctionCalls().empty() ||
+				Parent->GetStaticProperties() != FMaterialStaticProperties{})
+			{
+				Error = "Generated surface parent path is occupied or its recipe was modified: " + Path.ToString();
+				return nullptr;
+			}
+			return Parent;
+		};
 		for (FPreparedSceneOutput& Output : Prepared)
 		{
 			const FSceneOutputData& Descriptor = *Output.Descriptor;
 			std::string Error;
 			if (Descriptor.Kind == ESceneOutputKind::MaterialInstance)
 			{
-				DMaterial* Standard = nullptr;
-				FObjectPath StandardPath;
 				const auto Imported = std::ranges::find(Data.Scene.Materials,
 					Descriptor.SourceIndex, &FImportedMaterial::SourceMaterialIndex);
-				if (Imported == Data.Scene.Materials.end()
-					|| !FObjectPath::TryCreate(
-						ImportedSurfaceMaterialObjectPath, StandardPath, &Error)
-					|| !LoadObject(StandardPath, Standard) || !Standard)
+				const auto Roles = MakeSceneSurfaceRoles(Data, Descriptor);
+				const auto Recipe = MakeImportedSurfaceRecipe(Roles);
+				auto* Standard = ResolveParent(Recipe, Error);
+				if (Imported == Data.Scene.Materials.end() || !Standard)
 				{
 					Abandon(Prepared);
 					return AddError(OutResult, EImportDiagnosticCategory::MissingDependency,
@@ -502,42 +564,46 @@ namespace Durin::AssetForge::Builtins
 						"scene-dependency-binding", "Scene material parent could not be applied.",
 						Descriptor.StableIdentity);
 				}
-				if (!Material->SetVectorParameterValue(
-						MaterialParameters::BaseColorName(), FVector3(Imported->BaseColorFactor))
-					|| !Material->SetScalarParameterValue(MaterialParameters::OpacityName(), Imported->BaseColorFactor.a)
-					|| !Material->SetScalarParameterValue(MaterialParameters::MetallicName(), Imported->MetallicFactor)
-					|| !Material->SetScalarParameterValue(MaterialParameters::RoughnessName(), Imported->RoughnessFactor))
+				FMaterialImportProvenance Receipt{.RecipeId = "Durin.ImportedSurface", .RecipeVersion = 1,
+					.StructuralKey = Recipe.CanonicalKey, .SourceIdentity = RootFilename, .OutputIdentity = Descriptor.StableIdentity};
+				for (const auto& Owner : Recipe.Owners)
 				{
-					Abandon(Prepared);
-					return AddError(OutResult, EImportDiagnosticCategory::ValidationFailure,
-						"scene-material-parameters", "Scene material parameter application failed.", Descriptor.StableIdentity);
-				}
-				const std::array<const FName*, 8> Names{
-					&MaterialParameters::BaseColorTextureName(),
-					&MaterialParameters::NormalTextureName(),
-					&MaterialParameters::MetallicTextureName(),
-					&MaterialParameters::RoughnessTextureName(),
-					&MaterialParameters::AmbientOcclusionTextureName(),
-					&MaterialParameters::EmissiveTextureName(),
-					&MaterialParameters::OpacityTextureName(),
-					&MaterialParameters::OpacityMaskTextureName()};
-				for (const FSceneMaterialTextureBinding& Binding : Descriptor.TextureBindings)
-				{
-					const FName Name = *Names[Binding.MaterialRole];
-					FPreparedSceneOutput* Texture = FindOutput(Binding.TextureIdentity);
-					if (!Texture || !Cast<DTexture2D>(Texture->Candidate))
+					using Kind = MaterialParameters::EMaterialBuiltinParameterKind;
+					const auto* Definition = Standard->FindParameterDefinition(Owner.ParameterId);
+					require(Definition);
+					const auto& Role = Roles[static_cast<uint32>(Owner.Role)];
+					FMaterialParameterValue Value;
+					if (Owner.Kind == Kind::Texture)
 					{
-						Abandon(Prepared);
-						return AddError(OutResult, EImportDiagnosticCategory::MissingDependency,
-							"scene-dependency-binding", "Scene texture dependency is unavailable.",
-							Descriptor.StableIdentity);
+						auto* Texture = FindOutput(Role.Sample->ResourceIdentity);
+						require(Texture && Cast<DTexture2D>(Texture->Candidate));
+						Value = FMaterialParameterValue::MakeTexture(Cast<DTexture2D>(Texture->Candidate),
+							Role.Sample->Sampler, Definition->Value.TextureFallback);
 					}
-					if (!Material->SetTextureParameterValue(Name, Cast<DTexture2D>(Texture->Candidate)))
+					else
+					{
+						const auto Literal = Owner.Kind == Kind::Value ? Role.Value :
+							Owner.Kind == Kind::UVChannel ? Role.Sample->UVChannel :
+							Owner.Kind == Kind::UVScale ? Role.Sample->UVScale :
+							Owner.Kind == Kind::UVOffset ? Role.Sample->UVOffset : Role.Sample->UVRotation;
+						Value = Definition->Type == EMaterialParameterType::Vector ? FMaterialParameterValue::MakeVector({Literal.X, Literal.Y, Literal.Z}) :
+							Definition->Type == EMaterialParameterType::Vector2 ? FMaterialParameterValue::MakeVector2({Literal.X, Literal.Y}) :
+							FMaterialParameterValue::MakeScalar(Literal.X);
+					}
+					if (!Material->SetParameterOverride(Owner.ParameterId, Definition->Type, Value))
 					{
 						Abandon(Prepared);
 						return AddError(OutResult, EImportDiagnosticCategory::ValidationFailure,
-							"scene-material-parameters", "Scene material texture application failed.", Descriptor.StableIdentity);
+							"scene-material-parameters", "Scene material parameter application failed.", Descriptor.StableIdentity);
 					}
+					Receipt.Parameters.push_back({GetMaterialSurfaceParameterId(Owner.Role, Owner.Kind),
+						Owner.ParameterId, Definition->Type, Value});
+				}
+				if (!Material->SetImportProvenance(std::move(Receipt)))
+				{
+					Abandon(Prepared);
+					return AddError(OutResult, EImportDiagnosticCategory::ValidationFailure,
+						"scene-material-parameters", "Scene material import receipt is invalid.", Descriptor.StableIdentity);
 				}
 			}
 			else if (Descriptor.Kind == ESceneOutputKind::StaticMesh)
@@ -573,39 +639,90 @@ namespace Durin::AssetForge::Builtins
 		}
 
 		std::vector<DObject*> Materials;
+		std::vector<DMaterial*> SelectedParents;
+		for (const auto& Output : Prepared)
+			if (auto* Instance = Cast<DMaterialInstance>(Output.Candidate))
+			{
+				auto* Parent = Cast<DMaterial>(Instance->GetParent());
+				if (std::ranges::find(SelectedParents, Parent) == SelectedParents.end()) SelectedParents.push_back(Parent);
+			}
+		for (auto* Parent : SelectedParents)
+		{
+			require(Parent);
+			if (!Parent->CompileEdits())
+			{
+				Abandon(Prepared);
+				return AddError(OutResult, EImportDiagnosticCategory::ValidationFailure,
+					"scene-material-compile", "Generated surface parent could not be compiled.");
+			}
+			Materials.push_back(Parent);
+		}
 		for (auto& Output : Prepared)
 			if (Cast<DMaterialInstance>(Output.Candidate)) Materials.push_back(Output.Candidate);
+		for (auto* Material : Materials)
+			if (auto* Instance = Cast<DMaterialInstance>(Material); Instance &&
+				(Instance->GetMaterialCompileStatus().HasUnsubmittedEdits() ||
+				 Instance->GetMaterialCompileStatus().State == EMaterialCompileState::NeverRequested) && !RequestMaterialRecompile(*Instance))
+			{
+				Abandon(Prepared);
+				return AddError(OutResult, EImportDiagnosticCategory::ValidationFailure,
+					"scene-material-compile", "Private material candidate could not be compiled.");
+			}
 		FAssetCompilingManager::Get().FinishCompilationForObjects(Materials);
+		for (auto* Package : GeneratedParents.Packages)
+			Cast<DMaterial>(Package->FindTopLevelAsset(FName(Package->GetPackagePathIdentity().GetPackageName())))
+				->SetEditCompileMode(EMaterialEditCompileMode::Immediate);
 		for (auto* Object : Materials)
 		{
-			auto* Material = Cast<DMaterialInstance>(Object);
+			auto* Material = Cast<DMaterialInterface>(Object);
 			if (Material->GetMaterialCompileStatus().IsCurrent() && Material->GetAcceptedCompiledProgram()) continue;
 			const auto Diagnostics = Material->GetMaterialCompileDiagnostics();
-			const std::string Message = Diagnostics.empty() ? "Scene material variant is not ready."
+			const std::string Message = Diagnostics.empty() ? std::format("Scene material variant is not ready: {} (state {}).",
+				Material->GetObjectPath(), static_cast<uint32>(Material->GetMaterialCompileStatus().State))
 				: Diagnostics.front().Source.Message;
 			Abandon(Prepared);
 			return AddError(OutResult, EImportDiagnosticCategory::ValidationFailure,
 				"scene-material-compile", Message);
 		}
 
-		std::vector<DPackage*> Packages;
+		std::vector<DPackage*> Packages = GeneratedParents.Packages;
 		Packages.reserve(Prepared.size());
 		for (const FPreparedSceneOutput& Output : Prepared) Packages.push_back(Output.Package);
-		FAssetBundleSaveOptions SaveOptions;
-		if (!Packages.empty()) SaveOptions.RootPackage = Packages.back();
-		const FAssetResult Saved = SavePackagesAtomically(Packages, SaveOptions);
-		OutResult.bSucceeded = true;
-		OutResult.bPersisted = Saved.Succeeded();
-		if (!Saved)
+		if (IsCanceled(IsCancellationRequested))
 		{
-			OutResult.Message = Saved.Message;
-			OutResult.Diagnostics.push_back({
-				.Severity = EImportDiagnosticSeverity::Warning,
-				.Category = EImportDiagnosticCategory::PersistenceFailure,
-				.Phase = "scene-persistence",
-				.Message = Saved.Message});
+			Abandon(Prepared);
+			return AddError(OutResult, EImportDiagnosticCategory::Canceled,
+				"scene-publication", "Scene import was canceled before persistence.");
 		}
-		else OutResult.Message.clear();
+		FAssetBundleSaveOptions SaveOptions{.ShouldFail = PublicationOptions.ShouldFail,
+			.bRollbackOnRegistryFailure = true};
+		if (!Packages.empty()) SaveOptions.RootPackage = Packages.back();
+		FObjectGraphReplacement Publication;
+		std::vector<FObjectReplacementPackagePair> Pairs;
+		for (auto* Package : Packages) Pairs.push_back({nullptr, Package});
+		auto Published = Publication.Prepare(Pairs, {}, {.MaximumPackages = 4096});
+		if (Published)
+		{
+			SaveOptions.PreparedPublication = &Publication;
+			Published = Publication.TryCommit([&]() -> FObjectReplacementResult {
+				const auto Saved = SavePackagesAtomically(Packages, SaveOptions);
+				if (!Saved) return {EObjectReplacementError::ParticipantRejected, Saved.Message};
+				return {};
+			});
+		}
+		if (!Published)
+		{
+			Publication.Abort();
+			Abandon(Prepared);
+			return AddError(OutResult, EImportDiagnosticCategory::PersistenceFailure,
+				"scene-persistence", Published.Message);
+		}
+		for (auto* Package : Packages) Package->MarkAsPublished();
+		require(Publication.Retire());
+		GeneratedParents.bRetain = true;
+		OutResult.bSucceeded = true;
+		OutResult.bPersisted = true;
+		OutResult.Message.clear();
 		return true;
 	}
 }

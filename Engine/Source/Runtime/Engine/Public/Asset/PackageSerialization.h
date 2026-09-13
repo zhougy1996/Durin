@@ -11,6 +11,7 @@
 
 namespace Durin
 {
+	class FObjectGraphReplacement;
 	namespace SaveOverridePrivate
 	{
 		template<typename T> struct TObjectPtrType
@@ -188,6 +189,11 @@ namespace Durin
 	{
 		DPackage* RootPackage = nullptr;
 		std::function<bool(EAssetBundleSavePhase, size_t)> ShouldFail;
+		// Transactions that also own live candidates can reject the entire closure.
+		// Ordinary saves retain the existing committed-content/projection-pending policy.
+		bool bRollbackOnRegistryFailure = false;
+		// Admits only private packages owned by this prepared publication operation.
+		const FObjectGraphReplacement* PreparedPublication = nullptr;
 	};
 
 	ENGINE_API auto SerializeAssetPackageBytes(

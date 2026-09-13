@@ -174,6 +174,57 @@ namespace
 	};
 }
 
+TEST_F(FObjectGraphReplacementTests, PersistenceFailureKeepsNewAndReplacementGraphsPrivateUntilRetry)
+{
+	FPackagePath AddedPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/ReplacementTests/Added", AddedPath));
+	auto* Added = NewObject<DPackage>(nullptr, "AddedCandidate");
+	ASSERT_TRUE(Added->InitializePreparedAssetPackage(AddedPath));
+	auto* AddedAsset = NewObject<DReplacementOwner>(Added, "Asset", EObjectFlags::Public);
+	AddedAsset->Reference = New;
+	const FObjectReplacementPackagePair Pairs[]{Pair, {nullptr, Added}};
+	const auto PreparedResult = Operation->Prepare(Pairs);
+	ASSERT_TRUE(PreparedResult) << PreparedResult.Message;
+	EXPECT_EQ(FindPackage(AddedPath.GetView()), nullptr);
+	EXPECT_EQ(CreatePackage(AddedPath), nullptr);
+	bool bCalled = false;
+	const auto Failed = Operation->TryCommit([&]() -> FObjectReplacementResult {
+		bCalled = true;
+		EXPECT_EQ(FindPackage(Path.GetView()), Current);
+		EXPECT_EQ(FindPackage(AddedPath.GetView()), nullptr);
+		EXPECT_EQ(Owner->Reference.Get(), Old);
+		return {EObjectReplacementError::ParticipantRejected, "persistence failed"};
+	});
+	EXPECT_TRUE(bCalled);
+	EXPECT_FALSE(Failed);
+	EXPECT_EQ(FindPackage(Path.GetView()), Current);
+	EXPECT_EQ(FindPackage(AddedPath.GetView()), nullptr);
+	EXPECT_EQ(Owner->Reference.Get(), Old);
+	ASSERT_TRUE(Operation->TryCommit([] { return FObjectReplacementResult{}; }));
+	EXPECT_EQ(FindPackage(Path.GetView()), Prepared);
+	EXPECT_EQ(FindPackage(AddedPath.GetView()), Added);
+	EXPECT_EQ(Owner->Reference.Get(), New);
+	EXPECT_FALSE(Added->IsGraphPrivate());
+	ASSERT_TRUE(Operation->Retire());
+	MarkObjectHierarchyAsGarbage(Added);
+}
+
+TEST_F(FObjectGraphReplacementTests, AbortingNewPackageReleasesInvisiblePathReservation)
+{
+	FPackagePath AddedPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/ReplacementTests/AbortAdded", AddedPath));
+	auto* Added = NewObject<DPackage>(nullptr, "AbortAddedCandidate");
+	ASSERT_TRUE(Added->InitializePreparedAssetPackage(AddedPath));
+	NewObject<DReplacementOwner>(Added, "Asset", EObjectFlags::Public);
+	const FObjectReplacementPackagePair AddedPair{nullptr, Added};
+	ASSERT_TRUE(Operation->Prepare(std::span(&AddedPair, 1)));
+	EXPECT_EQ(CreatePackage(AddedPath), nullptr);
+	Operation->Abort();
+	auto* Retry = CreatePackage(AddedPath);
+	ASSERT_NE(Retry, nullptr);
+	MarkObjectHierarchyAsGarbage(Retry);
+}
+
 TEST_F(FObjectGraphReplacementTests, IsolatesCandidateAndAtomicallyRebindsReferences)
 {
 	Owner->FixedReferences[0] = Old;

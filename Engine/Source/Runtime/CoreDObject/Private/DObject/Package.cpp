@@ -107,12 +107,25 @@ namespace Durin
 		return true;
 	}
 
-	auto DPackage::CommitPreparedPackageRegistration(DPackage& Previous) noexcept -> void
+	auto DPackage::ReservePreparedPackageRegistration() -> bool
+	{
+		require(bPrepared && bGraphPrivate);
+		return GetPackageRegistry().emplace(RegisteredPath, this).second;
+	}
+
+	auto DPackage::ReleasePreparedPackageRegistration() noexcept -> void
+	{
+		if (!bPrepared || !bGraphPrivate) return;
+		auto It = GetPackageRegistry().find(RegisteredPath);
+		if (It != GetPackageRegistry().end() && It->second == this) GetPackageRegistry().erase(It);
+	}
+
+	auto DPackage::CommitPreparedPackageRegistration(DPackage* Previous) noexcept -> void
 	{
 		auto It = GetPackageRegistry().find(RegisteredPath);
-		require(bPrepared && It != GetPackageRegistry().end() && It->second == &Previous);
+		require(bPrepared && It != GetPackageRegistry().end() && It->second == (Previous ? Previous : this));
 		It->second = this;
-		Previous.bGraphPrivate = true;
+		if (Previous) Previous->bGraphPrivate = true;
 		bGraphPrivate = false;
 		bPrepared = false;
 	}
@@ -174,7 +187,7 @@ namespace Durin
 
 	auto CreatePackage(const FPackagePath& Path) -> DPackage*
 	{
-		if (!Path.IsValid() || FindPackage(Path.GetView())) return nullptr;
+		if (!Path.IsValid() || GetPackageRegistry().contains(Path.ToString())) return nullptr;
 
 		DPackage* Package = NewObject<DPackage>(
 			nullptr, FName(Path.GetAssetName()), EObjectFlags::Standalone);
@@ -185,7 +198,7 @@ namespace Durin
 	auto FindPackage(std::string_view PackagePath) -> DPackage*
 	{
 		auto It = GetPackageRegistry().find(std::string(PackagePath));
-		return It == GetPackageRegistry().end() ? nullptr : It->second;
+		return It == GetPackageRegistry().end() || It->second->IsGraphPrivate() ? nullptr : It->second;
 	}
 
 	auto FindOrCreateCppPackage(FName ModuleName) -> DPackage*

@@ -11,8 +11,8 @@ Completed:
 
 Stage 0 source and mounted-content audits are complete at execution baseline
 `2d3eef2fa1af59da8d7a86c428398bd28fc0765b`. Stages 1 and 2 implementation and
-validation are complete; Stages 3 through 5 remain open. The next stage is minimal
-structural import parents and instance reconciliation.
+validation are complete; Stages 3 through 5 remain open. Stage 3 now selects
+structural parents for new imports; coordinated reimport and rollback remain next.
 The frozen decisions and validation receipts below govern subsequent stages.
 Stage 1 implements final-value evaluation and compiler invalidation. Its generated
 parent's redundant policy and exact recipe checkpoint changed together: the one
@@ -20,8 +20,8 @@ already-backed-up parent was reconstructed during Stage 1, ahead of the broader
 Stage 4 reconstruction. No mounted assets reference it and no saved instance
 overrides exist. Ordinary reusable function graphs remain unchanged. This ordering
 avoids leaving the installed parent incompatible with the recipe validator between
-stages. ImportedSurface now has 65 expression nodes and still has 48 owners;
-conditional parent generation is not yet implemented.
+stages. The historical ImportedSurface has 65 expression nodes and 48 owners.
+New imports no longer select it or bootstrap it when opening the import dialog.
 
 The current baseline is commit `88aaedfb1`, following `42df4b322` and
 `41fcd8de4`:
@@ -491,6 +491,128 @@ Validation on Win64-Debug-DurinEditor:
   `Build/.agent-state/logs/20260914-034638-552567-33132-MaterialTests.log`.
 - Final workspace `all` build passed, receipt
   `Build/.agent-state/logs/20260914-034704-129488-14268-cmake.log`.
+
+## Stage 3 In-Progress Receipt
+
+The independent `ImportedSurfaceRecipe` builder now generates deterministic
+programs and logical-role owner mappings. Root defaults require no owners;
+identity texture branches use one combined sample; nonidentity values and UV
+fields expose only required owners. Equal resource/usage/sampler/coordinate
+groups share direct channel outputs. Resource identities, sampler values and
+numeric values do not enter the structural encoding. Normal decoding currently
+uses the explicit Engine DecodeNormalRG operation without a flat-normal blend;
+final encapsulation and import integration remain pending.
+
+The focused `StructuralImportRecipesExposeOnlyRequiredOwners` test passes,
+including numeric-value independence, packed/split UV groups, and normal-map
+addition/removal. Receipt:
+`Build/.agent-state/logs/20260914-035901-860888-34032-MaterialTests.log`.
+The workspace `all` build passes:
+`Build/.agent-state/logs/20260914-035933-692296-27352-cmake.log`.
+This is a generator checkpoint only: new imports still select the historical
+parent. Parent provenance/persistence, actual source mapping, reimport ownership
+reconciliation, transactional publication and their acceptance tests remain open.
+No Stage 3 checklist item or gate is marked complete by this checkpoint.
+
+The next checkpoint adds editor-only `FMaterialImportProvenance` to material
+interfaces, including recipe/key, stable source/output identity and last imported
+logical-role/owner/value records. This is a reconciliation receipt, not an
+authorable parameter schema. Saving/loading preserves it without changing graph
+or compile revisions. The setter bounds receipt sizes and rejects duplicate roles.
+The independent reconciliation routine transfers user edits across owner splits,
+rejects conflicting merges, retains disappearing user roles as diagnosed orphans,
+and removes obsolete importer-owned overrides. Actual scene publication does not
+yet invoke these routines.
+
+`MaterialTests` passes 197/197 in 100.670 seconds, including receipt roundtrip and
+split/merge/removal tests:
+`Build/.agent-state/logs/20260914-040407-007743-31464-MaterialTests.log`.
+The shared Engine API checkpoint passes the workspace `all` build:
+`Build/.agent-state/logs/20260914-040551-730606-38612-cmake.log`.
+
+Publication inspection found an additional integration requirement:
+`SavePackagesAtomically` rejects graph-private packages and, on Registry failure,
+commits authored files with `ContentCommittedProjectionPending` instead of rolling
+them back. The scene transaction must add a coordinated persistence/live-graph
+publication boundary; merely invoking this existing save API cannot satisfy the
+frozen rollback gate. Its current behavior for unrelated callers must be preserved.
+
+The actual scene import path now selects/reuses deterministic parents under
+`/<destination mount>/Materials/ImportedParents/Surface_v1_<digest>`, matching
+provenance, exact program and static settings while allowing presentation edits.
+New parents are compiled with their instance variants and included in the same
+save bundle. Reused parents are not saved or authored. The editor dialog no longer
+initializes the historical Engine parent. Instances write only selected graph
+owners and persist the source identity and logical-role receipt.
+
+Metallic/Roughness retain one linear packed image; compatible occlusion shares
+its resource and direct channel output. Resource derivation/usage now determine
+texture output deduplication instead of the semantic label. Source UV and sampler
+values are published. Mask factor is applied to Mask rather than inactive Opacity;
+textureless Emissive retains its source value. Normal strength and emissive baking
+are not applied twice. Nonidentity occlusion strength, previously ignored, now
+bakes `1 + strength * (occlusion - 1)` into its own derived linear texture. This
+source-semantics correction intentionally prevents sharing that derived sample.
+
+Validation receipts for actual import integration:
+
+- `SceneImportTests`: 9/9 passed in 26.803 seconds,
+  `Build/.agent-state/logs/20260914-041733-137524-35336-SceneImportTests.log`.
+  Includes real packed ORM, parent reuse/mutation rejection, selected owner counts,
+  UV transforms, mask factor and textureless emissive. Final nondefault sampler
+  assertions pass in the focused source-values test,
+  `Build/.agent-state/logs/20260914-041822-693292-35896-SceneImportTests.log`.
+- `SceneImportVulkanTests`: passed in 5.813 seconds,
+  `Build/.agent-state/logs/20260914-041635-372729-26832-SceneImportVulkanTests.log`.
+  The test now unloads/reloads the actual generated parent, exercises subsequent
+  instance edits and retains independent render controls. Reported compiled costs:
+  simple texture/factor uses 1 resource, 3 uniform fields, 64 uniform bytes;
+  nontrivial source uses 6 resources, 13 uniform fields, 224 uniform bytes.
+- Workspace `all` passes,
+  `Build/.agent-state/logs/20260914-041828-241904-38268-cmake.log`.
+
+The next transaction checkpoint replaces registered creation with graph-private
+packages. Core object-graph replacement now accepts null-current additions,
+reserves their paths invisibly and publishes additions/replacements together.
+Its optional synchronous persistence callback runs after final validation and
+before the non-failing in-memory commit. Callback failure leaves the operation
+prepared for retry or abort. Save admission accepts private packages only with
+an owning active publication token and mandatory Registry-failure rollback.
+Ordinary saves retain their existing projection-pending semantics.
+
+Scene import compiles private parents/instances explicitly, saves the complete
+candidate closure inside that callback, and registers it only after success.
+Failure discards the candidates; late cancellation is checked before persistence.
+Directory/staging/package/root/Registry failure injection verifies each requested
+failure was reached, every candidate remained invisible throughout save, cleanup
+left no output registration, and retry succeeded. The retry's plain texture graph
+has exactly one sample node and one owner. This fixture uses the agreed Engine
+defaults for the other properties, rather than silently dropping glTF factors.
+
+Final transaction checkpoint receipts:
+
+- `CoreObjectReplacementTests`: 20/20, including mixed additions/replacements,
+  failed persistence/retry and abort releasing reservations;
+  `Build/.agent-state/logs/20260914-042625-748477-32112-CoreObjectReplacementTests.log`.
+- `SceneImportTests`: 10/10 in 27.673 seconds;
+  `Build/.agent-state/logs/20260914-043119-441337-30184-SceneImportTests.log`.
+  Final private-save admission guard: focused rollback/retry test passed,
+  `Build/.agent-state/logs/20260914-043431-207376-40516-SceneImportTests.log`.
+- `AssetPackageTests`: 149/149 in 22.439 seconds, covering old/new main and external
+  bulk restoration and ordinary-save compatibility;
+  `Build/.agent-state/logs/20260914-043258-353391-39396-AssetPackageTests.log`.
+- `AssetPackageReloadTests`: 13/13;
+  `Build/.agent-state/logs/20260914-043155-715935-23952-AssetPackageReloadTests.log`.
+- `SceneImportVulkanTests`: passed in 5.919 seconds after private publication;
+  `Build/.agent-state/logs/20260914-043211-239587-38288-SceneImportVulkanTests.log`.
+- Final workspace `all` passes;
+  `Build/.agent-state/logs/20260914-043438-700952-38948-cmake.log`.
+
+Stage 3 remains open: existing scene outputs are still rejected and the
+reconciliation routine is not yet invoked by reimport. Same-source admission,
+stable-output replacement, native consumer refresh/retirement, reimport rollback,
+normal encapsulation and final budget acceptance remain required. Stage 4 content
+reconstruction and final visual/Cook acceptance remain separate obligations.
 
 ## Execution References
 

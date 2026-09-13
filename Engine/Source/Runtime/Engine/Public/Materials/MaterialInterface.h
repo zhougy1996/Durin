@@ -79,6 +79,9 @@ namespace Durin
 		friend ENGINE_API auto NotifyMaterialFunctionChanged(const DMaterialFunctionInterface& Function) -> void;
 	public:
 		ENGINE_API explicit DMaterialInterface(const FObjectInitializer& ObjectInitializer);
+		auto GetImportProvenance() const -> const FMaterialImportProvenance& { return ImportProvenance; }
+		// Changes only persisted editor metadata, without invalidating compiled material state.
+		ENGINE_API auto SetImportProvenance(FMaterialImportProvenance InProvenance) -> bool;
 
 		ENGINE_API virtual auto GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition>;
 		ENGINE_API auto FindParameterDefinition(const FGuid& Id) const -> const FMaterialParameterDefinition*;
@@ -165,6 +168,8 @@ namespace Durin
 			std::string& OutError) -> bool;
 	private:
 		friend struct Private::FMaterialCompilationLifecycle;
+		DPROPERTY(EditorOnly)
+		FMaterialImportProvenance ImportProvenance;
 		// Retires the failed owner's complete renderable generation and publishes ErrorMaterial.
 		auto RetireFailedMaterialGeneration() -> void;
 		auto SubmitMaterialRenderProxyState() const -> void;

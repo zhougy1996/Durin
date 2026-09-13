@@ -1,6 +1,7 @@
 #pragma once
 
 #include "SceneSourceSnapshot.h"
+#include "AssetForge/Builtins/ImportedSurfaceRecipe.h"
 #include "AssetForge/Builtins/ImportedScene.h"
 #include "ImportedSceneInternal.h"
 #include "Texture/Texture2D.h"
@@ -14,7 +15,7 @@ namespace Durin::AssetForge::Builtins
 	};
 	enum class ESceneTextureDerivation : uint8
 	{
-		None, Red, Green, Blue, Alpha, ScaledNormal, ScaledColor
+		None, Red, Green, Blue, Alpha, ScaledNormal, ScaledColor, ScaledOcclusion
 	};
 	struct FSceneMaterialTextureBinding
 	{
@@ -51,6 +52,8 @@ namespace Durin::AssetForge::Builtins
 		FByteBuffer GeneratedSourceBytes;
 		uint64 SourceFileSize = 0;
 	};
+	auto MakeSceneSurfaceRoles(const FSceneImportPlan& Plan, const FSceneOutputData& Output)
+		-> std::array<FImportedSurfaceRole, 8>;
 
 	auto BuildScenePlan(
 		const FSourceSnapshot& Snapshot,

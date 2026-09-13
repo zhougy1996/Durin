@@ -9,6 +9,7 @@ namespace Durin
 	class DMaterial;
 	class DMaterialInstance;
 	class DTexture2D;
+	enum class EAssetBundleSavePhase : uint8;
 }
 
 namespace Durin::AssetForge::Builtins
@@ -29,13 +30,18 @@ namespace Durin::AssetForge::Builtins
 
 		explicit operator bool() const { return bSucceeded; }
 	};
+	struct FSceneImportPublicationOptions
+	{
+		std::function<bool(EAssetBundleSavePhase, size_t)> ShouldFail;
+	};
 
 	ASSETFORGEBUILTINS_API auto ImportSceneAssets(
 		std::string_view SourceFile,
 		const FPackagePath& DestinationDirectory,
 		const FStaticMeshImportSettings& Settings,
 		FSceneImportResult& OutResult,
-		const std::function<bool()>& IsCancellationRequested = {}) -> bool;
+		const std::function<bool()>& IsCancellationRequested = {},
+		const FSceneImportPublicationOptions& PublicationOptions = {}) -> bool;
 
 	ASSETFORGEBUILTINS_API auto EnsureImportedSurfaceMaterial(
 		std::string& OutError) -> DMaterial*;

@@ -292,6 +292,41 @@ namespace Durin::AssetForge::Builtins
 		}
 	}
 
+	auto MakeSceneSurfaceRoles(const FSceneImportPlan& Plan, const FSceneOutputData& Output)
+		-> std::array<FImportedSurfaceRole, 8>
+	{
+		const auto Source = std::ranges::find(Plan.Scene.Materials, Output.SourceIndex, &FImportedMaterial::SourceMaterialIndex);
+		require(Source != Plan.Scene.Materials.end());
+		std::array<FImportedSurfaceRole, 8> Roles;
+		const FMaterialSurfaceOutputs Defaults;
+		for (uint32 I = 0; I < 8; ++I)
+			Roles[I].Value = GetMaterialSurfaceOutputDefault(Defaults, static_cast<EMaterialSurfaceOutput>(I));
+		Roles[0].Value = {Source->BaseColorFactor.r, Source->BaseColorFactor.g, Source->BaseColorFactor.b};
+		Roles[2].Value = {Source->MetallicFactor};
+		Roles[3].Value = {Source->RoughnessFactor};
+		Roles[5].Value = {Source->EmissiveFactor.r, Source->EmissiveFactor.g, Source->EmissiveFactor.b};
+		if (Source->AlphaMode != EImportedAlphaMode::Opaque)
+			Roles[Source->AlphaMode == EImportedAlphaMode::Mask ? 7 : 6].Value = {Source->BaseColorFactor.a};
+		for (const auto& Link : Output.TextureBindings)
+		{
+			const auto Texture = std::ranges::find(Plan.Outputs, Link.TextureIdentity, &FSceneOutputData::StableIdentity);
+			require(Texture != Plan.Outputs.end());
+			const auto& Binding = Link.Binding;
+			constexpr std::array<uint8, 8> Channels{1, 6, 4, 3, 2, 1, 2, 2};
+			Roles[Link.MaterialRole].Sample = FImportedSurfaceSample{
+				.ResourceIdentity = Link.TextureIdentity, .Usage = Texture->TextureUsage,
+				.Sampler = MakeMaterialSamplerState(Binding.Sampler),
+				.UVChannel = {static_cast<float>(Binding.UVChannel)},
+				.UVScale = {Binding.Scale.x, Binding.Scale.y},
+				.UVOffset = {Binding.Offset.x, Binding.Offset.y},
+				.UVRotation = {Binding.RotationRadians},
+				.OutputIndex = Channels[Link.MaterialRole], .bDecodeNormal = Link.MaterialRole == 1};
+			// Emissive and normal strength are already baked into derived source images.
+			if (Link.MaterialRole == 5) Roles[5].Value = {1, 1, 1};
+		}
+		return Roles;
+	}
+
 	auto BuildScenePlan(
 		const FSourceSnapshot& Snapshot,
 		const FPackagePath& DestinationDirectory,
@@ -390,7 +425,7 @@ namespace Durin::AssetForge::Builtins
 				if (Binding.ImageIndex >= OutPlan.Scene.Images.size()) return false;
 				const FImportedImage& Image = OutPlan.Scene.Images[Binding.ImageIndex];
 				const std::string TextureKey = std::format("{}:{}:{}:{}:{}:{}:{}",
-					Image.StableIdentity, Role, static_cast<uint32>(Derivation),
+					Image.StableIdentity, static_cast<uint32>(Usage), static_cast<uint32>(Derivation),
 					std::bit_cast<uint32>(DerivationScale),
 					std::bit_cast<uint32>(DerivationColorScale.x),
 					std::bit_cast<uint32>(DerivationColorScale.y),
@@ -440,10 +475,8 @@ namespace Durin::AssetForge::Builtins
 							ETextureUsage::DataMask, ESceneTextureDerivation::Alpha)) return false;
 					break;
 				case EImportedTextureSemantic::MetallicRoughness:
-					if (!AddTexture(Binding, 2, "Metallic", ETextureUsage::DataMask,
-						ESceneTextureDerivation::Blue)
-						|| !AddTexture(Binding, 3, "Roughness", ETextureUsage::DataMask,
-							ESceneTextureDerivation::Green)) return false;
+					if (!AddTexture(Binding, 2, "MetallicRoughness", ETextureUsage::DataMask)
+						|| !AddTexture(Binding, 3, "MetallicRoughness", ETextureUsage::DataMask)) return false;
 					break;
 				case EImportedTextureSemantic::Normal:
 					if (!AddTexture(Binding, 1, "Normal", ETextureUsage::Normal,
@@ -453,7 +486,8 @@ namespace Durin::AssetForge::Builtins
 					break;
 				case EImportedTextureSemantic::Occlusion:
 					if (!AddTexture(Binding, 4, "AmbientOcclusion", ETextureUsage::DataMask,
-						ESceneTextureDerivation::Red)) return false;
+						Binding.Strength == 1.0f ? ESceneTextureDerivation::None : ESceneTextureDerivation::ScaledOcclusion,
+						Binding.Strength)) return false;
 					break;
 				case EImportedTextureSemantic::Emissive:
 					if (!AddTexture(Binding, 5, "Emissive", ETextureUsage::Color,
@@ -588,6 +622,11 @@ namespace Durin::AssetForge::Builtins
 						: Derivation == ESceneTextureDerivation::Green ? 1
 						: Derivation == ESceneTextureDerivation::Blue ? 2 : 3;
 					Red = Green = Blue = std::to_integer<uint8>(Image.Pixels[Offset + Channel]);
+				}
+				else if (Derivation == ESceneTextureDerivation::ScaledOcclusion)
+				{
+					Red = Green = Blue = static_cast<uint8>(std::lround(std::clamp(
+						1.0f + Scale * (static_cast<float>(Red) / 255.0f - 1.0f), 0.0f, 1.0f) * 255.0f));
 				}
 				else if (Derivation == ESceneTextureDerivation::ScaledNormal)
 				{

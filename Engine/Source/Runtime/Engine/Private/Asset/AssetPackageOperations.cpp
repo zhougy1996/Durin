@@ -7,6 +7,7 @@
 #include "AssetRelocationExtensionsInternal.h"
 #include "AssetRegistryResultAdapter.h"
 #include "Asset/PackageSerialization.h"
+#include "DObject/ObjectGraphReplacement.h"
 #include "AssetPackageCodec.h"
 #include "Asset/PackageVersionPolicy.h"
 #include "Asset/Redirector.h"
@@ -1065,6 +1066,8 @@ namespace Durin
 
 		if (Packages.empty())
 			return Error(EAssetError::InvalidPackageType, "An asset bundle must contain at least one package.");
+		if (Options.PreparedPublication && !Options.bRollbackOnRegistryFailure)
+			return Error(EAssetError::InvalidPackageType, "Prepared publication requires rollback on Registry failure.");
 		if (RuntimeConfiguration.IsCooked())
 			return Error(EAssetError::ReadOnlyMode, "Cooked runtime package mode does not permit bundle saves.");
 		if (Options.RootPackage
@@ -1083,7 +1086,9 @@ namespace Durin
 		for (DPackage* Package : Packages)
 		{
 			FPackagePath Path;
-			if (!Package || !Package->IsAssetPackage() || Package->IsGraphPrivate()
+			const bool bOwnedPrepared = Package && Options.PreparedPublication &&
+				Options.PreparedPublication->OwnsPreparedPackage(*Package);
+			if (!Package || !Package->IsAssetPackage() || (Package->IsGraphPrivate() && !bOwnedPrepared)
 				|| !FPackagePath::TryCreate(Package->GetPackagePath(), Path))
 				return Error(EAssetError::InvalidPackageType, "The asset bundle contains an invalid package.");
 			if (!Paths.insert(Path).second)
@@ -1343,6 +1348,11 @@ namespace Durin
 			? Error(EAssetError::StaleData,
 				"Injected asset-bundle Registry publication failure.")
 			: Registry.PublishDelta(std::move(Delta));
+		if (!RegistryResult && Options.bRollbackOnRegistryFailure)
+		{
+			RollbackPublication();
+			return RegistryResult;
+		}
 
 		for (FStagedPackage& Staged : StagedPackages)
 		{
