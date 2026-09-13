@@ -2128,6 +2128,61 @@ TEST_F(FContentBrowserModelTests, DeletionCompanionInspectionDoesNotLoadPackageD
 	EXPECT_NE(FindAssetExact(BasePath), nullptr);
 }
 
+TEST_F(FContentBrowserModelTests, DeletionReusesConfirmationAndInspectsParticipantsOncePerPhase)
+{
+	InitializeDObjectSystem();
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/SingleDeletionPlan", Path));
+	DMaterial* Material = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Material));
+	ASSERT_TRUE(SavePackage(Material->GetPackage()));
+	const auto File = FindAssetExact(Path)->PhysicalPath;
+	uint32 Inspections = 0;
+	struct FContributorReset
+	{
+		FAssetDeleteContributorHandle Handle;
+		~FContributorReset() { UnregisterAssetDeleteContributor(Handle); }
+	} Reset{RegisterAssetDeleteContributor(DMaterial::StaticClass(),
+		[&](const FAssetData& Data, const FAssetPackageInspection&,
+			FAssetDeleteContribution&) -> FAssetResult {
+			if (Data.PackagePath == Path) ++Inspections;
+			return {};
+		})};
+	ASSERT_NE(Reset.Handle, 0u);
+	const FContentBrowserItem Item{.Kind = EContentBrowserItemKind::File,
+		.Name = "SingleDeletionPlan", .PhysicalPath = File};
+	FContentBrowserOperationService Service;
+	const auto Plan = Service.BuildDeletionPlan(std::span{&Item, 1});
+	ASSERT_TRUE(Plan->CanExecute());
+	EXPECT_EQ(Inspections, 1u);
+	ASSERT_TRUE(Service.ExecuteDeletion(Plan));
+	EXPECT_EQ(Inspections, 2u);
+	EXPECT_FALSE(std::filesystem::exists(File));
+}
+
+TEST_F(FContentBrowserModelTests, DeletionRejectsChangedContributorRegistration)
+{
+	InitializeDObjectSystem();
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/ContributorRegistration", Path));
+	DMaterial* Material = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Material));
+	ASSERT_TRUE(SavePackage(Material->GetPackage()));
+	FAssetDeletionOperation Operation;
+	ASSERT_TRUE(IAssetTools::Get().PrepareDeletion({.AssetPaths = {Path}}, Operation));
+	const auto Handle = RegisterAssetDeleteContributor(DMaterial::StaticClass(),
+		[](const FAssetData&, const FAssetPackageInspection&, FAssetDeleteContribution&) -> FAssetResult {
+			return {};
+		});
+	ASSERT_NE(Handle, 0u);
+	UnregisterAssetDeleteContributor(Handle);
+	bool bCalled = false;
+	EXPECT_FALSE(Operation.Delete({.Delete = [&]() -> FAssetResult { bCalled = true; return {}; }}));
+	EXPECT_FALSE(bCalled);
+	ASSERT_TRUE(UnloadPackage(Path));
+	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(Path));
+}
+
 TEST_F(FContentBrowserModelTests, DeletionRevalidatesExternalProviderFingerprint)
 {
 	InitializeDObjectSystem();

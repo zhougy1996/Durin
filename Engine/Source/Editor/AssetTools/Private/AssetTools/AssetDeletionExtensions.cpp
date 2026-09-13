@@ -8,6 +8,7 @@ namespace Durin
 {
 	namespace
 	{
+		uint64 DeleteContributorRevision = 0;
 		auto Error(EAssetError Code, std::string Message) -> FAssetResult
 		{
 			return {Code, std::move(Message)};
@@ -96,6 +97,7 @@ namespace Durin
 
 	namespace AssetToolsPrivate
 	{
+		auto GetDeleteContributorRevision() -> uint64 { return DeleteContributorRevision; }
 		auto InspectAssetCompanionFilesForDeletion(
 			const FAssetData& Data,
 			std::vector<std::filesystem::path>& OutFiles) -> FAssetResult
@@ -118,6 +120,7 @@ namespace Durin
 			.Handle = Handle,
 			.Contributor = std::move(Contributor),
 			});
+		++DeleteContributorRevision;
 		return Handle;
 	}
 
@@ -126,9 +129,9 @@ namespace Durin
 	{
 		if (Handle == 0) return;
 		auto& Contributors = GetDeleteContributors();
-		std::erase_if(Contributors, [Handle](const auto& Pair) {
+		if (std::erase_if(Contributors, [Handle](const auto& Pair) {
 			return Pair.second.Handle == Handle;
-		});
+		}) != 0) ++DeleteContributorRevision;
 	}
 
 	auto QueryAssetCompanionOwnership(

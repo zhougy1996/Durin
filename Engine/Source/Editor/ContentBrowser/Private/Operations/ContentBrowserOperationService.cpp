@@ -1324,49 +1324,11 @@ namespace Durin::Editor::ContentBrowser::Private
 	auto FContentBrowserOperationService::IsDeletionPlanCurrent(
 		const FContentDeletionPlan& Plan) const -> bool
 	{
-		if (!Plan.CanExecute()
-			|| Plan.RegistryRevision != GetAssetCatalogRevision())
-			return false;
-		std::vector<FContentBrowserItem> Items;
-		std::unordered_set<std::string> Selection;
-		Items.reserve(Plan.MaximalRoots.size());
-		for (const FContentDeletionRoot& Root : Plan.MaximalRoots)
-		{
-			FContentBrowserItem Item{
-				.Kind = Root.Kind == EContentDeletionEntryKind::Directory
-					? EContentBrowserItemKind::Folder
-					: EContentBrowserItemKind::File,
-				.Name = std::filesystem::path(Root.OriginalPath)
-					.filename().generic_string(),
-				.PhysicalPath = Root.OriginalPath};
-			Selection.insert(Item.StableId());
-			Items.push_back(std::move(Item));
-		}
-		FAssetDeletionOperation CurrentOperation;
-		const FContentDeletionPlanPtr Current =
-			AnalyzeDeletion(Items, CurrentOperation);
-		if (!Current || !Current->CanExecute()
-			|| Current->Entries.size() != Plan.Entries.size())
-			return false;
-		if (Current->Warnings.size() != Plan.Warnings.size()) return false;
-		for (size_t Index = 0; Index < Plan.Warnings.size(); ++Index)
-			if (Current->Warnings[Index].DisplayName != Plan.Warnings[Index].DisplayName
-				|| Current->Warnings[Index].Details != Plan.Warnings[Index].Details) return false;
-		for (size_t Index = 0; Index < Plan.Entries.size(); ++Index)
-		{
-			const FContentDeletionFingerprint& Before = Plan.Entries[Index];
-			const FContentDeletionFingerprint& After = Current->Entries[Index];
-			if (Before.PhysicalPath != After.PhysicalPath
-				|| Before.Kind != After.Kind
-				|| Before.FileSize != After.FileSize
-				|| Before.LastWriteTimeTicks != After.LastWriteTimeTicks
-				|| Before.ByteIdentity != After.ByteIdentity
-				|| Before.Digest != After.Digest)
-				return false;
-		}
-		return true;
+		const auto Found = DeletionSessions.find(Plan.SessionId);
+		return Found != DeletionSessions.end()
+			&& Found->second.Confirmation.get() == &Plan
+			&& Found->second.Execution->IsConfirmationCurrent();
 	}
-
 } // namespace Durin::Editor::ContentBrowser::Private
 
 namespace Durin::Editor::ContentBrowser::Private
@@ -1468,14 +1430,6 @@ namespace Durin::Editor::ContentBrowser::Private
 			return {EAssetError::StaleData, "Deletion confirmation was retired."};
 		auto& Session = Found->second;
 		if (!Confirmation->CanExecute()) return {EAssetError::InUse, "Deletion is blocked."};
-		if (!Session.Execution->HasStarted() && !IsDeletionPlanCurrent(*Confirmation))
-		{
-			const auto Request = Session.Request;
-			DeletionSessions.erase(Found);
-			FContentBrowserOperationResult Result{EAssetError::StaleData, "Deletion scope changed. Confirm the updated scope."};
-			Result.ReplacementConfirmation = BuildDeletionPlan(Request);
-			return Result;
-		}
 		Paths.RefreshMountSnapshot();
 		for (const auto& Root : Confirmation->MaximalRoots)
 		{
@@ -1494,6 +1448,13 @@ namespace Durin::Editor::ContentBrowser::Private
 		}
 		FContentBrowserOperationResult Result(Session.Execution->Execute(std::move(Hooks)));
 		const auto State = Result.AssetResult->State;
+		if (State == EAssetOperationTerminalState::Rejected && !Session.Execution->HasStarted())
+		{
+			const auto Request = Session.Request;
+			DeletionSessions.erase(Found);
+			Result.ReplacementConfirmation = BuildDeletionPlan(Request);
+			return Result;
+		}
 		if (State == EAssetOperationTerminalState::Completed
 			|| State == EAssetOperationTerminalState::ContentCommittedProjectionPending)
 		{

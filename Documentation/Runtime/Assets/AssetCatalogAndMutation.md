@@ -241,7 +241,12 @@ permanently removed and no Engine recovery copy, Undo record, Restore command,
 or reverse callback is retained. Recovery belongs to version control. A partial
 I/O failure remains forward-only and fences stale Registry paths for retry.
 AssetTools calls Engine's `ReleasePackagesForRemoval` only after editor policy
-revalidation. Engine checks the complete batch before retiring any resident
+revalidation. Confirmation retains one AssetTools plan and its outside companion
+snapshot. Execution checks current participant files, residency, reference-store
+fingerprints, and catalog/contributor revisions without rebuilding that plan;
+recovery reuses the same confirmed ownership scope. ContentBrowser validates its
+physical selection once during execution and prepares a replacement confirmation
+only after rejection before destructive work begins. Engine checks the complete batch before retiring any resident
 graph, allowing internal hard references while rejecting outside hard
 referencers, dirty/loading packages, and stale catalog state. After the physical
 callback, `PublishPackageRemoval` removes matching catalog entries only when

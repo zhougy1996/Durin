@@ -127,6 +127,12 @@ namespace Durin::Editor::ContentBrowser::Private
 		return {};
 	}
 
+	auto FContentDeletionOperation::IsConfirmationCurrent() -> bool
+	{
+		return Plan && Plan->CanExecute() && !bStarted
+			&& ValidatePhysicalState() && AssetOperation.Validate();
+	}
+
 	auto FContentDeletionOperation::Execute(FContentDeletionHooks InHooks) -> FAssetOperationResult
 	{
 		if (InHooks.RemoveAll) Hooks = std::move(InHooks);

@@ -92,6 +92,9 @@ namespace Durin
 		ASSETTOOLS_API auto GetEntries() const -> std::span<const FAssetDeletionEntry>;
 		ASSETTOOLS_API auto GetWarnings() const -> std::span<const FAssetDeletionWarning>;
 		ASSETTOOLS_API auto GetBlockers() const -> std::span<const FAssetDeletionBlocker>;
+		// Checks the retained confirmation without preparing another plan or authorizing I/O.
+		// Delete repeats this check at execution; a successful query is not a lease.
+		ASSETTOOLS_API auto Validate() const -> FAssetResult;
 		// Rejects empty, moved-from, blocked, stale, and completed operations before I/O.
 		// A callback failure is irreversible and returns ForwardPending with fenced paths.
 		ASSETTOOLS_API auto Delete(const FAssetDeletionCommit& Commit) -> FAssetOperationResult;

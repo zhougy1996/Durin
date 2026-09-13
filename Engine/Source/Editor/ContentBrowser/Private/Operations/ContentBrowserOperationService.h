@@ -119,6 +119,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			FAssetDeletionOperation InAssetOperation);
 
 		auto Execute(FContentDeletionHooks InHooks = {}) -> FAssetOperationResult;
+		auto IsConfirmationCurrent() -> bool;
 		auto HasStarted() const -> bool { return bStarted; }
 		auto GetResult() const -> const FAssetOperationResult& { return Result; }
 		auto GetDetails() const -> const std::string& { return Details; }
