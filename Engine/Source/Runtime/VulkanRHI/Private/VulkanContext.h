@@ -92,6 +92,13 @@ namespace Durin::VulkanRHI
 			uint32 SourceDepthPitch, FByteView SourceData) -> void override;
 
 		auto RHIReadTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, FByteBuffer& OutData) -> bool override;
+		auto RHIEnqueueTextureReadback(FRHITexture* Texture, uint32 MipIndex,
+			uint32 ArraySlice, std::shared_ptr<FRHITextureReadback> Request) -> void override;
+		auto RHIPollTextureReadbacks() -> void override;
+		// Refuses arena pressure instead of waiting for an older GPU submission.
+		auto TryAcquireReadbackRange(uint64 Size, uint64 Alignment) -> FVulkanTransferRange;
+		auto RetainReadback(FVulkanTransferRange Range,
+			std::shared_ptr<FRHITextureReadback> Request) -> void;
 
 		auto RHIAllocateDynamicUniformBuffer(const void* Data, uint32 Size) -> FRHIUniformBufferRange override;
 		auto RHIAllocateDynamicStorageBuffer(const void* Data, uint32 Size)
@@ -191,5 +198,11 @@ namespace Durin::VulkanRHI
 		};
 
 		std::vector<FPendingAttachmentState> PendingAttachmentStates;
+		struct FPendingReadback
+		{
+			FVulkanTransferRange Range;
+			std::shared_ptr<FRHITextureReadback> Request;
+		};
+		std::vector<FPendingReadback> PendingReadbacks;
 	};
 }

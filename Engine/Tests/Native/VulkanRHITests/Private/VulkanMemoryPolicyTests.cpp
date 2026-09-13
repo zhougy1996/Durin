@@ -564,6 +564,51 @@ namespace Durin::VulkanRHI
 		EXPECT_GE(Readback.ArenaReuseCount, 2u);
 	}
 
+	TEST(FVulkanCompletionIntegrationTests, AsyncTextureReadbackPreservesPixelsAndCancelsWithoutGPUWait)
+	{
+		FInlineRHITestScope Scope;
+		_putenv_s("DURIN_RHI_EXECUTION", "threaded");
+		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
+		auto& Commands = FRHICommandListImmediate::Get();
+		auto Texture = GDynamicRHI->RHICreateTexture(Commands,
+			FRHITextureCreateDesc::Create2D("AsyncReadback", 7, 3, EPixelFormat::RGBA8_UNORM)
+				.SetFlags(ETextureCreateFlags::ShaderResource | ETextureCreateFlags::CPUReadback));
+		ASSERT_TRUE(Texture);
+		FByteBuffer Expected(7 * 3 * 4, std::byte{0x39});
+		GDynamicRHI->RHIUpdateTexture2D(Commands, Texture, 0, 0,
+			FUpdateTextureRegion2D(0, 0, 0, 0, 7, 3), 28, Expected);
+		auto First = Commands.EnqueueTextureReadback(Texture);
+		EXPECT_EQ(First->GetState(), ERHITextureReadbackState::Pending);
+		FByteBuffer Replacement(Expected.size(), std::byte{0x71});
+		GDynamicRHI->RHIUpdateTexture2D(Commands, Texture, 0, 0,
+			FUpdateTextureRegion2D(0, 0, 0, 0, 7, 3), 28, Replacement);
+		auto Second = Commands.EnqueueTextureReadback(Texture);
+		auto Canceled = Commands.EnqueueTextureReadback(Texture);
+		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+		Canceled->Cancel();
+		Texture = nullptr; // Recorded GPU copies retain their source allocation.
+		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+		do
+		{
+			Commands.PollTextureReadbacks();
+			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+			if (First->GetState() != ERHITextureReadbackState::Pending
+				&& Second->GetState() != ERHITextureReadbackState::Pending) break;
+			std::this_thread::yield();
+		} while (std::chrono::steady_clock::now() < Deadline);
+		FByteBuffer Pixels;
+		ASSERT_TRUE(First->TakePixels(Pixels));
+		EXPECT_EQ(Pixels, Expected);
+		EXPECT_FALSE(First->TakePixels(Pixels));
+		ASSERT_TRUE(Second->TakePixels(Pixels));
+		EXPECT_EQ(Pixels, Replacement);
+		EXPECT_EQ(Canceled->GetState(), ERHITextureReadbackState::Canceled);
+		EXPECT_FALSE(Canceled->TakePixels(Pixels));
+		auto Invalid = Commands.EnqueueTextureReadback(nullptr);
+		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+		EXPECT_EQ(Invalid->GetState(), ERHITextureReadbackState::Failed);
+	}
+
 	TEST(FVulkanCompletionIntegrationTests, EarlyNativeRetirementDoesNotCancelAnOpenLogicalBatch)
 	{
 		FInlineRHITestScope Scope;

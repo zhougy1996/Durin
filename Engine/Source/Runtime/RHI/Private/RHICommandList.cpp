@@ -1120,6 +1120,30 @@ namespace Durin
 			FByteBuffer Data;
 		};
 
+		struct FTextureReadbackCommand
+		{
+			TRefCountPtr<FRHITexture> Texture;
+			uint32 MipIndex;
+			uint32 ArraySlice;
+			std::shared_ptr<FRHITextureReadback> Request;
+			bool bReplayed = false;
+			~FTextureReadbackCommand() { if (!bReplayed) Request->Cancel(); }
+			auto Execute(void* ReplayContext) -> void
+			{
+				GetReplayContext(ReplayContext).GetOperationContext("TextureReadback")
+					.RHIEnqueueTextureReadback(Texture.GetReference(), MipIndex, ArraySlice, Request);
+				bReplayed = true;
+			}
+		};
+		struct FPollTextureReadbacksCommand
+		{
+			auto Execute(void* ReplayContext) -> void
+			{
+				GetReplayContext(ReplayContext).GetOperationContext("PollTextureReadbacks")
+					.RHIPollTextureReadbacks();
+			}
+		};
+
 		struct FInitializeTextureCommand
 		{
 			explicit FInitializeTextureCommand(FRHITexture* InTexture)
@@ -2302,6 +2326,19 @@ namespace Durin
 					Texture, MipIndex, ArraySlice, OutData);
 			});
 		return bSucceeded;
+	}
+
+	auto FRHICommandListBase::EnqueueTextureReadback(FRHITexture* Texture,
+		uint32 MipIndex, uint32 ArraySlice) -> std::shared_ptr<FRHITextureReadback>
+	{
+		auto Request = std::make_shared<FRHITextureReadback>();
+		RecordCommand<FTextureReadbackCommand>(TRefCountPtr<FRHITexture>(Texture), MipIndex, ArraySlice, Request);
+		return Request;
+	}
+
+	auto FRHICommandListBase::PollTextureReadbacks() -> void
+	{
+		RecordCommand<FPollTextureReadbacksCommand>();
 	}
 
 	auto FRHICommandListImmediate::AcquireBackBuffer(

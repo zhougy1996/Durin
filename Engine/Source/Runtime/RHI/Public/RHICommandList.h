@@ -5,6 +5,7 @@
 #include "RHIDefinitions.h"
 #include "RHIResources.h"
 #include "RHIShaderParameters.h"
+#include "RHITextureReadback.h"
 
 namespace Durin
 {
@@ -37,6 +38,11 @@ namespace Durin
 		// Records a signal and owned waits without dispatching or reserving native work.
 		RHI_API auto BeginGPUSubmission(const FRHIGPUSubmissionDesc& Desc) -> FRHIGPUSubmissionReceipt;
 		RHI_API auto EndGPUSubmission() -> void;
+		// Records an ordered copy without waiting for RHI replay or GPU completion.
+		// Record PollTextureReadbacks in later frames until the result is terminal.
+		RHI_API auto EnqueueTextureReadback(FRHITexture* Texture, uint32 MipIndex = 0,
+			uint32 ArraySlice = 0) -> std::shared_ptr<FRHITextureReadback>;
+		RHI_API auto PollTextureReadbacks() -> void;
 		RHI_API auto ReleaseQueueOwnership(std::shared_ptr<FRHIQueueTransfer> Transfer) -> void;
 		RHI_API auto AcquireQueueOwnership(std::shared_ptr<FRHIQueueTransfer> Transfer) -> void;
 

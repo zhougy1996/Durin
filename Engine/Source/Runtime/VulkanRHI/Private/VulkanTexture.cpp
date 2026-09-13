@@ -698,7 +698,8 @@ namespace Durin::VulkanRHI
 		FRHITexture* Texture,
 		uint32 MipIndex,
 		uint32 ArraySlice,
-		FByteBuffer& OutData
+		FByteBuffer& OutData,
+		std::shared_ptr<FRHITextureReadback> AsyncRequest
 	) -> bool
 	{
 		CheckVulkanRHIThread();
@@ -744,9 +745,10 @@ namespace Durin::VulkanRHI
 		const uint64 Alignment = std::max<uint64>({16, FormatInfo.BytesPerBlock,
 			Device->GetGpuProperties().limits.nonCoherentAtomSize,
 			Device->GetGpuProperties().limits.optimalBufferCopyOffsetAlignment});
-		FVulkanTransferRange Readback = Context.AcquireTransferRange(
-			EVulkanAllocationClassCandidate::TransferReadback,
-			Layout.DataSize, Alignment);
+		FVulkanTransferRange Readback = AsyncRequest
+			? Context.TryAcquireReadbackRange(Layout.DataSize, Alignment)
+			: Context.AcquireTransferRange(EVulkanAllocationClassCandidate::TransferReadback, Layout.DataSize, Alignment);
+		if (!Readback) return false;
 		FVulkanBuffer* ReadbackBuffer = Readback.GetBuffer();
 		GVulkanMemoryBaselineTracker.RecordReadback(Layout.DataSize);
 
@@ -778,6 +780,11 @@ namespace Durin::VulkanRHI
 
 		const auto ProducingTicket = Device->GetSubmissionCoordinator().SubmitContext(Context);
 		check(ProducingTicket.GetPoint() == Readback.GetTicket().GetPoint());
+		if (AsyncRequest)
+		{
+			Context.RetainReadback(std::move(Readback), std::move(AsyncRequest));
+			return true;
+		}
 		FRHIRetirementPrerequisites ReadbackUses;
 		require(ReadbackUses.Add(Readback.GetTicket()));
 		Device->WaitForUses(ReadbackUses);

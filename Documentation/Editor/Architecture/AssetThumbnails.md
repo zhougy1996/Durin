@@ -4,7 +4,7 @@ Summary: Define the shared Thumbnail Manager, renderer, asset-thumbnail, pool, p
 
 Modules: DurinEd, ContentBrowser, MainFrame, MaterialEditor, TextureEditor, StaticMeshEditor, LevelEditor
 
-Last reviewed: 2026-09-08
+Last reviewed: 2026-09-13
 
 Asset thumbnails are optional editor-derived data. They never replace authored
 packages or source files, and deleting the thumbnail cache cannot lose project
@@ -130,6 +130,16 @@ job to progress. Timeout and failure are stable until identity changes or the
 caller explicitly refreshes. Unreferenced inactive metadata entries use a
 separate count-bounded LRU so failed or unsupported assets cannot grow the pool
 without bound.
+
+Rendered captures enqueue an RHI texture readback and remain `ReadbackPending`
+until later polling publishes tightly packed pixels. Neither submission nor
+polling waits for GPU completion. Vulkan retains the mapped range with its GPU
+submission ticket, invalidates host memory only after completion, and retires
+the range on the RHI owner. Cancellation discards pixel publication but preserves
+GPU retirement prerequisites. Unsupported backends and exhausted readback
+capacity fail the request rather than falling back to synchronous readback.
+The Vulkan context admits at most eight pending requests and 64 MiB of pending
+readback ranges; thumbnail scheduling still uses one active capture.
 
 Pool statistics expose jobs, loads, waits, renders, readbacks, disk hits,
 failures, retries, cancellations, evictions, uploads, live textures, queued

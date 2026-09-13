@@ -25,6 +25,7 @@
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshBuild.h"
 #include "Thumbnail/ThumbnailPreviewScene.h"
+#include "RenderingThread.h"
 #include "Thumbnail/StaticMeshThumbnailRenderer.h"
 #include "Thumbnail/TextureCubeThumbnailRenderer.h"
 #include "Texture/Texture2D.h"
@@ -33,6 +34,25 @@
 
 namespace Durin::Tests
 {
+	// Test-only pumping: a render-thread flush no longer implies GPU readback completion.
+	inline auto FinishThumbnailCapture(Editor::FThumbnailPreviewScenePool& Pool,
+		FByteBuffer& Pixels, std::string& Error) -> Editor::EThumbnailCaptureState
+	{
+		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+		for (;;)
+		{
+			const auto State = Pool.PollCapture(Pixels, Error);
+			if (State != Editor::EThumbnailCaptureState::Rendering
+				&& State != Editor::EThumbnailCaptureState::ReadbackPending) return State;
+			if (std::chrono::steady_clock::now() >= Deadline)
+			{
+				Error = "Timed out waiting for thumbnail readback.";
+				return Editor::EThumbnailCaptureState::Failed;
+			}
+			FlushRenderingCommands();
+			std::this_thread::yield();
+		}
+	}
 	// Names and values in this fixture set are versioned inputs to rendered-thumbnail golden tests.
 	struct FAssetThumbnailFixtureSet
 	{
@@ -219,7 +239,7 @@ namespace Durin::Tests
 		auto PollCapture(Durin::FByteBuffer& OutPixels, std::string& OutError)
 			-> Editor::EThumbnailCaptureState
 		{
-			return Pool.PollCapture(OutPixels, OutError);
+			return FinishThumbnailCapture(Pool, OutPixels, OutError);
 		}
 
 		auto Reset() -> void

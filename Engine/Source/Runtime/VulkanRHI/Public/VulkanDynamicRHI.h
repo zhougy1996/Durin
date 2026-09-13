@@ -1,6 +1,7 @@
 #pragma once
 
 #include "RHI.h"
+#include "RHITextureReadback.h"
 
 #include "VulkanExtensions.h"
 #include "VulkanDiagnostics.h"
@@ -139,7 +140,8 @@ namespace Durin::VulkanRHI
 			FRHITexture* Texture,
 			uint32 MipIndex,
 			uint32 ArraySlice,
-			FByteBuffer& OutData
+			FByteBuffer& OutData,
+			std::shared_ptr<FRHITextureReadback> AsyncRequest = {}
 		) -> bool;
 
 	protected:

@@ -10,6 +10,7 @@ namespace Durin::Editor
 	{
 		Idle,
 		Rendering,
+		ReadbackPending,
 		Ready,
 		Failed
 	};

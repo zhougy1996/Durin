@@ -3,6 +3,7 @@
 #include "RHIShaderParameters.h"
 #include "RHIResources.h"
 #include "RHICompletion.h"
+#include "RHITextureReadback.h"
 
 namespace Durin
 {
@@ -74,6 +75,10 @@ namespace Durin
 			const FUpdateTextureRegion3D& UpdateRegion, uint32 SourceRowPitch,
 			uint32 SourceDepthPitch, FByteView SourceData) -> void = 0;
 		virtual auto RHIReadTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, FByteBuffer& OutData) -> bool = 0;
+		// Never wait for GPU completion. Unsupported backends publish failure.
+		virtual auto RHIEnqueueTextureReadback(FRHITexture* Texture, uint32 MipIndex,
+			uint32 ArraySlice, std::shared_ptr<FRHITextureReadback> Request) -> void { Request->Fail(); }
+		virtual auto RHIPollTextureReadbacks() -> void {}
 		virtual auto RHIAllocateDynamicUniformBuffer(const void* Data, uint32 Size) -> FRHIUniformBufferRange = 0;
 		virtual auto RHIAllocateDynamicStorageBuffer(const void* Data, uint32 Size)
 			-> FRHIStorageBufferRange = 0;

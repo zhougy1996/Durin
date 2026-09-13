@@ -90,6 +90,12 @@ namespace Durin::VulkanRHI
 	FVulkanCommandListContext::~FVulkanCommandListContext()
 	{
 		CheckVulkanRHIThread();
+		for (auto& Readback : PendingReadbacks)
+		{
+			Readback.Request->Fail();
+			Readback.Range.Retire();
+		}
+		PendingReadbacks.clear();
 		// Submitted payloads moved to the completion tracker. Only detached,
 		// unsubmitted recordings remain here when the device stops this context.
 		for (auto* Payload : Payloads) delete Payload;
@@ -222,6 +228,7 @@ namespace Durin::VulkanRHI
 		const FRHIBeginFrameArgs&) -> void
 	{
 		CheckVulkanRHIThread();
+		RHIPollTextureReadbacks();
 		PendingGfxState->ClearDescriptorSetCache();
 		PendingComputeState->ClearDescriptorSetCache();
 	}
@@ -825,6 +832,66 @@ namespace Durin::VulkanRHI
 		CheckVulkanRHIThread();
 		return RHI->ReadTexture2D(
 			*this, Texture, MipIndex, ArraySlice, OutData);
+	}
+
+	auto FVulkanCommandListContext::RHIEnqueueTextureReadback(FRHITexture* Texture,
+		uint32 MipIndex, uint32 ArraySlice, std::shared_ptr<FRHITextureReadback> Request) -> void
+	{
+		CheckVulkanRHIThread();
+		if (Request->GetState() != ERHITextureReadbackState::Pending) return;
+		RHIPollTextureReadbacks();
+		FByteBuffer Unused;
+		if (PendingReadbacks.size() >= 8
+			|| !RHI->ReadTexture2D(*this, Texture, MipIndex, ArraySlice, Unused, Request)) Request->Fail();
+	}
+
+	auto FVulkanCommandListContext::TryAcquireReadbackRange(uint64 Size, uint64 Alignment)
+		-> FVulkanTransferRange
+	{
+		CheckVulkanRHIThread();
+		constexpr uint64 MaximumReadbackBytes = 64ull * 1024 * 1024;
+		uint64 LiveBytes = 0;
+		for (const auto& Readback : PendingReadbacks) LiveBytes += Readback.Range.GetSize();
+		if (Size > MaximumReadbackBytes - LiveBytes) return {};
+		auto& Payload = GetPayload();
+		auto Result = Device.GetReadbackArena().Acquire(Size, Alignment, Payload.GetTicket());
+		if (Result.Range) Payload.RetainAllocation(Result.Range.GetAllocationOwner());
+		return std::move(Result.Range);
+	}
+
+	auto FVulkanCommandListContext::RetainReadback(FVulkanTransferRange Range,
+		std::shared_ptr<FRHITextureReadback> Request) -> void
+	{
+		PendingReadbacks.push_back({std::move(Range), std::move(Request)});
+	}
+
+	auto FVulkanCommandListContext::RHIPollTextureReadbacks() -> void
+	{
+		CheckVulkanRHIThread();
+		if (PendingReadbacks.empty()) return;
+		Device.PollQueues();
+		std::erase_if(PendingReadbacks, [](FPendingReadback& Readback) {
+			const auto State = Readback.Range.GetTicket().GetState();
+			// Canceled in-flight copies still count against admission and byte limits.
+			if (State == ERHIGPUSubmissionState::Pending || State == ERHIGPUSubmissionState::Submitted) return false;
+			if (Readback.Request->GetState() == ERHITextureReadbackState::Canceled)
+			{
+				// Retirement preserves the GPU ticket even when publication is canceled.
+				Readback.Range.Retire();
+				return true;
+			}
+			if (State == ERHIGPUSubmissionState::Complete)
+			{
+				Readback.Range.Invalidate();
+				const auto* Data = Readback.Range.GetMappedPointer();
+				if (Data) Readback.Request->Complete(FByteBuffer(Data, Data + Readback.Range.GetSize()));
+				else Readback.Request->Fail();
+			}
+			else Readback.Request->Fail();
+			Readback.Range.Retire();
+			return true;
+		});
+		Device.GetReadbackArena().ReclaimCompleted();
 	}
 
 	auto FVulkanCommandListContext::RHIAllocateDynamicUniformBuffer(

@@ -159,6 +159,7 @@ namespace Durin::Editor
 			EThumbnailCaptureState State =
 				EThumbnailCaptureState::Idle;
 			FByteBuffer Pixels;
+			std::shared_ptr<FRHITextureReadback> Readback;
 			std::string Error;
 			uint64 Generation = 0;
 		};
@@ -240,6 +241,7 @@ namespace Durin::Editor
 			{
 				std::lock_guard Lock(Capture->Mutex);
 				++Capture->Generation;
+				if (Capture->Readback) Capture->Readback->Cancel();
 			}
 			if (GRenderingThread) FlushRenderingCommands();
 			RenderTarget = nullptr;
@@ -299,7 +301,8 @@ namespace Durin::Editor
 		}
 		{
 			std::lock_guard Lock(Impl->Capture->Mutex);
-			if (Impl->Capture->State == EThumbnailCaptureState::Rendering)
+			if (Impl->Capture->State == EThumbnailCaptureState::Rendering
+				|| Impl->Capture->State == EThumbnailCaptureState::ReadbackPending)
 			{
 				OutError = "A rendered-thumbnail capture is already in flight.";
 				return false;
@@ -331,7 +334,8 @@ namespace Durin::Editor
 		}
 		{
 			std::lock_guard Lock(Impl->Capture->Mutex);
-			if (Impl->Capture->State == EThumbnailCaptureState::Rendering)
+			if (Impl->Capture->State == EThumbnailCaptureState::Rendering
+				|| Impl->Capture->State == EThumbnailCaptureState::ReadbackPending)
 			{
 				OutError = "A rendered-thumbnail capture is already in flight.";
 				return false;
@@ -367,7 +371,8 @@ namespace Durin::Editor
 		uint64 Generation = 0;
 		{
 			std::lock_guard Lock(Impl->Capture->Mutex);
-			if (Impl->Capture->State == EThumbnailCaptureState::Rendering)
+			if (Impl->Capture->State == EThumbnailCaptureState::Rendering
+				|| Impl->Capture->State == EThumbnailCaptureState::ReadbackPending)
 			{
 				OutError = "A rendered-thumbnail capture is already in flight.";
 				return false;
@@ -390,7 +395,7 @@ namespace Durin::Editor
 			[Capture, Generation, Renderer, Scene, RenderTarget, View, Options](
 				FRHICommandListImmediate& CommandList
 			) {
-				FByteBuffer Pixels;
+				std::shared_ptr<FRHITextureReadback> Readback;
 				std::string Error;
 				if (Renderer == nullptr || Scene == nullptr || RenderTarget == nullptr)
 				{
@@ -408,16 +413,17 @@ namespace Durin::Editor
 					else if (HasRejectedVisibleGeometry(Statistics))
 						Error = "The rendered-thumbnail scene contained visible geometry, "
 							"but the renderer produced no geometry draw calls.";
-					else if (!GDynamicRHI->RHIReadTexture2D(
-								 CommandList, RenderTarget, 0, 0, Pixels
-							 ))
-						Error = "Failed to read back the rendered-thumbnail output.";
+					else Readback = CommandList.EnqueueTextureReadback(RenderTarget);
 				}
 				std::lock_guard Lock(Capture->Mutex);
-				if (Capture->Generation != Generation) return;
-				Capture->Pixels = std::move(Pixels);
+				if (Capture->Generation != Generation)
+				{
+					if (Readback) Readback->Cancel();
+					return;
+				}
+				Capture->Readback = std::move(Readback);
 				Capture->Error = std::move(Error);
-				Capture->State = Capture->Error.empty() ? EThumbnailCaptureState::Ready : EThumbnailCaptureState::Failed;
+				Capture->State = Capture->Error.empty() ? EThumbnailCaptureState::ReadbackPending : EThumbnailCaptureState::Failed;
 			}
 		);
 		return true;
@@ -432,6 +438,31 @@ namespace Durin::Editor
 		OutPixels.clear();
 		OutError.clear();
 		std::lock_guard Lock(Impl->Capture->Mutex);
+		if (Impl->Capture->State == EThumbnailCaptureState::ReadbackPending)
+		{
+			const auto State = Impl->Capture->Readback->GetState();
+			if (State == ERHITextureReadbackState::Ready)
+			{
+				if (Impl->Capture->Readback->TakePixels(Impl->Capture->Pixels))
+					Impl->Capture->State = EThumbnailCaptureState::Ready;
+				else
+				{
+					Impl->Capture->Error = "The thumbnail readback completed without pixels.";
+					Impl->Capture->State = EThumbnailCaptureState::Failed;
+				}
+			}
+			else if (State == ERHITextureReadbackState::Pending)
+			{
+				ENQUEUE_RENDER_COMMAND(PollThumbnailReadback)([](FRHICommandListImmediate& Commands) {
+					Commands.PollTextureReadbacks();
+				});
+			}
+			else
+			{
+				Impl->Capture->Error = "Failed to read back the rendered-thumbnail output.";
+				Impl->Capture->State = EThumbnailCaptureState::Failed;
+			}
+		}
 		if (Impl->Capture->State == EThumbnailCaptureState::Ready)
 			OutPixels = std::move(Impl->Capture->Pixels);
 		else if (Impl->Capture->State == EThumbnailCaptureState::Failed)
@@ -445,6 +476,8 @@ namespace Durin::Editor
 		{
 			std::lock_guard Lock(Impl->Capture->Mutex);
 			++Impl->Capture->Generation;
+			if (Impl->Capture->Readback) Impl->Capture->Readback->Cancel();
+			Impl->Capture->Readback.reset();
 			Impl->Capture->State = EThumbnailCaptureState::Idle;
 			Impl->Capture->Pixels.clear();
 			Impl->Capture->Error.clear();

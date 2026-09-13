@@ -587,7 +587,8 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 		Durin::Tests::FScopedActiveUIBackend ThumbnailBackendScope(ThumbnailUIBackend);
 		auto PumpCacheToReady = [&](Durin::Editor::FAssetThumbnailPool& Cache) {
 			Durin::Editor::FAssetThumbnailView View;
-			for (uint32 Attempt = 0; Attempt < 16; ++Attempt)
+			const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+			while (std::chrono::steady_clock::now() < Deadline)
 			{
 				Cache.BeginFrame();
 				Cache.Request(
@@ -596,6 +597,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 				View = Cache.Find(StaticMeshFingerprint.AssetPath);
 				Cache.EndFrame();
 				Durin::FlushRenderingCommands();
+				std::this_thread::yield();
 				if (View.State == Durin::Editor::EAssetThumbnailState::Ready
 					&& View.Texture != nullptr)
 					break;
@@ -1029,7 +1031,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			EXPECT_EQ(CaptureCube->GetTextureReferenceRHI(), CaptureCubeReference);
 			EXPECT_NE(CaptureCube->GetPublishedTexture(), Snapshot);
 			Durin::FByteBuffer DelayedPixels;
-			EXPECT_EQ(Pool.GetPreviewScene().PollCapture(DelayedPixels, Error), Durin::Editor::EThumbnailCaptureState::Ready);
+			EXPECT_EQ(Durin::Tests::FinishThumbnailCapture(Pool.GetPreviewScene(), DelayedPixels, Error), Durin::Editor::EThumbnailCaptureState::Ready);
 			EXPECT_FALSE(Session->ValidateRevisions(Loaded.AssetRevision, Ready.ResourceRevision, Error));
 			Session->ResetPreview();
 			Pool.Reset();
@@ -1081,7 +1083,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			ASSERT_TRUE(WaitForResourcePublication([&] { return !TextureResult.Asset->IsResourceUpdatePending(); }));
 			EXPECT_EQ(TextureResult.Asset->GetTextureReferenceRHI(), Stable);
 			Durin::FByteBuffer DelayedPixels;
-			EXPECT_EQ(Pool.GetPreviewScene().PollCapture(DelayedPixels, Error), Durin::Editor::EThumbnailCaptureState::Ready);
+			EXPECT_EQ(Durin::Tests::FinishThumbnailCapture(Pool.GetPreviewScene(), DelayedPixels, Error), Durin::Editor::EThumbnailCaptureState::Ready);
 			EXPECT_FALSE(Session->ValidateRevisions(Loaded.AssetRevision, Ready.ResourceRevision, Error));
 			Session->ResetPreview();
 			Pool.Reset();

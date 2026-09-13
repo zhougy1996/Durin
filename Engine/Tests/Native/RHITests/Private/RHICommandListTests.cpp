@@ -941,6 +941,30 @@ namespace Durin
 			"BeginTiming", "BeginTiming", "EndTiming", "EndTiming"}));
 	}
 
+	TEST(FRHICommandListTests, AsyncReadbackRecordsWithoutExecutingAndRejectsUnsupportedBackend)
+	{
+		FRecordingCommandContext Context;
+		FRHICommandListExecutor Executor(Context);
+		auto Texture = MakeRefCount<FRHITexture>();
+		auto Request = Executor.GetImmediateCommandList().EnqueueTextureReadback(Texture);
+		EXPECT_TRUE(Context.Operations.empty());
+		EXPECT_EQ(Request->GetState(), ERHITextureReadbackState::Pending);
+		Executor.Submit({}, ERHISubmitFlags::None);
+		EXPECT_EQ(Request->GetState(), ERHITextureReadbackState::Failed);
+		EXPECT_TRUE(Context.Operations.empty()); // Never falls back to synchronous readback.
+	}
+
+	TEST(FRHICommandListTests, ReadbackCancellationDiscardsLatePixels)
+	{
+		FRHITextureReadback Request;
+		Request.Cancel();
+		Request.Complete(MakeByteVector({1, 2, 3}));
+		Request.Fail();
+		FByteBuffer Pixels;
+		EXPECT_FALSE(Request.TakePixels(Pixels));
+		EXPECT_EQ(Request.GetState(), ERHITextureReadbackState::Canceled);
+	}
+
 	TEST(FRHICommandListTests, ThreadedImmediateOperationsStayOnRHIThread)
 	{
 		FRecordingCommandContext Context;

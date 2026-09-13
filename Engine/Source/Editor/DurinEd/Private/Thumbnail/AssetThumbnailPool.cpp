@@ -351,6 +351,7 @@ namespace Durin::Editor
 			const EThumbnailCaptureState State =
 				ScenePool->PollCapture(Pixels, Error);
 			if (State == EThumbnailCaptureState::Rendering
+				|| State == EThumbnailCaptureState::ReadbackPending
 				|| State == EThumbnailCaptureState::Idle)
 				return;
 
