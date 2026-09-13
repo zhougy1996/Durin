@@ -638,6 +638,17 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			EXPECT_EQ(Stats.UploadsCompleted, 1u);
 			EXPECT_EQ(Stats.LiveGpuTextures, 1u);
 			EXPECT_EQ(ThumbnailUIBackend.NumRegistered(), 1u);
+			// Display readiness no longer implies persistent publication. Let the
+			// optional save finish before clearing requests and testing a warm reopen.
+			const auto SaveDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+			while (Cache.GetStats().Generation.CacheWrites == 0
+				&& std::chrono::steady_clock::now() < SaveDeadline)
+			{
+				Cache.BeginFrame();
+				Cache.EndFrame();
+				std::this_thread::sleep_for(std::chrono::milliseconds(1));
+			}
+			ASSERT_EQ(Cache.GetStats().Generation.CacheWrites, 1u);
 			Cache.Clear();
 			EXPECT_EQ(Cache.GetStats().LiveGpuTextures, 0u);
 			EXPECT_EQ(ThumbnailUIBackend.NumRegistered(), 0u);

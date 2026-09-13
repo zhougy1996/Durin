@@ -28,6 +28,9 @@ namespace Durin::Editor
 		uint64 Retries = 0;
 		uint64 Cancellations = 0;
 		uint64 Evictions = 0;
+		uint64 CacheWrites = 0;
+		uint64 CacheWriteFailures = 0;
+		uint64 CacheWritesSkipped = 0;
 	};
 
 	// Provides stable lifecycle and budget observations without exposing preview or UI objects.

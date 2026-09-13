@@ -2,7 +2,6 @@
 #include "Thumbnail/AssetThumbnailGeneration.h"
 
 #include "DynamicRHI.h"
-#include "Image/ImageDecoder.h"
 #include "MonaCoreGlobals.h"
 #include "MonaUIBackend.h"
 #include "RHICommandList.h"
@@ -87,7 +86,7 @@ namespace Durin::Editor
 			: Manager(InService)
 			, Budgets(InBudgets)
 			, Scheduler(Manager, Budgets)
-			, Pipeline(Scheduler, std::move(StoreSettings), Budgets)
+			, Pipeline(Scheduler, std::move(StoreSettings), Budgets, true)
 		{
 		}
 
@@ -252,57 +251,6 @@ namespace Durin::Editor
 					Generated->Width, Generated->Height);
 			else if (!Error.empty())
 				Pipeline.CompleteLoad(Job, Generated->AssetRevision, Error);
-		}
-
-		auto DecodeAndQueueUpload(
-			const FAssetThumbnailGenerationRequest& Request,
-			FByteView EncodedBytes) -> bool
-		{
-			const uint64 ExpectedPixels =
-				static_cast<uint64>(Request.KeyInput.Output.Width)
-					* Request.KeyInput.Output.Height;
-			uint64 ExpectedBytes = 0;
-			Image::FDecodedImage Image;
-			std::string Error;
-			bool bDecoded = false;
-			if (ExpectedPixels == 0
-				|| ExpectedPixels > Budgets.CpuPixelBudgetBytes / 4)
-			{
-				Error = "The cached thumbnail exceeds the configured CPU pixel budget.";
-			}
-			else
-			{
-				ExpectedBytes = ExpectedPixels * 4;
-				bDecoded = Image::DecodeImageFromMemory(
-					EncodedBytes,
-					Image,
-					Error,
-					{.MaximumEncodedBytes = EncodedBytes.size(),
-					 .MaximumDecodedPixels = ExpectedPixels});
-			}
-			if (!bDecoded && Error.empty())
-			{
-				Error = "The cached thumbnail could not be decoded.";
-			}
-			else if (bDecoded && (Image.Width != Request.KeyInput.Output.Width
-					|| Image.Height != Request.KeyInput.Output.Height
-					|| Image.Pixels.size() != ExpectedBytes))
-			{
-				Error = "The cached thumbnail dimensions do not match its fixed output contract.";
-			}
-			if (!Error.empty())
-			{
-				if (auto It = Entries.find(Request.KeyInput.Asset.AssetPath);
-					It != Entries.end())
-				{
-					It->second.Diagnostic = std::move(Error);
-					It->second.bUploadFailed = true;
-				}
-				return false;
-			}
-			QueueUpload(
-				Request, std::move(Image.Pixels), Image.Width, Image.Height);
-			return true;
 		}
 
 		auto DrainUploads() -> void
@@ -617,21 +565,9 @@ namespace Durin::Editor
 				if (auto It = Entries.find(Path); It != Entries.end())
 					It->second.bHasTransparency =
 						WarmJob.GenerationRequest.bHasTransparency;
-				if (!DecodeAndQueueUpload(
-						WarmJob.GenerationRequest, Start.EncodedBytes))
-				{
-					Pipeline.InvalidatePersistentObject(WarmJob.CacheKey);
-					Pipeline.RecordRetry();
-					Scheduler.Cancel(Path);
-					if (IsThumbnailRequestAccepted(Scheduler.Request({.Asset = WarmJob.GenerationRequest.KeyInput.Asset, .Priority = WarmJob.Priority, .RequestSerial = WarmJob.GenerationRequest.RequestSerial})))
-					{
-						if (auto It = Entries.find(Path); It != Entries.end())
-						{
-							It->second.Diagnostic.clear();
-							It->second.bUploadFailed = false;
-						}
-					}
-				}
+				QueueUpload(WarmJob.GenerationRequest, std::move(Start.Pixels),
+					WarmJob.GenerationRequest.KeyInput.Output.Width,
+					WarmJob.GenerationRequest.KeyInput.Output.Height);
 				return;
 			}
 			if (!Start.ColdJob) return;

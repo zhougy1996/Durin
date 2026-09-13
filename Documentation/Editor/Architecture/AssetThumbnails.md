@@ -141,6 +141,25 @@ capacity fail the request rather than falling back to synchronous readback.
 The Vulkan context admits at most eight pending requests and 64 MiB of pending
 readback ranges; thumbnail scheduling still uses one active capture.
 
+The interactive pool uses a serial `BlockingIO` task lane for cache index
+initialization, object reads, PNG decoding/encoding, atomic writes, index updates,
+and disk eviction. Frames only poll task completion. At most two cache reads
+(ordinary and generated-pixel lanes) and eight queued saves are retained, with
+decoded-read reservations and retained save pixels sharing the CPU pixel budget.
+When save admission is exhausted, the optional cache save is skipped; display
+and capture remain available. Encoded input is additionally bounded by the
+maximum object size. The private generation coordinator retains a synchronous
+mode for offline opaque-object generation; the interactive pool always selects
+background mode.
+
+New pixels are validated against the current request and resource revisions on
+the game thread and submitted for UI upload without waiting for PNG encoding or
+cache publication. Cache failures do not change a display-ready request to failed.
+Workers retain only cache state, immutable inputs, and cancellation tokens;
+renderer sessions and scheduler transitions stay on the game thread. Cache write
+success, failure, and skipped admission are reported separately in generation
+statistics.
+
 Pool statistics expose jobs, loads, waits, renders, readbacks, disk hits,
 failures, retries, cancellations, evictions, uploads, live textures, queued
 jobs, retained entries, pinned entries, and reference count. Statistics are
@@ -171,8 +190,9 @@ fixed requested output before allocation, and decoded dimensions must match
 that output exactly. Missing, incompatible, oversized, truncated, corrupt, or
 decode-invalid objects are safe misses. Removal first proves the resolved path
 remains beneath the cache root; regeneration then uses mounted authored
-content. An invalid warm object is invalidated and requeued once, never retried
-every frame.
+content. An invalid warm object is invalidated on the worker and returned as cold
+work for the same request, never retried every frame. Warm completions revalidate
+request identity and renderer generation before upload.
 
 MainFrame shutdown order is:
 
@@ -184,7 +204,10 @@ MainFrame shutdown order is:
 
 All completion, cancellation, retirement, refresh, pool destruction, and
 shutdown paths converge on idempotent preview reset and owning-thread RHI
-release.
+release. Pool destruction drains the serial cache task lane before module unload;
+normal cancellation and refresh never wait for cache tasks. Canceled writes are
+discarded before encoding/publication when cancellation is observed, and canceled
+read results cannot publish into a replacement request.
 
 ## Related Documentation
 
