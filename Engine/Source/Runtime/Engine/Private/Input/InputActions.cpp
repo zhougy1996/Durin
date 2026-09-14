@@ -236,21 +236,21 @@ namespace Durin
 		return Snapshot;
 	}
 
-	auto FInputActionEvaluator::ValidateOverrides(const FOverrides& Candidate, std::string& Error) const -> bool
+	auto FInputActionEvaluator::ValidateOverrides(const FOverrides& Candidate) const -> FInputBindingResult
 	{
 		for (const auto& [Key, Source] : Candidate)
 		{
-			bool bFound = false;
-			for (const auto& Context : Contexts)
-				if (Context.Definition.Name == Key.first)
-					for (const auto& Binding : Context.Definition.Bindings)
-						if (Binding.Slot == Key.second)
-						{
-							bFound = true;
-							if (!Source.IsValid() || (Actions.at(Binding.Action) == EInputActionType::Button && Source.GetIndex() >= 259))
-							{ Error = "Invalid source for binding " + Key.second; return false; }
-						}
-			if (!bFound) { Error = "Unknown context or binding: " + Key.first + "/" + Key.second; return false; }
+			const auto Context = std::find_if(Contexts.begin(), Contexts.end(),
+				[&Key](const FContext& Entry) { return Entry.Definition.Name == Key.first; });
+			if (Context == Contexts.end())
+				return {EInputBindingError::UnknownContext, "Unknown input context: " + Key.first, Key.first, Key.second};
+			const auto& Bindings = Context->Definition.Bindings;
+			const auto Binding = std::find_if(Bindings.begin(), Bindings.end(),
+				[&Key](const FInputBinding& Entry) { return Entry.Slot == Key.second; });
+			if (Binding == Bindings.end())
+				return {EInputBindingError::UnknownSlot, "Unknown input binding: " + Key.second, Key.first, Key.second};
+			if (!Source.IsValid() || (Actions.at(Binding->Action) == EInputActionType::Button && Source.GetIndex() >= 259))
+				return {EInputBindingError::InvalidSource, "Invalid source for binding " + Key.second, Key.first, Key.second};
 		}
 		for (const auto& Context : Contexts)
 		{
@@ -258,29 +258,34 @@ namespace Durin
 			for (const auto& Binding : Context.Definition.Bindings)
 			{
 				const auto [It, Inserted] = Used.emplace(ResolveSource(Context.Definition, Binding, Candidate).GetIndex(), Binding.Slot);
-				if (!Inserted) { Error = "Binding conflict in " + Context.Definition.Name + ": " + It->second + " and " + Binding.Slot; return false; }
+				if (!Inserted)
+					return {EInputBindingError::BindingConflict,
+						"Binding conflict in " + Context.Definition.Name + ": " + It->second + " and " + Binding.Slot,
+						Context.Definition.Name, Binding.Slot, It->second};
 			}
 		}
-		Error.clear();
-		return true;
+		return {};
 	}
 
-	auto FInputActionEvaluator::Rebind(std::string_view Context, std::string_view Slot, FInputSource Source, std::string& Error) -> bool
+	auto FInputActionEvaluator::Rebind(std::string_view Context, std::string_view Slot, FInputSource Source) -> FInputBindingResult
 	{
 		auto Candidate = Overrides;
 		Candidate[{std::string(Context), std::string(Slot)}] = Source;
-		if (!ValidateOverrides(Candidate, Error)) return false;
+		if (auto Result = ValidateOverrides(Candidate); !Result)
+		{
+			if (Result.Error == EInputBindingError::BindingConflict && Result.ConflictingSlot == Slot)
+				std::swap(Result.Slot, Result.ConflictingSlot);
+			return Result;
+		}
 		Cancel();
 		Overrides = std::move(Candidate);
-		return true;
+		return {};
 	}
 
-	auto FInputActionEvaluator::ResetBindings(std::string& Error) -> bool
+	auto FInputActionEvaluator::ResetBindings() -> void
 	{
 		Cancel();
 		Overrides.clear();
-		Error.clear();
-		return true;
 	}
 
 	auto FInputActionEvaluator::GetBindingSource(std::string_view ContextName, std::string_view Slot) const -> std::optional<FInputSource>
@@ -292,7 +297,7 @@ namespace Durin
 		return std::nullopt;
 	}
 
-	auto FInputActionEvaluator::SaveOverrides(const std::filesystem::path& Path, std::string& Error) const -> bool
+	auto FInputActionEvaluator::SaveOverrides(const std::filesystem::path& Path) const -> FInputBindingResult
 	{
 		std::ostringstream Stream;
 		Stream << "DurinInputBindings 1\n";
@@ -301,19 +306,19 @@ namespace Durin
 		const std::string Text = Stream.str();
 		FFileHelper::FAtomicFileError FileError;
 		if (!FFileHelper::SaveArrayToFileAtomically(std::as_bytes(std::span(Text.data(), Text.size())), Path, &FileError))
-		{ Error = FileError.ToString(); return false; }
-		Error.clear();
-		return true;
+			return {EInputBindingError::WriteFailed, FileError.ToString()};
+		return {};
 	}
 
-	auto FInputActionEvaluator::LoadOverrides(const std::filesystem::path& Path, std::string& Error) -> bool
+	auto FInputActionEvaluator::LoadOverrides(const std::filesystem::path& Path) -> FInputBindingResult
 	{
 		std::error_code FileError;
 		const auto Size = std::filesystem::file_size(Path, FileError);
-		if (FileError || Size > 1024 * 1024) { Error = "Cannot read input overrides or file exceeds 1 MiB: " + Path.string(); return false; }
+		if (FileError) return {EInputBindingError::ReadFailed, "Cannot read input overrides: " + Path.string() + ": " + FileError.message()};
+		if (Size > 1024 * 1024) return {EInputBindingError::InvalidFile, "Input override file exceeds 1 MiB: " + Path.string()};
 		FByteBuffer Bytes;
-		if (!FFileHelper::LoadFileToArray(Bytes, Path)) { Error = "Cannot read input overrides: " + Path.string(); return false; }
-		if (Bytes.size() > 1024 * 1024) { Error = "Input override file exceeds 1 MiB."; return false; }
+		if (!FFileHelper::LoadFileToArray(Bytes, Path)) return {EInputBindingError::ReadFailed, "Cannot read input overrides: " + Path.string()};
+		if (Bytes.size() > 1024 * 1024) return {EInputBindingError::InvalidFile, "Input override file exceeds 1 MiB."};
 		std::string Text;
 		Text.reserve(Bytes.size());
 		for (const std::byte Byte : Bytes) Text.push_back(static_cast<char>(std::to_integer<unsigned char>(Byte)));
@@ -321,20 +326,22 @@ namespace Durin
 		std::string Header;
 		std::getline(Stream, Header);
 		if (!Header.empty() && Header.back() == '\r') Header.pop_back();
-		if (Header != "DurinInputBindings 1") { Error = "Unsupported input override format."; return false; }
+		if (Header != "DurinInputBindings 1") return {EInputBindingError::UnsupportedFormat, "Unsupported input override format."};
 		FOverrides Candidate;
 		while (Stream >> std::ws && !Stream.eof())
 		{
 			std::string Context, Slot;
 			unsigned Kind = 0, Code = 0;
-			if (!(Stream >> std::quoted(Context) >> std::quoted(Slot) >> Kind >> Code)
-				|| Kind > static_cast<unsigned>(EInputSourceKind::MouseWheel) || Code > 255
-				|| !Candidate.emplace(FOverrideKey{Context, Slot}, FInputSource{static_cast<EInputSourceKind>(Kind), static_cast<uint16>(Code)}).second)
-			{ Error = "Malformed or duplicate input override."; return false; }
+			if (!(Stream >> std::quoted(Context) >> std::quoted(Slot) >> Kind >> Code))
+				return {EInputBindingError::InvalidFile, "Malformed input override."};
+			if (Kind > static_cast<unsigned>(EInputSourceKind::MouseWheel) || Code > 255)
+				return {EInputBindingError::InvalidSource, "Invalid input source code.", Context, Slot};
+			if (!Candidate.emplace(FOverrideKey{Context, Slot}, FInputSource{static_cast<EInputSourceKind>(Kind), static_cast<uint16>(Code)}).second)
+				return {EInputBindingError::InvalidFile, "Duplicate input override.", Context, Slot};
 		}
-		if (!ValidateOverrides(Candidate, Error)) return false;
+		if (const auto Result = ValidateOverrides(Candidate); !Result) return Result;
 		Cancel();
 		Overrides = std::move(Candidate);
-		return true;
+		return {};
 	}
 }

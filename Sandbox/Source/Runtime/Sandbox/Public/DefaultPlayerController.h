@@ -17,8 +17,8 @@ namespace Durin::Sandbox
 	public:
 		SANDBOX_API explicit ADefaultPlayerController(const FObjectInitializer& ObjectInitializer);
 		// Persist first, then publish the new mapping. Failure leaves live controls intact.
-		SANDBOX_API auto RebindControl(std::string_view Slot, FInputSource Source, std::string& Error) -> bool;
-		SANDBOX_API auto ResetControlBindings(std::string& Error) -> bool;
+		SANDBOX_API auto RebindControl(std::string_view Slot, FInputSource Source) -> FInputBindingResult;
+		SANDBOX_API auto ResetControlBindings() -> FInputBindingResult;
 		SANDBOX_API static auto GetControlBindingsPath() -> std::filesystem::path;
 
 	protected:

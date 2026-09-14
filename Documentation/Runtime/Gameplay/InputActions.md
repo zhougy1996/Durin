@@ -83,12 +83,28 @@ and reactivation between evaluations cannot hide the interruption.
 
 ## Binding Overrides
 
-`Rebind(Context, Slot, Source, Error)` validates a detached candidate before
+`Rebind(Context, Slot, Source)` validates a detached candidate before
 changing live mappings. Unknown slots, invalid physical codes, delta sources for
 buttons, and duplicate effective sources within a context are rejected with a
-diagnostic. `GetBindingSource` returns the effective source; `ResetBindings`
-restores defaults. These operations run on the owning game thread between input
+diagnostic. `GetBindingSource` returns the effective source; `ResetBindings()`
+restores defaults in memory and returns `void`. These operations run on the owning game thread between input
 evaluations. They do not invoke callbacks during routing.
+
+`Rebind`, `LoadOverrides`, `SaveOverrides`, and the Sandbox persistence wrappers
+return `FInputBindingResult`. `Error` is an `EInputBindingError` code for branching;
+`Message` is diagnostic text and must not be parsed. Success has `Error == None`
+and converts to `true`. Unknown context, unknown slot, invalid source, reserved
+source, conflict, unsupported format, invalid file, read failure, and write
+failure have distinct codes. Oversized or malformed records and duplicate slots
+are invalid files; unsupported source-kind/code values are invalid sources.
+
+When available, `Context` and `Slot` identify the failing binding. For direct
+rebinding conflicts, `Slot` is the requested slot and `ConflictingSlot` names its
+existing peer regardless of declaration order. File-load conflicts identify both
+slots in deterministic definition order. File-wide failures leave these fields
+empty. Intermediate callers propagate the result; the operation owner decides
+whether to display or log it. Sandbox logs startup-load failures at BeginPlay and
+returns interactive rebinding/persistence failures to its caller.
 
 `SaveOverrides` atomically publishes a versioned UTF-8-compatible text file using
 Core file publication. Each record contains quoted context and slot identities,

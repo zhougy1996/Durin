@@ -60,38 +60,43 @@ namespace Durin::Sandbox
 		std::error_code FileError;
 		if (std::filesystem::exists(Path, FileError))
 		{
-			std::string Error;
 			auto Candidate = GetInputActions();
-			bool bValid = Candidate.LoadOverrides(Path, Error);
-			if (bValid)
+			auto Result = Candidate.LoadOverrides(Path);
+			if (Result)
 				for (const std::string_view Slot : {"MoveForward", "MoveBackward", "MoveLeft", "MoveRight", "LookX", "LookY", "Jump", "Interact"})
 					if (Candidate.GetBindingSource("Sandbox.Gameplay", Slot) == FInputSource::Key(EKey::Escape))
-					{ bValid = false; Error = "Escape is reserved for releasing mouse capture."; break; }
-			if (bValid) GetInputActions() = std::move(Candidate);
-			else DURIN_WARN("Sandbox input overrides: {}", Error);
+					{
+						Result = {EInputBindingError::ReservedSource, "Escape is reserved for releasing mouse capture.", "Sandbox.Gameplay", std::string(Slot)};
+						break;
+					}
+			if (Result) GetInputActions() = std::move(Candidate);
+			else DURIN_WARN("Sandbox input overrides: {}", Result.Message);
 		}
 		else if (FileError) DURIN_WARN("Sandbox input overrides: {}", FileError.message());
 		Super::BeginPlay();
 	}
 
-	auto ADefaultPlayerController::RebindControl(std::string_view Slot, FInputSource Source, std::string& Error) -> bool
+	auto ADefaultPlayerController::RebindControl(std::string_view Slot, FInputSource Source) -> FInputBindingResult
 	{
 		// Escape belongs to the host capture policy and never reaches action mapping.
-		if (Source == FInputSource::Key(EKey::Escape)) { Error = "Escape is reserved for releasing mouse capture."; return false; }
+		if (Source == FInputSource::Key(EKey::Escape))
+			return {EInputBindingError::ReservedSource, "Escape is reserved for releasing mouse capture.", "Sandbox.Gameplay", std::string(Slot)};
 		auto Candidate = GetInputActions();
-		if (!Candidate.Rebind("Sandbox.Gameplay", Slot, Source, Error) || !Candidate.SaveOverrides(GetControlBindingsPath(), Error)) return false;
+		if (const auto Result = Candidate.Rebind("Sandbox.Gameplay", Slot, Source); !Result) return Result;
+		if (const auto Result = Candidate.SaveOverrides(GetControlBindingsPath()); !Result) return Result;
 		GetInputActions() = std::move(Candidate);
 		CancelPlayerInput();
-		return true;
+		return {};
 	}
 
-	auto ADefaultPlayerController::ResetControlBindings(std::string& Error) -> bool
+	auto ADefaultPlayerController::ResetControlBindings() -> FInputBindingResult
 	{
 		auto Candidate = GetInputActions();
-		if (!Candidate.ResetBindings(Error) || !Candidate.SaveOverrides(GetControlBindingsPath(), Error)) return false;
+		Candidate.ResetBindings();
+		if (const auto Result = Candidate.SaveOverrides(GetControlBindingsPath()); !Result) return Result;
 		GetInputActions() = std::move(Candidate);
 		CancelPlayerInput();
-		return true;
+		return {};
 	}
 
 	auto ADefaultPlayerController::BuildControlIntent(const FInputActionSnapshot& Input) const -> FPawnControlIntent

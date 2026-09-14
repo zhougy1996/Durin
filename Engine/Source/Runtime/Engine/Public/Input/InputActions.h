@@ -12,6 +12,35 @@ namespace Durin
 	enum class EInputActionType : uint8 { Button, Axis1D, Axis2D };
 	enum class EInputSourceKind : uint8 { Key, MouseButton, MouseX, MouseY, MouseWheel };
 
+	// Stable failure categories for binding operations; diagnostics are not a parsing API.
+	enum class EInputBindingError : uint8
+	{
+		None,
+		UnknownContext,
+		UnknownSlot,
+		InvalidSource,
+		ReservedSource,
+		BindingConflict,
+		UnsupportedFormat,
+		InvalidFile,
+		ReadFailed,
+		WriteFailed
+	};
+
+	// Context/Slot identify a failing binding when available. For a direct Rebind
+	// conflict, Slot is the requested slot and ConflictingSlot is its existing peer.
+	// File-wide failures leave binding identities empty. Message is diagnostic only.
+	struct [[nodiscard]] FInputBindingResult
+	{
+		EInputBindingError Error = EInputBindingError::None;
+		std::string Message;
+		std::string Context;
+		std::string Slot;
+		std::string ConflictingSlot;
+
+		explicit operator bool() const { return Error == EInputBindingError::None; }
+	};
+
 	// A physical source can be reserved independently of the action it drives.
 	struct FInputSource
 	{
@@ -79,17 +108,17 @@ namespace Durin
 		auto GetSnapshot() const -> const FInputActionSnapshot& { return Snapshot; }
 		// A duplicate effective source in the same context is a rejected conflict.
 		// Cross-context overlaps are intentional and resolved by priority.
-		ENGINE_API auto Rebind(std::string_view Context, std::string_view Slot, FInputSource Source, std::string& Error) -> bool;
-		ENGINE_API auto ResetBindings(std::string& Error) -> bool;
+		ENGINE_API auto Rebind(std::string_view Context, std::string_view Slot, FInputSource Source) -> FInputBindingResult;
+		ENGINE_API auto ResetBindings() -> void;
 		ENGINE_API auto GetBindingSource(std::string_view Context, std::string_view Slot) const -> std::optional<FInputSource>;
-		ENGINE_API auto SaveOverrides(const std::filesystem::path& Path, std::string& Error) const -> bool;
+		ENGINE_API auto SaveOverrides(const std::filesystem::path& Path) const -> FInputBindingResult;
 		// Parses and validates detached overrides before changing any live state.
-		ENGINE_API auto LoadOverrides(const std::filesystem::path& Path, std::string& Error) -> bool;
+		ENGINE_API auto LoadOverrides(const std::filesystem::path& Path) -> FInputBindingResult;
 	private:
 		struct FContext { FInputMappingContext Definition; bool bActive = true; };
 		using FOverrideKey = std::pair<std::string, std::string>;
 		using FOverrides = std::map<FOverrideKey, FInputSource>;
-		auto ValidateOverrides(const FOverrides& Candidate, std::string& Error) const -> bool;
+		auto ValidateOverrides(const FOverrides& Candidate) const -> FInputBindingResult;
 		auto ResolveSource(const FInputMappingContext& Context, const FInputBinding& Binding, const FOverrides& Candidate) const -> FInputSource;
 		std::map<std::string, EInputActionType, std::less<>> Actions;
 		std::vector<FContext> Contexts;

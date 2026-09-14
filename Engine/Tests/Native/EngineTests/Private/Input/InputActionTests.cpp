@@ -233,8 +233,8 @@ TEST_F(FInputActionTests, RebindingCancelsAndSuppressesBothOldAndNewHeldSources)
 	FAccess::Key(Input, EKey::W, true);
 	FAccess::Key(Input, EKey::Up, true);
 	Sample();
-	std::string Error;
-	ASSERT_TRUE(Actions.Rebind("Game", "Forward", FInputSource::Key(EKey::Up), Error)) << Error;
+	const auto Rebound = Actions.Rebind("Game", "Forward", FInputSource::Key(EKey::Up));
+	ASSERT_TRUE(Rebound) << Rebound.Message;
 	EXPECT_EQ(Actions.GetSnapshot().Get("Move").Value, FVector2d(0.0));
 	Next();
 	EXPECT_FALSE(Sample().Get("Move").bActive);
@@ -242,10 +242,15 @@ TEST_F(FInputActionTests, RebindingCancelsAndSuppressesBothOldAndNewHeldSources)
 	Next();
 	FAccess::Key(Input, EKey::Up, true);
 	EXPECT_TRUE(Sample().Get("Move").bActive);
-	EXPECT_FALSE(Actions.Rebind("Game", "Forward", FInputSource::Key(EKey::S), Error));
-	EXPECT_NE(Error.find("conflict"), std::string::npos);
+	const auto Conflict = Actions.Rebind("Game", "Forward", FInputSource::Key(EKey::S));
+	EXPECT_FALSE(Conflict);
+	EXPECT_EQ(Conflict.Error, EInputBindingError::BindingConflict);
+	EXPECT_EQ(Conflict.Context, "Game");
+	EXPECT_EQ(Conflict.Slot, "Forward");
+	EXPECT_EQ(Conflict.ConflictingSlot, "Back");
+	EXPECT_TRUE(Actions.GetSnapshot().Get("Move").bActive);
 	EXPECT_EQ(Actions.GetBindingSource("Game", "Forward"), FInputSource::Key(EKey::Up));
-	ASSERT_TRUE(Actions.ResetBindings(Error));
+	Actions.ResetBindings();
 	EXPECT_EQ(Actions.GetBindingSource("Game", "Forward"), FInputSource::Key(EKey::W));
 }
 
@@ -253,37 +258,62 @@ TEST_F(FInputActionTests, OverrideFilesRoundTripAndRejectMalformedDataTransactio
 {
 	const auto Root = Durin::Testing::CreateTestFixtureDirectory("InputOverrides");
 	const auto Path = Root / "User.bindings";
-	std::string Error;
-	ASSERT_TRUE(Actions.Rebind("Game", "Forward", FInputSource::Key(EKey::Up), Error));
-	ASSERT_TRUE(Actions.SaveOverrides(Path, Error)) << Error;
-	ASSERT_TRUE(Actions.ResetBindings(Error));
-	ASSERT_TRUE(Actions.LoadOverrides(Path, Error)) << Error;
+	ASSERT_TRUE(Actions.Rebind("Game", "Forward", FInputSource::Key(EKey::Up)));
+	const auto Saved = Actions.SaveOverrides(Path);
+	ASSERT_TRUE(Saved) << Saved.Message;
+	EXPECT_EQ(Saved.Error, EInputBindingError::None);
+	Actions.ResetBindings();
+	const auto Loaded = Actions.LoadOverrides(Path);
+	ASSERT_TRUE(Loaded) << Loaded.Message;
+	EXPECT_TRUE(Loaded.Message.empty());
+	EXPECT_TRUE(Loaded.Context.empty());
+	EXPECT_TRUE(Loaded.Slot.empty());
+	EXPECT_TRUE(Loaded.ConflictingSlot.empty());
 	EXPECT_EQ(Actions.GetBindingSource("Game", "Forward"), FInputSource::Key(EKey::Up));
-	for (const std::string Text : {
-		"DurinInputBindings 2\n",
-		"DurinInputBindings 1\n\"Unknown\" \"Forward\" 0 15\n",
-		"DurinInputBindings 1\n\"Game\" \"Jump\" 2 0\n",
-		"DurinInputBindings 1\n\"Game\" \"Forward\" 0 83\n",
-		"DurinInputBindings 1\n\"Game\" \"Forward\" 0 15\n\"Game\" \"Forward\" 0 16\n",
-		"DurinInputBindings 1\n\"Game\" \"Forward\" 0 99999\n",
-		"DurinInputBindings 1\ntruncated"})
+	const std::pair<std::string, EInputBindingError> InvalidFiles[] = {
+		{"DurinInputBindings 2\n", EInputBindingError::UnsupportedFormat},
+		{"DurinInputBindings 1\n\"Unknown\" \"Forward\" 0 15\n", EInputBindingError::UnknownContext},
+		{"DurinInputBindings 1\n\"Game\" \"Missing\" 0 15\n", EInputBindingError::UnknownSlot},
+		{"DurinInputBindings 1\n\"Game\" \"Jump\" 2 0\n", EInputBindingError::InvalidSource},
+		{"DurinInputBindings 1\n\"Game\" \"Forward\" 0 83\n", EInputBindingError::BindingConflict},
+		{"DurinInputBindings 1\n\"Game\" \"Forward\" 0 15\n\"Game\" \"Forward\" 0 16\n", EInputBindingError::InvalidFile},
+		{"DurinInputBindings 1\n\"Game\" \"Forward\" 0 99999\n", EInputBindingError::InvalidSource},
+		{"DurinInputBindings 1\n\"Game\" \"Forward\" 99 0\n", EInputBindingError::InvalidSource},
+		{"DurinInputBindings 1\ntruncated", EInputBindingError::InvalidFile}};
+	for (const auto& [Text, ExpectedError] : InvalidFiles)
 	{
 		ASSERT_TRUE(FFileHelper::SaveArrayToFileAtomically(std::as_bytes(std::span(Text.data(), Text.size())), Path));
-		EXPECT_FALSE(Actions.LoadOverrides(Path, Error));
-		EXPECT_FALSE(Error.empty());
+		const auto Result = Actions.LoadOverrides(Path);
+		EXPECT_FALSE(Result);
+		EXPECT_EQ(Result.Error, ExpectedError) << Result.Message;
+		EXPECT_FALSE(Result.Message.empty());
 		EXPECT_EQ(Actions.GetBindingSource("Game", "Forward"), FInputSource::Key(EKey::Up));
 	}
-	EXPECT_FALSE(Actions.SaveOverrides(Path / "Child", Error));
-	EXPECT_FALSE(Error.empty());
+	const auto WriteFailure = Actions.SaveOverrides(Path / "Child");
+	EXPECT_EQ(WriteFailure.Error, EInputBindingError::WriteFailed);
+	EXPECT_FALSE(WriteFailure.Message.empty());
+	EXPECT_EQ(Actions.LoadOverrides(Root / "Missing.bindings").Error, EInputBindingError::ReadFailed);
+	const std::string Oversized(1024 * 1024 + 1, ' ');
+	ASSERT_TRUE(FFileHelper::SaveArrayToFileAtomically(std::as_bytes(std::span(Oversized.data(), Oversized.size())), Path));
+	EXPECT_EQ(Actions.LoadOverrides(Path).Error, EInputBindingError::InvalidFile);
 	EXPECT_EQ(Actions.GetBindingSource("Game", "Forward"), FInputSource::Key(EKey::Up));
 }
 
 TEST_F(FInputActionTests, InvalidDefinitionsAndRebindingsDoNotChangeState)
 {
-	std::string Error;
-	EXPECT_FALSE(Actions.Rebind("Game", "Missing", FInputSource::Key(EKey::W), Error));
-	EXPECT_FALSE(Actions.Rebind("Game", "Jump", {EInputSourceKind::MouseX}, Error));
-	EXPECT_FALSE(Actions.Rebind("Game", "Forward", FInputSource::Key(EKey::None), Error));
+	const auto UnknownContext = Actions.Rebind("Missing", "Forward", FInputSource::Key(EKey::W));
+	EXPECT_EQ(UnknownContext.Error, EInputBindingError::UnknownContext);
+	EXPECT_EQ(UnknownContext.Context, "Missing");
+	const auto UnknownSlot = Actions.Rebind("Game", "Missing", FInputSource::Key(EKey::W));
+	EXPECT_EQ(UnknownSlot.Error, EInputBindingError::UnknownSlot);
+	EXPECT_EQ(UnknownSlot.Context, "Game");
+	EXPECT_EQ(UnknownSlot.Slot, "Missing");
+	EXPECT_EQ(Actions.Rebind("Game", "Jump", {EInputSourceKind::MouseX}).Error, EInputBindingError::InvalidSource);
+	EXPECT_EQ(Actions.Rebind("Game", "Forward", FInputSource::Key(EKey::None)).Error, EInputBindingError::InvalidSource);
+	const auto Conflict = Actions.Rebind("Game", "JumpAlternate", FInputSource::Key(EKey::Space));
+	EXPECT_EQ(Conflict.Error, EInputBindingError::BindingConflict);
+	EXPECT_EQ(Conflict.Slot, "JumpAlternate");
+	EXPECT_EQ(Conflict.ConflictingSlot, "Jump");
 	FInputMappingContext Bad;
 	Bad.Name = "Bad";
 	Bad.Bindings = {{"Missing", "DoesNotExist", FInputSource::Key(EKey::W)}};

@@ -191,8 +191,7 @@ TEST(FSandboxGameplayInputTests, ReboundMovementAndInteractUseActions)
 	Sandbox::ADefaultPlayerController Controller(FObjectInitializer::Get());
 	FGameInputState Input;
 	FGameInputStateTestAccess::EnableAndFocus(Input);
-	std::string Error;
-	ASSERT_TRUE(Controller.GetInputActions().Rebind("Sandbox.Gameplay", "MoveForward", FInputSource::Key(EKey::Up), Error));
+	ASSERT_TRUE(Controller.GetInputActions().Rebind("Sandbox.Gameplay", "MoveForward", FInputSource::Key(EKey::Up)));
 	FGameInputStateTestAccess::SetKey(Input, EKey::W, true);
 	EXPECT_EQ(Sandbox::FDefaultPlayerControllerTestAccess::Build(Controller, Input).Move, FVector2d(0.0));
 	FGameInputStateTestAccess::FinishTick(Input);
@@ -200,8 +199,17 @@ TEST(FSandboxGameplayInputTests, ReboundMovementAndInteractUseActions)
 	FGameInputStateTestAccess::SetKey(Input, EKey::E, true);
 	EXPECT_EQ(Sandbox::FDefaultPlayerControllerTestAccess::Build(Controller, Input).Move, FVector2d(0.0, 1.0));
 	EXPECT_TRUE(Controller.GetInputActions().GetSnapshot().Get("Interact").bStarted);
-	EXPECT_FALSE(Controller.RebindControl("Jump", FInputSource::Key(EKey::Escape), Error));
-	EXPECT_FALSE(Error.empty());
+	const auto Reserved = Controller.RebindControl("Jump", FInputSource::Key(EKey::Escape));
+	EXPECT_FALSE(Reserved);
+	EXPECT_EQ(Reserved.Error, EInputBindingError::ReservedSource);
+	EXPECT_EQ(Reserved.Context, "Sandbox.Gameplay");
+	EXPECT_EQ(Reserved.Slot, "Jump");
+	const auto Conflict = Controller.RebindControl("MoveForward", FInputSource::Key(EKey::S));
+	EXPECT_EQ(Conflict.Error, EInputBindingError::BindingConflict);
+	EXPECT_EQ(Conflict.Slot, "MoveForward");
+	EXPECT_EQ(Conflict.ConflictingSlot, "MoveBackward");
+	EXPECT_EQ(Controller.RebindControl("Missing", FInputSource::Key(EKey::J)).Error, EInputBindingError::UnknownSlot);
+	EXPECT_EQ(Controller.GetInputActions().GetBindingSource("Sandbox.Gameplay", "MoveForward"), FInputSource::Key(EKey::Up));
 }
 
 TEST(FSandboxGameplayInputTests, SuppressesOnlyMinorAxisMouseCrosstalk)
