@@ -20,7 +20,6 @@ namespace Durin
 		ENGINE_API auto GetFunctionDependencies() const
 			-> std::vector<TObjectPtr<DMaterialFunctionInterface>> override;
 		auto GetFunctionRevision() const -> uint64 override { return Revision; }
-		ENGINE_API auto GetFunctionGraph() const -> FMaterialFunctionGraph;
 		auto GetExpressionCollection() const -> const FMaterialExpressionCollection& { return ExpressionCollection; }
 		ENGINE_API auto GetExpressionBody() const -> FMaterialExpressionFunctionBody;
 		[[nodiscard]] ENGINE_API auto SetFunctionExpressions(FMaterialFunctionSignature InSignature,
@@ -29,9 +28,6 @@ namespace Durin
 		auto GetAuthoringSource() const -> const std::string& { return AuthoringSource; }
 		auto GetAuthoringSourceVersion() const -> uint32 { return AuthoringSourceVersion; }
 		ENGINE_API auto SetAuthoringSource(std::string Source, uint32 Version) -> void;
-		// Owning-thread atomic edit. Invalid candidates leave the authored graph unchanged.
-		[[nodiscard]] ENGINE_API auto SetFunctionGraph(FMaterialFunctionGraph Candidate)
-			-> FMaterialProgramValidationResult;
 		auto GetFunctionPresentation() const -> const FMaterialFunctionPresentation&
 			{ return Presentation; }
 		// Position-only edits never advance the semantic dependency revision.
@@ -50,8 +46,6 @@ namespace Durin
 		DPROPERTY(EditorOnly, AlwaysSerialize)
 		FMaterialExpressionCollection ExpressionCollection;
 
-		auto ProjectExpressions(const FMaterialFunctionSignature& InSignature,
-			const FMaterialExpressionCollection& Collection, FMaterialFunctionGraph& OutGraph) const -> bool;
 
 		DPROPERTY(EditorOnly)
 		FMaterialFunctionPresentation Presentation;

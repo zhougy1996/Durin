@@ -9,6 +9,86 @@ Completed:
 
 ## Current Status
 
+Final runtime/editor contracts now describe owned concrete expressions, direct
+Build snapshots, cloned transaction candidates, ownership marker 2, DAST v10 and
+DMAT v7. Changed-document and all-plan validation pass. Final macOS arm64 checks:
+
+- SceneImportTests: 10 passed (`20260915-030750-108234-88357-SceneImportTests.log`).
+- AssetPackageReloadTests: 13 passed (`20260915-030809-791336-88420-AssetPackageReloadTests.log`).
+- MaterialVulkanTests: qualification passed on Apple M4 outside the sandbox
+  (`20260915-030909-266483-88538-ctest.log`). The earlier build-only invocation
+  required qualification mode and is not execution evidence.
+- SceneImportVulkanTests: qualification passed outside the sandbox
+  (`20260915-030931-005919-88558-ctest.log`); full output retained at
+  `Build/TypedMaterialFinal/SceneImportVulkan-20260915.log`.
+- StaticMeshTests: 111 passed (`20260915-031034-233690-88665-StaticMeshTests.log`).
+  Three ignored transaction-reset results were corrected; all 14 material cases
+  passed afterward (`20260915-031112-222069-88741-StaticMeshTests.log`).
+- Fresh Win64/Game Cook: Sandbox published 7 packages and RoadWeaver 4, including
+  DefaultMaterial. Receipts: `20260915-030945-561667-88626-DurinAssetTool.log` and
+  `20260915-031001-674367-88642-DurinAssetTool.log`; outputs reside under
+  `Build/TypedMaterialFinal/{SandboxCook,RoadWeaverCook}`.
+
+The final Win64 Game build/startup/render checks remain outstanding. This macOS
+host registers only Editor presets and cannot execute Win64 Game binaries. A
+Windows execution environment has been requested. Earlier Stage 4 Game receipts
+predate DMAT v7 and do not satisfy this final gate; the plan remains active.
+
+Stage 5 removes the unused universal graph validators and reflected Program/node/
+function-call graph records. Cook payload schema advances from 6 to 7 to remove
+its redundant authored Program version word; IR, generator, envelope and payload
+version checks remain authoritative. Previously cooked outputs must be rebuilt;
+no compatibility reader is introduced. Material Cook contributor version is 5 so
+warm Cook caches invalidate the previous payload. All 234 material regression cases
+pass (`20260915-030510-482916-87122-MaterialTests.log`; historical baseline capture
+excluded). After contributor invalidation, nine Cook/render representation cases
+pass (`20260915-030628-923393-87654-MaterialTests.log`), followed by workspace `all`
+(`20260915-030633-677809-88131-cmake.log`). Searches across every workspace project's
+source/test roots find no universal Program/node/function graph, old owner graph
+API, expression Lower context or old authored graph schema reference. The Stage 5
+removal gate is complete; final documentation and integration qualification remain.
+
+All expression `Lower()` implementations, the lowering context and numeric
+conversion helper are removed. Applicable-field package checks read concrete
+parameter definitions; Lerp/default/swizzle checks now build detached IR. The
+all-class input visitor check remains, while the obsolete function-to-legacy-call
+conversion test is retired (production port behavior remains covered by direct
+Build/function tests). All 18 expression cases pass
+(`20260915-030143-525166-86110-MaterialTests.log`), and workspace `all` passes
+(`20260915-030147-138727-86404-cmake.log`). No source/test root in the workspace
+references expression `Lower()` or its context. Universal node/graph declarations
+and now-unused compatibility validators still require removal.
+
+The runtime owner graph readers/setters and instance/interface forwarding APIs
+are removed, together with their Program-to-expression construction module and
+expression-to-Program projections (736 lines). Engine, Sandbox and RoadWeaver
+source/test searches contain no remaining references to those APIs. Workspace
+`all` passed (`20260915-025823-048697-85555-cmake.log`), and the material regression
+passed 235 cases (`20260915-025906-131053-85832-MaterialTests.log`; historical
+baseline capture excluded). Expression `Lower()` methods and their direct test
+consumers still retain the universal node types; those are the next removal boundary.
+
+All function native fixtures now use concrete expressions, including dependency
+invalidation, relocation/deletion, Cook fingerprints, nested Surface overrides
+and package reference checks. Round trips compare reflected typed fields, owned
+outputs, signatures and callee identity across fresh package lifetimes. The obsolete
+compatibility-copy assertions and unused Program-producing test helpers are removed.
+All 36 function cases pass (`20260915-025648-412087-85327-MaterialTests.log`),
+followed by workspace `all` (`20260915-025703-931495-85409-cmake.log`). Searches
+across Engine, Sandbox and RoadWeaver source/test roots find old graph accessors
+only in the runtime compatibility implementation; its removal remains outstanding.
+
+The macOS Stage 5 continuation migrates root-call atomic admission and instance
+snapshot coverage, plus import-provenance round trips, to concrete expression
+collections and outputs. Clang's authored-opcode switch warnings now have explicit
+branches; transaction tests check reset results, proxy override coverage handles
+Vector4, and typed override reflection uses the required dependent-template syntax.
+The current material regression passes all 235 selected cases (only the historical
+baseline capture excluded): `20260915-025123-088269-84721-MaterialTests.log`.
+The test target compiles without warnings after those fixes
+(`20260915-025058-019803-84607-cmake.log`). These receipts do not close the remaining
+legacy API removal or final GPU/Cook/Game gates.
+
 Stages 0 and 1 are complete. Stage 1 provides the non-reflected selected value
 API, five typed instance arrays, concrete expression-owned defaults and counted
 render-thread resource references. Cook emits five logical record arrays in
@@ -1077,12 +1157,12 @@ No external-asset compatibility is required by the current user instruction.
 
 Depends on Stage 4.
 
-- [ ] Remove old reflected universal values/nodes, authored program/call storage,
+- [x] Remove old reflected universal values/nodes, authored program/call storage,
   legacy overloads, and redundant canonicalization paths.
   Search all three projects for remaining production consumers and old schemas.
 - [x] Reject unsupported material schemas before publishing a partially loaded
   graph; never interpret a missing new collection as a valid empty old asset.
-- [ ] Update the owning runtime material documentation and
+- [x] Update the owning runtime material documentation and
   [Material Graph Operations](../Editor/Architecture/MaterialGraphOperations.md)
   to describe implemented ownership, snapshot, transaction, and Cook contracts.
 - [ ] Complete an `all` build of the workspace, affected native suites, renderer

@@ -15,14 +15,12 @@
 namespace Durin
 {
 	struct FMaterialParameterDefinition;
-	struct FMaterialFunctionCallSnapshot;
 	struct FMaterialProgramValidationResult;
 	namespace MaterialParameters
 	{
 		enum class EMaterialBuiltinParameterKind : uint8;
 	}
 
-	inline constexpr uint32 CurrentMaterialProgramSchemaVersion = 7;
 	inline constexpr uint32 MaterialProgramMaxNodeCount = 256;
 	inline constexpr uint32 MaterialProgramMaxLinkCount = 1024;
 	inline constexpr uint32 MaterialProgramMaxReferencedParameterCount = 128;
@@ -139,19 +137,7 @@ namespace Durin
 		auto operator==(const FMaterialProgramLink&) const -> bool = default;
 	};
 
-	DSTRUCT()
-	struct FMaterialSurfaceAttributeBinding
-	{
-		GENERATED_BODY()
 
-		DPROPERTY()
-		EMaterialSurfaceOutput Attribute = EMaterialSurfaceOutput::BaseColor;
-
-		DPROPERTY()
-		FMaterialProgramLink Source;
-
-		auto operator==(const FMaterialSurfaceAttributeBinding&) const -> bool = default;
-	};
 
 	DSTRUCT()
 	struct FMaterialProgramLiteral
@@ -199,96 +185,9 @@ namespace Durin
 	};
 
 	// A sample's local coordinates, replaced in full by its connected UV expression.
-	DSTRUCT()
-	struct FMaterialUVSettings
-	{
-		GENERATED_BODY()
 
-		DPROPERTY()
-		FMaterialInputDefault Channel = {EMaterialInputDefaultKind::Literal};
-
-		DPROPERTY()
-		FMaterialInputDefault Scale = {EMaterialInputDefaultKind::Literal, EMaterialProgramValueType::Float2, {1, 1}};
-
-		DPROPERTY()
-		FMaterialInputDefault Offset = {EMaterialInputDefaultKind::Literal, EMaterialProgramValueType::Float2};
-
-		DPROPERTY()
-		FMaterialInputDefault Rotation = {EMaterialInputDefaultKind::Literal};
-
-		auto operator==(const FMaterialUVSettings&) const -> bool = default;
-	};
-
-	DSTRUCT()
-	struct FMaterialProgramNode
-	{
-		GENERATED_BODY()
-
-		DPROPERTY()
-		FGuid Id;
-
-		DPROPERTY()
-		EMaterialProgramOpcode Opcode = EMaterialProgramOpcode::Constant;
-
-		DPROPERTY()
-		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
-
-		DPROPERTY()
-		std::vector<FMaterialProgramLink> Inputs;
-
-		DPROPERTY()
-		FMaterialProgramLiteral Literal;
-
-		FMaterialParameterDefinition Parameter;
-
-		DPROPERTY()
-		uint8 SwizzleLength = 0;
-
-		DPROPERTY()
-		uint8 SwizzleX = 0;
-
-		DPROPERTY()
-		uint8 SwizzleY = 0;
-
-		DPROPERTY()
-		uint8 SwizzleZ = 0;
-
-		DPROPERTY()
-		uint8 SwizzleW = 0;
-
-		DPROPERTY()
-		std::string DisplayName;
-
-		DPROPERTY()
-		FGuid FunctionPortId;
-
-		// Get outputs retain the attribute enum index regardless of visible selection.
-		DPROPERTY()
-		uint8 SurfaceAttributeMask = 0;
-
-		// Set overrides are separate from the single positional base-Surface input.
-		DPROPERTY()
-		std::vector<FMaterialSurfaceAttributeBinding> SurfaceAttributes;
-
-		// Same positional indices as Inputs; omitted entries have no retained value.
-		DPROPERTY()
-		std::vector<FMaterialInputDefault> InputDefaults;
-
-		DPROPERTY()
-		FMaterialUVSettings UVSettings;
-
-		auto operator==(const FMaterialProgramNode&) const -> bool = default;
-	};
 
 	ENGINE_API auto IsMaterialSamplingNode(EMaterialProgramOpcode Opcode) -> bool;
-	ENGINE_API auto IsMaterialSampleUVInput(const FMaterialProgramNode& Node, uint32 Index) -> bool;
-	ENGINE_API auto GetMaterialUVSetting(const FMaterialUVSettings& Settings, uint32 Index)
-		-> const FMaterialInputDefault&;
-	ENGINE_API auto GetMaterialNodeInputDefault(const FMaterialProgramNode& Node, uint32 Index)
-		-> FMaterialInputDefault;
-	// Includes inactive retained references by default, for deletion and clipboard identity safety.
-	ENGINE_API auto GetMaterialNodeParameterReferences(const FMaterialProgramNode& Node, bool bActiveOnly = false)
-		-> std::vector<FGuid>;
 
 	DSTRUCT()
 	struct FMaterialSurfaceOutputs
@@ -350,29 +249,6 @@ namespace Durin
 
 		auto operator==(const FMaterialSurfaceOutputs&) const -> bool = default;
 	};
-
-	DSTRUCT()
-	struct FMaterialProgram
-	{
-		GENERATED_BODY()
-
-		DPROPERTY()
-		uint32 SchemaVersion = CurrentMaterialProgramSchemaVersion;
-
-		DPROPERTY()
-		std::vector<FMaterialProgramNode> Nodes;
-
-		DPROPERTY()
-		FMaterialSurfaceOutputs Outputs;
-
-		auto operator==(const FMaterialProgram&) const -> bool = default;
-	};
-
-	// Derives every graph-owned parameter, including disconnected owners, in GUID
-	// order. Failure leaves the caller's schema unchanged.
-	ENGINE_API auto DeriveMaterialParameterSchema(const FMaterialProgram& Program,
-		std::vector<FMaterialParameterDefinition>& OutDefinitions)
-		-> FMaterialProgramValidationResult;
 
 	// Stores one package-persisted editor position for a live material-program node.
 	DSTRUCT()
@@ -469,7 +345,6 @@ namespace Durin
 		operator bool() const { return bSucceeded; }
 	};
 
-	ENGINE_API auto MakeDefaultMaterialProgram() -> FMaterialProgram;
 	ENGINE_API auto GetMaterialSurfaceOutputType(EMaterialSurfaceOutput Output)
 		-> EMaterialProgramValueType;
 	ENGINE_API auto GetMaterialSurfaceOutputLink(
@@ -484,11 +359,6 @@ namespace Durin
 	ENGINE_API auto GetMaterialSurfaceOutputDefault(
 		const FMaterialSurfaceOutputs& Outputs, EMaterialSurfaceOutput Output)
 		-> const FMaterialProgramLiteral&;
-	ENGINE_API auto ValidateMaterialProgram(
-		const FMaterialProgram& Program,
-		std::span<const FMaterialParameterDefinition> ParameterDefinitions,
-		std::span<const FMaterialFunctionCallSnapshot> Calls = {})
-		-> FMaterialProgramValidationResult;
 	ENGINE_API auto SanitizeMaterialGraphPresentation(
 		const FMaterialGraphPresentation& Presentation,
 		std::span<const FGuid> ExpressionIds) -> FMaterialGraphPresentation;

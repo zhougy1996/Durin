@@ -387,6 +387,10 @@ TEST(FMaterialRenderProxyTests, AuthoredValuesMatchDirectCompilationForBasesAndI
 					4.0 + static_cast<double>(DefinitionIndex),
 					-4.0 - static_cast<double>(DefinitionIndex))));
 			break;
+		case Durin::EMaterialParameterType::Vector4:
+			ASSERT_TRUE(Instance->SetParameterOverride(Definition.Id,
+				Durin::FMaterialParameterValue::MakeVector4(Durin::FVector4(0.25f, 0.5f, 0.75f, 1.f))));
+			break;
 		case Durin::EMaterialParameterType::Texture:
 			ASSERT_TRUE(Instance->SetTextureParameterValue(
 				Definition.Name,
@@ -424,6 +428,9 @@ TEST(FMaterialRenderProxyTests, AuthoredValuesMatchDirectCompilationForBasesAndI
 			break;
 		case Durin::EMaterialParameterType::Vector2:
 			bCleared = Instance->ClearVector2ParameterValue(Definition.Name);
+			break;
+		case Durin::EMaterialParameterType::Vector4:
+			bCleared = Instance->ClearParameterOverride(Definition.Id);
 			break;
 		case Durin::EMaterialParameterType::Texture:
 			bCleared = Instance->ClearTextureParameterValue(Definition.Name);

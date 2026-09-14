@@ -200,15 +200,6 @@ namespace Durin
 		return Super::GetRenderableStaticProperties();
 	}
 
-	auto DMaterialInstance::GetMaterialProgram() const
-		-> std::optional<FMaterialProgram>
-	{
-		FResolvedMaterialProperties Resolved;
-		std::string Error;
-		if (!ResolveMaterialProperties(*this, Resolved, Error)) return std::nullopt;
-		auto* Root = Cast<DMaterialInterface>(ResolveObjectHandle(Resolved.Root));
-		return Root ? Root->GetMaterialProgram() : std::nullopt;
-	}
 
 	auto DMaterialInstance::GetAcceptedCompiledProgram() const
 		-> std::shared_ptr<const FMaterialCompilerResult>

@@ -13,8 +13,6 @@
 #include "DObject/Class.h"
 #include "DObject/Package.h"
 #include "Modules/ModuleManager.h"
-#include "MaterialProgramValidation.h"
-#include "MaterialExpressionAuthoring.h"
 
 #include <functional>
 #include <unordered_map>
@@ -83,50 +81,7 @@ namespace Durin
 		return Super::GetRenderableStaticProperties();
 	}
 
-	auto DMaterial::SetMaterialProgram(
-		FMaterialProgram InProgram) -> FMaterialProgramValidationResult
-	{
-		const auto Calls = GetMaterialFunctionCalls();
-		return SetMaterialProgramAndFunctionCalls(std::move(InProgram), {Calls.begin(), Calls.end()});
-	}
 
-	auto DMaterial::SetMaterialProgramAndFunctionCalls(FMaterialProgram InProgram,
-		std::vector<FMaterialFunctionCall> InCalls) -> FMaterialProgramValidationResult
-	{
-		if (InProgram.SchemaVersion != CurrentMaterialProgramSchemaVersion)
-		{
-			FMaterialProgramValidationResult Validation;
-			Validation.Diagnostics.push_back({
-				.Category = EMaterialProgramDiagnosticCategory::Schema,
-				.Message = "Material program schema version is unsupported."});
-			return Validation;
-		}
-		std::vector<FMaterialParameterDefinition> Schema;
-		auto Validation = DeriveMaterialParameterSchema(InProgram, Schema);
-		if (!Validation) return Validation;
-		Validation = ValidateMaterialProgramWithFunctions(InProgram, Schema, InCalls);
-		if (!Validation) return Validation;
-		if (GetMaterialProgram() == InProgram && GetMaterialFunctionCalls() == InCalls) return Validation;
-		TStrongObjectPtr<DObject> Staging(NewObject<DObject>(nullptr, "MaterialCandidate"));
-		FMaterialExpressionCollection Candidate;
-		if (!Private::ConstructMaterialExpressions(Staging.Get(), InProgram, InCalls, Candidate))
-		{
-			Validation.bSucceeded = false;
-			Validation.Diagnostics.push_back({.Message = "Material candidate cannot be represented by supported expressions."});
-			return Validation;
-		}
-		std::vector<DMaterialExpression*> Expressions;
-		for (const auto& Expression : Candidate.Expressions) Expressions.push_back(Expression.Get());
-		Validation = SetMaterialExpressions(Expressions, Private::ConstructMaterialOutputs(InProgram.Outputs));
-		if (Validation)
-			for (const auto& Node : InProgram.Nodes)
-			{
-				const auto Position = std::ranges::find(GraphPresentation.Nodes, Node.Id, &FMaterialGraphNodePresentation::NodeId);
-				if (Position != GraphPresentation.Nodes.end()) Position->DisplayName = Node.DisplayName;
-				else if (!Node.DisplayName.empty()) GraphPresentation.Nodes.push_back({.NodeId = Node.Id, .DisplayName = Node.DisplayName});
-			}
-		return Validation;
-	}
 
 	auto DMaterial::SetMaterialGraphPresentation(
 		FMaterialGraphPresentation InPresentation) -> bool

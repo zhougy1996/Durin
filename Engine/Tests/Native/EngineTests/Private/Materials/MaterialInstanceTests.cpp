@@ -70,7 +70,7 @@ TEST(FMaterialTests, TypedOverrideArraysRoundTripOrphansAndRejectCrossTypeDuplic
 		ASSERT_TRUE(VisitMaterialParameterOverrideType(Type, [&]<typename TRecord>() {
 			auto* Property = Instance->GetClass()->FindPropertyByName(TRecord::PropertyName());
 			if (!Property) return false;
-			auto* Records = Property->ContainerPtrToValuePtr<std::vector<TRecord>>(Instance);
+			auto* Records = Property->template ContainerPtrToValuePtr<std::vector<TRecord>>(Instance);
 			TRecord Record;
 			Record.ParameterId = {0x47ddc368, 1, 2, ++Index};
 			if constexpr (TRecord::Type == EMaterialParameterType::Scalar) Record.Value = .75f;

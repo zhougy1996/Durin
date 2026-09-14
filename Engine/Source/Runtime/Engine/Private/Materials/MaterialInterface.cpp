@@ -325,20 +325,7 @@ namespace Durin
 		return Result;
 	}
 
-	auto DMaterialInterface::GetMaterialProgram() const
-		-> std::optional<FMaterialProgram>
-	{
-		return std::nullopt;
-	}
 
-	auto DMaterialInterface::GetMaterialFunctionCalls() const -> std::vector<FMaterialFunctionCall>
-	{
-		FResolvedMaterialProperties Resolved;
-		std::string Error;
-		if (!ResolveMaterialProperties(*this, Resolved, Error)) return {};
-		auto* Root = Cast<DMaterial>(ResolveObjectHandle(Resolved.Root));
-		return Root ? Root->GetMaterialFunctionCalls() : std::vector<FMaterialFunctionCall>{};
-	}
 
 	auto DMaterialInterface::GetAcceptedCompiledProgram() const
 		-> std::shared_ptr<const FMaterialCompilerResult>

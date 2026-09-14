@@ -19,7 +19,6 @@ namespace Durin
 		auto operator==(const FMaterialFunctionOwnerStamp&) const -> bool = default;
 	};
 
-	inline constexpr uint32 CurrentMaterialFunctionSchemaVersion = 3;
 	inline constexpr uint32 CurrentMaterialFunctionPresentationSchemaVersion = 1;
 	inline constexpr uint32 MaterialFunctionMaxInputs = 64;
 	inline constexpr uint32 MaterialFunctionMaxOutputs = 16;
@@ -144,46 +143,6 @@ namespace Durin
 		auto operator==(const FMaterialFunctionOutputBinding&) const -> bool = default;
 	};
 
-	// Asset references live outside common node values so detached nodes are pure values.
-	DSTRUCT()
-	struct FMaterialFunctionCall
-	{
-		GENERATED_BODY()
-
-		DPROPERTY()
-		FGuid NodeId;
-
-		DPROPERTY()
-		TObjectPtr<DMaterialFunctionInterface> Function;
-
-		DPROPERTY()
-		std::vector<FMaterialFunctionInputBinding> Inputs;
-
-		DPROPERTY()
-		std::vector<FMaterialFunctionOutputBinding> Outputs;
-		auto operator==(const FMaterialFunctionCall&) const -> bool = default;
-	};
-
-	// Authored document with function terminals rather than a material Surface root.
-	DSTRUCT()
-	struct FMaterialFunctionGraph
-	{
-		GENERATED_BODY()
-
-		DPROPERTY()
-		uint32 SchemaVersion = CurrentMaterialFunctionSchemaVersion;
-
-		DPROPERTY()
-		FMaterialFunctionSignature Signature;
-
-		DPROPERTY()
-		std::vector<FMaterialProgramNode> Nodes;
-
-		DPROPERTY()
-		std::vector<FMaterialFunctionCall> Calls;
-		auto operator==(const FMaterialFunctionGraph&) const -> bool = default;
-	};
-
 	DSTRUCT()
 	struct FMaterialFunctionPresentation
 	{
@@ -197,23 +156,6 @@ namespace Durin
 		auto operator==(const FMaterialFunctionPresentation&) const -> bool = default;
 	};
 
-	struct FMaterialFunctionCallSnapshot
-	{
-		FGuid NodeId;
-		std::string FunctionPath;
-		std::vector<FMaterialFunctionInputBinding> Inputs;
-		std::vector<FMaterialFunctionOutputBinding> Outputs;
-		auto operator==(const FMaterialFunctionCallSnapshot&) const -> bool = default;
-	};
-
 	ENGINE_API auto ValidateMaterialFunctionSignature(const FMaterialFunctionSignature& Signature)
 		-> FMaterialProgramValidationResult;
-	ENGINE_API auto ValidateMaterialFunctionGraph(const FMaterialFunctionGraph& Graph)
-		-> FMaterialProgramValidationResult;
-	ENGINE_API auto ValidateMaterialFunctionCallSignature(const FMaterialFunctionCallSnapshot& Call,
-		const FMaterialFunctionSignature& Signature) -> FMaterialProgramValidationResult;
-	// Validates local links without requiring dependencies to be available or well formed.
-	ENGINE_API auto ValidateMaterialProgramWithFunctions(const FMaterialProgram& Program,
-		std::span<const FMaterialParameterDefinition> Definitions,
-		std::span<const FMaterialFunctionCall> Calls) -> FMaterialProgramValidationResult;
 }

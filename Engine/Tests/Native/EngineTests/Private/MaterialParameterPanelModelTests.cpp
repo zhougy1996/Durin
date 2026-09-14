@@ -116,7 +116,7 @@ TEST(FMaterialParameterPanelModelTests, IntegerPresentationCanonicalizesSubmitte
 	EXPECT_FLOAT_EQ(StoredValue, 0.0f);
 	EXPECT_TRUE(Error.empty());
 
-	Transactions->Reset();
+	EXPECT_TRUE(Transactions->Reset());
 	Durin::MarkAsGarbage(Material);
 	Durin::MarkAsGarbage(Base);
 	Durin::CollectGarbage();
@@ -146,7 +146,7 @@ TEST(FMaterialParameterPanelModelTests, EnablingOverrideCopiesTheParameterType)
 	EXPECT_EQ(Override.GetType(), Durin::EMaterialParameterType::Vector);
 	EXPECT_TRUE(Error.empty());
 
-	Transactions->Reset();
+	EXPECT_TRUE(Transactions->Reset());
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Base);
 	Durin::CollectGarbage();
@@ -209,7 +209,7 @@ TEST(FMaterialParameterPanelModelTests, GuidRootEditsSurviveIndexChangesAndCoale
 	EXPECT_FLOAT_EQ(Value, 0.25f);
 	EXPECT_TRUE(Error.empty());
 
-	Transactions->Reset();
+	EXPECT_TRUE(Transactions->Reset());
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Base);
 	Durin::CollectGarbage();
@@ -252,7 +252,7 @@ TEST(FMaterialParameterPanelModelTests, ResetAndOrphanRemovalAreTransactional)
 	EXPECT_TRUE(Instance->GetParameterOverrideCount() == 0);
 	EXPECT_TRUE(Error.empty());
 
-	Transactions->Reset();
+	EXPECT_TRUE(Transactions->Reset());
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Base);
 	Durin::CollectGarbage();
@@ -330,7 +330,7 @@ TEST(FMaterialParameterPanelModelTests, BaseAndTexturePickerValuesUseSharedUndoH
 	EXPECT_FALSE(TextureModel.SubmitValueEdit(PropertyView, Context, *TextureEntry, TextureValue, false));
 	EXPECT_TRUE(Error.empty());
 
-	Transactions->Reset();
+	EXPECT_TRUE(Transactions->Reset());
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Base);
 	Durin::MarkAsGarbage(Texture);
@@ -376,7 +376,7 @@ TEST(FMaterialParameterPanelModelTests, GraphDefaultSessionsRemainParameterScope
 	EXPECT_FLOAT_EQ(ResolvedOpacity, 1.0f);
 	EXPECT_TRUE(Error.empty());
 
-	Transactions->Reset();
+	EXPECT_TRUE(Transactions->Reset());
 	Durin::MarkAsGarbage(Base);
 	Durin::CollectGarbage();
 }
@@ -459,7 +459,7 @@ TEST(FMaterialParameterPanelModelTests, ReflectedDefaultEditsRefreshValuesWithou
 	EXPECT_FALSE(Model.Refresh());
 	EXPECT_FLOAT_EQ(FindEntry(Model, Id)->Value.GetScalar(), 1.0f);
 	EXPECT_TRUE(Error.empty());
-	Transactions->Reset();
+	EXPECT_TRUE(Transactions->Reset());
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Base);
 	Durin::CollectGarbage();

@@ -541,10 +541,9 @@ TEST(FMaterialExpressionTests, TypedOwnersRoundTripAndDuplicateOnlyApplicableFie
 	EXPECT_EQ(Vector->GetClass()->FindPropertyByName("MinimumValue"), nullptr);
 	EXPECT_EQ(Texture->GetClass()->FindPropertyByName("Inputs"), nullptr);
 	EXPECT_EQ(Texture->GetClass()->FindPropertyByName("Parameter"), nullptr);
-	FMaterialProgramNode Before;
-	ASSERT_TRUE(Vector->Lower(Before));
-	EXPECT_EQ(Before.Parameter.Type, EMaterialParameterType::Vector4);
-	EXPECT_EQ(Before.Parameter.Value.GetVector4(), Vector->DefaultValue);
+	const auto Before = Vector->GetParameterDefinition();
+	EXPECT_EQ(Before.Type, EMaterialParameterType::Vector4);
+	EXPECT_EQ(Before.Value.GetVector4(), Vector->DefaultValue);
 	auto* Copy = Cast<DMaterialExpressionVector4Parameter>(DuplicateObject(Vector, Working.Get(), "Copy"));
 	ASSERT_NE(Copy, nullptr);
 	EXPECT_EQ(Copy->Metadata, Vector->Metadata);
@@ -574,20 +573,11 @@ TEST(FMaterialExpressionTests, TypedOwnersRoundTripAndDuplicateOnlyApplicableFie
 			EXPECT_EQ(Value->A, SavedInput);
 			EXPECT_EQ(Value->ADefault, (std::vector<float>{.125f}));
 			EXPECT_EQ(Value->BDefault, (std::vector<float>{.75f}));
-			FMaterialProgramNode Lowered;
-			ASSERT_TRUE(Value->Lower(Lowered));
-			EXPECT_EQ(Lowered.Inputs[0].SourceOutputIndex, SavedInput.OutputIndex);
-			EXPECT_EQ(Lowered.Inputs[0].SourceOutputId, SavedInput.OutputId);
-			Value->A = {};
-			ASSERT_TRUE(Value->Lower(Lowered));
-			EXPECT_FLOAT_EQ(Lowered.InputDefaults[0].Literal.X, .125f);
 			bFoundAdd = true;
 		}
 		if (auto* Value = Cast<DMaterialExpressionVector4Parameter>(Child); Value && Value->Metadata.Name == "Vector")
 		{
-			FMaterialProgramNode After;
-			ASSERT_TRUE(Value->Lower(After));
-			EXPECT_EQ(After, Before);
+			EXPECT_EQ(Value->GetParameterDefinition(), Before);
 			bFoundVector = true;
 		}
 		if (auto* Value = Cast<DMaterialExpressionScalarParameter>(Child))
@@ -609,68 +599,48 @@ TEST(FMaterialExpressionTests, TypedOwnersRoundTripAndDuplicateOnlyApplicableFie
 	CollectGarbage();
 }
 
-TEST(FMaterialExpressionTests, NumericDefaultsRemainConnectedAndLoweringRejectsWidthErrorsAtomically)
+TEST(FMaterialExpressionTests, NumericDefaultsRemainConnectedAndBuildRejectsWidthErrors)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterialExpressionVector3Constant> Source(NewObject<DMaterialExpressionVector3Constant>(nullptr, "Source"));
 	TStrongObjectPtr<DMaterialExpressionLerp> Lerp(NewObject<DMaterialExpressionLerp>(nullptr, "Lerp"));
+	Source->Id = {5, 6, 7, 8}; Source->Value = {1, 2, 3};
 	Lerp->Id = {1, 2, 3, 4};
 	Lerp->ResultType = EMaterialProgramValueType::Float3;
-	Lerp->A = {.ExpressionId = {5, 6, 7, 8}};
+	Lerp->A = {Source->Id};
 	Lerp->ADefault = {.1f, .2f, .3f};
 	Lerp->BDefault = {.4f, .5f, .6f};
 	Lerp->AlphaDefault = {.25f};
-	FMaterialProgramNode Node;
-	ASSERT_TRUE(Lerp->Lower(Node));
-	EXPECT_EQ(Node.Inputs[0].SourceNodeId, Lerp->A.ExpressionId);
-	EXPECT_EQ(Node.InputDefaults[0].Literal, (FMaterialProgramLiteral{.1f, .2f, .3f}));
-	const auto Before = Node;
+	const std::array<DMaterialExpression*, 2> Expressions{Source.Get(), Lerp.Get()};
+	const std::array Roots{FMaterialExpressionInput{Lerp->Id}};
+	ASSERT_TRUE(BuildMaterialExpressionGraph(Expressions, Roots));
+	Lerp->A = {};
+	const auto Disconnected = BuildMaterialExpressionGraph(Expressions, Roots);
+	ASSERT_TRUE(Disconnected);
+	const auto& LerpNode = Disconnected.IR.Nodes[Disconnected.Roots[0]];
+	EXPECT_EQ(Disconnected.IR.Nodes[LerpNode.Inputs[0]].GetLiteral(), (FMaterialProgramLiteral{.1f, .2f, .3f}));
+	Lerp->A = {Source->Id};
 	Lerp->AlphaDefault = {.2f, .3f};
-	EXPECT_FALSE(Lerp->Lower(Node));
-	EXPECT_EQ(Node, Before);
+	EXPECT_FALSE(BuildMaterialExpressionGraph(Expressions, Roots));
 	Lerp->AlphaDefault = {std::numeric_limits<float>::infinity()};
-	EXPECT_FALSE(Lerp->Lower(Node));
-	EXPECT_EQ(Node, Before);
+	EXPECT_FALSE(BuildMaterialExpressionGraph(Expressions, Roots));
 	TStrongObjectPtr<DMaterialExpressionSwizzle> Swizzle(NewObject<DMaterialExpressionSwizzle>(nullptr, "Swizzle"));
+	Swizzle->Id = {1, 2, 3, 5};
 	Swizzle->InputDefault = {1, 2, 3, 4};
 	Swizzle->Components = {2, 0};
-	ASSERT_TRUE(Swizzle->Lower(Node));
-	EXPECT_EQ(Node.ResultType, EMaterialProgramValueType::Float2);
-	EXPECT_EQ(Node.SwizzleLength, 2);
-	EXPECT_EQ(Node.SwizzleX, 2);
-	EXPECT_EQ(Node.SwizzleY, 0);
+	const std::array<DMaterialExpression*, 1> Swizzles{Swizzle.Get()};
+	const std::array SwizzleRoots{FMaterialExpressionInput{Swizzle->Id}};
+	const auto Built = BuildMaterialExpressionGraph(Swizzles, SwizzleRoots);
+	ASSERT_TRUE(Built);
+	EXPECT_EQ(Built.IR.Nodes[Built.Roots[0]].ResultType, EMaterialProgramValueType::Float2);
+	EXPECT_EQ(Built.IR.Nodes[Built.Roots[0]].GetSwizzle().Components[0], 2);
+	EXPECT_EQ(Built.IR.Nodes[Built.Roots[0]].GetSwizzle().Components[1], 0);
 	Swizzle->Components.push_back(4);
-	EXPECT_FALSE(Swizzle->Lower(Node));
+	EXPECT_FALSE(BuildMaterialExpressionGraph(Swizzles, SwizzleRoots));
 }
 
-TEST(FMaterialExpressionTests, FunctionTerminalsAndCallsDeriveTypesFromOwnedPorts)
-{
-	using namespace Durin;
-	InitializeDObjectSystem();
-	FScopedOfflinePreparation Offline;
-	TStrongObjectPtr<DMaterialFunction> Function(NewObject<DMaterialFunction>(nullptr, "Function"));
-	const auto& Signature = Function->GetFunctionSignature();
-	TStrongObjectPtr<DMaterialExpressionFunctionInput> Input(NewObject<DMaterialExpressionFunctionInput>(nullptr, "Input"));
-	Input->PortId = Signature.Inputs[0].Id;
-	FMaterialProgramNode Node;
-	EXPECT_FALSE(Input->Lower(Node));
-	ASSERT_TRUE(Input->Lower(Node, {.Signature = &Signature}));
-	EXPECT_EQ(Node.ResultType, Signature.Inputs[0].Type);
-	TStrongObjectPtr<DMaterialExpressionFunctionCall> Call(NewObject<DMaterialExpressionFunctionCall>(nullptr, "Call"));
-	Call->Id = {1, 2, 3, 4};
-	Call->Function = Function.Get();
-	Call->Outputs = {{Signature.Outputs[0].Id, Signature.Outputs[0].Type}};
-	std::vector<FMaterialFunctionCall> Calls;
-	ASSERT_TRUE(Call->Lower(Node, {.Calls = &Calls}));
-	ASSERT_EQ(Calls.size(), 1u);
-	EXPECT_EQ(Calls[0].Function.Get(), Function.Get());
-	EXPECT_EQ(Node.ResultType, Signature.Outputs[0].Type);
-	Call->Outputs[0].ExpectedType = EMaterialProgramValueType::Float;
-	EXPECT_FALSE(Call->Lower(Node, {.Calls = &Calls}));
-	EXPECT_EQ(Calls.size(), 1u);
-}
-
-TEST(FMaterialExpressionTests, EveryMappedConcreteClassLowersItsOwnOpcodeAndWidth)
+TEST(FMaterialExpressionTests, EveryMappedConcreteClassExposesApplicableInputs)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
@@ -745,12 +715,6 @@ TEST(FMaterialExpressionTests, EveryMappedConcreteClassLowersItsOwnOpcodeAndWidt
 			Call->Function = Function.Get();
 			Call->Outputs = {{Function->GetFunctionSignature().Outputs[0].Id, EMaterialProgramValueType::Surface}};
 		}
-		FMaterialProgramNode Node;
-		std::vector<FMaterialFunctionCall> Calls;
-		ASSERT_TRUE(Expression->Lower(Node, {&Function->GetFunctionSignature(), &Calls})) << Entry.Class->GetName();
-		EXPECT_EQ(Node.Id, Expression->Id);
-		EXPECT_EQ(Node.Opcode, Entry.Opcode);
-		EXPECT_EQ(Node.ResultType, Entry.Type);
 		EXPECT_EQ(Expression->GetClass()->FindPropertyByName("Opcode"), nullptr);
 		EXPECT_EQ(Expression->GetClass()->FindPropertyByName("Parameter"), nullptr);
 		if (auto* Surface = Cast<DMaterialExpressionSetSurfaceAttributes>(Expression.Get()))
@@ -762,18 +726,8 @@ TEST(FMaterialExpressionTests, EveryMappedConcreteClassLowersItsOwnOpcodeAndWidt
 			Input = {{11, 12, Index, Pin + 1}}; ++Visited;
 		});
 		EXPECT_EQ(Visited, Expression->GetAuthoredInputCount());
-		Calls.clear();
-		ASSERT_TRUE(Expression->Lower(Node, {&Function->GetFunctionSignature(), &Calls}));
 		Durin::Editor::Material::VisitMaterialExpressionInputs(*Expression, [&](uint32 Pin, FMaterialExpressionInput& Input) {
-			if (Entry.Opcode == EMaterialProgramOpcode::FunctionCall)
-				EXPECT_EQ(Calls.front().Inputs[Pin].Source.SourceNodeId, Input.ExpressionId);
-			else if (Entry.Opcode == EMaterialProgramOpcode::SetSurfaceAttributes && Pin > 0)
-				EXPECT_EQ(Node.SurfaceAttributes.front().Source.SourceNodeId, Input.ExpressionId);
-			else
-			{
-				ASSERT_LT(Pin, Node.Inputs.size());
-				EXPECT_EQ(Node.Inputs[Pin].SourceNodeId, Input.ExpressionId);
-			}
+			EXPECT_EQ(Input.ExpressionId, (FGuid{11, 12, Index, Pin + 1}));
 		});
 		Covered.insert(Entry.Opcode);
 	}

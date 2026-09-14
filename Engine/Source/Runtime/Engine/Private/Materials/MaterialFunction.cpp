@@ -2,7 +2,6 @@
 
 #include "DObject/Property.h"
 #include "Materials/MaterialExpressionBuild.h"
-#include "MaterialExpressionAuthoring.h"
 #include "DObject/DObjectArray.h"
 #include "DObject/Archive.h"
 #include "DObject/Package.h"
@@ -11,33 +10,7 @@
 
 namespace Durin
 {
-	auto DMaterialFunction::ProjectExpressions(const FMaterialFunctionSignature& InSignature,
-		const FMaterialExpressionCollection& Collection, FMaterialFunctionGraph& OutGraph) const -> bool
-	{
-		if (Collection.Expressions.size() > MaterialProgramMaxNodeCount) return false;
-		FMaterialFunctionGraph Candidate;
-		Candidate.Signature = InSignature;
-		std::unordered_set<FGuid> Ids;
-		for (const auto& Expression : Collection.Expressions)
-		{
-			if (!IsValid(Expression.Get()) || !Expression->Id.IsValid() || !Ids.insert(Expression->Id).second) return false;
-			FMaterialProgramNode Node;
-			if (!Expression->Lower(Node, {.Signature = &Candidate.Signature, .Calls = &Candidate.Calls,
-				.bValidateFunctionReferences = false})) return false;
-			if (const auto Position = std::ranges::find(Presentation.Nodes, Node.Id, &FMaterialGraphNodePresentation::NodeId);
-				Position != Presentation.Nodes.end()) Node.DisplayName = Position->DisplayName;
-			Candidate.Nodes.push_back(std::move(Node));
-		}
-		OutGraph = std::move(Candidate);
-		return true;
-	}
 
-	auto DMaterialFunction::GetFunctionGraph() const -> FMaterialFunctionGraph
-	{
-		FMaterialFunctionGraph Graph;
-		if (!ProjectExpressions(Signature, ExpressionCollection, Graph)) Graph = {.Signature = Signature};
-		return Graph;
-	}
 
 	auto DMaterialFunction::GetExpressionBody() const -> FMaterialExpressionFunctionBody
 	{
@@ -182,34 +155,6 @@ namespace Durin
 		return Dependencies;
 	}
 
-	auto DMaterialFunction::SetFunctionGraph(FMaterialFunctionGraph Candidate)
-		-> FMaterialProgramValidationResult
-	{
-		check(IsInGameThread());
-		auto Result = ValidateMaterialFunctionGraph(Candidate);
-		if (!Result || Candidate == GetFunctionGraph()) return Result;
-		TStrongObjectPtr<DObject> Staging(NewObject<DObject>(nullptr, "FunctionCandidate"));
-		FMaterialExpressionCollection Collection;
-		if (!Private::ConstructFunctionExpressions(Staging.Get(), Candidate, Collection))
-		{
-			Result.bSucceeded = false;
-			Result.Diagnostics.push_back({.Message = "Function candidate cannot be represented by supported expression classes."});
-			return Result;
-		}
-		std::vector<DMaterialExpression*> Expressions;
-		for (const auto& Expression : Collection.Expressions) Expressions.push_back(Expression.Get());
-		Result = SetFunctionExpressions(Candidate.Signature, Expressions);
-		if (Result)
-		{
-			for (const auto& Node : Candidate.Nodes)
-			{
-				const auto Position = std::ranges::find(Presentation.Nodes, Node.Id, &FMaterialGraphNodePresentation::NodeId);
-				if (Position != Presentation.Nodes.end()) Position->DisplayName = Node.DisplayName;
-				else if (!Node.DisplayName.empty()) Presentation.Nodes.push_back({.NodeId = Node.Id, .DisplayName = Node.DisplayName});
-			}
-		}
-		return Result;
-	}
 
 	auto DMaterialFunction::SetFunctionPresentation(FMaterialFunctionPresentation Candidate) -> bool
 	{

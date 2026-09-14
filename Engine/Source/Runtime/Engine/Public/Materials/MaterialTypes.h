@@ -18,7 +18,6 @@
 
 namespace Durin
 {
-	struct FMaterialProgram;
 	class DMaterialInterface;
 
 	// Logical parameter type used in declarations and serialized records.
@@ -293,22 +292,6 @@ namespace Durin
 		bool bHasLocalOverride = false;
 	};
 
-	// Describes one reachable graph parameter declaration in deterministic first-use order.
-	struct FMaterialParameterDependency
-	{
-		FGuid SourceNodeId;
-		FGuid ParameterId;
-		EMaterialParameterType Type = EMaterialParameterType::Scalar;
-		uint32 FirstUseOrder = 0;
-		FName Name;
-		std::string DisplayName;
-		FName GroupName;
-		int32 SortOrder = 0;
-
-		auto operator==(const FMaterialParameterDependency&) const
-			-> bool = default;
-	};
-
 	namespace MaterialParameters
 	{
 		// Identifies one fixed surface role in the canonical parameter schema.
@@ -552,11 +535,5 @@ namespace Durin
 		const FMaterialStaticProperties& Properties,
 		std::string& OutError
 	) -> bool;
-	struct FMaterialFunctionCall;
-	ENGINE_API auto InspectMaterialParameterDependencies(
-		const FMaterialProgram& Program,
-		std::span<const FMaterialParameterDefinition> Definitions,
-		std::span<const FMaterialFunctionCall> Calls = {})
-		-> std::vector<FMaterialParameterDependency>;
 
 }

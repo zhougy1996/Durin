@@ -109,17 +109,15 @@ namespace Durin
 		{
 			uint32 Magic = MaterialCookedProgramMagic;
 			uint32 SchemaVersion = MaterialCookedProgramPayloadSchemaVersion;
-			uint32 ProgramSchemaVersion = CurrentMaterialProgramSchemaVersion;
 			uint32 IRVersion = CurrentMaterialIRVersion;
 			uint32 GeneratorVersion = CurrentMaterialGeneratorVersion;
 			uint32 EnvelopeVersion = CurrentMaterialCompilerEnvelopeVersion;
-			Ar << Magic << SchemaVersion << ProgramSchemaVersion << IRVersion
+			Ar << Magic << SchemaVersion << IRVersion
 				<< GeneratorVersion << EnvelopeVersion
 				<< Program.PassContractVersion << TargetPlatform << TargetProfile;
 			if (Ar.IsLoading() && !Ar.HasError()
 				&& (Magic != MaterialCookedProgramMagic
 					|| SchemaVersion != MaterialCookedProgramPayloadSchemaVersion
-					|| ProgramSchemaVersion != CurrentMaterialProgramSchemaVersion
 					|| IRVersion != CurrentMaterialIRVersion
 					|| GeneratorVersion != CurrentMaterialGeneratorVersion
 					|| EnvelopeVersion != CurrentMaterialCompilerEnvelopeVersion

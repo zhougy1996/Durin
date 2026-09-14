@@ -1067,7 +1067,7 @@ TEST(FMaterialTests, ReflectedPositionalMaterialOverrideUsesSharedTransactions)
 	const FSceneSnapshot Redone = CaptureScene(Harness.Scene);
 	EXPECT_GT(Redone.ComponentRevision, Undone.ComponentRevision);
 	ExpectColorNear(GetMaterialBinding(Redone.Material).BaseColor, Durin::FVector4f(0.7f, 0.6f, 0.5f, 1.0f));
-	Transactions->Reset();
+	EXPECT_TRUE(Transactions->Reset());
 
 	Component->UnregisterComponent();
 	WaitForRenderingThread();
@@ -1227,7 +1227,7 @@ TEST(FMaterialTests, ReflectedParameterEditCoalescesAndInvalidatesRenderDataAcro
 	ASSERT_TRUE(Transactions->Redo());
 	ASSERT_TRUE(Material->GetScalarParameterValue(Durin::MaterialParameters::OpacityName(), Opacity));
 	EXPECT_FLOAT_EQ(Opacity, 0.4f);
-	Transactions->Reset();
+	EXPECT_TRUE(Transactions->Reset());
 	Durin::MarkAsGarbage(Material);
 	Durin::CollectGarbage();
 }
@@ -1263,7 +1263,7 @@ TEST(FMaterialTests, ReflectedPropertyViewTracksPresentedOwnerSeparatelyFromEdit
 	ASSERT_TRUE(Material->GetScalarParameterValue(Durin::MaterialParameters::OpacityName(), Opacity));
 	EXPECT_FLOAT_EQ(Opacity, 1.0f);
 
-	Transactions->Reset();
+	EXPECT_TRUE(Transactions->Reset());
 	Durin::MarkAsGarbage(Material);
 	Durin::MarkAsGarbage(Owner);
 	Durin::CollectGarbage();
@@ -1297,7 +1297,7 @@ TEST(FMaterialTests, ReflectedPropertyViewTracksMaterialOverrideStructureInShare
 	EXPECT_FALSE(Instance->HasScalarParameterOverride(Durin::MaterialParameters::OpacityName()));
 	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_TRUE(Instance->HasScalarParameterOverride(Durin::MaterialParameters::OpacityName()));
-	Transactions->Reset();
+	EXPECT_TRUE(Transactions->Reset());
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Base);
 	Durin::CollectGarbage();
@@ -1335,7 +1335,7 @@ TEST(FMaterialTests, ReflectedPropertyOverridesValidateAndRestoreIndependentInte
 	EXPECT_FALSE(Instance->GetPropertyOverrides().HasAnyOverride());
 	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_EQ(Instance->GetPropertyOverrides(), Overrides);
-	Transactions->Reset();
+	EXPECT_TRUE(Transactions->Reset());
 	*Property->ContainerPtrToValuePtr<FMaterialPropertyOverrides>(Instance) = Overrides;
 	Property->ContainerPtrToValuePtr<FMaterialPropertyOverrides>(Instance)->Values.OpacityMaskThreshold = 2.0f;
 	FPropertyValueSnapshot Invalid;
@@ -1349,7 +1349,7 @@ TEST(FMaterialTests, ReflectedPropertyOverridesValidateAndRestoreIndependentInte
 	Rejected.Cancel();
 	EXPECT_EQ(Instance->GetPropertyOverrides(), Overrides);
 	EXPECT_FALSE(Transactions->CanUndo());
-	Transactions->Reset();
+	EXPECT_TRUE(Transactions->Reset());
 	MarkAsGarbage(Instance);
 	MarkAsGarbage(Base);
 	CollectGarbage();
@@ -1472,7 +1472,7 @@ TEST(FMaterialTests, ParentTransactionsRenderFromCurrentCanonicalStorage)
 	const FSceneSnapshot CurrentParentChanged = CaptureScene(Harness.Scene);
 	EXPECT_EQ(CurrentParentChanged.ComponentRevision, PreviousParentChanged.ComponentRevision);
 	ExpectColorNear(GetMaterialBinding(CurrentParentChanged.Material).BaseColor, Durin::FVector4f(0.2f, 0.8f, 0.4f, 1.0f));
-	Transactions->Reset();
+	EXPECT_TRUE(Transactions->Reset());
 
 	Component->UnregisterComponent();
 	WaitForRenderingThread();

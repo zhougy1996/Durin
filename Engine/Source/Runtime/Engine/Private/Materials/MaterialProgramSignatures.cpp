@@ -8,37 +8,6 @@ namespace Durin
 			|| Opcode == EMaterialProgramOpcode::TextureSampleParameter2D;
 	}
 
-	auto IsMaterialSampleUVInput(const FMaterialProgramNode& Node, uint32 Index) -> bool
-	{
-		return (Node.Opcode == EMaterialProgramOpcode::TextureSample2D && Index == 1)
-			|| (Node.Opcode == EMaterialProgramOpcode::TextureSampleParameter2D && Index == 0);
-	}
-
-	auto GetMaterialUVSetting(const FMaterialUVSettings& Settings, uint32 Index) -> const FMaterialInputDefault&
-	{
-		switch (Index)
-		{
-		case 0: return Settings.Channel;
-		case 1: return Settings.Scale;
-		case 2: return Settings.Offset;
-		default: return Settings.Rotation;
-		}
-	}
-
-	auto GetMaterialNodeInputDefault(const FMaterialProgramNode& Node, uint32 Index) -> FMaterialInputDefault
-	{
-		if (Node.Opcode == EMaterialProgramOpcode::TextureCoordinates && Index < 4)
-			return GetMaterialUVSetting(Node.UVSettings, Index);
-		if (IsMaterialSampleUVInput(Node, Index))
-			return {.Kind = EMaterialInputDefaultKind::Literal, .Type = EMaterialProgramValueType::Float2};
-		return Index < Node.InputDefaults.size() ? Node.InputDefaults[Index] : FMaterialInputDefault{};
-	}
-
-	auto GetMaterialNodeParameterReferences(const FMaterialProgramNode& Node, bool bActiveOnly) -> std::vector<FGuid>
-	{
-		return Node.Parameter.Id.IsValid() ? std::vector<FGuid>{Node.Parameter.Id} : std::vector<FGuid>{};
-	}
-
 	auto GetMaterialProgramNodeSignature(
 		EMaterialProgramOpcode Opcode, EMaterialProgramValueType ResultType)
 		-> std::optional<FMaterialProgramNodeSignature>

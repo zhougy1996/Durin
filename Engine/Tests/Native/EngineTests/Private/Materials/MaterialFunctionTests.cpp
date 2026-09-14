@@ -62,6 +62,19 @@ namespace
 		return Graph;
 	}
 
+	auto PublishRootFunction(Durin::DMaterial& Material, Durin::DMaterialFunction& Function,
+		Durin::FGuid CallId) -> Durin::FMaterialProgramValidationResult
+	{
+		auto Call = Durin::Testing::MakeGraphExpression<Durin::DMaterialExpressionFunctionCall>(CallId);
+		const auto& Output = Function.GetFunctionSignature().Outputs[0];
+		Call->Function = &Function;
+		Call->Outputs = {{Output.Id, Output.Type}};
+		const std::array<Durin::DMaterialExpression*, 1> Expressions{Call.Get()};
+		Durin::FMaterialExpressionSurfaceOutputs Outputs;
+		Outputs.Surface = {.ExpressionId = CallId, .OutputId = Output.Id};
+		return Material.SetMaterialExpressions(Expressions, Outputs);
+	}
+
 	auto BuildTypedExpressions(std::span<Durin::DMaterialExpression* const> Expressions,
 		const Durin::FMaterialExpressionSurfaceOutputs& Outputs) -> Durin::FMaterialExpressionBuildResult
 	{
@@ -1461,16 +1474,22 @@ TEST(FMaterialFunctionTests, RootCallsCommitAtomicallyAndSnapshotThroughInstance
 	ASSERT_TRUE(Instance->SetParent(Material));
 	const auto& Output = Function->GetFunctionSignature().Outputs[0];
 	const FGuid CallId{41, 1, 1, 1};
-	FMaterialProgram Program;
-	Program.Nodes = {{.Id = CallId, .Opcode = EMaterialProgramOpcode::FunctionCall, .ResultType = EMaterialProgramValueType::Surface}};
-	Program.Outputs.Surface = {.SourceNodeId = CallId, .SourceOutputId = Output.Id};
-	std::vector<FMaterialFunctionCall> Calls{{.NodeId = CallId, .Function = Function,
-		.Outputs = {{Output.Id, Output.Type}}}};
-	const auto Before = *Material->GetMaterialProgram();
-	EXPECT_FALSE(Material->SetMaterialProgram(Program));
-	EXPECT_EQ(*Material->GetMaterialProgram(), Before);
-	ASSERT_TRUE(Material->SetMaterialProgramAndFunctionCalls(Program, Calls));
-	EXPECT_EQ(Instance->GetMaterialFunctionCalls().size(), 1u);
+	auto Call = Testing::MakeGraphExpression<DMaterialExpressionFunctionCall>(CallId);
+	Call->Function = Function;
+	Call->Outputs = {{Output.Id, Output.Type}};
+	const std::array<DMaterialExpression*, 1> Expressions{Call.Get()};
+	FMaterialExpressionSurfaceOutputs Outputs;
+	Outputs.Surface = {.ExpressionId = CallId, .OutputId = Output.Id};
+	const auto Before = Material->GetExpressionOutputs();
+	const auto BeforeRevision = Material->GetMaterialProgramRevision();
+	auto InvalidOutputs = Outputs;
+	InvalidOutputs.Surface.ExpressionId = FGuid::NewGuid();
+	EXPECT_FALSE(Material->SetMaterialExpressions(Expressions, InvalidOutputs));
+	EXPECT_EQ(Material->GetExpressionOutputs(), Before);
+	EXPECT_EQ(Material->GetMaterialProgramRevision(), BeforeRevision);
+	ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
+	ASSERT_EQ(GetFunctionCalls(*Material).size(), 1u);
+	EXPECT_EQ(GetFunctionCalls(*Material)[0]->Function.Get(), Function);
 	FMaterialIRCompilerInput Input;
 	std::vector<FMaterialFunctionOwnerStamp> Owners;
 	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Instance, {.CompilerIdentity = "RootFunctionTest"}, Input, &Owners));
@@ -1482,8 +1501,8 @@ TEST(FMaterialFunctionTests, RootCallsCommitAtomicallyAndSnapshotThroughInstance
 	const auto Normalized = NormalizeMaterialIR(Input);
 	ASSERT_TRUE(Normalized) << (Normalized.Diagnostics.empty() ? "" : Normalized.Diagnostics[0].Message);
 	EXPECT_TRUE(GenerateMaterialProgramSlang(Normalized.IR, Normalized.Layout));
-	Calls[0].Function = nullptr;
-	ASSERT_TRUE(Material->SetMaterialProgramAndFunctionCalls(Program, Calls));
+	Call->Function = nullptr;
+	ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 	const auto OldIR = Input.IR;
 	const auto OldOwners = Owners;
 	const auto Missing = SnapshotMaterialCompilerInput(*Material, {}, Input, &Owners);
@@ -1518,7 +1537,8 @@ TEST(FMaterialFunctionTests, ImportProvenanceRoundtripsWithoutChangingGraphOrCom
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(InstancePath, Instance));
 	Parent->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	ASSERT_TRUE(Instance->SetParent(Parent));
-	const auto Program = *Parent->GetMaterialProgram();
+	const auto Outputs = Parent->GetExpressionOutputs();
+	const auto ExpressionCount = Parent->GetExpressionCollection().Expressions.size();
 	const auto Revision = Parent->GetMaterialCompileStatus().AuthoredRevision;
 	const FMaterialImportProvenance ParentReceipt{.RecipeId = "Durin.ImportedSurface", .RecipeVersion = 1,
 		.StructuralKey = "Durin.ImportedSurface:1;d;d;d;d;d;d;d;d"};
@@ -1528,7 +1548,8 @@ TEST(FMaterialFunctionTests, ImportProvenanceRoundtripsWithoutChangingGraphOrCom
 	ASSERT_TRUE(Parent->SetImportProvenance(ParentReceipt));
 	ASSERT_TRUE(Instance->SetImportProvenance(InstanceReceipt));
 	EXPECT_EQ(Parent->GetMaterialCompileStatus().AuthoredRevision, Revision);
-	EXPECT_EQ(*Parent->GetMaterialProgram(), Program);
+	EXPECT_EQ(Parent->GetExpressionOutputs(), Outputs);
+	EXPECT_EQ(Parent->GetExpressionCollection().Expressions.size(), ExpressionCount);
 	EXPECT_TRUE(Parent->GetParameterDefinitions().empty());
 	auto Invalid = InstanceReceipt;
 	Invalid.SourceIdentity.assign(4097, 'x');
@@ -1544,13 +1565,14 @@ TEST(FMaterialFunctionTests, ImportProvenanceRoundtripsWithoutChangingGraphOrCom
 	ASSERT_NE(Parent, nullptr);
 	EXPECT_EQ(Parent->GetImportProvenance(), ParentReceipt);
 	EXPECT_EQ(Instance->GetImportProvenance(), InstanceReceipt);
-	EXPECT_EQ(*Parent->GetMaterialProgram(), Program);
+	EXPECT_EQ(Parent->GetExpressionOutputs(), Outputs);
+	EXPECT_EQ(Parent->GetExpressionCollection().Expressions.size(), ExpressionCount);
 	ASSERT_TRUE(UnloadPackage(InstancePath));
 	ASSERT_TRUE(UnloadPackage(ParentPath));
 	CollectGarbage();
 }
 
-TEST(FMaterialFunctionTests, CompactDefaultsRoundtripAndRejectSpoofedLegacySchemas)
+TEST(FMaterialFunctionTests, TypedFieldsRoundtripAndRejectInvalidCoordinateDefaults)
 {
 	using namespace Durin;
 	using namespace Durin::Editor::Material;
@@ -1576,9 +1598,25 @@ TEST(FMaterialFunctionTests, CompactDefaultsRoundtripAndRejectSpoofedLegacySchem
 	const auto Call = Document.InsertFunctionCall(*Function, 300, 0);
 	ASSERT_TRUE(Call);
 	ASSERT_TRUE(Document.AssignMaterialOutput(std::nullopt, {Call.GeneratedNodeIds[0], 0, Function->GetFunctionSignature().Outputs[0].Id}));
-	const auto Expected = *Material->GetMaterialProgram();
-	const auto ExpectedFunction = Function->GetFunctionGraph();
-	const auto TextureId = Material->GetMaterialProgram()->Nodes.front().Parameter.Id;
+	const auto CaptureFields = [](const auto& Owner) {
+		std::vector<FPropertyValueSnapshotPayload> Fields;
+		for (const auto& Expression : Owner.GetExpressionCollection().Expressions)
+			Expression->GetClass()->ForEachProperty([&](FProperty* Property) {
+				// The callee is checked by asset path separately across package lifetimes.
+				if (Property == DMaterialExpressionFunctionCall::StaticClass()->FindPropertyByName("Function")) return;
+				Fields.emplace_back();
+				EXPECT_TRUE(CapturePropertyValuePayload(Property, Expression.Get(), 0, Fields.back()));
+			});
+		return Fields;
+	};
+	const auto Expected = CaptureFields(*Material);
+	const auto ExpectedFunction = CaptureFields(*Function);
+	const auto ExpectedOutputs = Material->GetExpressionOutputs();
+	const auto ExpectedSignature = Function->GetFunctionSignature();
+	const auto FunctionObjectPath = Function->GetObjectPath();
+	const auto* Sample = Cast<DMaterialExpressionTextureSampleParameter2D>(Material->GetExpressionCollection().Expressions.front().Get());
+	ASSERT_NE(Sample, nullptr);
+	const auto TextureId = Sample->Metadata.Id;
 	ASSERT_TRUE(SavePackage(Function->GetPackage()));
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));
 	ASSERT_TRUE(UnloadPackage(MaterialPath));
@@ -1586,27 +1624,26 @@ TEST(FMaterialFunctionTests, CompactDefaultsRoundtripAndRejectSpoofedLegacySchem
 	CollectGarbage();
 	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), Material));
 	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(FunctionPath), Function));
-	EXPECT_EQ(*Material->GetMaterialProgram(), Expected);
-	EXPECT_EQ(Function->GetFunctionGraph(), ExpectedFunction);
+	EXPECT_EQ(CaptureFields(*Material), Expected);
+	EXPECT_EQ(CaptureFields(*Function), ExpectedFunction);
+	EXPECT_EQ(Material->GetExpressionOutputs(), ExpectedOutputs);
+	EXPECT_EQ(Function->GetFunctionSignature(), ExpectedSignature);
 	EXPECT_NE(Material->FindParameterDefinition(TextureId), nullptr);
-	EXPECT_EQ(Material->GetMaterialFunctionCalls()[0].Function.Get(), Function);
-	// Compatibility reads cannot alter the owned expression schema.
-	auto DetachedMaterial = Material->GetMaterialProgram();
-	DetachedMaterial->SchemaVersion = 5;
-	DetachedMaterial->Nodes.clear();
-	EXPECT_EQ(*Material->GetMaterialProgram(), Expected);
-	auto DetachedFunction = Function->GetFunctionGraph();
-	DetachedFunction.SchemaVersion = 1;
-	DetachedFunction.Nodes.clear();
-	DetachedFunction.Calls.clear();
-	// Compatibility reads return detached values and cannot mutate expression owners.
-	EXPECT_EQ(Function->GetFunctionGraph(), ExpectedFunction);
-	auto Invalid = Expected;
-	Invalid.Nodes.front().UVSettings.Rotation.Literal.X = std::numeric_limits<float>::infinity();
-	const auto Rejected = ValidateMaterialProgramWithFunctions(Invalid, Material->GetParameterDefinitions(), Material->GetMaterialFunctionCalls());
+	ASSERT_EQ(GetFunctionCalls(*Material).size(), 1u);
+	EXPECT_EQ(GetFunctionCalls(*Material)[0]->Function.Get(), Function);
+	EXPECT_EQ(Function->GetObjectPath(), FunctionObjectPath);
+	auto Invalid = Testing::MakeGraphExpression<DMaterialExpressionTextureSampleParameter2D>();
+	Invalid->Metadata.Id = TextureId;
+	Invalid->Metadata.Name = "InvalidUV";
+	Invalid->UVSettings.Rotation.bPresent = true;
+	Invalid->UVSettings.Rotation.Value = std::numeric_limits<float>::infinity();
+	const std::array<DMaterialExpression*, 1> InvalidExpressions{Invalid.Get()};
+	const auto Rejected = Material->SetMaterialExpressions(InvalidExpressions, {});
 	EXPECT_FALSE(Rejected);
 	ASSERT_FALSE(Rejected.Diagnostics.empty());
-	EXPECT_EQ(Rejected.Diagnostics.front().UVFieldIndex, 3u);
+	EXPECT_EQ(Rejected.Diagnostics.front().NodeId, Invalid->Id);
+	EXPECT_EQ(Rejected.Diagnostics.front().Message, "Retained coordinate defaults must be finite.");
+	EXPECT_EQ(CaptureFields(*Material), Expected);
 	ASSERT_TRUE(UnloadPackage(MaterialPath));
 	ASSERT_TRUE(UnloadPackage(FunctionPath));
 	CollectGarbage();
@@ -1639,13 +1676,9 @@ TEST(FMaterialFunctionTests, RejectsOldRootSchemaAndPreservesCurrentFunctionRefe
 	EXPECT_EQ(Version, 1u);
 	Version = CurrentVersion;
 	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
-	FMaterialProgram Program;
 	const FGuid CallId{42, 1, 1, 1};
-	const auto& Output = Function->GetFunctionSignature().Outputs[0];
-	Program.Nodes = {{.Id = CallId, .Opcode = EMaterialProgramOpcode::FunctionCall, .ResultType = EMaterialProgramValueType::Surface}};
-	Program.Outputs.Surface = {.SourceNodeId = CallId, .SourceOutputId = Output.Id};
-	ASSERT_TRUE(Material->SetMaterialProgramAndFunctionCalls(Program,
-		{{.NodeId = CallId, .Function = Function, .Outputs = {{Output.Id, Output.Type}}}}));
+	ASSERT_TRUE(PublishRootFunction(*Material, *Function, CallId));
+	const auto Outputs = Material->GetExpressionOutputs();
 	ASSERT_TRUE(SavePackage(Function->GetPackage()));
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));
 	FAssetPackageInspection Inspection;
@@ -1663,8 +1696,9 @@ TEST(FMaterialFunctionTests, RejectsOldRootSchemaAndPreservesCurrentFunctionRefe
 	CollectGarbage();
 	Material = nullptr;
 	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), Material));
-	EXPECT_EQ(*Material->GetMaterialProgram(), Program);
-	ASSERT_EQ(Material->GetMaterialFunctionCalls().size(), 1u);
+	EXPECT_EQ(Material->GetExpressionOutputs(), Outputs);
+	ASSERT_EQ(GetFunctionCalls(*Material).size(), 1u);
+	EXPECT_EQ(GetFunctionCalls(*Material)[0]->Id, CallId);
 	FMaterialIRCompilerInput Input;
 	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Material, {.CompilerIdentity = "RootRoundTrip"}, Input));
 	EXPECT_TRUE(NormalizeMaterialIR(Input));
@@ -1679,14 +1713,17 @@ TEST(FMaterialFunctionTests, NestedSurfaceOverridesAndSelectedOutputsPreserveAtt
 	InitializeDObjectSystem();
 	auto* Leaf = NewObject<DMaterialFunction>(nullptr, "SurfaceOverrideLeaf");
 	auto* Wrapper = NewObject<DMaterialFunction>(nullptr, "SurfaceOverrideWrapper");
-	auto Graph = Leaf->GetFunctionGraph();
+	auto Graph = CaptureFunctionExpressions(*Leaf);
 	const FGuid ValueId{51, 1, 1, 1}, SetId{51, 1, 1, 2};
-	Graph.Nodes.push_back({.Id = ValueId, .Literal = {0.75f}});
-	Graph.Nodes.push_back({.Id = SetId, .Opcode = EMaterialProgramOpcode::SetSurfaceAttributes,
-		.ResultType = EMaterialProgramValueType::Surface, .Inputs = {{Graph.Nodes[0].Id}},
-		.SurfaceAttributes = {{EMaterialSurfaceOutput::Metallic, {ValueId}}}});
-	Graph.Nodes[1].Inputs = {{SetId}};
-	ASSERT_TRUE(Leaf->SetFunctionGraph(Graph));
+	auto Value = Testing::MakeGraphExpression<DMaterialExpressionScalarConstant>(ValueId);
+	Value->Value = 0.75f;
+	auto Set = Testing::MakeGraphExpression<DMaterialExpressionSetSurfaceAttributes>(SetId);
+	Set->Surface = {Graph.Expressions[0]->Id};
+	Set->Attributes = {{EMaterialSurfaceOutput::Metallic, {ValueId}}};
+	Cast<DMaterialExpressionFunctionOutput>(Graph.Expressions[1].Get())->Source = {SetId};
+	Graph.Expressions.emplace_back(Value.Get());
+	Graph.Expressions.emplace_back(Set.Get());
+	ASSERT_TRUE(Graph.Apply(*Leaf));
 	ASSERT_NO_FATAL_FAILURE(AddFunctionCall(*Wrapper, *Leaf));
 	const FGuid CallId{52, 1, 1, 1}, GetId{52, 1, 1, 2};
 	const auto Output = Wrapper->GetFunctionSignature().Outputs[0];
@@ -1712,8 +1749,8 @@ TEST(FMaterialFunctionTests, NestedSurfaceOverridesAndSelectedOutputsPreserveAtt
 	EXPECT_EQ(MoreVisible.Identity, Normalized.Identity);
 	Get->AttributeMask = 1u << static_cast<uint8>(EMaterialSurfaceOutput::Normal);
 	EXPECT_FALSE(NormalizeTypedExpressions(Expressions, Outputs));
-	Graph.Nodes.back().SurfaceAttributes[0].Source = {SetId};
-	EXPECT_FALSE(Leaf->SetFunctionGraph(Graph));
+	Set->Attributes[0].Source = {SetId};
+	EXPECT_FALSE(Graph.Apply(*Leaf));
 	MarkAsGarbage(Call); MarkAsGarbage(Get);
 	MarkAsGarbage(Wrapper);
 	MarkAsGarbage(Leaf);
@@ -1835,11 +1872,7 @@ TEST(FMaterialFunctionTests, DependencyEditsPreserveAcceptedContractsAndOwnerSou
 	const FGuid FirstCall{55, 1, 1, 1}, SecondCall{55, 1, 1, 2};
 	for (const auto& Pair : {std::pair{First, FirstCall}, std::pair{Second, SecondCall}})
 	{
-		FMaterialProgram Program;
-		Program.Nodes = {{.Id = Pair.second, .Opcode = EMaterialProgramOpcode::FunctionCall}};
-		Program.Outputs.Surface = {.SourceNodeId = Pair.second, .SourceOutputId = Output.Id};
-		ASSERT_TRUE(Pair.first->SetMaterialProgramAndFunctionCalls(Program,
-			{{.NodeId = Pair.second, .Function = Wrapper, .Outputs = {{Output.Id, Output.Type}}}}));
+		ASSERT_TRUE(PublishRootFunction(*Pair.first, *Wrapper, Pair.second));
 		ASSERT_TRUE(Pair.first->CompileEdits());
 	}
 	const auto Accepted = First->GetAcceptedCompiledProgram();
@@ -1851,11 +1884,11 @@ TEST(FMaterialFunctionTests, DependencyEditsPreserveAcceptedContractsAndOwnerSou
 	EXPECT_EQ(First->GetAcceptedExpressionSources()[0].CallPath[0], FirstCall);
 	EXPECT_EQ(Second->GetAcceptedExpressionSources()[0].CallPath[0], SecondCall);
 	const auto Before = First->GetMaterialCompileStatus();
-	ASSERT_TRUE(Leaf->SetFunctionPresentation({.Nodes = {{Leaf->GetFunctionGraph().Nodes[0].Id, 70, 80}}}));
+	ASSERT_TRUE(Leaf->SetFunctionPresentation({.Nodes = {{Leaf->GetExpressionCollection().Expressions[0]->Id, 70, 80}}}));
 	EXPECT_EQ(First->GetMaterialCompileStatus().AuthoredRevision, Before.AuthoredRevision);
-	auto Graph = Leaf->GetFunctionGraph();
+	auto Graph = CaptureFunctionExpressions(*Leaf);
 	Graph.Signature.Inputs[0].Default.Surface.RoughnessDefault.X = 0.21f;
-	ASSERT_TRUE(Leaf->SetFunctionGraph(Graph));
+	ASSERT_TRUE(Graph.Apply(*Leaf));
 	for (const DMaterialInterface* Caller : {static_cast<DMaterialInterface*>(First), static_cast<DMaterialInterface*>(Second),
 		static_cast<DMaterialInterface*>(Child)})
 	{
@@ -1874,15 +1907,16 @@ TEST(FMaterialFunctionTests, DependencyEditsPreserveAcceptedContractsAndOwnerSou
 	EXPECT_NE(First->GetAcceptedCompiledProgram()->Identity, Accepted->Identity);
 	EXPECT_EQ(First->GetAcceptedCompiledProgram(), Child->GetAcceptedCompiledProgram());
 	EXPECT_EQ(First->GetAcceptedCompiledProgram(), Second->GetAcceptedCompiledProgram());
-	const auto OriginalWrapper = Wrapper->GetFunctionGraph();
-	auto BrokenWrapper = OriginalWrapper;
-	BrokenWrapper.Calls[0].Function = nullptr;
-	ASSERT_TRUE(Wrapper->SetFunctionGraph(BrokenWrapper));
+	const auto OriginalWrapper = CaptureFunctionExpressions(*Wrapper);
+	auto BrokenWrapper = CaptureFunctionExpressions(*Wrapper);
+	for (const auto& Expression : BrokenWrapper.Expressions)
+		if (auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression.Get())) Call->Function = nullptr;
+	ASSERT_TRUE(BrokenWrapper.Apply(*Wrapper));
 	EXPECT_FALSE(First->CompileEdits());
 	EXPECT_FALSE(First->GetAcceptedCompiledProgram());
 	EXPECT_FALSE(Child->GetAcceptedCompiledProgram());
 	EXPECT_TRUE(First->GetAcceptedExpressionSources().empty());
-	ASSERT_TRUE(Wrapper->SetFunctionGraph(OriginalWrapper));
+	ASSERT_TRUE(OriginalWrapper.Apply(*Wrapper));
 	ASSERT_TRUE(First->CompileEdits());
 	EXPECT_TRUE(First->GetAcceptedCompiledProgram());
 	const auto Current = First->GetMaterialCompileStatus();
@@ -1896,7 +1930,7 @@ TEST(FMaterialFunctionTests, DependencyEditsPreserveAcceptedContractsAndOwnerSou
 	FirstBinding->Function = nullptr;
 	SecondBinding->Function = nullptr;
 	Graph.Signature.Inputs[0].Default.Surface.RoughnessDefault.X = 0.37f;
-	ASSERT_TRUE(Leaf->SetFunctionGraph(Graph));
+	ASSERT_TRUE(Graph.Apply(*Leaf));
 	FirstBinding->Function = Wrapper;
 	SecondBinding->Function = Wrapper;
 	EXPECT_EQ(First->GetMaterialCompileStatus().AuthoredRevision, Current.AuthoredRevision);
@@ -1937,7 +1971,7 @@ TEST(FMaterialFunctionTests, RelocationRefreshesNestedCallersAndDeletionHonorsRe
 	DMaterialFunction* Leaf = nullptr;
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(WrapperPath, Wrapper));
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(LeafPath, Leaf));
-	const auto OriginalGraph = Wrapper->GetFunctionGraph();
+	auto OriginalGraph = CaptureFunctionExpressions(*Wrapper);
 	ASSERT_NO_FATAL_FAILURE(AddFunctionCall(*Wrapper, *Leaf));
 	ASSERT_TRUE(SavePackage(Leaf->GetPackage()));
 	ASSERT_TRUE(SavePackage(Wrapper->GetPackage()));
@@ -1952,11 +1986,7 @@ TEST(FMaterialFunctionTests, RelocationRefreshesNestedCallersAndDeletionHonorsRe
 	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	const auto Output = Wrapper->GetFunctionSignature().Outputs[0];
 	const FGuid CallId{64, 1, 1, 1};
-	FMaterialProgram Program;
-	Program.Nodes = {{.Id = CallId, .Opcode = EMaterialProgramOpcode::FunctionCall, .ResultType = EMaterialProgramValueType::Surface}};
-	Program.Outputs.Surface = {.SourceNodeId = CallId, .SourceOutputId = Output.Id};
-	ASSERT_TRUE(Material->SetMaterialProgramAndFunctionCalls(Program,
-		{{.NodeId = CallId, .Function = Wrapper, .Outputs = {{Output.Id, Output.Type}}}}));
+	ASSERT_TRUE(PublishRootFunction(*Material, *Wrapper, CallId));
 	ASSERT_TRUE(Material->CompileEdits());
 	const auto Accepted = Material->GetAcceptedCompiledProgram();
 	const auto Revision = Material->GetMaterialCompileStatus().AuthoredRevision;
@@ -1978,7 +2008,7 @@ TEST(FMaterialFunctionTests, RelocationRefreshesNestedCallersAndDeletionHonorsRe
 	EXPECT_FALSE(std::ranges::any_of(Material->GetAcceptedExpressionSources(), [&](const auto& Source) {
 		return Source.FunctionAssetPath == OriginalLeafPath;
 	}));
-	ASSERT_TRUE(Wrapper->SetFunctionGraph(OriginalGraph));
+	ASSERT_TRUE(OriginalGraph.Apply(*Wrapper));
 	ASSERT_TRUE(SavePackage(Wrapper->GetPackage()));
 	ASSERT_TRUE(Material->CompileEdits());
 	const std::array Removed{LeafPath, MovedPath};
@@ -2025,11 +2055,7 @@ TEST(FMaterialFunctionTests, CookFingerprintsNestedFunctionsWithoutProducingRunt
 	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	const auto Output = Wrapper->GetFunctionSignature().Outputs[0];
 	const FGuid CallId{63, 1, 1, 1};
-	FMaterialProgram Program;
-	Program.Nodes = {{.Id = CallId, .Opcode = EMaterialProgramOpcode::FunctionCall, .ResultType = EMaterialProgramValueType::Surface}};
-	Program.Outputs.Surface = {.SourceNodeId = CallId, .SourceOutputId = Output.Id};
-	ASSERT_TRUE(Material->SetMaterialProgramAndFunctionCalls(Program,
-		{{.NodeId = CallId, .Function = Wrapper, .Outputs = {{Output.Id, Output.Type}}}}));
+	ASSERT_TRUE(PublishRootFunction(*Material, *Wrapper, CallId));
 	ASSERT_TRUE(Material->CompileEdits());
 	ASSERT_TRUE(SavePackage(Leaf->GetPackage()));
 	ASSERT_TRUE(SavePackage(Wrapper->GetPackage()));
@@ -2042,9 +2068,9 @@ TEST(FMaterialFunctionTests, CookFingerprintsNestedFunctionsWithoutProducingRunt
 	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Result.Diagnostic;
 	ASSERT_EQ(Result.Packages.size(), 1u);
 	EXPECT_EQ(Result.Packages[0].Status, ECookPackageStatus::CookHit);
-	auto Edited = Leaf->GetFunctionGraph();
+	auto Edited = CaptureFunctionExpressions(*Leaf);
 	Edited.Signature.Inputs[0].Default.Surface.RoughnessDefault.X = 0.27f;
-	ASSERT_TRUE(Leaf->SetFunctionGraph(Edited));
+	ASSERT_TRUE(Edited.Apply(*Leaf));
 	ASSERT_TRUE(SavePackage(Leaf->GetPackage()));
 	ASSERT_TRUE(Material->CompileEdits());
 	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Result.Diagnostic;
@@ -2052,6 +2078,7 @@ TEST(FMaterialFunctionTests, CookFingerprintsNestedFunctionsWithoutProducingRunt
 	EXPECT_NE(Result.Packages[0].Status, ECookPackageStatus::CookHit);
 	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Result.Diagnostic;
 	EXPECT_EQ(Result.Packages[0].Status, ECookPackageStatus::CookHit);
+	Edited.Expressions.clear();
 	const auto ExpectedIdentity = Material->GetAcceptedCompiledProgram()->Identity;
 	ASSERT_TRUE(UnloadPackage(MaterialPath));
 	ASSERT_TRUE(UnloadPackage(WrapperPath));
@@ -2082,7 +2109,7 @@ TEST(FMaterialFunctionTests, CookFingerprintsNestedFunctionsWithoutProducingRunt
 		ASSERT_NE(Loaded->GetAcceptedCompiledProgram(), nullptr);
 		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->Identity, ExpectedIdentity);
 		EXPECT_TRUE(Loaded->GetExpressionCollection().Expressions.empty());
-		EXPECT_TRUE(Loaded->GetMaterialFunctionCalls().empty());
+		EXPECT_TRUE(GetFunctionCalls(*Loaded).empty());
 		EXPECT_TRUE(Loaded->GetAcceptedCompiledProgram()->IR.Nodes.empty());
 		EXPECT_TRUE(Loaded->GetAcceptedCompiledProgram()->GeneratedSource.empty());
 	}
@@ -2133,6 +2160,7 @@ TEST(FMaterialFunctionTests, StructuralNormalParentRoundTripsDuplicatesAndCooksW
 	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), Material));
 	EXPECT_TRUE(Recipe.Graph.MatchesGraph(*Material));
 	ASSERT_TRUE(FinishMaterialCompileForTest(*Material));
+
 	const auto ExpectedIdentity = Material->GetAcceptedCompiledProgram()->Identity;
 	FCookRequest Request{.OutputRoot = Root / "Cooked", .TargetPlatform = ECookTargetPlatform::Win64,
 		.TargetProfile = ECookTargetProfile::Game, .ExplicitRoots = {MaterialPath}};
@@ -2160,7 +2188,7 @@ TEST(FMaterialFunctionTests, StructuralNormalParentRoundTripsDuplicatesAndCooksW
 		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->Identity, ExpectedIdentity);
 		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->Layout.ResourceFieldCount, 1u);
 		EXPECT_TRUE(Loaded->GetExpressionCollection().Expressions.empty());
-		EXPECT_TRUE(Loaded->GetMaterialFunctionCalls().empty());
+		EXPECT_TRUE(GetFunctionCalls(*Loaded).empty());
 		EXPECT_TRUE(Loaded->GetAcceptedCompiledProgram()->IR.Nodes.empty());
 		EXPECT_TRUE(Loaded->GetAcceptedCompiledProgram()->GeneratedSource.empty());
 	}
@@ -2255,8 +2283,9 @@ TEST(FMaterialFunctionTests, StandardMaterialFixtureCooksAndLoadsWithoutAuthored
 	ASSERT_TRUE(AssetForge::Builtins::EnsureStandardMaterialFunctions(Functions, Error)) << Error;
 	ASSERT_TRUE(Testing::MakeStandardMaterialExpressionsForTest(Functions).Apply(*Material));
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));
-	ASSERT_EQ(Material->GetMaterialFunctionCalls().size(), 1u);
+	ASSERT_EQ(GetFunctionCalls(*Material).size(), 1u);
 	ASSERT_TRUE(FinishMaterialCompileForTest(*Material));
+
 	const auto ExpectedIdentity = Material->GetAcceptedCompiledProgram()->Identity;
 	FCookRequest Request{.OutputRoot = Root / "Cooked", .TargetPlatform = ECookTargetPlatform::Win64,
 		.TargetProfile = ECookTargetProfile::Game, .ExplicitRoots = {MaterialPath}};
@@ -2295,7 +2324,7 @@ TEST(FMaterialFunctionTests, StandardMaterialFixtureCooksAndLoadsWithoutAuthored
 		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->Identity, ExpectedIdentity);
 		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->Layout.ResourceFieldCount, 8u);
 		EXPECT_TRUE(Loaded->GetExpressionCollection().Expressions.empty());
-		EXPECT_TRUE(Loaded->GetMaterialFunctionCalls().empty());
+		EXPECT_TRUE(GetFunctionCalls(*Loaded).empty());
 		EXPECT_TRUE(Loaded->GetAcceptedCompiledProgram()->GeneratedSource.empty());
 	}
 	ShutdownAssetManager();

@@ -536,7 +536,7 @@ TEST(FMaterialGraphOperationsTests, MaterialOutputMovementIsPresentationOnlyAndT
 	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_EQ(Material->GetMaterialGraphPresentation().MaterialOutputX, 520);
 
-	Transactions->Reset();
+	EXPECT_TRUE(Transactions->Reset());
 	FMaterialGraphMoveSession Move;
 	ASSERT_TRUE(Move.BeginMaterialOutput(*Material, Transactions.Get()));
 	ASSERT_TRUE(Move.ApplyMaterialOutput(600, 40));
@@ -549,7 +549,7 @@ TEST(FMaterialGraphOperationsTests, MaterialOutputMovementIsPresentationOnlyAndT
 	EXPECT_EQ(Material->GetMaterialGraphPresentation().MaterialOutputX, 600);
 	EXPECT_TRUE(Transactions->CanUndo());
 
-	Transactions->Reset();
+	EXPECT_TRUE(Transactions->Reset());
 	MarkAsGarbage(Material);
 	CollectGarbage();
 }
@@ -1433,7 +1433,7 @@ TEST(FMaterialGraphOperationsTests, TypedLayoutIncludesCallAndSurfaceDependencie
 	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_EQ(Material->GetMaterialGraphPresentation(), Layout);
 	EXPECT_EQ(Material->GetMaterialCompileStatus().AuthoredRevision, Revision);
-	Transactions->Reset();
+	EXPECT_TRUE(Transactions->Reset());
 	MarkAsGarbage(Material); MarkAsGarbage(Function); CollectGarbage();
 }
 
@@ -1707,7 +1707,7 @@ TEST(FMaterialGraphOperationsTests,
 	const FMaterialGraphView RestoredCut = FMaterialGraphOperations::Inspect(*Material);
 	EXPECT_NE(FindViewNode(RestoredCut, StandaloneId), nullptr);
 
-	Transactions->Reset();
+	EXPECT_TRUE(Transactions->Reset());
 	MarkAsGarbage(Material);
 	CollectGarbage();
 }
@@ -1892,7 +1892,7 @@ TEST(FMaterialGraphOperationsTests, FunctionClipboardRetainsDependenciesAndRemap
 	const auto FunctionBefore = CaptureExpressions(*WeakFunction.Get());
 	EXPECT_FALSE(FunctionDocument.Paste(Payload, 0, 0));
 	EXPECT_EQ(CaptureExpressions(*WeakFunction.Get()), FunctionBefore);
-	Transactions->Reset();
+	EXPECT_TRUE(Transactions->Reset());
 	Payload = {};
 	RetainedTarget.Reset();
 	MarkAsGarbage(Target);
@@ -1947,7 +1947,7 @@ TEST(FMaterialGraphOperationsTests, FunctionClipboardCopiesPortsAndSurfaceBindin
 	EXPECT_EQ(CaptureExpressions(*Target), Before);
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Target->GetFunctionSignature().Outputs.size(), 3u);
-	Transactions->Reset();
+	EXPECT_TRUE(Transactions->Reset());
 	MarkAsGarbage(Source); MarkAsGarbage(Target); CollectGarbage();
 }
 
@@ -2006,7 +2006,7 @@ TEST(FMaterialGraphOperationsTests, FunctionCanvasConnectsAndMovesNodesWithUndo)
 	EXPECT_NE(Function->GetFunctionPresentation(), Before);
 	EXPECT_EQ(Function->GetFunctionRevision(), Revision);
 	ImGui::DestroyContext(Context);
-	Transactions->Reset(); MarkAsGarbage(Function); CollectGarbage();
+	EXPECT_TRUE(Transactions->Reset()); MarkAsGarbage(Function); CollectGarbage();
 }
 
 TEST(FMaterialGraphOperationsTests, CanvasConnectsASecondFunctionOutputAndRefreshesItsInterface)
@@ -2174,7 +2174,7 @@ TEST(FMaterialGraphOperationsTests, CanvasLinkReleaseEndsGestureAcrossFrames)
 	Frame({500, 500}, false);
 	EXPECT_TRUE(FMaterialGraphCanvasTestAccess::Menu(Canvas));
 	Canvas.CancelInteraction();
-	Transactions->Reset();
+	EXPECT_TRUE(Transactions->Reset());
 	ImGui::DestroyContext(Context);
 	MarkAsGarbage(Material);
 	CollectGarbage();
@@ -2246,7 +2246,7 @@ TEST(FMaterialGraphOperationsTests, CanvasProducesBoundedEditingDrawData)
 	EXPECT_GT(MaximumVertices, 100);
 	EXPECT_LT(MaximumVertices, 100000);
 
-	Transactions->Reset();
+	EXPECT_TRUE(Transactions->Reset());
 	ImGui::DestroyContext(Context);
 	MarkAsGarbage(Material);
 	CollectGarbage();
@@ -2325,7 +2325,7 @@ TEST(FMaterialGraphOperationsTests, CommandsAreAtomicAndTransactionsRestoreSeman
 	ASSERT_NE(CoalescedUndo, nullptr);
 	EXPECT_EQ(CoalescedUndo->Presentation.X, 320);
 
-	Transactions->Reset();
+	EXPECT_TRUE(Transactions->Reset());
 	MarkAsGarbage(Material);
 	CollectGarbage();
 }
@@ -2461,7 +2461,7 @@ TEST(FMaterialGraphOperationsTests,
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_FALSE(Material->GetExpressionOutputs().Normal.ExpressionId.IsValid());
 
-	Transactions->Reset();
+	EXPECT_TRUE(Transactions->Reset());
 	MarkAsGarbage(Material);
 	CollectGarbage();
 }
@@ -2510,7 +2510,7 @@ TEST(FMaterialGraphOperationsTests, SurfaceTexturesUseCompactSamplesAndPreserveU
 		EXPECT_EQ(Material->GetExpressionCollection().Expressions.front()->Id, SampleId);
 		EXPECT_EQ(Material->GetParameterDefinitions().front().Id, ParameterId);
 		ASSERT_TRUE(Transactions->Undo());
-		Transactions->Reset();
+		EXPECT_TRUE(Transactions->Reset());
 	}
 	ASSERT_TRUE(FMaterialGraphOperations::AddTextureToSurfaceOutput(*Material,
 		{.Output = EMaterialSurfaceOutput::BaseColor, .X = 0, .Y = 0}));
@@ -2540,7 +2540,7 @@ TEST(FMaterialGraphOperationsTests, SurfaceTexturesUseCompactSamplesAndPreserveU
 		EXPECT_EQ(Errors, 0);
 	}
 	ImGui::DestroyContext(Context);
-	Transactions->Reset();
+	EXPECT_TRUE(Transactions->Reset());
 	MarkAsGarbage(Material);
 	CollectGarbage();
 }
@@ -2629,7 +2629,7 @@ TEST(FMaterialGraphOperationsTests,
 	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestGeneration,
 		CompileGeneration);
 
-	Transactions->Reset();
+	EXPECT_TRUE(Transactions->Reset());
 	MarkAsGarbage(Material);
 	CollectGarbage();
 }
@@ -2666,7 +2666,7 @@ TEST(FMaterialGraphOperationsTests,
 	const size_t SemanticTransactionBytes = Transactions->GetOwnedBytes();
 	EXPECT_GT(SemanticTransactionBytes, PresentationTransactionBytes);
 
-	Transactions->Reset();
+	EXPECT_TRUE(Transactions->Reset());
 	MarkAsGarbage(Material);
 	CollectGarbage();
 }
@@ -2789,7 +2789,7 @@ TEST(FMaterialGraphOperationsTests, DeclarationCommandsAndConstantPromotionShare
 	EXPECT_TRUE(Material->GetParameterDefinitions().empty());
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_NE(Material->FindParameterDefinition(Id), nullptr);
-	Transactions->Reset();
+	EXPECT_TRUE(Transactions->Reset());
 
 	auto Constant = Testing::MakeGraphExpression<DMaterialExpressionVector4Constant>();
 	Constant->Value = {1, 2, 3, 4};
@@ -2813,7 +2813,7 @@ TEST(FMaterialGraphOperationsTests, DeclarationCommandsAndConstantPromotionShare
 	EXPECT_EQ(CaptureExpressions(*Material), Original);
 	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_EQ(Cast<DMaterialExpressionParameter>(Material->GetExpressionCollection().Expressions.front().Get())->Metadata.Id, TintId);
-	Transactions->Reset();
+	EXPECT_TRUE(Transactions->Reset());
 	MarkAsGarbage(Material);
 	CollectGarbage();
 }
@@ -2978,7 +2978,7 @@ TEST(FMaterialGraphOperationsTests, TypedHistoryRestoresDeletedChildrenWithoutSh
 	ASSERT_NE(Restored, nullptr);
 	EXPECT_FLOAT_EQ(Restored->DefaultValue, 0.37f);
 	EXPECT_TRUE(Restored->Metadata.DisplayName.empty());
-	Transactions->Reset();
+	EXPECT_TRUE(Transactions->Reset());
 	CollectGarbage();
 	EXPECT_EQ(Material->GetExpressionCollection().Expressions[0].Get(), Restored);
 	Material.Reset();
@@ -3014,6 +3014,6 @@ TEST(FMaterialGraphOperationsTests, DeletingSurfaceOverrideSourceRestoresBaseAnd
 	Remaining = Cast<DMaterialExpressionSetSurfaceAttributes>(Material->GetExpressionCollection().Expressions.back().Get());
 	ASSERT_EQ(Remaining->Attributes.size(), 1u);
 	EXPECT_EQ(Remaining->Attributes.front().Source.ExpressionId, DeletedId);
-	Transactions->Reset(); Material.Reset();
+	EXPECT_TRUE(Transactions->Reset()); Material.Reset();
 	CollectGarbage();
 }

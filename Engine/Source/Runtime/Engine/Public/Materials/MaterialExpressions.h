@@ -37,14 +37,6 @@ namespace Durin
 		auto operator==(const FMaterialParameterMetadata&) const -> bool = default;
 	};
 
-	// This context is owning-thread input only, never part of a worker snapshot.
-	struct FMaterialExpressionLoweringContext
-	{
-		const FMaterialFunctionSignature* Signature = nullptr;
-		std::vector<FMaterialFunctionCall>* Calls = nullptr;
-		bool bValidateFunctionReferences = true;
-	};
-
 	// Package-internal expression identity. Family-specific state lives in derived types.
 	DCLASS(Abstract, NoClassDefaultObject)
 	class DMaterialExpression : public DObject
@@ -62,9 +54,6 @@ namespace Durin
 		ENGINE_API virtual auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue = 0;
 
-		// Temporary migration intermediate; removed when owner/editor consumers switch.
-		virtual auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool = 0;
 	};
 
 	// The asset owns every expression referenced by this collection.
@@ -108,8 +97,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 
 	// Owns a concrete scalar parameter value.
@@ -137,8 +124,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 
 	// Owns a concrete vector2 constant value.
@@ -155,8 +140,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 
 	// Owns a concrete vector2 parameter value.
@@ -175,8 +158,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 
 	// Owns a concrete vector3 constant value.
@@ -193,8 +174,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 
 	// Owns a concrete vector3 parameter value.
@@ -213,8 +192,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 
 	// Owns a concrete vector4 constant value.
@@ -231,8 +208,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 
 	// Owns a concrete vector4 parameter value.
@@ -251,8 +226,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 
 	// A resource parameter owns texture sampling policy and its applicable usage hint.
@@ -274,8 +247,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 
 	// Graph connections carry identity only; numeric defaults belong to their expression.
@@ -356,17 +327,13 @@ namespace Durin
 		auto operator==(const FMaterialExpressionSurfaceOutputs&) const -> bool = default;
 	};
 
-	// Shares lowering only. Each concrete arithmetic family declares its actual pins.
+	// Groups numeric expressions; concrete families own their applicable pins and defaults.
 	DCLASS(Abstract, NoClassDefaultObject)
 	class DMaterialExpressionNumeric : public DMaterialExpression
 	{
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionNumeric(const FObjectInitializer& Initializer) : Super(Initializer) {}
-	protected:
-		ENGINE_API auto LowerNumeric(EMaterialProgramOpcode Opcode, EMaterialProgramValueType Type,
-			std::span<const FMaterialExpressionInput* const> Inputs,
-			std::span<const std::vector<float>* const> Defaults, FMaterialProgramNode& OutNode) const -> bool;
 	};
 
 	// Owns only the inputs and width required by Add.
@@ -397,8 +364,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 
 	// Owns only the inputs and width required by Subtract.
@@ -429,8 +394,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 
 	// Owns only the inputs and width required by Multiply.
@@ -461,8 +424,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 
 	// Owns only the inputs and width required by Divide.
@@ -493,8 +454,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 
 	// Owns only the inputs and width required by Minimum.
@@ -525,8 +484,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 
 	// Owns only the inputs and width required by Maximum.
@@ -557,8 +514,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 
 	// Owns only the inputs and width required by Negate.
@@ -583,8 +538,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 
 	// Owns only the inputs and width required by OneMinus.
@@ -609,8 +562,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 
 	// Owns only the inputs and width required by Absolute.
@@ -635,8 +586,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 
 	// Owns only the inputs and width required by Saturate.
@@ -661,8 +610,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 
 	// Owns only the inputs and width required by Normalize.
@@ -687,8 +634,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 
 	// Owns only the inputs and width required by Sine.
@@ -713,8 +658,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 
 	// Owns only the inputs and width required by Cosine.
@@ -739,8 +682,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 
 	// Owns only the inputs and width required by Clamp.
@@ -777,8 +718,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 
 	// Owns only the inputs and width required by Lerp.
@@ -815,8 +754,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 
 	// Owns only the inputs and width required by MakeFloat2.
@@ -844,8 +781,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 
 	// Owns only the inputs and width required by MakeFloat3.
@@ -879,8 +814,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 
 	// Owns only the inputs and width required by MakeFloat4.
@@ -920,8 +853,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 
 	// Owns only the inputs and width required by Splat2.
@@ -943,8 +874,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 
 	// Owns only the inputs and width required by Splat3.
@@ -966,8 +895,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 
 	// Owns only the inputs and width required by Splat4.
@@ -989,8 +916,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 
 	// Owns only the inputs and width required by TruncateToFloat.
@@ -1012,8 +937,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 
 	// Owns only the inputs and width required by TruncateToFloat2.
@@ -1035,8 +958,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 
 	// Owns only the inputs and width required by TruncateToFloat3.
@@ -1058,8 +979,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 
 	// Owns only the inputs and width required by DecodeNormalRG.
@@ -1081,8 +1000,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 
 	// Owns only the inputs and width required by BlendNormalsRNM.
@@ -1110,8 +1027,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 
 	// Owns only the inputs and width required by UVChannel.
@@ -1133,8 +1048,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 
 	// Component selection supplies the swizzle's output width.
@@ -1159,8 +1072,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 	// A scalar disconnected default has no unused vector components.
 	DSTRUCT()
@@ -1248,8 +1159,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 
 	// A combined resource owner adds only UV sampling state.
@@ -1271,8 +1180,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 
 	// Coordinate links override fixed-width retained coordinate defaults.
@@ -1303,8 +1210,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 
 	// Builds eight surface attributes from their applicable numeric inputs.
@@ -1368,8 +1273,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 
 	// Selects stable output attributes from one aggregate surface.
@@ -1391,8 +1294,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 
 	DSTRUCT()
@@ -1428,8 +1329,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 
 	// The owning function signature supplies terminal type and presentation.
@@ -1446,8 +1345,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 
 	// The owning function signature supplies terminal type and presentation.
@@ -1469,8 +1366,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 
 	// Owns its callee and GUID-keyed port bindings inside the graph.
@@ -1495,8 +1390,6 @@ namespace Durin
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
-		ENGINE_API auto Lower(FMaterialProgramNode& OutNode,
-			const FMaterialExpressionLoweringContext& Context = {}) const -> bool override;
 	};
 
 }

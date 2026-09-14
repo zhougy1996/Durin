@@ -37,26 +37,6 @@ namespace Durin::Testing
 			if (Result && !Presentation.Nodes.empty()) Material.SetMaterialGraphPresentation(Presentation);
 			return Result;
 		}
-		// Temporary reference input for compiler qualification, never the authored recipe.
-		auto ReferenceProgram() const -> FMaterialProgram
-		{
-			FMaterialProgram Program;
-			for (const auto& Expression : Expressions)
-			{
-				FMaterialProgramNode Node;
-				check(Expression->Lower(Node, {}));
-				const auto Position = std::ranges::find(Presentation.Nodes, Expression->Id, &FMaterialGraphNodePresentation::NodeId);
-				if (Position != Presentation.Nodes.end()) Node.DisplayName = Position->DisplayName;
-				Program.Nodes.push_back(std::move(Node));
-			}
-			const auto Link = [](const FMaterialExpressionInput& Input) -> FMaterialProgramLink { return {Input.ExpressionId, Input.OutputIndex, Input.OutputId}; };
-			Program.Outputs.Surface = Link(Outputs.Surface);
-			const std::array Sources{Outputs.BaseColor, Outputs.Normal, Outputs.Metallic, Outputs.Roughness,
-				Outputs.AmbientOcclusion, Outputs.Emissive, Outputs.Opacity, Outputs.OpacityMask};
-			for (uint32 Index = 0; Index < Sources.size(); ++Index)
-				GetMaterialSurfaceOutputLink(Program.Outputs, static_cast<EMaterialSurfaceOutput>(Index)) = Link(Sources[Index]);
-			return Program;
-		}
 		auto SetParameterDefaults(std::span<const FMaterialParameterDefinition> Definitions) -> void
 		{
 			for (auto& Expression : Expressions)

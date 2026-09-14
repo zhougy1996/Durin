@@ -231,6 +231,4 @@ namespace Durin::Testing
 		return Graph;
 	}
 
-	inline auto MakePBRMaterialProgramForTest() -> FMaterialProgram
-	{ return MakePBRMaterialExpressionsForTest().ReferenceProgram(); }
 }

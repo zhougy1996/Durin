@@ -22,8 +22,6 @@ namespace Durin
 		ENGINE_API explicit DMaterial(const FObjectInitializer& ObjectInitializer);
 
 		ENGINE_API auto GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition> override;
-		ENGINE_API auto GetMaterialProgram() const -> std::optional<FMaterialProgram> override;
-		ENGINE_API auto GetMaterialFunctionCalls() const -> std::vector<FMaterialFunctionCall> override;
 		auto GetExpressionCollection() const -> const FMaterialExpressionCollection& { return ExpressionCollection; }
 		auto GetExpressionOutputs() const -> const FMaterialExpressionSurfaceOutputs& { return ExpressionOutputs; }
 		[[nodiscard]] ENGINE_API auto SetMaterialExpressions(std::span<DMaterialExpression* const> Expressions,
@@ -54,11 +52,6 @@ namespace Durin
 		auto GetEditCompileMode() const -> EMaterialEditCompileMode { return EditCompileMode; }
 		// Explicitly submits the current root and all loaded dependent variants, using caches.
 		ENGINE_API auto CompileEdits() -> bool;
-		[[nodiscard]] ENGINE_API auto SetMaterialProgram(
-			FMaterialProgram InProgram) -> FMaterialProgramValidationResult;
-		[[nodiscard]] ENGINE_API auto SetMaterialProgramAndFunctionCalls(
-			FMaterialProgram InProgram, std::vector<FMaterialFunctionCall> InCalls)
-			-> FMaterialProgramValidationResult;
 		ENGINE_API auto SetMaterialGraphPresentation(
 			FMaterialGraphPresentation InPresentation) -> bool;
 		// Applies bounded graph-position edits without copying or sanitizing the
@@ -121,9 +114,6 @@ namespace Durin
 			const FMaterialExpressionSurfaceOutputs& Outputs, FXxHash128* OutCodeFingerprint = nullptr) -> FMaterialProgramValidationResult;
 		static auto DeriveExpressionParameterSchema(const FMaterialExpressionCollection& Collection,
 			std::vector<FMaterialParameterDefinition>& OutDefinitions) -> FMaterialProgramValidationResult;
-		auto ProjectExpressions(const FMaterialExpressionCollection& Collection,
-			const FMaterialExpressionSurfaceOutputs& Outputs, FMaterialProgram& OutProgram,
-			std::vector<FMaterialFunctionCall>& OutCalls) const -> bool;
 
 		// Shared node positions are persisted for authoring but excluded from Cook and compilation.
 		DPROPERTY(EditorOnly)

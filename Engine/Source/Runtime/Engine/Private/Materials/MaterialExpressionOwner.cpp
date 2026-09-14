@@ -2,8 +2,6 @@
 #include "Materials/MaterialExpressionBuild.h"
 #include "Materials/MaterialFunctionInterface.h"
 
-#include "MaterialExpressionAuthoring.h"
-#include "MaterialProgramValidation.h"
 #include "Asset/Asset.h"
 #include "DObject/Archive.h"
 #include "DObject/DObjectArray.h"
@@ -53,48 +51,8 @@ namespace Durin
 		return {.bSucceeded = true};
 	}
 
-	auto DMaterial::ProjectExpressions(const FMaterialExpressionCollection& Collection,
-		const FMaterialExpressionSurfaceOutputs& Outputs, FMaterialProgram& OutProgram,
-		std::vector<FMaterialFunctionCall>& OutCalls) const -> bool
-	{
-		if (Collection.Expressions.size() > MaterialProgramMaxNodeCount) return false;
-		FMaterialProgram Candidate;
-		Candidate.Outputs = Private::ProjectMaterialOutputs(Outputs);
-		std::vector<FMaterialFunctionCall> Calls;
-		std::unordered_set<FGuid> Ids;
-		for (const auto& Expression : Collection.Expressions)
-		{
-			if (!IsValid(Expression.Get()) || !Expression->Id.IsValid() || !Ids.insert(Expression->Id).second) return false;
-			FMaterialProgramNode Node;
-			if (!Expression->Lower(Node, {.Calls = &Calls, .bValidateFunctionReferences = false})) return false;
-			if (const auto Position = std::ranges::find(GraphPresentation.Nodes, Node.Id, &FMaterialGraphNodePresentation::NodeId);
-				Position != GraphPresentation.Nodes.end()) Node.DisplayName = Position->DisplayName;
-			Candidate.Nodes.push_back(std::move(Node));
-		}
-		OutProgram = std::move(Candidate);
-		OutCalls = std::move(Calls);
-		return true;
-	}
 
-	auto DMaterial::GetMaterialProgram() const -> std::optional<FMaterialProgram>
-	{
-		FMaterialProgram Program;
-		std::vector<FMaterialFunctionCall> Calls;
-		if (!ProjectExpressions(ExpressionCollection, ExpressionOutputs, Program, Calls)) return std::nullopt;
-		return Program;
-	}
 
-	auto DMaterial::GetMaterialFunctionCalls() const -> std::vector<FMaterialFunctionCall>
-	{
-		std::vector<FMaterialFunctionCall> Calls;
-		for (const auto& Expression : ExpressionCollection.Expressions)
-			if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression.Get()))
-			{
-				FMaterialProgramNode Node;
-				if (!Call->Lower(Node, {.Calls = &Calls, .bValidateFunctionReferences = false})) return {};
-			}
-		return Calls;
-	}
 
 	auto DMaterial::ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context, std::string& OutError) const -> bool
 	{

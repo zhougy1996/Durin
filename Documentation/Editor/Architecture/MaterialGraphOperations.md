@@ -260,13 +260,13 @@ coalesce before submission, and manual edits remain unsubmitted. Presentation-on
 and commit positions, mark the package dirty, and never compile or invalidate
 render data.
 
-Program schema 7 permits typed retained numeric defaults on ordinary inputs and makes each of the
-eight fixed Surface inputs optionally connected. Disconnecting or
+Concrete expression inputs retain numeric defaults, and each of the
+eight fixed Surface inputs is optionally connected. Disconnecting or
 deleting a surface source clears its link and returns to the retained typed
 fallback; ordinary inputs similarly restore retained literals. Required inputs without any fallback still reject. The
 canvas makes input replacement explicit with Shift and uses the same command
 result for invalid-target feedback. Aggregate and per-property sources cannot
-coexist in a valid program.
+coexist in a valid expression graph.
 
 Imported structural parents use the same Surface as a new material: each input
 accepts the final property value. Factor/sample composition lives upstream. Reusable
@@ -310,10 +310,11 @@ their last canvas consumer.
 
 ## Transactions and gestures
 
-`ReplaceProgram` commits graph owners and references through one Engine validation
-boundary and one transaction; the presentation overload includes placement. Undo/Redo
-retains the graph, nested texture references and presentation. The shared document
-transaction also retains function calls. Storage accounting includes nested arrays
+`FMaterialGraphDocument::Commit()` publishes owned expression candidates through
+`SetMaterialExpressions` or `SetFunctionExpressions` and one transaction. It clones
+candidates before publication so caller-held drafts cannot mutate history. Undo/Redo
+retains independent expression children, nested texture/callee references and
+GUID-keyed presentation. Storage accounting includes nested arrays
 and strings. `CreateParameter`, `RenameParameter` and `DeleteParameter` create, edit
 or remove concrete parameter expressions through typed snapshots. Numeric constant
 promotion and Surface default/parameter/texture commands use the same publication

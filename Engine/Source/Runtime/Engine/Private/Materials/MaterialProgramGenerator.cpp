@@ -153,6 +153,15 @@ FMaterialSurface EvaluateGeneratedMaterial(VSOutput input)
 			std::string Expression;
 			switch (Node.Opcode)
 			{
+			case EMaterialProgramOpcode::FunctionInput:
+			case EMaterialProgramOpcode::FunctionOutput:
+			case EMaterialProgramOpcode::FunctionCall:
+			case EMaterialProgramOpcode::TextureSampleParameter2D:
+			case EMaterialProgramOpcode::TextureCoordinates:
+			case EMaterialProgramOpcode::GetSurfaceAttributes:
+			case EMaterialProgramOpcode::SetSurfaceAttributes:
+				// Authored operations must be expanded before source generation.
+				break;
 			case EMaterialProgramOpcode::UVChannel: Expression = std::format("SelectAuthoredUV(input, {})", Input(0)); break;
 			case EMaterialProgramOpcode::Sine: Expression = std::format("sin({})", Input(0)); break;
 			case EMaterialProgramOpcode::Cosine: Expression = std::format("cos({})", Input(0)); break;

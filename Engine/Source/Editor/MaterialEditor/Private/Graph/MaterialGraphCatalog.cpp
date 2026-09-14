@@ -222,6 +222,9 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::MakeSurface: Entry.Description = "Combines eight explicit surface properties without hidden parameter access."; break;
 			case EMaterialProgramOpcode::GetSurfaceAttributes: Entry.Description = "Reads selected attributes from a Surface."; break;
 			case EMaterialProgramOpcode::SetSurfaceAttributes: Entry.Description = "Overrides selected attributes while retaining the base Surface."; break;
+			case EMaterialProgramOpcode::FunctionInput: Entry.Description = "Reads an input from the function signature."; break;
+			case EMaterialProgramOpcode::FunctionOutput: Entry.Description = "Publishes a value through the function signature."; break;
+			case EMaterialProgramOpcode::FunctionCall: Entry.Description = "Evaluates a material function with its bound inputs."; break;
 			}
 			Entry.Opcode = Opcode;
 			Entry.ResultType = ResultType;

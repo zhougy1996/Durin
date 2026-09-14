@@ -134,26 +134,22 @@ fields occupy zero-padded 16-byte slots after the reserved view-control slot;
 Texture2D fields receive compact resource/sampler indices. Layout identity,
 counts, field types, offsets, and shader reflection are accepted as one schema.
 
-`DMaterial` additionally persists one reflected material program defined by
-`Materials/MaterialProgramTypes.h`. Version 6 is a bounded typed expression DAG
-with stable node/parameter/link identities, eight typed surface outputs,
-and an optional aggregate `Surface` input.
-Each surface input stores a retained fallback literal and an optional source
-link; an invalid source GUID means unconnected. Constants, parameter and texture reads, UV resolution,
-sampling, arithmetic, composition, explicit conversions, safe normal decode,
-and RNM normal blending form the ordinary closed opcode domain. `UVChannel`,
-`Sine`, `Cosine`, and `MakeSurface` express former hidden behavior explicitly.
-Retired opcode values 3 and 30 are rejected; their numeric slots are not reused. Surface is invalid in arithmetic, texture,
-conversion, and per-property links. `DMaterialInstance`
-stores no graph and resolves the root base program through its existing parent
-chain, so dynamic GUID overrides remain independent of authored node order.
+`DMaterial` persists an owned `FMaterialExpressionCollection` and typed Surface
+outputs. Concrete reflected expression classes own only their applicable values,
+inputs and defaults; there is no authored Program, universal node, or separate call
+table. GUID connections preserve node, parameter and function-port identities.
+The material owns eight typed Surface outputs and an optional aggregate Surface
+connection. `DMaterialInstance` owns no expressions and resolves its root through
+the parent chain, independently of expression ordering.
 
-Ordinary numeric inputs retain typed None/Literal `InputDefaults` alongside source
-links. A connected source overrides the literal; disconnection restores it.
-Exposing a default creates a visible parameter owner and explicit link. Functions
-accept literals and interface ports and cannot contain any root parameter payload.
-Function-call None defaults select declared optional callee defaults; required
-inputs without a value reject. Signature InputId dependencies remain supported.
+Numeric inputs retain component arrays of length zero (absent) or one through four,
+validated against the concrete pin type. Connected defaults remain stored;
+disconnection restores them. Coordinate defaults use scalar and Vector2 records
+with presence flags. Exposing a default creates a parameter expression and explicit
+connection. Functions own their signatures and cannot own root material parameters.
+Call expressions own the callee and GUID-keyed port bindings; absent optional call
+defaults select signature defaults. Required inputs without a value reject.
+Signature InputId aliases remain supported. Retired opcode values 3 and 30 reject.
 
 TextureParameter owns a resource and exposes Texture2D output 0.
 TextureSampleParameter2D owns a resource and optionally samples it. Both sampling
@@ -438,8 +434,8 @@ hits, shared in-flight work, compilation, or forced compilation; corrupt Shader
 artifacts follow ShaderBuild's cache-miss/repair contract.
 
 Cook requires a current successful Win64 Game result and never substitutes
-ErrorMaterial. Authored `Program` data is editor-only in a cooked package. One
-DMAT v6 value per material or instance in the `DMaterialInterface::ProgramData`
+ErrorMaterial. Authored expression collections and their owned descendants are stripped from cooked packages. One
+DMAT v7 value per material or instance in the `DMaterialInterface::ProgramData`
 BulkData field stores the exact
 compiler/target/pass/version envelope, program identity, canonical shader properties and separate pipeline metadata,
 active declaration contract, compiled layout, and complete shader
@@ -711,13 +707,20 @@ publish through the stable proxy and dynamic-only changes reuse shader identity.
 
 ## Compatibility Boundary
 
-Retained Engine material/function content is reconstructed under graph ownership.
-Program schema 7, function schema 3, ownership marker 1, compiler identity 5,
-compiler envelope 8 and DMAT v6 form the current contract. IR v4, generator v5,
-layout v4, pass contracts and DAST v9 are unchanged. Separate authored parameter
-tables, parameter-bound input defaults and material-only PostLoad converters are
-removed. Sampling policy remains typed resource-value data. Old Cook outputs must
-be discarded and rebuilt; unrelated property/package migrations remain intact.
+Retained Engine material/function content is rebuilt directly through typed recipes.
+Material and function owners require ownership marker 2; instances require their
+own typed-override storage marker. Missing or unsupported markers reject before
+publication. Universal Program/node/function graph records, their readers/setters,
+conversion helpers and expression `Lower()` adapters are removed. The only compiler
+capture path emits detached typed IR through `Build()` and owns all data needed by
+workers, without live expression or callee pointers.
+
+Compiler envelope 9 and DMAT v7 are current; IR v4, generator v5 and layout v4
+retain their contracts. DMAT v7 omits the retired authored Program version word.
+The material Cook contributor version is 5, invalidating previous Cook hits. DAST
+v10 and its ordinary default-relative owned-object serialization remain unchanged;
+there is no material-specific serializer or old-asset conversion path. Old Cook
+outputs must be rebuilt. Unrelated property/package migrations remain intact.
 
 Static-mesh components persist only the positional `OverrideMaterials`
 collection, and StaticMesh slots persist no GUID or slot-schema version. The
