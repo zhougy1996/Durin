@@ -122,7 +122,7 @@ namespace Durin::ObjectPackage
 		FByteBuffer Bytes;
 		std::vector<uint64> ComponentBits;
 		std::vector<FSerializedValue> Elements;
-		// Present Struct fields carry their own types in v10; empty means legacy layout.
+		// Sparse Struct fields carry explicit types; complete values may reuse the shared descriptor.
 		std::optional<std::vector<FSerializedType>> FieldTypes;
 		bool bUseParentBaseline = false;
 		std::vector<std::string> FieldNames;
@@ -234,7 +234,7 @@ namespace Durin::ObjectPackage
 	class FLinkerTables
 	{
 	public:
-		uint32 FormatVersion = 9;
+		uint32 FormatVersion = 10;
 		FPackageSummary Summary;
 		std::vector<std::string> Names;
 		std::vector<FSerializedType> Types;

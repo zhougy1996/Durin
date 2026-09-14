@@ -19,7 +19,7 @@ namespace Durin
 			if (Kind == DurinCodeGen::EPropertyGenFlags::BulkData)
 			{
 				if (!ObjectPackage::IsSupportedPackageReaderVersion(SourceFormatVersion))
-					return Fail("Authored bulk inspection requires DAST v9 field metadata.", OutError);
+					return Fail("Authored bulk inspection requires DAST v10 field metadata.", OutError);
 				FAssetPackageField Field{.Kind = Kind,
 					.Payload = FByteBuffer(Payload.begin(), Payload.end()),
 					.SourceFormatVersion = SourceFormatVersion};

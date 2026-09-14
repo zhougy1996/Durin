@@ -375,7 +375,7 @@ namespace Durin
 					0,
 					Reader,
 					{},
-					ObjectPackage::DastV9FormatVersion);
+					ObjectPackage::DastV10FormatVersion);
 				if (!KeyResult)
 				{
 					KeyResult.Message = std::format("SoftReferenceMapKey[{}]: {}", Index, KeyResult.Message);
@@ -781,7 +781,7 @@ namespace Durin
 					0,
 					Reader,
 					{},
-					ObjectPackage::DastV9FormatVersion);
+					ObjectPackage::DastV10FormatVersion);
 				if (!Result) return Result;
 				Writer.WriteBytes(Reader.Bytes.subspan(KeyOffset, Reader.Offset - KeyOffset));
 				Result = RewriteSerializedReferenceValue(

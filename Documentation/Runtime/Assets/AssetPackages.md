@@ -1,6 +1,6 @@
 # Asset Packages
 
-Summary: Define asset identity, canonical DAST v9/v10 packages, runtime residency, loading, and inspection.
+Summary: Define asset identity, canonical DAST v10 packages, runtime residency, loading, and inspection.
 
 Modules: AssetRegistry, Engine, CoreDObject, AssetMaintenance, AssetTools
 
@@ -32,7 +32,7 @@ removal; selection, confirmation, companions, and deletion callbacks belong to
 Ownership is deliberately one-way:
 
 - `CoreDObject` owns format-neutral linker tables, canonical tagged values,
-  production DAST v9/v10 read/write, and bounded validation.
+  production DAST v10 read/write, and bounded validation.
 - `AssetRegistry` owns canonical mounted-file discovery, bounded front-matter
   reads, and immutable package metadata/dependency snapshots.
 - `Engine` captures live graphs into linker tables, applies validated linker
@@ -82,7 +82,7 @@ The physical package filename is the resolved virtual package path plus
 explicitly, and inner objects append a colon plus their relative Outer chain,
 for example `/Game/Objects/Test.Mesh:Root.Component`.
 
-The mounted `FPackagePath` is part of package validation. DAST v9/v10 includes that
+The mounted `FPackagePath` is part of package validation. DAST v10 includes that
 identity in its canonical name table, and every header, complete-read,
 inspection, mutation, relocation, Cook, and admission call supplies the exact
 identity expected for the physical file. Moving a package therefore requires a
@@ -183,7 +183,7 @@ copy.
 
 ### Envelope And Sections
 
-A v9/v10 main image contains the 64-byte DURF v1 preamble, a 32-byte DAST format
+A v10 main image contains the 64-byte DURF v1 preamble, a 32-byte DAST format
 header, and nine canonical 48-byte directory entries. The required contiguous
 sections, in order, are:
 
@@ -224,7 +224,7 @@ subobject values. `SavePackage(Package, EAssetPackageSaveMode::Complete)` and
 Bundle saving propagates the same selection; cooked saves always emit complete
 values. A failed delta plan reports its reason without silently changing modes.
 
-v10 retains the v9 tables and adds an export default-baseline byte and a Struct
+v10 tables carry an export default-baseline byte and a Struct
 parent-baseline byte. Struct present-field tags carry names and types independently
 of the complete shared schema. An omitted ordinary nested field inherits its
 paired parent value. Arrays, fixed arrays, Maps, and Forced replacements carry
@@ -240,9 +240,9 @@ constructor-created default children reject delta saving; classes declaring
 `NoClassDefaultObject` also require explicit complete snapshots. Complete exports skip default initialization. All skeletons,
 reference binding, validation, and PostLoad still precede publication.
 
-v9 reads retain historical positional Struct/type-default behavior. Version-specific
-v9 entrypoints remain strict; general readers dispatch from validated framing.
-Detached relocation/reference rewrites preserve the decoded source revision.
+The reader and writer accept v10 only. The maintained workspace corpus was
+resaved before retiring v9; unsupported revisions fail at the format boundary.
+Detached relocation/reference rewrites use the same validated v10 closure.
 Ordinary loading allocates no authored-override ledger; only Forced boundaries
 restore persistent replacement intent. See [Serialization](../Core/Serialization.md).
 
@@ -284,7 +284,7 @@ writes files.
 Bulk Directory binds each `BulkData` value to an Inline Bulk or external raw
 `.dbulk` range; Registry binds the complete external segment. Placement,
 alignment, padding, and digest rules are defined by
-[Package Bulk Data](BulkData.md#dast-v9-authored-placement).
+[Package Bulk Data](BulkData.md#dast-v10-authored-placement).
 Payload bytes remain opaque to the package format; asset families own their
 schemas, interpretation, and [data lifecycle](AssetDataLifecycle.md).
 
@@ -476,8 +476,8 @@ fingerprints. It constructs no `DObject`, loads no dependency, invokes no
 callback, and writes no authored file. The Editor compatibility window and
 `DevTool asset check` consume the same deterministic records.
 
-Canonical resave writes current-format v10 through ordinary saving; supported
-v9 inputs remain readable and are upgraded without reimport. Planning captures exact package identity, main/bulk fingerprint,
+Canonical resave writes v10 through ordinary saving and accepts only current-format
+inputs. Planning captures exact package identity, main/bulk fingerprint,
 format, entry kind, residency, Dirty conflicts, compatibility, and evidence.
 Apply revalidates the fingerprint, loads through the ordinary version-dispatched reader when
 required, waits for family-owned save-readiness recovery, and publishes through

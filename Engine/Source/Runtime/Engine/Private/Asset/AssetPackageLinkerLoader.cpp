@@ -296,7 +296,7 @@ namespace Durin::AssetPrivate
 				uint64 FieldCount = 0;
 				for (const auto& Name : Value.FieldNames)
 					if (!bDiscardRemovedFields || !IsRemovedField(Schema->QualifiedName, Name)) ++FieldCount;
-				if (Linker.FormatVersion >= ObjectPackage::DastV10FormatVersion) Writer.Write(uint8(Value.bUseParentBaseline ? 1 : 0));
+				Writer.Write(uint8(Value.bUseParentBaseline ? 1 : 0));
 				Writer.WriteString(Type.QualifiedName); Writer.Write(FieldCount);
 				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
 				{
@@ -956,7 +956,7 @@ namespace Durin::AssetPrivate
 			auto& Exports = Application.Exports;
 			auto& Objects = Application.Objects;
 			auto& Report = Application.Report;
-			if (Linker.FormatVersion >= ObjectPackage::DastV10FormatVersion && !Options.bCooked)
+			if (!Options.bCooked)
 			{
 				std::vector<DClass*> Classes;
 				std::unordered_set<DObject*> NeedsDefaults;

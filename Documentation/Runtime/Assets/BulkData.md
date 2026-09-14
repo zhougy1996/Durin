@@ -1,10 +1,10 @@
 # Package Bulk Data
 
-Summary: Define reflected BulkData values, canonical DAST v9 placement, package-resource range access, and raw package segments.
+Summary: Define reflected BulkData values, canonical DAST v10 placement, package-resource range access, and raw package segments.
 
 Modules: Engine, CoreDObject, AssetRegistry
 
-Last reviewed: 2026-09-10
+Last reviewed: 2026-09-14
 
 BulkData is a reflected field contract. The field owns bounded logical storage
 facts and optional memory; the package owns physical placement and integrity;
@@ -15,7 +15,7 @@ policy.
 For texture source data, the bulk content digest and logical size describe the
 stored bytes (possibly Zstd-compressed), while `FTextureSource`'s canonical hash
 and decoded size describe exact pixels. BulkData remains opaque; source codecs
-do not add a package compression layer or change DAST v9. See
+do not add a package compression layer or change DAST v10. See
 [texture source storage](AssetDataLifecycle.md#texture-source-storage-compression).
 
 ## Runtime Field State
@@ -77,7 +77,7 @@ as little-endian `HashLow` then `HashHigh`. Empty bytes use the ordinary empty
 span digest; there is no sentinel. Content equality uses content ID plus size
 without loading. Instance identity is registration identity only and does not
 enter equality or build keys. Updating an existing value retains its instance
-GUID while replacing content identity. DAST v9 does not persist that registration
+GUID while replacing content identity. DAST v10 does not persist that registration
 GUID: its runtime adapter reconstructs it from the stored content hash on load.
 Thus in-memory storage recompression retains the instance GUID, but a subsequent
 load may have a different registration GUID without changing source identity.
@@ -101,7 +101,7 @@ no hash, GUID, DDC key, schema, target, asset path, or physical path.
 
 Only the loose backend stores the mounted `.dasset` path and derives the stable
 `.dbulk` sibling. At package admission it validates the complete external
-segment against the v9 Registry extent and XXH3-128 digest, every external
+segment against the v10 Registry extent and XXH3-128 digest, every external
 field digest, and zero alignment padding in one sequential pass using 64 KiB
 scratch and the 1 GiB package limit. It then exposes immutable ranges from the
 already validated Bulk Directory. Backup recovery uses a bounded-memory atomic
@@ -118,7 +118,7 @@ shutdown; completed buffers retain their bytes independently of retirement.
 This entry point supports detached input capture but is not yet wired into the
 Cook package loader, whose current loose resources still read live files.
 
-The package read context now carries an explicit bulk resource through the v9
+The package read context now carries an explicit bulk resource through the v10
 codec, linker, and authored load archive. External field decoding uses that
 retained handle, never a fresh global resource lookup. Ordinary loose loading
 passes the handle returned by registration; a caller loading captured metadata
@@ -184,11 +184,11 @@ owns save/edit admission and the final check-to-publication boundary. Storage
 budget counts main and bulk bytes only; parser scratch, decoded object values,
 reference plans, and runtime products require separate coordinator accounting.
 
-## DAST v9 Authored Placement
+## DAST v10 Authored Placement
 
 CoreDObject receives BulkData as detached linker values. Each value includes
 logical bytes, element size, power-of-two alignment, and explicit Inline or
-External placement. The v9 writer owns placement; it never writes offsets,
+External placement. The v10 writer owns placement; it never writes offsets,
 handles, residency, or resource state back into the live field.
 
 The package contains two physical payload domains:
@@ -218,7 +218,7 @@ XXH3-128. Header validation checks declared extent against physical extent;
 complete package validation checks the whole digest and every directory range
 before linker publication or object construction.
 
-Runtime loose loading uses the resource-backed v9 reader. External linker
+Runtime loose loading uses the resource-backed v10 reader. External linker
 values carry only directory offset, extent, alignment, element size, and
 content digest; they do not own payload bytes. Canonical main-package
 validation reconstructs `.dasset` from those descriptors without emitting a
@@ -229,12 +229,12 @@ the owning-byte reader when byte-for-byte external reconstruction is required.
 
 A cooked Archive dispatches `DObject::SerializeCooked`, supplies exact
 platform/profile facts, filters editor-only state, and captures runtime
-`FBulkData` into the same v9 linker value and placement contract. Detached live
+`FBulkData` into the same v10 linker value and placement contract. Detached live
 fields remain detached while capture copies immutable bytes. The writer assigns
 physical offsets only inside detached output.
 
 `FCookContext::AddPackage(VirtualPath, Package)` carries canonical identity and
-exact v9 main/bulk bytes through reachability, pruning, output planning, and
+exact v10 main/bulk bytes through reachability, pruning, output planning, and
 CMNF publication. Cooked load validates the closure first, then attaches
 external fields to the package resource. Metadata load issues no range request;
 first access requests exactly the declared range. There is no Cook-only package
@@ -247,7 +247,7 @@ replacement resource. The in-place family Archive contract does not change
 BulkData's atomic load, residency or publication guarantees.
 
 Opaque non-package Cook segments remain a separate explicit plan kind. They
-are validated by their own extent/digest and are never passed to the v9 package
+are validated by their own extent/digest and are never passed to the v10 package
 reader or misidentified as a `.dbulk` closure.
 
 ## Publication And Companion Ownership
@@ -261,7 +261,7 @@ only after the new main package is committed. Cook publication and rollback
 follow [Asset Data Lifecycle](AssetDataLifecycle.md#cook-and-publication-rules).
 
 Move, duplicate, inventory, orphan detection, source-control closure,
-and canonical resave derive companion ownership from validated v9 Registry and
+and canonical resave derive companion ownership from validated v10 Registry and
 Bulk Directory facts. A suffix scan is never authority. Atomic temporaries and
 `.durin-backup` files are recovery state, not authored companions. Git LFS
 pointer text, absent content, truncated companions, and partial clones fail

@@ -2113,13 +2113,13 @@ TEST(FStaticMeshPayloadInspectionTests, PackageInspectionPreservesAbsentMalforme
 	ASSERT_EQ(Snapshot.Fields.size(), 3u);
 	EXPECT_TRUE(Snapshot.bConstructFree);
 	for (const auto& Field : Snapshot.Fields) EXPECT_EQ(Field.State, "Absent");
-	Package.Objects[0].Fields.push_back({.Name = "RenderData", .SourceFormatVersion = 9});
+	Package.Objects[0].Fields.push_back({.Name = "RenderData", .SourceFormatVersion = 10});
 	ASSERT_TRUE(InspectStaticMeshPayloadPackage(Package, Snapshot));
 	EXPECT_EQ(Snapshot.Fields[1].State, "Malformed");
 	Package.Objects[0].Fields[0].SourceFormatVersion = 8;
 	ASSERT_TRUE(InspectStaticMeshPayloadPackage(Package, Snapshot));
 	EXPECT_EQ(Snapshot.Fields[1].State, "Unsupported");
-	Package.Objects[0].Fields.push_back({.Name = "Source", .SourceFormatVersion = 9});
+	Package.Objects[0].Fields.push_back({.Name = "Source", .SourceFormatVersion = 10});
 	ASSERT_TRUE(InspectStaticMeshPayloadPackage(Package, Snapshot));
 	EXPECT_EQ(Snapshot.Fields[0].State, "Malformed");
 	Package.Header.AssetClassName = "Unsupported";
@@ -2169,7 +2169,7 @@ TEST(FStaticMeshPayloadInspectionTests, AuthoredAndCookedMetadataDoesNotDependOn
 TEST(FStaticMeshPayloadInspectionTests, MetadataModeDoesNotHashInlinePayloadOrRequireExternalStorage)
 {
 	using namespace Durin;
-	FAssetPackageField Field{.Name = "RenderData", .Kind = DurinCodeGen::EPropertyGenFlags::BulkData, .SourceFormatVersion = 9};
+	FAssetPackageField Field{.Name = "RenderData", .Kind = DurinCodeGen::EPropertyGenFlags::BulkData, .SourceFormatVersion = 10};
 	auto Append = [&](const auto& Value) {
 		const auto Bytes = std::as_bytes(std::span(&Value, 1));
 		Field.Payload.insert(Field.Payload.end(), Bytes.begin(), Bytes.end());

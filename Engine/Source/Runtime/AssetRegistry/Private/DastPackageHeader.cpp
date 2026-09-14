@@ -24,7 +24,7 @@ namespace Durin
 			-> FAssetRegistryResult
 		{
 			return Error(EAssetRegistryError::CorruptFile,
-				std::format("DAST v9 Registry projection failed: {}",
+				std::format("DAST v10 Registry projection failed: {}",
 					Diagnostic.Message));
 		}
 	}
@@ -48,12 +48,12 @@ namespace Durin
 					Preamble.FormatVersion));
 		if (Preamble.HeaderBytes > FrontMatter.size())
 			return Error(EAssetRegistryError::CorruptFile,
-				"DAST v9 front matter is truncated.");
+				"DAST v10 front matter is truncated.");
 		if (!PackagePath.IsValid())
 			return Error(EAssetRegistryError::InvalidPath,
-				"DAST v9 Registry projection requires the mounted package identity.");
+				"DAST v10 Registry projection requires the mounted package identity.");
 
-		ObjectPackage::FPackageV9RegistryData Registry;
+		ObjectPackage::FPackageRegistryData Registry;
 		ObjectPackage::FPackageReaderDiagnostic ReaderDiagnostic;
 		if (!ObjectPackage::ReadPackageRegistry(
 			FrontMatter.first(static_cast<size_t>(Preamble.HeaderBytes)),
@@ -88,7 +88,7 @@ namespace Durin
 		if (!ArePackageAssetsValid(Header.TopLevelAssets, PackagePath,
 			Header.ObjectCount, Header.Dependencies))
 			return Error(EAssetRegistryError::CorruptFile,
-				"DAST v9 Registry contains invalid exact asset metadata.");
+				"DAST v10 Registry contains invalid exact asset metadata.");
 		OutHeader = std::move(Header);
 		return {};
 	}
@@ -168,7 +168,7 @@ namespace Durin
 		if (std::filesystem::exists(BulkPath, BulkEc))
 		{
 			const uintmax_t Extent = std::filesystem::file_size(BulkPath, BulkEc);
-			if (BulkEc || Extent > ObjectPackage::DastV8MaximumBulkBytes)
+			if (BulkEc || Extent > ObjectPackage::DastMaximumBulkBytes)
 				return Error(EAssetRegistryError::CorruptFile,
 					"Asset package bulk segment exceeds the supported byte bound.");
 			BulkBytes = static_cast<uint64>(Extent);

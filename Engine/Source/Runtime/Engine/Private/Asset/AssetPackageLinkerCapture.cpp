@@ -236,8 +236,6 @@ namespace Durin::AssetPrivate
 
 			auto UseExistingStructBaseline() -> bool override
 			{
-				const auto* Version = GetVersionContext().FindFormat(FName("DAST"));
-				if (!Version || Version->Version < ObjectPackage::DastV10FormatVersion) return false;
 				uint8 Baseline = 0;
 				if (!Read(Baseline) || Baseline > 1)
 					SetError("Invalid Struct baseline mode.");
@@ -1455,7 +1453,7 @@ namespace Durin::AssetPrivate
 			ObjectPackage::FSerializedType& OutType, std::string& OutError,
 			uint32 Depth = 0) -> bool
 		{
-			if (Depth > ObjectPackage::DastV8MaximumValueDepth)
+			if (Depth > ObjectPackage::DastMaximumValueDepth)
 			{
 				OutError = "Live reflected type exceeds the package nesting limit.";
 				return false;
@@ -1575,23 +1573,19 @@ namespace Durin::AssetPrivate
 			if (Type.Kind == K::Struct)
 			{
 				if (!Node.Raw.empty()) return Invalid();
-				const bool bSparse = Linker.FormatVersion >= ObjectPackage::DastV10FormatVersion;
-				if (bSparse) Out.FieldTypes.emplace();
-				Out.bUseParentBaseline = bSparse && DeltaNode
+				Out.FieldTypes.emplace();
+				Out.bUseParentBaseline = DeltaNode
 					&& DeltaNode->Baseline == EDefaultDeltaBaselineKind::ClassDefault;
 				for (const FCapturedNode& ChildNode : Node.Children)
 				{
 					const FDefaultDeltaFieldPlan* DeltaField = FindDeltaField(DeltaNode ? &DeltaNode->Fields : nullptr, ChildNode.Field);
 					if (DeltaNode && !DeltaField) return Invalid();
-					if (bSparse && DeltaField && DeltaField->Disposition == EDefaultDeltaDisposition::Omitted) continue;
-					if (bSparse)
-					{
-						const auto Schema = std::ranges::find(Linker.Schemas, Type.QualifiedType.ToString(), &ObjectPackage::FSerializedSchema::QualifiedName);
-						if (Schema == Linker.Schemas.end()) return Invalid();
-						const auto Field = std::ranges::find(Schema->Fields, ChildNode.Field.Name.ToString(), &ObjectPackage::FSerializedField::Name);
-						if (Field == Schema->Fields.end()) return Invalid();
-						Out.FieldTypes->push_back(Field->Type);
-					}
+					if (DeltaField && DeltaField->Disposition == EDefaultDeltaDisposition::Omitted) continue;
+					const auto Schema = std::ranges::find(Linker.Schemas, Type.QualifiedType.ToString(), &ObjectPackage::FSerializedSchema::QualifiedName);
+					if (Schema == Linker.Schemas.end()) return Invalid();
+					const auto Field = std::ranges::find(Schema->Fields, ChildNode.Field.Name.ToString(), &ObjectPackage::FSerializedField::Name);
+					if (Field == Schema->Fields.end()) return Invalid();
+					Out.FieldTypes->push_back(Field->Type);
 					ObjectPackage::FSerializedValue Child;
 					if (!MaterializeLinkerValue(ChildNode, ChildNode.Field.LogicalType, Package, InternalReferenceIds,
 						Linker, Child, OutError,
@@ -1809,8 +1803,7 @@ namespace Durin::AssetPrivate
 					return false;
 				}
 				const FDefaultDeltaObjectPlan& DeltaObject = *DeltaIt->second;
-				Linker.Exports[CanonicalIndex].bUseClassDefaults = FormatVersion >= ObjectPackage::DastV10FormatVersion
-					&& DeltaObject.ClassDefaultObject != nullptr;
+				Linker.Exports[CanonicalIndex].bUseClassDefaults = DeltaObject.ClassDefaultObject != nullptr;
 				for (const auto& Field : Object.Fields)
 				{
 					const FDefaultDeltaFieldPlan* DeltaField = FindDeltaField(&DeltaObject.Fields, Field.Field);
@@ -1925,7 +1918,7 @@ namespace Durin::AssetPrivate
 		std::vector<DObject*> FrozenObjects;
 		for (DObject* Asset : Package->GetTopLevelAssets())
 			AssetPrivate::GatherObjects(Asset, FrozenObjects);
-		if (FormatVersion >= ObjectPackage::DastV10FormatVersion && DeltaMode == EDefaultDeltaMode::Enabled
+		if (DeltaMode == EDefaultDeltaMode::Enabled
 			&& Options.Domain != EAssetPackageSaveDomain::Cooked)
 		{
 			std::vector<DClass*> Classes;

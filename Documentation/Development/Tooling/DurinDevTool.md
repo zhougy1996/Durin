@@ -2,7 +2,7 @@
 
 Summary: Define the interactive shell, repository path discovery, documentation lifecycle commands, and workspace scaffolding interface.
 
-Last reviewed: 2026-08-31
+Last reviewed: 2026-09-14
 
 ## Interactive Shell
 
@@ -46,7 +46,7 @@ Build, run, clean, recovery, output, and ownership behavior is defined by
 [Build and Run](../Build/BuildAndRun.md). Native-test selection and execution
 are defined by [Native Test Execution](../Build/NativeTests.md); target
 construction is defined by [Native Test Authoring](../Build/NativeTestAuthoring.md).
-Asset checking and canonical v9 resave are defined by
+Asset checking and current-format canonical resave are defined by
 [Build and Run](../Build/BuildAndRun.md#asset-maintenance).
 
 ## Project Cook

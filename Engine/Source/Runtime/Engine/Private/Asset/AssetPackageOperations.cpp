@@ -609,7 +609,7 @@ namespace Durin
 			uint32 ArrayIndex,
 			FByteReader& Reader,
 			const std::vector<DObject*>& Objects,
-			uint32 SourceVersion = ObjectPackage::DastV9FormatVersion) -> FAssetResult
+			uint32 SourceVersion = ObjectPackage::DastV10FormatVersion) -> FAssetResult
 		{
 			const DurinCodeGen::EPropertyGenFlags Kind = Property->GetKind();
 			if (AssetPrivate::IsByteToolRawScalarKind(Kind))
@@ -1623,7 +1623,7 @@ namespace Durin
 		FByteReader Reader{Payload};
 		return DecodeByteToolValue(
 			&RootProperty, OutValue, 0, Reader, {},
-			SourceFormatVersion == 0 ? ObjectPackage::DastV9FormatVersion : SourceFormatVersion)
+			SourceFormatVersion == 0 ? ObjectPackage::DastV10FormatVersion : SourceFormatVersion)
 			&& Reader.Offset == Payload.size();
 	}
 
@@ -1643,7 +1643,7 @@ namespace Durin
 				return Result;
 			if (!PackagePath.IsValid())
 				return Error(EAssetError::InvalidPath,
-					"DAST v9 inspection requires a mounted package identity.");
+					"DAST v10 inspection requires a mounted package identity.");
 			FByteBuffer BulkBytes;
 			if (Result = LoadPackageBulkBytes(PhysicalPath, BulkBytes); !Result)
 				return Result;
@@ -1665,7 +1665,7 @@ namespace Durin
 		FPackagePath PackagePath;
 		if (!ClassifyPackageIdentity(PhysicalPath, PackagePath))
 			return Error(EAssetError::InvalidPath,
-				"DAST v9 inspection requires a mounted package identity.");
+				"DAST v10 inspection requires a mounted package identity.");
 		return InspectAssetPackage(PhysicalPath, PackagePath, OutInspection);
 	}
 

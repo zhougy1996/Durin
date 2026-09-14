@@ -60,14 +60,14 @@ namespace
 	}
 }
 
-TEST(FPackageRegistryContractTests, V9FrontMatterProjectsPackageAndTopLevelAssetMetadata)
+TEST(FPackageRegistryContractTests, FrontMatterProjectsPackageAndTopLevelAssetMetadata)
 {
 	Durin::Testing::InitializeDObjectSystemForTests();
 	Durin::Testing::FScopedMountRegistryFixture Mounts;
 	Durin::Testing::RegisterMountPointForTests("/Game/", ".");
 	Durin::FByteBuffer Main;
 	Durin::FByteBuffer Bulk;
-	ASSERT_TRUE(Package::WritePackageV9(MakeRegistryFixture(), Main, Bulk));
+	ASSERT_TRUE(Package::WritePackage(MakeRegistryFixture(), Main, Bulk));
 	uint64 HeaderBytes = 0;
 	ASSERT_TRUE(Durin::ReadLittleEndianAt<uint64>(Main, 32, HeaderBytes));
 	Durin::FPackagePath PackagePath;
@@ -77,7 +77,7 @@ TEST(FPackageRegistryContractTests, V9FrontMatterProjectsPackageAndTopLevelAsset
 		std::span(Main).first(static_cast<size_t>(HeaderBytes)), Main.size(), Bulk.size(),
 		PackagePath, Header);
 	ASSERT_TRUE(Result) << Result.Message;
-	EXPECT_EQ(Header.FormatVersion, Durin::ObjectPackage::DastV9FormatVersion);
+	EXPECT_EQ(Header.FormatVersion, Durin::ObjectPackage::DastV10FormatVersion);
 	ASSERT_EQ(Header.TopLevelAssets.size(), 1u);
 	EXPECT_EQ(Header.TopLevelAssets.front().AssetPath.ToString(),
 		"/Game/RegistryFixture.RegistryFixture");
@@ -96,14 +96,14 @@ TEST(FPackageRegistryContractTests, V9FrontMatterProjectsPackageAndTopLevelAsset
 	EXPECT_EQ(Header.BytesRead, HeaderBytes);
 }
 
-TEST(FPackageRegistryContractTests, V9ProjectionRequiresIdentityAndExactBulkExtent)
+TEST(FPackageRegistryContractTests, ProjectionRequiresIdentityAndExactBulkExtent)
 {
 	Durin::Testing::InitializeDObjectSystemForTests();
 	Durin::Testing::FScopedMountRegistryFixture Mounts;
 	Durin::Testing::RegisterMountPointForTests("/Game/", ".");
 	Durin::FByteBuffer Main;
 	Durin::FByteBuffer Bulk;
-	ASSERT_TRUE(Package::WritePackageV9(MakeRegistryFixture(), Main, Bulk));
+	ASSERT_TRUE(Package::WritePackage(MakeRegistryFixture(), Main, Bulk));
 	uint64 HeaderBytes = 0;
 	ASSERT_TRUE(Durin::ReadLittleEndianAt<uint64>(Main, 32, HeaderBytes));
 	Durin::FPackagePath Correct;
@@ -167,7 +167,7 @@ TEST(FPackageRegistryContractTests, RefreshUsesOnlyFrontMatterAndOnePackageMetad
 		.ClassName = "Example::SecondaryAsset"});
 	Durin::FByteBuffer Main;
 	Durin::FByteBuffer Bulk;
-	ASSERT_TRUE(Package::WritePackageV9(Linker, Main, Bulk));
+	ASSERT_TRUE(Package::WritePackage(Linker, Main, Bulk));
 	uint64 HeaderBytes = 0;
 	ASSERT_TRUE(Durin::ReadLittleEndianAt<uint64>(Main, 32, HeaderBytes));
 	ASSERT_LT(HeaderBytes, Main.size());
@@ -274,7 +274,7 @@ TEST(FPackageRegistryContractTests, MultiAssetRedirectsAreExactAcrossScansAndPub
 	};
 	auto Save = [&](const Package::FLinkerTables& Linker, std::string_view Name) {
 		FByteBuffer Main, Bulk;
-		EXPECT_TRUE(Package::WritePackageV9(Linker, Main, Bulk));
+		EXPECT_TRUE(Package::WritePackage(Linker, Main, Bulk));
 		EXPECT_TRUE(FFileHelper::SaveArrayToFile(Main,
 			ContentRoot / (std::string(Name) + ".dasset")));
 	};
@@ -431,7 +431,7 @@ TEST(FPackageRegistryContractTests, ProjectionFenceBlocksEveryRedirectHop)
 			Linker.Summary.TopLevelAssets.front().RedirectDestination = ObjectPath(Names[Index + 1]);
 		}
 		FByteBuffer Main, Bulk;
-		ASSERT_TRUE(Package::WritePackageV9(Linker, Main, Bulk));
+		ASSERT_TRUE(Package::WritePackage(Linker, Main, Bulk));
 		ASSERT_TRUE(FFileHelper::SaveArrayToFile(Main,
 			WorkRoot / "Content" / (std::filesystem::path(Names[Index]).filename().string() + ".dasset")));
 	}

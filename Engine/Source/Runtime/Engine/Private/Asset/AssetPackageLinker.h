@@ -26,7 +26,7 @@ namespace Durin::AssetPrivate
 		std::function<bool(ELinkerLoadPhase, uint64)> ShouldFail;
 		std::function<FAssetResult(DPackage*)> OnSkeletonReady;
 		std::function<void(DPackage*)> OnSkeletonRollback;
-		uint32 SourceFormatVersion = ObjectPackage::DastV9FormatVersion;
+		uint32 SourceFormatVersion = ObjectPackage::DastV10FormatVersion;
 		bool bCooked = false;
 		FArchiveTarget Target;
 		FPackageResourceHandle BulkResource;
@@ -126,7 +126,7 @@ namespace Durin::AssetPrivate
 		const FAssetPackageSerializationOptions& Options,
 		ObjectPackage::FLinkerTables& OutLinker,
 		std::string* OutError = nullptr,
-		uint32 FormatVersion = ObjectPackage::DastV9FormatVersion) -> FAssetResult;
+		uint32 FormatVersion = ObjectPackage::DastV10FormatVersion) -> FAssetResult;
 
 	auto ApplyLivePackageLinker(
 		ObjectPackage::FLinkerTables Linker,

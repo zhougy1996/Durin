@@ -59,9 +59,11 @@ Instances and meshes use the ordinary canonical-resave operation below.
 Folder scopes and `--all` select recommended identity repairs. To force a plain
 load-and-save of an already canonical package, pass its exact package path.
 This is required when persisting an in-memory domain upgrade before removing
-the corresponding old reader.
+the corresponding old reader. The workspace corpus is now v10; the current tool
+does not read v9. Format upgrades must be applied with a reader that still
+supports the source revision before retiring that reader.
 
-Canonical resave always writes the current canonical DURF/DAST v9 closure;
+Canonical resave always writes the current canonical DURF/DAST v10 closure;
 there is no format-selection or legacy-writer option. `--apply` is the only
 option that authorizes writes, and package-level rollback is automatic on
 verification or catalog-publication failure.
@@ -70,7 +72,7 @@ apply, review the package diffs and rerun the same dry-run; a successful second
 scan is empty and a second apply is a no-op.
 
 Blocked packages are never written. Typical blockers are a dirty loaded
-package, read-only mount, non-current package format, stale
+package, read-only mount, unsupported package format, stale
 fingerprint, incompatible or unknown payload, unavailable reflected type, or
 corrupt bytes; non-asset entries such as redirectors are skipped. For uncooked asset families, apply also waits for the PostLoad
 recovery started by the ordinary loader; missing source/DDC data or a provider
@@ -102,7 +104,7 @@ Source records include exact decoded hash, semantic identity, source descriptors
 and build settings, decoded and before/after stored byte counts, registration
 GUID, and whether storage would change. Preview reports `Ready` for changes;
 apply reports `Resaved`. Compare source identity and decoded hash across reloads;
-registration GUIDs are reconstructed by DAST v9 and are not persistent identity.
+registration GUIDs are reconstructed on load and are not persistent identity.
 
 Publication reuses canonical resave transactions. Cancellation stops before
 publishing the next package; preparation/codec failure cannot install a partial

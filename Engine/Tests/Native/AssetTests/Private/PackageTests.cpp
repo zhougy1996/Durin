@@ -15,7 +15,7 @@
 	#include "AssetMaintenance/CompatibilityAudit.h"
 	#include "AssetMaintenance/CanonicalResave.h"
 #endif
-#include "Asset/AssetPackageV9Codec.h"
+#include "Asset/AssetPackageTaggedCodec.h"
 #include "Asset/AssetPackageByteSource.h"
 #include "Asset/AssetPropertyKindTraits.h"
 #include "Asset/PackageVersionPolicy.h"
@@ -180,13 +180,13 @@ namespace
 		Durin::ObjectPackage::DastV10FormatVersion);
 	static_assert(Durin::ObjectPackage::SupportedPackageReaderVersions ==
 		decltype(Durin::ObjectPackage::SupportedPackageReaderVersions){
-			Durin::ObjectPackage::DastV9FormatVersion, Durin::ObjectPackage::DastV10FormatVersion});
+			Durin::ObjectPackage::DastV10FormatVersion});
 	static_assert(!Durin::ObjectPackage::IsSupportedPackageReaderVersion(
 		4));
 	static_assert(!Durin::ObjectPackage::IsSupportedPackageReaderVersion(
 		5u));
 	static_assert(Durin::ObjectPackage::IsSupportedPackageReaderVersion(
-		Durin::ObjectPackage::DastV9FormatVersion));
+		Durin::ObjectPackage::DastV10FormatVersion));
 	static_assert(!Durin::ObjectPackage::IsSupportedPackageReaderVersion(
 		7u));
 
@@ -1812,7 +1812,7 @@ TEST(FPackageAssetTests, RemovedAuthoredFieldsDoNotLoadDependenciesOrRewriteSour
 	EXPECT_EQ(Before, After);
 	FPackageSchemaInspection Inspection;
 	AssetPrivate::FMemoryAssetPackageByteSource ByteSource(Before);
-	ASSERT_TRUE(AssetPrivate::DastV9::GetCodec().InspectSchema(ByteSource, Path,
+	ASSERT_TRUE(AssetPrivate::TaggedPackage::GetCodec().InspectSchema(ByteSource, Path,
 		FReflectionSchemaCatalog::Capture(), Inspection, nullptr, false, {}));
 	EXPECT_EQ(Inspection.Status, EPackageSchemaStatus::Compatible);
 	EXPECT_EQ(std::ranges::count(Inspection.Issues, EPackageSchemaIssueCode::UnknownField,
@@ -1991,7 +1991,7 @@ TEST(FPackageAssetTests, RemovedFieldsDoNotRelaxWireOrCookedConsumptionValidatio
 	FByteBuffer Bytes;
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(Bytes, FindAssetExact(Path)->PhysicalPath));
 	ShutdownAssetManagerForRestart();
-	const auto& Codec = AssetPrivate::DastV9::GetCodec();
+	const auto& Codec = AssetPrivate::TaggedPackage::GetCodec();
 	DPackage* Loaded = nullptr;
 	const AssetPrivate::FAssetPackageReadContext Cooked{.PackageBytes = Bytes,
 		.PackagePath = Path, .PhysicalPackageBytes = Bytes.size(), .bCooked = true};
@@ -2376,10 +2376,9 @@ TEST(FPackageAssetTests, V10StructDeltasUseOwningDefaultsAndPreserveLegacyReads)
 	Asset->Transform.Translation.y = 20.0;
 	Asset->Vectors = {FVector3(1.0, 0.0, 0.0), FVector3(0.0, 2.0, 0.0)};
 	ASSERT_TRUE(SavePackage(Asset->GetPackage()));
-	FAssetPackageEncodedClosure Delta, Complete, Legacy;
-	ASSERT_TRUE(DastV9::GetV10Codec().Write(Asset->GetPackage(), Delta, EDefaultDeltaMode::Enabled, {}));
-	ASSERT_TRUE(DastV9::GetV10Codec().Write(Asset->GetPackage(), Complete, EDefaultDeltaMode::NoDelta, {}));
-	ASSERT_TRUE(DastV9::GetCodec().Write(Asset->GetPackage(), Legacy, EDefaultDeltaMode::NoDelta, {}));
+	FAssetPackageEncodedClosure Delta, Complete;
+	ASSERT_TRUE(TaggedPackage::GetCodec().Write(Asset->GetPackage(), Delta, EDefaultDeltaMode::Enabled, {}));
+	ASSERT_TRUE(TaggedPackage::GetCodec().Write(Asset->GetPackage(), Complete, EDefaultDeltaMode::NoDelta, {}));
 	ObjectPackage::FLinkerTables Linker;
 	ObjectPackage::FPackageReaderDiagnostic Diagnostic;
 	ASSERT_TRUE(ObjectPackage::ReadPackage(Delta.PackageBytes, Delta.BulkBytes, Path, Linker, &Diagnostic)) << Diagnostic.Message;
@@ -2412,11 +2411,8 @@ TEST(FPackageAssetTests, V10StructDeltasUseOwningDefaultsAndPreserveLegacyReads)
 	EXPECT_FALSE(ObjectPackage::WritePackage(Linker, InvalidMain, InvalidBulk));
 	Vector->Value = ValidValue;
 	EXPECT_LT(Delta.PackageBytes.size(), Complete.PackageBytes.size());
-	ObjectPackage::FLinkerTables Rejected;
-	EXPECT_FALSE(ObjectPackage::ReadPackageV9(Delta.PackageBytes, {}, Path, Rejected));
-	EXPECT_TRUE(Rejected.Exports.empty());
 	const auto File = Testing::GetTestWorkDirectory() / "Assets" / "PairedStructDefaults.dasset";
-	for (const auto* Encoded : {&Delta, &Complete, &Legacy})
+	for (const auto* Encoded : {&Delta, &Complete})
 	{
 		ASSERT_TRUE(UnloadPackage(Path));
 		Defaults->Vector = FVector3(7.0, 8.0, 9.0);
@@ -2495,7 +2491,7 @@ TEST(FPackageAssetTests, OrdinaryAndCompleteSavesDoNotCreateOverrides)
 		Asset->VectorMap = {{"entry", FVector3(0.0, 8.0, 0.0)}};
 		FAssetPackageEncodedClosure Encoded;
 		ASSERT_TRUE(SavePackage(Asset->GetPackage()));
-		const auto WriteResult = DastV9::GetCodec().Write(Asset->GetPackage(), Encoded, Mode, {});
+		const auto WriteResult = TaggedPackage::GetCodec().Write(Asset->GetPackage(), Encoded, Mode, {});
 		ASSERT_TRUE(WriteResult) << WriteResult.Message;
 		const auto File = Testing::GetTestWorkDirectory() / "Assets"
 			/ (std::string(Path.GetPackageName()) + ".dasset");
@@ -2510,7 +2506,7 @@ TEST(FPackageAssetTests, OrdinaryAndCompleteSavesDoNotCreateOverrides)
 		Asset->Vector = FVector3(0.0);
 		Asset->Vectors.clear();
 		Asset->VectorMap.clear();
-		ASSERT_TRUE(DastV9::GetCodec().Write(Asset->GetPackage(), Encoded, EDefaultDeltaMode::Enabled, {}));
+		ASSERT_TRUE(TaggedPackage::GetCodec().Write(Asset->GetPackage(), Encoded, EDefaultDeltaMode::Enabled, {}));
 		ObjectPackage::FLinkerTables Linker;
 		ASSERT_TRUE(ObjectPackage::ReadPackage(Encoded.PackageBytes, Encoded.BulkBytes, Path, Linker));
 		for (const auto& Export : Linker.Exports)
@@ -2542,7 +2538,7 @@ TEST(FPackageAssetTests, SparseReplacementsRoundTripWithoutPromotingStructParent
 	Child.push_back(FAuthoredOverridePathToken::Field(
 		Z_Construct_DStruct_FVector3()->GetQualifiedName(), FName("x")));
 	ASSERT_TRUE(Asset->SetAuthoredOverride(Child, EAuthoredOverrideProvenance::Forced));
-	for (const auto* Codec : {&DastV9::GetCodec(), &DastV9::GetV10Codec()})
+	const auto* Codec = &TaggedPackage::GetCodec();
 	for (const auto Mode : {EDefaultDeltaMode::Enabled, EDefaultDeltaMode::NoDelta})
 	{
 		FAssetPackageEncodedClosure Encoded;
@@ -3003,7 +2999,7 @@ TEST(FPackageAssetTests, PackageLoadBindingsResolvePrivateObjectsWithoutLiveFall
 	};
 	auto Read = [&] {
 		return LoadAuthoredObject(*Candidate, std::span{&Field, 1}, Objects,
-			Bindings, ObjectPackage::DastV9FormatVersion);
+			Bindings, ObjectPackage::DastV10FormatVersion);
 	};
 	ASSERT_TRUE(Read());
 	EXPECT_EQ(Candidate->HardReference.Get(), Candidate);
@@ -3087,10 +3083,10 @@ TEST(FPackageAssetTests, PackageLoadBindingsAttachSnapshotWithoutUsingLiveBulkRe
 	DObject* Objects[] = {Candidate};
 	// A live resource exists at the same path, but cannot satisfy a missing binding.
 	EXPECT_EQ(LoadAuthoredObject(*Candidate, std::span{&Field, 1}, Objects,
-		{}, ObjectPackage::DastV9FormatVersion).Error, EAssetError::CorruptFile);
+		{}, ObjectPackage::DastV10FormatVersion).Error, EAssetError::CorruptFile);
 	FPackageLoadBindings Bindings{.BulkResource = Prepared.GetBulkResource()};
 	ASSERT_TRUE(LoadAuthoredObject(*Candidate, std::span{&Field, 1}, Objects,
-		Bindings, ObjectPackage::DastV9FormatVersion));
+		Bindings, ObjectPackage::DastV10FormatVersion));
 	EXPECT_FALSE(Candidate->Payload.IsMemoryResident());
 	EXPECT_EQ(Candidate->Payload.GetPayloadId(), Storage.ContentHash);
 	Bindings = {};
@@ -3650,23 +3646,23 @@ TEST(FPackageAssetTests, PackageCodecPolicyIsCompleteUniqueAndIndependentOfWireV
 		(Durin::FGuid{0x3c59d1a9, 0x6ceb4e4c, 0xb059452d, 0xb0a5af56}));
 	EXPECT_EQ(Durin::ObjectPackage::DastFormatName, "Durin.BinaryFormat.DAST");
 
-	const auto& V9 = Durin::AssetPrivate::DastV9::GetCodec();
-	std::array DuplicateKeys{V9, V9};
-	DuplicateKeys[1].CodecId = "dast-v8-alias";
+	const auto& Codec = Durin::AssetPrivate::TaggedPackage::GetCodec();
+	std::array DuplicateKeys{Codec, Codec};
+	DuplicateKeys[1].CodecId = "dast-duplicate-alias";
 	EXPECT_FALSE(Durin::AssetPrivate::ValidateAssetPackageCodecTable(DuplicateKeys, Error));
 	std::ranges::reverse(DuplicateKeys);
 	EXPECT_FALSE(Durin::AssetPrivate::ValidateAssetPackageCodecTable(DuplicateKeys, Error));
 
-	std::array DuplicateNames{V9, V9};
-	DuplicateNames[1].FormatVersion = Durin::ObjectPackage::DastV9FormatVersion + 1;
+	std::array DuplicateNames{Codec, Codec};
+	DuplicateNames[1].FormatVersion = Durin::ObjectPackage::DastV10FormatVersion + 1;
 	EXPECT_FALSE(Durin::AssetPrivate::ValidateAssetPackageCodecTable(DuplicateNames, Error));
 	std::ranges::reverse(DuplicateNames);
 	EXPECT_FALSE(Durin::AssetPrivate::ValidateAssetPackageCodecTable(DuplicateNames, Error));
 
-	std::array Incomplete{V9};
+	std::array Incomplete{Codec};
 	Incomplete[0].Validate = nullptr;
 	EXPECT_FALSE(Durin::AssetPrivate::ValidateAssetPackageCodecTable(Incomplete, Error));
-	std::array InvalidVersion{V9};
+	std::array InvalidVersion{Codec};
 	InvalidVersion[0].FormatVersion = 0;
 	EXPECT_FALSE(Durin::AssetPrivate::ValidateAssetPackageCodecTable(InvalidVersion, Error));
 }
@@ -3717,7 +3713,7 @@ TEST(FPackageAssetTests, EnvelopeDispatchUsesPermanentIdentityAndFailsBeforeCode
 	std::array<std::byte, BinaryEnvelopePreambleBytes> Supported{};
 	const FBinaryEnvelopePreamble SupportedPreamble{
 		.FormatId = ObjectPackage::DastFormatId,
-		.FormatVersion = ObjectPackage::DastV9FormatVersion,
+		.FormatVersion = ObjectPackage::DastV10FormatVersion,
 		.HeaderBytes = Supported.size(),
 		.FileBytes = Supported.size()};
 	ASSERT_TRUE(EncodeBinaryEnvelopePreamble(SupportedPreamble, Supported));
@@ -3728,7 +3724,7 @@ TEST(FPackageAssetTests, EnvelopeDispatchUsesPermanentIdentityAndFailsBeforeCode
 		EAssetError::CorruptFile);
 }
 
-TEST(FPackageAssetTests, V9CodecMatchesLiveWriteInspectReferenceAndLoadSemantics)
+TEST(FPackageAssetTests, CodecMatchesLiveWriteInspectReferenceAndLoadSemantics)
 {
 	InitializeAssetTests();
 	using namespace Durin;
@@ -3761,7 +3757,7 @@ TEST(FPackageAssetTests, V9CodecMatchesLiveWriteInspectReferenceAndLoadSemantics
 	BulkPath.replace_extension(".dbulk");
 	if (std::filesystem::is_regular_file(BulkPath))
 		ASSERT_TRUE(FFileHelper::LoadFileToArray(Bulk, BulkPath));
-	const FAssetPackageCodec& Codec = DastV9::GetV10Codec();
+	const FAssetPackageCodec& Codec = TaggedPackage::GetCodec();
 	const FAssetPackageReadContext Context{V8, Bulk, SourcePath, V8.size()};
 	ASSERT_TRUE(Codec.Validate(Context));
 	FAssetPackageHeader Header;
@@ -3838,7 +3834,7 @@ TEST(FPackageAssetTests, V9CodecMatchesLiveWriteInspectReferenceAndLoadSemantics
 	ASSERT_TRUE(DeleteAssetClosureForTest({SourcePath, TargetPath}));
 }
 
-TEST(FPackageAssetTests, V9GuardRejectsIgnoredConstructorAndPostLoadLiveReads)
+TEST(FPackageAssetTests, GuardRejectsIgnoredConstructorAndPostLoadLiveReads)
 {
 	InitializeAssetTests();
 	using namespace Durin;
@@ -3856,7 +3852,7 @@ TEST(FPackageAssetTests, V9GuardRejectsIgnoredConstructorAndPostLoadLiveReads)
 	ASSERT_TRUE(SavePackage(Target->GetPackage()));
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(SourcePath, Source));
 	ASSERT_TRUE(SavePackage(Source->GetPackage()));
-	const auto& Codec = DastV9::GetCodec();
+	const auto& Codec = TaggedPackage::GetCodec();
 	FAssetPackageEncodedClosure Closure;
 	ASSERT_TRUE(Codec.Write(Source->GetPackage(), Closure, EDefaultDeltaMode::NoDelta, {}));
 	ASSERT_TRUE(UnloadPackage(SourcePath));
@@ -3937,7 +3933,7 @@ TEST(FPackageAssetTests, DirectLinkerRollbackReleasesOwnedDependenciesAndPreserv
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(SourcePath, Source));
 	Source->ExternalReference = Target;
 	ASSERT_TRUE(SavePackage(Source->GetPackage()));
-	const auto& Codec = DastV9::GetCodec();
+	const auto& Codec = TaggedPackage::GetCodec();
 	FAssetPackageEncodedClosure Closure;
 	ASSERT_TRUE(Codec.Write(Source->GetPackage(), Closure, EDefaultDeltaMode::NoDelta, {}));
 	ASSERT_TRUE(UnloadPackage(SourcePath));
@@ -3965,7 +3961,7 @@ TEST(FPackageAssetTests, DirectLinkerRollbackReleasesOwnedDependenciesAndPreserv
 	EXPECT_TRUE(UnloadPackage(OtherPath));
 }
 
-TEST(FPackageAssetTests, V9DependencyPolicyControlsBothResolversAndRollback)
+TEST(FPackageAssetTests, DependencyPolicyControlsBothResolversAndRollback)
 {
 	InitializeAssetTests();
 	using namespace Durin;
@@ -3985,7 +3981,7 @@ TEST(FPackageAssetTests, V9DependencyPolicyControlsBothResolversAndRollback)
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(SourcePath, Source));
 	Source->ExternalReference = Target;
 	ASSERT_TRUE(SavePackage(Source->GetPackage()));
-	const auto& Codec = DastV9::GetCodec();
+	const auto& Codec = TaggedPackage::GetCodec();
 	FAssetPackageEncodedClosure Closure;
 	ASSERT_TRUE(Codec.Write(Source->GetPackage(), Closure, EDefaultDeltaMode::NoDelta, {}));
 	ASSERT_TRUE(UnloadPackage(SourcePath));
@@ -4050,7 +4046,7 @@ TEST(FPackageAssetTests, V9DependencyPolicyControlsBothResolversAndRollback)
 	ASSERT_TRUE(DeleteAssetClosureForTest({SourcePath, TargetPath, UnrelatedPath}));
 }
 
-TEST(FPackageAssetTests, V9PrivateLoadFailureRollsBackConstructorChildrenAndPostLoad)
+TEST(FPackageAssetTests, PrivateLoadFailureRollsBackConstructorChildrenAndPostLoad)
 {
 	InitializeAssetTests();
 	using namespace Durin;
@@ -4063,7 +4059,7 @@ TEST(FPackageAssetTests, V9PrivateLoadFailureRollsBackConstructorChildrenAndPost
 	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/PrivateTypeFailure", Path));
 	DPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
-	const auto& Codec = DastV9::GetCodec();
+	const auto& Codec = TaggedPackage::GetCodec();
 	FAssetPackageEncodedClosure Bytes;
 	ASSERT_TRUE(Codec.Write(Asset->GetPackage(), Bytes, EDefaultDeltaMode::NoDelta, {}));
 	MarkObjectHierarchyAsGarbage(Asset->GetPackage());
@@ -4090,7 +4086,7 @@ TEST(FPackageAssetTests, V9PrivateLoadFailureRollsBackConstructorChildrenAndPost
 	}
 }
 
-TEST(FPackageAssetTests, V9PrivateDependencyCycleUsesOnlyCapturedSkeletons)
+TEST(FPackageAssetTests, PrivateDependencyCycleUsesOnlyCapturedSkeletons)
 {
 	InitializeAssetTests();
 	using namespace Durin;
@@ -4104,7 +4100,7 @@ TEST(FPackageAssetTests, V9PrivateDependencyCycleUsesOnlyCapturedSkeletons)
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(BPath, B));
 	A->ExternalReference = B;
 	B->ExternalReference = A;
-	const auto& Codec = DastV9::GetCodec();
+	const auto& Codec = TaggedPackage::GetCodec();
 	std::unordered_map<FPackagePath, FAssetPackageEncodedClosure> Inputs;
 	ASSERT_TRUE(Codec.Write(A->GetPackage(), Inputs[APath], EDefaultDeltaMode::NoDelta, {}));
 	ASSERT_TRUE(Codec.Write(B->GetPackage(), Inputs[BPath], EDefaultDeltaMode::NoDelta, {}));
@@ -4154,7 +4150,7 @@ TEST(FPackageAssetTests, V9PrivateDependencyCycleUsesOnlyCapturedSkeletons)
 	CollectGarbage();
 }
 
-TEST(FPackageAssetTests, V9LoadsOwnedBulkWithoutGlobalRegistrationOrSourceFiles)
+TEST(FPackageAssetTests, LoadsOwnedBulkWithoutGlobalRegistrationOrSourceFiles)
 {
 	InitializeAssetTests();
 	using namespace Durin;
@@ -4166,7 +4162,7 @@ TEST(FPackageAssetTests, V9LoadsOwnedBulkWithoutGlobalRegistrationOrSourceFiles)
 	FByteBuffer Payload(static_cast<size_t>(EditorBulkDataExternalThreshold + 17), std::byte{0x6b});
 	ASSERT_TRUE(Asset->Payload.UpdatePayload(Payload));
 	ASSERT_TRUE(SavePackage(Asset->GetPackage()));
-	const auto& Codec = DastV9::GetCodec();
+	const auto& Codec = TaggedPackage::GetCodec();
 	FAssetPackageEncodedClosure Closure;
 	ASSERT_TRUE(Codec.Write(Asset->GetPackage(), Closure, EDefaultDeltaMode::NoDelta, {}));
 	FPackageBulkDataEntry Entry{
@@ -4223,7 +4219,7 @@ TEST(FPackageAssetTests, V9LoadsOwnedBulkWithoutGlobalRegistrationOrSourceFiles)
 	EXPECT_TRUE(std::ranges::equal(Read.Buffer.GetBytes(), Payload));
 }
 
-TEST(FPackageAssetTests, V9PreservesExternalPayloadBytesAndPlacement)
+TEST(FPackageAssetTests, PreservesExternalPayloadBytesAndPlacement)
 {
 	InitializeAssetTests();
 	using namespace Durin;
@@ -4240,8 +4236,8 @@ TEST(FPackageAssetTests, V9PreservesExternalPayloadBytesAndPlacement)
 	ASSERT_TRUE(BulkSaveResult) << BulkSaveResult.Message;
 	const FAssetCatalogEntry Data = FindAssetExact(Path);
 	ASSERT_TRUE(Data);
-	Durin::FByteBuffer V9;
-	ASSERT_TRUE(FFileHelper::LoadFileToArray(V9, Data->PhysicalPath));
+	Durin::FByteBuffer Main;
+	ASSERT_TRUE(FFileHelper::LoadFileToArray(Main, Data->PhysicalPath));
 	std::filesystem::path BulkPath(Data->PhysicalPath);
 	BulkPath.replace_extension(".dbulk");
 	Durin::FByteBuffer Bulk;
@@ -4249,7 +4245,7 @@ TEST(FPackageAssetTests, V9PreservesExternalPayloadBytesAndPlacement)
 	ObjectPackage::FLinkerTables Linker;
 	ObjectPackage::FPackageReaderDiagnostic Diagnostic;
 	ASSERT_TRUE(ObjectPackage::ReadPackage(
-		V9, Bulk, Path, Linker, &Diagnostic)) << Diagnostic.Message;
+		Main, Bulk, Path, Linker, &Diagnostic)) << Diagnostic.Message;
 	ASSERT_EQ(Linker.Exports.size(), 1);
 	ASSERT_EQ(Linker.Exports.front().Properties.size(), 1);
 	const auto& Value = Linker.Exports.front().Properties.front().Value;
@@ -4258,7 +4254,7 @@ TEST(FPackageAssetTests, V9PreservesExternalPayloadBytesAndPlacement)
 	EXPECT_EQ(Bulk, Payload);
 	ObjectPackage::FLinkerTables MetadataLinker;
 	ASSERT_TRUE(ObjectPackage::ReadPackageMetadata(
-		V9, Bulk.size(), Path, MetadataLinker, &Diagnostic))
+		Main, Bulk.size(), Path, MetadataLinker, &Diagnostic))
 		<< Diagnostic.Message;
 	ASSERT_EQ(MetadataLinker.Exports.size(), 1u);
 	ASSERT_EQ(MetadataLinker.Exports.front().Properties.size(), 1u);

@@ -63,7 +63,7 @@ and validation replace caller outputs or destination bytes only on success.
 Core never interprets format-owned sections, asset paths, schemas, codecs, or
 publication policy.
 
-Engine consumes this envelope through canonical DAST v9/v10 object packages. An
+Engine consumes this envelope through canonical DAST v10 object packages. An
 authored or cooked `.dbulk` is deliberately not a DURF envelope: it is the raw
 external BulkData segment bound by its owning package's Registry and Bulk
 Directory. Embedded family payloads and raw DDC `.bin` values likewise do not
@@ -139,7 +139,7 @@ live reflected-property entry and construct-free decoded values use this
 writer. Token construction is transactional: an unsupported type or invalid
 shape leaves the caller's prior output unchanged.
 
-`DObject/PackageFormat.h` owns the construct-free DAST v9/v10 save boundary.
+`DObject/PackageFormat.h` owns the construct-free DAST v10 save boundary.
 `FreezePackage(...)` validates and canonicalizes names, structural types,
 schemas, imports, exports, property identities, references, and BulkData facts
 into stable one-based ids. `WritePackage(...)` emits detached main and raw
@@ -149,7 +149,7 @@ to one quiet pattern while signed zero is retained, and BulkData placement is
 explicit detached input rather than live-object policy. This layer constructs
 no `DObject` and depends on neither AssetRegistry nor Engine.
 
-The same boundary owns bounded v9/v10 reading. `ReadPackageRegistry(...)`
+The same boundary owns bounded v10 reading. `ReadPackageRegistry(...)`
 validates an exact declared front-matter span, independently known main/bulk
 extents, the caller-supplied mounted package identity, all directory facts, and
 the header-resident Registry/names/imports before atomically publishing package
@@ -267,7 +267,7 @@ Planning compares logical size and verified content identity, never domain
 schema, physical placement, or authority state. Multi-megabyte values still
 contribute one node in enabled and no-delta plans.
 
-DAST v9 does not introduce a second logical Archive dialect. Engine captures
+DAST v10 does not introduce a second logical Archive dialect. Engine captures
 the ordinary object-aware Archive graph into detached `FLinkerTables`, and
 CoreDObject emits the canonical tagged-value sections from that model. Each
 logical BulkData field becomes one linker value with explicit inline/external
@@ -295,13 +295,13 @@ It does not allocate an authored-override ledger. Required descendants also
 keep their enclosing values present. Signed enum capture retains the underlying
 signedness, so negative and positive enum changes participate in delta comparison.
 
-DAST v10 retains v9 package framing and tables and adds an export baseline byte
-as well as a baseline byte before each Struct value. Mode 1 patches the initialized parent value; mode 0
+DAST v10 carries an export baseline byte and a baseline byte before each Struct
+value. Mode 1 patches the initialized parent value; mode 0
 reconstructs a complete value from the Struct type default. Each present field
 retains its own name, type, provenance, and value, independently of the shared
 complete type descriptor. The reader validates field identities/types and
-canonical form before constructing objects. v9 remains readable with its old
-complete-descriptor constraint and type-default Struct reconstruction.
+canonical form before constructing objects. Only v10 is supported; retired wire
+versions are rejected before any graph is constructed.
 
 v10 authored loading copies reflected defaults for delta exports from the paired
 CDO/default subobject with references remapped to loaded skeletons, then applies
@@ -352,12 +352,12 @@ Only replacement boundaries receive Forced tags. NoDelta writes complete values
 without manufacturing overrides and retains explicitly requested boundaries;
 cooked planning/loading does not carry runtime override state.
 
-Canonical v9 loading restores only Forced boundaries and stops below a replaced
+Canonical loading restores only Forced boundaries and stops below a replaced
 field. Existing Explicit values remain readable but may be omitted on a later
 ordinary resave if equal to defaults. Historical Forced tags do not distinguish
 old NoDelta emission from user intent; preserve them conservatively as complete
 replacement boundaries. Do not infer intent or require a bulk asset rewrite.
-Historical v9 reconstruction remains unchanged; v10 uses the explicit baseline rules above.
+Struct reconstruction uses the explicit baseline rules above.
 
 Clear, subtree clear, and reset change intent only, never values. Indexed clear
 routes normalize to their container. Clearing a child cannot carve an exception

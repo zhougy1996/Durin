@@ -4,7 +4,7 @@ Summary: Define engine release, Archive, authored package, custom-version, and c
 
 Modules: Core, CoreDObject, Engine, AssetRegistry, AssetMaintenance
 
-Last reviewed: 2026-09-03
+Last reviewed: 2026-09-14
 
 Durin's engine release version is defined once in `Engine/Build/Build.version`.
 CMake validates that file, exposes the numeric core as the workspace project
@@ -29,12 +29,12 @@ versions, never from the saved-by engine release.
 
 `FArchiveVersionContext` carries a named format version separately from
 GUID-keyed custom versions. Object-graph Archives report object-graph v2;
-authored and cooked package Archives report DAST v9. Property snapshots are
+authored and cooked package Archives report DAST v10. Property snapshots are
 process-local and unversioned.
 
 CoreDObject linker tables own the package-local custom-version list, canonical
 GUID order, discovery freeze, known-codec flags, emitted value, optional maximum
-supported value, and whether a version is required for interpretation. The v9
+supported value, and whether a version is required for interpretation. The v10
 writer freezes these facts with all other linker tables. The reader rejects
 duplicates, malformed flags, unsupported required values, or late-discovery
 drift before linker or object publication.
@@ -61,16 +61,16 @@ discarding. Cooked native serializer fields remain strict.
 ## Authored Package Policy
 
 DAST has one permanent nonzero format GUID and current production wire version
-9. Core's bounded DURF validation selects DAST identity; CoreDObject's sole v9
+10. Core's bounded DURF validation selects DAST identity; CoreDObject's sole v10
 reader/writer owns all package tables and tagged-value semantics. Engine's
-immutable ordinary codec policy selects v9 only for header reads, validation,
+immutable ordinary codec policy selects v10 only for header reads, validation,
 inspection, schema probes, reference projection, live load, serialization,
 relocation, fix-up, redirectors, Cook, and canonical resave.
-The maintained `Engine/Content` and `Sandbox/Content` corpus is canonical v9;
-older package versions have no reader or migration path.
+The maintained `Engine/Content`, `Sandbox/Content`, and `RoadWeaver/Content`
+corpus is canonical v10; older package versions have no reader or migration path.
 
 Every production entry requires exact package identity and, when present, the
-complete main/raw-bulk closure. Unknown format identities, non-v9 DAST versions,
+complete main/raw-bulk closure. Unknown format identities, non-v10 DAST versions,
 required features, legacy prefixes, noncanonical bytes, or invalid closure
 facts fail before object construction, mutation, catalog publication, or Dirty
 state changes. Read-only entry points never select a writer.
@@ -83,7 +83,7 @@ The Registry cache fingerprints exact source bytes/format and is invalidated by
 any relevant main/bulk change.
 
 Raw `.dbulk` has no independent DURF version; its format is owned by the
-[package BulkData contract](BulkData.md#dast-v9-authored-placement).
+[package BulkData contract](BulkData.md#dast-v10-authored-placement).
 Asset-family payload schemas and DDC/Cook keys version independently. A
 builder-version change invalidates production identity without necessarily
 changing readable family bytes; a family schema change requires a supported

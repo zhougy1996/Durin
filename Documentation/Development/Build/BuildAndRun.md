@@ -509,7 +509,7 @@ DurinAssetTool resave --project=<project.dproject> --all [--apply] [--json]
 DurinAssetTool storage-inventory --project=<project.dproject>
 ```
 
-`storage-inventory` is a low-level DAST v9 diagnostic that emits the current
+`storage-inventory` is a low-level DAST diagnostic that emits the current
 package and `.dbulk` inventory. It does not select or qualify a future storage
 format.
 

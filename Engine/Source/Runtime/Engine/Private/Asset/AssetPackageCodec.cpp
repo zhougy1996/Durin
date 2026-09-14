@@ -2,14 +2,14 @@
 #include "AssetPackageByteSource.h"
 
 #include "Asset/PackageVersionPolicy.h"
-#include "AssetPackageV9Codec.h"
+#include "AssetPackageTaggedCodec.h"
 #include "Serialization/BinaryEnvelope.h"
 
 namespace Durin::AssetPrivate
 {
 	namespace
 	{
-		const std::array Codecs{DastV9::GetCodec(), DastV9::GetV10Codec()};
+		const std::array Codecs{TaggedPackage::GetCodec()};
 		constexpr FBinaryEnvelopeLimits PackageEnvelopeLimits{
 			16ull * 1024ull * 1024ull,
 			1024ull * 1024ull * 1024ull};
@@ -20,7 +20,7 @@ namespace Durin::AssetPrivate
 				const std::array Descriptors{FBinaryFormatDescriptor{
 					.FormatId = ObjectPackage::DastFormatId,
 					.DebugName = std::string(ObjectPackage::DastFormatName),
-					.MinimumFormatVersion = ObjectPackage::DastV9FormatVersion,
+					.MinimumFormatVersion = ObjectPackage::DastV10FormatVersion,
 					.MaximumFormatVersion = ObjectPackage::DastV10FormatVersion,
 					.SupportedRequiredFeatures = 0,
 					.Limits = PackageEnvelopeLimits}};

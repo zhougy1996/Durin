@@ -22,7 +22,7 @@ namespace
 		return {.PackagePath = Path,
 			.TopLevelAssets = {{AssetPath, "Example::MetadataAsset", {}}},
 			.AssetClassName = "Example::MetadataAsset",
-			.FormatVersion = Durin::ObjectPackage::DastV9FormatVersion,
+			.FormatVersion = Durin::ObjectPackage::DastV10FormatVersion,
 			.Dependencies = std::move(Hard),
 			.SoftDependencies = std::move(Soft),
 			.ObjectCount = 1,
@@ -93,21 +93,22 @@ namespace
 				.PackagePath = Path,
 				.PhysicalPath = "Content/Textures/Brick.dasset",
 				.AssetClassName = "Durin::DTexture2D",
-				.FormatVersion = Durin::ObjectPackage::DastV9FormatVersion}}}};
+				.FormatVersion = Durin::ObjectPackage::DastV10FormatVersion}}}};
 
 		const FAssetData* Data = Snapshot.FindExact(Path);
 		ASSERT_NE(Data, nullptr);
 		EXPECT_EQ(Snapshot.Revision, 17u);
 		EXPECT_EQ(Data->PackagePath, Path);
 		EXPECT_EQ(Data->AssetClassName, "Durin::DTexture2D");
-		EXPECT_EQ(Data->FormatVersion, Durin::ObjectPackage::DastV9FormatVersion);
+		EXPECT_EQ(Data->FormatVersion, Durin::ObjectPackage::DastV10FormatVersion);
 	}
 
 	TEST(FAssetMetadataQueryTests, OwnsCanonicalDastReaderIdentity)
 	{
-		EXPECT_EQ(Durin::ObjectPackage::DastV9FormatVersion, 9u);
+		EXPECT_EQ(Durin::ObjectPackage::DastV10FormatVersion, 10u);
 		EXPECT_EQ(Durin::ObjectPackage::DastFormatName, "Durin.BinaryFormat.DAST");
-		EXPECT_TRUE(Durin::ObjectPackage::IsSupportedPackageReaderVersion(9));
+		EXPECT_TRUE(Durin::ObjectPackage::IsSupportedPackageReaderVersion(10));
+		EXPECT_FALSE(Durin::ObjectPackage::IsSupportedPackageReaderVersion(9));
 		EXPECT_FALSE(Durin::ObjectPackage::IsSupportedPackageReaderVersion(8));
 		EXPECT_FALSE(Durin::ObjectPackage::IsSupportedPackageReaderVersion(7));
 		EXPECT_FALSE(Durin::ObjectPackage::IsSupportedPackageReaderVersion(6));
@@ -115,8 +116,8 @@ namespace
 		const FAssetPackageFingerprint Fingerprint{
 			.FileSize = 128,
 			.LastWriteTimeTicks = 42,
-			.ReaderVersion = Durin::ObjectPackage::DastV9FormatVersion};
-		EXPECT_EQ(Fingerprint.ReaderVersion, 9u);
+			.ReaderVersion = Durin::ObjectPackage::DastV10FormatVersion};
+		EXPECT_EQ(Fingerprint.ReaderVersion, 10u);
 	}
 
 	TEST(FAssetMetadataQueryTests, PublishesWholeStateAgainstExpectedRevision)

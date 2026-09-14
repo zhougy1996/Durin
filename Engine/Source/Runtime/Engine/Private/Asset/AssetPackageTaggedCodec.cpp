@@ -1,4 +1,4 @@
-#include "AssetPackageV9Codec.h"
+#include "AssetPackageTaggedCodec.h"
 #include "AssetPackageByteSource.h"
 #include "AssetPackageLinker.h"
 #include "AssetRegistryResultAdapter.h"
@@ -13,7 +13,7 @@
 #include "Misc/FileHelper.h"
 #include "Misc/MountPaths.h"
 
-namespace Durin::AssetPrivate::DastV9
+namespace Durin::AssetPrivate::TaggedPackage
 {
 	namespace
 	{
@@ -26,7 +26,7 @@ namespace Durin::AssetPrivate::DastV9
 			-> FAssetResult
 		{
 			return Error(EAssetError::CorruptFile,
-				std::format("DAST v9 package validation failed: {}", Diagnostic.Message));
+				std::format("DAST package validation failed: {}", Diagnostic.Message));
 		}
 
 		auto ReadLinker(const FAssetPackageReadContext& Context,
@@ -34,7 +34,7 @@ namespace Durin::AssetPrivate::DastV9
 		{
 			if (!Context.PackagePath.IsValid())
 				return Error(EAssetError::InvalidPath,
-					"DAST v9 requires the mounted package identity.");
+					"DAST requires the mounted package identity.");
 			ObjectPackage::FPackageReaderDiagnostic Diagnostic;
 			const bool bRead = Context.bResourceBackedBulk
 				? ObjectPackage::ReadPackageMetadata(Context.PackageBytes,
@@ -415,7 +415,7 @@ namespace Durin::AssetPrivate::DastV9
 			std::vector<FAssetReferenceEdge>& Out,
 			uint32 Depth = 0) -> bool
 		{
-			if (Depth > ObjectPackage::DastV8MaximumValueDepth) return false;
+			if (Depth > ObjectPackage::DastMaximumValueDepth) return false;
 			using K = ObjectPackage::EValueKind;
 			auto AppendEdge = [&](EAssetReferenceKind Kind,
 				const FObjectPath& Target) {
@@ -532,7 +532,7 @@ namespace Durin::AssetPrivate::DastV9
 					if (!CollectReferences(Property.Type, Property.Value, Linker, Context,
 						Linker.Exports[Index], Property, Index + 1, Route, References))
 						return Error(EAssetError::CorruptFile,
-							"DAST v9 reference traversal encountered an invalid linker value.");
+							"DAST reference traversal encountered an invalid linker value.");
 			std::ranges::sort(References, [](const auto& A, const auto& B) {
 				return std::tuple(A.TargetPath.ToString(), A.SourceObjectId,
 					std::string_view(A.DeclaringType), std::string_view(A.FieldName),
@@ -552,7 +552,7 @@ namespace Durin::AssetPrivate::DastV9
 		{
 			if (IsCancelled && IsCancelled())
 				return Error(EAssetError::IoError, "Asset schema inspection was cancelled.");
-			if (Source.GetSize() > ObjectPackage::DastV8MaximumPackageBytes
+			if (Source.GetSize() > ObjectPackage::DastMaximumPackageBytes
 				|| Source.GetSize() > std::numeric_limits<size_t>::max())
 				return Error(EAssetError::CorruptFile, "DAST package exceeds the byte bound.");
 			FByteBuffer Main(static_cast<size_t>(Source.GetSize()));
@@ -679,7 +679,6 @@ namespace Durin::AssetPrivate::DastV9
 					.bPrivateGraph = Context.bPrivateGraph});
 		}
 
-		template<uint32 FormatVersion>
 		auto Write(DPackage* Package, FAssetPackageEncodedClosure& OutClosure,
 			EDefaultDeltaMode DeltaMode,
 			const FAssetPackageSerializationOptions& Options) -> FAssetResult
@@ -687,13 +686,13 @@ namespace Durin::AssetPrivate::DastV9
 			ObjectPackage::FLinkerTables Linker;
 			std::string ErrorMessage;
 			if (FAssetResult Result = CaptureLivePackageLinker(Package, DeltaMode,
-				Options, Linker, &ErrorMessage, FormatVersion); !Result) return Result;
+				Options, Linker, &ErrorMessage); !Result) return Result;
 			FAssetPackageEncodedClosure Closure;
 			ObjectPackage::FPackageWriterDiagnostic Diagnostic;
 			if (!ObjectPackage::WritePackage(Linker, Closure.PackageBytes,
 				Closure.BulkBytes, &Diagnostic))
 				return Error(EAssetError::CorruptFile,
-					std::format("DAST v9 package write failed: {}", Diagnostic.Message));
+					std::format("DAST package write failed: {}", Diagnostic.Message));
 			ObjectPackage::FLinkerTables Verified;
 			ObjectPackage::FPackageReaderDiagnostic ReaderDiagnostic;
 			if (!ObjectPackage::ReadPackage(Closure.PackageBytes, Closure.BulkBytes,
@@ -712,7 +711,7 @@ namespace Durin::AssetPrivate::DastV9
 			if (!ObjectPackage::WritePackage(Linker, Closure.PackageBytes,
 				Closure.BulkBytes, &Diagnostic))
 				return Error(EAssetError::CorruptFile,
-					std::format("DAST v9 package mutation failed: {}", Diagnostic.Message));
+					std::format("DAST package mutation failed: {}", Diagnostic.Message));
 			ObjectPackage::FLinkerTables Verified;
 			ObjectPackage::FPackageReaderDiagnostic ReaderDiagnostic;
 			if (!ObjectPackage::ReadPackage(Closure.PackageBytes, Closure.BulkBytes,
@@ -880,7 +879,7 @@ namespace Durin::AssetPrivate::DastV9
 					return Asset.RedirectDestination.IsValid();
 				}))
 				return Error(EAssetError::InvalidPackageType,
-					"Only a real DAST v9 asset package can be relocated.");
+					"Only a real DAST asset package can be relocated.");
 			Linker.Summary.PackagePath = Destination;
 			for (auto& Asset : Linker.Summary.TopLevelAssets)
 			{
@@ -894,7 +893,6 @@ namespace Durin::AssetPrivate::DastV9
 			return WriteLinker(std::move(Linker), OutClosure);
 		}
 
-		template<uint32 FormatVersion>
 		auto WriteRedirector(const FPackagePath& Source,
 			std::span<const FAssetRedirectorWriteMapping> Mappings,
 			FAssetPackageEncodedClosure& OutClosure) -> FAssetResult
@@ -908,7 +906,7 @@ namespace Durin::AssetPrivate::DastV9
 				.Kind = ObjectPackage::EValueKind::HardReference,
 				.QualifiedName = "Durin::DObject"};
 			ObjectPackage::FLinkerTables Linker;
-			Linker.FormatVersion = FormatVersion;
+			Linker.FormatVersion = ObjectPackage::DastV10FormatVersion;
 			Linker.Summary.PackagePath = Source;
 			Linker.Types.push_back(ReferenceType);
 			Linker.Schemas.push_back({std::string(RedirectorClass),
@@ -952,8 +950,8 @@ namespace Durin::AssetPrivate::DastV9
 	auto GetCodec() -> const FAssetPackageCodec&
 	{
 		static const FAssetPackageCodec Codec{
-			.CodecId = "dast-v9",
-			.FormatVersion = ObjectPackage::DastV9FormatVersion,
+			.CodecId = "dast-v10",
+			.FormatVersion = ObjectPackage::DastV10FormatVersion,
 			.bCanRead = true,
 			.bCanWrite = true,
 			.bCanMutate = true,
@@ -963,23 +961,11 @@ namespace Durin::AssetPrivate::DastV9
 			.ExtractReferences = &ExtractReferences,
 			.InspectSchema = &InspectSchema,
 			.Load = &Load,
-			.Write = &Write<ObjectPackage::DastV9FormatVersion>,
+			.Write = &Write,
 			.RewriteReferences = &RewriteReferences,
 			.Relocate = &Relocate,
-			.WriteRedirector = &WriteRedirector<ObjectPackage::DastV9FormatVersion>};
+			.WriteRedirector = &WriteRedirector};
 		return Codec;
 	}
 
-	auto GetV10Codec() -> const FAssetPackageCodec&
-	{
-		static const FAssetPackageCodec Codec = [] {
-			FAssetPackageCodec Result = GetCodec();
-			Result.CodecId = "dast-v10";
-			Result.FormatVersion = ObjectPackage::DastV10FormatVersion;
-			Result.Write = &Write<ObjectPackage::DastV10FormatVersion>;
-			Result.WriteRedirector = &WriteRedirector<ObjectPackage::DastV10FormatVersion>;
-			return Result;
-		}();
-		return Codec;
-	}
 }
