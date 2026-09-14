@@ -37,9 +37,9 @@ namespace Durin::AssetPrivate::DastV9
 					"DAST v9 requires the mounted package identity.");
 			ObjectPackage::FPackageReaderDiagnostic Diagnostic;
 			const bool bRead = Context.bResourceBackedBulk
-				? ObjectPackage::ReadPackageV9Metadata(Context.PackageBytes,
+				? ObjectPackage::ReadPackageMetadata(Context.PackageBytes,
 					Context.PhysicalBulkBytes, Context.PackagePath, Out, &Diagnostic)
-				: ObjectPackage::ReadPackageV9(Context.PackageBytes, Context.BulkBytes,
+				: ObjectPackage::ReadPackage(Context.PackageBytes, Context.BulkBytes,
 					Context.PackagePath, Out, &Diagnostic);
 			if (!bRead)
 				return ReaderError(Diagnostic);
@@ -365,7 +365,7 @@ namespace Durin::AssetPrivate::DastV9
 			Inspection.Fingerprint = {
 				.FileSize = Context.PackageBytes.size(),
 				.ContentHash = FXxHash128::HashBuffer(Context.PackageBytes),
-				.ReaderVersion = ObjectPackage::DastV9FormatVersion};
+				.ReaderVersion = Linker.FormatVersion};
 			FInspectionEncodeState EncodeState;
 			for (size_t Index = 0; Index < Linker.Exports.size(); ++Index)
 			{
@@ -390,7 +390,7 @@ namespace Durin::AssetPrivate::DastV9
 						.Name = Property.FieldName,
 						.Kind = InspectionPropertyKind(Property.Type),
 						.TypeSignature = TypeSignature(Property.Type),
-						.SourceFormatVersion = ObjectPackage::DastV9FormatVersion};
+						.SourceFormatVersion = Linker.FormatVersion};
 					if (!EncodeInspectionPayload(Property.Type, Property.Value, Linker,
 						Field.Payload, EncodeState))
 						return Error(EAssetError::CorruptFile,
@@ -434,7 +434,7 @@ namespace Durin::AssetPrivate::DastV9
 					.SourceFingerprint = {
 						.FileSize = Context.PackageBytes.size(),
 						.ContentHash = FXxHash128::HashBuffer(Context.PackageBytes),
-						.ReaderVersion = ObjectPackage::DastV9FormatVersion},
+						.ReaderVersion = Linker.FormatVersion},
 					.SourceObjectId = ObjectId,
 					.SourceClass = Export.ClassName,
 					.DeclaringType = Property.DeclaringType,
@@ -574,7 +574,7 @@ namespace Durin::AssetPrivate::DastV9
 			ObjectPackage::FLinkerTables Linker;
 			if (FAssetResult Result = ReadLinker({Main, Bulk, Path, Main.size()}, Linker); !Result)
 				return Result;
-			FPackageSchemaInspection Record{.FormatVersion = ObjectPackage::DastV9FormatVersion};
+			FPackageSchemaInspection Record{.FormatVersion = Linker.FormatVersion};
 			if (!Linker.Summary.TopLevelAssets.empty())
 				Record.EntryKind = Linker.Summary.TopLevelAssets.front()
 					.RedirectDestination.IsValid()
@@ -669,7 +669,7 @@ namespace Durin::AssetPrivate::DastV9
 			return ApplyLivePackageLinker(std::move(Linker), Context.PackagePath, OutPackage,
 				OutReport, {.OnSkeletonReady = OnSkeletonReady,
 					.OnSkeletonRollback = OnSkeletonRollback,
-					.SourceFormatVersion = ObjectPackage::DastV9FormatVersion,
+					.SourceFormatVersion = Linker.FormatVersion,
 					.bCooked = Context.bCooked,
 					.Target = Context.bCooked
 						? FArchiveTarget{.Platform = "Win64", .Profile = "Game"}
@@ -679,6 +679,7 @@ namespace Durin::AssetPrivate::DastV9
 					.bPrivateGraph = Context.bPrivateGraph});
 		}
 
+		template<uint32 FormatVersion>
 		auto Write(DPackage* Package, FAssetPackageEncodedClosure& OutClosure,
 			EDefaultDeltaMode DeltaMode,
 			const FAssetPackageSerializationOptions& Options) -> FAssetResult
@@ -686,16 +687,16 @@ namespace Durin::AssetPrivate::DastV9
 			ObjectPackage::FLinkerTables Linker;
 			std::string ErrorMessage;
 			if (FAssetResult Result = CaptureLivePackageLinker(Package, DeltaMode,
-				Options, Linker, &ErrorMessage); !Result) return Result;
+				Options, Linker, &ErrorMessage, FormatVersion); !Result) return Result;
 			FAssetPackageEncodedClosure Closure;
 			ObjectPackage::FPackageWriterDiagnostic Diagnostic;
-			if (!ObjectPackage::WritePackageV9(Linker, Closure.PackageBytes,
+			if (!ObjectPackage::WritePackage(Linker, Closure.PackageBytes,
 				Closure.BulkBytes, &Diagnostic))
 				return Error(EAssetError::CorruptFile,
 					std::format("DAST v9 package write failed: {}", Diagnostic.Message));
 			ObjectPackage::FLinkerTables Verified;
 			ObjectPackage::FPackageReaderDiagnostic ReaderDiagnostic;
-			if (!ObjectPackage::ReadPackageV9(Closure.PackageBytes, Closure.BulkBytes,
+			if (!ObjectPackage::ReadPackage(Closure.PackageBytes, Closure.BulkBytes,
 				Linker.Summary.PackagePath, Verified, &ReaderDiagnostic))
 				return ReaderError(ReaderDiagnostic);
 			OutClosure = std::move(Closure);
@@ -708,13 +709,13 @@ namespace Durin::AssetPrivate::DastV9
 			Linker.Names.clear();
 			FAssetPackageEncodedClosure Closure;
 			ObjectPackage::FPackageWriterDiagnostic Diagnostic;
-			if (!ObjectPackage::WritePackageV9(Linker, Closure.PackageBytes,
+			if (!ObjectPackage::WritePackage(Linker, Closure.PackageBytes,
 				Closure.BulkBytes, &Diagnostic))
 				return Error(EAssetError::CorruptFile,
 					std::format("DAST v9 package mutation failed: {}", Diagnostic.Message));
 			ObjectPackage::FLinkerTables Verified;
 			ObjectPackage::FPackageReaderDiagnostic ReaderDiagnostic;
-			if (!ObjectPackage::ReadPackageV9(Closure.PackageBytes, Closure.BulkBytes,
+			if (!ObjectPackage::ReadPackage(Closure.PackageBytes, Closure.BulkBytes,
 				Linker.Summary.PackagePath, Verified, &ReaderDiagnostic))
 				return ReaderError(ReaderDiagnostic);
 			OutClosure = std::move(Closure);
@@ -960,10 +961,22 @@ namespace Durin::AssetPrivate::DastV9
 			.ExtractReferences = &ExtractReferences,
 			.InspectSchema = &InspectSchema,
 			.Load = &Load,
-			.Write = &Write,
+			.Write = &Write<ObjectPackage::DastV9FormatVersion>,
 			.RewriteReferences = &RewriteReferences,
 			.Relocate = &Relocate,
 			.WriteRedirector = &WriteRedirector};
+		return Codec;
+	}
+
+	auto GetV10Codec() -> const FAssetPackageCodec&
+	{
+		static const FAssetPackageCodec Codec = [] {
+			FAssetPackageCodec Result = GetCodec();
+			Result.CodecId = "dast-v10";
+			Result.FormatVersion = ObjectPackage::DastV10FormatVersion;
+			Result.Write = &Write<ObjectPackage::DastV10FormatVersion>;
+			return Result;
+		}();
 		return Codec;
 	}
 }

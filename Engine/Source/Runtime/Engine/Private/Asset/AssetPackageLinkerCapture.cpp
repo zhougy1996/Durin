@@ -234,6 +234,16 @@ namespace Durin::AssetPrivate
 			{
 			}
 
+			auto UseExistingStructBaseline() -> bool override
+			{
+				const auto* Version = GetVersionContext().FindFormat(FName("DAST"));
+				if (!Version || Version->Version < ObjectPackage::DastV10FormatVersion) return false;
+				uint8 Baseline = 0;
+				if (!Read(Baseline) || Baseline > 1)
+					SetError("Invalid Struct baseline mode.");
+				return Baseline == 1;
+			}
+
 			auto GetAssetError() const -> EAssetError
 			{
 				if (bAssetErrorSet) return AssetError;
@@ -284,7 +294,7 @@ namespace Durin::AssetPrivate
 				if (HasError() || !IsCurrentFieldAvailable()) return;
 				const FArchiveFormatVersion* DastVersion =
 					GetVersionContext().FindFormat(FName("DAST"));
-				if (!DastVersion || DastVersion->Version != ObjectPackage::DastV9FormatVersion)
+				if (!DastVersion || !ObjectPackage::IsSupportedPackageReaderVersion(DastVersion->Version))
 				{
 					FailLoad(EAssetError::UnsupportedVersion,
 						EArchiveFailureCode::InvalidData,
@@ -814,7 +824,7 @@ namespace Durin::AssetPrivate
 				if (HasError() || SuppressedDepth != 0) return;
 				const FArchiveFormatVersion* DastVersion =
 					GetVersionContext().FindFormat(FName("DAST"));
-				if (!DastVersion || DastVersion->Version != ObjectPackage::DastV9FormatVersion)
+				if (!DastVersion || !ObjectPackage::IsSupportedPackageReaderVersion(DastVersion->Version))
 				{
 					Fail(EArchiveFailureCode::InvalidData,
 						"Package bulk fields require a supported DAST package version.");
@@ -1565,12 +1575,23 @@ namespace Durin::AssetPrivate
 			if (Type.Kind == K::Struct)
 			{
 				if (!Node.Raw.empty()) return Invalid();
+				const bool bSparse = Linker.FormatVersion >= ObjectPackage::DastV10FormatVersion;
+				if (bSparse) Out.FieldTypes.emplace();
+				Out.bUseParentBaseline = bSparse && DeltaNode
+					&& DeltaNode->Baseline == EDefaultDeltaBaselineKind::ClassDefault;
 				for (const FCapturedNode& ChildNode : Node.Children)
 				{
 					const FDefaultDeltaFieldPlan* DeltaField = FindDeltaField(DeltaNode ? &DeltaNode->Fields : nullptr, ChildNode.Field);
 					if (DeltaNode && !DeltaField) return Invalid();
-					// V9 shares complete Struct descriptors across container elements. Emit
-					// every child of a selected value; logical omission only selects object fields.
+					if (bSparse && DeltaField && DeltaField->Disposition == EDefaultDeltaDisposition::Omitted) continue;
+					if (bSparse)
+					{
+						const auto Schema = std::ranges::find(Linker.Schemas, Type.QualifiedType.ToString(), &ObjectPackage::FSerializedSchema::QualifiedName);
+						if (Schema == Linker.Schemas.end()) return Invalid();
+						const auto Field = std::ranges::find(Schema->Fields, ChildNode.Field.Name.ToString(), &ObjectPackage::FSerializedField::Name);
+						if (Field == Schema->Fields.end()) return Invalid();
+						Out.FieldTypes->push_back(Field->Type);
+					}
 					ObjectPackage::FSerializedValue Child;
 					if (!MaterializeLinkerValue(ChildNode, ChildNode.Field.LogicalType, Package, InternalReferenceIds,
 						Linker, Child, OutError,
@@ -1678,9 +1699,10 @@ namespace Durin::AssetPrivate
 			std::span<DObject* const> Objects, const FDefaultDeltaPlan& DeltaPlan,
 			std::span<const ObjectPackage::FCustomVersion> CustomVersions,
 			std::span<DObject* const> TopLevelAssets,
-			ObjectPackage::FLinkerTables& Out, std::string& OutError) -> bool
+			ObjectPackage::FLinkerTables& Out, std::string& OutError, uint32 FormatVersion) -> bool
 		{
 			ObjectPackage::FLinkerTables Linker;
+			Linker.FormatVersion = FormatVersion;
 			Linker.Summary.PackagePath = PackagePath;
 			Linker.Summary.HardPackageDependencies = Summary.Dependencies;
 			for (const FObjectPath& Target : Captured.HardReferenceTargets)
@@ -1857,7 +1879,7 @@ namespace Durin::AssetPrivate
 {
 	auto CaptureLivePackageLinker(DPackage* Package, EDefaultDeltaMode DeltaMode,
 		const FAssetPackageSerializationOptions& InputOptions,
-		ObjectPackage::FLinkerTables& OutLinker, std::string* OutError) -> FAssetResult
+		ObjectPackage::FLinkerTables& OutLinker, std::string* OutError, uint32 FormatVersion) -> FAssetResult
 	{
 		std::vector<FEditorBulkDataStoragePayload> Payloads;
 		FAssetPackageSerializationOptions Options = InputOptions;
@@ -1932,7 +1954,7 @@ namespace Durin::AssetPrivate
 		AssetPrivate::FCapturedPackage Discovery;
 		FAssetResult Result = AssetPrivate::CapturePackage(
 			Objects, ObjectIds, Options, false,
-			OrdinaryAssetPackageWriterVersion, {}, Discovery);
+			FormatVersion, {}, Discovery);
 		if (!Result)
 		{
 			Diagnostic = {{}, Result.Message}; return Finish(Result);
@@ -1956,7 +1978,7 @@ namespace Durin::AssetPrivate
 				ObjectIds.emplace(Objects[Index], Index + 1);
 			Result = AssetPrivate::CapturePackage(
 				Objects, ObjectIds, Options, false,
-				OrdinaryAssetPackageWriterVersion, {}, Discovery);
+				FormatVersion, {}, Discovery);
 			if (!Result)
 			{
 				Diagnostic = {{}, Result.Message};
@@ -1976,7 +1998,7 @@ namespace Durin::AssetPrivate
 		AssetPrivate::FCapturedPackage Captured;
 		Result = AssetPrivate::CapturePackage(
 			Objects, ObjectIds, Options, true,
-			OrdinaryAssetPackageWriterVersion, ContainerHash, Captured);
+			FormatVersion, ContainerHash, Captured);
 		if (!Result)
 		{
 			Diagnostic = {{}, Result.Message}; return Finish(Result);
@@ -2089,7 +2111,7 @@ namespace Durin::AssetPrivate
 		std::vector<ObjectPackage::FCustomVersion> CustomVersions;
 		std::string LinkerError;
 		if (!AssetPrivate::BuildLinkerTables(Captured, Summary, PackagePath, Objects,
-				DeltaPlan, CustomVersions, Package->GetTopLevelAssets(), OutLinker, LinkerError))
+				DeltaPlan, CustomVersions, Package->GetTopLevelAssets(), OutLinker, LinkerError, FormatVersion))
 		{
 			Diagnostic.Message = std::move(LinkerError);
 			return Finish({EAssetError::UnsupportedProperty, Diagnostic.Message});

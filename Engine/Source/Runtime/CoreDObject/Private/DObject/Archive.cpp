@@ -510,8 +510,16 @@ namespace Durin
 						EPropertyFlags::Transient, 1, 0, Struct);
 					StorageProperty = &*DetachedProperty;
 				}
+				const bool bUseExisting = Ar.UseExistingStructBaseline();
+				if (Ar.HasError()) break;
 				FReflectedValueStorage Storage;
 				if (!Storage.DefaultConstruct(StorageProperty, 0, &OperationError))
+				{
+					Ar.Fail(EArchiveFailureCode::UnsupportedOperation, OperationError);
+					break;
+				}
+				if (bUseExisting && !StorageProperty->CopyAssignValue(Storage.GetValue(),
+					Property->GetValuePtr(Container, ArrayIndex), &OperationError))
 				{
 					Ar.Fail(EArchiveFailureCode::UnsupportedOperation, OperationError);
 					break;
@@ -2199,6 +2207,67 @@ namespace Durin
 	{
 		return DuplicateObjectInternal(
 			const_cast<DObject*>(SourceObject), NewOuter, NewName, OutDuplicates);
+	}
+
+	auto InitializeObjectFromDefaults(const DObject* Defaults, DObject* Destination,
+		const std::unordered_map<DObject*, DObject*>& ReferenceMap, std::string* OutError) -> bool
+	{
+		if (OutError) OutError->clear();
+		if (!Defaults || !Destination || Defaults->GetClass() != Destination->GetClass()) return false;
+		std::vector<DObject*> References;
+		class FDefaultWriter final : public FObjectMemoryWriter
+		{
+		public:
+			FDefaultWriter(FByteBuffer& Bytes, std::vector<DObject*>& InReferences)
+				: FObjectMemoryWriter(Bytes, EArchivePurpose::AuthoredPackage), References(InReferences)
+			{ EnableCapabilities(EArchiveCapability::ObjectReferences); }
+			auto SerializeObjectReference(DObject*& Object) -> void override
+			{
+				References.push_back(Object);
+				uint64 Index = References.size() - 1;
+				*this << Index;
+			}
+		private:
+			std::vector<DObject*>& References;
+		};
+		class FDefaultReader final : public FObjectMemoryReader
+		{
+		public:
+			FDefaultReader(FByteView Bytes, const std::vector<DObject*>& InReferences,
+				const std::unordered_map<DObject*, DObject*>& InMap)
+				: FObjectMemoryReader(Bytes, EArchivePurpose::AuthoredPackage), References(InReferences), Map(InMap)
+			{ EnableCapabilities(EArchiveCapability::ObjectReferences); }
+			auto SerializeObjectReference(DObject*& Object) -> void override
+			{
+				uint64 Index = 0;
+				*this << Index;
+				if (HasError() || Index >= References.size()) { SetError("Invalid default reference."); return; }
+				const auto It = Map.find(References[Index]);
+				Object = It == Map.end() ? References[Index] : It->second;
+				if (Object && Object->IsTemplateObject()) SetError("Unmapped default subobject reference.");
+			}
+		private:
+			const std::vector<DObject*>& References;
+			const std::unordered_map<DObject*, DObject*>& Map;
+		};
+		FByteBuffer Bytes;
+		FDefaultWriter Writer(Bytes, References);
+		{
+			auto Scope = Writer.EnterObject(*const_cast<DObject*>(Defaults));
+			const_cast<DObject*>(Defaults)->Serialize(Writer);
+		}
+		if (Writer.HasError()) { if (OutError) *OutError = Writer.GetError(); return false; }
+		FDefaultReader Reader(Bytes, References, ReferenceMap);
+		{
+			auto Scope = Reader.EnterObject(*Destination);
+			Destination->Serialize(Reader);
+		}
+		if (Reader.HasError() || Reader.GetRemainingPayloadBytes() != 0)
+		{
+			if (OutError) *OutError = Reader.HasError() ? std::string(Reader.GetError()) : "Default stream has trailing bytes.";
+			return false;
+		}
+		return true;
 	}
 
 	auto CopyEditableObjectProperties(DObject* Source, DObject* Destination, const std::unordered_map<DObject*, DObject*>& ReferenceMap, std::string* OutError) -> bool

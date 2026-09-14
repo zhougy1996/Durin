@@ -180,7 +180,7 @@ namespace
 		Durin::ObjectPackage::DastV9FormatVersion);
 	static_assert(Durin::ObjectPackage::SupportedPackageReaderVersions ==
 		decltype(Durin::ObjectPackage::SupportedPackageReaderVersions){
-			Durin::ObjectPackage::DastV9FormatVersion});
+			Durin::ObjectPackage::DastV9FormatVersion, Durin::ObjectPackage::DastV10FormatVersion});
 	static_assert(!Durin::ObjectPackage::IsSupportedPackageReaderVersion(
 		4));
 	static_assert(!Durin::ObjectPackage::IsSupportedPackageReaderVersion(
@@ -2349,6 +2349,73 @@ TEST(FPackageAssetTests, ExplicitLoadScopeFailureRetiresSuccessfulNestedBulkReso
 	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(BulkPath));
 }
 
+TEST(FPackageAssetTests, V10StructDeltasUseOwningDefaultsAndPreserveLegacyReads)
+{
+	using namespace Durin;
+	using namespace Durin::AssetPrivate;
+	InitializeAssetTests();
+	const std::array Classes{DMathStructAssetForTest::StaticClass()};
+	ASSERT_TRUE(Private::CreateClassDefaultObjectsForBatch(Classes));
+	auto* Defaults = const_cast<DMathStructAssetForTest*>(static_cast<const DMathStructAssetForTest*>(Classes[0]->GetDefaultObject()));
+	const FVector3 Original = Defaults->Vector;
+	struct FRestore { DMathStructAssetForTest* Object; FVector3 Value; ~FRestore() { Object->Vector = Value; } } Restore{Defaults, Original};
+	Defaults->Vector = FVector3(2.0, 10.0, 30.0);
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/PairedStructDefaults", Path));
+	DMathStructAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
+	Asset->Vector = FVector3(2.0, 20.0, 30.0);
+	Asset->Vectors = {FVector3(1.0, 0.0, 0.0), FVector3(0.0, 2.0, 0.0)};
+	ASSERT_TRUE(SavePackage(Asset->GetPackage()));
+	FAssetPackageEncodedClosure Delta, Complete, Legacy;
+	ASSERT_TRUE(DastV9::GetV10Codec().Write(Asset->GetPackage(), Delta, EDefaultDeltaMode::Enabled, {}));
+	ASSERT_TRUE(DastV9::GetV10Codec().Write(Asset->GetPackage(), Complete, EDefaultDeltaMode::NoDelta, {}));
+	ASSERT_TRUE(DastV9::GetCodec().Write(Asset->GetPackage(), Legacy, EDefaultDeltaMode::NoDelta, {}));
+	ObjectPackage::FLinkerTables Linker;
+	ObjectPackage::FPackageReaderDiagnostic Diagnostic;
+	ASSERT_TRUE(ObjectPackage::ReadPackage(Delta.PackageBytes, Delta.BulkBytes, Path, Linker, &Diagnostic)) << Diagnostic.Message;
+	EXPECT_EQ(Linker.FormatVersion, ObjectPackage::DastV10FormatVersion);
+	auto& Properties = Linker.Exports.front().Properties;
+	auto Vector = std::ranges::find(Properties, "Vector", &ObjectPackage::FPropertyTag::FieldName);
+	ASSERT_NE(Vector, Properties.end());
+	EXPECT_EQ(Vector->Value.FieldNames, std::vector<std::string>{"y"});
+	EXPECT_TRUE(Vector->Value.bUseParentBaseline);
+	auto Vectors = std::ranges::find(Properties, "Vectors", &ObjectPackage::FPropertyTag::FieldName);
+	ASSERT_NE(Vectors, Properties.end());
+	for (const auto& Element : Vectors->Value.Elements)
+	{
+		EXPECT_EQ(Element.FieldNames.size(), 3u);
+		EXPECT_FALSE(Element.bUseParentBaseline);
+	}
+	// The detached writer rejects malformed field identity/type before publishing bytes.
+	const auto ValidValue = Vector->Value;
+	FByteBuffer InvalidMain{std::byte{42}}, InvalidBulk;
+	Vector->Value.FieldNames[0] = "unknown";
+	EXPECT_FALSE(ObjectPackage::WritePackage(Linker, InvalidMain, InvalidBulk));
+	EXPECT_EQ(InvalidMain, FByteBuffer{std::byte{42}});
+	Vector->Value = ValidValue;
+	Vector->Value.bUseParentBaseline = false;
+	EXPECT_FALSE(ObjectPackage::WritePackage(Linker, InvalidMain, InvalidBulk));
+	Vector->Value = ValidValue;
+	EXPECT_LT(Delta.PackageBytes.size(), Complete.PackageBytes.size());
+	ObjectPackage::FLinkerTables Rejected;
+	EXPECT_FALSE(ObjectPackage::ReadPackageV9(Delta.PackageBytes, {}, Path, Rejected));
+	EXPECT_TRUE(Rejected.Exports.empty());
+	const auto File = Testing::GetTestWorkDirectory() / "Assets" / "PairedStructDefaults.dasset";
+	for (const auto* Encoded : {&Delta, &Complete, &Legacy})
+	{
+		ASSERT_TRUE(UnloadPackage(Path));
+		Defaults->Vector = FVector3(7.0, 8.0, 9.0);
+		WriteTestBytes(File, Encoded->PackageBytes);
+		const auto Result = LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Asset);
+		ASSERT_TRUE(Result) << Result.Message;
+		EXPECT_EQ(Asset->Vector, Encoded == &Delta ? FVector3(7.0, 20.0, 9.0) : FVector3(2.0, 20.0, 30.0));
+		EXPECT_EQ(Asset->Vectors, (std::vector<FVector3>{FVector3(1.0, 0.0, 0.0), FVector3(0.0, 2.0, 0.0)}));
+		EXPECT_FALSE(Asset->HasAllocatedAuthoredOverrideLedger());
+	}
+	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(Path));
+}
+
 TEST(FPackageAssetTests, OrdinaryAndCompleteSavesDoNotCreateOverrides)
 {
 	using namespace Durin;
@@ -2415,11 +2482,12 @@ TEST(FPackageAssetTests, SparseReplacementsRoundTripWithoutPromotingStructParent
 	Child.push_back(FAuthoredOverridePathToken::Field(
 		Z_Construct_DStruct_FVector3()->GetQualifiedName(), FName("x")));
 	ASSERT_TRUE(Asset->SetAuthoredOverride(Child, EAuthoredOverrideProvenance::Forced));
+	for (const auto* Codec : {&DastV9::GetCodec(), &DastV9::GetV10Codec()})
 	for (const auto Mode : {EDefaultDeltaMode::Enabled, EDefaultDeltaMode::NoDelta})
 	{
 		FAssetPackageEncodedClosure Encoded;
 		ASSERT_TRUE(SavePackage(Asset->GetPackage()));
-		const auto WriteResult = DastV9::GetCodec().Write(Asset->GetPackage(), Encoded, Mode, {});
+		const auto WriteResult = Codec->Write(Asset->GetPackage(), Encoded, Mode, {});
 		ASSERT_TRUE(WriteResult) << WriteResult.Message;
 		const auto File = Testing::GetTestWorkDirectory() / "Assets" / "SparseReplacements.dasset";
 		WriteTestBytes(File, Encoded.PackageBytes);

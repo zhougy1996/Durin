@@ -42,7 +42,7 @@ namespace Durin
 			return Error(EAssetRegistryError::CorruptFile,
 				std::string(EnvelopeDiagnostic.Message));
 		if (Preamble.FormatId != ObjectPackage::DastFormatId
-			|| Preamble.FormatVersion != ObjectPackage::DastV9FormatVersion)
+			|| !ObjectPackage::IsSupportedPackageReaderVersion(Preamble.FormatVersion))
 			return Error(EAssetRegistryError::UnsupportedVersion,
 				std::format("Unsupported DAST package format version {}.",
 					Preamble.FormatVersion));
@@ -55,7 +55,7 @@ namespace Durin
 
 		ObjectPackage::FPackageV9RegistryData Registry;
 		ObjectPackage::FPackageReaderDiagnostic ReaderDiagnostic;
-		if (!ObjectPackage::ReadPackageV9Registry(
+		if (!ObjectPackage::ReadPackageRegistry(
 			FrontMatter.first(static_cast<size_t>(Preamble.HeaderBytes)),
 			PhysicalFileBytes, PhysicalBulkBytes, PackagePath,
 			Registry, &ReaderDiagnostic))

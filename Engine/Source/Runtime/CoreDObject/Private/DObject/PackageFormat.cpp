@@ -332,7 +332,12 @@ namespace Durin::ObjectPackage
 				break;
 			}
 			case EValueKind::Struct:
-				if (Value.Elements.size() != Type.Children.size()
+				if (Frozen.Source->FormatVersion == DastV9FormatVersion && (Value.FieldTypes || Value.bUseParentBaseline))
+					return Fail(Diagnostic, EPackageWriterFailure::InvalidValue, "v9 cannot encode baseline Struct deltas.", Path);
+				if (Frozen.Source->FormatVersion >= DastV10FormatVersion && !Value.bUseParentBaseline
+					&& Value.Elements.size() != Type.Children.size())
+					return Fail(Diagnostic, EPackageWriterFailure::InvalidValue, "Complete Struct value is missing fields.", Path);
+				if (Value.Elements.size() != StructFieldTypes(Type, Value).size()
 					|| Value.FieldNames.size() != Value.Elements.size()
 					|| (!Value.Provenances.empty() && Value.Provenances.size() != Value.Elements.size()))
 					return Fail(Diagnostic, EPackageWriterFailure::InvalidValue,
@@ -348,8 +353,13 @@ namespace Durin::ObjectPackage
 						if (Position != 0 && Value.FieldNames[Order[Position - 1]] == Value.FieldNames[Index])
 							return Fail(Diagnostic, EPackageWriterFailure::DuplicateIdentity,
 								"A struct contains duplicate field names.", Path);
+						const auto Schema = std::ranges::find(Frozen.Source->Schemas, Type.QualifiedName, &FSerializedSchema::QualifiedName);
+						if (Schema == Frozen.Source->Schemas.end()) return Fail(Diagnostic, EPackageWriterFailure::InvalidType, "Missing Struct schema.", Path);
+						const auto Field = std::ranges::find(Schema->Fields, Value.FieldNames[Index], &FSerializedField::Name);
+						if (Field == Schema->Fields.end() || Field->Type != StructFieldTypes(Type, Value)[Index])
+							return Fail(Diagnostic, EPackageWriterFailure::InvalidType, "Struct field type does not match schema.", Path);
 						if (!AddName(Frozen.Names, Value.FieldNames[Index], Diagnostic, Path)) return false;
-						if (!CollectValue(Frozen, Type.Children[Index], Value.Elements[Index], ExportId,
+						if (!CollectValue(Frozen, StructFieldTypes(Type, Value)[Index], Value.Elements[Index], ExportId,
 							SchemaId, FieldId, Path + "." + Value.FieldNames[Index], Depth + 1, Diagnostic)) return false;
 					}
 				}
@@ -441,9 +451,9 @@ namespace Durin::ObjectPackage
 			}
 			if (Type.Kind == EValueKind::Struct)
 			{
-				if (Type.Children.size() != Value.Elements.size()) return true;
-				for (size_t Index = 0; Index < Type.Children.size(); ++Index)
-					if (!ValidateV9ObjectPaths(Type.Children[Index], Value.Elements[Index],
+				if (StructFieldTypes(Type, Value).size() != Value.Elements.size()) return true;
+				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
+					if (!ValidateV9ObjectPaths(StructFieldTypes(Type, Value)[Index], Value.Elements[Index],
 						Path, Depth + 1, Diagnostic)) return false;
 			}
 			else if (Type.Kind == EValueKind::FixedArray || Type.Kind == EValueKind::Array)
@@ -466,6 +476,8 @@ namespace Durin::ObjectPackage
 		auto Freeze(const FLinkerTables& Linker, FFrozenPackage& Out,
 			FPackageWriterDiagnostic* Diagnostic) -> bool
 		{
+			if (!IsSupportedPackageReaderVersion(Linker.FormatVersion))
+				return Fail(Diagnostic, EPackageWriterFailure::InvalidInput, "Unsupported writer version.");
 			FFrozenPackage Frozen;
 			Frozen.Source = &Linker;
 			if (Linker.Imports.size() > DastV8MaximumTableEntries
@@ -725,14 +737,15 @@ namespace Durin::ObjectPackage
 					if (Value.FieldNames[Order[Index - 1]] == Value.FieldNames[Order[Index]])
 						return Fail(Diagnostic, EPackageWriterFailure::DuplicateIdentity,
 							"A struct contains duplicate field names.", std::string(Path));
+				if (Frozen.Source->FormatVersion >= DastV10FormatVersion) Writer.WriteU8(Value.bUseParentBaseline ? 1 : 0);
 				Writer.WriteVarUInt(Order.size());
 				for (size_t Index : Order)
 				{
 					Writer.WriteVarUInt(FindNameId(Frozen, Value.FieldNames[Index]));
-					Writer.WriteVarUInt(FindTypeId(Frozen, Type.Children[Index]));
+					Writer.WriteVarUInt(FindTypeId(Frozen, StructFieldTypes(Type, Value)[Index]));
 					Writer.WriteU8(static_cast<uint8>(Value.Provenances.empty()
 						? EPropertyProvenance::Implicit : Value.Provenances[Index]));
-					if (!WriteValue(Writer, Frozen, Type.Children[Index], Value.Elements[Index], BulkCursor,
+					if (!WriteValue(Writer, Frozen, StructFieldTypes(Type, Value)[Index], Value.Elements[Index], BulkCursor,
 						std::string(Path) + "." + Value.FieldNames[Index], Depth + 1, Diagnostic)) return false;
 				}
 				break;
@@ -1142,7 +1155,7 @@ namespace Durin::ObjectPackage
 		}
 	}
 
-	auto FreezePackageV9(const FLinkerTables& Linker, FPackageWriterManifest& OutManifest,
+	auto FreezePackage(const FLinkerTables& Linker, FPackageWriterManifest& OutManifest,
 		FPackageWriterDiagnostic* OutDiagnostic) -> bool
 	{
 		if (OutDiagnostic) OutDiagnostic->Reset();
@@ -1152,7 +1165,7 @@ namespace Durin::ObjectPackage
 		return true;
 	}
 
-	auto WritePackageV9(const FLinkerTables& Linker,
+	auto WritePackage(const FLinkerTables& Linker,
 		FByteBuffer& OutPackageBytes,
 		FByteBuffer& OutBulkBytes,
 		FPackageWriterDiagnostic* OutDiagnostic) -> bool
@@ -1168,13 +1181,13 @@ namespace Durin::ObjectPackage
 		if (!EncodeSections(Frozen, Sections, &BulkBytes, 0, {}, OutDiagnostic)) return false;
 		FByteBuffer PackageBytes;
 		if (!Assemble(Sections, PackageBytes, OutDiagnostic,
-			DastV9FormatVersion, false)) return false;
+			Linker.FormatVersion, false)) return false;
 		OutPackageBytes = std::move(PackageBytes);
 		OutBulkBytes = std::move(BulkBytes);
 		return true;
 	}
 
-	auto WritePackageV9Main(const FLinkerTables& Linker, uint64 ExternalBulkBytes,
+	auto WritePackageMain(const FLinkerTables& Linker, uint64 ExternalBulkBytes,
 		FXxHash128 ExternalBulkHash, FByteBuffer& OutPackageBytes,
 		FPackageWriterDiagnostic* OutDiagnostic) -> bool
 	{
@@ -1190,8 +1203,15 @@ namespace Durin::ObjectPackage
 			ExternalBulkHash, OutDiagnostic)) return false;
 		FByteBuffer PackageBytes;
 		if (!Assemble(Sections, PackageBytes, OutDiagnostic,
-			DastV9FormatVersion, false)) return false;
+			Linker.FormatVersion, false)) return false;
 		OutPackageBytes = std::move(PackageBytes);
 		return true;
 	}
+
+	auto FreezePackageV9(const FLinkerTables& Linker, FPackageWriterManifest& Out, FPackageWriterDiagnostic* Diagnostic) -> bool
+	{ return Linker.FormatVersion == DastV9FormatVersion && FreezePackage(Linker, Out, Diagnostic); }
+	auto WritePackageV9(const FLinkerTables& Linker, FByteBuffer& Main, FByteBuffer& Bulk, FPackageWriterDiagnostic* Diagnostic) -> bool
+	{ return Linker.FormatVersion == DastV9FormatVersion && WritePackage(Linker, Main, Bulk, Diagnostic); }
+	auto WritePackageV9Main(const FLinkerTables& Linker, uint64 BulkBytes, FXxHash128 Hash, FByteBuffer& Main, FPackageWriterDiagnostic* Diagnostic) -> bool
+	{ return Linker.FormatVersion == DastV9FormatVersion && WritePackageMain(Linker, BulkBytes, Hash, Main, Diagnostic); }
 }

@@ -52,7 +52,7 @@ namespace Durin
 		{
 			FStaticMeshPayloadFieldInspection Result{.Field = std::move(Name)};
 			if (!Field) { Result.Diagnostic = "Field absent; restore/reimport authored data or recook cooked data as appropriate."; return Result; }
-			if (Field->SourceFormatVersion != ObjectPackage::DastV9FormatVersion)
+			if (!ObjectPackage::IsSupportedPackageReaderVersion(Field->SourceFormatVersion))
 			{ Result.State = "Unsupported"; Result.Diagnostic = "Descriptor format unsupported; readability unavailable."; return Result; }
 			FEditorBulkDataStorageDescriptor Descriptor;
 			if (!Field->TryReadBulkDataStorageDescriptor(Descriptor, false))

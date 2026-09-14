@@ -283,15 +283,28 @@ own semantic object/value serialization, purposes, defaults, and reflected
 field traversal; physical-container helpers are not public and do not admit
 native structure layouts.
 
-In `EDefaultDeltaMode::Enabled`, top-level fields compare with the paired class
-default object. Once a Struct is emitted, its fields recursively compare with
-the Struct type default, including Structs inside fixed arrays, Arrays, and Map
-values. Containers are complete authored values rather than insert/remove
-deltas. A class-specific non-type-default Struct can therefore emit an empty
-Struct block when it is explicit but every child equals the type default.
-The v9 package adapter materializes selected composite values completely to
-match shared Struct descriptors, including elements with different default-valued
-children. Nested logical omission is not a sparse v9 wire projection.
+In `EDefaultDeltaMode::Enabled`, fields compare with the paired class default
+object, including the corresponding default subobject. Ordinary Structs pass
+the paired default field down recursively. Arrays, fixed arrays, and Maps
+replace their complete contents; their Struct elements do not inherit defaults
+by index or key. Forced replacements also emit complete descendant values.
+Dynamic owned roots establish their own class-default correspondence.
+
+DAST v10 retains v9 package framing and tables but precedes each Struct value
+with a baseline byte. Mode 1 patches the initialized parent value; mode 0
+reconstructs a complete value from the Struct type default. Each present field
+retains its own name, type, provenance, and value, independently of the shared
+complete type descriptor. The reader validates field identities/types and
+canonical form before constructing objects. v9 remains readable with its old
+complete-descriptor constraint and type-default Struct reconstruction.
+
+v10 authored loading initializes fresh objects from the paired CDO/default
+subobject with template references remapped to loaded skeletons, then applies
+saved fields. Failure discards the unpublished graph. Cooked packages keep
+complete values and do not require CDO initialization. This initialization
+copies values only, never authored override state or PostLoad notifications.
+The ordinary save entry still selects complete v9 emission until its delta
+policy gate is enabled.
 Planning is transactional: missing defaults, unavailable identity, graph or
 Archive failure, manifest drift, duplicate fields, and depth/count/path bounds
 clear the output and return a typed diagnostic.
@@ -336,7 +349,7 @@ field. Existing Explicit values remain readable but may be omitted on a later
 ordinary resave if equal to defaults. Historical Forced tags do not distinguish
 old NoDelta emission from user intent; preserve them conservatively as complete
 replacement boundaries. Do not infer intent or require a bulk asset rewrite.
-The v9 class-default/type-default reconstruction rules above are unchanged.
+Historical v9 reconstruction remains unchanged; v10 uses the explicit baseline rules above.
 
 Clear, subtree clear, and reset change intent only, never values. Indexed clear
 routes normalize to their container. Clearing a child cannot carve an exception

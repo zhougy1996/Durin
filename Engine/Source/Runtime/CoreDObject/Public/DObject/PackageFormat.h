@@ -12,9 +12,10 @@ namespace Durin::ObjectPackage
 	inline constexpr std::string_view DastFormatName = "Durin.BinaryFormat.DAST";
 	inline constexpr uint32 DastV8FormatVersion = 8;
 	inline constexpr uint32 DastV9FormatVersion = 9;
-	inline constexpr std::array SupportedPackageReaderVersions{DastV9FormatVersion};
+	inline constexpr uint32 DastV10FormatVersion = 10;
+	inline constexpr std::array SupportedPackageReaderVersions{DastV9FormatVersion, DastV10FormatVersion};
 	// Persisted projections use a policy generation so supported-reader sets cannot alias.
-	inline constexpr uint32 PackageReaderPolicyFingerprint = 0x41504309;
+	inline constexpr uint32 PackageReaderPolicyFingerprint = 0x4150430a;
 
 	constexpr auto IsSupportedPackageReaderVersion(uint32 Version) -> bool
 	{
@@ -153,6 +154,46 @@ namespace Durin::ObjectPackage
 		auto Reset() -> void { *this = {}; }
 	};
 
+	// Freezes a detached linker model without emitting package bytes.
+	COREDOBJECT_API auto FreezePackage(
+		const FLinkerTables& Linker,
+		FPackageWriterManifest& OutManifest,
+		FPackageWriterDiagnostic* OutDiagnostic = nullptr) -> bool;
+	COREDOBJECT_API auto WritePackage(
+		const FLinkerTables& Linker,
+		FByteBuffer& OutPackageBytes,
+		FByteBuffer& OutBulkBytes,
+		FPackageWriterDiagnostic* OutDiagnostic = nullptr) -> bool;
+	COREDOBJECT_API auto WritePackageMain(
+		const FLinkerTables& Linker,
+		uint64 ExternalBulkBytes,
+		FXxHash128 ExternalBulkHash,
+		FByteBuffer& OutPackageBytes,
+		FPackageWriterDiagnostic* OutDiagnostic = nullptr) -> bool;
+
+	// Validates exactly the declared front matter and publishes package-level Registry data.
+	COREDOBJECT_API auto ReadPackageRegistry(
+		FByteView FrontMatter,
+		uint64 PhysicalPackageBytes,
+		uint64 PhysicalBulkBytes,
+		const FPackagePath& PackagePath,
+		FPackageV9RegistryData& OutRegistry,
+		FPackageReaderDiagnostic* OutDiagnostic = nullptr,
+		const FPackageReaderLimits& Limits = {}) -> bool;
+	COREDOBJECT_API auto ReadPackage(
+		FByteView PackageBytes,
+		FByteView BulkBytes,
+		const FPackagePath& PackagePath,
+		FLinkerTables& OutLinker,
+		FPackageReaderDiagnostic* OutDiagnostic = nullptr,
+		const FPackageReaderLimits& Limits = {}) -> bool;
+	COREDOBJECT_API auto ReadPackageMetadata(
+		FByteView PackageBytes,
+		uint64 PhysicalBulkBytes,
+		const FPackagePath& PackagePath,
+		FLinkerTables& OutLinker,
+		FPackageReaderDiagnostic* OutDiagnostic = nullptr,
+		const FPackageReaderLimits& Limits = {}) -> bool;
 	// Freezes a detached linker model without emitting package bytes.
 	COREDOBJECT_API auto FreezePackageV9(
 		const FLinkerTables& Linker,

@@ -1498,7 +1498,7 @@ namespace Durin
 	{
 		OutValue = {};
 		if (Kind != DurinCodeGen::EPropertyGenFlags::BulkData
-			|| SourceFormatVersion != ObjectPackage::DastV9FormatVersion) return false;
+			|| !ObjectPackage::IsSupportedPackageReaderVersion(SourceFormatVersion)) return false;
 		FByteReader Reader{Payload};
 		uint32 Version = 0;
 		uint8 Placement = 0;

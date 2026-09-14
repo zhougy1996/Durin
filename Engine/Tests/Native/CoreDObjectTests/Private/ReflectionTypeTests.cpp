@@ -2703,8 +2703,8 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_EQ(ClassSpecific->Value->Fields.size(), 3u);
 		EXPECT_TRUE(std::ranges::all_of(ClassSpecific->Value->Fields,
 			[](const Durin::FDefaultDeltaFieldPlan& Field) {
-				return Field.Baseline == Durin::EDefaultDeltaBaselineKind::StructTypeDefault
-					&& Field.Disposition == Durin::EDefaultDeltaDisposition::Omitted;
+				return Field.Baseline == Durin::EDefaultDeltaBaselineKind::ClassDefault
+					&& Field.Disposition == Durin::EDefaultDeltaDisposition::Emitted;
 			}));
 		ASSERT_EQ(Fixed->Disposition, Durin::EDefaultDeltaDisposition::Emitted);
 		ASSERT_NE(Fixed->Value, nullptr);
@@ -2727,9 +2727,9 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_EQ(SignedZeroStruct->Value->Fields[0].Disposition,
 			Durin::EDefaultDeltaDisposition::Emitted);
 		EXPECT_EQ(SignedZeroStruct->Value->Fields[1].Disposition,
-			Durin::EDefaultDeltaDisposition::Omitted);
+			Durin::EDefaultDeltaDisposition::Emitted);
 		EXPECT_EQ(SignedZeroStruct->Value->Fields[2].Disposition,
-			Durin::EDefaultDeltaDisposition::Omitted);
+			Durin::EDefaultDeltaDisposition::Emitted);
 
 		Instance->ExactFloat = std::bit_cast<double>(uint64{0x7FF8000000000043ull});
 		Durin::FDefaultDeltaPlan NaNPlan;

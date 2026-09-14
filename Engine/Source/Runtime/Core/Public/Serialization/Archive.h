@@ -201,6 +201,10 @@ namespace Durin
 			return (State.Capabilities & Capability) == Capability;
 		}
 		auto GetVersionContext() const -> const FArchiveVersionContext& { return Versions; }
+		// Loading adapters select whether a Struct patches its initialized destination.
+		// Default adapters reconstruct a complete value from the Struct type default.
+		virtual auto UseExistingStructBaseline() -> bool { return false; }
+
 		virtual auto GetLoadedDeprecatedProperties(FName) const -> std::span<const FName>
 		{
 			return {};

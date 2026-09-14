@@ -9,8 +9,11 @@ Completed:
 
 ## Current Status
 
-Stage 0 research has identified the default-context and wire-compatibility
-boundaries. Implementation has not started. The preceding sparse authored
+Stage 0 is complete. Stage 1 implements paired default propagation, a v10
+Struct baseline byte, independently tagged present fields, and initialization
+of fresh loaded objects from paired defaults. Focused validation passed 87
+CoreObjectTests and 152 AssetPackageTests. Shared-API all build passed (57.74 seconds), covering Engine, Sandbox, and
+RoadWeaver. Stage 2 remains active; ordinary saving still uses v9 NoDelta. The preceding sparse authored
 replacement change remains the foundation; ordinary loaded fields must never
 recreate an override ledger.
 
@@ -64,8 +67,14 @@ count, and its runtime Archive initializes emitted Structs from type defaults.
 Reinterpreting v9 silently would change historical asset semantics. A new
 format revision must distinguish parent-baseline reconstruction and independent
 field presence; reuse the existing package tables and framing where possible.
-Do not duplicate the whole codec or rebuild the package architecture merely to
-introduce that revision.
+The selected revision is v10: a Struct baseline byte precedes its existing
+field-count/tag stream. Present fields carry explicit types independently of
+the full shared descriptor. The detached linker retains this field-type vector;
+v9 retains positional fields and type-default reconstruction. General readers
+select the version from validated framing; v9 compatibility entrypoints remain
+strict. Registry, codec dispatch, inspection, bulk resources, and isolated graph
+loading propagate the source version. Reuse the codec implementation for both
+versions rather than duplicating it.
 
 Ordinary package saving may switch to delta only after dynamic owned objects,
 missing template counterparts, and reference remapping are covered. Complete
@@ -79,7 +88,7 @@ to complete save; report a diagnosed unsupported case.
 - [x] Verify default, tag, Archive policy, override, and instancing contracts
   against official UE documentation.
 - [x] Inspect v9 field-count validation and Struct load initialization.
-- [ ] Finalize version propagation and all package-reader consumer migration
+- [x] Finalize version propagation and all package-reader consumer migration
   points before changing the writer default.
 
 Acceptance: selected wire and runtime semantics have an explicit version
@@ -87,12 +96,12 @@ boundary, with historical v9 reconstruction unchanged.
 
 ### Stage 1: Propagate default baselines and implement tagged Struct deltas
 
-- [ ] Carry paired baselines through nested ordinary Struct planning.
-- [ ] Keep container elements and Forced replacement contents complete.
-- [ ] Add a format revision supporting independent Struct field presence and
+- [x] Carry paired baselines through nested ordinary Struct planning.
+- [x] Keep container elements and Forced replacement contents complete.
+- [x] Add a format revision supporting independent Struct field presence and
   parent-baseline reconstruction; preserve the v9 reader.
-- [ ] Migrate inspection, bulk, reference, codec, and version-policy consumers.
-- [ ] Cover class-modified defaults, nested fields, default evolution,
+- [x] Migrate inspection, bulk, reference, codec, and version-policy consumers.
+- [x] Cover class-modified defaults, nested fields, default evolution,
   malformed tags, container values, explicit replacement, and v9 reads.
 
 Acceptance: saving only a changed nested field reconstructs the exact value
@@ -100,7 +109,8 @@ against its paired defaults, with transactional failure and no ordinary ledger.
 
 ### Stage 2: Complete object graph coverage and enable ordinary delta saving
 
-Depends on Stage 1.
+Depends on Stage 1. Dynamic-root graph traversal was implemented with Stage 1
+because save/load baseline correspondence must agree before the writer switch.
 
 - [ ] Cover dynamic owned objects and their defaults without losing exports.
 - [ ] Verify default subobject references and newly created object references.

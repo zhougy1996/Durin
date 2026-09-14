@@ -122,6 +122,9 @@ namespace Durin::ObjectPackage
 		FByteBuffer Bytes;
 		std::vector<uint64> ComponentBits;
 		std::vector<FSerializedValue> Elements;
+		// Present Struct fields carry their own types in v10; empty means legacy layout.
+		std::optional<std::vector<FSerializedType>> FieldTypes;
+		bool bUseParentBaseline = false;
 		std::vector<std::string> FieldNames;
 		std::vector<EPropertyProvenance> Provenances;
 		FPackageIndex Reference;
@@ -135,6 +138,12 @@ namespace Durin::ObjectPackage
 
 		auto operator==(const FSerializedValue&) const -> bool = default;
 	};
+
+	inline auto StructFieldTypes(const FSerializedType& Type, const FSerializedValue& Value)
+		-> const std::vector<FSerializedType>&
+	{
+		return Value.FieldTypes ? *Value.FieldTypes : Type.Children;
+	}
 
 	// Owns one tagged property and all detached data required to interpret it.
 	struct FPropertyTag
@@ -224,6 +233,7 @@ namespace Durin::ObjectPackage
 	class FLinkerTables
 	{
 	public:
+		uint32 FormatVersion = 9;
 		FPackageSummary Summary;
 		std::vector<std::string> Names;
 		std::vector<FSerializedType> Types;

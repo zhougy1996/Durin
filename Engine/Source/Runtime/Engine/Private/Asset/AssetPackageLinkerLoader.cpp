@@ -291,11 +291,12 @@ namespace Durin::AssetPrivate
 			{
 				const auto* Schema = FindSchema(Linker, Type.QualifiedName);
 				if (!Schema || Value.FieldNames.size() != Value.Elements.size()
-					|| Type.Children.size() != Value.Elements.size())
+					|| ObjectPackage::StructFieldTypes(Type, Value).size() != Value.Elements.size())
 					return LinkerApplyFail(Diagnostic, EAssetError::CorruptFile, "Struct load projection is invalid.", 0, std::move(Path));
 				uint64 FieldCount = 0;
 				for (const auto& Name : Value.FieldNames)
 					if (!bDiscardRemovedFields || !IsRemovedField(Schema->QualifiedName, Name)) ++FieldCount;
+				if (Linker.FormatVersion >= ObjectPackage::DastV10FormatVersion) Writer.Write(uint8(Value.bUseParentBaseline ? 1 : 0));
 				Writer.WriteString(Type.QualifiedName); Writer.Write(FieldCount);
 				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
 				{
@@ -303,7 +304,7 @@ namespace Durin::AssetPrivate
 						&ObjectPackage::FSerializedField::Name);
 					if (It == Schema->Fields.end()) return LinkerApplyFail(Diagnostic, EAssetError::CorruptFile, "Struct field is absent from its schema.", 0, std::move(Path));
 					if (bDiscardRemovedFields && IsRemovedField(Schema->QualifiedName, It->Name)) continue;
-					const auto& ChildType = Type.Children[Index];
+					const auto& ChildType = ObjectPackage::StructFieldTypes(Type, Value)[Index];
 					FByteWriter Payload;
 					if (!EncodeLoadArchiveValue(ChildType, Value.Elements[Index], Linker, Payload,
 						BulkFieldIndex, Diagnostic,
@@ -407,7 +408,7 @@ namespace Durin::AssetPrivate
 				const auto* Schema = FindSchema(Linker, Type.QualifiedName);
 				if (!Schema || Value.FieldNames.size() != Value.Elements.size()
 					|| Value.Provenances.size() != Value.Elements.size()
-					|| Type.Children.size() != Value.Elements.size())
+					|| ObjectPackage::StructFieldTypes(Type, Value).size() != Value.Elements.size())
 					return LinkerApplyFail(Diagnostic, EAssetError::CorruptFile, "Struct ledger projection is invalid.");
 				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
 				{
@@ -415,7 +416,7 @@ namespace Durin::AssetPrivate
 						&ObjectPackage::FSerializedField::Name);
 					if (It == Schema->Fields.end()) return LinkerApplyFail(Diagnostic, EAssetError::CorruptFile, "Struct ledger field is missing.");
 					if (IsRemovedField(Schema->QualifiedName, It->Name)) continue;
-					const auto& ChildType = Type.Children[Index];
+					const auto& ChildType = ObjectPackage::StructFieldTypes(Type, Value)[Index];
 					if (FindLinkerDeprecatedRoute(Linker, *Schema, *It, ChildType)) continue;
 					Path.push_back(FAuthoredOverridePathToken::Field(FName(Schema->QualifiedName), FName(It->Name)));
 					if (Value.Provenances[Index] == ObjectPackage::EPropertyProvenance::Forced)
@@ -661,7 +662,7 @@ namespace Durin::AssetPrivate
 				const auto* Schema = FindSchema(Linker, Type.QualifiedName);
 				DStruct* Owner = FindStructByQualifiedName(FName(Type.QualifiedName));
 				if (!Schema || !Owner || Value.FieldNames.size() != Value.Elements.size()
-					|| Type.Children.size() != Value.Elements.size())
+					|| ObjectPackage::StructFieldTypes(Type, Value).size() != Value.Elements.size())
 					return LinkerApplyFail(Diagnostic, EAssetError::UnsupportedProperty,
 						"Serialized struct is unavailable or has an invalid schema.");
 				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
@@ -671,7 +672,7 @@ namespace Durin::AssetPrivate
 					if (Field == Schema->Fields.end())
 						return LinkerApplyFail(Diagnostic, EAssetError::CorruptFile, "Struct field has no schema.");
 					if (IsRemovedField(Schema->QualifiedName, Field->Name)) { ++DiscardedFields; continue; }
-					const auto& ChildType = Type.Children[Index];
+					const auto& ChildType = ObjectPackage::StructFieldTypes(Type, Value)[Index];
 					FProperty* Expected = Owner->FindPropertyByName(FName(Field->Name), false);
 					if (!(Expected && !Expected->IsDeprecated() && Expected->GetKind() == TypeKind(ChildType)
 						&& GetSerializedTypeSignature(Expected) == TypeSignature(ChildType))
@@ -717,13 +718,13 @@ namespace Durin::AssetPrivate
 			{
 				const auto* Schema = FindSchema(Linker, Type.QualifiedName);
 				if (!Schema || Value.FieldNames.size() != Value.Elements.size()
-					|| Type.Children.size() != Value.Elements.size()) return;
+					|| ObjectPackage::StructFieldTypes(Type, Value).size() != Value.Elements.size()) return;
 				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
 				{
 					const auto Field = std::ranges::find(
 						Schema->Fields, Value.FieldNames[Index], &ObjectPackage::FSerializedField::Name);
 					if (Field == Schema->Fields.end() || IsRemovedField(Schema->QualifiedName, Field->Name)) continue;
-					const auto& ChildType = Type.Children[Index];
+					const auto& ChildType = ObjectPackage::StructFieldTypes(Type, Value)[Index];
 					FProperty* LiveRoute =
 						FindLinkerDeprecatedRoute(Linker, *Schema, *Field, ChildType);
 					if (LiveRoute)
@@ -955,6 +956,35 @@ namespace Durin::AssetPrivate
 			auto& Exports = Application.Exports;
 			auto& Objects = Application.Objects;
 			auto& Report = Application.Report;
+			if (Linker.FormatVersion >= ObjectPackage::DastV10FormatVersion && !Options.bCooked)
+			{
+				std::vector<DClass*> Classes;
+				for (DObject* Object : Objects) Classes.push_back(Object->GetClass());
+				if (!Private::CreateClassDefaultObjectsForBatch(Classes))
+					return {EAssetError::InvalidObjectGraph, "Default object initialization failed."};
+				std::unordered_set<DObject*> Initialized;
+				for (DObject* Root : Objects)
+				{
+					if (Initialized.contains(Root)) continue;
+					const DObject* Default = Root->GetClass()->GetDefaultObject();
+					FDefaultObjectGraphMap Graph;
+					FDefaultObjectGraphDiagnostic GraphDiagnostic;
+					if (!Default || !Graph.Build(Default, Root, &GraphDiagnostic))
+						return {EAssetError::InvalidObjectGraph, "Cannot pair loaded object defaults: " + GraphDiagnostic.LogicalPath};
+					std::unordered_map<DObject*, DObject*> References;
+					for (DObject* Object : Objects)
+						if (const DObject* Template = Graph.FindTemplate(Object))
+							References.emplace(const_cast<DObject*>(Template), Object);
+					for (DObject* Object : Objects)
+						if (const DObject* Template = Graph.FindTemplate(Object))
+						{
+							std::string Error;
+							if (!InitializeObjectFromDefaults(Template, Object, References, &Error))
+								return {EAssetError::InvalidObjectGraph, "Cannot initialize loaded defaults: " + Error};
+							Initialized.insert(Object);
+						}
+				}
+			}
 			std::vector<FArchiveCustomVersion> CustomVersions;
 			std::vector<std::pair<FGuid, int32>> LoadedCustomVersions;
 			for (const ObjectPackage::FCustomVersion& Version : Linker.CustomVersions)
@@ -1000,7 +1030,7 @@ namespace Durin::AssetPrivate
 				LoadContext.bFilterEditorOnly = Options.bCooked;
 				LoadContext.Target = Options.Target;
 				FAssetResult Result = LoadAuthoredObject(*Objects[ObjectIndex], Fields, Objects,
-					Bindings, Options.SourceFormatVersion, CustomVersions, LoadContext);
+					Bindings, Linker.FormatVersion, CustomVersions, LoadContext);
 				if (!Result)
 				{
 					LinkerApplyFail(Diagnostic, EAssetError::UnsupportedProperty, Result.Message, 0, Exports[ObjectIndex].Path);
@@ -1144,7 +1174,7 @@ namespace Durin::AssetPrivate
 				Application.PackagePath = CurrentPath;
 				ObjectPackage::FPackageReaderDiagnostic ReaderDiagnostic;
 				const auto& Bulk = Source.Storage.GetBulkResource();
-				if (!ObjectPackage::ReadPackageV9Metadata(Source.Storage.GetMainBytes(),
+				if (!ObjectPackage::ReadPackageMetadata(Source.Storage.GetMainBytes(),
 					Bulk ? Bulk->GetSegmentExtent() : 0, CurrentPath, Application.Linker, &ReaderDiagnostic))
 					return {S::InvalidClosure, CurrentPath, ReaderDiagnostic.Message};
 				FLinkerApplyDiagnostic Diagnostic;

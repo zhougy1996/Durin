@@ -127,6 +127,9 @@ namespace Durin::ObjectPackage
 				|| (bComplete && PhysicalBytes != Available.size()))
 				return Fail(Diagnostic, EPackageReaderFailure::InvalidEnvelope,
 					"DAST v9 input does not match its declared header or file extent.");
+			if (FormatVersion == 0) FormatVersion = Preamble.FormatVersion;
+			if (!IsSupportedPackageReaderVersion(FormatVersion))
+				return Fail(Diagnostic, EPackageReaderFailure::InvalidEnvelope, "Unsupported package version.");
 			FBinaryFormatRegistry Registry;
 			const FBinaryFormatDescriptor Descriptor{
 				.FormatId = DastFormatId, .DebugName = std::string(DastFormatName),
@@ -152,7 +155,7 @@ namespace Durin::ObjectPackage
 				|| !ReadAt(Available, DastV8FormatHeaderOffset + 16, SectionCount)
 				|| !ReadAt(Available, DastV8FormatHeaderOffset + 20, EntryBytes)
 				|| !ReadAt(Available, DastV8FormatHeaderOffset + 24, Reserved)
-				|| PackageKind > 1 || (FormatVersion == DastV9FormatVersion && PackageKind != 0)
+				|| PackageKind > 1 || (PackageKind != 0)
 				|| Flags != 0 || Directory != DastV8DirectoryOffset
 				|| SectionCount != DastV8SectionCount || EntryBytes != DastV8SectionEntryBytes
 				|| Reserved != 0)
@@ -558,7 +561,7 @@ namespace Durin::ObjectPackage
 		auto ReadValue(FBinaryReader& Reader, const std::vector<std::string>& Names,
 			const std::vector<FSerializedType>& Types, const FSerializedType& Type,
 			const FPackageReaderLimits& Limits, FSerializedValue& Out, uint32 Depth,
-			FPackageReaderDiagnostic* Diagnostic, std::string Path) -> bool
+			FPackageReaderDiagnostic* Diagnostic, std::string Path, uint32 FormatVersion) -> bool
 		{
 			if (Depth > Limits.MaximumValueDepth) return Fail(Diagnostic,
 				EPackageReaderFailure::LimitExceeded, "A DAST v9 value exceeds the nesting limit.", Path);
@@ -611,7 +614,11 @@ namespace Durin::ObjectPackage
 			case EValueKind::Struct:
 			{
 				uint64 Count = 0;
-				if (!Reader.ReadVarUInt(Count) || Count != Type.Children.size()) return false;
+				uint8 Baseline = 0;
+				if (FormatVersion >= DastV10FormatVersion && (!Reader.ReadU8(Baseline) || Baseline > 1)) return false;
+				Value.bUseParentBaseline = Baseline != 0;
+				if (!Reader.ReadVarUInt(Count) || Count > Limits.MaximumTableEntries
+					|| (FormatVersion == DastV9FormatVersion && Count != Type.Children.size())) return false;
 				struct FField { std::string Name; FSerializedType Type; EPropertyProvenance Provenance{}; FSerializedValue Value; };
 				std::vector<FField> Fields;
 				for (uint64 Index = 0; Index < Count; ++Index)
@@ -624,9 +631,21 @@ namespace Durin::ObjectPackage
 						|| Provenance > uint8(EPropertyProvenance::Forced)) return false;
 					FSerializedValue Child;
 					if (!ReadValue(Reader, Names, Types, Types[TypeId - 1], Limits, Child, Depth + 1,
-						Diagnostic, Path + "." + Names[NameId - 1])) return false;
+						Diagnostic, Path + "." + Names[NameId - 1], FormatVersion)) return false;
 					Fields.push_back({Names[NameId - 1], Types[TypeId - 1],
 						static_cast<EPropertyProvenance>(Provenance), std::move(Child)});
+				}
+				if (FormatVersion >= DastV10FormatVersion)
+				{
+					Value.FieldTypes.emplace();
+					for (auto& Field : Fields)
+					{
+						Value.FieldNames.push_back(std::move(Field.Name));
+						Value.FieldTypes->push_back(std::move(Field.Type));
+						Value.Provenances.push_back(Field.Provenance);
+						Value.Elements.push_back(std::move(Field.Value));
+					}
+					break;
 				}
 				std::vector<bool> Used(Fields.size());
 				for (const FSerializedType& ChildType : Type.Children)
@@ -649,7 +668,7 @@ namespace Durin::ObjectPackage
 				{
 					FSerializedValue Child;
 					if (!ReadValue(Reader, Names, Types, Type.Children.front(), Limits, Child, Depth + 1,
-						Diagnostic, Path + "[" + std::to_string(Index) + "]")) return false;
+						Diagnostic, Path + "[" + std::to_string(Index) + "]", FormatVersion)) return false;
 					Value.Elements.push_back(std::move(Child));
 				}
 				break;
@@ -663,7 +682,7 @@ namespace Durin::ObjectPackage
 					{
 						FSerializedValue Child;
 						if (!ReadValue(Reader, Names, Types, Type.Children[Part], Limits, Child, Depth + 1,
-							Diagnostic, Path + "[" + std::to_string(Index) + "]")) return false;
+							Diagnostic, Path + "[" + std::to_string(Index) + "]", FormatVersion)) return false;
 						Value.Elements.push_back(std::move(Child));
 					}
 				break;
@@ -720,7 +739,7 @@ namespace Durin::ObjectPackage
 					FPropertyTag Property{.DeclaringType = Schema.QualifiedName, .FieldName = Field.Name,
 						.Type = Types[TypeId - 1], .Provenance = static_cast<EPropertyProvenance>(Provenance)};
 					const std::string Path = Exports[ExportIndex].ObjectName + "." + Schema.QualifiedName + "." + Field.Name;
-					if (!ReadValue(Reader, Names, Types, Property.Type, Limits, Property.Value, 0, Diagnostic, Path))
+					if (!ReadValue(Reader, Names, Types, Property.Type, Limits, Property.Value, 0, Diagnostic, Path, Layout.FormatVersion))
 						return Fail(Diagnostic, EPackageReaderFailure::InvalidValue,
 							"A DAST v9 property value is malformed.", Path);
 					Exports[ExportIndex].Properties.push_back(std::move(Property));
@@ -821,7 +840,7 @@ namespace Durin::ObjectPackage
 			if (Type.Kind == EValueKind::Struct)
 			{
 				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
-					if (!BindBulkValue(Value.Elements[Index], Type.Children[Index], Path + "." + Value.FieldNames[Index],
+					if (!BindBulkValue(Value.Elements[Index], StructFieldTypes(Type, Value)[Index], Path + "." + Value.FieldNames[Index],
 						ExportId, SchemaId, FieldId, Names, Entries, Inline, External,
 						ExternalExtent, bExternalPayloadAvailable, Cursors, Used, Diagnostic)) return false;
 			}
@@ -849,14 +868,14 @@ namespace Durin::ObjectPackage
 		}
 	}
 
-	auto ReadPackageV9Registry(FByteView FrontMatter,
+	auto ReadPackageRegistry(FByteView FrontMatter,
 		uint64 PhysicalPackageBytes, uint64 PhysicalBulkBytes,
 		const FPackagePath& PackagePath, FPackageV9RegistryData& OutRegistry,
 		FPackageReaderDiagnostic* OutDiagnostic, const FPackageReaderLimits& Limits) -> bool
 	{
 		if (OutDiagnostic) OutDiagnostic->Reset();
 		FParsedLayout Layout;
-		if (!ParseLayout(FrontMatter, PhysicalPackageBytes, false, DastV9FormatVersion,
+		if (!ParseLayout(FrontMatter, PhysicalPackageBytes, false, 0,
 			Limits, Layout, OutDiagnostic)) return false;
 		std::vector<std::string> Names;
 		std::vector<FPackageImport> Imports;
@@ -871,7 +890,7 @@ namespace Durin::ObjectPackage
 
 	namespace
 	{
-		auto ReadPackageV9Impl(FByteView PackageBytes,
+		auto ReadPackageImpl(FByteView PackageBytes,
 			FByteView BulkBytes, uint64 PhysicalBulkBytes,
 			bool bExternalPayloadAvailable, const FPackagePath& PackagePath,
 			FLinkerTables& OutLinker, FPackageReaderDiagnostic* OutDiagnostic,
@@ -882,9 +901,10 @@ namespace Durin::ObjectPackage
 				return Fail(OutDiagnostic, EPackageReaderFailure::LimitExceeded,
 					"The supplied DAST v9 bulk segment exceeds its limit.");
 			FParsedLayout Layout;
-			if (!ParseLayout(PackageBytes, PackageBytes.size(), true, DastV9FormatVersion,
+			if (!ParseLayout(PackageBytes, PackageBytes.size(), true, 0,
 				Limits, Layout, OutDiagnostic)) return false;
 			FLinkerTables Linker;
+			Linker.FormatVersion = Layout.FormatVersion;
 			FPackageV9RegistryData Registry;
 			std::vector<FBulkEntry> BulkEntries;
 			if (!DecodeNames(Layout, Limits, Linker.Names, OutDiagnostic)
@@ -982,8 +1002,8 @@ namespace Durin::ObjectPackage
 			FPackageWriterDiagnostic WriterDiagnostic;
 			FByteBuffer CanonicalBulk;
 			const bool bCanonical = bExternalPayloadAvailable
-				? WritePackageV9(Linker, CanonicalMain, CanonicalBulk, &WriterDiagnostic)
-				: WritePackageV9Main(Linker, Registry.ExternalBulkBytes,
+				? WritePackage(Linker, CanonicalMain, CanonicalBulk, &WriterDiagnostic)
+				: WritePackageMain(Linker, Registry.ExternalBulkBytes,
 					Registry.ExternalBulkHash, CanonicalMain, &WriterDiagnostic);
 			if (!bCanonical)
 				return Fail(OutDiagnostic, EPackageReaderFailure::NonCanonical,
@@ -998,21 +1018,45 @@ namespace Durin::ObjectPackage
 		}
 	}
 
-	auto ReadPackageV9(FByteView PackageBytes,
+	auto ReadPackage(FByteView PackageBytes,
 		FByteView BulkBytes, const FPackagePath& PackagePath,
 		FLinkerTables& OutLinker, FPackageReaderDiagnostic* OutDiagnostic,
 		const FPackageReaderLimits& Limits) -> bool
 	{
-		return ReadPackageV9Impl(PackageBytes, BulkBytes, BulkBytes.size(), true,
+		return ReadPackageImpl(PackageBytes, BulkBytes, BulkBytes.size(), true,
 			PackagePath, OutLinker, OutDiagnostic, Limits);
 	}
 
-	auto ReadPackageV9Metadata(FByteView PackageBytes,
+	auto ReadPackageMetadata(FByteView PackageBytes,
 		uint64 PhysicalBulkBytes, const FPackagePath& PackagePath,
 		FLinkerTables& OutLinker, FPackageReaderDiagnostic* OutDiagnostic,
 		const FPackageReaderLimits& Limits) -> bool
 	{
-		return ReadPackageV9Impl(PackageBytes, {}, PhysicalBulkBytes, false,
+		return ReadPackageImpl(PackageBytes, {}, PhysicalBulkBytes, false,
 			PackagePath, OutLinker, OutDiagnostic, Limits);
+	}
+
+	auto ReadPackageV9(FByteView Main, FByteView Bulk, const FPackagePath& Path, FLinkerTables& Out,
+		FPackageReaderDiagnostic* Diagnostic, const FPackageReaderLimits& Limits) -> bool
+	{
+		FLinkerTables Linker;
+		if (!ReadPackage(Main, Bulk, Path, Linker, Diagnostic, Limits)) return false;
+		if (Linker.FormatVersion != DastV9FormatVersion) return Fail(Diagnostic, EPackageReaderFailure::InvalidEnvelope, "Expected v9.");
+		Out = std::move(Linker); return true;
+	}
+	auto ReadPackageV9Metadata(FByteView Main, uint64 Bulk, const FPackagePath& Path, FLinkerTables& Out,
+		FPackageReaderDiagnostic* Diagnostic, const FPackageReaderLimits& Limits) -> bool
+	{
+		FLinkerTables Linker;
+		if (!ReadPackageMetadata(Main, Bulk, Path, Linker, Diagnostic, Limits)) return false;
+		if (Linker.FormatVersion != DastV9FormatVersion) return Fail(Diagnostic, EPackageReaderFailure::InvalidEnvelope, "Expected v9.");
+		Out = std::move(Linker); return true;
+	}
+	auto ReadPackageV9Registry(FByteView Main, uint64 MainBytes, uint64 Bulk, const FPackagePath& Path,
+		FPackageV9RegistryData& Out, FPackageReaderDiagnostic* Diagnostic, const FPackageReaderLimits& Limits) -> bool
+	{
+		FParsedLayout Layout;
+		return ParseLayout(Main, MainBytes, false, DastV9FormatVersion, Limits, Layout, Diagnostic)
+			&& ReadPackageRegistry(Main, MainBytes, Bulk, Path, Out, Diagnostic, Limits);
 	}
 }

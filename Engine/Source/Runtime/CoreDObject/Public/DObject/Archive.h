@@ -332,5 +332,11 @@ namespace Durin
 			static_cast<const DObject*>(SourceObject), Outer, Name, OutDuplicates));
 	}
 
+	// Initializes a fresh, unpublished destination from a paired default object.
+	// The caller owns graph rollback on failure and supplies template reference remapping.
+	// Does not copy override intent or call PostLoad.
+	COREDOBJECT_API auto InitializeObjectFromDefaults(const DObject* Defaults, DObject* Destination,
+		const std::unordered_map<DObject*, DObject*>& ReferenceMap, std::string* OutError = nullptr) -> bool;
+
 	COREDOBJECT_API auto CopyEditableObjectProperties(DObject* Source, DObject* Destination, const std::unordered_map<DObject*, DObject*>& ReferenceMap, std::string* OutError = nullptr) -> bool;
 }
