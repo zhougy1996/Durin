@@ -337,7 +337,7 @@ TEST(FMaterialThumbnailRendererTests,
 
 	Durin::FPackagePath MaterialPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
-		"/Engine/Materials/ImportedSurface",
+		"/Engine/Materials/DefaultMaterial",
 		MaterialPath));
 	const Durin::FAssetCatalogEntry MaterialData =
 		Durin::FindAssetExact(MaterialPath);
@@ -391,7 +391,7 @@ TEST(FMaterialThumbnailRendererTests,
 
 	Durin::FPackagePath MaterialPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
-		"/Engine/Materials/ImportedSurface", MaterialPath));
+		"/Engine/Materials/DefaultMaterial", MaterialPath));
 	const Durin::FAssetCatalogEntry MaterialData =
 		Durin::FindAssetExact(MaterialPath);
 	ASSERT_NE(MaterialData, nullptr);

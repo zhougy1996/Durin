@@ -326,25 +326,19 @@ replacement refreshes render/physics bindings; failed publication preserves the
 previous authored files and live references. Older outputs without source/output
 ownership metadata remain conflicts; there is no implicit ownership migration.
 
-The historical `ImportedSurface` connects final property values directly to Surface.
-There is no ImportedSurfaceValues call or intermediate aggregate Surface wire in
-this template. Its 65 expression nodes include 48 parameter owners, eight
-TextureCoordinates nodes, one DecodeImportedNormalRG call and explicit upstream
-factor/sample composition. Renderer-only clamps are evaluated at the shared root,
-while ordinary reusable function graphs retain their authored operations.
-Each map retains independent factor and UV owners.
-The output has one input per property, without separate Sample inputs. Surface
-remains an aggregate value type for reusable functions; it is not a material-domain
-selector. The current renderer does not expose other material domains.
-The ordinary recipe samples eight resources; an explicitly packed ORM recipe can
-sample six. Resource-output sharing never implicitly merges separate UV operations.
-Function GUIDs have no special lowering rules.
+Generated structural parents connect final property values directly to Surface.
+Engine's shared root evaluates numerical output policy. Reusable functions can
+return aggregate Surface values; resource-output sharing never implicitly merges
+separate UV operations. Function GUIDs have no special lowering rules.
 
 Library assets record editor-only authoring source/version 2. Bootstrap preserves
 compatible function implementation edits and rejects incompatible interfaces or
 provenance. The material-functions maintenance command initializes missing standard
-functions, ImportedSurface and DefaultMaterial from current recipes. Existing custom
-or unsupported material graphs are preserved and require deliberate reconstruction;
+functions and DefaultMaterial from current recipes. The obsolete ImportedSurface
+template and its initializer are removed. The explicit `asset material-template`
+command can create a new PBRSurfaceMaterial_MR parent with independent parameter
+IDs and no function dependencies at an unused destination. It does not overwrite
+existing assets or run during scene import. Existing custom or unsupported material graphs are preserved and require deliberate reconstruction;
 there is no previous-recipe conversion path. See
 [Canonical Asset Resave](../../Editor/Guides/CanonicalResave.md).
 

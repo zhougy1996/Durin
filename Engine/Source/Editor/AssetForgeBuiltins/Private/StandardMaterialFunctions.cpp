@@ -82,15 +82,10 @@ namespace Durin::AssetForge::Builtins
 			}
 		};
 
-		auto ComposeSurfaceValue(FBuilder& B, uint32 Role, Link Factor, Link Sample,
-			bool bEvaluateAtRoot = false) -> Link
+		auto ComposeSurfaceValue(FBuilder& B, uint32 Role, Link Factor, Link Sample) -> Link
 		{
 			const auto ValueType = GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(Role));
 			if (Role == 1) return B.Node(Op::BlendNormalsRNM, Type::Float3, {Factor, Sample});
-			// Generated imports compose source values; the Engine root owns numerical
-			// output policy. Reusable function implementations retain authored operations.
-			if (bEvaluateAtRoot)
-				return B.Node(Role == 5 ? Op::Add : Op::Multiply, ValueType, {Factor, Sample});
 			if (Role == 5)
 			{
 				const auto Zero = B.Constant(Type::Float3, 0, 0, 0);
@@ -307,54 +302,4 @@ namespace Durin::AssetForge::Builtins
 		return true;
 	}
 
-	auto MakeImportedSurfaceFunctionProgram(const FStandardMaterialFunctions& Functions,
-		std::vector<FMaterialFunctionCall>& OutCalls, FMaterialGraphPresentation& OutPresentation) -> FMaterialProgram
-	{
-		FBuilder B{Entry::ImportedSurfaceValues};
-		const auto Recipe = MakePBRMaterialParameterDefinitions();
-		FMaterialGraphPresentation Presentation{.bHasMaterialOutputPosition = true, .MaterialOutputX = 2000, .MaterialOutputY = 400};
-		FMaterialProgram Result;
-		using ParameterKind = MaterialParameters::EMaterialBuiltinParameterKind;
-		constexpr std::array<uint8, 8> Channels{1, 6, 4, 3, 2, 1, 5, 2};
-		for (uint32 I = 0; I < 8; ++I)
-		{
-			const auto Role = static_cast<EMaterialSurfaceOutput>(I);
-			const auto Parameter = [&](ParameterKind Kind, Type ValueType, int32 Column, int32 Row) {
-				const auto Id = GetMaterialSurfaceParameterId(Role, Kind);
-				const auto Definition = std::ranges::find(Recipe, Id, &FMaterialParameterDefinition::Id);
-				require(Definition != Recipe.end());
-				const auto Link = B.Node(ValueType == Type::Texture2D ? Op::TextureParameter : Op::Parameter, ValueType);
-				B.Graph.Nodes.back().Parameter = *Definition;
-				Presentation.Nodes.push_back({Link.SourceNodeId, Column * 320, static_cast<int32>(I) * 600 + Row * 130});
-				return Link;
-			};
-			const auto Factor = Parameter(ParameterKind::Value, GetMaterialSurfaceOutputType(Role), 2, 0);
-			const auto Channel = Parameter(ParameterKind::UVChannel, Type::Float, -2, 0);
-			const auto Scale = Parameter(ParameterKind::UVScale, Type::Float2, -2, 1);
-			const auto Offset = Parameter(ParameterKind::UVOffset, Type::Float2, -2, 2);
-			const auto Rotation = Parameter(ParameterKind::UVRotation, Type::Float, -2, 3);
-			const auto UV = B.Node(Op::TextureCoordinates, Type::Float2, {Channel, Scale, Offset, Rotation});
-			Presentation.Nodes.push_back({UV.SourceNodeId, -320, static_cast<int32>(I) * 600});
-			auto Sample = B.Node(Op::TextureSampleParameter2D, Type::Float4, {UV});
-			const auto TextureId = GetMaterialSurfaceParameterId(Role, ParameterKind::Texture);
-			B.Graph.Nodes.back().Parameter = *std::ranges::find(Recipe, TextureId, &FMaterialParameterDefinition::Id);
-			Presentation.Nodes.push_back({Sample.SourceNodeId, 0, static_cast<int32>(I) * 600});
-			Sample.SourceOutputIndex = Channels[I];
-			if (I == 1)
-			{
-				Sample = B.Call(Functions.DecodeImportedNormalRG.Get(), {{Id(Entry::DecodeImportedNormalRG, 1), Type::Float2, Sample}});
-				Presentation.Nodes.push_back({Sample.SourceNodeId, 320, static_cast<int32>(I) * 600 + 150});
-			}
-			const auto FirstCompositionNode = B.Graph.Nodes.size();
-			GetMaterialSurfaceOutputLink(Result.Outputs, Role) = ComposeSurfaceValue(B, I, Factor, Sample, true);
-			for (size_t N = FirstCompositionNode; N < B.Graph.Nodes.size(); ++N)
-				Presentation.Nodes.push_back({B.Graph.Nodes[N].Id,
-					960 + static_cast<int32>((N - FirstCompositionNode) % 3) * 320,
-					static_cast<int32>(I) * 600 + static_cast<int32>((N - FirstCompositionNode) / 3) * 170});
-		}
-		Result.Nodes = std::move(B.Graph.Nodes);
-		OutCalls = std::move(B.Graph.Calls);
-		OutPresentation = std::move(Presentation);
-		return Result;
-	}
 }

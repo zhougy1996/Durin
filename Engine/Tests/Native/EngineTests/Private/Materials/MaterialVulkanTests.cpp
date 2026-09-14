@@ -506,16 +506,13 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			EXPECT_EQ(Capture(Raw.Get()), DefaultPixels);
 		}
 		Durin::FObjectPath ShippedPath;
-		ASSERT_TRUE(Durin::FObjectPath::TryCreate("/Engine/Materials/ImportedSurface.ImportedSurface", ShippedPath));
-		Durin::DMaterial* ShippedImported = nullptr;
-		ASSERT_TRUE(Durin::LoadObject(ShippedPath, ShippedImported));
 		Durin::TStrongObjectPtr<Durin::DMaterial> FunctionComparison(
-			Durin::Cast<Durin::DMaterial>(Durin::DuplicateObject(ShippedImported, nullptr, "ShippedFunctionComparison")));
+			Durin::NewObject<Durin::DMaterial>(nullptr, "FunctionComparison"));
 		ASSERT_NE(FunctionComparison.Get(), nullptr);
 		ASSERT_TRUE(Durin::Testing::SetStandardMaterialProgramForTest(*FunctionComparison));
 		EXPECT_FALSE(FunctionComparison->GetMaterialProgram()->Outputs.Surface.SourceNodeId.IsValid());
 		ASSERT_EQ(FunctionComparison->GetParameterDefinitions().size(), 48u);
-		SaveFunctionMigrationBaseline("rebuilt-imported-surface", Capture(FunctionComparison.Get()));
+		SaveFunctionMigrationBaseline("parameter-function-fixture", Capture(FunctionComparison.Get()));
 		ASSERT_NE(FunctionComparison->GetAcceptedCompiledProgram(), nullptr);
 		ASSERT_TRUE(Durin::FObjectPath::TryCreate("/Engine/Materials/DefaultMaterial.DefaultMaterial", ShippedPath));
 		Durin::DMaterial* ShippedDefault = nullptr;

@@ -383,8 +383,7 @@ TEST(FMaterialAssetCreationTests, BuiltInMaterialsHaveCompletePersistentGraphPre
 		: Refresh.Errors.front().Message);
 
 	for (const std::string_view PathString : {
-		"/Engine/Materials/DefaultMaterial",
-		"/Engine/Materials/ImportedSurface"})
+		"/Engine/Materials/DefaultMaterial"})
 	{
 		FPackagePath Path;
 		ASSERT_TRUE(FPackagePath::TryCreate(PathString, Path));
@@ -1032,7 +1031,7 @@ TEST(FMaterialGraphOperationsTests, CompactCanvasRendersBindingsAndUVExtractionD
 			const float DetailsWidth = IO.DisplaySize.x < 1000 ? 330.f : 450.f;
 			const float GraphWidth = IO.DisplaySize.x - DetailsWidth;
 			ImGui::SetNextWindowPos({0, 0}); ImGui::SetNextWindowSize({GraphWidth, IO.DisplaySize.y});
-			ImGui::Begin("Imported Surface - graph-owned parameters", nullptr, ImGuiWindowFlags_NoResize);
+			ImGui::Begin("Parameter fixture - graph-owned parameters", nullptr, ImGuiWindowFlags_NoResize);
 			Canvas.Draw(*Material, *Transactions.Get(), IO.DisplaySize.y - 50, [&](std::string) { ++Errors; });
 			ImGui::End();
 			ImGui::SetNextWindowPos({GraphWidth, 0}); ImGui::SetNextWindowSize({DetailsWidth, IO.DisplaySize.y});

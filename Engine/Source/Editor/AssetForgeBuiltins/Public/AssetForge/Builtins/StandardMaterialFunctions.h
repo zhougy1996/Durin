@@ -27,7 +27,4 @@ namespace Durin::AssetForge::Builtins
 	// Saves dependencies first. Existing implementations are preserved; incompatible interfaces fail.
 	ASSETFORGEBUILTINS_API auto EnsureStandardMaterialFunctions(
 		FStandardMaterialFunctions& OutFunctions, std::string& OutError) -> bool;
-	ASSETFORGEBUILTINS_API auto MakeImportedSurfaceFunctionProgram(
-		const FStandardMaterialFunctions& Functions, std::vector<FMaterialFunctionCall>& OutCalls,
-		FMaterialGraphPresentation& OutPresentation) -> FMaterialProgram;
 }

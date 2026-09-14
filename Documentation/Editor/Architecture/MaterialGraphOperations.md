@@ -90,8 +90,10 @@ The shipped library lives in `/Engine/Materials/Functions` and uses the same
 function workspace, typed calls and transactions as user assets. New scene imports
 use structural parents with only source-required owners and sample branches.
 Open Parent Material on an imported instance to inspect its generated graph.
-The historical ImportedSurface has 65 expression nodes and is no longer selected
-by new scene imports. Both use the same Surface root as new materials. Final
+The explicit `asset material-template` command can create a PBRSurfaceMaterial_MR
+parent with independent map/value/UV parameters. It is optional and is not selected
+by the current structural importer.
+Generated parents use the same Surface root as new materials. Final
 numerical output policy belongs to Engine's evaluator, not imported Clamp nodes.
 Open a call to edit its function; shared semantic edits update loaded callers and
 previews through the ordinary dependency lifecycle. Preserve port GUIDs when
@@ -214,9 +216,8 @@ canvas makes input replacement explicit with Shift and uses the same command
 result for invalid-target feedback. Aggregate and per-property sources cannot
 coexist in a valid program.
 
-ImportedSurface uses the same Surface as a new material: each input accepts
-the final property value. Factor/sample composition lives upstream, so the template
-has no ImportedSurfaceValues wrapper or second Surface output node. Reusable
+Imported structural parents use the same Surface as a new material: each input
+accepts the final property value. Factor/sample composition lives upstream. Reusable
 functions can still return an aggregate Surface through the existing aggregate mode.
 
 ## Compact input and texture authoring

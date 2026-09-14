@@ -14,10 +14,6 @@ namespace Durin
 
 namespace Durin::AssetForge::Builtins
 {
-	inline constexpr std::string_view ImportedSurfaceMaterialPackagePath =
-		"/Engine/Materials/ImportedSurface";
-	inline constexpr std::string_view ImportedSurfaceMaterialObjectPath =
-		"/Engine/Materials/ImportedSurface.ImportedSurface";
 	inline constexpr std::string_view SceneImporterId = "Durin.Scene";
 
 	struct FSceneImportResult
@@ -44,7 +40,4 @@ namespace Durin::AssetForge::Builtins
 		FSceneImportResult& OutResult,
 		const std::function<bool()>& IsCancellationRequested = {},
 		const FSceneImportPublicationOptions& PublicationOptions = {}) -> bool;
-
-	ASSETFORGEBUILTINS_API auto EnsureImportedSurfaceMaterial(
-		std::string& OutError) -> DMaterial*;
 }

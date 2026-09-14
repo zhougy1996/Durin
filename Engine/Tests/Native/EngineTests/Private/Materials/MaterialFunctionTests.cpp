@@ -2,6 +2,7 @@
 #include "ExplicitMaterialProgramTestFixture.h"
 #include "StandardMaterialFunctionTestFixture.h"
 #include "AssetForge/Builtins/ImportedSurfaceRecipe.h"
+#include "AssetForge/Builtins/PBRSurfaceMaterial.h"
 #include "Materials/MaterialFunction.h"
 #include "Asset/Testing.h"
 #include "Asset/References.h"
@@ -40,6 +41,52 @@ namespace
 		Graph.Nodes[1].Inputs[0] = {.SourceNodeId = CallId, .SourceOutputId = Output.Id};
 		ASSERT_TRUE(Caller.SetFunctionGraph(std::move(Graph)));
 	}
+}
+
+TEST(FMaterialFunctionTests, ExplicitMRTemplateRetainsIndependentInstanceParametersWithoutFunctions)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	FScopedOfflinePreparation Offline;
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, "PBRSurfaceMaterial_MR"));
+	ASSERT_NE(Material.Get(), nullptr);
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	FMaterialGraphPresentation Presentation;
+	auto Program = AssetForge::Builtins::MakePBRSurfaceMaterialMRProgram(Presentation);
+	ASSERT_TRUE(Material->SetMaterialProgram(Program));
+	ASSERT_TRUE(Material->SetMaterialGraphPresentation(Presentation));
+	EXPECT_EQ(Material->GetParameterDefinitions().size(), 48u);
+	EXPECT_EQ(Presentation.Nodes.size(), Program.Nodes.size());
+	EXPECT_TRUE(Material->GetMaterialFunctionCalls().empty());
+	EXPECT_FALSE(Program.Outputs.Surface.SourceNodeId.IsValid());
+	using Kind = MaterialParameters::EMaterialBuiltinParameterKind;
+	for (uint32 Index = 0; Index < 8; ++Index)
+	{
+		const auto Role = static_cast<EMaterialSurfaceOutput>(Index);
+		EXPECT_TRUE(GetMaterialSurfaceOutputLink(Program.Outputs, Role).SourceNodeId.IsValid());
+		const auto Id = GetMaterialSurfaceParameterId(Role, Kind::Texture);
+		const auto Sample = std::ranges::find_if(Program.Nodes, [&](const auto& Node) { return Node.Parameter.Id == Id; });
+		ASSERT_NE(Sample, Program.Nodes.end());
+		EXPECT_EQ(Sample->Opcode, EMaterialProgramOpcode::TextureSampleParameter2D);
+		ASSERT_EQ(Sample->Inputs.size(), 1u);
+		EXPECT_TRUE(Sample->Inputs.front().SourceNodeId.IsValid());
+	}
+	FMaterialCompilerInput Input;
+	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Material, {.CompilerIdentity = "ExplicitMRTemplate"}, Input));
+	const auto Normalized = NormalizeMaterialProgram(Input);
+	ASSERT_TRUE(Normalized);
+	EXPECT_EQ(Normalized.Layout.ResourceFieldCount, 8u);
+	TStrongObjectPtr<DMaterialInstance> Instance(NewObject<DMaterialInstance>(nullptr, "MRInstance"));
+	ASSERT_TRUE(Instance->SetParent(Material.Get()));
+	const auto MetallicId = GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::Metallic, Kind::Value);
+	const auto RoughnessId = GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::Roughness, Kind::Value);
+	ASSERT_TRUE(Instance->SetParameterOverride(MetallicId, EMaterialParameterType::Scalar, FMaterialParameterValue::MakeScalar(.8f)));
+	ASSERT_TRUE(Instance->SetParameterOverride(RoughnessId, EMaterialParameterType::Scalar, FMaterialParameterValue::MakeScalar(.2f)));
+	FResolvedMaterialParameter Resolved;
+	ASSERT_TRUE(Instance->ResolveParameterValue(MetallicId, Resolved));
+	EXPECT_FLOAT_EQ(Resolved.Value.ScalarValue, .8f);
+	ASSERT_TRUE(Instance->ResolveParameterValue(RoughnessId, Resolved));
+	EXPECT_FLOAT_EQ(Resolved.Value.ScalarValue, .2f);
 }
 
 TEST(FMaterialFunctionTests, StructuralImportRecipesExposeOnlyRequiredOwners)
@@ -110,7 +157,7 @@ TEST(FMaterialFunctionTests, ExpandedAndFunctionRecipesPreserveCompilationAndInd
 	ASSERT_TRUE(Frozen->SetMaterialProgram(Testing::MakePBRMaterialProgramForTest()));
 	ASSERT_EQ(Frozen->GetParameterDefinitions().size(), 48u);
 
-	auto* Current = NewObject<DMaterial>(nullptr, "CurrentImportedSurface");
+	auto* Current = NewObject<DMaterial>(nullptr, "CurrentFunctionFixture");
 	ASSERT_NE(Current, nullptr);
 	Current->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	ASSERT_TRUE(Testing::SetStandardMaterialProgramForTest(*Current));
@@ -127,7 +174,7 @@ TEST(FMaterialFunctionTests, ExpandedAndFunctionRecipesPreserveCompilationAndInd
 		EXPECT_TRUE(GetMaterialSurfaceOutputLink(Current->GetMaterialProgram()->Outputs,
 			static_cast<EMaterialSurfaceOutput>(Role)).SourceNodeId.IsValid());
 	FMaterialCompilerInput FrozenInput, CurrentInput;
-	const FMaterialCompilerEnvironment Environment{.CompilerIdentity = "ImportedSurfaceParity"};
+	const FMaterialCompilerEnvironment Environment{.CompilerIdentity = "FunctionFixtureParity"};
 	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Frozen, Environment, FrozenInput));
 	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Current, Environment, CurrentInput));
 	const auto Baseline = NormalizeMaterialProgram(FrozenInput);
@@ -1782,15 +1829,15 @@ TEST(FMaterialFunctionTests, ExpandedBoundsApplyBeforePruningWithoutRaisingAutho
 	CollectGarbage();
 }
 
-TEST(FMaterialFunctionTests, ShippedStandardMaterialCooksAndLoadsWithoutAuthoredFunctionAssets)
+TEST(FMaterialFunctionTests, StandardMaterialFixtureCooksAndLoadsWithoutAuthoredFunctionAssets)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
 	FScopedOfflinePreparation Offline;
-	const auto Root = Testing::CreateTestFixtureDirectory("CookShippedStandardMaterial");
+	const auto Root = Testing::CreateTestFixtureDirectory("CookStandardMaterialFixture");
 	const auto Source = std::filesystem::path(FPaths::EngineContentDir()) / "Materials";
 	std::filesystem::create_directories(Root / "Content/Materials/Functions");
-	for (const std::string_view File : {"ImportedSurface.dasset", "Functions/UVTransform.dasset",
+	for (const std::string_view File : {"Functions/UVTransform.dasset",
 		"Functions/SampleNormal.dasset", "Functions/SampleORM.dasset", "Functions/StandardPBR.dasset",
 		"Functions/StandardPBR_ORM.dasset", "Functions/ImportedSurfaceValues.dasset", "Functions/DecodeImportedNormalRG.dasset"})
 		std::filesystem::copy_file(Source / File, Root / "Content/Materials" / File);
@@ -1816,15 +1863,15 @@ TEST(FMaterialFunctionTests, ShippedStandardMaterialCooksAndLoadsWithoutAuthored
 	Handles.push_back(Generic);
 
 	FPackagePath MaterialPath;
-	ASSERT_TRUE(FPackagePath::TryCreate("/Engine/Materials/ImportedSurface", MaterialPath));
+	ASSERT_TRUE(FPackagePath::TryCreate("/Engine/Materials/FunctionFixture", MaterialPath));
 	DMaterial* Material = nullptr;
-	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), Material));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(MaterialPath, Material));
 	ASSERT_NE(Material, nullptr);
 	AssetForge::Builtins::FStandardMaterialFunctions Functions;
 	ASSERT_TRUE(AssetForge::Builtins::EnsureStandardMaterialFunctions(Functions, Error)) << Error;
 	std::vector<FMaterialFunctionCall> Calls;
 	FMaterialGraphPresentation Presentation;
-	auto Program = AssetForge::Builtins::MakeImportedSurfaceFunctionProgram(Functions, Calls, Presentation);
+	auto Program = Testing::MakeStandardMaterialProgramForTest(Functions, Calls, Presentation);
 	ASSERT_TRUE(Material->SetMaterialProgramAndFunctionCalls(std::move(Program), std::move(Calls)));
 	ASSERT_TRUE(Material->SetMaterialGraphPresentation(std::move(Presentation)));
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));

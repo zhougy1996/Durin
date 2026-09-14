@@ -14,11 +14,13 @@
 #include "AssetForge/Builtins/ImportedSurfaceRecipe.h"
 #include "Hash/XxHash.h"
 #include "Materials/Material.h"
+#include "DObject/StrongObjectPtr.h"
 #include "Materials/MaterialProgramCompiler.h"
 #include "EditorReimportHandler.h"
 #include "StaticMesh/StaticMeshFactoryTestSupport.h"
 #include "Asset/AssetCompilingManager.h"
 #include "../Materials/ExplicitMaterialProgramTestFixture.h"
+#include "../Materials/StandardMaterialFunctionTestFixture.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Components/StaticMeshComponent.h"
 
@@ -541,8 +543,14 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 	std::string Error;
 	FStandardMaterialFunctions Functions;
 	ASSERT_TRUE(EnsureStandardMaterialFunctions(Functions, Error)) << Error;
-	auto* Material = EnsureImportedSurfaceMaterial(Error);
-	ASSERT_NE(Material, nullptr) << Error;
+	TStrongObjectPtr<DMaterial> MaterialOwner(NewObject<DMaterial>(nullptr, "StandardLibraryFixture"));
+	auto* Material = MaterialOwner.Get();
+	ASSERT_NE(Material, nullptr);
+	std::vector<FMaterialFunctionCall> Calls;
+	FMaterialGraphPresentation Presentation;
+	auto Program = Testing::MakeStandardMaterialProgramForTest(Functions, Calls, Presentation);
+	ASSERT_TRUE(Material->SetMaterialProgramAndFunctionCalls(std::move(Program), std::move(Calls)));
+	ASSERT_TRUE(Material->SetMaterialGraphPresentation(std::move(Presentation)));
 	EXPECT_EQ(Material->GetMaterialProgram()->Nodes.size(), 65u);
 	EXPECT_EQ(Material->GetMaterialFunctionCalls().size(), 1u);
 	EXPECT_EQ(Material->GetParameterDefinitions().size(), 48u);
@@ -640,27 +648,4 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 	EXPECT_EQ(Functions.StandardPBR->GetFunctionGraph(), Original);
 	EXPECT_EQ(Functions.StandardPBR->GetAuthoringSourceVersion(), StandardMaterialFunctionVersion);
 	EXPECT_EQ(Material->GetMaterialFunctionCalls().back().Function.Get(), Functions.DecodeImportedNormalRG.Get());
-}
-
-TEST(FSceneImportTests, ModifiedParentRequiresRebuildAndIsPreserved)
-{
-	using namespace Durin;
-	using namespace Durin::AssetForge::Builtins;
-	const auto Fixture = InitializeFixture("OwnedParent");
-	std::string Error;
-	auto* Material = EnsureImportedSurfaceMaterial(Error);
-	ASSERT_NE(Material, nullptr) << Error;
-	const auto Current = *Material->GetMaterialProgram();
-	const std::vector<FMaterialFunctionCall> Calls(Material->GetMaterialFunctionCalls().begin(), Material->GetMaterialFunctionCalls().end());
-	const auto Identity = Material->GetObjectPath();
-	EXPECT_EQ(EnsureImportedSurfaceMaterial(Error), Material);
-	auto Modified = Testing::MakePBRMaterialProgramForTest();
-	ASSERT_TRUE(Material->SetMaterialProgramAndFunctionCalls(Modified, {}));
-	ASSERT_TRUE(SavePackage(Material->GetPackage()));
-	EXPECT_EQ(EnsureImportedSurfaceMaterial(Error), nullptr);
-	EXPECT_NE(Error.find("rebuild"), std::string::npos);
-	EXPECT_EQ(*Material->GetMaterialProgram(), Modified);
-	EXPECT_EQ(Material->GetObjectPath(), Identity);
-	ASSERT_TRUE(Material->SetMaterialProgramAndFunctionCalls(Current, Calls));
-	EXPECT_EQ(EnsureImportedSurfaceMaterial(Error), Material) << Error;
 }

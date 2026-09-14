@@ -30,13 +30,24 @@ COMMAND_SPEC = CommandSpec(
     subcommands=(
         CommandSpec(
             "material-functions",
-            "bootstrap standard functions and upgrade the recognized ImportedSurface template",
+            "initialize missing standard functions and DefaultMaterial",
             HANDLER,
             required_modules=("rich",),
             arguments=CONTEXT_ARGUMENTS + (
                 PROJECT_ARGUMENT,
                 argument("--apply", action="store_true",
-                         help="save function dependencies and the recognized parent template"),
+                         help="save missing standard functions and DefaultMaterial"),
+            ),
+        ),
+        CommandSpec(
+            "material-template",
+            "create a PBRSurfaceMaterial_MR template at an unused package path",
+            HANDLER,
+            required_modules=("rich",),
+            arguments=CONTEXT_ARGUMENTS + (
+                argument("destination", metavar="PACKAGE", help="destination package, such as /Game/Materials/PBRSurfaceMaterial_MR"),
+                PROJECT_ARGUMENT,
+                argument("--apply", action="store_true", help="create the previewed template; existing assets are never replaced"),
             ),
         ),
         CommandSpec(

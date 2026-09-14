@@ -511,7 +511,7 @@ def test_texture_recompression_flag_preserves_preview_apply_boundary(tmp_path: P
 
 
 @pytest.mark.parametrize("apply", [False, True])
-def test_material_function_upgrade_previews_unless_explicit_apply(tmp_path: Path, apply: bool) -> None:
+def test_material_function_initialization_previews_unless_explicit_apply(tmp_path: Path, apply: bool) -> None:
     executable = tmp_path / "DurinAssetTool.exe"
     executable.touch()
     project = tmp_path / "Test.dproject"
@@ -520,10 +520,30 @@ def test_material_function_upgrade_previews_unless_explicit_apply(tmp_path: Path
     calls = []
     def runner(arguments, **kwargs):
         calls.append(arguments)
-        return "Standard material functions and ImportedSurface are current."
+        return "Standard material functions and DefaultMaterial are current."
     def run():
         return asset.run(namespace, repository_root=tmp_path, repository_context=REPOSITORY,
             stdout=io.StringIO(), stderr=io.StringIO(),
             executable_resolver=lambda *_: executable, command_runner=runner)
     assert run() == 0
     assert calls == [[str(executable), "material-functions", f"--project={project}"] + (["--apply"] if apply else [])]
+
+
+@pytest.mark.parametrize("apply", [False, True])
+def test_material_template_forwards_destination_and_explicit_apply(tmp_path: Path, apply: bool) -> None:
+    executable = tmp_path / "DurinAssetTool.exe"
+    executable.touch()
+    project = tmp_path / "Test.dproject"
+    project.write_text("{}", encoding="utf-8")
+    destination = "/Game/Materials/PBRSurfaceMaterial_MR"
+    namespace = argparse.Namespace(asset_command="material-template", project_path=project,
+                                   destination=destination, apply=apply)
+    calls = []
+    def runner(arguments, **kwargs):
+        calls.append(arguments)
+        return "PBRSurfaceMaterial_MR preview"
+    assert asset.run(namespace, repository_root=tmp_path, repository_context=REPOSITORY,
+        stdout=io.StringIO(), stderr=io.StringIO(),
+        executable_resolver=lambda *_: executable, command_runner=runner) == 0
+    assert calls == [[str(executable), "material-template", f"--project={project}", destination]
+                     + (["--apply"] if apply else [])]

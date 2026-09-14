@@ -9,12 +9,40 @@ Completed:
 
 ## Current Status
 
-The design is selected; implementation has not started. This planning change
-does not alter source code or assets. Stage 0 qualifies object ownership and
-captures behavioral baselines before the shared API changes begin.
+The design is selected; the typed-value/expression implementation has not started.
+The preliminary ImportedSurface cleanup removes the obsolete shipped material and
+its production initializer; scene imports continue to generate structural parents.
+An explicit `asset material-template` entry creates PBRSurfaceMaterial_MR at an
+unused destination for future instance-parent workflows. This optional recipe
+remains in scope for typed-expression migration, but no template asset is shipped
+or automatically initialized.
+Stage 0 qualifies object ownership and captures behavioral baselines before the
+shared API changes begin.
+
+Preliminary cleanup/creation validation (Win64 Debug):
+
+- Workspace `all` build passed, including the new explicit template API/command:
+  `Build/.agent-state/logs/20260914-151445-172628-39132-cmake.log`.
+- Cleanup's affected selection passed all 87 regular native targets (including
+  material/import Vulkan integration):
+  `Build/.agent-state/logs/20260914-150759-964152-41780-ctest.log`.
+- After adding the explicit template, MaterialTests passed 200 cases in 19 suites:
+  `Build/.agent-state/logs/20260914-151551-987420-39428-MaterialTests.log`.
+- Final SceneImportTests passed all 10 cases after fixture lifetime cleanup:
+  `Build/.agent-state/logs/20260914-151934-635941-38272-SceneImportTests.log`.
+- Asset command forwarding/grammar tests passed 33 cases. The new command was
+  exercised against the isolated `Build/PBRSurfaceMaterialCommand/Test.dproject`:
+  preview wrote no package, apply produced a compatible v10 package, and a
+  repeated apply failed with unchanged file hash. Cook published one package:
+  `Build/.agent-state/logs/20260914-151735-930766-19388-DurinAssetTool.log`.
+- Post-removal identity audits cover 18 Sandbox-mounted and 14 RoadWeaver-mounted
+  packages, with no reference to the retired template. Reports:
+  `Build/ImportedSurfaceRemoval-Sandbox-after.json` and
+  `Build/ImportedSurfaceRemoval-RoadWeaver-after.json`. A maintenance apply
+  recreated neither the retired nor optional template.
 
 The user explicitly requests rebuilding the small existing material set instead
-of upgrading old assets. Recreate DefaultMaterial, ImportedSurface, required
+of upgrading old assets. Recreate DefaultMaterial, required
 standard material functions, and affected fixtures from current recipes. Do not
 implement a legacy reader, conversion tool, neutral export/import bridge, or
 dual-schema transition. Inventory dependencies to confirm the rebuild closure;
@@ -29,10 +57,11 @@ every node payload, and both materials and functions persist arrays of it.
 `DMaterial::ParameterSchema` is already a transient graph-derived projection;
 this ownership decision must survive the refactor.
 
-The current ImportedSurface package is 58,379 bytes. This is a baseline, not a
-promised reduction: per-expression object/export records introduce overhead
-that must be measured alongside eliminated fields. Recount nodes and section
-sizes in Stage 0 rather than relying on earlier counts.
+The obsolete 58,379-byte ImportedSurface template is removed before this refactor.
+Use newly imported structural parents, explicit PBRSurfaceMaterial_MR templates,
+and representative test graphs for size
+comparisons. Per-expression object/export records introduce overhead that must
+be measured alongside eliminated fields. Capture fresh baselines in Stage 0.
 
 ## Goal
 
@@ -155,10 +184,13 @@ owner with focused tests; do not invent a material-specific package serializer.
 
 ### Stage 0: Qualify ownership and capture rebuild baselines
 
+- [x] Remove the unused ImportedSurface asset/initializer and retain an explicit,
+  non-overwriting PBRSurfaceMaterial_MR creation entry for optional instance use.
+
 - [ ] Inventory every existing opcode, parameter type, and direct-field consumer
   across source and test roots of all projects in `Durin.dworkspace`; record the
   old-field to expression-field mapping, including function defaults and calls.
-- [ ] Confirm the DefaultMaterial/ImportedSurface and standard-function dependency
+- [ ] Confirm the DefaultMaterial and standard-function dependency
   closure. Capture package identities, inbound references, dependent instance
   parameter IDs/overrides, rendered reference images, and package section sizes.
   Include affected authored/cooked fixtures. Internal node IDs and graph layout
@@ -214,7 +246,7 @@ Depends on Stage 2.
 
 - [ ] Migrate MaterialGraphDocument commands, Details, pin/catalog code, preview,
   graph replacement, clipboard, transaction reference collectors, and Apply.
-- [ ] Update standard function recipes, ImportedSurface generation, scene import,
+- [ ] Update standard function recipes, the explicit PBRSurfaceMaterial_MR template, scene import,
   asset creation, and all workspace/test graph construction helpers.
 - [ ] Verify copy/paste GUID remapping, parameter ownership, function ports,
   delete/restore, class replacement, Undo/Redo, save/reopen, Apply/Discard, and
@@ -227,7 +259,7 @@ working and source assets never share mutable expression children.
 
 Depends on Stage 3.
 
-- [ ] Recreate DefaultMaterial, ImportedSurface, and required standard functions
+- [ ] Recreate DefaultMaterial and required standard functions
   directly with the new expression APIs and updated recipes. No old-schema load
   is needed to build them; do not create an upgrade or conversion path.
 - [ ] Recreate affected instances and fixtures if the dependency inventory finds
@@ -238,7 +270,7 @@ Depends on Stage 3.
 - [ ] Rebuild affected derived data and cooked output for Sandbox and RoadWeaver.
   Verify graph-stripped runtime defaults, overrides, dependency residency, and
   Game startup/rendering without expression authoring data.
-- [ ] Compare ImportedSurface and the full retained material set: package section
+- [ ] Compare fresh structural import parents and the retained material set: package section
   bytes, node/object/export counts, save/load allocation/time, and render output.
   Explain object overhead separately from payload reduction. Do not claim size
   or performance wins from record counts alone; investigate regressions before

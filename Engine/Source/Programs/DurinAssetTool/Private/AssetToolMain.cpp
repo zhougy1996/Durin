@@ -1,9 +1,9 @@
 #include "Asset/PackageSerialization.h"
 #if DURIN_WITH_EDITOR
-#include "AssetForge/Builtins/SceneImport.h"
 #include "AssetTools/IAssetTools.h"
 #include "Materials/DefaultMaterialService.h"
 #include "AssetForge/Builtins/StandardMaterialFunctions.h"
+#include "AssetForge/Builtins/PBRSurfaceMaterial.h"
 #endif
 #include "AssetRegistry/Scan.h"
 #include "Asset/Mutation.h"
@@ -68,6 +68,7 @@ namespace
 		StorageInventory,
 		IdentityAudit,
 		MaterialFunctions,
+		MaterialTemplate,
 		Cook,
 	};
 
@@ -107,6 +108,7 @@ namespace
 		case EOperation::StorageInventory: return "storage-inventory";
 		case EOperation::IdentityAudit: return "identity-audit";
 		case EOperation::MaterialFunctions: return "material-functions";
+		case EOperation::MaterialTemplate: return "material-template";
 		case EOperation::Cook: return "cook";
 		}
 		return "check";
@@ -161,6 +163,7 @@ namespace
 			<< "  resave option: --recompress-texture-sources (includes current packages)\n"
 			<< "  DurinAssetTool storage-inventory --project=<project.dproject>\n"
 			<< "  DurinAssetTool identity-audit --project=<project.dproject>\n"
+			<< "  DurinAssetTool material-template --project=<project.dproject> <package-path> [--apply]\n"
 			<< "  DurinAssetTool material-functions --project=<project.dproject> [--apply]\n"
 			<< "  DurinAssetTool cook --project=<project.dproject> --output=<absolute-path> "
 			<< "--target=win64 --profile=game [--root=/Game/Path]... "
@@ -196,7 +199,9 @@ namespace
 								| OptionBit(EOption::Target) | OptionBit(EOption::Profile)
 								| OptionBit(EOption::Root) | OptionBit(EOption::NoIncremental)
 								| OptionBit(EOption::DryRun);
-		const uint16 Allowed = Options.Operation == EOperation::MaterialFunctions ? Storage | OptionBit(EOption::Apply) : Options.Operation == EOperation::Resave ? Resave : Options.Operation == EOperation::Check ? Check :
+		const uint16 Allowed = Options.Operation == EOperation::MaterialTemplate
+			? Storage | OptionBit(EOption::Apply) | OptionBit(EOption::Scope)
+			: Options.Operation == EOperation::MaterialFunctions ? Storage | OptionBit(EOption::Apply) : Options.Operation == EOperation::Resave ? Resave : Options.Operation == EOperation::Check ? Check :
 															  Options.Operation == EOperation::Cook		 ? Cook : Storage;
 		const uint16 Unexpected = Options.SpecifiedOptions & ~Allowed;
 		constexpr EOption OrderedOptions[] = {
@@ -225,6 +230,15 @@ namespace
 			if (Options.Target != "win64" || Options.TargetProfile != "game")
 			{
 				OutError = "cook currently requires --target=win64 --profile=game.";
+				return false;
+			}
+			return true;
+		}
+		if (Options.Operation == EOperation::MaterialTemplate)
+		{
+			if (Options.Scopes.size() != 1)
+			{
+				OutError = "material-template requires exactly one destination package path.";
 				return false;
 			}
 			return true;
@@ -268,6 +282,8 @@ namespace
 			OutOptions.Operation = EOperation::IdentityAudit;
 		else if (Command == "material-functions")
 			OutOptions.Operation = EOperation::MaterialFunctions;
+		else if (Command == "material-template")
+			OutOptions.Operation = EOperation::MaterialTemplate;
 		else if (Command == "cook")
 			OutOptions.Operation = EOperation::Cook;
 		else
@@ -1014,6 +1030,63 @@ int main(int ArgC, char** ArgV)
 		Durin::FModuleManager::Get().LoadModuleChecked(Durin::FName(Module));
 	(void)Durin::DLevel::StaticClass(); // Force the Engine reflection module into this process.
 	if (Options.Operation == EOperation::Cook) return RunCook(Options);
+	if (Options.Operation == EOperation::MaterialTemplate)
+	{
+#if DURIN_WITH_EDITOR
+		Durin::FPackagePath Path;
+		std::string Error;
+		if (!Durin::FPackagePath::TryCreate(Options.Scopes.front(), Path, &Error))
+		{
+			std::cerr << Error << '\n';
+			return 1;
+		}
+		const auto Refresh = Durin::RefreshAssetRegistry(Durin::EAssetRegistryScanMode::FullValidation);
+		if (!Refresh || !Refresh.bPublished) return 1;
+		Durin::FTopLevelAssetPath AssetPath;
+		if (!Durin::FTopLevelAssetPath::TryCreate(Path, Path.GetPackageName(), AssetPath)) return 1;
+		const auto Destination = Durin::FMountPaths::ResolveAssetPath(Path.GetView());
+		if (!Destination || !Destination.Mount->bContentWritable)
+		{
+			std::cerr << "Template destination must resolve to a writable content mount: " << Destination.Message << '\n';
+			return 1;
+		}
+		std::error_code ExistsError;
+		const bool bFileExists = std::filesystem::exists(Destination.PhysicalPath.string() + ".dasset", ExistsError);
+		if (ExistsError || bFileExists || Durin::FindAssetExact(Path) || Durin::FindResidentPackage(Path))
+		{
+			std::cerr << "Template destination is occupied or cannot be inspected: " << Path.ToString() << '\n';
+			return 1;
+		}
+		std::cout << "Create PBRSurfaceMaterial_MR at " << Path.ToString() << '\n';
+		if (!Options.bApply) return 0;
+		Durin::FModuleManager::Get().LoadModuleChecked("ShaderBuild");
+		const auto Created = Durin::IAssetTools::Get().CreateAsset(AssetPath, Durin::DMaterial::StaticClass());
+		auto* Material = Durin::Cast<Durin::DMaterial>(Created.Asset);
+		if (!Created || !Material) { std::cerr << Created.Message << '\n'; return 1; }
+		Material->SetEditCompileMode(Durin::EMaterialEditCompileMode::Manual);
+		Durin::FMaterialGraphPresentation Presentation;
+		auto Program = Durin::AssetForge::Builtins::MakePBRSurfaceMaterialMRProgram(Presentation);
+		const auto Valid = Material->SetMaterialProgram(std::move(Program));
+		if (!Valid || !Material->SetMaterialGraphPresentation(std::move(Presentation)))
+		{
+			std::cerr << "PBRSurfaceMaterial_MR graph validation failed.\n";
+			Durin::UnloadPackage(Path, Durin::EAssetPackageUnloadPolicy::DiscardUnsaved);
+			return 1;
+		}
+		const auto Saved = Durin::SavePackage(Material->GetPackage());
+		if (!Saved)
+		{
+			std::cerr << Saved.Message << '\n';
+			Durin::UnloadPackage(Path, Durin::EAssetPackageUnloadPolicy::DiscardUnsaved);
+			return 1;
+		}
+		std::cout << "Created PBRSurfaceMaterial_MR; existing materials are never replaced.\n";
+		return 0;
+#else
+		std::cerr << "Material template creation requires the editor asset host.\n";
+		return 1;
+#endif
+	}
 	if (Options.Operation == EOperation::MaterialFunctions)
 	{
 #if DURIN_WITH_EDITOR
@@ -1071,17 +1144,7 @@ int main(int ArgC, char** ArgV)
 				Row.SetChildValue("schema", Material->GetMaterialProgram()->SchemaVersion);
 				Row.SetChildValue("nodes", static_cast<uint32>(Material->GetMaterialProgram()->Nodes.size()));
 				Row.SetChildValue("calls", static_cast<uint32>(Material->GetMaterialFunctionCalls().size()));
-				Row.SetChildValue("status", Package.PackagePath.ToString() == "/Engine/Materials/ImportedSurface"
-					? "Template candidate; exact graph and dependency checks required before replacement" : "Skipped: custom material");
-				if (Package.PackagePath.ToString() == "/Engine/Materials/ImportedSurface" && Functions.StandardPBR.IsValid() && Functions.UVTransform.IsValid())
-				{
-					std::vector<Durin::FMaterialFunctionCall> Calls;
-					Durin::FMaterialGraphPresentation Presentation;
-					const auto Expected = Durin::AssetForge::Builtins::MakeImportedSurfaceFunctionProgram(Functions, Calls, Presentation);
-					const bool Exact = *Material->GetMaterialProgram() == Expected && std::ranges::equal(Material->GetMaterialFunctionCalls(), Calls);
-					Row.SetChildValue("exactCurrentFunctionRecipe", Exact);
-					Row.SetChildValue("currentRecipeDependenciesMatch", Exact && bExactDependencies);
-				}
+				Row.SetChildValue("status", "Preserved: existing material");
 				auto Definitions = Row.AddArray("parameters");
 				for (const auto& Definition : Material->GetParameterDefinitions())
 				{
@@ -1122,7 +1185,7 @@ int main(int ArgC, char** ArgV)
 		if (!bInventoryValid) return 1;
 		if (!Options.bApply) return 0;
 		std::string Error;
-		if (!Durin::AssetForge::Builtins::EnsureImportedSurfaceMaterial(Error))
+		if (!Durin::AssetForge::Builtins::EnsureStandardMaterialFunctions(Functions, Error))
 		{
 			std::cerr << "Material recipe initialization failed: " << Error << '\n';
 			return 1;
@@ -1139,7 +1202,7 @@ int main(int ArgC, char** ArgV)
 			const auto Saved = Durin::SavePackage(Material->GetPackage());
 			if (!Saved) { std::cerr << Saved.Message << '\n'; return 1; }
 		}
-		std::cout << "Standard material functions, ImportedSurface and DefaultMaterial are current.\n";
+		std::cout << "Standard material functions and DefaultMaterial are current.\n";
 		return 0;
 #else
 		std::cerr << "Material recipe initialization requires the editor asset host.\n";

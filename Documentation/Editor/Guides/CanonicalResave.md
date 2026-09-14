@@ -44,17 +44,12 @@ projects. Repeat with `--project` for each project descriptor; shared Engine
 content needs only one pass. Project modules are loaded before schema capture
 so project-defined asset classes participate in inspection and resave.
 
-For the reusable material function migration, first retain `asset identity-audit`
-and canonical-resave preview reports, then run
-`DevTool.bat asset material-functions --project <descriptor> --apply`.
-This saves missing standard function dependencies before upgrading ImportedSurface.
-Only the exact shipped expanded templates are replaced, including the historical
-StandardSurface resave expansion. Existing function implementations are preserved;
-incompatible provenance or interfaces and modified parent graphs are reported.
-Each package save is atomic, so a retry resumes from the compatible saved functions.
-Retain package fingerprints in the migration checkpoint, verify them before a
-retry, and rerun both the upgrade and canonical-resave audit after publication.
-Instances and meshes use the ordinary canonical-resave operation below.
+The `asset material-functions --apply` command initializes missing reusable
+functions and DefaultMaterial. It preserves compatible function implementation
+edits and rejects incompatible provenance or interfaces. It does not upgrade
+historical material graphs or recreate the retired ImportedSurface template.
+Each package save is atomic. Instances and meshes use canonical resave only
+when their existing logical schemas are already supported.
 
 Folder scopes and `--all` select recommended identity repairs. To force a plain
 load-and-save of an already canonical package, pass its exact package path.
@@ -120,6 +115,25 @@ enabled mounts and deduplicate physical packages. Engine content is mounted by
 normal game projects; `Engine.dproject` itself is not a standalone asset-tool
 project because its root list includes the launcher program.
 
+## Explicit PBR material template
+
+Create an optional Metallic/Roughness instance parent at a chosen unused package
+path. The command previews by default; `--apply` creates and saves the material:
+
+```powershell
+.\DevTool.bat asset material-template /Game/Materials/PBRSurfaceMaterial_MR --project Sandbox/Sandbox.dproject
+.\DevTool.bat asset material-template /Game/Materials/PBRSurfaceMaterial_MR --project Sandbox/Sandbox.dproject --apply
+```
+
+The template exposes independent value, texture, and UV parameters for every
+surface property. Metallic reads B and roughness reads G; map bindings and UVs
+remain independent. Normals use the existing decoded-RG sample output. It needs
+no material function assets. Instance overrides bind the stable built-in parameter
+IDs. Existing destinations are rejected without overwriting their contents.
+Neither scene import nor `material-functions` creates this optional template.
+The command does not enable a new import-as-instance mode; it provides the
+parent authoring entry point for that future workflow.
+
 ## Material recipe initialization and reconstruction
 
 Inspect material/function provenance, current schemas, parameter owners and
@@ -131,9 +145,9 @@ instance overrides before changing shared material content:
 ```
 
 Apply repeats the inventory before writing. It initializes missing standard
-functions, ImportedSurface and DefaultMaterial from current graph-owned recipes.
+functions and DefaultMaterial from current graph-owned recipes.
 Existing functions retain compatible implementation edits; incompatible provenance
-or interfaces fail. Existing ImportedSurface must match the current recipe.
+or interfaces fail.
 Modified or unsupported graphs require explicit reconstruction and are not converted.
 Repeated application to current assets is a no-op.
 
@@ -148,12 +162,11 @@ Cooked outputs must be regenerated after reconstruction.
 
 Scene imports generate structural parents under the destination mount's
 `Materials/ImportedParents` directory; they do not select or initialize the
-historical Engine ImportedSurface. Reimport the source to regenerate its outputs
+retired Engine ImportedSurface template. Reimport the source to regenerate its outputs
 and select current parent shapes. Reimport replaces edits to generated assets;
 keep independent customized copies outside the destination. Existing immutable
 parents and outputs removed from the source are retained for references. The
-material-functions command maintains the shipped reusable functions and historical
-parent; it does not rebuild scene-specific parents. Already-current DefaultMaterial
-and historical content need no destructive reconstruction solely for a new
-structural recipe. See [Material System](../../Runtime/Rendering/MaterialSystem.md)
+material-functions command maintains the shipped reusable functions and
+DefaultMaterial; it does not rebuild scene-specific parents. Already-current
+content needs no destructive reconstruction solely for a new structural recipe. See [Material System](../../Runtime/Rendering/MaterialSystem.md)
 for ownership and normal sampling contracts.
