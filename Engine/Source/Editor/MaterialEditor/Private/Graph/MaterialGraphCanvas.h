@@ -151,7 +151,7 @@ namespace Durin::Editor::Material
 		auto DrawContextMenu(DMaterial& Material,
 			::Durin::DTransactor& Transactions, const FMaterialGraphView& View,
 			const FReportError& ReportError) -> void;
-		auto RememberCreation(const FMaterialProgramNode& Node) -> void;
+		auto RememberCreation(const FMaterialGraphCatalogEntry& Node) -> void;
 		auto HasClipboard() const -> bool;
 		auto DrawCreationMenu(DMaterial& Material,
 			::Durin::DTransactor& Transactions, const FMaterialGraphView& View,

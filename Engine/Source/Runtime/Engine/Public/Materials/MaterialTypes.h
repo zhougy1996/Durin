@@ -9,6 +9,7 @@
 
 #include "MaterialTypes.gen.h"
 
+#include <variant>
 #include <array>
 #include <span>
 #include <string>
@@ -20,7 +21,7 @@ namespace Durin
 	struct FMaterialProgram;
 	class DMaterialInterface;
 
-	// Selects the active storage field in a material parameter value.
+	// Logical parameter type used in declarations and serialized records.
 	DENUM()
 	enum class EMaterialParameterType : uint8
 	{
@@ -178,27 +179,14 @@ namespace Durin
 
 	ENGINE_API auto IsValidMaterialSampling(FMaterialSamplerState State, EMaterialTextureFallback Fallback) -> bool;
 
-	// Stores the reflected alternatives used by material parameters. Type selects
-	// the only semantically active field.
+	// A texture override owns its complete sampling policy.
 	DSTRUCT()
-	struct FMaterialParameterValue
+	struct FMaterialTextureValue
 	{
 		GENERATED_BODY()
 
 		DPROPERTY()
-		float ScalarValue = 0.0f;
-
-		DPROPERTY()
-		FVector3 VectorValue{0.0};
-
-		DPROPERTY()
-		FVector2 Vector2Value{0.0};
-
-		DPROPERTY()
-		FVector4 Vector4Value{0.0};
-
-		DPROPERTY()
-		TObjectPtr<DTexture2D> TextureValue;
+		TObjectPtr<DTexture2D> Texture;
 
 		DPROPERTY()
 		FMaterialSamplerState SamplerState;
@@ -206,73 +194,70 @@ namespace Durin
 		DPROPERTY()
 		EMaterialTextureFallback TextureFallback = EMaterialTextureFallback::White;
 
+		auto operator==(const FMaterialTextureValue&) const -> bool = default;
+	};
+
+	// Transient selected value. Accessors require the matching alternative.
+	class FMaterialParameterValue
+	{
+	public:
+		ENGINE_API auto GetType() const -> EMaterialParameterType;
+		ENGINE_API auto AddReferencedObjects(FReferenceCollector& Collector) -> void;
+		auto GetScalar() const -> const float& { require(std::holds_alternative<float>(Value)); return std::get<float>(Value); }
+		auto GetScalar() -> float& { require(std::holds_alternative<float>(Value)); return std::get<float>(Value); }
+		auto GetVector2() const -> const FVector2& { require(std::holds_alternative<FVector2>(Value)); return std::get<FVector2>(Value); }
+		auto GetVector2() -> FVector2& { require(std::holds_alternative<FVector2>(Value)); return std::get<FVector2>(Value); }
+		auto GetVector() const -> const FVector3& { require(std::holds_alternative<FVector3>(Value)); return std::get<FVector3>(Value); }
+		auto GetVector() -> FVector3& { require(std::holds_alternative<FVector3>(Value)); return std::get<FVector3>(Value); }
+		auto GetVector4() const -> const FVector4& { require(std::holds_alternative<FVector4>(Value)); return std::get<FVector4>(Value); }
+		auto GetVector4() -> FVector4& { require(std::holds_alternative<FVector4>(Value)); return std::get<FVector4>(Value); }
+		auto GetTexture() const -> const FMaterialTextureValue& { require(std::holds_alternative<FMaterialTextureValue>(Value)); return std::get<FMaterialTextureValue>(Value); }
+		auto GetTexture() -> FMaterialTextureValue& { require(std::holds_alternative<FMaterialTextureValue>(Value)); return std::get<FMaterialTextureValue>(Value); }
+
 		ENGINE_API static auto MakeScalar(float Value) -> FMaterialParameterValue;
-		ENGINE_API static auto MakeVector(const FVector3& Value) -> FMaterialParameterValue;
 		ENGINE_API static auto MakeVector2(const FVector2& Value) -> FMaterialParameterValue;
+		ENGINE_API static auto MakeVector(const FVector3& Value) -> FMaterialParameterValue;
 		ENGINE_API static auto MakeVector4(const FVector4& Value) -> FMaterialParameterValue;
 		ENGINE_API static auto MakeTexture(DTexture2D* Value, FMaterialSamplerState Sampler = {},
 			EMaterialTextureFallback Fallback = EMaterialTextureFallback::White) -> FMaterialParameterValue;
-
 		auto operator==(const FMaterialParameterValue&) const -> bool = default;
+	private:
+		std::variant<float, FVector2, FVector3, FVector4, FMaterialTextureValue> Value = 0.0f;
 	};
 
-	// Defines stable parameter identity, default value, and editor presentation metadata.
-	DSTRUCT()
+	// Derived parameter view; pointers expire when the owner revision changes.
 	struct FMaterialParameterDefinition
 	{
-		GENERATED_BODY()
 
 		// Stable identity survives display-name and ordering changes.
-		DPROPERTY()
 		FGuid Id;
 
-		DPROPERTY()
 		FName Name;
 
-		// Selects which field of Value is semantically active.
-		DPROPERTY()
+		// Derived declaration type; validation requires agreement with Value.GetType().
 		EMaterialParameterType Type = EMaterialParameterType::Scalar;
 
-		DPROPERTY()
 		FMaterialParameterValue Value;
 
-		DPROPERTY()
 		std::string DisplayName;
 
-		DPROPERTY()
 		FName GroupName;
 
-		DPROPERTY()
 		int32 SortOrder = 0;
 
-		DPROPERTY()
 		EMaterialParameterPresentation Presentation = EMaterialParameterPresentation::Default;
 
-		DPROPERTY()
 		bool bHasRange = false;
 
 		// Applies only when bHasRange is true and Type is Scalar.
-		DPROPERTY()
 		float MinimumValue = 0.0f;
 
-		DPROPERTY()
 		float MaximumValue = 0.0f;
 
 		// Applies only to Texture parameters.
-		DPROPERTY()
 		ETextureUsage TextureUsage = ETextureUsage::Color;
 
 		auto operator==(const FMaterialParameterDefinition&) const -> bool = default;
-	};
-
-	// Read-only transient projection of one typed instance override.
-	struct FMaterialParameterOverride
-	{
-		FGuid ParameterId;
-
-		EMaterialParameterType Type = EMaterialParameterType::Scalar;
-
-		FMaterialParameterValue Value;
 	};
 
 	// Editor-only generated recipe and source/output identity; contains no value history.

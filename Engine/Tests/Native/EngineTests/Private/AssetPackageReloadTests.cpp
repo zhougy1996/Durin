@@ -6,6 +6,8 @@
 #include "Asset/PackageReload.h"
 #include "Components/VolumetricCloudComponent.h"
 #include "DObject/StrongObjectPtr.h"
+#include "DObject/Class.h"
+#include "DObject/Archive.h"
 #include "Editor/Transactor.h"
 #include "Editor/WorkspaceRootWindow.h"
 #include "Materials/Material.h"
@@ -24,6 +26,37 @@
 
 namespace
 {
+	auto CaptureFunctionExpressions(const Durin::DMaterialFunction& Function)
+		-> std::vector<Durin::TStrongObjectPtr<Durin::DMaterialExpression>>
+	{
+		std::vector<Durin::TStrongObjectPtr<Durin::DMaterialExpression>> Result;
+		for (const auto& Expression : Function.GetExpressionCollection().Expressions)
+			Result.emplace_back(Durin::DuplicateObject(Expression.Get(), nullptr, Durin::NAME_None));
+		return Result;
+	}
+	auto PublishFunctionExpressions(Durin::DMaterialFunction& Function,
+		const std::vector<Durin::TStrongObjectPtr<Durin::DMaterialExpression>>& Expressions,
+		const Durin::FMaterialFunctionSignature& Signature) -> Durin::FMaterialProgramValidationResult
+	{
+		std::vector<Durin::DMaterialExpression*> Values;
+		for (const auto& Expression : Expressions) Values.push_back(Expression.Get());
+		return Function.SetFunctionExpressions(Signature, Values);
+	}
+	auto ConnectFunction(Durin::DMaterialFunction& Caller, Durin::DMaterialFunction& Callee, Durin::FGuid Id)
+		-> Durin::FMaterialProgramValidationResult
+	{
+		using namespace Durin;
+		auto Body = CaptureFunctionExpressions(Caller);
+		TStrongObjectPtr<DMaterialExpressionFunctionCall> Call(NewObject<DMaterialExpressionFunctionCall>(nullptr, NAME_None));
+		const auto& Output = Callee.GetFunctionSignature().Outputs[0];
+		Call->Id = Id; Call->Function = &Callee; Call->Outputs = {{Output.Id, Output.Type}};
+		for (const auto& Expression : Body)
+			if (auto* Terminal = Cast<DMaterialExpressionFunctionOutput>(Expression.Get()))
+				Terminal->Source = {.ExpressionId = Id, .OutputId = Output.Id};
+		Body.emplace_back(Call.Get());
+		return PublishFunctionExpressions(Caller, Body, Caller.GetFunctionSignature());
+	}
+
 	class FAssetPackageReloadTests : public testing::Test
 	{
 	protected:
@@ -199,28 +232,26 @@ TEST_F(FAssetPackageReloadTests, FunctionReloadRebindsNestedCallersAndPreservesA
 	ASSERT_TRUE(SavePackage(Function->GetPackage()));
 	const auto Name = Function->GetFName();
 	TStrongObjectPtr<DMaterialFunction> Wrapper(NewObject<DMaterialFunction>(nullptr, "ReloadWrapper"));
-	auto Graph = Wrapper->GetFunctionGraph();
 	const auto Output = Function->GetFunctionSignature().Outputs[0];
 	const FGuid InnerCall{61, 1, 1, 1}, RootCall{61, 1, 1, 2};
-	Graph.Nodes.push_back({.Id = InnerCall, .Opcode = EMaterialProgramOpcode::FunctionCall});
-	Graph.Calls.push_back({.NodeId = InnerCall, .Function = Function, .Outputs = {{Output.Id, Output.Type}}});
-	Graph.Nodes[1].Inputs = {{.SourceNodeId = InnerCall, .SourceOutputId = Output.Id}};
-	ASSERT_TRUE(Wrapper->SetFunctionGraph(Graph));
-	Graph.Calls.clear();
+	ASSERT_TRUE(ConnectFunction(*Wrapper, *Function, InnerCall));
 	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, "ReloadFunctionCaller"));
 	TStrongObjectPtr<DMaterialInstance> Instance(NewObject<DMaterialInstance>(nullptr, "ReloadFunctionInstance"));
 	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	ASSERT_TRUE(Instance->SetParent(Material.Get()));
-	FMaterialProgram Program;
-	Program.Nodes = {{.Id = RootCall, .Opcode = EMaterialProgramOpcode::FunctionCall}};
-	Program.Outputs.Surface = {.SourceNodeId = RootCall, .SourceOutputId = Output.Id};
-	ASSERT_TRUE(Material->SetMaterialProgramAndFunctionCalls(Program,
-		{{.NodeId = RootCall, .Function = Wrapper.Get(), .Outputs = {{Output.Id, Output.Type}}}}));
+	{
+		TStrongObjectPtr<DMaterialExpressionFunctionCall> Call(NewObject<DMaterialExpressionFunctionCall>(nullptr, NAME_None));
+		Call->Id = RootCall; Call->Function = Wrapper.Get(); Call->Outputs = {{Output.Id, Output.Type}};
+		const std::array<DMaterialExpression*, 1> Expressions{Call.Get()};
+		FMaterialExpressionSurfaceOutputs Outputs;
+		Outputs.Surface = {.ExpressionId = RootCall, .OutputId = Output.Id};
+		ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
+	}
 	ASSERT_TRUE(Material->CompileEdits()) << (Material->GetMaterialCompileDiagnostics().empty() ? "No diagnostic" : Material->GetMaterialCompileDiagnostics()[0].Source.Message);
 	const auto SavedIdentity = Material->GetAcceptedCompiledProgram()->Identity;
-	auto Edited = Function->GetFunctionGraph();
-	Edited.Signature.Inputs[0].Default.Surface.RoughnessDefault.X = 0.15f;
-	ASSERT_TRUE(Function->SetFunctionGraph(Edited));
+	auto Signature = Function->GetFunctionSignature();
+	Signature.Inputs[0].Default.Surface.RoughnessDefault.X = 0.15f;
+	ASSERT_TRUE(PublishFunctionExpressions(*Function, CaptureFunctionExpressions(*Function), Signature));
 	ASSERT_TRUE(Material->CompileEdits());
 	const auto Accepted = Material->GetAcceptedCompiledProgram();
 	ASSERT_NE(Accepted->Identity, SavedIdentity);
@@ -231,20 +262,22 @@ TEST_F(FAssetPackageReloadTests, FunctionReloadRebindsNestedCallersAndPreservesA
 	Function = Cast<DMaterialFunction>(FindResidentPackage(Path)->FindTopLevelAsset(Name));
 	ASSERT_NE(Function, nullptr);
 	EXPECT_NE(MakeObjectHandle(Function), OldHandle);
-	EXPECT_EQ(Wrapper->GetFunctionGraph().Calls[0].Function.Get(), Function);
+	EXPECT_TRUE(std::ranges::any_of(Wrapper->GetExpressionCollection().Expressions, [&](const auto& Expression) {
+		const auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression.Get());
+		return Call && Call->Id == InnerCall && Call->Function.Get() == Function;
+	}));
 	EXPECT_EQ(Material->GetMaterialCompileStatus().State, EMaterialCompileState::NeedsCompile);
 	EXPECT_EQ(Instance->GetMaterialCompileStatus().State, EMaterialCompileState::NeedsCompile);
 	EXPECT_EQ(Material->GetAcceptedCompiledProgram(), Accepted);
 	EXPECT_EQ(Instance->GetAcceptedCompiledProgram(), Accepted);
 	ASSERT_TRUE(Material->CompileEdits());
 	EXPECT_EQ(Material->GetAcceptedCompiledProgram()->Identity, SavedIdentity);
-	std::vector<FMaterialFunctionCallSnapshot> Calls;
-	FMaterialFunctionClosure Closure;
+	FMaterialIRCompilerInput Input;
 	std::vector<FMaterialFunctionOwnerStamp> Before, After;
-	ASSERT_TRUE(SnapshotMaterialFunctionCalls(Material->GetMaterialFunctionCalls(), Calls, Closure, &Before));
+	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Material.Get(), {.CompilerIdentity = "ReloadFunctionOwners"}, Input, &Before));
 	auto Repeated = ReloadPackages({.Packages = {Function->GetPackage()}});
 	ASSERT_TRUE(Repeated.Wait());
-	ASSERT_TRUE(SnapshotMaterialFunctionCalls(Material->GetMaterialFunctionCalls(), Calls, Closure, &After));
+	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Material.Get(), {.CompilerIdentity = "ReloadFunctionOwners"}, Input, &After));
 	ASSERT_EQ(Before.size(), After.size());
 	EXPECT_NE(Before, After);
 	for (size_t Index = 0; Index < Before.size(); ++Index)
@@ -266,24 +299,27 @@ TEST_F(FAssetPackageReloadTests, InvalidSavedFunctionClosureCannotReplaceValidLi
 	ASSERT_TRUE(FPackagePath::TryCreate("/AssetDiscardTests/InvalidFunction", Path));
 	DMaterialFunction* Function = nullptr;
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Function));
-	const auto Valid = Function->GetFunctionGraph();
-	const auto Output = Valid.Signature.Outputs[0];
-	const FGuid CallId{62, 1, 1, 1};
-	auto Recursive = Valid;
-	Recursive.Nodes.push_back({.Id = CallId, .Opcode = EMaterialProgramOpcode::FunctionCall});
-	Recursive.Calls.push_back({.NodeId = CallId, .Function = Function, .Outputs = {{Output.Id, Output.Type}}});
-	Recursive.Nodes[1].Inputs = {{.SourceNodeId = CallId, .SourceOutputId = Output.Id}};
-	ASSERT_TRUE(Function->SetFunctionGraph(Recursive));
+	const auto Valid = CaptureFunctionExpressions(*Function);
+	const auto Signature = Function->GetFunctionSignature();
+	ASSERT_TRUE(ConnectFunction(*Function, *Function, {62, 1, 1, 1}));
 	ASSERT_TRUE(SavePackage(Function->GetPackage()));
-	Recursive.Calls.clear();
-	ASSERT_TRUE(Function->SetFunctionGraph(Valid));
+	ASSERT_TRUE(PublishFunctionExpressions(*Function, Valid, Signature));
 	const auto Handle = MakeObjectHandle(Function);
 	auto Operation = ReloadPackages({.Packages = {Function->GetPackage()}});
 	const auto Result = Operation.Wait();
 	EXPECT_EQ(Result.Status, EPackageReloadStatus::Failed);
 	EXPECT_EQ(Result.Failure, EPackageReloadFailure::ResourcePreparationFailed);
 	EXPECT_EQ(ResolveObjectHandle(Handle), Function);
-	EXPECT_EQ(Function->GetFunctionGraph(), Valid);
+	EXPECT_EQ(Function->GetFunctionSignature(), Signature);
+	const auto& Actual = Function->GetExpressionCollection().Expressions;
+	ASSERT_EQ(Actual.size(), Valid.size());
+	for (size_t Index = 0; Index < Actual.size(); ++Index)
+	{
+		ASSERT_EQ(Actual[Index]->GetClass(), Valid[Index]->GetClass());
+		Actual[Index]->GetClass()->ForEachProperty([&](FProperty* Property) {
+			EXPECT_TRUE(ArePropertyValuesIdentical(Property, Actual[Index].Get(), 0, Valid[Index].Get(), 0));
+		});
+	}
 	EXPECT_TRUE(Function->GetPackage()->IsDirty());
 	ASSERT_TRUE(SavePackage(Function->GetPackage()));
 	ASSERT_TRUE(UnloadPackage(Path));

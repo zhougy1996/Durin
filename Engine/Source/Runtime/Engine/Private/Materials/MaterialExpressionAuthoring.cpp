@@ -64,13 +64,14 @@ namespace Durin::Private
 				break;
 			case EMaterialProgramOpcode::Parameter:
 			{
+				if (Node.Parameter.Type != Node.Parameter.Value.GetType()) return false;
 				DMaterialExpressionParameter* Parameter = nullptr;
 				switch (Node.Parameter.Type)
 				{
 				case EMaterialParameterType::Scalar:
 				{
 					auto* Value = NewObject<DMaterialExpressionScalarParameter>(Owner, Name);
-					Value->DefaultValue = Node.Parameter.Value.ScalarValue;
+					Value->DefaultValue = Node.Parameter.Value.GetScalar();
 					Value->bHasRange = Node.Parameter.bHasRange;
 					Value->MinimumValue = Node.Parameter.MinimumValue;
 					Value->MaximumValue = Node.Parameter.MaximumValue;
@@ -79,19 +80,19 @@ namespace Durin::Private
 				case EMaterialParameterType::Vector2:
 				{
 					auto* Value = NewObject<DMaterialExpressionVector2Parameter>(Owner, Name);
-					Value->DefaultValue = Node.Parameter.Value.Vector2Value;
+					Value->DefaultValue = Node.Parameter.Value.GetVector2();
 					Parameter = Value; break;
 				}
 				case EMaterialParameterType::Vector:
 				{
 					auto* Value = NewObject<DMaterialExpressionVector3Parameter>(Owner, Name);
-					Value->DefaultValue = Node.Parameter.Value.VectorValue;
+					Value->DefaultValue = Node.Parameter.Value.GetVector();
 					Parameter = Value; break;
 				}
 				case EMaterialParameterType::Vector4:
 				{
 					auto* Value = NewObject<DMaterialExpressionVector4Parameter>(Owner, Name);
-					Value->DefaultValue = Node.Parameter.Value.Vector4Value;
+					Value->DefaultValue = Node.Parameter.Value.GetVector4();
 					Parameter = Value; break;
 				}
 				default: return false;
@@ -102,6 +103,7 @@ namespace Durin::Private
 			case EMaterialProgramOpcode::TextureParameter:
 			case EMaterialProgramOpcode::TextureSampleParameter2D:
 			{
+				if (Node.Parameter.Value.GetType() != EMaterialParameterType::Texture) return false;
 				DMaterialExpressionTextureParameter* Value;
 				if (Node.Opcode == EMaterialProgramOpcode::TextureSampleParameter2D)
 				{
@@ -111,7 +113,7 @@ namespace Durin::Private
 				}
 				else Value = NewObject<DMaterialExpressionTextureParameter>(Owner, Name);
 				Value->Metadata = Metadata(Node.Parameter); Value->TextureUsage = Node.Parameter.TextureUsage;
-				Value->DefaultValue = {Node.Parameter.Value.TextureValue, Node.Parameter.Value.SamplerState, Node.Parameter.Value.TextureFallback};
+				Value->DefaultValue = {Node.Parameter.Value.GetTexture().Texture, Node.Parameter.Value.GetTexture().SamplerState, Node.Parameter.Value.GetTexture().TextureFallback};
 				Expression = Value; break;
 			}
 			case EMaterialProgramOpcode::Add:

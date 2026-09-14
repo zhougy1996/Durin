@@ -1,7 +1,7 @@
 #pragma once
 
 #include "AssetForgeBuiltinsAPI.h"
-#include "Materials/MaterialProgramTypes.h"
+#include "AssetForge/Builtins/MaterialExpressionRecipe.h"
 
 namespace Durin::AssetForge::Builtins
 {
@@ -33,8 +33,7 @@ namespace Durin::AssetForge::Builtins
 	struct FImportedSurfaceRecipe
 	{
 		std::string CanonicalKey;
-		FMaterialProgram Program;
-		FMaterialGraphPresentation Presentation;
+		FMaterialExpressionRecipe Graph;
 		// Logical roles may share an owner. Consumers publish one override per ID.
 		std::vector<FImportedSurfaceOwner> Owners;
 	};

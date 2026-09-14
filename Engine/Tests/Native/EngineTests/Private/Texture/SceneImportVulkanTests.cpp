@@ -559,7 +559,6 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	ASSERT_TRUE(FailedResourceMaterial->SetParameterOverride(
 		Durin::MaterialParameters::GetBuiltinParameterIds(
 			Durin::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Texture,
-		Durin::EMaterialParameterType::Texture,
 		Durin::FMaterialParameterValue::MakeTexture(nullptr, FailedSampler)));
 	const std::array<Durin::DObject*, 3> Controls{TextureOnly, FactorOnly, FailedResourceMaterial};
 	Durin::FAssetCompilingManager::Get().FinishCompilationForObjects(Controls);
@@ -689,13 +688,14 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		ASSERT_NE(PbrProgram, nullptr);
 		auto* PbrParent = Durin::Cast<Durin::DMaterial>(PbrMaterial->GetParent());
 		ASSERT_NE(PbrParent, nullptr);
-		const auto& PbrGraph = *PbrParent->GetMaterialProgram();
-		EXPECT_LE(PbrGraph.Nodes.size(), 32u);
-		EXPECT_EQ(std::ranges::count(PbrGraph.Nodes, Durin::EMaterialProgramOpcode::TextureSampleParameter2D,
-			&Durin::FMaterialProgramNode::Opcode), 6);
-		EXPECT_EQ(PbrGraph.Outputs.Normal.SourceOutputIndex, 8u);
-		EXPECT_TRUE(PbrParent->GetMaterialFunctionCalls().empty());
-		std::cout << "[SurfaceAcceptance] complex_nodes=" << PbrGraph.Nodes.size()
+		const auto& PbrGraph = PbrParent->GetExpressionCollection();
+		EXPECT_LE(PbrGraph.Expressions.size(), 32u);
+		EXPECT_EQ(std::ranges::count_if(PbrGraph.Expressions,
+			[](const auto& Expression) { return Durin::Cast<Durin::DMaterialExpressionTextureSampleParameter2D>(Expression.Get()) != nullptr; }), 6);
+		EXPECT_EQ(PbrParent->GetExpressionOutputs().Normal.OutputIndex, 8u);
+		EXPECT_TRUE(std::ranges::none_of(PbrGraph.Expressions,
+			[](const auto& Expression) { return Durin::Cast<Durin::DMaterialExpressionFunctionCall>(Expression.Get()) != nullptr; }));
+		std::cout << "[SurfaceAcceptance] complex_nodes=" << PbrGraph.Expressions.size()
 			<< " owners=" << PbrParent->GetParameterDefinitions().size() << '\n';
 		const auto PbrPixels = Capture(PbrMesh, PbrMaterial);
 		SaveImportedFunctionBaseline("imported-packed-source-independent-maps-uv1-mask", PbrPixels);

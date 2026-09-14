@@ -304,4 +304,23 @@ namespace Durin
 		Result.bSucceeded = Result.Diagnostics.empty();
 		return Result;
 	}
+	auto ValidateMaterialProgramWithFunctions(const FMaterialProgram& Program,
+		std::span<const FMaterialParameterDefinition> Definitions,
+		std::span<const FMaterialFunctionCall> Calls) -> FMaterialProgramValidationResult
+	{
+		std::vector<FMaterialFunctionCallSnapshot> Bindings;
+		if (Calls.size() > MaterialProgramMaxNodeCount)
+			return {.Diagnostics = {{.Category = EMaterialProgramDiagnosticCategory::Bounds,
+				.Message = "Root function calls exceed the authored node bound."}}};
+		for (const auto& Call : Calls)
+		{
+			if (Call.Inputs.size() > MaterialFunctionMaxInputs || Call.Outputs.size() > MaterialFunctionMaxOutputs)
+				return {.Diagnostics = {{.Category = EMaterialProgramDiagnosticCategory::Bounds,
+					.NodeId = Call.NodeId, .Message = "Function call ports exceed interface bounds."}}};
+			Bindings.push_back({.NodeId = Call.NodeId, .Inputs = Call.Inputs, .Outputs = Call.Outputs});
+		}
+		return ValidateMaterialProgram(Program, Definitions, Bindings);
+	}
+
+
 }

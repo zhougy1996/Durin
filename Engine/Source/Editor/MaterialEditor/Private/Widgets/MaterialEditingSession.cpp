@@ -3,16 +3,59 @@
 #include "Asset/AssetCompilingManager.h"
 #include "DObject/Package.h"
 #include "DObject/ObjectLifecycle.h"
+#include "DObject/Property.h"
+#include "DObject/Class.h"
 #include "Editor/Transactor.h"
 #include "Misc/MountPaths.h"
 
 namespace Durin::Editor::Material
 {
-	auto FMaterialEditingSession::Capture(const DMaterial& Material) -> FAuthoredState
+	auto FMaterialEditingSession::FAuthoredState::Matches(const DMaterial& Material) const -> bool
 	{
-		const auto Calls = Material.GetMaterialFunctionCalls();
-		return {*Material.GetMaterialProgram(),
-			Material.GetStaticProperties(), Material.GetMaterialGraphPresentation(), {Calls.begin(), Calls.end()}};
+		const auto& Current = Material.GetExpressionCollection().Expressions;
+		if (Outputs != Material.GetExpressionOutputs() || Properties != Material.GetStaticProperties()
+			|| Presentation != Material.GetMaterialGraphPresentation() || Expressions.size() != Current.size()) return false;
+		for (size_t Index = 0; Index < Expressions.size(); ++Index)
+		{
+			const auto* Before = Expressions[Index].Get();
+			const auto* After = Current[Index].Get();
+			if (!Before || !After || Before->GetClass() != After->GetClass()) return false;
+			bool bIdentical = true;
+			Before->GetClass()->ForEachProperty([&](FProperty* Property) {
+				for (uint32 Element = 0; bIdentical && Element < Property->GetArrayDim(); ++Element)
+					bIdentical = ComparePropertyValues(Property, Before, Element, After, Element)
+						== EPropertyIdentityResult::Identical;
+			});
+			if (!bIdentical) return false;
+		}
+		return true;
+	}
+
+	auto FMaterialEditingSession::Capture(const DMaterial& Material, FAuthoredState& OutState) -> bool
+	{
+		FAuthoredState Candidate;
+		Candidate.Outputs = Material.GetExpressionOutputs();
+		Candidate.Properties = Material.GetStaticProperties();
+		Candidate.Presentation = Material.GetMaterialGraphPresentation();
+		for (const auto& Expression : Material.GetExpressionCollection().Expressions)
+		{
+			auto* Copy = DuplicateObject(Expression.Get(), nullptr, NAME_None);
+			if (!Copy) return false;
+			Candidate.Expressions.emplace_back(Copy);
+		}
+		OutState = std::move(Candidate);
+		return true;
+	}
+
+	namespace
+	{
+		auto CopyExpressions(DMaterial& Destination, const DMaterial& Source) -> FMaterialProgramValidationResult
+		{
+			std::vector<DMaterialExpression*> Expressions;
+			for (const auto& Expression : Source.GetExpressionCollection().Expressions)
+				Expressions.push_back(Expression.Get());
+			return Destination.SetMaterialExpressions(Expressions, Source.GetExpressionOutputs());
+		}
 	}
 
 	FMaterialEditingSession::~FMaterialEditingSession()
@@ -34,7 +77,11 @@ namespace Durin::Editor::Material
 		Source = &InSource;
 		Transactor = InTransactor;
 		SourceRevision = Source->GetPackage()->GetEditRevision();
-		Applied = Capture(InSource);
+		if (!Capture(InSource, Applied))
+		{
+			Error = "Unable to snapshot the source material expressions.";
+			return false;
+		}
 		FPackagePath Path;
 		const auto Mount = FMountPaths::FindMountForVirtualPath(Source->GetPackage()->GetPackagePath());
 		if (!Mount)
@@ -51,7 +98,7 @@ namespace Durin::Editor::Material
 		Working = NewObject<DMaterial>(DMaterial::StaticClass(), WorkingPackage.Get(),
 			InSource.GetFName(), EObjectFlags::Transient);
 		Working->SetEditCompileMode(EMaterialEditCompileMode::Manual);
-		if (!Working->SetMaterialProgramAndFunctionCalls(Applied.Program, Applied.FunctionCalls)
+		if (!CopyExpressions(*Working, InSource)
 			|| !Working->SetStaticProperties(Applied.Properties))
 		{
 			Error = "The source material's authored state is invalid.";
@@ -72,7 +119,7 @@ namespace Durin::Editor::Material
 		if (ObservedWorkingRevision != Revision)
 		{
 			ObservedWorkingRevision = Revision;
-			bHasChanges = Capture(*Working) != Applied;
+			bHasChanges = !Applied.Matches(*Working);
 		}
 		return bHasChanges;
 	}
@@ -85,7 +132,7 @@ namespace Durin::Editor::Material
 			return false;
 		}
 		if (Source->GetPackage()->GetEditRevision() != SourceRevision
-			&& Capture(*Source) != Applied)
+			&& !Applied.Matches(*Source))
 		{
 			Error = "The source material changed outside this document. Discard or reopen before applying.";
 			return false;
@@ -143,11 +190,16 @@ namespace Durin::Editor::Material
 			Error = "Apply requires a successful compilation of the current preview. Compile the latest edits and retry.";
 			return false;
 		}
-		const FAuthoredState Candidate = Capture(*Working);
+		FAuthoredState Candidate;
+		if (!Capture(*Working, Candidate))
+		{
+			Error = "Unable to snapshot the working material expressions.";
+			return false;
+		}
 		if (!ValidateMaterialStaticProperties(Candidate.Properties, Error)) return false;
 		const auto PreviousMode = Source->GetEditCompileMode();
 		Source->SetEditCompileMode(EMaterialEditCompileMode::Manual);
-		const auto Result = Source->SetMaterialProgramAndFunctionCalls(Candidate.Program, Candidate.FunctionCalls);
+		const auto Result = CopyExpressions(*Source, *Working);
 		if (!Result)
 		{
 			Source->SetEditCompileMode(PreviousMode);
@@ -159,7 +211,7 @@ namespace Durin::Editor::Material
 		if (Source->GetMaterialCompileStatus().HasUnsubmittedEdits()) Source->CompileEdits();
 		Source->SetEditCompileMode(PreviousMode);
 		if (Transactor.IsValid()) Transactor->InvalidateSavedState(*Source->GetPackage());
-		Applied = Candidate;
+		Applied = std::move(Candidate);
 		SourceRevision = Source->GetPackage()->GetEditRevision();
 		ObservedWorkingRevision = 0;
 		return true;

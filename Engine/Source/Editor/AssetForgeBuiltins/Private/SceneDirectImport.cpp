@@ -590,20 +590,19 @@ namespace Durin::AssetForge::Builtins
 					!ConstructSceneCandidate(AssetPath, Parent, Error)) return nullptr;
 				GeneratedParents.Packages.push_back(Parent->GetPackage());
 				Parent->SetEditCompileMode(EMaterialEditCompileMode::Manual);
-				const auto Valid = Parent->SetMaterialProgram(Recipe.Program);
+				const auto Valid = Recipe.Graph.Apply(*Parent);
 				if (!Valid)
 				{
 					Error = Valid.Diagnostics.empty() ? "Generated surface program is invalid." : Valid.Diagnostics.front().Message;
 					return nullptr;
 				}
-				if (!Parent->SetMaterialGraphPresentation(Recipe.Presentation) ||
-					!Parent->SetImportProvenance({.RecipeId = "Durin.ImportedSurface", .RecipeVersion = 1,
+				if (!Parent->SetImportProvenance({.RecipeId = "Durin.ImportedSurface", .RecipeVersion = 1,
 						.StructuralKey = Recipe.CanonicalKey})) return nullptr;
 			}
 			if (!Parent || Parent->GetImportProvenance().RecipeId != "Durin.ImportedSurface" ||
 				Parent->GetImportProvenance().RecipeVersion != 1 ||
 				Parent->GetImportProvenance().StructuralKey != Recipe.CanonicalKey ||
-				*Parent->GetMaterialProgram() != Recipe.Program || !Parent->GetMaterialFunctionCalls().empty() ||
+				!Recipe.Graph.MatchesGraph(*Parent) ||
 				Parent->GetStaticProperties() != FMaterialStaticProperties{})
 			{
 				Error = "Generated surface parent path is occupied or its recipe was modified: " + Path.ToString();
@@ -662,7 +661,7 @@ namespace Durin::AssetForge::Builtins
 						auto* Texture = FindOutput(Role.Sample->ResourceIdentity);
 						require(Texture && Cast<DTexture2D>(Texture->Candidate));
 						Value = FMaterialParameterValue::MakeTexture(Cast<DTexture2D>(Texture->Candidate),
-							Role.Sample->Sampler, Definition->Value.TextureFallback);
+							Role.Sample->Sampler, Definition->Value.GetTexture().TextureFallback);
 					}
 					else
 					{
@@ -674,7 +673,7 @@ namespace Durin::AssetForge::Builtins
 							Definition->Type == EMaterialParameterType::Vector2 ? FMaterialParameterValue::MakeVector2({Literal.X, Literal.Y}) :
 							FMaterialParameterValue::MakeScalar(Literal.X);
 					}
-					if (!Material->SetParameterOverride(Owner.ParameterId, Definition->Type, Value))
+					if (!Material->SetParameterOverride(Owner.ParameterId, Value))
 					{
 						Abandon(Prepared);
 						return AddError(OutResult, EImportDiagnosticCategory::ValidationFailure,

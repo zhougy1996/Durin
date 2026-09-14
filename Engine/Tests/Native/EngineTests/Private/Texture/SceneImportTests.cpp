@@ -143,9 +143,9 @@ TEST(FSceneImportTests, AssetForgePublishesHeterogeneousGraph)
 			EXPECT_EQ(Parent->GetImportProvenance().StructuralKey, Material->GetImportProvenance().StructuralKey);
 			EXPECT_EQ(Material->GetImportProvenance().OutputIdentity, Output.StableIdentity);
 			EXPECT_LT(Parent->GetParameterDefinitions().size(), 48u);
-			EXPECT_EQ(Material->GetParameterOverrides().size(), Parent->GetParameterDefinitions().size());
-			EXPECT_EQ(std::ranges::count(Parent->GetMaterialProgram()->Nodes,
-				Durin::EMaterialProgramOpcode::TextureSampleParameter2D, &Durin::FMaterialProgramNode::Opcode), 1);
+			EXPECT_EQ(Material->GetParameterOverrideCount(), Parent->GetParameterDefinitions().size());
+			EXPECT_EQ(std::ranges::count_if(Parent->GetExpressionCollection().Expressions,
+				[](const auto& Expression) { return Durin::Cast<Durin::DMaterialExpressionTextureSampleParameter2D>(Expression.Get()) != nullptr; }), 1);
 			EXPECT_TRUE(Material->GetMaterialCompileStatus().IsCurrent());
 			EXPECT_TRUE(Material->GetAcceptedCompiledProgram());
 			EXPECT_TRUE(Material->GetPropertyOverrides().bOverrideBlendMode);
@@ -219,8 +219,7 @@ TEST(FSceneImportTests, SceneReimportResetsEditsAndRollsBackSavedAndLiveOutputs)
 	ASSERT_NE(PreviousMesh, nullptr);
 	using Kind = MaterialParameters::EMaterialBuiltinParameterKind;
 	const auto Color = GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::BaseColor, Kind::Value);
-	ASSERT_TRUE(Previous->SetParameterOverride(Color, EMaterialParameterType::Vector,
-		FMaterialParameterValue::MakeVector({0.2, 0.3, 0.4})));
+	ASSERT_TRUE(Previous->SetParameterOverride(Color, FMaterialParameterValue::MakeVector({0.2, 0.3, 0.4})));
 	auto Properties = Previous->GetPropertyOverrides();
 	Properties.bOverrideShadingModel = true;
 	Properties.Values.ShadingModel = EMaterialShadingModel::Unlit;
@@ -231,8 +230,7 @@ TEST(FSceneImportTests, SceneReimportResetsEditsAndRollsBackSavedAndLiveOutputs)
 	ASSERT_TRUE(Dependent->SetParent(Previous));
 	auto* Independent = NewObject<DMaterialInstance>(nullptr, "IndependentMaterial");
 	ASSERT_TRUE(Independent->SetParent(Previous->GetParent()));
-	ASSERT_TRUE(Independent->SetParameterOverride(Color, EMaterialParameterType::Vector,
-		FMaterialParameterValue::MakeVector({0.1, 0.2, 0.3})));
+	ASSERT_TRUE(Independent->SetParameterOverride(Color, FMaterialParameterValue::MakeVector({0.1, 0.2, 0.3})));
 	const auto PreviousKey = Previous->GetImportProvenance().StructuralKey;
 	FAssetCompilingManager::Get().FinishAllCompilation();
 	const std::string OriginalSource = Read(Fixture.Source);
@@ -284,11 +282,11 @@ TEST(FSceneImportTests, SceneReimportResetsEditsAndRollsBackSavedAndLiveOutputs)
 	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), Material));
 	FResolvedMaterialParameter Value;
 	ASSERT_TRUE(Material->ResolveParameterValue(Color, Value));
-	EXPECT_EQ(Value.Value.VectorValue, FVector3(0.5, 0.75, 0.25));
+	EXPECT_EQ(Value.Value.GetVector(), FVector3(0.5, 0.75, 0.25));
 	EXPECT_FALSE(Material->IsParameterOverrideOrphan(Color));
 	EXPECT_FALSE(Material->GetStaticProperties().bTwoSided);
 	ASSERT_TRUE(Independent->ResolveParameterValue(Color, Value));
-	EXPECT_EQ(Value.Value.VectorValue, FVector3(0.1, 0.2, 0.3));
+	EXPECT_EQ(Value.Value.GetVector(), FVector3(0.1, 0.2, 0.3));
 	EXPECT_EQ(Material->GetStaticProperties().ShadingModel, EMaterialShadingModel::Lit);
 	const auto OtherSource = std::filesystem::path(Fixture.Source).parent_path() / "OtherSource" /
 		std::filesystem::path(Fixture.Source).filename();
@@ -356,7 +354,7 @@ TEST(FSceneImportTests, FailedPublicationDiscardsGeneratedParentAndRetrySucceeds
 	EXPECT_TRUE(FindAssetExact(ParentPath));
 	auto* Parent = Cast<DMaterial>(FindResidentPackage(ParentPath)->FindTopLevelAsset(FName(ParentPath.GetPackageName())));
 	ASSERT_NE(Parent, nullptr);
-	EXPECT_EQ(Parent->GetMaterialProgram()->Nodes.size(), 1u);
+	EXPECT_EQ(Parent->GetExpressionCollection().Expressions.size(), 1u);
 	EXPECT_EQ(Parent->GetParameterDefinitions().size(), 1u);
 }
 
@@ -392,22 +390,22 @@ TEST(FSceneImportTests, SourceTransformsMaskFactorAndTexturelessEmissiveArePubli
 	using Kind = MaterialParameters::EMaterialBuiltinParameterKind;
 	FResolvedMaterialParameter Parameter;
 	ASSERT_TRUE(Instance->ResolveParameterValue(GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::BaseColor, Kind::Texture), Parameter));
-	EXPECT_EQ(Parameter.Value.SamplerState.MinFilter, EMaterialSamplerMinFilter::Nearest);
-	EXPECT_EQ(Parameter.Value.SamplerState.MagFilter, EMaterialSamplerMagFilter::Nearest);
-	EXPECT_EQ(Parameter.Value.SamplerState.AddressU, EMaterialSamplerAddressMode::ClampToEdge);
-	EXPECT_EQ(Parameter.Value.SamplerState.AddressV, EMaterialSamplerAddressMode::MirroredRepeat);
+	EXPECT_EQ(Parameter.Value.GetTexture().SamplerState.MinFilter, EMaterialSamplerMinFilter::Nearest);
+	EXPECT_EQ(Parameter.Value.GetTexture().SamplerState.MagFilter, EMaterialSamplerMagFilter::Nearest);
+	EXPECT_EQ(Parameter.Value.GetTexture().SamplerState.AddressU, EMaterialSamplerAddressMode::ClampToEdge);
+	EXPECT_EQ(Parameter.Value.GetTexture().SamplerState.AddressV, EMaterialSamplerAddressMode::MirroredRepeat);
 	ASSERT_TRUE(Instance->ResolveParameterValue(GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::BaseColor, Kind::UVChannel), Parameter));
-	EXPECT_EQ(Parameter.Value.ScalarValue, 1);
+	EXPECT_EQ(Parameter.Value.GetScalar(), 1);
 	ASSERT_TRUE(Instance->ResolveParameterValue(GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::BaseColor, Kind::UVScale), Parameter));
-	EXPECT_EQ(Parameter.Value.Vector2Value, FVector2(2, 3));
+	EXPECT_EQ(Parameter.Value.GetVector2(), FVector2(2, 3));
 	ASSERT_TRUE(Instance->ResolveParameterValue(GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::BaseColor, Kind::UVOffset), Parameter));
-	EXPECT_EQ(Parameter.Value.Vector2Value, FVector2(.25, .5));
+	EXPECT_EQ(Parameter.Value.GetVector2(), FVector2(.25, .5));
 	ASSERT_TRUE(Instance->ResolveParameterValue(GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::BaseColor, Kind::UVRotation), Parameter));
-	EXPECT_FLOAT_EQ(Parameter.Value.ScalarValue, .4f);
+	EXPECT_FLOAT_EQ(Parameter.Value.GetScalar(), .4f);
 	ASSERT_TRUE(Instance->ResolveParameterValue(GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::OpacityMask, Kind::Value), Parameter));
-	EXPECT_FLOAT_EQ(Parameter.Value.ScalarValue, .4f);
+	EXPECT_FLOAT_EQ(Parameter.Value.GetScalar(), .4f);
 	ASSERT_TRUE(Instance->ResolveParameterValue(GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::Emissive, Kind::Value), Parameter));
-	EXPECT_EQ(Parameter.Value.VectorValue, FVector3(2, 3, 4));
+	EXPECT_EQ(Parameter.Value.GetVector(), FVector3(2, 3, 4));
 	EXPECT_EQ(Instance->FindParameterDefinition(GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::Emissive, Kind::Texture)), nullptr);
 	EXPECT_EQ(Instance->FindParameterDefinition(GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::Opacity, Kind::Value)), nullptr);
 }
@@ -441,16 +439,18 @@ TEST(FSceneImportTests, PackedSourceChannelsPublishOneLinearSampleOwner)
 	}
 	ASSERT_NE(Instance, nullptr);
 	EXPECT_EQ(TextureCount, 1u);
-	const auto& Program = *Instance->GetMaterialProgram();
-	EXPECT_EQ(std::ranges::count(Program.Nodes, EMaterialProgramOpcode::TextureSampleParameter2D,
-		&FMaterialProgramNode::Opcode), 1);
-	EXPECT_EQ(Program.Outputs.Metallic.SourceNodeId, Program.Outputs.Roughness.SourceNodeId);
-	EXPECT_EQ(Program.Outputs.Metallic.SourceNodeId, Program.Outputs.AmbientOcclusion.SourceNodeId);
-	EXPECT_EQ(Program.Outputs.Metallic.SourceOutputIndex, 4);
-	EXPECT_EQ(Program.Outputs.Roughness.SourceOutputIndex, 3);
-	EXPECT_EQ(Program.Outputs.AmbientOcclusion.SourceOutputIndex, 2);
+	const auto* Parent = Cast<DMaterial>(Instance->GetParent());
+	ASSERT_NE(Parent, nullptr);
+	EXPECT_EQ(std::ranges::count_if(Parent->GetExpressionCollection().Expressions,
+		[](const auto& Expression) { return Cast<DMaterialExpressionTextureSampleParameter2D>(Expression.Get()) != nullptr; }), 1);
+	const auto& Outputs = Parent->GetExpressionOutputs();
+	EXPECT_EQ(Outputs.Metallic.ExpressionId, Outputs.Roughness.ExpressionId);
+	EXPECT_EQ(Outputs.Metallic.ExpressionId, Outputs.AmbientOcclusion.ExpressionId);
+	EXPECT_EQ(Outputs.Metallic.OutputIndex, 4);
+	EXPECT_EQ(Outputs.Roughness.OutputIndex, 3);
+	EXPECT_EQ(Outputs.AmbientOcclusion.OutputIndex, 2);
 	EXPECT_EQ(Instance->GetParameterDefinitions().size(), 2u);
-	EXPECT_EQ(Instance->GetParameterOverrides().size(), 2u);
+	EXPECT_EQ(Instance->GetParameterOverrideCount(), 2u);
 	EXPECT_FALSE(Instance->GetImportProvenance().OutputIdentity.empty());
 	DTexture2D* Texture = nullptr;
 	ASSERT_TRUE(Instance->GetTextureParameterValue(MaterialParameters::MetallicTextureName(), Texture));
@@ -485,17 +485,22 @@ TEST(FSceneImportTests, StructuralParentsReuseAcrossDestinationsAndRejectAuthore
 		}
 	EXPECT_EQ(Parent->GetPackage()->GetEditRevision(), Revision);
 	EXPECT_FALSE(Parent->GetPackage()->IsDirty());
-	const auto Original = *Parent->GetMaterialProgram();
+	const auto Original = Parent->GetExpressionOutputs();
+	const auto ApplyOutputs = [&](const FMaterialExpressionSurfaceOutputs& Outputs) {
+		std::vector<DMaterialExpression*> Expressions;
+		for (const auto& Expression : Parent->GetExpressionCollection().Expressions) Expressions.push_back(Expression.Get());
+		return Parent->SetMaterialExpressions(Expressions, Outputs);
+	};
 	auto Changed = Original;
-	Changed.Outputs.AmbientOcclusionDefault.X = .3f;
-	ASSERT_TRUE(Parent->SetMaterialProgram(Changed));
+	Changed.AmbientOcclusionDefault = .3f;
+	ASSERT_TRUE(ApplyOutputs(Changed));
 	FSceneImportResult Rejected;
 	EXPECT_FALSE(ImportSceneAssets(Fixture.Source, MakeAssetPath("/SceneImportTests/Rejected"),
 		FStaticMeshImportSettings::MakeDurin(), Rejected));
 	EXPECT_NE(Rejected.Message.find("modified"), std::string::npos);
-	EXPECT_EQ(*Parent->GetMaterialProgram(), Changed);
+	EXPECT_EQ(Parent->GetExpressionOutputs(), Changed);
 	for (const auto& Output : Rejected.Outputs) EXPECT_FALSE(FindAssetExact(Output.AssetPath));
-	ASSERT_TRUE(Parent->SetMaterialProgram(Original));
+	ASSERT_TRUE(ApplyOutputs(Original));
 }
 
 TEST(FSceneImportTests, AssetForgeRejectsUnsupportedSceneFeaturesWithoutPartialPublication)
@@ -546,23 +551,20 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 	TStrongObjectPtr<DMaterial> MaterialOwner(NewObject<DMaterial>(nullptr, "StandardLibraryFixture"));
 	auto* Material = MaterialOwner.Get();
 	ASSERT_NE(Material, nullptr);
-	std::vector<FMaterialFunctionCall> Calls;
-	FMaterialGraphPresentation Presentation;
-	auto Program = Testing::MakeStandardMaterialProgramForTest(Functions, Calls, Presentation);
-	ASSERT_TRUE(Material->SetMaterialProgramAndFunctionCalls(std::move(Program), std::move(Calls)));
-	ASSERT_TRUE(Material->SetMaterialGraphPresentation(std::move(Presentation)));
-	EXPECT_EQ(Material->GetMaterialProgram()->Nodes.size(), 65u);
-	EXPECT_EQ(Material->GetMaterialFunctionCalls().size(), 1u);
+	auto Compact = Testing::MakeStandardMaterialExpressionsForTest(Functions);
+	ASSERT_TRUE(Compact.Apply(*Material));
+	EXPECT_EQ(Material->GetExpressionCollection().Expressions.size(), 65u);
+	EXPECT_EQ(std::ranges::count_if(Material->GetExpressionCollection().Expressions, [](const auto& E) { return Cast<DMaterialExpressionFunctionCall>(E.Get()) != nullptr; }), 1u);
 	EXPECT_EQ(Material->GetParameterDefinitions().size(), 48u);
-	EXPECT_FALSE(Material->GetMaterialProgram()->Outputs.Surface.SourceNodeId.IsValid());
-	for (uint32 Role = 0; Role < 8; ++Role)
-		EXPECT_TRUE(GetMaterialSurfaceOutputLink(Material->GetMaterialProgram()->Outputs,
-			static_cast<EMaterialSurfaceOutput>(Role)).SourceNodeId.IsValid());
-	FMaterialCompilerInput Input;
+	EXPECT_FALSE(Material->GetExpressionOutputs().Surface.ExpressionId.IsValid());
+	const auto& Outputs = Material->GetExpressionOutputs();
+	for (const auto& Link : {Outputs.BaseColor, Outputs.Normal, Outputs.Metallic, Outputs.Roughness,
+		Outputs.AmbientOcclusion, Outputs.Emissive, Outputs.Opacity, Outputs.OpacityMask}) EXPECT_TRUE(Link.ExpressionId.IsValid());
+	FMaterialIRCompilerInput Input;
 	FMaterialCompilerEnvironment Environment;
 	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Environment, Error)) << Error;
 	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Material, Environment, Input));
-	const auto Normalized = NormalizeMaterialProgram(Input);
+	const auto Normalized = NormalizeMaterialIR(Input);
 	ASSERT_TRUE(Normalized) << (Normalized.Diagnostics.empty() ? "no diagnostic" : Normalized.Diagnostics.front().Message);
 	EXPECT_EQ(Normalized.Layout.ResourceFieldCount, 8u);
 	EXPECT_EQ(std::ranges::count(Normalized.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &FMaterialIRNode::Opcode), 8);
@@ -573,41 +575,37 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 		++NormalizedSamples;
 	EXPECT_EQ(NormalizedSamples, 8u);
 
-	const auto Compact = *Material->GetMaterialProgram();
-	const std::vector<FMaterialFunctionCall> CompactCalls(Material->GetMaterialFunctionCalls().begin(), Material->GetMaterialFunctionCalls().end());
-	auto Packed = Compact;
-	const auto CallId = FGuid::NewGuid();
-	// Keep the resource/UV owners; replace the output expression network explicitly.
-	std::erase_if(Packed.Nodes, [](const auto& Node) {
-		return Node.Opcode != EMaterialProgramOpcode::Parameter
-			&& Node.Opcode != EMaterialProgramOpcode::TextureSampleParameter2D
-			&& Node.Opcode != EMaterialProgramOpcode::TextureCoordinates;
+	auto Packed = Testing::MakeStandardMaterialExpressionsForTest(Functions);
+	std::erase_if(Packed.Expressions, [](const auto& E) {
+		return !Cast<DMaterialExpressionParameter>(E.Get()) && !Cast<DMaterialExpressionTextureCoordinates>(E.Get());
 	});
-	Packed.Nodes.push_back({.Id = CallId, .Opcode = EMaterialProgramOpcode::FunctionCall,
-		.ResultType = EMaterialProgramValueType::Surface});
-	Packed.Outputs = {};
-	Packed.Outputs.Surface.SourceNodeId = CallId;
-	FMaterialFunctionCall PackedCall{.NodeId = CallId, .Function = Functions.StandardPBR_ORM.Get()};
+	TStrongObjectPtr<DMaterialExpressionFunctionCall> PackedCall(NewObject<DMaterialExpressionFunctionCall>(nullptr, NAME_None));
+	PackedCall->Id = FGuid::NewGuid(); PackedCall->Function = Functions.StandardPBR_ORM.Get();
 	const auto PortId = [](uint32 Slot) { return StandardMaterialPortId(EStandardMaterialFunction::StandardPBR, Slot); };
 	for (uint32 Role = 0; Role < 8; ++Role)
 	{
-		const auto Owner = [&](MaterialParameters::EMaterialBuiltinParameterKind Kind) -> const FMaterialProgramNode& {
+		const auto Owner = [&](MaterialParameters::EMaterialBuiltinParameterKind Kind) -> DMaterialExpressionParameter* {
 			const auto Id = GetMaterialSurfaceParameterId(static_cast<EMaterialSurfaceOutput>(Role), Kind);
-			return *std::ranges::find_if(Packed.Nodes, [&](const auto& Node) { return Node.Parameter.Id == Id; });
+			for (const auto& E : Packed.Expressions)
+				if (auto* P = Cast<DMaterialExpressionParameter>(E.Get()); P && P->Metadata.Id == Id) return P;
+			return nullptr;
 		};
-		const auto& Factor = Owner(MaterialParameters::EMaterialBuiltinParameterKind::Value);
-		PackedCall.Inputs.push_back({PortId(10 + Role), Factor.ResultType, {Factor.Id}});
+		const auto* Factor = Owner(MaterialParameters::EMaterialBuiltinParameterKind::Value);
+		ASSERT_NE(Factor, nullptr);
+		const auto Type = Cast<DMaterialExpressionScalarParameter>(Factor) ? EMaterialProgramValueType::Float : EMaterialProgramValueType::Float3;
+		PackedCall->Inputs.push_back({PortId(10 + Role), Type, {Factor->Id}});
 		if (Role == 3 || Role == 4) continue;
-		const auto& Sample = Owner(MaterialParameters::EMaterialBuiltinParameterKind::Texture);
-		PackedCall.Inputs.push_back({PortId(Role == 2 ? 40 : 20 + Role), EMaterialProgramValueType::Texture2D, {Sample.Id, 7}});
-		PackedCall.Inputs.push_back({PortId(Role == 2 ? 41 : 30 + Role), EMaterialProgramValueType::Float2, Sample.Inputs.front()});
+		const auto* Sample = Cast<DMaterialExpressionTextureSampleParameter2D>(Owner(MaterialParameters::EMaterialBuiltinParameterKind::Texture));
+		ASSERT_NE(Sample, nullptr);
+		PackedCall->Inputs.push_back({PortId(Role == 2 ? 40 : 20 + Role), EMaterialProgramValueType::Texture2D, {Sample->Id, 7}});
+		PackedCall->Inputs.push_back({PortId(Role == 2 ? 41 : 30 + Role), EMaterialProgramValueType::Float2, Sample->UV});
 	}
-	PackedCall.Outputs = {{StandardMaterialPortId(EStandardMaterialFunction::StandardPBR_ORM, 100), EMaterialProgramValueType::Surface}};
-	Packed.Outputs.Surface.SourceOutputId = PackedCall.Outputs.front().OutputId;
-	std::vector<FMaterialFunctionCall> PackedCalls{PackedCall};
-	ASSERT_TRUE(Material->SetMaterialProgramAndFunctionCalls(Packed, PackedCalls));
+	PackedCall->Outputs = {{StandardMaterialPortId(EStandardMaterialFunction::StandardPBR_ORM, 100), EMaterialProgramValueType::Surface}};
+	Packed.Outputs = {}; Packed.Outputs.Surface = {.ExpressionId = PackedCall->Id, .OutputId = PackedCall->Outputs[0].OutputId};
+	Packed.Expressions.emplace_back(PackedCall.Get());
+	ASSERT_TRUE(Packed.Apply(*Material));
 	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Material, Environment, Input));
-	const auto PackedNormalized = NormalizeMaterialProgram(Input);
+	const auto PackedNormalized = NormalizeMaterialIR(Input);
 	ASSERT_TRUE(PackedNormalized) << (PackedNormalized.Diagnostics.empty() ? "no diagnostic" : PackedNormalized.Diagnostics.front().Message);
 	EXPECT_EQ(PackedNormalized.Layout.ResourceFieldCount, 6u);
 	EXPECT_EQ(std::ranges::count(PackedNormalized.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &FMaterialIRNode::Opcode), 6);
@@ -618,34 +616,64 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 		++PackedNormalizedSamples;
 	EXPECT_EQ(PackedNormalizedSamples, 6u);
 
-	ASSERT_TRUE(Material->SetMaterialProgramAndFunctionCalls(Compact, CompactCalls));
-	const auto Original = Functions.StandardPBR->GetFunctionGraph();
-	auto Edited = Original;
-	const auto Constant = std::ranges::find(Edited.Nodes, EMaterialProgramOpcode::Constant, &FMaterialProgramNode::Opcode);
-	ASSERT_NE(Constant, Edited.Nodes.end());
-	Constant->Literal.X = .08f;
-	ASSERT_TRUE(Functions.StandardPBR->SetFunctionGraph(Edited));
+	ASSERT_TRUE(Compact.Apply(*Material));
+	const auto Clone = [](const auto& Expressions) {
+		std::vector<TStrongObjectPtr<DMaterialExpression>> Result;
+		for (const auto& Expression : Expressions) Result.emplace_back(DuplicateObject(Expression.Get(), nullptr, NAME_None));
+		return Result;
+	};
+	const auto Original = Clone(Functions.StandardPBR->GetExpressionCollection().Expressions);
+	const auto OriginalSignature = Functions.StandardPBR->GetFunctionSignature();
+	auto Edited = Clone(Original);
+	auto Signature = OriginalSignature;
+	const auto Apply = [&](const auto& Expressions, const FMaterialFunctionSignature& CandidateSignature) {
+		std::vector<DMaterialExpression*> Values;
+		for (const auto& Expression : Expressions) Values.push_back(Expression.Get());
+		return Functions.StandardPBR->SetFunctionExpressions(CandidateSignature, Values);
+	};
+	const auto Matches = [&](const auto& Expressions, const FMaterialFunctionSignature& ExpectedSignature) {
+		const auto& Actual = Functions.StandardPBR->GetExpressionCollection().Expressions;
+		if (Functions.StandardPBR->GetFunctionSignature() != ExpectedSignature || Actual.size() != Expressions.size()) return false;
+		bool Equal = true;
+		for (size_t Index = 0; Index < Actual.size(); ++Index)
+		{
+			if (Actual[Index]->GetClass() != Expressions[Index]->GetClass()) return false;
+			Actual[Index]->GetClass()->ForEachProperty([&](FProperty* Property) {
+				Equal &= ArePropertyValuesIdentical(Property, Actual[Index].Get(), 0, Expressions[Index].Get(), 0);
+			});
+		}
+		return Equal;
+	};
+	DMaterialExpressionScalarConstant* Constant = nullptr;
+	for (const auto& Expression : Edited)
+		if (auto* Scalar = Cast<DMaterialExpressionScalarConstant>(Expression.Get())) { Constant = Scalar; break; }
+	ASSERT_NE(Constant, nullptr);
+	Constant->Value = .08f;
+	ASSERT_TRUE(Apply(Edited, Signature));
 	ASSERT_TRUE(SavePackage(Functions.StandardPBR->GetPackage()));
 	ASSERT_TRUE(EnsureStandardMaterialFunctions(Functions, Error)) << Error;
-	EXPECT_EQ(Functions.StandardPBR->GetFunctionGraph(), Edited);
-	Edited.Signature.Inputs.front().Id = FGuid::NewGuid();
-	// Removing a stable declaration and replacing its terminal/default links is a valid but incompatible interface.
-	const auto OldId = Original.Signature.Inputs.front().Id;
-	for (auto& Node : Edited.Nodes)
-		if (Node.FunctionPortId == OldId) Node.FunctionPortId = Edited.Signature.Inputs.front().Id;
-	for (auto& Port : Edited.Signature.Inputs)
-		if (Port.Default.InputId == OldId) Port.Default.InputId = Edited.Signature.Inputs.front().Id;
-	ASSERT_TRUE(Functions.StandardPBR->SetFunctionGraph(Edited));
+	EXPECT_TRUE(Matches(Edited, Signature));
+	Signature.Inputs.front().Id = FGuid::NewGuid();
+	const auto OldId = OriginalSignature.Inputs.front().Id;
+	for (const auto& Expression : Edited)
+		if (auto* Input = Cast<DMaterialExpressionFunctionInput>(Expression.Get()); Input && Input->PortId == OldId)
+			Input->PortId = Signature.Inputs.front().Id;
+	for (auto& Port : Signature.Inputs)
+		if (Port.Default.InputId == OldId) Port.Default.InputId = Signature.Inputs.front().Id;
+	ASSERT_TRUE(Apply(Edited, Signature));
 	EXPECT_FALSE(EnsureStandardMaterialFunctions(Functions, Error));
 	EXPECT_NE(Error.find("interface"), std::string::npos);
-	EXPECT_EQ(Functions.StandardPBR->GetFunctionGraph(), Edited);
-	ASSERT_TRUE(Functions.StandardPBR->SetFunctionGraph(Original));
+	EXPECT_TRUE(Matches(Edited, Signature));
+	ASSERT_TRUE(Apply(Original, OriginalSignature));
 	ASSERT_TRUE(SavePackage(Functions.StandardPBR->GetPackage()));
 	auto Reload = ReloadPackages({.Packages = {Functions.StandardPBR->GetPackage()}});
 	const auto Reloaded = Reload.Wait();
 	ASSERT_TRUE(Reloaded) << (Reloaded.Diagnostics.empty() ? "no diagnostic" : Reloaded.Diagnostics.front().Message);
 	ASSERT_TRUE(EnsureStandardMaterialFunctions(Functions, Error)) << Error;
-	EXPECT_EQ(Functions.StandardPBR->GetFunctionGraph(), Original);
+	EXPECT_TRUE(Matches(Original, OriginalSignature));
 	EXPECT_EQ(Functions.StandardPBR->GetAuthoringSourceVersion(), StandardMaterialFunctionVersion);
-	EXPECT_EQ(Material->GetMaterialFunctionCalls().back().Function.Get(), Functions.DecodeImportedNormalRG.Get());
+	EXPECT_TRUE(std::ranges::any_of(Material->GetExpressionCollection().Expressions, [&](const auto& Expression) {
+		const auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression.Get());
+		return Call && Call->Function.Get() == Functions.DecodeImportedNormalRG.Get();
+	}));
 }

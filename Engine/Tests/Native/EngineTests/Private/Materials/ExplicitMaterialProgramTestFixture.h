@@ -1,20 +1,13 @@
 #pragma once
-#include "Materials/MaterialProgramTypes.h"
-#include "Materials/MaterialTypes.h"
-#include <algorithm>
-#include <functional>
-#include <unordered_map>
+#include "MaterialExpressionRecipeTestSupport.h"
+#include "EngineTestSupport.h"
 
-// Explicit expanded graph for independent compiler regression fixtures.
-// Production authoring uses standard function assets.
+// Independent expanded PBR expressions; production assets use the standard recipes.
 namespace Durin::Testing
 {
-	constexpr auto MakeCanonicalNodeId(uint32 Index) -> FGuid
-	{ return {0x4d350001u, 0x7a6b4c21u, 0x91d2e3f4u, Index + 1u}; }
-	inline auto MakeLink(const FMaterialProgramNode& Node) -> FMaterialProgramLink
-	{ return {.SourceNodeId = Node.Id}; }
-	inline auto MakePBRMaterialProgramForTest() -> FMaterialProgram
+	inline auto MakePBRMaterialExpressionsForTest() -> FTestMaterialExpressionGraph
 	{
+		InitializeDObjectSystem();
 		using Role = MaterialParameters::EMaterialBuiltinParameterRole;
 		const auto& BaseIds = MaterialParameters::GetBuiltinParameterIds(Role::BaseColor);
 		const auto& NormalIds = MaterialParameters::GetBuiltinParameterIds(Role::Normal);
@@ -24,35 +17,22 @@ namespace Durin::Testing
 		const auto& EmissiveIds = MaterialParameters::GetBuiltinParameterIds(Role::Emissive);
 		const auto& OpacityIds = MaterialParameters::GetBuiltinParameterIds(Role::Opacity);
 		const auto& OpacityMaskIds = MaterialParameters::GetBuiltinParameterIds(Role::OpacityMask);
-		FMaterialProgram Program;
+		FTestMaterialExpressionGraph Graph;
 		std::vector<std::pair<FGuid, FGuid>> UVExpressions;
-		Program.Nodes.reserve(MaterialProgramMaxNodeCount);
+		Graph.Expressions.reserve(MaterialProgramMaxNodeCount);
 		auto AddNode = [&](EMaterialProgramOpcode Opcode,
 			EMaterialProgramValueType Type,
-			std::vector<FMaterialProgramLink> Inputs = {},
+			std::vector<FMaterialExpressionInput> Inputs = {},
 			FGuid ParameterId = {},
 			FMaterialProgramLiteral Literal = {})
-			-> FMaterialProgramNode& {
-			FMaterialProgramNode Node;
-			Node.Id = MakeCanonicalNodeId(
-				static_cast<uint32>(Program.Nodes.size()));
-			Node.Opcode = Opcode;
-			Node.ResultType = Type;
-			Node.Inputs = std::move(Inputs);
-			if (ParameterId.IsValid())
-			{
-				const auto& Definitions = GetPBRMaterialParameterDefinitions();
-				Node.Parameter = *std::ranges::find(Definitions, ParameterId, &FMaterialParameterDefinition::Id);
-			}
-			Node.Literal = Literal;
-			Program.Nodes.push_back(std::move(Node));
-			return Program.Nodes.back();
+			-> DMaterialExpression& {
+			return Graph.Add(Opcode, Type, std::move(Inputs), ParameterId, Literal);
 		};
 		auto Parameter = [&](FGuid Id, EMaterialProgramValueType Type)
-			-> FMaterialProgramNode& {
+			-> DMaterialExpression& {
 			return AddNode(EMaterialProgramOpcode::Parameter, Type, {}, Id);
 		};
-		auto Sample = [&](FGuid TextureId) -> FMaterialProgramNode& {
+		auto Sample = [&](FGuid TextureId) -> DMaterialExpression& {
 			auto& Texture = AddNode(
 				EMaterialProgramOpcode::TextureParameter,
 				EMaterialProgramValueType::Texture2D, {}, TextureId);
@@ -65,31 +45,26 @@ namespace Durin::Testing
 				EMaterialProgramValueType::Float4,
 				{MakeLink(Texture), MakeLink(UV)});
 		};
-		auto Swizzle = [&](FMaterialProgramNode& Source,
+		auto Swizzle = [&](DMaterialExpression& Source,
 			EMaterialProgramValueType Type,
-			std::initializer_list<uint8> Mask) -> FMaterialProgramNode& {
+			std::initializer_list<uint8> Mask) -> DMaterialExpression& {
 			auto& Node = AddNode(
 				EMaterialProgramOpcode::Swizzle, Type, {MakeLink(Source)});
-			Node.SwizzleLength = static_cast<uint8>(Mask.size());
-			std::array<uint8*, 4> Slots{
-				&Node.SwizzleX, &Node.SwizzleY,
-				&Node.SwizzleZ, &Node.SwizzleW};
-			size_t Index = 0;
-			for (uint8 Component : Mask) *Slots[Index++] = Component;
+			Cast<DMaterialExpressionSwizzle>(&Node)->Components.assign(Mask.begin(), Mask.end());
 			return Node;
 		};
 		auto Unary = [&](EMaterialProgramOpcode Opcode,
-			FMaterialProgramNode& Input) -> FMaterialProgramNode& {
-			return AddNode(Opcode, Input.ResultType, {MakeLink(Input)});
+			DMaterialExpression& Input) -> DMaterialExpression& {
+			return AddNode(Opcode, Graph.Types.at(Input.Id), {MakeLink(Input)});
 		};
 		auto Binary = [&](EMaterialProgramOpcode Opcode,
-			FMaterialProgramNode& A,
-			FMaterialProgramNode& B) -> FMaterialProgramNode& {
-			return AddNode(Opcode, A.ResultType, {MakeLink(A), MakeLink(B)});
+			DMaterialExpression& A,
+			DMaterialExpression& B) -> DMaterialExpression& {
+			return AddNode(Opcode, Graph.Types.at(A.Id), {MakeLink(A), MakeLink(B)});
 		};
 		auto Constant = [&](EMaterialProgramValueType Type,
 			float X, float Y = 0.0f, float Z = 0.0f, float W = 0.0f)
-			-> FMaterialProgramNode& {
+			-> DMaterialExpression& {
 			return AddNode(EMaterialProgramOpcode::Constant, Type, {}, {},
 				{.X = X, .Y = Y, .Z = Z, .W = W});
 		};
@@ -125,7 +100,7 @@ namespace Durin::Testing
 			NormalParameter, DecodedNormal);
 
 		auto MakeScalarProduct = [&](FGuid ParameterId, FGuid TextureId,
-			uint8 Component) -> FMaterialProgramNode& {
+			uint8 Component) -> DMaterialExpression& {
 			auto& Value = Parameter(
 				ParameterId, EMaterialProgramValueType::Float);
 			auto& TextureSample = Sample(TextureId);
@@ -177,7 +152,7 @@ namespace Durin::Testing
 		auto& OpacityMask = MakeScalarProduct(
 			OpacityMaskIds.Value, OpacityMaskIds.Texture, 0);
 
-		Program.Outputs = {
+		Graph.Outputs = {
 			.BaseColor = MakeLink(BaseColor),
 			.Normal = MakeLink(Normal),
 			.Metallic = MakeLink(Metallic),
@@ -186,50 +161,32 @@ namespace Durin::Testing
 			.Emissive = MakeLink(Emissive),
 			.Opacity = MakeLink(Opacity),
 			.OpacityMask = MakeLink(OpacityMask)};
-		uint32 NextNodeId = static_cast<uint32>(Program.Nodes.size());
-		auto AppendNode = [&](EMaterialProgramOpcode Opcode,
-			EMaterialProgramValueType Type,
-			std::vector<FMaterialProgramLink> Inputs = {},
-			FGuid ParameterId = {},
-			FMaterialProgramLiteral Literal = {}) -> FMaterialProgramLink {
-			FMaterialProgramNode Node;
-			Node.Id = MakeCanonicalNodeId(NextNodeId++);
-			Node.Opcode = Opcode;
-			Node.ResultType = Type;
-			Node.Inputs = std::move(Inputs);
-			if (ParameterId.IsValid())
-			{
-				const auto& Definitions = GetPBRMaterialParameterDefinitions();
-				Node.Parameter = *std::ranges::find(Definitions, ParameterId, &FMaterialParameterDefinition::Id);
-			}
-			Node.Literal = Literal;
-			Program.Nodes.push_back(std::move(Node));
-			return MakeLink(Program.Nodes.back());
+		auto AppendNode = [&](EMaterialProgramOpcode Opcode, EMaterialProgramValueType Type,
+			std::vector<FMaterialExpressionInput> Inputs = {}, FGuid ParameterId = {}, FMaterialProgramLiteral Literal = {}) -> FMaterialExpressionInput {
+			return MakeLink(AddNode(Opcode, Type, std::move(Inputs), ParameterId, Literal));
 		};
-		auto AppendSwizzleScalar = [&](FMaterialProgramLink Source, uint8 Component) {
+		auto AppendSwizzleScalar = [&](FMaterialExpressionInput Source, uint8 Component) {
 			const auto Link = AppendNode(EMaterialProgramOpcode::Swizzle,
 				EMaterialProgramValueType::Float, {Source});
-			auto& Node = Program.Nodes.back();
-			Node.SwizzleLength = 1;
-			Node.SwizzleX = Component;
+			Cast<DMaterialExpressionSwizzle>(Graph.Expressions.back().Get())->Components = {Component};
 			return Link;
 		};
 
 		// Complete UV expression slots after assigning the stable surface node identities.
-		std::vector<FMaterialProgramNode> SurfaceNodes = std::move(Program.Nodes);
-		Program.Nodes.clear();
-		Program.Nodes.reserve(MaterialProgramMaxNodeCount);
-		NextNodeId = static_cast<uint32>(SurfaceNodes.size());
+		std::vector<TStrongObjectPtr<DMaterialExpression>> SurfaceNodes = std::move(Graph.Expressions);
+		Graph.Expressions.clear();
+		Graph.Expressions.reserve(MaterialProgramMaxNodeCount);
+		Graph.NextId = static_cast<uint32>(SurfaceNodes.size());
 		for (auto& Node : SurfaceNodes)
 		{
-			const auto UVExpression = std::ranges::find(UVExpressions, Node.Id,
+			const auto UVExpression = std::ranges::find(UVExpressions, Node->Id,
 				&std::pair<FGuid, FGuid>::first);
 			if (UVExpression == UVExpressions.end())
 			{
-				Program.Nodes.push_back(std::move(Node));
+				Graph.Expressions.push_back(std::move(Node));
 				continue;
 			}
-			const FGuid PreservedId = Node.Id;
+			const FGuid PreservedId = Node->Id;
 			const Role TextureRole = MaterialParameters::FindBuiltinParameterRole(
 				UVExpression->second,
 				MaterialParameters::EMaterialBuiltinParameterKind::Texture);
@@ -266,42 +223,14 @@ namespace Durin::Testing
 				EMaterialProgramValueType::Float2, {RotatedX, RotatedY});
 			const auto Offset = AppendNode(EMaterialProgramOpcode::Parameter,
 				EMaterialProgramValueType::Float2, {}, Ids.UVOffset);
-			FMaterialProgramNode Final;
-			Final.Id = PreservedId;
-			Final.Opcode = EMaterialProgramOpcode::Add;
-			Final.ResultType = EMaterialProgramValueType::Float2;
-			Final.Inputs = {Rotated, Offset};
-			Program.Nodes.push_back(std::move(Final));
+			auto* Final = Cast<DMaterialExpressionAdd>(Node.Get());
+			check(Final && Final->Id == PreservedId);
+			Final->A = Rotated; Final->B = Offset;
+			Graph.Expressions.push_back(std::move(Node));
 		}
-		return Program;
+		return Graph;
 	}
 
-
-	// Exact result of the pre-8e5b7eb8f StandardSurface resave route.
-	inline auto MakeAggregatePBRMaterialProgramForTest() -> FMaterialProgram
-	{
-		const auto Template = MakePBRMaterialProgramForTest();
-		FMaterialProgram Result;
-		Result.Nodes.push_back({.Id = MakeCanonicalNodeId(0), .Opcode = EMaterialProgramOpcode::MakeSurface,
-			.ResultType = EMaterialProgramValueType::Surface, .DisplayName = "Standard Surface"});
-		Result.Outputs.Surface = {.SourceNodeId = Result.Nodes.front().Id};
-		std::unordered_map<FGuid, FMaterialProgramLink> Cloned;
-		uint32 NextId = 1;
-		std::function<FMaterialProgramLink(FMaterialProgramLink)> Clone = [&](FMaterialProgramLink Link) {
-			if (const auto It = Cloned.find(Link.SourceNodeId); It != Cloned.end()) return It->second;
-			const auto Source = std::ranges::find(Template.Nodes, Link.SourceNodeId, &FMaterialProgramNode::Id);
-			auto Node = *Source;
-			for (auto& Input : Node.Inputs) Input = Clone(Input);
-			Node.Id = FGuid{0x4d494752, 0, 0, NextId++};
-			const FMaterialProgramLink NewLink{Node.Id, 0};
-			Cloned.emplace(Link.SourceNodeId, NewLink);
-			Result.Nodes.push_back(std::move(Node));
-			return NewLink;
-		};
-		std::vector<FMaterialProgramLink> Inputs;
-		for (uint32 I = 0; I < 8; ++I)
-			Inputs.push_back(Clone(GetMaterialSurfaceOutputLink(Template.Outputs, static_cast<EMaterialSurfaceOutput>(I))));
-		Result.Nodes.front().Inputs = std::move(Inputs);
-		return Result;
-	}
+	inline auto MakePBRMaterialProgramForTest() -> FMaterialProgram
+	{ return MakePBRMaterialExpressionsForTest().ReferenceProgram(); }
 }

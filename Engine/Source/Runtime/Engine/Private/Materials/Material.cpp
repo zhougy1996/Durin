@@ -30,30 +30,18 @@ namespace Durin
 				? 1 : Revision + 1;
 		}
 
-		auto MakeCodeOnlyProgram(FMaterialProgram Program) -> FMaterialProgram
-		{
-			for (auto& Node : Program.Nodes)
-			{
-				Node.Parameter = {.Id = Node.Parameter.Id, .Type = Node.Parameter.Type};
-				Node.DisplayName.clear();
-			}
-			return Program;
-		}
-
-
 	}
 
 	DMaterial::DMaterial(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
-		, Program(MakeDefaultMaterialProgram())
 		, GraphPresentation({
 			.bHasMaterialOutputPosition = true,
 			.MaterialOutputX = 96,
 			.MaterialOutputY = 0})
 	{
-		ObservedCodeProgram = MakeCodeOnlyProgram(Program);
 		if (!IsTemplateConstructionPurpose(ObjectInitializer.Purpose))
 		{
+			ValidateExpressionGraph(ExpressionCollection, ExpressionOutputs, &ObservedExpressionCode);
 			if (!IsMaterialCompilationAcceptingRequests())
 				RequestProgramCompile(StaticProperties);
 			PublishMaterialRenderProxyState();
@@ -118,8 +106,7 @@ namespace Durin
 		if (!Validation) return Validation;
 		Validation = ValidateMaterialProgramWithFunctions(InProgram, Schema, InCalls);
 		if (!Validation) return Validation;
-		RefreshExpressionProjection();
-		if (Program == InProgram && FunctionCalls == InCalls) return Validation;
+		if (GetMaterialProgram() == InProgram && GetMaterialFunctionCalls() == InCalls) return Validation;
 		TStrongObjectPtr<DObject> Staging(NewObject<DObject>(nullptr, "MaterialCandidate"));
 		FMaterialExpressionCollection Candidate;
 		if (!Private::ConstructMaterialExpressions(Staging.Get(), InProgram, InCalls, Candidate))
@@ -138,22 +125,15 @@ namespace Durin
 				if (Position != GraphPresentation.Nodes.end()) Position->DisplayName = Node.DisplayName;
 				else if (!Node.DisplayName.empty()) GraphPresentation.Nodes.push_back({.NodeId = Node.Id, .DisplayName = Node.DisplayName});
 			}
-		if (Validation) RefreshExpressionProjection();
 		return Validation;
 	}
 
 	auto DMaterial::SetMaterialGraphPresentation(
 		FMaterialGraphPresentation InPresentation) -> bool
 	{
-		InPresentation = SanitizeMaterialGraphPresentation(
-			InPresentation, Program);
-		for (const auto& Existing : GraphPresentation.Nodes)
-		{
-			if (Existing.DisplayName.empty() || std::ranges::find(Program.Nodes, Existing.NodeId, &FMaterialProgramNode::Id) == Program.Nodes.end()) continue;
-			const auto Position = std::ranges::find(InPresentation.Nodes, Existing.NodeId, &FMaterialGraphNodePresentation::NodeId);
-			if (Position != InPresentation.Nodes.end()) Position->DisplayName = Existing.DisplayName;
-			else InPresentation.Nodes.push_back(Existing);
-		}
+		std::vector<FGuid> Ids;
+		for (const auto& Expression : ExpressionCollection.Expressions) if (Expression) Ids.push_back(Expression->Id);
+		InPresentation = SanitizeMaterialGraphPresentation(InPresentation, Ids);
 		if (GraphPresentation == InPresentation) return true;
 		GraphPresentation = std::move(InPresentation);
 		AdvanceRevision(MaterialGraphPresentationRevision);
@@ -178,8 +158,8 @@ namespace Durin
 				|| Position.X > MaterialGraphPresentationCoordinateLimit
 				|| Position.Y < -MaterialGraphPresentationCoordinateLimit
 				|| Position.Y > MaterialGraphPresentationCoordinateLimit
-				|| std::ranges::find(Program.Nodes, Position.NodeId,
-					&FMaterialProgramNode::Id) == Program.Nodes.end())
+				|| !std::ranges::any_of(ExpressionCollection.Expressions,
+					[&](const auto& Expression) { return Expression && Expression->Id == Position.NodeId; }))
 				return false;
 		}
 
@@ -291,7 +271,7 @@ namespace Durin
 		const auto* Definition = FindParameterDefinition(Name);
 		if (!Definition || Definition->Type != EMaterialParameterType::Texture) return false;
 		auto Candidate = Definition->Value;
-		Candidate.TextureValue = Value;
+		Candidate.GetTexture().Texture = Value;
 		return SetParameterValue(Definition->Id, Candidate);
 	}
 
@@ -311,16 +291,15 @@ namespace Durin
 			for (const auto& Expression : ExpressionCollection.Expressions)
 				if (auto* Parameter = Cast<DMaterialExpressionParameter>(Expression.Get()); Parameter && Parameter->Metadata.Id == Id) { Owner = Parameter; break; }
 			if (!Owner) return false;
-			if (auto* Parameter = Cast<DMaterialExpressionScalarParameter>(Owner)) Parameter->DefaultValue = Value.ScalarValue;
-			else if (auto* Parameter = Cast<DMaterialExpressionVector2Parameter>(Owner)) Parameter->DefaultValue = Value.Vector2Value;
-			else if (auto* Parameter = Cast<DMaterialExpressionVector3Parameter>(Owner)) Parameter->DefaultValue = Value.VectorValue;
-			else if (auto* Parameter = Cast<DMaterialExpressionVector4Parameter>(Owner)) Parameter->DefaultValue = Value.Vector4Value;
-			else if (auto* Parameter = Cast<DMaterialExpressionTextureParameter>(Owner)) Parameter->DefaultValue = {Value.TextureValue, Value.SamplerState, Value.TextureFallback};
+			if (auto* Parameter = Cast<DMaterialExpressionScalarParameter>(Owner)) Parameter->DefaultValue = Value.GetScalar();
+			else if (auto* Parameter = Cast<DMaterialExpressionVector2Parameter>(Owner)) Parameter->DefaultValue = Value.GetVector2();
+			else if (auto* Parameter = Cast<DMaterialExpressionVector3Parameter>(Owner)) Parameter->DefaultValue = Value.GetVector();
+			else if (auto* Parameter = Cast<DMaterialExpressionVector4Parameter>(Owner)) Parameter->DefaultValue = Value.GetVector4();
+			else if (auto* Parameter = Cast<DMaterialExpressionTextureParameter>(Owner)) Parameter->DefaultValue = {Value.GetTexture().Texture, Value.GetTexture().SamplerState, Value.GetTexture().TextureFallback};
 			else return false;
 		}
 
 		*Entry = std::move(Definition);
-		if (!bCooked) RefreshExpressionProjection();
 		MarkPackageDirty();
 		MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters);
 		return true;
@@ -330,7 +309,7 @@ namespace Durin
 	{
 		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
 		if (!Definition || Definition->Type != EMaterialParameterType::Scalar) return false;
-		OutValue = Definition->Value.ScalarValue;
+		OutValue = Definition->Value.GetScalar();
 		return true;
 	}
 
@@ -338,7 +317,7 @@ namespace Durin
 	{
 		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
 		if (!Definition || Definition->Type != EMaterialParameterType::Vector2) return false;
-		OutValue = Definition->Value.Vector2Value;
+		OutValue = Definition->Value.GetVector2();
 		return true;
 	}
 
@@ -346,7 +325,7 @@ namespace Durin
 	{
 		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
 		if (!Definition || Definition->Type != EMaterialParameterType::Vector) return false;
-		OutValue = Definition->Value.VectorValue;
+		OutValue = Definition->Value.GetVector();
 		return true;
 	}
 
@@ -354,7 +333,7 @@ namespace Durin
 	{
 		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
 		if (!Definition || Definition->Type != EMaterialParameterType::Texture) return false;
-		OutValue = Definition->Value.TextureValue.Get();
+		OutValue = Definition->Value.GetTexture().Texture.Get();
 		return true;
 	}
 
@@ -386,20 +365,137 @@ namespace Durin
 		}
 	}
 
+	auto DMaterial::AddReferencedObjects(FReferenceCollector& Collector) -> void
+	{
+		Super::AddReferencedObjects(Collector);
+		for (auto& Definition : ParameterSchema) Definition.Value.AddReferencedObjects(Collector);
+	}
+
 	auto DMaterial::SerializeCooked(FArchive& Ar) -> void
 	{
-		RefreshExpressionProjection();
 		if (Ar.IsSaving() && !GetAssetRuntimeConfiguration().RequiresCookedPayload()
-			&& !DeriveMaterialParameterSchema(Program, ParameterSchema))
+			&& !DeriveExpressionParameterSchema(ExpressionCollection, ParameterSchema))
 		{
 			Ar.Fail(EArchiveFailureCode::InvalidData, "Cannot Cook an invalid material parameter schema.");
 			return;
 		}
 		Super::SerializeCooked(Ar);
 		if (Ar.HasError()) return;
-		auto* Property = StaticClass()->FindPropertyByName(FName("ParameterSchema"));
-		require(Property);
-		SerializeReflectedPropertyValue(Ar, *Property, this);
+		std::vector<FMaterialParameterDefinition> Loaded;
+		std::vector<uint32> LoadedOrder;
+		for (const auto Type : {EMaterialParameterType::Scalar, EMaterialParameterType::Vector2,
+			EMaterialParameterType::Vector, EMaterialParameterType::Vector4, EMaterialParameterType::Texture})
+		{
+			std::vector<FMaterialParameterDefinition> Values;
+			if (Ar.IsSaving())
+				for (const auto& Definition : ParameterSchema)
+					if (Definition.Type == Type) Values.push_back(Definition);
+			const FName RecordName(std::format("Durin::CookedMaterialParameter{}", static_cast<uint32>(Type)));
+			auto Field = EnterArchiveField(Ar, {FName("Durin::DMaterial"),
+				FName(std::format("TypedParameters{}", static_cast<uint32>(Type))),
+				FArchiveLogicalTypeDescriptor::Array(FArchiveLogicalTypeDescriptor::Struct(RecordName))});
+			uint64 Index = 0;
+			SerializeBoundedSequence(Ar, Values, MaterialProgramMaxNodeCount,
+				[&](FArchive& Inner, FMaterialParameterDefinition& Definition) {
+					auto Element = EnterArchiveArrayElement(Inner, Index++);
+					Inner.UseExistingStructBaseline();
+					auto Member = [&](const char* Name, auto& Value, FArchiveLogicalTypeDescriptor LogicalType) {
+						auto Scope = EnterArchiveField(Inner, {RecordName, FName(Name), std::move(LogicalType)});
+						Inner << Value;
+					};
+					Member("Id", Definition.Id, FArchiveLogicalTypeDescriptor::Guid());
+					uint32 Order = Ar.IsSaving() ? static_cast<uint32>(std::ranges::find(ParameterSchema,
+						Definition.Id, &FMaterialParameterDefinition::Id) - ParameterSchema.begin()) : 0;
+					Member("Order", Order, FArchiveLogicalTypeDescriptor::Scalar(false, 32));
+					if (Inner.IsLoading()) LoadedOrder.push_back(Order);
+					Member("Name", Definition.Name, FArchiveLogicalTypeDescriptor::Name());
+					{
+						auto Scope = EnterArchiveField(Inner, {RecordName, FName("DisplayName"), FArchiveLogicalTypeDescriptor::String()});
+						SerializeBoundedString(Inner, Definition.DisplayName, MaterialMaxParameterTextBytes);
+					}
+					Member("GroupName", Definition.GroupName, FArchiveLogicalTypeDescriptor::Name());
+					Member("SortOrder", Definition.SortOrder, FArchiveLogicalTypeDescriptor::Scalar(true, 32));
+					Member("Presentation", Definition.Presentation, FArchiveLogicalTypeDescriptor::Enum(FName("Durin::EMaterialParameterPresentation"), false, 8));
+					Definition.Type = Type;
+					if (Inner.IsLoading())
+					{
+						switch (Type)
+						{
+						case EMaterialParameterType::Scalar: Definition.Value = FMaterialParameterValue::MakeScalar(0); break;
+						case EMaterialParameterType::Vector2: Definition.Value = FMaterialParameterValue::MakeVector2(FVector2(0)); break;
+						case EMaterialParameterType::Vector: Definition.Value = FMaterialParameterValue::MakeVector(FVector3(0)); break;
+						case EMaterialParameterType::Vector4: Definition.Value = FMaterialParameterValue::MakeVector4(FVector4(0)); break;
+						case EMaterialParameterType::Texture: Definition.Value = FMaterialParameterValue::MakeTexture(nullptr); break;
+						}
+					}
+					switch (Type)
+					{
+					case EMaterialParameterType::Scalar:
+						Member("Value", Definition.Value.GetScalar(), FArchiveLogicalTypeDescriptor::Scalar(true, 32, true));
+						Member("HasRange", Definition.bHasRange, FArchiveLogicalTypeDescriptor::Scalar(false, 8));
+						Member("Minimum", Definition.MinimumValue, FArchiveLogicalTypeDescriptor::Scalar(true, 32, true));
+						Member("Maximum", Definition.MaximumValue, FArchiveLogicalTypeDescriptor::Scalar(true, 32, true));
+						break;
+					case EMaterialParameterType::Vector2:
+						Member("X", Definition.Value.GetVector2().x, FArchiveLogicalTypeDescriptor::Scalar(true, 64, true));
+						Member("Y", Definition.Value.GetVector2().y, FArchiveLogicalTypeDescriptor::Scalar(true, 64, true));
+						break;
+					case EMaterialParameterType::Vector:
+						Member("X", Definition.Value.GetVector().x, FArchiveLogicalTypeDescriptor::Scalar(true, 64, true));
+						Member("Y", Definition.Value.GetVector().y, FArchiveLogicalTypeDescriptor::Scalar(true, 64, true));
+						Member("Z", Definition.Value.GetVector().z, FArchiveLogicalTypeDescriptor::Scalar(true, 64, true));
+						break;
+					case EMaterialParameterType::Vector4:
+						Member("X", Definition.Value.GetVector4().x, FArchiveLogicalTypeDescriptor::Scalar(true, 64, true));
+						Member("Y", Definition.Value.GetVector4().y, FArchiveLogicalTypeDescriptor::Scalar(true, 64, true));
+						Member("Z", Definition.Value.GetVector4().z, FArchiveLogicalTypeDescriptor::Scalar(true, 64, true));
+						Member("W", Definition.Value.GetVector4().w, FArchiveLogicalTypeDescriptor::Scalar(true, 64, true));
+						break;
+					case EMaterialParameterType::Texture:
+					{
+						auto& Texture = Definition.Value.GetTexture();
+						{
+							auto Scope = EnterArchiveField(Inner, {RecordName, FName("Texture"), FArchiveLogicalTypeDescriptor::Object(FName("Durin::DTexture2D"))});
+							DObject* Object = Texture.Texture.Get();
+							SerializeArchiveObjectReference(Inner, Object);
+							if (Object && !Object->IsA(DTexture2D::StaticClass())) Inner.Fail(EArchiveFailureCode::InvalidData, "Cooked texture parameter has a non-texture reference.");
+							Texture.Texture = Cast<DTexture2D>(Object);
+						}
+						Member("MinFilter", Texture.SamplerState.MinFilter, FArchiveLogicalTypeDescriptor::Enum(FName("Durin::EMaterialSamplerMinFilter"), false, 8));
+						Member("MagFilter", Texture.SamplerState.MagFilter, FArchiveLogicalTypeDescriptor::Enum(FName("Durin::EMaterialSamplerMagFilter"), false, 8));
+						Member("AddressU", Texture.SamplerState.AddressU, FArchiveLogicalTypeDescriptor::Enum(FName("Durin::EMaterialSamplerAddressMode"), false, 8));
+						Member("AddressV", Texture.SamplerState.AddressV, FArchiveLogicalTypeDescriptor::Enum(FName("Durin::EMaterialSamplerAddressMode"), false, 8));
+						Member("Fallback", Texture.TextureFallback, FArchiveLogicalTypeDescriptor::Enum(FName("Durin::EMaterialTextureFallback"), false, 8));
+						Member("Usage", Definition.TextureUsage, FArchiveLogicalTypeDescriptor::Enum(FName("Durin::ETextureUsage"), false, 8));
+						break;
+					}
+					}
+				});
+			if (Ar.HasError()) return;
+			if (Ar.IsLoading()) Loaded.insert(Loaded.end(), Values.begin(), Values.end());
+		}
+		if (Ar.IsLoading())
+		{
+			if (Loaded.size() > MaterialProgramMaxNodeCount || Loaded.size() != LoadedOrder.size())
+			{
+				Ar.Fail(EArchiveFailureCode::LimitExceeded, "Cooked parameter schema exceeds its bound.");
+				return;
+			}
+			std::vector<FMaterialParameterDefinition> Ordered(Loaded.size());
+			std::vector<bool> Seen(Loaded.size(), false);
+			for (size_t Index = 0; Index < Loaded.size(); ++Index)
+			{
+				const auto Order = LoadedOrder[Index];
+				if (Order >= Loaded.size() || Seen[Order])
+				{
+					Ar.Fail(EArchiveFailureCode::InvalidData, "Invalid cooked parameter declaration order.");
+					return;
+				}
+				Seen[Order] = true;
+				Ordered[Order] = std::move(Loaded[Index]);
+			}
+			ParameterSchema = std::move(Ordered);
+		}
 		if (!Ar.HasError() && !ValidateMaterialParameterDefinitions(ParameterSchema))
 			Ar.Fail(EArchiveFailureCode::InvalidData, "Invalid generated cooked material parameter schema.");
 	}
@@ -430,15 +526,14 @@ namespace Durin
 				"Loaded cooked Material metadata for '{}'.", GetObjectPath());
 			return;
 		}
-		RefreshExpressionProjection();
-		const auto SchemaValidation = DeriveMaterialParameterSchema(Program, ParameterSchema);
+		const auto SchemaValidation = DeriveExpressionParameterSchema(ExpressionCollection, ParameterSchema);
 		if (!SchemaValidation)
 		{
 			DURIN_ERROR("PostLoad '{}': unsupported material graph; rebuild this material.", GetObjectPath());
 			return;
 		}
 		const FMaterialProgramValidationResult ProgramValidation =
-			ValidateMaterialProgramWithFunctions(Program, ParameterSchema, FunctionCalls);
+			ValidateExpressionGraph(ExpressionCollection, ExpressionOutputs, &ObservedExpressionCode);
 		if (!ProgramValidation)
 		{
 			Error = ProgramValidation.Diagnostics.empty()
@@ -447,9 +542,9 @@ namespace Durin
 			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
 			return;
 		}
-		ObservedCodeProgram = MakeCodeOnlyProgram(Program);
-		GraphPresentation = SanitizeMaterialGraphPresentation(
-			GraphPresentation, Program);
+		std::vector<FGuid> Ids;
+		for (const auto& Expression : ExpressionCollection.Expressions) if (Expression) Ids.push_back(Expression->Id);
+		GraphPresentation = SanitizeMaterialGraphPresentation(GraphPresentation, Ids);
 		AdvanceRevision(MaterialProgramRevision);
 		AdvanceRevision(MaterialGraphPresentationRevision);
 		AdvanceRevision(ParameterDefinitionSchemaRevision);
@@ -469,16 +564,14 @@ namespace Durin
 		{
 			if (Name == FName("ExpressionCollection") || Name == FName("ExpressionOutputs"))
 			{
-				const auto PreviousCalls = FunctionCalls;
-				RefreshExpressionProjection();
 				std::vector<FMaterialParameterDefinition> Schema;
-				if (!DeriveMaterialParameterSchema(Program, Schema)
-					|| !ValidateMaterialProgramWithFunctions(Program, Schema, FunctionCalls)) return;
+				FXxHash128 Code;
+				if (!DeriveExpressionParameterSchema(ExpressionCollection, Schema)
+					|| !ValidateExpressionGraph(ExpressionCollection, ExpressionOutputs, &Code)) return;
 				ParameterSchema = std::move(Schema);
 				AdvanceRevision(ParameterDefinitionSchemaRevision);
-				auto CodeProgram = MakeCodeOnlyProgram(Program);
-				const bool bShaderChanged = CodeProgram != ObservedCodeProgram || PreviousCalls != FunctionCalls;
-				ObservedCodeProgram = std::move(CodeProgram);
+				const bool bShaderChanged = Code != ObservedExpressionCode;
+				ObservedExpressionCode = Code;
 				if (!bShaderChanged)
 				{
 					MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters);

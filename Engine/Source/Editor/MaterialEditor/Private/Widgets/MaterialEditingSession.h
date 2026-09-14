@@ -30,13 +30,13 @@ namespace Durin::Editor::Material
 	private:
 		struct FAuthoredState
 		{
-			FMaterialProgram Program;
+			std::vector<TStrongObjectPtr<DMaterialExpression>> Expressions;
+			FMaterialExpressionSurfaceOutputs Outputs;
 			FMaterialStaticProperties Properties;
 			FMaterialGraphPresentation Presentation;
-			std::vector<FMaterialFunctionCall> FunctionCalls;
-			auto operator==(const FAuthoredState&) const -> bool = default;
+			auto Matches(const DMaterial& Material) const -> bool;
 		};
-		static auto Capture(const DMaterial& Material) -> FAuthoredState;
+		static auto Capture(const DMaterial& Material, FAuthoredState& OutState) -> bool;
 		auto ApplyCurrent(std::string& Error) -> bool;
 		auto CheckSource(std::string& Error) const -> bool;
 		TStrongObjectPtr<DMaterial> Source;

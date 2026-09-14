@@ -2,12 +2,386 @@
 
 Summary: Replace all-alternative material values and universal authored nodes with typed parameter storage, owned MaterialExpression objects, and detached compiler snapshots.
 
-Last reviewed: 2026-09-14
+Last reviewed: 2026-09-15
 
 Status: Active
 Completed:
 
 ## Current Status
+
+Stages 0 and 1 are complete. Stage 1 provides the non-reflected selected value
+API, five typed instance arrays, concrete expression-owned defaults and counted
+render-thread resource references. Cook emits five logical record arrays in
+declaration order without serializing variant indices or native layouts.
+
+Stage 2 implements all 46 expression classes, direct `Build()` and production
+detached-IR compilation. Compiler/node-family checks and the recovered Stage 0
+render comparison pass; all 28 reference PNGs are byte-identical.
+
+Stage 3 authoring migration is implemented. Working copies, Apply, transaction history and clipboard
+schema 7 own independent concrete expression snapshots. Interface/port/call edits,
+input connections/defaults, deletion, constant extraction/inlining, parameter and
+Surface commands, function previews, texture drops and function movement publish
+through typed owner APIs. Graph equality checks preserve revisions during
+presentation-only edits and Undo/Redo. Layout reads typed connections, including
+call and Surface-override edges, and preserves node labels. Details edits parameter,
+constant and UV fields and input promotion through typed snapshots, capturing
+candidates only on submission. Catalog entries describe concrete expression classes;
+creation validates the descriptor and populates only applicable typed defaults.
+Constant type changes, inline constants/swizzles and the function editor node draft
+now use concrete replacements with independent transaction copies. Function graph
+publication checks dependency closure to reject recursive replacement targets.
+The seven standard
+functions, explicit PBR template and structural import recipes author typed graphs.
+The separate clipboard reference carrier and old recipe-producing APIs are removed.
+
+Inspection now reads typed expressions directly, including fixed/inline defaults,
+call bindings and Surface attribute pins. Detached node views retain only the
+selected display payload instead of universal nodes. The all-catalog check compares
+every pin/default with the transitional reference and verifies no managed objects
+are allocated; decoded-normal sampling output is reported as Float3.
+
+Public document Capture/Commit now carry owned expression candidates; Commit
+clones again so caller-held drafts cannot mutate history. Legacy editor
+CreateNode/ReplaceNode/ReplaceProgram adapters and their request type are removed.
+New material setup, parameter reachability, movement checks, diagnostics and texture
+previews also read typed collections. MaterialEditor no longer reads or writes a
+universal authored Program.
+
+Expanded PBR, standard-function and dual-layer Rust native fixtures now build
+owned concrete expressions and publish through typed APIs. Their shared consumers
+compile in the native test aggregate. A detached Program reference adapter remains
+only for legacy compiler qualification and is scheduled for Stage 5 removal.
+The construction-helper and ownership audit found no production legacy graph
+setter consumers outside the runtime transition implementation. Stage 4 has rebuilt
+DefaultMaterial and all seven standard functions through fresh typed recipes,
+validated staged packages with fresh readers, and preserved package/leaf identities
+in both project inventories. The unreferenced GraphAuthoringV5 fixtures are retired;
+no mounted material instances require recreation. The exact before/after hashes
+and retired files are recorded in [the rebuild manifest](TypedMaterialValuesAndExpressions.rebuild.json).
+
+Cook now includes Engine service-owned roots such as DefaultMaterial. Fresh Sandbox
+and RoadWeaver Cook runs published 7 and 4 packages respectively, including the
+default material. Receipts are `Build/TypedMaterialValuesRebuild/Sandbox-cook.json`
+and `RoadWeaver-cook.json`. MaterialVulkanTests passed with retained test work
+(`20260914-233529-745454-29044-MaterialVulkanTests.log`); this is correctness evidence,
+not an exclusive-lane timing result or a Stage 0 image comparison. Scene import
+Vulkan also passed (`20260914-233644-506646-30268-SceneImportVulkanTests.log`).
+The Game `all` build passed (`20260914-235310-987458-36972-cmake.log`), and both
+projects initialized Vulkan, rendered 120 engine ticks and exited normally using
+their separately staged Cook outputs: Sandbox `20260914-235441-202325-3480-DurinGame.log`,
+RoadWeaver `20260914-235444-939189-35408-DurinGame.log`. Sandbox reports its unrelated
+missing GrayboxPawn visual. The recovered pre-migration baseline uses revision `e6e7b272e` with only the
+original measurement harness restored. All 28 retained Vulkan PNGs are byte-identical
+and all 135 parameter/function-port identity records match. The measured default-only load regression was traced to forced serialization of
+class-default outputs. Ordinary default elision removes that overhead while the
+ownership version and expression collection stay mandatory. Custom-output reload,
+Cook stripping and staged fresh-reader tests pass. All 11 recipes now reduce package
+bytes, owning-thread allocation requests and save/load medians against the recovered
+baseline. The shipped total is 270,227 to 151,338 bytes, with exports increasing from
+8 to 224; object overhead is included in those totals.
+
+[The qualification report](TypedMaterialValuesAndExpressions.qualification.json)
+retains all samples, section bytes, object counts, identity records, image hashes,
+Cook reports and exact receipts. Six Debug CRT samples per operation use sample zero
+as warmup; medians use samples 1-5. These are allocation requests, not retained or
+peak memory, and do not establish Release or GPU timing performance.
+
+| Recipe | Save ms before / after | Load ms before / after |
+| --- | --- | --- |
+| Default constructor | 36.772 / 27.738 | 12.878 / 10.264 |
+| Explicit template | 1,560.780 / 398.560 | 1,044.400 / 170.551 |
+| Structural plain | 104.842 / 42.998 | 66.511 / 22.623 |
+| Structural transformed/packed | 206.501 / 74.715 | 103.771 / 34.811 |
+
+The live-owner legacy compiler snapshot overload is removed. Function, expression,
+scene-import, graph-operation and instance-variant consumers now request detached
+IR snapshots directly. Normalization/compiler fixtures construct selected IR
+payloads, retain dependency-before-consumer ordering when permuting independent
+nodes, and still check canonical identity, shared-DAG bounds, resource layouts,
+source generation and compiled stages. Literal-default, shared-fetch and decoded-normal
+parity fixtures now construct concrete expression objects. The remaining function compiler fixtures have also migrated, and the old compiler
+input, normalization/compile/identity overloads, and universal-node function
+expansion implementation are removed. Legacy owner graph readers/setters and
+function snapshot adapters still prevent closing the Stage 5 removal gate.
+Focused graph/normalization/compiler coverage passed 69 cases
+(`20260915-011822-564155-15504-MaterialTests.log`), and function/expression coverage
+passed 55 (`20260915-012007-740947-15376-MaterialTests.log`). SceneImportTests
+passed 10 (`20260915-012054-144732-42724-SceneImportTests.log`), the instance
+variant/lifecycle case passed (`20260915-012143-128991-1076-MaterialTests.log`),
+and workspace `all` passed (`20260915-012202-526143-17760-cmake.log`).
+
+Function inline-default, all-eight Surface-override, and pre-pruning expansion-bound
+fixtures now construct typed expressions and call the direct Build path, including
+their function bodies. The expansion-bound check still accepts twenty calls and
+rejects the twenty-first before dead-node pruning; typed Build now reports the
+required `Bounds` diagnostic category for expanded IR limits. Authored collection
+limits remain unchanged. Focused migrated cases passed in
+`20260915-012357-944396-32204-MaterialTests.log`,
+`20260915-012448-468777-41792-MaterialTests.log`, and
+`20260915-012632-709232-39472-MaterialTests.log`. The combined function/expression
+regression passed 55 cases (`20260915-012651-859225-30168-MaterialTests.log`),
+and workspace `all` passed (`20260915-012730-133884-31112-cmake.log`).
+
+Independent-call/multiple-output identity tests, nested Surface extraction, nested
+texture-default/resource binding with actual shader compilation, and nested source
+diagnostics now compile through typed Build results. Invalid nested links and ports
+are injected into the real expression graph, so their owning function and root call
+path are checked on the production Build path. All 36 function cases passed before
+removing the obsolete implementation (`20260915-013115-370059-29908-MaterialTests.log`).
+Source and test searches across all workspace projects found no remaining old
+compiler-input or compile/normalize entry-point references.
+After removal, 67 function/expression/normalization/compiler cases passed
+(`20260915-013332-218063-33464-MaterialTests.log`). The unused legacy node conversion
+helpers are also removed, and normalization/identity helpers now accept the sole
+IR input type directly. The final twelve compiler/normalization cases passed
+(`20260915-013416-231714-25928-MaterialTests.log`), followed by workspace `all`
+(`20260915-013427-193129-32384-cmake.log`).
+
+Function preview, graph admission/paste and package-reload preparation now validate
+typed dependency bodies directly and publish only owner/path/revision stamps.
+The validator retains recursion, shared-subtree height, dependency count, signature
+and local expression checks; failed validation leaves previous stamps unchanged.
+Function insertion validates concrete call bindings after constructing their typed
+inputs instead of creating a universal call snapshot. The legacy function-body snapshot and closure APIs are now removed after migrating
+the remaining native consumers; the smaller call-binding record remains only in
+compatibility graph validation. All 36
+function cases passed (`20260915-013858-013400-12228-MaterialTests.log`), package
+reload passed 13 (`20260915-013944-445259-30532-AssetPackageReloadTests.log`), and
+workspace `all` passed (`20260915-013951-816397-24508-cmake.log`).
+
+`BuildFunctionSnapshot`, function snapshot/closure records and their capture
+implementation are removed. Package round trips now compare detached typed IR,
+parameter declarations and source maps; reload invalidation obtains owner stamps
+from the production typed compiler snapshot. Detached port bindings remain readable
+after unloading their package. The legacy local Program validator is temporarily
+co-located with other compatibility validators instead of retaining a snapshot module.
+The owning runtime function contract now documents typed collections and direct IR
+emission. All 36 function cases passed (`20260915-014354-959293-40596-MaterialTests.log`),
+package reload passed 13 (`20260915-014450-772291-19172-AssetPackageReloadTests.log`),
+and workspace `all` passed (`20260915-014500-753971-31232-cmake.log`).
+
+Render-proxy, compiled render representation and compile-lifecycle native fixtures
+no longer read or publish compatibility Programs or function graphs. They construct
+concrete expressions for resource sampling, custom Cook layouts and pending parameter
+replacement, and edit typed output defaults/signatures for scheduling and dependency
+invalidation. Cook stripping checks the actual expression collection. Reflected
+no-op edit checks now target `ExpressionCollection`; failed candidate admission uses
+an invalid typed connection. The typed recipe fixture now supports the concrete
+Float3 truncation expression required by those custom resource graphs. Ten render
+representation/lifecycle cases passed (`20260915-015101-249289-20532-MaterialTests.log`),
+and five focused proxy/Cook cases passed (`20260915-015129-529889-26416-MaterialTests.log`).
+The initial broader run exposed the missing test-helper constructor before that
+fix (`20260915-014752-449395-16020-MaterialTests.log`); it is not a passing receipt.
+The native test aggregate subsequently built all affected targets, including GPU
+qualification executables (`20260915-015143-406824-27912-cmake.log`; build-only).
+
+Editing-session and parameter-panel tests no longer use compatibility Program or
+function graph reads/writes. Apply/Discard, asynchronous rejection, function replacement,
+transaction labels and source/draft isolation inspect typed outputs, expressions,
+parameters and presentation. Ten session/lifecycle cases passed
+(`20260915-015514-754557-3432-MaterialTests.log`) and eleven panel cases passed
+(`20260915-015547-045462-29268-MaterialTests.log`). Scene import fixtures now inspect
+concrete sample owners and output selectors, construct the packed six-sample function
+network directly, and clone typed function bodies to verify preserved user edits and
+incompatible interfaces. All ten import cases passed
+(`20260915-015859-037382-18384-SceneImportTests.log`). The import GPU test's structural
+assertions likewise inspect typed expressions; rendering inputs remain unchanged.
+`SceneImportVulkanTests` built (`20260915-015931-395319-24280-cmake.log`); GPU execution
+was not repeated for these assertion-only changes.
+
+Package-reload tests now publish typed nested calls, restore cloned typed bodies
+and compare reflected fields after failed recursive reload. All thirteen cases passed
+(`20260915-020534-079580-33864-AssetPackageReloadTests.log`). Material Vulkan fixtures
+now author typed default/aggregate surfaces, HDR values, finite operands producing
+Inf/NaN, and roughness-clamp edits. The no-graph error fallback is excluded from
+compilation by checking its concrete root, preserving the original fallback test.
+The complete Vulkan material scene passed (`20260915-020601-550934-17316-MaterialVulkanTests.log`),
+including pixel equivalence, edited output differences and restoration. The earlier
+run (`20260915-020327-455590-10392-MaterialVulkanTests.log`) exposed that test-helper
+root guard and is not acceptance evidence. Expression ownership tests now compare
+concrete children, reflected properties, signatures and presentation directly;
+compiler-input copy mutation remains detached from the live owner. All nineteen
+expression cases passed (`20260915-020719-173848-11616-MaterialTests.log`).
+The native aggregate is current (`20260915-021213-818392-25844-cmake.log`);
+this successful incremental check follows the shared-fixture rebuild.
+
+Graph-operation coverage now inspects typed collection counts and output links,
+compares detached expression fields for save/duplicate/Undo, and constructs typed
+parameter, aggregate, dense-layout and clipboard fixtures. Canvas defaults, UV
+extraction and constant-width replacement inspect concrete fields. All 58 graph
+operation and material-creation cases passed
+(`20260915-021747-141442-31016-MaterialTests.log`). Function clipboard, canvas stress and parameter-conversion fixtures now also use
+typed expressions. Complete field snapshots cover function signatures and child
+state; clipboard lifetime checks release construction references before collection.
+Catalog compatibility checks build real typed candidates across every offered pin
+and source type, including dangling links and malformed swizzles. Graph-operation
+tests no longer use legacy Program/node objects, graph getters/setters or Lower.
+All 58 cases passed again (`20260915-022413-881606-30968-MaterialTests.log`);
+the preceding compile failure was a missing test include, corrected before this run.
+
+Per user direction, routine canvas screenshot generation was removed: two
+screenshot-only scenarios and the software PNG rasterizer were deleted, while
+interaction, texture-channel, parameter, Undo/Redo and draw-data assertions remain.
+The remaining 56 graph-operation/material-creation cases passed
+(`20260915-022845-594907-38156-MaterialTests.log`, 11.115 seconds).
+Same-command diagnostic XML timing was 30.497 seconds before (58 cases)
+and 11.115 seconds after (56 cases), recorded under
+`Build/MaterialTestSpeed/{before,after}.xml`; these are local timing observations,
+not hardware performance qualification. The existing Vulkan pixel-comparison
+gates are unchanged.
+
+Schema/editing tests now construct typed parameter owners and retyping candidates,
+check concrete reflection and deterministic fields, reject malformed typed graphs,
+and use typed compiler snapshots for publication checks. The removed authored
+Program version/opcode adapters are no longer exercised here: package ownership
+marker rejection remains covered by the existing package-schema tests, and retired
+IR opcodes are rejected directly. Fixed input-array arity is covered by concrete
+pin and IR validation. All 63 parameter/schema/normalization cases passed
+(`20260915-023510-701964-26924-MaterialTests.log`), plus the publication case
+(`20260915-023554-545064-18296-MaterialTests.log`). An initial assertion used the
+legacy aggregate-exclusivity category; it now checks the typed diagnostic's Type
+category and explicit conflict message. Only MaterialFunctionTests still uses
+legacy graph reads/writes among native test sources.
+
+Function fixtures now inspect concrete calls and output links for editor operations,
+construct resource fan-out and nested texture/Surface bodies directly, and validate
+typed function terminals and port bindings. Package round-trip capture releases
+all construction references before unload. Focused editor/recipe checks passed four
+cases (`20260915-023806-747455-39116-MaterialTests.log`), eight resource/editor/port/package
+cases passed (`20260915-023926-664459-39068-MaterialTests.log`), and both dependency-stamp
+and nested-texture cases passed (`20260915-024021-668999-20576-MaterialTests.log`).
+Legacy root-commit, package spoofing and dependency invalidation fixtures remain.
+
+Stages 2-4 are qualified. Stage 5 is in progress. Instance override lookup and
+iteration now read the five typed arrays directly; the old override record, cached
+projection and invalidation/reference-rewrite machinery are removed. Parameter panel,
+asset-tool and test consumers use direct selected-value reads and enumeration.
+Function-dependency notifications traverse typed calls, and authored override
+reachability traverses the detached expression IR. Selected-function navigation and
+asset-tool inventory read expression owners directly. The missed-notification test
+now mutates the real call expression rather than a compatibility cache.
+Presentation sanitization and position membership now use typed expression GUIDs;
+layout edits no longer rebuild universal-node projections. The retained compatibility
+getter clears removed labels so history reads cannot observe stale presentation.
+Presentation/history verification passed seven cases
+(`20260915-002009-667653-25804-MaterialTests.log`), complementing the 91 passing
+material graph/function cases in `20260915-001259-416417-37232-MaterialTests.log`.
+Workspace `all` passed (`20260915-002025-911715-39396-cmake.log`).
+Parameter declaration derivation now reads concrete expression owners directly for
+candidate admission, loaded graphs, reflected edits and Cook. Cook no longer
+refreshes the universal-node projection to recover parameter metadata. GUID ordering,
+identity/name validation and publication-on-success are preserved. The complete
+MaterialTests target passed all 232 cases across 20 suites (excluding the separately
+recorded timing capture), receipt `20260915-002303-209842-27544-MaterialTests.log`;
+workspace `all` passed (`20260915-002704-820363-33768-cmake.log`). SceneImportTests
+passed all 10 cases (`20260915-002721-600603-21984-SceneImportTests.log`).
+Material functions no longer retain a universal Graph cache or a projection-reset
+PostLoad override. The temporary compatibility getter returns a detached value;
+mutating it cannot change the typed collection. Function/expression/graph coverage
+passed 106 cases (`20260915-002944-143020-30048-MaterialTests.log`), package reload
+passed 13 (`20260915-003135-937515-6088-AssetPackageReloadTests.log`), and workspace
+`all` passed (`20260915-003143-768283-2776-cmake.log`).
+Typed owner validation now uses expression Build semantics directly: material
+load/edits validate through `ValidateSurface`, and function load/edits through
+`ValidateFunction`. Local authoring checks retained call-port types without requiring
+callee bodies; compilation still admits and expands the real dependency closure.
+Private opaque validation values are discarded and cannot become compiler inputs.
+Surface ports retain their eight attribute types, and same-type call outputs share
+validation values. Function setters no longer project universal nodes for validation.
+Parameter admission checks the shared 128-owner bound and node/parameter GUID
+separation. Full MaterialTests passed 234 cases
+(`20260915-003820-246441-35240-MaterialTests.log`); subsequent parameter-bound and
+validation-value changes passed six focused cases including the maximum 256-call,
+16-output-per-call fixture (`20260915-004252-809177-3704-MaterialTests.log`).
+SceneImportTests passed 10 (`20260915-004311-633883-35604-SceneImportTests.log`),
+AssetPackageReloadTests passed 13 (`20260915-004357-067531-27392-AssetPackageReloadTests.log`),
+and workspace `all` passed (`20260915-004406-349425-41412-cmake.log`).
+Material owners no longer retain Program or function-call projection storage, nor
+a universal-node code checkpoint. Typed validation produces a transient 128-bit
+edit fingerprint from graph operations, GUID connection selectors, call ports and
+callee object handles. Parameter defaults and display metadata are excluded. Typed
+setters no longer construct a Program to classify edits; parameter writes and load
+no longer maintain compatibility caches. Temporary compatibility getters return
+independent optional Program values and call vectors, and native consumers retain
+explicit copies where needed instead of references into cached storage.
+Full MaterialTests passed 237 cases across 20 suites
+(`20260915-005402-039482-9648-MaterialTests.log`). `DurinNativeTests` built
+(`20260915-010008-613308-26912-cmake.log`; unchanged retry after a discovery timeout).
+The remaining old package test now constructs typed recipes and compares reflected
+expression fields and child ownership, checks deterministic typed package fields,
+rejects malformed saves without replacing the saved package, and rejects abandoned
+children before publication. It and missing-ownership-marker coverage passed
+(`20260915-010305-712310-20004-StaticMeshTests.log`), complementing the other ten
+passing static-mesh material cases in `20260915-010015-955164-36004-StaticMeshTests.log`.
+Both material and function serializers reset their ownership marker before loading
+and reject values other than 2; instance override storage has its own required marker.
+Current integration receipts: SceneImportTests 10/10
+(`20260915-010347-313024-14700-SceneImportTests.log`), AssetPackageReloadTests 13/13
+(`20260915-010433-753213-39404-AssetPackageReloadTests.log`), SceneImportVulkanTests
+build-only (`20260915-010441-492386-26164-cmake.log`), and workspace `all`
+(`20260915-010450-979041-36404-cmake.log`).
+Legacy projection APIs, compiler interfaces and final validation remain. Instance coverage passed 53 material tests, 47 function/parameter-panel tests
+and all 10 scene-import tests. Receipts: `20260915-000033-623122-39812-MaterialTests.log`,
+`20260914-235949-277274-30432-MaterialTests.log`, and
+`20260915-000100-848105-42344-SceneImportTests.log`. Workspace `all` passed
+(`20260915-000152-252117-33840-cmake.log`). Typed dependency queries passed 99 material/function/panel cases and the
+updated missed-notification case (`20260915-000607-503550-22004-MaterialTests.log`,
+`20260915-000811-726081-11484-MaterialTests.log`); SceneImportTests passed all 10
+(`20260915-000846-812424-39956-SceneImportTests.log`). Workspace `all` passed
+(`20260915-000950-036857-29980-cmake.log`), and the read-only standard-function
+inventory reports all eight typed owners with matching built-in dependencies. Foundation work does not count as completion of downstream stages.
+
+Current Stage 3 validation receipts (Win64 Debug; unchanged earlier coverage is
+reused where the later edits do not affect its inputs):
+
+| Coverage | Result | Receipt under `Build/.agent-state/logs/` |
+| --- | --- | --- |
+| Graph operations, editing sessions, functions and parameter panel; public candidate/history isolation | 109 passed | `20260914-225559-925980-37208-MaterialTests.log` |
+| Typed parameter reachability: resource-only sample use excludes unused UV dependencies | Passed | `20260914-225726-570075-29968-MaterialTests.log` |
+| Typed connection-order and expression/Surface deletion | 15 passed | `20260914-212841-552314-16388-MaterialTests.log` |
+| Structural scene import | 10 passed | `20260914-232514-152822-36092-SceneImportTests.log` |
+| Layout/movement, including typed call/Surface dependencies and label retention | 7 passed | `20260914-220809-714795-35340-MaterialTests.log` |
+| Details/canvas/parameter commands | 16 passed | `20260914-221504-317971-9164-MaterialTests.log` |
+| Details idle-frame object-allocation guard | Passed | `20260914-221617-529814-14288-MaterialTests.log` |
+| Catalog coverage, including all concrete shapes and invalid descriptors | 7 passed | `20260914-222444-138692-13232-MaterialTests.log` |
+| Typed inspection parity across all catalog shapes; no managed-object allocation | Passed | `20260914-224508-641056-21508-MaterialTests.log` |
+| Workspace `all` | Passed | `20260914-225755-705317-20436-cmake.log` |
+| Typed expanded/standard/Rust fixtures, graph operations, functions, parameter panel and editing sessions | 161 passed; two shipped-DefaultMaterial cases deferred to Stage 4 | `20260914-232315-214527-31808-MaterialTests.log` |
+| Fresh staged shipped-asset save/reload/recipe ownership | Passed | `20260914-232733-955712-26872-MaterialTests.log` |
+| Shipped DefaultMaterial runtime proxy regressions | 2 passed after rebuild | `20260914-232831-631125-28668-MaterialTests.log` |
+| Full material regression, baseline capture excluded | 231 passed; new rebuild test failed cached-path isolation, fixed and rerun below | `20260914-232843-441203-6024-MaterialTests.log` |
+| Renderer tests followed by rebuild test with fresh asset lifetime | 54 passed | `20260914-233253-210619-38576-MaterialTests.log` |
+| Native test aggregate, including shared fixture GPU consumers | Build passed after transient test-discovery timeouts | `20260914-232300-803591-27804-cmake.log` |
+
+Final Stage 1 validation (Win64 Debug):
+
+- All 213 selected MaterialTests passed:
+  `Build/.agent-state/logs/20260914-195210-661482-23760-MaterialTests.log`.
+  The seven shipped-asset cases and expensive baseline recapture remain Stage 4
+  gates, not accepted exclusions from final plan validation.
+- All 10 SceneImportTests passed:
+  `Build/.agent-state/logs/20260914-195621-589888-28636-SceneImportTests.log`.
+- Workspace `all` passed:
+  `Build/.agent-state/logs/20260914-195021-296889-37480-cmake.log`.
+- MaterialVulkanTests and SceneImportVulkanTests compiled against the new API:
+  `Build/.agent-state/logs/20260914-195703-025569-9212-cmake.log` and
+  `Build/.agent-state/logs/20260914-195743-466254-23568-cmake.log`.
+  GPU execution remains pending the shipped-asset rebuild.
+- Changed-document validation passed for both changed documents. The affected
+  selector expands this shared Engine change to all tests; the bounded material
+  and scene-import suites cover this increment, with final workspace-wide
+  acceptance still required in Stage 5.
+
+The missing historical measurements and images were reproduced in the isolated
+`Build/B0` worktree at pre-migration revision `e6e7b272e`, with only the original
+capture harness restored from `60d193819`. The report retains its hash and receipts;
+the current implementation was not used to generate the old baseline.
+
+## Prior Implementation Receipts
+
+The following checkpoints record earlier increments, not the current stage
+selection or a new stop instruction.
 
 Stage 0 is complete. The package/duplication and transaction ownership
 primitives now have executable qualification for polymorphic editor collections,
@@ -628,12 +1002,12 @@ behavior has executable evidence. No production rebuild precedes this gate.
 
 Depends on Stage 0.
 
-- [ ] Implement the transient typed value API and reflected typed override records.
-- [ ] Split parameter metadata/default ownership and migrate resolution, instance
+- [x] Implement the transient typed value API and reflected typed override records.
+- [x] Split parameter metadata/default ownership and migrate resolution, instance
   editing, render layers/proxies, resource collection, and Cook metadata consumers.
-- [ ] Remove independent mutable type/value pairs from new mutation APIs; migrate
+- [x] Remove independent mutable type/value pairs from new mutation APIs; migrate
   editor controls and all workspace consumers of the old direct fields.
-- [ ] Verify every value alternative, texture sampler/fallback, mismatch rejection,
+- [x] Verify every value alternative, texture sampler/fallback, mismatch rejection,
   duplicate IDs, orphan behavior, inherited values, explicit equal overrides,
   reference retention, and save/load of typed records.
 
@@ -648,13 +1022,13 @@ Depends on Stage 1 and the ownership gate in Stage 0.
 - [x] Implement the mapped expression types and shared material/function collection.
 - [x] Make parameter nodes the sole authored definition owners; move callee and
   port bindings into call expressions, and preserve function interface rules.
-- [ ] Implement graph validation and deterministic detached snapshot lowering.
+- [x] Implement graph validation and deterministic detached snapshot lowering.
   Preserve cycle/depth/count limits, source diagnostics, multi-output GUIDs,
   disconnected defaults, and function dependency invalidation.
-- [ ] Migrate compilation, code identity, derived schema, and Cook consumers.
+- [x] Migrate compilation, code identity, derived schema, and Cook consumers.
   Exclude presentation and irrelevant payloads from shader identity; bump only
   affected material, compiler/cache, and cooked-payload schemas.
-- [ ] Verify node-family semantics and rendered/compiler parity against Stage 0.
+- [x] Verify node-family semantics and rendered/compiler parity against Stage 0.
 
 Completion: materials and functions compile from typed expressions without a
 second writable authored program or call table; workers do not inspect objects.
@@ -663,11 +1037,11 @@ second writable authored program or call table; workers do not inspect objects.
 
 Depends on Stage 2.
 
-- [ ] Migrate MaterialGraphDocument commands, Details, pin/catalog code, preview,
+- [x] Migrate MaterialGraphDocument commands, Details, pin/catalog code, preview,
   graph replacement, clipboard, transaction reference collectors, and Apply.
-- [ ] Update standard function recipes, the explicit PBRSurfaceMaterial_MR template, scene import,
+- [x] Update standard function recipes, the explicit PBRSurfaceMaterial_MR template, scene import,
   asset creation, and all workspace/test graph construction helpers.
-- [ ] Verify copy/paste GUID remapping, parameter ownership, function ports,
+- [x] Verify copy/paste GUID remapping, parameter ownership, function ports,
   delete/restore, class replacement, Undo/Redo, save/reopen, Apply/Discard, and
   reference lifetime after closing editors and running collection.
 
@@ -678,18 +1052,18 @@ working and source assets never share mutable expression children.
 
 Depends on Stage 3.
 
-- [ ] Recreate DefaultMaterial and required standard functions
+- [x] Recreate DefaultMaterial and required standard functions
   directly with the new expression APIs and updated recipes. No old-schema load
   is needed to build them; do not create an upgrade or conversion path.
-- [ ] Recreate affected instances and fixtures if the dependency inventory finds
+- [x] Recreate affected instances and fixtures if the dependency inventory finds
   them. Preserve referenced package/object identities, built-in parameter IDs,
   and required function-port IDs. Generate fresh internal node IDs/layout where
   appropriate. Validate staged packages before atomic replacement and keep a
   precise changed-asset manifest; leave unrelated assets alone.
-- [ ] Rebuild affected derived data and cooked output for Sandbox and RoadWeaver.
+- [x] Rebuild affected derived data and cooked output for Sandbox and RoadWeaver.
   Verify graph-stripped runtime defaults, overrides, dependency residency, and
   Game startup/rendering without expression authoring data.
-- [ ] Compare fresh structural import parents and the retained material set: package section
+- [x] Compare fresh structural import parents and the retained material set: package section
   bytes, node/object/export counts, save/load allocation/time, and render output.
   Explain object overhead separately from payload reduction. Do not claim size
   or performance wins from record counts alone; investigate regressions before
@@ -706,7 +1080,7 @@ Depends on Stage 4.
 - [ ] Remove old reflected universal values/nodes, authored program/call storage,
   legacy overloads, and redundant canonicalization paths.
   Search all three projects for remaining production consumers and old schemas.
-- [ ] Reject unsupported material schemas before publishing a partially loaded
+- [x] Reject unsupported material schemas before publishing a partially loaded
   graph; never interpret a missing new collection as a valid empty old asset.
 - [ ] Update the owning runtime material documentation and
   [Material Graph Operations](../Editor/Architecture/MaterialGraphOperations.md)

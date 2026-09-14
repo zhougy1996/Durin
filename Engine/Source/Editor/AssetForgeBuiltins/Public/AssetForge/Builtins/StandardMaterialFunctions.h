@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AssetForgeBuiltinsAPI.h"
+#include "DObject/StrongObjectPtr.h"
 #include "Materials/MaterialFunction.h"
 
 namespace Durin::AssetForge::Builtins
@@ -21,9 +22,17 @@ namespace Durin::AssetForge::Builtins
 		TObjectPtr<DMaterialFunction> UVTransform, SampleNormal, SampleORM, StandardPBR, StandardPBR_ORM;
 		TObjectPtr<DMaterialFunction> ImportedSurfaceValues, DecodeImportedNormalRG;
 	};
-	ASSETFORGEBUILTINS_API auto MakeStandardMaterialFunctionGraph(
+	// Owning-thread recipe; keeps concrete children alive until validated publication.
+	struct FStandardMaterialFunctionExpressions
+	{
+		FMaterialFunctionSignature Signature;
+		std::vector<TStrongObjectPtr<DMaterialExpression>> Expressions;
+		ASSETFORGEBUILTINS_API auto Apply(DMaterialFunction& Function) const -> FMaterialProgramValidationResult;
+		ASSETFORGEBUILTINS_API auto Matches(const DMaterialFunction& Function) const -> bool;
+	};
+	ASSETFORGEBUILTINS_API auto MakeStandardMaterialFunctionExpressions(
 		EStandardMaterialFunction Function, const FStandardMaterialFunctions& Dependencies)
-		-> FMaterialFunctionGraph;
+		-> FStandardMaterialFunctionExpressions;
 	// Saves dependencies first. Existing implementations are preserved; incompatible interfaces fail.
 	ASSETFORGEBUILTINS_API auto EnsureStandardMaterialFunctions(
 		FStandardMaterialFunctions& OutFunctions, std::string& OutError) -> bool;

@@ -83,7 +83,7 @@ namespace Durin::Editor::Material
 		Impl->NodeIds.clear();
 		for (const FGuid& Id : NodeIds)
 		{
-			if (!FindNode(*Material.GetMaterialProgram(), Id))
+			if (std::ranges::none_of(Material.GetExpressionCollection().Expressions, [&](const auto& Expression) { return Expression->Id == Id; }))
 				return MakeRejected("A selected material graph node does not exist.");
 			if (!Impl->NodeIds.insert(Id).second)
 				return MakeRejected("The material graph move selection contains a duplicate node GUID.");
@@ -262,6 +262,8 @@ namespace Durin::Editor::Material
 		FGuid ParameterId;
 		FMaterialParameterValue BeforeValue;
 		FMaterialParameterValue CurrentValue;
+		TStrongObjectPtr<DTexture2D> BeforeTexture;
+		TStrongObjectPtr<DTexture2D> CurrentTexture;
 		DTransactor* Transactions = nullptr;
 		bool bActive = false;
 	};
@@ -295,6 +297,9 @@ namespace Durin::Editor::Material
 		Impl->ParameterId = ParameterId;
 		Impl->BeforeValue = Resolved.Value;
 		Impl->CurrentValue = Resolved.Value;
+		Impl->BeforeTexture = Resolved.Value.GetType() == EMaterialParameterType::Texture
+			? Resolved.Value.GetTexture().Texture.Get() : nullptr;
+		Impl->CurrentTexture = Impl->BeforeTexture;
 		Impl->Transactions = Transactions;
 		Impl->bActive = true;
 		return {.Status = EMaterialGraphCommandStatus::Succeeded};
@@ -317,9 +322,12 @@ namespace Durin::Editor::Material
 		if (!Material->SetParameterValue(Impl->ParameterId, Value))
 			return MakeRejected("The material rejected the parameter value.");
 		Impl->CurrentValue = std::move(Value);
+		Impl->CurrentTexture = Impl->CurrentValue.GetType() == EMaterialParameterType::Texture
+			? Impl->CurrentValue.GetTexture().Texture.Get() : nullptr;
 		std::vector<FGuid> AffectedNodes;
-		for (const FMaterialProgramNode& Node : Material->GetMaterialProgram()->Nodes)
-			if (Node.Parameter.Id == Impl->ParameterId) AffectedNodes.push_back(Node.Id);
+		for (const auto& Expression : Material->GetExpressionCollection().Expressions)
+			if (const auto* Parameter = Cast<DMaterialExpressionParameter>(Expression.Get()); Parameter && Parameter->Metadata.Id == Impl->ParameterId)
+				AffectedNodes.push_back(Expression->Id);
 		return {.Status = EMaterialGraphCommandStatus::Succeeded,
 			.AffectedNodeIds = std::move(AffectedNodes)};
 	}
@@ -337,6 +345,11 @@ namespace Durin::Editor::Material
 		}
 		if (Impl->Transactions && Impl->Transactions->HasPendingOperation())
 			return MakeRejected("The editor transactor is busy.");
+		if (Impl->BeforeValue.GetType() == EMaterialParameterType::Texture)
+		{
+			Impl->BeforeValue.GetTexture().Texture = Impl->BeforeTexture.Get();
+			Impl->CurrentValue.GetTexture().Texture = Impl->CurrentTexture.Get();
+		}
 		const bool bChanged = Impl->BeforeValue != Impl->CurrentValue;
 		if (bChanged && Impl->Transactions)
 		{
@@ -347,6 +360,8 @@ namespace Durin::Editor::Material
 			check(bRecorded);
 		}
 		if (bChanged) Material->MarkPackageDirty();
+		Impl->BeforeTexture.Reset();
+		Impl->CurrentTexture.Reset();
 		Impl->bActive = false;
 		return {.Status = bChanged ? EMaterialGraphCommandStatus::Succeeded
 			: EMaterialGraphCommandStatus::NoChange};
@@ -358,6 +373,8 @@ namespace Durin::Editor::Material
 		if (!Impl->bActive) return MakeRejected("No material parameter edit is active.");
 		DMaterial* Material = Impl->Material.Get();
 		Impl->bActive = false;
+		if (Impl->BeforeValue.GetType() == EMaterialParameterType::Texture)
+			Impl->BeforeValue.GetTexture().Texture = Impl->BeforeTexture.Get();
 		if (!Material)
 			return {.Status = EMaterialGraphCommandStatus::StaleOwner,
 				.Message = "The material graph owner is no longer available."};
@@ -369,6 +386,8 @@ namespace Durin::Editor::Material
 				Impl->ParameterId, Impl->BeforeValue))
 				return MakeRejected("The material rejected the original parameter value.");
 		}
+		Impl->BeforeTexture.Reset();
+		Impl->CurrentTexture.Reset();
 		return {.Status = bChanged ? EMaterialGraphCommandStatus::Succeeded
 			: EMaterialGraphCommandStatus::NoChange};
 	}

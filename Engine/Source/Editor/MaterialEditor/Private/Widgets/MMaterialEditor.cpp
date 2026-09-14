@@ -793,15 +793,15 @@ namespace Durin::Editor::Material
 	auto MMaterialEditor::DrawSelectedFunction(const ::Durin::Editor::FDocumentTab& Document, DMaterial* Base) -> void
 	{
 		auto& Canvas = GetOrCreateCanvas(Document);
-		const std::vector Calls(Base->GetMaterialFunctionCalls().begin(), Base->GetMaterialFunctionCalls().end());
 		for (const auto& Selected : Canvas.GetSelection())
 			if (const auto* Id = std::get_if<FGuid>(&Selected))
-				for (const auto& Call : Calls)
-					if (Call.NodeId == *Id && Call.Function.IsValid())
+				for (const auto& Expression : Base->GetExpressionCollection().Expressions)
+					if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression.Get());
+						Call && Call->Id == *Id && Call->Function.IsValid())
 					{
 						ImGui::PushID(Id->ToString().c_str());
-						if (ImGui::Button("Open Function")) WorkspaceManager.OpenAsset(Call.Function->GetObjectPath(),
-							Call.Function->GetClass()->GetQualifiedName().ToString());
+						if (ImGui::Button("Open Function")) WorkspaceManager.OpenAsset(Call->Function->GetObjectPath(),
+							Call->Function->GetClass()->GetQualifiedName().ToString());
 						ImGui::PopID();
 					}
 	}
@@ -845,11 +845,8 @@ namespace Durin::Editor::Material
 			{
 			case EMaterialProgramDiagnosticLocationKind::Node:
 			case EMaterialProgramDiagnosticLocationKind::Input:
-				bLocated = Base && std::ranges::find(
-					Base->GetMaterialProgram()->Nodes,
-					Diagnostic.Source.NodeId,
-					&FMaterialProgramNode::Id)
-					!= Base->GetMaterialProgram()->Nodes.end();
+				bLocated = Base && std::ranges::any_of(Base->GetExpressionCollection().Expressions,
+					[&](const auto& Expression) { return Expression->Id == Diagnostic.Source.NodeId; });
 				break;
 			case EMaterialProgramDiagnosticLocationKind::SurfaceOutput:
 				bLocated = Diagnostic.Source.LocationIndex < 8;
@@ -1140,24 +1137,24 @@ namespace Durin::Editor::Material
 		bool bChanged = false;
 		if (Definition.Type == EMaterialParameterType::Vector2)
 		{
-			FVector2 Value = Entry.Value.Vector2Value;
+			FVector2 Value = Entry.Value.GetVector2();
 			bChanged = MonaImGui::PropertyEdit::EditVectorValue(
 				"##Value", Value, 0.01, &WidgetState, WidgetConfig);
-			Edited.Vector2Value = Value;
+			Edited.GetVector2() = Value;
 		}
 		else if (Definition.Type == EMaterialParameterType::Vector4)
 		{
-			FVector4 Value = Entry.Value.Vector4Value;
+			FVector4 Value = Entry.Value.GetVector4();
 			bChanged = MonaImGui::PropertyEdit::EditVectorValue(
 				"##Value", Value, 0.01, &WidgetState, WidgetConfig);
-			Edited.Vector4Value = Value;
+			Edited.GetVector4() = Value;
 		}
 		else
 		{
-			FVector3 Value = Entry.Value.VectorValue;
+			FVector3 Value = Entry.Value.GetVector();
 			bChanged = MonaImGui::PropertyEdit::EditVectorValue(
 				"##Value", Value, 0.01, &WidgetState, WidgetConfig);
-			Edited.VectorValue = Value;
+			Edited.GetVector() = Value;
 		}
 		if (bChanged && Row.IsOverrideEnabled()
 			&& !Model.SubmitValueEdit(PropertyView, MakePropertyViewContext(), Entry, Edited, true))
@@ -1171,7 +1168,7 @@ namespace Durin::Editor::Material
 	) -> void
 	{
 		const FMaterialParameterDefinition& Definition = *Entry.Definition;
-		FVector3 Value = Entry.Value.VectorValue;
+		FVector3 Value = Entry.Value.GetVector();
 		FMaterialParameterRowScope Row(*this, Model, Entry);
 		float Color[3] = {static_cast<float>(Value.x), static_cast<float>(Value.y), static_cast<float>(Value.z)};
 		ImGui::SetNextItemWidth(-FLT_MIN);
@@ -1179,7 +1176,7 @@ namespace Durin::Editor::Material
 			&& Row.IsOverrideEnabled())
 		{
 			FMaterialParameterValue Edited = Entry.Value;
-			Edited.VectorValue = FVector3(Color[0], Color[1], Color[2]);
+			Edited.GetVector() = FVector3(Color[0], Color[1], Color[2]);
 			if (!Model.SubmitValueEdit(PropertyView, MakePropertyViewContext(), Entry, Edited, true))
 				SetError(std::format("The reflected {} parameter is unavailable.", Definition.DisplayName));
 		}
@@ -1192,7 +1189,7 @@ namespace Durin::Editor::Material
 	) -> void
 	{
 		const FMaterialParameterDefinition& Definition = *Entry.Definition;
-		float Value = Entry.Value.ScalarValue;
+		float Value = Entry.Value.GetScalar();
 		FMaterialParameterRowScope Row(*this, Model, Entry);
 		ImGui::SetNextItemWidth(-FLT_MIN);
 		const float Minimum = Definition.bHasRange ? Definition.MinimumValue : 0.0f;
@@ -1202,7 +1199,7 @@ namespace Durin::Editor::Material
 			&& Row.IsOverrideEnabled())
 		{
 			FMaterialParameterValue Edited = Entry.Value;
-			Edited.ScalarValue = Value;
+			Edited.GetScalar() = Value;
 			if (!Model.SubmitValueEdit(PropertyView, MakePropertyViewContext(), Entry, Edited, true))
 				SetError(std::format("The reflected {} parameter is unavailable.", Definition.DisplayName));
 		}
@@ -1217,8 +1214,8 @@ namespace Durin::Editor::Material
 		const FMaterialParameterDefinition& Definition = *Entry.Definition;
 		FMaterialParameterRowScope Row(*this, Model, Entry);
 
-		float Scalar = std::isfinite(Entry.Value.ScalarValue)
-			? Entry.Value.ScalarValue : Definition.Value.ScalarValue;
+		float Scalar = std::isfinite(Entry.Value.GetScalar())
+			? Entry.Value.GetScalar() : Definition.Value.GetScalar();
 		if (Definition.bHasRange)
 			Scalar = std::clamp(Scalar, Definition.MinimumValue, Definition.MaximumValue);
 		int Value = static_cast<int>(std::floor(Scalar + 0.5f));
@@ -1233,7 +1230,7 @@ namespace Durin::Editor::Material
 			&& Row.IsOverrideEnabled())
 		{
 			FMaterialParameterValue Edited = Entry.Value;
-			Edited.ScalarValue = static_cast<float>(Value);
+			Edited.GetScalar() = static_cast<float>(Value);
 			if (!Model.SubmitValueEdit(PropertyView, MakePropertyViewContext(), Entry, Edited, true))
 				SetError(std::format("The reflected {} parameter is unavailable.", Definition.DisplayName));
 		}
@@ -1246,7 +1243,7 @@ namespace Durin::Editor::Material
 	) -> void
 	{
 		const FMaterialParameterDefinition& Definition = *Entry.Definition;
-		DTexture2D* Texture = Entry.Value.TextureValue.Get();
+		DTexture2D* Texture = Entry.Value.GetTexture().Texture.Get();
 		FMaterialParameterRowScope Row(*this, Model, Entry);
 		const ::Durin::Editor::FAssetPickerResult PickerResult = ::Durin::Editor::AssetPicker::Draw({
 			.ComboId = "##Texture",
@@ -1265,7 +1262,7 @@ namespace Durin::Editor::Material
 					return false;
 				}
 				FMaterialParameterValue Edited = Entry.Value;
-				Edited.TextureValue = Selected;
+				Edited.GetTexture().Texture = Selected;
 				const bool bAssigned = Model.SubmitValueEdit(
 					PropertyView, MakePropertyViewContext(), Entry, Edited, false);
 				if (!bAssigned && OutError.empty()) OutError = "Unable to assign the reflected texture parameter.";
@@ -1282,12 +1279,12 @@ namespace Durin::Editor::Material
 				Value = static_cast<std::remove_reference_t<decltype(Value)>>(Selected);
 				return true;
 			};
-			bool Changed = Combo("Minification", Edited.SamplerState.MinFilter,
+			bool Changed = Combo("Minification", Edited.GetTexture().SamplerState.MinFilter,
 				"Nearest\0Linear\0Nearest mip, nearest\0Nearest mip, linear\0Linear mip, nearest\0Linear mip, linear\0");
-			Changed |= Combo("Magnification", Edited.SamplerState.MagFilter, "Nearest\0Linear\0");
-			Changed |= Combo("Address U", Edited.SamplerState.AddressU, "Repeat\0Mirror\0Clamp\0");
-			Changed |= Combo("Address V", Edited.SamplerState.AddressV, "Repeat\0Mirror\0Clamp\0");
-			Changed |= Combo("Missing texture", Edited.TextureFallback, "White\0Black\0Flat normal (RG)\0");
+			Changed |= Combo("Magnification", Edited.GetTexture().SamplerState.MagFilter, "Nearest\0Linear\0");
+			Changed |= Combo("Address U", Edited.GetTexture().SamplerState.AddressU, "Repeat\0Mirror\0Clamp\0");
+			Changed |= Combo("Address V", Edited.GetTexture().SamplerState.AddressV, "Repeat\0Mirror\0Clamp\0");
+			Changed |= Combo("Missing texture", Edited.GetTexture().TextureFallback, "White\0Black\0Flat normal (RG)\0");
 			if (Changed) Model.SubmitValueEdit(PropertyView, MakePropertyViewContext(), Entry, Edited, false);
 			ImGui::TreePop();
 		}

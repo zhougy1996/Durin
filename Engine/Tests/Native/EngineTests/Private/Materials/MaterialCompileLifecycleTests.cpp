@@ -40,14 +40,15 @@ namespace
 		return false;
 	}
 
-	auto EditFirstScalarConstant(
-		const Durin::DMaterial& Material,
-		float Delta) -> Durin::FMaterialProgram
+	auto EditRoughnessDefault(Durin::DMaterial& Material, float Delta) -> Durin::FMaterialProgramValidationResult
 	{
-		Durin::FMaterialProgram Program = *Material.GetMaterialProgram();
-		Program.Outputs.RoughnessDefault.X += Delta;
-		return Program;
+		auto Outputs = Material.GetExpressionOutputs();
+		Outputs.RoughnessDefault += Delta;
+		std::vector<Durin::DMaterialExpression*> Expressions;
+		for (const auto& Expression : Material.GetExpressionCollection().Expressions) Expressions.push_back(Expression.Get());
+		return Material.SetMaterialExpressions(Expressions, Outputs);
 	}
+
 }
 
 namespace
@@ -72,8 +73,8 @@ auto QualifyEditScheduling() -> void
 	const auto ChildGeneration = Child->GetMaterialCompileStatus().RequestGeneration;
 
 	Root->SetEditCompileMode(EMaterialEditCompileMode::Manual);
-	ASSERT_TRUE(Root->SetMaterialProgram(EditFirstScalarConstant(*Root, 0.1f)));
-	ASSERT_TRUE(Root->SetMaterialProgram(EditFirstScalarConstant(*Root, 0.1f)));
+	ASSERT_TRUE(EditRoughnessDefault(*Root, 0.1f));
+	ASSERT_TRUE(EditRoughnessDefault(*Root, 0.1f));
 	FAssetCompilingManager::Get().ProcessAsyncTasks();
 	EXPECT_EQ(Root->GetMaterialCompileStatus().State, EMaterialCompileState::NeedsCompile);
 	EXPECT_EQ(Child->GetMaterialCompileStatus().State, EMaterialCompileState::NeedsCompile);
@@ -85,18 +86,22 @@ auto QualifyEditScheduling() -> void
 	Extra.Id = FGuid::NewGuid();
 	Extra.Name = FName("PendingScalar");
 	Extra.Type = EMaterialParameterType::Scalar;
-	auto OwnerProgram = *Root->GetMaterialProgram();
-	OwnerProgram.Nodes.push_back({.Id = FGuid::NewGuid(), .Opcode = EMaterialProgramOpcode::Parameter,
-		.Parameter = Extra});
-	ASSERT_TRUE(Root->SetMaterialProgram(std::move(OwnerProgram)));
+	auto Parameter = TStrongObjectPtr<DMaterialExpressionScalarParameter>(NewObject<DMaterialExpressionScalarParameter>(nullptr, NAME_None));
+	Parameter->Id = FGuid::NewGuid(); Parameter->Metadata = {.Id = Extra.Id, .Name = Extra.Name};
+	std::vector<DMaterialExpression*> Expressions;
+	for (const auto& Expression : Root->GetExpressionCollection().Expressions) Expressions.push_back(Expression.Get());
+	Expressions.push_back(Parameter.Get());
+	ASSERT_TRUE(Root->SetMaterialExpressions(Expressions, Root->GetExpressionOutputs()));
 	const auto Revision = Root->GetMaterialCompileStatus().AuthoredRevision;
 	ASSERT_TRUE(Root->SetScalarParameterValue(Extra.Name, 0.25f));
 	Root->PostEditChangeProperty({
-		.MemberProperty = Root->GetClass()->FindPropertyByName("Program")});
+		.MemberProperty = Root->GetClass()->FindPropertyByName("ExpressionCollection")});
 	EXPECT_EQ(Root->GetMaterialCompileStatus().AuthoredRevision, Revision);
-	auto Invalid = *Root->GetMaterialProgram();
-	Invalid.SchemaVersion = 0;
-	EXPECT_FALSE(Root->SetMaterialProgram(std::move(Invalid)));
+	auto Invalid = Root->GetExpressionOutputs();
+	Invalid.Roughness.ExpressionId = FGuid::NewGuid();
+	Expressions.clear();
+	for (const auto& Expression : Root->GetExpressionCollection().Expressions) Expressions.push_back(Expression.Get());
+	EXPECT_FALSE(Root->SetMaterialExpressions(Expressions, Invalid));
 	EXPECT_EQ(Root->GetMaterialCompileStatus().AuthoredRevision, Revision);
 	ASSERT_TRUE(Root->CompileEdits());
 	ASSERT_TRUE(WaitForMaterialCompile(*Root));
@@ -106,9 +111,9 @@ auto QualifyEditScheduling() -> void
 	EXPECT_EQ(Root->GetMaterialCompileStatus().RequestGeneration, Generation + 1);
 
 	Root->SetEditCompileMode(EMaterialEditCompileMode::Automatic);
-	ASSERT_TRUE(Root->SetMaterialProgram(EditFirstScalarConstant(*Root, 0.05f)));
+	ASSERT_TRUE(EditRoughnessDefault(*Root, 0.05f));
 	std::this_thread::sleep_for(std::chrono::milliseconds(250));
-	ASSERT_TRUE(Root->SetMaterialProgram(EditFirstScalarConstant(*Root, 0.05f)));
+	ASSERT_TRUE(EditRoughnessDefault(*Root, 0.05f));
 	std::this_thread::sleep_for(std::chrono::milliseconds(200));
 	FAssetCompilingManager::Get().ProcessAsyncTasks();
 	EXPECT_EQ(Root->GetMaterialCompileStatus().State, EMaterialCompileState::Scheduled);
@@ -117,7 +122,7 @@ auto QualifyEditScheduling() -> void
 	ASSERT_TRUE(WaitForMaterialCompile(*Child));
 	EXPECT_EQ(Root->GetMaterialCompileStatus().RequestGeneration, Generation + 2);
 
-	ASSERT_TRUE(Root->SetMaterialProgram(EditFirstScalarConstant(*Root, 0.01f)));
+	ASSERT_TRUE(EditRoughnessDefault(*Root, 0.01f));
 	Root->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	std::this_thread::sleep_for(std::chrono::milliseconds(450));
 	FAssetCompilingManager::Get().ProcessAsyncTasks();
@@ -127,7 +132,7 @@ auto QualifyEditScheduling() -> void
 	ASSERT_TRUE(WaitForMaterialCompile(*Root));
 	ASSERT_TRUE(WaitForMaterialCompile(*Child));
 	EXPECT_EQ(Root->GetMaterialCompileStatus().RequestGeneration, Generation + 3);
-	ASSERT_TRUE(Root->SetMaterialProgram(EditFirstScalarConstant(*Root, 0.01f)));
+	ASSERT_TRUE(EditRoughnessDefault(*Root, 0.01f));
 	FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Root);
 	EXPECT_EQ(Root->GetMaterialCompileStatus().State, EMaterialCompileState::Canceled);
 	EXPECT_EQ(Root->GetMaterialCompileStatus().RequestGeneration, Generation + 3);
@@ -210,13 +215,11 @@ TEST(FMaterialCompileLifecycleTests,
 
 	const uint64 InitialGeneration =
 		First->GetMaterialCompileStatus().RequestGeneration;
-	auto Validation = First->SetMaterialProgram(
-		EditFirstScalarConstant(*First, 0.03125f));
+	auto Validation = EditRoughnessDefault(*First, 0.03125f);
 	ASSERT_TRUE(Validation);
 	EXPECT_EQ(First->GetAcceptedCompiledProgram(), InitialProgram);
 	EXPECT_FALSE(First->GetMaterialCompileStatus().IsCurrent());
-	ASSERT_TRUE((Validation = First->SetMaterialProgram(
-		EditFirstScalarConstant(*First, 0.0625f))));
+	ASSERT_TRUE((Validation = EditRoughnessDefault(*First, 0.0625f)));
 	EXPECT_EQ(First->GetMaterialCompileStatus().RequestGeneration,
 		InitialGeneration + 2);
 	EXPECT_EQ(First->GetAcceptedCompiledProgram(), InitialProgram);
@@ -231,8 +234,7 @@ TEST(FMaterialCompileLifecycleTests,
 		InitialProgram->Identity);
 	EXPECT_TRUE(First->GetMaterialCompileStatus().IsCurrent());
 
-	auto ParameterValidation = First->SetMaterialProgram(
-		Durin::Testing::MakePBRMaterialProgramForTest());
+	auto ParameterValidation = Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*First);
 
 	ASSERT_TRUE(ParameterValidation);
 	auto* PendingInstance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "PendingParameterEdit");
@@ -249,8 +251,7 @@ TEST(FMaterialCompileLifecycleTests,
 	FailedProperties.BlendMode = Durin::EMaterialBlendMode::Translucent;
 	FailedProperties.bTwoSided = !FailedProperties.bTwoSided;
 	ASSERT_TRUE(First->SetStaticProperties(FailedProperties));
-	ASSERT_TRUE((ParameterValidation = First->SetMaterialProgram(
-		Durin::MakeDefaultMaterialProgram())));
+	ASSERT_TRUE((ParameterValidation = First->SetMaterialExpressions({}, {})));
 	const Durin::FMaterialCompileStatus Pending =
 		First->GetMaterialCompileStatus();
 	Durin::FAssetCompilingManager::Get().MarkCompilationAsCanceled(*First);
@@ -327,7 +328,7 @@ TEST(FMaterialCompileLifecycleTests,
 	// Pending replacements retain deleted declarations; failed owners retire them.
 	{
 		auto* Root = Durin::NewObject<Durin::DMaterial>(nullptr, "RetainedDeclarationRoot");
-		ASSERT_TRUE(Root->SetMaterialProgram(Durin::Testing::MakePBRMaterialProgramForTest()));
+		ASSERT_TRUE(Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*Root));
 		ASSERT_TRUE(WaitForMaterialCompile(*Root));
 		ASSERT_NE(Root, nullptr);
 		ASSERT_NE(Root->GetAcceptedCompiledProgram(), nullptr);
@@ -339,13 +340,11 @@ TEST(FMaterialCompileLifecycleTests,
 		Durin::FMaterialParameterDefinition Definition;
 		Definition.Id = Durin::FGuid::NewGuid();
 		Definition.Name = "IndependentAmount";
-		Durin::FMaterialProgram Program;
-		Durin::FMaterialProgramNode Node;
-		Node.Id = Durin::FGuid::NewGuid();
-		Node.Parameter = Definition;
-		Node.Opcode = Durin::EMaterialProgramOpcode::Parameter;
-		Program.Nodes.push_back(Node);
-		Program.Outputs.Roughness.SourceNodeId = Node.Id;
+		Durin::Testing::FTestMaterialExpressionGraph Graph;
+		const std::array Definitions{Definition};
+		auto& Node = Graph.Add(Durin::EMaterialProgramOpcode::Parameter, Durin::EMaterialProgramValueType::Float,
+			{}, Definition.Id, {}, Definitions);
+		Graph.Outputs.Roughness = {Node.Id};
 		Durin::FThreadEvent Started, Release;
 		std::atomic<uint32> StartedCount = 0;
 		std::vector<Durin::FTaskHandle> Blockers;
@@ -364,7 +363,7 @@ TEST(FMaterialCompileLifecycleTests,
 					Release.WaitFor(10.0);
 				}).GetCompletion().GetTaskHandle());
 			ASSERT_TRUE(Started.WaitFor(2.0));
-			ASSERT_TRUE(Root->SetMaterialProgram(Program));
+			ASSERT_TRUE(Graph.Apply(*Root));
 			EXPECT_FLOAT_EQ(GetMaterialBinding(Root->GetRenderData()).Metallic, 0.65f);
 			EXPECT_FLOAT_EQ(GetMaterialBinding(Instance->GetRenderData()).Metallic, 0.9f);
 			const auto Pending = Root->GetMaterialCompileStatus();
@@ -431,7 +430,7 @@ auto QualifyInstanceCompilationOwners() -> void
 	} Scope;
 	auto* Root = Durin::NewObject<Durin::DMaterial>(nullptr, "InstanceCompileRoot");
 	Scope.Objects.push_back(Root);
-	ASSERT_TRUE(Root->SetMaterialProgram(Durin::Testing::MakePBRMaterialProgramForTest()));
+	ASSERT_TRUE(Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*Root));
 	ASSERT_TRUE(WaitForMaterialCompile(*Root));
 	auto* Child = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "InstanceCompileChild");
 	auto* Grandchild = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "InstanceCompileGrandchild");
@@ -515,14 +514,13 @@ auto MeasureInstanceVariantQualificationBaseline() -> void
 	} Scope;
 	auto* Root = Durin::NewObject<Durin::DMaterial>(nullptr, "VariantFixtureRoot");
 	Scope.Objects.push_back(Root);
-	ASSERT_TRUE(Root->SetMaterialProgram(Durin::Testing::MakePBRMaterialProgramForTest()));
+	ASSERT_TRUE(Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*Root));
 	ASSERT_TRUE(WaitForMaterialCompile(*Root));
-	Durin::FMaterialCompilerInput Input;
-	Input.Program = *Root->GetMaterialProgram();
-	for (const auto& Definition : Root->GetParameterDefinitions())
-		Input.Parameters.push_back({Definition.Id, Definition.Type});
+	Durin::FMaterialIRCompilerInput Input;
+	Durin::FMaterialCompilerEnvironment Environment;
 	std::string Error;
-	ASSERT_TRUE(Durin::BuildDefaultMaterialCompilerEnvironment(Input.Environment, Error)) << Error;
+	ASSERT_TRUE(Durin::BuildDefaultMaterialCompilerEnvironment(Environment, Error)) << Error;
+	ASSERT_TRUE(Durin::SnapshotMaterialCompilerInput(*Root, Environment, Input));
 
 	const auto Before = Durin::GetMaterialCompilationDiagnostics();
 	std::array<Durin::DMaterialInstance*, 8> Instances{};
@@ -552,7 +550,7 @@ auto MeasureInstanceVariantQualificationBaseline() -> void
 		if (Index != 0 && Index != 7)
 			ASSERT_TRUE(Instance->SetPropertyOverrides({true, true, true, true, true, Properties}));
 		Input.StaticProperties = Instance->GetStaticProperties();
-		const auto Normalized = Durin::NormalizeMaterialProgram(Input);
+		const auto Normalized = Durin::NormalizeMaterialIR(Input);
 		ASSERT_TRUE(Normalized);
 		if (std::ranges::find(Identities, Normalized.Identity) == Identities.end())
 			Identities.push_back(Normalized.Identity);
@@ -633,22 +631,30 @@ auto QualifyMaterialFunctionCompilationAsync() -> void
 	auto* Second = NewObject<DMaterial>(nullptr, "AsyncFunctionSecond");
 	Fixture.Objects = {First, Second, Wrapper, Leaf};
 	const auto LeafOutput = Leaf->GetFunctionSignature().Outputs[0];
-	auto Graph = Wrapper->GetFunctionGraph();
+	std::vector<TStrongObjectPtr<DMaterialExpression>> Body;
+	for (const auto& Expression : Wrapper->GetExpressionCollection().Expressions)
+		Body.emplace_back(DuplicateObject(Expression.Get(), nullptr, NAME_None));
 	const FGuid NestedCall{71, 2, 3, 1};
-	Graph.Nodes.push_back({.Id = NestedCall, .Opcode = EMaterialProgramOpcode::FunctionCall});
-	Graph.Nodes[1].Inputs = {{.SourceNodeId = NestedCall, .SourceOutputId = LeafOutput.Id}};
-	Graph.Calls = {{.NodeId = NestedCall, .Function = Leaf, .Outputs = {{LeafOutput.Id, LeafOutput.Type}}}};
-	ASSERT_TRUE(Wrapper->SetFunctionGraph(Graph));
+	TStrongObjectPtr<DMaterialExpressionFunctionCall> Nested(NewObject<DMaterialExpressionFunctionCall>(nullptr, NAME_None));
+	Nested->Id = NestedCall; Nested->Function = Leaf; Nested->Outputs = {{LeafOutput.Id, LeafOutput.Type}};
+	for (const auto& Expression : Body)
+		if (auto* Terminal = Cast<DMaterialExpressionFunctionOutput>(Expression.Get()))
+			Terminal->Source = {.ExpressionId = NestedCall, .OutputId = LeafOutput.Id};
+	std::vector<DMaterialExpression*> BodyValues;
+	for (const auto& Expression : Body) BodyValues.push_back(Expression.Get());
+	BodyValues.push_back(Nested.Get());
+	ASSERT_TRUE(Wrapper->SetFunctionExpressions(Wrapper->GetFunctionSignature(), BodyValues));
 	const auto Output = Wrapper->GetFunctionSignature().Outputs[0];
 	for (auto* Material : {First, Second})
 	{
 		Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 		const FGuid Call{71, 2, 3, Material == First ? 2u : 3u};
-		FMaterialProgram Program;
-		Program.Nodes = {{.Id = Call, .Opcode = EMaterialProgramOpcode::FunctionCall}};
-		Program.Outputs.Surface = {.SourceNodeId = Call, .SourceOutputId = Output.Id};
-		ASSERT_TRUE(Material->SetMaterialProgramAndFunctionCalls(Program,
-			{{.NodeId = Call, .Function = Wrapper, .Outputs = {{Output.Id, Output.Type}}}}));
+		TStrongObjectPtr<DMaterialExpressionFunctionCall> Expression(NewObject<DMaterialExpressionFunctionCall>(nullptr, NAME_None));
+		Expression->Id = Call; Expression->Function = Wrapper; Expression->Outputs = {{Output.Id, Output.Type}};
+		const std::array<DMaterialExpression*, 1> Expressions{Expression.Get()};
+		FMaterialExpressionSurfaceOutputs Outputs;
+		Outputs.Surface = {.ExpressionId = Call, .OutputId = Output.Id};
+		ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 	}
 	{
 		FHoldWorkers Hold;
@@ -666,16 +672,21 @@ auto QualifyMaterialFunctionCompilationAsync() -> void
 	ASSERT_TRUE(WaitForMaterialCompile(*First));
 	const auto Accepted = First->GetAcceptedCompiledProgram();
 	EXPECT_EQ(Accepted, Second->GetAcceptedCompiledProgram());
-	auto LeafGraph = Leaf->GetFunctionGraph();
+	auto LeafSignature = Leaf->GetFunctionSignature();
+	const auto ApplyLeafSignature = [&] {
+		std::vector<DMaterialExpression*> Expressions;
+		for (const auto& Expression : Leaf->GetExpressionCollection().Expressions) Expressions.push_back(Expression.Get());
+		return Leaf->SetFunctionExpressions(LeafSignature, Expressions);
+	};
 	{
 		FHoldWorkers Hold;
 		ASSERT_TRUE(Hold.Hold());
-		LeafGraph.Signature.Inputs[0].Default.Surface.RoughnessDefault.X = 0.381f;
-		ASSERT_TRUE(Leaf->SetFunctionGraph(LeafGraph));
+		LeafSignature.Inputs[0].Default.Surface.RoughnessDefault.X = 0.381f;
+		ASSERT_TRUE(ApplyLeafSignature());
 		ASSERT_TRUE(First->CompileEdits());
 		ASSERT_TRUE(Second->CompileEdits());
-		LeafGraph.Signature.Inputs[0].Default.Surface.RoughnessDefault.X = 0.482f;
-		ASSERT_TRUE(Leaf->SetFunctionGraph(LeafGraph));
+		LeafSignature.Inputs[0].Default.Surface.RoughnessDefault.X = 0.482f;
+		ASSERT_TRUE(ApplyLeafSignature());
 		EXPECT_EQ(First->GetAcceptedCompiledProgram(), Accepted);
 	}
 	FAssetCompilingManager::Get().FinishAllCompilation();
@@ -712,8 +723,7 @@ TEST(FMaterialCompileLifecycleTests,
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
 	auto* Material = Durin::NewObject<Durin::DMaterial>(
 		nullptr, "CookedProgramRoundTrip");
-	auto Validation = Material->SetMaterialProgram(
-		Durin::Testing::MakePBRMaterialProgramForTest());
+	auto Validation = Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*Material);
 	ASSERT_TRUE(Validation);
 	ASSERT_TRUE(Material->GetAcceptedCompiledProgram());
 

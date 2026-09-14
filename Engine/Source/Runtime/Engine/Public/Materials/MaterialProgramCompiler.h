@@ -45,20 +45,6 @@ namespace Durin
 			-> bool = default;
 	};
 
-	// Detached, value-owned GameThread snapshot. Dynamic parameter/resource
-	// values and every reflected/live owner are intentionally absent.
-	struct FMaterialCompilerInput
-	{
-		FMaterialProgram Program;
-		std::vector<FMaterialCompilerParameterDeclaration> Parameters;
-		FMaterialStaticProperties StaticProperties;
-		FMaterialCompilerEnvironment Environment;
-		std::vector<FMaterialFunctionCallSnapshot> FunctionCalls;
-		FMaterialFunctionClosure Functions;
-
-		auto operator==(const FMaterialCompilerInput&) const -> bool = default;
-	};
-
 	struct FMaterialIRSwizzle
 	{
 		uint8 Length = 0;
@@ -202,18 +188,10 @@ namespace Durin
 		-> FMaterialProgramValidationResult;
 	ENGINE_API auto AreMaterialFunctionOwnersCurrent(std::span<const FMaterialFunctionOwnerStamp> Owners) -> bool;
 
-	[[nodiscard]] ENGINE_API auto SnapshotMaterialCompilerInput(
-		const DMaterialInterface& Material,
-		FMaterialCompilerEnvironment Environment,
-		FMaterialCompilerInput& OutInput) -> FMaterialProgramValidationResult;
-
 	ENGINE_API auto BuildDefaultMaterialCompilerEnvironment(
 		FMaterialCompilerEnvironment& OutEnvironment,
 		std::string& OutError) -> bool;
 
-	ENGINE_API auto NormalizeMaterialProgram(
-		const FMaterialCompilerInput& Input)
-		-> FMaterialNormalizationResult;
 	ENGINE_API auto NormalizeMaterialIR(const FMaterialIRCompilerInput& Input) -> FMaterialNormalizationResult;
 	[[nodiscard]] ENGINE_API auto ValidateMaterialIR(const FMaterialIR& IR,
 		const FMaterialRenderLayout& Layout) -> FMaterialProgramValidationResult;
@@ -225,10 +203,6 @@ namespace Durin
 		FByteBuffer& OutBytes,
 		std::string& OutError) -> bool;
 
-	ENGINE_API auto BuildMaterialProgramIdentity(
-		const FMaterialCompilerInput& Input,
-		FByteView CanonicalIR, const FMaterialRenderLayout& Layout)
-		-> FMaterialProgramIdentity;
 	ENGINE_API auto BuildMaterialProgramIdentity(const FMaterialIRCompilerInput& Input,
 		FByteView CanonicalIR, const FMaterialRenderLayout& Layout) -> FMaterialProgramIdentity;
 	struct FMaterialSourceGenerationResult
@@ -248,9 +222,6 @@ namespace Durin
 	ENGINE_API auto GenerateMaterialProgramSlang(
 		const FMaterialIR& IR, std::string& OutSource,
 		std::string& OutError) -> bool;
-	ENGINE_API auto CompileMaterialProgram(
-		const FMaterialCompilerInput& Input,
-		bool bForceRecompile = false) -> FMaterialCompilerResult;
 	ENGINE_API auto CompileMaterialIR(const FMaterialIRCompilerInput& Input,
 		bool bForceRecompile = false) -> FMaterialCompilerResult;
 }

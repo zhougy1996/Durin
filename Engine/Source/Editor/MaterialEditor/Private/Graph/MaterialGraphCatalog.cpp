@@ -2,6 +2,7 @@
 
 #include "Graph/MaterialGraphValueTypes.h"
 #include "Misc/StringHelper.h"
+#include "MaterialExpressionInputs.h"
 
 namespace Durin::Editor::Material
 {
@@ -117,6 +118,62 @@ namespace Durin::Editor::Material
 			return "Unknown";
 		}
 
+		auto GetExpressionClass(EMaterialProgramOpcode Opcode, EMaterialProgramValueType Type) -> DClass*
+		{
+			if (Opcode == EMaterialProgramOpcode::Constant || Opcode == EMaterialProgramOpcode::Parameter)
+			{
+				const auto Index = static_cast<size_t>(Type);
+				if (Index >= 4) return nullptr;
+				if (Opcode == EMaterialProgramOpcode::Constant)
+					return (std::array{DMaterialExpressionScalarConstant::StaticClass(), DMaterialExpressionVector2Constant::StaticClass(),
+						DMaterialExpressionVector3Constant::StaticClass(), DMaterialExpressionVector4Constant::StaticClass()})[Index];
+				return (std::array{DMaterialExpressionScalarParameter::StaticClass(), DMaterialExpressionVector2Parameter::StaticClass(),
+					DMaterialExpressionVector3Parameter::StaticClass(), DMaterialExpressionVector4Parameter::StaticClass()})[Index];
+			}
+			switch (Opcode)
+			{
+			case EMaterialProgramOpcode::TextureParameter: return DMaterialExpressionTextureParameter::StaticClass();
+			case EMaterialProgramOpcode::TextureSampleParameter2D: return DMaterialExpressionTextureSampleParameter2D::StaticClass();
+			case EMaterialProgramOpcode::TextureSample2D: return DMaterialExpressionTextureSample2D::StaticClass();
+			case EMaterialProgramOpcode::Add: return DMaterialExpressionAdd::StaticClass();
+			case EMaterialProgramOpcode::Subtract: return DMaterialExpressionSubtract::StaticClass();
+			case EMaterialProgramOpcode::Multiply: return DMaterialExpressionMultiply::StaticClass();
+			case EMaterialProgramOpcode::Divide: return DMaterialExpressionDivide::StaticClass();
+			case EMaterialProgramOpcode::Minimum: return DMaterialExpressionMinimum::StaticClass();
+			case EMaterialProgramOpcode::Maximum: return DMaterialExpressionMaximum::StaticClass();
+			case EMaterialProgramOpcode::Negate: return DMaterialExpressionNegate::StaticClass();
+			case EMaterialProgramOpcode::OneMinus: return DMaterialExpressionOneMinus::StaticClass();
+			case EMaterialProgramOpcode::Absolute: return DMaterialExpressionAbsolute::StaticClass();
+			case EMaterialProgramOpcode::Saturate: return DMaterialExpressionSaturate::StaticClass();
+			case EMaterialProgramOpcode::Normalize: return DMaterialExpressionNormalize::StaticClass();
+			case EMaterialProgramOpcode::Clamp: return DMaterialExpressionClamp::StaticClass();
+			case EMaterialProgramOpcode::Lerp: return DMaterialExpressionLerp::StaticClass();
+			case EMaterialProgramOpcode::Swizzle: return DMaterialExpressionSwizzle::StaticClass();
+			case EMaterialProgramOpcode::Splat2: return DMaterialExpressionSplat2::StaticClass();
+			case EMaterialProgramOpcode::Splat3: return DMaterialExpressionSplat3::StaticClass();
+			case EMaterialProgramOpcode::Splat4: return DMaterialExpressionSplat4::StaticClass();
+			case EMaterialProgramOpcode::DecodeNormalRG: return DMaterialExpressionDecodeNormalRG::StaticClass();
+			case EMaterialProgramOpcode::BlendNormalsRNM: return DMaterialExpressionBlendNormalsRNM::StaticClass();
+			case EMaterialProgramOpcode::UVChannel: return DMaterialExpressionUVChannel::StaticClass();
+			case EMaterialProgramOpcode::Sine: return DMaterialExpressionSine::StaticClass();
+			case EMaterialProgramOpcode::Cosine: return DMaterialExpressionCosine::StaticClass();
+			case EMaterialProgramOpcode::MakeSurface: return DMaterialExpressionMakeSurface::StaticClass();
+			case EMaterialProgramOpcode::FunctionInput: return DMaterialExpressionFunctionInput::StaticClass();
+			case EMaterialProgramOpcode::FunctionOutput: return DMaterialExpressionFunctionOutput::StaticClass();
+			case EMaterialProgramOpcode::FunctionCall: return DMaterialExpressionFunctionCall::StaticClass();
+			case EMaterialProgramOpcode::GetSurfaceAttributes: return DMaterialExpressionGetSurfaceAttributes::StaticClass();
+			case EMaterialProgramOpcode::SetSurfaceAttributes: return DMaterialExpressionSetSurfaceAttributes::StaticClass();
+			case EMaterialProgramOpcode::TextureCoordinates: return DMaterialExpressionTextureCoordinates::StaticClass();
+			case EMaterialProgramOpcode::MakeFloat2: return DMaterialExpressionMakeVector2::StaticClass();
+			case EMaterialProgramOpcode::MakeFloat3: return DMaterialExpressionMakeVector3::StaticClass();
+			case EMaterialProgramOpcode::MakeFloat4: return DMaterialExpressionMakeVector4::StaticClass();
+			case EMaterialProgramOpcode::TruncateToFloat: return DMaterialExpressionTruncateToScalar::StaticClass();
+			case EMaterialProgramOpcode::TruncateToFloat2: return DMaterialExpressionTruncateToVector2::StaticClass();
+			case EMaterialProgramOpcode::TruncateToFloat3: return DMaterialExpressionTruncateToVector3::StaticClass();
+			default: return nullptr;
+			}
+		}
+
 		auto MakeCatalogEntry(
 			EMaterialProgramOpcode Opcode,
 			EMaterialProgramValueType ResultType,
@@ -166,9 +223,9 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::GetSurfaceAttributes: Entry.Description = "Reads selected attributes from a Surface."; break;
 			case EMaterialProgramOpcode::SetSurfaceAttributes: Entry.Description = "Overrides selected attributes while retaining the base Surface."; break;
 			}
-			Entry.NodeTemplate.Opcode = Opcode;
-			Entry.NodeTemplate.ResultType = ResultType;
-			Entry.NodeTemplate.Inputs.resize(Signature.InputCount);
+			Entry.Opcode = Opcode;
+			Entry.ResultType = ResultType;
+			Entry.ExpressionClass = GetExpressionClass(Opcode, ResultType);
 			Entry.InputNames = GetInputNames(Opcode, Signature.InputCount);
 			if (Opcode == EMaterialProgramOpcode::TextureSampleParameter2D) Entry.InputNames = {"UV"};
 			if (Opcode == EMaterialProgramOpcode::TextureCoordinates) Entry.InputNames = {"Channel", "Scale", "Offset", "Rotation"};
@@ -189,10 +246,16 @@ namespace Durin::Editor::Material
 				NormalizeSearchText(Entry.OperationName),
 				NormalizeSearchText(Entry.Category),
 				NormalizeSearchText(Entry.Description),
-				NormalizeSearchText(GetProgramTypeName(Entry.NodeTemplate.ResultType)),
+				NormalizeSearchText(GetProgramTypeName(Entry.ResultType)),
 			};
 		}
 
+	}
+
+	auto FMaterialGraphNodeDescriptor::GetConstantLiteral() const -> FMaterialProgramLiteral
+	{
+		const auto* Value = std::get_if<FMaterialParameterValue>(&Data);
+		return Value ? ReadParameterLiteral(ResultType, *Value) : FMaterialProgramLiteral{};
 	}
 
 	auto FMaterialGraphOperations::Inspect(const DMaterial& Material)
@@ -217,8 +280,77 @@ namespace Durin::Editor::Material
 
 	auto FMaterialGraphDocument::Inspect(std::span<const FMaterialGraphCatalogEntry> Catalog) const -> FMaterialGraphView
 	{
-		FMaterialGraphDocumentState State;
-		if (!Capture(State)) return {};
+		const auto* Material = Cast<DMaterial>(Owner.Get());
+		const auto* Function = Cast<DMaterialFunction>(Owner.Get());
+		if (!Material && !Function) return {};
+		const auto& Expressions = Material ? Material->GetExpressionCollection().Expressions : Function->GetExpressionCollection().Expressions;
+		const auto* Signature = Function ? &Function->GetFunctionSignature() : nullptr;
+		FMaterialGraphPresentation Presentation;
+		if (Material) Presentation = Material->GetMaterialGraphPresentation();
+		else Presentation.Nodes = Function->GetFunctionPresentation().Nodes;
+		std::optional<std::vector<FMaterialGraphCatalogEntry>> FallbackCatalog;
+		const auto FindClassShape = [&](DClass* Class) -> const FMaterialGraphCatalogEntry* {
+			const auto Found = std::ranges::find(Catalog, Class, &FMaterialGraphCatalogEntry::ExpressionClass);
+			if (Found != Catalog.end()) return &*Found;
+			if (Class == DMaterialExpressionFunctionInput::StaticClass() || Class == DMaterialExpressionFunctionOutput::StaticClass()
+				|| Class == DMaterialExpressionFunctionCall::StaticClass()) return nullptr;
+			if (!FallbackCatalog) FallbackCatalog = FMaterialGraphOperations::EnumerateCatalog();
+			const auto Fallback = std::ranges::find(*FallbackCatalog, Class, &FMaterialGraphCatalogEntry::ExpressionClass);
+			return Fallback == FallbackCatalog->end() ? nullptr : &*Fallback;
+		};
+		std::vector<FMaterialGraphNodeDescriptor> Descriptors;
+		Descriptors.reserve(Expressions.size());
+		std::unordered_map<FGuid, DMaterialExpression*> ExpressionsById;
+		for (const auto& Expression : Expressions)
+		{
+			FMaterialGraphNodeDescriptor Node{.Id = Expression->Id};
+			const auto* Shape = FindClassShape(Expression->GetClass());
+			if (Shape) { Node.Opcode = Shape->Opcode; Node.ResultType = Shape->ResultType; }
+			if (auto* Type = Expression->GetClass()->FindPropertyByName("ResultType"))
+				Node.ResultType = *static_cast<const EMaterialProgramValueType*>(Type->GetValuePtr(Expression.Get()));
+			if (const auto* Constant = Cast<DMaterialExpressionScalarConstant>(Expression.Get())) Node.Data = FMaterialParameterValue::MakeScalar(Constant->Value);
+			else if (const auto* Constant = Cast<DMaterialExpressionVector2Constant>(Expression.Get())) Node.Data = FMaterialParameterValue::MakeVector2(Constant->Value);
+			else if (const auto* Constant = Cast<DMaterialExpressionVector3Constant>(Expression.Get())) Node.Data = FMaterialParameterValue::MakeVector(Constant->Value);
+			else if (const auto* Constant = Cast<DMaterialExpressionVector4Constant>(Expression.Get())) Node.Data = FMaterialParameterValue::MakeVector4(Constant->Value);
+			else if (const auto* Sample = Cast<DMaterialExpressionTextureSampleParameter2D>(Expression.Get())) Node.Data = FMaterialGraphSampleInfo{Sample->Metadata.Id, Sample->UVSettings.Channel.bPresent ? Sample->UVSettings.Channel.Value : 0.f};
+			else if (const auto* Sample = Cast<DMaterialExpressionTextureSample2D>(Expression.Get())) Node.Data = FMaterialGraphSampleInfo{{}, Sample->UVSettings.Channel.bPresent ? Sample->UVSettings.Channel.Value : 0.f};
+			else if (const auto* Parameter = Cast<DMaterialExpressionParameter>(Expression.Get())) Node.Data = FMaterialGraphParameterInfo{Parameter->Metadata.Id};
+			else if (const auto* Swizzle = Cast<DMaterialExpressionSwizzle>(Expression.Get()))
+			{
+				Node.Data = Swizzle->Components;
+				if (!Swizzle->Components.empty()) Node.ResultType = static_cast<EMaterialProgramValueType>(Swizzle->Components.size() - 1);
+			}
+			if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression.Get()))
+			{
+				Node.Opcode = EMaterialProgramOpcode::FunctionCall;
+				if (!Call->Outputs.empty()) Node.ResultType = Call->Outputs.front().ExpectedType;
+			}
+			const auto* Input = Cast<DMaterialExpressionFunctionInput>(Expression.Get());
+			const auto* Output = Cast<DMaterialExpressionFunctionOutput>(Expression.Get());
+			if (Input || Output)
+			{
+				Node.Opcode = Input ? EMaterialProgramOpcode::FunctionInput : EMaterialProgramOpcode::FunctionOutput;
+				if (Signature)
+				{
+					const auto& Ports = Input ? Signature->Inputs : Signature->Outputs;
+					const auto Port = std::ranges::find(Ports, Input ? Input->PortId : Output->PortId, &FMaterialFunctionPort::Id);
+					if (Port != Ports.end()) Node.ResultType = Port->Type;
+				}
+			}
+			Descriptors.push_back(std::move(Node));
+			ExpressionsById.emplace(Expression->Id, Expression.Get());
+		}
+		const auto LinkView = [](const FMaterialExpressionInput& Input) -> FMaterialProgramLink {
+			return {Input.ExpressionId, Input.OutputIndex, Input.OutputId};
+		};
+		const auto DefaultView = [](std::span<const float> Values) -> FMaterialInputDefault {
+			if (Values.empty() || Values.size() > 4) return {};
+			FMaterialInputDefault Result{.Kind = EMaterialInputDefaultKind::Literal,
+				.Type = static_cast<EMaterialProgramValueType>(Values.size() - 1)};
+			const std::array Lanes{&Result.Literal.X, &Result.Literal.Y, &Result.Literal.Z, &Result.Literal.W};
+			for (size_t Index = 0; Index < Values.size(); ++Index) *Lanes[Index] = Values[Index];
+			return Result;
+		};
 		const auto BaseShapeKey = [](EMaterialProgramOpcode Opcode,
 			EMaterialProgramValueType ResultType) {
 			return static_cast<uint32>(Opcode) << 8
@@ -226,17 +358,11 @@ namespace Durin::Editor::Material
 		};
 
 		FMaterialGraphView Result;
-		const FMaterialProgram& Program = State.Program;
-		const FMaterialGraphPresentation Presentation =
-			SanitizeMaterialGraphPresentation(
-				State.Presentation, Program);
-		std::unordered_map<FGuid, const FMaterialProgramNode*> NodesById;
-		NodesById.reserve(Program.Nodes.size());
-		for (const FMaterialProgramNode& Node : Program.Nodes)
-			NodesById.emplace(Node.Id, &Node);
-		const auto FindCall = [&](const FGuid& NodeId) -> const FMaterialFunctionCall* {
-			const auto Call = std::ranges::find(State.Calls, NodeId, &FMaterialFunctionCall::NodeId);
-			return Call == State.Calls.end() ? nullptr : &*Call;
+		std::unordered_map<FGuid, const FMaterialGraphNodeDescriptor*> NodesById;
+		for (const auto& Node : Descriptors) NodesById.emplace(Node.Id, &Node);
+		const auto FindCall = [&](const FGuid& NodeId) -> const DMaterialExpressionFunctionCall* {
+			const auto It = ExpressionsById.find(NodeId);
+			return It == ExpressionsById.end() ? nullptr : Cast<DMaterialExpressionFunctionCall>(It->second);
 		};
 		const auto SourceType = [&](const FMaterialProgramLink& Link) {
 			if (const auto* Call = FindCall(Link.SourceNodeId))
@@ -249,7 +375,7 @@ namespace Durin::Editor::Material
 			if (Source->second->Opcode == EMaterialProgramOpcode::TextureSampleParameter2D && Link.SourceOutputIndex == 7)
 				return EMaterialProgramValueType::Texture2D;
 			if (IsMaterialSamplingNode(Source->second->Opcode) && Link.SourceOutputIndex != 0)
-				return Link.SourceOutputIndex == 1 ? EMaterialProgramValueType::Float3
+				return Link.SourceOutputIndex == 1 || Link.SourceOutputIndex == 8 ? EMaterialProgramValueType::Float3
 					: Link.SourceOutputIndex == 6 ? EMaterialProgramValueType::Float2 : EMaterialProgramValueType::Float;
 			if (Source->second->Opcode == EMaterialProgramOpcode::GetSurfaceAttributes && Link.SourceOutputIndex < 8)
 				return GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(Link.SourceOutputIndex));
@@ -259,13 +385,13 @@ namespace Durin::Editor::Material
 		std::unordered_map<uint32, const FMaterialGraphCatalogEntry*> BaseShapes;
 		BaseShapes.reserve(Catalog.size());
 		for (const auto& Entry : Catalog)
-			BaseShapes.emplace(BaseShapeKey(Entry.NodeTemplate.Opcode, Entry.NodeTemplate.ResultType), &Entry);
+			BaseShapes.emplace(BaseShapeKey(Entry.Opcode, Entry.ResultType), &Entry);
 		std::unordered_map<FGuid, FMaterialGraphNodePresentation> Positions;
 		Positions.reserve(Presentation.Nodes.size());
 		for (const FMaterialGraphNodePresentation& Position : Presentation.Nodes)
 			Positions.emplace(Position.NodeId, Position);
-		Result.Nodes.reserve(Program.Nodes.size());
-		for (const FMaterialProgramNode& Node : Program.Nodes)
+		Result.Nodes.reserve(Descriptors.size());
+		for (const auto& Node : Descriptors)
 		{
 			FMaterialGraphNodeView View{.Node = Node};
 			const FMaterialGraphCatalogEntry* Shape = nullptr;
@@ -273,33 +399,40 @@ namespace Durin::Editor::Material
 			if (ShapeIt != BaseShapes.end()) Shape = ShapeIt->second;
 			View.PrimaryLabel = Shape
 				? Shape->OperationName : GetOpcodeName(Node.Opcode);
-			View.SecondaryLabel = Node.DisplayName;
-			if (Node.Parameter.Id.IsValid())
+			auto* Expression = ExpressionsById.at(Node.Id);
+			if (const auto* Parameter = Cast<DMaterialExpressionParameter>(Expression))
 			{
 				View.SecondaryLabel = View.PrimaryLabel;
-				View.PrimaryLabel = Node.Parameter.DisplayName.empty()
-					? Node.Parameter.Name.ToString() : Node.Parameter.DisplayName;
+				View.PrimaryLabel = Parameter->Metadata.DisplayName.empty() ? Parameter->Metadata.Name.ToString() : Parameter->Metadata.DisplayName;
 			}
-			View.Inputs.reserve(Node.Inputs.size());
-			for (uint32 InputIndex = 0; InputIndex < Node.Inputs.size(); ++InputIndex)
-			{
-				FMaterialGraphPinView Pin{
-					.InputIndex = InputIndex,
-					.Name = Shape
-						&& InputIndex < Shape->InputNames.size()
-						? Shape->InputNames[InputIndex] : "Value",
-					.Link = Node.Inputs[InputIndex],
-					.SourceType = SourceType(Node.Inputs[InputIndex]),
-				};
-				if (Shape
-					&& InputIndex < Shape->AcceptedInputTypes.size())
-					Pin.AcceptedTypes = Shape->AcceptedInputTypes[InputIndex];
-				Pin.InlineDefault = GetMaterialNodeInputDefault(Node, InputIndex);
-				if (!Pin.Link.SourceNodeId.IsValid() && Pin.InlineDefault.Kind != EMaterialInputDefaultKind::None)
-					Pin.SourceType = Pin.InlineDefault.Type;
-				else if (!Pin.Link.SourceNodeId.IsValid() && !Pin.AcceptedTypes.empty()) Pin.SourceType = Pin.AcceptedTypes.front();
-				View.Inputs.push_back(std::move(Pin));
-			}
+			if (!Cast<DMaterialExpressionFunctionCall>(Expression))
+				VisitMaterialExpressionInputs(*Expression, [&](uint32 InputIndex, FMaterialExpressionInput& Input) {
+					// Surface override indices are stable attributes, not binding-array ordinals.
+					if (Cast<DMaterialExpressionSetSurfaceAttributes>(Expression) && InputIndex != 0) return;
+					FMaterialGraphPinView Pin{.InputIndex = InputIndex,
+						.Name = Shape && InputIndex < Shape->InputNames.size() ? Shape->InputNames[InputIndex] : "Value",
+						.Link = LinkView(Input), .SourceType = SourceType(LinkView(Input))};
+					if (Shape && InputIndex < Shape->AcceptedInputTypes.size()) Pin.AcceptedTypes = Shape->AcceptedInputTypes[InputIndex];
+					if (const auto* Coordinates = Cast<DMaterialExpressionTextureCoordinates>(Expression))
+					{
+						const auto& Defaults = Coordinates->Defaults;
+						if (InputIndex == 0 && Defaults.Channel.bPresent) Pin.InlineDefault = DefaultView(std::array{Defaults.Channel.Value});
+						if (InputIndex == 1 && Defaults.Scale.bPresent) Pin.InlineDefault = DefaultView(std::array{static_cast<float>(Defaults.Scale.Value.x), static_cast<float>(Defaults.Scale.Value.y)});
+						if (InputIndex == 2 && Defaults.Offset.bPresent) Pin.InlineDefault = DefaultView(std::array{static_cast<float>(Defaults.Offset.Value.x), static_cast<float>(Defaults.Offset.Value.y)});
+						if (InputIndex == 3 && Defaults.Rotation.bPresent) Pin.InlineDefault = DefaultView(std::array{Defaults.Rotation.Value});
+					}
+					else Expression->GetClass()->ForEachProperty([&](FProperty* Property) {
+						if (Property->GetValuePtr(Expression) != &Input) return;
+						auto* Default = Expression->GetClass()->FindPropertyByName(FName(Property->NamePrivate.ToString() + "Default"));
+						if (Default && Default->GetKind() == DurinCodeGen::EPropertyGenFlags::Array
+							&& static_cast<FArrayProperty*>(Default)->GetInner()->GetKind() == DurinCodeGen::EPropertyGenFlags::Float)
+							Pin.InlineDefault = DefaultView(*static_cast<const std::vector<float>*>(Default->GetValuePtr(Expression)));
+					});
+					if (Node.IsSampleUVInput(InputIndex)) Pin.InlineDefault = DefaultView(std::array{0.f, 0.f});
+					if (!Input.ExpressionId.IsValid() && Pin.InlineDefault.Kind != EMaterialInputDefaultKind::None) Pin.SourceType = Pin.InlineDefault.Type;
+					else if (!Input.ExpressionId.IsValid() && !Pin.AcceptedTypes.empty()) Pin.SourceType = Pin.AcceptedTypes.front();
+					View.Inputs.push_back(std::move(Pin));
+				});
 			if (Node.Opcode == EMaterialProgramOpcode::FunctionCall)
 			{
 				if (const auto* Call = FindCall(Node.Id))
@@ -315,12 +448,12 @@ namespace Durin::Editor::Material
 						std::ranges::stable_sort(Outputs, Order);
 						for (const auto& Port : Inputs)
 						{
-							const auto Binding = std::ranges::find(Call->Inputs, Port.Id, &FMaterialFunctionInputBinding::InputId);
-							const auto Link = Binding == Call->Inputs.end() ? FMaterialProgramLink{} : Binding->Source;
+							const auto Binding = std::ranges::find(Call->Inputs, Port.Id, &FMaterialExpressionFunctionInputBinding::InputId);
+							const auto Link = Binding == Call->Inputs.end() ? FMaterialProgramLink{} : LinkView(Binding->Input);
 							View.Inputs.push_back({.InputIndex = static_cast<uint32>(View.Inputs.size()), .Name = Port.Name,
 								.Link = Link, .SourceType = Link.SourceNodeId.IsValid() ? SourceType(Link) : Port.Type,
 								.AcceptedTypes = {Port.Type}, .PortId = Port.Id, .bRequired = Port.bRequired, .Default = Port.Default,
-								.InlineDefault = Binding == Call->Inputs.end() ? FMaterialInputDefault{} : Binding->Default,
+								.InlineDefault = Binding == Call->Inputs.end() ? FMaterialInputDefault{} : DefaultView(Binding->InputDefault),
 								.bAdvanced = Port.bAdvanced});
 						}
 						for (const auto& Port : Outputs) View.Outputs.push_back({.PortId = Port.Id, .Name = Port.Name, .Type = Port.Type});
@@ -329,7 +462,7 @@ namespace Durin::Editor::Material
 					for (const auto& Binding : Call->Inputs)
 						if (std::ranges::none_of(View.Inputs, [&](const auto& Pin) { return Pin.PortId == Binding.InputId; }))
 							View.Inputs.push_back({.InputIndex = static_cast<uint32>(View.Inputs.size()), .Name = "Missing input",
-								.Link = Binding.Source, .SourceType = SourceType(Binding.Source), .AcceptedTypes = {Binding.ExpectedType},
+								.Link = LinkView(Binding.Input), .SourceType = SourceType(LinkView(Binding.Input)), .AcceptedTypes = {Binding.ExpectedType},
 								.PortId = Binding.InputId, .bMissing = true});
 					for (const auto& Binding : Call->Outputs)
 						if (std::ranges::none_of(View.Outputs, [&](const auto& Pin) { return Pin.PortId == Binding.OutputId; }))
@@ -350,15 +483,16 @@ namespace Durin::Editor::Material
 			else if (Node.Opcode == EMaterialProgramOpcode::GetSurfaceAttributes)
 			{
 				for (uint8 Index = 0; Index < 8; ++Index)
-					if (Node.SurfaceAttributeMask & (1u << Index)) View.Outputs.push_back({.OutputIndex = Index,
+					if (Cast<DMaterialExpressionGetSurfaceAttributes>(Expression)->AttributeMask & (1u << Index)) View.Outputs.push_back({.OutputIndex = Index,
 						.Name = AttributeNames[Index], .Type = GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(Index))});
 			}
 			else if (Node.Opcode != EMaterialProgramOpcode::FunctionOutput)
 				View.Outputs.push_back({.Name = GetProgramTypeName(Node.ResultType), .Type = Node.ResultType});
 			if (Node.Opcode == EMaterialProgramOpcode::FunctionInput || Node.Opcode == EMaterialProgramOpcode::FunctionOutput)
 			{
-				const auto& Ports = Node.Opcode == EMaterialProgramOpcode::FunctionInput ? State.Signature.Inputs : State.Signature.Outputs;
-				if (const auto Port = std::ranges::find(Ports, Node.FunctionPortId, &FMaterialFunctionPort::Id); Port != Ports.end())
+				const auto& Ports = Node.Opcode == EMaterialProgramOpcode::FunctionInput ? Signature->Inputs : Signature->Outputs;
+				if (const auto Port = std::ranges::find(Ports, Node.Opcode == EMaterialProgramOpcode::FunctionInput
+					? Cast<DMaterialExpressionFunctionInput>(Expression)->PortId : Cast<DMaterialExpressionFunctionOutput>(Expression)->PortId, &FMaterialFunctionPort::Id); Port != Ports.end())
 				{
 					View.SecondaryLabel = Port->Name;
 					if (!View.Outputs.empty()) View.Outputs[0].Name = Port->Name;
@@ -372,24 +506,41 @@ namespace Durin::Editor::Material
 				View.Inputs[0].AcceptedTypes = {EMaterialProgramValueType::Surface};
 			}
 			if (Node.Opcode == EMaterialProgramOpcode::SetSurfaceAttributes)
-				for (const auto& Attribute : Node.SurfaceAttributes)
+				for (const auto& Attribute : Cast<DMaterialExpressionSetSurfaceAttributes>(Expression)->Attributes)
 				{
 					const auto Index = static_cast<uint32>(Attribute.Attribute);
 					if (Index < 8) View.Inputs.push_back({.InputIndex = Index + 1, .Name = AttributeNames[Index],
-						.Link = Attribute.Source, .SourceType = SourceType(Attribute.Source),
+						.Link = LinkView(Attribute.Source), .SourceType = SourceType(LinkView(Attribute.Source)),
 						.AcceptedTypes = {GetMaterialSurfaceOutputType(Attribute.Attribute)}});
 				}
 			const auto It = Positions.find(Node.Id);
-			check(It != Positions.end());
-			View.Presentation = It->second;
+			View.Presentation = It != Positions.end() ? It->second : FMaterialGraphNodePresentation{.NodeId = Node.Id,
+				.X = static_cast<int32>(Result.Nodes.size() % 4) * 320, .Y = static_cast<int32>(Result.Nodes.size() / 4) * 240};
+			if (!Node.GetParameterId().IsValid() && Node.Opcode != EMaterialProgramOpcode::FunctionCall
+				&& Node.Opcode != EMaterialProgramOpcode::FunctionInput && Node.Opcode != EMaterialProgramOpcode::FunctionOutput)
+				View.SecondaryLabel = View.Presentation.DisplayName;
 			Result.Nodes.push_back(std::move(View));
 		}
 		std::ranges::sort(Result.Nodes, {}, [](const FMaterialGraphNodeView& View) {
 			return View.Node.Id;
 		});
-		Result.Outputs = Program.Outputs;
-		Result.bFunction = State.bFunction;
-		check(State.bFunction || Presentation.bHasMaterialOutputPosition);
+		if (Material)
+		{
+			const auto& Outputs = Material->GetExpressionOutputs();
+			Result.Outputs.Surface = LinkView(Outputs.Surface);
+			const std::array Links{Outputs.BaseColor, Outputs.Normal, Outputs.Metallic, Outputs.Roughness,
+				Outputs.AmbientOcclusion, Outputs.Emissive, Outputs.Opacity, Outputs.OpacityMask};
+			const auto VectorLiteral = [](const FVector3& Value) -> FMaterialProgramLiteral { return {static_cast<float>(Value.x), static_cast<float>(Value.y), static_cast<float>(Value.z)}; };
+			const std::array<FMaterialProgramLiteral, 8> Defaults{VectorLiteral(Outputs.BaseColorDefault), VectorLiteral(Outputs.NormalDefault),
+				FMaterialProgramLiteral{Outputs.MetallicDefault}, FMaterialProgramLiteral{Outputs.RoughnessDefault}, FMaterialProgramLiteral{Outputs.AmbientOcclusionDefault},
+				VectorLiteral(Outputs.EmissiveDefault), FMaterialProgramLiteral{Outputs.OpacityDefault}, FMaterialProgramLiteral{Outputs.OpacityMaskDefault}};
+			for (uint32 Index = 0; Index < 8; ++Index)
+			{
+				GetMaterialSurfaceOutputLink(Result.Outputs, static_cast<EMaterialSurfaceOutput>(Index)) = LinkView(Links[Index]);
+				GetMaterialSurfaceOutputDefault(Result.Outputs, static_cast<EMaterialSurfaceOutput>(Index)) = Defaults[Index];
+			}
+		}
+		Result.bFunction = Function != nullptr;
 		Result.MaterialOutputPosition = {
 			Presentation.MaterialOutputX,
 			Presentation.MaterialOutputY};
@@ -410,7 +561,6 @@ namespace Durin::Editor::Material
 				const auto Signature = GetMaterialProgramNodeSignature(Opcode, Type);
 				if (!Signature) continue;
 				auto Entry = MakeCatalogEntry(Opcode, Type, *Signature);
-				if (Opcode == EMaterialProgramOpcode::GetSurfaceAttributes) Entry.NodeTemplate.SurfaceAttributeMask = 0xff;
 				if (Opcode == EMaterialProgramOpcode::Parameter
 					|| Opcode == EMaterialProgramOpcode::TextureParameter)
 				{
@@ -421,15 +571,7 @@ namespace Durin::Editor::Material
 					if (Opcode == EMaterialProgramOpcode::Parameter)
 						Entry.Description = "Create a new numeric parameter exposed to material instances.";
 				}
-				if (Opcode == EMaterialProgramOpcode::Swizzle)
-				{
-					const uint8 Width = TypeValue + 1;
-					Entry.NodeTemplate.SwizzleLength = Width;
-					Entry.NodeTemplate.SwizzleX = 0;
-					Entry.NodeTemplate.SwizzleY = std::min<uint8>(1, Width - 1);
-					Entry.NodeTemplate.SwizzleZ = std::min<uint8>(2, Width - 1);
-					Entry.NodeTemplate.SwizzleW = std::min<uint8>(3, Width - 1);
-				}
+
 				Result.push_back(std::move(Entry));
 			}
 		std::ranges::stable_sort(Result, {}, &FMaterialGraphCatalogEntry::OperationName);
@@ -477,8 +619,8 @@ namespace Durin::Editor::Material
 		{
 			const FMaterialGraphCatalogEntry& Entry = Catalog[Ordinal];
 			// Keep dimensional shapes for inspection; the palette creates one scalar Constant.
-			if (Entry.NodeTemplate.Opcode == EMaterialProgramOpcode::Constant
-				&& Entry.NodeTemplate.ResultType != EMaterialProgramValueType::Float) continue;
+			if (Entry.Opcode == EMaterialProgramOpcode::Constant
+				&& Entry.ResultType != EMaterialProgramValueType::Float) continue;
 			if (SourceType)
 			{
 				if (Entry.AcceptedInputTypes.empty()
@@ -496,7 +638,7 @@ namespace Durin::Editor::Material
 					NormalizeSearchText(Entry.OperationName),
 					NormalizeSearchText(Entry.Category),
 					NormalizeSearchText(Entry.Description),
-					NormalizeSearchText(GetProgramTypeName(Entry.NodeTemplate.ResultType)),
+					NormalizeSearchText(GetProgramTypeName(Entry.ResultType)),
 				};
 				SearchFields = &FallbackSearchFields;
 			}
@@ -518,10 +660,8 @@ namespace Durin::Editor::Material
 				return EntryA.Category < EntryB.Category;
 			if (EntryA.OperationName != EntryB.OperationName)
 				return EntryA.OperationName < EntryB.OperationName;
-			if (EntryA.NodeTemplate.ResultType != EntryB.NodeTemplate.ResultType)
-				return EntryA.NodeTemplate.ResultType < EntryB.NodeTemplate.ResultType;
-			if (EntryA.NodeTemplate.Parameter.Id != EntryB.NodeTemplate.Parameter.Id)
-				return EntryA.NodeTemplate.Parameter.Id < EntryB.NodeTemplate.Parameter.Id;
+			if (EntryA.ResultType != EntryB.ResultType)
+				return EntryA.ResultType < EntryB.ResultType;
 			return A.Ordinal < B.Ordinal;
 		});
 		std::vector<size_t> Result;

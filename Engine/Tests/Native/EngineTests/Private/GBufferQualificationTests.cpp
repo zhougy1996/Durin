@@ -124,7 +124,7 @@ namespace
 		if (!Durin::IsValid(Root))
 		{
 			Root = Durin::NewObject<Durin::DMaterial>(nullptr, "GBufferVariantRoot");
-			if (!Root || !Durin::Testing::SetStandardMaterialProgramForTest(*Root))
+			if (!Root || !Durin::Testing::SetStandardMaterialExpressionsForTest(*Root))
 			{
 				ADD_FAILURE() << "Failed to create the shared variant graph.";
 				return {};

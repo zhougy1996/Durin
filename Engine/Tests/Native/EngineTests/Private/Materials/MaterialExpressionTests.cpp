@@ -1,3 +1,4 @@
+#include "Graph/MaterialExpressionInputs.h"
 #include "MaterialTestSupport.h"
 #include "Materials/MaterialExpressions.h"
 #include "Materials/MaterialExpressionBuild.h"
@@ -6,7 +7,7 @@
 #include "Misc/MountPathTestSupport.h"
 #include "NativeAssetTestSupport.h"
 
-TEST(FMaterialExpressionTests, MaterialSnapshotIgnoresProgramProjectionAndMatchesCompilerOutput)
+TEST(FMaterialExpressionTests, TypedSnapshotIsDetachedFromCopiedInputsAndLaterEdits)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
@@ -24,22 +25,21 @@ TEST(FMaterialExpressionTests, MaterialSnapshotIgnoresProgramProjectionAndMatche
 	FMaterialCompilerEnvironment Environment;
 	std::string Error;
 	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Environment, Error)) << Error;
-	FMaterialCompilerInput Legacy;
-	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Material, Environment, Legacy));
-	const auto Before = CompileMaterialProgram(Legacy);
+	FMaterialIRCompilerInput Initial;
+	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Material, Environment, Initial));
+	const auto Before = CompileMaterialIR(Initial);
 	ASSERT_TRUE(Before);
-	// A broken compatibility cache must not participate in the new compiler path.
-	const_cast<FMaterialProgram*>(Material->GetMaterialProgram())->SchemaVersion = 0;
+	// Mutating a copied compiler input cannot affect either the owner or the original snapshot.
+	auto Detached = Initial;
+	Detached.IR.Nodes.clear();
+	EXPECT_FALSE(Detached.IR == Initial.IR);
 	FMaterialIRCompilerInput Snapshot;
 	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Material, Environment, Snapshot));
 	const auto Direct = CompileMaterialIR(Snapshot);
 	ASSERT_TRUE(Direct);
 	EXPECT_EQ(Direct.GeneratedSource, Before.GeneratedSource);
-	// Both routes must agree after IR normalization removes inactive root defaults.
-	const auto Reference = NormalizeMaterialIR({.IR = Before.IR, .Parameters = Legacy.Parameters,
-		.StaticProperties = Legacy.StaticProperties, .Environment = Environment});
-	ASSERT_TRUE(Reference);
-	EXPECT_EQ(Direct.Identity, Reference.Identity);
+	EXPECT_EQ(Snapshot.IR, Initial.IR);
+	EXPECT_EQ(Direct.Identity, Before.Identity);
 	EXPECT_EQ(Direct.Layout, Before.Layout);
 	const auto Captured = Snapshot.IR;
 	auto* Owned = Cast<DMaterialExpressionScalarConstant>(Material->GetExpressionCollection().Expressions[1].Get());
@@ -128,7 +128,7 @@ TEST(FMaterialExpressionTests, MaterialPersistsTypedOutputsAndOwnedParameterDefa
 	Owned = Cast<DMaterialExpressionVector3Parameter>(Material->GetExpressionCollection().Expressions[0].Get());
 	ASSERT_NE(Owned, nullptr); EXPECT_EQ(Owned->DefaultValue, FVector3(.6, .7, .8));
 	ASSERT_NE(Material->FindParameterDefinition(ParameterId), nullptr);
-	EXPECT_EQ(Material->FindParameterDefinition(ParameterId)->Value.VectorValue, Owned->DefaultValue);
+	EXPECT_EQ(Material->FindParameterDefinition(ParameterId)->Value.GetVector(), Owned->DefaultValue);
 	TStrongObjectPtr<DMaterial> Duplicate(Cast<DMaterial>(DuplicateObject(Material, nullptr, "IndependentMaterial")));
 	ASSERT_TRUE(Duplicate);
 	EXPECT_EQ(Duplicate->GetExpressionOutputs(), Outputs);
@@ -174,25 +174,36 @@ TEST(FMaterialExpressionTests, FunctionPersistsOnlyOwnedExpressionsAndAppliesInd
 	Constant->Value.x = .9;
 	const auto* Owned = Cast<DMaterialExpressionVector2Constant>(Function->GetExpressionCollection().Expressions[0].Get());
 	ASSERT_NE(Owned, nullptr); EXPECT_EQ(Owned->Value.x, .2);
-	auto Labeled = Function->GetFunctionGraph();
-	Labeled.Nodes[0].DisplayName = "Retained value";
-	ASSERT_TRUE(Function->SetFunctionGraph(Labeled));
-	ASSERT_TRUE(Function->SetFunctionPresentation({.Nodes = {{Labeled.Nodes[0].Id, 30, 40}}}));
-	EXPECT_EQ(Function->GetFunctionGraph().Nodes[0].DisplayName, "Retained value");
+	ASSERT_TRUE(Function->SetFunctionPresentation({.Nodes = {{Constant->Id, 30, 40, "Retained value"}}}));
+	ASSERT_TRUE(Function->SetFunctionPresentation({.Nodes = {{Constant->Id, 30, 40}}}));
+	EXPECT_TRUE(Function->GetFunctionPresentation().Nodes[0].DisplayName.empty());
+	ASSERT_TRUE(Function->SetFunctionPresentation({.Nodes = {{Constant->Id, 30, 40, "Retained value"}}}));
+	EXPECT_EQ(Function->GetFunctionPresentation().Nodes[0].DisplayName, "Retained value");
 	const auto PersistedValue = Cast<DMaterialExpressionVector2Constant>(Function->GetExpressionCollection().Expressions[0].Get())->Value;
 	const auto Saved = SavePackage(Function->GetPackage());
 	ASSERT_TRUE(Saved) << Saved.Message;
 	ASSERT_TRUE(UnloadPackage(Path)); CollectGarbage(); Function = nullptr;
 	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Function));
 	ASSERT_EQ(Function->GetExpressionCollection().Expressions.size(), 2u);
-	EXPECT_EQ(Function->GetFunctionGraph().Nodes[0].DisplayName, "Retained value");
+	EXPECT_EQ(Function->GetFunctionPresentation().Nodes[0].DisplayName, "Retained value");
 	ASSERT_EQ(GDObjectArray.GetObjectsWithOuter(Function, EObjectQueryScope::LiveOnly).size(), 2u);
 	Owned = Cast<DMaterialExpressionVector2Constant>(Function->GetExpressionCollection().Expressions[0].Get());
 	ASSERT_NE(Owned, nullptr); EXPECT_EQ(Owned->Value, PersistedValue);
 	TStrongObjectPtr<DMaterialFunction> Duplicate(Cast<DMaterialFunction>(DuplicateObject(Function, nullptr, "IndependentFunction")));
 	ASSERT_TRUE(Duplicate);
 	EXPECT_NE(Duplicate->GetExpressionCollection().Expressions[0].Get(), Function->GetExpressionCollection().Expressions[0].Get());
-	EXPECT_EQ(Duplicate->GetFunctionGraph(), Function->GetFunctionGraph());
+	EXPECT_EQ(Duplicate->GetFunctionSignature(), Function->GetFunctionSignature());
+	EXPECT_EQ(Duplicate->GetFunctionPresentation().Nodes, Function->GetFunctionPresentation().Nodes);
+	const auto& OriginalExpressions = Function->GetExpressionCollection().Expressions;
+	const auto& DuplicateExpressions = Duplicate->GetExpressionCollection().Expressions;
+	ASSERT_EQ(OriginalExpressions.size(), DuplicateExpressions.size());
+	for (size_t Index = 0; Index < OriginalExpressions.size(); ++Index)
+	{
+		ASSERT_EQ(OriginalExpressions[Index]->GetClass(), DuplicateExpressions[Index]->GetClass());
+		OriginalExpressions[Index]->GetClass()->ForEachProperty([&](FProperty* Property) {
+			EXPECT_TRUE(ArePropertyValuesIdentical(Property, OriginalExpressions[Index].Get(), 0, DuplicateExpressions[Index].Get(), 0));
+		});
+	}
 	TStrongObjectPtr<DMaterialExpressionFunctionCall> Call(NewObject<DMaterialExpressionFunctionCall>(nullptr, "OwnedCall"));
 	Call->Id = {8, 9, 10, 11}; Call->Function = Function; Call->Outputs = {{OutputPortId, EMaterialProgramValueType::Float2}};
 	const std::array<DMaterialExpression*, 1> Calls{Call.Get()};
@@ -214,7 +225,7 @@ TEST(FMaterialExpressionTests, FunctionRejectsInvalidCandidatesAndUncollectedChi
 	InitializeDObjectSystem();
 	FScopedOfflinePreparation Offline;
 	TStrongObjectPtr<DMaterialFunction> Function(NewObject<DMaterialFunction>(nullptr, "ValidatedFunction"));
-	const auto Before = Function->GetFunctionGraph();
+	const auto Before = Function->GetFunctionSignature();
 	const auto BeforeChildren = Function->GetExpressionCollection().Expressions;
 	const auto Revision = Function->GetFunctionRevision();
 	TStrongObjectPtr<DMaterialExpressionFunctionOutput> Output(NewObject<DMaterialExpressionFunctionOutput>(nullptr, "InvalidOutput"));
@@ -222,7 +233,7 @@ TEST(FMaterialExpressionTests, FunctionRejectsInvalidCandidatesAndUncollectedChi
 	Output->Source = {Output->Id};
 	const std::array<DMaterialExpression*, 1> Invalid{Output.Get()};
 	EXPECT_FALSE(Function->SetFunctionExpressions(Function->GetFunctionSignature(), Invalid));
-	EXPECT_EQ(Function->GetFunctionGraph(), Before);
+	EXPECT_EQ(Function->GetFunctionSignature(), Before);
 	EXPECT_EQ(Function->GetExpressionCollection().Expressions, BeforeChildren);
 	EXPECT_EQ(Function->GetFunctionRevision(), Revision);
 	std::string Error;
@@ -533,7 +544,7 @@ TEST(FMaterialExpressionTests, TypedOwnersRoundTripAndDuplicateOnlyApplicableFie
 	FMaterialProgramNode Before;
 	ASSERT_TRUE(Vector->Lower(Before));
 	EXPECT_EQ(Before.Parameter.Type, EMaterialParameterType::Vector4);
-	EXPECT_EQ(Before.Parameter.Value.Vector4Value, Vector->DefaultValue);
+	EXPECT_EQ(Before.Parameter.Value.GetVector4(), Vector->DefaultValue);
 	auto* Copy = Cast<DMaterialExpressionVector4Parameter>(DuplicateObject(Vector, Working.Get(), "Copy"));
 	ASSERT_NE(Copy, nullptr);
 	EXPECT_EQ(Copy->Metadata, Vector->Metadata);
@@ -742,9 +753,168 @@ TEST(FMaterialExpressionTests, EveryMappedConcreteClassLowersItsOwnOpcodeAndWidt
 		EXPECT_EQ(Node.ResultType, Entry.Type);
 		EXPECT_EQ(Expression->GetClass()->FindPropertyByName("Opcode"), nullptr);
 		EXPECT_EQ(Expression->GetClass()->FindPropertyByName("Parameter"), nullptr);
+		if (auto* Surface = Cast<DMaterialExpressionSetSurfaceAttributes>(Expression.Get()))
+			Surface->Attributes.push_back({EMaterialSurfaceOutput::Roughness, {}});
+		if (auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression.Get()))
+			Call->Inputs.push_back({Function->GetFunctionSignature().Inputs[0].Id, EMaterialProgramValueType::Surface, {}});
+		uint32 Visited = 0;
+		Durin::Editor::Material::VisitMaterialExpressionInputs(*Expression, [&](uint32 Pin, FMaterialExpressionInput& Input) {
+			Input = {{11, 12, Index, Pin + 1}}; ++Visited;
+		});
+		EXPECT_EQ(Visited, Expression->GetAuthoredInputCount());
+		Calls.clear();
+		ASSERT_TRUE(Expression->Lower(Node, {&Function->GetFunctionSignature(), &Calls}));
+		Durin::Editor::Material::VisitMaterialExpressionInputs(*Expression, [&](uint32 Pin, FMaterialExpressionInput& Input) {
+			if (Entry.Opcode == EMaterialProgramOpcode::FunctionCall)
+				EXPECT_EQ(Calls.front().Inputs[Pin].Source.SourceNodeId, Input.ExpressionId);
+			else if (Entry.Opcode == EMaterialProgramOpcode::SetSurfaceAttributes && Pin > 0)
+				EXPECT_EQ(Node.SurfaceAttributes.front().Source.SourceNodeId, Input.ExpressionId);
+			else
+			{
+				ASSERT_LT(Pin, Node.Inputs.size());
+				EXPECT_EQ(Node.Inputs[Pin].SourceNodeId, Input.ExpressionId);
+			}
+		});
 		Covered.insert(Entry.Opcode);
 	}
 	// No enum member has numeric value 3 or 30.
 	for (uint32 Opcode = 0; Opcode <= static_cast<uint32>(EMaterialProgramOpcode::TextureCoordinates); ++Opcode)
 		if (Opcode != 3 && Opcode != 30) EXPECT_TRUE(Covered.contains(static_cast<EMaterialProgramOpcode>(Opcode))) << Opcode;
+}
+
+TEST(FMaterialExpressionTests, LocalAuthoringValidationPreservesMissingDependenciesAndRejectsInvalidLinks)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	FScopedOfflinePreparation Offline;
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, "LocalValidation"));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	TStrongObjectPtr<DMaterialExpressionVector3Constant> Value(NewObject<DMaterialExpressionVector3Constant>(nullptr, "Value"));
+	Value->Id = FGuid::NewGuid();
+	TStrongObjectPtr<DMaterialExpressionFunctionCall> Call(NewObject<DMaterialExpressionFunctionCall>(nullptr, "MissingDependency"));
+	Call->Id = FGuid::NewGuid();
+	const auto InputId = FGuid::NewGuid(), OutputId = FGuid::NewGuid();
+	Call->Inputs = {{InputId, EMaterialProgramValueType::Float3, {Value->Id}}};
+	Call->Outputs = {{OutputId, EMaterialProgramValueType::Float3}};
+	const std::array<DMaterialExpression*, 2> Expressions{Value.Get(), Call.Get()};
+	FMaterialExpressionSurfaceOutputs Outputs;
+	Outputs.BaseColor = {Call->Id, 0, OutputId};
+	ASSERT_TRUE(FMaterialExpressionBuildContext::ValidateSurface(Expressions, Outputs));
+	ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
+	FMaterialIRCompilerInput Snapshot;
+	EXPECT_FALSE(SnapshotMaterialCompilerInput(*Material, {}, Snapshot));
+	const auto Children = Material->GetExpressionCollection().Expressions;
+	const auto Revision = Material->GetMaterialProgramRevision();
+	Call->Inputs[0].Input = {Call->Id, 0, OutputId};
+	EXPECT_FALSE(FMaterialExpressionBuildContext::ValidateSurface(Expressions, Outputs));
+	EXPECT_FALSE(Material->SetMaterialExpressions(Expressions, Outputs));
+	EXPECT_EQ(Material->GetExpressionCollection().Expressions, Children);
+	EXPECT_EQ(Material->GetMaterialProgramRevision(), Revision);
+	Call->Inputs[0].Input = {Value->Id};
+	Call->Inputs[0].InputId = OutputId;
+	EXPECT_FALSE(FMaterialExpressionBuildContext::ValidateSurface(Expressions, Outputs));
+}
+
+TEST(FMaterialExpressionTests, LocalFunctionValidationUsesDeclaredPortsWithoutAnInvocation)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	FScopedOfflinePreparation Offline;
+	const auto InputId = FGuid::NewGuid(), OutputId = FGuid::NewGuid();
+	FMaterialFunctionSignature Signature;
+	Signature.Inputs = {{.Id = InputId, .Type = EMaterialProgramValueType::Float3, .Name = "Input", .bRequired = true}};
+	Signature.Outputs = {{.Id = OutputId, .Type = EMaterialProgramValueType::Float3, .Name = "Output"}};
+	TStrongObjectPtr<DMaterialExpressionFunctionInput> Input(NewObject<DMaterialExpressionFunctionInput>(nullptr, "Input"));
+	Input->Id = FGuid::NewGuid(); Input->PortId = InputId;
+	TStrongObjectPtr<DMaterialExpressionFunctionOutput> Output(NewObject<DMaterialExpressionFunctionOutput>(nullptr, "Output"));
+	Output->Id = FGuid::NewGuid(); Output->PortId = OutputId; Output->Source = {Input->Id};
+	const std::array<DMaterialExpression*, 2> Expressions{Input.Get(), Output.Get()};
+	ASSERT_TRUE(FMaterialExpressionBuildContext::ValidateFunction(Expressions, Signature));
+	TStrongObjectPtr<DMaterialFunction> Function(NewObject<DMaterialFunction>(nullptr, "LocalFunction"));
+	ASSERT_TRUE(Function->SetFunctionExpressions(Signature, Expressions));
+	Input->PortId = FGuid::NewGuid();
+	EXPECT_FALSE(FMaterialExpressionBuildContext::ValidateFunction(Expressions, Signature));
+	Input->PortId = InputId;
+	Signature.Outputs[0].Type = EMaterialProgramValueType::Float;
+	EXPECT_FALSE(FMaterialExpressionBuildContext::ValidateFunction(Expressions, Signature));
+	Signature.Outputs[0].Type = EMaterialProgramValueType::Float3;
+	EXPECT_FALSE(FMaterialExpressionBuildContext::ValidateFunction(std::span(Expressions).first(1), Signature));
+}
+
+TEST(FMaterialExpressionTests, ParameterAdmissionSharesDeclarationCountAndIdentityBounds)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	std::vector<TStrongObjectPtr<DMaterialExpressionScalarParameter>> Owners;
+	std::vector<DMaterialExpression*> Expressions;
+	for (uint32 Index = 0; Index <= MaterialMaxParameterDefinitionCount; ++Index)
+	{
+		auto* Parameter = NewObject<DMaterialExpressionScalarParameter>(nullptr, NAME_None);
+		Parameter->Id = FGuid::NewGuid();
+		Parameter->Metadata = {.Id = FGuid::NewGuid(), .Name = FName(std::format("Parameter{}", Index))};
+		Owners.emplace_back(Parameter);
+		Expressions.push_back(Parameter);
+	}
+	EXPECT_TRUE(FMaterialExpressionBuildContext::ValidateSurface(std::span(Expressions).first(MaterialMaxParameterDefinitionCount), {}));
+	EXPECT_FALSE(FMaterialExpressionBuildContext::ValidateSurface(Expressions, {}));
+	Expressions.pop_back();
+	Owners.front()->Metadata.Id = Owners[1]->Id;
+	EXPECT_FALSE(FMaterialExpressionBuildContext::ValidateSurface(Expressions, {}));
+}
+
+TEST(FMaterialExpressionTests, LocalCallsAdmitAllPortTypesAtTheAuthoredNodeBound)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	std::vector<TStrongObjectPtr<DMaterialExpressionFunctionCall>> Owners;
+	std::vector<DMaterialExpression*> Expressions;
+	for (uint32 Index = 0; Index < MaterialProgramMaxNodeCount; ++Index)
+	{
+		auto* Call = NewObject<DMaterialExpressionFunctionCall>(nullptr, NAME_None);
+		Call->Id = FGuid::NewGuid();
+		for (uint32 Port = 0; Port < MaterialFunctionMaxOutputs; ++Port)
+			Call->Outputs.push_back({FGuid::NewGuid(), static_cast<EMaterialProgramValueType>(Port % 6)});
+		Owners.emplace_back(Call);
+		Expressions.push_back(Call);
+	}
+	const auto Validation = FMaterialExpressionBuildContext::ValidateSurface(Expressions, {});
+	ASSERT_TRUE(Validation) << (Validation.Diagnostics.empty() ? "" : Validation.Diagnostics.front().Message);
+}
+
+TEST(FMaterialExpressionTests, AuthoringFingerprintTracksCallPortsAndExcludesParameterDefaults)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	FScopedOfflinePreparation Offline;
+	TStrongObjectPtr<DMaterialExpressionVector3Parameter> Parameter(NewObject<DMaterialExpressionVector3Parameter>(nullptr, NAME_None));
+	Parameter->Id = FGuid::NewGuid(); Parameter->Metadata = {.Id = FGuid::NewGuid(), .Name = "Color"};
+	TStrongObjectPtr<DMaterialExpressionFunctionCall> Call(NewObject<DMaterialExpressionFunctionCall>(nullptr, NAME_None));
+	Call->Id = FGuid::NewGuid();
+	Call->Inputs = {{FGuid::NewGuid(), EMaterialProgramValueType::Float3, {Parameter->Id}}};
+	Call->Outputs = {{FGuid::NewGuid(), EMaterialProgramValueType::Float3}, {FGuid::NewGuid(), EMaterialProgramValueType::Float3}};
+	const std::array<DMaterialExpression*, 2> Expressions{Parameter.Get(), Call.Get()};
+	FMaterialExpressionSurfaceOutputs Outputs;
+	Outputs.BaseColor = {Call->Id, 0, Call->Outputs[0].OutputId};
+	FXxHash128 Before, After;
+	ASSERT_TRUE(FMaterialExpressionBuildContext::ValidateSurface(Expressions, Outputs, &Before));
+	Parameter->DefaultValue = {.2, .4, .6}; Parameter->Metadata.DisplayName = "Display color";
+	ASSERT_TRUE(FMaterialExpressionBuildContext::ValidateSurface(Expressions, Outputs, &After));
+	EXPECT_EQ(After, Before);
+	Outputs.BaseColor.OutputId = Call->Outputs[1].OutputId;
+	ASSERT_TRUE(FMaterialExpressionBuildContext::ValidateSurface(Expressions, Outputs, &After));
+	EXPECT_NE(After, Before);
+	Outputs.BaseColor.OutputId = Call->Outputs[0].OutputId;
+	const auto InputId = Call->Inputs[0].InputId;
+	Call->Inputs[0].InputId = FGuid::NewGuid();
+	ASSERT_TRUE(FMaterialExpressionBuildContext::ValidateSurface(Expressions, Outputs, &After));
+	EXPECT_NE(After, Before);
+	Call->Inputs[0].InputId = InputId;
+	TStrongObjectPtr<DMaterialFunction> Callee(NewObject<DMaterialFunction>(nullptr, NAME_None));
+	Call->Function = Callee.Get();
+	ASSERT_TRUE(FMaterialExpressionBuildContext::ValidateSurface(Expressions, Outputs, &After));
+	EXPECT_NE(After, Before);
+	const auto Retained = After;
+	Parameter->DefaultValue.x = std::numeric_limits<float>::infinity();
+	EXPECT_FALSE(FMaterialExpressionBuildContext::ValidateSurface(Expressions, Outputs, &After));
+	EXPECT_EQ(After, Retained);
 }

@@ -66,6 +66,48 @@ namespace Durin
 		return Finish({});
 	}
 
+	auto FMaterialExpressionBuildContext::ValidateSurface(std::span<DMaterialExpression* const> Expressions,
+		const FMaterialExpressionSurfaceOutputs& Outputs, FXxHash128* OutCodeFingerprint) -> FMaterialProgramValidationResult
+	{
+		FMaterialExpressionBuildContext Context(Expressions);
+		Context.bValidateAuthoring = true;
+		auto Built = Context.FinishSurface(Outputs);
+		if (Built && OutCodeFingerprint)
+		{
+			// A transient edit checkpoint, not shader identity or a persisted encoding.
+			// Hash fields individually: no object pointers, aggregate padding, parameter defaults or presentation.
+			auto& Hash = Context.AuthoringCodeHash;
+			const auto Literal = [&](const FMaterialProgramLiteral& Value) {
+				Hash.UpdateValue(Value.X); Hash.UpdateValue(Value.Y);
+				Hash.UpdateValue(Value.Z); Hash.UpdateValue(Value.W);
+			};
+			Hash.UpdateValue(static_cast<uint32>(Built.IR.Nodes.size()));
+			for (const auto& Node : Built.IR.Nodes)
+			{
+				Hash.UpdateValue(Node.Opcode); Hash.UpdateValue(Node.ResultType);
+				Hash.UpdateValue(static_cast<uint32>(Node.Inputs.size()));
+				for (const auto Input : Node.Inputs) Hash.UpdateValue(Input);
+				Hash.UpdateValue(static_cast<uint32>(Node.Payload.index()));
+				if (const auto* Value = std::get_if<FMaterialProgramLiteral>(&Node.Payload)) Literal(*Value);
+				else if (const auto* Id = std::get_if<FGuid>(&Node.Payload)) Hash.UpdateValue(*Id);
+				else if (const auto* Swizzle = std::get_if<FMaterialIRSwizzle>(&Node.Payload))
+				{
+					Hash.UpdateValue(Swizzle->Length);
+					for (const auto Component : Swizzle->Components) Hash.UpdateValue(Component);
+				}
+			}
+			Hash.UpdateValue(Built.IR.SurfaceRoot.bAggregate);
+			Hash.UpdateValue(Built.IR.SurfaceRoot.AggregateExpressionIndex);
+			for (const auto& Input : Built.IR.SurfaceRoot.Inputs)
+			{
+				Hash.UpdateValue(Input.bExpression); Hash.UpdateValue(Input.ExpressionIndex);
+				Hash.UpdateValue(Input.Type); Literal(Input.Literal);
+			}
+			*OutCodeFingerprint = Hash.Finalize();
+		}
+		return {.bSucceeded = static_cast<bool>(Built), .Diagnostics = std::move(Built.Diagnostics)};
+	}
+
 	auto SnapshotMaterialCompilerInput(const DMaterialInterface& Material, FMaterialCompilerEnvironment Environment,
 		FMaterialIRCompilerInput& OutInput, std::vector<FMaterialFunctionOwnerStamp>* OutOwners)
 		-> FMaterialProgramValidationResult

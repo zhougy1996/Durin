@@ -17,8 +17,7 @@ namespace
 {
 	auto SetExpandedProgram(Durin::DMaterial& Material) -> bool
 	{
-		return Material.SetMaterialProgram(
-			Durin::Testing::MakePBRMaterialProgramForTest());
+		return static_cast<bool>(Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(Material));
 	}
 
 	auto RelocateAssetForTest(
@@ -623,113 +622,105 @@ TEST(FStaticMeshMaterialTests, MaterialInstanceAssetsRoundTripParentAndOverrides
 	ASSERT_TRUE(Durin::UnloadPackage(TexturePath));
 }
 
-TEST(FMaterialProgramPackageTests,
-	ProgramRoundTripsDuplicatesAndRejectsMalformedSaves)
+TEST(FMaterialExpressionPackageTests, TypedExpressionsRoundTripDuplicateAndRejectMalformedSaves)
 {
+	using namespace Durin;
 	InitializeDObjectSystem();
-	const std::filesystem::path Root =
-		Durin::Testing::GetTestWorkDirectory() / "MaterialPrograms";
-	Durin::Testing::RemoveTestWorkDirectory(Root);
-	Durin::Testing::RegisterMountPointForTests(
-		"/MaterialProgramTests/", Root.generic_string() + "/");
-
-	Durin::FPackagePath Path;
-	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
-		"/MaterialProgramTests/Base", Path));
-	Durin::DMaterial* Material = nullptr;
-	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(Path, Material));
-	Durin::FMaterialProgram Authored =
-		Durin::Testing::MakePBRMaterialProgramForTest();
-	std::ranges::reverse(Authored.Nodes);
-	Authored.Nodes.front().DisplayName = "Persisted presentation metadata";
-	auto Validation = Material->SetMaterialProgram(Authored);
-	ASSERT_TRUE(Validation);
-	ASSERT_TRUE(Durin::SavePackage(Material->GetPackage()));
-
-	Durin::FByteBuffer FirstSerialization;
-	Durin::FByteBuffer SecondSerialization;
-	ASSERT_TRUE(Durin::SerializeAssetPackageBytes(
-		Material->GetPackage(), FirstSerialization));
-	ASSERT_TRUE(Durin::SerializeAssetPackageBytes(
-		Material->GetPackage(), SecondSerialization));
+	const auto Root = Testing::GetTestWorkDirectory() / "MaterialExpressions";
+	Testing::RemoveTestWorkDirectory(Root);
+	Testing::RegisterMountPointForTests("/MaterialExpressionTests/", Root.generic_string() + "/");
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/MaterialExpressionTests/Base", Path));
+	DMaterial* Material = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Material));
+	auto Authored = Testing::MakePBRMaterialExpressionsForTest();
+	std::ranges::reverse(Authored.Expressions);
+	const auto LabelId = Authored.Expressions.front()->Id;
+	const auto Label = std::ranges::find(Authored.Presentation.Nodes, LabelId, &FMaterialGraphNodePresentation::NodeId);
+	if (Label == Authored.Presentation.Nodes.end())
+		Authored.Presentation.Nodes.push_back({.NodeId = LabelId, .DisplayName = "Persisted presentation metadata"});
+	else Label->DisplayName = "Persisted presentation metadata";
+	ASSERT_TRUE(Authored.Apply(*Material));
+	ASSERT_TRUE(SavePackage(Material->GetPackage()));
+	const auto Presentation = Material->GetMaterialGraphPresentation();
+	const auto CheckGraph = [&](DMaterial* Candidate) {
+		ASSERT_NE(Candidate, nullptr);
+		const auto& Children = Candidate->GetExpressionCollection().Expressions;
+		ASSERT_EQ(Children.size(), Authored.Expressions.size());
+		EXPECT_EQ(Candidate->GetExpressionOutputs(), Authored.Outputs);
+		EXPECT_EQ(Candidate->GetMaterialGraphPresentation(), Presentation);
+		for (size_t Index = 0; Index < Children.size(); ++Index)
+		{
+			const auto* Expected = Authored.Expressions[Index].Get();
+			const auto* Actual = Children[Index].Get();
+			ASSERT_NE(Actual, nullptr);
+			EXPECT_NE(Actual, Expected);
+			EXPECT_EQ(Actual->GetOuter(), Candidate);
+			ASSERT_EQ(Actual->GetClass(), Expected->GetClass());
+			Actual->GetClass()->ForEachProperty([&](const FProperty* Property) {
+				EXPECT_TRUE(ArePropertyValuesIdentical(Property, Actual, 0, Expected, 0));
+			});
+		}
+		std::string Error;
+		EXPECT_TRUE(Candidate->ValidateLoadedObjectGraph({}, Error)) << Error;
+	};
+	FByteBuffer FirstSerialization, SecondSerialization;
+	ASSERT_TRUE(SerializeAssetPackageBytes(Material->GetPackage(), FirstSerialization));
+	ASSERT_TRUE(SerializeAssetPackageBytes(Material->GetPackage(), SecondSerialization));
 	EXPECT_EQ(FirstSerialization, SecondSerialization);
-	EXPECT_TRUE(ContainsSerializedField(FirstSerialization, Path, "Program"));
-	EXPECT_TRUE(ContainsSerializedField(FirstSerialization, Path, "SchemaVersion"));
-	EXPECT_TRUE(ContainsSerializedField(FirstSerialization, Path, "Nodes"));
-	EXPECT_TRUE(ContainsSerializedField(FirstSerialization, Path, "Outputs"));
-
-	auto* Duplicate = Durin::Cast<Durin::DMaterial>(
-		Durin::DuplicateObject(
-			Material, nullptr, "DuplicatedMaterialProgram"));
-	ASSERT_NE(Duplicate, nullptr);
-	ASSERT_NE(Duplicate->GetMaterialProgram(), nullptr);
-	const auto Migrated = *Duplicate->GetMaterialProgram();
-	EXPECT_EQ(Migrated, Authored);
-	EXPECT_EQ(Migrated.Outputs, Authored.Outputs);
-	EXPECT_EQ(Migrated.Nodes.front().Id, Authored.Nodes.front().Id);
-	EXPECT_EQ(Migrated.Nodes.front().DisplayName, Authored.Nodes.front().DisplayName);
-	EXPECT_TRUE(std::ranges::none_of(Migrated.Nodes, [](const auto& Node) {
-		return Node.Opcode == static_cast<Durin::EMaterialProgramOpcode>(3);
-	}));
-	EXPECT_NE(Duplicate->GetMaterialProgram(), Material->GetMaterialProgram());
-	Durin::MarkObjectHierarchyAsGarbage(Duplicate);
-
-	ASSERT_TRUE(Durin::UnloadPackage(Path));
-	Durin::DMaterial* Loaded = nullptr;
-	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Loaded));
-	ASSERT_NE(Loaded, nullptr);
-	ASSERT_NE(Loaded->GetMaterialProgram(), nullptr);
-	EXPECT_EQ(*Loaded->GetMaterialProgram(), Migrated);
-	EXPECT_TRUE(Durin::ValidateMaterialProgram(
-		*Loaded->GetMaterialProgram(), Loaded->GetParameterDefinitions()));
-	const auto CatalogEntry = Durin::FindAssetExact(Path);
+	EXPECT_TRUE(ContainsSerializedField(FirstSerialization, Path, "GraphOwnershipVersion"));
+	EXPECT_TRUE(ContainsSerializedField(FirstSerialization, Path, "ExpressionCollection"));
+	EXPECT_TRUE(ContainsSerializedField(FirstSerialization, Path, "Expressions"));
+	EXPECT_TRUE(ContainsSerializedField(FirstSerialization, Path, "ExpressionOutputs"));
+	EXPECT_FALSE(ContainsSerializedField(FirstSerialization, Path, "Program"));
+	EXPECT_FALSE(ContainsSerializedField(FirstSerialization, Path, "FunctionCalls"));
+	auto* Duplicate = Cast<DMaterial>(DuplicateObject(Material, nullptr, "DuplicatedExpressions"));
+	ASSERT_NO_FATAL_FAILURE(CheckGraph(Duplicate));
+	EXPECT_NE(Duplicate->GetExpressionCollection().Expressions.front().Get(), Material->GetExpressionCollection().Expressions.front().Get());
+	MarkObjectHierarchyAsGarbage(Duplicate);
+	ASSERT_TRUE(UnloadPackage(Path));
+	DMaterial* Loaded = nullptr;
+	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Loaded));
+	ASSERT_NO_FATAL_FAILURE(CheckGraph(Loaded));
+	const auto CatalogEntry = FindAssetExact(Path);
 	ASSERT_NE(CatalogEntry, nullptr);
 	EXPECT_TRUE(CatalogEntry->Dependencies.empty());
-	ASSERT_TRUE(Durin::UnloadPackage(Path));
-
-	Durin::DMaterial* MalformedLoaded = nullptr;
-	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), MalformedLoaded));
-	auto* ProgramProperty = MalformedLoaded->GetClass()->FindPropertyByName(
-		"Program");
-	ASSERT_NE(ProgramProperty, nullptr);
-	auto* MutableProgram =
-		ProgramProperty->ContainerPtrToValuePtr<Durin::FMaterialProgram>(
-			MalformedLoaded);
-	ASSERT_NE(MutableProgram, nullptr);
-	MutableProgram->Nodes.clear();
-	MalformedLoaded->MarkPackageDirty();
-	EXPECT_FALSE(Durin::SavePackage(MalformedLoaded->GetPackage()));
-	ASSERT_TRUE(Durin::UnloadPackage(Path, Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
-	Durin::DMaterial* Reloaded = nullptr;
-	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Reloaded));
-	EXPECT_EQ(*Reloaded->GetMaterialProgram(), Authored);
-	ASSERT_TRUE(Durin::UnloadPackage(Path));
-	// A well-formed package envelope must not publish a graph with dangling links.
-	Durin::ObjectPackage::FLinkerTables Linker;
-	ASSERT_TRUE(Durin::ObjectPackage::ReadPackage(FirstSerialization, {}, Path, Linker));
-	bool bRemovedNodes = false;
+	// Failed authoring saves leave the previously committed package intact.
+	auto* CollectionProperty = Loaded->GetClass()->FindPropertyByName("ExpressionCollection");
+	ASSERT_NE(CollectionProperty, nullptr);
+	CollectionProperty->ContainerPtrToValuePtr<FMaterialExpressionCollection>(Loaded)->Expressions.clear();
+	Loaded->MarkPackageDirty();
+	EXPECT_FALSE(SavePackage(Loaded->GetPackage()));
+	ASSERT_TRUE(UnloadPackage(Path, EAssetPackageUnloadPolicy::DiscardUnsaved));
+	Loaded = nullptr;
+	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Loaded));
+	ASSERT_NO_FATAL_FAILURE(CheckGraph(Loaded));
+	ASSERT_TRUE(UnloadPackage(Path));
+	// A valid package envelope cannot publish abandoned expression children.
+	ObjectPackage::FLinkerTables Linker;
+	ASSERT_TRUE(ObjectPackage::ReadPackage(FirstSerialization, {}, Path, Linker));
+	bool bRemovedExpressions = false;
 	for (auto& Export : Linker.Exports)
 		for (auto& Property : Export.Properties)
-			if (Property.FieldName == "Program")
+			if (Property.FieldName == "ExpressionCollection")
 			{
-				const auto Field = std::ranges::find(Property.Value.FieldNames, "Nodes");
+				const auto Field = std::ranges::find(Property.Value.FieldNames, "Expressions");
 				ASSERT_NE(Field, Property.Value.FieldNames.end());
 				Property.Value.Elements[Field - Property.Value.FieldNames.begin()].Elements.clear();
-				bRemovedNodes = true;
+				bRemovedExpressions = true;
 			}
-	ASSERT_TRUE(bRemovedNodes);
-	Durin::FByteBuffer MalformedBytes, Bulk;
-	ASSERT_TRUE(Durin::ObjectPackage::WritePackage(Linker, MalformedBytes, Bulk));
+	ASSERT_TRUE(bRemovedExpressions);
+	FByteBuffer MalformedBytes, Bulk;
+	ASSERT_TRUE(ObjectPackage::WritePackage(Linker, MalformedBytes, Bulk));
 	ASSERT_TRUE(Bulk.empty());
-	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(MalformedBytes, Root / "Base.dasset"));
-	Reloaded = nullptr;
-	const auto RejectedLoad = Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Reloaded);
-	EXPECT_FALSE(RejectedLoad);
-	EXPECT_NE(RejectedLoad.Message.find("rebuild"), std::string::npos) << RejectedLoad.Message;
-	EXPECT_EQ(Reloaded, nullptr);
-	EXPECT_EQ(Durin::FindResidentPackage(Path), nullptr);
-
-	Durin::CollectGarbage();
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(MalformedBytes, Root / "Base.dasset"));
+	Loaded = nullptr;
+	const auto Rejected = LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Loaded);
+	EXPECT_FALSE(Rejected);
+	EXPECT_FALSE(Rejected.Message.empty());
+	EXPECT_EQ(Loaded, nullptr);
+	EXPECT_EQ(FindResidentPackage(Path), nullptr);
+	CollectGarbage();
 }
 
 TEST(FStaticMeshMaterialTests, MissingOwnershipMarkerRejectsParentAndInstanceWithoutPublication)

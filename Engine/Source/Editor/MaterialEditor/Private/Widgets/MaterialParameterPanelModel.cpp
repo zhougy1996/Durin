@@ -1,4 +1,5 @@
 #include "Widgets/MaterialParameterPanelModel.h"
+#include "Graph/MaterialExpressionInputs.h"
 
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/Class.h"
@@ -26,10 +27,10 @@ namespace Durin::Editor::Material
 			{
 			case EMaterialParameterType::Scalar:
 			{
-				float Scalar = Value.ScalarValue;
+				float Scalar = Value.GetScalar();
 				if (Definition.Presentation == EMaterialParameterPresentation::Integer)
 				{
-					if (!std::isfinite(Scalar)) Scalar = Definition.Value.ScalarValue;
+					if (!std::isfinite(Scalar)) Scalar = Definition.Value.GetScalar();
 					if (Definition.bHasRange)
 						Scalar = std::clamp(Scalar, Definition.MinimumValue, Definition.MaximumValue);
 					Scalar = std::floor(Scalar + 0.5f);
@@ -37,13 +38,13 @@ namespace Durin::Editor::Material
 				return FMaterialParameterValue::MakeScalar(Scalar);
 			}
 			case EMaterialParameterType::Vector2:
-				return FMaterialParameterValue::MakeVector2(Value.Vector2Value);
+				return FMaterialParameterValue::MakeVector2(Value.GetVector2());
 			case EMaterialParameterType::Vector4:
-				return FMaterialParameterValue::MakeVector4(Value.Vector4Value);
+				return FMaterialParameterValue::MakeVector4(Value.GetVector4());
 			case EMaterialParameterType::Vector:
-				return FMaterialParameterValue::MakeVector(Value.VectorValue);
+				return FMaterialParameterValue::MakeVector(Value.GetVector());
 			case EMaterialParameterType::Texture:
-				return FMaterialParameterValue::MakeTexture(Value.TextureValue.Get(), Value.SamplerState, Value.TextureFallback);
+				return FMaterialParameterValue::MakeTexture(Value.GetTexture().Texture.Get(), Value.GetTexture().SamplerState, Value.GetTexture().TextureFallback);
 			}
 			return {};
 		}
@@ -148,17 +149,34 @@ namespace Durin::Editor::Material
 			DependencySchema = std::move(Schema);
 			ParameterIds.clear();
 			ReachableParameterIds.clear();
-			if (Instance)
+			if (Instance && BaseMaterial)
 			{
-				if (const FMaterialProgram* Program = Material->GetMaterialProgram())
-					for (const auto& Dependency : InspectMaterialParameterDependencies(
-						*Program, Material->GetParameterDefinitions(), Material->GetMaterialFunctionCalls()))
+				std::unordered_map<FGuid, DMaterialExpression*> Expressions;
+				for (const auto& Expression : BaseMaterial->GetExpressionCollection().Expressions) Expressions.emplace(Expression->Id, Expression.Get());
+				std::unordered_set<FGuid> Visited;
+				const auto AddParameter = [&](const DMaterialExpressionParameter* Parameter) {
+					if (Parameter && Parameter->Metadata.Id.IsValid() && Material->FindParameterDefinition(Parameter->Metadata.Id)
+						&& ReachableParameterIds.insert(Parameter->Metadata.Id).second) ParameterIds.push_back(Parameter->Metadata.Id);
+				};
+				std::function<void(const FMaterialExpressionInput&)> Visit = [&](const FMaterialExpressionInput& Input) {
+					const auto It = Expressions.find(Input.ExpressionId);
+					if (It == Expressions.end()) return;
+					auto* Expression = It->second;
+					const auto* Parameter = Cast<DMaterialExpressionParameter>(Expression);
+					if (Cast<DMaterialExpressionTextureSampleParameter2D>(Expression) && Input.OutputIndex == 7)
 					{
-						ParameterIds.push_back(Dependency.ParameterId);
-						ReachableParameterIds.insert(Dependency.ParameterId);
+						AddParameter(Parameter); // A resource-only use does not evaluate this sample's UV branch.
+						return;
 					}
+					if (!Visited.insert(Input.ExpressionId).second) return;
+					VisitMaterialExpressionInputs(*Expression, [&](uint32, FMaterialExpressionInput& Source) { Visit(Source); });
+					AddParameter(Parameter);
+				};
+				const auto& Outputs = BaseMaterial->GetExpressionOutputs();
+				for (const auto* Output : {&Outputs.Surface, &Outputs.BaseColor, &Outputs.Normal, &Outputs.Metallic,
+					&Outputs.Roughness, &Outputs.AmbientOcclusion, &Outputs.Emissive, &Outputs.Opacity, &Outputs.OpacityMask}) Visit(*Output);
 			}
-			else
+			else if (!Instance)
 				for (const auto& Definition : Material->GetParameterDefinitions())
 					ParameterIds.push_back(Definition.Id);
 			bDependenciesInitialized = true;
@@ -181,19 +199,12 @@ namespace Durin::Editor::Material
 			});
 		}
 		if (!Instance) return bRebuildDependencies;
-		for (const FMaterialParameterOverride& Override : Instance->GetParameterOverrides())
-		{
-			const auto* Definition = Material->FindParameterDefinition(Override.ParameterId);
-			if (Definition && Definition->Type == Override.Type
-				&& ReachableParameterIds.contains(Override.ParameterId)) continue;
-			Entries.push_back({
-				.ParameterId = Override.ParameterId,
-				.Value = Override.Value,
-				.bCanOverride = true,
-				.bHasLocalOverride = true,
-				.bOrphan = true,
-			});
-		}
+		Instance->VisitParameterOverrides([&](const FGuid& Id, const FMaterialParameterValue& Value) {
+			const auto* Definition = Material->FindParameterDefinition(Id);
+			if (Definition && Definition->Type == Value.GetType() && ReachableParameterIds.contains(Id)) return;
+			Entries.push_back({.ParameterId = Id, .Value = Value, .bCanOverride = true,
+				.bHasLocalOverride = true, .bOrphan = true});
+		});
 		return bRebuildDependencies;
 	}
 
@@ -241,9 +252,9 @@ namespace Durin::Editor::Material
 		bool bContinuous
 	) const -> bool
 	{
-		if (!Entry.Definition || Entry.bOrphan || !Material) return false;
+		if (!Entry.Definition || Entry.bOrphan || !Material || Entry.Definition->Type != Value.GetType()) return false;
 		if (Entry.Definition->Type == EMaterialParameterType::Texture
-			&& !IsValidMaterialSampling(Value.SamplerState, Value.TextureFallback)) return false;
+			&& !IsValidMaterialSampling(Value.GetTexture().SamplerState, Value.GetTexture().TextureFallback)) return false;
 		const FMaterialParameterValue CanonicalValue = CanonicalizeValue(*Entry.Definition, Value);
 		if (Instance)
 		{
@@ -297,10 +308,9 @@ namespace Durin::Editor::Material
 	) const -> bool
 	{
 		if (!Instance || !Entry.bOrphan) return false;
-		const auto Overrides = Instance->GetParameterOverrides();
-		const auto Override = std::ranges::find(Overrides, Entry.ParameterId, &FMaterialParameterOverride::ParameterId);
-		if (Override == Overrides.end()) return false;
-		return VisitMaterialParameterOverrideType(Override->Type, [&]<typename TRecord>() {
+		FMaterialParameterValue Override;
+		if (!Instance->GetLocalParameterOverride(Entry.ParameterId, Override)) return false;
+		return VisitMaterialParameterOverrideType(Override.GetType(), [&]<typename TRecord>() {
 			FArrayProperty* Property = FindArrayProperty(Instance, TRecord::PropertyName());
 			return SubmitRootArrayEdit(PropertyView, Context, Instance, Property, Entry.ParameterId,
 				EPropertyChangeKind::ArrayRemove, false,

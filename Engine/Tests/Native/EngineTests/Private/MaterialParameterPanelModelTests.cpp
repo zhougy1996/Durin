@@ -1,3 +1,4 @@
+#include "Materials/TypedMaterialGraphTestFixture.h"
 #include "Materials/ExplicitMaterialProgramTestFixture.h"
 #include "Materials/MaterialTestSupport.h"
 #include "MaterialGraphOperations.h"
@@ -39,8 +40,7 @@ namespace
 	auto MakeExpandedBase(const char* Name) -> Durin::DMaterial*
 	{
 		auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, Name);
-		if (!Material || !Material->SetMaterialProgram(
-			Durin::Testing::MakePBRMaterialProgramForTest())) return nullptr;
+		if (!Material || !Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*Material)) return nullptr;
 		return Material;
 	}
 }
@@ -78,7 +78,7 @@ TEST(FMaterialParameterPanelModelTests, BuildsControlsAndResolvedSourceFromRunti
 	EXPECT_EQ(UVScale->Control, Durin::Editor::Material::EMaterialParameterControlKind::Vector);
 	EXPECT_EQ(UVScale->Definition->Type, Durin::EMaterialParameterType::Vector2);
 	EXPECT_EQ(Opacity->Source, Parent);
-	EXPECT_FLOAT_EQ(Opacity->Value.ScalarValue, 0.6f);
+	EXPECT_FLOAT_EQ(Opacity->Value.GetScalar(), 0.6f);
 	EXPECT_FALSE(Opacity->bHasLocalOverride);
 	EXPECT_TRUE(Opacity->bCanOverride);
 
@@ -104,13 +104,13 @@ TEST(FMaterialParameterPanelModelTests, IntegerPresentationCanonicalizesSubmitte
 	ASSERT_NE(UVChannel, nullptr);
 
 	auto Value = UVChannel->Value;
-	Value.ScalarValue = 2.6f;
+	Value.GetScalar() = 2.6f;
 	ASSERT_TRUE(Model.SubmitValueEdit(PropertyView, Context, *UVChannel, Value, false));
 	float StoredValue = 0.0f;
 	ASSERT_TRUE(Material->GetScalarParameterValue(Durin::FName("BaseColorUVChannel"), StoredValue));
 	EXPECT_FLOAT_EQ(StoredValue, 3.0f);
 
-	Value.ScalarValue = -10.0f;
+	Value.GetScalar() = -10.0f;
 	ASSERT_TRUE(Model.SubmitValueEdit(PropertyView, Context, *UVChannel, Value, false));
 	ASSERT_TRUE(Material->GetScalarParameterValue(Durin::FName("BaseColorUVChannel"), StoredValue));
 	EXPECT_FLOAT_EQ(StoredValue, 0.0f);
@@ -139,10 +139,11 @@ TEST(FMaterialParameterPanelModelTests, EnablingOverrideCopiesTheParameterType)
 	ASSERT_EQ(BaseColor->Definition->Type, Durin::EMaterialParameterType::Vector);
 	ASSERT_TRUE(Model.SetOverrideEnabled(PropertyView, Context, *BaseColor, true));
 
-	const auto Overrides = Instance->GetParameterOverrides();
-	ASSERT_EQ(Overrides.size(), 1u);
-	EXPECT_EQ(Overrides.front().ParameterId, Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value);
-	EXPECT_EQ(Overrides.front().Type, Durin::EMaterialParameterType::Vector);
+	ASSERT_EQ(Instance->GetParameterOverrideCount(), 1u);
+	Durin::FMaterialParameterValue Override;
+	ASSERT_TRUE(Instance->GetLocalParameterOverride(Durin::MaterialParameters::GetBuiltinParameterIds(
+		Durin::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value, Override));
+	EXPECT_EQ(Override.GetType(), Durin::EMaterialParameterType::Vector);
 	EXPECT_TRUE(Error.empty());
 
 	Transactions->Reset();
@@ -180,10 +181,10 @@ TEST(FMaterialParameterPanelModelTests, GuidRootEditsSurviveIndexChangesAndCoale
 	ASSERT_TRUE(Instance->ClearParameterOverride(Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value));
 
 	auto FirstValue = Opacity->Value;
-	FirstValue.ScalarValue = 0.4f;
+	FirstValue.GetScalar() = 0.4f;
 	ASSERT_TRUE(EditModel.SubmitValueEdit(PropertyView, Context, *Opacity, FirstValue, true));
 	auto FinalValue = Opacity->Value;
-	FinalValue.ScalarValue = 0.25f;
+	FinalValue.GetScalar() = 0.25f;
 	ASSERT_TRUE(EditModel.SubmitValueEdit(PropertyView, Context, *Opacity, FinalValue, true));
 	ASSERT_TRUE(PropertyView.FinishActiveEdit(&Context, false));
 	float Value = 0.0f;
@@ -201,7 +202,7 @@ TEST(FMaterialParameterPanelModelTests, GuidRootEditsSurviveIndexChangesAndCoale
 	const auto* CancelOpacity = FindEntry(CancelModel, Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value);
 	ASSERT_NE(CancelOpacity, nullptr);
 	auto CancelValue = CancelOpacity->Value;
-	CancelValue.ScalarValue = 0.8f;
+	CancelValue.GetScalar() = 0.8f;
 	ASSERT_TRUE(CancelModel.SubmitValueEdit(PropertyView, Context, *CancelOpacity, CancelValue, true));
 	ASSERT_TRUE(PropertyView.FinishActiveEdit(&Context, true));
 	ASSERT_TRUE(Instance->GetScalarParameterValue(Durin::MaterialParameters::OpacityName(), Value));
@@ -244,11 +245,11 @@ TEST(FMaterialParameterPanelModelTests, ResetAndOrphanRemovalAreTransactional)
 	EXPECT_TRUE(Orphan.bOrphan);
 	EXPECT_EQ(Orphan.ParameterId, Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value);
 	ASSERT_TRUE(OrphanModel.RemoveOrphan(PropertyView, Context, Orphan));
-	EXPECT_TRUE(Instance->GetParameterOverrides().empty());
+	EXPECT_TRUE(Instance->GetParameterOverrideCount() == 0);
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_TRUE(Instance->IsParameterOverrideOrphan(Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value));
 	ASSERT_TRUE(Transactions->Redo());
-	EXPECT_TRUE(Instance->GetParameterOverrides().empty());
+	EXPECT_TRUE(Instance->GetParameterOverrideCount() == 0);
 	EXPECT_TRUE(Error.empty());
 
 	Transactions->Reset();
@@ -274,7 +275,7 @@ TEST(FMaterialParameterPanelModelTests, BaseAndTexturePickerValuesUseSharedUndoH
 	const auto* BaseOpacity = FindEntry(BaseModel, Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value);
 	ASSERT_NE(BaseOpacity, nullptr);
 	auto ScalarValue = BaseOpacity->Value;
-	ScalarValue.ScalarValue = 0.7f;
+	ScalarValue.GetScalar() = 0.7f;
 	ASSERT_TRUE(Durin::Editor::Material::FMaterialGraphOperations::SetParameterValue(*Base, BaseOpacity->ParameterId, ScalarValue, Transactions.Get()));
 	float Opacity = 0.0f;
 	ASSERT_TRUE(Base->GetScalarParameterValue(Durin::MaterialParameters::OpacityName(), Opacity));
@@ -294,9 +295,9 @@ TEST(FMaterialParameterPanelModelTests, BaseAndTexturePickerValuesUseSharedUndoH
 	const auto* TextureEntry = FindEntry(TextureModel, Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Texture);
 	ASSERT_NE(TextureEntry, nullptr);
 	auto TextureValue = TextureEntry->Value;
-	TextureValue.TextureValue = Texture;
-	TextureValue.SamplerState.AddressU = Durin::EMaterialSamplerAddressMode::ClampToEdge;
-	TextureValue.TextureFallback = Durin::EMaterialTextureFallback::Black;
+	TextureValue.GetTexture().Texture = Texture;
+	TextureValue.GetTexture().SamplerState.AddressU = Durin::EMaterialSamplerAddressMode::ClampToEdge;
+	TextureValue.GetTexture().TextureFallback = Durin::EMaterialTextureFallback::Black;
 	ASSERT_TRUE(TextureModel.SubmitValueEdit(PropertyView, Context, *TextureEntry, TextureValue, false));
 	Durin::DTexture2D* ResolvedTexture = nullptr;
 	ASSERT_TRUE(Instance->GetTextureParameterValue(
@@ -304,28 +305,28 @@ TEST(FMaterialParameterPanelModelTests, BaseAndTexturePickerValuesUseSharedUndoH
 	EXPECT_EQ(ResolvedTexture, Texture);
 	Durin::FResolvedMaterialParameter Resolved;
 	ASSERT_TRUE(Instance->ResolveParameterValue(TextureEntry->ParameterId, Resolved));
-	EXPECT_EQ(Resolved.Value.SamplerState, TextureValue.SamplerState);
-	EXPECT_EQ(Resolved.Value.TextureFallback, Durin::EMaterialTextureFallback::Black);
+	EXPECT_EQ(Resolved.Value.GetTexture().SamplerState, TextureValue.GetTexture().SamplerState);
+	EXPECT_EQ(Resolved.Value.GetTexture().TextureFallback, Durin::EMaterialTextureFallback::Black);
 	ASSERT_TRUE(Transactions->Undo());
 	ASSERT_TRUE(Instance->GetTextureParameterValue(
 		Durin::MaterialParameters::BaseColorTextureName(), ResolvedTexture));
 	EXPECT_EQ(ResolvedTexture, nullptr);
 	ASSERT_TRUE(Instance->ResolveParameterValue(TextureEntry->ParameterId, Resolved));
-	EXPECT_EQ(Resolved.Value.SamplerState.AddressU, Durin::EMaterialSamplerAddressMode::Repeat);
-	EXPECT_EQ(Resolved.Value.TextureFallback, Durin::EMaterialTextureFallback::White);
+	EXPECT_EQ(Resolved.Value.GetTexture().SamplerState.AddressU, Durin::EMaterialSamplerAddressMode::Repeat);
+	EXPECT_EQ(Resolved.Value.GetTexture().TextureFallback, Durin::EMaterialTextureFallback::White);
 	ASSERT_TRUE(Transactions->Redo());
 	ASSERT_TRUE(Instance->GetTextureParameterValue(
 		Durin::MaterialParameters::BaseColorTextureName(), ResolvedTexture));
 	EXPECT_EQ(ResolvedTexture, Texture);
 	ASSERT_TRUE(Instance->ResolveParameterValue(TextureEntry->ParameterId, Resolved));
-	EXPECT_EQ(Resolved.Value.SamplerState, TextureValue.SamplerState);
-	EXPECT_EQ(Resolved.Value.TextureFallback, Durin::EMaterialTextureFallback::Black);
+	EXPECT_EQ(Resolved.Value.GetTexture().SamplerState, TextureValue.GetTexture().SamplerState);
+	EXPECT_EQ(Resolved.Value.GetTexture().TextureFallback, Durin::EMaterialTextureFallback::Black);
 	ASSERT_TRUE(Instance->SetTextureParameterValue(Durin::MaterialParameters::BaseColorTextureName(), nullptr));
 	ASSERT_TRUE(Instance->ResolveParameterValue(TextureEntry->ParameterId, Resolved));
-	EXPECT_EQ(Resolved.Value.SamplerState, TextureValue.SamplerState);
-	EXPECT_EQ(Resolved.Value.TextureFallback, Durin::EMaterialTextureFallback::Black);
-	TextureValue.SamplerState.AddressU = static_cast<Durin::EMaterialSamplerAddressMode>(255);
-	EXPECT_FALSE(Instance->SetParameterOverride(TextureEntry->ParameterId, Durin::EMaterialParameterType::Texture, TextureValue));
+	EXPECT_EQ(Resolved.Value.GetTexture().SamplerState, TextureValue.GetTexture().SamplerState);
+	EXPECT_EQ(Resolved.Value.GetTexture().TextureFallback, Durin::EMaterialTextureFallback::Black);
+	TextureValue.GetTexture().SamplerState.AddressU = static_cast<Durin::EMaterialSamplerAddressMode>(255);
+	EXPECT_FALSE(Instance->SetParameterOverride(TextureEntry->ParameterId, TextureValue));
 	EXPECT_FALSE(TextureModel.SubmitValueEdit(PropertyView, Context, *TextureEntry, TextureValue, false));
 	EXPECT_TRUE(Error.empty());
 
@@ -351,13 +352,13 @@ TEST(FMaterialParameterPanelModelTests, GraphDefaultSessionsRemainParameterScope
 	ASSERT_NE(BaseColor, nullptr);
 
 	auto OpacityValue = Opacity->Value;
-	OpacityValue.ScalarValue = 0.55f;
+	OpacityValue.GetScalar() = 0.55f;
 	Durin::Editor::Material::FMaterialGraphParameterEditSession OpacitySession, ColorSession;
 	ASSERT_TRUE(OpacitySession.Begin(*Base, Opacity->ParameterId, Transactions.Get()));
 	ASSERT_TRUE(OpacitySession.Apply(OpacityValue));
 	ASSERT_TRUE(OpacitySession.Commit());
 	auto ColorValue = BaseColor->Value;
-	ColorValue.VectorValue = Durin::FVector3(0.1, 0.2, 0.3);
+	ColorValue.GetVector() = Durin::FVector3(0.1, 0.2, 0.3);
 	ASSERT_TRUE(ColorSession.Begin(*Base, BaseColor->ParameterId, Transactions.Get()));
 	ASSERT_TRUE(ColorSession.Apply(ColorValue));
 	// Switching logical GUIDs commits the first continuous edit. Cancelling the
@@ -369,7 +370,7 @@ TEST(FMaterialParameterPanelModelTests, GraphDefaultSessionsRemainParameterScope
 	EXPECT_FLOAT_EQ(ResolvedOpacity, 0.55f);
 	Durin::FVector3 ResolvedColor;
 	ASSERT_TRUE(Base->GetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), ResolvedColor));
-	EXPECT_EQ(ResolvedColor, BaseColor->Value.VectorValue);
+	EXPECT_EQ(ResolvedColor, BaseColor->Value.GetVector());
 	ASSERT_TRUE(Transactions->Undo());
 	ASSERT_TRUE(Base->GetScalarParameterValue(Durin::MaterialParameters::OpacityName(), ResolvedOpacity));
 	EXPECT_FLOAT_EQ(ResolvedOpacity, 1.0f);
@@ -397,18 +398,18 @@ TEST(FMaterialParameterPanelModelTests, RefreshReusesDependenciesAndInvalidatesF
 	ASSERT_TRUE(Parent->SetScalarParameterValue(Durin::MaterialParameters::OpacityName(), 0.4f));
 	EXPECT_FALSE(Model.Refresh());
 	ASSERT_NE(FindEntry(Model, Id), nullptr);
-	EXPECT_FLOAT_EQ(FindEntry(Model, Id)->Value.ScalarValue, 0.4f);
+	EXPECT_FLOAT_EQ(FindEntry(Model, Id)->Value.GetScalar(), 0.4f);
 	EXPECT_EQ(FindEntry(Model, Id)->Source, Parent);
 	ASSERT_TRUE(Child->SetScalarParameterValue(Durin::MaterialParameters::OpacityName(), 0.2f));
 	EXPECT_FALSE(Model.Refresh());
 	EXPECT_TRUE(FindEntry(Model, Id)->bHasLocalOverride);
-	EXPECT_FLOAT_EQ(FindEntry(Model, Id)->Value.ScalarValue, 0.2f);
+	EXPECT_FLOAT_EQ(FindEntry(Model, Id)->Value.GetScalar(), 0.2f);
 
-	ASSERT_TRUE(Base->SetMaterialProgram({}));
+	ASSERT_TRUE(Base->SetMaterialExpressions({}, {}));
 	EXPECT_TRUE(Model.Refresh());
 	ASSERT_EQ(Model.GetEntries().size(), 1u);
 	EXPECT_TRUE(Model.GetEntries().front().bOrphan);
-	ASSERT_TRUE(Base->SetMaterialProgram(Durin::Testing::MakePBRMaterialProgramForTest()));
+	ASSERT_TRUE(Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*Base));
 	EXPECT_TRUE(Model.Refresh());
 	EXPECT_FALSE(FindEntry(Model, Id)->bOrphan);
 	ASSERT_TRUE(Parent->SetParent(OtherBase));
@@ -451,12 +452,12 @@ TEST(FMaterialParameterPanelModelTests, ReflectedDefaultEditsRefreshValuesWithou
 	EXPECT_GT(Base->GetParameterDefinitionSchemaRevision(), SchemaRevision);
 	EXPECT_FALSE(Model.Refresh());
 	EXPECT_FALSE(BaseModel.Refresh());
-	EXPECT_FLOAT_EQ(FindEntry(Model, Id)->Value.ScalarValue, 0.35f);
-	EXPECT_FLOAT_EQ(FindEntry(BaseModel, Id)->Definition->Value.ScalarValue, 0.35f);
+	EXPECT_FLOAT_EQ(FindEntry(Model, Id)->Value.GetScalar(), 0.35f);
+	EXPECT_FLOAT_EQ(FindEntry(BaseModel, Id)->Definition->Value.GetScalar(), 0.35f);
 	ASSERT_TRUE(PropertyView.FinishActiveEdit(&Context, false));
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_FALSE(Model.Refresh());
-	EXPECT_FLOAT_EQ(FindEntry(Model, Id)->Value.ScalarValue, 1.0f);
+	EXPECT_FLOAT_EQ(FindEntry(Model, Id)->Value.GetScalar(), 1.0f);
 	EXPECT_TRUE(Error.empty());
 	Transactions->Reset();
 	Durin::MarkAsGarbage(Instance);
@@ -473,17 +474,50 @@ TEST(FMaterialParameterPanelModelTests, RootPanelIncludesUnreachableCustomDefaul
 	Definition.Name = "UnusedTint";
 	Definition.Type = Durin::EMaterialParameterType::Vector4;
 	Definition.Value = Durin::FMaterialParameterValue::MakeVector4({1, 2, 3, 4});
-	Durin::FMaterialProgram Program;
-	Program.Nodes.push_back({.Id = Durin::FGuid::NewGuid(), .Opcode = Durin::EMaterialProgramOpcode::Parameter,
-		.ResultType = Durin::EMaterialProgramValueType::Float4, .Parameter = Definition});
-	ASSERT_TRUE(Material->SetMaterialProgram(Program));
+	Durin::Testing::FTestMaterialExpressionGraph Graph;
+	const std::array Definitions{Definition};
+	Graph.Add(Durin::EMaterialProgramOpcode::Parameter, Durin::EMaterialProgramValueType::Float4, {}, Definition.Id, {}, Definitions);
+	ASSERT_TRUE(Graph.Apply(*Material));
 	const Durin::Editor::Material::FMaterialParameterPanelModel Model(Material);
 	ASSERT_EQ(Model.GetEntries().size(), 1u);
 	const auto& Entry = Model.GetEntries().front();
 	EXPECT_EQ(Entry.ParameterId, Definition.Id);
 	EXPECT_EQ(Entry.Control, Durin::Editor::Material::EMaterialParameterControlKind::Vector);
-	EXPECT_EQ(Entry.Value.Vector4Value, Durin::FVector4(1, 2, 3, 4));
+	EXPECT_EQ(Entry.Value.GetVector4(), Durin::FVector4(1, 2, 3, 4));
 	EXPECT_FALSE(Entry.bOrphan);
 	Durin::MarkAsGarbage(Material);
 	Durin::CollectGarbage();
+}
+
+TEST(FMaterialParameterPanelModelTests, TypedResourceOutputsSkipUnusedUVDependencies)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterial> Base(NewObject<DMaterial>(nullptr, NAME_None));
+	TStrongObjectPtr<DMaterialInstance> Instance(NewObject<DMaterialInstance>(nullptr, NAME_None));
+	Base->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	auto UV = Testing::MakeGraphExpression<DMaterialExpressionVector2Parameter>();
+	UV->Metadata.Id = FGuid::NewGuid(); UV->Metadata.Name = "OnlySampleUV";
+	auto Sample = Testing::MakeGraphExpression<DMaterialExpressionTextureSampleParameter2D>();
+	Sample->Metadata.Id = FGuid::NewGuid(); Sample->Metadata.Name = "SharedTexture";
+	Sample->UV = {UV->Id};
+	auto ResourceConsumer = Testing::MakeGraphExpression<DMaterialExpressionTextureSample2D>();
+	ResourceConsumer->Texture = {Sample->Id, 7};
+	const std::array<DMaterialExpression*, 3> Expressions{UV.Get(), Sample.Get(), ResourceConsumer.Get()};
+	FMaterialExpressionSurfaceOutputs Outputs;
+	Outputs.BaseColor = {ResourceConsumer->Id, 1};
+	ASSERT_TRUE(Base->SetMaterialExpressions(Expressions, Outputs));
+	ASSERT_TRUE(Instance->SetParent(Base.Get()));
+	Editor::Material::FMaterialParameterPanelModel Model(Instance.Get());
+	EXPECT_NE(FindEntry(Model, Sample->Metadata.Id), nullptr);
+	EXPECT_EQ(FindEntry(Model, UV->Metadata.Id), nullptr);
+	Outputs.Normal = {Sample->Id, 8};
+	ASSERT_TRUE(Base->SetMaterialExpressions(Expressions, Outputs));
+	EXPECT_TRUE(Model.Refresh());
+	EXPECT_NE(FindEntry(Model, UV->Metadata.Id), nullptr);
+	Outputs.Normal = {};
+	ASSERT_TRUE(Base->SetMaterialExpressions(Expressions, Outputs));
+	EXPECT_TRUE(Model.Refresh());
+	EXPECT_EQ(FindEntry(Model, UV->Metadata.Id), nullptr);
+	EXPECT_NE(FindEntry(Model, Sample->Metadata.Id), nullptr);
 }

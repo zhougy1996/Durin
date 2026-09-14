@@ -1,4 +1,5 @@
 #include "Materials/MaterialTypes.h"
+#include "DObject/ObjectLifecycle.h"
 #include "Materials/MaterialRenderTypes.h"
 
 namespace Durin
@@ -24,31 +25,52 @@ namespace Durin
 		return Properties;
 	}
 
+	auto FMaterialParameterValue::GetType() const -> EMaterialParameterType
+	{
+		return std::visit([]<typename T>(const T&) {
+			if constexpr (std::is_same_v<T, float>) return EMaterialParameterType::Scalar;
+			else if constexpr (std::is_same_v<T, FVector2>) return EMaterialParameterType::Vector2;
+			else if constexpr (std::is_same_v<T, FVector3>) return EMaterialParameterType::Vector;
+			else if constexpr (std::is_same_v<T, FVector4>) return EMaterialParameterType::Vector4;
+			else return EMaterialParameterType::Texture;
+		}, Value);
+	}
+
+	auto FMaterialParameterValue::AddReferencedObjects(FReferenceCollector& Collector) -> void
+	{
+		if (auto* Texture = std::get_if<FMaterialTextureValue>(&Value))
+		{
+			DObject* Object = Texture->Texture.Get();
+			Collector.AddReferencedObject(Object);
+			Texture->Texture = Cast<DTexture2D>(Object);
+		}
+	}
+
 	auto FMaterialParameterValue::MakeScalar(float Value) -> FMaterialParameterValue
 	{
 		FMaterialParameterValue Result;
-		Result.ScalarValue = Value;
-		return Result;
-	}
-
-	auto FMaterialParameterValue::MakeVector(const FVector3& Value) -> FMaterialParameterValue
-	{
-		FMaterialParameterValue Result;
-		Result.VectorValue = Value;
+		Result.Value = Value;
 		return Result;
 	}
 
 	auto FMaterialParameterValue::MakeVector2(const FVector2& Value) -> FMaterialParameterValue
 	{
 		FMaterialParameterValue Result;
-		Result.Vector2Value = Value;
+		Result.Value = Value;
+		return Result;
+	}
+
+	auto FMaterialParameterValue::MakeVector(const FVector3& Value) -> FMaterialParameterValue
+	{
+		FMaterialParameterValue Result;
+		Result.Value = Value;
 		return Result;
 	}
 
 	auto FMaterialParameterValue::MakeVector4(const FVector4& Value) -> FMaterialParameterValue
 	{
 		FMaterialParameterValue Result;
-		Result.Vector4Value = Value;
+		Result.Value = Value;
 		return Result;
 	}
 
@@ -56,9 +78,7 @@ namespace Durin
 		EMaterialTextureFallback Fallback) -> FMaterialParameterValue
 	{
 		FMaterialParameterValue Result;
-		Result.TextureValue = Value;
-		Result.SamplerState = Sampler;
-		Result.TextureFallback = Fallback;
+		Result.Value = FMaterialTextureValue{Value, Sampler, Fallback};
 		return Result;
 	}
 
@@ -188,7 +208,7 @@ namespace Durin
 			const auto Role = MaterialParameters::FindBuiltinParameterRole(
 				Definition.Id,
 				MaterialParameters::EMaterialBuiltinParameterKind::Texture);
-			Definition.Value.TextureFallback = Role
+			Definition.Value.GetTexture().TextureFallback = Role
 				== MaterialParameters::EMaterialBuiltinParameterRole::Normal
 				? EMaterialTextureFallback::FlatRGNormal
 				: (Role
@@ -262,28 +282,30 @@ namespace Durin
 			{
 				return {EMaterialParameterError::InvalidText, Definition.Id};
 			}
+			if (Definition.Type != Definition.Value.GetType())
+				return {EMaterialParameterError::InvalidType, Definition.Id};
 			if (Definition.Type == EMaterialParameterType::Texture
-				&& !IsValidMaterialSampling(Definition.Value.SamplerState, Definition.Value.TextureFallback))
+				&& !IsValidMaterialSampling(Definition.Value.GetTexture().SamplerState, Definition.Value.GetTexture().TextureFallback))
 				return {EMaterialParameterError::InvalidMetadata, Definition.Id};
 			bool bFinite = false;
 			switch (Definition.Type)
 			{
 			case EMaterialParameterType::Scalar:
-				bFinite = std::isfinite(Definition.Value.ScalarValue); break;
+				bFinite = std::isfinite(Definition.Value.GetScalar()); break;
 			case EMaterialParameterType::Vector2:
-				bFinite = std::isfinite(Definition.Value.Vector2Value.x)
-					&& std::isfinite(Definition.Value.Vector2Value.y); break;
+				bFinite = std::isfinite(Definition.Value.GetVector2().x)
+					&& std::isfinite(Definition.Value.GetVector2().y); break;
 			case EMaterialParameterType::Vector:
-				bFinite = std::isfinite(Definition.Value.VectorValue.x)
-					&& std::isfinite(Definition.Value.VectorValue.y)
-					&& std::isfinite(Definition.Value.VectorValue.z); break;
+				bFinite = std::isfinite(Definition.Value.GetVector().x)
+					&& std::isfinite(Definition.Value.GetVector().y)
+					&& std::isfinite(Definition.Value.GetVector().z); break;
 			case EMaterialParameterType::Texture:
 				bFinite = true; break;
 			case EMaterialParameterType::Vector4:
-				bFinite = std::isfinite(Definition.Value.Vector4Value.x)
-					&& std::isfinite(Definition.Value.Vector4Value.y)
-					&& std::isfinite(Definition.Value.Vector4Value.z)
-					&& std::isfinite(Definition.Value.Vector4Value.w); break;
+				bFinite = std::isfinite(Definition.Value.GetVector4().x)
+					&& std::isfinite(Definition.Value.GetVector4().y)
+					&& std::isfinite(Definition.Value.GetVector4().z)
+					&& std::isfinite(Definition.Value.GetVector4().w); break;
 			default:
 				return {EMaterialParameterError::InvalidType, Definition.Id};
 			}

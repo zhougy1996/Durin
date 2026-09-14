@@ -24,11 +24,124 @@ namespace Durin
 		return Context.FunctionCall(*this, OutputId);
 	}
 
+	auto FMaterialExpressionBuildContext::OpaqueAuthoringValue(EMaterialProgramOpcode Opcode,
+		EMaterialProgramValueType Type, std::vector<uint32> Inputs) -> uint32
+	{
+		check(bValidateAuthoring);
+		if (!Result.Diagnostics.empty()) return InvalidMaterialExpressionIndex;
+		if (Type == EMaterialProgramValueType::Surface)
+		{
+			FMaterialIRNode Surface{.Opcode = EMaterialProgramOpcode::MakeSurface, .ResultType = Type};
+			for (uint8 Attribute = 0; Attribute < 8; ++Attribute)
+				Surface.Inputs.push_back(OpaqueAuthoringValue(Opcode,
+					GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(Attribute)), Inputs));
+			return Emit(std::move(Surface));
+		}
+		if (Type > EMaterialProgramValueType::Surface || Result.IR.Nodes.size() >= MaterialFunctionMaxExpandedNodes
+			|| LinkCount + Inputs.size() > MaterialFunctionMaxExpandedLinks)
+			return Fail("Function authoring value has an invalid type or exceeds graph bounds.");
+		uint32 Depth = 1;
+		for (const auto Input : Inputs)
+		{
+			if (Input >= Depths.size()) return Fail("Function authoring input is invalid.");
+			Depth = std::max(Depth, Depths[Input] + 1);
+		}
+		if (Depth > MaterialProgramMaxDepth) return Fail("Function authoring value exceeds expression depth.");
+		const auto Index = static_cast<uint32>(Result.IR.Nodes.size());
+		LinkCount += static_cast<uint32>(Inputs.size());
+		Result.IR.Nodes.push_back({.Opcode = Opcode, .ResultType = Type, .Inputs = std::move(Inputs)});
+		Depths.push_back(Depth);
+		return Index;
+	}
+
+	auto FMaterialExpressionBuildContext::ValidateAuthoringCall(const DMaterialExpressionFunctionCall& Call,
+		FGuid OutputId) -> FMaterialExpressionBuildValue
+	{
+		if (Call.Inputs.size() > MaterialFunctionMaxInputs || Call.Outputs.empty() || Call.Outputs.size() > MaterialFunctionMaxOutputs)
+			return Fail("Function call port bindings exceed their bounds.");
+		const auto Callee = MakeObjectHandle(Call.Function.Get());
+		AuthoringCodeHash.UpdateValue(Call.Id);
+		AuthoringCodeHash.UpdateValue(Callee.Index);
+		AuthoringCodeHash.UpdateValue(Callee.Generation);
+		AuthoringCodeHash.UpdateValue(static_cast<uint32>(Call.Inputs.size()));
+		AuthoringCodeHash.UpdateValue(static_cast<uint32>(Call.Outputs.size()));
+		std::set<FGuid> InputIds, OutputIds;
+		std::vector<uint32> Inputs;
+		for (const auto& Binding : Call.Inputs)
+		{
+			if (!Binding.InputId.IsValid() || !InputIds.insert(Binding.InputId).second
+				|| Binding.ExpectedType > EMaterialProgramValueType::Surface)
+				return Fail("Function call input requires a unique valid typed port.", Binding.InputId);
+			AuthoringCodeHash.UpdateValue(Binding.InputId);
+			AuthoringCodeHash.UpdateValue(Binding.ExpectedType);
+			const auto& Default = Binding.InputDefault;
+			if (!Default.empty() && (Default.size() > 4 || static_cast<EMaterialProgramValueType>(Default.size() - 1) != Binding.ExpectedType
+				|| !std::ranges::all_of(Default, [](float Value) { return std::isfinite(Value); })))
+				return Fail("Retained function binding default has an invalid type or component.", Binding.InputId);
+			AuthoringCodeHash.UpdateValue(static_cast<uint32>(Default.size()));
+			for (const auto Value : Default) AuthoringCodeHash.UpdateValue(Value);
+			if (!Binding.Input.ExpressionId.IsValid() && (Binding.Input.OutputIndex != 0 || Binding.Input.OutputId.IsValid()))
+				return Fail("Disconnected function binding has an output selector.", Binding.InputId);
+			if (Binding.Input.ExpressionId.IsValid())
+			{
+				PortStack.push_back(Binding.InputId);
+				const auto Value = Resolve(Binding.Input);
+				PortStack.pop_back();
+				if (!MatchesType(Value, Binding.ExpectedType)) return Fail("Function binding value does not match its declared type.", Binding.InputId);
+				if (Value.GetIndex()) Inputs.push_back(*Value.GetIndex());
+			}
+		}
+		std::map<FGuid, FMaterialExpressionBuildValue> Outputs;
+		std::map<EMaterialProgramValueType, uint32> TypeValues;
+		for (const auto& Output : Call.Outputs)
+		{
+			if (!Output.OutputId.IsValid() || InputIds.contains(Output.OutputId) || !OutputIds.insert(Output.OutputId).second
+				|| Output.ExpectedType > EMaterialProgramValueType::Surface)
+				return Fail("Function call output requires a unique valid typed port.", Output.OutputId);
+			AuthoringCodeHash.UpdateValue(Output.OutputId);
+			AuthoringCodeHash.UpdateValue(Output.ExpectedType);
+			auto [TypeValue, bInserted] = TypeValues.try_emplace(Output.ExpectedType, InvalidMaterialExpressionIndex);
+			if (bInserted) TypeValue->second = OpaqueAuthoringValue(EMaterialProgramOpcode::FunctionCall, Output.ExpectedType, Inputs);
+			Outputs.emplace(Output.OutputId, TypeValue->second);
+		}
+		if (!Outputs.contains(OutputId)) return Fail("Function call output GUID is not bound.", OutputId);
+		if (!Result.Diagnostics.empty()) return InvalidMaterialExpressionIndex;
+		CallOutputs.emplace(Call.Id, std::move(Outputs));
+		return CallOutputs.at(Call.Id).at(OutputId);
+	}
+
+	auto FMaterialExpressionBuildContext::ValidateFunction(std::span<DMaterialExpression* const> Expressions,
+		const FMaterialFunctionSignature& Signature) -> FMaterialProgramValidationResult
+	{
+		auto Validation = ValidateMaterialFunctionSignature(Signature);
+		if (!Validation) return Validation;
+		FMaterialExpressionBuildContext Context(Expressions);
+		Context.bValidateAuthoring = true;
+		Context.Signature = &Signature;
+		std::set<FGuid> Terminals;
+		for (const auto& [Id, Expression] : Context.Expressions)
+		{
+			if (Cast<DMaterialExpressionParameter>(Expression)) Context.Fail("Functions cannot declare material parameters.");
+			const auto* Input = Cast<DMaterialExpressionFunctionInput>(Expression);
+			const auto* Output = Cast<DMaterialExpressionFunctionOutput>(Expression);
+			if (!Input && !Output) continue;
+			const auto PortId = Input ? Input->PortId : Output->PortId;
+			const auto& Ports = Input ? Signature.Inputs : Signature.Outputs;
+			if (std::ranges::find(Ports, PortId, &FMaterialFunctionPort::Id) == Ports.end() || !Terminals.insert(PortId).second)
+				Context.Fail("Function terminal does not match a unique declared port.", PortId);
+		}
+		for (const auto& Output : Signature.Outputs)
+			if (!Terminals.contains(Output.Id)) Context.Fail("Function output has no terminal expression.", Output.Id);
+		auto Built = Context.Finish({});
+		return {.bSucceeded = static_cast<bool>(Built), .Diagnostics = std::move(Built.Diagnostics)};
+	}
+
 	auto FMaterialExpressionBuildContext::FunctionInput(FGuid PortId) -> FMaterialExpressionBuildValue
 	{
 		if (!Signature) return Fail("Function input terminal has no owning invocation.");
 		const auto Port = std::ranges::find(Signature->Inputs, PortId, &FMaterialFunctionPort::Id);
 		if (Port == Signature->Inputs.end()) return Fail("Function input terminal has no matching declaration.");
+		if (bValidateAuthoring) return OpaqueAuthoringValue(EMaterialProgramOpcode::FunctionInput, Port->Type);
 		if (const auto Bound = BoundInputs.find(PortId); Bound != BoundInputs.end()) return Bound->second;
 		if (Port->bRequired) return Fail("Required function input has no binding.");
 		if (PortStack.size() >= MaterialFunctionMaxInputs || std::ranges::find(PortStack, PortId) != PortStack.end())
@@ -101,6 +214,7 @@ namespace Durin
 			const auto Output = Built->second.find(OutputId);
 			return Output != Built->second.end() ? Output->second : FMaterialExpressionBuildValue(Fail("Function call output GUID is not bound."));
 		}
+		if (bValidateAuthoring) return ValidateAuthoringCall(Call, OutputId);
 		const auto* Function = Call.Function.Get();
 		if (!IsValid(Function) || !Environment.FindFunction) return Fail("Function call has no available expression body.");
 		if (Shared->ActiveFunctions.size() >= MaterialFunctionMaxCallDepth

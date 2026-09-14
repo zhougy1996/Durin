@@ -1,8 +1,9 @@
 #pragma once
+#include "DObject/StrongObjectPtr.h"
+#include "Materials/MaterialExpressions.h"
 
 #include "MaterialEditorAPI.h"
 #include "Materials/Material.h"
-#include "DObject/StrongObjectPtr.h"
 #include "DObject/WeakObjectPtr.h"
 
 #include <array>
@@ -17,7 +18,7 @@ namespace Durin
 
 namespace Durin::Editor::Material
 {
-	inline constexpr uint32 CurrentMaterialGraphClipboardSchemaVersion = 6;
+	inline constexpr uint32 CurrentMaterialGraphClipboardSchemaVersion = 7;
 
 	// Identifies the stable outcome of one graph inspection or mutation request.
 	enum class EMaterialGraphCommandStatus : uint8
@@ -75,7 +76,9 @@ namespace Durin::Editor::Material
 		std::string OperationName;
 		std::string Category;
 		std::string Description;
-		FMaterialProgramNode NodeTemplate;
+		DClass* ExpressionClass = nullptr;
+		EMaterialProgramOpcode Opcode = EMaterialProgramOpcode::Constant;
+		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
 		std::vector<std::string> InputNames;
 		std::vector<std::vector<EMaterialProgramValueType>> AcceptedInputTypes;
 		// Prepared once with the catalog so repeated palette searches do not
@@ -83,10 +86,40 @@ namespace Durin::Editor::Material
 		std::array<std::string, 4> NormalizedSearchFields;
 	};
 
+	struct FMaterialGraphParameterInfo { FGuid Id; };
+	struct FMaterialGraphSampleInfo { FGuid ParameterId; float UVChannel = 0; };
+
+	// Detached display metadata; its payload contains only the selected node family.
+	struct FMaterialGraphNodeDescriptor
+	{
+		FGuid Id;
+		EMaterialProgramOpcode Opcode = EMaterialProgramOpcode::Constant;
+		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
+		std::variant<std::monostate, FMaterialParameterValue, FMaterialGraphParameterInfo,
+			FMaterialGraphSampleInfo, std::vector<uint8>> Data;
+		auto GetParameterId() const -> FGuid
+		{
+			if (const auto* Parameter = std::get_if<FMaterialGraphParameterInfo>(&Data)) return Parameter->Id;
+			if (const auto* Sample = std::get_if<FMaterialGraphSampleInfo>(&Data)) return Sample->ParameterId;
+			return {};
+		}
+		auto GetUVChannel() const -> float
+		{
+			const auto* Sample = std::get_if<FMaterialGraphSampleInfo>(&Data);
+			return Sample ? Sample->UVChannel : 0.f;
+		}
+		auto IsSampleUVInput(uint32 Index) const -> bool
+		{
+			return (Opcode == EMaterialProgramOpcode::TextureSample2D && Index == 1)
+				|| (Opcode == EMaterialProgramOpcode::TextureSampleParameter2D && Index == 0);
+		}
+		MATERIALEDITOR_API auto GetConstantLiteral() const -> FMaterialProgramLiteral;
+	};
+
 	// Describes one node and its shared authored position without exposing mutable storage.
 	struct FMaterialGraphNodeView
 	{
-		FMaterialProgramNode Node;
+		FMaterialGraphNodeDescriptor Node;
 		std::string PrimaryLabel;
 		std::string SecondaryLabel;
 		std::vector<FMaterialGraphPinView> Inputs;
@@ -104,12 +137,6 @@ namespace Durin::Editor::Material
 		bool bFunction = false;
 	};
 
-	struct FMaterialGraphCreateNodeRequest
-	{
-		FMaterialProgramNode Node;
-		int32 X = 0;
-		int32 Y = 0;
-	};
 
 	struct FMaterialGraphConnectRequest
 	{
@@ -142,7 +169,8 @@ namespace Durin::Editor::Material
 
 	struct FMaterialGraphClipboardNode
 	{
-		FMaterialProgramNode Node;
+		TStrongObjectPtr<DMaterialExpression> Expression;
+		std::string DisplayName;
 		int32 RelativeX = 0;
 		int32 RelativeY = 0;
 	};
@@ -152,10 +180,8 @@ namespace Durin::Editor::Material
 	{
 		uint32 SchemaVersion = CurrentMaterialGraphClipboardSchemaVersion;
 		TWeakObjectPtr<DObject> SourceRoot;
-		FStrongObjectPtr RetainedReferences;
 		std::vector<FMaterialGraphClipboardNode> Nodes;
 		FMaterialFunctionSignature Signature;
-		std::vector<FMaterialFunctionCall> Calls;
 		bool bConnectAggregateSurface = false;
 		FGuid AggregateSourceNodeId;
 		uint8 AggregateSourceOutputIndex = 0;
@@ -226,11 +252,6 @@ namespace Durin::Editor::Material
 			std::string_view Query,
 			std::optional<EMaterialProgramValueType> SourceType = std::nullopt)
 			-> std::vector<size_t>;
-		MATERIALEDITOR_API static auto CreateNode(
-			DMaterial& Material,
-			FMaterialGraphCreateNodeRequest Request,
-			DTransactor* Transactions = nullptr)
-			-> FMaterialGraphCommandResult;
 		// One transaction owns both declaration changes and all affected references.
 		MATERIALEDITOR_API static auto CreateParameter(
 			DMaterial& Material, FMaterialParameterDefinition Definition,
@@ -244,28 +265,6 @@ namespace Durin::Editor::Material
 		MATERIALEDITOR_API static auto PromoteConstantToParameter(
 			DMaterial& Material, const FGuid& NodeId, FName Name,
 			DTransactor* Transactions = nullptr) -> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API static auto ReplaceProgram(
-			DMaterial& Material,
-			FMaterialProgram Program,
-			DTransactor* Transactions = nullptr)
-			-> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API static auto ReplaceProgram(
-			DMaterial& Material,
-			FMaterialProgram Program,
-			FMaterialGraphPresentation Presentation,
-			DTransactor* Transactions)
-			-> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API static auto CreateNodeWithDefaultInputs(
-			DMaterial& Material,
-			FMaterialGraphCreateNodeRequest Request,
-			std::span<const std::vector<EMaterialProgramValueType>> AcceptedInputTypes,
-			DTransactor* Transactions = nullptr)
-			-> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API static auto ReplaceNode(
-			DMaterial& Material,
-			FMaterialProgramNode Node,
-			DTransactor* Transactions = nullptr)
-			-> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API static auto RemoveNodes(
 			DMaterial& Material,
 			std::span<const FGuid> NodeIds,

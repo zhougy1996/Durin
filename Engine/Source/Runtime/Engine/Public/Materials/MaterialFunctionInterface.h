@@ -21,8 +21,5 @@ namespace Durin
 		virtual auto GetFunctionDependencies() const
 			-> std::vector<TObjectPtr<DMaterialFunctionInterface>> = 0;
 		virtual auto GetFunctionRevision() const -> uint64 = 0;
-		// Owning-thread only. Implementations must return detached values.
-		virtual auto BuildFunctionSnapshot(FMaterialFunctionSnapshot& OutSnapshot) const
-			-> FMaterialProgramValidationResult = 0;
 	};
 }

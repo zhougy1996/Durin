@@ -46,6 +46,12 @@ namespace Durin
 		uint64 Revision = 0;
 	};
 
+	// Owning-thread admission of editable dependencies; publishes stamps only on success.
+	ENGINE_API auto ValidateMaterialFunctionDependencies(std::span<DMaterialFunctionInterface* const> Roots,
+		std::vector<FMaterialFunctionOwnerStamp>& OutOwners) -> FMaterialProgramValidationResult;
+	ENGINE_API auto ValidateMaterialFunctionCallSignature(const DMaterialExpressionFunctionCall& Call,
+		const FMaterialFunctionSignature& Signature) -> FMaterialProgramValidationResult;
+
 	// Detached result. No expression, texture, or callee object is retained.
 	struct FMaterialExpressionBuildResult
 	{
@@ -67,6 +73,12 @@ namespace Durin
 			FMaterialExpressionBuildEnvironment Environment = {});
 		FMaterialExpressionBuildContext(const FMaterialExpressionBuildContext&) = delete;
 		auto operator=(const FMaterialExpressionBuildContext&) -> FMaterialExpressionBuildContext& = delete;
+		// Local authoring validation checks typed links without requiring available callee bodies.
+		// Its opaque function values stay private and can never become compiler snapshots.
+		ENGINE_API static auto ValidateSurface(std::span<DMaterialExpression* const> Expressions,
+			const FMaterialExpressionSurfaceOutputs& Outputs, FXxHash128* OutCodeFingerprint = nullptr) -> FMaterialProgramValidationResult;
+		ENGINE_API static auto ValidateFunction(std::span<DMaterialExpression* const> Expressions,
+			const FMaterialFunctionSignature& Signature) -> FMaterialProgramValidationResult;
 		ENGINE_API auto Resolve(const FMaterialExpressionInput& Input) -> FMaterialExpressionBuildValue;
 		ENGINE_API auto ResolveIndex(const FMaterialExpressionInput& Input) -> uint32;
 		ENGINE_API auto FunctionInput(FGuid PortId) -> FMaterialExpressionBuildValue;
@@ -82,7 +94,8 @@ namespace Durin
 		ENGINE_API auto Coordinates(const FMaterialExpressionUVSettings& Defaults,
 			std::span<const FMaterialExpressionInput> Inputs = {}) -> uint32;
 		ENGINE_API auto SampleOutput(const DMaterialExpression& Expression, uint8 OutputIndex) -> uint32;
-		ENGINE_API auto Fail(std::string Message, FGuid PortId = {}) -> uint32;
+		ENGINE_API auto Fail(std::string Message, FGuid PortId = {},
+			EMaterialProgramDiagnosticCategory Category = EMaterialProgramDiagnosticCategory::Graph) -> uint32;
 		auto GetNode(uint32 Index) const -> const FMaterialIRNode& { return Result.IR.Nodes.at(Index); }
 		ENGINE_API auto Finish(std::span<const FMaterialExpressionInput> Roots) -> FMaterialExpressionBuildResult;
 		ENGINE_API auto FinishSurface(const FMaterialExpressionSurfaceOutputs& Outputs) -> FMaterialExpressionBuildResult;
@@ -99,6 +112,12 @@ namespace Durin
 		FMaterialExpressionBuildContext(FMaterialExpressionBuildContext& Parent,
 			const FMaterialExpressionFunctionBody& Body, FGuid CallId);
 		auto Admit(std::span<DMaterialExpression* const> InExpressions) -> void;
+		bool bValidateAuthoring = false;
+		FXxHash128Builder AuthoringCodeHash;
+		auto OpaqueAuthoringValue(EMaterialProgramOpcode Opcode, EMaterialProgramValueType Type,
+			std::vector<uint32> Inputs = {}) -> uint32;
+		auto ValidateAuthoringCall(const DMaterialExpressionFunctionCall& Call, FGuid OutputId)
+			-> FMaterialExpressionBuildValue;
 		auto BuildAllExpressions() -> void;
 		uint64 AuthoredLinks = 0;
 		auto MatchesType(const FMaterialExpressionBuildValue& Value, EMaterialProgramValueType Type) const -> bool;

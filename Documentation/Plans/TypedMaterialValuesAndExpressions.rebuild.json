@@ -1,0 +1,101 @@
+{
+  "plan": "Documentation/Plans/TypedMaterialValuesAndExpressions.md",
+  "sourceCommit": "fd29e2b88",
+  "validationReceipt": "20260914-235155-701878-27120-MaterialTests.log",
+  "method": "Fresh typed recipes at existing package/object paths; staged save, unload and fresh-reader validation before atomic per-file replacement. No legacy payload conversion.",
+  "files": [
+    {
+      "path": "Engine/Content/Materials/DefaultMaterial.dasset",
+      "beforeBytes": 3386,
+      "afterBytes": 2495,
+      "beforeSHA256": "004fd6f26f984ddfa15723fd34ae9a44dfe9b213f87bef8059a65b4069d1cb06",
+      "afterSHA256": "74640ae130e24eb7c156a6e0b8470d0b07c7bde3d462cda073c4daf2d95c0e9f"
+    },
+    {
+      "path": "Engine/Content/Materials/Functions/UVTransform.dasset",
+      "beforeBytes": 22163,
+      "afterBytes": 11416,
+      "beforeSHA256": "1e3ea8fea5eed4de785321092cf7de6bc09cb5ab84d207a37cd458b54b6835b5",
+      "afterSHA256": "374659d93220caec54becfa8157cd73682ef1c66873a6b8e00194fd25f002418"
+    },
+    {
+      "path": "Engine/Content/Materials/Functions/SampleNormal.dasset",
+      "beforeBytes": 19054,
+      "afterBytes": 11257,
+      "beforeSHA256": "817dc4ec5f514939ad382e84e29a2efbb8af08d44d3a6dcdf1bb4f2b4b44bc60",
+      "afterSHA256": "31f681eb129c6d64982bc880d34054090b6fd2e032b0f4cfb9bdbec6efe8a54a"
+    },
+    {
+      "path": "Engine/Content/Materials/Functions/SampleORM.dasset",
+      "beforeBytes": 15398,
+      "afterBytes": 9843,
+      "beforeSHA256": "dc4829f0232a8cfa3d58d8ca214874a91a3910d60957eeb27a28ce53f1b9ffb5",
+      "afterSHA256": "19a000aa29a00b30551103a3bd5b935e957eb14baefdb9527e0c20079b6255ad"
+    },
+    {
+      "path": "Engine/Content/Materials/Functions/StandardPBR.dasset",
+      "beforeBytes": 77540,
+      "afterBytes": 42952,
+      "beforeSHA256": "de7ad2b374228e612683b6211101cd0c3a90bc5c520349dc173ef9ff2d6bb744",
+      "afterSHA256": "1317a382ffa2d7f8261ffe2c99a28a2583942cc976dcbe022f6e17ed2a6aedbd"
+    },
+    {
+      "path": "Engine/Content/Materials/Functions/StandardPBR_ORM.dasset",
+      "beforeBytes": 68738,
+      "afterBytes": 37741,
+      "beforeSHA256": "4dd870564d76cc311038e6cf3536a36a97c18f1bf9a658d3fcb05bb89fa919fd",
+      "afterSHA256": "9da92c66ad3685c4dadf0d515e8a8e2087b16795384f51fd731e34ae1904d241"
+    },
+    {
+      "path": "Engine/Content/Materials/Functions/ImportedSurfaceValues.dasset",
+      "beforeBytes": 51236,
+      "afterBytes": 28513,
+      "beforeSHA256": "a4aeec3003b32affe193ea4ebd687f0ae41335ee0f794c27ecc66689950391c4",
+      "afterSHA256": "9c293fbde0bc94e19b1adb5540962a0d32e967c6a3ba3bd0b02c4d242e3d3ef9"
+    },
+    {
+      "path": "Engine/Content/Materials/Functions/DecodeImportedNormalRG.dasset",
+      "beforeBytes": 12712,
+      "afterBytes": 7121,
+      "beforeSHA256": "2bd821ba2b5c7eb2ed1430c8d758df0aa4241d59cadc24cff129d91136700c72",
+      "afterSHA256": "e4b0688cd28e72c3feaa3939d55e753b60448f5b5174958824d262aa217af8a9"
+    }
+  ],
+  "retiredUnreferencedFixtures": [
+    {
+      "path": "Engine/Tests/Data/Materials/GraphAuthoringV5/ImportedSurface.dasset",
+      "bytes": 39689,
+      "SHA256": "4a536ef82b67fad061f6ee2fcfe512aae8c3c8bc781479b2d5d5883a139b38f8"
+    },
+    {
+      "path": "Engine/Tests/Data/Materials/GraphAuthoringV5/Functions/UVTransform.dasset",
+      "bytes": 12384,
+      "SHA256": "405e2f80a2c5f0c27a3ce50660b6bea9a6e9fd88391f772fcad1827434b6103b"
+    },
+    {
+      "path": "Engine/Tests/Data/Materials/GraphAuthoringV5/Functions/SampleNormal.dasset",
+      "bytes": 11192,
+      "SHA256": "5c9c3362dc015f4f1a8af3ecaab43d8f6b148ba9da95ba69623b1141dc0c6598"
+    },
+    {
+      "path": "Engine/Tests/Data/Materials/GraphAuthoringV5/Functions/SampleORM.dasset",
+      "bytes": 9927,
+      "SHA256": "e51f07d0b0b07f0db9aa53446eac50644022659fe1ec3756a1176a18991b30af"
+    },
+    {
+      "path": "Engine/Tests/Data/Materials/GraphAuthoringV5/Functions/StandardPBR.dasset",
+      "bytes": 43465,
+      "SHA256": "e95c0478b0a487332a9602015331449e8455e81818277ec1998a9268a5fab3ca"
+    },
+    {
+      "path": "Engine/Tests/Data/Materials/GraphAuthoringV5/Functions/StandardPBR_ORM.dasset",
+      "bytes": 37999,
+      "SHA256": "08a58b41d8541f383b7ab9a68e3bbd48b0a2dce60383bc32b21e3d539c3c0e1d"
+    },
+    {
+      "path": "Engine/Tests/Data/Materials/GraphAuthoringV5/Manifest.json",
+      "bytes": 1338,
+      "SHA256": "149fa4d86defde2a21b4cefabc8d1da90fea42b5aae8ab5c717bee0c275d1682"
+    }
+  ]
+}

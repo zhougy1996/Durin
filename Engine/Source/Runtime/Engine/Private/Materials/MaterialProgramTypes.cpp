@@ -869,15 +869,15 @@ namespace Durin
 
 	auto SanitizeMaterialGraphPresentation(
 		const FMaterialGraphPresentation& Presentation,
-		const FMaterialProgram& Program) -> FMaterialGraphPresentation
+		std::span<const FGuid> ExpressionIds) -> FMaterialGraphPresentation
 	{
 		FMaterialGraphPresentation Result;
 		Result.Nodes.reserve(std::min<size_t>(
 			Presentation.Nodes.size(), MaterialProgramMaxNodeCount));
 		std::unordered_set<FGuid> LiveNodes;
-		LiveNodes.reserve(Program.Nodes.size());
-		for (const FMaterialProgramNode& Node : Program.Nodes)
-			if (Node.Id.IsValid()) LiveNodes.insert(Node.Id);
+		LiveNodes.reserve(ExpressionIds.size());
+		for (const FGuid& Id : ExpressionIds)
+			if (Id.IsValid()) LiveNodes.insert(Id);
 		std::unordered_set<FGuid> AddedNodes;
 		AddedNodes.reserve(Result.Nodes.capacity());
 		for (const FMaterialGraphNodePresentation& Node : Presentation.Nodes)

@@ -848,6 +848,18 @@ namespace
 			}
 			Roots.push_back(std::move(Path));
 		}
+		// Service-owned resources have no serialized project edge but are required at Game startup.
+		for (const std::string_view Value : GetEngineBuiltInCookRoots())
+		{
+			FPackagePath Path;
+			std::string Error;
+			if (!FPackagePath::TryCreate(Value, Path, &Error))
+			{
+				std::cerr << "Error: invalid Engine Cook root '" << Value << "': " << Error << '\n';
+				return 1;
+			}
+			if (std::ranges::find(Roots, Path) == Roots.end()) Roots.push_back(std::move(Path));
+		}
 		const FAssetCatalogRefreshResult Refresh = RefreshAssetRegistry(
 			EAssetRegistryScanMode::FullValidation
 		);
@@ -1064,10 +1076,9 @@ int main(int ArgC, char** ArgV)
 		auto* Material = Durin::Cast<Durin::DMaterial>(Created.Asset);
 		if (!Created || !Material) { std::cerr << Created.Message << '\n'; return 1; }
 		Material->SetEditCompileMode(Durin::EMaterialEditCompileMode::Manual);
-		Durin::FMaterialGraphPresentation Presentation;
-		auto Program = Durin::AssetForge::Builtins::MakePBRSurfaceMaterialMRProgram(Presentation);
-		const auto Valid = Material->SetMaterialProgram(std::move(Program));
-		if (!Valid || !Material->SetMaterialGraphPresentation(std::move(Presentation)))
+		const auto Recipe = Durin::AssetForge::Builtins::MakePBRSurfaceMaterialMRExpressions();
+		const auto Valid = Recipe.Apply(*Material);
+		if (!Valid)
 		{
 			std::cerr << "PBRSurfaceMaterial_MR graph validation failed.\n";
 			Durin::UnloadPackage(Path, Durin::EAssetPackageUnloadPolicy::DiscardUnsaved);
@@ -1118,8 +1129,8 @@ int main(int ArgC, char** ArgV)
 			if (!Durin::LoadObject(Path, Function) || !Function) { bInventoryValid = false; continue; }
 			*FunctionSlots[Index] = Function;
 			if ((Index == 3 || Index == 4) && (!Functions.SampleNormal.IsValid() || !Functions.SampleORM.IsValid())) { bInventoryValid = false; continue; }
-			bExactDependencies &= Function->GetFunctionGraph() == Durin::AssetForge::Builtins::MakeStandardMaterialFunctionGraph(
-				static_cast<Durin::AssetForge::Builtins::EStandardMaterialFunction>(Index + 1), Functions);
+			bExactDependencies &= Durin::AssetForge::Builtins::MakeStandardMaterialFunctionExpressions(
+				static_cast<Durin::AssetForge::Builtins::EStandardMaterialFunction>(Index + 1), Functions).Matches(*Function);
 		}
 		Root.SetChildValue("existingBuiltinDependenciesMatch", bExactDependencies);
 		for (const auto& Package : Inventory.Packages)
@@ -1141,9 +1152,10 @@ int main(int ArgC, char** ArgV)
 			}
 			if (const auto* Material = Durin::Cast<Durin::DMaterial>(Object))
 			{
-				Row.SetChildValue("schema", Material->GetMaterialProgram()->SchemaVersion);
-				Row.SetChildValue("nodes", static_cast<uint32>(Material->GetMaterialProgram()->Nodes.size()));
-				Row.SetChildValue("calls", static_cast<uint32>(Material->GetMaterialFunctionCalls().size()));
+				const auto& Expressions = Material->GetExpressionCollection().Expressions;
+				Row.SetChildValue("expressions", static_cast<uint32>(Expressions.size()));
+				Row.SetChildValue("calls", static_cast<uint32>(std::ranges::count_if(Expressions,
+					[](const auto& Expression) { return Durin::Cast<Durin::DMaterialExpressionFunctionCall>(Expression.Get()) != nullptr; })));
 				Row.SetChildValue("status", "Preserved: existing material");
 				auto Definitions = Row.AddArray("parameters");
 				for (const auto& Definition : Material->GetParameterDefinitions())
@@ -1159,23 +1171,21 @@ int main(int ArgC, char** ArgV)
 				Row.SetChildValue("parent", Instance->GetParent() ? Instance->GetParent()->GetObjectPath() : "");
 				Row.SetChildValue("status", "Preserved: instance override identities and values");
 				auto Overrides = Row.AddArray("overrides");
-				for (const auto& Override : Instance->GetParameterOverrides())
-				{
+				Instance->VisitParameterOverrides([&](const Durin::FGuid& Id, const Durin::FMaterialParameterValue& OverrideValue) {
 					auto Value = Overrides.AppendObject();
-					Value.SetChildValue("id", Override.ParameterId.ToString());
-					Value.SetChildValue("type", static_cast<uint32>(Override.Type));
-					Value.SetChildValue("orphan", Instance->IsParameterOverrideOrphan(Override.ParameterId));
-					Value.SetChildValue("scalar", Override.Value.ScalarValue);
-					Value.SetChildValue("vector", std::format("{},{},{},{}", Override.Value.Vector4Value.x, Override.Value.Vector4Value.y, Override.Value.Vector4Value.z, Override.Value.Vector4Value.w));
-					Value.SetChildValue("vector2", std::format("{},{}", Override.Value.Vector2Value.x, Override.Value.Vector2Value.y));
-					Value.SetChildValue("vector3", std::format("{},{},{}", Override.Value.VectorValue.x, Override.Value.VectorValue.y, Override.Value.VectorValue.z));
-					Value.SetChildValue("texture", Override.Value.TextureValue.IsValid() ? Override.Value.TextureValue->GetObjectPath() : "");
-				}
+					Value.SetChildValue("id", Id.ToString());
+					Value.SetChildValue("type", static_cast<uint32>(OverrideValue.GetType()));
+					Value.SetChildValue("orphan", Instance->IsParameterOverrideOrphan(Id));
+					if (OverrideValue.GetType() == Durin::EMaterialParameterType::Scalar) Value.SetChildValue("scalar", OverrideValue.GetScalar());
+					if (OverrideValue.GetType() == Durin::EMaterialParameterType::Vector4) Value.SetChildValue("vector", std::format("{},{},{},{}", OverrideValue.GetVector4().x, OverrideValue.GetVector4().y, OverrideValue.GetVector4().z, OverrideValue.GetVector4().w));
+					if (OverrideValue.GetType() == Durin::EMaterialParameterType::Vector2) Value.SetChildValue("vector2", std::format("{},{}", OverrideValue.GetVector2().x, OverrideValue.GetVector2().y));
+					if (OverrideValue.GetType() == Durin::EMaterialParameterType::Vector) Value.SetChildValue("vector3", std::format("{},{},{}", OverrideValue.GetVector().x, OverrideValue.GetVector().y, OverrideValue.GetVector().z));
+					if (OverrideValue.GetType() == Durin::EMaterialParameterType::Texture) Value.SetChildValue("texture", OverrideValue.GetTexture().Texture.IsValid() ? OverrideValue.GetTexture().Texture->GetObjectPath() : "");
+				});
 			}
 			else if (const auto* Function = Durin::Cast<Durin::DMaterialFunction>(Object))
 			{
-				Row.SetChildValue("schema", Function->GetFunctionGraph().SchemaVersion);
-				Row.SetChildValue("nodes", static_cast<uint32>(Function->GetFunctionGraph().Nodes.size()));
+				Row.SetChildValue("expressions", static_cast<uint32>(Function->GetExpressionCollection().Expressions.size()));
 				Row.SetChildValue("source", Function->GetAuthoringSource());
 				Row.SetChildValue("version", Function->GetAuthoringSourceVersion());
 				Row.SetChildValue("status", "Preserved: existing function implementation");

@@ -1,5 +1,5 @@
 #include "MaterialGraphCanvas.h"
-#include "MaterialGraphDocument.h"
+#include "MaterialGraphExpressionState.h"
 #include "Asset/Asset.h"
 #include "Editor/AssetDragDrop.h"
 #include "MonaCoreGlobals.h"
@@ -33,12 +33,11 @@ namespace Durin::Editor::Material
 		if (!Backend) { TexturePreviews.reset(); return; }
 		if (!TexturePreviews) TexturePreviews = std::make_shared<FTexturePreviewState>();
 		std::unordered_map<FGuid, std::shared_ptr<FRegisteredPreview>> Current;
-		for (const auto& Node : Material.GetMaterialProgram()->Nodes)
+		for (const auto& Expression : Material.GetExpressionCollection().Expressions)
 		{
-			if (Node.Opcode != EMaterialProgramOpcode::TextureParameter && Node.Opcode != EMaterialProgramOpcode::TextureSampleParameter2D) continue;
-			const auto* Definition = Material.FindParameterDefinition(Node.Parameter.Id);
-			if (!Definition || !Definition->Value.TextureValue.IsValid()) continue;
-			auto Allocation = Definition->Value.TextureValue->GetPublishedTexture();
+			const auto* Parameter = Cast<DMaterialExpressionTextureParameter>(Expression.Get());
+			if (!Parameter || !Parameter->DefaultValue.Texture.IsValid()) continue;
+			auto Allocation = Parameter->DefaultValue.Texture->GetPublishedTexture();
 			if (!Allocation) continue;
 			auto& Entry = Registrations[Allocation.GetReference()];
 			auto Shared = Entry.lock();
@@ -51,7 +50,7 @@ namespace Durin::Editor::Material
 				if (Shared->bOwned) Backend->RegisterTexture(Allocation);
 				Entry = Shared;
 			}
-			Current.emplace(Node.Id, std::move(Shared));
+			Current.emplace(Expression->Id, std::move(Shared));
 		}
 		TexturePreviews->Nodes = std::move(Current);
 		std::erase_if(Registrations, [](const auto& Entry) { return Entry.second.expired(); });
@@ -83,28 +82,27 @@ namespace Durin::Editor::Material
 				DTexture2D* Texture = nullptr;
 				if (FObjectPath::TryCreate(Asset.AssetPath.data(), Path, &Error) && LoadObject(Path, Texture) && Texture)
 				{
-					FMaterialGraphDocument Document(Material);
-					FMaterialGraphDocumentState State;
-					if (Document.Capture(State))
+					GraphEditInternals::FOwnedGraphSnapshot State;
+					if (State.Capture(Material))
 					{
-						FMaterialParameterDefinition Definition;
-						Definition.Id = FGuid::NewGuid();
+						TStrongObjectPtr<DMaterialExpressionTextureSampleParameter2D> Expression(
+							NewObject<DMaterialExpressionTextureSampleParameter2D>(nullptr, NAME_None));
+						Expression->Id = FGuid::NewGuid();
+						Expression->Metadata.Id = FGuid::NewGuid();
 						const auto BaseName = Texture->GetName();
-						Definition.Name = FName(BaseName);
-						for (uint32 Suffix = 1; Material.FindParameterDefinition(Definition.Name); ++Suffix)
-							Definition.Name = FName(std::format("{}{}", BaseName, Suffix));
-						Definition.DisplayName = Definition.Name.ToString();
-						Definition.Type = EMaterialParameterType::Texture;
-						Definition.Value = FMaterialParameterValue::MakeTexture(Texture);
-						FMaterialProgramNode Node{.Id = FGuid::NewGuid(), .Opcode = EMaterialProgramOpcode::TextureSampleParameter2D,
-							.ResultType = EMaterialProgramValueType::Float4, .Inputs = {{}}, .Parameter = Definition};
-						State.Program.Nodes.push_back(Node);
+						Expression->Metadata.Name = FName(BaseName);
+						for (uint32 Suffix = 1; Material.FindParameterDefinition(Expression->Metadata.Name); ++Suffix)
+							Expression->Metadata.Name = FName(std::format("{}{}", BaseName, Suffix));
+						Expression->Metadata.DisplayName = Expression->Metadata.Name.ToString();
+						Expression->DefaultValue.Texture = Texture;
+						const auto Id = Expression->Id;
+						State.Expressions.emplace_back(Expression.Get());
 						const auto Mouse = ImGui::GetMousePos();
-						State.Presentation.Nodes.push_back({Node.Id, static_cast<int32>((Mouse.x - CanvasMinimum.x - Pan.x) / Zoom),
+						State.Presentation.Nodes.push_back({Id, static_cast<int32>((Mouse.x - CanvasMinimum.x - Pan.x) / Zoom),
 							static_cast<int32>((Mouse.y - CanvasMinimum.y - Pan.y) / Zoom)});
-						const auto Result = Document.Commit(std::move(State), "Add Texture Sample Parameter", &Transactions);
+						const auto Result = GraphEditInternals::CommitOwnedExpressions(Material, std::move(State), "Add Texture Sample Parameter", &Transactions);
 						if (!Result) ReportError(Result.Message);
-						else SelectedNodes = {Node.Id};
+						else SelectedNodes = {Id};
 					}
 				}
 				else ReportError(Error.empty() ? "Drop a Texture2D asset to create a sample parameter." : Error);

@@ -206,40 +206,12 @@ namespace Durin
 		auto operator==(const FMaterialFunctionCallSnapshot&) const -> bool = default;
 	};
 
-	// No reflected owner, strong/weak object pointer, load operation or presentation.
-	struct FMaterialFunctionSnapshot
-	{
-		uint32 SchemaVersion = CurrentMaterialFunctionSchemaVersion;
-		std::string AssetPath;
-		uint64 Revision = 0;
-		FMaterialFunctionSignature Signature;
-		std::vector<FMaterialProgramNode> Nodes;
-		std::vector<FMaterialFunctionCallSnapshot> Calls;
-		auto operator==(const FMaterialFunctionSnapshot&) const -> bool = default;
-	};
-
-	struct FMaterialFunctionClosure
-	{
-		// Sorted by asset path, including unreachable authored dependencies.
-		std::vector<FMaterialFunctionSnapshot> Functions;
-		auto operator==(const FMaterialFunctionClosure&) const -> bool = default;
-	};
-
 	ENGINE_API auto ValidateMaterialFunctionSignature(const FMaterialFunctionSignature& Signature)
 		-> FMaterialProgramValidationResult;
 	ENGINE_API auto ValidateMaterialFunctionGraph(const FMaterialFunctionGraph& Graph)
 		-> FMaterialProgramValidationResult;
 	ENGINE_API auto ValidateMaterialFunctionCallSignature(const FMaterialFunctionCallSnapshot& Call,
 		const FMaterialFunctionSignature& Signature) -> FMaterialProgramValidationResult;
-	// Owning-thread capture. Failure preserves OutClosure; workers receive no asset references.
-	ENGINE_API auto SnapshotMaterialFunctionClosure(
-		std::span<DMaterialFunctionInterface* const> Roots, FMaterialFunctionClosure& OutClosure,
-		std::span<const FGuid> RootCallIds = {}, std::vector<FMaterialFunctionOwnerStamp>* OutOwners = nullptr)
-		-> FMaterialProgramValidationResult;
-	ENGINE_API auto SnapshotMaterialFunctionCalls(std::span<const FMaterialFunctionCall> Calls,
-		std::vector<FMaterialFunctionCallSnapshot>& OutCalls, FMaterialFunctionClosure& OutClosure,
-		std::vector<FMaterialFunctionOwnerStamp>* OutOwners = nullptr)
-		-> FMaterialProgramValidationResult;
 	// Validates local links without requiring dependencies to be available or well formed.
 	ENGINE_API auto ValidateMaterialProgramWithFunctions(const FMaterialProgram& Program,
 		std::span<const FMaterialParameterDefinition> Definitions,

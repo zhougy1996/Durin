@@ -5,16 +5,14 @@
 
 namespace Durin::Editor::Material
 {
-	// Common authored state for material and function graph commands. Function
-	// documents use Program.Nodes and Signature, with no root declarations/output.
+	// A detached candidate; Capture clones expressions and Commit takes an independent copy.
 	struct FMaterialGraphDocumentState
 	{
 		bool bFunction = false;
-		FMaterialProgram Program;
+		std::vector<TStrongObjectPtr<DMaterialExpression>> Expressions;
+		FMaterialExpressionSurfaceOutputs Outputs;
 		FMaterialFunctionSignature Signature;
-		std::vector<FMaterialFunctionCall> Calls;
 		FMaterialGraphPresentation Presentation;
-		auto operator==(const FMaterialGraphDocumentState&) const -> bool = default;
 	};
 
 	// The shared owning-thread editing boundary; retains no asset or preview owner.
@@ -34,11 +32,15 @@ namespace Durin::Editor::Material
 			DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto RemovePort(bool bOutput, const FGuid& PortId,
 			DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API auto CreateNode(FMaterialGraphCreateNodeRequest Request,
+		MATERIALEDITOR_API auto CreateCatalogNode(const FMaterialGraphCatalogEntry& Entry, int32 X = 0, int32 Y = 0,
+			FMaterialExpressionInput FirstInput = {}, DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API auto CreateExpression(const DMaterialExpression& Expression, int32 X = 0, int32 Y = 0,
 			DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API auto CreateNodeWithDefaultInputs(FMaterialGraphCreateNodeRequest Request,
-			FMaterialProgramLink FirstInput = {}, DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API auto ReplaceNode(FMaterialProgramNode Node,
+		MATERIALEDITOR_API auto ReplaceExpression(const DMaterialExpression& Expression,
+			DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API auto SetConstantValue(const FGuid& NodeId, const FMaterialParameterValue& Value,
+			DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API auto SetSwizzleComponents(const FGuid& NodeId, std::span<const uint8> Components,
 			DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto RemoveNodes(std::span<const FGuid> NodeIds,
 			DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;

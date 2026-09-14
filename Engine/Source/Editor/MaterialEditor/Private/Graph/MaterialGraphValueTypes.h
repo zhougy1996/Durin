@@ -65,6 +65,8 @@ namespace Durin::Editor::Material
 		case EMaterialProgramValueType::Float4:
 			return FMaterialParameterValue::MakeVector4(
 				{Literal.X, Literal.Y, Literal.Z, Literal.W});
+		case EMaterialProgramValueType::Texture2D:
+			return FMaterialParameterValue::MakeTexture(nullptr);
 		default: return {};
 		}
 	}
@@ -87,15 +89,15 @@ namespace Durin::Editor::Material
 	{
 		switch (Type)
 		{
-		case EMaterialProgramValueType::Float: return {Value.ScalarValue};
+		case EMaterialProgramValueType::Float: return {Value.GetScalar()};
 		case EMaterialProgramValueType::Float2:
-			return {static_cast<float>(Value.Vector2Value.x), static_cast<float>(Value.Vector2Value.y)};
+			return {static_cast<float>(Value.GetVector2().x), static_cast<float>(Value.GetVector2().y)};
 		case EMaterialProgramValueType::Float3:
-			return {static_cast<float>(Value.VectorValue.x), static_cast<float>(Value.VectorValue.y),
-				static_cast<float>(Value.VectorValue.z)};
+			return {static_cast<float>(Value.GetVector().x), static_cast<float>(Value.GetVector().y),
+				static_cast<float>(Value.GetVector().z)};
 		case EMaterialProgramValueType::Float4:
-			return {static_cast<float>(Value.Vector4Value.x), static_cast<float>(Value.Vector4Value.y),
-				static_cast<float>(Value.Vector4Value.z), static_cast<float>(Value.Vector4Value.w)};
+			return {static_cast<float>(Value.GetVector4().x), static_cast<float>(Value.GetVector4().y),
+				static_cast<float>(Value.GetVector4().z), static_cast<float>(Value.GetVector4().w)};
 		default: return {};
 		}
 	}

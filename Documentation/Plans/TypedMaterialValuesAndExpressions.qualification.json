@@ -1,0 +1,4548 @@
+{
+  "protocol": "Six owning-thread Debug CRT samples, sample zero warmup; medians of samples 1-5. Requested allocation bytes are not peak or retained memory. Offline preparation, no concurrent build/test.",
+  "beforeRevision": "e6e7b272ee20dc4275a919e544f840a8adf25890",
+  "before": {
+    "/TypedBaseline/Default": {
+      "save": {
+        "microseconds": 36771.8,
+        "crt_requests": 67090.0,
+        "crt_requested_bytes": 3255948.0,
+        "samples": [
+          {
+            "asset": "/TypedBaseline/Default",
+            "operation": "save",
+            "iteration": "0",
+            "microseconds": "47955.5",
+            "crt_requests": "67090",
+            "crt_requested_bytes": "3255948",
+            "package_bytes": "2488"
+          },
+          {
+            "asset": "/TypedBaseline/Default",
+            "operation": "save",
+            "iteration": "1",
+            "microseconds": "40338.9",
+            "crt_requests": "67090",
+            "crt_requested_bytes": "3255948",
+            "package_bytes": "2488"
+          },
+          {
+            "asset": "/TypedBaseline/Default",
+            "operation": "save",
+            "iteration": "2",
+            "microseconds": "36771.8",
+            "crt_requests": "67090",
+            "crt_requested_bytes": "3255948",
+            "package_bytes": "2488"
+          },
+          {
+            "asset": "/TypedBaseline/Default",
+            "operation": "save",
+            "iteration": "3",
+            "microseconds": "33917.8",
+            "crt_requests": "67090",
+            "crt_requested_bytes": "3255948",
+            "package_bytes": "2488"
+          },
+          {
+            "asset": "/TypedBaseline/Default",
+            "operation": "save",
+            "iteration": "4",
+            "microseconds": "37322.3",
+            "crt_requests": "67090",
+            "crt_requested_bytes": "3255948",
+            "package_bytes": "2488"
+          },
+          {
+            "asset": "/TypedBaseline/Default",
+            "operation": "save",
+            "iteration": "5",
+            "microseconds": "33354.9",
+            "crt_requests": "67090",
+            "crt_requested_bytes": "3255948",
+            "package_bytes": "2488"
+          }
+        ]
+      },
+      "load": {
+        "microseconds": 12878.0,
+        "crt_requests": 19157.0,
+        "crt_requested_bytes": 1009747.0,
+        "samples": [
+          {
+            "asset": "/TypedBaseline/Default",
+            "operation": "load",
+            "iteration": "0",
+            "microseconds": "14979.2",
+            "crt_requests": "19170",
+            "crt_requested_bytes": "1016021",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Default",
+            "operation": "load",
+            "iteration": "1",
+            "microseconds": "11099.8",
+            "crt_requests": "19157",
+            "crt_requested_bytes": "1009747",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Default",
+            "operation": "load",
+            "iteration": "2",
+            "microseconds": "12878",
+            "crt_requests": "19157",
+            "crt_requested_bytes": "1009747",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Default",
+            "operation": "load",
+            "iteration": "3",
+            "microseconds": "12525.5",
+            "crt_requests": "19157",
+            "crt_requested_bytes": "1009747",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Default",
+            "operation": "load",
+            "iteration": "4",
+            "microseconds": "13902.2",
+            "crt_requests": "19157",
+            "crt_requested_bytes": "1009747",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Default",
+            "operation": "load",
+            "iteration": "5",
+            "microseconds": "14585.2",
+            "crt_requests": "19157",
+            "crt_requested_bytes": "1009747",
+            "package_bytes": "0"
+          }
+        ]
+      },
+      "package": {
+        "bytes": 2488,
+        "sections": {
+          "Registry": 37,
+          "Names": 1558,
+          "Imports": 5,
+          "Exports": 8,
+          "Types": 165,
+          "Schemas": 168,
+          "Values": 14,
+          "BulkDirectory": 5,
+          "InlineBulk": 0
+        },
+        "exports": 1,
+        "expressionObjects": 0,
+        "sha256": "482fa992ffdb071996856c90b78c05bc9b4d420fffda950e684863db6335e1c7"
+      }
+    },
+    "/TypedBaseline/Function1": {
+      "save": {
+        "microseconds": 656425.0,
+        "crt_requests": 1370814.0,
+        "crt_requested_bytes": 78480030.0,
+        "samples": [
+          {
+            "asset": "/TypedBaseline/Function1",
+            "operation": "save",
+            "iteration": "0",
+            "microseconds": "660953",
+            "crt_requests": "1370814",
+            "crt_requested_bytes": "78480030",
+            "package_bytes": "21427"
+          },
+          {
+            "asset": "/TypedBaseline/Function1",
+            "operation": "save",
+            "iteration": "1",
+            "microseconds": "653960",
+            "crt_requests": "1370814",
+            "crt_requested_bytes": "78480030",
+            "package_bytes": "21427"
+          },
+          {
+            "asset": "/TypedBaseline/Function1",
+            "operation": "save",
+            "iteration": "2",
+            "microseconds": "656425",
+            "crt_requests": "1370814",
+            "crt_requested_bytes": "78480030",
+            "package_bytes": "21427"
+          },
+          {
+            "asset": "/TypedBaseline/Function1",
+            "operation": "save",
+            "iteration": "3",
+            "microseconds": "654629",
+            "crt_requests": "1370814",
+            "crt_requested_bytes": "78480030",
+            "package_bytes": "21427"
+          },
+          {
+            "asset": "/TypedBaseline/Function1",
+            "operation": "save",
+            "iteration": "4",
+            "microseconds": "695262",
+            "crt_requests": "1370814",
+            "crt_requested_bytes": "78480030",
+            "package_bytes": "21427"
+          },
+          {
+            "asset": "/TypedBaseline/Function1",
+            "operation": "save",
+            "iteration": "5",
+            "microseconds": "667634",
+            "crt_requests": "1370814",
+            "crt_requested_bytes": "78480030",
+            "package_bytes": "21427"
+          }
+        ]
+      },
+      "load": {
+        "microseconds": 299578.0,
+        "crt_requests": 450637.0,
+        "crt_requested_bytes": 24027305.0,
+        "samples": [
+          {
+            "asset": "/TypedBaseline/Function1",
+            "operation": "load",
+            "iteration": "0",
+            "microseconds": "319447",
+            "crt_requests": "450638",
+            "crt_requested_bytes": "24027317",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function1",
+            "operation": "load",
+            "iteration": "1",
+            "microseconds": "297672",
+            "crt_requests": "450637",
+            "crt_requested_bytes": "24027305",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function1",
+            "operation": "load",
+            "iteration": "2",
+            "microseconds": "299578",
+            "crt_requests": "450637",
+            "crt_requested_bytes": "24027305",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function1",
+            "operation": "load",
+            "iteration": "3",
+            "microseconds": "311019",
+            "crt_requests": "450637",
+            "crt_requested_bytes": "24027305",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function1",
+            "operation": "load",
+            "iteration": "4",
+            "microseconds": "297022",
+            "crt_requests": "450637",
+            "crt_requested_bytes": "24027305",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function1",
+            "operation": "load",
+            "iteration": "5",
+            "microseconds": "299730",
+            "crt_requests": "450637",
+            "crt_requested_bytes": "24027305",
+            "package_bytes": "0"
+          }
+        ]
+      },
+      "package": {
+        "bytes": 21427,
+        "sections": {
+          "Registry": 37,
+          "Names": 2862,
+          "Imports": 5,
+          "Exports": 8,
+          "Types": 356,
+          "Schemas": 371,
+          "Values": 17255,
+          "BulkDirectory": 5,
+          "InlineBulk": 0
+        },
+        "exports": 1,
+        "expressionObjects": 0,
+        "sha256": "6086ee76e4bd7ee4a89a26ec77282037243950dd1918e84b1007f99dfc0986a7"
+      }
+    },
+    "/TypedBaseline/Function2": {
+      "save": {
+        "microseconds": 569920.0,
+        "crt_requests": 1181771.0,
+        "crt_requested_bytes": 66861145.0,
+        "samples": [
+          {
+            "asset": "/TypedBaseline/Function2",
+            "operation": "save",
+            "iteration": "0",
+            "microseconds": "598167",
+            "crt_requests": "1181771",
+            "crt_requested_bytes": "66861145",
+            "package_bytes": "18453"
+          },
+          {
+            "asset": "/TypedBaseline/Function2",
+            "operation": "save",
+            "iteration": "1",
+            "microseconds": "569920",
+            "crt_requests": "1181771",
+            "crt_requested_bytes": "66861145",
+            "package_bytes": "18453"
+          },
+          {
+            "asset": "/TypedBaseline/Function2",
+            "operation": "save",
+            "iteration": "2",
+            "microseconds": "583167",
+            "crt_requests": "1181771",
+            "crt_requested_bytes": "66861145",
+            "package_bytes": "18453"
+          },
+          {
+            "asset": "/TypedBaseline/Function2",
+            "operation": "save",
+            "iteration": "3",
+            "microseconds": "563508",
+            "crt_requests": "1181771",
+            "crt_requested_bytes": "66861145",
+            "package_bytes": "18453"
+          },
+          {
+            "asset": "/TypedBaseline/Function2",
+            "operation": "save",
+            "iteration": "4",
+            "microseconds": "569442",
+            "crt_requests": "1181771",
+            "crt_requested_bytes": "66861145",
+            "package_bytes": "18453"
+          },
+          {
+            "asset": "/TypedBaseline/Function2",
+            "operation": "save",
+            "iteration": "5",
+            "microseconds": "597634",
+            "crt_requests": "1181771",
+            "crt_requested_bytes": "66861145",
+            "package_bytes": "18453"
+          }
+        ]
+      },
+      "load": {
+        "microseconds": 253387.0,
+        "crt_requests": 389324.0,
+        "crt_requested_bytes": 20832012.0,
+        "samples": [
+          {
+            "asset": "/TypedBaseline/Function2",
+            "operation": "load",
+            "iteration": "0",
+            "microseconds": "256714",
+            "crt_requests": "389324",
+            "crt_requested_bytes": "20832012",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function2",
+            "operation": "load",
+            "iteration": "1",
+            "microseconds": "254381",
+            "crt_requests": "389324",
+            "crt_requested_bytes": "20832012",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function2",
+            "operation": "load",
+            "iteration": "2",
+            "microseconds": "254686",
+            "crt_requests": "389324",
+            "crt_requested_bytes": "20832012",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function2",
+            "operation": "load",
+            "iteration": "3",
+            "microseconds": "253387",
+            "crt_requests": "389324",
+            "crt_requested_bytes": "20832012",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function2",
+            "operation": "load",
+            "iteration": "4",
+            "microseconds": "251988",
+            "crt_requests": "389324",
+            "crt_requested_bytes": "20832012",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function2",
+            "operation": "load",
+            "iteration": "5",
+            "microseconds": "251020",
+            "crt_requests": "389324",
+            "crt_requested_bytes": "20832012",
+            "package_bytes": "0"
+          }
+        ]
+      },
+      "package": {
+        "bytes": 18453,
+        "sections": {
+          "Registry": 37,
+          "Names": 2862,
+          "Imports": 5,
+          "Exports": 8,
+          "Types": 356,
+          "Schemas": 371,
+          "Values": 14281,
+          "BulkDirectory": 5,
+          "InlineBulk": 0
+        },
+        "exports": 1,
+        "expressionObjects": 0,
+        "sha256": "70eb5289b7d709cda1f31a00005187af670c8892fe0faee92b8becbadd83c33c"
+      }
+    },
+    "/TypedBaseline/Function3": {
+      "save": {
+        "microseconds": 455372.0,
+        "crt_requests": 929213.0,
+        "crt_requested_bytes": 52494420.0,
+        "samples": [
+          {
+            "asset": "/TypedBaseline/Function3",
+            "operation": "save",
+            "iteration": "0",
+            "microseconds": "464054",
+            "crt_requests": "929213",
+            "crt_requested_bytes": "52494420",
+            "package_bytes": "14986"
+          },
+          {
+            "asset": "/TypedBaseline/Function3",
+            "operation": "save",
+            "iteration": "1",
+            "microseconds": "460447",
+            "crt_requests": "929213",
+            "crt_requested_bytes": "52494420",
+            "package_bytes": "14986"
+          },
+          {
+            "asset": "/TypedBaseline/Function3",
+            "operation": "save",
+            "iteration": "2",
+            "microseconds": "451837",
+            "crt_requests": "929213",
+            "crt_requested_bytes": "52494420",
+            "package_bytes": "14986"
+          },
+          {
+            "asset": "/TypedBaseline/Function3",
+            "operation": "save",
+            "iteration": "3",
+            "microseconds": "452141",
+            "crt_requests": "929213",
+            "crt_requested_bytes": "52494420",
+            "package_bytes": "14986"
+          },
+          {
+            "asset": "/TypedBaseline/Function3",
+            "operation": "save",
+            "iteration": "4",
+            "microseconds": "455372",
+            "crt_requests": "929213",
+            "crt_requested_bytes": "52494420",
+            "package_bytes": "14986"
+          },
+          {
+            "asset": "/TypedBaseline/Function3",
+            "operation": "save",
+            "iteration": "5",
+            "microseconds": "458437",
+            "crt_requests": "929213",
+            "crt_requested_bytes": "52494420",
+            "package_bytes": "14986"
+          }
+        ]
+      },
+      "load": {
+        "microseconds": 200994.0,
+        "crt_requests": 315020.0,
+        "crt_requested_bytes": 16982356.0,
+        "samples": [
+          {
+            "asset": "/TypedBaseline/Function3",
+            "operation": "load",
+            "iteration": "0",
+            "microseconds": "201052",
+            "crt_requests": "315020",
+            "crt_requested_bytes": "16982356",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function3",
+            "operation": "load",
+            "iteration": "1",
+            "microseconds": "199196",
+            "crt_requests": "315020",
+            "crt_requested_bytes": "16982356",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function3",
+            "operation": "load",
+            "iteration": "2",
+            "microseconds": "203972",
+            "crt_requests": "315020",
+            "crt_requested_bytes": "16982356",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function3",
+            "operation": "load",
+            "iteration": "3",
+            "microseconds": "200153",
+            "crt_requests": "315020",
+            "crt_requested_bytes": "16982356",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function3",
+            "operation": "load",
+            "iteration": "4",
+            "microseconds": "200994",
+            "crt_requests": "315020",
+            "crt_requested_bytes": "16982356",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function3",
+            "operation": "load",
+            "iteration": "5",
+            "microseconds": "211611",
+            "crt_requests": "315020",
+            "crt_requested_bytes": "16982356",
+            "package_bytes": "0"
+          }
+        ]
+      },
+      "package": {
+        "bytes": 14986,
+        "sections": {
+          "Registry": 37,
+          "Names": 2862,
+          "Imports": 5,
+          "Exports": 8,
+          "Types": 356,
+          "Schemas": 371,
+          "Values": 10814,
+          "BulkDirectory": 5,
+          "InlineBulk": 0
+        },
+        "exports": 1,
+        "expressionObjects": 0,
+        "sha256": "30a955e22c03c077c624822c083461a6c34aef580f4bd9e2b06e3b7dc25bdab9"
+      }
+    },
+    "/TypedBaseline/Function4": {
+      "save": {
+        "microseconds": 2490460.0,
+        "crt_requests": 4840896.0,
+        "crt_requested_bytes": 285061248.0,
+        "samples": [
+          {
+            "asset": "/TypedBaseline/Function4",
+            "operation": "save",
+            "iteration": "0",
+            "microseconds": "2.42475e+06",
+            "crt_requests": "4840896",
+            "crt_requested_bytes": "285061248",
+            "package_bytes": "75102"
+          },
+          {
+            "asset": "/TypedBaseline/Function4",
+            "operation": "save",
+            "iteration": "1",
+            "microseconds": "2.495e+06",
+            "crt_requests": "4840896",
+            "crt_requested_bytes": "285061248",
+            "package_bytes": "75102"
+          },
+          {
+            "asset": "/TypedBaseline/Function4",
+            "operation": "save",
+            "iteration": "2",
+            "microseconds": "2.49046e+06",
+            "crt_requests": "4840896",
+            "crt_requested_bytes": "285061248",
+            "package_bytes": "75102"
+          },
+          {
+            "asset": "/TypedBaseline/Function4",
+            "operation": "save",
+            "iteration": "3",
+            "microseconds": "2.42717e+06",
+            "crt_requests": "4840896",
+            "crt_requested_bytes": "285061248",
+            "package_bytes": "75102"
+          },
+          {
+            "asset": "/TypedBaseline/Function4",
+            "operation": "save",
+            "iteration": "4",
+            "microseconds": "2.46141e+06",
+            "crt_requests": "4840896",
+            "crt_requested_bytes": "285061248",
+            "package_bytes": "75102"
+          },
+          {
+            "asset": "/TypedBaseline/Function4",
+            "operation": "save",
+            "iteration": "5",
+            "microseconds": "2.58694e+06",
+            "crt_requests": "4840896",
+            "crt_requested_bytes": "285061248",
+            "package_bytes": "75102"
+          }
+        ]
+      },
+      "load": {
+        "microseconds": 1095210.0,
+        "crt_requests": 1523649.0,
+        "crt_requested_bytes": 85132229.0,
+        "samples": [
+          {
+            "asset": "/TypedBaseline/Function4",
+            "operation": "load",
+            "iteration": "0",
+            "microseconds": "1.31866e+06",
+            "crt_requests": "1912908",
+            "crt_requested_bytes": "105962585",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function4",
+            "operation": "load",
+            "iteration": "1",
+            "microseconds": "1.08909e+06",
+            "crt_requests": "1523649",
+            "crt_requested_bytes": "85132229",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function4",
+            "operation": "load",
+            "iteration": "2",
+            "microseconds": "1.13551e+06",
+            "crt_requests": "1523649",
+            "crt_requested_bytes": "85132229",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function4",
+            "operation": "load",
+            "iteration": "3",
+            "microseconds": "1.09521e+06",
+            "crt_requests": "1523649",
+            "crt_requested_bytes": "85132229",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function4",
+            "operation": "load",
+            "iteration": "4",
+            "microseconds": "1.11695e+06",
+            "crt_requests": "1523649",
+            "crt_requested_bytes": "85132229",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function4",
+            "operation": "load",
+            "iteration": "5",
+            "microseconds": "1.08336e+06",
+            "crt_requests": "1523649",
+            "crt_requested_bytes": "85132229",
+            "package_bytes": "0"
+          }
+        ]
+      },
+      "package": {
+        "bytes": 75102,
+        "sections": {
+          "Registry": 38,
+          "Names": 3133,
+          "Imports": 9,
+          "Exports": 8,
+          "Types": 393,
+          "Schemas": 419,
+          "Values": 70569,
+          "BulkDirectory": 5,
+          "InlineBulk": 0
+        },
+        "exports": 1,
+        "expressionObjects": 0,
+        "sha256": "673440a57f2ff5a722e767667295fce5114567e248eed86daa702ed93cc26718"
+      }
+    },
+    "/TypedBaseline/Function5": {
+      "save": {
+        "microseconds": 2360760.0,
+        "crt_requests": 4209620.0,
+        "crt_requested_bytes": 246267663.0,
+        "samples": [
+          {
+            "asset": "/TypedBaseline/Function5",
+            "operation": "save",
+            "iteration": "0",
+            "microseconds": "2.21892e+06",
+            "crt_requests": "4209620",
+            "crt_requested_bytes": "246267663",
+            "package_bytes": "66511"
+          },
+          {
+            "asset": "/TypedBaseline/Function5",
+            "operation": "save",
+            "iteration": "1",
+            "microseconds": "2.33508e+06",
+            "crt_requests": "4209620",
+            "crt_requested_bytes": "246267663",
+            "package_bytes": "66511"
+          },
+          {
+            "asset": "/TypedBaseline/Function5",
+            "operation": "save",
+            "iteration": "2",
+            "microseconds": "2.38641e+06",
+            "crt_requests": "4209620",
+            "crt_requested_bytes": "246267663",
+            "package_bytes": "66511"
+          },
+          {
+            "asset": "/TypedBaseline/Function5",
+            "operation": "save",
+            "iteration": "3",
+            "microseconds": "2.36076e+06",
+            "crt_requests": "4209620",
+            "crt_requested_bytes": "246267663",
+            "package_bytes": "66511"
+          },
+          {
+            "asset": "/TypedBaseline/Function5",
+            "operation": "save",
+            "iteration": "4",
+            "microseconds": "2.41975e+06",
+            "crt_requests": "4209620",
+            "crt_requested_bytes": "246267663",
+            "package_bytes": "66511"
+          },
+          {
+            "asset": "/TypedBaseline/Function5",
+            "operation": "save",
+            "iteration": "5",
+            "microseconds": "2.29384e+06",
+            "crt_requests": "4209620",
+            "crt_requested_bytes": "246267663",
+            "package_bytes": "66511"
+          }
+        ]
+      },
+      "load": {
+        "microseconds": 927340.0,
+        "crt_requests": 1332807.0,
+        "crt_requested_bytes": 73473328.0,
+        "samples": [
+          {
+            "asset": "/TypedBaseline/Function5",
+            "operation": "load",
+            "iteration": "0",
+            "microseconds": "1.12179e+06",
+            "crt_requests": "1647761",
+            "crt_requested_bytes": "90454004",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function5",
+            "operation": "load",
+            "iteration": "1",
+            "microseconds": "927340",
+            "crt_requests": "1332807",
+            "crt_requested_bytes": "73473328",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function5",
+            "operation": "load",
+            "iteration": "2",
+            "microseconds": "969251",
+            "crt_requests": "1332807",
+            "crt_requested_bytes": "73473328",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function5",
+            "operation": "load",
+            "iteration": "3",
+            "microseconds": "935349",
+            "crt_requests": "1332807",
+            "crt_requested_bytes": "73473328",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function5",
+            "operation": "load",
+            "iteration": "4",
+            "microseconds": "917948",
+            "crt_requests": "1332807",
+            "crt_requested_bytes": "73473328",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function5",
+            "operation": "load",
+            "iteration": "5",
+            "microseconds": "914608",
+            "crt_requests": "1332807",
+            "crt_requested_bytes": "73473328",
+            "package_bytes": "0"
+          }
+        ]
+      },
+      "package": {
+        "bytes": 66511,
+        "sections": {
+          "Registry": 39,
+          "Names": 3207,
+          "Imports": 13,
+          "Exports": 8,
+          "Types": 393,
+          "Schemas": 422,
+          "Values": 61896,
+          "BulkDirectory": 5,
+          "InlineBulk": 0
+        },
+        "exports": 1,
+        "expressionObjects": 0,
+        "sha256": "e4e7edc43848a698b77906a08b6e4dd3b0d9161ec4f0916a1bc0ac693d0e41ca"
+      }
+    },
+    "/TypedBaseline/Function6": {
+      "save": {
+        "microseconds": 1712370.0,
+        "crt_requests": 3272582.0,
+        "crt_requested_bytes": 191828776.0,
+        "samples": [
+          {
+            "asset": "/TypedBaseline/Function6",
+            "operation": "save",
+            "iteration": "0",
+            "microseconds": "1.65578e+06",
+            "crt_requests": "3272582",
+            "crt_requested_bytes": "191828776",
+            "package_bytes": "49580"
+          },
+          {
+            "asset": "/TypedBaseline/Function6",
+            "operation": "save",
+            "iteration": "1",
+            "microseconds": "1.71828e+06",
+            "crt_requests": "3272582",
+            "crt_requested_bytes": "191828776",
+            "package_bytes": "49580"
+          },
+          {
+            "asset": "/TypedBaseline/Function6",
+            "operation": "save",
+            "iteration": "2",
+            "microseconds": "1.73317e+06",
+            "crt_requests": "3272582",
+            "crt_requested_bytes": "191828776",
+            "package_bytes": "49580"
+          },
+          {
+            "asset": "/TypedBaseline/Function6",
+            "operation": "save",
+            "iteration": "3",
+            "microseconds": "1.71237e+06",
+            "crt_requests": "3272582",
+            "crt_requested_bytes": "191828776",
+            "package_bytes": "49580"
+          },
+          {
+            "asset": "/TypedBaseline/Function6",
+            "operation": "save",
+            "iteration": "4",
+            "microseconds": "1.52519e+06",
+            "crt_requests": "3272582",
+            "crt_requested_bytes": "191828776",
+            "package_bytes": "49580"
+          },
+          {
+            "asset": "/TypedBaseline/Function6",
+            "operation": "save",
+            "iteration": "5",
+            "microseconds": "1.60009e+06",
+            "crt_requests": "3272582",
+            "crt_requested_bytes": "191828776",
+            "package_bytes": "49580"
+          }
+        ]
+      },
+      "load": {
+        "microseconds": 702226.0,
+        "crt_requests": 1018691.0,
+        "crt_requested_bytes": 55834543.0,
+        "samples": [
+          {
+            "asset": "/TypedBaseline/Function6",
+            "operation": "load",
+            "iteration": "0",
+            "microseconds": "699572",
+            "crt_requests": "1018691",
+            "crt_requested_bytes": "55834543",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function6",
+            "operation": "load",
+            "iteration": "1",
+            "microseconds": "702226",
+            "crt_requests": "1018691",
+            "crt_requested_bytes": "55834543",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function6",
+            "operation": "load",
+            "iteration": "2",
+            "microseconds": "703508",
+            "crt_requests": "1018691",
+            "crt_requested_bytes": "55834543",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function6",
+            "operation": "load",
+            "iteration": "3",
+            "microseconds": "718737",
+            "crt_requests": "1018691",
+            "crt_requested_bytes": "55834543",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function6",
+            "operation": "load",
+            "iteration": "4",
+            "microseconds": "693800",
+            "crt_requests": "1018691",
+            "crt_requested_bytes": "55834543",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function6",
+            "operation": "load",
+            "iteration": "5",
+            "microseconds": "695887",
+            "crt_requests": "1018691",
+            "crt_requested_bytes": "55834543",
+            "package_bytes": "0"
+          }
+        ]
+      },
+      "package": {
+        "bytes": 49580,
+        "sections": {
+          "Registry": 37,
+          "Names": 2862,
+          "Imports": 5,
+          "Exports": 8,
+          "Types": 356,
+          "Schemas": 371,
+          "Values": 45408,
+          "BulkDirectory": 5,
+          "InlineBulk": 0
+        },
+        "exports": 1,
+        "expressionObjects": 0,
+        "sha256": "d1a587a703de64d266e5e9c693f7d5aae50bed32d3b37201bad3324c541a9cd3"
+      }
+    },
+    "/TypedBaseline/Function7": {
+      "save": {
+        "microseconds": 359191.0,
+        "crt_requests": 766192.0,
+        "crt_requested_bytes": 42010750.0,
+        "samples": [
+          {
+            "asset": "/TypedBaseline/Function7",
+            "operation": "save",
+            "iteration": "0",
+            "microseconds": "357872",
+            "crt_requests": "766192",
+            "crt_requested_bytes": "42010750",
+            "package_bytes": "12235"
+          },
+          {
+            "asset": "/TypedBaseline/Function7",
+            "operation": "save",
+            "iteration": "1",
+            "microseconds": "359191",
+            "crt_requests": "766192",
+            "crt_requested_bytes": "42010750",
+            "package_bytes": "12235"
+          },
+          {
+            "asset": "/TypedBaseline/Function7",
+            "operation": "save",
+            "iteration": "2",
+            "microseconds": "368461",
+            "crt_requests": "766192",
+            "crt_requested_bytes": "42010750",
+            "package_bytes": "12235"
+          },
+          {
+            "asset": "/TypedBaseline/Function7",
+            "operation": "save",
+            "iteration": "3",
+            "microseconds": "353173",
+            "crt_requests": "766192",
+            "crt_requested_bytes": "42010750",
+            "package_bytes": "12235"
+          },
+          {
+            "asset": "/TypedBaseline/Function7",
+            "operation": "save",
+            "iteration": "4",
+            "microseconds": "374112",
+            "crt_requests": "766192",
+            "crt_requested_bytes": "42010750",
+            "package_bytes": "12235"
+          },
+          {
+            "asset": "/TypedBaseline/Function7",
+            "operation": "save",
+            "iteration": "5",
+            "microseconds": "352603",
+            "crt_requests": "766192",
+            "crt_requested_bytes": "42010750",
+            "package_bytes": "12235"
+          }
+        ]
+      },
+      "load": {
+        "microseconds": 165678.0,
+        "crt_requests": 264912.0,
+        "crt_requested_bytes": 13797496.0,
+        "samples": [
+          {
+            "asset": "/TypedBaseline/Function7",
+            "operation": "load",
+            "iteration": "0",
+            "microseconds": "201437",
+            "crt_requests": "264912",
+            "crt_requested_bytes": "13797496",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function7",
+            "operation": "load",
+            "iteration": "1",
+            "microseconds": "168280",
+            "crt_requests": "264912",
+            "crt_requested_bytes": "13797496",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function7",
+            "operation": "load",
+            "iteration": "2",
+            "microseconds": "165407",
+            "crt_requests": "264912",
+            "crt_requested_bytes": "13797496",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function7",
+            "operation": "load",
+            "iteration": "3",
+            "microseconds": "165678",
+            "crt_requests": "264912",
+            "crt_requested_bytes": "13797496",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function7",
+            "operation": "load",
+            "iteration": "4",
+            "microseconds": "166744",
+            "crt_requests": "264912",
+            "crt_requested_bytes": "13797496",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function7",
+            "operation": "load",
+            "iteration": "5",
+            "microseconds": "165562",
+            "crt_requests": "264912",
+            "crt_requested_bytes": "13797496",
+            "package_bytes": "0"
+          }
+        ]
+      },
+      "package": {
+        "bytes": 12235,
+        "sections": {
+          "Registry": 37,
+          "Names": 2862,
+          "Imports": 5,
+          "Exports": 8,
+          "Types": 356,
+          "Schemas": 371,
+          "Values": 8063,
+          "BulkDirectory": 5,
+          "InlineBulk": 0
+        },
+        "exports": 1,
+        "expressionObjects": 0,
+        "sha256": "9551832ac91e0b3720c04d20412d2a33286d9cdb94cce93a8f0ed5b1c4d5dda8"
+      }
+    },
+    "/TypedBaseline/StructuralPlain": {
+      "save": {
+        "microseconds": 104842.0,
+        "crt_requests": 173807.0,
+        "crt_requested_bytes": 8516817.0,
+        "samples": [
+          {
+            "asset": "/TypedBaseline/StructuralPlain",
+            "operation": "save",
+            "iteration": "0",
+            "microseconds": "109192",
+            "crt_requests": "173807",
+            "crt_requested_bytes": "8516817",
+            "package_bytes": "5211"
+          },
+          {
+            "asset": "/TypedBaseline/StructuralPlain",
+            "operation": "save",
+            "iteration": "1",
+            "microseconds": "107106",
+            "crt_requests": "173807",
+            "crt_requested_bytes": "8516817",
+            "package_bytes": "5211"
+          },
+          {
+            "asset": "/TypedBaseline/StructuralPlain",
+            "operation": "save",
+            "iteration": "2",
+            "microseconds": "106319",
+            "crt_requests": "173807",
+            "crt_requested_bytes": "8516817",
+            "package_bytes": "5211"
+          },
+          {
+            "asset": "/TypedBaseline/StructuralPlain",
+            "operation": "save",
+            "iteration": "3",
+            "microseconds": "96560",
+            "crt_requests": "173807",
+            "crt_requested_bytes": "8516817",
+            "package_bytes": "5211"
+          },
+          {
+            "asset": "/TypedBaseline/StructuralPlain",
+            "operation": "save",
+            "iteration": "4",
+            "microseconds": "101707",
+            "crt_requests": "173807",
+            "crt_requested_bytes": "8516817",
+            "package_bytes": "5211"
+          },
+          {
+            "asset": "/TypedBaseline/StructuralPlain",
+            "operation": "save",
+            "iteration": "5",
+            "microseconds": "104842",
+            "crt_requests": "173807",
+            "crt_requested_bytes": "8516817",
+            "package_bytes": "5211"
+          }
+        ]
+      },
+      "load": {
+        "microseconds": 66510.8,
+        "crt_requests": 77472.0,
+        "crt_requested_bytes": 3815564.0,
+        "samples": [
+          {
+            "asset": "/TypedBaseline/StructuralPlain",
+            "operation": "load",
+            "iteration": "0",
+            "microseconds": "546907",
+            "crt_requests": "79340",
+            "crt_requested_bytes": "4528398",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/StructuralPlain",
+            "operation": "load",
+            "iteration": "1",
+            "microseconds": "72252",
+            "crt_requests": "77472",
+            "crt_requested_bytes": "3815564",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/StructuralPlain",
+            "operation": "load",
+            "iteration": "2",
+            "microseconds": "59555.5",
+            "crt_requests": "77472",
+            "crt_requested_bytes": "3815564",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/StructuralPlain",
+            "operation": "load",
+            "iteration": "3",
+            "microseconds": "66510.8",
+            "crt_requests": "77472",
+            "crt_requested_bytes": "3815564",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/StructuralPlain",
+            "operation": "load",
+            "iteration": "4",
+            "microseconds": "68162.9",
+            "crt_requests": "77472",
+            "crt_requested_bytes": "3815564",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/StructuralPlain",
+            "operation": "load",
+            "iteration": "5",
+            "microseconds": "62871.4",
+            "crt_requests": "77472",
+            "crt_requested_bytes": "3815564",
+            "package_bytes": "0"
+          }
+        ]
+      },
+      "package": {
+        "bytes": 5211,
+        "sections": {
+          "Registry": 37,
+          "Names": 3138,
+          "Imports": 5,
+          "Exports": 8,
+          "Types": 349,
+          "Schemas": 365,
+          "Values": 776,
+          "BulkDirectory": 5,
+          "InlineBulk": 0
+        },
+        "exports": 1,
+        "expressionObjects": 0,
+        "sha256": "4eecfc85dd64c8cf51dbfbab5730af6b80c785340fd3305a240629efcdd5c9bb"
+      }
+    },
+    "/TypedBaseline/StructuralTransformedPacked": {
+      "save": {
+        "microseconds": 206501.0,
+        "crt_requests": 410128.0,
+        "crt_requested_bytes": 22344720.0,
+        "samples": [
+          {
+            "asset": "/TypedBaseline/StructuralTransformedPacked",
+            "operation": "save",
+            "iteration": "0",
+            "microseconds": "236689",
+            "crt_requests": "410128",
+            "crt_requested_bytes": "22344720",
+            "package_bytes": "9100"
+          },
+          {
+            "asset": "/TypedBaseline/StructuralTransformedPacked",
+            "operation": "save",
+            "iteration": "1",
+            "microseconds": "214594",
+            "crt_requests": "410128",
+            "crt_requested_bytes": "22344720",
+            "package_bytes": "9100"
+          },
+          {
+            "asset": "/TypedBaseline/StructuralTransformedPacked",
+            "operation": "save",
+            "iteration": "2",
+            "microseconds": "205912",
+            "crt_requests": "410128",
+            "crt_requested_bytes": "22344720",
+            "package_bytes": "9100"
+          },
+          {
+            "asset": "/TypedBaseline/StructuralTransformedPacked",
+            "operation": "save",
+            "iteration": "3",
+            "microseconds": "230679",
+            "crt_requests": "410128",
+            "crt_requested_bytes": "22344720",
+            "package_bytes": "9100"
+          },
+          {
+            "asset": "/TypedBaseline/StructuralTransformedPacked",
+            "operation": "save",
+            "iteration": "4",
+            "microseconds": "205843",
+            "crt_requests": "410128",
+            "crt_requested_bytes": "22344720",
+            "package_bytes": "9100"
+          },
+          {
+            "asset": "/TypedBaseline/StructuralTransformedPacked",
+            "operation": "save",
+            "iteration": "5",
+            "microseconds": "206501",
+            "crt_requests": "410128",
+            "crt_requested_bytes": "22344720",
+            "package_bytes": "9100"
+          }
+        ]
+      },
+      "load": {
+        "microseconds": 103771.0,
+        "crt_requests": 162758.0,
+        "crt_requested_bytes": 8466724.0,
+        "samples": [
+          {
+            "asset": "/TypedBaseline/StructuralTransformedPacked",
+            "operation": "load",
+            "iteration": "0",
+            "microseconds": "554522",
+            "crt_requests": "164679",
+            "crt_requested_bytes": "9188050",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/StructuralTransformedPacked",
+            "operation": "load",
+            "iteration": "1",
+            "microseconds": "106300",
+            "crt_requests": "162759",
+            "crt_requested_bytes": "8470867",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/StructuralTransformedPacked",
+            "operation": "load",
+            "iteration": "2",
+            "microseconds": "102267",
+            "crt_requests": "162758",
+            "crt_requested_bytes": "8466724",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/StructuralTransformedPacked",
+            "operation": "load",
+            "iteration": "3",
+            "microseconds": "103211",
+            "crt_requests": "162758",
+            "crt_requested_bytes": "8466724",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/StructuralTransformedPacked",
+            "operation": "load",
+            "iteration": "4",
+            "microseconds": "103771",
+            "crt_requests": "162758",
+            "crt_requested_bytes": "8466724",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/StructuralTransformedPacked",
+            "operation": "load",
+            "iteration": "5",
+            "microseconds": "106971",
+            "crt_requests": "162758",
+            "crt_requested_bytes": "8466724",
+            "package_bytes": "0"
+          }
+        ]
+      },
+      "package": {
+        "bytes": 9100,
+        "sections": {
+          "Registry": 37,
+          "Names": 3270,
+          "Imports": 5,
+          "Exports": 8,
+          "Types": 349,
+          "Schemas": 369,
+          "Values": 4529,
+          "BulkDirectory": 5,
+          "InlineBulk": 0
+        },
+        "exports": 1,
+        "expressionObjects": 0,
+        "sha256": "ab91b992f6b1a1ce181cb476e909f123bdc1eae7eb424d3831ba19f1e4cb8b15"
+      }
+    },
+    "/TypedBaseline/Template": {
+      "save": {
+        "microseconds": 1560780.0,
+        "crt_requests": 3227215.0,
+        "crt_requested_bytes": 181817900.0,
+        "samples": [
+          {
+            "asset": "/TypedBaseline/Template",
+            "operation": "save",
+            "iteration": "0",
+            "microseconds": "1.63093e+06",
+            "crt_requests": "3227215",
+            "crt_requested_bytes": "181817900",
+            "package_bytes": "56021"
+          },
+          {
+            "asset": "/TypedBaseline/Template",
+            "operation": "save",
+            "iteration": "1",
+            "microseconds": "1.56078e+06",
+            "crt_requests": "3227215",
+            "crt_requested_bytes": "181817900",
+            "package_bytes": "56021"
+          },
+          {
+            "asset": "/TypedBaseline/Template",
+            "operation": "save",
+            "iteration": "2",
+            "microseconds": "1.59713e+06",
+            "crt_requests": "3227215",
+            "crt_requested_bytes": "181817900",
+            "package_bytes": "56021"
+          },
+          {
+            "asset": "/TypedBaseline/Template",
+            "operation": "save",
+            "iteration": "3",
+            "microseconds": "1.57994e+06",
+            "crt_requests": "3227215",
+            "crt_requested_bytes": "181817900",
+            "package_bytes": "56021"
+          },
+          {
+            "asset": "/TypedBaseline/Template",
+            "operation": "save",
+            "iteration": "4",
+            "microseconds": "1.55308e+06",
+            "crt_requests": "3227215",
+            "crt_requested_bytes": "181817900",
+            "package_bytes": "56021"
+          },
+          {
+            "asset": "/TypedBaseline/Template",
+            "operation": "save",
+            "iteration": "5",
+            "microseconds": "1.55823e+06",
+            "crt_requests": "3227215",
+            "crt_requested_bytes": "181817900",
+            "package_bytes": "56021"
+          }
+        ]
+      },
+      "load": {
+        "microseconds": 1044400.0,
+        "crt_requests": 1119428.0,
+        "crt_requested_bytes": 58608639.0,
+        "samples": [
+          {
+            "asset": "/TypedBaseline/Template",
+            "operation": "load",
+            "iteration": "0",
+            "microseconds": "1.43033e+06",
+            "crt_requests": "1121662",
+            "crt_requested_bytes": "59466325",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Template",
+            "operation": "load",
+            "iteration": "1",
+            "microseconds": "1.0444e+06",
+            "crt_requests": "1119428",
+            "crt_requested_bytes": "58608639",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Template",
+            "operation": "load",
+            "iteration": "2",
+            "microseconds": "952880",
+            "crt_requests": "1119428",
+            "crt_requested_bytes": "58608639",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Template",
+            "operation": "load",
+            "iteration": "3",
+            "microseconds": "1.03355e+06",
+            "crt_requests": "1119428",
+            "crt_requested_bytes": "58608639",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Template",
+            "operation": "load",
+            "iteration": "4",
+            "microseconds": "1.09985e+06",
+            "crt_requests": "1119428",
+            "crt_requested_bytes": "58608639",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Template",
+            "operation": "load",
+            "iteration": "5",
+            "microseconds": "1.09369e+06",
+            "crt_requests": "1119428",
+            "crt_requested_bytes": "58608639",
+            "package_bytes": "0"
+          }
+        ]
+      },
+      "package": {
+        "bytes": 56021,
+        "sections": {
+          "Registry": 37,
+          "Names": 4309,
+          "Imports": 5,
+          "Exports": 9,
+          "Types": 352,
+          "Schemas": 414,
+          "Values": 50362,
+          "BulkDirectory": 5,
+          "InlineBulk": 0
+        },
+        "exports": 1,
+        "expressionObjects": 0,
+        "sha256": "99154906e6fd040aa4323e5a0c0b66a91103f97154209c12bb313adcde6aed61"
+      }
+    }
+  },
+  "after": {
+    "/TypedBaseline/Default": {
+      "save": {
+        "microseconds": 27737.7,
+        "crt_requests": 45322.0,
+        "crt_requested_bytes": 2105758.0,
+        "samples": [
+          {
+            "asset": "/TypedBaseline/Default",
+            "operation": "save",
+            "iteration": "0",
+            "microseconds": "24801.1",
+            "crt_requests": "45322",
+            "crt_requested_bytes": "2105758",
+            "package_bytes": "2457"
+          },
+          {
+            "asset": "/TypedBaseline/Default",
+            "operation": "save",
+            "iteration": "1",
+            "microseconds": "27737.7",
+            "crt_requests": "45322",
+            "crt_requested_bytes": "2105758",
+            "package_bytes": "2457"
+          },
+          {
+            "asset": "/TypedBaseline/Default",
+            "operation": "save",
+            "iteration": "2",
+            "microseconds": "32279.9",
+            "crt_requests": "45322",
+            "crt_requested_bytes": "2105758",
+            "package_bytes": "2457"
+          },
+          {
+            "asset": "/TypedBaseline/Default",
+            "operation": "save",
+            "iteration": "3",
+            "microseconds": "27879.7",
+            "crt_requests": "45322",
+            "crt_requested_bytes": "2105758",
+            "package_bytes": "2457"
+          },
+          {
+            "asset": "/TypedBaseline/Default",
+            "operation": "save",
+            "iteration": "4",
+            "microseconds": "27672.2",
+            "crt_requests": "45322",
+            "crt_requested_bytes": "2105758",
+            "package_bytes": "2457"
+          },
+          {
+            "asset": "/TypedBaseline/Default",
+            "operation": "save",
+            "iteration": "5",
+            "microseconds": "24742.6",
+            "crt_requests": "45322",
+            "crt_requested_bytes": "2105758",
+            "package_bytes": "2457"
+          }
+        ]
+      },
+      "load": {
+        "microseconds": 10263.7,
+        "crt_requests": 13123.0,
+        "crt_requested_bytes": 621167.0,
+        "samples": [
+          {
+            "asset": "/TypedBaseline/Default",
+            "operation": "load",
+            "iteration": "0",
+            "microseconds": "11542.8",
+            "crt_requests": "13123",
+            "crt_requested_bytes": "621167",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Default",
+            "operation": "load",
+            "iteration": "1",
+            "microseconds": "11185.9",
+            "crt_requests": "13123",
+            "crt_requested_bytes": "621167",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Default",
+            "operation": "load",
+            "iteration": "2",
+            "microseconds": "8785.4",
+            "crt_requests": "13123",
+            "crt_requested_bytes": "621167",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Default",
+            "operation": "load",
+            "iteration": "3",
+            "microseconds": "10263.7",
+            "crt_requests": "13123",
+            "crt_requested_bytes": "621167",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Default",
+            "operation": "load",
+            "iteration": "4",
+            "microseconds": "11648.5",
+            "crt_requests": "13123",
+            "crt_requested_bytes": "621167",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Default",
+            "operation": "load",
+            "iteration": "5",
+            "microseconds": "9403.8",
+            "crt_requests": "13123",
+            "crt_requested_bytes": "621167",
+            "package_bytes": "0"
+          }
+        ]
+      },
+      "package": {
+        "bytes": 2457,
+        "sections": {
+          "Registry": 37,
+          "Names": 1533,
+          "Imports": 5,
+          "Exports": 8,
+          "Types": 156,
+          "Schemas": 159,
+          "Values": 26,
+          "BulkDirectory": 5,
+          "InlineBulk": 0
+        },
+        "exports": 1,
+        "expressionObjects": 0,
+        "sha256": "e45b00efd7b7e91f1f046a6df5b845381207a7e35ec37da11403f3a226e1334c"
+      }
+    },
+    "/TypedBaseline/Function1": {
+      "save": {
+        "microseconds": 218281.0,
+        "crt_requests": 456976.0,
+        "crt_requested_bytes": 24698393.0,
+        "samples": [
+          {
+            "asset": "/TypedBaseline/Function1",
+            "operation": "save",
+            "iteration": "0",
+            "microseconds": "228716",
+            "crt_requests": "456976",
+            "crt_requested_bytes": "24698393",
+            "package_bytes": "10479"
+          },
+          {
+            "asset": "/TypedBaseline/Function1",
+            "operation": "save",
+            "iteration": "1",
+            "microseconds": "220737",
+            "crt_requests": "456976",
+            "crt_requested_bytes": "24698393",
+            "package_bytes": "10479"
+          },
+          {
+            "asset": "/TypedBaseline/Function1",
+            "operation": "save",
+            "iteration": "2",
+            "microseconds": "218593",
+            "crt_requests": "456976",
+            "crt_requested_bytes": "24698393",
+            "package_bytes": "10479"
+          },
+          {
+            "asset": "/TypedBaseline/Function1",
+            "operation": "save",
+            "iteration": "3",
+            "microseconds": "217684",
+            "crt_requests": "456976",
+            "crt_requested_bytes": "24698393",
+            "package_bytes": "10479"
+          },
+          {
+            "asset": "/TypedBaseline/Function1",
+            "operation": "save",
+            "iteration": "4",
+            "microseconds": "214911",
+            "crt_requests": "456976",
+            "crt_requested_bytes": "24698393",
+            "package_bytes": "10479"
+          },
+          {
+            "asset": "/TypedBaseline/Function1",
+            "operation": "save",
+            "iteration": "5",
+            "microseconds": "218281",
+            "crt_requests": "456976",
+            "crt_requested_bytes": "24698393",
+            "package_bytes": "10479"
+          }
+        ]
+      },
+      "load": {
+        "microseconds": 98960.0,
+        "crt_requests": 155660.0,
+        "crt_requested_bytes": 7874682.0,
+        "samples": [
+          {
+            "asset": "/TypedBaseline/Function1",
+            "operation": "load",
+            "iteration": "0",
+            "microseconds": "100051",
+            "crt_requests": "155661",
+            "crt_requested_bytes": "7874694",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function1",
+            "operation": "load",
+            "iteration": "1",
+            "microseconds": "99733.8",
+            "crt_requests": "155660",
+            "crt_requested_bytes": "7874682",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function1",
+            "operation": "load",
+            "iteration": "2",
+            "microseconds": "98960",
+            "crt_requests": "155660",
+            "crt_requested_bytes": "7874682",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function1",
+            "operation": "load",
+            "iteration": "3",
+            "microseconds": "101562",
+            "crt_requests": "155660",
+            "crt_requested_bytes": "7874682",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function1",
+            "operation": "load",
+            "iteration": "4",
+            "microseconds": "97150.6",
+            "crt_requests": "155660",
+            "crt_requested_bytes": "7874682",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function1",
+            "operation": "load",
+            "iteration": "5",
+            "microseconds": "97470.5",
+            "crt_requests": "155660",
+            "crt_requested_bytes": "7874682",
+            "package_bytes": "0"
+          }
+        ]
+      },
+      "package": {
+        "bytes": 10479,
+        "sections": {
+          "Registry": 37,
+          "Names": 3406,
+          "Imports": 5,
+          "Exports": 62,
+          "Types": 213,
+          "Schemas": 323,
+          "Values": 5900,
+          "BulkDirectory": 5,
+          "InlineBulk": 0
+        },
+        "exports": 19,
+        "expressionObjects": 18,
+        "sha256": "48d282b6b72bcb57ab6f54a73ad86d423b2b3c2300312289a78ced8a6f310cd9"
+      }
+    },
+    "/TypedBaseline/Function2": {
+      "save": {
+        "microseconds": 210139.0,
+        "crt_requests": 443760.0,
+        "crt_requested_bytes": 24090758.0,
+        "samples": [
+          {
+            "asset": "/TypedBaseline/Function2",
+            "operation": "save",
+            "iteration": "0",
+            "microseconds": "213261",
+            "crt_requests": "443760",
+            "crt_requested_bytes": "24090758",
+            "package_bytes": "10503"
+          },
+          {
+            "asset": "/TypedBaseline/Function2",
+            "operation": "save",
+            "iteration": "1",
+            "microseconds": "211630",
+            "crt_requests": "443760",
+            "crt_requested_bytes": "24090758",
+            "package_bytes": "10503"
+          },
+          {
+            "asset": "/TypedBaseline/Function2",
+            "operation": "save",
+            "iteration": "2",
+            "microseconds": "209394",
+            "crt_requests": "443760",
+            "crt_requested_bytes": "24090758",
+            "package_bytes": "10503"
+          },
+          {
+            "asset": "/TypedBaseline/Function2",
+            "operation": "save",
+            "iteration": "3",
+            "microseconds": "210139",
+            "crt_requests": "443760",
+            "crt_requested_bytes": "24090758",
+            "package_bytes": "10503"
+          },
+          {
+            "asset": "/TypedBaseline/Function2",
+            "operation": "save",
+            "iteration": "4",
+            "microseconds": "209829",
+            "crt_requests": "443760",
+            "crt_requested_bytes": "24090758",
+            "package_bytes": "10503"
+          },
+          {
+            "asset": "/TypedBaseline/Function2",
+            "operation": "save",
+            "iteration": "5",
+            "microseconds": "211407",
+            "crt_requests": "443760",
+            "crt_requested_bytes": "24090758",
+            "package_bytes": "10503"
+          }
+        ]
+      },
+      "load": {
+        "microseconds": 95723.5,
+        "crt_requests": 152153.0,
+        "crt_requested_bytes": 7743615.0,
+        "samples": [
+          {
+            "asset": "/TypedBaseline/Function2",
+            "operation": "load",
+            "iteration": "0",
+            "microseconds": "97758.1",
+            "crt_requests": "152153",
+            "crt_requested_bytes": "7743615",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function2",
+            "operation": "load",
+            "iteration": "1",
+            "microseconds": "96846.7",
+            "crt_requests": "152153",
+            "crt_requested_bytes": "7743615",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function2",
+            "operation": "load",
+            "iteration": "2",
+            "microseconds": "94705.3",
+            "crt_requests": "152153",
+            "crt_requested_bytes": "7743615",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function2",
+            "operation": "load",
+            "iteration": "3",
+            "microseconds": "95723.5",
+            "crt_requests": "152153",
+            "crt_requested_bytes": "7743615",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function2",
+            "operation": "load",
+            "iteration": "4",
+            "microseconds": "95677.5",
+            "crt_requests": "152153",
+            "crt_requested_bytes": "7743615",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function2",
+            "operation": "load",
+            "iteration": "5",
+            "microseconds": "113478",
+            "crt_requests": "152153",
+            "crt_requested_bytes": "7743615",
+            "package_bytes": "0"
+          }
+        ]
+      },
+      "package": {
+        "bytes": 10503,
+        "sections": {
+          "Registry": 37,
+          "Names": 3643,
+          "Imports": 5,
+          "Exports": 50,
+          "Types": 248,
+          "Schemas": 377,
+          "Values": 5610,
+          "BulkDirectory": 5,
+          "InlineBulk": 0
+        },
+        "exports": 15,
+        "expressionObjects": 14,
+        "sha256": "d1d73a06df3e9fc13321834fcb0499753628d0a16f4bd701a3ba1b37be8a28a9"
+      }
+    },
+    "/TypedBaseline/Function3": {
+      "save": {
+        "microseconds": 199098.0,
+        "crt_requests": 415178.0,
+        "crt_requested_bytes": 22737141.0,
+        "samples": [
+          {
+            "asset": "/TypedBaseline/Function3",
+            "operation": "save",
+            "iteration": "0",
+            "microseconds": "198229",
+            "crt_requests": "415178",
+            "crt_requested_bytes": "22737141",
+            "package_bytes": "9338"
+          },
+          {
+            "asset": "/TypedBaseline/Function3",
+            "operation": "save",
+            "iteration": "1",
+            "microseconds": "197941",
+            "crt_requests": "415178",
+            "crt_requested_bytes": "22737141",
+            "package_bytes": "9338"
+          },
+          {
+            "asset": "/TypedBaseline/Function3",
+            "operation": "save",
+            "iteration": "2",
+            "microseconds": "201286",
+            "crt_requests": "415178",
+            "crt_requested_bytes": "22737141",
+            "package_bytes": "9338"
+          },
+          {
+            "asset": "/TypedBaseline/Function3",
+            "operation": "save",
+            "iteration": "3",
+            "microseconds": "199098",
+            "crt_requests": "415178",
+            "crt_requested_bytes": "22737141",
+            "package_bytes": "9338"
+          },
+          {
+            "asset": "/TypedBaseline/Function3",
+            "operation": "save",
+            "iteration": "4",
+            "microseconds": "200684",
+            "crt_requests": "415178",
+            "crt_requested_bytes": "22737141",
+            "package_bytes": "9338"
+          },
+          {
+            "asset": "/TypedBaseline/Function3",
+            "operation": "save",
+            "iteration": "5",
+            "microseconds": "197756",
+            "crt_requests": "415178",
+            "crt_requested_bytes": "22737141",
+            "package_bytes": "9338"
+          }
+        ]
+      },
+      "load": {
+        "microseconds": 90604.8,
+        "crt_requests": 143143.0,
+        "crt_requested_bytes": 7375629.0,
+        "samples": [
+          {
+            "asset": "/TypedBaseline/Function3",
+            "operation": "load",
+            "iteration": "0",
+            "microseconds": "97467.8",
+            "crt_requests": "143143",
+            "crt_requested_bytes": "7375629",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function3",
+            "operation": "load",
+            "iteration": "1",
+            "microseconds": "98498.8",
+            "crt_requests": "143143",
+            "crt_requested_bytes": "7375629",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function3",
+            "operation": "load",
+            "iteration": "2",
+            "microseconds": "91193.2",
+            "crt_requests": "143143",
+            "crt_requested_bytes": "7375629",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function3",
+            "operation": "load",
+            "iteration": "3",
+            "microseconds": "89021.5",
+            "crt_requests": "143143",
+            "crt_requested_bytes": "7375629",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function3",
+            "operation": "load",
+            "iteration": "4",
+            "microseconds": "89575.1",
+            "crt_requests": "143143",
+            "crt_requested_bytes": "7375629",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function3",
+            "operation": "load",
+            "iteration": "5",
+            "microseconds": "90604.8",
+            "crt_requests": "143143",
+            "crt_requested_bytes": "7375629",
+            "package_bytes": "0"
+          }
+        ]
+      },
+      "package": {
+        "bytes": 9338,
+        "sections": {
+          "Registry": 37,
+          "Names": 2926,
+          "Imports": 5,
+          "Exports": 35,
+          "Types": 248,
+          "Schemas": 285,
+          "Values": 5269,
+          "BulkDirectory": 5,
+          "InlineBulk": 0
+        },
+        "exports": 10,
+        "expressionObjects": 9,
+        "sha256": "816c1597ab53d2f5df948b9e6fd805999957b16eea7891863f8a7c73430a3235"
+      }
+    },
+    "/TypedBaseline/Function4": {
+      "save": {
+        "microseconds": 893092.0,
+        "crt_requests": 1783034.0,
+        "crt_requested_bytes": 101632161.0,
+        "samples": [
+          {
+            "asset": "/TypedBaseline/Function4",
+            "operation": "save",
+            "iteration": "0",
+            "microseconds": "879190",
+            "crt_requests": "1783034",
+            "crt_requested_bytes": "101632161",
+            "package_bytes": "39533"
+          },
+          {
+            "asset": "/TypedBaseline/Function4",
+            "operation": "save",
+            "iteration": "1",
+            "microseconds": "893092",
+            "crt_requests": "1783034",
+            "crt_requested_bytes": "101632161",
+            "package_bytes": "39533"
+          },
+          {
+            "asset": "/TypedBaseline/Function4",
+            "operation": "save",
+            "iteration": "2",
+            "microseconds": "887345",
+            "crt_requests": "1783034",
+            "crt_requested_bytes": "101632161",
+            "package_bytes": "39533"
+          },
+          {
+            "asset": "/TypedBaseline/Function4",
+            "operation": "save",
+            "iteration": "3",
+            "microseconds": "887412",
+            "crt_requests": "1783034",
+            "crt_requested_bytes": "101632161",
+            "package_bytes": "39533"
+          },
+          {
+            "asset": "/TypedBaseline/Function4",
+            "operation": "save",
+            "iteration": "4",
+            "microseconds": "1.01994e+06",
+            "crt_requests": "1783034",
+            "crt_requested_bytes": "101632161",
+            "package_bytes": "39533"
+          },
+          {
+            "asset": "/TypedBaseline/Function4",
+            "operation": "save",
+            "iteration": "5",
+            "microseconds": "932998",
+            "crt_requests": "1783034",
+            "crt_requested_bytes": "101632161",
+            "package_bytes": "39533"
+          }
+        ]
+      },
+      "load": {
+        "microseconds": 390057.0,
+        "crt_requests": 560131.0,
+        "crt_requested_bytes": 30525117.0,
+        "samples": [
+          {
+            "asset": "/TypedBaseline/Function4",
+            "operation": "load",
+            "iteration": "0",
+            "microseconds": "511743",
+            "crt_requests": "712219",
+            "crt_requested_bytes": "38267092",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function4",
+            "operation": "load",
+            "iteration": "1",
+            "microseconds": "396700",
+            "crt_requests": "560131",
+            "crt_requested_bytes": "30525117",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function4",
+            "operation": "load",
+            "iteration": "2",
+            "microseconds": "390586",
+            "crt_requests": "560131",
+            "crt_requested_bytes": "30525117",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function4",
+            "operation": "load",
+            "iteration": "3",
+            "microseconds": "388986",
+            "crt_requests": "560131",
+            "crt_requested_bytes": "30525117",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function4",
+            "operation": "load",
+            "iteration": "4",
+            "microseconds": "385739",
+            "crt_requests": "560131",
+            "crt_requested_bytes": "30525117",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function4",
+            "operation": "load",
+            "iteration": "5",
+            "microseconds": "390057",
+            "crt_requests": "560131",
+            "crt_requested_bytes": "30525117",
+            "package_bytes": "0"
+          }
+        ]
+      },
+      "package": {
+        "bytes": 39533,
+        "sections": {
+          "Registry": 38,
+          "Names": 6875,
+          "Imports": 9,
+          "Exports": 212,
+          "Types": 289,
+          "Schemas": 571,
+          "Values": 31006,
+          "BulkDirectory": 5,
+          "InlineBulk": 0
+        },
+        "exports": 67,
+        "expressionObjects": 66,
+        "sha256": "38455ef6457219db6e3d1ffa1b31862f14ecfce05871a32f265b9bfc3e6fde0c"
+      }
+    },
+    "/TypedBaseline/Function5": {
+      "save": {
+        "microseconds": 763081.0,
+        "crt_requests": 1547848.0,
+        "crt_requested_bytes": 87912111.0,
+        "samples": [
+          {
+            "asset": "/TypedBaseline/Function5",
+            "operation": "save",
+            "iteration": "0",
+            "microseconds": "791288",
+            "crt_requests": "1547848",
+            "crt_requested_bytes": "87912111",
+            "package_bytes": "34725"
+          },
+          {
+            "asset": "/TypedBaseline/Function5",
+            "operation": "save",
+            "iteration": "1",
+            "microseconds": "763081",
+            "crt_requests": "1547848",
+            "crt_requested_bytes": "87912111",
+            "package_bytes": "34725"
+          },
+          {
+            "asset": "/TypedBaseline/Function5",
+            "operation": "save",
+            "iteration": "2",
+            "microseconds": "777307",
+            "crt_requests": "1547848",
+            "crt_requested_bytes": "87912111",
+            "package_bytes": "34725"
+          },
+          {
+            "asset": "/TypedBaseline/Function5",
+            "operation": "save",
+            "iteration": "3",
+            "microseconds": "760884",
+            "crt_requests": "1547848",
+            "crt_requested_bytes": "87912111",
+            "package_bytes": "34725"
+          },
+          {
+            "asset": "/TypedBaseline/Function5",
+            "operation": "save",
+            "iteration": "4",
+            "microseconds": "758014",
+            "crt_requests": "1547848",
+            "crt_requested_bytes": "87912111",
+            "package_bytes": "34725"
+          },
+          {
+            "asset": "/TypedBaseline/Function5",
+            "operation": "save",
+            "iteration": "5",
+            "microseconds": "768304",
+            "crt_requests": "1547848",
+            "crt_requested_bytes": "87912111",
+            "package_bytes": "34725"
+          }
+        ]
+      },
+      "load": {
+        "microseconds": 337348.0,
+        "crt_requests": 486791.0,
+        "crt_requested_bytes": 26055548.0,
+        "samples": [
+          {
+            "asset": "/TypedBaseline/Function5",
+            "operation": "load",
+            "iteration": "0",
+            "microseconds": "429434",
+            "crt_requests": "629868",
+            "crt_requested_bytes": "33429513",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function5",
+            "operation": "load",
+            "iteration": "1",
+            "microseconds": "340688",
+            "crt_requests": "486791",
+            "crt_requested_bytes": "26055548",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function5",
+            "operation": "load",
+            "iteration": "2",
+            "microseconds": "334986",
+            "crt_requests": "486791",
+            "crt_requested_bytes": "26055548",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function5",
+            "operation": "load",
+            "iteration": "3",
+            "microseconds": "351106",
+            "crt_requests": "486791",
+            "crt_requested_bytes": "26055548",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function5",
+            "operation": "load",
+            "iteration": "4",
+            "microseconds": "337348",
+            "crt_requests": "486791",
+            "crt_requested_bytes": "26055548",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function5",
+            "operation": "load",
+            "iteration": "5",
+            "microseconds": "331864",
+            "crt_requests": "486791",
+            "crt_requested_bytes": "26055548",
+            "package_bytes": "0"
+          }
+        ]
+      },
+      "package": {
+        "bytes": 34725,
+        "sections": {
+          "Registry": 39,
+          "Names": 6454,
+          "Imports": 13,
+          "Exports": 180,
+          "Types": 289,
+          "Schemas": 569,
+          "Values": 26648,
+          "BulkDirectory": 5,
+          "InlineBulk": 0
+        },
+        "exports": 58,
+        "expressionObjects": 57,
+        "sha256": "b3cabc7b1082870cf3c025f4d536058e135e5f38fc53c61d80c549eb97392d78"
+      }
+    },
+    "/TypedBaseline/Function6": {
+      "save": {
+        "microseconds": 580309.0,
+        "crt_requests": 1191396.0,
+        "crt_requested_bytes": 67072861.0,
+        "samples": [
+          {
+            "asset": "/TypedBaseline/Function6",
+            "operation": "save",
+            "iteration": "0",
+            "microseconds": "576430",
+            "crt_requests": "1191396",
+            "crt_requested_bytes": "67072861",
+            "package_bytes": "26270"
+          },
+          {
+            "asset": "/TypedBaseline/Function6",
+            "operation": "save",
+            "iteration": "1",
+            "microseconds": "604426",
+            "crt_requests": "1191396",
+            "crt_requested_bytes": "67072861",
+            "package_bytes": "26270"
+          },
+          {
+            "asset": "/TypedBaseline/Function6",
+            "operation": "save",
+            "iteration": "2",
+            "microseconds": "580187",
+            "crt_requests": "1191396",
+            "crt_requested_bytes": "67072861",
+            "package_bytes": "26270"
+          },
+          {
+            "asset": "/TypedBaseline/Function6",
+            "operation": "save",
+            "iteration": "3",
+            "microseconds": "578833",
+            "crt_requests": "1191396",
+            "crt_requested_bytes": "67072861",
+            "package_bytes": "26270"
+          },
+          {
+            "asset": "/TypedBaseline/Function6",
+            "operation": "save",
+            "iteration": "4",
+            "microseconds": "580309",
+            "crt_requests": "1191396",
+            "crt_requested_bytes": "67072861",
+            "package_bytes": "26270"
+          },
+          {
+            "asset": "/TypedBaseline/Function6",
+            "operation": "save",
+            "iteration": "5",
+            "microseconds": "592733",
+            "crt_requests": "1191396",
+            "crt_requested_bytes": "67072861",
+            "package_bytes": "26270"
+          }
+        ]
+      },
+      "load": {
+        "microseconds": 257660.0,
+        "crt_requests": 378154.0,
+        "crt_requested_bytes": 20270920.0,
+        "samples": [
+          {
+            "asset": "/TypedBaseline/Function6",
+            "operation": "load",
+            "iteration": "0",
+            "microseconds": "256115",
+            "crt_requests": "378154",
+            "crt_requested_bytes": "20270920",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function6",
+            "operation": "load",
+            "iteration": "1",
+            "microseconds": "252085",
+            "crt_requests": "378154",
+            "crt_requested_bytes": "20270920",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function6",
+            "operation": "load",
+            "iteration": "2",
+            "microseconds": "258386",
+            "crt_requests": "378154",
+            "crt_requested_bytes": "20270920",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function6",
+            "operation": "load",
+            "iteration": "3",
+            "microseconds": "259784",
+            "crt_requests": "378154",
+            "crt_requested_bytes": "20270920",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function6",
+            "operation": "load",
+            "iteration": "4",
+            "microseconds": "257660",
+            "crt_requests": "378154",
+            "crt_requested_bytes": "20270920",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function6",
+            "operation": "load",
+            "iteration": "5",
+            "microseconds": "251702",
+            "crt_requests": "378154",
+            "crt_requested_bytes": "20270920",
+            "package_bytes": "0"
+          }
+        ]
+      },
+      "package": {
+        "bytes": 26270,
+        "sections": {
+          "Registry": 37,
+          "Names": 5042,
+          "Imports": 5,
+          "Exports": 137,
+          "Types": 220,
+          "Schemas": 433,
+          "Values": 19863,
+          "BulkDirectory": 5,
+          "InlineBulk": 0
+        },
+        "exports": 44,
+        "expressionObjects": 43,
+        "sha256": "590b686184f34670d99e2bb59fdb2d1e61c26610084594416fb46fcee64cba58"
+      }
+    },
+    "/TypedBaseline/Function7": {
+      "save": {
+        "microseconds": 146559.0,
+        "crt_requests": 262766.0,
+        "crt_requested_bytes": 13541528.0,
+        "samples": [
+          {
+            "asset": "/TypedBaseline/Function7",
+            "operation": "save",
+            "iteration": "0",
+            "microseconds": "129860",
+            "crt_requests": "262766",
+            "crt_requested_bytes": "13541528",
+            "package_bytes": "6551"
+          },
+          {
+            "asset": "/TypedBaseline/Function7",
+            "operation": "save",
+            "iteration": "1",
+            "microseconds": "158619",
+            "crt_requests": "262766",
+            "crt_requested_bytes": "13541528",
+            "package_bytes": "6551"
+          },
+          {
+            "asset": "/TypedBaseline/Function7",
+            "operation": "save",
+            "iteration": "2",
+            "microseconds": "146559",
+            "crt_requests": "262766",
+            "crt_requested_bytes": "13541528",
+            "package_bytes": "6551"
+          },
+          {
+            "asset": "/TypedBaseline/Function7",
+            "operation": "save",
+            "iteration": "3",
+            "microseconds": "158214",
+            "crt_requests": "262766",
+            "crt_requested_bytes": "13541528",
+            "package_bytes": "6551"
+          },
+          {
+            "asset": "/TypedBaseline/Function7",
+            "operation": "save",
+            "iteration": "4",
+            "microseconds": "145371",
+            "crt_requests": "262766",
+            "crt_requested_bytes": "13541528",
+            "package_bytes": "6551"
+          },
+          {
+            "asset": "/TypedBaseline/Function7",
+            "operation": "save",
+            "iteration": "5",
+            "microseconds": "144447",
+            "crt_requests": "262766",
+            "crt_requested_bytes": "13541528",
+            "package_bytes": "6551"
+          }
+        ]
+      },
+      "load": {
+        "microseconds": 55430.4,
+        "crt_requests": 94554.0,
+        "crt_requested_bytes": 4613237.0,
+        "samples": [
+          {
+            "asset": "/TypedBaseline/Function7",
+            "operation": "load",
+            "iteration": "0",
+            "microseconds": "54896.9",
+            "crt_requests": "94554",
+            "crt_requested_bytes": "4613237",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function7",
+            "operation": "load",
+            "iteration": "1",
+            "microseconds": "60183.4",
+            "crt_requests": "94554",
+            "crt_requested_bytes": "4613237",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function7",
+            "operation": "load",
+            "iteration": "2",
+            "microseconds": "55022.5",
+            "crt_requests": "94554",
+            "crt_requested_bytes": "4613237",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function7",
+            "operation": "load",
+            "iteration": "3",
+            "microseconds": "56742.5",
+            "crt_requests": "94554",
+            "crt_requested_bytes": "4613237",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function7",
+            "operation": "load",
+            "iteration": "4",
+            "microseconds": "55430.4",
+            "crt_requests": "94554",
+            "crt_requested_bytes": "4613237",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Function7",
+            "operation": "load",
+            "iteration": "5",
+            "microseconds": "53168.2",
+            "crt_requests": "94554",
+            "crt_requested_bytes": "4613237",
+            "package_bytes": "0"
+          }
+        ]
+      },
+      "package": {
+        "bytes": 6551,
+        "sections": {
+          "Registry": 37,
+          "Names": 2936,
+          "Imports": 5,
+          "Exports": 35,
+          "Types": 219,
+          "Schemas": 310,
+          "Values": 2476,
+          "BulkDirectory": 5,
+          "InlineBulk": 0
+        },
+        "exports": 10,
+        "expressionObjects": 9,
+        "sha256": "dcf61a11006fd2b30c2e2bf1d153d81ac6161e47dbc398482f5c0bb200d63beb"
+      }
+    },
+    "/TypedBaseline/StructuralPlain": {
+      "save": {
+        "microseconds": 42997.9,
+        "crt_requests": 76867.0,
+        "crt_requested_bytes": 3629826.0,
+        "samples": [
+          {
+            "asset": "/TypedBaseline/StructuralPlain",
+            "operation": "save",
+            "iteration": "0",
+            "microseconds": "43625.7",
+            "crt_requests": "76867",
+            "crt_requested_bytes": "3629826",
+            "package_bytes": "4130"
+          },
+          {
+            "asset": "/TypedBaseline/StructuralPlain",
+            "operation": "save",
+            "iteration": "1",
+            "microseconds": "41035.7",
+            "crt_requests": "76867",
+            "crt_requested_bytes": "3629826",
+            "package_bytes": "4130"
+          },
+          {
+            "asset": "/TypedBaseline/StructuralPlain",
+            "operation": "save",
+            "iteration": "2",
+            "microseconds": "42997.9",
+            "crt_requests": "76867",
+            "crt_requested_bytes": "3629826",
+            "package_bytes": "4130"
+          },
+          {
+            "asset": "/TypedBaseline/StructuralPlain",
+            "operation": "save",
+            "iteration": "3",
+            "microseconds": "40938.5",
+            "crt_requests": "76867",
+            "crt_requested_bytes": "3629826",
+            "package_bytes": "4130"
+          },
+          {
+            "asset": "/TypedBaseline/StructuralPlain",
+            "operation": "save",
+            "iteration": "4",
+            "microseconds": "46653.4",
+            "crt_requests": "76867",
+            "crt_requested_bytes": "3629826",
+            "package_bytes": "4130"
+          },
+          {
+            "asset": "/TypedBaseline/StructuralPlain",
+            "operation": "save",
+            "iteration": "5",
+            "microseconds": "45834.3",
+            "crt_requests": "76867",
+            "crt_requested_bytes": "3629826",
+            "package_bytes": "4130"
+          }
+        ]
+      },
+      "load": {
+        "microseconds": 22622.7,
+        "crt_requests": 29567.0,
+        "crt_requested_bytes": 1367753.0,
+        "samples": [
+          {
+            "asset": "/TypedBaseline/StructuralPlain",
+            "operation": "load",
+            "iteration": "0",
+            "microseconds": "26769.3",
+            "crt_requests": "30126",
+            "crt_requested_bytes": "1617734",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/StructuralPlain",
+            "operation": "load",
+            "iteration": "1",
+            "microseconds": "22196.9",
+            "crt_requests": "29567",
+            "crt_requested_bytes": "1367753",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/StructuralPlain",
+            "operation": "load",
+            "iteration": "2",
+            "microseconds": "24767.9",
+            "crt_requests": "29567",
+            "crt_requested_bytes": "1367753",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/StructuralPlain",
+            "operation": "load",
+            "iteration": "3",
+            "microseconds": "22622.7",
+            "crt_requests": "29567",
+            "crt_requested_bytes": "1367753",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/StructuralPlain",
+            "operation": "load",
+            "iteration": "4",
+            "microseconds": "28349.7",
+            "crt_requests": "29567",
+            "crt_requested_bytes": "1367753",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/StructuralPlain",
+            "operation": "load",
+            "iteration": "5",
+            "microseconds": "21350",
+            "crt_requests": "29567",
+            "crt_requested_bytes": "1367753",
+            "package_bytes": "0"
+          }
+        ]
+      },
+      "package": {
+        "bytes": 4130,
+        "sections": {
+          "Registry": 37,
+          "Names": 2771,
+          "Imports": 5,
+          "Exports": 11,
+          "Types": 258,
+          "Schemas": 282,
+          "Values": 233,
+          "BulkDirectory": 5,
+          "InlineBulk": 0
+        },
+        "exports": 2,
+        "expressionObjects": 1,
+        "sha256": "5bf2c82be87c72fba3b05dbd84ed0ee972054d939a48a744ab9f8e477068f0f5"
+      }
+    },
+    "/TypedBaseline/StructuralTransformedPacked": {
+      "save": {
+        "microseconds": 74714.8,
+        "crt_requests": 133026.0,
+        "crt_requested_bytes": 6715639.0,
+        "samples": [
+          {
+            "asset": "/TypedBaseline/StructuralTransformedPacked",
+            "operation": "save",
+            "iteration": "0",
+            "microseconds": "73342.2",
+            "crt_requests": "133026",
+            "crt_requested_bytes": "6715639",
+            "package_bytes": "5714"
+          },
+          {
+            "asset": "/TypedBaseline/StructuralTransformedPacked",
+            "operation": "save",
+            "iteration": "1",
+            "microseconds": "76228.1",
+            "crt_requests": "133026",
+            "crt_requested_bytes": "6715639",
+            "package_bytes": "5714"
+          },
+          {
+            "asset": "/TypedBaseline/StructuralTransformedPacked",
+            "operation": "save",
+            "iteration": "2",
+            "microseconds": "76182.2",
+            "crt_requests": "133026",
+            "crt_requested_bytes": "6715639",
+            "package_bytes": "5714"
+          },
+          {
+            "asset": "/TypedBaseline/StructuralTransformedPacked",
+            "operation": "save",
+            "iteration": "3",
+            "microseconds": "73987.6",
+            "crt_requests": "133026",
+            "crt_requested_bytes": "6715639",
+            "package_bytes": "5714"
+          },
+          {
+            "asset": "/TypedBaseline/StructuralTransformedPacked",
+            "operation": "save",
+            "iteration": "4",
+            "microseconds": "74714.8",
+            "crt_requests": "133026",
+            "crt_requested_bytes": "6715639",
+            "package_bytes": "5714"
+          },
+          {
+            "asset": "/TypedBaseline/StructuralTransformedPacked",
+            "operation": "save",
+            "iteration": "5",
+            "microseconds": "73965.1",
+            "crt_requests": "133026",
+            "crt_requested_bytes": "6715639",
+            "package_bytes": "5714"
+          }
+        ]
+      },
+      "load": {
+        "microseconds": 34810.8,
+        "crt_requests": 46859.0,
+        "crt_requested_bytes": 2221097.0,
+        "samples": [
+          {
+            "asset": "/TypedBaseline/StructuralTransformedPacked",
+            "operation": "load",
+            "iteration": "0",
+            "microseconds": "37963.6",
+            "crt_requests": "47434",
+            "crt_requested_bytes": "2474038",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/StructuralTransformedPacked",
+            "operation": "load",
+            "iteration": "1",
+            "microseconds": "34810.8",
+            "crt_requests": "46860",
+            "crt_requested_bytes": "2225240",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/StructuralTransformedPacked",
+            "operation": "load",
+            "iteration": "2",
+            "microseconds": "35028.8",
+            "crt_requests": "46859",
+            "crt_requested_bytes": "2221097",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/StructuralTransformedPacked",
+            "operation": "load",
+            "iteration": "3",
+            "microseconds": "34178.7",
+            "crt_requests": "46859",
+            "crt_requested_bytes": "2221097",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/StructuralTransformedPacked",
+            "operation": "load",
+            "iteration": "4",
+            "microseconds": "34741",
+            "crt_requests": "46859",
+            "crt_requested_bytes": "2221097",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/StructuralTransformedPacked",
+            "operation": "load",
+            "iteration": "5",
+            "microseconds": "35876.9",
+            "crt_requests": "46859",
+            "crt_requested_bytes": "2221097",
+            "package_bytes": "0"
+          }
+        ]
+      },
+      "package": {
+        "bytes": 5714,
+        "sections": {
+          "Registry": 37,
+          "Names": 3485,
+          "Imports": 5,
+          "Exports": 26,
+          "Types": 269,
+          "Schemas": 327,
+          "Values": 1032,
+          "BulkDirectory": 5,
+          "InlineBulk": 0
+        },
+        "exports": 7,
+        "expressionObjects": 6,
+        "sha256": "8f1abfa9f6d29c51877f27d1b43f90f6064e9e9dbfa4e7859ab93a120e434e1a"
+      }
+    },
+    "/TypedBaseline/Template": {
+      "save": {
+        "microseconds": 398560.0,
+        "crt_requests": 712263.0,
+        "crt_requested_bytes": 37088529.0,
+        "samples": [
+          {
+            "asset": "/TypedBaseline/Template",
+            "operation": "save",
+            "iteration": "0",
+            "microseconds": "473028",
+            "crt_requests": "712263",
+            "crt_requested_bytes": "37088529",
+            "package_bytes": "20817"
+          },
+          {
+            "asset": "/TypedBaseline/Template",
+            "operation": "save",
+            "iteration": "1",
+            "microseconds": "395989",
+            "crt_requests": "712263",
+            "crt_requested_bytes": "37088529",
+            "package_bytes": "20817"
+          },
+          {
+            "asset": "/TypedBaseline/Template",
+            "operation": "save",
+            "iteration": "2",
+            "microseconds": "398560",
+            "crt_requests": "712263",
+            "crt_requested_bytes": "37088529",
+            "package_bytes": "20817"
+          },
+          {
+            "asset": "/TypedBaseline/Template",
+            "operation": "save",
+            "iteration": "3",
+            "microseconds": "413836",
+            "crt_requests": "712263",
+            "crt_requested_bytes": "37088529",
+            "package_bytes": "20817"
+          },
+          {
+            "asset": "/TypedBaseline/Template",
+            "operation": "save",
+            "iteration": "4",
+            "microseconds": "398698",
+            "crt_requests": "712263",
+            "crt_requested_bytes": "37088529",
+            "package_bytes": "20817"
+          },
+          {
+            "asset": "/TypedBaseline/Template",
+            "operation": "save",
+            "iteration": "5",
+            "microseconds": "397100",
+            "crt_requests": "712263",
+            "crt_requested_bytes": "37088529",
+            "package_bytes": "20817"
+          }
+        ]
+      },
+      "load": {
+        "microseconds": 170551.0,
+        "crt_requests": 245721.0,
+        "crt_requested_bytes": 11459494.0,
+        "samples": [
+          {
+            "asset": "/TypedBaseline/Template",
+            "operation": "load",
+            "iteration": "0",
+            "microseconds": "185596",
+            "crt_requests": "246392",
+            "crt_requested_bytes": "11769299",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Template",
+            "operation": "load",
+            "iteration": "1",
+            "microseconds": "170551",
+            "crt_requests": "245721",
+            "crt_requested_bytes": "11459494",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Template",
+            "operation": "load",
+            "iteration": "2",
+            "microseconds": "166217",
+            "crt_requests": "245721",
+            "crt_requested_bytes": "11459494",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Template",
+            "operation": "load",
+            "iteration": "3",
+            "microseconds": "172372",
+            "crt_requests": "245721",
+            "crt_requested_bytes": "11459494",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Template",
+            "operation": "load",
+            "iteration": "4",
+            "microseconds": "171544",
+            "crt_requests": "245721",
+            "crt_requested_bytes": "11459494",
+            "package_bytes": "0"
+          },
+          {
+            "asset": "/TypedBaseline/Template",
+            "operation": "load",
+            "iteration": "5",
+            "microseconds": "167846",
+            "crt_requests": "245721",
+            "crt_requested_bytes": "11459494",
+            "package_bytes": "0"
+          }
+        ]
+      },
+      "package": {
+        "bytes": 20817,
+        "sections": {
+          "Registry": 37,
+          "Names": 7958,
+          "Imports": 5,
+          "Exports": 219,
+          "Types": 269,
+          "Schemas": 440,
+          "Values": 11356,
+          "BulkDirectory": 5,
+          "InlineBulk": 0
+        },
+        "exports": 65,
+        "expressionObjects": 64,
+        "sha256": "1664d07838ee7edbde59df203bb9c49dfd24ff64dc6aad5e3ebee589f486a403"
+      }
+    }
+  },
+  "identitiesMatch": true,
+  "images": {
+    "before": {
+      "clamp.png": "34fd12edd6131f096b9710401248d49f9024b7a14281933cc33ba953807f0232",
+      "emissive-only.png": "67da1c89321f063dec5b58f6681a847a285c8b3ee32e8056f42b7798b59b05a2",
+      "function-clamp.png": "34fd12edd6131f096b9710401248d49f9024b7a14281933cc33ba953807f0232",
+      "function-missing-texture.png": "141e3372d8cdfd9f37a20028cb9979af005ae3d2f29a7d68e4d465fb097ed2c5",
+      "function-missing-uv.png": "6de6fcc2a6fcfdb86b40a4c51ad2aa18aebdf00034633dfa6bffc5ff0900d67f",
+      "function-pbr-independent-maps.png": "f93c17474e6153eac47f8010ff9225d7b126229c7d952c897b9be6f44d634cf5",
+      "function-pbr-neutral.png": "d4d0c0e559b1e0102cde70237bfbcf620423bd1261f29c91d7bde51cc7e6dbbd",
+      "function-pbr-packed-source.png": "d4d0c0e559b1e0102cde70237bfbcf620423bd1261f29c91d7bde51cc7e6dbbd",
+      "function-repeat.png": "a7f8aa79e84cf52086b4be42fa605a4c9c21340e7461635ab154be72737f6587",
+      "function-rotated-uv.png": "b68928749e7dacda1c468bf3ef0367156938e0139aad3073349d1788cc330b66",
+      "function-transformed-uv.png": "6de6fcc2a6fcfdb86b40a4c51ad2aa18aebdf00034633dfa6bffc5ff0900d67f",
+      "function-uv0.png": "0c7a406acded194f355df848338e2dffc6df0020a42485e8309a699428ad9f08",
+      "masked-below.png": "800f04dbe59ad64abfe25ce061d4b003baddf59da0433d500b82094e932a667f",
+      "masked-equal.png": "a4a6852abde4d21d603a6ad46ec9bbfddba4c53e9fd6259e2174fd0b7ded558f",
+      "missing-texture.png": "141e3372d8cdfd9f37a20028cb9979af005ae3d2f29a7d68e4d465fb097ed2c5",
+      "missing-uv.png": "6de6fcc2a6fcfdb86b40a4c51ad2aa18aebdf00034633dfa6bffc5ff0900d67f",
+      "normal-only.png": "7dae7431199036514de1ecda44e9e5ebdd8198fe22b8a597f64a58ab510ceefc",
+      "parameter-function-fixture.png": "315d46c61797eef2228fbfc071c47b0471dadc9c282ec989d9905d87af5c0674",
+      "pbr-independent-maps.png": "f93c17474e6153eac47f8010ff9225d7b126229c7d952c897b9be6f44d634cf5",
+      "pbr-neutral.png": "d4d0c0e559b1e0102cde70237bfbcf620423bd1261f29c91d7bde51cc7e6dbbd",
+      "pbr-packed-source.png": "d4d0c0e559b1e0102cde70237bfbcf620423bd1261f29c91d7bde51cc7e6dbbd",
+      "rebuilt-default-material.png": "315d46c61797eef2228fbfc071c47b0471dadc9c282ec989d9905d87af5c0674",
+      "repeat.png": "a7f8aa79e84cf52086b4be42fa605a4c9c21340e7461635ab154be72737f6587",
+      "rotated-uv.png": "b68928749e7dacda1c468bf3ef0367156938e0139aad3073349d1788cc330b66",
+      "transformed-uv.png": "6de6fcc2a6fcfdb86b40a4c51ad2aa18aebdf00034633dfa6bffc5ff0900d67f",
+      "translucent-partial.png": "46b1d8f1edf8e9661bc970bce19a6341d8c616ecffb23f584b47dcebd410a472",
+      "unlit.png": "a4a6852abde4d21d603a6ad46ec9bbfddba4c53e9fd6259e2174fd0b7ded558f",
+      "uv0.png": "0c7a406acded194f355df848338e2dffc6df0020a42485e8309a699428ad9f08"
+    },
+    "after": {
+      "clamp.png": "34fd12edd6131f096b9710401248d49f9024b7a14281933cc33ba953807f0232",
+      "emissive-only.png": "67da1c89321f063dec5b58f6681a847a285c8b3ee32e8056f42b7798b59b05a2",
+      "function-clamp.png": "34fd12edd6131f096b9710401248d49f9024b7a14281933cc33ba953807f0232",
+      "function-missing-texture.png": "141e3372d8cdfd9f37a20028cb9979af005ae3d2f29a7d68e4d465fb097ed2c5",
+      "function-missing-uv.png": "6de6fcc2a6fcfdb86b40a4c51ad2aa18aebdf00034633dfa6bffc5ff0900d67f",
+      "function-pbr-independent-maps.png": "f93c17474e6153eac47f8010ff9225d7b126229c7d952c897b9be6f44d634cf5",
+      "function-pbr-neutral.png": "d4d0c0e559b1e0102cde70237bfbcf620423bd1261f29c91d7bde51cc7e6dbbd",
+      "function-pbr-packed-source.png": "d4d0c0e559b1e0102cde70237bfbcf620423bd1261f29c91d7bde51cc7e6dbbd",
+      "function-repeat.png": "a7f8aa79e84cf52086b4be42fa605a4c9c21340e7461635ab154be72737f6587",
+      "function-rotated-uv.png": "b68928749e7dacda1c468bf3ef0367156938e0139aad3073349d1788cc330b66",
+      "function-transformed-uv.png": "6de6fcc2a6fcfdb86b40a4c51ad2aa18aebdf00034633dfa6bffc5ff0900d67f",
+      "function-uv0.png": "0c7a406acded194f355df848338e2dffc6df0020a42485e8309a699428ad9f08",
+      "masked-below.png": "800f04dbe59ad64abfe25ce061d4b003baddf59da0433d500b82094e932a667f",
+      "masked-equal.png": "a4a6852abde4d21d603a6ad46ec9bbfddba4c53e9fd6259e2174fd0b7ded558f",
+      "missing-texture.png": "141e3372d8cdfd9f37a20028cb9979af005ae3d2f29a7d68e4d465fb097ed2c5",
+      "missing-uv.png": "6de6fcc2a6fcfdb86b40a4c51ad2aa18aebdf00034633dfa6bffc5ff0900d67f",
+      "normal-only.png": "7dae7431199036514de1ecda44e9e5ebdd8198fe22b8a597f64a58ab510ceefc",
+      "parameter-function-fixture.png": "315d46c61797eef2228fbfc071c47b0471dadc9c282ec989d9905d87af5c0674",
+      "pbr-independent-maps.png": "f93c17474e6153eac47f8010ff9225d7b126229c7d952c897b9be6f44d634cf5",
+      "pbr-neutral.png": "d4d0c0e559b1e0102cde70237bfbcf620423bd1261f29c91d7bde51cc7e6dbbd",
+      "pbr-packed-source.png": "d4d0c0e559b1e0102cde70237bfbcf620423bd1261f29c91d7bde51cc7e6dbbd",
+      "rebuilt-default-material.png": "315d46c61797eef2228fbfc071c47b0471dadc9c282ec989d9905d87af5c0674",
+      "repeat.png": "a7f8aa79e84cf52086b4be42fa605a4c9c21340e7461635ab154be72737f6587",
+      "rotated-uv.png": "b68928749e7dacda1c468bf3ef0367156938e0139aad3073349d1788cc330b66",
+      "transformed-uv.png": "6de6fcc2a6fcfdb86b40a4c51ad2aa18aebdf00034633dfa6bffc5ff0900d67f",
+      "translucent-partial.png": "46b1d8f1edf8e9661bc970bce19a6341d8c616ecffb23f584b47dcebd410a472",
+      "unlit.png": "a4a6852abde4d21d603a6ad46ec9bbfddba4c53e9fd6259e2174fd0b7ded558f",
+      "uv0.png": "0c7a406acded194f355df848338e2dffc6df0020a42485e8309a699428ad9f08"
+    },
+    "exactMatch": true
+  },
+  "shipped": [
+    {
+      "package": "/Engine/Materials/DefaultMaterial",
+      "before": {
+        "bytes": 3386,
+        "sections": {
+          "Registry": 37,
+          "Names": 1596,
+          "Imports": 5,
+          "Exports": 8,
+          "Types": 165,
+          "Schemas": 168,
+          "Values": 874,
+          "BulkDirectory": 5,
+          "InlineBulk": 0
+        },
+        "exports": 1
+      },
+      "after": {
+        "bytes": 2495,
+        "sections": {
+          "Registry": 37,
+          "Names": 1571,
+          "Imports": 5,
+          "Exports": 8,
+          "Types": 156,
+          "Schemas": 159,
+          "Values": 26,
+          "BulkDirectory": 5,
+          "InlineBulk": 0
+        },
+        "exports": 1
+      }
+    },
+    {
+      "package": "/Engine/Materials/Functions/UVTransform",
+      "before": {
+        "bytes": 22163,
+        "sections": {
+          "Registry": 37,
+          "Names": 2896,
+          "Imports": 5,
+          "Exports": 8,
+          "Types": 356,
+          "Schemas": 371,
+          "Values": 17957,
+          "BulkDirectory": 5,
+          "InlineBulk": 0
+        },
+        "exports": 1
+      },
+      "after": {
+        "bytes": 11416,
+        "sections": {
+          "Registry": 37,
+          "Names": 3440,
+          "Imports": 5,
+          "Exports": 62,
+          "Types": 213,
+          "Schemas": 323,
+          "Values": 6803,
+          "BulkDirectory": 5,
+          "InlineBulk": 0
+        },
+        "exports": 19
+      }
+    },
+    {
+      "package": "/Engine/Materials/Functions/SampleNormal",
+      "before": {
+        "bytes": 19054,
+        "sections": {
+          "Registry": 37,
+          "Names": 2900,
+          "Imports": 5,
+          "Exports": 8,
+          "Types": 356,
+          "Schemas": 371,
+          "Values": 14844,
+          "BulkDirectory": 5,
+          "InlineBulk": 0
+        },
+        "exports": 1
+      },
+      "after": {
+        "bytes": 11257,
+        "sections": {
+          "Registry": 37,
+          "Names": 3681,
+          "Imports": 5,
+          "Exports": 50,
+          "Types": 248,
+          "Schemas": 377,
+          "Values": 6326,
+          "BulkDirectory": 5,
+          "InlineBulk": 0
+        },
+        "exports": 15
+      }
+    },
+    {
+      "package": "/Engine/Materials/Functions/SampleORM",
+      "before": {
+        "bytes": 15398,
+        "sections": {
+          "Registry": 37,
+          "Names": 2888,
+          "Imports": 5,
+          "Exports": 8,
+          "Types": 356,
+          "Schemas": 371,
+          "Values": 11200,
+          "BulkDirectory": 5,
+          "InlineBulk": 0
+        },
+        "exports": 1
+      },
+      "after": {
+        "bytes": 9843,
+        "sections": {
+          "Registry": 37,
+          "Names": 2952,
+          "Imports": 5,
+          "Exports": 35,
+          "Types": 248,
+          "Schemas": 285,
+          "Values": 5748,
+          "BulkDirectory": 5,
+          "InlineBulk": 0
+        },
+        "exports": 10
+      }
+    },
+    {
+      "package": "/Engine/Materials/Functions/StandardPBR",
+      "before": {
+        "bytes": 77540,
+        "sections": {
+          "Registry": 38,
+          "Names": 3202,
+          "Imports": 9,
+          "Exports": 8,
+          "Types": 393,
+          "Schemas": 419,
+          "Values": 72938,
+          "BulkDirectory": 5,
+          "InlineBulk": 0
+        },
+        "exports": 1
+      },
+      "after": {
+        "bytes": 42952,
+        "sections": {
+          "Registry": 38,
+          "Names": 6944,
+          "Imports": 9,
+          "Exports": 212,
+          "Types": 289,
+          "Schemas": 571,
+          "Values": 34356,
+          "BulkDirectory": 5,
+          "InlineBulk": 0
+        },
+        "exports": 67
+      }
+    },
+    {
+      "package": "/Engine/Materials/Functions/StandardPBR_ORM",
+      "before": {
+        "bytes": 68738,
+        "sections": {
+          "Registry": 39,
+          "Names": 3318,
+          "Imports": 13,
+          "Exports": 8,
+          "Types": 393,
+          "Schemas": 422,
+          "Values": 64012,
+          "BulkDirectory": 5,
+          "InlineBulk": 0
+        },
+        "exports": 1
+      },
+      "after": {
+        "bytes": 37741,
+        "sections": {
+          "Registry": 39,
+          "Names": 6565,
+          "Imports": 13,
+          "Exports": 180,
+          "Types": 289,
+          "Schemas": 569,
+          "Values": 29553,
+          "BulkDirectory": 5,
+          "InlineBulk": 0
+        },
+        "exports": 58
+      }
+    },
+    {
+      "package": "/Engine/Materials/Functions/ImportedSurfaceValues",
+      "before": {
+        "bytes": 51236,
+        "sections": {
+          "Registry": 37,
+          "Names": 2936,
+          "Imports": 5,
+          "Exports": 8,
+          "Types": 356,
+          "Schemas": 371,
+          "Values": 46990,
+          "BulkDirectory": 5,
+          "InlineBulk": 0
+        },
+        "exports": 1
+      },
+      "after": {
+        "bytes": 28513,
+        "sections": {
+          "Registry": 37,
+          "Names": 5116,
+          "Imports": 5,
+          "Exports": 137,
+          "Types": 220,
+          "Schemas": 433,
+          "Values": 22032,
+          "BulkDirectory": 5,
+          "InlineBulk": 0
+        },
+        "exports": 44
+      }
+    },
+    {
+      "package": "/Engine/Materials/Functions/DecodeImportedNormalRG",
+      "before": {
+        "bytes": 12712,
+        "sections": {
+          "Registry": 37,
+          "Names": 2940,
+          "Imports": 5,
+          "Exports": 8,
+          "Types": 356,
+          "Schemas": 371,
+          "Values": 8462,
+          "BulkDirectory": 5,
+          "InlineBulk": 0
+        },
+        "exports": 1
+      },
+      "after": {
+        "bytes": 7121,
+        "sections": {
+          "Registry": 37,
+          "Names": 3014,
+          "Imports": 5,
+          "Exports": 35,
+          "Types": 219,
+          "Schemas": 310,
+          "Values": 2968,
+          "BulkDirectory": 5,
+          "InlineBulk": 0
+        },
+        "exports": 10
+      }
+    }
+  ],
+  "receipts": {
+    "beforeMeasurements": "Build/B0/Build/.agent-state/logs/20260914-234446-291977-11204-MaterialTests.log",
+    "afterMeasurements": "Build/.agent-state/logs/20260914-235054-122416-22780-MaterialTests.log",
+    "beforeImages": "Build/B0/Build/.agent-state/logs/20260914-234826-621053-30432-MaterialVulkanTests.log",
+    "afterImages": "Build/.agent-state/logs/20260914-233529-745454-29044-MaterialVulkanTests.log",
+    "outputPersistence": "Build/.agent-state/logs/20260914-235016-089099-28600-MaterialTests.log",
+    "editorAll": "Build/.agent-state/logs/20260914-235233-667045-30452-cmake.log",
+    "gameAll": "Build/.agent-state/logs/20260914-235310-987458-36972-cmake.log",
+    "sandboxGame": "Build/.agent-state/logs/20260914-235441-202325-3480-DurinGame.log",
+    "roadWeaverGame": "Build/.agent-state/logs/20260914-235444-939189-35408-DurinGame.log"
+  },
+  "baselineHarnessSHA256": "c559ce22f39845296cfae884da271c6eb9e077b2021000a5c8c1fa91c5fa1dd1",
+  "afterBaseRevision": "06761b517",
+  "afterAdditionalChange": "Material ExpressionOutputs uses ordinary default elision; ownership version and expression collection remain mandatory.",
+  "limitations": "Owning-thread Debug CRT requests, not retained/peak memory or Release performance. GPU checks are correctness/image parity, not exclusive-lane GPU timing.",
+  "identityRecords": [
+    {
+      "asset": "/TypedBaseline/Function1",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-000100000001",
+      "type": "1",
+      "name": "UV"
+    },
+    {
+      "asset": "/TypedBaseline/Function1",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-000100000002",
+      "type": "1",
+      "name": "Scale"
+    },
+    {
+      "asset": "/TypedBaseline/Function1",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-000100000003",
+      "type": "1",
+      "name": "Offset"
+    },
+    {
+      "asset": "/TypedBaseline/Function1",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-000100000004",
+      "type": "0",
+      "name": "Rotation"
+    },
+    {
+      "asset": "/TypedBaseline/Function1",
+      "kind": "output",
+      "id": "78e431b9-4afe-4982-0000-000100000064",
+      "type": "1",
+      "name": "UV"
+    },
+    {
+      "asset": "/TypedBaseline/Function2",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-000200000001",
+      "type": "4",
+      "name": "Texture"
+    },
+    {
+      "asset": "/TypedBaseline/Function2",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-000200000002",
+      "type": "1",
+      "name": "UV"
+    },
+    {
+      "asset": "/TypedBaseline/Function2",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-000200000003",
+      "type": "0",
+      "name": "Strength"
+    },
+    {
+      "asset": "/TypedBaseline/Function2",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-000200000004",
+      "type": "2",
+      "name": "Normal"
+    },
+    {
+      "asset": "/TypedBaseline/Function2",
+      "kind": "output",
+      "id": "78e431b9-4afe-4982-0000-000200000064",
+      "type": "2",
+      "name": "Normal"
+    },
+    {
+      "asset": "/TypedBaseline/Function3",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-000300000001",
+      "type": "4",
+      "name": "Texture"
+    },
+    {
+      "asset": "/TypedBaseline/Function3",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-000300000002",
+      "type": "1",
+      "name": "UV"
+    },
+    {
+      "asset": "/TypedBaseline/Function3",
+      "kind": "output",
+      "id": "78e431b9-4afe-4982-0000-000300000064",
+      "type": "0",
+      "name": "Occlusion"
+    },
+    {
+      "asset": "/TypedBaseline/Function3",
+      "kind": "output",
+      "id": "78e431b9-4afe-4982-0000-000300000065",
+      "type": "0",
+      "name": "Roughness"
+    },
+    {
+      "asset": "/TypedBaseline/Function3",
+      "kind": "output",
+      "id": "78e431b9-4afe-4982-0000-000300000066",
+      "type": "0",
+      "name": "Metallic"
+    },
+    {
+      "asset": "/TypedBaseline/Function4",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-000400000001",
+      "type": "1",
+      "name": "UV"
+    },
+    {
+      "asset": "/TypedBaseline/Function4",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-00040000000a",
+      "type": "2",
+      "name": "BaseColor"
+    },
+    {
+      "asset": "/TypedBaseline/Function4",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-000400000014",
+      "type": "4",
+      "name": "BaseColorTexture"
+    },
+    {
+      "asset": "/TypedBaseline/Function4",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-00040000001e",
+      "type": "1",
+      "name": "BaseColorUV"
+    },
+    {
+      "asset": "/TypedBaseline/Function4",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-00040000000b",
+      "type": "2",
+      "name": "Normal"
+    },
+    {
+      "asset": "/TypedBaseline/Function4",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-000400000015",
+      "type": "4",
+      "name": "NormalTexture"
+    },
+    {
+      "asset": "/TypedBaseline/Function4",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-00040000001f",
+      "type": "1",
+      "name": "NormalUV"
+    },
+    {
+      "asset": "/TypedBaseline/Function4",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-00040000000c",
+      "type": "0",
+      "name": "Metallic"
+    },
+    {
+      "asset": "/TypedBaseline/Function4",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-000400000016",
+      "type": "4",
+      "name": "MetallicTexture"
+    },
+    {
+      "asset": "/TypedBaseline/Function4",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-000400000020",
+      "type": "1",
+      "name": "MetallicUV"
+    },
+    {
+      "asset": "/TypedBaseline/Function4",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-00040000000d",
+      "type": "0",
+      "name": "Roughness"
+    },
+    {
+      "asset": "/TypedBaseline/Function4",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-000400000017",
+      "type": "4",
+      "name": "RoughnessTexture"
+    },
+    {
+      "asset": "/TypedBaseline/Function4",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-000400000021",
+      "type": "1",
+      "name": "RoughnessUV"
+    },
+    {
+      "asset": "/TypedBaseline/Function4",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-00040000000e",
+      "type": "0",
+      "name": "AmbientOcclusion"
+    },
+    {
+      "asset": "/TypedBaseline/Function4",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-000400000018",
+      "type": "4",
+      "name": "AmbientOcclusionTexture"
+    },
+    {
+      "asset": "/TypedBaseline/Function4",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-000400000022",
+      "type": "1",
+      "name": "AmbientOcclusionUV"
+    },
+    {
+      "asset": "/TypedBaseline/Function4",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-00040000000f",
+      "type": "2",
+      "name": "Emissive"
+    },
+    {
+      "asset": "/TypedBaseline/Function4",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-000400000019",
+      "type": "4",
+      "name": "EmissiveTexture"
+    },
+    {
+      "asset": "/TypedBaseline/Function4",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-000400000023",
+      "type": "1",
+      "name": "EmissiveUV"
+    },
+    {
+      "asset": "/TypedBaseline/Function4",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-000400000010",
+      "type": "0",
+      "name": "Opacity"
+    },
+    {
+      "asset": "/TypedBaseline/Function4",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-00040000001a",
+      "type": "4",
+      "name": "OpacityTexture"
+    },
+    {
+      "asset": "/TypedBaseline/Function4",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-000400000024",
+      "type": "1",
+      "name": "OpacityUV"
+    },
+    {
+      "asset": "/TypedBaseline/Function4",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-000400000011",
+      "type": "0",
+      "name": "OpacityMask"
+    },
+    {
+      "asset": "/TypedBaseline/Function4",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-00040000001b",
+      "type": "4",
+      "name": "OpacityMaskTexture"
+    },
+    {
+      "asset": "/TypedBaseline/Function4",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-000400000025",
+      "type": "1",
+      "name": "OpacityMaskUV"
+    },
+    {
+      "asset": "/TypedBaseline/Function4",
+      "kind": "output",
+      "id": "78e431b9-4afe-4982-0000-000400000064",
+      "type": "5",
+      "name": "Surface"
+    },
+    {
+      "asset": "/TypedBaseline/Function5",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-000400000001",
+      "type": "1",
+      "name": "UV"
+    },
+    {
+      "asset": "/TypedBaseline/Function5",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-00040000000a",
+      "type": "2",
+      "name": "BaseColor"
+    },
+    {
+      "asset": "/TypedBaseline/Function5",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-000400000014",
+      "type": "4",
+      "name": "BaseColorTexture"
+    },
+    {
+      "asset": "/TypedBaseline/Function5",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-00040000001e",
+      "type": "1",
+      "name": "BaseColorUV"
+    },
+    {
+      "asset": "/TypedBaseline/Function5",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-00040000000b",
+      "type": "2",
+      "name": "Normal"
+    },
+    {
+      "asset": "/TypedBaseline/Function5",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-000400000015",
+      "type": "4",
+      "name": "NormalTexture"
+    },
+    {
+      "asset": "/TypedBaseline/Function5",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-00040000001f",
+      "type": "1",
+      "name": "NormalUV"
+    },
+    {
+      "asset": "/TypedBaseline/Function5",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-00040000000c",
+      "type": "0",
+      "name": "Metallic"
+    },
+    {
+      "asset": "/TypedBaseline/Function5",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-00040000000d",
+      "type": "0",
+      "name": "Roughness"
+    },
+    {
+      "asset": "/TypedBaseline/Function5",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-00040000000e",
+      "type": "0",
+      "name": "AmbientOcclusion"
+    },
+    {
+      "asset": "/TypedBaseline/Function5",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-00040000000f",
+      "type": "2",
+      "name": "Emissive"
+    },
+    {
+      "asset": "/TypedBaseline/Function5",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-000400000019",
+      "type": "4",
+      "name": "EmissiveTexture"
+    },
+    {
+      "asset": "/TypedBaseline/Function5",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-000400000023",
+      "type": "1",
+      "name": "EmissiveUV"
+    },
+    {
+      "asset": "/TypedBaseline/Function5",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-000400000010",
+      "type": "0",
+      "name": "Opacity"
+    },
+    {
+      "asset": "/TypedBaseline/Function5",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-00040000001a",
+      "type": "4",
+      "name": "OpacityTexture"
+    },
+    {
+      "asset": "/TypedBaseline/Function5",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-000400000024",
+      "type": "1",
+      "name": "OpacityUV"
+    },
+    {
+      "asset": "/TypedBaseline/Function5",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-000400000011",
+      "type": "0",
+      "name": "OpacityMask"
+    },
+    {
+      "asset": "/TypedBaseline/Function5",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-00040000001b",
+      "type": "4",
+      "name": "OpacityMaskTexture"
+    },
+    {
+      "asset": "/TypedBaseline/Function5",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-000400000025",
+      "type": "1",
+      "name": "OpacityMaskUV"
+    },
+    {
+      "asset": "/TypedBaseline/Function5",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-000400000028",
+      "type": "4",
+      "name": "ORMTexture"
+    },
+    {
+      "asset": "/TypedBaseline/Function5",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-000400000029",
+      "type": "1",
+      "name": "ORMUV"
+    },
+    {
+      "asset": "/TypedBaseline/Function5",
+      "kind": "output",
+      "id": "78e431b9-4afe-4982-0000-000500000064",
+      "type": "5",
+      "name": "Surface"
+    },
+    {
+      "asset": "/TypedBaseline/Function6",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-00060000000a",
+      "type": "2",
+      "name": "BaseColor"
+    },
+    {
+      "asset": "/TypedBaseline/Function6",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-000600000014",
+      "type": "2",
+      "name": "BaseColorSample"
+    },
+    {
+      "asset": "/TypedBaseline/Function6",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-00060000000b",
+      "type": "2",
+      "name": "Normal"
+    },
+    {
+      "asset": "/TypedBaseline/Function6",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-000600000015",
+      "type": "2",
+      "name": "NormalSample"
+    },
+    {
+      "asset": "/TypedBaseline/Function6",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-00060000000c",
+      "type": "0",
+      "name": "Metallic"
+    },
+    {
+      "asset": "/TypedBaseline/Function6",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-000600000016",
+      "type": "0",
+      "name": "MetallicSample"
+    },
+    {
+      "asset": "/TypedBaseline/Function6",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-00060000000d",
+      "type": "0",
+      "name": "Roughness"
+    },
+    {
+      "asset": "/TypedBaseline/Function6",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-000600000017",
+      "type": "0",
+      "name": "RoughnessSample"
+    },
+    {
+      "asset": "/TypedBaseline/Function6",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-00060000000e",
+      "type": "0",
+      "name": "AmbientOcclusion"
+    },
+    {
+      "asset": "/TypedBaseline/Function6",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-000600000018",
+      "type": "0",
+      "name": "AmbientOcclusionSample"
+    },
+    {
+      "asset": "/TypedBaseline/Function6",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-00060000000f",
+      "type": "2",
+      "name": "Emissive"
+    },
+    {
+      "asset": "/TypedBaseline/Function6",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-000600000019",
+      "type": "2",
+      "name": "EmissiveSample"
+    },
+    {
+      "asset": "/TypedBaseline/Function6",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-000600000010",
+      "type": "0",
+      "name": "Opacity"
+    },
+    {
+      "asset": "/TypedBaseline/Function6",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-00060000001a",
+      "type": "0",
+      "name": "OpacitySample"
+    },
+    {
+      "asset": "/TypedBaseline/Function6",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-000600000011",
+      "type": "0",
+      "name": "OpacityMask"
+    },
+    {
+      "asset": "/TypedBaseline/Function6",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-00060000001b",
+      "type": "0",
+      "name": "OpacityMaskSample"
+    },
+    {
+      "asset": "/TypedBaseline/Function6",
+      "kind": "output",
+      "id": "78e431b9-4afe-4982-0000-000600000064",
+      "type": "5",
+      "name": "Surface"
+    },
+    {
+      "asset": "/TypedBaseline/Function7",
+      "kind": "input",
+      "id": "78e431b9-4afe-4982-0000-000700000001",
+      "type": "1",
+      "name": "RG"
+    },
+    {
+      "asset": "/TypedBaseline/Function7",
+      "kind": "output",
+      "id": "78e431b9-4afe-4982-0000-000700000064",
+      "type": "2",
+      "name": "Normal"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "0f059660-e75b-4f74-9340-95ee0dad4764",
+      "type": "1",
+      "name": "Emissive"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "15e6d53d-8902-41ca-915e-b4d132b0caa0",
+      "type": "3",
+      "name": "UV Scale"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "165e8be8-46a4-4106-b22d-3a0f25bd23cb",
+      "type": "3",
+      "name": "UV Offset"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "22268e45-22ea-4186-8c80-32aebf3563a6",
+      "type": "0",
+      "name": "UV Channel"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "35f1f695-c8bb-4c59-89f5-5c748e297b22",
+      "type": "0",
+      "name": "UV Rotation (Radians)"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "3c598714-1617-4535-936e-b4dbe5a210cd",
+      "type": "0",
+      "name": "UV Rotation (Radians)"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "4555094e-5e21-46f8-8fa5-461c2855e779",
+      "type": "0",
+      "name": "UV Channel"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "4a40ca6b-a7fe-48ae-b2af-647a7027f949",
+      "type": "0",
+      "name": "UV Rotation (Radians)"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "4ff53bc5-0c1c-47a8-8453-e4b2a6be893c",
+      "type": "0",
+      "name": "Ambient Occlusion"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "52b3dde0-3355-417b-bf05-eb11a4d57d74",
+      "type": "3",
+      "name": "UV Scale"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "5555fb8e-c410-41d9-b909-0b8060e5897d",
+      "type": "2",
+      "name": "Normal Texture"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "5751ef57-f71d-45e4-906c-e6139d22b2c4",
+      "type": "0",
+      "name": "UV Rotation (Radians)"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "5bd333c3-4f7b-4794-8719-fbbcf6c55aa5",
+      "type": "0",
+      "name": "UV Channel"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "5f31c554-120d-438c-ac87-1567ea3dfb2c",
+      "type": "0",
+      "name": "UV Channel"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "672ac603-e3b8-49d3-a0bd-40a7808f40d9",
+      "type": "0",
+      "name": "UV Channel"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "682ca789-18bd-4ec4-a00f-271ad7527e59",
+      "type": "0",
+      "name": "UV Rotation (Radians)"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "6c4d841a-88e1-4c35-a428-910ea8338339",
+      "type": "1",
+      "name": "Base Color"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "6cd33852-373a-4803-b284-7fd3319add4d",
+      "type": "0",
+      "name": "Opacity Mask"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "76c3ab5f-5de9-4104-aa6d-0fb6b44ab8a1",
+      "type": "0",
+      "name": "Opacity"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "76c5afe3-d081-48cb-86c9-125d8accbce1",
+      "type": "0",
+      "name": "UV Rotation (Radians)"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "7f06899b-33f5-416d-9d07-e4b086d9f512",
+      "type": "3",
+      "name": "UV Offset"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "823917fc-577e-4492-aee1-5bf51f7f99c9",
+      "type": "3",
+      "name": "UV Offset"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "82b3fdc3-0f88-40ad-be12-abdbbc5732b1",
+      "type": "0",
+      "name": "UV Rotation (Radians)"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "86355aae-5820-462d-bc36-90b8402a06d4",
+      "type": "0",
+      "name": "Metallic"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "88e38c97-44ac-4b15-a203-c18f4e2b7d6e",
+      "type": "2",
+      "name": "Ambient Occlusion Texture"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "89485eda-bf1d-448a-8142-d9b3cc7705d1",
+      "type": "3",
+      "name": "UV Scale"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "8cd74420-6076-4ea4-88fb-76acc08804d4",
+      "type": "3",
+      "name": "UV Scale"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "9390003c-799e-47e6-8aa7-085f02682928",
+      "type": "0",
+      "name": "UV Channel"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "a21d2ef5-01bc-40af-8912-265f401a1013",
+      "type": "1",
+      "name": "Normal"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "a5a9c83b-4eb4-4263-83a6-9589bc5c51fa",
+      "type": "3",
+      "name": "UV Scale"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "ad888dbb-1093-4047-8290-19913f0ea763",
+      "type": "3",
+      "name": "UV Offset"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "b2a36b19-efbd-433d-a4ff-568702ebc864",
+      "type": "2",
+      "name": "Roughness Texture"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "b9e82178-3fcd-43e7-94aa-782615b81866",
+      "type": "3",
+      "name": "UV Scale"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "c4b39494-ac19-4da8-b9b9-beef69c94797",
+      "type": "2",
+      "name": "Opacity Mask Texture"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "d24b6330-a6b9-4232-b929-e02eee5eb8cb",
+      "type": "3",
+      "name": "UV Scale"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "d6e3072e-c971-46de-b699-855e6f96c767",
+      "type": "2",
+      "name": "Opacity Texture"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "d8f1ff6d-0da8-45d3-b263-bf336b268992",
+      "type": "3",
+      "name": "UV Offset"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "e0588f9f-2cb6-4c17-9e48-23fdbc71e936",
+      "type": "2",
+      "name": "Base Color Texture"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "e3da1eb1-b937-4251-b671-d4143589b22a",
+      "type": "0",
+      "name": "UV Channel"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "e544e53b-699b-4f83-8f0b-29f718aa9d02",
+      "type": "2",
+      "name": "Emissive Texture"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "e8c9892e-fe2c-471b-b76e-eef3d38a0eab",
+      "type": "3",
+      "name": "UV Offset"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "ec8d8285-ab45-49b3-af13-21becd490348",
+      "type": "0",
+      "name": "Roughness"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "ef2664e3-f45b-4f20-aad6-baa46486f63f",
+      "type": "0",
+      "name": "UV Rotation (Radians)"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "ef53c105-25e1-41e2-97cc-521fffaa7c62",
+      "type": "2",
+      "name": "Metallic Texture"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "efb2320e-8b51-4460-b3e9-2d3a973d358a",
+      "type": "3",
+      "name": "UV Offset"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "efb7f324-0be9-49d7-b5e2-aaf5fb4e6805",
+      "type": "3",
+      "name": "UV Scale"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "fcc40232-b660-4de4-9512-3d02e05dde5e",
+      "type": "3",
+      "name": "UV Offset"
+    },
+    {
+      "asset": "/TypedBaseline/Template",
+      "kind": "parameter",
+      "id": "fe9b13ed-48be-4534-ae1d-9f024e56aed0",
+      "type": "0",
+      "name": "UV Channel"
+    },
+    {
+      "asset": "/TypedBaseline/StructuralPlain",
+      "kind": "parameter",
+      "id": "e0588f9f-2cb6-4c17-9e48-23fdbc71e936",
+      "type": "2",
+      "name": "Base Color Texture"
+    },
+    {
+      "asset": "/TypedBaseline/StructuralTransformedPacked",
+      "kind": "parameter",
+      "id": "6c4d841a-88e1-4c35-a428-910ea8338339",
+      "type": "1",
+      "name": "Base Color"
+    },
+    {
+      "asset": "/TypedBaseline/StructuralTransformedPacked",
+      "kind": "parameter",
+      "id": "7f06899b-33f5-416d-9d07-e4b086d9f512",
+      "type": "3",
+      "name": "UV Offset"
+    },
+    {
+      "asset": "/TypedBaseline/StructuralTransformedPacked",
+      "kind": "parameter",
+      "id": "e0588f9f-2cb6-4c17-9e48-23fdbc71e936",
+      "type": "2",
+      "name": "Base Color Texture"
+    },
+    {
+      "asset": "/TypedBaseline/StructuralTransformedPacked",
+      "kind": "parameter",
+      "id": "ef53c105-25e1-41e2-97cc-521fffaa7c62",
+      "type": "2",
+      "name": "Metallic Texture"
+    }
+  ],
+  "cook": {
+    "Sandbox": {
+      "schemaVersion": 1,
+      "status": "succeeded",
+      "code": "succeeded",
+      "diagnostic": "Cook published a validated manifest-last output generation.",
+      "target": "win64",
+      "profile": "game",
+      "changedBytes": 5974954,
+      "reusedBytes": 0,
+      "peakCapturedBytes": 6590074,
+      "rangeReadCount": 0,
+      "wallTimeNanoseconds": 1019258300,
+      "commitTimeNanoseconds": 125588300,
+      "rollbackTimeNanoseconds": 0,
+      "packages": [
+        {
+          "packagePath": "/Engine/Materials/DefaultMaterial",
+          "contributor": "material",
+          "status": "captured",
+          "stage": "capture",
+          "code": "captured",
+          "diagnostic": "Captured deterministic package save plan.",
+          "packageBytes": 113176,
+          "segmentBytes": 0
+        },
+        {
+          "packagePath": "/Engine/Models/Box",
+          "contributor": "static-mesh",
+          "status": "captured",
+          "stage": "capture",
+          "code": "captured",
+          "diagnostic": "Captured deterministic package save plan.",
+          "packageBytes": 2954,
+          "segmentBytes": 0
+        },
+        {
+          "packagePath": "/Engine/Renderer/DefaultStudioCube",
+          "contributor": "texture-cube",
+          "status": "captured",
+          "stage": "capture",
+          "code": "captured",
+          "diagnostic": "Captured deterministic package save plan.",
+          "packageBytes": 935,
+          "segmentBytes": 2099120
+        },
+        {
+          "packagePath": "/Game/Levels/GrayboxStage15",
+          "contributor": "generic-package",
+          "status": "captured",
+          "stage": "capture",
+          "code": "captured",
+          "diagnostic": "Captured deterministic package save plan.",
+          "packageBytes": 7453,
+          "segmentBytes": 0
+        },
+        {
+          "packagePath": "/Game/Textures/TEXCUBE_PureSky_512x512",
+          "contributor": "texture-cube",
+          "status": "captured",
+          "stage": "capture",
+          "code": "captured",
+          "diagnostic": "Captured deterministic package save plan.",
+          "packageBytes": 961,
+          "segmentBytes": 1051272
+        },
+        {
+          "packagePath": "/Game/Volumes/VolumetricCloud/VT_Cloud_Base_Voronoi_128",
+          "contributor": "volume-texture",
+          "status": "captured",
+          "stage": "capture",
+          "code": "captured",
+          "diagnostic": "Captured deterministic package save plan.",
+          "packageBytes": 978,
+          "segmentBytes": 2397153
+        },
+        {
+          "packagePath": "/Game/Volumes/VolumetricCloud/VT_Cloud_Detail_Voronoi_64",
+          "contributor": "volume-texture",
+          "status": "captured",
+          "stage": "capture",
+          "code": "captured",
+          "diagnostic": "Captured deterministic package save plan.",
+          "packageBytes": 983,
+          "segmentBytes": 299969
+        }
+      ]
+    },
+    "RoadWeaver": {
+      "schemaVersion": 1,
+      "status": "succeeded",
+      "code": "succeeded",
+      "diagnostic": "Cook published a validated manifest-last output generation.",
+      "target": "win64",
+      "profile": "game",
+      "changedBytes": 2241075,
+      "reusedBytes": 0,
+      "peakCapturedBytes": 2814836,
+      "rangeReadCount": 0,
+      "wallTimeNanoseconds": 1303816100,
+      "commitTimeNanoseconds": 142335000,
+      "rollbackTimeNanoseconds": 0,
+      "packages": [
+        {
+          "packagePath": "/Engine/Materials/DefaultMaterial",
+          "contributor": "material",
+          "status": "captured",
+          "stage": "capture",
+          "code": "captured",
+          "diagnostic": "Captured deterministic package save plan.",
+          "packageBytes": 113176,
+          "segmentBytes": 0
+        },
+        {
+          "packagePath": "/Engine/Models/SplineBox",
+          "contributor": "static-mesh",
+          "status": "captured",
+          "stage": "capture",
+          "code": "captured",
+          "diagnostic": "Captured deterministic package save plan.",
+          "packageBytes": 10190,
+          "segmentBytes": 0
+        },
+        {
+          "packagePath": "/Engine/Renderer/DefaultStudioCube",
+          "contributor": "texture-cube",
+          "status": "captured",
+          "stage": "capture",
+          "code": "captured",
+          "diagnostic": "Captured deterministic package save plan.",
+          "packageBytes": 935,
+          "segmentBytes": 2099120
+        },
+        {
+          "packagePath": "/Game/Levels/L_RoadNet",
+          "contributor": "generic-package",
+          "status": "captured",
+          "stage": "capture",
+          "code": "captured",
+          "diagnostic": "Captured deterministic package save plan.",
+          "packageBytes": 17654,
+          "segmentBytes": 0
+        }
+      ]
+    }
+  }
+}

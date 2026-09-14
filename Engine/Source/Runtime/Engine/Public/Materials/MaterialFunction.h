@@ -20,9 +20,7 @@ namespace Durin
 		ENGINE_API auto GetFunctionDependencies() const
 			-> std::vector<TObjectPtr<DMaterialFunctionInterface>> override;
 		auto GetFunctionRevision() const -> uint64 override { return Revision; }
-		ENGINE_API auto BuildFunctionSnapshot(FMaterialFunctionSnapshot& OutSnapshot) const
-			-> FMaterialProgramValidationResult override;
-		ENGINE_API auto GetFunctionGraph() const -> const FMaterialFunctionGraph&;
+		ENGINE_API auto GetFunctionGraph() const -> FMaterialFunctionGraph;
 		auto GetExpressionCollection() const -> const FMaterialExpressionCollection& { return ExpressionCollection; }
 		ENGINE_API auto GetExpressionBody() const -> FMaterialExpressionFunctionBody;
 		[[nodiscard]] ENGINE_API auto SetFunctionExpressions(FMaterialFunctionSignature InSignature,
@@ -40,7 +38,6 @@ namespace Durin
 		ENGINE_API auto SetFunctionPresentation(FMaterialFunctionPresentation Candidate) -> bool;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 		ENGINE_API auto Serialize(FArchive& Ar) -> void override;
-		ENGINE_API auto PostLoad() -> void override;
 		ENGINE_API auto ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context, std::string& OutError) const -> bool override;
 	private:
 		DPROPERTY(AlwaysSerialize)
@@ -53,8 +50,6 @@ namespace Durin
 		DPROPERTY(EditorOnly, AlwaysSerialize)
 		FMaterialExpressionCollection ExpressionCollection;
 
-		// Temporary read-only projection for native/editor callers awaiting migration.
-		mutable FMaterialFunctionGraph Graph;
 		auto ProjectExpressions(const FMaterialFunctionSignature& InSignature,
 			const FMaterialExpressionCollection& Collection, FMaterialFunctionGraph& OutGraph) const -> bool;
 

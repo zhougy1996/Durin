@@ -10,104 +10,6 @@ namespace Durin::Editor::Material
 
 	namespace
 	{
-		auto GetMaterialProgramAllocatedSize(const FMaterialProgram& Program) -> size_t
-		{
-			size_t Size = Program.Nodes.capacity() * sizeof(FMaterialProgramNode);
-			for (const FMaterialProgramNode& Node : Program.Nodes)
-			{
-				Size += Node.Inputs.capacity() * sizeof(FMaterialProgramLink);
-				Size += Node.InputDefaults.capacity() * sizeof(FMaterialInputDefault);
-				Size += Node.SurfaceAttributes.capacity() * sizeof(FMaterialSurfaceAttributeBinding);
-				Size += Node.DisplayName.capacity() + Node.Parameter.DisplayName.capacity();
-			}
-			return Size;
-		}
-
-		auto GetMaterialGraphPresentationAllocatedSize(
-			const FMaterialGraphPresentation& Presentation) -> size_t
-		{
-			return Presentation.Nodes.capacity()
-				* sizeof(FMaterialGraphNodePresentation);
-		}
-
-		// Restores the program, including owned parameters, and presentation together.
-		class FMaterialGraphSemanticTransaction final : public ITransactionCustomChange
-		{
-		public:
-			FMaterialGraphSemanticTransaction(
-				DMaterial& InMaterial,
-				FMaterialProgram InBeforeProgram,
-				FMaterialGraphPresentation InBeforePresentation,
-				FMaterialProgram InAfterProgram,
-				FMaterialGraphPresentation InAfterPresentation,
-				std::string InDescription)
-				: Material(&InMaterial)
-				, BeforeProgram(std::move(InBeforeProgram))
-				, BeforePresentation(std::move(InBeforePresentation))
-				, AfterProgram(std::move(InAfterProgram))
-				, AfterPresentation(std::move(InAfterPresentation))
-				, Description(std::move(InDescription))
-			{
-				AffectedPackages.front() = InMaterial.GetPackage();
-			}
-
-			auto GetDescription() const -> std::string_view override
-			{
-				return Description;
-			}
-			auto GetOwningModule() const -> std::string_view override { return "MaterialEditor"; }
-
-			auto GetAffectedPackages() const -> std::span<DPackage* const> override
-			{
-				return AffectedPackages;
-			}
-
-			auto Undo() -> bool override
-			{
-				return Apply(BeforeProgram, BeforePresentation);
-			}
-
-			auto Redo() -> bool override
-			{
-				return Apply(AfterProgram, AfterPresentation);
-			}
-			auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override
-			{
-				for (const auto* Program : {&BeforeProgram, &AfterProgram})
-					for (const auto& Node : Program->Nodes)
-						if (DObject* Texture = Node.Parameter.Value.TextureValue.Get()) Collector.AddReferencedObject(Texture);
-
-			}
-			auto GetAllocatedSize() const -> size_t override
-			{
-				return Description.capacity()
-					+ GetMaterialProgramAllocatedSize(BeforeProgram)
-					+ GetMaterialGraphPresentationAllocatedSize(BeforePresentation)
-					+ GetMaterialProgramAllocatedSize(AfterProgram)
-					+ GetMaterialGraphPresentationAllocatedSize(AfterPresentation);
-			}
-
-		private:
-				auto Apply(
-				const FMaterialProgram& Program,
-				const FMaterialGraphPresentation& Presentation) -> bool
-			{
-				DMaterial* Target = Material.Get();
-				if (!Target) return false;
-				FMaterialProgramValidationResult Validation;
-				if (!(Validation = Target->SetMaterialProgram(Program))) return false;
-				return Target->SetMaterialGraphPresentation(Presentation);
-			}
-
-			TWeakObjectPtr<DMaterial> Material;
-			FMaterialProgram BeforeProgram;
-			FMaterialGraphPresentation BeforePresentation;
-			FMaterialProgram AfterProgram;
-			FMaterialGraphPresentation AfterPresentation;
-			std::string Description;
-			std::array<DPackage*, 1> AffectedPackages{};
-		};
-
 		struct FMaterialGraphPosition
 		{
 			int32 X = 0;
@@ -281,10 +183,8 @@ namespace Durin::Editor::Material
 			auto Redo() -> bool override { return Apply(AfterValue); }
 			auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override
 			{
-				for (DObject* Object : {
-					static_cast<DObject*>(BeforeValue.TextureValue.Get()),
-					static_cast<DObject*>(AfterValue.TextureValue.Get())})
-					if (Object) Collector.AddReferencedObject(Object);
+				BeforeValue.AddReferencedObjects(Collector);
+				AfterValue.AddReferencedObjects(Collector);
 			}
 
 		private:
@@ -296,8 +196,8 @@ namespace Durin::Editor::Material
 
 			TWeakObjectPtr<DMaterial> Material;
 			FGuid ParameterId;
-			FMaterialParameterValue BeforeValue;
-			FMaterialParameterValue AfterValue;
+			mutable FMaterialParameterValue BeforeValue;
+			mutable FMaterialParameterValue AfterValue;
 			std::array<DPackage*, 1> AffectedPackages{};
 		};
 
@@ -305,21 +205,6 @@ namespace Durin::Editor::Material
 
 	namespace GraphEditInternals
 	{
-		auto MakeMaterialGraphSemanticTransaction(
-			DMaterial& Material,
-			FMaterialProgram BeforeProgram,
-			FMaterialGraphPresentation BeforePresentation,
-			FMaterialProgram AfterProgram,
-			FMaterialGraphPresentation AfterPresentation,
-			std::string Description)
-			-> std::unique_ptr<ITransactionCustomChange>
-		{
-			return std::make_unique<FMaterialGraphSemanticTransaction>(
-				Material, std::move(BeforeProgram), std::move(BeforePresentation),
-				std::move(AfterProgram), std::move(AfterPresentation),
-				std::move(Description));
-		}
-
 		auto MakeMaterialGraphPresentationTransaction(
 			DMaterial& Material,
 			const FMaterialGraphPresentation& BeforePresentation,
@@ -342,29 +227,6 @@ namespace Durin::Editor::Material
 				Material, ParameterId, std::move(BeforeValue), std::move(AfterValue));
 		}
 
-		auto CommitSemanticChange(
-			DMaterial& Material,
-			FMaterialProgram CandidateProgram,
-			FMaterialGraphPresentation CandidatePresentation,
-			std::string Description,
-			std::vector<FGuid> Affected,
-			std::vector<FGuid> Generated,
-			DTransactor* Transactions)
-			-> FMaterialGraphCommandResult
-		{
-			FMaterialGraphDocument Document(Material);
-			FMaterialGraphDocumentState Candidate;
-			if (!Document.Capture(Candidate)) return {.Status = EMaterialGraphCommandStatus::StaleOwner};
-			Candidate.Program = std::move(CandidateProgram);
-			Candidate.Presentation = std::move(CandidatePresentation);
-			auto Result = Document.Commit(std::move(Candidate), std::move(Description), Transactions);
-			if (Result.Status != EMaterialGraphCommandStatus::Succeeded) return Result;
-			std::ranges::sort(Affected);
-			Affected.erase(std::unique(Affected.begin(), Affected.end()), Affected.end());
-			Result.AffectedNodeIds = std::move(Affected);
-			Result.GeneratedNodeIds = std::move(Generated);
-			return Result;
-		}
 		auto CommitPresentationChange(
 			DMaterial& Material,
 			FMaterialGraphPresentation CandidatePresentation,

@@ -1,5 +1,8 @@
 #include "Widgets/MMaterialFunctionEditor.h"
 #include "DObject/Class.h"
+#include "DObject/Archive.h"
+#include "DObject/Property.h"
+#include "Materials/MaterialExpressions.h"
 #include "Widgets/MaterialPreview.h"
 #include "Widgets/MaterialFunctionCallPicker.h"
 #include "Graph/MaterialGraphCanvas.h"
@@ -37,7 +40,7 @@ namespace Durin::Editor::Material
 		FMaterialFunctionCallPicker CallPicker;
 		std::vector<FMaterialProgramDiagnostic> Diagnostics;
 		FGuid EditingNode;
-		FMaterialProgramNode NodeDraft;
+		TStrongObjectPtr<DMaterialExpression> NodeDraft;
 		auto Function() const -> DMaterialFunction* { return Cast<DMaterialFunction>(Owner.Get()); }
 		auto Material() const -> DMaterial* { return Cast<DMaterial>(PreviewMaterial.Get()); }
 		~FDocument()
@@ -152,8 +155,8 @@ namespace Durin::Editor::Material
 		if (!Manager.OpenAsset(std::string(Resource), DMaterialFunction::StaticClass()->GetQualifiedName().ToString())) return false;
 		auto* Document = Find(Resource);
 		if (!Document || !Document->Function()) return false;
-		const auto& Nodes = Document->Function()->GetFunctionGraph().Nodes;
-		return std::ranges::find(Nodes, NodeId, &FMaterialProgramNode::Id) != Nodes.end() && Document->Canvas.SelectAndFrame(NodeId);
+		const auto& Nodes = Document->Function()->GetExpressionCollection().Expressions;
+		return std::ranges::any_of(Nodes, [&](const auto& Node) { return Node->Id == NodeId; }) && Document->Canvas.SelectAndFrame(NodeId);
 	}
 	auto MMaterialFunctionEditor::DrawWorkspace(bool bActive) -> bool
 	{
@@ -286,55 +289,75 @@ namespace Durin::Editor::Material
 		for (const auto& Selection : Document.Canvas.GetSelection())
 			if (const auto* Id = std::get_if<FGuid>(&Selection))
 			{
-				const auto& Nodes = Function.GetFunctionGraph().Nodes;
-				const auto Node = std::ranges::find(Nodes, *Id, &FMaterialProgramNode::Id);
+				const auto& Nodes = Function.GetExpressionCollection().Expressions;
+				const auto Node = std::ranges::find_if(Nodes, [&](const auto& Expression) { return Expression->Id == *Id; });
 				if (Node == Nodes.end()) continue;
-				if (Document.EditingNode != *Id) { Document.EditingNode = *Id; Document.NodeDraft = *Node; }
-				auto& Draft = Document.NodeDraft;
-				// Shared input commands may edit the selected node while this draft is open.
-				Draft.Inputs = Node->Inputs;
-				Draft.InputDefaults = Node->InputDefaults;
-				Draft.UVSettings = Node->UVSettings;
-				if (Draft.Opcode == EMaterialProgramOpcode::Constant) ImGui::InputFloat4("Value", &Draft.Literal.X);
-				if (Draft.Opcode == EMaterialProgramOpcode::Swizzle)
+				if (Document.EditingNode != *Id || !Document.NodeDraft.Get() || Document.NodeDraft->GetClass() != (*Node)->GetClass())
 				{
-					std::array<int, 4> Components{Draft.SwizzleX, Draft.SwizzleY, Draft.SwizzleZ, Draft.SwizzleW};
-					if (ImGui::InputInt4("Channels (0-3)", Components.data()))
-					{
-						Draft.SwizzleX = static_cast<uint8>(std::clamp(Components[0], 0, 3));
-						Draft.SwizzleY = static_cast<uint8>(std::clamp(Components[1], 0, 3));
-						Draft.SwizzleZ = static_cast<uint8>(std::clamp(Components[2], 0, 3));
-						Draft.SwizzleW = static_cast<uint8>(std::clamp(Components[3], 0, 3));
-					}
+					Document.EditingNode = *Id;
+					Document.NodeDraft = TStrongObjectPtr<DMaterialExpression>(DuplicateObject(Node->Get(), nullptr, NAME_None));
 				}
+				if (!Document.NodeDraft.Get()) continue;
+				auto* Draft = Document.NodeDraft.Get();
+				// Preserve unapplied fields while refreshing links/defaults changed by shared commands.
+				Draft->GetClass()->ForEachProperty([&](FProperty* Property) {
+					if (Property->NamePrivate == FName("Value") || Property->NamePrivate == FName("Components")
+						|| Property->NamePrivate == FName("AttributeMask") || Property->NamePrivate == FName("Attributes")) return;
+					for (uint32 Element = 0; Element < Property->GetArrayDim(); ++Element)
+						Property->CopyAssignValue(Property->GetValuePtr(Draft, Element), Property->GetValuePtr(Node->Get(), Element));
+				});
+				if (auto* Constant = Cast<DMaterialExpressionScalarConstant>(Draft)) ImGui::InputFloat("Value", &Constant->Value);
+				else if (auto* Constant = Cast<DMaterialExpressionVector2Constant>(Draft))
+				{
+					std::array<float, 2> Value{static_cast<float>(Constant->Value.x), static_cast<float>(Constant->Value.y)};
+					if (ImGui::InputFloat2("Value", Value.data())) Constant->Value = {Value[0], Value[1]};
+				}
+				else if (auto* Constant = Cast<DMaterialExpressionVector3Constant>(Draft))
+				{
+					std::array<float, 3> Value{static_cast<float>(Constant->Value.x), static_cast<float>(Constant->Value.y), static_cast<float>(Constant->Value.z)};
+					if (ImGui::InputFloat3("Value", Value.data())) Constant->Value = {Value[0], Value[1], Value[2]};
+				}
+				else if (auto* Constant = Cast<DMaterialExpressionVector4Constant>(Draft))
+				{
+					std::array<float, 4> Value{static_cast<float>(Constant->Value.x), static_cast<float>(Constant->Value.y), static_cast<float>(Constant->Value.z), static_cast<float>(Constant->Value.w)};
+					if (ImGui::InputFloat4("Value", Value.data())) Constant->Value = {Value[0], Value[1], Value[2], Value[3]};
+				}
+				if (auto* Swizzle = Cast<DMaterialExpressionSwizzle>(Draft))
+					for (size_t Index = 0; Index < Swizzle->Components.size(); ++Index)
+					{
+						ImGui::PushID(static_cast<int>(Index));
+						int Component = Swizzle->Components[Index];
+						if (ImGui::InputInt("Channel (0-3)", &Component)) Swizzle->Components[Index] = static_cast<uint8>(std::clamp(Component, 0, 3));
+						ImGui::PopID();
+					}
 				DrawMaterialFunctionCallInputs(Function, *Id, *GEditor->GetTransactor(), Error);
-				if (Draft.Opcode == EMaterialProgramOpcode::GetSurfaceAttributes)
+				if (auto* GetSurface = Cast<DMaterialExpressionGetSurfaceAttributes>(Draft))
 					for (uint32 Index = 0; Index < 8; ++Index)
 					{
-						bool Enabled = (Draft.SurfaceAttributeMask & (1 << Index)) != 0;
+						bool Enabled = (GetSurface->AttributeMask & (1 << Index)) != 0;
 						if (ImGui::Checkbox(MaterialSurfaceNames[Index], &Enabled))
-							Draft.SurfaceAttributeMask = Enabled ? Draft.SurfaceAttributeMask | (1 << Index) : Draft.SurfaceAttributeMask & ~(1 << Index);
+							GetSurface->AttributeMask = Enabled ? GetSurface->AttributeMask | (1 << Index) : GetSurface->AttributeMask & ~(1 << Index);
 					}
-				if (Draft.Opcode == EMaterialProgramOpcode::SetSurfaceAttributes)
+				if (auto* SetSurface = Cast<DMaterialExpressionSetSurfaceAttributes>(Draft))
 					for (uint32 Index = 0; Index < 8; ++Index)
 					{
 						const auto Attribute = static_cast<EMaterialSurfaceOutput>(Index);
 						ImGui::PushID(static_cast<int>(Index));
 						if (ImGui::BeginCombo(MaterialSurfaceNames[Index], "Override source"))
 						{
-							if (ImGui::Selectable("Keep base value")) std::erase_if(Draft.SurfaceAttributes, [&](const auto& Binding) { return Binding.Attribute == Attribute; });
+							if (ImGui::Selectable("Keep base value")) std::erase_if(SetSurface->Attributes, [&](const auto& Binding) { return Binding.Attribute == Attribute; });
 							for (const auto& Source : Graph.Inspect().Nodes)
 								for (const auto& Pin : Source.Outputs)
 									if (Pin.Type == GetMaterialSurfaceOutputType(Attribute) && ImGui::Selectable(std::format("{}: {}##{}{}", Source.PrimaryLabel, Pin.Name, Source.Node.Id.ToString(), Pin.PortId.ToString()).c_str()))
 									{
-										std::erase_if(Draft.SurfaceAttributes, [&](const auto& Binding) { return Binding.Attribute == Attribute; });
-										Draft.SurfaceAttributes.push_back({Attribute, {Source.Node.Id, Pin.OutputIndex, Pin.PortId}});
+										std::erase_if(SetSurface->Attributes, [&](const auto& Binding) { return Binding.Attribute == Attribute; });
+										SetSurface->Attributes.push_back({Attribute, {Source.Node.Id, Pin.OutputIndex, Pin.PortId}});
 									}
 							ImGui::EndCombo();
 						}
 						ImGui::PopID();
 					}
-				if (ImGui::Button("Apply Node")) Apply(Graph.ReplaceNode(Draft, GEditor->GetTransactor()));
+				if (ImGui::Button("Apply Node")) Apply(Graph.ReplaceExpression(*Draft, GEditor->GetTransactor()));
 				break;
 			}
 	}
@@ -357,14 +380,11 @@ namespace Durin::Editor::Material
 		if (Document.PreviewRevision != Function.GetFunctionRevision())
 		{
 			Document.PreviewRevision = Function.GetFunctionRevision();
-			FMaterialGraphDocumentState State;
-			FMaterialStaticProperties Properties;
-			auto Result = BuildMaterialFunctionPreview(Function, Document.Output, State, Properties);
+			auto Result = BuildMaterialFunctionPreview(Function, Document.Output, *Document.Material());
 			Document.Diagnostics = Result.Diagnostics;
-			if (Result) Result = FMaterialGraphDocument(*Document.Material()).Commit(std::move(State), "Build Function Preview");
 			Document.bPreviewValid = static_cast<bool>(Result);
 			if (!Result) Error = Result.Message;
-			else { Document.Material()->SetStaticProperties(Properties); Document.Material()->CompileEdits(); }
+			else Document.Material()->CompileEdits();
 		}
 		else if (Document.Material()->GetMaterialCompileStatus().State == EMaterialCompileState::NeedsCompile)
 			Document.Material()->CompileEdits();

@@ -15,7 +15,7 @@ namespace
 	{
 		auto* Material = Durin::NewObject<Durin::DMaterial>(
 			Outer, std::forward<TName>(Name));
-		if (!Material || !Material->SetMaterialProgram(Durin::Testing::MakePBRMaterialProgramForTest())) return nullptr;
+		if (!Material || !Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*Material)) return nullptr;
 		if (!FinishMaterialCompileForTest(*Material)) return nullptr;
 		return Material;
 	}
@@ -96,7 +96,7 @@ TEST(FMaterialRenderProxyTests, ParentProgramChangesReevaluateDormantOverrides)
 	const auto Initial = CaptureMaterialProxy(Proxy);
 	ExpectColorNear(GetMaterialBinding(Initial.RenderData).BaseColor,
 		Durin::FVector4f(0.1f, 0.3f, 0.8f, 1.0f));
-	auto Validation = Base->SetMaterialProgram(Durin::MakeDefaultMaterialProgram());
+	auto Validation = Base->SetMaterialExpressions({}, {});
 	ASSERT_TRUE(Validation);
 	const auto Dormant = CaptureMaterialProxy(Proxy);
 	EXPECT_GT(Dormant.LocalVersion, Initial.LocalVersion);
@@ -107,7 +107,7 @@ TEST(FMaterialRenderProxyTests, ParentProgramChangesReevaluateDormantOverrides)
 	EXPECT_TRUE(Instance->IsParameterOverrideOrphan(
 		Durin::MaterialParameters::GetBuiltinParameterIds(
 			Durin::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value));
-	ASSERT_TRUE((Validation = Base->SetMaterialProgram(Durin::Testing::MakePBRMaterialProgramForTest())));
+	ASSERT_TRUE((Validation = Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*Base)));
 	const auto Restored = CaptureMaterialProxy(Proxy);
 	EXPECT_GT(Restored.LocalVersion, Dormant.LocalVersion);
 	ExpectColorNear(GetMaterialBinding(Restored.RenderData).BaseColor,
@@ -174,8 +174,7 @@ TEST(FMaterialRenderProxyTests, StableIdentityPublishesVersionsAndRejectsStaleSt
 	StalePublication.LocalVersion = Updated.LocalVersion;
 	StalePublication.LocalLayer.Parameters.push_back({
 		.Id = Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value,
-		.Type = Durin::EMaterialParameterType::Vector,
-		.VectorValue = Durin::FVector3(0.0),
+		.Value = Durin::FVector3(0.0),
 	});
 	bool bStaleApplied = true;
 	struct FApplyStaleMaterialProxyPublicationCommand
@@ -261,8 +260,8 @@ TEST(FMaterialRenderProxyTests, AuthoredValuesMatchDirectCompilationForBasesAndI
 		if (Definition.Type == Durin::EMaterialParameterType::Texture)
 		{
 			auto Value = Definition.Value;
-			Value.TextureValue = TextureForUsage(Definition.TextureUsage, false);
-			Value.SamplerState.AddressU =
+			Value.GetTexture().Texture = TextureForUsage(Definition.TextureUsage, false);
+			Value.GetTexture().SamplerState.AddressU =
 				Durin::EMaterialSamplerAddressMode::ClampToEdge;
 			ASSERT_TRUE(Base->SetParameterValue(Definition.Id, Value));
 		}
@@ -469,13 +468,19 @@ TEST(FMaterialRenderProxyTests, TemplateIdentitiesDoNotOverrideEditedDeclaration
 		if (Definition.Name == Durin::MaterialParameters::NormalTextureName())
 		{
 			Definition.TextureUsage = Texture->GetUsage();
-			Definition.Value.TextureValue = Texture;
+			Definition.Value.GetTexture().Texture = Texture;
 		}
 	}
-	auto Program = Durin::Testing::MakePBRMaterialProgramForTest();
-	for (auto& Node : Program.Nodes)
-		if (Node.Parameter.Id.IsValid()) Node.Parameter = *std::ranges::find(Definitions, Node.Parameter.Id, &Durin::FMaterialParameterDefinition::Id);
-	ASSERT_TRUE(Base->SetMaterialProgram(std::move(Program)));
+	auto Graph = Durin::Testing::MakePBRMaterialExpressionsForTest();
+	Graph.SetParameterDefaults(Definitions);
+	for (auto& Expression : Graph.Expressions)
+	{
+		if (auto* Scalar = Durin::Cast<Durin::DMaterialExpressionScalarParameter>(Expression.Get());
+			Scalar && Scalar->Metadata.Name == Durin::MaterialParameters::RoughnessName()) Scalar->MaximumValue = 4.f;
+		if (auto* Resource = Durin::Cast<Durin::DMaterialExpressionTextureParameter>(Expression.Get());
+			Resource && Resource->Metadata.Name == Durin::MaterialParameters::NormalTextureName()) Resource->TextureUsage = Texture->GetUsage();
+	}
+	ASSERT_TRUE(Graph.Apply(*Base));
 	ASSERT_TRUE(FinishMaterialCompileForTest(*Base));
 	auto Proxy = Base->GetMaterialRenderProxy();
 	const auto Snapshot = CaptureMaterialProxy(Proxy);

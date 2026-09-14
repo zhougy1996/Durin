@@ -2,6 +2,7 @@
 #include "Graph/MaterialGraphValueTypes.h"
 #include "Graph/MaterialGraphCanvas.h"
 #include "MaterialGraphDocument.h"
+#include "MaterialGraphExpressionState.h"
 
 #include "Editor/Transaction.h"
 #include "MonaImGui.h"
@@ -38,9 +39,9 @@ namespace Durin::Editor::Material
 		auto InputLabel(const FMaterialGraphNodeView& Node, const FMaterialGraphPinView& Pin, const DMaterial* Material = nullptr) -> std::string
 		{
 			if (Pin.Link.SourceNodeId.IsValid()) return Pin.Name;
-			if (IsMaterialSampleUVInput(Node.Node, Pin.InputIndex))
+			if (Node.Node.IsSampleUVInput(Pin.InputIndex))
 			{
-				return std::format("UV {:g} (local)", Node.Node.UVSettings.Channel.Literal.X);
+				return std::format("UV {:g} (local)", Node.Node.GetUVChannel());
 			}
 			const auto& Value = Pin.InlineDefault;
 			if (Value.Kind == EMaterialInputDefaultKind::Literal)
@@ -290,13 +291,13 @@ namespace Durin::Editor::Material
 		{
 			for (FMaterialGraphNodeView& Node : CachedView.Nodes)
 			{
-				if (Node.Node.Parameter.Id.IsValid())
+				if (Node.Node.GetParameterId().IsValid())
 				{
-					if (const auto* Definition = Material.FindParameterDefinition(Node.Node.Parameter.Id))
+					if (const auto* Definition = Material.FindParameterDefinition(Node.Node.GetParameterId()))
 						Node.PrimaryLabel = Definition->DisplayName.empty()
 							? Definition->Name.ToString() : Definition->DisplayName;
 				}
-				else Node.SecondaryLabel = Node.Node.DisplayName;
+				else Node.SecondaryLabel = Node.Presentation.DisplayName;
 			}
 			CachedSchemaRevision = SchemaRevision;
 		}
@@ -619,7 +620,7 @@ namespace Durin::Editor::Material
 			if (SelectedNodes.contains(ContextNodeView->Node.Id))
 				ContextSelection = GetSelectedProgramNodes();
 			else ContextSelection = {ContextNodeView->Node.Id};
-			FMaterialProgramNode Edited = ContextNodeView->Node;
+			const auto& Edited = ContextNodeView->Node;
 			if (Edited.Opcode == EMaterialProgramOpcode::Constant && ImGui::BeginMenu("Type"))
 			{
 				for (EMaterialProgramValueType Type : {EMaterialProgramValueType::Float,
@@ -628,9 +629,8 @@ namespace Durin::Editor::Material
 				{
 					if (ImGui::MenuItem(GetProgramTypeName(Type), nullptr, Edited.ResultType == Type))
 					{
-						Edited.ResultType = Type;
-						ReportCommand(FMaterialGraphOperations::ReplaceNode(
-							Material, Edited, &Transactions), ReportError);
+						ReportCommand(FMaterialGraphDocument(Material).SetConstantValue(
+							Edited.Id, MakeParameterValue(Type, Edited.GetConstantLiteral()), &Transactions), ReportError);
 					}
 				}
 				ImGui::EndMenu();
@@ -769,12 +769,12 @@ namespace Durin::Editor::Material
 				}
 			if (ImGui::IsMouseReleased(ImGuiMouseButton_Left))
 			{
-				FMaterialGraphDocumentState State;
-				if (Document.Capture(State))
+				GraphEditInternals::FOwnedGraphSnapshot State;
+				if (State.Capture(Function))
 				{
 					State.Presentation.Nodes.clear();
 					for (const auto& Node : CachedView.Nodes) State.Presentation.Nodes.push_back(Node.Presentation);
-					Report(Document.Commit(std::move(State), "Move Function Nodes", &Transactions));
+					Report(GraphEditInternals::CommitOwnedExpressions(Function, std::move(State), "Move Function Nodes", &Transactions));
 				}
 				ResetInteraction();
 			}
@@ -864,12 +864,12 @@ namespace Durin::Editor::Material
 				ImGui::InputTextWithHint("##Search", "Find node...", Menu->Search.data(), Menu->Search.size());
 				for (const auto& Entry : FMaterialGraphOperations::SearchCatalog(Menu->Search.data()))
 				{
-					if (Entry.NodeTemplate.Opcode == EMaterialProgramOpcode::Parameter || Entry.NodeTemplate.Opcode == EMaterialProgramOpcode::TextureParameter
-						|| Entry.NodeTemplate.Opcode == EMaterialProgramOpcode::TextureSampleParameter2D) continue;
-					const auto Label = std::format("{} ({})", Entry.OperationName, GetProgramTypeName(Entry.NodeTemplate.ResultType));
+					if (Entry.Opcode == EMaterialProgramOpcode::Parameter || Entry.Opcode == EMaterialProgramOpcode::TextureParameter
+						|| Entry.Opcode == EMaterialProgramOpcode::TextureSampleParameter2D) continue;
+					const auto Label = std::format("{} ({})", Entry.OperationName, GetProgramTypeName(Entry.ResultType));
 					if (ImGui::Selectable(Label.c_str()))
 					{
-						const auto Result = Document.CreateNodeWithDefaultInputs({Entry.NodeTemplate, static_cast<int32>(Menu->GraphPosition.x), static_cast<int32>(Menu->GraphPosition.y)},
+						const auto Result = Document.CreateCatalogNode(Entry, static_cast<int32>(Menu->GraphPosition.x), static_cast<int32>(Menu->GraphPosition.y),
 							{Menu->SourceNode, Menu->SourceOutputIndex, Menu->SourceOutputId}, &Transactions);
 						if (Report(Result)) SelectedNodes = {Result.GeneratedNodeIds[0]};
 						ResetInteraction();
@@ -1228,9 +1228,8 @@ namespace Durin::Editor::Material
 					if (Visual.View->Node.Opcode == EMaterialProgramOpcode::Constant
 						&& Intersects(Visual.Minimum, Visual.Maximum, CanvasMinimum, CanvasMaximum))
 					{
-						std::array ConstantDraft{Visual.View->Node.Literal.X,
-							Visual.View->Node.Literal.Y, Visual.View->Node.Literal.Z,
-							Visual.View->Node.Literal.W};
+						const auto Literal = Visual.View->Node.GetConstantLiteral();
+						std::array ConstantDraft{Literal.X, Literal.Y, Literal.Z, Literal.W};
 						if (const auto* Inline =
 							std::get_if<FInlineEditingInteraction>(&Interaction);
 							Inline && Inline->Node == Visual.View->Node.Id)
@@ -1257,11 +1256,9 @@ namespace Durin::Editor::Material
 						if (bCancelInline) ResetInteraction();
 						else if (bValueSubmitted || ImGui::IsItemDeactivatedAfterEdit())
 						{
-							FMaterialProgramNode Edited = Visual.View->Node;
-							Edited.Literal = {ConstantDraft[0], ConstantDraft[1],
-								ConstantDraft[2], ConstantDraft[3]};
-							ReportCommand(FMaterialGraphOperations::ReplaceNode(
-								Material, std::move(Edited), &Transactions), ReportError);
+							ReportCommand(FMaterialGraphDocument(Material).SetConstantValue(Visual.View->Node.Id,
+								MakeParameterValue(Visual.View->Node.ResultType,
+									{ConstantDraft[0], ConstantDraft[1], ConstantDraft[2], ConstantDraft[3]}), &Transactions), ReportError);
 						}
 						if (bInlineActive && !bCancelInline)
 							Interaction = FInlineEditingInteraction{
@@ -1294,7 +1291,7 @@ namespace Durin::Editor::Material
 							Visual.View->Node.Opcode == EMaterialProgramOpcode::Parameter
 							&& SelectedNodes.contains(Visual.View->Node.Id)
 							&& Material.ResolveParameterValue(
-								Visual.View->Node.Parameter.Id, Resolved);
+								Visual.View->Node.GetParameterId(), Resolved);
 						if (bEditValue)
 						{
 							const auto Literal = ReadParameterLiteral(Visual.View->Node.ResultType, Resolved.Value);
@@ -1324,7 +1321,7 @@ namespace Durin::Editor::Material
 									{ConstantDraft[0], ConstantDraft[1], ConstantDraft[2], ConstantDraft[3]});
 								if (!ParameterEditSession.IsActive())
 									ReportCommand(ParameterEditSession.Begin(Material,
-										Visual.View->Node.Parameter.Id, &Transactions), ReportError);
+										Visual.View->Node.GetParameterId(), &Transactions), ReportError);
 								if (ParameterEditSession.IsActive())
 									ReportCommand(ParameterEditSession.Apply(std::move(Value)), ReportError);
 							}
@@ -1354,11 +1351,9 @@ namespace Durin::Editor::Material
 					else if (Visual.View->Node.Opcode == EMaterialProgramOpcode::Swizzle
 						&& Intersects(Visual.Minimum, Visual.Maximum, CanvasMinimum, CanvasMaximum))
 					{
-						std::array SwizzleDraft{
-							static_cast<int>(Visual.View->Node.SwizzleX),
-							static_cast<int>(Visual.View->Node.SwizzleY),
-							static_cast<int>(Visual.View->Node.SwizzleZ),
-							static_cast<int>(Visual.View->Node.SwizzleW)};
+						std::array<int, 4> SwizzleDraft{};
+						const auto& Components = std::get<std::vector<uint8>>(Visual.View->Node.Data);
+						for (size_t Index = 0; Index < Components.size(); ++Index) SwizzleDraft[Index] = Components[Index];
 						if (const auto* Inline =
 							std::get_if<FInlineEditingInteraction>(&Interaction);
 							Inline && Inline->Node == Visual.View->Node.Id)
@@ -1383,13 +1378,11 @@ namespace Durin::Editor::Material
 						if (bCancelInline) ResetInteraction();
 						else if (ImGui::IsItemDeactivatedAfterEdit())
 						{
-							FMaterialProgramNode Edited = Visual.View->Node;
-							Edited.SwizzleX = static_cast<uint8>(std::clamp(SwizzleDraft[0], 0, 3));
-							Edited.SwizzleY = static_cast<uint8>(std::clamp(SwizzleDraft[1], 0, 3));
-							Edited.SwizzleZ = static_cast<uint8>(std::clamp(SwizzleDraft[2], 0, 3));
-							Edited.SwizzleW = static_cast<uint8>(std::clamp(SwizzleDraft[3], 0, 3));
-							ReportCommand(FMaterialGraphOperations::ReplaceNode(
-								Material, std::move(Edited), &Transactions), ReportError);
+							std::array<uint8, 4> Components{};
+							for (size_t Index = 0; Index < Components.size(); ++Index)
+								Components[Index] = static_cast<uint8>(std::clamp(SwizzleDraft[Index], 0, 3));
+							ReportCommand(FMaterialGraphDocument(Material).SetSwizzleComponents(Visual.View->Node.Id,
+								std::span(Components).first(std::get<std::vector<uint8>>(Visual.View->Node.Data).size()), &Transactions), ReportError);
 						}
 						if (bInlineActive && !bCancelInline)
 							Interaction = FInlineEditingInteraction{

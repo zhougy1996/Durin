@@ -1,4 +1,5 @@
 #pragma once
+#include "MaterialExpressionRecipeTestSupport.h"
 
 #include "StaticMeshTestAccess.h"
 
@@ -568,7 +569,7 @@ namespace
 	struct FDualLayerRustFixture
 	{
 		std::vector<Durin::FMaterialParameterDefinition> Definitions;
-		Durin::FMaterialProgram Program;
+		Durin::Testing::FTestMaterialExpressionGraph Graph;
 	};
 
 	inline auto MakeDualLayerRustFixture() -> FDualLayerRustFixture
@@ -599,25 +600,15 @@ namespace
 			Numeric("RustTiling", EMaterialParameterType::Scalar,
 				FMaterialParameterValue::MakeScalar(2.0f))};
 		const FGuid RustAmountId = Definitions[5].Id;
-		FMaterialProgram Program;
+		Testing::FTestMaterialExpressionGraph Graph;
 		auto Add = [&](EMaterialProgramOpcode Opcode, EMaterialProgramValueType Type,
-			std::vector<FMaterialProgramLink> Inputs = {}, FGuid ParameterId = {}) {
-			FMaterialProgramNode Node;
-			Node.Id = FGuid::NewGuid(); Node.Opcode = Opcode; Node.ResultType = Type;
-			Node.Inputs = std::move(Inputs);
-			if (ParameterId.IsValid()) Node.Parameter = *std::ranges::find(Definitions, ParameterId, &FMaterialParameterDefinition::Id);
-			Program.Nodes.push_back(Node);
-			return FMaterialProgramLink{Node.Id, 0};
+			std::vector<FMaterialExpressionInput> Inputs = {}, FGuid ParameterId = {}) {
+			return Testing::MakeLink(Graph.Add(Opcode, Type, std::move(Inputs), ParameterId, {}, Definitions));
 		};
-		auto Swizzle = [&](FMaterialProgramLink Input,
+		auto Swizzle = [&](FMaterialExpressionInput Input,
 			EMaterialProgramValueType Type, std::initializer_list<uint8> Channels) {
 			const auto Result = Add(EMaterialProgramOpcode::Swizzle, Type, {Input});
-			auto& Node = Program.Nodes.back(); Node.SwizzleLength = Channels.size();
-			auto It = Channels.begin();
-			if (It != Channels.end()) Node.SwizzleX = *It++;
-			if (It != Channels.end()) Node.SwizzleY = *It++;
-			if (It != Channels.end()) Node.SwizzleZ = *It++;
-			if (It != Channels.end()) Node.SwizzleW = *It;
+			Cast<DMaterialExpressionSwizzle>(Graph.Expressions.back().Get())->Components.assign(Channels.begin(), Channels.end());
 			return Result;
 		};
 		const auto Channel = Add(EMaterialProgramOpcode::Constant,
@@ -647,14 +638,14 @@ namespace
 			EMaterialProgramValueType::Float, {RustMask, Amount});
 		const auto Alpha = Add(EMaterialProgramOpcode::Saturate,
 			EMaterialProgramValueType::Float, {WeightedMask});
-		Program.Outputs.BaseColor = Add(EMaterialProgramOpcode::Lerp,
+		Graph.Outputs.BaseColor = Add(EMaterialProgramOpcode::Lerp,
 			EMaterialProgramValueType::Float3, {MetalColor, RustColor, Alpha});
 		const auto MetalNormal = Add(EMaterialProgramOpcode::DecodeNormalRG,
 			EMaterialProgramValueType::Float3, {MetalNormalRG});
 		const auto RustNormal = Add(EMaterialProgramOpcode::DecodeNormalRG,
 			EMaterialProgramValueType::Float3, {RustNormalRG});
-		Program.Outputs.Normal = Add(EMaterialProgramOpcode::Lerp,
+		Graph.Outputs.Normal = Add(EMaterialProgramOpcode::Lerp,
 			EMaterialProgramValueType::Float3, {MetalNormal, RustNormal, Alpha});
-		return {std::move(Definitions), std::move(Program)};
+		return {std::move(Definitions), std::move(Graph)};
 	}
 }

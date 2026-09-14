@@ -1,11 +1,8 @@
 #include "Materials/MaterialProgramCompiler.h"
 
-#include "Materials/MaterialInterface.h"
 #include "Materials/MaterialRenderTypes.h"
 #include "Shader/ShaderCompilerCore.h"
-#include "Threading/RunnableThread.h"
 #include "DynamicRHI.h"
-#include "MaterialFunctionExpansion.h"
 
 #include <algorithm>
 #include <array>
@@ -13,7 +10,6 @@
 #include <functional>
 #include <numeric>
 #include <tuple>
-#include <unordered_map>
 
 namespace Durin
 {
@@ -124,68 +120,6 @@ namespace Durin
 			AppendLittleEndian(Bytes, Node.GetSwizzle().Components[3]);
 		}
 
-		auto CopyRelevantImmediates(
-			const FMaterialProgramNode& Node,
-			FMaterialIRNode& OutNode) -> void
-		{
-			FMaterialProgramLiteral Literal;
-			FMaterialIRSwizzle Swizzle;
-			switch (Node.Opcode)
-			{
-			case EMaterialProgramOpcode::Constant:
-				Literal.X = Node.Literal.X;
-				if (Node.ResultType >= EMaterialProgramValueType::Float2)
-					Literal.Y = Node.Literal.Y;
-				if (Node.ResultType >= EMaterialProgramValueType::Float3)
-					Literal.Z = Node.Literal.Z;
-				if (Node.ResultType >= EMaterialProgramValueType::Float4)
-					Literal.W = Node.Literal.W;
-				OutNode.Payload = Literal;
-				break;
-			case EMaterialProgramOpcode::Parameter:
-			case EMaterialProgramOpcode::TextureParameter:
-				OutNode.Payload = Node.Parameter.Id;
-				break;
-			case EMaterialProgramOpcode::Swizzle:
-				Swizzle.Length = Node.SwizzleLength;
-				Swizzle.Components[0] = Node.SwizzleX;
-				if (Node.SwizzleLength > 1) Swizzle.Components[1] = Node.SwizzleY;
-				if (Node.SwizzleLength > 2) Swizzle.Components[2] = Node.SwizzleZ;
-				if (Node.SwizzleLength > 3) Swizzle.Components[3] = Node.SwizzleW;
-				OutNode.Payload = Swizzle;
-				break;
-			default: break;
-			}
-		}
-
-		auto MakeIRNode(
-			const FMaterialProgramNode& Node,
-			std::span<const FMaterialProgramLink> OrderedInputs,
-			const std::unordered_map<FGuid, uint32>& NormalizedIndices)
-			-> FMaterialIRNode
-		{
-			FMaterialIRNode Result;
-			Result.Opcode = Node.Opcode;
-			Result.ResultType = Node.ResultType;
-			CopyRelevantImmediates(Node, Result);
-			Result.Inputs.reserve(OrderedInputs.size());
-			for (const FMaterialProgramLink& Input : OrderedInputs)
-				Result.Inputs.push_back(
-					NormalizedIndices.at(Input.SourceNodeId));
-			return Result;
-		}
-
-		auto MakeDefinitions(
-			std::span<const FMaterialCompilerParameterDeclaration> Parameters)
-			-> std::vector<FMaterialParameterDefinition>
-		{
-			std::vector<FMaterialParameterDefinition> Definitions;
-			Definitions.reserve(Parameters.size());
-			for (const auto& Parameter : Parameters)
-				Definitions.push_back({.Id = Parameter.Id, .Type = Parameter.Type});
-			return Definitions;
-		}
-
 		auto MakeNormalizationFailure(std::string Message)
 			-> FMaterialProgramDiagnostic
 		{
@@ -197,55 +131,6 @@ namespace Durin
 					EMaterialProgramDiagnosticLocationKind::Program,
 				.Message = std::move(Message)};
 		}
-	}
-
-	auto SnapshotMaterialCompilerInput(
-		const DMaterialInterface& Material,
-		FMaterialCompilerEnvironment Environment,
-		FMaterialCompilerInput& OutInput) -> FMaterialProgramValidationResult
-	{
-		check(IsInGameThread());
-		const FMaterialProgram* Program = Material.GetMaterialProgram();
-		if (Program == nullptr)
-		{
-			FMaterialProgramValidationResult Validation;
-			Validation.Diagnostics.push_back({
-				.Category = EMaterialProgramDiagnosticCategory::Schema,
-				.LocationKind =
-					EMaterialProgramDiagnosticLocationKind::Program,
-				.Message = "Material has no root authored program."});
-			return Validation;
-		}
-		std::vector<FMaterialParameterDefinition> Definitions;
-		auto Validation = DeriveMaterialParameterSchema(*Program, Definitions);
-		if (!Validation) return Validation;
-		Validation = ValidateMaterialProgramWithFunctions(*Program, Definitions, Material.GetMaterialFunctionCalls());
-		if (!Validation) return Validation;
-
-		FMaterialCompilerInput Snapshot;
-		Validation = SnapshotMaterialFunctionCalls(Material.GetMaterialFunctionCalls(), Snapshot.FunctionCalls, Snapshot.Functions);
-		if (!Validation) return Validation;
-		Snapshot.Program = *Program;
-		for (auto& Node : Snapshot.Program.Nodes)
-		{
-			const auto Id = Node.Parameter.Id;
-			const auto Type = Node.Parameter.Type;
-			Node.Parameter = {};
-			Node.Parameter.Id = Id;
-			Node.Parameter.Type = Type;
-		}
-		Snapshot.StaticProperties = Material.GetStaticProperties();
-		Snapshot.Environment = std::move(Environment);
-		Snapshot.Parameters.reserve(Definitions.size());
-		for (const FMaterialParameterDefinition& Definition : Definitions)
-			Snapshot.Parameters.push_back({
-				.Id = Definition.Id, .Type = Definition.Type});
-		std::ranges::sort(Snapshot.Parameters, {},
-			&FMaterialCompilerParameterDeclaration::Id);
-		std::ranges::sort(Snapshot.Environment.Dependencies, {},
-			&FMaterialCompilerDependency::VirtualPath);
-		OutInput = std::move(Snapshot);
-		return Validation;
 	}
 
 	auto BuildDefaultMaterialCompilerEnvironment(
@@ -287,8 +172,7 @@ namespace Durin
 		return true;
 	}
 
-	template<typename TInput>
-	static auto ValidateNormalizationEnvironment(const TInput& Input) -> FMaterialNormalizationResult
+	static auto ValidateNormalizationEnvironment(const FMaterialIRCompilerInput& Input) -> FMaterialNormalizationResult
 	{
 		FMaterialNormalizationResult Result;
 		std::string StaticPropertiesError;
@@ -343,205 +227,6 @@ namespace Durin
 		}
 
 		Result.bSucceeded = true;
-		return Result;
-	}
-
-	auto NormalizeMaterialProgram(const FMaterialCompilerInput& Input)
-		-> FMaterialNormalizationResult
-	{
-		FMaterialNormalizationResult Result;
-		const std::vector<FMaterialParameterDefinition> Definitions =
-			MakeDefinitions(Input.Parameters);
-		Private::FMaterialExpandedProgram Program;
-		const FMaterialProgramValidationResult Validation =
-			Private::ExpandMaterialFunctionCalls(Input, Definitions, Program);
-		if (!Validation)
-		{
-			Result.Diagnostics = Validation.Diagnostics;
-			return Result;
-		}
-		const auto EnvironmentValidation = ValidateNormalizationEnvironment(Input);
-		if (!EnvironmentValidation) return EnvironmentValidation;
-
-		std::unordered_map<FGuid, size_t> AuthoredIndices;
-		AuthoredIndices.reserve(Program.Nodes.size());
-		for (size_t Index = 0; Index < Program.Nodes.size(); ++Index)
-			AuthoredIndices.emplace(Program.Nodes[Index].Id, Index);
-
-		std::vector<bool> Reachable(Program.Nodes.size(), false);
-		std::function<void(size_t)> MarkReachable = [&](size_t Index) {
-			if (Reachable[Index]) return;
-			Reachable[Index] = true;
-			for (const FMaterialProgramLink& Link
-				: Program.Nodes[Index].Inputs)
-				MarkReachable(AuthoredIndices.at(Link.SourceNodeId));
-		};
-		for (EMaterialSurfaceOutput Output : GSurfaceOutputOrder)
-		{
-			const FMaterialProgramLink& Link = GetMaterialSurfaceOutputLink(
-				Program.Outputs, Output);
-			if (Link.SourceNodeId.IsValid())
-				MarkReachable(AuthoredIndices.at(Link.SourceNodeId));
-		}
-		if (Program.Outputs.Surface.SourceNodeId.IsValid())
-			MarkReachable(AuthoredIndices.at(
-				Program.Outputs.Surface.SourceNodeId));
-
-		FMaterialIR IR;
-		const size_t ReachableCount = std::ranges::count(Reachable, true);
-		IR.Nodes.reserve(ReachableCount);
-		std::unordered_map<FGuid, uint32> NormalizedIndices;
-		NormalizedIndices.reserve(IR.Nodes.capacity());
-
-		// Retain the DAG, not recursively expanded key bytes. Pairwise memoization
-		// bounds comparison work even for distinct but structurally equal subgraphs.
-		struct FStructuralKey
-		{
-			FByteBuffer Header;
-			std::vector<size_t> Inputs;
-			bool bBuilt = false;
-		};
-		const size_t NodeCount = Program.Nodes.size();
-		std::vector<FStructuralKey> StructuralKeys(NodeCount);
-		std::vector<int8> Comparisons(NodeCount * NodeCount, 2);
-		std::function<int8(size_t, size_t)> CompareKeys = [&](size_t A, size_t B) -> int8 {
-			if (A == B) return 0;
-			int8& Cached = Comparisons[A * NodeCount + B];
-			if (Cached != 2) return Cached;
-			const auto& Left = StructuralKeys[A];
-			const auto& Right = StructuralKeys[B];
-			int8 Order = Left.Header < Right.Header ? -1
-				: Left.Header > Right.Header ? 1 : 0;
-			for (size_t Index = 0; Order == 0
-				&& Index < std::min(Left.Inputs.size(), Right.Inputs.size()); ++Index)
-				Order = CompareKeys(Left.Inputs[Index], Right.Inputs[Index]);
-			if (Order == 0)
-				Order = Left.Inputs.size() < Right.Inputs.size() ? -1
-					: Left.Inputs.size() > Right.Inputs.size() ? 1 : 0;
-			Cached = Order;
-			Comparisons[B * NodeCount + A] = -Order;
-			return Order;
-		};
-		std::function<void(size_t)> BuildStructuralKey = [&](size_t Index) {
-			auto& Key = StructuralKeys[Index];
-			if (Key.bBuilt) return;
-			const auto& Node = Program.Nodes[Index];
-			FMaterialIRNode Header;
-			Header.Opcode = Node.Opcode;
-			Header.ResultType = Node.ResultType;
-			CopyRelevantImmediates(Node, Header);
-			AppendIRNode(Key.Header, Header);
-			for (const auto& Link : Node.Inputs)
-			{
-				const size_t Child = AuthoredIndices.at(Link.SourceNodeId);
-				BuildStructuralKey(Child);
-				Key.Inputs.push_back(Child);
-			}
-			if (IsCommutative(Node.Opcode))
-				std::ranges::stable_sort(Key.Inputs, [&](size_t A, size_t B) {
-					return CompareKeys(A, B) < 0;
-				});
-			Key.bBuilt = true;
-		};
-		for (size_t Index = 0; Index < NodeCount; ++Index)
-			if (Reachable[Index]) BuildStructuralKey(Index);
-
-		std::function<uint32(const FGuid&)> EmitNode = [&](const FGuid& Id) {
-			if (const auto Existing = NormalizedIndices.find(Id);
-				Existing != NormalizedIndices.end()) return Existing->second;
-			const FMaterialProgramNode& Node =
-				Program.Nodes[AuthoredIndices.at(Id)];
-			std::vector<FMaterialProgramLink> OrderedInputs = Node.Inputs;
-			if (IsCommutative(Node.Opcode))
-				std::ranges::stable_sort(OrderedInputs, [&](const auto& A,
-					const auto& B) {
-					return CompareKeys(AuthoredIndices.at(A.SourceNodeId),
-						AuthoredIndices.at(B.SourceNodeId)) < 0;
-				});
-			for (const FMaterialProgramLink& Link : OrderedInputs)
-				EmitNode(Link.SourceNodeId);
-			const uint32 IRIndex = static_cast<uint32>(IR.Nodes.size());
-			IR.Nodes.push_back(MakeIRNode(
-				Node, OrderedInputs, NormalizedIndices));
-			if (const auto Source = Program.Sources.find(Id); Source != Program.Sources.end())
-			{
-				auto Location = Source->second;
-				Location.ExpressionIndex = IRIndex;
-				Result.Sources.push_back(std::move(Location));
-			}
-			NormalizedIndices.emplace(Id, IRIndex);
-			return IRIndex;
-		};
-
-		for (EMaterialSurfaceOutput Output : GSurfaceOutputOrder)
-		{
-			const FMaterialProgramLink& Link = GetMaterialSurfaceOutputLink(
-				Program.Outputs, Output);
-			if (Link.SourceNodeId.IsValid()) EmitNode(Link.SourceNodeId);
-		}
-		if (Program.Outputs.Surface.SourceNodeId.IsValid())
-			EmitNode(Program.Outputs.Surface.SourceNodeId);
-
-		if (IR.Nodes.size() != ReachableCount)
-		{
-			Result.Diagnostics.push_back(MakeNormalizationFailure(
-				"Material normalization did not consume the complete reachable DAG."));
-			return Result;
-		}
-		if (Program.Outputs.Surface.SourceNodeId.IsValid())
-		{
-			IR.SurfaceRoot.bAggregate = true;
-			IR.SurfaceRoot.AggregateExpressionIndex = NormalizedIndices.at(
-				Program.Outputs.Surface.SourceNodeId);
-		}
-		for (size_t OutputIndex = 0; OutputIndex < GSurfaceOutputOrder.size(); ++OutputIndex)
-		{
-			const EMaterialSurfaceOutput Output = GSurfaceOutputOrder[OutputIndex];
-			auto& RootInput = IR.SurfaceRoot.Inputs[OutputIndex];
-			RootInput.Type = GetMaterialSurfaceOutputType(Output);
-			RootInput.Literal = GetMaterialSurfaceOutputDefault(Program.Outputs, Output);
-			const FMaterialProgramLink& Link = GetMaterialSurfaceOutputLink(Program.Outputs, Output);
-			if (Link.SourceNodeId.IsValid())
-			{
-				RootInput.bExpression = true;
-				RootInput.ExpressionIndex = NormalizedIndices.at(Link.SourceNodeId);
-			}
-		}
-
-		std::string EncodeError;
-		if (!EncodeMaterialIRCanonical(IR, Result.CanonicalBytes, EncodeError))
-		{
-			Result.Diagnostics.push_back(
-				MakeNormalizationFailure(std::move(EncodeError)));
-			return Result;
-		}
-		// Capture explicit and implicit dependencies from the same validated snapshot
-		// that produced the reachable IR; authoring metadata stays out of the result.
-		for (const auto& Node : IR.Nodes)
-			if (Node.Opcode == EMaterialProgramOpcode::Parameter || Node.Opcode == EMaterialProgramOpcode::TextureParameter)
-			{
-				const auto Definition = std::ranges::find(Definitions, Node.GetParameterId(), &FMaterialParameterDefinition::Id);
-				if (Definition != Definitions.end()
-					&& std::ranges::find(Result.ActiveParameters, Node.GetParameterId(), &FMaterialCompilerParameterDeclaration::Id) == Result.ActiveParameters.end())
-					Result.ActiveParameters.push_back({Node.GetParameterId(), Definition->Type});
-			}
-		std::ranges::sort(Result.ActiveParameters, {},
-			&FMaterialCompilerParameterDeclaration::Id);
-		auto Layout = CompileMaterialLayout(Result.ActiveParameters, Input.Environment.ResourceLimits);
-		if (!Layout)
-		{
-			Result.Diagnostics.push_back(MakeNormalizationFailure(std::string(
-				GetMaterialLayoutErrorText(Layout.Validation.Error))));
-			return Result;
-		}
-		Result.Layout = std::move(Layout.Layout);
-		Result.IR = std::move(IR);
-		Result.Identity = BuildMaterialProgramIdentity(
-			Input, Result.CanonicalBytes, Result.Layout);
-		Result.bSucceeded = Result.Identity.IsValid();
-		if (!Result.bSucceeded)
-			Result.Diagnostics.push_back(MakeNormalizationFailure(
-				"Material program identity unexpectedly resolved to zero."));
 		return Result;
 	}
 
@@ -756,9 +441,8 @@ namespace Durin
 		return true;
 	}
 
-	template<typename TInput>
 	static auto BuildInputIdentity(
-		const TInput& Input,
+		const FMaterialIRCompilerInput& Input,
 		FByteView CanonicalIR, const FMaterialRenderLayout& Layout)
 		-> FMaterialProgramIdentity
 	{
@@ -811,12 +495,6 @@ namespace Durin
 			AppendLittleEndian(Bytes, static_cast<uint8>(1));
 		}
 		return {.Digest = FXxHash128::HashBuffer(Bytes)};
-	}
-
-	auto BuildMaterialProgramIdentity(const FMaterialCompilerInput& Input,
-		FByteView CanonicalIR, const FMaterialRenderLayout& Layout) -> FMaterialProgramIdentity
-	{
-		return BuildInputIdentity(Input, CanonicalIR, Layout);
 	}
 
 	auto BuildMaterialProgramIdentity(const FMaterialIRCompilerInput& Input,

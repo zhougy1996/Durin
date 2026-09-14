@@ -10,7 +10,7 @@ namespace Durin
 		DMaterial& Material, std::string& OutError) -> bool
 	{
 		OutError.clear();
-		const auto Reset = Material.SetMaterialProgram(MakeDefaultMaterialProgram());
+		const auto Reset = Material.SetMaterialExpressions({}, {});
 		if (!Reset)
 		{
 			OutError = Reset.Diagnostics.empty()

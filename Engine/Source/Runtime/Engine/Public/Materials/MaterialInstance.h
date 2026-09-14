@@ -25,19 +25,29 @@ namespace Durin
 		ENGINE_API auto GetRenderableStaticProperties() const
 			-> FMaterialStaticProperties override;
 		ENGINE_API auto GetMaterialProgram() const
-			-> const FMaterialProgram* override;
+			-> std::optional<FMaterialProgram> override;
 		ENGINE_API auto GetAcceptedCompiledProgram() const
 			-> std::shared_ptr<const FMaterialCompilerResult> override;
 		ENGINE_API auto GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition> override;
-		// Read-only projection; storage edits and reference collection invalidate its spans.
-		ENGINE_API auto GetParameterOverrides() const -> std::span<const FMaterialParameterOverride>;
+		ENGINE_API auto GetLocalParameterOverride(const FGuid& Id, FMaterialParameterValue& OutValue) const -> bool;
+		auto GetParameterOverrideCount() const -> size_t
+		{
+			return ScalarParameterOverrides.size() + Vector2ParameterOverrides.size() + VectorParameterOverrides.size()
+				+ Vector4ParameterOverrides.size() + TextureParameterOverrides.size();
+		}
+		// Visits selected values directly from typed storage; no cached alternate record array.
+		template<typename TVisitor> auto VisitParameterOverrides(TVisitor&& Visitor) const -> void
+		{
+			VisitOverrideArrays([&](const auto& Records) {
+				for (const auto& Record : Records) Visitor(Record.ParameterId, Record.GetValue());
+			});
+		}
 		ENGINE_API auto SetPropertyOverrides(const FMaterialPropertyOverrides& Overrides) -> bool;
 		auto GetPropertyOverrides() const -> const FMaterialPropertyOverrides& { return PropertyOverrides; }
 		ENGINE_API auto ResolveParameterValue(const FGuid& Id, FResolvedMaterialParameter& OutParameter) const -> bool override;
 		// Authored assets admit edits before compilation; cooked assets use the compiled contract.
 		ENGINE_API auto SetParameterOverride(
 			const FGuid& Id,
-			EMaterialParameterType Type,
 			const FMaterialParameterValue& Value
 		) -> bool;
 		ENGINE_API auto ClearParameterOverride(const FGuid& Id) -> bool;
@@ -60,7 +70,6 @@ namespace Durin
 		ENGINE_API auto GetVectorParameterValue(FName Name, FVector3& OutValue) const -> bool override;
 		ENGINE_API auto GetTextureParameterValue(FName Name, DTexture2D*& OutValue) const -> bool override;
 		ENGINE_API auto Serialize(FArchive& Ar) -> void override;
-		ENGINE_API auto AddReferencedObjects(FReferenceCollector& Collector) -> void override;
 		ENGINE_API auto PostLoad() -> void override;
 		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool override;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
@@ -91,10 +100,6 @@ namespace Durin
 		DPROPERTY(Edit)
 		std::vector<FMaterialTextureParameterOverride> TextureParameterOverrides;
 
-		// Read-only projection; expires on a storage mutation or reference rewrite.
-		mutable std::vector<FMaterialParameterOverride> ParameterOverrides;
-		mutable bool bOverrideProjectionDirty = true;
-		auto RebuildOverrideProjection() const -> void;
 		auto ValidateOverrideStorage(const FPropertyEditProposal* Proposal = nullptr) const -> bool;
 		template<typename TVisitor> auto VisitOverrideArrays(TVisitor&& Visitor) -> void
 		{

@@ -1,3 +1,4 @@
+#include "Materials/MaterialExpressionBuild.h"
 #include "Asset/PackageReload.h"
 
 #include "Asset/AssetCompilingManager.h"
@@ -155,8 +156,8 @@ namespace Durin
 					if (auto* Function = Cast<DMaterialFunctionInterface>(Object))
 					{
 						const std::array<DMaterialFunctionInterface*, 1> Roots{Function};
-						FMaterialFunctionClosure Closure;
-						const auto Validation = SnapshotMaterialFunctionClosure(Roots, Closure);
+						std::vector<FMaterialFunctionOwnerStamp> Closure;
+						const auto Validation = ValidateMaterialFunctionDependencies(Roots, Closure);
 						if (!Validation)
 						{
 							OutResult = MakeResult(Status::Failed, Failure::ResourcePreparationFailed,

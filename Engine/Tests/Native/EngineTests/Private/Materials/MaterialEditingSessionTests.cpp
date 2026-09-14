@@ -1,3 +1,4 @@
+#include "TypedMaterialGraphTestFixture.h"
 #include "Widgets/MaterialEditingSession.h"
 #include "MaterialGraphOperations.h"
 #include "Editor/EditorTransactionTestSupport.h"
@@ -45,14 +46,76 @@ namespace
 		}
 		auto Edit(DMaterial& Material, float Roughness) -> void
 		{
-			auto Program = *Material.GetMaterialProgram();
-			Program.Outputs.RoughnessDefault.X = Roughness;
-			ASSERT_TRUE(Material.SetMaterialProgram(std::move(Program)));
+			auto Outputs = Material.GetExpressionOutputs();
+			Outputs.RoughnessDefault = Roughness;
+			std::vector<DMaterialExpression*> Expressions;
+			for (const auto& Expression : Material.GetExpressionCollection().Expressions) Expressions.push_back(Expression.Get());
+			ASSERT_TRUE(Material.SetMaterialExpressions(Expressions, Outputs));
 		}
 		DPackage* Package = nullptr;
 		DMaterial* Source = nullptr;
 		Testing::FScopedMountRegistryFixture MountRegistry;
 	};
+}
+
+TEST_F(FMaterialEditingSessionTests, TypedExpressionCopiesStayIndependentAcrossApplyDiscardAndCollection)
+{
+	TStrongObjectPtr<DMaterialExpressionScalarParameter> Parameter(
+		NewObject<DMaterialExpressionScalarParameter>(nullptr, "SessionParameter"));
+	Parameter->Id = FGuid::NewGuid();
+	Parameter->Metadata.Id = FGuid::NewGuid();
+	Parameter->Metadata.Name = FName("SessionValue");
+	Parameter->DefaultValue = 0.23f;
+	DMaterialExpression* Inputs[] = {Parameter.Get()};
+	auto Outputs = Source->GetExpressionOutputs();
+	Outputs.Roughness.ExpressionId = Parameter->Id;
+	ASSERT_TRUE(Source->SetMaterialExpressions(Inputs, Outputs));
+	Package->ClearDirty();
+	TObjectPtr<DMaterialExpression> RetiredDraftExpression;
+	{
+		FMaterialEditingSession Session;
+		std::string Error;
+		ASSERT_TRUE(Session.Initialize(*Source, EMaterialEditCompileMode::Manual, Error)) << Error;
+		auto* Draft = Session.GetWorkingMaterial();
+		auto* Original = Cast<DMaterialExpressionScalarParameter>(Source->GetExpressionCollection().Expressions[0].Get());
+		auto* Edited = Cast<DMaterialExpressionScalarParameter>(Draft->GetExpressionCollection().Expressions[0].Get());
+		ASSERT_NE(Original, nullptr);
+		ASSERT_NE(Edited, nullptr);
+		EXPECT_NE(Original, Edited);
+		EXPECT_EQ(Original->GetOuter(), Source);
+		EXPECT_EQ(Edited->GetOuter(), Draft);
+		EXPECT_EQ(Original->Id, Edited->Id);
+		EXPECT_FALSE(Session.HasUnappliedChanges());
+		Edited->DefaultValue = 0.64f;
+		Edited->Metadata.DisplayName = "Edited parameter";
+		Edited->MarkPackageDirty();
+		Edited->PostEditChangeProperty({});
+		EXPECT_TRUE(Session.HasUnappliedChanges());
+		EXPECT_FLOAT_EQ(Original->DefaultValue, 0.23f);
+		CollectGarbage();
+		ASSERT_TRUE(Session.FinishAndApply(Error)) << Error;
+		auto* Applied = Cast<DMaterialExpressionScalarParameter>(Source->GetExpressionCollection().Expressions[0].Get());
+		ASSERT_NE(Applied, nullptr);
+		EXPECT_NE(Applied, Edited);
+		EXPECT_EQ(Applied->GetOuter(), Source);
+		EXPECT_FLOAT_EQ(Applied->DefaultValue, 0.64f);
+		EXPECT_EQ(Applied->Metadata.DisplayName, "Edited parameter");
+		EXPECT_FALSE(Session.HasUnappliedChanges());
+		Edited->DefaultValue = 0.91f;
+		Edited->MarkPackageDirty();
+		Edited->PostEditChangeProperty({});
+		EXPECT_TRUE(Session.HasUnappliedChanges());
+		Edited->DefaultValue = 0.64f;
+		Edited->MarkPackageDirty();
+		Edited->PostEditChangeProperty({});
+		EXPECT_FALSE(Session.HasUnappliedChanges());
+		RetiredDraftExpression = Edited;
+	}
+	CollectGarbage();
+	EXPECT_FALSE(RetiredDraftExpression.IsValid());
+	auto* Applied = Cast<DMaterialExpressionScalarParameter>(Source->GetExpressionCollection().Expressions[0].Get());
+	ASSERT_NE(Applied, nullptr);
+	EXPECT_FLOAT_EQ(Applied->DefaultValue, 0.64f);
 }
 
 TEST_F(FMaterialEditingSessionTests, PreviewCompilationIsIsolatedAndApplyPreservesSourceIdentity)
@@ -65,7 +128,7 @@ TEST_F(FMaterialEditingSessionTests, PreviewCompilationIsIsolatedAndApplyPreserv
 	EXPECT_NE(Draft->GetPackage(), Package);
 	EXPECT_TRUE(Draft->GetPackage()->GetTopLevelAssets().empty());
 	EXPECT_FALSE(Session.HasUnappliedChanges());
-	const auto Original = *Source->GetMaterialProgram();
+	const auto Original = Source->GetExpressionOutputs();
 	const auto Generation = Source->GetMaterialCompileStatus().RequestGeneration;
 	auto* Child = NewObject<DMaterialInstance>(nullptr, "ApplyChild");
 	TStrongObjectPtr<DMaterialInstance> ChildRoot(Child);
@@ -74,14 +137,14 @@ TEST_F(FMaterialEditingSessionTests, PreviewCompilationIsIsolatedAndApplyPreserv
 	Edit(*Draft, 0.37f);
 	Draft->CompileEdits();
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Draft);
-	EXPECT_EQ(*Source->GetMaterialProgram(), Original);
+	EXPECT_EQ(Source->GetExpressionOutputs(), Original);
 	EXPECT_EQ(Source->GetMaterialCompileStatus().RequestGeneration, Generation);
 	EXPECT_EQ(Child->GetMaterialCompileStatus().AuthoredRevision, ChildRevision);
 	EXPECT_FALSE(Package->IsDirty());
 	ASSERT_TRUE(Session.HasUnappliedChanges());
 	ASSERT_TRUE(Session.FinishAndApply(Error)) << Error;
 	EXPECT_EQ(Child->GetParent(), Source);
-	EXPECT_EQ(*Source->GetMaterialProgram(), *Draft->GetMaterialProgram());
+	EXPECT_EQ(Source->GetExpressionOutputs(), Draft->GetExpressionOutputs());
 	EXPECT_GT(Child->GetMaterialCompileStatus().AuthoredRevision, ChildRevision);
 	EXPECT_TRUE(Package->IsDirty());
 	EXPECT_FALSE(Session.HasUnappliedChanges());
@@ -90,7 +153,7 @@ TEST_F(FMaterialEditingSessionTests, PreviewCompilationIsIsolatedAndApplyPreserv
 	EXPECT_EQ(Source->GetMaterialCompileStatus().RequestGeneration, AppliedGeneration);
 	Edit(*Draft, 0.62f);
 	EXPECT_TRUE(Session.HasUnappliedChanges());
-	EXPECT_FLOAT_EQ(Source->GetMaterialProgram()->Outputs.RoughnessDefault.X, 0.37f);
+	EXPECT_FLOAT_EQ(Source->GetExpressionOutputs().RoughnessDefault, 0.37f);
 	MarkAsGarbage(Child);
 }
 
@@ -98,47 +161,57 @@ TEST_F(FMaterialEditingSessionTests, FunctionCallDraftIsCompleteAndAppliesBindin
 {
 	auto* First = NewObject<DMaterialFunction>(Package, "FirstFunction");
 	auto* Second = NewObject<DMaterialFunction>(Package, "SecondFunction");
-	auto Graph = Second->GetFunctionGraph();
-	Graph.Signature.Inputs[0].Default.Surface.RoughnessDefault.X = 0.23f;
-	ASSERT_TRUE(Second->SetFunctionGraph(Graph));
+	auto Signature = Second->GetFunctionSignature();
+	Signature.Inputs[0].Default.Surface.RoughnessDefault.X = 0.23f;
+	std::vector<DMaterialExpression*> Body;
+	for (const auto& Expression : Second->GetExpressionCollection().Expressions) Body.push_back(Expression.Get());
+	ASSERT_TRUE(Second->SetFunctionExpressions(Signature, Body));
 	Source->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	const auto Output = First->GetFunctionSignature().Outputs[0];
 	const FGuid CallId{72, 1, 1, 1};
-	FMaterialProgram Program;
-	Program.Nodes = {{.Id = CallId, .Opcode = EMaterialProgramOpcode::FunctionCall, .ResultType = EMaterialProgramValueType::Surface}};
-	Program.Outputs.Surface = {.SourceNodeId = CallId, .SourceOutputId = Output.Id};
-	ASSERT_TRUE(Source->SetMaterialProgramAndFunctionCalls(Program,
-		{{.NodeId = CallId, .Function = First, .Outputs = {{Output.Id, Output.Type}}}}));
+	TStrongObjectPtr<DMaterialExpressionFunctionCall> Call(NewObject<DMaterialExpressionFunctionCall>(nullptr, NAME_None));
+	Call->Id = CallId; Call->Function = First; Call->Outputs = {{Output.Id, Output.Type}};
+	const std::array<DMaterialExpression*, 1> Expressions{Call.Get()};
+	FMaterialExpressionSurfaceOutputs Outputs;
+	Outputs.Surface = {.ExpressionId = CallId, .OutputId = Output.Id};
+	ASSERT_TRUE(Source->SetMaterialExpressions(Expressions, Outputs));
+	const auto GetCall = [](DMaterial& Material) {
+		return Cast<DMaterialExpressionFunctionCall>(Material.GetExpressionCollection().Expressions.at(0).Get());
+	};
 	Tests::FTestTransactorOwner Transactions;
 	FMaterialEditingSession Session;
 	std::string Error;
 	ASSERT_TRUE(Session.Initialize(*Source, EMaterialEditCompileMode::Manual, Error, Transactions.Get())) << Error;
 	auto* Draft = Session.GetWorkingMaterial();
-	ASSERT_EQ(Draft->GetMaterialFunctionCalls().size(), 1u);
-	EXPECT_EQ(Draft->GetMaterialFunctionCalls()[0].Function.Get(), First);
+	ASSERT_EQ(Draft->GetExpressionCollection().Expressions.size(), 1u);
+	EXPECT_EQ(GetCall(*Draft)->Function.Get(), First);
 	EXPECT_FALSE(Session.HasUnappliedChanges());
-	auto Renamed = Program.Nodes[0];
-	Renamed.DisplayName = "Reusable Surface";
-	ASSERT_TRUE(FMaterialGraphOperations::ReplaceNode(*Draft, Renamed, Transactions.Get()));
+	FMaterialGraphDocument Document(*Draft);
+	FMaterialGraphDocumentState Renamed;
+	ASSERT_TRUE(Document.Capture(Renamed));
+	const auto Position = std::ranges::find(Renamed.Presentation.Nodes, CallId, &FMaterialGraphNodePresentation::NodeId);
+	if (Position == Renamed.Presentation.Nodes.end()) Renamed.Presentation.Nodes.push_back({.NodeId = CallId, .DisplayName = "Reusable Surface"});
+	else Position->DisplayName = "Reusable Surface";
+	ASSERT_TRUE(Document.Commit(Renamed, "Rename Call", Transactions.Get()));
 	ASSERT_TRUE(Transactions.Get()->Undo());
-	EXPECT_EQ(*Draft->GetMaterialProgram(), Program);
+	EXPECT_EQ(Draft->GetExpressionOutputs(), Outputs);
 	ASSERT_TRUE(Transactions.Get()->Redo());
-	EXPECT_EQ(Draft->GetMaterialProgram()->Nodes[0].DisplayName, Renamed.DisplayName);
-	EXPECT_EQ(Draft->GetMaterialFunctionCalls()[0].Function.Get(), First);
-	std::vector<FMaterialFunctionCall> Calls(Draft->GetMaterialFunctionCalls().begin(),
-		Draft->GetMaterialFunctionCalls().end());
-	Calls[0].Function = Second;
-	ASSERT_TRUE(Draft->SetMaterialProgramAndFunctionCalls(Program, Calls));
+	const auto Label = std::ranges::find(Draft->GetMaterialGraphPresentation().Nodes, CallId, &FMaterialGraphNodePresentation::NodeId);
+	ASSERT_NE(Label, Draft->GetMaterialGraphPresentation().Nodes.end());
+	EXPECT_EQ(Label->DisplayName, "Reusable Surface");
+	EXPECT_EQ(GetCall(*Draft)->Function.Get(), First);
+	Call->Function = Second;
+	ASSERT_TRUE(Draft->SetMaterialExpressions(Expressions, Outputs));
 	EXPECT_TRUE(Session.HasUnappliedChanges());
-	EXPECT_EQ(Source->GetMaterialFunctionCalls()[0].Function.Get(), First);
+	EXPECT_EQ(GetCall(*Source)->Function.Get(), First);
 	ASSERT_TRUE(Session.FinishAndApply(Error)) << Error;
-	EXPECT_EQ(Source->GetMaterialFunctionCalls()[0].Function.Get(), Second);
+	EXPECT_EQ(GetCall(*Source)->Function.Get(), Second);
 	EXPECT_FALSE(Session.HasUnappliedChanges());
 	const auto Revision = Source->GetMaterialCompileStatus().AuthoredRevision;
-	Calls[0].NodeId = FGuid::NewGuid();
-	EXPECT_FALSE(Source->SetMaterialProgramAndFunctionCalls(Program, Calls));
+	Call->Id = FGuid::NewGuid();
+	EXPECT_FALSE(Source->SetMaterialExpressions(Expressions, Outputs));
 	EXPECT_EQ(Source->GetMaterialCompileStatus().AuthoredRevision, Revision);
-	EXPECT_EQ(Source->GetMaterialFunctionCalls()[0].NodeId, CallId);
+	EXPECT_EQ(GetCall(*Source)->Id, CallId);
 }
 
 TEST_F(FMaterialEditingSessionTests, DefaultsStaticPropertiesAndPresentationStayInTheDraft)
@@ -153,11 +226,12 @@ TEST_F(FMaterialEditingSessionTests, DefaultsStaticPropertiesAndPresentationStay
 	Definition.Id = FGuid::NewGuid();
 	Definition.Name = FName("DraftValue");
 	Definition.Type = EMaterialParameterType::Scalar;
-	Definition.Value.ScalarValue = 0.23f;
-	auto OwnerProgram = *Draft->GetMaterialProgram();
-	OwnerProgram.Nodes.push_back({.Id = FGuid::NewGuid(), .Opcode = EMaterialProgramOpcode::Parameter,
-		.Parameter = Definition});
-	ASSERT_TRUE(Draft->SetMaterialProgram(std::move(OwnerProgram)));
+	Definition.Value.GetScalar() = 0.23f;
+	TStrongObjectPtr<DMaterialExpressionScalarParameter> Parameter(NewObject<DMaterialExpressionScalarParameter>(nullptr, NAME_None));
+	Parameter->Id = FGuid::NewGuid(); Parameter->Metadata = {.Id = Definition.Id, .Name = Definition.Name};
+	Parameter->DefaultValue = Definition.Value.GetScalar();
+	const std::array<DMaterialExpression*, 1> Expressions{Parameter.Get()};
+	ASSERT_TRUE(Draft->SetMaterialExpressions(Expressions, Draft->GetExpressionOutputs()));
 	auto Properties = OriginalProperties;
 	Properties.bTwoSided = !Properties.bTwoSided;
 	ASSERT_TRUE(Draft->SetStaticProperties(Properties));
@@ -171,7 +245,7 @@ TEST_F(FMaterialEditingSessionTests, DefaultsStaticPropertiesAndPresentationStay
 	EXPECT_EQ(Source->GetStaticProperties(), Properties);
 	EXPECT_EQ(Source->GetMaterialGraphPresentation(), Presentation);
 	ASSERT_NE(Source->FindParameterDefinition(Definition.Id), nullptr);
-	EXPECT_FLOAT_EQ(Source->FindParameterDefinition(Definition.Id)->Value.ScalarValue, 0.23f);
+	EXPECT_FLOAT_EQ(Source->FindParameterDefinition(Definition.Id)->Value.GetScalar(), 0.23f);
 }
 
 TEST_F(FMaterialEditingSessionTests, ExternalSourceChangeRejectsApplyWithoutOverwritingEitherSide)
@@ -183,8 +257,8 @@ TEST_F(FMaterialEditingSessionTests, ExternalSourceChangeRejectsApplyWithoutOver
 	Edit(*Source, 0.72f);
 	EXPECT_FALSE(Session.FinishAndApply(Error));
 	EXPECT_NE(Error.find("outside"), std::string::npos);
-	EXPECT_FLOAT_EQ(Source->GetMaterialProgram()->Outputs.RoughnessDefault.X, 0.72f);
-	EXPECT_FLOAT_EQ(Session.GetWorkingMaterial()->GetMaterialProgram()->Outputs.RoughnessDefault.X, 0.31f);
+	EXPECT_FLOAT_EQ(Source->GetExpressionOutputs().RoughnessDefault, 0.72f);
+	EXPECT_FLOAT_EQ(Session.GetWorkingMaterial()->GetExpressionOutputs().RoughnessDefault, 0.31f);
 	EXPECT_TRUE(Session.HasUnappliedChanges());
 }
 
@@ -192,7 +266,7 @@ TEST_F(FMaterialEditingSessionTests, DiscardRetiresDraftAndItsHistoryWithoutChan
 {
 	Tests::FTestTransactorOwner Transactions;
 	TObjectPtr<DMaterial> RetiredDraft;
-	const auto Original = *Source->GetMaterialProgram();
+	const auto Original = Source->GetExpressionOutputs();
 	{
 		FMaterialEditingSession Session;
 		std::string Error;
@@ -213,17 +287,17 @@ TEST_F(FMaterialEditingSessionTests, DiscardRetiresDraftAndItsHistoryWithoutChan
 		Session.MarkSaved();
 		ASSERT_TRUE(Transactions->Undo());
 		EXPECT_TRUE(Session.HasUnappliedChanges());
-		EXPECT_NE(*Source->GetMaterialProgram(), Original);
+		EXPECT_NE(Source->GetExpressionOutputs(), Original);
 	}
 	EXPECT_FALSE(RetiredDraft.IsValid());
 	EXPECT_FALSE(Transactions->CanUndo());
 	EXPECT_FALSE(Transactions->CanRedo());
-	EXPECT_FLOAT_EQ(Source->GetMaterialProgram()->Outputs.RoughnessDefault.X, 0.21f);
+	EXPECT_FLOAT_EQ(Source->GetExpressionOutputs().RoughnessDefault, 0.21f);
 }
 
 TEST_F(FMaterialEditingSessionTests, DiscardWithoutApplyLeavesSourceClean)
 {
-	const auto Original = *Source->GetMaterialProgram();
+	const auto Original = Source->GetExpressionOutputs();
 	{
 		FMaterialEditingSession Session;
 		std::string Error;
@@ -231,7 +305,7 @@ TEST_F(FMaterialEditingSessionTests, DiscardWithoutApplyLeavesSourceClean)
 		Edit(*Session.GetWorkingMaterial(), 0.19f);
 	}
 	EXPECT_FALSE(Package->IsDirty());
-	EXPECT_EQ(*Source->GetMaterialProgram(), Original);
+	EXPECT_EQ(Source->GetExpressionOutputs(), Original);
 }
 
 TEST_F(FMaterialEditingSessionTests, RelocationDoesNotInvalidateAnUnchangedSource)
@@ -245,7 +319,7 @@ TEST_F(FMaterialEditingSessionTests, RelocationDoesNotInvalidateAnUnchangedSourc
 		FGuid::NewGuid().ToString()), Destination));
 	ASSERT_TRUE(Package->RelocateAssetPackage(Destination));
 	ASSERT_TRUE(Session.FinishAndApply(Error)) << Error;
-	EXPECT_FLOAT_EQ(Source->GetMaterialProgram()->Outputs.RoughnessDefault.X, 0.46f);
+	EXPECT_FLOAT_EQ(Source->GetExpressionOutputs().RoughnessDefault, 0.46f);
 }
 
 // Runs inside the existing async-manager fixture, which owns the process-wide
@@ -276,13 +350,13 @@ auto QualifyMaterialEditingSessionAsync() -> void
 	ASSERT_TRUE(Session.Initialize(*Source, EMaterialEditCompileMode::Manual, Error)) << Error;
 	auto* Draft = Session.GetWorkingMaterial();
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Draft);
-	const auto Original = *Source->GetMaterialProgram();
-	auto Program = Original;
-	Program.Outputs.RoughnessDefault.X = 0.132711f;
-	ASSERT_TRUE(Draft->SetMaterialProgram(Program));
+	const auto Original = Source->GetExpressionOutputs();
+	auto Outputs = Original;
+	Outputs.RoughnessDefault = 0.132711f;
+	ASSERT_TRUE(Draft->SetMaterialExpressions({}, Outputs));
 	ASSERT_TRUE(Session.RequestApply(Error)) << Error;
 	ASSERT_TRUE(Session.IsApplyPending());
-	EXPECT_EQ(*Source->GetMaterialProgram(), Original);
+	EXPECT_EQ(Source->GetExpressionOutputs(), Original);
 	const auto Pending = Draft->GetMaterialCompileStatus();
 	FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Draft);
 	FMaterialCompileResult Failed{
@@ -299,20 +373,20 @@ auto QualifyMaterialEditingSessionAsync() -> void
 	Session.Tick(Error);
 	EXPECT_FALSE(Error.empty());
 	EXPECT_FALSE(Session.IsApplyPending());
-	EXPECT_EQ(*Source->GetMaterialProgram(), Original);
+	EXPECT_EQ(Source->GetExpressionOutputs(), Original);
 	EXPECT_FALSE(Package->IsDirty());
 
 	Error.clear();
-	Program.Outputs.RoughnessDefault.X = 0.242713f;
-	ASSERT_TRUE(Draft->SetMaterialProgram(Program));
+	Outputs.RoughnessDefault = 0.242713f;
+	ASSERT_TRUE(Draft->SetMaterialExpressions({}, Outputs));
 	ASSERT_TRUE(Session.RequestApply(Error)) << Error;
 	ASSERT_TRUE(Session.IsApplyPending());
-	Program.Outputs.RoughnessDefault.X = 0.352717f;
-	ASSERT_TRUE(Draft->SetMaterialProgram(Program));
+	Outputs.RoughnessDefault = 0.352717f;
+	ASSERT_TRUE(Draft->SetMaterialExpressions({}, Outputs));
 	Session.Tick(Error);
 	EXPECT_FALSE(Error.empty());
 	EXPECT_FALSE(Session.IsApplyPending());
-	EXPECT_EQ(*Source->GetMaterialProgram(), Original);
+	EXPECT_EQ(Source->GetExpressionOutputs(), Original);
 
 	Error.clear();
 	ASSERT_TRUE(Session.RequestApply(Error)) << Error;
@@ -320,18 +394,18 @@ auto QualifyMaterialEditingSessionAsync() -> void
 	Session.Tick(Error);
 	EXPECT_TRUE(Error.empty()) << Error;
 	EXPECT_FALSE(Session.IsApplyPending());
-	EXPECT_EQ(*Source->GetMaterialProgram(), Program);
+	EXPECT_EQ(Source->GetExpressionOutputs(), Outputs);
 	EXPECT_FALSE(Session.HasUnappliedChanges());
 
 	// Automatic deadlines must be serviced for transient drafts even when their
 	// document is hidden; the source must remain unchanged after completion.
 	Draft->SetEditCompileMode(EMaterialEditCompileMode::Automatic);
-	Program.Outputs.RoughnessDefault.X = 0.452719f;
-	ASSERT_TRUE(Draft->SetMaterialProgram(Program));
+	Outputs.RoughnessDefault = 0.452719f;
+	ASSERT_TRUE(Draft->SetMaterialExpressions({}, Outputs));
 	std::this_thread::sleep_for(std::chrono::milliseconds(450));
 	FAssetCompilingManager::Get().ProcessAsyncTasks();
 	EXPECT_NE(Draft->GetMaterialCompileStatus().State, EMaterialCompileState::Scheduled);
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Draft);
 	EXPECT_TRUE(Draft->GetMaterialCompileStatus().IsCurrent());
-	EXPECT_NE(*Source->GetMaterialProgram(), Program);
+	EXPECT_NE(Source->GetExpressionOutputs(), Outputs);
 }

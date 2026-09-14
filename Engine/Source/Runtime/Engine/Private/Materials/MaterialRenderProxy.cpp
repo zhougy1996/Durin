@@ -226,7 +226,7 @@ namespace Durin
 			const auto Active = std::ranges::find(Program->ActiveParameters,
 				Parameter.Id, &FMaterialCompilerParameterDeclaration::Id);
 			if (Active == Program->ActiveParameters.end()
-				|| Active->Type != Parameter.Type) continue;
+				|| Active->Type != Parameter.GetType()) continue;
 			if (!ApplyMaterialLocalRenderParameter(
 					RepresentationBuilder, Parameter))
 			{
@@ -284,50 +284,49 @@ namespace Durin
 		return StalePublicationCount;
 	}
 
-	auto BuildMaterialLocalRenderParameter(
-		const FGuid& Id,
-		EMaterialParameterType Type,
-		const FMaterialParameterValue& Value
-	) -> FMaterialLocalRenderParameter
+	auto FMaterialLocalRenderParameter::GetType() const -> EMaterialParameterType
 	{
-		FMaterialLocalRenderParameter Result{
-			.Id = Id,
-			.Type = Type,
-		};
-		Result.SamplerState = Value.SamplerState;
-		Result.TextureFallback = Value.TextureFallback;
-		Result.ScalarValue = Value.ScalarValue;
-		Result.Vector2Value = Value.Vector2Value;
-		Result.VectorValue = Value.VectorValue;
-		Result.Vector4Value = Value.Vector4Value;
-		if (Type == EMaterialParameterType::Texture && Value.TextureValue)
-			Result.TextureValue = Value.TextureValue->GetTextureReferenceRHI();
+		return std::visit([]<typename T>(const T&) {
+			if constexpr (std::is_same_v<T, float>) return EMaterialParameterType::Scalar;
+			else if constexpr (std::is_same_v<T, FVector2>) return EMaterialParameterType::Vector2;
+			else if constexpr (std::is_same_v<T, FVector3>) return EMaterialParameterType::Vector;
+			else if constexpr (std::is_same_v<T, FVector4>) return EMaterialParameterType::Vector4;
+			else return EMaterialParameterType::Texture;
+		}, Value);
+	}
+
+	auto BuildMaterialLocalRenderParameter(const FGuid& Id, const FMaterialParameterValue& Value)
+		-> FMaterialLocalRenderParameter
+	{
+		FMaterialLocalRenderParameter Result{.Id = Id};
+		switch (Value.GetType())
+		{
+		case EMaterialParameterType::Scalar: Result.Value = Value.GetScalar(); break;
+		case EMaterialParameterType::Vector2: Result.Value = Value.GetVector2(); break;
+		case EMaterialParameterType::Vector: Result.Value = Value.GetVector(); break;
+		case EMaterialParameterType::Vector4: Result.Value = Value.GetVector4(); break;
+		case EMaterialParameterType::Texture:
+		{
+			const auto& Texture = Value.GetTexture();
+			FMaterialLocalTextureValue Local{.SamplerState = Texture.SamplerState, .TextureFallback = Texture.TextureFallback};
+			if (Texture.Texture) Local.Texture = Texture.Texture->GetTextureReferenceRHI();
+			Result.Value = std::move(Local);
+			break;
+		}
+		}
 		return Result;
 	}
 
-	auto ApplyMaterialLocalRenderParameter(
-		FMaterialRenderRepresentationBuilder& RepresentationBuilder,
-		const FMaterialLocalRenderParameter& Parameter
-	) -> bool
+	auto ApplyMaterialLocalRenderParameter(FMaterialRenderRepresentationBuilder& RepresentationBuilder,
+		const FMaterialLocalRenderParameter& Parameter) -> bool
 	{
-		switch (Parameter.Type)
-		{
-		case EMaterialParameterType::Scalar:
-			return RepresentationBuilder.SetScalar(
-				Parameter.Id, Parameter.ScalarValue);
-		case EMaterialParameterType::Vector2:
-			return RepresentationBuilder.SetVector2(
-				Parameter.Id, Parameter.Vector2Value);
-		case EMaterialParameterType::Vector:
-			return RepresentationBuilder.SetVector(
-				Parameter.Id, Parameter.VectorValue);
-		case EMaterialParameterType::Vector4:
-			return RepresentationBuilder.SetVector4(Parameter.Id, Parameter.Vector4Value);
-		case EMaterialParameterType::Texture:
-			return RepresentationBuilder.SetTexture(
-				Parameter.Id, Parameter.TextureValue, Parameter.SamplerState, Parameter.TextureFallback);
-		}
-		return false;
+		return std::visit([&]<typename T>(const T& Value) {
+			if constexpr (std::is_same_v<T, float>) return RepresentationBuilder.SetScalar(Parameter.Id, Value);
+			else if constexpr (std::is_same_v<T, FVector2>) return RepresentationBuilder.SetVector2(Parameter.Id, Value);
+			else if constexpr (std::is_same_v<T, FVector3>) return RepresentationBuilder.SetVector(Parameter.Id, Value);
+			else if constexpr (std::is_same_v<T, FVector4>) return RepresentationBuilder.SetVector4(Parameter.Id, Value);
+			else return RepresentationBuilder.SetTexture(Parameter.Id, Value.Texture, Value.SamplerState, Value.TextureFallback);
+		}, Parameter.Value);
 	}
 
 	auto ReleaseMaterialRenderProxy_GameThread(

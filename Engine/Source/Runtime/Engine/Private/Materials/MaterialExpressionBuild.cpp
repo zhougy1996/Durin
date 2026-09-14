@@ -65,14 +65,26 @@ namespace Durin
 				}
 			}
 		}
+		if (ParameterOwners.size() > MaterialMaxParameterDefinitionCount)
+		{
+			Fail("Expression collection exceeds the parameter declaration bound.");
+			return;
+		}
+		for (const auto Id : ParameterOwners)
+			if (Expressions.contains(Id))
+			{
+				Fail("Parameter identity must be distinct from expression identity.");
+				return;
+			}
 	}
 
-	auto FMaterialExpressionBuildContext::Fail(std::string Message, FGuid PortId) -> uint32
+	auto FMaterialExpressionBuildContext::Fail(std::string Message, FGuid PortId,
+		EMaterialProgramDiagnosticCategory Category) -> uint32
 	{
 		if (Result.Diagnostics.empty())
 		{
 			Message.resize(std::min(Message.size(), size_t(MaterialProgramMaxDiagnosticMessageBytes)));
-			Result.Diagnostics.push_back({.Category = EMaterialProgramDiagnosticCategory::Graph,
+			Result.Diagnostics.push_back({.Category = Category,
 				.LocationKind = EMaterialProgramDiagnosticLocationKind::Node,
 				.NodeId = SourceStack.empty() ? FGuid{} : SourceStack.back(), .Message = std::move(Message),
 				.PortId = PortId.IsValid() ? PortId : PortStack.empty() ? FGuid{} : PortStack.back(), .FunctionAssetPath = FunctionPath, .CallPath = CallPath});
@@ -84,6 +96,12 @@ namespace Durin
 	{
 		check(IsInGameThread());
 		if (!Result.Diagnostics.empty()) return InvalidMaterialExpressionIndex;
+		if (bValidateAuthoring)
+		{
+			AuthoringCodeHash.UpdateValue(Input.ExpressionId);
+			AuthoringCodeHash.UpdateValue(Input.OutputIndex);
+			AuthoringCodeHash.UpdateValue(Input.OutputId);
+		}
 		const FOutputKey Key{Input.ExpressionId, Input.OutputIndex, Input.OutputId};
 		if (const auto Found = Values.find(Key); Found != Values.end()) return Found->second;
 		const auto Found = Expressions.find(Input.ExpressionId);
@@ -120,7 +138,7 @@ namespace Durin
 			return Fail("Expression opcode, result width, or input count is invalid.");
 		if (Result.IR.Nodes.size() >= MaterialFunctionMaxExpandedNodes
 			|| LinkCount + Node.Inputs.size() > MaterialFunctionMaxExpandedLinks)
-			return Fail("Expression Build exceeds the expanded IR node or link bound.");
+			return Fail("Expression Build exceeds the expanded IR node or link bound.", {}, EMaterialProgramDiagnosticCategory::Bounds);
 		uint32 Depth = 1;
 		for (size_t Slot = 0; Slot < Node.Inputs.size(); ++Slot)
 		{

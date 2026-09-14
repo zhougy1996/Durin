@@ -4,7 +4,7 @@ Summary: Define material assets, parameters, render proxies, invalidation, passe
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-09-14
+Last reviewed: 2026-09-15
 
 Durin's material architecture keeps declaration ownership, instance resolution,
 editor presentation, and renderer consumption at explicit boundaries.
@@ -22,29 +22,37 @@ render boundary accepts only material-specific layout v4 data. Built-in role kno
 - `DMaterialInterface` is the common asset/component-facing contract. Persistent
   parameter identity is an `FGuid`; public human/API lookup uses
   case-insensitive `FName`.
-- Runtime Engine owns `FMaterialParameterDefinition`, including identity, name,
-  type, base value, display metadata, ordering, presentation, numeric range, and
-  texture-usage hint. The Material Editor consumes this schema and does not own
-  a parallel descriptor table.
-- Parameter nodes own their complete `FMaterialParameterDefinition` in
-  `FMaterialProgramNode::Parameter`. Each owner has a parameter GUID distinct from
-  all node GUIDs and a unique case-insensitive name. Numeric owners, texture
-  resource owners and combined sample owners share this contract. Disconnected
-  owners remain authored until explicitly deleted.
+- `FMaterialParameterValue` is a non-reflected C++ variant of scalar, Vector2,
+  Vector3, Vector4, or `FMaterialTextureValue`. `GetType()` derives its type from
+  the selected alternative. Checked accessors return that alternative by
+  reference; factories explicitly select a new alternative. Equality ignores
+  nonexistent inactive payloads. The texture alternative groups its object
+  reference, sampler and fallback; `AddReferencedObjects` visits and rewrites
+  only that active reference.
+- Typed parameter expressions own common identity/presentation metadata and
+  their concrete default. Scalar ranges and texture usage belong to their
+  respective expression families. `FMaterialParameterDefinition` is a transient
+  derived view, with a checked declaration type. Its pointers expire on owner
+  revision changes. Parameter GUIDs are distinct from node GUIDs and names are
+  unique ignoring case. Disconnected owners remain until explicitly deleted.
 - `DMaterial::GetParameterDefinitions()` exposes a read-only, GUID-sorted
   projection of the graph. There is no independently authored root parameter
-  table or table mutation API. `DeriveMaterialParameterSchema` rejects duplicate
-  identities/names, oversized text, invalid metadata, non-finite active defaults,
-  owner/type mismatches and payloads attached to ordinary nodes.
-- `SetMaterialProgramAndFunctionCalls` validates the complete candidate before
-  publishing its graph, calls and derived schema. Rename keeps node and parameter
+  table or table mutation API. Declaration derivation reads concrete parameter
+  expressions directly, including during Cook; it rejects duplicate identities/names,
+  node/parameter GUID collisions, oversized text, invalid metadata and non-finite
+  active defaults. Concrete expression classes determine declaration types.
+- `SetMaterialExpressions` validates and independently duplicates the candidate
+  before publishing its owned collection, outputs and derived schema. Rename keeps node and parameter
   identities. Retyping must leave valid links; GUID/type-mismatched instance
   overrides remain inspectable orphans. Deleting an owner removes its connections
   through the graph command boundary. Rejected edits leave revisions unchanged.
-- Defaults and display metadata are excluded from shader identity. Default edits
-  update the owner and projection together; structural changes invalidate shader
-  compilation. Compiler snapshots strip node payloads to GUID/type before worker
-  enqueueing, retaining no authored texture pointers. Graph-stripped Cooked roots
+- Parameter defaults and display metadata are excluded from shader identity. Default
+  edits update the owner and derived declarations. A transient 128-bit edit fingerprint
+  records typed graph operations, connection selectors, call ports and callee handles;
+  it excludes parameter defaults and presentation, and is not a persisted shader key.
+  Material owners retain no universal Program or function-call table cache. Structural
+  code changes invalidate compilation. Compiler snapshots build detached typed IR with GUID/type parameter
+  declarations before worker enqueueing, retaining no authored texture pointers. Graph-stripped Cooked roots
   load generated parameter descriptors/defaults and permit dynamic value updates
   without recreating an authored graph.
 - Parameter validation returns `FMaterialParameterValidationResult` with an
@@ -52,11 +60,18 @@ render boundary accepts only material-specific layout v4 data. Built-in role kno
   `FMaterialProgramValidationResult`; output snapshots are assigned only on
   success. Editor commands retain bounded diagnostics and distinguish parameter
   GUIDs from node GUIDs.
+- `SetParameterOverride(Id, Value)` derives the assignment type from the value
+  and rejects mismatched active declarations. Cook stores five typed logical
+  parameter arrays, including declaration order and only applicable metadata.
+  Render publication uses a separate selected value whose texture alternative
+  owns counted RHI references; no texture objects cross into the render thread.
 - `DMaterialInstance` references a parent material interface and persists separate
   scalar, Vector2, Vector3, Vector4, and texture override arrays. Each record owns
   its GUID and concrete value; texture values include sampler/fallback policy.
-  `GetParameterOverrides()` returns a non-reflected read-only projection that
-  expires on storage edits or reference collection. Duplicate GUIDs across arrays
+  `GetLocalParameterOverride` reads a selected value directly from those arrays;
+  `VisitParameterOverrides` enumerates GUID/value pairs without an alternate cached
+  record array, and `GetParameterOverrideCount` reports their combined size.
+  Reflected storage owns texture references. Duplicate GUIDs across arrays
   fail property-edit admission and package serialization. Missing/unsupported
   `OverrideStorageVersion` fails loading and requires rebuilding the instance.
   Explicit equal-to-parent values remain overrides. The separately reflected
@@ -160,23 +175,24 @@ BaseColor `(0.5, 0.5, 0.5)`, Normal `(0, 0, 1)`, Metallic `0`, Roughness
 OpacityMask `1`. Aggregate mode accepts one Surface source and requires all
 eight property links to be disconnected; per-property mode requires the
 aggregate source to be disconnected. Retained fallbacks survive either mode.
-New materials use program schema 7 and functions use schema 3. The reflected
-GraphOwnershipVersion contract marker is reset before load so a missing stored
-marker cannot become current by default. Unsupported old material/function data
-must be rebuilt; there are no material PostLoad graph converters. An unknown-version or
-malformed program fails bounded validation, which
-rejects invalid enums and GUIDs, count/string/byte/input/depth limits, dangling
-links, cycles, non-finite constants, bad parameter references, input types, and
-incompatible connected surface outputs before residency. Unconnected outputs
-validate and compile through their finite typed fallback. Diagnostics are
-bounded and sort by stable category/node/location/message identity. Duplication
-deep-copies program values while preserving program GUIDs; presentation names
-round trip but do not affect rendering semantics.
+Material and function owners persist `GraphOwnershipVersion = 2`. The marker is
+reset before load so missing or unsupported stored ownership cannot become current
+by default. Unsupported assets must be rebuilt; there are no PostLoad converters.
+`FMaterialExpressionBuildContext::ValidateSurface` and `ValidateFunction` check
+concrete expressions directly before publication: identifiers, typed links,
+cycles, bounds, defaults, parameter metadata and function terminals. Local validation
+uses declared call-port types without inspecting a callee body, so a missing
+dependency remains editable. Those private validation values cannot escape as a
+compiler snapshot. Snapshot construction separately validates and expands the loaded
+function closure. Unconnected outputs use finite typed fallbacks. Duplication
+creates independently owned expression children while preserving their GUIDs;
+presentation names round trip without affecting rendering semantics.
 
 Base materials also persist bounded `EditorOnly` graph presentation containing
 one integral position per live node GUID and an optional integral position for
 the derived Surface terminal. Presentation schema 2 sanitizes both
-domains independently from the program and never enters validation, normalized
+domains against live typed-expression GUIDs without constructing a program projection,
+and never enters semantic validation, normalized
 IR, compile snapshots, shader identity, derived data, or Cook. MaterialEditor's
 shared inspection, command, canvas, clipboard, transaction, and
 diagnostic-navigation boundary is defined by
@@ -263,10 +279,11 @@ parent without overwriting an older normal recipe; non-normal keys are unchanged
 ## Reusable Functions and Standard Library
 
 `DMaterialFunctionInterface` is an abstract asset contract for typed signatures,
-semantic revisions, dependencies and detached graph snapshots. `DMaterialFunction`
-is its concrete editable graph owner. Root materials retain a value-only program
-plus reflected base-typed function references and bindings; instances retain no
-function graph. Function graphs and presentation are `EditorOnly`.
+semantic revisions and dependencies. `DMaterialFunction` owns its editable concrete
+expression collection and exposes a borrowed body for owning-thread validation and
+Build. Root materials own concrete expressions, including function calls with
+base-typed asset references and GUID bindings; instances retain no function graph.
+Function expression collections and presentation are `EditorOnly`.
 
 Ports have persistent GUIDs, names, types, ordering, required/advanced flags and
 typed defaults. Calls bind by port GUID, and multi-output links retain output
@@ -279,10 +296,12 @@ Texture inputs carry resource, sampler and fallback together. Optional unbound
 textures use the declared white, black or flat-RG fallback; connected values keep
 the caller's complete sampling policy. Surface defaults retain all eight fields.
 
-GameThread captures the transitive closure into immutable values. Expansion
-substitutes each invocation's independent bindings, validates required inputs,
-rejects recursion and missing/incompatible ports, and lowers to the existing
-opcode domain before normalization. No worker follows live asset references.
+GameThread traverses typed function bodies and emits detached IR directly. Each
+invocation substitutes independent bindings, validates required inputs, rejects
+recursion and missing/incompatible ports, and emits the existing opcode domain
+before normalization. Preview, editor admission and reload preparation validate
+typed dependency bodies and return owner/path/revision stamps only on success.
+No worker receives function bodies or follows live asset references.
 Limits are 256 nodes/1,024 links per authored graph, 64 inputs/16 outputs per
 function, 16 call levels, 64 distinct dependencies, 4,096 expanded nodes/16,384
 links, expression depth 64, 1 MiB per graph and 8 MiB per closure. Diagnostics

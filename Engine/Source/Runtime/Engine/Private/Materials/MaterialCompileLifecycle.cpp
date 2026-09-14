@@ -1044,7 +1044,7 @@ namespace Durin
 							return false;
 						}
 						Candidate.Parameters.push_back(BuildMaterialLocalRenderParameter(
-							Parameter.Id, Parameter.Type, Resolved.Value));
+							Parameter.Id, Resolved.Value));
 					}
 					Material.CompilationOwner.RenderLayer = std::move(Candidate);
 					Material.CompilationOwner.AcceptedExpressionSources = Material.CompilationOwner.RequestedExpressionSources;

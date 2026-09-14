@@ -32,8 +32,9 @@ namespace Durin
 		return true;
 	}
 
-	auto DMaterialFunction::GetFunctionGraph() const -> const FMaterialFunctionGraph&
+	auto DMaterialFunction::GetFunctionGraph() const -> FMaterialFunctionGraph
 	{
+		FMaterialFunctionGraph Graph;
 		if (!ProjectExpressions(Signature, ExpressionCollection, Graph)) Graph = {.Signature = Signature};
 		return Graph;
 	}
@@ -66,19 +67,14 @@ namespace Durin
 				OutError = "Function contains an abandoned expression child outside its collection.";
 				return false;
 			}
-		FMaterialFunctionGraph Candidate;
-		if (!ProjectExpressions(Signature, ExpressionCollection, Candidate) || !ValidateMaterialFunctionGraph(Candidate))
+		std::vector<DMaterialExpression*> Expressions;
+		for (const auto& Expression : ExpressionCollection.Expressions) Expressions.push_back(Expression.Get());
+		if (!FMaterialExpressionBuildContext::ValidateFunction(Expressions, Signature))
 		{
 			OutError = "Function expression collection or signature is invalid.";
 			return false;
 		}
 		return true;
-	}
-
-	auto DMaterialFunction::PostLoad() -> void
-	{
-		Super::PostLoad();
-		Graph = {};
 	}
 
 	auto DMaterialFunction::SetFunctionExpressions(FMaterialFunctionSignature InSignature,
@@ -89,14 +85,7 @@ namespace Durin
 		if (!Result) return Result;
 		FMaterialExpressionCollection Candidate;
 		for (auto* Expression : Expressions) Candidate.Expressions.emplace_back(Expression);
-		FMaterialFunctionGraph Projection;
-		if (!ProjectExpressions(InSignature, Candidate, Projection))
-		{
-			Result.bSucceeded = false;
-			Result.Diagnostics.push_back({.Message = "Invalid function expression candidate."});
-			return Result;
-		}
-		Result = ValidateMaterialFunctionGraph(Projection);
+		Result = FMaterialExpressionBuildContext::ValidateFunction(Expressions, InSignature);
 		if (!Result) return Result;
 		TStrongObjectPtr<DObject> Staging(NewObject<DObject>(nullptr, "FunctionExpressionApply"));
 		FMaterialExpressionCollection Copies;
@@ -116,7 +105,6 @@ namespace Durin
 		for (auto& Expression : Copies.Expressions) Expression->SetOuterPrivate(this);
 		ExpressionCollection = std::move(Copies);
 		Signature = std::move(InSignature);
-		Graph = std::move(Projection);
 		Revision = Revision == std::numeric_limits<uint64>::max() ? 1 : Revision + 1;
 		NotifyMaterialFunctionChanged(*this);
 		MarkPackageDirty();
@@ -194,37 +182,6 @@ namespace Durin
 		return Dependencies;
 	}
 
-	auto DMaterialFunction::BuildFunctionSnapshot(FMaterialFunctionSnapshot& OutSnapshot) const
-		-> FMaterialProgramValidationResult
-	{
-		check(IsInGameThread());
-		const auto& Graph = GetFunctionGraph();
-		auto Result = ValidateMaterialFunctionGraph(Graph);
-		if (!Result) return Result;
-		FMaterialFunctionSnapshot Snapshot;
-		Snapshot.AssetPath = GetObjectPath();
-		Snapshot.Revision = Revision;
-		Snapshot.Signature = Graph.Signature;
-		Snapshot.Nodes = Graph.Nodes;
-		for (const auto& Call : Graph.Calls)
-		{
-			if (!IsValid(Call.Function.Get()))
-			{
-				Result.bSucceeded = false;
-				Result.Diagnostics.push_back({.Category = EMaterialProgramDiagnosticCategory::Dependency,
-					.LocationKind = EMaterialProgramDiagnosticLocationKind::Node, .NodeId = Call.NodeId,
-					.Message = "Function call references a missing function asset.",
-					.FunctionAssetPath = Snapshot.AssetPath});
-				return Result;
-			}
-			Snapshot.Calls.push_back({Call.NodeId, Call.Function->GetObjectPath(), Call.Inputs, Call.Outputs});
-			Result = ValidateMaterialFunctionCallSignature(Snapshot.Calls.back(), Call.Function->GetFunctionSignature());
-			if (!Result) return Result;
-		}
-		OutSnapshot = std::move(Snapshot);
-		return Result;
-	}
-
 	auto DMaterialFunction::SetFunctionGraph(FMaterialFunctionGraph Candidate)
 		-> FMaterialProgramValidationResult
 	{
@@ -258,19 +215,11 @@ namespace Durin
 	{
 		check(IsInGameThread());
 		if (Candidate.SchemaVersion != CurrentMaterialFunctionPresentationSchemaVersion) return false;
-		FMaterialProgram Program;
-		Program.Nodes = GetFunctionGraph().Nodes;
+		std::vector<FGuid> Ids;
+		for (const auto& Expression : ExpressionCollection.Expressions) if (Expression) Ids.push_back(Expression->Id);
 		FMaterialGraphPresentation Positions;
 		Positions.Nodes = std::move(Candidate.Nodes);
-		Candidate.Nodes = SanitizeMaterialGraphPresentation(Positions, Program).Nodes;
-		// This legacy setter edits positions only; labels now live in presentation.
-		for (const auto& Existing : Presentation.Nodes)
-		{
-			if (Existing.DisplayName.empty() || std::ranges::find(Program.Nodes, Existing.NodeId, &FMaterialProgramNode::Id) == Program.Nodes.end()) continue;
-			const auto Position = std::ranges::find(Candidate.Nodes, Existing.NodeId, &FMaterialGraphNodePresentation::NodeId);
-			if (Position != Candidate.Nodes.end()) Position->DisplayName = Existing.DisplayName;
-			else Candidate.Nodes.push_back(Existing);
-		}
+		Candidate.Nodes = SanitizeMaterialGraphPresentation(Positions, Ids).Nodes;
 		if (Candidate == Presentation) return true;
 		Presentation = std::move(Candidate);
 		MarkPackageDirty();

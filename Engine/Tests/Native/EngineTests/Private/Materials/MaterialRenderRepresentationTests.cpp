@@ -17,7 +17,7 @@ namespace
 	auto MakeExpandedMaterial(const char* Name) -> Durin::DMaterial*
 	{
 		auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, Name);
-		if (!Material || !Material->SetMaterialProgram(Durin::Testing::MakePBRMaterialProgramForTest())) return nullptr;
+		if (!Material || !Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*Material)) return nullptr;
 		if (!FinishMaterialCompileForTest(*Material)) return nullptr;
 		return Material;
 	}
@@ -192,19 +192,18 @@ TEST(FMaterialProgramCharacterizationTests,
 	auto* Root = NewObject<DMaterial>(nullptr, "DualLayerRust");
 	auto* LightRust = NewObject<DMaterialInstance>(nullptr, "LightRust");
 	auto* HeavyRust = NewObject<DMaterialInstance>(nullptr, "HeavyRust");
-	for (auto& Node : Program.Nodes)
-		if (Node.Parameter.Id.IsValid()) Node.Parameter = *std::ranges::find(Definitions, Node.Parameter.Id, &FMaterialParameterDefinition::Id);
-	ASSERT_TRUE(Root->SetMaterialProgram(Program));
+	Program.SetParameterDefaults(Definitions);
+	ASSERT_TRUE(Program.Apply(*Root));
 	ASSERT_TRUE(FinishMaterialCompileForTest(*Root));
 	ASSERT_TRUE(LightRust->SetParent(Root));
 	ASSERT_TRUE(HeavyRust->SetParent(Root));
 	ASSERT_TRUE(LightRust->SetScalarParameterValue(FName("RustAmount"), 0.1f));
 	ASSERT_TRUE(HeavyRust->SetScalarParameterValue(FName("RustAmount"), 0.9f));
 	auto HeavyMask = Definitions[4].Value;
-	HeavyMask.TextureFallback = EMaterialTextureFallback::White;
-	HeavyMask.SamplerState.AddressU = EMaterialSamplerAddressMode::ClampToEdge;
+	HeavyMask.GetTexture().TextureFallback = EMaterialTextureFallback::White;
+	HeavyMask.GetTexture().SamplerState.AddressU = EMaterialSamplerAddressMode::ClampToEdge;
 	ASSERT_TRUE(HeavyRust->SetParameterOverride(
-		RustMaskId, EMaterialParameterType::Texture, HeavyMask));
+		RustMaskId, HeavyMask));
 	const auto Accepted = Root->GetAcceptedCompiledProgram();
 	ASSERT_NE(Accepted, nullptr);
 	EXPECT_EQ(Accepted->Layout.ResourceFieldCount, 5u);
@@ -423,8 +422,7 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 	Durin::FAssetResult Result = Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Source);
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Source, nullptr);
-	auto Validation = Source->SetMaterialProgram(
-		Durin::Testing::MakePBRMaterialProgramForTest());
+	auto Validation = Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*Source);
 	ASSERT_TRUE(Validation);
 	ASSERT_TRUE(Source->SetVectorParameterValue(
 		Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.2, 0.4, 0.7)));
@@ -508,7 +506,7 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 	EXPECT_TRUE(std::ranges::none_of(Inspection.Objects, [](const auto& Object) {
 		return Object.FindField("Program") != nullptr;
 	}));
-	EXPECT_TRUE(Cooked->GetMaterialProgram()->Nodes.empty());
+	EXPECT_TRUE(Cooked->GetExpressionCollection().Expressions.empty());
 	EXPECT_FALSE(Cooked->GetAcceptedCompiledProgram()->ActiveParameters.empty());
 	Durin::DMaterialInstance* Instance = nullptr;
 	Result = Durin::LoadObject(InstancePath, Instance);
@@ -871,19 +869,20 @@ TEST(FMaterialRenderRepresentationTests, TextureSamplingOverridesChangePayloadWi
 	FMaterialParameterDefinition Definition;
 	Definition.Id = FGuid::NewGuid(); Definition.Name = FName("IndependentTexture");
 	Definition.DisplayName = "Independent Texture"; Definition.Type = EMaterialParameterType::Texture;
-	Definition.Value.SamplerState.AddressU = EMaterialSamplerAddressMode::ClampToEdge;
-	Definition.Value.TextureFallback = EMaterialTextureFallback::FlatRGNormal;
-	FMaterialProgram Program;
-	FMaterialProgramNode Texture, UV, Sample, Color;
-	Texture.Id = FGuid::NewGuid(); Texture.Opcode = EMaterialProgramOpcode::TextureParameter;
-	Texture.ResultType = EMaterialProgramValueType::Texture2D; Texture.Parameter = Definition;
-	UV.Id = FGuid::NewGuid(); UV.ResultType = EMaterialProgramValueType::Float2;
-	Sample.Id = FGuid::NewGuid(); Sample.Opcode = EMaterialProgramOpcode::TextureSample2D;
-	Sample.ResultType = EMaterialProgramValueType::Float4; Sample.Inputs = {{Texture.Id, 0}, {UV.Id, 0}};
-	Color.Id = FGuid::NewGuid(); Color.Opcode = EMaterialProgramOpcode::TruncateToFloat3;
-	Color.ResultType = EMaterialProgramValueType::Float3; Color.Inputs = {{Sample.Id, 0}};
-	Program.Nodes = {Texture, UV, Sample, Color}; Program.Outputs.BaseColor = {Color.Id, 0};
-	ASSERT_TRUE(Root->SetMaterialProgram(Program));
+	Definition.Value = FMaterialParameterValue::MakeTexture(nullptr);
+	Definition.Value.GetTexture().SamplerState.AddressU = EMaterialSamplerAddressMode::ClampToEdge;
+	Definition.Value.GetTexture().TextureFallback = EMaterialTextureFallback::FlatRGNormal;
+	Testing::FTestMaterialExpressionGraph Graph;
+	const std::array Definitions{Definition};
+	const auto Add = [&](EMaterialProgramOpcode Opcode, EMaterialProgramValueType Type,
+		std::vector<FMaterialExpressionInput> Inputs = {}, FGuid Id = {}) {
+		return Testing::MakeLink(Graph.Add(Opcode, Type, std::move(Inputs), Id, {}, Definitions));
+	};
+	const auto Texture = Add(EMaterialProgramOpcode::TextureParameter, EMaterialProgramValueType::Texture2D, {}, Definition.Id);
+	const auto UV = Add(EMaterialProgramOpcode::Constant, EMaterialProgramValueType::Float2);
+	const auto Sample = Add(EMaterialProgramOpcode::TextureSample2D, EMaterialProgramValueType::Float4, {Texture, UV});
+	Graph.Outputs.BaseColor = Add(EMaterialProgramOpcode::TruncateToFloat3, EMaterialProgramValueType::Float3, {Sample});
+	ASSERT_TRUE(Graph.Apply(*Root));
 	ASSERT_TRUE(FinishMaterialCompileForTest(*Root));
 	ASSERT_TRUE(Child->SetParent(Root));
 	const auto Accepted = Root->GetAcceptedCompiledProgram();
@@ -891,14 +890,14 @@ TEST(FMaterialRenderRepresentationTests, TextureSamplingOverridesChangePayloadWi
 	ASSERT_EQ(Accepted->Layout.Identity.Version, CompiledMaterialRenderLayoutVersion);
 	auto Binding = GetMaterialBinding(Child->GetRenderData());
 	ASSERT_EQ(Binding.CompiledSamplers.size(), 1u);
-	EXPECT_EQ(Binding.CompiledSamplers[0], Definition.Value.SamplerState);
+	EXPECT_EQ(Binding.CompiledSamplers[0], Definition.Value.GetTexture().SamplerState);
 	EXPECT_EQ(Binding.CompiledTextureFallbacks[0], EMaterialTextureFallback::FlatRGNormal);
 	auto Value = Definition.Value;
-	Value.SamplerState.AddressV = EMaterialSamplerAddressMode::MirroredRepeat;
-	Value.TextureFallback = EMaterialTextureFallback::Black;
-	ASSERT_TRUE(Child->SetParameterOverride(Definition.Id, Definition.Type, Value));
+	Value.GetTexture().SamplerState.AddressV = EMaterialSamplerAddressMode::MirroredRepeat;
+	Value.GetTexture().TextureFallback = EMaterialTextureFallback::Black;
+	ASSERT_TRUE(Child->SetParameterOverride(Definition.Id, Value));
 	Binding = GetMaterialBinding(Child->GetRenderData());
-	EXPECT_EQ(Binding.CompiledSamplers[0], Value.SamplerState);
+	EXPECT_EQ(Binding.CompiledSamplers[0], Value.GetTexture().SamplerState);
 	EXPECT_EQ(Binding.CompiledTextureFallbacks[0], EMaterialTextureFallback::Black);
 	EXPECT_EQ(Child->GetRenderData().CompiledProgram, Accepted);
 	ASSERT_TRUE(Root->SetParameterValue(Definition.Id, Value));
@@ -906,7 +905,7 @@ TEST(FMaterialRenderRepresentationTests, TextureSamplingOverridesChangePayloadWi
 	EXPECT_EQ(Root->GetRenderData().PlanningPassIdentity.ShaderMap.ProgramIdentity, Accepted->Identity);
 	ASSERT_TRUE(Child->ClearParameterOverride(Definition.Id));
 	Binding = GetMaterialBinding(Child->GetRenderData());
-	EXPECT_EQ(Binding.CompiledSamplers[0], Value.SamplerState);
+	EXPECT_EQ(Binding.CompiledSamplers[0], Value.GetTexture().SamplerState);
 	EXPECT_EQ(Binding.CompiledTextureFallbacks[0], EMaterialTextureFallback::Black);
 	MarkAsGarbage(Child); MarkAsGarbage(Root); CollectGarbage();
 }
@@ -926,32 +925,31 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 	Tint.Id = FGuid::NewGuid(); Tint.Name = FName("CookedTint"); Tint.DisplayName = "Cooked Tint";
 	Tint.Type = EMaterialParameterType::Vector4; Tint.Value = FMaterialParameterValue::MakeVector4(FVector4(0.2, 0.4, 0.7, 1.0));
 	Texture.Id = FGuid::NewGuid(); Texture.Name = FName("CookedLayer"); Texture.DisplayName = "Cooked Layer";
-	Texture.Type = EMaterialParameterType::Texture; Texture.Value.TextureFallback = EMaterialTextureFallback::FlatRGNormal;
-	Texture.Value.SamplerState.AddressU = EMaterialSamplerAddressMode::ClampToEdge;
-	FMaterialProgram Program;
+	Texture.Type = EMaterialParameterType::Texture;
+	Texture.Value = FMaterialParameterValue::MakeTexture(nullptr, {}, EMaterialTextureFallback::FlatRGNormal);
+	Texture.Value.GetTexture().SamplerState.AddressU = EMaterialSamplerAddressMode::ClampToEdge;
+	Testing::FTestMaterialExpressionGraph Graph;
+	const std::array Definitions{Tint, Texture};
 	auto Add = [&](EMaterialProgramOpcode Opcode, EMaterialProgramValueType Type, FGuid Id = {},
-		std::vector<FMaterialProgramLink> Inputs = {}) {
-		FMaterialProgramNode Node;
-		Node.Id = FGuid::NewGuid(); Node.Opcode = Opcode; Node.ResultType = Type;
-		if (Id.IsValid()) Node.Parameter = Id == Tint.Id ? Tint : Texture; Node.Inputs = std::move(Inputs); Program.Nodes.push_back(Node);
-		return FMaterialProgramLink{Node.Id, 0};
+		std::vector<FMaterialExpressionInput> Inputs = {}) {
+		return Testing::MakeLink(Graph.Add(Opcode, Type, std::move(Inputs), Id, {}, Definitions));
 	};
 	const auto TintNode = Add(EMaterialProgramOpcode::Parameter, EMaterialProgramValueType::Float4, Tint.Id);
-	Program.Outputs.BaseColor = Add(EMaterialProgramOpcode::TruncateToFloat3, EMaterialProgramValueType::Float3, {}, {TintNode});
+	Graph.Outputs.BaseColor = Add(EMaterialProgramOpcode::TruncateToFloat3, EMaterialProgramValueType::Float3, {}, {TintNode});
 	const auto TextureNode = Add(EMaterialProgramOpcode::TextureParameter, EMaterialProgramValueType::Texture2D, Texture.Id);
 	const auto UV = Add(EMaterialProgramOpcode::Constant, EMaterialProgramValueType::Float2);
 	const auto Sample = Add(EMaterialProgramOpcode::TextureSample2D, EMaterialProgramValueType::Float4, {}, {TextureNode, UV});
-	Program.Outputs.Emissive = Add(EMaterialProgramOpcode::TruncateToFloat3, EMaterialProgramValueType::Float3, {}, {Sample});
-	ASSERT_TRUE(Source->SetMaterialProgram(Program));
+	Graph.Outputs.Emissive = Add(EMaterialProgramOpcode::TruncateToFloat3, EMaterialProgramValueType::Float3, {}, {Sample});
+	ASSERT_TRUE(Graph.Apply(*Source));
 	ASSERT_NE(Source->GetAcceptedCompiledProgram(), nullptr);
 	const auto ExpectedLayout = Source->GetAcceptedCompiledProgram()->Layout;
 	auto* Instance = NewObject<DMaterialInstance>(Source->GetPackage(), "CustomCookedOverrides");
 	ASSERT_TRUE(Instance->SetParent(Source));
-	ASSERT_TRUE(Instance->SetParameterOverride(Tint.Id, Tint.Type, FMaterialParameterValue::MakeVector4(FVector4(0.8, 0.3, 0.1, 1.0))));
+	ASSERT_TRUE(Instance->SetParameterOverride(Tint.Id, FMaterialParameterValue::MakeVector4(FVector4(0.8, 0.3, 0.1, 1.0))));
 	auto Sampling = Texture.Value;
-	Sampling.SamplerState.AddressV = EMaterialSamplerAddressMode::MirroredRepeat;
-	Sampling.TextureFallback = EMaterialTextureFallback::Black;
-	ASSERT_TRUE(Instance->SetParameterOverride(Texture.Id, Texture.Type, Sampling));
+	Sampling.GetTexture().SamplerState.AddressV = EMaterialSamplerAddressMode::MirroredRepeat;
+	Sampling.GetTexture().TextureFallback = EMaterialTextureFallback::Black;
+	ASSERT_TRUE(Instance->SetParameterOverride(Texture.Id, Sampling));
 	FObjectPath InstancePath;
 	ASSERT_TRUE(FObjectPath::TryCreate(Instance->GetObjectPath(), InstancePath));
 	const auto CookRoot = std::filesystem::absolute(Testing::CreateTestFixtureDirectory("CustomLayoutMaterialCook"));
@@ -974,7 +972,7 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 		ASSERT_NE(Loaded, nullptr);
 		ASSERT_NE(Loaded->GetAcceptedCompiledProgram(), nullptr);
 		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->Layout, ExpectedLayout);
-		EXPECT_TRUE(Loaded->GetMaterialProgram()->Nodes.empty());
+		EXPECT_TRUE(Loaded->GetExpressionCollection().Expressions.empty());
 		EXPECT_TRUE(Loaded->GetAcceptedCompiledProgram()->IR.Nodes.empty());
 		EXPECT_TRUE(Loaded->GetAcceptedCompiledProgram()->GeneratedSource.empty());
 		DMaterialInstance* LoadedInstance = nullptr;
@@ -986,8 +984,8 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 		EXPECT_EQ(RootBinding.LayoutIdentity, ExpectedLayout.Identity);
 		EXPECT_EQ(InstanceBinding.LayoutIdentity, ExpectedLayout.Identity);
 		ASSERT_EQ(InstanceBinding.CompiledSamplers.size(), 1u);
-		EXPECT_EQ(RootBinding.CompiledSamplers[0], Texture.Value.SamplerState);
-		EXPECT_EQ(InstanceBinding.CompiledSamplers[0], Sampling.SamplerState);
+		EXPECT_EQ(RootBinding.CompiledSamplers[0], Texture.Value.GetTexture().SamplerState);
+		EXPECT_EQ(InstanceBinding.CompiledSamplers[0], Sampling.GetTexture().SamplerState);
 		EXPECT_EQ(InstanceBinding.CompiledTextureFallbacks[0], EMaterialTextureFallback::Black);
 		for (const auto& Field : ExpectedLayout.Fields) if (Field.ParameterId == Tint.Id)
 		{

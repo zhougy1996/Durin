@@ -1,7 +1,8 @@
+#include "Materials/MaterialExpressionBuild.h"
 #include "MaterialGraphEditInternals.h"
 #include "MaterialGraphDocument.h"
-#include "MaterialGraphClipboardReferences.h"
-#include "Texture/Texture2D.h"
+#include "MaterialGraphExpressionState.h"
+#include "MaterialExpressionInputs.h"
 
 namespace Durin::Editor::Material
 {
@@ -20,73 +21,48 @@ namespace Durin::Editor::Material
 		FMaterialGraphClipboardPayload& OutPayload) const -> FMaterialGraphCommandResult
 	{
 		OutPayload = {};
-		FMaterialGraphDocumentState State;
-		if (!Capture(State)) return {.Status = EMaterialGraphCommandStatus::StaleOwner};
+		FOwnedGraphSnapshot State;
+		if (!Owner.IsValid() || !State.Capture(*Owner.Get())) return {.Status = EMaterialGraphCommandStatus::StaleOwner};
 		if (NodeIds.empty() || NodeIds.size() > MaterialProgramMaxNodeCount)
 			return MakeRejected("The material graph copy selection is empty or exceeds the node bound.");
 		std::unordered_set<FGuid> Selected(NodeIds.begin(), NodeIds.end());
-		if (Selected.size() != NodeIds.size())
-			return MakeRejected("The material graph copy selection contains duplicate node GUIDs.");
-		const FMaterialProgram& Program = State.Program;
-		const FMaterialGraphPresentation Presentation =
-			SanitizeMaterialGraphPresentation(
-				State.Presentation, Program);
+		if (Selected.size() != NodeIds.size()) return MakeRejected("The material graph copy selection contains duplicate node GUIDs.");
 		std::unordered_map<FGuid, FMaterialGraphNodePresentation> Positions;
-		for (const FMaterialGraphNodePresentation& Position : Presentation.Nodes)
-			Positions.emplace(Position.NodeId, Position);
-		int32 MinimumX = MaterialGraphPresentationCoordinateLimit;
-		int32 MinimumY = MaterialGraphPresentationCoordinateLimit;
-		for (const FGuid& Id : Selected)
+		for (const auto& Position : State.Presentation.Nodes) Positions.emplace(Position.NodeId, Position);
+		int32 MinimumX = MaterialGraphPresentationCoordinateLimit, MinimumY = MaterialGraphPresentationCoordinateLimit;
+		for (const auto& Id : Selected)
 		{
-			if (!FindNode(Program, Id))
+			if (std::ranges::none_of(State.Expressions, [&](const auto& Expression) { return Expression->Id == Id; }))
 				return MakeRejected("A copied material graph node does not exist.");
 			const auto It = Positions.find(Id);
-			if (It == Positions.end())
-				return MakeRejected("A copied material graph node has no authored position.");
-			MinimumX = std::min(MinimumX, It->second.X);
-			MinimumY = std::min(MinimumY, It->second.Y);
+			if (It == Positions.end()) return MakeRejected("A copied material graph node has no authored position.");
+			MinimumX = std::min(MinimumX, It->second.X); MinimumY = std::min(MinimumY, It->second.Y);
 		}
 		std::vector<FGuid> Ordered(Selected.begin(), Selected.end());
 		std::ranges::sort(Ordered);
 		OutPayload.SourceRoot = Owner.Get();
-		OutPayload.Nodes.reserve(Ordered.size());
-		for (const FGuid& Id : Ordered)
+		for (const auto& Id : Ordered)
 		{
-			FMaterialProgramNode Node = *FindNode(Program, Id);
-			if (Node.Opcode == EMaterialProgramOpcode::FunctionInput || Node.Opcode == EMaterialProgramOpcode::FunctionOutput)
+			const auto It = std::ranges::find(State.Expressions, Id, [](const auto& Expression) { return Expression->Id; });
+			const auto* Input = Cast<DMaterialExpressionFunctionInput>(It->Get());
+			const auto* Output = Cast<DMaterialExpressionFunctionOutput>(It->Get());
+			if (Input || Output)
 			{
-				const bool bOutput = Node.Opcode == EMaterialProgramOpcode::FunctionOutput;
-				const auto& Ports = bOutput ? State.Signature.Outputs : State.Signature.Inputs;
-				const auto Port = std::ranges::find(Ports, Node.FunctionPortId, &FMaterialFunctionPort::Id);
+				const auto PortId = Input ? Input->PortId : Output->PortId;
+				const auto& Ports = Input ? State.Signature.Inputs : State.Signature.Outputs;
+				const auto Port = std::ranges::find(Ports, PortId, &FMaterialFunctionPort::Id);
 				if (Port == Ports.end()) { OutPayload = {}; return MakeRejected("A copied function port is unavailable."); }
-				(bOutput ? OutPayload.Signature.Outputs : OutPayload.Signature.Inputs).push_back(*Port);
+				(Input ? OutPayload.Signature.Inputs : OutPayload.Signature.Outputs).push_back(*Port);
 			}
-			const FMaterialGraphNodePresentation& Position = Positions.at(Id);
-			OutPayload.Nodes.push_back({
-				.Node = std::move(Node),
-				.RelativeX = Position.X - MinimumX,
-				.RelativeY = Position.Y - MinimumY,
-			});
+			const auto& Position = Positions.at(Id);
+			OutPayload.Nodes.push_back({*It, Position.DisplayName, Position.X - MinimumX, Position.Y - MinimumY});
 		}
-		for (const auto& Call : State.Calls)
-			if (Selected.contains(Call.NodeId))
-			{
-				OutPayload.Calls.push_back(Call);
-			}
-		if (Selected.contains(Program.Outputs.Surface.SourceNodeId))
+		if (Selected.contains(State.Outputs.Surface.ExpressionId))
 		{
 			OutPayload.bConnectAggregateSurface = true;
-			OutPayload.AggregateSourceNodeId = Program.Outputs.Surface.SourceNodeId;
-			OutPayload.AggregateSourceOutputIndex = Program.Outputs.Surface.SourceOutputIndex;
-			OutPayload.AggregateSourceOutputId = Program.Outputs.Surface.SourceOutputId;
-		}
-		if (!OutPayload.Nodes.empty())
-		{
-			auto* References = NewObject<DMaterialGraphClipboardReferences>(DMaterialGraphClipboardReferences::StaticClass(), nullptr,
-				NAME_None, EObjectFlags::Transient);
-			for (const auto& Call : OutPayload.Calls) References->Functions.emplace_back(Call.Function.Get());
-			for (const auto& Entry : OutPayload.Nodes) References->Textures.emplace_back(Entry.Node.Parameter.Value.TextureValue.Get());
-			OutPayload.RetainedReferences = FStrongObjectPtr(References);
+			OutPayload.AggregateSourceNodeId = State.Outputs.Surface.ExpressionId;
+			OutPayload.AggregateSourceOutputIndex = State.Outputs.Surface.OutputIndex;
+			OutPayload.AggregateSourceOutputId = State.Outputs.Surface.OutputId;
 		}
 		return {
 			.Status = EMaterialGraphCommandStatus::Succeeded,
@@ -107,62 +83,42 @@ namespace Durin::Editor::Material
 	auto FMaterialGraphDocument::Paste(const FMaterialGraphClipboardPayload& Payload,
 		int32 X, int32 Y, DTransactor* Transactions) const -> FMaterialGraphCommandResult
 	{
-		FMaterialGraphDocumentState State;
-		if (!Capture(State)) return {.Status = EMaterialGraphCommandStatus::StaleOwner};
+		FOwnedGraphSnapshot State;
+		if (!Owner.IsValid() || !State.Capture(*Owner.Get())) return {.Status = EMaterialGraphCommandStatus::StaleOwner};
 		if (Payload.SchemaVersion != CurrentMaterialGraphClipboardSchemaVersion)
 			return MakeRejected("The material graph clipboard schema version is unsupported.");
-		if (Payload.Nodes.empty() || Payload.Nodes.size() > MaterialProgramMaxNodeCount)
-			return MakeRejected("The material graph clipboard node count is outside the supported bound.");
-		auto& Candidate = State.Program;
-		if (Candidate.Nodes.size() + Payload.Nodes.size() > MaterialProgramMaxNodeCount)
-			return MakeRejected("Pasting would exceed the material graph node limit.");
-
+		if (Payload.Nodes.empty() || Payload.Nodes.size() > MaterialProgramMaxNodeCount
+			|| State.Expressions.size() + Payload.Nodes.size() > MaterialProgramMaxNodeCount)
+			return MakeRejected("Pasting would exceed the material graph node bounds.");
 		const bool bSameRoot = Payload.SourceRoot.Get() == Owner.Get();
-		const auto* References = Cast<DMaterialGraphClipboardReferences>(Payload.RetainedReferences.Get());
-		if (References && (References->Functions.size() != Payload.Calls.size() || References->Textures.size() != Payload.Nodes.size()))
-			return MakeRejected("Clipboard retained references do not match the payload.");
 		if (!State.bFunction && (!Payload.Signature.Inputs.empty() || !Payload.Signature.Outputs.empty()))
 			return MakeRejected("Function interface terminals can only be pasted into a function.");
-		FMaterialProgram Copied;
-		for (size_t Index = 0; Index < Payload.Nodes.size(); ++Index)
-		{
-			auto Node = Payload.Nodes[Index].Node;
-			if (References) Node.Parameter.Value.TextureValue = Cast<DTexture2D>(References->Textures[Index].Get());
-			Copied.Nodes.push_back(std::move(Node));
-		}
-		std::vector<FMaterialParameterDefinition> CopiedSchema;
-		const auto Validation = DeriveMaterialParameterSchema(Copied, CopiedSchema);
-		if (!Validation) return MakeRejected("Invalid clipboard parameter owners.", Validation.Diagnostics);
-		if (State.bFunction && !CopiedSchema.empty()) return MakeRejected("Functions cannot own root parameters.");
-		if (!References && std::ranges::any_of(Copied.Nodes,
-			[](const auto& Node) { return Node.Parameter.Value.TextureValue.Get() != nullptr; }))
-			return MakeRejected("Clipboard texture references are not retained.");
 		std::unordered_map<FGuid, FGuid> Remap;
-		Remap.reserve(Payload.Nodes.size());
-		for (const FMaterialGraphClipboardNode& ClipboardNode : Payload.Nodes)
-		{
-			if (!ClipboardNode.Node.Id.IsValid()
-				|| !Remap.emplace(ClipboardNode.Node.Id, FGuid{}).second)
-				return MakeRejected("The material graph clipboard contains an invalid or duplicate node GUID.");
-			if (ClipboardNode.RelativeX < 0 || ClipboardNode.RelativeY < 0
-				|| ClipboardNode.RelativeX > MaterialGraphPresentationCoordinateLimit * 2
-				|| ClipboardNode.RelativeY > MaterialGraphPresentationCoordinateLimit * 2)
-				return MakeRejected("The material graph clipboard contains an invalid relative position.");
-		}
 		std::unordered_set<FGuid> UsedIds;
-		UsedIds.reserve(Candidate.Nodes.size() + Payload.Nodes.size());
-		for (const FMaterialProgramNode& Node : Candidate.Nodes) UsedIds.insert(Node.Id);
-		for (const FMaterialGraphClipboardNode& ClipboardNode : Payload.Nodes)
+		for (const auto& Expression : State.Expressions)
 		{
-			FGuid& NewId = Remap.at(ClipboardNode.Node.Id);
-			do NewId = FGuid::NewGuid(); while (UsedIds.contains(NewId));
-			UsedIds.insert(NewId);
+			UsedIds.insert(Expression->Id);
+			if (const auto* Parameter = Cast<DMaterialExpressionParameter>(Expression.Get())) UsedIds.insert(Parameter->Metadata.Id);
 		}
-		if (Payload.bConnectAggregateSurface
-			&& (!Payload.AggregateSourceNodeId.IsValid()
-				|| !Remap.contains(Payload.AggregateSourceNodeId)))
+		std::vector<FMaterialParameterDefinition> Definitions;
+		for (const auto& Node : Payload.Nodes)
+		{
+			if (!Node.Expression || !Node.Expression->Id.IsValid() || Remap.contains(Node.Expression->Id))
+				return MakeRejected("The material graph clipboard contains an invalid or duplicate node GUID.");
+			if (Node.RelativeX < 0 || Node.RelativeY < 0 || Node.RelativeX > MaterialGraphPresentationCoordinateLimit * 2
+				|| Node.RelativeY > MaterialGraphPresentationCoordinateLimit * 2)
+				return MakeRejected("The material graph clipboard contains an invalid relative position.");
+			FGuid Id;
+			do Id = FGuid::NewGuid(); while (UsedIds.contains(Id));
+			UsedIds.insert(Id); Remap.emplace(Node.Expression->Id, Id);
+			if (const auto* Parameter = Cast<DMaterialExpressionParameter>(Node.Expression.Get()))
+				Definitions.push_back(Parameter->GetParameterDefinition());
+		}
+		const auto Validation = ValidateMaterialParameterDefinitions(Definitions);
+		if (!Validation) return MakeRejected(std::string(GetMaterialParameterErrorText(Validation.Error)));
+		if (State.bFunction && !Definitions.empty()) return MakeRejected("Functions cannot own root parameters.");
+		if (Payload.bConnectAggregateSurface && !Remap.contains(Payload.AggregateSourceNodeId))
 			return MakeRejected("The aggregate Surface clipboard source is missing from the selection.");
-
 		std::unordered_map<FGuid, FGuid> PortRemap;
 		for (bool bOutput : {false, true})
 		{
@@ -187,79 +143,67 @@ namespace Durin::Editor::Material
 				if (const auto It = PortRemap.find(Port.Default.InputId); It != PortRemap.end()) Port.Default.InputId = It->second;
 				else if (!bSameRoot) return MakeRejected("A copied port default references an input outside the selection.");
 			}
-		const auto RemapLink = [&](FMaterialProgramLink& Input) {
-			if (!Input.SourceNodeId.IsValid()) return true;
-			const auto It = Remap.find(Input.SourceNodeId);
-			if (It != Remap.end()) Input.SourceNodeId = It->second;
-			else if (!bSameRoot || !FindNode(Candidate, Input.SourceNodeId)) return false;
+		const auto RemapLink = [&](FMaterialExpressionInput& Input) {
+			if (!Input.ExpressionId.IsValid()) return true;
+			const auto It = Remap.find(Input.ExpressionId);
+			if (It != Remap.end()) Input.ExpressionId = It->second;
+			else if (!bSameRoot || std::ranges::none_of(State.Expressions, [&](const auto& E) { return E->Id == Input.ExpressionId; })) return false;
 			return true;
 		};
-		for (size_t CallIndex = 0; CallIndex < Payload.Calls.size(); ++CallIndex)
-		{
-			auto Call = Payload.Calls[CallIndex];
-			if (References) Call.Function = Cast<DMaterialFunctionInterface>(References->Functions[CallIndex].Get());
-			if (!Remap.contains(Call.NodeId)) return MakeRejected("A clipboard call has no selected node.");
-			Call.NodeId = Remap.at(Call.NodeId);
-			for (auto& Input : Call.Inputs)
-				if (!RemapLink(Input.Source))
-					return MakeRejected("A copied function call references an unavailable input or parameter.");
-			State.Calls.push_back(std::move(Call));
-		}
-		auto& Presentation = State.Presentation;
 		std::vector<FGuid> Generated;
-		Generated.reserve(Payload.Nodes.size());
-		for (size_t ClipboardIndex = 0; ClipboardIndex < Payload.Nodes.size(); ++ClipboardIndex)
+		for (const auto& Entry : Payload.Nodes)
 		{
-			const auto& ClipboardNode = Payload.Nodes[ClipboardIndex];
-			FMaterialProgramNode Node = ClipboardNode.Node;
-			if (References) Node.Parameter.Value.TextureValue = Cast<DTexture2D>(References->Textures[ClipboardIndex].Get());
-			Node.Id = Remap.at(ClipboardNode.Node.Id);
-			if (Node.FunctionPortId.IsValid())
+			TStrongObjectPtr<DMaterialExpression> Expression(DuplicateObject(Entry.Expression.Get(), nullptr, NAME_None));
+			if (!Expression) return MakeRejected("Unable to duplicate a clipboard expression.");
+			Expression->Id = Remap.at(Entry.Expression->Id);
+			FGuid* PortId = nullptr;
+			if (auto* Input = Cast<DMaterialExpressionFunctionInput>(Expression.Get())) PortId = &Input->PortId;
+			if (auto* Output = Cast<DMaterialExpressionFunctionOutput>(Expression.Get())) PortId = &Output->PortId;
+			if (PortId)
 			{
-				if (!PortRemap.contains(Node.FunctionPortId)) return MakeRejected("A clipboard terminal has no port declaration.");
-				Node.FunctionPortId = PortRemap.at(Node.FunctionPortId);
+				if (!PortRemap.contains(*PortId)) return MakeRejected("A clipboard terminal has no port declaration.");
+				*PortId = PortRemap.at(*PortId);
 			}
-			if (Node.Parameter.Id.IsValid())
+			if (auto* Parameter = Cast<DMaterialExpressionParameter>(Expression.Get()))
 			{
-				do Node.Parameter.Id = FGuid::NewGuid();
-				while (Node.Parameter.Id == Node.Id || std::ranges::any_of(Candidate.Nodes,
-					[&](const auto& Existing) { return Existing.Parameter.Id == Node.Parameter.Id; }));
-				const auto BaseName = Node.Parameter.Name.ToString();
-				for (uint32 Suffix = 2; std::ranges::any_of(Candidate.Nodes,
-					[&](const auto& Existing) { return Existing.Parameter.Id.IsValid() && Existing.Parameter.Name == Node.Parameter.Name; }); ++Suffix)
-					Node.Parameter.Name = FName(std::format("{}{}", BaseName, Suffix));
-				if (Node.Parameter.DisplayName == BaseName) Node.Parameter.DisplayName = Node.Parameter.Name.ToString();
+				auto& Metadata = Parameter->Metadata;
+				do Metadata.Id = FGuid::NewGuid(); while (UsedIds.contains(Metadata.Id));
+				UsedIds.insert(Metadata.Id);
+				const auto BaseName = Metadata.Name.ToString();
+				for (uint32 Suffix = 2; std::ranges::any_of(State.Expressions, [&](const auto& E) {
+					const auto* P = Cast<DMaterialExpressionParameter>(E.Get()); return P && P->Metadata.Name == Metadata.Name;
+				}); ++Suffix) Metadata.Name = FName(std::format("{}{}", BaseName, Suffix));
+				if (Metadata.DisplayName == BaseName) Metadata.DisplayName = Metadata.Name.ToString();
 			}
-			for (FMaterialProgramLink& Input : Node.Inputs)
-				if (!RemapLink(Input)) return MakeRejected("The material graph clipboard references an unavailable external input.");
-			for (auto& Attribute : Node.SurfaceAttributes)
-				if (!RemapLink(Attribute.Source)) return MakeRejected("A copied Surface attribute references an unavailable external input.");
-			const int64 PositionX = static_cast<int64>(X) + ClipboardNode.RelativeX;
-			const int64 PositionY = static_cast<int64>(Y) + ClipboardNode.RelativeY;
-			if (PositionX < -MaterialGraphPresentationCoordinateLimit
-				|| PositionX > MaterialGraphPresentationCoordinateLimit
-				|| PositionY < -MaterialGraphPresentationCoordinateLimit
-				|| PositionY > MaterialGraphPresentationCoordinateLimit)
+			bool bLinksValid = true;
+			VisitMaterialExpressionInputs(*Expression, [&](uint32, FMaterialExpressionInput& Input) { bLinksValid &= RemapLink(Input); });
+			if (!bLinksValid) return MakeRejected("The material graph clipboard references an unavailable external input.");
+			const int64 PositionX = static_cast<int64>(X) + Entry.RelativeX, PositionY = static_cast<int64>(Y) + Entry.RelativeY;
+			if (PositionX < -MaterialGraphPresentationCoordinateLimit || PositionX > MaterialGraphPresentationCoordinateLimit
+				|| PositionY < -MaterialGraphPresentationCoordinateLimit || PositionY > MaterialGraphPresentationCoordinateLimit)
 				return MakeRejected("Pasting would place a material graph node outside the supported coordinate range.");
-			Generated.push_back(Node.Id);
-			Presentation.Nodes.push_back({Node.Id,
-				static_cast<int32>(PositionX), static_cast<int32>(PositionY)});
-			Candidate.Nodes.push_back(std::move(Node));
+			Generated.push_back(Expression->Id);
+			State.Presentation.Nodes.push_back({Expression->Id, static_cast<int32>(PositionX), static_cast<int32>(PositionY), Entry.DisplayName});
+			State.Expressions.push_back(std::move(Expression));
+		}
+		if (State.bFunction)
+		{
+			std::vector<DMaterialFunctionInterface*> Roots;
+			for (const auto& Expression : State.Expressions)
+				if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression.Get())) Roots.push_back(Call->Function.Get());
+			std::vector<FMaterialFunctionOwnerStamp> Closure;
+			const auto Result = ValidateMaterialFunctionDependencies(Roots, Closure);
+			if (!Result) return MakeRejected("The function dependencies are invalid.", Result.Diagnostics);
+			if (std::ranges::any_of(Closure, [&](const auto& Dependency) { return Dependency.AssetPath == Owner.Get()->GetObjectPath(); }))
+				return MakeRejected("This change would introduce recursive function dependencies.");
 		}
 		if (Payload.bConnectAggregateSurface && !State.bFunction)
 		{
-			for (EMaterialSurfaceOutput Output : {
-				EMaterialSurfaceOutput::BaseColor, EMaterialSurfaceOutput::Normal,
-				EMaterialSurfaceOutput::Metallic, EMaterialSurfaceOutput::Roughness,
-				EMaterialSurfaceOutput::AmbientOcclusion, EMaterialSurfaceOutput::Emissive,
-				EMaterialSurfaceOutput::Opacity, EMaterialSurfaceOutput::OpacityMask})
-				GetMaterialSurfaceOutputLink(Candidate.Outputs, Output) = {};
-			Candidate.Outputs.Surface = {
-				.SourceNodeId = Remap.at(Payload.AggregateSourceNodeId),
-				.SourceOutputIndex = Payload.AggregateSourceOutputIndex,
-				.SourceOutputId = Payload.AggregateSourceOutputId};
+			for (auto* Output : {&State.Outputs.BaseColor, &State.Outputs.Normal, &State.Outputs.Metallic, &State.Outputs.Roughness,
+				&State.Outputs.AmbientOcclusion, &State.Outputs.Emissive, &State.Outputs.Opacity, &State.Outputs.OpacityMask}) *Output = {};
+			State.Outputs.Surface = {Remap.at(Payload.AggregateSourceNodeId), Payload.AggregateSourceOutputIndex, Payload.AggregateSourceOutputId};
 		}
-		auto Result = Commit(std::move(State), "Paste Graph Nodes", Transactions);
+		auto Result = CommitOwnedExpressions(*Owner.Get(), std::move(State), "Paste Graph Nodes", Transactions);
 		if (Result)
 		{
 			Result.AffectedNodeIds = Generated;
@@ -278,9 +222,7 @@ namespace Durin::Editor::Material
 		FMaterialGraphClipboardPayload Payload;
 		FMaterialGraphCommandResult Copied = CopySelection(Material, NodeIds, Payload);
 		if (!Copied) return Copied;
-		const FMaterialGraphPresentation Presentation =
-			SanitizeMaterialGraphPresentation(
-				Material.GetMaterialGraphPresentation(), *Material.GetMaterialProgram());
+		const auto& Presentation = Material.GetMaterialGraphPresentation();
 		int32 MinimumX = MaterialGraphPresentationCoordinateLimit;
 		int32 MinimumY = MaterialGraphPresentationCoordinateLimit;
 		std::unordered_set<FGuid> Selected(NodeIds.begin(), NodeIds.end());

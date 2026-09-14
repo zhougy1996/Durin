@@ -6,24 +6,6 @@
 
 namespace Durin
 {
-	// A texture override owns its complete sampling policy.
-	DSTRUCT()
-	struct FMaterialTextureValue
-	{
-		GENERATED_BODY()
-
-		DPROPERTY()
-		TObjectPtr<DTexture2D> Texture;
-
-		DPROPERTY()
-		FMaterialSamplerState SamplerState;
-
-		DPROPERTY()
-		EMaterialTextureFallback TextureFallback = EMaterialTextureFallback::White;
-
-		auto operator==(const FMaterialTextureValue&) const -> bool = default;
-	};
-
 	// Persists only the scalar value selected by this record's type.
 	DSTRUCT()
 	struct FMaterialScalarParameterOverride
@@ -39,7 +21,7 @@ namespace Durin
 		static constexpr EMaterialParameterType Type = EMaterialParameterType::Scalar;
 		static auto PropertyName() -> FName { return FName("ScalarParameterOverrides"); }
 		auto GetValue() const -> FMaterialParameterValue { return FMaterialParameterValue::MakeScalar(Value); }
-		auto SetValue(const FMaterialParameterValue& InValue) -> void { Value = InValue.ScalarValue; }
+		auto SetValue(const FMaterialParameterValue& InValue) -> void { Value = InValue.GetScalar(); }
 	};
 
 	// Persists only the vector2 value selected by this record's type.
@@ -57,7 +39,7 @@ namespace Durin
 		static constexpr EMaterialParameterType Type = EMaterialParameterType::Vector2;
 		static auto PropertyName() -> FName { return FName("Vector2ParameterOverrides"); }
 		auto GetValue() const -> FMaterialParameterValue { return FMaterialParameterValue::MakeVector2(Value); }
-		auto SetValue(const FMaterialParameterValue& InValue) -> void { Value = InValue.Vector2Value; }
+		auto SetValue(const FMaterialParameterValue& InValue) -> void { Value = InValue.GetVector2(); }
 	};
 
 	// Persists only the vector value selected by this record's type.
@@ -75,7 +57,7 @@ namespace Durin
 		static constexpr EMaterialParameterType Type = EMaterialParameterType::Vector;
 		static auto PropertyName() -> FName { return FName("VectorParameterOverrides"); }
 		auto GetValue() const -> FMaterialParameterValue { return FMaterialParameterValue::MakeVector(Value); }
-		auto SetValue(const FMaterialParameterValue& InValue) -> void { Value = InValue.VectorValue; }
+		auto SetValue(const FMaterialParameterValue& InValue) -> void { Value = InValue.GetVector(); }
 	};
 
 	// Persists only the vector4 value selected by this record's type.
@@ -93,7 +75,7 @@ namespace Durin
 		static constexpr EMaterialParameterType Type = EMaterialParameterType::Vector4;
 		static auto PropertyName() -> FName { return FName("Vector4ParameterOverrides"); }
 		auto GetValue() const -> FMaterialParameterValue { return FMaterialParameterValue::MakeVector4(Value); }
-		auto SetValue(const FMaterialParameterValue& InValue) -> void { Value = InValue.Vector4Value; }
+		auto SetValue(const FMaterialParameterValue& InValue) -> void { Value = InValue.GetVector4(); }
 	};
 
 	// Persists only the texture value selected by this record's type.
@@ -111,7 +93,7 @@ namespace Durin
 		static constexpr EMaterialParameterType Type = EMaterialParameterType::Texture;
 		static auto PropertyName() -> FName { return FName("TextureParameterOverrides"); }
 		auto GetValue() const -> FMaterialParameterValue { return FMaterialParameterValue::MakeTexture(Value.Texture.Get(), Value.SamplerState, Value.TextureFallback); }
-		auto SetValue(const FMaterialParameterValue& InValue) -> void { Value = {InValue.TextureValue, InValue.SamplerState, InValue.TextureFallback}; }
+		auto SetValue(const FMaterialParameterValue& InValue) -> void { Value = {InValue.GetTexture().Texture, InValue.GetTexture().SamplerState, InValue.GetTexture().TextureFallback}; }
 	};
 
 	// Dispatches reflected scratch edits to the concrete record type.

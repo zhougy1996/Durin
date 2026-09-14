@@ -85,8 +85,14 @@ namespace Durin
 						if (Self(Self, Dependency.Get())) return true;
 					return false;
 				};
-				for (const auto& Call : Material->GetMaterialFunctionCalls())
-					if (Depends(Depends, Call.Function.Get())) return true;
+				FResolvedMaterialProperties Resolved;
+				std::string Error;
+				if (!ResolveMaterialProperties(*Material, Resolved, Error)) return false;
+				const auto* Root = Cast<DMaterial>(ResolveObjectHandle(Resolved.Root));
+				if (!Root) return false;
+				for (const auto& Expression : Root->GetExpressionCollection().Expressions)
+					if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression.Get());
+						Call && Depends(Depends, Call->Function.Get())) return true;
 				return false;
 			});
 		for (const auto Handle : Owners)
@@ -320,18 +326,18 @@ namespace Durin
 	}
 
 	auto DMaterialInterface::GetMaterialProgram() const
-		-> const FMaterialProgram*
+		-> std::optional<FMaterialProgram>
 	{
-		return nullptr;
+		return std::nullopt;
 	}
 
-	auto DMaterialInterface::GetMaterialFunctionCalls() const -> std::span<const FMaterialFunctionCall>
+	auto DMaterialInterface::GetMaterialFunctionCalls() const -> std::vector<FMaterialFunctionCall>
 	{
 		FResolvedMaterialProperties Resolved;
 		std::string Error;
 		if (!ResolveMaterialProperties(*this, Resolved, Error)) return {};
 		auto* Root = Cast<DMaterial>(ResolveObjectHandle(Resolved.Root));
-		return Root ? Root->GetMaterialFunctionCalls() : std::span<const FMaterialFunctionCall>{};
+		return Root ? Root->GetMaterialFunctionCalls() : std::vector<FMaterialFunctionCall>{};
 	}
 
 	auto DMaterialInterface::GetAcceptedCompiledProgram() const
@@ -400,7 +406,7 @@ namespace Durin
 			const auto& Parameters = Result.CompiledProgram->ActiveParameters;
 			const auto Active = std::ranges::find(Parameters, Parameter.Id,
 				&FMaterialCompilerParameterDeclaration::Id);
-			if (Active == Parameters.end() || Active->Type != Parameter.Type) continue;
+			if (Active == Parameters.end() || Active->Type != Parameter.GetType()) continue;
 			bRepresentationValid = ApplyMaterialLocalRenderParameter(
 				RepresentationBuilder, Parameter)
 				&& bRepresentationValid;
@@ -512,13 +518,13 @@ namespace Durin
 				&& Resolved.Definition && Resolved.Definition->Type == Parameter.Type)
 			{
 				Result.Parameters.push_back(BuildMaterialLocalRenderParameter(
-					Parameter.Id, Parameter.Type, Resolved.Value));
+					Parameter.Id, Resolved.Value));
 				continue;
 			}
 			const auto& Retained = CompilationOwner.RenderLayer.Parameters;
 			const auto Previous = std::ranges::find(Retained, Parameter.Id,
 				&FMaterialLocalRenderParameter::Id);
-			if (Previous != Retained.end() && Previous->Type == Parameter.Type)
+			if (Previous != Retained.end() && Previous->GetType() == Parameter.Type)
 				Result.Parameters.push_back(*Previous);
 		}
 		return Result;

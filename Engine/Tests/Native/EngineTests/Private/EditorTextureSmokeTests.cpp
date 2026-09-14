@@ -277,8 +277,7 @@ namespace Durin
 		ASSERT_TRUE(FPackagePath::TryCreate("/EditorTextureSmoke/Materials/Textured", MaterialPath));
 		DMaterial* Material = nullptr;
 		ASSERT_TRUE(CreatePackageLeafAssetForTesting(MaterialPath, Material));
-		const auto ProgramValidation = Material->SetMaterialProgram(
-			Durin::Testing::MakePBRMaterialProgramForTest());
+		const auto ProgramValidation = Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*Material);
 		ASSERT_TRUE(ProgramValidation);
 		Material->SetTextureParameterValue(MaterialParameters::BaseColorTextureName(), TextureImport.Asset);
 		FinishMaterialCompilation(*Material);

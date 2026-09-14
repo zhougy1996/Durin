@@ -4,6 +4,8 @@
 #include "Asset/PackageSerialization.h"
 #include "AssetTools/IAssetTools.h"
 #include "DObject/Package.h"
+#include "DObject/Class.h"
+#include "DObject/Property.h"
 
 #include <algorithm>
 
@@ -12,10 +14,9 @@ namespace Durin::AssetForge::Builtins
 	namespace
 	{
 		using Type = EMaterialProgramValueType;
-		using Op = EMaterialProgramOpcode;
 		using Kind = EMaterialFunctionDefaultKind;
 		using Entry = EStandardMaterialFunction;
-		using Link = FMaterialProgramLink;
+		using Link = FMaterialExpressionInput;
 		constexpr std::array RoleNames{"BaseColor", "Normal", "Metallic", "Roughness",
 			"AmbientOcclusion", "Emissive", "Opacity", "OpacityMask"};
 		constexpr std::array EntryNames{"UVTransform", "SampleNormal", "SampleORM", "StandardPBR", "StandardPBR_ORM", "ImportedSurfaceValues", "DecodeImportedNormalRG"};
@@ -28,85 +29,116 @@ namespace Durin::AssetForge::Builtins
 		struct FBuilder
 		{
 			Entry Family;
-			FMaterialFunctionGraph Graph;
-			auto Node(Op Opcode, Type ResultType, std::vector<Link> Inputs = {}) -> Link
+			FStandardMaterialFunctionExpressions Recipe;
+			template<typename T>
+			auto Add() -> T*
 			{
-				FMaterialProgramNode Node{.Id = {0xf67a24b1, 0x4378491a,
-					static_cast<uint32>(Family), static_cast<uint32>(Graph.Nodes.size() + 1)},
-					.Opcode = Opcode, .ResultType = ResultType, .Inputs = std::move(Inputs)};
-				Graph.Nodes.push_back(std::move(Node));
-				return {.SourceNodeId = Graph.Nodes.back().Id};
+				auto* Expression = NewObject<T>(nullptr, NAME_None);
+				Expression->Id = {0xf67a24b1, 0x4378491a, static_cast<uint32>(Family),
+					static_cast<uint32>(Recipe.Expressions.size() + 1)};
+				Recipe.Expressions.emplace_back(Expression);
+				return Expression;
+			}
+			template<typename T>
+			auto Node(Type ResultType, std::vector<Link> Inputs) -> Link
+			{
+				auto* N = Add<T>();
+				check(Inputs.size() == N->GetAuthoredInputCount());
+				if constexpr (requires { N->ResultType; }) N->ResultType = ResultType;
+				if constexpr (requires { N->A; N->B; }) { N->A = Inputs[0]; N->B = Inputs[1]; }
+				if constexpr (std::is_same_v<T, DMaterialExpressionBlendNormalsRNM>)
+					{ N->Base = Inputs[0]; N->Detail = Inputs[1]; }
+				if constexpr (requires { N->Input; }) N->Input = Inputs[0];
+				if constexpr (std::is_same_v<T, DMaterialExpressionClamp>)
+					{ N->Minimum = Inputs[1]; N->Maximum = Inputs[2]; }
+				if constexpr (std::is_same_v<T, DMaterialExpressionMakeVector2>)
+					{ N->X = Inputs[0]; N->Y = Inputs[1]; }
+				if constexpr (std::is_same_v<T, DMaterialExpressionTextureSample2D>)
+					{ N->Texture = Inputs[0]; N->UV = Inputs[1]; }
+				if constexpr (std::is_same_v<T, DMaterialExpressionMakeSurface>)
+				{
+					N->BaseColor = Inputs[0]; N->Normal = Inputs[1]; N->Metallic = Inputs[2];
+					N->Roughness = Inputs[3]; N->AmbientOcclusion = Inputs[4]; N->Emissive = Inputs[5];
+					N->Opacity = Inputs[6]; N->OpacityMask = Inputs[7];
+				}
+				return {N->Id};
 			}
 			auto Input(uint32 Slot, std::string Name, Type ValueType,
 				FMaterialFunctionDefault Default, bool bAdvanced = false) -> Link
 			{
-				// Both PBR entry points retain the same identities for common inputs.
 				const auto Port = Id(Family == Entry::StandardPBR_ORM ? Entry::StandardPBR : Family, Slot);
-				Graph.Signature.Inputs.push_back({.Id = Port, .Type = ValueType,
-					.Name = std::move(Name), .DisplayOrder = static_cast<int32>(Graph.Signature.Inputs.size()),
+				Recipe.Signature.Inputs.push_back({.Id = Port, .Type = ValueType,
+					.Name = std::move(Name), .DisplayOrder = static_cast<int32>(Recipe.Signature.Inputs.size()),
 					.bAdvanced = bAdvanced, .Default = std::move(Default)});
-				const auto Result = Node(Op::FunctionInput, ValueType);
-				Graph.Nodes.back().FunctionPortId = Port;
-				return Result;
+				auto* N = Add<DMaterialExpressionFunctionInput>();
+				N->PortId = Port;
+				return {N->Id};
 			}
 			auto Output(uint32 Slot, std::string Name, Type ValueType, Link Source) -> void
 			{
 				const auto Port = Id(Family, Slot);
-				Graph.Signature.Outputs.push_back({.Id = Port, .Type = ValueType, .Name = std::move(Name),
-					.DisplayOrder = static_cast<int32>(Graph.Signature.Outputs.size())});
-				Node(Op::FunctionOutput, ValueType, {Source});
-				Graph.Nodes.back().FunctionPortId = Port;
+				Recipe.Signature.Outputs.push_back({.Id = Port, .Type = ValueType, .Name = std::move(Name),
+					.DisplayOrder = static_cast<int32>(Recipe.Signature.Outputs.size())});
+				auto* N = Add<DMaterialExpressionFunctionOutput>();
+				N->PortId = Port; N->Source = Source;
 			}
 			auto Constant(Type ValueType, float X, float Y = 0, float Z = 0) -> Link
 			{
-				const auto Result = Node(Op::Constant, ValueType);
-				Graph.Nodes.back().Literal = {.X = X, .Y = Y, .Z = Z};
-				return Result;
+				if (ValueType == Type::Float)
+				{
+					auto* N = Add<DMaterialExpressionScalarConstant>(); N->Value = X; return {N->Id};
+				}
+				if (ValueType == Type::Float2)
+				{
+					auto* N = Add<DMaterialExpressionVector2Constant>(); N->Value = {X, Y}; return {N->Id};
+				}
+				check(ValueType == Type::Float3);
+				auto* N = Add<DMaterialExpressionVector3Constant>(); N->Value = {X, Y, Z}; return {N->Id};
 			}
 			auto Swizzle(Link Source, Type ValueType, uint8 X, uint8 Y = 0, uint8 Z = 0) -> Link
 			{
-				const auto Result = Node(Op::Swizzle, ValueType, {Source});
-				auto& N = Graph.Nodes.back();
-				N.SwizzleLength = ValueType == Type::Float ? 1 : ValueType == Type::Float2 ? 2 : 3;
-				N.SwizzleX = X; N.SwizzleY = Y; N.SwizzleZ = Z;
-				return Result;
+				auto* N = Add<DMaterialExpressionSwizzle>();
+				N->Input = Source;
+				N->Components = {X};
+				if (ValueType != Type::Float) N->Components.push_back(Y);
+				if (ValueType == Type::Float3) N->Components.push_back(Z);
+				return {N->Id};
 			}
-			auto Call(DMaterialFunction* Function, std::vector<FMaterialFunctionInputBinding> Inputs) -> Link
+			auto Call(DMaterialFunction* Function, std::vector<FMaterialExpressionFunctionInputBinding> Inputs) -> Link
 			{
-				const auto Result = Node(Op::FunctionCall, Function->GetFunctionSignature().Outputs.front().Type);
-				FMaterialFunctionCall Call{.NodeId = Result.SourceNodeId, .Function = Function, .Inputs = std::move(Inputs)};
+				auto* N = Add<DMaterialExpressionFunctionCall>();
+				N->Function = Function; N->Inputs = std::move(Inputs);
 				for (const auto& Output : Function->GetFunctionSignature().Outputs)
-					Call.Outputs.push_back({Output.Id, Output.Type});
-				Graph.Calls.push_back(std::move(Call));
-				return {.SourceNodeId = Result.SourceNodeId, .SourceOutputId = Graph.Calls.back().Outputs.front().OutputId};
+					N->Outputs.push_back({Output.Id, Output.Type});
+				return {N->Id, 0, N->Outputs.front().OutputId};
 			}
 		};
 
 		auto ComposeSurfaceValue(FBuilder& B, uint32 Role, Link Factor, Link Sample) -> Link
 		{
 			const auto ValueType = GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(Role));
-			if (Role == 1) return B.Node(Op::BlendNormalsRNM, Type::Float3, {Factor, Sample});
+			if (Role == 1) return B.Node<DMaterialExpressionBlendNormalsRNM>(Type::Float3, {Factor, Sample});
 			if (Role == 5)
 			{
 				const auto Zero = B.Constant(Type::Float3, 0, 0, 0);
-				Factor = B.Node(Op::Maximum, Type::Float3, {Factor, Zero});
-				Sample = B.Node(Op::Maximum, Type::Float3, {Sample, Zero});
-				return B.Node(Op::Add, Type::Float3, {Factor, Sample});
+				Factor = B.Node<DMaterialExpressionMaximum>(Type::Float3, {Factor, Zero});
+				Sample = B.Node<DMaterialExpressionMaximum>(Type::Float3, {Sample, Zero});
+				return B.Node<DMaterialExpressionAdd>(Type::Float3, {Factor, Sample});
 			}
-			Factor = B.Node(Op::Saturate, ValueType, {Factor});
-			if (Role != 0) Sample = B.Node(Op::Saturate, ValueType, {Sample});
-			auto Value = B.Node(Op::Multiply, ValueType, {Factor, Sample});
+			Factor = B.Node<DMaterialExpressionSaturate>(ValueType, {Factor});
+			if (Role != 0) Sample = B.Node<DMaterialExpressionSaturate>(ValueType, {Sample});
+			auto Value = B.Node<DMaterialExpressionMultiply>(ValueType, {Factor, Sample});
 			if (Role == 3)
 			{
 				const auto Min = B.Constant(Type::Float, .045f), Max = B.Constant(Type::Float, 1);
-				Value = B.Node(Op::Clamp, Type::Float, {Value, Min, Max});
+				Value = B.Node<DMaterialExpressionClamp>(Type::Float, {Value, Min, Max});
 			}
 			return Value;
 		}
 	}
 
-	auto MakeStandardMaterialFunctionGraph(Entry Function, const FStandardMaterialFunctions& Dependencies)
-		-> FMaterialFunctionGraph
+	auto MakeStandardMaterialFunctionExpressions(Entry Function, const FStandardMaterialFunctions& Dependencies)
+		-> FStandardMaterialFunctionExpressions
 	{
 		FBuilder B{Function};
 		if (Function == Entry::UVTransform)
@@ -115,18 +147,18 @@ namespace Durin::AssetForge::Builtins
 			const auto Scale = B.Input(2, "Scale", Type::Float2, Numeric(1, 1));
 			const auto Offset = B.Input(3, "Offset", Type::Float2, Numeric(0, 0));
 			const auto Angle = B.Input(4, "Rotation", Type::Float, Numeric(0));
-			const auto Scaled = B.Node(Op::Multiply, Type::Float2, {UV, Scale});
-			const auto Sine = B.Node(Op::Sine, Type::Float, {Angle});
-			const auto Cosine = B.Node(Op::Cosine, Type::Float, {Angle});
+			const auto Scaled = B.Node<DMaterialExpressionMultiply>(Type::Float2, {UV, Scale});
+			const auto Sine = B.Node<DMaterialExpressionSine>(Type::Float, {Angle});
+			const auto Cosine = B.Node<DMaterialExpressionCosine>(Type::Float, {Angle});
 			const auto X = B.Swizzle(Scaled, Type::Float, 0), Y = B.Swizzle(Scaled, Type::Float, 1);
-			const auto CX = B.Node(Op::Multiply, Type::Float, {Cosine, X});
-			const auto SY = B.Node(Op::Multiply, Type::Float, {Sine, Y});
-			const auto SX = B.Node(Op::Multiply, Type::Float, {Sine, X});
-			const auto CY = B.Node(Op::Multiply, Type::Float, {Cosine, Y});
-			const auto RX = B.Node(Op::Subtract, Type::Float, {CX, SY});
-			const auto RY = B.Node(Op::Add, Type::Float, {SX, CY});
-			const auto Rotated = B.Node(Op::MakeFloat2, Type::Float2, {RX, RY});
-			B.Output(100, "UV", Type::Float2, B.Node(Op::Add, Type::Float2, {Rotated, Offset}));
+			const auto CX = B.Node<DMaterialExpressionMultiply>(Type::Float, {Cosine, X});
+			const auto SY = B.Node<DMaterialExpressionMultiply>(Type::Float, {Sine, Y});
+			const auto SX = B.Node<DMaterialExpressionMultiply>(Type::Float, {Sine, X});
+			const auto CY = B.Node<DMaterialExpressionMultiply>(Type::Float, {Cosine, Y});
+			const auto RX = B.Node<DMaterialExpressionSubtract>(Type::Float, {CX, SY});
+			const auto RY = B.Node<DMaterialExpressionAdd>(Type::Float, {SX, CY});
+			const auto Rotated = B.Node<DMaterialExpressionMakeVector2>(Type::Float2, {RX, RY});
+			B.Output(100, "UV", Type::Float2, B.Node<DMaterialExpressionAdd>(Type::Float2, {Rotated, Offset}));
 		}
 		else if (Function == Entry::SampleNormal || Function == Entry::SampleORM)
 		{
@@ -134,7 +166,7 @@ namespace Durin::AssetForge::Builtins
 			const auto Tex = B.Input(1, "Texture", Type::Texture2D,
 				Texture(bNormal ? EMaterialTextureFallback::FlatRGNormal : EMaterialTextureFallback::White));
 			const auto UV = B.Input(2, "UV", Type::Float2, {.Kind = Kind::UV0});
-			const auto Sample = B.Node(Op::TextureSample2D, Type::Float4, {Tex, UV});
+			const auto Sample = B.Node<DMaterialExpressionTextureSample2D>(Type::Float4, {Tex, UV});
 			if (bNormal)
 			{
 				const auto Strength = B.Input(3, "Strength", Type::Float, Numeric(1));
@@ -142,12 +174,12 @@ namespace Durin::AssetForge::Builtins
 				const auto RG = B.Swizzle(Sample, Type::Float2, 0, 1);
 				// Scale encoded RG about its neutral midpoint before the existing safe decoder.
 				const auto Half = B.Constant(Type::Float2, .5f, .5f);
-				const auto Centered = B.Node(Op::Subtract, Type::Float2, {RG, Half});
-				const auto Strength2 = B.Node(Op::Splat2, Type::Float2, {Strength});
-				const auto Scaled = B.Node(Op::Multiply, Type::Float2, {Centered, Strength2});
-				const auto Encoded = B.Node(Op::Add, Type::Float2, {Scaled, Half});
-				const auto Decoded = B.Node(Op::DecodeNormalRG, Type::Float3, {Encoded});
-				B.Output(100, "Normal", Type::Float3, B.Node(Op::BlendNormalsRNM, Type::Float3, {Normal, Decoded}));
+				const auto Centered = B.Node<DMaterialExpressionSubtract>(Type::Float2, {RG, Half});
+				const auto Strength2 = B.Node<DMaterialExpressionSplat2>(Type::Float2, {Strength});
+				const auto Scaled = B.Node<DMaterialExpressionMultiply>(Type::Float2, {Centered, Strength2});
+				const auto Encoded = B.Node<DMaterialExpressionAdd>(Type::Float2, {Scaled, Half});
+				const auto Decoded = B.Node<DMaterialExpressionDecodeNormalRG>(Type::Float3, {Encoded});
+				B.Output(100, "Normal", Type::Float3, B.Node<DMaterialExpressionBlendNormalsRNM>(Type::Float3, {Normal, Decoded}));
 			}
 			else
 			{
@@ -161,12 +193,12 @@ namespace Durin::AssetForge::Builtins
 			const auto RG = B.Input(1, "RG", Type::Float2, Numeric(.5f, .5f));
 			// Retain the shipped SampleNormal strength-one arithmetic exactly.
 			const auto Half = B.Constant(Type::Float2, .5f, .5f);
-			const auto Centered = B.Node(Op::Subtract, Type::Float2, {RG, Half});
+			const auto Centered = B.Node<DMaterialExpressionSubtract>(Type::Float2, {RG, Half});
 			const auto Strength = B.Constant(Type::Float, 1);
-			const auto Strength2 = B.Node(Op::Splat2, Type::Float2, {Strength});
-			const auto Scaled = B.Node(Op::Multiply, Type::Float2, {Centered, Strength2});
-			const auto Encoded = B.Node(Op::Add, Type::Float2, {Scaled, Half});
-			B.Output(100, "Normal", Type::Float3, B.Node(Op::DecodeNormalRG, Type::Float3, {Encoded}));
+			const auto Strength2 = B.Node<DMaterialExpressionSplat2>(Type::Float2, {Strength});
+			const auto Scaled = B.Node<DMaterialExpressionMultiply>(Type::Float2, {Centered, Strength2});
+			const auto Encoded = B.Node<DMaterialExpressionAdd>(Type::Float2, {Scaled, Half});
+			B.Output(100, "Normal", Type::Float3, B.Node<DMaterialExpressionDecodeNormalRG>(Type::Float3, {Encoded}));
 		}
 		else
 		{
@@ -222,17 +254,42 @@ namespace Durin::AssetForge::Builtins
 				Link Channel;
 				if (bValues) Channel = Textures[I];
 				else if (bPacked && I >= 2 && I <= 4)
-					Channel = {.SourceNodeId = ORM.SourceNodeId, .SourceOutputId = Id(Entry::SampleORM, 100 + Channels[I])};
+					Channel = {.ExpressionId = ORM.ExpressionId, .OutputId = Id(Entry::SampleORM, 100 + Channels[I])};
 				else
 				{
-					const auto Sample = B.Node(Op::TextureSample2D, Type::Float4, {Textures[I], UVs[I]});
+					const auto Sample = B.Node<DMaterialExpressionTextureSample2D>(Type::Float4, {Textures[I], UVs[I]});
 					Channel = B.Swizzle(Sample, ValueType, Channels[I], 1, 2);
 				}
 				Values[I] = ComposeSurfaceValue(B, I, Factors[I], Channel);
 			}
-			B.Output(100, "Surface", Type::Surface, B.Node(Op::MakeSurface, Type::Surface, {Values.begin(), Values.end()}));
+			B.Output(100, "Surface", Type::Surface, B.Node<DMaterialExpressionMakeSurface>(Type::Surface, {Values.begin(), Values.end()}));
 		}
-		return std::move(B.Graph);
+		return std::move(B.Recipe);
+	}
+
+	auto FStandardMaterialFunctionExpressions::Apply(DMaterialFunction& Function) const -> FMaterialProgramValidationResult
+	{
+		std::vector<DMaterialExpression*> Nodes;
+		for (const auto& Expression : Expressions) Nodes.push_back(Expression.Get());
+		return Function.SetFunctionExpressions(Signature, Nodes);
+	}
+
+	auto FStandardMaterialFunctionExpressions::Matches(const DMaterialFunction& Function) const -> bool
+	{
+		const auto& Current = Function.GetExpressionCollection().Expressions;
+		if (Signature != Function.GetFunctionSignature() || Expressions.size() != Current.size()) return false;
+		for (size_t Index = 0; Index < Expressions.size(); ++Index)
+		{
+			const auto* A = Expressions[Index].Get(); const auto* B = Current[Index].Get();
+			if (!A || !B || A->GetClass() != B->GetClass()) return false;
+			bool bEqual = true;
+			A->GetClass()->ForEachProperty([&](FProperty* Property) {
+				for (uint32 I = 0; bEqual && I < Property->GetArrayDim(); ++I)
+					bEqual = ComparePropertyValues(Property, A, I, B, I) == EPropertyIdentityResult::Identical;
+			});
+			if (!bEqual) return false;
+		}
+		return true;
 	}
 
 	auto EnsureStandardMaterialFunctions(FStandardMaterialFunctions& OutFunctions, std::string& OutError) -> bool
@@ -257,7 +314,7 @@ namespace Durin::AssetForge::Builtins
 				if (!Loaded) { OutError = Loaded.Message; return false; }
 				Package = Function->GetPackage();
 			}
-			const auto Expected = MakeStandardMaterialFunctionGraph(EntryKind, Result);
+			const auto Expected = MakeStandardMaterialFunctionExpressions(EntryKind, Result);
 			if (Package)
 			{
 				if (!Function || Function->GetAuthoringSource() != Source
@@ -275,7 +332,7 @@ namespace Durin::AssetForge::Builtins
 				const auto Created = IAssetTools::Get().CreateAsset(AssetPath, DMaterialFunction::StaticClass());
 				Function = Cast<DMaterialFunction>(Created.Asset);
 				if (!Created || !Function) { OutError = Created.Message; return false; }
-				const auto Applied = Function->SetFunctionGraph(Expected);
+				const auto Applied = Expected.Apply(*Function);
 				if (!Applied)
 				{
 					OutError = Applied.Diagnostics.empty() ? "Standard function graph is invalid." : Applied.Diagnostics.front().Message;
@@ -284,8 +341,8 @@ namespace Durin::AssetForge::Builtins
 				}
 				Function->SetAuthoringSource(Source, StandardMaterialFunctionVersion);
 				FMaterialFunctionPresentation Presentation;
-				for (uint32 N = 0; N < Expected.Nodes.size(); ++N)
-					Presentation.Nodes.push_back({Expected.Nodes[N].Id, static_cast<int32>(N % 6) * 320, static_cast<int32>(N / 6) * 240});
+				for (uint32 N = 0; N < Expected.Expressions.size(); ++N)
+					Presentation.Nodes.push_back({Expected.Expressions[N]->Id, static_cast<int32>(N % 6) * 320, static_cast<int32>(N / 6) * 240});
 				Function->SetFunctionPresentation(std::move(Presentation));
 				const auto Saved = SavePackage(Function->GetPackage());
 				if (!Saved)

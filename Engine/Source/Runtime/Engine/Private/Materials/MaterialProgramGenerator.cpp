@@ -737,11 +737,6 @@ float4 FragmentMain(
 		Result.bSucceeded = true;
 		return Result;
 	}
-	auto CompileMaterialProgram(const FMaterialCompilerInput& Input, bool bForceRecompile) -> FMaterialCompilerResult
-	{
-		return CompileMaterialInput(Input, NormalizeMaterialProgram, bForceRecompile);
-	}
-
 	auto CompileMaterialIR(const FMaterialIRCompilerInput& Input, bool bForceRecompile) -> FMaterialCompilerResult
 	{
 		return CompileMaterialInput(Input, NormalizeMaterialIR, bForceRecompile);

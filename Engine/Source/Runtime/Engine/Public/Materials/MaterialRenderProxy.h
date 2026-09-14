@@ -10,18 +10,20 @@
 
 namespace Durin
 {
-	// Stores one render-safe local parameter value without retaining reflected objects.
+	// Owns counted RHI resources and sampling policy after leaving the object thread.
+	struct FMaterialLocalTextureValue
+	{
+		FRHITextureReferenceRef Texture;
+		FMaterialSamplerState SamplerState;
+		EMaterialTextureFallback TextureFallback = EMaterialTextureFallback::White;
+	};
+
+	// The selected alternative is the only type authority; no live objects cross this boundary.
 	struct FMaterialLocalRenderParameter
 	{
 		FGuid Id;
-		EMaterialParameterType Type = EMaterialParameterType::Scalar;
-		float ScalarValue = 0.0f;
-		FVector2 Vector2Value{0.0};
-		FVector3 VectorValue{0.0};
-		FVector4 Vector4Value{0.0};
-		FMaterialSamplerState SamplerState;
-		EMaterialTextureFallback TextureFallback = EMaterialTextureFallback::White;
-		FRHITextureReferenceRef TextureValue;
+		std::variant<float, FVector2, FVector3, FVector4, FMaterialLocalTextureValue> Value = 0.0f;
+		ENGINE_API auto GetType() const -> EMaterialParameterType;
 	};
 
 	// Publishes a complete accepted contract for either material asset kind.
@@ -122,11 +124,10 @@ namespace Durin
 		bool bPublicationCommandQueued = false;
 	};
 
-	// Converts one reflected value to its counted render-safe representation without
+	// Converts one selected value to its counted render-safe representation without
 	// changing authored values or interpreting parameter identities as semantics.
 	ENGINE_API auto BuildMaterialLocalRenderParameter(
 		const FGuid& Id,
-		EMaterialParameterType Type,
 		const FMaterialParameterValue& Value
 		) -> FMaterialLocalRenderParameter;
 

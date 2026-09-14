@@ -74,7 +74,10 @@ namespace
 	auto FinishMaterialCompilation(Durin::DMaterialInterface* Interface) -> void
 	{
 		auto* Material = Interface;
-		if (!Durin::IsValid(Material) || !Material->GetMaterialProgram()) return;
+		if (!Durin::IsValid(Material)) return;
+		auto* Root = Material;
+		for (uint32 Depth = 0; Root->GetParent() && Depth < Durin::MaterialMaximumParentDepth; ++Depth) Root = Root->GetParent();
+		if (!Durin::Cast<Durin::DMaterial>(Root)) return;
 		if (Material->GetMaterialCompileStatus().State
 			== Durin::EMaterialCompileState::NeverRequested)
 			ASSERT_TRUE(Durin::RequestMaterialRecompile(*Material));
@@ -104,7 +107,7 @@ namespace
 	{
 		auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, Name);
 		if (!Durin::IsValid(Material)) return nullptr;
-		if (!Material->SetMaterialProgram(Durin::Testing::MakePBRMaterialProgramForTest()))
+		if (!Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*Material))
 			return nullptr;
 		if (!FinishMaterialCompileForTest(*Material)) return nullptr;
 		return Material;
@@ -393,20 +396,20 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			using namespace Durin;
 			TStrongObjectPtr<DMaterial> Raw(NewObject<DMaterial>(nullptr, "SurfaceBoundaryRaw"));
 			TStrongObjectPtr<DMaterial> Expected(NewObject<DMaterial>(nullptr, "SurfaceBoundaryExpected"));
-			auto RawProgram = MakeDefaultMaterialProgram();
-			auto ExpectedProgram = MakeDefaultMaterialProgram();
-			RawProgram.Outputs.BaseColorDefault = {2.0f, -1.0f, 0.25f};
-			ExpectedProgram.Outputs.BaseColorDefault = {1.0f, 0.0f, 0.25f};
-			RawProgram.Outputs.EmissiveDefault = {-2.0f, 2.0f, 0.0f};
-			ExpectedProgram.Outputs.EmissiveDefault = {0.0f, 2.0f, 0.0f};
-			RawProgram.Outputs.NormalDefault = {0.0f, 0.0f, 0.0f};
-			RawProgram.Outputs.MetallicDefault.X = 2.0f;
-			ExpectedProgram.Outputs.MetallicDefault.X = 1.0f;
-			RawProgram.Outputs.RoughnessDefault.X = -1.0f;
-			ExpectedProgram.Outputs.RoughnessDefault.X = 0.045f;
-			RawProgram.Outputs.AmbientOcclusionDefault.X = 2.0f;
-			RawProgram.Outputs.OpacityDefault.X = 2.0f;
-			RawProgram.Outputs.OpacityMaskDefault.X = 2.0f;
+			FMaterialExpressionSurfaceOutputs RawOutputs;
+			FMaterialExpressionSurfaceOutputs ExpectedOutputs;
+			RawOutputs.BaseColorDefault = {2.0f, -1.0f, 0.25f};
+			ExpectedOutputs.BaseColorDefault = {1.0f, 0.0f, 0.25f};
+			RawOutputs.EmissiveDefault = {-2.0f, 2.0f, 0.0f};
+			ExpectedOutputs.EmissiveDefault = {0.0f, 2.0f, 0.0f};
+			RawOutputs.NormalDefault = {0.0f, 0.0f, 0.0f};
+			RawOutputs.MetallicDefault = 2.0f;
+			ExpectedOutputs.MetallicDefault = 1.0f;
+			RawOutputs.RoughnessDefault = -1.0f;
+			ExpectedOutputs.RoughnessDefault = 0.045f;
+			RawOutputs.AmbientOcclusionDefault = 2.0f;
+			RawOutputs.OpacityDefault = 2.0f;
+			RawOutputs.OpacityMaskDefault = 2.0f;
 			for (const auto Shading : {EMaterialShadingModel::Lit, EMaterialShadingModel::Unlit})
 			{
 				for (const auto Blend : {EMaterialBlendMode::Opaque, EMaterialBlendMode::Masked,
@@ -417,100 +420,75 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 					Properties.BlendMode = Blend;
 					ASSERT_TRUE(Raw->SetStaticProperties(Properties));
 					ASSERT_TRUE(Expected->SetStaticProperties(Properties));
-					ASSERT_TRUE(Raw->SetMaterialProgram(RawProgram));
-					ASSERT_TRUE(Expected->SetMaterialProgram(ExpectedProgram));
+					ASSERT_TRUE(Raw->SetMaterialExpressions({}, RawOutputs));
+					ASSERT_TRUE(Expected->SetMaterialExpressions({}, ExpectedOutputs));
 					const auto ExpectedPixels = Capture(Expected.Get());
 					EXPECT_EQ(Capture(Raw.Get()), ExpectedPixels);
 					// An ordinary MakeSurface aggregate is evaluated at the same root.
-					auto Aggregate = MakeDefaultMaterialProgram();
-					std::vector<FMaterialProgramLink> Inputs;
+					Testing::FTestMaterialExpressionGraph Aggregate;
+					const auto VectorLiteral = [](const FVector3& Value) { return FMaterialProgramLiteral{float(Value.x), float(Value.y), float(Value.z)}; };
+					const std::array Defaults{VectorLiteral(RawOutputs.BaseColorDefault), VectorLiteral(RawOutputs.NormalDefault),
+						FMaterialProgramLiteral{RawOutputs.MetallicDefault}, FMaterialProgramLiteral{RawOutputs.RoughnessDefault},
+						FMaterialProgramLiteral{RawOutputs.AmbientOcclusionDefault}, VectorLiteral(RawOutputs.EmissiveDefault),
+						FMaterialProgramLiteral{RawOutputs.OpacityDefault}, FMaterialProgramLiteral{RawOutputs.OpacityMaskDefault}};
+					std::vector<FMaterialExpressionInput> Inputs;
 					for (uint32 Role = 0; Role < 8; ++Role)
-					{
-						const auto Output = static_cast<EMaterialSurfaceOutput>(Role);
-						const FGuid Id{0x854c71a2, 1, 1, Role + 1};
-						Aggregate.Nodes.push_back({.Id = Id, .Opcode = EMaterialProgramOpcode::Constant,
-							.ResultType = GetMaterialSurfaceOutputType(Output),
-							.Literal = GetMaterialSurfaceOutputDefault(RawProgram.Outputs, Output)});
-						Inputs.push_back({.SourceNodeId = Id});
-					}
-					const FGuid SurfaceId{0x854c71a2, 1, 1, 9};
-					Aggregate.Nodes.push_back({.Id = SurfaceId, .Opcode = EMaterialProgramOpcode::MakeSurface,
-						.ResultType = EMaterialProgramValueType::Surface, .Inputs = std::move(Inputs)});
-					Aggregate.Outputs.Surface = {.SourceNodeId = SurfaceId};
-					ASSERT_TRUE(Raw->SetMaterialProgram(std::move(Aggregate)));
+						Inputs.push_back(Testing::MakeLink(Aggregate.Add(EMaterialProgramOpcode::Constant,
+							GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(Role)), {}, {}, Defaults[Role])));
+					Aggregate.Outputs.Surface = Testing::MakeLink(Aggregate.Add(EMaterialProgramOpcode::MakeSurface,
+						EMaterialProgramValueType::Surface, std::move(Inputs), {}, {}));
+					ASSERT_TRUE(Aggregate.Apply(*Raw));
 					EXPECT_EQ(Capture(Raw.Get()), ExpectedPixels);
 				}
 			}
-			auto Hdr = MakeDefaultMaterialProgram();
-			Hdr.Outputs.BaseColorDefault = {};
-			Hdr.Outputs.EmissiveDefault = {0.0f, 2.0f, 0.0f};
+			FMaterialExpressionSurfaceOutputs Hdr;
+			Hdr.BaseColorDefault = {};
+			Hdr.EmissiveDefault = {0.0f, 2.0f, 0.0f};
 			FMaterialStaticProperties Unlit;
 			Unlit.ShadingModel = EMaterialShadingModel::Unlit;
 			ASSERT_TRUE(Raw->SetStaticProperties(Unlit));
-			ASSERT_TRUE(Raw->SetMaterialProgram(Hdr));
+			ASSERT_TRUE(Raw->SetMaterialExpressions({}, Hdr));
 			const auto HdrPixels = Capture(Raw.Get());
-			Hdr.Outputs.EmissiveDefault.Y = 1.0f;
-			ASSERT_TRUE(Raw->SetMaterialProgram(Hdr));
+			Hdr.EmissiveDefault.y = 1.0f;
+			ASSERT_TRUE(Raw->SetMaterialExpressions({}, Hdr));
 			EXPECT_NE(Capture(Raw.Get()), HdrPixels);
-			const FGuid ParameterNode{0x854c71a2, 2, 1, 1};
-			const FGuid OverflowNode{0x854c71a2, 2, 1, 2};
-			const FGuid VectorNode{0x854c71a2, 2, 1, 3};
-			const FGuid ParameterId{0x854c71a2, 3, 1, 1};
-			auto Nonfinite = MakeDefaultMaterialProgram();
-			Nonfinite.Nodes.push_back({.Id = ParameterNode, .Opcode = EMaterialProgramOpcode::Parameter,
-				.ResultType = EMaterialProgramValueType::Float,
-				.Parameter = {.Id = ParameterId, .Name = FName("FiniteOperand"),
-					.Type = EMaterialParameterType::Scalar,
-					.Value = FMaterialParameterValue::MakeScalar(3.0e38f)}});
-			Nonfinite.Nodes.push_back({.Id = OverflowNode, .Opcode = EMaterialProgramOpcode::Multiply,
-				.ResultType = EMaterialProgramValueType::Float,
-				.Inputs = {{.SourceNodeId = ParameterNode}, {.SourceNodeId = ParameterNode}}});
-			Nonfinite.Nodes.push_back({.Id = VectorNode, .Opcode = EMaterialProgramOpcode::Splat3,
-				.ResultType = EMaterialProgramValueType::Float3, .Inputs = {{.SourceNodeId = OverflowNode}}});
+			Testing::FTestMaterialExpressionGraph Nonfinite;
+			const std::array Definitions{
+				FMaterialParameterDefinition{.Id = {0x854c71a2, 3, 1, 1}, .Name = "FiniteOperand", .Value = FMaterialParameterValue::MakeScalar(3.0e38f)},
+				FMaterialParameterDefinition{.Id = {0x854c71a2, 3, 1, 2}, .Name = "OtherFiniteOperand", .Value = FMaterialParameterValue::MakeScalar(2.0e38f)}};
+			const auto Add = [&](EMaterialProgramOpcode Opcode, EMaterialProgramValueType Type,
+				std::vector<FMaterialExpressionInput> Inputs = {}, FGuid Parameter = {}) {
+				return Testing::MakeLink(Nonfinite.Add(Opcode, Type, std::move(Inputs), Parameter, {}, Definitions));
+			};
+			const auto Operand = Add(EMaterialProgramOpcode::Parameter, EMaterialProgramValueType::Float, {}, Definitions[0].Id);
+			const auto Overflow = Add(EMaterialProgramOpcode::Multiply, EMaterialProgramValueType::Float, {Operand, Operand});
+			const auto Vector = Add(EMaterialProgramOpcode::Splat3, EMaterialProgramValueType::Float3, {Overflow});
+			const std::array OutputLinks{&Nonfinite.Outputs.BaseColor, &Nonfinite.Outputs.Normal, &Nonfinite.Outputs.Metallic,
+				&Nonfinite.Outputs.Roughness, &Nonfinite.Outputs.AmbientOcclusion, &Nonfinite.Outputs.Emissive,
+				&Nonfinite.Outputs.Opacity, &Nonfinite.Outputs.OpacityMask};
 			for (uint32 Role = 0; Role < 8; ++Role)
-			{
-				const auto Output = static_cast<EMaterialSurfaceOutput>(Role);
-				GetMaterialSurfaceOutputLink(Nonfinite.Outputs, Output) = {.SourceNodeId =
-					GetMaterialSurfaceOutputType(Output) == EMaterialProgramValueType::Float3
-						? VectorNode : OverflowNode};
-			}
-			ASSERT_TRUE(Raw->SetStaticProperties({}));
-			ASSERT_TRUE(Expected->SetStaticProperties({}));
-			ASSERT_TRUE(Expected->SetMaterialProgram(MakeDefaultMaterialProgram()));
-			ASSERT_TRUE(Raw->SetMaterialProgram(Nonfinite));
+				*OutputLinks[Role] = GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(Role)) == EMaterialProgramValueType::Float3 ? Vector : Overflow;
+			ASSERT_TRUE(Raw->SetStaticProperties({})); ASSERT_TRUE(Expected->SetStaticProperties({}));
+			ASSERT_TRUE(Expected->SetMaterialExpressions({}, {}));
+			ASSERT_TRUE(Nonfinite.Apply(*Raw));
 			const auto DefaultPixels = Capture(Expected.Get());
 			EXPECT_EQ(Capture(Raw.Get()), DefaultPixels);
 			// Inf - Inf exercises NaN recovery without accepting nonfinite authored data.
-			const FGuid NanNode{0x854c71a2, 2, 1, 4};
-			const FGuid OtherParameterNode{0x854c71a2, 2, 1, 5};
-			const FGuid OtherOverflowNode{0x854c71a2, 2, 1, 6};
-			Nonfinite.Nodes.push_back({.Id = OtherParameterNode, .Opcode = EMaterialProgramOpcode::Parameter,
-				.ResultType = EMaterialProgramValueType::Float,
-				.Parameter = {.Id = {0x854c71a2, 3, 1, 2}, .Name = FName("OtherFiniteOperand"),
-					.Type = EMaterialParameterType::Scalar,
-					.Value = FMaterialParameterValue::MakeScalar(2.0e38f)}});
-			Nonfinite.Nodes.push_back({.Id = OtherOverflowNode, .Opcode = EMaterialProgramOpcode::Multiply,
-				.ResultType = EMaterialProgramValueType::Float,
-				.Inputs = {{.SourceNodeId = OtherParameterNode}, {.SourceNodeId = OtherParameterNode}}});
-			Nonfinite.Nodes.push_back({.Id = NanNode, .Opcode = EMaterialProgramOpcode::Subtract,
-				.ResultType = EMaterialProgramValueType::Float,
-				.Inputs = {{.SourceNodeId = OverflowNode}, {.SourceNodeId = OtherOverflowNode}}});
-			Nonfinite.Nodes[2].Inputs[0].SourceNodeId = NanNode;
+			const auto Other = Add(EMaterialProgramOpcode::Parameter, EMaterialProgramValueType::Float, {}, Definitions[1].Id);
+			const auto OtherOverflow = Add(EMaterialProgramOpcode::Multiply, EMaterialProgramValueType::Float, {Other, Other});
+			const auto Nan = Add(EMaterialProgramOpcode::Subtract, EMaterialProgramValueType::Float, {Overflow, OtherOverflow});
+			Cast<DMaterialExpressionSplat3>(Nonfinite.Expressions[2].Get())->Input = Nan;
 			for (uint32 Role = 0; Role < 8; ++Role)
-			{
-				const auto Output = static_cast<EMaterialSurfaceOutput>(Role);
-				if (GetMaterialSurfaceOutputType(Output) == EMaterialProgramValueType::Float)
-					GetMaterialSurfaceOutputLink(Nonfinite.Outputs, Output).SourceNodeId = NanNode;
-			}
-			ASSERT_TRUE(Raw->SetMaterialProgram(std::move(Nonfinite)));
+				if (GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(Role)) == EMaterialProgramValueType::Float) *OutputLinks[Role] = Nan;
+			ASSERT_TRUE(Nonfinite.Apply(*Raw));
 			EXPECT_EQ(Capture(Raw.Get()), DefaultPixels);
 		}
 		Durin::FObjectPath ShippedPath;
 		Durin::TStrongObjectPtr<Durin::DMaterial> FunctionComparison(
 			Durin::NewObject<Durin::DMaterial>(nullptr, "FunctionComparison"));
 		ASSERT_NE(FunctionComparison.Get(), nullptr);
-		ASSERT_TRUE(Durin::Testing::SetStandardMaterialProgramForTest(*FunctionComparison));
-		EXPECT_FALSE(FunctionComparison->GetMaterialProgram()->Outputs.Surface.SourceNodeId.IsValid());
+		ASSERT_TRUE(Durin::Testing::SetStandardMaterialExpressionsForTest(*FunctionComparison));
+		EXPECT_FALSE(FunctionComparison->GetExpressionOutputs().Surface.ExpressionId.IsValid());
 		ASSERT_EQ(FunctionComparison->GetParameterDefinitions().size(), 48u);
 		SaveFunctionMigrationBaseline("parameter-function-fixture", Capture(FunctionComparison.Get()));
 		ASSERT_NE(FunctionComparison->GetAcceptedCompiledProgram(), nullptr);
@@ -542,9 +520,8 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			auto* Rust = NewObject<DMaterial>(nullptr, "RenderedDualLayerRust");
 			auto* Light = NewObject<DMaterialInstance>(nullptr, "RenderedLightRust");
 			auto* Heavy = NewObject<DMaterialInstance>(nullptr, "RenderedHeavyRust");
-			for (auto& Node : Program.Nodes)
-				if (Node.Parameter.Id.IsValid()) Node.Parameter = *std::ranges::find(Definitions, Node.Parameter.Id, &FMaterialParameterDefinition::Id);
-			ASSERT_TRUE(Rust->SetMaterialProgram(Program));
+			Program.SetParameterDefaults(Definitions);
+			ASSERT_TRUE(Program.Apply(*Rust));
 			ASSERT_TRUE(FinishMaterialCompileForTest(*Rust));
 			const auto Accepted = Rust->GetAcceptedCompiledProgram();
 			ASSERT_NE(Accepted, nullptr);
@@ -563,7 +540,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			ASSERT_TRUE(Heavy->SetScalarParameterValue(FName("RustAmount"), 0.1f));
 			EXPECT_EQ(Capture(Heavy), LightPixels);
 			ASSERT_TRUE(Heavy->SetParameterOverride(Definitions[0].Id,
-				EMaterialParameterType::Texture, FMaterialParameterValue::MakeTexture(
+				FMaterialParameterValue::MakeTexture(
 					nullptr, {}, EMaterialTextureFallback::Black)));
 			EXPECT_NE(Capture(Heavy), LightPixels);
 			EXPECT_EQ(Rust->GetAcceptedCompiledProgram(), Accepted);
@@ -572,9 +549,8 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 				OtherDefinitions[Index].Value = Definitions[Index].Value;
 			OtherDefinitions[5].Value = FMaterialParameterValue::MakeScalar(0.1f);
 			auto* Unrelated = NewObject<DMaterial>(nullptr, "UnrelatedRenderedRust");
-			for (auto& Node : OtherProgram.Nodes)
-				if (Node.Parameter.Id.IsValid()) Node.Parameter = *std::ranges::find(OtherDefinitions, Node.Parameter.Id, &FMaterialParameterDefinition::Id);
-			ASSERT_TRUE(Unrelated->SetMaterialProgram(OtherProgram));
+			OtherProgram.SetParameterDefaults(OtherDefinitions);
+			ASSERT_TRUE(OtherProgram.Apply(*Unrelated));
 			ASSERT_TRUE(FinishMaterialCompileForTest(*Unrelated));
 			EXPECT_EQ(Capture(Unrelated), LightPixels);
 			ASSERT_TRUE(Unrelated->SetScalarParameterValue(FName("RustAmount"), 0.9f));
@@ -700,7 +676,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			StaticMeshMaterialPath,
 			StaticMeshAssetMaterial));
 		ASSERT_NE(StaticMeshAssetMaterial, nullptr);
-		ASSERT_TRUE(StaticMeshAssetMaterial->SetMaterialProgram(Durin::Testing::MakePBRMaterialProgramForTest()));
+		ASSERT_TRUE(Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*StaticMeshAssetMaterial));
 		ASSERT_TRUE(StaticMeshAssetMaterial->SetVectorParameterValue(
 			Durin::MaterialParameters::BaseColorName(),
 			Durin::FVector3(0.85, 0.12, 0.18)));
@@ -870,7 +846,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			Durin::FResolvedMaterialParameter Resolved;
 			if (!CaptureMaterial->ResolveParameterValue(BaseColorTextureId, Resolved))
 				return false;
-			Resolved.Value.SamplerState = Sampler;
+			Resolved.Value.GetTexture().SamplerState = Sampler;
 			return CaptureMaterial->SetParameterValue(
 				BaseColorTextureId, Resolved.Value);
 		};
@@ -1013,23 +989,26 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 		CompareFunction("pbr-packed-source", PackedSourcePixels);
 		for (const size_t Role : {2u, 3u, 4u})
 			ASSERT_TRUE(CaptureMaterial->SetTextureParameterValue(*TextureNames[Role], nullptr));
-		const Durin::FMaterialProgram CanonicalProgram =
-			*CaptureMaterial->GetMaterialProgram();
-		Durin::FMaterialProgram EditedProgram = CanonicalProgram;
-		const auto RoughnessClamp = std::ranges::find(EditedProgram.Nodes,
-			EditedProgram.Outputs.Roughness.SourceNodeId, &Durin::FMaterialProgramNode::Id);
-		ASSERT_NE(RoughnessClamp, EditedProgram.Nodes.end());
-		ASSERT_EQ(RoughnessClamp->Opcode, Durin::EMaterialProgramOpcode::Clamp);
-		ASSERT_EQ(RoughnessClamp->Inputs.size(), 3u);
-		const auto RoughnessMaximum = std::ranges::find(EditedProgram.Nodes,
-			RoughnessClamp->Inputs[2].SourceNodeId, &Durin::FMaterialProgramNode::Id);
-		ASSERT_NE(RoughnessMaximum, EditedProgram.Nodes.end());
-		RoughnessMaximum->Literal.X = 0.2f;
+		Durin::Testing::FTestMaterialExpressionGraph CanonicalGraph, EditedGraph;
+		CanonicalGraph.Outputs = EditedGraph.Outputs = CaptureMaterial->GetExpressionOutputs();
+		for (const auto& Expression : CaptureMaterial->GetExpressionCollection().Expressions)
+		{
+			CanonicalGraph.Expressions.emplace_back(Durin::DuplicateObject(Expression.Get(), nullptr, NAME_None));
+			EditedGraph.Expressions.emplace_back(Durin::DuplicateObject(Expression.Get(), nullptr, NAME_None));
+		}
+		const auto FindExpression = [&](Durin::FGuid Id) -> Durin::DMaterialExpression* {
+			for (const auto& Expression : EditedGraph.Expressions) if (Expression->Id == Id) return Expression.Get();
+			return nullptr;
+		};
+		const auto* RoughnessClamp = Durin::Cast<Durin::DMaterialExpressionClamp>(FindExpression(EditedGraph.Outputs.Roughness.ExpressionId));
+		ASSERT_NE(RoughnessClamp, nullptr);
+		auto* RoughnessMaximum = Durin::Cast<Durin::DMaterialExpressionScalarConstant>(FindExpression(RoughnessClamp->Maximum.ExpressionId));
+		ASSERT_NE(RoughnessMaximum, nullptr);
+		RoughnessMaximum->Value = 0.2f;
 		const Durin::FMaterialProgramIdentity CanonicalProgramIdentity =
 			CaptureMaterial->GetRenderData()
 				.PlanningPassIdentity.ShaderMap.ProgramIdentity;
-		auto ProgramValidation = CaptureMaterial->SetMaterialProgram(
-			std::move(EditedProgram));
+		auto ProgramValidation = EditedGraph.Apply(*CaptureMaterial);
 		ASSERT_TRUE(ProgramValidation);
 		FinishMaterialCompilation(CaptureMaterial);
 		const Durin::FMaterialProgramIdentity EditedProgramIdentity =
@@ -1038,8 +1017,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 		EXPECT_NE(EditedProgramIdentity, CanonicalProgramIdentity);
 		const Durin::FByteBuffer EditedProgramPixels =
 			Capture(CaptureMaterial);
-		ASSERT_TRUE((ProgramValidation = CaptureMaterial->SetMaterialProgram(
-			CanonicalProgram)));
+		ASSERT_TRUE((ProgramValidation = CanonicalGraph.Apply(*CaptureMaterial)));
 		FinishMaterialCompilation(CaptureMaterial);
 		EXPECT_EQ(CaptureMaterial->GetRenderData()
 			.PlanningPassIdentity.ShaderMap.ProgramIdentity,
@@ -1189,7 +1167,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			Pool.Reset();
 		}
 		{
-			auto Validation = StaticMeshAssetMaterial->SetMaterialProgram(Durin::Testing::MakePBRMaterialProgramForTest());
+			auto Validation = Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*StaticMeshAssetMaterial);
 			ASSERT_TRUE(Validation);
 			ASSERT_TRUE(StaticMeshAssetMaterial->SetTextureParameterValue(
 				Durin::MaterialParameters::BaseColorTextureName(), TextureResult.Asset));

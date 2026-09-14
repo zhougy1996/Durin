@@ -1,4 +1,5 @@
 #include "Graph/MaterialGraphCanvas.h"
+#include "MaterialGraphDocument.h"
 #include "Graph/MaterialGraphControls.h"
 #include "Graph/MaterialGraphValueTypes.h"
 #include "Editor/Transaction.h"
@@ -10,8 +11,8 @@ namespace Durin::Editor::Material
 	{
 		auto CreationMenuEntryKey(const FMaterialGraphCatalogEntry& Entry) -> std::string
 		{
-			return std::format("{}|{}", static_cast<uint32>(Entry.NodeTemplate.Opcode),
-				static_cast<uint32>(Entry.NodeTemplate.ResultType));
+			return std::format("{}|{}", static_cast<uint32>(Entry.Opcode),
+				static_cast<uint32>(Entry.ResultType));
 		}
 		auto FormatInputSignature(const FMaterialGraphCatalogEntry& Entry) -> std::string
 		{
@@ -32,7 +33,7 @@ namespace Durin::Editor::Material
 			return Result.empty() ? "No inputs" : Result;
 		}
 	}
-	auto FMaterialGraphCanvas::RememberCreation(const FMaterialProgramNode& Node) -> void
+	auto FMaterialGraphCanvas::RememberCreation(const FMaterialGraphCatalogEntry& Node) -> void
 	{
 		const std::string Key = std::format("{}|{}", static_cast<uint32>(Node.Opcode),
 			static_cast<uint32>(Node.ResultType));
@@ -162,7 +163,7 @@ namespace Durin::Editor::Material
 						? "Remove from favorites" : "Add to favorites");
 				ImGui::SameLine();
 				const std::string Label = std::format("{}  ({})", Entry.OperationName,
-					GetProgramTypeName(Entry.NodeTemplate.ResultType));
+					GetProgramTypeName(Entry.ResultType));
 				if (ImGui::Selectable(Label.c_str(),
 					CreationMenu->Selection == static_cast<int32>(EntryIndex),
 					ImGuiSelectableFlags_NoAutoClosePopups))
@@ -207,20 +208,17 @@ namespace Durin::Editor::Material
 		{
 			const FMaterialGraphCatalogEntry& Entry = Catalog[
 				Results[static_cast<size_t>(CreationMenu->Selection)]];
-			FMaterialProgramNode Candidate = Entry.NodeTemplate;
-			if (SourceType) Candidate.Inputs.front() = {CreationMenu->SourceNode, CreationMenu->SourceOutputIndex, CreationMenu->SourceOutputId};
-			const FMaterialGraphCommandResult Created =
-				FMaterialGraphOperations::CreateNodeWithDefaultInputs(Material, {
-					.Node = std::move(Candidate),
-					.X = static_cast<int32>(std::round(CreationMenu->GraphPosition.x)),
-					.Y = static_cast<int32>(std::round(CreationMenu->GraphPosition.y)),
-				}, Entry.AcceptedInputTypes, &Transactions);
+			const FMaterialExpressionInput Source = SourceType
+				? FMaterialExpressionInput{CreationMenu->SourceNode, CreationMenu->SourceOutputIndex, CreationMenu->SourceOutputId} : FMaterialExpressionInput{};
+			const auto Created = FMaterialGraphDocument(Material).CreateCatalogNode(Entry,
+				static_cast<int32>(std::round(CreationMenu->GraphPosition.x)), static_cast<int32>(std::round(CreationMenu->GraphPosition.y)),
+				Source, &Transactions);
 			ReportCommand(Created, ReportError);
 			if (Created)
 			{
 				if (!Created.GeneratedNodeIds.empty())
 					SelectedNodes = {Created.GeneratedNodeIds.front()};
-				RememberCreation(Entry.NodeTemplate);
+				RememberCreation(Entry);
 				ResetInteraction();
 				ImGui::CloseCurrentPopup();
 			}

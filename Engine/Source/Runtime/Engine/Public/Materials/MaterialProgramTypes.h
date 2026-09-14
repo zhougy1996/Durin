@@ -239,7 +239,6 @@ namespace Durin
 		DPROPERTY()
 		FMaterialProgramLiteral Literal;
 
-		DPROPERTY()
 		FMaterialParameterDefinition Parameter;
 
 		DPROPERTY()
@@ -492,5 +491,5 @@ namespace Durin
 		-> FMaterialProgramValidationResult;
 	ENGINE_API auto SanitizeMaterialGraphPresentation(
 		const FMaterialGraphPresentation& Presentation,
-		const FMaterialProgram& Program) -> FMaterialGraphPresentation;
+		std::span<const FGuid> ExpressionIds) -> FMaterialGraphPresentation;
 }

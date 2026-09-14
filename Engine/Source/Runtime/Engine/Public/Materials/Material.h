@@ -18,17 +18,12 @@ namespace Durin
 	{
 		GENERATED_BODY()
 	public:
+		ENGINE_API auto AddReferencedObjects(FReferenceCollector& Collector) -> void override;
 		ENGINE_API explicit DMaterial(const FObjectInitializer& ObjectInitializer);
 
 		ENGINE_API auto GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition> override;
-		auto GetMaterialProgram() const -> const FMaterialProgram* override
-		{
-			return &Program;
-		}
-		auto GetMaterialFunctionCalls() const -> std::span<const FMaterialFunctionCall> override
-		{
-			return FunctionCalls;
-		}
+		ENGINE_API auto GetMaterialProgram() const -> std::optional<FMaterialProgram> override;
+		ENGINE_API auto GetMaterialFunctionCalls() const -> std::vector<FMaterialFunctionCall> override;
 		auto GetExpressionCollection() const -> const FMaterialExpressionCollection& { return ExpressionCollection; }
 		auto GetExpressionOutputs() const -> const FMaterialExpressionSurfaceOutputs& { return ExpressionOutputs; }
 		[[nodiscard]] ENGINE_API auto SetMaterialExpressions(std::span<DMaterialExpression* const> Expressions,
@@ -113,20 +108,19 @@ namespace Durin
 		FMaterialStaticProperties StaticProperties;
 
 		// Read-only projection of graph owners, or generated metadata loaded from Cook.
-		// Transient reflection retains resources without serializing an authored table.
-		DPROPERTY(Transient)
+		// Resources are retained by explicit reference collection.
 		std::vector<FMaterialParameterDefinition> ParameterSchema;
 
 		DPROPERTY(EditorOnly, AlwaysSerialize)
 		FMaterialExpressionCollection ExpressionCollection;
 
-		DPROPERTY(EditorOnly, AlwaysSerialize)
+		DPROPERTY(EditorOnly)
 		FMaterialExpressionSurfaceOutputs ExpressionOutputs;
 
-		// Temporary non-reflected views for native/editor callers awaiting migration.
-		mutable FMaterialProgram Program;
-		mutable std::vector<FMaterialFunctionCall> FunctionCalls;
-		ENGINE_API auto RefreshExpressionProjection() const -> void;
+		static auto ValidateExpressionGraph(const FMaterialExpressionCollection& Collection,
+			const FMaterialExpressionSurfaceOutputs& Outputs, FXxHash128* OutCodeFingerprint = nullptr) -> FMaterialProgramValidationResult;
+		static auto DeriveExpressionParameterSchema(const FMaterialExpressionCollection& Collection,
+			std::vector<FMaterialParameterDefinition>& OutDefinitions) -> FMaterialProgramValidationResult;
 		auto ProjectExpressions(const FMaterialExpressionCollection& Collection,
 			const FMaterialExpressionSurfaceOutputs& Outputs, FMaterialProgram& OutProgram,
 			std::vector<FMaterialFunctionCall>& OutCalls) const -> bool;
@@ -137,7 +131,7 @@ namespace Durin
 
 
 		// Detached code checkpoint classifies reflected default/metadata edits without retaining resources.
-		FMaterialProgram ObservedCodeProgram;
+		FXxHash128 ObservedExpressionCode;
 
 		// Transient monotonic revisions invalidate editor graph caches independently.
 		uint64 MaterialProgramRevision = 1;

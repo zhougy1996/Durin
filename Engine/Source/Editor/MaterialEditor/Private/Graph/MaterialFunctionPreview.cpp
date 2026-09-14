@@ -1,92 +1,103 @@
+#include "Materials/MaterialExpressionBuild.h"
 #include "MaterialFunctionPreview.h"
 #include "MaterialGraphEditInternals.h"
+#include "MaterialGraphExpressionState.h"
 
 namespace Durin::Editor::Material
 {
 	auto BuildMaterialFunctionPreview(DMaterialFunctionInterface& Function,
-		const FGuid& OutputId, FMaterialGraphDocumentState& OutState,
-		FMaterialStaticProperties& OutProperties) -> FMaterialGraphCommandResult
+		const FGuid& OutputId, DMaterial& Preview) -> FMaterialGraphCommandResult
 	{
 		using namespace GraphEditInternals;
 		using Type = EMaterialProgramValueType;
-		using Opcode = EMaterialProgramOpcode;
 		const auto& Signature = Function.GetFunctionSignature();
 		const auto Output = std::ranges::find(Signature.Outputs, OutputId, &FMaterialFunctionPort::Id);
 		if (Output == Signature.Outputs.end()) return MakeRejected("The preview output no longer exists.");
-		FMaterialFunctionClosure Closure;
+		std::vector<FMaterialFunctionOwnerStamp> Closure;
 		const std::array<DMaterialFunctionInterface*, 1> Roots{&Function};
-		auto Validation = SnapshotMaterialFunctionClosure(Roots, Closure);
+		auto Validation = ValidateMaterialFunctionDependencies(Roots, Closure);
 		if (!Validation) return MakeRejected("The function cannot be previewed.", std::move(Validation.Diagnostics));
-		FMaterialGraphDocumentState State;
-		const auto Add = [&](FMaterialProgramNode Node) {
-			Node.Id = FGuid::NewGuid();
-			const auto Id = Node.Id;
-			State.Program.Nodes.push_back(std::move(Node));
-			return FMaterialProgramLink{Id};
+		FOwnedGraphSnapshot State;
+		const auto Add = [&]<typename Expression>() -> Expression* {
+			auto* Value = NewObject<Expression>(nullptr, NAME_None);
+			Value->Id = FGuid::NewGuid();
+			State.Expressions.emplace_back(Value);
+			return Value;
 		};
-		std::array<FMaterialProgramLink, 6> RequiredValues;
-		FMaterialFunctionCall Call{.NodeId = FGuid::NewGuid(), .Function = &Function};
-		for (const auto& Port : Signature.Outputs) Call.Outputs.push_back({Port.Id, Port.Type});
+		std::array<FMaterialExpressionInput, 6> RequiredValues;
+		auto* Call = Add.operator()<DMaterialExpressionFunctionCall>();
+		Call->Function = &Function;
+		for (const auto& Port : Signature.Outputs) Call->Outputs.push_back({Port.Id, Port.Type});
 		for (const auto& Port : Signature.Inputs)
 			if (Port.bRequired)
 			{
 				auto& Source = RequiredValues[static_cast<size_t>(Port.Type)];
-				if (!Source.SourceNodeId.IsValid())
+				if (!Source.ExpressionId.IsValid())
 				{
-					if (Port.Type == Type::Surface)
+					switch (Port.Type)
 					{
-						FMaterialProgramNode Surface{.Opcode = Opcode::MakeSurface, .ResultType = Type::Surface};
-						for (uint32 Index = 0; Index < 8; ++Index)
-						{
-							const auto Attribute = static_cast<EMaterialSurfaceOutput>(Index);
-							Surface.Inputs.push_back(Add({.ResultType = GetMaterialSurfaceOutputType(Attribute),
-								.Literal = GetMaterialSurfaceOutputDefault(State.Program.Outputs, Attribute)}));
-						}
-						Source = Add(std::move(Surface));
-					}
-					else if (Port.Type == Type::Texture2D)
+					case Type::Float: Source = {Add.operator()<DMaterialExpressionScalarConstant>()->Id}; break;
+					case Type::Float2: Source = {Add.operator()<DMaterialExpressionVector2Constant>()->Id}; break;
+					case Type::Float3: Source = {Add.operator()<DMaterialExpressionVector3Constant>()->Id}; break;
+					case Type::Float4: Source = {Add.operator()<DMaterialExpressionVector4Constant>()->Id}; break;
+					case Type::Texture2D:
 					{
-						const auto Id = FGuid::NewGuid();
-						Source = Add({.Opcode = Opcode::TextureParameter, .ResultType = Type::Texture2D, .Parameter = {.Id = Id, .Name = FName(std::format("PreviewTexture{}", State.Program.Nodes.size())), .Type = EMaterialParameterType::Texture}});
+						auto* Texture = Add.operator()<DMaterialExpressionTextureParameter>();
+						Texture->Metadata.Id = FGuid::NewGuid();
+						Texture->Metadata.Name = "PreviewTexture";
+						Source = {Texture->Id}; break;
 					}
-					else Source = Add({.ResultType = Port.Type});
+					case Type::Surface:
+					{
+						auto* Surface = Add.operator()<DMaterialExpressionMakeSurface>();
+						Surface->BaseColorDefault = {.5f, .5f, .5f}; Surface->NormalDefault = {0, 0, 1};
+						Surface->MetallicDefault = {0}; Surface->RoughnessDefault = {.5f};
+						Surface->AmbientOcclusionDefault = {1}; Surface->EmissiveDefault = {0, 0, 0};
+						Surface->OpacityDefault = {1}; Surface->OpacityMaskDefault = {1};
+						Source = {Surface->Id}; break;
+					}
+					default: return MakeRejected("The preview input type is unsupported.");
+					}
 				}
-				Call.Inputs.push_back({Port.Id, Port.Type, Source});
+				Call->Inputs.push_back({Port.Id, Port.Type, Source});
 			}
-		State.Program.Nodes.push_back({.Id = Call.NodeId, .Opcode = Opcode::FunctionCall});
-		FMaterialProgramLink Value{Call.NodeId, 0, OutputId};
-		State.Calls.push_back(std::move(Call));
+		FMaterialExpressionInput Value{Call->Id, 0, OutputId};
 		FMaterialStaticProperties Properties;
-		if (Output->Type == Type::Surface) State.Program.Outputs.Surface = Value;
+		if (Output->Type == Type::Surface) State.Outputs.Surface = Value;
 		else
 		{
 			Properties.ShadingModel = EMaterialShadingModel::Unlit;
 			if (Output->Type == Type::Texture2D)
 			{
-				const auto Channel = Add({});
-				const auto UV = Add({.Opcode = Opcode::UVChannel, .ResultType = Type::Float2, .Inputs = {Channel}});
-				Value = Add({.Opcode = Opcode::TextureSample2D, .ResultType = Type::Float4, .Inputs = {Value, UV}});
+				auto* Sample = Add.operator()<DMaterialExpressionTextureSample2D>();
+				Sample->Texture = Value; Value = {Sample->Id};
 			}
 			if (Output->Type == Type::Float)
-				Value = Add({.Opcode = Opcode::Splat3, .ResultType = Type::Float3, .Inputs = {Value}});
+			{
+				auto* Splat = Add.operator()<DMaterialExpressionSplat3>();
+				Splat->Input = Value; Value = {Splat->Id};
+			}
 			else if (Output->Type == Type::Float2)
 			{
-				const auto X = Add({.Opcode = Opcode::Swizzle, .Inputs = {Value}, .SwizzleLength = 1});
-				const auto Y = Add({.Opcode = Opcode::Swizzle, .Inputs = {Value}, .SwizzleLength = 1, .SwizzleX = 1});
-				const auto Zero = Add({});
-				Value = Add({.Opcode = Opcode::MakeFloat3, .ResultType = Type::Float3, .Inputs = {X, Y, Zero}});
+				auto* X = Add.operator()<DMaterialExpressionSwizzle>(); X->Input = Value; X->Components = {0};
+				auto* Y = Add.operator()<DMaterialExpressionSwizzle>(); Y->Input = Value; Y->Components = {1};
+				auto* Vector = Add.operator()<DMaterialExpressionMakeVector3>();
+				Vector->X = {X->Id}; Vector->Y = {Y->Id}; Vector->ZDefault = {0}; Value = {Vector->Id};
 			}
 			else if (Output->Type != Type::Float3)
-				Value = Add({.Opcode = Opcode::TruncateToFloat3, .ResultType = Type::Float3, .Inputs = {Value}});
-			State.Program.Outputs.Emissive = Value;
+			{
+				auto* Truncate = Add.operator()<DMaterialExpressionTruncateToVector3>();
+				Truncate->Input = Value; Value = {Truncate->Id};
+			}
+			State.Outputs.Emissive = Value;
 		}
-		for (size_t Index = 0; Index < State.Program.Nodes.size(); ++Index)
-			State.Presentation.Nodes.push_back({State.Program.Nodes[Index].Id, static_cast<int32>(Index % 4) * 320,
+		for (size_t Index = 0; Index < State.Expressions.size(); ++Index)
+			State.Presentation.Nodes.push_back({State.Expressions[Index]->Id, static_cast<int32>(Index % 4) * 320,
 				static_cast<int32>(Index / 4) * 240});
 		State.Presentation.bHasMaterialOutputPosition = true;
 		State.Presentation.MaterialOutputX = 1280;
-		OutState = std::move(State);
-		OutProperties = Properties;
-		return {.Status = EMaterialGraphCommandStatus::Succeeded};
+		auto Result = CommitOwnedExpressions(Preview, std::move(State), "Build Function Preview", nullptr);
+		if (Result && !Preview.SetStaticProperties(Properties)) return MakeRejected("The preview properties are invalid.");
+		return Result;
 	}
 }
