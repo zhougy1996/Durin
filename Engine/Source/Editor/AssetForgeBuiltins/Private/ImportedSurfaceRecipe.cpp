@@ -32,6 +32,8 @@ namespace Durin::AssetForge::Builtins
 			const FGuid Id{0x36b41f8e, 0x71984aca, Role, static_cast<uint32>(Result.Program.Nodes.size() + 1)};
 			Result.Program.Nodes.push_back({.Id = Id, .Opcode = Opcode, .ResultType = ValueType,
 				.Inputs = std::move(Inputs)});
+			if (Opcode == Op::Multiply)
+				Result.Program.Nodes.back().InputDefaults.resize(Result.Program.Nodes.back().Inputs.size());
 			Result.Presentation.Nodes.push_back({Id, static_cast<int32>(Result.Program.Nodes.size() % 4) * 240,
 				static_cast<int32>(Role) * 300});
 			return Link{.SourceNodeId = Id};

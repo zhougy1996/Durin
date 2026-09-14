@@ -1,5 +1,6 @@
 #include "ExplicitMaterialProgramTestFixture.h"
 #include "MaterialTestSupport.h"
+#include "Materials/MaterialFunction.h"
 #include "Editor/EditorTransactionTestSupport.h"
 
 #include "DObject/DefaultObjectGraph.h"
@@ -156,11 +157,15 @@ TEST(FMaterialTests, CustomDeclarationOverridesRetainOrphansAndRejectRetyping)
 	EXPECT_FALSE(Parent->IsParameterOverrideOrphan(Definition.Id));
 	ASSERT_TRUE(Child->GetScalarParameterValue(Definition.Name, Value));
 	EXPECT_EQ(Value, 0.75f);
-	auto* OverridesProperty = Parent->GetClass()->FindPropertyByName("ParameterOverrides");
+	auto* OverridesProperty = Parent->GetClass()->FindPropertyByName("ScalarParameterOverrides");
 	ASSERT_NE(OverridesProperty, nullptr);
 	auto* Overrides = OverridesProperty->ContainerPtrToValuePtr<
-		std::vector<Durin::FMaterialParameterOverride>>(Parent);
-	Overrides->front().Type = Durin::EMaterialParameterType::Vector;
+		std::vector<Durin::FMaterialScalarParameterOverride>>(Parent);
+	Overrides->clear();
+	auto* VectorProperty = Parent->GetClass()->FindPropertyByName("VectorParameterOverrides");
+	ASSERT_NE(VectorProperty, nullptr);
+	VectorProperty->ContainerPtrToValuePtr<std::vector<Durin::FMaterialVectorParameterOverride>>(Parent)
+		->push_back({Definition.Id, Durin::FVector3(.2, .3, .4)});
 	Parent->PostLoad();
 	EXPECT_EQ(Parent->GetParameterOverrides().size(), 1u);
 	EXPECT_TRUE(Parent->IsParameterOverrideOrphan(Definition.Id));
@@ -346,8 +351,12 @@ TEST(FMaterialTests, RuntimeSchemaHasStableIdentityOrderAndMetadata)
 		switch (Definition.Presentation)
 		{
 		case Durin::EMaterialParameterPresentation::Drag:
-			EXPECT_TRUE(Definition.bHasRange);
-			EXPECT_LT(Definition.MinimumValue, Definition.MaximumValue);
+			if (Definition.Type == Durin::EMaterialParameterType::Scalar)
+			{
+				EXPECT_TRUE(Definition.bHasRange);
+				EXPECT_LT(Definition.MinimumValue, Definition.MaximumValue);
+			}
+			else EXPECT_FALSE(Definition.bHasRange);
 			break;
 		case Durin::EMaterialParameterPresentation::Integer:
 			EXPECT_EQ(Definition.Type, Durin::EMaterialParameterType::Scalar);
@@ -430,9 +439,10 @@ TEST(FMaterialProgramSchemaTests,
 	EXPECT_NE(PresentationStruct->FindPropertyByName("bHasMaterialOutputPosition"), nullptr);
 	EXPECT_NE(PresentationStruct->FindPropertyByName("MaterialOutputX"), nullptr);
 	EXPECT_NE(PresentationStruct->FindPropertyByName("MaterialOutputY"), nullptr);
-	EXPECT_NE(
+	EXPECT_EQ(
 		Durin::DMaterial::StaticClass()->FindPropertyByName("Program"),
 		nullptr);
+	EXPECT_NE(Durin::DMaterial::StaticClass()->FindPropertyByName("ExpressionCollection"), nullptr);
 	EXPECT_EQ(
 		Durin::DMaterialInstance::StaticClass()->FindPropertyByName("Program"),
 		nullptr);
@@ -1068,6 +1078,11 @@ TEST(FMaterialProgramPublicationTests,
 	Edited.Outputs.RoughnessDefault.X += 0.01f;
 	auto Validation = Base->SetMaterialProgram(std::move(Edited));
 	ASSERT_TRUE(Validation);
+	EXPECT_EQ(Base->GetRenderData().PlanningPassIdentity.ShaderMap.ProgramIdentity,
+		ShaderChanged.PlanningPassIdentity.ShaderMap.ProgramIdentity);
+	Edited = *Base->GetMaterialProgram();
+	Edited.Outputs.Roughness = {};
+	ASSERT_TRUE(Base->SetMaterialProgram(std::move(Edited)));
 	const auto ProgramChanged = Base->GetRenderData();
 	ASSERT_TRUE(ProgramChanged.CompiledProgram);
 	EXPECT_NE(ProgramChanged.PlanningPassIdentity.ShaderMap.ProgramIdentity,
@@ -1308,7 +1323,8 @@ TEST(FMaterialTests, ReflectedPropertyViewTracksPresentedOwnerSeparatelyFromEdit
 		[](Durin::FProperty* ValueProperty, void* Container, uint32 ArrayIndex) {
 			*ValueProperty->ContainerPtrToValuePtr<float>(Container, ArrayIndex) = 0.5f;
 		}, true));
-	EXPECT_TRUE(PropertyView.IsEditingObject(Material));
+	EXPECT_TRUE(std::ranges::any_of(Material->GetExpressionCollection().Expressions,
+		[&](const auto& Expression) { return PropertyView.IsEditingObject(Expression.Get()); }));
 	PropertyView.HandleOwnerContext(Context, Owner);
 	EXPECT_TRUE(PropertyView.IsEditing());
 
@@ -1331,7 +1347,7 @@ TEST(FMaterialTests, ReflectedPropertyViewTracksMaterialOverrideStructureInShare
 	Durin::DMaterial* Base = MakeExpandedMaterial("TransactionalOverrideBase");
 	Durin::DMaterialInstance* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "TransactionalOverrideInstance");
 	ASSERT_TRUE(Instance->SetParent(Base));
-	auto* Property = static_cast<Durin::FArrayProperty*>(Instance->GetClass()->FindPropertyByName("ParameterOverrides"));
+	auto* Property = static_cast<Durin::FArrayProperty*>(Instance->GetClass()->FindPropertyByName("ScalarParameterOverrides"));
 	ASSERT_NE(Property, nullptr);
 	Durin::FPropertyValueSnapshot Original;
 	Durin::FPropertyValueSnapshot Proposed;
@@ -1609,6 +1625,9 @@ TEST(FMaterialTests, ProductionClassDefaultsMatchFreshOrdinaryObjectGraphs)
 				Templates.push_back(Child);
 			}
 			Template->GetClass()->ForEachProperty([&](Durin::FProperty* Property) {
+				// Dynamic authored collections are explicitly serialized and have no fixed CDO children.
+				if (Class == Durin::DMaterialFunction::StaticClass()
+					&& Property->NamePrivate == Durin::FName("ExpressionCollection")) return;
 				if (Property->HasAnyPropertyFlags(Durin::EPropertyFlags::Transient)
 					|| Property->NamePrivate == Durin::FName("VolumetricCloudSceneId")
 					|| Property->NamePrivate == Durin::FName("SkyLightSceneId")
@@ -1632,6 +1651,121 @@ TEST(FMaterialTests, ProductionClassDefaultsMatchFreshOrdinaryObjectGraphs)
 	Durin::CollectGarbage();
 }
 
+
+TEST(FMaterialProgramCompilerTests, DirectIRCompilationMatchesExistingCompilerSourceAndStages)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	auto Legacy = MakeSyntheticMaterialCompilerInput();
+	std::string Error;
+	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Legacy.Environment, Error)) << Error;
+	const auto Baseline = CompileMaterialProgram(Legacy);
+	ASSERT_TRUE(Baseline);
+	FMaterialIRCompilerInput Direct{.IR = Baseline.IR, .Parameters = Legacy.Parameters,
+		.StaticProperties = Legacy.StaticProperties, .Environment = Legacy.Environment};
+	const auto Compiled = CompileMaterialIR(Direct);
+	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "Missing diagnostic" : Compiled.Diagnostics.front().Message);
+	EXPECT_EQ(Compiled.GeneratedSource, Baseline.GeneratedSource);
+	EXPECT_EQ(Compiled.Layout, Baseline.Layout);
+	ASSERT_EQ(Compiled.CompiledShaders.size(), Baseline.CompiledShaders.size());
+	for (size_t Index = 0; Index < Compiled.CompiledShaders.size(); ++Index)
+	{
+		EXPECT_EQ(Compiled.CompiledShaders[Index].Frequency, Baseline.CompiledShaders[Index].Frequency);
+		EXPECT_EQ(Compiled.CompiledShaders[Index].SourceEntryPoint, Baseline.CompiledShaders[Index].SourceEntryPoint);
+		EXPECT_EQ(Compiled.CompiledShaders[Index].Hash, Baseline.CompiledShaders[Index].Hash);
+	}
+}
+
+TEST(FMaterialProgramCompilerTests, DirectIRNormalizationPrunesDeadCodeAndRemapsSourcesDeterministically)
+{
+	using namespace Durin;
+	FMaterialIRCompilerInput Input;
+	Input.Environment = MakeSyntheticMaterialCompilerInput().Environment;
+	for (uint32 Index = 0; Index < Input.IR.SurfaceRoot.Inputs.size(); ++Index)
+		Input.IR.SurfaceRoot.Inputs[Index].Type = GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(Index));
+	Input.IR.Nodes = {
+		{.Opcode = EMaterialProgramOpcode::Constant, .ResultType = EMaterialProgramValueType::Float, .Payload = FMaterialProgramLiteral{.25f}},
+		{.Opcode = EMaterialProgramOpcode::Constant, .ResultType = EMaterialProgramValueType::Float, .Payload = FMaterialProgramLiteral{.5f}},
+		{.Opcode = EMaterialProgramOpcode::Add, .ResultType = EMaterialProgramValueType::Float, .Inputs = {0, 1}},
+		{.Opcode = EMaterialProgramOpcode::Splat3, .ResultType = EMaterialProgramValueType::Float3, .Inputs = {2}},
+		{.Opcode = EMaterialProgramOpcode::Constant, .ResultType = EMaterialProgramValueType::Float, .Payload = FMaterialProgramLiteral{9.f}}};
+	Input.IR.SurfaceRoot.Inputs[0].bExpression = true;
+	Input.IR.SurfaceRoot.Inputs[0].ExpressionIndex = 3;
+	Input.Sources = {{.ExpressionIndex = 0, .NodeId = {1, 0, 0, 1}}, {.ExpressionIndex = 1, .NodeId = {1, 0, 0, 2}},
+		{.ExpressionIndex = 4, .NodeId = {1, 0, 0, 3}}};
+	for (uint32 Index = 0; Index < 32; ++Index) Input.Parameters.push_back({{2, 0, 0, Index + 1}, EMaterialParameterType::Texture});
+	const auto Baseline = NormalizeMaterialIR(Input);
+	ASSERT_TRUE(Baseline);
+	EXPECT_EQ(Baseline.IR.Nodes.size(), 4u);
+	EXPECT_EQ(Baseline.Sources.size(), 2u);
+	EXPECT_TRUE(Baseline.ActiveParameters.empty());
+	std::swap(Input.IR.Nodes[0], Input.IR.Nodes[1]);
+	Input.IR.Nodes[2].Inputs = {1, 0};
+	Input.Sources[0].ExpressionIndex = 1; Input.Sources[1].ExpressionIndex = 0;
+	Input.IR.SurfaceRoot.Inputs[0].Literal = {42, 43, 44};
+	std::get<FMaterialProgramLiteral>(Input.IR.Nodes[0].Payload).W = 88;
+	std::get<FMaterialProgramLiteral>(Input.IR.Nodes[4].Payload).X = 99;
+	const auto Reordered = NormalizeMaterialIR(Input);
+	ASSERT_TRUE(Reordered);
+	EXPECT_EQ(Reordered.Identity, Baseline.Identity);
+	EXPECT_EQ(Reordered.IR, Baseline.IR);
+	EXPECT_EQ(Reordered.CanonicalBytes, Baseline.CanonicalBytes);
+	for (const auto& Source : Baseline.Sources)
+	{
+		const auto Found = std::ranges::find(Reordered.Sources, Source.NodeId, &FMaterialExpressionSource::NodeId);
+		ASSERT_NE(Found, Reordered.Sources.end()); EXPECT_EQ(Found->ExpressionIndex, Source.ExpressionIndex);
+	}
+	Input.IR.Nodes[4].Payload = FMaterialProgramLiteral{std::numeric_limits<float>::quiet_NaN()};
+	EXPECT_FALSE(NormalizeMaterialIR(Input));
+}
+
+TEST(FMaterialProgramCompilerTests, DetachedIRRejectsMalformedInputsWithoutAuthoredGraphReconstruction)
+{
+	using namespace Durin;
+	const auto Layout = CompileMaterialLayout({});
+	ASSERT_TRUE(Layout);
+	FMaterialIR IR;
+	for (uint32 Index = 0; Index < IR.SurfaceRoot.Inputs.size(); ++Index)
+		IR.SurfaceRoot.Inputs[Index].Type = GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(Index));
+	IR.Nodes.push_back({.Opcode = EMaterialProgramOpcode::Constant,
+		.ResultType = EMaterialProgramValueType::Float, .Payload = FMaterialProgramLiteral{.25f}});
+	IR.Nodes.push_back({.Opcode = EMaterialProgramOpcode::Saturate,
+		.ResultType = EMaterialProgramValueType::Float, .Inputs = {0}});
+	IR.SurfaceRoot.Inputs[3].bExpression = true;
+	IR.SurfaceRoot.Inputs[3].ExpressionIndex = 1;
+	ASSERT_TRUE(GenerateMaterialProgramSlang(IR, Layout.Layout));
+	const auto Good = IR;
+	const auto Reject = [&] {
+		const auto Result = GenerateMaterialProgramSlang(IR, Layout.Layout);
+		EXPECT_FALSE(Result);
+		EXPECT_TRUE(Result.Source.empty());
+		EXPECT_FALSE(Result.Diagnostics.empty());
+		IR = Good;
+	};
+	IR.Nodes[1].Inputs = {1}; Reject();
+	IR.Nodes[1].Inputs = {0xffffffffu}; Reject();
+	IR.Nodes[1].Inputs.clear(); Reject();
+	IR.Nodes[1].Opcode = EMaterialProgramOpcode::TextureCoordinates; Reject();
+	IR.Nodes[0].Payload = std::monostate{}; Reject();
+	IR.Nodes[1].Payload = FGuid{1, 2, 3, 4}; Reject();
+	IR.Nodes[0].ResultType = EMaterialProgramValueType::Float2; Reject();
+	IR.Nodes[0].Payload = FMaterialProgramLiteral{std::numeric_limits<float>::infinity()}; Reject();
+	IR.Nodes[0].Opcode = EMaterialProgramOpcode::Parameter;
+	IR.Nodes[0].Payload = FGuid{1, 2, 3, 4}; Reject();
+	IR.Nodes[1].Opcode = EMaterialProgramOpcode::Swizzle;
+	IR.Nodes[1].Payload = FMaterialIRSwizzle{1, {1}}; Reject();
+	for (uint32 Index = 2; Index <= MaterialProgramMaxDepth; ++Index)
+		IR.Nodes.push_back({.Opcode = EMaterialProgramOpcode::Saturate,
+			.ResultType = EMaterialProgramValueType::Float, .Inputs = {Index - 1}});
+	Reject();
+	IR.SurfaceRoot.Inputs[2].Literal.X = std::numeric_limits<float>::quiet_NaN(); Reject();
+	IR.Nodes.push_back({.Opcode = EMaterialProgramOpcode::Constant,
+		.ResultType = EMaterialProgramValueType::Float3, .Payload = FMaterialProgramLiteral{}});
+	for (uint32 Index = 0; Index < MaterialFunctionMaxExpandedLinks / 8; ++Index)
+		IR.Nodes.push_back({.Opcode = EMaterialProgramOpcode::MakeSurface,
+			.ResultType = EMaterialProgramValueType::Surface, .Inputs = {2, 2, 0, 0, 0, 2, 0, 0}});
+	Reject();
+}
 
 TEST(FMaterialProgramCompilerTests, CompiledLayoutsAreTypedDeterministicAndDeviceBounded)
 {

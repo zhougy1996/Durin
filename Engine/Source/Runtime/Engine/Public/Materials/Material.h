@@ -5,6 +5,7 @@
 #include "Materials/MaterialCompileLifecycle.h"
 #include "Materials/MaterialCookedProgram.h"
 #include "Materials/MaterialProgramTypes.h"
+#include "Materials/MaterialExpressions.h"
 #include "Texture/Texture2D.h"
 
 #include "Material.gen.h"
@@ -28,6 +29,11 @@ namespace Durin
 		{
 			return FunctionCalls;
 		}
+		auto GetExpressionCollection() const -> const FMaterialExpressionCollection& { return ExpressionCollection; }
+		auto GetExpressionOutputs() const -> const FMaterialExpressionSurfaceOutputs& { return ExpressionOutputs; }
+		[[nodiscard]] ENGINE_API auto SetMaterialExpressions(std::span<DMaterialExpression* const> Expressions,
+			FMaterialExpressionSurfaceOutputs Outputs) -> FMaterialProgramValidationResult;
+		ENGINE_API auto ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context, std::string& OutError) const -> bool override;
 		auto GetMaterialGraphPresentation() const
 			-> const FMaterialGraphPresentation&
 		{
@@ -98,7 +104,7 @@ namespace Durin
 
 	private:
 		DPROPERTY(AlwaysSerialize)
-		uint32 GraphOwnershipVersion = 1;
+		uint32 GraphOwnershipVersion = 2;
 
 		auto AdvanceAuthoredRevision() -> void;
 		EMaterialEditCompileMode EditCompileMode = EMaterialEditCompileMode::Immediate;
@@ -111,12 +117,19 @@ namespace Durin
 		DPROPERTY(Transient)
 		std::vector<FMaterialParameterDefinition> ParameterSchema;
 
-		// PostLoad validates the current authored program before publication.
-		DPROPERTY(EditorOnly)
-		FMaterialProgram Program;
+		DPROPERTY(EditorOnly, AlwaysSerialize)
+		FMaterialExpressionCollection ExpressionCollection;
 
-		DPROPERTY(EditorOnly)
-		std::vector<FMaterialFunctionCall> FunctionCalls;
+		DPROPERTY(EditorOnly, AlwaysSerialize)
+		FMaterialExpressionSurfaceOutputs ExpressionOutputs;
+
+		// Temporary non-reflected views for native/editor callers awaiting migration.
+		mutable FMaterialProgram Program;
+		mutable std::vector<FMaterialFunctionCall> FunctionCalls;
+		ENGINE_API auto RefreshExpressionProjection() const -> void;
+		auto ProjectExpressions(const FMaterialExpressionCollection& Collection,
+			const FMaterialExpressionSurfaceOutputs& Outputs, FMaterialProgram& OutProgram,
+			std::vector<FMaterialFunctionCall>& OutCalls) const -> bool;
 
 		// Shared node positions are persisted for authoring but excluded from Cook and compilation.
 		DPROPERTY(EditorOnly)

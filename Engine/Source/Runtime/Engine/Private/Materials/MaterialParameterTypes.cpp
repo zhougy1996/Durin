@@ -126,9 +126,9 @@ namespace Durin
 			Result.GroupName = GroupName;
 			Result.SortOrder = SortOrder;
 			Result.Presentation = Presentation;
-			Result.bHasRange = bHasRange;
-			Result.MinimumValue = MinimumValue;
-			Result.MaximumValue = MaximumValue;
+			Result.bHasRange = Type == EMaterialParameterType::Scalar && bHasRange;
+			Result.MinimumValue = Type == EMaterialParameterType::Scalar ? MinimumValue : 0.0f;
+			Result.MaximumValue = Type == EMaterialParameterType::Scalar ? MaximumValue : 0.0f;
 			Result.TextureUsage = TextureUsage;
 			return Result;
 		}

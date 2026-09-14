@@ -552,26 +552,14 @@ namespace
 		-> std::optional<Durin::Editor::FPropertyEditTarget>
 	{
 		using namespace Durin;
-		auto* ProgramProperty = static_cast<FStructProperty*>(Material->GetClass()->FindPropertyByName("Program"));
-		if (!ProgramProperty) return std::nullopt;
-		auto* NodesProperty = static_cast<FArrayProperty*>(ProgramProperty->GetStruct()->FindPropertyByName("Nodes"));
-		if (!NodesProperty) return std::nullopt;
-		auto* NodeProperty = static_cast<FStructProperty*>(NodesProperty->GetInner());
-		auto* ParameterProperty = static_cast<FStructProperty*>(NodeProperty->GetStruct()->FindPropertyByName("Parameter"));
-		if (!ParameterProperty) return std::nullopt;
-		auto* ValueProperty = static_cast<FStructProperty*>(ParameterProperty->GetStruct()->FindPropertyByName("Value"));
-		if (!ValueProperty) return std::nullopt;
-		auto* Field = ValueProperty->GetStruct()->FindPropertyByName(FieldName);
-		if (!Field) return std::nullopt;
-		const auto& Nodes = Material->GetMaterialProgram()->Nodes;
-		const auto It = std::ranges::find_if(Nodes, [&](const auto& Node) { return Node.Parameter.Id == Id; });
-		if (It == Nodes.end()) return std::nullopt;
-		return Editor::FPropertyEditTarget::ForMember(Material, ProgramProperty)
-			.ForStructMember(NodesProperty)
-			.ForArrayElement(NodeProperty, static_cast<uint64>(It - Nodes.begin()))
-			.ForStructMember(ParameterProperty)
-			.ForStructMember(ValueProperty)
-			.ForStructMember(Field);
+		for (const auto& Expression : Material->GetExpressionCollection().Expressions)
+			if (auto* Parameter = Cast<DMaterialExpressionParameter>(Expression.Get()); Parameter && Parameter->Metadata.Id == Id)
+			{
+				auto* Field = Parameter->GetClass()->FindPropertyByName("DefaultValue");
+				if (FieldName != FName("ScalarValue") || !Cast<DMaterialExpressionScalarParameter>(Parameter) || !Field) return std::nullopt;
+				return Editor::FPropertyEditTarget::ForMember(Parameter, Field);
+			}
+		return std::nullopt;
 	}
 }
 

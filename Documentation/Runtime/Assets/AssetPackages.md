@@ -334,8 +334,14 @@ destroy the unpublished graph and release dependencies admitted by the attempt.
 are logged by the object and do not reject package publication or duplication.
 Callbacks must preserve safe state, repair invalid relationships, or leave derived
 resources unavailable; resource consumers and explicit Cook/build operations own
-their readiness checks. Data that must reject a load belongs in archive validation,
-not a PostLoad return value.
+their readiness checks. Per-object data that must reject a load belongs in archive
+validation. Invariants requiring populated child objects belong in
+`DObject::ValidateLoadedObjectGraph`: ordinary loads invoke this read-only hook
+after all package values and ledgers are restored, before PostLoad and final
+publication. The context identifies cooked and private graphs. A false result
+rejects the load and rolls back its objects/dependencies; the hook must not load
+or mutate assets. An implicit live asset operation is guarded and rejects the
+load even when the hook ignores that operation's failure.
 
 Internal references use export indices. Cross-package hard imports target an
 exact top-level asset; cycles work because skeletons exist before values are
@@ -366,6 +372,10 @@ require their own admission before use in isolated preparation.
 those same canonicalization, schema, skeleton, field and authored-ledger phases.
 It creates all private skeletons before applying any values, including default
 inners, and resolves batch imports against their private package identities.
+Only after every package in the batch has restored values does it invoke
+`ValidateLoadedObjectGraph` on the candidate objects. Thus a validator can inspect
+already-restored referenced objects from later packages in the selected batch.
+Failure preserves the caller's previous output and never runs candidate PostLoad.
 External imports bind to captured package identities. Missing dependencies require
 an explicitly supplied, caller-owned `FAssetPackageLoadScope`; without it the call
 fails without loading. Scoped loading requires resident replacement targets so a
@@ -391,8 +401,8 @@ protection, and neither scope ownership nor the exception follows a same-path
 replacement. Failed ordinary load transactions retire resources of successfully
 loaded nested dependencies along with their object rollback.
 
-The caller must explicitly admit each export class's construction and serialization
-callbacks and hold path admission/edit/save leases. The result is `ValuesPrepared`:
+The caller must explicitly admit each export class's construction, serialization,
+and graph-validation callbacks and hold path admission/edit/save leases. The result is `ValuesPrepared`:
 ordinary PostLoad and runtime publication have not run, and loaded migration/version
 metadata remains available for the owning resource preparation step. Preparation
 revalidates saved closure digests before returning; failure preserves the output

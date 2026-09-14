@@ -14,6 +14,7 @@
 #include "DObject/Package.h"
 #include "Modules/ModuleManager.h"
 #include "MaterialProgramValidation.h"
+#include "MaterialExpressionAuthoring.h"
 
 #include <functional>
 #include <unordered_map>
@@ -54,7 +55,7 @@ namespace Durin
 		if (!IsTemplateConstructionPurpose(ObjectInitializer.Purpose))
 		{
 			if (!IsMaterialCompilationAcceptingRequests())
-				RequestProgramCompile(Program, StaticProperties);
+				RequestProgramCompile(StaticProperties);
 			PublishMaterialRenderProxyState();
 		}
 	}
@@ -97,7 +98,8 @@ namespace Durin
 	auto DMaterial::SetMaterialProgram(
 		FMaterialProgram InProgram) -> FMaterialProgramValidationResult
 	{
-		return SetMaterialProgramAndFunctionCalls(std::move(InProgram), FunctionCalls);
+		const auto Calls = GetMaterialFunctionCalls();
+		return SetMaterialProgramAndFunctionCalls(std::move(InProgram), {Calls.begin(), Calls.end()});
 	}
 
 	auto DMaterial::SetMaterialProgramAndFunctionCalls(FMaterialProgram InProgram,
@@ -116,23 +118,27 @@ namespace Durin
 		if (!Validation) return Validation;
 		Validation = ValidateMaterialProgramWithFunctions(InProgram, Schema, InCalls);
 		if (!Validation) return Validation;
+		RefreshExpressionProjection();
 		if (Program == InProgram && FunctionCalls == InCalls) return Validation;
-		auto CodeProgram = MakeCodeOnlyProgram(InProgram);
-		const bool bShaderChanged = CodeProgram != ObservedCodeProgram || FunctionCalls != InCalls;
-		ObservedCodeProgram = std::move(CodeProgram);
-		if (ParameterSchema != Schema) AdvanceRevision(ParameterDefinitionSchemaRevision);
-		ParameterSchema = std::move(Schema);
-		Program = std::move(InProgram);
-		FunctionCalls = std::move(InCalls);
-		AdvanceRevision(MaterialProgramRevision);
-		if (bShaderChanged)
+		TStrongObjectPtr<DObject> Staging(NewObject<DObject>(nullptr, "MaterialCandidate"));
+		FMaterialExpressionCollection Candidate;
+		if (!Private::ConstructMaterialExpressions(Staging.Get(), InProgram, InCalls, Candidate))
 		{
-			AdvanceAuthoredRevision();
-			Private::FMaterialCompilationLifecycle::ScheduleEdit(*this);
+			Validation.bSucceeded = false;
+			Validation.Diagnostics.push_back({.Message = "Material candidate cannot be represented by supported expressions."});
+			return Validation;
 		}
-		MarkPackageDirty();
-		MarkRenderDataDirty(bShaderChanged ? EMaterialRenderDirtyFlags::ShaderMap
-			: EMaterialRenderDirtyFlags::DynamicParameters);
+		std::vector<DMaterialExpression*> Expressions;
+		for (const auto& Expression : Candidate.Expressions) Expressions.push_back(Expression.Get());
+		Validation = SetMaterialExpressions(Expressions, Private::ConstructMaterialOutputs(InProgram.Outputs));
+		if (Validation)
+			for (const auto& Node : InProgram.Nodes)
+			{
+				const auto Position = std::ranges::find(GraphPresentation.Nodes, Node.Id, &FMaterialGraphNodePresentation::NodeId);
+				if (Position != GraphPresentation.Nodes.end()) Position->DisplayName = Node.DisplayName;
+				else if (!Node.DisplayName.empty()) GraphPresentation.Nodes.push_back({.NodeId = Node.Id, .DisplayName = Node.DisplayName});
+			}
+		if (Validation) RefreshExpressionProjection();
 		return Validation;
 	}
 
@@ -141,6 +147,13 @@ namespace Durin
 	{
 		InPresentation = SanitizeMaterialGraphPresentation(
 			InPresentation, Program);
+		for (const auto& Existing : GraphPresentation.Nodes)
+		{
+			if (Existing.DisplayName.empty() || std::ranges::find(Program.Nodes, Existing.NodeId, &FMaterialProgramNode::Id) == Program.Nodes.end()) continue;
+			const auto Position = std::ranges::find(InPresentation.Nodes, Existing.NodeId, &FMaterialGraphNodePresentation::NodeId);
+			if (Position != InPresentation.Nodes.end()) Position->DisplayName = Existing.DisplayName;
+			else InPresentation.Nodes.push_back(Existing);
+		}
 		if (GraphPresentation == InPresentation) return true;
 		GraphPresentation = std::move(InPresentation);
 		AdvanceRevision(MaterialGraphPresentationRevision);
@@ -181,9 +194,9 @@ namespace Durin
 				GraphPresentation.Nodes.insert(It, Position);
 				bChanged = true;
 			}
-			else if (*It != Position)
+			else if (It->X != Position.X || It->Y != Position.Y)
 			{
-				*It = Position;
+				It->X = Position.X; It->Y = Position.Y;
 				bChanged = true;
 			}
 		}
@@ -288,15 +301,26 @@ namespace Durin
 		auto Entry = std::ranges::find(ParameterSchema, Id, &FMaterialParameterDefinition::Id);
 		if (Entry == ParameterSchema.end()) return false;
 		const bool bCooked = GetAssetRuntimeConfiguration().RequiresCookedPayload();
-		auto Node = std::ranges::find_if(Program.Nodes,
-			[&](const auto& Item) { return Item.Parameter.Id == Id; });
-		if (!bCooked && Node == Program.Nodes.end()) return false;
-		auto Definition = bCooked ? *Entry : Node->Parameter;
+		auto Definition = *Entry;
 		Definition.Value = Value;
 		if (!ValidateMaterialParameterDefinitions(std::span(&Definition, 1))) return false;
 		if (*Entry == Definition) return true;
-		if (!bCooked) Node->Parameter = Definition;
+		if (!bCooked)
+		{
+			DMaterialExpressionParameter* Owner = nullptr;
+			for (const auto& Expression : ExpressionCollection.Expressions)
+				if (auto* Parameter = Cast<DMaterialExpressionParameter>(Expression.Get()); Parameter && Parameter->Metadata.Id == Id) { Owner = Parameter; break; }
+			if (!Owner) return false;
+			if (auto* Parameter = Cast<DMaterialExpressionScalarParameter>(Owner)) Parameter->DefaultValue = Value.ScalarValue;
+			else if (auto* Parameter = Cast<DMaterialExpressionVector2Parameter>(Owner)) Parameter->DefaultValue = Value.Vector2Value;
+			else if (auto* Parameter = Cast<DMaterialExpressionVector3Parameter>(Owner)) Parameter->DefaultValue = Value.VectorValue;
+			else if (auto* Parameter = Cast<DMaterialExpressionVector4Parameter>(Owner)) Parameter->DefaultValue = Value.Vector4Value;
+			else if (auto* Parameter = Cast<DMaterialExpressionTextureParameter>(Owner)) Parameter->DefaultValue = {Value.TextureValue, Value.SamplerState, Value.TextureFallback};
+			else return false;
+		}
+
 		*Entry = std::move(Definition);
+		if (!bCooked) RefreshExpressionProjection();
 		MarkPackageDirty();
 		MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters);
 		return true;
@@ -350,38 +374,21 @@ namespace Durin
 	{
 		if (Ar.IsLoading()) GraphOwnershipVersion = 0;
 		Super::Serialize(Ar);
-		if (GraphOwnershipVersion != 1 || Ar.HasError())
+		if (GraphOwnershipVersion != 2 || Ar.HasError())
 		{
-			Ar.Fail(EArchiveFailureCode::UnsupportedVersion,
-				"Unsupported material parameter ownership schema; rebuild this material.");
+			Ar.Fail(EArchiveFailureCode::UnsupportedVersion, "Unsupported material expression schema; rebuild this material.");
 			return;
 		}
-		if (Ar.GetPurpose() == EArchivePurpose::AuthoredPackage)
+		if (!IsTemplateObject() && Ar.IsSaving() && Ar.GetPurpose() == EArchivePurpose::AuthoredPackage)
 		{
-			std::vector<FMaterialParameterDefinition> Schema;
-			if (!DeriveMaterialParameterSchema(Program, Schema)
-				|| FunctionCalls.size() > Program.Nodes.size()
-				|| (Ar.IsSaving() && !ValidateMaterialProgramWithFunctions(Program, Schema, FunctionCalls)))
-			{
-				Ar.Fail(EArchiveFailureCode::InvalidData, "Invalid material graph ownership; rebuild this material.");
-				return;
-			}
-			if (Ar.IsLoading())
-			{
-				// Validate local links before package publication. Callee bodies may still
-				// be deserializing; their complete closure is checked by PostLoad.
-				std::vector<FMaterialFunctionCallSnapshot> Calls;
-				for (const auto& Call : FunctionCalls)
-					Calls.push_back({Call.NodeId, Call.Function ? Call.Function->GetObjectPath() : std::string{},
-						Call.Inputs, Call.Outputs});
-				if (!ValidateMaterialProgram(Program, Schema, Calls))
-					Ar.Fail(EArchiveFailureCode::InvalidData, "Invalid material graph links; rebuild this material.");
-			}
+			std::string Error;
+			if (!ValidateLoadedObjectGraph({}, Error)) Ar.Fail(EArchiveFailureCode::InvalidData, Error);
 		}
 	}
 
 	auto DMaterial::SerializeCooked(FArchive& Ar) -> void
 	{
+		RefreshExpressionProjection();
 		if (Ar.IsSaving() && !GetAssetRuntimeConfiguration().RequiresCookedPayload()
 			&& !DeriveMaterialParameterSchema(Program, ParameterSchema))
 		{
@@ -423,6 +430,7 @@ namespace Durin
 				"Loaded cooked Material metadata for '{}'.", GetObjectPath());
 			return;
 		}
+		RefreshExpressionProjection();
 		const auto SchemaValidation = DeriveMaterialParameterSchema(Program, ParameterSchema);
 		if (!SchemaValidation)
 		{
@@ -445,7 +453,7 @@ namespace Durin
 		AdvanceRevision(MaterialProgramRevision);
 		AdvanceRevision(MaterialGraphPresentationRevision);
 		AdvanceRevision(ParameterDefinitionSchemaRevision);
-		RequestProgramCompile(Program, StaticProperties);
+		RequestProgramCompile(StaticProperties);
 		PublishMaterialRenderProxyState();
 	}
 
@@ -456,18 +464,20 @@ namespace Durin
 		if (!Event.MemberProperty) return;
 		const FName Name = Event.MemberProperty->NamePrivate;
 		if (Name == FName("StaticProperties")) InvalidateMaterialCompilation(false, true);
-		if (Name == FName("Program") || Name == FName("FunctionCalls") || (Name == FName("StaticProperties")
+		if (Name == FName("ExpressionCollection") || Name == FName("ExpressionOutputs") || (Name == FName("StaticProperties")
 			&& CanonicalizeMaterialShaderProperties(StaticProperties) != CompilationOwner.LastObservedShaderProperties))
 		{
-			if (Name == FName("Program") || Name == FName("FunctionCalls"))
+			if (Name == FName("ExpressionCollection") || Name == FName("ExpressionOutputs"))
 			{
+				const auto PreviousCalls = FunctionCalls;
+				RefreshExpressionProjection();
 				std::vector<FMaterialParameterDefinition> Schema;
 				if (!DeriveMaterialParameterSchema(Program, Schema)
 					|| !ValidateMaterialProgramWithFunctions(Program, Schema, FunctionCalls)) return;
 				ParameterSchema = std::move(Schema);
 				AdvanceRevision(ParameterDefinitionSchemaRevision);
 				auto CodeProgram = MakeCodeOnlyProgram(Program);
-				const bool bShaderChanged = Name == FName("FunctionCalls") || CodeProgram != ObservedCodeProgram;
+				const bool bShaderChanged = CodeProgram != ObservedCodeProgram || PreviousCalls != FunctionCalls;
 				ObservedCodeProgram = std::move(CodeProgram);
 				if (!bShaderChanged)
 				{

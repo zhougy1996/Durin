@@ -21,6 +21,167 @@
 #include "Modules/ModuleTestSupport.h"
 #include "Editor/EditorTransactionTestSupport.h"
 
+#include <fstream>
+#if defined(_MSC_VER) && defined(_DEBUG)
+#include <crtdbg.h>
+#endif
+
+namespace
+{
+	// Counts owning-thread Debug CRT allocation requests, including reallocations.
+	// This excludes worker allocations and is not a peak/live-memory measurement.
+	struct FMaterialBaselineMeasurement
+	{
+		uint64 Requests = 0;
+		uint64 RequestedBytes = 0;
+		std::chrono::steady_clock::time_point Start = std::chrono::steady_clock::now();
+#if defined(_MSC_VER) && defined(_DEBUG)
+		inline static thread_local FMaterialBaselineMeasurement* Active = nullptr;
+		_CRT_ALLOC_HOOK Previous = nullptr;
+		static auto Hook(int Kind, void*, size_t Size, int, long, const unsigned char*, int) -> int
+		{
+			if (Active && (Kind == _HOOK_ALLOC || Kind == _HOOK_REALLOC))
+			{
+				++Active->Requests;
+				Active->RequestedBytes += Size;
+			}
+			return TRUE;
+		}
+		FMaterialBaselineMeasurement() { Active = this; Previous = _CrtSetAllocHook(Hook); }
+		~FMaterialBaselineMeasurement() { _CrtSetAllocHook(Previous); Active = nullptr; }
+#endif
+		auto Microseconds() const -> double
+		{
+			return std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - Start).count();
+		}
+	};
+}
+
+TEST(FMaterialFunctionTests, CaptureTypedExpressionRebuildBaseline)
+{
+	using namespace Durin;
+	using namespace Durin::AssetForge::Builtins;
+	InitializeDObjectSystem();
+	FScopedOfflinePreparation Offline;
+	const auto Root = Testing::CreateTestFixtureDirectory("TypedExpressionBaseline");
+	const std::array Mounts{FMountPoint{.VirtualRoot = "/TypedBaseline/", .Owner = EMountOwner::Test,
+		.Root = Root, .bAutoScan = true, .bContentWritable = true}};
+	Testing::FScopedMountRegistryFixture Registry(Mounts);
+	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
+	ASSERT_TRUE(RefreshAssetRegistry());
+	std::ofstream Identities(Root / "identities.tsv");
+	std::ofstream Measurements(Root / "measurements.tsv");
+	ASSERT_TRUE(Identities && Measurements);
+	Identities << "asset\tkind\tid\ttype\tname\n";
+	Measurements << "asset\toperation\titeration\tmicroseconds\tcrt_requests\tcrt_requested_bytes\tpackage_bytes\n";
+	std::vector<FPackagePath> Paths;
+	auto Measure = [&](DObject* Asset)
+	{
+		FPackagePath Path;
+		ASSERT_TRUE(FPackagePath::TryCreate(Asset->GetPackage()->GetPackagePath(), Path));
+		Paths.push_back(Path);
+		for (int Iteration = 0; Iteration < 6; ++Iteration)
+		{
+			FByteBuffer Bytes;
+			double Time;
+			uint64 Requests, RequestedBytes;
+			FAssetResult Result;
+			{
+				FMaterialBaselineMeasurement Sample;
+				Result = SerializeAssetPackageBytes(Asset->GetPackage(), Bytes);
+				Time = Sample.Microseconds();
+				Requests = Sample.Requests;
+				RequestedBytes = Sample.RequestedBytes;
+			}
+			ASSERT_TRUE(Result);
+			Measurements << Path.ToString() << "\tsave\t" << Iteration << '\t' << Time << '\t'
+				<< Requests << '\t' << RequestedBytes << '\t' << Bytes.size() << '\n';
+		}
+		ASSERT_TRUE(SavePackage(Asset->GetPackage()));
+	};
+	FStandardMaterialFunctions Functions;
+	const std::array FunctionSlots{&Functions.UVTransform, &Functions.SampleNormal, &Functions.SampleORM,
+		&Functions.StandardPBR, &Functions.StandardPBR_ORM, &Functions.ImportedSurfaceValues, &Functions.DecodeImportedNormalRG};
+	for (uint32 Index = 0; Index < FunctionSlots.size(); ++Index)
+	{
+		FPackagePath Path;
+		ASSERT_TRUE(FPackagePath::TryCreate("/TypedBaseline/Function" + std::to_string(Index + 1), Path));
+		DMaterialFunction* Function = nullptr;
+		ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Function));
+		*FunctionSlots[Index] = Function;
+		ASSERT_TRUE(Function->SetFunctionGraph(MakeStandardMaterialFunctionGraph(
+			static_cast<EStandardMaterialFunction>(Index + 1), Functions)));
+		for (const auto& Port : Function->GetFunctionSignature().Inputs)
+			Identities << Path.ToString() << "\tinput\t" << Port.Id.ToString() << '\t' << static_cast<int>(Port.Type) << '\t' << Port.Name << '\n';
+		for (const auto& Port : Function->GetFunctionSignature().Outputs)
+			Identities << Path.ToString() << "\toutput\t" << Port.Id.ToString() << '\t' << static_cast<int>(Port.Type) << '\t' << Port.Name << '\n';
+		ASSERT_NO_FATAL_FAILURE(Measure(Function));
+	}
+	for (int Recipe = 0; Recipe < 4; ++Recipe)
+	{
+		const std::array Names{"Default", "Template", "StructuralPlain", "StructuralTransformedPacked"};
+		FPackagePath Path;
+		ASSERT_TRUE(FPackagePath::TryCreate(std::string("/TypedBaseline/") + Names[Recipe], Path));
+		DMaterial* Material = nullptr;
+		ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Material));
+		Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+		if (Recipe == 1)
+		{
+			FMaterialGraphPresentation Presentation;
+			ASSERT_TRUE(Material->SetMaterialProgram(MakePBRSurfaceMaterialMRProgram(Presentation)));
+			ASSERT_TRUE(Material->SetMaterialGraphPresentation(Presentation));
+		}
+		else if (Recipe >= 2)
+		{
+			std::array<FImportedSurfaceRole, 8> Roles;
+			const FMaterialSurfaceOutputs Defaults;
+			for (uint32 Index = 0; Index < Roles.size(); ++Index)
+				Roles[Index].Value = GetMaterialSurfaceOutputDefault(Defaults, static_cast<EMaterialSurfaceOutput>(Index));
+			Roles[0].Sample = FImportedSurfaceSample{.ResourceIdentity = "base"};
+			Roles[0].Value = {1, 1, 1};
+			if (Recipe == 3)
+			{
+				Roles[0].Value = {.2f, .3f, .4f};
+				Roles[0].Sample->UVOffset = {.25f, .5f};
+				Roles[2].Value = {1};
+				Roles[3].Value = {1};
+				Roles[2].Sample = FImportedSurfaceSample{.ResourceIdentity = "packed", .Usage = ETextureUsage::DataMask, .OutputIndex = 4};
+				Roles[3].Sample = FImportedSurfaceSample{.ResourceIdentity = "packed", .Usage = ETextureUsage::DataMask, .OutputIndex = 3};
+			}
+			ASSERT_TRUE(Material->SetMaterialProgram(MakeImportedSurfaceRecipe(Roles).Program));
+		}
+		for (const auto& Parameter : Material->GetParameterDefinitions())
+			Identities << Path.ToString() << "\tparameter\t" << Parameter.Id.ToString() << '\t'
+				<< static_cast<int>(Parameter.Type) << '\t' << Parameter.DisplayName << '\n';
+		ASSERT_NO_FATAL_FAILURE(Measure(Material));
+	}
+	Functions = {};
+	for (auto It = Paths.rbegin(); It != Paths.rend(); ++It) ASSERT_TRUE(UnloadPackage(*It));
+	CollectGarbage();
+	for (const auto& Path : Paths)
+	{
+		for (int Iteration = 0; Iteration < 6; ++Iteration)
+		{
+			DObject* Asset = nullptr;
+			double Time;
+			uint64 Requests, RequestedBytes;
+			bool Loaded;
+			{
+				FMaterialBaselineMeasurement Sample;
+				Loaded = static_cast<bool>(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Asset));
+				Time = Sample.Microseconds();
+				Requests = Sample.Requests;
+				RequestedBytes = Sample.RequestedBytes;
+			}
+			ASSERT_TRUE(Loaded);
+			Measurements << Path.ToString() << "\tload\t" << Iteration << '\t' << Time << '\t'
+				<< Requests << '\t' << RequestedBytes << "\t0\n";
+			ASSERT_TRUE(UnloadPackage(Path));
+			CollectGarbage();
+		}
+	}
+}
+
 namespace
 {
 	auto FunctionPort(uint32 Id, Durin::EMaterialProgramValueType Type, std::string Name)
@@ -412,7 +573,7 @@ TEST(FMaterialFunctionTests, InlineCallBindingsRespectFunctionDefaultsAndRootOwn
 	FMaterialCompilerInput Input;
 	Input.Environment.CompilerIdentity = "InlineCallDefaults";
 	const FGuid CallId{0x98abc103, 1, 1, 3};
-	Input.Program.Nodes = {{.Id = CallId, .Opcode = EMaterialProgramOpcode::FunctionCall}};
+	Input.Program.Nodes = {{.Id = CallId, .Opcode = EMaterialProgramOpcode::FunctionCall, .ResultType = EMaterialProgramValueType::Surface}};
 	Input.Program.Outputs.Roughness = {.SourceNodeId = CallId, .SourceOutputId = Out.Id};
 	Input.FunctionCalls = {{.NodeId = CallId, .FunctionPath = Function->GetObjectPath(),
 		.Inputs = {{In.Id, In.Type, {}, {.Kind = EMaterialInputDefaultKind::Literal, .Literal = {.X = .25f}}}},
@@ -422,11 +583,11 @@ TEST(FMaterialFunctionTests, InlineCallBindingsRespectFunctionDefaultsAndRootOwn
 	const auto Bound = NormalizeMaterialProgram(Input);
 	ASSERT_TRUE(Bound);
 	ASSERT_EQ(Bound.IR.Nodes.size(), 1u);
-	EXPECT_EQ(Bound.IR.Nodes[0].Literal.X, .25f);
+	EXPECT_EQ(Bound.IR.Nodes[0].GetLiteral().X, .25f);
 	Input.FunctionCalls[0].Inputs[0].Default = {};
 	const auto Defaulted = NormalizeMaterialProgram(Input);
 	ASSERT_TRUE(Defaulted);
-	EXPECT_EQ(Defaulted.IR.Nodes[0].Literal.X, .75f);
+	EXPECT_EQ(Defaulted.IR.Nodes[0].GetLiteral().X, .75f);
 	Graph.Signature.Inputs[0].bRequired = true;
 	Graph.Signature.Inputs[0].Default = {};
 	ASSERT_TRUE(Function->SetFunctionGraph(Graph));
@@ -966,12 +1127,12 @@ TEST(FMaterialFunctionTests, ExpansionPreservesIndependentInputsMultipleOutputsA
 	ASSERT_EQ(Metal.Opcode, EMaterialProgramOpcode::Add);
 	ASSERT_EQ(Rough.Opcode, EMaterialProgramOpcode::Add);
 	const auto HasConstant = [&](const FMaterialIRNode& Node, float Value) {
-		return std::ranges::any_of(Node.Inputs, [&](uint32 Index) { return Normalized.IR.Nodes[Index].Literal.X == Value; });
+		return std::ranges::any_of(Node.Inputs, [&](uint32 Index) { return Normalized.IR.Nodes[Index].GetLiteral().X == Value; });
 	};
 	EXPECT_TRUE(HasConstant(Metal, 2));
 	EXPECT_TRUE(HasConstant(Metal, 1));
 	EXPECT_TRUE(HasConstant(Rough, 9));
-	EXPECT_EQ(Normalized.IR.Nodes[Normalized.IR.SurfaceRoot.Inputs[4].ExpressionIndex].Literal.X, 2);
+	EXPECT_EQ(Normalized.IR.Nodes[Normalized.IR.SurfaceRoot.Inputs[4].ExpressionIndex].GetLiteral().X, 2);
 	EXPECT_TRUE(std::ranges::all_of(Normalized.IR.Nodes, [](const auto& Node) { return Node.Opcode < EMaterialProgramOpcode::FunctionInput; }));
 	EXPECT_TRUE(std::ranges::any_of(Normalized.Sources, [&](const auto& Source) {
 		return Source.NodeId == SumId && Source.FunctionAssetPath == Function->GetObjectPath()
@@ -1047,7 +1208,7 @@ TEST(FMaterialFunctionTests, NestedTextureDefaultsYieldToConnectedRootResource)
 	EXPECT_EQ(Default.Layout.ResourceFieldCount, 0u);
 	EXPECT_TRUE(std::ranges::any_of(Default.IR.Nodes, [](const auto& Node) {
 		return Node.Opcode == EMaterialProgramOpcode::Constant && Node.ResultType == EMaterialProgramValueType::Float4
-			&& Node.Literal == FMaterialProgramLiteral{0.5f, 0.5f, 1, 1};
+			&& Node.GetLiteral() == FMaterialProgramLiteral{0.5f, 0.5f, 1, 1};
 	}));
 	Input.Program.Nodes.push_back({.Id = ParameterNode, .Opcode = EMaterialProgramOpcode::TextureParameter,
 		.ResultType = EMaterialProgramValueType::Texture2D, .Parameter = {.Id = ParameterId, .Type = EMaterialParameterType::Texture}});
@@ -1103,7 +1264,7 @@ TEST(FMaterialFunctionTests, RootCallsCommitAtomicallyAndSnapshotThroughInstance
 	const auto& Output = Function->GetFunctionSignature().Outputs[0];
 	const FGuid CallId{41, 1, 1, 1};
 	FMaterialProgram Program;
-	Program.Nodes = {{.Id = CallId, .Opcode = EMaterialProgramOpcode::FunctionCall}};
+	Program.Nodes = {{.Id = CallId, .Opcode = EMaterialProgramOpcode::FunctionCall, .ResultType = EMaterialProgramValueType::Surface}};
 	Program.Outputs.Surface = {.SourceNodeId = CallId, .SourceOutputId = Output.Id};
 	std::vector<FMaterialFunctionCall> Calls{{.NodeId = CallId, .Function = Function,
 		.Outputs = {{Output.Id, Output.Type}}}};
@@ -1229,12 +1390,12 @@ TEST(FMaterialFunctionTests, CompactDefaultsRoundtripAndRejectSpoofedLegacySchem
 	// Old schema tags must not reinterpret a payload that already contains new semantics.
 	const_cast<FMaterialProgram*>(Material->GetMaterialProgram())->SchemaVersion = 5;
 	Material->PostLoad();
-	EXPECT_EQ(Material->GetMaterialProgram()->SchemaVersion, 5u);
+	EXPECT_EQ(Material->GetMaterialProgram()->SchemaVersion, CurrentMaterialProgramSchemaVersion);
 	const_cast<FMaterialProgram*>(Material->GetMaterialProgram())->SchemaVersion = CurrentMaterialProgramSchemaVersion;
 	const_cast<FMaterialFunctionGraph&>(Function->GetFunctionGraph()).SchemaVersion = 1;
 	Function->PostLoad();
-	EXPECT_EQ(Function->GetFunctionGraph().SchemaVersion, 1u);
-	const_cast<FMaterialFunctionGraph&>(Function->GetFunctionGraph()).SchemaVersion = CurrentMaterialFunctionSchemaVersion;
+	// The non-persisted projection cannot alter the owned expression schema.
+	EXPECT_EQ(Function->GetFunctionGraph(), ExpectedFunction);
 	auto Invalid = Expected;
 	Invalid.Nodes.front().UVSettings.Rotation.Literal.X = std::numeric_limits<float>::infinity();
 	const auto Rejected = ValidateMaterialProgramWithFunctions(Invalid, Material->GetParameterDefinitions(), Material->GetMaterialFunctionCalls());
@@ -1264,15 +1425,19 @@ TEST(FMaterialFunctionTests, RejectsOldRootSchemaAndPreservesCurrentFunctionRefe
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(MaterialPath, Material));
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(FunctionPath, Function));
 	// Saving unsupported authored versions must fail without rewriting the graph.
-	const_cast<FMaterialProgram*>(Material->GetMaterialProgram())->SchemaVersion = 4;
+	const auto* VersionProperty = DMaterial::StaticClass()->FindPropertyByName("GraphOwnershipVersion");
+	ASSERT_NE(VersionProperty, nullptr);
+	auto& Version = *VersionProperty->ContainerPtrToValuePtr<uint32>(Material);
+	const auto CurrentVersion = Version;
+	Version = 1;
 	EXPECT_FALSE(SavePackage(Material->GetPackage()));
-	EXPECT_EQ(Material->GetMaterialProgram()->SchemaVersion, 4u);
-	const_cast<FMaterialProgram*>(Material->GetMaterialProgram())->SchemaVersion = CurrentMaterialProgramSchemaVersion;
+	EXPECT_EQ(Version, 1u);
+	Version = CurrentVersion;
 	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	FMaterialProgram Program;
 	const FGuid CallId{42, 1, 1, 1};
 	const auto& Output = Function->GetFunctionSignature().Outputs[0];
-	Program.Nodes = {{.Id = CallId, .Opcode = EMaterialProgramOpcode::FunctionCall}};
+	Program.Nodes = {{.Id = CallId, .Opcode = EMaterialProgramOpcode::FunctionCall, .ResultType = EMaterialProgramValueType::Surface}};
 	Program.Outputs.Surface = {.SourceNodeId = CallId, .SourceOutputId = Output.Id};
 	ASSERT_TRUE(Material->SetMaterialProgramAndFunctionCalls(Program,
 		{{.NodeId = CallId, .Function = Function, .Outputs = {{Output.Id, Output.Type}}}}));
@@ -1334,8 +1499,8 @@ TEST(FMaterialFunctionTests, NestedSurfaceOverridesAndSelectedOutputsPreserveAtt
 	ASSERT_TRUE(SnapshotMaterialFunctionClosure(Roots, Input.Functions));
 	const auto Normalized = NormalizeMaterialProgram(Input);
 	ASSERT_TRUE(Normalized) << (Normalized.Diagnostics.empty() ? "" : Normalized.Diagnostics[0].Message);
-	EXPECT_EQ(Normalized.IR.Nodes[Normalized.IR.SurfaceRoot.Inputs[0].ExpressionIndex].Literal, (FMaterialProgramLiteral{0, 0, 1}));
-	EXPECT_EQ(Normalized.IR.Nodes[Normalized.IR.SurfaceRoot.Inputs[3].ExpressionIndex].Literal.X, 0.75f);
+	EXPECT_EQ(Normalized.IR.Nodes[Normalized.IR.SurfaceRoot.Inputs[0].ExpressionIndex].GetLiteral(), (FMaterialProgramLiteral{0, 0, 1}));
+	EXPECT_EQ(Normalized.IR.Nodes[Normalized.IR.SurfaceRoot.Inputs[3].ExpressionIndex].GetLiteral().X, 0.75f);
 	EXPECT_TRUE(std::ranges::all_of(Normalized.IR.Nodes, [](const auto& Node) { return Node.Opcode < EMaterialProgramOpcode::FunctionInput; }));
 	EXPECT_TRUE(GenerateMaterialProgramSlang(Normalized.IR, Normalized.Layout));
 	Input.Program.Nodes[1].SurfaceAttributeMask |= 1u << static_cast<uint8>(EMaterialSurfaceOutput::Roughness);
@@ -1570,7 +1735,7 @@ TEST(FMaterialFunctionTests, RelocationRefreshesNestedCallersAndDeletionHonorsRe
 	const auto Output = Wrapper->GetFunctionSignature().Outputs[0];
 	const FGuid CallId{64, 1, 1, 1};
 	FMaterialProgram Program;
-	Program.Nodes = {{.Id = CallId, .Opcode = EMaterialProgramOpcode::FunctionCall}};
+	Program.Nodes = {{.Id = CallId, .Opcode = EMaterialProgramOpcode::FunctionCall, .ResultType = EMaterialProgramValueType::Surface}};
 	Program.Outputs.Surface = {.SourceNodeId = CallId, .SourceOutputId = Output.Id};
 	ASSERT_TRUE(Material->SetMaterialProgramAndFunctionCalls(Program,
 		{{.NodeId = CallId, .Function = Wrapper, .Outputs = {{Output.Id, Output.Type}}}}));
@@ -1643,7 +1808,7 @@ TEST(FMaterialFunctionTests, CookFingerprintsNestedFunctionsWithoutProducingRunt
 	const auto Output = Wrapper->GetFunctionSignature().Outputs[0];
 	const FGuid CallId{63, 1, 1, 1};
 	FMaterialProgram Program;
-	Program.Nodes = {{.Id = CallId, .Opcode = EMaterialProgramOpcode::FunctionCall}};
+	Program.Nodes = {{.Id = CallId, .Opcode = EMaterialProgramOpcode::FunctionCall, .ResultType = EMaterialProgramValueType::Surface}};
 	Program.Outputs.Surface = {.SourceNodeId = CallId, .SourceOutputId = Output.Id};
 	ASSERT_TRUE(Material->SetMaterialProgramAndFunctionCalls(Program,
 		{{.NodeId = CallId, .Function = Wrapper, .Outputs = {{Output.Id, Output.Type}}}}));
@@ -1835,12 +2000,8 @@ TEST(FMaterialFunctionTests, StandardMaterialFixtureCooksAndLoadsWithoutAuthored
 	InitializeDObjectSystem();
 	FScopedOfflinePreparation Offline;
 	const auto Root = Testing::CreateTestFixtureDirectory("CookStandardMaterialFixture");
-	const auto Source = std::filesystem::path(FPaths::EngineContentDir()) / "Materials";
 	std::filesystem::create_directories(Root / "Content/Materials/Functions");
-	for (const std::string_view File : {"Functions/UVTransform.dasset",
-		"Functions/SampleNormal.dasset", "Functions/SampleORM.dasset", "Functions/StandardPBR.dasset",
-		"Functions/StandardPBR_ORM.dasset", "Functions/ImportedSurfaceValues.dasset", "Functions/DecodeImportedNormalRG.dasset"})
-		std::filesystem::copy_file(Source / File, Root / "Content/Materials" / File);
+	// Build current-schema fixtures from recipes; shipped packages have a separate rebuild gate.
 	const std::array Mounts{FMountPoint{.VirtualRoot = "/Engine/", .Owner = EMountOwner::Test,
 		.Root = Root / "Content", .bAutoScan = true, .bContentWritable = true}};
 	Testing::FScopedMountRegistryFixture Registry(Mounts);

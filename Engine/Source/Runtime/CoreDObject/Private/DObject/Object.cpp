@@ -292,6 +292,11 @@ namespace Durin
 	{
 	}
 
+	auto DObject::ValidateLoadedObjectGraph(const FObjectGraphLoadContext&, std::string&) const -> bool
+	{
+		return true;
+	}
+
 	auto DObject::GetLoadedCustomVersion(const FGuid& Key) const -> std::optional<int32>
 	{
 		const auto It = std::ranges::find(LoadedCustomVersions, Key,

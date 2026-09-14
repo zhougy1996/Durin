@@ -52,9 +52,15 @@ render boundary accepts only material-specific layout v4 data. Built-in role kno
   `FMaterialProgramValidationResult`; output snapshots are assigned only on
   success. Editor commands retain bounded diagnostics and distinguish parameter
   GUIDs from node GUIDs.
-- `DMaterialInstance` references a parent material interface and stores one
-  ordered collection of GUID/value overrides plus reflected
-  `FMaterialPropertyOverrides`. Its five flags independently select blend,
+- `DMaterialInstance` references a parent material interface and persists separate
+  scalar, Vector2, Vector3, Vector4, and texture override arrays. Each record owns
+  its GUID and concrete value; texture values include sampler/fallback policy.
+  `GetParameterOverrides()` returns a non-reflected read-only projection that
+  expires on storage edits or reference collection. Duplicate GUIDs across arrays
+  fail property-edit admission and package serialization. Missing/unsupported
+  `OverrideStorageVersion` fails loading and requires rebuilding the instance.
+  Explicit equal-to-parent values remain overrides. The separately reflected
+  `FMaterialPropertyOverrides` has five flags that independently select blend,
   shading, cutoff, two-sided and depth-write values. `SetPropertyOverrides`
   validates the entire edit before applying it; clearing a flag retains its
   inactive value. Dynamic resolution walks the current

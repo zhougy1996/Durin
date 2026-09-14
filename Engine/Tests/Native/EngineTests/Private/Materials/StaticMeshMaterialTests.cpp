@@ -768,7 +768,7 @@ TEST(FStaticMeshMaterialTests, MissingOwnershipMarkerRejectsParentAndInstanceWit
 	Durin::FByteBuffer InstanceBytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(InstanceBytes, (Root / "Instance.dasset")));
 	ASSERT_TRUE(RewriteSerializedFieldAsLegacyMap(
-		InstanceBytes, InstancePath, "ParameterOverrides", "ScalarParameters"));
+		InstanceBytes, InstancePath, "OverrideStorageVersion", "ScalarParameters"));
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(std::as_bytes(std::span(InstanceBytes)), Root / "Instance.dasset"));
 
 	Durin::DMaterialInstance* LoadedInstance = nullptr;

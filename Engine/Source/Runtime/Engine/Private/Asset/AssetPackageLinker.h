@@ -43,7 +43,7 @@ namespace Durin::AssetPrivate
 	};
 
 	// Deserialization admission is exact-class and includes constructors, default
-	// inners, native serializers and struct migration callbacks: these must not
+	// inners, native serializers, graph validators and struct migration callbacks: these must not
 	// mutate live state or pump callbacks during construction. No PostLoad runs.
 	struct FPackageGraphPrepareOptions
 	{
@@ -92,6 +92,7 @@ namespace Durin::AssetPrivate
 	// After explicit dependency loads, callbacks cannot load/save/unload live assets.
 	// Ignored guard rejections fail the batch; callback exceptions become InvalidClosure.
 	// Object limits include package/default-inner objects; byte budgets are caller-owned.
+	// Graph validators run only after every selected package has restored its values.
 	ENGINE_API auto PreparePackageGraphs(std::span<const FPackageGraphSource> Sources,
 		const FPackageGraphPrepareOptions& Options, std::vector<FPreparedPackageGraph>& Out)
 		-> FPackageGraphPrepareResult;

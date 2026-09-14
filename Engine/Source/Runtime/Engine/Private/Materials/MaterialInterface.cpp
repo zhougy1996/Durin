@@ -171,7 +171,6 @@ namespace Durin
 	}
 
 	auto DMaterialInterface::RequestProgramCompile(
-		const FMaterialProgram& CandidateProgram,
 		const FMaterialStaticProperties& CandidateProperties,
 		bool bForceRecompile) -> bool
 	{
@@ -201,32 +200,29 @@ namespace Durin
 			RetireFailedMaterialGeneration();
 			return false;
 		}
-		FMaterialCompilerInput Input;
-		Input.Program = CandidateProgram;
-		Input.StaticProperties = CandidateProperties;
-		Input.Environment = std::move(Environment);
+		FMaterialIRCompilerInput Input;
 		std::vector<FMaterialFunctionOwnerStamp> FunctionOwners;
-		const auto Functions = SnapshotMaterialFunctionCalls(GetMaterialFunctionCalls(), Input.FunctionCalls, Input.Functions, &FunctionOwners);
-		if (!Functions)
+		const auto Snapshot = SnapshotMaterialCompilerInput(*this, std::move(Environment), Input, &FunctionOwners);
+		Input.StaticProperties = CandidateProperties;
+		if (!Snapshot)
 		{
 			auto& Status = CompilationOwner.MaterialCompileStatus;
 			Status.RequestGeneration = Status.RequestGeneration == std::numeric_limits<uint64>::max()
 				? 1 : Status.RequestGeneration + 1;
 			Status.State = EMaterialCompileState::Failed;
-			Status.ResultCategory = EMaterialCompileResultCategory::Dependency;
+			Status.ResultCategory = !Snapshot.Diagnostics.empty()
+				&& Snapshot.Diagnostics.front().Category == EMaterialProgramDiagnosticCategory::Dependency
+				? EMaterialCompileResultCategory::Dependency : EMaterialCompileResultCategory::Validation;
 			CompilationOwner.MaterialCompileDiagnostics.clear();
-			for (const auto& Diagnostic : Functions.Diagnostics)
+			for (const auto& Diagnostic : Snapshot.Diagnostics)
 				CompilationOwner.MaterialCompileDiagnostics.push_back({
-					.Category = EMaterialCompileResultCategory::Dependency, .Source = Diagnostic,
+					.Category = Diagnostic.Category == EMaterialProgramDiagnosticCategory::Dependency
+						? EMaterialCompileResultCategory::Dependency : EMaterialCompileResultCategory::Validation,
+					.Source = Diagnostic,
 					.AssetPath = GetObjectPath(), .Generation = Status.RequestGeneration});
 			RetireFailedMaterialGeneration();
 			return false;
 		}
-		Input.Parameters.reserve(GetParameterDefinitions().size());
-		for (const FMaterialParameterDefinition& Definition : GetParameterDefinitions())
-			Input.Parameters.push_back({Definition.Id, Definition.Type});
-		std::ranges::sort(Input.Parameters, {},
-			&FMaterialCompilerParameterDeclaration::Id);
 		CompilationOwner.LastObservedParameters = Input.Parameters;
 		return Private::FMaterialCompilationLifecycle::Submit(
 			*this, std::move(Input), bForceRecompile, std::move(FunctionOwners));

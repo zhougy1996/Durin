@@ -1124,6 +1124,23 @@ namespace Durin::AssetPrivate
 	auto FPreparedPackageGraph::GetStorage() const -> const FPreparedPackageResource& { require(State); return State->Storage; }
 	auto FPreparedPackageGraph::GetReport() const -> const FAssetLoadReport& { require(State); return State->Report; }
 
+	namespace
+	{
+		auto ValidateLoadedGraphs(std::span<DObject* const> Objects, const FObjectGraphLoadContext& Context)
+			-> FAssetResult
+		{
+			FAssetLiveLoadGuard Guard(true);
+			for (const DObject* Object : Objects)
+			{
+				std::string Error;
+				if (!Object->ValidateLoadedObjectGraph(Context, Error))
+					return {EAssetError::InvalidObjectGraph, std::format("Loaded graph '{}': {}",
+						Object->GetObjectPath(), Error.empty() ? "object graph validation failed" : Error)};
+			}
+			return Guard.GetFailure();
+		}
+	}
+
 	auto PreparePackageGraphs(std::span<const FPackageGraphSource> Sources,
 		const FPackageGraphPrepareOptions& Options, std::vector<FPreparedPackageGraph>& Out)
 		-> FPackageGraphPrepareResult
@@ -1303,6 +1320,13 @@ namespace Durin::AssetPrivate
 					|| !Application.Report.CanonicalizationEvidence.empty()
 					|| !Application.Report.DeprecatedRouteEvidence.empty() || Application.Report.DiscardedFieldCount != 0);
 				Candidates[Index].State->Report = std::move(Application.Report);
+			}
+			// Cross-package references in this prepared batch now see restored values.
+			for (const auto& Application : Applications)
+			{
+				CurrentPath = Application.PackagePath;
+				if (auto Result = ValidateLoadedGraphs(Application.Objects, {.bPrivateGraph = true}); !Result)
+					return {S::InvalidClosure, CurrentPath, Result.Message};
 			}
 			for (const auto& Source : Sources)
 			{
@@ -1518,6 +1542,12 @@ namespace Durin::AssetPrivate
 			Rollback(); return Finish(Result);
 		}
 
+		if (FAssetResult Result = ValidateLoadedGraphs(Objects,
+			{.bCooked = Options.bCooked, .bPrivateGraph = Options.bPrivateGraph}); !Result)
+		{
+			LinkerApplyFail(Diagnostic, Result.Error, Result.Message);
+			Rollback(); return Finish(Result);
+		}
 		Package->ClearDirty();
 		for (size_t Reverse = Objects.size(); Reverse > 0; --Reverse)
 		{

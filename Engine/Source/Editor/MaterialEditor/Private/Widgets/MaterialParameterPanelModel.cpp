@@ -87,6 +87,7 @@ namespace Durin::Editor::Material
 				}, bContinuous);
 		}
 
+		template<typename TRecord>
 		auto RemoveScratchOverride(
 			const FArrayProperty& Property,
 			void* Container,
@@ -97,14 +98,14 @@ namespace Durin::Editor::Material
 			const uint64 Count = Property.Num(Container, ArrayIndex);
 			for (uint64 Index = 0; Index < Count; ++Index)
 			{
-				auto* Entry = static_cast<FMaterialParameterOverride*>(
+				auto* Entry = static_cast<TRecord*>(
 					Property.GetMutableElementPtr(Container, Index, ArrayIndex));
 				if (!Entry || Entry->ParameterId != ParameterId) continue;
 				for (uint64 MoveIndex = Index + 1; MoveIndex < Count; ++MoveIndex)
 				{
-					auto* Destination = static_cast<FMaterialParameterOverride*>(
+					auto* Destination = static_cast<TRecord*>(
 						Property.GetMutableElementPtr(Container, MoveIndex - 1, ArrayIndex));
-					auto* Source = static_cast<FMaterialParameterOverride*>(
+					auto* Source = static_cast<TRecord*>(
 						Property.GetMutableElementPtr(Container, MoveIndex, ArrayIndex));
 					*Destination = std::move(*Source);
 				}
@@ -247,18 +248,16 @@ namespace Durin::Editor::Material
 		if (Instance)
 		{
 			if (!Entry.bHasLocalOverride) return false;
-			FArrayProperty* Property = FindArrayProperty(Instance, FName("ParameterOverrides"));
-			return SubmitRootArrayEdit(PropertyView, Context, Instance, Property, Entry.ParameterId,
-				EPropertyChangeKind::ValueSet, bContinuous,
-				[Id = Entry.ParameterId, CanonicalValue](const FArrayProperty& ScratchProperty,
-					void* ScratchContainer, uint32 ScratchArrayIndex) {
-					if (auto* Override = FindScratchEntry<FMaterialParameterOverride>(
-						ScratchProperty, ScratchContainer, ScratchArrayIndex, Id,
-						&FMaterialParameterOverride::ParameterId))
-					{
-						Override->Value = CanonicalValue;
-					}
-				});
+			return VisitMaterialParameterOverrideType(Entry.Definition->Type, [&]<typename TRecord>() {
+				FArrayProperty* Property = FindArrayProperty(Instance, TRecord::PropertyName());
+				return SubmitRootArrayEdit(PropertyView, Context, Instance, Property, Entry.ParameterId,
+					EPropertyChangeKind::ValueSet, bContinuous,
+					[Id = Entry.ParameterId, CanonicalValue](const FArrayProperty& ScratchProperty,
+						void* ScratchContainer, uint32 ScratchArrayIndex) {
+						if (auto* Override = FindScratchEntry<TRecord>(ScratchProperty, ScratchContainer,
+							ScratchArrayIndex, Id, &TRecord::ParameterId)) Override->SetValue(CanonicalValue);
+					});
+			});
 		}
 		return false;
 	}
@@ -271,25 +270,24 @@ namespace Durin::Editor::Material
 	) const -> bool
 	{
 		if (!Instance || !Entry.Definition || Entry.bOrphan || Entry.bHasLocalOverride == bEnabled) return false;
-		FArrayProperty* Property = FindArrayProperty(Instance, FName("ParameterOverrides"));
-		return SubmitRootArrayEdit(PropertyView, Context, Instance, Property, Entry.ParameterId,
-			bEnabled ? EPropertyChangeKind::ArrayAdd : EPropertyChangeKind::ArrayRemove, false,
-			[Id = Entry.ParameterId, Type = Entry.Definition->Type,
-				Value = CanonicalizeValue(*Entry.Definition, Entry.Value), bEnabled](
-				const FArrayProperty& ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
-				if (bEnabled)
-				{
-					const uint64 Count = ScratchProperty.Num(ScratchContainer, ScratchArrayIndex);
-					ScratchProperty.Resize(ScratchContainer, Count + 1, ScratchArrayIndex);
-					auto* Override = static_cast<FMaterialParameterOverride*>(
-						ScratchProperty.GetMutableElementPtr(ScratchContainer, Count, ScratchArrayIndex));
-					*Override = {.ParameterId = Id, .Type = Type, .Value = Value};
-				}
-				else
-				{
-					RemoveScratchOverride(ScratchProperty, ScratchContainer, ScratchArrayIndex, Id);
-				}
-			});
+		return VisitMaterialParameterOverrideType(Entry.Definition->Type, [&]<typename TRecord>() {
+			FArrayProperty* Property = FindArrayProperty(Instance, TRecord::PropertyName());
+			return SubmitRootArrayEdit(PropertyView, Context, Instance, Property, Entry.ParameterId,
+				bEnabled ? EPropertyChangeKind::ArrayAdd : EPropertyChangeKind::ArrayRemove, false,
+				[Id = Entry.ParameterId, Value = CanonicalizeValue(*Entry.Definition, Entry.Value), bEnabled](
+					const FArrayProperty& ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
+					if (bEnabled)
+					{
+						const uint64 Count = ScratchProperty.Num(ScratchContainer, ScratchArrayIndex);
+						ScratchProperty.Resize(ScratchContainer, Count + 1, ScratchArrayIndex);
+						auto* Override = static_cast<TRecord*>(
+							ScratchProperty.GetMutableElementPtr(ScratchContainer, Count, ScratchArrayIndex));
+						Override->ParameterId = Id;
+						Override->SetValue(Value);
+					}
+					else RemoveScratchOverride<TRecord>(ScratchProperty, ScratchContainer, ScratchArrayIndex, Id);
+				});
+		});
 	}
 
 	auto FMaterialParameterPanelModel::RemoveOrphan(
@@ -299,12 +297,17 @@ namespace Durin::Editor::Material
 	) const -> bool
 	{
 		if (!Instance || !Entry.bOrphan) return false;
-		FArrayProperty* Property = FindArrayProperty(Instance, FName("ParameterOverrides"));
-		return SubmitRootArrayEdit(PropertyView, Context, Instance, Property, Entry.ParameterId,
-			EPropertyChangeKind::ArrayRemove, false,
-			[Id = Entry.ParameterId](const FArrayProperty& ScratchProperty,
-				void* ScratchContainer, uint32 ScratchArrayIndex) {
-				RemoveScratchOverride(ScratchProperty, ScratchContainer, ScratchArrayIndex, Id);
-			});
+		const auto Overrides = Instance->GetParameterOverrides();
+		const auto Override = std::ranges::find(Overrides, Entry.ParameterId, &FMaterialParameterOverride::ParameterId);
+		if (Override == Overrides.end()) return false;
+		return VisitMaterialParameterOverrideType(Override->Type, [&]<typename TRecord>() {
+			FArrayProperty* Property = FindArrayProperty(Instance, TRecord::PropertyName());
+			return SubmitRootArrayEdit(PropertyView, Context, Instance, Property, Entry.ParameterId,
+				EPropertyChangeKind::ArrayRemove, false,
+				[Id = Entry.ParameterId](const FArrayProperty& ScratchProperty,
+					void* ScratchContainer, uint32 ScratchArrayIndex) {
+					RemoveScratchOverride<TRecord>(ScratchProperty, ScratchContainer, ScratchArrayIndex, Id);
+				});
+		});
 	}
 }

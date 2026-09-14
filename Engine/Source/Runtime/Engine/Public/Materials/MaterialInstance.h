@@ -2,6 +2,7 @@
 
 #include "Materials/MaterialInterface.h"
 #include "Texture/Texture2D.h"
+#include "Materials/MaterialParameterOverrides.h"
 
 #include "MaterialInstance.gen.h"
 
@@ -28,6 +29,7 @@ namespace Durin
 		ENGINE_API auto GetAcceptedCompiledProgram() const
 			-> std::shared_ptr<const FMaterialCompilerResult> override;
 		ENGINE_API auto GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition> override;
+		// Read-only projection; storage edits and reference collection invalidate its spans.
 		ENGINE_API auto GetParameterOverrides() const -> std::span<const FMaterialParameterOverride>;
 		ENGINE_API auto SetPropertyOverrides(const FMaterialPropertyOverrides& Overrides) -> bool;
 		auto GetPropertyOverrides() const -> const FMaterialPropertyOverrides& { return PropertyOverrides; }
@@ -57,6 +59,8 @@ namespace Durin
 		ENGINE_API auto GetVector2ParameterValue(FName Name, FVector2& OutValue) const -> bool override;
 		ENGINE_API auto GetVectorParameterValue(FName Name, FVector3& OutValue) const -> bool override;
 		ENGINE_API auto GetTextureParameterValue(FName Name, DTexture2D*& OutValue) const -> bool override;
+		ENGINE_API auto Serialize(FArchive& Ar) -> void override;
+		ENGINE_API auto AddReferencedObjects(FReferenceCollector& Collector) -> void override;
 		ENGINE_API auto PostLoad() -> void override;
 		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool override;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
@@ -69,8 +73,45 @@ namespace Durin
 		DPROPERTY(Edit)
 		TObjectPtr<DMaterialInterface> Parent;
 
+		DPROPERTY(AlwaysSerialize)
+		uint32 OverrideStorageVersion = 1;
+
 		DPROPERTY(Edit)
-		std::vector<FMaterialParameterOverride> ParameterOverrides;
+		std::vector<FMaterialScalarParameterOverride> ScalarParameterOverrides;
+
+		DPROPERTY(Edit)
+		std::vector<FMaterialVector2ParameterOverride> Vector2ParameterOverrides;
+
+		DPROPERTY(Edit)
+		std::vector<FMaterialVectorParameterOverride> VectorParameterOverrides;
+
+		DPROPERTY(Edit)
+		std::vector<FMaterialVector4ParameterOverride> Vector4ParameterOverrides;
+
+		DPROPERTY(Edit)
+		std::vector<FMaterialTextureParameterOverride> TextureParameterOverrides;
+
+		// Read-only projection; expires on a storage mutation or reference rewrite.
+		mutable std::vector<FMaterialParameterOverride> ParameterOverrides;
+		mutable bool bOverrideProjectionDirty = true;
+		auto RebuildOverrideProjection() const -> void;
+		auto ValidateOverrideStorage(const FPropertyEditProposal* Proposal = nullptr) const -> bool;
+		template<typename TVisitor> auto VisitOverrideArrays(TVisitor&& Visitor) -> void
+		{
+			Visitor(ScalarParameterOverrides);
+			Visitor(Vector2ParameterOverrides);
+			Visitor(VectorParameterOverrides);
+			Visitor(Vector4ParameterOverrides);
+			Visitor(TextureParameterOverrides);
+		}
+		template<typename TVisitor> auto VisitOverrideArrays(TVisitor&& Visitor) const -> void
+		{
+			Visitor(ScalarParameterOverrides);
+			Visitor(Vector2ParameterOverrides);
+			Visitor(VectorParameterOverrides);
+			Visitor(Vector4ParameterOverrides);
+			Visitor(TextureParameterOverrides);
+		}
 
 		DPROPERTY(Edit)
 		FMaterialPropertyOverrides PropertyOverrides;

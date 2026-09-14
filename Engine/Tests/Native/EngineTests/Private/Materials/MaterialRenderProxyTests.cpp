@@ -1027,9 +1027,8 @@ TEST(FMaterialRenderProxyTests, FailedCompilationPublishesErrorAndRecoveryForEac
 		EXPECT_GT(Recovered.LocalVersion, Error.LocalVersion);
 		ExpectRenderDataMatches(Recovered.RenderData, Before.RenderData);
 
-		Durin::FMaterialCompilerInput InvalidInput;
-		InvalidInput.Program = *Owner->GetMaterialProgram();
-		InvalidInput.Program.SchemaVersion = 0;
+		Durin::FMaterialIRCompilerInput InvalidInput;
+		InvalidInput.IR.Version = 0;
 		InvalidInput.StaticProperties = Owner->GetStaticProperties();
 		std::string EnvironmentError;
 		ASSERT_TRUE(Durin::BuildDefaultMaterialCompilerEnvironment(InvalidInput.Environment, EnvironmentError));

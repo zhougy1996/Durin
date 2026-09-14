@@ -93,7 +93,7 @@ namespace Durin
 		uint64 DependencyRevision = 0;
 		uint64 ParentChainRevision = 0;
 		FMaterialProgramIdentity ProgramIdentity;
-		FMaterialCompilerInput CompilerInput;
+		FMaterialIRCompilerInput CompilerInput;
 		std::string AssetPath;
 		std::string Target;
 		bool bForceRecompile = false;
@@ -187,7 +187,7 @@ namespace Durin
 			ENGINE_API static auto ScheduleEdit(DMaterialInterface& Material) -> void;
 			ENGINE_API static auto Submit(
 				DMaterialInterface& Material,
-				FMaterialCompilerInput Input,
+				FMaterialIRCompilerInput Input,
 				bool bForceRecompile, std::vector<FMaterialFunctionOwnerStamp> FunctionOwners = {}) -> bool;
 			ENGINE_API static auto Admit(
 				DMaterialInterface& Material,

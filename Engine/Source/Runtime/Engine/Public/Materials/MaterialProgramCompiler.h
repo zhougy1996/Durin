@@ -13,6 +13,7 @@
 #include <array>
 #include <string>
 #include <vector>
+#include <variant>
 
 namespace Durin
 {
@@ -58,18 +59,50 @@ namespace Durin
 		auto operator==(const FMaterialCompilerInput&) const -> bool = default;
 	};
 
+	struct FMaterialIRSwizzle
+	{
+		uint8 Length = 0;
+		std::array<uint8, 4> Components{};
+		auto operator==(const FMaterialIRSwizzle&) const -> bool = default;
+	};
+
+	// Only the selected immediate payload is present. Operations without immediates
+	// use monostate; opcode/payload agreement is checked before encoding/generation.
+	using FMaterialIRPayload = std::variant<std::monostate, FMaterialProgramLiteral, FGuid, FMaterialIRSwizzle>;
+
 	struct FMaterialIRNode
 	{
 		EMaterialProgramOpcode Opcode = EMaterialProgramOpcode::Constant;
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
 		std::vector<uint32> Inputs;
-		FMaterialProgramLiteral Literal;
-		FGuid ParameterId;
-		uint8 SwizzleLength = 0;
-		uint8 SwizzleX = 0;
-		uint8 SwizzleY = 0;
-		uint8 SwizzleZ = 0;
-		uint8 SwizzleW = 0;
+		FMaterialIRPayload Payload;
+
+		auto GetLiteral() const -> FMaterialProgramLiteral
+		{
+			const auto* Value = std::get_if<FMaterialProgramLiteral>(&Payload);
+			return Value ? *Value : FMaterialProgramLiteral{};
+		}
+		auto GetParameterId() const -> FGuid
+		{
+			const auto* Value = std::get_if<FGuid>(&Payload);
+			return Value ? *Value : FGuid{};
+		}
+		auto GetSwizzle() const -> FMaterialIRSwizzle
+		{
+			const auto* Value = std::get_if<FMaterialIRSwizzle>(&Payload);
+			return Value ? *Value : FMaterialIRSwizzle{};
+		}
+		auto HasValidPayload() const -> bool
+		{
+			switch (Opcode)
+			{
+			case EMaterialProgramOpcode::Constant: return std::holds_alternative<FMaterialProgramLiteral>(Payload);
+			case EMaterialProgramOpcode::Parameter:
+			case EMaterialProgramOpcode::TextureParameter: return std::holds_alternative<FGuid>(Payload);
+			case EMaterialProgramOpcode::Swizzle: return std::holds_alternative<FMaterialIRSwizzle>(Payload);
+			default: return std::holds_alternative<std::monostate>(Payload);
+			}
+		}
 
 		auto operator==(const FMaterialIRNode&) const -> bool = default;
 	};
@@ -124,6 +157,17 @@ namespace Durin
 		operator bool() const { return bSucceeded; }
 	};
 
+	// Final compiler input: detached typed IR and its binding/environment contract.
+	// Authored Program nodes, function call tables, and object references are absent.
+	struct FMaterialIRCompilerInput
+	{
+		FMaterialIR IR;
+		std::vector<FMaterialCompilerParameterDeclaration> Parameters;
+		FMaterialStaticProperties StaticProperties;
+		FMaterialCompilerEnvironment Environment;
+		std::vector<FMaterialExpressionSource> Sources;
+	};
+
 	struct FMaterialCompileTimings
 	{
 		uint64 NormalizationMicroseconds = 0;
@@ -153,6 +197,12 @@ namespace Durin
 	};
 
 	[[nodiscard]] ENGINE_API auto SnapshotMaterialCompilerInput(
+		const DMaterialInterface& Material, FMaterialCompilerEnvironment Environment,
+		FMaterialIRCompilerInput& OutInput, std::vector<FMaterialFunctionOwnerStamp>* OutOwners = nullptr)
+		-> FMaterialProgramValidationResult;
+	ENGINE_API auto AreMaterialFunctionOwnersCurrent(std::span<const FMaterialFunctionOwnerStamp> Owners) -> bool;
+
+	[[nodiscard]] ENGINE_API auto SnapshotMaterialCompilerInput(
 		const DMaterialInterface& Material,
 		FMaterialCompilerEnvironment Environment,
 		FMaterialCompilerInput& OutInput) -> FMaterialProgramValidationResult;
@@ -164,6 +214,11 @@ namespace Durin
 	ENGINE_API auto NormalizeMaterialProgram(
 		const FMaterialCompilerInput& Input)
 		-> FMaterialNormalizationResult;
+	ENGINE_API auto NormalizeMaterialIR(const FMaterialIRCompilerInput& Input) -> FMaterialNormalizationResult;
+	[[nodiscard]] ENGINE_API auto ValidateMaterialIR(const FMaterialIR& IR,
+		const FMaterialRenderLayout& Layout) -> FMaterialProgramValidationResult;
+	[[nodiscard]] ENGINE_API auto ValidateMaterialIR(const FMaterialIR& IR,
+		std::span<const FMaterialCompilerParameterDeclaration> Parameters) -> FMaterialProgramValidationResult;
 
 	ENGINE_API auto EncodeMaterialIRCanonical(
 		const FMaterialIR& IR,
@@ -174,6 +229,8 @@ namespace Durin
 		const FMaterialCompilerInput& Input,
 		FByteView CanonicalIR, const FMaterialRenderLayout& Layout)
 		-> FMaterialProgramIdentity;
+	ENGINE_API auto BuildMaterialProgramIdentity(const FMaterialIRCompilerInput& Input,
+		FByteView CanonicalIR, const FMaterialRenderLayout& Layout) -> FMaterialProgramIdentity;
 	struct FMaterialSourceGenerationResult
 	{
 		std::string Source;
@@ -193,6 +250,8 @@ namespace Durin
 		std::string& OutError) -> bool;
 	ENGINE_API auto CompileMaterialProgram(
 		const FMaterialCompilerInput& Input,
+		bool bForceRecompile = false) -> FMaterialCompilerResult;
+	ENGINE_API auto CompileMaterialIR(const FMaterialIRCompilerInput& Input,
 		bool bForceRecompile = false) -> FMaterialCompilerResult;
 }
 

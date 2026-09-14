@@ -1970,6 +1970,15 @@ namespace Durin
 			}
 		}
 
+		for (const FLoadedObjectRecord& Record : Records)
+		{
+			std::string Error;
+			if (!Context.ResolveId(Record.Id)->ValidateLoadedObjectGraph({}, Error))
+			{
+				DiscardLoadedObjects();
+				return nullptr;
+			}
+		}
 		DObject* LoadedRoot = Context.ResolveId(RootId);
 		if (!LoadedRoot) DiscardLoadedObjects();
 		return LoadedRoot;
@@ -2200,6 +2209,15 @@ namespace Durin
 			}
 		}
 
+		for (DObject* Source : Sources)
+		{
+			std::string Error;
+			if (!Duplicates[Source]->ValidateLoadedObjectGraph({}, Error))
+			{
+				DiscardDuplicates();
+				return nullptr;
+			}
+		}
 		for (auto It = Sources.rbegin(); It != Sources.rend(); ++It)
 		{
 			Duplicates[*It]->PostLoad();

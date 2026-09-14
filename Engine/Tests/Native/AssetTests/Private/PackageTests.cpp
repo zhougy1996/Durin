@@ -527,9 +527,17 @@ namespace
 					&DImportMetadataForTest::StaticClass);
 			static const FUInt32PropertyParams RuntimeValueProperty{
 				"RuntimeValue", EPropertyFlags::None, 1,
-				STRUCT_OFFSET_UINT16(DImportMetadataOwnerForTest, RuntimeValue)};
+					STRUCT_OFFSET_UINT16(DImportMetadataOwnerForTest, RuntimeValue)};
+			static const FObjectPropertyParams GraphInner =
+				FObjectPropertyParams::ObjectPtr<DImportMetadataForTest>(
+					"Graph_Inner", EPropertyFlags::None, 1, 0,
+					&DImportMetadataForTest::StaticClass);
+			static const FArrayPropertyParams GraphProperty{
+				"Graph", EPropertyFlags::EditorOnly, 1,
+				STRUCT_OFFSET_UINT16(DImportMetadataOwnerForTest, Graph),
+				&GraphInner, &GraphArrayOps};
 			static const FPropertyParamsBase* Properties[] = {
-				&ImportDataProperty, &RuntimeValueProperty};
+				&ImportDataProperty, &RuntimeValueProperty, &GraphProperty};
 			static const FClassParams Params{
 				&StaticClassNoRegister, "Tests::DImportMetadataOwnerForTest",
 				"DImportMetadataOwnerForTest", Properties, std::size(Properties)};
@@ -539,6 +547,35 @@ namespace
 
 		Durin::TObjectPtr<DImportMetadataForTest> AssetImportData;
 		uint32 RuntimeValue = 0;
+		// Mirrors the proposed material ownership shape without introducing production expressions.
+		std::vector<Durin::TObjectPtr<DImportMetadataForTest>> Graph;
+
+		static auto GraphArrayOps() -> const Durin::FArrayOps*
+		{
+			return Durin::ResolveArrayOps<decltype(Graph)>();
+		}
+
+		inline static bool bValidateGraphForTest = false;
+		inline static uint32 GraphValidationCount = 0;
+		inline static uint32 GraphPostLoadCount = 0;
+		inline static bool bLastValidationPrivate = false;
+		auto ValidateLoadedObjectGraph(const Durin::FObjectGraphLoadContext& Context, std::string& Error) const -> bool override
+		{
+			if (!bValidateGraphForTest) return true;
+			++GraphValidationCount;
+			bLastValidationPrivate = Context.bPrivateGraph;
+			if (!Context.bCooked && (Graph.empty() || !Graph[0] || Graph[0]->SchemaVersion != RuntimeValue))
+			{
+				Error = "Owned graph child does not match its owner.";
+				return false;
+			}
+			return true;
+		}
+		auto PostLoad() -> void override
+		{
+			DObject::PostLoad();
+			if (bValidateGraphForTest) ++GraphPostLoadCount;
+		}
 	};
 
 	uint64 GPackageAssetPostLoadCount = 0;
@@ -5056,6 +5093,235 @@ TEST(FPackageAssetTests, EditorOnlyInnerObjectPersistsInspectsAndPrunesForCook)
 	EXPECT_TRUE(Durin::GDObjectArray.GetObjectsWithOuter(
 		LoadedOwner, Durin::EObjectQueryScope::LiveOnly).empty());
 	ASSERT_TRUE(Durin::UnloadPackage(Path));
+}
+
+TEST(FPackageAssetTests, LoadedGraphValidationSeesChildValuesAndRejectsBeforePostLoad)
+{
+	using namespace Durin;
+	InitializeAssetTests();
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/GraphValidation", Path));
+	DImportMetadataOwnerForTest* Owner = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Owner));
+	auto* Child = NewObject<DImportMetadataForTest>(Owner, "Child");
+	Child->SchemaVersion = 7;
+	Owner->RuntimeValue = 7;
+	Owner->Graph = {Child};
+	ASSERT_TRUE(SavePackage(Owner->GetPackage()));
+	ASSERT_TRUE(UnloadPackage(Path));
+	struct FValidationScope
+	{
+		FValidationScope() { DImportMetadataOwnerForTest::bValidateGraphForTest = true; }
+		~FValidationScope() { DImportMetadataOwnerForTest::bValidateGraphForTest = false; }
+	} Scope;
+	DImportMetadataOwnerForTest::GraphValidationCount = 0;
+	DImportMetadataOwnerForTest::GraphPostLoadCount = 0;
+	Owner = nullptr;
+	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Owner));
+	EXPECT_EQ(DImportMetadataOwnerForTest::GraphValidationCount, 1u);
+	EXPECT_EQ(DImportMetadataOwnerForTest::GraphPostLoadCount, 1u);
+	EXPECT_FALSE(DImportMetadataOwnerForTest::bLastValidationPrivate);
+	ASSERT_EQ(Owner->Graph[0]->SchemaVersion, 7u);
+	DImportMetadataOwnerForTest::GraphPostLoadCount = 0;
+	auto* ValidCopy = DuplicateObject(Owner, nullptr, "ValidGraphCopy");
+	ASSERT_NE(ValidCopy, nullptr);
+	EXPECT_EQ(DImportMetadataOwnerForTest::GraphPostLoadCount, 1u);
+	MarkObjectHierarchyAsGarbage(ValidCopy);
+	Owner->Graph[0]->SchemaVersion = 8;
+	DImportMetadataOwnerForTest::GraphPostLoadCount = 0;
+	EXPECT_EQ(DuplicateObject(Owner, nullptr, "InvalidGraphCopy"), nullptr);
+	EXPECT_EQ(DImportMetadataOwnerForTest::GraphPostLoadCount, 0u);
+	FByteBuffer GraphBytes;
+	ASSERT_TRUE(SaveObjectGraphToMemory(Owner, GraphBytes));
+	EXPECT_EQ(LoadObjectGraphFromMemory(GraphBytes), nullptr);
+	ASSERT_TRUE(SavePackage(Owner->GetPackage()));
+	ASSERT_TRUE(UnloadPackage(Path));
+	DImportMetadataOwnerForTest::GraphPostLoadCount = 0;
+	Owner = nullptr;
+	const auto Result = LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Owner);
+	EXPECT_FALSE(Result);
+	EXPECT_EQ(Result.Error, EAssetError::InvalidObjectGraph);
+	EXPECT_NE(Result.Message.find("Owned graph child"), std::string::npos);
+	EXPECT_EQ(Owner, nullptr);
+	EXPECT_EQ(FindResidentPackage(Path), nullptr);
+	EXPECT_EQ(DImportMetadataOwnerForTest::GraphPostLoadCount, 0u);
+	CollectGarbage();
+}
+
+TEST(FPackageAssetTests, PreparedGraphValidationWaitsForBatchValuesAndPreservesOutputOnFailure)
+{
+	using namespace Durin;
+	using namespace Durin::AssetPrivate;
+	InitializeAssetTests();
+	std::array<FPackageGraphSource, 2> Sources;
+	std::array<DImportMetadataOwnerForTest*, 2> Live{};
+	for (size_t Index = 0; Index < Sources.size(); ++Index)
+	{
+		ASSERT_TRUE(FPackagePath::TryCreate(std::format("/TestAssets/ValidateBatch{}", Index), Sources[Index].PackagePath));
+		ASSERT_TRUE(CreatePackageLeafAssetForTesting(Sources[Index].PackagePath, Live[Index]));
+		Live[Index]->RuntimeValue = 17;
+	}
+	auto* Child = NewObject<DImportMetadataForTest>(Live[1], "Child");
+	Child->SchemaVersion = 17;
+	Live[0]->Graph = {Child};
+	Live[1]->Graph = {Child};
+	for (size_t Reverse = Sources.size(); Reverse > 0; --Reverse)
+	{
+		const size_t Index = Reverse - 1;
+		ASSERT_TRUE(SavePackage(Live[Index]->GetPackage()));
+		const auto File = Testing::GetTestWorkDirectory() / "Assets" / std::format("ValidateBatch{}.dasset", Index);
+		ASSERT_TRUE(FPreparedPackageResource::Read(Sources[Index].PackagePath, File, 1024 * 1024, Sources[Index].Storage));
+	}
+	Child->SchemaVersion = 99;
+	struct FValidationScope
+	{
+		FValidationScope() { DImportMetadataOwnerForTest::bValidateGraphForTest = true; }
+		~FValidationScope() { DImportMetadataOwnerForTest::bValidateGraphForTest = false; }
+	} Scope;
+	FPackageGraphPrepareOptions Options;
+	Options.AdmittedClasses = {DImportMetadataOwnerForTest::StaticClass(), DImportMetadataForTest::StaticClass()};
+	std::vector<FPreparedPackageGraph> Graphs;
+	DImportMetadataOwnerForTest::GraphValidationCount = 0;
+	DImportMetadataOwnerForTest::GraphPostLoadCount = 0;
+	ASSERT_TRUE(PreparePackageGraphs(Sources, Options, Graphs));
+	ASSERT_EQ(Graphs.size(), 2u);
+	EXPECT_EQ(DImportMetadataOwnerForTest::GraphValidationCount, 2u);
+	EXPECT_TRUE(DImportMetadataOwnerForTest::bLastValidationPrivate);
+	EXPECT_EQ(DImportMetadataOwnerForTest::GraphPostLoadCount, 0u);
+	const auto* Previous = Graphs[0].GetPackage();
+	// Preserve the admitted source with a bad owner value, then restore the live value.
+	Live[0]->RuntimeValue = 18;
+	ASSERT_TRUE(SavePackage(Live[0]->GetPackage()));
+	ASSERT_TRUE(FPreparedPackageResource::Read(Sources[0].PackagePath,
+		Testing::GetTestWorkDirectory() / "Assets" / "ValidateBatch0.dasset", 1024 * 1024, Sources[0].Storage));
+	Live[0]->RuntimeValue = 17;
+	const auto Result = PreparePackageGraphs(Sources, Options, Graphs);
+	EXPECT_EQ(Result.Status, EPackageGraphPrepareStatus::InvalidClosure);
+	EXPECT_NE(Result.Message.find("Owned graph child"), std::string::npos);
+	ASSERT_EQ(Graphs.size(), 2u);
+	EXPECT_EQ(Graphs[0].GetPackage(), Previous);
+	EXPECT_EQ(Child->SchemaVersion, 99u);
+	EXPECT_EQ(FindResidentPackage(Sources[0].PackagePath), Live[0]->GetPackage());
+	Graphs.clear();
+	ASSERT_TRUE(UnloadPackage(Sources[0].PackagePath));
+	ASSERT_TRUE(UnloadPackage(Sources[1].PackagePath));
+	CollectGarbage();
+}
+
+TEST(FPackageAssetTests, PolymorphicEditorGraphDuplicatesAppliesAndStripsDescendants)
+{
+	using namespace Durin;
+	InitializeAssetTests();
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/PolymorphicEditorGraph", Path));
+	DImportMetadataOwnerForTest* Owner = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Owner));
+	auto* Base = NewObject<DImportMetadataForTest>(Owner, "Base");
+	auto* Derived = NewObject<DReplayImportMetadataForTest>(Owner, "Derived");
+	Derived->Translator = "Graph.DerivedPayload";
+	Derived->Fingerprint = 42;
+	NewObject<DImportMetadataForTest>(Derived, "Nested");
+	Owner->Graph = {Base, Derived};
+	Owner->RuntimeValue = 91;
+	ASSERT_TRUE(SavePackage(Owner->GetPackage()));
+	ASSERT_TRUE(UnloadPackage(Path));
+	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Owner));
+	ASSERT_EQ(Owner->Graph.size(), 2u);
+	EXPECT_EQ(Owner->Graph[0]->SchemaVersion, 1u);
+	Derived = Cast<DReplayImportMetadataForTest>(Owner->Graph[1].Get());
+	ASSERT_NE(Derived, nullptr);
+	EXPECT_EQ(Derived->Translator, "Graph.DerivedPayload");
+	EXPECT_EQ(Derived->Fingerprint, 42u);
+	EXPECT_EQ(Derived->GetOuter(), Owner);
+	EXPECT_EQ(GDObjectArray.GetObjectsWithOuter(Derived, EObjectQueryScope::LiveOnly).size(), 1u);
+
+	auto* Working = DuplicateObject(Owner, nullptr, "WorkingGraph");
+	ASSERT_NE(Working, nullptr);
+	ASSERT_EQ(Working->Graph.size(), 2u);
+	auto* WorkingDerived = Cast<DReplayImportMetadataForTest>(Working->Graph[1].Get());
+	ASSERT_NE(WorkingDerived, nullptr);
+	EXPECT_NE(WorkingDerived, Derived);
+	EXPECT_EQ(WorkingDerived->GetOuter(), Working);
+	WorkingDerived->Fingerprint = 99;
+	EXPECT_EQ(Derived->Fingerprint, 42u);
+	// Apply constructs an independent graph before retiring the old owned children.
+	std::vector<TObjectPtr<DImportMetadataForTest>> Candidate;
+	for (const auto& Expression : Working->Graph)
+	{
+		auto* Copy = DuplicateObject(Expression.Get(), Owner, Expression->GetFName());
+		ASSERT_NE(Copy, nullptr);
+		Candidate.emplace_back(Copy);
+	}
+	for (const auto& Expression : Owner->Graph)
+		MarkObjectHierarchyAsGarbage(Expression.Get());
+	Owner->Graph = std::move(Candidate);
+	MarkObjectHierarchyAsGarbage(Working);
+	CollectGarbage();
+	ASSERT_EQ(Owner->Graph.size(), 2u);
+	EXPECT_EQ(Cast<DReplayImportMetadataForTest>(Owner->Graph[1].Get())->Fingerprint, 99u);
+	ASSERT_TRUE(SavePackage(Owner->GetPackage()));
+
+	FAssetPackageSerializationOptions Options;
+	Options.Domain = EAssetPackageSaveDomain::Cooked;
+	Options.TargetPlatform = ECookTargetPlatform::Win64;
+	Options.TargetProfile = ECookTargetProfile::Game;
+	FByteBuffer Bytes;
+	ASSERT_TRUE(SerializeAssetPackageBytes(Owner->GetPackage(), Bytes, Options));
+	ObjectPackage::FLinkerTables Linker;
+	ASSERT_TRUE(ObjectPackage::ReadPackage(Bytes, {}, Path, Linker));
+	ASSERT_EQ(Linker.Exports.size(), 1u);
+	EXPECT_TRUE(std::ranges::none_of(Linker.Exports.front().Properties, [&](const auto& Property) {
+		return Property.FieldName == "Graph";
+	}));
+	ASSERT_TRUE(UnloadPackage(Path));
+	ASSERT_TRUE(DeleteAssetClosureForTest({Path}));
+}
+
+TEST(FPackageAssetTests, DetachedEditorGraphChildIsExcludedBeforeCollectionAndRestorable)
+{
+	using namespace Durin;
+	InitializeAssetTests();
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/DetachedEditorGraph", Path));
+	DImportMetadataOwnerForTest* Owner = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Owner));
+	auto* Child = NewObject<DReplayImportMetadataForTest>(Owner, "Expression");
+	Child->Fingerprint = 123;
+	Owner->Graph = {Child};
+	// History must retain the detached object; clearing a collection alone does not
+	// remove a structural Outer descendant from authored package discovery.
+	auto* History = NewObject<DImportMetadataOwnerForTest>(nullptr, "GraphHistory");
+	AddToRoot(History);
+	History->Graph = {Child};
+	const auto InspectCount = [&](size_t Expected) {
+		FByteBuffer Bytes;
+		ASSERT_TRUE(SerializeAssetPackageBytes(Owner->GetPackage(), Bytes));
+		ObjectPackage::FLinkerTables Linker;
+		ASSERT_TRUE(ObjectPackage::ReadPackage(Bytes, {}, Path, Linker));
+		EXPECT_EQ(Linker.Exports.size(), Expected);
+	};
+	Owner->Graph.clear();
+	InspectCount(2);
+	Child->SetOuterPrivate(History);
+	InspectCount(1);
+	TWeakObjectPtr<DReplayImportMetadataForTest> Weak = Child;
+	CollectGarbage();
+	ASSERT_TRUE(Weak.IsValid());
+	EXPECT_EQ(Child->Fingerprint, 123u);
+	// Undo reparents the exact identity; redo detaches it again.
+	Child->SetOuterPrivate(Owner);
+	Owner->Graph = {Child};
+	InspectCount(2);
+	Owner->Graph.clear();
+	Child->SetOuterPrivate(History);
+	InspectCount(1);
+	History->Graph.clear();
+	RemoveFromRoot(History);
+	CollectGarbage();
+	EXPECT_FALSE(Weak.IsValid());
+	ASSERT_TRUE(SavePackage(Owner->GetPackage()));
+	ASSERT_TRUE(UnloadPackage(Path));
+	ASSERT_TRUE(DeleteAssetClosureForTest({Path}));
 }
 
 TEST(FPackageAssetTests, CoreRegisteredPackageIsResidentWithoutAssetLayerAdoption)

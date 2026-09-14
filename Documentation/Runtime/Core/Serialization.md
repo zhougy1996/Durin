@@ -396,7 +396,9 @@ bytes. Emission retains deterministic root/Outer ordering.
 
 Loading validates the v2 header and all record bounds, creates every object
 skeleton before resolving reference ids, then invokes each object's virtual
-serializer exactly once. A failure retires the entire constructed graph. The
+serializer exactly once. Once all values and Outer links are restored, each
+object's read-only `ValidateLoadedObjectGraph` hook may reject invariants requiring
+populated children. A failure retires the entire constructed graph. The
 format is process-local engine plumbing and has no v1 reader or migration path;
 long-lived content uses the independently versioned, field-tagged `.dasset`
 contract documented in [Asset Packages](../Assets/AssetPackages.md).
@@ -407,7 +409,9 @@ the same virtual entry. Hard references inside the duplicated Outer tree remap
 to their duplicate, external hard references remain shared, and constructor-created
 inners may be reused. Weak references remap only when their targets are already
 duplicated for structural or hard-reference reasons; a weak-only external target
-becomes null. Any failure retires the incomplete duplicate graph.
+becomes null. After all values and authored ledgers are copied, graph-validation
+hooks run before any duplicate PostLoad notification. A rejection retires the
+whole duplicate graph. Any failure retires the incomplete duplicate graph.
 Property snapshots and editable copies operate on selected values rather than
 pretending to serialize a complete object; snapshots root their captured hard
 references and remain process-local and unversioned.

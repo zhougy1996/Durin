@@ -105,7 +105,7 @@ TEST_F(FMaterialEditingSessionTests, FunctionCallDraftIsCompleteAndAppliesBindin
 	const auto Output = First->GetFunctionSignature().Outputs[0];
 	const FGuid CallId{72, 1, 1, 1};
 	FMaterialProgram Program;
-	Program.Nodes = {{.Id = CallId, .Opcode = EMaterialProgramOpcode::FunctionCall}};
+	Program.Nodes = {{.Id = CallId, .Opcode = EMaterialProgramOpcode::FunctionCall, .ResultType = EMaterialProgramValueType::Surface}};
 	Program.Outputs.Surface = {.SourceNodeId = CallId, .SourceOutputId = Output.Id};
 	ASSERT_TRUE(Source->SetMaterialProgramAndFunctionCalls(Program,
 		{{.NodeId = CallId, .Function = First, .Outputs = {{Output.Id, Output.Type}}}}));

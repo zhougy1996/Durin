@@ -47,9 +47,10 @@ namespace Durin
 			uint64 Bytes = sizeof(Request) + Request.AssetPath.size()
 				+ Request.Target.size()
 				+ Request.CompilerInput.Environment.CompilerIdentity.size();
-			for (const FMaterialProgramNode& Node : Request.CompilerInput.Program.Nodes)
-				Bytes += sizeof(Node) + Node.DisplayName.size()
-					+ Node.Inputs.size() * sizeof(FMaterialProgramLink);
+			for (const FMaterialIRNode& Node : Request.CompilerInput.IR.Nodes)
+				Bytes += sizeof(Node) + Node.Inputs.size() * sizeof(uint32);
+			for (const auto& Source : Request.CompilerInput.Sources)
+				Bytes += sizeof(Source) + Source.FunctionAssetPath.size() + Source.CallPath.size() * sizeof(FGuid);
 			Bytes += Request.CompilerInput.Parameters.size()
 				* sizeof(FMaterialCompilerParameterDeclaration);
 			for (const FMaterialCompilerDependency& Dependency
@@ -152,7 +153,7 @@ namespace Durin
 		struct FMaterialCompileFlight
 		{
 			FMaterialCompileFlightKey Key;
-			FMaterialCompilerInput Input;
+			FMaterialIRCompilerInput Input;
 			std::vector<FMaterialCompileRequest> Consumers;
 			FTaskCancellationSource Cancellation;
 			FTaskHandle Task;
@@ -287,7 +288,7 @@ namespace Durin
 							CompleteFlight(Flight, {}, EMaterialCompileState::Canceled);
 							return;
 						}
-						FMaterialCompilerResult Compiled = CompileMaterialProgram(
+						FMaterialCompilerResult Compiled = CompileMaterialIR(
 							Flight->Input, Flight->Key.bForceRecompile);
 						if (Token.IsCancellationRequested())
 						{
@@ -813,7 +814,7 @@ namespace Durin
 
 		auto FMaterialCompilationLifecycle::Submit(
 			DMaterialInterface& Material,
-			FMaterialCompilerInput Input,
+			FMaterialIRCompilerInput Input,
 			bool bForceRecompile, std::vector<FMaterialFunctionOwnerStamp> FunctionOwners) -> bool
 		{
 			CheckMaterialCompileGameThread();
@@ -833,7 +834,7 @@ namespace Durin
 			Material.CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Pending;
 			Material.CompilationOwner.RequestedFunctionOwners = std::move(FunctionOwners);
 			const FMaterialNormalizationResult Normalized =
-					NormalizeMaterialProgram(Input);
+					NormalizeMaterialIR(Input);
 			Material.CompilationOwner.RequestedExpressionSources = Normalized.Sources;
 				Material.CompilationOwner.MaterialCompileStatus.RequestGeneration = AdvanceNonzero(
 					Material.CompilationOwner.MaterialCompileStatus.RequestGeneration);
@@ -913,7 +914,7 @@ namespace Durin
 					|| !Compilation || !Compilation->IsAccepting()
 					|| !IsTaskSchedulerRunning())
 				{
-					FMaterialCompilerResult Compiled = CompileMaterialProgram(
+					FMaterialCompilerResult Compiled = CompileMaterialIR(
 						Request.CompilerInput, bForceRecompile);
 					FMaterialCompileResult Result{
 						.Owner = Request.Owner,
@@ -1003,19 +1004,13 @@ namespace Durin
 					}
 				}
 
-				if (!Material.CompilationOwner.RequestedFunctionOwners.empty() || !Material.GetMaterialFunctionCalls().empty())
+				if (!AreMaterialFunctionOwnersCurrent(Material.CompilationOwner.RequestedFunctionOwners))
 				{
-					std::vector<FMaterialFunctionCallSnapshot> Calls;
-					FMaterialFunctionClosure Closure;
-					std::vector<FMaterialFunctionOwnerStamp> Owners;
-					const auto Validation = SnapshotMaterialFunctionCalls(Material.GetMaterialFunctionCalls(), Calls, Closure, &Owners);
-					if (!Validation || Owners != Material.CompilationOwner.RequestedFunctionOwners)
-					{
-						Status.AuthoredRevision = AdvanceNonzero(Status.AuthoredRevision);
-						ScheduleEdit(Material);
-						return false;
-					}
+					Status.AuthoredRevision = AdvanceNonzero(Status.AuthoredRevision);
+					ScheduleEdit(Material);
+					return false;
 				}
+
 				Status.State = Result.State;
 				Status.ResultCategory = Result.Category;
 				Status.CacheOutcome = Result.CacheOutcome;
@@ -1096,7 +1091,7 @@ namespace Durin
 			if (GetAssetRuntimeConfiguration().RequiresCookedPayload()) return false;
 			FResolvedMaterialProperties Resolved;
 			std::string Error;
-			if (!ResolveMaterialProperties(Material, Resolved, Error) || !Material.GetMaterialProgram())
+			if (!ResolveMaterialProperties(Material, Resolved, Error))
 			{
 				Material.CompilationOwner.MaterialCompileStatus.RequestGeneration = AdvanceNonzero(
 					Material.CompilationOwner.MaterialCompileStatus.RequestGeneration);
@@ -1112,7 +1107,7 @@ namespace Durin
 				return false;
 			}
 			return Material.RequestProgramCompile(
-				*Material.GetMaterialProgram(), Material.GetStaticProperties(), bForceRecompile);
+				Material.GetStaticProperties(), bForceRecompile);
 		}
 	}
 

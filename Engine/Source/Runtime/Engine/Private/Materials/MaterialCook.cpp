@@ -138,11 +138,7 @@ namespace Durin
 			return Fail(std::format(
 				"Material '{}' compiled target or pass contract is incompatible with Cook.",
 				GetObjectPath()), &OutError);
-		std::vector<FMaterialFunctionCallSnapshot> Calls;
-		FMaterialFunctionClosure Functions;
-		std::vector<FMaterialFunctionOwnerStamp> Owners;
-		if (!SnapshotMaterialFunctionCalls(GetMaterialFunctionCalls(), Calls, Functions, &Owners)
-			|| Owners != CompilationOwner.RequestedFunctionOwners)
+		if (!AreMaterialFunctionOwnersCurrent(CompilationOwner.RequestedFunctionOwners))
 			return Fail(std::format("Material '{}' has stale function dependencies at Cook capture.", GetObjectPath()), &OutError);
 
 		return Context.AddPackage(

@@ -390,6 +390,9 @@ namespace Durin
 		DPROPERTY()
 		int32 Y = 0;
 
+		DPROPERTY()
+		std::string DisplayName;
+
 		auto operator==(const FMaterialGraphNodePresentation&) const -> bool = default;
 	};
 

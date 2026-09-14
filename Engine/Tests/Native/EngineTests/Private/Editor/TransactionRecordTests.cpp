@@ -322,6 +322,40 @@ namespace
 		bool bPending = false;
 	};
 
+	// Qualifies expression-style deletion: history owns the detached child, not a garbage object.
+	class FDetachedChildChange final : public Durin::Editor::ITransactionCustomChange
+	{
+	public:
+		FDetachedChildChange(DTransactionRecordParticipant* InOwner, Durin::DObject* InChild,
+			Durin::DObject* InHistoryOuter)
+			: Owner(InOwner), Child(InChild), HistoryOuter(InHistoryOuter) {}
+
+		auto GetDescription() const -> std::string_view override { return "Detach owned child"; }
+		auto Undo() -> bool override
+		{
+			Child->SetOuterPrivate(Owner);
+			Owner->Hard = Child;
+			return true;
+		}
+		auto Redo() -> bool override
+		{
+			Owner->Hard = nullptr;
+			Child->SetOuterPrivate(HistoryOuter);
+			return true;
+		}
+		auto AddReferencedObjects(Durin::FReferenceCollector& Collector) const -> void override
+		{
+			for (Durin::DObject* Object : {static_cast<Durin::DObject*>(Owner), Child, HistoryOuter})
+				Collector.AddReferencedObject(Object);
+		}
+		auto GetAllocatedSize() const -> size_t override { return 0; }
+
+	private:
+		DTransactionRecordParticipant* Owner;
+		Durin::DObject* Child;
+		Durin::DObject* HistoryOuter;
+	};
+
 	auto Property(std::string_view Name) -> Durin::FProperty*
 	{
 		return DTransactionRecordParticipant::StaticClass()->FindPropertyByName(Durin::FName(Name));
@@ -961,6 +995,42 @@ TEST(FTransBufferTests, CollectorRetainsPendingAndHistoryEdgesAndReleasesBranche
 	const auto SecondHandle = Durin::MakeObjectHandle(Second);
 	Durin::CollectGarbage();
 	EXPECT_EQ(Durin::ResolveObjectHandle(SecondHandle), nullptr);
+}
+
+TEST(FTransBufferTests, DetachedOwnedChildSurvivesCollectionUndoRedoAndReleasesWithHistory)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	auto* Buffer = NewObject<DTransBuffer>(nullptr, "DetachedChildHistory");
+	TStrongObjectPtr<DObject> BufferRoot(Buffer);
+	auto* Owner = NewObject<DTransactionRecordParticipant>(nullptr, "GraphOwner");
+	TStrongObjectPtr<DObject> OwnerRoot(Owner);
+	auto* Child = NewObject<DTransactionRecordParticipant>(Owner, "Expression");
+	Child->Value = 71;
+	Owner->Hard = Child;
+	auto* HistoryOuter = NewObject<DObject>(nullptr, "DetachedGraphObjects");
+	const auto ChildHandle = MakeObjectHandle(Child);
+	const auto HistoryHandle = MakeObjectHandle(HistoryOuter);
+	ASSERT_TRUE(Buffer->Execute(std::make_unique<FDetachedChildChange>(Owner, Child, HistoryOuter)));
+	CollectGarbage();
+	ASSERT_EQ(ResolveObjectHandle(ChildHandle), Child);
+	EXPECT_EQ(Child->GetOuter(), HistoryOuter);
+	EXPECT_EQ(Owner->Hard.Get(), nullptr);
+	EXPECT_TRUE(GDObjectArray.GetObjectsWithOuter(Owner, EObjectQueryScope::LiveOnly).empty());
+	ASSERT_TRUE(Buffer->Undo());
+	CollectGarbage();
+	EXPECT_EQ(Owner->Hard.Get(), Child);
+	EXPECT_EQ(Child->GetOuter(), Owner);
+	EXPECT_EQ(Child->Value, 71);
+	ASSERT_TRUE(Buffer->Redo());
+	CollectGarbage();
+	EXPECT_EQ(ResolveObjectHandle(ChildHandle), Child);
+	EXPECT_EQ(Child->GetOuter(), HistoryOuter);
+	ASSERT_TRUE(Buffer->Reset());
+	CollectGarbage();
+	EXPECT_EQ(ResolveObjectHandle(ChildHandle), nullptr);
+	EXPECT_EQ(ResolveObjectHandle(HistoryHandle), nullptr);
+	EXPECT_EQ(Owner->Hard.Get(), nullptr);
 }
 
 TEST(FTransBufferTests, ExecutesCustomChangesAndPreservesCursorOnFailure)

@@ -3,20 +3,12 @@
 
 #include "Asset/Asset.h"
 #include "DObject/DurinPropertyTypes.h"
+#include "DObject/Archive.h"
 
 namespace Durin
 {
 	namespace
 	{
-		auto FindMutableOverride(
-			std::vector<FMaterialParameterOverride>& Overrides,
-			const FGuid& Id
-		) -> FMaterialParameterOverride*
-		{
-			const auto It = std::ranges::find(Overrides, Id, &FMaterialParameterOverride::ParameterId);
-			return It == Overrides.end() ? nullptr : &*It;
-		}
-
 		auto FindOverride(
 			const std::vector<FMaterialParameterOverride>& Overrides,
 			const FGuid& Id
@@ -45,20 +37,6 @@ namespace Durin
 				return FMaterialParameterValue::MakeTexture(Value.TextureValue.Get(), Value.SamplerState, Value.TextureFallback);
 			}
 			return {};
-		}
-
-		auto IsValidParameterType(EMaterialParameterType Type) -> bool
-		{
-			switch (Type)
-			{
-			case EMaterialParameterType::Scalar:
-			case EMaterialParameterType::Vector2:
-			case EMaterialParameterType::Vector4:
-			case EMaterialParameterType::Vector:
-			case EMaterialParameterType::Texture:
-				return true;
-			}
-			return false;
 		}
 
 		auto WouldCreateParentCycle(
@@ -105,6 +83,65 @@ namespace Durin
 		if (!IsTemplateConstructionPurpose(ObjectInitializer.Purpose)) PublishMaterialRenderProxyState();
 	}
 
+	auto DMaterialInstance::RebuildOverrideProjection() const -> void
+	{
+		if (!bOverrideProjectionDirty) return;
+		ParameterOverrides.clear();
+		VisitOverrideArrays([&](const auto& Records) {
+			for (const auto& Record : Records)
+				ParameterOverrides.push_back({Record.ParameterId, Record.Type, Record.GetValue()});
+		});
+		bOverrideProjectionDirty = false;
+	}
+
+	auto DMaterialInstance::ValidateOverrideStorage(const FPropertyEditProposal* Proposal) const -> bool
+	{
+		std::unordered_set<FGuid> Ids;
+		bool bValid = true;
+		VisitOverrideArrays([&](const auto& Stored) {
+			using TArray = std::decay_t<decltype(Stored)>;
+			using TRecord = typename TArray::value_type;
+			const TArray* Records = &Stored;
+			if (Proposal && Proposal->MemberProperty && Proposal->MemberProperty->NamePrivate == TRecord::PropertyName())
+			{
+				if (Proposal->DraftRootProperty != Proposal->MemberProperty || !Proposal->DraftRootContainer)
+				{
+					bValid = false;
+					return;
+				}
+				Records = Proposal->DraftRootProperty->ContainerPtrToValuePtr<TArray>(
+					Proposal->DraftRootContainer, Proposal->DraftRootArrayIndex);
+			}
+			for (const auto& Record : *Records)
+			{
+				if (!Record.ParameterId.IsValid() || !Ids.insert(Record.ParameterId).second) bValid = false;
+				if constexpr (TRecord::Type == EMaterialParameterType::Texture)
+					if (!IsValidMaterialSampling(Record.Value.SamplerState, Record.Value.TextureFallback)) bValid = false;
+			}
+		});
+		return bValid;
+	}
+
+	auto DMaterialInstance::Serialize(FArchive& Ar) -> void
+	{
+		if (Ar.IsLoading()) OverrideStorageVersion = 0;
+		Super::Serialize(Ar);
+		bOverrideProjectionDirty = true;
+		if (Ar.HasError()) return;
+		if (OverrideStorageVersion != 1)
+			Ar.Fail(EArchiveFailureCode::UnsupportedVersion, "Unsupported material instance schema; rebuild this instance.");
+		else if (!ValidateOverrideStorage())
+			Ar.Fail(EArchiveFailureCode::InvalidData, "Invalid or duplicate typed material override.");
+	}
+
+	auto DMaterialInstance::AddReferencedObjects(FReferenceCollector& Collector) -> void
+	{
+		Super::AddReferencedObjects(Collector);
+		// The reflected arrays retain resources; discard derived pointers after rewrites.
+		ParameterOverrides.clear();
+		bOverrideProjectionDirty = true;
+	}
+
 	auto DMaterialInstance::SetParent(DMaterialInterface* InParent) -> bool
 	{
 		return SetParentAndPropertyOverrides(InParent, PropertyOverrides);
@@ -130,6 +167,11 @@ namespace Durin
 	auto DMaterialInstance::PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool
 	{
 		if (!Super::PreEditChangeProperty(Proposal, OutError)) return false;
+		if (!ValidateOverrideStorage(&Proposal))
+		{
+			OutError = "Invalid sampling policy or duplicate typed parameter identity.";
+			return false;
+		}
 		if (Proposal.MemberProperty && Proposal.MemberProperty->NamePrivate == FName("PropertyOverrides")
 			&& Proposal.DraftRootProperty == Proposal.MemberProperty && Proposal.DraftRootContainer)
 		{
@@ -163,6 +205,8 @@ namespace Durin
 	auto DMaterialInstance::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
 	{
 		Super::PostEditChangeProperty(Event);
+		bOverrideProjectionDirty = true;
+		MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters);
 		if (Event.MemberProperty && Event.MemberProperty->NamePrivate == FName("PropertyOverrides"))
 		{
 			InvalidateMaterialCompilation(true, true);
@@ -230,6 +274,7 @@ namespace Durin
 
 	auto DMaterialInstance::GetParameterOverrides() const -> std::span<const FMaterialParameterOverride>
 	{
+		RebuildOverrideProjection();
 		return ParameterOverrides;
 	}
 
@@ -244,6 +289,7 @@ namespace Durin
 		{
 			const auto* Instance = Cast<DMaterialInstance>(Owner);
 			if (!Instance) return Owner->ResolveParameterValue(Id, OutParameter);
+			Instance->RebuildOverrideProjection();
 			if (const auto* Override = FindOverride(Instance->ParameterOverrides, Id);
 				Override && Override->Type == Definition->Type)
 			{
@@ -269,19 +315,25 @@ namespace Durin
 			|| !IsParameterAvailableForOverride(*this, Id)) return false;
 		if (Type == EMaterialParameterType::Texture && !IsValidMaterialSampling(Value.SamplerState, Value.TextureFallback)) return false;
 		const FMaterialParameterValue CanonicalValue = CanonicalizeParameterValue(Type, Value);
-		if (FMaterialParameterOverride* Override = FindMutableOverride(ParameterOverrides, Id))
+		RebuildOverrideProjection();
+		if (const auto* Existing = FindOverride(ParameterOverrides, Id))
 		{
-			if (Override->Type == Type && Override->Value == CanonicalValue) return true;
-			Override->Type = Type;
-			Override->Value = CanonicalValue;
+			if (Existing->Type != Type) return false;
+			if (Existing->Value == CanonicalValue) return true;
 		}
-		else
-		{
-			ParameterOverrides.push_back({
-				.ParameterId = Id,
-				.Type = Type,
-				.Value = CanonicalValue});
-		}
+		VisitOverrideArrays([&](auto& Records) {
+			using TRecord = typename std::decay_t<decltype(Records)>::value_type;
+			if (TRecord::Type != Type) return;
+			auto It = std::ranges::find(Records, Id, &TRecord::ParameterId);
+			if (It == Records.end())
+			{
+				Records.emplace_back();
+				It = std::prev(Records.end());
+				It->ParameterId = Id;
+			}
+			It->SetValue(CanonicalValue);
+		});
+		bOverrideProjectionDirty = true;
 		MarkPackageDirty();
 		MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters);
 		return true;
@@ -289,11 +341,12 @@ namespace Durin
 
 	auto DMaterialInstance::ClearParameterOverride(const FGuid& Id) -> bool
 	{
-		const size_t PreviousSize = ParameterOverrides.size();
-		std::erase_if(ParameterOverrides, [&Id](const FMaterialParameterOverride& Override) {
-			return Override.ParameterId == Id;
+		bool bRemoved = false;
+		VisitOverrideArrays([&](auto& Records) {
+			bRemoved |= std::erase_if(Records, [&](const auto& Record) { return Record.ParameterId == Id; }) != 0;
 		});
-		if (ParameterOverrides.size() == PreviousSize) return false;
+		if (!bRemoved) return false;
+		bOverrideProjectionDirty = true;
 		MarkPackageDirty();
 		MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters);
 		return true;
@@ -301,11 +354,13 @@ namespace Durin
 
 	auto DMaterialInstance::HasLocalParameterOverride(const FGuid& Id) const -> bool
 	{
+		RebuildOverrideProjection();
 		return FindOverride(ParameterOverrides, Id) != nullptr;
 	}
 
 	auto DMaterialInstance::IsParameterOverrideOrphan(const FGuid& Id) const -> bool
 	{
+		RebuildOverrideProjection();
 		const auto* Override = FindOverride(ParameterOverrides, Id);
 		if (!Override) return false;
 		const auto* Definition = FindParameterDefinition(Id);
@@ -458,19 +513,7 @@ namespace Durin
 			DURIN_ERROR("PostLoad '{}': material instance parent cycle; clearing parent.", GetObjectPath());
 			Parent = nullptr;
 		}
-		std::unordered_set<FGuid> OverrideIds;
-		std::erase_if(ParameterOverrides, [&](const FMaterialParameterOverride& Override) {
-			if (!Override.ParameterId.IsValid() || !IsValidParameterType(Override.Type)
-				|| (Override.Type == EMaterialParameterType::Texture
-					&& !IsValidMaterialSampling(Override.Value.SamplerState, Override.Value.TextureFallback))
-				|| !OverrideIds.insert(Override.ParameterId).second)
-			{
-				DURIN_ERROR("PostLoad '{}': discarding invalid or duplicate material parameter override {}.",
-					GetObjectPath(), Override.ParameterId.ToString());
-				return true;
-			}
-			return false;
-		});
+		bOverrideProjectionDirty = true;
 		std::string Error;
 		if (!ValidateMaterialStaticProperties(PropertyOverrides.Values, Error))
 		{

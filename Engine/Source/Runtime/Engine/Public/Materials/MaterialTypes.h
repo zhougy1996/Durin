@@ -265,19 +265,13 @@ namespace Durin
 		auto operator==(const FMaterialParameterDefinition&) const -> bool = default;
 	};
 
-	// Overrides one parameter by stable identifier while retaining all value alternatives.
-	DSTRUCT()
+	// Read-only transient projection of one typed instance override.
 	struct FMaterialParameterOverride
 	{
-		GENERATED_BODY()
-
-		DPROPERTY()
 		FGuid ParameterId;
 
-		DPROPERTY()
 		EMaterialParameterType Type = EMaterialParameterType::Scalar;
 
-		DPROPERTY()
 		FMaterialParameterValue Value;
 	};
 

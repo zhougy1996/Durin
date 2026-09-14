@@ -14,6 +14,13 @@ namespace Durin
 	class FReferenceCollector;
 	class DPackage;
 
+	// Loaders validate owned graphs after all selected objects have values.
+	struct FObjectGraphLoadContext
+	{
+		bool bCooked = false;
+		bool bPrivateGraph = false;
+	};
+
 	using FClassRegisterFunc = DClass* (*)();
 	using FEnumRegisterFunc = DEnum* (*)();
 
@@ -134,6 +141,12 @@ namespace Durin
 		// Completes loaded-object initialization. Recoverable failures are logged and
 		// leave safe object state; this notification does not reject or roll back a load.
 		COREDOBJECT_API virtual auto PostLoad() -> void;
+
+		// Read-only admission after graph values/links are restored, before PostLoad
+		// and final publication. May inspect owned objects; must not load or mutate assets.
+		// False rejects the load, duplicate, or prepared batch as a whole.
+		COREDOBJECT_API virtual auto ValidateLoadedObjectGraph(
+			const FObjectGraphLoadContext& Context, std::string& OutError) const -> bool;
 
 		// Exposes source-package versions only while authored PostLoad migration runs.
 		COREDOBJECT_API auto GetLoadedCustomVersion(const FGuid& Key) const -> std::optional<int32>;

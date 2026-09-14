@@ -1191,11 +1191,14 @@ TEST(FMaterialGraphOperationsTests, ConstantPaletteUsesOneEntryAndTypeChangesPre
 		const auto Before = *Material->GetMaterialProgram();
 		Node.ResultType = Type;
 		ASSERT_TRUE(FMaterialGraphOperations::ReplaceNode(*Material, Node, Transactions.Get()));
-		EXPECT_EQ(Material->GetMaterialProgram()->Nodes.back(), Node);
+		auto Expected = Node;
+		if (Type == EMaterialProgramValueType::Float2) { Expected.Literal.Z = 0; Expected.Literal.W = 0; }
+		if (Type == EMaterialProgramValueType::Float3) Expected.Literal.W = 0;
+		EXPECT_EQ(Material->GetMaterialProgram()->Nodes.back(), Expected);
 		ASSERT_TRUE(Transactions->Undo());
 		EXPECT_EQ(*Material->GetMaterialProgram(), Before);
 		ASSERT_TRUE(Transactions->Redo());
-		EXPECT_EQ(Material->GetMaterialProgram()->Nodes.back(), Node);
+		EXPECT_EQ(Material->GetMaterialProgram()->Nodes.back(), Expected);
 	}
 	Node.ResultType = EMaterialProgramValueType::Float;
 	ASSERT_TRUE(FMaterialGraphOperations::ReplaceNode(*Material, Node, Transactions.Get()));

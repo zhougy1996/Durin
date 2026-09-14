@@ -194,6 +194,7 @@ durin_add_engine_functional_test(MaterialTests
 	SOURCES
 		Private/Materials/MaterialSchemaAndEditingTests.cpp
 		Private/Materials/MaterialFunctionTests.cpp
+		Private/Materials/MaterialExpressionTests.cpp
 		Private/Materials/MaterialGraphOperationsTests.cpp
 		Private/Materials/MaterialEditingSessionTests.cpp
 		Private/Materials/MaterialCompileLifecycleTests.cpp

@@ -146,7 +146,6 @@ namespace Durin
 		FBulkData CookedProgramData;
 		std::string MaterialCookDiagnostic;
 		ENGINE_API auto RequestProgramCompile(
-			const FMaterialProgram& CandidateProgram,
 			const FMaterialStaticProperties& CandidateProperties,
 			bool bForceRecompile = false) -> bool;
 		// Invalidates authored dependencies before requesting detached replacements.

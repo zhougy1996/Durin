@@ -1,6 +1,80 @@
 #include "ExplicitMaterialProgramTestFixture.h"
 #include "MaterialTestSupport.h"
 #include "Misc/MountPathTestSupport.h"
+#include "Asset/OfflinePreparation.h"
+#include "NativeAssetTestSupport.h"
+
+TEST(FMaterialTests, TypedOverrideArraysRoundTripOrphansAndRejectCrossTypeDuplicates)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	FScopedOfflinePreparation Offline;
+	const auto Root = Testing::CreateTestFixtureDirectory("TypedOverrides");
+	const std::array Mounts{FMountPoint{.VirtualRoot = "/TypedOverrides/", .Owner = EMountOwner::Test,
+		.Root = Root, .bAutoScan = true, .bContentWritable = true}};
+	Testing::FScopedMountRegistryFixture Registry(Mounts);
+	ASSERT_TRUE(Registry.IsValid());
+	ASSERT_TRUE(RefreshAssetRegistry());
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TypedOverrides/Instance", Path));
+	DMaterialInstance* Instance = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Instance));
+	EXPECT_EQ(Instance->GetClass()->FindPropertyByName("ParameterOverrides"), nullptr);
+	uint32 Index = 0;
+	for (const auto Type : {EMaterialParameterType::Scalar, EMaterialParameterType::Vector2,
+		EMaterialParameterType::Vector, EMaterialParameterType::Vector4, EMaterialParameterType::Texture})
+	{
+		ASSERT_TRUE(VisitMaterialParameterOverrideType(Type, [&]<typename TRecord>() {
+			auto* Property = Instance->GetClass()->FindPropertyByName(TRecord::PropertyName());
+			if (!Property) return false;
+			auto* Records = Property->ContainerPtrToValuePtr<std::vector<TRecord>>(Instance);
+			TRecord Record;
+			Record.ParameterId = {0x47ddc368, 1, 2, ++Index};
+			if constexpr (TRecord::Type == EMaterialParameterType::Scalar) Record.Value = .75f;
+			else if constexpr (TRecord::Type == EMaterialParameterType::Texture)
+			{
+				Record.Value.SamplerState.AddressU = EMaterialSamplerAddressMode::ClampToEdge;
+				Record.Value.TextureFallback = EMaterialTextureFallback::FlatRGNormal;
+			}
+			else Record.Value = decltype(Record.Value)(.25);
+			Records->push_back(Record);
+			return true;
+		}));
+	}
+	ASSERT_TRUE(SavePackage(Instance->GetPackage()));
+	const auto Before = std::vector(Instance->GetParameterOverrides().begin(), Instance->GetParameterOverrides().end());
+	ASSERT_EQ(Before.size(), 5u);
+	for (const auto& Record : Before) EXPECT_TRUE(Instance->IsParameterOverrideOrphan(Record.ParameterId));
+	ASSERT_TRUE(UnloadPackage(Path));
+	CollectGarbage();
+	Instance = nullptr;
+	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Instance));
+	const auto After = Instance->GetParameterOverrides();
+	ASSERT_EQ(After.size(), Before.size());
+	for (size_t I = 0; I < Before.size(); ++I)
+	{
+		EXPECT_EQ(After[I].ParameterId, Before[I].ParameterId);
+		EXPECT_EQ(After[I].Type, Before[I].Type);
+		EXPECT_EQ(After[I].Value, Before[I].Value);
+	}
+	auto* Property = Instance->GetClass()->FindPropertyByName("Vector4ParameterOverrides");
+	auto* Records = Property->ContainerPtrToValuePtr<std::vector<FMaterialVector4ParameterOverride>>(Instance);
+	const auto Id = Records->front().ParameterId;
+	Records->front().ParameterId = Before.front().ParameterId;
+	FByteBuffer Rejected;
+	EXPECT_FALSE(SerializeAssetPackageBytes(Instance->GetPackage(), Rejected));
+	FPropertyEditProposal Proposal;
+	Proposal.MemberProperty = Property;
+	Proposal.DraftRootProperty = Property;
+	Proposal.DraftRootContainer = Instance;
+	std::string Error;
+	EXPECT_FALSE(Instance->PreEditChangeProperty(Proposal, Error));
+	EXPECT_FALSE(Error.empty());
+	Records->front().ParameterId = Id;
+	ASSERT_TRUE(SavePackage(Instance->GetPackage()));
+	ASSERT_TRUE(UnloadPackage(Path));
+	CollectGarbage();
+}
 
 namespace
 {

@@ -80,6 +80,8 @@
 		"Public/Texture/VolumeTexture.h",
 		"Public/Materials/MeshMaterialSlot.h",
         "Public/Materials/MaterialTypes.h",
+        "Public/Materials/MaterialParameterOverrides.h",
+		"Public/Materials/MaterialExpressions.h",
 		"Public/Materials/MaterialProgramTypes.h",
 		"Public/Materials/MaterialFunctionTypes.h",
 		"Public/Materials/MaterialFunctionInterface.h",
