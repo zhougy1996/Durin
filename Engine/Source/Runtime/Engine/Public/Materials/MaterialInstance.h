@@ -75,12 +75,6 @@ namespace Durin
 		DPROPERTY(Edit)
 		FMaterialPropertyOverrides PropertyOverrides;
 
-		DPROPERTY(Deprecated)
-		bool bOverrideStaticProperties_DEPRECATED = false;
-
-		DPROPERTY(Deprecated)
-		FMaterialStaticProperties StaticPropertiesOverride_DEPRECATED;
-
 		mutable FMaterialStaticProperties ResolvedStaticProperties;
 	};
 }

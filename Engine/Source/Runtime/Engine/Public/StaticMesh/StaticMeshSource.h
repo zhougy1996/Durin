@@ -14,7 +14,7 @@ namespace Durin
 
 	// Canonical authored value. Mutation/reflection loading requires exclusive owner access.
 	// Stable values support concurrent acquire, release and copy; handles are always immutable.
-	DSTRUCT(LegacyNames = "Durin::FStaticMeshImportedData")
+	DSTRUCT()
 	struct FStaticMeshSource
 	{
 		GENERATED_BODY()

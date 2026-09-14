@@ -452,14 +452,6 @@ namespace Durin
 	auto DMaterialInstance::PostLoad() -> void
 	{
 		Super::PostLoad();
-		if (WasDeprecatedPropertyLoaded(FName("bOverrideStaticProperties_DEPRECATED"))
-			|| WasDeprecatedPropertyLoaded(FName("StaticPropertiesOverride_DEPRECATED")))
-		{
-			const bool Enabled = bOverrideStaticProperties_DEPRECATED;
-			PropertyOverrides = {Enabled, Enabled, Enabled, Enabled, Enabled,
-				StaticPropertiesOverride_DEPRECATED};
-			ClearLoadedDeprecatedProperties();
-		}
 		// Break corrupt parent chains before any parameter lookup can recurse.
 		if (WouldCreateParentCycle(this, Parent.Get()))
 		{

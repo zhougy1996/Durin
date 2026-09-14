@@ -268,7 +268,7 @@ namespace Durin
 		DPROPERTY(EditorOnly)
 		TObjectPtr<DAssetImportData> AssetImportData;
 
-		DPROPERTY(EditorOnly, LegacyNames = "ImportedData")
+		DPROPERTY(EditorOnly)
 		FStaticMeshSource Source;
 
 		DPROPERTY()

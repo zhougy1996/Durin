@@ -182,44 +182,7 @@ TEST(FMaterialTests, PropertyResolutionRejectsDepthOverflowAndCorruptCycles)
 	CollectGarbage();
 }
 
-TEST(FMaterialTests, LegacyStaticSnapshotsMigrateOnceWithoutLosingEqualOverrides)
-{
-	InitializeDObjectSystem();
-	auto* Root = MakeExpandedMaterial(nullptr, "LegacyPropertyRoot");
-	ASSERT_NE(Root, nullptr);
-	for (const bool Enabled : {false, true})
-	{
-		auto* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, Enabled ? "LegacyEnabled" : "LegacyDisabled");
-		ASSERT_TRUE(Instance->SetParent(Root));
-		auto* EnabledProperty = Instance->GetClass()->FindPropertyByName("bOverrideStaticProperties_DEPRECATED");
-		auto* ValueProperty = Instance->GetClass()->FindPropertyByName("StaticPropertiesOverride_DEPRECATED");
-		ASSERT_NE(EnabledProperty, nullptr);
-		ASSERT_NE(ValueProperty, nullptr);
-		*EnabledProperty->ContainerPtrToValuePtr<bool>(Instance) = Enabled;
-		auto Legacy = Root->GetStaticProperties();
-		Legacy.OpacityMaskThreshold = 0.75f;
-		*ValueProperty->ContainerPtrToValuePtr<Durin::FMaterialStaticProperties>(Instance) = Legacy;
-		const std::array Loaded{Durin::FName("bOverrideStaticProperties_DEPRECATED"),
-			Durin::FName("StaticPropertiesOverride_DEPRECATED")};
-		Instance->SetLoadedDeprecatedProperties(Loaded);
-		Instance->PostLoad();
-		const auto Migrated = Instance->GetPropertyOverrides();
-		EXPECT_EQ(Migrated.bOverrideBlendMode, Enabled);
-		EXPECT_EQ(Migrated.bOverrideShadingModel, Enabled);
-		EXPECT_EQ(Migrated.bOverrideOpacityMaskThreshold, Enabled);
-		EXPECT_EQ(Migrated.bOverrideTwoSided, Enabled);
-		EXPECT_EQ(Migrated.bOverrideDepthWritePolicy, Enabled);
-		EXPECT_EQ(Migrated.Values, Legacy);
-		ASSERT_TRUE(Instance->SetPropertyOverrides({}));
-		Instance->PostLoad();
-		EXPECT_FALSE(Instance->GetPropertyOverrides().HasAnyOverride());
-		Durin::MarkAsGarbage(Instance);
-	}
-	Durin::MarkAsGarbage(Root);
-	Durin::CollectGarbage();
-}
-
-TEST(FMaterialTests, PerFieldOverridesRoundTripAndLoadLegacyPackageFields)
+TEST(FMaterialTests, PerFieldOverridesRoundTrip)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
@@ -249,72 +212,6 @@ TEST(FMaterialTests, PerFieldOverridesRoundTripAndLoadLegacyPackageFields)
 	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(InstancePath), Instance));
 	EXPECT_EQ(Instance->GetPropertyOverrides(), Overrides);
 	ASSERT_TRUE(UnloadPackage(InstancePath));
-	for (const bool Enabled : {false, true})
-	{
-		ObjectPackage::FLinkerTables Linker;
-		ASSERT_TRUE(ObjectPackage::ReadPackage(CurrentBytes, {}, InstancePath, Linker));
-		const ObjectPackage::FSerializedType BoolType{.Kind = ObjectPackage::EValueKind::Bool};
-		ObjectPackage::FSerializedType ValueType;
-		bool Rewritten = false;
-		for (auto& Export : Linker.Exports)
-		{
-			const auto It = std::ranges::find(Export.Properties, std::string("PropertyOverrides"),
-				&ObjectPackage::FPropertyTag::FieldName);
-			if (It == Export.Properties.end()) continue;
-			const auto SchemaIt = std::ranges::find(Linker.Schemas, It->Type.QualifiedName,
-				&ObjectPackage::FSerializedSchema::QualifiedName);
-			ASSERT_NE(SchemaIt, Linker.Schemas.end());
-			const auto FieldIt = std::ranges::find(SchemaIt->Fields, std::string("Values"),
-				&ObjectPackage::FSerializedField::Name);
-			ASSERT_NE(FieldIt, SchemaIt->Fields.end());
-			ValueType = FieldIt->Type;
-			const auto ValueIt = std::ranges::find(It->Value.FieldNames, "Values");
-			ASSERT_NE(ValueIt, It->Value.FieldNames.end());
-			const auto ValueIndex = static_cast<size_t>(ValueIt - It->Value.FieldNames.begin());
-			auto Values = It->Value.Elements[ValueIndex];
-			auto Flag = *It;
-			Flag.FieldName = "bOverrideStaticProperties";
-			Flag.Type = BoolType;
-			Flag.Value = {};
-			Flag.Value.Bool = Enabled;
-			Flag.Payload.clear();
-			It->FieldName = "StaticPropertiesOverride";
-			It->Type = ValueType;
-			It->Value = std::move(Values);
-			It->Payload.clear();
-			Export.Properties.push_back(std::move(Flag));
-			Rewritten = true;
-		}
-		ASSERT_TRUE(Rewritten);
-		for (auto& Schema : Linker.Schemas)
-		{
-			if (Schema.QualifiedName != "Durin::DMaterialInstance") continue;
-			std::erase_if(Schema.Fields, [](const auto& Field) { return Field.Name == "PropertyOverrides"; });
-			Schema.Fields.push_back({"bOverrideStaticProperties", BoolType});
-			Schema.Fields.push_back({"StaticPropertiesOverride", ValueType});
-		}
-		FByteBuffer LegacyBytes, Bulk;
-		ObjectPackage::FPackageWriterDiagnostic Diagnostic;
-		ASSERT_TRUE(ObjectPackage::WritePackage(Linker, LegacyBytes, Bulk, &Diagnostic))
-			<< Diagnostic.LogicalPath << ": " << Diagnostic.Message;
-		ASSERT_TRUE(Bulk.empty());
-		ASSERT_TRUE(FFileHelper::SaveArrayToFile(LegacyBytes, Directory / "Instance.dasset"));
-		const auto Load = LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(InstancePath), Instance);
-		ASSERT_TRUE(Load) << Load.Message;
-		const auto Migrated = Instance->GetPropertyOverrides();
-		EXPECT_EQ(Migrated.bOverrideBlendMode, Enabled);
-		EXPECT_EQ(Migrated.bOverrideShadingModel, Enabled);
-		EXPECT_EQ(Migrated.bOverrideOpacityMaskThreshold, Enabled);
-		EXPECT_EQ(Migrated.bOverrideTwoSided, Enabled);
-		EXPECT_EQ(Migrated.bOverrideDepthWritePolicy, Enabled);
-		EXPECT_EQ(Migrated.Values, Overrides.Values);
-		ASSERT_TRUE(SavePackage(Instance->GetPackage()));
-		FByteBuffer Resaved;
-		ASSERT_TRUE(SerializeAssetPackageBytes(Instance->GetPackage(), Resaved));
-		EXPECT_FALSE(ContainsSerializedField(Resaved, InstancePath, "StaticPropertiesOverride"));
-		EXPECT_TRUE(ContainsSerializedField(Resaved, InstancePath, "PropertyOverrides"));
-		ASSERT_TRUE(UnloadPackage(InstancePath));
-	}
 	ASSERT_TRUE(UnloadPackage(RootPath));
 }
 
