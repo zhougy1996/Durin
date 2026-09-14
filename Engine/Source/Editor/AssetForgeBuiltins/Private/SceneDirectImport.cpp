@@ -1,4 +1,5 @@
 #include "AssetForge/Builtins/SceneImport.h"
+#include "AssetForge/Builtins/SceneImportData.h"
 #include "Hash/XxHash.h"
 
 #include "Asset/Asset.h"
@@ -9,6 +10,11 @@
 #include "DObject/ObjectGraphReplacement.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"
+#include "DObject/DObjectArray.h"
+#include "Components/StaticMeshComponent.h"
+#include "Components/SkyLightComponent.h"
+#include "Components/VolumetricCloudComponent.h"
+#include "RenderingThread.h"
 #include "Asset/AssetImportData.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
@@ -63,7 +69,24 @@ namespace Durin::AssetForge::Builtins
 			FSceneTextureBuildProduct Texture;
 			DObject* Candidate = nullptr;
 			DPackage* Package = nullptr;
+			DObject* Previous = nullptr;
 		};
+
+		auto GetSceneOutputIdentity(DObject* Object, std::string_view Source) -> std::string
+		{
+			if (const auto* Material = Cast<DMaterialInstance>(Object))
+			{
+				const auto& Receipt = Material->GetImportProvenance();
+				if (Receipt.RecipeId == "Durin.ImportedSurface" && Receipt.RecipeVersion == 1 &&
+					Receipt.SourceIdentity == Source) return Receipt.OutputIdentity;
+			}
+			const DAssetImportData* Data = nullptr;
+			if (const auto* Texture = Cast<DTexture2D>(Object)) Data = Texture->GetAssetImportData();
+			if (const auto* Mesh = Cast<DStaticMesh>(Object)) Data = Mesh->GetAssetImportData();
+			const auto* Receipt = Cast<DSceneImportData>(Data);
+			return Receipt && Receipt->SourceIdentity == Source ? Receipt->OutputIdentity : std::string{};
+		}
+
 		struct FGeneratedParentScope
 		{
 			std::vector<DPackage*> Packages;
@@ -359,13 +382,61 @@ namespace Durin::AssetForge::Builtins
 			return AddError(OutResult, EImportDiagnosticCategory::Canceled,
 				"scene-publication", "Scene import was canceled before publication.");
 		std::lock_guard PublicationLock(GetScenePublicationMutex());
-		for (const FPreparedSceneOutput& Output : Prepared)
-			if (FindAssetExact(Output.AssetPath)
-				|| FindResidentPackage(Output.AssetPath))
+		// Match receipts in the destination before considering generated filenames.
+		// An unrelated asset at a requested path is never replacement authority.
+		std::unordered_map<std::string, DObject*> ExistingOutputs;
+		std::vector<FPackagePath> ExistingPaths;
+		const std::string Prefix = DestinationDirectory.ToString() + "/";
+		for (const auto& [Path, Entry] : CaptureAssetCatalogSnapshot().Assets)
+			if (Path.GetView().starts_with(Prefix)) ExistingPaths.push_back(Path);
+		for (auto* Object : GDObjectArray.GetAll(EObjectQueryScope::LiveOnly))
+			if (auto* Package = Cast<DPackage>(Object); Package &&
+				Package->GetPackagePath().starts_with(Prefix) &&
+				std::ranges::find(ExistingPaths, Package->GetPackagePathIdentity()) == ExistingPaths.end())
+				ExistingPaths.push_back(Package->GetPackagePathIdentity());
+		for (const auto& Path : ExistingPaths)
+		{
+			DObject* Object = nullptr;
+			FObjectPath ObjectPath;
+			if (!FObjectPath::TryCreate(Path.ToString() + "." + std::string(Path.GetPackageName()), ObjectPath) ||
+				!LoadObject(ObjectPath, Object)) continue;
+			const auto Identity = GetSceneOutputIdentity(Object, RootFilename);
+			if (!Identity.empty() && !ExistingOutputs.emplace(Identity, Object).second)
 				return AddError(OutResult, EImportDiagnosticCategory::Collision,
-					"scene-publication", std::format(
-						"Scene output '{}' already exists.", Output.AssetPath.ToString()),
-					Output.Descriptor->StableIdentity);
+					"scene-publication", "Multiple saved outputs claim the same scene identity.", Identity);
+		}
+		for (FPreparedSceneOutput& Output : Prepared)
+		{
+			const auto Existing = ExistingOutputs.find(Output.Descriptor->StableIdentity);
+			if (Existing != ExistingOutputs.end())
+			{
+				Output.Previous = Existing->second;
+				Output.AssetPath = Output.Previous->GetPackage()->GetPackagePathIdentity();
+				const bool bTypeMatches = Output.Descriptor->Kind == ESceneOutputKind::MaterialInstance
+					? Cast<DMaterialInstance>(Output.Previous) != nullptr
+					: Output.Descriptor->Kind == ESceneOutputKind::StaticMesh
+						? Cast<DStaticMesh>(Output.Previous) != nullptr : Cast<DTexture2D>(Output.Previous) != nullptr;
+				if (!bTypeMatches || Output.Previous->GetPackage()->GetTopLevelAssets().size() != 1)
+					return AddError(OutResult, EImportDiagnosticCategory::Collision,
+						"scene-publication", "The previous scene output has an incompatible package shape.", Output.Descriptor->StableIdentity);
+			}
+			else if (FindAssetExact(Output.AssetPath) || FindResidentPackage(Output.AssetPath))
+			{
+				// A changed derivation gets a distinct output; keep the old asset for
+				// existing references instead of overwriting its identity.
+				const auto Occupant = std::ranges::find_if(ExistingOutputs, [&](const auto& Entry) {
+					return Entry.second->GetPackage()->GetPackagePathIdentity() == Output.AssetPath;
+				});
+				if (Occupant == ExistingOutputs.end() || Output.Descriptor->Kind != ESceneOutputKind::Texture2D ||
+					!FPackagePath::TryCreate(Output.AssetPath.ToString() + "_" +
+						FXxHash128::HashBuffer(std::as_bytes(std::span(Output.Descriptor->StableIdentity))).ToString(), Output.AssetPath) ||
+					FindAssetExact(Output.AssetPath) || FindResidentPackage(Output.AssetPath))
+					return AddError(OutResult, EImportDiagnosticCategory::Collision,
+						"scene-publication", "Scene output path is occupied by an unrelated output.", Output.Descriptor->StableIdentity);
+			}
+			std::ranges::find(OutResult.Outputs, Output.Descriptor->StableIdentity,
+				&FImportOutputSummary::StableIdentity)->AssetPath = Output.AssetPath;
+		}
 
 		for (FPreparedSceneOutput& Output : Prepared)
 		{
@@ -436,7 +507,7 @@ namespace Durin::AssetForge::Builtins
 					.ContentHashLow = SourceHash.HashLow,
 					.ContentHashHigh = SourceHash.HashHigh,
 					.ByteCount = Output.Texture.SourceFileSize});
-				auto* ImportData = NewObject<DAssetImportData>(
+				auto* ImportData = NewObject<DSceneImportData>(
 					Output.Candidate, "AssetImportData");
 				ImportState.SourceData.Normalize();
 				if (!ImportData || !ImportState.Validate(Error))
@@ -447,18 +518,31 @@ namespace Durin::AssetForge::Builtins
 							? "Scene texture import data could not be published." : std::move(Error),
 						Descriptor.StableIdentity);
 				}
+				ImportData->SourceIdentity = RootFilename;
+				ImportData->OutputIdentity = Descriptor.StableIdentity;
 				ImportData->SetState(std::move(ImportState));
 				Texture->SetAssetImportData(*ImportData);
 				Output.Candidate->MarkPackageDirty();
 			}
-			else if (Descriptor.Kind == ESceneOutputKind::StaticMesh
-				&& !ApplyStaticMeshAuthoredCandidate(
-					*Cast<DStaticMesh>(Output.Candidate), std::move(Output.StaticMesh),
-					CaptureStaticMeshReconciliation(*Cast<DStaticMesh>(Output.Candidate)), Error))
+			else if (Descriptor.Kind == ESceneOutputKind::StaticMesh)
 			{
-				Abandon(Prepared);
-				return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
-					"scene-materialization", std::move(Error), Descriptor.StableIdentity);
+				auto* Mesh = Cast<DStaticMesh>(Output.Candidate);
+				auto* ImportData = NewObject<DSceneImportData>(Mesh, "AssetImportData");
+				if (!ImportData)
+				{
+					Abandon(Prepared);
+					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
+						"scene-materialization", "Scene mesh import data could not be created.", Descriptor.StableIdentity);
+				}
+				ImportData->SourceIdentity = RootFilename;
+				ImportData->OutputIdentity = Descriptor.StableIdentity;
+				if (!ApplyStaticMeshAuthoredCandidate(*Mesh, std::move(Output.StaticMesh),
+					CaptureStaticMeshReconciliation(*Mesh), Error, true, {}, ImportData))
+				{
+					Abandon(Prepared);
+					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
+						"scene-materialization", std::move(Error), Descriptor.StableIdentity);
+				}
 			}
 		}
 
@@ -596,8 +680,6 @@ namespace Durin::AssetForge::Builtins
 						return AddError(OutResult, EImportDiagnosticCategory::ValidationFailure,
 							"scene-material-parameters", "Scene material parameter application failed.", Descriptor.StableIdentity);
 					}
-					Receipt.Parameters.push_back({GetMaterialSurfaceParameterId(Owner.Role, Owner.Kind),
-						Owner.ParameterId, Definition->Type, Value});
 				}
 				if (!Material->SetImportProvenance(std::move(Receipt)))
 				{
@@ -699,7 +781,26 @@ namespace Durin::AssetForge::Builtins
 		if (!Packages.empty()) SaveOptions.RootPackage = Packages.back();
 		FObjectGraphReplacement Publication;
 		std::vector<FObjectReplacementPackagePair> Pairs;
-		for (auto* Package : Packages) Pairs.push_back({nullptr, Package});
+		for (auto* Package : GeneratedParents.Packages) Pairs.push_back({nullptr, Package});
+		for (const auto& Output : Prepared)
+			Pairs.push_back({Output.Previous ? Output.Previous->GetPackage() : nullptr, Output.Package});
+		std::vector<DObject*> ExternalConsumers;
+		std::vector<DObject*> DependentMaterials;
+		for (auto* Object : GDObjectArray.GetAll(EObjectQueryScope::LiveOnly))
+			if (std::ranges::none_of(Pairs, [&](const auto& Pair) { return Pair.Current && Object->GetPackage() == Pair.Current; }))
+			{
+				ExternalConsumers.push_back(Object);
+				if (auto* Material = Cast<DMaterialInstance>(Object))
+					for (auto* Parent = Material->GetParent(); Parent; Parent = Parent->GetParent())
+						if (std::ranges::any_of(Prepared, [&](const auto& Output) { return Output.Previous == Parent; }))
+						{
+							DependentMaterials.push_back(Material);
+							break;
+						}
+			}
+		auto PreviousCompilations = DependentMaterials;
+		for (const auto& Output : Prepared) if (Output.Previous) PreviousCompilations.push_back(Output.Previous);
+		FAssetCompilingManager::Get().FinishCompilationForObjects(PreviousCompilations);
 		auto Published = Publication.Prepare(Pairs, {}, {.MaximumPackages = 4096});
 		if (Published)
 		{
@@ -718,6 +819,22 @@ namespace Durin::AssetForge::Builtins
 				"scene-persistence", Published.Message);
 		}
 		for (auto* Package : Packages) Package->MarkAsPublished();
+		if (std::ranges::any_of(Prepared, [](const auto& Output) { return Output.Previous != nullptr; }))
+		{
+			// External instance variants must follow their newly bound parent graph.
+			for (auto* Object : DependentMaterials) RequestMaterialRecompile(*Cast<DMaterialInterface>(Object));
+			FAssetCompilingManager::Get().FinishCompilationForObjects(DependentMaterials);
+			for (auto* Object : ExternalConsumers)
+			{
+				if (auto* Material = Cast<DMaterialInterface>(Object)) Material->RefreshReloadedAssetBindings();
+				if (auto* Cloud = Cast<DVolumetricCloudComponent>(Object)) Cloud->RefreshReloadedAssetBindings();
+				if (auto* Sky = Cast<DSkyLightComponent>(Object)) Sky->RefreshReloadedAssetBindings();
+				if (auto* Mesh = Cast<DStaticMeshComponent>(Object)) Mesh->RefreshReloadedAssetBindings();
+				else if (auto* Primitive = Cast<DPrimitiveComponent>(Object))
+					Primitive->MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags::MaterialBinding);
+			}
+			FlushRenderingCommands();
+		}
 		require(Publication.Retire());
 		GeneratedParents.bRetain = true;
 		OutResult.bSucceeded = true;

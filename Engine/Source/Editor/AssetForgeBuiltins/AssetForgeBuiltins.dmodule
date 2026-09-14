@@ -18,6 +18,7 @@
 		"Public/AssetForge/Builtins/VolumeTextureFactory.h",
 		"Public/AssetForge/Builtins/StaticMeshFactory.h",
 		"Public/AssetForge/Builtins/StaticMeshImportData.h",
+		"Public/AssetForge/Builtins/SceneImportData.h",
 		"Public/AssetForge/Builtins/Texture2DImportData.h",
 		"Public/AssetForge/Builtins/TextureCubeImportData.h",
 		"Public/AssetForge/Builtins/VolumeTextureImportData.h"

@@ -302,6 +302,15 @@ TEST(FMaterialThumbnailRendererTests, InvalidInstancePublishesOneStableDiagnosti
 	Cache.BeginFrame();
 	Cache.Request(MakeRequest(*Data).Asset, Durin::Editor::EAssetThumbnailPriority::Visible);
 	Cache.EndFrame();
+	// The cache lookup completes asynchronously before renderer validation runs.
+	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+	while (Cache.Find(MakeAssetPath(InvalidPath)).State != Durin::Editor::EAssetThumbnailState::Failed
+		&& std::chrono::steady_clock::now() < Deadline)
+	{
+		std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		Cache.BeginFrame();
+		Cache.EndFrame();
+	}
 	const Durin::Editor::FAssetThumbnailView First = Cache.Find(MakeAssetPath(InvalidPath));
 	ASSERT_EQ(First.State, Durin::Editor::EAssetThumbnailState::Failed);
 	EXPECT_NE(First.Diagnostic.find("parent"), std::string::npos);

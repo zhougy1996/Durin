@@ -84,6 +84,8 @@ namespace Durin::Editor::Level
 		else if (!bImportSettingsValid) ValidationMessage = ImportSettingsError;
 		else if (!DestinationValidation) ValidationMessage = DestinationValidation.Message;
 		DrawImportDialogWarning(ValidationMessage);
+		ImGui::TextWrapped("Importing the same source again replaces edits to its generated meshes, textures, and material instances. "
+			"Keep custom assets outside the import output directory.");
 
 		ImGui::Spacing();
 		ImGui::Separator();

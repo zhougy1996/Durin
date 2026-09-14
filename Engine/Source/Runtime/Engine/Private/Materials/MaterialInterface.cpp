@@ -20,15 +20,7 @@ namespace Durin
 	auto DMaterialInterface::SetImportProvenance(FMaterialImportProvenance InProvenance) -> bool
 	{
 		if (InProvenance.RecipeId.size() > 128 || InProvenance.StructuralKey.size() > 16384 ||
-			InProvenance.SourceIdentity.size() > 4096 || InProvenance.OutputIdentity.size() > 4096 ||
-			InProvenance.Parameters.size() > MaterialMaxParameterDefinitionCount) return false;
-		std::unordered_set<FGuid> LogicalIds;
-		for (const auto& Parameter : InProvenance.Parameters)
-		{
-			if (!Parameter.LogicalId.IsValid() || !Parameter.OwnerId.IsValid() ||
-				!LogicalIds.insert(Parameter.LogicalId).second ||
-				static_cast<uint8>(Parameter.Type) > static_cast<uint8>(EMaterialParameterType::Vector4)) return false;
-		}
+			InProvenance.SourceIdentity.size() > 4096 || InProvenance.OutputIdentity.size() > 4096) return false;
 		if (ImportProvenance == InProvenance) return true;
 		ImportProvenance = std::move(InProvenance);
 		MarkPackageDirty();

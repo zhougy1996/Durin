@@ -40,12 +40,4 @@ namespace Durin::AssetForge::Builtins
 	};
 	ASSETFORGEBUILTINS_API auto MakeImportedSurfaceRecipe(
 		const std::array<FImportedSurfaceRole, 8>& Roles) -> FImportedSurfaceRecipe;
-	// Builds a complete replacement override set without mutating either instance.
-	// Conflicting user values merged into one owner fail rather than losing edits.
-	ASSETFORGEBUILTINS_API auto ReconcileImportedSurfaceOverrides(
-		const FMaterialImportProvenance& Previous,
-		std::span<const FMaterialParameterOverride> LocalOverrides,
-		const FMaterialImportProvenance& Incoming,
-		std::vector<FMaterialParameterOverride>& OutOverrides,
-		std::vector<std::string>& OutDiagnostics) -> bool;
 }

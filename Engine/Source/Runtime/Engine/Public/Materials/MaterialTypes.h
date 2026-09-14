@@ -281,39 +281,27 @@ namespace Durin
 		FMaterialParameterValue Value;
 	};
 
-	// An import receipt is editor metadata, never a second parameter schema. The
-	// logical identity survives sharing/splitting owners in generated parent graphs.
-	DSTRUCT()
-	struct FMaterialImportedParameter
-	{
-		GENERATED_BODY()
-		DPROPERTY()
-		FGuid LogicalId;
-		DPROPERTY()
-		FGuid OwnerId;
-		DPROPERTY()
-		EMaterialParameterType Type = EMaterialParameterType::Scalar;
-		DPROPERTY()
-		FMaterialParameterValue Value;
-		auto operator==(const FMaterialImportedParameter&) const -> bool = default;
-	};
-
+	// Editor-only generated recipe and source/output identity; contains no value history.
 	DSTRUCT()
 	struct FMaterialImportProvenance
 	{
 		GENERATED_BODY()
+
 		DPROPERTY()
 		std::string RecipeId;
+
 		DPROPERTY()
 		uint32 RecipeVersion = 0;
+
 		DPROPERTY()
 		std::string StructuralKey;
+
 		DPROPERTY()
 		std::string SourceIdentity;
+
 		DPROPERTY()
 		std::string OutputIdentity;
-		DPROPERTY()
-		std::vector<FMaterialImportedParameter> Parameters;
+
 		auto operator==(const FMaterialImportProvenance&) const -> bool = default;
 	};
 

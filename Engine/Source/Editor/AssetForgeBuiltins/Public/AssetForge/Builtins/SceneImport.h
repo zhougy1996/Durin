@@ -35,6 +35,8 @@ namespace Durin::AssetForge::Builtins
 		std::function<bool(EAssetBundleSavePhase, size_t)> ShouldFail;
 	};
 
+	// Reimports matching source/output identities from source, discarding edits to
+	// generated outputs. Unrelated assets and shared structural parents are never overwritten.
 	ASSETFORGEBUILTINS_API auto ImportSceneAssets(
 		std::string_view SourceFile,
 		const FPackagePath& DestinationDirectory,

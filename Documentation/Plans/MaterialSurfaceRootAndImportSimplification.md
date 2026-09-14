@@ -12,7 +12,10 @@ Completed:
 Stage 0 source and mounted-content audits are complete at execution baseline
 `2d3eef2fa1af59da8d7a86c428398bd28fc0765b`. Stages 1 and 2 implementation and
 validation are complete; Stages 3 through 5 remain open. Stage 3 now selects
-structural parents for new imports; coordinated reimport and rollback remain next.
+structural parents and supports source-authoritative reimport.
+User-directed scope revision on 2026-09-14 removes preservation/merging of edits
+to generated outputs. The revised contract below supersedes earlier reconciliation
+checkpoints; normal encapsulation and Stage 4/5 acceptance remain open.
 The frozen decisions and validation receipts below govern subsequent stages.
 Stage 1 implements final-value evaluation and compiler invalidation. Its generated
 parent's redundant policy and exact recipe checkpoint changed together: the one
@@ -141,11 +144,16 @@ parameters its instances require, with graph-owned stable IDs. Scene import must
 publish only overrides declared by that parent. Texture absence must not become
 an accidental black/white fallback sample or a dangling override.
 
-Reimport must deliberately handle structural transitions such as adding/removing
-a normal map, changing UV requirements, or switching packing. Reuse parameter IDs
-for retained logical roles, preserve applicable overrides, and diagnose overrides
-whose roles disappear. Parent selection and instance updates must participate in
-the existing staged import transaction, including rollback and retry.
+Reimport handles structural transitions by selecting the source-required parent
+and replacing the complete generated instance parameter and static-setting state.
+It does not preserve edits to generated meshes, textures or material instances,
+retain orphan overrides, or compare against previous imported values. Stable
+source/output identity authorizes replacement; matching paths alone do not.
+Keep custom copies outside the import output directory. Shared generated parents
+remain immutable dependencies and are never overwritten to change one instance.
+Parent selection and output replacement use the staged import transaction, with
+rollback on failure and reference refresh on success. Outputs no longer present
+in the source are retained rather than automatically deleting referenced assets.
 
 ### Scope and compatibility
 
@@ -207,15 +215,16 @@ Gate: no authoring path requires two visible output nodes or Factor/Sample pairs
 
 ### Stage 3: Generate minimal imported parents and instances
 
-- [ ] Implement deterministic structural parent creation/reuse and staged dependency
+- [x] Implement deterministic structural parent creation/reuse and staged dependency
   publication in AssetForgeBuiltins and SceneDirectImport.
 - [ ] Generate only required sample, value, factor, normal, and UV branches; preserve
   texture usage, samplers, packed channels, and source alpha behavior.
-- [ ] Replace unconditional fixed-schema override writes with selected-parent-aware
+- [x] Replace unconditional fixed-schema override writes with selected-parent-aware
   publication, retaining logical parameter identity where roles survive.
-- [ ] Cover reimport, deduplication, missing resources, failed publication, rollback,
-  and structural parent changes without orphaning unrelated instance edits.
-- [ ] Assert representative graph budgets: no expressions for an unparameterized
+- [x] Cover reimport, deduplication, missing resources, failed publication, rollback,
+  and structural parent changes that reset generated edits while preserving
+  unrelated assets and references.
+- [x] Assert representative graph budgets: no expressions for an unparameterized
   default, one sample for a plain color texture, one fetch for compatible packed
   channels, and no expanded default UV or universal eight-map scaffold.
 
@@ -350,20 +359,18 @@ graph node identity must remain distinct from parameter identity. Overrides are
 published against this explicit role-to-owner mapping, never the old 48-field set.
 
 Adding/removing maps, identity transitions, UV requirements and packing changes
-select a new parent. Reimport must reconcile by stable source output identity,
-preserve surviving user overrides, retain disappearing user roles as diagnosed
-orphans, and remove only obsolete importer-owned overrides. Persist the last
-imported role/value snapshot to distinguish user edits from importer values.
-For shared-to-split texture groups, use the saved logical-role mapping to transfer
-applicable overrides; never infer equivalence from display names alone.
+select a new parent. Reimport matches stable source/output identities and replaces
+all generated output state from the source. No previous parameter/value snapshot,
+user-edit merge, orphan preservation or split/merge reconciliation is required.
+This is the user-selected simplification of 2026-09-14. The prior receipt-based
+merge design is superseded, including its historical implementation checkpoints.
 
-The current `ImportSceneAssets` explicitly rejects existing outputs and provides
-no scene reimport transaction. Stage 3 therefore includes extending staged
-publication/reconciliation, not calling the create-only entry point as reimport.
-New parents are private candidates, compiled before publication and saved with
-instances/textures/meshes in the same atomic bundle. Reused parents are read-only
-dependencies. Rollback must discard newly created parents and restore every
-replaced output and registry entry; retries must not mutate unrelated imports.
+New parents and replacement outputs remain private candidates, compiled before
+publication and saved in the same atomic bundle. Reused parents are read-only
+dependencies. Rollback discards candidates and restores replaced authored files
+and registry entries. Unrelated outputs are never overwritten; copies for custom
+authoring should live outside the scene output directory. Removed source outputs
+remain available to retained references; automatic cleanup is outside this stage.
 
 The historical `/Engine/Materials/ImportedSurface` is no longer selected by new
 imports after Stage 3. Preserve customized content; reconstruct/retire only the
@@ -494,6 +501,9 @@ Validation on Win64-Debug-DurinEditor:
 
 ## Stage 3 In-Progress Receipt
 
+The following checkpoints are historical. Their user-override reconciliation
+requirements are superseded by the source-authoritative contract above.
+
 The independent `ImportedSurfaceRecipe` builder now generates deterministic
 programs and logical-role owner mappings. Root defaults require no owners;
 identity texture branches use one combined sample; nonidentity values and UV
@@ -613,6 +623,48 @@ reconciliation routine is not yet invoked by reimport. Same-source admission,
 stable-output replacement, native consumer refresh/retirement, reimport rollback,
 normal encapsulation and final budget acceptance remain required. Stage 4 content
 reconstruction and final visual/Cook acceptance remain separate obligations.
+
+## Source-Authoritative Reimport Simplification Receipt
+
+The user's 2026-09-14 scope revision is implemented. Reimport matches persisted
+source/output identities in the destination and publishes newly built outputs in
+the existing atomic save/replacement transaction. Material parameters and static
+settings always come from the incoming source. Removed the imported-value history,
+property baselines, override merge routine and orphan restoration API. Only recipe
+and ownership identity remain persisted. Texture derivations that change identity
+receive distinct outputs; removed outputs remain available to existing references.
+
+The dialog describes overwrite behavior and directs custom assets outside the
+output directory. Unrelated source/path collisions fail before publication;
+shared structural parents are reused only when their exact recipe matches.
+Native mesh render/physics bindings refresh after replacement, and external
+material-instance variants recompile against their newly bound parent.
+
+The scene fixture unloads/reloads ownership metadata, changes parent shape by
+adding a normal map and removing a color factor, resets manual parameter/shading
+edits, restores source values when the shape returns, preserves an independent
+material, and rejects another source with the same filename. Staging, package
+publication and Registry failure injection preserve old saved bytes and live
+mesh/material references; successful retry replaces them together.
+
+Registry-selected material/import validation covers AssetImportTests,
+MaterialTests, MaterialThumbnailTests, MaterialVulkanTests, SceneImportTests and
+SceneImportVulkanTests. Initial receipt:
+`Build/.agent-state/logs/20260914-113248-967080-14480-ctest.log`.
+Five targets passed, including both Vulkan targets; the thumbnail target observed
+its asynchronous cache-read state before the expected invalid-parent diagnostic.
+The isolated rerun reproduced this asynchronous test assumption. The test now
+pumps frames with a bounded deadline before asserting the same failure state and
+diagnostic; production thumbnail behavior is unchanged. All 8 thumbnail tests
+pass in 15.987 seconds:
+`Build/.agent-state/logs/20260914-113916-182350-39840-MaterialThumbnailTests.log`.
+The other five passing target results remain applicable to the final code.
+Final workspace `all` build passes:
+`Build/.agent-state/logs/20260914-113940-864414-40236-cmake.log`.
+Changed-document validation passes for the plan and material-system contract.
+
+Stage 3 remains open for normal-sampling encapsulation. Stage 4 reconstruction,
+visual/Cook acceptance and Stage 5 integration/documentation remain separate gates.
 
 ## Execution References
 

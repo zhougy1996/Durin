@@ -39,6 +39,14 @@ namespace Durin
 		return StaticMesh.Get();
 	}
 
+	auto DStaticMeshComponent::RefreshReloadedAssetBindings() -> void
+	{
+		if (StaticMesh) StaticMesh->RequestRenderDataAndResources();
+		++MaterialComponentRevision;
+		MarkRenderStateDirty();
+		RecreatePhysicsState();
+	}
+
 	auto DStaticMeshComponent::GetBodySetup() const -> DBodySetup*
 	{
 		return StaticMesh ? StaticMesh->EnsureQualifiedBoxBodySetup() : nullptr;

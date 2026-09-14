@@ -1057,48 +1057,6 @@ TEST(FMaterialFunctionTests, RootCallsCommitAtomicallyAndSnapshotThroughInstance
 	CollectGarbage();
 }
 
-TEST(FMaterialFunctionTests, ImportedOverridesSurviveSplitAndRejectConflictingMerge)
-{
-	using namespace Durin;
-	using namespace Durin::AssetForge::Builtins;
-	const FGuid A{1, 2, 3, 1}, B{1, 2, 3, 2};
-	const auto Value = [](float X) { return FMaterialParameterValue::MakeScalar(X); };
-	FMaterialImportProvenance Shared, Split;
-	Shared.Parameters = {{A, A, EMaterialParameterType::Scalar, Value(1)},
-		{B, A, EMaterialParameterType::Scalar, Value(1)}};
-	Split.Parameters = {{A, A, EMaterialParameterType::Scalar, Value(.2f)},
-		{B, B, EMaterialParameterType::Scalar, Value(.3f)}};
-	std::vector<FMaterialParameterOverride> Local{{A, EMaterialParameterType::Scalar, Value(.7f)}};
-	std::vector<FMaterialParameterOverride> Result;
-	std::vector<std::string> Diagnostics;
-	ASSERT_TRUE(ReconcileImportedSurfaceOverrides(Shared, Local, Split, Result, Diagnostics));
-	ASSERT_EQ(Result.size(), 2u);
-	EXPECT_EQ(Result[0].Value, Value(.7f));
-	EXPECT_EQ(Result[1].Value, Value(.7f));
-	Local = Result;
-	Local[1].Value = Value(.8f);
-	Result.clear();
-	EXPECT_FALSE(ReconcileImportedSurfaceOverrides(Split, Local, Shared, Result, Diagnostics));
-	EXPECT_TRUE(Result.empty());
-	EXPECT_FALSE(Diagnostics.empty());
-	Local[1].Value = Value(.7f);
-	ASSERT_TRUE(ReconcileImportedSurfaceOverrides(Split, Local, Shared, Result, Diagnostics));
-	ASSERT_EQ(Result.size(), 1u);
-	EXPECT_EQ(Result[0].Value, Value(.7f));
-	FMaterialImportProvenance Absent;
-	ASSERT_TRUE(ReconcileImportedSurfaceOverrides(Split, Local, Absent, Result, Diagnostics));
-	EXPECT_EQ(Result.size(), 2u);
-	EXPECT_EQ(Diagnostics.size(), 2u);
-	Local = {{A, EMaterialParameterType::Scalar, Value(.2f)},
-		{B, EMaterialParameterType::Scalar, Value(.3f)}};
-	ASSERT_TRUE(ReconcileImportedSurfaceOverrides(Split, Local, Absent, Result, Diagnostics));
-	EXPECT_TRUE(Result.empty());
-	EXPECT_TRUE(Diagnostics.empty());
-	ASSERT_TRUE(ReconcileImportedSurfaceOverrides(Split, Local, Shared, Result, Diagnostics));
-	ASSERT_EQ(Result.size(), 1u);
-	EXPECT_EQ(Result[0].Value, Value(1));
-}
-
 TEST(FMaterialFunctionTests, ImportProvenanceRoundtripsWithoutChangingGraphOrCompileRevision)
 {
 	using namespace Durin;
@@ -1126,17 +1084,13 @@ TEST(FMaterialFunctionTests, ImportProvenanceRoundtripsWithoutChangingGraphOrCom
 	auto InstanceReceipt = ParentReceipt;
 	InstanceReceipt.SourceIdentity = "source.gltf";
 	InstanceReceipt.OutputIdentity = "scene:material:stable";
-	const auto LogicalId = GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::Metallic,
-		MaterialParameters::EMaterialBuiltinParameterKind::Value);
-	InstanceReceipt.Parameters.push_back({LogicalId, LogicalId, EMaterialParameterType::Scalar,
-		FMaterialParameterValue::MakeScalar(.4f)});
 	ASSERT_TRUE(Parent->SetImportProvenance(ParentReceipt));
 	ASSERT_TRUE(Instance->SetImportProvenance(InstanceReceipt));
 	EXPECT_EQ(Parent->GetMaterialCompileStatus().AuthoredRevision, Revision);
 	EXPECT_EQ(*Parent->GetMaterialProgram(), Program);
 	EXPECT_TRUE(Parent->GetParameterDefinitions().empty());
 	auto Invalid = InstanceReceipt;
-	Invalid.Parameters.push_back(Invalid.Parameters.front());
+	Invalid.SourceIdentity.assign(4097, 'x');
 	EXPECT_FALSE(Instance->SetImportProvenance(Invalid));
 	EXPECT_EQ(Instance->GetImportProvenance(), InstanceReceipt);
 	ASSERT_TRUE(SavePackage(Parent->GetPackage()));
