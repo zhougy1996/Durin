@@ -150,13 +150,17 @@ namespace Durin
 		// lets the object refresh state derived from a successfully changed value.
 		COREDOBJECT_API virtual auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void;
 
+		// Validates the full route, then replaces its complete field (or owning container
+		// for indexed routes). Parent replacement subsumes children; values are unchanged.
 		COREDOBJECT_API auto SetAuthoredOverride(
 			const FAuthoredOverridePath& Path,
 			EAuthoredOverrideProvenance Provenance,
 			FAuthoredOverrideDiagnostic* OutDiagnostic = nullptr) -> bool;
+		// Validates transactionally, rejects duplicate input paths, and coalesces replacement boundaries.
 		COREDOBJECT_API auto ReplaceAuthoredOverrides(
 			std::span<const FAuthoredOverrideEntry> Entries,
 			FAuthoredOverrideDiagnostic* OutDiagnostic = nullptr) -> bool;
+		// Clear operations normalize indexed routes to their container; they never reset values.
 		COREDOBJECT_API auto ClearAuthoredOverride(const FAuthoredOverridePath& Path) -> bool;
 		COREDOBJECT_API auto ClearAuthoredOverrideSubtree(const FAuthoredOverridePath& Path) -> uint64;
 		COREDOBJECT_API auto ResetAuthoredOverrides() -> void;

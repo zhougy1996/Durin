@@ -2349,6 +2349,117 @@ TEST(FPackageAssetTests, ExplicitLoadScopeFailureRetiresSuccessfulNestedBulkReso
 	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(BulkPath));
 }
 
+TEST(FPackageAssetTests, OrdinaryAndCompleteSavesDoNotCreateOverrides)
+{
+	using namespace Durin;
+	using namespace Durin::AssetPrivate;
+	InitializeAssetTests();
+	const std::array Classes{DMathStructAssetForTest::StaticClass()};
+	ASSERT_TRUE(Private::CreateClassDefaultObjectsForBatch(Classes));
+	for (const auto Mode : {EDefaultDeltaMode::Enabled, EDefaultDeltaMode::NoDelta})
+	{
+		FPackagePath Path;
+		ASSERT_TRUE(FPackagePath::TryCreate(Mode == EDefaultDeltaMode::Enabled
+			? "/TestAssets/OrdinaryWithoutIntent" : "/TestAssets/CompleteWithoutIntent", Path));
+		DMathStructAssetForTest* Asset = nullptr;
+		ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
+		Asset->Vector = FVector3(1.0, 2.0, 3.0);
+		Asset->Vectors.assign(65, FVector3(4.0, 0.0, 6.0));
+		Asset->VectorMap = {{"entry", FVector3(0.0, 8.0, 0.0)}};
+		FAssetPackageEncodedClosure Encoded;
+		ASSERT_TRUE(SavePackage(Asset->GetPackage()));
+		const auto WriteResult = DastV9::GetCodec().Write(Asset->GetPackage(), Encoded, Mode, {});
+		ASSERT_TRUE(WriteResult) << WriteResult.Message;
+		const auto File = Testing::GetTestWorkDirectory() / "Assets"
+			/ (std::string(Path.GetPackageName()) + ".dasset");
+		WriteTestBytes(File, Encoded.PackageBytes);
+		ASSERT_TRUE(UnloadPackage(Path));
+		ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Asset));
+		ASSERT_NE(Asset, nullptr);
+		EXPECT_FALSE(Asset->HasAllocatedAuthoredOverrideLedger());
+		EXPECT_EQ(Asset->Vector, FVector3(1.0, 2.0, 3.0));
+		EXPECT_EQ(Asset->Vectors, std::vector<FVector3>(65, FVector3(4.0, 0.0, 6.0)));
+		EXPECT_EQ(Asset->VectorMap, (FVectorMap{{"entry", FVector3(0.0, 8.0, 0.0)}}));
+		Asset->Vector = FVector3(0.0);
+		Asset->Vectors.clear();
+		Asset->VectorMap.clear();
+		ASSERT_TRUE(DastV9::GetCodec().Write(Asset->GetPackage(), Encoded, EDefaultDeltaMode::Enabled, {}));
+		ObjectPackage::FLinkerTables Linker;
+		ASSERT_TRUE(ObjectPackage::ReadPackageV9(Encoded.PackageBytes, Encoded.BulkBytes, Path, Linker));
+		for (const auto& Export : Linker.Exports)
+			EXPECT_TRUE(Export.Properties.empty());
+		WriteTestBytes(File, Encoded.PackageBytes);
+		ASSERT_TRUE(UnloadPackage(Path));
+		ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Asset));
+		EXPECT_EQ(Asset->Vector, FVector3(0.0));
+		EXPECT_TRUE(Asset->Vectors.empty());
+		EXPECT_FALSE(Asset->HasAllocatedAuthoredOverrideLedger());
+		ASSERT_TRUE(Testing::RemoveAssetPackageForTests(Path));
+	}
+}
+
+TEST(FPackageAssetTests, SparseReplacementsRoundTripWithoutPromotingStructParents)
+{
+	using namespace Durin;
+	using namespace Durin::AssetPrivate;
+	InitializeAssetTests();
+	const std::array Classes{DMathStructAssetForTest::StaticClass()};
+	ASSERT_TRUE(Private::CreateClassDefaultObjectsForBatch(Classes));
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/SparseReplacements", Path));
+	DMathStructAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
+	const FAuthoredOverridePath Parent{FAuthoredOverridePathToken::Field(
+		Asset->GetClass()->GetQualifiedName(), FName("Vector"))};
+	auto Child = Parent;
+	Child.push_back(FAuthoredOverridePathToken::Field(
+		Z_Construct_DStruct_FVector3()->GetQualifiedName(), FName("x")));
+	ASSERT_TRUE(Asset->SetAuthoredOverride(Child, EAuthoredOverrideProvenance::Forced));
+	for (const auto Mode : {EDefaultDeltaMode::Enabled, EDefaultDeltaMode::NoDelta})
+	{
+		FAssetPackageEncodedClosure Encoded;
+		ASSERT_TRUE(SavePackage(Asset->GetPackage()));
+		const auto WriteResult = DastV9::GetCodec().Write(Asset->GetPackage(), Encoded, Mode, {});
+		ASSERT_TRUE(WriteResult) << WriteResult.Message;
+		const auto File = Testing::GetTestWorkDirectory() / "Assets" / "SparseReplacements.dasset";
+		WriteTestBytes(File, Encoded.PackageBytes);
+		ASSERT_TRUE(UnloadPackage(Path));
+		ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Asset));
+		const auto Entries = Asset->GetAuthoredOverrideEntries();
+		ASSERT_EQ(Entries.size(), 1u);
+		EXPECT_EQ(CompareAuthoredOverridePaths(Entries[0].Path, Child), std::strong_ordering::equal);
+		EXPECT_EQ(Asset->Vector, FVector3(0.0));
+	}
+	ASSERT_TRUE(Asset->SetAuthoredOverride(Parent, EAuthoredOverrideProvenance::Forced));
+	ASSERT_TRUE(SavePackage(Asset->GetPackage()));
+	ASSERT_NO_FATAL_FAILURE(RewriteSchemaTestPackage(Path, [](auto& Linker) {
+		for (auto& Export : Linker.Exports)
+			for (auto& Property : Export.Properties)
+				if (Property.FieldName == "Vector")
+				{
+					// Old complete writers tagged both the parent and every saved child Forced.
+					EXPECT_EQ(Property.Value.Provenances.size(), 3u);
+					for (auto& Provenance : Property.Value.Provenances)
+						Provenance = ObjectPackage::EPropertyProvenance::Forced;
+				}
+	}));
+	ASSERT_TRUE(UnloadPackage(Path));
+	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Asset));
+	ASSERT_EQ(Asset->GetAuthoredOverrideEntries().size(), 1u);
+	EXPECT_EQ(CompareAuthoredOverridePaths(Asset->GetAuthoredOverrideEntries()[0].Path, Parent), std::strong_ordering::equal);
+	auto* Duplicate = DuplicateObject(Asset, nullptr, "SparseReplacementCopy");
+	ASSERT_NE(Duplicate, nullptr);
+	EXPECT_EQ(Duplicate->GetAuthoredOverrideEntries().size(), 1u);
+	MarkObjectHierarchyAsGarbage(Duplicate);
+	EXPECT_TRUE(Asset->ClearAuthoredOverride(Parent));
+	EXPECT_FALSE(Asset->HasAllocatedAuthoredOverrideLedger());
+	ASSERT_TRUE(SavePackage(Asset->GetPackage()));
+	ASSERT_TRUE(UnloadPackage(Path));
+	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Asset));
+	EXPECT_FALSE(Asset->HasAllocatedAuthoredOverrideLedger());
+	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(Path));
+}
+
 TEST(FPackageAssetTests, PreparedGraphsRestoreSavedBatchCyclesAndContainersWithoutPublishing)
 {
 	using namespace Durin;

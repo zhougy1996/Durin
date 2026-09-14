@@ -702,25 +702,17 @@ namespace Durin
 			std::span<const FAuthoredOverrideEntry> LedgerEntries;
 		};
 
+		// A descendant mark requires this field to be emitted, but does not replace it.
 		auto FindAuthoredIntent(std::span<const FAuthoredOverrideEntry> Entries,
-			const FAuthoredOverridePath& Path) -> std::optional<EAuthoredOverrideProvenance>
+			const FAuthoredOverridePath& Path) -> std::optional<EDefaultDeltaProvenance>
 		{
-			std::optional<EAuthoredOverrideProvenance> Result;
-			for (const FAuthoredOverrideEntry& Entry : Entries)
-			{
-				if (!IsAuthoredOverridePathPrefix(Path, Entry.Path)) continue;
-				if (Entry.Provenance == EAuthoredOverrideProvenance::Forced) return Entry.Provenance;
-				Result = Entry.Provenance;
-			}
-			return Result;
-		}
-
-		auto ToDeltaProvenance(std::optional<EAuthoredOverrideProvenance> Intent)
-			-> EDefaultDeltaProvenance
-		{
-			return Intent == EAuthoredOverrideProvenance::Forced
-				? EDefaultDeltaProvenance::Forced
-				: (Intent ? EDefaultDeltaProvenance::Explicit : EDefaultDeltaProvenance::None);
+			const auto It = std::lower_bound(Entries.begin(), Entries.end(), Path,
+				[](const auto& Entry, const auto& Candidate) {
+					return CompareAuthoredOverridePaths(Entry.Path, Candidate) < 0;
+				});
+			if (It == Entries.end() || !IsAuthoredOverridePathPrefix(Path, It->Path)) return {};
+			return It->Path.size() == Path.size()
+				? EDefaultDeltaProvenance::Forced : EDefaultDeltaProvenance::Explicit;
 		}
 
 		auto AppendContainerPath(const FDefaultDeltaNode& Parent, size_t ElementIndex,
@@ -832,53 +824,6 @@ namespace Durin
 			return Result;
 		}
 
-		auto BuildForcedValue(const FDefaultDeltaNode& Source, FDefaultDeltaPlan& Plan,
-			FDefaultDeltaDiagnostic& Diagnostic, uint32 Depth) -> std::shared_ptr<FDefaultDeltaNode>
-		{
-			if (Depth > DefaultDeltaMaxDepth)
-			{
-				Diagnostic.Reason = EDefaultDeltaFailureReason::DepthLimit;
-				return nullptr;
-			}
-			if (Source.LogicalType.Kind == ETypeKind::Struct && Source.SourceStruct
-				&& (!Source.SourceStruct->HasCompleteAuthoredFields() || Source.SourceStruct->HasSerializer()))
-			{
-				Diagnostic.Reason = EDefaultDeltaFailureReason::UnsupportedLogicalType;
-				Diagnostic.LogicalPath = Source.LogicalType.QualifiedType.ToString();
-				return nullptr;
-			}
-			Plan.MaximumDepth = std::max(Plan.MaximumDepth, Depth);
-			auto Result = CloneNode(Source);
-			Result->Baseline = EDefaultDeltaBaselineKind::None;
-			Result->Disposition = EDefaultDeltaDisposition::Emitted;
-			Result->Provenance = EDefaultDeltaProvenance::Forced;
-			Result->Identity = EPropertyIdentityResult::Different;
-			Result->Fields.clear();
-			for (const FDefaultDeltaFieldPlan& SourceField : Source.Fields)
-			{
-				FDefaultDeltaFieldPlan Field = SourceField;
-				Field.Baseline = EDefaultDeltaBaselineKind::None;
-				Field.Disposition = EDefaultDeltaDisposition::Emitted;
-				Field.Provenance = EDefaultDeltaProvenance::Forced;
-				Field.Identity = EPropertyIdentityResult::Different;
-				Field.Value = SourceField.Value
-					? BuildForcedValue(*SourceField.Value, Plan, Diagnostic, Depth + 1) : nullptr;
-				if (!Field.Value) return nullptr;
-				++Plan.FieldCount;
-				++Plan.EmittedFieldCount;
-				Result->Fields.push_back(std::move(Field));
-			}
-			Result->Elements.clear();
-			for (const auto& SourceElement : Source.Elements)
-			{
-				auto Element = SourceElement
-					? BuildForcedValue(*SourceElement, Plan, Diagnostic, Depth + 1) : nullptr;
-				if (!Element) return nullptr;
-				Result->Elements.push_back(std::move(Element));
-			}
-			return Result;
-		}
-
 		auto BuildPlannedValue(const FDefaultDeltaNode& Live, FPlannerContext& Context,
 			uint32 Depth, bool bUseStructDefaults, const FAuthoredOverridePath& Path)
 			-> std::shared_ptr<FDefaultDeltaNode>
@@ -890,10 +835,20 @@ namespace Durin
 			}
 			auto Planned = CloneNode(Live);
 			const auto NodeIntent = FindAuthoredIntent(Context.LedgerEntries, Path);
+			// Explicit replacement includes all descendants without manufacturing child marks.
+			bUseStructDefaults = bUseStructDefaults && NodeIntent != EDefaultDeltaProvenance::Forced;
+			if (!bUseStructDefaults && Live.LogicalType.Kind == ETypeKind::Struct && Live.SourceStruct
+				&& (!Live.SourceStruct->HasCompleteAuthoredFields() || Live.SourceStruct->HasSerializer()))
+			{
+				Context.Diagnostic.Reason = EDefaultDeltaFailureReason::UnsupportedLogicalType;
+				Context.Diagnostic.LogicalPath = Live.LogicalType.QualifiedType.ToString();
+				return nullptr;
+			}
+			Context.Plan.MaximumDepth = std::max(Context.Plan.MaximumDepth, Depth);
 			Planned->Baseline = EDefaultDeltaBaselineKind::None;
 			Planned->Disposition = EDefaultDeltaDisposition::Emitted;
 			Planned->Provenance = NodeIntent
-				? ToDeltaProvenance(NodeIntent) : EDefaultDeltaProvenance::Explicit;
+				? *NodeIntent : EDefaultDeltaProvenance::Explicit;
 			Planned->Identity = EPropertyIdentityResult::Different;
 			if (Live.LogicalType.Kind == ETypeKind::Struct)
 			{
@@ -929,7 +884,7 @@ namespace Durin
 					}
 					Field.Disposition = Field.Identity == EPropertyIdentityResult::Identical && !Intent
 						? EDefaultDeltaDisposition::Omitted : EDefaultDeltaDisposition::Emitted;
-					Field.Provenance = Intent ? ToDeltaProvenance(Intent)
+					Field.Provenance = Intent ? *Intent
 						: (Field.Disposition == EDefaultDeltaDisposition::Emitted
 							? EDefaultDeltaProvenance::Explicit : EDefaultDeltaProvenance::None);
 					Field.Value = Field.Disposition == EDefaultDeltaDisposition::Emitted
@@ -964,6 +919,30 @@ namespace Durin
 			return Planned;
 		}
 
+		auto GatherValidReplacements(DObject* Live, const std::vector<FDefaultDeltaFieldPlan>& LiveValues,
+			FDefaultDeltaDiagnostic& Diagnostic, std::vector<FAuthoredOverrideEntry>& Entries) -> bool
+		{
+			for (const FAuthoredOverrideEntry& Entry : Live->GetAuthoredOverrideEntries())
+			{
+				FAuthoredOverrideDiagnostic LedgerDiagnostic;
+				if (ValidatePathTokens(Entry.Path, LedgerDiagnostic)
+					&& ValidatePathAgainstFields(LiveValues, Entry.Path, LedgerDiagnostic))
+				{
+					Entries.push_back(Entry);
+					continue;
+				}
+				if (LedgerDiagnostic.Reason == EAuthoredOverrideFailureReason::FieldNotFound
+					|| LedgerDiagnostic.Reason == EAuthoredOverrideFailureReason::IndexOutOfRange
+					|| LedgerDiagnostic.Reason == EAuthoredOverrideFailureReason::MapKeyNotFound)
+					continue;
+				Diagnostic.Reason = EDefaultDeltaFailureReason::AuthoredOverrideFailure;
+				Diagnostic.AuthoredOverrideReason = LedgerDiagnostic.Reason;
+				Diagnostic.LogicalPath = LedgerDiagnostic.LogicalPath;
+				return false;
+			}
+			return true;
+		}
+
 		auto PlanObjectPair(DObject* Live, const DObject* Default, const FDefaultObjectGraphMap& Graph,
 			FDefaultDeltaPlan& Plan, FDefaultDeltaDiagnostic& Diagnostic) -> bool
 		{
@@ -982,24 +961,7 @@ namespace Durin
 				return false;
 			}
 			std::vector<FAuthoredOverrideEntry> ValidLedgerEntries;
-			for (const FAuthoredOverrideEntry& Entry : Live->GetAuthoredOverrideEntries())
-			{
-				FAuthoredOverrideDiagnostic LedgerDiagnostic;
-				if (ValidatePathTokens(Entry.Path, LedgerDiagnostic)
-					&& ValidatePathAgainstFields(LiveValues, Entry.Path, LedgerDiagnostic))
-				{
-					ValidLedgerEntries.push_back(Entry);
-					continue;
-				}
-				if (LedgerDiagnostic.Reason == EAuthoredOverrideFailureReason::FieldNotFound
-					|| LedgerDiagnostic.Reason == EAuthoredOverrideFailureReason::IndexOutOfRange
-					|| LedgerDiagnostic.Reason == EAuthoredOverrideFailureReason::MapKeyNotFound)
-					continue;
-				Diagnostic.Reason = EDefaultDeltaFailureReason::AuthoredOverrideFailure;
-				Diagnostic.AuthoredOverrideReason = LedgerDiagnostic.Reason;
-				Diagnostic.LogicalPath = LedgerDiagnostic.LogicalPath;
-				return false;
-			}
+			if (!GatherValidReplacements(Live, LiveValues, Diagnostic, ValidLedgerEntries)) return false;
 			FDefaultDeltaObjectPlan ObjectPlan{.Object = Live, .ClassDefaultObject = Default};
 			FPlannerContext Context{Plan, Diagnostic, &Graph, Live, ValidLedgerEntries};
 			for (size_t Index = 0; Index < LiveValues.size(); ++Index)
@@ -1018,7 +980,7 @@ namespace Durin
 				}
 				Field.Disposition = Field.Identity == EPropertyIdentityResult::Identical && !Intent
 					? EDefaultDeltaDisposition::Omitted : EDefaultDeltaDisposition::Emitted;
-				Field.Provenance = Intent ? ToDeltaProvenance(Intent)
+				Field.Provenance = Intent ? *Intent
 					: (Field.Disposition == EDefaultDeltaDisposition::Emitted
 						? EDefaultDeltaProvenance::Explicit : EDefaultDeltaProvenance::None);
 				Field.Value = Field.Disposition == EDefaultDeltaDisposition::Emitted
@@ -1054,7 +1016,7 @@ namespace Durin
 	auto ValidateAuthoredOverridePath(DObject* Object, const FAuthoredOverridePath& Path,
 		FAuthoredOverrideDiagnostic* OutDiagnostic) -> bool
 	{
-		const FAuthoredOverrideEntry Entry{Path, EAuthoredOverrideProvenance::LoadedExplicit};
+		const FAuthoredOverrideEntry Entry{Path, EAuthoredOverrideProvenance::Forced};
 		return ValidateAuthoredOverrideEntries(Object, std::span(&Entry, 1), OutDiagnostic);
 	}
 
@@ -1144,15 +1106,20 @@ namespace Durin
 					Diagnostic.Reason = EDefaultDeltaFailureReason::ManifestMismatch;
 					return Fail();
 				}
+				std::vector<FAuthoredOverrideEntry> Replacements;
+				if (!Context.bCooking && !GatherValidReplacements(Object, Values, Diagnostic, Replacements)) return Fail();
+				FPlannerContext Planner{OutPlan, Diagnostic, nullptr, Object, Replacements};
 				FDefaultDeltaObjectPlan ObjectPlan{.Object = Object};
 				for (FDefaultDeltaFieldPlan& Field : Values)
 				{
+					const FAuthoredOverridePath Path{FAuthoredOverridePathToken::Field(
+						Field.Descriptor.DeclaringType, Field.Descriptor.Name)};
 					Field.Value = Field.Value
-						? BuildForcedValue(*Field.Value, OutPlan, Diagnostic, 1) : nullptr;
+						? BuildPlannedValue(*Field.Value, Planner, 1, false, Path) : nullptr;
 					if (!Field.Value) return Fail();
 					Field.Baseline = EDefaultDeltaBaselineKind::None;
 					Field.Disposition = EDefaultDeltaDisposition::Emitted;
-					Field.Provenance = EDefaultDeltaProvenance::Forced;
+					Field.Provenance = FindAuthoredIntent(Replacements, Path).value_or(EDefaultDeltaProvenance::Explicit);
 					Field.Identity = EPropertyIdentityResult::Different;
 					++OutPlan.FieldCount;
 					++OutPlan.EmittedFieldCount;

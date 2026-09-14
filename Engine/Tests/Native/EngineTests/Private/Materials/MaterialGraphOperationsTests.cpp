@@ -212,6 +212,49 @@ TEST(FMaterialGraphOperationsTests, CustomDeclarationsPersistAndDuplicateTheirId
 	CollectGarbage();
 }
 
+TEST(FMaterialGraphOperationsTests, LargeGraphRoundTripsWithoutLoadedOverrideLedger)
+{
+	InitializeDObjectSystem();
+	Testing::FScopedMountRegistryFixture MountRegistry;
+	const auto Root = Testing::GetTestWorkDirectory() / "GraphWithoutLedger";
+	Testing::RemoveTestWorkDirectory(Root);
+	Testing::RegisterMountPointForTests("/GraphWithoutLedger/", Root.generic_string() + "/");
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/GraphWithoutLedger/Base", Path));
+	DMaterial* Material = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Material));
+	FMaterialProgram Program;
+	for (int Index = 0; Index < 65; ++Index)
+	{
+		FMaterialParameterDefinition Definition;
+		Definition.Id = FGuid::NewGuid();
+		Definition.Name = std::format("Tint{}", Index);
+		Definition.Type = EMaterialParameterType::Vector4;
+		Definition.Value = FMaterialParameterValue::MakeVector4({0.1, 0.0, 0.3, 1.0});
+		Program.Nodes.push_back({.Id = FGuid::NewGuid(), .Opcode = EMaterialProgramOpcode::Parameter,
+			.ResultType = EMaterialProgramValueType::Float4, .Parameter = Definition});
+	}
+	ASSERT_TRUE(Material->SetMaterialProgram(Program));
+	const auto Expected = *Material->GetMaterialProgram();
+	for (int Round = 0; Round < 2; ++Round)
+	{
+		ASSERT_TRUE(SavePackage(Material->GetPackage()));
+		ASSERT_TRUE(UnloadPackage(Path));
+		ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Material));
+		ASSERT_NE(Material, nullptr);
+		EXPECT_FALSE(Material->HasAllocatedAuthoredOverrideLedger());
+		ASSERT_NE(Material->GetMaterialProgram(), nullptr);
+		EXPECT_EQ(*Material->GetMaterialProgram(), Expected);
+		auto* Copy = Cast<DMaterial>(DuplicateObject(Material, nullptr, "GraphWithoutLedgerCopy"));
+		ASSERT_NE(Copy, nullptr);
+		EXPECT_FALSE(Copy->HasAllocatedAuthoredOverrideLedger());
+		EXPECT_EQ(*Copy->GetMaterialProgram(), Expected);
+		MarkObjectHierarchyAsGarbage(Copy);
+	}
+	ASSERT_TRUE(UnloadPackage(Path));
+	CollectGarbage();
+}
+
 TEST(FMaterialGraphOperationsTests, DeclarationAndFloat4ReferenceUndoTogether)
 {
 	InitializeDObjectSystem();

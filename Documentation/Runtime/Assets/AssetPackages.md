@@ -294,7 +294,8 @@ Load resolves v9 policy, validates the complete main/bulk closure, and obtains
 one detached `FLinkerTables`. Engine then validates registered classes and
 fields, creates all package/export skeletons and Outer links unpublished,
 resolves hard dependencies, applies detached values through the authored
-Archive contract, restores explicit/forced provenance, and invokes
+Archive contract, restores only opt-in Forced replacement boundaries (ordinary
+Explicit fields create no override ledger), and invokes
 `PostDeserialize`/`PostLoad` only after their prerequisites succeed. The root
 transaction publishes residency, dependencies, load reports, and cache state
 only after the whole closure succeeds. Archive, dependency, and load-policy failures

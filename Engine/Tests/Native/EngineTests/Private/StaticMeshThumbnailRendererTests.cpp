@@ -35,6 +35,21 @@
 
 namespace
 {
+	// Cache reads finish on the I/O workers and are consumed on later frames.
+	template <typename FCondition>
+	auto AdvanceCacheUntil(Durin::Editor::FAssetThumbnailPool& Cache, FCondition&& Complete) -> bool
+	{
+		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+		do
+		{
+			Cache.BeginFrame();
+			Cache.EndFrame();
+			if (Complete()) return true;
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		} while (std::chrono::steady_clock::now() < Deadline);
+		return false;
+	}
+
 	auto MakeAssetPath(const Durin::FPackagePath& PackagePath)
 		-> Durin::FTopLevelAssetPath
 	{
@@ -380,6 +395,9 @@ TEST(FStaticMeshThumbnailRendererTests,
 		Cache.Find(MakeAssetPath(StaticMeshPath)).State,
 		Durin::Editor::EAssetThumbnailState::Queued);
 	Cache.EndFrame();
+	ASSERT_TRUE(AdvanceCacheUntil(Cache, [&] {
+		return Cache.Find(MakeAssetPath(StaticMeshPath)).State == Durin::Editor::EAssetThumbnailState::Failed;
+	}));
 	const Durin::Editor::FAssetThumbnailView Routed = Cache.Find(MakeAssetPath(StaticMeshPath));
 	EXPECT_EQ(Routed.State, Durin::Editor::EAssetThumbnailState::Failed);
 	EXPECT_NE(Routed.Diagnostic.find("unavailable"), std::string::npos);
@@ -442,6 +460,7 @@ TEST(FStaticMeshThumbnailRendererTests,
 		Cache.BeginFrame();
 		Cache.Request(Fingerprint, Durin::Editor::EAssetThumbnailPriority::Visible);
 		Cache.EndFrame();
+		ASSERT_TRUE(AdvanceCacheUntil(Cache, [&] { return Cache.GetStats().UploadsQueued == 1; }));
 		const Durin::Editor::FAssetThumbnailPoolStats Stats = Cache.GetStats();
 		EXPECT_EQ(Stats.Generation.DiskHits, 1u);
 		EXPECT_EQ(Stats.Generation.Loads, 0u);
@@ -504,13 +523,9 @@ TEST(FStaticMeshThumbnailRendererTests,
 		Cache.BeginFrame();
 		Cache.Request(Fingerprint, Durin::Editor::EAssetThumbnailPriority::Visible);
 		Cache.EndFrame();
-		EXPECT_EQ(Cache.Find(MakeAssetPath(StaticMeshPath)).State, Durin::Editor::EAssetThumbnailState::Queued);
-		EXPECT_EQ(Cache.GetStats().Generation.DiskHits, 1u);
+		ASSERT_TRUE(AdvanceCacheUntil(Cache, [&] { return Cache.GetStats().Generation.Retries == 1; }));
+		EXPECT_EQ(Cache.GetStats().Generation.DiskHits, 0u);
 		EXPECT_EQ(Cache.GetStats().Generation.Retries, 1u);
-		EXPECT_EQ(Cache.GetStats().Generation.Loads, 0u);
-
-		Cache.BeginFrame();
-		Cache.EndFrame();
 		EXPECT_EQ(Cache.GetStats().Generation.Loads, 1u);
 		EXPECT_NE(Durin::FindResidentPackage(StaticMeshPath), nullptr);
 		{

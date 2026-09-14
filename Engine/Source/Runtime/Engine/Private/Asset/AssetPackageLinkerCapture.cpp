@@ -1569,7 +1569,8 @@ namespace Durin::AssetPrivate
 				{
 					const FDefaultDeltaFieldPlan* DeltaField = FindDeltaField(DeltaNode ? &DeltaNode->Fields : nullptr, ChildNode.Field);
 					if (DeltaNode && !DeltaField) return Invalid();
-					if (DeltaField && DeltaField->Disposition == EDefaultDeltaDisposition::Omitted) continue;
+					// V9 shares complete Struct descriptors across container elements. Emit
+					// every child of a selected value; logical omission only selects object fields.
 					ObjectPackage::FSerializedValue Child;
 					if (!MaterializeLinkerValue(ChildNode, ChildNode.Field.LogicalType, Package, InternalReferenceIds,
 						Linker, Child, OutError,

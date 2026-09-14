@@ -7,6 +7,30 @@ namespace Durin
 {
 	namespace
 	{
+		auto ReplacementPath(const FAuthoredOverridePath& Path) -> FAuthoredOverridePath
+		{
+			const auto End = std::ranges::find_if(Path, [](const auto& Token) {
+				return Token.Kind != EAuthoredOverridePathTokenKind::Field;
+			});
+			return {Path.begin(), End};
+		}
+
+		auto CoalesceReplacements(std::vector<FAuthoredOverrideEntry>& Entries) -> void
+		{
+			for (auto& Entry : Entries) Entry.Path = ReplacementPath(Entry.Path);
+			std::ranges::sort(Entries, [](const auto& Left, const auto& Right) {
+				return CompareAuthoredOverridePaths(Left.Path, Right.Path) < 0;
+			});
+			size_t Count = 0;
+			for (size_t Index = 0; Index < Entries.size(); ++Index)
+			{
+				if (Count && IsAuthoredOverridePathPrefix(Entries[Count - 1].Path, Entries[Index].Path)) continue;
+				if (Count != Index) Entries[Count] = std::move(Entries[Index]);
+				++Count;
+			}
+			Entries.resize(Count);
+		}
+
 		auto CompareToken(const FAuthoredOverridePathToken& Left,
 			const FAuthoredOverridePathToken& Right) -> std::strong_ordering
 		{
@@ -82,8 +106,7 @@ namespace Durin
 	auto DObject::SetAuthoredOverride(const FAuthoredOverridePath& Path,
 		EAuthoredOverrideProvenance Provenance, FAuthoredOverrideDiagnostic* OutDiagnostic) -> bool
 	{
-		if (Provenance != EAuthoredOverrideProvenance::LoadedExplicit
-			&& Provenance != EAuthoredOverrideProvenance::Forced)
+		if (Provenance != EAuthoredOverrideProvenance::Forced)
 		{
 			if (OutDiagnostic) *OutDiagnostic = {
 				.Reason = EAuthoredOverrideFailureReason::InvalidProvenance};
@@ -101,6 +124,7 @@ namespace Durin
 				if (Provenance == EAuthoredOverrideProvenance::Forced) It->Provenance = Provenance;
 			}
 			else Next->Entries.insert(It, {Path, Provenance});
+			CoalesceReplacements(Next->Entries);
 			std::shared_ptr<const FAuthoredOverrideLedger> Published = std::move(Next);
 			if (std::atomic_compare_exchange_weak_explicit(&AuthoredOverrideLedger, &Current, Published,
 				std::memory_order_release, std::memory_order_acquire))
@@ -117,8 +141,7 @@ namespace Durin
 		std::vector<FAuthoredOverrideEntry> Sorted(Entries.begin(), Entries.end());
 		for (const FAuthoredOverrideEntry& Entry : Sorted)
 		{
-			if (Entry.Provenance != EAuthoredOverrideProvenance::LoadedExplicit
-				&& Entry.Provenance != EAuthoredOverrideProvenance::Forced)
+			if (Entry.Provenance != EAuthoredOverrideProvenance::Forced)
 			{
 				if (OutDiagnostic) *OutDiagnostic = {
 					.Reason = EAuthoredOverrideFailureReason::InvalidProvenance};
@@ -148,6 +171,7 @@ namespace Durin
 				return false;
 			}
 		}
+		CoalesceReplacements(Sorted);
 		auto Ledger = std::make_shared<FAuthoredOverrideLedger>();
 		Ledger->Entries = std::move(Sorted);
 		std::atomic_store_explicit(&AuthoredOverrideLedger,
@@ -159,13 +183,14 @@ namespace Durin
 	auto DObject::ClearAuthoredOverride(const FAuthoredOverridePath& Path) -> bool
 	{
 		if (Path.empty()) return false;
+		const auto Boundary = ReplacementPath(Path);
 		for (;;)
 		{
 			auto Current = std::atomic_load_explicit(&AuthoredOverrideLedger, std::memory_order_acquire);
 			if (!Current) return false;
 			auto Next = std::make_shared<FAuthoredOverrideLedger>(*Current);
-			auto It = FindEntry(Next->Entries, Path);
-			if (It == Next->Entries.end() || CompareAuthoredOverridePaths(It->Path, Path) != 0) return false;
+			auto It = FindEntry(Next->Entries, Boundary);
+			if (It == Next->Entries.end() || CompareAuthoredOverridePaths(It->Path, Boundary) != 0) return false;
 			Next->Entries.erase(It);
 			std::shared_ptr<const FAuthoredOverrideLedger> Published = Next->Entries.empty()
 				? std::shared_ptr<const FAuthoredOverrideLedger>{} : std::move(Next);
@@ -177,6 +202,8 @@ namespace Durin
 	auto DObject::ClearAuthoredOverrideSubtree(const FAuthoredOverridePath& Path) -> uint64
 	{
 		if (Path.empty()) return 0;
+		const auto Boundary = ReplacementPath(Path);
+		if (Boundary.empty()) return 0;
 		for (;;)
 		{
 			auto Current = std::atomic_load_explicit(&AuthoredOverrideLedger, std::memory_order_acquire);
@@ -184,7 +211,7 @@ namespace Durin
 			auto Next = std::make_shared<FAuthoredOverrideLedger>(*Current);
 			const size_t Before = Next->Entries.size();
 			std::erase_if(Next->Entries, [&](const FAuthoredOverrideEntry& Entry) {
-				return IsAuthoredOverridePathPrefix(Path, Entry.Path);
+				return IsAuthoredOverridePathPrefix(Boundary, Entry.Path);
 			});
 			const uint64 Removed = static_cast<uint64>(Before - Next->Entries.size());
 			if (Removed == 0) return 0;

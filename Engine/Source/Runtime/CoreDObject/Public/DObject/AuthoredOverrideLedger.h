@@ -7,7 +7,8 @@ namespace Durin
 {
 	class DObject;
 
-	enum class EAuthoredOverrideProvenance : uint8 { LoadedExplicit, Forced };
+	// Persistent, opt-in replacement of a complete field; ordinary loaded values carry no intent.
+	enum class EAuthoredOverrideProvenance : uint8 { Forced = 1 };
 	enum class EAuthoredOverridePathTokenKind : uint8
 	{
 		Field,
@@ -39,7 +40,7 @@ namespace Durin
 	struct FAuthoredOverrideEntry
 	{
 		FAuthoredOverridePath Path;
-		EAuthoredOverrideProvenance Provenance = EAuthoredOverrideProvenance::LoadedExplicit;
+		EAuthoredOverrideProvenance Provenance = EAuthoredOverrideProvenance::Forced;
 	};
 
 	enum class EAuthoredOverrideFailureReason : uint8
@@ -70,6 +71,7 @@ namespace Durin
 		auto Reset() -> void { *this = {}; }
 	};
 
+	// Immutable sparse replacement boundaries. Parents subsume children; stored paths contain fields only.
 	class FAuthoredOverrideLedger final
 	{
 	public:

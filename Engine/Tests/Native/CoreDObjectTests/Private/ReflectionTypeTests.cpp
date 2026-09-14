@@ -2831,7 +2831,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			Durin::FAuthoredOverridePathToken::FixedArrayElement(1)};
 		Durin::FAuthoredOverrideDiagnostic LedgerDiagnostic;
 		ASSERT_TRUE(Instance->SetAuthoredOverride(
-			NestedPath, Durin::EAuthoredOverrideProvenance::LoadedExplicit, &LedgerDiagnostic));
+			NestedPath, Durin::EAuthoredOverrideProvenance::Forced, &LedgerDiagnostic));
 		ASSERT_TRUE(Instance->SetAuthoredOverride(
 			FixedPath, Durin::EAuthoredOverrideProvenance::Forced, &LedgerDiagnostic));
 		EXPECT_TRUE(Instance->HasAllocatedAuthoredOverrideLedger());
@@ -2871,12 +2871,12 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		});
 		ASSERT_NE(X, StructIt->Value->Fields.end());
 		EXPECT_EQ(X->Disposition, Durin::EDefaultDeltaDisposition::Emitted);
-		EXPECT_EQ(X->Provenance, Durin::EDefaultDeltaProvenance::Explicit);
+		EXPECT_EQ(X->Provenance, Durin::EDefaultDeltaProvenance::Forced);
 		EXPECT_EQ(FixedIt->Provenance, Durin::EDefaultDeltaProvenance::Forced);
 
 		const auto BeforeDuplicateFailure = Instance->GetAuthoredOverrideEntries();
 		const std::array DuplicateEntries{
-			Durin::FAuthoredOverrideEntry{StructPath, Durin::EAuthoredOverrideProvenance::LoadedExplicit},
+			Durin::FAuthoredOverrideEntry{StructPath, Durin::EAuthoredOverrideProvenance::Forced},
 			Durin::FAuthoredOverrideEntry{StructPath, Durin::EAuthoredOverrideProvenance::Forced}};
 		EXPECT_FALSE(Instance->ReplaceAuthoredOverrides(DuplicateEntries, &LedgerDiagnostic));
 		EXPECT_EQ(LedgerDiagnostic.Reason, Durin::EAuthoredOverrideFailureReason::DuplicatePath);
@@ -2902,16 +2902,30 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			Excessive, Durin::EAuthoredOverrideProvenance::Forced, &LedgerDiagnostic));
 		EXPECT_EQ(LedgerDiagnostic.Reason, Durin::EAuthoredOverrideFailureReason::DepthLimit);
 		ASSERT_TRUE(Instance->SetAuthoredOverride(
-			StructPath, Durin::EAuthoredOverrideProvenance::LoadedExplicit, &LedgerDiagnostic));
-		EXPECT_TRUE(Instance->ClearAuthoredOverride(StructPath));
+			StructPath, Durin::EAuthoredOverrideProvenance::Forced, &LedgerDiagnostic));
 		EXPECT_EQ(Instance->GetAuthoredOverrideEntries().size(), 2u);
+		ASSERT_TRUE(Durin::BuildDefaultDeltaPlan(
+			Instance, Durin::EDefaultDeltaMode::Enabled, Plan, &Diagnostic));
+		const auto ReplacedStruct = std::ranges::find_if(Plan.Objects.front().Fields, [](const auto& Field) {
+			return Field.Descriptor.Name == Durin::FName("ClassSpecific");
+		});
+		ASSERT_NE(ReplacedStruct, Plan.Objects.front().Fields.end());
+		ASSERT_NE(ReplacedStruct->Value, nullptr);
+		EXPECT_EQ(ReplacedStruct->Provenance, Durin::EDefaultDeltaProvenance::Forced);
+		EXPECT_TRUE(std::ranges::all_of(ReplacedStruct->Value->Fields, [](const auto& Field) {
+			return Field.Disposition == Durin::EDefaultDeltaDisposition::Emitted
+				&& Field.Provenance == Durin::EDefaultDeltaProvenance::Explicit;
+		}));
+		EXPECT_TRUE(Instance->ClearAuthoredOverride(StructPath));
+		EXPECT_EQ(Instance->GetAuthoredOverrideEntries().size(), 1u);
+		ASSERT_TRUE(Instance->SetAuthoredOverride(NestedPath, Durin::EAuthoredOverrideProvenance::Forced));
 
 		Instance->bEmitOptionalField = true;
 		const Durin::FAuthoredOverridePath RemovedNativePath{
 			Durin::FAuthoredOverridePathToken::Field(
 				Durin::FName("Tests::DDefaultGraphOwnerForTest"), Durin::FName("OptionalField"))};
 		ASSERT_TRUE(Instance->SetAuthoredOverride(RemovedNativePath,
-			Durin::EAuthoredOverrideProvenance::LoadedExplicit, &LedgerDiagnostic));
+			Durin::EAuthoredOverrideProvenance::Forced, &LedgerDiagnostic));
 		Instance->bEmitOptionalField = false;
 		ASSERT_TRUE(Durin::BuildDefaultDeltaPlan(
 			Instance, Durin::EDefaultDeltaMode::Enabled, Plan, &Diagnostic));
@@ -2942,7 +2956,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Durin::CollectGarbage();
 	}
 
-	TEST(FCoreDObjectReflectionTests, AuthoredOverridePathsTrackArrayPositionsAndCanonicalMapKeys)
+	TEST(FCoreDObjectReflectionTests, AuthoredOverridesReplaceContainersAcrossStructuralEdits)
 	{
 		EnsureDObjectInitialized();
 		Durin::DClass* Class = DOverrideContainerOwnerForTest::StaticClass();
@@ -2988,10 +3002,10 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		ASSERT_NE(Map, Fields.end());
 		ASSERT_NE(Array->Value, nullptr);
 		ASSERT_EQ(Array->Value->Elements.size(), 1u);
-		EXPECT_EQ(Array->Value->Elements[0]->Provenance, Durin::EDefaultDeltaProvenance::Forced);
+		EXPECT_EQ(Array->Value->Elements[0]->Provenance, Durin::EDefaultDeltaProvenance::Explicit);
 		ASSERT_NE(Map->Value, nullptr);
 		ASSERT_EQ(Map->Value->Elements.size(), 2u);
-		EXPECT_EQ(Map->Value->Elements[1]->Provenance, Durin::EDefaultDeltaProvenance::Forced);
+		EXPECT_EQ(Map->Value->Elements[1]->Provenance, Durin::EDefaultDeltaProvenance::Explicit);
 
 		Instance->Lookup.emplace("Earlier", 0);
 		ASSERT_TRUE(Durin::BuildDefaultDeltaPlan(
@@ -3007,7 +3021,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 					&& Element->LogicalType.Kind == Durin::FArchiveLogicalTypeDescriptor::EKind::Scalar;
 			});
 		ASSERT_NE(StableValue, ReorderedMap->Value->Elements.end());
-		EXPECT_EQ((*StableValue)->Provenance, Durin::EDefaultDeltaProvenance::Forced);
+		EXPECT_EQ((*StableValue)->Provenance, Durin::EDefaultDeltaProvenance::Explicit);
 
 		Instance->Values.clear();
 		Instance->Lookup.erase("Stable");
@@ -3018,7 +3032,13 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		});
 		ASSERT_NE(StaleArray, Plan.Objects.front().Fields.end());
 		EXPECT_EQ(StaleArray->Disposition, Durin::EDefaultDeltaDisposition::Emitted);
-		EXPECT_EQ(StaleArray->Provenance, Durin::EDefaultDeltaProvenance::Explicit);
+		EXPECT_EQ(StaleArray->Provenance, Durin::EDefaultDeltaProvenance::Forced);
+		const auto Replacements = Instance->GetAuthoredOverrideEntries();
+		ASSERT_EQ(Replacements.size(), 2u);
+		EXPECT_TRUE(std::ranges::all_of(Replacements, [](const auto& Entry) { return Entry.Path.size() == 1; }));
+		EXPECT_TRUE(Instance->ClearAuthoredOverride(ArrayPath));
+		EXPECT_EQ(Instance->ClearAuthoredOverrideSubtree(MapPath), 1u);
+		EXPECT_FALSE(Instance->HasAllocatedAuthoredOverrideLedger());
 
 		Durin::DClass* NativeClass = DDefaultGraphOwnerForTest::StaticClass();
 		const std::array NativeBatch{NativeClass};
@@ -3039,7 +3059,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Durin::CollectGarbage();
 	}
 
-	TEST(FCoreDObjectReflectionTests, NoDeltaForcesCompleteLogicalGraphWithoutDefaults)
+	TEST(FCoreDObjectReflectionTests, NoDeltaEmitsCompleteGraphWithoutManufacturingOverrides)
 	{
 		EnsureDObjectInitialized();
 		Durin::DClass* Class = DDefaultGraphOwnerForTest::StaticClass();
@@ -3056,25 +3076,25 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_EQ(Plan.Objects.size(), 2u);
 		EXPECT_EQ(Plan.OmittedFieldCount, 0u);
 		EXPECT_EQ(Plan.FieldCount, Plan.EmittedFieldCount);
-		std::function<void(const Durin::FDefaultDeltaNode&)> ExpectForcedNode;
-		ExpectForcedNode = [&](const Durin::FDefaultDeltaNode& Node) {
+		std::function<void(const Durin::FDefaultDeltaNode&)> ExpectCompleteNode;
+		ExpectCompleteNode = [&](const Durin::FDefaultDeltaNode& Node) {
 			EXPECT_EQ(Node.Baseline, Durin::EDefaultDeltaBaselineKind::None);
 			EXPECT_EQ(Node.Disposition, Durin::EDefaultDeltaDisposition::Emitted);
-			EXPECT_EQ(Node.Provenance, Durin::EDefaultDeltaProvenance::Forced);
+			EXPECT_EQ(Node.Provenance, Durin::EDefaultDeltaProvenance::Explicit);
 			EXPECT_EQ(Node.SourceValue, nullptr);
 			EXPECT_EQ(Node.SourceStruct, nullptr);
 			for (const auto& Field : Node.Fields)
 			{
 				EXPECT_EQ(Field.Baseline, Durin::EDefaultDeltaBaselineKind::None);
 				EXPECT_EQ(Field.Disposition, Durin::EDefaultDeltaDisposition::Emitted);
-				EXPECT_EQ(Field.Provenance, Durin::EDefaultDeltaProvenance::Forced);
+				EXPECT_EQ(Field.Provenance, Durin::EDefaultDeltaProvenance::Explicit);
 				ASSERT_NE(Field.Value, nullptr);
-				ExpectForcedNode(*Field.Value);
+				ExpectCompleteNode(*Field.Value);
 			}
 			for (const auto& Element : Node.Elements)
 			{
 				ASSERT_NE(Element, nullptr);
-				ExpectForcedNode(*Element);
+				ExpectCompleteNode(*Element);
 			}
 		};
 		for (const auto& Object : Plan.Objects)
@@ -3082,9 +3102,9 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			EXPECT_EQ(Object.ClassDefaultObject, nullptr);
 			for (const auto& Field : Object.Fields)
 			{
-				EXPECT_EQ(Field.Provenance, Durin::EDefaultDeltaProvenance::Forced);
+				EXPECT_EQ(Field.Provenance, Durin::EDefaultDeltaProvenance::Explicit);
 				ASSERT_NE(Field.Value, nullptr);
-				ExpectForcedNode(*Field.Value);
+				ExpectCompleteNode(*Field.Value);
 			}
 		}
 		EXPECT_FALSE(Instance->HasAllocatedAuthoredOverrideLedger());

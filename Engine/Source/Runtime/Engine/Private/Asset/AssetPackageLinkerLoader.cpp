@@ -386,13 +386,22 @@ namespace Durin::AssetPrivate
 			const ObjectPackage::FSerializedField& Field,
 			const ObjectPackage::FSerializedType& Type) -> FProperty*;
 
-		auto RestoreNestedLedger(const ObjectPackage::FSerializedType& Type,
+		// Scan validated tags without constructing paths or resolving names for ordinary values.
+		auto HasNestedReplacement(const ObjectPackage::FSerializedValue& Value) -> bool
+		{
+			return std::ranges::find(Value.Provenances, ObjectPackage::EPropertyProvenance::Forced)
+				!= Value.Provenances.end()
+				|| std::ranges::any_of(Value.Elements, HasNestedReplacement);
+		}
+
+		auto RestoreNestedReplacements(const ObjectPackage::FSerializedType& Type,
 			const ObjectPackage::FSerializedValue& Value,
 			const ObjectPackage::FLinkerTables& Linker, FAuthoredOverridePath& Path,
 			std::vector<FAuthoredOverrideEntry>& Entries,
 			FLinkerApplyDiagnostic& Diagnostic) -> bool
 		{
 			using K = ObjectPackage::EValueKind;
+			if (!HasNestedReplacement(Value)) return true;
 			if (Type.Kind == K::Struct)
 			{
 				const auto* Schema = FindSchema(Linker, Type.QualifiedName);
@@ -407,12 +416,11 @@ namespace Durin::AssetPrivate
 					if (It == Schema->Fields.end()) return LinkerApplyFail(Diagnostic, EAssetError::CorruptFile, "Struct ledger field is missing.");
 					if (IsRemovedField(Schema->QualifiedName, It->Name)) continue;
 					const auto& ChildType = Type.Children[Index];
-					const auto Provenance = Value.Provenances[Index] == ObjectPackage::EPropertyProvenance::Forced
-						? EAuthoredOverrideProvenance::Forced : EAuthoredOverrideProvenance::LoadedExplicit;
 					if (FindLinkerDeprecatedRoute(Linker, *Schema, *It, ChildType)) continue;
 					Path.push_back(FAuthoredOverridePathToken::Field(FName(Schema->QualifiedName), FName(It->Name)));
-					Entries.push_back({Path, Provenance});
-					if (!RestoreNestedLedger(ChildType, Value.Elements[Index], Linker, Path,
+					if (Value.Provenances[Index] == ObjectPackage::EPropertyProvenance::Forced)
+						Entries.push_back({Path, EAuthoredOverrideProvenance::Forced});
+					else if (!RestoreNestedReplacements(ChildType, Value.Elements[Index], Linker, Path,
 						Entries, Diagnostic)) return false;
 					Path.pop_back();
 				}
@@ -425,7 +433,7 @@ namespace Durin::AssetPrivate
 					Path.push_back(Type.Kind == K::FixedArray
 						? FAuthoredOverridePathToken::FixedArrayElement(Index)
 						: FAuthoredOverridePathToken::ArrayElement(Index));
-					if (!RestoreNestedLedger(Type.Children[0], Value.Elements[Index], Linker, Path,
+					if (!RestoreNestedReplacements(Type.Children[0], Value.Elements[Index], Linker, Path,
 						Entries, Diagnostic)) return false;
 					Path.pop_back();
 				}
@@ -441,7 +449,7 @@ namespace Durin::AssetPrivate
 						Type.Children[0], Value.Elements[Index], Token, &Error))
 						return LinkerApplyFail(Diagnostic, EAssetError::CorruptFile, Error);
 					Path.push_back(FAuthoredOverridePathToken::MapValue(std::move(Token)));
-					if (!RestoreNestedLedger(Type.Children[1], Value.Elements[Index + 1], Linker, Path,
+					if (!RestoreNestedReplacements(Type.Children[1], Value.Elements[Index + 1], Linker, Path,
 						Entries, Diagnostic)) return false;
 					Path.pop_back();
 				}
@@ -1018,9 +1026,6 @@ namespace Durin::AssetPrivate
 						LinkerApplyFail(Diagnostic, EAssetError::CorruptFile, "Injected ledger restoration failure.");
 						return {EAssetError::CorruptFile, Diagnostic.Message};
 					}
-					const auto Provenance = Property.Provenance == ObjectPackage::EPropertyProvenance::Forced
-						? EAuthoredOverrideProvenance::Forced
-						: EAuthoredOverrideProvenance::LoadedExplicit;
 					FProperty* DeprecatedRoute =
 						FindLinkerDeprecatedRoute(Linker, *Schema, *Field, Property.Type);
 					if (DeprecatedRoute)
@@ -1035,10 +1040,13 @@ namespace Durin::AssetPrivate
 						Report.DeprecatedRouteEvidence.push_back(std::move(Evidence));
 						continue;
 					}
+					if (Property.Provenance != ObjectPackage::EPropertyProvenance::Forced
+						&& !HasNestedReplacement(Property.Value)) continue;
 					FAuthoredOverridePath Path{FAuthoredOverridePathToken::Field(
 						FName(Schema->QualifiedName), FName(Field->Name))};
-					LedgerEntries.push_back({Path, Provenance});
-					if (!RestoreNestedLedger(Property.Type, Property.Value, Linker, Path,
+					if (Property.Provenance == ObjectPackage::EPropertyProvenance::Forced)
+						LedgerEntries.push_back({Path, EAuthoredOverrideProvenance::Forced});
+					else if (!RestoreNestedReplacements(Property.Type, Property.Value, Linker, Path,
 						LedgerEntries, Diagnostic))
 					{
 						return {EAssetError::CorruptFile, Diagnostic.Message};
