@@ -695,6 +695,16 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*PbrMaterial);
 		const auto PbrProgram = PbrMaterial->GetAcceptedCompiledProgram();
 		ASSERT_NE(PbrProgram, nullptr);
+		auto* PbrParent = Durin::Cast<Durin::DMaterial>(PbrMaterial->GetParent());
+		ASSERT_NE(PbrParent, nullptr);
+		const auto& PbrGraph = *PbrParent->GetMaterialProgram();
+		EXPECT_LE(PbrGraph.Nodes.size(), 32u);
+		EXPECT_EQ(std::ranges::count(PbrGraph.Nodes, Durin::EMaterialProgramOpcode::TextureSampleParameter2D,
+			&Durin::FMaterialProgramNode::Opcode), 6);
+		EXPECT_EQ(PbrGraph.Outputs.Normal.SourceOutputIndex, 8u);
+		EXPECT_TRUE(PbrParent->GetMaterialFunctionCalls().empty());
+		std::cout << "[SurfaceAcceptance] complex_nodes=" << PbrGraph.Nodes.size()
+			<< " owners=" << PbrParent->GetParameterDefinitions().size() << '\n';
 		const auto PbrPixels = Capture(PbrMesh, PbrMaterial);
 		SaveImportedFunctionBaseline("imported-packed-source-independent-maps-uv1-mask", PbrPixels);
 		std::cout << "[FunctionMigrationBaseline] case=imported-packed-source-independent-maps-uv1-mask"

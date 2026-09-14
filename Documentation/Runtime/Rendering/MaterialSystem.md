@@ -243,6 +243,17 @@ fail validation. Mask rejection remains strictly below cutoff. BRDF and specular
 helpers retain their independent numerical safeguards; AA bounds its newly
 computed roughness and deferred lighting does not apply AA again.
 
+### Decoded normal sample output
+
+Both sampling opcodes expose decoded tangent-space Normal at output index 8;
+existing RGBA/channel/resource indices retain their meaning. Lowering applies
+DecodeNormalRG to the existing fetch's RG channels, with no second fetch or RNM
+blend. The final Surface boundary still normalizes the resulting direction.
+Manual Surface texture creation and structural imports use this output. Explicit
+SampleNormal function graphs retain their authored strength and blend behavior.
+Normal-bearing structural keys use the `n2` branch token, selecting a new immutable
+parent without overwriting an older normal recipe; non-normal keys are unchanged.
+
 ## Reusable Functions and Standard Library
 
 `DMaterialFunctionInterface` is an abstract asset contract for typed signatures,

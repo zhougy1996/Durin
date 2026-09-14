@@ -239,6 +239,14 @@ namespace Durin::Private
 					return Emit(Context, {.Opcode = EMaterialProgramOpcode::TextureParameter,
 						.ResultType = EMaterialProgramValueType::Texture2D, .Parameter = Node->Parameter}, Node->Id, true);
 				const auto Expanded = Value(Context, Source.SourceNodeId);
+				if (IsMaterialSamplingNode(Node->Opcode) && Source.SourceOutputIndex == 8)
+				{
+					const auto RG = Emit(Context, {.Opcode = EMaterialProgramOpcode::Swizzle,
+						.ResultType = EMaterialProgramValueType::Float2, .Inputs = {Expanded.Link},
+						.SwizzleLength = 2, .SwizzleX = 0, .SwizzleY = 1}, Node->Id, true);
+					return Emit(Context, {.Opcode = EMaterialProgramOpcode::DecodeNormalRG,
+						.ResultType = EMaterialProgramValueType::Float3, .Inputs = {RG.Link}}, Node->Id, true);
+				}
 				if (IsMaterialSamplingNode(Node->Opcode) && Source.SourceOutputIndex != 0)
 				{
 					const uint8 Slot = Source.SourceOutputIndex;

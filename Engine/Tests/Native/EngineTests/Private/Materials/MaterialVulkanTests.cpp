@@ -1463,6 +1463,12 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 		EXPECT_EQ(PbrBaselinePixels, RestoredProgramPixels);
 		EXPECT_NE(PbrBaselinePixels, MetallicOnlyPixels);
 		EXPECT_NE(PbrBaselinePixels, RoughnessOnlyPixels);
+		SaveFunctionMigrationBaseline("normal-only", NormalOnlyPixels);
+		SaveFunctionMigrationBaseline("emissive-only", EmissiveOnlyPixels);
+		SaveFunctionMigrationBaseline("unlit", StaticIdentityPixels);
+		SaveFunctionMigrationBaseline("masked-below", MaskedBelowPixels);
+		SaveFunctionMigrationBaseline("masked-equal", MaskedEqualPixels);
+		SaveFunctionMigrationBaseline("translucent-partial", TranslucentPartialPixels);
 		EXPECT_NE(PbrBaselinePixels, NormalOnlyPixels);
 		EXPECT_NE(PbrBaselinePixels, EmissiveOnlyPixels);
 		EXPECT_NE(LitEmissivePixels, StaticIdentityPixels);

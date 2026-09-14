@@ -24,6 +24,7 @@ namespace Durin
 			return EMaterialProgramValueType::Texture2D;
 		if (IsMaterialSamplingNode(Node.Opcode))
 		{
+			if (Link.SourceOutputIndex == 8) return EMaterialProgramValueType::Float3;
 			constexpr std::array Types{EMaterialProgramValueType::Float4, EMaterialProgramValueType::Float3,
 				EMaterialProgramValueType::Float, EMaterialProgramValueType::Float, EMaterialProgramValueType::Float,
 				EMaterialProgramValueType::Float, EMaterialProgramValueType::Float2};

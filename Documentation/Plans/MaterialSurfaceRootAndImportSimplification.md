@@ -4,18 +4,21 @@ Summary: Unify material authoring around one Surface root, centralize surface ev
 
 Last reviewed: 2026-09-14
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-09-14
 
 ## Current Status
 
 Stage 0 source and mounted-content audits are complete at execution baseline
-`2d3eef2fa1af59da8d7a86c428398bd28fc0765b`. Stages 1 and 2 implementation and
-validation are complete; Stages 3 through 5 remain open. Stage 3 now selects
-structural parents and supports source-authoritative reimport.
-User-directed scope revision on 2026-09-14 removes preservation/merging of edits
-to generated outputs. The revised contract below supersedes earlier reconciliation
-checkpoints; normal encapsulation and Stage 4/5 acceptance remain open.
+`2d3eef2fa1af59da8d7a86c428398bd28fc0765b`. Stages 1 through 3 implementation and
+validation are complete. Manual and imported normals now use one combined sample
+owner with an explicit decoded Normal output. Source-authoritative reimport
+replaces generated edits and retains ownership checks, rollback and live references.
+Stages 4 and 5 are complete: fresh project inventories, generated-parent roundtrips
+and Cook/load, independent render comparisons, inspected canvas/GPU captures,
+registry-selected tests, workspace all build and documentation validation pass.
+The final acceptance receipt below records reused tests and unavailable historical
+screenshots explicitly.
 The frozen decisions and validation receipts below govern subsequent stages.
 Stage 1 implements final-value evaluation and compiler invalidation. Its generated
 parent's redundant policy and exact recipe checkpoint changed together: the one
@@ -26,7 +29,7 @@ avoids leaving the installed parent incompatible with the recipe validator betwe
 stages. The historical ImportedSurface has 65 expression nodes and 48 owners.
 New imports no longer select it or bootstrap it when opening the import dialog.
 
-The current baseline is commit `88aaedfb1`, following `42df4b322` and
+The historical pre-execution baseline is commit `88aaedfb1`, following `42df4b322` and
 `41fcd8de4`:
 
 - New materials and DefaultMaterial use default property values and the existing
@@ -217,7 +220,7 @@ Gate: no authoring path requires two visible output nodes or Factor/Sample pairs
 
 - [x] Implement deterministic structural parent creation/reuse and staged dependency
   publication in AssetForgeBuiltins and SceneDirectImport.
-- [ ] Generate only required sample, value, factor, normal, and UV branches; preserve
+- [x] Generate only required sample, value, factor, normal, and UV branches; preserve
   texture usage, samplers, packed channels, and source alpha behavior.
 - [x] Replace unconditional fixed-schema override writes with selected-parent-aware
   publication, retaining logical parameter identity where roles survive.
@@ -233,14 +236,14 @@ materials with different required structures do not share an incompatible parent
 
 ### Stage 4: Reconstruct generated content and verify rendering
 
-- [ ] Back up and reconstruct only the inventoried generated parents/instances;
+- [x] Back up and reconstruct only the inventoried generated parents/instances;
   preserve custom assets and verify retained parameter values and references.
-- [ ] Rebuild DefaultMaterial and generated import content from the new contracts.
-- [ ] Verify source load/save, duplication, reimport, graph-stripped Cook/load, and
+- [x] Rebuild DefaultMaterial and generated import content from the new contracts.
+- [x] Verify source load/save, duplication, reimport, graph-stripped Cook/load, and
   affected project content inventories; regenerate affected cooked outputs.
-- [ ] Compare actual preview and rendered results for plain color, normal, packed
+- [x] Compare actual preview and rendered results for plain color, normal, packed
   ORM, nonidentity factors/UVs, emissive, masked, translucent, and Unlit cases.
-- [ ] Include a previously nontrivial imported material and a simple material in
+- [x] Include a previously nontrivial imported material and a simple material in
   both visual and graph-complexity acceptance; document approved semantic differences.
 
 Gate: generated assets are usable, expected appearance is verified, and graph
@@ -248,11 +251,11 @@ simplification has not moved costs into redundant hidden work.
 
 ### Stage 5: Complete integration and documentation
 
-- [ ] Run registry-selected affected native targets and relevant GPU coverage.
-- [ ] Complete workspace all builds after shared Engine API changes, including
+- [x] Run registry-selected affected native targets and relevant GPU coverage.
+- [x] Complete workspace all builds after shared Engine API changes, including
   affected Editor/Game targets and project consumers.
-- [ ] Update the authoritative runtime, graph-authoring, and regeneration guidance.
-- [ ] Record exact validation receipts, final graph examples, reconstruction results,
+- [x] Update the authoritative runtime, graph-authoring, and regeneration guidance.
+- [x] Record exact validation receipts, final graph examples, reconstruction results,
   and remaining material-domain limitations; complete and commit the plan.
 
 Gate: every preceding gate is satisfied, documentation matches implementation, and
@@ -681,3 +684,89 @@ MaterialEditor's MaterialGraphCanvas, MaterialGraphOperations and
 MaterialAssetCreation; and AssetForgeBuiltins' StandardMaterialFunctions,
 ImportedSurfaceMaterial and SceneDirectImport. Confirm ownership and actual
 downstream shader consumers in Stage 0 rather than treating this list as exhaustive.
+
+## Normal Encapsulation And Final Acceptance Receipt
+
+Sampling output index 8 is decoded tangent-space Normal. It lowers to the same RG
+swizzle and DecodeNormalRG as the explicit branch and reuses the fetch. Both manual
+Surface Add Texture and the structural importer use this output. No new opcode,
+hidden function asset dependency, second fetch, flat-normal blend, or retained
+value merge is introduced. Existing SampleNormal functions remain unchanged.
+Normal structural keys change from `n` to `n2`; this selects a new immutable parent
+while leaving unrelated parent shapes and existing assets intact. Existing serialized
+channel/resource indices and compiler semantics retain their meanings.
+
+The normalization parity test matches complete canonical bytes/layout against an
+explicit decode, verifies one fetch/one decode/no RNM blend, and rejects an invalid
+output index. Graph tests cover advanced-pin visibility, one-node normal budgets,
+and Undo/Redo. The actual compact canvas capture was inspected: color and Normal
+outputs connect directly to one Surface root without overlapping nodes.
+
+The material/import registry selection in
+`Build/.agent-state/logs/20260914-114941-418562-41528-ctest.log` passed five targets
+and 197/198 MaterialTests cases. The remaining test expected the new disconnected
+advanced pin to remain visible; corrected its assertion and added connected Normal
+visibility coverage. Its focused rerun passes:
+`Build/.agent-state/logs/20260914-115415-070713-7500-MaterialTests.log`.
+No production change followed that selection. Additional generated-normal
+save/reload, duplication, Cook cache-hit and graph-stripped runtime loading pass:
+`Build/.agent-state/logs/20260914-115842-900607-32632-MaterialTests.log`.
+The workspace all build passes:
+`Build/.agent-state/logs/20260914-115432-834540-31016-cmake.log`.
+
+Fresh Sandbox/RoadWeaver inventories contain 19/15 mounted packages, respectively,
+with two shared materials, seven functions and no material instances. Inbound
+material edges still consist only of StandardPBR/StandardPBR_ORM function calls and
+ImportedSurface -> DecodeImportedNormalRG. DefaultMaterial remains a zero-node
+root; ImportedSurface matches the exact 65-node current recipe. Stage 1 already
+reconstructed that historical parent, so no further authored-file replacement is
+needed. Scene fixtures generate and reload the new structural parents directly.
+
+The historical ignored `Documentation/Local/MaterialSurfaceBaseline` directory is
+absent in this checkout; its original screenshots cannot be treated as available
+comparison evidence. Fresh authored-byte backups, SHA-256 inventories, identity
+reports, Cook reports and the inspected canvas image are retained in
+`Documentation/Local/MaterialSurfaceAcceptance`. All nine authored material/function
+files remain unchanged. This does not recreate the missing historical captures;
+independent render assertions and normalized explicit-decode parity provide the
+semantic controls for current acceptance.
+
+Both project Cook operations succeeded with full regeneration: Sandbox published
+six packages (5,861,694 changed bytes); RoadWeaver published five packages
+(2,401,881 changed bytes), explicitly including DefaultMaterial and ImportedSurface.
+The generated-normal test separately verifies the new structural parent loads from
+cooked data with one resource and no authored graph, function calls, IR or source.
+
+Final retained GPU receipts:
+
+- MaterialVulkanTests passes in 50.378 seconds:
+  `Build/.agent-state/logs/20260914-115926-088518-30816-MaterialVulkanTests.log`.
+  Exact current-run image comparisons cover reusable-function versus explicit
+  graphs, neutral/independent/packed maps and UV/sampler variants. Pixel assertions
+  cover normal/emissive response, masked cutoff and translucent alpha, Unlit,
+  source reload and default rendering. Added retained images for those variants.
+- SceneImportVulkanTests passes in 10.578 seconds after final budget assertions:
+  `Build/.agent-state/logs/20260914-120238-153465-30800-SceneImportVulkanTests.log`.
+  Actual reloaded imported simple and complex materials render successfully.
+  The complex source graph has 26 nodes, 19 owners, six sample nodes, no function
+  calls and a direct decoded Normal output. Its compiled layout has six resources,
+  13 uniform fields and 224 uniform bytes. The simple texture/factor variant has
+  one resource, three uniform fields and 64 uniform bytes. The plain identity
+  texture and normal fixtures each require one node/owner; the default requires zero.
+- Final workspace all build:
+  `Build/.agent-state/logs/20260914-120309-591349-21584-cmake.log`.
+
+Inspected retained default, normal, emissive, Unlit, masked, translucent, UV,
+independent-map and simple/complex imported images. Existing independent numeric
+and current-run equality controls passed; the new Normal output additionally
+matches explicit-decode canonical bytes. The only intended visual changes remain
+the Stage 0 final-value policy and documented source occlusion-strength correction.
+All 35 current acceptance PNGs and the fresh source/Cook reports are retained under
+`Documentation/Local/MaterialSurfaceAcceptance`; Git retains the implementation,
+authored assets and reproducible capture tests. No legacy helper was removed because
+ordinary function consumers remain supported. Supported domain remains Surface;
+Lit/Unlit and Opaque/Masked/Translucent do not introduce additional material domains.
+
+Long-lived contracts are updated in MaterialSystem, MaterialGraphOperations and
+CanonicalResave. Changed-document and all-plan lifecycle validation complete the
+handoff; prior passing tests are reused where final inputs remain unchanged.

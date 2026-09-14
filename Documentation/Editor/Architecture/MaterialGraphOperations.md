@@ -411,12 +411,15 @@ creates the compatible material-owned Parameter node one column upstream, copies
 fallback into the definition value, connects the input, and records program,
 presentation, and value as one Undo/Redo transaction. `Add Texture` explicitly
 creates one TextureSampleParameter2D with local UV settings and connects its
-RGB or scalar channel output directly. Normal creates a texture object parameter feeding the shipped
-SampleNormal function, which owns sampling, decoding, and strength processing. The entire branch and connection form one candidate-validated
+RGB or scalar channel output directly. Normal uses the same combined sample owner
+with its decoded tangent-space Normal output and flat RG fallback. Sampling and
+RG decoding share one fetch without a flat-normal blend. The reusable SampleNormal
+function remains available for explicit strength and RNM composition. The entire
+branch and connection form one candidate-validated
 Undo/Redo transaction. Extract UV settings only when explicit coordinate
 expressions are needed; texture objects remain available for function inputs
 and independent sampling. Sampling nodes show RGB, R, G, B, A, and RGBA in that
-order by default. The Advanced pins toggle reveals RG and Texture resource outputs;
+order by default. The Advanced pins toggle reveals RG, Texture resource, and decoded Normal outputs;
 connected outputs remain visible even when advanced pins are hidden. Display order
 and visibility never change serialized output indices.
 

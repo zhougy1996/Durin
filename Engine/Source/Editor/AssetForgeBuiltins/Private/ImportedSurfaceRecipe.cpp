@@ -95,8 +95,7 @@ namespace Durin::AssetForge::Builtins
 					if (UVMask & (1u << U)) Result.Owners.push_back({Role, UVKinds[U], GetMaterialSurfaceParameterId(OwnerRole, UVKinds[U])});
 			}
 			Output = Samples[Group];
-			Output.SourceOutputIndex = Sample.bDecodeNormal ? 6 : Sample.OutputIndex;
-			if (Sample.bDecodeNormal) Output = Node(Op::DecodeNormalRG, Type::Float3, {Output}, I);
+			Output.SourceOutputIndex = Sample.bDecodeNormal ? 8 : Sample.OutputIndex;
 			const FMaterialProgramLiteral Identity = ValueType == Type::Float3 ? FMaterialProgramLiteral{1, 1, 1} : FMaterialProgramLiteral{1};
 			const bool bFactor = !Sample.bDecodeNormal && Input.Value != Identity;
 			if (bFactor)
@@ -106,7 +105,7 @@ namespace Durin::AssetForge::Builtins
 			}
 			Result.CanonicalKey += "s" + std::to_string(Group) + "," + std::to_string(Sample.OutputIndex) +
 				"," + std::to_string(static_cast<uint32>(Sample.Usage)) + "," + std::to_string(UVMask) +
-				"," + (Sample.bDecodeNormal ? "n" : "c") + "," + (bFactor ? "f" : "i");
+				"," + (Sample.bDecodeNormal ? "n2" : "c") + "," + (bFactor ? "f" : "i");
 		}
 		return Result;
 	}

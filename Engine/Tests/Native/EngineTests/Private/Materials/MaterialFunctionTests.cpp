@@ -94,7 +94,7 @@ TEST(FMaterialFunctionTests, StructuralImportRecipesExposeOnlyRequiredOwners)
 	Roles[1].Sample = FImportedSurfaceSample{.ResourceIdentity = "normal", .Usage = ETextureUsage::Normal,
 		.OutputIndex = 6, .bDecodeNormal = true};
 	const auto Normal = MakeImportedSurfaceRecipe(Roles);
-	EXPECT_EQ(Normal.Program.Nodes.size(), Split.Program.Nodes.size() + 2);
+	EXPECT_EQ(Normal.Program.Nodes.size(), Split.Program.Nodes.size() + 1);
 	ASSERT_TRUE(Material->SetMaterialProgram(Normal.Program));
 	Roles[1].Sample.reset();
 	EXPECT_EQ(MakeImportedSurfaceRecipe(Roles).Program, Split.Program);
@@ -265,6 +265,35 @@ TEST(FMaterialFunctionTests, CompactSamplingSharesFetchAndPreservesUVParameterRe
 	Compact.Program.Nodes[0].Inputs[0] = {UVNode};
 	EXPECT_EQ(NormalizeMaterialProgram(Compact).CanonicalBytes, Baseline.CanonicalBytes);
 	Compact.Program.Outputs.Metallic.SourceOutputIndex = 7;
+	EXPECT_FALSE(NormalizeMaterialProgram(Compact));
+}
+
+TEST(FMaterialFunctionTests, NormalSampleOutputMatchesExplicitDecodeWithoutExtraFetch)
+{
+	using namespace Durin;
+	const FGuid SampleId{0x98abc104, 1, 1, 1}, TextureId{0x98abc104, 1, 1, 2}, DecodeId{0x98abc104, 1, 1, 3};
+	FMaterialCompilerInput Compact;
+	Compact.Environment.CompilerIdentity = "NormalSampleParity";
+	Compact.Parameters = {{TextureId, EMaterialParameterType::Texture}};
+	Compact.Program.Nodes = {{.Id = SampleId, .Opcode = EMaterialProgramOpcode::TextureSampleParameter2D,
+		.ResultType = EMaterialProgramValueType::Float4, .Inputs = {{}},
+		.Parameter = {.Id = TextureId, .Type = EMaterialParameterType::Texture, .TextureUsage = ETextureUsage::Normal}}};
+	Compact.Program.Outputs.Normal = {SampleId, 8};
+	Compact.Program.Outputs.Roughness = {SampleId, 3};
+	const auto Normalized = NormalizeMaterialProgram(Compact);
+	ASSERT_TRUE(Normalized);
+	EXPECT_EQ(std::ranges::count(Normalized.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &FMaterialIRNode::Opcode), 1);
+	EXPECT_EQ(std::ranges::count(Normalized.IR.Nodes, EMaterialProgramOpcode::DecodeNormalRG, &FMaterialIRNode::Opcode), 1);
+	EXPECT_EQ(std::ranges::count(Normalized.IR.Nodes, EMaterialProgramOpcode::BlendNormalsRNM, &FMaterialIRNode::Opcode), 0);
+	auto Explicit = Compact;
+	Explicit.Program.Nodes.push_back({.Id = DecodeId, .Opcode = EMaterialProgramOpcode::DecodeNormalRG,
+		.ResultType = EMaterialProgramValueType::Float3, .Inputs = {{SampleId, 6}}});
+	Explicit.Program.Outputs.Normal = {DecodeId};
+	const auto Expanded = NormalizeMaterialProgram(Explicit);
+	ASSERT_TRUE(Expanded);
+	EXPECT_EQ(Normalized.CanonicalBytes, Expanded.CanonicalBytes);
+	EXPECT_EQ(Normalized.Layout, Expanded.Layout);
+	Compact.Program.Outputs.Normal.SourceOutputIndex = 9;
 	EXPECT_FALSE(NormalizeMaterialProgram(Compact));
 }
 
@@ -1621,6 +1650,83 @@ TEST(FMaterialFunctionTests, CookFingerprintsNestedFunctionsWithoutProducingRunt
 		ASSERT_NE(Loaded, nullptr);
 		ASSERT_NE(Loaded->GetAcceptedCompiledProgram(), nullptr);
 		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->Identity, ExpectedIdentity);
+		EXPECT_TRUE(Loaded->GetMaterialProgram()->Nodes.empty());
+		EXPECT_TRUE(Loaded->GetMaterialFunctionCalls().empty());
+		EXPECT_TRUE(Loaded->GetAcceptedCompiledProgram()->IR.Nodes.empty());
+		EXPECT_TRUE(Loaded->GetAcceptedCompiledProgram()->GeneratedSource.empty());
+	}
+	ShutdownAssetManager();
+	CollectGarbage();
+	ASSERT_TRUE(InitializeAssetManager());
+}
+
+TEST(FMaterialFunctionTests, StructuralNormalParentRoundTripsDuplicatesAndCooksWithoutGraph)
+{
+	using namespace Durin;
+	using namespace Durin::AssetForge::Builtins;
+	InitializeDObjectSystem();
+	FScopedOfflinePreparation Offline;
+	const auto Root = Testing::CreateTestFixtureDirectory("CookStructuralNormal");
+	std::filesystem::create_directories(Root / "Content");
+	const std::array Mounts{FMountPoint{.VirtualRoot = "/CookNormal/", .Owner = EMountOwner::Test,
+		.Root = Root / "Content", .bAutoScan = true, .bContentWritable = true}};
+	Testing::FScopedMountRegistryFixture Registry(Mounts);
+	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
+	ASSERT_TRUE(RefreshAssetRegistry());
+	std::vector<FCookContributorHandle> Handles;
+	std::string Error;
+	ASSERT_TRUE(RegisterEngineCookContributors(Handles, Error)) << Error;
+	struct FRetire { std::vector<FCookContributorHandle>& Handles; ~FRetire() { for (auto Handle : Handles) UnregisterCookContributor(Handle); } } Retire{Handles};
+	FPackagePath MaterialPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/CookNormal/Parent", MaterialPath));
+	DMaterial* Material = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(MaterialPath, Material));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	std::array<FImportedSurfaceRole, 8> Roles;
+	const FMaterialSurfaceOutputs Defaults;
+	for (uint32 I = 0; I < Roles.size(); ++I)
+		Roles[I].Value = GetMaterialSurfaceOutputDefault(Defaults, static_cast<EMaterialSurfaceOutput>(I));
+	Roles[1].Sample = FImportedSurfaceSample{.ResourceIdentity = "normal", .Usage = ETextureUsage::Normal,
+		.OutputIndex = 6, .bDecodeNormal = true};
+	const auto Recipe = MakeImportedSurfaceRecipe(Roles);
+	ASSERT_EQ(Recipe.Program.Nodes.size(), 1u);
+	ASSERT_TRUE(Material->SetMaterialProgram(Recipe.Program));
+	ASSERT_TRUE(Material->CompileEdits());
+	ASSERT_TRUE(SavePackage(Material->GetPackage()));
+	auto* Duplicate = Cast<DMaterial>(DuplicateObject(Material, nullptr, "CopiedNormalParent"));
+	ASSERT_NE(Duplicate, nullptr);
+	EXPECT_EQ(*Duplicate->GetMaterialProgram(), Recipe.Program);
+	MarkAsGarbage(Duplicate);
+	ASSERT_TRUE(UnloadPackage(MaterialPath));
+	CollectGarbage();
+	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), Material));
+	EXPECT_EQ(*Material->GetMaterialProgram(), Recipe.Program);
+	ASSERT_TRUE(FinishMaterialCompileForTest(*Material));
+	const auto ExpectedIdentity = Material->GetAcceptedCompiledProgram()->Identity;
+	FCookRequest Request{.OutputRoot = Root / "Cooked", .TargetPlatform = ECookTargetPlatform::Win64,
+		.TargetProfile = ECookTargetProfile::Game, .ExplicitRoots = {MaterialPath}};
+	FCookRunResult Result;
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Result.Code << ": " << Result.Diagnostic;
+	ASSERT_EQ(Result.Packages.size(), 1u);
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Result.Diagnostic;
+	EXPECT_EQ(Result.Packages.front().Status, ECookPackageStatus::CookHit);
+	ASSERT_TRUE(UnloadPackage(MaterialPath));
+	ShutdownAssetManager();
+	CollectGarbage();
+	auto Configuration = FAssetRuntimeConfiguration::Authored();
+	ASSERT_TRUE(FAssetRuntimeConfiguration::Cooked(Request.OutputRoot, Configuration));
+	ASSERT_TRUE(InitializeAssetManager(std::move(Configuration)));
+	{
+		const std::array CookMounts{FMountPoint{.VirtualRoot = "/CookNormal/", .Owner = EMountOwner::Test,
+			.Root = Request.OutputRoot / "CookNormal", .bAutoScan = true}};
+		Testing::FScopedMountRegistryFixture CookRegistry(CookMounts);
+		ASSERT_TRUE(CookRegistry.IsValid()) << CookRegistry.GetError();
+		ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
+		DMaterial* Loaded = nullptr;
+		ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), Loaded));
+		ASSERT_NE(Loaded->GetAcceptedCompiledProgram(), nullptr);
+		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->Identity, ExpectedIdentity);
+		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->Layout.ResourceFieldCount, 1u);
 		EXPECT_TRUE(Loaded->GetMaterialProgram()->Nodes.empty());
 		EXPECT_TRUE(Loaded->GetMaterialFunctionCalls().empty());
 		EXPECT_TRUE(Loaded->GetAcceptedCompiledProgram()->IR.Nodes.empty());

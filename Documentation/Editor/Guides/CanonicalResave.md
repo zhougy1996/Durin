@@ -143,3 +143,15 @@ Current material owners use program schema 7 and function schema 3 with a requir
 ownership marker. Old material data cannot be made current by canonical resave;
 there are no historical material graph readers or automatic parameter-table adapters.
 Cooked outputs must be regenerated after reconstruction.
+
+Scene imports generate structural parents under the destination mount's
+`Materials/ImportedParents` directory; they do not select or initialize the
+historical Engine ImportedSurface. Reimport the source to regenerate its outputs
+and select current parent shapes. Reimport replaces edits to generated assets;
+keep independent customized copies outside the destination. Existing immutable
+parents and outputs removed from the source are retained for references. The
+material-functions command maintains the shipped reusable functions and historical
+parent; it does not rebuild scene-specific parents. Already-current DefaultMaterial
+and historical content need no destructive reconstruction solely for a new
+structural recipe. See [Material System](../../Runtime/Rendering/MaterialSystem.md)
+for ownership and normal sampling contracts.

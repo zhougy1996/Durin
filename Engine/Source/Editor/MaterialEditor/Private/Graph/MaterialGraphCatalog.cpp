@@ -345,6 +345,7 @@ namespace Durin::Editor::Material
 						: Index == 6 ? EMaterialProgramValueType::Float2 : EMaterialProgramValueType::Float});
 				if (Node.Opcode == EMaterialProgramOpcode::TextureSampleParameter2D)
 					View.Outputs.push_back({.OutputIndex = 7, .Name = "Texture", .Type = EMaterialProgramValueType::Texture2D});
+				View.Outputs.push_back({.OutputIndex = 8, .Name = "Normal", .Type = EMaterialProgramValueType::Float3});
 			}
 			else if (Node.Opcode == EMaterialProgramOpcode::GetSurfaceAttributes)
 			{

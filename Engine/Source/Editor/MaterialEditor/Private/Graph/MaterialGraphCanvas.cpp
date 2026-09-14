@@ -13,10 +13,10 @@ namespace Durin::Editor::Material
 		std::optional<FMaterialGraphClipboardPayload> GraphClipboard;
 		auto HideUnusedAdvancedPins(FMaterialGraphView& View) -> void
 		{
-			std::unordered_map<FGuid, uint8> UsedSampleOutputs;
+			std::unordered_map<FGuid, uint16> UsedSampleOutputs;
 			const auto MarkOutput = [&](const FMaterialProgramLink& Link) {
-				if (Link.SourceNodeId.IsValid() && !Link.SourceOutputId.IsValid() && Link.SourceOutputIndex < 8)
-					UsedSampleOutputs[Link.SourceNodeId] |= static_cast<uint8>(1u << Link.SourceOutputIndex);
+				if (Link.SourceNodeId.IsValid() && !Link.SourceOutputId.IsValid() && Link.SourceOutputIndex < 9)
+					UsedSampleOutputs[Link.SourceNodeId] |= static_cast<uint16>(1u << Link.SourceOutputIndex);
 			};
 			for (const auto& Node : View.Nodes)
 				for (const auto& Pin : Node.Inputs) MarkOutput(Pin.Link);

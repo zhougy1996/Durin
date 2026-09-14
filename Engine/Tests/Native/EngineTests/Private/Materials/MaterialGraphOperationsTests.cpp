@@ -835,7 +835,7 @@ TEST(FMaterialGraphOperationsTests, TextureOutputsHideUnusedAdvancedPinsWithoutC
 	}
 	FMaterialGraphCanvasTestAccess::ShowAdvanced(Canvas);
 	Sample = FindViewNode(FMaterialGraphCanvasTestAccess::Prepare(Canvas, *Material), SampleId);
-	ASSERT_EQ(Sample->Outputs.size(), 8u);
+	ASSERT_EQ(Sample->Outputs.size(), 9u);
 	EXPECT_EQ(Sample->Outputs[6].OutputIndex, 6u);
 	EXPECT_EQ(Sample->Outputs[7].OutputIndex, 7u);
 	FMaterialGraphCanvasTestAccess::HideAdvanced(Canvas);
@@ -850,6 +850,15 @@ TEST(FMaterialGraphOperationsTests, TextureOutputsHideUnusedAdvancedPinsWithoutC
 	ASSERT_EQ(Sample->Outputs.size(), 8u);
 	EXPECT_EQ(Sample->Outputs[6].OutputIndex, 6u);
 	EXPECT_EQ(Sample->Outputs[7].OutputIndex, 7u);
+	auto Program = *Material->GetMaterialProgram();
+	Program.Outputs.Normal = {SampleId, 8};
+	ASSERT_TRUE(Material->SetMaterialProgram(Program));
+	Sample = FindViewNode(FMaterialGraphCanvasTestAccess::Prepare(Canvas, *Material), SampleId);
+	ASSERT_EQ(Sample->Outputs.size(), 9u);
+	EXPECT_EQ(Sample->Outputs.back().Name, "Normal");
+	EXPECT_EQ(Sample->Outputs.back().OutputIndex, 8u);
+	Program.Outputs.Normal = {};
+	ASSERT_TRUE(Material->SetMaterialProgram(Program));
 	const std::array Consumers{SecondSample.GeneratedNodeIds.front(), Decode.GeneratedNodeIds.front()};
 	ASSERT_TRUE(FMaterialGraphOperations::RemoveNodes(*Material, Consumers));
 	Sample = FindViewNode(FMaterialGraphCanvasTestAccess::Prepare(Canvas, *Material), SampleId);
@@ -2318,11 +2327,9 @@ TEST(FMaterialGraphOperationsTests,
 			.X = 400,
 			.Y = 200}, Transactions.Get());
 	ASSERT_TRUE(Textured) << Textured.Message;
-	ASSERT_EQ(Textured.GeneratedNodeIds.size(), 2u);
-	ASSERT_EQ(Material->GetMaterialFunctionCalls().size(), 1u);
-	const auto& NormalCall = Material->GetMaterialFunctionCalls().front();
-	EXPECT_EQ(NormalCall.Function->GetName(), "SampleNormal");
-	EXPECT_EQ(NormalCall.Inputs.front().Source.SourceNodeId, Textured.GeneratedNodeIds.front());
+	ASSERT_EQ(Textured.GeneratedNodeIds.size(), 1u);
+	EXPECT_TRUE(Material->GetMaterialFunctionCalls().empty());
+	EXPECT_EQ(Material->GetMaterialProgram()->Outputs.Normal.SourceOutputIndex, 8u);
 	const FMaterialNormalizationResult Normalized = Normalize(*Material);
 	ASSERT_TRUE(Normalized);
 	EXPECT_EQ(std::ranges::count(Normalized.IR.Nodes, EMaterialProgramOpcode::TextureSample2D,
@@ -2343,7 +2350,7 @@ TEST(FMaterialGraphOperationsTests, SurfaceTexturesUseCompactSamplesAndPreserveU
 	auto* Material = NewObject<DMaterial>(nullptr, "CompactSurfaceTextures");
 	ASSERT_NE(Material, nullptr);
 	Durin::Tests::FTestTransactorOwner Transactions;
-	constexpr std::array<uint8, 8> Channels{1, 6, 4, 3, 2, 1, 5, 2};
+	constexpr std::array<uint8, 8> Channels{1, 8, 4, 3, 2, 1, 5, 2};
 	for (uint32 Index = 0; Index < Channels.size(); ++Index)
 	{
 		SCOPED_TRACE(Index);
@@ -2353,22 +2360,21 @@ TEST(FMaterialGraphOperationsTests, SurfaceTexturesUseCompactSamplesAndPreserveU
 			{.Output = Role, .X = 400, .Y = 200}, Transactions.Get());
 		ASSERT_TRUE(Result) << Result.Message;
 		const auto& Program = *Material->GetMaterialProgram();
-		ASSERT_EQ(Program.Nodes.size(), bNormal ? 2u : 1u);
+		ASSERT_EQ(Program.Nodes.size(), 1u);
 		ASSERT_EQ(Material->GetParameterDefinitions().size(), 1u);
 		const auto& Sample = Program.Nodes.front();
-		EXPECT_EQ(Sample.Opcode, bNormal ? EMaterialProgramOpcode::TextureParameter : EMaterialProgramOpcode::TextureSampleParameter2D);
-		ASSERT_EQ(Sample.Inputs.size(), bNormal ? 0u : 1u);
-		if (!bNormal) EXPECT_FALSE(Sample.Inputs.front().SourceNodeId.IsValid());
+		EXPECT_EQ(Sample.Opcode, EMaterialProgramOpcode::TextureSampleParameter2D);
+		ASSERT_EQ(Sample.Inputs.size(), 1u);
+		EXPECT_FALSE(Sample.Inputs.front().SourceNodeId.IsValid());
 		const FGuid SampleId = Sample.Id;
 		const FGuid ParameterId = Sample.Parameter.Id;
 		const auto Output = GetMaterialSurfaceOutputLink(Program.Outputs, Role);
-		const auto SampleOutput = bNormal ? Material->GetMaterialFunctionCalls().front().Inputs.front().Source : Output;
+		const auto SampleOutput = Output;
 		EXPECT_EQ(SampleOutput.SourceNodeId, SampleId);
-		EXPECT_EQ(SampleOutput.SourceOutputIndex, bNormal ? 0u : Channels[Index]);
+		EXPECT_EQ(SampleOutput.SourceOutputIndex, Channels[Index]);
 		if (bNormal)
 		{
-			EXPECT_EQ(Program.Nodes.back().Opcode, EMaterialProgramOpcode::FunctionCall);
-			EXPECT_EQ(Material->GetMaterialFunctionCalls().front().Function->GetName(), "SampleNormal");
+			EXPECT_TRUE(Material->GetMaterialFunctionCalls().empty());
 			EXPECT_EQ(Sample.Parameter.TextureUsage, ETextureUsage::Normal);
 			EXPECT_EQ(Sample.Parameter.Value.TextureFallback, EMaterialTextureFallback::FlatRGNormal);
 		}
@@ -2409,7 +2415,7 @@ TEST(FMaterialGraphOperationsTests, SurfaceTexturesUseCompactSamplesAndPreserveU
 			Canvas.Draw(*Material, *Transactions.Get(), 780, [&](std::string) { ++Errors; });
 			ImGui::End(); ImGui::Render();
 		}
-		SaveCanvasEvidence("compact-texture-and-normal-function");
+		SaveCanvasEvidence("compact-texture-and-normal-sample");
 		EXPECT_EQ(Errors, 0);
 	}
 	ImGui::DestroyContext(Context);
