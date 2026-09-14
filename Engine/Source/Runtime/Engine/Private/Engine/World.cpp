@@ -204,6 +204,13 @@ namespace Durin
 		if (bGameplay) Timers.StartFrame(GameplayDelta);
 		if (bGameplay && GameplaySession && GameplaySession->LocalPlayerController && Context.GameInput)
 			GameplaySession->LocalPlayerController->PreparePlayerInput(*Context.GameInput);
+		else if (GameplaySession && GameplaySession->LocalPlayerController && Context.GameInput)
+		{
+			// Observe releases during pause so held-source suppression can retire.
+			auto& Actions = GameplaySession->LocalPlayerController->GetInputActions();
+			Actions.SetDeviceBlocked(true, true);
+			Actions.Evaluate(*Context.GameInput);
+		}
 		if (!CanDispatchSubsystems() || (bGameplay && !CanContinueTicking(CapturedLevel))) return;
 		// Registry cleanup must precede the operation scope applying stop requests.
 		struct FTickFrameScope

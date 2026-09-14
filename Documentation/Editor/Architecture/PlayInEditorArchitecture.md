@@ -64,8 +64,12 @@ general collision backend.
 
 `FGameInputState` remains the Engine-owned raw key, mouse-button,
 mouse-position, mouse-delta, and wheel snapshot. Only the local
-`APlayerController` or a derived player controller translates that snapshot
-into `FPawnControlIntent`; Pawn and movement code never read raw key identities.
+`APlayerController` evaluates that snapshot through its session-owned action
+contexts; a derived controller translates the logical action snapshot into
+`FPawnControlIntent`. Pawn and movement code never read raw key identities.
+UI capture blocks action eligibility without dropping physical release events.
+The [input action contract](../../Runtime/Gameplay/InputActions.md) defines
+priority, consumption, cancellation, and held-source suppression.
 Standalone games receive the native window input stream. PIE enables that
 stream only while its embedded scene viewport is focused. Focus loss, input
 disable, pause, stop, and session replacement clear raw or pending semantic

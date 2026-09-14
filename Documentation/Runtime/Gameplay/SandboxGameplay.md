@@ -22,8 +22,8 @@ runtime game mode, controller, and pawn, leaving authored level Actors intact.
 
 ## Controls
 
-`ADefaultPlayerController::BuildControlIntent` is the only Sandbox code that
-reads physical input:
+`ADefaultPlayerController` registers the `Sandbox.Gameplay` mapping context.
+`BuildControlIntent` reads its logical `Move`, `Look`, and `Jump` actions:
 
 | Input | Semantic result |
 | --- | --- |
@@ -32,6 +32,16 @@ reads physical input:
 | Space | jump held, pressed, and released state |
 | Mouse X | pawn yaw |
 | Mouse Y | camera pitch, with upward motion looking up |
+| E | `Interact` button state, available to gameplay consumers |
+
+`Interact` does not yet perform target selection or interaction. Binding slots
+are `MoveForward`, `MoveBackward`, `MoveLeft`, `MoveRight`, `LookX`, `LookY`,
+`Jump`, and `Interact`. `RebindControl` and `ResetControlBindings` validate and
+atomically persist user overrides in `Saved/Configs/SandboxInput.bindings` below
+the runtime launch directory; the next controller loads them at BeginPlay.
+Escape remains reserved for the host capture policy. There is no controls editor
+UI in this slice. See [input actions](InputActions.md) for contexts, consumption,
+failure behavior, and the cancellation contract.
 
 In editor Play, click the rendered game surface to capture the mouse before
 using mouse look. Press `Escape` to release it without stopping Play; click the
@@ -44,8 +54,9 @@ gameplay input.
 Opposing digital inputs cancel. Digital movement scale is `1.0`; mouse delta
 uses `0.1` intent units per pixel and is admitted through the Engine's bounded
 one-sample control seam. Focus loss, pause, single-step, restart, and stop use
-the shared Engine reset and one-use semantics; Sandbox keeps no duplicate input
-cache.
+the shared Engine action cancellation and one-use semantics. Interrupted held
+actions require release and a fresh press before resuming. Sandbox keeps no
+duplicate input cache.
 
 ## Movement and camera tuning
 

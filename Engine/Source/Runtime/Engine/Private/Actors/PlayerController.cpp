@@ -36,30 +36,40 @@ namespace Durin
 		return {};
 	}
 
-	auto APlayerController::BuildControlIntent(const FGameInputState&) const -> FPawnControlIntent
+	auto APlayerController::BuildControlIntent(const FInputActionSnapshot&) const -> FPawnControlIntent
 	{
 		return {};
 	}
 
 	auto APlayerController::OnPossessedPawnChanged(APawn* PreviousPawn, APawn* NewPawn) -> void
 	{
+		CancelPlayerInput();
 		Super::OnPossessedPawnChanged(PreviousPawn, NewPawn);
 		ViewTarget = NewPawn;
 	}
 
 	auto APlayerController::PreparePlayerInput(const FGameInputState& Input) -> void
 	{
-		SubmitControlIntent(BuildControlIntent(Input));
+		InputActions.SetDeviceBlocked(Input.IsKeyboardBlocked(), Input.IsMouseBlocked());
+		SubmitControlIntent(BuildControlIntent(InputActions.Evaluate(Input)));
+	}
+
+	auto APlayerController::CancelPlayerInput() -> void
+	{
+		InputActions.Cancel();
+		if (APawn* ControlledPawn = GetPawn()) ControlledPawn->ClearPendingControlIntent();
 	}
 
 	auto APlayerController::EndPlay() -> void
 	{
+		CancelPlayerInput();
 		ViewTarget = nullptr;
 		Super::EndPlay();
 	}
 
 	auto APlayerController::OnActorDestroyed() -> void
 	{
+		CancelPlayerInput();
 		ViewTarget = nullptr;
 		Super::OnActorDestroyed();
 	}

@@ -83,6 +83,8 @@ namespace Durin::Mona
 
 		MONA_API auto SetMonaEventHandler(std::unique_ptr<FMonaEventHandler> InHandler) -> void;
 		MONA_API auto SetGameEventHandler(std::unique_ptr<FMonaEventHandler> InHandler) -> void;
+		// Query before gameplay evaluation; never use capture to drop physical releases.
+		MONA_API auto GetInputCapture(const std::shared_ptr<FGenericWindow>& Window) const -> FMonaInputCapture;
 
 		MONA_API auto GetActiveTopLevelWindow() const -> std::shared_ptr<MWindow>;
 

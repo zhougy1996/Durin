@@ -9,6 +9,12 @@ namespace Durin
 
 namespace Durin::Mona
 {
+	// UI ownership is separate from physical event delivery, including releases.
+	struct FMonaInputCapture
+	{
+		bool bKeyboard = false;
+		bool bMouse = false;
+	};
 	// Defines overridable Mona-level handling for normalized window and input events.
 	class FMonaEventHandler
 	{
@@ -17,6 +23,8 @@ namespace Durin::Mona
 		virtual ~FMonaEventHandler() = default;
 
 		DURIN_NONCOPYABLE(FMonaEventHandler)
+
+		virtual auto GetInputCapture(const std::shared_ptr<FGenericWindow>& Window) const -> FMonaInputCapture { return {}; }
 
 		virtual auto OnWindowCloseRequested(const std::shared_ptr<FGenericWindow>& InPlatformWindow) -> bool { return false; }
 

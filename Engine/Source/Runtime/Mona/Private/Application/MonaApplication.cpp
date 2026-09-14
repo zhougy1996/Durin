@@ -481,6 +481,11 @@ namespace Durin::Mona
 		}
 	}
 
+	auto FMonaApplication::GetInputCapture(const std::shared_ptr<FGenericWindow>& Window) const -> FMonaInputCapture
+	{
+		return MonaEventHandler ? MonaEventHandler->GetInputCapture(Window) : FMonaInputCapture{};
+	}
+
 	auto FMonaApplication::OnKeyDown(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EKey Key, EKeyModFlags Mods, bool IsRepeat) -> bool
 	{
 		const bool bUIHandled = MonaEventHandler && MonaEventHandler->OnKeyDown(InPlatformWindow, Key, Mods, IsRepeat);

@@ -22,6 +22,7 @@ namespace Durin::MonaImGui
 	public:
 		FMonaImGuiEventHandler() = default;
 		~FMonaImGuiEventHandler() override = default;
+		auto GetInputCapture(const std::shared_ptr<FGenericWindow>& Window) const -> Mona::FMonaInputCapture override;
 
 		auto OnWindowCloseRequested(const std::shared_ptr<FGenericWindow>& InPlatformWindow) -> bool override;
 		auto OnWindowFocused(const std::shared_ptr<FGenericWindow>& InPlatformWindow, bool bFocused) -> void override;
@@ -986,6 +987,21 @@ namespace Durin::MonaImGui
 			return true;
 		}
 		return false;
+	}
+
+	auto FMonaImGuiEventHandler::GetInputCapture(const std::shared_ptr<FGenericWindow>& Window) const -> Mona::FMonaInputCapture
+	{
+		if (!GMonaImGuiContext || !Window) return {};
+		auto& IO = GetImGuiIO(Window);
+		ImGuiContext* PreviousContext = ImGui::GetCurrentContext();
+		ImGui::SetCurrentContext(GMonaImGuiContext);
+		const bool bPopup = ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
+		ImGui::SetCurrentContext(PreviousContext);
+		const bool bCaptured = IsMouseCaptured(Window);
+		// A captured game viewport is not ImGui navigation. Text editing and
+		// popups still own input and can interrupt an already-held game action.
+		return {IO.WantTextInput || bPopup || (!bCaptured && IO.WantCaptureKeyboard),
+			bPopup || (!bCaptured && IO.WantCaptureMouse)};
 	}
 
 	bool FMonaImGuiEventHandler::OnKeyDown(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EKey Key, EKeyModFlags Mods, bool IsRepeat)

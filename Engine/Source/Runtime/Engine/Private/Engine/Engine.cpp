@@ -66,6 +66,8 @@ namespace Durin
 			if (!IsTarget(Window)) return;
 			GEngine->HandleGameInputWindowFocus(Window, bFocused);
 			GEngine->GameInputState.SetFocused(bFocused);
+			if (!bFocused && GEngine->MainWorld)
+				if (auto* Controller = GEngine->MainWorld->GetLocalPlayerController()) Controller->CancelPlayerInput();
 		}
 		auto OnWindowCloseRequested(const std::shared_ptr<FGenericWindow>& Window) -> bool override
 		{
@@ -77,7 +79,7 @@ namespace Durin
 		{
 			if (!IsTarget(Window)) return false;
 			if (GEngine->HandleGameInputKeyDown(Window, Key, bRepeat)) return true;
-			GEngine->GameInputState.SetKey(Key, true);
+			GEngine->GameInputState.SetKey(Key, true, bRepeat);
 			return GEngine->GameInputState.IsEnabled();
 		}
 		auto OnKeyUp(const std::shared_ptr<FGenericWindow>& Window, EKey Key, EKeyModFlags) -> bool override
@@ -280,6 +282,15 @@ namespace Durin
 		(void)bIdleMode;
 		PumpCookedMeshLoadManager();
 		if (GameInputWindow.expired() && GameInputState.IsEnabled()) ClearGameInputWindow();
+		if (const auto Window = GameInputWindow.lock(); Window && Mona::FMonaApplication::IsInitialized())
+		{
+			const auto Capture = Mona::FMonaApplication::Get().GetInputCapture(Window);
+			GameInputState.bKeyboardBlocked = Capture.bKeyboard;
+			GameInputState.bMouseBlocked = Capture.bMouse;
+			if (MainWorld)
+				if (auto* Controller = MainWorld->GetLocalPlayerController())
+					Controller->GetInputActions().SetDeviceBlocked(Capture.bKeyboard, Capture.bMouse);
+		}
 		if (MainWorld) MainWorld->Tick({.DeltaSeconds = DeltaSeconds, .GameInput = &GameInputState});
 		GameInputState.FinishGameTick();
 	}
@@ -469,12 +480,15 @@ namespace Durin
 	auto DEngine::SetGameInputEnabled(bool bEnabled) -> void
 	{
 		GameInputState.SetEnabled(bEnabled && !GameInputWindow.expired());
+		if (!GameInputState.IsEnabled() && MainWorld)
+			if (auto* Controller = MainWorld->GetLocalPlayerController()) Controller->CancelPlayerInput();
 	}
 
 	auto DEngine::SetGameInputWindow(const std::shared_ptr<FGenericWindow>& InWindow) -> void
 	{
 		if (GameInputWindow.lock() == InWindow && (InWindow || !GameInputState.IsEnabled())) return;
-		GameInputState.SetEnabled(false);
+		SetGameInputEnabled(false);
+		GameInputState.bKeyboardBlocked = GameInputState.bMouseBlocked = false;
 		GameInputState.SetFocused(false);
 		GameInputWindow = InWindow;
 		if (InWindow) GameInputState.SetFocused(InWindow->IsFocused());

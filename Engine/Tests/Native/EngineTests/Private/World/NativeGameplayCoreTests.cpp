@@ -207,6 +207,13 @@ namespace
 		explicit FIntentPlayerController(const Durin::FObjectInitializer& Initializer)
 			: Durin::APlayerController(Initializer)
 		{
+			GetInputActions().DefineAction("Move", Durin::EInputActionType::Axis2D);
+			GetInputActions().DefineAction("Jump", Durin::EInputActionType::Button);
+			Durin::FInputMappingContext Mapping;
+			Mapping.Name = "Test";
+			Mapping.Bindings = {{"Forward", "Move", Durin::FInputSource::Key(Durin::EKey::W), {0.0, 1.0}},
+				{"Jump", "Jump", Durin::FInputSource::Key(Durin::EKey::Space)}};
+			GetInputActions().AddContext(std::move(Mapping));
 		}
 
 		auto SetNextIntent(Durin::FPawnControlIntent Intent) -> void { NextIntent = std::move(Intent); }
@@ -217,7 +224,7 @@ namespace
 		auto SubmitDirect(const Durin::FPawnControlIntent& Intent) -> bool { return SubmitControlIntent(Intent); }
 
 	protected:
-		auto BuildControlIntent(const Durin::FGameInputState& Input) const -> Durin::FPawnControlIntent override
+		auto BuildControlIntent(const Durin::FInputActionSnapshot& Input) const -> Durin::FPawnControlIntent override
 		{
 			++BuildCount;
 			if (BuildCallback) BuildCallback();
@@ -229,10 +236,10 @@ namespace
 			if (bUseRawMapping)
 			{
 				Durin::FPawnControlIntent Intent;
-				Intent.Move.y = Input.IsKeyDown(Durin::EKey::W) ? 1.0 : 0.0;
-				Intent.bJumpHeld = Input.IsKeyDown(Durin::EKey::Space);
-				Intent.bJumpPressed = Input.WasKeyPressed(Durin::EKey::Space);
-				Intent.bJumpReleased = Input.WasKeyReleased(Durin::EKey::Space);
+				Intent.Move = Input.Get("Move").Value;
+				Intent.bJumpHeld = Input.Get("Jump").bActive;
+				Intent.bJumpPressed = Input.Get("Jump").bStarted;
+				Intent.bJumpReleased = Input.Get("Jump").bCompleted || Input.Get("Jump").bCancelled;
 				return Intent;
 			}
 			return NextIntent;
@@ -856,6 +863,60 @@ TEST(FNativeGameplayControlTests, RawTransitionsBecomeOneUseIntentAndFocusLossRe
 	World->EndPlay();
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::CollectGarbage();
+}
+
+TEST(FNativeGameplayControlTests, ActionsCancelOnPauseStepRestartAndStop)
+{
+	using namespace Durin;
+	DWorld* World = CreateWorld();
+	SpawnPlayerStart(*World, "Start", {0.0, 0.0, 0.0});
+	ASSERT_TRUE(World->BeginPlay({.GameModeClass = IntentGameModeClass()}));
+	auto* Controller = static_cast<FIntentPlayerController*>(World->GetLocalPlayerController());
+	Controller->SetUseRawMapping(true);
+	FGameInputState Input;
+	FGameInputStateTestAccess::EnableAndFocus(Input);
+	auto Tick = [&] { World->Tick({.DeltaSeconds = 1.0f / 60.0f, .GameInput = &Input}); FGameInputStateTestAccess::FinishTick(Input); };
+	FGameInputStateTestAccess::SetKey(Input, EKey::W, true);
+	FGameInputStateTestAccess::SetKey(Input, EKey::Space, true);
+	Tick();
+	EXPECT_TRUE(Controller->GetInputActions().GetSnapshot().Get("Move").bActive);
+	World->SetPaused(true);
+	EXPECT_TRUE(Controller->GetInputActions().GetSnapshot().Get("Move").bCancelled);
+	EXPECT_FALSE(Controller->GetInputActions().GetSnapshot().Get("Move").bActive);
+	const auto Builds = Controller->GetBuildCount();
+	Tick();
+	Tick();
+	EXPECT_EQ(Controller->GetBuildCount(), Builds);
+	EXPECT_FALSE(Controller->GetInputActions().GetSnapshot().Get("Jump").bCancelled);
+	World->RequestSingleStep();
+	Tick();
+	EXPECT_EQ(Controller->GetBuildCount(), Builds + 1);
+	EXPECT_FALSE(Controller->GetInputActions().GetSnapshot().Get("Jump").bStarted);
+	FGameInputStateTestAccess::SetKey(Input, EKey::Space, false);
+	Tick();
+	FGameInputStateTestAccess::SetKey(Input, EKey::Space, true);
+	World->RequestSingleStep();
+	Tick();
+	EXPECT_TRUE(Controller->GetInputActions().GetSnapshot().Get("Jump").bStarted);
+	Tick();
+	EXPECT_FALSE(Controller->GetInputActions().GetSnapshot().Get("Jump").bActive);
+	World->SetPaused(false);
+	Tick();
+	EXPECT_FALSE(Controller->GetInputActions().GetSnapshot().Get("Move").bActive);
+	FGameInputStateTestAccess::SetKey(Input, EKey::W, false);
+	Tick();
+	FGameInputStateTestAccess::SetKey(Input, EKey::W, true);
+	Tick();
+	EXPECT_TRUE(Controller->GetInputActions().GetSnapshot().Get("Move").bActive);
+	ASSERT_TRUE(World->RestartPlayer());
+	EXPECT_EQ(World->GetLocalPlayerController(), Controller);
+	EXPECT_TRUE(Controller->GetInputActions().GetSnapshot().Get("Move").bCancelled);
+	Tick();
+	EXPECT_FALSE(Controller->GetInputActions().GetSnapshot().Get("Move").bActive);
+	World->EndPlay();
+	EXPECT_FALSE(Controller->GetInputActions().GetSnapshot().Get("Move").bActive);
+	MarkObjectHierarchyAsGarbage(World);
+	CollectGarbage();
 }
 
 TEST(FNativeGameplayControlTests, DefersLevelReplacementRequestedByInputMapping)

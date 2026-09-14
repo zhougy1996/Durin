@@ -175,9 +175,9 @@ the operation returns.
 `DEngine::Tick()`. Active game worlds receive an `FWorldTickContext` containing
 delta time and the Engine-owned raw input snapshot, then route admitted stable
 Actor and Component Tick functions through serial PrePhysics, Physics, and
-PostPhysics groups. The local player controller
-is the only gameplay boundary that translates raw device identities into a
-bounded pawn-control intent. Raw one-frame transitions are cleared only after
+PostPhysics groups. The local player controller evaluates its session-owned
+[input actions](../Gameplay/InputActions.md) and translates the logical snapshot
+into bounded pawn-control intent. Raw one-frame transitions are cleared only after
 the World call, so one advancing tick or single-step can observe each edge at
 most once.
 

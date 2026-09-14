@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Actors/Controller.h"
+#include "Input/InputActions.h"
 
 #include "PlayerController.gen.h"
 
@@ -35,15 +36,20 @@ namespace Durin
 		ENGINE_API explicit APlayerController(const FObjectInitializer& ObjectInitializer);
 		ENGINE_API auto SetViewTarget(AActor* Target) -> FViewTargetResult;
 		auto GetViewTarget() const -> AActor* { return ViewTarget.Get(); }
+		auto GetInputActions() -> FInputActionEvaluator& { return InputActions; }
+		auto GetInputActions() const -> const FInputActionEvaluator& { return InputActions; }
+		// Host and World lifecycle boundaries cancel immediately, including while paused.
+		ENGINE_API auto CancelPlayerInput() -> void;
 
 	protected:
-		// Derived player controllers are the only gameplay types that translate raw device identities.
-		ENGINE_API virtual auto BuildControlIntent(const FGameInputState& Input) const -> FPawnControlIntent;
+		// Derived controllers translate logical actions into source-neutral Pawn intent.
+		ENGINE_API virtual auto BuildControlIntent(const FInputActionSnapshot& Input) const -> FPawnControlIntent;
 		ENGINE_API auto OnPossessedPawnChanged(APawn* PreviousPawn, APawn* NewPawn) -> void override;
 		ENGINE_API auto EndPlay() -> void override;
 		ENGINE_API auto OnActorDestroyed() -> void override;
 
 	private:
+		FInputActionEvaluator InputActions;
 		auto PreparePlayerInput(const FGameInputState& Input) -> void;
 		auto HandleViewTargetDestroyed(AActor* Target) -> void;
 

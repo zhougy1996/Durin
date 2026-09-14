@@ -16,9 +16,14 @@ namespace Durin::Sandbox
 		GENERATED_BODY()
 	public:
 		SANDBOX_API explicit ADefaultPlayerController(const FObjectInitializer& ObjectInitializer);
+		// Persist first, then publish the new mapping. Failure leaves live controls intact.
+		SANDBOX_API auto RebindControl(std::string_view Slot, FInputSource Source, std::string& Error) -> bool;
+		SANDBOX_API auto ResetControlBindings(std::string& Error) -> bool;
+		SANDBOX_API static auto GetControlBindingsPath() -> std::filesystem::path;
 
 	protected:
-		SANDBOX_API auto BuildControlIntent(const FGameInputState& Input) const -> FPawnControlIntent override;
+		SANDBOX_API auto BeginPlay() -> void override;
+		SANDBOX_API auto BuildControlIntent(const FInputActionSnapshot& Input) const -> FPawnControlIntent override;
 
 	private:
 		friend struct FDefaultPlayerControllerTestAccess;

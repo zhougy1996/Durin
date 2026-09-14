@@ -43,6 +43,7 @@ as the task requires; do not read unrelated topics or scan an entire directory.
 | World subsystem registration, per-World services, or subsystem retirement | [World subsystems](Runtime/World/WorldSubsystems.md) |
 | Level ownership, World play state, gameplay session, lifecycle mutation, or Actor iteration | [Level system](Runtime/World/LevelSystem.md) |
 | Sandbox gameplay controls, tuning, camera, or ground-plane limits | [Sandbox gameplay](Runtime/Gameplay/SandboxGameplay.md) |
+| Logical input actions, binding overrides, context priority, UI capture, or cancellation | [Input actions](Runtime/Gameplay/InputActions.md) |
 | Core math aliases, operation semantics, or the GLM boundary | [Core math](Runtime/Core/Math.md) |
 | Collision shapes, body setup/instance, physics scene, traces, sweeps, or overlaps | [Runtime collision](Runtime/Physics/Collision.md) |
 | Physics-framework long-term scaling, broadphase/narrowphase, cooked collision, dynamics, or backend evolution | [Physics evolution roadmap](Roadmaps/Archive/2026-08/PhysicsEvolution.md) |

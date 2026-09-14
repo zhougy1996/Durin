@@ -1,3 +1,10 @@
+durin_add_engine_functional_test(InputActionTests
+	KIND contract
+	DOMAINS input gameplay
+	MODULES engine mona mona-core mona-imgui
+	SOURCES Private/Input/InputActionTests.cpp
+)
+
 set(_durin_world_test_sources
 	Private/World/NewLevelBaselineTests.cpp
 	Private/World/WorldPlayTests.cpp

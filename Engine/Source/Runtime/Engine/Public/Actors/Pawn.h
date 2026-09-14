@@ -43,6 +43,7 @@ namespace Durin
 		bool bHasPendingControlIntent = false;
 
 		friend class AController;
+		friend class APlayerController;
 		friend class DWorld;
 	};
 }

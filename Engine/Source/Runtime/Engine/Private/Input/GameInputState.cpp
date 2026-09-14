@@ -15,13 +15,15 @@ namespace Durin
 		if (!bFocused) Reset();
 	}
 
-	auto FGameInputState::SetKey(EKey Key, bool bDown) -> void
+	auto FGameInputState::SetKey(EKey Key, bool bDown, bool bRepeat) -> void
 	{
 		if (!bEnabled || !bFocused) return;
 		const size_t Index = ToKeyIndex(Key);
+		if (bRepeat) return; // Never reconstruct a held key after focus/capture reset.
 		if (KeyDown[Index] == bDown) return;
 		KeyDown[Index] = bDown;
 		(bDown ? KeyPressed : KeyReleased)[Index] = true;
+		Transitions.push_back({static_cast<uint16>(Index), bDown});
 	}
 
 	auto FGameInputState::SetMouseButton(EMouseButton Button, bool bDown) -> void
@@ -31,6 +33,7 @@ namespace Durin
 		if (MouseDown[Index] == bDown) return;
 		MouseDown[Index] = bDown;
 		(bDown ? MousePressed : MouseReleased)[Index] = true;
+		Transitions.push_back({static_cast<uint16>(256 + Index), bDown});
 	}
 
 	auto FGameInputState::SetMousePosition(FVector2d Position) -> void
@@ -48,6 +51,8 @@ namespace Durin
 
 	auto FGameInputState::FinishGameTick() -> void
 	{
+		++FrameNumber;
+		Transitions.clear();
 		KeyPressed.fill(false);
 		KeyReleased.fill(false);
 		MousePressed.fill(false);
@@ -65,6 +70,7 @@ namespace Durin
 
 	auto FGameInputState::Reset() -> void
 	{
+		++ResetNumber;
 		KeyDown.fill(false);
 		MouseDown.fill(false);
 		FinishGameTick();

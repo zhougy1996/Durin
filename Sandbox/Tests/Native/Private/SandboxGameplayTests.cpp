@@ -51,9 +51,9 @@ namespace Durin::Sandbox
 {
 	struct FDefaultPlayerControllerTestAccess
 	{
-		static auto Build(const ADefaultPlayerController& Controller, const FGameInputState& Input) -> FPawnControlIntent
+		static auto Build(ADefaultPlayerController& Controller, const FGameInputState& Input) -> FPawnControlIntent
 		{
-			return Controller.BuildControlIntent(Input);
+			return Controller.BuildControlIntent(Controller.GetInputActions().Evaluate(Input));
 		}
 	};
 }
@@ -183,12 +183,33 @@ TEST(FSandboxGameplayInputTests, MapsDigitalCancellationJumpEdgesAndMouseDelta)
 	EXPECT_DOUBLE_EQ(Intent.Look.y, 5.0 * Durin::Sandbox::GameplayTuning::MouseIntentPerPixel);
 }
 
+TEST(FSandboxGameplayInputTests, ReboundMovementAndInteractUseActions)
+{
+	using namespace Durin;
+	Testing::InitializeDObjectSystemForTests();
+	ResolveSandboxGameMode();
+	Sandbox::ADefaultPlayerController Controller(FObjectInitializer::Get());
+	FGameInputState Input;
+	FGameInputStateTestAccess::EnableAndFocus(Input);
+	std::string Error;
+	ASSERT_TRUE(Controller.GetInputActions().Rebind("Sandbox.Gameplay", "MoveForward", FInputSource::Key(EKey::Up), Error));
+	FGameInputStateTestAccess::SetKey(Input, EKey::W, true);
+	EXPECT_EQ(Sandbox::FDefaultPlayerControllerTestAccess::Build(Controller, Input).Move, FVector2d(0.0));
+	FGameInputStateTestAccess::FinishTick(Input);
+	FGameInputStateTestAccess::SetKey(Input, EKey::Up, true);
+	FGameInputStateTestAccess::SetKey(Input, EKey::E, true);
+	EXPECT_EQ(Sandbox::FDefaultPlayerControllerTestAccess::Build(Controller, Input).Move, FVector2d(0.0, 1.0));
+	EXPECT_TRUE(Controller.GetInputActions().GetSnapshot().Get("Interact").bStarted);
+	EXPECT_FALSE(Controller.RebindControl("Jump", FInputSource::Key(EKey::Escape), Error));
+	EXPECT_FALSE(Error.empty());
+}
+
 TEST(FSandboxGameplayInputTests, SuppressesOnlyMinorAxisMouseCrosstalk)
 {
 	Durin::Testing::InitializeDObjectSystemForTests();
 	ResolveSandboxGameMode();
-	Durin::Sandbox::ADefaultPlayerController Controller(Durin::FObjectInitializer::Get());
-	auto BuildLook = [&Controller](const Durin::FVector2d& Delta) {
+	auto BuildLook = [](const Durin::FVector2d& Delta) {
+		Durin::Sandbox::ADefaultPlayerController Controller(Durin::FObjectInitializer::Get());
 		Durin::FGameInputState Input;
 		Durin::FGameInputStateTestAccess::EnableAndFocus(Input);
 		Durin::FGameInputStateTestAccess::SetMousePosition(Input, {0.0, 0.0});

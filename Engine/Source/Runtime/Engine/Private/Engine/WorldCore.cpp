@@ -254,6 +254,8 @@ namespace Durin
 
 	auto DWorld::ClearPendingGameplayIntent() -> void
 	{
+		if (GameplaySession && GameplaySession->LocalPlayerController)
+			GameplaySession->LocalPlayerController->CancelPlayerInput();
 		if (GameplaySession && GameplaySession->DefaultPawn)
 			GameplaySession->DefaultPawn->ClearPendingControlIntent();
 	}

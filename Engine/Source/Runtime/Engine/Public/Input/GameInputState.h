@@ -8,6 +8,13 @@ namespace Durin
 {
 	struct FGameInputStateTestAccess;
 
+	// Ordered digital transitions preserve taps and overlapping action bindings.
+	struct FGameInputTransition
+	{
+		uint16 Source = 0; // Keys 0..255; mouse buttons 256..258.
+		bool bDown = false;
+	};
+
 	// Accumulates enabled-window input and exposes current plus one-tick transition state.
 	class FGameInputState
 	{
@@ -23,15 +30,20 @@ namespace Durin
 		auto GetMouseWheelDelta() const -> double { return MouseWheelDelta; }
 		auto IsEnabled() const -> bool { return bEnabled; }
 		auto IsFocused() const -> bool { return bFocused; }
+		auto GetTransitions() const -> const std::vector<FGameInputTransition>& { return Transitions; }
+		auto GetFrameNumber() const -> uint64 { return FrameNumber; }
+		auto GetResetNumber() const -> uint64 { return ResetNumber; }
+		auto IsKeyboardBlocked() const -> bool { return bKeyboardBlocked; }
+		auto IsMouseBlocked() const -> bool { return bMouseBlocked; }
 
 	private:
 		static auto ToKeyIndex(EKey Key) -> size_t { return std::min(static_cast<size_t>(Key), KeyCapacity - 1); }
 		ENGINE_API auto SetEnabled(bool bInEnabled) -> void;
 		ENGINE_API auto SetFocused(bool bInFocused) -> void;
-		ENGINE_API auto SetKey(EKey Key, bool bDown) -> void;
-		auto SetMouseButton(EMouseButton Button, bool bDown) -> void;
+		ENGINE_API auto SetKey(EKey Key, bool bDown, bool bRepeat = false) -> void;
+		ENGINE_API auto SetMouseButton(EMouseButton Button, bool bDown) -> void;
 		ENGINE_API auto SetMousePosition(FVector2d Position) -> void;
-		auto AddMouseWheel(double Delta) -> void;
+		ENGINE_API auto AddMouseWheel(double Delta) -> void;
 		ENGINE_API auto FinishGameTick() -> void;
 		ENGINE_API auto ResetMouseTracking() -> void;
 		auto Reset() -> void;
@@ -49,6 +61,11 @@ namespace Durin
 		bool bHasMousePosition = false;
 		bool bEnabled = false;
 		bool bFocused = false;
+		bool bKeyboardBlocked = false;
+		bool bMouseBlocked = false;
+		uint64 FrameNumber = 1;
+		uint64 ResetNumber = 0;
+		std::vector<FGameInputTransition> Transitions;
 
 		friend class DEngine;
 		friend class FEngineInputEventHandler;
