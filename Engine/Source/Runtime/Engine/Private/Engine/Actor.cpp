@@ -5,6 +5,7 @@
 #include "Components/SceneComponent.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Engine/Level.h"
+#include "Engine/World.h"
 
 namespace Durin
 {
@@ -267,6 +268,13 @@ namespace Durin
 
 		PrimaryActorTick.CancelPendingTick();
 		PlayState = EActorPlayState::EndingPlay;
+		if (auto* Level = Cast<DLevel>(GetOuter()); Level && Level->GetWorld())
+		{
+			auto& Timers = Level->GetWorld()->GetTimerManager();
+			Timers.ClearAllTimersForObject(this);
+			for (const auto& Component : GetComponentsSnapshot())
+				if (Component) Timers.ClearAllTimersForObject(Component.Get());
+		}
 		EndPlay();
 		if (PlayState == EActorPlayState::EndingPlay) PlayState = EActorPlayState::NotBegun;
 

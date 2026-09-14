@@ -17,7 +17,7 @@
 namespace Durin
 {
 	DWorld::DWorld(const FObjectInitializer& ObjectInitializer)
-		: Super(ObjectInitializer), Subsystems(*this)
+		: Super(ObjectInitializer), Subsystems(*this), Timers(*this)
 	{
 	}
 
@@ -80,6 +80,7 @@ namespace Durin
 		if (GetSubsystemState() == EWorldSubsystemState::ShuttingDown || GetSubsystemState() == EWorldSubsystemState::Shutdown) return;
 		FOperationScope OperationScope(*this, EOperation::ShuttingDown);
 		EndPlayInternal();
+		Timers.Reset();
 		PendingLevelTransition.reset();
 		SetCurrentLevelInternal(nullptr, true);
 		Subsystems.Shutdown();
@@ -145,6 +146,7 @@ namespace Durin
 		if (Level && Level->IsPendingKill()) return false;
 		if (Level && Level->GetWorld() && Level->GetWorld() != this) return false;
 		if (Level && Cast<DWorld>(Level->GetOuter()) && Level->GetOuter() != this) return false;
+		Timers.Reset();
 		TStrongObjectPtr<DLevel> AttachmentGuard(Level);
 		DLevel* Previous = CurrentLevel.Get();
 		TStrongObjectPtr<DLevel> PreviousGuard(Previous);
@@ -232,6 +234,9 @@ namespace Durin
 	auto DWorld::OnActorDestroyed(AActor* Actor) -> void
 	{
 		if (!Actor) return;
+		Timers.ClearAllTimersForObject(Actor);
+		for (const auto& Component : Actor->GetComponentsSnapshot())
+			if (Component) Timers.ClearAllTimersForObject(Component.Get());
 		if (CurrentLevel)
 		{
 			const std::vector<TObjectPtr<AActor>> Actors = CurrentLevel->GetActors();

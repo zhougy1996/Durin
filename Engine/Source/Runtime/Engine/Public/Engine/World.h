@@ -4,6 +4,7 @@
 #include "DObject/ObjectPtr.h"
 #include "Engine/Level.h"
 #include "Engine/WorldSubsystem.h"
+#include "Engine/TimerManager.h"
 #include "Collision/CollisionTypes.h"
 #include "Physics/PhysicsScene.h"
 
@@ -152,6 +153,11 @@ namespace Durin
 		auto HasBegunPlay() const -> bool { return !bBeginningSubsystemPlay && (PlayState == EWorldPlayState::BeginningPlay || PlayState == EWorldPlayState::Playing); }
 		auto IsEndingPlay() const -> bool { return PlayState == EWorldPlayState::EndingPlay; }
 		auto IsPaused() const -> bool { return bPaused; }
+		// Finite nonnegative gameplay multiplier, captured once at Tick entry; zero is not pause.
+		ENGINE_API auto SetTimeScale(float InTimeScale) -> bool;
+		auto GetTimeScale() const -> float { return TimeScale; }
+		auto GetTimerManager() -> FTimerManager& { return Timers; }
+		auto GetTimerManager() const -> const FTimerManager& { return Timers; }
 		ENGINE_API auto SetPaused(bool bInPaused) -> void;
 		auto RequestSingleStep() -> void { bSingleStepRequested = true; }
 		auto IsPhysicsSimulationEnabled() const -> bool { return bPhysicsSimulationEnabled; }
@@ -224,6 +230,7 @@ namespace Durin
 		EWorldType WorldType = EWorldType::Game;
 		EWorldPlayState PlayState = EWorldPlayState::Stopped;
 		bool bPaused = false;
+		float TimeScale = 1.0f;
 		bool bSingleStepRequested = false;
 		bool bPhysicsSimulationEnabled = true;
 		std::optional<FNativeGameplaySession> GameplaySession;
@@ -231,6 +238,7 @@ namespace Durin
 		std::optional<FPendingLevelTransition> ActiveLevelTransition;
 		FPhysicsScene PhysicsScene;
 		FWorldSubsystemCollection Subsystems;
+		FTimerManager Timers;
 		// Structural mutation commits only between complete World operations.
 		enum class EOperation : uint8 { Idle, Initializing, BeginningPlay, Ticking, EndingPlay, ChangingLevel, ShuttingDown, RestartingPlayer, ChangingScene };
 		class FOperationScope;
@@ -244,6 +252,7 @@ namespace Durin
 		auto EndPlayInternal() -> void;
 		auto SetCurrentLevelInternal(DLevel* Level, bool bDestroyPreviousOwnedLevel) -> bool;
 		friend class FWorldSubsystemCollection;
+		friend class FTimerManager;
 
 
 		friend class DLevel;

@@ -175,9 +175,21 @@ namespace Durin
 		return {};
 	}
 
+	auto DWorld::SetTimeScale(float InTimeScale) -> bool
+	{
+		require(!GIsGameThreadIdInitialized || IsInGameThread());
+		if (!std::isfinite(InTimeScale) || InTimeScale < 0.0f) return false;
+		TimeScale = InTimeScale;
+		return true;
+	}
+
 	auto DWorld::Tick(const FWorldTickContext& Context) -> void
 	{
 		if (Operation != EOperation::Idle || bShutdownRequested || GetSubsystemState() != EWorldSubsystemState::Ready) return;
+		const double ScaledDelta = static_cast<double>(Context.DeltaSeconds) * TimeScale;
+		if (!std::isfinite(Context.DeltaSeconds) || Context.DeltaSeconds < 0.0f
+			|| ScaledDelta > std::numeric_limits<float>::max()) return;
+		const float GameplayDelta = static_cast<float>(ScaledDelta);
 		ProcessPendingLevelTransition();
 		if (!CanDispatchSubsystems()) return;
 		FOperationScope OperationScope(*this, EOperation::Ticking);
@@ -189,6 +201,7 @@ namespace Durin
 			ClearPendingGameplayIntent();
 			bGameplay = false;
 		}
+		if (bGameplay) Timers.StartFrame(GameplayDelta);
 		if (bGameplay && GameplaySession && GameplaySession->LocalPlayerController && Context.GameInput)
 			GameplaySession->LocalPlayerController->PreparePlayerInput(*Context.GameInput);
 		if (!CanDispatchSubsystems() || (bGameplay && !CanContinueTicking(CapturedLevel))) return;
@@ -198,15 +211,16 @@ namespace Durin
 			FTickRegistry* Registry;
 			~FTickFrameScope() { if (Registry) Registry->EndFrame(); }
 		};
-		if (bGameplay) CapturedLevel->TickRegistry.StartFrame(Context.DeltaSeconds);
+		if (bGameplay) CapturedLevel->TickRegistry.StartFrame(GameplayDelta);
 		const FTickFrameScope FrameScope{bGameplay ? &CapturedLevel->TickRegistry : nullptr};
 		for (const ETickingGroup Group : {ETickingGroup::PrePhysics, ETickingGroup::Physics, ETickingGroup::PostPhysics})
 		{
 			if (!CanDispatchSubsystems() || (bGameplay && !CanContinueTicking(CapturedLevel))) break;
-			Subsystems.Tick(Group, Context.DeltaSeconds, bGameplay);
+			Subsystems.Tick(Group, bGameplay ? GameplayDelta : Context.DeltaSeconds, bGameplay);
 			if (!CanDispatchSubsystems()) break;
 			if (bGameplay && (!CanContinueTicking(CapturedLevel) || !CapturedLevel->TickRegistry.RunTickGroup(Group))) break;
 		}
+		if (bGameplay && CanContinueTicking(CapturedLevel)) Timers.Dispatch();
 		if (CanDispatchSubsystems() && RenderScene) RenderScene->UpdateSkyLighting();
 	}
 
@@ -233,6 +247,7 @@ namespace Durin
 		std::vector<TObjectPtr<AActor>> Actors;
 		if (CapturedLevel) Actors = CapturedLevel->GetActors();
 		PlayState = EWorldPlayState::EndingPlay;
+		Timers.Reset();
 		bSingleStepRequested = false;
 		ClearPendingGameplayIntent();
 		for (auto It = Actors.rbegin(); It != Actors.rend(); ++It)

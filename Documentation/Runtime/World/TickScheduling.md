@@ -42,6 +42,7 @@ input preparation
     -> PrePhysics
     -> Physics
     -> PostPhysics
+    -> World timer callbacks
     -> return from DWorld::Tick
 ```
 
@@ -53,6 +54,10 @@ Actor/Component registry.
 
 A group is a serial completion barrier, not a worker thread. Every admitted
 Tick in one group completes before the next group begins.
+
+[World timers](WorldTimers.md) dispatch after the complete PostPhysics group,
+within the same World operation. Gameplay groups and timers consume the same
+World time-scale snapshot; zero scale admits a frame with zero gameplay delta.
 
 - `PrePhysics` produces gameplay intent and transforms consumed by physics.
 - `Physics` performs synchronous physics-component integration.

@@ -3,6 +3,7 @@
 #include "DObject/ObjectLifecycle.h"
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
+#include "Engine/World.h"
 #include "Components/SceneComponent.h"
 
 namespace Durin
@@ -168,6 +169,8 @@ namespace Durin
 
 		PrimaryComponentTick.CancelPendingTick();
 		PlayState = EComponentPlayState::EndingPlay;
+		if (auto* Level = GetOwner() ? Cast<DLevel>(GetOwner()->GetOuter()) : nullptr; Level && Level->GetWorld())
+			Level->GetWorld()->GetTimerManager().ClearAllTimersForObject(this);
 		EndPlay();
 		if (PlayState == EComponentPlayState::EndingPlay) PlayState = EComponentPlayState::NotBegun;
 

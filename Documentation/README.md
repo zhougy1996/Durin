@@ -37,6 +37,7 @@ as the task requires; do not read unrelated topics or scan an entire directory.
 | Window decoration modes, custom title bars, or native hit testing | [Window frames](Runtime/Core/WindowFrames.md) |
 | Image decoding, Radiance HDR, or grayscale16 PNG | [Core image codec](Runtime/Core/ImageCodec.md) |
 | Actor or Component Tick registration, groups, ordering, or mutation | [Tick scheduling](Runtime/World/TickScheduling.md) |
+| Gameplay delay, looping callbacks, next-frame scheduling, or World time scale | [World timers](Runtime/World/WorldTimers.md) |
 | Common subsystem lifecycle, Engine services, or scope selection | [Subsystems](Runtime/Core/Subsystems.md) |
 | Editor subsystem services or notification lifetime | [Editor subsystems](Editor/Architecture/EditorSubsystems.md) |
 | World subsystem registration, per-World services, or subsystem retirement | [World subsystems](Runtime/World/WorldSubsystems.md) |

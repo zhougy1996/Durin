@@ -4,6 +4,7 @@ set(_durin_world_test_sources
 	Private/World/WorldSubsystemTests.cpp
 	Private/World/WorldLifecycleMutationTests.cpp
 	Private/World/WorldTickSchedulingTests.cpp
+	Private/World/WorldTimerTests.cpp
 	Private/World/WorldActorIteratorTests.cpp
 	Private/World/WorldActorTests.cpp
 	Private/World/WorldComponentTests.cpp
