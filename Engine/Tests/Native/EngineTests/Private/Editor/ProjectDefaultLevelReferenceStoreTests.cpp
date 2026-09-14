@@ -255,7 +255,8 @@ TEST(FProjectDefaultLevelReferenceStoreTests, RejectsPackageWithoutTopLevelLevel
 	Durin::DWorld* World = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(WorldPath, World));
 	ASSERT_NE(World, nullptr);
-	ASSERT_TRUE(Durin::SavePackage(World->GetPackage()));
+	EXPECT_FALSE(Durin::SavePackage(World->GetPackage()));
+	ASSERT_TRUE(Durin::SavePackage(World->GetPackage(), Durin::EAssetPackageSaveMode::Complete));
 
 	Durin::FObjectPath LevelPath;
 	const Durin::FAssetResult Result =

@@ -706,7 +706,7 @@ TEST(FMaterialProgramPackageTests,
 	ASSERT_TRUE(Durin::UnloadPackage(Path));
 	// A well-formed package envelope must not publish a graph with dangling links.
 	Durin::ObjectPackage::FLinkerTables Linker;
-	ASSERT_TRUE(Durin::ObjectPackage::ReadPackageV9(FirstSerialization, {}, Path, Linker));
+	ASSERT_TRUE(Durin::ObjectPackage::ReadPackage(FirstSerialization, {}, Path, Linker));
 	bool bRemovedNodes = false;
 	for (auto& Export : Linker.Exports)
 		for (auto& Property : Export.Properties)
@@ -719,7 +719,7 @@ TEST(FMaterialProgramPackageTests,
 			}
 	ASSERT_TRUE(bRemovedNodes);
 	Durin::FByteBuffer MalformedBytes, Bulk;
-	ASSERT_TRUE(Durin::ObjectPackage::WritePackageV9(Linker, MalformedBytes, Bulk));
+	ASSERT_TRUE(Durin::ObjectPackage::WritePackage(Linker, MalformedBytes, Bulk));
 	ASSERT_TRUE(Bulk.empty());
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(MalformedBytes, Root / "Base.dasset"));
 	Reloaded = nullptr;

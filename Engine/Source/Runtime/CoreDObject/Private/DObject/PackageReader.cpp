@@ -723,8 +723,12 @@ namespace Durin::ObjectPackage
 			for (uint64 ExportIndex = 0; ExportIndex < ExportCount; ++ExportIndex)
 			{
 				uint64 ExportId = 0, PropertyCount = 0;
-				if (!Reader.ReadVarUInt(ExportId) || ExportId != ExportIndex + 1
-					|| !Reader.ReadVarUInt(PropertyCount) || PropertyCount > Limits.MaximumTableEntries) return false;
+				if (!Reader.ReadVarUInt(ExportId) || ExportId != ExportIndex + 1) return false;
+				uint8 Baseline = 0;
+				if (Layout.FormatVersion >= DastV10FormatVersion
+					&& (!Reader.ReadU8(Baseline) || Baseline > 1)) return false;
+				Exports[ExportIndex].bUseClassDefaults = Baseline != 0;
+				if (!Reader.ReadVarUInt(PropertyCount) || PropertyCount > Limits.MaximumTableEntries) return false;
 				for (uint64 PropertyIndex = 0; PropertyIndex < PropertyCount; ++PropertyIndex)
 				{
 					uint64 SchemaId = 0, FieldId = 0, TypeId = 0;

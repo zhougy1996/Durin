@@ -164,6 +164,9 @@ namespace Durin
 		FByteBuffer& OutBytes,
 		FByteBuffer& OutBulkBytes
 	) -> FAssetResult;
+	// Complete snapshots retain every selected value; Delta follows paired defaults.
+	enum class EAssetPackageSaveMode : uint8 { Delta, Complete };
+
 	struct FAssetPackageSerializationOptions
 	{
 		EAssetPackageSaveDomain Domain = EAssetPackageSaveDomain::Authored;
@@ -173,6 +176,7 @@ namespace Durin
 		std::shared_ptr<const FObjectSaveOverrides> SaveOverrides;
 		std::function<bool(const DObject*, const FProperty*)> PropertyFilter;
 		std::vector<FEditorBulkDataStoragePayload>* EditorBulkDataStoragePayloads = nullptr;
+		EAssetPackageSaveMode Mode = EAssetPackageSaveMode::Delta;
 	};
 
 	enum class EAssetBundleSavePhase : uint8
@@ -194,6 +198,7 @@ namespace Durin
 		bool bRollbackOnRegistryFailure = false;
 		// Admits only private packages owned by this prepared publication operation.
 		const FObjectGraphReplacement* PreparedPublication = nullptr;
+		EAssetPackageSaveMode Mode = EAssetPackageSaveMode::Delta;
 	};
 
 	ENGINE_API auto SerializeAssetPackageBytes(
@@ -211,7 +216,7 @@ namespace Durin
 		std::span<DPackage* const> Packages,
 		const FAssetBundleSaveOptions& Options = {}
 	) -> FAssetResult;
-	ENGINE_API auto SavePackage(DPackage* Package) -> FAssetResult;
+	ENGINE_API auto SavePackage(DPackage* Package, EAssetPackageSaveMode Mode = EAssetPackageSaveMode::Delta) -> FAssetResult;
 	ENGINE_API auto AdmitAssetPackageToCatalog(
 		const FPackagePath& Path
 	) -> FAssetResult;

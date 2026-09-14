@@ -97,7 +97,7 @@ namespace Durin
 			-> FMaterialLocalRenderLayer override;
 
 	private:
-		DPROPERTY()
+		DPROPERTY(AlwaysSerialize)
 		uint32 GraphOwnershipVersion = 1;
 
 		auto AdvanceAuthoredRevision() -> void;

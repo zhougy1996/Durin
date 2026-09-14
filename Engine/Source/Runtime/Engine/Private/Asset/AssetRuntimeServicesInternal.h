@@ -104,7 +104,7 @@ namespace Durin
 		{
 		}
 
-		auto SavePackage(DPackage* Package) -> FAssetResult;
+		auto SavePackage(DPackage* Package, EAssetPackageSaveMode Mode) -> FAssetResult;
 		auto SavePackagesAtomically(
 			std::span<DPackage* const> Packages,
 			const FAssetBundleSaveOptions& Options) -> FAssetResult;

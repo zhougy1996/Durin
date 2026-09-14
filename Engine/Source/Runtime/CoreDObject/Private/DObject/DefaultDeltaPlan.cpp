@@ -790,6 +790,16 @@ namespace Durin
 			return Result;
 		}
 
+		auto ContainsRequiredField(const FDefaultDeltaNode& Node) -> bool
+		{
+			for (const auto& Field : Node.Fields)
+				if (EnumHasAnyFlags(Field.Descriptor.PropertyFlags, EPropertyFlags::AlwaysSerialize)
+					|| (Field.Value && ContainsRequiredField(*Field.Value))) return true;
+			for (const auto& Element : Node.Elements)
+				if (Element && ContainsRequiredField(*Element)) return true;
+			return false;
+		}
+
 		auto BuildPlannedValue(const FDefaultDeltaNode& Live, FPlannerContext& Context,
 			uint32 Depth, const FDefaultDeltaNode* Default, const FAuthoredOverridePath& Path)
 			-> std::shared_ptr<FDefaultDeltaNode>
@@ -841,10 +851,12 @@ namespace Durin
 					ChildPath.push_back(FAuthoredOverridePathToken::Field(
 						Field.Descriptor.DeclaringType, Field.Descriptor.Name));
 					const auto Intent = FindAuthoredIntent(Context.LedgerEntries, ChildPath);
-					Field.Baseline = Default
+					const auto* FieldDefault = Default && !EnumHasAnyFlags(Field.Descriptor.PropertyFlags, EPropertyFlags::AlwaysSerialize)
+						? Default->Fields[Index].Value.get() : nullptr;
+					Field.Baseline = FieldDefault
 						? EDefaultDeltaBaselineKind::ClassDefault : EDefaultDeltaBaselineKind::None;
-					Field.Identity = Default
-						? CompareNodes(*Live.Fields[Index].Value, *Default->Fields[Index].Value, Context, Depth + 1)
+					Field.Identity = FieldDefault
+						? CompareNodes(*Live.Fields[Index].Value, *FieldDefault, Context, Depth + 1)
 						: EPropertyIdentityResult::Different;
 					if (Field.Identity == EPropertyIdentityResult::Unsupported)
 					{
@@ -852,13 +864,14 @@ namespace Durin
 						return nullptr;
 					}
 					Field.Disposition = Field.Identity == EPropertyIdentityResult::Identical && !Intent
+						&& !ContainsRequiredField(*Live.Fields[Index].Value)
 						? EDefaultDeltaDisposition::Omitted : EDefaultDeltaDisposition::Emitted;
 					Field.Provenance = Intent ? *Intent
 						: (Field.Disposition == EDefaultDeltaDisposition::Emitted
 							? EDefaultDeltaProvenance::Explicit : EDefaultDeltaProvenance::None);
 					Field.Value = Field.Disposition == EDefaultDeltaDisposition::Emitted
 						? BuildPlannedValue(*Live.Fields[Index].Value, Context, Depth + 1,
-							Default ? Default->Fields[Index].Value.get() : nullptr, ChildPath)
+							FieldDefault, ChildPath)
 						: nullptr;
 					if (Field.Disposition == EDefaultDeltaDisposition::Emitted && !Field.Value) return nullptr;
 					++Context.Plan.FieldCount;
@@ -939,8 +952,15 @@ namespace Durin
 				const FAuthoredOverridePath Path{FAuthoredOverridePathToken::Field(
 					Field.Descriptor.DeclaringType, Field.Descriptor.Name)};
 				const auto Intent = FindAuthoredIntent(Context.LedgerEntries, Path);
-				Field.Baseline = EDefaultDeltaBaselineKind::ClassDefault;
-				Field.Identity = CompareNodes(*LiveValues[Index].Value, *DefaultValues[Index].Value, Context, 1);
+				const FProperty* Property = Live->GetClass()->FindPropertyByName(Field.Descriptor.Name);
+				const auto* DeclaringClass = Property ? Cast<DClass>(Property->Owner.ToDObject()) : nullptr;
+				const bool bReflectedBaseline = DeclaringClass
+					&& DeclaringClass->GetQualifiedName() == Field.Descriptor.DeclaringType
+					&& !Property->HasAnyPropertyFlags(EPropertyFlags::AlwaysSerialize);
+				Field.Baseline = bReflectedBaseline ? EDefaultDeltaBaselineKind::ClassDefault : EDefaultDeltaBaselineKind::None;
+				Field.Identity = bReflectedBaseline
+					? CompareNodes(*LiveValues[Index].Value, *DefaultValues[Index].Value, Context, 1)
+					: EPropertyIdentityResult::Different;
 				if (Field.Identity == EPropertyIdentityResult::Unsupported)
 				{
 					Diagnostic.Reason = EDefaultDeltaFailureReason::UnsupportedIdentity;
@@ -948,12 +968,13 @@ namespace Durin
 					return false;
 				}
 				Field.Disposition = Field.Identity == EPropertyIdentityResult::Identical && !Intent
+					&& !ContainsRequiredField(*LiveValues[Index].Value)
 					? EDefaultDeltaDisposition::Omitted : EDefaultDeltaDisposition::Emitted;
 				Field.Provenance = Intent ? *Intent
 					: (Field.Disposition == EDefaultDeltaDisposition::Emitted
 						? EDefaultDeltaProvenance::Explicit : EDefaultDeltaProvenance::None);
 				Field.Value = Field.Disposition == EDefaultDeltaDisposition::Emitted
-					? BuildPlannedValue(*LiveValues[Index].Value, Context, 1, DefaultValues[Index].Value.get(), Path) : nullptr;
+					? BuildPlannedValue(*LiveValues[Index].Value, Context, 1, bReflectedBaseline ? DefaultValues[Index].Value.get() : nullptr, Path) : nullptr;
 				if (Field.Disposition == EDefaultDeltaDisposition::Emitted && !Field.Value) return false;
 				++Plan.FieldCount;
 				if (Field.Disposition == EDefaultDeltaDisposition::Emitted) ++Plan.EmittedFieldCount;
@@ -1117,6 +1138,13 @@ namespace Durin
 			const DObject* DefaultObject = Root->GetClass()->GetDefaultObject();
 			if (!DefaultObject)
 			{
+				// The intrinsic DObject identity node has no authored values or baseline.
+				if (Root->GetClass() == DObject::StaticClass())
+				{
+					OutPlan.Objects.push_back({.Object = Root});
+					PlannedObjects.insert(Root);
+					continue;
+				}
 				Diagnostic.Reason = EDefaultDeltaFailureReason::MissingClassDefault;
 				Diagnostic.LogicalPath = Root->GetClass()->GetQualifiedName().ToString();
 				return Fail();

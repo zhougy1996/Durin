@@ -369,10 +369,10 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 	ASSERT_TRUE(FPackagePath::TryCreate("/TextureImportTests/ImportedVolume", BaseAssetPath));
 	ASSERT_TRUE(FPackagePath::TryCreate("/TextureImportTests/ImportedDetailVolume", DetailAssetPath));
 	ASSERT_EQ(FindAssetExact(BaseAssetPath)->FormatVersion,
-		ObjectPackage::DastV9FormatVersion);
+		ObjectPackage::DastV10FormatVersion);
 	const FAssetCatalogEntry InlineEntry = FindAssetExact(DetailAssetPath);
 	ASSERT_TRUE(InlineEntry);
-	ASSERT_EQ(InlineEntry->FormatVersion, ObjectPackage::DastV9FormatVersion);
+	ASSERT_EQ(InlineEntry->FormatVersion, ObjectPackage::DastV10FormatVersion);
 	FAssetPackageInspection InlineInspection;
 	ASSERT_TRUE(InspectAssetPackage(InlineEntry->PhysicalPath, InlineInspection));
 	std::vector<FEditorBulkDataStorageDescriptor> InlineDescriptors;
@@ -449,7 +449,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 	ASSERT_TRUE(FPackagePath::TryCreate("/TextureImportTests/ProductionVolume", AssetPath));
 	const FAssetCatalogEntry PackageEntry = FindAssetExact(AssetPath);
 	ASSERT_TRUE(PackageEntry);
-	ASSERT_EQ(PackageEntry->FormatVersion, ObjectPackage::DastV9FormatVersion);
+	ASSERT_EQ(PackageEntry->FormatVersion, ObjectPackage::DastV10FormatVersion);
 	FAssetPackageInspection V6Inspection;
 	ASSERT_TRUE(InspectAssetPackage(PackageEntry->PhysicalPath, V6Inspection));
 	std::vector<FEditorBulkDataStorageDescriptor> V6Descriptors;
@@ -507,7 +507,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 	EXPECT_EQ(Reloaded->GetSource().GetBulkData().GetPayloadId(), SourceContentId);
 	ASSERT_TRUE(SavePackage(Reloaded->GetPackage()));
 	ASSERT_EQ(FindAssetExact(AssetPath)->FormatVersion,
-		ObjectPackage::DastV9FormatVersion);
+		ObjectPackage::DastV10FormatVersion);
 	EXPECT_TRUE(std::filesystem::is_regular_file(SourceStoragePath));
 
 	const std::filesystem::path RollbackCookRoot = std::filesystem::absolute(

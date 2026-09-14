@@ -174,6 +174,7 @@ namespace Durin::ObjectPackage
 		std::string ClassName;
 		FPackageIndex Outer;
 		std::vector<FPropertyTag> Properties;
+		bool bUseClassDefaults = false;
 
 		auto operator==(const FPackageExport&) const -> bool = default;
 	};

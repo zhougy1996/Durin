@@ -334,7 +334,8 @@ namespace Durin
 
 	// Initializes a fresh, unpublished destination from a paired default object.
 	// The caller owns graph rollback on failure and supplies template reference remapping.
-	// Does not copy override intent or call PostLoad.
+	// Copies reflected values only; native fields must be emitted completely.
+	// Does not copy override intent or call Serialize/PostLoad.
 	COREDOBJECT_API auto InitializeObjectFromDefaults(const DObject* Defaults, DObject* Destination,
 		const std::unordered_map<DObject*, DObject*>& ReferenceMap, std::string* OutError = nullptr) -> bool;
 

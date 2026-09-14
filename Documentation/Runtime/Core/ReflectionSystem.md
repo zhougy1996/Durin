@@ -4,7 +4,7 @@ Summary: Define reflected type registration, generated metadata, properties, and
 
 Modules: CoreDObject
 
-Last reviewed: 2026-09-03
+Last reviewed: 2026-09-14
 
 This document describes the reflection framework that is currently implemented in Durin. Object lifetime and collector semantics are documented separately in [Garbage Collection](GarbageCollection.md).
 
@@ -647,6 +647,12 @@ Supported property node types are:
 - `FArrayProperty`
 - `FMapProperty`
 - `FStructProperty`
+
+`DPROPERTY(AlwaysSerialize)` marks a required wire field. Default-delta planning
+emits its complete value even when equal to the paired default. This flag is
+independent of editor presentation and persistent Forced overrides; material
+ownership version markers use it to preserve required-presence validation.
+`Transient` still excludes a field from authored serialization.
 
 ### Typed authoring metadata
 

@@ -63,7 +63,7 @@ and validation replace caller outputs or destination bytes only on success.
 Core never interprets format-owned sections, asset paths, schemas, codecs, or
 publication policy.
 
-Engine consumes this envelope through canonical DAST v9 object packages. An
+Engine consumes this envelope through canonical DAST v9/v10 object packages. An
 authored or cooked `.dbulk` is deliberately not a DURF envelope: it is the raw
 external BulkData segment bound by its owning package's Registry and Bulk
 Directory. Embedded family payloads and raw DDC `.bin` values likewise do not
@@ -139,21 +139,21 @@ live reflected-property entry and construct-free decoded values use this
 writer. Token construction is transactional: an unsupported type or invalid
 shape leaves the caller's prior output unchanged.
 
-`DObject/PackageFormat.h` owns the construct-free DAST v9 save boundary.
-`FreezePackageV9(...)` validates and canonicalizes names, structural types,
+`DObject/PackageFormat.h` owns the construct-free DAST v9/v10 save boundary.
+`FreezePackage(...)` validates and canonicalizes names, structural types,
 schemas, imports, exports, property identities, references, and BulkData facts
-into stable one-based ids. `WritePackageV9(...)` emits detached main and raw
+into stable one-based ids. `WritePackage(...)` emits detached main and raw
 external-bulk buffers and replaces neither caller output on failure. Values use
 native `EValueKind` tags, Maps use the sole canonical-key writer, NaNs collapse
 to one quiet pattern while signed zero is retained, and BulkData placement is
 explicit detached input rather than live-object policy. This layer constructs
 no `DObject` and depends on neither AssetRegistry nor Engine.
 
-The same boundary owns bounded v9 reading. `ReadPackageV9Registry(...)`
+The same boundary owns bounded v9/v10 reading. `ReadPackageRegistry(...)`
 validates an exact declared front-matter span, independently known main/bulk
 extents, the caller-supplied mounted package identity, all directory facts, and
 the header-resident Registry/names/imports before atomically publishing package
-metadata. `ReadPackageV9(...)` validates complete section hashes, tables,
+metadata. `ReadPackage(...)` validates complete section hashes, tables,
 recursive native tags, package topology, references, canonical ordering, and
 inline/external BulkData ranges and digests before publishing `FLinkerTables`.
 Successful decode re-emits through the sole writer and requires byte-identical
@@ -289,22 +289,30 @@ the paired default field down recursively. Arrays, fixed arrays, and Maps
 replace their complete contents; their Struct elements do not inherit defaults
 by index or key. Forced replacements also emit complete descendant values.
 Dynamic owned roots establish their own class-default correspondence.
+`AlwaysSerialize` reflected fields bypass default omission and emit a complete
+value with ordinary provenance; required wire version sentinels use this flag.
+It does not allocate an authored-override ledger. Required descendants also
+keep their enclosing values present. Signed enum capture retains the underlying
+signedness, so negative and positive enum changes participate in delta comparison.
 
-DAST v10 retains v9 package framing and tables but precedes each Struct value
-with a baseline byte. Mode 1 patches the initialized parent value; mode 0
+DAST v10 retains v9 package framing and tables and adds an export baseline byte
+as well as a baseline byte before each Struct value. Mode 1 patches the initialized parent value; mode 0
 reconstructs a complete value from the Struct type default. Each present field
 retains its own name, type, provenance, and value, independently of the shared
 complete type descriptor. The reader validates field identities/types and
 canonical form before constructing objects. v9 remains readable with its old
 complete-descriptor constraint and type-default Struct reconstruction.
 
-v10 authored loading initializes fresh objects from the paired CDO/default
-subobject with template references remapped to loaded skeletons, then applies
-saved fields. Failure discards the unpublished graph. Cooked packages keep
+v10 authored loading copies reflected defaults for delta exports from the paired
+CDO/default subobject with references remapped to loaded skeletons, then applies
+saved fields. Native object fields are emitted completely because they lack a
+reflected default-copy contract. Failure discards the unpublished graph. Cooked packages keep
 complete values and do not require CDO initialization. This initialization
 copies values only, never authored override state or PostLoad notifications.
-The ordinary save entry still selects complete v9 emission until its delta
-policy gate is enabled.
+A Struct with derived caches must invalidate them in PostDeserialize when
+reflected fields change; FTextureSource detaches its decoded mip cache there.
+Ordinary saving selects v10 delta mode; explicit complete exports skip default
+initialization. Missing constructor-created default children reject delta saving.
 Planning is transactional: missing defaults, unavailable identity, graph or
 Archive failure, manifest drift, duplicate fields, and depth/count/path bounds
 clear the output and return a typed diagnostic.
@@ -321,7 +329,7 @@ values, malformed serializers, or limit violations still fail before output.
 Ordinary authored-package loading restores values without creating override
 state. Enabled planning compares values with defaults again, so an ordinary
 value changed back to its default can be omitted. The Engine SavePackage entry
-continues to select NoDelta and writes complete values; emission mode and
+selects v10 delta saving; explicit `EAssetPackageSaveMode::Complete` selects NoDelta; emission mode and
 persistent replacement state are independent. A saved Explicit tag is evidence of a value
 in that package, not a persistent request to keep overriding the default.
 
@@ -362,8 +370,8 @@ retain validated publication; no unchecked setter is exposed.
 
 Structs use the shared reflected save-selected field walk by default. A declared
 `FDStructOps::Serialize(FArchive&, void*)` callback replaces that complete walk
-for every Archive purpose and is invoked exactly once per value. Loading always
-decodes into default-constructed managed storage. After the complete field walk
+for every Archive purpose and is invoked exactly once per value. Loading decodes into managed storage initialized from type defaults, or copied
+from the existing parent baseline when a v10 Struct explicitly requests it. After the complete field walk
 or custom serializer succeeds, an optional `PostDeserialize` callback receives
 the Archive purpose and source format version. Only successful repair is
 copy-assigned into the live destination, so truncation, missing capabilities,

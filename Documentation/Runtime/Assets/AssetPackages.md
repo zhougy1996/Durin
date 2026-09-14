@@ -1,10 +1,10 @@
 # Asset Packages
 
-Summary: Define asset identity, canonical DAST v9 packages, runtime residency, loading, and inspection.
+Summary: Define asset identity, canonical DAST v9/v10 packages, runtime residency, loading, and inspection.
 
 Modules: AssetRegistry, Engine, CoreDObject, AssetMaintenance, AssetTools
 
-Last reviewed: 2026-09-11
+Last reviewed: 2026-09-14
 
 Durin object assets are stored as versioned `.dasset` packages. A package is a
 residency and persistence container with zero or more independently addressable
@@ -32,8 +32,8 @@ removal; selection, confirmation, companions, and deletion callbacks belong to
 Ownership is deliberately one-way:
 
 - `CoreDObject` owns format-neutral linker tables, canonical tagged values,
-  production DAST v9 read/write, and bounded validation.
-- `AssetRegistry` owns canonical-v9 mounted-file discovery, bounded front-matter
+  production DAST v9/v10 read/write, and bounded validation.
+- `AssetRegistry` owns canonical mounted-file discovery, bounded front-matter
   reads, and immutable package metadata/dependency snapshots.
 - `Engine` captures live graphs into linker tables, applies validated linker
   tables to unpublished object graphs, owns residency, and provides transient
@@ -82,11 +82,11 @@ The physical package filename is the resolved virtual package path plus
 explicitly, and inner objects append a colon plus their relative Outer chain,
 for example `/Game/Objects/Test.Mesh:Root.Component`.
 
-The mounted `FPackagePath` is part of package validation. DAST v9 includes that
+The mounted `FPackagePath` is part of package validation. DAST v9/v10 includes that
 identity in its canonical name table, and every header, complete-read,
 inspection, mutation, relocation, Cook, and admission call supplies the exact
 identity expected for the physical file. Moving a package therefore requires a
-canonical v9 rewrite; a caller cannot validate the same bytes under an
+canonical rewrite preserving the source version; a caller cannot validate the same bytes under an
 arbitrary path.
 
 ## Runtime Lifetime
@@ -111,7 +111,7 @@ follows asset-level redirects, loads the owning package, and selects the exact
 object. No load API derives an asset name from a package leaf, and a catalog
 miss never guesses a filename.
 
-The internal v9 codec accepts an optional dependency load policy containing
+The internal DAST codec accepts an optional dependency load policy containing
 package resolution, exact-object resolution, and failure cleanup together.
 An incomplete policy is rejected before skeleton creation. With a policy,
 linker dependencies and serialized external object fields use its retained
@@ -167,7 +167,7 @@ object/property/container occurrences are computed transiently by Engine only
 for tools that need a concrete edit. See
 [Asset Catalog And Mutation](AssetCatalogAndMutation.md).
 
-## Canonical DAST v9 Format
+## Canonical DAST Format
 
 DAST has permanent format identity
 `3c59d1a9-6ceb-4e4c-b059-452db0a5af56`, diagnostic name
@@ -183,7 +183,7 @@ copy.
 
 ### Envelope And Sections
 
-A v9 main image contains the 64-byte DURF v1 preamble, a 32-byte DAST format
+A v9/v10 main image contains the 64-byte DURF v1 preamble, a 32-byte DAST format
 header, and nine canonical 48-byte directory entries. The required contiguous
 sections, in order, are:
 
@@ -214,7 +214,37 @@ records. Each record binds an export id to `FTopLevelAssetPath`, class, and an
 optional exact `FObjectPath` redirect destination. Shared sorted
 hard/soft/searchable package facts, export count, and exact external-bulk extent
 and digest remain package-level. No package class, redirect, or main-export id
-exists in v9.
+exists in either revision.
+
+### Defaults And Version Policy
+
+Ordinary `SavePackage(Package)` writes v10 deltas against paired class/default
+subobject values. `SavePackage(Package, EAssetPackageSaveMode::Complete)` and
+`FAssetPackageSerializationOptions::Mode` explicitly select complete snapshots.
+Bundle saving propagates the same selection; cooked saves always emit complete
+values. A failed delta plan reports its reason without silently changing modes.
+
+v10 retains the v9 tables and adds an export default-baseline byte and a Struct
+parent-baseline byte. Struct present-field tags carry names and types independently
+of the complete shared schema. An omitted ordinary nested field inherits its
+paired parent value. Arrays, fixed arrays, Maps, and Forced replacements carry
+complete contained values. Native object fields have no reflected copy contract
+and remain complete. `AlwaysSerialize` preserves required reflected wire fields,
+including material ownership version tags, without Forced intent. The intrinsic
+DObject identity node has no authored values.
+
+Before applying delta values, the loader copies reflected defaults into fresh
+unpublished objects and remaps template references to the constructed graph.
+Dynamic owned objects use their own class defaults. Missing or incompatible
+constructor-created default children reject delta saving; classes declaring
+`NoClassDefaultObject` also require explicit complete snapshots. Complete exports skip default initialization. All skeletons,
+reference binding, validation, and PostLoad still precede publication.
+
+v9 reads retain historical positional Struct/type-default behavior. Version-specific
+v9 entrypoints remain strict; general readers dispatch from validated framing.
+Detached relocation/reference rewrites preserve the decoded source revision.
+Ordinary loading allocates no authored-override ledger; only Forced boundaries
+restore persistent replacement intent. See [Serialization](../Core/Serialization.md).
 
 ### Linker Tables And Canonical Values
 
@@ -240,9 +270,9 @@ value kinds, malformed UTF-8, noncanonical order, arithmetic overflow, or a
 limit failure aborts without replacing either output. Identical logical input
 and identity produce byte-identical main/bulk output.
 
-`ReadPackageV9Registry(...)` validates only the declared front matter and
+`ReadPackageRegistry(...)` validates only the declared front matter and
 physical main/bulk extents before publishing package-level metadata.
-`ReadPackageV9(...)` validates the complete main image and exact external
+`ReadPackage(...)` validates the complete main image and exact external
 segment into a detached linker model. It checks tables, indices, topology,
 types, values, section and payload digests, range placement, complete
 consumption, and canonical re-emission before replacing its output. Neither
@@ -264,7 +294,7 @@ Engine's save boundary walks each live object's ordinary
 `DObject::Serialize(...)` Archive to discover and then capture the complete
 effective graph. It resolves defaults and authored provenance, freezes object
 and field manifests, converts every value into detached CoreDObject linker
-tables, and calls `WritePackageV9`. Encoding never dereferences the live graph.
+tables, and calls `WritePackage`. Encoding never dereferences the live graph.
 A graph, field, reference, version, or value first seen after discovery is a
 save failure.
 
@@ -275,7 +305,7 @@ replacement values without mutating live state; validation rejects foreign or
 conflicting entries and hard references to omitted objects.
 
 An ordinary save is a one-package invocation of `SavePackagesAtomically`. It
-validates the complete new v9 closure, publishes owned payloads before the main
+validates the complete new v10 closure, publishes owned payloads before the main
 image that binds them, verifies the stable closure, clears Dirty/NewlyCreated,
 then publishes a revisioned Registry delta. Failure before authored commit
 restores the prior closure and leaves the package retryably Dirty. Registry
@@ -290,7 +320,7 @@ both options inside the operation's final persistence callback: successful disk
 and Registry publication is immediately followed by the non-failing memory
 commit. Other save callers retain the ordinary policy above.
 
-Load resolves v9 policy, validates the complete main/bulk closure, and obtains
+Load resolves the source-version policy, validates the complete main/bulk closure, and obtains
 one detached `FLinkerTables`. Engine then validates registered classes and
 fields, creates all package/export skeletons and Outer links unpublished,
 resolves hard dependencies, applies detached values through the authored
@@ -408,7 +438,7 @@ registered generation.
 
 ## Construct-Free Inspection And Mutation
 
-Engine inspection consumes validated v9 linker tables and projects immutable
+Engine inspection consumes validated linker tables and projects immutable
 objects, fields, recursive values, hard/soft references, and BulkData storage
 descriptors without constructing the inspected classes. It loads no dependency,
 invokes no serializer or `PostLoad`, changes no dirty state, and never publishes
@@ -416,7 +446,7 @@ files. Texture and other asset-family inspectors add semantic interpretation
 outside this package boundary.
 
 Mutation tools use Registry package edges to select candidates, then open only
-those requiring exact inspection. Rewrites operate on detached v9 linkers, preserve
+those requiring exact inspection. Rewrites operate on detached linkers, preserve
 untouched values, rebuild Registry metadata, validate the exact output closure,
 and enter bounded artifact publication. No persistent occurrence route,
 display path, or legacy value cache exists.
@@ -440,18 +470,18 @@ the current schema. Construct-free inspection retains an informational
 incompatible. It does not instantiate objects or discard bytes on disk.
 
 The read-only `AssetMaintenance` compatibility probe freezes registered schema
-identity, invokes Runtime's construct-free v9 schema inspection, and reports
+identity, invokes Runtime's construct-free schema inspection, and reports
 canonical identity/deprecated-route evidence with stable physical offsets and
 fingerprints. It constructs no `DObject`, loads no dependency, invokes no
 callback, and writes no authored file. The Editor compatibility window and
 `DevTool asset check` consume the same deterministic records.
 
-Canonical resave is current-format v9 maintenance, not reimport or format
-conversion. Planning captures exact package identity, main/bulk fingerprint,
+Canonical resave writes current-format v10 through ordinary saving; supported
+v9 inputs remain readable and are upgraded without reimport. Planning captures exact package identity, main/bulk fingerprint,
 format, entry kind, residency, Dirty conflicts, compatibility, and evidence.
-Apply revalidates the fingerprint, loads through the ordinary v9 reader when
+Apply revalidates the fingerprint, loads through the ordinary version-dispatched reader when
 required, waits for family-owned save-readiness recovery, and publishes through
-`SavePackagesAtomically`. Verification rereads the exact v9 closure and
+`SavePackagesAtomically`. Verification rereads the exact v10 closure and
 requires compatible current-format output with no remaining selected evidence;
 failure restores the prior closure and Registry state. Project batches stop at
 cancellation but do not claim project-wide atomicity.

@@ -894,6 +894,7 @@ namespace Durin::AssetPrivate::DastV9
 			return WriteLinker(std::move(Linker), OutClosure);
 		}
 
+		template<uint32 FormatVersion>
 		auto WriteRedirector(const FPackagePath& Source,
 			std::span<const FAssetRedirectorWriteMapping> Mappings,
 			FAssetPackageEncodedClosure& OutClosure) -> FAssetResult
@@ -907,6 +908,7 @@ namespace Durin::AssetPrivate::DastV9
 				.Kind = ObjectPackage::EValueKind::HardReference,
 				.QualifiedName = "Durin::DObject"};
 			ObjectPackage::FLinkerTables Linker;
+			Linker.FormatVersion = FormatVersion;
 			Linker.Summary.PackagePath = Source;
 			Linker.Types.push_back(ReferenceType);
 			Linker.Schemas.push_back({std::string(RedirectorClass),
@@ -964,7 +966,7 @@ namespace Durin::AssetPrivate::DastV9
 			.Write = &Write<ObjectPackage::DastV9FormatVersion>,
 			.RewriteReferences = &RewriteReferences,
 			.Relocate = &Relocate,
-			.WriteRedirector = &WriteRedirector};
+			.WriteRedirector = &WriteRedirector<ObjectPackage::DastV9FormatVersion>};
 		return Codec;
 	}
 
@@ -975,6 +977,7 @@ namespace Durin::AssetPrivate::DastV9
 			Result.CodecId = "dast-v10";
 			Result.FormatVersion = ObjectPackage::DastV10FormatVersion;
 			Result.Write = &Write<ObjectPackage::DastV10FormatVersion>;
+			Result.WriteRedirector = &WriteRedirector<ObjectPackage::DastV10FormatVersion>;
 			return Result;
 		}();
 		return Codec;

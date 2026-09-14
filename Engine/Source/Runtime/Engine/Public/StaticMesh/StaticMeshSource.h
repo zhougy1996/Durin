@@ -51,7 +51,7 @@ namespace Durin
 		DPROPERTY()
 		uint32 MeshCount = 0;
 
-		DPROPERTY()
+		DPROPERTY(AlwaysSerialize)
 		uint32 SchemaVersion = StaticMeshSourceSchemaVersion;
 
 		mutable std::mutex ResidencyMutex;

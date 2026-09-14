@@ -4,18 +4,27 @@ Summary: Propagate explicit default baselines through reflected values and intro
 
 Last reviewed: 2026-09-14
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-09-14
 
 ## Current Status
 
-Stage 0 is complete. Stage 1 implements paired default propagation, a v10
-Struct baseline byte, independently tagged present fields, and initialization
-of fresh loaded objects from paired defaults. Focused validation passed 87
-CoreObjectTests and 152 AssetPackageTests. Shared-API all build passed (57.74 seconds), covering Engine, Sandbox, and
-RoadWeaver. Stage 2 remains active; ordinary saving still uses v9 NoDelta. The preceding sparse authored
-replacement change remains the foundation; ordinary loaded fields must never
-recreate an override ledger.
+All stages are complete. Ordinary saves now use v10 default-relative deltas,
+with an explicit complete-save option and historical v9 read compatibility.
+Final validation passed all 87 selected native-test targets (231.36 seconds),
+including asset, object, material, texture, static-mesh, cook, and Vulkan coverage.
+The shared-API all build covering Engine, Sandbox, and RoadWeaver passed
+(19.45 seconds). Changed-document and all-plan validation passed.
+Validation logs are `20260914-140756-243929-31560-ctest.log` and
+`20260914-140339-945430-19144-cmake.log` under `Build/.agent-state/logs/`.
+The 65-node material test passed two save/unload/load/duplicate rounds with no
+allocated authored-override ledger. Its complete v10 package was 50,307 bytes
+and delta package 49,365 bytes (942 bytes / 1.87% smaller). Debug load timings
+were 1,392.88 and 1,408.07 ms. These are bounded diagnostic observations, not
+an allocation profile or UI/GPU performance claim. The DHT flag addition expanded
+affected selection to all regular native-test targets; characterization and
+qualification suites are outside this validation selection.
+Ordinary loaded fields never recreate an override ledger.
 
 ## Goal
 
@@ -67,7 +76,8 @@ count, and its runtime Archive initializes emitted Structs from type defaults.
 Reinterpreting v9 silently would change historical asset semantics. A new
 format revision must distinguish parent-baseline reconstruction and independent
 field presence; reuse the existing package tables and framing where possible.
-The selected revision is v10: a Struct baseline byte precedes its existing
+The selected revision is v10: each export records whether it uses class defaults,
+and a Struct baseline byte precedes its existing
 field-count/tag stream. Present fields carry explicit types independently of
 the full shared descriptor. The detached linker retains this field-type vector;
 v9 retains positional fields and type-default reconstruction. General readers
@@ -78,7 +88,17 @@ versions rather than duplicating it.
 
 Ordinary package saving may switch to delta only after dynamic owned objects,
 missing template counterparts, and reference remapping are covered. Complete
-save mode remains explicit. Never silently fall back from a failed delta plan
+save mode remains explicit and bypasses default initialization on load. Reflected
+defaults are copied through value operations and references are remapped through
+the paired graph. Native object fields remain complete because they do not expose
+a reflected default-copy contract. Required reflected wire sentinels use
+`AlwaysSerialize`: their presence must survive default equality, without creating
+a Forced override. Material ownership version checks require this flag; retaining
+reflection also retains known-field validation and historical reads. Cube source
+layout and static-mesh source schema version are also required by construct-free
+metadata inspection. Signed enum Archive primitives retain their underlying
+signedness so delta comparison cannot mistake differing values for equal ones. Texture source
+PostDeserialize discards copied decoded caches before publishing patched values. Never silently fall back from a failed delta plan
 to complete save; report a diagnosed unsupported case.
 
 ## Implementation Stages
@@ -112,14 +132,14 @@ against its paired defaults, with transactional failure and no ordinary ledger.
 Depends on Stage 1. Dynamic-root graph traversal was implemented with Stage 1
 because save/load baseline correspondence must agree before the writer switch.
 
-- [ ] Cover dynamic owned objects and their defaults without losing exports.
-- [ ] Verify default subobject references and newly created object references.
-- [ ] Switch ordinary SavePackage to the new delta policy, retaining an explicit
+- [x] Cover dynamic owned objects and their defaults without losing exports.
+- [x] Verify default subobject references and newly created object references.
+- [x] Switch ordinary SavePackage to the new delta policy, retaining an explicit
   complete-save option and cooked policy.
-- [ ] Verify old asset resave, unload/reload, duplication, default reset, and a
+- [x] Verify old asset resave, unload/reload, duplication, default reset, and a
   65-node material; record file size and bounded load/allocation measurements.
-- [ ] Update the owning serialization and asset-package documentation.
-- [ ] Complete focused tests, affected tests, the shared-API all build, and
+- [x] Update the owning serialization and asset-package documentation.
+- [x] Complete focused tests, affected tests, the shared-API all build, and
   documentation validators.
 
 Acceptance: the default save path passes asset/object lifecycle coverage and

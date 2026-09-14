@@ -317,15 +317,22 @@ namespace Durin
 			case DurinCodeGen::EPropertyGenFlags::Float: Ar << *static_cast<float*>(Property->GetValuePtr(Container, ArrayIndex)); break;
 			case DurinCodeGen::EPropertyGenFlags::Double: Ar << *static_cast<double*>(Property->GetValuePtr(Container, ArrayIndex)); break;
 			case DurinCodeGen::EPropertyGenFlags::Enum:
-				switch (Property->GetElementSize())
+			{
+				using U = DurinCodeGen::EEnumUnderlyingType;
+				switch (static_cast<FEnumProperty*>(Property)->GetUnderlyingType())
 				{
-				case 1: Ar << *static_cast<uint8*>(Property->GetValuePtr(Container, ArrayIndex)); break;
-				case 2: Ar << *static_cast<uint16*>(Property->GetValuePtr(Container, ArrayIndex)); break;
-				case 4: Ar << *static_cast<uint32*>(Property->GetValuePtr(Container, ArrayIndex)); break;
-				case 8: Ar << *static_cast<uint64*>(Property->GetValuePtr(Container, ArrayIndex)); break;
+				case U::Int8: Ar << *static_cast<int8*>(Property->GetValuePtr(Container, ArrayIndex)); break;
+				case U::Int16: Ar << *static_cast<int16*>(Property->GetValuePtr(Container, ArrayIndex)); break;
+				case U::Int32: Ar << *static_cast<int32*>(Property->GetValuePtr(Container, ArrayIndex)); break;
+				case U::Int64: Ar << *static_cast<int64*>(Property->GetValuePtr(Container, ArrayIndex)); break;
+				case U::UInt8: Ar << *static_cast<uint8*>(Property->GetValuePtr(Container, ArrayIndex)); break;
+				case U::UInt16: Ar << *static_cast<uint16*>(Property->GetValuePtr(Container, ArrayIndex)); break;
+				case U::UInt32: Ar << *static_cast<uint32*>(Property->GetValuePtr(Container, ArrayIndex)); break;
+				case U::UInt64: Ar << *static_cast<uint64*>(Property->GetValuePtr(Container, ArrayIndex)); break;
 				default: Ar.Fail(EArchiveFailureCode::UnsupportedType, "Enum underlying width is unsupported."); break;
 				}
 				break;
+			}
 			case DurinCodeGen::EPropertyGenFlags::String:
 			{
 				auto* StringProperty = static_cast<FStringProperty*>(Property);
@@ -2214,60 +2221,70 @@ namespace Durin
 	{
 		if (OutError) OutError->clear();
 		if (!Defaults || !Destination || Defaults->GetClass() != Destination->GetClass()) return false;
-		std::vector<DObject*> References;
-		class FDefaultWriter final : public FObjectMemoryWriter
-		{
-		public:
-			FDefaultWriter(FByteBuffer& Bytes, std::vector<DObject*>& InReferences)
-				: FObjectMemoryWriter(Bytes, EArchivePurpose::AuthoredPackage), References(InReferences)
-			{ EnableCapabilities(EArchiveCapability::ObjectReferences); }
-			auto SerializeObjectReference(DObject*& Object) -> void override
+		using FRemap = std::function<bool(FProperty*, void*, uint32)>;
+		struct FRemapContext { FRemap* Function; FProperty* Property; bool bSucceeded = true; };
+		FRemap Remap;
+		Remap = [&](FProperty* Property, void* Container, uint32 Index) -> bool {
+			switch (Property->GetKind())
 			{
-				References.push_back(Object);
-				uint64 Index = References.size() - 1;
-				*this << Index;
-			}
-		private:
-			std::vector<DObject*>& References;
-		};
-		class FDefaultReader final : public FObjectMemoryReader
-		{
-		public:
-			FDefaultReader(FByteView Bytes, const std::vector<DObject*>& InReferences,
-				const std::unordered_map<DObject*, DObject*>& InMap)
-				: FObjectMemoryReader(Bytes, EArchivePurpose::AuthoredPackage), References(InReferences), Map(InMap)
-			{ EnableCapabilities(EArchiveCapability::ObjectReferences); }
-			auto SerializeObjectReference(DObject*& Object) -> void override
+			case DurinCodeGen::EPropertyGenFlags::Object:
 			{
-				uint64 Index = 0;
-				*this << Index;
-				if (HasError() || Index >= References.size()) { SetError("Invalid default reference."); return; }
-				const auto It = Map.find(References[Index]);
-				Object = It == Map.end() ? References[Index] : It->second;
-				if (Object && Object->IsTemplateObject()) SetError("Unmapped default subobject reference.");
+				auto* ObjectProperty = static_cast<FObjectProperty*>(Property);
+				DObject* Object = ObjectProperty->GetObjectPropertyValue(Container, Index);
+				if (const auto It = ReferenceMap.find(Object); It != ReferenceMap.end()) Object = It->second;
+				if (Object && Object->IsTemplateObject())
+				{ if (OutError) *OutError = "Unmapped default subobject reference."; return false; }
+				ObjectProperty->SetObjectPropertyValue(Container, Object, Index);
+				return true;
 			}
-		private:
-			const std::vector<DObject*>& References;
-			const std::unordered_map<DObject*, DObject*>& Map;
+			case DurinCodeGen::EPropertyGenFlags::Struct:
+			{
+				auto* Struct = static_cast<FStructProperty*>(Property);
+				bool bSuccess = true;
+				Struct->GetStruct()->ForEachProperty([&](FProperty* Field) {
+					for (uint32 Element = 0; bSuccess && Element < Field->GetArrayDim(); ++Element)
+						bSuccess = Remap(Field, Struct->GetValuePtr(Container, Index), Element);
+				});
+				return bSuccess;
+			}
+			case DurinCodeGen::EPropertyGenFlags::Array:
+			{
+				auto* Array = static_cast<FArrayProperty*>(Property);
+				FRemapContext Context{&Remap, Array->GetInner()};
+				auto Visit = [](void* Raw, uint64, void* Value) -> bool {
+					auto& Context = *static_cast<FRemapContext*>(Raw);
+					Context.bSucceeded = (*Context.Function)(Context.Property, Value, 0);
+					return Context.bSucceeded;
+				};
+				return Array->VisitMutableElements(Container, Visit, &Context, Index) == EContainerOpResult::Success && Context.bSucceeded;
+			}
+			case DurinCodeGen::EPropertyGenFlags::Map:
+			{
+				auto* Map = static_cast<FMapProperty*>(Property);
+				FRemapContext Context{&Remap, Map->GetValueProp()};
+				auto Visit = [](void* Raw, const void*, void* Value) -> bool {
+					auto& Context = *static_cast<FRemapContext*>(Raw);
+					Context.bSucceeded = (*Context.Function)(Context.Property, Value, 0);
+					return Context.bSucceeded;
+				};
+				return Map->VisitMutableEntries(Container, Visit, &Context, Index) == EContainerOpResult::Success && Context.bSucceeded;
+			}
+			default: return true;
+			}
 		};
-		FByteBuffer Bytes;
-		FDefaultWriter Writer(Bytes, References);
-		{
-			auto Scope = Writer.EnterObject(*const_cast<DObject*>(Defaults));
-			const_cast<DObject*>(Defaults)->Serialize(Writer);
-		}
-		if (Writer.HasError()) { if (OutError) *OutError = Writer.GetError(); return false; }
-		FDefaultReader Reader(Bytes, References, ReferenceMap);
-		{
-			auto Scope = Reader.EnterObject(*Destination);
-			Destination->Serialize(Reader);
-		}
-		if (Reader.HasError() || Reader.GetRemainingPayloadBytes() != 0)
-		{
-			if (OutError) *OutError = Reader.HasError() ? std::string(Reader.GetError()) : "Default stream has trailing bytes.";
-			return false;
-		}
-		return true;
+		bool bSucceeded = true;
+		Defaults->GetClass()->ForEachProperty([&](FProperty* Property) {
+			if (!bSucceeded || !Property || Property->IsDeprecated()
+				|| Property->HasAnyPropertyFlags(EPropertyFlags::Transient)) return;
+			for (uint32 Index = 0; Index < Property->GetArrayDim(); ++Index)
+			{
+				if (!Property->CopyAssignValue(Property->ContainerPtrToValuePtr<void>(Destination, Index),
+					Property->ContainerPtrToValuePtr<void>(Defaults, Index), OutError))
+				{ bSucceeded = false; return; }
+				if (!Remap(Property, Destination, Index)) { bSucceeded = false; return; }
+			}
+		});
+		return bSucceeded;
 	}
 
 	auto CopyEditableObjectProperties(DObject* Source, DObject* Destination, const std::unordered_map<DObject*, DObject*>& ReferenceMap, std::string* OutError) -> bool

@@ -35,7 +35,7 @@ namespace Durin
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 		ENGINE_API auto Serialize(FArchive& Ar) -> void override;
 	private:
-		DPROPERTY()
+		DPROPERTY(AlwaysSerialize)
 		uint32 GraphOwnershipVersion = 1;
 
 

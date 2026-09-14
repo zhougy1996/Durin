@@ -27,6 +27,7 @@
 #include "Texture/Texture2D.h"
 
 #include <gtest/gtest.h>
+#include <chrono>
 
 #include "NativeDObjectTestSupport.h"
 
@@ -236,11 +237,21 @@ TEST(FMaterialGraphOperationsTests, LargeGraphRoundTripsWithoutLoadedOverrideLed
 	}
 	ASSERT_TRUE(Material->SetMaterialProgram(Program));
 	const auto Expected = *Material->GetMaterialProgram();
+	ASSERT_TRUE(SavePackage(Material->GetPackage(), EAssetPackageSaveMode::Complete));
+	const auto CompleteBytes = std::filesystem::file_size(Root / "Base.dasset");
 	for (int Round = 0; Round < 2; ++Round)
 	{
 		ASSERT_TRUE(SavePackage(Material->GetPackage()));
+		const auto DeltaBytes = std::filesystem::file_size(Root / "Base.dasset");
+		EXPECT_LE(DeltaBytes, CompleteBytes);
 		ASSERT_TRUE(UnloadPackage(Path));
-		ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Material));
+		const auto Begin = std::chrono::steady_clock::now();
+		const auto LoadResult = LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Material);
+		ASSERT_TRUE(LoadResult) << LoadResult.Message;
+		const auto LoadMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - Begin).count();
+		std::cout << "[ MATERIAL BASELINE ] nodes=65 round=" << Round
+			<< " complete_bytes=" << CompleteBytes << " delta_bytes=" << DeltaBytes
+			<< " load_ms=" << LoadMs << " ledger_allocated=" << Material->HasAllocatedAuthoredOverrideLedger() << '\n';
 		ASSERT_NE(Material, nullptr);
 		EXPECT_FALSE(Material->HasAllocatedAuthoredOverrideLedger());
 		ASSERT_NE(Material->GetMaterialProgram(), nullptr);

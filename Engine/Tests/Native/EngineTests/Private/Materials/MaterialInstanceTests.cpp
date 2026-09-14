@@ -252,7 +252,7 @@ TEST(FMaterialTests, PerFieldOverridesRoundTripAndLoadLegacyPackageFields)
 	for (const bool Enabled : {false, true})
 	{
 		ObjectPackage::FLinkerTables Linker;
-		ASSERT_TRUE(ObjectPackage::ReadPackageV9(CurrentBytes, {}, InstancePath, Linker));
+		ASSERT_TRUE(ObjectPackage::ReadPackage(CurrentBytes, {}, InstancePath, Linker));
 		const ObjectPackage::FSerializedType BoolType{.Kind = ObjectPackage::EValueKind::Bool};
 		ObjectPackage::FSerializedType ValueType;
 		bool Rewritten = false;
@@ -295,7 +295,7 @@ TEST(FMaterialTests, PerFieldOverridesRoundTripAndLoadLegacyPackageFields)
 		}
 		FByteBuffer LegacyBytes, Bulk;
 		ObjectPackage::FPackageWriterDiagnostic Diagnostic;
-		ASSERT_TRUE(ObjectPackage::WritePackageV9(Linker, LegacyBytes, Bulk, &Diagnostic))
+		ASSERT_TRUE(ObjectPackage::WritePackage(Linker, LegacyBytes, Bulk, &Diagnostic))
 			<< Diagnostic.LogicalPath << ": " << Diagnostic.Message;
 		ASSERT_TRUE(Bulk.empty());
 		ASSERT_TRUE(FFileHelper::SaveArrayToFile(LegacyBytes, Directory / "Instance.dasset"));

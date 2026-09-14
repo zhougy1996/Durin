@@ -921,7 +921,8 @@ namespace Durin
 			if (OutFile) EffectiveOptions.EditorBulkDataStoragePayloads = &BulkPayloads;
 			AssetPrivate::FAssetPackageEncodedClosure Closure;
 			FAssetResult Result = Codec->Write(
-				Package, Closure, EDefaultDeltaMode::NoDelta, EffectiveOptions);
+				Package, Closure, EffectiveOptions.Mode == EAssetPackageSaveMode::Complete
+					? EDefaultDeltaMode::NoDelta : EDefaultDeltaMode::Enabled, EffectiveOptions);
 			if (!Result) return Result;
 			FPackagePath PackagePath;
 			if (!Package || !FPackagePath::TryCreate(Package->GetPackagePath(), PackagePath))
@@ -1102,6 +1103,7 @@ namespace Durin
 			Staged.Package = Package;
 			Staged.Path = Path;
 			FAssetPackageSerializationOptions Serialization;
+			Serialization.Mode = Options.Mode;
 			Result = BuildPackageBytes(
 				Package, Staged.Bytes, &Staged.File, Serialization);
 			if (!Result) return Result;
@@ -1797,11 +1799,11 @@ namespace Durin
 
 	}
 
-	auto FAssetMutationCoordinator::SavePackage(DPackage* Package) -> FAssetResult
+	auto FAssetMutationCoordinator::SavePackage(DPackage* Package, EAssetPackageSaveMode Mode) -> FAssetResult
 	{
 		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("mutation", ""); !Guard) return Guard;
 		const std::array<DPackage*, 1> Packages{Package};
-		return SavePackagesAtomically(Packages, {.RootPackage = Package});
+		return SavePackagesAtomically(Packages, {.RootPackage = Package, .Mode = Mode});
 	}
 
 }

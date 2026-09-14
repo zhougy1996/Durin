@@ -162,7 +162,9 @@ namespace Durin
 
 	auto FDefaultObjectGraphMap::AreReferencesEquivalent(const DObject* Left, const DObject* Right) const -> bool
 	{
-		return Left == Right || FindInstance(Left) == Right || FindInstance(Right) == Left
+		if (Left == Right) return true;
+		if (!Left || !Right) return false;
+		return FindInstance(Left) == Right || FindInstance(Right) == Left
 			|| FindTemplate(Left) == Right || FindTemplate(Right) == Left;
 	}
 }

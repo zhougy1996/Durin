@@ -96,6 +96,7 @@ _PROPERTY_FLAG_BY_SPECIFIER = {
     "ReadOnly": "ReadOnly",
     "Deprecated": "Deprecated",
     "EditorOnly": "EditorOnly",
+    "AlwaysSerialize": "AlwaysSerialize",
 }
 
 _TYPED_METADATA_KEYS = {

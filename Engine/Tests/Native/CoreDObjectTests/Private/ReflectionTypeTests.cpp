@@ -905,6 +905,12 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 				BlobProperty->SetValueLifecycle(BlobOps.ValueSize, BlobOps.ValueAlignment,
 					BlobOps.InitializeValue, BlobOps.DestroyValue,
 					BlobOps.CopyConstructValue, BlobOps.CopyAssignValue);
+				auto* SignedEnumProperty = new Durin::FEnumProperty(
+					Durin::FFieldVariant(Class), "SignedEnum", Durin::EObjectFlags::NoFlags,
+					Durin::EPropertyFlags::None, 1, STRUCT_OFFSET_UINT16(DDefaultGraphOwnerForTest, SignedEnum),
+					sizeof(int8), Durin::DurinCodeGen::EPropertyGenFlags::Enum, nullptr,
+					GetBuiltInLeafEnumForTest<Durin::DurinCodeGen::EEnumUnderlyingType::Int8, int8>());
+				BlobProperty->Next = SignedEnumProperty;
 				ChildProperty->Next = ClassSpecificProperty;
 				ClassSpecificProperty->Next = FixedProperty;
 				FixedProperty->Next = ExactFloatProperty;
@@ -916,6 +922,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 		Durin::TObjectPtr<Durin::DObject> Child;
 		Durin::FVector3 ClassSpecific{1.0, 2.0, 3.0};
+		int8 SignedEnum = 0;
 		int32 Fixed[2]{4, 5};
 		double ExactFloat = std::bit_cast<double>(uint64{0x7FF8000000000042ull});
 		Durin::FByteBuffer Blob;
@@ -2626,7 +2633,8 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			<< "reason=" << static_cast<int>(Diagnostic.Reason)
 			<< " path=" << Diagnostic.LogicalPath;
 		ASSERT_EQ(DefaultPlan.Objects.size(), 2u);
-		EXPECT_EQ(DefaultPlan.EmittedFieldCount, 0u);
+		// Native object fields have no reflected copy contract and stay complete.
+		EXPECT_EQ(DefaultPlan.EmittedFieldCount, 5u);
 		EXPECT_GT(DefaultPlan.OmittedFieldCount, 0u);
 
 		Instance->Blob.assign(Durin::DefaultDeltaMaxFields + 1, std::byte{0x5a});
@@ -2661,6 +2669,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Instance->ClassSpecific = Durin::FVector3(0.0);
 		Instance->Fixed[1] = 17;
 		Instance->NativeSecond = 11;
+		Instance->SignedEnum = -1;
 		const Durin::FVector3 BeforeStruct = Instance->ClassSpecific;
 		const int32 BeforeFixed = Instance->Fixed[1];
 		Durin::FDefaultDeltaPlan ChangedPlan;
@@ -2681,6 +2690,11 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			});
 			return It == Root.Fields.end() ? nullptr : &*It;
 		};
+		const auto* SignedEnum = FindField("SignedEnum");
+		ASSERT_NE(SignedEnum, nullptr);
+		ASSERT_EQ(SignedEnum->Disposition, Durin::EDefaultDeltaDisposition::Emitted);
+		ASSERT_NE(SignedEnum->Value, nullptr);
+		EXPECT_EQ(SignedEnum->Value->SignedValue, -1);
 		const auto* Child = FindField("Child");
 		const auto* ClassSpecific = FindField("ClassSpecific");
 		const auto* Fixed = FindField("Fixed");
@@ -2694,7 +2708,8 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		ASSERT_NE(NativeFirst, nullptr);
 		ASSERT_NE(NativeSecond, nullptr);
 		EXPECT_EQ(Child->Disposition, Durin::EDefaultDeltaDisposition::Omitted);
-		EXPECT_EQ(NativeFirst->Disposition, Durin::EDefaultDeltaDisposition::Omitted);
+		EXPECT_EQ(NativeFirst->Disposition, Durin::EDefaultDeltaDisposition::Emitted);
+		EXPECT_EQ(NativeFirst->Baseline, Durin::EDefaultDeltaBaselineKind::None);
 		EXPECT_EQ(ExactFloat->Disposition, Durin::EDefaultDeltaDisposition::Omitted);
 		EXPECT_EQ(NativeSecond->Disposition, Durin::EDefaultDeltaDisposition::Emitted);
 		ASSERT_EQ(ClassSpecific->Disposition, Durin::EDefaultDeltaDisposition::Emitted);
@@ -2765,10 +2780,18 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_TRUE(FailedPlan.Objects.empty());
 		Instance->bEmitOversizedArray = false;
 		Instance->NativeOnlyStructValue = 4;
-		EXPECT_FALSE(Durin::BuildDefaultDeltaPlan(
+		ASSERT_TRUE(Durin::BuildDefaultDeltaPlan(
 			Instance, Durin::EDefaultDeltaMode::Enabled, FailedPlan, &Diagnostic));
-		EXPECT_EQ(Diagnostic.Reason, Durin::EDefaultDeltaFailureReason::MissingStructDefault);
-		EXPECT_TRUE(FailedPlan.Objects.empty());
+		const auto NativeRoot = std::ranges::find(FailedPlan.Objects, Instance,
+			&Durin::FDefaultDeltaObjectPlan::Object);
+		ASSERT_NE(NativeRoot, FailedPlan.Objects.end());
+		for (const auto& Field : NativeRoot->Fields)
+			if (Field.Descriptor.Name == Durin::FName("NativeOnlyStruct"))
+			{
+				ASSERT_NE(Field.Value, nullptr);
+				EXPECT_EQ(Field.Value->Baseline, Durin::EDefaultDeltaBaselineKind::None);
+				EXPECT_EQ(Field.Disposition, Durin::EDefaultDeltaDisposition::Emitted);
+			}
 
 		Durin::MarkObjectHierarchyAsGarbage(Instance);
 		Durin::CollectGarbage();

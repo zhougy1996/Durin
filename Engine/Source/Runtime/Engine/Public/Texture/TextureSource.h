@@ -2,6 +2,7 @@
 
 #include "Asset/EditorBulkData.h"
 #include "EngineAPI.h"
+#include "DObject/StructOps.h"
 #include "Texture/TextureSourceFormat.h"
 #include "Image/Image.h"
 
@@ -234,6 +235,7 @@ namespace Durin
 
 	private:
 		friend class DTexture;
+		friend struct TDStructOpsTraits<FTextureSource>;
 		auto BindOwner(DTexture* InOwner) -> void { Owner = InOwner; }
 		ENGINE_API auto InitLayeredImpl(ETextureSourceKind InKind,
 			std::span<const FTextureSourceBlock> InBlocks,
@@ -250,5 +252,17 @@ namespace Durin
 		}
 		// Non-owning runtime back-reference; reflection and source identity exclude it.
 		DTexture* Owner = nullptr;
+	};
+	// Reflected loads can patch a copied baseline; decoded cache entries belong to
+	// the previous payload and must never survive that patch or mutate its owner.
+	template<>
+	struct TDStructOpsTraits<FTextureSource> : TDStructOpsTraitsBase<FTextureSource>
+	{
+		static constexpr bool bWithPostDeserialize = true;
+		static auto PostDeserialize(FTextureSource& Value, FDStructPostDeserializeContext&) -> bool
+		{
+			Value.MipDataState = std::make_shared<FTextureSource::FMipDataState>();
+			return true;
+		}
 	};
 } // namespace Durin

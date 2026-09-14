@@ -1809,6 +1809,8 @@ namespace Durin::AssetPrivate
 					return false;
 				}
 				const FDefaultDeltaObjectPlan& DeltaObject = *DeltaIt->second;
+				Linker.Exports[CanonicalIndex].bUseClassDefaults = FormatVersion >= ObjectPackage::DastV10FormatVersion
+					&& DeltaObject.ClassDefaultObject != nullptr;
 				for (const auto& Field : Object.Fields)
 				{
 					const FDefaultDeltaFieldPlan* DeltaField = FindDeltaField(&DeltaObject.Fields, Field.Field);
@@ -1923,6 +1925,14 @@ namespace Durin::AssetPrivate
 		std::vector<DObject*> FrozenObjects;
 		for (DObject* Asset : Package->GetTopLevelAssets())
 			AssetPrivate::GatherObjects(Asset, FrozenObjects);
+		if (FormatVersion >= ObjectPackage::DastV10FormatVersion && DeltaMode == EDefaultDeltaMode::Enabled
+			&& Options.Domain != EAssetPackageSaveDomain::Cooked)
+		{
+			std::vector<DClass*> Classes;
+			for (DObject* Object : FrozenObjects) Classes.push_back(Object->GetClass());
+			if (!Private::CreateClassDefaultObjectsForBatch(Classes))
+				return Finish({EAssetError::InvalidObjectGraph, "Class default construction failed before delta capture."});
+		}
 		if (Options.SaveOverrides)
 		{
 			for (const FObjectSaveOverride& Override : Options.SaveOverrides->GetObjects())

@@ -92,6 +92,8 @@ namespace Durin
 		ReadOnly = 1 << 2,
 		Deprecated = 1 << 3,
 		EditorOnly = 1 << 4,
+		// Required wire fields bypass default omission without persisting override intent.
+		AlwaysSerialize = 1 << 5,
 	};
 
 	enum class EObjectInternalFlags

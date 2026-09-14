@@ -112,7 +112,7 @@ namespace Durin
 		auto BuildPlatformDataForLoad() -> void override;
 		auto LoadCookedPlatformData() -> bool override;
 
-		DPROPERTY(EditorOnly, DisplayName = "Source Layout")
+		DPROPERTY(EditorOnly, AlwaysSerialize, DisplayName = "Source Layout")
 		ETextureCubeSourceLayout SourceLayout = ETextureCubeSourceLayout::SixFaces;
 
 		DPROPERTY(EditorOnly, DisplayName = "Panorama Face Dimension")

@@ -274,8 +274,11 @@ namespace Durin::ObjectPackage
 
 		auto CollectValue(FFrozenPackage& Frozen, const FSerializedType& Type,
 			const FSerializedValue& Value, uint32 ExportId, uint32 SchemaId, uint32 FieldId,
-			std::string Path, uint32 Depth, FPackageWriterDiagnostic* Diagnostic) -> bool
+			std::string Path, uint32 Depth, FPackageWriterDiagnostic* Diagnostic, bool bAllowBaseline = false) -> bool
 		{
+			if (Value.bUseParentBaseline && (!bAllowBaseline || Type.Kind != EValueKind::Struct))
+				return Fail(Diagnostic, EPackageWriterFailure::InvalidValue,
+					"A Struct delta has no available parent baseline.", Path);
 			if (Depth > DastV8MaximumValueDepth)
 				return Fail(Diagnostic, EPackageWriterFailure::LimitExceeded,
 					"A serialized value exceeds the format nesting limit.", std::move(Path));
@@ -353,14 +356,19 @@ namespace Durin::ObjectPackage
 						if (Position != 0 && Value.FieldNames[Order[Position - 1]] == Value.FieldNames[Index])
 							return Fail(Diagnostic, EPackageWriterFailure::DuplicateIdentity,
 								"A struct contains duplicate field names.", Path);
-						const auto Schema = std::ranges::find(Frozen.Source->Schemas, Type.QualifiedName, &FSerializedSchema::QualifiedName);
-						if (Schema == Frozen.Source->Schemas.end()) return Fail(Diagnostic, EPackageWriterFailure::InvalidType, "Missing Struct schema.", Path);
-						const auto Field = std::ranges::find(Schema->Fields, Value.FieldNames[Index], &FSerializedField::Name);
-						if (Field == Schema->Fields.end() || Field->Type != StructFieldTypes(Type, Value)[Index])
-							return Fail(Diagnostic, EPackageWriterFailure::InvalidType, "Struct field type does not match schema.", Path);
+						if (Frozen.Source->FormatVersion >= DastV10FormatVersion)
+						{
+							const auto Schema = std::ranges::find(Frozen.Source->Schemas, Type.QualifiedName, &FSerializedSchema::QualifiedName);
+							if (Schema == Frozen.Source->Schemas.end()) return Fail(Diagnostic, EPackageWriterFailure::InvalidType, "Missing Struct schema.", Path);
+							const auto Field = std::ranges::find(Schema->Fields, Value.FieldNames[Index], &FSerializedField::Name);
+							if (Field == Schema->Fields.end() || Field->Type != StructFieldTypes(Type, Value)[Index])
+								return Fail(Diagnostic, EPackageWriterFailure::InvalidType, "Struct field type does not match schema.", Path);
+						}
 						if (!AddName(Frozen.Names, Value.FieldNames[Index], Diagnostic, Path)) return false;
 						if (!CollectValue(Frozen, StructFieldTypes(Type, Value)[Index], Value.Elements[Index], ExportId,
-							SchemaId, FieldId, Path + "." + Value.FieldNames[Index], Depth + 1, Diagnostic)) return false;
+							SchemaId, FieldId, Path + "." + Value.FieldNames[Index], Depth + 1, Diagnostic,
+							Value.bUseParentBaseline && (Value.Provenances.empty()
+								|| Value.Provenances[Index] != EPropertyProvenance::Forced))) return false;
 					}
 				}
 				break;
@@ -658,7 +666,8 @@ namespace Durin::ObjectPackage
 						Path, 0, Diagnostic)) return false;
 					const uint32 FieldId = static_cast<uint32>(std::distance(Schema.Fields.begin(), FieldIt) + 1);
 					if (!CollectValue(Frozen, Property.Type, Property.Value, NewExport + 1,
-						SchemaId, FieldId, Path, 0, Diagnostic)) return false;
+						SchemaId, FieldId, Path, 0, Diagnostic,
+						Export.bUseClassDefaults && Property.Provenance != EPropertyProvenance::Forced)) return false;
 				}
 			}
 
@@ -1050,7 +1059,11 @@ namespace Durin::ObjectPackage
 				for (const FPropertyTag& Property : Export.Properties) Properties.push_back(&Property);
 				std::ranges::sort(Properties, [](const FPropertyTag* A, const FPropertyTag* B)
 				{ return CompareIdentity({{A->DeclaringType, B->DeclaringType}, {A->FieldName, B->FieldName}}) < 0; });
-				Writer->WriteVarUInt(NewIndex + 1); Writer->WriteVarUInt(Properties.size());
+				Writer->WriteVarUInt(NewIndex + 1);
+				if (Frozen.Source->FormatVersion >= DastV10FormatVersion)
+					Writer->WriteU8(Export.bUseClassDefaults ? 1 : 0);
+				else if (Export.bUseClassDefaults) return false;
+				Writer->WriteVarUInt(Properties.size());
 				for (const FPropertyTag* Property : Properties)
 				{
 					const uint32 SchemaId = FindSchemaId(Frozen, Property->DeclaringType);

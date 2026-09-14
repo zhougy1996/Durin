@@ -959,13 +959,19 @@ namespace Durin::AssetPrivate
 			if (Linker.FormatVersion >= ObjectPackage::DastV10FormatVersion && !Options.bCooked)
 			{
 				std::vector<DClass*> Classes;
-				for (DObject* Object : Objects) Classes.push_back(Object->GetClass());
+				std::unordered_set<DObject*> NeedsDefaults;
+				for (size_t Index = 0; Index < Objects.size(); ++Index)
+					if (Exports[Index].Export->bUseClassDefaults)
+					{
+						NeedsDefaults.insert(Objects[Index]);
+						Classes.push_back(Objects[Index]->GetClass());
+					}
 				if (!Private::CreateClassDefaultObjectsForBatch(Classes))
 					return {EAssetError::InvalidObjectGraph, "Default object initialization failed."};
 				std::unordered_set<DObject*> Initialized;
 				for (DObject* Root : Objects)
 				{
-					if (Initialized.contains(Root)) continue;
+					if (!NeedsDefaults.contains(Root) || Initialized.contains(Root)) continue;
 					const DObject* Default = Root->GetClass()->GetDefaultObject();
 					FDefaultObjectGraphMap Graph;
 					FDefaultObjectGraphDiagnostic GraphDiagnostic;
@@ -978,6 +984,7 @@ namespace Durin::AssetPrivate
 					for (DObject* Object : Objects)
 						if (const DObject* Template = Graph.FindTemplate(Object))
 						{
+							if (!NeedsDefaults.contains(Object)) continue;
 							std::string Error;
 							if (!InitializeObjectFromDefaults(Template, Object, References, &Error))
 								return {EAssetError::InvalidObjectGraph, "Cannot initialize loaded defaults: " + Error};

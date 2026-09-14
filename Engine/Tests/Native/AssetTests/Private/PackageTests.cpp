@@ -177,7 +177,7 @@ namespace
 	}
 
 	static_assert(Durin::OrdinaryAssetPackageWriterVersion ==
-		Durin::ObjectPackage::DastV9FormatVersion);
+		Durin::ObjectPackage::DastV10FormatVersion);
 	static_assert(Durin::ObjectPackage::SupportedPackageReaderVersions ==
 		decltype(Durin::ObjectPackage::SupportedPackageReaderVersions){
 			Durin::ObjectPackage::DastV9FormatVersion, Durin::ObjectPackage::DastV10FormatVersion});
@@ -552,7 +552,9 @@ namespace
 		explicit DPackageAssetForTest(const Durin::FObjectInitializer& Initializer = Durin::FObjectInitializer::Get())
 			: DObject(Initializer)
 		{
-			DefaultChild = Durin::NewObject<Durin::DObject>(this, "DefaultChild");
+			DefaultChild = Durin::NewObject<Durin::DObject>(this, "DefaultChild", IsClassDefaultObject()
+				? Durin::EObjectConstructionPurpose::ClassDefaultSubobject
+				: Durin::EObjectConstructionPurpose::RuntimeObject);
 			if (GPackageConstructorLoadProbe) GPackageConstructorLoadProbe();
 		}
 
@@ -1619,10 +1621,10 @@ namespace
 		if (std::filesystem::exists(BulkPath)) ASSERT_TRUE(FFileHelper::LoadFileToArray(Bulk, BulkPath));
 		ObjectPackage::FLinkerTables Linker;
 		ObjectPackage::FPackageReaderDiagnostic ReadDiagnostic;
-		ASSERT_TRUE(ObjectPackage::ReadPackageV9(Main, Bulk, Path, Linker, &ReadDiagnostic)) << ReadDiagnostic.Message;
+		ASSERT_TRUE(ObjectPackage::ReadPackage(Main, Bulk, Path, Linker, &ReadDiagnostic)) << ReadDiagnostic.Message;
 		Edit(Linker);
 		ObjectPackage::FPackageWriterDiagnostic WriteDiagnostic;
-		ASSERT_TRUE(ObjectPackage::WritePackageV9(Linker, Main, Bulk, &WriteDiagnostic)) << WriteDiagnostic.Message;
+		ASSERT_TRUE(ObjectPackage::WritePackage(Linker, Main, Bulk, &WriteDiagnostic)) << WriteDiagnostic.Message;
 		WriteTestBytes(File->PhysicalPath, Main);
 		if (!Bulk.empty()) WriteTestBytes(BulkPath, Bulk);
 	}
@@ -1752,7 +1754,7 @@ TEST(FPackageAssetTests, SaveOmitsTransientSubtreesAndTheirHardReferences)
 	FByteBuffer Bytes;
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(Bytes, FindAssetExact(Path)->PhysicalPath));
 	ObjectPackage::FLinkerTables Linker;
-	ASSERT_TRUE(ObjectPackage::ReadPackageV9(Bytes, {}, Path, Linker));
+	ASSERT_TRUE(ObjectPackage::ReadPackage(Bytes, {}, Path, Linker));
 	// Both persistent objects also construct their own default child.
 	EXPECT_EQ(Linker.Exports.size(), 4u);
 	ASSERT_TRUE(UnloadPackage(Path));
@@ -1957,7 +1959,10 @@ TEST(FPackageAssetTests, CurrentNestedFieldTypeMismatchIsNotDiscarded)
 				ASSERT_EQ(Property.Type.Children[0].Children.size(), 1u);
 				Property.Type.Children[0].Children[0] = Type;
 				for (auto& Element : Property.Value.Elements)
+				{
 					Element.Elements[0] = {.Text = "invalid"};
+					if (Element.FieldTypes) (*Element.FieldTypes)[0] = Type;
+				}
 				for (auto& Schema : Linker.Schemas)
 					if (Schema.QualifiedName == Property.DeclaringType)
 						for (auto& Field : Schema.Fields)
@@ -2358,13 +2363,17 @@ TEST(FPackageAssetTests, V10StructDeltasUseOwningDefaultsAndPreserveLegacyReads)
 	ASSERT_TRUE(Private::CreateClassDefaultObjectsForBatch(Classes));
 	auto* Defaults = const_cast<DMathStructAssetForTest*>(static_cast<const DMathStructAssetForTest*>(Classes[0]->GetDefaultObject()));
 	const FVector3 Original = Defaults->Vector;
-	struct FRestore { DMathStructAssetForTest* Object; FVector3 Value; ~FRestore() { Object->Vector = Value; } } Restore{Defaults, Original};
+	struct FRestore { DMathStructAssetForTest* Object; FVector3 Value; FTransform Transform;
+		~FRestore() { Object->Vector = Value; Object->Transform = Transform; } } Restore{Defaults, Original, Defaults->Transform};
 	Defaults->Vector = FVector3(2.0, 10.0, 30.0);
+	Defaults->Transform.Translation = Defaults->Vector;
 	FPackagePath Path;
 	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/PairedStructDefaults", Path));
 	DMathStructAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
 	Asset->Vector = FVector3(2.0, 20.0, 30.0);
+	Asset->Transform = Defaults->Transform;
+	Asset->Transform.Translation.y = 20.0;
 	Asset->Vectors = {FVector3(1.0, 0.0, 0.0), FVector3(0.0, 2.0, 0.0)};
 	ASSERT_TRUE(SavePackage(Asset->GetPackage()));
 	FAssetPackageEncodedClosure Delta, Complete, Legacy;
@@ -2375,6 +2384,7 @@ TEST(FPackageAssetTests, V10StructDeltasUseOwningDefaultsAndPreserveLegacyReads)
 	ObjectPackage::FPackageReaderDiagnostic Diagnostic;
 	ASSERT_TRUE(ObjectPackage::ReadPackage(Delta.PackageBytes, Delta.BulkBytes, Path, Linker, &Diagnostic)) << Diagnostic.Message;
 	EXPECT_EQ(Linker.FormatVersion, ObjectPackage::DastV10FormatVersion);
+	EXPECT_TRUE(Linker.Exports.front().bUseClassDefaults);
 	auto& Properties = Linker.Exports.front().Properties;
 	auto Vector = std::ranges::find(Properties, "Vector", &ObjectPackage::FPropertyTag::FieldName);
 	ASSERT_NE(Vector, Properties.end());
@@ -2389,6 +2399,10 @@ TEST(FPackageAssetTests, V10StructDeltasUseOwningDefaultsAndPreserveLegacyReads)
 	}
 	// The detached writer rejects malformed field identity/type before publishing bytes.
 	const auto ValidValue = Vector->Value;
+	Linker.Exports.front().bUseClassDefaults = false;
+	FByteBuffer MissingBaseline, MissingBaselineBulk;
+	EXPECT_FALSE(ObjectPackage::WritePackage(Linker, MissingBaseline, MissingBaselineBulk));
+	Linker.Exports.front().bUseClassDefaults = true;
 	FByteBuffer InvalidMain{std::byte{42}}, InvalidBulk;
 	Vector->Value.FieldNames[0] = "unknown";
 	EXPECT_FALSE(ObjectPackage::WritePackage(Linker, InvalidMain, InvalidBulk));
@@ -2406,13 +2420,59 @@ TEST(FPackageAssetTests, V10StructDeltasUseOwningDefaultsAndPreserveLegacyReads)
 	{
 		ASSERT_TRUE(UnloadPackage(Path));
 		Defaults->Vector = FVector3(7.0, 8.0, 9.0);
+		Defaults->Transform.Translation = Defaults->Vector;
 		WriteTestBytes(File, Encoded->PackageBytes);
 		const auto Result = LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Asset);
 		ASSERT_TRUE(Result) << Result.Message;
 		EXPECT_EQ(Asset->Vector, Encoded == &Delta ? FVector3(7.0, 20.0, 9.0) : FVector3(2.0, 20.0, 30.0));
+		EXPECT_EQ(Asset->Transform.Translation, Asset->Vector);
 		EXPECT_EQ(Asset->Vectors, (std::vector<FVector3>{FVector3(1.0, 0.0, 0.0), FVector3(0.0, 2.0, 0.0)}));
 		EXPECT_FALSE(Asset->HasAllocatedAuthoredOverrideLedger());
 	}
+	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(Path));
+}
+
+TEST(FPackageAssetTests, DeltaSavePreservesDynamicOwnedObjectsAndRejectsMissingDefaultChildren)
+{
+	using namespace Durin;
+	InitializeAssetTests();
+	const std::array Classes{DMathStructAssetForTest::StaticClass()};
+	ASSERT_TRUE(Private::CreateClassDefaultObjectsForBatch(Classes));
+	auto* Defaults = const_cast<DMathStructAssetForTest*>(static_cast<const DMathStructAssetForTest*>(Classes[0]->GetDefaultObject()));
+	struct FRestore { DMathStructAssetForTest* Object; FVector3 Value; ~FRestore() { Object->Vector = Value; } } Restore{Defaults, Defaults->Vector};
+	Defaults->Vector = FVector3(3.0, 4.0, 5.0);
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/DynamicDefaults", Path));
+	DPackageAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
+	auto* Dynamic = NewObject<DMathStructAssetForTest>(Asset, "Dynamic");
+	ASSERT_NE(Dynamic, nullptr);
+	Dynamic->Vector = FVector3(3.0, 40.0, 5.0);
+	Asset->ExternalReference = Dynamic;
+	ASSERT_TRUE(SavePackage(Asset->GetPackage()));
+	ASSERT_TRUE(UnloadPackage(Path));
+	Defaults->Vector = FVector3(7.0, 8.0, 9.0);
+	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Asset));
+	Dynamic = static_cast<DMathStructAssetForTest*>(Asset->ExternalReference.Get());
+	ASSERT_NE(Dynamic, nullptr);
+	EXPECT_EQ(Dynamic->GetOuter(), Asset);
+	EXPECT_EQ(Dynamic->Vector, FVector3(7.0, 40.0, 9.0));
+	ASSERT_NE(Asset->DefaultChild.Get(), nullptr);
+	EXPECT_EQ(Asset->DefaultChild->GetOuter(), Asset);
+	EXPECT_FALSE(Asset->HasAllocatedAuthoredOverrideLedger());
+	EXPECT_FALSE(Dynamic->HasAllocatedAuthoredOverrideLedger());
+	ASSERT_TRUE(SavePackage(Asset->GetPackage(), EAssetPackageSaveMode::Complete));
+	ASSERT_TRUE(UnloadPackage(Path));
+	Defaults->Vector = FVector3(1.0, 2.0, 3.0);
+	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Asset));
+	Dynamic = static_cast<DMathStructAssetForTest*>(Asset->ExternalReference.Get());
+	ASSERT_NE(Dynamic, nullptr);
+	EXPECT_EQ(Dynamic->Vector, FVector3(7.0, 40.0, 9.0));
+	Asset->DefaultChild->Rename("RenamedDefault");
+	const auto Result = SavePackage(Asset->GetPackage());
+	EXPECT_FALSE(Result);
+	EXPECT_NE(Result.Message.find("DefaultObjectGraphFailure"), std::string::npos);
+	ASSERT_TRUE(SavePackage(Asset->GetPackage(), EAssetPackageSaveMode::Complete));
 	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(Path));
 }
 
@@ -2452,7 +2512,7 @@ TEST(FPackageAssetTests, OrdinaryAndCompleteSavesDoNotCreateOverrides)
 		Asset->VectorMap.clear();
 		ASSERT_TRUE(DastV9::GetCodec().Write(Asset->GetPackage(), Encoded, EDefaultDeltaMode::Enabled, {}));
 		ObjectPackage::FLinkerTables Linker;
-		ASSERT_TRUE(ObjectPackage::ReadPackageV9(Encoded.PackageBytes, Encoded.BulkBytes, Path, Linker));
+		ASSERT_TRUE(ObjectPackage::ReadPackage(Encoded.PackageBytes, Encoded.BulkBytes, Path, Linker));
 		for (const auto& Export : Linker.Exports)
 			EXPECT_TRUE(Export.Properties.empty());
 		WriteTestBytes(File, Encoded.PackageBytes);
@@ -3225,11 +3285,11 @@ TEST(FPackageAssetTests, OrdinaryV8PublishesLoadsAndRollsBackExternalClosure)
 	const Durin::FAssetCatalogEntry V6Data =
 		Durin::FindAssetExact(Path);
 	ASSERT_TRUE(V6Data);
-	EXPECT_EQ(V6Data->FormatVersion, Durin::ObjectPackage::DastV9FormatVersion);
+	EXPECT_EQ(V6Data->FormatVersion, Durin::ObjectPackage::DastV10FormatVersion);
 	Durin::FAssetPackageInspection Inspection;
 	ASSERT_TRUE(Durin::InspectAssetPackage(V6Data->PhysicalPath, Inspection));
 	EXPECT_EQ(Inspection.Header.FormatVersion,
-		Durin::ObjectPackage::DastV9FormatVersion);
+		Durin::ObjectPackage::DastV10FormatVersion);
 	std::vector<Durin::FEditorBulkDataStorageDescriptor> Descriptors;
 	std::string Error;
 	ASSERT_TRUE(Durin::InspectEditorBulkDataStorageDescriptors(
@@ -3313,7 +3373,7 @@ TEST(FPackageAssetTests, OrdinaryV8PublishesLoadsAndRollsBackExternalClosure)
 		Durin::FindAssetExact(LivePath);
 	ASSERT_TRUE(LiveData);
 	EXPECT_EQ(Durin::FindAssetExact(LivePath)->FormatVersion,
-		Durin::ObjectPackage::DastV9FormatVersion);
+		Durin::ObjectPackage::DastV10FormatVersion);
 }
 
 
@@ -3417,7 +3477,7 @@ TEST(FPackageAssetTests, V8BundleAndRelocationPreserveCurrentFormat)
 	ASSERT_TRUE(Durin::SavePackagesAtomically(Packages,
 		{.RootPackage = Asset->GetPackage()}));
 	ASSERT_EQ(Durin::FindAssetExact(SourcePath)->FormatVersion,
-		Durin::ObjectPackage::DastV9FormatVersion);
+		Durin::ObjectPackage::DastV10FormatVersion);
 
 	const Durin::FAssetRelocationMapping Mapping{
 		SourcePath, DestinationPath};
@@ -3429,8 +3489,8 @@ TEST(FPackageAssetTests, V8BundleAndRelocationPreserveCurrentFormat)
 	ASSERT_TRUE(Redirector);
 	ASSERT_TRUE(Moved);
 	EXPECT_EQ(Redirector->FormatVersion,
-		Durin::ObjectPackage::DastV9FormatVersion);
-	EXPECT_EQ(Moved->FormatVersion, Durin::ObjectPackage::DastV9FormatVersion);
+		Durin::ObjectPackage::DastV10FormatVersion);
+	EXPECT_EQ(Moved->FormatVersion, Durin::ObjectPackage::DastV10FormatVersion);
 	EXPECT_EQ(Redirector->EntryKind,
 		Durin::EAssetRegistryEntryKind::Redirector);
 	DPackageAssetForTest* Resolved = nullptr;
@@ -3544,7 +3604,7 @@ TEST(FPackageAssetTests, HeaderReaderStopsBeforeLargeObjectPayload)
 	Durin::FAssetPackageHeader Header;
 	ASSERT_TRUE(Durin::ReadAssetPackageHeader(File.generic_string(), Path, Header));
 	EXPECT_EQ(Header.AssetClassName, "Tests::DPackageAssetForTest");
-	EXPECT_EQ(Header.FormatVersion, Durin::ObjectPackage::DastV9FormatVersion);
+	EXPECT_EQ(Header.FormatVersion, Durin::ObjectPackage::DastV10FormatVersion);
 	EXPECT_EQ(Header.EntryKind, Durin::EAssetRegistryEntryKind::Asset);
 	EXPECT_FALSE(Header.RedirectDestination.IsValid());
 	EXPECT_EQ(Header.ObjectCount, 2u);
@@ -3701,20 +3761,20 @@ TEST(FPackageAssetTests, V9CodecMatchesLiveWriteInspectReferenceAndLoadSemantics
 	BulkPath.replace_extension(".dbulk");
 	if (std::filesystem::is_regular_file(BulkPath))
 		ASSERT_TRUE(FFileHelper::LoadFileToArray(Bulk, BulkPath));
-	const FAssetPackageCodec& Codec = DastV9::GetCodec();
+	const FAssetPackageCodec& Codec = DastV9::GetV10Codec();
 	const FAssetPackageReadContext Context{V8, Bulk, SourcePath, V8.size()};
 	ASSERT_TRUE(Codec.Validate(Context));
 	FAssetPackageHeader Header;
 	uint64 HeaderByteCount = 0;
 	ASSERT_TRUE(Durin::ReadLittleEndianAt(V8, 32, HeaderByteCount));
 	ASSERT_TRUE(Codec.ReadHeader(Context, Header));
-	EXPECT_EQ(Header.FormatVersion, ObjectPackage::DastV9FormatVersion);
+	EXPECT_EQ(Header.FormatVersion, ObjectPackage::DastV10FormatVersion);
 	EXPECT_EQ(Header.ObjectCount, 2);
 	EXPECT_EQ(Header.Dependencies, std::vector{TargetPath});
 	FAssetPackageInspection Inspection;
 	ASSERT_TRUE(Codec.Inspect(Context, Inspection));
-	EXPECT_EQ(Inspection.Header.FormatVersion, ObjectPackage::DastV9FormatVersion);
-	EXPECT_EQ(Inspection.Fingerprint.ReaderVersion, ObjectPackage::DastV9FormatVersion);
+	EXPECT_EQ(Inspection.Header.FormatVersion, ObjectPackage::DastV10FormatVersion);
+	EXPECT_EQ(Inspection.Fingerprint.ReaderVersion, ObjectPackage::DastV10FormatVersion);
 
 	std::vector<FAssetReferenceEdge> References;
 	ASSERT_TRUE(Codec.ExtractReferences(Context, References));
@@ -3726,11 +3786,11 @@ TEST(FPackageAssetTests, V9CodecMatchesLiveWriteInspectReferenceAndLoadSemantics
 	FMemoryAssetPackageByteSource SchemaSource(V8);
 	ASSERT_TRUE(Codec.InspectSchema(
 		SchemaSource, SourcePath, Catalog, SchemaInspection, nullptr, false, {}));
-	EXPECT_EQ(SchemaInspection.FormatVersion, ObjectPackage::DastV9FormatVersion);
+	EXPECT_EQ(SchemaInspection.FormatVersion, ObjectPackage::DastV10FormatVersion);
 
 	FAssetPackageEncodedClosure DirectWrite;
 	ASSERT_TRUE(Codec.Write(Source->GetPackage(), DirectWrite,
-		EDefaultDeltaMode::NoDelta, {}));
+		EDefaultDeltaMode::Enabled, {}));
 	EXPECT_EQ(DirectWrite.PackageBytes, V8);
 	EXPECT_EQ(DirectWrite.BulkBytes, Bulk);
 	EXPECT_TRUE(Codec.bCanMutate);
@@ -4188,7 +4248,7 @@ TEST(FPackageAssetTests, V9PreservesExternalPayloadBytesAndPlacement)
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(Bulk, BulkPath));
 	ObjectPackage::FLinkerTables Linker;
 	ObjectPackage::FPackageReaderDiagnostic Diagnostic;
-	ASSERT_TRUE(ObjectPackage::ReadPackageV9(
+	ASSERT_TRUE(ObjectPackage::ReadPackage(
 		V9, Bulk, Path, Linker, &Diagnostic)) << Diagnostic.Message;
 	ASSERT_EQ(Linker.Exports.size(), 1);
 	ASSERT_EQ(Linker.Exports.front().Properties.size(), 1);
@@ -4197,7 +4257,7 @@ TEST(FPackageAssetTests, V9PreservesExternalPayloadBytesAndPlacement)
 	EXPECT_EQ(Value.Bytes, Payload);
 	EXPECT_EQ(Bulk, Payload);
 	ObjectPackage::FLinkerTables MetadataLinker;
-	ASSERT_TRUE(ObjectPackage::ReadPackageV9Metadata(
+	ASSERT_TRUE(ObjectPackage::ReadPackageMetadata(
 		V9, Bulk.size(), Path, MetadataLinker, &Diagnostic))
 		<< Diagnostic.Message;
 	ASSERT_EQ(MetadataLinker.Exports.size(), 1u);
@@ -4301,7 +4361,7 @@ TEST(FPackageAssetTests, RedirectorsRoundTripAndResolveWithoutLoading)
 	ASSERT_TRUE(Durin::ReadAssetPackageHeader(
 		AliasFile.generic_string(), AliasPath, Header
 	));
-	EXPECT_EQ(Header.FormatVersion, Durin::ObjectPackage::DastV9FormatVersion);
+	EXPECT_EQ(Header.FormatVersion, Durin::ObjectPackage::DastV10FormatVersion);
 	EXPECT_EQ(Header.AssetClassName, "Durin::DAssetRedirector");
 	EXPECT_EQ(Header.EntryKind, Durin::EAssetRegistryEntryKind::Redirector);
 	EXPECT_EQ(Header.RedirectDestination, TargetPath);
@@ -4432,10 +4492,10 @@ TEST(FPackageAssetTests, AuthoredArchiveFreezesNativeFieldsReferencesAndFailures
 	ASSERT_TRUE(Durin::SerializeAssetPackageBytes(Source->GetPackage(), FirstBytes));
 	ASSERT_TRUE(Durin::SerializeAssetPackageBytes(Source->GetPackage(), SecondBytes));
 	EXPECT_EQ(FirstBytes, SecondBytes);
-	EXPECT_EQ(std::ranges::count(GAuthoredArchivePurposes, Durin::EArchivePurpose::Discovery), 4);
-	EXPECT_EQ(std::ranges::count(GAuthoredArchivePurposes, Durin::EArchivePurpose::AuthoredPackage), 4);
+	EXPECT_EQ(std::ranges::count(GAuthoredArchivePurposes, Durin::EArchivePurpose::Discovery), 6);
+	EXPECT_EQ(std::ranges::count(GAuthoredArchivePurposes, Durin::EArchivePurpose::AuthoredPackage), 6);
 	EXPECT_TRUE(std::ranges::all_of(GAuthoredArchiveFormatVersions, [](uint32 Version) {
-		return Version == Durin::ObjectPackage::DastV9FormatVersion;
+		return Version == Durin::ObjectPackage::DastV10FormatVersion;
 	}));
 
 	const auto File = Durin::Testing::GetTestWorkDirectory()
@@ -7042,7 +7102,7 @@ TEST(FPackageAssetTests, WriterUsesVersionedWireSignaturesForLogicalEncodings)
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/WireSignatures", Path));
 	DPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(Path, Asset));
-	ASSERT_TRUE(Durin::SavePackage(Asset->GetPackage()));
+	ASSERT_TRUE(Durin::SavePackage(Asset->GetPackage(), Durin::EAssetPackageSaveMode::Complete));
 	ASSERT_TRUE(Durin::UnloadPackage(Path));
 	const auto File =
 		Durin::Testing::GetTestWorkDirectory() / "Assets" / "WireSignatures.dasset";
@@ -7071,7 +7131,7 @@ TEST(FPackageAssetTests, CompleteInspectionContainsEveryObjectAndContentFingerpr
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(Path, Asset));
 	Asset->Value = 17;
 	Asset->DefaultChild->Rename("InspectedChild");
-	ASSERT_TRUE(Durin::SavePackage(Asset->GetPackage()));
+	ASSERT_TRUE(Durin::SavePackage(Asset->GetPackage(), Durin::EAssetPackageSaveMode::Complete));
 
 	const auto File =
 		Durin::Testing::GetTestWorkDirectory() / "Assets" / "CompleteInspection.dasset";
@@ -7514,7 +7574,7 @@ TEST(FPackageAssetTests, OrdinaryV8SavesAreDeterministic)
 	ASSERT_TRUE(InitialSave) << InitialSave.Message;
 
 	const Durin::FAssetData Current = *Durin::FindAssetExact(Path);
-	ASSERT_EQ(Current.FormatVersion, Durin::ObjectPackage::DastV9FormatVersion);
+	ASSERT_EQ(Current.FormatVersion, Durin::ObjectPackage::DastV10FormatVersion);
 	Durin::FByteBuffer FirstBytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(FirstBytes, Current.PhysicalPath));
 	Durin::FByteBuffer FirstSerialization;
@@ -7769,7 +7829,7 @@ TEST(FPackageAssetTests, PackageIdentityIsEmbeddedAndRewrittenOnRelocation)
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Before, OldFile));
 	uint32 FormatVersion = 0;
 	ASSERT_TRUE(Durin::ReadLittleEndianAt(Before, 24, FormatVersion));
-	EXPECT_EQ(FormatVersion, Durin::ObjectPackage::DastV9FormatVersion);
+	EXPECT_EQ(FormatVersion, Durin::ObjectPackage::DastV10FormatVersion);
 	const std::string_view OldPathView = OldPath.GetView();
 	const Durin::FByteView OldPathBytes =
 		std::as_bytes(std::span{OldPathView.data(), OldPathView.size()});
@@ -8521,11 +8581,11 @@ TEST(FPackageAssetTests, CookReusesDeclaredInputsAndLoadsOrdinaryPackages)
 	FByteBuffer Original;
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(Original, Data->PhysicalPath));
 	ObjectPackage::FLinkerTables Linker;
-	ASSERT_TRUE(ObjectPackage::ReadPackageV9(Original, {}, Path, Linker));
+	ASSERT_TRUE(ObjectPackage::ReadPackage(Original, {}, Path, Linker));
 	for (auto& Object : Linker.Exports)
 		for (auto& Field : Object.Properties) if (Field.FieldName == "Value") Field.Value.Signed = 29;
 	FByteBuffer Changed, Bulk;
-	ASSERT_TRUE(ObjectPackage::WritePackageV9(Linker, Changed, Bulk));
+	ASSERT_TRUE(ObjectPackage::WritePackage(Linker, Changed, Bulk));
 	ASSERT_EQ(Original.size(), Changed.size());
 	MarkObjectHierarchyAsGarbage(Asset->GetPackage()); CollectGarbage();
 	ASSERT_EQ(FindPackage(Path.GetView()), nullptr);
@@ -8739,10 +8799,10 @@ TEST(FPackageAssetTests, CookDeclaredFilesValuesAndBuildOnlyPackagesControlReuse
 		FByteBuffer Bytes, Changed, Bulk;
 		EXPECT_TRUE(FFileHelper::LoadFileToArray(Bytes, Files[Index]));
 		ObjectPackage::FLinkerTables Linker;
-		EXPECT_TRUE(ObjectPackage::ReadPackageV9(Bytes, {}, Paths[Index], Linker));
+		EXPECT_TRUE(ObjectPackage::ReadPackage(Bytes, {}, Paths[Index], Linker));
 		for (auto& Object : Linker.Exports)
 			for (auto& Field : Object.Properties) if (Field.FieldName == "Value") Field.Value.Signed = Value;
-		EXPECT_TRUE(ObjectPackage::WritePackageV9(Linker, Changed, Bulk));
+		EXPECT_TRUE(ObjectPackage::WritePackage(Linker, Changed, Bulk));
 		const auto Timestamp = std::filesystem::last_write_time(Files[Index]);
 		EXPECT_TRUE(FFileHelper::SaveArrayToFile(Changed, Files[Index]));
 		std::filesystem::last_write_time(Files[Index], Timestamp);
