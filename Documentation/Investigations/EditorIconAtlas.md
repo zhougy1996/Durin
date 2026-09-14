@@ -24,7 +24,7 @@ problem.
 
 ## Observable Impact
 
-There is no known correctness defect in the present two-icon path. The cost is
+There is no known correctness defect in the present three-icon path. The cost is
 future-facing: procedural glyph code becomes harder to review and visually
 iterate as the icon set grows, while hard-coded atlas placement would become
 fragile if many independently authored icons were added.
