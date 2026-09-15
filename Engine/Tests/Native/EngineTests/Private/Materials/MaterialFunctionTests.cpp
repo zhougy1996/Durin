@@ -2060,7 +2060,16 @@ TEST(FMaterialFunctionTests, StandardMaterialFixtureCooksAndLoadsWithoutAuthored
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(MaterialPath, Material));
 	ASSERT_NE(Material, nullptr);
 	AssetForge::Builtins::FStandardMaterialFunctions Functions;
-	ASSERT_TRUE(AssetForge::Builtins::EnsureStandardMaterialFunctions(Functions, Error)) << Error;
+	// This fixture references only the normal decoder; unrelated standard assets
+	// belong to recipe coverage and unnecessarily expand registry/cook setup here.
+	FPackagePath FunctionPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/Engine/Materials/Functions/DecodeImportedNormalRG", FunctionPath));
+	DMaterialFunction* Function = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(FunctionPath, Function));
+	ASSERT_TRUE(AssetForge::Builtins::MakeStandardMaterialFunctionExpressions(
+		AssetForge::Builtins::EStandardMaterialFunction::DecodeImportedNormalRG, Functions).Apply(*Function));
+	Functions.DecodeImportedNormalRG = Function;
+	ASSERT_TRUE(SavePackage(Function->GetPackage()));
 	ASSERT_TRUE(Testing::MakeStandardMaterialExpressionsForTest(Functions).Apply(*Material));
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));
 	ASSERT_EQ(GetFunctionCalls(*Material).size(), 1u);
@@ -2076,8 +2085,6 @@ TEST(FMaterialFunctionTests, StandardMaterialFixtureCooksAndLoadsWithoutAuthored
 	ASSERT_EQ(Result.Packages.size(), 1u);
 	EXPECT_EQ(Result.Packages.front().Status, ECookPackageStatus::CookHit);
 	EXPECT_FALSE(std::filesystem::exists(Request.OutputRoot / "Engine/Materials/Functions"));
-	FPackagePath FunctionPath;
-	ASSERT_TRUE(FPackagePath::TryCreate("/Engine/Materials/Functions/StandardPBR", FunctionPath));
 	auto FunctionRootRequest = Request;
 	FunctionRootRequest.OutputRoot = Root / "RejectedFunctionRoot";
 	FunctionRootRequest.ExplicitRoots = {FunctionPath};

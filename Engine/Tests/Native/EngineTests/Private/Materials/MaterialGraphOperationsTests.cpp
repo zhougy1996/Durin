@@ -220,13 +220,8 @@ TEST(FMaterialGraphOperationsTests, LargeGraphRoundTripsWithoutLoadedOverrideLed
 		const auto DeltaBytes = std::filesystem::file_size(Root / "Base.dasset");
 		EXPECT_LE(DeltaBytes, CompleteBytes);
 		ASSERT_TRUE(UnloadPackage(Path));
-		const auto Begin = std::chrono::steady_clock::now();
 		const auto LoadResult = LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Material);
 		ASSERT_TRUE(LoadResult) << LoadResult.Message;
-		const auto LoadMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - Begin).count();
-		std::cout << "[ MATERIAL BASELINE ] nodes=65 round=" << Round
-			<< " complete_bytes=" << CompleteBytes << " delta_bytes=" << DeltaBytes
-			<< " load_ms=" << LoadMs << " ledger_allocated=" << Material->HasAllocatedAuthoredOverrideLedger() << '\n';
 		ASSERT_NE(Material, nullptr);
 		EXPECT_FALSE(Material->HasAllocatedAuthoredOverrideLedger());
 		EXPECT_EQ(CaptureExpressions(*Material), Expected);
@@ -1458,12 +1453,9 @@ TEST(FMaterialGraphOperationsTests, MaximumGraphLayoutIsDeterministicAndPresenta
 	const uint64 SemanticRevision =
 		Material->GetMaterialCompileStatus().AuthoredRevision;
 
-	const auto Begin = std::chrono::steady_clock::now();
 	const FMaterialGraphCommandResult First =
 		FMaterialGraphOperations::Layout(*Material);
-	const auto Duration = std::chrono::steady_clock::now() - Begin;
 	ASSERT_TRUE(First) << First.Message;
-	EXPECT_LT(Duration, std::chrono::seconds(1));
 	EXPECT_EQ(Material->GetMaterialGraphPresentation().Nodes.size(),
 		MaterialProgramMaxNodeCount);
 	EXPECT_EQ(CaptureExpressions(*Material), MaximumGraph);
@@ -1491,18 +1483,6 @@ TEST(FMaterialGraphOperationsTests, MaximumGraphLayoutIsDeterministicAndPresenta
 		FMaterialGraphOperations::Layout(*Material);
 	EXPECT_EQ(Second.Status, EMaterialGraphCommandStatus::NoChange);
 	EXPECT_EQ(Material->GetMaterialGraphPresentation(), FirstLayout);
-	std::vector<std::chrono::microseconds> Samples;
-	Samples.reserve(100);
-	for (uint32 Sample = 0; Sample < 100; ++Sample)
-	{
-		const auto SampleBegin = std::chrono::steady_clock::now();
-		EXPECT_TRUE(FMaterialGraphOperations::Layout(*Material));
-		Samples.push_back(std::chrono::duration_cast<std::chrono::microseconds>(
-			std::chrono::steady_clock::now() - SampleBegin));
-	}
-	std::ranges::sort(Samples);
-	EXPECT_LT(Samples[50], std::chrono::milliseconds(25));
-	EXPECT_LT(Samples[95], std::chrono::milliseconds(50));
 
 	MarkAsGarbage(Material);
 	CollectGarbage();

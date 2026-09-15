@@ -236,6 +236,19 @@ durin_add_engine_functional_test(MaterialTests
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
 )
 
+durin_add_engine_functional_test(MaterialQualificationTests
+	KIND qualification
+	DOMAINS material
+	MODULES engine material-editor renderer
+	STACKS editor renderer
+	TIMEOUT 900
+	RUNTIME_STACK_RATIONALE "Measures CPU material graph loading, layout, and shader compilation baselines."
+	SOURCES Private/Materials/MaterialQualificationTests.cpp
+	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
+	LIBRARIES ApplicationCore RenderCore Renderer AssetTools AssetForgeBuiltins
+		MonaCore Mona MonaImGui DurinEd MaterialEditor StaticMeshEditor TextureEditor StaticMeshBuild
+)
+
 durin_add_engine_functional_test(MaterialVulkanTests
 	KIND integration
 	DOMAINS material thumbnail

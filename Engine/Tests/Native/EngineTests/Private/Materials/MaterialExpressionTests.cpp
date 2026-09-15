@@ -27,7 +27,7 @@ TEST(FMaterialExpressionTests, TypedSnapshotIsDetachedFromCopiedInputsAndLaterEd
 	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Environment, Error)) << Error;
 	FMaterialIRCompilerInput Initial;
 	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Material, Environment, Initial));
-	const auto Before = CompileMaterialIR(Initial);
+	const auto Before = NormalizeMaterialIR(Initial);
 	ASSERT_TRUE(Before);
 	// Mutating a copied compiler input cannot affect either the owner or the original snapshot.
 	auto Detached = Initial;
@@ -35,9 +35,9 @@ TEST(FMaterialExpressionTests, TypedSnapshotIsDetachedFromCopiedInputsAndLaterEd
 	EXPECT_FALSE(Detached.IR == Initial.IR);
 	FMaterialIRCompilerInput Snapshot;
 	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Material, Environment, Snapshot));
-	const auto Direct = CompileMaterialIR(Snapshot);
+	const auto Direct = NormalizeMaterialIR(Snapshot);
 	ASSERT_TRUE(Direct);
-	EXPECT_EQ(Direct.GeneratedSource, Before.GeneratedSource);
+	EXPECT_EQ(Direct.CanonicalBytes, Before.CanonicalBytes);
 	EXPECT_EQ(Snapshot.IR, Initial.IR);
 	EXPECT_EQ(Direct.Identity, Before.Identity);
 	EXPECT_EQ(Direct.Layout, Before.Layout);

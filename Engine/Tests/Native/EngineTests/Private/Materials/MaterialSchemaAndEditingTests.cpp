@@ -900,53 +900,6 @@ TEST(FMaterialProgramCompilerTests,
 	std::string ReflectionError;
 	EXPECT_FALSE(Durin::ValidateMaterialCompiledStages(
 		CorruptedStages, Compiled.Layout));
-	const Durin::FMaterialCompilerResult Warm =
-		Durin::CompileMaterialIR(Input);
-	ASSERT_TRUE(Warm) << (Warm.Diagnostics.empty()
-		? "missing diagnostic" : Warm.Diagnostics.front().Message);
-	ASSERT_EQ(Warm.CompiledShaders.size(), Compiled.CompiledShaders.size());
-	uint64 SpirvBytes = 0;
-	for (size_t Index = 0; Index < Compiled.CompiledShaders.size(); ++Index)
-	{
-		EXPECT_EQ(Warm.CompiledShaders[Index].Hash,
-			Compiled.CompiledShaders[Index].Hash);
-		ASSERT_TRUE(Compiled.CompiledShaders[Index].Code);
-		SpirvBytes += Compiled.CompiledShaders[Index].Code->size();
-	}
-	Durin::FByteBuffer CookedBytes;
-	ASSERT_TRUE(Durin::EncodeMaterialCookedProgram(Compiled, {},
-		Durin::ECookTargetPlatform::Win64,
-		Durin::ECookTargetProfile::Game, CookedBytes, Error)) << Error;
-	RecordProperty("GeneratedSourceBytes", Compiled.GeneratedSource.size());
-	RecordProperty("DependencyCount", Compiled.Dependencies.size());
-	RecordProperty("SpirvBytes", SpirvBytes);
-	RecordProperty("NormalizationMicroseconds",
-		Compiled.Timings.NormalizationMicroseconds);
-	RecordProperty("GenerationMicroseconds",
-		Compiled.Timings.GenerationMicroseconds);
-	RecordProperty("ColdCompilationMicroseconds",
-		Compiled.Timings.CompilationMicroseconds);
-	RecordProperty("WarmCompilationMicroseconds",
-		Warm.Timings.CompilationMicroseconds);
-	std::cout << "[MaterialIRCompilerBaseline] input_ir_nodes="
-		<< Input.IR.Nodes.size()
-		<< " ir_nodes=" << Normalized.IR.Nodes.size()
-		<< " texture_samples=" << std::ranges::count_if(
-			Normalized.IR.Nodes, [](const Durin::FMaterialIRNode& Node) {
-				return Node.Opcode == Durin::EMaterialProgramOpcode::TextureSample2D;
-			})
-		<< " canonical_bytes=" << Normalized.CanonicalBytes.size()
-		<< " generated_bytes=" << Compiled.GeneratedSource.size()
-		<< " source_hash="
-		<< Durin::FXxHash128::HashBuffer(Compiled.GeneratedSource).ToString()
-		<< " identity=" << Compiled.Identity.Digest.ToString()
-		<< " dependencies=" << Compiled.Dependencies.size()
-		<< " spirv_bytes=" << SpirvBytes
-		<< " cooked_bytes=" << CookedBytes.size()
-		<< " normalize_us=" << Compiled.Timings.NormalizationMicroseconds
-		<< " generate_us=" << Compiled.Timings.GenerationMicroseconds
-		<< " cold_compile_us=" << Compiled.Timings.CompilationMicroseconds
-		<< " warm_compile_us=" << Warm.Timings.CompilationMicroseconds << '\n';
 
 	Durin::FMaterialIR InvalidIR = Normalized.IR;
 	InvalidIR.Version++;

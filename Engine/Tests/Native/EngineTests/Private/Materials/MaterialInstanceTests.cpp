@@ -296,7 +296,9 @@ TEST(FMaterialTests, PropertyResolutionRejectsDepthOverflowAndCorruptCycles)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
-	auto* Root = MakeExpandedMaterial(nullptr, "BoundedPropertyRoot");
+	// Parent-depth validation does not require parameters or compiled shaders.
+	FScopedOfflinePreparation Offline;
+	auto* Root = NewObject<DMaterial>(nullptr, "BoundedPropertyRoot");
 	ASSERT_NE(Root, nullptr);
 	std::vector<DMaterialInstance*> Chain;
 	DMaterialInterface* Previous = Root;

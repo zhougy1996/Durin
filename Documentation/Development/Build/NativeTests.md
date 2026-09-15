@@ -285,6 +285,13 @@ failure into a pass.
 
 ## Performance Qualification and Concurrent Agents
 
+`MaterialTests` retains material correctness coverage without repeated latency
+sampling. Run `./DevTool test MaterialQualificationTests --mode qualification --report`
+explicitly (on Windows, use `.\DevTool.bat` as the launcher) for
+maximum-graph layout median/p95, graph-load timing, cold/warm shader compilation,
+and instance-variant payload sizes. These CPU qualification cases are excluded
+from ordinary `fast-all` and affected-test execution.
+
 Ordinary correctness builds and tests may run while other agents are active,
 subject to the repository's single-writer and no-overlapping-build rules. GPU
 timing qualification is different: results are authoritative only from an
