@@ -195,6 +195,10 @@ requires at least two components. Owner validation checks fixed consumers before
 publication, and Undo/Redo restores the complete graph including inferred types.
 Expression compilation lowers scalar broadcasting to typed Splat IR operations,
 without creating authored graph nodes.
+Fixed numeric inputs, material Surface outputs, Surface attribute overrides and
+function input/output ports also broadcast connected scalars to their declared
+vector width. Vector-to-scalar and different-vector-width links remain invalid;
+Normalize still requires a vector source. Retained defaults keep their declared types.
 
 Shared document inspection resolves function call pins from the live signature,
 ordered by display order and GUID. Detached pin records retain stable port GUIDs,
@@ -276,7 +280,8 @@ updates preserve sampling expressions and their UV connections. Class replacemen
 preserves node identity and publishes only after graph validation. Type changes
 which invalidate links reject with diagnostics. Resource assignment is undoable.
 
-Texture Sample UV inputs accept Float2 and show Mesh UV0 when disconnected.
+Texture Sample UV inputs accept Float2 or a scalar broadcast to both coordinates,
+and show Mesh UV0 when disconnected.
 TextureCoordinates selects a mesh channel and outputs Float2. Scale, offset and
 rotation use upstream math expressions or material functions, shared through
 explicit connections. Function graphs expose literals and interface ports without

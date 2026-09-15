@@ -85,7 +85,7 @@ namespace Durin
 			if (Binding.Input.ExpressionId.IsValid())
 			{
 				PortStack.push_back(Binding.InputId);
-				const auto Value = Resolve(Binding.Input);
+				const auto Value = BroadcastScalar(Resolve(Binding.Input), Binding.ExpectedType);
 				PortStack.pop_back();
 				if (!MatchesType(Value, Binding.ExpectedType)) return Fail("Function binding value does not match its declared type.", Binding.InputId);
 				if (Value.GetIndex()) Inputs.push_back(*Value.GetIndex());
@@ -200,7 +200,7 @@ namespace Durin
 		if (!Signature) return Fail("Function output terminal has no owning invocation.");
 		const auto Port = std::ranges::find(Signature->Outputs, PortId, &FMaterialFunctionPort::Id);
 		if (Port == Signature->Outputs.end()) return Fail("Function output terminal has no matching declaration.");
-		const auto Value = Resolve(Source);
+		const auto Value = BroadcastScalar(Resolve(Source), Port->Type);
 		if (!MatchesType(Value, Port->Type)) return Fail("Function output source does not match its declared type.");
 		return Value;
 	}
@@ -277,7 +277,8 @@ namespace Durin
 			if (Binding.Input.ExpressionId.IsValid() || !Default.empty())
 			{
 				PortStack.push_back(Binding.InputId);
-				const auto Value = Binding.Input.ExpressionId.IsValid() ? Resolve(Binding.Input) : FMaterialExpressionBuildValue(Literal(Default));
+				const auto Value = Binding.Input.ExpressionId.IsValid()
+					? BroadcastScalar(Resolve(Binding.Input), Port->Type) : FMaterialExpressionBuildValue(Literal(Default));
 				PortStack.pop_back();
 				if (!MatchesType(Value, Port->Type)) return Fail("Function binding value does not match its declared type.", Binding.InputId);
 				Child.BoundInputs.emplace(Binding.InputId, Value);

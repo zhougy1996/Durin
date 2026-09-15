@@ -783,6 +783,47 @@ TEST(FMaterialGraphOperationsTests, MathWidthsPropagateBroadcastAndUndoAtomicall
 	}
 }
 
+TEST(FMaterialGraphOperationsTests, FixedInputsBroadcastScalarsAndUndoWithoutAuthoredConversionNodes)
+{
+	InitializeDObjectSystem();
+	using Type = EMaterialProgramValueType;
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	FMaterialGraphDocument Document(*Material);
+	Durin::Tests::FTestTransactorOwner Transactions;
+	const auto Catalog = FMaterialGraphOperations::EnumerateCatalog();
+	const auto Create = [&](EMaterialProgramOpcode Opcode, Type T) {
+		const auto Entry = std::ranges::find_if(Catalog, [&](const auto& E) { return E.Opcode == Opcode && E.ResultType == T; });
+		return Document.CreateCatalogNode(*Entry);
+	};
+	const auto Scalar = Create(EMaterialProgramOpcode::Constant, Type::Float);
+	const auto Vector = Create(EMaterialProgramOpcode::Constant, Type::Float2);
+	const auto Surface = Create(EMaterialProgramOpcode::MakeSurface, Type::Surface);
+	ASSERT_TRUE(Scalar); ASSERT_TRUE(Vector); ASSERT_TRUE(Surface);
+	const auto S = Scalar.GeneratedNodeIds.front(), V = Vector.GeneratedNodeIds.front(), M = Surface.GeneratedNodeIds.front();
+	const auto Before = CaptureExpressions(*Material);
+	ASSERT_TRUE(Document.ConnectInput(M, 0, {S}, false, Transactions.Get()));
+	const auto After = CaptureExpressions(*Material);
+	EXPECT_EQ(Material->GetExpressionCollection().Expressions.size(), 3u);
+	const auto View = Document.Inspect();
+	const auto& Types = FindViewNode(View, M)->Inputs[0].AcceptedTypes;
+	EXPECT_NE(std::ranges::find(Types, Type::Float), Types.end());
+	EXPECT_FALSE(Document.ConnectInput(M, 0, {V}, true));
+	EXPECT_FALSE(Document.ConnectInput(M, 2, {V}));
+	EXPECT_EQ(CaptureExpressions(*Material), After);
+	ASSERT_TRUE(Transactions->Undo()); EXPECT_EQ(CaptureExpressions(*Material), Before);
+	ASSERT_TRUE(Transactions->Redo()); EXPECT_EQ(CaptureExpressions(*Material), After);
+	ASSERT_TRUE(Document.AssignMaterialOutput(EMaterialSurfaceOutput::BaseColor, {S}, Transactions.Get()));
+	EXPECT_EQ(Material->GetExpressionOutputs().BaseColor.ExpressionId, S);
+	std::vector<DMaterialExpression*> Expressions;
+	for (const auto& E : Material->GetExpressionCollection().Expressions) Expressions.push_back(E.Get());
+	const auto Built = FMaterialExpressionBuildContext(Expressions).FinishSurface(Material->GetExpressionOutputs());
+	ASSERT_TRUE(Built);
+	EXPECT_EQ(Built.IR.Nodes[Built.IR.SurfaceRoot.Inputs[0].ExpressionIndex].Opcode, EMaterialProgramOpcode::Splat3);
+	ASSERT_TRUE(Transactions->Undo()); EXPECT_FALSE(Material->GetExpressionOutputs().BaseColor.ExpressionId.IsValid());
+	ASSERT_TRUE(Transactions->Redo()); EXPECT_EQ(Material->GetExpressionOutputs().BaseColor.ExpressionId, S);
+}
+
 TEST(FMaterialGraphOperationsTests, FunctionMathAdaptsAndKeepsNormalizeAndLerpConstraints)
 {
 	InitializeDObjectSystem();
@@ -2442,7 +2483,8 @@ TEST(FMaterialGraphOperationsTests, CanvasLinkReleaseEndsGestureAcrossFrames)
 	Drop({Origin.x + 700, Origin.y + FMaterialGraphGeometry::GetSurfacePinOffset(3)}, false);
 	EXPECT_EQ(Material->GetExpressionOutputs().Roughness.ExpressionId, Source);
 	Drop({Origin.x + 700, Origin.y + FMaterialGraphGeometry::GetSurfacePinOffset(0)}, false);
-	EXPECT_EQ(Errors, 2);
+	EXPECT_EQ(Errors, 1);
+	EXPECT_EQ(Material->GetExpressionOutputs().BaseColor.ExpressionId, Source);
 	Drop({Origin.x + 380, Origin.y + 10}, false);
 	Frame(Output, false);
 	Frame(Output, true);

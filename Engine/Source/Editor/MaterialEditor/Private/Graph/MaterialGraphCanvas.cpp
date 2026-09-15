@@ -14,6 +14,13 @@ namespace Durin::Editor::Material
 	namespace
 	{
 		std::optional<FMaterialGraphClipboardPayload> GraphClipboard;
+		auto BroadcastHint(const FMaterialGraphPinView& Pin) -> const char*
+		{
+			return !Pin.AcceptedTypes.empty() && Pin.AcceptedTypes.front() > EMaterialProgramValueType::Float
+				&& Pin.AcceptedTypes.front() <= EMaterialProgramValueType::Float4
+				&& std::ranges::find(Pin.AcceptedTypes, EMaterialProgramValueType::Float) != Pin.AcceptedTypes.end()
+				? "\nScalar inputs are copied to every component." : "";
+		}
 		auto HideUnusedAdvancedPins(FMaterialGraphView& View) -> void
 		{
 			std::unordered_map<FGuid, uint16> UsedSampleOutputs;
@@ -935,8 +942,8 @@ namespace Durin::Editor::Material
 				if (DetailLevel != EMaterialGraphDetailLevel::Overview && std::hypot(Mouse.x - Node.InputPins[Index].x, Mouse.y - Node.InputPins[Index].y) < 9)
 				{
 					Input = &Pin; InputNode = Node.View->Node.Id;
-					ImGui::SetTooltip("%s%s%s\n%s", Pin.Name.c_str(), Pin.bRequired ? " (required)" : "", Pin.bMissing ? " (missing port)" : "",
-						DescribeFunctionDefault(Pin.Default).c_str());
+					ImGui::SetTooltip("%s%s%s\n%s%s", Pin.Name.c_str(), Pin.bRequired ? " (required)" : "", Pin.bMissing ? " (missing port)" : "",
+						DescribeFunctionDefault(Pin.Default).c_str(), BroadcastHint(Pin));
 				}
 			}
 		}
@@ -1282,8 +1289,8 @@ namespace Durin::Editor::Material
 						HoveredInputNode = &Visual;
 						HoveredInputIndex = static_cast<uint32>(Index);
 						const auto& Pin = Visual.View->Inputs[Index];
-						if (Pin.PortId.IsValid()) ImGui::SetTooltip("%s%s%s\n%s", Pin.Name.c_str(), Pin.bRequired ? " (required)" : "",
-							Pin.bMissing ? " (missing port)" : "", DescribeFunctionDefault(Pin.Default).c_str());
+						ImGui::SetTooltip("%s%s%s\n%s%s", Pin.Name.c_str(), Pin.bRequired ? " (required)" : "",
+							Pin.bMissing ? " (missing port)" : "", DescribeFunctionDefault(Pin.Default).c_str(), BroadcastHint(Pin));
 					}
 				}
 				if (DetailLevel != EMaterialGraphDetailLevel::Overview)
@@ -1569,9 +1576,12 @@ namespace Durin::Editor::Material
 					{
 						const auto& Value = GetMaterialSurfaceOutputDefault(View.Outputs,
 							static_cast<EMaterialSurfaceOutput>(Index));
-						ImGui::SetTooltip("Value when unconnected: %s\nConnect a node to change this input.\nRight-click the pin to promote the retained value to a parameter.",
-							FormatGraphNumericValue(SurfaceTypes[Index], Value, 9).c_str());
+						ImGui::SetTooltip("Value when unconnected: %s\nConnect a node to change this input.\nRight-click the pin to promote the retained value to a parameter.%s",
+							FormatGraphNumericValue(SurfaceTypes[Index], Value, 9).c_str(),
+							SurfaceTypes[Index] == EMaterialProgramValueType::Float3 ? "\nScalar inputs are copied to every component." : "");
 					}
+					else if (Index < 8 && SurfaceTypes[Index] == EMaterialProgramValueType::Float3)
+						ImGui::SetTooltip("%s\nScalar inputs are copied to every component.", SurfaceNames[Index]);
 				}
 			}
 			const bool bCanvasPointerInteractionAvailable = bHovered

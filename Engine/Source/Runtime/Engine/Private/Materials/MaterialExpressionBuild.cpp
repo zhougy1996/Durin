@@ -133,12 +133,28 @@ namespace Durin
 		return *Value.GetIndex() < Result.IR.Nodes.size() && Result.IR.Nodes[*Value.GetIndex()].ResultType == Type;
 	}
 
+	auto FMaterialExpressionBuildContext::BroadcastScalar(FMaterialExpressionBuildValue Value,
+		EMaterialProgramValueType Type) -> FMaterialExpressionBuildValue
+	{
+		if (Type > EMaterialProgramValueType::Float && Type <= EMaterialProgramValueType::Float4
+			&& MatchesType(Value, EMaterialProgramValueType::Float))
+			return Emit({.Opcode = static_cast<EMaterialProgramOpcode>(static_cast<uint8>(EMaterialProgramOpcode::Splat2)
+				+ static_cast<uint8>(Type) - 1), .ResultType = Type, .Inputs = {*Value.GetIndex()}});
+		return Value;
+	}
+
 	auto FMaterialExpressionBuildContext::Emit(FMaterialIRNode Node) -> uint32
 	{
 		if (!Result.Diagnostics.empty()) return InvalidMaterialExpressionIndex;
 		const auto Signature = GetMaterialProgramNodeSignature(Node.Opcode, Node.ResultType);
 		if (!Node.HasValidPayload() || !Signature || Node.Inputs.size() != Signature->InputCount)
 			return Fail("Expression opcode, result width, or input count is invalid.");
+		// Adapt authored fixed-width inputs before admitting strictly typed IR.
+		// Normalize keeps its requirement for a vector source.
+		for (size_t Slot = 0; Slot < Node.Inputs.size(); ++Slot)
+			if (Signature->Inputs[Slot].size() == 1 && Node.Opcode != EMaterialProgramOpcode::Normalize)
+				Node.Inputs[Slot] = *BroadcastScalar(Node.Inputs[Slot], Signature->Inputs[Slot].front()).GetIndex();
+		if (!Result.Diagnostics.empty()) return InvalidMaterialExpressionIndex;
 		if (Result.IR.Nodes.size() >= MaterialFunctionMaxExpandedNodes
 			|| LinkCount + Node.Inputs.size() > MaterialFunctionMaxExpandedLinks)
 			return Fail("Expression Build exceeds the expanded IR node or link bound.", {}, EMaterialProgramDiagnosticCategory::Bounds);

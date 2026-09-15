@@ -51,7 +51,7 @@ namespace Durin
 				OutputError(Index, "Aggregate Surface and individual output connections cannot be combined.");
 				break;
 			}
-			Root.ExpressionIndex = ResolveIndex(Input);
+			Root.ExpressionIndex = *BroadcastScalar(ResolveIndex(Input), Root.Type).GetIndex();
 			Root.bExpression = true;
 			if (Result.Diagnostics.empty() && Result.IR.Nodes[Root.ExpressionIndex].ResultType != Root.Type)
 				OutputError(Index, "Material output source has an incompatible type.");

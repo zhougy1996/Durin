@@ -120,6 +120,7 @@ namespace Durin
 		auto BuildAllExpressions() -> void;
 		uint64 AuthoredLinks = 0;
 		auto MatchesType(const FMaterialExpressionBuildValue& Value, EMaterialProgramValueType Type) const -> bool;
+		auto BroadcastScalar(FMaterialExpressionBuildValue Value, EMaterialProgramValueType Type) -> FMaterialExpressionBuildValue;
 		std::shared_ptr<FSharedState> Shared;
 		FMaterialExpressionBuildResult& Result;
 		std::vector<uint32>& Depths;

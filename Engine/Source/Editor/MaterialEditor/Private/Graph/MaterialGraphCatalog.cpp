@@ -225,9 +225,9 @@ namespace Durin::Editor::Material
 			{
 				Entry.AcceptedInputTypes.emplace_back(
 					Signature.Inputs[Index].begin(), Signature.Inputs[Index].end());
-				if (IsMaterialAdaptiveNumeric(Opcode) && Signature.InputCount > 1
-					&& ResultType > EMaterialProgramValueType::Float
-					&& !(Opcode == EMaterialProgramOpcode::Lerp && Index == 2))
+				if (Opcode != EMaterialProgramOpcode::Normalize && Signature.Inputs[Index].size() == 1
+					&& Signature.Inputs[Index].front() > EMaterialProgramValueType::Float
+					&& Signature.Inputs[Index].front() <= EMaterialProgramValueType::Float4)
 					Entry.AcceptedInputTypes.back().push_back(EMaterialProgramValueType::Float);
 			}
 			return Entry;
@@ -517,6 +517,11 @@ namespace Durin::Editor::Material
 						.Link = LinkView(Attribute.Source), .SourceType = SourceType(LinkView(Attribute.Source)),
 						.AcceptedTypes = {GetMaterialSurfaceOutputType(Attribute.Attribute)}});
 				}
+			for (auto& Pin : View.Inputs)
+				if (Node.Opcode != EMaterialProgramOpcode::Normalize && Pin.AcceptedTypes.size() == 1
+					&& Pin.AcceptedTypes.front() > EMaterialProgramValueType::Float
+					&& Pin.AcceptedTypes.front() <= EMaterialProgramValueType::Float4)
+					Pin.AcceptedTypes.push_back(EMaterialProgramValueType::Float);
 			const auto It = Positions.find(Node.Id);
 			View.Presentation = It != Positions.end() ? It->second : FMaterialGraphNodePresentation{.NodeId = Node.Id,
 				.X = static_cast<int32>(Result.Nodes.size() % 4) * 320, .Y = static_cast<int32>(Result.Nodes.size() / 4) * 240};
