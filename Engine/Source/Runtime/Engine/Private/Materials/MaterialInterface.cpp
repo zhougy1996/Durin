@@ -15,6 +15,7 @@
 #include "Texture/Texture2D.h"
 #include "Threading/RunnableThread.h"
 #include <unordered_set>
+#include <unordered_map>
 
 namespace Durin
 {
@@ -502,21 +503,55 @@ namespace Durin
 		Result.CompiledProgram = GetAcceptedCompiledProgram();
 		Result.StaticProperties = GetRenderableStaticProperties();
 		if (!Result.CompiledProgram) return Result;
+		// This context lives only for this build. Validate the chain and index the
+		// declarations once, then visit each owner's typed storage once. Calling
+		// ResolveParameterValue per active parameter repeats all of that work.
+		std::unordered_map<FGuid, FResolvedMaterialParameter> Parameters;
+		FResolvedMaterialProperties Properties;
+		std::string Error;
+		if (ResolveMaterialProperties(*this, Properties, Error))
+		{
+			auto* Root = Cast<DMaterial>(ResolveObjectHandle(Properties.Root));
+			const auto Definitions = Root->GetParameterDefinitions();
+			Parameters.reserve(Definitions.size());
+			for (const auto& Definition : Definitions)
+			{
+				FResolvedMaterialParameter Resolved;
+				Resolved.Definition = &Definition;
+				Resolved.Value = Definition.Value;
+				Parameters.emplace(Definition.Id, std::move(Resolved));
+			}
+			// Nearest matching override wins; an orphan or a stale type must not
+			// hide a matching ancestor value or the root default.
+			for (auto* Owner = this; Owner != Root; Owner = Owner->GetParent())
+			{
+				const auto* Instance = Cast<DMaterialInstance>(Owner);
+				Instance->VisitLocalParameterValues([&](const FGuid& Id, const FMaterialParameterValue& Value) {
+					const auto It = Parameters.find(Id);
+					if (It == Parameters.end() || It->second.Source
+						|| Value.GetType() != It->second.Definition->Type) return;
+					It->second.Value = Value;
+					It->second.Source = const_cast<DMaterialInstance*>(Instance);
+				});
+			}
+		}
+		std::unordered_map<FGuid, const FMaterialLocalRenderParameter*> Retained;
+		Retained.reserve(CompilationOwner.RenderLayer.Parameters.size());
+		for (const auto& Parameter : CompilationOwner.RenderLayer.Parameters)
+			Retained.emplace(Parameter.Id, &Parameter);
+		Result.Parameters.reserve(Result.CompiledProgram->ActiveParameters.size());
 		for (const auto& Parameter : Result.CompiledProgram->ActiveParameters)
 		{
-			FResolvedMaterialParameter Resolved;
-			if (ResolveParameterValue(Parameter.Id, Resolved)
-				&& Resolved.Definition && Resolved.Definition->Type == Parameter.Type)
+			const auto Resolved = Parameters.find(Parameter.Id);
+			if (Resolved != Parameters.end() && Resolved->second.Definition->Type == Parameter.Type)
 			{
 				Result.Parameters.push_back(BuildMaterialLocalRenderParameter(
-					Parameter.Id, Resolved.Value));
+					Parameter.Id, Resolved->second.Value));
 				continue;
 			}
-			const auto& Retained = CompilationOwner.RenderLayer.Parameters;
-			const auto Previous = std::ranges::find(Retained, Parameter.Id,
-				&FMaterialLocalRenderParameter::Id);
-			if (Previous != Retained.end() && Previous->GetType() == Parameter.Type)
-				Result.Parameters.push_back(*Previous);
+			const auto Previous = Retained.find(Parameter.Id);
+			if (Previous != Retained.end() && Previous->second->GetType() == Parameter.Type)
+				Result.Parameters.push_back(*Previous->second);
 		}
 		return Result;
 	}

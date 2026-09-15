@@ -497,6 +497,50 @@ TEST(FMaterialInstanceTests, InstancesInheritOverrideAndRejectParentCycles)
 	Durin::CollectGarbage();
 }
 
+TEST(FMaterialInstanceTests, RenderLayerResolvesMixedOverridesAndRefreshesEachBuild)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	auto* Root = MakeExpandedMaterial(nullptr, "BatchResolutionRoot");
+	auto* Parent = NewObject<DMaterialInstance>(nullptr, "BatchResolutionParent");
+	auto* Child = NewObject<DMaterialInstance>(nullptr, "BatchResolutionChild");
+	ASSERT_TRUE(Parent->SetParent(Root));
+	ASSERT_TRUE(Child->SetParent(Parent));
+	ASSERT_TRUE(Parent->SetVectorParameterValue(MaterialParameters::BaseColorName(), FVector3(.2, .4, .6)));
+	ASSERT_TRUE(Parent->SetScalarParameterValue(MaterialParameters::OpacityName(), .7f));
+	ASSERT_TRUE(Child->SetScalarParameterValue(MaterialParameters::OpacityName(), .3f));
+	const auto ColorId = MaterialParameters::GetBuiltinParameterIds(
+		MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value;
+	// Simulate a stored override whose declaration changed type, plus an orphan.
+	auto* Property = Child->GetClass()->FindPropertyByName("ScalarParameterValues");
+	ASSERT_NE(Property, nullptr);
+	auto& Records = *Property->ContainerPtrToValuePtr<std::vector<FMaterialScalarParameterValue>>(Child);
+	FMaterialScalarParameterValue Stale;
+	Stale.ParameterId = ColorId;
+	Stale.Value = .9f;
+	Records.push_back(Stale);
+	Stale.ParameterId = FGuid{0x12345678, 0x11223344, 0x55667788, 0x99aabbcc};
+	Records.push_back(Stale);
+	const auto CheckLayer = [&](float Opacity, const FVector3& Color) {
+		const auto Data = Child->GetRenderData();
+		ASSERT_NE(Data.CompiledProgram, nullptr);
+		ASSERT_FALSE(Data.Representation.IsError());
+		ExpectColorNear(GetMaterialBinding(Data).BaseColor,
+			FVector4f(static_cast<float>(Color.x), static_cast<float>(Color.y), static_cast<float>(Color.z), Opacity));
+		EXPECT_EQ(std::ranges::find(Data.CompiledProgram->ActiveParameters, Stale.ParameterId,
+			&FMaterialCompilerParameterDeclaration::Id), Data.CompiledProgram->ActiveParameters.end());
+	};
+	CheckLayer(.3f, FVector3(FVector3f(.2f, .4f, .6f)));
+	ASSERT_TRUE(Child->ClearScalarParameterValue(MaterialParameters::OpacityName()));
+	CheckLayer(.7f, FVector3(FVector3f(.2f, .4f, .6f)));
+	ASSERT_TRUE(Parent->ClearVectorParameterValue(MaterialParameters::BaseColorName()));
+	CheckLayer(.7f, Root->FindParameterDefinition(ColorId)->Value.GetVector());
+	MarkAsGarbage(Child);
+	MarkAsGarbage(Parent);
+	MarkAsGarbage(Root);
+	CollectGarbage();
+}
+
 TEST(FMaterialInstanceTests, MultiLevelResolutionReportsSupplyingSourceAndCurrentOverrideState)
 {
 	InitializeDObjectSystem();
