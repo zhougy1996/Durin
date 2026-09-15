@@ -384,6 +384,8 @@ TEST(FMaterialGraphOperationsTests,
 	InitializeDObjectSystem();
 	DMaterial* Material = NewObject<DMaterial>(nullptr, "AggregateSurfaceCommands");
 	ASSERT_NE(Material, nullptr);
+	// This exercises authored graph commands and normalization, not shader publication.
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	const auto Catalog = FMaterialGraphOperations::EnumerateCatalog();
 	const auto Entry = std::ranges::find(Catalog,
 		EMaterialProgramOpcode::MakeSurface,
@@ -880,6 +882,7 @@ TEST(FMaterialGraphOperationsTests, HiddenAdvancedPinsRetainStableIdentitiesAndR
 {
 	InitializeDObjectSystem();
 	auto* Material = NewObject<DMaterial>(nullptr, "AdvancedPins");
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	auto* Function = NewObject<DMaterialFunction>(nullptr, "AdvancedFunction");
 	FMaterialGraphDocument FunctionDocument(*Function), Document(*Material);
 	const FGuid Advanced = FGuid::NewGuid(), Visible = FGuid::NewGuid();
@@ -914,6 +917,7 @@ TEST(FMaterialGraphOperationsTests, TextureOutputsHideUnusedAdvancedPinsWithoutC
 {
 	InitializeDObjectSystem();
 	auto* Material = NewObject<DMaterial>(nullptr, "CompactTextureOutputs");
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	const auto Added = FMaterialGraphOperations::AddTextureToSurfaceOutput(*Material, {});
 	ASSERT_TRUE(Added);
 	const auto SampleId = Added.GeneratedNodeIds.front();
@@ -972,6 +976,7 @@ TEST(FMaterialGraphOperationsTests, CompactInputCommandsPreserveSharingFallbacks
 {
 	InitializeDObjectSystem();
 	auto* Material = NewObject<DMaterial>(nullptr, "CompactInputCommands");
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	FMaterialGraphDocument Document(*Material);
 	Durin::Tests::FTestTransactorOwner Transactions;
 	const auto Created = Testing::CreateGraphCatalogNode(Document, EMaterialProgramOpcode::Multiply, EMaterialProgramValueType::Float, {}, 400, 200, Transactions.Get());
@@ -1001,6 +1006,7 @@ TEST(FMaterialGraphOperationsTests, TypedInputDefaultsCoverWidthsCoordinatesAndF
 {
 	InitializeDObjectSystem();
 	auto* Material = NewObject<DMaterial>(nullptr, "TypedInputDefaults");
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	FMaterialGraphDocument Document(*Material);
 	Durin::Tests::FTestTransactorOwner Transactions;
 	for (uint32 Width = 1; Width <= 4; ++Width)
@@ -1303,6 +1309,7 @@ TEST(FMaterialGraphOperationsTests, ParameterSharingUsesLinksAndRenamePreservesO
 {
 	InitializeDObjectSystem();
 	auto* Material = NewObject<DMaterial>(nullptr, "SharedParameter");
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	FMaterialParameterDefinition Definition;
 	Definition.Name = "SharedValue";
 	Definition.Value = FMaterialParameterValue::MakeScalar(0.4f);
@@ -1337,6 +1344,7 @@ TEST(FMaterialGraphOperationsTests, GenericParametersCreateIndependentDeclaratio
 	InitializeDObjectSystem();
 	DMaterial* Material = NewObject<DMaterial>(nullptr, "GenericParameterMaterial");
 	ASSERT_NE(Material, nullptr);
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	auto Entries = FMaterialGraphOperations::SearchCatalog("parameter");
 	const auto IsParameter = [](const FMaterialGraphCatalogEntry& Entry) {
 		return Entry.Opcode == EMaterialProgramOpcode::Parameter
@@ -2473,6 +2481,8 @@ TEST(FMaterialGraphOperationsTests, SurfaceTexturesUseCompactSamplesAndPreserveU
 	ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
 	auto* Material = NewObject<DMaterial>(nullptr, "CompactSurfaceTextures");
 	ASSERT_NE(Material, nullptr);
+	// Keep every output and Undo/Redo assertion without compiling each intermediate graph.
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	Durin::Tests::FTestTransactorOwner Transactions;
 	constexpr std::array<uint8, 8> Channels{1, 8, 4, 3, 2, 1, 5, 2};
 	for (uint32 Index = 0; Index < Channels.size(); ++Index)
