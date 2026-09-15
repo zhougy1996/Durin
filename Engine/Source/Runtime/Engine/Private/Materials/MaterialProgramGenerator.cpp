@@ -98,6 +98,7 @@ struct VSOutput
     float2 uv1 : TEXCOORD4;
     float2 uv2 : TEXCOORD5;
     float2 uv3 : TEXCOORD6;
+    float materialTime : TEXCOORD7;
 };
 )";
 		OutSource += "struct MaterialUniform\n{\n    float4 SurfaceParams;\n";
@@ -163,6 +164,8 @@ FMaterialSurface EvaluateGeneratedMaterial(VSOutput input)
 			case EMaterialProgramOpcode::SetSurfaceAttributes:
 				// Authored operations must be expanded before source generation.
 				break;
+			case EMaterialProgramOpcode::WorldPosition: Expression = "input.worldPosition"; break;
+			case EMaterialProgramOpcode::Time: Expression = "input.materialTime"; break;
 			case EMaterialProgramOpcode::UVChannel: Expression = std::format("SelectAuthoredUV(input, {})", Input(0)); break;
 			case EMaterialProgramOpcode::Sine: Expression = std::format("sin({})", Input(0)); break;
 			case EMaterialProgramOpcode::Cosine: Expression = std::format("cos({})", Input(0)); break;
@@ -511,7 +514,7 @@ float4 FragmentMain(
 		{
 			const auto& Node = IR.Nodes[Index];
 			const auto Signature = GetMaterialProgramNodeSignature(Node.Opcode, Node.ResultType);
-			if (Node.Opcode >= EMaterialProgramOpcode::FunctionInput || !Signature || Node.Inputs.size() != Signature->InputCount)
+			if ((Node.Opcode >= EMaterialProgramOpcode::FunctionInput && Node.Opcode <= EMaterialProgramOpcode::AppendVector) || !Signature || Node.Inputs.size() != Signature->InputCount)
 			{
 				Fail("Material IR opcode, result type, or input count is invalid.");
 				return Result;

@@ -890,3 +890,35 @@ TEST(FMaterialProgramSchemaTests, RetiredIROpcodesAreRejectedWithoutMutatingInpu
 		EXPECT_EQ(Input.IR, Before);
 	}
 }
+
+TEST(FMaterialProgramSchemaTests, EnvironmentInputsCompileWithoutMaterialParameters)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	TStrongObjectPtr<DMaterialExpressionWorldPosition> Position(NewObject<DMaterialExpressionWorldPosition>(nullptr, NAME_None));
+	TStrongObjectPtr<DMaterialExpressionTime> Time(NewObject<DMaterialExpressionTime>(nullptr, NAME_None));
+	Position->Id = FGuid::NewGuid(); Time->Id = FGuid::NewGuid();
+	const std::array<DMaterialExpression*, 2> Expressions{Position.Get(), Time.Get()};
+	FMaterialExpressionSurfaceOutputs Outputs;
+	Outputs.BaseColor = {Position->Id}; Outputs.Roughness = {Time->Id};
+	ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
+	EXPECT_TRUE(Material->GetParameterDefinitions().empty());
+	FMaterialCompilerEnvironment Environment;
+	std::string Error;
+	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Environment, Error)) << Error;
+	FMaterialIRCompilerInput Input;
+	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Material, Environment, Input));
+	const auto Normalized = NormalizeMaterialIR(Input);
+	ASSERT_TRUE(Normalized);
+	const auto Source = GenerateMaterialProgramSlang(Normalized.IR, Normalized.Layout);
+	ASSERT_TRUE(Source);
+	EXPECT_NE(Source.Source.find("input.worldPosition"), std::string::npos);
+	EXPECT_NE(Source.Source.find("input.materialTime"), std::string::npos);
+	const auto Compiled = CompileMaterialIR(Input);
+	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "missing diagnostic" : Compiled.Diagnostics.front().Message);
+	EXPECT_TRUE(ValidateMaterialCompilerResult(Compiled));
+	EXPECT_FALSE(GetMaterialProgramNodeSignature(EMaterialProgramOpcode::WorldPosition, EMaterialProgramValueType::Float4));
+	EXPECT_FALSE(GetMaterialProgramNodeSignature(EMaterialProgramOpcode::Time, EMaterialProgramValueType::Float3));
+}

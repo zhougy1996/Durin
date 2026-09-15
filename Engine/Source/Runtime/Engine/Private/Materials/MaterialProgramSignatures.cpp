@@ -27,6 +27,12 @@ namespace Durin
 		};
 		switch (Opcode)
 		{
+		case EMaterialProgramOpcode::WorldPosition:
+			if (ResultType != Type::Float3) return std::nullopt;
+			break;
+		case EMaterialProgramOpcode::Time:
+			if (ResultType != Type::Float) return std::nullopt;
+			break;
 		case EMaterialProgramOpcode::Parameter:
 			if (ResultType != Type::Float && ResultType != Type::Float4) return std::nullopt;
 			break;

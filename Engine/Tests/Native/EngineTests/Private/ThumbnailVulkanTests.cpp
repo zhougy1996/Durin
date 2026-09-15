@@ -222,7 +222,14 @@ TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRender
 		StaticMeshAssetMaterial
 	));
 	ASSERT_NE(StaticMeshAssetMaterial, nullptr);
-	ASSERT_TRUE(Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*StaticMeshAssetMaterial));
+	auto Recipe = Durin::Testing::MakePBRMaterialExpressionsForTest();
+	// Exercise environment inputs through shader compilation, vertex linkage and thumbnail rendering.
+	Durin::TStrongObjectPtr<Durin::DMaterialExpressionWorldPosition> Position(Durin::NewObject<Durin::DMaterialExpressionWorldPosition>(nullptr, Durin::NAME_None));
+	Durin::TStrongObjectPtr<Durin::DMaterialExpressionTime> Time(Durin::NewObject<Durin::DMaterialExpressionTime>(nullptr, Durin::NAME_None));
+	Position->Id = Durin::FGuid::NewGuid(); Time->Id = Durin::FGuid::NewGuid();
+	Recipe.Expressions.emplace_back(Position.Get()); Recipe.Expressions.emplace_back(Time.Get());
+	Recipe.Outputs.Emissive = {Position->Id}; Recipe.Outputs.Roughness = {Time->Id};
+	ASSERT_TRUE(Recipe.Apply(*StaticMeshAssetMaterial));
 	ASSERT_TRUE(StaticMeshAssetMaterial->SetVectorParameterValue(
 		Durin::MaterialParameters::BaseColorName(),
 		Durin::FVector3(0.85, 0.12, 0.18)

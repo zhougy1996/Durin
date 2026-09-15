@@ -8,6 +8,8 @@
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 #include "SceneView.h"
+#include "Misc/Time.h"
+#include "CoreGlobals.h"
 
 namespace Durin
 {
@@ -231,8 +233,11 @@ namespace Durin
 		FRDGCapture* OutRenderGraphCapture
 	) -> ERenderViewResult
 	{
+		auto TimedView = View;
+		if (!std::isfinite(TimedView.MaterialTimeSeconds) || TimedView.MaterialTimeSeconds < 0.0)
+			TimedView.MaterialTimeSeconds = FTime::Seconds() - GStartTime;
 		return FSceneRenderPipeline(*this).Execute_RenderThread(
-			CommandList, Scene, View, OutputTarget, bPresentOutput,
+			CommandList, Scene, TimedView, OutputTarget, bPresentOutput,
 			Options, OutStatistics, OutRenderGraphCapture
 		);
 	}

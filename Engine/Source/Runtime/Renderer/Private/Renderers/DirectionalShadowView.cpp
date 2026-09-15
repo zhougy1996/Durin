@@ -452,6 +452,7 @@ namespace Durin
 			if (!TryFitCascade(SliceCorners, Filter, Right, Up, Forward,
 					CascadeIndex, NearDepth, FarDepth, TransitionStart,
 					Candidate.Cascades[CascadeIndex])) return false;
+			Candidate.Cascades[CascadeIndex].CasterView.MaterialTimeSeconds = View.MaterialTimeSeconds;
 		}
 		Candidate.bEnabled = true;
 		OutShadow = Candidate;

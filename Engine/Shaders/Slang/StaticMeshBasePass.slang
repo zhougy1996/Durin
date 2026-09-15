@@ -24,6 +24,7 @@ struct VSOutput
     float2 uv1 : TEXCOORD4;
     float2 uv2 : TEXCOORD5;
     float2 uv3 : TEXCOORD6;
+    float materialTime : TEXCOORD7;
 };
 
 
@@ -33,7 +34,7 @@ struct TransformUniform
     float4x4 LocalToClip;
     float4x4 LocalToWorld;
     float4x4 NormalToWorld;
-    // x contains the local-to-world determinant sign for mirrored transforms.
+    // x: determinant sign; y: material time in seconds.
     float4 TransformParams;
 };
 
@@ -63,6 +64,7 @@ VSOutput VertexMain(FLocalVertexFactoryInput input)
     output.uv1 = vertex.texCoords[1];
     output.uv2 = vertex.texCoords[2];
     output.uv3 = vertex.texCoords[3];
+    output.materialTime = Transform.TransformParams.y;
 
     return output;
 }

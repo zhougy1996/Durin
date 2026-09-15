@@ -764,6 +764,8 @@ TEST(FMaterialExpressionTests, EveryMappedConcreteClassExposesApplicableInputs)
 		FEntry{DMaterialExpressionSwizzle::StaticClass(), EMaterialProgramOpcode::Swizzle, EMaterialProgramValueType::Float},
 		FEntry{DMaterialExpressionTextureSample2D::StaticClass(), EMaterialProgramOpcode::TextureSample2D, EMaterialProgramValueType::Float4},
 		FEntry{DMaterialExpressionTextureSampleParameter2D::StaticClass(), EMaterialProgramOpcode::TextureSampleParameter2D, EMaterialProgramValueType::Float4},
+		FEntry{DMaterialExpressionWorldPosition::StaticClass(), EMaterialProgramOpcode::WorldPosition, EMaterialProgramValueType::Float3},
+		FEntry{DMaterialExpressionTime::StaticClass(), EMaterialProgramOpcode::Time, EMaterialProgramValueType::Float},
 		FEntry{DMaterialExpressionTextureCoordinates::StaticClass(), EMaterialProgramOpcode::TextureCoordinates, EMaterialProgramValueType::Float2},
 		FEntry{DMaterialExpressionMakeSurface::StaticClass(), EMaterialProgramOpcode::MakeSurface, EMaterialProgramValueType::Surface},
 		FEntry{DMaterialExpressionGetSurfaceAttributes::StaticClass(), EMaterialProgramOpcode::GetSurfaceAttributes, EMaterialProgramValueType::Surface},

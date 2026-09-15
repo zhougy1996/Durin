@@ -289,6 +289,18 @@ namespace Durin
 			static_cast<EMaterialProgramValueType>(Components.size() - 1), Inputs, Defaults, Components);
 	}
 
+	auto DMaterialExpressionWorldPosition::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
+	{
+		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail("Expression has only its primary output.");
+		return Context.Emit({.Opcode = EMaterialProgramOpcode::WorldPosition, .ResultType = EMaterialProgramValueType::Float3});
+	}
+
+	auto DMaterialExpressionTime::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
+	{
+		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail("Expression has only its primary output.");
+		return Context.Emit({.Opcode = EMaterialProgramOpcode::Time, .ResultType = EMaterialProgramValueType::Float});
+	}
+
 	auto DMaterialExpressionTextureCoordinates::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
 	{
 		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail("Expression has only its primary output.");

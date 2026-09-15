@@ -157,6 +157,17 @@ downstream math widths in the same transaction. Scalar operands broadcast to the
 vector width; different non-scalar widths reject atomically. Lerp Alpha remains
 scalar and Normalize requires a vector. Pins retain their resolved type display.
 
+World Position (Float3) and Time (Float) are input nodes with fixed output widths.
+World Position reads the surface position in world space. Time reads elapsed real
+seconds since process startup, including in material previews, without recompilation.
+A nonnegative `FSceneView::MaterialTimeSeconds` freezes evaluation for deterministic
+captures; the renderer snapshots automatic time once per view for every pass.
+Static thumbnails use time zero.
+
+Node title bars identify function: inputs blue, parameters green, textures brown,
+channels purple, math gray, functions teal, and Surface operations red. Pin colors
+continue to indicate data types. Material and material-function canvases share this palette.
+
 Parameter creation exposes Scalar Parameter, Vector Parameter and texture owner
 entries. Vector Parameter stores four components and has no creation-time width selector.
 Component Mask selects channels using R/G/B/A checkboxes; its output width follows

@@ -486,6 +486,7 @@ namespace Durin
 				EDirectionalShadowCandidate::ThreeCascades})
 		{
 			View.Settings.DirectionalShadow.Candidate = Candidate;
+			View.MaterialTimeSeconds = 12.5;
 			FPreparedDirectionalShadowView Shadow;
 			ASSERT_TRUE(TryPrepareDirectionalShadowView(
 				View, FLightComponentId(9), Light, Shadow));
@@ -498,6 +499,7 @@ namespace Durin
 			{
 				const auto& Cascade = Shadow.Cascades[CascadeIndex];
 				EXPECT_TRUE(Cascade.bEnabled);
+				EXPECT_EQ(Cascade.CasterView.MaterialTimeSeconds, View.MaterialTimeSeconds);
 				EXPECT_EQ(Cascade.CasterView.DepthConvention,
 					ESceneDepthConvention::ForwardZ);
 				EXPECT_GT(Cascade.FarDepth, Cascade.NearDepth);

@@ -124,6 +124,28 @@ namespace Durin::Editor::Material
 				DrawList.AddBezierCubic(A, ControlA, ControlB, B, Color, Thickness);
 		}
 
+		auto NodeTitleColor(EMaterialProgramOpcode Opcode) -> ImU32
+		{
+			using Op = EMaterialProgramOpcode;
+			switch (Opcode)
+			{
+			case Op::Parameter: case Op::TextureParameter: case Op::TextureSampleParameter2D:
+				return IM_COL32(48, 100, 66, 255);
+			case Op::Constant: case Op::UVChannel: case Op::TextureCoordinates: case Op::WorldPosition: case Op::Time:
+				return IM_COL32(44, 83, 126, 255);
+			case Op::TextureSample2D: case Op::DecodeNormalRG: case Op::BlendNormalsRNM:
+				return IM_COL32(114, 79, 43, 255);
+			case Op::Swizzle: case Op::AppendVector: case Op::MakeFloat2: case Op::MakeFloat3: case Op::MakeFloat4:
+			case Op::Splat2: case Op::Splat3: case Op::Splat4:
+				return IM_COL32(91, 65, 122, 255);
+			case Op::FunctionInput: case Op::FunctionOutput: case Op::FunctionCall:
+				return IM_COL32(39, 99, 105, 255);
+			case Op::MakeSurface: case Op::GetSurfaceAttributes: case Op::SetSurfaceAttributes:
+				return IM_COL32(119, 57, 60, 255);
+			default: return IM_COL32(66, 72, 83, 255);
+			}
+		}
+
 		auto TypeColor(EMaterialProgramValueType Type) -> ImU32
 		{
 			switch (Type)
@@ -1277,7 +1299,7 @@ namespace Durin::Editor::Material
 					? GraphSelectedNodeBodyAlpha : GraphNodeBodyAlpha), 5);
 			DrawList.AddRectFilled(Node.Minimum,
 				{Node.Maximum.x, Node.Minimum.y + NodeHeaderHeight * Zoom},
-				IM_COL32(57, 62, 74, 255), 5, ImDrawFlags_RoundCornersTop);
+				NodeTitleColor(Node.View->Node.Opcode), 5, ImDrawFlags_RoundCornersTop);
 			DrawList.AddRect(Node.Minimum, Node.Maximum, SelectedNodes.contains(Node.View->Node.Id)
 				? IM_COL32(220, 170, 70, 255) : IM_COL32(80, 86, 100, 255), 5);
 			DrawNodeHeading(Node, DrawList);
@@ -1531,7 +1553,7 @@ namespace Durin::Editor::Material
 					6.0f, 0, bSelected ? 2.5f : 1.0f);
 				DrawList->AddRectFilled(Visual.Minimum,
 					{Visual.Maximum.x, Visual.Minimum.y + NodeHeaderHeight * Zoom},
-					IM_COL32(57, 62, 74, 255), 6.0f, ImDrawFlags_RoundCornersTop);
+					NodeTitleColor(Visual.View->Node.Opcode), 6.0f, ImDrawFlags_RoundCornersTop);
 				DrawNodeHeading(Visual, *DrawList, &Material);
 				const float PinRadius = std::max(2.0f, 5.0f * Zoom);
 				if (DetailLevel != EMaterialGraphDetailLevel::Overview
@@ -1789,7 +1811,7 @@ namespace Durin::Editor::Material
 			DrawList->AddRectFilled(SurfaceMinimum,
 				{SurfaceMaximum.x,
 					SurfaceMinimum.y + Metrics.SurfaceHeaderHeight * Zoom},
-				IM_COL32(57, 62, 74, 255), 6.0f, ImDrawFlags_RoundCornersTop);
+				NodeTitleColor(EMaterialProgramOpcode::MakeSurface), 6.0f, ImDrawFlags_RoundCornersTop);
 			if (DetailLevel != EMaterialGraphDetailLevel::Overview)
 			{
 				const float FontSize = GraphTitleFontSize;

@@ -49,6 +49,8 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::Parameter:
 			case EMaterialProgramOpcode::TextureParameter:
 			case EMaterialProgramOpcode::UVChannel:
+			case EMaterialProgramOpcode::WorldPosition:
+			case EMaterialProgramOpcode::Time:
 			case EMaterialProgramOpcode::TextureCoordinates: return "Inputs";
 			case EMaterialProgramOpcode::TextureSampleParameter2D:
 			case EMaterialProgramOpcode::TextureSample2D:
@@ -77,6 +79,8 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::Parameter: return "Parameter";
 			case EMaterialProgramOpcode::TextureParameter: return "Texture Object Parameter";
 			case EMaterialProgramOpcode::TextureSampleParameter2D: return "Texture Sample Parameter 2D";
+			case EMaterialProgramOpcode::WorldPosition: return "World Position";
+			case EMaterialProgramOpcode::Time: return "Time";
 			case EMaterialProgramOpcode::TextureCoordinates: return "Texture Coordinates";
 			case EMaterialProgramOpcode::TextureSample2D: return "Texture Sample 2D";
 			case EMaterialProgramOpcode::Add: return "Add";
@@ -160,6 +164,8 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::FunctionCall: return DMaterialExpressionFunctionCall::StaticClass();
 			case EMaterialProgramOpcode::GetSurfaceAttributes: return DMaterialExpressionGetSurfaceAttributes::StaticClass();
 			case EMaterialProgramOpcode::SetSurfaceAttributes: return DMaterialExpressionSetSurfaceAttributes::StaticClass();
+			case EMaterialProgramOpcode::WorldPosition: return DMaterialExpressionWorldPosition::StaticClass();
+			case EMaterialProgramOpcode::Time: return DMaterialExpressionTime::StaticClass();
 			case EMaterialProgramOpcode::TextureCoordinates: return DMaterialExpressionTextureCoordinates::StaticClass();
 			case EMaterialProgramOpcode::MakeFloat2: return DMaterialExpressionMakeVector2::StaticClass();
 			case EMaterialProgramOpcode::MakeFloat3: return DMaterialExpressionMakeVector3::StaticClass();
@@ -201,6 +207,8 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::MakeFloat2:
 			case EMaterialProgramOpcode::MakeFloat3:
 			case EMaterialProgramOpcode::MakeFloat4: Entry.Description = "Combines scalar inputs into a vector."; break;
+			case EMaterialProgramOpcode::WorldPosition: Entry.Description = "Surface position in world space (Float3)."; break;
+			case EMaterialProgramOpcode::Time: Entry.Description = "Elapsed real time in seconds (Float), updated every rendered view."; break;
 			case EMaterialProgramOpcode::AppendVector: Entry.Description = "Concatenates A and B; output width follows the inputs (up to four components)."; break;
 			case EMaterialProgramOpcode::Swizzle: Entry.Description = "Selects, repeats or reorders channels (Component Mask / Truncate)."; break;
 			case EMaterialProgramOpcode::Splat2:
@@ -564,7 +572,7 @@ namespace Durin::Editor::Material
 	{
 		std::vector<FMaterialGraphCatalogEntry> Result;
 		for (uint8 OpcodeValue = static_cast<uint8>(EMaterialProgramOpcode::Constant);
-			OpcodeValue <= static_cast<uint8>(EMaterialProgramOpcode::AppendVector); ++OpcodeValue)
+			OpcodeValue <= static_cast<uint8>(EMaterialProgramOpcode::Time); ++OpcodeValue)
 			for (uint8 TypeValue = static_cast<uint8>(EMaterialProgramValueType::Float);
 				TypeValue <= static_cast<uint8>(EMaterialProgramValueType::Surface); ++TypeValue)
 			{

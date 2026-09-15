@@ -39,6 +39,7 @@ namespace Durin::Editor
 		) -> FSceneView
 		{
 			FSceneView View;
+			View.MaterialTimeSeconds = 0.0;
 			const FVector3 Eye(
 				Preview.CameraPosition[0],
 				Preview.CameraPosition[1],

@@ -273,6 +273,8 @@ namespace Durin
 	{
 		// Invalid keeps this submission fully stateless.
 		FSceneViewStateId ViewStateId;
+		// Negative selects elapsed real time; nonnegative freezes material animation for captures.
+		double MaterialTimeSeconds = -1.0;
 		// Explicitly rejects continuity for this submission without guessing from motion.
 		bool bDiscardHistory = false;
 		FMatrix ViewMatrix{1.0};

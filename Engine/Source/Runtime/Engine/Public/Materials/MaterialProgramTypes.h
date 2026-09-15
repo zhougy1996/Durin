@@ -87,6 +87,8 @@ namespace Durin
 		TextureSampleParameter2D,
 		TextureCoordinates,
 		AppendVector,
+		WorldPosition,
+		Time,
 	};
 
 	// Numeric authoring nodes infer their width from their operands in the editor.

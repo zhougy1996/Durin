@@ -1058,6 +1058,26 @@ namespace Durin
 
 	};
 
+	DCLASS()
+	class DMaterialExpressionWorldPosition : public DMaterialExpression
+	{
+		GENERATED_BODY()
+	public:
+		explicit DMaterialExpressionWorldPosition(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
+			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
+	};
+
+	DCLASS()
+	class DMaterialExpressionTime : public DMaterialExpression
+	{
+		GENERATED_BODY()
+	public:
+		explicit DMaterialExpressionTime(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
+			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
+	};
+
 	// Reads one mesh UV channel as a Float2; transforms belong to upstream math nodes.
 	DCLASS()
 	class DMaterialExpressionTextureCoordinates : public DMaterialExpression
