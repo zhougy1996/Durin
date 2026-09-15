@@ -3571,10 +3571,11 @@ TEST(FPackageAssetTests, HeaderReaderStopsBeforeLargeObjectPayload)
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/LargeHeaderOnly", Path));
 	DPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(Path, Asset));
-	Asset->Scores.resize(100000, 7);
+	// The header read needs a large object payload, without per-element archive work.
+	Asset->Label.assign(512u * 1024u, 'x');
 	ASSERT_TRUE(Durin::SavePackage(Asset->GetPackage()));
 	const auto File = Durin::Testing::GetTestWorkDirectory() / "Assets" / "LargeHeaderOnly.dasset";
-	ASSERT_GT(std::filesystem::file_size(File), 8u * 1024u);
+	ASSERT_GT(std::filesystem::file_size(File), Asset->Label.size());
 
 	Durin::FAssetPackageHeader Header;
 	ASSERT_TRUE(Durin::ReadAssetPackageHeader(File.generic_string(), Path, Header));

@@ -42,21 +42,26 @@ namespace
 		}
 	};
 
-	class FSlowPackageResource final : public FPackageResource
+	// Gates reads explicitly when a test needs an in-flight request. The timeout
+	// bounds cleanup after an assertion exits before releasing the read.
+	class FTestPackageResource final : public FPackageResource
 	{
 	public:
-		FSlowPackageResource() : FPackageResource(4) {}
+		explicit FTestPackageResource(bool bBlockRead = false) : FPackageResource(4)
+		{
+			if (!bBlockRead) Release.Trigger();
+		}
+		FThreadEvent Started;
+		FThreadEvent Release;
 
 	private:
 		auto ReadRangeImpl(uint64, uint64 Size, const std::atomic_bool& bCancelled)
 			-> FPackageResourceReadResult override
 		{
-			for (uint32 Index = 0; Index < 100; ++Index)
-			{
-				if (bCancelled.load(std::memory_order_acquire))
-					return {.Status = EPackageResourceReadStatus::Cancelled};
-				std::this_thread::sleep_for(std::chrono::milliseconds(1));
-			}
+			Started.Trigger();
+			if (!Release.WaitFor(2.0)) return {.Status = EPackageResourceReadStatus::IoError};
+			if (bCancelled.load(std::memory_order_acquire))
+				return {.Status = EPackageResourceReadStatus::Cancelled};
 			return {.Status = EPackageResourceReadStatus::Success,
 				.Buffer = FSharedByteBuffer::Take(Durin::FByteBuffer(Size))};
 		}
@@ -533,9 +538,11 @@ TEST_F(FPreparedPackageResourceTests, RejectsMainReplacementDuringBulkCapture)
 
 TEST(FPackageResourceTests, AsyncCancellationAndRetirementConserveTerminalResults)
 {
-	auto Resource = std::make_shared<FSlowPackageResource>();
+	auto Resource = std::make_shared<FTestPackageResource>(true);
 	FPackageResourceRequest Cancelled = Resource->ReadRangeAsync(0, 4);
+	ASSERT_TRUE(Resource->Started.WaitFor(1.0));
 	Cancelled.Cancel();
+	Resource->Release.Trigger();
 	EXPECT_EQ(Cancelled.Wait().Status, EPackageResourceReadStatus::Cancelled);
 
 	FPackageResourceRequest Retiring = Resource->ReadRangeAsync(0, 4);
@@ -570,9 +577,11 @@ TEST(FPackageResourceTests, BlockingReadsLeaveCpuAvailableAndTransformsShareTerm
 	EXPECT_TRUE(Second.Wait());
 	WaitTask(Cpu);
 
-	auto Slow = std::make_shared<FSlowPackageResource>();
-	auto Canceled = Slow->ReadRangeAsync(0, 4);
+	auto CancelResource = std::make_shared<FTestPackageResource>(true);
+	auto Canceled = CancelResource->ReadRangeAsync(0, 4);
+	ASSERT_TRUE(CancelResource->Started.WaitFor(1.0));
 	Canceled.Cancel();
+	CancelResource->Release.Trigger();
 	auto Recovery = FPackageResourceRequest::Transform(Canceled, [](FPackageResourceReadResult Value) {
 		EXPECT_EQ(EPackageResourceReadStatus::Cancelled, Value.Status);
 		return FPackageResourceReadResult{.Status = EPackageResourceReadStatus::Success};
@@ -584,7 +593,7 @@ TEST(FPackageResourceTests, SubmissionAfterSchedulerClosureIsALifecycleViolation
 {
 	ShutdownTaskScheduler(true);
 	EXPECT_DEATH({
-		auto Resource = std::make_shared<FSlowPackageResource>();
+		auto Resource = std::make_shared<FTestPackageResource>();
 		(void)Resource->ReadRangeAsync(0, 4);
 	}, "");
 	EXPECT_DEATH({
@@ -633,7 +642,7 @@ TEST(FEditorBulkDataTests, SeparatesInstanceAndContentIdentityWithoutForcedLoad)
 	EXPECT_EQ(Snapshot.GetPayloadId(), ContentId);
 	EXPECT_TRUE(std::ranges::equal(Snapshot.GetPayload().Wait().Buffer.GetBytes(), Bytes));
 
-	auto Resource = std::make_shared<FSlowPackageResource>();
+	auto Resource = std::make_shared<FTestPackageResource>();
 	FEditorBulkData PackageBacked;
 	std::string Error;
 	ASSERT_TRUE(FEditorBulkData::TryCreatePackageBacked(
@@ -681,7 +690,7 @@ TEST(FEditorBulkDataTests, ConcurrentCopiesObserveOneCoherentSnapshot)
 
 TEST(FEditorBulkDataTests, RequestsAndFailedReplacementConserveCapturedState)
 {
-	auto Resource = std::make_shared<FSlowPackageResource>();
+	auto Resource = std::make_shared<FTestPackageResource>(true);
 	FEditorBulkData Value;
 	std::string Error;
 	ASSERT_TRUE(FEditorBulkData::TryCreatePackageBacked(
@@ -689,8 +698,11 @@ TEST(FEditorBulkDataTests, RequestsAndFailedReplacementConserveCapturedState)
 			Durin::FByteBuffer(4, std::byte{0})), 4,
 		{.Resource = Resource, .StoredSize = 4}, Value, &Error)) << Error;
 	FPackageResourceRequest Captured = Value.GetPayload();
+	ASSERT_TRUE(Resource->Started.WaitFor(1.0));
 	const std::array Replacement{std::byte{4}, std::byte{3}};
 	ASSERT_TRUE(Value.UpdatePayload(Replacement));
+	EXPECT_FALSE(Captured.IsReady());
+	Resource->Release.Trigger();
 	const FPackageResourceReadResult Original = Captured.Wait();
 	ASSERT_TRUE(Original);
 	EXPECT_EQ(Original.Buffer.GetSize(), 4u);
@@ -706,7 +718,7 @@ TEST(FEditorBulkDataTests, RequestsAndFailedReplacementConserveCapturedState)
 
 TEST(FPackageResourceRangeTests, SharesBoundedStorageFactsAcrossEditorAndRuntimeBulk)
 {
-	auto Resource = std::make_shared<FSlowPackageResource>();
+	auto Resource = std::make_shared<FTestPackageResource>();
 	const FPackageResourceRange Range{.Resource = Resource, .StoredSize = 4};
 	std::string Error;
 	EXPECT_TRUE(ValidatePackageResourceRange(Range, 4, &Error)) << Error;
