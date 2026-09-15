@@ -118,7 +118,7 @@ namespace Durin::Editor::Material
 						Value = static_cast<std::remove_reference_t<decltype(Value)>>(Index);
 						Submit(FMaterialGraphOperations::SetParameterValue(*Material, Parameter.Id, Parameter.Value, &Transactions));
 					};
-					Combo("Fallback", Parameter.Value.GetTexture().TextureFallback, "White\0Black\0Flat normal\0");
+					Combo("Missing texture", Parameter.Value.GetTexture().TextureFallback, "White\0Black\0Flat normal\0");
 					Combo("Min filter", Parameter.Value.GetTexture().SamplerState.MinFilter, "Nearest\0Linear\0Nearest mip nearest\0Linear mip nearest\0Nearest mip linear\0Linear mip linear\0");
 					Combo("Mag filter", Parameter.Value.GetTexture().SamplerState.MagFilter, "Nearest\0Linear\0");
 					Combo("Address U", Parameter.Value.GetTexture().SamplerState.AddressU, "Repeat\0Mirrored repeat\0Clamp\0");
@@ -129,7 +129,7 @@ namespace Durin::Editor::Material
 			else if (!Changed)
 			{
 				auto Literal = ReadParameterLiteral(GetProgramType(Parameter.Type), Parameter.Value);
-				if (EditLiteral("Default", GetProgramType(Parameter.Type), Literal))
+				if (EditLiteral("Default value", GetProgramType(Parameter.Type), Literal))
 				{
 					if (Parameter.Presentation == EMaterialParameterPresentation::Integer)
 					{
@@ -176,16 +176,25 @@ namespace Durin::Editor::Material
 			}
 			auto Value = Pin.InlineDefault;
 			if (Value.Kind == EMaterialInputDefaultKind::None) Value.Type = Pin.SourceType;
-			MonaImGui::PropertyEdit::BeginRow("Connection");
-			ImGui::TextDisabled(Pin.Link.SourceNodeId.IsValid() ? "Connected" : "Unconnected");
-			MonaImGui::PropertyEdit::EndRow();
-			if (EditLiteral("Fallback", Value.Type, Value.Literal))
+			const bool bConnected = Pin.Link.SourceNodeId.IsValid();
+			const auto EditValue = [&]() {
+				if (EditLiteral("Value", Value.Type, Value.Literal))
+				{
+					Value.Kind = EMaterialInputDefaultKind::Literal;
+					Submit(Document.SetInputDefault(Selected->Node.Id, Pin.InputIndex, Value, Pin.PortId, &Transactions));
+				}
+			};
+			if (bConnected)
 			{
-				Value.Kind = EMaterialInputDefaultKind::Literal;
-				Submit(Document.SetInputDefault(Selected->Node.Id, Pin.InputIndex, Value, Pin.PortId, &Transactions));
+				const auto Source = std::ranges::find(View.Nodes, Pin.Link.SourceNodeId,
+					[](const auto& Entry) { return Entry.Node.Id; });
+				MonaImGui::PropertyEdit::BeginRow("Source");
+				ImGui::TextWrapped("%s", Source != View.Nodes.end() ? Source->PrimaryLabel.c_str() : "Unavailable node");
+				MonaImGui::PropertyEdit::EndRow();
 			}
+			else EditValue();
 			MonaImGui::PropertyEdit::BeginRow("Actions");
-			if (!Changed && Pin.Link.SourceNodeId.IsValid())
+			if (!Changed && bConnected)
 			{
 				if (ImGui::SmallButton("Inline constant")) Submit(Document.InlineInputNode(Selected->Node.Id, Pin.InputIndex, Pin.PortId, &Transactions));
 				if (!Changed && ImGui::SmallButton("Disconnect")) Submit(Pin.PortId.IsValid()
@@ -227,6 +236,12 @@ namespace Durin::Editor::Material
 				}
 			}
 			MonaImGui::PropertyEdit::EndRow();
+			if (!Changed && bConnected
+				&& MonaImGui::PropertyEdit::BeginGroup("DisconnectedValue", "When disconnected", ImGuiTreeNodeFlags_None))
+			{
+				EditValue();
+				MonaImGui::PropertyEdit::EndGroup();
+			}
 			MonaImGui::PropertyEdit::EndGroup();
 			ImGui::PopID();
 		}
