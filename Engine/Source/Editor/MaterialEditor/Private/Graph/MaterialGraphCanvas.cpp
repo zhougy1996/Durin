@@ -1354,10 +1354,6 @@ namespace Durin::Editor::Material
 						std::array<int, 4> SwizzleDraft{};
 						const auto& Components = std::get<std::vector<uint8>>(Visual.View->Node.Data);
 						for (size_t Index = 0; Index < Components.size(); ++Index) SwizzleDraft[Index] = Components[Index];
-						if (const auto* Inline =
-							std::get_if<FInlineEditingInteraction>(&Interaction);
-							Inline && Inline->Node == Visual.View->Node.Id)
-							SwizzleDraft = Inline->SwizzleDraft;
 						const ImVec2 SavedCursor = ImGui::GetCursorScreenPos();
 						ImGui::SetCursorScreenPos(Add(Visual.Minimum,
 							{10.0f * Zoom, (NodeHeaderHeight + Metrics.SecondaryHeight
@@ -1369,27 +1365,21 @@ namespace Durin::Editor::Material
 							GraphControlFramePadding);
 						ImGui::PushStyleVar(ImGuiStyleVar_ItemInnerSpacing,
 							GraphControlItemSpacing);
-						ImGui::DragInt4("##InlineSwizzle", SwizzleDraft.data(), 0.1f, 0, 3);
-						bEmbeddedControlHoveredOrActive |=
-							ImGui::IsItemHovered() || ImGui::IsItemActive();
-						const bool bInlineActive = ImGui::IsItemActive();
-						const bool bCancelInline = ImGui::IsKeyPressed(ImGuiKey_Escape)
-							&& (bInlineActive || ImGui::IsItemFocused());
-						if (bCancelInline) ResetInteraction();
-						else if (ImGui::IsItemDeactivatedAfterEdit())
+						for (size_t Index = 0; Index < Components.size(); ++Index)
 						{
-							std::array<uint8, 4> Components{};
-							for (size_t Index = 0; Index < Components.size(); ++Index)
-								Components[Index] = static_cast<uint8>(std::clamp(SwizzleDraft[Index], 0, 3));
-							ReportCommand(FMaterialGraphDocument(Material).SetSwizzleComponents(Visual.View->Node.Id,
-								std::span(Components).first(std::get<std::vector<uint8>>(Visual.View->Node.Data).size()), &Transactions), ReportError);
+							if (Index != 0) ImGui::SameLine();
+							ImGui::PushID(static_cast<int>(Index));
+							ImGui::SetNextItemWidth((NodeWidth - 32.0f) * Zoom / Components.size());
+							if (ImGui::Combo("##Channel", &SwizzleDraft[Index], "R\0G\0B\0A\0"))
+							{
+								auto Selected = Components;
+								Selected[Index] = static_cast<uint8>(SwizzleDraft[Index]);
+								ReportCommand(FMaterialGraphDocument(Material).SetSwizzleComponents(
+									Visual.View->Node.Id, Selected, &Transactions), ReportError);
+							}
+							bEmbeddedControlHoveredOrActive |= ImGui::IsItemHovered() || ImGui::IsItemActive();
+							ImGui::PopID();
 						}
-						if (bInlineActive && !bCancelInline)
-							Interaction = FInlineEditingInteraction{
-								.Node = Visual.View->Node.Id,
-								.SwizzleDraft = SwizzleDraft};
-						else if (std::holds_alternative<FInlineEditingInteraction>(Interaction))
-							ResetInteraction();
 						ImGui::PopStyleVar(2);
 						ImGui::PopFont();
 						ImGui::PopID();

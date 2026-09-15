@@ -34,6 +34,7 @@ namespace Durin
 		ENGINE_API auto SetFunctionPresentation(FMaterialFunctionPresentation Candidate) -> bool;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 		ENGINE_API auto Serialize(FArchive& Ar) -> void override;
+		ENGINE_API auto PostLoad() -> void override;
 		ENGINE_API auto ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context, std::string& OutError) const -> bool override;
 	private:
 

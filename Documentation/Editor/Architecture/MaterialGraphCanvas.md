@@ -138,9 +138,13 @@ branch and connection form one candidate-validated
 Undo/Redo transaction. Connect a TextureCoordinates or other Float2 expression
 for custom UVs; texture objects remain available for function inputs and independent
 sampling. Sampling nodes show RGB, R, G, B, A, and RGBA in that
-order by default. The Advanced pins toggle reveals RG, Texture resource, and decoded Normal outputs;
+order by default. The Advanced pins toggle reveals Texture resource and decoded Normal outputs;
 connected outputs remain visible even when advanced pins are hidden. Display order
-and visibility never change serialized output indices.
+and visibility never change serialized output indices. RG selection uses an explicit
+Swizzle node; loading an older material or function expands retired output 6 into
+one shared RG Swizzle per texture sample. Texture and Normal keep indices 7 and 8.
+Swizzle titles show the selected channels (for example, `Swizzle RG`), and channel
+controls use R/G/B/A selectors.
 
 Compile state is observational. Unsubmitted and pending states identify whether
 the preview shows last-known-good output; failed states show ErrorMaterial.

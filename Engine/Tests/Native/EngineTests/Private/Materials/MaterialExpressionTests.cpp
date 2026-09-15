@@ -894,3 +894,94 @@ TEST(FMaterialExpressionTests, AuthoringFingerprintTracksCallPortsAndExcludesPar
 	EXPECT_FALSE(FMaterialExpressionBuildContext::ValidateSurface(Expressions, Outputs, &After));
 	EXPECT_EQ(After, Retained);
 }
+
+TEST(FMaterialExpressionTests, LegacySampleRGLinksMigrateOnLoadAndRemainSharedAfterResave)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	FScopedOfflinePreparation Offline;
+	const auto Root = Testing::CreateTestFixtureDirectory("MaterialRGMigration");
+	const std::array Mounts{FMountPoint{.VirtualRoot = "/RGMigration/", .Owner = EMountOwner::Test,
+		.Root = Root, .bAutoScan = true, .bContentWritable = true}};
+	Testing::FScopedMountRegistryFixture Registry(Mounts);
+	ASSERT_TRUE(Registry.IsValid());
+	ASSERT_TRUE(RefreshAssetRegistry());
+	for (const bool bFunction : {false, true})
+	{
+		FPackagePath Path;
+		ASSERT_TRUE(FPackagePath::TryCreate(bFunction ? "/RGMigration/Function" : "/RGMigration/Material", Path));
+		DMaterial* Material = nullptr;
+		DMaterialFunction* Function = nullptr;
+		if (bFunction) ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Function));
+		else
+		{
+			ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Material));
+			Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+		}
+		TStrongObjectPtr<DObject> Working(NewObject<DObject>(nullptr, "LegacyRG"));
+		auto* Sample = NewObject<DMaterialExpressionTextureSampleParameter2D>(Working.Get(), "Sample");
+		Sample->Id = FGuid::NewGuid();
+		Sample->Metadata = {.Id = FGuid::NewGuid(), .Name = "Sample"};
+		auto* First = NewObject<DMaterialExpressionDecodeNormalRG>(Working.Get(), "First");
+		auto* Second = NewObject<DMaterialExpressionDecodeNormalRG>(Working.Get(), "Second");
+		First->Id = FGuid::NewGuid(); Second->Id = FGuid::NewGuid();
+		First->Input = Second->Input = {Sample->Id, 6};
+		const auto SampleId = Sample->Id;
+		const auto FirstId = First->Id;
+		std::vector<DMaterialExpression*> Expressions{Sample, First, Second};
+		if (Function)
+		{
+			auto* Output = NewObject<DMaterialExpressionFunctionOutput>(Working.Get(), "Output");
+			Output->Id = FGuid::NewGuid(); Output->PortId = FGuid::NewGuid(); Output->Source = {First->Id};
+			Expressions.push_back(Output);
+			auto* Texture = NewObject<DMaterialExpressionFunctionInput>(Working.Get(), "Texture");
+			Texture->Id = FGuid::NewGuid(); Texture->PortId = FGuid::NewGuid();
+			auto* ExplicitSample = NewObject<DMaterialExpressionTextureSample2D>(Working.Get(), "ExplicitSample");
+			ExplicitSample->Id = SampleId; ExplicitSample->Texture = {Texture->Id};
+			Expressions[0] = ExplicitSample;
+			Expressions.push_back(Texture);
+			FMaterialFunctionSignature Signature;
+			Signature.Inputs.push_back({.Id = Texture->PortId, .Type = EMaterialProgramValueType::Texture2D, .Name = "Texture",
+				.Default = {.Kind = EMaterialFunctionDefaultKind::Texture}});
+			Signature.Outputs.push_back({.Id = Output->PortId, .Type = EMaterialProgramValueType::Float3, .Name = "Normal"});
+			ASSERT_TRUE(Function->SetFunctionExpressions(Signature, Expressions));
+		}
+		else ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, {.Normal = {First->Id}}));
+		DObject* Owner = Function ? static_cast<DObject*>(Function) : Material;
+		for (int Round = 0; Round < 2; ++Round)
+		{
+			ASSERT_TRUE(SavePackage(Owner->GetPackage()));
+			ASSERT_TRUE(UnloadPackage(Path));
+			CollectGarbage();
+			Owner = nullptr;
+			ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Owner));
+			const auto& Collection = bFunction ? Cast<DMaterialFunction>(Owner)->GetExpressionCollection()
+				: Cast<DMaterial>(Owner)->GetExpressionCollection();
+			ASSERT_EQ(Collection.Expressions.size(), bFunction ? 6u : 4u);
+			DMaterialExpressionSwizzle* RG = nullptr;
+			for (const auto& Expression : Collection.Expressions)
+				if (auto* Swizzle = Cast<DMaterialExpressionSwizzle>(Expression.Get())) RG = Swizzle;
+			ASSERT_NE(RG, nullptr);
+			EXPECT_EQ(RG->GetOuter(), Owner);
+			EXPECT_EQ(RG->Input, (FMaterialExpressionInput{SampleId}));
+			EXPECT_EQ(RG->Components, (std::vector<uint8>{0, 1}));
+			std::vector<DMaterialExpression*> Loaded;
+			for (const auto& Expression : Collection.Expressions)
+			{
+				Loaded.push_back(Expression.Get());
+				if (const auto* Decode = Cast<DMaterialExpressionDecodeNormalRG>(Expression.Get()))
+					EXPECT_EQ(Decode->Input, (FMaterialExpressionInput{RG->Id}));
+			}
+			if (bFunction)
+				ASSERT_TRUE(FMaterialExpressionBuildContext::ValidateFunction(Loaded, Cast<DMaterialFunction>(Owner)->GetFunctionSignature()));
+			else
+			{
+				const auto Built = BuildMaterialExpressionGraph(Loaded, std::array{FMaterialExpressionInput{FirstId}});
+				ASSERT_TRUE(Built) << (Built.Diagnostics.empty() ? "Missing diagnostic" : Built.Diagnostics.front().Message);
+				EXPECT_EQ(std::ranges::count(Built.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &FMaterialIRNode::Opcode), 1);
+			}
+		}
+		ASSERT_TRUE(UnloadPackage(Path));
+		CollectGarbage();
+	}
+}

@@ -1,5 +1,6 @@
 #include "Materials/Material.h"
 #include "Logging/LogMacros.h"
+#include "MaterialExpressionOwnership.h"
 
 #include "Asset/AssetCompilingManager.h"
 #include "Materials/MaterialCompileLifecycle.h"
@@ -455,6 +456,11 @@ namespace Durin
 			CompilationOwner.MaterialCompileDiagnostics.clear();
 			MaterialCookDiagnostic = std::format(
 				"Loaded cooked Material metadata for '{}'.", GetObjectPath());
+			return;
+		}
+		if (!Private::MigrateSampleRGOutputs(*this, ExpressionCollection, &ExpressionOutputs, GraphPresentation.Nodes))
+		{
+			DURIN_ERROR("PostLoad '{}': RG output migration exceeds the material node limit.", GetObjectPath());
 			return;
 		}
 		const auto SchemaValidation = DeriveExpressionParameterSchema(ExpressionCollection, ParameterSchema);

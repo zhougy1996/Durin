@@ -403,6 +403,12 @@ namespace Durin::Editor::Material
 			View.PrimaryLabel = Shape
 				? Shape->OperationName : GetOpcodeName(Node.Opcode);
 			auto* Expression = ExpressionsById.at(Node.Id);
+			if (const auto* Swizzle = Cast<DMaterialExpressionSwizzle>(Expression))
+			{
+				View.PrimaryLabel += " ";
+				for (const uint8 Component : Swizzle->Components)
+					View.PrimaryLabel += Component < 4 ? std::string(1, "RGBA"[Component]) : "?";
+			}
 			if (const auto* Parameter = Cast<DMaterialExpressionParameter>(Expression))
 			{
 				View.SecondaryLabel = View.PrimaryLabel;
@@ -465,11 +471,11 @@ namespace Durin::Editor::Material
 			}
 			else if (IsMaterialSamplingNode(Node.Opcode))
 			{
-				constexpr std::array Names{"RGBA", "RGB", "R", "G", "B", "A", "RG"};
-				for (const uint8 Index : {1, 2, 3, 4, 5, 0, 6})
+				constexpr std::array Names{"RGBA", "RGB", "R", "G", "B", "A"};
+				for (const uint8 Index : {1, 2, 3, 4, 5, 0})
 					View.Outputs.push_back({.OutputIndex = Index, .Name = Names[Index],
 						.Type = Index == 0 ? EMaterialProgramValueType::Float4 : Index == 1 ? EMaterialProgramValueType::Float3
-						: Index == 6 ? EMaterialProgramValueType::Float2 : EMaterialProgramValueType::Float});
+						: EMaterialProgramValueType::Float});
 				if (Node.Opcode == EMaterialProgramOpcode::TextureSampleParameter2D)
 					View.Outputs.push_back({.OutputIndex = 7, .Name = "Texture", .Type = EMaterialProgramValueType::Texture2D});
 				View.Outputs.push_back({.OutputIndex = 8, .Name = "Normal", .Type = EMaterialProgramValueType::Float3});

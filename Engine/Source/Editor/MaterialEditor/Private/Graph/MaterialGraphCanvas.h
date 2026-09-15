@@ -90,7 +90,6 @@ namespace Durin::Editor::Material
 		{
 			FGuid Node;
 			std::array<float, 4> ConstantDraft{};
-			std::array<int, 4> SwizzleDraft{};
 		};
 		struct FNodeCreationMenuInteraction
 		{

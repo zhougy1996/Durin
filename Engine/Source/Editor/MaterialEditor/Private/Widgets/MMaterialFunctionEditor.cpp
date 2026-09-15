@@ -327,7 +327,7 @@ namespace Durin::Editor::Material
 					{
 						ImGui::PushID(static_cast<int>(Index));
 						int Component = Swizzle->Components[Index];
-						if (ImGui::InputInt("Channel (0-3)", &Component)) Swizzle->Components[Index] = static_cast<uint8>(std::clamp(Component, 0, 3));
+						if (ImGui::Combo("Channel", &Component, "R\0G\0B\0A\0")) Swizzle->Components[Index] = static_cast<uint8>(std::clamp(Component, 0, 3));
 						ImGui::PopID();
 					}
 				DrawMaterialFunctionCallInputs(Function, *Id, *GEditor->GetTransactor(), Error);

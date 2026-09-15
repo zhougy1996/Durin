@@ -929,14 +929,17 @@ TEST(FMaterialGraphOperationsTests, TextureOutputsHideUnusedAdvancedPinsWithoutC
 	}
 	FMaterialGraphCanvasTestAccess::ShowAdvanced(Canvas);
 	Sample = FindViewNode(FMaterialGraphCanvasTestAccess::Prepare(Canvas, *Material), SampleId);
-	ASSERT_EQ(Sample->Outputs.size(), 9u);
-	EXPECT_EQ(Sample->Outputs[6].OutputIndex, 6u);
-	EXPECT_EQ(Sample->Outputs[7].OutputIndex, 7u);
+	ASSERT_EQ(Sample->Outputs.size(), 8u);
+	EXPECT_EQ(Sample->Outputs[6].OutputIndex, 7u);
+	EXPECT_EQ(Sample->Outputs[7].OutputIndex, 8u);
 	FMaterialGraphCanvasTestAccess::HideAdvanced(Canvas);
 	FMaterialGraphDocument Document(*Material);
 	const auto SecondSample = Testing::CreateGraphCatalogNode(Document, EMaterialProgramOpcode::TextureSample2D, EMaterialProgramValueType::Float4, {SampleId, 7});
 	ASSERT_TRUE(SecondSample);
-	const auto Decode = Testing::CreateGraphCatalogNode(Document, EMaterialProgramOpcode::DecodeNormalRG, EMaterialProgramValueType::Float3, {SampleId, 6});
+	const auto RG = Testing::CreateGraphCatalogNode(Document, EMaterialProgramOpcode::Swizzle, EMaterialProgramValueType::Float2, {SampleId, 0});
+	ASSERT_TRUE(RG);
+	EXPECT_EQ(FindViewNode(Document.Inspect(), RG.GeneratedNodeIds.front())->PrimaryLabel, "Swizzle RG");
+	const auto Decode = Testing::CreateGraphCatalogNode(Document, EMaterialProgramOpcode::DecodeNormalRG, EMaterialProgramValueType::Float3, {RG.GeneratedNodeIds.front()});
 	ASSERT_TRUE(Decode);
 	const auto NormalizeCatalog = FMaterialGraphOperations::EnumerateCatalog();
 	const auto NormalizeEntry = std::ranges::find_if(NormalizeCatalog, [](const auto& Entry) {
@@ -949,12 +952,11 @@ TEST(FMaterialGraphOperationsTests, TextureOutputsHideUnusedAdvancedPinsWithoutC
 	ASSERT_EQ(FindViewNode(NormalView, NormalConsumer.GeneratedNodeIds.front())->Inputs.front().SourceType, EMaterialProgramValueType::Float3);
 	ASSERT_TRUE(Document.RemoveNodes(NormalConsumer.GeneratedNodeIds));
 	Sample = FindViewNode(FMaterialGraphCanvasTestAccess::Prepare(Canvas, *Material), SampleId);
-	ASSERT_EQ(Sample->Outputs.size(), 8u);
-	EXPECT_EQ(Sample->Outputs[6].OutputIndex, 6u);
-	EXPECT_EQ(Sample->Outputs[7].OutputIndex, 7u);
+	ASSERT_EQ(Sample->Outputs.size(), 7u);
+	EXPECT_EQ(Sample->Outputs[6].OutputIndex, 7u);
 	ASSERT_TRUE(Document.AssignMaterialOutput(EMaterialSurfaceOutput::Normal, {SampleId, 8}));
 	Sample = FindViewNode(FMaterialGraphCanvasTestAccess::Prepare(Canvas, *Material), SampleId);
-	ASSERT_EQ(Sample->Outputs.size(), 9u);
+	ASSERT_EQ(Sample->Outputs.size(), 8u);
 	EXPECT_EQ(Sample->Outputs.back().Name, "Normal");
 	EXPECT_EQ(Sample->Outputs.back().OutputIndex, 8u);
 	ASSERT_TRUE(Document.AssignMaterialOutput(EMaterialSurfaceOutput::Normal, {}));

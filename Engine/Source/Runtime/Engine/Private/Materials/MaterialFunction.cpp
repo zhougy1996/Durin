@@ -5,6 +5,7 @@
 #include "Materials/MaterialExpressionBuild.h"
 #include "DObject/Archive.h"
 #include "DObject/Package.h"
+#include "Logging/LogMacros.h"
 #include "Threading/RunnableThread.h"
 
 namespace Durin
@@ -55,6 +56,13 @@ namespace Durin
 			std::string Error;
 			if (!ValidateLoadedObjectGraph({}, Error)) Ar.Fail(EArchiveFailureCode::InvalidData, Error);
 		}
+	}
+
+	auto DMaterialFunction::PostLoad() -> void
+	{
+		Super::PostLoad();
+		if (!Private::MigrateSampleRGOutputs(*this, ExpressionCollection, nullptr, Presentation.Nodes))
+			DURIN_ERROR("PostLoad '{}': RG output migration exceeds the material node limit.", GetObjectPath());
 	}
 
 	auto DMaterialFunction::SetAuthoringSource(std::string Source, uint32 Version) -> void
