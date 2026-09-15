@@ -143,6 +143,37 @@ TEST(FMaterialExpressionTests, MaterialPersistsTypedOutputsAndOwnedParameterDefa
 	ASSERT_TRUE(UnloadPackage(Path)); CollectGarbage();
 }
 
+TEST(FMaterialExpressionTests, MaterialCanReplaceItsOwnExpressionsAndClearOwnedChildren)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	FScopedOfflinePreparation Offline;
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, "ReplacingOwnedExpressions"));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	TStrongObjectPtr<DMaterialExpressionScalarConstant> Source(NewObject<DMaterialExpressionScalarConstant>(nullptr, "Roughness"));
+	Source->Id = {1, 2, 3, 4}; Source->Value = .75f;
+	FMaterialExpressionSurfaceOutputs Outputs;
+	Outputs.Roughness = {Source->Id};
+	const std::array<DMaterialExpression*, 1> Initial{Source.Get()};
+	ASSERT_TRUE(Material->SetMaterialExpressions(Initial, Outputs));
+	TStrongObjectPtr<DMaterialExpression> Previous(Material->GetExpressionCollection().Expressions[0].Get());
+	const std::array<DMaterialExpression*, 1> Existing{Previous.Get()};
+	ASSERT_TRUE(Material->SetMaterialExpressions(Existing, Outputs));
+	TStrongObjectPtr<DMaterialExpression> Current(Material->GetExpressionCollection().Expressions[0].Get());
+	EXPECT_NE(Current.Get(), Previous.Get());
+	EXPECT_EQ(Current->Id, Previous->Id);
+	EXPECT_EQ(Current->GetOuter(), Material.Get());
+	EXPECT_NE(Previous->GetOuter(), Material.Get());
+	EXPECT_EQ(Cast<DMaterialExpressionScalarConstant>(Current.Get())->Value, .75f);
+	std::string Error;
+	ASSERT_TRUE(Material->ValidateLoadedObjectGraph({}, Error)) << Error;
+	ASSERT_TRUE(Material->SetMaterialExpressions({}, {}));
+	EXPECT_TRUE(Material->GetExpressionCollection().Expressions.empty());
+	EXPECT_NE(Current->GetOuter(), Material.Get());
+	EXPECT_TRUE(GDObjectArray.GetObjectsWithOuter(Material.Get(), EObjectQueryScope::LiveOnly).empty());
+	ASSERT_TRUE(Material->ValidateLoadedObjectGraph({}, Error)) << Error;
+}
+
 TEST(FMaterialExpressionTests, FunctionPersistsOnlyOwnedExpressionsAndAppliesIndependentCopies)
 {
 	using namespace Durin;

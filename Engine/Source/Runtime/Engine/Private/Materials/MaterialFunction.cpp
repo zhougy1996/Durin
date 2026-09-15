@@ -1,12 +1,11 @@
 #include "Materials/MaterialFunction.h"
+#include "MaterialExpressionOwnership.h"
 
 #include "DObject/Property.h"
 #include "Materials/MaterialExpressionBuild.h"
-#include "DObject/DObjectArray.h"
 #include "DObject/Archive.h"
 #include "DObject/Package.h"
 #include "Threading/RunnableThread.h"
-#include <unordered_set>
 
 namespace Durin
 {
@@ -27,19 +26,7 @@ namespace Durin
 			OutError = "Unsupported material function expression schema; rebuild this function.";
 			return false;
 		}
-		std::unordered_set<const DObject*> Owned;
-		for (const auto& Expression : ExpressionCollection.Expressions)
-			if (!IsValid(Expression.Get()) || Expression->GetOuter() != this || !Owned.insert(Expression.Get()).second)
-			{
-				OutError = "Function expression collection contains a missing, shared, or wrongly owned child.";
-				return false;
-			}
-		for (const DObject* Child : GDObjectArray.GetObjectsWithOuter(this, EObjectQueryScope::LiveOnly))
-			if (Child->IsA(DMaterialExpression::StaticClass()) && !Owned.contains(Child))
-			{
-				OutError = "Function contains an abandoned expression child outside its collection.";
-				return false;
-			}
+		if (!Private::ValidateExpressionOwnership(*this, ExpressionCollection, OutError)) return false;
 		std::vector<DMaterialExpression*> Expressions;
 		for (const auto& Expression : ExpressionCollection.Expressions) Expressions.push_back(Expression.Get());
 		if (!FMaterialExpressionBuildContext::ValidateFunction(Expressions, Signature))
@@ -56,23 +43,8 @@ namespace Durin
 		check(IsInGameThread());
 		auto Result = FMaterialExpressionBuildContext::ValidateFunction(Expressions, InSignature);
 		if (!Result) return Result;
-		TStrongObjectPtr<DObject> Staging(NewObject<DObject>(nullptr, "FunctionExpressionApply"));
-		FMaterialExpressionCollection Copies;
-		for (auto* Expression : Expressions)
-		{
-			auto* Copy = DuplicateObject(Expression, Staging.Get(), FName(std::string("Expression_") + Expression->Id.ToString()));
-			if (!Copy)
-			{
-				Result.bSucceeded = false;
-				Result.Diagnostics.push_back({.Message = "Unable to duplicate the function expression candidate."});
-				return Result;
-			}
-			Copies.Expressions.emplace_back(Copy);
-		}
-		TStrongObjectPtr<DObject> Retired(NewObject<DObject>(nullptr, "RetiredFunctionExpressions"));
-		for (auto& Expression : ExpressionCollection.Expressions) if (Expression) Expression->SetOuterPrivate(Retired.Get());
-		for (auto& Expression : Copies.Expressions) Expression->SetOuterPrivate(this);
-		ExpressionCollection = std::move(Copies);
+		Result = Private::ReplaceOwnedExpressions(*this, ExpressionCollection, Expressions);
+		if (!Result) return Result;
 		Signature = std::move(InSignature);
 		Revision = Revision == std::numeric_limits<uint64>::max() ? 1 : Revision + 1;
 		NotifyMaterialFunctionChanged(*this);
