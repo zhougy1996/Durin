@@ -432,8 +432,8 @@ TEST(FMaterialFunctionTests, ExplicitMRTemplateRetainsIndependentInstanceParamet
 	ASSERT_TRUE(Instance->SetParent(Material.Get()));
 	const auto MetallicId = GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::Metallic, Kind::Value);
 	const auto RoughnessId = GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::Roughness, Kind::Value);
-	ASSERT_TRUE(Instance->SetParameterOverride(MetallicId, FMaterialParameterValue::MakeScalar(.8f)));
-	ASSERT_TRUE(Instance->SetParameterOverride(RoughnessId, FMaterialParameterValue::MakeScalar(.2f)));
+	ASSERT_TRUE(Instance->SetParameterValue(MetallicId, FMaterialParameterValue::MakeScalar(.8f)));
+	ASSERT_TRUE(Instance->SetParameterValue(RoughnessId, FMaterialParameterValue::MakeScalar(.2f)));
 	FResolvedMaterialParameter Resolved;
 	ASSERT_TRUE(Instance->ResolveParameterValue(MetallicId, Resolved));
 	EXPECT_FLOAT_EQ(Resolved.Value.GetScalar(), .8f);
@@ -569,20 +569,20 @@ TEST(FMaterialFunctionTests, ExpandedAndFunctionRecipesPreserveCompilationAndInd
 				? FMaterialParameterValue::MakeVector2({1.25f + Index, -.125f * Index})
 				: FMaterialParameterValue::MakeScalar(ParameterKind == Kind::UVChannel
 					? static_cast<float>(Index % 4) : .2f * (Index + 1));
-			ASSERT_TRUE(Parent->SetParameterOverride(Id, Value));
+			ASSERT_TRUE(Parent->SetParameterValue(Id, Value));
 			FResolvedMaterialParameter Resolved;
 			ASSERT_TRUE(Child->ResolveParameterValue(Id, Resolved));
 			EXPECT_EQ(Resolved.Value, Value);
-			EXPECT_FALSE(Child->IsParameterOverrideOrphan(Id));
+			EXPECT_FALSE(Child->IsParameterValueOrphan(Id));
 		}
 	}
 	// Switching to the new recipe must preserve inherited values by GUID.
 	ASSERT_TRUE(Parent->SetParent(Current));
-	Parent->VisitParameterOverrides([&](const FGuid& Id, const FMaterialParameterValue& Value) {
+	Parent->VisitLocalParameterValues([&](const FGuid& Id, const FMaterialParameterValue& Value) {
 		FResolvedMaterialParameter Resolved;
 		ASSERT_TRUE(Child->ResolveParameterValue(Id, Resolved));
 		EXPECT_EQ(Resolved.Value, Value);
-		EXPECT_FALSE(Parent->IsParameterOverrideOrphan(Id));
+		EXPECT_FALSE(Parent->IsParameterValueOrphan(Id));
 	});
 	MarkAsGarbage(Child);
 	MarkAsGarbage(Parent);

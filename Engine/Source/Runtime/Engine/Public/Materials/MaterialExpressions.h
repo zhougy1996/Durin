@@ -2,7 +2,7 @@
 
 #include "DObject/Object.h"
 #include "Materials/MaterialFunctionTypes.h"
-#include "Materials/MaterialParameterOverrides.h"
+#include "Materials/MaterialTypes.h"
 
 #include "MaterialExpressions.gen.h"
 

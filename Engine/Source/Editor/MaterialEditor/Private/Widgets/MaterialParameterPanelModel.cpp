@@ -199,7 +199,7 @@ namespace Durin::Editor::Material
 			});
 		}
 		if (!Instance) return bRebuildDependencies;
-		Instance->VisitParameterOverrides([&](const FGuid& Id, const FMaterialParameterValue& Value) {
+		Instance->VisitLocalParameterValues([&](const FGuid& Id, const FMaterialParameterValue& Value) {
 			const auto* Definition = Material->FindParameterDefinition(Id);
 			if (Definition && Definition->Type == Value.GetType() && ReachableParameterIds.contains(Id)) return;
 			Entries.push_back({.ParameterId = Id, .Value = Value, .bCanOverride = true,
@@ -259,7 +259,7 @@ namespace Durin::Editor::Material
 		if (Instance)
 		{
 			if (!Entry.bHasLocalOverride) return false;
-			return VisitMaterialParameterOverrideType(Entry.Definition->Type, [&]<typename TRecord>() {
+			return VisitMaterialParameterValueType(Entry.Definition->Type, [&]<typename TRecord>() {
 				FArrayProperty* Property = FindArrayProperty(Instance, TRecord::PropertyName());
 				return SubmitRootArrayEdit(PropertyView, Context, Instance, Property, Entry.ParameterId,
 					EPropertyChangeKind::ValueSet, bContinuous,
@@ -281,7 +281,7 @@ namespace Durin::Editor::Material
 	) const -> bool
 	{
 		if (!Instance || !Entry.Definition || Entry.bOrphan || Entry.bHasLocalOverride == bEnabled) return false;
-		return VisitMaterialParameterOverrideType(Entry.Definition->Type, [&]<typename TRecord>() {
+		return VisitMaterialParameterValueType(Entry.Definition->Type, [&]<typename TRecord>() {
 			FArrayProperty* Property = FindArrayProperty(Instance, TRecord::PropertyName());
 			return SubmitRootArrayEdit(PropertyView, Context, Instance, Property, Entry.ParameterId,
 				bEnabled ? EPropertyChangeKind::ArrayAdd : EPropertyChangeKind::ArrayRemove, false,
@@ -309,8 +309,8 @@ namespace Durin::Editor::Material
 	{
 		if (!Instance || !Entry.bOrphan) return false;
 		FMaterialParameterValue Override;
-		if (!Instance->GetLocalParameterOverride(Entry.ParameterId, Override)) return false;
-		return VisitMaterialParameterOverrideType(Override.GetType(), [&]<typename TRecord>() {
+		if (!Instance->GetLocalParameterValue(Entry.ParameterId, Override)) return false;
+		return VisitMaterialParameterValueType(Override.GetType(), [&]<typename TRecord>() {
 			FArrayProperty* Property = FindArrayProperty(Instance, TRecord::PropertyName());
 			return SubmitRootArrayEdit(PropertyView, Context, Instance, Property, Entry.ParameterId,
 				EPropertyChangeKind::ArrayRemove, false,

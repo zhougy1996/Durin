@@ -143,7 +143,7 @@ TEST(FMaterialTests, CustomDeclarationOverridesRetainOrphansAndRejectRetyping)
 	ASSERT_TRUE(Root->SetMaterialExpressions(Original, Outputs));
 	ASSERT_TRUE(Parent->SetParent(Root));
 	ASSERT_TRUE(Child->SetParent(Parent));
-	ASSERT_TRUE(Parent->SetParameterOverride(Definition.Id, Durin::FMaterialParameterValue::MakeScalar(0.75f)));
+	ASSERT_TRUE(Parent->SetParameterValue(Definition.Id, Durin::FMaterialParameterValue::MakeScalar(0.75f)));
 	float Value = 0;
 	ASSERT_TRUE(Child->GetScalarParameterValue(Definition.Name, Value));
 	EXPECT_EQ(Value, 0.75f);
@@ -156,32 +156,32 @@ TEST(FMaterialTests, CustomDeclarationOverridesRetainOrphansAndRejectRetyping)
 	EXPECT_EQ(Root->GetExpressionCollection().Expressions, BeforeChildren);
 	EXPECT_EQ(Root->GetExpressionOutputs(), Outputs);
 	ASSERT_TRUE(Root->SetMaterialExpressions(Replacement, {}));
-	EXPECT_TRUE(Parent->IsParameterOverrideOrphan(Definition.Id));
+	EXPECT_TRUE(Parent->IsParameterValueOrphan(Definition.Id));
 	Durin::FVector3 Vector;
 	ASSERT_TRUE(Child->GetVectorParameterValue(Definition.Name, Vector));
 	EXPECT_EQ(Vector, Durin::FVector3(.2, .3, .4));
 	ASSERT_TRUE(Root->SetMaterialExpressions({}, {}));
-	EXPECT_TRUE(Parent->IsParameterOverrideOrphan(Definition.Id));
-	EXPECT_EQ(Parent->GetParameterOverrideCount(), 1u);
+	EXPECT_TRUE(Parent->IsParameterValueOrphan(Definition.Id));
+	EXPECT_EQ(Parent->GetLocalParameterValueCount(), 1u);
 	ASSERT_TRUE(Root->SetMaterialExpressions(Original, Outputs));
-	EXPECT_FALSE(Parent->IsParameterOverrideOrphan(Definition.Id));
+	EXPECT_FALSE(Parent->IsParameterValueOrphan(Definition.Id));
 	ASSERT_TRUE(Child->GetScalarParameterValue(Definition.Name, Value));
 	EXPECT_EQ(Value, 0.75f);
-	auto* OverridesProperty = Parent->GetClass()->FindPropertyByName("ScalarParameterOverrides");
+	auto* OverridesProperty = Parent->GetClass()->FindPropertyByName("ScalarParameterValues");
 	ASSERT_NE(OverridesProperty, nullptr);
 	auto* Overrides = OverridesProperty->ContainerPtrToValuePtr<
-		std::vector<Durin::FMaterialScalarParameterOverride>>(Parent);
+		std::vector<Durin::FMaterialScalarParameterValue>>(Parent);
 	Overrides->clear();
-	auto* VectorProperty = Parent->GetClass()->FindPropertyByName("VectorParameterOverrides");
+	auto* VectorProperty = Parent->GetClass()->FindPropertyByName("VectorParameterValues");
 	ASSERT_NE(VectorProperty, nullptr);
-	VectorProperty->ContainerPtrToValuePtr<std::vector<Durin::FMaterialVectorParameterOverride>>(Parent)
-		->push_back({Definition.Id, Durin::FVector3(.2, .3, .4)});
+	VectorProperty->ContainerPtrToValuePtr<std::vector<Durin::FMaterialVectorParameterValue>>(Parent)
+		->push_back({Definition.Id, Durin::FVector4f(.2f, .3f, .4f, 0.0f), Durin::EMaterialParameterType::Vector});
 	Parent->PostLoad();
-	EXPECT_EQ(Parent->GetParameterOverrideCount(), 1u);
-	EXPECT_TRUE(Parent->IsParameterOverrideOrphan(Definition.Id));
+	EXPECT_EQ(Parent->GetLocalParameterValueCount(), 1u);
+	EXPECT_TRUE(Parent->IsParameterValueOrphan(Definition.Id));
 	ASSERT_TRUE(Child->GetScalarParameterValue(Definition.Name, Value));
 	EXPECT_EQ(Value, 0.25f);
-	ASSERT_TRUE(Parent->ClearParameterOverride(Definition.Id));
+	ASSERT_TRUE(Parent->ClearParameterValue(Definition.Id));
 	ASSERT_TRUE(Child->GetScalarParameterValue(Definition.Name, Value));
 	EXPECT_EQ(Value, 0.25f);
 	Durin::MarkAsGarbage(Child);
@@ -1275,7 +1275,7 @@ TEST(FMaterialTests, ReflectedPropertyViewTracksMaterialOverrideStructureInShare
 	Durin::DMaterial* Base = MakeExpandedMaterial("TransactionalOverrideBase");
 	Durin::DMaterialInstance* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "TransactionalOverrideInstance");
 	ASSERT_TRUE(Instance->SetParent(Base));
-	auto* Property = static_cast<Durin::FArrayProperty*>(Instance->GetClass()->FindPropertyByName("ScalarParameterOverrides"));
+	auto* Property = static_cast<Durin::FArrayProperty*>(Instance->GetClass()->FindPropertyByName("ScalarParameterValues"));
 	ASSERT_NE(Property, nullptr);
 	Durin::FPropertyValueSnapshot Original;
 	Durin::FPropertyValueSnapshot Proposed;
@@ -1291,12 +1291,12 @@ TEST(FMaterialTests, ReflectedPropertyViewTracksMaterialOverrideStructureInShare
 		"Edit Parameter Override", nullptr, Transactions.Get()));
 	EXPECT_EQ(Session.Apply(Proposed, &Error), Durin::Editor::EPropertyEditResult::Changed);
 	EXPECT_EQ(Session.Commit(), Durin::Editor::EPropertyEditResult::Changed);
-	EXPECT_TRUE(Instance->HasScalarParameterOverride(Durin::MaterialParameters::OpacityName()));
+	EXPECT_TRUE(Instance->HasLocalScalarParameterValue(Durin::MaterialParameters::OpacityName()));
 	EXPECT_TRUE(Error.empty());
 	ASSERT_TRUE(Transactions->Undo());
-	EXPECT_FALSE(Instance->HasScalarParameterOverride(Durin::MaterialParameters::OpacityName()));
+	EXPECT_FALSE(Instance->HasLocalScalarParameterValue(Durin::MaterialParameters::OpacityName()));
 	ASSERT_TRUE(Transactions->Redo());
-	EXPECT_TRUE(Instance->HasScalarParameterOverride(Durin::MaterialParameters::OpacityName()));
+	EXPECT_TRUE(Instance->HasLocalScalarParameterValue(Durin::MaterialParameters::OpacityName()));
 	EXPECT_TRUE(Transactions->Reset());
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Base);

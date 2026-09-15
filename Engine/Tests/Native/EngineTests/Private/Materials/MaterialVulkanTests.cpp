@@ -539,7 +539,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			EXPECT_EQ(Heavy->GetRenderData().CompiledProgram, Accepted);
 			ASSERT_TRUE(Heavy->SetScalarParameterValue(FName("RustAmount"), 0.1f));
 			EXPECT_EQ(Capture(Heavy), LightPixels);
-			ASSERT_TRUE(Heavy->SetParameterOverride(Definitions[0].Id,
+			ASSERT_TRUE(Heavy->SetParameterValue(Definitions[0].Id,
 				FMaterialParameterValue::MakeTexture(
 					nullptr, {}, EMaterialTextureFallback::Black)));
 			EXPECT_NE(Capture(Heavy), LightPixels);

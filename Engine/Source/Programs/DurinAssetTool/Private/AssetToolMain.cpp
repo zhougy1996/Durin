@@ -1171,11 +1171,11 @@ int main(int ArgC, char** ArgV)
 				Row.SetChildValue("parent", Instance->GetParent() ? Instance->GetParent()->GetObjectPath() : "");
 				Row.SetChildValue("status", "Preserved: instance override identities and values");
 				auto Overrides = Row.AddArray("overrides");
-				Instance->VisitParameterOverrides([&](const Durin::FGuid& Id, const Durin::FMaterialParameterValue& OverrideValue) {
+				Instance->VisitLocalParameterValues([&](const Durin::FGuid& Id, const Durin::FMaterialParameterValue& OverrideValue) {
 					auto Value = Overrides.AppendObject();
 					Value.SetChildValue("id", Id.ToString());
 					Value.SetChildValue("type", static_cast<uint32>(OverrideValue.GetType()));
-					Value.SetChildValue("orphan", Instance->IsParameterOverrideOrphan(Id));
+					Value.SetChildValue("orphan", Instance->IsParameterValueOrphan(Id));
 					if (OverrideValue.GetType() == Durin::EMaterialParameterType::Scalar) Value.SetChildValue("scalar", OverrideValue.GetScalar());
 					if (OverrideValue.GetType() == Durin::EMaterialParameterType::Vector4) Value.SetChildValue("vector", std::format("{},{},{},{}", OverrideValue.GetVector4().x, OverrideValue.GetVector4().y, OverrideValue.GetVector4().z, OverrideValue.GetVector4().w));
 					if (OverrideValue.GetType() == Durin::EMaterialParameterType::Vector2) Value.SetChildValue("vector2", std::format("{},{}", OverrideValue.GetVector2().x, OverrideValue.GetVector2().y));

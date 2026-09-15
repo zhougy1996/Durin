@@ -60,20 +60,23 @@ render boundary accepts only material-specific layout v4 data. Built-in role kno
   `FMaterialProgramValidationResult`; output snapshots are assigned only on
   success. Editor commands retain bounded diagnostics and distinguish parameter
   GUIDs from node GUIDs.
-- `SetParameterOverride(Id, Value)` derives the assignment type from the value
+- `DMaterialInstance::SetParameterValue(Id, Value)` derives the assignment type from the value
   and rejects mismatched active declarations. Cook stores five typed logical
   parameter arrays, including declaration order and only applicable metadata.
   Render publication uses a separate selected value whose texture alternative
   owns counted RHI references; no texture objects cross into the render thread.
 - `DMaterialInstance` references a parent material interface and persists separate
-  scalar, Vector2, Vector3, Vector4, and texture override arrays. Each record owns
-  its GUID and concrete value; texture values include sampler/fallback policy.
-  `GetLocalParameterOverride` reads a selected value directly from those arrays;
-  `VisitParameterOverrides` enumerates GUID/value pairs without an alternate cached
-  record array, and `GetParameterOverrideCount` reports their combined size.
+  scalar, vector, and texture parameter-value arrays. Each record owns its GUID
+  and concrete value; all vector widths use `FMaterialVectorParameterValue` with
+  `FVector4f` storage and a validated declaration-type marker. Reads restore the
+  declared width; writes clear unused components and compare at float precision.
+  Texture values include sampler/fallback policy.
+  `GetLocalParameterValue` reads a selected value directly from those arrays;
+  `VisitLocalParameterValues` enumerates GUID/value pairs without an alternate cached
+  record array, and `GetLocalParameterValueCount` reports their combined size.
   Reflected storage owns texture references. Duplicate GUIDs across arrays
   fail property-edit admission and package serialization. Missing/unsupported
-  `OverrideStorageVersion` fails loading and requires rebuilding the instance.
+  `ParameterStorageVersion` (current version 2) fails loading and requires rebuilding the instance.
   Explicit equal-to-parent values remain overrides. The separately reflected
   `FMaterialPropertyOverrides` has five flags that independently select blend,
   shading, cutoff, two-sided and depth-write values. `SetPropertyOverrides`

@@ -556,7 +556,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		Durin::EMaterialSamplerAddressMode::ClampToEdge;
 	FailedSampler.AddressV =
 		Durin::EMaterialSamplerAddressMode::ClampToEdge;
-	ASSERT_TRUE(FailedResourceMaterial->SetParameterOverride(
+	ASSERT_TRUE(FailedResourceMaterial->SetParameterValue(
 		Durin::MaterialParameters::GetBuiltinParameterIds(
 			Durin::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Texture,
 		Durin::FMaterialParameterValue::MakeTexture(nullptr, FailedSampler)));

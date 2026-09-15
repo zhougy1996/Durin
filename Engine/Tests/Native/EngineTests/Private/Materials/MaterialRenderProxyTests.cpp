@@ -104,7 +104,7 @@ TEST(FMaterialRenderProxyTests, ParentProgramChangesReevaluateDormantOverrides)
 	ExpectRenderDataMatches(Dormant.RenderData, Instance->GetRenderData());
 	EXPECT_FALSE(Instance->SetVectorParameterValue(
 		Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.9)));
-	EXPECT_TRUE(Instance->IsParameterOverrideOrphan(
+	EXPECT_TRUE(Instance->IsParameterValueOrphan(
 		Durin::MaterialParameters::GetBuiltinParameterIds(
 			Durin::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value));
 	ASSERT_TRUE((Validation = Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*Base)));
@@ -388,7 +388,7 @@ TEST(FMaterialRenderProxyTests, AuthoredValuesMatchDirectCompilationForBasesAndI
 					-4.0 - static_cast<double>(DefinitionIndex))));
 			break;
 		case Durin::EMaterialParameterType::Vector4:
-			ASSERT_TRUE(Instance->SetParameterOverride(Definition.Id,
+			ASSERT_TRUE(Instance->SetParameterValue(Definition.Id,
 				Durin::FMaterialParameterValue::MakeVector4(Durin::FVector4(0.25f, 0.5f, 0.75f, 1.f))));
 			break;
 		case Durin::EMaterialParameterType::Texture:
@@ -398,7 +398,7 @@ TEST(FMaterialRenderProxyTests, AuthoredValuesMatchDirectCompilationForBasesAndI
 			break;
 		}
 
-		EXPECT_TRUE(Instance->HasLocalParameterOverride(Definition.Id));
+		EXPECT_TRUE(Instance->HasLocalParameterValue(Definition.Id));
 		const FMaterialProxySnapshot Overridden =
 			CaptureMaterialProxy(InstanceProxy);
 		ExpectRenderDataMatches(
@@ -430,14 +430,14 @@ TEST(FMaterialRenderProxyTests, AuthoredValuesMatchDirectCompilationForBasesAndI
 			bCleared = Instance->ClearVector2ParameterValue(Definition.Name);
 			break;
 		case Durin::EMaterialParameterType::Vector4:
-			bCleared = Instance->ClearParameterOverride(Definition.Id);
+			bCleared = Instance->ClearParameterValue(Definition.Id);
 			break;
 		case Durin::EMaterialParameterType::Texture:
 			bCleared = Instance->ClearTextureParameterValue(Definition.Name);
 			break;
 		}
 		ASSERT_TRUE(bCleared) << Definition.Name.ToString();
-		EXPECT_FALSE(Instance->HasLocalParameterOverride(Definition.Id));
+		EXPECT_FALSE(Instance->HasLocalParameterValue(Definition.Id));
 		const FMaterialProxySnapshot Inherited =
 			CaptureMaterialProxy(InstanceProxy);
 		ExpectRenderDataMatches(

@@ -202,7 +202,7 @@ TEST(FMaterialProgramCharacterizationTests,
 	auto HeavyMask = Definitions[4].Value;
 	HeavyMask.GetTexture().TextureFallback = EMaterialTextureFallback::White;
 	HeavyMask.GetTexture().SamplerState.AddressU = EMaterialSamplerAddressMode::ClampToEdge;
-	ASSERT_TRUE(HeavyRust->SetParameterOverride(
+	ASSERT_TRUE(HeavyRust->SetParameterValue(
 		RustMaskId, HeavyMask));
 	const auto Accepted = Root->GetAcceptedCompiledProgram();
 	ASSERT_NE(Accepted, nullptr);
@@ -539,7 +539,7 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 		Durin::MaterialParameters::BaseColorTextureName(), Texture));
 	ASSERT_TRUE(Child->SetScalarParameterValue(
 		Durin::MaterialParameters::RoughnessName(), 0.23f));
-	EXPECT_FALSE(Instance->IsParameterOverrideOrphan(
+	EXPECT_FALSE(Instance->IsParameterValueOrphan(
 		Durin::MaterialParameters::GetBuiltinParameterIds(
 			Durin::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value));
 	const bool bOwnsRenderingThread = Durin::GetRenderCommandAdmissionState()
@@ -895,7 +895,7 @@ TEST(FMaterialRenderRepresentationTests, TextureSamplingOverridesChangePayloadWi
 	auto Value = Definition.Value;
 	Value.GetTexture().SamplerState.AddressV = EMaterialSamplerAddressMode::MirroredRepeat;
 	Value.GetTexture().TextureFallback = EMaterialTextureFallback::Black;
-	ASSERT_TRUE(Child->SetParameterOverride(Definition.Id, Value));
+	ASSERT_TRUE(Child->SetParameterValue(Definition.Id, Value));
 	Binding = GetMaterialBinding(Child->GetRenderData());
 	EXPECT_EQ(Binding.CompiledSamplers[0], Value.GetTexture().SamplerState);
 	EXPECT_EQ(Binding.CompiledTextureFallbacks[0], EMaterialTextureFallback::Black);
@@ -903,7 +903,7 @@ TEST(FMaterialRenderRepresentationTests, TextureSamplingOverridesChangePayloadWi
 	ASSERT_TRUE(Root->SetParameterValue(Definition.Id, Value));
 	EXPECT_EQ(Root->GetAcceptedCompiledProgram(), Accepted);
 	EXPECT_EQ(Root->GetRenderData().PlanningPassIdentity.ShaderMap.ProgramIdentity, Accepted->Identity);
-	ASSERT_TRUE(Child->ClearParameterOverride(Definition.Id));
+	ASSERT_TRUE(Child->ClearParameterValue(Definition.Id));
 	Binding = GetMaterialBinding(Child->GetRenderData());
 	EXPECT_EQ(Binding.CompiledSamplers[0], Value.GetTexture().SamplerState);
 	EXPECT_EQ(Binding.CompiledTextureFallbacks[0], EMaterialTextureFallback::Black);
@@ -945,11 +945,11 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 	const auto ExpectedLayout = Source->GetAcceptedCompiledProgram()->Layout;
 	auto* Instance = NewObject<DMaterialInstance>(Source->GetPackage(), "CustomCookedOverrides");
 	ASSERT_TRUE(Instance->SetParent(Source));
-	ASSERT_TRUE(Instance->SetParameterOverride(Tint.Id, FMaterialParameterValue::MakeVector4(FVector4(0.8, 0.3, 0.1, 1.0))));
+	ASSERT_TRUE(Instance->SetParameterValue(Tint.Id, FMaterialParameterValue::MakeVector4(FVector4(0.8, 0.3, 0.1, 1.0))));
 	auto Sampling = Texture.Value;
 	Sampling.GetTexture().SamplerState.AddressV = EMaterialSamplerAddressMode::MirroredRepeat;
 	Sampling.GetTexture().TextureFallback = EMaterialTextureFallback::Black;
-	ASSERT_TRUE(Instance->SetParameterOverride(Texture.Id, Sampling));
+	ASSERT_TRUE(Instance->SetParameterValue(Texture.Id, Sampling));
 	FObjectPath InstancePath;
 	ASSERT_TRUE(FObjectPath::TryCreate(Instance->GetObjectPath(), InstancePath));
 	const auto CookRoot = std::filesystem::absolute(Testing::CreateTestFixtureDirectory("CustomLayoutMaterialCook"));
@@ -978,7 +978,7 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 		DMaterialInstance* LoadedInstance = nullptr;
 		ASSERT_TRUE(LoadObject(InstancePath, LoadedInstance));
 		ASSERT_NE(LoadedInstance, nullptr);
-		EXPECT_FALSE(LoadedInstance->IsParameterOverrideOrphan(Texture.Id));
+		EXPECT_FALSE(LoadedInstance->IsParameterValueOrphan(Texture.Id));
 		const auto RootBinding = GetMaterialBinding(Loaded->GetRenderData());
 		const auto InstanceBinding = GetMaterialBinding(LoadedInstance->GetRenderData());
 		EXPECT_EQ(RootBinding.LayoutIdentity, ExpectedLayout.Identity);

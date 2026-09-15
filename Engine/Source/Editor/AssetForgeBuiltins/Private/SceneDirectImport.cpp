@@ -673,7 +673,7 @@ namespace Durin::AssetForge::Builtins
 							Definition->Type == EMaterialParameterType::Vector2 ? FMaterialParameterValue::MakeVector2({Literal.X, Literal.Y}) :
 							FMaterialParameterValue::MakeScalar(Literal.X);
 					}
-					if (!Material->SetParameterOverride(Owner.ParameterId, Value))
+					if (!Material->SetParameterValue(Owner.ParameterId, Value))
 					{
 						Abandon(Prepared);
 						return AddError(OutResult, EImportDiagnosticCategory::ValidationFailure,

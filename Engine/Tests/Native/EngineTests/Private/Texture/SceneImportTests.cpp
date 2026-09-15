@@ -143,7 +143,7 @@ TEST(FSceneImportTests, AssetForgePublishesHeterogeneousGraph)
 			EXPECT_EQ(Parent->GetImportProvenance().StructuralKey, Material->GetImportProvenance().StructuralKey);
 			EXPECT_EQ(Material->GetImportProvenance().OutputIdentity, Output.StableIdentity);
 			EXPECT_LT(Parent->GetParameterDefinitions().size(), 48u);
-			EXPECT_EQ(Material->GetParameterOverrideCount(), Parent->GetParameterDefinitions().size());
+			EXPECT_EQ(Material->GetLocalParameterValueCount(), Parent->GetParameterDefinitions().size());
 			EXPECT_EQ(std::ranges::count_if(Parent->GetExpressionCollection().Expressions,
 				[](const auto& Expression) { return Durin::Cast<Durin::DMaterialExpressionTextureSampleParameter2D>(Expression.Get()) != nullptr; }), 1);
 			EXPECT_TRUE(Material->GetMaterialCompileStatus().IsCurrent());
@@ -219,7 +219,7 @@ TEST(FSceneImportTests, SceneReimportResetsEditsAndRollsBackSavedAndLiveOutputs)
 	ASSERT_NE(PreviousMesh, nullptr);
 	using Kind = MaterialParameters::EMaterialBuiltinParameterKind;
 	const auto Color = GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::BaseColor, Kind::Value);
-	ASSERT_TRUE(Previous->SetParameterOverride(Color, FMaterialParameterValue::MakeVector({0.2, 0.3, 0.4})));
+	ASSERT_TRUE(Previous->SetParameterValue(Color, FMaterialParameterValue::MakeVector({0.2, 0.3, 0.4})));
 	auto Properties = Previous->GetPropertyOverrides();
 	Properties.bOverrideShadingModel = true;
 	Properties.Values.ShadingModel = EMaterialShadingModel::Unlit;
@@ -230,7 +230,7 @@ TEST(FSceneImportTests, SceneReimportResetsEditsAndRollsBackSavedAndLiveOutputs)
 	ASSERT_TRUE(Dependent->SetParent(Previous));
 	auto* Independent = NewObject<DMaterialInstance>(nullptr, "IndependentMaterial");
 	ASSERT_TRUE(Independent->SetParent(Previous->GetParent()));
-	ASSERT_TRUE(Independent->SetParameterOverride(Color, FMaterialParameterValue::MakeVector({0.1, 0.2, 0.3})));
+	ASSERT_TRUE(Independent->SetParameterValue(Color, FMaterialParameterValue::MakeVector({0.1, 0.2, 0.3})));
 	const auto PreviousKey = Previous->GetImportProvenance().StructuralKey;
 	FAssetCompilingManager::Get().FinishAllCompilation();
 	const std::string OriginalSource = Read(Fixture.Source);
@@ -272,7 +272,7 @@ TEST(FSceneImportTests, SceneReimportResetsEditsAndRollsBackSavedAndLiveOutputs)
 	EXPECT_EQ(Dependent->GetAcceptedCompiledProgram()->ActiveParameters.size(), Material->GetAcceptedCompiledProgram()->ActiveParameters.size());
 	EXPECT_NE(Consumer->GetStaticMesh(), PreviousMesh);
 	EXPECT_EQ(Consumer->GetMaterial(), Material);
-	EXPECT_FALSE(Material->HasLocalParameterOverride(Color));
+	EXPECT_FALSE(Material->HasLocalParameterValue(Color));
 	EXPECT_EQ(Material->GetStaticProperties().ShadingModel, EMaterialShadingModel::Lit);
 	EXPECT_TRUE(Material->GetStaticProperties().bTwoSided);
 	EXPECT_NE(Material->GetImportProvenance().StructuralKey, PreviousKey);
@@ -283,7 +283,7 @@ TEST(FSceneImportTests, SceneReimportResetsEditsAndRollsBackSavedAndLiveOutputs)
 	FResolvedMaterialParameter Value;
 	ASSERT_TRUE(Material->ResolveParameterValue(Color, Value));
 	EXPECT_EQ(Value.Value.GetVector(), FVector3(0.5, 0.75, 0.25));
-	EXPECT_FALSE(Material->IsParameterOverrideOrphan(Color));
+	EXPECT_FALSE(Material->IsParameterValueOrphan(Color));
 	EXPECT_FALSE(Material->GetStaticProperties().bTwoSided);
 	ASSERT_TRUE(Independent->ResolveParameterValue(Color, Value));
 	EXPECT_EQ(Value.Value.GetVector(), FVector3(0.1, 0.2, 0.3));
@@ -450,7 +450,7 @@ TEST(FSceneImportTests, PackedSourceChannelsPublishOneLinearSampleOwner)
 	EXPECT_EQ(Outputs.Roughness.OutputIndex, 3);
 	EXPECT_EQ(Outputs.AmbientOcclusion.OutputIndex, 2);
 	EXPECT_EQ(Instance->GetParameterDefinitions().size(), 2u);
-	EXPECT_EQ(Instance->GetParameterOverrideCount(), 2u);
+	EXPECT_EQ(Instance->GetLocalParameterValueCount(), 2u);
 	EXPECT_FALSE(Instance->GetImportProvenance().OutputIdentity.empty());
 	DTexture2D* Texture = nullptr;
 	ASSERT_TRUE(Instance->GetTextureParameterValue(MaterialParameters::MetallicTextureName(), Texture));

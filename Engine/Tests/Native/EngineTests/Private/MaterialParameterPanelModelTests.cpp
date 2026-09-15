@@ -139,9 +139,9 @@ TEST(FMaterialParameterPanelModelTests, EnablingOverrideCopiesTheParameterType)
 	ASSERT_EQ(BaseColor->Definition->Type, Durin::EMaterialParameterType::Vector);
 	ASSERT_TRUE(Model.SetOverrideEnabled(PropertyView, Context, *BaseColor, true));
 
-	ASSERT_EQ(Instance->GetParameterOverrideCount(), 1u);
+	ASSERT_EQ(Instance->GetLocalParameterValueCount(), 1u);
 	Durin::FMaterialParameterValue Override;
-	ASSERT_TRUE(Instance->GetLocalParameterOverride(Durin::MaterialParameters::GetBuiltinParameterIds(
+	ASSERT_TRUE(Instance->GetLocalParameterValue(Durin::MaterialParameters::GetBuiltinParameterIds(
 		Durin::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value, Override));
 	EXPECT_EQ(Override.GetType(), Durin::EMaterialParameterType::Vector);
 	EXPECT_TRUE(Error.empty());
@@ -170,7 +170,7 @@ TEST(FMaterialParameterPanelModelTests, GuidRootEditsSurviveIndexChangesAndCoale
 	const auto* InitialOpacity = FindEntry(InitialModel, Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value);
 	ASSERT_NE(InitialOpacity, nullptr);
 	ASSERT_TRUE(InitialModel.SetOverrideEnabled(PropertyView, Context, *InitialOpacity, true));
-	ASSERT_TRUE(Instance->HasLocalParameterOverride(Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value));
+	ASSERT_TRUE(Instance->HasLocalParameterValue(Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value));
 
 	Durin::Editor::Material::FMaterialParameterPanelModel EditModel(Instance);
 	const auto* Opacity = FindEntry(EditModel, Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value);
@@ -178,7 +178,7 @@ TEST(FMaterialParameterPanelModelTests, GuidRootEditsSurviveIndexChangesAndCoale
 	ASSERT_TRUE(Opacity->bHasLocalOverride);
 	// Removing an earlier entry changes Opacity's array index. The retained panel row
 	// remains valid because every scratch mutation resolves the entry by GUID.
-	ASSERT_TRUE(Instance->ClearParameterOverride(Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value));
+	ASSERT_TRUE(Instance->ClearParameterValue(Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value));
 
 	auto FirstValue = Opacity->Value;
 	FirstValue.GetScalar() = 0.4f;
@@ -231,11 +231,11 @@ TEST(FMaterialParameterPanelModelTests, ResetAndOrphanRemovalAreTransactional)
 	const auto* Opacity = FindEntry(OverrideModel, Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value);
 	ASSERT_NE(Opacity, nullptr);
 	ASSERT_TRUE(OverrideModel.SetOverrideEnabled(PropertyView, Context, *Opacity, false));
-	EXPECT_FALSE(Instance->HasLocalParameterOverride(Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value));
+	EXPECT_FALSE(Instance->HasLocalParameterValue(Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value));
 	ASSERT_TRUE(Transactions->Undo());
-	EXPECT_TRUE(Instance->HasLocalParameterOverride(Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value));
+	EXPECT_TRUE(Instance->HasLocalParameterValue(Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value));
 	ASSERT_TRUE(Transactions->Redo());
-	EXPECT_FALSE(Instance->HasLocalParameterOverride(Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value));
+	EXPECT_FALSE(Instance->HasLocalParameterValue(Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value));
 
 	ASSERT_TRUE(Instance->SetScalarParameterValue(Durin::MaterialParameters::OpacityName(), 0.3f));
 	ASSERT_TRUE(Instance->SetParent(nullptr));
@@ -245,11 +245,11 @@ TEST(FMaterialParameterPanelModelTests, ResetAndOrphanRemovalAreTransactional)
 	EXPECT_TRUE(Orphan.bOrphan);
 	EXPECT_EQ(Orphan.ParameterId, Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value);
 	ASSERT_TRUE(OrphanModel.RemoveOrphan(PropertyView, Context, Orphan));
-	EXPECT_TRUE(Instance->GetParameterOverrideCount() == 0);
+	EXPECT_TRUE(Instance->GetLocalParameterValueCount() == 0);
 	ASSERT_TRUE(Transactions->Undo());
-	EXPECT_TRUE(Instance->IsParameterOverrideOrphan(Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value));
+	EXPECT_TRUE(Instance->IsParameterValueOrphan(Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value));
 	ASSERT_TRUE(Transactions->Redo());
-	EXPECT_TRUE(Instance->GetParameterOverrideCount() == 0);
+	EXPECT_TRUE(Instance->GetLocalParameterValueCount() == 0);
 	EXPECT_TRUE(Error.empty());
 
 	EXPECT_TRUE(Transactions->Reset());
@@ -326,7 +326,7 @@ TEST(FMaterialParameterPanelModelTests, BaseAndTexturePickerValuesUseSharedUndoH
 	EXPECT_EQ(Resolved.Value.GetTexture().SamplerState, TextureValue.GetTexture().SamplerState);
 	EXPECT_EQ(Resolved.Value.GetTexture().TextureFallback, Durin::EMaterialTextureFallback::Black);
 	TextureValue.GetTexture().SamplerState.AddressU = static_cast<Durin::EMaterialSamplerAddressMode>(255);
-	EXPECT_FALSE(Instance->SetParameterOverride(TextureEntry->ParameterId, TextureValue));
+	EXPECT_FALSE(Instance->SetParameterValue(TextureEntry->ParameterId, TextureValue));
 	EXPECT_FALSE(TextureModel.SubmitValueEdit(PropertyView, Context, *TextureEntry, TextureValue, false));
 	EXPECT_TRUE(Error.empty());
 
