@@ -21,7 +21,8 @@ remaining width and height. Parameters shares the Details dock as a visible tab,
 and Diagnostics as an optional tab. Small initial layouts use dock tabs. Resizing
 does not rebuild a user's arrangement. Hidden document roots keep their dock spaces alive.
 
-Function insertion opens a bounded popup above the graph. Selected-call navigation
+Function insertion opens a bounded popup above the graph; its picker displays
+directly without a collapsible wrapper. Selected-call navigation
 lives in Details alongside the shared input editor, so selection does not resize
 or displace the canvas. Details owns selected-node authoring and instance
 inheritance and rendering properties. Parameters owns shared parameter metadata
@@ -30,8 +31,9 @@ Surface with eight property inputs and retained defaults, without expression
 nodes or function calls.
 
 The single nondeletable Surface root displays the material identity, shading model
-and blend mode. Selecting it (or clearing the graph selection) exposes Surface
-Settings in Details: the supported Surface domain, Lit/Unlit shading, blend mode,
+and blend mode. Selecting it or clearing the graph selection shows the same
+material identity and directly expanded properties in Details, without a Surface
+Settings header: the supported Surface domain, Lit/Unlit shading, blend mode,
 masked cutoff, two-sided rendering and depth-write policy. Settings use reflected
 property transactions on the working material, so Apply/Discard and Undo/Redo
 retain their ordinary atomic behavior. Inactive cutoff values remain stored.
@@ -48,7 +50,8 @@ exclusion rule are unchanged; reusable Surface values do not become extra roots.
 
 Window controls reopen optional panels and reset the default layout. Material
 identity, type and asset path appear directly in Details when no graph node is
-selected. Selected nodes show their name and properties without a wrapper header.
+selected or the Surface root is selected. Selected expression nodes show their
+name and properties without a wrapper header.
 Surface settings, node values and instance rendering overrides use the shared
 MonaImGui property tables with left-aligned labels and full-width value controls.
 Input controls are grouped by input. Unconnected inputs expose Value directly;

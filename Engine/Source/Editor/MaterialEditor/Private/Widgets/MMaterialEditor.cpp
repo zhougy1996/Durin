@@ -1049,9 +1049,11 @@ namespace Durin::Editor::Material
 	auto MMaterialEditor::DrawDetailsPanel(
 		const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void
 	{
-		const bool bHasSelection = Cast<DMaterial>(Material)
-			&& !GetOrCreateCanvas(Document).GetSelection().empty();
-		if (!bHasSelection)
+		auto* BaseMaterial = Cast<DMaterial>(Material);
+		const bool bShowMaterialDetails = !BaseMaterial
+			|| GetOrCreateCanvas(Document).GetSelection().empty()
+			|| GetOrCreateCanvas(Document).GetSelection().contains(EMaterialGraphTerminal::MaterialOutput);
+		if (bShowMaterialDetails)
 		{
 			ImGui::TextWrapped("%s", Material->GetName().c_str());
 			ImGui::TextDisabled("%s", Cast<DMaterialInstance>(Material) ? "Material Instance" : "Material");
@@ -1064,11 +1066,9 @@ namespace Durin::Editor::Material
 		{
 			DrawMaterialInstance(Instance);
 		}
-		else if (auto* BaseMaterial = Cast<DMaterial>(Material))
+		else if (BaseMaterial)
 		{
-			const auto& Selection = GetOrCreateCanvas(Document).GetSelection();
-			if ((Selection.empty() || Selection.contains(EMaterialGraphTerminal::MaterialOutput))
-				&& ImGui::CollapsingHeader("Surface Settings", ImGuiTreeNodeFlags_DefaultOpen)
+			if (bShowMaterialDetails
 				&& MonaImGui::PropertyEdit::BeginTable("SurfaceProperties", MakeMaterialPropertyTableConfig()))
 			{
 				MonaImGui::PropertyEdit::BeginRow("Domain");

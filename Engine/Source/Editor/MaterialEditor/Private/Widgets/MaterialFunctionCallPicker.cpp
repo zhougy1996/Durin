@@ -30,7 +30,6 @@ namespace Durin::Editor::Material
 
 	auto FMaterialFunctionCallPicker::Draw(DObject& Owner, DTransactor& Transactions, std::string& Error) -> void
 	{
-		if (!ImGui::CollapsingHeader("Insert Function Call", ImGuiTreeNodeFlags_DefaultOpen)) return;
 		const auto Picked = AssetPicker::Draw({.RequiredClass = DMaterialFunctionInterface::StaticClass(),
 			.CurrentSelection = Function.Get(), .SearchText = Search, .AssignSelection = [&](DObject* Object, std::string&) {
 				Function = Cast<DMaterialFunctionInterface>(Object); Inputs.clear(); return true;

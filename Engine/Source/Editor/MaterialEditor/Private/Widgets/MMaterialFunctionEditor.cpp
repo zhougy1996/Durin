@@ -284,8 +284,9 @@ namespace Durin::Editor::Material
 			ImGui::SameLine();
 			if (ImGui::Button("Remove Port")) Apply(Graph.RemovePort(Document.bOutputPort, Document.EditingPort, GEditor->GetTransactor()));
 		}
+		ImGui::SeparatorText("Insert Function Call");
 		Document.CallPicker.Draw(Function, *GEditor->GetTransactor(), Error);
-		ImGui::SeparatorText("Selected Node");
+		ImGui::Spacing();
 		for (const auto& Selection : Document.Canvas.GetSelection())
 			if (const auto* Id = std::get_if<FGuid>(&Selection))
 			{
