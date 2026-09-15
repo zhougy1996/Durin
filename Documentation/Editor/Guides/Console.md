@@ -80,12 +80,16 @@ example plain "two words" 'three words' escaped\ value
   Error/Fatal use the theme's info blue, warning amber, and error red. Hover a
   level for its full name, or a Source value to inspect its module, thread, and
   source location.
-- The level buttons independently show or hide Trace, Debug, Info, Warn, Error,
-  and Fatal log records. They do not hide command results. Fatal uses the error
-  presentation color but remains an independent filter level.
+- The toolbar's **Level** dropdown selects the minimum visible log level:
+  Trace, Debug, Info, Warn, Error, or Fatal. It defaults to Trace (all logs).
+  Selecting Error shows Error and Fatal; selecting Warn also includes Warn.
+  Selection applies immediately and closes the dropdown. The level filter does
+  not hide command results. Options contains Auto Scroll; level selection is
+  available directly on the toolbar.
 - **Auto Scroll** keeps the view at the newest record while the user is already
   at the bottom. Scrolling upward temporarily suspends following for incoming
-  logs; submitting a command still reveals its echo and result.
+  logs; submitting a command still reveals its echo and result. Its checkbox
+  in Options applies immediately and keeps the popup open when toggled.
 - The down-arrow toolbar action jumps to the latest visible record on demand.
 - Long records wrap to the available panel width instead of requiring
   horizontal scrolling. Large histories retain variable-height viewport

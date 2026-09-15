@@ -280,18 +280,7 @@ namespace Durin::Editor::MainFrame
 		if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Options");
 		if (ImGui::BeginPopup("ConsoleOptions"))
 		{
-			ImGui::MenuItem("Auto Scroll", nullptr, &bAutoScroll);
-			if (ImGui::BeginMenu("Levels"))
-			{
-				for (size_t Index = 0; Index < LevelVisibility.size(); ++Index)
-				{
-					const ELogLevel Level = static_cast<ELogLevel>(Index);
-					ImGui::PushStyleColor(ImGuiCol_Text, LevelColor(Level));
-					if (ImGui::MenuItem(LevelName(Level), nullptr, &LevelVisibility[Index])) bVisibleRecordsDirty = true;
-					ImGui::PopStyleColor();
-				}
-				ImGui::EndMenu();
-			}
+			ImGui::Checkbox("Auto Scroll", &bAutoScroll);
 			ImGui::EndPopup();
 		}
 		ImGui::SameLine();
@@ -303,6 +292,29 @@ namespace Durin::Editor::MainFrame
 		ImGui::SameLine();
 		if (DrawToolbarIconButton(Icons::Trash, "ConsoleClear")) Clear();
 		if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Clear console");
+		ImGui::SameLine();
+		ImGui::SetNextItemWidth(ImGui::CalcTextSize("Level: Debug").x
+			+ ImGui::GetStyle().FramePadding.x * 2.0f + ImGui::GetFrameHeight());
+		const std::string LevelPreview = std::format("Level: {}", LevelName(MinimumLogLevel));
+		if (ImGui::BeginCombo("###ConsoleMinimumLogLevel", LevelPreview.c_str()))
+		{
+			for (int Index = static_cast<int>(ELogLevel::Trace); Index <= static_cast<int>(ELogLevel::Fatal); ++Index)
+			{
+				const ELogLevel Level = static_cast<ELogLevel>(Index);
+				const bool bSelected = Level == MinimumLogLevel;
+				ImGui::PushStyleColor(ImGuiCol_Text, LevelColor(Level));
+				if (ImGui::Selectable(LevelName(Level), bSelected))
+				{
+					MinimumLogLevel = Level;
+					bVisibleRecordsDirty = true;
+				}
+				ImGui::PopStyleColor();
+				if (bSelected) ImGui::SetItemDefaultFocus();
+			}
+			ImGui::EndCombo();
+		}
+		if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+			ImGui::SetTooltip("Show logs at the selected level and above. Trace shows all logs.");
 		ImGui::SameLine();
 		ImGui::SetNextItemWidth(-1.0f);
 		if (ImGui::InputTextWithHint("###ConsoleSearch", "Search output...", SearchText.data(), SearchText.size())) bVisibleRecordsDirty = true;
@@ -507,8 +519,7 @@ namespace Durin::Editor::MainFrame
 		const FConsoleRecord& Record = State->Records.GetRecords()[Index];
 		if (Record.Type == EConsoleRecordType::Log)
 		{
-			const size_t LevelIndex = static_cast<size_t>(Record.Log.Level);
-			if (LevelIndex >= LevelVisibility.size() || !LevelVisibility[LevelIndex]) return false;
+			if (Record.Log.Level < MinimumLogLevel || Record.Log.Level > ELogLevel::Fatal) return false;
 			return SearchText[0] == '\0' || ContainsInsensitive(Record.Log.Module, SearchText.data()) ||
 				ContainsInsensitive(Record.Log.CategoryOverride, SearchText.data()) || ContainsInsensitive(Record.Log.Message, SearchText.data());
 		}

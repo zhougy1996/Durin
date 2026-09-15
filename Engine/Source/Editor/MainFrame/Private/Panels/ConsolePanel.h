@@ -45,7 +45,7 @@ namespace Durin::Editor::MainFrame
 		uint64 EvictedLogRecordCount = 0;
 		std::array<char, 128> SearchText{};
 		std::array<char, 512> CommandText{};
-		std::array<bool, static_cast<size_t>(ELogLevel::Fatal) + 1> LevelVisibility{true, true, true, true, true, true};
+		ELogLevel MinimumLogLevel = ELogLevel::Trace;
 		std::vector<size_t> VisibleRecordIndices;
 		std::vector<float> VisibleRecordOffsets;
 		std::vector<std::string> History;
