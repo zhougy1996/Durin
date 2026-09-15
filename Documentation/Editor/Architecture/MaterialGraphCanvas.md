@@ -78,7 +78,9 @@ retain their authored name as the title and show their current numeric value
 below it, including in readable zoom. Values use four significant digits, omit
 trailing zeros, and retain vector dimensions. Float3/Float4 nodes also show a
 small RGB swatch; its channels are clamped for display while numeric values
-remain unchanged. Hover tooltips expose labels without width truncation.
+remain unchanged. Hover tooltips expose labels without width truncation and numeric
+values with nine significant digits. Material and function canvases share this
+heading renderer, including zoom, clipping, and overview visibility.
 Selected nodes retain the existing inline editing controls. Text is clipped and ellipsized to its owning bounds; editing
 zoom adds named inputs and a textual output type so type color is never the only
 cue.
@@ -127,8 +129,8 @@ click, Space, an empty-canvas double click, or an output link dropped on empty
 space. It focuses search and supports arrow/Enter/Escape navigation. Compact
 node rows are grouped by category; recently used nodes form a leading group
 when no search is active. Rows display shortcuts instead of favorite buttons. Descriptions and input
-signatures appear in hover tooltips. Search keeps matching entries grouped
-by category and preserves relevance within each group. Paste and Auto Layout
+signatures appear in hover tooltips. An active search preserves global match
+relevance instead of regrouping by category. Paste and Auto Layout
 remain available below the creation list when no source link is active.
 Holding a key and left-clicking empty canvas creates a node at the pointer:
 `1`/`2`/`3`/`4` create Float through Float4 constants, `A` Add, `M` Multiply,
@@ -137,6 +139,16 @@ and `T` Texture Sample Parameter 2D. Math shortcuts create scalar nodes.
 Creation selects the new node and records one Undo/Redo transaction. Shortcuts
 require an idle canvas with no text input or Ctrl/Shift/Alt/Super modifier;
 node, pin, and material-output clicks retain their existing gestures.
+The function canvas shares the creation menu and shortcut dispatch, excluding
+parameter nodes that functions cannot own. Both canvases share paste placement:
+keyboard paste uses the pointer in graph coordinates, repeated pastes at the same
+anchor add a 24-unit offset and select the generated nodes. Function toolbar
+paste and Add Node use the viewport center.
+Menu requests and editing keyboard commands do not replace an active drag.
+Resetting an interaction cancels any remaining move or parameter edit session.
+Function inspection and visual topology are retained until the function or its
+direct dependencies change revision, its positions change, or interaction cleanup
+invalidates a draft. No timing guarantee is implied by this cache.
 Right-clicking a node or surface input retains its editing context menu. Search ranks exact,
 prefix, and substring matches, then uses stable category, operation, type,
 parameter GUID, and catalog order ties. Opening from a source output filters the

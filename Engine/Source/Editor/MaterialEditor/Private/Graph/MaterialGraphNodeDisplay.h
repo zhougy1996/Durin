@@ -7,7 +7,7 @@
 namespace Durin::Editor::Material
 {
 	inline auto FormatGraphNumericValue(EMaterialProgramValueType Type,
-		const FMaterialProgramLiteral& Value) -> std::string
+		const FMaterialProgramLiteral& Value, int Precision = 4) -> std::string
 	{
 		const std::array Components{Value.X, Value.Y, Value.Z, Value.W};
 		if (Type > EMaterialProgramValueType::Float4) return {};
@@ -15,7 +15,7 @@ namespace Durin::Editor::Material
 		for (size_t Index = 0; Index <= static_cast<size_t>(Type); ++Index)
 		{
 			if (Index) Text += ", ";
-			Text += std::format("{:.4g}", Components[Index] == 0 ? 0.0f : Components[Index]);
+			Text += std::format("{:.{}g}", Components[Index] == 0 ? 0.0f : Components[Index], Precision);
 		}
 		return Type == EMaterialProgramValueType::Float ? Text : "(" + Text + ")";
 	}

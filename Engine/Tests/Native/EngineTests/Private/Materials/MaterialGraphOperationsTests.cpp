@@ -67,6 +67,18 @@ namespace Durin::Editor::Material
 		{ return std::holds_alternative<FMaterialGraphCanvas::FIdleInteraction>(Canvas.Interaction); }
 		static auto Linking(const FMaterialGraphCanvas& Canvas) -> bool
 		{ return std::holds_alternative<FMaterialGraphCanvas::FLinkingInteraction>(Canvas.Interaction); }
+		static auto PrepareFunction(FMaterialGraphCanvas& Canvas, DMaterialFunction& Function) -> const FMaterialGraphView&
+		{ Canvas.PrepareFunctionView(Function); return Canvas.CachedView; }
+		static auto MoveActive(const FMaterialGraphCanvas& Canvas) -> bool { return Canvas.MoveSession.IsActive(); }
+		static auto SearchMenu(FMaterialGraphCanvas& Canvas, const char* Query) -> void
+		{
+			if (!std::holds_alternative<FMaterialGraphCanvas::FNodeCreationMenuInteraction>(Canvas.Interaction))
+				Canvas.Interaction = FMaterialGraphCanvas::FNodeCreationMenuInteraction{};
+			auto& Menu = std::get<FMaterialGraphCanvas::FNodeCreationMenuInteraction>(Canvas.Interaction);
+			std::snprintf(Menu.Search.data(), Menu.Search.size(), "%s", Query);
+		}
+		static auto SearchOrder(const FMaterialGraphCanvas& Canvas) -> bool
+		{ return Canvas.CachedCreationMenuResults == FMaterialGraphOperations::SearchCatalogIndices(Canvas.Catalog, Canvas.CachedCreationMenuQuery); }
 		static auto Menu(const FMaterialGraphCanvas& Canvas) -> bool
 		{ return std::holds_alternative<FMaterialGraphCanvas::FNodeCreationMenuInteraction>(Canvas.Interaction); }
 	};
@@ -1989,6 +2001,39 @@ TEST(FMaterialGraphOperationsTests, FunctionCanvasConnectsAndMovesNodesWithUndo)
 	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_NE(Function->GetFunctionPresentation(), Before);
 	EXPECT_EQ(Function->GetFunctionRevision(), Revision);
+	IO.AddKeyEvent(ImGuiMod_Shift, false);
+	const ImVec2 Empty{900, 750};
+	IO.AddKeyEvent(ImGuiKey_3, true);
+	Frame(Empty, false); Frame(Empty, true);
+	ASSERT_EQ(Canvas.GetSelection().size(), 1u);
+	const auto CreatedId = FMaterialGraphCanvasTestAccess::ProgramSelection(Canvas).front();
+	const auto CreatedView = Document.Inspect();
+	const auto* Created = FindViewNode(CreatedView, CreatedId);
+	ASSERT_NE(Created, nullptr);
+	EXPECT_EQ(Created->Node.ResultType, EMaterialProgramValueType::Float3);
+	EXPECT_EQ(Created->Presentation.X, static_cast<int32>(std::round(Empty.x - Origin.x)));
+	EXPECT_EQ(Created->Presentation.Y, static_cast<int32>(std::round(Empty.y - Origin.y)));
+	IO.AddKeyEvent(ImGuiKey_3, false); Frame(Empty, false);
+	IO.AddKeyEvent(ImGuiMod_Ctrl, true); IO.AddKeyEvent(ImGuiKey_C, true);
+	Frame(Empty, false); IO.AddKeyEvent(ImGuiKey_C, false); Frame(Empty, false);
+	const ImVec2 PastePoint{650, 700};
+	Frame(PastePoint, false); Frame(PastePoint, false);
+	for (int Index = 0; Index < 2; ++Index)
+	{
+		IO.AddKeyEvent(ImGuiKey_V, true); Frame(PastePoint, false);
+		const auto Id = FMaterialGraphCanvasTestAccess::ProgramSelection(Canvas).front();
+		EXPECT_NE(Id, CreatedId);
+		const auto PastedView = Document.Inspect();
+		const auto* Pasted = FindViewNode(PastedView, Id);
+		ASSERT_NE(Pasted, nullptr);
+		EXPECT_EQ(Pasted->Presentation.X, static_cast<int32>(std::round(PastePoint.x - Origin.x)) + 24 * Index);
+		EXPECT_EQ(Pasted->Presentation.Y, static_cast<int32>(std::round(PastePoint.y - Origin.y)) + 24 * Index);
+		IO.AddKeyEvent(ImGuiKey_V, false); Frame(PastePoint, false);
+	}
+	EXPECT_EQ(Errors, 0);
+	ASSERT_TRUE(Transactions->Undo()); ASSERT_TRUE(Transactions->Redo());
+	Canvas.SetViewport(0.3f, {40, 40}); Frame(Empty, false);
+	EXPECT_GT(ImGui::GetDrawData()->TotalVtxCount, 0);
 	ImGui::DestroyContext(Context);
 	EXPECT_TRUE(Transactions->Reset()); MarkAsGarbage(Function); CollectGarbage();
 }
@@ -2294,6 +2339,88 @@ TEST(FMaterialGraphOperationsTests, CanvasCreationShortcutsRespectGesturesAndUnd
 	EXPECT_TRUE(Transactions->Reset());
 	ImGui::DestroyContext(Context);
 	MarkAsGarbage(Material); CollectGarbage();
+}
+
+TEST(FMaterialGraphOperationsTests, CanvasMenusDoNotInterruptMoveAndKeepSearchRanking)
+{
+	InitializeDObjectSystem();
+	auto* Material = NewObject<DMaterial>(nullptr, "MoveMenuRegression");
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	FMaterialGraphDocument Document(*Material);
+	ASSERT_TRUE(Testing::CreateGraphConstant(Document, 0.5f, 0, 200));
+	const auto Before = Material->GetMaterialGraphPresentation();
+	ImGuiContext* Context = ImGui::CreateContext();
+	auto& IO = ImGui::GetIO();
+	IO.DisplaySize = {1200, 900}; IO.DeltaTime = 1.0f / 60.0f; IO.IniFilename = nullptr;
+	IO.Fonts->AddFontDefault(); IO.Fonts->Build();
+	Durin::Tests::FTestTransactorOwner Transactions;
+	FMaterialGraphCanvas Canvas;
+	ImVec2 Origin;
+	int Errors = 0;
+	const auto Frame = [&](ImVec2 Mouse, bool Down) {
+		IO.AddMousePosEvent(Mouse.x, Mouse.y); IO.AddMouseButtonEvent(ImGuiMouseButton_Left, Down);
+		ImGui::NewFrame();
+		ImGui::SetNextWindowPos({0, 0}); ImGui::SetNextWindowSize({1200, 900});
+		ImGui::Begin("Move Menu", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize);
+		Canvas.Draw(*Material, *Transactions.Get(), 820, [&](std::string) { ++Errors; });
+		const auto* Child = ImGui::GetCurrentWindow()->DC.ChildWindows.back();
+		Origin = {Child->Pos.x + Child->WindowPadding.x + 40,
+			Child->Pos.y + Child->WindowPadding.y + ImGui::GetFrameHeightWithSpacing() + 40};
+		ImGui::End(); ImGui::Render();
+	};
+	Frame({1100, 850}, false); Frame({1100, 850}, false);
+	const ImVec2 Header{Origin.x + 20, Origin.y + 212};
+	Frame(Header, false); Frame(Header, true);
+	const ImVec2 Moved{Header.x + 60, Header.y + 40};
+	Frame(Moved, true);
+	ASSERT_TRUE(FMaterialGraphCanvasTestAccess::MoveActive(Canvas));
+	IO.AddKeyEvent(ImGuiKey_Space, true); Frame(Moved, true);
+	EXPECT_FALSE(FMaterialGraphCanvasTestAccess::Menu(Canvas));
+	IO.AddKeyEvent(ImGuiKey_Space, false);
+	IO.AddMouseButtonEvent(ImGuiMouseButton_Right, true); Frame(Moved, true);
+	EXPECT_FALSE(FMaterialGraphCanvasTestAccess::Menu(Canvas));
+	IO.AddMouseButtonEvent(ImGuiMouseButton_Right, false); Frame(Moved, false);
+	EXPECT_FALSE(FMaterialGraphCanvasTestAccess::MoveActive(Canvas));
+	EXPECT_NE(Material->GetMaterialGraphPresentation(), Before);
+	ASSERT_TRUE(Transactions->Undo()); EXPECT_EQ(Material->GetMaterialGraphPresentation(), Before);
+	ASSERT_TRUE(Transactions->Redo());
+	// A second gesture remains available after the menu attempts.
+	Frame(Moved, false); Frame(Moved, true);
+	EXPECT_TRUE(FMaterialGraphCanvasTestAccess::MoveActive(Canvas));
+	Canvas.CancelInteraction(); Frame(Moved, false);
+	FMaterialGraphCanvasTestAccess::SearchMenu(Canvas, ""); Frame({900, 600}, false);
+	FMaterialGraphCanvasTestAccess::SearchMenu(Canvas, "texture"); Frame({900, 600}, false);
+	EXPECT_TRUE(FMaterialGraphCanvasTestAccess::SearchOrder(Canvas));
+	EXPECT_EQ(Errors, 0);
+	Canvas.CancelInteraction(); ImGui::DestroyContext(Context);
+	EXPECT_TRUE(Transactions->Reset()); MarkAsGarbage(Material); CollectGarbage();
+}
+
+TEST(FMaterialGraphOperationsTests, FunctionCanvasCacheTracksPositionsAndDependencies)
+{
+	InitializeDObjectSystem();
+	auto* Function = NewObject<DMaterialFunction>(nullptr, "CachedFunction");
+	auto* Dependency = NewObject<DMaterialFunction>(nullptr, "CachedDependency");
+	FMaterialGraphDocument Document(*Function), DependencyDocument(*Dependency);
+	const auto Call = Document.InsertFunctionCall(*Dependency, 100, 200);
+	ASSERT_TRUE(Call);
+	FMaterialGraphCanvas Canvas;
+	FMaterialGraphCanvasTestAccess::PrepareFunction(Canvas, *Function);
+	FMaterialGraphCanvasTestAccess::PrepareVisuals(Canvas);
+	FMaterialGraphCanvasTestAccess::PrepareFunction(Canvas, *Function);
+	EXPECT_FALSE(FMaterialGraphCanvasTestAccess::TopologyStale(Canvas));
+	auto Positions = Function->GetFunctionPresentation();
+	Positions.Nodes.front().X += 70;
+	ASSERT_TRUE(Function->SetFunctionPresentation(Positions));
+	const auto& Moved = FMaterialGraphCanvasTestAccess::PrepareFunction(Canvas, *Function);
+	EXPECT_EQ(FindViewNode(Moved, Positions.Nodes.front().NodeId)->Presentation.X, Positions.Nodes.front().X);
+	FMaterialGraphCanvasTestAccess::PrepareVisuals(Canvas);
+	const auto Value = Testing::CreateGraphConstant(DependencyDocument, 0.5f);
+	ASSERT_TRUE(Value);
+	ASSERT_TRUE(DependencyDocument.AddPort(true, {.Name = "Extra"}, {Value.GeneratedNodeIds.front()}));
+	FMaterialGraphCanvasTestAccess::PrepareFunction(Canvas, *Function);
+	EXPECT_TRUE(FMaterialGraphCanvasTestAccess::TopologyStale(Canvas));
+	MarkAsGarbage(Function); MarkAsGarbage(Dependency); CollectGarbage();
 }
 
 TEST(FMaterialGraphOperationsTests, CanvasProducesBoundedEditingDrawData)

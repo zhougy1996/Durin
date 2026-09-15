@@ -253,12 +253,13 @@ namespace Durin::Editor::Material
 			SurfaceGraphPosition.reset();
 		}
 		Interaction = FIdleInteraction{};
+		CachedFunction = nullptr;
 		bSurfaceDefaultDraftInitialized.fill(false);
 	}
 
 	auto FMaterialGraphCanvas::ResetInteraction() -> void
 	{
-		Interaction = FIdleInteraction{};
+		CancelInteraction();
 	}
 
 	auto FMaterialGraphCanvas::PrepareView(DMaterial& Material)
@@ -474,7 +475,7 @@ namespace Durin::Editor::Material
 		bool bInputAvailable,
 		const FReportError& ReportError) -> void
 	{
-		if (!bInputAvailable) return;
+		if (!bInputAvailable || !std::holds_alternative<FIdleInteraction>(Interaction)) return;
 		const ImGuiIO& IO = ImGui::GetIO();
 		if (IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_A))
 		{
@@ -560,18 +561,22 @@ namespace Durin::Editor::Material
 	}
 
 	auto FMaterialGraphCanvas::PasteNodes(
-		DMaterial& Material,
+		DObject& Owner,
 		DTransactor& Transactions,
 		const ImVec2& GraphPosition,
 		const FReportError& ReportError) -> void
 	{
 		if (!GraphClipboard) return;
-		const FMaterialGraphCommandResult Pasted = FMaterialGraphOperations::Paste(
-			Material, *GraphClipboard,
-			static_cast<int32>(std::round(GraphPosition.x)),
-			static_cast<int32>(std::round(GraphPosition.y)), &Transactions);
+		const bool bRepeated = LastPasteAnchor && LastPasteAnchor->x == GraphPosition.x && LastPasteAnchor->y == GraphPosition.y;
+		const uint32 Offset = bRepeated ? RepeatedPasteCount + 1 : 0;
+		const FMaterialGraphCommandResult Pasted = FMaterialGraphDocument(Owner).Paste(*GraphClipboard,
+			static_cast<int32>(std::round(GraphPosition.x)) + 24 * Offset,
+			static_cast<int32>(std::round(GraphPosition.y)) + 24 * Offset, &Transactions);
 		ReportCommand(Pasted, ReportError);
 		if (!Pasted) return;
+		LastPasteAnchor = GraphPosition;
+		RepeatedPasteCount = Offset;
+		SelectedSurfaceOutput.reset();
 		SelectedNodes.clear();
 		SelectedNodes.insert(Pasted.GeneratedNodeIds.begin(),
 			Pasted.GeneratedNodeIds.end());
@@ -694,22 +699,122 @@ namespace Durin::Editor::Material
 		ImGui::EndPopup();
 	}
 
+	auto FMaterialGraphCanvas::DrawNodeHeading(const FVisualNode& Visual, ImDrawList& DrawList,
+		const DMaterial* Material) const -> void
+	{
+		const auto Display = MakeGraphNodeDisplay(*Visual.View, Material);
+		if (DetailLevel != EMaterialGraphDetailLevel::Overview)
+		{
+			const float FontSize = GraphTitleFontHeight * Zoom;
+			const std::string Label = Ellipsize(Display.Title,
+				(NodeWidth - NodePadding * 2.0f) * Zoom
+					* ImGui::GetFontSize() / FontSize);
+			const ImVec4 Clip(Visual.Minimum.x + 5.0f, Visual.Minimum.y,
+				Visual.Maximum.x - 5.0f,
+				Visual.Minimum.y + NodeHeaderHeight * Zoom);
+			DrawList.AddText(ImGui::GetFont(), FontSize,
+				Add(Visual.Minimum,
+					{8.0f * Zoom, (NodeHeaderHeight * Zoom - FontSize) * 0.5f}),
+				IM_COL32(235, 238, 242, 255), Label.c_str(), nullptr, 0.0f, &Clip);
+			if ((DetailLevel == EMaterialGraphDetailLevel::Editing || Display.Value)
+				&& !Display.Subtitle.empty())
+			{
+				const bool bColor = Display.Value && (Visual.View->Node.ResultType == EMaterialProgramValueType::Float3
+					|| Visual.View->Node.ResultType == EMaterialProgramValueType::Float4);
+				const float ColorSpace = bColor ? 18.0f : 0.0f;
+				if (bColor)
+				{
+					const auto& Value = *Display.Value;
+					const ImVec2 Minimum = Add(Visual.Minimum, {8.0f * Zoom, (NodeHeaderHeight + 1.0f) * Zoom});
+					const ImVec2 Maximum = Add(Minimum, {12.0f * Zoom, 12.0f * Zoom});
+					DrawList.AddRectFilled(Minimum, Maximum, ImGui::ColorConvertFloat4ToU32(
+						{std::clamp(Value.X, 0.0f, 1.0f), std::clamp(Value.Y, 0.0f, 1.0f),
+							std::clamp(Value.Z, 0.0f, 1.0f), 1.0f}));
+					DrawList.AddRect(Minimum, Maximum, IM_COL32(150, 156, 168, 255));
+				}
+				const std::string Secondary = Ellipsize(Display.Subtitle,
+					(NodeWidth - NodePadding * 2.0f - ColorSpace) * Zoom
+						* ImGui::GetFontSize() / (GraphSecondaryFontHeight * Zoom));
+				const ImVec4 SecondaryClip(Visual.Minimum.x + 5.0f,
+					Visual.Minimum.y + NodeHeaderHeight * Zoom,
+					Visual.Maximum.x - 5.0f,
+					Visual.Minimum.y + (NodeHeaderHeight + Metrics.SecondaryHeight) * Zoom);
+				DrawList.AddText(ImGui::GetFont(), GraphSecondaryFontHeight * Zoom,
+					Add(Visual.Minimum, {(8.0f + ColorSpace) * Zoom, NodeHeaderHeight * Zoom}),
+					IM_COL32(165, 172, 186, 255), Secondary.c_str(), nullptr, 0.0f,
+					&SecondaryClip);
+			}
+		}
+	}
+
+	auto FMaterialGraphCanvas::HandleCreationShortcut(DObject& Owner, DTransactor& Transactions,
+		const ImVec2& Position, const FReportError& ReportError) -> bool
+	{
+		const auto& IO = ImGui::GetIO();
+		if (!std::holds_alternative<FIdleInteraction>(Interaction) || IO.WantTextInput
+			|| IO.KeyCtrl || IO.KeyShift || IO.KeyAlt || IO.KeySuper
+			|| ImGui::IsMouseDown(ImGuiMouseButton_Middle) || ImGui::IsMouseDown(ImGuiMouseButton_Right)
+			|| !ImGui::IsMouseClicked(ImGuiMouseButton_Left)) return false;
+		for (const auto& Shortcut : MaterialGraphCreationShortcuts)
+		{
+			if (!ImGui::IsKeyDown(Shortcut.Key)) continue;
+			const auto Entry = std::ranges::find_if(Catalog, [&](const auto& Candidate) {
+				return Candidate.Opcode == Shortcut.Opcode && Candidate.ResultType == Shortcut.Type;
+			});
+			if (Entry == Catalog.end()) continue;
+			const auto Created = FMaterialGraphDocument(Owner).CreateCatalogNode(*Entry,
+				static_cast<int32>(std::round(Position.x)), static_cast<int32>(std::round(Position.y)), {}, &Transactions);
+			ReportCommand(Created, ReportError);
+			if (Created)
+			{
+				SelectedNodes.clear();
+				SelectedSurfaceOutput.reset();
+				SelectedNodes.insert(Created.GeneratedNodeIds.begin(), Created.GeneratedNodeIds.end());
+				RememberCreation(*Entry);
+			}
+			return true;
+		}
+		return false;
+	}
+
+	auto FMaterialGraphCanvas::PrepareFunctionView(DMaterialFunction& Function) -> void
+	{
+		if (Catalog.empty())
+		{
+			Catalog = FMaterialGraphOperations::EnumerateCatalog();
+			std::erase_if(Catalog, [](const auto& Entry) {
+				return Entry.Opcode == EMaterialProgramOpcode::Parameter || Entry.Opcode == EMaterialProgramOpcode::TextureParameter
+					|| Entry.Opcode == EMaterialProgramOpcode::TextureSampleParameter2D;
+			});
+			++CatalogRevision;
+		}
+		std::vector<std::pair<DObject*, uint64>> Revisions{{&Function, Function.GetFunctionRevision()}};
+		for (const auto& Dependency : Function.GetFunctionDependencies())
+			if (Dependency) Revisions.emplace_back(Dependency.Get(), Dependency->GetFunctionRevision());
+		const auto& Positions = Function.GetFunctionPresentation().Nodes;
+		if (CachedFunction == &Function && CachedFunctionRevisions == Revisions && CachedFunctionPositions == Positions) return;
+		CachedView = FMaterialGraphDocument(Function).Inspect(Catalog);
+		if (!bShowAdvancedInputs) HideUnusedAdvancedPins(CachedView);
+		CachedNodeIndices.clear();
+		for (size_t Index = 0; Index < CachedView.Nodes.size(); ++Index) CachedNodeIndices.emplace(CachedView.Nodes[Index].Node.Id, Index);
+		bVisualGraphTopologyStale = true;
+		CachedFunction = &Function;
+		CachedFunctionRevisions = std::move(Revisions);
+		CachedFunctionPositions = Positions;
+	}
+
 	auto FMaterialGraphCanvas::DrawFunction(DMaterialFunction& Function, DTransactor& Transactions,
 		float Height, const FReportError& ReportError,
 		const std::function<void(std::string_view)>& OpenFunction) -> void
 	{
 		FMaterialGraphDocument Document(Function);
 		if (ImGui::Checkbox("Advanced pins", &bShowAdvancedInputs)) ResetInteraction();
-		CachedView = Document.Inspect();
-		if (!bShowAdvancedInputs) HideUnusedAdvancedPins(CachedView);
-		CachedNodeIndices.clear();
-		for (size_t Index = 0; Index < CachedView.Nodes.size(); ++Index) CachedNodeIndices.emplace(CachedView.Nodes[Index].Node.Id, Index);
-		bVisualGraphTopologyStale = true;
+		PrepareFunctionView(Function);
 		const auto Selection = GetSelectedProgramNodes();
 		const auto Report = [&](FMaterialGraphCommandResult Result) { ReportCommand(Result, ReportError); return static_cast<bool>(Result); };
 		if (ImGui::Button("Frame All")) FrameNodes(CachedView, ImGui::GetContentRegionAvail(), EFrameScope::All);
 		ImGui::SameLine();
-		if (ImGui::Button("Add Node")) Interaction = FNodeCreationMenuInteraction{.GraphPosition = {0, 0}};
+		const bool bAddRequested = ImGui::Button("Add Node");
 		ImGui::SameLine();
 		if (ImGui::Button("Copy"))
 		{
@@ -723,7 +828,7 @@ namespace Durin::Editor::Material
 			if (Report(Document.CutSelection(Selection, Payload, &Transactions))) GraphClipboard = std::move(Payload);
 		}
 		ImGui::SameLine();
-		if (ImGui::Button("Paste") && GraphClipboard) Report(Document.Paste(*GraphClipboard, 40, 40, &Transactions));
+		const bool bPasteRequested = ImGui::Button("Paste");
 		ImGui::SameLine();
 		if (ImGui::Button("Delete")) Report(Document.RemoveNodes(Selection, &Transactions));
 		if (!ImGui::BeginChild("FunctionGraph", {0, Height}, ImGuiChildFlags_Borders,
@@ -734,8 +839,15 @@ namespace Durin::Editor::Material
 		const auto Mouse = ImGui::GetIO().MousePos;
 		ImGui::InvisibleButton("FunctionGraphInput", Size, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonMiddle);
 		const bool Hovered = ImGui::IsItemHovered();
-		const bool Keyboard = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && !ImGui::GetIO().WantTextInput;
-		if (Keyboard && ImGui::IsKeyPressed(ImGuiKey_Escape)) ResetInteraction();
+		const bool Keyboard = Hovered && !ImGui::GetIO().WantTextInput;
+		const auto GraphPosition = Multiply(Subtract(Subtract(Mouse, Minimum), Pan), 1.0f / Zoom);
+		const auto Center = Multiply(Subtract(Multiply(Size, 0.5f), Pan), 1.0f / Zoom);
+		if (std::holds_alternative<FIdleInteraction>(Interaction))
+		{
+			if (bAddRequested) Interaction = FNodeCreationMenuInteraction{.GraphPosition = Center};
+			if (bPasteRequested) PasteNodes(Function, Transactions, Center, ReportError);
+		}
+		if (Keyboard && ImGui::IsKeyPressed(ImGuiKey_Escape)) { ResetInteraction(); PrepareFunctionView(Function); }
 		if (Keyboard && std::holds_alternative<FIdleInteraction>(Interaction))
 		{
 			if (ImGui::IsKeyPressed(ImGuiKey_Delete)) Report(Document.RemoveNodes(Selection, &Transactions));
@@ -746,7 +858,7 @@ namespace Durin::Editor::Material
 				if (Report(Result)) GraphClipboard = std::move(Payload);
 			}
 			if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_V) && GraphClipboard)
-				Report(Document.Paste(*GraphClipboard, 40, 40, &Transactions));
+				PasteNodes(Function, Transactions, GraphPosition, ReportError);
 		}
 		if (Hovered && ImGui::IsMouseDragging(ImGuiMouseButton_Middle)) Pan = Add(Pan, ImGui::GetIO().MouseDelta);
 		if (Hovered && ImGui::GetIO().MouseWheel != 0)
@@ -781,6 +893,7 @@ namespace Durin::Editor::Material
 				ResetInteraction();
 			}
 		}
+		DetailLevel = FMaterialGraphGeometry::SelectDetailLevel(Zoom, DetailLevel);
 		const auto& Visual = PrepareVisualGraph(CachedView, Minimum);
 		auto& DrawList = *ImGui::GetWindowDrawList();
 		DrawList.PushClipRect(Minimum, Maximum, true);
@@ -795,26 +908,24 @@ namespace Durin::Editor::Material
 			DrawList.AddRectFilled(Node.Minimum, Node.Maximum, IM_COL32(40, 44, 52, 255), 5);
 			DrawList.AddRect(Node.Minimum, Node.Maximum, SelectedNodes.contains(Node.View->Node.Id)
 				? IM_COL32(220, 170, 70, 255) : IM_COL32(80, 86, 100, 255), 5);
-			const auto Display = MakeGraphNodeDisplay(*Node.View);
-			DrawList.AddText(Add(Node.Minimum, {8, 5}), IM_COL32(235, 235, 240, 255), Ellipsize(Display.Title, NodeWidth * Zoom - 16).c_str());
-			DrawList.AddText(Add(Node.Minimum, {8, 25}), IM_COL32(175, 180, 190, 255), Ellipsize(Display.Subtitle, NodeWidth * Zoom - 16).c_str());
+			DrawNodeHeading(Node, DrawList);
 			if (Contains(Node.Minimum, Node.Maximum, Mouse)) HoveredNode = &Node;
 			for (size_t Index = 0; Index < Node.OutputPins.size(); ++Index)
 			{
 				const auto& Pin = Node.View->Outputs[Index];
-				DrawList.AddCircleFilled(Node.OutputPins[Index], 5, TypeColor(Pin.Type));
-				const auto Label = Ellipsize(Pin.Name, NodeWidth * Zoom * 0.45f);
-				DrawList.AddText(Add(Node.OutputPins[Index], {-8 - ImGui::CalcTextSize(Label.c_str()).x, -7}), IM_COL32(200, 205, 210, 255), Label.c_str());
-				if (std::hypot(Mouse.x - Node.OutputPins[Index].x, Mouse.y - Node.OutputPins[Index].y) < 9)
+				DrawList.AddCircleFilled(Node.OutputPins[Index], std::max(2.0f, 5 * Zoom), TypeColor(Pin.Type));
+				const auto Label = DetailLevel == EMaterialGraphDetailLevel::Editing ? Ellipsize(Pin.Name, NodeWidth * 0.45f) : std::string{};
+				DrawList.AddText(ImGui::GetFont(), ImGui::GetFontSize() * Zoom, Add(Node.OutputPins[Index], {(-8 - ImGui::CalcTextSize(Label.c_str()).x) * Zoom, -7 * Zoom}), IM_COL32(200, 205, 210, 255), Label.c_str());
+				if (DetailLevel != EMaterialGraphDetailLevel::Overview && std::hypot(Mouse.x - Node.OutputPins[Index].x, Mouse.y - Node.OutputPins[Index].y) < 9)
 					Output = {Node.View->Node.Id, Pin.OutputIndex, Pin.PortId};
 			}
 			for (size_t Index = 0; Index < Node.InputPins.size(); ++Index)
 			{
 				const auto& Pin = Node.View->Inputs[Index];
-				DrawList.AddCircleFilled(Node.InputPins[Index], 5, TypeColor(Pin.AcceptedTypes.empty() ? Pin.SourceType : Pin.AcceptedTypes[0]));
-				const auto Label = Ellipsize(Pin.Name, NodeWidth * Zoom * 0.45f);
-				DrawList.AddText(Add(Node.InputPins[Index], {8, -7}), IM_COL32(200, 205, 210, 255), Label.c_str());
-				if (std::hypot(Mouse.x - Node.InputPins[Index].x, Mouse.y - Node.InputPins[Index].y) < 9)
+				DrawList.AddCircleFilled(Node.InputPins[Index], std::max(2.0f, 5 * Zoom), TypeColor(Pin.AcceptedTypes.empty() ? Pin.SourceType : Pin.AcceptedTypes[0]));
+				const auto Label = DetailLevel == EMaterialGraphDetailLevel::Editing ? Ellipsize(Pin.Name, NodeWidth * 0.45f) : std::string{};
+				DrawList.AddText(ImGui::GetFont(), ImGui::GetFontSize() * Zoom, Add(Node.InputPins[Index], {8 * Zoom, -7 * Zoom}), IM_COL32(200, 205, 210, 255), Label.c_str());
+				if (DetailLevel != EMaterialGraphDetailLevel::Overview && std::hypot(Mouse.x - Node.InputPins[Index].x, Mouse.y - Node.InputPins[Index].y) < 9)
 				{
 					Input = &Pin; InputNode = Node.View->Node.Id;
 					ImGui::SetTooltip("%s%s%s\n%s", Pin.Name.c_str(), Pin.bRequired ? " (required)" : "", Pin.bMissing ? " (missing port)" : "",
@@ -822,7 +933,15 @@ namespace Durin::Editor::Material
 				}
 			}
 		}
-		if (Hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+		if (HoveredNode && !Input && !Output && Hovered)
+		{
+			const auto Display = MakeGraphNodeDisplay(*HoveredNode->View);
+			ImGui::SetTooltip("%s\n%s", Display.Title.c_str(), Display.Value
+				? FormatGraphNumericValue(HoveredNode->View->Node.ResultType, *Display.Value, 9).c_str() : Display.Subtitle.c_str());
+		}
+		const bool bCreated = Hovered && !HoveredNode && !Input && !Output
+			&& HandleCreationShortcut(Function, Transactions, GraphPosition, ReportError);
+		if (Hovered && !bCreated && std::holds_alternative<FIdleInteraction>(Interaction) && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
 		{
 			if (Output) Interaction = FLinkingInteraction{Output->SourceNodeId, Output->SourceOutputIndex, Output->SourceOutputId};
 			else if (HoveredNode)
@@ -856,33 +975,10 @@ namespace Durin::Editor::Material
 			}
 		}
 		DrawList.PopClipRect();
-		if (Hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) Interaction = FNodeCreationMenuInteraction{
-			.GraphPosition = Multiply(Subtract(Subtract(Mouse, Minimum), Pan), 1 / Zoom)};
-		if (auto* Menu = std::get_if<FNodeCreationMenuInteraction>(&Interaction))
-		{
-			if (Menu->bOpenRequested) { ImGui::OpenPopup("FunctionNodeMenu"); Menu->bOpenRequested = false; }
-			ImGui::SetNextWindowSize({420, 480}, ImGuiCond_Appearing);
-			if (ImGui::BeginPopup("FunctionNodeMenu"))
-			{
-				ImGui::InputTextWithHint("##Search", "Find node...", Menu->Search.data(), Menu->Search.size());
-				for (const auto& Entry : FMaterialGraphOperations::SearchCatalog(Menu->Search.data()))
-				{
-					if (Entry.Opcode == EMaterialProgramOpcode::Parameter || Entry.Opcode == EMaterialProgramOpcode::TextureParameter
-						|| Entry.Opcode == EMaterialProgramOpcode::TextureSampleParameter2D) continue;
-					const auto Label = std::format("{} ({})", Entry.OperationName, GetProgramTypeName(Entry.ResultType));
-					if (ImGui::Selectable(Label.c_str()))
-					{
-						const auto Result = Document.CreateCatalogNode(Entry, static_cast<int32>(Menu->GraphPosition.x), static_cast<int32>(Menu->GraphPosition.y),
-							{Menu->SourceNode, Menu->SourceOutputIndex, Menu->SourceOutputId}, &Transactions);
-						if (Report(Result)) SelectedNodes = {Result.GeneratedNodeIds[0]};
-						ResetInteraction();
-						break;
-					}
-				}
-				ImGui::EndPopup();
-			}
-			else if (!Menu->bOpenRequested) ResetInteraction();
-		}
+		if (Hovered && std::holds_alternative<FIdleInteraction>(Interaction)
+			&& (ImGui::IsMouseClicked(ImGuiMouseButton_Right) || (Keyboard && ImGui::IsKeyPressed(ImGuiKey_Space))))
+			Interaction = FNodeCreationMenuInteraction{.GraphPosition = GraphPosition};
+		DrawCreationMenu(Function, Transactions, CachedView, ReportError);
 		ImGui::EndChild();
 	}
 
@@ -1110,7 +1206,6 @@ namespace Durin::Editor::Material
 				if (!Intersects(Visual.Minimum, Visual.Maximum,
 					CanvasMinimum, CanvasMaximum)) continue;
 				const bool bSelected = SelectedNodes.contains(Visual.View->Node.Id);
-				const auto Display = MakeGraphNodeDisplay(*Visual.View, &Material);
 				DrawList->AddRectFilled(Visual.Minimum, Visual.Maximum,
 					bSelected ? IM_COL32(55, 72, 94, 255) : IM_COL32(42, 46, 54, 255),
 					6.0f);
@@ -1120,48 +1215,7 @@ namespace Durin::Editor::Material
 				DrawList->AddRectFilled(Visual.Minimum,
 					{Visual.Maximum.x, Visual.Minimum.y + NodeHeaderHeight * Zoom},
 					IM_COL32(57, 62, 74, 255), 6.0f, ImDrawFlags_RoundCornersTop);
-				if (DetailLevel != EMaterialGraphDetailLevel::Overview)
-				{
-					const float FontSize = GraphTitleFontSize;
-					const std::string Label = Ellipsize(Display.Title,
-						(NodeWidth - NodePadding * 2.0f) * Zoom
-							* ImGui::GetFontSize() / FontSize);
-					const ImVec4 Clip(Visual.Minimum.x + 5.0f, Visual.Minimum.y,
-						Visual.Maximum.x - 5.0f,
-						Visual.Minimum.y + NodeHeaderHeight * Zoom);
-					DrawList->AddText(ImGui::GetFont(), FontSize,
-						Add(Visual.Minimum,
-							{8.0f * Zoom, (NodeHeaderHeight * Zoom - FontSize) * 0.5f}),
-						IM_COL32(235, 238, 242, 255), Label.c_str(), nullptr, 0.0f, &Clip);
-					if ((DetailLevel == EMaterialGraphDetailLevel::Editing || Display.Value)
-						&& !Display.Subtitle.empty())
-					{
-						const bool bColor = Display.Value && (Visual.View->Node.ResultType == EMaterialProgramValueType::Float3
-							|| Visual.View->Node.ResultType == EMaterialProgramValueType::Float4);
-						const float ColorSpace = bColor ? 18.0f : 0.0f;
-						if (bColor)
-						{
-							const auto& Value = *Display.Value;
-							const ImVec2 Minimum = Add(Visual.Minimum, {8.0f * Zoom, (NodeHeaderHeight + 1.0f) * Zoom});
-							const ImVec2 Maximum = Add(Minimum, {12.0f * Zoom, 12.0f * Zoom});
-							DrawList->AddRectFilled(Minimum, Maximum, ImGui::ColorConvertFloat4ToU32(
-								{std::clamp(Value.X, 0.0f, 1.0f), std::clamp(Value.Y, 0.0f, 1.0f),
-									std::clamp(Value.Z, 0.0f, 1.0f), 1.0f}));
-							DrawList->AddRect(Minimum, Maximum, IM_COL32(150, 156, 168, 255));
-						}
-						const std::string Secondary = Ellipsize(Display.Subtitle,
-							(NodeWidth - NodePadding * 2.0f - ColorSpace) * Zoom
-								* ImGui::GetFontSize() / GraphSecondaryFontSize);
-						const ImVec4 SecondaryClip(Visual.Minimum.x + 5.0f,
-							Visual.Minimum.y + NodeHeaderHeight * Zoom,
-							Visual.Maximum.x - 5.0f,
-							Visual.Minimum.y + (NodeHeaderHeight + Metrics.SecondaryHeight) * Zoom);
-						DrawList->AddText(ImGui::GetFont(), GraphSecondaryFontSize,
-							Add(Visual.Minimum, {(8.0f + ColorSpace) * Zoom, NodeHeaderHeight * Zoom}),
-							IM_COL32(165, 172, 186, 255), Secondary.c_str(), nullptr, 0.0f,
-							&SecondaryClip);
-					}
-				}
+				DrawNodeHeading(Visual, *DrawList, &Material);
 				const float PinRadius = std::max(2.0f, 5.0f * Zoom);
 				if (DetailLevel != EMaterialGraphDetailLevel::Overview
 					&& (Visual.View->Node.Opcode == EMaterialProgramOpcode::TextureParameter
@@ -1411,6 +1465,7 @@ namespace Durin::Editor::Material
 				ImGui::BeginTooltip();
 				const auto Display = MakeGraphNodeDisplay(*HoveredNode->View, &Material);
 				ImGui::TextUnformatted(Display.Title.c_str());
+				if (Display.Value) ImGui::TextUnformatted(FormatGraphNumericValue(HoveredNode->View->Node.ResultType, *Display.Value, 9).c_str());
 				if (!Display.Subtitle.empty())
 					ImGui::TextDisabled("%s", Display.Subtitle.c_str());
 				ImGui::TextDisabled("Output: %s", GetProgramTypeName(HoveredNode->View->Node.ResultType));
@@ -1624,31 +1679,12 @@ namespace Durin::Editor::Material
 				&& !ImGui::IsMouseDown(ImGuiMouseButton_Right)
 				&& ImGui::IsMouseClicked(ImGuiMouseButton_Left))
 			{
-				for (const auto& Shortcut : MaterialGraphCreationShortcuts)
-				{
-					if (!ImGui::IsKeyDown(Shortcut.Key)) continue;
-					const auto Entry = std::ranges::find_if(Catalog, [&](const auto& Candidate) {
-						return Candidate.Opcode == Shortcut.Opcode && Candidate.ResultType == Shortcut.Type;
-					});
-					if (Entry == Catalog.end()) continue;
-					const ImVec2 Position = Multiply(Subtract(Subtract(Mouse, CanvasMinimum), Pan), 1.0f / Zoom);
-					const auto Created = FMaterialGraphDocument(Material).CreateCatalogNode(*Entry,
-						static_cast<int32>(std::round(Position.x)), static_cast<int32>(std::round(Position.y)),
-						{}, &Transactions);
-					ReportCommand(Created, ReportError);
-					if (Created)
-					{
-						SelectedNodes.clear();
-						SelectedSurfaceOutput.reset();
-						if (!Created.GeneratedNodeIds.empty()) SelectedNodes.insert(Created.GeneratedNodeIds.front());
-						RememberCreation(*Entry);
-					}
-					bCreationShortcutHandled = true;
-					break;
-				}
+				bCreationShortcutHandled = HandleCreationShortcut(Material, Transactions,
+					Multiply(Subtract(Subtract(Mouse, CanvasMinimum), Pan), 1.0f / Zoom), ReportError);
 			}
 			const bool bOpenCreationMenuByDoubleClick = bCanvasPointerInteractionAvailable
 				&& !bCreationShortcutHandled
+				&& std::holds_alternative<FIdleInteraction>(Interaction)
 				&& ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)
 				&& !HoveredNode && !HoveredOutput && !HoveredInputNode
 				&& !HoveredSurfaceOutput && !bHoveredMaterialOutputHeader;
@@ -1898,6 +1934,7 @@ namespace Durin::Editor::Material
 			}
 			DetailLevel = FMaterialGraphGeometry::SelectDetailLevel(Zoom, DetailLevel);
 			if (bCanvasPointerInteractionAvailable
+				&& std::holds_alternative<FIdleInteraction>(Interaction)
 				&& ImGui::IsMouseClicked(ImGuiMouseButton_Right))
 			{
 				if (!HoveredNode && !HoveredInputNode && !HoveredSurfaceOutput)
@@ -1915,7 +1952,8 @@ namespace Durin::Editor::Material
 					ImGui::OpenPopup("MaterialGraphContext");
 				}
 			}
-			if (bCanvasKeyboardInteractionAvailable && ImGui::IsKeyPressed(ImGuiKey_Space))
+			if (bCanvasKeyboardInteractionAvailable && std::holds_alternative<FIdleInteraction>(Interaction)
+				&& ImGui::IsKeyPressed(ImGuiKey_Space))
 			{
 				Interaction = FNodeCreationMenuInteraction{
 					.SourceNode = {},

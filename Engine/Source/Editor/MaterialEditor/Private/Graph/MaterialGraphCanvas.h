@@ -141,7 +141,7 @@ namespace Durin::Editor::Material
 		auto DuplicateNodes(DMaterial& Material,
 			::Durin::DTransactor& Transactions, std::span<const FGuid> NodeIds,
 			const FReportError& ReportError) -> void;
-		auto PasteNodes(DMaterial& Material, ::Durin::DTransactor& Transactions,
+		auto PasteNodes(DObject& Owner, ::Durin::DTransactor& Transactions,
 			const ImVec2& GraphPosition,
 			const FReportError& ReportError) -> void;
 		auto RemoveNodes(DMaterial& Material, ::Durin::DTransactor& Transactions,
@@ -152,10 +152,15 @@ namespace Durin::Editor::Material
 			const FReportError& ReportError) -> void;
 		auto RememberCreation(const FMaterialGraphCatalogEntry& Node) -> void;
 		auto HasClipboard() const -> bool;
-		auto DrawCreationMenu(DMaterial& Material,
+		auto DrawCreationMenu(DObject& Owner,
 			::Durin::DTransactor& Transactions, const FMaterialGraphView& View,
 			const FReportError& ReportError) -> void;
 		auto ResetInteraction() -> void;
+		auto PrepareFunctionView(DMaterialFunction& Function) -> void;
+		auto HandleCreationShortcut(DObject& Owner, DTransactor& Transactions,
+			const ImVec2& Position, const FReportError& ReportError) -> bool;
+		auto DrawNodeHeading(const FVisualNode& Visual, ImDrawList& DrawList,
+			const DMaterial* Material = nullptr) const -> void;
 
 		ImVec2 Pan{40.0f, 40.0f};
 		float Zoom = 1.0f;
@@ -168,6 +173,11 @@ namespace Durin::Editor::Material
 		bool bPendingFrameSurface = false;
 		std::vector<std::string> RecentCreationMenuEntries;
 		DMaterial* CachedMaterial = nullptr;
+		DMaterialFunction* CachedFunction = nullptr;
+		std::vector<std::pair<DObject*, uint64>> CachedFunctionRevisions;
+		std::vector<FMaterialGraphNodePresentation> CachedFunctionPositions;
+		std::optional<ImVec2> LastPasteAnchor;
+		uint32 RepeatedPasteCount = 0;
 		uint64 CatalogRevision = 0;
 		uint64 RecentCreationMenuRevision = 0;
 		uint64 CachedCreationMenuCatalogRevision = 0;

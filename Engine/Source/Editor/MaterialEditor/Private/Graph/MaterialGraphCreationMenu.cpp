@@ -44,7 +44,7 @@ namespace Durin::Editor::Material
 	}
 
 	auto FMaterialGraphCanvas::DrawCreationMenu(
-		DMaterial& Material,
+		DObject& Owner,
 		DTransactor& Transactions,
 		const FMaterialGraphView& View,
 		const FReportError& ReportError) -> void
@@ -108,9 +108,10 @@ namespace Durin::Editor::Material
 		{
 			CachedCreationMenuResults = FMaterialGraphOperations::SearchCatalogIndices(
 				Catalog, CreationMenu->Search.data(), SourceType);
-			// Preserve search relevance inside each category without interleaving groups.
-			std::ranges::stable_sort(CachedCreationMenuResults,
-				[&EntryGroup](size_t A, size_t B) { return EntryGroup(A) < EntryGroup(B); });
+			// Group browsing results only; an active query keeps global relevance.
+			if (CreationMenu->Search.front() == '\0')
+				std::ranges::stable_sort(CachedCreationMenuResults,
+					[&EntryGroup](size_t A, size_t B) { return EntryGroup(A) < EntryGroup(B); });
 			CachedCreationMenuCatalogRevision = CatalogRevision;
 			CachedRecentCreationMenuRevision = RecentCreationMenuRevision;
 			CachedCreationMenuQuery = CreationMenu->Search.data();
@@ -140,7 +141,7 @@ namespace Durin::Editor::Material
 			for (size_t EntryIndex = 0; EntryIndex < Results.size(); ++EntryIndex)
 			{
 				const FMaterialGraphCatalogEntry& Entry = Catalog[Results[EntryIndex]];
-				const std::string Group = EntryGroup(Results[EntryIndex]).second;
+				const std::string Group = CreationMenu->Search.front() == '\0' ? EntryGroup(Results[EntryIndex]).second : "Results";
 				if (Group != PreviousGroup)
 				{
 					ImGui::SeparatorText(Group.c_str());
@@ -171,16 +172,16 @@ namespace Durin::Editor::Material
 			if (HasClipboard() && ImGui::Button("Paste"))
 			{
 				const ImVec2 Position = CreationMenu->GraphPosition;
-				PasteNodes(Material, Transactions, Position, ReportError);
+				PasteNodes(Owner, Transactions, Position, ReportError);
 				ResetInteraction();
 				ImGui::CloseCurrentPopup();
 				ImGui::EndPopup();
 				return;
 			}
 			if (HasClipboard()) ImGui::SameLine();
-			if (ImGui::Button("Auto Layout"))
+			if (auto* Base = Cast<DMaterial>(&Owner); Base && ImGui::Button("Auto Layout"))
 			{
-				const auto Layout = FMaterialGraphOperations::Layout(Material, {}, &Transactions);
+				const auto Layout = FMaterialGraphOperations::Layout(*Base, {}, &Transactions);
 				ReportCommand(Layout, ReportError);
 				if (Layout) SurfaceGraphPosition.reset();
 				ResetInteraction();
@@ -195,12 +196,13 @@ namespace Durin::Editor::Material
 				Results[static_cast<size_t>(CreationMenu->Selection)]];
 			const FMaterialExpressionInput Source = SourceType
 				? FMaterialExpressionInput{CreationMenu->SourceNode, CreationMenu->SourceOutputIndex, CreationMenu->SourceOutputId} : FMaterialExpressionInput{};
-			const auto Created = FMaterialGraphDocument(Material).CreateCatalogNode(Entry,
+			const auto Created = FMaterialGraphDocument(Owner).CreateCatalogNode(Entry,
 				static_cast<int32>(std::round(CreationMenu->GraphPosition.x)), static_cast<int32>(std::round(CreationMenu->GraphPosition.y)),
 				Source, &Transactions);
 			ReportCommand(Created, ReportError);
 			if (Created)
 			{
+				SelectedSurfaceOutput.reset();
 				if (!Created.GeneratedNodeIds.empty())
 					SelectedNodes = {Created.GeneratedNodeIds.front()};
 				RememberCreation(Entry);
