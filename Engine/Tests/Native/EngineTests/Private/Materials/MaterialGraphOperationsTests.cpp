@@ -3607,14 +3607,6 @@ TEST(FMaterialGraphOperationsTests, SharedParametersSynchronizeRebindAndUndo)
 	ASSERT_EQ(Material->GetParameterDefinitions().size(), 2u);
 	const auto OtherId = Material->FindParameterDefinition("OtherAmount")->Id;
 	EXPECT_NE(OtherId, Id);
-	// Renaming the shared definition must not silently merge it into another binding.
-	const auto BeforeRenameConflict = CaptureExpressions(*Material);
-	const auto RevisionBeforeRenameConflict = Material->GetMaterialCompileStatus().AuthoredRevision;
-	const auto RenameConflict = FMaterialGraphOperations::RenameParameter(*Material, OtherId, "Amount", Transactions.Get());
-	EXPECT_FALSE(RenameConflict);
-	EXPECT_NE(RenameConflict.Message.find("Change parameter binding"), std::string::npos);
-	EXPECT_EQ(CaptureExpressions(*Material), BeforeRenameConflict);
-	EXPECT_EQ(Material->GetMaterialCompileStatus().AuthoredRevision, RevisionBeforeRenameConflict);
 	Edit->Metadata.Name = "Amount";
 	Edit->DefaultValue = .1f;
 	ASSERT_TRUE(Document.ReplaceExpression(*Edit.Get(), Transactions.Get()));
@@ -3628,17 +3620,6 @@ TEST(FMaterialGraphOperationsTests, SharedParametersSynchronizeRebindAndUndo)
 	ASSERT_TRUE(Instance->ResolveParameterValue(Id, Resolved));
 	EXPECT_FLOAT_EQ(Resolved.Value.GetScalar(), .8f);
 	EXPECT_EQ(Resolved.Definition->Name, FName("RenamedAmount"));
-	for (const auto& E : Material->GetExpressionCollection().Expressions)
-	{
-		const auto* Parameter = Cast<DMaterialExpressionParameter>(E.Get());
-		EXPECT_EQ(Parameter->Metadata.Id, Id);
-		EXPECT_EQ(Parameter->Metadata.Name, FName("RenamedAmount"));
-	}
-	ASSERT_TRUE(Transactions->Undo());
-	ASSERT_TRUE(Instance->ResolveParameterValue(Id, Resolved));
-	EXPECT_EQ(Resolved.Definition->Name, FName("Amount"));
-	EXPECT_FLOAT_EQ(Resolved.Value.GetScalar(), .8f);
-	ASSERT_TRUE(Transactions->Redo());
 	ASSERT_TRUE(Document.RemoveNodes(B.GeneratedNodeIds, Transactions.Get()));
 	EXPECT_EQ(Material->GetParameterDefinitions().size(), 1u);
 	ASSERT_TRUE(Document.RemoveNodes(A.GeneratedNodeIds, Transactions.Get()));

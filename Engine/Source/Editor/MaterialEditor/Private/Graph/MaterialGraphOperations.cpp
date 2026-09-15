@@ -153,10 +153,6 @@ namespace Durin::Editor::Material
 		for (const auto& Expression : State.Expressions)
 			if (auto* E = Cast<DMaterialExpressionParameter>(Expression.Get()); E && E->Metadata.Id == ParameterId) { Parameter = E; break; }
 		if (!Parameter) return MakeRejected("Parameter owner is unavailable.");
-		for (const auto& Expression : State.Expressions)
-			if (const auto* Peer = Cast<DMaterialExpressionParameter>(Expression.Get());
-				Peer && Peer->Metadata.Id != ParameterId && Peer->Metadata.Name == Name)
-				return MakeRejected("A parameter with this name already exists. Use Change parameter binding in Details to share it.");
 		if (Parameter->Metadata.Name == Name && Parameter->Metadata.DisplayName == Name.ToString())
 			return {.Status = EMaterialGraphCommandStatus::NoChange, .AffectedParameterIds = {ParameterId}};
 		for (const auto& Expression : State.Expressions)

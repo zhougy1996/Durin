@@ -91,16 +91,8 @@ namespace Durin::Editor::Material
 				Submit(Document.ReplaceExpression(**ExpressionIt, &Transactions));
 			};
 			std::string Name = Parameter.Name.ToString();
-			if (!Changed && EditText("Parameter name", Name))
-				Submit(FMaterialGraphOperations::RenameParameter(*Material, Parameter.Id, FName(Name), &Transactions));
-			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Rename all references while preserving material instance overrides.");
-			if (!Changed && MonaImGui::PropertyEdit::BeginGroup("Binding", "Change parameter binding", ImGuiTreeNodeFlags_None))
-			{
-				std::string BindingName = Parameter.Name.ToString();
-				if (EditText("Bind or create", BindingName)) { Parameter.Name = FName(BindingName); CommitParameter(); }
-				if (ImGui::IsItemHovered()) ImGui::SetTooltip("Existing name: share that parameter and its value.\nNew name: make this node independent; instance overrides stay with the original parameter.\nOnly this node changes binding.");
-				MonaImGui::PropertyEdit::EndGroup();
-			}
+			if (!Changed && EditText("Parameter name", Name)) { Parameter.Name = FName(Name); CommitParameter(); }
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Change this node's parameter binding. Existing names use the existing parameter's value.");
 			if (!Changed && Parameter.Type == EMaterialParameterType::Texture)
 			{
 				int Usage = static_cast<int>(Parameter.TextureUsage);
