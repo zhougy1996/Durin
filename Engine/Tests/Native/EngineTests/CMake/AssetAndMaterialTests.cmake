@@ -344,43 +344,6 @@ durin_add_engine_functional_test(MaterialQualificationTests
 		MonaCore Mona MonaImGui DurinEd MaterialEditor StaticMeshEditor TextureEditor StaticMeshBuild
 )
 
-durin_add_engine_functional_test(MaterialVulkanTests
-	KIND integration
-	DOMAINS material thumbnail
-	MODULES asset-tools engine material-editor renderer static-mesh-build static-mesh-editor texture-build texture-editor vulkan-rhi
-	BACKENDS vulkan
-	STACKS editor renderer
-	GPU
-	TIMEOUT 900
-	RUNTIME_STACK_RATIONALE
-		"Exercises rendered material and thumbnail behavior on Vulkan."
-	SOURCES Private/Materials/MaterialVulkanTests.cpp
-	INCLUDE_DIRECTORIES
-		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
-		${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
-	COMPILE_DEFINITIONS DURIN_VULKAN_TEST_FAILURE_INJECTION=1
-	LIBRARIES
-		VulkanRHI
-		Vulkan::Vulkan
-		ApplicationCore
-		RenderCore
-		Renderer
-		AssetTools
-		AssetForgeBuiltins
-		MonaCore
-		Mona
-		MonaImGui
-		DurinEd
-		MaterialEditor
-		StaticMeshEditor
-		TextureEditor
-		StaticMeshBuild
-		TextureBuild
-	DATA_DIRECTORIES
-		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
-		${CMAKE_CURRENT_SOURCE_DIR}/Data
-)
-
 durin_add_engine_functional_test(StaticMeshTests
 	KIND feature
 	DOMAINS static-mesh

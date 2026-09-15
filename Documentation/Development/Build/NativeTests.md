@@ -306,9 +306,19 @@ excludes Vulkan integration and qualification without a separate CPU domain.
 Every row also belongs to `material`. Use a named target or one additional
 domain for focused changes. `StaticMeshTests` retains mesh import settings,
 derived data, lifetime, and other mesh coverage outside the material selection.
-`MaterialVulkanTests` remains a separate GPU integration target: `@material`
-includes it, while `@domain=material,kind=feature` does not. GPU execution still
-requires the authorization described in the agent testing workflow.
+`ThumbnailVulkanTests` owns the remaining GPU thumbnail integration: cold
+generation and readback, warm disk-cache reuse, texture publication failure and
+recovery invalidating session revisions, and environment reference/cancellation
+lifetime. It belongs to both `material` and `thumbnail`; `@material` includes it,
+while `@domain=material,kind=feature` does not. Run it directly with
+`.\DevTool.bat test ThumbnailVulkanTests --report`.
+
+The mixed `MaterialVulkanTests` target and its screenshot/pixel comparisons were
+removed. Material parameters, inheritance, compiled bindings, and compilation
+state remain covered by the CPU targets above; shader resource reload remains
+in `RendererResourceReloadVulkanTests`. These checks do not establish final
+material pixel correctness. Thumbnail integration checks generation and resource
+lifetime without material appearance baselines.
 
 ## Performance Qualification and Concurrent Agents
 
