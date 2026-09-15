@@ -46,13 +46,13 @@ Important helper APIs:
 
 - `add_durin_project(...)`
 - `add_durin_module(...)`
-- `add_durin_test(...)`
+- `durin_add_native_test(...)`
 
 ## Windows Process Manifests
 
 `durin_target_enable_windows_long_paths(...)` applies the repository-owned
 Windows manifest to process images. `DurinLauncher` calls it directly, and
-`add_durin_test(...)` applies it to every native-test executable. Module DLLs do
+`durin_add_native_test(...)` applies it to every native-test executable. Module DLLs do
 not carry this process capability.
 
 CMake attaches `CMake/Windows/DurinLongPathAware.manifest` as a target source so

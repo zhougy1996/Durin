@@ -1,27 +1,42 @@
-include(GoogleTest)
-
-function(durin_add_core_object_functional_test target_name source)
-	add_durin_test(${target_name} ${source})
-	target_link_libraries(${target_name} PRIVATE
-		Core
-		CoreDObject
-	)
-	durin_register_native_test(${target_name}
-		KIND contract
-		DOMAINS reflection
-		MODULES core-dobject
-	)
-endfunction()
-
-durin_add_core_object_functional_test(
-	CoreObjectTests Private/ReflectionTypeTests.cpp)
-durin_add_core_object_functional_test(
-	CoreObjectReplacementTests Private/ObjectGraphReplacementTests.cpp)
-durin_add_core_object_functional_test(
-	CorePropertyChangeTests Private/PropertyChangeTests.cpp)
-durin_add_core_object_functional_test(
-	CorePropertyValueSnapshotTests Private/ZPropertyValueSnapshotTests.cpp)
-durin_add_core_object_functional_test(
-	PackageLinkerContractTests Private/PackageLinkerTests.cpp)
-durin_add_core_object_functional_test(
-	PackageWriterContractTests Private/PackageWriterTests.cpp)
+durin_add_native_test(CoreObjectTests
+	KIND contract
+	DOMAINS reflection
+	MODULES core-dobject
+	SOURCES Private/ReflectionTypeTests.cpp
+	LIBRARIES Core CoreDObject
+)
+durin_add_native_test(CoreObjectReplacementTests
+	KIND contract
+	DOMAINS reflection
+	MODULES core-dobject
+	SOURCES Private/ObjectGraphReplacementTests.cpp
+	LIBRARIES Core CoreDObject
+)
+durin_add_native_test(CorePropertyChangeTests
+	KIND contract
+	DOMAINS reflection
+	MODULES core-dobject
+	SOURCES Private/PropertyChangeTests.cpp
+	LIBRARIES Core CoreDObject
+)
+durin_add_native_test(CorePropertyValueSnapshotTests
+	KIND contract
+	DOMAINS reflection
+	MODULES core-dobject
+	SOURCES Private/ZPropertyValueSnapshotTests.cpp
+	LIBRARIES Core CoreDObject
+)
+durin_add_native_test(PackageLinkerContractTests
+	KIND contract
+	DOMAINS reflection
+	MODULES core-dobject
+	SOURCES Private/PackageLinkerTests.cpp
+	LIBRARIES Core CoreDObject
+)
+durin_add_native_test(PackageWriterContractTests
+	KIND contract
+	DOMAINS reflection
+	MODULES core-dobject
+	SOURCES Private/PackageWriterTests.cpp
+	LIBRARIES Core CoreDObject
+)

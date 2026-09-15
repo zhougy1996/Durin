@@ -1,34 +1,17 @@
-include(GoogleTest)
-
-add_durin_test(NativeTestIsolationProbeTests
-	Private/NativeTestProcessIsolationProbeTests.cpp
+durin_add_native_test(NativeTestIsolationProbeTests
+	KIND infrastructure
+	DOMAINS native-test-harness
+	SOURCES Private/NativeTestProcessIsolationProbeTests.cpp
+	LIBRARIES Core
+	INCLUDE_DIRECTORIES "${CMAKE_CURRENT_LIST_DIR}/../../NativeTestSupport/Private"
 )
 
-add_durin_test(NativeTestIsolationCharacterizationTests
-	Private/NativeTestProcessIsolationCharacterizationTests.cpp
+durin_add_native_test(NativeTestIsolationCharacterizationTests
+	KIND characterization
+	DOMAINS native-test-harness
+	SOURCES Private/NativeTestProcessIsolationCharacterizationTests.cpp
+	LIBRARIES Core
 )
-
-target_include_directories(NativeTestIsolationProbeTests PRIVATE
-	"${CMAKE_CURRENT_LIST_DIR}/../../NativeTestSupport/Private"
-)
-
-foreach(_durin_isolation_target IN ITEMS
-	NativeTestIsolationProbeTests
-	NativeTestIsolationCharacterizationTests
-)
-	target_link_libraries(${_durin_isolation_target} PRIVATE Core)
-	if(_durin_isolation_target STREQUAL "NativeTestIsolationCharacterizationTests")
-		durin_register_native_test(${_durin_isolation_target}
-			KIND characterization
-			DOMAINS native-test-harness
-		)
-	else()
-		durin_register_native_test(${_durin_isolation_target}
-			KIND infrastructure
-			DOMAINS native-test-harness
-		)
-	endif()
-endforeach()
 
 get_target_property(
 	_durin_native_test_isolation_probe_work_dir

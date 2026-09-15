@@ -1,6 +1,6 @@
 # Native Test Authoring
 
-Last reviewed: 2026-09-10
+Last reviewed: 2026-09-15
 
 This document defines native-test source ownership, target declarations,
 deployment, writable sandboxes, lifecycle isolation, and resource policy.
@@ -13,7 +13,7 @@ defined by [Native Test Execution](NativeTests.md).
 - Target-owned checked-in inputs: `Engine/Tests/Native/<TargetName>/Data/`
 - Checked-in inputs shared by multiple targets: `Engine/Tests/Data/<FixtureName>/`
 
-A large target composition may keep its shared declaration helper in the owning
+A large target composition may keep shared data lists in the owning
 `CMakeLists.txt` and include domain-oriented fragments from a target-local
 `CMake/` directory. The owning root includes those fragments exactly once in
 registry/discovery order; each complete target declaration, including links,
@@ -39,7 +39,8 @@ Unchanged shared deployments remain incremental. Two external files with the
 same destination filename are rejected during configuration unless they resolve
 to the same source file.
 
-`durin_register_native_test(...)` derives each test's deployable runtime closure
+`durin_add_native_test(...)` derives each test's deployable runtime closure during
+its internal registration
 from the final `LINK_LIBRARIES` and `INTERFACE_LINK_LIBRARIES` target graph before
 it registers GoogleTest discovery. Shared and module libraries contribute their
 binaries; static, object, and interface targets are traversed without a copy.
@@ -109,40 +110,52 @@ Test kinds describe behavior, not expected duration:
 Minimal pattern:
 
 ```cmake
-include(GoogleTest)
-
-add_durin_test(PackageRoundTripTests
-    Private/AssetImportTests.cpp
-)
-
-target_link_libraries(PackageRoundTripTests PRIVATE
-    Engine
-)
-
-durin_register_native_test(PackageRoundTripTests
+durin_add_native_test(PackageRoundTripTests
     KIND feature
     DOMAINS asset-package
     MODULES engine
+    SOURCES Private/AssetImportTests.cpp
+    LIBRARIES Engine
 )
 ```
 
-`durin_register_native_test(...)` is the single registration boundary. It must
-appear after sources, links, runtime-only dependencies, data deployment, and
-execution properties are known. It finalizes metadata, resolves policy, derives
-the runtime closure, and registers GoogleTest discovery. `KIND` is exactly one of
-`contract`, `feature`, `integration`, `characterization`, `infrastructure`, or
-`qualification`; `DOMAINS` contains at least one stable selection slice.
-Optional `MODULES`, `BACKENDS`, and `STACKS` aid discovery but never replace
-real link, runtime-only dependency, resource-lock, or timeout declarations.
+`durin_add_native_test(...)` is the public declaration boundary. Declare sources,
+links, runtime-only dependencies, data and execution properties in that call;
+it creates the target and finalizes registration only after setup is complete.
+The lower-level `add_durin_test` and `durin_register_native_test` functions are
+build-system primitives, rejected in repository native-test declarations.
+`KIND` is exactly one of the six classifications above; `DOMAINS` contains at
+least one stable selection slice. Optional `MODULES`, `BACKENDS`, and `STACKS`
+aid discovery but never replace real dependencies, locks, or timeouts.
+
+Use `LIBRARIES`, `INCLUDE_DIRECTORIES`, `COMPILE_DEFINITIONS`, and `DEPENDENCIES`
+for explicit target requirements. `DATA_DIRECTORIES` and `DATA_FILES` deploy
+checked-in inputs. `RESOURCE_LOCKS`, `HEAVY_RUNTIME_RATIONALE`, and
+`TARGET_LOCK_RATIONALE` set the corresponding validated execution properties.
+`PRIVATE_SOURCES` uses the same private-source owner/rationale policy as below;
+any required owner export definition must be explicit in `COMPILE_DEFINITIONS`.
+
+Use `REQUIRES editor` with a concrete `REQUIREMENT_RATIONALE` when a target
+requires editor services. In runtime-only configurations the same `SOURCES`
+list is registered as a configuration exclusion before dependency or data setup;
+no duplicate source list is needed. Other platform admission guards remain
+explicit at the call site. Unknown requirements and environments are errors.
+
+`ENVIRONMENTS authored-shaders` adds the shared ShaderBuild initialization and
+shutdown environment, plus its dependencies, in editor configurations. It has
+no work in runtime-only configurations. Linking Renderer alone does not select
+this environment. There are no target-name exceptions or implicit editor
+include directories in the declaration helper.
+
 Targets are case-parallel by default. Add `SERIAL` only when cases from the
 same target cannot overlap, together with a concrete
-`DURIN_TEST_TARGET_LOCK_RATIONALE`. Use `TIMEOUT <seconds>` to override the
+`TARGET_LOCK_RATIONALE`. Use `TIMEOUT <seconds>` to override the
 300-second default. Use `PROCESSORS <slots>` to reserve CTest scheduling
 capacity for a resource-intensive target without blocking unrelated tests.
 Characterization kind automatically suppresses the direct whole-target
 lifecycle registration.
 
-`EXECUTION_HOST` on `durin_register_native_test(...)` declares the process
+`EXECUTION_HOST` on `durin_add_native_test(...)` declares the process
 lifecycle required by the target and is independent of serialization, labels,
 and locks. Omit it for the `direct` default; use
 `EXECUTION_HOST application` when a target initializes Cocoa, AppKit, a GLFW
@@ -191,8 +204,8 @@ source/binary/preset/configuration identity belong to CMake. DurinDevTool
 rejects a missing, unsupported, or identity-mismatched registry and asks for a
 fresh configure rather than selecting from stale metadata.
 
-Complete every target declaration before calling
-`durin_register_native_test(...)`. Registration is the runtime-closure
+Keep the complete target setup in `durin_add_native_test(...)`. Its internal
+registration is the runtime-closure
 finalization point as well as the test-policy and discovery point. Configuration
 fails when a target-bearing link expression cannot be resolved for the active
 preset, a referenced runtime target is missing, two external files claim the
@@ -209,10 +222,8 @@ Guard that case's editor-only headers, helper implementations, and link edges
 with the same capability condition so the runtime target does not acquire an
 authoring or Build dependency merely to compile a skipped case.
 
-An owning test helper may expose an `EDITOR_ONLY` option when the prerequisite
-is not represented by an editor-module link edge, such as source decoding or
-offline cooking. The option must still register the target's exact source list
-as a configuration exclusion in runtime-only builds.
+Use `REQUIRES editor` for prerequisites such as source decoding or offline
+cooking, including when no editor-module link edge represents that requirement.
 
 The source-ownership validator still covers configuration-excluded `.cpp`
 files. In the unavailable branch, register each exact source through
@@ -221,28 +232,22 @@ pattern exclusions are unsupported, and the rationale must name the missing
 configuration capability.
 
 Use a runtime-only exception only for a plugin, delay-loaded module, or file
-which is selected without a CMake link edge. Declare the owner and rationale
-before registration:
+selected without a CMake link edge. Within the declaration, use:
 
 ```cmake
-durin_test_register_runtime_only_dependencies(RendererIntegrationTests
-    RATIONALE "RHIInit selects the Vulkan backend dynamically at runtime."
-    TARGETS VulkanRHI
-)
+    RUNTIME_ONLY_TARGETS VulkanRHI
+    RUNTIME_ONLY_RATIONALE "RHIInit selects Vulkan dynamically at runtime."
 ```
 
-The helper also accepts `FILES` for a genuinely unlinked runtime file. It
-rejects a target already present in the ordinary link closure; add or correct
-the link edge instead. Repository policy rejects target-owned `POST_BUILD`
-runtime copies. The lower-level explicit deployment helpers remain build-system
-primitives, not native-test authoring requirements.
+`RUNTIME_ONLY_FILES` covers genuinely unlinked files. Registration rejects a
+target already present in the ordinary link closure; correct the link edge
+instead. Do not append runtime dependencies after declaration or add manual
+copies for derived dependencies. Target-owned `POST_BUILD` runtime copies are
+rejected.
 
-`add_durin_test(...)` links `NativeTestSupport`, generates the harness entry
-point, and provides `DURIN_TEST_DATA_DIR` for input lookup. Use
-`durin_test_deploy_directory_to_data(...)` or
-`durin_test_deploy_files_to_data(...)` for checked-in inputs. Always register
-through `durin_register_native_test(...)`; direct `gtest_discover_tests(...)`
-boilerplate bypasses repository policy and is rejected.
+The declaration links `NativeTestSupport`, generates the harness entry point,
+and provides `DURIN_TEST_DATA_DIR`. Direct `gtest_discover_tests(...)` calls
+bypass repository policy and are rejected.
 
 Every ordinary target receives one direct target-lifecycle registration and
 must reset mutable process-global state between tests and release owned
@@ -265,7 +270,7 @@ measurement policy into engine shutdown or weaken validation to reduce memory.
 
 Case-level parallel safety is the default for explicit case diagnostic mode. If
 a target cannot run cases concurrently, add `SERIAL` to its registration and
-set `DURIN_TEST_TARGET_LOCK_RATIONALE` to a concrete reviewed reason. Broad
+provide a concrete reviewed `TARGET_LOCK_RATIONALE`. Broad
 `durin-test-target-*` locks without that rationale are rejected. Explicit
 shared resources must come from the central registry in
 `CMake/Project/ProjectTargets.cmake`:
@@ -274,12 +279,12 @@ shared resources must come from the central registry in
 - `durin-rhi-lifecycle`: exclusive ownership of real RHI backend startup,
   shutdown, or dynamic module replacement.
 
-Use `DURIN_TEST_RESOURCE_LOCKS durin-gpu` only when a target owns that physical
+Use `RESOURCE_LOCKS durin-gpu` only when a target owns that physical
 resource. Add `durin-rhi-lifecycle` when it initializes or shuts down a real RHI
 backend. These locks still allow unrelated CPU-only tests to run concurrently.
 Do not invent lock names. Targets that directly link `Renderer`,
 `VulkanRHI`, `DurinEd`, `Mona`, or `MonaImGui` must also provide a
-`DURIN_TEST_HEAVY_RUNTIME_RATIONALE`; this keeps feature targets narrow and
+`HEAVY_RUNTIME_RATIONALE`; this keeps feature targets narrow and
 makes their dependency cost reviewable.
 
 `SERIAL` does not create a quiet machine lane: it only prevents discovered

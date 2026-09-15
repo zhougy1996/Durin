@@ -1,57 +1,44 @@
-include(GoogleTest)
+set(_durin_assertion_fixture_dir
+	"${DURIN_WORKSPACE_DIR}/CMake/Tests/Fixtures/AssertionHeader")
 
-function(durin_add_core_functional_test target_name)
-	add_durin_test(${target_name} ${ARGN})
-	target_link_libraries(${target_name} PRIVATE Core)
-	durin_test_deploy_directory_to_data(
-		${target_name}
-		"${CMAKE_CURRENT_SOURCE_DIR}/Data"
-	)
-	durin_test_deploy_files_to_data(
-		${target_name}
-		"${DURIN_PROJECT_ROOT_DIR}/Configs/TP_DurinEditor.yaml"
-	)
-	durin_register_native_test(${target_name}
-		KIND contract
-		DOMAINS core
-		MODULES core
-	)
-endfunction()
-
-durin_add_core_functional_test(CoreUtilityTests
-	Private/ArchiveTests.cpp
-	Private/AssertionTests.cpp
-	Private/BinaryEnvelopeTests.cpp
-	Private/CheckedArithmeticTests.cpp
-	Private/ColorTests.cpp
-	Private/ConsoleCommandTests.cpp
-	Private/DiagnosticTests.cpp
-	Private/GuidTests.cpp
-	Private/JsonTests.cpp
-	Private/LoggerTests.cpp
-	Private/MathFacadeTests.cpp
-	Private/NameTests.cpp
-	Private/ProfilingTests.cpp
-	Private/StringHelperTests.cpp
-	Private/StartupCommandTests.cpp
-	Private/TimeTests.cpp
-	Private/TransformTests.cpp
-	Private/YamlTests.cpp
-	Private/XxHashTests.cpp
+durin_add_native_test(CoreUtilityTests
+	KIND contract
+	DOMAINS core
+	MODULES core
+	SOURCES
+		Private/ArchiveTests.cpp
+		Private/AssertionTests.cpp
+		Private/BinaryEnvelopeTests.cpp
+		Private/CheckedArithmeticTests.cpp
+		Private/ColorTests.cpp
+		Private/ConsoleCommandTests.cpp
+		Private/DiagnosticTests.cpp
+		Private/GuidTests.cpp
+		Private/JsonTests.cpp
+		Private/LoggerTests.cpp
+		Private/MathFacadeTests.cpp
+		Private/NameTests.cpp
+		Private/ProfilingTests.cpp
+		Private/StringHelperTests.cpp
+		Private/StartupCommandTests.cpp
+		Private/TimeTests.cpp
+		Private/TransformTests.cpp
+		Private/YamlTests.cpp
+		Private/XxHashTests.cpp
+	LIBRARIES Core
+	DATA_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/Data"
+	DATA_FILES "${DURIN_PROJECT_ROOT_DIR}/Configs/TP_DurinEditor.yaml"
+	INCLUDE_DIRECTORIES "${_durin_assertion_fixture_dir}"
+	DEPENDENCIES CoreAssertionHeaderNoPCH CoreAssertionHeaderSharedPCH CoreAssertionHeaderModuleConsumer
 )
 
-add_durin_test(ImageCodecTests Private/ImageDecoderTests.cpp)
-target_link_libraries(ImageCodecTests PRIVATE Core)
-durin_register_native_test(ImageCodecTests
+durin_add_native_test(ImageCodecTests
 	KIND contract
 	DOMAINS image-codec
 	MODULES core
+	SOURCES Private/ImageDecoderTests.cpp
+	LIBRARIES Core
 )
-
-set(_durin_assertion_fixture_dir
-	"${DURIN_WORKSPACE_DIR}/CMake/Tests/Fixtures/AssertionHeader")
-target_include_directories(CoreUtilityTests PRIVATE
-	"${_durin_assertion_fixture_dir}")
 
 foreach(_durin_assertion_fixture_target IN ITEMS
 	CoreAssertionHeaderNoPCH
@@ -80,36 +67,43 @@ if(DURIN_ENABLE_PCH AND TARGET SharedPCH_Core)
 		REUSE_FROM SharedPCH_Core)
 endif()
 
-add_dependencies(CoreUtilityTests
-	CoreAssertionHeaderNoPCH
-	CoreAssertionHeaderSharedPCH
-	CoreAssertionHeaderModuleConsumer)
-
-durin_add_core_functional_test(CoreFileSystemTests
-	Private/BinaryFormatTests.cpp
-	Private/FileHelperTests.cpp
-	Private/LexicalPathTests.cpp
-	Private/PathsTests.cpp
-	Private/ProjectTests.cpp
+durin_add_native_test(CoreFileSystemTests
+	KIND contract
+	DOMAINS core
+	MODULES core
+	SOURCES
+		Private/BinaryFormatTests.cpp
+		Private/FileHelperTests.cpp
+		Private/LexicalPathTests.cpp
+		Private/PathsTests.cpp
+		Private/ProjectTests.cpp
+	LIBRARIES Core
+	DATA_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/Data"
+	DATA_FILES "${DURIN_PROJECT_ROOT_DIR}/Configs/TP_DurinEditor.yaml"
 )
 
-durin_add_core_functional_test(CoreConcurrencyTests
-	Private/AsyncOperationGroupTests.cpp
-	Private/DelegateTests.cpp
-	Private/ModularFeatureTests.cpp
-	Private/ProcessCrashContextTests.cpp
-	Private/ThreadingTests.cpp
-	Private/TaskCompositionTests.cpp
+durin_add_native_test(CoreConcurrencyTests
+	KIND contract
+	DOMAINS core
+	MODULES core
+	SOURCES
+		Private/AsyncOperationGroupTests.cpp
+		Private/DelegateTests.cpp
+		Private/ModularFeatureTests.cpp
+		Private/ProcessCrashContextTests.cpp
+		Private/ThreadingTests.cpp
+		Private/TaskCompositionTests.cpp
+	LIBRARIES Core
+	DATA_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/Data"
+	DATA_FILES "${DURIN_PROJECT_ROOT_DIR}/Configs/TP_DurinEditor.yaml"
 )
 
-add_durin_test(CoreConcurrencyQualificationTests
-	Private/ThreadingQualificationTests.cpp
-)
-target_link_libraries(CoreConcurrencyQualificationTests PRIVATE Core)
-durin_register_native_test(CoreConcurrencyQualificationTests
+durin_add_native_test(CoreConcurrencyQualificationTests
 	KIND qualification
 	DOMAINS core
 	MODULES core
+	SOURCES Private/ThreadingQualificationTests.cpp
+	LIBRARIES Core
 )
 
 if(WIN32 OR APPLE)
@@ -136,51 +130,36 @@ if(WIN32 OR APPLE)
 		target_precompile_headers(DynamicUnloadFixture REUSE_FROM SharedPCH_Core)
 	endif()
 
-	add_durin_test(DynamicDllUnloadQualificationTests
-		Private/DynamicDllUnloadQualificationTests.cpp
-	)
-	target_include_directories(DynamicDllUnloadQualificationTests PRIVATE
-		"${_durin_dynamic_unload_fixture_dir}"
-	)
-	target_link_libraries(DynamicDllUnloadQualificationTests PRIVATE Core)
-	durin_test_register_runtime_only_dependencies(
-		DynamicDllUnloadQualificationTests
-		RATIONALE
-			"The production module manager delay-loads the real unload fixture DLL by module name."
-		TARGETS DynamicUnloadFixture
-	)
-	durin_register_native_test(DynamicDllUnloadQualificationTests
+	durin_add_native_test(DynamicDllUnloadQualificationTests
 		KIND qualification
 		DOMAINS core
 		MODULES core
 		STACKS process
+		SOURCES Private/DynamicDllUnloadQualificationTests.cpp
+		INCLUDE_DIRECTORIES "${_durin_dynamic_unload_fixture_dir}"
+		LIBRARIES Core
+		RUNTIME_ONLY_RATIONALE
+			"The production module manager delay-loads the real unload fixture DLL by module name."
+		RUNTIME_ONLY_TARGETS DynamicUnloadFixture
 	)
 
-	add_durin_test(DynamicDllUnloadFailureQualificationTests
-		Private/DynamicDllUnloadFailureQualificationTests.cpp
-	)
-	target_include_directories(DynamicDllUnloadFailureQualificationTests PRIVATE
-		"${_durin_dynamic_unload_fixture_dir}"
-	)
-	target_link_libraries(DynamicDllUnloadFailureQualificationTests PRIVATE Core)
-	durin_test_register_runtime_only_dependencies(
-		DynamicDllUnloadFailureQualificationTests
-		RATIONALE
-			"The production module manager delay-loads the real failure-injection fixture DLL by module name."
-		TARGETS DynamicUnloadFixture
-	)
-	durin_register_native_test(DynamicDllUnloadFailureQualificationTests
+	durin_add_native_test(DynamicDllUnloadFailureQualificationTests
 		KIND qualification
 		DOMAINS core
 		MODULES core
 		STACKS process
+		SOURCES Private/DynamicDllUnloadFailureQualificationTests.cpp
+		INCLUDE_DIRECTORIES "${_durin_dynamic_unload_fixture_dir}"
+		LIBRARIES Core
+		RUNTIME_ONLY_RATIONALE
+			"The production module manager delay-loads the real failure-injection fixture DLL by module name."
+		RUNTIME_ONLY_TARGETS DynamicUnloadFixture
 	)
 else()
 	durin_exclude_native_test_sources(
 		RATIONALE
 			"Physical dynamic-library unload qualification currently requires the Windows DLL fixture."
-		SOURCES
-			Private/DynamicDllUnloadQualificationTests.cpp
+		SOURCES Private/DynamicDllUnloadQualificationTests.cpp
 			Private/DynamicDllUnloadFailureQualificationTests.cpp
 	)
 endif()

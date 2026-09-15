@@ -1,11 +1,8 @@
-include(GoogleTest)
-
 if(APPLE AND NOT DURIN_ENABLE_APPLICATION_TESTS)
 	durin_exclude_native_test_sources(
 		RATIONALE
 			"macOS Vulkan qualification requires explicitly enabled LaunchServices application tests."
-		SOURCES
-			Private/VulkanRHITestEnvironment.cpp
+		SOURCES Private/VulkanRHITestEnvironment.cpp
 			Private/VulkanCreationQualificationTests.cpp
 			Private/VulkanFailureInjectionTests.cpp
 			Private/VulkanMemoryPolicyTests.cpp
@@ -20,8 +17,7 @@ if(NOT DURIN_WITH_EDITOR)
 	durin_exclude_native_test_sources(
 		RATIONALE
 			"This integration fixture compiles authored Slang test shaders and is therefore excluded from the compiler-free Game closure."
-		SOURCES
-			Private/VulkanRHITestEnvironment.cpp
+		SOURCES Private/VulkanRHITestEnvironment.cpp
 			Private/VulkanCreationQualificationTests.cpp
 			Private/VulkanFailureInjectionTests.cpp
 			Private/VulkanMemoryPolicyTests.cpp
@@ -32,49 +28,6 @@ if(NOT DURIN_WITH_EDITOR)
 	return()
 endif()
 
-add_durin_test(VulkanRHIIntegrationTests
-	Private/VulkanRHITestEnvironment.cpp
-	Private/VulkanFailureInjectionTests.cpp
-	Private/VulkanMemoryPolicyTests.cpp
-	Private/VulkanTextureSamplingTests.cpp
-	Private/VulkanResourceTransitionTests.cpp
-	Private/VulkanSwapchainSelectionTests.cpp
-	${DURIN_PROJECT_SOURCE_DIR}/Developer/ShaderBuild/Private/SlangSessionEnvironment.cpp
-	${DURIN_PROJECT_SOURCE_DIR}/Developer/ShaderBuild/Private/SlangShaderCompiler.cpp
-	${DURIN_PROJECT_SOURCE_DIR}/Developer/ShaderBuild/Private/ShaderCompileUtilities.cpp
-)
-
-target_compile_definitions(VulkanRHIIntegrationTests PRIVATE
-	DURIN_VULKAN_TEST_FAILURE_INJECTION=1
-)
-
-target_include_directories(VulkanRHIIntegrationTests PRIVATE
-	${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/RenderCore/Private
-	${CMAKE_SOURCE_DIR}/Engine/Source/Developer/ShaderBuild/Private
-	${CMAKE_SOURCE_DIR}/Engine/Source/Developer/TextureBuild/Private
-	${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/VulkanRHI/Public
-	${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/VulkanRHI/Private
-)
-
-target_link_libraries(VulkanRHIIntegrationTests PRIVATE
-	Core
-	CoreDObject
-	Engine
-	RHI
-	RenderCore
-	ShaderBuild
-	VulkanRHI
-	Vulkan::Vulkan
-	Slang_Imported
-)
-if(DURIN_WITH_EDITOR)
-	target_link_libraries(VulkanRHIIntegrationTests PRIVATE TextureBuild)
-endif()
-set_target_properties(VulkanRHIIntegrationTests PROPERTIES
-	DURIN_TEST_RESOURCE_LOCKS "durin-gpu;durin-rhi-lifecycle"
-	DURIN_TEST_HEAVY_RUNTIME_RATIONALE
-		"Failure-injection tests must share the test-only state compiled into VulkanRHI."
-)
 set(_durin_vulkan_rhi_test_kind integration)
 if(APPLE)
 	# MoltenVK hardware execution is part of the surface-qualified M3 gate. Keep
@@ -82,9 +35,12 @@ if(APPLE)
 	set(_durin_vulkan_rhi_test_kind qualification)
 	set(_durin_vulkan_rhi_execution_host EXECUTION_HOST application)
 endif()
-durin_test_deploy_directory_to_data(VulkanRHIIntegrationTests "${CMAKE_CURRENT_SOURCE_DIR}/Data")
+set(_durin_vulkan_platform_libraries)
+if(WIN32)
+	set(_durin_vulkan_platform_libraries dxgi)
+endif()
 
-durin_register_native_test(VulkanRHIIntegrationTests
+durin_add_native_test(VulkanRHIIntegrationTests
 	KIND ${_durin_vulkan_rhi_test_kind}
 	${_durin_vulkan_rhi_execution_host}
 	DOMAINS renderer viewport
@@ -94,34 +50,68 @@ durin_register_native_test(VulkanRHIIntegrationTests
 	PROCESSORS 8
 	TIMEOUT 900
 	PRIVATE_SOURCE_OWNER ShaderBuild
-	PRIVATE_SOURCE_RATIONALE
-		"Owns the ShaderBuild compiler white-box seam used by Vulkan integration coverage."
+	PRIVATE_SOURCE_RATIONALE "Owns the ShaderBuild compiler white-box seam used by Vulkan integration coverage."
+	SOURCES
+		Private/VulkanRHITestEnvironment.cpp
+		Private/VulkanFailureInjectionTests.cpp
+		Private/VulkanMemoryPolicyTests.cpp
+		Private/VulkanTextureSamplingTests.cpp
+		Private/VulkanResourceTransitionTests.cpp
+		Private/VulkanSwapchainSelectionTests.cpp
+		${DURIN_PROJECT_SOURCE_DIR}/Developer/ShaderBuild/Private/SlangSessionEnvironment.cpp
+		${DURIN_PROJECT_SOURCE_DIR}/Developer/ShaderBuild/Private/SlangShaderCompiler.cpp
+		${DURIN_PROJECT_SOURCE_DIR}/Developer/ShaderBuild/Private/ShaderCompileUtilities.cpp
+	COMPILE_DEFINITIONS DURIN_VULKAN_TEST_FAILURE_INJECTION=1
+	INCLUDE_DIRECTORIES
+		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/RenderCore/Private
+		${CMAKE_SOURCE_DIR}/Engine/Source/Developer/ShaderBuild/Private
+		${CMAKE_SOURCE_DIR}/Engine/Source/Developer/TextureBuild/Private
+		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/VulkanRHI/Public
+		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/VulkanRHI/Private
+	LIBRARIES
+		Core
+		CoreDObject
+		Engine
+		RHI
+		RenderCore
+		ShaderBuild
+		VulkanRHI
+		Vulkan::Vulkan
+		Slang_Imported
+		TextureBuild
+	RESOURCE_LOCKS "durin-gpu;durin-rhi-lifecycle"
+	HEAVY_RUNTIME_RATIONALE "Failure-injection tests must share the test-only state compiled into VulkanRHI."
+	DATA_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/Data"
 )
 
-add_durin_test(VulkanCreationQualificationTests
-	Private/VulkanCreationQualificationTests.cpp
-	${DURIN_PROJECT_SOURCE_DIR}/Developer/ShaderBuild/Private/SlangSessionEnvironment.cpp
-	${DURIN_PROJECT_SOURCE_DIR}/Developer/ShaderBuild/Private/SlangShaderCompiler.cpp
-	${DURIN_PROJECT_SOURCE_DIR}/Developer/ShaderBuild/Private/ShaderCompileUtilities.cpp
-)
-target_compile_definitions(VulkanCreationQualificationTests PRIVATE DURIN_VULKAN_TEST_FAILURE_INJECTION=1)
-target_include_directories(VulkanCreationQualificationTests PRIVATE
-	${CMAKE_SOURCE_DIR}/Engine/Source/Developer/ShaderBuild/Private
-	${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/VulkanRHI/Private
-)
-target_link_libraries(VulkanCreationQualificationTests PRIVATE
-	Core RHI RenderCore ShaderBuild VulkanRHI Vulkan::Vulkan Slang_Imported)
-if(WIN32)
-	target_link_libraries(VulkanCreationQualificationTests PRIVATE dxgi)
-endif()
-set_target_properties(VulkanCreationQualificationTests PROPERTIES
-	DURIN_TEST_RESOURCE_LOCKS "durin-gpu;durin-rhi-lifecycle"
-	DURIN_TEST_HEAVY_RUNTIME_RATIONALE "Measures real Vulkan creation with the opt-in backend timing seam."
-)
-durin_test_deploy_directory_to_data(VulkanCreationQualificationTests "${CMAKE_CURRENT_SOURCE_DIR}/Data")
-durin_register_native_test(VulkanCreationQualificationTests
-	KIND qualification DOMAINS renderer rhi-creation MODULES rhi vulkan-rhi shaderbuild BACKENDS vulkan
-	PROCESSORS 8 TIMEOUT 900
+durin_add_native_test(VulkanCreationQualificationTests
+	KIND qualification
+	DOMAINS renderer rhi-creation
+	MODULES rhi vulkan-rhi shaderbuild
+	BACKENDS vulkan
+	PROCESSORS 8
+	TIMEOUT 900
 	PRIVATE_SOURCE_OWNER ShaderBuild
 	PRIVATE_SOURCE_RATIONALE "Compiles fixed qualification shader inputs before timed device lifetimes."
+	SOURCES
+		Private/VulkanCreationQualificationTests.cpp
+		${DURIN_PROJECT_SOURCE_DIR}/Developer/ShaderBuild/Private/SlangSessionEnvironment.cpp
+		${DURIN_PROJECT_SOURCE_DIR}/Developer/ShaderBuild/Private/SlangShaderCompiler.cpp
+		${DURIN_PROJECT_SOURCE_DIR}/Developer/ShaderBuild/Private/ShaderCompileUtilities.cpp
+	COMPILE_DEFINITIONS DURIN_VULKAN_TEST_FAILURE_INJECTION=1
+	INCLUDE_DIRECTORIES
+		${CMAKE_SOURCE_DIR}/Engine/Source/Developer/ShaderBuild/Private
+		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/VulkanRHI/Private
+	LIBRARIES
+		Core
+		RHI
+		RenderCore
+		ShaderBuild
+		VulkanRHI
+		Vulkan::Vulkan
+		Slang_Imported
+		${_durin_vulkan_platform_libraries}
+	RESOURCE_LOCKS "durin-gpu;durin-rhi-lifecycle"
+	HEAVY_RUNTIME_RATIONALE "Measures real Vulkan creation with the opt-in backend timing seam."
+	DATA_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/Data"
 )

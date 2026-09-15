@@ -301,6 +301,31 @@ assert_list_equals(
 )
 
 assert_policy_rejected("unknown-resource" "unregistered native-test resource")
+assert_policy_rejected("declaration-unknown-requirement" "unknown native-test requirement")
+assert_policy_rejected("declaration-unknown-environment" "unknown native-test environment")
+assert_policy_rejected("declaration-unknown-argument" "unknown arguments")
+assert_policy_rejected("declaration-missing-value" "missing values")
+assert_policy_rejected("declaration-missing-rationale" "REQUIRES needs REQUIREMENT_RATIONALE")
+assert_policy_rejected("repository-partial-declaration" "partial native-test declaration primitives")
+
+# Exclusion must happen before target/dependency/data setup. None of the missing
+# capabilities below may be resolved in an unavailable configuration.
+set(DURIN_WITH_EDITOR FALSE)
+set(_excluded_source "${DURIN_WORKSPACE_DIR}/CMake/Tests/Fixtures/NativeTestMetadata/Empty.cpp")
+durin_add_native_test(UnavailableDeclarationTests
+	KIND feature DOMAINS probe REQUIRES editor
+	REQUIREMENT_RATIONALE "Probe requires editor build services."
+	SOURCES "${_excluded_source}"
+	PRIVATE_SOURCES MissingPrivate.cpp
+	LIBRARIES MissingEditorModule
+	DEPENDENCIES MissingBuildTool
+	DATA_DIRECTORIES MissingData)
+get_property(_excluded_owner GLOBAL PROPERTY "DURIN_NATIVE_TEST_SOURCE_OWNER_${_excluded_source}")
+get_property(_excluded_sources GLOBAL PROPERTY DURIN_OWNED_NATIVE_TEST_SOURCES)
+if(TARGET UnavailableDeclarationTests OR NOT _excluded_owner MATCHES "^configuration exclusion:")
+	message(FATAL_ERROR "Unavailable declaration failed to record source exclusion without creating a target.")
+endif()
+assert_list_equals("${_excluded_sources}" "${_excluded_source}" "exact excluded source ownership")
 assert_policy_rejected("broad-lock-without-rationale" "TARGET_LOCK_RATIONALE")
 assert_policy_rejected("execution-ordinary-without-direct" "require a direct lifecycle")
 assert_policy_rejected("repository-retired-work" "retired DURIN_TEST_WORK_DIR")

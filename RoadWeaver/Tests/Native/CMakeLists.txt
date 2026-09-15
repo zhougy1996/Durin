@@ -1,22 +1,23 @@
-include(GoogleTest)
-
-add_durin_test(RoadGraphContractTests Private/RoadGraphContractTests.cpp)
-target_link_libraries(RoadGraphContractTests PRIVATE RoadWeaver Engine)
-durin_register_native_test(RoadGraphContractTests
-    KIND contract
-    DOMAINS road-graph road-surface
-    MODULES roadweaver
+durin_add_native_test(RoadGraphContractTests
+	KIND contract
+	DOMAINS road-graph road-surface
+	MODULES roadweaver
+	SOURCES Private/RoadGraphContractTests.cpp
+	LIBRARIES RoadWeaver Engine
 )
 
-add_durin_test(RoadSceneIntegrationTests Private/RoadSceneIntegrationTests.cpp)
-target_link_libraries(RoadSceneIntegrationTests PRIVATE RoadWeaver Engine StaticMeshBuild)
+set(_road_scene_editor_libraries)
+set(_road_scene_rationale)
 if(DURIN_WITH_EDITOR)
-    target_link_libraries(RoadSceneIntegrationTests PRIVATE AssetForgeBuiltins)
-    set_target_properties(RoadSceneIntegrationTests PROPERTIES
-        DURIN_TEST_HEAVY_RUNTIME_RATIONALE "Loads the checked-in RoadWeaver level and its editor import metadata.")
+	set(_road_scene_editor_libraries AssetForgeBuiltins)
+	set(_road_scene_rationale HEAVY_RUNTIME_RATIONALE "Loads the checked-in RoadWeaver level and its editor import metadata.")
 endif()
-durin_register_native_test(RoadSceneIntegrationTests
-    KIND integration
-    DOMAINS road-scene
-    MODULES roadweaver
+
+durin_add_native_test(RoadSceneIntegrationTests
+	KIND integration
+	DOMAINS road-scene
+	MODULES roadweaver
+	SOURCES Private/RoadSceneIntegrationTests.cpp
+	LIBRARIES RoadWeaver Engine StaticMeshBuild ${_road_scene_editor_libraries}
+	${_road_scene_rationale}
 )

@@ -1,4 +1,4 @@
-durin_add_engine_functional_test(SplineTests
+durin_add_native_test(SplineTests
 	KIND feature
 	DOMAINS spline
 	MODULES asset-tools engine level-editor static-mesh-build asset-forge-builtins
@@ -6,7 +6,6 @@ durin_add_engine_functional_test(SplineTests
 	PRIVATE_SOURCE_OWNER LevelEditor
 	PRIVATE_SOURCE_RATIONALE
 		"LevelEditor-owned spline editing white-box coverage avoids exporting private viewport and customization symbols."
-	RUNTIME_STACK_RATIONALE "Exercises DurinEd spline customization behavior."
 	SOURCES
 		Private/SplineTests.cpp
 		Private/SplineMeshComponentTests.cpp
@@ -22,18 +21,38 @@ durin_add_engine_functional_test(SplineTests
 		${_durin_level_editor_private}/Viewport/LevelEditorViewportEditing.cpp
 		${_durin_level_editor_private}/Viewport/TransformGizmo.cpp
 		${_durin_level_editor_private}/Workspace/LevelEditorContext.cpp
-	LIBRARIES ApplicationCore MonaCore Mona MonaImGui AssetTools DurinEd StaticMeshBuild AssetForgeBuiltins
+	LIBRARIES
+		Core
+		CoreDObject
+		Engine
+		ApplicationCore
+		MonaCore
+		Mona
+		MonaImGui
+		AssetTools
+		DurinEd
+		StaticMeshBuild
+		AssetForgeBuiltins
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
+	INCLUDE_DIRECTORIES
+		${CMAKE_CURRENT_SOURCE_DIR}/Private
+		${_durin_level_editor_private}
+		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Public
+	COMPILE_DEFINITIONS LEVELEDITOR_EXPORTS
+	REQUIRES editor
+	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
+	HEAVY_RUNTIME_RATIONALE "Exercises DurinEd spline customization behavior."
 )
 
-durin_add_engine_functional_test(SplineQualificationTests
+durin_add_native_test(SplineQualificationTests
 	KIND qualification
 	DOMAINS spline
 	MODULES engine
 	SOURCES Private/SplineQualificationTests.cpp
+	LIBRARIES Core CoreDObject Engine
 )
 
-durin_add_engine_functional_test(SkyBoxTests
+durin_add_native_test(SkyBoxTests
 	KIND feature
 	DOMAINS sky-box
 	MODULES asset-tools engine static-mesh-build level-editor renderer asset-forge-builtins
@@ -41,7 +60,6 @@ durin_add_engine_functional_test(SkyBoxTests
 	PRIVATE_SOURCE_OWNER LevelEditor
 	PRIVATE_SOURCE_RATIONALE
 		"LevelEditor-owned sky-box placement white-box coverage avoids exporting private customization symbols."
-	RUNTIME_STACK_RATIONALE "Exercises renderer-backed sky-box editing and rendering contracts."
 	SOURCES
 		Private/SkyBox/SkyBoxRenderingTests.cpp
 		Private/SkyBox/SkyBoxComponentTests.cpp
@@ -49,145 +67,215 @@ durin_add_engine_functional_test(SkyBoxTests
 	PRIVATE_SOURCES
 		${_durin_level_editor_private}/Operations/SkyBoxPlacement.cpp
 		${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
-	LIBRARIES AssetTools StaticMeshBuild AssetForgeBuiltins RenderCore Renderer DurinEd
+	LIBRARIES Core CoreDObject Engine AssetTools StaticMeshBuild AssetForgeBuiltins RenderCore Renderer DurinEd
 	DATA_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Data
+	INCLUDE_DIRECTORIES
+		${CMAKE_CURRENT_SOURCE_DIR}/Private
+		${_durin_level_editor_private}
+		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Public
+		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
+	COMPILE_DEFINITIONS LEVELEDITOR_EXPORTS
+	REQUIRES editor
+	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
+	ENVIRONMENTS authored-shaders
+	HEAVY_RUNTIME_RATIONALE "Exercises renderer-backed sky-box editing and rendering contracts."
 )
 
-durin_add_engine_functional_test(SkyBoxVulkanIntegrationTests
-	KIND integration
+durin_add_native_test(SkyBoxVulkanIntegrationTests
+	KIND ${_durin_vulkan_integration_kind}
 	DOMAINS sky-box
 	MODULES asset-tools engine static-mesh-build texture-build renderer asset-forge-builtins
 	BACKENDS vulkan
 	STACKS editor renderer
-	GPU
 	TIMEOUT 900
-	RUNTIME_STACK_RATIONALE "Owns the Vulkan-backed sky-box integration lifecycle."
 	RUNTIME_ONLY_RATIONALE "RHIInit selects VulkanRHI dynamically for this Vulkan-backed test."
 	RUNTIME_ONLY_TARGETS VulkanRHI
 	SOURCES Private/SkyBox/SkyBoxVulkanTests.cpp
-	LIBRARIES ApplicationCore AssetTools StaticMeshBuild TextureBuild AssetForgeBuiltins RenderCore Renderer DurinEd
-	INCLUDE_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Source/Developer/TextureBuild/Private
+	LIBRARIES
+		Core
+		CoreDObject
+		Engine
+		ApplicationCore
+		AssetTools
+		StaticMeshBuild
+		TextureBuild
+		AssetForgeBuiltins
+		RenderCore
+		Renderer
+		DurinEd
+	INCLUDE_DIRECTORIES
+		${CMAKE_CURRENT_SOURCE_DIR}/Private
+		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
+		${DURIN_PROJECT_ROOT_DIR}/Source/Developer/TextureBuild/Private
 	DATA_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Data
+	REQUIRES editor
+	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
+	ENVIRONMENTS authored-shaders
+	RESOURCE_LOCKS durin-gpu durin-rhi-lifecycle
+	HEAVY_RUNTIME_RATIONALE "Owns the Vulkan-backed sky-box integration lifecycle."
 )
 
-durin_add_engine_functional_test(VolumetricCloudSceneContractTests
+durin_add_native_test(VolumetricCloudSceneContractTests
 	KIND contract
 	DOMAINS renderer volumetric-cloud
 	MODULES engine renderer
 	STACKS renderer
-	RUNTIME_STACK_RATIONALE
-		"Exercises the renderer-owned scene registry and pure P1 cloud translation without GPU initialization."
 	SOURCES Private/VolumetricCloudSceneContractTests.cpp
-	LIBRARIES RenderCore Renderer
+	LIBRARIES Core CoreDObject Engine RenderCore Renderer
+	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
+	ENVIRONMENTS authored-shaders
+	HEAVY_RUNTIME_RATIONALE
+		"Exercises the renderer-owned scene registry and pure P1 cloud translation without GPU initialization."
 )
 
-durin_add_engine_functional_test(RendererResourceReloadVulkanTests
-	KIND integration
+durin_add_native_test(RendererResourceReloadVulkanTests
+	KIND ${_durin_vulkan_integration_kind}
 	DOMAINS renderer shader
 	MODULES engine renderer
 	BACKENDS vulkan
 	STACKS renderer
-	GPU
 	TIMEOUT 900
-	RUNTIME_STACK_RATIONALE "Exercises renderer shader recovery and resource-pool reuse with controlled native compute completion."
 	SOURCES Private/RendererResourceReloadVulkanTests.cpp
-	LIBRARIES ApplicationCore DerivedDataCache RenderCore Renderer ShaderBuild Slang_Imported VulkanRHI Vulkan::Vulkan
-	INCLUDE_DIRECTORIES ${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
+	LIBRARIES
+		Core
+		CoreDObject
+		Engine
+		ApplicationCore
+		DerivedDataCache
+		RenderCore
+		Renderer
+		ShaderBuild
+		Slang_Imported
+		VulkanRHI
+		Vulkan::Vulkan
+	INCLUDE_DIRECTORIES
+		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
+		${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
 	COMPILE_DEFINITIONS DURIN_VULKAN_TEST_FAILURE_INJECTION=1
+	REQUIRES editor
+	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
+	RESOURCE_LOCKS durin-gpu durin-rhi-lifecycle
+	HEAVY_RUNTIME_RATIONALE
+		"Exercises renderer shader recovery and resource-pool reuse with controlled native compute completion."
 )
 
-durin_add_engine_functional_test(StaticMeshRenderPreparationVulkanTests
-	EDITOR_ONLY
-	KIND integration
+durin_add_native_test(StaticMeshRenderPreparationVulkanTests
+	KIND ${_durin_vulkan_integration_kind}
 	DOMAINS static-mesh
 	MODULES engine renderer vulkan-rhi
 	BACKENDS vulkan
 	STACKS renderer
-	GPU
 	TIMEOUT 900
-	RUNTIME_STACK_RATIONALE "Exercises view-local StaticMesh material preparation against initialized render resources."
 	SOURCES Private/StaticMeshRenderPreparationVulkanTests.cpp
-	LIBRARIES ApplicationCore RenderCore Renderer ShaderBuild VulkanRHI Vulkan::Vulkan
-	INCLUDE_DIRECTORIES ${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
+	LIBRARIES Core CoreDObject Engine ApplicationCore RenderCore Renderer ShaderBuild VulkanRHI Vulkan::Vulkan
+	INCLUDE_DIRECTORIES
+		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
+		${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
 	COMPILE_DEFINITIONS DURIN_VULKAN_TEST_FAILURE_INJECTION=1
+	REQUIRES editor
+	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
+	RESOURCE_LOCKS durin-gpu durin-rhi-lifecycle
+	HEAVY_RUNTIME_RATIONALE
+		"Exercises view-local StaticMesh material preparation against initialized render resources."
 )
 
-durin_add_engine_functional_test(DirectionalShadowBaselineVulkanTests
+durin_add_native_test(DirectionalShadowBaselineVulkanTests
 	KIND qualification
 	DOMAINS renderer shadow
 	MODULES asset-forge-builtins engine renderer
 	BACKENDS vulkan
 	STACKS editor renderer
-	GPU
 	TIMEOUT 900
-	RUNTIME_STACK_RATIONALE
-		"Captures the frozen Q0 directional-shadow Lit baseline through the production Vulkan renderer."
-	RUNTIME_ONLY_RATIONALE
-		"RHIInit selects VulkanRHI dynamically for the hardware-backed baseline captures."
+	RUNTIME_ONLY_RATIONALE "RHIInit selects VulkanRHI dynamically for the hardware-backed baseline captures."
 	RUNTIME_ONLY_TARGETS VulkanRHI
 	SOURCES Private/DirectionalShadowBaselineVulkanTests.cpp
-	LIBRARIES AssetForgeBuiltins ApplicationCore RenderCore Renderer
+	LIBRARIES Core CoreDObject Engine AssetForgeBuiltins ApplicationCore RenderCore Renderer
 	DATA_DIRECTORIES
 		${CMAKE_CURRENT_SOURCE_DIR}/Data/DirectionalShadowQ0
 		${CMAKE_CURRENT_SOURCE_DIR}/Data/DirectionalShadowQ1
+	INCLUDE_DIRECTORIES
+		${CMAKE_CURRENT_SOURCE_DIR}/Private
+		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
+	REQUIRES editor
+	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
+	ENVIRONMENTS authored-shaders
+	RESOURCE_LOCKS durin-gpu durin-rhi-lifecycle
+	HEAVY_RUNTIME_RATIONALE
+		"Captures the frozen Q0 directional-shadow Lit baseline through the production Vulkan renderer."
 )
 
-durin_add_engine_functional_test(HDRDisplayMappingQualificationTests
+durin_add_native_test(HDRDisplayMappingQualificationTests
 	KIND qualification
 	DOMAINS renderer viewport
 	MODULES engine renderer vulkan-rhi
 	BACKENDS vulkan
 	STACKS renderer
-	GPU
 	TIMEOUT 900
-	RUNTIME_STACK_RATIONALE
-		"Measures HDR copy and FXAA display routes and applies the frozen 1920x1080 RTX 3090 gate only when the selected Vulkan adapter matches it."
 	SOURCES Private/HDRDisplayMappingQualificationTests.cpp
-	LIBRARIES ApplicationCore RenderCore Renderer VulkanRHI Vulkan::Vulkan
+	LIBRARIES Core CoreDObject Engine ApplicationCore RenderCore Renderer VulkanRHI Vulkan::Vulkan
 	INCLUDE_DIRECTORIES
+		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
 		${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
-	DATA_DIRECTORIES
-		${CMAKE_CURRENT_SOURCE_DIR}/Data/HDRDisplayMapping
+	DATA_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Data/HDRDisplayMapping
+	ENVIRONMENTS authored-shaders
+	RESOURCE_LOCKS durin-gpu durin-rhi-lifecycle
+	HEAVY_RUNTIME_RATIONALE
+		"Measures HDR copy and FXAA display routes and applies the frozen 1920x1080 RTX 3090 gate only when the selected Vulkan adapter matches it."
 )
 
-durin_add_engine_functional_test(GBufferQualificationTests
+durin_add_native_test(GBufferQualificationTests
 	KIND qualification
 	DOMAINS renderer
 	MODULES asset-forge-builtins engine renderer vulkan-rhi
 	BACKENDS vulkan
 	STACKS editor renderer
-	GPU
 	TIMEOUT 900
-	RUNTIME_STACK_RATIONALE
-		"Measures the four-family GBuffer path and applies the frozen 1920x1080 RTX 3090 gate only when the selected Vulkan adapter matches it."
 	SOURCES Private/GBufferQualificationTests.cpp
-	LIBRARIES AssetForgeBuiltins ApplicationCore RenderCore Renderer VulkanRHI Vulkan::Vulkan
+	LIBRARIES
+		Core
+		CoreDObject
+		Engine
+		AssetForgeBuiltins
+		ApplicationCore
+		RenderCore
+		Renderer
+		VulkanRHI
+		Vulkan::Vulkan
 	INCLUDE_DIRECTORIES
+		${CMAKE_CURRENT_SOURCE_DIR}/Private
+		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
 		${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
+	REQUIRES editor
+	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
+	ENVIRONMENTS authored-shaders
+	RESOURCE_LOCKS durin-gpu durin-rhi-lifecycle
+	HEAVY_RUNTIME_RATIONALE
+		"Measures the four-family GBuffer path and applies the frozen 1920x1080 RTX 3090 gate only when the selected Vulkan adapter matches it."
 )
 
-durin_add_engine_functional_test(VolumetricCloudQualificationTests
+durin_add_native_test(VolumetricCloudQualificationTests
 	KIND qualification
 	DOMAINS renderer
 	MODULES engine renderer vulkan-rhi
 	BACKENDS vulkan
 	STACKS renderer
-	GPU
 	TIMEOUT 900
-	RUNTIME_STACK_RATIONALE
-		"Measures the frozen volumetric-cloud compute and fragment routes across the P1 extent matrix."
 	SOURCES Private/VolumetricCloudQualificationTests.cpp
-	LIBRARIES ApplicationCore RenderCore Renderer VulkanRHI Vulkan::Vulkan
+	LIBRARIES Core CoreDObject Engine ApplicationCore RenderCore Renderer VulkanRHI Vulkan::Vulkan
 	INCLUDE_DIRECTORIES
+		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
 		${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
+	ENVIRONMENTS authored-shaders
+	RESOURCE_LOCKS durin-gpu durin-rhi-lifecycle
+	HEAVY_RUNTIME_RATIONALE
+		"Measures the frozen volumetric-cloud compute and fragment routes across the P1 extent matrix."
 )
 
-durin_add_engine_functional_test(EditorRenderingTests
+durin_add_native_test(EditorRenderingTests
 	KIND feature
 	DOMAINS renderer
 	MODULES asset-tools durin-ed engine renderer static-mesh-build texture-build asset-forge-builtins
 	STACKS editor renderer
-	RUNTIME_STACK_RATIONALE "Exercises renderer-backed editor assistance and grid rendering."
 	SOURCES
 		Private/EditorGridRenderingTests.cpp
 		Private/PrimitiveDrawInterfaceTests.cpp
@@ -198,103 +286,139 @@ durin_add_engine_functional_test(EditorRenderingTests
 		Private/RendererRenderTargetLayoutTests.cpp
 		Private/RendererSceneViewTests.cpp
 		Private/EditorTextureSmokeTests.cpp
-	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
-	LIBRARIES ApplicationCore AssetTools AssetForgeBuiltins RenderCore Renderer DurinEd MaterialEditor StaticMeshBuild TextureBuild
-	DATA_DIRECTORIES
-		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
-		${CMAKE_CURRENT_SOURCE_DIR}/Data
+	INCLUDE_DIRECTORIES
+		${CMAKE_CURRENT_SOURCE_DIR}/Private
+		${_durin_level_editor_private}
+		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Public
+		${_durin_material_editor_private}
+		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/MaterialEditor/Public
+		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
+		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
+	LIBRARIES
+		Core
+		CoreDObject
+		Engine
+		ApplicationCore
+		AssetTools
+		AssetForgeBuiltins
+		RenderCore
+		Renderer
+		DurinEd
+		MaterialEditor
+		StaticMeshBuild
+		TextureBuild
+	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport ${CMAKE_CURRENT_SOURCE_DIR}/Data
+	REQUIRES editor
+	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
+	ENVIRONMENTS authored-shaders
+	HEAVY_RUNTIME_RATIONALE "Exercises renderer-backed editor assistance and grid rendering."
 )
 
 if(NOT APPLE OR DURIN_ENABLE_APPLICATION_TESTS)
-	durin_add_engine_functional_test(EditorGridVulkanTests
-		EDITOR_ONLY
+	durin_add_native_test(EditorGridVulkanTests
 		EXECUTION_HOST application
-		KIND integration
+		KIND ${_durin_vulkan_integration_kind}
 		DOMAINS renderer viewport
 		MODULES engine renderer vulkan-rhi
 		BACKENDS vulkan
 		STACKS editor renderer
-		GPU
 		TIMEOUT 900
-		RUNTIME_STACK_RATIONALE
-			"Exercises the production editor-grid shader and assistance pass through the Vulkan renderer."
 		SOURCES Private/EditorGridVulkanTests.cpp
-		LIBRARIES ApplicationCore RenderCore Renderer VulkanRHI Vulkan::Vulkan
+		LIBRARIES Core CoreDObject Engine ApplicationCore RenderCore Renderer VulkanRHI Vulkan::Vulkan
 		INCLUDE_DIRECTORIES
+			${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
 			${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
 		COMPILE_DEFINITIONS DURIN_VULKAN_TEST_FAILURE_INJECTION=1
+		REQUIRES editor
+		REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
+		ENVIRONMENTS authored-shaders
+		RESOURCE_LOCKS durin-gpu durin-rhi-lifecycle
+		HEAVY_RUNTIME_RATIONALE
+			"Exercises the production editor-grid shader and assistance pass through the Vulkan renderer."
 	)
 
-	durin_add_engine_functional_test(VolumetricCloudVulkanTests
-		EDITOR_ONLY
+	durin_add_native_test(VolumetricCloudVulkanTests
 		EXECUTION_HOST application
-		KIND integration
+		KIND ${_durin_vulkan_integration_kind}
 		DOMAINS renderer
 		MODULES engine renderer vulkan-rhi
 		BACKENDS vulkan
 		STACKS renderer
-		GPU
 		TIMEOUT 900
-		RUNTIME_STACK_RATIONALE
-			"Owns one isolated Vulkan lifecycle for compute and fragment volumetric-cloud parity."
 		SOURCES Private/VolumetricCloudVulkanTests.cpp
-		LIBRARIES ApplicationCore RenderCore Renderer VulkanRHI Vulkan::Vulkan
+		LIBRARIES Core CoreDObject Engine ApplicationCore RenderCore Renderer VulkanRHI Vulkan::Vulkan
 		INCLUDE_DIRECTORIES
+			${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
 			${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
 		COMPILE_DEFINITIONS DURIN_VULKAN_TEST_FAILURE_INJECTION=1
+		REQUIRES editor
+		REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
+		ENVIRONMENTS authored-shaders
+		RESOURCE_LOCKS durin-gpu durin-rhi-lifecycle
+		HEAVY_RUNTIME_RATIONALE
+			"Owns one isolated Vulkan lifecycle for compute and fragment volumetric-cloud parity."
 	)
 
-	durin_add_engine_functional_test(VolumetricCloudSceneVulkanTests
-		EDITOR_ONLY
+	durin_add_native_test(VolumetricCloudSceneVulkanTests
 		EXECUTION_HOST application
-		KIND integration
+		KIND ${_durin_vulkan_integration_kind}
 		DOMAINS renderer viewport
 		MODULES engine renderer vulkan-rhi
 		BACKENDS vulkan
 		STACKS renderer
-		GPU
 		TIMEOUT 900
-		RUNTIME_STACK_RATIONALE
-			"Exercises enabled volumetric clouds through SceneRenderer offscreen and window-backed Present routes."
 		SOURCES Private/VolumetricCloudSceneVulkanTests.cpp
-		LIBRARIES ApplicationCore RenderCore Renderer VulkanRHI Vulkan::Vulkan
+		LIBRARIES Core CoreDObject Engine ApplicationCore RenderCore Renderer VulkanRHI Vulkan::Vulkan
+		INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
+		REQUIRES editor
+		REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
+		ENVIRONMENTS authored-shaders
+		RESOURCE_LOCKS durin-gpu durin-rhi-lifecycle
+		HEAVY_RUNTIME_RATIONALE
+			"Exercises enabled volumetric clouds through SceneRenderer offscreen and window-backed Present routes."
 	)
 else()
 	durin_exclude_native_test_sources(
 		RATIONALE
 			"Window-backed editor-grid Vulkan qualification runs only when application tests are explicitly enabled."
-		SOURCES
-			Private/EditorGridVulkanTests.cpp
+		SOURCES Private/EditorGridVulkanTests.cpp
 			Private/VolumetricCloudVulkanTests.cpp
 			Private/VolumetricCloudSceneVulkanTests.cpp
 	)
 endif()
 
-durin_add_engine_functional_test(AssetPackageReloadVulkanTests
+durin_add_native_test(AssetPackageReloadVulkanTests
 	KIND qualification
 	DOMAINS asset-package renderer
 	MODULES durin-ed engine renderer texture-build
 	BACKENDS vulkan
 	STACKS editor renderer
-	GPU
-	RUNTIME_STACK_RATIONALE "Qualifies saved package discard with production cloud rendering and pixel readback."
 	RUNTIME_ONLY_RATIONALE "RHIInit selects VulkanRHI dynamically for this offscreen test."
 	RUNTIME_ONLY_TARGETS VulkanRHI
 	SOURCES Private/AssetPackageReloadVulkanTests.cpp
-	LIBRARIES DurinEd TextureBuild RenderCore Renderer
+	LIBRARIES Core CoreDObject Engine DurinEd TextureBuild RenderCore Renderer
+	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
+	REQUIRES editor
+	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
+	ENVIRONMENTS authored-shaders
+	RESOURCE_LOCKS durin-gpu durin-rhi-lifecycle
+	HEAVY_RUNTIME_RATIONALE "Qualifies saved package discard with production cloud rendering and pixel readback."
 )
 
-durin_add_engine_functional_test(AssetPackageReloadTests
+durin_add_native_test(AssetPackageReloadTests
 	KIND feature
 	DOMAINS asset-package editor-shell
 	MODULES durin-ed engine texture-build shader-build
 	STACKS editor
-	RUNTIME_STACK_RATIONALE "Exercises texture/material/function package replacement, editor discard, live references and accepted compiled caller generations."
 	SOURCES Private/AssetPackageReloadTests.cpp
-	LIBRARIES DurinEd TextureBuild ShaderBuild
+	LIBRARIES Core CoreDObject Engine DurinEd TextureBuild ShaderBuild
+	REQUIRES editor
+	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
+	HEAVY_RUNTIME_RATIONALE
+		"Exercises texture/material/function package replacement, editor discard, live references and accepted compiled caller generations."
 )
 
-durin_add_engine_functional_test(EditorShellTests
+durin_add_native_test(EditorShellTests
 	KIND feature
 	DOMAINS editor-shell
 	MODULES durin-ed level-editor
@@ -302,7 +426,6 @@ durin_add_engine_functional_test(EditorShellTests
 	PRIVATE_SOURCE_OWNER LevelEditor
 	PRIVATE_SOURCE_RATIONALE
 		"LevelEditor-owned shell model white-box coverage avoids exporting private workspace and panel implementations."
-	RUNTIME_STACK_RATIONALE "Exercises DurinEd and Mona editor-shell models."
 	SOURCES
 		Private/EditorBootstrapStateTests.cpp
 		Private/EditorNotificationTests.cpp
@@ -311,10 +434,19 @@ durin_add_engine_functional_test(EditorShellTests
 	PRIVATE_SOURCES
 		${_durin_level_editor_private}/Workspace/LevelEditorContext.cpp
 		${_durin_level_editor_private}/Viewport/ViewportPickingSceneIndex.cpp
-	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd
+	LIBRARIES Core CoreDObject Engine ApplicationCore MonaCore Mona MonaImGui DurinEd
+	INCLUDE_DIRECTORIES
+		${_durin_level_editor_private}
+		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Public
+		${_durin_content_browser_public}
+		${CMAKE_SOURCE_DIR}/Engine/Source
+	COMPILE_DEFINITIONS LEVELEDITOR_EXPORTS
+	REQUIRES editor
+	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
+	HEAVY_RUNTIME_RATIONALE "Exercises DurinEd and Mona editor-shell models."
 )
 
-durin_add_engine_functional_test(EditorHostToolTests
+durin_add_native_test(EditorHostToolTests
 	KIND feature
 	DOMAINS editor-shell
 	MODULES durin-ed main-frame
@@ -322,16 +454,17 @@ durin_add_engine_functional_test(EditorHostToolTests
 	PRIVATE_SOURCE_OWNER MainFrame
 	PRIVATE_SOURCE_RATIONALE
 		"MainFrame-owned Console model and layout coverage avoids exporting private host-tool implementations."
-	RUNTIME_STACK_RATIONALE "Exercises MainFrame host-tool models."
-	SOURCES
-		Private/ConsoleRecordModelTests.cpp
-		Private/EditorHostToolTests.cpp
-	PRIVATE_SOURCES
-		${_durin_main_frame_private}/Panels/ConsoleRecordModel.cpp
-	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd
+	SOURCES Private/ConsoleRecordModelTests.cpp Private/EditorHostToolTests.cpp
+	PRIVATE_SOURCES ${_durin_main_frame_private}/Panels/ConsoleRecordModel.cpp
+	LIBRARIES Core CoreDObject Engine ApplicationCore MonaCore Mona MonaImGui DurinEd
+	INCLUDE_DIRECTORIES ${_durin_main_frame_private}
+	COMPILE_DEFINITIONS MAINFRAME_EXPORTS
+	REQUIRES editor
+	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
+	HEAVY_RUNTIME_RATIONALE "Exercises MainFrame host-tool models."
 )
 
-durin_add_engine_functional_test(ExternalToolTests
+durin_add_native_test(ExternalToolTests
 	KIND feature
 	DOMAINS editor-shell
 	MODULES durin-ed main-frame
@@ -340,48 +473,82 @@ durin_add_engine_functional_test(ExternalToolTests
 	PRIVATE_SOURCE_RATIONALE
 		"MainFrame-owned profiling integration white-box coverage avoids exporting the private service implementation."
 	TIMEOUT 600
-	RUNTIME_STACK_RATIONALE "Exercises the DurinEd profiling-tool integration."
 	SOURCES Private/ProfilingToolServiceTests.cpp
-	PRIVATE_SOURCES
-		${_durin_main_frame_private}/ProfilingToolService.cpp
-	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd
+	PRIVATE_SOURCES ${_durin_main_frame_private}/ProfilingToolService.cpp
+	LIBRARIES Core CoreDObject Engine ApplicationCore MonaCore Mona MonaImGui DurinEd
+	INCLUDE_DIRECTORIES ${_durin_main_frame_private}
+	COMPILE_DEFINITIONS MAINFRAME_EXPORTS
+	REQUIRES editor
+	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
+	HEAVY_RUNTIME_RATIONALE "Exercises the DurinEd profiling-tool integration."
 )
 
 # Cooked-runtime mode and Renderer/Vulkan teardown are process-global.
-durin_add_engine_functional_test(TextureCookIntegrationTests
-	KIND integration
+durin_add_native_test(TextureCookIntegrationTests
+	KIND ${_durin_vulkan_integration_kind}
 	DOMAINS asset-cook texture
 	MODULES asset-tools engine static-mesh-build renderer asset-forge-builtins vulkan-rhi
 	BACKENDS vulkan
 	STACKS editor renderer
-	EDITOR_ONLY
-	GPU
 	TIMEOUT 900
-	RUNTIME_STACK_RATIONALE "Owns the renderer and Vulkan cooked-texture lifecycle."
 	SOURCES Private/Texture/TextureCookTests.cpp
-	LIBRARIES AssetTools StaticMeshBuild TextureBuild AssetForgeBuiltins RenderCore Renderer VulkanRHI Vulkan::Vulkan
-	INCLUDE_DIRECTORIES ${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
+	LIBRARIES
+		Core
+		CoreDObject
+		Engine
+		AssetTools
+		StaticMeshBuild
+		TextureBuild
+		AssetForgeBuiltins
+		RenderCore
+		Renderer
+		VulkanRHI
+		Vulkan::Vulkan
+	INCLUDE_DIRECTORIES
+		${CMAKE_CURRENT_SOURCE_DIR}/Private
+		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
+		${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
 	COMPILE_DEFINITIONS DURIN_VULKAN_TEST_FAILURE_INJECTION=1
+	REQUIRES editor
+	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
+	ENVIRONMENTS authored-shaders
+	RESOURCE_LOCKS durin-gpu durin-rhi-lifecycle
+	HEAVY_RUNTIME_RATIONALE "Owns the renderer and Vulkan cooked-texture lifecycle."
 )
 
 # Measures material first use separately from routine renderer correctness coverage.
-durin_add_engine_functional_test(MaterialCreationQualificationTests
-	EDITOR_ONLY
+set(_durin_material_qualification_platform_libraries)
+if(WIN32)
+	set(_durin_material_qualification_platform_libraries dxgi)
+endif()
+
+durin_add_native_test(MaterialCreationQualificationTests
 	KIND qualification
 	DOMAINS material renderer rhi-creation
 	MODULES engine renderer vulkan-rhi
 	BACKENDS vulkan
 	STACKS renderer
-	GPU
 	TIMEOUT 900
-	RUNTIME_STACK_RATIONALE "Measures a fixed material scene through complete production renderer frames."
 	SOURCES Private/MaterialCreationQualificationTests.cpp
-	LIBRARIES ApplicationCore RenderCore Renderer VulkanRHI Vulkan::Vulkan
+	LIBRARIES
+		${_durin_material_qualification_platform_libraries}
+		Core
+		CoreDObject
+		Engine
+		ApplicationCore
+		RenderCore
+		Renderer
+		VulkanRHI
+		Vulkan::Vulkan
 	INCLUDE_DIRECTORIES
+		${CMAKE_CURRENT_SOURCE_DIR}/Private
+		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
 		${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
 		${CMAKE_SOURCE_DIR}/Engine/Tests/Native/VulkanRHITests/Private
 	COMPILE_DEFINITIONS DURIN_VULKAN_TEST_FAILURE_INJECTION=1
+	REQUIRES editor
+	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
+	ENVIRONMENTS authored-shaders
+	RESOURCE_LOCKS durin-gpu durin-rhi-lifecycle
+	HEAVY_RUNTIME_RATIONALE "Measures a fixed material scene through complete production renderer frames."
 )
-if(TARGET MaterialCreationQualificationTests AND WIN32)
-	target_link_libraries(MaterialCreationQualificationTests PRIVATE dxgi)
-endif()

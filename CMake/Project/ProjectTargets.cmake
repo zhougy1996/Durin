@@ -4,6 +4,7 @@ include_guard(GLOBAL)
 
 include("${CMAKE_CURRENT_LIST_DIR}/TargetDependencyClosure.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/PlatformSources.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/NativeTestDeclaration.cmake")
 
 function(durin_module_log project_name module_name)
 	message(STATUS "[${project_name}] Module: ${module_name}")
@@ -864,20 +865,27 @@ function(durin_validate_native_test_repository_policy native_test_root)
 	endforeach()
 
 	file(GLOB_RECURSE _durin_native_test_cmake_files
-		"${native_test_root}/CMakeLists.txt")
+		"${native_test_root}/CMakeLists.txt"
+		"${native_test_root}/*.cmake")
 	foreach(_durin_cmake_file IN LISTS _durin_native_test_cmake_files)
 		file(READ "${_durin_cmake_file}" _durin_cmake_content)
+		if(_durin_cmake_content MATCHES
+			"(^|[^A-Za-z0-9_])(add_durin_test|durin_register_native_test)[ \t\r\n]*\\(")
+			message(FATAL_ERROR
+				"${_durin_cmake_file} uses partial native-test declaration primitives. "
+				"Use durin_add_native_test to configure dependencies before registration.")
+		endif()
 		if(_durin_cmake_content MATCHES
 			"(^|[^A-Za-z0-9_])gtest_discover_tests[ \t\r\n]*\\(")
 			message(FATAL_ERROR
 				"${_durin_cmake_file} registers GoogleTest cases directly. "
-				"Use durin_register_native_test so isolation and resource policy apply.")
+				"Use durin_add_native_test so isolation and resource policy apply.")
 		endif()
 		if(_durin_cmake_content MATCHES
 			"(^|[^A-Za-z0-9_])_?durin_(finalize_native_test|discover_(native_)?tests?)[ \t\r\n]*\\(")
 			message(FATAL_ERROR
 				"${_durin_cmake_file} calls a private or retired native-test "
-				"registration phase. Use durin_register_native_test.")
+				"registration phase. Use durin_add_native_test.")
 		endif()
 		if(_durin_cmake_content MATCHES
 			"add_custom_command[ \\t\\r\\n]*\\([^)]*TARGET[^)]*POST_BUILD[^)]*(copy|copy_if_different)")

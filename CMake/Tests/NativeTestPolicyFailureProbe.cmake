@@ -6,7 +6,20 @@ endif()
 
 include("${DURIN_WORKSPACE_DIR}/CMake/Project/ProjectTargets.cmake")
 
-if(DURIN_POLICY_PROBE STREQUAL "unknown-resource")
+if(DURIN_POLICY_PROBE MATCHES "^declaration-")
+	set(DURIN_WITH_EDITOR FALSE)
+	set(_args KIND feature DOMAINS probe SOURCES Missing.cpp REQUIRES editor)
+	if(DURIN_POLICY_PROBE STREQUAL "declaration-unknown-requirement")
+		list(APPEND _args REQUIRES unknown)
+	elseif(DURIN_POLICY_PROBE STREQUAL "declaration-unknown-environment")
+		list(APPEND _args REQUIREMENT_RATIONALE "Probe" ENVIRONMENTS unknown)
+	elseif(DURIN_POLICY_PROBE STREQUAL "declaration-unknown-argument")
+		list(PREPEND _args MISSPELLED_OPTION)
+	elseif(DURIN_POLICY_PROBE STREQUAL "declaration-missing-value")
+		list(APPEND _args TIMEOUT)
+	endif()
+	durin_add_native_test(ProbeTests ${_args})
+elseif(DURIN_POLICY_PROBE STREQUAL "unknown-resource")
 	durin_resolve_native_test_discovery_policy(
 		probe_locks
 		probe_labels
@@ -43,6 +56,9 @@ elseif(DURIN_POLICY_PROBE MATCHES "^repository-")
 	elseif(DURIN_POLICY_PROBE STREQUAL "repository-direct-discovery")
 		file(WRITE "${DURIN_PROBE_ROOT}/Probe/CMakeLists.txt"
 			"gtest_discover_tests(ProbeTests)\n")
+	elseif(DURIN_POLICY_PROBE STREQUAL "repository-partial-declaration")
+		file(WRITE "${DURIN_PROBE_ROOT}/Probe/Targets.cmake"
+			"add_durin_test(ProbeTests Probe.cpp)\n")
 	elseif(DURIN_POLICY_PROBE STREQUAL "repository-post-build-runtime-copy")
 		file(WRITE "${DURIN_PROBE_ROOT}/Probe/CMakeLists.txt"
 			"add_custom_command(TARGET ProbeTests POST_BUILD\n"
