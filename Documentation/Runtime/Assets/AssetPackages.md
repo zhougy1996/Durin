@@ -243,10 +243,9 @@ constructor-created default children reject delta saving; classes declaring
 `NoClassDefaultObject` also require explicit complete snapshots. Complete exports skip default initialization. All skeletons,
 reference binding, validation, and PostLoad still precede publication.
 
-The reader and writer accept v10 only. Older v10 readers reject Struct mode 2;
-updated readers retain old complete-value meaning. Ordinary resave can make old
-complete container elements sparse; omitted fields then follow changed type
-defaults. Complete/Forced saving pins their saved fields. Reference-bearing
+The reader and writer accept the current v10 contract only. Omitted Struct
+fields follow the selected default; Complete/Forced saving pins their saved
+fields. Hard-reference-bearing
 fields remain explicit, and per-element override editing is deferred. See the
 [baseline contract](../Core/Serialization.md#default-relative-logical-planning).
 The maintained workspace corpus was resaved before retiring v9; unsupported revisions fail at the format boundary.

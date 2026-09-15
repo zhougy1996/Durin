@@ -90,6 +90,31 @@ CPU validation, consumer checks, the all build and documentation validation pass
 - Lasting contracts are updated in Serialization and AssetPackages. Changed-doc
   validation and all-plan lifecycle validation pass; no acceptance gate remains.
 
+### Corpus Resave Follow-Up
+
+The user requested resaving the maintained assets and removing transition-only
+compatibility tests. Exact-package canonical resave succeeded for all 20 unique
+mounted packages: 12 Engine, 6 Sandbox, and 2 RoadWeaver packages. Shared Engine
+content was processed once. Seven Engine material-function packages changed;
+the other 13 packages already had identical current output. No cooked fixture
+regeneration is needed because complete cooked serialization is unchanged.
+
+Removed `V10StructDeltasUseOwningDefaultsAndPreserveLegacyReads` and the synthetic
+removed-field migration branch in the container fixture, along with transitional
+old-reader prose in the runtime contracts. The production implementation has no
+separate legacy migration branch to remove: Complete, Parent and TypeDefault
+are all current semantic modes. Current baseline, replacement, reference and
+rollback tests remain. General schema-evolution infrastructure outside this
+Struct serialization change is unchanged.
+
+Follow-up validation: AssetPackageTests passes all 159 remaining cases and
+MaterialFunctionTests passes all 28 cases. Both project asset checks report no
+findings; unforced whole-project resave previews skip all current packages.
+Repeating exact-package resave for the seven changed files produces identical
+SHA-256 hashes. Their combined package size decreases by 3318 bytes. Changed-doc
+validation passes. Runtime code is unchanged, so the successful all build above
+remains applicable.
+
 ## Goal
 
 Make complete serialization, parent-relative serialization, and Struct-type-

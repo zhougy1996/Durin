@@ -2424,80 +2424,6 @@ TEST(FPackageAssetTests, ExplicitLoadScopeFailureRetiresSuccessfulNestedBulkReso
 	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(BulkPath));
 }
 
-TEST(FPackageAssetTests, V10StructDeltasUseOwningDefaultsAndPreserveLegacyReads)
-{
-	using namespace Durin;
-	using namespace Durin::AssetPrivate;
-	InitializeAssetTests();
-	const std::array Classes{DMathStructAssetForTest::StaticClass()};
-	ASSERT_TRUE(Private::CreateClassDefaultObjectsForBatch(Classes));
-	auto* Defaults = const_cast<DMathStructAssetForTest*>(static_cast<const DMathStructAssetForTest*>(Classes[0]->GetDefaultObject()));
-	const FVector3 Original = Defaults->Vector;
-	struct FRestore { DMathStructAssetForTest* Object; FVector3 Value; FTransform Transform;
-		~FRestore() { Object->Vector = Value; Object->Transform = Transform; } } Restore{Defaults, Original, Defaults->Transform};
-	Defaults->Vector = FVector3(2.0, 10.0, 30.0);
-	Defaults->Transform.Translation = Defaults->Vector;
-	FPackagePath Path;
-	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/PairedStructDefaults", Path));
-	DMathStructAssetForTest* Asset = nullptr;
-	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
-	Asset->Vector = FVector3(2.0, 20.0, 30.0);
-	Asset->Transform = Defaults->Transform;
-	Asset->Transform.Translation.y = 20.0;
-	Asset->Vectors = {FVector3(1.0, 0.0, 0.0), FVector3(0.0, 2.0, 0.0)};
-	{ const auto Result = SavePackage(Asset->GetPackage()); ASSERT_TRUE(Result) << Result.Message; }
-	FAssetPackageEncodedClosure Delta, Complete;
-	ASSERT_TRUE(TaggedPackage::GetCodec().Write(Asset->GetPackage(), Delta, EDefaultDeltaMode::Enabled, {}));
-	ASSERT_TRUE(TaggedPackage::GetCodec().Write(Asset->GetPackage(), Complete, EDefaultDeltaMode::NoDelta, {}));
-	ObjectPackage::FLinkerTables Linker;
-	ObjectPackage::FPackageReaderDiagnostic Diagnostic;
-	ASSERT_TRUE(ObjectPackage::ReadPackage(Delta.PackageBytes, Delta.BulkBytes, Path, Linker, &Diagnostic)) << Diagnostic.Message;
-	EXPECT_EQ(Linker.FormatVersion, ObjectPackage::DastV10FormatVersion);
-	EXPECT_TRUE(Linker.Exports.front().bUseClassDefaults);
-	auto& Properties = Linker.Exports.front().Properties;
-	auto Vector = std::ranges::find(Properties, "Vector", &ObjectPackage::FPropertyTag::FieldName);
-	ASSERT_NE(Vector, Properties.end());
-	EXPECT_EQ(Vector->Value.FieldNames, std::vector<std::string>{"y"});
-	EXPECT_EQ(Vector->Value.Baseline, EArchiveStructBaseline::Parent);
-	auto Vectors = std::ranges::find(Properties, "Vectors", &ObjectPackage::FPropertyTag::FieldName);
-	ASSERT_NE(Vectors, Properties.end());
-	for (const auto& Element : Vectors->Value.Elements)
-	{
-		EXPECT_EQ(Element.FieldNames.size(), 1u);
-		EXPECT_EQ(Element.Baseline, EArchiveStructBaseline::TypeDefault);
-	}
-	// The detached writer rejects malformed field identity/type before publishing bytes.
-	const auto ValidValue = Vector->Value;
-	Linker.Exports.front().bUseClassDefaults = false;
-	FByteBuffer MissingBaseline, MissingBaselineBulk;
-	EXPECT_FALSE(ObjectPackage::WritePackage(Linker, MissingBaseline, MissingBaselineBulk));
-	Linker.Exports.front().bUseClassDefaults = true;
-	FByteBuffer InvalidMain{std::byte{42}}, InvalidBulk;
-	Vector->Value.FieldNames[0] = "unknown";
-	EXPECT_FALSE(ObjectPackage::WritePackage(Linker, InvalidMain, InvalidBulk));
-	EXPECT_EQ(InvalidMain, FByteBuffer{std::byte{42}});
-	Vector->Value = ValidValue;
-	Vector->Value.Baseline = EArchiveStructBaseline::Complete;
-	EXPECT_FALSE(ObjectPackage::WritePackage(Linker, InvalidMain, InvalidBulk));
-	Vector->Value = ValidValue;
-	EXPECT_LT(Delta.PackageBytes.size(), Complete.PackageBytes.size());
-	const auto File = Testing::GetTestWorkDirectory() / "Assets" / "PairedStructDefaults.dasset";
-	for (const auto* Encoded : {&Delta, &Complete})
-	{
-		ASSERT_TRUE(UnloadPackage(Path));
-		Defaults->Vector = FVector3(7.0, 8.0, 9.0);
-		Defaults->Transform.Translation = Defaults->Vector;
-		WriteTestBytes(File, Encoded->PackageBytes);
-		const auto Result = LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Asset);
-		ASSERT_TRUE(Result) << Result.Message;
-		EXPECT_EQ(Asset->Vector, Encoded == &Delta ? FVector3(7.0, 20.0, 9.0) : FVector3(2.0, 20.0, 30.0));
-		EXPECT_EQ(Asset->Transform.Translation, Asset->Vector);
-		EXPECT_EQ(Asset->Vectors, (std::vector<FVector3>{FVector3(1.0, 0.0, 0.0), FVector3(0.0, 2.0, 0.0)}));
-		EXPECT_FALSE(Asset->HasAllocatedAuthoredOverrideLedger());
-	}
-	{ const auto Removed = Testing::RemoveAssetPackageForTests(Path); ASSERT_TRUE(Removed) << Removed.Message; }
-}
-
 TEST(FPackageAssetTests, TypeDefaultReferencesRemainExplicitAndFailedRepairRollsBack)
 {
 	using namespace Durin;
@@ -2651,7 +2577,7 @@ TEST(FPackageAssetTests, TypeDefaultContainersEvolveAndForcedSnapshotsRemainComp
 		EXPECT_EQ(Asset->Transforms[0].Translation, FVector3(12.0, 0.0, 0.0));
 		EXPECT_EQ(Asset->HasAllocatedAuthoredOverrideLedger(), Encoded == &Forced);
 	}
-	// A complete old value can become sparse on ordinary resave. Membership is always authored.
+	// Replacing membership preserves insertion, deletion and ordering.
 	ASSERT_TRUE(Asset->ClearAuthoredOverride(ContainerPath));
 	Asset->Vectors.erase(Asset->Vectors.begin());
 	std::ranges::reverse(Asset->Vectors);
@@ -2668,21 +2594,6 @@ TEST(FPackageAssetTests, TypeDefaultContainersEvolveAndForcedSnapshotsRemainComp
 	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Asset));
 	EXPECT_TRUE(Asset->Vectors.empty());
 	EXPECT_TRUE(Asset->VectorMap.empty());
-	// Removed saved fields are ignored after validation; absent current fields inherit the selected baseline.
-	for (auto& Schema : Linker.Schemas)
-		if (Schema.QualifiedName == Struct->GetQualifiedName().ToString())
-			for (auto& Field : Schema.Fields) if (Field.Name == "x") Field.Name = "RetiredX";
-	std::function<void(ObjectPackage::FSerializedValue&)> Rename = [&](auto& Value) {
-		for (auto& Name : Value.FieldNames) if (Name == "x") Name = "RetiredX";
-		for (auto& Child : Value.Elements) Rename(Child);
-	};
-	for (auto& Export : Linker.Exports) for (auto& Field : Export.Properties) Rename(Field.Value);
-	ASSERT_TRUE(ObjectPackage::WritePackage(Linker, Canonical, Bulk));
-	ASSERT_TRUE(UnloadPackage(Path));
-	WriteTestBytes(File, Canonical);
-	{ const auto Result = LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Asset); ASSERT_TRUE(Result) << Result.Message; }
-	EXPECT_EQ(Asset->Vectors, std::vector<FVector3>(3, *TypeDefault));
-	{ const auto Result = SavePackage(Asset->GetPackage()); ASSERT_TRUE(Result) << Result.Message; }
 	{ const auto Removed = Testing::RemoveAssetPackageForTests(Path); ASSERT_TRUE(Removed) << Removed.Message; }
 }
 

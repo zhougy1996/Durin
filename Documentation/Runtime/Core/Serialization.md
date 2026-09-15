@@ -308,13 +308,11 @@ parent value. Missing eligible defaults fail rather than silently changing modes
 Each present field
 retains its own name, type, provenance, and value, independently of the shared
 complete type descriptor. The reader validates field identities/types and
-canonical form before constructing objects. Older v10 readers reject mode 2;
-updated readers accept both old complete values and new sparse values. Only v10
-is supported; retired wire versions fail before graph construction.
+canonical form before constructing objects. The reader and writer support only
+the current v10 contract; retired wire versions fail before graph construction.
 
 An omitted type-relative field follows later changes to the registered default.
-Ordinary resave may sparsify an old complete asset, enabling this evolution for
-subsequent loads. Complete saving or a whole-container Forced replacement pins
+Complete saving or a whole-container Forced replacement pins
 all saved fields. Per-element override editing and stable element identity remain
 deferred; ordinary omission creates no ledger marks. Hard-reference-bearing
 fields of a type-relative Struct remain complete, including their descendants,
