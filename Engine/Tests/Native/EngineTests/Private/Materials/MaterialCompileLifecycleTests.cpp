@@ -5,6 +5,7 @@
 
 #include "Asset/AssetCompilingManager.h"
 #include "Materials/MaterialCompileLifecycle.h"
+#include "Materials/MaterialCompileRetryQueue.h"
 #include "Materials/MaterialCookedProgram.h"
 #include "Materials/MaterialFunction.h"
 #include "Modules/ModuleManager.h"
@@ -158,10 +159,14 @@ auto QualifyEditScheduling() -> void
 	EXPECT_TRUE(Child->GetMaterialCompileStatus().IsCurrent());
 	EXPECT_EQ(Root->GetMaterialCompileStatus().RequestGeneration, Generation + 1);
 
+	auto& Manager = FAssetCompilingManager::Get();
+	const auto RemainingBeforeSchedule = Manager.GetNumRemainingAssets();
 	Root->SetEditCompileMode(EMaterialEditCompileMode::Automatic);
 	ASSERT_TRUE(EditRoughnessDefault(*Root, 0.05f));
+	EXPECT_EQ(Manager.GetNumRemainingAssets(), RemainingBeforeSchedule + 2);
 	std::this_thread::sleep_for(std::chrono::milliseconds(250));
 	ASSERT_TRUE(EditRoughnessDefault(*Root, 0.05f));
+	EXPECT_EQ(Manager.GetNumRemainingAssets(), RemainingBeforeSchedule + 2);
 	std::this_thread::sleep_for(std::chrono::milliseconds(200));
 	FAssetCompilingManager::Get().ProcessAsyncTasks();
 	EXPECT_EQ(Root->GetMaterialCompileStatus().State, EMaterialCompileState::Scheduled);
@@ -181,11 +186,77 @@ auto QualifyEditScheduling() -> void
 	ASSERT_TRUE(WaitForMaterialCompile(*Child));
 	EXPECT_EQ(Root->GetMaterialCompileStatus().RequestGeneration, Generation + 3);
 	ASSERT_TRUE(EditRoughnessDefault(*Root, 0.01f));
+	const auto RemainingBeforeCancel = Manager.GetNumRemainingAssets();
 	FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Root);
+	EXPECT_EQ(Manager.GetNumRemainingAssets(), RemainingBeforeCancel - 1);
 	EXPECT_EQ(Root->GetMaterialCompileStatus().State, EMaterialCompileState::Canceled);
 	EXPECT_EQ(Root->GetMaterialCompileStatus().RequestGeneration, Generation + 3);
 }
 
+}
+
+TEST(FMaterialCompileLifecycleTests, RetryQueueBoundsChecksAndRotatesWithoutDuplicates)
+{
+	using namespace Durin;
+	Private::FMaterialCompileRetryQueue Queue;
+	constexpr uint32 Budget = Private::MaterialCompileMaxRetryChecks;
+	std::vector<FObjectHandle> Visited;
+	const auto Keep = [&](FObjectHandle Owner) { Visited.push_back(Owner); return true; };
+	Queue.Process(Budget, Keep);
+	EXPECT_TRUE(Visited.empty());
+	for (uint32 Index = 0; Index < Budget + 3; ++Index)
+	{
+		Queue.Add({Index, 1});
+		Queue.Add({Index, 1});
+	}
+	EXPECT_EQ(Queue.Num(), Budget + 3);
+	Queue.Process(Budget, Keep);
+	ASSERT_EQ(Visited.size(), Budget);
+	EXPECT_EQ(Visited.front(), FObjectHandle(0, 1));
+	EXPECT_EQ(Visited.back(), FObjectHandle(Budget - 1, 1));
+	Visited.clear();
+	Queue.Process(Budget, Keep);
+	ASSERT_EQ(Visited.size(), Budget);
+	EXPECT_EQ(Visited.front(), FObjectHandle(Budget, 1));
+	EXPECT_EQ(Visited[3], FObjectHandle(0, 1));
+	EXPECT_EQ(Queue.Num(), Budget + 3);
+
+	// Discarded/stale entries consume the same budget as retries.
+	Visited.clear();
+	Queue.Process(Budget, [&](FObjectHandle Owner) { Visited.push_back(Owner); return false; });
+	EXPECT_EQ(Visited.size(), Budget);
+	EXPECT_EQ(Queue.Num(), 3u);
+	Visited.clear();
+	Queue.Process(Budget, Keep);
+	EXPECT_EQ(Visited.size(), 3u); // Requeued owners are not revisited this pump.
+}
+
+TEST(FMaterialCompileLifecycleTests, RetryQueueRemovesOwnersAndDistinguishesSlotGenerations)
+{
+	using namespace Durin;
+	Private::FMaterialCompileRetryQueue Queue;
+	Queue.Add({});
+	EXPECT_EQ(Queue.Num(), 0u);
+	Queue.Add({7, 1});
+	Queue.Add({7, 2});
+	Queue.Add({8, 1});
+	Queue.Remove({7, 1});
+	Queue.Remove({7, 1});
+	EXPECT_EQ(Queue.Num(), 2u);
+	std::vector<FObjectHandle> Visited;
+	Queue.Process(256, [&](FObjectHandle Owner) {
+		Visited.push_back(Owner);
+		// Submission may register the popped owner itself. Requeue must deduplicate.
+		Queue.Add(Owner);
+		return true;
+	});
+	ASSERT_EQ(Visited.size(), 2u);
+	EXPECT_EQ(Visited[0], FObjectHandle(7, 2));
+	EXPECT_EQ(Visited[1], FObjectHandle(8, 1));
+	EXPECT_EQ(Queue.Num(), 2u);
+	Queue.Remove({7, 2});
+	Queue.Remove({8, 1});
+	EXPECT_EQ(Queue.Num(), 0u);
 }
 
 TEST(FMaterialCompileLifecycleTests,

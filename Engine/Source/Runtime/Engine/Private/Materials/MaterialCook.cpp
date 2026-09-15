@@ -1,4 +1,5 @@
 #include "Materials/Material.h"
+#include "MaterialCompileRetryQueue.h"
 
 #include "Asset/Asset.h"
 #include "Asset/AssetCook.h"
@@ -50,6 +51,7 @@ namespace Durin
 
 		CompilationOwner.RenderLayer.CompiledProgram = std::move(ProgramCandidate);
 		CompilationOwner.RenderLayer.StaticProperties = PayloadProperties;
+		Private::GetMaterialCompileRetryQueue().Remove(MakeObjectHandle(this));
 		CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Ready;
 		CompilationOwner.MaterialCompileStatus.ResultCategory =
 			EMaterialCompileResultCategory::None;

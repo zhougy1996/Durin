@@ -1,4 +1,5 @@
 #include "MaterialPreparedProgram.h"
+#include "MaterialCompileRetryQueue.h"
 #include "Threading/TaskComposition.h"
 #include "Asset/OfflinePreparation.h"
 #include "Asset/Asset.h"
@@ -261,7 +262,7 @@ namespace Durin
 						Existing != Flights.end())
 					{
 						// Cancellation is irreversible. Keep the retiring flight counted
-						// until completion, then retry through the bounded owner scan.
+						// until completion, then retry through the bounded owner queue.
 						if (Existing->second->Cancellation.GetToken().IsCancellationRequested())
 							return EMaterialCompileState::Deferred;
 						Request.bSingleFlightConsumer = true;
@@ -615,17 +616,6 @@ namespace Durin
 		std::atomic_uint8_t GPendingShaderReloadMode = 0;
 		auto CancelMaterialCompileDomain(DMaterialInterface& Material) -> bool;
 
-		auto GetDeferredMaterialOwners() -> std::vector<DMaterialInterface*>
-		{
-			std::vector<DMaterialInterface*> Result;
-			for (DObject* Object : GDObjectArray.Snapshot(EObjectQueryScope::LiveOnly))
-				if (auto* Material = Cast<DMaterialInterface>(Object); IsValid(Material)
-					&& (Material->GetMaterialCompileStatus().State == EMaterialCompileState::Deferred
-						|| Material->GetMaterialCompileStatus().State == EMaterialCompileState::Scheduled))
-					Result.push_back(Material);
-			return Result;
-		}
-
 		auto PumpMaterialCompileResultsDetailed(
 			FMaterialCompilationState& State, uint32 MaximumCount)
 			-> FAssetCompileProcessResult
@@ -660,24 +650,22 @@ namespace Durin
 					Processed.SuccessfullyCompiledAssets.emplace_back(Material);
 				State.ConsumeOutstanding();
 			}
-			static uint32 RetryCursor = 0;
-			auto Deferred = GetDeferredMaterialOwners();
-			std::ranges::sort(Deferred, {}, [](DMaterialInterface* Material) {
-				return MakeObjectHandle(Material).Index;
-			});
-			const auto Start = std::ranges::upper_bound(Deferred, RetryCursor, {},
-				[](DMaterialInterface* Material) { return MakeObjectHandle(Material).Index; });
-			std::rotate(Deferred.begin(), Start, Deferred.end());
-			uint32 Retried = 0;
-			for (auto* Material : Deferred)
-			{
-				if (!State.IsAccepting())
-					Private::FMaterialCompilationLifecycle::MarkCanceled(*Material);
-				else
-					Private::FMaterialCompilationLifecycle::RetryDeferred(*Material);
-				RetryCursor = MakeObjectHandle(Material).Index;
-				if (++Retried == MaterialCompileMaxConsumers) break;
-			}
+			Private::GetMaterialCompileRetryQueue().Process(
+				Private::MaterialCompileMaxRetryChecks, [&State](FObjectHandle Owner) {
+					auto* Material = Cast<DMaterialInterface>(ResolveObjectHandle(Owner));
+					if (!IsValid(Material)) return false;
+					const auto IsDeferred = [&] {
+						const auto Status = Material->GetMaterialCompileStatus().State;
+						return Status == EMaterialCompileState::Deferred
+							|| Status == EMaterialCompileState::Scheduled;
+					};
+					if (!IsDeferred()) return false;
+					if (!State.IsAccepting())
+						Private::FMaterialCompilationLifecycle::MarkCanceled(*Material);
+					else
+						Private::FMaterialCompilationLifecycle::RetryDeferred(*Material);
+					return IsDeferred();
+				});
 			return Processed;
 		}
 
@@ -699,13 +687,17 @@ namespace Durin
 			auto StopAdmission() -> void override
 			{
 				State.StopAdmission();
-				for (auto* Material : GetDeferredMaterialOwners())
-					Private::FMaterialCompilationLifecycle::MarkCanceled(*Material);
+				auto& RetryQueue = Private::GetMaterialCompileRetryQueue();
+				RetryQueue.Process(RetryQueue.Num(), [](FObjectHandle Owner) {
+					if (auto* Material = Cast<DMaterialInterface>(ResolveObjectHandle(Owner)); IsValid(Material))
+						Private::FMaterialCompilationLifecycle::MarkCanceled(*Material);
+					return false;
+				});
 			}
 			auto GetNumRemainingAssets() const -> uint64 override
 			{
 				return State.GetDiagnostics().OutstandingConsumerCount
-					+ GetDeferredMaterialOwners().size();
+					+ Private::GetMaterialCompileRetryQueue().Num();
 			}
 			auto ProcessAsyncTasks(const FAssetCompileProcessParams& Params)
 				-> FAssetCompileProcessResult override
@@ -786,6 +778,13 @@ namespace Durin
 
 	namespace Private
 	{
+		auto GetMaterialCompileRetryQueue() -> FMaterialCompileRetryQueue&
+		{
+			CheckMaterialCompileGameThread();
+			static FMaterialCompileRetryQueue Queue;
+			return Queue;
+		}
+
 		auto FMaterialCompilationLifecycle::ScheduleEdit(DMaterialInterface& Material) -> void
 		{
 			CheckMaterialCompileGameThread();
@@ -818,6 +817,8 @@ namespace Durin
 			Material.CompilationOwner.bDeferredForceRecompile = false;
 			Material.CompilationOwner.EditCompileDeadline =
 				std::chrono::steady_clock::now() + std::chrono::milliseconds(400);
+			if (Status.State == EMaterialCompileState::Scheduled)
+				GetMaterialCompileRetryQueue().Add(MakeObjectHandle(&Material));
 		}
 
 		auto FMaterialCompilationLifecycle::Submit(
@@ -826,6 +827,7 @@ namespace Durin
 			bool bForceRecompile, std::vector<FMaterialFunctionOwnerStamp> FunctionOwners) -> bool
 		{
 			CheckMaterialCompileGameThread();
+			Private::GetMaterialCompileRetryQueue().Remove(MakeObjectHandle(&Material));
 			const auto Manager = GetMaterialCompilingManager();
 			FMaterialCompilationState* Compilation =
 				Manager ? &Manager->GetState() : nullptr;
@@ -981,6 +983,8 @@ namespace Durin
 				}
 				Material.CompilationOwner.bDeferredForceRecompile = bForceRecompile;
 				Material.CompilationOwner.MaterialCompileStatus.State = Submitted;
+				if (Submitted == EMaterialCompileState::Deferred)
+					GetMaterialCompileRetryQueue().Add(MakeObjectHandle(&Material));
 				return true;
 		}
 
@@ -1081,6 +1085,7 @@ namespace Durin
 		auto FMaterialCompilationLifecycle::MarkCanceled(
 			DMaterialInterface& Material) -> void
 		{
+			GetMaterialCompileRetryQueue().Remove(MakeObjectHandle(&Material));
 			Material.CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Canceled;
 			Material.CompilationOwner.MaterialCompileStatus.ResultCategory =
 				EMaterialCompileResultCategory::Cancellation;
@@ -1096,6 +1101,7 @@ namespace Durin
 		auto FMaterialCompilationLifecycle::RequestCurrent(
 			DMaterialInterface& Material, bool bForceRecompile) -> bool
 		{
+			GetMaterialCompileRetryQueue().Remove(MakeObjectHandle(&Material));
 			if (GetAssetRuntimeConfiguration().RequiresCookedPayload()) return false;
 			FResolvedMaterialProperties Resolved;
 			std::string Error;
@@ -1154,6 +1160,7 @@ namespace Durin
 		auto CancelMaterialCompileDomain(DMaterialInterface& Material) -> bool
 		{
 			CheckMaterialCompileGameThread();
+			Private::GetMaterialCompileRetryQueue().Remove(MakeObjectHandle(&Material));
 			const auto Manager = GetMaterialCompilingManager();
 			const bool bCanceled = Manager
 				&& Manager->GetState().CancelOwner(MakeObjectHandle(&Material));

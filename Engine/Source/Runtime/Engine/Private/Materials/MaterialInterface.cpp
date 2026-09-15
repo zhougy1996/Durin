@@ -1,4 +1,5 @@
 #include "Materials/MaterialInterface.h"
+#include "MaterialCompileRetryQueue.h"
 
 #include "Asset/Asset.h"
 #include "Asset/AssetCompilingManager.h"
@@ -180,6 +181,7 @@ namespace Durin
 		const FMaterialStaticProperties& CandidateProperties,
 		bool bForceRecompile) -> bool
 	{
+		Private::GetMaterialCompileRetryQueue().Remove(MakeObjectHandle(this));
 		if (GetAssetRuntimeConfiguration().RequiresCookedPayload()) return false;
 		CompilationOwner.LastObservedShaderProperties = CanonicalizeMaterialShaderProperties(CandidateProperties);
 		FModuleManager::Get().LoadModule("RenderCore");
@@ -352,6 +354,7 @@ namespace Durin
 		CompilationOwner.RenderLayer.StaticProperties = GetStaticProperties();
 		CompilationOwner.RenderLayer.Parameters = BuildMaterialLocalRenderLayer().Parameters;
 		auto& Status = CompilationOwner.MaterialCompileStatus;
+		Private::GetMaterialCompileRetryQueue().Remove(MakeObjectHandle(this));
 		Status.State = EMaterialCompileState::Ready;
 		Status.CompiledIdentity = Program->Identity;
 		Status.RequestedIdentity = Program->Identity;
@@ -447,6 +450,7 @@ namespace Durin
 
 	auto DMaterialInterface::BeginDestroy() -> void
 	{
+		Private::GetMaterialCompileRetryQueue().Remove(MakeObjectHandle(this));
 		FAssetCompilingManager::Get().MarkCompilationAsCanceled(*this);
 		// A live child must retire a broken chain even if no compile is pending.
 		for (DObject* Object : GDObjectArray.Snapshot(EObjectQueryScope::LiveOnly))
