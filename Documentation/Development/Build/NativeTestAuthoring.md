@@ -35,6 +35,9 @@ Test executables and their runtime DLLs share `Bin/`. Deployment helpers create
 one build target per engine DLL or external runtime file, so every destination
 has one writer even when many native-test targets require it. Do not add
 target-owned `POST_BUILD` copies into the shared directory.
+Unchanged shared deployments remain incremental. Two external files with the
+same destination filename are rejected during configuration unless they resolve
+to the same source file.
 
 `durin_register_native_test(...)` derives each test's deployable runtime closure
 from the final `LINK_LIBRARIES` and `INTERFACE_LINK_LIBRARIES` target graph before
@@ -256,7 +259,7 @@ physical-resource lock such as `durin-gpu` or `durin-rhi-lifecycle` describes
 lifecycle ownership; it does not make a correctness target a performance test.
 
 Repeated Vulkan creation qualifiers on Windows must follow the
-[validation DLL lifetime policy](NativeTests.md#vulkan-creation-qualification-memory).
+[validation DLL lifetime policy](NativeTestQualification.md#vulkan-creation-qualification-memory).
 Keep that process-lifetime reference in the owning fixture; do not move this
 measurement policy into engine shutdown or weaken validation to reduce memory.
 

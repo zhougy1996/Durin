@@ -92,9 +92,9 @@ downstream plans; explicit GPU gates remain outstanding. Keep tests registered
 and never convert initialization failures into passes.
 
 Before macOS GPU execution, read
-[GPU environment guidance](../Development/Build/NativeTests.md#gpu-qualification-environments).
+[GPU environment guidance](../Development/Build/NativeTestQualification.md#gpu-qualification-environments).
 Before timing qualification, read
-[performance qualification](../Development/Build/NativeTests.md#performance-qualification-and-concurrent-agents).
+[performance qualification](../Development/Build/NativeTestQualification.md#performance-qualification-and-concurrent-agents).
 Timing acceptance requires an exclusive quiet GPU lane;
 correctness runs may proceed under the ordinary build ownership rules.
 

@@ -9,7 +9,7 @@
 Follow-up to the [RHI resource creation refactor](../Plans/Archive/2026-09/RHIResourceCreationRefactor.md)
 and its repeated qualification. No production behavior or validation checks were changed. The follow-up
 standardizes validation DLL lifetime in the owning qualification fixtures; see
-[the long-term test policy](../Development/Build/NativeTests.md#vulkan-creation-qualification-memory). The experiments identify two distinct
+[the long-term test policy](../Development/Build/NativeTestQualification.md#vulkan-creation-qualification-memory). The experiments identify two distinct
 issues, not one asynchronous-creation regression:
 
 - **P1: Process private-memory retention** is reproducible outside the engine
@@ -233,7 +233,7 @@ still has nonzero engine/driver/allocator memory, especially in the material
 process; it does not establish the ownership of every remaining byte or prove
 steady-state editor memory behavior. The external allocator cleanup remains unresolved. The owning qualification
 fixtures now use a process-lifetime layer policy as described in
-[Native Test Execution](../Development/Build/NativeTests.md#vulkan-creation-qualification-memory),
+[Native Test Qualification](../Development/Build/NativeTestQualification.md#vulkan-creation-qualification-memory),
 without an engine-runtime change. They bootstrap the loader-selected layer on
 the test main thread before measurement and preserve all ordinary checks.
 Acquiring a reference only after the first RHI initialization was insufficient:

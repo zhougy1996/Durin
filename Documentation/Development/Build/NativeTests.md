@@ -1,420 +1,168 @@
 # Native Test Execution
 
+Summary: Define native-test discovery, selectors, execution granularity, modes, reports, and failure diagnosis.
+
 Last reviewed: 2026-09-15
 
-This is the complete native-test selection, execution, diagnosis, and
-infrastructure specification. Agents selecting routine task validation should
-first use the short [Agent Testing Workflow](../../Agents/Testing.md). Test
-authors should use [Native Test Authoring](NativeTestAuthoring.md).
+Routine validation decisions belong to [Agent Testing Workflow](../../Agents/Testing.md).
+Target registration, classification, deployment, and resource-lock declarations
+belong to [Native Test Authoring](NativeTestAuthoring.md). Hardware, timing, and
+memory measurement policy belongs to [Native Test Qualification](NativeTestQualification.md).
+Read only the section needed for the current execution or diagnosis.
 
-Native tests are available from every registered build preset; the default is
-`Win64-Debug-DurinEditor`.
+## Discover and Select
 
-## Run Tests
-
-Build and run a test executable through the root wrapper:
+Use the configured registry instead of inferring targets from source directories:
 
 ```powershell
-.\DevTool.bat test affected
-.\DevTool.bat test affected --base origin/main
+.\DevTool.bat test list <query>
+.\DevTool.bat test explain "@domain=viewport,backend=vulkan"
 .\DevTool.bat test affected --explain
-.\DevTool.bat test CoreUtilityTests
-.\DevTool.bat test CoreUtilityTests FJsonDocumentTests.ParseObjectFromString
-.\DevTool.bat test fast-all
-.\DevTool.bat test "@viewport"
-.\DevTool.bat test all
 ```
 
-`test affected` is the change-aware ordinary validation path. Without a base it
-unions staged, unstaged, and untracked Git paths. `--base <git-ref>` instead
-includes tracked changes relative to that ref plus untracked paths. It maps
-production paths below a registered source module to the registry's `MODULES`,
-maps recognizable native-test paths to `DOMAINS`, excludes characterization and
-qualification targets, and executes the resulting targets through one build
-and one parallel CTest selection. Documentation-only or unrelated tooling
-changes may resolve to no native tests. `--explain` prints every input path and
-the decision without building or running.
+`test list private-sources` reports registered production-private source seams.
+The former `EngineTests` and `MaterialTests` executables are not runnable targets;
+their source directory names do not identify the focused targets that replaced them.
+Do not maintain target counts or inventories here; discovery and reports are the
+source of truth. DevTool rejects presets without `BUILD_TESTING` enabled.
+
+| Selection | Behavior |
+| --- | --- |
+| `<Target> [GoogleTestFilter]` | Run a named target, optionally filtering cases |
+| `@domain=viewport,backend=vulkan` | Intersect dimensions; `+` unions values within one dimension; `@viewport` abbreviates `@domain=viewport` |
+| `affected [--base <git-ref>]` | Resolve ordinary coverage from changed paths; see below |
+| `fast-all` | Select contract, feature, and infrastructure targets; exclude integration, characterization, and qualification |
+| `all` | Build `DurinNativeTests` and run each ordinary target once through CTest |
+
+Exact target names take precedence over set syntax. Empty sets are errors and
+never fall back to `all`. Ordinary selections exclude characterization and
+qualification; their admission requires the corresponding explicit mode.
+Classification meanings are in [Target Classification](NativeTestAuthoring.md#target-classification).
+Native-test executables and GoogleTest are excluded from CMake's default `all`
+build target even when `BUILD_TESTING` is enabled.
+
+### Affected Selection
+
+Without `--base`, `affected` unions staged, unstaged, and untracked paths.
+With `--base`, it includes tracked changes relative to that Git ref plus untracked
+paths. Production module paths map to registry `MODULES`; recognizable native-test
+paths map to `DOMAINS`. Characterization and qualification targets are excluded.
+Documentation-only or unrelated tooling changes may select no native tests.
+Execution uses one build and one parallel whole-target CTest selection.
+`--explain` prints input paths and decisions without building or running.
 
 Project test roots declared in `.dproject` carry explicit ownership. A project
-test CMake change or an unrecognized/new/deleted test source selects that
-project's ordinary targets; a recognized target filename selects that target.
-Other changed production modules contribute their coverage independently.
-Before affected execution, DevTool compares declaration/CMake contents and
-test-file membership with the configured registry fingerprint and configures
-again when needed, then resolves targets from the refreshed registry. Editing
-an existing test assertion alone does not require this refresh. `--explain`
-remains read-only and warns when its configured target list is stale.
+test CMake change or an unrecognized/new/deleted test source selects that project's
+ordinary targets; a recognized target filename selects that target. Changed
+production modules contribute their coverage independently. Before execution,
+DevTool compares declarations, CMake contents, and test-file membership with the
+configured registry fingerprint, reconfiguring and resolving again when needed.
+Assertion-only edits do not require this refresh. `--explain` remains read-only
+and warns when the registry is stale.
 
-Impact analysis is deliberately conservative. Shared native-test discovery,
-registry, harness, execution, workspace membership, project descriptor, or
-unbounded CMake changes resolve to `all`.
-Native-test changes whose ownership cannot be bounded also resolve to `all`
-when no changed production module, exact test filename, or recognizable test
-domain supplies a safe bounded selection. Runtime inputs outside a module known
-to the configured registry conservatively resolve to `all`.
+Shared discovery, registry, harness, execution, workspace membership, project
+descriptor, or unbounded CMake changes resolve conservatively to `all`. Unbounded
+native-test changes also select `all` unless a changed production module, exact
+test filename, or recognizable domain supplies safe bounded coverage. Runtime
+inputs outside modules known to the registry likewise resolve to `all`.
 
-`test fast-all` is the local feedback profile. It selects every configured
-`contract`, `feature`, and `infrastructure` target while excluding all
-`integration`, `characterization`, and `qualification` targets. It is a
-convenience selection rather than a new test kind: use the affected named
-target or domain when a change touches integration behavior, and retain
-`test all` for the complete ordinary correctness aggregate.
-
-The first command runs one target process. The second passes a GoogleTest
-filter. Direct-hosted exact targets retain the focused executable path;
-application-hosted exact targets run the same whole-target CTest registration
-used by bounded sets so the platform launcher remains in force. The `@viewport`
-command resolves a configured domain set, prints the exact target list, builds
-only those executables and their dependency closures, and runs their CTest
-registrations. A test executable has a 300-second timeout
-by default; `--timeout <seconds>` changes it, and `--timeout 0` disables it for
-an intentionally long diagnostic run. The timeout starts after the target has
-finished building.
-
-Discover configured choices without building them:
+## Execution and Reports
 
 ```powershell
-.\DevTool.bat test list
-.\DevTool.bat test list viewport
-.\DevTool.bat test list private-sources
-.\DevTool.bat test explain "@domain=viewport,backend=vulkan"
-```
-
-`test list private-sources` reports targets retaining an explicitly owned
-production-private source seam. The report is derived from the active registry
-and may be empty.
-
-For example, the former monolithic `EngineTests` executable was intentionally
-split into cohesive functional and lifecycle targets. Its
-`Engine/Tests/Native/EngineTests` source directory remains, but `EngineTests`
-is not a runnable selection and must not be inferred or restored from that
-directory name. A test beneath it may belong to a focused target such as
-`ViewportTests`; use `test list viewport` to discover that target before
-running it, or select a registered domain when the behavior crosses targets.
-
-Set selectors start with `@`. `@viewport` is shorthand for
-`@domain=viewport`. Within a dimension, `+` is union; comma-separated
-dimensions intersect. For example,
-`@kind=feature+integration,domain=viewport,backend=vulkan` selects Vulkan
-viewport feature or integration targets. Exact target names take precedence
-over set syntax. An empty result is an error and never falls back to `all`.
-Ordinary selectors exclude characterization and qualification targets.
-
-Execution scenarios keep the routine path short:
-
-```powershell
-.\DevTool.bat test "@viewport" ViewportSuite.Resize --parallel
+.\DevTool.bat test CoreUtilityTests FJsonDocumentTests.ParseObjectFromString
+.\DevTool.bat test "@viewport" --parallel 4 --report
 .\DevTool.bat test "@viewport" --mode stress
-.\DevTool.bat test "@viewport" --report
 .\DevTool.bat test "@kind=characterization,domain=launch" --mode characterization
 .\DevTool.bat test "@kind=qualification,domain=renderer" --mode qualification
 ```
 
-For direct-hosted targets, `test <Target>` executes cases sequentially in one
-process. Use `test <Target> --parallel 4` to run each case in an independent
-process with four concurrent cases. Add an optional GoogleTest glob filter;
-`*`, `?`, colon-separated alternatives, and exclusions after `-` have the same
-meaning as in a direct run. No filter selects every case in the target.
-`--parallel [N]` accepts named targets or `@set` selections and enables case
-isolation. Omit N to use the configured build-job limit, or pass N to override
-only test concurrency. Use `--parallel 1` for serial case isolation. It combines
-with `--report`, but cannot combine with other execution modes.
-Test builds and default CTest concurrency use the configured parallelism
-(`build.parallelJobs`, or automatic when unset); `test` does not accept
-`--jobs`. Only `--parallel N` overrides case concurrency. Ordinary direct
-GoogleTest processes still run cases sequentially. Existing resource locks
-remain authoritative.
+| Execution | Process and scheduling contract |
+| --- | --- |
+| Direct-hosted exact target | One executable; its cases run sequentially |
+| Application-hosted exact target | Whole-target CTest registration preserves the platform launcher |
+| Ordinary set, `affected`, `fast-all`, or `all` | CTest schedules whole targets; cases within each remain sequential |
+| `<Target>` or `@set` with `--parallel [N]` | CTest isolates each case in a separate process; N limits concurrent cases; `--parallel 1` isolates serially |
 
-Isolation requires a named target or `@set`; the case filter is optional.
-The redundant `--mode routine` and `--mode isolation` forms are removed;
-omit `--mode` for routine execution and use `--parallel [N]` for isolation.
-Whole-target runs detect shared-state cleanup problems; isolated runs detect
-missing setup that earlier tests might otherwise supply. Stress mode randomizes
-CTest scheduling and GoogleTest order, printing a reproducible seed.
-`--report` writes XML under
-`Build/NativeTestResults/<Preset>/<Selection>.xml` unless `--report <path>` is
-given. Direct targets use GoogleTest XML; CTest selections use JUnit XML.
-Report output never changes the execution strategy. Characterization and
-qualification admission are always explicit.
-Qualification targets own performance, scale, memory, or hardware-baseline
-measurements that should not extend routine correctness feedback.
+Default build and CTest concurrency use `build.parallelJobs`, or automatic
+parallelism when unset. `--parallel N` changes only case concurrency; omission of
+N uses the build-job limit. `test` does not accept `--jobs`. Resource locks remain
+authoritative; their scope and declaration rules are in
+[Native Test Authoring](NativeTestAuthoring.md#add-a-test-target).
+Whole-target execution detects shared-state cleanup failures; isolated execution
+can expose missing per-case setup.
 
-Choose validation by risk and preserve the resolved target names in the
-handoff or CI log:
+A positional GoogleTest filter supports `*`, `?`, colon-separated alternatives,
+and exclusions after `-`. Isolation accepts an optional filter and requires a
+named target or `@set`. `all` does not accept an executable-specific positional
+filter. `--parallel` combines with `--report`, but not another execution mode.
+Routine runs omit `--mode`; case isolation uses `--parallel`.
+Stress randomizes CTest scheduling and GoogleTest order and prints a reproducible
+shuffle seed, forwarded to GoogleTest and reproducible with `GTEST_RANDOM_SEED`.
+Characterization uses its owning custom runner rather than a routine direct
+whole-executable lifecycle.
 
-- Routine implementation and handoff follow the selection and result-reuse
-  rules in [Agent Testing Workflow](../../Agents/Testing.md#select-validation).
-  Batch whole-target coverage with `test affected` or one bounded registry set;
-  focused iteration and failure diagnosis may use separate commands.
-- Broad local non-integration feedback runs `test fast-all`; it never replaces
-  an affected integration target or backend/domain set.
-- Cross-module behavior runs its feature domain, such as `test "@world"` or
-  `test "@viewport"`; reproduce the result with the resolved named targets
-  printed before execution.
-- Backend-specific behavior intersects the domain with a backend, such as
-  `test "@domain=viewport,backend=vulkan"`.
-- Child-process, crash, or launcher behavior selects `stack=process`; explicit
-  characterization additionally requires `--mode characterization`.
-- Performance and scale qualification selects `kind=qualification` and requires
-  `--mode qualification`.
-- Shared discovery, registry, harness, locking, deployment, or aggregate
-  changes run `test all` at default target granularity.
+The default execution timeout is 300 seconds, starting after the build.
+`--timeout <seconds>` changes it; `--timeout 0` disables it for a deliberate
+long diagnostic run. For CTest selections, the limit applies to each registration.
+`--report` writes `Build/NativeTestResults/<Preset>/<Selection>.xml`;
+`--report <path>` overrides the destination. Direct runs produce GoogleTest XML;
+CTest runs produce JUnit XML. Reporting does not change execution granularity.
 
-Kind selectors use the behavior classifications defined by
-[Native Test Authoring](NativeTestAuthoring.md#target-classification).
+Scheduled/nightly validation owns the ordinary aggregate. Release qualification
+adds explicit qualification and its required platform/backend matrix. Local
+handoffs follow the risk and result-reuse rules in
+[Agent Testing Workflow](../../Agents/Testing.md#select-validation), without
+inheriting the scheduled matrix. Preserve resolved target names in the handoff
+or CI log.
 
-Scheduled/nightly repository validation owns the ordinary native aggregate.
-Release qualification owns that aggregate, the explicit qualification set,
-and any platform/backend matrix required by the release. A failed set is
-diagnosed with its printed named targets and narrow case filters; local
-implementation and handoff validation remain risk-based and do not inherit the
-whole scheduled matrix.
+## Failure Diagnosis
 
-`test all` builds the `DurinNativeTests` aggregate and then runs every
-ordinary target once through CTest. Characterization and qualification targets
-are neither built nor run by this aggregate. Diagnose an ordinary aggregate
-failure with `test <FailedTarget> <Suite.Case>`, or isolate a bounded target set
-with a case filter and `--parallel`. Native-test executables and
-GoogleTest are excluded from CMake's
-default `all` target, so routine `build` and `rebuild` commands do not compile
-tests even when the selected preset enables `BUILD_TESTING`.
-Its timeout applies to each CTest-registered test. GoogleTest positional filter syntax
-is executable-specific and therefore cannot be combined with `test all`.
-Stress mode prints and forwards a GoogleTest shuffle seed so order failures can
-be reproduced with `GTEST_RANDOM_SEED`. `--report` writes the CTest JUnit
-result described above.
+Rerun the printed failing target with a narrow case filter; use `--parallel 1`
+when process isolation is needed. Failed assertions, crashes, timeouts, or test
+interruptions do not require `rebuild`: DevTool clears build recovery state before
+test execution. Build failures and lost build-process ownership follow
+[Build And Run](BuildAndRun.md).
 
-Use a focused `test <Target> <GoogleTestFilter>` command for the
-fastest failing-case iteration. It launches one target process with the filter;
-aggregate execution does not change focused execution.
-
-`native-test-characterization` is always excluded from the aggregate and runs
-only through its owning custom target. `KIND characterization` automatically
-suppresses the direct whole-executable lifecycle because its custom runner,
-rather than a routine smoke, owns the required environment and scheduling.
-
-Do not record a current test or registration total in repository documentation.
-CTest discovery is the source of truth; use the command summary or
-`--report` when a review needs an auditable count.
-
-DurinDevTool clears build recovery state before launching the test executable. A failed assertion, crash, timeout, or interrupted test should be diagnosed and rerun with `test`; it does not require `rebuild`. Build ownership, recovery, and parallelism rules are documented in `Documentation/Development/Build/BuildAndRun.md`.
-
-`NativeCrashCharacterizationTests` is the separately isolated native-crash
-target. Its parent process launches one runtime child per intentional fault,
-waits no more than 15 seconds, and validates the native exit status plus the
-context, dump, and completion marker before the retained sandbox can be
-cleaned. The target carries a runtime-stack rationale because a native fault
-cannot be characterized safely inside the GoogleTest process. Current
-supported fixtures cover read, write, and execute access violations,
-`std::terminate`, a worker-thread access violation, logger-tail gaps, dump
-failure, collision, unwritable roots, and recursive writer failure. Policy
-tests cover path admission, age/count retention, partial cleanup, and
-directory-link avoidance. Simultaneous/recursive faults remain best-effort and
-stack overflow remains deferred as documented in
+On Windows, direct diagnostic executables reside under
+`Engine/Binaries/Win64/Debug/Tests/DurinEditor/Bin/`; CTest state is under
+`Build/Win64-Debug-DurinEditor`. Adapt these paths to the selected profile.
+Direct and filtered runs use the same sandbox harness as CTest.
+`--durin-keep-test-work` or `DURIN_TEST_KEEP_WORK=1` retains successful work;
+failures print their retained sandbox. Output and cleanup contracts are in
+[Output Layout](NativeTestAuthoring.md#output-layout).
+Native crash fixtures and supported fault coverage belong to
 [Native Crash Diagnostics](../../Runtime/Core/NativeCrashDiagnostics.md).
-
-In the interactive shell, use the equivalent commands:
-
-```text
-DurinDevTool> preset Win64-Debug-DurinEditor
-DurinDevTool> test affected
-DurinDevTool> test CoreUtilityTests
-DurinDevTool> test CoreUtilityTests FJsonDocumentTests.ParseObjectFromString
-DurinDevTool> test all
-```
-
-DurinDevTool rejects `test` for an IDE-only or custom preset that does not
-enable `BUILD_TESTING`.
 
 ## Application-Hosted Tests
 
-On macOS, the default `MacOS-arm64-Debug-DurinEditor` preset sets the
-application-test capability to its default of `OFF`. Tests that require
-LaunchServices, together with their Host and Controller infrastructure, are
-omitted from that preset's configured registry and build graph. Enable the
-capability explicitly only in a checkout selected for application validation:
+Application validation is opt-in only when requested by the user, selected plan
+gate, or active CI job. The default macOS editor preset sets
+`DURIN_ENABLE_APPLICATION_TESTS=OFF`, omitting LaunchServices tests and their Host
+and Controller infrastructure from its registry and build graph.
 
-```bash
-./DevTool configure -DDURIN_ENABLE_APPLICATION_TESTS=ON
-./DevTool test NativeTestApplicationExecutionTests
-```
+Use `configure -DDURIN_ENABLE_APPLICATION_TESTS=ON` through the host launcher in
+the selected checkout, then `test NativeTestApplicationExecutionTests`.
+`-DNAME=VALUE` or `--define NAME=VALUE` is repeatable. Ordinary `configure` restores
+the preset's explicit `OFF` default. An external-volume checkout requires the
+interactive LaunchServices permission already granted; an internal-volume main
+checkout is preferred for unattended validation.
 
-`-DNAME=VALUE` (or `--define NAME=VALUE`) forwards a repeatable CMake cache
-override through the ordinary configure command. The example reuses the normal
-`MacOS-arm64-Debug-DurinEditor` build directory and may run from an
-external-volume checkout after macOS has received the required interactive
-LaunchServices permission. Run ordinary `./DevTool configure` afterward to
-reapply the preset's explicit `OFF` default. A main checkout on an internal
-volume remains the recommended unattended validation lane.
-
-This is an explicit optional validation lane, not a routine requirement. Do
-not enable or execute application-hosted tests unless the user, the selected
-plan gate, or the active CI job specifically requests that coverage. When the
-current sandbox or graphical session cannot use LaunchServices, configuration
-and compilation may still be checked, but application execution remains not
-run and must be reported that way. Do not escape the current sandbox, change
-macOS authorization, relocate the test artifacts, or use the product
-application merely to satisfy this optional coverage.
-
-For diagnosis, the corresponding executable is under
-`Engine/Binaries/Win64/Debug/Tests/DurinEditor/Bin/` and may be run directly
-with normal GoogleTest arguments. Direct and filtered runs use the same
-process-isolation harness as CTest. Add `--durin-keep-test-work`, or set
-`DURIN_TEST_KEEP_WORK=1`, to retain a successful run's files. CTest discovery
-state is in `Build/Win64-Debug-DurinEditor`.
-
-Do not run an application-hosted macOS executable directly for diagnosis; that
-bypasses LaunchServices admission. Use the ordinary DevTool target, filtered,
-isolation, stress, report, or qualification command and inspect the retained
-control directory printed by a failed launcher invocation. These tests require
-an active graphical login session. A locked or missing GUI session is a real,
-bounded test failure rather than a skip.
-
-## GPU Qualification Environments
-
-On macOS, MoltenVK cannot access Metal services from the default Codex sandbox
-and reports `Metal is not available on this device`. Do not run a GPU test or a
-Metal probe in the sandbox merely to reproduce that expected failure. For
-optional coverage, report GPU execution as unavailable under the
-[agent testing rules](../../Agents/Testing.md). When an
-explicit user request or acceptance gate requires GPU execution, request the
-normal sandbox-escalation approval and run the exact registered qualification
-selection outside the sandbox. Record the unsandboxed device name and receipt;
-never bypass authorization or weaken the test to turn sandbox initialization
-failure into a pass.
+On macOS, always use DevTool's target, filter, isolation, stress, report, or
+qualification path; direct execution bypasses LaunchServices admission. Inspect
+the retained control directory printed on launcher failure. A locked or missing
+graphical login session is a bounded failure, not a skip. If the sandbox or session
+cannot use LaunchServices, compilation may be checked but report execution as not
+run. Do not escape the sandbox, change macOS authorization, relocate artifacts,
+or use the product application to satisfy optional coverage.
 
 ## Material Test Selection
 
-The former `MaterialTests` executable is replaced by focused targets. Use
-`.\DevTool.bat test "@domain=material,kind=feature" --report` for the material
-feature regression. CTest schedules whole targets concurrently; cases within
-each target retain sequential lifecycle coverage. The feature intersection
-excludes Vulkan integration and qualification without a separate CPU domain.
-
-| Target | Additional domain | Coverage |
-| --- | --- | --- |
-| `MaterialCompilerTests` | `material-compiler` | Typed expressions, IR normalization, layouts, and shader compilation |
-| `MaterialFunctionTests` | `material-function` | Function recipes, expansion, interfaces, and dependencies |
-| `MaterialEditingTests` | `material-editing` | Graph operations, transactions, editing sessions, panels, and preview ownership |
-| `MaterialRuntimeTests` | `material-runtime` | Instance inheritance, publication, render proxies, and CPU rendering contracts |
-| `MaterialCompileLifecycleTests` | `material-compilation` | Scheduling, cancellation, async apply, failure fallback, and shutdown |
-| `MaterialCookTests` | `material-cook` | Cook fingerprints, graph stripping, and cooked-only loading |
-| `MaterialPackageTests` | `material-package` | Authored material/instance persistence and schema rejection |
-| `StaticMeshMaterialTests` | `material-binding`, `static-mesh` | Imported slots, component assignments, and slot editing |
-| `MaterialThumbnailTests` | `thumbnail` | Material thumbnail extensions |
-
-Every row also belongs to `material`. Use a named target or one additional
-domain for focused changes. `StaticMeshTests` retains mesh import settings,
-derived data, lifetime, and other mesh coverage outside the material selection.
-`ThumbnailVulkanTests` owns the remaining GPU thumbnail integration: cold
-generation and readback, warm disk-cache reuse, texture publication failure and
-recovery invalidating session revisions, and environment reference/cancellation
-lifetime. It belongs to both `material` and `thumbnail`; `@material` includes it,
-while `@domain=material,kind=feature` does not. Run it directly with
-`.\DevTool.bat test ThumbnailVulkanTests --report`.
-
-The mixed `MaterialVulkanTests` target and its screenshot/pixel comparisons were
-removed. Material parameters, inheritance, compiled bindings, and compilation
-state remain covered by the CPU targets above; shader resource reload remains
-in `RendererResourceReloadVulkanTests`. These checks do not establish final
-material pixel correctness. Thumbnail integration checks generation and resource
-lifetime without material appearance baselines.
-
-## Performance Qualification and Concurrent Agents
-
-Material feature targets retain correctness coverage without repeated latency
-sampling. Run `./DevTool test MaterialQualificationTests --mode qualification --report`
-explicitly (on Windows, use `.\DevTool.bat` as the launcher) for
-maximum-graph layout median/p95, graph-load timing, cold/warm shader compilation,
-and instance-variant payload sizes. These CPU qualification cases are excluded
-from ordinary `fast-all` and affected-test execution.
-
-Ordinary correctness builds and tests may run while other agents are active,
-subject to the repository's single-writer and no-overlapping-build rules. GPU
-timing qualification is different: results are authoritative only from an
-exclusive quiet GPU lane with no competing agent test, editor, browser workload,
-capture tool, or other GPU application. A machine reboot is not required when
-the qualification supplies its documented warm-up.
-
-The `durin-gpu` resource lock serializes physical GPU owners within one CTest
-scheduler. `durin-rhi-lifecycle` separately serializes real backend startup,
-shutdown, and module replacement while allowing CPU-only tests to overlap.
-Neither lock coordinates independent DevTool/CTest invocations, separate
-worktrees, agents, or external applications. When any of those may be competing,
-run correctness coverage normally but label timing output diagnostic only: do
-not rebaseline a threshold, accept a performance gate, or claim a regression
-from it. Rerun the exact qualification selection in a quiet window; prefer
-consecutive passes and report the warm-up/sample count and median/p95.
-Statistical stability checks can reject bursty contention, but stable sustained
-contention is indistinguishable from a code regression without exclusive
-execution.
-
-## Vulkan Creation Qualification Memory
-
-On Windows, `VulkanCreationQualificationTests` and
-`MaterialCreationQualificationTests` retain the active Khronos validation DLL
-until test-process exit. Before the first `RHIInit`, the fixture creates and
-destroys a minimal Vulkan instance on the test main thread and acquires one reference to the validation
-DLL selected by the Vulkan loader. The bootstrap is outside measured rounds.
-It runs only when engine policy requests diagnostics; an unavailable validation
-layer leaves ordinary RHI capability negotiation in control. Initializing the
-DLL on a short-lived RHI owner thread and retaining it afterward is insufficient
-and caused crashes in the tested layer. It does not use an SDK path override
-or request a layer when validation is disabled. Every RHI instance, device and resource still follows
-its ordinary teardown. Host receipts record
-`validation_layer_lifetime=main_thread_bootstrap_process_if_available`.
-
-This is a test-host lifetime policy: repeated validation DLL unload/reload can
-retain allocator arenas and dominate process private-memory measurements.
-The verified SDK 1.4.357.0 Windows reproduction grew even with only
-`LoadLibrary`/`FreeLibrary` and no Vulkan calls. Keeping the DLL loaded allows
-its allocator to reuse memory while preserving validation checks. The evidence
-does not require an engine-runtime ownership change or establish that all
-remaining process memory is an engine leak. Detailed historical measurements
-remain in the [creation qualification investigation](../../Investigations/RHICreationQualificationAttribution.md).
-
-Use the same layer-lifetime policy, validation settings, SDK/layer, GPU driver,
-cache seeds and instrumentation for both sides of a memory comparison. Old
-DLL-unload measurements are attribution evidence, not a directly comparable
-acceptance baseline. Retaining the layer does not waive memory budgets or
-replace the documented warm-up and quiet-lane requirements. A test whose
-purpose is DLL unloading must use a separate process or dedicated
-characterization fixture; do not add its churn to creation qualification.
-Do not disable validation or set `MIMALLOC_DESTROY_ON_EXIT` as a general fix.
-The temporary absolute-path diagnostic override and standalone probe were
-removed after attribution; the ordinary test command applies the policy.
-
-## Qualified Parallel Baseline
-
-The `windows-msvc-x64` Agent Build Profile qualified the native suite at
-14 jobs on 2026-07-28. Three consecutive randomized aggregates completed in
-17.85, 17.98, and 18.16 seconds. The same suite took 74.30 seconds at one job
-and 39.74 seconds at two jobs. Whole-target direct lifecycle qualification also
-passed.
-
-The remaining aggregate critical path includes explicit physical-resource
-ownership. Vulkan-backed correctness targets use `durin-gpu` while they own the
-physical device and `durin-rhi-lifecycle` while they own real backend startup,
-shutdown, or module replacement. CPU-only tests may overlap both locks. Do not
-relax either lock without separating its lifecycle. Move performance-only work
-into explicit qualification targets so it does not extend the routine GPU lock
-chain.
-
-Incremental `all` dependency checks took 0.88-0.96 seconds in the qualification
-matrix. Whole-target startup and multi-case execution accounted for 34.36
-process-seconds in that historical run; the slowest direct entries were
-`CoreUtilityTests` (5.42 seconds), `AssetPackageTests` (4.54 seconds), and
-`TextureTests` (4.14 seconds).
-
-Derived closures register dependencies on shared deployment targets. Multiple
-tests consuming the same module or external file therefore reuse one writer;
-unchanged deployments remain incremental. Two external files with the same
-destination filename are rejected during configuration unless they resolve to
-the same source file.
-
-## Related Docs
-
-- [Agent Testing Workflow](../../Agents/Testing.md)
-- [Native Test Authoring](NativeTestAuthoring.md)
-- [Build And Run](BuildAndRun.md)
-- [Third-Party Bootstrap](ThirdPartyBootstrap.md)
+Use `test list material` for focused targets and
+`test "@domain=material,kind=feature" --report` for material feature regression.
+The feature intersection excludes Vulkan integration and qualification.
+`@material` also includes thumbnail Vulkan integration; shader resource reload
+coverage belongs to `RendererResourceReloadVulkanTests`.
+CPU material tests and thumbnail resource-lifetime integration do not establish
+final material pixel correctness; the former screenshot/pixel comparisons were
+removed. For material timing and payload measurements, use
+[performance qualification](NativeTestQualification.md#performance-qualification-and-concurrent-agents).
