@@ -303,6 +303,17 @@ durin_add_engine_functional_test(StaticMeshTests
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 )
 
+durin_add_engine_functional_test(StaticMeshBuildQualificationTests
+	KIND qualification
+	DOMAINS static-mesh
+	MODULES engine static-mesh-build
+	STACKS renderer
+	TIMEOUT 600
+	RUNTIME_STACK_RATIONALE "Measures large authored static-mesh build, publication, cancellation, and residency costs."
+	SOURCES Private/StaticMeshBuildQualificationTests.cpp
+	LIBRARIES StaticMeshBuild TextureBuild AssetForgeBuiltins RenderCore Renderer
+)
+
 set(_durin_texture_test_include_directories
 	${CMAKE_CURRENT_SOURCE_DIR}/Private
 	${DURIN_PROJECT_ROOT_DIR}/Source
