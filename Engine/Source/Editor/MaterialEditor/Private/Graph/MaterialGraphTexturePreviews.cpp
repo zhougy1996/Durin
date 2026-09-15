@@ -64,6 +64,7 @@ namespace Durin::Editor::Material
 				ImGui::SetCursorScreenPos(Position);
 				Found->second->Backend->DrawImage(Found->second->Texture.GetReference(), {Size, Size});
 				ImGui::SetCursorScreenPos(Cursor);
+				ImGui::Dummy({0.0f, 0.0f});
 				return;
 			}
 		ImGui::GetWindowDrawList()->AddRectFilled(Position, {Position.x + Size, Position.y + Size}, IM_COL32(62, 67, 76, 255), 3);
