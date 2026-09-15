@@ -1,9 +1,10 @@
 # Documentation
 
 Use this file only when the task needs repository-specific guidance and the
-owning document is not already known. Start with the most specific matching
-topic below. Add coding standards, domain contracts, and validation guidance
-as the task requires; do not read unrelated topics or scan an entire directory.
+owning document is not already known. Search task terms in the table rather than
+printing it in full, or run `.\DevTool.bat doc find "<task terms>" --limit 5`.
+Add coding standards, domain contracts, and validation guidance as the task
+requires; do not read unrelated topics or scan an entire directory.
 
 | Task trigger | Read first |
 | --- | --- |
@@ -62,7 +63,9 @@ as the task requires; do not read unrelated topics or scan an entire directory.
 | Volumetric-cloud spatial inputs, compute/fragment fallback, composition order, target budget, or recovery | [Volumetric cloud spatial rendering](Runtime/Rendering/VolumetricCloudSpatialRendering.md) |
 | Volumetric-cloud quality tiers, low-resolution reconstruction, per-view history, invalidation, temporal diagnostics, or 4K budgets | [Volumetric cloud temporal reconstruction](Runtime/Rendering/VolumetricCloudTemporalReconstruction.md) |
 | Shadow quality, bias, PCF, cascades, or contact shadows | [Directional shadows](Runtime/Rendering/DirectionalShadows.md) |
-| Material graph commands, canvas, clipboard, diagnostics, or editor lifecycle | [Material graph authoring](Editor/Architecture/MaterialGraphOperations.md) |
+| Material graph commands, function authoring, UV inputs, transactions, or clipboard | [Material graph operations](Editor/Architecture/MaterialGraphOperations.md) |
+| Material editor panels, canvas geometry, node menus, or graph diagnostics | [Material graph canvas](Editor/Architecture/MaterialGraphCanvas.md) |
+| Material preview resources, Compile/Apply/Save, document lifecycle, or instance overrides | [Material editor lifecycle](Editor/Architecture/MaterialEditorLifecycle.md) |
 | Editor architecture, design, or user workflow | Use a targeted search under `Editor/Architecture/`, `Editor/Design/`, or `Editor/Guides/` |
 | Editor transaction identity, focused records, or collector-enumerated history references | [Transaction record foundation](Editor/Architecture/TransactionRecords.md) |
 | Editor transactor, scoped recording, bounded history, structural Undo/Redo, or transaction buffer ownership | [Editor transactor core](Editor/Architecture/Transactors.md) |
@@ -84,5 +87,24 @@ the compact search has no useful result. Start with the closest document and
 expand through direct references or targeted searches when task scope,
 dependencies, or validation requirements remain unclear. Never load
 `Documentation/` as one corpus or maintain a repository-wide file index.
+
+## Reading Reference Sections
+
+Read applicable `AGENTS.md` files and required `Agents/` workflows in full.
+For reference documents, first locate relevant headings or symbols, then read
+complete matching sections and any directly required contract dependencies.
+For example, on Windows:
+
+```powershell
+rg -n '^#{1,3} |TextureCoordinates|UV' Documentation/Editor/Architecture/MaterialGraphOperations.md
+Get-Content <document-path> | Select-Object -Skip <start-line-minus-one> -First <line-count>
+```
+
+Keep each output bounded (usually one section or about 120 lines); long lines
+may require smaller ranges. Do not batch full bodies of long documents. If a
+tool truncates output, narrow the search or range before continuing; truncation
+does not count as reading the omitted rules. Expand when ownership, invariants,
+dependencies, or validation remain unclear. Reuse sections already read unless
+they changed or their context is unavailable.
 
 Authoring and lifecycle rules are in the nearest `AGENTS.md`.

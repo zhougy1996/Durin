@@ -2,8 +2,11 @@
 
 ## Discover Documents
 
-When the owning document is unknown, follow [Documentation](../README.md)
-for topic routing and compact discovery; otherwise open it directly.
+When the owning document is unknown, search matching rows in
+[Documentation](../README.md) or run `doc find "<task terms>" --limit 5` through
+the host DevTool launcher. When it is known, search its headings and task terms
+before opening the relevant sections. Follow the bounded-reading policy in
+[Documentation](../README.md#reading-reference-sections).
 
 ## Validate Changes
 

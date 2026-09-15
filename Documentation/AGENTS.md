@@ -61,6 +61,10 @@ follow their own lifecycle rules.
 
 - Before expanding a document, check existing domain authority and link rather
   than duplicate it; retain only necessary local context.
+- When routine tasks repeatedly need only one part of a document, check whether
+  its sections own independent task triggers. Split those concerns with concise
+  summaries and direct links; use headings and targeted reads for cohesive
+  contracts. Do not split short routing tables into more lookup files.
 - At 500 lines, review ownership before substantial expansion. Split independently
   maintainable concerns, but keep cohesive contracts intact regardless of size.
 - After splitting, link the owning documents and repair references. Add a

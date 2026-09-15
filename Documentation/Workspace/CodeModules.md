@@ -5,9 +5,10 @@ Summary: Route a feature or bug to the smallest likely source-module working set
 Keywords: code module ownership source component subsystem editor runtime
 
 Use this document only when the affected module is not already evident from the
-task, symbol, or file path. Select the smallest plausible row set, search those
-roots, and expand only when a direct dependency or observed call path crosses a
-module boundary.
+task, symbol, or file path. Search task terms or module names in this table;
+read matching rows and their section context rather than the whole file. Search
+those roots and expand only when a direct dependency or observed call path crosses
+a module boundary.
 
 [`Engine/Engine.dproject`](../../Engine/Engine.dproject) is the authoritative
 mapping from module names to directories. Each module's `.dmodule` file is the

@@ -1,10 +1,26 @@
 # Material Graph Operations
 
-Summary: Define the shared MaterialEditor command, presentation, canvas, transaction, clipboard, diagnostic, and document-lifecycle contracts for authored material expressions.
+Summary: Define shared MaterialEditor expression ownership, inspection, commands, texture and UV input authoring, material functions, transactions, and clipboard contracts.
 
 Modules: MaterialEditor, Engine, DurinEd
 
 Last reviewed: 2026-09-15
+
+## Task routing
+
+| Task | Read |
+| --- | --- |
+| Expression ownership, snapshots, or function publication | [Ownership](#ownership) |
+| Built-in function recipes or imported parent authoring | [Standard function authoring](#standard-function-authoring) |
+| Detached inspection, node creation, or connection commands | [Inspection and commands](#inspection-and-commands) |
+| Inline defaults, texture parameters, or UV connections | [Compact input and texture authoring](#compact-input-and-texture-authoring) |
+| Undo/Redo or movement sessions | [Transactions and gestures](#transactions-and-gestures) |
+| Copy/paste, duplication, or deterministic layout | [Clipboard and layout](#clipboard-and-layout) |
+| Panels, canvas geometry, menus, or diagnostic navigation | [Material graph canvas](MaterialGraphCanvas.md) |
+| Preview meshes, Compile/Apply/Save, asset lifetime, or instance controls | [Material editor lifecycle](MaterialEditorLifecycle.md) |
+
+Read the relevant section and its required dependencies; these documents are not
+an ordered reading sequence.
 
 ## Ownership
 
@@ -151,66 +167,6 @@ and refuses incompatible standard signatures or modified historical parent graph
 Its provenance fields identify the authoring recipe, not a runtime opcode or a
 special canvas behavior. Source asset migration is explicit; normal Save/Apply
 continues to use the document lifecycle above.
-
-## Editor panels
-
-Each material document owns an isolated ImGui dock space, keyed by its stable
-`DocumentKey`, using the shared WorkspaceUI panel and docking helpers. Preview,
-Material Graph, Details and Diagnostics are dockable windows. Wide initial
-layouts reserve the left 30% for Preview above Details; the graph fills the remaining width and height. Diagnostics shares the
-Details dock as an optional tab; small initial layouts use dock tabs. Resizing does not rebuild a
-user's arrangement. Hidden document roots keep their dock spaces alive.
-
-Function insertion opens a bounded popup above the graph. Selected-call navigation
-lives in Details alongside the shared input editor, so selection does not resize
-or displace the canvas. Details owns selected-node authoring and instance
-inheritance, rendering properties and parameter overrides. There is no base-material
-Parameters manager or docking slot. New materials contain only
-Surface with eight property inputs and retained defaults, without expression
-nodes or function calls.
-
-The single nondeletable Surface root displays the material identity, shading model
-and blend mode. Selecting it (or clearing the graph selection) exposes Surface
-Settings in Details: the supported Surface domain, Lit/Unlit shading, blend mode,
-masked cutoff, two-sided rendering and depth-write policy. Settings use reflected
-property transactions on the working material, so Apply/Discard and Undo/Redo
-retain their ordinary atomic behavior. Inactive cutoff values remain stored.
-Inactive property labels and pins are dimmed, with their default editors hidden;
-values and connections remain stored. Active disconnected inputs expose compact
-scalar drags, color swatches for Base Color and Emissive, and an Edit button for
-Normal. Color and Normal popups commit on Apply and discard drafts on dismissal.
-Connected inputs hide default editors and resume their retained values when
-disconnected. Tooltips identify defaults as values used when unconnected.
-The compiler's explicit final anchor and aggregate/per-property
-exclusion rule are unchanged; reusable Surface values do not become extra roots.
-
-Window controls reopen optional panels and reset the default layout. Material
-Info is a collapsed section in Details shown only when no graph node is selected.
-Base-material values and metadata are edited through selected parameter owners
-and literal inputs in Details. Instances retain
-their parameter override list because they do not own a graph. Parameter groups
-omit a sole outer container with no direct values.
-ImGui persists docking geometry; the
-material session settings retain panel visibility and per-asset graph viewports.
-Preview visibility follows the actual preview panel, including dock-tab hiding.
-
-## Preview Resources
-
-Material Preview acquires shared `/Engine/Models/Sphere` and
-`/Engine/Models/Box` StaticMesh assets through the canonical
-editor retention service. Multiple documents coalesce by virtual asset identity;
-preview creation performs no transient OBJ import, and retained handles provide
-the GC lifetime edge. The editor session also owns this fixed pair and prepares
-their CPU and GPU resources before opening the shell, so closing every material
-document does not evict them. Startup preparation and retirement follow the
-[shared preview-mesh lifetime](AssetThumbnails.md#identity-and-output-size).
-
-Preview framing fits the selected mesh to both viewport axes with a margin and
-adapts to panel aspect-ratio changes. Mouse-wheel zoom is relative to that framing;
-Fit and mesh changes restore the fitted view.
-
-Preview rendering follows [Material System](../../Runtime/Rendering/MaterialSystem.md).
-Thumbnail sessions follow [Asset Thumbnails](AssetThumbnails.md).
 
 ## Inspection and commands
 
@@ -406,200 +362,9 @@ published. Opening, panning, zooming, selection framing, and diagnostic framing
 never synthesize or persist missing positions. Explicit Auto Layout and node or
 Surface movement persist presentation through ordinary transactions.
 
-## Canvas and diagnostics
-
-Creation-menu rendering is isolated from canvas rendering and pointer gestures.
-Numeric controls and parameter/literal type conversions are shared by graph
-editing paths so each supported vector dimension has one conversion contract.
-
-The MaterialEditor canvas uses the existing ImGui draw/input stack and one
-logical geometry authority shared with layout and native tests. Nodes use a
-stable 224-unit width and height derived from their named pin rows. Operation
-identity is the primary title and an authored parameter/resource name is the
-secondary title. Text is clipped and ellipsized to its owning bounds; editing
-zoom adds named inputs and a textual output type so type color is never the only
-cue.
-
-Semantic zoom has hysteretic overview, readable, and editing bands. Overview
-keeps silhouettes, selection, focus, pan, and framing while disabling pin
-mutation. Readable mode adds clipped operation titles. Editing mode adds
-secondary identity, named pins, output type, tooltips, and inline constant
-controls. Frame All includes the derived surface proxy; Frame Selection uses
-only the selection. The derived `Surface` terminal is initially placed
-one logical column after the rightmost node and remains stable during manual
-node arrangement. Its header displays the material asset name with `Material
-Output` as secondary identity. The terminal can be selected and dragged like a
-node; its optional integral position is persisted in graph presentation, while
-automatic layout derives and persists a fresh position. It pans and zooms with
-the graph, participates in bounds and diagnostic framing, and remains absent
-from the semantic material program. Per-property mode owns fixed Base Color,
-Normal, Metallic, Roughness, Ambient Occlusion, Emissive, Opacity, and Opacity
-Mask rows; aggregate mode owns one typed Surface row. Readable mode retains
-these input names and read-only fallback values so zooming out does not leave
-an unlabeled terminal. Editing mode exposes inline fallback controls for
-unconnected rows; each completed gesture is one validated transaction, while
-Escape and document lifecycle cancellation discard the draft.
-
-Visible links are coarsely culled before curve drawing. When nodes or a surface
-output are selected, unrelated links dim while adjacent paths receive a thicker
-typed stroke. Occupied-input reconnection retains its authored link until a
-valid source drop succeeds as one replace transaction.
-
-Constant creation exposes one entry, initially Float. The node context menu's
-Type selector switches between Float, Float2, Float3, and Float4 through the
-validated node replacement command. It retains the node GUID, literal components,
-and links, rejects incompatible consumers atomically, and records successful
-changes in Undo/Redo. Constants remain independent literals unless the graph
-explicitly fans out one node's output or promotes it to a named parameter.
-
-Parameter creation exposes Scalar, Vector2, Vector3, Vector4 and texture owner
-entries. Selecting an entry creates and places a fresh uniquely named owner in one
-transaction. The catalog has no existing-parameter rebind mode. Sharing connects the
-existing owner's output to more consumers. Inspection reads labels from the node's
-owned payload. PBR roles and UV controls are explicit template-owned parameters,
-not distinct node kinds.
-
-The node creation context menu opens at the pointer from an empty-canvas right
-click, Space, an empty-canvas double click, or an output link dropped on empty
-space. It focuses search and supports arrow/Enter/Escape navigation. Compact
-node rows are grouped by category; favorites and recently used nodes form
-separate leading groups when no search is active. Descriptions and input
-signatures appear in hover tooltips. Search keeps matching entries grouped
-by category and preserves relevance within each group. Paste and Auto Layout
-remain available below the creation list when no source link is active.
-Right-clicking a node or surface input retains its editing context menu. Search ranks exact,
-prefix, and substring matches, then uses stable category, operation, type,
-parameter GUID, and catalog order ties. Opening from a source output filters the
-first input by compatible type. Selection creates and connects the requested
-node as one command; missing numeric inputs receive inline literal defaults
-in the same transaction, while resource inputs without a default reject.
-Escape and every document lifecycle cancellation close the palette and discard
-reconnection, movement, and inline edit drafts without dirtying or compiling
-the material. Every mutation still routes to the stateless
-`FMaterialGraphOperations` operation boundary.
-
-`Promote to Parameter` is available on an unconnected Surface input. It
-creates the compatible material-owned Parameter node one column upstream, copies the
-fallback into the definition value, connects the input, and records program,
-presentation, and value as one Undo/Redo transaction. `Add Texture` explicitly
-creates one TextureSampleParameter2D with default mesh UV0 and connects its
-RGB or scalar channel output directly. Normal uses the same combined sample owner
-with its decoded tangent-space Normal output and flat RG fallback. Sampling and
-RG decoding share one fetch without a flat-normal blend. The reusable SampleNormal
-function remains available for explicit strength and RNM composition. The entire
-branch and connection form one candidate-validated
-Undo/Redo transaction. Connect a TextureCoordinates or other Float2 expression
-for custom UVs; texture objects remain available for function inputs and independent
-sampling. Sampling nodes show RGB, R, G, B, A, and RGBA in that
-order by default. The Advanced pins toggle reveals RG, Texture resource, and decoded Normal outputs;
-connected outputs remain visible even when advanced pins are hidden. Display order
-and visibility never change serialized output indices.
-
-The toolbar exposes Compile, Apply, and a user-scoped Auto Compile preference,
-enabled by default. Opening a base material applies the preference to its working
-copy's Engine edit policy. Automatic edits wait for a
-400 ms quiet period before compiler-input construction. Each subsequent semantic
-edit restarts the deadline. Switching to manual removes scheduled submission;
-switching back schedules any unsubmitted edits. Compile immediately submits the
-working material through ordinary cache reuse. Cancel Compile cancels its pending
-work and pending Apply intent. Engine pumps automatic deadlines even for hidden
-documents. Closing the document cancels compilation and retires the working copy.
-Reopening or package replacement creates a fresh working copy with the preference.
-
-Apply requests compilation if necessary and publishes after the current preview
-has compiled successfully. Editing again while Apply is waiting cancels that
-publication intent. A failed or canceled compilation leaves the source unchanged.
-Apply refuses to overwrite authored source changes made outside the document;
-relocation or sibling-package edits with unchanged source values are allowed.
-Publication updates the existing source through material mutation boundaries and
-submits its changed root and loaded dependent variants together. Scene references
-keep their identity and runtime compilation retains its last-good failure policy.
-Apply does not save the package to disk.
-
-Save finishes the selected preview's compilation, applies it, then saves the
-source package. It never drains unrelated compiler jobs. Unapplied changes,
-preview compilation status, and source disk dirtiness are separate states. The
-document unsaved marker includes either unapplied changes or a dirty source
-package. Graph validation and dynamic parameter updates remain immediate on the
-working copy; they reach the source and its scene dependents only through Apply.
-
-Compile state is observational. Unsubmitted and pending states identify whether
-the preview shows last-known-good output; failed states show ErrorMaterial.
-Neither blocks canvas input or replaces the M6 publication policy. Display hints
-derive from the accepted program and request freshness, rather than stored status
-flags. Diagnostic activation uses the retained
-`Program`, `Node`, `Input`, or `SurfaceOutput` location. Live node/input targets
-select and frame their node; a surface target highlights its fixed output.
-Program-wide, invalid, or generation-stale locations remain visible as text and
-do not fabricate a target.
-
-## Reachable parameter views
-
-MaterialEditor consumes Engine's detached `InspectMaterialParameterDependencies`
-projection for reachable instance controls. Base Details edits the selected owner,
-including disconnected owners. Numeric inline edits and Details update the same
-node-owned default through parameter commands/sessions. Dynamic value changes do
-not request shader compilation. Resource-only combined-node outputs contribute the
-resource dependency without traversing the unused sampling UV branch.
-
-Instance rows use the resolved root program's same snapshot for override
-eligibility and source labels. A local override which becomes unreachable moves
-to the collapsed orphan group and remains removable; it is not rendered or
-presented as active. Reconnecting the same GUID restores the preserved base
-value and makes that override eligible again.
-
-## Document and asset lifecycle
-
-Base-material documents own canvases; instance documents retain the parameter
-override workflow and direct users to the root base material for graph editing.
-`FMaterialEditingSession` strongly owns the working material and its unique
-transient package under the source mount. The transient material is not a
-top-level asset export. That package supplies isolated transaction revisions;
-it is never saved or used as the document resource identity. Undo/Redo edits the
-working copy, including after Apply, and does not implicitly republish to the
-source. Apply invalidates the source's saved checkpoint; successful Save marks
-both source and working checkpoints. Closing or resetting the working copy
-forgets its transaction records and cancels its compile jobs before retirement.
-
-Discard cancels pending Apply. If the source is clean, it simply recreates the
-working copy from the source. If the source has unsaved applied changes, the
-ordinary package-discard reload restores disk state and rebuilds the working
-copy. External package replacement also resets the working copy; relocation
-retains it while remapping the existing document. Deletion and module shutdown
-release the working copy with its canvas and preview. Material-instance documents
-continue editing their own overrides live and see base edits only after Apply.
-Canvas maps use document IDs, so selection cannot leak across materials or
-instances. User-scoped material-editor session settings retain the left, right,
-and diagnostic pane proportions and the pan/zoom viewport for each material
-resource. Closing a document destroys its controller; reopening restores only
-that material's viewport while authored positions continue to come from the
-package.
-
-MaterialEditor registers the authoritative Engine move observer for its
-workspace lifetime. The owner unregisters the observer and finishes
-active relocation before unloading its code. A relocation moves the loaded-material entry and asks
-`FWorkspaceManager` to remap the existing document resource ID, per-resource
-document key, and label without changing document identity. There is no local
-asset catalog mirror. Deletion is observed through the existing object handle;
-before drawing, an invalid owner closes its document and releases canvas and
-preview state. Active graph gestures are canceled before switch, discard,
-close, deletion cleanup, module unload, or shutdown.
-
 ## Related documentation
 
 - [Material System](../../Runtime/Rendering/MaterialSystem.md)
 - [Reflected Property Editing](ReflectedPropertyEditing.md)
 - [Workspace Framework](WorkspaceFramework.md)
 - [Asset Catalog and Mutation](../../Runtime/Assets/AssetCatalogAndMutation.md)
-
-## Instance Rendering Configuration
-
-MaterialEditor exposes independent blend, shading, mask-threshold, two-sided and
-depth-write override flags and values. Clearing a flag resumes inheritance while
-preserving its authored inactive value. Effective supplying-owner labels come
-from the bounded runtime resolver. Edits use the shared reflected whole-member
-transaction path, so Undo/Redo and direct setters trigger the same owner revision
-and variant rules. Toolbar cancellation/recompile, diagnostics, last-known-good
-status and thumbnail readiness refer to the instance owner. A deferred request
-is displayed as waiting for compiler capacity. Graph navigation still belongs
-to the root material document.

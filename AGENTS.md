@@ -5,10 +5,16 @@ when it changes or needed context is unavailable.
 
 ## Task Routing
 
-- Start from the task and affected code; use `Documentation/README.md` only to
-  route to the matching repository guidance.
-- If module ownership is unclear, read `Documentation/Workspace/CodeModules.md`
-  and search only the smallest plausible module set.
+- Start from the task and affected code. If guidance is unknown, search matching
+  rows in `Documentation/README.md` or run `doc find "<task terms>" --limit 5`
+  through the host DevTool launcher; do not print the full routing table.
+- If module ownership is unclear, search matching rows in
+  `Documentation/Workspace/CodeModules.md` and search only those source roots.
+- For reference documents, locate headings or symbols before reading the needed
+  sections. Keep reads bounded; do not concatenate long documents. If output is
+  truncated, narrow the query or range instead of repeating the full read.
+  Read applicable `AGENTS.md` files and required agent workflows in full; follow
+  contract dependencies when the selected section does not resolve the task.
 - When changing a shared API, search its symbols across the source and test
   roots of every project declared in `Durin.dworkspace`; migrate all consumers.
   Validate affected project targets as well as the owning module. For shared

@@ -1,0 +1,153 @@
+# Material Graph Canvas
+
+Summary: Define material editor panels, canvas geometry, semantic zoom, node creation menus, and diagnostic navigation.
+
+Modules: MaterialEditor, Engine, DurinEd
+
+Last reviewed: 2026-09-15
+
+Commands, ownership, transactions, and clipboard semantics are defined in
+[Material Graph Operations](MaterialGraphOperations.md). Preview resources and
+Compile/Apply/Save behavior are defined in
+[Material Editor Lifecycle](MaterialEditorLifecycle.md).
+
+## Editor panels
+
+Each material document owns an isolated ImGui dock space, keyed by its stable
+`DocumentKey`, using the shared WorkspaceUI panel and docking helpers. Preview,
+Material Graph, Details and Diagnostics are dockable windows. Wide initial
+layouts reserve the left 30% for Preview above Details; the graph fills the remaining width and height. Diagnostics shares the
+Details dock as an optional tab; small initial layouts use dock tabs. Resizing does not rebuild a
+user's arrangement. Hidden document roots keep their dock spaces alive.
+
+Function insertion opens a bounded popup above the graph. Selected-call navigation
+lives in Details alongside the shared input editor, so selection does not resize
+or displace the canvas. Details owns selected-node authoring and instance
+inheritance, rendering properties and parameter overrides. There is no base-material
+Parameters manager or docking slot. New materials contain only
+Surface with eight property inputs and retained defaults, without expression
+nodes or function calls.
+
+The single nondeletable Surface root displays the material identity, shading model
+and blend mode. Selecting it (or clearing the graph selection) exposes Surface
+Settings in Details: the supported Surface domain, Lit/Unlit shading, blend mode,
+masked cutoff, two-sided rendering and depth-write policy. Settings use reflected
+property transactions on the working material, so Apply/Discard and Undo/Redo
+retain their ordinary atomic behavior. Inactive cutoff values remain stored.
+Inactive property labels and pins are dimmed, with their default editors hidden;
+values and connections remain stored. Active disconnected inputs expose compact
+scalar drags, color swatches for Base Color and Emissive, and an Edit button for
+Normal. Color and Normal popups commit on Apply and discard drafts on dismissal.
+Connected inputs hide default editors and resume their retained values when
+disconnected. Tooltips identify defaults as values used when unconnected.
+The compiler's explicit final anchor and aggregate/per-property
+exclusion rule are unchanged; reusable Surface values do not become extra roots.
+
+Window controls reopen optional panels and reset the default layout. Material
+Info is a collapsed section in Details shown only when no graph node is selected.
+Base-material values and metadata are edited through selected parameter owners
+and literal inputs in Details. Instances retain
+their parameter override list because they do not own a graph. Parameter groups
+omit a sole outer container with no direct values.
+ImGui persists docking geometry; the
+material session settings retain panel visibility and per-asset graph viewports.
+Preview visibility follows the actual preview panel, including dock-tab hiding.
+
+## Canvas and diagnostics
+
+Creation-menu rendering is isolated from canvas rendering and pointer gestures.
+Numeric controls and parameter/literal type conversions are shared by graph
+editing paths so each supported vector dimension has one conversion contract.
+
+The MaterialEditor canvas uses the existing ImGui draw/input stack and one
+logical geometry authority shared with layout and native tests. Nodes use a
+stable 224-unit width and height derived from their named pin rows. Operation
+identity is the primary title and an authored parameter/resource name is the
+secondary title. Text is clipped and ellipsized to its owning bounds; editing
+zoom adds named inputs and a textual output type so type color is never the only
+cue.
+
+Semantic zoom has hysteretic overview, readable, and editing bands. Overview
+keeps silhouettes, selection, focus, pan, and framing while disabling pin
+mutation. Readable mode adds clipped operation titles. Editing mode adds
+secondary identity, named pins, output type, tooltips, and inline constant
+controls. Frame All includes the derived surface proxy; Frame Selection uses
+only the selection. The derived `Surface` terminal is initially placed
+one logical column after the rightmost node and remains stable during manual
+node arrangement. Its header displays the material asset name with `Material
+Output` as secondary identity. The terminal can be selected and dragged like a
+node; its optional integral position is persisted in graph presentation, while
+automatic layout derives and persists a fresh position. It pans and zooms with
+the graph, participates in bounds and diagnostic framing, and remains absent
+from the semantic material program. Per-property mode owns fixed Base Color,
+Normal, Metallic, Roughness, Ambient Occlusion, Emissive, Opacity, and Opacity
+Mask rows; aggregate mode owns one typed Surface row. Readable mode retains
+these input names and read-only fallback values so zooming out does not leave
+an unlabeled terminal. Editing mode exposes inline fallback controls for
+unconnected rows; each completed gesture is one validated transaction, while
+Escape and document lifecycle cancellation discard the draft.
+
+Visible links are coarsely culled before curve drawing. When nodes or a surface
+output are selected, unrelated links dim while adjacent paths receive a thicker
+typed stroke. Occupied-input reconnection retains its authored link until a
+valid source drop succeeds as one replace transaction.
+
+Constant creation exposes one entry, initially Float. The node context menu's
+Type selector switches between Float, Float2, Float3, and Float4 through the
+validated node replacement command. It retains the node GUID, literal components,
+and links, rejects incompatible consumers atomically, and records successful
+changes in Undo/Redo. Constants remain independent literals unless the graph
+explicitly fans out one node's output or promotes it to a named parameter.
+
+Parameter creation exposes Scalar, Vector2, Vector3, Vector4 and texture owner
+entries. Selecting an entry creates and places a fresh uniquely named owner in one
+transaction. The catalog has no existing-parameter rebind mode. Sharing connects the
+existing owner's output to more consumers. Inspection reads labels from the node's
+owned payload. PBR roles and UV controls are explicit template-owned parameters,
+not distinct node kinds.
+
+The node creation context menu opens at the pointer from an empty-canvas right
+click, Space, an empty-canvas double click, or an output link dropped on empty
+space. It focuses search and supports arrow/Enter/Escape navigation. Compact
+node rows are grouped by category; favorites and recently used nodes form
+separate leading groups when no search is active. Descriptions and input
+signatures appear in hover tooltips. Search keeps matching entries grouped
+by category and preserves relevance within each group. Paste and Auto Layout
+remain available below the creation list when no source link is active.
+Right-clicking a node or surface input retains its editing context menu. Search ranks exact,
+prefix, and substring matches, then uses stable category, operation, type,
+parameter GUID, and catalog order ties. Opening from a source output filters the
+first input by compatible type. Selection creates and connects the requested
+node as one command; missing numeric inputs receive inline literal defaults
+in the same transaction, while resource inputs without a default reject.
+Escape and every document lifecycle cancellation close the palette and discard
+reconnection, movement, and inline edit drafts without dirtying or compiling
+the material. Every mutation still routes to the stateless
+`FMaterialGraphOperations` operation boundary.
+
+`Promote to Parameter` is available on an unconnected Surface input. It
+creates the compatible material-owned Parameter node one column upstream, copies the
+fallback into the definition value, connects the input, and records program,
+presentation, and value as one Undo/Redo transaction. `Add Texture` explicitly
+creates one TextureSampleParameter2D with default mesh UV0 and connects its
+RGB or scalar channel output directly. Normal uses the same combined sample owner
+with its decoded tangent-space Normal output and flat RG fallback. Sampling and
+RG decoding share one fetch without a flat-normal blend. The reusable SampleNormal
+function remains available for explicit strength and RNM composition. The entire
+branch and connection form one candidate-validated
+Undo/Redo transaction. Connect a TextureCoordinates or other Float2 expression
+for custom UVs; texture objects remain available for function inputs and independent
+sampling. Sampling nodes show RGB, R, G, B, A, and RGBA in that
+order by default. The Advanced pins toggle reveals RG, Texture resource, and decoded Normal outputs;
+connected outputs remain visible even when advanced pins are hidden. Display order
+and visibility never change serialized output indices.
+
+Compile state is observational. Unsubmitted and pending states identify whether
+the preview shows last-known-good output; failed states show ErrorMaterial.
+Neither blocks canvas input or replaces the M6 publication policy. Display hints
+derive from the accepted program and request freshness, rather than stored status
+flags. Diagnostic activation uses the retained
+`Program`, `Node`, `Input`, or `SurfaceOutput` location. Live node/input targets
+select and frame their node; a surface target highlights its fixed output.
+Program-wide, invalid, or generation-stale locations remain visible as text and
+do not fabricate a target.
