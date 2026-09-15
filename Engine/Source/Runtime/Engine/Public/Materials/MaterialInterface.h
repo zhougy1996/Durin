@@ -18,6 +18,14 @@ namespace Durin
 	class DTexture2D;
 	inline constexpr uint32 MaterialMaximumParentDepth = 64;
 
+	// Immutable editing query; an unsuccessful analysis is distinct from an empty graph.
+	// Contains identities only and does not retain material or function objects.
+	struct FMaterialParameterReachability
+	{
+		FMaterialProgramValidationResult Validation;
+		std::unordered_set<FGuid> ParameterIds;
+	};
+
 	// GameThread resolution reports source owners without retaining their lifetimes.
 	struct FResolvedMaterialProperties
 	{
@@ -85,6 +93,10 @@ namespace Durin
 		ENGINE_API virtual auto GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition>;
 		ENGINE_API auto FindParameterDefinition(const FGuid& Id) const -> const FMaterialParameterDefinition*;
 		ENGINE_API auto FindParameterDefinition(FName Name) const -> const FMaterialParameterDefinition*;
+		// GameThread only. Share one result across a batch. Authored queries follow the
+		// current graph, including transitive function revisions, independently of compilation.
+		// Cooked queries follow the accepted program. Failed analyses are not cached.
+		ENGINE_API auto GetParameterReachability() const -> std::shared_ptr<const FMaterialParameterReachability>;
 		ENGINE_API virtual auto ResolveParameterValue(const FGuid& Id, FResolvedMaterialParameter& OutParameter) const -> bool;
 
 		ENGINE_API virtual auto GetScalarParameterValue(FName Name, float& OutValue) const -> bool;
@@ -169,6 +181,10 @@ namespace Durin
 		auto SubmitMaterialRenderProxyState() const -> void;
 
 		uint64 RenderStateVersion = 1;
+		mutable std::shared_ptr<const FMaterialParameterReachability> ParameterReachability;
+		mutable uint64 ParameterReachabilityProgramRevision = 0;
+		mutable std::vector<FMaterialFunctionOwnerStamp> ParameterReachabilityFunctionOwners;
+		mutable std::weak_ptr<const FMaterialCompilerResult> ParameterReachabilityCookedProgram;
 		mutable FMaterialRenderProxyRef MaterialRenderProxy;
 		mutable uint64 MaterialProxyLocalVersion = 0;
 		mutable uint64 LastSubmittedMaterialProxyLocalVersion = 0;

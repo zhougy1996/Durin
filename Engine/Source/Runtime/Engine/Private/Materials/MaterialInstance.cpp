@@ -1,5 +1,4 @@
 #include "Materials/MaterialInstance.h"
-#include "Materials/MaterialProgramCompiler.h"
 #include "Logging/LogMacros.h"
 
 #include "Asset/Asset.h"
@@ -25,38 +24,6 @@ namespace Durin
 			}
 			return false;
 		}
-
-		auto IsParameterAvailableForLocalValue(
-			const DMaterialInterface& Material, const FGuid& Id) -> bool
-		{
-			// Authored edits may precede asynchronous compilation. This query governs
-			// editing/orphan diagnostics only; render proxies use the accepted contract.
-			if (!GetAssetRuntimeConfiguration().RequiresCookedPayload())
-			{
-				FMaterialIRCompilerInput Snapshot;
-				if (!SnapshotMaterialCompilerInput(Material, {}, Snapshot)) return false;
-				std::vector<uint32> Pending;
-				if (Snapshot.IR.SurfaceRoot.bAggregate) Pending.push_back(Snapshot.IR.SurfaceRoot.AggregateExpressionIndex);
-				else for (const auto& Input : Snapshot.IR.SurfaceRoot.Inputs)
-					if (Input.bExpression) Pending.push_back(Input.ExpressionIndex);
-				std::vector<bool> Visited(Snapshot.IR.Nodes.size());
-				while (!Pending.empty())
-				{
-					const auto Index = Pending.back(); Pending.pop_back();
-					if (Visited[Index]) continue;
-					Visited[Index] = true;
-					const auto& Node = Snapshot.IR.Nodes[Index];
-					if (Node.GetParameterId() == Id) return true;
-					Pending.insert(Pending.end(), Node.Inputs.begin(), Node.Inputs.end());
-				}
-				return false;
-			}
-			const auto Program = Material.GetAcceptedCompiledProgram();
-			if (!Program) return false;
-			return std::ranges::find(Program->ActiveParameters, Id,
-				&FMaterialCompilerParameterDeclaration::Id) != Program->ActiveParameters.end();
-		}
-
 	}
 
 	DMaterialInstance::DMaterialInstance(const FObjectInitializer& ObjectInitializer)
@@ -264,7 +231,7 @@ namespace Durin
 		const auto Type = Value.GetType();
 		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Id);
 		if (!Definition || Definition->Type != Type
-			|| !IsParameterAvailableForLocalValue(*this, Id)) return false;
+			|| !GetParameterReachability()->ParameterIds.contains(Id)) return false;
 		if (Type == EMaterialParameterType::Texture && !IsValidMaterialSampling(Value.GetTexture().SamplerState, Value.GetTexture().TextureFallback)) return false;
 		FMaterialParameterValue StoredValue = Value;
 		if (FMaterialVectorParameterValue::SupportsType(Type))
@@ -320,7 +287,7 @@ namespace Durin
 		if (!GetLocalParameterValue(Id, LocalValue)) return false;
 		const auto* Definition = FindParameterDefinition(Id);
 		return !Definition || Definition->Type != LocalValue.GetType()
-			|| !IsParameterAvailableForLocalValue(*this, Id);
+			|| !GetParameterReachability()->ParameterIds.contains(Id);
 	}
 
 	auto DMaterialInstance::SetScalarParameterValue(FName Name, float Value) -> bool

@@ -8,6 +8,7 @@ namespace Durin
 	class DMaterialInterface;
 	class DMaterialInstance;
 	class DMaterial;
+	struct FMaterialParameterReachability;
 }
 
 namespace Durin::Editor::Material
@@ -81,7 +82,7 @@ namespace Durin::Editor::Material
 		uint64 DependencyProgramRevision = 0;
 		std::vector<std::pair<FGuid, EMaterialParameterType>> DependencySchema;
 		std::vector<FGuid> ParameterIds;
-		std::unordered_set<FGuid> ReachableParameterIds;
+		std::shared_ptr<const FMaterialParameterReachability> DependencyReachability;
 		bool bDependenciesInitialized = false;
 		std::vector<FMaterialParameterPanelEntry> Entries;
 	};

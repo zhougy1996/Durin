@@ -1,4 +1,5 @@
 #include "Materials/MaterialExpressionBuild.h"
+#include "Asset/Asset.h"
 
 #include "Materials/Material.h"
 #include "Materials/MaterialFunction.h"
@@ -157,5 +158,72 @@ namespace Durin
 			if (!IsValid(Owner) || Owner->GetFunctionRevision() != Stamp.Revision || Owner->GetObjectPath() != Stamp.AssetPath) return false;
 		}
 		return true;
+	}
+
+	auto DMaterialInterface::GetParameterReachability() const
+		-> std::shared_ptr<const FMaterialParameterReachability>
+	{
+		check(IsInGameThread());
+		if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
+		{
+			const auto Program = GetAcceptedCompiledProgram();
+			if (Program && ParameterReachability && ParameterReachabilityCookedProgram.lock() == Program)
+				return ParameterReachability;
+			auto Result = std::make_shared<FMaterialParameterReachability>();
+			if (!Program)
+			{
+				Result->Validation.Diagnostics.push_back({.Message = "Material has no accepted compiled program."});
+				return Result;
+			}
+			for (const auto& Parameter : Program->ActiveParameters) Result->ParameterIds.insert(Parameter.Id);
+			Result->Validation.bSucceeded = true;
+			ParameterReachabilityProgramRevision = 0;
+			ParameterReachabilityFunctionOwners.clear();
+			ParameterReachabilityCookedProgram = Program;
+			ParameterReachability = Result;
+			return Result;
+		}
+
+		FResolvedMaterialProperties Properties;
+		std::string Error;
+		if (!ResolveMaterialProperties(*this, Properties, Error))
+		{
+			auto Result = std::make_shared<FMaterialParameterReachability>();
+			Result->Validation.Diagnostics.push_back({.Message = std::move(Error)});
+			return Result;
+		}
+		const auto* Root = Cast<DMaterial>(ResolveObjectHandle(Properties.Root));
+		// Structural reachability is independent of instance values and static properties.
+		// Store it on the graph owner so all instances share the same analysis.
+		if (Root != this) return Root->GetParameterReachability();
+		const auto Revision = Root->GetMaterialProgramRevision();
+		if (ParameterReachability && ParameterReachabilityProgramRevision == Revision
+			&& AreMaterialFunctionOwnersCurrent(ParameterReachabilityFunctionOwners)) return ParameterReachability;
+
+		auto Result = std::make_shared<FMaterialParameterReachability>();
+		FMaterialIRCompilerInput Snapshot;
+		std::vector<FMaterialFunctionOwnerStamp> Owners;
+		Result->Validation = SnapshotMaterialCompilerInput(*this, {}, Snapshot, &Owners);
+		if (!Result->Validation) return Result;
+		std::vector<uint32> Pending;
+		if (Snapshot.IR.SurfaceRoot.bAggregate) Pending.push_back(Snapshot.IR.SurfaceRoot.AggregateExpressionIndex);
+		else for (const auto& Input : Snapshot.IR.SurfaceRoot.Inputs)
+			if (Input.bExpression) Pending.push_back(Input.ExpressionIndex);
+		std::vector<bool> Visited(Snapshot.IR.Nodes.size());
+		while (!Pending.empty())
+		{
+			const auto Index = Pending.back(); Pending.pop_back();
+			if (Visited[Index]) continue;
+			Visited[Index] = true;
+			const auto& Node = Snapshot.IR.Nodes[Index];
+			const auto Id = Node.GetParameterId();
+			if (Id.IsValid()) Result->ParameterIds.insert(Id);
+			Pending.insert(Pending.end(), Node.Inputs.begin(), Node.Inputs.end());
+		}
+		ParameterReachabilityCookedProgram.reset();
+		ParameterReachabilityProgramRevision = Revision;
+		ParameterReachabilityFunctionOwners = std::move(Owners);
+		ParameterReachability = Result;
+		return Result;
 	}
 }

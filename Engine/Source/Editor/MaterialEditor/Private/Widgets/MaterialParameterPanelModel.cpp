@@ -1,5 +1,4 @@
 #include "Widgets/MaterialParameterPanelModel.h"
-#include "Graph/MaterialExpressionInputs.h"
 
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/Class.h"
@@ -122,46 +121,19 @@ namespace Durin::Editor::Material
 		for (const auto& Definition : Material->GetParameterDefinitions())
 			Schema.emplace_back(Definition.Id, Definition.Type);
 		const uint64 ProgramRevision = BaseMaterial ? BaseMaterial->GetMaterialProgramRevision() : 0;
+		const auto Reachability = Instance ? Material->GetParameterReachability() : nullptr;
 		const bool bRebuildDependencies = !bDependenciesInitialized || !BaseMaterial
 			|| BaseMaterial != DependencyMaterial || ProgramRevision != DependencyProgramRevision
-			|| Schema != DependencySchema;
+			|| Schema != DependencySchema || Reachability != DependencyReachability;
 		if (bRebuildDependencies)
 		{
 			DependencyMaterial = BaseMaterial;
 			DependencyProgramRevision = ProgramRevision;
 			DependencySchema = std::move(Schema);
+			DependencyReachability = Reachability;
 			ParameterIds.clear();
-			ReachableParameterIds.clear();
-			if (Instance && BaseMaterial)
-			{
-				std::unordered_map<FGuid, DMaterialExpression*> Expressions;
-				for (const auto& Expression : BaseMaterial->GetExpressionCollection().Expressions) Expressions.emplace(Expression->Id, Expression.Get());
-				std::unordered_set<FGuid> Visited;
-				const auto AddParameter = [&](const DMaterialExpressionParameter* Parameter) {
-					if (Parameter && Parameter->Metadata.Id.IsValid() && Material->FindParameterDefinition(Parameter->Metadata.Id)
-						&& ReachableParameterIds.insert(Parameter->Metadata.Id).second) ParameterIds.push_back(Parameter->Metadata.Id);
-				};
-				std::function<void(const FMaterialExpressionInput&)> Visit = [&](const FMaterialExpressionInput& Input) {
-					const auto It = Expressions.find(Input.ExpressionId);
-					if (It == Expressions.end()) return;
-					auto* Expression = It->second;
-					const auto* Parameter = Cast<DMaterialExpressionParameter>(Expression);
-					if (Cast<DMaterialExpressionTextureSampleParameter2D>(Expression) && Input.OutputIndex == 7)
-					{
-						AddParameter(Parameter); // A resource-only use does not evaluate this sample's UV branch.
-						return;
-					}
-					if (!Visited.insert(Input.ExpressionId).second) return;
-					VisitMaterialExpressionInputs(*Expression, [&](uint32, FMaterialExpressionInput& Source) { Visit(Source); });
-					AddParameter(Parameter);
-				};
-				const auto& Outputs = BaseMaterial->GetExpressionOutputs();
-				for (const auto* Output : {&Outputs.Surface, &Outputs.BaseColor, &Outputs.Normal, &Outputs.Metallic,
-					&Outputs.Roughness, &Outputs.AmbientOcclusion, &Outputs.Emissive, &Outputs.Opacity, &Outputs.OpacityMask}) Visit(*Output);
-			}
-			else if (!Instance)
-				for (const auto& Definition : Material->GetParameterDefinitions())
-					ParameterIds.push_back(Definition.Id);
+			for (const auto& Definition : Material->GetParameterDefinitions())
+				if (!Instance || Reachability->ParameterIds.contains(Definition.Id)) ParameterIds.push_back(Definition.Id);
 			bDependenciesInitialized = true;
 		}
 		for (const FGuid& ParameterId : ParameterIds)
@@ -184,7 +156,7 @@ namespace Durin::Editor::Material
 		if (!Instance) return bRebuildDependencies;
 		Instance->VisitLocalParameterValues([&](const FGuid& Id, const FMaterialParameterValue& Value) {
 			const auto* Definition = Material->FindParameterDefinition(Id);
-			if (Definition && Definition->Type == Value.GetType() && ReachableParameterIds.contains(Id)) return;
+			if (Definition && Definition->Type == Value.GetType() && Reachability->ParameterIds.contains(Id)) return;
 			Entries.push_back({.ParameterId = Id, .Value = Value, .bCanOverride = true,
 				.bHasLocalOverride = true, .bOrphan = true});
 		});
