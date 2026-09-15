@@ -60,6 +60,9 @@ namespace Durin::Editor::Material
 		const float NodeHeaderHeight = Metrics.HeaderHeight;
 		const float PinSpacing = Metrics.PinRowHeight;
 		const float NodePadding = Metrics.BodyPadding;
+		// Reveal occluded wires without reducing text, pin or heading contrast.
+		constexpr int GraphNodeBodyAlpha = 230;
+		constexpr int GraphSelectedNodeBodyAlpha = 240;
 		constexpr float GraphBodyFontHeight = 14.0f;
 		constexpr float GraphTitleFontHeight = 16.0f;
 		constexpr float GraphSecondaryFontHeight = 13.0f;
@@ -904,7 +907,12 @@ namespace Durin::Editor::Material
 		for (const auto& Node : Visual.Nodes)
 		{
 			if (!Intersects(Node.Minimum, Node.Maximum, Minimum, Maximum)) continue;
-			DrawList.AddRectFilled(Node.Minimum, Node.Maximum, IM_COL32(40, 44, 52, 255), 5);
+			DrawList.AddRectFilled(Node.Minimum, Node.Maximum,
+				IM_COL32(40, 44, 52, SelectedNodes.contains(Node.View->Node.Id)
+					? GraphSelectedNodeBodyAlpha : GraphNodeBodyAlpha), 5);
+			DrawList.AddRectFilled(Node.Minimum,
+				{Node.Maximum.x, Node.Minimum.y + NodeHeaderHeight * Zoom},
+				IM_COL32(57, 62, 74, 255), 5, ImDrawFlags_RoundCornersTop);
 			DrawList.AddRect(Node.Minimum, Node.Maximum, SelectedNodes.contains(Node.View->Node.Id)
 				? IM_COL32(220, 170, 70, 255) : IM_COL32(80, 86, 100, 255), 5);
 			DrawNodeHeading(Node, DrawList);
@@ -1206,7 +1214,8 @@ namespace Durin::Editor::Material
 					CanvasMinimum, CanvasMaximum)) continue;
 				const bool bSelected = SelectedNodes.contains(Visual.View->Node.Id);
 				DrawList->AddRectFilled(Visual.Minimum, Visual.Maximum,
-					bSelected ? IM_COL32(55, 72, 94, 255) : IM_COL32(42, 46, 54, 255),
+					bSelected ? IM_COL32(55, 72, 94, GraphSelectedNodeBodyAlpha)
+						: IM_COL32(42, 46, 54, GraphNodeBodyAlpha),
 					6.0f);
 				DrawList->AddRect(Visual.Minimum, Visual.Maximum,
 					bSelected ? IM_COL32(90, 170, 245, 255) : IM_COL32(78, 84, 96, 255),
@@ -1485,8 +1494,8 @@ namespace Durin::Editor::Material
 			const bool bMaterialOutputSelected =
 				SelectedNodes.contains(EMaterialGraphTerminal::MaterialOutput);
 			DrawList->AddRectFilled(SurfaceMinimum, SurfaceMaximum,
-				bMaterialOutputSelected ? IM_COL32(55, 72, 94, 255)
-					: IM_COL32(38, 42, 50, 245), 6.0f);
+				bMaterialOutputSelected ? IM_COL32(55, 72, 94, GraphSelectedNodeBodyAlpha)
+					: IM_COL32(38, 42, 50, GraphNodeBodyAlpha), 6.0f);
 			DrawList->AddRect(SurfaceMinimum, SurfaceMaximum,
 				bMaterialOutputSelected ? IM_COL32(90, 170, 245, 255)
 					: IM_COL32(92, 100, 116, 255), 6.0f, 0,

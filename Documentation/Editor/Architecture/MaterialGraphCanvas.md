@@ -95,6 +95,10 @@ small RGB swatch; its channels are clamped for display while numeric values
 remain unchanged. Hover tooltips expose labels without width truncation and numeric
 values with nine significant digits. Material and function canvases share this
 heading renderer, including zoom, clipping, and overview visibility.
+Node bodies use approximately 90% opacity (94% when selected), including function
+nodes and the material output, so occluded wires remain faintly visible. Headers,
+text and pins remain opaque. Selection continues to emphasize adjacent wires.
+
 Numeric Parameter controls are directly draggable in Editing mode without first
 selecting the node. Dragging updates the value and preview continuously; release
 records one undo operation for the entire gesture. Escape restores the starting
