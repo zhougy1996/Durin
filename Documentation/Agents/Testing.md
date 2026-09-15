@@ -26,31 +26,35 @@ native tests. It can expose shared-state cleanup failures, but can also mask
 missing per-case setup. A case must pass when run alone.
 
 ```powershell
-.\DevTool.bat test MaterialCompilerTests --parallel
-.\DevTool.bat test MaterialCompilerTests --parallel 4
-.\DevTool.bat test MaterialCompilerTests FMaterialExpressionTests.* --parallel 4
+.\DevTool.bat test MaterialCompilerTests --isolate --test-jobs 4
+.\DevTool.bat test MaterialCompilerTests FMaterialExpressionTests.* --isolate --test-jobs 1
+.\DevTool.bat test affected --test-jobs 4 --report
 ```
 
-`--parallel [N]` runs each selected case in a separate process through CTest,
-with at most N concurrent cases. Omit N to use the build-job limit; use
-`--parallel 1` for serial isolation. Use it for faster bounded CPU correctness
-feedback after checking isolation; begin with 4 workers. It accepts a named
-target or `@set`, and needs no wildcard when selecting all its cases.
-Use `--report` to save an XML result under the preset's
-`Build/NativeTestResults` directory, or `--report <path>` to choose its location.
-It works with serial and parallel runs without changing execution.
-Use the positional case filter; the redundant `--filter` and `--mode report`
-forms have been removed. Routine execution needs no `--mode`; case isolation
-uses `--parallel [N]` instead of `--mode isolation`.
+`--isolate` runs each selected case in a separate process through CTest. It
+accepts a named target or `@set` in routine mode. Use `--test-jobs 1` for serial
+isolation, or begin with 4 slots for bounded CPU correctness feedback after
+checking isolation. Without `--isolate`, scheduling does not split target cases.
 
-Test builds use the configured concurrency; `test` does not accept `--jobs`.
+`--test-jobs N` controls CTest scheduling slots for whole-target or isolated
+runs; omitting it uses configured concurrency. Direct execution of one target
+still uses one process. Builds use configured concurrency independently; `test`
+does not accept `--jobs`.
+
+`--report [path]` saves XML without changing execution, including for `affected`.
+The default is `Build/NativeTestResults/<Preset>/<Selection>.xml`. Direct runs
+produce GoogleTest XML; CTest runs produce JUnit XML. Empty affected selections
+write no report and leave any previous report unchanged; check the command log.
+Use the positional case filter. The former `--parallel [N]` is replaced by
+`--isolate [--test-jobs N]`; routine execution needs no `--mode`.
+
 Existing CTest resource locks and execution-host rules still apply; parallelism does not authorize GPU
 or application-hosted coverage. A failure that also occurs when run alone is an
 isolation/setup issue, not evidence of a concurrency conflict.
 
 `affected`, `fast-all`, and ordinary `@set` runs instead schedule whole test
 targets through CTest. Their cases remain sequential inside each process.
-The configured concurrency controls builds and whole-target CTest scheduling;
+Configured concurrency is the default for builds and whole-target CTest scheduling;
 it does not parallelize cases for ordinary `test <Target>`.
 
 `test affected` defaults to staged, unstaged, and untracked changes. Use `--base`

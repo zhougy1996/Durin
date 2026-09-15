@@ -242,8 +242,11 @@ Run each Python test suite explicitly through pytest:
 Commands are case-insensitive for compatibility, but lowercase is canonical.
 `build` and executable `test` selections configure automatically when needed,
 so an explicit first
-`configure` is optional. Omit `--jobs` to use automatic parallelism; pass
-`--jobs <count>` only when a local limit is required. From another batch file,
+`configure` is optional. For build commands, omit `--jobs` to use configured
+parallelism; pass `--jobs <count>` only when a local build limit is required.
+`test` uses configured build concurrency and accepts `--test-jobs <count>` for
+CTest scheduling only; see the [test parameter contract](NativeTests.md#parameter-contract).
+From another batch file,
 use `call DevTool.bat <arguments>`.
 
 `build` and `rebuild` default to target `all`; native-test executables and their

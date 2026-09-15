@@ -13,7 +13,7 @@ from rich.text import Text
 
 from .build_context import BuildContext
 from .errors import BuildToolError
-from .models import Action, OutputMode, TestMode
+from .models import Action, OutputMode
 from .selection import preset_build_directory
 from .requests import request_target
 from .requests import ConcreteRequest
@@ -287,8 +287,8 @@ class BuildOutput:
                 )
             ),
         }
-        if context.request.action is Action.TEST and context.request.test_mode is TestMode.ISOLATION:
-            rows["Case processes"] = context.request.test_parallel_jobs or context.jobs
+        if context.request.action is Action.TEST and context.request.requires_toolchain:
+            rows["Test scheduling slots"] = context.request.test_parallel_jobs or context.jobs
         if self.plain:
             self.console.print("DurinDevTool")
             for label, value in rows.items():

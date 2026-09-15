@@ -107,7 +107,8 @@ class TestCore:
             cwd=settings.default_build_paths().root,
             state_directory=settings.default_build_paths().state_directory,
         )
-    def test_selected_set_uses_direct_ctest_registrations_and_report_path(self) -> None:
+    @pytest.mark.parametrize("workers", [None, 1, 7])
+    def test_selected_set_uses_direct_ctest_registrations_and_report_path(self, workers) -> None:
         preset = self.make_preset()
         request = request_fixtures.command_request(
             models.Action.TEST,
@@ -115,7 +116,7 @@ class TestCore:
                 target='@viewport',
             ),
         )
-        request = replace(request, test_report_enabled=True)
+        request = replace(request, test_report_enabled=True, test_parallel_jobs=workers)
         context = build_context.BuildContext(
             request,
             models.LocalConfig(),
@@ -133,6 +134,7 @@ class TestCore:
         with mock.patch.object(build_runtime, 'preset_build_directory', return_value=build_directory), mock.patch.object(build_runtime, 'run_command') as run:
             build_runtime.run_selected_native_tests(context, output)
         command = run.call_args.args[0]
+        assert command[command.index('-j') + 1] == str(workers or 4)
         assert command[7:13] == [
             '-L',
             'native-test-target',
@@ -191,7 +193,7 @@ class TestCore:
         output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
         output.context(context)
         assert 'Build jobs: 12' in output.console.file.getvalue()
-        assert f'Case processes: {expected}' in output.console.file.getvalue()
+        assert f'Test scheduling slots: {expected}' in output.console.file.getvalue()
         with mock.patch.object(build_runtime, 'run_command') as run:
             build_runtime.run_selected_native_tests(context, output)
         command = run.call_args.args[0]

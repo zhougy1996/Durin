@@ -480,7 +480,12 @@ def dispatch_request(
             output.info("Resolved selection: all")
             if request.test_explain_affected:
                 return
-            context.request = replace(request, target="all", test_operation="run")
+            # Retain the user's selection name for the default report even when
+            # conservative impact analysis expands execution to the aggregate.
+            report_path = request.test_report_path
+            if request.test_report_enabled and report_path is None:
+                report_path = Path("Build") / "NativeTestResults" / context.preset.name / "affected.xml"
+            context.request = replace(request, target="all", test_operation="run", test_report_path=report_path)
         elif affected.targets:
             output.info(f"Resolved targets: {', '.join(affected.names)}")
             if request.test_explain_affected:
@@ -490,6 +495,8 @@ def dispatch_request(
             context.test_selection_explanation = "; ".join(affected.reasons)
         else:
             output.info("Resolved selection: no native tests required")
+            if request.test_report_enabled or request.test_report_path is not None:
+                output.info("No report written because no tests were selected; any previous report is unchanged.")
             return
     execute_context(
         context,

@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from unittest import mock
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
-from durin_dev_tool.build import handler
+from durin_dev_tool.build import handler, request_validation
 from durin_dev_tool.build import operations as build_operations
 from durin_dev_tool.build.models import Action, CreateKind, LinkType, LocalConfig, ModuleKind, OutputMode
 from durin_dev_tool.build.requests import ConcreteRequest, OutputOptions, RequestContext
@@ -109,7 +109,7 @@ class TestBuildRegistry:
 
         assert direct_requests == shell_requests
 
-    @pytest.mark.parametrize("extra,parallel", [([], False), (["--parallel"], True), (["--parallel", "4"], True)])
+    @pytest.mark.parametrize("extra,parallel", [([], False), (["--isolate"], True), (["--isolate", "--test-jobs", "4"], True)])
     @pytest.mark.parametrize("report_args,path", [(["--report"], None), (["--report", "Build/out.xml"], Path("Build/out.xml"))])
     def test_report_does_not_change_execution(self, extra, parallel, report_args, path) -> None:
         request = handler.request_from_namespace(self.parse(["test", "MaterialCompilerTests", *extra, *report_args]))
@@ -119,17 +119,40 @@ class TestBuildRegistry:
 
     def test_parallel_cases_keep_build_jobs_independent(self) -> None:
         request = handler.request_from_namespace(self.parse(
-            ["test", "MaterialCompilerTests", "--parallel", "4"]))
+            ["test", "MaterialCompilerTests", "--isolate", "--test-jobs", "4"]))
         assert request.test_mode.value == "isolation"
         assert request.test_parallel_jobs == 4
         assert request.test_filter == ""
         assert request.context.jobs is None
 
+    @pytest.mark.parametrize("selection", ["MaterialCompilerTests", "@viewport", "affected", "fast-all", "all"])
+    def test_scheduling_and_report_do_not_enable_isolation(self, selection) -> None:
+        request = handler.request_from_namespace(self.parse(
+            ["test", selection, "--test-jobs", "4", "--report"]))
+        preset = request_fixtures.make_preset()
+        request_validation.validate_request(request, preset)
+        assert request.test_mode.value == "routine"
+        assert request.test_parallel_jobs == 4
+        assert request.context.jobs is None
+        assert request.test_report_enabled
+
+    @pytest.mark.parametrize("selection", [["list"], ["explain", "@viewport"], ["affected", "--explain"]])
+    @pytest.mark.parametrize("option", [["--report"], ["--test-jobs", "4"]])
+    def test_discovery_rejects_execution_options(self, selection, option) -> None:
+        request = handler.request_from_namespace(self.parse(["test", *selection, *option]))
+        with pytest.raises(DevToolError, match="requires test execution"):
+            request_validation.validate_request(request, mock.Mock())
+
+    @pytest.mark.parametrize("selection", [["list"], ["explain", "@viewport"], ["affected", "--explain"]])
+    def test_discovery_rejects_explicit_timeout(self, selection) -> None:
+        with pytest.raises(DevToolError, match="--timeout requires test execution"):
+            handler.request_from_namespace(self.parse(["test", *selection, "--timeout", "300"]))
+
     @pytest.mark.parametrize("selection", ["MaterialCompilerTests", "@viewport"])
-    @pytest.mark.parametrize("extra,workers", [([], None), (["1"], 1)])
+    @pytest.mark.parametrize("extra,workers", [([], None), (["--test-jobs", "1"], 1)])
     def test_parallel_cases_allow_default_concurrency(self, selection, extra, workers) -> None:
         request = handler.request_from_namespace(self.parse(
-            ["test", selection, "Suite.*", "--parallel", *extra]))
+            ["test", selection, "Suite.*", "--isolate", *extra]))
         assert request.test_mode.value == "isolation"
         assert request.test_parallel_jobs == workers
         assert request.test_filter == "Suite.*"
@@ -138,17 +161,17 @@ class TestBuildRegistry:
     def test_parallel_rejects_special_modes(self, mode) -> None:
         with pytest.raises(DevToolError, match="cannot be combined"):
             handler.request_from_namespace(self.parse(
-                ["test", "MaterialCompilerTests", "--parallel", "--mode", mode]))
+                ["test", "MaterialCompilerTests", "--isolate", "--mode", mode]))
 
     @pytest.mark.parametrize("workers", ["0", "257", "-1"])
     def test_parallel_rejects_invalid_concurrency(self, workers) -> None:
         with pytest.raises(DevToolError):
-            self.parse(["test", "MaterialCompilerTests", "--parallel", workers])
+            self.parse(["test", "MaterialCompilerTests", "--test-jobs", workers])
 
     @pytest.mark.parametrize("selection", ["all", "fast-all", "affected", "list"])
     def test_parallel_cases_require_bounded_run(self, selection: str) -> None:
-        with pytest.raises(DevToolError, match="--parallel requires"):
-            handler.request_from_namespace(self.parse(["test", selection, "--parallel", "4"]))
+        with pytest.raises(DevToolError, match="--isolate requires"):
+            handler.request_from_namespace(self.parse(["test", selection, "--isolate", "--test-jobs", "4"]))
 
     def test_native_test_positional_and_scenario_grammar(self) -> None:
         request = handler.request_from_namespace(
@@ -216,6 +239,7 @@ class TestBuildRegistry:
             'test MaterialCompilerTests --mode report',
             'test MaterialCompilerTests --mode routine',
             'test MaterialCompilerTests --mode isolation',
+            'test MaterialCompilerTests --parallel 4',
             'test MaterialCompilerTests --jobs 4',
             'test --target CoreUtilityTests',
             'test all --granularity hybrid',

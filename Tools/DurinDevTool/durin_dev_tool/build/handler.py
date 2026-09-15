@@ -86,12 +86,13 @@ def request_from_namespace(namespace: argparse.Namespace) -> BaseRequest:
                 raise BuildToolError("test affected accepts a Git base only through --base <ref>")
             operation, query, target, test_filter = "affected", "", "affected", ""
         test_mode = TestMode(str(namespace_value(namespace, "mode", "routine")))
-        parallel_jobs = namespace_value(namespace, "parallel", None)
-        if parallel_jobs is not None:
+        if (operation in {"list", "explain"} or namespace_value(namespace, "explain_affected", False)) and namespace_value(namespace, "timeout", None) is not None:
+            raise BuildToolError("--timeout requires test execution; discovery does not run tests.")
+        if namespace_value(namespace, "isolate", False):
             if operation != "run" or target.casefold() in {"all", "fast-all"}:
-                raise BuildToolError("--parallel requires a named target or @set selection.")
+                raise BuildToolError("--isolate requires a named target or @set selection.")
             if test_mode is not TestMode.ROUTINE:
-                raise BuildToolError("--parallel cannot be combined with this --mode.")
+                raise BuildToolError("--isolate cannot be combined with --mode.")
             test_mode = TestMode.ISOLATION
         report_path = namespace_value(namespace, "report", None)
         return NativeTestRequest(
@@ -102,7 +103,7 @@ def request_from_namespace(namespace: argparse.Namespace) -> BaseRequest:
             test_operation=operation,
             test_query=query,
             test_mode=test_mode,
-            test_parallel_jobs=None if parallel_jobs is True else parallel_jobs,
+            test_parallel_jobs=namespace_value(namespace, "test_jobs", None),
             test_report_enabled=report_path is not None,
             test_report_path=report_path if isinstance(report_path, Path) else None,
             test_timeout_seconds=int(namespace_value(namespace, "timeout", 300)),

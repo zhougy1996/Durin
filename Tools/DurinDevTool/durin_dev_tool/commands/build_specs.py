@@ -104,10 +104,11 @@ COMMAND_SPECS = (
         (PROFILE, PRESET, CMAKE, ENVIRONMENT_SETUP, PLAIN, OUTPUT_MODE) + (
             argument("selection", nargs="?", default="", help="target, affected, fast-all, @set selector, all, list [query], or explain <selection>"),
             argument("case_filter", nargs="?", default="", help="optional GoogleTest Suite.Case filter"),
-            argument("--parallel", nargs="?", const=True, type=int, choices=range(1, 257), default=None, metavar="N", help="run cases in separate processes (default: configured concurrency; N overrides tests only)"),
+            argument("--isolate", action="store_true", help="run each case in a separate process (named target or @set; routine mode only)"),
+            argument("--test-jobs", type=int, choices=range(1, 257), default=None, metavar="N", help="CTest scheduling slots; does not change isolation or build jobs (default: configured concurrency)"),
             argument("--mode", choices=("stress", "characterization", "qualification"), default="routine", help="opt into a special execution scenario"),
-            argument("--report", nargs="?", const=True, type=Path, default=None, metavar="PATH", help="write an XML report without changing execution (default: preset result directory)"),
-            argument("--timeout", type=int, choices=range(0, 86401), default=300, metavar="0..86400", help="test timeout in seconds; 0 disables it (default: 300)"),
+            argument("--report", nargs="?", const=True, type=Path, default=None, metavar="PATH", help="save GoogleTest XML for direct runs or CTest JUnit XML, including affected (default: preset result directory)"),
+            argument("--timeout", type=int, choices=range(0, 86401), default=None, metavar="0..86400", help="direct-process limit or CTest default in seconds (default: 300); 0 omits the limit; CTest TIMEOUT properties take precedence"),
             argument("--base", default="", metavar="REF", help="Git base for test affected (default: current staged, unstaged, and untracked changes)"),
             argument("--explain", dest="explain_affected", action="store_true", help="explain test affected without building or running"),
         ),
@@ -115,8 +116,8 @@ COMMAND_SPECS = (
             "Common examples:\n"
             "  DevTool test CoreUtilityTests\n"
             "  DevTool test CoreUtilityTests Suite.Case\n"
-            "  DevTool test MaterialCompilerTests --parallel 4 --report\n"
-            "  DevTool test affected\n"
+            "  DevTool test MaterialCompilerTests --isolate --test-jobs 4 --report\n"
+            "  DevTool test affected --test-jobs 4 --report\n"
             "  DevTool test affected --base HEAD~1 --explain\n"
             "  DevTool test fast-all\n"
             "  DevTool test \"@viewport\"\n"

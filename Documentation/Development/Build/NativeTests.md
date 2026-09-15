@@ -71,11 +71,41 @@ Shared discovery, registry, harness, execution, workspace membership, project
 descriptor, or unbounded CMake changes resolve conservatively to `all`. Runtime
 inputs outside modules known to the registry likewise resolve to `all`.
 
+## Parameter Contract
+
+DevTool owns selection and execution policy. A positional case filter uses
+GoogleTest syntax; CTest owns scheduling of the registrations DevTool selects.
+CMake declarations own `RESOURCE_LOCKS`, `PROCESSORS`, and per-registration
+`TIMEOUT`; these are not additional DevTool CLI flags. DevTool does not pass
+arbitrary CTest arguments through to the scheduler.
+
+| Parameter | Scope and meaning |
+| --- | --- |
+| `<selection>` | Named target, `@set`, `affected`, `fast-all`, or `all` |
+| `[GoogleTestFilter]` | Exact target; `@set` only with `--isolate`; never aggregate or affected |
+| `--isolate` | Separate case processes for a named target or `@set`; routine mode only |
+| `--test-jobs N` | CTest scheduling slots, 1–256; independent of isolation and build concurrency |
+| `--mode stress` | Randomized CTest scheduling and GoogleTest order for ordinary explicit selections |
+| `--mode characterization` / `qualification` | Explicit target or `@set` admission; unavailable with `affected`, `all`, or `--isolate` |
+| `--report [PATH]` | All executing selections, including `affected`; format follows execution path |
+| `--timeout SECONDS` | Execution timeout policy described below; does not limit the build |
+| `--base REF` / `--explain` | Only `affected`; explanation performs no execution |
+
+Discovery (`list`, `explain`, and `affected --explain`) rejects `--report`,
+`--test-jobs`, and explicit `--timeout`. `affected` keeps ordinary whole-target execution and accepts no
+`--mode`, `--isolate`, or case filter. Report, scheduling, and timeout options
+combine with each supported execution mode.
+
+Migration: replace `--parallel` with `--isolate`, and `--parallel N` with
+`--isolate --test-jobs N`. The old flag is rejected rather than silently changing
+from process isolation to scheduling alone. The removed `--filter`, `--mode report`,
+and `--mode isolation` forms remain unsupported.
+
 ## Execution and Reports
 
 ```powershell
 .\DevTool.bat test CoreUtilityTests FJsonDocumentTests.ParseObjectFromString
-.\DevTool.bat test "@viewport" --parallel 4 --report
+.\DevTool.bat test "@viewport" --isolate --test-jobs 4 --report
 .\DevTool.bat test "@viewport" --mode stress
 .\DevTool.bat test "@kind=characterization,domain=launch" --mode characterization
 .\DevTool.bat test "@kind=qualification,domain=renderer" --mode qualification
@@ -86,11 +116,13 @@ inputs outside modules known to the registry likewise resolve to `all`.
 | Direct-hosted exact target | One executable; its cases run sequentially |
 | Application-hosted exact target | Whole-target CTest registration preserves the platform launcher |
 | Ordinary set, `affected`, `fast-all`, or `all` | CTest schedules whole targets; cases within each remain sequential |
-| `<Target>` or `@set` with `--parallel [N]` | CTest isolates each case in a separate process; N limits concurrent cases; `--parallel 1` isolates serially |
+| `<Target>` or `@set` with `--isolate` | CTest isolates each case in a separate process; `--test-jobs 1` isolates serially |
 
 Default build and CTest concurrency use `build.parallelJobs`, or automatic
-parallelism when unset. `--parallel N` changes only case concurrency; omission of
-N uses the build-job limit. `test` does not accept `--jobs`. Resource locks remain
+parallelism when unset. `--test-jobs N` overrides only CTest scheduling slots,
+for whole-target and isolated runs alike. It does not change execution granularity
+or build concurrency. A direct exact-target run remains one process. `test` does
+not accept the build command's `--jobs` option. Resource locks remain
 authoritative; their scope and declaration rules are in
 [Native Test Authoring](NativeTestAuthoring.md#add-a-test-target).
 Whole-target execution detects shared-state cleanup failures; isolated execution
@@ -99,19 +131,26 @@ can expose missing per-case setup.
 A positional GoogleTest filter supports `*`, `?`, colon-separated alternatives,
 and exclusions after `-`. Isolation accepts an optional filter and requires a
 named target or `@set`. `all` does not accept an executable-specific positional
-filter. `--parallel` combines with `--report`, but not another execution mode.
-Routine runs omit `--mode`; case isolation uses `--parallel`.
+filter. `--isolate` combines with `--test-jobs` and `--report`, but not `--mode`.
+Routine runs omit `--mode`; case isolation uses `--isolate`.
 Stress randomizes CTest scheduling and GoogleTest order and prints a reproducible
 shuffle seed, forwarded to GoogleTest and reproducible with `GTEST_RANDOM_SEED`.
 Characterization uses its owning custom runner rather than a routine direct
 whole-executable lifecycle.
 
-The default execution timeout is 300 seconds, starting after the build.
-`--timeout <seconds>` changes it; `--timeout 0` disables it for a deliberate
-long diagnostic run. For CTest selections, the limit applies to each registration.
+`--timeout <seconds>` defaults to 300 and applies after the build. For direct
+runs it limits the executable process; `--timeout 0` removes that limit.
+For CTest runs it sets the scheduler's default timeout, not a total batch budget.
+A registration's CMake `TIMEOUT` property takes precedence; repository tests
+declare that property. `--timeout 0` omits the CLI default and does not disable
+registered timeouts. Change the owning declaration for a longer CTest diagnostic
+run; do not assume the CLI overrides it.
 `--report` writes `Build/NativeTestResults/<Preset>/<Selection>.xml`;
 `--report <path>` overrides the destination. Direct runs produce GoogleTest XML;
 CTest runs produce JUnit XML. Reporting does not change execution granularity.
+`affected --report` uses `affected.xml` even when selection expands to `all`.
+If no tests are selected, no report is written and any previous file is unchanged;
+the command log explicitly reports this. Do not interpret an older XML as this run.
 
 Scheduled/nightly validation owns the ordinary aggregate. Release qualification
 adds explicit qualification and its required platform/backend matrix. Local
@@ -122,7 +161,7 @@ or CI log.
 
 ## Failure Diagnosis
 
-Rerun the printed failing target with a narrow case filter; use `--parallel 1`
+Rerun the printed failing target with a narrow case filter; use `--isolate --test-jobs 1`
 when process isolation is needed. Failed assertions, crashes, timeouts, or test
 interruptions do not require `rebuild`: DevTool clears build recovery state before
 test execution. Build failures and lost build-process ownership follow

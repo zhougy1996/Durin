@@ -82,8 +82,11 @@ def validate_request(request: ConcreteRequest, preset: ConfigurePreset) -> None:
             raise BuildToolError("test list, explain, and affected do not accept --mode.")
         if request.test_operation != "affected" and (request.test_base or request.test_explain_affected):
             raise BuildToolError("--base and --explain are accepted only by test affected.")
-        if request.test_operation != "run" and (request.test_report_enabled or request.test_report_path is not None):
-            raise BuildToolError("--report requires a test run; select a target or @set explicitly.")
+        discovery = request.test_operation in {"list", "explain"} or request.test_explain_affected
+        if discovery and (request.test_report_enabled or request.test_report_path is not None):
+            raise BuildToolError("--report requires test execution; discovery does not produce a report.")
+        if discovery and request.test_parallel_jobs is not None:
+            raise BuildToolError("--test-jobs requires test execution; discovery does not schedule tests.")
     if request.action is Action.REBUILD and request.target:
         validate_target(request.target, action=request.action)
     if (
@@ -101,14 +104,14 @@ def validate_request(request: ConcreteRequest, preset: ConfigurePreset) -> None:
             if request.target.casefold() in {"all", "fast-all"}:
                 raise BuildToolError(
                     "isolation mode requires a named target or @set selection.",
-                    recovery="Run test <target-or-@set> --parallel 4.",
+                    recovery="Run test <target-or-@set> --isolate --test-jobs 4.",
                 )
         elif request.test_filter and (
             request.target.startswith("@") or request.target.casefold() == "fast-all"
         ):
             raise BuildToolError(
-                "A case filter on a set requires --parallel.",
-                recovery=f"Run test {request.target} {request.test_filter} --parallel.",
+                "A case filter on a set requires --isolate.",
+                recovery=f"Run test {request.target} {request.test_filter} --isolate.",
             )
         if request.test_mode in {TestMode.CHARACTERIZATION, TestMode.QUALIFICATION} and request.target.casefold() == "all":
             raise BuildToolError(
