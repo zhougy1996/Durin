@@ -176,7 +176,7 @@ TEST(FReflectedPropertyEditSessionTests, TransactionHistoryKeepsTargetAlive)
 	ASSERT_TRUE(Durin::GDObjectArray.Contains(Object));
 	ASSERT_TRUE(Transactions.Get()->Undo());
 	EXPECT_EQ(Object->Value, 4);
-	Transactions.Get()->Reset();
+	ASSERT_TRUE(Transactions.Get()->Reset());
 	Durin::CollectGarbage();
 	EXPECT_FALSE(Durin::GDObjectArray.Contains(Object));
 }
@@ -208,7 +208,7 @@ TEST(FReflectedPropertyEditSessionTests, TransactionSnapshotsKeepObjectValuesAli
 	ASSERT_TRUE(Transactions.Get()->Redo());
 	EXPECT_EQ(Owner->ObjectValue.Get(), After);
 
-	Transactions.Get()->Reset();
+	ASSERT_TRUE(Transactions.Get()->Reset());
 	Owner->ObjectValue = nullptr;
 	Proposed = {};
 	Durin::CollectGarbage();

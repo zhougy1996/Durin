@@ -794,7 +794,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 	AddGroupingPrimitive(200);
 	Durin::FlushRenderingCommands();
 	auto GroupedOrder = std::make_shared<
-		std::vector<std::pair<uint64, uint32>>>();
+		std::vector<std::pair<uint64, uint64>>>();
 	Durin::EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>(
 		[&GroupingScene, GroupedOrder](
 			Durin::FRHICommandListImmediate& CommandList) {
@@ -853,7 +853,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 				Durin::PrepareStaticMeshView_RenderThread(
 					CommandList, GroupingScene.GetPrimitiveSceneInfos(),
 					Durin::FSceneView{}, Durin::ERasterMode::Solid);
-			std::vector<std::pair<uint64, uint32>> ReaddedOrder;
+			std::vector<std::pair<uint64, uint64>> ReaddedOrder;
 			for (const Durin::FPreparedStaticMeshDraw& Draw : Readded.Opaque)
 			{
 				ReaddedOrder.emplace_back(
