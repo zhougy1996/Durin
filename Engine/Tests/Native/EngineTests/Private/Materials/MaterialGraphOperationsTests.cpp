@@ -1,3 +1,4 @@
+#include "Graph/MaterialGraphNodeDisplay.h"
 #include "TypedMaterialGraphTestFixture.h"
 #include "Graph/MaterialExpressionInputs.h"
 #include "ExplicitMaterialProgramTestFixture.h"
@@ -2161,6 +2162,51 @@ TEST(FMaterialGraphOperationsTests, CanvasLinkReleaseEndsGestureAcrossFrames)
 	ImGui::DestroyContext(Context);
 	MarkAsGarbage(Material);
 	CollectGarbage();
+}
+
+TEST(FMaterialGraphOperationsTests, NumericNodeDisplayTracksValuesAndUndo)
+{
+	InitializeDObjectSystem();
+	auto* Material = NewObject<DMaterial>(nullptr, "NumericNodeDisplay");
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	FMaterialGraphDocument Document(*Material);
+	Durin::Tests::FTestTransactorOwner Transactions;
+	const auto Constant = Testing::CreateGraphCatalogNode(Document, EMaterialProgramOpcode::Constant,
+		EMaterialProgramValueType::Float, {}, 0, 0, Transactions.Get());
+	ASSERT_TRUE(Constant);
+	const auto Id = Constant.GeneratedNodeIds.front();
+	ASSERT_TRUE(Document.SetConstantValue(Id, FMaterialParameterValue::MakeScalar(0.5f), Transactions.Get()));
+	FMaterialGraphCanvas Canvas;
+	auto Display = MakeGraphNodeDisplay(*FindViewNode(FMaterialGraphCanvasTestAccess::Prepare(Canvas, *Material), Id), Material);
+	EXPECT_EQ(Display.Title, "0.5");
+	EXPECT_EQ(Display.Subtitle, "Constant (Float)");
+	ASSERT_TRUE(Document.SetConstantValue(Id, FMaterialParameterValue::MakeVector({1, 0.5f, -2}), Transactions.Get()));
+	Display = MakeGraphNodeDisplay(*FindViewNode(FMaterialGraphCanvasTestAccess::Prepare(Canvas, *Material), Id), Material);
+	EXPECT_EQ(Display.Title, "(1, 0.5, -2)");
+	EXPECT_EQ(Display.Subtitle, "Constant (Float3)");
+	ASSERT_TRUE(Display.Value);
+	EXPECT_FLOAT_EQ(Display.Value->Z, -2); // Display swatches must not alter numeric values.
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(MakeGraphNodeDisplay(*FindViewNode(FMaterialGraphCanvasTestAccess::Prepare(Canvas, *Material), Id), Material).Title, "0.5");
+	ASSERT_TRUE(Transactions->Redo());
+	EXPECT_EQ(MakeGraphNodeDisplay(*FindViewNode(FMaterialGraphCanvasTestAccess::Prepare(Canvas, *Material), Id), Material).Title, "(1, 0.5, -2)");
+	const auto Parameter = Testing::CreateGraphCatalogNode(Document, EMaterialProgramOpcode::Parameter,
+		EMaterialProgramValueType::Float4, {}, 300, 0, Transactions.Get());
+	ASSERT_TRUE(Parameter);
+	const auto View = Document.Inspect();
+	const auto* Node = FindViewNode(View, Parameter.GeneratedNodeIds.front());
+	ASSERT_NE(Node, nullptr);
+	ASSERT_TRUE(FMaterialGraphOperations::SetParameterValue(*Material, Node->Node.GetParameterId(),
+		FMaterialParameterValue::MakeVector4({0.25f, 0.5f, 2, 1}), Transactions.Get()));
+	Display = MakeGraphNodeDisplay(*Node, Material); // Resolve current values even with a cached view.
+	EXPECT_EQ(Display.Title, Node->PrimaryLabel);
+	EXPECT_EQ(Display.Subtitle, "(0.25, 0.5, 2, 1)");
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_NE(MakeGraphNodeDisplay(*Node, Material).Subtitle, Display.Subtitle);
+	EXPECT_EQ(FormatGraphNumericValue(EMaterialProgramValueType::Float2, {-0.0f, 0.123456f}), "(0, 0.1235)");
+	EXPECT_EQ(FormatGraphNumericValue(EMaterialProgramValueType::Float, {0.000001f}), "1e-06");
+	EXPECT_TRUE(Transactions->Reset());
+	MarkAsGarbage(Material); CollectGarbage();
 }
 
 TEST(FMaterialGraphOperationsTests, CanvasCreationShortcutsRespectGesturesAndUndo)

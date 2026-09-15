@@ -1,3 +1,4 @@
+#include "Graph/MaterialGraphNodeDisplay.h"
 #include "Graph/MaterialGraphCreationShortcuts.h"
 #include "Graph/MaterialGraphControls.h"
 #include "Graph/MaterialGraphValueTypes.h"
@@ -794,8 +795,9 @@ namespace Durin::Editor::Material
 			DrawList.AddRectFilled(Node.Minimum, Node.Maximum, IM_COL32(40, 44, 52, 255), 5);
 			DrawList.AddRect(Node.Minimum, Node.Maximum, SelectedNodes.contains(Node.View->Node.Id)
 				? IM_COL32(220, 170, 70, 255) : IM_COL32(80, 86, 100, 255), 5);
-			DrawList.AddText(Add(Node.Minimum, {8, 5}), IM_COL32(235, 235, 240, 255), Node.View->PrimaryLabel.c_str());
-			DrawList.AddText(Add(Node.Minimum, {8, 25}), IM_COL32(175, 180, 190, 255), Node.View->SecondaryLabel.c_str());
+			const auto Display = MakeGraphNodeDisplay(*Node.View);
+			DrawList.AddText(Add(Node.Minimum, {8, 5}), IM_COL32(235, 235, 240, 255), Ellipsize(Display.Title, NodeWidth * Zoom - 16).c_str());
+			DrawList.AddText(Add(Node.Minimum, {8, 25}), IM_COL32(175, 180, 190, 255), Ellipsize(Display.Subtitle, NodeWidth * Zoom - 16).c_str());
 			if (Contains(Node.Minimum, Node.Maximum, Mouse)) HoveredNode = &Node;
 			for (size_t Index = 0; Index < Node.OutputPins.size(); ++Index)
 			{
@@ -1108,6 +1110,7 @@ namespace Durin::Editor::Material
 				if (!Intersects(Visual.Minimum, Visual.Maximum,
 					CanvasMinimum, CanvasMaximum)) continue;
 				const bool bSelected = SelectedNodes.contains(Visual.View->Node.Id);
+				const auto Display = MakeGraphNodeDisplay(*Visual.View, &Material);
 				DrawList->AddRectFilled(Visual.Minimum, Visual.Maximum,
 					bSelected ? IM_COL32(55, 72, 94, 255) : IM_COL32(42, 46, 54, 255),
 					6.0f);
@@ -1120,7 +1123,7 @@ namespace Durin::Editor::Material
 				if (DetailLevel != EMaterialGraphDetailLevel::Overview)
 				{
 					const float FontSize = GraphTitleFontSize;
-					const std::string Label = Ellipsize(Visual.View->PrimaryLabel,
+					const std::string Label = Ellipsize(Display.Title,
 						(NodeWidth - NodePadding * 2.0f) * Zoom
 							* ImGui::GetFontSize() / FontSize);
 					const ImVec4 Clip(Visual.Minimum.x + 5.0f, Visual.Minimum.y,
@@ -1130,18 +1133,31 @@ namespace Durin::Editor::Material
 						Add(Visual.Minimum,
 							{8.0f * Zoom, (NodeHeaderHeight * Zoom - FontSize) * 0.5f}),
 						IM_COL32(235, 238, 242, 255), Label.c_str(), nullptr, 0.0f, &Clip);
-					if (DetailLevel == EMaterialGraphDetailLevel::Editing
-						&& !Visual.View->SecondaryLabel.empty())
+					if ((DetailLevel == EMaterialGraphDetailLevel::Editing || Display.Value)
+						&& !Display.Subtitle.empty())
 					{
-						const std::string Secondary = Ellipsize(Visual.View->SecondaryLabel,
-							(NodeWidth - NodePadding * 2.0f) * Zoom
+						const bool bColor = Display.Value && (Visual.View->Node.ResultType == EMaterialProgramValueType::Float3
+							|| Visual.View->Node.ResultType == EMaterialProgramValueType::Float4);
+						const float ColorSpace = bColor ? 18.0f : 0.0f;
+						if (bColor)
+						{
+							const auto& Value = *Display.Value;
+							const ImVec2 Minimum = Add(Visual.Minimum, {8.0f * Zoom, (NodeHeaderHeight + 1.0f) * Zoom});
+							const ImVec2 Maximum = Add(Minimum, {12.0f * Zoom, 12.0f * Zoom});
+							DrawList->AddRectFilled(Minimum, Maximum, ImGui::ColorConvertFloat4ToU32(
+								{std::clamp(Value.X, 0.0f, 1.0f), std::clamp(Value.Y, 0.0f, 1.0f),
+									std::clamp(Value.Z, 0.0f, 1.0f), 1.0f}));
+							DrawList->AddRect(Minimum, Maximum, IM_COL32(150, 156, 168, 255));
+						}
+						const std::string Secondary = Ellipsize(Display.Subtitle,
+							(NodeWidth - NodePadding * 2.0f - ColorSpace) * Zoom
 								* ImGui::GetFontSize() / GraphSecondaryFontSize);
 						const ImVec4 SecondaryClip(Visual.Minimum.x + 5.0f,
 							Visual.Minimum.y + NodeHeaderHeight * Zoom,
 							Visual.Maximum.x - 5.0f,
 							Visual.Minimum.y + (NodeHeaderHeight + Metrics.SecondaryHeight) * Zoom);
 						DrawList->AddText(ImGui::GetFont(), GraphSecondaryFontSize,
-							Add(Visual.Minimum, {8.0f * Zoom, NodeHeaderHeight * Zoom}),
+							Add(Visual.Minimum, {(8.0f + ColorSpace) * Zoom, NodeHeaderHeight * Zoom}),
 							IM_COL32(165, 172, 186, 255), Secondary.c_str(), nullptr, 0.0f,
 							&SecondaryClip);
 					}
@@ -1393,9 +1409,10 @@ namespace Durin::Editor::Material
 				&& !bEmbeddedControlHoveredOrActive)
 			{
 				ImGui::BeginTooltip();
-				ImGui::TextUnformatted(HoveredNode->View->PrimaryLabel.c_str());
-				if (!HoveredNode->View->SecondaryLabel.empty())
-					ImGui::TextDisabled("%s", HoveredNode->View->SecondaryLabel.c_str());
+				const auto Display = MakeGraphNodeDisplay(*HoveredNode->View, &Material);
+				ImGui::TextUnformatted(Display.Title.c_str());
+				if (!Display.Subtitle.empty())
+					ImGui::TextDisabled("%s", Display.Subtitle.c_str());
 				ImGui::TextDisabled("Output: %s", GetProgramTypeName(HoveredNode->View->Node.ResultType));
 				ImGui::EndTooltip();
 			}

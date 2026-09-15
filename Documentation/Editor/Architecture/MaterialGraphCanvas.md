@@ -72,8 +72,14 @@ editing paths so each supported vector dimension has one conversion contract.
 The MaterialEditor canvas uses the existing ImGui draw/input stack and one
 logical geometry authority shared with layout and native tests. Nodes use a
 stable 224-unit width and height derived from their named pin rows. Operation
-identity is the primary title and an authored parameter/resource name is the
-secondary title. Text is clipped and ellipsized to its owning bounds; editing
+identity is the primary title for operation nodes. Numeric constants instead
+show their compact value as the title and constant type below it. Parameters
+retain their authored name as the title and show their current numeric value
+below it, including in readable zoom. Values use four significant digits, omit
+trailing zeros, and retain vector dimensions. Float3/Float4 nodes also show a
+small RGB swatch; its channels are clamped for display while numeric values
+remain unchanged. Hover tooltips expose labels without width truncation.
+Selected nodes retain the existing inline editing controls. Text is clipped and ellipsized to its owning bounds; editing
 zoom adds named inputs and a textual output type so type color is never the only
 cue.
 
