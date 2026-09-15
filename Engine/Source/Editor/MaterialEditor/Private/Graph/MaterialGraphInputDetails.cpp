@@ -81,42 +81,36 @@ namespace Durin::Editor::Material
 				else *ExpressionIt = Replacement.Get();
 				Submit(Document.ReplaceExpression(**ExpressionIt, &Transactions));
 			};
-			int Type = static_cast<int>(Parameter.Type);
-			if (ImGui::Combo("Type", &Type, "Scalar\0Vector3\0Texture\0Vector2\0Vector4\0"))
-			{
-				const auto Previous = ReadParameterLiteral(GetProgramType(Parameter.Type), Parameter.Value);
-				Parameter.Type = static_cast<EMaterialParameterType>(Type);
-				Parameter.Value = MakeParameterValue(GetProgramType(Parameter.Type), Previous);
-				Parameter.Presentation = EMaterialParameterPresentation::Default;
-				Parameter.bHasRange = false;
-				CommitParameter();
-			}
-			int Presentation = static_cast<int>(Parameter.Presentation);
-			if (!Changed && ImGui::Combo("Presentation", &Presentation, "Default\0Drag\0Integer\0Color\0Asset picker\0"))
-			{
-				Parameter.Presentation = static_cast<EMaterialParameterPresentation>(Presentation);
-				CommitParameter();
-			}
 			std::string Name = Parameter.Name.ToString();
 			if (!Changed && EditText("Parameter name", Name)) { Parameter.Name = FName(Name); CommitParameter(); }
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Change this node's parameter binding. Existing names use the existing parameter's value.");
-			std::string SharedName = Parameter.Name.ToString();
-			if (!Changed && EditText("Rename shared parameter", SharedName))
-				Submit(FMaterialGraphOperations::RenameParameter(*Material, Parameter.Id, FName(SharedName), &Transactions));
-			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Rename all references while preserving material instance overrides.");
-			if (!Changed && EditText("Display name", Parameter.DisplayName)) CommitParameter();
-			std::string Group = Parameter.GroupName.ToString();
-			if (!Changed && EditText("Group", Group)) { Parameter.GroupName = FName(Group); CommitParameter(); }
-			if (!Changed && ImGui::InputInt("Order", &Parameter.SortOrder, 0, 0, ImGuiInputTextFlags_EnterReturnsTrue)) CommitParameter();
-			if (!Changed && Parameter.Type == EMaterialParameterType::Scalar && ImGui::Checkbox("Range hint", &Parameter.bHasRange)) CommitParameter();
-			if (!Changed && Parameter.bHasRange)
+			if (ImGui::TreeNode("Parameter settings"))
 			{
-				float Range[2]{Parameter.MinimumValue, Parameter.MaximumValue};
-				if (ImGui::InputFloat2("Min / Max", Range, "%.4g", ImGuiInputTextFlags_EnterReturnsTrue))
+				std::string SharedName = Parameter.Name.ToString();
+				if (!Changed && EditText("Rename shared parameter", SharedName))
+					Submit(FMaterialGraphOperations::RenameParameter(*Material, Parameter.Id, FName(SharedName), &Transactions));
+				if (ImGui::IsItemHovered()) ImGui::SetTooltip("Rename all references while preserving material instance overrides.");
+				if (!Changed && EditText("Display name", Parameter.DisplayName)) CommitParameter();
+				std::string Group = Parameter.GroupName.ToString();
+				if (!Changed && EditText("Group", Group)) { Parameter.GroupName = FName(Group); CommitParameter(); }
+				if (!Changed && ImGui::InputInt("Order", &Parameter.SortOrder, 0, 0, ImGuiInputTextFlags_EnterReturnsTrue)) CommitParameter();
+				if (!Changed && Parameter.Type == EMaterialParameterType::Scalar && ImGui::Checkbox("Range hint", &Parameter.bHasRange)) CommitParameter();
+				if (!Changed && Parameter.bHasRange)
 				{
-					Parameter.MinimumValue = Range[0]; Parameter.MaximumValue = Range[1];
+					float Range[2]{Parameter.MinimumValue, Parameter.MaximumValue};
+					if (ImGui::InputFloat2("Min / Max", Range, "%.4g", ImGuiInputTextFlags_EnterReturnsTrue))
+					{
+						Parameter.MinimumValue = Range[0]; Parameter.MaximumValue = Range[1];
+						CommitParameter();
+					}
+				}
+				int Presentation = static_cast<int>(Parameter.Presentation);
+				if (!Changed && ImGui::Combo("Presentation", &Presentation, "Default\0Drag\0Integer\0Color\0Asset picker\0"))
+				{
+					Parameter.Presentation = static_cast<EMaterialParameterPresentation>(Presentation);
 					CommitParameter();
 				}
+				ImGui::TreePop();
 			}
 			if (!Changed && Parameter.Type == EMaterialParameterType::Texture)
 			{
@@ -136,17 +130,21 @@ namespace Durin::Editor::Material
 						return static_cast<bool>(Result);
 					}});
 				if (!Picker.Error.empty()) ReportError(Picker.Error);
-				const auto Combo = [&](const char* Label, auto& Value, const char* Names) {
-					int Index = static_cast<int>(Value);
-					if (Changed || !ImGui::Combo(Label, &Index, Names)) return;
-					Value = static_cast<std::remove_reference_t<decltype(Value)>>(Index);
-					Submit(FMaterialGraphOperations::SetParameterValue(*Material, Parameter.Id, Parameter.Value, &Transactions));
-				};
-				Combo("Fallback", Parameter.Value.GetTexture().TextureFallback, "White\0Black\0Flat normal\0");
-				Combo("Min filter", Parameter.Value.GetTexture().SamplerState.MinFilter, "Nearest\0Linear\0Nearest mip nearest\0Linear mip nearest\0Nearest mip linear\0Linear mip linear\0");
-				Combo("Mag filter", Parameter.Value.GetTexture().SamplerState.MagFilter, "Nearest\0Linear\0");
-				Combo("Address U", Parameter.Value.GetTexture().SamplerState.AddressU, "Repeat\0Mirrored repeat\0Clamp\0");
-				Combo("Address V", Parameter.Value.GetTexture().SamplerState.AddressV, "Repeat\0Mirrored repeat\0Clamp\0");
+				if (ImGui::TreeNode("Sampler settings"))
+				{
+					const auto Combo = [&](const char* Label, auto& Value, const char* Names) {
+						int Index = static_cast<int>(Value);
+						if (Changed || !ImGui::Combo(Label, &Index, Names)) return;
+						Value = static_cast<std::remove_reference_t<decltype(Value)>>(Index);
+						Submit(FMaterialGraphOperations::SetParameterValue(*Material, Parameter.Id, Parameter.Value, &Transactions));
+					};
+					Combo("Fallback", Parameter.Value.GetTexture().TextureFallback, "White\0Black\0Flat normal\0");
+					Combo("Min filter", Parameter.Value.GetTexture().SamplerState.MinFilter, "Nearest\0Linear\0Nearest mip nearest\0Linear mip nearest\0Nearest mip linear\0Linear mip linear\0");
+					Combo("Mag filter", Parameter.Value.GetTexture().SamplerState.MagFilter, "Nearest\0Linear\0");
+					Combo("Address U", Parameter.Value.GetTexture().SamplerState.AddressU, "Repeat\0Mirrored repeat\0Clamp\0");
+					Combo("Address V", Parameter.Value.GetTexture().SamplerState.AddressV, "Repeat\0Mirrored repeat\0Clamp\0");
+					ImGui::TreePop();
+				}
 			}
 			else if (!Changed)
 			{

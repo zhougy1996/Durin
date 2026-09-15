@@ -46,7 +46,11 @@ exclusion rule are unchanged; reusable Surface values do not become extra roots.
 Window controls reopen optional panels and reset the default layout. Material
 Info is a collapsed section in Details shown only when no graph node is selected.
 Base-material values and metadata are edited through selected parameter owners
-and literal inputs in Details. Instances retain
+and literal inputs in Details. Parameter node types are fixed at creation; Details
+has no type conversion control. Parameter names and defaults stay visible, while
+shared renaming and instance presentation metadata live in collapsed Parameter
+settings. Texture fallback and filtering/addressing controls live in collapsed
+Sampler settings. Instances retain
 their parameter override list because they do not own a graph. Parameter groups
 omit a sole outer container with no direct values.
 ImGui persists docking geometry; the
