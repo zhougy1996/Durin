@@ -42,7 +42,12 @@ namespace Durin
 				auto Definition = Parameter->GetParameterDefinition();
 				if (!Definition.Id.IsValid() || NodeIds.contains(Definition.Id))
 					return Fail(Expression->Id, "Parameter identity must be valid and distinct from node identity.");
-				Definitions.push_back(std::move(Definition));
+				const auto Existing = std::ranges::find(Definitions, Definition.Id, &FMaterialParameterDefinition::Id);
+				if (Existing != Definitions.end())
+				{
+					if (*Existing != Definition) return Fail(Expression->Id, "Shared parameter definitions disagree.");
+				}
+				else Definitions.push_back(std::move(Definition));
 			}
 		const auto Validation = ValidateMaterialParameterDefinitions(Definitions);
 		if (!Validation) return Fail({}, std::string(GetMaterialParameterErrorText(Validation.Error)));

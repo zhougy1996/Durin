@@ -34,20 +34,24 @@ render boundary accepts only material-specific layout v4 data. Built-in role kno
   respective expression families. `FMaterialParameterDefinition` is a transient
   derived view, with a checked declaration type. Its pointers expire on owner
   revision changes. Parameter GUIDs are distinct from node GUIDs and names are
-  unique ignoring case. Disconnected owners remain until explicitly deleted.
+  unique ignoring case across distinct parameters. Multiple nodes may share one
+  parameter GUID when their complete definitions agree. Disconnected references
+  remain until explicitly deleted.
 - `DMaterial::GetParameterDefinitions()` exposes a read-only, GUID-sorted
   projection of the graph. There is no independently authored root parameter
   table or table mutation API. Declaration derivation reads concrete parameter
-  expressions directly, including during Cook; it rejects duplicate identities/names,
+  expressions directly, including during Cook; it coalesces identical definitions by
+  parameter GUID and rejects conflicting shared definitions or duplicate names,
   node/parameter GUID collisions, oversized text, invalid metadata and non-finite
   active defaults. Concrete expression classes determine declaration types.
 - `SetMaterialExpressions` validates and independently duplicates the candidate
-  before publishing its owned collection, outputs and derived schema. Rename keeps node and parameter
-  identities. Retyping must leave valid links; GUID/type-mismatched instance
+  before publishing its owned collection, outputs and derived schema. Shared rename
+  keeps node and parameter identities. Rebinding one node to another name uses that
+  parameter or creates a fresh parameter GUID. Retyping must leave valid links; GUID/type-mismatched instance
   overrides remain inspectable orphans. Deleting an owner removes its connections
   through the graph command boundary. Rejected edits leave revisions unchanged.
 - Parameter defaults and display metadata are excluded from shader identity. Default
-  edits update the owner and derived declarations. A transient 128-bit edit fingerprint
+  edits update every referencing expression and the derived declaration atomically. A transient 128-bit edit fingerprint
   records typed graph operations, connection selectors, call ports and callee handles;
   it excludes parameter defaults and presentation, and is not a persisted shader key.
   Material owners retain no universal Program or function-call table cache. Structural

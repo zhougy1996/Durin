@@ -236,16 +236,19 @@ namespace Durin
 		if (*Entry == Definition) return true;
 		if (!bCooked)
 		{
-			DMaterialExpressionParameter* Owner = nullptr;
+			std::vector<DMaterialExpressionParameter*> Owners;
 			for (const auto& Expression : ExpressionCollection.Expressions)
-				if (auto* Parameter = Cast<DMaterialExpressionParameter>(Expression.Get()); Parameter && Parameter->Metadata.Id == Id) { Owner = Parameter; break; }
-			if (!Owner) return false;
-			if (auto* Parameter = Cast<DMaterialExpressionScalarParameter>(Owner)) Parameter->DefaultValue = Value.GetScalar();
-			else if (auto* Parameter = Cast<DMaterialExpressionVector2Parameter>(Owner)) Parameter->DefaultValue = Value.GetVector2();
-			else if (auto* Parameter = Cast<DMaterialExpressionVector3Parameter>(Owner)) Parameter->DefaultValue = Value.GetVector();
-			else if (auto* Parameter = Cast<DMaterialExpressionVector4Parameter>(Owner)) Parameter->DefaultValue = Value.GetVector4();
-			else if (auto* Parameter = Cast<DMaterialExpressionTextureParameter>(Owner)) Parameter->DefaultValue = {Value.GetTexture().Texture, Value.GetTexture().SamplerState, Value.GetTexture().TextureFallback};
-			else return false;
+				if (auto* Parameter = Cast<DMaterialExpressionParameter>(Expression.Get()); Parameter && Parameter->Metadata.Id == Id)
+				{
+					if (Parameter->GetParameterDefinition() != *Entry) return false;
+					Owners.push_back(Parameter);
+				}
+			if (Owners.empty()) return false;
+			for (auto* Parameter : Owners)
+			{
+				const bool bApplied = Parameter->SetParameterDefinition(Definition);
+				require(bApplied);
+			}
 		}
 
 		*Entry = std::move(Definition);

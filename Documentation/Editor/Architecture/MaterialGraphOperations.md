@@ -280,13 +280,24 @@ GUID-keyed presentation. Storage accounting includes nested arrays
 and strings. `CreateParameter`, `RenameParameter` and `DeleteParameter` create, edit
 or remove concrete parameter expressions through typed snapshots. Numeric constant
 promotion and Surface default/parameter/texture commands use the same publication
-boundary. Invalid candidates add no undo entry. Names and parameter
-GUIDs must be unique; there is no name-based reuse.
+boundary. Invalid candidates add no undo entry. New parameter nodes and constant
+promotion reuse an existing case-insensitive name when its type matches, adopting
+its parameter GUID, default and shared metadata. Type conflicts reject. Nodes keep
+independent GUIDs, positions and connections; the derived instance list has one
+entry per parameter. Default and metadata edits synchronize all references in one
+transaction. Texture references retain their local sampling inputs.
+
+The selected node's Parameter name field rebinds only that node, creating a fresh
+parameter GUID if the name is unused. Rename shared parameter changes all references
+without changing the parameter GUID or instance overrides; occupied names reject.
+Deleting a node keeps remaining references. DeleteParameter removes all references.
+Shared definitions must agree during Engine validation, loading and compilation;
+inconsistent snapshots are rejected rather than resolved by traversal order.
 
 Disconnected owners remain editable through selection. Instances retain reachable
 controls and inspectable orphan overrides with explicit removal. Constant promotion
-preserves the node GUID and links while creating a fresh parameter GUID and carrying
-its typed literal into the owned default. Surface-output promotion creates a new
+preserves the node GUID and links; a new name creates a fresh parameter GUID with
+its typed literal as the default, while an existing name adopts that parameter. Surface-output promotion creates a new
 owner and link. Texture-branch creation emits one combined texture-sample parameter
 with default mesh UV0 and selects its attribute channel, including normal
 decode. Resource policy remains on that expression.
@@ -322,10 +333,13 @@ payload again before remapping typed connections, so it cannot mutate the payloa
 Clearing the payload releases these roots. Compiler results and viewport state
 are excluded.
 
-Copy orders nodes by GUID. Every paste generates fresh node and parameter GUIDs and
-unique names, preserving copied default/metadata values. Internal links are remapped
-together. Same-root external links can remain; foreign external links reject even
-when destination GUIDs happen to match. Duplicate owner identities/names, missing
+Copy orders nodes by GUID. Every paste generates fresh node GUIDs. Parameter nodes
+reuse a matching destination name and type, adopting its current default/metadata;
+an unused name creates a fresh parameter GUID with the copied definition. Repeated
+references in one payload remain shared. Same-root duplication therefore shares
+existing parameters; a renamed or removed source name follows the same name lookup.
+Internal links are remapped together. Same-root external links can remain; foreign external links reject even
+when destination GUIDs happen to match. Conflicting shared definitions/types, duplicate node identities, missing
 retained resources and unsupported versions reject atomically. Placement, owners,
 links and derived schemas commit and Undo/Redo together.
 

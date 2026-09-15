@@ -1,6 +1,6 @@
 #include "MaterialProgramTestFixture.h"
 
-TEST(FMaterialPropertyEditingTests, OwnedParametersRejectDuplicateIdentityAndNameAtomically)
+TEST(FMaterialPropertyEditingTests, OwnedParametersShareIdentityAndRejectConflictingNamesAtomically)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
@@ -16,11 +16,11 @@ TEST(FMaterialPropertyEditingTests, OwnedParametersRejectDuplicateIdentityAndNam
 	TStrongObjectPtr<DMaterialExpressionScalarParameter> Duplicate(Cast<DMaterialExpressionScalarParameter>(DuplicateObject(Owner.Get(), nullptr, NAME_None)));
 	Duplicate->Id = FGuid::NewGuid();
 	const std::array<DMaterialExpression*, 2> Duplicated{Owner.Get(), Duplicate.Get()};
-	EXPECT_FALSE(Material->SetMaterialExpressions(Duplicated, {}));
+	ASSERT_TRUE(Material->SetMaterialExpressions(Duplicated, {}));
 	Duplicate->Metadata.Id = FGuid::NewGuid(); Duplicate->Metadata.Name = "rustamount";
 	EXPECT_FALSE(Material->SetMaterialExpressions(Duplicated, {}));
 	EXPECT_EQ(Material->GetParameterDefinitionSchemaRevision(), Revision);
-	ASSERT_EQ(Material->GetExpressionCollection().Expressions.size(), 1u);
+	ASSERT_EQ(Material->GetExpressionCollection().Expressions.size(), 2u);
 	Owner->Metadata.Name = "Weathering";
 	ASSERT_TRUE(Material->SetMaterialExpressions(Original, {}));
 	EXPECT_EQ(Material->FindParameterDefinition("Weathering")->Id, Owner->Metadata.Id);

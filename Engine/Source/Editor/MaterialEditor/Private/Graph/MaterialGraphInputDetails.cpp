@@ -79,7 +79,7 @@ namespace Durin::Editor::Material
 					Sample->Metadata = Texture->Metadata; Sample->DefaultValue = Texture->DefaultValue; Sample->TextureUsage = Texture->TextureUsage;
 				}
 				else *ExpressionIt = Replacement.Get();
-				Submit(GraphEditInternals::CommitOwnedExpressions(Owner, State, "Edit Parameter Expression", &Transactions));
+				Submit(Document.ReplaceExpression(**ExpressionIt, &Transactions));
 			};
 			int Type = static_cast<int>(Parameter.Type);
 			if (ImGui::Combo("Type", &Type, "Scalar\0Vector3\0Texture\0Vector2\0Vector4\0"))
@@ -98,7 +98,12 @@ namespace Durin::Editor::Material
 				CommitParameter();
 			}
 			std::string Name = Parameter.Name.ToString();
-			if (!Changed && EditText("Name", Name)) { Parameter.Name = FName(Name); CommitParameter(); }
+			if (!Changed && EditText("Parameter name", Name)) { Parameter.Name = FName(Name); CommitParameter(); }
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Change this node's parameter binding. Existing names use the existing parameter's value.");
+			std::string SharedName = Parameter.Name.ToString();
+			if (!Changed && EditText("Rename shared parameter", SharedName))
+				Submit(FMaterialGraphOperations::RenameParameter(*Material, Parameter.Id, FName(SharedName), &Transactions));
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Rename all references while preserving material instance overrides.");
 			if (!Changed && EditText("Display name", Parameter.DisplayName)) CommitParameter();
 			std::string Group = Parameter.GroupName.ToString();
 			if (!Changed && EditText("Group", Group)) { Parameter.GroupName = FName(Group); CommitParameter(); }

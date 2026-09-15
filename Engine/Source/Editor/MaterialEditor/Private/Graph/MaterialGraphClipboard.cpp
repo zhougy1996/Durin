@@ -1,3 +1,4 @@
+#include "MaterialExpressionParameters.h"
 #include "Materials/MaterialExpressionBuild.h"
 #include "MaterialGraphEditInternals.h"
 #include "MaterialGraphDocument.h"
@@ -112,7 +113,12 @@ namespace Durin::Editor::Material
 			do Id = FGuid::NewGuid(); while (UsedIds.contains(Id));
 			UsedIds.insert(Id); Remap.emplace(Node.Expression->Id, Id);
 			if (const auto* Parameter = Cast<DMaterialExpressionParameter>(Node.Expression.Get()))
-				Definitions.push_back(Parameter->GetParameterDefinition());
+				{
+				const auto Definition = Parameter->GetParameterDefinition();
+				const auto Existing = std::ranges::find(Definitions, Definition.Id, &FMaterialParameterDefinition::Id);
+				if (Existing == Definitions.end()) Definitions.push_back(Definition);
+				else if (*Existing != Definition) return MakeRejected("Clipboard shared parameter definitions disagree.");
+			}
 		}
 		const auto Validation = ValidateMaterialParameterDefinitions(Definitions);
 		if (!Validation) return MakeRejected(std::string(GetMaterialParameterErrorText(Validation.Error)));
@@ -166,14 +172,8 @@ namespace Durin::Editor::Material
 			}
 			if (auto* Parameter = Cast<DMaterialExpressionParameter>(Expression.Get()))
 			{
-				auto& Metadata = Parameter->Metadata;
-				do Metadata.Id = FGuid::NewGuid(); while (UsedIds.contains(Metadata.Id));
-				UsedIds.insert(Metadata.Id);
-				const auto BaseName = Metadata.Name.ToString();
-				for (uint32 Suffix = 2; std::ranges::any_of(State.Expressions, [&](const auto& E) {
-					const auto* P = Cast<DMaterialExpressionParameter>(E.Get()); return P && P->Metadata.Name == Metadata.Name;
-				}); ++Suffix) Metadata.Name = FName(std::format("{}{}", BaseName, Suffix));
-				if (Metadata.DisplayName == BaseName) Metadata.DisplayName = Metadata.Name.ToString();
+				Parameter->Metadata.Id = FGuid::NewGuid();
+				if (const auto Error = ResolveParameterExpression(State, *Parameter); !Error.empty()) return MakeRejected(Error);
 			}
 			bool bLinksValid = true;
 			VisitMaterialExpressionInputs(*Expression, [&](uint32, FMaterialExpressionInput& Input) { bLinksValid &= RemapLink(Input); });

@@ -1293,7 +1293,7 @@ TEST(FMaterialGraphOperationsTests, ConstantPaletteUsesOneEntryAndTypeChangesPre
 	CollectGarbage();
 }
 
-TEST(FMaterialGraphOperationsTests, ParameterSharingUsesLinksAndRenamePreservesOwner)
+TEST(FMaterialGraphOperationsTests, ParameterSharingUsesIndependentNodesAndRenamePreservesIdentity)
 {
 	InitializeDObjectSystem();
 	auto* Material = NewObject<DMaterial>(nullptr, "SharedParameter");
@@ -1314,7 +1314,9 @@ TEST(FMaterialGraphOperationsTests, ParameterSharingUsesLinksAndRenamePreservesO
 	EXPECT_EQ(Material->GetExpressionCollection().Expressions.size(), 1u);
 	TStrongObjectPtr<DMaterialExpression> DuplicateOwner(DuplicateObject(Material->GetExpressionCollection().Expressions.front().Get(), nullptr, NAME_None));
 	DuplicateOwner->Id = FGuid::NewGuid();
-	EXPECT_FALSE(Document.CreateExpression(*DuplicateOwner.Get()));
+	ASSERT_TRUE(Document.CreateExpression(*DuplicateOwner.Get()));
+	EXPECT_EQ(Material->GetParameterDefinitions().size(), 1u);
+	EXPECT_EQ(Material->GetExpressionCollection().Expressions.size(), 2u);
 	ASSERT_TRUE(FMaterialGraphOperations::RenameParameter(*Material, ParameterId, "RenamedShared", Transactions.Get()));
 	EXPECT_EQ(Material->FindParameterDefinition("RenamedShared")->Id, ParameterId);
 	EXPECT_EQ(Material->GetExpressionCollection().Expressions.front()->Id, OwnerId);
@@ -2693,8 +2695,8 @@ TEST(FMaterialGraphOperationsTests, ForeignClipboardOwnsLocalDeclarationsAndReje
 	EXPECT_EQ(Target->GetParameterDefinitions().front().Id, LocalId);
 	EXPECT_EQ(Target->GetMaterialGraphPresentation(), AfterPresentation);
 	ASSERT_TRUE(FMaterialGraphOperations::Paste(*Target, Payload, 600, 200));
-	EXPECT_EQ(Target->GetParameterDefinitions().size(), 2u);
-	EXPECT_NE(Cast<DMaterialExpressionParameter>(Target->GetExpressionCollection().Expressions.back().Get())->Metadata.Id, LocalId);
+	EXPECT_EQ(Target->GetParameterDefinitions().size(), 1u);
+	EXPECT_EQ(Cast<DMaterialExpressionParameter>(Target->GetExpressionCollection().Expressions.back().Get())->Metadata.Id, LocalId);
 
 	const auto BeforeProgram = CaptureExpressions(*Target);
 	const auto BeforePresentation = Target->GetMaterialGraphPresentation();
@@ -2758,8 +2760,12 @@ TEST(FMaterialGraphOperationsTests, DeclarationCommandsAndConstantPromotionShare
 	ASSERT_TRUE(Id.IsValid());
 	Definition.Value = FMaterialParameterValue::MakeScalar(0.75f);
 	const auto Reused = FMaterialGraphOperations::CreateParameter(*Material, Definition, Transactions.Get());
-	EXPECT_FALSE(Reused);
+	ASSERT_TRUE(Reused);
+	EXPECT_EQ(Reused.AffectedParameterIds.front(), Id);
+	EXPECT_EQ(Material->GetParameterDefinitions().size(), 1u);
 	EXPECT_EQ(Material->FindParameterDefinition(Id)->Value.GetScalar(), 0.25f);
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(Material->GetExpressionCollection().Expressions.size(), 1u);
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_TRUE(Material->GetParameterDefinitions().empty());
 	ASSERT_TRUE(Transactions->Redo());
@@ -2999,4 +3005,154 @@ TEST(FMaterialGraphOperationsTests, DeletingSurfaceOverrideSourceRestoresBaseAnd
 	EXPECT_EQ(Remaining->Attributes.front().Source.ExpressionId, DeletedId);
 	EXPECT_TRUE(Transactions->Reset()); Material.Reset();
 	CollectGarbage();
+}
+
+TEST(FMaterialGraphOperationsTests, SharedParametersSynchronizeRebindAndUndo)
+{
+	InitializeDObjectSystem();
+	auto* Material = NewObject<DMaterial>(nullptr, "SharedParameterCommands");
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	Durin::Tests::FTestTransactorOwner Transactions;
+	FMaterialGraphDocument Document(*Material);
+	FMaterialParameterDefinition Definition;
+	Definition.Name = "Amount"; Definition.Value = FMaterialParameterValue::MakeScalar(.25f);
+	const auto A = FMaterialGraphOperations::CreateParameter(*Material, Definition);
+	ASSERT_TRUE(A);
+	const auto Id = A.AffectedParameterIds.front();
+	const auto B = FMaterialGraphOperations::DuplicateNodes(*Material, A.GeneratedNodeIds, 100, 0);
+	ASSERT_TRUE(B) << B.Message;
+	ASSERT_EQ(Material->GetParameterDefinitions().size(), 1u);
+	ASSERT_TRUE(Document.AssignMaterialOutput(EMaterialSurfaceOutput::Metallic, {A.GeneratedNodeIds.front()}));
+	ASSERT_TRUE(Document.AssignMaterialOutput(EMaterialSurfaceOutput::Roughness, {B.GeneratedNodeIds.front()}));
+	std::vector<DMaterialExpression*> Expressions;
+	for (const auto& E : Material->GetExpressionCollection().Expressions) Expressions.push_back(E.Get());
+	const auto Built = FMaterialExpressionBuildContext(Expressions).FinishSurface(Material->GetExpressionOutputs());
+	ASSERT_TRUE(Built.Diagnostics.empty());
+	ASSERT_EQ(Built.Parameters.size(), 1u);
+	EXPECT_EQ(Built.Parameters.front().Id, Id);
+	auto* Instance = NewObject<DMaterialInstance>(nullptr, "SharedParameterInstance");
+	ASSERT_TRUE(Instance->SetParent(Material));
+	ASSERT_TRUE(Instance->SetParameterValue(Id, FMaterialParameterValue::MakeScalar(.8f)));
+	ASSERT_TRUE(FMaterialGraphOperations::SetParameterValue(*Material, Id, FMaterialParameterValue::MakeScalar(.6f), Transactions.Get()));
+	for (const auto& E : Material->GetExpressionCollection().Expressions)
+		EXPECT_FLOAT_EQ(Cast<DMaterialExpressionScalarParameter>(E.Get())->DefaultValue, .6f);
+	ASSERT_TRUE(Transactions->Undo());
+	for (const auto& E : Material->GetExpressionCollection().Expressions)
+		EXPECT_FLOAT_EQ(Cast<DMaterialExpressionScalarParameter>(E.Get())->DefaultValue, .25f);
+	ASSERT_TRUE(Transactions->Redo());
+
+	TStrongObjectPtr<DMaterialExpressionScalarParameter> Edit(Cast<DMaterialExpressionScalarParameter>(
+		DuplicateObject(Material->GetExpressionCollection().Expressions.back().Get(), nullptr, NAME_None)));
+	Edit->Metadata.GroupName = "Shared Group";
+	ASSERT_TRUE(Document.ReplaceExpression(*Edit.Get(), Transactions.Get()));
+	EXPECT_EQ(Cast<DMaterialExpressionParameter>(Material->GetExpressionCollection().Expressions.front().Get())->Metadata.GroupName, FName("Shared Group"));
+	Edit->Metadata.Name = "OtherAmount";
+	ASSERT_TRUE(Document.ReplaceExpression(*Edit.Get(), Transactions.Get()));
+	ASSERT_EQ(Material->GetParameterDefinitions().size(), 2u);
+	const auto OtherId = Material->FindParameterDefinition("OtherAmount")->Id;
+	EXPECT_NE(OtherId, Id);
+	Edit->Metadata.Name = "Amount";
+	Edit->DefaultValue = .1f;
+	ASSERT_TRUE(Document.ReplaceExpression(*Edit.Get(), Transactions.Get()));
+	EXPECT_EQ(Material->GetParameterDefinitions().size(), 1u);
+	EXPECT_FLOAT_EQ(Cast<DMaterialExpressionScalarParameter>(Material->GetExpressionCollection().Expressions.back().Get())->DefaultValue, .6f);
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_NE(Material->FindParameterDefinition(OtherId), nullptr);
+	ASSERT_TRUE(Transactions->Redo());
+	ASSERT_TRUE(FMaterialGraphOperations::RenameParameter(*Material, Id, "RenamedAmount", Transactions.Get()));
+	FResolvedMaterialParameter Resolved;
+	ASSERT_TRUE(Instance->ResolveParameterValue(Id, Resolved));
+	EXPECT_FLOAT_EQ(Resolved.Value.GetScalar(), .8f);
+	EXPECT_EQ(Resolved.Definition->Name, FName("RenamedAmount"));
+	ASSERT_TRUE(Document.RemoveNodes(B.GeneratedNodeIds, Transactions.Get()));
+	EXPECT_EQ(Material->GetParameterDefinitions().size(), 1u);
+	ASSERT_TRUE(Document.RemoveNodes(A.GeneratedNodeIds, Transactions.Get()));
+	EXPECT_TRUE(Material->GetParameterDefinitions().empty());
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_NE(Material->FindParameterDefinition(Id), nullptr);
+	EXPECT_TRUE(Transactions->Reset());
+	MarkAsGarbage(Instance); MarkAsGarbage(Material); CollectGarbage();
+}
+
+TEST(FMaterialGraphOperationsTests, SharedParameterValidationAndForeignPasteAreAtomic)
+{
+	InitializeDObjectSystem();
+	auto* Source = NewObject<DMaterial>(nullptr, "SharedPasteSource");
+	auto* Target = NewObject<DMaterial>(nullptr, "SharedPasteTarget");
+	Source->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	Target->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	auto A = Testing::MakeGraphExpression<DMaterialExpressionScalarParameter>();
+	A->Metadata = {FGuid::NewGuid(), "Amount"}; A->DefaultValue = .4f;
+	auto B = Testing::MakeGraphExpression<DMaterialExpressionScalarParameter>();
+	B->Metadata = A->Metadata; B->DefaultValue = .4f;
+	const std::array<DMaterialExpression*, 2> Nodes{A.Get(), B.Get()};
+	ASSERT_TRUE(Source->SetMaterialExpressions(Nodes, {}));
+	ASSERT_TRUE(FMaterialGraphOperations::Layout(*Source));
+	const auto Before = CaptureExpressions(*Source);
+	B->DefaultValue = .7f;
+	EXPECT_FALSE(Source->SetMaterialExpressions(Nodes, {}));
+	EXPECT_FALSE(FMaterialExpressionBuildContext(Nodes).FinishSurface({}).Diagnostics.empty());
+	EXPECT_EQ(CaptureExpressions(*Source), Before);
+	B->DefaultValue = .4f;
+	B->Metadata.Id = FGuid::NewGuid();
+	EXPECT_FALSE(Source->SetMaterialExpressions(Nodes, {}));
+	FMaterialGraphClipboardPayload Payload;
+	const std::array Ids{A->Id, B->Id};
+	ASSERT_TRUE(FMaterialGraphOperations::CopySelection(*Source, Ids, Payload));
+	ASSERT_TRUE(FMaterialGraphOperations::Paste(*Target, Payload, 0, 0));
+	ASSERT_EQ(Target->GetParameterDefinitions().size(), 1u);
+	const auto TargetId = Target->GetParameterDefinitions().front().Id;
+	EXPECT_NE(TargetId, A->Metadata.Id);
+	ASSERT_TRUE(Target->SetParameterValue(TargetId, FMaterialParameterValue::MakeScalar(.9f)));
+	ASSERT_TRUE(FMaterialGraphOperations::Paste(*Target, Payload, 100, 0));
+	EXPECT_EQ(Target->GetParameterDefinitions().size(), 1u);
+	for (const auto& E : Target->GetExpressionCollection().Expressions)
+		EXPECT_FLOAT_EQ(Cast<DMaterialExpressionScalarParameter>(E.Get())->DefaultValue, .9f);
+	FMaterialParameterDefinition Conflict;
+	Conflict.Name = "Amount"; Conflict.Type = EMaterialParameterType::Vector;
+	Conflict.Value = FMaterialParameterValue::MakeVector({1, 1, 1});
+	const auto TargetBefore = CaptureExpressions(*Target);
+	EXPECT_FALSE(FMaterialGraphOperations::CreateParameter(*Target, Conflict));
+	EXPECT_EQ(CaptureExpressions(*Target), TargetBefore);
+	MarkAsGarbage(Source); MarkAsGarbage(Target); CollectGarbage();
+}
+
+TEST(FMaterialGraphOperationsTests, SharedTextureParametersPreserveLocalSamplingAndRoundTrip)
+{
+	InitializeDObjectSystem();
+	Testing::FScopedMountRegistryFixture MountRegistry;
+	const auto Root = Testing::GetTestWorkDirectory() / "SharedTextureParameters";
+	Testing::RemoveTestWorkDirectory(Root);
+	Testing::RegisterMountPointForTests("/SharedTextureParameters/", Root.generic_string() + "/");
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/SharedTextureParameters/Base", Path));
+	DMaterial* Material = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Material));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	auto A = Testing::MakeGraphExpression<DMaterialExpressionTextureSampleParameter2D>();
+	auto B = Testing::MakeGraphExpression<DMaterialExpressionTextureSampleParameter2D>();
+	auto UV = Testing::MakeGraphExpression<DMaterialExpressionVector2Constant>();
+	UV->Value = {.2f, .7f};
+	A->Metadata = {FGuid::NewGuid(), "SharedTexture"}; B->Metadata = A->Metadata;
+	B->UV = {UV->Id};
+	const auto Id = A->Metadata.Id, BId = B->Id;
+	ASSERT_TRUE(Material->SetMaterialExpressions(std::array<DMaterialExpression*, 3>{A.Get(), B.Get(), UV.Get()}, {}));
+	Durin::Tests::FTestTransactorOwner Transactions;
+	auto Definition = A->GetParameterDefinition();
+	Definition.Value.GetTexture().TextureFallback = EMaterialTextureFallback::FlatRGNormal;
+	ASSERT_TRUE(FMaterialGraphOperations::SetParameterValue(*Material, Id, Definition.Value, Transactions.Get()));
+	EXPECT_EQ(FindExpression<DMaterialExpressionTextureSampleParameter2D>(*Material, BId)->UV.ExpressionId, UV->Id);
+	EXPECT_EQ(FindExpression<DMaterialExpressionTextureSampleParameter2D>(*Material, BId)->DefaultValue.TextureFallback, EMaterialTextureFallback::FlatRGNormal);
+	ASSERT_TRUE(Transactions->Undo());
+	ASSERT_TRUE(Transactions->Redo());
+	ASSERT_TRUE(SavePackage(Material->GetPackage()));
+	ASSERT_TRUE(Transactions->Reset());
+	ASSERT_TRUE(UnloadPackage(Path));
+	Material = nullptr;
+	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Material));
+	ASSERT_EQ(Material->GetParameterDefinitions().size(), 1u);
+	EXPECT_EQ(Material->GetParameterDefinitions().front().Id, Id);
+	EXPECT_EQ(FindExpression<DMaterialExpressionTextureSampleParameter2D>(*Material, BId)->UV.ExpressionId, UV->Id);
+	EXPECT_EQ(FindExpression<DMaterialExpressionTextureSampleParameter2D>(*Material, BId)->DefaultValue.TextureFallback, EMaterialTextureFallback::FlatRGNormal);
+	ASSERT_TRUE(UnloadPackage(Path)); CollectGarbage();
 }

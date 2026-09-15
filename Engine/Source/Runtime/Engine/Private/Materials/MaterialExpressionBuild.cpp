@@ -33,7 +33,7 @@ namespace Durin
 			Fail("Expression collection exceeds the authored node bound.");
 			return;
 		}
-		std::set<FGuid> ParameterOwners;
+		std::map<FGuid, FMaterialParameterDefinition> ParameterOwners;
 		std::unordered_set<FName> ParameterNames;
 		for (auto* Expression : InExpressions)
 		{
@@ -44,9 +44,9 @@ namespace Durin
 				return;
 			}
 			if (const auto* Parameter = Cast<DMaterialExpressionParameter>(Expression);
-				Parameter && (Signature || !Parameter->Metadata.Id.IsValid() || !ParameterOwners.insert(Parameter->Metadata.Id).second))
+				Parameter && (Signature || !Parameter->Metadata.Id.IsValid()))
 			{
-				Fail("Parameter expressions require unique valid parameter GUIDs.");
+				Fail("Parameter expressions require valid parameter GUIDs and a material owner.");
 				return;
 			}
 			AuthoredLinks += Expression->GetAuthoredInputCount();
@@ -58,7 +58,10 @@ namespace Durin
 			if (const auto* Parameter = Cast<DMaterialExpressionParameter>(Expression))
 			{
 				const auto Definition = Parameter->GetParameterDefinition();
-				if (!ParameterNames.insert(Definition.Name).second || !ValidateMaterialParameterDefinitions(std::span(&Definition, 1)))
+				const auto [Owner, bInserted] = ParameterOwners.emplace(Definition.Id, Definition);
+				if ((!bInserted && Owner->second != Definition)
+					|| (bInserted && !ParameterNames.insert(Definition.Name).second)
+					|| !ValidateMaterialParameterDefinitions(std::span(&Definition, 1)))
 				{
 					Fail("Parameter expression metadata or default is invalid.");
 					return;
@@ -70,7 +73,7 @@ namespace Durin
 			Fail("Expression collection exceeds the parameter declaration bound.");
 			return;
 		}
-		for (const auto Id : ParameterOwners)
+		for (const auto& [Id, Definition] : ParameterOwners)
 			if (Expressions.contains(Id))
 			{
 				Fail("Parameter identity must be distinct from expression identity.");

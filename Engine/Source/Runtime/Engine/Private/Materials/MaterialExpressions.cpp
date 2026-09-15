@@ -20,6 +20,32 @@ namespace Durin
 		}
 	}
 
+	auto DMaterialExpressionParameter::SetParameterDefinition(const FMaterialParameterDefinition& Definition) -> bool
+	{
+		if (GetParameterDefinition().Type != Definition.Type
+			|| !ValidateMaterialParameterDefinitions(std::span(&Definition, 1))) return false;
+		if (auto* Parameter = Cast<DMaterialExpressionScalarParameter>(this))
+		{
+			Parameter->DefaultValue = Definition.Value.GetScalar();
+			Parameter->bHasRange = Definition.bHasRange;
+			Parameter->MinimumValue = Definition.MinimumValue;
+			Parameter->MaximumValue = Definition.MaximumValue;
+		}
+		else if (auto* Parameter = Cast<DMaterialExpressionVector2Parameter>(this)) Parameter->DefaultValue = Definition.Value.GetVector2();
+		else if (auto* Parameter = Cast<DMaterialExpressionVector3Parameter>(this)) Parameter->DefaultValue = Definition.Value.GetVector();
+		else if (auto* Parameter = Cast<DMaterialExpressionVector4Parameter>(this)) Parameter->DefaultValue = Definition.Value.GetVector4();
+		else if (auto* Parameter = Cast<DMaterialExpressionTextureParameter>(this))
+		{
+			const auto& Texture = Definition.Value.GetTexture();
+			Parameter->DefaultValue = {Texture.Texture, Texture.SamplerState, Texture.TextureFallback};
+			Parameter->TextureUsage = Definition.TextureUsage;
+		}
+		else return false;
+		Metadata = {Definition.Id, Definition.Name, Definition.DisplayName, Definition.GroupName,
+			Definition.SortOrder, Definition.Presentation};
+		return true;
+	}
+
 	auto DMaterialExpressionParameter::MakeDefinition(EMaterialParameterType Type, FMaterialParameterValue Value) const
 		-> FMaterialParameterDefinition
 	{

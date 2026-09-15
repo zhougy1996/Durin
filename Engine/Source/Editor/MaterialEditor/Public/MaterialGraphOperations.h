@@ -247,13 +247,15 @@ namespace Durin::Editor::Material
 			std::string_view Query,
 			std::optional<EMaterialProgramValueType> SourceType = std::nullopt)
 			-> std::vector<size_t>;
-		// One transaction owns both declaration changes and all affected references.
+		// Creates a node; an existing name reuses its compatible parameter definition.
 		MATERIALEDITOR_API static auto CreateParameter(
 			DMaterial& Material, FMaterialParameterDefinition Definition,
 			DTransactor* Transactions = nullptr) -> FMaterialGraphCommandResult;
+		// Renames all references while preserving the parameter ID and instance overrides.
 		MATERIALEDITOR_API static auto RenameParameter(
 			DMaterial& Material, const FGuid& ParameterId, FName Name,
 			DTransactor* Transactions = nullptr) -> FMaterialGraphCommandResult;
+		// Removes every node referencing this parameter; RemoveNodes deletes individual references.
 		MATERIALEDITOR_API static auto DeleteParameter(
 			DMaterial& Material, const FGuid& ParameterId,
 			DTransactor* Transactions = nullptr) -> FMaterialGraphCommandResult;

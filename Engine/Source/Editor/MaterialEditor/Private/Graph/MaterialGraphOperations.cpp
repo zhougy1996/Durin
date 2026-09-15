@@ -40,6 +40,41 @@ namespace Durin::Editor::Material
 	}
 	namespace GraphEditInternals
 	{
+		auto ResolveParameterExpression(FMaterialGraphDocumentState& State, DMaterialExpressionParameter& Parameter,
+			const DMaterialExpressionParameter* Previous) -> std::string
+		{
+			if (State.bFunction) return "Functions cannot own root parameters.";
+			auto Definition = Parameter.GetParameterDefinition();
+			if (!ValidateMaterialParameterDefinitions(std::span(&Definition, 1))) return "The parameter definition is invalid.";
+			const bool bEditingShared = Previous && Previous->Metadata.Name == Definition.Name
+				&& Previous->Metadata.Id == Definition.Id;
+			if (bEditingShared)
+			{
+				for (auto& Expression : State.Expressions)
+					if (auto* Peer = Cast<DMaterialExpressionParameter>(Expression.Get()); Peer && Peer->Id != Parameter.Id
+						&& Peer->Metadata.Id == Definition.Id)
+					{
+						if (!Peer->SetParameterDefinition(Definition)) return "Shared parameter types must match; use a new parameter name to change type.";
+					}
+				return {};
+			}
+			for (const auto& Expression : State.Expressions)
+				if (const auto* Peer = Cast<DMaterialExpressionParameter>(Expression.Get()); Peer && Peer->Id != Parameter.Id
+					&& Peer->Metadata.Name == Definition.Name)
+				{
+					if (!Parameter.SetParameterDefinition(Peer->GetParameterDefinition()))
+						return "A parameter with this name already exists with a different type.";
+					return {};
+				}
+			if (Previous && Previous->Metadata.Name != Definition.Name)
+			{
+				Parameter.Metadata.Id = FGuid::NewGuid();
+				if (Parameter.Metadata.DisplayName == Previous->Metadata.Name.ToString())
+					Parameter.Metadata.DisplayName = Parameter.Metadata.Name.ToString();
+			}
+			return {};
+		}
+
 		auto MakeParameterExpression(const FMaterialParameterDefinition& Definition) -> TStrongObjectPtr<DMaterialExpressionParameter>
 		{
 			if (!ValidateMaterialParameterDefinitions(std::span(&Definition, 1))) return {};
@@ -95,6 +130,8 @@ namespace Durin::Editor::Material
 		if (!State.Capture(Material)) return {.Status = EMaterialGraphCommandStatus::StaleOwner};
 		auto Parameter = MakeParameterExpression(Definition);
 		const auto NodeId = Parameter->Id;
+		if (const auto Error = ResolveParameterExpression(State, *Parameter); !Error.empty()) return MakeRejected(Error);
+		Definition = Parameter->GetParameterDefinition();
 		State.Presentation.Nodes.push_back({NodeId});
 		State.Expressions.emplace_back(Parameter.Get());
 		auto Result = CommitOwnedExpressions(Material, std::move(State), "Create Parameter", Transactions);
@@ -118,8 +155,12 @@ namespace Durin::Editor::Material
 		if (!Parameter) return MakeRejected("Parameter owner is unavailable.");
 		if (Parameter->Metadata.Name == Name && Parameter->Metadata.DisplayName == Name.ToString())
 			return {.Status = EMaterialGraphCommandStatus::NoChange, .AffectedParameterIds = {ParameterId}};
-		Parameter->Metadata.Name = Name;
-		Parameter->Metadata.DisplayName = Name.ToString();
+		for (const auto& Expression : State.Expressions)
+			if (auto* Peer = Cast<DMaterialExpressionParameter>(Expression.Get()); Peer && Peer->Metadata.Id == ParameterId)
+			{
+				Peer->Metadata.Name = Name;
+				Peer->Metadata.DisplayName = Name.ToString();
+			}
 		auto Result = CommitOwnedExpressions(Material, std::move(State), "Rename Parameter", Transactions);
 		if (Result) Result.AffectedParameterIds = {ParameterId};
 		return Result;
@@ -129,13 +170,12 @@ namespace Durin::Editor::Material
 		DMaterial& Material, const FGuid& ParameterId, DTransactor* Transactions)
 		-> FMaterialGraphCommandResult
 	{
+		std::vector<FGuid> Nodes;
 		for (const auto& Expression : Material.GetExpressionCollection().Expressions)
 			if (const auto* Parameter = Cast<DMaterialExpressionParameter>(Expression.Get()); Parameter && Parameter->Metadata.Id == ParameterId)
-			{
-				const auto Id = Parameter->Id;
-				return RemoveNodes(Material, std::span(&Id, 1), Transactions);
-			}
-		return MakeRejected("Parameter owner is unavailable.");
+				Nodes.push_back(Parameter->Id);
+		if (Nodes.empty()) return MakeRejected("Parameter owner is unavailable.");
+		return RemoveNodes(Material, Nodes, Transactions);
 	}
 
 	auto FMaterialGraphOperations::PromoteConstantToParameter(
@@ -158,6 +198,8 @@ namespace Durin::Editor::Material
 		if (!Validation) return MakeRejected(std::string(GetMaterialParameterErrorText(Validation.Error)));
 		auto Parameter = MakeParameterExpression(Definition);
 		Parameter->Id = NodeId;
+		if (const auto Error = ResolveParameterExpression(State, *Parameter); !Error.empty()) return MakeRejected(Error);
+		Definition = Parameter->GetParameterDefinition();
 		*It = Parameter.Get();
 		const auto Position = std::ranges::find(State.Presentation.Nodes, NodeId, &FMaterialGraphNodePresentation::NodeId);
 		if (Position != State.Presentation.Nodes.end()) Position->DisplayName = Definition.DisplayName;

@@ -1,3 +1,4 @@
+#include "MaterialExpressionParameters.h"
 #include "Materials/MaterialExpressionBuild.h"
 #include "MaterialGraphDocument.h"
 #include "MaterialGraphEditInternals.h"
@@ -314,7 +315,11 @@ namespace Durin::Editor::Material
 		if (!Copy->Id.IsValid()) Copy->Id = FGuid::NewGuid();
 		const auto Id = Copy->Id;
 		FGuid ParameterId;
-		if (const auto* Parameter = Cast<DMaterialExpressionParameter>(Copy)) ParameterId = Parameter->Metadata.Id;
+		if (auto* Parameter = Cast<DMaterialExpressionParameter>(Copy))
+		{
+			if (const auto Error = ResolveParameterExpression(State, *Parameter); !Error.empty()) return MakeRejected(Error);
+			ParameterId = Parameter->Metadata.Id;
+		}
 		VisitMaterialExpressionInputs(*Copy, [&](uint32, FMaterialExpressionInput& Input) { IncludeCallOutput(State, Input); });
 		State.Presentation.Nodes.push_back({Id, X, Y});
 		auto Result = CommitOwnedExpressions(*Owner.Get(), std::move(State), "Create Graph Expression", Transactions);
@@ -335,7 +340,11 @@ namespace Durin::Editor::Material
 		if (Existing == State.Expressions.end()) return MakeRejected("The expression no longer exists.");
 		auto* Copy = DuplicateObject(&Expression, nullptr, NAME_None);
 		if (!Copy) return MakeRejected("Unable to copy the replacement expression.");
-		*Existing = TStrongObjectPtr<DMaterialExpression>(Copy);
+		TStrongObjectPtr<DMaterialExpression> Replacement(Copy);
+		if (auto* Parameter = Cast<DMaterialExpressionParameter>(Copy))
+			if (const auto Error = ResolveParameterExpression(State, *Parameter,
+				Cast<DMaterialExpressionParameter>(Existing->Get())); !Error.empty()) return MakeRejected(Error);
+		*Existing = std::move(Replacement);
 		VisitMaterialExpressionInputs(*Copy, [&](uint32, FMaterialExpressionInput& Input) { IncludeCallOutput(State, Input); });
 		const auto Id = Expression.Id;
 		auto Result = CommitOwnedExpressions(*Owner.Get(), std::move(State), "Replace Graph Expression", Transactions);
