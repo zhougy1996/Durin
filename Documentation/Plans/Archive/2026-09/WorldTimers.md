@@ -4,12 +4,12 @@ Summary: Add play-scoped World timers with a shared gameplay clock and mutation-
 
 Last reviewed: 2026-09-14
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-14
 
 ## Current Status
 
-Implementation and the [runtime contract](../Runtime/World/WorldTimers.md) are
+Implementation and the [runtime contract](../../../Runtime/World/WorldTimers.md) are
 complete. Validation used the windows-msvc-x64 / Win64-Debug-DurinEditor profile:
 
 - The affected-test selection passed all 83 targets (420.23 seconds including build).
@@ -79,10 +79,10 @@ Depends on Stage 1.
 
 - [x] Cover timing, invalid input, pause/scale/step, mutation, stale handles,
   object retirement, callback exceptions, and World transition boundaries.
-- [x] Publish the implemented [runtime contract](../Runtime/World/WorldTimers.md) and link routing.
+- [x] Publish the implemented [runtime contract](../../../Runtime/World/WorldTimers.md) and link routing.
 - [x] Pass relevant native tests and affected-test selection.
 - [x] Complete an all build and changed-document/all-plan validation.
 - [x] Review and commit isolated changes with plan/stage provenance.
 
-Follow [build guidance](../Agents/BuildAndRun.md) and
-[test guidance](../Agents/Testing.md) for execution and selection.
+Follow [build guidance](../../../Agents/BuildAndRun.md) and
+[test guidance](../../../Agents/Testing.md) for execution and selection.

@@ -4,7 +4,7 @@ Summary: Add typed material function assets and replace expanded imported PBR gr
 
 Last reviewed: 2026-09-12
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-12
 
 ## Current Status
@@ -66,8 +66,8 @@ The user subsequently selected an abstract `DMaterialFunctionInterface` asset
 base, with `DMaterialFunction` as its first concrete implementation. Function
 instances remain deferred; this is a design update, not completed implementation.
 
-This is M11 of the [Material System roadmap](../Roadmaps/MaterialSystem.md).
-[Material Instance Shader Variants](MaterialInstanceShaderVariants.md) has
+This is M11 of the [Material System roadmap](../../../Roadmaps/MaterialSystem.md).
+[Material Instance Shader Variants](../../MaterialInstanceShaderVariants.md) has
 landed its implementation and remains active for final qualification. Consume its
 landed property, variant publication, Cook and import contracts. M11 can proceed
 independently; reconcile compiler snapshot, dependency, Cook and import changes
@@ -446,7 +446,7 @@ shared Engine mesh incompatibilities). No source packages have been modified.
 
 ### Stage 0 completion receipts
 
-The [source inventory](Evidence/ReusableMaterialFunctions-Inventory.json) records
+The [source inventory](../../Evidence/ReusableMaterialFunctions-Inventory.json) records
 all 22 packages, physical ownership, SHA-256 hashes, reflected objects and exact
 reference routes. Engine packages are shared between projects and recorded once.
 All object/reference inspections succeeded. This is a pre-migration checkpoint;
@@ -802,7 +802,7 @@ production construction uses the function library. Inspection of historical comm
 resave expansion with deterministic MIGR node identities. The recognizer accepts
 that complete graph, not just its familiar root GUID. A modified node is rejected.
 
-The [migration checkpoint](Evidence/ReusableMaterialFunctions-Migration.json)
+The [migration checkpoint](../../Evidence/ReusableMaterialFunctions-Migration.json)
 records all source fingerprints and dispositions. ImportedSurface was replaced;
 DefaultMaterial, five meshes and two material instances were canonically resaved.
 The other 13 existing packages remained byte-identical. All original object records
@@ -844,7 +844,7 @@ root with the same parameter values, sampling policy, properties and geometry.
 
 All six imported captures and ten forward captures match Stage 0 pixel for pixel
 at 64x64. The ten same-run old/new comparisons also match exactly. The durable
-[qualification record](Evidence/ReusableMaterialFunctions-Qualification.json)
+[qualification record](../../Evidence/ReusableMaterialFunctions-Qualification.json)
 contains per-image hashes and zero-difference metrics; retained images are under
 `Build/.agent-state/evidence/ReusableMaterialFunctions-Stage5/Imported/` and
 `Build/.agent-state/evidence/ReusableMaterialFunctions-Stage5/Forward/`.
@@ -996,7 +996,7 @@ correctly, and no runtime dependency on function graphs or PBR GUID rules remain
 
 ## Validation and Handoff
 
-Follow [Testing](../Agents/Testing.md) and [Build And Run](../Agents/BuildAndRun.md).
+Follow [Testing](../../../Agents/Testing.md) and [Build And Run](../../../Agents/BuildAndRun.md).
 Discover exact target ownership through the registry during Stage 0. MaterialTests,
 scene-import tests and material Vulkan/Cook coverage are candidate lanes, not a
 substitute for registry selection. GPU visual qualification is a required Stage 5
@@ -1009,10 +1009,10 @@ and Editor documents only after implementation.
 
 ## References
 
-- [Material System](../Runtime/Rendering/MaterialSystem.md)
-- [Material Graph Operations](../Editor/Architecture/MaterialGraphOperations.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Catalog and Mutation](../Runtime/Assets/AssetCatalogAndMutation.md)
+- [Material System](../../../Runtime/Rendering/MaterialSystem.md)
+- [Material Graph Operations](../../../Editor/Architecture/MaterialGraphOperations.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Catalog and Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
 - [UE Material Functions](https://dev.epicgames.com/documentation/en-us/unreal-engine/unreal-engine-material-functions-overview): typed texture inputs and reusable function assets.
 - [UE Material Attributes](https://dev.epicgames.com/documentation/unreal-engine/material-attributes-expressions-in-unreal-engine): grouped Surface output and selective attribute access.
 

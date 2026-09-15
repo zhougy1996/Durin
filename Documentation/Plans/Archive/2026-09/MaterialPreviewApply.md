@@ -4,7 +4,7 @@ Summary: Isolate base-material graph editing and preview compilation from public
 
 Last reviewed: 2026-09-11
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-11
 
 ## Current Status
@@ -68,8 +68,8 @@ Depends on Stage 1. Outcome: automated evidence covers isolation and lifecycle.
   publication, failed/pending compilation, no-op Apply and source conflicts.
 - [x] Cover draft lifetime and discard, source dependents, and edit-after-Apply.
 - [x] Run relevant material/editor tests and build the runnable editor using the
-  [build workflow](../Agents/BuildAndRun.md) and
-  [test workflow](../Agents/Testing.md).
-- [x] Update [material graph operations](../Editor/Architecture/MaterialGraphOperations.md)
+  [build workflow](../../../Agents/BuildAndRun.md) and
+  [test workflow](../../../Agents/Testing.md).
+- [x] Update [material graph operations](../../../Editor/Architecture/MaterialGraphOperations.md)
   with the implemented document contract and report any omitted manual UI checks.
 - [x] Validate documentation and complete this plan with evidence.

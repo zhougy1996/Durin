@@ -4,7 +4,7 @@ Summary: Propagate explicit default baselines through reflected values and intro
 
 Last reviewed: 2026-09-14
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-14
 
 ## Current Status
@@ -147,9 +147,9 @@ measurements are reported without claiming unmeasured UI improvements.
 
 ## Validation and Handoff
 
-Follow [agent testing](../Agents/Testing.md),
-[build guidance](../Agents/BuildAndRun.md), and
-[documentation validation](../Agents/Documentation.md). Search migrated shared
+Follow [agent testing](../../../Agents/Testing.md),
+[build guidance](../../../Agents/BuildAndRun.md), and
+[documentation validation](../../../Agents/Documentation.md). Search migrated shared
 API symbols in Engine, Sandbox, and RoadWeaver source and tests. Commit validated
 stages with this plan and the exact stage title as provenance. Keep unpassed
 gates open and distinguish implementation status from research conclusions.

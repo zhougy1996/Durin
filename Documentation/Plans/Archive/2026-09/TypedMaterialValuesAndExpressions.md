@@ -4,7 +4,7 @@ Summary: Replace all-alternative material values and universal authored nodes wi
 
 Last reviewed: 2026-09-15
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-15
 
 ## Current Status
@@ -27,7 +27,7 @@ Both Game runs used separately staged fresh Cook outputs on NVIDIA GeForce GTX
 its known missing GrayboxPawn visual warning and discarded an incompatible
 pipeline cache. These are correctness checks, not GPU timing qualification.
 Cook outputs and JSON reports remain under `Build/TypedMaterialFinal/`; the
-[qualification report](TypedMaterialValuesAndExpressions.qualification.json)
+[qualification report](../../TypedMaterialValuesAndExpressions.qualification.json)
 embeds both final Cook reports and records the exact commands and receipts.
 The first Cook launch after building only DurinAssetTool failed before logging;
 the Editor `all` build completed the runtime outputs and the fresh retry passed.
@@ -171,7 +171,7 @@ DefaultMaterial and all seven standard functions through fresh typed recipes,
 validated staged packages with fresh readers, and preserved package/leaf identities
 in both project inventories. The unreferenced GraphAuthoringV5 fixtures are retired;
 no mounted material instances require recreation. The exact before/after hashes
-and retired files are recorded in [the rebuild manifest](TypedMaterialValuesAndExpressions.rebuild.json).
+and retired files are recorded in [the rebuild manifest](../../TypedMaterialValuesAndExpressions.rebuild.json).
 
 Cook now includes Engine service-owned roots such as DefaultMaterial. Fresh Sandbox
 and RoadWeaver Cook runs published 7 and 4 packages respectively, including the
@@ -194,7 +194,7 @@ bytes, owning-thread allocation requests and save/load medians against the recov
 baseline. The shipped total is 270,227 to 151,338 bytes, with exports increasing from
 8 to 224; object overhead is included in those totals.
 
-[The qualification report](TypedMaterialValuesAndExpressions.qualification.json)
+[The qualification report](../../TypedMaterialValuesAndExpressions.qualification.json)
 retains all samples, section bytes, object counts, identity records, image hashes,
 Cook reports and exact receipts. Six Debug CRT samples per operation use sample zero
 as warmup; medians use samples 1-5. These are allocation requests, not retained or
@@ -1196,7 +1196,7 @@ Depends on Stage 4.
 - [x] Reject unsupported material schemas before publishing a partially loaded
   graph; never interpret a missing new collection as a valid empty old asset.
 - [x] Update the owning runtime material documentation and
-  [Material Graph Operations](../Editor/Architecture/MaterialGraphOperations.md)
+  [Material Graph Operations](../../../Editor/Architecture/MaterialGraphOperations.md)
   to describe implemented ownership, snapshot, transaction, and Cook contracts.
 - [x] Complete an `all` build of the workspace, affected native suites, renderer
   qualification, both projects' Cook/Game checks, and documentation validation.
@@ -1207,16 +1207,16 @@ legacy material reader or alternate full-field save path remains.
 
 ## Validation And Scope Boundaries
 
-Follow [build guidance](../Agents/BuildAndRun.md) and
-[test guidance](../Agents/Testing.md) when implementing. Relevant suites include
+Follow [build guidance](../../../Agents/BuildAndRun.md) and
+[test guidance](../../../Agents/Testing.md) when implementing. Relevant suites include
 material schema/instances, graph operations, function expansion, compile lifecycle,
 render proxies, scene import, object/package serialization, clipboard and
 transactions, plus Vulkan material/import coverage. Recompute exact registered
 targets from the changed ownership rather than copying historical test counts.
 
-Use [Serialization](../Runtime/Core/Serialization.md),
-[Asset Packages](../Runtime/Assets/AssetPackages.md), and
-[Transaction Records](../Editor/Architecture/TransactionRecords.md) as current
+Use [Serialization](../../../Runtime/Core/Serialization.md),
+[Asset Packages](../../../Runtime/Assets/AssetPackages.md), and
+[Transaction Records](../../../Editor/Architecture/TransactionRecords.md) as current
 infrastructure contracts. This plan replaces the value-node authoring boundary
 in Material Graph Operations as implementation lands, while preserving the
 graph-owned parameter decision in

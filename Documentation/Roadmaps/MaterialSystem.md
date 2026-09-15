@@ -9,7 +9,7 @@ Completed:
 
 ## Current Status
 
-The [Reusable Material Functions plan](../Plans/ReusableMaterialFunctions.md)
+The [Reusable Material Functions plan](../Plans/Archive/2026-09/ReusableMaterialFunctions.md)
 completed M11 on 2026-09-12: typed function assets, bounded compiler expansion,
 shared editor authoring, dependency invalidation, source-free cooked execution,
 five standard PBR functions and explicit migration of all 22 inventoried packages.
@@ -258,7 +258,7 @@ effect. M13 keeps runtime dynamic edits outside shader compilation.
 | [Material Parameters and Compiled Layouts](../Plans/Archive/2026-09/MaterialParametersAndCompiledLayouts.md) | M10 | Declarations, compiled bindings, instances, editor, migration and Cook | Complete; historical baseline cancelled by user |
 | [Material Instance Shader Variants](../Plans/MaterialInstanceShaderVariants.md) | M13 | Per-field configuration, shared variant lifecycle, rendering, migration, Cook and editor/import integration | Implemented; final qualification in progress |
 | Runtime Dynamic Material Instances | M8 | Non-asset instances and measured updates; advanced reuse requires profiling evidence | Create after M13 |
-| [Reusable Material Functions](../Plans/ReusableMaterialFunctions.md) | M11 | Typed function assets, Surface access, texture-driven PBR library, editor workflow and asset migration | Complete |
+| [Reusable Material Functions](../Plans/Archive/2026-09/ReusableMaterialFunctions.md) | M11 | Typed function assets, Surface access, texture-driven PBR library, editor workflow and asset migration | Complete |
 | Material Context and Output Extensions | M12 | One selected effect or output domain per bounded plan | Conditional on concrete effect and stage contract |
 | Remaining Material Editor Polish | M9 | Explicit parent-chain inspection and any newly selected workflow coverage; excludes graph/compiler design | Select only when a concrete post-M7 workflow is unserved |
 

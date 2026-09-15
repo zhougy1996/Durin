@@ -4,7 +4,7 @@ Summary: Unify material authoring around one Surface root, centralize surface ev
 
 Last reviewed: 2026-09-14
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-14
 
 ## Current Status
@@ -671,12 +671,12 @@ visual/Cook acceptance and Stage 5 integration/documentation remain separate gat
 
 ## Execution References
 
-- [Material system](../Runtime/Rendering/MaterialSystem.md)
-- [Material graph operations](../Editor/Architecture/MaterialGraphOperations.md)
-- [Asset reconstruction](../Editor/Guides/CanonicalResave.md)
-- [Build and run guidance](../Agents/BuildAndRun.md)
-- [Native test selection](../Agents/Testing.md)
-- [Documentation workflow](../Agents/Documentation.md)
+- [Material system](../../../Runtime/Rendering/MaterialSystem.md)
+- [Material graph operations](../../../Editor/Architecture/MaterialGraphOperations.md)
+- [Asset reconstruction](../../../Editor/Guides/CanonicalResave.md)
+- [Build and run guidance](../../../Agents/BuildAndRun.md)
+- [Native test selection](../../../Agents/Testing.md)
+- [Documentation workflow](../../../Agents/Documentation.md)
 
 Primary implementation entry points are Engine's MaterialProgramTypes,
 MaterialProgramValidation, MaterialProgramCompiler and MaterialProgramGenerator;

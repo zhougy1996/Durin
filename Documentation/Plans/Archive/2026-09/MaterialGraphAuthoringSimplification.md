@@ -4,7 +4,7 @@ Summary: Replace parameter and UV wiring boilerplate with typed inline bindings 
 
 Last reviewed: 2026-09-13
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-13
 
 ## Current Status
@@ -53,11 +53,11 @@ headless UI evidence, not GPU thumbnail captures. Instance behavior is covered b
 the parameter-panel and nested-instance regressions; the explicit Open Parent
 Material control uses the existing asset workspace navigation.
 
-Implementation contracts are maintained in [Material System](../Runtime/Rendering/MaterialSystem.md),
-[Material Graph Operations](../Editor/Architecture/MaterialGraphOperations.md) and
-[Canonical Resave](../Editor/Guides/CanonicalResave.md). This plan preserves the
+Implementation contracts are maintained in [Material System](../../../Runtime/Rendering/MaterialSystem.md),
+[Material Graph Operations](../../../Editor/Architecture/MaterialGraphOperations.md) and
+[Canonical Resave](../../../Editor/Guides/CanonicalResave.md). This plan preserves the
 instance configuration/publication/Cook lifecycle owned by
-[Material Instance Shader Variants](MaterialInstanceShaderVariants.md).
+[Material Instance Shader Variants](../../MaterialInstanceShaderVariants.md).
 
 ## Goal
 
@@ -319,7 +319,7 @@ Outcome: executable baseline and a schema rollout that cannot strand old assets.
   GBuffer and masked-shadow images, including nonidentity independent UVs.
 - [x] Record current UV channel edge behavior and origin mappings needed by
   lowering; specify exact version numbers and old-schema decode entrypoints.
-- [x] Select affected native tests using [testing guidance](../Agents/Testing.md).
+- [x] Select affected native tests using [testing guidance](../../../Agents/Testing.md).
 
 Gate: fixtures cover all eight roles, nested instances, UV0/UV1, sampler/fallback,
 normal decode and edited standard-function dependencies before schema mutation.
@@ -377,7 +377,7 @@ the complete parent, no hidden replacement graph, and baseline shading parity.
 Depends on Stage 3. Outcome: authoring, migrated assets and cooked projects agree.
 
 - [x] Run affected project/test targets and a final `all` build using
-  [build guidance](../Agents/BuildAndRun.md); serialize build ownership.
+  [build guidance](../../../Agents/BuildAndRun.md); serialize build ownership.
 - [x] Compare captured same-environment images and normalized computations;
   investigate mismatches rather than accepting node-count improvements alone.
 - [x] Verify forward, GBuffer, masked shadows, graph-stripped Cook/load and

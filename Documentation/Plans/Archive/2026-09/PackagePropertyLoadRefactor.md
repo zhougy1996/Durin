@@ -4,7 +4,7 @@ Summary: Separate ordinary default-relative serialization from opt-in authored r
 
 Last reviewed: 2026-09-14
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-14
 
 ## Current Status
@@ -105,8 +105,8 @@ replacements remain complete, stable, validated, and serializable.
 - [x] Cover reset-to-default/resave, nested replacement, container edits,
   NoDelta, old forced tags, malformed paths, copy, reload, and material graphs.
 - [x] Run focused and affected native tests plus an all build, following
-  [testing](../Agents/Testing.md) and [build guidance](../Agents/BuildAndRun.md).
-- [x] Update [Serialization](../Runtime/Core/Serialization.md), validate changed
+  [testing](../../../Agents/Testing.md) and [build guidance](../../../Agents/BuildAndRun.md).
+- [x] Update [Serialization](../../../Runtime/Core/Serialization.md), validate changed
   documentation and all plans, and record exact results before completion.
 
 ## Validation Findings

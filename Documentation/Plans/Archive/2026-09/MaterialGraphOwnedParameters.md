@@ -4,7 +4,7 @@ Summary: Make graph nodes own material parameters, retire the separate declarati
 
 Last reviewed: 2026-09-14
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-14
 
 ## Current Status
@@ -80,7 +80,7 @@ This plan supersedes the separate declaration ownership, inline parameter-table
 references and 11-visible-element target of the completed
 [Material Graph Authoring Simplification](MaterialGraphAuthoringSimplification.md)
 plan as its stages land. Coordinate compiler, instance and Cook changes with the
-active [Material Instance Shader Variants](MaterialInstanceShaderVariants.md)
+active [Material Instance Shader Variants](../../MaterialInstanceShaderVariants.md)
 plan; preserve its intended current-model publication and runtime behavior.
 
 ## Goal
@@ -198,8 +198,8 @@ functions, import, save/load and cooked runtime use remains mandatory.
 
 ## Implementation Stages
 
-Follow [build guidance](../Agents/BuildAndRun.md) and
-[test guidance](../Agents/Testing.md) for target selection and execution. Each
+Follow [build guidance](../../../Agents/BuildAndRun.md) and
+[test guidance](../../../Agents/Testing.md) for target selection and execution. Each
 stage depends on the preceding stage and must leave the repository buildable.
 Record observed evidence before closing checklists.
 
@@ -403,9 +403,9 @@ new imports work, and old disposable assets are not required by any shipped path
   execution remains an outstanding gate rather than a pass.
 - [x] Complete an `all` build for all workspace projects after the final shared
   API change and verify no current declaration-table mutation path remains.
-- [x] Update [Material System](../Runtime/Rendering/MaterialSystem.md),
-  [Material Graph Operations](../Editor/Architecture/MaterialGraphOperations.md)
-  and [Canonical Resave](../Editor/Guides/CanonicalResave.md), then record completion.
+- [x] Update [Material System](../../../Runtime/Rendering/MaterialSystem.md),
+  [Material Graph Operations](../../../Editor/Architecture/MaterialGraphOperations.md)
+  and [Canonical Resave](../../../Editor/Guides/CanonicalResave.md), then record completion.
 
 Gate: new-schema authoring, instances, import, save/load and cooked runtime work;
 retained assets and references are rebuilt and verified; compatibility-only

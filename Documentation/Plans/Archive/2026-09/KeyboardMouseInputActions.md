@@ -4,14 +4,14 @@ Summary: Add session-owned keyboard and mouse actions, deterministic contexts, c
 
 Last reviewed: 2026-09-14
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-14
 
 ## Current Status
 
 Both stages are complete. Action evaluation, context routing, controller
 lifecycle, ImGui capture bridging, Sandbox migration, and persistent overrides
-are implemented. The lasting contract is [Input Actions](../Runtime/Gameplay/InputActions.md).
+are implemented. The lasting contract is [Input Actions](../../../Runtime/Gameplay/InputActions.md).
 
 Validation on Windows/MSVC, `Win64-Debug-DurinEditor`:
 
@@ -88,6 +88,6 @@ Completion: tests and the integration build pass, lasting contracts are updated,
 and implementation is committed with plan/stage provenance. Report any omitted
 interactive application smoke explicitly.
 
-Validation follows [agent testing](../Agents/Testing.md) and
-[agent build/run](../Agents/BuildAndRun.md). Native tests provide the automated
+Validation follows [agent testing](../../../Agents/Testing.md) and
+[agent build/run](../../../Agents/BuildAndRun.md). Native tests provide the automated
 acceptance gate; interactive GUI smoke is supplementary.
