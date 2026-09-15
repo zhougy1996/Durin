@@ -286,8 +286,11 @@ native structure layouts.
 In `EDefaultDeltaMode::Enabled`, fields compare with the paired class default
 object, including the corresponding default subobject. Ordinary Structs pass
 the paired default field down recursively. Arrays, fixed arrays, and Maps
-replace their complete contents; their Struct elements do not inherit defaults
-by index or key. Forced replacements also emit complete descendant values.
+replace their membership and ordering. Their reflected Struct elements compare
+with the authoritative registered type default, never with a class-default
+container element by index or key. Map keys retain complete canonical encoding.
+Type-default captures are shared within planning and discarded afterwards.
+Forced replacements also emit complete descendant values.
 Dynamic owned roots establish their own class-default correspondence.
 `AlwaysSerialize` reflected fields bypass default omission and emit a complete
 value with ordinary provenance; required wire version sentinels use this flag.
@@ -296,12 +299,27 @@ keep their enclosing values present. Signed enum capture retains the underlying
 signedness, so negative and positive enum changes participate in delta comparison.
 
 DAST v10 carries an export baseline byte and a baseline byte before each Struct
-value. Mode 1 patches the initialized parent value; mode 0
-reconstructs a complete value from the Struct type default. Each present field
+value. Mode 0 is complete and uses constructor-initialized temporary storage;
+mode 1 patches the initialized parent value; mode 2 copies the registered Struct
+type default into managed temporary storage before applying present fields.
+Complete values require all fields in their saved schema and never query the
+registered type default. Type defaults can be nonzero and differ from the paired
+parent value. Missing eligible defaults fail rather than silently changing modes.
+Each present field
 retains its own name, type, provenance, and value, independently of the shared
 complete type descriptor. The reader validates field identities/types and
-canonical form before constructing objects. Only v10 is supported; retired wire
-versions are rejected before any graph is constructed.
+canonical form before constructing objects. Older v10 readers reject mode 2;
+updated readers accept both old complete values and new sparse values. Only v10
+is supported; retired wire versions fail before graph construction.
+
+An omitted type-relative field follows later changes to the registered default.
+Ordinary resave may sparsify an old complete asset, enabling this evolution for
+subsequent loads. Complete saving or a whole-container Forced replacement pins
+all saved fields. Per-element override editing and stable element identity remain
+deferred; ordinary omission creates no ledger marks. Hard-reference-bearing
+fields of a type-relative Struct remain complete, including their descendants,
+so dependency discovery and reference binding stay explicit. The codec rejects
+sparse type-relative values that omit these fields.
 
 v10 authored loading copies reflected defaults for delta exports from the paired
 CDO/default subobject with references remapped to loaded skeletons, then applies
@@ -370,8 +388,8 @@ retain validated publication; no unchecked setter is exposed.
 
 Structs use the shared reflected save-selected field walk by default. A declared
 `FDStructOps::Serialize(FArchive&, void*)` callback replaces that complete walk
-for every Archive purpose and is invoked exactly once per value. Loading decodes into managed storage initialized from type defaults, or copied
-from the existing parent baseline when a v10 Struct explicitly requests it. After the complete field walk
+for every Archive purpose and is invoked exactly once per value. Loading decodes into managed storage initialized according to the explicit
+Struct baseline described above. After the complete field walk
 or custom serializer succeeds, an optional `PostDeserialize` callback receives
 the Archive purpose and source format version. Only successful repair is
 copy-assigned into the live destination, so truncation, missing capabilities,

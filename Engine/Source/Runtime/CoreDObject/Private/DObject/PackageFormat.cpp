@@ -272,16 +272,28 @@ namespace Durin::ObjectPackage
 			return true;
 		}
 
+		auto ContainsHardReferenceType(const FSerializedType& Type) -> bool
+		{
+			return Type.Kind == EValueKind::HardReference
+				|| std::ranges::any_of(Type.Children, ContainsHardReferenceType);
+		}
+
 		auto CollectValue(FFrozenPackage& Frozen, const FSerializedType& Type,
 			const FSerializedValue& Value, uint32 ExportId, uint32 SchemaId, uint32 FieldId,
-			std::string Path, uint32 Depth, FPackageWriterDiagnostic* Diagnostic, bool bAllowBaseline = false) -> bool
+			std::string Path, uint32 Depth, FPackageWriterDiagnostic* Diagnostic,
+			bool bAllowBaseline = false, bool bAllowTypeDefault = false, bool bTypeRelative = false) -> bool
 		{
-			if (Value.bUseParentBaseline && (!bAllowBaseline || Type.Kind != EValueKind::Struct))
+			if (uint8(Value.Baseline) > uint8(EArchiveStructBaseline::TypeDefault)
+				|| (Value.Baseline != EArchiveStructBaseline::Complete && Type.Kind != EValueKind::Struct)
+				|| (Value.Baseline == EArchiveStructBaseline::Parent && !bAllowBaseline)
+				|| (Value.Baseline == EArchiveStructBaseline::TypeDefault && !bAllowTypeDefault))
 				return Fail(Diagnostic, EPackageWriterFailure::InvalidValue,
-					"A Struct delta has no available parent baseline.", Path);
+					"A Struct value requests an invalid or unavailable baseline.", Path);
 			if (Depth > DastMaximumValueDepth)
 				return Fail(Diagnostic, EPackageWriterFailure::LimitExceeded,
 					"A serialized value exceeds the format nesting limit.", std::move(Path));
+			bTypeRelative = Value.Baseline == EArchiveStructBaseline::TypeDefault
+				|| (bTypeRelative && Value.Baseline == EArchiveStructBaseline::Parent);
 			switch (Type.Kind)
 			{
 			case EValueKind::I8: case EValueKind::I16: case EValueKind::I32: case EValueKind::I64:
@@ -335,7 +347,17 @@ namespace Durin::ObjectPackage
 				break;
 			}
 			case EValueKind::Struct:
-				if (!Value.bUseParentBaseline
+				if (bTypeRelative)
+				{
+					const auto Schema = std::ranges::find(Frozen.Source->Schemas, Type.QualifiedName, &FSerializedSchema::QualifiedName);
+					if (Schema == Frozen.Source->Schemas.end())
+						return Fail(Diagnostic, EPackageWriterFailure::InvalidType, "Missing Struct schema.", Path);
+					for (const auto& Field : Schema->Fields)
+						if (ContainsHardReferenceType(Field.Type) && std::ranges::find(Value.FieldNames, Field.Name) == Value.FieldNames.end())
+							return Fail(Diagnostic, EPackageWriterFailure::InvalidValue,
+								"Type-relative Struct must carry hard-reference fields.", Path);
+				}
+				if (Value.Baseline == EArchiveStructBaseline::Complete
 					&& Value.Elements.size() != Type.Children.size())
 					return Fail(Diagnostic, EPackageWriterFailure::InvalidValue, "Complete Struct value is missing fields.", Path);
 				if (Value.Elements.size() != StructFieldTypes(Type, Value).size()
@@ -362,8 +384,11 @@ namespace Durin::ObjectPackage
 						if (!AddName(Frozen.Names, Value.FieldNames[Index], Diagnostic, Path)) return false;
 						if (!CollectValue(Frozen, StructFieldTypes(Type, Value)[Index], Value.Elements[Index], ExportId,
 							SchemaId, FieldId, Path + "." + Value.FieldNames[Index], Depth + 1, Diagnostic,
-							Value.bUseParentBaseline && (Value.Provenances.empty()
-								|| Value.Provenances[Index] != EPropertyProvenance::Forced))) return false;
+							Value.Baseline != EArchiveStructBaseline::Complete && (Value.Provenances.empty()
+								|| Value.Provenances[Index] != EPropertyProvenance::Forced),
+							bAllowTypeDefault && Value.Baseline != EArchiveStructBaseline::Complete
+								&& (Value.Provenances.empty() || Value.Provenances[Index] != EPropertyProvenance::Forced),
+							bTypeRelative)) return false;
 					}
 				}
 				break;
@@ -378,7 +403,7 @@ namespace Durin::ObjectPackage
 						"An array exceeds the format element limit.", std::move(Path));
 				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
 					if (!CollectValue(Frozen, Type.Children.front(), Value.Elements[Index], ExportId,
-						SchemaId, FieldId, Path + "[" + std::to_string(Index) + "]", Depth + 1, Diagnostic)) return false;
+						SchemaId, FieldId, Path + "[" + std::to_string(Index) + "]", Depth + 1, Diagnostic, false, bAllowTypeDefault)) return false;
 				break;
 			case EValueKind::Map:
 				if ((Value.Elements.size() % 2) != 0 || Value.Elements.size() / 2 > DastMaximumContainerElements)
@@ -406,7 +431,7 @@ namespace Durin::ObjectPackage
 						if (!CollectValue(Frozen, Type.Children[0], Value.Elements[Index], ExportId,
 							SchemaId, FieldId, EntryPath + ".Key", Depth + 1, Diagnostic)
 							|| !CollectValue(Frozen, Type.Children[1], Value.Elements[Index + 1], ExportId,
-							SchemaId, FieldId, EntryPath + ".Value", Depth + 1, Diagnostic)) return false;
+							SchemaId, FieldId, EntryPath + ".Value", Depth + 1, Diagnostic, false, bAllowTypeDefault)) return false;
 					}
 				}
 				break;
@@ -669,6 +694,7 @@ namespace Durin::ObjectPackage
 					const uint32 FieldId = static_cast<uint32>(std::distance(Schema.Fields.begin(), FieldIt) + 1);
 					if (!CollectValue(Frozen, Property.Type, Property.Value, NewExport + 1,
 						SchemaId, FieldId, Path, 0, Diagnostic,
+						Export.bUseClassDefaults && Property.Provenance != EPropertyProvenance::Forced,
 						Export.bUseClassDefaults && Property.Provenance != EPropertyProvenance::Forced)) return false;
 				}
 			}
@@ -748,7 +774,7 @@ namespace Durin::ObjectPackage
 					if (Value.FieldNames[Order[Index - 1]] == Value.FieldNames[Order[Index]])
 						return Fail(Diagnostic, EPackageWriterFailure::DuplicateIdentity,
 							"A struct contains duplicate field names.", std::string(Path));
-				Writer.WriteU8(Value.bUseParentBaseline ? 1 : 0);
+				Writer.WriteU8(uint8(Value.Baseline));
 				Writer.WriteVarUInt(Order.size());
 				for (size_t Index : Order)
 				{

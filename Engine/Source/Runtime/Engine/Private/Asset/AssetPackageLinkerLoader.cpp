@@ -296,7 +296,7 @@ namespace Durin::AssetPrivate
 				uint64 FieldCount = 0;
 				for (const auto& Name : Value.FieldNames)
 					if (!bDiscardRemovedFields || !IsRemovedField(Schema->QualifiedName, Name)) ++FieldCount;
-				Writer.Write(uint8(Value.bUseParentBaseline ? 1 : 0));
+				Writer.Write(uint8(Value.Baseline));
 				Writer.WriteString(Type.QualifiedName); Writer.Write(FieldCount);
 				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
 				{

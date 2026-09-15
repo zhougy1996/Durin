@@ -65,6 +65,16 @@ namespace AssetStructTest
 	inline uint32 CodecPostDeserializeVersion = 0;
 	inline bool RejectCodecPostDeserialize = false;
 
+	struct FDefaultReferenceValue
+	{
+		int32 Value = 7;
+		Durin::TObjectPtr<Durin::DObject> Reference;
+		Durin::FVector3 Nested{1.0, 2.0, 3.0};
+		Durin::FVector3 Required{7.0, 8.0, 9.0};
+	};
+	inline bool RejectDefaultReference = false;
+	inline uint32 DefaultReferenceCallbacks = 0;
+
 	struct FCodecSource
 	{
 		int32 Value = 0;
@@ -87,6 +97,17 @@ namespace AssetStructTest
 
 namespace Durin
 {
+	template<>
+	struct TDStructOpsTraits<AssetStructTest::FDefaultReferenceValue> : TDStructOpsTraitsBase<AssetStructTest::FDefaultReferenceValue>
+	{
+		static constexpr bool bWithPostDeserialize = true;
+		static auto PostDeserialize(AssetStructTest::FDefaultReferenceValue&, FDStructPostDeserializeContext& Context) -> bool
+		{
+			++AssetStructTest::DefaultReferenceCallbacks;
+			return !AssetStructTest::RejectDefaultReference || Context.Fail("Injected type-default repair failure.");
+		}
+	};
+
 	template<>
 	struct TDStructOpsTraits<AssetStructTest::FCodecSource>
 		: TDStructOpsTraitsBase<AssetStructTest::FCodecSource>
@@ -258,6 +279,8 @@ namespace
 
 	auto GIntVectorHelper() -> const Durin::FArrayOps* { return Durin::ResolveArrayOps<std::vector<int32>>(); }
 	auto GGuidVectorHelper() -> const Durin::FArrayOps* { return Durin::ResolveArrayOps<std::vector<Durin::FGuid>>(); }
+	auto GVectorGroupsHelper() -> const Durin::FArrayOps* { return Durin::ResolveArrayOps<std::vector<std::vector<Durin::FVector3>>>(); }
+	auto GTransformVectorHelper() -> const Durin::FArrayOps* { return Durin::ResolveArrayOps<std::vector<Durin::FTransform>>(); }
 	auto GVector3VectorHelper() -> const Durin::FArrayOps* { return Durin::ResolveArrayOps<std::vector<Durin::FVector3>>(); }
 	auto GMigratingValueVectorHelper() -> const Durin::FArrayOps*
 	{
@@ -1285,6 +1308,27 @@ namespace
 	using DCodecSourceAsset = TCodecAssetForTest<AssetStructTest::FCodecSource>;
 	using DCodecTargetAsset = TCodecAssetForTest<AssetStructTest::FCodecTarget>;
 
+	auto GetDefaultReferenceStruct() -> Durin::DStruct*
+	{
+		using namespace Durin;
+		using namespace Durin::DurinCodeGen;
+		using V = AssetStructTest::FDefaultReferenceValue;
+		auto NoRegister = []() -> DStruct* {
+			static DStruct* Struct = new DStruct(EC_StaticConstructor, "Tests::FDefaultReferenceValue", "FDefaultReferenceValue",
+				sizeof(V), alignof(V), EObjectFlags::Transient);
+			return Struct;
+		};
+		static const FInt32PropertyParams Value{"Value", EPropertyFlags::None, 1, STRUCT_OFFSET_UINT16(V, Value)};
+		static const FObjectPropertyParams Reference = FObjectPropertyParams::ObjectPtr<DObject>(
+			"Reference", EPropertyFlags::None, 1, STRUCT_OFFSET_UINT16(V, Reference), &DObject::StaticClass);
+		static const FStructPropertyParams Nested{"Nested", EPropertyFlags::None, 1, STRUCT_OFFSET_UINT16(V, Nested), &Z_Construct_DStruct_FVector3};
+		static const FStructPropertyParams Required{"Required", EPropertyFlags::AlwaysSerialize, 1, STRUCT_OFFSET_UINT16(V, Required), &Z_Construct_DStruct_FVector3};
+		static const FPropertyParamsBase* Properties[]{&Value, &Reference, &Nested, &Required};
+		static const FStructParams Params{NoRegister, "Tests::FDefaultReferenceValue", "FDefaultReferenceValue",
+			sizeof(V), alignof(V), Properties, std::size(Properties), &GetDStructOps<V>()};
+		return ConstructDStruct(Params);
+	}
+
 	class DMathStructAssetForTest : public Durin::DObject
 	{
 	public:
@@ -1364,9 +1408,27 @@ namespace
 				STRUCT_OFFSET_UINT16(DMathStructAssetForTest, VectorMap),
 				&VectorMapKey, &VectorMapValue, &GVectorMapHelper
 			};
+			static const Durin::DurinCodeGen::FArrayPropertyParams GroupInner = {
+				"VectorGroups_Inner", Durin::EPropertyFlags::None, 1, 0, &VectorInner, &GVector3VectorHelper};
+			static const Durin::DurinCodeGen::FArrayPropertyParams GroupsProp = {
+				"VectorGroups", Durin::EPropertyFlags::None, 1, STRUCT_OFFSET_UINT16(DMathStructAssetForTest, VectorGroups),
+				&GroupInner, &GVectorGroupsHelper};
+			static const Durin::DurinCodeGen::FStructPropertyParams FixedProp = {
+				"FixedVectors", Durin::EPropertyFlags::None, 2,
+				STRUCT_OFFSET_UINT16(DMathStructAssetForTest, FixedVectors), &Durin::Z_Construct_DStruct_FVector3};
+			static const Durin::DurinCodeGen::FStructPropertyParams TransformInner = {
+				"Transforms_Inner", Durin::EPropertyFlags::None, 1, 0, &Durin::Z_Construct_DStruct_FTransform};
+			static const Durin::DurinCodeGen::FArrayPropertyParams TransformsProp = {
+				"Transforms", Durin::EPropertyFlags::None, 1,
+				STRUCT_OFFSET_UINT16(DMathStructAssetForTest, Transforms), &TransformInner, &GTransformVectorHelper};
+			static const Durin::DurinCodeGen::FStructPropertyParams ReferencesInner{
+				"References_Inner", Durin::EPropertyFlags::None, 1, 0, &GetDefaultReferenceStruct};
+			static const Durin::DurinCodeGen::FArrayPropertyParams ReferencesProp{
+				"References", Durin::EPropertyFlags::None, 1, STRUCT_OFFSET_UINT16(DMathStructAssetForTest, References),
+				&ReferencesInner, &Durin::ResolveArrayOps<std::vector<AssetStructTest::FDefaultReferenceValue>>};
 			static const Durin::DurinCodeGen::FPropertyParamsBase* Properties[] = {
 				&VectorProp, &TransformProp, &FloatQuatProp, &FloatMatrixProp,
-				&VectorsProp, &VectorMapProp
+				&VectorsProp, &VectorMapProp, &FixedProp, &TransformsProp, &ReferencesProp, &GroupsProp
 			};
 			static const Durin::DurinCodeGen::FClassParams Params = {
 				&StaticClassNoRegister, "Tests::DMathStructAssetForTest",
@@ -1382,6 +1444,10 @@ namespace
 		Durin::FMatrix4f FloatMatrix{1.0f};
 		std::vector<Durin::FVector3> Vectors;
 		FVectorMap VectorMap;
+		std::vector<std::vector<Durin::FVector3>> VectorGroups;
+		Durin::FVector3 FixedVectors[2]{Durin::FVector3(0.0), Durin::FVector3(0.0)};
+		std::vector<Durin::FTransform> Transforms;
+		std::vector<AssetStructTest::FDefaultReferenceValue> References;
 	};
 
 	auto InitializeAssetTests() -> void
@@ -2379,7 +2445,7 @@ TEST(FPackageAssetTests, V10StructDeltasUseOwningDefaultsAndPreserveLegacyReads)
 	Asset->Transform = Defaults->Transform;
 	Asset->Transform.Translation.y = 20.0;
 	Asset->Vectors = {FVector3(1.0, 0.0, 0.0), FVector3(0.0, 2.0, 0.0)};
-	ASSERT_TRUE(SavePackage(Asset->GetPackage()));
+	{ const auto Result = SavePackage(Asset->GetPackage()); ASSERT_TRUE(Result) << Result.Message; }
 	FAssetPackageEncodedClosure Delta, Complete;
 	ASSERT_TRUE(TaggedPackage::GetCodec().Write(Asset->GetPackage(), Delta, EDefaultDeltaMode::Enabled, {}));
 	ASSERT_TRUE(TaggedPackage::GetCodec().Write(Asset->GetPackage(), Complete, EDefaultDeltaMode::NoDelta, {}));
@@ -2392,13 +2458,13 @@ TEST(FPackageAssetTests, V10StructDeltasUseOwningDefaultsAndPreserveLegacyReads)
 	auto Vector = std::ranges::find(Properties, "Vector", &ObjectPackage::FPropertyTag::FieldName);
 	ASSERT_NE(Vector, Properties.end());
 	EXPECT_EQ(Vector->Value.FieldNames, std::vector<std::string>{"y"});
-	EXPECT_TRUE(Vector->Value.bUseParentBaseline);
+	EXPECT_EQ(Vector->Value.Baseline, EArchiveStructBaseline::Parent);
 	auto Vectors = std::ranges::find(Properties, "Vectors", &ObjectPackage::FPropertyTag::FieldName);
 	ASSERT_NE(Vectors, Properties.end());
 	for (const auto& Element : Vectors->Value.Elements)
 	{
-		EXPECT_EQ(Element.FieldNames.size(), 3u);
-		EXPECT_FALSE(Element.bUseParentBaseline);
+		EXPECT_EQ(Element.FieldNames.size(), 1u);
+		EXPECT_EQ(Element.Baseline, EArchiveStructBaseline::TypeDefault);
 	}
 	// The detached writer rejects malformed field identity/type before publishing bytes.
 	const auto ValidValue = Vector->Value;
@@ -2411,7 +2477,7 @@ TEST(FPackageAssetTests, V10StructDeltasUseOwningDefaultsAndPreserveLegacyReads)
 	EXPECT_FALSE(ObjectPackage::WritePackage(Linker, InvalidMain, InvalidBulk));
 	EXPECT_EQ(InvalidMain, FByteBuffer{std::byte{42}});
 	Vector->Value = ValidValue;
-	Vector->Value.bUseParentBaseline = false;
+	Vector->Value.Baseline = EArchiveStructBaseline::Complete;
 	EXPECT_FALSE(ObjectPackage::WritePackage(Linker, InvalidMain, InvalidBulk));
 	Vector->Value = ValidValue;
 	EXPECT_LT(Delta.PackageBytes.size(), Complete.PackageBytes.size());
@@ -2429,7 +2495,195 @@ TEST(FPackageAssetTests, V10StructDeltasUseOwningDefaultsAndPreserveLegacyReads)
 		EXPECT_EQ(Asset->Vectors, (std::vector<FVector3>{FVector3(1.0, 0.0, 0.0), FVector3(0.0, 2.0, 0.0)}));
 		EXPECT_FALSE(Asset->HasAllocatedAuthoredOverrideLedger());
 	}
-	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(Path));
+	{ const auto Removed = Testing::RemoveAssetPackageForTests(Path); ASSERT_TRUE(Removed) << Removed.Message; }
+}
+
+TEST(FPackageAssetTests, TypeDefaultReferencesRemainExplicitAndFailedRepairRollsBack)
+{
+	using namespace Durin;
+	using namespace Durin::AssetPrivate;
+	InitializeAssetTests();
+	DStruct* Struct = GetDefaultReferenceStruct();
+	const std::array Structs{Struct};
+	ASSERT_TRUE(Private::CreateDStructDefaultsForBatch(Structs));
+	auto* Default = const_cast<AssetStructTest::FDefaultReferenceValue*>(static_cast<const AssetStructTest::FDefaultReferenceValue*>(Struct->GetDefaultValue()));
+	ASSERT_NE(Default, nullptr);
+	struct FRestore { AssetStructTest::FDefaultReferenceValue* Target; AssetStructTest::FDefaultReferenceValue Original;
+		~FRestore() { *Target = Original; AssetStructTest::RejectDefaultReference = false; } } Restore{Default, *Default};
+	FPackagePath Path, DependencyPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/TypeDefaultReferences", Path));
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/TypeDefaultDependency", DependencyPath));
+	DMathStructAssetForTest* Asset = nullptr;
+	DObject* Dependency = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(DependencyPath, Dependency));
+	Default->Reference = Dependency;
+	Asset->References = {*Default};
+	ASSERT_TRUE(SavePackage(Dependency->GetPackage()));
+	{ const auto Result = SavePackage(Asset->GetPackage()); ASSERT_TRUE(Result) << Result.Message; }
+	FAssetPackageEncodedClosure Encoded;
+	ASSERT_TRUE(TaggedPackage::GetCodec().Write(Asset->GetPackage(), Encoded, EDefaultDeltaMode::Enabled, {}));
+	ObjectPackage::FLinkerTables Linker;
+	ASSERT_TRUE(ObjectPackage::ReadPackage(Encoded.PackageBytes, Encoded.BulkBytes, Path, Linker));
+	auto Field = std::ranges::find(Linker.Exports.front().Properties, "References", &ObjectPackage::FPropertyTag::FieldName);
+	ASSERT_NE(Field, Linker.Exports.front().Properties.end());
+	auto& Value = Field->Value.Elements[0];
+	EXPECT_EQ(Value.Baseline, EArchiveStructBaseline::TypeDefault);
+	EXPECT_EQ(Value.FieldNames, (std::vector<std::string>{"Reference", "Required"}));
+	EXPECT_EQ(Value.Elements[1].Baseline, EArchiveStructBaseline::Complete);
+	EXPECT_EQ(Value.Elements[1].FieldNames.size(), 3u);
+	ASSERT_EQ(Linker.Imports.size(), 1u);
+	// Neither detached mutation nor construct-free validation may hide reference closure.
+	Value.FieldNames.erase(Value.FieldNames.begin());
+	Value.Elements.erase(Value.Elements.begin());
+	Value.FieldTypes->erase(Value.FieldTypes->begin());
+	Value.Provenances.erase(Value.Provenances.begin());
+	FByteBuffer Invalid, Bulk;
+	EXPECT_FALSE(ObjectPackage::WritePackage(Linker, Invalid, Bulk));
+	Default->Reference = nullptr;
+	Default->Value = 13;
+	Default->Nested = FVector3(4.0, 5.0, 6.0);
+	ASSERT_TRUE(UnloadPackage(Path));
+	ASSERT_TRUE(UnloadPackage(DependencyPath));
+	AssetStructTest::RejectDefaultReference = true;
+	AssetStructTest::DefaultReferenceCallbacks = 0;
+	EXPECT_FALSE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Asset));
+	EXPECT_EQ(FindResidentPackage(Path), nullptr);
+	EXPECT_EQ(AssetStructTest::DefaultReferenceCallbacks, 1u);
+	AssetStructTest::RejectDefaultReference = false;
+	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Asset));
+	ASSERT_EQ(Asset->References.size(), 1u);
+	EXPECT_EQ(Asset->References[0].Value, 13);
+	EXPECT_EQ(Asset->References[0].Nested, Default->Nested);
+	EXPECT_EQ(Asset->References[0].Required, FVector3(7.0, 8.0, 9.0));
+	ASSERT_NE(Asset->References[0].Reference.Get(), nullptr);
+	EXPECT_EQ(Asset->References[0].Reference->GetPackage()->GetPackagePath(), DependencyPath.ToString());
+	EXPECT_EQ(AssetStructTest::DefaultReferenceCallbacks, 2u);
+	EXPECT_FALSE(Asset->HasAllocatedAuthoredOverrideLedger());
+	const std::array Paths{Path, DependencyPath};
+	{ const auto Result = Testing::RemoveAssetPackagesForTests(Paths); EXPECT_TRUE(Result) << Result.Message; }
+}
+
+TEST(FPackageAssetTests, TypeDefaultContainersEvolveAndForcedSnapshotsRemainComplete)
+{
+	using namespace Durin;
+	using namespace Durin::AssetPrivate;
+	InitializeAssetTests();
+	DStruct* Struct = Z_Construct_DStruct_FVector3();
+	ASSERT_NE(Struct->GetDefaultValue(), nullptr);
+	auto* TypeDefault = const_cast<FVector3*>(static_cast<const FVector3*>(Struct->GetDefaultValue()));
+	struct FRestore { FVector3* Target; FVector3 Original; ~FRestore() { *Target = Original; } } Restore{TypeDefault, *TypeDefault};
+	*TypeDefault = FVector3(3.0, 4.0, 5.0);
+	const std::array Classes{DMathStructAssetForTest::StaticClass()};
+	ASSERT_TRUE(Private::CreateClassDefaultObjectsForBatch(Classes));
+	auto* CDO = const_cast<DMathStructAssetForTest*>(static_cast<const DMathStructAssetForTest*>(Classes[0]->GetDefaultObject()));
+	struct FRestoreArray { DMathStructAssetForTest* Target; std::vector<FVector3> Original;
+		~FRestoreArray() { Target->Vectors = Original; } } RestoreArray{CDO, CDO->Vectors};
+	CDO->Vectors = {FVector3(91.0), FVector3(92.0)};
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/TypeDefaultContainers", Path));
+	DMathStructAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
+	Asset->Vectors = {*TypeDefault, FVector3(8.0, 4.0, 5.0), *TypeDefault};
+	Asset->VectorGroups = {{*TypeDefault, Asset->Vectors[1]}, {}, {*TypeDefault}};
+	Asset->FixedVectors[0] = *TypeDefault;
+	Asset->FixedVectors[1] = Asset->Vectors[1];
+	Asset->VectorMap = {{"empty", *TypeDefault}, {"changed", Asset->Vectors[1]}};
+	Asset->Transforms.resize(1);
+	Asset->Transforms[0].Translation.x = 12.0;
+	FDefaultDeltaPlan Plan, Repeated;
+	FDefaultDeltaDiagnostic PlanDiagnostic;
+	ASSERT_TRUE(BuildDefaultDeltaPlan(Asset, EDefaultDeltaMode::Enabled, Plan, &PlanDiagnostic)) << int(PlanDiagnostic.Reason) << " " << PlanDiagnostic.LogicalPath;
+	ASSERT_TRUE(BuildDefaultDeltaPlan(Asset, EDefaultDeltaMode::Enabled, Repeated));
+	EXPECT_TRUE(AreDefaultDeltaPlansEquivalent(Plan, Repeated));
+	FAssetPackageEncodedClosure Sparse, Complete, Forced;
+	{ const auto Result = SavePackage(Asset->GetPackage()); ASSERT_TRUE(Result) << Result.Message; }
+	ASSERT_TRUE(TaggedPackage::GetCodec().Write(Asset->GetPackage(), Sparse, EDefaultDeltaMode::Enabled, {}));
+	ASSERT_TRUE(TaggedPackage::GetCodec().Write(Asset->GetPackage(), Complete, EDefaultDeltaMode::NoDelta, {}));
+	const FAuthoredOverridePath ContainerPath{FAuthoredOverridePathToken::Field(Asset->GetClass()->GetQualifiedName(), FName("Vectors"))};
+	ASSERT_TRUE(Asset->SetAuthoredOverride(ContainerPath, EAuthoredOverrideProvenance::Forced));
+	ASSERT_TRUE(TaggedPackage::GetCodec().Write(Asset->GetPackage(), Forced, EDefaultDeltaMode::Enabled, {}));
+	ObjectPackage::FLinkerTables Linker;
+	ASSERT_TRUE(ObjectPackage::ReadPackage(Sparse.PackageBytes, Sparse.BulkBytes, Path, Linker));
+	auto& Properties = Linker.Exports.front().Properties;
+	auto Vectors = std::ranges::find(Properties, "Vectors", &ObjectPackage::FPropertyTag::FieldName);
+	ASSERT_NE(Vectors, Properties.end());
+	ASSERT_EQ(Vectors->Value.Elements.size(), 3u);
+	EXPECT_TRUE(Vectors->Value.Elements[0].FieldNames.empty());
+	EXPECT_EQ(Vectors->Value.Elements[1].FieldNames, std::vector<std::string>{"x"});
+	EXPECT_TRUE(Vectors->Value.Elements[2].FieldNames.empty());
+	for (const auto& Value : Vectors->Value.Elements) EXPECT_EQ(Value.Baseline, EArchiveStructBaseline::TypeDefault);
+	auto Transforms = std::ranges::find(Properties, "Transforms", &ObjectPackage::FPropertyTag::FieldName);
+	ASSERT_NE(Transforms, Properties.end());
+	ASSERT_EQ(Transforms->Value.Elements[0].Elements.size(), 1u);
+	EXPECT_EQ(Transforms->Value.Elements[0].Elements[0].Baseline, EArchiveStructBaseline::Parent);
+	EXPECT_EQ(Transforms->Value.Elements[0].Elements[0].FieldNames, std::vector<std::string>{"x"});
+	FByteBuffer Canonical, Bulk;
+	ASSERT_TRUE(ObjectPackage::WritePackage(Linker, Canonical, Bulk));
+	EXPECT_EQ(Canonical, Sparse.PackageBytes);
+	const auto Valid = Vectors->Value;
+	for (const auto Invalid : {EArchiveStructBaseline::Complete, EArchiveStructBaseline::Parent, static_cast<EArchiveStructBaseline>(3)})
+	{
+		Vectors->Value.Elements[0].Baseline = Invalid;
+		EXPECT_FALSE(ObjectPackage::WritePackage(Linker, Canonical, Bulk));
+	}
+	Vectors->Value = Valid;
+	EXPECT_LT(Sparse.PackageBytes.size(), Complete.PackageBytes.size());
+	std::cout << "Struct array fixture: 3 elements, 1/9 present fields; package sparse=" << Sparse.PackageBytes.size()
+		<< " complete=" << Complete.PackageBytes.size() << " bytes\n";
+	const auto File = Testing::GetTestWorkDirectory() / "Assets" / "TypeDefaultContainers.dasset";
+	for (const auto* Encoded : {&Sparse, &Complete, &Forced})
+	{
+		ASSERT_TRUE(UnloadPackage(Path));
+		*TypeDefault = FVector3(6.0, 7.0, 9.0);
+		WriteTestBytes(File, Encoded->PackageBytes);
+		const auto Loaded = LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Asset);
+		ASSERT_TRUE(Loaded) << Loaded.Message;
+		const bool bPinned = Encoded != &Sparse;
+		EXPECT_EQ(Asset->Vectors, (std::vector<FVector3>{bPinned ? FVector3(3.0, 4.0, 5.0) : *TypeDefault,
+			bPinned ? FVector3(8.0, 4.0, 5.0) : FVector3(8.0, 7.0, 9.0),
+			bPinned ? FVector3(3.0, 4.0, 5.0) : *TypeDefault}));
+		EXPECT_EQ(Asset->FixedVectors[0], Encoded == &Complete ? FVector3(3.0, 4.0, 5.0) : *TypeDefault);
+		ASSERT_EQ(Asset->VectorGroups.size(), 3u);
+		EXPECT_TRUE(Asset->VectorGroups[1].empty());
+		EXPECT_EQ(Asset->VectorGroups[0][1], Encoded == &Complete ? FVector3(8.0, 4.0, 5.0) : FVector3(8.0, 7.0, 9.0));
+		EXPECT_EQ(Asset->VectorMap.at("changed"), Encoded == &Complete ? FVector3(8.0, 4.0, 5.0) : FVector3(8.0, 7.0, 9.0));
+		EXPECT_EQ(Asset->Transforms[0].Translation, FVector3(12.0, 0.0, 0.0));
+		EXPECT_EQ(Asset->HasAllocatedAuthoredOverrideLedger(), Encoded == &Forced);
+	}
+	// A complete old value can become sparse on ordinary resave. Membership is always authored.
+	ASSERT_TRUE(Asset->ClearAuthoredOverride(ContainerPath));
+	Asset->Vectors.erase(Asset->Vectors.begin());
+	std::ranges::reverse(Asset->Vectors);
+	Asset->Vectors.insert(Asset->Vectors.begin(), *TypeDefault);
+	const auto Expected = Asset->Vectors;
+	{ const auto Result = SavePackage(Asset->GetPackage()); ASSERT_TRUE(Result) << Result.Message; }
+	ASSERT_TRUE(UnloadPackage(Path));
+	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Asset));
+	EXPECT_EQ(Asset->Vectors, Expected);
+	Asset->Vectors.clear();
+	Asset->VectorMap.clear();
+	{ const auto Result = SavePackage(Asset->GetPackage()); ASSERT_TRUE(Result) << Result.Message; }
+	ASSERT_TRUE(UnloadPackage(Path));
+	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Asset));
+	EXPECT_TRUE(Asset->Vectors.empty());
+	EXPECT_TRUE(Asset->VectorMap.empty());
+	// Removed saved fields are ignored after validation; absent current fields inherit the selected baseline.
+	for (auto& Schema : Linker.Schemas)
+		if (Schema.QualifiedName == Struct->GetQualifiedName().ToString())
+			for (auto& Field : Schema.Fields) if (Field.Name == "x") Field.Name = "RetiredX";
+	std::function<void(ObjectPackage::FSerializedValue&)> Rename = [&](auto& Value) {
+		for (auto& Name : Value.FieldNames) if (Name == "x") Name = "RetiredX";
+		for (auto& Child : Value.Elements) Rename(Child);
+	};
+	for (auto& Export : Linker.Exports) for (auto& Field : Export.Properties) Rename(Field.Value);
+	ASSERT_TRUE(ObjectPackage::WritePackage(Linker, Canonical, Bulk));
+	ASSERT_TRUE(UnloadPackage(Path));
+	WriteTestBytes(File, Canonical);
+	{ const auto Result = LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Asset); ASSERT_TRUE(Result) << Result.Message; }
+	EXPECT_EQ(Asset->Vectors, std::vector<FVector3>(3, *TypeDefault));
+	{ const auto Result = SavePackage(Asset->GetPackage()); ASSERT_TRUE(Result) << Result.Message; }
+	{ const auto Removed = Testing::RemoveAssetPackageForTests(Path); ASSERT_TRUE(Removed) << Removed.Message; }
 }
 
 TEST(FPackageAssetTests, DeltaSavePreservesDynamicOwnedObjectsAndRejectsMissingDefaultChildren)
@@ -7263,7 +7517,7 @@ TEST(FPackageAssetTests, MathStructRegistrationPreservesDirectAndNestedSchemaIde
 	EXPECT_EQ(FloatQuat->Next, FloatMatrix);
 	EXPECT_EQ(FloatMatrix->Next, Vectors);
 	EXPECT_EQ(Vectors->Next, VectorMap);
-	EXPECT_EQ(VectorMap->Next, nullptr);
+	EXPECT_EQ(VectorMap->Next, Class->FindPropertyByName("FixedVectors", false));
 
 	EXPECT_EQ(Vector->GetStruct(), VectorStruct);
 	EXPECT_EQ(Transform->GetStruct(), TransformStruct);

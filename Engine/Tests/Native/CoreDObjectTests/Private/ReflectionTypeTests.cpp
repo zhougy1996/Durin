@@ -937,6 +937,37 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		bool bEmitOversizedArray = false;
 	};
 
+	class DTypeDefaultOwnerForTest : public Durin::DObject
+	{
+	public:
+		explicit DTypeDefaultOwnerForTest(const Durin::FObjectInitializer& X = Durin::FObjectInitializer::Get()) : DObject(X) {}
+		static void __DefaultConstructor(const Durin::FObjectInitializer& X) { new (X.GetObj()) DTypeDefaultOwnerForTest(X); }
+		static auto StaticClass() -> Durin::DClass*
+		{
+			using namespace Durin;
+			static DClass* Class = nullptr;
+			if (!Class)
+			{
+				Class = new DClass(EC_StaticConstructor, "Tests::DTypeDefaultOwnerForTest",
+					sizeof(DTypeDefaultOwnerForTest), alignof(DTypeDefaultOwnerForTest), EObjectFlags::NoFlags,
+					EClassFlags::None, EClassCastFlags::DClass,
+					(DClass::ClassConstructorType)InternalConstructor<DTypeDefaultOwnerForTest>);
+				Class->SetSuperStructBase(DObject::StaticClass());
+				Class->Register(DClass::StaticClass, "", "DTypeDefaultOwnerForTest");
+				DObjectForceRegistration(Class);
+				auto* ValuesProperty = new FStructProperty(FFieldVariant(Class), "Values", EObjectFlags::NoFlags,
+					EPropertyFlags::None, 2, STRUCT_OFFSET_UINT16(DTypeDefaultOwnerForTest, Values), Z_Construct_DStruct_FTransform());
+				auto* RequiredProperty = new FStructProperty(FFieldVariant(Class), "Required", EObjectFlags::NoFlags,
+					EPropertyFlags::AlwaysSerialize, 2, STRUCT_OFFSET_UINT16(DTypeDefaultOwnerForTest, Required), Z_Construct_DStruct_FTransform());
+				ValuesProperty->Next = RequiredProperty;
+				Class->ChildProperties = ValuesProperty;
+			}
+			return Class;
+		}
+		Durin::FTransform Values[2];
+		Durin::FTransform Required[2];
+	};
+
 	class DAuthoritativeDeltaOwnerForTest : public Durin::DObject
 	{
 	public:
@@ -2439,6 +2470,66 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_EQ(Durin::DType::StaticClass()->GetSuperClass(), Durin::DObject::StaticClass());
 		EXPECT_EQ(Durin::DStructBase::StaticClass()->GetSuperClass(), Durin::DType::StaticClass());
 		EXPECT_EQ(Durin::DClass::StaticClass()->GetSuperClass(), Durin::DStructBase::StaticClass());
+	}
+
+	TEST(FCoreDObjectReflectionTests, StructTypeDefaultPlanningKeepsRequiredAndCompleteSubtrees)
+	{
+		using namespace Durin;
+		Testing::InitializeDObjectSystemForTests();
+		const std::array Classes{DTypeDefaultOwnerForTest::StaticClass()};
+		ASSERT_TRUE(Private::CreateClassDefaultObjectsForBatch(Classes));
+		auto* Owner = NewObject<DTypeDefaultOwnerForTest>(nullptr, FName("TypeDefaultPlan"));
+		Owner->Values[1].Translation.x = 42.0;
+		FDefaultDeltaPlan Plan;
+		FDefaultDeltaDiagnostic Diagnostic;
+		ASSERT_TRUE(BuildDefaultDeltaPlan(Owner, EDefaultDeltaMode::Enabled, Plan, &Diagnostic)) << int(Diagnostic.Reason);
+		const auto& Fields = Plan.Objects.front().Fields;
+		auto Values = std::ranges::find(Fields, FName("Values"), [](const auto& Field) { return Field.Descriptor.Name; });
+		ASSERT_NE(Values, Fields.end());
+		ASSERT_NE(Values->Value, nullptr);
+		EXPECT_EQ(Values->Value->Elements[0]->Baseline, EDefaultDeltaBaselineKind::StructTypeDefault);
+		EXPECT_TRUE(std::ranges::all_of(Values->Value->Elements[0]->Fields, [](const auto& Field) {
+			return Field.Disposition == EDefaultDeltaDisposition::Omitted;
+		}));
+		std::function<void(const FDefaultDeltaNode&)> CheckComplete = [&](const auto& Node) {
+			EXPECT_EQ(Node.Baseline, EDefaultDeltaBaselineKind::None);
+			EXPECT_EQ(Node.SourceValue, nullptr);
+			EXPECT_EQ(Node.SourceStruct, nullptr);
+			for (const auto& Field : Node.Fields)
+			{
+				EXPECT_EQ(Field.Disposition, EDefaultDeltaDisposition::Emitted);
+				ASSERT_NE(Field.Value, nullptr);
+				CheckComplete(*Field.Value);
+			}
+			for (const auto& Element : Node.Elements) CheckComplete(*Element);
+		};
+		auto Required = std::ranges::find(Fields, FName("Required"), [](const auto& Field) { return Field.Descriptor.Name; });
+		ASSERT_NE(Required, Fields.end());
+		CheckComplete(*Required->Value);
+		ASSERT_TRUE(Owner->SetAuthoredOverride({FAuthoredOverridePathToken::Field(Owner->GetClass()->GetQualifiedName(), FName("Values"))}, EAuthoredOverrideProvenance::Forced));
+		ASSERT_TRUE(BuildDefaultDeltaPlan(Owner, EDefaultDeltaMode::Enabled, Plan));
+		for (const auto& Field : Plan.Objects.front().Fields) CheckComplete(*Field.Value);
+		ASSERT_TRUE(BuildDefaultDeltaPlan(Owner, EDefaultDeltaMode::NoDelta, Plan));
+		for (const auto& Field : Plan.Objects.front().Fields) CheckComplete(*Field.Value);
+		ASSERT_TRUE(BuildDefaultDeltaPlan(Owner, EDefaultDeltaMode::Enabled, Plan, nullptr, {.bCooking = true}));
+		EXPECT_EQ(Plan.Mode, EDefaultDeltaMode::NoDelta);
+		for (const auto& Field : Plan.Objects.front().Fields) CheckComplete(*Field.Value);
+	}
+
+	TEST(FCoreDObjectReflectionTests, StructTypeDefaultUnavailableFailsOnlyRelativePlanning)
+	{
+		using namespace Durin;
+		Testing::InitializeDObjectSystemForTests();
+		const std::array Classes{DEditorOnlyArchiveOwnerForTest::StaticClass()};
+		ASSERT_TRUE(Private::CreateClassDefaultObjectsForBatch(Classes));
+		auto* Owner = NewObject<DEditorOnlyArchiveOwnerForTest>(nullptr, FName("MissingTypeDefault"));
+		Owner->Array[0].RuntimeValue = 99;
+		FDefaultDeltaPlan Plan;
+		FDefaultDeltaDiagnostic Diagnostic;
+		ASSERT_TRUE(BuildDefaultDeltaPlan(Owner, EDefaultDeltaMode::NoDelta, Plan));
+		EXPECT_FALSE(BuildDefaultDeltaPlan(Owner, EDefaultDeltaMode::Enabled, Plan, &Diagnostic));
+		EXPECT_EQ(Diagnostic.Reason, EDefaultDeltaFailureReason::MissingStructDefault);
+		EXPECT_TRUE(Plan.Objects.empty());
 	}
 
 	TEST(FCoreDObjectReflectionTests, PropertyLegacyNamesAreOwnerScopedSerializedAliases)

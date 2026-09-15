@@ -32,29 +32,33 @@ namespace Durin
 			if (Kind != DurinCodeGen::EPropertyGenFlags::Struct) return true;
 
 			FCanonicalMemoryReader Reader(Payload, EArchivePurpose::BulkData);
-			std::string StructName;
-			uint64 FieldCount = 0;
-			Reader << StructName << FieldCount;
-			if (Reader.HasError() || FieldCount > 100000)
-				return Fail("Inspected authored struct payload header is invalid.", OutError);
-			for (uint64 Index = 0; Index < FieldCount; ++Index)
+			// Fixed Struct arrays project consecutive Struct records without a count.
+			// The package codec has already validated their exact membership.
+			do
 			{
-				std::string DeclaringType, Name, Signature;
-				uint8 FieldKind = 0;
-				uint64 PayloadSize = 0;
-				Reader << DeclaringType << Name << FieldKind << Signature << PayloadSize;
-				if (Reader.HasError() || PayloadSize > Reader.GetRemainingPayloadBytes())
-					return Fail("Inspected authored struct field is truncated.", OutError);
-				FByteBuffer FieldPayload(static_cast<size_t>(PayloadSize));
-				if (PayloadSize != 0)
-					Reader.SerializeRawBytes(std::as_writable_bytes(std::span(FieldPayload)));
-				if (Reader.HasError() || !CollectDescriptors(
-						static_cast<DurinCodeGen::EPropertyGenFlags>(FieldKind),
-						FieldPayload, Out, Depth + 1, SourceFormatVersion, OutError))
-					return false;
-			}
-			return Reader.Tell() == Payload.size()
-				|| Fail("Inspected authored struct payload contains trailing bytes.", OutError);
+				std::string StructName;
+				uint64 FieldCount = 0;
+				Reader << StructName << FieldCount;
+				if (Reader.HasError() || FieldCount > 100000)
+					return Fail("Inspected authored struct payload header is invalid.", OutError);
+				for (uint64 Index = 0; Index < FieldCount; ++Index)
+				{
+					std::string DeclaringType, Name, Signature;
+					uint8 FieldKind = 0;
+					uint64 PayloadSize = 0;
+					Reader << DeclaringType << Name << FieldKind << Signature << PayloadSize;
+					if (Reader.HasError() || PayloadSize > Reader.GetRemainingPayloadBytes())
+						return Fail("Inspected authored struct field is truncated.", OutError);
+					FByteBuffer FieldPayload(static_cast<size_t>(PayloadSize));
+					if (PayloadSize != 0)
+						Reader.SerializeRawBytes(std::as_writable_bytes(std::span(FieldPayload)));
+					if (Reader.HasError() || !CollectDescriptors(
+							static_cast<DurinCodeGen::EPropertyGenFlags>(FieldKind),
+							FieldPayload, Out, Depth + 1, SourceFormatVersion, OutError))
+						return false;
+				}
+			} while (Reader.GetRemainingPayloadBytes() != 0);
+			return true;
 		}
 	}
 

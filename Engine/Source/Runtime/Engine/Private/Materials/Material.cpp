@@ -334,7 +334,7 @@ namespace Durin
 			SerializeBoundedSequence(Ar, Values, MaterialProgramMaxNodeCount,
 				[&](FArchive& Inner, FMaterialParameterDefinition& Definition) {
 					auto Element = EnterArchiveArrayElement(Inner, Index++);
-					Inner.UseExistingStructBaseline();
+					Inner.GetStructBaseline();
 					auto Member = [&](const char* Name, auto& Value, FArchiveLogicalTypeDescriptor LogicalType) {
 						auto Scope = EnterArchiveField(Inner, {RecordName, FName(Name), std::move(LogicalType)});
 						Inner << Value;

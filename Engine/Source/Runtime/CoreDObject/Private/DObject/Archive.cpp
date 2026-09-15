@@ -517,7 +517,7 @@ namespace Durin
 						EPropertyFlags::Transient, 1, 0, Struct);
 					StorageProperty = &*DetachedProperty;
 				}
-				const bool bUseExisting = Ar.UseExistingStructBaseline();
+				const EArchiveStructBaseline Baseline = Ar.GetStructBaseline();
 				if (Ar.HasError()) break;
 				FReflectedValueStorage Storage;
 				if (!Storage.DefaultConstruct(StorageProperty, 0, &OperationError))
@@ -525,8 +525,19 @@ namespace Durin
 					Ar.Fail(EArchiveFailureCode::UnsupportedOperation, OperationError);
 					break;
 				}
-				if (bUseExisting && !StorageProperty->CopyAssignValue(Storage.GetValue(),
-					Property->GetValuePtr(Container, ArrayIndex), &OperationError))
+				const void* BaselineValue = Baseline == EArchiveStructBaseline::Parent
+					? Property->GetValuePtr(Container, ArrayIndex) : nullptr;
+				if (Baseline == EArchiveStructBaseline::TypeDefault)
+				{
+					BaselineValue = Struct->GetDefaultValue();
+					if (!BaselineValue || !Struct->HasCompleteAuthoredFields() || Struct->HasSerializer())
+					{
+						Ar.Fail(EArchiveFailureCode::UnsupportedOperation, "Struct type default is unavailable.");
+						break;
+					}
+				}
+				if (BaselineValue && !StorageProperty->CopyAssignValue(Storage.GetValue(),
+					BaselineValue, &OperationError))
 				{
 					Ar.Fail(EArchiveFailureCode::UnsupportedOperation, OperationError);
 					break;

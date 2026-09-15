@@ -4,6 +4,7 @@
 #include "DObject/AssetPath.h"
 #include "Hash/XxHash.h"
 #include "Serialization/CustomVersion.h"
+#include "Serialization/Archive.h"
 
 namespace Durin::ObjectPackage
 {
@@ -124,7 +125,7 @@ namespace Durin::ObjectPackage
 		std::vector<FSerializedValue> Elements;
 		// Sparse Struct fields carry explicit types; complete values may reuse the shared descriptor.
 		std::optional<std::vector<FSerializedType>> FieldTypes;
-		bool bUseParentBaseline = false;
+		EArchiveStructBaseline Baseline = EArchiveStructBaseline::Complete;
 		std::vector<std::string> FieldNames;
 		std::vector<EPropertyProvenance> Provenances;
 		FPackageIndex Reference;

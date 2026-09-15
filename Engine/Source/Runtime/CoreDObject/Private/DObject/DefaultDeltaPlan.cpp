@@ -666,6 +666,8 @@ namespace Durin
 			const FDefaultObjectGraphMap* Graph = nullptr;
 			DObject* ScopeObject = nullptr;
 			std::span<const FAuthoredOverrideEntry> LedgerEntries;
+			std::unordered_map<DStruct*, std::shared_ptr<FDefaultDeltaNode>> TypeDefaults;
+			FArchiveState ArchiveContext;
 		};
 
 		// A descendant mark requires this field to be emitted, but does not replace it.
@@ -800,8 +802,70 @@ namespace Durin
 			return false;
 		}
 
+		struct FPlanningBaseline
+		{
+			EDefaultDeltaBaselineKind Kind = EDefaultDeltaBaselineKind::None;
+			const FDefaultDeltaNode* Value = nullptr;
+			bool bAllowIndependent = false;
+			bool bTypeRelative = false;
+		};
+
+		auto ContainsHardReference(const FDefaultDeltaNode& Node) -> bool
+		{
+			if (Node.LogicalType.Kind == ETypeKind::Object) return true;
+			for (const auto& Field : Node.Fields)
+				if (Field.Value && ContainsHardReference(*Field.Value)) return true;
+			for (const auto& Element : Node.Elements)
+				if (Element && ContainsHardReference(*Element)) return true;
+			return false;
+		}
+
+		auto CaptureTypeDefault(DStruct* Struct, FPlannerContext& Context)
+			-> const FDefaultDeltaNode*
+		{
+			if (const auto It = Context.TypeDefaults.find(Struct); It != Context.TypeDefaults.end())
+				return It->second.get();
+			const void* Value = Struct->GetDefaultValue();
+			if (!Value)
+			{
+				Context.Diagnostic.Reason = EDefaultDeltaFailureReason::MissingStructDefault;
+				Context.Diagnostic.LogicalPath = Struct->GetQualifiedName().ToString();
+				return nullptr;
+			}
+			FStructProperty Property(FFieldVariant(), FName("TypeDefault"), EObjectFlags::Transient,
+				EPropertyFlags::None, 1, 0, Struct);
+			auto Capture = [&](EArchivePurpose Purpose) -> std::shared_ptr<FDefaultDeltaNode> {
+				FLogicalValueCaptureArchive Archive(Purpose, Context.ArchiveContext);
+				SerializeReflectedPropertyValue(Archive, Property, const_cast<void*>(Value));
+				if (!Archive.Finish() || Archive.RootFields.size() != 1)
+				{
+					Context.Diagnostic.Reason = EDefaultDeltaFailureReason::ArchiveFailure;
+					if (const auto* Failure = Archive.GetFailure())
+					{
+						Context.Diagnostic.ArchiveReason = Failure->Code;
+						Context.Diagnostic.LogicalPath = Failure->Path;
+					}
+					return nullptr;
+				}
+				auto Node = Archive.RootFields.front().Value;
+				uint64 Count = 0;
+				if (!SortCapturedNode(*Node, Context.Diagnostic, Struct->GetQualifiedName().ToString(), Count, 0))
+					return nullptr;
+				return Node;
+			};
+			auto Discovery = Capture(EArchivePurpose::Discovery);
+			auto Captured = Capture(EArchivePurpose::AuthoredPackage);
+			if (!Discovery || !Captured) return nullptr;
+			if (!FieldsCaptureShapeEquivalent(Discovery->Fields, Captured->Fields))
+			{
+				Context.Diagnostic.Reason = EDefaultDeltaFailureReason::ManifestMismatch;
+				return nullptr;
+			}
+			return Context.TypeDefaults.emplace(Struct, std::move(Captured)).first->second.get();
+		}
+
 		auto BuildPlannedValue(const FDefaultDeltaNode& Live, FPlannerContext& Context,
-			uint32 Depth, const FDefaultDeltaNode* Default, const FAuthoredOverridePath& Path)
+			uint32 Depth, FPlanningBaseline Baseline, const FAuthoredOverridePath& Path)
 			-> std::shared_ptr<FDefaultDeltaNode>
 		{
 			if (Depth > DefaultDeltaMaxDepth)
@@ -812,7 +876,8 @@ namespace Durin
 			auto Planned = CloneNode(Live);
 			const auto NodeIntent = FindAuthoredIntent(Context.LedgerEntries, Path);
 			// Explicit replacement includes all descendants without manufacturing child marks.
-			if (NodeIntent == EDefaultDeltaProvenance::Forced) Default = nullptr;
+			if (NodeIntent == EDefaultDeltaProvenance::Forced) Baseline = {};
+			const FDefaultDeltaNode* Default = Baseline.Value;
 			if (Default && Live.LogicalType.Kind == ETypeKind::Struct && !Live.SourceStruct
 				&& !FindStructByQualifiedName(Live.LogicalType.QualifiedType))
 			{
@@ -826,8 +891,20 @@ namespace Durin
 				Context.Diagnostic.LogicalPath = Live.LogicalType.QualifiedType.ToString();
 				return nullptr;
 			}
+			if (Baseline.Kind == EDefaultDeltaBaselineKind::StructTypeDefault)
+			{
+				DStruct* Struct = Live.SourceStruct ? Live.SourceStruct
+					: FindStructByQualifiedName(Live.LogicalType.QualifiedType);
+				if (!Struct)
+				{
+					Context.Diagnostic.Reason = EDefaultDeltaFailureReason::MissingStructDefault;
+					Context.Diagnostic.LogicalPath = Live.LogicalType.QualifiedType.ToString();
+					return nullptr;
+				}
+				if (!(Default = CaptureTypeDefault(Struct, Context))) return nullptr;
+			}
 			Context.Plan.MaximumDepth = std::max(Context.Plan.MaximumDepth, Depth);
-			Planned->Baseline = Default ? EDefaultDeltaBaselineKind::ClassDefault : EDefaultDeltaBaselineKind::None;
+			Planned->Baseline = Baseline.Kind;
 			Planned->Disposition = EDefaultDeltaDisposition::Emitted;
 			Planned->Provenance = NodeIntent
 				? *NodeIntent : EDefaultDeltaProvenance::Explicit;
@@ -851,8 +928,9 @@ namespace Durin
 					ChildPath.push_back(FAuthoredOverridePathToken::Field(
 						Field.Descriptor.DeclaringType, Field.Descriptor.Name));
 					const auto Intent = FindAuthoredIntent(Context.LedgerEntries, ChildPath);
-					const auto* FieldDefault = Default && !EnumHasAnyFlags(Field.Descriptor.PropertyFlags, EPropertyFlags::AlwaysSerialize)
-						? Default->Fields[Index].Value.get() : nullptr;
+					const bool bComplete = EnumHasAnyFlags(Field.Descriptor.PropertyFlags, EPropertyFlags::AlwaysSerialize)
+						|| (Baseline.bTypeRelative && ContainsHardReference(*Field.Value));
+					const auto* FieldDefault = Default && !bComplete ? Default->Fields[Index].Value.get() : nullptr;
 					Field.Baseline = FieldDefault
 						? EDefaultDeltaBaselineKind::ClassDefault : EDefaultDeltaBaselineKind::None;
 					Field.Identity = FieldDefault
@@ -871,7 +949,9 @@ namespace Durin
 							? EDefaultDeltaProvenance::Explicit : EDefaultDeltaProvenance::None);
 					Field.Value = Field.Disposition == EDefaultDeltaDisposition::Emitted
 						? BuildPlannedValue(*Live.Fields[Index].Value, Context, Depth + 1,
-							FieldDefault, ChildPath)
+							bComplete ? FPlanningBaseline{} : FPlanningBaseline{FieldDefault
+								? EDefaultDeltaBaselineKind::ClassDefault : EDefaultDeltaBaselineKind::None,
+								FieldDefault, Baseline.bAllowIndependent, Baseline.bTypeRelative}, ChildPath)
 						: nullptr;
 					if (Field.Disposition == EDefaultDeltaDisposition::Emitted && !Field.Value) return nullptr;
 					++Context.Plan.FieldCount;
@@ -893,7 +973,10 @@ namespace Durin
 						ChildPath.push_back(FAuthoredOverridePathToken::MapValue({}));
 					auto Element = bMapKey ? CloneNode(*Live.Elements[Index])
 						: BuildPlannedValue(*Live.Elements[Index], Context, Depth + 1,
-							nullptr, ChildPath);
+							FPlanningBaseline{Baseline.bAllowIndependent && Live.Elements[Index]->LogicalType.Kind == ETypeKind::Struct
+								&& (Live.Elements[Index]->SourceStruct || FindStructByQualifiedName(Live.Elements[Index]->LogicalType.QualifiedType))
+								? EDefaultDeltaBaselineKind::StructTypeDefault : EDefaultDeltaBaselineKind::None,
+								nullptr, Baseline.bAllowIndependent, Baseline.bAllowIndependent}, ChildPath);
 					if (!Element) return nullptr;
 					Planned->Elements.push_back(std::move(Element));
 				}
@@ -926,13 +1009,13 @@ namespace Durin
 		}
 
 		auto PlanObjectPair(DObject* Live, const DObject* Default, const FDefaultObjectGraphMap& Graph,
-			FDefaultDeltaPlan& Plan, FDefaultDeltaDiagnostic& Diagnostic) -> bool
+			FDefaultDeltaPlan& Plan, FDefaultDeltaDiagnostic& Diagnostic, const FArchiveState& ArchiveContext) -> bool
 		{
 			std::vector<FDefaultDeltaFieldPlan> LiveDiscovery, DefaultDiscovery, LiveValues, DefaultValues;
-			if (!CaptureObject(Live, EArchivePurpose::Discovery, LiveDiscovery, Diagnostic)
-				|| !CaptureObject(const_cast<DObject*>(Default), EArchivePurpose::Discovery, DefaultDiscovery, Diagnostic)
-				|| !CaptureObject(Live, EArchivePurpose::AuthoredPackage, LiveValues, Diagnostic)
-				|| !CaptureObject(const_cast<DObject*>(Default), EArchivePurpose::AuthoredPackage, DefaultValues, Diagnostic))
+			if (!CaptureObject(Live, EArchivePurpose::Discovery, LiveDiscovery, Diagnostic, ArchiveContext)
+				|| !CaptureObject(const_cast<DObject*>(Default), EArchivePurpose::Discovery, DefaultDiscovery, Diagnostic, ArchiveContext)
+				|| !CaptureObject(Live, EArchivePurpose::AuthoredPackage, LiveValues, Diagnostic, ArchiveContext)
+				|| !CaptureObject(const_cast<DObject*>(Default), EArchivePurpose::AuthoredPackage, DefaultValues, Diagnostic, ArchiveContext))
 				return false;
 			if (!FieldsCaptureShapeEquivalent(LiveDiscovery, LiveValues)
 				|| !FieldsCaptureShapeEquivalent(DefaultDiscovery, DefaultValues)
@@ -946,6 +1029,7 @@ namespace Durin
 			if (!GatherValidReplacements(Live, LiveValues, Diagnostic, ValidLedgerEntries)) return false;
 			FDefaultDeltaObjectPlan ObjectPlan{.Object = Live, .ClassDefaultObject = Default};
 			FPlannerContext Context{Plan, Diagnostic, &Graph, Live, ValidLedgerEntries};
+			Context.ArchiveContext = ArchiveContext;
 			for (size_t Index = 0; Index < LiveValues.size(); ++Index)
 			{
 				FDefaultDeltaFieldPlan Field = LiveValues[Index];
@@ -974,7 +1058,8 @@ namespace Durin
 					: (Field.Disposition == EDefaultDeltaDisposition::Emitted
 						? EDefaultDeltaProvenance::Explicit : EDefaultDeltaProvenance::None);
 				Field.Value = Field.Disposition == EDefaultDeltaDisposition::Emitted
-					? BuildPlannedValue(*LiveValues[Index].Value, Context, 1, bReflectedBaseline ? DefaultValues[Index].Value.get() : nullptr, Path) : nullptr;
+					? BuildPlannedValue(*LiveValues[Index].Value, Context, 1, FPlanningBaseline{bReflectedBaseline ? EDefaultDeltaBaselineKind::ClassDefault : EDefaultDeltaBaselineKind::None,
+						 bReflectedBaseline ? DefaultValues[Index].Value.get() : nullptr, bReflectedBaseline}, Path) : nullptr;
 				if (Field.Disposition == EDefaultDeltaDisposition::Emitted && !Field.Value) return false;
 				++Plan.FieldCount;
 				if (Field.Disposition == EDefaultDeltaDisposition::Emitted) ++Plan.EmittedFieldCount;
@@ -1055,6 +1140,7 @@ namespace Durin
 		FDefaultDeltaPlan& OutPlan, FDefaultDeltaDiagnostic* OutDiagnostic,
 		const FArchiveState& Context) -> bool
 	{
+		if (Context.bCooking) Mode = EDefaultDeltaMode::NoDelta;
 		OutPlan.Reset();
 		OutPlan.Mode = Mode;
 		FDefaultDeltaDiagnostic Diagnostic;
@@ -1105,7 +1191,7 @@ namespace Durin
 					const FAuthoredOverridePath Path{FAuthoredOverridePathToken::Field(
 						Field.Descriptor.DeclaringType, Field.Descriptor.Name)};
 					Field.Value = Field.Value
-						? BuildPlannedValue(*Field.Value, Planner, 1, nullptr, Path) : nullptr;
+						? BuildPlannedValue(*Field.Value, Planner, 1, {}, Path) : nullptr;
 					if (!Field.Value) return Fail();
 					Field.Baseline = EDefaultDeltaBaselineKind::None;
 					Field.Disposition = EDefaultDeltaDisposition::Emitted;
@@ -1163,7 +1249,7 @@ namespace Durin
 			for (DObject* Live : Objects)
 				if (const DObject* Default = Graph.FindTemplate(Live))
 				{
-					if (!PlanObjectPair(Live, Default, Graph, OutPlan, Diagnostic)) return Fail();
+					if (!PlanObjectPair(Live, Default, Graph, OutPlan, Diagnostic, Context)) return Fail();
 					PlannedObjects.insert(Live);
 				}
 		}

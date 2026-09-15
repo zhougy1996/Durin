@@ -19,6 +19,8 @@
 
 namespace Durin
 {
+	enum class EArchiveStructBaseline : uint8 { Complete, Parent, TypeDefault };
+
 	// Selects the direction of a bidirectional serialization operation.
 	enum class EArchiveDirection : uint8 { Load, Save };
 
@@ -204,9 +206,9 @@ namespace Durin
 		auto GetVersionContext() const -> const FArchiveVersionContext& { return Versions; }
 		// Saving records the registered current version once. Loading never changes file versions.
 		CORE_API auto UsingCustomVersion(const FGuid& Guid) -> void;
-		// Loading adapters select whether a Struct patches its initialized destination.
-		// Default adapters reconstruct a complete value from the Struct type default.
-		virtual auto UseExistingStructBaseline() -> bool { return false; }
+		// Loading adapters select constructor storage, the initialized parent, or a registered type default.
+		// Complete adapters never query registered defaults.
+		virtual auto GetStructBaseline() -> EArchiveStructBaseline { return EArchiveStructBaseline::Complete; }
 
 		virtual auto GetLoadedDeprecatedProperties(FName) const -> std::span<const FName>
 		{

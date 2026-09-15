@@ -235,12 +235,12 @@ namespace Durin::AssetPrivate
 			{
 			}
 
-			auto UseExistingStructBaseline() -> bool override
+			auto GetStructBaseline() -> EArchiveStructBaseline override
 			{
 				uint8 Baseline = 0;
-				if (!Read(Baseline) || Baseline > 1)
+				if (!Read(Baseline) || Baseline > 2)
 					SetError("Invalid Struct baseline mode.");
-				return Baseline == 1;
+				return static_cast<EArchiveStructBaseline>(Baseline);
 			}
 
 			auto GetAssetError() const -> EAssetError
@@ -585,7 +585,7 @@ namespace Durin::AssetPrivate
 				if (PathTypes.empty()) return;
 				FPathType& Path = PathTypes.back();
 				if (!HasError() && !Stack.empty() && Stack.back().Record
-					&& UnwrapFixed(Path.Type).Kind == FArchiveLogicalTypeDescriptor::EKind::Struct)
+					&& Path.Type.Kind == FArchiveLogicalTypeDescriptor::EKind::Struct)
 					PrepareStruct(Path.Struct, Path.Type);
 				PathTypes.pop_back();
 			}
@@ -596,7 +596,7 @@ namespace Durin::AssetPrivate
 				FLoadScope& Scope = Stack.back();
 				if (!HasError() && Scope.Record)
 				{
-					if (UnwrapFixed(Scope.Type).Kind == FArchiveLogicalTypeDescriptor::EKind::Struct)
+					if (Scope.Type.Kind == FArchiveLogicalTypeDescriptor::EKind::Struct)
 						PrepareStruct(Scope.Struct, Scope.Type);
 					if (!HasError() && Scope.Offset != Scope.Record->Payload.size())
 						FailLoad(EAssetError::CorruptFile, EArchiveFailureCode::InvalidData,
@@ -1579,8 +1579,10 @@ namespace Durin::AssetPrivate
 			{
 				if (!Node.Raw.empty()) return Invalid();
 				Out.FieldTypes.emplace();
-				Out.bUseParentBaseline = DeltaNode
-					&& DeltaNode->Baseline == EDefaultDeltaBaselineKind::ClassDefault;
+				Out.Baseline = !DeltaNode || DeltaNode->Baseline == EDefaultDeltaBaselineKind::None
+					? EArchiveStructBaseline::Complete
+					: DeltaNode->Baseline == EDefaultDeltaBaselineKind::StructTypeDefault
+						? EArchiveStructBaseline::TypeDefault : EArchiveStructBaseline::Parent;
 				for (const FCapturedNode& ChildNode : Node.Children)
 				{
 					const FDefaultDeltaFieldPlan* DeltaField = FindDeltaField(DeltaNode ? &DeltaNode->Fields : nullptr, ChildNode.Field);

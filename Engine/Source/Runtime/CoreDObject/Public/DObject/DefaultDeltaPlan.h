@@ -10,6 +10,7 @@ namespace Durin
 {
 	// NoDelta emits complete values without changing persistent authored replacement state.
 	enum class EDefaultDeltaMode : uint8 { Enabled, NoDelta };
+	// ClassDefault also denotes the corresponding initialized parent inside a Struct.
 	enum class EDefaultDeltaBaselineKind : uint8 { None, ClassDefault, StructTypeDefault };
 	enum class EDefaultDeltaDisposition : uint8 { Omitted, Emitted };
 	// Explicit is ordinary emission; Forced identifies an opt-in complete replacement boundary.

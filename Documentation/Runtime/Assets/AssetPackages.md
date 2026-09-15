@@ -224,11 +224,14 @@ subobject values. `SavePackage(Package, EAssetPackageSaveMode::Complete)` and
 Bundle saving propagates the same selection; cooked saves always emit complete
 values. A failed delta plan reports its reason without silently changing modes.
 
-v10 tables carry an export default-baseline byte and a Struct
-parent-baseline byte. Struct present-field tags carry names and types independently
+v10 tables carry an export default-baseline byte and a Struct baseline byte:
+0 for complete, 1 for the initialized parent, and 2 for the registered type
+default. Struct present-field tags carry names and types independently
 of the complete shared schema. An omitted ordinary nested field inherits its
-paired parent value. Arrays, fixed arrays, Maps, and Forced replacements carry
-complete contained values. Native object fields have no reflected copy contract
+paired parent value. Arrays, fixed arrays and Maps replace their complete
+membership; authored reflected Struct elements and Map values may omit fields
+against their type default. Forced replacements keep complete descendant values.
+Native object fields have no reflected copy contract
 and remain complete. `AlwaysSerialize` preserves required reflected wire fields,
 without Forced intent. Material compatibility uses package custom versions. The intrinsic
 DObject identity node has no authored values.
@@ -240,8 +243,13 @@ constructor-created default children reject delta saving; classes declaring
 `NoClassDefaultObject` also require explicit complete snapshots. Complete exports skip default initialization. All skeletons,
 reference binding, validation, and PostLoad still precede publication.
 
-The reader and writer accept v10 only. The maintained workspace corpus was
-resaved before retiring v9; unsupported revisions fail at the format boundary.
+The reader and writer accept v10 only. Older v10 readers reject Struct mode 2;
+updated readers retain old complete-value meaning. Ordinary resave can make old
+complete container elements sparse; omitted fields then follow changed type
+defaults. Complete/Forced saving pins their saved fields. Reference-bearing
+fields remain explicit, and per-element override editing is deferred. See the
+[baseline contract](../Core/Serialization.md#default-relative-logical-planning).
+The maintained workspace corpus was resaved before retiring v9; unsupported revisions fail at the format boundary.
 Detached relocation/reference rewrites use the same validated v10 closure.
 Ordinary loading allocates no authored-override ledger; only Forced boundaries
 restore persistent replacement intent. See [Serialization](../Core/Serialization.md).

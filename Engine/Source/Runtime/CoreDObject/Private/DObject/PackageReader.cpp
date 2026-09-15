@@ -616,9 +616,9 @@ namespace Durin::ObjectPackage
 			{
 				uint64 Count = 0;
 				uint8 Baseline = 0;
-				if (!Reader.ReadU8(Baseline) || Baseline > 1)
+				if (!Reader.ReadU8(Baseline) || Baseline > 2)
 					return Fail(Diagnostic, EPackageReaderFailure::InvalidValue, "Invalid Struct baseline mode.", Path);
-				Value.bUseParentBaseline = Baseline != 0;
+				Value.Baseline = static_cast<EArchiveStructBaseline>(Baseline);
 				if (!Reader.ReadVarUInt(Count) || Count > Limits.MaximumTableEntries) return false;
 				struct FField { std::string Name; FSerializedType Type; EPropertyProvenance Provenance{}; FSerializedValue Value; };
 				std::vector<FField> Fields;
