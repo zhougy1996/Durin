@@ -233,8 +233,14 @@ namespace Durin::Editor::Material
 			if (Opcode == EMaterialProgramOpcode::TextureSampleParameter2D) Entry.InputNames = {"UV"};
 			if (Opcode == EMaterialProgramOpcode::TextureCoordinates) Entry.InputNames = {"Channel"};
 			for (uint8 Index = 0; Index < Signature.InputCount; ++Index)
+			{
 				Entry.AcceptedInputTypes.emplace_back(
 					Signature.Inputs[Index].begin(), Signature.Inputs[Index].end());
+				if (IsMaterialAdaptiveNumeric(Opcode) && Signature.InputCount > 1
+					&& ResultType > EMaterialProgramValueType::Float
+					&& !(Opcode == EMaterialProgramOpcode::Lerp && Index == 2))
+					Entry.AcceptedInputTypes.back().push_back(EMaterialProgramValueType::Float);
+			}
 			return Entry;
 		}
 
@@ -422,6 +428,15 @@ namespace Durin::Editor::Material
 						.Name = Shape && InputIndex < Shape->InputNames.size() ? Shape->InputNames[InputIndex] : "Value",
 						.Link = LinkView(Input), .SourceType = SourceType(LinkView(Input))};
 					if (Shape && InputIndex < Shape->AcceptedInputTypes.size()) Pin.AcceptedTypes = Shape->AcceptedInputTypes[InputIndex];
+					if (IsMaterialAdaptiveNumeric(Node.Opcode) && !(Node.Opcode == EMaterialProgramOpcode::Lerp && InputIndex == 2))
+					{
+						// Keep the resolved width first for pin styling, while allowing reconnection.
+						Pin.AcceptedTypes = {Node.ResultType};
+						for (const auto Type : {EMaterialProgramValueType::Float, EMaterialProgramValueType::Float2,
+							EMaterialProgramValueType::Float3, EMaterialProgramValueType::Float4})
+							if (Type != Node.ResultType && !(Node.Opcode == EMaterialProgramOpcode::Normalize && Type == EMaterialProgramValueType::Float))
+								Pin.AcceptedTypes.push_back(Type);
+					}
 					Expression->GetClass()->ForEachProperty([&](FProperty* Property) {
 						if (Property->GetValuePtr(Expression) != &Input) return;
 						auto* Default = Expression->GetClass()->FindPropertyByName(FName(Property->NamePrivate.ToString() + "Default"));
@@ -621,6 +636,12 @@ namespace Durin::Editor::Material
 			// Keep dimensional shapes for inspection; the palette creates one scalar Constant.
 			if (Entry.Opcode == EMaterialProgramOpcode::Constant
 				&& Entry.ResultType != EMaterialProgramValueType::Float) continue;
+			if (IsMaterialAdaptiveNumeric(Entry.Opcode))
+			{
+				const auto Type = SourceType.value_or(Entry.Opcode == EMaterialProgramOpcode::Normalize
+					? EMaterialProgramValueType::Float2 : EMaterialProgramValueType::Float);
+				if (Entry.ResultType != Type) continue;
+			}
 			if (SourceType)
 			{
 				if (Entry.AcceptedInputTypes.empty()

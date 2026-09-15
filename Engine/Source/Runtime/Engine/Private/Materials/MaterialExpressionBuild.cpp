@@ -227,19 +227,27 @@ namespace Durin
 		}
 		for (size_t Slot = 0; Slot < Inputs.size(); ++Slot)
 		{
+			const bool bScalarDefault = IsMaterialAdaptiveNumeric(Opcode)
+				&& Type > EMaterialProgramValueType::Float && Type <= EMaterialProgramValueType::Float4
+				&& !(Opcode == EMaterialProgramOpcode::Lerp && Slot == 2);
+			const bool bBroadcast = bScalarDefault && (Inputs.size() > 1 || !Inputs[Slot]->ExpressionId.IsValid());
 			const auto& Default = *Defaults[Slot];
 			if (!Default.empty())
 			{
 				const auto Accepted = Signature->Inputs[Slot];
-				if (Default.size() > 4 || std::ranges::find(Accepted,
-					static_cast<EMaterialProgramValueType>(Default.size() - 1)) == Accepted.end()
+				if (Default.size() > 4 || (std::ranges::find(Accepted,
+					static_cast<EMaterialProgramValueType>(Default.size() - 1)) == Accepted.end() && !(bScalarDefault && Default.size() == 1))
 					|| !std::ranges::all_of(Default, [](float Value) { return std::isfinite(Value); }))
 					return Fail("Retained numeric default has an invalid width or non-finite component.");
 			}
 			const auto& Input = *Inputs[Slot];
 			if (!Input.ExpressionId.IsValid() && (Input.OutputIndex != 0 || Input.OutputId.IsValid()))
 				return Fail("Disconnected numeric input has an output selector.");
-			Node.Inputs.push_back(Input.ExpressionId.IsValid() ? ResolveIndex(Input) : Literal(Default));
+			auto Index = Input.ExpressionId.IsValid() ? ResolveIndex(Input) : Literal(Default);
+			if (bBroadcast && Index != InvalidMaterialExpressionIndex && GetNode(Index).ResultType == EMaterialProgramValueType::Float)
+				Index = Emit({.Opcode = static_cast<EMaterialProgramOpcode>(static_cast<uint8>(EMaterialProgramOpcode::Splat2)
+					+ static_cast<uint8>(Type) - 1), .ResultType = Type, .Inputs = {Index}});
+			Node.Inputs.push_back(Index);
 		}
 		return Emit(std::move(Node));
 	}

@@ -12,6 +12,96 @@ namespace Durin::Editor::Material
 	using namespace GraphEditInternals;
 	namespace GraphEditInternals
 	{
+		// Resolve upstream widths before publishing the candidate. Owner validation still
+		// checks selectors, cycles, fixed consumers and nonnumeric inputs atomically.
+		auto AdaptNumericTypes(FOwnedGraphSnapshot& State) -> bool
+		{
+			using Type = EMaterialProgramValueType;
+			const auto Catalog = FMaterialGraphOperations::EnumerateCatalog();
+			std::map<FGuid, DMaterialExpression*> Expressions;
+			std::map<FGuid, Type> Resolved;
+			std::set<FGuid> Active;
+			for (const auto& E : State.Expressions) Expressions.emplace(E->Id, E.Get());
+			bool bValid = true;
+			std::function<Type(const FMaterialExpressionInput&)> Resolve;
+			Resolve = [&](const FMaterialExpressionInput& Input) -> Type {
+				const auto Found = Expressions.find(Input.ExpressionId);
+				if (Found == Expressions.end()) { bValid = false; return Type::Float; }
+				auto* E = Found->second;
+				if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(E))
+				{
+					const auto Port = std::ranges::find(Call->Outputs, Input.OutputId, &FMaterialFunctionOutputBinding::OutputId);
+					if (Port != Call->Outputs.end()) return Port->ExpectedType;
+					bValid = false; return Type::Float;
+				}
+				if (const auto* Terminal = Cast<DMaterialExpressionFunctionInput>(E))
+				{
+					const auto Port = std::ranges::find(State.Signature.Inputs, Terminal->PortId, &FMaterialFunctionPort::Id);
+					if (Port != State.Signature.Inputs.end()) return Port->Type;
+					bValid = false; return Type::Float;
+				}
+				const auto Shape = std::ranges::find(Catalog, E->GetClass(), &FMaterialGraphCatalogEntry::ExpressionClass);
+				if (Shape == Catalog.end()) { bValid = false; return Type::Float; }
+				const auto Opcode = Shape->Opcode;
+				if (Opcode == EMaterialProgramOpcode::TextureSampleParameter2D && Input.OutputIndex == 7) return Type::Texture2D;
+				if (IsMaterialSamplingNode(Opcode) && Input.OutputIndex != 0)
+					return Input.OutputIndex == 1 || Input.OutputIndex == 8 ? Type::Float3 : Type::Float;
+				if (Opcode == EMaterialProgramOpcode::GetSurfaceAttributes && Input.OutputIndex < 8)
+					return GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(Input.OutputIndex));
+				if (Resolved.contains(E->Id)) return Resolved.at(E->Id);
+				if (!Active.insert(E->Id).second) { bValid = false; return Type::Float; }
+				auto* Property = E->GetClass()->FindPropertyByName("ResultType");
+				auto Result = Property ? *static_cast<Type*>(Property->GetValuePtr(E)) : Shape->ResultType;
+				if (const auto* Swizzle = Cast<DMaterialExpressionSwizzle>(E))
+					Result = static_cast<Type>(Swizzle->Components.size() - 1);
+				if (IsMaterialAdaptiveNumeric(Opcode))
+				{
+					Type Inferred = Type::Float;
+					bool bOperand = false;
+					const auto Merge = [&](Type Value) {
+						bOperand = true;
+						if (Value > Type::Float4 || (Value != Type::Float && Inferred != Type::Float && Value != Inferred)) bValid = false;
+						if (Value != Type::Float) Inferred = Value;
+					};
+					VisitMaterialExpressionInputs(*E, [&](uint32 Slot, FMaterialExpressionInput& Operand) {
+						if (Opcode == EMaterialProgramOpcode::Lerp && Slot == 2) return;
+						if (Operand.ExpressionId.IsValid()) Merge(Resolve(Operand));
+						else E->GetClass()->ForEachProperty([&](FProperty* P) {
+							if (P->GetValuePtr(E) != &Operand) return;
+							auto* Default = E->GetClass()->FindPropertyByName(FName(P->NamePrivate.ToString() + "Default"));
+							if (!Default) return;
+							const auto& Values = *static_cast<std::vector<float>*>(Default->GetValuePtr(E));
+							// Uniform defaults are width-independent; retain authored components otherwise.
+							if (Values.size() > 1 && !std::ranges::all_of(Values, [&](float V) { return V == Values.front(); }))
+								Merge(static_cast<Type>(Values.size() - 1));
+						});
+					});
+					if (bOperand) Result = Inferred;
+					if (!GetMaterialProgramNodeSignature(Opcode, Result)) bValid = false;
+					if (Property) *static_cast<Type*>(Property->GetValuePtr(E)) = Result;
+					VisitMaterialExpressionInputs(*E, [&](uint32 Slot, FMaterialExpressionInput& Operand) {
+						if (Opcode == EMaterialProgramOpcode::Lerp && Slot == 2) return;
+						E->GetClass()->ForEachProperty([&](FProperty* P) {
+							if (P->GetValuePtr(E) != &Operand) return;
+							auto* Default = E->GetClass()->FindPropertyByName(FName(P->NamePrivate.ToString() + "Default"));
+							if (!Default) return;
+							auto& Values = *static_cast<std::vector<float>*>(Default->GetValuePtr(E));
+							if (Values.size() > 1 && Values.size() != static_cast<size_t>(Result) + 1
+								&& std::ranges::all_of(Values, [&](float V) { return V == Values.front(); })) Values.resize(1);
+						});
+					});
+				}
+				Active.erase(E->Id);
+				Resolved.emplace(E->Id, Result);
+				return Result;
+			};
+			for (const auto& E : State.Expressions)
+			{
+				const auto Shape = std::ranges::find(Catalog, E->GetClass(), &FMaterialGraphCatalogEntry::ExpressionClass);
+				if (Shape != Catalog.end() && IsMaterialAdaptiveNumeric(Shape->Opcode)) Resolve({E->Id});
+			}
+			return bValid;
+		}
 
 		class FGraphDocumentChange final : public ITransactionCustomChange
 		{
@@ -69,6 +159,7 @@ namespace Durin::Editor::Material
 			if (Candidate.Expressions.size() > MaterialProgramMaxNodeCount
 				|| std::ranges::any_of(Candidate.Expressions, [](const auto& Expression) { return !Expression.Get(); }))
 				return MakeRejected("The graph has too many expressions or contains a missing expression.");
+			if (!AdaptNumericTypes(Candidate)) return MakeRejected("Numeric inputs require matching vector widths, or a scalar and a vector.");
 			// Keep every terminal visible even when the source graph has no saved layout.
 			std::erase_if(Candidate.Presentation.Nodes, [](const auto& Position) {
 				return Position.X < -MaterialGraphPresentationCoordinateLimit || Position.X > MaterialGraphPresentationCoordinateLimit
@@ -260,7 +351,11 @@ namespace Durin::Editor::Material
 			return MakeRejected("The catalog input shape is stale.");
 		bool bValidInputs = true;
 		VisitMaterialExpressionInputs(*Expression, [&](uint32 Index, FMaterialExpressionInput& Input) {
-			if (Index == 0 && FirstInput.ExpressionId.IsValid()) { Input = FirstInput; return; }
+			if (Index == 0 && FirstInput.ExpressionId.IsValid())
+			{
+				Input = FirstInput;
+				if (!IsMaterialAdaptiveNumeric(Entry.Opcode)) return;
+			}
 			if (const auto* Sample = Cast<DMaterialExpressionTextureSample2D>(Expression.Get()); Sample && &Input == &Sample->UV) return;
 			if (const auto* Sample = Cast<DMaterialExpressionTextureSampleParameter2D>(Expression.Get()); Sample && &Input == &Sample->UV) return;
 			std::vector<float>* Default = nullptr;

@@ -184,6 +184,18 @@ and Surface defaults; parameter entries receive unique metadata. `MakeSurface` e
 legacy `StandardSurface` and role-bound `TextureCoordinate` are not authorable
 catalog entries.
 
+The catalog retains concrete numeric shapes for inspection and structured callers;
+palette search selects one shape per math operation. Before publication, editing
+commands infer math result widths in upstream order and propagate changes through
+downstream math nodes. Linked operands and nonuniform disconnected literals constrain
+the width; uniform defaults can collapse to an equivalent scalar when the width
+changes. A graph without constraining operands retains its current width. Different
+vector widths reject, while scalars broadcast. Lerp Alpha stays scalar; Normalize
+requires at least two components. Owner validation checks fixed consumers before
+publication, and Undo/Redo restores the complete graph including inferred types.
+Expression compilation lowers scalar broadcasting to typed Splat IR operations,
+without creating authored graph nodes.
+
 Shared document inspection resolves function call pins from the live signature,
 ordered by display order and GUID. Detached pin records retain stable port GUIDs,
 types, names, defaults, required flags and missing-port markers. Function terminals

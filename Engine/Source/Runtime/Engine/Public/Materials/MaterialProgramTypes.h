@@ -90,6 +90,13 @@ namespace Durin
 		TextureCoordinates,
 	};
 
+	// Numeric authoring nodes infer their width from their operands in the editor.
+	inline auto IsMaterialAdaptiveNumeric(EMaterialProgramOpcode Opcode) -> bool
+	{
+		return (Opcode >= EMaterialProgramOpcode::Add && Opcode <= EMaterialProgramOpcode::Lerp)
+			|| Opcode == EMaterialProgramOpcode::Sine || Opcode == EMaterialProgramOpcode::Cosine;
+	}
+
 	DENUM()
 	enum class EMaterialSurfaceOutput : uint8
 	{

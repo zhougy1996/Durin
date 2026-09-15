@@ -659,6 +659,111 @@ TEST(FMaterialGraphOperationsTests, CatalogAndInspectionCoverTheClosedOpcodeDoma
 	CollectGarbage();
 }
 
+TEST(FMaterialGraphOperationsTests, MathPaletteHasOneEntryPerOperationAndSourceWidth)
+{
+	InitializeDObjectSystem();
+	using Type = EMaterialProgramValueType;
+	const auto Catalog = FMaterialGraphOperations::EnumerateCatalog();
+	for (const auto Source : {std::optional<Type>{}, std::optional{Type::Float}, std::optional{Type::Float2},
+		std::optional{Type::Float3}, std::optional{Type::Float4}, std::optional{Type::Texture2D}})
+	{
+		const auto Rows = FMaterialGraphOperations::SearchCatalog(Catalog, {}, Source);
+		for (const auto& Entry : Catalog)
+		{
+			if (!IsMaterialAdaptiveNumeric(Entry.Opcode)) continue;
+			const bool bAllowed = Source != Type::Texture2D && !(Source == Type::Float && Entry.Opcode == EMaterialProgramOpcode::Normalize);
+			EXPECT_EQ(std::ranges::count(Rows, Entry.Opcode, &FMaterialGraphCatalogEntry::Opcode), bAllowed ? 1 : 0);
+		}
+	}
+}
+
+TEST(FMaterialGraphOperationsTests, MathWidthsPropagateBroadcastAndUndoAtomically)
+{
+	InitializeDObjectSystem();
+	using Type = EMaterialProgramValueType;
+	for (const auto Width : {Type::Float2, Type::Float3, Type::Float4})
+	{
+		auto* Material = NewObject<DMaterial>(nullptr, NAME_None);
+		Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+		FMaterialGraphDocument Document(*Material);
+		Durin::Tests::FTestTransactorOwner Transactions;
+		const auto Catalog = FMaterialGraphOperations::EnumerateCatalog();
+		const auto Create = [&](EMaterialProgramOpcode Opcode, Type T) {
+			const auto Entry = std::ranges::find_if(Catalog, [&](const auto& E) { return E.Opcode == Opcode && E.ResultType == T; });
+			return Document.CreateCatalogNode(*Entry);
+		};
+		const auto Vector = Create(EMaterialProgramOpcode::Constant, Width);
+		const auto Scalar = Create(EMaterialProgramOpcode::Constant, Type::Float);
+		const auto Other = Create(EMaterialProgramOpcode::Constant, Width == Type::Float2 ? Type::Float3 : Type::Float2);
+		const auto Multiply = Create(EMaterialProgramOpcode::Multiply, Type::Float);
+		const auto Add = Create(EMaterialProgramOpcode::Add, Type::Float);
+		ASSERT_TRUE(Vector); ASSERT_TRUE(Scalar); ASSERT_TRUE(Other); ASSERT_TRUE(Multiply); ASSERT_TRUE(Add);
+		const auto M = Multiply.GeneratedNodeIds.front(), A = Add.GeneratedNodeIds.front();
+		ASSERT_TRUE(Document.ConnectInput(A, 0, {M}));
+		ASSERT_TRUE(Document.ConnectInput(M, 1, {Scalar.GeneratedNodeIds.front()}));
+		const auto Before = CaptureExpressions(*Material);
+		ASSERT_TRUE(Document.ConnectInput(M, 0, {Vector.GeneratedNodeIds.front()}, false, Transactions.Get()));
+		auto View = Document.Inspect();
+		EXPECT_EQ(FindViewNode(View, M)->Node.ResultType, Width);
+		EXPECT_EQ(FindViewNode(View, A)->Node.ResultType, Width);
+		std::vector<DMaterialExpression*> Expressions;
+		for (const auto& E : Material->GetExpressionCollection().Expressions) Expressions.push_back(E.Get());
+		const std::array Roots{FMaterialExpressionInput{A}};
+		const auto Built = BuildMaterialExpressionGraph(Expressions, Roots);
+		ASSERT_TRUE(Built);
+		EXPECT_EQ(Built.IR.Nodes[Built.Roots.front()].ResultType, Width);
+		EXPECT_TRUE(std::ranges::any_of(Built.IR.Nodes, [&](const auto& N) {
+			return N.ResultType == Width && N.Opcode >= EMaterialProgramOpcode::Splat2 && N.Opcode <= EMaterialProgramOpcode::Splat4;
+		}));
+		const auto After = CaptureExpressions(*Material);
+		EXPECT_FALSE(Document.ConnectInput(M, 1, {Other.GeneratedNodeIds.front()}, true, Transactions.Get()));
+		EXPECT_EQ(CaptureExpressions(*Material), After);
+		ASSERT_TRUE(Transactions->Undo()); EXPECT_EQ(CaptureExpressions(*Material), Before);
+		ASSERT_TRUE(Transactions->Redo()); EXPECT_EQ(CaptureExpressions(*Material), After);
+		ASSERT_TRUE(Document.ConnectInput(M, 0, {Scalar.GeneratedNodeIds.front()}, true));
+		View = Document.Inspect();
+		EXPECT_EQ(FindViewNode(View, M)->Node.ResultType, Type::Float);
+		EXPECT_EQ(FindViewNode(View, A)->Node.ResultType, Type::Float);
+		const auto MakeVector = Create(EMaterialProgramOpcode::MakeFloat2, Type::Float2);
+		ASSERT_TRUE(MakeVector);
+		ASSERT_TRUE(Document.ConnectInput(MakeVector.GeneratedNodeIds.front(), 0, {A}));
+		const auto Fixed = CaptureExpressions(*Material);
+		EXPECT_FALSE(Document.ConnectInput(M, 0, {Vector.GeneratedNodeIds.front()}, true));
+		EXPECT_EQ(CaptureExpressions(*Material), Fixed);
+	}
+}
+
+TEST(FMaterialGraphOperationsTests, FunctionMathAdaptsAndKeepsNormalizeAndLerpConstraints)
+{
+	InitializeDObjectSystem();
+	using Type = EMaterialProgramValueType;
+	auto* Function = NewObject<DMaterialFunction>(nullptr, NAME_None);
+	FMaterialGraphDocument Document(*Function);
+	const auto Catalog = FMaterialGraphOperations::EnumerateCatalog();
+	const auto Create = [&](EMaterialProgramOpcode Opcode, Type T, FMaterialExpressionInput Source = {}) {
+		const auto Entry = std::ranges::find_if(Catalog, [&](const auto& E) { return E.Opcode == Opcode && E.ResultType == T; });
+		return Document.CreateCatalogNode(*Entry, 0, 0, Source);
+	};
+	const auto Vector = Create(EMaterialProgramOpcode::Constant, Type::Float3);
+	const auto Scalar = Create(EMaterialProgramOpcode::Constant, Type::Float);
+	ASSERT_TRUE(Vector); ASSERT_TRUE(Scalar);
+	const auto V = Vector.GeneratedNodeIds.front(), S = Scalar.GeneratedNodeIds.front();
+	const auto Normalize = Create(EMaterialProgramOpcode::Normalize, Type::Float2, {V});
+	ASSERT_TRUE(Normalize) << Normalize.Message;
+	const auto N = Normalize.GeneratedNodeIds.front();
+	const auto Lerp = Create(EMaterialProgramOpcode::Lerp, Type::Float, {N});
+	ASSERT_TRUE(Lerp) << Lerp.Message;
+	const auto L = Lerp.GeneratedNodeIds.front();
+	const auto View = Document.Inspect();
+	EXPECT_EQ(FindViewNode(View, N)->Node.ResultType, Type::Float3);
+	EXPECT_EQ(FindViewNode(View, L)->Node.ResultType, Type::Float3);
+	EXPECT_FALSE(Document.ConnectInput(N, 0, {S}, true));
+	EXPECT_FALSE(Document.ConnectInput(L, 2, {V}));
+	ASSERT_TRUE(Document.ConnectInput(L, 2, {S}));
+	ASSERT_TRUE(Document.ConnectInput(N, 0, {}, true));
+	ASSERT_TRUE(Document.ConnectInput(N, 0, {V}));
+}
+
 TEST(FMaterialGraphOperationsTests, EveryCatalogShapeCreatesItsConcreteExpressionWithValidDefaults)
 {
 	InitializeDObjectSystem();
@@ -876,7 +981,7 @@ TEST(FMaterialGraphOperationsTests, PaletteCreationAddsVisibleDefaultsInOneTrans
 	DMaterial* Material = NewObject<DMaterial>(nullptr, "PaletteCreationMaterial");
 	ASSERT_NE(Material, nullptr);
 	const std::vector<FMaterialGraphCatalogEntry> Catalog =
-		FMaterialGraphOperations::SearchCatalog("multiply");
+		FMaterialGraphOperations::SearchCatalog("multiply", EMaterialProgramValueType::Float3);
 	const auto Multiply = std::ranges::find_if(Catalog,
 		[](const FMaterialGraphCatalogEntry& Entry) {
 			return Entry.OperationName == "Multiply"

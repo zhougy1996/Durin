@@ -31,7 +31,7 @@ namespace Durin::Editor::Material
 	{
 		if (Entry.Opcode == EMaterialProgramOpcode::Constant) return "1/2/3/4 + LMB";
 		for (const auto& Shortcut : MaterialGraphCreationShortcuts)
-			if (Entry.Opcode == Shortcut.Opcode && Entry.ResultType == Shortcut.Type)
+			if (Entry.Opcode == Shortcut.Opcode && (IsMaterialAdaptiveNumeric(Entry.Opcode) || Entry.ResultType == Shortcut.Type))
 				return Shortcut.Hint;
 		return "";
 	}

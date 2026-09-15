@@ -131,6 +131,13 @@ and links, rejects incompatible consumers atomically, and records successful
 changes in Undo/Redo. Constants remain independent literals unless the graph
 explicitly fans out one node's output or promotes it to a named parameter.
 
+Math operations expose one creation row per operation, with no vector-width suffix.
+Source-link creation selects the matching numeric shape; empty-canvas creation
+starts at Float (Float2 for Normalize). Connecting operands adapts the node and
+downstream math widths in the same transaction. Scalar operands broadcast to the
+vector width; different non-scalar widths reject atomically. Lerp Alpha remains
+scalar and Normalize requires a vector. Pins retain their resolved type display.
+
 Parameter creation exposes Scalar, Vector2, Vector3, Vector4 and texture owner
 entries. Selecting an entry creates and places a fresh uniquely named owner in one
 transaction. The catalog has no existing-parameter rebind mode. Sharing connects the
@@ -151,7 +158,8 @@ remain available below the creation list when no source link is active.
 Holding a key and left-clicking empty canvas creates a node at the pointer:
 `1`/`2`/`3`/`4` create Float through Float4 constants, `A` Add, `M` Multiply,
 `L` Lerp, `U` Texture Coordinates, `S` Scalar Parameter, `V` Vector4 Parameter,
-and `T` Texture Sample Parameter 2D. Math shortcuts create scalar nodes.
+and `T` Texture Sample Parameter 2D. Math shortcuts start with scalar nodes that
+adapt when connected.
 Creation selects the new node and records one Undo/Redo transaction. Shortcuts
 require an idle canvas with no text input or Ctrl/Shift/Alt/Super modifier;
 node, pin, and material-output clicks retain their existing gestures.

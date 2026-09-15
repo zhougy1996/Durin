@@ -12,7 +12,7 @@ namespace Durin::Editor::Material
 		auto CreationMenuEntryKey(const FMaterialGraphCatalogEntry& Entry) -> std::string
 		{
 			return std::format("{}|{}", static_cast<uint32>(Entry.Opcode),
-				static_cast<uint32>(Entry.ResultType));
+				IsMaterialAdaptiveNumeric(Entry.Opcode) ? 0u : static_cast<uint32>(Entry.ResultType));
 		}
 		auto FormatInputSignature(const FMaterialGraphCatalogEntry& Entry) -> std::string
 		{
@@ -23,6 +23,11 @@ namespace Durin::Editor::Material
 				Result += Index < Entry.InputNames.size()
 					? Entry.InputNames[Index] : std::format("Input {}", Index + 1);
 				Result += ": ";
+				if (IsMaterialAdaptiveNumeric(Entry.Opcode) && !(Entry.Opcode == EMaterialProgramOpcode::Lerp && Index == 2))
+				{
+					Result += Entry.Opcode == EMaterialProgramOpcode::Normalize ? "Vector (automatic)" : "Numeric (automatic)";
+					continue;
+				}
 				for (size_t TypeIndex = 0;
 					TypeIndex < Entry.AcceptedInputTypes[Index].size(); ++TypeIndex)
 				{
@@ -35,8 +40,7 @@ namespace Durin::Editor::Material
 	}
 	auto FMaterialGraphCanvas::RememberCreation(const FMaterialGraphCatalogEntry& Node) -> void
 	{
-		const std::string Key = std::format("{}|{}", static_cast<uint32>(Node.Opcode),
-			static_cast<uint32>(Node.ResultType));
+		const std::string Key = CreationMenuEntryKey(Node);
 		std::erase(RecentCreationMenuEntries, Key);
 		RecentCreationMenuEntries.insert(RecentCreationMenuEntries.begin(), Key);
 		if (RecentCreationMenuEntries.size() > 8) RecentCreationMenuEntries.resize(8);
@@ -151,8 +155,10 @@ namespace Durin::Editor::Material
 					PreviousGroup = Group;
 				}
 				ImGui::PushID(static_cast<int>(EntryIndex));
-				const std::string Label = std::format("{}  ({})  {}", Entry.OperationName,
-					GetProgramTypeName(Entry.ResultType), GetCreationShortcutHint(Entry));
+				const std::string Label = IsMaterialAdaptiveNumeric(Entry.Opcode)
+					? std::format("{}  {}", Entry.OperationName, GetCreationShortcutHint(Entry))
+					: std::format("{}  ({})  {}", Entry.OperationName,
+						GetProgramTypeName(Entry.ResultType), GetCreationShortcutHint(Entry));
 				if (ImGui::Selectable(Label.c_str(),
 					CreationMenu->Selection == static_cast<int32>(EntryIndex),
 					ImGuiSelectableFlags_NoAutoClosePopups))
