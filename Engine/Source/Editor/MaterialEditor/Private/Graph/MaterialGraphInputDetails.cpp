@@ -1,4 +1,5 @@
 #include "MaterialGraphCanvas.h"
+#include "Widgets/MaterialDetailsStyle.h"
 #include "MaterialGraphDocument.h"
 #include "MaterialGraphExpressionState.h"
 #include "MaterialExpressionParameters.h"
@@ -32,9 +33,9 @@ namespace Durin::Editor::Material
 		const auto View = Document.Inspect();
 		const auto Selected = std::ranges::find(View.Nodes, Selection.front(),
 			[](const auto& Entry) { return Entry.Node.Id; });
-		if (Selected == View.Nodes.end() || !ImGui::CollapsingHeader("Selected Node", ImGuiTreeNodeFlags_DefaultOpen)) return;
+		if (Selected == View.Nodes.end()) return;
 		ImGui::PushID(Selection.front().ToString().c_str());
-		ImGui::TextUnformatted(Selected->PrimaryLabel.c_str());
+		ImGui::TextWrapped("%s", Selected->PrimaryLabel.c_str());
 		if (SelectedDiagnostic && SelectedDiagnostic->NodeId == Selected->Node.Id)
 		{
 			constexpr std::array UVNames{"Channel", "Scale", "Offset", "Rotation"};
@@ -42,6 +43,11 @@ namespace Durin::Editor::Material
 				ImGui::TextColored({1, .65f, .25f, 1}, "Diagnostic UV field: %s", UVNames[*SelectedDiagnostic->UVFieldIndex]);
 			else if (SelectedDiagnostic->InputIndex)
 				ImGui::TextColored({1, .65f, .25f, 1}, "Diagnostic input: %u", *SelectedDiagnostic->InputIndex);
+		}
+		if (!MonaImGui::PropertyEdit::BeginTable("NodeProperties", DetailsStyle::MakeTableConfig()))
+		{
+			ImGui::PopID();
+			return;
 		}
 		bool Changed = false;
 		const auto Submit = [&](FMaterialGraphCommandResult Result) {
@@ -51,15 +57,15 @@ namespace Durin::Editor::Material
 		const auto EditText = [](const char* Label, std::string& Value) {
 			std::array<char, MaterialProgramMaxDisplayNameBytes + 1> Buffer{};
 			std::copy_n(Value.data(), std::min(Value.size(), Buffer.size() - 1), Buffer.data());
-			if (!ImGui::InputText(Label, Buffer.data(), Buffer.size(), ImGuiInputTextFlags_EnterReturnsTrue)) return false;
+			if (!DetailsStyle::EditRow(Label, [&] { return ImGui::InputText("##Value", Buffer.data(), Buffer.size(), ImGuiInputTextFlags_EnterReturnsTrue); })) return false;
 			Value = Buffer.data();
 			return true;
 		};
 		const auto EditLiteral = [](const char* Label, EMaterialProgramValueType Type, FMaterialProgramLiteral& Value) {
 			std::array<float, 4> Components{Value.X, Value.Y, Value.Z, Value.W};
 			const int Count = static_cast<int>(Type) + 1;
-			if (Count < 1 || Count > 4 || !ImGui::InputScalarN(Label, ImGuiDataType_Float, Components.data(), Count,
-				nullptr, nullptr, "%.4g", ImGuiInputTextFlags_EnterReturnsTrue)) return false;
+			if (Count < 1 || Count > 4 || !DetailsStyle::EditRow(Label, [&] { return ImGui::InputScalarN("##Value", ImGuiDataType_Float, Components.data(), Count,
+				nullptr, nullptr, "%.4g", ImGuiInputTextFlags_EnterReturnsTrue); })) return false;
 			Value = {Components[0], Components[1], Components[2], Components[3]};
 			return true;
 		};
@@ -87,11 +93,12 @@ namespace Durin::Editor::Material
 			if (!Changed && Parameter.Type == EMaterialParameterType::Texture)
 			{
 				int Usage = static_cast<int>(Parameter.TextureUsage);
-				if (ImGui::Combo("Texture usage", &Usage, "Color\0Normal\0Data / Mask\0"))
+				if (DetailsStyle::EditRow("Texture usage", [&] { return ImGui::Combo("##Value", &Usage, "Color\0Normal\0Data / Mask\0"); }))
 				{
 					Parameter.TextureUsage = static_cast<ETextureUsage>(Usage);
 					CommitParameter();
 				}
+				MonaImGui::PropertyEdit::BeginRow("Texture");
 				const auto Picker = AssetPicker::Draw({.RequiredClass = DTexture2D::StaticClass(),
 					.CurrentSelection = Parameter.Value.GetTexture().Texture.Get(), .SearchText = NodeTextureSearch,
 					.AssignSelection = [&](DObject* Object, std::string& Error) {
@@ -101,12 +108,13 @@ namespace Durin::Editor::Material
 						Error = Result.Message; Changed = Result.Status == EMaterialGraphCommandStatus::Succeeded;
 						return static_cast<bool>(Result);
 					}});
+				MonaImGui::PropertyEdit::EndRow();
 				if (!Picker.Error.empty()) ReportError(Picker.Error);
-				if (ImGui::TreeNode("Sampler settings"))
+				if (MonaImGui::PropertyEdit::BeginGroup("Sampler", "Sampler settings", ImGuiTreeNodeFlags_None))
 				{
 					const auto Combo = [&](const char* Label, auto& Value, const char* Names) {
 						int Index = static_cast<int>(Value);
-						if (Changed || !ImGui::Combo(Label, &Index, Names)) return;
+						if (Changed || !DetailsStyle::EditRow(Label, [&] { return ImGui::Combo("##Value", &Index, Names); })) return;
 						Value = static_cast<std::remove_reference_t<decltype(Value)>>(Index);
 						Submit(FMaterialGraphOperations::SetParameterValue(*Material, Parameter.Id, Parameter.Value, &Transactions));
 					};
@@ -115,7 +123,7 @@ namespace Durin::Editor::Material
 					Combo("Mag filter", Parameter.Value.GetTexture().SamplerState.MagFilter, "Nearest\0Linear\0");
 					Combo("Address U", Parameter.Value.GetTexture().SamplerState.AddressU, "Repeat\0Mirrored repeat\0Clamp\0");
 					Combo("Address V", Parameter.Value.GetTexture().SamplerState.AddressV, "Repeat\0Mirrored repeat\0Clamp\0");
-					ImGui::TreePop();
+					MonaImGui::PropertyEdit::EndGroup();
 				}
 			}
 			else if (!Changed)
@@ -161,15 +169,22 @@ namespace Durin::Editor::Material
 			if (Changed) break;
 			if (Selected->Node.IsSampleUVInput(Pin.InputIndex) || Pin.SourceType > EMaterialProgramValueType::Float4) continue;
 			ImGui::PushID(static_cast<int>(Pin.InputIndex));
-			ImGui::TextUnformatted(Pin.Name.c_str());
+			if (!MonaImGui::PropertyEdit::BeginGroup("Input", Pin.Name.c_str()))
+			{
+				ImGui::PopID();
+				continue;
+			}
 			auto Value = Pin.InlineDefault;
 			if (Value.Kind == EMaterialInputDefaultKind::None) Value.Type = Pin.SourceType;
-			if (Pin.Link.SourceNodeId.IsValid()) ImGui::TextDisabled("Connected; literal fallback is retained");
+			MonaImGui::PropertyEdit::BeginRow("Connection");
+			ImGui::TextDisabled(Pin.Link.SourceNodeId.IsValid() ? "Connected" : "Unconnected");
+			MonaImGui::PropertyEdit::EndRow();
 			if (EditLiteral("Fallback", Value.Type, Value.Literal))
 			{
 				Value.Kind = EMaterialInputDefaultKind::Literal;
 				Submit(Document.SetInputDefault(Selected->Node.Id, Pin.InputIndex, Value, Pin.PortId, &Transactions));
 			}
+			MonaImGui::PropertyEdit::BeginRow("Actions");
 			if (!Changed && Pin.Link.SourceNodeId.IsValid())
 			{
 				if (ImGui::SmallButton("Inline constant")) Submit(Document.InlineInputNode(Selected->Node.Id, Pin.InputIndex, Pin.PortId, &Transactions));
@@ -211,8 +226,11 @@ namespace Durin::Editor::Material
 					}
 				}
 			}
-			ImGui::Separator(); ImGui::PopID();
+			MonaImGui::PropertyEdit::EndRow();
+			MonaImGui::PropertyEdit::EndGroup();
+			ImGui::PopID();
 		}
+		MonaImGui::PropertyEdit::EndTable();
 		ImGui::PopID();
 	}
 }

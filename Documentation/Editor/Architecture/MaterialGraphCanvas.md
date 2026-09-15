@@ -47,7 +47,11 @@ The compiler's explicit final anchor and aggregate/per-property
 exclusion rule are unchanged; reusable Surface values do not become extra roots.
 
 Window controls reopen optional panels and reset the default layout. Material
-Info is a collapsed section in Details shown only when no graph node is selected.
+identity, type and asset path appear directly in Details when no graph node is
+selected. Selected nodes show their name and properties without a wrapper header.
+Surface settings, node values and instance rendering overrides use the shared
+MonaImGui property tables with left-aligned labels and full-width value controls.
+Input fallback controls are grouped by input; sampler settings remain collapsed.
 Base-material values and node bindings are edited through selected parameter
 owners and literal inputs in Details. Parameter node types are fixed at creation;
 Details has no type conversion control. Texture fallback and filtering/addressing

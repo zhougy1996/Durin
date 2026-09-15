@@ -1,4 +1,5 @@
 #include "Widgets/MMaterialEditor.h"
+#include "Widgets/MaterialDetailsStyle.h"
 #include "Widgets/MMaterialFunctionEditor.h"
 #include "Widgets/MaterialParameterPanelModel.h"
 #include "Widgets/MaterialPreview.h"
@@ -31,7 +32,6 @@ namespace Durin::Editor::Material
 {
 	namespace
 	{
-		constexpr float MaximumMaterialValueColumnWidthInEm = 34.0f;
 		constexpr float MaximumMaterialVectorWidthInEm = 30.0f;
 
 		struct FMaterialParameterGroup
@@ -94,9 +94,7 @@ namespace Durin::Editor::Material
 
 		auto MakeMaterialPropertyTableConfig() -> MonaImGui::PropertyEdit::FTableConfig
 		{
-			MonaImGui::PropertyEdit::FTableConfig Config;
-			Config.MaximumValueColumnWidthInEm = MaximumMaterialValueColumnWidthInEm;
-			return Config;
+			return DetailsStyle::MakeTableConfig();
 		}
 
 		auto FindCompiledBase(DMaterialInterface* Material) -> DMaterial*
@@ -1053,12 +1051,13 @@ namespace Durin::Editor::Material
 	{
 		const bool bHasSelection = Cast<DMaterial>(Material)
 			&& !GetOrCreateCanvas(Document).GetSelection().empty();
-		if (!bHasSelection && ImGui::CollapsingHeader("Material Info"))
+		if (!bHasSelection)
 		{
-			ImGui::TextDisabled("Asset");
+			ImGui::TextWrapped("%s", Material->GetName().c_str());
+			ImGui::TextDisabled("%s", Cast<DMaterialInstance>(Material) ? "Material Instance" : "Material");
+			ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
 			ImGui::TextWrapped("%s", Document.ResourceId.c_str());
-			ImGui::TextDisabled("Type");
-			ImGui::TextWrapped("%s", Material->GetClass()->GetQualifiedName().ToString().c_str());
+			ImGui::PopStyleColor();
 			ImGui::Spacing();
 		}
 		if (auto* Instance = Cast<DMaterialInstance>(Material))
@@ -1069,23 +1068,27 @@ namespace Durin::Editor::Material
 		{
 			const auto& Selection = GetOrCreateCanvas(Document).GetSelection();
 			if ((Selection.empty() || Selection.contains(EMaterialGraphTerminal::MaterialOutput))
-				&& ImGui::CollapsingHeader("Surface Settings", ImGuiTreeNodeFlags_DefaultOpen))
+				&& ImGui::CollapsingHeader("Surface Settings", ImGuiTreeNodeFlags_DefaultOpen)
+				&& MonaImGui::PropertyEdit::BeginTable("SurfaceProperties", MakeMaterialPropertyTableConfig()))
 			{
-				ImGui::TextDisabled("Domain: Surface");
+				MonaImGui::PropertyEdit::BeginRow("Domain");
+				ImGui::TextDisabled("Surface");
+				MonaImGui::PropertyEdit::EndRow();
 				auto Properties = BaseMaterial->GetStaticProperties();
 				int Shading = static_cast<int>(Properties.ShadingModel);
 				int Blend = static_cast<int>(Properties.BlendMode);
 				int Depth = static_cast<int>(Properties.DepthWritePolicy);
-				bool bChanged = ImGui::Combo("Shading", &Shading, "Lit\0Unlit\0");
-				bChanged |= ImGui::Combo("Blend", &Blend, "Opaque\0Masked\0Translucent\0");
+				bool bChanged = DetailsStyle::EditRow("Shading", [&] { return ImGui::Combo("##Value", &Shading, "Lit\0Unlit\0"); });
+				bChanged |= DetailsStyle::EditRow("Blend", [&] { return ImGui::Combo("##Value", &Blend, "Opaque\0Masked\0Translucent\0"); });
 				Properties.ShadingModel = static_cast<EMaterialShadingModel>(Shading);
 				Properties.BlendMode = static_cast<EMaterialBlendMode>(Blend);
 				if (Properties.BlendMode == EMaterialBlendMode::Masked)
-					bChanged |= ImGui::InputFloat("Mask cutoff", &Properties.OpacityMaskThreshold,
-						0, 0, "%.3f", ImGuiInputTextFlags_EnterReturnsTrue);
-				bChanged |= ImGui::Checkbox("Two sided", &Properties.bTwoSided);
-				bChanged |= ImGui::Combo("Depth write", &Depth, "Automatic\0Enabled\0Disabled\0");
+					bChanged |= DetailsStyle::EditRow("Mask cutoff", [&] { return ImGui::InputFloat("##Value", &Properties.OpacityMaskThreshold,
+						0, 0, "%.3f", ImGuiInputTextFlags_EnterReturnsTrue); });
+				bChanged |= DetailsStyle::EditRow("Two sided", [&] { return ImGui::Checkbox("##Value", &Properties.bTwoSided); });
+				bChanged |= DetailsStyle::EditRow("Depth write", [&] { return ImGui::Combo("##Value", &Depth, "Automatic\0Enabled\0Disabled\0"); });
 				Properties.DepthWritePolicy = static_cast<EMaterialDepthWritePolicy>(Depth);
+				MonaImGui::PropertyEdit::EndTable();
 				if (bChanged)
 					if (auto* Property = BaseMaterial->GetClass()->FindPropertyByName(FName("StaticProperties")))
 						PropertyView.SubmitPropertyValueEdit(MakePropertyViewContext(),
@@ -1122,41 +1125,51 @@ namespace Durin::Editor::Material
 		std::string ResolveError;
 		const bool bResolved = ResolveMaterialProperties(*Instance, Resolved, ResolveError);
 		bool bChanged = false;
-		for (size_t Index = 0; Index < Labels.size(); ++Index)
+		if (MonaImGui::PropertyEdit::BeginTable("RenderingOverrides", MakeMaterialPropertyTableConfig()))
 		{
-			ImGui::PushID(static_cast<int>(Index));
-			bChanged |= ImGui::Checkbox(Labels[Index], Flags[Index]);
-			ImGui::SameLine();
-			auto InheritedValues = bResolved ? Resolved.Properties : Overrides.Values;
-			auto& DisplayValues = *Flags[Index] ? Overrides.Values : InheritedValues;
-			ImGui::BeginDisabled(!*Flags[Index]);
-			if (Index == 0 || Index == 1 || Index == 4)
+			for (size_t Index = 0; Index < Labels.size(); ++Index)
 			{
-				int Value = Index == 0 ? static_cast<int>(DisplayValues.BlendMode)
-					: Index == 1 ? static_cast<int>(DisplayValues.ShadingModel)
-					: static_cast<int>(DisplayValues.DepthWritePolicy);
-				const char* Items = Index == 0 ? "Opaque\0Masked\0Translucent\0"
-					: Index == 1 ? "Lit\0Unlit\0" : "Automatic\0Enabled\0Disabled\0";
-				if (ImGui::Combo("##Value", &Value, Items))
+				ImGui::PushID(static_cast<int>(Index));
+				MonaImGui::PropertyEdit::BeginRow(Labels[Index]);
+				bChanged |= ImGui::Checkbox("##Override", Flags[Index]);
+				if (ImGui::IsItemHovered()) ImGui::SetTooltip("Override this property; clear to inherit.");
+				ImGui::SameLine();
+				ImGui::SetNextItemWidth(-FLT_MIN);
+				auto InheritedValues = bResolved ? Resolved.Properties : Overrides.Values;
+				auto& DisplayValues = *Flags[Index] ? Overrides.Values : InheritedValues;
+				ImGui::BeginDisabled(!*Flags[Index]);
+				if (Index == 0 || Index == 1 || Index == 4)
 				{
-					bChanged = true;
-					if (Index == 0) DisplayValues.BlendMode = static_cast<EMaterialBlendMode>(Value);
-					else if (Index == 1) DisplayValues.ShadingModel = static_cast<EMaterialShadingModel>(Value);
-					else DisplayValues.DepthWritePolicy = static_cast<EMaterialDepthWritePolicy>(Value);
+					int Value = Index == 0 ? static_cast<int>(DisplayValues.BlendMode)
+						: Index == 1 ? static_cast<int>(DisplayValues.ShadingModel)
+						: static_cast<int>(DisplayValues.DepthWritePolicy);
+					const char* Items = Index == 0 ? "Opaque\0Masked\0Translucent\0"
+						: Index == 1 ? "Lit\0Unlit\0" : "Automatic\0Enabled\0Disabled\0";
+					if (ImGui::Combo("##Value", &Value, Items))
+					{
+						bChanged = true;
+						if (Index == 0) DisplayValues.BlendMode = static_cast<EMaterialBlendMode>(Value);
+						else if (Index == 1) DisplayValues.ShadingModel = static_cast<EMaterialShadingModel>(Value);
+						else DisplayValues.DepthWritePolicy = static_cast<EMaterialDepthWritePolicy>(Value);
+					}
 				}
+				else if (Index == 2)
+					bChanged |= ImGui::InputFloat("##Value", &DisplayValues.OpacityMaskThreshold, 0, 0, "%.3f", ImGuiInputTextFlags_EnterReturnsTrue);
+				else bChanged |= ImGui::Checkbox("Enabled", &DisplayValues.bTwoSided);
+				ImGui::EndDisabled();
+				if (bResolved)
+				{
+					const auto* Source = ResolveObjectHandle(Resolved.Sources[Index]);
+					ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+					ImGui::TextWrapped("Source: %s", Source ? Source->GetObjectPath().c_str() : "unavailable");
+					ImGui::PopStyleColor();
+				}
+				MonaImGui::PropertyEdit::EndRow();
+				ImGui::PopID();
 			}
-			else if (Index == 2)
-				bChanged |= ImGui::InputFloat("##Value", &DisplayValues.OpacityMaskThreshold, 0, 0, "%.3f", ImGuiInputTextFlags_EnterReturnsTrue);
-			else bChanged |= ImGui::Checkbox("Enabled", &DisplayValues.bTwoSided);
-			ImGui::EndDisabled();
-			if (bResolved)
-			{
-				const auto* Source = ResolveObjectHandle(Resolved.Sources[Index]);
-				ImGui::TextDisabled("Source: %s", Source ? Source->GetObjectPath().c_str() : "unavailable");
-			}
-			ImGui::PopID();
+			MonaImGui::PropertyEdit::EndTable();
 		}
-		ImGui::TextDisabled("Clear a checkbox to inherit that property.");
+		ImGui::TextWrapped("Enable an override to edit; clear it to inherit.");
 		if (!bResolved) ImGui::TextWrapped("%s", ResolveError.c_str());
 		if (bChanged)
 		{
