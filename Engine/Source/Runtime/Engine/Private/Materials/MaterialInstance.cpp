@@ -196,12 +196,6 @@ namespace Durin
 		return ResolvedStaticProperties;
 	}
 
-	auto DMaterialInstance::GetRenderableStaticProperties() const
-		-> FMaterialStaticProperties
-	{
-		return Super::GetRenderableStaticProperties();
-	}
-
 
 	auto DMaterialInstance::GetAcceptedCompiledProgram() const
 		-> std::shared_ptr<const FMaterialCompilerResult>
@@ -457,12 +451,6 @@ namespace Durin
 		if (!ResolveParameterValue(Definition->Id, Resolved)) return false;
 		OutValue = Resolved.Value.GetTexture().Texture.Get();
 		return true;
-	}
-
-	auto DMaterialInstance::BuildMaterialLocalRenderLayer() const
-		-> FMaterialLocalRenderLayer
-	{
-		return Super::BuildMaterialLocalRenderLayer();
 	}
 
 	auto DMaterialInstance::PostLoad() -> void

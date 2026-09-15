@@ -75,12 +75,6 @@ namespace Durin
 		return bAccepted;
 	}
 
-	auto DMaterial::GetRenderableStaticProperties() const
-		-> FMaterialStaticProperties
-	{
-		return Super::GetRenderableStaticProperties();
-	}
-
 
 
 	auto DMaterial::SetMaterialGraphPresentation(
@@ -290,18 +284,6 @@ namespace Durin
 		if (!Definition || Definition->Type != EMaterialParameterType::Texture) return false;
 		OutValue = Definition->Value.GetTexture().Texture.Get();
 		return true;
-	}
-
-	auto DMaterial::BuildMaterialLocalRenderLayer() const
-		-> FMaterialLocalRenderLayer
-	{
-		return Super::BuildMaterialLocalRenderLayer();
-	}
-
-	auto DMaterial::GetAcceptedCompiledProgram() const
-		-> std::shared_ptr<const FMaterialCompilerResult>
-	{
-		return Super::GetAcceptedCompiledProgram();
 	}
 
 	auto DMaterial::Serialize(FArchive& Ar) -> void

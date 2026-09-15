@@ -23,30 +23,13 @@ namespace Durin::Editor::Material
 		)
 			-> FMaterialParameterValue
 		{
-			switch (Definition.Type)
-			{
-			case EMaterialParameterType::Scalar:
-			{
-				float Scalar = Value.GetScalar();
-				if (Definition.Presentation == EMaterialParameterPresentation::Integer)
-				{
-					if (!std::isfinite(Scalar)) Scalar = Definition.Value.GetScalar();
-					if (Definition.bHasRange)
-						Scalar = std::clamp(Scalar, Definition.MinimumValue, Definition.MaximumValue);
-					Scalar = std::floor(Scalar + 0.5f);
-				}
-				return FMaterialParameterValue::MakeScalar(Scalar);
-			}
-			case EMaterialParameterType::Vector2:
-				return FMaterialParameterValue::MakeVector2(Value.GetVector2());
-			case EMaterialParameterType::Vector4:
-				return FMaterialParameterValue::MakeVector4(Value.GetVector4());
-			case EMaterialParameterType::Vector:
-				return FMaterialParameterValue::MakeVector(Value.GetVector());
-			case EMaterialParameterType::Texture:
-				return FMaterialParameterValue::MakeTexture(Value.GetTexture().Texture.Get(), Value.GetTexture().SamplerState, Value.GetTexture().TextureFallback);
-			}
-			return {};
+			if (Definition.Type != EMaterialParameterType::Scalar
+				|| Definition.Presentation != EMaterialParameterPresentation::Integer) return Value;
+			float Scalar = Value.GetScalar();
+			if (!std::isfinite(Scalar)) Scalar = Definition.Value.GetScalar();
+			if (Definition.bHasRange)
+				Scalar = std::clamp(Scalar, Definition.MinimumValue, Definition.MaximumValue);
+			return FMaterialParameterValue::MakeScalar(std::floor(Scalar + 0.5f));
 		}
 
 		template<typename TEntry, typename TIdMember>

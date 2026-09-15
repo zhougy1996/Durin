@@ -22,8 +22,6 @@ namespace Durin
 			const FMaterialPropertyOverrides& Overrides) -> bool;
 		ENGINE_API auto GetParent() const -> DMaterialInterface* override;
 		ENGINE_API auto GetStaticProperties() const -> const FMaterialStaticProperties& override;
-		ENGINE_API auto GetRenderableStaticProperties() const
-			-> FMaterialStaticProperties override;
 		ENGINE_API auto GetAcceptedCompiledProgram() const
 			-> std::shared_ptr<const FMaterialCompilerResult> override;
 		ENGINE_API auto GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition> override;
@@ -70,10 +68,6 @@ namespace Durin
 		ENGINE_API auto PostLoad() -> void override;
 		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool override;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
-
-	protected:
-		ENGINE_API auto BuildMaterialLocalRenderLayer() const
-			-> FMaterialLocalRenderLayer override;
 
 	private:
 		DPROPERTY(Edit)

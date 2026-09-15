@@ -44,8 +44,6 @@ namespace Durin
 		{
 			return ParameterDefinitionSchemaRevision;
 		}
-		ENGINE_API auto GetAcceptedCompiledProgram() const
-			-> std::shared_ptr<const FMaterialCompilerResult> override;
 		// Transient editor preference, inherited by loaded instances. Switching policy
 		// reschedules unsubmitted edits without modifying authored or saved state.
 		ENGINE_API auto SetEditCompileMode(EMaterialEditCompileMode Mode) -> void;
@@ -64,8 +62,6 @@ namespace Durin
 			int32 X, int32 Y, uint64 ExpectedAuthoredRevision) -> bool;
 		ENGINE_API auto ResolveParameterValue(const FGuid& Id, FResolvedMaterialParameter& OutParameter) const -> bool override;
 		auto GetStaticProperties() const -> const FMaterialStaticProperties& override { return StaticProperties; }
-		ENGINE_API auto GetRenderableStaticProperties() const
-			-> FMaterialStaticProperties override;
 		ENGINE_API auto SetStaticProperties(const FMaterialStaticProperties& InProperties) -> bool;
 
 		ENGINE_API auto SetScalarParameterValue(FName Name, float Value) -> bool;
@@ -85,10 +81,6 @@ namespace Durin
 		ENGINE_API auto PostEditChangeProperty(
 			const FPropertyChangedEvent& Event) -> void override;
 		ENGINE_API auto BeginDestroy() -> void override;
-
-	protected:
-		ENGINE_API auto BuildMaterialLocalRenderLayer() const
-			-> FMaterialLocalRenderLayer override;
 
 	private:
 		DPROPERTY(AlwaysSerialize)

@@ -54,17 +54,13 @@ namespace Durin
 		std::span<DMaterialExpression* const> Expressions) -> FMaterialProgramValidationResult
 	{
 		check(IsInGameThread());
-		auto Result = ValidateMaterialFunctionSignature(InSignature);
-		if (!Result) return Result;
-		FMaterialExpressionCollection Candidate;
-		for (auto* Expression : Expressions) Candidate.Expressions.emplace_back(Expression);
-		Result = FMaterialExpressionBuildContext::ValidateFunction(Expressions, InSignature);
+		auto Result = FMaterialExpressionBuildContext::ValidateFunction(Expressions, InSignature);
 		if (!Result) return Result;
 		TStrongObjectPtr<DObject> Staging(NewObject<DObject>(nullptr, "FunctionExpressionApply"));
 		FMaterialExpressionCollection Copies;
-		for (const auto& Expression : Candidate.Expressions)
+		for (auto* Expression : Expressions)
 		{
-			auto* Copy = DuplicateObject(Expression.Get(), Staging.Get(), FName(std::string("Expression_") + Expression->Id.ToString()));
+			auto* Copy = DuplicateObject(Expression, Staging.Get(), FName(std::string("Expression_") + Expression->Id.ToString()));
 			if (!Copy)
 			{
 				Result.bSucceeded = false;
