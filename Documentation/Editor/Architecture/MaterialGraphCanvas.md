@@ -35,12 +35,14 @@ Settings in Details: the supported Surface domain, Lit/Unlit shading, blend mode
 masked cutoff, two-sided rendering and depth-write policy. Settings use reflected
 property transactions on the working material, so Apply/Discard and Undo/Redo
 retain their ordinary atomic behavior. Inactive cutoff values remain stored.
-Inactive property labels and pins are dimmed, with their default editors hidden;
-values and connections remain stored. Active disconnected inputs expose compact
-scalar drags, color swatches for Base Color and Emissive, and an Edit button for
-Normal. Color and Normal popups commit on Apply and discard drafts on dismissal.
-Connected inputs hide default editors and resume their retained values when
-disconnected. Tooltips identify defaults as values used when unconnected.
+Root property inputs show only names, pins, and connections at readable and
+editing zoom; no scalar fields, color swatches, vector Edit buttons, or inline
+default values are displayed. Change input values by connecting expression nodes.
+Inactive property labels and pins are dimmed. Existing authored defaults and
+connections remain stored; disconnected inputs resume their retained values.
+Hovering an active disconnected row shows its retained value. The pin context
+menu can promote that value to a connected parameter without changing its effect.
+Constant and parameter nodes retain their own value displays and inline editors.
 The compiler's explicit final anchor and aggregate/per-property
 exclusion rule are unchanged; reusable Surface values do not become extra roots.
 

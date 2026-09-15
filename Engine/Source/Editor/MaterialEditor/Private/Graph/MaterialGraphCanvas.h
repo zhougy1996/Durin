@@ -195,8 +195,6 @@ namespace Durin::Editor::Material
 		std::shared_ptr<FTexturePreviewState> TexturePreviews;
 		bool bVisualGraphTopologyStale = true;
 		bool bShowAdvancedInputs = false;
-		std::array<std::array<float, 4>, 8> SurfaceDefaultDrafts{};
-		std::array<bool, 8> bSurfaceDefaultDraftInitialized{};
 		std::array<char, 129> PromotionNameDraft{};
 		std::array<char, 256> NodeTextureSearch{};
 		FInteraction Interaction = FIdleInteraction{};

@@ -254,7 +254,6 @@ namespace Durin::Editor::Material
 		}
 		Interaction = FIdleInteraction{};
 		CachedFunction = nullptr;
-		bSurfaceDefaultDraftInitialized.fill(false);
 	}
 
 	auto FMaterialGraphCanvas::ResetInteraction() -> void
@@ -1533,130 +1532,26 @@ namespace Durin::Editor::Material
 						IsSurfaceInputActive(Index) ? IM_COL32(210, 214, 222, 255)
 							: IM_COL32(125, 132, 145, 255), SurfaceNames[Index],
 						nullptr, 0.0f, &LabelClip);
-					if (DetailLevel == EMaterialGraphDetailLevel::Readable
-						&& Index < 8 && IsSurfaceInputActive(Index)
-						&& !OutputLinks[Index]->SourceNodeId.IsValid())
-					{
-						const auto& Value = GetMaterialSurfaceOutputDefault(View.Outputs,
-							static_cast<EMaterialSurfaceOutput>(Index));
-						const std::string Text = SurfaceTypes[Index] == EMaterialProgramValueType::Float3
-							? std::format("{:.3g}, {:.3g}, {:.3g}", Value.X, Value.Y, Value.Z)
-							: std::format("{:.3g}", Value.X);
-						const float ValueX = SurfaceMinimum.x + (NodePadding
-							+ Metrics.SurfaceLabelWidth + Metrics.SurfaceValueGap) * Zoom;
-						const ImVec4 ValueClip(ValueX, LabelClip.y,
-							SurfaceMaximum.x - NodePadding * Zoom, LabelClip.w);
-						DrawList->AddText(ImGui::GetFont(), GraphBodyFontSize,
-							{ValueX, SurfacePins[Index].y - GraphBodyFontSize * 0.5f},
-							IM_COL32(165, 172, 186, 255), Text.c_str(), nullptr, 0.0f, &ValueClip);
-					}
-					if (DetailLevel == EMaterialGraphDetailLevel::Editing
-						&& Index < 8 && IsSurfaceInputActive(Index)
-						&& !OutputLinks[Index]->SourceNodeId.IsValid())
-					{
-						const EMaterialSurfaceOutput Output =
-							static_cast<EMaterialSurfaceOutput>(Index);
-						if (!bSurfaceDefaultDraftInitialized[Index])
-						{
-							const FMaterialProgramLiteral& Value =
-								GetMaterialSurfaceOutputDefault(View.Outputs, Output);
-							SurfaceDefaultDrafts[Index] =
-								{Value.X, Value.Y, Value.Z, Value.W};
-							bSurfaceDefaultDraftInitialized[Index] = true;
-						}
-						const ImVec2 SavedCursor = ImGui::GetCursorScreenPos();
-						ImGui::SetCursorScreenPos(
-							{SurfaceMinimum.x + (NodePadding
-								+ Metrics.SurfaceLabelWidth
-								+ Metrics.SurfaceValueGap) * Zoom,
-								SurfacePins[Index].y - GraphControlHeight * 0.5f});
-						ImGui::PushID(static_cast<int>(Index) + 9000);
-						ImGui::SetNextItemWidth(Metrics.SurfaceValueWidth * Zoom);
-						ImGui::PushFont(nullptr, GraphControlFontSizeBase);
-						ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
-							GraphControlFramePadding);
-						ImGui::PushStyleVar(ImGuiStyleVar_ItemInnerSpacing,
-							GraphControlItemSpacing);
-						const bool bPopupEditor = SurfaceTypes[Index] == EMaterialProgramValueType::Float3;
-						bool bValueSubmitted = false;
-						bool bPopupOpen = false;
-						if (bPopupEditor)
-						{
-							const auto& Draft = SurfaceDefaultDrafts[Index];
-							const bool bColor = Output == EMaterialSurfaceOutput::BaseColor
-								|| Output == EMaterialSurfaceOutput::Emissive;
-							const bool bOpen = bColor
-								? ImGui::ColorButton("##SurfaceDefault", {Draft[0], Draft[1], Draft[2], 1.0f},
-									ImGuiColorEditFlags_NoTooltip, {Metrics.SurfaceValueWidth * Zoom, GraphControlHeight})
-								: ImGui::Button("Edit...", {Metrics.SurfaceValueWidth * Zoom, GraphControlHeight});
-							if (ImGui::IsItemHovered())
-								ImGui::SetTooltip("Value when unconnected: %.3g, %.3g, %.3g", Draft[0], Draft[1], Draft[2]);
-							bEmbeddedControlHoveredOrActive |= ImGui::IsItemHovered() || ImGui::IsItemActive();
-							if (bOpen) ImGui::OpenPopup("SurfaceDefaultEditor");
-							if (ImGui::BeginPopup("SurfaceDefaultEditor"))
-							{
-								ImGui::TextUnformatted(SurfaceNames[Index]);
-								ImGui::TextDisabled("Value when unconnected");
-								ImGui::SetNextItemWidth(240.0f);
-								if (bColor)
-									ImGui::ColorPicker3("##Color", SurfaceDefaultDrafts[Index].data(),
-										ImGuiColorEditFlags_Float | (Output == EMaterialSurfaceOutput::Emissive
-											? ImGuiColorEditFlags_HDR : 0));
-								else
-									DrawNumericDragEditor("##Normal", SurfaceTypes[Index], SurfaceDefaultDrafts[Index].data());
-								if (ImGui::Button("Apply"))
-								{
-									bValueSubmitted = true;
-									ImGui::CloseCurrentPopup();
-								}
-								ImGui::SameLine();
-								if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape))
-									ImGui::CloseCurrentPopup();
-								ImGui::EndPopup();
-							}
-							bPopupOpen = ImGui::IsPopupOpen("SurfaceDefaultEditor");
-							bEmbeddedControlHoveredOrActive |= bPopupOpen;
-						}
-						else
-						{
-							DrawNumericDragEditor("##SurfaceDefault", SurfaceTypes[Index],
-								SurfaceDefaultDrafts[Index].data());
-							if (ImGui::IsItemHovered()) ImGui::SetTooltip("Value when unconnected");
-						}
-						bEmbeddedControlHoveredOrActive |=
-							ImGui::IsItemHovered() || ImGui::IsItemActive();
-						const bool bInlineActive = ImGui::IsItemActive();
-						const bool bCancelInline = ImGui::IsKeyPressed(ImGuiKey_Escape)
-							&& (bInlineActive || ImGui::IsItemFocused());
-						if (bCancelInline)
-							bSurfaceDefaultDraftInitialized[Index] = false;
-						else if (bValueSubmitted || (!bPopupEditor && ImGui::IsItemDeactivatedAfterEdit()))
-						{
-							ReportCommand(FMaterialGraphOperations::SetSurfaceDefault(
-								Material, {.Output = Output, .Value = {
-									SurfaceDefaultDrafts[Index][0],
-									SurfaceDefaultDrafts[Index][1],
-									SurfaceDefaultDrafts[Index][2],
-									SurfaceDefaultDrafts[Index][3]}},
-								&Transactions), ReportError);
-							bSurfaceDefaultDraftInitialized[Index] = false;
-						}
-						if (!bInlineActive && !bPopupOpen)
-							bSurfaceDefaultDraftInitialized[Index] = false;
-						ImGui::PopStyleVar(2);
-						ImGui::PopFont();
-						ImGui::PopID();
-						ImGui::SetCursorScreenPos(SavedCursor);
-						ImGui::Dummy({0.0f, 0.0f});
-					}
+
 				}
 				if (DetailLevel != EMaterialGraphDetailLevel::Overview
 					&& std::hypot(Mouse.x - SurfacePins[Index].x,
 					Mouse.y - SurfacePins[Index].y) <= 8.0f)
 					HoveredSurfaceOutput = static_cast<EMaterialSurfaceOutput>(Index);
-				if (HoveredSurfaceOutput == static_cast<EMaterialSurfaceOutput>(Index)
-					&& !IsSurfaceInputActive(Index))
-					ImGui::SetTooltip("Inactive in the current material mode. Its value and connection are retained.");
+				if (DetailLevel != EMaterialGraphDetailLevel::Overview && bHovered
+					&& Contains({SurfaceMinimum.x, SurfacePins[Index].y - PinSpacing * 0.5f * Zoom},
+						{SurfaceMaximum.x, SurfacePins[Index].y + PinSpacing * 0.5f * Zoom}, Mouse))
+				{
+					if (!IsSurfaceInputActive(Index))
+						ImGui::SetTooltip("Inactive in the current material mode. Its value and connection are retained.");
+					else if (Index < 8 && !OutputLinks[Index]->SourceNodeId.IsValid())
+					{
+						const auto& Value = GetMaterialSurfaceOutputDefault(View.Outputs,
+							static_cast<EMaterialSurfaceOutput>(Index));
+						ImGui::SetTooltip("Value when unconnected: %s\nConnect a node to change this input.\nRight-click the pin to promote the retained value to a parameter.",
+							FormatGraphNumericValue(SurfaceTypes[Index], Value, 9).c_str());
+					}
+				}
 			}
 			const bool bCanvasPointerInteractionAvailable = bHovered
 				&& !bEmbeddedControlHoveredOrActive;
