@@ -41,7 +41,7 @@ namespace Durin::Editor::Material
 			if (Pin.Link.SourceNodeId.IsValid()) return Pin.Name;
 			if (Node.Node.IsSampleUVInput(Pin.InputIndex))
 			{
-				return std::format("UV {:g} (local)", Node.Node.GetUVChannel());
+				return "Mesh UV0";
 			}
 			const auto& Value = Pin.InlineDefault;
 			if (Value.Kind == EMaterialInputDefaultKind::Literal)

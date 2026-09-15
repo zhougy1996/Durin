@@ -290,7 +290,7 @@ namespace Durin
 	{
 		if (Ar.IsLoading()) GraphOwnershipVersion = 0;
 		Super::Serialize(Ar);
-		if (GraphOwnershipVersion != 2 || Ar.HasError())
+		if (GraphOwnershipVersion != 3 || Ar.HasError())
 		{
 			Ar.Fail(EArchiveFailureCode::UnsupportedVersion, "Unsupported material expression schema; rebuild this material.");
 			return;

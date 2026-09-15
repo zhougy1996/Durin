@@ -20,7 +20,7 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::SetSurfaceAttributes: Names = {"Surface"}; break;
 			case EMaterialProgramOpcode::TextureSample2D: Names = {"Texture", "UV"}; break;
 			case EMaterialProgramOpcode::TextureSampleParameter2D: Names = {"UV"}; break;
-			case EMaterialProgramOpcode::TextureCoordinates: Names = {"Channel", "Scale", "Offset", "Rotation"}; break;
+			case EMaterialProgramOpcode::TextureCoordinates: Names = {"Channel"}; break;
 			case EMaterialProgramOpcode::Add:
 			case EMaterialProgramOpcode::Subtract:
 			case EMaterialProgramOpcode::Multiply:
@@ -189,8 +189,8 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::Parameter: Entry.Description = "A value exposed by the material parameter definition."; break;
 			case EMaterialProgramOpcode::TextureParameter: Entry.Description = "A texture resource for function inputs or multiple samples. For ordinary texture mapping, use Texture Sample Parameter 2D."; break;
 			case EMaterialProgramOpcode::TextureSample2D: Entry.Description = "Samples a connected texture resource. For a standalone replaceable texture, use Texture Sample Parameter 2D."; break;
-			case EMaterialProgramOpcode::TextureSampleParameter2D: Entry.Description = "Samples a named texture parameter with local UV settings or a connected UV expression. Outputs share one fetch."; break;
-			case EMaterialProgramOpcode::TextureCoordinates: Entry.Description = "Selects a mesh UV channel, scales, rotates in radians, then offsets it."; break;
+			case EMaterialProgramOpcode::TextureSampleParameter2D: Entry.Description = "Samples a named texture parameter with mesh UV0 or a connected Float2 UV expression. Outputs share one fetch."; break;
+			case EMaterialProgramOpcode::TextureCoordinates: Entry.Description = "Reads a mesh UV channel as Float2. Apply transforms with upstream math nodes."; break;
 			case EMaterialProgramOpcode::Add: Entry.Description = "Adds two values component by component."; break;
 			case EMaterialProgramOpcode::Subtract: Entry.Description = "Subtracts the second value from the first."; break;
 			case EMaterialProgramOpcode::Multiply: Entry.Description = "Multiplies two values component by component."; break;
@@ -231,7 +231,7 @@ namespace Durin::Editor::Material
 			Entry.ExpressionClass = GetExpressionClass(Opcode, ResultType);
 			Entry.InputNames = GetInputNames(Opcode, Signature.InputCount);
 			if (Opcode == EMaterialProgramOpcode::TextureSampleParameter2D) Entry.InputNames = {"UV"};
-			if (Opcode == EMaterialProgramOpcode::TextureCoordinates) Entry.InputNames = {"Channel", "Scale", "Offset", "Rotation"};
+			if (Opcode == EMaterialProgramOpcode::TextureCoordinates) Entry.InputNames = {"Channel"};
 			for (uint8 Index = 0; Index < Signature.InputCount; ++Index)
 				Entry.AcceptedInputTypes.emplace_back(
 					Signature.Inputs[Index].begin(), Signature.Inputs[Index].end());
@@ -315,8 +315,8 @@ namespace Durin::Editor::Material
 			else if (const auto* Constant = Cast<DMaterialExpressionVector2Constant>(Expression.Get())) Node.Data = FMaterialParameterValue::MakeVector2(Constant->Value);
 			else if (const auto* Constant = Cast<DMaterialExpressionVector3Constant>(Expression.Get())) Node.Data = FMaterialParameterValue::MakeVector(Constant->Value);
 			else if (const auto* Constant = Cast<DMaterialExpressionVector4Constant>(Expression.Get())) Node.Data = FMaterialParameterValue::MakeVector4(Constant->Value);
-			else if (const auto* Sample = Cast<DMaterialExpressionTextureSampleParameter2D>(Expression.Get())) Node.Data = FMaterialGraphSampleInfo{Sample->Metadata.Id, Sample->UVSettings.Channel.bPresent ? Sample->UVSettings.Channel.Value : 0.f};
-			else if (const auto* Sample = Cast<DMaterialExpressionTextureSample2D>(Expression.Get())) Node.Data = FMaterialGraphSampleInfo{{}, Sample->UVSettings.Channel.bPresent ? Sample->UVSettings.Channel.Value : 0.f};
+			else if (const auto* Sample = Cast<DMaterialExpressionTextureSampleParameter2D>(Expression.Get())) Node.Data = FMaterialGraphSampleInfo{Sample->Metadata.Id};
+			else if (const auto* Sample = Cast<DMaterialExpressionTextureSample2D>(Expression.Get())) Node.Data = FMaterialGraphSampleInfo{};
 			else if (const auto* Parameter = Cast<DMaterialExpressionParameter>(Expression.Get())) Node.Data = FMaterialGraphParameterInfo{Parameter->Metadata.Id};
 			else if (const auto* Swizzle = Cast<DMaterialExpressionSwizzle>(Expression.Get()))
 			{
@@ -416,22 +416,13 @@ namespace Durin::Editor::Material
 						.Name = Shape && InputIndex < Shape->InputNames.size() ? Shape->InputNames[InputIndex] : "Value",
 						.Link = LinkView(Input), .SourceType = SourceType(LinkView(Input))};
 					if (Shape && InputIndex < Shape->AcceptedInputTypes.size()) Pin.AcceptedTypes = Shape->AcceptedInputTypes[InputIndex];
-					if (const auto* Coordinates = Cast<DMaterialExpressionTextureCoordinates>(Expression))
-					{
-						const auto& Defaults = Coordinates->Defaults;
-						if (InputIndex == 0 && Defaults.Channel.bPresent) Pin.InlineDefault = DefaultView(std::array{Defaults.Channel.Value});
-						if (InputIndex == 1 && Defaults.Scale.bPresent) Pin.InlineDefault = DefaultView(std::array{static_cast<float>(Defaults.Scale.Value.x), static_cast<float>(Defaults.Scale.Value.y)});
-						if (InputIndex == 2 && Defaults.Offset.bPresent) Pin.InlineDefault = DefaultView(std::array{static_cast<float>(Defaults.Offset.Value.x), static_cast<float>(Defaults.Offset.Value.y)});
-						if (InputIndex == 3 && Defaults.Rotation.bPresent) Pin.InlineDefault = DefaultView(std::array{Defaults.Rotation.Value});
-					}
-					else Expression->GetClass()->ForEachProperty([&](FProperty* Property) {
+					Expression->GetClass()->ForEachProperty([&](FProperty* Property) {
 						if (Property->GetValuePtr(Expression) != &Input) return;
 						auto* Default = Expression->GetClass()->FindPropertyByName(FName(Property->NamePrivate.ToString() + "Default"));
 						if (Default && Default->GetKind() == DurinCodeGen::EPropertyGenFlags::Array
 							&& static_cast<FArrayProperty*>(Default)->GetInner()->GetKind() == DurinCodeGen::EPropertyGenFlags::Float)
 							Pin.InlineDefault = DefaultView(*static_cast<const std::vector<float>*>(Default->GetValuePtr(Expression)));
 					});
-					if (Node.IsSampleUVInput(InputIndex)) Pin.InlineDefault = DefaultView(std::array{0.f, 0.f});
 					if (!Input.ExpressionId.IsValid() && Pin.InlineDefault.Kind != EMaterialInputDefaultKind::None) Pin.SourceType = Pin.InlineDefault.Type;
 					else if (!Input.ExpressionId.IsValid() && !Pin.AcceptedTypes.empty()) Pin.SourceType = Pin.AcceptedTypes.front();
 					View.Inputs.push_back(std::move(Pin));

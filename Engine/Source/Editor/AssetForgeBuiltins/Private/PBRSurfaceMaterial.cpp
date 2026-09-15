@@ -14,7 +14,7 @@ namespace Durin::AssetForge::Builtins
 		for (uint32 I = 0; I < Channels.size(); ++I)
 		{
 			const auto Role = static_cast<EMaterialSurfaceOutput>(I);
-			const int32 Row = static_cast<int32>(I) * 650;
+			const int32 Row = static_cast<int32>(I) * 900;
 			const auto Parameter = [&](Kind ParameterKind, int32 X, int32 Y) {
 				const auto Id = GetMaterialSurfaceParameterId(Role, ParameterKind);
 				const auto Definition = std::ranges::find(Definitions, Id, &FMaterialParameterDefinition::Id);
@@ -22,14 +22,13 @@ namespace Durin::AssetForge::Builtins
 				return B.Parameter(*Definition, I, X, Row + Y);
 			};
 			const FMaterialExpressionInput Factor{Parameter(Kind::Value, 640, 0)->Id};
-			const FMaterialExpressionInput Channel{Parameter(Kind::UVChannel, -640, 0)->Id};
-			const FMaterialExpressionInput Scale{Parameter(Kind::UVScale, -640, 130)->Id};
-			const FMaterialExpressionInput Offset{Parameter(Kind::UVOffset, -640, 260)->Id};
-			const FMaterialExpressionInput Rotation{Parameter(Kind::UVRotation, -640, 390)->Id};
-			auto* UV = B.Add<DMaterialExpressionTextureCoordinates>(I, -320, Row);
-			UV->Channel = Channel; UV->Scale = Scale; UV->Offset = Offset; UV->Rotation = Rotation;
+			const FMaterialExpressionInput Channel{Parameter(Kind::UVChannel, -2920, 0)->Id};
+			const FMaterialExpressionInput Scale{Parameter(Kind::UVScale, -2920, 130)->Id};
+			const FMaterialExpressionInput Offset{Parameter(Kind::UVOffset, -2920, 260)->Id};
+			const FMaterialExpressionInput Rotation{Parameter(Kind::UVRotation, -2920, 390)->Id};
+			const auto UV = B.TransformUV(I, -2600, Row, Channel, Scale, Offset, Rotation);
 			auto* Texture = Cast<DMaterialExpressionTextureSampleParameter2D>(Parameter(Kind::Texture, 0, 0));
-			Texture->UV = {UV->Id};
+			Texture->UV = UV;
 			const FMaterialExpressionInput Sample{Texture->Id, Channels[I]};
 			auto& Output = B.Output(Recipe.Outputs, I);
 			if (I == 1)

@@ -238,39 +238,6 @@ namespace Durin::Editor::Material
 			}
 			ImGui::Separator(); ImGui::PopID();
 		}
-		FMaterialExpressionUVSettings* UVSettings = nullptr;
-		FMaterialExpressionInput* UV = nullptr;
-		uint32 UVIndex = 0;
-		if (auto* E = Cast<DMaterialExpressionTextureSample2D>(Expression.Get())) { UVSettings = &E->UVSettings; UV = &E->UV; UVIndex = 1; }
-		if (auto* E = Cast<DMaterialExpressionTextureSampleParameter2D>(Expression.Get())) { UVSettings = &E->UVSettings; UV = &E->UV; }
-		if (!Changed && UVSettings)
-		{
-			const bool Connected = UV->ExpressionId.IsValid();
-			auto Settings = *UVSettings;
-			ImGui::TextUnformatted("UV Settings (rotation in radians)");
-			if (Connected && ImGui::SmallButton("Disconnect UV")) Submit(Document.ConnectInput(Expression->Id, UVIndex, {}, true, &Transactions));
-			constexpr std::array Names{"Channel", "Scale", "Offset", "Rotation"};
-			for (uint32 Index = 0; Index < 4 && !Changed; ++Index)
-			{
-				auto* Scalar = Index == 0 ? &Settings.Channel : Index == 3 ? &Settings.Rotation : nullptr;
-				auto* Vector = Index == 1 ? &Settings.Scale : Index == 2 ? &Settings.Offset : nullptr;
-				FMaterialProgramLiteral Value = Scalar ? FMaterialProgramLiteral{Scalar->Value}
-					: FMaterialProgramLiteral{static_cast<float>(Vector->Value.x), static_cast<float>(Vector->Value.y)};
-				if (EditLiteral(Names[Index], Scalar ? EMaterialProgramValueType::Float : EMaterialProgramValueType::Float2, Value))
-				{
-					if (Scalar) *Scalar = {true, Value.X};
-					else *Vector = {true, FVector2(Value.X, Value.Y)};
-					const auto Candidate = CaptureSelected();
-					if (Candidate != State.Expressions.end())
-					{
-						if (auto* E = Cast<DMaterialExpressionTextureSample2D>(Candidate->Get())) E->UVSettings = Settings;
-						if (auto* E = Cast<DMaterialExpressionTextureSampleParameter2D>(Candidate->Get())) E->UVSettings = Settings;
-						Submit(GraphEditInternals::CommitOwnedExpressions(Owner, State, "Edit Local UV Settings", &Transactions));
-					}
-				}
-			}
-			if (!Connected && !Changed && ImGui::Button("Extract Texture Coordinates")) Submit(Document.ExtractUVSettings(Expression->Id, &Transactions));
-		}
 		ImGui::PopID();
 	}
 }

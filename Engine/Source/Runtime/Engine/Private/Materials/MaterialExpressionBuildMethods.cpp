@@ -298,8 +298,9 @@ namespace Durin
 	auto DMaterialExpressionTextureCoordinates::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
 	{
 		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail("Expression has only its primary output.");
-		const std::array Inputs{Channel, Scale, Offset, Rotation};
-		return Context.Coordinates(Defaults, Inputs);
+		const std::array Inputs{&Channel};
+		const std::array Defaults{&ChannelDefault};
+		return Context.Numeric(EMaterialProgramOpcode::UVChannel, EMaterialProgramValueType::Float2, Inputs, Defaults);
 	}
 
 	auto DMaterialExpressionTextureSample2D::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
@@ -307,7 +308,7 @@ namespace Durin
 		if (OutputId.IsValid()) return Context.Fail("Sample output requires an index, not an output GUID.");
 		if (OutputIndex != 0) return Context.SampleOutput(*this, OutputIndex);
 		if (!UV.ExpressionId.IsValid() && (UV.OutputIndex != 0 || UV.OutputId.IsValid())) return Context.Fail("Disconnected UV input has an output selector.");
-		const auto Coordinates = UV.ExpressionId.IsValid() ? Context.ResolveIndex(UV) : Context.Coordinates(UVSettings);
+		const auto Coordinates = UV.ExpressionId.IsValid() ? Context.ResolveIndex(UV) : Context.Coordinates();
 		const auto ResourceValue = Context.Resolve(Texture);
 		if (const auto* Default = ResourceValue.GetTexture())
 		{
@@ -329,7 +330,7 @@ namespace Durin
 		if (OutputIndex != 0) return Context.SampleOutput(*this, OutputIndex);
 		if (!UV.ExpressionId.IsValid() && (UV.OutputIndex != 0 || UV.OutputId.IsValid())) return Context.Fail("Disconnected UV input has an output selector.");
 		const auto Resource = Context.Parameter(Metadata.Id, EMaterialParameterType::Texture);
-		const auto Coordinates = UV.ExpressionId.IsValid() ? Context.ResolveIndex(UV) : Context.Coordinates(UVSettings);
+		const auto Coordinates = UV.ExpressionId.IsValid() ? Context.ResolveIndex(UV) : Context.Coordinates();
 		return Context.Emit({.Opcode = EMaterialProgramOpcode::TextureSample2D,
 			.ResultType = EMaterialProgramValueType::Float4, .Inputs = {Resource, Coordinates}});
 	}

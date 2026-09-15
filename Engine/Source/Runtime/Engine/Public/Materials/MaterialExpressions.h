@@ -1073,50 +1073,6 @@ namespace Durin
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
 	};
-	// A scalar disconnected default has no unused vector components.
-	DSTRUCT()
-	struct FMaterialScalarExpressionDefault
-	{
-		GENERATED_BODY()
-
-		DPROPERTY()
-		bool bPresent = true;
-
-		DPROPERTY()
-		float Value = 0.0f;
-	};
-
-	// A Vector2 disconnected default retains exactly two components.
-	DSTRUCT()
-	struct FMaterialVector2ExpressionDefault
-	{
-		GENERATED_BODY()
-
-		DPROPERTY()
-		bool bPresent = true;
-
-		DPROPERTY()
-		FVector2 Value{0.0};
-	};
-
-	// Local sampling coordinates have fixed types and no source links.
-	DSTRUCT()
-	struct FMaterialExpressionUVSettings
-	{
-		GENERATED_BODY()
-
-		DPROPERTY()
-		FMaterialScalarExpressionDefault Channel;
-
-		DPROPERTY()
-		FMaterialVector2ExpressionDefault Scale{true, FVector2(1.0)};
-
-		DPROPERTY()
-		FMaterialVector2ExpressionDefault Offset;
-
-		DPROPERTY()
-		FMaterialScalarExpressionDefault Rotation;
-	};
 
 	// A call binding retains a numeric default only when present.
 	DSTRUCT()
@@ -1137,7 +1093,7 @@ namespace Durin
 		std::vector<float> InputDefault;
 	};
 
-	// Samples a connected resource using a UV source or local coordinates.
+	// Samples a connected resource using a Float2 UV source or mesh UV0.
 	DCLASS()
 	class DMaterialExpressionTextureSample2D : public DMaterialExpression
 	{
@@ -1150,9 +1106,6 @@ namespace Durin
 
 		DPROPERTY()
 		FMaterialExpressionInput UV;
-
-		DPROPERTY()
-		FMaterialExpressionUVSettings UVSettings;
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 2; }
 
@@ -1172,9 +1125,6 @@ namespace Durin
 		DPROPERTY()
 		FMaterialExpressionInput UV;
 
-		DPROPERTY()
-		FMaterialExpressionUVSettings UVSettings;
-
 		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
 
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
@@ -1182,7 +1132,7 @@ namespace Durin
 
 	};
 
-	// Coordinate links override fixed-width retained coordinate defaults.
+	// Reads one mesh UV channel as a Float2; transforms belong to upstream math nodes.
 	DCLASS()
 	class DMaterialExpressionTextureCoordinates : public DMaterialExpression
 	{
@@ -1194,18 +1144,9 @@ namespace Durin
 		FMaterialExpressionInput Channel;
 
 		DPROPERTY()
-		FMaterialExpressionInput Scale;
+		std::vector<float> ChannelDefault{0.f};
 
-		DPROPERTY()
-		FMaterialExpressionInput Offset;
-
-		DPROPERTY()
-		FMaterialExpressionInput Rotation;
-
-		DPROPERTY()
-		FMaterialExpressionUVSettings Defaults;
-
-		auto GetAuthoredInputCount() const -> uint32 override { return 4; }
+		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
 
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;

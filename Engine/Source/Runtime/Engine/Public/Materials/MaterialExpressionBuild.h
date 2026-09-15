@@ -91,8 +91,7 @@ namespace Durin
 			std::span<const FMaterialExpressionInput* const> Inputs,
 			std::span<const std::vector<float>* const> Defaults,
 			std::span<const uint8> Swizzle = {}) -> uint32;
-		ENGINE_API auto Coordinates(const FMaterialExpressionUVSettings& Defaults,
-			std::span<const FMaterialExpressionInput> Inputs = {}) -> uint32;
+		ENGINE_API auto Coordinates() -> uint32;
 		ENGINE_API auto SampleOutput(const DMaterialExpression& Expression, uint8 OutputIndex) -> uint32;
 		ENGINE_API auto Fail(std::string Message, FGuid PortId = {},
 			EMaterialProgramDiagnosticCategory Category = EMaterialProgramDiagnosticCategory::Graph) -> uint32;

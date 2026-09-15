@@ -52,7 +52,21 @@ namespace Durin::Testing
 			const auto Scale = Parameter(ParameterKind::UVScale, Type::Float2, -2, 1);
 			const auto Offset = Parameter(ParameterKind::UVOffset, Type::Float2, -2, 2);
 			const auto Rotation = Parameter(ParameterKind::UVRotation, Type::Float, -2, 3);
-			const auto UV = Node(Op::TextureCoordinates, Type::Float2, {Channel, Scale, Offset, Rotation});
+			const auto Coordinates = Node(Op::TextureCoordinates, Type::Float2, {Channel});
+			const auto Scaled = Node(Op::Multiply, Type::Float2, {Coordinates, Scale});
+			const auto Sine = Node(Op::Sine, Type::Float, {Rotation});
+			const auto Cosine = Node(Op::Cosine, Type::Float, {Rotation});
+			const auto Swizzle = [&](uint8 Component) {
+				const auto Link = Node(Op::Swizzle, Type::Float, {Scaled});
+				Cast<DMaterialExpressionSwizzle>(Graph.Expressions.back().Get())->Components = {Component};
+				return Link;
+			};
+			const auto U = Swizzle(0), V = Swizzle(1);
+			const auto X = Node(Op::Subtract, Type::Float, {
+				Node(Op::Multiply, Type::Float, {Cosine, U}), Node(Op::Multiply, Type::Float, {Sine, V})});
+			const auto Y = Node(Op::Add, Type::Float, {
+				Node(Op::Multiply, Type::Float, {Sine, U}), Node(Op::Multiply, Type::Float, {Cosine, V})});
+			const auto UV = Node(Op::Add, Type::Float2, {Node(Op::MakeFloat2, Type::Float2, {X, Y}), Offset});
 			Presentation.Nodes.push_back({UV.ExpressionId, -320, static_cast<int32>(I) * 600});
 			const auto TextureId = GetMaterialSurfaceParameterId(Role, ParameterKind::Texture);
 			auto Sample = Node(Op::TextureSampleParameter2D, Type::Float4, {UV}, TextureId);

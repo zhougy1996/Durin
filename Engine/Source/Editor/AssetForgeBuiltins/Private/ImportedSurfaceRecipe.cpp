@@ -22,7 +22,7 @@ namespace Durin::AssetForge::Builtins
 		-> FImportedSurfaceRecipe
 	{
 		FImportedSurfaceRecipe Result;
-		Result.CanonicalKey = "Durin.ImportedSurface:1";
+		Result.CanonicalKey = "Durin.ImportedSurface:2";
 		Result.Graph.Presentation.bHasMaterialOutputPosition = true;
 		Result.Graph.Presentation.MaterialOutputX = 1000;
 		const auto Definitions = MakePBRMaterialParameterDefinitions();
@@ -70,10 +70,8 @@ namespace Durin::AssetForge::Builtins
 					std::vector<Link> Inputs(4);
 					for (uint32 U = 0; U < 4; ++U)
 						if (UVMask & (1u << U)) Inputs[U] = Parameter(I, UVKinds[U]);
-					auto* Coordinates = Builder.Add<DMaterialExpressionTextureCoordinates>(I, PositionX(), static_cast<int32>(I) * 300);
-					Coordinates->Channel = Inputs[0]; Coordinates->Scale = Inputs[1];
-					Coordinates->Offset = Inputs[2]; Coordinates->Rotation = Inputs[3];
-					UV = {Coordinates->Id};
+					UV = Builder.TransformUV(I, PositionX() - 2240, static_cast<int32>(I) * 900,
+						Inputs[0], Inputs[1], Inputs[2], Inputs[3]);
 				}
 				auto Fetch = Parameter(I, Kind::Texture);
 				auto* Texture = Cast<DMaterialExpressionTextureSampleParameter2D>(Result.Graph.Expressions.back().Get());

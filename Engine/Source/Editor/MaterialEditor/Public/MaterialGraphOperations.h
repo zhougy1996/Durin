@@ -87,7 +87,7 @@ namespace Durin::Editor::Material
 	};
 
 	struct FMaterialGraphParameterInfo { FGuid Id; };
-	struct FMaterialGraphSampleInfo { FGuid ParameterId; float UVChannel = 0; };
+	struct FMaterialGraphSampleInfo { FGuid ParameterId; };
 
 	// Detached display metadata; its payload contains only the selected node family.
 	struct FMaterialGraphNodeDescriptor
@@ -102,11 +102,6 @@ namespace Durin::Editor::Material
 			if (const auto* Parameter = std::get_if<FMaterialGraphParameterInfo>(&Data)) return Parameter->Id;
 			if (const auto* Sample = std::get_if<FMaterialGraphSampleInfo>(&Data)) return Sample->ParameterId;
 			return {};
-		}
-		auto GetUVChannel() const -> float
-		{
-			const auto* Sample = std::get_if<FMaterialGraphSampleInfo>(&Data);
-			return Sample ? Sample->UVChannel : 0.f;
 		}
 		auto IsSampleUVInput(uint32 Index) const -> bool
 		{

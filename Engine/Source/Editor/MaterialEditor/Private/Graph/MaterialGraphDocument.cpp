@@ -260,7 +260,6 @@ namespace Durin::Editor::Material
 		bool bValidInputs = true;
 		VisitMaterialExpressionInputs(*Expression, [&](uint32 Index, FMaterialExpressionInput& Input) {
 			if (Index == 0 && FirstInput.ExpressionId.IsValid()) { Input = FirstInput; return; }
-			if (Cast<DMaterialExpressionTextureCoordinates>(Expression.Get())) return;
 			if (const auto* Sample = Cast<DMaterialExpressionTextureSample2D>(Expression.Get()); Sample && &Input == &Sample->UV) return;
 			if (const auto* Sample = Cast<DMaterialExpressionTextureSampleParameter2D>(Expression.Get()); Sample && &Input == &Sample->UV) return;
 			std::vector<float>* Default = nullptr;

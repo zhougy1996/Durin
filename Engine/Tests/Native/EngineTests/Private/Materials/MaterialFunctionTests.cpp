@@ -121,7 +121,7 @@ TEST(FMaterialFunctionTests, StructuralImportRecipesExposeOnlyRequiredOwners)
 	Roles[0].Value = {.2f, .3f, .4f};
 	Roles[0].Sample->UVOffset = {.25f, .5f};
 	const auto Transformed = MakeImportedSurfaceRecipe(Roles);
-	EXPECT_EQ(Transformed.Graph.Expressions.size(), 5u);
+	EXPECT_EQ(Transformed.Graph.Expressions.size(), 6u);
 	EXPECT_EQ(Transformed.Owners.size(), 3u);
 	Roles[0].Value = {.6f, .7f, .8f};
 	Roles[0].Sample->UVOffset = {.75f, .25f};
@@ -136,7 +136,7 @@ TEST(FMaterialFunctionTests, StructuralImportRecipesExposeOnlyRequiredOwners)
 	Roles[2].Sample = FImportedSurfaceSample{.ResourceIdentity = "packed", .Usage = ETextureUsage::DataMask, .OutputIndex = 4};
 	Roles[3].Sample = FImportedSurfaceSample{.ResourceIdentity = "packed", .Usage = ETextureUsage::DataMask, .OutputIndex = 3};
 	const auto Packed = MakeImportedSurfaceRecipe(Roles);
-	EXPECT_EQ(Packed.Graph.Expressions.size(), 6u);
+	EXPECT_EQ(Packed.Graph.Expressions.size(), 7u);
 	EXPECT_EQ(Packed.Graph.Outputs.Metallic.ExpressionId, Packed.Graph.Outputs.Roughness.ExpressionId);
 	ASSERT_TRUE(Packed.Graph.Apply(*Material));
 	Roles[3].Sample->UVChannel = {1};
@@ -167,7 +167,7 @@ TEST(FMaterialFunctionTests, ExpandedAndFunctionRecipesPreserveCompilationAndInd
 	ASSERT_NE(Current, nullptr);
 	Current->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	ASSERT_TRUE(Testing::SetStandardMaterialExpressionsForTest(*Current));
-	EXPECT_EQ(Current->GetExpressionCollection().Expressions.size(), 65u);
+	EXPECT_EQ(Current->GetExpressionCollection().Expressions.size(), 169u);
 	for (const auto& Node : Current->GetExpressionCollection().Expressions)
 	{
 		EXPECT_FALSE(Node->IsA<DMaterialExpressionSaturate>());
@@ -269,6 +269,52 @@ TEST(FMaterialFunctionTests, LiteralDefaultsMatchExplicitConstantsAndValidateTyp
 	Product->B = {}; Product->BDefault = {.25f, .5f};
 	EXPECT_FALSE(NormalizeTypedExpressions(Expressions, Outputs));
 	Product->BDefault = {std::numeric_limits<float>::infinity()};
+	EXPECT_FALSE(NormalizeTypedExpressions(Expressions, Outputs));
+	for (auto* Expression : Expressions) MarkAsGarbage(Expression);
+	CollectGarbage();
+}
+
+TEST(FMaterialFunctionTests, SamplingDefaultsToMeshUV0AndAcceptsSharedFloat2)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	auto* Owner = NewObject<DMaterialExpressionTextureSampleParameter2D>(nullptr, NAME_None);
+	Owner->Id = FGuid::NewGuid(); Owner->Metadata = {.Id = FGuid::NewGuid(), .Name = "Texture"};
+	auto* Sample = NewObject<DMaterialExpressionTextureSample2D>(nullptr, NAME_None);
+	Sample->Id = FGuid::NewGuid(); Sample->Texture = {Owner->Id, 7};
+	auto* UV = NewObject<DMaterialExpressionTextureCoordinates>(nullptr, NAME_None);
+	UV->Id = FGuid::NewGuid();
+	auto* Constant = NewObject<DMaterialExpressionVector2Constant>(nullptr, NAME_None);
+	Constant->Id = FGuid::NewGuid(); Constant->Value = {.25, .75};
+	auto* WrongType = NewObject<DMaterialExpressionVector3Constant>(nullptr, NAME_None);
+	WrongType->Id = FGuid::NewGuid();
+	const std::array<DMaterialExpression*, 5> Expressions{Owner, Sample, UV, Constant, WrongType};
+	const FMaterialExpressionSurfaceOutputs Outputs{.BaseColor = {Owner->Id, 1}, .Emissive = {Sample->Id, 1}};
+	const auto Implicit = NormalizeTypedExpressions(Expressions, Outputs);
+	ASSERT_TRUE(Implicit);
+	EXPECT_EQ(std::ranges::count(Implicit.IR.Nodes, EMaterialProgramOpcode::UVChannel, &FMaterialIRNode::Opcode), 2);
+	EXPECT_EQ(std::ranges::count(Implicit.IR.Nodes, EMaterialProgramOpcode::Multiply, &FMaterialIRNode::Opcode), 0);
+	const FMaterialExpressionSurfaceOutputs SingleOutput{.BaseColor = {Owner->Id, 1}};
+	const auto ImplicitSingle = NormalizeTypedExpressions(Expressions, SingleOutput);
+	ASSERT_TRUE(ImplicitSingle);
+	Owner->UV = Sample->UV = {UV->Id};
+	const auto Explicit = NormalizeTypedExpressions(Expressions, Outputs);
+	ASSERT_TRUE(Explicit);
+	EXPECT_EQ(std::ranges::count(Explicit.IR.Nodes, EMaterialProgramOpcode::UVChannel, &FMaterialIRNode::Opcode), 1);
+	const auto ExplicitSingle = NormalizeTypedExpressions(Expressions, SingleOutput);
+	ASSERT_TRUE(ExplicitSingle);
+	EXPECT_EQ(ImplicitSingle.CanonicalBytes, ExplicitSingle.CanonicalBytes);
+	UV->ChannelDefault = {1};
+	const auto ChannelOne = NormalizeTypedExpressions(Expressions, Outputs);
+	ASSERT_TRUE(ChannelOne);
+	EXPECT_NE(Implicit.CanonicalBytes, ChannelOne.CanonicalBytes);
+	Owner->UV = Sample->UV = {Constant->Id};
+	const auto Fixed = NormalizeTypedExpressions(Expressions, Outputs);
+	ASSERT_TRUE(Fixed);
+	EXPECT_EQ(std::ranges::count(Fixed.IR.Nodes, EMaterialProgramOpcode::UVChannel, &FMaterialIRNode::Opcode), 0);
+	Owner->UV = {WrongType->Id};
+	EXPECT_FALSE(NormalizeTypedExpressions(Expressions, Outputs));
+	Owner->UV = {Constant->Id}; Sample->UV = {WrongType->Id};
 	EXPECT_FALSE(NormalizeTypedExpressions(Expressions, Outputs));
 	for (auto* Expression : Expressions) MarkAsGarbage(Expression);
 	CollectGarbage();
@@ -1033,14 +1079,13 @@ TEST(FMaterialFunctionTests, TypedFieldsRoundtripAndRejectInvalidCoordinateDefau
 	auto Invalid = Testing::MakeGraphExpression<DMaterialExpressionTextureSampleParameter2D>();
 	Invalid->Metadata.Id = TextureId;
 	Invalid->Metadata.Name = "InvalidUV";
-	Invalid->UVSettings.Rotation.bPresent = true;
-	Invalid->UVSettings.Rotation.Value = std::numeric_limits<float>::infinity();
+	Invalid->UV.OutputIndex = 1;
 	const std::array<DMaterialExpression*, 1> InvalidExpressions{Invalid.Get()};
 	const auto Rejected = Material->SetMaterialExpressions(InvalidExpressions, {});
 	EXPECT_FALSE(Rejected);
 	ASSERT_FALSE(Rejected.Diagnostics.empty());
 	EXPECT_EQ(Rejected.Diagnostics.front().NodeId, Invalid->Id);
-	EXPECT_EQ(Rejected.Diagnostics.front().Message, "Retained coordinate defaults must be finite.");
+	EXPECT_EQ(Rejected.Diagnostics.front().Message, "Disconnected UV input has an output selector.");
 	EXPECT_EQ(CaptureFields(*Material), Expected);
 	ASSERT_TRUE(UnloadPackage(MaterialPath));
 	ASSERT_TRUE(UnloadPackage(FunctionPath));
@@ -1069,9 +1114,9 @@ TEST(FMaterialFunctionTests, RejectsOldRootSchemaAndPreservesCurrentFunctionRefe
 	ASSERT_NE(VersionProperty, nullptr);
 	auto& Version = *VersionProperty->ContainerPtrToValuePtr<uint32>(Material);
 	const auto CurrentVersion = Version;
-	Version = 1;
+	Version = 2;
 	EXPECT_FALSE(SavePackage(Material->GetPackage()));
-	EXPECT_EQ(Version, 1u);
+	EXPECT_EQ(Version, 2u);
 	Version = CurrentVersion;
 	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	const FGuid CallId{42, 1, 1, 1};

@@ -37,7 +37,7 @@ namespace Durin
 		ENGINE_API auto ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context, std::string& OutError) const -> bool override;
 	private:
 		DPROPERTY(AlwaysSerialize)
-		uint32 GraphOwnershipVersion = 2;
+		uint32 GraphOwnershipVersion = 3;
 
 
 		DPROPERTY(EditorOnly, AlwaysSerialize)

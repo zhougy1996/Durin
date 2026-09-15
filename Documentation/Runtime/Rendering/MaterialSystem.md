@@ -147,8 +147,7 @@ the parent chain, independently of expression ordering.
 
 Numeric inputs retain component arrays of length zero (absent) or one through four,
 validated against the concrete pin type. Connected defaults remain stored;
-disconnection restores them. Coordinate defaults use scalar and Vector2 records
-with presence flags. Exposing a default creates a parameter expression and explicit
+disconnection restores them. TextureCoordinates retains a scalar channel default. Exposing a default creates a parameter expression and explicit
 connection. Functions own their signatures and cannot own root material parameters.
 Call expressions own the callee and GUID-keyed port bindings; absent optional call
 defaults select signature defaults. Required inputs without a value reject.
@@ -159,13 +158,15 @@ TextureSampleParameter2D owns a resource and optionally samples it. Both samplin
 forms expose slots 0 RGBA, 1 RGB, 2 R, 3 G, 4 B, 5 A and 6 RG. Only the combined
 owner also exposes slot 7 Texture2D: consuming that slot lowers the resource without
 executing its sample or UV transform. Multiple consumers retain independent samples
-and UVs. Missing sample UV links use literal Channel/Scale/Offset/Rotation settings.
-TextureCoordinates inputs 0 Float, 1 Float2, 2 Float2 and 3 Float permit explicit
-parameterized channel, scale, offset and rotation.
+and UVs. Both sample forms accept a Float2 UV expression; a missing UV link reads
+mesh UV0 directly, without local transform settings. TextureCoordinates selects
+one channel through its scalar Channel input/default and outputs Float2.
 UV channel rounding/clamping remains floor(channel + 0.5), clamped to 0..3;
-missing mesh channels remain zero. Scale precedes origin rotation in radians,
-then offset. Synthetic expression source records retain authored node, input or
-UV field and call path. These authoring forms lower before normalization and do
+missing mesh channels remain zero. Scaling, origin rotation in radians and offset
+are explicit upstream math expressions. Import and PBR recipes preserve their UV
+parameters using these operations; multiple samples can share the resulting Float2.
+Synthetic expression source records retain authored node, input and call path.
+These authoring forms lower before normalization and do
 not change layout v4 or cooked shader semantics. DecodeImportedNormalRG retains
 the previous strength-one encoded RG arithmetic before explicit DecodeNormalRG.
 Fresh materials own zero expression nodes and eight unconnected defaults:
@@ -174,9 +175,11 @@ BaseColor `(0.5, 0.5, 0.5)`, Normal `(0, 0, 1)`, Metallic `0`, Roughness
 OpacityMask `1`. Aggregate mode accepts one Surface source and requires all
 eight property links to be disconnected; per-property mode requires the
 aggregate source to be disconnected. Retained fallbacks survive either mode.
-Material and function owners persist `GraphOwnershipVersion = 2`. The marker is
+Material and function owners persist `GraphOwnershipVersion = 3`. The marker is
 reset before load so missing or unsupported stored ownership cannot become current
-by default. Unsupported assets must be rebuilt; there are no PostLoad converters.
+by default. Version 3 rejects graphs with the retired sample-local UV settings or
+combined coordinate transforms instead of silently discarding them. Older material
+and function assets must be rebuilt or reimported; there are no PostLoad converters.
 `FMaterialExpressionBuildContext::ValidateSurface` and `ValidateFunction` check
 concrete expressions directly before publication: identifiers, typed links,
 cycles, bounds, defaults, parameter metadata and function terminals. Local validation

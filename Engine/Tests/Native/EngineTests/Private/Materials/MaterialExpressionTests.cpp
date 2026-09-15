@@ -282,7 +282,7 @@ TEST(FMaterialExpressionTests, FunctionRejectsInvalidCandidatesAndUncollectedChi
 	ASSERT_NE(VersionProperty, nullptr);
 	auto& Version = *VersionProperty->ContainerPtrToValuePtr<uint32>(Function.Get());
 	const auto CurrentVersion = Version;
-	Version = 1;
+	Version = 2;
 	EXPECT_FALSE(Function->ValidateLoadedObjectGraph({}, Error));
 	EXPECT_EQ(DuplicateObject(Function.Get(), nullptr, "RejectedSchema"), nullptr);
 	Version = CurrentVersion;

@@ -1036,13 +1036,13 @@ TEST(FMaterialGraphOperationsTests, TypedInputDefaultsCoverWidthsCoordinatesAndF
 	const auto CoordinatesId = Coordinates->Id;
 	ASSERT_TRUE(Material->SetMaterialExpressions(std::array<DMaterialExpression*, 1>{Coordinates}, {}));
 	ASSERT_TRUE(Material->SetMaterialGraphPresentation({.Nodes = {{CoordinatesId, 400, 100}}}));
-	EXPECT_FALSE(Document.SetInputDefault(CoordinatesId, 1, {.Kind = EMaterialInputDefaultKind::Literal,
+	EXPECT_FALSE(Document.SetInputDefault(CoordinatesId, 0, {.Kind = EMaterialInputDefaultKind::Literal,
 		.Type = EMaterialProgramValueType::Float3, .Literal = {2, 3, 4}}));
-	ASSERT_TRUE(Document.SetInputDefault(CoordinatesId, 1, {.Kind = EMaterialInputDefaultKind::Literal,
-		.Type = EMaterialProgramValueType::Float2, .Literal = {2, 3}}, {}, Transactions.Get()));
-	ASSERT_TRUE(Document.ExtractInputDefault(CoordinatesId, 1, {}, Transactions.Get()));
-	ASSERT_TRUE(Document.InlineInputNode(CoordinatesId, 1, {}, Transactions.Get()));
-	EXPECT_EQ(Cast<DMaterialExpressionTextureCoordinates>(Material->GetExpressionCollection().Expressions.front().Get())->Defaults.Scale.Value, FVector2(2, 3));
+	ASSERT_TRUE(Document.SetInputDefault(CoordinatesId, 0, {.Kind = EMaterialInputDefaultKind::Literal,
+		.Type = EMaterialProgramValueType::Float, .Literal = {2}}, {}, Transactions.Get()));
+	ASSERT_TRUE(Document.ExtractInputDefault(CoordinatesId, 0, {}, Transactions.Get()));
+	ASSERT_TRUE(Document.InlineInputNode(CoordinatesId, 0, {}, Transactions.Get()));
+	EXPECT_EQ(Cast<DMaterialExpressionTextureCoordinates>(Material->GetExpressionCollection().Expressions.front().Get())->ChannelDefault, (std::vector<float>{2}));
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Material->GetExpressionCollection().Expressions.size(), 2u);
 	ASSERT_TRUE(Transactions->Redo());
@@ -1077,7 +1077,7 @@ TEST(FMaterialGraphOperationsTests, TypedInputDefaultsCoverWidthsCoordinatesAndF
 	CollectGarbage();
 }
 
-TEST(FMaterialGraphOperationsTests, CompactSamplingClipboardRemapsRetainedUVBindingsAndExtractsAtomically)
+TEST(FMaterialGraphOperationsTests, SamplingClipboardRemapsSharedExplicitCoordinates)
 {
 	InitializeDObjectSystem();
 	auto* Material = NewObject<DMaterial>(nullptr, "CompactSamplingCommands");
@@ -1087,23 +1087,14 @@ TEST(FMaterialGraphOperationsTests, CompactSamplingClipboardRemapsRetainedUVBind
 	const auto Created = Testing::CreateGraphCatalogNode(Document, EMaterialProgramOpcode::TextureSampleParameter2D, EMaterialProgramValueType::Float4, {}, 400, 0, Transactions.Get());
 	ASSERT_TRUE(Created) << Created.Message;
 	const auto Id = Created.GeneratedNodeIds[0];
-	FMaterialGraphDocumentState State;
-	ASSERT_TRUE(Document.Capture(State));
-	const auto Sample = std::ranges::find_if(State.Expressions, [&](const auto& Value) { return Value->Id == Id; });
-	Cast<DMaterialExpressionTextureSampleParameter2D>(Sample->Get())->UVSettings.Channel = {.bPresent = true, .Value = 1.f};
-	ASSERT_TRUE(Document.Commit(State, "Set UV literal"));
+	const auto CreatedUV = Testing::CreateGraphCatalogNode(Document, EMaterialProgramOpcode::TextureCoordinates,
+		EMaterialProgramValueType::Float2, {}, 0, 0, Transactions.Get());
+	ASSERT_TRUE(CreatedUV) << CreatedUV.Message;
+	const auto CoordinatesId = CreatedUV.GeneratedNodeIds[0];
+	ASSERT_TRUE(Document.SetInputDefault(CoordinatesId, 0, {.Kind = EMaterialInputDefaultKind::Literal,
+		.Type = EMaterialProgramValueType::Float, .Literal = {1}}, {}, Transactions.Get()));
 	const auto Before = CaptureExpressions(*Material);
-	const auto Extracted = Document.ExtractUVSettings(Id, Transactions.Get());
-	ASSERT_TRUE(Extracted) << Extracted.Message;
-	const auto CoordinatesId = Extracted.GeneratedNodeIds[0];
-	const auto* Coordinates = FindExpression<DMaterialExpressionTextureCoordinates>(*Material, CoordinatesId);
-	const auto* Sampling = FindExpression<DMaterialExpressionTextureSampleParameter2D>(*Material, Id);
-	ASSERT_NE(Coordinates, nullptr); ASSERT_NE(Sampling, nullptr);
-	const auto& A = Coordinates->Defaults; const auto& B = Sampling->UVSettings;
-	EXPECT_EQ(A.Channel.bPresent, B.Channel.bPresent); EXPECT_EQ(A.Channel.Value, B.Channel.Value);
-	EXPECT_EQ(A.Scale.bPresent, B.Scale.bPresent); EXPECT_EQ(A.Scale.Value, B.Scale.Value);
-	EXPECT_EQ(A.Offset.bPresent, B.Offset.bPresent); EXPECT_EQ(A.Offset.Value, B.Offset.Value);
-	EXPECT_EQ(A.Rotation.bPresent, B.Rotation.bPresent); EXPECT_EQ(A.Rotation.Value, B.Rotation.Value);
+	ASSERT_TRUE(Document.ConnectInput(Id, 0, {CoordinatesId}, false, Transactions.Get()));
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(CaptureExpressions(*Material), Before);
 	ASSERT_TRUE(Transactions->Redo());
@@ -1117,9 +1108,9 @@ TEST(FMaterialGraphOperationsTests, CompactSamplingClipboardRemapsRetainedUVBind
 	for (const auto& Node : Target->GetExpressionCollection().Expressions)
 	{
 		if (const auto* Coordinates = Cast<DMaterialExpressionTextureCoordinates>(Node.Get()))
-			EXPECT_FLOAT_EQ(Coordinates->Defaults.Channel.Value, 1);
+			EXPECT_EQ(Coordinates->ChannelDefault, (std::vector<float>{1}));
 		if (const auto* Sample = Cast<DMaterialExpressionTextureSampleParameter2D>(Node.Get()))
-			EXPECT_FLOAT_EQ(Sample->UVSettings.Channel.Value, 1);
+			EXPECT_TRUE(Sample->UV.ExpressionId.IsValid());
 	}
 	auto* Function = NewObject<DMaterialFunction>(nullptr, "RejectRootBindings");
 	EXPECT_FALSE(FMaterialGraphDocument(*Function).Paste(Payload, 0, 0));

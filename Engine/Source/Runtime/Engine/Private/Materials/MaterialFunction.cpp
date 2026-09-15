@@ -21,7 +21,7 @@ namespace Durin
 	auto DMaterialFunction::ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context, std::string& OutError) const -> bool
 	{
 		if (Context.bCooked) return true;
-		if (GraphOwnershipVersion != 2)
+		if (GraphOwnershipVersion != 3)
 		{
 			OutError = "Unsupported material function expression schema; rebuild this function.";
 			return false;
@@ -56,7 +56,7 @@ namespace Durin
 	{
 		if (Ar.IsLoading()) GraphOwnershipVersion = 0;
 		Super::Serialize(Ar);
-		if (GraphOwnershipVersion != 2 || Ar.HasError())
+		if (GraphOwnershipVersion != 3 || Ar.HasError())
 		{
 			Ar.Fail(EArchiveFailureCode::UnsupportedVersion,
 				"Unsupported material function schema; rebuild this function.");

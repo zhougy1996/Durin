@@ -12,33 +12,13 @@ namespace Durin::Editor::Material
 		{
 			FMaterialExpressionInput* Source = nullptr;
 			std::vector<float>* Default = nullptr;
-			FMaterialScalarExpressionDefault* Scalar = nullptr;
-			FMaterialVector2ExpressionDefault* Vector2 = nullptr;
 
-			auto SupportsDefault() const -> bool { return Default || Scalar || Vector2; }
-			auto Read() const -> std::vector<float>
-			{
-				if (Default) return *Default;
-				if (Scalar && Scalar->bPresent) return {Scalar->Value};
-				if (Vector2 && Vector2->bPresent) return {static_cast<float>(Vector2->Value.x), static_cast<float>(Vector2->Value.y)};
-				return {};
-			}
+			auto SupportsDefault() const -> bool { return Default != nullptr; }
+			auto Read() const -> std::vector<float> { return Default ? *Default : std::vector<float>{}; }
 			auto Write(const std::vector<float>& Value) const -> bool
 			{
-				if (Default) *Default = Value;
-				else if (Scalar)
-				{
-					if (Value.size() > 1) return false;
-					Scalar->bPresent = !Value.empty();
-					Scalar->Value = Value.empty() ? 0.f : Value[0];
-				}
-				else if (Vector2)
-				{
-					if (!Value.empty() && Value.size() != 2) return false;
-					Vector2->bPresent = !Value.empty();
-					Vector2->Value = Value.empty() ? FVector2(0.0) : FVector2(Value[0], Value[1]);
-				}
-				else return false;
+				if (!Default) return false;
+				*Default = Value;
 				return true;
 			}
 		};
@@ -73,14 +53,6 @@ namespace Durin::Editor::Material
 				if (Pin == Index) Result.Source = &Input;
 			});
 			if (!Result.Source || Cast<DMaterialExpressionFunctionCall>(Expression)) return {};
-			if (auto* Coordinates = Cast<DMaterialExpressionTextureCoordinates>(Expression))
-			{
-				if (Index == 0) Result.Scalar = &Coordinates->Defaults.Channel;
-				if (Index == 1) Result.Vector2 = &Coordinates->Defaults.Scale;
-				if (Index == 2) Result.Vector2 = &Coordinates->Defaults.Offset;
-				if (Index == 3) Result.Scalar = &Coordinates->Defaults.Rotation;
-				return Result;
-			}
 			// Concrete numeric families pair each connection with its named float-vector default.
 			Expression->GetClass()->ForEachProperty([&](FProperty* Property) {
 				if (Property->GetValuePtr(Expression) != Result.Source) return;
@@ -185,28 +157,4 @@ namespace Durin::Editor::Material
 		return CommitOwnedExpressions(*Owner.Get(), std::move(State), "Inline Input Node", Transactions);
 	}
 
-	auto FMaterialGraphDocument::ExtractUVSettings(const FGuid& NodeId, DTransactor* Transactions) const -> FMaterialGraphCommandResult
-	{
-		FOwnedGraphSnapshot State;
-		if (!Owner.IsValid() || !State.Capture(*Owner.Get())) return {.Status = EMaterialGraphCommandStatus::StaleOwner};
-		auto* Sample = FindExpression(State, NodeId);
-		FMaterialExpressionInput* UV = nullptr;
-		FMaterialExpressionUVSettings* Settings = nullptr;
-		if (auto* E = Cast<DMaterialExpressionTextureSample2D>(Sample)) { UV = &E->UV; Settings = &E->UVSettings; }
-		if (auto* E = Cast<DMaterialExpressionTextureSampleParameter2D>(Sample)) { UV = &E->UV; Settings = &E->UVSettings; }
-		if (!UV) return MakeRejected("Select a texture sampling node.");
-		if (UV->ExpressionId.IsValid()) return MakeRejected("The sample already uses an explicit UV expression.");
-		TStrongObjectPtr<DMaterialExpressionTextureCoordinates> Coordinates(NewObject<DMaterialExpressionTextureCoordinates>(nullptr, NAME_None));
-		Coordinates->Id = FGuid::NewGuid();
-		Coordinates->Defaults = *Settings;
-		*UV = {Coordinates->Id};
-		const auto Position = std::ranges::find(State.Presentation.Nodes, NodeId, &FMaterialGraphNodePresentation::NodeId);
-		if (Position == State.Presentation.Nodes.end()) return MakeRejected("The sample has no authored position.");
-		State.Presentation.Nodes.push_back({Coordinates->Id, Position->X - 320, Position->Y});
-		const auto Id = Coordinates->Id;
-		State.Expressions.emplace_back(Coordinates.Get());
-		auto Result = CommitOwnedExpressions(*Owner.Get(), std::move(State), "Extract Texture Coordinates", Transactions);
-		if (Result) Result.GeneratedNodeIds = {Id};
-		return Result;
-	}
 }

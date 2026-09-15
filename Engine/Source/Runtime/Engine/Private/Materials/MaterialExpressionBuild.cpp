@@ -241,45 +241,11 @@ namespace Durin
 		return Emit(std::move(Node));
 	}
 
-	auto FMaterialExpressionBuildContext::Coordinates(const FMaterialExpressionUVSettings& Defaults,
-		std::span<const FMaterialExpressionInput> Inputs) -> uint32
+	auto FMaterialExpressionBuildContext::Coordinates() -> uint32
 	{
-		using Op = EMaterialProgramOpcode;
-		using Type = EMaterialProgramValueType;
-		if (!Inputs.empty() && Inputs.size() != 4) return Fail("Coordinate expression must have four inputs.");
-		const std::array<std::vector<float>, 4> Components{
-			Defaults.Channel.bPresent ? std::vector<float>{Defaults.Channel.Value} : std::vector<float>{},
-			Defaults.Scale.bPresent ? std::vector<float>{float(Defaults.Scale.Value.x), float(Defaults.Scale.Value.y)} : std::vector<float>{},
-			Defaults.Offset.bPresent ? std::vector<float>{float(Defaults.Offset.Value.x), float(Defaults.Offset.Value.y)} : std::vector<float>{},
-			Defaults.Rotation.bPresent ? std::vector<float>{Defaults.Rotation.Value} : std::vector<float>{}};
-		std::array<uint32, 4> Settings;
-		for (size_t Index = 0; Index < 4; ++Index)
-		{
-			if (!std::ranges::all_of(Components[Index], [](float Value) { return std::isfinite(Value); }))
-				return Fail("Retained coordinate defaults must be finite.");
-			if (!Inputs.empty() && !Inputs[Index].ExpressionId.IsValid()
-				&& (Inputs[Index].OutputIndex != 0 || Inputs[Index].OutputId.IsValid()))
-				return Fail("Disconnected coordinate input has an output selector.");
-			Settings[Index] = !Inputs.empty() && Inputs[Index].ExpressionId.IsValid()
-				? ResolveIndex(Inputs[Index]) : Literal(Components[Index]);
-		}
-		const auto Operation = [&](Op Opcode, Type ResultType, std::vector<uint32> Operands) {
-			return Emit({.Opcode = Opcode, .ResultType = ResultType, .Inputs = std::move(Operands)});
-		};
-		const auto UV = Operation(Op::UVChannel, Type::Float2, {Settings[0]});
-		const auto Scale = Operation(Op::Multiply, Type::Float2, {UV, Settings[1]});
-		const auto Sine = Operation(Op::Sine, Type::Float, {Settings[3]});
-		const auto Cosine = Operation(Op::Cosine, Type::Float, {Settings[3]});
-		const auto X = Emit({.Opcode = Op::Swizzle, .ResultType = Type::Float, .Inputs = {Scale}, .Payload = FMaterialIRSwizzle{1}});
-		const auto Y = Emit({.Opcode = Op::Swizzle, .ResultType = Type::Float, .Inputs = {Scale}, .Payload = FMaterialIRSwizzle{1, {1}}});
-		const auto CX = Operation(Op::Multiply, Type::Float, {Cosine, X});
-		const auto SY = Operation(Op::Multiply, Type::Float, {Sine, Y});
-		const auto SX = Operation(Op::Multiply, Type::Float, {Sine, X});
-		const auto CY = Operation(Op::Multiply, Type::Float, {Cosine, Y});
-		const auto RX = Operation(Op::Subtract, Type::Float, {CX, SY});
-		const auto RY = Operation(Op::Add, Type::Float, {SX, CY});
-		const auto Rotated = Operation(Op::MakeFloat2, Type::Float2, {RX, RY});
-		return Operation(Op::Add, Type::Float2, {Rotated, Settings[2]});
+		const std::array Channel{0.f};
+		return Emit({.Opcode = EMaterialProgramOpcode::UVChannel,
+			.ResultType = EMaterialProgramValueType::Float2, .Inputs = {Literal(Channel)}});
 	}
 
 	auto FMaterialExpressionBuildContext::SampleOutput(const DMaterialExpression& Expression, uint8 OutputIndex) -> uint32

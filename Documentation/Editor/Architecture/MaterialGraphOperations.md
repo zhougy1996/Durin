@@ -286,9 +286,9 @@ parameter-only editor and expose Open Parent Material for explicit graph navigat
 
 
 The shared document commands SetInputDefault, ExtractInputDefault,
-InlineInputNode and ExtractUVSettings operate on independent concrete-expression
+and InlineInputNode operate on independent concrete-expression
 snapshots for roots and function documents. Numeric defaults use their actual
-component widths; coordinate defaults retain fixed scalar/vector2 types, and
+component widths; the coordinate channel default is scalar, and
 function calls select inputs by port GUID. Extraction retains literal fallbacks and adds editable expressions. Inlining accepts
 constants and removes a source only after its last consumer is gone. Parameters stay
 visible owners: sharing uses explicit links. Each operation commits one validated
@@ -302,14 +302,15 @@ Details edits name, display name, type, group/order, presentation/range hints,
 texture usage, resource, sampler/fallback policy and numeric defaults. Details reads
 concrete expression fields and captures an independent candidate only when an edit
 is submitted; idle frames do not duplicate managed objects. Parameter metadata
-updates preserve sampling expressions and their UV settings. Class replacement
+updates preserve sampling expressions and their UV connections. Class replacement
 preserves node identity and publishes only after graph validation. Type changes
 which invalidate links reject with diagnostics. Resource assignment is undoable.
 
-Connected UV replaces local literal settings. Extracting unconnected settings
-creates TextureCoordinates with the retained literals; parameterized UV uses
-explicit owners connected to its channel/scale/offset/rotation inputs. Function
-graphs expose literals and interface ports without owning root parameters.
+Texture Sample UV inputs accept Float2 and show Mesh UV0 when disconnected.
+TextureCoordinates selects a mesh channel and outputs Float2. Scale, offset and
+rotation use upstream math expressions or material functions, shared through
+explicit connections. Function graphs expose literals and interface ports without
+owning root parameters.
 Texture previews share published RHI allocations and retire registrations after
 their last canvas consumer.
 
@@ -331,7 +332,7 @@ controls and inspectable orphan overrides with explicit removal. Constant promot
 preserves the node GUID and links while creating a fresh parameter GUID and carrying
 its typed literal into the owned default. Surface-output promotion creates a new
 owner and link. Texture-branch creation emits one combined texture-sample parameter
-with retained local UV settings and selects its attribute channel, including normal
+with default mesh UV0 and selects its attribute channel, including normal
 decode. Resource policy remains on that expression.
 
 One user-visible command produces one global editor transaction. Semantic
@@ -481,15 +482,15 @@ the material. Every mutation still routes to the stateless
 creates the compatible material-owned Parameter node one column upstream, copies the
 fallback into the definition value, connects the input, and records program,
 presentation, and value as one Undo/Redo transaction. `Add Texture` explicitly
-creates one TextureSampleParameter2D with local UV settings and connects its
+creates one TextureSampleParameter2D with default mesh UV0 and connects its
 RGB or scalar channel output directly. Normal uses the same combined sample owner
 with its decoded tangent-space Normal output and flat RG fallback. Sampling and
 RG decoding share one fetch without a flat-normal blend. The reusable SampleNormal
 function remains available for explicit strength and RNM composition. The entire
 branch and connection form one candidate-validated
-Undo/Redo transaction. Extract UV settings only when explicit coordinate
-expressions are needed; texture objects remain available for function inputs
-and independent sampling. Sampling nodes show RGB, R, G, B, A, and RGBA in that
+Undo/Redo transaction. Connect a TextureCoordinates or other Float2 expression
+for custom UVs; texture objects remain available for function inputs and independent
+sampling. Sampling nodes show RGB, R, G, B, A, and RGBA in that
 order by default. The Advanced pins toggle reveals RG, Texture resource, and decoded Normal outputs;
 connected outputs remain visible even when advanced pins are hidden. Display order
 and visibility never change serialized output indices.

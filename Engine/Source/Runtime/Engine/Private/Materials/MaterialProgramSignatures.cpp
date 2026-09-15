@@ -40,11 +40,7 @@ namespace Durin
 			break;
 		case EMaterialProgramOpcode::TextureCoordinates:
 			if (ResultType != Type::Float2) return std::nullopt;
-			Signature.InputCount = 4;
-			Signature.Inputs[0] = One(Type::Float);
-			Signature.Inputs[1] = One(Type::Float2);
-			Signature.Inputs[2] = One(Type::Float2);
-			Signature.Inputs[3] = One(Type::Float);
+			Same(1, Type::Float);
 			break;
 		case EMaterialProgramOpcode::TextureSampleParameter2D:
 			if (ResultType != Type::Float4) return std::nullopt;

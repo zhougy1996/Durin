@@ -84,7 +84,7 @@ namespace Durin
 
 	private:
 		DPROPERTY(AlwaysSerialize)
-		uint32 GraphOwnershipVersion = 2;
+		uint32 GraphOwnershipVersion = 3;
 
 		auto AdvanceAuthoredRevision() -> void;
 		EMaterialEditCompileMode EditCompileMode = EMaterialEditCompileMode::Immediate;
