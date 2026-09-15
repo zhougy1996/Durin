@@ -90,15 +90,6 @@ namespace Durin::Editor::Material
 		if (CreationMenu->SourceNode.IsValid() && Source != View.Nodes.end())
 			for (const auto& Pin : Source->Outputs)
 				if (Pin.PortId == CreationMenu->SourceOutputId && Pin.OutputIndex == CreationMenu->SourceOutputIndex) SourceType = Pin.Type;
-		const auto EntryGroup = [this, CreationMenu](size_t Index) -> std::pair<int, std::string> {
-			if (CreationMenu->Search.front() == '\0')
-			{
-				const std::string Key = CreationMenuEntryKey(Catalog[Index]);
-				if (std::ranges::find(RecentCreationMenuEntries, Key) != RecentCreationMenuEntries.end())
-					return {1, "Recently Used"};
-			}
-			return {2, Catalog[Index].Category};
-		};
 		const bool bCreationMenuResultsStale =
 			CachedCreationMenuCatalogRevision != CatalogRevision
 			|| CachedRecentCreationMenuRevision != RecentCreationMenuRevision
@@ -108,10 +99,21 @@ namespace Durin::Editor::Material
 		{
 			CachedCreationMenuResults = FMaterialGraphOperations::SearchCatalogIndices(
 				Catalog, CreationMenu->Search.data(), SourceType);
-			// Group browsing results only; an active query keeps global relevance.
+			CachedCreationMenuRecentCount = 0;
 			if (CreationMenu->Search.front() == '\0')
-				std::ranges::stable_sort(CachedCreationMenuResults,
-					[&EntryGroup](size_t A, size_t B) { return EntryGroup(A) < EntryGroup(B); });
+			{
+				// Recent rows are shortcuts to catalog entries, not a replacement category.
+				std::vector<size_t> Recent;
+				for (const auto& Key : RecentCreationMenuEntries)
+				{
+					const auto Found = std::ranges::find_if(CachedCreationMenuResults, [&](size_t Index) {
+						return CreationMenuEntryKey(Catalog[Index]) == Key;
+					});
+					if (Found != CachedCreationMenuResults.end()) Recent.push_back(*Found);
+				}
+				CachedCreationMenuRecentCount = Recent.size();
+				CachedCreationMenuResults.insert(CachedCreationMenuResults.begin(), Recent.begin(), Recent.end());
+			}
 			CachedCreationMenuCatalogRevision = CatalogRevision;
 			CachedRecentCreationMenuRevision = RecentCreationMenuRevision;
 			CachedCreationMenuQuery = CreationMenu->Search.data();
@@ -141,7 +143,8 @@ namespace Durin::Editor::Material
 			for (size_t EntryIndex = 0; EntryIndex < Results.size(); ++EntryIndex)
 			{
 				const FMaterialGraphCatalogEntry& Entry = Catalog[Results[EntryIndex]];
-				const std::string Group = CreationMenu->Search.front() == '\0' ? EntryGroup(Results[EntryIndex]).second : "Results";
+				const std::string Group = CreationMenu->Search.front() != '\0' ? "Results"
+					: EntryIndex < CachedCreationMenuRecentCount ? "Recently Used" : Entry.Category;
 				if (Group != PreviousGroup)
 				{
 					ImGui::SeparatorText(Group.c_str());

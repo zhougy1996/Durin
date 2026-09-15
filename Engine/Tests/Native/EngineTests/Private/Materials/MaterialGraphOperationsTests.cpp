@@ -72,13 +72,35 @@ namespace Durin::Editor::Material
 		static auto MoveActive(const FMaterialGraphCanvas& Canvas) -> bool { return Canvas.MoveSession.IsActive(); }
 		static auto SearchMenu(FMaterialGraphCanvas& Canvas, const char* Query) -> void
 		{
+			ImGui::ClearActiveID(); // Release InputText's internal buffer before setting the test query.
 			if (!std::holds_alternative<FMaterialGraphCanvas::FNodeCreationMenuInteraction>(Canvas.Interaction))
 				Canvas.Interaction = FMaterialGraphCanvas::FNodeCreationMenuInteraction{};
 			auto& Menu = std::get<FMaterialGraphCanvas::FNodeCreationMenuInteraction>(Canvas.Interaction);
 			std::snprintf(Menu.Search.data(), Menu.Search.size(), "%s", Query);
 		}
+		static auto Remember(FMaterialGraphCanvas& Canvas, EMaterialProgramOpcode Opcode) -> void
+		{
+			const auto Entry = std::ranges::find_if(Canvas.Catalog, [&](const auto& Value) {
+				return Value.Opcode == Opcode && Value.ResultType == EMaterialProgramValueType::Float;
+			});
+			ASSERT_NE(Entry, Canvas.Catalog.end());
+			Canvas.RememberCreation(*Entry);
+		}
+		static auto CheckRecentRows(const FMaterialGraphCanvas& Canvas) -> void
+		{
+			ASSERT_EQ(Canvas.CachedCreationMenuRecentCount, 2u);
+			const auto& Rows = Canvas.CachedCreationMenuResults;
+			const auto Base = FMaterialGraphOperations::SearchCatalogIndices(Canvas.Catalog, "");
+			ASSERT_EQ(Rows.size(), Base.size() + 2);
+			EXPECT_EQ(Canvas.Catalog[Rows[0]].Opcode, EMaterialProgramOpcode::Add);
+			EXPECT_EQ(Canvas.Catalog[Rows[1]].Opcode, EMaterialProgramOpcode::Multiply);
+			EXPECT_EQ(std::vector<size_t>(Rows.begin() + 2, Rows.end()), Base);
+			EXPECT_EQ(std::ranges::count(Rows, Rows[0]), 2);
+			EXPECT_EQ(std::ranges::count(Rows, Rows[1]), 2);
+		}
 		static auto SearchOrder(const FMaterialGraphCanvas& Canvas) -> bool
-		{ return Canvas.CachedCreationMenuResults == FMaterialGraphOperations::SearchCatalogIndices(Canvas.Catalog, Canvas.CachedCreationMenuQuery); }
+		{ return Canvas.CachedCreationMenuQuery == "texture" && Canvas.CachedCreationMenuRecentCount == 0
+			&& Canvas.CachedCreationMenuResults == FMaterialGraphOperations::SearchCatalogIndices(Canvas.Catalog, Canvas.CachedCreationMenuQuery); }
 		static auto Menu(const FMaterialGraphCanvas& Canvas) -> bool
 		{ return std::holds_alternative<FMaterialGraphCanvas::FNodeCreationMenuInteraction>(Canvas.Interaction); }
 	};
@@ -2389,6 +2411,11 @@ TEST(FMaterialGraphOperationsTests, CanvasMenusDoNotInterruptMoveAndKeepSearchRa
 	EXPECT_TRUE(FMaterialGraphCanvasTestAccess::MoveActive(Canvas));
 	Canvas.CancelInteraction(); Frame(Moved, false);
 	FMaterialGraphCanvasTestAccess::SearchMenu(Canvas, ""); Frame({900, 600}, false);
+	FMaterialGraphCanvasTestAccess::Remember(Canvas, EMaterialProgramOpcode::Add);
+	FMaterialGraphCanvasTestAccess::Remember(Canvas, EMaterialProgramOpcode::Multiply);
+	FMaterialGraphCanvasTestAccess::Remember(Canvas, EMaterialProgramOpcode::Add);
+	Frame({900, 600}, false);
+	FMaterialGraphCanvasTestAccess::CheckRecentRows(Canvas);
 	FMaterialGraphCanvasTestAccess::SearchMenu(Canvas, "texture"); Frame({900, 600}, false);
 	EXPECT_TRUE(FMaterialGraphCanvasTestAccess::SearchOrder(Canvas));
 	EXPECT_EQ(Errors, 0);

@@ -185,6 +185,7 @@ namespace Durin::Editor::Material
 		std::string CachedCreationMenuQuery;
 		std::optional<EMaterialProgramValueType> CachedCreationMenuSourceType;
 		std::vector<size_t> CachedCreationMenuResults;
+		size_t CachedCreationMenuRecentCount = 0;
 		uint64 CachedProgramRevision = 0;
 		uint64 CachedPresentationRevision = 0;
 		uint64 CachedSchemaRevision = 0;

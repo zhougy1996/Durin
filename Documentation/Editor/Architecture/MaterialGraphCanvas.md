@@ -130,7 +130,9 @@ The node creation context menu opens at the pointer from an empty-canvas right
 click, Space, an empty-canvas double click, or an output link dropped on empty
 space. It focuses search and supports arrow/Enter/Escape navigation. Compact
 node rows are grouped by category; recently used nodes form a leading group
-when no search is active. Rows display shortcuts instead of favorite buttons. Descriptions and input
+when no search is active, ordered from most recently used. These are additional
+shortcuts: each entry also remains in its original category. Active searches show
+each match once, and link compatibility filtering applies to both lists. Rows display shortcuts instead of favorite buttons. Descriptions and input
 signatures appear in hover tooltips. An active search preserves global match
 relevance instead of regrouping by category. Paste and Auto Layout
 remain available below the creation list when no source link is active.
