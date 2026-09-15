@@ -8,7 +8,7 @@ namespace Durin::Editor::Material::Workspace
 {
 	inline const ::Durin::Editor::FWorkspaceTypeId Type("MaterialEditor");
 	inline constexpr std::string_view RootKey = "MaterialEditor";
-	inline constexpr uint32 LayoutVersion = 3;
+	inline constexpr uint32 LayoutVersion = 4;
 
 	// Isolates panel docking and persisted layouts for each material document.
 	inline auto MakeDocumentDockType(const ::Durin::Editor::FDocumentTab& Document)
@@ -46,6 +46,7 @@ namespace Durin::Editor::Material::Workspace
 		DockPanel("Material Graph", "Graph", GraphId);
 		DockPanel("Preview", "Preview", PreviewId);
 		DockPanel("Details", "Details", DetailsId);
+		DockPanel("Parameters", "Parameters", DetailsId);
 		DockPanel("Diagnostics", "Diagnostics", DiagnosticsId);
 		ImGui::DockBuilderFinish(DockSpaceId);
 	}

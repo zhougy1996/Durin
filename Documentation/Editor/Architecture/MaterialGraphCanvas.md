@@ -15,16 +15,17 @@ Compile/Apply/Save behavior are defined in
 
 Each material document owns an isolated ImGui dock space, keyed by its stable
 `DocumentKey`, using the shared WorkspaceUI panel and docking helpers. Preview,
-Material Graph, Details and Diagnostics are dockable windows. Wide initial
-layouts reserve the left 30% for Preview above Details; the graph fills the remaining width and height. Diagnostics shares the
-Details dock as an optional tab; small initial layouts use dock tabs. Resizing does not rebuild a
-user's arrangement. Hidden document roots keep their dock spaces alive.
+Material Graph, Details, Parameters and Diagnostics are dockable windows. Wide initial
+layouts reserve the left 30% for Preview above Details; the graph fills the
+remaining width and height. Parameters shares the Details dock as a visible tab,
+and Diagnostics as an optional tab. Small initial layouts use dock tabs. Resizing
+does not rebuild a user's arrangement. Hidden document roots keep their dock spaces alive.
 
 Function insertion opens a bounded popup above the graph. Selected-call navigation
 lives in Details alongside the shared input editor, so selection does not resize
 or displace the canvas. Details owns selected-node authoring and instance
-inheritance, rendering properties and parameter overrides. There is no base-material
-Parameters manager or docking slot. New materials contain only
+inheritance and rendering properties. Parameters owns shared parameter metadata
+and material-instance overrides. New materials contain only
 Surface with eight property inputs and retained defaults, without expression
 nodes or function calls.
 
@@ -45,14 +46,19 @@ exclusion rule are unchanged; reusable Surface values do not become extra roots.
 
 Window controls reopen optional panels and reset the default layout. Material
 Info is a collapsed section in Details shown only when no graph node is selected.
-Base-material values and metadata are edited through selected parameter owners
-and literal inputs in Details. Parameter node types are fixed at creation; Details
-has no type conversion control. Parameter names and defaults stay visible, while
-shared renaming and instance presentation metadata live in collapsed Parameter
-settings. Texture fallback and filtering/addressing controls live in collapsed
-Sampler settings. Instances retain
-their parameter override list because they do not own a graph. Parameter groups
-omit a sole outer container with no direct values.
+Base-material values and node bindings are edited through selected parameter
+owners and literal inputs in Details. Parameter node types are fixed at creation;
+Details has no type conversion control. Texture fallback and filtering/addressing
+controls live in collapsed Sampler settings. Parameters lists all base-material
+parameters, including disconnected owners, with search by name, display name or
+group and grouping by slash-separated paths. Clicking a parameter selects and
+frames its owner; shared parameters expose navigation to each reference. Expanding
+a parameter exposes shared renaming, display name, group, sort order, compatible
+presentation modes and scalar range hints. These edits preserve parameter IDs,
+instance overrides and per-node sampling inputs through ordinary transactions.
+Instances show their parameter override list in Parameters because they do not
+own a graph. The Window menu reopens Parameters and its visibility is persisted.
+Instance parameter groups omit a sole outer container with no direct values.
 ImGui persists docking geometry; the
 material session settings retain panel visibility and per-asset graph viewports.
 Preview visibility follows the actual preview panel, including dock-tab hiding.

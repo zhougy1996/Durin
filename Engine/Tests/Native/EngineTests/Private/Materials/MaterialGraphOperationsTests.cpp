@@ -2878,7 +2878,7 @@ TEST(FMaterialGraphOperationsTests, DocumentDockLayoutsRemainIsolatedAndSurviveH
 				Frame == 2 ? ImGuiDockNodeFlags_KeepAliveOnly : ImGuiDockNodeFlags_None);
 			if (Frame != 2)
 			{
-				for (const char* Key : {"Graph", "Preview", "Details", "Diagnostics"})
+				for (const char* Key : {"Graph", "Preview", "Details", "Parameters", "Diagnostics"})
 				{
 					if (Frame == 0 && std::string_view(Key) == "Diagnostics") continue;
 					WorkspaceUI::BeginDockablePanel(DockType, Key, Key);
@@ -2896,6 +2896,8 @@ TEST(FMaterialGraphOperationsTests, DocumentDockLayoutsRemainIsolatedAndSurviveH
 						EXPECT_EQ(Window->DockId, PreviewId);
 						EXPECT_NE(Window->DockId, GraphId);
 					}
+					else if (std::string_view(Key) == "Parameters")
+						EXPECT_EQ(Window->DockId, DetailsId);
 					else if (std::string_view(Key) == "Diagnostics")
 						EXPECT_NE(Window->DockId, GraphId);
 					else if (std::string_view(Key) == "Details") DetailsId = Window->DockId;

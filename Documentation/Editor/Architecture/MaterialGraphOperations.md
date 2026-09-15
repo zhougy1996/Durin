@@ -254,10 +254,12 @@ Texture Object Parameter owns a Texture2D resource. Texture Sample Parameter 2D
 owns a resource and exposes RGBA/RGB/R/G/B/A/RG slots 0–6 plus Texture2D slot 7.
 The resource slot does not execute that node's UV transform or sample. A texture
 drop creates one uniquely named owner and sample node atomically. Selected-node
-Details edits name, display name, type, group/order, presentation/range hints,
-texture usage, resource, sampler/fallback policy and numeric defaults. Details reads
-concrete expression fields and captures an independent candidate only when an edit
-is submitted; idle frames do not duplicate managed objects. Parameter metadata
+Details edits node parameter bindings, texture usage, resource, sampler/fallback
+policy and numeric defaults. The Parameters panel edits shared names, display
+names, group/order and presentation/range hints. Neither panel offers node type
+conversion. Both read concrete expression fields and capture an independent
+candidate only when an edit is submitted; idle frames do not duplicate managed
+objects. Parameter metadata
 updates preserve sampling expressions and their UV connections. Class replacement
 preserves node identity and publishes only after graph validation. Type changes
 which invalidate links reject with diagnostics. Resource assignment is undoable.

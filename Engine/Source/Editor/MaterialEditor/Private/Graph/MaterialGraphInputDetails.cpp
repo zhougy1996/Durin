@@ -84,34 +84,6 @@ namespace Durin::Editor::Material
 			std::string Name = Parameter.Name.ToString();
 			if (!Changed && EditText("Parameter name", Name)) { Parameter.Name = FName(Name); CommitParameter(); }
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Change this node's parameter binding. Existing names use the existing parameter's value.");
-			if (ImGui::TreeNode("Parameter settings"))
-			{
-				std::string SharedName = Parameter.Name.ToString();
-				if (!Changed && EditText("Rename shared parameter", SharedName))
-					Submit(FMaterialGraphOperations::RenameParameter(*Material, Parameter.Id, FName(SharedName), &Transactions));
-				if (ImGui::IsItemHovered()) ImGui::SetTooltip("Rename all references while preserving material instance overrides.");
-				if (!Changed && EditText("Display name", Parameter.DisplayName)) CommitParameter();
-				std::string Group = Parameter.GroupName.ToString();
-				if (!Changed && EditText("Group", Group)) { Parameter.GroupName = FName(Group); CommitParameter(); }
-				if (!Changed && ImGui::InputInt("Order", &Parameter.SortOrder, 0, 0, ImGuiInputTextFlags_EnterReturnsTrue)) CommitParameter();
-				if (!Changed && Parameter.Type == EMaterialParameterType::Scalar && ImGui::Checkbox("Range hint", &Parameter.bHasRange)) CommitParameter();
-				if (!Changed && Parameter.bHasRange)
-				{
-					float Range[2]{Parameter.MinimumValue, Parameter.MaximumValue};
-					if (ImGui::InputFloat2("Min / Max", Range, "%.4g", ImGuiInputTextFlags_EnterReturnsTrue))
-					{
-						Parameter.MinimumValue = Range[0]; Parameter.MaximumValue = Range[1];
-						CommitParameter();
-					}
-				}
-				int Presentation = static_cast<int>(Parameter.Presentation);
-				if (!Changed && ImGui::Combo("Presentation", &Presentation, "Default\0Drag\0Integer\0Color\0Asset picker\0"))
-				{
-					Parameter.Presentation = static_cast<EMaterialParameterPresentation>(Presentation);
-					CommitParameter();
-				}
-				ImGui::TreePop();
-			}
 			if (!Changed && Parameter.Type == EMaterialParameterType::Texture)
 			{
 				int Usage = static_cast<int>(Parameter.TextureUsage);

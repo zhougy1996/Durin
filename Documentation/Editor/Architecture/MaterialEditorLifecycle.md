@@ -61,8 +61,9 @@ working copy; they reach the source and its scene dependents only through Apply.
 ## Reachable parameter views
 
 MaterialEditor consumes Engine's detached `InspectMaterialParameterDependencies`
-projection for reachable instance controls. Base Details edits the selected owner,
-including disconnected owners. Numeric inline edits and Details update the same
+projection for reachable instance controls in Parameters. Base Parameters lists
+all parameter definitions, including disconnected owners, for shared metadata
+editing. Base Details edits the selected owner. Numeric inline edits and Details update the same
 node-owned default through parameter commands/sessions. Dynamic value changes do
 not request shader compilation. Resource-only combined-node outputs contribute the
 resource dependency without traversing the unused sampling UV branch.

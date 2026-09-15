@@ -4,6 +4,8 @@
 #include "Widgets/MaterialPreview.h"
 #include "Widgets/MaterialEditingSession.h"
 #include "Graph/MaterialGraphCanvas.h"
+#include "MaterialGraphDocument.h"
+#include "DObject/ObjectLifecycle.h"
 #include "Settings/MaterialEditorSessionSettings.h"
 
 #include "Asset/AssetCompilingManager.h"
@@ -369,6 +371,7 @@ namespace Durin::Editor::Material
 		MaterialPreviews.erase(Document.Id.Value);
 		MaterialGraphCanvases.erase(Document.Id.Value);
 		FunctionCallPickers.erase(Document.Id.Value);
+		ParameterSearchTexts.erase(Document.Id.Value);
 		EditingSessions.erase(Document.ResourceId);
 		PendingLayoutResets.erase(Document.Id.Value);
 		Documents.Close(Document.ResourceId);
@@ -493,6 +496,7 @@ namespace Durin::Editor::Material
 	{
 		SessionSettings->bPreviewVisible = true;
 		SessionSettings->bDetailsVisible = true;
+		SessionSettings->bParametersVisible = true;
 		SessionSettings->bDiagnosticsVisible = false;
 		for (const auto& Document : WorkspaceManager.GetDocuments())
 			if (Document.WorkspaceType == Workspace::Type)
@@ -688,6 +692,7 @@ namespace Durin::Editor::Material
 		{
 			ImGui::MenuItem("Preview", nullptr, &SessionSettings->bPreviewVisible);
 			ImGui::MenuItem("Details", nullptr, &SessionSettings->bDetailsVisible);
+			ImGui::MenuItem("Parameters", nullptr, &SessionSettings->bParametersVisible);
 			ImGui::MenuItem("Diagnostics", nullptr, &SessionSettings->bDiagnosticsVisible);
 			ImGui::Separator();
 			if (ImGui::MenuItem("Reset Layout")) ResetLayout();
@@ -734,6 +739,12 @@ namespace Durin::Editor::Material
 		{
 			if (BeginPanel("Details", "Details", &SessionSettings->bDetailsVisible))
 				DrawDetailsPanel(Document, Material);
+			ImGui::End();
+		}
+		if (SessionSettings->bParametersVisible)
+		{
+			if (BeginPanel("Parameters", "Parameters", &SessionSettings->bParametersVisible))
+				DrawParametersPanel(Document, Material);
 			ImGui::End();
 		}
 		if (SessionSettings->bDiagnosticsVisible)
@@ -886,6 +897,157 @@ namespace Durin::Editor::Material
 				static_cast<int>(CookDiagnostic.size()), CookDiagnostic.data());
 	}
 
+	auto MMaterialEditor::DrawParametersPanel(
+		const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void
+	{
+		if (auto* Instance = Cast<DMaterialInstance>(Material))
+		{
+			if (MonaImGui::PropertyEdit::BeginTable("MaterialInstanceParameters", MakeMaterialPropertyTableConfig()))
+			{
+				DrawMaterialParameters(Instance);
+				MonaImGui::PropertyEdit::EndTable();
+			}
+			return;
+		}
+		auto* Base = Cast<DMaterial>(Material);
+		if (!Base || !GEditor || !GEditor->GetTransactor()) return;
+		auto& Search = ParameterSearchTexts[Document.Id.Value];
+		ImGui::SetNextItemWidth(-1);
+		ImGui::InputTextWithHint("##ParameterSearch", "Search parameters...", Search.data(), Search.size());
+		const ImGuiTextFilter Filter(Search.data());
+		// Include disconnected owners; the instance model intentionally filters by reachability.
+		std::vector<FMaterialParameterPanelEntry> Entries;
+		for (const auto& Definition : Base->GetParameterDefinitions())
+		{
+			const auto Searchable = std::format("{} {} {}", Definition.Name.ToString(),
+				Definition.DisplayName, Definition.GroupName.ToString());
+			if (Filter.PassFilter(Searchable.c_str())) Entries.push_back({.Definition = Definition});
+		}
+		std::ranges::sort(Entries, [](const auto& A, const auto& B) {
+			if (A.Definition->SortOrder != B.Definition->SortOrder)
+				return A.Definition->SortOrder < B.Definition->SortOrder;
+			return A.Definition->Name.ToString() < B.Definition->Name.ToString();
+		});
+		if (Entries.empty())
+		{
+			ImGui::TextDisabled(Base->GetParameterDefinitions().empty()
+				? "Add parameter nodes in the graph to get started." : "No matching parameters.");
+			return;
+		}
+		FMaterialParameterGroup Root;
+		for (size_t Index = 0; Index < Entries.size(); ++Index)
+			AddParameterToGroupTree(Root, Entries[Index], Index);
+		auto& Canvas = GetOrCreateCanvas(Document);
+		bool bSubmitted = false;
+		const auto Submit = [&](const FMaterialGraphCommandResult& Result) {
+			bSubmitted = true;
+			if (!Result) SetError(Result.Message);
+		};
+		const auto EditText = [](const char* Label, std::string& Value) {
+			std::array<char, MaterialProgramMaxDisplayNameBytes + 1> Buffer{};
+			std::copy_n(Value.data(), std::min(Value.size(), Buffer.size() - 1), Buffer.data());
+			if (!ImGui::InputText(Label, Buffer.data(), Buffer.size(), ImGuiInputTextFlags_EnterReturnsTrue)) return false;
+			Value = Buffer.data();
+			return true;
+		};
+		const auto DrawEntry = [&](FMaterialParameterDefinition Parameter) {
+			std::vector<FGuid> NodeIds;
+			for (const auto& Expression : Base->GetExpressionCollection().Expressions)
+				if (const auto* Owner = Cast<DMaterialExpressionParameter>(Expression.Get());
+					Owner && Owner->Metadata.Id == Parameter.Id) NodeIds.push_back(Owner->Id);
+			if (NodeIds.empty()) return;
+			ImGui::PushID(Parameter.Id.ToString().c_str());
+			const bool bSelected = std::ranges::any_of(NodeIds,
+				[&](const FGuid& Id) { return Canvas.GetSelection().contains(Id); });
+			const auto Flags = ImGuiTreeNodeFlags_SpanAvailWidth
+				| (bSelected ? ImGuiTreeNodeFlags_Selected : ImGuiTreeNodeFlags_None);
+			const bool bOpen = ImGui::TreeNodeEx("Parameter", Flags, "%s", Parameter.Name.ToString().c_str());
+			if (ImGui::IsItemClicked()) Canvas.SelectAndFrame(NodeIds.front());
+			if (bOpen)
+			{
+				const auto Commit = [&]() {
+					const auto& Expressions = Base->GetExpressionCollection().Expressions;
+					const auto It = std::ranges::find(Expressions, NodeIds.front(), [](const auto& E) { return E->Id; });
+					if (It == Expressions.end()) return;
+					// Copy the concrete owner so texture-sample inputs and node identity survive metadata edits.
+					TStrongObjectPtr<DMaterialExpressionParameter> Candidate(
+						Cast<DMaterialExpressionParameter>(DuplicateObject(It->Get(), nullptr, NAME_None)));
+					if (!Candidate || !Candidate->SetParameterDefinition(Parameter))
+					{
+						SetError("The parameter definition is invalid.");
+						bSubmitted = true;
+						return;
+					}
+					Submit(FMaterialGraphDocument(*Base).ReplaceExpression(*Candidate, GEditor->GetTransactor()));
+				};
+				std::string Name = Parameter.Name.ToString();
+				if (EditText("Name", Name))
+					Submit(FMaterialGraphOperations::RenameParameter(*Base, Parameter.Id, FName(Name), GEditor->GetTransactor()));
+				if (ImGui::IsItemHovered()) ImGui::SetTooltip("Rename all references while preserving material instance overrides.");
+				if (!bSubmitted && EditText("Display name", Parameter.DisplayName)) Commit();
+				std::string Group = Parameter.GroupName.ToString();
+				if (!bSubmitted && EditText("Group", Group)) { Parameter.GroupName = FName(Group); Commit(); }
+				if (!bSubmitted && ImGui::InputInt("Order", &Parameter.SortOrder, 0, 0, ImGuiInputTextFlags_EnterReturnsTrue)) Commit();
+				constexpr std::array Presentations{"Default", "Drag", "Integer", "Color", "Asset picker"};
+				const auto PresentationIndex = static_cast<size_t>(Parameter.Presentation);
+				if (!bSubmitted && ImGui::BeginCombo("Presentation", PresentationIndex < Presentations.size()
+					? Presentations[PresentationIndex] : "Unknown"))
+				{
+					for (size_t Index = 0; Index < Presentations.size(); ++Index)
+					{
+						auto Option = Parameter;
+						Option.Presentation = static_cast<EMaterialParameterPresentation>(Index);
+						if (FMaterialParameterPanelModel::SelectControl(Option) == EMaterialParameterControlKind::Unsupported) continue;
+						if (ImGui::Selectable(Presentations[Index], Index == PresentationIndex))
+						{
+							Parameter.Presentation = Option.Presentation;
+							Commit();
+							break;
+						}
+					}
+					ImGui::EndCombo();
+				}
+				if (!bSubmitted && Parameter.Type == EMaterialParameterType::Scalar)
+				{
+					if (ImGui::Checkbox("Range hint", &Parameter.bHasRange)) Commit();
+					if (!bSubmitted && Parameter.bHasRange)
+					{
+						float Range[]{Parameter.MinimumValue, Parameter.MaximumValue};
+						if (ImGui::InputFloat2("Min / Max", Range, "%.4g", ImGuiInputTextFlags_EnterReturnsTrue))
+						{
+							Parameter.MinimumValue = Range[0]; Parameter.MaximumValue = Range[1]; Commit();
+						}
+					}
+				}
+				if (NodeIds.size() > 1)
+				{
+					ImGui::TextDisabled("Used by %zu nodes", NodeIds.size());
+					for (size_t Index = 0; Index < NodeIds.size(); ++Index)
+						if (ImGui::SmallButton(std::format("Locate node {}", Index + 1).c_str())) Canvas.SelectAndFrame(NodeIds[Index]);
+				}
+				ImGui::TreePop();
+			}
+			ImGui::PopID();
+		};
+		const auto DrawGroup = [&](const auto& Self, const FMaterialParameterGroup& Group) -> void {
+			for (const auto& Child : Group.Children)
+			{
+				if (bSubmitted) break;
+				if (ImGui::TreeNodeEx(Child.Path.c_str(), ImGuiTreeNodeFlags_DefaultOpen, "%s", Child.Label.c_str()))
+				{
+					Self(Self, Child);
+					ImGui::TreePop();
+				}
+			}
+			for (const size_t Index : Group.EntryIndices)
+			{
+				if (bSubmitted) break;
+				DrawEntry(*Entries[Index].Definition);
+			}
+		};
+		DrawGroup(DrawGroup, Root);
+	}
+
 	auto MMaterialEditor::DrawDetailsPanel(
 		const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void
 	{
@@ -902,11 +1064,6 @@ namespace Durin::Editor::Material
 		if (auto* Instance = Cast<DMaterialInstance>(Material))
 		{
 			DrawMaterialInstance(Instance);
-			if (MonaImGui::PropertyEdit::BeginTable("MaterialInstanceParameters", MakeMaterialPropertyTableConfig()))
-			{
-				DrawMaterialParameters(Instance);
-				MonaImGui::PropertyEdit::EndTable();
-			}
 		}
 		else if (auto* BaseMaterial = Cast<DMaterial>(Material))
 		{

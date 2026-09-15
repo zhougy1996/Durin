@@ -70,6 +70,7 @@ namespace Durin::Editor::Material
 		auto DrawPreviewPanel(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material, float Height) -> void;
 		auto DrawGraphPanel(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material, float Height) -> void;
 		auto DrawDetailsPanel(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void;
+		auto DrawParametersPanel(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void;
 		auto DrawSelectedFunction(const ::Durin::Editor::FDocumentTab& Document, DMaterial* Base) -> void;
 		auto DrawMaterialInstance(DMaterialInstance* Instance) -> void;
 		auto DrawParentPicker(DMaterialInstance* Instance) -> void;
@@ -102,9 +103,7 @@ namespace Durin::Editor::Material
 		std::unique_ptr<FMaterialEditorSessionSettings> SessionSettings;
 		std::array<char, 128> ParentSearchText{};
 		std::array<char, 128> TextureSearchText{};
-		std::array<char, 129> ParameterNameDraft{};
-		std::array<char, 129> ParameterRenameDraft{};
-		int ParameterTypeDraft = 0;
+		std::unordered_map<uint64, std::array<char, 128>> ParameterSearchTexts;
 		std::string ErrorMessage;
 		::Durin::Editor::FPropertyView PropertyView;
 		std::unordered_set<uint64> PendingLayoutResets;
