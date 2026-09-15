@@ -2163,6 +2163,93 @@ TEST(FMaterialGraphOperationsTests, CanvasLinkReleaseEndsGestureAcrossFrames)
 	CollectGarbage();
 }
 
+TEST(FMaterialGraphOperationsTests, CanvasCreationShortcutsRespectGesturesAndUndo)
+{
+	InitializeDObjectSystem();
+	auto* Material = NewObject<DMaterial>(nullptr, "CanvasCreationShortcuts");
+	ImGuiContext* Context = ImGui::CreateContext();
+	auto& IO = ImGui::GetIO();
+	IO.DisplaySize = {1200, 720};
+	IO.DeltaTime = 1.0f / 60.0f;
+	IO.IniFilename = nullptr;
+	IO.Fonts->AddFontDefault();
+	IO.Fonts->Build();
+	Durin::Tests::FTestTransactorOwner Transactions;
+	FMaterialGraphCanvas Canvas;
+	Canvas.SetViewport(0.75f, {40, 40});
+	ImVec2 Origin;
+	int Errors = 0;
+	const auto Frame = [&](ImVec2 Mouse, bool Down, bool TextInput = false) {
+		IO.AddMousePosEvent(Mouse.x, Mouse.y);
+		IO.AddMouseButtonEvent(ImGuiMouseButton_Left, Down);
+		ImGui::NewFrame();
+		IO.WantTextInput = TextInput;
+		ImGui::SetNextWindowPos({0, 0}); ImGui::SetNextWindowSize({1200, 720});
+		ImGui::Begin("Creation Shortcuts", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize);
+		Canvas.Draw(*Material, *Transactions.Get(), 660, [&](std::string) { ++Errors; });
+		const auto* Window = ImGui::GetCurrentWindow()->DC.ChildWindows.back();
+		Origin = {Window->Pos.x + Window->WindowPadding.x + 40,
+			Window->Pos.y + Window->WindowPadding.y + ImGui::GetFrameHeightWithSpacing() + 40};
+		ImGui::End(); ImGui::Render();
+	};
+	const ImVec2 Point{600, 500};
+	Frame(Point, false); Frame(Point, false);
+	struct FCase { ImGuiKey Key; EMaterialProgramOpcode Opcode; EMaterialProgramValueType Type; };
+	const FCase Cases[] = {
+		{ImGuiKey_1, EMaterialProgramOpcode::Constant, EMaterialProgramValueType::Float},
+		{ImGuiKey_2, EMaterialProgramOpcode::Constant, EMaterialProgramValueType::Float2},
+		{ImGuiKey_3, EMaterialProgramOpcode::Constant, EMaterialProgramValueType::Float3},
+		{ImGuiKey_4, EMaterialProgramOpcode::Constant, EMaterialProgramValueType::Float4},
+		{ImGuiKey_A, EMaterialProgramOpcode::Add, EMaterialProgramValueType::Float},
+		{ImGuiKey_M, EMaterialProgramOpcode::Multiply, EMaterialProgramValueType::Float},
+		{ImGuiKey_L, EMaterialProgramOpcode::Lerp, EMaterialProgramValueType::Float},
+		{ImGuiKey_U, EMaterialProgramOpcode::TextureCoordinates, EMaterialProgramValueType::Float2},
+		{ImGuiKey_S, EMaterialProgramOpcode::Parameter, EMaterialProgramValueType::Float},
+		{ImGuiKey_V, EMaterialProgramOpcode::Parameter, EMaterialProgramValueType::Float4},
+		{ImGuiKey_T, EMaterialProgramOpcode::TextureSampleParameter2D, EMaterialProgramValueType::Float4},
+	};
+	for (const auto& Case : Cases)
+	{
+		SCOPED_TRACE(static_cast<int>(Case.Key));
+		IO.AddKeyEvent(Case.Key, true);
+		Frame(Point, false); Frame(Point, true);
+		const auto View = FMaterialGraphOperations::Inspect(*Material);
+		ASSERT_EQ(View.Nodes.size(), 1u);
+		EXPECT_EQ(View.Nodes[0].Node.Opcode, Case.Opcode);
+		EXPECT_EQ(View.Nodes[0].Node.ResultType, Case.Type);
+		EXPECT_EQ(View.Nodes[0].Presentation.X, static_cast<int32>(std::round((Point.x - Origin.x) / 0.75f)));
+		EXPECT_EQ(View.Nodes[0].Presentation.Y, static_cast<int32>(std::round((Point.y - Origin.y) / 0.75f)));
+		EXPECT_TRUE(Canvas.GetSelection().contains(View.Nodes[0].Node.Id));
+		EXPECT_TRUE(FMaterialGraphCanvasTestAccess::Idle(Canvas));
+		Frame(Point, true); // Holding the mouse must not repeat creation.
+		EXPECT_EQ(Material->GetExpressionCollection().Expressions.size(), 1u);
+		IO.AddKeyEvent(Case.Key, false);
+		Frame(Point, false);
+		ASSERT_TRUE(Transactions->Undo());
+		EXPECT_TRUE(Material->GetExpressionCollection().Expressions.empty());
+		ASSERT_TRUE(Transactions->Redo());
+		EXPECT_EQ(Material->GetExpressionCollection().Expressions.size(), 1u);
+		ASSERT_TRUE(Transactions->Undo());
+		Frame(Point, false);
+	}
+	IO.AddKeyEvent(ImGuiKey_M, true);
+	for (const auto Modifier : {ImGuiMod_Ctrl, ImGuiMod_Shift, ImGuiMod_Alt, ImGuiMod_Super})
+	{
+		IO.AddKeyEvent(Modifier, true);
+		Frame(Point, false); Frame(Point, true); Frame(Point, false);
+		EXPECT_TRUE(Material->GetExpressionCollection().Expressions.empty());
+		IO.AddKeyEvent(Modifier, false);
+		Frame(Point, false);
+	}
+	Frame(Point, true, true); Frame(Point, false, true);
+	EXPECT_TRUE(Material->GetExpressionCollection().Expressions.empty());
+	EXPECT_EQ(Errors, 0);
+	Canvas.CancelInteraction();
+	EXPECT_TRUE(Transactions->Reset());
+	ImGui::DestroyContext(Context);
+	MarkAsGarbage(Material); CollectGarbage();
+}
+
 TEST(FMaterialGraphOperationsTests, CanvasProducesBoundedEditingDrawData)
 {
 	InitializeDObjectSystem();

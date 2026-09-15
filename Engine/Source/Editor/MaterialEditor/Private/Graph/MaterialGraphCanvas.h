@@ -167,13 +167,10 @@ namespace Durin::Editor::Material
 		std::optional<EMaterialSurfaceOutput> SelectedSurfaceOutput;
 		bool bPendingFrameSurface = false;
 		std::vector<std::string> RecentCreationMenuEntries;
-		std::unordered_set<std::string> FavoriteCreationMenuEntries;
 		DMaterial* CachedMaterial = nullptr;
 		uint64 CatalogRevision = 0;
-		uint64 FavoriteCreationMenuRevision = 0;
 		uint64 RecentCreationMenuRevision = 0;
 		uint64 CachedCreationMenuCatalogRevision = 0;
-		uint64 CachedFavoriteCreationMenuRevision = 0;
 		uint64 CachedRecentCreationMenuRevision = 0;
 		std::string CachedCreationMenuQuery;
 		std::optional<EMaterialProgramValueType> CachedCreationMenuSourceType;

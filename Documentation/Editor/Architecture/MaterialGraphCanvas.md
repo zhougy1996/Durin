@@ -102,7 +102,7 @@ output are selected, unrelated links dim while adjacent paths receive a thicker
 typed stroke. Occupied-input reconnection retains its authored link until a
 valid source drop succeeds as one replace transaction.
 
-Constant creation exposes one entry, initially Float. The node context menu's
+Constant menu creation exposes one entry, initially Float. The node context menu's
 Type selector switches between Float, Float2, Float3, and Float4 through the
 validated node replacement command. It retains the node GUID, literal components,
 and links, rejects incompatible consumers atomically, and records successful
@@ -119,11 +119,18 @@ not distinct node kinds.
 The node creation context menu opens at the pointer from an empty-canvas right
 click, Space, an empty-canvas double click, or an output link dropped on empty
 space. It focuses search and supports arrow/Enter/Escape navigation. Compact
-node rows are grouped by category; favorites and recently used nodes form
-separate leading groups when no search is active. Descriptions and input
+node rows are grouped by category; recently used nodes form a leading group
+when no search is active. Rows display shortcuts instead of favorite buttons. Descriptions and input
 signatures appear in hover tooltips. Search keeps matching entries grouped
 by category and preserves relevance within each group. Paste and Auto Layout
 remain available below the creation list when no source link is active.
+Holding a key and left-clicking empty canvas creates a node at the pointer:
+`1`/`2`/`3`/`4` create Float through Float4 constants, `A` Add, `M` Multiply,
+`L` Lerp, `U` Texture Coordinates, `S` Scalar Parameter, `V` Vector4 Parameter,
+and `T` Texture Sample Parameter 2D. Math shortcuts create scalar nodes.
+Creation selects the new node and records one Undo/Redo transaction. Shortcuts
+require an idle canvas with no text input or Ctrl/Shift/Alt/Super modifier;
+node, pin, and material-output clicks retain their existing gestures.
 Right-clicking a node or surface input retains its editing context menu. Search ranks exact,
 prefix, and substring matches, then uses stable category, operation, type,
 parameter GUID, and catalog order ties. Opening from a source output filters the

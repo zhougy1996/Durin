@@ -3,7 +3,7 @@
 #include "Graph/MaterialGraphControls.h"
 #include "Graph/MaterialGraphValueTypes.h"
 #include "Editor/Transaction.h"
-#include <cctype>
+#include "Graph/MaterialGraphCreationShortcuts.h"
 
 namespace Durin::Editor::Material
 {
@@ -94,7 +94,6 @@ namespace Durin::Editor::Material
 			if (CreationMenu->Search.front() == '\0')
 			{
 				const std::string Key = CreationMenuEntryKey(Catalog[Index]);
-				if (FavoriteCreationMenuEntries.contains(Key)) return {0, "Favorites"};
 				if (std::ranges::find(RecentCreationMenuEntries, Key) != RecentCreationMenuEntries.end())
 					return {1, "Recently Used"};
 			}
@@ -102,7 +101,6 @@ namespace Durin::Editor::Material
 		};
 		const bool bCreationMenuResultsStale =
 			CachedCreationMenuCatalogRevision != CatalogRevision
-			|| CachedFavoriteCreationMenuRevision != FavoriteCreationMenuRevision
 			|| CachedRecentCreationMenuRevision != RecentCreationMenuRevision
 			|| CachedCreationMenuQuery != CreationMenu->Search.data()
 			|| CachedCreationMenuSourceType != SourceType;
@@ -114,7 +112,6 @@ namespace Durin::Editor::Material
 			std::ranges::stable_sort(CachedCreationMenuResults,
 				[&EntryGroup](size_t A, size_t B) { return EntryGroup(A) < EntryGroup(B); });
 			CachedCreationMenuCatalogRevision = CatalogRevision;
-			CachedFavoriteCreationMenuRevision = FavoriteCreationMenuRevision;
 			CachedRecentCreationMenuRevision = RecentCreationMenuRevision;
 			CachedCreationMenuQuery = CreationMenu->Search.data();
 			CachedCreationMenuSourceType = SourceType;
@@ -149,21 +146,9 @@ namespace Durin::Editor::Material
 					ImGui::SeparatorText(Group.c_str());
 					PreviousGroup = Group;
 				}
-				const std::string Key = CreationMenuEntryKey(Entry);
 				ImGui::PushID(static_cast<int>(EntryIndex));
-				const bool bFavorite = FavoriteCreationMenuEntries.contains(Key);
-				if (ImGui::SmallButton(bFavorite ? "*" : "+"))
-				{
-					if (bFavorite) FavoriteCreationMenuEntries.erase(Key);
-					else FavoriteCreationMenuEntries.insert(Key);
-					++FavoriteCreationMenuRevision;
-				}
-				if (ImGui::IsItemHovered())
-					ImGui::SetTooltip(bFavorite
-						? "Remove from favorites" : "Add to favorites");
-				ImGui::SameLine();
-				const std::string Label = std::format("{}  ({})", Entry.OperationName,
-					GetProgramTypeName(Entry.ResultType));
+				const std::string Label = std::format("{}  ({})  {}", Entry.OperationName,
+					GetProgramTypeName(Entry.ResultType), GetCreationShortcutHint(Entry));
 				if (ImGui::Selectable(Label.c_str(),
 					CreationMenu->Selection == static_cast<int32>(EntryIndex),
 					ImGuiSelectableFlags_NoAutoClosePopups))

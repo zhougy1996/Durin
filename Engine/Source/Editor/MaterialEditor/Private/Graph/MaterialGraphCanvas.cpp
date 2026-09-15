@@ -1,3 +1,4 @@
+#include "Graph/MaterialGraphCreationShortcuts.h"
 #include "Graph/MaterialGraphControls.h"
 #include "Graph/MaterialGraphValueTypes.h"
 #include "Graph/MaterialGraphCanvas.h"
@@ -1594,7 +1595,43 @@ namespace Durin::Editor::Material
 					|| ImGui::IsMouseClicked(ImGuiMouseButton_Middle)
 					|| ImGui::IsMouseClicked(ImGuiMouseButton_Right)))
 				ImGui::SetWindowFocus();
+			bool bCreationShortcutHandled = false;
+			const auto& IO = ImGui::GetIO();
+			if (bCanvasKeyboardInteractionAvailable
+				&& std::holds_alternative<FIdleInteraction>(Interaction)
+				&& !IO.KeyCtrl && !IO.KeyShift && !IO.KeyAlt && !IO.KeySuper
+				&& !HoveredNode && !HoveredOutput && !HoveredInputNode
+				&& !HoveredSurfaceOutput
+				&& !Contains(SurfaceMinimum, SurfaceMaximum, Mouse)
+				&& !ImGui::IsMouseDown(ImGuiMouseButton_Middle)
+				&& !ImGui::IsMouseDown(ImGuiMouseButton_Right)
+				&& ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+			{
+				for (const auto& Shortcut : MaterialGraphCreationShortcuts)
+				{
+					if (!ImGui::IsKeyDown(Shortcut.Key)) continue;
+					const auto Entry = std::ranges::find_if(Catalog, [&](const auto& Candidate) {
+						return Candidate.Opcode == Shortcut.Opcode && Candidate.ResultType == Shortcut.Type;
+					});
+					if (Entry == Catalog.end()) continue;
+					const ImVec2 Position = Multiply(Subtract(Subtract(Mouse, CanvasMinimum), Pan), 1.0f / Zoom);
+					const auto Created = FMaterialGraphDocument(Material).CreateCatalogNode(*Entry,
+						static_cast<int32>(std::round(Position.x)), static_cast<int32>(std::round(Position.y)),
+						{}, &Transactions);
+					ReportCommand(Created, ReportError);
+					if (Created)
+					{
+						SelectedNodes.clear();
+						SelectedSurfaceOutput.reset();
+						if (!Created.GeneratedNodeIds.empty()) SelectedNodes.insert(Created.GeneratedNodeIds.front());
+						RememberCreation(*Entry);
+					}
+					bCreationShortcutHandled = true;
+					break;
+				}
+			}
 			const bool bOpenCreationMenuByDoubleClick = bCanvasPointerInteractionAvailable
+				&& !bCreationShortcutHandled
 				&& ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)
 				&& !HoveredNode && !HoveredOutput && !HoveredInputNode
 				&& !HoveredSurfaceOutput && !bHoveredMaterialOutputHeader;
@@ -1615,7 +1652,7 @@ namespace Durin::Editor::Material
 				ResetInteraction();
 			}
 
-			if (bCanvasPointerInteractionAvailable && !bOpenCreationMenuByDoubleClick
+			if (bCanvasPointerInteractionAvailable && !bCreationShortcutHandled && !bOpenCreationMenuByDoubleClick
 				&& ImGui::IsMouseClicked(ImGuiMouseButton_Left))
 			{
 				if (HoveredInputNode)
