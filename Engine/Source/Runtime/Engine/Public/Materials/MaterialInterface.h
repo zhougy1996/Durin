@@ -178,7 +178,8 @@ namespace Durin
 		FMaterialImportProvenance ImportProvenance;
 		// Retires the failed owner's complete renderable generation and publishes ErrorMaterial.
 		auto RetireFailedMaterialGeneration() -> void;
-		auto SubmitMaterialRenderProxyState() const -> void;
+		auto PublishMaterialRenderProxyState(FMaterialLocalRenderLayer LocalLayer) -> void;
+		auto SubmitMaterialRenderProxyState(FMaterialLocalRenderLayer LocalLayer) const -> void;
 
 		uint64 RenderStateVersion = 1;
 		mutable std::shared_ptr<const FMaterialParameterReachability> ParameterReachability;

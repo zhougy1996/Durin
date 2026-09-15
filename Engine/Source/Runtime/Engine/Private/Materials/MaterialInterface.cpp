@@ -443,7 +443,7 @@ namespace Durin
 		if (LastSubmittedMaterialProxyLocalVersion
 			< MaterialProxyLocalVersion)
 		{
-			SubmitMaterialRenderProxyState();
+			SubmitMaterialRenderProxyState(BuildMaterialLocalRenderLayer());
 		}
 		return MaterialRenderProxy;
 	}
@@ -534,9 +534,18 @@ namespace Durin
 	{
 		CheckMaterialQueryThread();
 		if (!bAcceptingMaterialProxyPublications) return;
+		PublishMaterialRenderProxyState(MaterialRenderProxy
+			? BuildMaterialLocalRenderLayer() : FMaterialLocalRenderLayer{});
+	}
+
+	auto DMaterialInterface::PublishMaterialRenderProxyState(
+		FMaterialLocalRenderLayer LocalLayer) -> void
+	{
+		CheckMaterialQueryThread();
+		if (!bAcceptingMaterialProxyPublications) return;
 		++MaterialProxyLocalVersion;
 		if (MaterialProxyLocalVersion == 0) ++MaterialProxyLocalVersion;
-		SubmitMaterialRenderProxyState();
+		SubmitMaterialRenderProxyState(std::move(LocalLayer));
 	}
 
 	auto DMaterialInterface::RefreshReloadedAssetBindings() -> void
@@ -544,7 +553,8 @@ namespace Durin
 		PublishMaterialRenderProxyState();
 	}
 
-	auto DMaterialInterface::SubmitMaterialRenderProxyState() const -> void
+	auto DMaterialInterface::SubmitMaterialRenderProxyState(
+		FMaterialLocalRenderLayer LocalLayer) const -> void
 	{
 		if (!bAcceptingMaterialProxyPublications
 			|| !MaterialRenderProxy
@@ -554,7 +564,7 @@ namespace Durin
 		}
 
 		FMaterialRenderProxyPublication Publication{
-			.LocalLayer = BuildMaterialLocalRenderLayer(),
+			.LocalLayer = std::move(LocalLayer),
 			.LocalVersion = MaterialProxyLocalVersion,
 		};
 		std::ranges::sort(
@@ -579,11 +589,17 @@ namespace Durin
 			if (Owner.RenderStateVersion == 0) ++Owner.RenderStateVersion;
 			if (Owner.CompilationOwner.RenderLayer.CompiledProgram)
 			{
-				Owner.CompilationOwner.RenderLayer.Parameters =
-					Owner.BuildMaterialLocalRenderLayer().Parameters;
-				Owner.CompilationOwner.RenderLayer.StaticProperties = Owner.GetRenderableStaticProperties();
+				// Retention and publication must describe the same resolved snapshot.
+				// Update retention even when this owner cannot publish a proxy.
+				auto LocalLayer = Owner.BuildMaterialLocalRenderLayer();
+				Owner.CompilationOwner.RenderLayer.Parameters = LocalLayer.Parameters;
+				Owner.CompilationOwner.RenderLayer.StaticProperties = LocalLayer.StaticProperties;
+				Owner.PublishMaterialRenderProxyState(std::move(LocalLayer));
 			}
-			Owner.PublishMaterialRenderProxyState();
+			else
+			{
+				Owner.PublishMaterialRenderProxyState();
+			}
 		};
 		Publish(*this);
 		for (const auto Handle : GetLoadedMaterialDependents(this))
