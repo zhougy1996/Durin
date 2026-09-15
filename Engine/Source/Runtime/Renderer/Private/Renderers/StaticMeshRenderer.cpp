@@ -665,7 +665,7 @@ namespace Durin
 			ResolvedView.GetMaterialBinding(Item);
 		FPreparedStaticMeshSurfaceMaterial Material;
 		if (!FStaticMeshSurfaceMaterialPreparer(
-				CommandList, SurfaceMaterials, MaterialBinding
+				CommandList, SurfaceMaterials, MaterialBinding, View.MaterialTimeSeconds
 			).Prepare(ESurfaceMaterialPass::GBuffer, true,
 				View.Settings.Mode.bEnableSpecularAA, nullptr, nullptr, Material))
 		{
@@ -710,7 +710,7 @@ namespace Durin
 		const FMaterialRenderBinding* MaterialBinding =
 			ResolvedView.GetMaterialBinding(Item);
 		const FStaticMeshSurfaceMaterialPreparer MaterialPreparer(
-			CommandList, SurfaceMaterials, MaterialBinding
+			CommandList, SurfaceMaterials, MaterialBinding, View.MaterialTimeSeconds
 		);
 		if (!MaterialPreparer.IsValid()) return false;
 		const FStaticMeshPrimitiveUniformBindings PrimitiveUniforms =

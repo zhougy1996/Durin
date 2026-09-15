@@ -24,11 +24,13 @@ namespace Durin::RendererPrivate
 		FStaticMeshSurfaceMaterialPreparer(
 			FRHICommandListImmediate& InCommandList,
 			FSurfaceMaterialResources& InSurfaceMaterials,
-			const FMaterialRenderBinding* InMaterialBinding
+			const FMaterialRenderBinding* InMaterialBinding,
+			double InMaterialTimeSeconds
 		)
 			: CommandList(InCommandList)
 			, SurfaceMaterials(InSurfaceMaterials)
 			, MaterialBinding(InMaterialBinding)
+			, MaterialTimeSeconds(InMaterialTimeSeconds)
 		{
 		}
 
@@ -46,6 +48,7 @@ namespace Durin::RendererPrivate
 		FRHICommandListImmediate& CommandList;
 		FSurfaceMaterialResources& SurfaceMaterials;
 		const FMaterialRenderBinding* MaterialBinding = nullptr;
+		double MaterialTimeSeconds = 0.0;
 	};
 
 	// Builds the pass-independent primitive uniforms consumed by StaticMesh vertex shaders.

@@ -1,5 +1,7 @@
 #include "Renderers/StaticMeshDrawExecution.h"
 
+#include <cstring>
+
 namespace Durin::RendererPrivate
 {
 	auto FStaticMeshSurfaceMaterialPreparer::Prepare(
@@ -20,6 +22,10 @@ namespace Durin::RendererPrivate
 		}
 		if (OutMaterial.Surface.bCompiledLayout)
 		{
+			// Time is constant for the view, so supply it directly to fragment stages.
+			// The reserved control slot precedes all authored material parameters.
+			const float Time = static_cast<float>(MaterialTimeSeconds);
+			std::memcpy(OutMaterial.Surface.CompiledUniformPayload.data(), &Time, sizeof(Time));
 			OutMaterial.Uniform = CommandList.AllocateDynamicUniformBuffer(
 				OutMaterial.Surface.CompiledUniformPayload.data(),
 				static_cast<uint32>(OutMaterial.Surface.CompiledUniformPayload.size()));
@@ -39,7 +45,6 @@ namespace Durin::RendererPrivate
 		TransformUniform.LocalToWorld =
 			Math::TransposeToFloat(Primitive.LocalToWorld);
 		TransformUniform.NormalToWorld = Primitive.NormalToWorld;
-		TransformUniform.TransformParams.y = static_cast<float>(View.MaterialTimeSeconds);
 		TransformUniform.TransformParams.x = Math::LinearDeterminant(
 			FMatrix4f(Primitive.LocalToWorld)
 		) < 0.0f ? -1.0f : 1.0f;

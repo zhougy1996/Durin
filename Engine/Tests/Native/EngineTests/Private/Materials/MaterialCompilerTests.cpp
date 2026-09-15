@@ -903,6 +903,7 @@ TEST(FMaterialProgramSchemaTests, EnvironmentInputsCompileWithoutMaterialParamet
 	const std::array<DMaterialExpression*, 2> Expressions{Position.Get(), Time.Get()};
 	FMaterialExpressionSurfaceOutputs Outputs;
 	Outputs.BaseColor = {Position->Id}; Outputs.Roughness = {Time->Id};
+	Outputs.OpacityMask = {Time->Id};
 	ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 	EXPECT_TRUE(Material->GetParameterDefinitions().empty());
 	FMaterialCompilerEnvironment Environment;
@@ -915,10 +916,20 @@ TEST(FMaterialProgramSchemaTests, EnvironmentInputsCompileWithoutMaterialParamet
 	const auto Source = GenerateMaterialProgramSlang(Normalized.IR, Normalized.Layout);
 	ASSERT_TRUE(Source);
 	EXPECT_NE(Source.Source.find("input.worldPosition"), std::string::npos);
-	EXPECT_NE(Source.Source.find("input.materialTime"), std::string::npos);
+	EXPECT_NE(Source.Source.find("Material.SurfaceParams.x"), std::string::npos);
+	EXPECT_EQ(Source.Source.find("materialTime :"), std::string::npos);
+	Input.StaticProperties.BlendMode = EMaterialBlendMode::Masked;
 	const auto Compiled = CompileMaterialIR(Input);
 	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "missing diagnostic" : Compiled.Diagnostics.front().Message);
 	EXPECT_TRUE(ValidateMaterialCompilerResult(Compiled));
+	for (const auto& Stage : Compiled.CompiledShaders)
+	{
+		const auto Uniform = std::ranges::find(Stage.Reflection.ResourceBindings, 2u,
+			[](const auto& Binding) { return Binding.BindingIndex; });
+		ASSERT_NE(Uniform, Stage.Reflection.ResourceBindings.end()) << Stage.SourceEntryPoint;
+		EXPECT_EQ(Uniform->Name, "Material");
+	}
+
 	EXPECT_FALSE(GetMaterialProgramNodeSignature(EMaterialProgramOpcode::WorldPosition, EMaterialProgramValueType::Float4));
 	EXPECT_FALSE(GetMaterialProgramNodeSignature(EMaterialProgramOpcode::Time, EMaterialProgramValueType::Float3));
 }

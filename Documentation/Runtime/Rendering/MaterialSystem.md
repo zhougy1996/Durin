@@ -140,6 +140,10 @@ Engine compiles reachable declarations in GUID order into layout v4. Numeric
 fields occupy zero-padded 16-byte slots after the reserved view-control slot;
 Texture2D fields receive compact resource/sampler indices. Layout identity,
 counts, field types, offsets, and shader reflection are accepted as one schema.
+The view-control slot stores material time in x, reserves y, and stores lighting
+and specular-AA flags in z/w. Forward, GBuffer and masked-shadow draws supply the
+view's material time directly through this uniform; Time does not consume a
+vertex-to-fragment interpolator.
 
 `DMaterial` persists an owned `FMaterialExpressionCollection` and typed Surface
 outputs. Concrete reflected expression classes own only their applicable values,
@@ -723,8 +727,9 @@ conversion helpers and expression `Lower()` adapters are removed. The only compi
 capture path emits detached typed IR through `Build()` and owns all data needed by
 workers, without live expression or callee pointers.
 
-Compiler envelope 9 and DMAT v7 are current; IR v4, generator v5 and layout v4
-retain their contracts. DMAT v7 omits the retired authored Program version word.
+Compiler envelope 9 and DMAT v7 are current; IR v4 and layout v4 retain their
+contracts. Generator v7 and pass contract v3 move Time to the material uniform
+and invalidate fragments using the retired time interpolator. DMAT v7 omits the retired authored Program version word.
 The material Cook contributor version is 5, invalidating previous Cook hits. DAST
 v10 and its ordinary default-relative owned-object serialization remain unchanged;
 there is no material-specific serializer or old-asset conversion path. Old Cook

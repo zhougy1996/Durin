@@ -98,10 +98,9 @@ struct VSOutput
     float2 uv1 : TEXCOORD4;
     float2 uv2 : TEXCOORD5;
     float2 uv3 : TEXCOORD6;
-    float materialTime : TEXCOORD7;
 };
 )";
-		OutSource += "struct MaterialUniform\n{\n    float4 SurfaceParams;\n";
+		OutSource += "struct MaterialUniform\n{\n    // x: material time; y: reserved; z: lighting; w: specular AA.\n    float4 SurfaceParams;\n";
 		for (uint32 Index = 0; Index < Layout.UniformFieldCount; ++Index)
 			OutSource += std::format("    float4 Value{};\n", Index);
 		OutSource += "};\n[[vk::binding(1, 0)]] ConstantBuffer<FForwardLightingUniform> Lighting;\n"
@@ -165,7 +164,7 @@ FMaterialSurface EvaluateGeneratedMaterial(VSOutput input)
 				// Authored operations must be expanded before source generation.
 				break;
 			case EMaterialProgramOpcode::WorldPosition: Expression = "input.worldPosition"; break;
-			case EMaterialProgramOpcode::Time: Expression = "input.materialTime"; break;
+			case EMaterialProgramOpcode::Time: Expression = "Material.SurfaceParams.x"; break;
 			case EMaterialProgramOpcode::UVChannel: Expression = std::format("SelectAuthoredUV(input, {})", Input(0)); break;
 			case EMaterialProgramOpcode::Sine: Expression = std::format("sin({})", Input(0)); break;
 			case EMaterialProgramOpcode::Cosine: Expression = std::format("cos({})", Input(0)); break;
