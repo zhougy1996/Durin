@@ -155,9 +155,9 @@ For reconstruction, first inventory exact files and inbound references, preserve
 byte backup or source-control checkpoint, then remove only the approved affected
 assets from mounted content and initialize replacements. Rebuild retained instance,
 mesh and scene references deliberately and audit every workspace project afterward.
-Current material owners use program schema 7 and function schema 3 with a required
-ownership marker. Old material data cannot be made current by canonical resave;
-there are no historical material graph readers or automatic parameter-table adapters.
+Material and function owners use the current reflected expression graph without a
+historical ownership marker. Canonical resave removes discarded fields; it does not
+convert historical graph semantics or adapt parameter tables.
 Cooked outputs must be regenerated after reconstruction.
 
 Scene imports generate structural parents under the destination mount's

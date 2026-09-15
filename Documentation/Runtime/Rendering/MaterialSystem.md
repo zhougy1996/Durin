@@ -175,11 +175,8 @@ BaseColor `(0.5, 0.5, 0.5)`, Normal `(0, 0, 1)`, Metallic `0`, Roughness
 OpacityMask `1`. Aggregate mode accepts one Surface source and requires all
 eight property links to be disconnected; per-property mode requires the
 aggregate source to be disconnected. Retained fallbacks survive either mode.
-Material and function owners persist `GraphOwnershipVersion = 3`. The marker is
-reset before load so missing or unsupported stored ownership cannot become current
-by default. Version 3 rejects graphs with the retired sample-local UV settings or
-combined coordinate transforms instead of silently discarding them. Older material
-and function assets must be rebuilt or reimported; there are no PostLoad converters.
+Material and function owners serialize the current reflected graph directly, without
+a historical graph-version marker or UV compatibility branch.
 `FMaterialExpressionBuildContext::ValidateSurface` and `ValidateFunction` check
 concrete expressions directly before publication: identifiers, typed links,
 cycles, bounds, defaults, parameter metadata and function terminals. Local validation
@@ -714,9 +711,9 @@ publish through the stable proxy and dynamic-only changes reuse shader identity.
 ## Compatibility Boundary
 
 Retained Engine material/function content is rebuilt directly through typed recipes.
-Material and function owners require ownership marker 2; instances require their
-own typed-override storage marker. Missing or unsupported markers reject before
-publication. Universal Program/node/function graph records, their readers/setters,
+Material and function owners validate their current expression ownership and typed
+connections directly. Instances retain their typed-override storage marker; missing
+or unsupported instance markers reject before publication. Universal Program/node/function graph records, their readers/setters,
 conversion helpers and expression `Lower()` adapters are removed. The only compiler
 capture path emits detached typed IR through `Build()` and owns all data needed by
 workers, without live expression or callee pointers.

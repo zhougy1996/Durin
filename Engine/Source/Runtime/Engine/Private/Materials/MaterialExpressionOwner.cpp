@@ -57,11 +57,6 @@ namespace Durin
 	auto DMaterial::ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context, std::string& OutError) const -> bool
 	{
 		if (Context.bCooked) return true;
-		if (GraphOwnershipVersion != 3)
-		{
-			OutError = "Unsupported material expression schema; rebuild this material.";
-			return false;
-		}
 		if (!Private::ValidateExpressionOwnership(*this, ExpressionCollection, OutError)) return false;
 		const auto Validation = ValidateExpressionGraph(ExpressionCollection, ExpressionOutputs);
 		if (!Validation)

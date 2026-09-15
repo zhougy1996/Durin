@@ -288,14 +288,8 @@ namespace Durin
 
 	auto DMaterial::Serialize(FArchive& Ar) -> void
 	{
-		if (Ar.IsLoading()) GraphOwnershipVersion = 0;
 		Super::Serialize(Ar);
-		if (GraphOwnershipVersion != 3 || Ar.HasError())
-		{
-			Ar.Fail(EArchiveFailureCode::UnsupportedVersion, "Unsupported material expression schema; rebuild this material.");
-			return;
-		}
-		if (!IsTemplateObject() && Ar.IsSaving() && Ar.GetPurpose() == EArchivePurpose::AuthoredPackage)
+		if (!Ar.HasError() && !IsTemplateObject() && Ar.IsSaving() && Ar.GetPurpose() == EArchivePurpose::AuthoredPackage)
 		{
 			std::string Error;
 			if (!ValidateLoadedObjectGraph({}, Error)) Ar.Fail(EArchiveFailureCode::InvalidData, Error);

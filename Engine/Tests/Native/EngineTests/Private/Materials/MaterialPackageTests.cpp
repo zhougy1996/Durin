@@ -141,7 +141,7 @@ TEST(FMaterialPackageTests, TypedExpressionsRoundTripDuplicateAndRejectMalformed
 	EXPECT_EQ(FirstSerialization, SecondSerialization);
 	ObjectPackage::FLinkerTables Linker;
 	ASSERT_TRUE(ObjectPackage::ReadPackage(FirstSerialization, {}, Path, Linker));
-	EXPECT_TRUE(ContainsSerializedField(Linker, "GraphOwnershipVersion"));
+	EXPECT_FALSE(ContainsSerializedField(Linker, "GraphOwnershipVersion"));
 	EXPECT_TRUE(ContainsSerializedField(Linker, "ExpressionCollection"));
 	EXPECT_TRUE(ContainsSerializedField(Linker, "Expressions"));
 	EXPECT_TRUE(ContainsSerializedField(Linker, "ExpressionOutputs"));
@@ -194,7 +194,7 @@ TEST(FMaterialPackageTests, TypedExpressionsRoundTripDuplicateAndRejectMalformed
 	CollectGarbage();
 }
 
-TEST(FMaterialPackageTests, MissingOwnershipMarkerRejectsParentAndInstanceWithoutPublication)
+TEST(FMaterialPackageTests, MissingInstanceStorageMarkerRejectsInstanceWithoutChangingParent)
 {
 	InitializeDObjectSystem();
 	const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "LegacyMaterials";
@@ -223,9 +223,6 @@ TEST(FMaterialPackageTests, MissingOwnershipMarkerRejectsParentAndInstanceWithou
 
 	Durin::FByteBuffer BaseBytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(BaseBytes, (Root / "Base.dasset")));
-	ASSERT_TRUE(RewriteSerializedFieldAsLegacyMap(
-		BaseBytes, BasePath, "GraphOwnershipVersion", "VectorParameters"));
-	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(std::as_bytes(std::span(BaseBytes)), Root / "Base.dasset"));
 
 	Durin::FByteBuffer InstanceBytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(InstanceBytes, (Root / "Instance.dasset")));
@@ -243,9 +240,9 @@ TEST(FMaterialPackageTests, MissingOwnershipMarkerRejectsParentAndInstanceWithou
 	Durin::DMaterial* LoadedBase = nullptr;
 	const auto BaseLoad = Durin::LoadObject(
 		Durin::Testing::MakePackageLeafAssetObjectPathForTests(BasePath), LoadedBase);
-	EXPECT_FALSE(BaseLoad);
-	EXPECT_NE(BaseLoad.Message.find("rebuild"), std::string::npos) << BaseLoad.Message;
-	EXPECT_EQ(LoadedBase, nullptr);
+	EXPECT_TRUE(BaseLoad) << BaseLoad.Message;
+	EXPECT_NE(LoadedBase, nullptr);
+	ASSERT_TRUE(Durin::UnloadPackage(BasePath));
 	Durin::FByteBuffer After;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(After, Root / "Base.dasset"));
 	EXPECT_EQ(After, BaseBytes);

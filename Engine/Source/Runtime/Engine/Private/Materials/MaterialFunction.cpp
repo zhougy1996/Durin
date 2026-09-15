@@ -21,11 +21,6 @@ namespace Durin
 	auto DMaterialFunction::ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context, std::string& OutError) const -> bool
 	{
 		if (Context.bCooked) return true;
-		if (GraphOwnershipVersion != 3)
-		{
-			OutError = "Unsupported material function expression schema; rebuild this function.";
-			return false;
-		}
 		if (!Private::ValidateExpressionOwnership(*this, ExpressionCollection, OutError)) return false;
 		std::vector<DMaterialExpression*> Expressions;
 		for (const auto& Expression : ExpressionCollection.Expressions) Expressions.push_back(Expression.Get());
@@ -54,14 +49,7 @@ namespace Durin
 
 	auto DMaterialFunction::Serialize(FArchive& Ar) -> void
 	{
-		if (Ar.IsLoading()) GraphOwnershipVersion = 0;
 		Super::Serialize(Ar);
-		if (GraphOwnershipVersion != 3 || Ar.HasError())
-		{
-			Ar.Fail(EArchiveFailureCode::UnsupportedVersion,
-				"Unsupported material function schema; rebuild this function.");
-			return;
-		}
 		if (!Ar.HasError() && !IsTemplateObject() && Ar.IsSaving() && Ar.GetPurpose() == EArchivePurpose::AuthoredPackage)
 		{
 			std::string Error;

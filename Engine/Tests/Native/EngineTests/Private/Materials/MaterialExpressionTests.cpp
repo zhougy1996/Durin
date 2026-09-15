@@ -278,15 +278,6 @@ TEST(FMaterialExpressionTests, FunctionRejectsInvalidCandidatesAndUncollectedChi
 	EXPECT_FALSE(Function->ValidateLoadedObjectGraph({}, Error));
 	BeforeChildren[0]->SetOuterPrivate(Function.Get());
 	ASSERT_TRUE(Function->ValidateLoadedObjectGraph({}, Error)) << Error;
-	const auto* VersionProperty = DMaterialFunction::StaticClass()->FindPropertyByName("GraphOwnershipVersion");
-	ASSERT_NE(VersionProperty, nullptr);
-	auto& Version = *VersionProperty->ContainerPtrToValuePtr<uint32>(Function.Get());
-	const auto CurrentVersion = Version;
-	Version = 2;
-	EXPECT_FALSE(Function->ValidateLoadedObjectGraph({}, Error));
-	EXPECT_EQ(DuplicateObject(Function.Get(), nullptr, "RejectedSchema"), nullptr);
-	Version = CurrentVersion;
-	ASSERT_TRUE(Function->ValidateLoadedObjectGraph({}, Error)) << Error;
 }
 
 TEST(FMaterialExpressionTests, BuildFunctionInvocationsBindGuidPortsAndRetainIndependentDefaults)

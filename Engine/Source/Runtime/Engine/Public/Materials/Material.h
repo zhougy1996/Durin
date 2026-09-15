@@ -83,9 +83,6 @@ namespace Durin
 		ENGINE_API auto BeginDestroy() -> void override;
 
 	private:
-		DPROPERTY(AlwaysSerialize)
-		uint32 GraphOwnershipVersion = 3;
-
 		auto AdvanceAuthoredRevision() -> void;
 		EMaterialEditCompileMode EditCompileMode = EMaterialEditCompileMode::Immediate;
 		// These values are inherited by instances and will form shader and pipeline keys.

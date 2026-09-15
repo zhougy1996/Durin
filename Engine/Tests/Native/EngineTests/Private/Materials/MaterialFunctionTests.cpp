@@ -1109,15 +1109,6 @@ TEST(FMaterialFunctionTests, RejectsOldRootSchemaAndPreservesCurrentFunctionRefe
 	DMaterialFunction* Function = nullptr;
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(MaterialPath, Material));
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(FunctionPath, Function));
-	// Saving unsupported authored versions must fail without rewriting the graph.
-	const auto* VersionProperty = DMaterial::StaticClass()->FindPropertyByName("GraphOwnershipVersion");
-	ASSERT_NE(VersionProperty, nullptr);
-	auto& Version = *VersionProperty->ContainerPtrToValuePtr<uint32>(Material);
-	const auto CurrentVersion = Version;
-	Version = 2;
-	EXPECT_FALSE(SavePackage(Material->GetPackage()));
-	EXPECT_EQ(Version, 2u);
-	Version = CurrentVersion;
 	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	const FGuid CallId{42, 1, 1, 1};
 	ASSERT_TRUE(PublishRootFunction(*Material, *Function, CallId));
