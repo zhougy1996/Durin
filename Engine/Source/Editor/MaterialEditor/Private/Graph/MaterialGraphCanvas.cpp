@@ -1225,11 +1225,10 @@ namespace Durin::Editor::Material
 					DrawList->AddCircleFilled(Visual.OutputPins[Index], PinRadius, TypeColor(Visual.View->Outputs[Index].Type));
 				const bool bInlineEditorVisible =
 					DetailLevel == EMaterialGraphDetailLevel::Editing
-					&& SelectedNodes.size() == 1
-					&& SelectedNodes.contains(Visual.View->Node.Id)
-					&& (Visual.View->Node.Opcode == EMaterialProgramOpcode::Constant
-						|| Visual.View->Node.Opcode == EMaterialProgramOpcode::Parameter
-						|| Visual.View->Node.Opcode == EMaterialProgramOpcode::Swizzle);
+					&& (Visual.View->Node.Opcode == EMaterialProgramOpcode::Parameter
+						|| (SelectedNodes.size() == 1 && SelectedNodes.contains(Visual.View->Node.Id)
+							&& (Visual.View->Node.Opcode == EMaterialProgramOpcode::Constant
+								|| Visual.View->Node.Opcode == EMaterialProgramOpcode::Swizzle)));
 				if (DetailLevel == EMaterialGraphDetailLevel::Editing
 					&& !bInlineEditorVisible)
 				{
@@ -1287,14 +1286,12 @@ namespace Durin::Editor::Material
 						}
 				if (Contains(Visual.Minimum, Visual.Maximum, Mouse)) HoveredNode = &Visual;
 			}
-			if (DetailLevel == EMaterialGraphDetailLevel::Editing
-				&& SelectedNodes.size() == 1
-				&& std::holds_alternative<FGuid>(*SelectedNodes.begin()))
+			if (DetailLevel == EMaterialGraphDetailLevel::Editing)
 			{
-				const auto SelectedIt = VisualIndices.find(std::get<FGuid>(*SelectedNodes.begin()));
-				if (SelectedIt != VisualIndices.end())
+				for (const FVisualNode& Visual : VisualNodes)
 				{
-					const FVisualNode& Visual = VisualNodes[SelectedIt->second];
+					if (Visual.View->Node.Opcode != EMaterialProgramOpcode::Parameter
+						&& !(SelectedNodes.size() == 1 && SelectedNodes.contains(Visual.View->Node.Id))) continue;
 					if (Visual.View->Node.Opcode == EMaterialProgramOpcode::Constant
 						&& Intersects(Visual.Minimum, Visual.Maximum, CanvasMinimum, CanvasMaximum))
 					{
@@ -1359,7 +1356,6 @@ namespace Durin::Editor::Material
 						FResolvedMaterialParameter Resolved;
 						const bool bEditValue =
 							Visual.View->Node.Opcode == EMaterialProgramOpcode::Parameter
-							&& SelectedNodes.contains(Visual.View->Node.Id)
 							&& Material.ResolveParameterValue(
 								Visual.View->Node.GetParameterId(), Resolved);
 						if (bEditValue)
@@ -1377,6 +1373,11 @@ namespace Durin::Editor::Material
 							bEmbeddedControlHoveredOrActive |=
 								ImGui::IsItemHovered() || ImGui::IsItemActive();
 							const bool bInlineActive = ImGui::IsItemActive();
+							if (bInlineActive)
+							{
+								SelectedNodes = {Visual.View->Node.Id};
+								SelectedSurfaceOutput.reset();
+							}
 							const bool bCancelInline = ImGui::IsKeyPressed(ImGuiKey_Escape)
 								&& (bInlineActive || ImGui::IsItemFocused());
 							if (bCancelInline)
@@ -1405,7 +1406,8 @@ namespace Durin::Editor::Material
 								Interaction = FInlineEditingInteraction{
 									.Node = Visual.View->Node.Id,
 									.ConstantDraft = ConstantDraft};
-							else if (std::holds_alternative<FInlineEditingInteraction>(Interaction))
+							else if (const auto* Inline = std::get_if<FInlineEditingInteraction>(&Interaction);
+								Inline && Inline->Node == Visual.View->Node.Id)
 								ResetInteraction();
 						}
 						else

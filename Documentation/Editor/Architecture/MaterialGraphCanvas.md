@@ -95,7 +95,10 @@ small RGB swatch; its channels are clamped for display while numeric values
 remain unchanged. Hover tooltips expose labels without width truncation and numeric
 values with nine significant digits. Material and function canvases share this
 heading renderer, including zoom, clipping, and overview visibility.
-Selected nodes retain the existing inline editing controls. Text is clipped and ellipsized to its owning bounds; editing
+Numeric Parameter controls are directly draggable in Editing mode without first
+selecting the node. Dragging updates the value and preview continuously; release
+records one undo operation for the entire gesture. Escape restores the starting
+value. Constants and Swizzles expose inline controls when selected. Text is clipped and ellipsized to its owning bounds; editing
 zoom adds named inputs and a textual output type so type color is never the only
 cue.
 

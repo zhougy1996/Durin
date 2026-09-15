@@ -2302,6 +2302,76 @@ TEST(FMaterialGraphOperationsTests, CanvasConnectsASecondFunctionOutputAndRefres
 	MarkAsGarbage(Material); MarkAsGarbage(Function); CollectGarbage();
 }
 
+TEST(FMaterialGraphOperationsTests, ParameterDragUpdatesBeforeReleaseAndUndoesAsOneGesture)
+{
+	InitializeDObjectSystem();
+	for (const auto Type : {EMaterialProgramValueType::Float, EMaterialProgramValueType::Float2,
+		EMaterialProgramValueType::Float3, EMaterialProgramValueType::Float4})
+	{
+		auto* Material = NewObject<DMaterial>(nullptr, NAME_None);
+		Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+		FMaterialGraphDocument Document(*Material);
+		const auto Created = Testing::CreateGraphCatalogNode(Document, EMaterialProgramOpcode::Parameter, Type);
+		ASSERT_TRUE(Created);
+		const auto Other = Testing::CreateGraphCatalogNode(Document, EMaterialProgramOpcode::Parameter,
+			EMaterialProgramValueType::Float, {}, 350);
+		ASSERT_TRUE(Other);
+		const auto Id = Created.GeneratedNodeIds.front();
+		const auto ParameterId = FindViewNode(Document.Inspect(), Id)->Node.GetParameterId();
+		FResolvedMaterialParameter Initial;
+		ASSERT_TRUE(Material->ResolveParameterValue(ParameterId, Initial));
+		const auto Presentation = Material->GetMaterialGraphPresentation();
+		ImGuiContext* Context = ImGui::CreateContext();
+		auto& IO = ImGui::GetIO();
+		IO.DisplaySize = {1200, 720}; IO.DeltaTime = 1.0f / 60.0f; IO.IniFilename = nullptr;
+		IO.Fonts->AddFontDefault(); IO.Fonts->Build();
+		Durin::Tests::FTestTransactorOwner Transactions;
+		FMaterialGraphCanvas Canvas;
+		Canvas.SetViewport(1.0f, {40, 40});
+		ImVec2 Origin;
+		int Errors = 0;
+		const auto Frame = [&](ImVec2 Mouse, bool Down) {
+			IO.AddMousePosEvent(Mouse.x, Mouse.y); IO.AddMouseButtonEvent(ImGuiMouseButton_Left, Down);
+			ImGui::NewFrame();
+			ImGui::SetNextWindowPos({0, 0}); ImGui::SetNextWindowSize({1200, 720});
+			ImGui::Begin("Parameter Drag", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize);
+			Canvas.Draw(*Material, *Transactions.Get(), 660, [&](std::string) { ++Errors; });
+			const auto* Window = ImGui::GetCurrentWindow()->DC.ChildWindows.back();
+			Origin = {Window->Pos.x + Window->WindowPadding.x + 40,
+				Window->Pos.y + Window->WindowPadding.y + ImGui::GetFrameHeightWithSpacing() + 40};
+			ImGui::End(); ImGui::Render();
+		};
+		Frame({1100, 600}, false); Frame({1100, 600}, false);
+		EXPECT_TRUE(FMaterialGraphCanvasTestAccess::ProgramSelection(Canvas).empty());
+		const auto& Metrics = FMaterialGraphGeometry::GetMetrics();
+		const ImVec2 Start{Origin.x + 25, Origin.y + Metrics.HeaderHeight + Metrics.SecondaryHeight + 12};
+		Frame(Start, false); Frame(Start, true);
+		Frame({Start.x + 20, Start.y}, true);
+		Frame({Start.x + 40, Start.y}, true);
+		FResolvedMaterialParameter During;
+		ASSERT_TRUE(Material->ResolveParameterValue(ParameterId, During));
+		EXPECT_NE(During.Value, Initial.Value);
+		EXPECT_FALSE(Transactions->Undo());
+		Frame({Start.x + 60, Start.y}, true);
+		FResolvedMaterialParameter Final;
+		ASSERT_TRUE(Material->ResolveParameterValue(ParameterId, Final));
+		EXPECT_NE(Final.Value, During.Value);
+		Frame({Start.x + 60, Start.y}, false);
+		EXPECT_EQ(Errors, 0);
+		EXPECT_EQ(Material->GetMaterialGraphPresentation(), Presentation);
+		EXPECT_TRUE(Transactions->Undo());
+		FResolvedMaterialParameter Restored;
+		ASSERT_TRUE(Material->ResolveParameterValue(ParameterId, Restored));
+		EXPECT_EQ(Restored.Value, Initial.Value);
+		EXPECT_FALSE(Transactions->Undo());
+		EXPECT_TRUE(Transactions->Redo());
+		ASSERT_TRUE(Material->ResolveParameterValue(ParameterId, Restored));
+		EXPECT_EQ(Restored.Value, Final.Value);
+		ImGui::DestroyContext(Context);
+		MarkAsGarbage(Material); CollectGarbage();
+	}
+}
+
 TEST(FMaterialGraphOperationsTests, CanvasLinkReleaseEndsGestureAcrossFrames)
 {
 	InitializeDObjectSystem();
