@@ -61,8 +61,14 @@ inputs show a source node/output button that locates the source. The row menu ow
 extract, promote, inline and disconnect actions; its When disconnected submenu
 exposes the retained value. Sampler settings remain collapsed.
 Base-material values and node bindings are edited through selected parameter
-owners and literal inputs in Details. Parameter node types are fixed at creation;
-Details has no type conversion control. Texture fallback and filtering/addressing
+owners and literal inputs in Details. Parameter name in Details and Name in Parameters rename the shared definition,
+preserving its ID and instance overrides across all references. Renaming to another
+parameter's name rejects with guidance to change the binding. The collapsed
+Change parameter binding group in Details changes only the selected node:
+Bind or create adopts an existing compatible name's ID and value, or creates an
+independent parameter for a new name. Existing instance overrides stay with their
+original parameter IDs. Both actions support ordinary Undo/Redo. Parameter node
+types are fixed at creation; Details has no type conversion control. Texture fallback and filtering/addressing
 controls live in collapsed Sampler settings. Parameters lists all base-material
 parameters, including disconnected owners, with search by name, display name or
 group and grouping by slash-separated paths. Clicking a parameter selects and
