@@ -1435,11 +1435,21 @@ namespace Durin::Editor::Material
 							GraphControlFramePadding);
 						ImGui::PushStyleVar(ImGuiStyleVar_ItemInnerSpacing,
 							GraphControlItemSpacing);
+						int Width = static_cast<int>(Components.size()) - 1;
+						ImGui::SetNextItemWidth(45.0f * Zoom);
+						if (ImGui::Combo("##Width", &Width, "1\0""2\0""3\0""4\0"))
+						{
+							auto Selected = Components;
+							Selected.resize(Width + 1, Components.front());
+							ReportCommand(FMaterialGraphDocument(Material).SetSwizzleComponents(
+								Visual.View->Node.Id, Selected, &Transactions), ReportError);
+						}
+						bEmbeddedControlHoveredOrActive |= ImGui::IsItemHovered() || ImGui::IsItemActive();
 						for (size_t Index = 0; Index < Components.size(); ++Index)
 						{
-							if (Index != 0) ImGui::SameLine();
+							ImGui::SameLine();
 							ImGui::PushID(static_cast<int>(Index));
-							ImGui::SetNextItemWidth((NodeWidth - 32.0f) * Zoom / Components.size());
+							ImGui::SetNextItemWidth((NodeWidth - 85.0f) * Zoom / Components.size());
 							if (ImGui::Combo("##Channel", &SwizzleDraft[Index], "R\0G\0B\0A\0"))
 							{
 								auto Selected = Components;

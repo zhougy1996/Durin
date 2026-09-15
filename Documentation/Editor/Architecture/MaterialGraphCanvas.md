@@ -138,8 +138,9 @@ downstream math widths in the same transaction. Scalar operands broadcast to the
 vector width; different non-scalar widths reject atomically. Lerp Alpha remains
 scalar and Normalize requires a vector. Pins retain their resolved type display.
 
-Parameter creation exposes Scalar, Vector2, Vector3, Vector4 and texture owner
-entries. Selecting an entry creates and places a fresh uniquely named owner in one
+Parameter creation exposes Scalar Parameter, Vector Parameter and texture owner
+entries. Vector Parameter has a 2/3/4 component selector, defaulting to four;
+its declaration type remains fixed after creation. Selecting an entry creates and places a fresh uniquely named owner in one
 transaction. The catalog has no existing-parameter rebind mode. Sharing connects the
 existing owner's output to more consumers. Inspection reads labels from the node's
 owned payload. PBR roles and UV controls are explicit template-owned parameters,
@@ -203,7 +204,13 @@ and visibility never change serialized output indices. RG selection uses an expl
 Swizzle node. Sample output 6 is invalid; there is no legacy RG migration or
 compatibility path. Texture and Normal keep indices 7 and 8.
 Swizzle titles show the selected channels (for example, `Swizzle RG`), and channel
-controls use R/G/B/A selectors.
+controls use R/G/B/A selectors and a 1-4 output component selector. Growing the
+output repeats the first selected channel; invalid source channels and incompatible
+consumers reject the edit atomically. The Channels palette has one Make Vector,
+one Splat and one Swizzle entry, with output width selected beside the entry.
+Make Vector combines scalar inputs; it does not concatenate vector inputs.
+Swizzle covers component masking, repetition and truncation. Legacy Truncate
+expressions remain loadable and inspectable but have no creation rows.
 
 Compile state is observational. Unsubmitted and pending states identify whether
 the preview shows last-known-good output; failed states show ErrorMaterial.

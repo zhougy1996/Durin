@@ -659,6 +659,50 @@ TEST(FMaterialGraphOperationsTests, CatalogAndInspectionCoverTheClosedOpcodeDoma
 	CollectGarbage();
 }
 
+TEST(FMaterialGraphOperationsTests, ParameterAndChannelPaletteGroupsWidths)
+{
+	InitializeDObjectSystem();
+	using Op = EMaterialProgramOpcode;
+	using Type = EMaterialProgramValueType;
+	const auto Rows = FMaterialGraphOperations::SearchCatalog("");
+	EXPECT_EQ(std::ranges::count(Rows, Op::Parameter, &FMaterialGraphCatalogEntry::Opcode), 2);
+	for (const auto Opcode : {Op::MakeFloat2, Op::Splat2, Op::Swizzle})
+		EXPECT_EQ(std::ranges::count(Rows, Opcode, &FMaterialGraphCatalogEntry::Opcode), 1);
+	for (const auto Opcode : {Op::MakeFloat3, Op::MakeFloat4, Op::Splat3, Op::Splat4,
+		Op::TruncateToFloat, Op::TruncateToFloat2, Op::TruncateToFloat3})
+		EXPECT_EQ(std::ranges::count(Rows, Opcode, &FMaterialGraphCatalogEntry::Opcode), 0);
+	const auto Mask = FMaterialGraphOperations::SearchCatalog("component mask", Type::Float4);
+	ASSERT_EQ(Mask.size(), 1u);
+	EXPECT_EQ(Mask.front().Opcode, Op::Swizzle);
+	EXPECT_EQ(FMaterialGraphOperations::SearchCatalog("truncate", Type::Float3).size(), 1u);
+	EXPECT_TRUE(FMaterialGraphOperations::SearchCatalog("channels", Type::Texture2D).empty());
+}
+
+TEST(FMaterialGraphOperationsTests, SwizzleWidthChangesRepeatChannelsAndUndo)
+{
+	InitializeDObjectSystem();
+	auto* Material = NewObject<DMaterial>(nullptr, NAME_None);
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	FMaterialGraphDocument Document(*Material);
+	Durin::Tests::FTestTransactorOwner Transactions;
+	const auto Source = Testing::CreateGraphCatalogNode(Document, EMaterialProgramOpcode::Constant, EMaterialProgramValueType::Float);
+	ASSERT_TRUE(Source);
+	const auto Swizzle = Testing::CreateGraphCatalogNode(Document, EMaterialProgramOpcode::Swizzle,
+		EMaterialProgramValueType::Float, {Source.GeneratedNodeIds.front()});
+	ASSERT_TRUE(Swizzle);
+	const auto Id = Swizzle.GeneratedNodeIds.front();
+	const auto Before = CaptureExpressions(*Material);
+	ASSERT_TRUE(Document.SetSwizzleComponents(Id, std::array<uint8, 4>{0, 0, 0, 0}, Transactions.Get()));
+	EXPECT_EQ(FindViewNode(Document.Inspect(), Id)->Node.ResultType, EMaterialProgramValueType::Float4);
+	const auto After = CaptureExpressions(*Material);
+	EXPECT_FALSE(Document.SetSwizzleComponents(Id, std::array<uint8, 2>{0, 1}, Transactions.Get()));
+	EXPECT_EQ(CaptureExpressions(*Material), After);
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(CaptureExpressions(*Material), Before);
+	ASSERT_TRUE(Transactions->Redo());
+	EXPECT_EQ(CaptureExpressions(*Material), After);
+}
+
 TEST(FMaterialGraphOperationsTests, MathPaletteHasOneEntryPerOperationAndSourceWidth)
 {
 	InitializeDObjectSystem();
@@ -1475,7 +1519,7 @@ TEST(FMaterialGraphOperationsTests, GenericParametersCreateIndependentDeclaratio
 	DMaterial* Material = NewObject<DMaterial>(nullptr, "GenericParameterMaterial");
 	ASSERT_NE(Material, nullptr);
 	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
-	auto Entries = FMaterialGraphOperations::SearchCatalog("parameter");
+	auto Entries = FMaterialGraphOperations::EnumerateCatalog();
 	const auto IsParameter = [](const FMaterialGraphCatalogEntry& Entry) {
 		return Entry.Opcode == EMaterialProgramOpcode::Parameter
 			|| Entry.Opcode == EMaterialProgramOpcode::TextureParameter;
@@ -1522,7 +1566,7 @@ TEST(FMaterialGraphOperationsTests, GenericParametersCreateIndependentDeclaratio
 		Cast<DMaterialExpressionParameter>(SharedNode.Get())->Metadata.Id = FirstDefinition->Id;
 		EXPECT_FALSE(FMaterialGraphDocument(*Material).ReplaceExpression(*SharedNode.Get(), Transactions.Get()));
 		EXPECT_EQ(Cast<DMaterialExpressionParameter>(Material->GetExpressionCollection().Expressions.back().Get())->Metadata.Id, Second.AffectedParameterIds.front());
-		EXPECT_EQ(std::ranges::count_if(FMaterialGraphOperations::SearchCatalog("parameter"), IsParameter), 5);
+		EXPECT_EQ(std::ranges::count_if(FMaterialGraphOperations::SearchCatalog("parameter"), IsParameter), 3);
 	}
 	MarkAsGarbage(Material);
 	CollectGarbage();

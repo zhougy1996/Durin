@@ -1,3 +1,4 @@
+#include "Graph/MaterialGraphCreationFamilies.h"
 #include "MaterialGraphDocument.h"
 
 #include "Graph/MaterialGraphValueTypes.h"
@@ -93,13 +94,13 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::Normalize: return "Normalize";
 			case EMaterialProgramOpcode::Clamp: return "Clamp";
 			case EMaterialProgramOpcode::Lerp: return "Lerp";
-			case EMaterialProgramOpcode::MakeFloat2: return "Make Float2";
-			case EMaterialProgramOpcode::MakeFloat3: return "Make Float3";
-			case EMaterialProgramOpcode::MakeFloat4: return "Make Float4";
+			case EMaterialProgramOpcode::MakeFloat2: return "Make Vector";
+			case EMaterialProgramOpcode::MakeFloat3: return "Make Vector";
+			case EMaterialProgramOpcode::MakeFloat4: return "Make Vector";
 			case EMaterialProgramOpcode::Swizzle: return "Swizzle";
-			case EMaterialProgramOpcode::Splat2: return "Splat2";
-			case EMaterialProgramOpcode::Splat3: return "Splat3";
-			case EMaterialProgramOpcode::Splat4: return "Splat4";
+			case EMaterialProgramOpcode::Splat2: return "Splat";
+			case EMaterialProgramOpcode::Splat3: return "Splat";
+			case EMaterialProgramOpcode::Splat4: return "Splat";
 			case EMaterialProgramOpcode::TruncateToFloat: return "Truncate to Float";
 			case EMaterialProgramOpcode::TruncateToFloat2: return "Truncate to Float2";
 			case EMaterialProgramOpcode::TruncateToFloat3: return "Truncate to Float3";
@@ -207,7 +208,7 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::MakeFloat2:
 			case EMaterialProgramOpcode::MakeFloat3:
 			case EMaterialProgramOpcode::MakeFloat4: Entry.Description = "Combines scalar inputs into a vector."; break;
-			case EMaterialProgramOpcode::Swizzle: Entry.Description = "Reorders or selects vector components."; break;
+			case EMaterialProgramOpcode::Swizzle: Entry.Description = "Selects, repeats or reorders channels (Component Mask / Truncate)."; break;
 			case EMaterialProgramOpcode::Splat2:
 			case EMaterialProgramOpcode::Splat3:
 			case EMaterialProgramOpcode::Splat4: Entry.Description = "Replicates a scalar across vector components."; break;
@@ -580,9 +581,9 @@ namespace Durin::Editor::Material
 					|| Opcode == EMaterialProgramOpcode::TextureParameter)
 				{
 					Entry.OperationName = Type == EMaterialProgramValueType::Float ? "Scalar Parameter"
-						: Type == EMaterialProgramValueType::Float2 ? "Vector2 Parameter"
-						: Type == EMaterialProgramValueType::Float3 ? "Vector3 Parameter"
-						: Type == EMaterialProgramValueType::Float4 ? "Vector4 Parameter" : "Texture Object Parameter";
+						: Type == EMaterialProgramValueType::Float2 ? "Vector Parameter"
+						: Type == EMaterialProgramValueType::Float3 ? "Vector Parameter"
+						: Type == EMaterialProgramValueType::Float4 ? "Vector Parameter" : "Texture Object Parameter";
 					if (Opcode == EMaterialProgramOpcode::Parameter)
 						Entry.Description = "Create a new numeric parameter exposed to material instances.";
 				}
@@ -636,6 +637,15 @@ namespace Durin::Editor::Material
 			// Keep dimensional shapes for inspection; the palette creates one scalar Constant.
 			if (Entry.Opcode == EMaterialProgramOpcode::Constant
 				&& Entry.ResultType != EMaterialProgramValueType::Float) continue;
+			if (CreationFamily(Entry.Opcode) != Entry.Opcode) continue;
+			if (Entry.Opcode == EMaterialProgramOpcode::Parameter
+				&& Entry.ResultType != EMaterialProgramValueType::Float
+				&& Entry.ResultType != EMaterialProgramValueType::Float4) continue;
+			if (Entry.Opcode == EMaterialProgramOpcode::Swizzle
+				&& Entry.ResultType != EMaterialProgramValueType::Float) continue;
+			if (Entry.Opcode == EMaterialProgramOpcode::TruncateToFloat
+				|| Entry.Opcode == EMaterialProgramOpcode::TruncateToFloat2
+				|| Entry.Opcode == EMaterialProgramOpcode::TruncateToFloat3) continue;
 			if (IsMaterialAdaptiveNumeric(Entry.Opcode))
 			{
 				const auto Type = SourceType.value_or(Entry.Opcode == EMaterialProgramOpcode::Normalize
