@@ -178,11 +178,12 @@ class TestCore:
             '4',
         ]
     @pytest.mark.parametrize("case_filter", ["", "Suite.*:Other.Case-Suite.Slow?"])
-    def test_parallel_cases_select_all_or_google_test_globs(self, case_filter: str) -> None:
+    @pytest.mark.parametrize("workers,expected", [(None, 12), (1, 1), (4, 4)])
+    def test_parallel_cases_select_all_or_google_test_globs(self, case_filter: str, workers, expected) -> None:
         preset = self.make_preset()
         request = replace(request_fixtures.command_request(models.Action.TEST,
             options=request_fixtures.TestActionOptions(target='MaterialTests')),
-            test_mode=models.TestMode.ISOLATION, test_parallel_jobs=4, test_filter=case_filter)
+            test_mode=models.TestMode.ISOLATION, test_parallel_jobs=workers, test_filter=case_filter)
         request_validation.validate_request(request, preset)
         context = build_context.BuildContext(request, models.LocalConfig(), self.make_profile(),
             {'debug': preset}, preset, 'windows', cmake='cmake', jobs=12,
@@ -190,11 +191,11 @@ class TestCore:
         output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
         output.context(context)
         assert 'Build jobs: 12' in output.console.file.getvalue()
-        assert 'Case processes: 4' in output.console.file.getvalue()
+        assert f'Case processes: {expected}' in output.console.file.getvalue()
         with mock.patch.object(build_runtime, 'run_command') as run:
             build_runtime.run_selected_native_tests(context, output)
         command = run.call_args.args[0]
-        assert command[command.index('-j') + 1] == '4'
+        assert command[command.index('-j') + 1] == str(expected)
         assert context.jobs == 12
         assert 'native-test-case' in command
         if case_filter:

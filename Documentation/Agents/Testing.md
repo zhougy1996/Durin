@@ -26,28 +26,31 @@ native tests. It can expose shared-state cleanup failures, but can also mask
 missing per-case setup. A case must pass when run alone.
 
 ```powershell
+.\DevTool.bat test MaterialTests --parallel
 .\DevTool.bat test MaterialTests --parallel 4
 .\DevTool.bat test MaterialTests FMaterialTests.* --parallel 4
 ```
 
-`--parallel N` runs each selected case in a separate process through CTest,
-with at most N concurrent cases. Use it for faster bounded CPU correctness
+`--parallel [N]` runs each selected case in a separate process through CTest,
+with at most N concurrent cases. Omit N to use the build-job limit; use
+`--parallel 1` for serial isolation. Use it for faster bounded CPU correctness
 feedback after checking isolation; begin with 4 workers. It accepts a named
 target or `@set`, and needs no wildcard when selecting all its cases.
 Use `--report` to save an XML result under the preset's
 `Build/NativeTestResults` directory, or `--report <path>` to choose its location.
 It works with serial and parallel runs without changing execution.
 Use the positional case filter; the redundant `--filter` and `--mode report`
-forms have been removed.
+forms have been removed. Routine execution needs no `--mode`; case isolation
+uses `--parallel [N]` instead of `--mode isolation`.
 
-Build concurrency remains controlled by `--jobs`. Existing CTest resource
-locks and execution-host rules still apply; parallelism does not authorize GPU
+Test builds use the configured concurrency; `test` does not accept `--jobs`.
+Existing CTest resource locks and execution-host rules still apply; parallelism does not authorize GPU
 or application-hosted coverage. A failure that also occurs when run alone is an
 isolation/setup issue, not evidence of a concurrency conflict.
 
 `affected`, `fast-all`, and ordinary `@set` runs instead schedule whole test
 targets through CTest. Their cases remain sequential inside each process.
-`--jobs` controls both build concurrency and the default CTest concurrency;
+The configured concurrency controls builds and whole-target CTest scheduling;
 it does not parallelize cases for ordinary `test <Target>`.
 
 `test affected` defaults to staged, unstaged, and untracked changes. Use `--base`

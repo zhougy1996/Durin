@@ -9,7 +9,7 @@ from .specification import ArgumentSpec, CommandSpec, argument
 
 CMAKE = argument("--cmake", help="CMake executable override")
 ENVIRONMENT_SETUP = argument("--environment-setup", help="toolchain environment script override")
-JOBS = argument("--jobs", type=int, choices=range(1, 257), metavar="1..256", help="build job limit; also the CTest concurrency default for test selections")
+JOBS = argument("--jobs", type=int, choices=range(1, 257), metavar="1..256", help="build job limit")
 OUTPUT_MODE = argument(
     "--output", dest="output_mode", choices=("auto", "compact", "progress", "full"),
     default=None, help="child output mode (default: auto)",
@@ -101,11 +101,11 @@ COMMAND_SPECS = (
     build_command("rebuild", "clean, configure, and build", TOOL_ARGUMENTS + (argument("--target", default="all"),)),
     build_command(
         "test", "list, explain, build, and run native-test selections",
-        TOOL_ARGUMENTS + (
+        (PROFILE, PRESET, CMAKE, ENVIRONMENT_SETUP, PLAIN, OUTPUT_MODE) + (
             argument("selection", nargs="?", default="", help="target, affected, fast-all, @set selector, all, list [query], or explain <selection>"),
             argument("case_filter", nargs="?", default="", help="optional GoogleTest Suite.Case filter"),
-            argument("--parallel", type=int, choices=range(1, 257), default=None, metavar="N", help="run cases in separate processes with N concurrent tests (build jobs unchanged)"),
-            argument("--mode", choices=("routine", "isolation", "stress", "characterization", "qualification"), default="routine", help="execution scenario (default: routine)"),
+            argument("--parallel", nargs="?", const=True, type=int, choices=range(1, 257), default=None, metavar="N", help="run cases in separate processes (default: configured concurrency; N overrides tests only)"),
+            argument("--mode", choices=("stress", "characterization", "qualification"), default="routine", help="opt into a special execution scenario"),
             argument("--report", nargs="?", const=True, type=Path, default=None, metavar="PATH", help="write an XML report without changing execution (default: preset result directory)"),
             argument("--timeout", type=int, choices=range(0, 86401), default=300, metavar="0..86400", help="test timeout in seconds; 0 disables it (default: 300)"),
             argument("--base", default="", metavar="REF", help="Git base for test affected (default: current staged, unstaged, and untracked changes)"),

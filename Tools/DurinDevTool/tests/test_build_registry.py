@@ -109,7 +109,7 @@ class TestBuildRegistry:
 
         assert direct_requests == shell_requests
 
-    @pytest.mark.parametrize("extra,parallel", [([], False), (["--parallel", "4"], True)])
+    @pytest.mark.parametrize("extra,parallel", [([], False), (["--parallel"], True), (["--parallel", "4"], True)])
     @pytest.mark.parametrize("report_args,path", [(["--report"], None), (["--report", "Build/out.xml"], Path("Build/out.xml"))])
     def test_report_does_not_change_execution(self, extra, parallel, report_args, path) -> None:
         request = handler.request_from_namespace(self.parse(["test", "MaterialTests", *extra, *report_args]))
@@ -119,11 +119,31 @@ class TestBuildRegistry:
 
     def test_parallel_cases_keep_build_jobs_independent(self) -> None:
         request = handler.request_from_namespace(self.parse(
-            ["test", "MaterialTests", "--parallel", "4", "--jobs", "12"]))
+            ["test", "MaterialTests", "--parallel", "4"]))
         assert request.test_mode.value == "isolation"
         assert request.test_parallel_jobs == 4
         assert request.test_filter == ""
-        assert request.context.jobs == 12
+        assert request.context.jobs is None
+
+    @pytest.mark.parametrize("selection", ["MaterialTests", "@viewport"])
+    @pytest.mark.parametrize("extra,workers", [([], None), (["1"], 1)])
+    def test_parallel_cases_allow_default_concurrency(self, selection, extra, workers) -> None:
+        request = handler.request_from_namespace(self.parse(
+            ["test", selection, "Suite.*", "--parallel", *extra]))
+        assert request.test_mode.value == "isolation"
+        assert request.test_parallel_jobs == workers
+        assert request.test_filter == "Suite.*"
+
+    @pytest.mark.parametrize("mode", ["stress", "characterization", "qualification"])
+    def test_parallel_rejects_special_modes(self, mode) -> None:
+        with pytest.raises(DevToolError, match="cannot be combined"):
+            handler.request_from_namespace(self.parse(
+                ["test", "MaterialTests", "--parallel", "--mode", mode]))
+
+    @pytest.mark.parametrize("workers", ["0", "257", "-1"])
+    def test_parallel_rejects_invalid_concurrency(self, workers) -> None:
+        with pytest.raises(DevToolError):
+            self.parse(["test", "MaterialTests", "--parallel", workers])
 
     @pytest.mark.parametrize("selection", ["all", "fast-all", "affected", "list"])
     def test_parallel_cases_require_bounded_run(self, selection: str) -> None:
@@ -194,6 +214,9 @@ class TestBuildRegistry:
             'test all --include-direct',
             'test MaterialTests --filter Suite.Case',
             'test MaterialTests --mode report',
+            'test MaterialTests --mode routine',
+            'test MaterialTests --mode isolation',
+            'test MaterialTests --jobs 4',
             'test --target CoreUtilityTests',
             'test all --granularity hybrid',
             'test all --ctest-regex Core',

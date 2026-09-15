@@ -103,7 +103,7 @@ Ordinary selectors exclude characterization and qualification targets.
 Execution scenarios keep the routine path short:
 
 ```powershell
-.\DevTool.bat test "@viewport" ViewportSuite.Resize --mode isolation
+.\DevTool.bat test "@viewport" ViewportSuite.Resize --parallel
 .\DevTool.bat test "@viewport" --mode stress
 .\DevTool.bat test "@viewport" --report
 .\DevTool.bat test "@kind=characterization,domain=launch" --mode characterization
@@ -115,16 +115,21 @@ process. Use `test <Target> --parallel 4` to run each case in an independent
 process with four concurrent cases. Add an optional GoogleTest glob filter;
 `*`, `?`, colon-separated alternatives, and exclusions after `-` have the same
 meaning as in a direct run. No filter selects every case in the target.
-`--parallel` accepts named targets or `@set` selections, implies isolation mode,
-and leaves build jobs unchanged. It combines with `--report`, but cannot combine with other execution modes.
-`--jobs` controls build parallelism and the default CTest concurrency when no
-`--parallel` override is supplied; it does not make a direct GoogleTest process
-run cases concurrently. Existing resource locks remain authoritative.
+`--parallel [N]` accepts named targets or `@set` selections and enables case
+isolation. Omit N to use the configured build-job limit, or pass N to override
+only test concurrency. Use `--parallel 1` for serial case isolation. It combines
+with `--report`, but cannot combine with other execution modes.
+Test builds and default CTest concurrency use the configured parallelism
+(`build.parallelJobs`, or automatic when unset); `test` does not accept
+`--jobs`. Only `--parallel N` overrides case concurrency. Ordinary direct
+GoogleTest processes still run cases sequentially. Existing resource locks
+remain authoritative.
 
 Isolation requires a named target or `@set`; the case filter is optional.
-The longer `--mode isolation --jobs 4` form remains supported. Whole-target
-runs detect shared-state cleanup problems; isolated runs detect missing setup
-that earlier tests might otherwise supply. Stress mode randomizes
+The redundant `--mode routine` and `--mode isolation` forms are removed;
+omit `--mode` for routine execution and use `--parallel [N]` for isolation.
+Whole-target runs detect shared-state cleanup problems; isolated runs detect
+missing setup that earlier tests might otherwise supply. Stress mode randomizes
 CTest scheduling and GoogleTest order, printing a reproducible seed.
 `--report` writes XML under
 `Build/NativeTestResults/<Preset>/<Selection>.xml` unless `--report <path>` is
@@ -169,7 +174,7 @@ whole scheduled matrix.
 ordinary target once through CTest. Characterization and qualification targets
 are neither built nor run by this aggregate. Diagnose an ordinary aggregate
 failure with `test <FailedTarget> <Suite.Case>`, or isolate a bounded target set
-with a case filter and `--mode isolation`. Native-test executables and
+with a case filter and `--parallel`. Native-test executables and
 GoogleTest are excluded from CMake's
 default `all` target, so routine `build` and `rebuild` commands do not compile
 tests even when the selected preset enables `BUILD_TESTING`.

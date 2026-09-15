@@ -107,8 +107,8 @@ def validate_request(request: ConcreteRequest, preset: ConfigurePreset) -> None:
             request.target.startswith("@") or request.target.casefold() == "fast-all"
         ):
             raise BuildToolError(
-                "A case filter on a set requires --mode isolation.",
-                recovery=f"Run test {request.target} {request.test_filter} --mode isolation.",
+                "A case filter on a set requires --parallel.",
+                recovery=f"Run test {request.target} {request.test_filter} --parallel.",
             )
         if request.test_mode in {TestMode.CHARACTERIZATION, TestMode.QUALIFICATION} and request.target.casefold() == "all":
             raise BuildToolError(
