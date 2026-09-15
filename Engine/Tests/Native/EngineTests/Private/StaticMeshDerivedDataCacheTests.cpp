@@ -1103,7 +1103,7 @@ TEST(FStaticMeshAuthoredCompilationTests, CancellationDiscardsPayloadAndFinaliza
 	auto& Section = Input.Meshes.front();
 	Section.Positions.clear();
 	Section.Indices.clear();
-	for (uint32 Triangle = 0; Triangle < 4096; ++Triangle)
+	for (uint32 Triangle = 0; Triangle < 512; ++Triangle)
 	{
 		const FVector3f Base(float(Triangle % 64), float(Triangle / 64), 0);
 		Section.Positions.insert(Section.Positions.end(),

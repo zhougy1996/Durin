@@ -126,12 +126,9 @@ namespace
 		return true;
 	}
 
-	auto ContainsSerializedField(Durin::FByteView Bytes,
-		const Durin::FPackagePath& PackagePath, std::string_view Name) -> bool
+	auto ContainsSerializedField(const Durin::ObjectPackage::FLinkerTables& Linker,
+		std::string_view Name) -> bool
 	{
-		Durin::ObjectPackage::FLinkerTables Linker;
-		if (!Durin::ObjectPackage::ReadPackage(
-			Bytes, {}, PackagePath, Linker)) return false;
 		for (const auto& Schema : Linker.Schemas)
 		{
 			if (std::ranges::any_of(
@@ -139,6 +136,14 @@ namespace
 				[Name](const auto& Field) { return Field.Name == Name; })) return true;
 		}
 		return false;
+	}
+
+	auto ContainsSerializedField(Durin::FByteView Bytes,
+		const Durin::FPackagePath& PackagePath, std::string_view Name) -> bool
+	{
+		Durin::ObjectPackage::FLinkerTables Linker;
+		return Durin::ObjectPackage::ReadPackage(Bytes, {}, PackagePath, Linker)
+			&& ContainsSerializedField(Linker, Name);
 	}
 
 	auto ReplaceAll(std::string& Text, std::string_view From, std::string_view To) -> void

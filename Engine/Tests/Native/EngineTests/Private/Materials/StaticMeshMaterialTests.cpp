@@ -20,6 +20,22 @@ namespace
 		return static_cast<bool>(Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(Material));
 	}
 
+	// Slot binding and ownership migration need only color and opacity parameters.
+	// Full PBR graph serialization remains covered by the expression-package case.
+	auto SetBindingProgram(Durin::DMaterial& Material) -> bool
+	{
+		using namespace Durin;
+		using Role = MaterialParameters::EMaterialBuiltinParameterRole;
+		Testing::FTestMaterialExpressionGraph Graph;
+		auto& Color = Graph.Add(EMaterialProgramOpcode::Parameter,
+			EMaterialProgramValueType::Float3, {}, MaterialParameters::GetBuiltinParameterIds(Role::BaseColor).Value, {});
+		auto& Opacity = Graph.Add(EMaterialProgramOpcode::Parameter,
+			EMaterialProgramValueType::Float, {}, MaterialParameters::GetBuiltinParameterIds(Role::Opacity).Value, {});
+		Graph.Outputs.BaseColor = Testing::MakeLink(Color);
+		Graph.Outputs.Opacity = Testing::MakeLink(Opacity);
+		return static_cast<bool>(Graph.Apply(Material));
+	}
+
 	auto RelocateAssetForTest(
 		const Durin::FPackagePath& Source,
 		const Durin::FPackagePath& Destination) -> Durin::FAssetResult
@@ -325,7 +341,7 @@ TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsByIndex)
 
 	Durin::DMaterial* Material = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(MaterialPath, Material));
-	ASSERT_TRUE(SetExpandedProgram(*Material));
+	ASSERT_TRUE(SetBindingProgram(*Material));
 	Material->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.85, 0.15, 0.1));
 	ASSERT_TRUE(Durin::SavePackage(Material->GetPackage()));
 	(void)Durin::FAssetCompilingManager::Get().FinishAllCompilation();
@@ -502,10 +518,12 @@ TEST(FStaticMeshMaterialTests, StaticMeshComponentOverridesRoundTripAfterMeshDep
 		/ "StaticMeshSlotOverrides" / "Component.dasset";
 	Durin::FByteBuffer FixtureBytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(FixtureBytes, FixturePath));
-	EXPECT_FALSE(ContainsSerializedField(FixtureBytes, ComponentPath, "Materials"));
-	EXPECT_FALSE(ContainsSerializedField(FixtureBytes, ComponentPath, "MaterialOverridesVersion"));
-	EXPECT_FALSE(ContainsSerializedField(FixtureBytes, ComponentPath, "MaterialOverrides"));
-	EXPECT_TRUE(ContainsSerializedField(FixtureBytes, ComponentPath, "OverrideMaterials"));
+	Durin::ObjectPackage::FLinkerTables ComponentLinker;
+	ASSERT_TRUE(Durin::ObjectPackage::ReadPackage(FixtureBytes, {}, ComponentPath, ComponentLinker));
+	EXPECT_FALSE(ContainsSerializedField(ComponentLinker, "Materials"));
+	EXPECT_FALSE(ContainsSerializedField(ComponentLinker, "MaterialOverridesVersion"));
+	EXPECT_FALSE(ContainsSerializedField(ComponentLinker, "MaterialOverrides"));
+	EXPECT_TRUE(ContainsSerializedField(ComponentLinker, "OverrideMaterials"));
 
 	ASSERT_TRUE(Durin::UnloadPackage(ComponentPath));
 	ASSERT_TRUE(Durin::UnloadPackage(SecondMaterialPath));
@@ -668,12 +686,14 @@ TEST(FMaterialExpressionPackageTests, TypedExpressionsRoundTripDuplicateAndRejec
 	ASSERT_TRUE(SerializeAssetPackageBytes(Material->GetPackage(), FirstSerialization));
 	ASSERT_TRUE(SerializeAssetPackageBytes(Material->GetPackage(), SecondSerialization));
 	EXPECT_EQ(FirstSerialization, SecondSerialization);
-	EXPECT_TRUE(ContainsSerializedField(FirstSerialization, Path, "GraphOwnershipVersion"));
-	EXPECT_TRUE(ContainsSerializedField(FirstSerialization, Path, "ExpressionCollection"));
-	EXPECT_TRUE(ContainsSerializedField(FirstSerialization, Path, "Expressions"));
-	EXPECT_TRUE(ContainsSerializedField(FirstSerialization, Path, "ExpressionOutputs"));
-	EXPECT_FALSE(ContainsSerializedField(FirstSerialization, Path, "Program"));
-	EXPECT_FALSE(ContainsSerializedField(FirstSerialization, Path, "FunctionCalls"));
+	ObjectPackage::FLinkerTables Linker;
+	ASSERT_TRUE(ObjectPackage::ReadPackage(FirstSerialization, {}, Path, Linker));
+	EXPECT_TRUE(ContainsSerializedField(Linker, "GraphOwnershipVersion"));
+	EXPECT_TRUE(ContainsSerializedField(Linker, "ExpressionCollection"));
+	EXPECT_TRUE(ContainsSerializedField(Linker, "Expressions"));
+	EXPECT_TRUE(ContainsSerializedField(Linker, "ExpressionOutputs"));
+	EXPECT_FALSE(ContainsSerializedField(Linker, "Program"));
+	EXPECT_FALSE(ContainsSerializedField(Linker, "FunctionCalls"));
 	auto* Duplicate = Cast<DMaterial>(DuplicateObject(Material, nullptr, "DuplicatedExpressions"));
 	ASSERT_NO_FATAL_FAILURE(CheckGraph(Duplicate));
 	EXPECT_NE(Duplicate->GetExpressionCollection().Expressions.front().Get(), Material->GetExpressionCollection().Expressions.front().Get());
@@ -697,8 +717,6 @@ TEST(FMaterialExpressionPackageTests, TypedExpressionsRoundTripDuplicateAndRejec
 	ASSERT_NO_FATAL_FAILURE(CheckGraph(Loaded));
 	ASSERT_TRUE(UnloadPackage(Path));
 	// A valid package envelope cannot publish abandoned expression children.
-	ObjectPackage::FLinkerTables Linker;
-	ASSERT_TRUE(ObjectPackage::ReadPackage(FirstSerialization, {}, Path, Linker));
 	bool bRemovedExpressions = false;
 	for (auto& Export : Linker.Exports)
 		for (auto& Property : Export.Properties)
@@ -737,7 +755,7 @@ TEST(FStaticMeshMaterialTests, MissingOwnershipMarkerRejectsParentAndInstanceWit
 
 	Durin::DMaterial* Base = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(BasePath, Base));
-	ASSERT_TRUE(SetExpandedProgram(*Base));
+	ASSERT_TRUE(SetBindingProgram(*Base));
 	ASSERT_TRUE(Base->SetVectorParameterValue(
 		Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.1, 0.2, 0.3)));
 	ASSERT_TRUE(Durin::SavePackage(Base->GetPackage()));
