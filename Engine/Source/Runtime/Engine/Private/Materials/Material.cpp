@@ -23,6 +23,17 @@ namespace Durin
 {
 	namespace
 	{
+		template <typename TValue, typename TReadValue>
+		auto GetTypedParameterValue(
+			const DMaterial& Material, FName Name, EMaterialParameterType Type,
+			TValue& OutValue, TReadValue ReadValue) -> bool
+		{
+			const auto* Definition = Material.FindParameterDefinition(Name);
+			if (!Definition || Definition->Type != Type) return false;
+			OutValue = ReadValue(Definition->Value);
+			return true;
+		}
+
 		auto AdvanceRevision(uint64& Revision) -> void
 		{
 			Revision = Revision == std::numeric_limits<uint64>::max()
@@ -260,34 +271,26 @@ namespace Durin
 
 	auto DMaterial::GetScalarParameterValue(FName Name, float& OutValue) const -> bool
 	{
-		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
-		if (!Definition || Definition->Type != EMaterialParameterType::Scalar) return false;
-		OutValue = Definition->Value.GetScalar();
-		return true;
+		return GetTypedParameterValue(*this, Name, EMaterialParameterType::Scalar, OutValue,
+			[](const FMaterialParameterValue& Value) { return Value.GetScalar(); });
 	}
 
 	auto DMaterial::GetVector2ParameterValue(FName Name, FVector2& OutValue) const -> bool
 	{
-		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
-		if (!Definition || Definition->Type != EMaterialParameterType::Vector2) return false;
-		OutValue = Definition->Value.GetVector2();
-		return true;
+		return GetTypedParameterValue(*this, Name, EMaterialParameterType::Vector2, OutValue,
+			[](const FMaterialParameterValue& Value) { return Value.GetVector2(); });
 	}
 
 	auto DMaterial::GetVectorParameterValue(FName Name, FVector3& OutValue) const -> bool
 	{
-		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
-		if (!Definition || Definition->Type != EMaterialParameterType::Vector) return false;
-		OutValue = Definition->Value.GetVector();
-		return true;
+		return GetTypedParameterValue(*this, Name, EMaterialParameterType::Vector, OutValue,
+			[](const FMaterialParameterValue& Value) { return Value.GetVector(); });
 	}
 
 	auto DMaterial::GetTextureParameterValue(FName Name, DTexture2D*& OutValue) const -> bool
 	{
-		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
-		if (!Definition || Definition->Type != EMaterialParameterType::Texture) return false;
-		OutValue = Definition->Value.GetTexture().Texture.Get();
-		return true;
+		return GetTypedParameterValue(*this, Name, EMaterialParameterType::Texture, OutValue,
+			[](const FMaterialParameterValue& Value) { return Value.GetTexture().Texture.Get(); });
 	}
 
 	auto DMaterial::Serialize(FArchive& Ar) -> void

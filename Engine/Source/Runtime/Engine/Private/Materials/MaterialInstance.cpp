@@ -10,6 +10,29 @@ namespace Durin
 {
 	namespace
 	{
+		template <typename TValue, typename TReadValue>
+		auto GetTypedParameterValue(
+			const DMaterialInstance& Material, FName Name, EMaterialParameterType Type,
+			TValue& OutValue, TReadValue ReadValue) -> bool
+		{
+			const auto* Definition = Material.FindParameterDefinition(Name);
+			if (!Definition || Definition->Type != Type) return false;
+			FResolvedMaterialParameter Resolved;
+			if (!Material.ResolveParameterValue(Definition->Id, Resolved)) return false;
+			OutValue = ReadValue(Resolved.Value);
+			return true;
+		}
+
+		template <typename TInstance, typename TOperation>
+		auto ApplyTypedParameterOperation(
+			TInstance& Instance, FName Name, EMaterialParameterType Type,
+			TOperation Operation) -> bool
+		{
+			const auto* Definition = Instance.FindParameterDefinition(Name);
+			return Definition && Definition->Type == Type
+				&& (Instance.*Operation)(Definition->Id);
+		}
+
 		auto WouldCreateParentCycle(
 			const DMaterialInstance* Instance,
 			const DMaterialInterface* CandidateParent
@@ -327,98 +350,74 @@ namespace Durin
 
 	auto DMaterialInstance::ClearScalarParameterValue(FName Name) -> bool
 	{
-		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
-		return Definition && Definition->Type == EMaterialParameterType::Scalar
-			&& ClearParameterValue(Definition->Id);
+		return ApplyTypedParameterOperation(*this, Name, EMaterialParameterType::Scalar,
+			&DMaterialInstance::ClearParameterValue);
 	}
 
 	auto DMaterialInstance::ClearVector2ParameterValue(FName Name) -> bool
 	{
-		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
-		return Definition && Definition->Type == EMaterialParameterType::Vector2
-			&& ClearParameterValue(Definition->Id);
+		return ApplyTypedParameterOperation(*this, Name, EMaterialParameterType::Vector2,
+			&DMaterialInstance::ClearParameterValue);
 	}
 
 	auto DMaterialInstance::ClearVectorParameterValue(FName Name) -> bool
 	{
-		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
-		return Definition && Definition->Type == EMaterialParameterType::Vector
-			&& ClearParameterValue(Definition->Id);
+		return ApplyTypedParameterOperation(*this, Name, EMaterialParameterType::Vector,
+			&DMaterialInstance::ClearParameterValue);
 	}
 
 	auto DMaterialInstance::ClearTextureParameterValue(FName Name) -> bool
 	{
-		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
-		return Definition && Definition->Type == EMaterialParameterType::Texture
-			&& ClearParameterValue(Definition->Id);
+		return ApplyTypedParameterOperation(*this, Name, EMaterialParameterType::Texture,
+			&DMaterialInstance::ClearParameterValue);
 	}
 
 	auto DMaterialInstance::HasLocalScalarParameterValue(FName Name) const -> bool
 	{
-		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
-		return Definition && Definition->Type == EMaterialParameterType::Scalar
-			&& HasLocalParameterValue(Definition->Id);
+		return ApplyTypedParameterOperation(*this, Name, EMaterialParameterType::Scalar,
+			&DMaterialInstance::HasLocalParameterValue);
 	}
 
 	auto DMaterialInstance::HasLocalVector2ParameterValue(FName Name) const -> bool
 	{
-		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
-		return Definition && Definition->Type == EMaterialParameterType::Vector2
-			&& HasLocalParameterValue(Definition->Id);
+		return ApplyTypedParameterOperation(*this, Name, EMaterialParameterType::Vector2,
+			&DMaterialInstance::HasLocalParameterValue);
 	}
 
 	auto DMaterialInstance::HasLocalVectorParameterValue(FName Name) const -> bool
 	{
-		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
-		return Definition && Definition->Type == EMaterialParameterType::Vector
-			&& HasLocalParameterValue(Definition->Id);
+		return ApplyTypedParameterOperation(*this, Name, EMaterialParameterType::Vector,
+			&DMaterialInstance::HasLocalParameterValue);
 	}
 
 	auto DMaterialInstance::HasLocalTextureParameterValue(FName Name) const -> bool
 	{
-		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
-		return Definition && Definition->Type == EMaterialParameterType::Texture
-			&& HasLocalParameterValue(Definition->Id);
+		return ApplyTypedParameterOperation(*this, Name, EMaterialParameterType::Texture,
+			&DMaterialInstance::HasLocalParameterValue);
 	}
 
 	auto DMaterialInstance::GetScalarParameterValue(FName Name, float& OutValue) const -> bool
 	{
-		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
-		if (!Definition || Definition->Type != EMaterialParameterType::Scalar) return false;
-		FResolvedMaterialParameter Resolved;
-		if (!ResolveParameterValue(Definition->Id, Resolved)) return false;
-		OutValue = Resolved.Value.GetScalar();
-		return true;
+		return GetTypedParameterValue(*this, Name, EMaterialParameterType::Scalar, OutValue,
+			[](const FMaterialParameterValue& Value) { return Value.GetScalar(); });
 	}
 
 	auto DMaterialInstance::GetVector2ParameterValue(FName Name, FVector2& OutValue) const -> bool
 	{
-		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
-		if (!Definition || Definition->Type != EMaterialParameterType::Vector2) return false;
-		FResolvedMaterialParameter Resolved;
-		if (!ResolveParameterValue(Definition->Id, Resolved)) return false;
-		OutValue = Resolved.Value.GetVector2();
-		return true;
+		return GetTypedParameterValue(*this, Name, EMaterialParameterType::Vector2, OutValue,
+			[](const FMaterialParameterValue& Value) { return Value.GetVector2(); });
 	}
 
 	auto DMaterialInstance::GetVectorParameterValue(FName Name, FVector3& OutValue) const -> bool
 	{
-		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
-		if (!Definition || Definition->Type != EMaterialParameterType::Vector) return false;
-		FResolvedMaterialParameter Resolved;
-		if (!ResolveParameterValue(Definition->Id, Resolved)) return false;
-		OutValue = Resolved.Value.GetVector();
-		return true;
+		return GetTypedParameterValue(*this, Name, EMaterialParameterType::Vector, OutValue,
+			[](const FMaterialParameterValue& Value) { return Value.GetVector(); });
 	}
 
 	auto DMaterialInstance::GetTextureParameterValue(FName Name, DTexture2D*& OutValue) const -> bool
 	{
-		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
-		if (!Definition || Definition->Type != EMaterialParameterType::Texture) return false;
-		FResolvedMaterialParameter Resolved;
-		if (!ResolveParameterValue(Definition->Id, Resolved)) return false;
-		OutValue = Resolved.Value.GetTexture().Texture.Get();
-		return true;
+		return GetTypedParameterValue(*this, Name, EMaterialParameterType::Texture, OutValue,
+			[](const FMaterialParameterValue& Value) { return Value.GetTexture().Texture.Get(); });
 	}
 
 	auto DMaterialInstance::PostLoad() -> void
