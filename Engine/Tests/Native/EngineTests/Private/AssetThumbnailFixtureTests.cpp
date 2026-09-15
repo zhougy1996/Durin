@@ -36,7 +36,7 @@ TEST(FAssetThumbnailFixtureTests, CreatesVersionedRenderedAssetFixtures)
 	EXPECT_EQ(BaseColor, Durin::FVector3(0.35, 0.55, 0.75));
 	ASSERT_TRUE(Fixtures.MaterialInstance->GetVectorParameterValue(
 		Durin::MaterialParameters::BaseColorName(), BaseColor));
-	EXPECT_EQ(BaseColor, Durin::FVector3(0.8, 0.28, 0.12));
+	EXPECT_EQ(BaseColor, Durin::FVector3(0.8f, 0.28f, 0.12f));
 	EXPECT_EQ(Fixtures.MaterialInstance->GetParent(), Fixtures.Material);
 	EXPECT_EQ(Fixtures.InvalidMaterialInstance->GetParent(), nullptr);
 

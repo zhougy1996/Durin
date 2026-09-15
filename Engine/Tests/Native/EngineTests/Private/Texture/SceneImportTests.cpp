@@ -286,7 +286,7 @@ TEST(FSceneImportTests, SceneReimportResetsEditsAndRollsBackSavedAndLiveOutputs)
 	EXPECT_FALSE(Material->IsParameterValueOrphan(Color));
 	EXPECT_FALSE(Material->GetStaticProperties().bTwoSided);
 	ASSERT_TRUE(Independent->ResolveParameterValue(Color, Value));
-	EXPECT_EQ(Value.Value.GetVector(), FVector3(0.1, 0.2, 0.3));
+	EXPECT_EQ(Value.Value.GetVector(), FVector3(0.1f, 0.2f, 0.3f));
 	EXPECT_EQ(Material->GetStaticProperties().ShadingModel, EMaterialShadingModel::Lit);
 	const auto OtherSource = std::filesystem::path(Fixture.Source).parent_path() / "OtherSource" /
 		std::filesystem::path(Fixture.Source).filename();
