@@ -9,6 +9,7 @@
 #include "DObject/DObjectGlobals.h"
 #include "Misc/FileHelper.h"
 #include "Serialization/BinaryFormat.h"
+#include "Serialization/CustomVersion.h"
 
 namespace Durin::AssetPrivate
 {
@@ -300,6 +301,7 @@ namespace Durin::AssetPrivate
 		std::ranges::sort(RuntimePackages, [](const auto& A, const auto& B) { return A.GetView() < B.GetView(); });
 		if (RuntimePackages.empty()) return Fail(EAssetError::NotFound, "Cook selected no runtime packages.");
 
+		const auto CustomVersionDefinitions = FCustomVersionRegistry::GetAll();
 		std::vector<FCookPackageBuildInputs> Graph;
 		std::unordered_set<FPackagePath> Declared;
 		while (Declared.size() < Inputs.size())
@@ -313,6 +315,14 @@ namespace Durin::AssetPrivate
 				Declared.insert(Path);
 				auto& Input = Inputs.at(Path);
 				FCookPackageBuildInputs Node{.Package = Path};
+				// Include local format definitions before reuse is considered, including cooked-only formats.
+				for (const auto& Version : CustomVersionDefinitions)
+				{
+					FBinaryWriter Value;
+					Value.WriteU32(static_cast<uint32>(Version.CurrentVersion));
+					Node.Inputs.push_back({ECookBuildDependencyKind::SchemaProducerVersion,
+						"custom-version/" + Version.Guid.ToString(), Value.TakeBytes()});
+				}
 				Node.Inputs.push_back({ECookBuildDependencyKind::SourcePackage, Path.ToString(), Input.PackageIdentity});
 				Node.Inputs.push_back({ECookBuildDependencyKind::OwnedBulk, Path.ToString(), Input.BulkIdentity});
 				std::unordered_set<FPackagePath> Automatic;

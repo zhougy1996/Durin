@@ -330,3 +330,40 @@ TEST(FArchiveTests, CountingAndHashingPreserveContextDependentByteSelection)
 		EXPECT_EQ(Value.Editor, 42u);
 	}
 }
+
+TEST(FArchiveTests, CustomVersionRegistrationAndUsageKeepFileFactsSeparate)
+{
+	using namespace Durin;
+	const FGuid Guid{0xc057, 1, 2, 3};
+	ASSERT_TRUE(FCustomVersionRegistry::Register({Guid, 3, "ArchiveTest"}));
+	EXPECT_TRUE(FCustomVersionRegistry::Register({Guid, 3, "ArchiveTest"}));
+	EXPECT_FALSE(FCustomVersionRegistry::Register({Guid, 4, "ArchiveTest"}));
+	EXPECT_FALSE(FCustomVersionRegistry::Register({{}, 3, "Invalid"}));
+	EXPECT_FALSE(FCustomVersionRegistry::Register({{0xc057, 1, 2, 4}, -1, "Invalid"}));
+	FByteBuffer Bytes;
+	FCanonicalMemoryWriter Writer(Bytes);
+	Writer.UsingCustomVersion(Guid);
+	Writer.UsingCustomVersion(Guid);
+	ASSERT_FALSE(Writer.HasError());
+	ASSERT_EQ(Writer.GetVersionContext().CustomVersions.size(), 1u);
+	EXPECT_EQ(Writer.GetVersionContext().FindCustom(Guid)->Version, 3);
+	FCanonicalMemoryReader Reader(Bytes);
+	Reader.UsingCustomVersion(Guid);
+	EXPECT_EQ(Reader.GetVersionContext().FindCustom(Guid), nullptr);
+	const FArchiveVersionContext OldVersions{.CustomVersions = {{Guid, 1}}};
+	FCanonicalMemoryReader OldReader(Bytes, EArchivePurpose::DerivedDataPayload, {}, OldVersions);
+	OldReader.UsingCustomVersion(Guid);
+	EXPECT_EQ(OldReader.GetVersionContext().FindCustom(Guid)->Version, 1);
+	FCanonicalMemoryWriter Downgrade(Bytes, EArchivePurpose::DerivedDataPayload, {}, OldVersions);
+	Downgrade.UsingCustomVersion(Guid);
+	EXPECT_TRUE(Downgrade.HasError());
+	std::string Error;
+	EXPECT_TRUE(FCustomVersionRegistry::Validate(std::array{FCustomVersion{Guid, 1}}, Error));
+	EXPECT_FALSE(FCustomVersionRegistry::Validate(std::array{FCustomVersion{Guid, 4}}, Error));
+	EXPECT_NE(Error.find("ArchiveTest"), std::string::npos);
+	EXPECT_FALSE(FCustomVersionRegistry::Validate(std::array{FCustomVersion{Guid, 1}, FCustomVersion{Guid, 1}}, Error));
+	EXPECT_FALSE(FCustomVersionRegistry::Validate(std::array{FCustomVersion{{0xc057, 0, 0, 99}, 1}}, Error));
+	Writer.UsingCustomVersion({0xc057, 0, 0, 99});
+	ASSERT_TRUE(Writer.HasError());
+	EXPECT_EQ(Writer.GetFailure()->Code, EArchiveFailureCode::UnsupportedVersion);
+}

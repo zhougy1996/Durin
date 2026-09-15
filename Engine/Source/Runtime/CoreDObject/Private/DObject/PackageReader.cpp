@@ -510,19 +510,20 @@ namespace Durin::ObjectPackage
 				return Fail(Diagnostic, EPackageReaderFailure::InvalidTable,
 					"DAST v10 schema section header is invalid.", "Schemas");
 			std::vector<FCustomVersion> Versions;
+			std::unordered_set<FGuid> VersionGuids;
 			for (uint64 Index = 0; Index < VersionCount; ++Index)
 			{
 				FCustomVersion Custom;
 				uint8 Flags = 0;
-				if (!Reader.ReadGuid(Custom.Guid) || !Reader.ReadU32(Custom.Value)
-					|| !Reader.ReadU8(Flags) || (Flags & 0xf0) != 0)
+				uint32 Value = 0;
+				if (!Reader.ReadGuid(Custom.Guid) || !Reader.ReadU32(Value)
+					|| !Custom.Guid.IsValid() || Value > static_cast<uint32>(std::numeric_limits<int32>::max())
+					|| !VersionGuids.insert(Custom.Guid).second
+					|| !Reader.ReadU8(Flags) || Flags != 0)
 					return Fail(Diagnostic, EPackageReaderFailure::InvalidTable,
 						"A DAST v10 custom-version record is invalid.", "CustomVersions");
-				uint32 Optional = 0;
-				if ((Flags & 1) != 0) { if (!Reader.ReadU32(Optional)) return false; Custom.EmissionValue = Optional; }
-				if ((Flags & 2) != 0) { if (!Reader.ReadU32(Optional)) return false; Custom.MaximumSupported = Optional; }
-				Custom.bCodecKnown = (Flags & 4) != 0;
-				Custom.bRequiredForInterpretation = (Flags & 8) != 0;
+				Custom.Version = static_cast<int32>(Value);
+
 				Versions.push_back(Custom);
 			}
 			uint64 SchemaCount = 0;

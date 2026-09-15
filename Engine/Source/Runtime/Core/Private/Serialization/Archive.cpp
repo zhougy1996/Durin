@@ -1,9 +1,23 @@
 #include "Serialization/Archive.h"
 
+#include <mutex>
+
 namespace Durin
 {
 	namespace
 	{
+		struct FVersionRegistryStorage
+		{
+			std::mutex Mutex;
+			std::vector<FCustomVersionDefinition> Definitions;
+		};
+
+		auto VersionRegistry() -> FVersionRegistryStorage&
+		{
+			static FVersionRegistryStorage Storage;
+			return Storage;
+		}
+
 		auto IsPersistentPurpose(EArchivePurpose Purpose) -> bool
 		{
 			return Purpose == EArchivePurpose::AuthoredPackage
@@ -66,6 +80,71 @@ namespace Durin
 		}
 	}
 
+	auto FCustomVersionRegistry::Register(FCustomVersionDefinition Definition) -> bool
+	{
+		if (!Definition.Guid.IsValid() || Definition.CurrentVersion < 0 || Definition.Name.empty()) return false;
+		auto& Registry = VersionRegistry();
+		std::lock_guard Lock(Registry.Mutex);
+		const auto It = std::ranges::find(Registry.Definitions, Definition.Guid, &FCustomVersionDefinition::Guid);
+		if (It != Registry.Definitions.end())
+			return It->CurrentVersion == Definition.CurrentVersion && It->Name == Definition.Name;
+		Registry.Definitions.push_back(std::move(Definition));
+		std::ranges::sort(Registry.Definitions, {}, &FCustomVersionDefinition::Guid);
+		return true;
+	}
+
+	auto FCustomVersionRegistry::GetAll() -> std::vector<FCustomVersionDefinition>
+	{
+		auto& Registry = VersionRegistry();
+		std::lock_guard Lock(Registry.Mutex);
+		return Registry.Definitions;
+	}
+
+	FCustomVersionRegistration::FCustomVersionRegistration(FGuid Guid, int32 Version, std::string_view Name)
+	{
+		const bool Registered = FCustomVersionRegistry::Register({Guid, Version, std::string(Name)});
+		requiref(Registered, "Invalid or conflicting custom version registration: {}", Name);
+	}
+
+	auto FCustomVersionRegistry::Validate(std::span<const FCustomVersion> Versions, std::string& Error) -> bool
+	{
+		Error.clear();
+		const auto Definitions = GetAll();
+		std::unordered_set<FGuid> Seen;
+		for (const auto& Version : Versions)
+		{
+			const auto It = std::ranges::find(Definitions, Version.Guid, &FCustomVersionDefinition::Guid);
+			if (!Version.Guid.IsValid() || Version.Version < 0 || !Seen.insert(Version.Guid).second)
+				Error = std::format("Invalid or duplicate custom version {} ({}).", Version.Guid.ToString(), Version.Version);
+			else if (It == Definitions.end())
+				Error = std::format("Unknown custom version {} (file version {}).", Version.Guid.ToString(), Version.Version);
+			else if (Version.Version > It->CurrentVersion)
+				Error = std::format("Custom version '{}' {} is newer than supported: file {}, current {}.",
+					It->Name, Version.Guid.ToString(), Version.Version, It->CurrentVersion);
+			if (!Error.empty()) return false;
+		}
+		return true;
+	}
+
+	auto FArchive::UsingCustomVersion(const FGuid& Guid) -> void
+	{
+		if (!IsSaving() || HasError()) return;
+		const auto Definitions = FCustomVersionRegistry::GetAll();
+		const auto It = std::ranges::find(Definitions, Guid, &FCustomVersionDefinition::Guid);
+		if (It == Definitions.end())
+		{
+			Fail(EArchiveFailureCode::UnsupportedVersion, std::format("Unregistered custom version {}.", Guid.ToString()));
+			return;
+		}
+		if (const auto* Existing = Versions.FindCustom(Guid))
+		{
+			if (Existing->Version != It->CurrentVersion)
+				Fail(EArchiveFailureCode::UnsupportedVersion, "Saving cannot override the registered current custom version.");
+			return;
+		}
+		Versions.CustomVersions.push_back({Guid, It->CurrentVersion});
+	}
+
 	auto FArchiveVersionContext::FindFormat(FName Format) const -> const FArchiveFormatVersion*
 	{
 		const auto It = std::ranges::find(Formats, Format, &FArchiveFormatVersion::Format);
@@ -74,7 +153,7 @@ namespace Durin
 
 	auto FArchiveVersionContext::FindCustom(const FGuid& Key) const -> const FArchiveCustomVersion*
 	{
-		const auto It = std::ranges::find(CustomVersions, Key, &FArchiveCustomVersion::Key);
+		const auto It = std::ranges::find(CustomVersions, Key, &FArchiveCustomVersion::Guid);
 		return It == CustomVersions.end() ? nullptr : &*It;
 	}
 

@@ -5,6 +5,7 @@
 #include "Misc/Guid.h"
 #include "Misc/Name.h"
 #include "Serialization/SharedByteBuffer.h"
+#include "Serialization/CustomVersion.h"
 
 #include <bit>
 #include <concepts>
@@ -126,7 +127,7 @@ namespace Durin
 	};
 
 	struct FArchiveFormatVersion { FName Format; uint32 Version = 0; };
-	struct FArchiveCustomVersion { FGuid Key; int32 Version = 0; };
+	using FArchiveCustomVersion = FCustomVersion;
 
 	// Stores sorted or caller-defined format versions independently of wire bytes.
 	struct FArchiveVersionContext
@@ -201,6 +202,8 @@ namespace Durin
 			return (State.Capabilities & Capability) == Capability;
 		}
 		auto GetVersionContext() const -> const FArchiveVersionContext& { return Versions; }
+		// Saving records the registered current version once. Loading never changes file versions.
+		CORE_API auto UsingCustomVersion(const FGuid& Guid) -> void;
 		// Loading adapters select whether a Struct patches its initialized destination.
 		// Default adapters reconstruct a complete value from the Struct type default.
 		virtual auto UseExistingStructBaseline() -> bool { return false; }

@@ -57,6 +57,7 @@ namespace Durin::AssetPrivate
 		// Owns every value and dependency needed after live package capture ends.
 		struct FCapturedPackage
 		{
+			std::vector<FCustomVersion> CustomVersions;
 			std::vector<FCapturedObject> Objects;
 			std::vector<FPackagePath> Dependencies;
 			std::vector<FObjectPath> HardReferenceTargets;
@@ -179,7 +180,7 @@ namespace Durin::AssetPrivate
 
 		auto EqualManifest(const FCapturedPackage& A, const FCapturedPackage& B) -> bool
 		{
-			if (A.Dependencies != B.Dependencies
+			if (A.CustomVersions != B.CustomVersions || A.Dependencies != B.Dependencies
 				|| A.InternalReferences != B.InternalReferences
 				|| A.Objects.size() != B.Objects.size()
 				|| A.BulkPayloads.size() != B.BulkPayloads.size()) return false;
@@ -246,6 +247,8 @@ namespace Durin::AssetPrivate
 			{
 				if (bAssetErrorSet) return AssetError;
 				const FArchiveFailure* Failure = GetFailure();
+				if (Failure && Failure->Code == EArchiveFailureCode::UnsupportedVersion)
+					return EAssetError::UnsupportedVersion;
 				if (Failure && (Failure->Code == EArchiveFailureCode::UnsupportedType
 					|| Failure->Code == EArchiveFailureCode::UnsupportedOperation
 					|| Failure->Code == EArchiveFailureCode::MalformedSerializer
@@ -1301,6 +1304,8 @@ namespace Durin::AssetPrivate
 				if (Archive.HasError()) return TranslateArchiveFailure(Archive);
 			}
 			OutPackage = Archive.TakePackage();
+			OutPackage.CustomVersions = Archive.GetVersionContext().CustomVersions;
+			std::ranges::sort(OutPackage.CustomVersions);
 			return {};
 		}
 
@@ -2111,7 +2116,7 @@ namespace Durin::AssetPrivate
 		std::erase_if(DeltaPlan.Objects, [&](const FDefaultDeltaObjectPlan& ObjectPlan) {
 			return std::ranges::find(Objects, ObjectPlan.Object) == Objects.end();
 		});
-		std::vector<ObjectPackage::FCustomVersion> CustomVersions;
+		const auto& CustomVersions = Captured.CustomVersions;
 		std::string LinkerError;
 		if (!AssetPrivate::BuildLinkerTables(Captured, Summary, PackagePath, Objects,
 				DeltaPlan, CustomVersions, Package->GetTopLevelAssets(), OutLinker, LinkerError, FormatVersion))

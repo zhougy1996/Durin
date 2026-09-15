@@ -3,7 +3,7 @@
 #include "CoreDObjectAPI.h"
 #include "DObject/AssetPath.h"
 #include "Hash/XxHash.h"
-#include "Misc/Guid.h"
+#include "Serialization/CustomVersion.h"
 
 namespace Durin::ObjectPackage
 {
@@ -179,17 +179,7 @@ namespace Durin::ObjectPackage
 		auto operator==(const FPackageExport&) const -> bool = default;
 	};
 
-	struct FCustomVersion
-	{
-		FGuid Guid;
-		uint32 Value = 0;
-		std::optional<uint32> EmissionValue;
-		std::optional<uint32> MaximumSupported;
-		bool bCodecKnown = false;
-		bool bRequiredForInterpretation = false;
-
-		auto operator<=>(const FCustomVersion&) const = default;
-	};
+	using FCustomVersion = Durin::FCustomVersion;
 
 	struct FPackageSummary
 	{

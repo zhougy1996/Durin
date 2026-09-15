@@ -61,8 +61,7 @@ namespace
 		Linker.Types = bShuffled ? std::vector{Map, String, I32, Bulk, U32}
 			: std::vector{I32, U32, String, Map, Bulk};
 		Linker.CustomVersions = {
-			{.Guid = Durin::FGuid{4, 3, 2, 1}, .Value = 7, .EmissionValue = 6,
-				.MaximumSupported = 9, .bCodecKnown = true, .bRequiredForInterpretation = true}};
+			{.Guid = Durin::FGuid{4, 3, 2, 1}, .Version = 7}};
 
 		Package::FSerializedSchema Schema{
 			.QualifiedName = "Example::WriterAsset",
@@ -292,8 +291,8 @@ TEST(FPackageFormatContractTests, MultipleTopLevelAssetsRoundTripAndProjectExact
 		<< WriterDiagnostic.Message;
 	EXPECT_EQ(Read<uint32>(Main, 24), Package::DastV10FormatVersion);
 	const Durin::FXxHash128 FixtureHash = Durin::FXxHash128::HashBuffer(Main);
-	EXPECT_EQ(FixtureHash.HashLow, 4601243471640479019ull);
-	EXPECT_EQ(FixtureHash.HashHigh, 16900005822645130231ull);
+	EXPECT_EQ(FixtureHash.HashLow, 6855489284108035300ull);
+	EXPECT_EQ(FixtureHash.HashHigh, 13282341067721308400ull);
 	Package::FPackageRegistryData Registry;
 	Package::FPackageReaderDiagnostic ReaderDiagnostic;
 	ASSERT_TRUE(Package::ReadPackageRegistry(
@@ -335,14 +334,14 @@ TEST(FPackageWriterContractTests, FrozenLayoutAndFixtureHashAreExact)
 	EXPECT_EQ(std::string(reinterpret_cast<const char*>(Main.data()), 4), "DURF");
 	EXPECT_EQ(Read<uint32>(Main, 24), Package::DastV10FormatVersion);
 	EXPECT_EQ(Read<uint64>(Main, 40), Main.size());
-	EXPECT_EQ(Main.size(), 1232u);
+	EXPECT_EQ(Main.size(), 1224u);
 	EXPECT_EQ(Read<uint64>(Main, 32), 973u);
 	EXPECT_EQ(Read<uint64>(Main, 72), Package::DastDirectoryOffset);
 	EXPECT_EQ(Read<uint32>(Main, 80), Package::DastSectionCount);
 	EXPECT_EQ(Read<uint32>(Main, 84), Package::DastSectionEntryBytes);
 	EXPECT_EQ(Read<uint64>(Main, Package::DastDirectoryOffset + 8), Package::DastFirstSectionOffset);
 	constexpr std::array<uint64, Package::DastSectionCount> SectionOffsets{
-		528, 570, 968, 973, 981, 1013, 1062, 1118, 1229};
+		528, 570, 968, 973, 981, 1013, 1054, 1110, 1221};
 	for (uint64 Index = 0; Index < Package::DastSectionCount; ++Index)
 		EXPECT_EQ(Read<uint64>(Main, Package::DastDirectoryOffset + Index * 48 + 8),
 			SectionOffsets[Index]) << Index;
@@ -350,7 +349,7 @@ TEST(FPackageWriterContractTests, FrozenLayoutAndFixtureHashAreExact)
 	const uint64 ImportBytes = Read<uint64>(Main, Package::DastDirectoryOffset + 2 * 48 + 16);
 	EXPECT_EQ(Read<uint64>(Main, 32), ImportOffset + ImportBytes);
 	EXPECT_EQ(Bulk, Bytes({0xaa, 0xbb, 0xcc, 0xdd}));
-	EXPECT_EQ(Durin::FXxHash128::HashBuffer(Main).ToString(), "a41afab558d80bb6b5e50c857cee25ae");
+	EXPECT_EQ(Durin::FXxHash128::HashBuffer(Main).ToString(), "9e520a5e489ec8527b730cf0b96b1163");
 	EXPECT_EQ(Durin::FXxHash128::HashBuffer(Bulk).ToString(), "ab65044d6377f7528d403d7d59bb88f3");
 }
 
@@ -431,7 +430,7 @@ TEST(FPackageWriterContractTests, RedirectWithoutBulkHasFrozenBytes)
 	EXPECT_EQ(Read<uint32>(Main, Package::DastFormatHeaderOffset), 0u);
 	EXPECT_TRUE(Bulk.empty());
 	EXPECT_EQ(Read<uint64>(Main, Package::DastDirectoryOffset + 8 * 48 + 16), 0u);
-	EXPECT_EQ(Durin::FXxHash128::HashBuffer(Main).ToString(), "4b287905045b8570be2c2794074f1e7a");
+	EXPECT_EQ(Durin::FXxHash128::HashBuffer(Main).ToString(), "bb87b876d085a81fdd6ee423c255e2c0");
 }
 
 TEST(FPackageWriterContractTests, EveryNativeValueKindHasOneFrozenFixture)
@@ -663,4 +662,29 @@ TEST(FPackageReaderContractTests, LateValueTopologyAndBulkFailuresAreTypedAndAto
 	EXPECT_FALSE(Package::ReadPackage(Main, Bulk, ReferenceFixture.Summary.PackagePath, Sentinel, &Diagnostic));
 	EXPECT_EQ(Diagnostic.Failure, Package::EPackageReaderFailure::InvalidTopology);
 	EXPECT_EQ(Sentinel.Summary.PackagePath.ToString(), "/Game/Sentinel");
+}
+
+TEST(FPackageReaderContractTests, CustomVersionRecordsRejectInvalidFactsAndRetiredCapabilityFlags)
+{
+	auto Fixture = MakeFixture();
+	Durin::FByteBuffer Main, Bulk;
+	ASSERT_TRUE(Package::WritePackage(Fixture, Main, Bulk));
+	const uint64 SchemaOffset = Read<uint64>(Main, Package::DastDirectoryOffset + 5 * 48 + 8);
+	// One record follows the table version and one-byte count: GUID, version, flags.
+	EXPECT_EQ(Main[SchemaOffset + 25], std::byte{0});
+	Main[SchemaOffset + 25] = std::byte{12};
+	RehashSection(Main, 5);
+	Package::FLinkerTables Loaded;
+	EXPECT_FALSE(Package::ReadPackage(Main, Bulk, Fixture.Summary.PackagePath, Loaded));
+	ASSERT_TRUE(Package::WritePackage(Fixture, Main, Bulk));
+	ASSERT_TRUE(Package::ReadPackage(Main, Bulk, Fixture.Summary.PackagePath, Loaded));
+	EXPECT_EQ(Loaded.CustomVersions, Fixture.CustomVersions);
+	Write<uint32>(Main, SchemaOffset + 21, 0xffffffffu);
+	RehashSection(Main, 5);
+	EXPECT_FALSE(Package::ReadPackage(Main, Bulk, Fixture.Summary.PackagePath, Loaded));
+	Fixture.CustomVersions.front().Version = -1;
+	EXPECT_FALSE(Package::WritePackage(Fixture, Main, Bulk));
+	Fixture.CustomVersions.front().Version = 7;
+	Fixture.CustomVersions.push_back(Fixture.CustomVersions.front());
+	EXPECT_FALSE(Package::WritePackage(Fixture, Main, Bulk));
 }

@@ -617,7 +617,14 @@ namespace Durin::ObjectPackage
 				return Fail(Diagnostic, EPackageWriterFailure::LimitExceeded,
 					"The canonical type table exceeds the format entry limit.");
 
+			if (Linker.CustomVersions.size() > DastMaximumTableEntries)
+				return Fail(Diagnostic, EPackageWriterFailure::LimitExceeded,
+					"The custom version table exceeds the format entry limit.", "CustomVersions");
 			Frozen.CustomVersions = Linker.CustomVersions;
+			for (const auto& Version : Frozen.CustomVersions)
+				if (!Version.Guid.IsValid() || Version.Version < 0)
+					return Fail(Diagnostic, EPackageWriterFailure::InvalidValue,
+						"A custom version requires a valid GUID and nonnegative version.", "CustomVersions");
 			std::ranges::sort(Frozen.CustomVersions, [](const FCustomVersion& A, const FCustomVersion& B)
 			{ return std::tie(A.Guid.A, A.Guid.B, A.Guid.C, A.Guid.D)
 				< std::tie(B.Guid.A, B.Guid.B, B.Guid.C, B.Guid.D); });
@@ -1023,12 +1030,9 @@ namespace Durin::ObjectPackage
 			Writer->WriteVarUInt(Frozen.CustomVersions.size());
 			for (const FCustomVersion& Version : Frozen.CustomVersions)
 			{
-				Writer->WriteGuid(Version.Guid); Writer->WriteU32(Version.Value);
-				uint8 Flags = (Version.EmissionValue ? 1 : 0) | (Version.MaximumSupported ? 2 : 0)
-					| (Version.bCodecKnown ? 4 : 0) | (Version.bRequiredForInterpretation ? 8 : 0);
-				Writer->WriteU8(Flags);
-				if (Version.EmissionValue) Writer->WriteU32(*Version.EmissionValue);
-				if (Version.MaximumSupported) Writer->WriteU32(*Version.MaximumSupported);
+				Writer->WriteGuid(Version.Guid); Writer->WriteU32(static_cast<uint32>(Version.Version));
+				// Retain the v10 framing byte; retired local-capability metadata is never emitted.
+				Writer->WriteU8(0);
 			}
 			Writer->WriteVarUInt(Frozen.Schemas.size());
 			for (const FSerializedSchema& Schema : Frozen.Schemas)

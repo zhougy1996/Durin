@@ -582,6 +582,7 @@ namespace
 	bool GRejectPackageAssetDeserialize = false;
 	std::function<void()> GPackageConstructorLoadProbe;
 	std::function<void()> GPackagePostLoadProbe;
+	std::function<void(Durin::FArchive&)> GPackageVersionProbe;
 
 	class DPackageAssetForTest : public Durin::DObject
 	{
@@ -600,6 +601,7 @@ namespace
 		auto Serialize(Durin::FArchive& Ar) -> void override
 		{
 			DObject::Serialize(Ar);
+			if (GPackageVersionProbe) GPackageVersionProbe(Ar);
 			if (Ar.IsLoading() && GRejectPackageAssetDeserialize)
 				Ar.Fail(Durin::EArchiveFailureCode::InvalidData, "Injected package deserialization rejection.");
 		}
@@ -900,6 +902,12 @@ namespace
 	uint64 GCookedSerializeCount = 0;
 	bool GRejectAuthoredLoad = false;
 
+	const Durin::FGuid ArchiveCustomVersionGuid{0xac057, 1, 2, 3};
+	const Durin::FCustomVersionRegistration ArchiveCustomVersionRegistration{
+		ArchiveCustomVersionGuid, 3, "AssetArchiveTest"};
+	int32 GPostLoadCustomVersion = -1;
+	bool GRequireCustomVersion = false;
+
 	class DAuthoredArchiveAssetForTest : public Durin::DObject
 	{
 	public:
@@ -944,6 +952,16 @@ namespace
 
 		auto Serialize(Durin::FArchive& Ar) -> void override
 		{
+			Ar.UsingCustomVersion(ArchiveCustomVersionGuid);
+			if (Ar.IsLoading() && GRequireCustomVersion)
+			{
+				const auto* Version = Ar.GetVersionContext().FindCustom(ArchiveCustomVersionGuid);
+				if (!Version || Version->Version < 2)
+				{
+					Ar.Fail(Durin::EArchiveFailureCode::UnsupportedVersion, "Missing or obsolete test format version.");
+					return;
+				}
+			}
 			GAuthoredArchivePurposes.push_back(Ar.GetPurpose());
 			if (const Durin::FArchiveFormatVersion* Format =
 				Ar.GetVersionContext().FindFormat(Durin::FName("DAST")))
@@ -999,6 +1017,7 @@ namespace
 
 		auto SerializeCooked(Durin::FArchive& Ar) -> void override
 		{
+			Ar.UsingCustomVersion(ArchiveCustomVersionGuid);
 			++GCookedSerializeCount;
 			if (!Ar.IsCooking() || !Ar.IsFilterEditorOnly()
 				|| Ar.GetTarget().Platform != "Win64" || Ar.GetTarget().Profile != "Game")
@@ -1024,6 +1043,12 @@ namespace
 					.Alignment = 16,
 					.StoragePolicy = Durin::EArchiveBulkDataStoragePolicy::AllowExternal});
 			}
+		}
+
+		auto PostLoad() -> void override
+		{
+			DObject::PostLoad();
+			GPostLoadCustomVersion = GetLoadedCustomVersion(ArchiveCustomVersionGuid).value_or(-1);
 		}
 
 		int32 NativeValue = 73;
@@ -4549,6 +4574,10 @@ TEST(FPackageAssetTests, CookedArchiveDispatchesImmutableTargetProjection)
 		Durin::SerializeAssetPackageBytes(Source->GetPackage(), Bytes, Options);
 	ASSERT_TRUE(CookResult) << CookResult.Message;
 	EXPECT_GT(GCookedSerializeCount, 0u);
+	Durin::ObjectPackage::FLinkerTables VersionLinker;
+	ASSERT_TRUE(Durin::ObjectPackage::ReadPackage(Bytes, {}, Path, VersionLinker));
+	ASSERT_EQ(VersionLinker.CustomVersions.size(), 1u);
+	EXPECT_EQ(VersionLinker.CustomVersions.front().Version, 3);
 	EXPECT_EQ(Source->NativeValue, 37);
 	EXPECT_EQ(Source->CookedBulk.GetState(), Durin::EBulkDataState::Detached);
 
@@ -8844,6 +8873,11 @@ TEST(FPackageAssetTests, CookReusesDeclaredInputsAndLoadsOrdinaryPackages)
 	ASSERT_TRUE(DecodeCookState(StateBytes, State));
 	ASSERT_EQ(State.Entries.size(), 1u);
 	EXPECT_FALSE(State.Entries.front().BuildDependencies.empty());
+	const auto VersionInput = std::ranges::find(State.Entries.front().BuildDependencies,
+		"custom-version/" + ArchiveCustomVersionGuid.ToString(), &FCookBuildDependency::LogicalName);
+	ASSERT_NE(VersionInput, State.Entries.front().BuildDependencies.end());
+	EXPECT_EQ(VersionInput->Kind, ECookBuildDependencyKind::SchemaProducerVersion);
+	EXPECT_EQ(VersionInput->Value, (FByteBuffer{std::byte{3}, std::byte{0}, std::byte{0}, std::byte{0}}));
 	Request.bDryRun = false;
 	FByteBuffer PriorManifest;
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(PriorManifest, Request.OutputRoot / "CookManifest.bin"));
@@ -9182,4 +9216,82 @@ TEST(FPackageAssetTests, CookOfflineMeshPreparationDoesNotScheduleEditorCompilat
 	EXPECT_TRUE(Contributed) << Result.Diagnostic;
 	for (auto* Object : GDObjectArray.GetAll(EObjectQueryScope::IncludeUnpublished))
 		if (auto* Package = Object->GetPackage()) EXPECT_NE(Package->GetPackagePath(), Path.ToString());
+}
+
+TEST(FPackageAssetTests, CustomVersionsPersistAndValidateBeforeConstruction)
+{
+	struct FRequirementScope
+	{
+		FRequirementScope() { GRequireCustomVersion = true; }
+		~FRequirementScope() { GRequireCustomVersion = false; }
+	} Requirement;
+
+	using namespace Durin;
+	InitializeAssetTests();
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/CustomVersions", Path));
+	DAuthoredArchiveAssetForTest* Source = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Source));
+	FByteBuffer Bytes;
+	ASSERT_TRUE(SerializeAssetPackageBytes(Source->GetPackage(), Bytes));
+	ObjectPackage::FLinkerTables Original;
+	ASSERT_TRUE(ObjectPackage::ReadPackage(Bytes, {}, Path, Original));
+	ASSERT_EQ(Original.CustomVersions.size(), 1u);
+	EXPECT_EQ(Original.CustomVersions.front(), (FCustomVersion{ArchiveCustomVersionGuid, 3}));
+	ShutdownAssetManagerForRestart();
+	const auto& Codec = AssetPrivate::TaggedPackage::GetCodec();
+	for (int32 Mode = 0; Mode < 4; ++Mode)
+	{
+		auto Linker = Original;
+		if (Mode == 0) Linker.CustomVersions.front().Version = 4;
+		if (Mode == 1) Linker.CustomVersions.front().Guid = {0xac057, 9, 9, 9};
+		if (Mode == 2) Linker.CustomVersions.clear();
+		if (Mode == 3) Linker.CustomVersions.front().Version = 1;
+		FByteBuffer Main, Bulk;
+		ASSERT_TRUE(ObjectPackage::WritePackage(Linker, Main, Bulk));
+		const auto Before = GAuthoredConstructCount;
+		DPackage* Loaded = nullptr;
+		const auto Result = Codec.Load({Main, {}, Path, Main.size()}, Loaded, nullptr, {}, {});
+		EXPECT_EQ(Result.Error, EAssetError::UnsupportedVersion) << Result.Message;
+		EXPECT_EQ(Loaded, nullptr);
+		EXPECT_EQ(FindPackage(Path.GetView()), nullptr);
+		if (Mode < 2) EXPECT_EQ(GAuthoredConstructCount, Before);
+	}
+	DPackage* Loaded = nullptr;
+	const auto Result = Codec.Load({Bytes, {}, Path, Bytes.size()}, Loaded, nullptr, {}, {});
+	ASSERT_TRUE(Result) << Result.Message;
+	ASSERT_NE(Loaded, nullptr);
+	EXPECT_EQ(GPostLoadCustomVersion, 3);
+	for (const auto* Object : Loaded->GetTopLevelAssets())
+		EXPECT_FALSE(Object->GetLoadedCustomVersion(ArchiveCustomVersionGuid).has_value());
+}
+
+TEST(FPackageAssetTests, CustomVersionDeclarationsSurviveDefaultOmissionAndRejectPassDrift)
+{
+	using namespace Durin;
+	InitializeAssetTests();
+	struct FProbeScope { ~FProbeScope() { GPackageVersionProbe = {}; } } Scope;
+	GPackageVersionProbe = [](FArchive& Ar) { Ar.UsingCustomVersion(ArchiveCustomVersionGuid); };
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/DefaultCustomVersions", Path));
+	DPackageAssetForTest* Source = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Source));
+	FByteBuffer Bytes;
+	ASSERT_TRUE(SerializeAssetPackageBytes(Source->GetPackage(), Bytes));
+	ObjectPackage::FLinkerTables Linker;
+	ASSERT_TRUE(ObjectPackage::ReadPackage(Bytes, {}, Path, Linker));
+	ASSERT_EQ(Linker.CustomVersions.size(), 1u);
+	EXPECT_EQ(Linker.CustomVersions.front().Version, 3);
+	EXPECT_TRUE(std::ranges::all_of(Linker.Exports, [](const auto& Export) { return Export.Properties.empty(); }));
+	Source->ExternalReference = NewObject<DPackageAssetForTest>(Source, "VersionChild");
+	ASSERT_TRUE(SerializeAssetPackageBytes(Source->GetPackage(), Bytes));
+	ASSERT_TRUE(ObjectPackage::ReadPackage(Bytes, {}, Path, Linker));
+	EXPECT_GT(Linker.Exports.size(), 2u);
+	EXPECT_EQ(Linker.CustomVersions.size(), 1u);
+	const auto Before = Bytes;
+	GPackageVersionProbe = [](FArchive& Ar) {
+		if (!Ar.IsDiscovering()) Ar.UsingCustomVersion(ArchiveCustomVersionGuid);
+	};
+	EXPECT_FALSE(SerializeAssetPackageBytes(Source->GetPackage(), Bytes));
+	EXPECT_EQ(Bytes, Before);
 }

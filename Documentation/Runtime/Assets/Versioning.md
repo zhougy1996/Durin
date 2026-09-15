@@ -4,7 +4,7 @@ Summary: Define engine release, Archive, authored package, custom-version, and c
 
 Modules: Core, CoreDObject, Engine, AssetRegistry, AssetMaintenance
 
-Last reviewed: 2026-09-14
+Last reviewed: 2026-09-15
 
 Durin's engine release version is defined once in `Engine/Build/Build.version`.
 CMake validates that file, exposes the numeric core as the workspace project
@@ -32,12 +32,40 @@ GUID-keyed custom versions. Object-graph Archives report object-graph v2;
 authored and cooked package Archives report DAST v10. Property snapshots are
 process-local and unversioned.
 
-CoreDObject linker tables own the package-local custom-version list, canonical
-GUID order, discovery freeze, known-codec flags, emitted value, optional maximum
-supported value, and whether a version is required for interpretation. The v10
-writer freezes these facts with all other linker tables. The reader rejects
-duplicates, malformed flags, unsupported required values, or late-discovery
-drift before linker or object publication.
+`FCustomVersion` contains only a valid GUID and a nonnegative `int32` version.
+`FArchiveCustomVersion` and the package linker use that same record. Absence is
+represented by a missing record, never by substituting the current version.
+
+Core's `FCustomVersionRegistry` owns copied, immutable process-lifetime definitions
+(GUID, current version, diagnostic name). Modules register before serialization,
+using `FCustomVersionRegistration` or checked `Register` calls. Identical
+registration is idempotent; invalid or conflicting registrations fail. Definitions
+survive module unload and cannot be changed or removed during the process lifetime.
+
+`FArchive::UsingCustomVersion` records the registered current version when saving,
+including discovery, and is a no-op when loading. Saving an unregistered GUID or
+overriding its current version fails. Package capture unions declarations across
+objects independently of default-value omission, sorts the records, and rejects
+version-manifest drift between discovery and emission. Authored and cooked capture
+share this contract. Other Archive users must persist their version context in
+their own format; declaration alone does not inject bytes into a raw stream.
+
+The v10 writer emits GUID, version and a zero reserved framing byte. The reader
+rejects nonzero framing flags; retired emission/support/codec metadata has no
+runtime compatibility path. The existing Engine, Sandbox and RoadWeaver content
+baseline used empty custom-version tables, so its bytes remain unchanged. Invalid
+GUIDs, negative/out-of-range versions and duplicates fail parsing.
+Read-only package inspection does not require local version registration. Before
+constructing objects, Engine rejects unknown GUIDs and versions newer than the
+local registered current version. Required-version absence and old-version
+migration/rejection belong to the consuming serializer. There is no generic
+minimum-version policy, downgrade writer, or migration registry.
+
+Cook build inputs conservatively include all registered GUID/current-version
+pairs, including formats used only by cooked serializers, before deciding reuse.
+Changing a local format version therefore invalidates Cook reuse even when source
+asset bytes are unchanged; unrelated registered format changes can also invalidate
+reuse. Diagnostic names do not affect the fingerprint.
 
 Struct `PostDeserialize` receives Archive purpose, source DAST version, and the
 complete custom-version context. An object's pre-publication `PostLoad` sees the

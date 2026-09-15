@@ -804,6 +804,12 @@ namespace Durin::AssetPrivate
 		{
 			const auto& PackagePath = Application.PackagePath;
 			auto& Linker = Application.Linker;
+			std::string VersionError;
+			if (!FCustomVersionRegistry::Validate(Linker.CustomVersions, VersionError))
+			{
+				LinkerApplyFail(Diagnostic, EAssetError::UnsupportedVersion, VersionError);
+				return {EAssetError::UnsupportedVersion, Diagnostic.Message};
+			}
 			std::vector<FAssetCanonicalizationEvidence> CanonicalizationEvidence =
 				GatherCanonicalizationEvidence(Linker, PackagePath);
 			std::string CanonicalizationError;
@@ -996,8 +1002,8 @@ namespace Durin::AssetPrivate
 			std::vector<std::pair<FGuid, int32>> LoadedCustomVersions;
 			for (const ObjectPackage::FCustomVersion& Version : Linker.CustomVersions)
 			{
-				CustomVersions.push_back({Version.Guid, static_cast<int32>(Version.Value)});
-				LoadedCustomVersions.emplace_back(Version.Guid, static_cast<int32>(Version.Value));
+				CustomVersions.push_back({Version.Guid, Version.Version});
+				LoadedCustomVersions.emplace_back(Version.Guid, Version.Version);
 			}
 			for (DObject* Object : Objects) Object->SetLoadedCustomVersions(LoadedCustomVersions);
 			uint64 BulkFieldIndex = 0;
@@ -1040,7 +1046,7 @@ namespace Durin::AssetPrivate
 					Bindings, Linker.FormatVersion, CustomVersions, LoadContext);
 				if (!Result)
 				{
-					LinkerApplyFail(Diagnostic, EAssetError::UnsupportedProperty, Result.Message, 0, Exports[ObjectIndex].Path);
+					LinkerApplyFail(Diagnostic, Result.Error, Result.Message, 0, Exports[ObjectIndex].Path);
 					return Result;
 				}
 				if (Options.bCooked) continue;
