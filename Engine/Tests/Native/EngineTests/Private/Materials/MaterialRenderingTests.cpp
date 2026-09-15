@@ -681,6 +681,7 @@ TEST(FMaterialTests, MaterialPreviewDocumentsShareAssetsAcrossGarbageCollectionA
 	FScopedPreviewMeshCompiler MeshCompiler;
 	ASSERT_TRUE(Durin::GetStaticMeshCompilationManagerDiagnostics().bAcceptingRequests);
 	Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
+	Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
 	Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 	FMaterialPreviewHarness Harness;
 	Durin::Testing::FScopedMountRegistryFixture MountRegistry;
@@ -712,6 +713,11 @@ TEST(FMaterialTests, MaterialPreviewDocumentsShareAssetsAcrossGarbageCollectionA
 		auto* Box = Durin::Cast<Durin::DStaticMesh>(BoxAsset.Get());
 		ASSERT_NE(Sphere, nullptr);
 		ASSERT_NE(Box, nullptr);
+		// Retention starts asynchronous preparation; a fresh process has no prepared mesh state.
+		Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Sphere);
+		Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Box);
+		ASSERT_FALSE(Durin::HasPendingStaticMeshCompilation(*Sphere));
+		ASSERT_FALSE(Durin::HasPendingStaticMeshCompilation(*Box));
 		ASSERT_NE(Sphere->GetRenderData(), nullptr);
 		ASSERT_NE(Box->GetRenderData(), nullptr);
 		EXPECT_FALSE(Sphere->GetRenderData()->LODResources.empty());
