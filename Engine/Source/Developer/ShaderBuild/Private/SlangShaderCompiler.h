@@ -2,10 +2,7 @@
 
 #include "ShaderCompiler.h"
 
-#include "slang.h"
-#include "slang-com-ptr.h"
-
-#include <mutex>
+#include "SlangGlobalSessionPool.h"
 
 namespace Durin
 {
@@ -19,7 +16,8 @@ namespace Durin
 		auto Compile(std::string_view ShaderSourceFilePath, const FShaderCompileOptions& Options) -> FShaderCompilerOutput override;
 		auto CompileSource(std::string_view ModuleName,
 			std::string_view SourcePathHint, std::string_view Source,
-			const FShaderCompileOptions& Options) -> FShaderCompilerOutput;
+			const FShaderCompileOptions& Options,
+			const std::function<void(std::string_view)>& OnSessionAcquired = {}) -> FShaderCompilerOutput;
 		auto GetEnvironmentIdentity() const -> std::string;
 
 	private:
@@ -33,10 +31,6 @@ namespace Durin
 		auto CompileModule(slang::IModule* Module,
 			const FShaderCompileOptions& Options) -> FShaderCompilerOutput;
 
-		auto InitGlobalSession() -> void;
-
-		// Slang global sessions are non-reentrant; derived objects must also die under this lock.
-		mutable std::mutex GlobalSessionMutex;
-		Slang::ComPtr<slang::IGlobalSession> GlobalSession;
+		mutable FSlangGlobalSessionPool GlobalSessions;
 	};
 } // namespace Durin

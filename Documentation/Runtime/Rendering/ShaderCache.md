@@ -121,9 +121,27 @@ covers filesystem I/O. Different buckets and ordinary same-bucket operations
 may progress concurrently. Atomic file replacement gives identical writers
 safe last-writer-wins publication and readers a prior or new complete object.
 
-ShaderBuild owns workers, single-flight records, compiler lifetime,
-memory caching, and shutdown. Reload generation invalidates memoized source
-fingerprints. Global and Material Shader owners continue to publish complete
+ShaderBuild owns single-flight records, compiler contexts, memory caching, and
+shutdown. Callers own task scheduling and admission. Generated requests do not
+hold a service-wide lock across dependency validation, cache access, or compilation.
+Each Slang compiler/resolver call exclusively leases a global session; all derived
+objects are destroyed before returning that lease. Pool locks cover only the idle
+inventory, with at most four idle sessions retained per pool. Active contexts follow
+the caller's worker/admission budget; acquisition creates a context when none is
+idle instead of blocking a worker behind another compilation. Shutdown requires
+all calls and their leases to drain before destroying the service.
+
+Filesystem-backed generated requests validate dependencies and imports before
+single-flight admission using the complete output identity. Captured-source requests
+include source contents, artifact contents, ordered search roots, normalized macros,
+entry points/stages, compiler identity, and import policy in their flight identity.
+Forced and ordinary requests have separate flights. Identical synchronous callers
+wait only for their matching flight; unrelated cache hits and compiles can proceed.
+Material scheduling coalesces consumers before launching work. Both successful and
+exceptional flight completion wake waiters and remove the record, allowing retries.
+Reload generation invalidates memoized source fingerprints.
+
+Global and Material Shader owners continue to publish complete
 last-known-good typed sets atomically; this storage migration does not change
 their generation or RHI-resource contract.
 

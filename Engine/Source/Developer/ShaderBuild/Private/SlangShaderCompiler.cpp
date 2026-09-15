@@ -478,15 +478,8 @@ namespace Durin
 		}
 	}
 
-	FSlangShaderCompiler::FSlangShaderCompiler()
-	{
-		InitGlobalSession();
-	}
-
-	FSlangShaderCompiler::~FSlangShaderCompiler()
-	{
-		GlobalSession.setNull();
-	}
+	FSlangShaderCompiler::FSlangShaderCompiler() = default;
+	FSlangShaderCompiler::~FSlangShaderCompiler() = default;
 
 	auto FSlangShaderCompiler::CompileInternal(
 		slang::ISession* InSession,
@@ -689,7 +682,7 @@ namespace Durin
 		std::string_view ShaderSourceFilePath,
 		const FShaderCompileOptions& Options)
 	{
-		std::lock_guard SlangLock(GlobalSessionMutex);
+		auto GlobalSession = GlobalSessions.Acquire();
 		FShaderCompilerOutput Output;
 		Slang::ComPtr<slang::ISession> Session;
 		if (!FSlangSessionEnvironment::CreateSession(
@@ -711,9 +704,11 @@ namespace Durin
 
 	FShaderCompilerOutput FSlangShaderCompiler::CompileSource(
 		std::string_view ModuleName, std::string_view SourcePathHint,
-		std::string_view Source, const FShaderCompileOptions& Options)
+		std::string_view Source, const FShaderCompileOptions& Options,
+		const std::function<void(std::string_view)>& OnSessionAcquired)
 	{
-		std::lock_guard SlangLock(GlobalSessionMutex);
+		auto GlobalSession = GlobalSessions.Acquire();
+		if (OnSessionAcquired) OnSessionAcquired(Options.VirtualShaderPath);
 		FShaderCompilerOutput Output;
 		Slang::ComPtr<slang::ISession> Session;
 		if (!FSlangSessionEnvironment::CreateSession(
@@ -739,8 +734,8 @@ namespace Durin
 
 	auto FSlangShaderCompiler::GetEnvironmentIdentity() const -> std::string
 	{
-		std::lock_guard SlangLock(GlobalSessionMutex);
-		const char* BuildTag = GlobalSession ? GlobalSession->getBuildTagString() : nullptr;
+		auto GlobalSession = GlobalSessions.Acquire();
+		const char* BuildTag = GlobalSession->getBuildTagString();
 		return std::format(
 			"{}:{};target={};profile={}",
 			FSlangSessionEnvironment::BackendName,
@@ -749,11 +744,4 @@ namespace Durin
 			FSlangSessionEnvironment::TargetProfileName);
 	}
 
-	auto FSlangShaderCompiler::InitGlobalSession() -> void
-	{
-		if (SLANG_FAILED(slang_createGlobalSession(SLANG_API_VERSION, GlobalSession.writeRef())))
-		{
-			throw std::runtime_error("slang_createGlobalSession failed");
-		}
-	}
 } // namespace Durin

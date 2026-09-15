@@ -2,10 +2,7 @@
 
 #include "Shader/ShaderCompilerCore.h"
 
-#include "slang.h"
-#include "slang-com-ptr.h"
-
-#include <mutex>
+#include "SlangGlobalSessionPool.h"
 
 namespace Durin
 {
@@ -24,10 +21,6 @@ namespace Durin
 			std::string& OutDiagnostics) const -> bool;
 
 	private:
-		auto InitGlobalSession() -> void;
-
-		// Slang global sessions are non-reentrant; derived objects must also die under this lock.
-		mutable std::mutex GlobalSessionMutex;
-		Slang::ComPtr<slang::IGlobalSession> GlobalSession;
+		mutable FSlangGlobalSessionPool GlobalSessions;
 	};
 }

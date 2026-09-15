@@ -76,8 +76,9 @@ namespace Durin
 		class FShaderCompileService
 		{
 		public:
-			FShaderCompileService()
+			FShaderCompileService(std::function<void(std::string_view)> InBeforeGeneratedCompile)
 				: CompilerEnvironmentIdentity(Compiler.GetEnvironmentIdentity())
+				, BeforeGeneratedCompile(std::move(InBeforeGeneratedCompile))
 			{
 			}
 
@@ -277,31 +278,10 @@ namespace Durin
 				}
 
 				const std::string RequestKey = BuildRequestKey(VirtualShaderPath, EffectiveOptions, NormalizedMacros);
-				std::shared_ptr<FInFlightRequest> InFlight;
-				bool bOwner = false;
-				{
-					std::unique_lock Lock(InFlightMutex);
-					if (const auto FoundIt = InFlightRequests.find(RequestKey); FoundIt != InFlightRequests.end())
-					{
-						InFlight = FoundIt->second;
-						InFlight->Condition.wait(Lock, [&InFlight] { return InFlight->bCompleted; });
-						return InFlight->Output;
-					}
-					InFlight = std::make_shared<FInFlightRequest>();
-					InFlightRequests.emplace(RequestKey, InFlight);
-					bOwner = true;
-				}
-
-				check(bOwner);
-				Output = GetOrCompileInternal(VirtualShaderPath, SourceFilePath, EffectiveOptions, NormalizedMacros);
-				{
-					std::lock_guard Lock(InFlightMutex);
-					InFlight->Output = Output;
-					InFlight->bCompleted = true;
-					InFlightRequests.erase(RequestKey);
-				}
-				InFlight->Condition.notify_all();
-				return Output;
+				return RunSingleFlight("Mounted/" + RequestKey, [&] {
+					return GetOrCompileInternal(VirtualShaderPath, SourceFilePath,
+						EffectiveOptions, NormalizedMacros);
+				});
 			}
 
 			auto GetStats() const -> FShaderCompileServiceStats
@@ -322,11 +302,55 @@ namespace Durin
 				};
 			}
 
-			auto GetOrCompileGenerated(
+			auto GetOrCompileGenerated(const FGeneratedShaderCompileRequest& Request)
+				-> FShaderCompilerOutput
+			{
+				// Bound work before hashing/copying the generated root.
+				if (Request.Source.size() > 1024 * 1024 || Request.EntryPoints.size() > 8)
+					return {.ErrorMessage = "Invalid generated shader compile request"};
+				if (!Request.SourceArtifacts) return GetOrCompileGeneratedInternal(Request);
+				FShaderCompileOptions Options;
+				Options.Frequencies = Request.Frequencies;
+				Options.CompilerEnvironment = CompilerEnvironmentIdentity;
+				Options.bForceRecompile = Request.bForceRecompile;
+				Options.Macros = Request.Macros;
+				for (const auto& Entry : Request.EntryPoints)
+					Options.EntryPoints.push_back(Entry.c_str());
+				if (!HasValidUniqueEntryPoints(Options))
+					return {.ErrorMessage = "Invalid generated shader entry-point request"};
+				std::vector<FShaderMacroDefinition> Macros;
+				FShaderCompilerOutput Output;
+				if (!ShaderCompileUtilities::NormalizeMacros(Options, Macros, Output.ErrorMessage))
+					return Output;
+				FXxHash128Builder Builder;
+				UpdateHashStringField(Builder, "GeneratedRequest_v1");
+				UpdateHashStringField(Builder, BuildRequestKey(Request.VirtualPath, Options, Macros));
+				UpdateHashStringField(Builder, Request.Source);
+				auto Prefixes = Request.AllowedImportVirtualPrefixes;
+				std::ranges::sort(Prefixes);
+				Prefixes.erase(std::ranges::unique(Prefixes).begin(), Prefixes.end());
+				Builder.UpdateValue(static_cast<uint64>(Prefixes.size()));
+				for (const auto& Prefix : Prefixes) UpdateHashStringField(Builder, Prefix);
+				// Content and ordered search roots, never the snapshot pointer.
+				const auto& Files = Request.SourceArtifacts->GetFiles();
+				Builder.UpdateValue(static_cast<uint64>(Files.size()));
+				for (const auto& [Path, Bytes] : Files)
+				{
+					UpdateHashStringField(Builder, Path);
+					Builder.UpdateValue(FXxHash128::HashBuffer(FByteView(Bytes)));
+				}
+				const auto& Roots = Request.SourceArtifacts->GetSearchRoots();
+				Builder.UpdateValue(static_cast<uint64>(Roots.size()));
+				for (const auto& Root : Roots) UpdateHashStringField(Builder, Root);
+				return RunSingleFlight("Generated/" + Builder.Finalize().ToString(), [&] {
+					return GetOrCompileGeneratedInternal(Request);
+				});
+			}
+
+			auto GetOrCompileGeneratedInternal(
 				const FGeneratedShaderCompileRequest& Request)
 				-> FShaderCompilerOutput
 			{
-				std::lock_guard CompileLock(GeneratedCompileMutex);
 				FShaderCompilerOutput Output;
 				if (!Request.VirtualPath.starts_with("/Generated/Materials/")
 					|| Request.Source.empty()
@@ -380,7 +404,7 @@ namespace Durin
 						}
 					}
 					return Compiler.CompileSource(Request.VirtualPath.substr(1),
-						Request.VirtualPath, Request.Source, Options);
+						Request.VirtualPath, Request.Source, Options, BeforeGeneratedCompile);
 				}
 				const FXxHash128 SourceHash = FXxHash128::HashBuffer(Request.Source);
 				const auto& Mounts = FShaderPaths::GetRegisteredMountPoints();
@@ -484,32 +508,37 @@ namespace Durin
 					Request.VirtualPath, MetaData, Macros,
 					Options.CompilerEnvironment, VariantKey);
 				const std::string OutputKey = BuildOutputKey(VariantKey, Options);
-				if (!Options.bForceRecompile)
-				{
-					std::lock_guard Lock(OutputCacheMutex);
-					if (const auto Found = OutputCache.find(OutputKey);
-						Found != OutputCache.end())
+				// Dependency content is now part of OutputKey. A source change during
+				// another flight cannot join an obsolete compilation.
+				return RunSingleFlight("GeneratedOutput/" + OutputKey
+					+ (Options.bForceRecompile ? "/Forced" : "/Cached"), [&] {
+					if (!Options.bForceRecompile)
 					{
-						MemoryHits.fetch_add(1, std::memory_order_relaxed);
-						OutputRecency.splice(OutputRecency.begin(),
-							OutputRecency, Found->second.Recency);
-						return Found->second.Output;
+						std::lock_guard Lock(OutputCacheMutex);
+						if (const auto Found = OutputCache.find(OutputKey);
+							Found != OutputCache.end())
+						{
+							MemoryHits.fetch_add(1, std::memory_order_relaxed);
+							OutputRecency.splice(OutputRecency.begin(),
+								OutputRecency, Found->second.Recency);
+							return Found->second.Output;
+						}
 					}
-				}
-				if (!Options.bForceRecompile && TryLoadDerivedData(
-					Options, VariantKey, Output))
-				{
-					DdcHits.fetch_add(1, std::memory_order_relaxed);
+					if (!Options.bForceRecompile && TryLoadDerivedData(
+						Options, VariantKey, Output))
+					{
+						DdcHits.fetch_add(1, std::memory_order_relaxed);
+						AddOutput(OutputKey, Output);
+						return Output;
+					}
+					Compilations.fetch_add(1, std::memory_order_relaxed);
+					Output = Compiler.CompileSource(Request.VirtualPath.substr(1),
+						SourcePathHint, Request.Source, Options, BeforeGeneratedCompile);
+					if (!Output) return Output;
+					StoreDerivedData(Options, VariantKey, Output);
 					AddOutput(OutputKey, Output);
 					return Output;
-				}
-				Compilations.fetch_add(1, std::memory_order_relaxed);
-				Output = Compiler.CompileSource(Request.VirtualPath.substr(1),
-					SourcePathHint, Request.Source, Options);
-				if (!Output) return Output;
-				StoreDerivedData(Options, VariantKey, Output);
-				AddOutput(OutputKey, Output);
-				return Output;
+				});
 			}
 
 		private:
@@ -629,7 +658,37 @@ namespace Durin
 				std::condition_variable Condition;
 				bool bCompleted = false;
 				FShaderCompilerOutput Output;
+				std::exception_ptr Exception;
 			};
+
+			template <typename F>
+			auto RunSingleFlight(const std::string& Key, F&& Compile) -> FShaderCompilerOutput
+			{
+				std::shared_ptr<FInFlightRequest> Flight;
+				{
+					std::unique_lock Lock(InFlightMutex);
+					if (const auto Found = InFlightRequests.find(Key); Found != InFlightRequests.end())
+					{
+						Flight = Found->second;
+						Flight->Condition.wait(Lock, [&] { return Flight->bCompleted; });
+						Lock.unlock();
+						if (Flight->Exception) std::rethrow_exception(Flight->Exception);
+						return Flight->Output;
+					}
+					Flight = std::make_shared<FInFlightRequest>();
+					InFlightRequests.emplace(Key, Flight);
+				}
+				try { Flight->Output = Compile(); }
+				catch (...) { Flight->Exception = std::current_exception(); }
+				{
+					std::lock_guard Lock(InFlightMutex);
+					Flight->bCompleted = true;
+					InFlightRequests.erase(Key);
+				}
+				Flight->Condition.notify_all();
+				if (Flight->Exception) std::rethrow_exception(Flight->Exception);
+				return Flight->Output;
+			}
 
 			auto ResolveSourceMetaData(
 				std::string_view VirtualShaderPath,
@@ -742,7 +801,7 @@ namespace Durin
 			FFileFingerprintCache FileFingerprintCache;
 			std::mutex InFlightMutex;
 			std::unordered_map<std::string, std::shared_ptr<FInFlightRequest>> InFlightRequests;
-			std::mutex GeneratedCompileMutex;
+			const std::function<void(std::string_view)> BeforeGeneratedCompile;
 			mutable std::mutex OutputCacheMutex;
 			std::list<std::string> OutputRecency;
 			std::unordered_map<std::string, FOutputCacheEntry> OutputCache;
@@ -763,9 +822,9 @@ namespace Durin
 		std::unique_ptr<FShaderCompileService> GShaderCompileService;
 	}
 
-	auto InitShaderCompileService() -> void
+	auto InitShaderCompileService(std::function<void(std::string_view)> BeforeGeneratedCompile) -> void
 	{
-		GShaderCompileService = std::make_unique<FShaderCompileService>();
+		GShaderCompileService = std::make_unique<FShaderCompileService>(std::move(BeforeGeneratedCompile));
 	}
 
 	auto ShutdownShaderCompileService() -> void

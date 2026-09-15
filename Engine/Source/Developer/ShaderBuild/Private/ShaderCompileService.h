@@ -6,7 +6,9 @@ namespace Durin
 {
 	using FShaderCompileServiceStats = FShaderBuildStats;
 
-	auto InitShaderCompileService() -> void;
+	// Optional private test seam; configure only while the service is stopped.
+	auto InitShaderCompileService(
+		std::function<void(std::string_view)> BeforeGeneratedCompile = {}) -> void;
 	auto ShutdownShaderCompileService() -> void;
 	auto GetOrCompileShader(std::string_view VirtualShaderPath, const FShaderCompileOptions& Options) -> FShaderCompilerOutput;
 	auto GetOrCompileGeneratedShader(

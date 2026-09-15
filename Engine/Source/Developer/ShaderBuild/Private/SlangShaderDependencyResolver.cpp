@@ -19,19 +19,12 @@ namespace Durin
 		}
 	}
 
-	FSlangShaderDependencyResolver::FSlangShaderDependencyResolver()
-	{
-		InitGlobalSession();
-	}
-
-	FSlangShaderDependencyResolver::~FSlangShaderDependencyResolver()
-	{
-		GlobalSession.setNull();
-	}
+	FSlangShaderDependencyResolver::FSlangShaderDependencyResolver() = default;
+	FSlangShaderDependencyResolver::~FSlangShaderDependencyResolver() = default;
 
 	auto FSlangShaderDependencyResolver::Resolve(std::string_view ShaderSourceFilePath, const FShaderCompileOptions& Options, std::vector<std::string>& OutDependencyPaths, std::string& OutDiagnostics) const -> bool
 	{
-		std::lock_guard SlangLock(GlobalSessionMutex);
+		auto GlobalSession = GlobalSessions.Acquire();
 		Slang::ComPtr<slang::ISession> Session;
 		if (!FSlangSessionEnvironment::CreateSession(
 			*GlobalSession, Options, Session, OutDiagnostics))
@@ -76,7 +69,7 @@ namespace Durin
 		std::vector<std::string>& OutDependencyPaths,
 		std::string& OutDiagnostics) const -> bool
 	{
-		std::lock_guard SlangLock(GlobalSessionMutex);
+		auto GlobalSession = GlobalSessions.Acquire();
 		Slang::ComPtr<slang::ISession> Session;
 		if (!FSlangSessionEnvironment::CreateSession(
 			*GlobalSession, Options, Session, OutDiagnostics,
@@ -115,11 +108,4 @@ namespace Durin
 		return true;
 	}
 
-	auto FSlangShaderDependencyResolver::InitGlobalSession() -> void
-	{
-		if (SLANG_FAILED(slang_createGlobalSession(SLANG_API_VERSION, GlobalSession.writeRef())))
-		{
-			throw std::runtime_error("slang_createGlobalSession failed");
-		}
-	}
-}
+} // namespace Durin

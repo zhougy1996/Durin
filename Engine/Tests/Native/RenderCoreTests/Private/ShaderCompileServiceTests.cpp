@@ -373,6 +373,164 @@ float4 FragmentMain() : SV_Target0
 		EXPECT_EQ(Stats.Compilations, 0u);
 	}
 
+	// The gate is inside CompileSource, after acquiring its global session.
+	// Deadlines only prevent a regression from hanging the test process; no
+	// throughput/timing threshold is used as a performance acceptance gate.
+	TEST_F(FShaderCompileServiceTests, WarmGeneratedCachesBypassBlockedCompiler)
+	{
+		for (const bool Restart : {false, true})
+		{
+			ShutdownShaderCompileService();
+			FGeneratedShaderCompileRequest Warm;
+			Warm.VirtualPath = "/Generated/Materials/Warm";
+			Warm.Source = "[shader(\"fragment\")] float4 FragmentMain() : SV_Target0 { return 1.0; }";
+			Warm.EntryPoints = {"FragmentMain"};
+			Warm.Frequencies = {EShaderFrequency::Fragment};
+			auto Cold = Warm;
+			Cold.VirtualPath = "/Generated/Materials/Blocked";
+			Cold.bForceRecompile = true;
+			std::promise<void> Entered, Release;
+			auto EnteredFuture = Entered.get_future();
+			auto ReleaseFuture = Release.get_future().share();
+			auto Hook = [&](std::string_view Path) {
+				if (Path != Cold.VirtualPath) return;
+				Entered.set_value();
+				if (ReleaseFuture.wait_for(std::chrono::seconds(30)) != std::future_status::ready)
+					throw std::runtime_error("Compile gate was not released");
+			};
+			InitShaderCompileService(Hook);
+			ASSERT_TRUE(GetOrCompileGeneratedShader(Warm));
+			if (Restart)
+			{
+				ShutdownShaderCompileService();
+				InitShaderCompileService(Hook);
+			}
+			const auto Before = GetShaderCompileServiceStats();
+			auto Slow = std::async(std::launch::async, [&] { return GetOrCompileGeneratedShader(Cold); });
+			const auto EnteredStatus = EnteredFuture.wait_for(std::chrono::seconds(10));
+			auto Hit = std::async(std::launch::async, [&] { return GetOrCompileGeneratedShader(Warm); });
+			const auto HitStatus = Hit.wait_for(std::chrono::seconds(10));
+			Release.set_value();
+			EXPECT_EQ(EnteredStatus, std::future_status::ready);
+			EXPECT_EQ(HitStatus, std::future_status::ready);
+			EXPECT_TRUE(Hit.get());
+			EXPECT_TRUE(Slow.get());
+			const auto After = GetShaderCompileServiceStats();
+			EXPECT_EQ(Restart ? After.DdcHits - Before.DdcHits : After.MemoryHits - Before.MemoryHits, 1u);
+			ShutdownShaderCompileService();
+		}
+	}
+
+	TEST_F(FShaderCompileServiceTests, DifferentGeneratedRequestsUseIndependentSlangSessions)
+	{
+		FGeneratedShaderCompileRequest Request;
+		Request.VirtualPath = "/Generated/Materials/BlockedCold";
+		Request.Source = "[shader(\"fragment\")] float4 FragmentMain() : SV_Target0 { return 1.0; }";
+		Request.EntryPoints = {"FragmentMain"};
+		Request.Frequencies = {EShaderFrequency::Fragment};
+		std::promise<void> Entered, Release;
+		auto EnteredFuture = Entered.get_future();
+		auto ReleaseFuture = Release.get_future().share();
+		InitShaderCompileService([&](std::string_view Path) {
+			if (Path != Request.VirtualPath) return;
+			Entered.set_value();
+			if (ReleaseFuture.wait_for(std::chrono::seconds(30)) != std::future_status::ready)
+				throw std::runtime_error("Compile gate was not released");
+		});
+		auto First = std::async(std::launch::async, [&] { return GetOrCompileGeneratedShader(Request); });
+		const auto EnteredStatus = EnteredFuture.wait_for(std::chrono::seconds(10));
+		auto SecondRequest = Request;
+		SecondRequest.VirtualPath = "/Generated/Materials/IndependentCold";
+		SecondRequest.Source += "\n// distinct dependency identity";
+		auto Second = std::async(std::launch::async, [&] { return GetOrCompileGeneratedShader(SecondRequest); });
+		const auto SecondStatus = Second.wait_for(std::chrono::seconds(10));
+		Release.set_value();
+		EXPECT_EQ(EnteredStatus, std::future_status::ready);
+		EXPECT_EQ(SecondStatus, std::future_status::ready);
+		EXPECT_TRUE(First.get());
+		EXPECT_TRUE(Second.get());
+		EXPECT_EQ(GetShaderCompileServiceStats().Compilations, 2u);
+	}
+
+	TEST_F(FShaderCompileServiceTests, ConcurrentGeneratedRequestsCompileOnceAndExceptionsAllowRetry)
+	{
+		FGeneratedShaderCompileRequest Request;
+		Request.VirtualPath = "/Generated/Materials/SingleFlight";
+		Request.Source = "[shader(\"fragment\")] float4 FragmentMain() : SV_Target0 { return 1.0; }";
+		Request.EntryPoints = {"FragmentMain"};
+		Request.Frequencies = {EShaderFrequency::Fragment};
+		std::atomic_bool Throw = true;
+		InitShaderCompileService([&](std::string_view) {
+			if (Throw.load()) throw std::runtime_error("Injected compiler failure");
+		});
+		std::latch Start(1);
+		std::vector<std::future<FShaderCompilerOutput>> Requests;
+		for (int Index = 0; Index < 8; ++Index)
+			Requests.push_back(std::async(std::launch::async, [&] {
+				Start.wait();
+				return GetOrCompileGeneratedShader(Request);
+			}));
+		Start.count_down();
+		for (auto& Future : Requests) EXPECT_THROW(Future.get(), std::runtime_error);
+		Throw = false;
+		const auto Before = GetShaderCompileServiceStats();
+		Requests.clear();
+		for (int Index = 0; Index < 8; ++Index)
+			Requests.push_back(std::async(std::launch::async, [&] { return GetOrCompileGeneratedShader(Request); }));
+		for (auto& Future : Requests) EXPECT_TRUE(Future.get());
+		EXPECT_EQ(GetShaderCompileServiceStats().Compilations - Before.Compilations, 1u);
+	}
+
+	TEST_F(FShaderCompileServiceTests, ConcurrentCapturedRequestsKeepContentAndImportPolicySeparate)
+	{
+		auto Artifacts = [](std::string_view Text) {
+			const auto View = std::as_bytes(std::span(Text.data(), Text.size()));
+			return std::make_shared<FShaderSourceArtifacts>(
+				std::map<std::string, FByteBuffer>{{"/Captured/Included.slang", FByteBuffer(View.begin(), View.end())}},
+				std::vector<std::string>{"/Captured/"});
+		};
+		FGeneratedShaderCompileRequest Request;
+		Request.VirtualPath = "/Generated/Materials/CapturedConcurrent";
+		Request.Source = "import Included; [shader(\"fragment\")] float4 FragmentMain() : SV_Target0 { return Value(); }";
+		Request.EntryPoints = {"FragmentMain"};
+		Request.Frequencies = {EShaderFrequency::Fragment};
+		Request.AllowedImportVirtualPrefixes = {"/Captured/"};
+		Request.SourceArtifacts = Artifacts("public float4 Value() { return float4(1, 0, 0, 1); }");
+		std::promise<void> Entered, Release;
+		auto EnteredFuture = Entered.get_future();
+		auto ReleaseFuture = Release.get_future().share();
+		std::atomic_uint32_t Calls = 0;
+		InitShaderCompileService([&](std::string_view) {
+			if (Calls.fetch_add(1) != 0) return;
+			Entered.set_value();
+			if (ReleaseFuture.wait_for(std::chrono::seconds(30)) != std::future_status::ready)
+				throw std::runtime_error("Compile gate was not released");
+		});
+		auto First = std::async(std::launch::async, [&] { return GetOrCompileGeneratedShader(Request); });
+		const auto EnteredStatus = EnteredFuture.wait_for(std::chrono::seconds(10));
+		auto Changed = Request;
+		Changed.SourceArtifacts = Artifacts("public float4 Value() { return float4(0, 1, 0, 1); }");
+		auto Second = std::async(std::launch::async, [&] { return GetOrCompileGeneratedShader(Changed); });
+		auto Denied = Request;
+		Denied.AllowedImportVirtualPrefixes = {"/Other/"};
+		auto Invalid = std::async(std::launch::async, [&] { return GetOrCompileGeneratedShader(Denied); });
+		const auto SecondStatus = Second.wait_for(std::chrono::seconds(10));
+		const auto InvalidStatus = Invalid.wait_for(std::chrono::seconds(10));
+		Release.set_value();
+		EXPECT_EQ(EnteredStatus, std::future_status::ready);
+		EXPECT_EQ(SecondStatus, std::future_status::ready);
+		EXPECT_EQ(InvalidStatus, std::future_status::ready);
+		const auto FirstOutput = First.get();
+		const auto SecondOutput = Second.get();
+		EXPECT_FALSE(Invalid.get());
+		ASSERT_TRUE(FirstOutput) << FirstOutput.ErrorMessage;
+		ASSERT_TRUE(SecondOutput) << SecondOutput.ErrorMessage;
+		ASSERT_EQ(FirstOutput.CompiledShaders.size(), 1u);
+		ASSERT_EQ(SecondOutput.CompiledShaders.size(), 1u);
+		EXPECT_NE(FirstOutput.CompiledShaders[0].Hash, SecondOutput.CompiledShaders[0].Hash);
+		EXPECT_EQ(Calls.load(), 2u);
+	}
+
 	TEST_F(FShaderCompileServiceTests, ConcurrentIdenticalRequestsCompileOnce)
 	{
 		const FShaderCompileOptions Options = MakeServiceOptions();
