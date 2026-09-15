@@ -209,8 +209,9 @@ output repeats the first selected channel; invalid source channels and incompati
 consumers reject the edit atomically. The Channels palette has one Make Vector,
 one Splat and one Swizzle entry, with output width selected beside the entry.
 Make Vector combines scalar inputs; it does not concatenate vector inputs.
-Swizzle covers component masking, repetition and truncation. Legacy Truncate
-expressions remain loadable and inspectable but have no creation rows.
+Swizzle covers component masking, repetition and truncation. Dedicated Truncate
+expressions and compiler opcodes are removed. Maintained assets use the current
+expression classes.
 
 Compile state is observational. Unsubmitted and pending states identify whether
 the preview shows last-known-good output; failed states show ErrorMaterial.

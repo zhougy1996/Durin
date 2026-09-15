@@ -572,7 +572,7 @@ TEST(FMaterialRenderRepresentationTests, TextureSamplingOverridesChangePayloadWi
 	const auto Texture = Add(EMaterialProgramOpcode::TextureParameter, EMaterialProgramValueType::Texture2D, {}, Definition.Id);
 	const auto UV = Add(EMaterialProgramOpcode::Constant, EMaterialProgramValueType::Float2);
 	const auto Sample = Add(EMaterialProgramOpcode::TextureSample2D, EMaterialProgramValueType::Float4, {Texture, UV});
-	Graph.Outputs.BaseColor = Add(EMaterialProgramOpcode::TruncateToFloat3, EMaterialProgramValueType::Float3, {Sample});
+	Graph.Outputs.BaseColor = Add(EMaterialProgramOpcode::Swizzle, EMaterialProgramValueType::Float3, {Sample});
 	ASSERT_TRUE(Graph.Apply(*Root));
 	ASSERT_TRUE(FinishMaterialCompileForTest(*Root));
 	ASSERT_TRUE(Child->SetParent(Root));

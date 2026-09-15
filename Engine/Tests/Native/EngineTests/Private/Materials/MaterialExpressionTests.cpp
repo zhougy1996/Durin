@@ -700,9 +700,6 @@ TEST(FMaterialExpressionTests, EveryMappedConcreteClassExposesApplicableInputs)
 		FEntry{DMaterialExpressionSplat3::StaticClass(), EMaterialProgramOpcode::Splat3, EMaterialProgramValueType::Float3},
 		FEntry{DMaterialExpressionMakeVector4::StaticClass(), EMaterialProgramOpcode::MakeFloat4, EMaterialProgramValueType::Float4},
 		FEntry{DMaterialExpressionSplat4::StaticClass(), EMaterialProgramOpcode::Splat4, EMaterialProgramValueType::Float4},
-		FEntry{DMaterialExpressionTruncateToScalar::StaticClass(), EMaterialProgramOpcode::TruncateToFloat, EMaterialProgramValueType::Float},
-		FEntry{DMaterialExpressionTruncateToVector2::StaticClass(), EMaterialProgramOpcode::TruncateToFloat2, EMaterialProgramValueType::Float2},
-		FEntry{DMaterialExpressionTruncateToVector3::StaticClass(), EMaterialProgramOpcode::TruncateToFloat3, EMaterialProgramValueType::Float3},
 		FEntry{DMaterialExpressionDecodeNormalRG::StaticClass(), EMaterialProgramOpcode::DecodeNormalRG, EMaterialProgramValueType::Float3},
 		FEntry{DMaterialExpressionBlendNormalsRNM::StaticClass(), EMaterialProgramOpcode::BlendNormalsRNM, EMaterialProgramValueType::Float3},
 		FEntry{DMaterialExpressionUVChannel::StaticClass(), EMaterialProgramOpcode::UVChannel, EMaterialProgramValueType::Float2},
@@ -755,7 +752,7 @@ TEST(FMaterialExpressionTests, EveryMappedConcreteClassExposesApplicableInputs)
 	}
 	// No enum member has numeric value 3 or 30.
 	for (uint32 Opcode = 0; Opcode <= static_cast<uint32>(EMaterialProgramOpcode::TextureCoordinates); ++Opcode)
-		if (Opcode != 3 && Opcode != 30) EXPECT_TRUE(Covered.contains(static_cast<EMaterialProgramOpcode>(Opcode))) << Opcode;
+		if (Opcode != 3 && Opcode != 30 && !(Opcode >= 25 && Opcode <= 27)) EXPECT_TRUE(Covered.contains(static_cast<EMaterialProgramOpcode>(Opcode))) << Opcode;
 }
 
 TEST(FMaterialExpressionTests, LocalAuthoringValidationPreservesMissingDependenciesAndRejectsInvalidLinks)

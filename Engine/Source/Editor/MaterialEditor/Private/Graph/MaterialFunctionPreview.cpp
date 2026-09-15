@@ -86,8 +86,8 @@ namespace Durin::Editor::Material
 			}
 			else if (Output->Type != Type::Float3)
 			{
-				auto* Truncate = Add.operator()<DMaterialExpressionTruncateToVector3>();
-				Truncate->Input = Value; Value = {Truncate->Id};
+				auto* Mask = Add.operator()<DMaterialExpressionSwizzle>();
+				Mask->Input = Value; Mask->Components = {0, 1, 2}; Value = {Mask->Id};
 			}
 			State.Outputs.Emissive = Value;
 		}

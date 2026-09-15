@@ -232,9 +232,6 @@ FMaterialSurface EvaluateGeneratedMaterial(VSOutput input)
 			case EMaterialProgramOpcode::Splat3:
 			case EMaterialProgramOpcode::Splat4:
 				Expression = std::format("{}({})", SlangType(Node.ResultType), Input(0)); break;
-			case EMaterialProgramOpcode::TruncateToFloat: Expression = Input(0) + ".x"; break;
-			case EMaterialProgramOpcode::TruncateToFloat2: Expression = Input(0) + ".xy"; break;
-			case EMaterialProgramOpcode::TruncateToFloat3: Expression = Input(0) + ".xyz"; break;
 			case EMaterialProgramOpcode::DecodeNormalRG: Expression = std::format("DecodeTextureNormal({})", Input(0)); break;
 			case EMaterialProgramOpcode::BlendNormalsRNM: Expression = std::format("BlendSurfaceNormalsRNM({}, {})", Input(0), Input(1)); break;
 			}

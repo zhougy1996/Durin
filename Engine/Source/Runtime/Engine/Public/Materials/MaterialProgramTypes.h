@@ -72,10 +72,8 @@ namespace Durin
 		Splat2,
 		Splat3,
 		Splat4,
-		TruncateToFloat,
-		TruncateToFloat2,
-		TruncateToFloat3,
-		DecodeNormalRG,
+		// Retired channel opcodes 25-27 remain unassigned.
+		DecodeNormalRG = 28,
 		BlendNormalsRNM,
 		UVChannel = 31,
 		Sine,

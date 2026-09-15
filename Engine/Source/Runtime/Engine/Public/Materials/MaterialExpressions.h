@@ -921,69 +921,6 @@ namespace Durin
 
 	};
 
-	// Owns only the inputs and width required by TruncateToFloat.
-	DCLASS()
-	class DMaterialExpressionTruncateToScalar : public DMaterialExpressionNumeric
-	{
-		GENERATED_BODY()
-	public:
-		explicit DMaterialExpressionTruncateToScalar(const FObjectInitializer& Initializer) : Super(Initializer) {}
-
-		DPROPERTY()
-		FMaterialExpressionInput Input;
-
-		DPROPERTY()
-		std::vector<float> InputDefault;
-
-		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
-
-		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
-			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
-
-	};
-
-	// Owns only the inputs and width required by TruncateToFloat2.
-	DCLASS()
-	class DMaterialExpressionTruncateToVector2 : public DMaterialExpressionNumeric
-	{
-		GENERATED_BODY()
-	public:
-		explicit DMaterialExpressionTruncateToVector2(const FObjectInitializer& Initializer) : Super(Initializer) {}
-
-		DPROPERTY()
-		FMaterialExpressionInput Input;
-
-		DPROPERTY()
-		std::vector<float> InputDefault;
-
-		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
-
-		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
-			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
-
-	};
-
-	// Owns only the inputs and width required by TruncateToFloat3.
-	DCLASS()
-	class DMaterialExpressionTruncateToVector3 : public DMaterialExpressionNumeric
-	{
-		GENERATED_BODY()
-	public:
-		explicit DMaterialExpressionTruncateToVector3(const FObjectInitializer& Initializer) : Super(Initializer) {}
-
-		DPROPERTY()
-		FMaterialExpressionInput Input;
-
-		DPROPERTY()
-		std::vector<float> InputDefault;
-
-		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
-
-		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
-			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
-
-	};
-
 	// Owns only the inputs and width required by DecodeNormalRG.
 	DCLASS()
 	class DMaterialExpressionDecodeNormalRG : public DMaterialExpressionNumeric

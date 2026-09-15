@@ -63,10 +63,7 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::MakeFloat4:
 			case EMaterialProgramOpcode::Splat2:
 			case EMaterialProgramOpcode::Splat3:
-			case EMaterialProgramOpcode::Splat4:
-			case EMaterialProgramOpcode::TruncateToFloat:
-			case EMaterialProgramOpcode::TruncateToFloat2:
-			case EMaterialProgramOpcode::TruncateToFloat3: return "Channels";
+			case EMaterialProgramOpcode::Splat4: return "Channels";
 			default: return "Math";
 			}
 		}
@@ -101,9 +98,6 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::Splat2: return "Splat";
 			case EMaterialProgramOpcode::Splat3: return "Splat";
 			case EMaterialProgramOpcode::Splat4: return "Splat";
-			case EMaterialProgramOpcode::TruncateToFloat: return "Truncate to Float";
-			case EMaterialProgramOpcode::TruncateToFloat2: return "Truncate to Float2";
-			case EMaterialProgramOpcode::TruncateToFloat3: return "Truncate to Float3";
 			case EMaterialProgramOpcode::DecodeNormalRG: return "Decode Normal RG";
 			case EMaterialProgramOpcode::BlendNormalsRNM: return "Blend Normals RNM";
 			case EMaterialProgramOpcode::UVChannel: return "UV Channel";
@@ -168,9 +162,6 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::MakeFloat2: return DMaterialExpressionMakeVector2::StaticClass();
 			case EMaterialProgramOpcode::MakeFloat3: return DMaterialExpressionMakeVector3::StaticClass();
 			case EMaterialProgramOpcode::MakeFloat4: return DMaterialExpressionMakeVector4::StaticClass();
-			case EMaterialProgramOpcode::TruncateToFloat: return DMaterialExpressionTruncateToScalar::StaticClass();
-			case EMaterialProgramOpcode::TruncateToFloat2: return DMaterialExpressionTruncateToVector2::StaticClass();
-			case EMaterialProgramOpcode::TruncateToFloat3: return DMaterialExpressionTruncateToVector3::StaticClass();
 			default: return nullptr;
 			}
 		}
@@ -212,9 +203,6 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::Splat2:
 			case EMaterialProgramOpcode::Splat3:
 			case EMaterialProgramOpcode::Splat4: Entry.Description = "Replicates a scalar across vector components."; break;
-			case EMaterialProgramOpcode::TruncateToFloat:
-			case EMaterialProgramOpcode::TruncateToFloat2:
-			case EMaterialProgramOpcode::TruncateToFloat3: Entry.Description = "Keeps the leading components of a wider vector."; break;
 			case EMaterialProgramOpcode::DecodeNormalRG: Entry.Description = "Reconstructs a tangent-space normal from two channels."; break;
 			case EMaterialProgramOpcode::BlendNormalsRNM: Entry.Description = "Blends two tangent-space normals with RNM."; break;
 			case EMaterialProgramOpcode::UVChannel: Entry.Description = "Selects mesh UV channel 0-3 using an explicit scalar input, rounded and clamped."; break;
@@ -643,9 +631,6 @@ namespace Durin::Editor::Material
 				&& Entry.ResultType != EMaterialProgramValueType::Float4) continue;
 			if (Entry.Opcode == EMaterialProgramOpcode::Swizzle
 				&& Entry.ResultType != EMaterialProgramValueType::Float) continue;
-			if (Entry.Opcode == EMaterialProgramOpcode::TruncateToFloat
-				|| Entry.Opcode == EMaterialProgramOpcode::TruncateToFloat2
-				|| Entry.Opcode == EMaterialProgramOpcode::TruncateToFloat3) continue;
 			if (IsMaterialAdaptiveNumeric(Entry.Opcode))
 			{
 				const auto Type = SourceType.value_or(Entry.Opcode == EMaterialProgramOpcode::Normalize

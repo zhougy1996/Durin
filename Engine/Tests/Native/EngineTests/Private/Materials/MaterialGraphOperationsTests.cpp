@@ -598,9 +598,16 @@ TEST(FMaterialGraphOperationsTests, CatalogAndInspectionCoverTheClosedOpcodeDoma
 		Value <= static_cast<uint8>(EMaterialProgramOpcode::BlendNormalsRNM);
 		++Value)
 	{
-		if (Value == static_cast<uint8>(static_cast<EMaterialProgramOpcode>(3))
-			|| Value == static_cast<uint8>(static_cast<EMaterialProgramOpcode>(30)))
+		if (Value == 3 || Value == 30 || (Value >= 25 && Value <= 27))
+		{
+			EXPECT_FALSE(std::ranges::any_of(Catalog, [Value](const auto& Entry) {
+				return static_cast<uint8>(Entry.Opcode) == Value;
+			}));
+			for (uint8 Type = 0; Type <= static_cast<uint8>(EMaterialProgramValueType::Surface); ++Type)
+				EXPECT_FALSE(GetMaterialProgramNodeSignature(static_cast<EMaterialProgramOpcode>(Value),
+					static_cast<EMaterialProgramValueType>(Type)));
 			continue;
+		}
 		EXPECT_TRUE(std::ranges::any_of(Catalog,
 			[Value](const FMaterialGraphCatalogEntry& Entry) {
 				return static_cast<uint8>(Entry.Opcode) == Value;
@@ -668,8 +675,7 @@ TEST(FMaterialGraphOperationsTests, ParameterAndChannelPaletteGroupsWidths)
 	EXPECT_EQ(std::ranges::count(Rows, Op::Parameter, &FMaterialGraphCatalogEntry::Opcode), 2);
 	for (const auto Opcode : {Op::MakeFloat2, Op::Splat2, Op::Swizzle})
 		EXPECT_EQ(std::ranges::count(Rows, Opcode, &FMaterialGraphCatalogEntry::Opcode), 1);
-	for (const auto Opcode : {Op::MakeFloat3, Op::MakeFloat4, Op::Splat3, Op::Splat4,
-		Op::TruncateToFloat, Op::TruncateToFloat2, Op::TruncateToFloat3})
+	for (const auto Opcode : {Op::MakeFloat3, Op::MakeFloat4, Op::Splat3, Op::Splat4})
 		EXPECT_EQ(std::ranges::count(Rows, Opcode, &FMaterialGraphCatalogEntry::Opcode), 0);
 	const auto Mask = FMaterialGraphOperations::SearchCatalog("component mask", Type::Float4);
 	ASSERT_EQ(Mask.size(), 1u);

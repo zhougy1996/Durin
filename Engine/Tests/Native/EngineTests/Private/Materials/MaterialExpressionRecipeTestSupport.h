@@ -106,11 +106,17 @@ namespace Durin::Testing
 			case EMaterialProgramOpcode::Cosine: Expression = NewObject<DMaterialExpressionCosine>(nullptr, NAME_None); break;
 			case EMaterialProgramOpcode::TextureSample2D: Expression = NewObject<DMaterialExpressionTextureSample2D>(nullptr, NAME_None); break;
 			case EMaterialProgramOpcode::UVChannel: Expression = NewObject<DMaterialExpressionUVChannel>(nullptr, NAME_None); break;
-			case EMaterialProgramOpcode::TruncateToFloat3: Expression = NewObject<DMaterialExpressionTruncateToVector3>(nullptr, NAME_None); break;
 			case EMaterialProgramOpcode::Splat3: Expression = NewObject<DMaterialExpressionSplat3>(nullptr, NAME_None); break;
 			case EMaterialProgramOpcode::Subtract: Expression = NewObject<DMaterialExpressionSubtract>(nullptr, NAME_None); break;
 			case EMaterialProgramOpcode::MakeSurface: Expression = NewObject<DMaterialExpressionMakeSurface>(nullptr, NAME_None); break;
-			case EMaterialProgramOpcode::Swizzle: Expression = NewObject<DMaterialExpressionSwizzle>(nullptr, NAME_None); break;
+			case EMaterialProgramOpcode::Swizzle:
+			{
+				auto* Mask = NewObject<DMaterialExpressionSwizzle>(nullptr, NAME_None);
+				Mask->Components.clear();
+				for (uint8 Channel = 0; Channel <= static_cast<uint8>(Type); ++Channel) Mask->Components.push_back(Channel);
+				Expression = Mask;
+				break;
+			}
 			case EMaterialProgramOpcode::Splat2: Expression = NewObject<DMaterialExpressionSplat2>(nullptr, NAME_None); break;
 			case EMaterialProgramOpcode::MakeFloat2: Expression = NewObject<DMaterialExpressionMakeVector2>(nullptr, NAME_None); break;
 			case EMaterialProgramOpcode::DecodeNormalRG: Expression = NewObject<DMaterialExpressionDecodeNormalRG>(nullptr, NAME_None); break;

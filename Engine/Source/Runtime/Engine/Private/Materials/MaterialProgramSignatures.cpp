@@ -120,17 +120,6 @@ namespace Durin
 			Signature.InputCount = 1;
 			Signature.Inputs[0] = std::span(Types).first(4);
 			break;
-		case EMaterialProgramOpcode::TruncateToFloat:
-		case EMaterialProgramOpcode::TruncateToFloat2:
-		case EMaterialProgramOpcode::TruncateToFloat3:
-		{
-			const uint8 Width = static_cast<uint8>(Opcode)
-				- static_cast<uint8>(EMaterialProgramOpcode::TruncateToFloat) + 1;
-			if (ResultType != Types[Width - 1]) return std::nullopt;
-			Signature.InputCount = 1;
-			Signature.Inputs[0] = std::span(Types).subspan(Width, 4 - Width);
-			break;
-		}
 		case EMaterialProgramOpcode::DecodeNormalRG:
 			if (ResultType != Type::Float3) return std::nullopt;
 			Same(1, Type::Float2);

@@ -731,7 +731,8 @@ TEST(FMaterialProgramCompilerTests, CustomNumericTextureAndResourceFreeProgramsC
 	const auto Sample = Add(EMaterialProgramOpcode::TextureSample2D, EMaterialProgramValueType::Float4, {}, {TextureValue, UVValue});
 	const auto Product = Add(EMaterialProgramOpcode::Multiply, EMaterialProgramValueType::Float4, {}, {TintValue, Sample});
 	Input.IR.SurfaceRoot.Inputs[0].bExpression = true;
-	Input.IR.SurfaceRoot.Inputs[0].ExpressionIndex = Add(EMaterialProgramOpcode::TruncateToFloat3, EMaterialProgramValueType::Float3, {}, {Product});
+	Input.IR.SurfaceRoot.Inputs[0].ExpressionIndex = Add(EMaterialProgramOpcode::Swizzle, EMaterialProgramValueType::Float3, {}, {Product});
+	Input.IR.Nodes.back().Payload = FMaterialIRSwizzle{3, {0, 1, 2}};
 	Input.IR.SurfaceRoot.Inputs[7].bExpression = true;
 	Input.IR.SurfaceRoot.Inputs[7].ExpressionIndex = Add(EMaterialProgramOpcode::Parameter, EMaterialProgramValueType::Float, Amount);
 	const auto Compiled = CompileMaterialIR(Input);
@@ -847,7 +848,8 @@ TEST(FMaterialProgramCompilerTests, ExplicitUVAndSurfaceCompositionUseOnlyAuthor
 	const auto Cos = Add(EMaterialProgramOpcode::Cosine, EMaterialProgramValueType::Float, {AngleValue});
 	const auto Factor = Add(EMaterialProgramOpcode::MakeFloat2, EMaterialProgramValueType::Float2, {Sin, Cos});
 	const auto Product = Add(EMaterialProgramOpcode::Multiply, EMaterialProgramValueType::Float2, {UV, Factor});
-	const auto X = Add(EMaterialProgramOpcode::TruncateToFloat, EMaterialProgramValueType::Float, {Product});
+	const auto X = Add(EMaterialProgramOpcode::Swizzle, EMaterialProgramValueType::Float, {Product});
+	Input.IR.Nodes[X].Payload = FMaterialIRSwizzle{1, {0}};
 	const auto Color = Add(EMaterialProgramOpcode::MakeFloat3, EMaterialProgramValueType::Float3, {X, Sin, Cos});
 	const auto Normal = Add(EMaterialProgramOpcode::Constant, EMaterialProgramValueType::Float3, {}, {}, {0, 0, 1, 0});
 	const auto Zero = Add(EMaterialProgramOpcode::Constant, EMaterialProgramValueType::Float);

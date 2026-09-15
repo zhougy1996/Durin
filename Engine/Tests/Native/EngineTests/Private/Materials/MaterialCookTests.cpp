@@ -293,11 +293,11 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 		return Testing::MakeLink(Graph.Add(Opcode, Type, std::move(Inputs), Id, {}, Definitions));
 	};
 	const auto TintNode = Add(EMaterialProgramOpcode::Parameter, EMaterialProgramValueType::Float4, Tint.Id);
-	Graph.Outputs.BaseColor = Add(EMaterialProgramOpcode::TruncateToFloat3, EMaterialProgramValueType::Float3, {}, {TintNode});
+	Graph.Outputs.BaseColor = Add(EMaterialProgramOpcode::Swizzle, EMaterialProgramValueType::Float3, {}, {TintNode});
 	const auto TextureNode = Add(EMaterialProgramOpcode::TextureParameter, EMaterialProgramValueType::Texture2D, Texture.Id);
 	const auto UV = Add(EMaterialProgramOpcode::Constant, EMaterialProgramValueType::Float2);
 	const auto Sample = Add(EMaterialProgramOpcode::TextureSample2D, EMaterialProgramValueType::Float4, {}, {TextureNode, UV});
-	Graph.Outputs.Emissive = Add(EMaterialProgramOpcode::TruncateToFloat3, EMaterialProgramValueType::Float3, {}, {Sample});
+	Graph.Outputs.Emissive = Add(EMaterialProgramOpcode::Swizzle, EMaterialProgramValueType::Float3, {}, {Sample});
 	ASSERT_TRUE(Graph.Apply(*Source));
 	ASSERT_NE(Source->GetAcceptedCompiledProgram(), nullptr);
 	const auto ExpectedLayout = Source->GetAcceptedCompiledProgram()->Layout;
