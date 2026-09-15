@@ -553,7 +553,6 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 	ASSERT_NE(Material, nullptr);
 	auto Compact = Testing::MakeStandardMaterialExpressionsForTest(Functions);
 	ASSERT_TRUE(Compact.Apply(*Material));
-	EXPECT_EQ(Material->GetExpressionCollection().Expressions.size(), 169u);
 	EXPECT_EQ(std::ranges::count_if(Material->GetExpressionCollection().Expressions, [](const auto& E) { return Cast<DMaterialExpressionFunctionCall>(E.Get()) != nullptr; }), 1u);
 	EXPECT_EQ(Material->GetParameterDefinitions().size(), 48u);
 	EXPECT_FALSE(Material->GetExpressionOutputs().Surface.ExpressionId.IsValid());

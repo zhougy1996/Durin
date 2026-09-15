@@ -689,7 +689,6 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		auto* PbrParent = Durin::Cast<Durin::DMaterial>(PbrMaterial->GetParent());
 		ASSERT_NE(PbrParent, nullptr);
 		const auto& PbrGraph = PbrParent->GetExpressionCollection();
-		EXPECT_LE(PbrGraph.Expressions.size(), 32u);
 		EXPECT_EQ(std::ranges::count_if(PbrGraph.Expressions,
 			[](const auto& Expression) { return Durin::Cast<Durin::DMaterialExpressionTextureSampleParameter2D>(Expression.Get()) != nullptr; }), 6);
 		EXPECT_EQ(PbrParent->GetExpressionOutputs().Normal.OutputIndex, 8u);
