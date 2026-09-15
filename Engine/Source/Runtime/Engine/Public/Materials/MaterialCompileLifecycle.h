@@ -84,7 +84,9 @@ namespace Durin
 		uint64 Generation = 0;
 	};
 
-	// Immutable value-owned request captured on GameThread before Worker admission.
+	struct FMaterialPreparedProgram;
+
+	// Immutable snapshot captured on GameThread before Worker admission.
 	struct FMaterialCompileRequest
 	{
 		FObjectHandle Owner;
@@ -93,7 +95,7 @@ namespace Durin
 		uint64 DependencyRevision = 0;
 		uint64 ParentChainRevision = 0;
 		FMaterialProgramIdentity ProgramIdentity;
-		FMaterialIRCompilerInput CompilerInput;
+		std::shared_ptr<const FMaterialPreparedProgram> PreparedProgram;
 		std::string AssetPath;
 		std::string Target;
 		bool bForceRecompile = false;

@@ -1,3 +1,4 @@
+#include "MaterialPreparedProgram.h"
 #include "Threading/TaskComposition.h"
 #include "Asset/OfflinePreparation.h"
 #include "Asset/Asset.h"
@@ -44,17 +45,20 @@ namespace Durin
 
 		auto EstimateRequestBytes(const FMaterialCompileRequest& Request) -> uint64
 		{
-			uint64 Bytes = sizeof(Request) + Request.AssetPath.size()
+			uint64 Bytes = sizeof(Request) + sizeof(FMaterialPreparedProgram)
+				+ Request.PreparedProgram->Normalized.CanonicalBytes.size()
+				+ Request.PreparedProgram->Normalized.Layout.Fields.size() * sizeof(FMaterialRenderField)
+				+ Request.AssetPath.size()
 				+ Request.Target.size()
-				+ Request.CompilerInput.Environment.CompilerIdentity.size();
-			for (const FMaterialIRNode& Node : Request.CompilerInput.IR.Nodes)
+				+ Request.PreparedProgram->Environment.CompilerIdentity.size();
+			for (const FMaterialIRNode& Node : Request.PreparedProgram->Normalized.IR.Nodes)
 				Bytes += sizeof(Node) + Node.Inputs.size() * sizeof(uint32);
-			for (const auto& Source : Request.CompilerInput.Sources)
+			for (const auto& Source : Request.PreparedProgram->Normalized.Sources)
 				Bytes += sizeof(Source) + Source.FunctionAssetPath.size() + Source.CallPath.size() * sizeof(FGuid);
-			Bytes += Request.CompilerInput.Parameters.size()
+			Bytes += Request.PreparedProgram->Normalized.ActiveParameters.size()
 				* sizeof(FMaterialCompilerParameterDeclaration);
 			for (const FMaterialCompilerDependency& Dependency
-				: Request.CompilerInput.Environment.Dependencies)
+				: Request.PreparedProgram->Environment.Dependencies)
 				Bytes += sizeof(Dependency) + Dependency.VirtualPath.size();
 			return Bytes;
 		}
@@ -153,7 +157,7 @@ namespace Durin
 		struct FMaterialCompileFlight
 		{
 			FMaterialCompileFlightKey Key;
-			FMaterialIRCompilerInput Input;
+			std::shared_ptr<const FMaterialPreparedProgram> PreparedProgram;
 			std::vector<FMaterialCompileRequest> Consumers;
 			FTaskCancellationSource Cancellation;
 			FTaskHandle Task;
@@ -272,7 +276,7 @@ namespace Durin
 
 					NewFlight = std::make_shared<FMaterialCompileFlight>();
 					NewFlight->Key = Key;
-					NewFlight->Input = Request.CompilerInput;
+					NewFlight->PreparedProgram = Request.PreparedProgram;
 					NewFlight->Consumers.push_back(std::move(Request));
 					Flights.emplace(Key, NewFlight);
 					++Diagnostics.AcceptedRequests;
@@ -292,8 +296,8 @@ namespace Durin
 							CompleteFlight(Flight, {}, EMaterialCompileState::Canceled);
 							return;
 						}
-						FMaterialCompilerResult Compiled = CompileMaterialIR(
-							Flight->Input, Flight->Key.bForceRecompile);
+						FMaterialCompilerResult Compiled = CompilePreparedMaterialProgram(
+							*Flight->PreparedProgram, Flight->Key.bForceRecompile);
 						if (Token.IsCancellationRequested())
 						{
 							CompleteFlight(Flight, {}, EMaterialCompileState::Canceled);
@@ -394,7 +398,7 @@ namespace Durin
 					.DependencyRevision = Request.DependencyRevision,
 					.ParentChainRevision = Request.ParentChainRevision,
 					.ProgramIdentity = Request.ProgramIdentity,
-					.StaticProperties = Request.CompilerInput.StaticProperties,
+					.StaticProperties = Request.PreparedProgram->StaticProperties,
 					.Target = Request.Target,
 					.State = EMaterialCompileState::Ready,
 					.Category = EMaterialCompileResultCategory::None,
@@ -417,7 +421,7 @@ namespace Durin
 					.DependencyRevision = Request.DependencyRevision,
 					.ParentChainRevision = Request.ParentChainRevision,
 					.ProgramIdentity = Request.ProgramIdentity,
-					.StaticProperties = Request.CompilerInput.StaticProperties,
+					.StaticProperties = Request.PreparedProgram->StaticProperties,
 					.Target = Request.Target,
 					.State = State,
 					.Category = Category,
@@ -499,7 +503,7 @@ namespace Durin
 						.DependencyRevision = Consumer.DependencyRevision,
 					.ParentChainRevision = Consumer.ParentChainRevision,
 						.ProgramIdentity = Consumer.ProgramIdentity,
-						.StaticProperties = Consumer.CompilerInput.StaticProperties,
+						.StaticProperties = Consumer.PreparedProgram->StaticProperties,
 						.Target = Consumer.Target,
 						.State = State,
 						.Category = Category,
@@ -837,8 +841,8 @@ namespace Durin
 			}
 			Material.CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Pending;
 			Material.CompilationOwner.RequestedFunctionOwners = std::move(FunctionOwners);
-			const FMaterialNormalizationResult Normalized =
-					NormalizeMaterialIR(Input);
+			const auto Prepared = std::make_shared<const FMaterialPreparedProgram>(PrepareMaterialProgram(Input));
+			const auto& Normalized = Prepared->Normalized;
 			Material.CompilationOwner.RequestedExpressionSources = Normalized.Sources;
 				Material.CompilationOwner.MaterialCompileStatus.RequestGeneration = AdvanceNonzero(
 					Material.CompilationOwner.MaterialCompileStatus.RequestGeneration);
@@ -859,7 +863,7 @@ namespace Durin
 					.DependencyRevision = Material.CompilationOwner.MaterialCompileStatus.DependencyRevision,
 					.ParentChainRevision = Material.CompilationOwner.MaterialCompileStatus.ParentChainRevision,
 					.ProgramIdentity = Normalized.Identity,
-					.CompilerInput = std::move(Input),
+					.PreparedProgram = Prepared,
 					.AssetPath = Material.GetObjectPath(),
 					.Target = Material.CompilationOwner.MaterialCompileStatus.Target,
 					.bForceRecompile = bForceRecompile,
@@ -904,7 +908,7 @@ namespace Durin
 								.DependencyRevision = Request.DependencyRevision,
 								.ParentChainRevision = Request.ParentChainRevision,
 								.ProgramIdentity = Request.ProgramIdentity,
-								.StaticProperties = Request.CompilerInput.StaticProperties,
+								.StaticProperties = Request.PreparedProgram->StaticProperties,
 								.Target = Request.Target,
 								.State = EMaterialCompileState::Ready,
 								.CacheOutcome = EMaterialCompileCacheOutcome::RetainedHit,
@@ -918,8 +922,8 @@ namespace Durin
 					|| !Compilation || !Compilation->IsAccepting()
 					|| !IsTaskSchedulerRunning())
 				{
-					FMaterialCompilerResult Compiled = CompileMaterialIR(
-						Request.CompilerInput, bForceRecompile);
+					FMaterialCompilerResult Compiled = CompilePreparedMaterialProgram(
+						*Request.PreparedProgram, bForceRecompile);
 					FMaterialCompileResult Result{
 						.Owner = Request.Owner,
 						.AuthoredRevision = Request.AuthoredRevision,
@@ -927,7 +931,7 @@ namespace Durin
 						.DependencyRevision = Request.DependencyRevision,
 					.ParentChainRevision = Request.ParentChainRevision,
 						.ProgramIdentity = Request.ProgramIdentity,
-						.StaticProperties = Request.CompilerInput.StaticProperties,
+						.StaticProperties = Request.PreparedProgram->StaticProperties,
 						.Target = Request.Target,
 						.State = Compiled ? EMaterialCompileState::Ready
 							: EMaterialCompileState::Failed,

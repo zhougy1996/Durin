@@ -337,6 +337,34 @@ TEST(FMaterialProgramNormalizationTests,
 	ExpectEquivalent(std::move(WithDeadNode));
 }
 
+TEST(FMaterialProgramNormalizationTests, MaximumExpandedGraphPreservesCanonicalOrdering)
+{
+	using namespace Durin;
+	auto Input = MakeSyntheticMaterialCompilerInput();
+	Input.IR = MakeDefaultMaterialCompilerIR();
+	Input.Parameters.clear(); Input.Sources.clear();
+	// A balanced tree reaches the expanded-node bound without exceeding depth.
+	for (uint32 Index = 0; Index < MaterialFunctionMaxExpandedNodes / 2; ++Index)
+		Input.IR.Nodes.push_back({.Opcode = EMaterialProgramOpcode::Constant,
+			.Payload = FMaterialProgramLiteral{static_cast<float>(Index % 17) / 17.f}});
+	for (uint32 Index = 0; Input.IR.Nodes.size() < MaterialFunctionMaxExpandedNodes - 1; Index += 2)
+		Input.IR.Nodes.push_back({.Opcode = EMaterialProgramOpcode::Add, .Inputs = {Index, Index + 1}});
+	Input.IR.SurfaceRoot.Inputs[2].bExpression = true;
+	Input.IR.SurfaceRoot.Inputs[2].ExpressionIndex = static_cast<uint32>(Input.IR.Nodes.size() - 1);
+	Input.IR.Nodes.push_back({.Opcode = EMaterialProgramOpcode::Constant,
+		.Payload = FMaterialProgramLiteral{99.f}}); // Unreachable.
+	const auto Baseline = NormalizeMaterialIR(Input);
+	ASSERT_TRUE(Baseline);
+	EXPECT_EQ(Baseline.IR.Nodes.size(), MaterialFunctionMaxExpandedNodes - 1);
+	for (auto& Node : Input.IR.Nodes)
+		if (Node.Opcode == EMaterialProgramOpcode::Add) std::swap(Node.Inputs[0], Node.Inputs[1]);
+	ReorderIndependentMaterialIRNodes(Input);
+	const auto Reordered = NormalizeMaterialIR(Input);
+	ASSERT_TRUE(Reordered);
+	EXPECT_EQ(Reordered.CanonicalBytes, Baseline.CanonicalBytes);
+	EXPECT_EQ(Reordered.Identity, Baseline.Identity);
+}
+
 TEST(FMaterialProgramNormalizationTests, SharedDagKeysRemainBoundedAtMaximumDepth)
 {
 	using namespace Durin;

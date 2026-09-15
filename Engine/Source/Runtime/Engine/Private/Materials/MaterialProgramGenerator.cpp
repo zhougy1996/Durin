@@ -1,3 +1,4 @@
+#include "MaterialPreparedProgram.h"
 #include "Materials/MaterialProgramCompiler.h"
 
 #include "Materials/MaterialTypes.h"
@@ -670,29 +671,37 @@ float4 FragmentMain(
 		return {};
 	}
 
-	template<typename TInput, typename TNormalize>
-	static auto CompileMaterialInput(const TInput& Input, TNormalize Normalize,
+	auto PrepareMaterialProgram(const FMaterialIRCompilerInput& Input) -> FMaterialPreparedProgram
+	{
+		const auto Begin = std::chrono::steady_clock::now();
+		FMaterialPreparedProgram Prepared;
+		Prepared.Normalized = NormalizeMaterialIR(Input);
+		Prepared.NormalizationMicroseconds = std::chrono::duration_cast<std::chrono::microseconds>(
+			std::chrono::steady_clock::now() - Begin).count();
+		Prepared.StaticProperties = Input.StaticProperties;
+		Prepared.Environment = Input.Environment;
+		return Prepared;
+	}
+
+	auto CompilePreparedMaterialProgram(const FMaterialPreparedProgram& Input,
 		bool bForceRecompile) -> FMaterialCompilerResult
 	{
 		FMaterialCompilerResult Result;
 		Result.CompilerIdentity = Input.Environment.CompilerIdentity;
 		Result.Target = Input.Environment.Target;
 		Result.PassContractVersion = Input.Environment.PassContractVersion;
-		const auto NormalizeBegin = std::chrono::steady_clock::now();
-		FMaterialNormalizationResult Normalized = Normalize(Input);
+		Result.Timings.NormalizationMicroseconds = Input.NormalizationMicroseconds;
 		const auto GenerateBegin = std::chrono::steady_clock::now();
-		Result.Timings.NormalizationMicroseconds =
-			std::chrono::duration_cast<std::chrono::microseconds>(
-				GenerateBegin - NormalizeBegin).count();
+		const auto& Normalized = Input.Normalized;
 		if (!Normalized)
 		{
-			Result.Diagnostics = std::move(Normalized.Diagnostics);
+			Result.Diagnostics = Normalized.Diagnostics;
 			return Result;
 		}
 		Result.Identity = Normalized.Identity;
-		Result.IR = std::move(Normalized.IR);
-		Result.ActiveParameters = std::move(Normalized.ActiveParameters);
-		Result.Layout = std::move(Normalized.Layout);
+		Result.IR = Normalized.IR;
+		Result.ActiveParameters = Normalized.ActiveParameters;
+		Result.Layout = Normalized.Layout;
 		Result.Dependencies = Input.Environment.Dependencies;
 		auto Generated = GenerateMaterialProgramSlang(Result.IR, Result.Layout);
 		if (!Generated)
@@ -748,6 +757,6 @@ float4 FragmentMain(
 	}
 	auto CompileMaterialIR(const FMaterialIRCompilerInput& Input, bool bForceRecompile) -> FMaterialCompilerResult
 	{
-		return CompileMaterialInput(Input, NormalizeMaterialIR, bForceRecompile);
+		return CompilePreparedMaterialProgram(PrepareMaterialProgram(Input), bForceRecompile);
 	}
 }

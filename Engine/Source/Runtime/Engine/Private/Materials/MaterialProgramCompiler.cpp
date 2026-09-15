@@ -10,6 +10,7 @@
 #include <functional>
 #include <numeric>
 #include <tuple>
+#include <unordered_map>
 
 namespace Durin
 {
@@ -280,19 +281,23 @@ namespace Durin
 		};
 		const auto Count = Nodes.size();
 		std::vector<FStructuralKey> Keys(Count);
-		std::vector<int8> Comparisons(Count * Count, 2);
+		// Memoization is optional: cap entries linearly even for adversarial DAGs.
+		std::unordered_map<uint64, int8> Comparisons;
+		const size_t MaxComparisonEntries = Count * 8;
 		std::function<int8(uint32, uint32)> Compare = [&](uint32 A, uint32 B) -> int8 {
 			if (A == B) return 0;
-			auto& Cached = Comparisons[A * Count + B];
-			if (Cached != 2) return Cached;
+			const uint64 Pair = (uint64(std::min(A, B)) << 32) | std::max(A, B);
+			if (const auto Cached = Comparisons.find(Pair); Cached != Comparisons.end())
+				return A < B ? Cached->second : -Cached->second;
 			const auto& Left = Keys[A];
 			const auto& Right = Keys[B];
 			int8 Order = Left.Header < Right.Header ? -1 : Left.Header > Right.Header ? 1 : 0;
 			for (size_t Index = 0; Order == 0 && Index < std::min(Left.Inputs.size(), Right.Inputs.size()); ++Index)
 				Order = Compare(Left.Inputs[Index], Right.Inputs[Index]);
 			if (Order == 0) Order = Left.Inputs.size() < Right.Inputs.size() ? -1 : Left.Inputs.size() > Right.Inputs.size() ? 1 : 0;
-			Cached = Order;
-			Comparisons[B * Count + A] = -Order;
+			// Recursive calls can rehash; retain no map reference across them.
+			if (Comparisons.size() < MaxComparisonEntries)
+				Comparisons.emplace(Pair, A < B ? Order : -Order);
 			return Order;
 		};
 		// Validation guarantees topological order, so all child keys already exist.
