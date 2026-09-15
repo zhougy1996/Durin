@@ -231,18 +231,20 @@ fallback into the definition value, connects the input, and records program,
 presentation, and value as one Undo/Redo transaction. `Add Texture` explicitly
 creates one TextureSampleParameter2D with default mesh UV0 and connects its
 RGB or scalar channel output directly. Normal uses the same combined sample owner
-with its decoded tangent-space Normal output and flat RG fallback. Sampling and
+with Normal usage, decoded tangent-space RGB output and flat RG fallback. Sampling and
 RG decoding share one fetch without a flat-normal blend. The reusable SampleNormal
 function remains available for explicit strength and RNM composition. The entire
 branch and connection form one candidate-validated
 Undo/Redo transaction. Connect a TextureCoordinates or other Float2 expression
 for custom UVs; texture objects remain available for function inputs and independent
 sampling. Sampling nodes show RGB, R, G, B, A, and RGBA in that
-order by default. The Advanced pins toggle reveals Texture resource and decoded Normal outputs;
+order by default. The Advanced pins toggle reveals the Texture resource output;
 connected outputs remain visible even when advanced pins are hidden. Display order
 and visibility never change serialized output indices. RG selection uses an explicit
 Component Mask node. Sample output 6 is invalid; there is no legacy RG migration or
-compatibility path. Texture and Normal keep indices 7 and 8.
+compatibility path. Texture keeps index 7. The separate Normal pin is retired;
+existing serialized index-8 links retain their decode semantics and use the RGB
+canvas anchor, while new normal connections use RGB index 1.
 Component Mask titles show selected channels (for example, `Component Mask RG`).
 R/G/B/A checkboxes determine output width without a separate width selector.
 Empty masks, invalid source channels, and incompatible consumers reject atomically.

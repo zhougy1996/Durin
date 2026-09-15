@@ -408,6 +408,57 @@ TEST(FMaterialExpressionTests, BuildNestedTextureDefaultsAreValuesAndRecursionIs
 	EXPECT_EQ(Recursive.Diagnostics[0].CallPath, std::vector<FGuid>{Call->Id});
 }
 
+TEST(FMaterialExpressionTests, NormalRGBSamplingInFunctionsFollowsResourceUsageAndFlatFallback)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	FScopedOfflinePreparation Offline;
+	using Type = EMaterialProgramValueType;
+	TStrongObjectPtr<DMaterialFunction> Function(NewObject<DMaterialFunction>(nullptr, NAME_None));
+	auto* Input = NewObject<DMaterialExpressionFunctionInput>(Function.Get(), NAME_None);
+	auto* Sample = NewObject<DMaterialExpressionTextureSample2D>(Function.Get(), NAME_None);
+	auto* Output = NewObject<DMaterialExpressionFunctionOutput>(Function.Get(), NAME_None);
+	Input->Id = FGuid::NewGuid(); Input->PortId = FGuid::NewGuid();
+	Sample->Id = FGuid::NewGuid(); Sample->Texture = {Input->Id};
+	Output->Id = FGuid::NewGuid(); Output->PortId = FGuid::NewGuid(); Output->Source = {Sample->Id, 1};
+	FMaterialExpressionFunctionBody Body;
+	Body.Expressions = {Input, Sample, Output}; Body.AssetPath = "/Direct/SampleNormalRGB";
+	Body.Signature.Inputs = {{.Id = Input->PortId, .Type = Type::Texture2D, .Name = "Texture",
+		.Default = {.Kind = EMaterialFunctionDefaultKind::Texture, .TextureFallback = EMaterialTextureFallback::FlatRGNormal}}};
+	Body.Signature.Outputs = {{.Id = Output->PortId, .Type = Type::Float3, .Name = "Normal"}};
+	ASSERT_TRUE(Function->SetFunctionExpressions(Body.Signature, Body.Expressions));
+	TStrongObjectPtr<DMaterialExpressionTextureParameter> Texture(NewObject<DMaterialExpressionTextureParameter>(nullptr, NAME_None));
+	Texture->Id = FGuid::NewGuid(); Texture->Metadata = {.Id = FGuid::NewGuid(), .Name = "NormalTexture"};
+	TStrongObjectPtr<DMaterialExpressionFunctionCall> Call(NewObject<DMaterialExpressionFunctionCall>(nullptr, NAME_None));
+	Call->Id = FGuid::NewGuid(); Call->Function = Function.Get();
+	Call->Inputs = {{Input->PortId, Type::Texture2D, {Texture->Id}}};
+	Call->Outputs = {{Output->PortId, Type::Float3}};
+	const std::array<DMaterialExpression*, 2> Graph{Texture.Get(), Call.Get()};
+	const std::array Roots{FMaterialExpressionInput{Call->Id, 0, Output->PortId}};
+	FMaterialExpressionBuildEnvironment Environment{.FindFunction = [&](const DMaterialFunctionInterface&) { return std::optional(Body); }};
+	FXxHash128 ColorFingerprint, NormalFingerprint;
+	FMaterialExpressionSurfaceOutputs Surface; Surface.Normal = Roots[0];
+	ASSERT_TRUE(FMaterialExpressionBuildContext::ValidateSurface(Graph, Surface, &ColorFingerprint));
+	const auto Color = BuildMaterialExpressionGraph(Graph, Roots, Environment);
+	ASSERT_TRUE(Color);
+	EXPECT_EQ(Color.IR.Nodes[Color.Roots[0]].Opcode, EMaterialProgramOpcode::Swizzle);
+	Texture->TextureUsage = ETextureUsage::Normal;
+	ASSERT_TRUE(FMaterialExpressionBuildContext::ValidateSurface(Graph, Surface, &NormalFingerprint));
+	EXPECT_NE(ColorFingerprint, NormalFingerprint);
+	const auto Normal = BuildMaterialExpressionGraph(Graph, Roots, Environment);
+	ASSERT_TRUE(Normal);
+	EXPECT_EQ(Normal.IR.Nodes[Normal.Roots[0]].Opcode, EMaterialProgramOpcode::DecodeNormalRG);
+	EXPECT_EQ(std::ranges::count(Normal.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &FMaterialIRNode::Opcode), 1);
+	Call->Inputs.clear();
+	const auto Flat = BuildMaterialExpressionGraph(Graph, Roots, Environment);
+	ASSERT_TRUE(Flat);
+	const auto& Decoded = Flat.IR.Nodes[Flat.Roots[0]];
+	ASSERT_EQ(Decoded.Opcode, EMaterialProgramOpcode::DecodeNormalRG);
+	const auto& RG = Flat.IR.Nodes[Decoded.Inputs[0]];
+	EXPECT_EQ(Flat.IR.Nodes[RG.Inputs[0]].GetLiteral(), (FMaterialProgramLiteral{.5f, .5f, 1, 1}));
+	EXPECT_EQ(std::ranges::count(Flat.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &FMaterialIRNode::Opcode), 0);
+}
+
 TEST(FMaterialExpressionTests, FunctionPortsBroadcastScalarsToEveryVectorWidth)
 {
 	using namespace Durin;

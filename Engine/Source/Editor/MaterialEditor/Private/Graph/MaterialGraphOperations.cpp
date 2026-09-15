@@ -408,7 +408,7 @@ namespace Durin::Editor::Material
 			Texture->DefaultValue.TextureFallback = EMaterialTextureFallback::FlatRGNormal;
 		}
 		const auto Id = Texture->Id, ParameterId = Texture->Metadata.Id;
-		constexpr std::array<uint8, 8> Channels{1, 8, 4, 3, 2, 1, 5, 2};
+		constexpr std::array<uint8, 8> Channels{1, 1, 4, 3, 2, 1, 5, 2};
 		*Link = {Id, Channels[static_cast<size_t>(Request.Output)]}; State.Outputs.Surface = {};
 		State.Presentation.Nodes.push_back({Id, Request.X, Request.Y, Texture->Metadata.DisplayName});
 		State.Expressions.emplace_back(Texture.Get());

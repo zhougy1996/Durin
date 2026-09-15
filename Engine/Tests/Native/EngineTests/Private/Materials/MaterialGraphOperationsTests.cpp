@@ -1226,9 +1226,9 @@ TEST(FMaterialGraphOperationsTests, TextureOutputsHideUnusedAdvancedPinsWithoutC
 	}
 	FMaterialGraphCanvasTestAccess::ShowAdvanced(Canvas);
 	Sample = FindViewNode(FMaterialGraphCanvasTestAccess::Prepare(Canvas, *Material), SampleId);
-	ASSERT_EQ(Sample->Outputs.size(), 8u);
+	ASSERT_EQ(Sample->Outputs.size(), 7u);
 	EXPECT_EQ(Sample->Outputs[6].OutputIndex, 7u);
-	EXPECT_EQ(Sample->Outputs[7].OutputIndex, 8u);
+	EXPECT_FALSE(std::ranges::any_of(Sample->Outputs, [](const auto& Pin) { return Pin.Name == "Normal"; }));
 	FMaterialGraphCanvasTestAccess::HideAdvanced(Canvas);
 	FMaterialGraphDocument Document(*Material);
 	const auto SecondSample = Testing::CreateGraphCatalogNode(Document, EMaterialProgramOpcode::TextureSample2D, EMaterialProgramValueType::Float4, {SampleId, 7});
@@ -1243,7 +1243,7 @@ TEST(FMaterialGraphOperationsTests, TextureOutputsHideUnusedAdvancedPinsWithoutC
 		return Entry.Opcode == EMaterialProgramOpcode::Normalize && Entry.ResultType == EMaterialProgramValueType::Float3;
 	});
 	ASSERT_NE(NormalizeEntry, NormalizeCatalog.end());
-	const auto NormalConsumer = Document.CreateCatalogNode(*NormalizeEntry, 0, 0, {SampleId, 8});
+	const auto NormalConsumer = Document.CreateCatalogNode(*NormalizeEntry, 0, 0, {SampleId, 1});
 	ASSERT_TRUE(NormalConsumer);
 	const auto NormalView = Document.Inspect();
 	ASSERT_EQ(FindViewNode(NormalView, NormalConsumer.GeneratedNodeIds.front())->Inputs.front().SourceType, EMaterialProgramValueType::Float3);
@@ -1251,11 +1251,16 @@ TEST(FMaterialGraphOperationsTests, TextureOutputsHideUnusedAdvancedPinsWithoutC
 	Sample = FindViewNode(FMaterialGraphCanvasTestAccess::Prepare(Canvas, *Material), SampleId);
 	ASSERT_EQ(Sample->Outputs.size(), 7u);
 	EXPECT_EQ(Sample->Outputs[6].OutputIndex, 7u);
-	ASSERT_TRUE(Document.AssignMaterialOutput(EMaterialSurfaceOutput::Normal, {SampleId, 8}));
+	// A retained pre-change link must not bring the retired pin back into view.
+	auto LegacyOutputs = Material->GetExpressionOutputs();
+	LegacyOutputs.Normal = {SampleId, 8};
+	std::vector<DMaterialExpression*> LegacyExpressions;
+	for (const auto& Expression : Material->GetExpressionCollection().Expressions) LegacyExpressions.push_back(Expression.Get());
+	ASSERT_TRUE(Material->SetMaterialExpressions(LegacyExpressions, LegacyOutputs));
 	Sample = FindViewNode(FMaterialGraphCanvasTestAccess::Prepare(Canvas, *Material), SampleId);
-	ASSERT_EQ(Sample->Outputs.size(), 8u);
-	EXPECT_EQ(Sample->Outputs.back().Name, "Normal");
-	EXPECT_EQ(Sample->Outputs.back().OutputIndex, 8u);
+	ASSERT_EQ(Sample->Outputs.size(), 7u);
+	EXPECT_FALSE(std::ranges::any_of(Sample->Outputs, [](const auto& Pin) { return Pin.Name == "Normal"; }));
+	EXPECT_EQ(Material->GetExpressionOutputs().Normal.OutputIndex, 8u);
 	ASSERT_TRUE(Document.AssignMaterialOutput(EMaterialSurfaceOutput::Normal, {}));
 	const std::array Consumers{SecondSample.GeneratedNodeIds.front(), Decode.GeneratedNodeIds.front()};
 	ASSERT_TRUE(FMaterialGraphOperations::RemoveNodes(*Material, Consumers));
@@ -3079,7 +3084,7 @@ TEST(FMaterialGraphOperationsTests,
 			.Y = 200}, Transactions.Get());
 	ASSERT_TRUE(Textured) << Textured.Message;
 	ASSERT_EQ(Textured.GeneratedNodeIds.size(), 1u);
-	EXPECT_EQ(Material->GetExpressionOutputs().Normal.OutputIndex, 8u);
+	EXPECT_EQ(Material->GetExpressionOutputs().Normal.OutputIndex, 1u);
 	const FMaterialNormalizationResult Normalized = Normalize(*Material);
 	ASSERT_TRUE(Normalized);
 	EXPECT_EQ(std::ranges::count(Normalized.IR.Nodes, EMaterialProgramOpcode::TextureSample2D,
@@ -3102,7 +3107,7 @@ TEST(FMaterialGraphOperationsTests, SurfaceTexturesUseCompactSamplesAndPreserveU
 	// Keep every output and Undo/Redo assertion without compiling each intermediate graph.
 	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	Durin::Tests::FTestTransactorOwner Transactions;
-	constexpr std::array<uint8, 8> Channels{1, 8, 4, 3, 2, 1, 5, 2};
+	constexpr std::array<uint8, 8> Channels{1, 1, 4, 3, 2, 1, 5, 2};
 	for (uint32 Index = 0; Index < Channels.size(); ++Index)
 	{
 		SCOPED_TRACE(Index);

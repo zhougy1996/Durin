@@ -216,9 +216,13 @@ namespace Durin::Editor::Material
 		std::vector<ImVec2> InputPins;
 		auto OutputIndex(const FMaterialProgramLink& Link) const -> size_t
 		{
+			// Retained package links to the retired Normal output keep their
+			// compiler semantics, but share the RGB anchor in the canvas.
+			const uint8 VisibleIndex = IsMaterialSamplingNode(View->Node.Opcode)
+				&& Link.SourceOutputIndex == 8 ? 1 : Link.SourceOutputIndex;
 			for (size_t Index = 0; Index < View->Outputs.size(); ++Index)
 				if (View->Outputs[Index].PortId == Link.SourceOutputId
-					&& View->Outputs[Index].OutputIndex == Link.SourceOutputIndex) return Index;
+					&& View->Outputs[Index].OutputIndex == VisibleIndex) return Index;
 			return 0;
 		}
 		auto OutputPosition(const FMaterialProgramLink& Link) const -> ImVec2

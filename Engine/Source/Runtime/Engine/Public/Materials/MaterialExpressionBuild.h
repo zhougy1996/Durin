@@ -107,6 +107,7 @@ namespace Durin
 			uint64 ClosureBytes = 0;
 			std::vector<const DMaterialFunctionInterface*> ActiveFunctions;
 			std::map<const DMaterialFunctionInterface*, FMaterialExpressionFunctionBody> Functions;
+			std::map<FGuid, ETextureUsage> TextureUsages;
 		};
 		FMaterialExpressionBuildContext(FMaterialExpressionBuildContext& Parent,
 			const FMaterialExpressionFunctionBody& Body, FGuid CallId);

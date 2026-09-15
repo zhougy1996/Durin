@@ -1,6 +1,7 @@
 #include "MaterialGraphCanvas.h"
 #include "MaterialGraphExpressionState.h"
 #include "Asset/Asset.h"
+#include "AssetThumbnail.h"
 #include "Editor/AssetDragDrop.h"
 #include "MonaCoreGlobals.h"
 #include "MonaUIBackend.h"
@@ -15,6 +16,7 @@ namespace Durin::Editor::Material
 			FTextureRHIRef Texture;
 			Mona::IMonaUIBackend* Backend = nullptr;
 			bool bOwned = false;
+			std::unique_ptr<FAssetThumbnail> SourceThumbnail;
 			~FRegisteredPreview()
 			{
 				if (bOwned && Backend == Mona::GetActiveUIBackend()) Backend->UnregisterTexture(Texture);
@@ -25,6 +27,8 @@ namespace Durin::Editor::Material
 	}
 	struct FMaterialGraphCanvas::FTexturePreviewState
 	{
+		// Own the frame pump so a canvas works with the Content Browser closed.
+		std::unique_ptr<FAssetThumbnailPool> SourcePool;
 		std::unordered_map<FGuid, std::shared_ptr<FRegisteredPreview>> Nodes;
 	};
 	auto FMaterialGraphCanvas::UpdateTexturePreviews(DMaterial& Material) -> void
@@ -32,11 +36,41 @@ namespace Durin::Editor::Material
 		auto* Backend = Mona::GetActiveUIBackend();
 		if (!Backend) { TexturePreviews.reset(); return; }
 		if (!TexturePreviews) TexturePreviews = std::make_shared<FTexturePreviewState>();
+		if (TexturePreviews->SourcePool) TexturePreviews->SourcePool->BeginFrame();
 		std::unordered_map<FGuid, std::shared_ptr<FRegisteredPreview>> Current;
 		for (const auto& Expression : Material.GetExpressionCollection().Expressions)
 		{
 			const auto* Parameter = Cast<DMaterialExpressionTextureParameter>(Expression.Get());
 			if (!Parameter || !Parameter->DefaultValue.Texture.IsValid()) continue;
+			// BC5 contains only encoded XY. Display the same source thumbnail as
+			// the Content Browser instead of presenting missing blue as yellow.
+			if (Parameter->DefaultValue.Texture->GetUsage() == ETextureUsage::Normal)
+			{
+				FTopLevelAssetPath Path;
+				if (!FTopLevelAssetPath::TryCreate(Parameter->DefaultValue.Texture->GetObjectPath(), Path)) continue;
+				const auto Entry = FindTopLevelAssetExact(Path);
+				if (!Entry) continue;
+				if (!TexturePreviews->SourcePool)
+				{
+					TexturePreviews->SourcePool = std::make_unique<FAssetThumbnailPool>();
+					TexturePreviews->SourcePool->BeginFrame();
+				}
+				FAssetThumbnailPackageFingerprint Fingerprint{
+					.AssetPath = Path, .PackagePath = Path.GetPackagePath(),
+					.AssetClassName = Entry->AssetClassName,
+					.PackageFormatVersion = Entry.Package->FormatVersion,
+					.FileSize = static_cast<uint64>(Entry.Package->FileSize),
+					.LastWriteTimeTicks = Entry.Package->LastWriteTimeTicks};
+				auto Existing = TexturePreviews->Nodes.find(Expression->Id);
+				auto Preview = Existing != TexturePreviews->Nodes.end() && Existing->second->SourceThumbnail
+					? Existing->second : std::make_shared<FRegisteredPreview>();
+				if (Preview->SourceThumbnail) Preview->SourceThumbnail->Reassign(std::move(Fingerprint));
+				else Preview->SourceThumbnail = std::make_unique<FAssetThumbnail>(std::move(Fingerprint),
+					256, 256, TexturePreviews->SourcePool.get());
+				Preview->SourceThumbnail->Request(EAssetThumbnailPriority::Visible);
+				Current.emplace(Expression->Id, std::move(Preview));
+				continue;
+			}
 			auto Allocation = Parameter->DefaultValue.Texture->GetPublishedTexture();
 			if (!Allocation) continue;
 			auto& Entry = Registrations[Allocation.GetReference()];
@@ -53,6 +87,7 @@ namespace Durin::Editor::Material
 			Current.emplace(Expression->Id, std::move(Shared));
 		}
 		TexturePreviews->Nodes = std::move(Current);
+		if (TexturePreviews->SourcePool) TexturePreviews->SourcePool->EndFrame();
 		std::erase_if(Registrations, [](const auto& Entry) { return Entry.second.expired(); });
 	}
 	auto FMaterialGraphCanvas::DrawTexturePreview(const FGuid& NodeId, const ImVec2& Position, float Size) -> void
@@ -60,12 +95,18 @@ namespace Durin::Editor::Material
 		if (TexturePreviews)
 			if (const auto Found = TexturePreviews->Nodes.find(NodeId); Found != TexturePreviews->Nodes.end())
 			{
-				const auto Cursor = ImGui::GetCursorScreenPos();
-				ImGui::SetCursorScreenPos(Position);
-				Found->second->Backend->DrawImage(Found->second->Texture.GetReference(), {Size, Size});
-				ImGui::SetCursorScreenPos(Cursor);
-				ImGui::Dummy({0.0f, 0.0f});
-				return;
+				auto* Backend = Mona::GetActiveUIBackend();
+				auto* Texture = Found->second->SourceThumbnail
+					? Found->second->SourceThumbnail->GetView().Texture : Found->second->Texture.GetReference();
+				if (Backend && Texture)
+				{
+					const auto Cursor = ImGui::GetCursorScreenPos();
+					ImGui::SetCursorScreenPos(Position);
+					const bool bDrawn = Backend->DrawImage(Texture, {Size, Size});
+					ImGui::SetCursorScreenPos(Cursor);
+					ImGui::Dummy({0.0f, 0.0f});
+					if (bDrawn) return;
+				}
 			}
 		ImGui::GetWindowDrawList()->AddRectFilled(Position, {Position.x + Size, Position.y + Size}, IM_COL32(62, 67, 76, 255), 3);
 		ImGui::GetWindowDrawList()->AddText({Position.x + 5, Position.y + Size * .4f}, IM_COL32(180, 187, 200, 255), "Texture");
@@ -96,6 +137,9 @@ namespace Durin::Editor::Material
 							Expression->Metadata.Name = FName(std::format("{}{}", BaseName, Suffix));
 						Expression->Metadata.DisplayName = Expression->Metadata.Name.ToString();
 						Expression->DefaultValue.Texture = Texture;
+						Expression->TextureUsage = Texture->GetUsage();
+						if (Texture->GetUsage() == ETextureUsage::Normal)
+							Expression->DefaultValue.TextureFallback = EMaterialTextureFallback::FlatRGNormal;
 						const auto Id = Expression->Id;
 						State.Expressions.emplace_back(Expression.Get());
 						const auto Mouse = ImGui::GetMousePos();

@@ -58,6 +58,8 @@ namespace Durin
 			if (const auto* Parameter = Cast<DMaterialExpressionParameter>(Expression))
 			{
 				const auto Definition = Parameter->GetParameterDefinition();
+				if (Definition.Type == EMaterialParameterType::Texture)
+					Shared->TextureUsages[Definition.Id] = Definition.TextureUsage;
 				const auto [Owner, bInserted] = ParameterOwners.emplace(Definition.Id, Definition);
 				if ((!bInserted && Owner->second != Definition)
 					|| (bInserted && !ParameterNames.insert(Definition.Name).second)
@@ -74,11 +76,19 @@ namespace Durin
 			return;
 		}
 		for (const auto& [Id, Definition] : ParameterOwners)
+		{
+			if (Definition.Type == EMaterialParameterType::Texture)
+			{
+				// Usage affects RGB sampling even through opaque authoring function calls.
+				AuthoringCodeHash.UpdateValue(Id);
+				AuthoringCodeHash.UpdateValue(Definition.TextureUsage);
+			}
 			if (Expressions.contains(Id))
 			{
 				Fail("Parameter identity must be distinct from expression identity.");
 				return;
 			}
+		}
 	}
 
 	auto FMaterialExpressionBuildContext::Fail(std::string Message, FGuid PortId,
@@ -279,13 +289,33 @@ namespace Durin
 	{
 		if (OutputIndex > 8 || OutputIndex == 6 || OutputIndex == 7) return Fail("Sample expression output selector is invalid.");
 		const auto Sample = ResolveIndex({Expression.Id});
+		if (Sample == InvalidMaterialExpressionIndex) return Sample;
 		if (OutputIndex == 0) return Sample;
-		const uint8 Width = OutputIndex == 1 ? 3 : OutputIndex == 8 ? 2 : 1;
+		bool bDecodeNormal = OutputIndex == 8;
+		if (OutputIndex == 1)
+		{
+			if (const auto* Parameter = Cast<DMaterialExpressionTextureParameter>(&Expression))
+				bDecodeNormal = Parameter->TextureUsage == ETextureUsage::Normal;
+			else if (const auto* TextureSample = Cast<DMaterialExpressionTextureSample2D>(&Expression))
+			{
+				const auto Resource = Resolve(TextureSample->Texture);
+				if (const auto* Default = Resource.GetTexture())
+					bDecodeNormal = Default->Fallback == EMaterialTextureFallback::FlatRGNormal;
+				else if (const auto* Index = Resource.GetIndex(); Index && *Index != InvalidMaterialExpressionIndex)
+				{
+					const auto Usage = Shared->TextureUsages.find(GetNode(*Index).GetParameterId());
+					bDecodeNormal = Usage != Shared->TextureUsages.end() && Usage->second == ETextureUsage::Normal;
+				}
+			}
+		}
+		// RGB is the ready-to-use normal; raw RGBA and scalar channels retain
+		// their encoded values for masks and existing explicit decode graphs.
+		const uint8 Width = bDecodeNormal ? 2 : OutputIndex == 1 ? 3 : 1;
 		const auto Selected = Emit({.Opcode = EMaterialProgramOpcode::Swizzle,
 			.ResultType = static_cast<EMaterialProgramValueType>(Width - 1), .Inputs = {Sample},
 			.Payload = FMaterialIRSwizzle{Width, {static_cast<uint8>(OutputIndex >= 2 && OutputIndex <= 5 ? OutputIndex - 2 : 0),
 				static_cast<uint8>(Width > 1 ? 1 : 0), static_cast<uint8>(Width > 2 ? 2 : 0)}}});
-		return OutputIndex == 8 ? Emit({.Opcode = EMaterialProgramOpcode::DecodeNormalRG,
+		return bDecodeNormal ? Emit({.Opcode = EMaterialProgramOpcode::DecodeNormalRG,
 			.ResultType = EMaterialProgramValueType::Float3, .Inputs = {Selected}}) : Selected;
 	}
 

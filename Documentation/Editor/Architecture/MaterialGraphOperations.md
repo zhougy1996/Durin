@@ -275,9 +275,17 @@ visible owners: sharing uses explicit links. Each operation commits one validate
 Undo/Redo transaction. Function paste rejects all root parameter payloads.
 
 Texture Object Parameter owns a Texture2D resource. Texture Sample Parameter 2D
-owns a resource and exposes RGBA/RGB/R/G/B/A/RG slots 0–6 plus Texture2D slot 7.
+owns a resource and exposes raw RGBA/R/G/B/A, RGB and Texture2D slot 7.
+There is no separate Normal pin, including in the advanced view. RGB automatically decodes tangent-space normals
+when the texture parameter's usage is Normal; connect RGB directly to the surface
+Normal input. Separate Texture Sample nodes inherit this behavior from their
+resource parameter, including resources passed through functions. Raw RGBA and
+individual channels remain encoded, preserving explicit Decode Normal RG graphs.
+Retained package links to legacy Normal slot 8 still compile and draw from the
+RGB anchor; new normal connections use RGB slot 1.
 The resource slot does not execute that node's UV transform or sample. A texture
-drop creates one uniquely named owner and sample node atomically. Selected-node
+drop creates one uniquely named owner and sample node atomically, inherits the
+asset's texture usage, and selects a flat-normal fallback for normal textures. Selected-node
 Details edits node parameter bindings, texture usage, resource, sampler/fallback
 policy and numeric defaults. The Parameters panel edits shared names, display
 names, group/order and presentation/range hints. Neither panel offers node type
@@ -294,8 +302,11 @@ TextureCoordinates selects a mesh channel and outputs Float2. Scale, offset and
 rotation use upstream math expressions or material functions, shared through
 explicit connections. Function graphs expose literals and interface ports without
 owning root parameters.
-Texture previews share published RHI allocations and retire registrations after
-their last canvas consumer.
+Normal texture previews use the Content Browser's source-thumbnail renderer in a
+canvas-owned pool shared by its nodes. The canvas pumps that pool even when the
+Content Browser is closed, displaying blue-purple source pixels rather than the
+two-channel BC5 allocation's yellow. Other texture previews share
+published RHI allocations and retire registrations after their last canvas consumer.
 
 ## Transactions and gestures
 
