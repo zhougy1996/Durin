@@ -13,6 +13,8 @@ if(DURIN_METADATA_PROBE STREQUAL "unavailable")
 endif()
 
 add_custom_target(ProbeTests SOURCES Empty.cpp)
+set_property(TARGET ProbeTests PROPERTY DURIN_TEST_SOURCES
+	"Tests/Z.cpp;Tests/A.cpp;Tests/A.cpp")
 if(DURIN_METADATA_PROBE MATCHES "^generated-main")
 	set(_durin_generated_main "${CMAKE_BINARY_DIR}/Generated/$<CONFIG>/NativeTestMain.cpp")
 	file(GENERATE OUTPUT "${_durin_generated_main}" CONTENT "// Generated harness entry point\n")

@@ -45,25 +45,30 @@ build target even when `BUILD_TESTING` is enabled.
 
 Without `--base`, `affected` unions staged, unstaged, and untracked paths.
 With `--base`, it includes tracked changes relative to that Git ref plus untracked
-paths. Production module paths map to registry `MODULES`; recognizable native-test
-paths map to `DOMAINS`. Characterization and qualification targets are excluded.
+paths. Production module paths map to registry `MODULES`. Declared test `.cpp`
+files map directly to their owning targets through the registry `sources` field;
+selection does not guess target names or domains from filenames. Characterization
+and qualification targets remain excluded, including when their sources change.
 Documentation-only or unrelated tooling changes may select no native tests.
 Execution uses one build and one parallel whole-target CTest selection.
 `--explain` prints input paths and decisions without building or running.
 
-Project test roots declared in `.dproject` carry explicit ownership. A project
-test CMake change or an unrecognized/new/deleted test source selects that project's
-ordinary targets; a recognized target filename selects that target. Changed
-production modules contribute their coverage independently. Before execution,
-DevTool compares declarations, CMake contents, and test-file membership with the
-configured registry fingerprint, reconfiguring and resolving again when needed.
-Assertion-only edits do not require this refresh. `--explain` remains read-only
-and warns when the registry is stale.
+Project test roots declared in `.dproject` carry explicit ownership. Test headers,
+data, CMake changes, and unrecognized/new/deleted test sources select the project's
+ordinary targets. Unknown test paths without a project owner select `all`, even
+when other changed paths have bounded coverage. A production-private `.cpp`
+compiled directly into tests selects those exact consumers and still contributes
+its production module coverage. Generated harness and environment sources are
+not recorded, and this map is not a production header dependency graph.
+
+Before execution, DevTool compares declarations, CMake contents, and test-file
+membership with the configured registry fingerprint, reconfiguring and resolving
+again when needed. Assertion-only edits do not require this refresh. `--explain`
+remains read-only and warns when the registry is stale. After a registry schema
+upgrade, run configure to regenerate it before selection.
 
 Shared discovery, registry, harness, execution, workspace membership, project
-descriptor, or unbounded CMake changes resolve conservatively to `all`. Unbounded
-native-test changes also select `all` unless a changed production module, exact
-test filename, or recognizable domain supplies safe bounded coverage. Runtime
+descriptor, or unbounded CMake changes resolve conservatively to `all`. Runtime
 inputs outside modules known to the registry likewise resolve to `all`.
 
 ## Execution and Reports

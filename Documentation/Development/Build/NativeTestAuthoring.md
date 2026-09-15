@@ -203,6 +203,10 @@ Configuration writes the deterministic registry to
 source/binary/preset/configuration identity belong to CMake. DurinDevTool
 rejects a missing, unsupported, or identity-mismatched registry and asks for a
 fresh configure rather than selecting from stale metadata.
+The registry also emits sorted, unique workspace-relative `sources` for declared
+non-generated `.cpp` inputs, including explicitly compiled production-private
+sources. Generated harness/environment files and headers are excluded. These
+paths come from the target declaration; authors maintain no second file list.
 
 Keep the complete target setup in `durin_add_native_test(...)`. Its internal
 registration is the runtime-closure

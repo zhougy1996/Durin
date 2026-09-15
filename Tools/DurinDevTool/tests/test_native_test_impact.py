@@ -1,10 +1,13 @@
 from pathlib import Path
+from dataclasses import replace
+
+import pytest
 
 from durin_dev_tool.build.native_test_impact import (
     analyze_affected_tests,
     discover_changed_paths,
 )
-from durin_dev_tool.build.native_test_registry import NativeTestRegistry, NativeTestTarget
+from durin_dev_tool.build.native_test_registry import NativeTestProject, NativeTestRegistry, NativeTestTarget
 
 
 def target(
@@ -13,6 +16,8 @@ def target(
     kind: str = "feature",
     domains: tuple[str, ...] = (),
     modules: tuple[str, ...] = (),
+    sources: tuple[str, ...] = (),
+    project: str = "Engine",
 ) -> NativeTestTarget:
     return NativeTestTarget(
         name=name,
@@ -27,6 +32,8 @@ def target(
         heavy_runtime=False,
         private_source_owner="",
         private_source_rationale="",
+        sources=sources,
+        project=project,
     )
 
 
@@ -35,7 +42,8 @@ def registry(tmp_path: Path) -> NativeTestRegistry:
         tmp_path / "registry.json",
         "debug",
         (
-            target("CoreTests", kind="contract", domains=("core",), modules=("core",)),
+            target("CoreTests", kind="contract", domains=("core",), modules=("core",),
+                   sources=("Engine/Tests/Native/Misc/Private/CoreTests.cpp",)),
             target(
                 "RenderContractTests",
                 kind="contract",
@@ -55,6 +63,7 @@ def registry(tmp_path: Path) -> NativeTestRegistry:
                 modules=("renderer",),
             ),
         ),
+        projects=(NativeTestProject("Engine", "Engine/Engine.dproject", "Engine/Tests/Native"),),
     )
 
 
@@ -69,14 +78,14 @@ def test_source_module_changes_select_all_ordinary_consumers(tmp_path: Path) -> 
     assert not affected.run_all
 
 
-def test_native_test_path_selects_its_registered_domain(tmp_path: Path) -> None:
+def test_unknown_test_source_falls_back_to_project_without_domain_guessing(tmp_path: Path) -> None:
     affected = analyze_affected_tests(
         registry(tmp_path),
         ("Engine/Tests/Native/EngineTests/Private/Renderer/SceneTests.cpp",),
     )
 
-    assert affected.domains == ("renderer",)
-    assert affected.names == ("RenderContractTests", "RendererIntegrationTests")
+    assert affected.projects == ("Engine",)
+    assert affected.names == ("CoreTests", "RenderContractTests", "RendererIntegrationTests")
 
 
 def test_native_test_filename_selects_its_exact_registered_target(tmp_path: Path) -> None:
@@ -97,6 +106,58 @@ def test_documentation_only_change_requires_no_native_tests(tmp_path: Path) -> N
 
     assert not affected.run_all
     assert affected.names == ()
+
+
+def test_exact_source_ownership_does_not_depend_on_target_or_directory_name(tmp_path):
+    source = "Engine/Tests/Native/EngineTests/Private/Editor/PropertyHistory.cpp"
+    original = registry(tmp_path)
+    configured = replace(original, targets=original.targets + (
+        target("EditorPropertyTests", sources=(source,)),
+    ))
+    result = analyze_affected_tests(configured, (source.replace("/", "\\"),))
+    assert result.names == ("EditorPropertyTests",)
+    assert not result.projects and not result.run_all
+
+
+@pytest.mark.parametrize("suffix", [".h", ".cpp", ".cmake"])
+def test_unknown_named_file_cannot_narrow_selection_even_with_production_change(tmp_path, suffix):
+    result = analyze_affected_tests(registry(tmp_path), (
+        "Engine/Tests/Native/Misc/Private/RendererIntegrationTests" + suffix,
+        "Engine/Source/Runtime/Core/Private/Name.cpp",
+    ))
+    assert result.names == ("CoreTests", "RenderContractTests", "RendererIntegrationTests")
+    assert result.projects == ("Engine",)
+
+
+def test_private_source_adds_exact_consumers_without_losing_module_coverage(tmp_path):
+    source = "Engine/Source/Runtime/RenderCore/Private/Shader.cpp"
+    original = registry(tmp_path)
+    configured = replace(original, targets=original.targets + (
+        target("PrivateSeamA", sources=(source,)),
+        target("PrivateSeamB", sources=(source,)),
+    ))
+    result = analyze_affected_tests(configured, (source,))
+    assert result.names == ("RenderContractTests", "RendererIntegrationTests", "PrivateSeamA", "PrivateSeamB")
+    assert result.modules == ("rendercore",)
+
+
+@pytest.mark.parametrize("kind", ["qualification", "characterization"])
+def test_known_opt_in_source_does_not_trigger_ordinary_project_tests(tmp_path, kind):
+    source = "Engine/Tests/Native/EngineTests/Private/ExplicitOnly.cpp"
+    original = registry(tmp_path)
+    configured = replace(original, targets=original.targets + (
+        target("ExplicitTests", kind=kind, sources=(source,)),
+    ))
+    result = analyze_affected_tests(configured, (source,))
+    assert not result.names and not result.run_all and not result.projects
+    assert "opt-in" in result.reasons[0]
+
+
+def test_shared_support_source_still_requires_all_even_if_registered(tmp_path):
+    source = "Engine/Tests/NativeTestSupport/Private/NativeTestSupport.cpp"
+    original = registry(tmp_path)
+    configured = replace(original, targets=(target("Consumer", sources=(source,)),))
+    assert analyze_affected_tests(configured, (source,)).run_all
 
 
 def test_shared_test_infrastructure_change_escalates_to_all(tmp_path: Path) -> None:

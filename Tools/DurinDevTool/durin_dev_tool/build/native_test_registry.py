@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Iterable
 
 from .build_context import BuildContext
@@ -14,7 +14,7 @@ from .selection import preset_build_directory
 from .settings import default_build_paths
 
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 REGISTRY_FILE_NAME = "DurinNativeTestRegistry.json"
 SELECTOR_DIMENSIONS = {
     "kind": "kind",
@@ -42,6 +42,7 @@ class NativeTestTarget:
     private_source_owner: str
     private_source_rationale: str
     project: str = ""
+    sources: tuple[str, ...] = ()
 
     @property
     def characterization(self) -> bool:
@@ -139,6 +140,16 @@ def load_native_test_registry(context: BuildContext) -> NativeTestRegistry:
         if not isinstance(record, dict) or not isinstance(record.get("name"), str):
             raise BuildToolError(f'Configured native-test registry "{path}" has an invalid target record.')
         name = str(record["name"])
+        sources = _string_list(record, "sources", target=name)
+        if list(sources) != sorted(set(sources)) or any(
+            not source or "\\" in source or ":" in source
+            or PurePosixPath(source).is_absolute()
+            or ".." in PurePosixPath(source).parts
+            or str(PurePosixPath(source)) != source
+            or not source.endswith(".cpp")
+            for source in sources
+        ):
+            raise BuildToolError(f'Native-test registry target "{name}" has invalid source paths.')
         execution_host = record.get("executionHost")
         resolved_execution_host = record.get("resolvedExecutionHost")
         if execution_host not in {"direct", "application"}:
@@ -164,6 +175,7 @@ def load_native_test_registry(context: BuildContext) -> NativeTestRegistry:
                 private_source_owner=str(record.get("privateSourceOwner", "")),
                 private_source_rationale=str(record.get("privateSourceRationale", "")),
                 project=str(record.get("project", "")),
+                sources=sources,
             )
         )
     names = [target.name for target in targets]

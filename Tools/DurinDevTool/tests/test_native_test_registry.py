@@ -146,7 +146,7 @@ def test_private_source_report_selects_owned_seams(
 
 def test_registry_loader_rejects_wrong_preset_identity(tmp_path: Path) -> None:
     document = {
-        "schemaVersion": 4,
+        "schemaVersion": 5,
         "identity": {
             "sourceDir": str(REPOSITORY_ROOT),
             "binaryDir": str(tmp_path),
@@ -165,3 +165,32 @@ def test_registry_loader_rejects_wrong_preset_identity(tmp_path: Path) -> None:
     ):
         with pytest.raises(BuildToolError, match="does not match"):
             load_native_test_registry(context)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("sources", [
+    ["../Outside.cpp"], ["/Absolute.cpp"], ["C:/Absolute.cpp"],
+    ["Engine\\Tests\\Case.cpp"], ["Engine/./Tests/Case.cpp"],
+    ["Engine/Tests/Case.h"], ["B.cpp", "A.cpp"], ["A.cpp", "A.cpp"], None,
+])
+def test_registry_loader_rejects_invalid_source_map(tmp_path, sources):
+    with pytest.raises(BuildToolError, match="source"):
+        load_source_registry(tmp_path, sources)
+
+
+def test_registry_loader_preserves_sorted_relative_source_paths(tmp_path):
+    sources = ["Engine/Source/Runtime/Renderer/Private/Seam.cpp",
+               "Engine/Tests/Native/EngineTests/Private/UnrelatedName.cpp"]
+    assert load_source_registry(tmp_path, sources).targets[0].sources == tuple(sources)
+
+
+def load_source_registry(tmp_path, sources):
+    record = dict(name="ProbeTests", kind="feature", domains=["probe"], modules=[],
+                  backends=[], stacks=[], resourceLocks=[], executionHost="direct",
+                  resolvedExecutionHost="direct", sources=sources)
+    document = dict(schemaVersion=5, identity=dict(sourceDir=str(tmp_path),
+                    binaryDir=str(tmp_path), preset="debug"), targets=[record])
+    (tmp_path / "DurinNativeTestRegistry.json").write_text(json.dumps(document))
+    context = SimpleNamespace(preset=SimpleNamespace(name="debug"),
+                              repository=SimpleNamespace(root=tmp_path))
+    with mock.patch("durin_dev_tool.build.native_test_registry.preset_build_directory", return_value=tmp_path):
+        return load_native_test_registry(context)

@@ -118,7 +118,7 @@ def test_failed_project_creation_restores_manifest(tmp_path):
 def owned_registry(tmp_path):
     return NativeTestRegistry(tmp_path / "registry.json", "debug", (
         replace(target("EngineTests"), project="Engine"),
-        replace(target("RoadTests"), project="RoadWeaver"),
+        replace(target("RoadTests"), project="RoadWeaver", sources=("RoadWeaver/Tests/Native/Private/RoadTests.cpp",)),
         replace(target("RoadSceneTests", kind="integration"), project="RoadWeaver"),
         replace(target("RoadQualificationTests", kind="qualification"), project="RoadWeaver"),
     ), (NativeTestProject("RoadWeaver", "RoadWeaver/RoadWeaver.dproject", "RoadWeaver/Tests/Native"),))

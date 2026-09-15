@@ -140,23 +140,6 @@ def _source_module(path: str, registry_modules: dict[str, str]) -> str:
     return ""
 
 
-def _native_test_domains(path: str, domains: tuple[str, ...]) -> set[str]:
-    path_key = _key(path)
-    return {
-        domain
-        for domain in domains
-        if len(_key(domain)) >= 4 and _key(domain) in path_key
-    }
-
-
-def _native_test_targets(
-    path: str,
-    targets: tuple[NativeTestTarget, ...],
-) -> set[str]:
-    path_key = _key(path)
-    return {target.name for target in targets if _key(target.name) in path_key}
-
-
 def analyze_affected_tests(
     registry: NativeTestRegistry,
     changed_paths: tuple[str, ...],
@@ -171,13 +154,14 @@ def analyze_affected_tests(
         for target in ordinary_targets
         for module in target.modules
     }
-    registry_domains = tuple(
-        sorted({domain for target in ordinary_targets for domain in target.domains})
-    )
+    source_owners: dict[str, set[str]] = {}
+    for target in registry.targets:
+        for source in target.sources:
+            source_owners.setdefault(source.casefold(), set()).add(target.name)
+    ordinary_names = {target.name for target in ordinary_targets}
+    opt_in_sources = False
     modules: set[str] = set()
-    domains: set[str] = set()
     direct_target_names: set[str] = set()
-    unresolved_native_tests: list[str] = []
     all_reasons: set[str] = set()
     projects: set[str] = set()
 
@@ -193,15 +177,19 @@ def analyze_affected_tests(
             continue
         owner = next((project for project in registry.projects
                       if project.test_root and path.startswith(project.test_root.casefold().rstrip("/") + "/")), None)
-        if owner:
-            owned_targets = tuple(target for target in ordinary_targets if target.project == owner.name)
-            matched_targets = _native_test_targets(path, owned_targets)
-            # Build declarations and unknown/new/deleted sources belong to the whole project.
-            if path.endswith("/cmakelists.txt") or path.endswith(".cmake") or not matched_targets:
+        matched_sources = source_owners.get(path, set())
+        direct_target_names.update(matched_sources & ordinary_names)
+        if owner or path.startswith(_NATIVE_TEST_PREFIX):
+            if matched_sources:
+                opt_in_sources |= not bool(matched_sources & ordinary_names)
+            elif owner:
+                # Unknown/new/deleted sources, headers and data remain project-wide.
                 projects.add(owner.name)
             else:
-                direct_target_names.update(matched_targets)
+                all_reasons.add("native-test source ownership is unknown")
             continue
+        # A production-private source can be compiled into tests as well as its
+        # owning module. Retain both exact test consumers and module coverage.
         if any(path == project.descriptor.casefold() for project in registry.projects):
             all_reasons.add("project module or test declaration changed")
             continue
@@ -209,30 +197,17 @@ def analyze_affected_tests(
         if module:
             modules.add(module)
             continue
-        if path.startswith(_NATIVE_TEST_PREFIX):
-            matched_targets = _native_test_targets(path, ordinary_targets)
-            matched_domains = _native_test_domains(path, registry_domains)
-            if matched_targets or matched_domains:
-                direct_target_names.update(matched_targets)
-                domains.update(matched_domains)
-            else:
-                unresolved_native_tests.append(original_path)
-            continue
         if path.startswith("cmake/") or path.endswith("/cmakelists.txt"):
             all_reasons.add("unbounded CMake build graph changed")
             continue
         if path.startswith("engine/source/") or path.startswith("engine/content/"):
             all_reasons.add("runtime input outside a registered module changed")
 
-    if unresolved_native_tests and not modules and not domains:
-        all_reasons.add("native-test ownership could not be bounded from its path")
-
     selected = tuple(
         target
         for target in ordinary_targets
         if target.name in direct_target_names
         or set(target.modules) & modules
-        or set(target.domains) & domains
         or target.project in projects
     )
     reasons: list[str] = []
@@ -240,20 +215,18 @@ def analyze_affected_tests(
         reasons.append(f"changed native-test projects: {', '.join(sorted(projects))}")
     if modules:
         reasons.append(f"changed modules: {', '.join(sorted(modules))}")
-    if domains:
-        reasons.append(f"changed native-test domains: {', '.join(sorted(domains))}")
     if direct_target_names:
         reasons.append(f"changed native-test targets: {', '.join(sorted(direct_target_names))}")
     reasons.extend(sorted(all_reasons))
-    if unresolved_native_tests and (modules or domains):
-        reasons.append("unmapped native-test paths retained the bounded production/domain selection")
+    if opt_in_sources:
+        reasons.append("changed test sources include opt-in coverage; qualification and characterization remain excluded")
     if not reasons:
         reasons.append("no changed path requires native-test coverage")
 
     return AffectedTestSelection(
         changed_paths=changed_paths,
         modules=tuple(sorted(modules)),
-        domains=tuple(sorted(domains)),
+        domains=(),
         targets=() if all_reasons else selected,
         run_all=bool(all_reasons),
         reasons=tuple(reasons),

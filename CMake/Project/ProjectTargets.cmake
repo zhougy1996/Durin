@@ -281,6 +281,19 @@ function(add_durin_test target_name)
 				NORMALIZE
 				OUTPUT_VARIABLE _durin_test_source_absolute)
 		endif()
+		# Record declared, non-generated compilation inputs once for affected
+		# selection. This also includes explicitly compiled production-private seams.
+		get_source_file_property(_durin_source_generated "${_durin_test_source}" GENERATED)
+		cmake_path(IS_PREFIX CMAKE_SOURCE_DIR "${_durin_test_source_absolute}"
+			NORMALIZE _durin_workspace_source)
+		if(_durin_workspace_source AND NOT _durin_source_generated
+			AND NOT _durin_test_source MATCHES "\\$<"
+			AND _durin_test_source_absolute MATCHES "\\.cpp$")
+			file(RELATIVE_PATH _durin_source_relative "${CMAKE_SOURCE_DIR}"
+				"${_durin_test_source_absolute}")
+			set_property(TARGET ${target_name} APPEND PROPERTY
+				DURIN_TEST_SOURCES "${_durin_source_relative}")
+		endif()
 		cmake_path(IS_PREFIX _durin_native_test_root
 			"${_durin_test_source_absolute}"
 			NORMALIZE
@@ -1047,7 +1060,7 @@ function(durin_generate_native_test_registry output_path)
 				"durin_register_native_test.")
 		endif()
 		foreach(_durin_property
-			PROJECT KIND DOMAINS MODULES BACKENDS STACKS
+			PROJECT KIND DOMAINS MODULES BACKENDS STACKS SOURCES
 			EXECUTION_HOST RESOLVED_EXECUTION_HOST DISCOVERY_RESOURCE_LOCKS
 			HEAVY_RUNTIME_RATIONALE PRIVATE_SOURCE_OWNER PRIVATE_SOURCE_RATIONALE)
 			get_target_property(_durin_${_durin_property}
@@ -1056,7 +1069,9 @@ function(durin_generate_native_test_registry output_path)
 				set(_durin_${_durin_property})
 			endif()
 		endforeach()
-		foreach(_durin_list DOMAINS MODULES BACKENDS STACKS DISCOVERY_RESOURCE_LOCKS)
+		list(REMOVE_DUPLICATES _durin_SOURCES)
+		list(SORT _durin_SOURCES)
+		foreach(_durin_list DOMAINS MODULES BACKENDS STACKS SOURCES DISCOVERY_RESOURCE_LOCKS)
 			durin_json_string_array(_durin_${_durin_list}_json ${_durin_${_durin_list}})
 		endforeach()
 		if(_durin_HEAVY_RUNTIME_RATIONALE)
@@ -1076,6 +1091,7 @@ function(durin_generate_native_test_registry output_path)
 			"    {\"name\":\"${_durin_name_json}\",\"availability\":\"configured\","
 			"\"project\":\"${_durin_project_json}\",\"kind\":\"${_durin_kind_json}\","
 			"\"domains\":${_durin_DOMAINS_json},\"modules\":${_durin_MODULES_json},"
+			"\"sources\":${_durin_SOURCES_json},"
 			"\"backends\":${_durin_BACKENDS_json},\"stacks\":${_durin_STACKS_json},"
 			"\"executionHost\":\"${_durin_execution_host_json}\","
 			"\"resolvedExecutionHost\":\"${_durin_resolved_execution_host_json}\","
@@ -1101,7 +1117,7 @@ function(durin_generate_native_test_registry output_path)
 	get_property(_fingerprint GLOBAL PROPERTY DURIN_TEST_GRAPH_FINGERPRINT)
 	string(CONCAT _durin_registry
 		"{\n"
-		"  \"schemaVersion\": 4,\n"
+		"  \"schemaVersion\": 5,\n"
 		"  \"identity\": {\"sourceDir\":\"${_durin_source_dir_json}\","
 		"\"binaryDir\":\"${_durin_binary_dir_json}\",\"preset\":\"${_durin_preset_json}\","
 		"\"configuration\":\"${_durin_configuration_json}\"},\n"
