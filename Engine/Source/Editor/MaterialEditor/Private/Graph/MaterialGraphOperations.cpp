@@ -62,7 +62,15 @@ namespace Durin::Editor::Material
 				if (const auto* Peer = Cast<DMaterialExpressionParameter>(Expression.Get()); Peer && Peer->Id != Parameter.Id
 					&& Peer->Metadata.Name == Definition.Name)
 				{
-					if (!Parameter.SetParameterDefinition(Peer->GetParameterDefinition()))
+					auto Shared = Peer->GetParameterDefinition();
+					if (Shared.Type == EMaterialParameterType::Vector4
+						&& (Definition.Type == EMaterialParameterType::Vector2 || Definition.Type == EMaterialParameterType::Vector))
+					{
+						Shared.Type = Definition.Type;
+						Shared.Value = MakeParameterValue(GetProgramType(Definition.Type),
+							ReadParameterLiteral(EMaterialProgramValueType::Float4, Shared.Value));
+					}
+					if (!Parameter.SetParameterDefinition(Shared))
 						return "A parameter with this name already exists with a different type.";
 					return {};
 				}

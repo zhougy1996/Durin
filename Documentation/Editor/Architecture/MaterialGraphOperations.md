@@ -193,6 +193,12 @@ changes. A graph without constraining operands retains its current width. Differ
 vector widths reject, while scalars broadcast. Lerp Alpha stays scalar; Normalize
 requires at least two components. Owner validation checks fixed consumers before
 publication, and Undo/Redo restores the complete graph including inferred types.
+Append Vector participates in upstream width inference, summing both input widths
+and rejecting totals above four. Compilation expands it into existing scalar
+selection and vector-construction IR, preserving A-then-B component order.
+Graph editing commands turn new narrow parameters into a Float4 owner plus a mask;
+existing narrow declarations retain their types, including during renames, so
+serialized material-instance overrides remain compatible.
 Expression compilation lowers scalar broadcasting to typed Splat IR operations,
 without creating authored graph nodes.
 Fixed numeric inputs, material Surface outputs, Surface attribute overrides and

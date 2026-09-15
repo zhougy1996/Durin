@@ -1,4 +1,3 @@
-#include "Graph/MaterialGraphCreationFamilies.h"
 #include "MaterialGraphDocument.h"
 
 #include "Graph/MaterialGraphValueTypes.h"
@@ -22,6 +21,7 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::TextureSample2D: Names = {"Texture", "UV"}; break;
 			case EMaterialProgramOpcode::TextureSampleParameter2D: Names = {"UV"}; break;
 			case EMaterialProgramOpcode::TextureCoordinates: Names = {"Channel"}; break;
+			case EMaterialProgramOpcode::AppendVector:
 			case EMaterialProgramOpcode::Add:
 			case EMaterialProgramOpcode::Subtract:
 			case EMaterialProgramOpcode::Multiply:
@@ -57,6 +57,7 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::MakeSurface:
 			case EMaterialProgramOpcode::GetSurfaceAttributes:
 			case EMaterialProgramOpcode::SetSurfaceAttributes: return "Surface";
+			case EMaterialProgramOpcode::AppendVector:
 			case EMaterialProgramOpcode::Swizzle:
 			case EMaterialProgramOpcode::MakeFloat2:
 			case EMaterialProgramOpcode::MakeFloat3:
@@ -94,7 +95,8 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::MakeFloat2: return "Make Vector";
 			case EMaterialProgramOpcode::MakeFloat3: return "Make Vector";
 			case EMaterialProgramOpcode::MakeFloat4: return "Make Vector";
-			case EMaterialProgramOpcode::Swizzle: return "Swizzle";
+			case EMaterialProgramOpcode::AppendVector: return "Append Vector";
+			case EMaterialProgramOpcode::Swizzle: return "Component Mask";
 			case EMaterialProgramOpcode::Splat2: return "Splat";
 			case EMaterialProgramOpcode::Splat3: return "Splat";
 			case EMaterialProgramOpcode::Splat4: return "Splat";
@@ -143,6 +145,7 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::Normalize: return DMaterialExpressionNormalize::StaticClass();
 			case EMaterialProgramOpcode::Clamp: return DMaterialExpressionClamp::StaticClass();
 			case EMaterialProgramOpcode::Lerp: return DMaterialExpressionLerp::StaticClass();
+			case EMaterialProgramOpcode::AppendVector: return DMaterialExpressionAppendVector::StaticClass();
 			case EMaterialProgramOpcode::Swizzle: return DMaterialExpressionSwizzle::StaticClass();
 			case EMaterialProgramOpcode::Splat2: return DMaterialExpressionSplat2::StaticClass();
 			case EMaterialProgramOpcode::Splat3: return DMaterialExpressionSplat3::StaticClass();
@@ -199,6 +202,7 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::MakeFloat2:
 			case EMaterialProgramOpcode::MakeFloat3:
 			case EMaterialProgramOpcode::MakeFloat4: Entry.Description = "Combines scalar inputs into a vector."; break;
+			case EMaterialProgramOpcode::AppendVector: Entry.Description = "Concatenates A and B; output width follows the inputs (up to four components)."; break;
 			case EMaterialProgramOpcode::Swizzle: Entry.Description = "Selects, repeats or reorders channels (Component Mask / Truncate)."; break;
 			case EMaterialProgramOpcode::Splat2:
 			case EMaterialProgramOpcode::Splat3:
@@ -561,7 +565,7 @@ namespace Durin::Editor::Material
 	{
 		std::vector<FMaterialGraphCatalogEntry> Result;
 		for (uint8 OpcodeValue = static_cast<uint8>(EMaterialProgramOpcode::Constant);
-			OpcodeValue <= static_cast<uint8>(EMaterialProgramOpcode::TextureCoordinates); ++OpcodeValue)
+			OpcodeValue <= static_cast<uint8>(EMaterialProgramOpcode::AppendVector); ++OpcodeValue)
 			for (uint8 TypeValue = static_cast<uint8>(EMaterialProgramValueType::Float);
 				TypeValue <= static_cast<uint8>(EMaterialProgramValueType::Surface); ++TypeValue)
 			{
@@ -630,7 +634,9 @@ namespace Durin::Editor::Material
 			// Keep dimensional shapes for inspection; the palette creates one scalar Constant.
 			if (Entry.Opcode == EMaterialProgramOpcode::Constant
 				&& Entry.ResultType != EMaterialProgramValueType::Float) continue;
-			if (CreationFamily(Entry.Opcode) != Entry.Opcode) continue;
+			if (Entry.Opcode >= EMaterialProgramOpcode::MakeFloat2 && Entry.Opcode <= EMaterialProgramOpcode::MakeFloat4) continue;
+			if (Entry.Opcode >= EMaterialProgramOpcode::Splat2 && Entry.Opcode <= EMaterialProgramOpcode::Splat4) continue;
+			if (Entry.Opcode == EMaterialProgramOpcode::AppendVector && Entry.ResultType != EMaterialProgramValueType::Float2) continue;
 			if (Entry.Opcode == EMaterialProgramOpcode::Parameter
 				&& Entry.ResultType != EMaterialProgramValueType::Float
 				&& Entry.ResultType != EMaterialProgramValueType::Float4) continue;

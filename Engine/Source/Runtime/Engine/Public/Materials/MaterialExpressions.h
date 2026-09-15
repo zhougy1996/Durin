@@ -990,6 +990,28 @@ namespace Durin
 
 	};
 
+	// Concatenates numeric inputs; the output width follows their combined widths.
+	DCLASS()
+	class DMaterialExpressionAppendVector : public DMaterialExpressionNumeric
+	{
+		GENERATED_BODY()
+	public:
+		explicit DMaterialExpressionAppendVector(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		DPROPERTY()
+		FMaterialExpressionInput A;
+		DPROPERTY()
+		std::vector<float> ADefault{0.f};
+		DPROPERTY()
+		FMaterialExpressionInput B;
+		DPROPERTY()
+		std::vector<float> BDefault{0.f};
+		DPROPERTY()
+		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float2;
+		auto GetAuthoredInputCount() const -> uint32 override { return 2; }
+		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
+			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
+	};
+
 	// Component selection supplies the swizzle's output width.
 	DCLASS()
 	class DMaterialExpressionSwizzle : public DMaterialExpressionNumeric

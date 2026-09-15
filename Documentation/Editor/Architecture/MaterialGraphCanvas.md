@@ -158,8 +158,14 @@ vector width; different non-scalar widths reject atomically. Lerp Alpha remains
 scalar and Normalize requires a vector. Pins retain their resolved type display.
 
 Parameter creation exposes Scalar Parameter, Vector Parameter and texture owner
-entries. Vector Parameter has a 2/3/4 component selector, defaulting to four;
-its declaration type remains fixed after creation. Selecting an entry creates and places a fresh uniquely named owner in one
+entries. Vector Parameter stores four components and has no creation-time width selector.
+Component Mask selects channels using R/G/B/A checkboxes; its output width follows
+the selected channels. Append Vector concatenates two numeric inputs and infers
+their combined width, rejecting totals above four. Make Vector and Splat are no
+longer offered in the creation menu; their serialized expressions remain readable.
+Graph editing commands represent new narrow parameters with a four-component owner and
+an explicit mask preserving the requested output width. Existing narrow parameter
+declarations retain their type for compatibility with instance overrides. Selecting an entry creates and places a fresh uniquely named owner in one
 transaction. The catalog has no existing-parameter rebind mode. Sharing connects the
 existing owner's output to more consumers. Inspection reads labels from the node's
 owned payload. PBR roles and UV controls are explicit template-owned parameters,
@@ -220,17 +226,16 @@ sampling. Sampling nodes show RGB, R, G, B, A, and RGBA in that
 order by default. The Advanced pins toggle reveals Texture resource and decoded Normal outputs;
 connected outputs remain visible even when advanced pins are hidden. Display order
 and visibility never change serialized output indices. RG selection uses an explicit
-Swizzle node. Sample output 6 is invalid; there is no legacy RG migration or
+Component Mask node. Sample output 6 is invalid; there is no legacy RG migration or
 compatibility path. Texture and Normal keep indices 7 and 8.
-Swizzle titles show the selected channels (for example, `Swizzle RG`), and channel
-controls use R/G/B/A selectors and a 1-4 output component selector. Growing the
-output repeats the first selected channel; invalid source channels and incompatible
-consumers reject the edit atomically. The Channels palette has one Make Vector,
-one Splat and one Swizzle entry, with output width selected beside the entry.
-Make Vector combines scalar inputs; it does not concatenate vector inputs.
-Swizzle covers component masking, repetition and truncation. Dedicated Truncate
-expressions and compiler opcodes are removed. Maintained assets use the current
-expression classes.
+Component Mask titles show selected channels (for example, `Component Mask RG`).
+R/G/B/A checkboxes determine output width without a separate width selector.
+Empty masks, invalid source channels, and incompatible consumers reject atomically.
+The Channels palette offers Component Mask and Append Vector. Append concatenates
+A followed by B and derives its output width from both inputs. Existing Swizzle
+payloads retain their serialized ordering and repetition until the mask is edited.
+Dedicated Truncate expressions and compiler opcodes remain removed.
+
 
 Compile state is observational. Unsubmitted and pending states identify whether
 the preview shows last-known-good output; failed states show ErrorMaterial.

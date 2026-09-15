@@ -1,4 +1,3 @@
-#include "Graph/MaterialGraphCreationFamilies.h"
 #include "Graph/MaterialGraphCanvas.h"
 #include "MaterialGraphDocument.h"
 #include "Graph/MaterialGraphControls.h"
@@ -12,9 +11,9 @@ namespace Durin::Editor::Material
 	{
 		auto CreationMenuEntryKey(const FMaterialGraphCatalogEntry& Entry) -> std::string
 		{
-			return std::format("{}|{}", static_cast<uint32>(CreationFamily(Entry.Opcode)),
-				(IsMaterialAdaptiveNumeric(Entry.Opcode) || CreationWidthSlot(Entry) >= 0)
-					? (Entry.Opcode == EMaterialProgramOpcode::Parameter ? 1u : 0u) : static_cast<uint32>(Entry.ResultType));
+			return std::format("{}|{}", static_cast<uint32>(Entry.Opcode),
+				IsMaterialAdaptiveNumeric(Entry.Opcode)
+					? 0u : static_cast<uint32>(Entry.ResultType));
 		}
 		auto FormatInputSignature(const FMaterialGraphCatalogEntry& Entry) -> std::string
 		{
@@ -126,19 +125,6 @@ namespace Durin::Editor::Material
 			CachedCreationMenuSourceType = SourceType;
 		}
 		const std::vector<size_t>& Results = CachedCreationMenuResults;
-		const auto ResolveEntry = [&](const FMaterialGraphCatalogEntry& Base) -> const FMaterialGraphCatalogEntry& {
-			const int Slot = CreationWidthSlot(Base);
-			if (Slot < 0) return Base;
-			const auto Type = static_cast<EMaterialProgramValueType>(
-				CreationMenu->WidthSelections[Slot] + (Slot == 3 ? 0 : 1));
-			const auto Found = std::ranges::find_if(Catalog, [&](const auto& Candidate) {
-				return CreationFamily(Candidate.Opcode) == CreationFamily(Base.Opcode)
-					&& Candidate.ResultType == Type;
-			});
-			return Found != Catalog.end() ? *Found : Base;
-		};
-
-
 		const int32 PreviousSelection = CreationMenu->Selection;
 		CreationMenu->Selection = std::clamp(CreationMenu->Selection, 0,
 			std::max(static_cast<int32>(Results.size()) - 1, 0));
@@ -169,19 +155,7 @@ namespace Durin::Editor::Material
 					PreviousGroup = Group;
 				}
 				ImGui::PushID(static_cast<int>(EntryIndex));
-				const int WidthSlot = CreationWidthSlot(Entry);
-				if (WidthSlot >= 0)
-				{
-					ImGui::SetNextItemWidth(MonaImGui::ScaleUI(70.0f));
-					const char* Widths[] = {"1", "2", "3", "4"};
-					const int First = WidthSlot == 3 ? 0 : 1;
-					const int Count = WidthSlot == 3 && SourceType ? static_cast<int>(*SourceType) + 1 : 4 - First;
-					CreationMenu->WidthSelections[WidthSlot] = std::clamp(CreationMenu->WidthSelections[WidthSlot], 0, Count - 1);
-					ImGui::Combo("##Width", &CreationMenu->WidthSelections[WidthSlot], Widths + First, Count);
-					if (ImGui::IsItemHovered()) ImGui::SetTooltip("Output components");
-					ImGui::SameLine();
-				}
-				const std::string Label = IsMaterialAdaptiveNumeric(Entry.Opcode) || WidthSlot >= 0
+				const std::string Label = IsMaterialAdaptiveNumeric(Entry.Opcode) || Entry.Opcode == EMaterialProgramOpcode::AppendVector || Entry.Opcode == EMaterialProgramOpcode::Swizzle
 					? std::format("{}  {}", Entry.OperationName, GetCreationShortcutHint(Entry))
 					: std::format("{}  ({})  {}", Entry.OperationName,
 						GetProgramTypeName(Entry.ResultType), GetCreationShortcutHint(Entry));
@@ -193,7 +167,7 @@ namespace Durin::Editor::Material
 					bActivateSelection = true;
 				}
 				if (ImGui::IsItemHovered())
-					ImGui::SetTooltip("%s\n%s", Entry.Description.c_str(), FormatInputSignature(ResolveEntry(Entry)).c_str());
+					ImGui::SetTooltip("%s\n%s", Entry.Description.c_str(), FormatInputSignature(Entry).c_str());
 				if (CreationMenu->Selection == static_cast<int32>(EntryIndex)
 					&& PreviousSelection != CreationMenu->Selection)
 					ImGui::SetScrollHereY();
@@ -227,8 +201,8 @@ namespace Durin::Editor::Material
 		}
 		if (bActivateSelection && !Results.empty())
 		{
-			const FMaterialGraphCatalogEntry& Entry = ResolveEntry(Catalog[
-				Results[static_cast<size_t>(CreationMenu->Selection)]]);
+			const FMaterialGraphCatalogEntry& Entry = Catalog[
+				Results[static_cast<size_t>(CreationMenu->Selection)]];
 			const FMaterialExpressionInput Source = SourceType
 				? FMaterialExpressionInput{CreationMenu->SourceNode, CreationMenu->SourceOutputIndex, CreationMenu->SourceOutputId} : FMaterialExpressionInput{};
 			const auto Created = FMaterialGraphDocument(Owner).CreateCatalogNode(Entry,

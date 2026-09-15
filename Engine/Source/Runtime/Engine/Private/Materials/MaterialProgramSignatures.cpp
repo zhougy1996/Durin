@@ -115,6 +115,11 @@ namespace Durin
 			Same(1, Type::Float);
 			break;
 		}
+		case EMaterialProgramOpcode::AppendVector:
+			if (!bNumeric || ResultType == Type::Float) return std::nullopt;
+			Signature.InputCount = 2;
+			Signature.Inputs[0] = Signature.Inputs[1] = std::span(Types).first(3);
+			break;
 		case EMaterialProgramOpcode::Swizzle:
 			if (!bNumeric) return std::nullopt;
 			Signature.InputCount = 1;

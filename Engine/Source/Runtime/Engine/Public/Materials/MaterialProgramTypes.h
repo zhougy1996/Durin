@@ -86,6 +86,7 @@ namespace Durin
 		SetSurfaceAttributes,
 		TextureSampleParameter2D,
 		TextureCoordinates,
+		AppendVector,
 	};
 
 	// Numeric authoring nodes infer their width from their operands in the editor.

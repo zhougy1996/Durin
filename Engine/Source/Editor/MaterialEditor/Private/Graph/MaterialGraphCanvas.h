@@ -126,7 +126,6 @@ namespace Durin::Editor::Material
 			int32 Selection = 0;
 			std::array<char, 96> Search{};
 			std::array<char, 96> ParameterFilter{};
-			std::array<int, 4> WidthSelections{2, 0, 0, 0};
 		};
 		struct FContextMenuInteraction
 		{

@@ -1730,9 +1730,7 @@ namespace Durin::Editor::Material
 					else if (Visual.View->Node.Opcode == EMaterialProgramOpcode::Swizzle
 						&& Intersects(Visual.Minimum, Visual.Maximum, CanvasMinimum, CanvasMaximum))
 					{
-						std::array<int, 4> SwizzleDraft{};
 						const auto& Components = std::get<std::vector<uint8>>(Visual.View->Node.Data);
-						for (size_t Index = 0; Index < Components.size(); ++Index) SwizzleDraft[Index] = Components[Index];
 						const ImVec2 SavedCursor = ImGui::GetCursorScreenPos();
 						ImGui::SetCursorScreenPos(Add(Visual.Minimum,
 							{10.0f * Zoom, (NodeHeaderHeight + Metrics.SecondaryHeight
@@ -1744,30 +1742,20 @@ namespace Durin::Editor::Material
 							GraphControlFramePadding);
 						ImGui::PushStyleVar(ImGuiStyleVar_ItemInnerSpacing,
 							GraphControlItemSpacing);
-						int Width = static_cast<int>(Components.size()) - 1;
-						ImGui::SetNextItemWidth(45.0f * Zoom);
-						if (ImGui::Combo("##Width", &Width, "1\0""2\0""3\0""4\0"))
+						for (uint8 Channel = 0; Channel < 4; ++Channel)
 						{
-							auto Selected = Components;
-							Selected.resize(Width + 1, Components.front());
-							ReportCommand(FMaterialGraphDocument(Material).SetSwizzleComponents(
-								Visual.View->Node.Id, Selected, &Transactions), ReportError);
-						}
-						bEmbeddedControlHoveredOrActive |= ImGui::IsItemHovered() || ImGui::IsItemActive();
-						for (size_t Index = 0; Index < Components.size(); ++Index)
-						{
-							ImGui::SameLine();
-							ImGui::PushID(static_cast<int>(Index));
-							ImGui::SetNextItemWidth((NodeWidth - 85.0f) * Zoom / Components.size());
-							if (ImGui::Combo("##Channel", &SwizzleDraft[Index], "R\0G\0B\0A\0"))
+							if (Channel) ImGui::SameLine();
+							bool Selected = std::ranges::find(Components, Channel) != Components.end();
+							const char* Labels[] = {"R", "G", "B", "A"};
+							if (ImGui::Checkbox(Labels[Channel], &Selected))
 							{
-								auto Selected = Components;
-								Selected[Index] = static_cast<uint8>(SwizzleDraft[Index]);
+								std::vector<uint8> Mask;
+								for (uint8 Candidate = 0; Candidate < 4; ++Candidate)
+									if (Candidate == Channel ? Selected : std::ranges::find(Components, Candidate) != Components.end()) Mask.push_back(Candidate);
 								ReportCommand(FMaterialGraphDocument(Material).SetSwizzleComponents(
-									Visual.View->Node.Id, Selected, &Transactions), ReportError);
+									Visual.View->Node.Id, Mask, &Transactions), ReportError);
 							}
 							bEmbeddedControlHoveredOrActive |= ImGui::IsItemHovered() || ImGui::IsItemActive();
-							ImGui::PopID();
 						}
 						ImGui::PopStyleVar(2);
 						ImGui::PopFont();

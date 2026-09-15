@@ -167,6 +167,16 @@ namespace
 		return It == View.Nodes.end() ? nullptr : &*It;
 	}
 
+	auto ReadVector4Parameter(const DMaterial& Material, FName Name, FVector4& Value) -> bool
+	{
+		const auto* Definition = Material.FindParameterDefinition(Name);
+		FResolvedMaterialParameter Resolved;
+		if (!Definition || !Material.ResolveParameterValue(Definition->Id, Resolved)
+			|| Resolved.Value.GetType() != EMaterialParameterType::Vector4) return false;
+		Value = Resolved.Value.GetVector4();
+		return true;
+	}
+
 	auto Normalize(const DMaterial& Material) -> FMaterialNormalizationResult
 	{
 		FMaterialIRCompilerInput Input;
@@ -675,15 +685,45 @@ TEST(FMaterialGraphOperationsTests, ParameterAndChannelPaletteGroupsWidths)
 	using Type = EMaterialProgramValueType;
 	const auto Rows = FMaterialGraphOperations::SearchCatalog("");
 	EXPECT_EQ(std::ranges::count(Rows, Op::Parameter, &FMaterialGraphCatalogEntry::Opcode), 2);
-	for (const auto Opcode : {Op::MakeFloat2, Op::Splat2, Op::Swizzle})
+	for (const auto Opcode : {Op::AppendVector, Op::Swizzle})
 		EXPECT_EQ(std::ranges::count(Rows, Opcode, &FMaterialGraphCatalogEntry::Opcode), 1);
-	for (const auto Opcode : {Op::MakeFloat3, Op::MakeFloat4, Op::Splat3, Op::Splat4})
+	for (const auto Opcode : {Op::MakeFloat2, Op::MakeFloat3, Op::MakeFloat4, Op::Splat2, Op::Splat3, Op::Splat4})
 		EXPECT_EQ(std::ranges::count(Rows, Opcode, &FMaterialGraphCatalogEntry::Opcode), 0);
 	const auto Mask = FMaterialGraphOperations::SearchCatalog("component mask", Type::Float4);
 	ASSERT_EQ(Mask.size(), 1u);
 	EXPECT_EQ(Mask.front().Opcode, Op::Swizzle);
 	EXPECT_EQ(FMaterialGraphOperations::SearchCatalog("truncate", Type::Float3).size(), 1u);
 	EXPECT_TRUE(FMaterialGraphOperations::SearchCatalog("channels", Type::Texture2D).empty());
+}
+
+TEST(FMaterialGraphOperationsTests, AppendInfersWidthsThroughMasksAndRejectsOverflowAtomically)
+{
+	InitializeDObjectSystem();
+	auto* Material = NewObject<DMaterial>(nullptr, NAME_None);
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	FMaterialGraphDocument Document(*Material);
+	Durin::Tests::FTestTransactorOwner Transactions;
+	using Op = EMaterialProgramOpcode;
+	using Type = EMaterialProgramValueType;
+	const auto Vector = Testing::CreateGraphCatalogNode(Document, Op::Parameter, Type::Float4);
+	ASSERT_TRUE(Vector);
+	const auto Mask = Testing::CreateGraphCatalogNode(Document, Op::Swizzle, Type::Float2, {Vector.GeneratedNodeIds.front()});
+	ASSERT_TRUE(Mask);
+	const auto MaskId = Mask.GeneratedNodeIds.front();
+	const auto Append = Testing::CreateGraphCatalogNode(Document, Op::AppendVector, Type::Float2, {MaskId});
+	ASSERT_TRUE(Append) << Append.Message;
+	const auto Id = Append.GeneratedNodeIds.front();
+	EXPECT_EQ(FindViewNode(Document.Inspect(), Id)->Node.ResultType, Type::Float3);
+	const auto Before = CaptureExpressions(*Material);
+	ASSERT_TRUE(Document.SetSwizzleComponents(MaskId, std::array<uint8, 3>{0, 1, 2}, Transactions.Get()));
+	EXPECT_EQ(FindViewNode(Document.Inspect(), Id)->Node.ResultType, Type::Float4);
+	const auto After = CaptureExpressions(*Material);
+	EXPECT_FALSE(Document.SetSwizzleComponents(MaskId, std::array<uint8, 4>{0, 1, 2, 3}, Transactions.Get()));
+	EXPECT_EQ(CaptureExpressions(*Material), After);
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(CaptureExpressions(*Material), Before);
+	ASSERT_TRUE(Transactions->Redo());
+	EXPECT_EQ(CaptureExpressions(*Material), After);
 }
 
 TEST(FMaterialGraphOperationsTests, SwizzleWidthChangesRepeatChannelsAndUndo)
@@ -888,14 +928,16 @@ TEST(FMaterialGraphOperationsTests, EveryCatalogShapeCreatesItsConcreteExpressio
 		const auto& Expressions = Material->GetExpressionCollection().Expressions;
 		const auto It = std::ranges::find(Expressions, Created.GeneratedNodeIds.front(), [](const auto& E) { return E->Id; });
 		ASSERT_NE(It, Expressions.end());
-		EXPECT_EQ((*It)->GetClass(), Entry.ExpressionClass);
+		const bool NarrowParameter = Entry.Opcode == EMaterialProgramOpcode::Parameter
+			&& (Entry.ResultType == EMaterialProgramValueType::Float2 || Entry.ResultType == EMaterialProgramValueType::Float3);
+		EXPECT_EQ((*It)->GetClass(), NarrowParameter ? DMaterialExpressionSwizzle::StaticClass() : Entry.ExpressionClass);
 		EXPECT_EQ((*It)->GetOuter(), Material);
 		const auto ObjectRevision = GDObjectArray.GetRevision();
 		const auto View = Document.Inspect(Catalog);
 		const auto* Viewed = FindViewNode(View, (*It)->Id);
 		ASSERT_NE(Viewed, nullptr);
-		EXPECT_EQ(Viewed->Node.Opcode, Entry.Opcode);
-		EXPECT_EQ(Viewed->Node.ResultType, Entry.ResultType);
+		EXPECT_EQ(Viewed->Node.Opcode, NarrowParameter ? EMaterialProgramOpcode::Swizzle : Entry.Opcode);
+		EXPECT_EQ(Viewed->Node.ResultType, Entry.Opcode == EMaterialProgramOpcode::AppendVector ? EMaterialProgramValueType::Float2 : Entry.ResultType);
 		EXPECT_EQ(Viewed->Inputs.size(), (*It)->GetAuthoredInputCount());
 		EXPECT_EQ(GDObjectArray.GetRevision(), ObjectRevision);
 		VisitMaterialExpressionInputs(**It, [&](uint32 Index, FMaterialExpressionInput& Input) {
@@ -1179,7 +1221,7 @@ TEST(FMaterialGraphOperationsTests, TextureOutputsHideUnusedAdvancedPinsWithoutC
 	ASSERT_TRUE(SecondSample);
 	const auto RG = Testing::CreateGraphCatalogNode(Document, EMaterialProgramOpcode::Swizzle, EMaterialProgramValueType::Float2, {SampleId, 0});
 	ASSERT_TRUE(RG);
-	EXPECT_EQ(FindViewNode(Document.Inspect(), RG.GeneratedNodeIds.front())->PrimaryLabel, "Swizzle RG");
+	EXPECT_EQ(FindViewNode(Document.Inspect(), RG.GeneratedNodeIds.front())->PrimaryLabel, "Component Mask RG");
 	const auto Decode = Testing::CreateGraphCatalogNode(Document, EMaterialProgramOpcode::DecodeNormalRG, EMaterialProgramValueType::Float3, {RG.GeneratedNodeIds.front()});
 	ASSERT_TRUE(Decode);
 	const auto NormalizeCatalog = FMaterialGraphOperations::EnumerateCatalog();
@@ -1602,7 +1644,8 @@ TEST(FMaterialGraphOperationsTests, GenericParametersCreateIndependentDeclaratio
 		const auto* Parameter = Cast<DMaterialExpressionParameter>(After.Expressions.back().Get());
 		ASSERT_NE(Parameter, nullptr);
 		EXPECT_EQ(Parameter->Metadata.Id, Created.AffectedParameterIds.front());
-		EXPECT_EQ(Parameter->GetClass(), Entry.ExpressionClass);
+		EXPECT_EQ(Parameter->GetClass(), Entry.ResultType == EMaterialProgramValueType::Float2 || Entry.ResultType == EMaterialProgramValueType::Float3
+			? DMaterialExpressionVector4Parameter::StaticClass() : Entry.ExpressionClass);
 		ASSERT_TRUE(Transactions->Undo());
 		EXPECT_EQ(CaptureExpressions(*Material), Before);
 		EXPECT_EQ(Material->GetMaterialGraphPresentation(), BeforePresentation);
@@ -2367,8 +2410,7 @@ TEST(FMaterialGraphOperationsTests, CanvasConnectsASecondFunctionOutputAndRefres
 TEST(FMaterialGraphOperationsTests, ParameterDragUpdatesBeforeReleaseAndUndoesAsOneGesture)
 {
 	InitializeDObjectSystem();
-	for (const auto Type : {EMaterialProgramValueType::Float, EMaterialProgramValueType::Float2,
-		EMaterialProgramValueType::Float3, EMaterialProgramValueType::Float4})
+	for (const auto Type : {EMaterialProgramValueType::Float, EMaterialProgramValueType::Float4})
 	{
 		auto* Material = NewObject<DMaterial>(nullptr, NAME_None);
 		Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
@@ -2966,10 +3008,10 @@ TEST(FMaterialGraphOperationsTests,
 			.Y = 200}, Transactions.Get());
 	ASSERT_TRUE(Promoted) << Promoted.Message;
 	ASSERT_EQ(Promoted.GeneratedNodeIds.size(), 1u);
-	EXPECT_EQ(Material->GetExpressionCollection().Expressions.size(), 1u);
+	EXPECT_EQ(Material->GetExpressionCollection().Expressions.size(), 2u);
 	EXPECT_TRUE(Material->GetExpressionOutputs().BaseColor.ExpressionId.IsValid());
-	FVector3 BaseColor;
-	ASSERT_TRUE(Material->GetVectorParameterValue(
+	FVector4 BaseColor;
+	ASSERT_TRUE(ReadVector4Parameter(*Material,
 		Material->FindParameterDefinition(Promoted.AffectedParameterIds.front())->Name, BaseColor));
 	EXPECT_NEAR(BaseColor.x, 0.2, 1.e-6);
 	EXPECT_NEAR(BaseColor.y, 0.3, 1.e-6);
@@ -2984,15 +3026,15 @@ TEST(FMaterialGraphOperationsTests,
 		Material->GetMaterialCompileStatus().RequestGeneration;
 	ASSERT_TRUE(FMaterialGraphOperations::SetParameterValue(
 		*Material, Promoted.AffectedParameterIds.front(),
-		FMaterialParameterValue::MakeVector({0.7, 0.6, 0.5}),
+		FMaterialParameterValue::MakeVector4({0.7, 0.6, 0.5, 0}),
 		Transactions.Get()));
 	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestGeneration,
 		CompileGeneration);
-	ASSERT_TRUE(Material->GetVectorParameterValue(
+	ASSERT_TRUE(ReadVector4Parameter(*Material,
 		Material->FindParameterDefinition(Promoted.AffectedParameterIds.front())->Name, BaseColor));
-	EXPECT_EQ(BaseColor, FVector3(0.7, 0.6, 0.5));
+	EXPECT_EQ(BaseColor, FVector4(0.7, 0.6, 0.5, 0));
 	ASSERT_TRUE(Transactions->Undo());
-	ASSERT_TRUE(Material->GetVectorParameterValue(
+	ASSERT_TRUE(ReadVector4Parameter(*Material,
 		Material->FindParameterDefinition(Promoted.AffectedParameterIds.front())->Name, BaseColor));
 	EXPECT_NEAR(BaseColor.x, 0.2, 1.e-6);
 	EXPECT_NEAR(BaseColor.y, 0.3, 1.e-6);
@@ -3154,25 +3196,25 @@ TEST(FMaterialGraphOperationsTests,
 	const FGuid ParameterId = Material->GetParameterDefinitions().front().Id;
 	const uint64 CompileGeneration =
 		Material->GetMaterialCompileStatus().RequestGeneration;
-	FVector3 OriginalBaseColor;
-	ASSERT_TRUE(Material->GetVectorParameterValue(
+	FVector4 OriginalBaseColor;
+	ASSERT_TRUE(ReadVector4Parameter(*Material,
 		Material->FindParameterDefinition(ParameterId)->Name, OriginalBaseColor));
 	Durin::Tests::FTestTransactorOwner Transactions;
 	FMaterialGraphParameterEditSession Session;
 	ASSERT_TRUE(Session.Begin(*Material, ParameterId, Transactions.Get()));
-	ASSERT_TRUE(Session.Apply(FMaterialParameterValue::MakeVector(
-		{0.4, 0.5, 0.6})));
-	FVector3 BaseColor;
-	ASSERT_TRUE(Material->GetVectorParameterValue(
+	ASSERT_TRUE(Session.Apply(FMaterialParameterValue::MakeVector4(
+		{0.4, 0.5, 0.6, 0})));
+	FVector4 BaseColor;
+	ASSERT_TRUE(ReadVector4Parameter(*Material,
 		Material->FindParameterDefinition(ParameterId)->Name, BaseColor));
-	EXPECT_EQ(BaseColor, FVector3(0.4, 0.5, 0.6));
+	EXPECT_EQ(BaseColor, FVector4(0.4, 0.5, 0.6, 0));
 	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestGeneration,
 		CompileGeneration);
-	ASSERT_TRUE(Session.Apply(FMaterialParameterValue::MakeVector(
-		{0.7, 0.8, 0.9})));
-	ASSERT_TRUE(Material->GetVectorParameterValue(
+	ASSERT_TRUE(Session.Apply(FMaterialParameterValue::MakeVector4(
+		{0.7, 0.8, 0.9, 0})));
+	ASSERT_TRUE(ReadVector4Parameter(*Material,
 		Material->FindParameterDefinition(ParameterId)->Name, BaseColor));
-	EXPECT_EQ(BaseColor, FVector3(0.7, 0.8, 0.9));
+	EXPECT_EQ(BaseColor, FVector4(0.7, 0.8, 0.9, 0));
 	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestGeneration,
 		CompileGeneration);
 	ASSERT_TRUE(Session.Commit());
@@ -3180,23 +3222,23 @@ TEST(FMaterialGraphOperationsTests,
 		*Material, 713, -91));
 
 	ASSERT_TRUE(Transactions->Undo());
-	ASSERT_TRUE(Material->GetVectorParameterValue(
+	ASSERT_TRUE(ReadVector4Parameter(*Material,
 		Material->FindParameterDefinition(ParameterId)->Name, BaseColor));
 	EXPECT_EQ(BaseColor, OriginalBaseColor);
 	EXPECT_EQ(Material->GetMaterialGraphPresentation().MaterialOutputX, 713);
 	EXPECT_EQ(Material->GetMaterialGraphPresentation().MaterialOutputY, -91);
 	ASSERT_TRUE(Transactions->Redo());
-	ASSERT_TRUE(Material->GetVectorParameterValue(
+	ASSERT_TRUE(ReadVector4Parameter(*Material,
 		Material->FindParameterDefinition(ParameterId)->Name, BaseColor));
-	EXPECT_EQ(BaseColor, FVector3(0.7, 0.8, 0.9));
+	EXPECT_EQ(BaseColor, FVector4(0.7, 0.8, 0.9, 0));
 
 	ASSERT_TRUE(Session.Begin(*Material, ParameterId, Transactions.Get()));
-	ASSERT_TRUE(Session.Apply(FMaterialParameterValue::MakeVector(
-		{0.1, 0.1, 0.1})));
+	ASSERT_TRUE(Session.Apply(FMaterialParameterValue::MakeVector4(
+		{0.1, 0.1, 0.1, 0})));
 	ASSERT_TRUE(Session.Cancel());
-	ASSERT_TRUE(Material->GetVectorParameterValue(
+	ASSERT_TRUE(ReadVector4Parameter(*Material,
 		Material->FindParameterDefinition(ParameterId)->Name, BaseColor));
-	EXPECT_EQ(BaseColor, FVector3(0.7, 0.8, 0.9));
+	EXPECT_EQ(BaseColor, FVector4(0.7, 0.8, 0.9, 0));
 	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestGeneration,
 		CompileGeneration);
 
@@ -3905,3 +3947,39 @@ TEST_P(FMaterialGraphCanvasInteractionTests, SelectionReconnectionCreationAndKey
 
 INSTANTIATE_TEST_SUITE_P(MaterialAndFunction, FMaterialGraphCanvasInteractionTests,
 	::testing::Bool(), [](const auto& Info) { return Info.param ? "Function" : "Material"; });
+
+TEST(FMaterialGraphOperationsTests, NarrowPromotionUsesAndReusesFourComponentOwnerThroughMask)
+{
+	InitializeDObjectSystem();
+	auto* Material = NewObject<DMaterial>(nullptr, NAME_None);
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	FMaterialGraphDocument Document(*Material);
+	Durin::Tests::FTestTransactorOwner Transactions;
+	const auto Color = Testing::CreateGraphCatalogNode(Document, EMaterialProgramOpcode::Constant, EMaterialProgramValueType::Float3);
+	ASSERT_TRUE(Color);
+	const auto Id = Color.GeneratedNodeIds.front();
+	ASSERT_TRUE(Document.SetConstantValue(Id, FMaterialParameterValue::MakeVector({.2, .4, .6})));
+	const auto Before = CaptureExpressions(*Material);
+	const auto Promoted = FMaterialGraphOperations::PromoteConstantToParameter(*Material, Id, "Tint", Transactions.Get());
+	ASSERT_TRUE(Promoted) << Promoted.Message;
+	const auto* Definition = Material->FindParameterDefinition("Tint");
+	ASSERT_NE(Definition, nullptr);
+	EXPECT_EQ(Definition->Type, EMaterialParameterType::Vector4);
+	EXPECT_NEAR(Definition->Value.GetVector4().z, .6, 1.e-6);
+	const auto ParameterId = Definition->Id;
+	const auto* Mask = FindExpression<DMaterialExpressionSwizzle>(*Material, Id);
+	ASSERT_NE(Mask, nullptr);
+	EXPECT_EQ(Mask->Components, (std::vector<uint8>{0, 1, 2}));
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(CaptureExpressions(*Material), Before);
+	ASSERT_TRUE(Transactions->Redo());
+	const auto UV = Testing::CreateGraphCatalogNode(Document, EMaterialProgramOpcode::Constant, EMaterialProgramValueType::Float2);
+	ASSERT_TRUE(UV);
+	const auto Reused = FMaterialGraphOperations::PromoteConstantToParameter(*Material, UV.GeneratedNodeIds.front(), "Tint");
+	ASSERT_TRUE(Reused) << Reused.Message;
+	EXPECT_EQ(Reused.AffectedParameterIds.front(), ParameterId);
+	EXPECT_EQ(Material->GetParameterDefinitions().size(), 1u);
+	const auto* UVMask = FindExpression<DMaterialExpressionSwizzle>(*Material, UV.GeneratedNodeIds.front());
+	ASSERT_NE(UVMask, nullptr);
+	EXPECT_EQ(UVMask->Components, (std::vector<uint8>{0, 1}));
+}

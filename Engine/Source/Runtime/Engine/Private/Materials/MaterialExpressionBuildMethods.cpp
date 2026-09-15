@@ -261,6 +261,36 @@ namespace Durin
 		return Context.Numeric(EMaterialProgramOpcode::MakeSurface, EMaterialProgramValueType::Surface, Inputs, Defaults);
 	}
 
+	auto DMaterialExpressionAppendVector::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
+	{
+		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail("Expression has only its primary output.");
+		std::vector<uint32> Scalars;
+		const std::array Inputs{&A, &B};
+		const std::array Defaults{&ADefault, &BDefault};
+		for (size_t Slot = 0; Slot < Inputs.size(); ++Slot)
+		{
+			const auto& Input = *Inputs[Slot];
+			if (!Input.ExpressionId.IsValid() && (Input.OutputIndex != 0 || Input.OutputId.IsValid()))
+				return Context.Fail("Disconnected append input has an output selector.");
+			if (!Defaults[Slot]->empty() && (Defaults[Slot]->size() > 3
+				|| !std::ranges::all_of(*Defaults[Slot], [](float Value) { return std::isfinite(Value); })))
+				return Context.Fail("Append Vector default must contain one to three finite components.");
+			const auto Index = Input.ExpressionId.IsValid() ? Context.ResolveIndex(Input) : Context.Literal(*Defaults[Slot]);
+			if (Index == InvalidMaterialExpressionIndex) return Index;
+			const auto Type = Context.GetNode(Index).ResultType;
+			if (Type > EMaterialProgramValueType::Float3) return Context.Fail("Append Vector requires numeric inputs totaling at most four components.");
+			const auto Width = static_cast<uint8>(Type) + 1;
+			if (Scalars.size() + Width > 4) return Context.Fail("Append Vector exceeds four components.");
+			for (uint8 Channel = 0; Channel < Width; ++Channel)
+				Scalars.push_back(Width == 1 ? Index : Context.Emit({.Opcode = EMaterialProgramOpcode::Swizzle,
+					.ResultType = EMaterialProgramValueType::Float, .Inputs = {Index},
+					.Payload = FMaterialIRSwizzle{1, {Channel, 0, 0, 0}}}));
+		}
+		return Context.Emit({.Opcode = static_cast<EMaterialProgramOpcode>(
+			static_cast<uint8>(EMaterialProgramOpcode::MakeFloat2) + Scalars.size() - 2),
+			.ResultType = static_cast<EMaterialProgramValueType>(Scalars.size() - 1), .Inputs = std::move(Scalars)});
+	}
+
 	auto DMaterialExpressionSwizzle::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
 	{
 		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail("Expression has only its primary output.");

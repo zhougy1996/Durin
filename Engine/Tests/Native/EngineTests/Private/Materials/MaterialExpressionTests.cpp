@@ -622,7 +622,9 @@ TEST(FMaterialExpressionTests, TypedOwnersRoundTripAndDuplicateOnlyApplicableFie
 	Add->ADefault = {.125f};
 	Add->BDefault = {.75f};
 	const auto SavedInput = Add->A;
-	const std::array<DMaterialExpression*, 5> Expressions{Scalar, Vector, Texture, Copy, Add};
+	auto* Append = NewObject<DMaterialExpressionAppendVector>(Working.Get(), "Append");
+	Append->Id = {1, 2, 3, 6}; Append->A = {Scalar->Id}; Append->BDefault = {.5f, .75f};
+	const std::array<DMaterialExpression*, 6> Expressions{Scalar, Vector, Texture, Copy, Add, Append};
 	ASSERT_TRUE(Owner->SetMaterialExpressions(Expressions, {}));
 	ASSERT_TRUE(SavePackage(Owner->GetPackage()));
 	ASSERT_TRUE(UnloadPackage(Path));
@@ -630,10 +632,17 @@ TEST(FMaterialExpressionTests, TypedOwnersRoundTripAndDuplicateOnlyApplicableFie
 	Owner = nullptr;
 	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Owner));
 	const auto Children = GDObjectArray.GetObjectsWithOuter(Owner, EObjectQueryScope::LiveOnly);
-	ASSERT_EQ(Children.size(), 5u);
+	ASSERT_EQ(Children.size(), 6u);
 	bool bFoundVector = false, bFoundScalar = false, bFoundTexture = false, bFoundAdd = false;
+	bool bFoundAppend = false;
 	for (DObject* Child : Children)
 	{
+		if (auto* Value = Cast<DMaterialExpressionAppendVector>(Child))
+		{
+			EXPECT_EQ(Value->A, SavedInput);
+			EXPECT_EQ(Value->BDefault, (std::vector<float>{.5f, .75f}));
+			bFoundAppend = true;
+		}
 		if (auto* Value = Cast<DMaterialExpressionAdd>(Child))
 		{
 			EXPECT_EQ(Value->A, SavedInput);
@@ -660,7 +669,7 @@ TEST(FMaterialExpressionTests, TypedOwnersRoundTripAndDuplicateOnlyApplicableFie
 			bFoundTexture = true;
 		}
 	}
-	EXPECT_TRUE(bFoundVector && bFoundScalar && bFoundTexture && bFoundAdd);
+	EXPECT_TRUE(bFoundVector && bFoundScalar && bFoundTexture && bFoundAdd && bFoundAppend);
 	ASSERT_TRUE(UnloadPackage(Path));
 	CollectGarbage();
 }
@@ -934,4 +943,38 @@ TEST(FMaterialExpressionTests, AuthoringFingerprintTracksCallPortsAndExcludesPar
 	Parameter->DefaultValue.x = std::numeric_limits<float>::infinity();
 	EXPECT_FALSE(FMaterialExpressionBuildContext::ValidateSurface(Expressions, Outputs, &After));
 	EXPECT_EQ(After, Retained);
+}
+
+TEST(FMaterialExpressionTests, AppendLowersInOrderAndInfersWidthWithoutCachedType)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterialExpressionAppendVector> Append(NewObject<DMaterialExpressionAppendVector>(nullptr, NAME_None));
+	Append->Id = FGuid::NewGuid();
+	Append->ADefault = {1.f, 2.f}; Append->BDefault = {3.f, 4.f};
+	const std::array<DMaterialExpression*, 1> Expressions{Append.Get()};
+	const std::array Roots{FMaterialExpressionInput{Append->Id}};
+	FMaterialExpressionBuildContext Context(Expressions);
+	const auto Built = Context.Finish(Roots);
+	ASSERT_TRUE(Built);
+	const auto& Result = Built.IR.Nodes[Built.Roots.front()];
+	EXPECT_EQ(Result.Opcode, EMaterialProgramOpcode::MakeFloat4);
+	EXPECT_EQ(Result.ResultType, EMaterialProgramValueType::Float4);
+	ASSERT_EQ(Result.Inputs.size(), 4u);
+	for (uint8 Channel = 0; Channel < 4; ++Channel)
+	{
+		const auto& Selection = Built.IR.Nodes[Result.Inputs[Channel]];
+		EXPECT_EQ(Selection.Opcode, EMaterialProgramOpcode::Swizzle);
+		EXPECT_EQ(Selection.GetSwizzle().Components[0], Channel % 2);
+		const auto& Source = Built.IR.Nodes[Selection.Inputs.front()];
+		EXPECT_FLOAT_EQ(Source.GetLiteral().X, Channel < 2 ? 1.f : 3.f);
+	}
+	Append->BDefault = {3.f, 4.f, 5.f};
+	FMaterialExpressionBuildContext Overflow(Expressions);
+	EXPECT_FALSE(Overflow.Finish(Roots));
+	Append->BDefault = {3.f};
+	FMaterialExpressionBuildContext Narrower(Expressions);
+	const auto Three = Narrower.Finish(Roots);
+	ASSERT_TRUE(Three);
+	EXPECT_EQ(Three.IR.Nodes[Three.Roots.front()].ResultType, EMaterialProgramValueType::Float3);
 }
