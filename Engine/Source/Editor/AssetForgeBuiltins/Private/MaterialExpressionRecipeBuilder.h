@@ -16,8 +16,8 @@ namespace Durin::AssetForge::Builtins::Private
 			Recipe.Presentation.Nodes.push_back({N->Id, X, Y});
 			return N;
 		}
-		auto Parameter(const FMaterialParameterDefinition& Definition, uint32 Role, int32 X, int32 Y)
-			-> DMaterialExpressionParameter*
+		auto Parameter(const FMaterialParameterDefinition& Definition, uint32 Role, int32 X, int32 Y, EMaterialProgramValueType OutputType)
+			-> DMaterialExpression*
 		{
 			DMaterialExpressionParameter* Parameter = nullptr;
 			switch (Definition.Value.GetType())
@@ -28,16 +28,6 @@ namespace Durin::AssetForge::Builtins::Private
 				N->DefaultValue = Definition.Value.GetScalar(); N->bHasRange = Definition.bHasRange;
 				N->MinimumValue = Definition.MinimumValue; N->MaximumValue = Definition.MaximumValue;
 				Parameter = N; break;
-			}
-			case EMaterialParameterType::Vector2:
-			{
-				auto* N = Add<DMaterialExpressionVector2Parameter>(Role, X, Y);
-				N->DefaultValue = Definition.Value.GetVector2(); Parameter = N; break;
-			}
-			case EMaterialParameterType::Vector:
-			{
-				auto* N = Add<DMaterialExpressionVector3Parameter>(Role, X, Y);
-				N->DefaultValue = Definition.Value.GetVector(); Parameter = N; break;
 			}
 			case EMaterialParameterType::Vector4:
 			{
@@ -54,6 +44,13 @@ namespace Durin::AssetForge::Builtins::Private
 			require(Parameter);
 			Parameter->Metadata = {Definition.Id, Definition.Name, Definition.DisplayName,
 				Definition.GroupName, Definition.SortOrder, Definition.Presentation};
+			if (Definition.Type == EMaterialParameterType::Vector4 && OutputType != EMaterialProgramValueType::Float4)
+			{
+				auto* Mask = Add<DMaterialExpressionSwizzle>(Role, X + 240, Y);
+				Mask->Input = {Parameter->Id}; Mask->Components.clear();
+				for (uint8 C = 0; C <= static_cast<uint8>(OutputType); ++C) Mask->Components.push_back(C);
+				return Mask;
+			}
 			return Parameter;
 		}
 		// Preserve imported/template UV parameters as ordinary, shareable graph operations.
@@ -89,8 +86,8 @@ namespace Durin::AssetForge::Builtins::Private
 				auto* RY = Add<DMaterialExpressionAdd>(Role, X, Y + 180);
 				RX->ResultType = RY->ResultType = Type::Float;
 				RX->A = CU; RX->B = SV; RY->A = SU; RY->B = CV;
-				auto* Rotated = Add<DMaterialExpressionMakeVector2>(Role, X += 280, Y);
-				Rotated->X = {RX->Id}; Rotated->Y = {RY->Id}; UV = {Rotated->Id};
+				auto* Rotated = Add<DMaterialExpressionAppendVector>(Role, X += 280, Y);
+				Rotated->A = {RX->Id}; Rotated->B = {RY->Id}; UV = {Rotated->Id};
 			}
 			if (Offset.ExpressionId.IsValid())
 			{

@@ -145,24 +145,6 @@ namespace Durin
 
 	};
 
-	// Owns a concrete vector2 parameter value.
-	DCLASS()
-	class DMaterialExpressionVector2Parameter : public DMaterialExpressionParameter
-	{
-		GENERATED_BODY()
-	public:
-		explicit DMaterialExpressionVector2Parameter(const FObjectInitializer& Initializer) : Super(Initializer) {}
-
-		DPROPERTY()
-		FVector2 DefaultValue{0.0};
-
-		ENGINE_API auto GetParameterDefinition() const -> FMaterialParameterDefinition override;
-
-		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
-			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
-
-	};
-
 	// Owns a concrete vector3 constant value.
 	DCLASS()
 	class DMaterialExpressionVector3Constant : public DMaterialExpression
@@ -173,24 +155,6 @@ namespace Durin
 
 		DPROPERTY()
 		FVector3 Value{0.0};
-
-		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
-			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
-
-	};
-
-	// Owns a concrete vector3 parameter value.
-	DCLASS()
-	class DMaterialExpressionVector3Parameter : public DMaterialExpressionParameter
-	{
-		GENERATED_BODY()
-	public:
-		explicit DMaterialExpressionVector3Parameter(const FObjectInitializer& Initializer) : Super(Initializer) {}
-
-		DPROPERTY()
-		FVector3 DefaultValue{0.0};
-
-		ENGINE_API auto GetParameterDefinition() const -> FMaterialParameterDefinition override;
 
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;

@@ -216,15 +216,15 @@ namespace Durin
 	auto DMaterial::SetVector2ParameterValue(FName Name, const FVector2& Value) -> bool
 	{
 		const auto* Definition = FindParameterDefinition(Name);
-		return Definition && Definition->Type == EMaterialParameterType::Vector2
-			&& SetParameterValue(Definition->Id, FMaterialParameterValue::MakeVector2(Value));
+		return Definition && Definition->Type == EMaterialParameterType::Vector4
+			&& SetParameterValue(Definition->Id, FMaterialParameterValue::MakeVector4(FVector4(Value, 0, 0)));
 	}
 
 	auto DMaterial::SetVectorParameterValue(FName Name, const FVector3& Value) -> bool
 	{
 		const auto* Definition = FindParameterDefinition(Name);
-		return Definition && Definition->Type == EMaterialParameterType::Vector
-			&& SetParameterValue(Definition->Id, FMaterialParameterValue::MakeVector(Value));
+		return Definition && Definition->Type == EMaterialParameterType::Vector4
+			&& SetParameterValue(Definition->Id, FMaterialParameterValue::MakeVector4(FVector4(Value, 0)));
 	}
 
 	auto DMaterial::SetTextureParameterValue(FName Name, DTexture2D* Value) -> bool
@@ -277,14 +277,14 @@ namespace Durin
 
 	auto DMaterial::GetVector2ParameterValue(FName Name, FVector2& OutValue) const -> bool
 	{
-		return GetTypedParameterValue(*this, Name, EMaterialParameterType::Vector2, OutValue,
-			[](const FMaterialParameterValue& Value) { return Value.GetVector2(); });
+		return GetTypedParameterValue(*this, Name, EMaterialParameterType::Vector4, OutValue,
+			[](const FMaterialParameterValue& Value) { return FVector2(Value.GetVector4()); });
 	}
 
 	auto DMaterial::GetVectorParameterValue(FName Name, FVector3& OutValue) const -> bool
 	{
-		return GetTypedParameterValue(*this, Name, EMaterialParameterType::Vector, OutValue,
-			[](const FMaterialParameterValue& Value) { return Value.GetVector(); });
+		return GetTypedParameterValue(*this, Name, EMaterialParameterType::Vector4, OutValue,
+			[](const FMaterialParameterValue& Value) { return FVector3(Value.GetVector4()); });
 	}
 
 	auto DMaterial::GetTextureParameterValue(FName Name, DTexture2D*& OutValue) const -> bool

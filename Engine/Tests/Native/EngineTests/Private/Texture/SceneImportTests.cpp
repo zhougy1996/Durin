@@ -219,7 +219,7 @@ TEST(FSceneImportTests, SceneReimportResetsEditsAndRollsBackSavedAndLiveOutputs)
 	ASSERT_NE(PreviousMesh, nullptr);
 	using Kind = MaterialParameters::EMaterialBuiltinParameterKind;
 	const auto Color = GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::BaseColor, Kind::Value);
-	ASSERT_TRUE(Previous->SetParameterValue(Color, FMaterialParameterValue::MakeVector({0.2, 0.3, 0.4})));
+	ASSERT_TRUE(Previous->SetParameterValue(Color, FMaterialParameterValue::MakeVector4({0.2, 0.3, 0.4, 0})));
 	auto Properties = Previous->GetPropertyOverrides();
 	Properties.bOverrideShadingModel = true;
 	Properties.Values.ShadingModel = EMaterialShadingModel::Unlit;
@@ -230,7 +230,7 @@ TEST(FSceneImportTests, SceneReimportResetsEditsAndRollsBackSavedAndLiveOutputs)
 	ASSERT_TRUE(Dependent->SetParent(Previous));
 	auto* Independent = NewObject<DMaterialInstance>(nullptr, "IndependentMaterial");
 	ASSERT_TRUE(Independent->SetParent(Previous->GetParent()));
-	ASSERT_TRUE(Independent->SetParameterValue(Color, FMaterialParameterValue::MakeVector({0.1, 0.2, 0.3})));
+	ASSERT_TRUE(Independent->SetParameterValue(Color, FMaterialParameterValue::MakeVector4({0.1, 0.2, 0.3, 0})));
 	const auto PreviousKey = Previous->GetImportProvenance().StructuralKey;
 	FAssetCompilingManager::Get().FinishAllCompilation();
 	const std::string OriginalSource = Read(Fixture.Source);
@@ -282,11 +282,11 @@ TEST(FSceneImportTests, SceneReimportResetsEditsAndRollsBackSavedAndLiveOutputs)
 	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), Material));
 	FResolvedMaterialParameter Value;
 	ASSERT_TRUE(Material->ResolveParameterValue(Color, Value));
-	EXPECT_EQ(Value.Value.GetVector(), FVector3(0.5, 0.75, 0.25));
+	EXPECT_EQ(FVector3(Value.Value.GetVector4()), FVector3(0.5, 0.75, 0.25));
 	EXPECT_FALSE(Material->IsParameterValueOrphan(Color));
 	EXPECT_FALSE(Material->GetStaticProperties().bTwoSided);
 	ASSERT_TRUE(Independent->ResolveParameterValue(Color, Value));
-	EXPECT_EQ(Value.Value.GetVector(), FVector3(0.1f, 0.2f, 0.3f));
+	EXPECT_EQ(FVector3(Value.Value.GetVector4()), FVector3(0.1f, 0.2f, 0.3f));
 	EXPECT_EQ(Material->GetStaticProperties().ShadingModel, EMaterialShadingModel::Lit);
 	const auto OtherSource = std::filesystem::path(Fixture.Source).parent_path() / "OtherSource" /
 		std::filesystem::path(Fixture.Source).filename();
@@ -397,15 +397,15 @@ TEST(FSceneImportTests, SourceTransformsMaskFactorAndTexturelessEmissiveArePubli
 	ASSERT_TRUE(Instance->ResolveParameterValue(GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::BaseColor, Kind::UVChannel), Parameter));
 	EXPECT_EQ(Parameter.Value.GetScalar(), 1);
 	ASSERT_TRUE(Instance->ResolveParameterValue(GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::BaseColor, Kind::UVScale), Parameter));
-	EXPECT_EQ(Parameter.Value.GetVector2(), FVector2(2, 3));
+	EXPECT_EQ(FVector2(Parameter.Value.GetVector4()), FVector2(2, 3));
 	ASSERT_TRUE(Instance->ResolveParameterValue(GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::BaseColor, Kind::UVOffset), Parameter));
-	EXPECT_EQ(Parameter.Value.GetVector2(), FVector2(.25, .5));
+	EXPECT_EQ(FVector2(Parameter.Value.GetVector4()), FVector2(.25, .5));
 	ASSERT_TRUE(Instance->ResolveParameterValue(GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::BaseColor, Kind::UVRotation), Parameter));
 	EXPECT_FLOAT_EQ(Parameter.Value.GetScalar(), .4f);
 	ASSERT_TRUE(Instance->ResolveParameterValue(GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::OpacityMask, Kind::Value), Parameter));
 	EXPECT_FLOAT_EQ(Parameter.Value.GetScalar(), .4f);
 	ASSERT_TRUE(Instance->ResolveParameterValue(GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::Emissive, Kind::Value), Parameter));
-	EXPECT_EQ(Parameter.Value.GetVector(), FVector3(2, 3, 4));
+	EXPECT_EQ(FVector3(Parameter.Value.GetVector4()), FVector3(2, 3, 4));
 	EXPECT_EQ(Instance->FindParameterDefinition(GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::Emissive, Kind::Texture)), nullptr);
 	EXPECT_EQ(Instance->FindParameterDefinition(GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::Opacity, Kind::Value)), nullptr);
 }
@@ -589,7 +589,14 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 		const auto* Factor = Owner(MaterialParameters::EMaterialBuiltinParameterKind::Value);
 		ASSERT_NE(Factor, nullptr);
 		const auto Type = Cast<DMaterialExpressionScalarParameter>(Factor) ? EMaterialProgramValueType::Float : EMaterialProgramValueType::Float3;
-		PackedCall->Inputs.push_back({PortId(10 + Role), Type, {Factor->Id}});
+		FMaterialExpressionInput FactorInput{Factor->Id};
+		if (Type == EMaterialProgramValueType::Float3)
+		{
+			TStrongObjectPtr<DMaterialExpressionSwizzle> Mask(NewObject<DMaterialExpressionSwizzle>(nullptr, NAME_None));
+			Mask->Id = FGuid::NewGuid(); Mask->Input = FactorInput; Mask->Components = {0, 1, 2};
+			FactorInput = {Mask->Id}; Packed.Expressions.emplace_back(Mask.Get());
+		}
+		PackedCall->Inputs.push_back({PortId(10 + Role), Type, FactorInput});
 		if (Role == 3 || Role == 4) continue;
 		const auto* Sample = Cast<DMaterialExpressionTextureSampleParameter2D>(Owner(MaterialParameters::EMaterialBuiltinParameterKind::Texture));
 		ASSERT_NE(Sample, nullptr);

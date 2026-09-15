@@ -19,7 +19,8 @@ namespace Durin::AssetForge::Builtins
 				const auto Id = GetMaterialSurfaceParameterId(Role, ParameterKind);
 				const auto Definition = std::ranges::find(Definitions, Id, &FMaterialParameterDefinition::Id);
 				require(Definition != Definitions.end());
-				return B.Parameter(*Definition, I, X, Row + Y);
+				return B.Parameter(*Definition, I, X, Row + Y, ParameterKind == Kind::UVScale || ParameterKind == Kind::UVOffset
+					? EMaterialProgramValueType::Float2 : ParameterKind == Kind::Value ? GetMaterialSurfaceOutputType(Role) : EMaterialProgramValueType::Float4);
 			};
 			const FMaterialExpressionInput Factor{Parameter(Kind::Value, 640, 0)->Id};
 			const FMaterialExpressionInput Channel{Parameter(Kind::UVChannel, -2920, 0)->Id};

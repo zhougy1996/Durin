@@ -171,15 +171,13 @@ namespace Durin::Editor::Material
 		case EMaterialParameterPresentation::Drag:
 			if (Definition.Type == EMaterialParameterType::Scalar)
 				return Definition.bHasRange ? EMaterialParameterControlKind::RangedScalar : EMaterialParameterControlKind::Scalar;
-			return (Definition.Type == EMaterialParameterType::Vector
-				|| Definition.Type == EMaterialParameterType::Vector2
-				|| Definition.Type == EMaterialParameterType::Vector4)
+			return (Definition.Type == EMaterialParameterType::Vector4)
 				? EMaterialParameterControlKind::Vector : EMaterialParameterControlKind::Unsupported;
 		case EMaterialParameterPresentation::Integer:
 			return Definition.Type == EMaterialParameterType::Scalar
 				? EMaterialParameterControlKind::IntegerScalar : EMaterialParameterControlKind::Unsupported;
 		case EMaterialParameterPresentation::Color:
-			return Definition.Type == EMaterialParameterType::Vector
+			return Definition.Type == EMaterialParameterType::Vector4
 				? EMaterialParameterControlKind::Color : EMaterialParameterControlKind::Unsupported;
 		case EMaterialParameterPresentation::AssetPicker:
 			return Definition.Type == EMaterialParameterType::Texture
@@ -190,9 +188,7 @@ namespace Durin::Editor::Material
 			case EMaterialParameterType::Scalar:
 				return Definition.bHasRange ? EMaterialParameterControlKind::RangedScalar
 					: EMaterialParameterControlKind::Scalar;
-			case EMaterialParameterType::Vector2: return EMaterialParameterControlKind::Vector;
 			case EMaterialParameterType::Vector4: return EMaterialParameterControlKind::Vector;
-			case EMaterialParameterType::Vector: return EMaterialParameterControlKind::Color;
 			case EMaterialParameterType::Texture: return EMaterialParameterControlKind::AssetPicker;
 			}
 		}

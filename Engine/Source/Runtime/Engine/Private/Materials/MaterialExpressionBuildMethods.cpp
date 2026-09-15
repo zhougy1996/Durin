@@ -23,23 +23,11 @@ namespace Durin
 		return Context.Literal(Components);
 	}
 
-	auto DMaterialExpressionVector2Parameter::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
-	{
-		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail("Expression has only its primary output.");
-		return Context.Parameter(Metadata.Id, EMaterialParameterType::Vector2);
-	}
-
 	auto DMaterialExpressionVector3Constant::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
 	{
 		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail("Expression has only its primary output.");
 		const std::array Components{static_cast<float>(Value[0]), static_cast<float>(Value[1]), static_cast<float>(Value[2])};
 		return Context.Literal(Components);
-	}
-
-	auto DMaterialExpressionVector3Parameter::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
-	{
-		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail("Expression has only its primary output.");
-		return Context.Parameter(Metadata.Id, EMaterialParameterType::Vector);
 	}
 
 	auto DMaterialExpressionVector4Constant::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue

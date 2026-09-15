@@ -715,7 +715,7 @@ TEST(FMaterialProgramCompilerTests, CustomNumericTextureAndResourceFreeProgramsC
 	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Input.Environment, Error)) << Error;
 	Input.StaticProperties.BlendMode = EMaterialBlendMode::Masked;
 	const FGuid Tint{0, 0, 1, 1}, UV{0, 0, 1, 2}, Texture{0, 0, 1, 3}, Amount{0, 0, 1, 4};
-	Input.Parameters = {{Tint, EMaterialParameterType::Vector4}, {UV, EMaterialParameterType::Vector2},
+	Input.Parameters = {{Tint, EMaterialParameterType::Vector4}, {UV, EMaterialParameterType::Vector4},
 		{Texture, EMaterialParameterType::Texture}, {Amount, EMaterialParameterType::Scalar}};
 	auto Add = [&](EMaterialProgramOpcode Opcode, EMaterialProgramValueType Type,
 		FGuid Parameter, std::vector<uint32> Links = {}) {
@@ -726,7 +726,9 @@ TEST(FMaterialProgramCompilerTests, CustomNumericTextureAndResourceFreeProgramsC
 		return Index;
 	};
 	const auto TintValue = Add(EMaterialProgramOpcode::Parameter, EMaterialProgramValueType::Float4, Tint);
-	const auto UVValue = Add(EMaterialProgramOpcode::Parameter, EMaterialProgramValueType::Float2, UV);
+	const auto UVParameter = Add(EMaterialProgramOpcode::Parameter, EMaterialProgramValueType::Float4, UV);
+	const auto UVValue = Add(EMaterialProgramOpcode::Swizzle, EMaterialProgramValueType::Float2, {}, {UVParameter});
+	Input.IR.Nodes.back().Payload = FMaterialIRSwizzle{2, {0, 1}};
 	const auto TextureValue = Add(EMaterialProgramOpcode::TextureParameter, EMaterialProgramValueType::Texture2D, Texture);
 	const auto Sample = Add(EMaterialProgramOpcode::TextureSample2D, EMaterialProgramValueType::Float4, {}, {TextureValue, UVValue});
 	const auto Product = Add(EMaterialProgramOpcode::Multiply, EMaterialProgramValueType::Float4, {}, {TintValue, Sample});

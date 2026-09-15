@@ -22,7 +22,7 @@ namespace Durin::AssetForge::Builtins
 		-> FImportedSurfaceRecipe
 	{
 		FImportedSurfaceRecipe Result;
-		Result.CanonicalKey = "Durin.ImportedSurface:2";
+		Result.CanonicalKey = "Durin.ImportedSurface:3";
 		Result.Graph.Presentation.bHasMaterialOutputPosition = true;
 		Result.Graph.Presentation.MaterialOutputX = 1000;
 		const auto Definitions = MakePBRMaterialParameterDefinitions();
@@ -35,7 +35,8 @@ namespace Durin::AssetForge::Builtins
 			const auto Id = GetMaterialSurfaceParameterId(SurfaceRole, ParameterKind);
 			const auto Definition = std::ranges::find(Definitions, Id, &FMaterialParameterDefinition::Id);
 			require(Definition != Definitions.end());
-			auto* Expression = Builder.Parameter(*Definition, Role, PositionX(), static_cast<int32>(Role) * 300);
+			auto* Expression = Builder.Parameter(*Definition, Role, PositionX(), static_cast<int32>(Role) * 300, ParameterKind == Kind::UVScale || ParameterKind == Kind::UVOffset
+					? EMaterialProgramValueType::Float2 : ParameterKind == Kind::Value ? GetMaterialSurfaceOutputType(SurfaceRole) : EMaterialProgramValueType::Float4);
 			Result.Owners.push_back({SurfaceRole, ParameterKind, Id});
 			return Link{Expression->Id};
 		};

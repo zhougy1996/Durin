@@ -76,8 +76,6 @@ namespace Durin
 			}
 			for (const auto& Record : *Records)
 			{
-				if constexpr (std::is_same_v<TRecord, FMaterialVectorParameterValue>)
-					if (!TRecord::SupportsType(Record.ParameterType)) bValid = false;
 				if (!Record.ParameterId.IsValid() || !Ids.insert(Record.ParameterId).second) bValid = false;
 				if constexpr (std::is_same_v<TRecord, FMaterialTextureParameterValue>)
 					if (!IsValidMaterialSampling(Record.Value.SamplerState, Record.Value.TextureFallback)) bValid = false;
@@ -325,17 +323,17 @@ namespace Durin
 	auto DMaterialInstance::SetVector2ParameterValue(FName Name, const FVector2& Value) -> bool
 	{
 		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
-		if (!Definition || Definition->Type != EMaterialParameterType::Vector2) return false;
+		if (!Definition || Definition->Type != EMaterialParameterType::Vector4) return false;
 		return SetParameterValue(
-			Definition->Id, FMaterialParameterValue::MakeVector2(Value));
+			Definition->Id, FMaterialParameterValue::MakeVector4(FVector4(Value, 0, 0)));
 	}
 
 	auto DMaterialInstance::SetVectorParameterValue(FName Name, const FVector3& Value) -> bool
 	{
 		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
-		if (!Definition || Definition->Type != EMaterialParameterType::Vector) return false;
+		if (!Definition || Definition->Type != EMaterialParameterType::Vector4) return false;
 		return SetParameterValue(
-			Definition->Id, FMaterialParameterValue::MakeVector(Value));
+			Definition->Id, FMaterialParameterValue::MakeVector4(FVector4(Value, 0)));
 	}
 
 	auto DMaterialInstance::SetTextureParameterValue(FName Name, DTexture2D* Value) -> bool
@@ -356,13 +354,13 @@ namespace Durin
 
 	auto DMaterialInstance::ClearVector2ParameterValue(FName Name) -> bool
 	{
-		return ApplyTypedParameterOperation(*this, Name, EMaterialParameterType::Vector2,
+		return ApplyTypedParameterOperation(*this, Name, EMaterialParameterType::Vector4,
 			&DMaterialInstance::ClearParameterValue);
 	}
 
 	auto DMaterialInstance::ClearVectorParameterValue(FName Name) -> bool
 	{
-		return ApplyTypedParameterOperation(*this, Name, EMaterialParameterType::Vector,
+		return ApplyTypedParameterOperation(*this, Name, EMaterialParameterType::Vector4,
 			&DMaterialInstance::ClearParameterValue);
 	}
 
@@ -380,13 +378,13 @@ namespace Durin
 
 	auto DMaterialInstance::HasLocalVector2ParameterValue(FName Name) const -> bool
 	{
-		return ApplyTypedParameterOperation(*this, Name, EMaterialParameterType::Vector2,
+		return ApplyTypedParameterOperation(*this, Name, EMaterialParameterType::Vector4,
 			&DMaterialInstance::HasLocalParameterValue);
 	}
 
 	auto DMaterialInstance::HasLocalVectorParameterValue(FName Name) const -> bool
 	{
-		return ApplyTypedParameterOperation(*this, Name, EMaterialParameterType::Vector,
+		return ApplyTypedParameterOperation(*this, Name, EMaterialParameterType::Vector4,
 			&DMaterialInstance::HasLocalParameterValue);
 	}
 
@@ -404,14 +402,14 @@ namespace Durin
 
 	auto DMaterialInstance::GetVector2ParameterValue(FName Name, FVector2& OutValue) const -> bool
 	{
-		return GetTypedParameterValue(*this, Name, EMaterialParameterType::Vector2, OutValue,
-			[](const FMaterialParameterValue& Value) { return Value.GetVector2(); });
+		return GetTypedParameterValue(*this, Name, EMaterialParameterType::Vector4, OutValue,
+			[](const FMaterialParameterValue& Value) { return FVector2(Value.GetVector4()); });
 	}
 
 	auto DMaterialInstance::GetVectorParameterValue(FName Name, FVector3& OutValue) const -> bool
 	{
-		return GetTypedParameterValue(*this, Name, EMaterialParameterType::Vector, OutValue,
-			[](const FMaterialParameterValue& Value) { return Value.GetVector(); });
+		return GetTypedParameterValue(*this, Name, EMaterialParameterType::Vector4, OutValue,
+			[](const FMaterialParameterValue& Value) { return FVector3(Value.GetVector4()); });
 	}
 
 	auto DMaterialInstance::GetTextureParameterValue(FName Name, DTexture2D*& OutValue) const -> bool

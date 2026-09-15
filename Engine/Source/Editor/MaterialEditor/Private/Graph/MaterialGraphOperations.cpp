@@ -62,15 +62,7 @@ namespace Durin::Editor::Material
 				if (const auto* Peer = Cast<DMaterialExpressionParameter>(Expression.Get()); Peer && Peer->Id != Parameter.Id
 					&& Peer->Metadata.Name == Definition.Name)
 				{
-					auto Shared = Peer->GetParameterDefinition();
-					if (Shared.Type == EMaterialParameterType::Vector4
-						&& (Definition.Type == EMaterialParameterType::Vector2 || Definition.Type == EMaterialParameterType::Vector))
-					{
-						Shared.Type = Definition.Type;
-						Shared.Value = MakeParameterValue(GetProgramType(Definition.Type),
-							ReadParameterLiteral(EMaterialProgramValueType::Float4, Shared.Value));
-					}
-					if (!Parameter.SetParameterDefinition(Shared))
+					if (!Parameter.SetParameterDefinition(Peer->GetParameterDefinition()))
 						return "A parameter with this name already exists with a different type.";
 					return {};
 				}
@@ -83,8 +75,15 @@ namespace Durin::Editor::Material
 			return {};
 		}
 
-		auto MakeParameterExpression(const FMaterialParameterDefinition& Definition) -> TStrongObjectPtr<DMaterialExpressionParameter>
+		auto MakeParameterExpression(const FMaterialParameterDefinition& InputDefinition) -> TStrongObjectPtr<DMaterialExpressionParameter>
 		{
+			auto Definition = InputDefinition;
+			if (!ValidateMaterialParameterDefinitions(std::span(&Definition, 1))) return {};
+			if (Definition.Type == EMaterialParameterType::Vector2 || Definition.Type == EMaterialParameterType::Vector)
+			{
+				Definition.Value = MakeParameterValue(EMaterialProgramValueType::Float4, ReadParameterLiteral(GetProgramType(Definition.Type), Definition.Value));
+				Definition.Type = EMaterialParameterType::Vector4;
+			}
 			if (!ValidateMaterialParameterDefinitions(std::span(&Definition, 1))) return {};
 			TStrongObjectPtr<DMaterialExpressionParameter> Result;
 			switch (Definition.Type)
@@ -95,16 +94,6 @@ namespace Durin::Editor::Material
 				E->DefaultValue = Definition.Value.GetScalar();
 				E->bHasRange = Definition.bHasRange; E->MinimumValue = Definition.MinimumValue; E->MaximumValue = Definition.MaximumValue;
 				Result = E; break;
-			}
-			case EMaterialParameterType::Vector2:
-			{
-				auto* E = NewObject<DMaterialExpressionVector2Parameter>(nullptr, NAME_None);
-				E->DefaultValue = Definition.Value.GetVector2(); Result = E; break;
-			}
-			case EMaterialParameterType::Vector:
-			{
-				auto* E = NewObject<DMaterialExpressionVector3Parameter>(nullptr, NAME_None);
-				E->DefaultValue = Definition.Value.GetVector(); Result = E; break;
 			}
 			case EMaterialParameterType::Vector4:
 			{
@@ -205,10 +194,21 @@ namespace Durin::Editor::Material
 		const auto Validation = ValidateMaterialParameterDefinitions(std::span(&Definition, 1));
 		if (!Validation) return MakeRejected(std::string(GetMaterialParameterErrorText(Validation.Error)));
 		auto Parameter = MakeParameterExpression(Definition);
-		Parameter->Id = NodeId;
+		const auto Width = GetProgramType(Definition.Type);
+		const bool bMask = Width == EMaterialProgramValueType::Float2 || Width == EMaterialProgramValueType::Float3;
+		if (!bMask) Parameter->Id = NodeId;
 		if (const auto Error = ResolveParameterExpression(State, *Parameter); !Error.empty()) return MakeRejected(Error);
 		Definition = Parameter->GetParameterDefinition();
-		*It = Parameter.Get();
+		if (bMask)
+		{
+			auto Mask = MakeParameterMask(*Parameter.Get(), Width, NodeId);
+			*It = Mask.Get(); State.Expressions.emplace_back(Parameter.Get());
+			const auto OldPosition = std::ranges::find(State.Presentation.Nodes, NodeId, &FMaterialGraphNodePresentation::NodeId);
+			const int32 X = OldPosition == State.Presentation.Nodes.end() ? -260 : OldPosition->X - 260;
+			const int32 Y = OldPosition == State.Presentation.Nodes.end() ? 0 : OldPosition->Y;
+			State.Presentation.Nodes.push_back({Parameter->Id, X, Y});
+		}
+		else *It = Parameter.Get();
 		const auto Position = std::ranges::find(State.Presentation.Nodes, NodeId, &FMaterialGraphNodePresentation::NodeId);
 		if (Position != State.Presentation.Nodes.end()) Position->DisplayName = Definition.DisplayName;
 		else State.Presentation.Nodes.push_back({.NodeId = NodeId, .DisplayName = Definition.DisplayName});
@@ -374,6 +374,12 @@ namespace Durin::Editor::Material
 		*Link = {Id}; State.Outputs.Surface = {};
 		State.Presentation.Nodes.push_back({Id, Request.X, Request.Y});
 		State.Expressions.emplace_back(Parameter.Get());
+		if (Type == EMaterialProgramValueType::Float2 || Type == EMaterialProgramValueType::Float3)
+		{
+			auto Mask = MakeParameterMask(*Parameter.Get(), Type);
+			*Link = {Mask->Id}; State.Presentation.Nodes.push_back({Mask->Id, Request.X + 260, Request.Y});
+			State.Expressions.emplace_back(Mask.Get());
+		}
 		auto Result = CommitOwnedExpressions(Material, std::move(State), "Promote Surface Parameter", Transactions);
 		if (Result)
 		{

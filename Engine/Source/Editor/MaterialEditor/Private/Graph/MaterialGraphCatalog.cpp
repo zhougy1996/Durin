@@ -124,8 +124,7 @@ namespace Durin::Editor::Material
 				if (Opcode == EMaterialProgramOpcode::Constant)
 					return (std::array{DMaterialExpressionScalarConstant::StaticClass(), DMaterialExpressionVector2Constant::StaticClass(),
 						DMaterialExpressionVector3Constant::StaticClass(), DMaterialExpressionVector4Constant::StaticClass()})[Index];
-				return (std::array{DMaterialExpressionScalarParameter::StaticClass(), DMaterialExpressionVector2Parameter::StaticClass(),
-					DMaterialExpressionVector3Parameter::StaticClass(), DMaterialExpressionVector4Parameter::StaticClass()})[Index];
+				return Type == EMaterialProgramValueType::Float ? DMaterialExpressionScalarParameter::StaticClass() : DMaterialExpressionVector4Parameter::StaticClass();
 			}
 			switch (Opcode)
 			{

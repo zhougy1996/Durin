@@ -1624,7 +1624,7 @@ TEST(FMaterialGraphOperationsTests, GenericParametersCreateIndependentDeclaratio
 			|| Entry.Opcode == EMaterialProgramOpcode::TextureParameter;
 	};
 	std::erase_if(Entries, [&](const auto& Entry) { return !IsParameter(Entry); });
-	ASSERT_EQ(Entries.size(), 5u);
+	ASSERT_EQ(Entries.size(), 3u);
 	Durin::Tests::FTestTransactorOwner Transactions;
 	for (const auto& Entry : Entries)
 	{

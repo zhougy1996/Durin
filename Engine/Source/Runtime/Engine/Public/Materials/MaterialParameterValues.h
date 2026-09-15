@@ -25,7 +25,7 @@ namespace Durin
 		auto SetValue(const FMaterialParameterValue& InValue) -> void { Value = InValue.GetScalar(); }
 	};
 
-	// Stores all vector widths as float components while preserving the declared parameter type.
+	// Stores the four components of a vector parameter.
 	DSTRUCT()
 	struct FMaterialVectorParameterValue
 	{
@@ -37,36 +37,12 @@ namespace Durin
 		DPROPERTY()
 		FVector4f Value{0.0f};
 
-		DPROPERTY()
-		EMaterialParameterType ParameterType = EMaterialParameterType::Vector4;
-
-		static auto SupportsType(EMaterialParameterType Type) -> bool
-		{
-			return Type == EMaterialParameterType::Vector2 || Type == EMaterialParameterType::Vector
-				|| Type == EMaterialParameterType::Vector4;
-		}
+		static constexpr EMaterialParameterType Type = EMaterialParameterType::Vector4;
+		static auto SupportsType(EMaterialParameterType InType) -> bool { return InType == Type; }
 		static auto PropertyName() -> FName { return FName("VectorParameterValues"); }
-		auto GetValue() const -> FMaterialParameterValue
-		{
-			require(SupportsType(ParameterType));
-			switch (ParameterType)
-			{
-			case EMaterialParameterType::Vector2: return FMaterialParameterValue::MakeVector2(FVector2(Value));
-			case EMaterialParameterType::Vector: return FMaterialParameterValue::MakeVector(FVector3(Value));
-			default: return FMaterialParameterValue::MakeVector4(FVector4(Value));
-			}
-		}
-		auto SetValue(const FMaterialParameterValue& InValue) -> void
-		{
-			require(SupportsType(InValue.GetType()));
-			ParameterType = InValue.GetType();
-			switch (ParameterType)
-			{
-			case EMaterialParameterType::Vector2: Value = FVector4f(InValue.GetVector2(), 0.0f, 0.0f); break;
-			case EMaterialParameterType::Vector: Value = FVector4f(InValue.GetVector(), 0.0f); break;
-			default: Value = FVector4f(InValue.GetVector4()); break;
-			}
-		}
+		auto GetValue() const -> FMaterialParameterValue { return FMaterialParameterValue::MakeVector4(FVector4(Value)); }
+		auto SetValue(const FMaterialParameterValue& InValue) -> void { Value = FVector4f(InValue.GetVector4()); }
+
 	};
 
 	// Persists only the texture value selected by this record's type.
@@ -95,8 +71,6 @@ namespace Durin
 		switch (Type)
 		{
 		case EMaterialParameterType::Scalar: return Visitor.template operator()<FMaterialScalarParameterValue>();
-		case EMaterialParameterType::Vector2:
-		case EMaterialParameterType::Vector:
 		case EMaterialParameterType::Vector4: return Visitor.template operator()<FMaterialVectorParameterValue>();
 		case EMaterialParameterType::Texture: return Visitor.template operator()<FMaterialTextureParameterValue>();
 		}

@@ -669,8 +669,7 @@ namespace Durin::AssetForge::Builtins
 							Owner.Kind == Kind::UVChannel ? Role.Sample->UVChannel :
 							Owner.Kind == Kind::UVScale ? Role.Sample->UVScale :
 							Owner.Kind == Kind::UVOffset ? Role.Sample->UVOffset : Role.Sample->UVRotation;
-						Value = Definition->Type == EMaterialParameterType::Vector ? FMaterialParameterValue::MakeVector({Literal.X, Literal.Y, Literal.Z}) :
-							Definition->Type == EMaterialParameterType::Vector2 ? FMaterialParameterValue::MakeVector2({Literal.X, Literal.Y}) :
+						Value = Definition->Type == EMaterialParameterType::Vector4 ? FMaterialParameterValue::MakeVector4({Literal.X, Literal.Y, Literal.Z, Literal.W}) :
 							FMaterialParameterValue::MakeScalar(Literal.X);
 					}
 					if (!Material->SetParameterValue(Owner.ParameterId, Value))

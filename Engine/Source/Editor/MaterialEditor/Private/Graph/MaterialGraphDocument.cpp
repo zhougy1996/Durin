@@ -171,36 +171,6 @@ namespace Durin::Editor::Material
 			if (Candidate.Expressions.size() > MaterialProgramMaxNodeCount
 				|| std::ranges::any_of(Candidate.Expressions, [](const auto& Expression) { return !Expression.Get(); }))
 				return MakeRejected("The graph has too many expressions or contains a missing expression.");
-			// Preserve existing narrow parameter declarations for serialized assets and instance overrides.
-			// New declarations use Float4, with an explicit mask preserving the requested output width.
-			if (Material)
-			{
-				std::vector<TStrongObjectPtr<DMaterialExpression>> Added;
-				for (auto& Expression : Candidate.Expressions)
-				{
-					auto* Parameter = Cast<DMaterialExpressionParameter>(Expression.Get());
-					if (!Parameter) continue;
-					const auto Definition = Parameter->GetParameterDefinition();
-					const auto Width = GetProgramType(Definition.Type);
-					if (Width != EMaterialProgramValueType::Float2 && Width != EMaterialProgramValueType::Float3) continue;
-					const auto* Existing = Material->FindParameterDefinition(Definition.Id);
-					if (!Existing) Existing = Material->FindParameterDefinition(Definition.Name);
-					if (Existing && Existing->Type != EMaterialParameterType::Vector4) continue;
-					TStrongObjectPtr<DMaterialExpressionVector4Parameter> Wide(NewObject<DMaterialExpressionVector4Parameter>(nullptr, NAME_None));
-					Wide->Id = FGuid::NewGuid(); Wide->Metadata = Parameter->Metadata;
-					Wide->DefaultValue = Existing ? Existing->Value.GetVector4() : MakeParameterValue(EMaterialProgramValueType::Float4,
-						ReadParameterLiteral(Width, Definition.Value)).GetVector4();
-					TStrongObjectPtr<DMaterialExpressionSwizzle> Mask(NewObject<DMaterialExpressionSwizzle>(nullptr, NAME_None));
-					Mask->Id = Expression->Id; Mask->Input = {Wide->Id}; Mask->Components.clear();
-					for (uint8 Channel = 0; Channel <= static_cast<uint8>(Width); ++Channel) Mask->Components.push_back(Channel);
-					const auto Position = std::ranges::find(Candidate.Presentation.Nodes, Expression->Id, &FMaterialGraphNodePresentation::NodeId);
-					const int32 X = Position == Candidate.Presentation.Nodes.end() ? -260 : Position->X - 260;
-					const int32 Y = Position == Candidate.Presentation.Nodes.end() ? 0 : Position->Y;
-					Candidate.Presentation.Nodes.push_back({Wide->Id, X, Y});
-					Expression = Mask.Get(); Added.emplace_back(Wide.Get());
-				}
-				for (auto& Expression : Added) Candidate.Expressions.push_back(std::move(Expression));
-			}
 			if (!AdaptNumericTypes(Candidate)) return MakeRejected("Numeric inputs require matching vector widths or scalar broadcasting; Append Vector requires a total of two to four components.");
 			// Keep every terminal visible even when the source graph has no saved layout.
 			std::erase_if(Candidate.Presentation.Nodes, [](const auto& Position) {

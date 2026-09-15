@@ -239,15 +239,21 @@ namespace Durin::Editor::Material
 						auto Parameter = GraphEditInternals::MakeParameterExpression(Definition);
 						if (const auto Candidate = Parameter ? CaptureSelected() : State.Expressions.end(); Candidate != State.Expressions.end())
 						{
-							const FMaterialExpressionInput Link{Parameter->Id};
+							auto* Destination = Candidate->Get();
+							FMaterialExpressionInput Link{Parameter->Id};
+							if (Value.Type == EMaterialProgramValueType::Float2 || Value.Type == EMaterialProgramValueType::Float3)
+							{
+								auto Mask = GraphEditInternals::MakeParameterMask(*Parameter.Get(), Value.Type);
+								Link = {Mask->Id}; State.Expressions.emplace_back(Mask.Get());
+							}
 							if (Pin.PortId.IsValid())
 							{
-								auto* Call = Cast<DMaterialExpressionFunctionCall>(Candidate->Get());
+								auto* Call = Cast<DMaterialExpressionFunctionCall>(Destination);
 								auto Input = std::ranges::find(Call->Inputs, Pin.PortId, &FMaterialExpressionFunctionInputBinding::InputId);
 								if (Input == Call->Inputs.end()) Call->Inputs.push_back({Pin.PortId, Value.Type, Link});
 								else Input->Input = Link;
 							}
-							else VisitMaterialExpressionInputs(**Candidate, [&](uint32 Index, FMaterialExpressionInput& Input) {
+							else VisitMaterialExpressionInputs(*Destination, [&](uint32 Index, FMaterialExpressionInput& Input) {
 								if (Index == Pin.InputIndex) Input = Link;
 							});
 							const auto Position = std::ranges::find(State.Presentation.Nodes, Expression->Id, &FMaterialGraphNodePresentation::NodeId);

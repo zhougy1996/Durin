@@ -31,8 +31,6 @@ namespace Durin
 			Parameter->MinimumValue = Definition.MinimumValue;
 			Parameter->MaximumValue = Definition.MaximumValue;
 		}
-		else if (auto* Parameter = Cast<DMaterialExpressionVector2Parameter>(this)) Parameter->DefaultValue = Definition.Value.GetVector2();
-		else if (auto* Parameter = Cast<DMaterialExpressionVector3Parameter>(this)) Parameter->DefaultValue = Definition.Value.GetVector();
 		else if (auto* Parameter = Cast<DMaterialExpressionVector4Parameter>(this)) Parameter->DefaultValue = Definition.Value.GetVector4();
 		else if (auto* Parameter = Cast<DMaterialExpressionTextureParameter>(this))
 		{
@@ -60,18 +58,6 @@ namespace Durin
 		Definition.bHasRange = bHasRange;
 		Definition.MinimumValue = MinimumValue;
 		Definition.MaximumValue = MaximumValue;
-		return Definition;
-	}
-
-	auto DMaterialExpressionVector2Parameter::GetParameterDefinition() const -> FMaterialParameterDefinition
-	{
-		auto Definition = MakeDefinition(EMaterialParameterType::Vector2, FMaterialParameterValue::MakeVector2(DefaultValue));
-		return Definition;
-	}
-
-	auto DMaterialExpressionVector3Parameter::GetParameterDefinition() const -> FMaterialParameterDefinition
-	{
-		auto Definition = MakeDefinition(EMaterialParameterType::Vector, FMaterialParameterValue::MakeVector(DefaultValue));
 		return Definition;
 	}
 

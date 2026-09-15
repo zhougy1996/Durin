@@ -197,8 +197,10 @@ Append Vector participates in upstream width inference, summing both input width
 and rejecting totals above four. Compilation expands it into existing scalar
 selection and vector-construction IR, preserving A-then-B component order.
 Graph editing commands turn new narrow parameters into a Float4 owner plus a mask;
-existing narrow declarations retain their types, including during renames, so
-serialized material-instance overrides remain compatible.
+templates and imported materials use the same representation. Vector parameter
+owners and serialized instance overrides store only Float4 values. Separate
+Float2/Float3 parameter classes and the serialized override width field are removed.
+Narrow convenience setters pad with zero and getters select the leading components.
 Expression compilation lowers scalar broadcasting to typed Splat IR operations,
 without creating authored graph nodes.
 Fixed numeric inputs, material Surface outputs, Surface attribute overrides and

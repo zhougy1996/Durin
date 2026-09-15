@@ -174,15 +174,15 @@ namespace Durin
 			FMaterialParameterValue ConstantValue;
 			float Minimum = 0.0f;
 			float Maximum = 1.0f;
-			if (Role == 0) ConstantValue = FMaterialParameterValue::MakeVector({0.5, 0.5, 0.5});
-			else if (Role == 1) { ConstantValue = FMaterialParameterValue::MakeVector({0.0, 0.0, 1.0}); Minimum = -1.0f; }
+			if (Role == 0) ConstantValue = FMaterialParameterValue::MakeVector4({0.5, 0.5, 0.5, 0});
+			else if (Role == 1) { ConstantValue = FMaterialParameterValue::MakeVector4({0.0, 0.0, 1.0, 0}); Minimum = -1.0f; }
 			else if (Role == 3) ConstantValue = FMaterialParameterValue::MakeScalar(0.5f);
-			else if (Role == 5) { ConstantValue = FMaterialParameterValue::MakeVector(FVector3(0.0)); Maximum = 64.0f; }
+			else if (Role == 5) { ConstantValue = FMaterialParameterValue::MakeVector4(FVector4(0.0)); Maximum = 64.0f; }
 			else if (Role == 2) ConstantValue = FMaterialParameterValue::MakeScalar(0.0f);
 			else ConstantValue = FMaterialParameterValue::MakeScalar(1.0f);
 			const int32 Sort = static_cast<int32>(Role * 7);
 			const FName Group(GroupNames[Role]);
-			Result.push_back(MakeDefinition(GetBuiltinParameterId(BuiltinRole, EMaterialBuiltinParameterKind::Value), *ConstantNames[Role], bVector ? EMaterialParameterType::Vector : EMaterialParameterType::Scalar,
+			Result.push_back(MakeDefinition(GetBuiltinParameterId(BuiltinRole, EMaterialBuiltinParameterKind::Value), *ConstantNames[Role], bVector ? EMaterialParameterType::Vector4 : EMaterialParameterType::Scalar,
 				ConstantValue, DisplayNames[Role], Sort, (Role == 0 || Role == 5) ? EMaterialParameterPresentation::Color : EMaterialParameterPresentation::Drag,
 				true, Minimum, Maximum, ETextureUsage::Color, Group));
 			Result.push_back(MakeDefinition(GetBuiltinParameterId(BuiltinRole, EMaterialBuiltinParameterKind::Texture), *TextureNames[Role], EMaterialParameterType::Texture,
@@ -191,11 +191,11 @@ namespace Durin
 			Result.push_back(MakeDefinition(GetBuiltinParameterId(BuiltinRole, EMaterialBuiltinParameterKind::UVChannel), FName(std::string(RoleNames[Role]) + "UVChannel"), EMaterialParameterType::Scalar,
 				FMaterialParameterValue::MakeScalar(0.0f), "UV Channel", Sort + 2, EMaterialParameterPresentation::Integer,
 				true, 0.0f, 3.0f, ETextureUsage::Color, Group));
-			Result.push_back(MakeDefinition(GetBuiltinParameterId(BuiltinRole, EMaterialBuiltinParameterKind::UVScale), FName(std::string(RoleNames[Role]) + "UVScale"), EMaterialParameterType::Vector2,
-				FMaterialParameterValue::MakeVector2({1.0, 1.0}), "UV Scale", Sort + 3, EMaterialParameterPresentation::Drag,
+			Result.push_back(MakeDefinition(GetBuiltinParameterId(BuiltinRole, EMaterialBuiltinParameterKind::UVScale), FName(std::string(RoleNames[Role]) + "UVScale"), EMaterialParameterType::Vector4,
+				FMaterialParameterValue::MakeVector4({1.0, 1.0, 0, 0}), "UV Scale", Sort + 3, EMaterialParameterPresentation::Drag,
 				true, -1024.0f, 1024.0f, ETextureUsage::Color, Group));
-			Result.push_back(MakeDefinition(GetBuiltinParameterId(BuiltinRole, EMaterialBuiltinParameterKind::UVOffset), FName(std::string(RoleNames[Role]) + "UVOffset"), EMaterialParameterType::Vector2,
-				FMaterialParameterValue::MakeVector2(FVector2(0.0)), "UV Offset", Sort + 4, EMaterialParameterPresentation::Drag,
+			Result.push_back(MakeDefinition(GetBuiltinParameterId(BuiltinRole, EMaterialBuiltinParameterKind::UVOffset), FName(std::string(RoleNames[Role]) + "UVOffset"), EMaterialParameterType::Vector4,
+				FMaterialParameterValue::MakeVector4(FVector4(0.0)), "UV Offset", Sort + 4, EMaterialParameterPresentation::Drag,
 				true, -1024.0f, 1024.0f, ETextureUsage::Color, Group));
 			Result.push_back(MakeDefinition(GetBuiltinParameterId(BuiltinRole, EMaterialBuiltinParameterKind::UVRotation), FName(std::string(RoleNames[Role]) + "UVRotation"), EMaterialParameterType::Scalar,
 				FMaterialParameterValue::MakeScalar(0.0f), "UV Rotation (Radians)", Sort + 5, EMaterialParameterPresentation::Drag,

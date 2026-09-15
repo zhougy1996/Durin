@@ -47,19 +47,15 @@ TEST(FMaterialInstanceTests, TypedValueAlternativesAndReferenceRewriting)
 	CollectGarbage();
 }
 
-TEST(FMaterialInstanceTests, UnifiedVectorStoragePreservesWidthAndClearsUnusedComponents)
+TEST(FMaterialInstanceTests, VectorStorageHasOnlyFourComponentValues)
 {
 	using namespace Durin;
 	FMaterialVectorParameterValue Record;
 	Record.SetValue(FMaterialParameterValue::MakeVector4(FVector4(1, 2, 3, 4)));
 	EXPECT_EQ(Record.Value, FVector4f(1, 2, 3, 4));
 	EXPECT_EQ(Record.GetValue(), FMaterialParameterValue::MakeVector4(FVector4(1, 2, 3, 4)));
-	Record.SetValue(FMaterialParameterValue::MakeVector(FVector3(5, 6, 7)));
-	EXPECT_EQ(Record.Value, FVector4f(5, 6, 7, 0));
-	EXPECT_EQ(Record.GetValue(), FMaterialParameterValue::MakeVector(FVector3(5, 6, 7)));
-	Record.SetValue(FMaterialParameterValue::MakeVector2(FVector2(.1, .2)));
-	EXPECT_EQ(Record.Value, FVector4f(.1f, .2f, 0, 0));
-	EXPECT_EQ(Record.GetValue(), FMaterialParameterValue::MakeVector2(FVector2(.1f, .2f)));
+	EXPECT_FALSE(FMaterialVectorParameterValue::SupportsType(EMaterialParameterType::Vector2));
+	EXPECT_FALSE(FMaterialVectorParameterValue::SupportsType(EMaterialParameterType::Vector));
 }
 
 TEST(FMaterialInstanceTests, TypedOverrideArraysRoundTripOrphansAndRejectCrossTypeDuplicates)
@@ -79,8 +75,7 @@ TEST(FMaterialInstanceTests, TypedOverrideArraysRoundTripOrphansAndRejectCrossTy
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Instance));
 	EXPECT_EQ(Instance->GetClass()->FindPropertyByName("ParameterOverrides"), nullptr);
 	uint32 Index = 0;
-	for (const auto Type : {EMaterialParameterType::Scalar, EMaterialParameterType::Vector2,
-		EMaterialParameterType::Vector, EMaterialParameterType::Vector4, EMaterialParameterType::Texture})
+	for (const auto Type : {EMaterialParameterType::Scalar, EMaterialParameterType::Vector4, EMaterialParameterType::Texture})
 	{
 		ASSERT_TRUE(VisitMaterialParameterValueType(Type, [&]<typename TRecord>() {
 			auto* Property = Instance->GetClass()->FindPropertyByName(TRecord::PropertyName());
@@ -96,7 +91,6 @@ TEST(FMaterialInstanceTests, TypedOverrideArraysRoundTripOrphansAndRejectCrossTy
 			}
 			else
 			{
-				Record.ParameterType = Type;
 				Record.Value = FVector4f(.25f);
 			}
 			Records->push_back(Record);
@@ -110,7 +104,7 @@ TEST(FMaterialInstanceTests, TypedOverrideArraysRoundTripOrphansAndRejectCrossTy
 		return Result;
 	};
 	const auto Before = Capture(*Instance);
-	ASSERT_EQ(Before.size(), 5u);
+	ASSERT_EQ(Before.size(), 3u);
 	for (const auto& [Id, Value] : Before) EXPECT_TRUE(Instance->IsParameterValueOrphan(Id));
 	ASSERT_TRUE(UnloadPackage(Path));
 	CollectGarbage();
@@ -119,11 +113,7 @@ TEST(FMaterialInstanceTests, TypedOverrideArraysRoundTripOrphansAndRejectCrossTy
 	EXPECT_EQ(Capture(*Instance), Before);
 	auto* Property = Instance->GetClass()->FindPropertyByName("VectorParameterValues");
 	auto* Records = Property->ContainerPtrToValuePtr<std::vector<FMaterialVectorParameterValue>>(Instance);
-	const auto OriginalType = Records->front().ParameterType;
-	Records->front().ParameterType = EMaterialParameterType::Scalar;
-	FByteBuffer InvalidType;
-	EXPECT_FALSE(SerializeAssetPackageBytes(Instance->GetPackage(), InvalidType));
-	Records->front().ParameterType = OriginalType;
+	EXPECT_EQ(FMaterialVectorParameterValue::StaticStruct()->FindPropertyByName("ParameterType"), nullptr);
 	const auto Id = Records->front().ParameterId;
 	Records->front().ParameterId = Before.front().first;
 	FByteBuffer Rejected;
@@ -534,7 +524,7 @@ TEST(FMaterialInstanceTests, RenderLayerResolvesMixedOverridesAndRefreshesEachBu
 	ASSERT_TRUE(Child->ClearScalarParameterValue(MaterialParameters::OpacityName()));
 	CheckLayer(.7f, FVector3(FVector3f(.2f, .4f, .6f)));
 	ASSERT_TRUE(Parent->ClearVectorParameterValue(MaterialParameters::BaseColorName()));
-	CheckLayer(.7f, Root->FindParameterDefinition(ColorId)->Value.GetVector());
+	CheckLayer(.7f, FVector3(Root->FindParameterDefinition(ColorId)->Value.GetVector4()));
 	MarkAsGarbage(Child);
 	MarkAsGarbage(Parent);
 	MarkAsGarbage(Root);

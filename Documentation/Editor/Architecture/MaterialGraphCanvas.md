@@ -164,8 +164,9 @@ the selected channels. Append Vector concatenates two numeric inputs and infers
 their combined width, rejecting totals above four. Make Vector and Splat are no
 longer offered in the creation menu; their serialized expressions remain readable.
 Graph editing commands represent new narrow parameters with a four-component owner and
-an explicit mask preserving the requested output width. Existing narrow parameter
-declarations retain their type for compatibility with instance overrides. Selecting an entry creates and places a fresh uniquely named owner in one
+an explicit mask preserving the requested output width. Vector parameter owners and
+instance overrides store Float4 values; separate Float2/Float3 parameter classes and
+the override width field have been removed. Selecting an entry creates and places a fresh uniquely named owner in one
 transaction. The catalog has no existing-parameter rebind mode. Sharing connects the
 existing owner's output to more consumers. Inspection reads labels from the node's
 owned payload. PBR roles and UV controls are explicit template-owned parameters,

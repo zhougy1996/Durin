@@ -1306,27 +1306,9 @@ namespace Durin::Editor::Material
 		};
 		FMaterialParameterValue Edited = Entry.Value;
 		bool bChanged = false;
-		if (Definition.Type == EMaterialParameterType::Vector2)
-		{
-			FVector2 Value = Entry.Value.GetVector2();
-			bChanged = MonaImGui::PropertyEdit::EditVectorValue(
-				"##Value", Value, 0.01, &WidgetState, WidgetConfig);
-			Edited.GetVector2() = Value;
-		}
-		else if (Definition.Type == EMaterialParameterType::Vector4)
-		{
-			FVector4 Value = Entry.Value.GetVector4();
-			bChanged = MonaImGui::PropertyEdit::EditVectorValue(
-				"##Value", Value, 0.01, &WidgetState, WidgetConfig);
-			Edited.GetVector4() = Value;
-		}
-		else
-		{
-			FVector3 Value = Entry.Value.GetVector();
-			bChanged = MonaImGui::PropertyEdit::EditVectorValue(
-				"##Value", Value, 0.01, &WidgetState, WidgetConfig);
-			Edited.GetVector() = Value;
-		}
+		FVector4 Value = Entry.Value.GetVector4();
+		bChanged = MonaImGui::PropertyEdit::EditVectorValue("##Value", Value, 0.01, &WidgetState, WidgetConfig);
+		Edited.GetVector4() = Value;
 		if (bChanged && Row.IsOverrideEnabled()
 			&& !Model.SubmitValueEdit(PropertyView, MakePropertyViewContext(), Entry, Edited, true))
 			SetError(std::format("The reflected {} parameter is unavailable.", Definition.DisplayName));
@@ -1339,15 +1321,15 @@ namespace Durin::Editor::Material
 	) -> void
 	{
 		const FMaterialParameterDefinition& Definition = *Entry.Definition;
-		FVector3 Value = Entry.Value.GetVector();
+		FVector4 Value = Entry.Value.GetVector4();
 		FMaterialParameterRowScope Row(*this, Model, Entry);
-		float Color[3] = {static_cast<float>(Value.x), static_cast<float>(Value.y), static_cast<float>(Value.z)};
+		float Color[4] = {static_cast<float>(Value.x), static_cast<float>(Value.y), static_cast<float>(Value.z), static_cast<float>(Value.w)};
 		ImGui::SetNextItemWidth(-FLT_MIN);
-		if (ImGui::ColorEdit3("##Value", Color, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_InputRGB)
+		if (ImGui::ColorEdit4("##Value", Color, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_InputRGB)
 			&& Row.IsOverrideEnabled())
 		{
 			FMaterialParameterValue Edited = Entry.Value;
-			Edited.GetVector() = FVector3(Color[0], Color[1], Color[2]);
+			Edited.GetVector4() = FVector4(Color[0], Color[1], Color[2], Color[3]);
 			if (!Model.SubmitValueEdit(PropertyView, MakePropertyViewContext(), Entry, Edited, true))
 				SetError(std::format("The reflected {} parameter is unavailable.", Definition.DisplayName));
 		}

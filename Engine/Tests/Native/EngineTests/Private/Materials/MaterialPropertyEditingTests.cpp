@@ -53,8 +53,8 @@ TEST(FMaterialPropertyEditingTests, CustomDeclarationOverridesRetainOrphansAndRe
 	float Value = 0;
 	ASSERT_TRUE(Child->GetScalarParameterValue(Definition.Name, Value));
 	EXPECT_EQ(Value, 0.75f);
-	Durin::TStrongObjectPtr<Durin::DMaterialExpressionVector3Parameter> Retyped(Durin::NewObject<Durin::DMaterialExpressionVector3Parameter>(nullptr, Durin::NAME_None));
-	Retyped->Id = Parameter->Id; Retyped->Metadata = Parameter->Metadata; Retyped->DefaultValue = {.2, .3, .4};
+	Durin::TStrongObjectPtr<Durin::DMaterialExpressionVector4Parameter> Retyped(Durin::NewObject<Durin::DMaterialExpressionVector4Parameter>(nullptr, Durin::NAME_None));
+	Retyped->Id = Parameter->Id; Retyped->Metadata = Parameter->Metadata; Retyped->DefaultValue = {.2, .3, .4, 0};
 	const std::array<Durin::DMaterialExpression*, 1> Replacement{Retyped.Get()};
 	const auto BeforeChildren = Root->GetExpressionCollection().Expressions;
 	// A vector owner cannot feed the scalar roughness output.
@@ -81,7 +81,7 @@ TEST(FMaterialPropertyEditingTests, CustomDeclarationOverridesRetainOrphansAndRe
 	auto* VectorProperty = Parent->GetClass()->FindPropertyByName("VectorParameterValues");
 	ASSERT_NE(VectorProperty, nullptr);
 	VectorProperty->ContainerPtrToValuePtr<std::vector<Durin::FMaterialVectorParameterValue>>(Parent)
-		->push_back({Definition.Id, Durin::FVector4f(.2f, .3f, .4f, 0.0f), Durin::EMaterialParameterType::Vector});
+		->push_back({Definition.Id, Durin::FVector4f(.2f, .3f, .4f, 0.0f)});
 	Parent->PostLoad();
 	EXPECT_EQ(Parent->GetLocalParameterValueCount(), 1u);
 	EXPECT_TRUE(Parent->IsParameterValueOrphan(Definition.Id));
@@ -262,7 +262,7 @@ TEST(FMaterialPropertyEditingTests, RuntimeSchemaHasStableIdentityOrderAndMetada
 		if (Durin::MaterialParameters::IsBuiltinParameter(Definition.Id, EMaterialBuiltinParameterKind::UVScale)
 			|| Durin::MaterialParameters::IsBuiltinParameter(Definition.Id, EMaterialBuiltinParameterKind::UVOffset))
 		{
-			EXPECT_EQ(Definition.Type, Durin::EMaterialParameterType::Vector2);
+			EXPECT_EQ(Definition.Type, Durin::EMaterialParameterType::Vector4);
 		}
 		switch (Definition.Presentation)
 		{
@@ -285,7 +285,7 @@ TEST(FMaterialPropertyEditingTests, RuntimeSchemaHasStableIdentityOrderAndMetada
 					? 3.0f : 255.0f);
 			break;
 		case Durin::EMaterialParameterPresentation::Color:
-			EXPECT_EQ(Definition.Type, Durin::EMaterialParameterType::Vector);
+			EXPECT_EQ(Definition.Type, Durin::EMaterialParameterType::Vector4);
 			break;
 		case Durin::EMaterialParameterPresentation::AssetPicker:
 			EXPECT_EQ(Definition.Type, Durin::EMaterialParameterType::Texture);
@@ -299,7 +299,7 @@ TEST(FMaterialPropertyEditingTests, RuntimeSchemaHasStableIdentityOrderAndMetada
 	EXPECT_NE(Opacity, nullptr);
 	EXPECT_EQ(Material->FindParameterDefinition(Durin::FName("oPaCiTy")), Opacity);
 	EXPECT_FALSE(Material->SetScalarParameterValue(Durin::MaterialParameters::BaseColorName(), 0.5f));
-	EXPECT_FALSE(Material->SetVectorParameterValue(
+	EXPECT_TRUE(Material->SetVectorParameterValue(
 		Durin::FName("BaseColorUVScale"), Durin::FVector3(1.0)));
 	EXPECT_TRUE(Material->SetVector2ParameterValue(
 		Durin::FName("BaseColorUVScale"), Durin::FVector2(2.0, 3.0)));

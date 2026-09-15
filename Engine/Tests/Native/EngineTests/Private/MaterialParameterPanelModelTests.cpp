@@ -77,7 +77,7 @@ TEST(FMaterialParameterPanelModelTests, BuildsControlsAndResolvedSourceFromRunti
 	EXPECT_EQ(UVChannel->Control, Durin::Editor::Material::EMaterialParameterControlKind::IntegerScalar);
 	EXPECT_EQ(UVChannel->Definition->GroupName.ToString(), "Surface/Base");
 	EXPECT_EQ(UVScale->Control, Durin::Editor::Material::EMaterialParameterControlKind::Vector);
-	EXPECT_EQ(UVScale->Definition->Type, Durin::EMaterialParameterType::Vector2);
+	EXPECT_EQ(UVScale->Definition->Type, Durin::EMaterialParameterType::Vector4);
 	EXPECT_EQ(Opacity->Source, Parent);
 	EXPECT_FLOAT_EQ(Opacity->Value.GetScalar(), 0.6f);
 	EXPECT_FALSE(Opacity->bHasLocalOverride);
@@ -137,14 +137,14 @@ TEST(FMaterialParameterPanelModelTests, EnablingOverrideCopiesTheParameterType)
 	const Durin::Editor::Material::FMaterialParameterPanelModel Model(Instance);
 	const auto* BaseColor = FindEntry(Model, Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value);
 	ASSERT_NE(BaseColor, nullptr);
-	ASSERT_EQ(BaseColor->Definition->Type, Durin::EMaterialParameterType::Vector);
+	ASSERT_EQ(BaseColor->Definition->Type, Durin::EMaterialParameterType::Vector4);
 	ASSERT_TRUE(Model.SetOverrideEnabled(PropertyView, Context, *BaseColor, true));
 
 	ASSERT_EQ(Instance->GetLocalParameterValueCount(), 1u);
 	Durin::FMaterialParameterValue Override;
 	ASSERT_TRUE(Instance->GetLocalParameterValue(Durin::MaterialParameters::GetBuiltinParameterIds(
 		Durin::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value, Override));
-	EXPECT_EQ(Override.GetType(), Durin::EMaterialParameterType::Vector);
+	EXPECT_EQ(Override.GetType(), Durin::EMaterialParameterType::Vector4);
 	EXPECT_TRUE(Error.empty());
 
 	EXPECT_TRUE(Transactions->Reset());
@@ -359,7 +359,7 @@ TEST(FMaterialParameterPanelModelTests, GraphDefaultSessionsRemainParameterScope
 	ASSERT_TRUE(OpacitySession.Apply(OpacityValue));
 	ASSERT_TRUE(OpacitySession.Commit());
 	auto ColorValue = BaseColor->Value;
-	ColorValue.GetVector() = Durin::FVector3(0.1, 0.2, 0.3);
+	ColorValue.GetVector4() = Durin::FVector4(0.1, 0.2, 0.3, 0);
 	ASSERT_TRUE(ColorSession.Begin(*Base, BaseColor->ParameterId, Transactions.Get()));
 	ASSERT_TRUE(ColorSession.Apply(ColorValue));
 	// Switching logical GUIDs commits the first continuous edit. Cancelling the
@@ -371,7 +371,7 @@ TEST(FMaterialParameterPanelModelTests, GraphDefaultSessionsRemainParameterScope
 	EXPECT_FLOAT_EQ(ResolvedOpacity, 0.55f);
 	Durin::FVector3 ResolvedColor;
 	ASSERT_TRUE(Base->GetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), ResolvedColor));
-	EXPECT_EQ(ResolvedColor, BaseColor->Value.GetVector());
+	EXPECT_EQ(ResolvedColor, Durin::FVector3(BaseColor->Value.GetVector4()));
 	ASSERT_TRUE(Transactions->Undo());
 	ASSERT_TRUE(Base->GetScalarParameterValue(Durin::MaterialParameters::OpacityName(), ResolvedOpacity));
 	EXPECT_FLOAT_EQ(ResolvedOpacity, 1.0f);
@@ -497,14 +497,16 @@ TEST(FMaterialParameterPanelModelTests, TypedResourceOutputsSkipUnusedUVDependen
 	TStrongObjectPtr<DMaterial> Base(NewObject<DMaterial>(nullptr, NAME_None));
 	TStrongObjectPtr<DMaterialInstance> Instance(NewObject<DMaterialInstance>(nullptr, NAME_None));
 	Base->SetEditCompileMode(EMaterialEditCompileMode::Manual);
-	auto UV = Testing::MakeGraphExpression<DMaterialExpressionVector2Parameter>();
+	auto UV = Testing::MakeGraphExpression<DMaterialExpressionVector4Parameter>();
 	UV->Metadata.Id = FGuid::NewGuid(); UV->Metadata.Name = "OnlySampleUV";
 	auto Sample = Testing::MakeGraphExpression<DMaterialExpressionTextureSampleParameter2D>();
 	Sample->Metadata.Id = FGuid::NewGuid(); Sample->Metadata.Name = "SharedTexture";
-	Sample->UV = {UV->Id};
+	auto Mask = Testing::MakeGraphExpression<DMaterialExpressionSwizzle>();
+	Mask->Input = {UV->Id}; Mask->Components = {0, 1};
+	Sample->UV = {Mask->Id};
 	auto ResourceConsumer = Testing::MakeGraphExpression<DMaterialExpressionTextureSample2D>();
 	ResourceConsumer->Texture = {Sample->Id, 7};
-	const std::array<DMaterialExpression*, 3> Expressions{UV.Get(), Sample.Get(), ResourceConsumer.Get()};
+	const std::array<DMaterialExpression*, 4> Expressions{UV.Get(), Mask.Get(), Sample.Get(), ResourceConsumer.Get()};
 	FMaterialExpressionSurfaceOutputs Outputs;
 	Outputs.BaseColor = {ResourceConsumer->Id, 1};
 	ASSERT_TRUE(Base->SetMaterialExpressions(Expressions, Outputs));

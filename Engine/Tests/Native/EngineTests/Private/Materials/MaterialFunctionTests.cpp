@@ -121,7 +121,7 @@ TEST(FMaterialFunctionTests, StructuralImportRecipesExposeOnlyRequiredOwners)
 	Roles[0].Value = {.2f, .3f, .4f};
 	Roles[0].Sample->UVOffset = {.25f, .5f};
 	const auto Transformed = MakeImportedSurfaceRecipe(Roles);
-	EXPECT_EQ(Transformed.Graph.Expressions.size(), 6u);
+	EXPECT_EQ(Transformed.Graph.Expressions.size(), 8u);
 	EXPECT_EQ(Transformed.Owners.size(), 3u);
 	Roles[0].Value = {.6f, .7f, .8f};
 	Roles[0].Sample->UVOffset = {.75f, .25f};
@@ -136,7 +136,7 @@ TEST(FMaterialFunctionTests, StructuralImportRecipesExposeOnlyRequiredOwners)
 	Roles[2].Sample = FImportedSurfaceSample{.ResourceIdentity = "packed", .Usage = ETextureUsage::DataMask, .OutputIndex = 4};
 	Roles[3].Sample = FImportedSurfaceSample{.ResourceIdentity = "packed", .Usage = ETextureUsage::DataMask, .OutputIndex = 3};
 	const auto Packed = MakeImportedSurfaceRecipe(Roles);
-	EXPECT_EQ(Packed.Graph.Expressions.size(), 7u);
+	EXPECT_EQ(Packed.Graph.Expressions.size(), 9u);
 	EXPECT_EQ(Packed.Graph.Outputs.Metallic.ExpressionId, Packed.Graph.Outputs.Roughness.ExpressionId);
 	ASSERT_TRUE(Packed.Graph.Apply(*Material));
 	Roles[3].Sample->UVChannel = {1};
@@ -167,7 +167,7 @@ TEST(FMaterialFunctionTests, ExpandedAndFunctionRecipesPreserveCompilationAndInd
 	ASSERT_NE(Current, nullptr);
 	Current->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	ASSERT_TRUE(Testing::SetStandardMaterialExpressionsForTest(*Current));
-	EXPECT_EQ(Current->GetExpressionCollection().Expressions.size(), 170u);
+	EXPECT_EQ(Current->GetExpressionCollection().Expressions.size(), 189u);
 	for (const auto& Node : Current->GetExpressionCollection().Expressions)
 	{
 		EXPECT_FALSE(Node->IsA<DMaterialExpressionSaturate>());
@@ -220,7 +220,7 @@ TEST(FMaterialFunctionTests, ExpandedAndFunctionRecipesPreserveCompilationAndInd
 			const auto* Definition = Frozen->FindParameterDefinition(Id);
 			ASSERT_NE(Definition, nullptr);
 			const auto Value = ParameterKind == Kind::UVScale || ParameterKind == Kind::UVOffset
-				? FMaterialParameterValue::MakeVector2({1.25f + Index, -.125f * Index})
+				? FMaterialParameterValue::MakeVector4({1.25f + Index, -.125f * Index, 0, 0})
 				: FMaterialParameterValue::MakeScalar(ParameterKind == Kind::UVChannel
 					? static_cast<float>(Index % 4) : .2f * (Index + 1));
 			ASSERT_TRUE(Parent->SetParameterValue(Id, Value));

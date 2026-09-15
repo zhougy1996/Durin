@@ -10,6 +10,12 @@
 
 namespace Durin::Testing
 {
+	inline auto ParameterVector4(const FMaterialParameterValue& Value) -> FVector4
+	{
+		if (Value.GetType() == EMaterialParameterType::Vector2) return FVector4(Value.GetVector2(), 0, 0);
+		if (Value.GetType() == EMaterialParameterType::Vector) return FVector4(Value.GetVector(), 0);
+		return Value.GetVector4();
+	}
 	constexpr auto MakeCanonicalNodeId(uint32 Index) -> FGuid
 	{ return {0x4d350001u, 0x7a6b4c21u, 0x91d2e3f4u, Index + 1u}; }
 	inline auto MakeLink(const DMaterialExpression& Expression) -> FMaterialExpressionInput
@@ -45,11 +51,8 @@ namespace Durin::Testing
 				if (!Parameter) continue;
 				const auto Definition = std::ranges::find(Definitions, Parameter->Metadata.Id, &FMaterialParameterDefinition::Id);
 				check(Definition != Definitions.end());
-				check(Definition->Value.GetType() == Parameter->GetParameterDefinition().Type);
 				if (auto* E = Cast<DMaterialExpressionScalarParameter>(Expression.Get())) E->DefaultValue = Definition->Value.GetScalar();
-				else if (auto* E = Cast<DMaterialExpressionVector2Parameter>(Expression.Get())) E->DefaultValue = Definition->Value.GetVector2();
-				else if (auto* E = Cast<DMaterialExpressionVector3Parameter>(Expression.Get())) E->DefaultValue = Definition->Value.GetVector();
-				else if (auto* E = Cast<DMaterialExpressionVector4Parameter>(Expression.Get())) E->DefaultValue = Definition->Value.GetVector4();
+				else if (auto* E = Cast<DMaterialExpressionVector4Parameter>(Expression.Get())) E->DefaultValue = ParameterVector4(Definition->Value);
 				else if (auto* E = Cast<DMaterialExpressionTextureParameter>(Expression.Get()))
 				{
 					const auto& Value = Definition->Value.GetTexture();
@@ -73,11 +76,9 @@ namespace Durin::Testing
 					{ auto* E = NewObject<DMaterialExpressionScalarParameter>(nullptr, NAME_None); E->DefaultValue = Definition->Value.GetScalar();
 					E->bHasRange = Definition->bHasRange; E->MinimumValue = Definition->MinimumValue; E->MaximumValue = Definition->MaximumValue; Expression = E; break; }
 				case EMaterialParameterType::Vector2:
-					{ auto* E = NewObject<DMaterialExpressionVector2Parameter>(nullptr, NAME_None); E->DefaultValue = Definition->Value.GetVector2(); Expression = E; break; }
 				case EMaterialParameterType::Vector:
-					{ auto* E = NewObject<DMaterialExpressionVector3Parameter>(nullptr, NAME_None); E->DefaultValue = Definition->Value.GetVector(); Expression = E; break; }
 				case EMaterialParameterType::Vector4:
-					{ auto* E = NewObject<DMaterialExpressionVector4Parameter>(nullptr, NAME_None); E->DefaultValue = Definition->Value.GetVector4(); Expression = E; break; }
+					{ auto* E = NewObject<DMaterialExpressionVector4Parameter>(nullptr, NAME_None); E->DefaultValue = ParameterVector4(Definition->Value); Expression = E; break; }
 				case EMaterialParameterType::Texture:
 					{ DMaterialExpressionTextureParameter* E = Opcode == EMaterialProgramOpcode::TextureSampleParameter2D
 						? NewObject<DMaterialExpressionTextureSampleParameter2D>(nullptr, NAME_None) : NewObject<DMaterialExpressionTextureParameter>(nullptr, NAME_None); const auto& V = Definition->Value.GetTexture();
@@ -134,6 +135,14 @@ namespace Durin::Testing
 			});
 			Types.emplace(Expression->Id, Type);
 			Expressions.emplace_back(Expression);
+			if (Opcode == EMaterialProgramOpcode::Parameter && (Type == EMaterialProgramValueType::Float2 || Type == EMaterialProgramValueType::Float3))
+			{
+				auto* Mask = NewObject<DMaterialExpressionSwizzle>(nullptr, NAME_None);
+				Mask->Id = MakeCanonicalNodeId(NextId++); Mask->Input = {Expression->Id}; Mask->Components.clear();
+				for (uint8 C = 0; C <= static_cast<uint8>(Type); ++C) Mask->Components.push_back(C);
+				Types[Expression->Id] = EMaterialProgramValueType::Float4; Types.emplace(Mask->Id, Type);
+				Expressions.emplace_back(Mask); return *Mask;
+			}
 			return *Expression;
 		}
 	};
