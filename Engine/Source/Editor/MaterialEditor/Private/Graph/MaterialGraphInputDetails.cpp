@@ -175,6 +175,28 @@ namespace Durin::Editor::Material
 				}
 			}
 		}
+		if (const auto* Swizzle = Cast<DMaterialExpressionSwizzle>(Expression.Get()); Swizzle && !Changed)
+		{
+			DetailsStyle::EditRow("Channels", [&] {
+				constexpr std::array Labels{"R", "G", "B", "A"};
+				for (uint8 Channel = 0; Channel < 4; ++Channel)
+				{
+					if (Channel) ImGui::SameLine();
+					bool Enabled = std::ranges::find(Swizzle->Components, Channel) != Swizzle->Components.end();
+					ImGui::BeginDisabled(Enabled && Swizzle->Components.size() == 1);
+					const bool Edited = ImGui::Checkbox(Labels[Channel], &Enabled);
+					ImGui::EndDisabled();
+					if (!Edited) continue;
+					std::vector<uint8> Mask;
+					for (uint8 Candidate = 0; Candidate < 4; ++Candidate)
+						if (Candidate == Channel ? Enabled : std::ranges::find(Swizzle->Components, Candidate) != Swizzle->Components.end())
+							Mask.push_back(Candidate);
+					Submit(Document.SetSwizzleComponents(Expression->Id, Mask, &Transactions));
+					return true;
+				}
+				return false;
+			});
+		}
 		for (const auto& Pin : Selected->Inputs)
 		{
 			if (Changed) break;

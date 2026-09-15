@@ -1085,6 +1085,20 @@ TEST(FMaterialGraphOperationsTests, CanvasGeometryUsesStableMetricsAndZoomHyster
 		Metrics.SurfaceWidth);
 	EXPECT_FLOAT_EQ(FMaterialGraphGeometry::GetNodeHeight(0), 94.0f);
 	EXPECT_FLOAT_EQ(FMaterialGraphGeometry::GetNodeHeight(3), 142.0f);
+	FMaterialGraphNodeView Constant;
+	Constant.Node.Opcode = EMaterialProgramOpcode::Constant;
+	Constant.Node.ResultType = EMaterialProgramValueType::Float;
+	EXPECT_FLOAT_EQ(GraphNodeWidth(Constant), 112.0f);
+	EXPECT_FLOAT_EQ(GraphNodeHeight(Constant), Metrics.HeaderHeight);
+	EXPECT_FLOAT_EQ(GraphNodePinOffset(Constant), GraphNodeHeight(Constant) * 0.5f);
+	Constant.Node.ResultType = EMaterialProgramValueType::Float4;
+	EXPECT_FLOAT_EQ(GraphNodeWidth(Constant), 208.0f);
+	FMaterialGraphNodeView Add;
+	Add.Node.Opcode = EMaterialProgramOpcode::Add;
+	Add.Inputs.resize(2);
+	EXPECT_FLOAT_EQ(GraphNodeWidth(Add), 160.0f);
+	EXPECT_LT(GraphNodeHeight(Add), FMaterialGraphGeometry::GetNodeHeight(2));
+	EXPECT_LT(GraphNodePinOffset(Add) + Metrics.PinRowHeight, GraphNodeHeight(Add));
 	EXPECT_FLOAT_EQ(FMaterialGraphGeometry::GetSurfacePinOffset(0),
 		Metrics.SurfaceHeaderHeight + Metrics.PinRowHeight * 0.5f);
 	EXPECT_FLOAT_EQ(FMaterialGraphGeometry::GetSurfacePinOffset(7),
@@ -1748,13 +1762,10 @@ TEST(FMaterialGraphOperationsTests, MaximumGraphLayoutIsDeterministicAndPresenta
 		{
 			const auto& PositionA = LayoutView.Nodes[A].Presentation;
 			const auto& PositionB = LayoutView.Nodes[B].Presentation;
-			const float HeightA = FMaterialGraphGeometry::GetNodeHeight(
-				static_cast<uint32>(LayoutView.Nodes[A].Inputs.size()));
-			const float HeightB = FMaterialGraphGeometry::GetNodeHeight(
-				static_cast<uint32>(LayoutView.Nodes[B].Inputs.size()));
-			const float Width = FMaterialGraphGeometry::GetMetrics().NodeWidth;
-			EXPECT_FALSE(PositionA.X < PositionB.X + Width
-				&& PositionA.X + Width > PositionB.X
+			const float HeightA = GraphNodeHeight(LayoutView.Nodes[A]);
+			const float HeightB = GraphNodeHeight(LayoutView.Nodes[B]);
+			EXPECT_FALSE(PositionA.X < PositionB.X + GraphNodeWidth(LayoutView.Nodes[B])
+				&& PositionA.X + GraphNodeWidth(LayoutView.Nodes[A]) > PositionB.X
 				&& PositionA.Y < PositionB.Y + HeightB
 				&& PositionA.Y + HeightA > PositionB.Y);
 		}
@@ -1856,7 +1867,7 @@ TEST(FMaterialGraphOperationsTests, LayoutReducesDenseCrossingsAndAvoidsSelected
 	const auto* RelayoutFixed = FindViewNode(Relayout, Fixed);
 	ASSERT_NE(RelayoutSelected, nullptr);
 	ASSERT_NE(RelayoutFixed, nullptr);
-	const float Height = FMaterialGraphGeometry::GetNodeHeight(0);
+	const float Height = GraphNodeHeight(*RelayoutSelected);
 	const float Width = FMaterialGraphGeometry::GetMetrics().NodeWidth;
 	EXPECT_FALSE(RelayoutSelected->Presentation.X < RelayoutFixed->Presentation.X + Width
 		&& RelayoutSelected->Presentation.X + Width > RelayoutFixed->Presentation.X
@@ -2019,8 +2030,8 @@ TEST(FMaterialGraphOperationsTests, CanvasFramesExplicitScopeWithMaterialOutputI
 	}
 	FMaterialGraphCanvasTestAccess::Select(Canvas, {Node.Node.Id});
 	FMaterialGraphCanvasTestAccess::Frame(Canvas, View, false);
-	ExpectCenter(-1000.0f + Metrics.NodeWidth * 0.5f,
-		-100.0f + FMaterialGraphGeometry::GetNodeHeight(0) * 0.5f);
+	ExpectCenter(-1000.0f + GraphNodeWidth(Node) * 0.5f,
+		-100.0f + GraphNodeHeight(Node) * 0.5f);
 	FMaterialGraphCanvasTestAccess::Select(Canvas, {});
 	const auto Before = Canvas.GetViewport();
 	FMaterialGraphCanvasTestAccess::Frame(Canvas, View, false);
@@ -2262,7 +2273,8 @@ TEST(FMaterialGraphOperationsTests, FunctionCanvasConnectsAndMovesNodesWithUndo)
 	Frame({1100, 950}, false); Frame({1100, 950}, false);
 	const auto& Metrics = FMaterialGraphGeometry::GetMetrics();
 	const float PinY = Metrics.HeaderHeight + Metrics.SecondaryHeight + Metrics.BodyPadding;
-	const ImVec2 Source{Origin.x + Metrics.NodeWidth, Origin.y + 550 + PinY};
+	const auto SourceView = *FindViewNode(Document.Inspect(), Other.GeneratedNodeIds[0]);
+	const ImVec2 Source{Origin.x + GraphNodeWidth(SourceView), Origin.y + 550 + GraphNodePinOffset(SourceView)};
 	const ImVec2 Destination{Origin.x + 350, Origin.y + 300 + PinY};
 	IO.AddKeyEvent(ImGuiMod_Shift, true);
 	Frame(Source, false); Frame(Source, true); Frame(Destination, true); Frame(Destination, false);
@@ -2383,7 +2395,7 @@ TEST(FMaterialGraphOperationsTests, CanvasConnectsASecondFunctionOutputAndRefres
 	const auto& Metrics = FMaterialGraphGeometry::GetMetrics();
 	const float PinY = Metrics.HeaderHeight + Metrics.SecondaryHeight + Metrics.BodyPadding;
 	const ImVec2 SecondOutput{Origin.x + Metrics.NodeWidth, Origin.y + PinY + Metrics.PinRowHeight};
-	const ImVec2 Target{Origin.x + 350, Origin.y + PinY};
+	const ImVec2 Target{Origin.x + 350, Origin.y + GraphNodePinOffset(*FindViewNode(FMaterialGraphOperations::Inspect(*Material), Destination.GeneratedNodeIds[0]))};
 	IO.AddKeyEvent(ImGuiMod_Shift, true);
 	Frame(SecondOutput, false); Frame(SecondOutput, true);
 	EXPECT_TRUE(FMaterialGraphCanvasTestAccess::Linking(Canvas));
@@ -2407,7 +2419,7 @@ TEST(FMaterialGraphOperationsTests, CanvasConnectsASecondFunctionOutputAndRefres
 	MarkAsGarbage(Material); MarkAsGarbage(Function); CollectGarbage();
 }
 
-TEST(FMaterialGraphOperationsTests, ParameterDragUpdatesBeforeReleaseAndUndoesAsOneGesture)
+TEST(FMaterialGraphOperationsTests, ParameterCanvasDragMovesNodeWithoutEditingItsValue)
 {
 	InitializeDObjectSystem();
 	for (const auto Type : {EMaterialProgramValueType::Float, EMaterialProgramValueType::Float4})
@@ -2448,22 +2460,23 @@ TEST(FMaterialGraphOperationsTests, ParameterDragUpdatesBeforeReleaseAndUndoesAs
 		Frame({1100, 600}, false); Frame({1100, 600}, false);
 		EXPECT_TRUE(FMaterialGraphCanvasTestAccess::ProgramSelection(Canvas).empty());
 		const auto& Metrics = FMaterialGraphGeometry::GetMetrics();
-		const ImVec2 Start{Origin.x + 25, Origin.y + Metrics.HeaderHeight + Metrics.SecondaryHeight + 12};
+		const ImVec2 Start{Origin.x + 25, Origin.y + Metrics.HeaderHeight + 8};
 		Frame(Start, false); Frame(Start, true);
 		Frame({Start.x + 20, Start.y}, true);
 		Frame({Start.x + 40, Start.y}, true);
 		FResolvedMaterialParameter During;
 		ASSERT_TRUE(Material->ResolveParameterValue(ParameterId, During));
-		EXPECT_NE(During.Value, Initial.Value);
+		EXPECT_EQ(During.Value, Initial.Value);
 		EXPECT_FALSE(Transactions->Undo());
 		Frame({Start.x + 60, Start.y}, true);
 		FResolvedMaterialParameter Final;
 		ASSERT_TRUE(Material->ResolveParameterValue(ParameterId, Final));
-		EXPECT_NE(Final.Value, During.Value);
+		EXPECT_EQ(Final.Value, Initial.Value);
 		Frame({Start.x + 60, Start.y}, false);
 		EXPECT_EQ(Errors, 0);
-		EXPECT_EQ(Material->GetMaterialGraphPresentation(), Presentation);
+		EXPECT_NE(Material->GetMaterialGraphPresentation(), Presentation);
 		EXPECT_TRUE(Transactions->Undo());
+		EXPECT_EQ(Material->GetMaterialGraphPresentation(), Presentation);
 		FResolvedMaterialParameter Restored;
 		ASSERT_TRUE(Material->ResolveParameterValue(ParameterId, Restored));
 		EXPECT_EQ(Restored.Value, Initial.Value);
@@ -2524,8 +2537,10 @@ TEST(FMaterialGraphOperationsTests, CanvasLinkReleaseEndsGestureAcrossFrames)
 	Frame({1100, 600}, false);
 	Frame({1100, 600}, false);
 	const auto& Metrics = FMaterialGraphGeometry::GetMetrics();
-	const float PinY = Metrics.HeaderHeight + Metrics.SecondaryHeight + Metrics.BodyPadding;
-	const ImVec2 Output{Origin.x + Metrics.NodeWidth, Origin.y + PinY};
+	const auto View = FMaterialGraphOperations::Inspect(*Material);
+	const float PinY = GraphNodePinOffset(*FindViewNode(View, Destination));
+	const auto* SourceView = FindViewNode(View, Source);
+	const ImVec2 Output{Origin.x + GraphNodeWidth(*SourceView), Origin.y + GraphNodePinOffset(*SourceView)};
 	const auto Drop = [&](ImVec2 Target, bool Replace) {
 		IO.AddKeyEvent(ImGuiMod_Shift, Replace);
 		Frame(Output, false);
@@ -3877,8 +3892,10 @@ TEST_P(FMaterialGraphCanvasInteractionTests, SelectionReconnectionCreationAndKey
 
 	const auto& Metrics = FMaterialGraphGeometry::GetMetrics();
 	const float PinY = Metrics.HeaderHeight + Metrics.SecondaryHeight + Metrics.BodyPadding;
-	const ImVec2 Input{Origin.x + 350, Origin.y + PinY};
-	const ImVec2 Output{Origin.x + Metrics.NodeWidth, Origin.y + PinY};
+	const auto View = Document.Inspect();
+	const ImVec2 Input{Origin.x + 350, Origin.y + GraphNodePinOffset(*FindViewNode(View, Consumer->Id))};
+	const auto* SourceView = FindViewNode(View, Source->Id);
+	const ImVec2 Output{Origin.x + GraphNodeWidth(*SourceView), Origin.y + GraphNodePinOffset(*SourceView)};
 	const auto SourceLink = [&] { return FindViewNode(Document.Inspect(), Consumer->Id)->Inputs.front().Link.SourceNodeId; };
 	Frame(Input, true); Frame(Output, true);
 	EXPECT_EQ(SourceLink(), Previous->Id); // Preserve the authored link throughout the drag.

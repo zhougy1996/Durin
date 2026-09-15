@@ -111,11 +111,6 @@ namespace Durin::Editor::Material
 			EMaterialSurfaceOutput Output = EMaterialSurfaceOutput::BaseColor;
 		};
 		struct FMarqueeInteraction { ImVec2 Start{}; };
-		struct FInlineEditingInteraction
-		{
-			FGuid Node;
-			std::array<float, 4> ConstantDraft{};
-		};
 		struct FNodeCreationMenuInteraction
 		{
 			FGuid SourceNode;
@@ -139,7 +134,6 @@ namespace Durin::Editor::Material
 			FReconnectingInputInteraction,
 			FReconnectingSurfaceInteraction,
 			FMarqueeInteraction,
-			FInlineEditingInteraction,
 			FNodeCreationMenuInteraction,
 			FContextMenuInteraction>;
 
@@ -231,6 +225,5 @@ namespace Durin::Editor::Material
 		std::array<char, 256> NodeTextureSearch{};
 		FInteraction Interaction = FIdleInteraction{};
 		FMaterialGraphMoveSession MoveSession;
-		FMaterialGraphParameterEditSession ParameterEditSession;
 	};
 }

@@ -65,11 +65,10 @@ TEST(FMaterialQualificationTests, MaximumGraphLayoutLatency)
 		{
 			const auto& PositionA = LayoutView.Nodes[A].Presentation;
 			const auto& PositionB = LayoutView.Nodes[B].Presentation;
-			const float HeightA = FMaterialGraphGeometry::GetNodeHeight(
-				static_cast<uint32>(LayoutView.Nodes[A].Inputs.size()));
-			const float HeightB = FMaterialGraphGeometry::GetNodeHeight(
-				static_cast<uint32>(LayoutView.Nodes[B].Inputs.size()));
-			const float Width = FMaterialGraphGeometry::GetMetrics().NodeWidth;
+			// This fixture contains only header-only scalar constants.
+			const float HeightA = FMaterialGraphGeometry::GetMetrics().HeaderHeight;
+			const float HeightB = HeightA;
+			const float Width = 112.0f;
 			EXPECT_FALSE(PositionA.X < PositionB.X + Width
 				&& PositionA.X + Width > PositionB.X
 				&& PositionA.Y < PositionB.Y + HeightB

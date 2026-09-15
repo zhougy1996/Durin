@@ -46,7 +46,7 @@ namespace Durin::Editor::Material
 
 		auto InputLabel(const FMaterialGraphNodeView& Node, const FMaterialGraphPinView& Pin, const DMaterial* Material = nullptr) -> std::string
 		{
-			if (Pin.Link.SourceNodeId.IsValid()) return Pin.Name;
+			if (Pin.Link.SourceNodeId.IsValid() || IsCompactGraphOperation(Node)) return Pin.Name;
 			if (Node.Node.IsSampleUVInput(Pin.InputIndex))
 			{
 				return "Mesh UV0";
@@ -62,7 +62,6 @@ namespace Durin::Editor::Material
 		}
 
 		const auto& Metrics = FMaterialGraphGeometry::GetMetrics();
-		const float NodeWidth = Metrics.NodeWidth;
 		const float NodeHeaderHeight = Metrics.HeaderHeight;
 		const float PinSpacing = Metrics.PinRowHeight;
 		const float NodePadding = Metrics.BodyPadding;
@@ -72,8 +71,6 @@ namespace Durin::Editor::Material
 		constexpr float GraphBodyFontHeight = 14.0f;
 		constexpr float GraphTitleFontHeight = 16.0f;
 		constexpr float GraphSecondaryFontHeight = 13.0f;
-		constexpr float GraphControlHorizontalPadding = 3.0f;
-		constexpr float GraphControlVerticalPadding = 2.0f;
 
 		auto Add(const ImVec2& A, const ImVec2& B) -> ImVec2
 		{
@@ -182,10 +179,9 @@ namespace Durin::Editor::Material
 			for (const FMaterialGraphNodeView& Node : View.Nodes)
 			{
 				const float Y = static_cast<float>(Node.Presentation.Y);
-				const float Height = FMaterialGraphGeometry::GetNodeHeight(
-					static_cast<uint32>(std::max({Node.Inputs.size(), Node.Outputs.size(), Node.Node.Opcode == EMaterialProgramOpcode::TextureParameter ? size_t(5) : size_t(0)})));
+				const float Height = GraphNodeHeight(Node);
 				MaximumX = std::max(MaximumX,
-					static_cast<float>(Node.Presentation.X) + Metrics.NodeWidth);
+					static_cast<float>(Node.Presentation.X) + GraphNodeWidth(Node));
 				if (!bFound) { MinimumY = Y; MaximumY = Y + Height; bFound = true; }
 				else { MinimumY = std::min(MinimumY, Y); MaximumY = std::max(MaximumY, Y + Height); }
 			}
@@ -277,7 +273,6 @@ namespace Durin::Editor::Material
 
 	auto FMaterialGraphCanvas::CancelInteraction() -> void
 	{
-		if (ParameterEditSession.IsActive()) ParameterEditSession.Cancel();
 		if (MoveSession.IsActive())
 		{
 			MoveSession.Cancel();
@@ -377,22 +372,19 @@ namespace Durin::Editor::Material
 			const ImVec2 GraphPosition(
 				static_cast<float>(Node.Presentation.X),
 				static_cast<float>(Node.Presentation.Y));
-			const float NodeHeight = FMaterialGraphGeometry::GetNodeHeight(
-				static_cast<uint32>(std::max({Node.Inputs.size(), Node.Outputs.size(), Node.Node.Opcode == EMaterialProgramOpcode::TextureParameter ? size_t(5) : size_t(0)})));
+			const float NodeHeight = GraphNodeHeight(Node);
 			Visual.Minimum = Add(CanvasMinimum, Add(Pan, Multiply(GraphPosition, Zoom)));
 			Visual.Maximum = Add(Visual.Minimum,
-				Multiply({NodeWidth, NodeHeight}, Zoom));
+				Multiply({GraphNodeWidth(Node), NodeHeight}, Zoom));
 			Visual.OutputPin = {
 				Visual.Maximum.x,
-				Visual.Minimum.y + (NodeHeaderHeight + Metrics.SecondaryHeight
-					+ NodePadding) * Zoom};
+				Visual.Minimum.y + GraphNodePinOffset(Node) * Zoom};
 			for (size_t Index = 0; Index < Visual.OutputPins.size(); ++Index)
 				Visual.OutputPins[Index] = {Visual.OutputPin.x, Visual.OutputPin.y + PinSpacing * Index * Zoom};
 			for (size_t Index = 0; Index < Node.Inputs.size(); ++Index)
 				Visual.InputPins[Index] = {
 					Visual.Minimum.x,
-					Visual.Minimum.y + (NodeHeaderHeight + Metrics.SecondaryHeight
-						+ NodePadding + PinSpacing * Index) * Zoom};
+					Visual.Minimum.y + (GraphNodePinOffset(Node) + PinSpacing * Index) * Zoom};
 		}
 		return Result;
 	}
@@ -419,19 +411,18 @@ namespace Durin::Editor::Material
 			const ImVec2 Position(
 				static_cast<float>(Node.Presentation.X),
 				static_cast<float>(Node.Presentation.Y));
-			const float Height = FMaterialGraphGeometry::GetNodeHeight(
-				static_cast<uint32>(std::max({Node.Inputs.size(), Node.Outputs.size(), Node.Node.Opcode == EMaterialProgramOpcode::TextureParameter ? size_t(5) : size_t(0)})));
+			const float Height = GraphNodeHeight(Node);
 			if (!bFound)
 			{
 				Minimum = Position;
-				Maximum = Add(Position, {NodeWidth, Height});
+				Maximum = Add(Position, {GraphNodeWidth(Node), Height});
 				bFound = true;
 			}
 			else
 			{
 				Minimum.x = std::min(Minimum.x, Position.x);
 				Minimum.y = std::min(Minimum.y, Position.y);
-				Maximum.x = std::max(Maximum.x, Position.x + NodeWidth);
+				Maximum.x = std::max(Maximum.x, Position.x + GraphNodeWidth(Node));
 				Maximum.y = std::max(Maximum.y, Position.y + Height);
 			}
 		}
@@ -739,6 +730,7 @@ namespace Durin::Editor::Material
 		const DMaterial* Material) const -> void
 	{
 		const auto Display = MakeGraphNodeDisplay(*Visual.View, Material);
+		const float NodeWidth = GraphNodeWidth(*Visual.View);
 		if (DetailLevel != EMaterialGraphDetailLevel::Overview)
 		{
 			const float FontSize = GraphTitleFontHeight * Zoom;
@@ -753,7 +745,8 @@ namespace Durin::Editor::Material
 					{8.0f * Zoom, (NodeHeaderHeight * Zoom - FontSize) * 0.5f}),
 				IM_COL32(235, 238, 242, 255), Label.c_str(), nullptr, 0.0f, &Clip);
 			if ((DetailLevel == EMaterialGraphDetailLevel::Editing || Display.Value)
-				&& !Display.Subtitle.empty())
+				&& !Display.Subtitle.empty()
+				&& !IsHeaderOnlyGraphNode(*Visual.View) && !IsCompactGraphOperation(*Visual.View))
 			{
 				const bool bColor = Display.Value && (Visual.View->Node.ResultType == EMaterialProgramValueType::Float3
 					|| Visual.View->Node.ResultType == EMaterialProgramValueType::Float4);
@@ -1307,27 +1300,35 @@ namespace Durin::Editor::Material
 			{
 				const auto& Pin = Node.View->Outputs[Index];
 				DrawList.AddCircleFilled(Node.OutputPins[Index], std::max(2.0f, 5 * Zoom), TypeColor(Pin.Type));
-				const auto Label = DetailLevel == EMaterialGraphDetailLevel::Editing ? Ellipsize(Pin.Name, NodeWidth * 0.45f) : std::string{};
+				const auto Label = DetailLevel == EMaterialGraphDetailLevel::Editing ? Ellipsize(GraphOutputLabel(*Node.View, Index), GraphNodeWidth(*Node.View) * 0.45f) : std::string{};
 				DrawList.AddText(ImGui::GetFont(), ImGui::GetFontSize() * Zoom, Add(Node.OutputPins[Index], {(-8 - ImGui::CalcTextSize(Label.c_str()).x) * Zoom, -7 * Zoom}), IM_COL32(200, 205, 210, 255), Label.c_str());
 			}
 			for (size_t Index = 0; Index < Node.InputPins.size(); ++Index)
 			{
 				const auto& Pin = Node.View->Inputs[Index];
 				DrawList.AddCircleFilled(Node.InputPins[Index], std::max(2.0f, 5 * Zoom), TypeColor(Pin.AcceptedTypes.empty() ? Pin.SourceType : Pin.AcceptedTypes[0]));
-				const auto Label = DetailLevel == EMaterialGraphDetailLevel::Editing ? Ellipsize(Pin.Name, NodeWidth * 0.45f) : std::string{};
+				const auto Label = DetailLevel == EMaterialGraphDetailLevel::Editing ? Ellipsize(Pin.Name, GraphNodeWidth(*Node.View) * 0.45f) : std::string{};
 				DrawList.AddText(ImGui::GetFont(), ImGui::GetFontSize() * Zoom, Add(Node.InputPins[Index], {8 * Zoom, -7 * Zoom}), IM_COL32(200, 205, 210, 255), Label.c_str());
 				if (Hit.InputNode == &Node && Hit.InputIndex == Index)
 				{
 					ImGui::SetTooltip("%s%s%s\n%s%s", Pin.Name.c_str(), Pin.bRequired ? " (required)" : "", Pin.bMissing ? " (missing port)" : "",
-						DescribeFunctionDefault(Pin.Default).c_str(), BroadcastHint(Pin));
+						(Pin.InlineDefault.Kind == EMaterialInputDefaultKind::Literal
+							? FormatGraphNumericValue(Pin.InlineDefault.Type, Pin.InlineDefault.Literal, 9)
+							: DescribeFunctionDefault(Pin.Default)).c_str(), BroadcastHint(Pin));
 				}
 			}
+		}
+		if (Output && Hovered)
+		{
+			const auto& Pin = Hit.OutputNode->View->Outputs[Hit.OutputIndex];
+			ImGui::SetTooltip("%s (%s)", Pin.Name.c_str(), GetProgramTypeName(Pin.Type));
 		}
 		if (HoveredNode && !Input && !Output && Hovered)
 		{
 			const auto Display = MakeGraphNodeDisplay(*HoveredNode->View);
-			ImGui::SetTooltip("%s\n%s", Display.Title.c_str(), Display.Value
-				? FormatGraphNumericValue(HoveredNode->View->Node.ResultType, *Display.Value, 9).c_str() : Display.Subtitle.c_str());
+			ImGui::SetTooltip("%s\n%s\nOutput: %s", Display.Title.c_str(), Display.Value
+				? FormatGraphNumericValue(HoveredNode->View->Node.ResultType, *Display.Value, 9).c_str() : Display.Subtitle.c_str(),
+				GetProgramTypeName(HoveredNode->View->Node.ResultType));
 		}
 		if (Hovered && HoveredNode && !Input && !Output
 			&& std::holds_alternative<FIdleInteraction>(Interaction)
@@ -1428,15 +1429,6 @@ namespace Durin::Editor::Material
 			const float GraphBodyFontSize = GraphBodyFontHeight * Zoom;
 			const float GraphTitleFontSize = GraphTitleFontHeight * Zoom;
 			const float GraphSecondaryFontSize = GraphSecondaryFontHeight * Zoom;
-			const float GlobalFontScale = ImGui::GetFontSize()
-				/ std::max(ImGui::GetStyle().FontSizeBase, 1.0f);
-			const float GraphControlFontSizeBase = GraphBodyFontSize / GlobalFontScale;
-			const ImVec2 GraphControlFramePadding{
-				GraphControlHorizontalPadding * Zoom,
-				GraphControlVerticalPadding * Zoom};
-			const ImVec2 GraphControlItemSpacing{4.0f * Zoom, 4.0f * Zoom};
-			const float GraphControlHeight = GraphBodyFontSize
-				+ GraphControlFramePadding.y * 2.0f;
 
 			const float GridStep = 32.0f * Zoom;
 			if (GridStep >= 16.0f)
@@ -1534,7 +1526,6 @@ namespace Durin::Editor::Material
 				&& Mouse.y < SurfaceMinimum.y + Metrics.SurfaceHeaderHeight * Zoom;
 			std::optional<EMaterialProgramValueType> LinkSourceType;
 
-			bool bEmbeddedControlHoveredOrActive = false;
 			if (const auto It = VisualIndices.find(LinkSourceNode);
 				It != VisualIndices.end())
 				if (!VisualNodes[It->second].View->Outputs.empty())
@@ -1563,25 +1554,18 @@ namespace Durin::Editor::Material
 						{12 * Zoom, (NodeHeaderHeight + Metrics.SecondaryHeight + PinSpacing * 1.5f) * Zoom}), 80 * Zoom);
 				for (size_t Index = 0; Index < Visual.OutputPins.size(); ++Index)
 					DrawList->AddCircleFilled(Visual.OutputPins[Index], PinRadius, TypeColor(Visual.View->Outputs[Index].Type));
-				const bool bInlineEditorVisible =
-					DetailLevel == EMaterialGraphDetailLevel::Editing
-					&& (Visual.View->Node.Opcode == EMaterialProgramOpcode::Parameter
-						|| (SelectedNodes.size() == 1 && SelectedNodes.contains(Visual.View->Node.Id)
-							&& (Visual.View->Node.Opcode == EMaterialProgramOpcode::Constant
-								|| Visual.View->Node.Opcode == EMaterialProgramOpcode::Swizzle)));
-				if (DetailLevel == EMaterialGraphDetailLevel::Editing
-					&& !bInlineEditorVisible)
+				if (DetailLevel == EMaterialGraphDetailLevel::Editing)
 				{
 					for (size_t Index = 0; Index < Visual.OutputPins.size(); ++Index)
 					{
-					const std::string ResultLabel = Ellipsize(Visual.View->Outputs[Index].Name, NodeWidth * Zoom * 0.45f);
-					const float ResultLabelWidth = ImGui::GetFont()->CalcTextSizeA(
-						GraphBodyFontSize, FLT_MAX, 0.0f, ResultLabel.c_str()).x;
-					DrawList->AddText(ImGui::GetFont(), GraphBodyFontSize,
-						Add(Visual.OutputPins[Index],
-							{-8.0f * Zoom - ResultLabelWidth,
-								-GraphBodyFontSize * 0.5f}),
-						IM_COL32(185, 190, 202, 255), ResultLabel.c_str());
+						const std::string ResultLabel = Ellipsize(GraphOutputLabel(*Visual.View, Index), GraphNodeWidth(*Visual.View) * Zoom * 0.45f);
+						const float ResultLabelWidth = ImGui::GetFont()->CalcTextSizeA(
+							GraphBodyFontSize, FLT_MAX, 0.0f, ResultLabel.c_str()).x;
+						DrawList->AddText(ImGui::GetFont(), GraphBodyFontSize,
+							Add(Visual.OutputPins[Index],
+								{-8.0f * Zoom - ResultLabelWidth,
+									-GraphBodyFontSize * 0.5f}),
+							IM_COL32(185, 190, 202, 255), ResultLabel.c_str());
 					}
 				}
 				for (size_t Index = 0; Index < Visual.InputPins.size(); ++Index)
@@ -1594,7 +1578,7 @@ namespace Durin::Editor::Material
 								{9.0f * Zoom, -GraphBodyFontSize * 0.5f}),
 							IM_COL32(205, 210, 220, 255),
 							Ellipsize(InputLabel(*Visual.View, Visual.View->Inputs[Index], &Material),
-								(NodeWidth - (Index < Visual.OutputPins.size() ? 85.f : 20.f)) * Zoom
+								(GraphNodeWidth(*Visual.View) - (Index < Visual.OutputPins.size() && !GraphOutputLabel(*Visual.View, Index).empty() ? 85.f : 20.f)) * Zoom
 									* ImGui::GetFontSize() / GraphBodyFontSize).c_str());
 					if (LinkSourceType)
 					{
@@ -1610,185 +1594,19 @@ namespace Durin::Editor::Material
 					{
 						const auto& Pin = Visual.View->Inputs[Index];
 						ImGui::SetTooltip("%s%s%s\n%s%s", Pin.Name.c_str(), Pin.bRequired ? " (required)" : "",
-							Pin.bMissing ? " (missing port)" : "", DescribeFunctionDefault(Pin.Default).c_str(), BroadcastHint(Pin));
+							Pin.bMissing ? " (missing port)" : "", (Pin.InlineDefault.Kind == EMaterialInputDefaultKind::Literal
+							? FormatGraphNumericValue(Pin.InlineDefault.Type, Pin.InlineDefault.Literal, 9)
+							: DescribeFunctionDefault(Pin.Default)).c_str(), BroadcastHint(Pin));
 					}
 				}
 
 			}
-			if (DetailLevel == EMaterialGraphDetailLevel::Editing)
+			if (Hit.OutputNode && DetailLevel != EMaterialGraphDetailLevel::Overview)
 			{
-				for (const FVisualNode& Visual : VisualNodes)
-				{
-					if (Visual.View->Node.Opcode != EMaterialProgramOpcode::Parameter
-						&& !(SelectedNodes.size() == 1 && SelectedNodes.contains(Visual.View->Node.Id))) continue;
-					if (Visual.View->Node.Opcode == EMaterialProgramOpcode::Constant
-						&& Intersects(Visual.Minimum, Visual.Maximum, CanvasMinimum, CanvasMaximum))
-					{
-						const auto Literal = Visual.View->Node.GetConstantLiteral();
-						std::array ConstantDraft{Literal.X, Literal.Y, Literal.Z, Literal.W};
-						if (const auto* Inline =
-							std::get_if<FInlineEditingInteraction>(&Interaction);
-							Inline && Inline->Node == Visual.View->Node.Id)
-							ConstantDraft = Inline->ConstantDraft;
-						const ImVec2 SavedCursor = ImGui::GetCursorScreenPos();
-						ImGui::SetCursorScreenPos(Add(Visual.Minimum,
-							{10.0f * Zoom, (NodeHeaderHeight + Metrics.SecondaryHeight
-								+ 4.0f) * Zoom}));
-						ImGui::PushID(Visual.View->Node.Id.ToString().c_str());
-						ImGui::SetNextItemWidth(std::max(80.0f,
-							(NodeWidth - 20.0f) * Zoom));
-						ImGui::PushFont(nullptr, GraphControlFontSizeBase);
-						ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
-							GraphControlFramePadding);
-						ImGui::PushStyleVar(ImGuiStyleVar_ItemInnerSpacing,
-							GraphControlItemSpacing);
-						const bool bValueSubmitted = DrawNumericInputEditor("##InlineConstant",
-							Visual.View->Node.ResultType, ConstantDraft.data());
-						bEmbeddedControlHoveredOrActive |=
-							ImGui::IsItemHovered() || ImGui::IsItemActive();
-						const bool bInlineActive = ImGui::IsItemActive();
-						const bool bCancelInline = ImGui::IsKeyPressed(ImGuiKey_Escape)
-							&& (bInlineActive || ImGui::IsItemFocused());
-						if (bCancelInline) ResetInteraction();
-						else if (bValueSubmitted || ImGui::IsItemDeactivatedAfterEdit())
-						{
-							ReportCommand(FMaterialGraphDocument(Material).SetConstantValue(Visual.View->Node.Id,
-								MakeParameterValue(Visual.View->Node.ResultType,
-									{ConstantDraft[0], ConstantDraft[1], ConstantDraft[2], ConstantDraft[3]}), &Transactions), ReportError);
-						}
-						if (bInlineActive && !bCancelInline)
-							Interaction = FInlineEditingInteraction{
-								.Node = Visual.View->Node.Id,
-								.ConstantDraft = ConstantDraft};
-						else if (std::holds_alternative<FInlineEditingInteraction>(Interaction))
-							ResetInteraction();
-						ImGui::PopStyleVar(2);
-						ImGui::PopFont();
-						ImGui::PopID();
-						ImGui::SetCursorScreenPos(SavedCursor);
-						ImGui::Dummy({0.0f, 0.0f});
-					}
-					else if ((Visual.View->Node.Opcode == EMaterialProgramOpcode::Parameter)
-						&& Intersects(Visual.Minimum, Visual.Maximum, CanvasMinimum, CanvasMaximum))
-					{
-						const ImVec2 SavedCursor = ImGui::GetCursorScreenPos();
-						ImGui::SetCursorScreenPos(Add(Visual.Minimum,
-							{10.0f * Zoom, (NodeHeaderHeight + Metrics.SecondaryHeight
-								+ 4.0f) * Zoom}));
-						ImGui::PushID(Visual.View->Node.Id.ToString().c_str());
-						ImGui::SetNextItemWidth(std::max(80.0f, (NodeWidth - 20.0f) * Zoom));
-						ImGui::PushFont(nullptr, GraphControlFontSizeBase);
-						ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
-							GraphControlFramePadding);
-						ImGui::PushStyleVar(ImGuiStyleVar_ItemInnerSpacing,
-							GraphControlItemSpacing);
-						FResolvedMaterialParameter Resolved;
-						const bool bEditValue =
-							Visual.View->Node.Opcode == EMaterialProgramOpcode::Parameter
-							&& Material.ResolveParameterValue(
-								Visual.View->Node.GetParameterId(), Resolved);
-						if (bEditValue)
-						{
-							const auto Literal = ReadParameterLiteral(Visual.View->Node.ResultType, Resolved.Value);
-							std::array ConstantDraft{Literal.X, Literal.Y, Literal.Z, Literal.W};
-							if (const auto* Inline =
-								std::get_if<FInlineEditingInteraction>(&Interaction);
-								Inline && Inline->Node == Visual.View->Node.Id)
-							{
-								ConstantDraft = Inline->ConstantDraft;
-							}
-							const bool bValueChanged = DrawNumericDragEditor("##InlineParameterValue",
-								Visual.View->Node.ResultType, ConstantDraft.data());
-							bEmbeddedControlHoveredOrActive |=
-								ImGui::IsItemHovered() || ImGui::IsItemActive();
-							const bool bInlineActive = ImGui::IsItemActive();
-							if (bInlineActive)
-							{
-								SelectedNodes = {Visual.View->Node.Id};
-								SelectedSurfaceOutput.reset();
-							}
-							const bool bCancelInline = ImGui::IsKeyPressed(ImGuiKey_Escape)
-								&& (bInlineActive || ImGui::IsItemFocused());
-							if (bCancelInline)
-							{
-								if (ParameterEditSession.IsActive())
-									ReportCommand(ParameterEditSession.Cancel(), ReportError);
-								ResetInteraction();
-							}
-							else if (bValueChanged)
-							{
-								const auto Value = MakeParameterValue(Visual.View->Node.ResultType,
-									{ConstantDraft[0], ConstantDraft[1], ConstantDraft[2], ConstantDraft[3]});
-								if (!ParameterEditSession.IsActive())
-									ReportCommand(ParameterEditSession.Begin(Material,
-										Visual.View->Node.GetParameterId(), &Transactions), ReportError);
-								if (ParameterEditSession.IsActive())
-									ReportCommand(ParameterEditSession.Apply(std::move(Value)), ReportError);
-							}
-							if (!bCancelInline && ImGui::IsItemDeactivatedAfterEdit())
-							{
-								if (ParameterEditSession.IsActive())
-									ReportCommand(ParameterEditSession.Commit(), ReportError);
-								ResetInteraction();
-							}
-							if (bInlineActive && !bCancelInline)
-								Interaction = FInlineEditingInteraction{
-									.Node = Visual.View->Node.Id,
-									.ConstantDraft = ConstantDraft};
-							else if (const auto* Inline = std::get_if<FInlineEditingInteraction>(&Interaction);
-								Inline && Inline->Node == Visual.View->Node.Id)
-								ResetInteraction();
-						}
-						else
-						{
-							ImGui::TextUnformatted(Visual.View->SecondaryLabel.c_str());
-						}
-						ImGui::PopStyleVar(2);
-						ImGui::PopFont();
-						ImGui::PopID();
-						ImGui::SetCursorScreenPos(SavedCursor);
-						ImGui::Dummy({0.0f, 0.0f});
-					}
-					else if (Visual.View->Node.Opcode == EMaterialProgramOpcode::Swizzle
-						&& Intersects(Visual.Minimum, Visual.Maximum, CanvasMinimum, CanvasMaximum))
-					{
-						const auto& Components = std::get<std::vector<uint8>>(Visual.View->Node.Data);
-						const ImVec2 SavedCursor = ImGui::GetCursorScreenPos();
-						ImGui::SetCursorScreenPos(Add(Visual.Minimum,
-							{10.0f * Zoom, (NodeHeaderHeight + Metrics.SecondaryHeight
-								+ 4.0f) * Zoom}));
-						ImGui::PushID(Visual.View->Node.Id.ToString().c_str());
-						ImGui::SetNextItemWidth(std::max(80.0f, (NodeWidth - 20.0f) * Zoom));
-						ImGui::PushFont(nullptr, GraphControlFontSizeBase);
-						ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
-							GraphControlFramePadding);
-						ImGui::PushStyleVar(ImGuiStyleVar_ItemInnerSpacing,
-							GraphControlItemSpacing);
-						for (uint8 Channel = 0; Channel < 4; ++Channel)
-						{
-							if (Channel) ImGui::SameLine();
-							bool Selected = std::ranges::find(Components, Channel) != Components.end();
-							const char* Labels[] = {"R", "G", "B", "A"};
-							if (ImGui::Checkbox(Labels[Channel], &Selected))
-							{
-								std::vector<uint8> Mask;
-								for (uint8 Candidate = 0; Candidate < 4; ++Candidate)
-									if (Candidate == Channel ? Selected : std::ranges::find(Components, Candidate) != Components.end()) Mask.push_back(Candidate);
-								ReportCommand(FMaterialGraphDocument(Material).SetSwizzleComponents(
-									Visual.View->Node.Id, Mask, &Transactions), ReportError);
-							}
-							bEmbeddedControlHoveredOrActive |= ImGui::IsItemHovered() || ImGui::IsItemActive();
-						}
-						ImGui::PopStyleVar(2);
-						ImGui::PopFont();
-						ImGui::PopID();
-						ImGui::SetCursorScreenPos(SavedCursor);
-						ImGui::Dummy({0.0f, 0.0f});
-					}
-				}
+				const auto& Pin = Hit.OutputNode->View->Outputs[Hit.OutputIndex];
+				ImGui::SetTooltip("%s (%s)", Pin.Name.c_str(), GetProgramTypeName(Pin.Type));
 			}
-			if (HoveredNode && DetailLevel != EMaterialGraphDetailLevel::Overview
-				&& !bEmbeddedControlHoveredOrActive)
+			if (HoveredNode && !Hit.InputNode && !Hit.OutputNode && DetailLevel != EMaterialGraphDetailLevel::Overview)
 			{
 				ImGui::BeginTooltip();
 				const auto Display = MakeGraphNodeDisplay(*HoveredNode->View, &Material);
@@ -1886,7 +1704,7 @@ namespace Durin::Editor::Material
 				}
 			}
 			HandlePointerInput(Material, Transactions, View, VisualGraph, CanvasMinimum,
-				CanvasMaximum, CanvasSize, Mouse, bHovered && !bEmbeddedControlHoveredOrActive,
+				CanvasMaximum, CanvasSize, Mouse, bHovered,
 				{HoveredSurfaceOutput, bHoveredMaterialOutputHeader,
 					Contains(SurfaceMinimum, SurfaceMaximum, Mouse), CurrentSurfaceGraphPosition, SurfacePins},
 				ReportError);

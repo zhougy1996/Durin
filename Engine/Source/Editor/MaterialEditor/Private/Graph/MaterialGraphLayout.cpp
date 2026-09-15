@@ -1,5 +1,6 @@
 #include "MaterialGraphEditInternals.h"
 #include "MaterialExpressionInputs.h"
+#include "MaterialGraphNodeDisplay.h"
 
 namespace Durin::Editor::Material
 {
@@ -100,11 +101,15 @@ namespace Durin::Editor::Material
 		FMaterialGraphPresentation& OutPresentation) -> FMaterialGraphCommandResult
 	{
 		OutPresentation = Material.GetMaterialGraphPresentation();
-		struct FLayoutNode { FGuid Id; std::vector<FGuid> Inputs; uint32 InputCount = 0; };
+		struct FLayoutNode { FGuid Id; std::vector<FGuid> Inputs; float Width = 224.0f; float Height = 94.0f; };
 		std::vector<FLayoutNode> Nodes;
+		const auto View = Inspect(Material);
 		for (const auto& Expression : Material.GetExpressionCollection().Expressions)
 		{
-			FLayoutNode Node{Expression->Id, {}, Expression->GetAuthoredInputCount()};
+			const auto Visual = std::ranges::find(View.Nodes, Expression->Id,
+				[](const auto& Item) { return Item.Node.Id; });
+			if (Visual == View.Nodes.end()) continue;
+			FLayoutNode Node{Expression->Id, {}, GraphNodeWidth(*Visual), GraphNodeHeight(*Visual)};
 			VisitMaterialExpressionInputs(*Expression, [&](uint32, const FMaterialExpressionInput& Input) {
 				if (Input.ExpressionId.IsValid()) Node.Inputs.push_back(Input.ExpressionId);
 			});
@@ -266,9 +271,8 @@ namespace Durin::Editor::Material
 					const FLayoutNode* Node = FindLayoutNode(Existing.NodeId);
 					if (!Node) continue;
 					Occupied.push_back({static_cast<float>(Existing.X), static_cast<float>(Existing.Y),
-						Existing.X + Metrics.NodeWidth,
-						Existing.Y + FMaterialGraphGeometry::GetNodeHeight(
-							Node->InputCount)});
+						Existing.X + Node->Width,
+						Existing.Y + Node->Height});
 				}
 		std::vector<FMaterialGraphNodePresentation> Positions;
 		for (auto& [Column, Nodes] : Columns)
@@ -277,12 +281,11 @@ namespace Durin::Editor::Material
 			for (const FGuid& Id : Nodes)
 			{
 				const FLayoutNode* Node = FindLayoutNode(Id);
-				const float Height = FMaterialGraphGeometry::GetNodeHeight(
-					Node ? Node->InputCount : 0u);
+				const float Height = Node ? Node->Height : Metrics.HeaderHeight;
 				const float X = Column * (Metrics.NodeWidth + Metrics.ColumnGap);
 				for (uint32 Attempt = 0; Attempt <= MaterialProgramMaxNodeCount; ++Attempt)
 				{
-					const FRect Candidate{X, Y, X + Metrics.NodeWidth, Y + Height};
+					const FRect Candidate{X, Y, X + (Node ? Node->Width : Metrics.NodeWidth), Y + Height};
 					const auto Collision = std::ranges::find_if(Occupied,
 						[&](const FRect& Rect) {
 							return Candidate.MinX < Rect.MaxX && Candidate.MaxX > Rect.MinX
@@ -295,7 +298,7 @@ namespace Durin::Editor::Material
 				}
 				Positions.push_back({Id, static_cast<int32>(std::round(X)),
 					static_cast<int32>(std::round(Y))});
-				Occupied.push_back({X, Y, X + Metrics.NodeWidth, Y + Height});
+				Occupied.push_back({X, Y, X + (Node ? Node->Width : Metrics.NodeWidth), Y + Height});
 				Y += Height + Metrics.RowGap;
 			}
 		}
@@ -317,10 +320,9 @@ namespace Durin::Editor::Material
 				const FLayoutNode* Node = FindLayoutNode(Position.NodeId);
 				if (!Node) continue;
 				const float Y = static_cast<float>(Position.Y);
-				const float Height = FMaterialGraphGeometry::GetNodeHeight(
-					Node->InputCount);
+				const float Height = Node->Height;
 				MaximumX = std::max(MaximumX,
-					static_cast<float>(Position.X) + Metrics.NodeWidth);
+					static_cast<float>(Position.X) + Node->Width);
 				if (!bFound)
 				{
 					MinimumY = Y;

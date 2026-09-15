@@ -44,7 +44,7 @@ Inactive property labels and pins are dimmed. Existing authored defaults and
 connections remain stored; disconnected inputs resume their retained values.
 Hovering an active disconnected row shows its retained value. The pin context
 menu can promote that value to a connected parameter without changing its effect.
-Constant and parameter nodes retain their own value displays and inline editors.
+Constant and parameter nodes retain read-only value displays; all values are edited in Details.
 The compiler's explicit final anchor and aggregate/per-property
 exclusion rule are unchanged; reusable Surface values do not become extra roots.
 
@@ -97,12 +97,16 @@ presentation draft until release, with Escape discarding the draft.
 
 The MaterialEditor canvas uses the existing ImGui draw/input stack and one
 logical geometry authority shared with layout and native tests. Nodes use a
-stable 224-unit width and height derived from their named pin rows. Operation
+node-specific dimensions shared by framing and automatic layout. Constants use a
+30-unit header with their value and a centered output pin, with width from 112 to
+208 units according to vector width. Time and World Position also use header-only
+nodes. Adaptive math nodes use 160-unit width and omit the secondary row; richer
+texture and function nodes retain 224-unit width. Operation
 identity is the primary title for operation nodes. Numeric constants instead
-show their compact value as the title and constant type below it. Parameters
+show their compact value as the title; their type is available on hover. Parameters
 retain their authored name as the title and show their current numeric value
 below it, including in readable zoom. Values use four significant digits, omit
-trailing zeros, and retain vector dimensions. Float3/Float4 nodes also show a
+trailing zeros, and retain vector dimensions. Float3/Float4 parameter nodes also show a
 small RGB swatch; its channels are clamped for display while numeric values
 remain unchanged. Hover tooltips expose labels without width truncation and numeric
 values with nine significant digits. Material and function canvases share this
@@ -111,18 +115,19 @@ Node bodies use approximately 90% opacity (94% when selected), including functio
 nodes and the material output, so occluded wires remain faintly visible. Headers,
 text and pins remain opaque. Selection continues to emphasize adjacent wires.
 
-Numeric Parameter controls are directly draggable in Editing mode without first
-selecting the node. Dragging updates the value and preview continuously; release
-records one undo operation for the entire gesture. Escape restores the starting
-value. Constants and Swizzles expose inline controls when selected. Text is clipped and ellipsized to its owning bounds; editing
-zoom adds named inputs and a textual output type so type color is never the only
-cue.
+All numeric values and channel masks are edited in Details. The canvas has no
+embedded value controls: dragging a node changes its position, never its value.
+Parameters show their name and current value in a 192-by-50-unit card. Swizzles
+show their channel summary in the title and use compact operation geometry.
+Text is clipped and ellipsized to its owning bounds. Editing zoom adds named
+inputs. Adaptive math inputs show only names such as A and B; defaults remain
+available in Details and pin tooltips. Redundant single-output type labels are
+omitted; hover tooltips retain textual output types.
 
 Semantic zoom has hysteretic overview, readable, and editing bands. Overview
 keeps silhouettes, selection, focus, pan, and framing while disabling pin
 mutation. Readable mode adds clipped operation titles. Editing mode adds
-secondary identity, named pins, output type, tooltips, and inline constant
-controls. Frame All includes the derived surface proxy; Frame Selection uses
+secondary identity where applicable, named pins, and tooltips. Frame All includes the derived surface proxy; Frame Selection uses
 only the selection. The derived `Surface` terminal is initially placed
 one logical column after the rightmost node and remains stable during manual
 node arrangement. Its header displays the material asset name with `Material
@@ -132,11 +137,9 @@ automatic layout derives and persists a fresh position. It pans and zooms with
 the graph, participates in bounds and diagnostic framing, and remains absent
 from the semantic material program. Per-property mode owns fixed Base Color,
 Normal, Metallic, Roughness, Ambient Occlusion, Emissive, Opacity, and Opacity
-Mask rows; aggregate mode owns one typed Surface row. Readable mode retains
-these input names and read-only fallback values so zooming out does not leave
-an unlabeled terminal. Editing mode exposes inline fallback controls for
-unconnected rows; each completed gesture is one validated transaction, while
-Escape and document lifecycle cancellation discard the draft.
+Mask rows; aggregate mode owns one typed Surface row. Readable and editing modes
+retain these input names without embedded value controls. Change surface inputs
+by connecting expressions, whose values are edited in Details.
 
 Visible links are coarsely culled before curve drawing. When nodes or a surface
 output are selected, unrelated links dim while adjacent paths receive a thicker
@@ -218,7 +221,7 @@ first input by compatible type. Selection creates and connects the requested
 node as one command; missing numeric inputs receive inline literal defaults
 in the same transaction, while resource inputs without a default reject.
 Escape and every document lifecycle cancellation close the palette and discard
-reconnection, movement, and inline edit drafts without dirtying or compiling
+reconnection and movement drafts without dirtying or compiling
 the material. Every mutation still routes to the stateless
 `FMaterialGraphOperations` operation boundary.
 
