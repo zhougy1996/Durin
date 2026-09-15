@@ -4,10 +4,39 @@ Summary: Replace all-alternative material values and universal authored nodes wi
 
 Last reviewed: 2026-09-15
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-09-15
 
 ## Current Status
+
+Completed on 2026-09-15. All six stages and required acceptance gates pass.
+The final Win64 Debug runs use DMAT v7 and material Cook contributor version 5
+from revision `a7a7f96d4`; this closeout changes documentation only.
+
+| Final Windows coverage | Result | Receipt under `Build/.agent-state/logs/` |
+| --- | --- | --- |
+| Game workspace `all` | Passed | `20260915-100539-313351-31256-cmake.log` |
+| Editor workspace `all` | Passed | `20260915-101033-952084-37048-cmake.log` |
+| Fresh Sandbox Win64/Game Cook | 7 packages, including DefaultMaterial | `20260915-101121-635163-28536-DurinAssetTool.log` |
+| Fresh RoadWeaver Win64/Game Cook | 4 packages, including DefaultMaterial | `20260915-101207-240879-19652-DurinAssetTool.log` |
+| Sandbox Game startup/render/shutdown | 120 ticks; normal exit | `20260915-101152-452035-16744-DurinGame.log` |
+| RoadWeaver Game startup/render/shutdown | 120 ticks; normal exit | `20260915-101247-484533-11496-DurinGame.log` |
+
+Both Game runs used separately staged fresh Cook outputs on NVIDIA GeForce GTX
+1060 6GB with Vulkan validation enabled. Neither logged errors. Sandbox retained
+its known missing GrayboxPawn visual warning and discarded an incompatible
+pipeline cache. These are correctness checks, not GPU timing qualification.
+Cook outputs and JSON reports remain under `Build/TypedMaterialFinal/`; the
+[qualification report](TypedMaterialValuesAndExpressions.qualification.json)
+embeds both final Cook reports and records the exact commands and receipts.
+The first Cook launch after building only DurinAssetTool failed before logging;
+the Editor `all` build completed the runtime outputs and the fresh retry passed.
+
+The final macOS native suites and renderer qualification listed below are reused
+for unchanged source. Changed-document and all-plan validation pass. The owning
+asset lifecycle contract now also records DMAT v7 and Cook recipe version 5.
+
+## Final Integration Evidence Before Windows Closeout
 
 Final runtime/editor contracts now describe owned concrete expressions, direct
 Build snapshots, cloned transaction candidates, ownership marker 2, DAST v10 and
@@ -29,10 +58,14 @@ DMAT v7. Changed-document and all-plan validation pass. Final macOS arm64 checks
   `20260915-031001-674367-88642-DurinAssetTool.log`; outputs reside under
   `Build/TypedMaterialFinal/{SandboxCook,RoadWeaverCook}`.
 
-The final Win64 Game build/startup/render checks remain outstanding. This macOS
-host registers only Editor presets and cannot execute Win64 Game binaries. A
-Windows execution environment has been requested. Earlier Stage 4 Game receipts
-predate DMAT v7 and do not satisfy this final gate; the plan remains active.
+At this macOS checkpoint, final Win64 Game execution was unavailable. The final
+Windows receipts above now close that gate. Earlier Stage 4 Game receipts predate
+DMAT v7 and remain historical evidence only.
+
+## Prior Implementation Receipts
+
+These checkpoints describe intermediate states; current completion is recorded
+above. Their outstanding-work statements are historical.
 
 Stage 5 removes the unused universal graph validators and reflected Program/node/
 function-call graph records. Cook payload schema advances from 6 to 7 to remove
@@ -458,7 +491,7 @@ The missing historical measurements and images were reproduced in the isolated
 capture harness restored from `60d193819`. The report retains its hash and receipts;
 the current implementation was not used to generate the old baseline.
 
-## Prior Implementation Receipts
+## Earlier Foundation Receipts
 
 The following checkpoints record earlier increments, not the current stage
 selection or a new stop instruction.
@@ -1165,9 +1198,9 @@ Depends on Stage 4.
 - [x] Update the owning runtime material documentation and
   [Material Graph Operations](../Editor/Architecture/MaterialGraphOperations.md)
   to describe implemented ownership, snapshot, transaction, and Cook contracts.
-- [ ] Complete an `all` build of the workspace, affected native suites, renderer
+- [x] Complete an `all` build of the workspace, affected native suites, renderer
   qualification, both projects' Cook/Game checks, and documentation validation.
-- [ ] Record exact receipts and close the plan only after all gates pass.
+- [x] Record exact receipts and close the plan only after all gates pass.
 
 Completion: one authored model and one typed value contract remain; no permanent
 legacy material reader or alternate full-field save path remains.

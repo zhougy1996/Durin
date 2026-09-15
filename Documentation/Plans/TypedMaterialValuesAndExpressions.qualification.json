@@ -4544,5 +4544,184 @@
         }
       ]
     }
+  },
+  "finalWindowsQualification": {
+    "date": "2026-09-15",
+    "sourceRevision": "a7a7f96d4",
+    "materialPayloadVersion": 7,
+    "materialCookContributorVersion": 5,
+    "gpu": "NVIDIA GeForce GTX 1060 6GB",
+    "vulkanValidation": true,
+    "gameTicksPerProject": 120,
+    "result": "passed",
+    "receipts": {
+      "gameAll": "Build/.agent-state/logs/20260915-100539-313351-31256-cmake.log",
+      "editorAll": "Build/.agent-state/logs/20260915-101033-952084-37048-cmake.log",
+      "sandboxCook": "Build/.agent-state/logs/20260915-101121-635163-28536-DurinAssetTool.log",
+      "roadWeaverCook": "Build/.agent-state/logs/20260915-101207-240879-19652-DurinAssetTool.log",
+      "sandboxGame": "Build/.agent-state/logs/20260915-101152-452035-16744-DurinGame.log",
+      "roadWeaverGame": "Build/.agent-state/logs/20260915-101247-484533-11496-DurinGame.log"
+    },
+    "commands": [
+      ".\\DevTool.bat build --preset Win64-Debug-DurinGame --target all",
+      ".\\DevTool.bat build --target all",
+      ".\\DevTool.bat cook --project Sandbox/Sandbox.dproject --output Build/TypedMaterialFinal/SandboxCook --target win64 --target-profile game --no-incremental --json",
+      ".\\DevTool.bat cook --project RoadWeaver/RoadWeaver.dproject --output Build/TypedMaterialFinal/RoadWeaverCook --target win64 --target-profile game --no-incremental --json",
+      ".\\DevTool.bat run --preset Win64-Debug-DurinGame --project Sandbox/Sandbox.dproject --args --hidden-window --exit-after-ticks=120",
+      ".\\DevTool.bat run --preset Win64-Debug-DurinGame --project RoadWeaver/RoadWeaver.dproject --args --hidden-window --exit-after-ticks=120"
+    ],
+    "staging": "Before each Game run, copy that project Cook output Engine, Game and Shaders directories into Engine/Binaries/Win64/Debug/Runtime/DurinGame, replacing only the preceding test staging.",
+    "cook": {
+      "Sandbox": {
+        "schemaVersion": 1,
+        "status": "succeeded",
+        "code": "succeeded",
+        "diagnostic": "Cook published a validated manifest-last output generation.",
+        "target": "win64",
+        "profile": "game",
+        "changedBytes": 5974950,
+        "reusedBytes": 0,
+        "peakCapturedBytes": 6590070,
+        "rangeReadCount": 0,
+        "wallTimeNanoseconds": 11102009700,
+        "commitTimeNanoseconds": 149243900,
+        "rollbackTimeNanoseconds": 0,
+        "packages": [
+          {
+            "packagePath": "/Engine/Materials/DefaultMaterial",
+            "contributor": "material",
+            "status": "captured",
+            "stage": "capture",
+            "code": "captured",
+            "diagnostic": "Captured deterministic package save plan.",
+            "packageBytes": 113172,
+            "segmentBytes": 0
+          },
+          {
+            "packagePath": "/Engine/Models/Box",
+            "contributor": "static-mesh",
+            "status": "captured",
+            "stage": "capture",
+            "code": "captured",
+            "diagnostic": "Captured deterministic package save plan.",
+            "packageBytes": 2954,
+            "segmentBytes": 0
+          },
+          {
+            "packagePath": "/Engine/Renderer/DefaultStudioCube",
+            "contributor": "texture-cube",
+            "status": "captured",
+            "stage": "capture",
+            "code": "captured",
+            "diagnostic": "Captured deterministic package save plan.",
+            "packageBytes": 935,
+            "segmentBytes": 2099120
+          },
+          {
+            "packagePath": "/Game/Levels/GrayboxStage15",
+            "contributor": "generic-package",
+            "status": "captured",
+            "stage": "capture",
+            "code": "captured",
+            "diagnostic": "Captured deterministic package save plan.",
+            "packageBytes": 7453,
+            "segmentBytes": 0
+          },
+          {
+            "packagePath": "/Game/Textures/TEXCUBE_PureSky_512x512",
+            "contributor": "texture-cube",
+            "status": "captured",
+            "stage": "capture",
+            "code": "captured",
+            "diagnostic": "Captured deterministic package save plan.",
+            "packageBytes": 961,
+            "segmentBytes": 1051272
+          },
+          {
+            "packagePath": "/Game/Volumes/VolumetricCloud/VT_Cloud_Base_Voronoi_128",
+            "contributor": "volume-texture",
+            "status": "captured",
+            "stage": "capture",
+            "code": "captured",
+            "diagnostic": "Captured deterministic package save plan.",
+            "packageBytes": 978,
+            "segmentBytes": 2397153
+          },
+          {
+            "packagePath": "/Game/Volumes/VolumetricCloud/VT_Cloud_Detail_Voronoi_64",
+            "contributor": "volume-texture",
+            "status": "captured",
+            "stage": "capture",
+            "code": "captured",
+            "diagnostic": "Captured deterministic package save plan.",
+            "packageBytes": 983,
+            "segmentBytes": 299969
+          }
+        ]
+      },
+      "RoadWeaver": {
+        "schemaVersion": 1,
+        "status": "succeeded",
+        "code": "succeeded",
+        "diagnostic": "Cook published a validated manifest-last output generation.",
+        "target": "win64",
+        "profile": "game",
+        "changedBytes": 2241071,
+        "reusedBytes": 0,
+        "peakCapturedBytes": 2814832,
+        "rangeReadCount": 0,
+        "wallTimeNanoseconds": 9125316500,
+        "commitTimeNanoseconds": 194241300,
+        "rollbackTimeNanoseconds": 0,
+        "packages": [
+          {
+            "packagePath": "/Engine/Materials/DefaultMaterial",
+            "contributor": "material",
+            "status": "captured",
+            "stage": "capture",
+            "code": "captured",
+            "diagnostic": "Captured deterministic package save plan.",
+            "packageBytes": 113172,
+            "segmentBytes": 0
+          },
+          {
+            "packagePath": "/Engine/Models/SplineBox",
+            "contributor": "static-mesh",
+            "status": "captured",
+            "stage": "capture",
+            "code": "captured",
+            "diagnostic": "Captured deterministic package save plan.",
+            "packageBytes": 10190,
+            "segmentBytes": 0
+          },
+          {
+            "packagePath": "/Engine/Renderer/DefaultStudioCube",
+            "contributor": "texture-cube",
+            "status": "captured",
+            "stage": "capture",
+            "code": "captured",
+            "diagnostic": "Captured deterministic package save plan.",
+            "packageBytes": 935,
+            "segmentBytes": 2099120
+          },
+          {
+            "packagePath": "/Game/Levels/L_RoadNet",
+            "contributor": "generic-package",
+            "status": "captured",
+            "stage": "capture",
+            "code": "captured",
+            "diagnostic": "Captured deterministic package save plan.",
+            "packageBytes": 17654,
+            "segmentBytes": 0
+          }
+        ]
+      }
+    },
+    "notes": [
+      "Both Game runs exited normally without error logs.",
+      "Sandbox reported its known missing GrayboxPawn visual and discarded an incompatible pipeline cache.",
+      "Initial Cook launch after the DurinAssetTool-only build failed before logging; Editor all completed runtime outputs and the retry passed.",
+      "Final macOS native and Vulkan suite receipts in the plan are reused for unchanged source; no new timing claims."
+    ]
   }
 }

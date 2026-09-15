@@ -4,7 +4,7 @@ Summary: Define authored, derived, cooked, and runtime asset-data ownership and 
 
 Modules: Engine, RenderCore, DerivedDataCache, StaticMeshBuild, TextureBuild, AssetForgeBuiltins
 
-Last reviewed: 2026-09-11
+Last reviewed: 2026-09-15
 
 Durin separates asset identity, authoring input, rebuildable derived data, and
 deployable runtime data. File suffixes describe those lifecycle contracts, not
@@ -496,8 +496,10 @@ fields remain validated build inputs but do not add runtime packages when those
 fields are stripped. Unknown custom archive fields retain runtime dependencies.
 Material function calls use this policy: nested function package bytes and schemas
 invalidate the material Cook cache, while cooked materials load their accepted
-program without function assets. Material and instance Cook recipe version 4
-includes this dependency policy; DMAT remains version 5.
+program without function assets. Material and instance Cook recipe version 5
+includes this dependency policy and invalidates pre-removal payloads. DMAT version
+7 omits the obsolete authored Program version word; typed IR, generator, compiler
+envelope and payload versions remain independently validated.
 
 `FCookCoordinator` requires the object owner thread and rejects nested runs before
 callbacks. It is an internal orchestration component, with no live-editor or
