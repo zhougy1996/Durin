@@ -250,10 +250,10 @@ namespace Durin
 
 	auto FMaterialExpressionBuildContext::SampleOutput(const DMaterialExpression& Expression, uint8 OutputIndex) -> uint32
 	{
-		if (OutputIndex > 8 || OutputIndex == 7) return Fail("Sample expression output selector is invalid.");
+		if (OutputIndex > 8 || OutputIndex == 6 || OutputIndex == 7) return Fail("Sample expression output selector is invalid.");
 		const auto Sample = ResolveIndex({Expression.Id});
 		if (OutputIndex == 0) return Sample;
-		const uint8 Width = OutputIndex == 1 ? 3 : (OutputIndex == 6 || OutputIndex == 8) ? 2 : 1;
+		const uint8 Width = OutputIndex == 1 ? 3 : OutputIndex == 8 ? 2 : 1;
 		const auto Selected = Emit({.Opcode = EMaterialProgramOpcode::Swizzle,
 			.ResultType = static_cast<EMaterialProgramValueType>(Width - 1), .Inputs = {Sample},
 			.Payload = FMaterialIRSwizzle{Width, {static_cast<uint8>(OutputIndex >= 2 && OutputIndex <= 5 ? OutputIndex - 2 : 0),

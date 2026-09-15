@@ -379,7 +379,7 @@ namespace Durin::Editor::Material
 				return EMaterialProgramValueType::Texture2D;
 			if (IsMaterialSamplingNode(Source->second->Opcode) && Link.SourceOutputIndex != 0)
 				return Link.SourceOutputIndex == 1 || Link.SourceOutputIndex == 8 ? EMaterialProgramValueType::Float3
-					: Link.SourceOutputIndex == 6 ? EMaterialProgramValueType::Float2 : EMaterialProgramValueType::Float;
+					: EMaterialProgramValueType::Float;
 			if (Source->second->Opcode == EMaterialProgramOpcode::GetSurfaceAttributes && Link.SourceOutputIndex < 8)
 				return GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(Link.SourceOutputIndex));
 			return Source->second->ResultType;

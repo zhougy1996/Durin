@@ -145,7 +145,7 @@ TEST(FMaterialFunctionTests, StructuralImportRecipesExposeOnlyRequiredOwners)
 	EXPECT_NE(Split.Graph.Outputs.Metallic.ExpressionId, Split.Graph.Outputs.Roughness.ExpressionId);
 	ASSERT_TRUE(Split.Graph.Apply(*Material));
 	Roles[1].Sample = FImportedSurfaceSample{.ResourceIdentity = "normal", .Usage = ETextureUsage::Normal,
-		.OutputIndex = 6, .bDecodeNormal = true};
+		.OutputIndex = 8, .bDecodeNormal = true};
 	const auto Normal = MakeImportedSurfaceRecipe(Roles);
 	EXPECT_EQ(Normal.Graph.Expressions.size(), Split.Graph.Expressions.size() + 1);
 	ASSERT_TRUE(Normal.Graph.Apply(*Material));
@@ -167,7 +167,7 @@ TEST(FMaterialFunctionTests, ExpandedAndFunctionRecipesPreserveCompilationAndInd
 	ASSERT_NE(Current, nullptr);
 	Current->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	ASSERT_TRUE(Testing::SetStandardMaterialExpressionsForTest(*Current));
-	EXPECT_EQ(Current->GetExpressionCollection().Expressions.size(), 169u);
+	EXPECT_EQ(Current->GetExpressionCollection().Expressions.size(), 170u);
 	for (const auto& Node : Current->GetExpressionCollection().Expressions)
 	{
 		EXPECT_FALSE(Node->IsA<DMaterialExpressionSaturate>());
@@ -371,7 +371,9 @@ TEST(FMaterialFunctionTests, NormalSampleOutputMatchesExplicitDecodeWithoutExtra
 	Sample->Metadata = {.Id = FGuid::NewGuid(), .Name = "NormalTexture"};
 	Sample->TextureUsage = ETextureUsage::Normal;
 	auto* Decode = NewObject<DMaterialExpressionDecodeNormalRG>(nullptr, NAME_None);
-	Decode->Id = FGuid::NewGuid(); Decode->Input = {Sample->Id, 6};
+	auto* RG = NewObject<DMaterialExpressionSwizzle>(nullptr, NAME_None);
+	RG->Id = FGuid::NewGuid(); RG->Input = {Sample->Id}; RG->Components = {0, 1};
+	Decode->Id = FGuid::NewGuid(); Decode->Input = {RG->Id};
 	std::vector<DMaterialExpression*> Expressions{Sample};
 	FMaterialExpressionSurfaceOutputs Outputs;
 	Outputs.Normal = {Sample->Id, 8}; Outputs.Roughness = {Sample->Id, 3};
@@ -380,11 +382,14 @@ TEST(FMaterialFunctionTests, NormalSampleOutputMatchesExplicitDecodeWithoutExtra
 	EXPECT_EQ(std::ranges::count(Normalized.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &FMaterialIRNode::Opcode), 1);
 	EXPECT_EQ(std::ranges::count(Normalized.IR.Nodes, EMaterialProgramOpcode::DecodeNormalRG, &FMaterialIRNode::Opcode), 1);
 	EXPECT_EQ(std::ranges::count(Normalized.IR.Nodes, EMaterialProgramOpcode::BlendNormalsRNM, &FMaterialIRNode::Opcode), 0);
-	Expressions.push_back(Decode); Outputs.Normal = {Decode->Id};
+	Expressions.push_back(RG); Expressions.push_back(Decode); Outputs.Normal = {Decode->Id};
 	const auto Expanded = NormalizeTypedExpressions(Expressions, Outputs);
 	ASSERT_TRUE(Expanded);
 	EXPECT_EQ(Normalized.CanonicalBytes, Expanded.CanonicalBytes);
 	EXPECT_EQ(Normalized.Layout, Expanded.Layout);
+	Decode->Input = {Sample->Id, 6};
+	EXPECT_FALSE(NormalizeTypedExpressions(Expressions, Outputs));
+	Decode->Input = {RG->Id};
 	Outputs.Normal = {Sample->Id, 9};
 	EXPECT_FALSE(NormalizeTypedExpressions(Expressions, Outputs));
 	for (auto* Expression : Expressions) MarkAsGarbage(Expression);

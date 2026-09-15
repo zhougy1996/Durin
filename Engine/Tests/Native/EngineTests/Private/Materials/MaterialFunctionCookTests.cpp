@@ -147,7 +147,7 @@ TEST_F(FMaterialFunctionCookTests, StructuralNormalParentRoundTripsDuplicatesAnd
 	for (uint32 I = 0; I < Roles.size(); ++I)
 		Roles[I].Value = GetMaterialSurfaceOutputDefault(Defaults, static_cast<EMaterialSurfaceOutput>(I));
 	Roles[1].Sample = FImportedSurfaceSample{.ResourceIdentity = "normal", .Usage = ETextureUsage::Normal,
-		.OutputIndex = 6, .bDecodeNormal = true};
+		.OutputIndex = 8, .bDecodeNormal = true};
 	const auto Recipe = MakeImportedSurfaceRecipe(Roles);
 	ASSERT_EQ(Recipe.Graph.Expressions.size(), 1u);
 	ASSERT_TRUE(Recipe.Graph.Apply(*Material));

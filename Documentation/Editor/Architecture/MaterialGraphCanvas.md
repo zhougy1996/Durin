@@ -141,8 +141,8 @@ sampling. Sampling nodes show RGB, R, G, B, A, and RGBA in that
 order by default. The Advanced pins toggle reveals Texture resource and decoded Normal outputs;
 connected outputs remain visible even when advanced pins are hidden. Display order
 and visibility never change serialized output indices. RG selection uses an explicit
-Swizzle node; loading an older material or function expands retired output 6 into
-one shared RG Swizzle per texture sample. Texture and Normal keep indices 7 and 8.
+Swizzle node. Sample output 6 is invalid; there is no legacy RG migration or
+compatibility path. Texture and Normal keep indices 7 and 8.
 Swizzle titles show the selected channels (for example, `Swizzle RG`), and channel
 controls use R/G/B/A selectors.
 

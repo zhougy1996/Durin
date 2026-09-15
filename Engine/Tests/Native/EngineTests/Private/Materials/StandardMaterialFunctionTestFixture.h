@@ -35,7 +35,7 @@ namespace Durin::Testing
 		const std::array OutputLinks{&Graph.Outputs.BaseColor, &Graph.Outputs.Normal, &Graph.Outputs.Metallic, &Graph.Outputs.Roughness,
 			&Graph.Outputs.AmbientOcclusion, &Graph.Outputs.Emissive, &Graph.Outputs.Opacity, &Graph.Outputs.OpacityMask};
 		using ParameterKind = MaterialParameters::EMaterialBuiltinParameterKind;
-		constexpr std::array<uint8, 8> Channels{1, 6, 4, 3, 2, 1, 5, 2};
+		constexpr std::array<uint8, 8> Channels{1, 0, 4, 3, 2, 1, 5, 2};
 		for (uint32 I = 0; I < 8; ++I)
 		{
 			const auto Role = static_cast<EMaterialSurfaceOutput>(I);
@@ -74,6 +74,8 @@ namespace Durin::Testing
 			Sample.OutputIndex = Channels[I];
 			if (I == 1)
 			{
+				Sample = Node(Op::Swizzle, Type::Float2, {Sample});
+				Cast<DMaterialExpressionSwizzle>(Graph.Expressions.back().Get())->Components = {0, 1};
 				Sample = Call(Functions.DecodeImportedNormalRG.Get(), {{AssetForge::Builtins::StandardMaterialPortId(Entry::DecodeImportedNormalRG, 1), Type::Float2, Sample}});
 				Presentation.Nodes.push_back({Sample.ExpressionId, 320, static_cast<int32>(I) * 600 + 150});
 			}

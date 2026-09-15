@@ -26,7 +26,7 @@ namespace Durin::Editor::Material
 			for (auto& Node : View.Nodes)
 				if (IsMaterialSamplingNode(Node.Node.Opcode))
 					std::erase_if(Node.Outputs, [&](const auto& Pin) {
-						return Pin.OutputIndex >= 6 && !(UsedSampleOutputs[Node.Node.Id] & (1u << Pin.OutputIndex));
+						return Pin.OutputIndex >= 7 && !(UsedSampleOutputs[Node.Node.Id] & (1u << Pin.OutputIndex));
 					});
 
 			for (auto& Node : View.Nodes)

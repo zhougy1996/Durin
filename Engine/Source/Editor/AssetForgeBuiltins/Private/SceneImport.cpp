@@ -312,7 +312,7 @@ namespace Durin::AssetForge::Builtins
 			const auto Texture = std::ranges::find(Plan.Outputs, Link.TextureIdentity, &FSceneOutputData::StableIdentity);
 			require(Texture != Plan.Outputs.end());
 			const auto& Binding = Link.Binding;
-			constexpr std::array<uint8, 8> Channels{1, 6, 4, 3, 2, 1, 2, 2};
+			constexpr std::array<uint8, 8> Channels{1, 8, 4, 3, 2, 1, 2, 2};
 			Roles[Link.MaterialRole].Sample = FImportedSurfaceSample{
 				.ResourceIdentity = Link.TextureIdentity, .Usage = Texture->TextureUsage,
 				.Sampler = MakeMaterialSamplerState(Binding.Sampler),
