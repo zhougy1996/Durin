@@ -230,7 +230,7 @@ of the complete shared schema. An omitted ordinary nested field inherits its
 paired parent value. Arrays, fixed arrays, Maps, and Forced replacements carry
 complete contained values. Native object fields have no reflected copy contract
 and remain complete. `AlwaysSerialize` preserves required reflected wire fields,
-including material ownership version tags, without Forced intent. The intrinsic
+without Forced intent. Material compatibility uses package custom versions. The intrinsic
 DObject identity node has no authored values.
 
 Before applying delta values, the loader copies reflected defaults into fresh

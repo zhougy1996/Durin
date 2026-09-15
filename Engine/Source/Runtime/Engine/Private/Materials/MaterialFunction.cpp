@@ -1,4 +1,5 @@
 #include "Materials/MaterialFunction.h"
+#include "Materials/MaterialCustomVersion.h"
 #include "MaterialExpressionOwnership.h"
 
 #include "DObject/Property.h"
@@ -49,6 +50,7 @@ namespace Durin
 
 	auto DMaterialFunction::Serialize(FArchive& Ar) -> void
 	{
+		if (!FMaterialGraphVersion::Serialize(Ar)) return;
 		Super::Serialize(Ar);
 		if (!Ar.HasError() && !IsTemplateObject() && Ar.IsSaving() && Ar.GetPurpose() == EArchivePurpose::AuthoredPackage)
 		{

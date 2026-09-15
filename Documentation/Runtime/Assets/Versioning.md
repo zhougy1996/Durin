@@ -52,8 +52,8 @@ their own format; declaration alone does not inject bytes into a raw stream.
 
 The v10 writer emits GUID, version and a zero reserved framing byte. The reader
 rejects nonzero framing flags; retired emission/support/codec metadata has no
-runtime compatibility path. The existing Engine, Sandbox and RoadWeaver content
-baseline used empty custom-version tables, so its bytes remain unchanged. Invalid
+runtime compatibility path. The pre-registration content baseline used empty custom-version tables; material
+packages now carry the domains described below. Invalid
 GUIDs, negative/out-of-range versions and duplicates fail parsing.
 Read-only package inspection does not require local version registration. Before
 constructing objects, Engine rejects unknown GUIDs and versions newer than the
@@ -85,6 +85,30 @@ nested structs and containers but not to unavailable classes, malformed wire
 values, or incompatible current/historical field types. Keep an explicit
 deprecated route when old values still need semantic conversion rather than
 discarding. Cooked native serializer fields remain strict.
+
+## Material Package Versions
+
+`FMaterialGraphVersion` is shared by `DMaterial` and `DMaterialFunction`;
+`FMaterialInstanceVersion` independently versions typed instance parameter storage.
+Both domains start at version 1 and are registered when Engine loads. Package
+serializers declare the appropriate domain during discovery and saving, and
+require exactly the current version on authored/cooked loads. Missing versions
+are not inferred from reflected defaults or obsolete fields. Both domains can
+appear in a multi-asset package; an instance does not declare its parent's graph
+domain unless that graph is also serialized in the same package.
+
+The maintained DefaultMaterial and seven standard material-function packages
+were converted offline by adding only the graph-version record. No maintained
+instance package required conversion. The old instance `ParameterStorageVersion`
+field is removed, and there is no retained converter or legacy-reader fallback.
+Material/function graph data and instance override values retain their existing
+representation. Ordinary non-version `AlwaysSerialize` fields remain unchanged.
+
+In-memory ObjectGraph, Duplicate, PropertySnapshot and EditableCopy operations do
+not require package version records. Cooked dispatch reaches the same version
+checks through `DObject::SerializeCooked` and virtual `Serialize`; graph stripping
+does not remove the material package version. Future incompatible changes must
+advance the owning domain and define their explicit migration policy.
 
 ## Authored Package Policy
 

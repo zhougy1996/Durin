@@ -1,4 +1,5 @@
 #include "Materials/Material.h"
+#include "Materials/MaterialCustomVersion.h"
 #include "Logging/LogMacros.h"
 
 #include "Asset/AssetCompilingManager.h"
@@ -291,6 +292,7 @@ namespace Durin
 
 	auto DMaterial::Serialize(FArchive& Ar) -> void
 	{
+		if (!FMaterialGraphVersion::Serialize(Ar)) return;
 		Super::Serialize(Ar);
 		if (!Ar.HasError() && !IsTemplateObject() && Ar.IsSaving() && Ar.GetPurpose() == EArchivePurpose::AuthoredPackage)
 		{

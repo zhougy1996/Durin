@@ -73,9 +73,6 @@ namespace Durin
 		DPROPERTY(Edit)
 		TObjectPtr<DMaterialInterface> Parent;
 
-		DPROPERTY(AlwaysSerialize)
-		uint32 ParameterStorageVersion = 2;
-
 		DPROPERTY(Edit)
 		std::vector<FMaterialScalarParameterValue> ScalarParameterValues;
 

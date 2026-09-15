@@ -650,8 +650,8 @@ Supported property node types are:
 
 `DPROPERTY(AlwaysSerialize)` marks a required wire field. Default-delta planning
 emits its complete value even when equal to the paired default. This flag is
-independent of editor presentation and persistent Forced overrides; material
-ownership version markers use it to preserve required-presence validation.
+independent of editor presentation and persistent Forced overrides. Material
+package compatibility uses registered custom versions instead of reflected markers.
 `Transient` still excludes a field from authored serialization.
 
 ### Typed authoring metadata

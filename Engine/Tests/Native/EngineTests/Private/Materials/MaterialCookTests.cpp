@@ -1,4 +1,5 @@
 #include "MaterialRenderRepresentationTestFixture.h"
+#include "Materials/MaterialCustomVersion.h"
 
 TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 {
@@ -52,6 +53,23 @@ TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 		(CookRoot / "Engine/Materials/DefaultMaterial.dasset").generic_string(),
 		Inspection));
 	EXPECT_NE(Inspection.FindField("ProgramData"), nullptr);
+	const auto CookedFile = CookRoot / "Engine/Materials/DefaultMaterial.dasset";
+	Durin::FByteBuffer OriginalBytes;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(OriginalBytes, CookedFile));
+	Durin::ObjectPackage::FLinkerTables VersionLinker;
+	ASSERT_TRUE(Durin::ObjectPackage::ReadPackage(OriginalBytes, {}, Path, VersionLinker));
+	ASSERT_EQ(VersionLinker.CustomVersions, (std::vector<Durin::FCustomVersion>{
+		{Durin::FMaterialGraphVersion::Guid, Durin::FMaterialGraphVersion::CurrentVersion}}));
+	VersionLinker.CustomVersions.clear();
+	Durin::FByteBuffer MissingVersionBytes, UnusedBulk;
+	ASSERT_TRUE(Durin::ObjectPackage::WritePackage(VersionLinker, MissingVersionBytes, UnusedBulk));
+	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(MissingVersionBytes, CookedFile));
+	ASSERT_TRUE(Durin::RefreshAssetRegistry(Durin::EAssetRegistryScanMode::FullValidation));
+	Durin::DMaterial* Rejected = nullptr;
+	const auto MissingVersion = Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Rejected);
+	EXPECT_EQ(MissingVersion.Error, Durin::EAssetError::UnsupportedVersion) << MissingVersion.Message;
+	EXPECT_EQ(Rejected, nullptr);
+	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(OriginalBytes, CookedFile));
 	ASSERT_TRUE(Durin::RefreshAssetRegistry(
 		Durin::EAssetRegistryScanMode::FullValidation));
 	Durin::DMaterial* Cooked = nullptr;

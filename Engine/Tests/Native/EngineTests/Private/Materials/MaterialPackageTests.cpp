@@ -1,5 +1,7 @@
 #include "StaticMesh/StaticMeshTestEnvironment.h"
 #include "StaticMeshMaterialTestFixture.h"
+#include "Materials/MaterialCustomVersion.h"
+#include "Materials/MaterialFunction.h"
 
 TEST(FMaterialPackageTests, MaterialInstanceAssetsRoundTripParentAndOverrides)
 {
@@ -142,6 +144,8 @@ TEST(FMaterialPackageTests, TypedExpressionsRoundTripDuplicateAndRejectMalformed
 	ObjectPackage::FLinkerTables Linker;
 	ASSERT_TRUE(ObjectPackage::ReadPackage(FirstSerialization, {}, Path, Linker));
 	EXPECT_FALSE(ContainsSerializedField(Linker, "GraphOwnershipVersion"));
+	ASSERT_EQ(Linker.CustomVersions.size(), 1u);
+	EXPECT_EQ(Linker.CustomVersions.front(), (FCustomVersion{FMaterialGraphVersion::Guid, FMaterialGraphVersion::CurrentVersion}));
 	EXPECT_TRUE(ContainsSerializedField(Linker, "ExpressionCollection"));
 	EXPECT_TRUE(ContainsSerializedField(Linker, "Expressions"));
 	EXPECT_TRUE(ContainsSerializedField(Linker, "ExpressionOutputs"));
@@ -194,7 +198,7 @@ TEST(FMaterialPackageTests, TypedExpressionsRoundTripDuplicateAndRejectMalformed
 	CollectGarbage();
 }
 
-TEST(FMaterialPackageTests, MissingInstanceStorageMarkerRejectsInstanceWithoutChangingParent)
+TEST(FMaterialPackageTests, MissingInstanceCustomVersionRejectsInstanceWithoutChangingParent)
 {
 	InitializeDObjectSystem();
 	const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "LegacyMaterials";
@@ -226,8 +230,14 @@ TEST(FMaterialPackageTests, MissingInstanceStorageMarkerRejectsInstanceWithoutCh
 
 	Durin::FByteBuffer InstanceBytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(InstanceBytes, (Root / "Instance.dasset")));
-	ASSERT_TRUE(RewriteSerializedFieldAsLegacyMap(
-		InstanceBytes, InstancePath, "ParameterStorageVersion", "ScalarParameters"));
+	Durin::ObjectPackage::FLinkerTables Linker;
+	ASSERT_TRUE(Durin::ObjectPackage::ReadPackage(InstanceBytes, {}, InstancePath, Linker));
+	EXPECT_FALSE(ContainsSerializedField(Linker, "ParameterStorageVersion"));
+	ASSERT_EQ(std::erase_if(Linker.CustomVersions, [](const auto& Version) {
+		return Version.Guid == Durin::FMaterialInstanceVersion::Guid;
+	}), 1u);
+	Durin::FByteBuffer Bulk;
+	ASSERT_TRUE(Durin::ObjectPackage::WritePackage(Linker, InstanceBytes, Bulk));
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(std::as_bytes(std::span(InstanceBytes)), Root / "Instance.dasset"));
 
 	Durin::DMaterialInstance* LoadedInstance = nullptr;
@@ -246,4 +256,93 @@ TEST(FMaterialPackageTests, MissingInstanceStorageMarkerRejectsInstanceWithoutCh
 	Durin::FByteBuffer After;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(After, Root / "Base.dasset"));
 	EXPECT_EQ(After, BaseBytes);
+}
+
+TEST(FMaterialPackageTests, MixedPackageRequiresBothVersionDomainsAndPreservesInstanceDuplication)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	const auto Root = Testing::GetTestWorkDirectory() / "MixedMaterialVersions";
+	Testing::RegisterMountPointForTests("/MixedMaterialVersions/", Root.generic_string() + "/");
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/MixedMaterialVersions/Base", Path));
+	DMaterial* Base = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Base));
+	ASSERT_TRUE(SetBindingProgram(*Base));
+	auto* Instance = NewObject<DMaterialInstance>(Base->GetPackage(), "Overrides");
+	ASSERT_TRUE(Instance->SetParent(Base));
+	ASSERT_TRUE(Instance->SetScalarParameterValue(MaterialParameters::OpacityName(), .25f));
+	auto* Copy = Cast<DMaterialInstance>(DuplicateObject(Instance, nullptr, "CopiedOverrides"));
+	ASSERT_NE(Copy, nullptr);
+	float Opacity = 0;
+	ASSERT_TRUE(Copy->GetScalarParameterValue(MaterialParameters::OpacityName(), Opacity));
+	EXPECT_FLOAT_EQ(Opacity, .25f);
+	MarkObjectHierarchyAsGarbage(Copy);
+	ASSERT_TRUE(SavePackage(Base->GetPackage()));
+	FByteBuffer Original;
+	ASSERT_TRUE(FFileHelper::LoadFileToArray(Original, Root / "Base.dasset"));
+	ObjectPackage::FLinkerTables Saved;
+	ASSERT_TRUE(ObjectPackage::ReadPackage(Original, {}, Path, Saved));
+	ASSERT_EQ(Saved.CustomVersions.size(), 2u);
+	EXPECT_FALSE(ContainsSerializedField(Saved, "ParameterStorageVersion"));
+	ASSERT_TRUE(UnloadPackage(Path));
+	for (const FGuid Guid : {FMaterialGraphVersion::Guid, FMaterialInstanceVersion::Guid})
+		for (const int32 Version : {-1, 0, 2})
+		{
+			auto Candidate = Saved;
+			const auto Record = std::ranges::find(Candidate.CustomVersions, Guid, &FCustomVersion::Guid);
+			ASSERT_NE(Record, Candidate.CustomVersions.end());
+			if (Version < 0) Candidate.CustomVersions.erase(Record);
+			else Record->Version = Version;
+			FByteBuffer Bytes, Bulk;
+			ASSERT_TRUE(ObjectPackage::WritePackage(Candidate, Bytes, Bulk));
+			ASSERT_TRUE(FFileHelper::SaveArrayToFile(Bytes, Root / "Base.dasset"));
+			DMaterial* Loaded = nullptr;
+			const auto Result = LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Loaded);
+			EXPECT_EQ(Result.Error, EAssetError::UnsupportedVersion) << Result.Message;
+			EXPECT_EQ(Loaded, nullptr);
+			EXPECT_EQ(FindResidentPackage(Path), nullptr);
+		}
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Original, Root / "Base.dasset"));
+	DMaterial* Loaded = nullptr;
+	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Loaded));
+	ASSERT_TRUE(UnloadPackage(Path));
+}
+
+TEST(FMaterialPackageTests, MaintainedGraphVersionsLoadAfterRestartAndFunctionsDuplicate)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	ASSERT_TRUE(FMountPaths::InitDefaultMountPoints());
+	ShutdownAssetManager();
+	CollectGarbage();
+	ASSERT_TRUE(InitializeAssetManager());
+	ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
+	const std::array Names{"DefaultMaterial", "Functions/DecodeImportedNormalRG", "Functions/ImportedSurfaceValues",
+		"Functions/SampleNormal", "Functions/SampleORM", "Functions/StandardPBR", "Functions/StandardPBR_ORM", "Functions/UVTransform"};
+	for (const auto* Name : Names)
+	{
+		FPackagePath Path;
+		ASSERT_TRUE(FPackagePath::TryCreate("/Engine/Materials/" + std::string(Name), Path));
+		const auto Data = FindAssetExact(Path);
+		ASSERT_NE(Data, nullptr);
+		FByteBuffer Bytes;
+		ASSERT_TRUE(FFileHelper::LoadFileToArray(Bytes, Data->PhysicalPath));
+		ObjectPackage::FLinkerTables Linker;
+		ASSERT_TRUE(ObjectPackage::ReadPackage(Bytes, {}, Path, Linker));
+		ASSERT_EQ(Linker.CustomVersions, (std::vector<FCustomVersion>{{FMaterialGraphVersion::Guid, FMaterialGraphVersion::CurrentVersion}}));
+		DObject* Loaded = nullptr;
+		const auto Result = LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Loaded);
+		ASSERT_TRUE(Result) << Name << ": " << Result.Message;
+		if (auto* Function = Cast<DMaterialFunction>(Loaded))
+		{
+			auto* Copy = Cast<DMaterialFunction>(DuplicateObject(Function, nullptr, NAME_None));
+			ASSERT_NE(Copy, nullptr);
+			EXPECT_EQ(Copy->GetExpressionCollection().Expressions.size(), Function->GetExpressionCollection().Expressions.size());
+			MarkObjectHierarchyAsGarbage(Copy);
+		}
+	}
+	ShutdownAssetManager();
+	CollectGarbage();
+	ASSERT_TRUE(InitializeAssetManager());
 }

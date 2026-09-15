@@ -1,4 +1,5 @@
 #include "Materials/MaterialInstance.h"
+#include "Materials/MaterialCustomVersion.h"
 #include "Logging/LogMacros.h"
 
 #include "Asset/Asset.h"
@@ -64,12 +65,10 @@ namespace Durin
 
 	auto DMaterialInstance::Serialize(FArchive& Ar) -> void
 	{
-		if (Ar.IsLoading()) ParameterStorageVersion = 0;
+		if (!FMaterialInstanceVersion::Serialize(Ar)) return;
 		Super::Serialize(Ar);
 		if (Ar.HasError()) return;
-		if (ParameterStorageVersion != 2)
-			Ar.Fail(EArchiveFailureCode::UnsupportedVersion, "Unsupported material instance schema; rebuild this instance.");
-		else if (!ValidateParameterStorage())
+		if (!ValidateParameterStorage())
 			Ar.Fail(EArchiveFailureCode::InvalidData, "Invalid or duplicate material parameter value.");
 	}
 

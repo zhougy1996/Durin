@@ -74,58 +74,6 @@ namespace
 		Stream.write(reinterpret_cast<const char*>(MaterialTexturePngBytes), sizeof(MaterialTexturePngBytes));
 	}
 
-	auto RewriteSerializedFieldAsLegacyMap(
-		Durin::FByteBuffer& Bytes,
-		const Durin::FPackagePath& PackagePath,
-		std::string_view CurrentName,
-		std::string_view LegacyName
-	) -> bool
-	{
-		Durin::ObjectPackage::FLinkerTables Linker;
-		if (!Durin::ObjectPackage::ReadPackage(
-			Bytes, {}, PackagePath, Linker)) return false;
-		Durin::ObjectPackage::FSerializedSchema* MatchedSchema = nullptr;
-		Durin::ObjectPackage::FSerializedField* MatchedField = nullptr;
-		for (auto& Schema : Linker.Schemas)
-		{
-			for (auto& Field : Schema.Fields)
-			{
-				if (Field.Name != CurrentName) continue;
-				if (MatchedField) return false;
-				MatchedSchema = &Schema;
-				MatchedField = &Field;
-			}
-		}
-		if (!MatchedSchema || !MatchedField) return false;
-		Durin::ObjectPackage::FSerializedType StringType{
-			.Kind = Durin::ObjectPackage::EValueKind::String};
-		Durin::ObjectPackage::FSerializedType MapType{
-			.Kind = Durin::ObjectPackage::EValueKind::Map,
-			.Children = {StringType, StringType}};
-		MatchedField->Name = LegacyName;
-		MatchedField->Type = MapType;
-		size_t Rewritten = 0;
-		for (auto& Export : Linker.Exports)
-		{
-			for (auto& Property : Export.Properties)
-			{
-				if (Property.DeclaringType != MatchedSchema->QualifiedName
-					|| Property.FieldName != CurrentName) continue;
-				Property.FieldName = LegacyName;
-				Property.Type = MapType;
-				Property.Value = {};
-				++Rewritten;
-			}
-		}
-		if (Rewritten == 0) return false;
-		Durin::FByteBuffer Main;
-		Durin::FByteBuffer Bulk;
-		if (!Durin::ObjectPackage::WritePackage(Linker, Main, Bulk) || !Bulk.empty())
-			return false;
-		Bytes = std::move(Main);
-		return true;
-	}
-
 	auto ContainsSerializedField(const Durin::ObjectPackage::FLinkerTables& Linker,
 		std::string_view Name) -> bool
 	{
