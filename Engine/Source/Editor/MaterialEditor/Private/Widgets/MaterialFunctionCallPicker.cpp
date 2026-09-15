@@ -45,7 +45,9 @@ namespace Durin::Editor::Material
 			const auto Binding = std::ranges::find(Inputs, Port.Id, &FMaterialFunctionInputBinding::InputId);
 			const bool HasBinding = Binding != Inputs.end();
 			const auto Label = std::format("{} ({}){}", Port.Name, GetProgramTypeName(Port.Type), Port.bRequired ? " *" : "");
-			if (ImGui::BeginCombo(Label.c_str(), Binding == Inputs.end() ? (Port.bRequired ? "Required connection" : "Use default") : "Connected"))
+			ImGui::TextUnformatted(Label.c_str());
+			ImGui::SetNextItemWidth(-FLT_MIN);
+			if (ImGui::BeginCombo("##Connection", Binding == Inputs.end() ? (Port.bRequired ? "Required connection" : "Use default") : "Connected"))
 			{
 				if (!Port.bRequired && ImGui::Selectable("Use default")) std::erase_if(Inputs, [&](const auto& Input) { return Input.InputId == Port.Id; });
 				for (const auto& Node : View.Nodes)

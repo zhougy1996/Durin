@@ -33,7 +33,7 @@ nodes or function calls.
 The single nondeletable Surface root displays the material identity, shading model
 and blend mode. Selecting it or clearing the graph selection shows the same
 material identity and directly expanded properties in Details, without a Surface
-Settings header: the supported Surface domain, Lit/Unlit shading, blend mode,
+Settings header: Lit/Unlit shading, blend mode,
 masked cutoff, two-sided rendering and depth-write policy. Settings use reflected
 property transactions on the working material, so Apply/Discard and Undo/Redo
 retain their ordinary atomic behavior. Inactive cutoff values remain stored.
@@ -49,14 +49,17 @@ The compiler's explicit final anchor and aggregate/per-property
 exclusion rule are unchanged; reusable Surface values do not become extra roots.
 
 Window controls reopen optional panels and reset the default layout. Material
-identity, type and asset path appear directly in Details when no graph node is
-selected or the Surface root is selected. Selected expression nodes show their
+identity and type appear directly in Details when no graph node is selected or
+the Surface root is selected. The type includes the fixed Surface domain; the
+asset path is available by hovering the name. Selected expression nodes show their
 name and properties without a wrapper header.
 Surface settings, node values and instance rendering overrides use the shared
-MonaImGui property tables with left-aligned labels and full-width value controls.
-Input controls are grouped by input. Unconnected inputs expose Value directly;
-connected inputs show their source node and keep the retained value inside a
-collapsed When disconnected group. Sampler settings remain collapsed.
+MonaImGui property tables with left-aligned labels and a stretching value column.
+Material tables ignore saved column widths so older narrow layouts do not persist.
+Each input occupies one row: unconnected inputs expose their value, while connected
+inputs show a source node/output button that locates the source. The row menu owns
+extract, promote, inline and disconnect actions; its When disconnected submenu
+exposes the retained value. Sampler settings remain collapsed.
 Base-material values and node bindings are edited through selected parameter
 owners and literal inputs in Details. Parameter node types are fixed at creation;
 Details has no type conversion control. Texture fallback and filtering/addressing

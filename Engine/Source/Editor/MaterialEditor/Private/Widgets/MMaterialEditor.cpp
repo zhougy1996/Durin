@@ -944,7 +944,7 @@ namespace Durin::Editor::Material
 		const auto EditText = [](const char* Label, std::string& Value) {
 			std::array<char, MaterialProgramMaxDisplayNameBytes + 1> Buffer{};
 			std::copy_n(Value.data(), std::min(Value.size(), Buffer.size() - 1), Buffer.data());
-			if (!ImGui::InputText(Label, Buffer.data(), Buffer.size(), ImGuiInputTextFlags_EnterReturnsTrue)) return false;
+			if (!DetailsStyle::EditRow(Label, [&] { return ImGui::InputText("##Value", Buffer.data(), Buffer.size(), ImGuiInputTextFlags_EnterReturnsTrue); })) return false;
 			Value = Buffer.data();
 			return true;
 		};
@@ -978,44 +978,50 @@ namespace Durin::Editor::Material
 					}
 					Submit(FMaterialGraphDocument(*Base).ReplaceExpression(*Candidate, GEditor->GetTransactor()));
 				};
-				std::string Name = Parameter.Name.ToString();
-				if (EditText("Name", Name))
-					Submit(FMaterialGraphOperations::RenameParameter(*Base, Parameter.Id, FName(Name), GEditor->GetTransactor()));
-				if (ImGui::IsItemHovered()) ImGui::SetTooltip("Rename all references while preserving material instance overrides.");
-				if (!bSubmitted && EditText("Display name", Parameter.DisplayName)) Commit();
-				std::string Group = Parameter.GroupName.ToString();
-				if (!bSubmitted && EditText("Group", Group)) { Parameter.GroupName = FName(Group); Commit(); }
-				if (!bSubmitted && ImGui::InputInt("Order", &Parameter.SortOrder, 0, 0, ImGuiInputTextFlags_EnterReturnsTrue)) Commit();
-				constexpr std::array Presentations{"Default", "Drag", "Integer", "Color", "Asset picker"};
-				const auto PresentationIndex = static_cast<size_t>(Parameter.Presentation);
-				if (!bSubmitted && ImGui::BeginCombo("Presentation", PresentationIndex < Presentations.size()
-					? Presentations[PresentationIndex] : "Unknown"))
+				if (MonaImGui::PropertyEdit::BeginTable("ParameterMetadata", MakeMaterialPropertyTableConfig()))
 				{
-					for (size_t Index = 0; Index < Presentations.size(); ++Index)
+					std::string Name = Parameter.Name.ToString();
+					if (EditText("Name", Name))
+						Submit(FMaterialGraphOperations::RenameParameter(*Base, Parameter.Id, FName(Name), GEditor->GetTransactor()));
+					if (ImGui::IsItemHovered()) ImGui::SetTooltip("Rename all references while preserving material instance overrides.");
+					if (!bSubmitted && EditText("Display name", Parameter.DisplayName)) Commit();
+					std::string Group = Parameter.GroupName.ToString();
+					if (!bSubmitted && EditText("Group", Group)) { Parameter.GroupName = FName(Group); Commit(); }
+					if (!bSubmitted && DetailsStyle::EditRow("Order", [&] { return ImGui::InputInt("##Value", &Parameter.SortOrder, 0, 0, ImGuiInputTextFlags_EnterReturnsTrue); })) Commit();
+					constexpr std::array Presentations{"Default", "Drag", "Integer", "Color", "Asset picker"};
+					const auto PresentationIndex = static_cast<size_t>(Parameter.Presentation);
+					MonaImGui::PropertyEdit::BeginRow("Presentation");
+					if (!bSubmitted && ImGui::BeginCombo("##Presentation", PresentationIndex < Presentations.size()
+						? Presentations[PresentationIndex] : "Unknown"))
 					{
-						auto Option = Parameter;
-						Option.Presentation = static_cast<EMaterialParameterPresentation>(Index);
-						if (FMaterialParameterPanelModel::SelectControl(Option) == EMaterialParameterControlKind::Unsupported) continue;
-						if (ImGui::Selectable(Presentations[Index], Index == PresentationIndex))
+						for (size_t Index = 0; Index < Presentations.size(); ++Index)
 						{
-							Parameter.Presentation = Option.Presentation;
-							Commit();
-							break;
+							auto Option = Parameter;
+							Option.Presentation = static_cast<EMaterialParameterPresentation>(Index);
+							if (FMaterialParameterPanelModel::SelectControl(Option) == EMaterialParameterControlKind::Unsupported) continue;
+							if (ImGui::Selectable(Presentations[Index], Index == PresentationIndex))
+							{
+								Parameter.Presentation = Option.Presentation;
+								Commit();
+								break;
+							}
+						}
+						ImGui::EndCombo();
+					}
+					MonaImGui::PropertyEdit::EndRow();
+					if (!bSubmitted && Parameter.Type == EMaterialParameterType::Scalar)
+					{
+						if (DetailsStyle::EditRow("Range hint", [&] { return ImGui::Checkbox("##Value", &Parameter.bHasRange); })) Commit();
+						if (!bSubmitted && Parameter.bHasRange)
+						{
+							float Range[]{Parameter.MinimumValue, Parameter.MaximumValue};
+							if (DetailsStyle::EditRow("Min / Max", [&] { return ImGui::InputFloat2("##Value", Range, "%.4g", ImGuiInputTextFlags_EnterReturnsTrue); }))
+							{
+								Parameter.MinimumValue = Range[0]; Parameter.MaximumValue = Range[1]; Commit();
+							}
 						}
 					}
-					ImGui::EndCombo();
-				}
-				if (!bSubmitted && Parameter.Type == EMaterialParameterType::Scalar)
-				{
-					if (ImGui::Checkbox("Range hint", &Parameter.bHasRange)) Commit();
-					if (!bSubmitted && Parameter.bHasRange)
-					{
-						float Range[]{Parameter.MinimumValue, Parameter.MaximumValue};
-						if (ImGui::InputFloat2("Min / Max", Range, "%.4g", ImGuiInputTextFlags_EnterReturnsTrue))
-						{
-							Parameter.MinimumValue = Range[0]; Parameter.MaximumValue = Range[1]; Commit();
-						}
-					}
+					MonaImGui::PropertyEdit::EndTable();
 				}
 				if (NodeIds.size() > 1)
 				{
@@ -1056,10 +1062,8 @@ namespace Durin::Editor::Material
 		if (bShowMaterialDetails)
 		{
 			ImGui::TextWrapped("%s", Material->GetName().c_str());
-			ImGui::TextDisabled("%s", Cast<DMaterialInstance>(Material) ? "Material Instance" : "Material");
-			ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-			ImGui::TextWrapped("%s", Document.ResourceId.c_str());
-			ImGui::PopStyleColor();
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", Document.ResourceId.c_str());
+			ImGui::TextDisabled("%s", Cast<DMaterialInstance>(Material) ? "Material Instance" : "Surface Material");
 			ImGui::Spacing();
 		}
 		if (auto* Instance = Cast<DMaterialInstance>(Material))
@@ -1071,9 +1075,6 @@ namespace Durin::Editor::Material
 			if (bShowMaterialDetails
 				&& MonaImGui::PropertyEdit::BeginTable("SurfaceProperties", MakeMaterialPropertyTableConfig()))
 			{
-				MonaImGui::PropertyEdit::BeginRow("Domain");
-				ImGui::TextDisabled("Surface");
-				MonaImGui::PropertyEdit::EndRow();
 				auto Properties = BaseMaterial->GetStaticProperties();
 				int Shading = static_cast<int>(Properties.ShadingModel);
 				int Blend = static_cast<int>(Properties.BlendMode);
@@ -1445,7 +1446,12 @@ namespace Durin::Editor::Material
 			FMaterialParameterValue Edited = Entry.Value;
 			auto Combo = [](const char* Label, auto& Value, const char* Options) {
 				int Selected = static_cast<int>(Value);
-				if (!ImGui::Combo(Label, &Selected, Options)) return false;
+				ImGui::PushID(Label);
+				ImGui::TextUnformatted(Label);
+				ImGui::SetNextItemWidth(-FLT_MIN);
+				const bool bChanged = ImGui::Combo("##Value", &Selected, Options);
+				ImGui::PopID();
+				if (!bChanged) return false;
 				Value = static_cast<std::remove_reference_t<decltype(Value)>>(Selected);
 				return true;
 			};

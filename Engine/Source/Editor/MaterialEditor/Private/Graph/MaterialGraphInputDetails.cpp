@@ -61,13 +61,16 @@ namespace Durin::Editor::Material
 			Value = Buffer.data();
 			return true;
 		};
-		const auto EditLiteral = [](const char* Label, EMaterialProgramValueType Type, FMaterialProgramLiteral& Value) {
+		const auto EditLiteralValue = [](EMaterialProgramValueType Type, FMaterialProgramLiteral& Value) {
 			std::array<float, 4> Components{Value.X, Value.Y, Value.Z, Value.W};
 			const int Count = static_cast<int>(Type) + 1;
-			if (Count < 1 || Count > 4 || !DetailsStyle::EditRow(Label, [&] { return ImGui::InputScalarN("##Value", ImGuiDataType_Float, Components.data(), Count,
-				nullptr, nullptr, "%.4g", ImGuiInputTextFlags_EnterReturnsTrue); })) return false;
+			if (Count < 1 || Count > 4 || !ImGui::InputScalarN("##Value", ImGuiDataType_Float, Components.data(), Count,
+				nullptr, nullptr, "%.4g", ImGuiInputTextFlags_EnterReturnsTrue)) return false;
 			Value = {Components[0], Components[1], Components[2], Components[3]};
 			return true;
+		};
+		const auto EditLiteral = [&](const char* Label, EMaterialProgramValueType Type, FMaterialProgramLiteral& Value) {
+			return DetailsStyle::EditRow(Label, [&] { return EditLiteralValue(Type, Value); });
 		};
 		auto* Material = Cast<DMaterial>(&Owner);
 		if (const auto* ParameterExpression = Cast<DMaterialExpressionParameter>(Expression.Get()); Material && ParameterExpression)
@@ -169,80 +172,94 @@ namespace Durin::Editor::Material
 			if (Changed) break;
 			if (Selected->Node.IsSampleUVInput(Pin.InputIndex) || Pin.SourceType > EMaterialProgramValueType::Float4) continue;
 			ImGui::PushID(static_cast<int>(Pin.InputIndex));
-			if (!MonaImGui::PropertyEdit::BeginGroup("Input", Pin.Name.c_str()))
-			{
-				ImGui::PopID();
-				continue;
-			}
 			auto Value = Pin.InlineDefault;
 			if (Value.Kind == EMaterialInputDefaultKind::None) Value.Type = Pin.SourceType;
 			const bool bConnected = Pin.Link.SourceNodeId.IsValid();
 			const auto EditValue = [&]() {
-				if (EditLiteral("Value", Value.Type, Value.Literal))
+				if (EditLiteralValue(Value.Type, Value.Literal))
 				{
 					Value.Kind = EMaterialInputDefaultKind::Literal;
 					Submit(Document.SetInputDefault(Selected->Node.Id, Pin.InputIndex, Value, Pin.PortId, &Transactions));
 				}
 			};
+			MonaImGui::PropertyEdit::BeginRow(Pin.Name.c_str());
+			const float MenuWidth = ImGui::GetFrameHeight();
+			const float ValueWidth = std::max(1.0f, ImGui::GetContentRegionAvail().x - MenuWidth - ImGui::GetStyle().ItemSpacing.x);
+			ImGui::SetNextItemWidth(ValueWidth);
 			if (bConnected)
 			{
 				const auto Source = std::ranges::find(View.Nodes, Pin.Link.SourceNodeId,
 					[](const auto& Entry) { return Entry.Node.Id; });
-				MonaImGui::PropertyEdit::BeginRow("Source");
-				ImGui::TextWrapped("%s", Source != View.Nodes.end() ? Source->PrimaryLabel.c_str() : "Unavailable node");
-				MonaImGui::PropertyEdit::EndRow();
+				std::string SourceLabel = Source != View.Nodes.end() ? Source->PrimaryLabel : "Unavailable node";
+				if (Source != View.Nodes.end())
+				{
+					const auto Output = std::ranges::find_if(Source->Outputs, [&](const auto& Port) {
+						return Pin.Link.SourceOutputId.IsValid() ? Port.PortId == Pin.Link.SourceOutputId
+							: Port.OutputIndex == Pin.Link.SourceOutputIndex;
+					});
+					if (Output != Source->Outputs.end()) SourceLabel += "." + Output->Name;
+				}
+				if (ImGui::Button((SourceLabel + "###Source").c_str(), {ValueWidth, 0.0f}) && Source != View.Nodes.end())
+					SelectAndFrame(Pin.Link.SourceNodeId);
+				if (ImGui::IsItemHovered()) ImGui::SetTooltip("Connected to %s. Click to locate.", SourceLabel.c_str());
 			}
 			else EditValue();
-			MonaImGui::PropertyEdit::BeginRow("Actions");
-			if (!Changed && bConnected)
+			ImGui::SameLine();
+			if (ImGui::Button("...", {MenuWidth, 0.0f})) ImGui::OpenPopup("InputActions");
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Input actions");
+			MonaImGui::PropertyEdit::EndRow();
+			if (ImGui::BeginPopup("InputActions"))
 			{
-				if (ImGui::SmallButton("Inline constant")) Submit(Document.InlineInputNode(Selected->Node.Id, Pin.InputIndex, Pin.PortId, &Transactions));
-				if (!Changed && ImGui::SmallButton("Disconnect")) Submit(Pin.PortId.IsValid()
-					? Document.DisconnectCallInput(Selected->Node.Id, Pin.PortId, &Transactions)
-					: Document.ConnectInput(Selected->Node.Id, Pin.InputIndex, {}, true, &Transactions));
-			}
-			else if (!Changed)
-			{
-				if (ImGui::SmallButton("Extract constant")) Submit(Document.ExtractInputDefault(Selected->Node.Id, Pin.InputIndex, Pin.PortId, &Transactions));
-				if (!Changed && Material && ImGui::SmallButton("Promote to parameter"))
+				if (!Changed && bConnected)
 				{
-					FMaterialParameterDefinition Definition;
-					Definition.Id = FGuid::NewGuid(); Definition.Type = *GetParameterType(Value.Type);
-					Definition.Value = MakeParameterValue(Value.Type, Value.Literal); Definition.Name = "Parameter";
-					for (uint32 Suffix = 1; Material->FindParameterDefinition(Definition.Name); ++Suffix)
-						Definition.Name = FName(std::format("Parameter{}", Suffix));
-					Definition.DisplayName = Definition.Name.ToString();
-					auto Parameter = GraphEditInternals::MakeParameterExpression(Definition);
-					if (const auto Candidate = Parameter ? CaptureSelected() : State.Expressions.end(); Candidate != State.Expressions.end())
+					if (ImGui::MenuItem("Inline constant")) Submit(Document.InlineInputNode(Selected->Node.Id, Pin.InputIndex, Pin.PortId, &Transactions));
+					if (!Changed && ImGui::MenuItem("Disconnect")) Submit(Pin.PortId.IsValid()
+						? Document.DisconnectCallInput(Selected->Node.Id, Pin.PortId, &Transactions)
+						: Document.ConnectInput(Selected->Node.Id, Pin.InputIndex, {}, true, &Transactions));
+				}
+				else if (!Changed)
+				{
+					if (ImGui::MenuItem("Extract constant")) Submit(Document.ExtractInputDefault(Selected->Node.Id, Pin.InputIndex, Pin.PortId, &Transactions));
+					if (!Changed && Material && ImGui::MenuItem("Promote to parameter"))
 					{
-						const FMaterialExpressionInput Link{Parameter->Id};
-						if (Pin.PortId.IsValid())
+						FMaterialParameterDefinition Definition;
+						Definition.Id = FGuid::NewGuid(); Definition.Type = *GetParameterType(Value.Type);
+						Definition.Value = MakeParameterValue(Value.Type, Value.Literal); Definition.Name = "Parameter";
+						for (uint32 Suffix = 1; Material->FindParameterDefinition(Definition.Name); ++Suffix)
+							Definition.Name = FName(std::format("Parameter{}", Suffix));
+						Definition.DisplayName = Definition.Name.ToString();
+						auto Parameter = GraphEditInternals::MakeParameterExpression(Definition);
+						if (const auto Candidate = Parameter ? CaptureSelected() : State.Expressions.end(); Candidate != State.Expressions.end())
 						{
-							auto* Call = Cast<DMaterialExpressionFunctionCall>(Candidate->Get());
-							auto Input = std::ranges::find(Call->Inputs, Pin.PortId, &FMaterialExpressionFunctionInputBinding::InputId);
-							if (Input == Call->Inputs.end()) Call->Inputs.push_back({Pin.PortId, Value.Type, Link});
-							else Input->Input = Link;
+							const FMaterialExpressionInput Link{Parameter->Id};
+							if (Pin.PortId.IsValid())
+							{
+								auto* Call = Cast<DMaterialExpressionFunctionCall>(Candidate->Get());
+								auto Input = std::ranges::find(Call->Inputs, Pin.PortId, &FMaterialExpressionFunctionInputBinding::InputId);
+								if (Input == Call->Inputs.end()) Call->Inputs.push_back({Pin.PortId, Value.Type, Link});
+								else Input->Input = Link;
+							}
+							else VisitMaterialExpressionInputs(**Candidate, [&](uint32 Index, FMaterialExpressionInput& Input) {
+								if (Index == Pin.InputIndex) Input = Link;
+							});
+							const auto Position = std::ranges::find(State.Presentation.Nodes, Expression->Id, &FMaterialGraphNodePresentation::NodeId);
+							const int32 X = Position == State.Presentation.Nodes.end() ? -320 : Position->X - 320;
+							const int32 Y = Position == State.Presentation.Nodes.end() ? 0 : Position->Y;
+							State.Presentation.Nodes.push_back({Parameter->Id, X, Y});
+							State.Expressions.emplace_back(Parameter.Get());
+							Submit(GraphEditInternals::CommitOwnedExpressions(Owner, State, "Promote Input Parameter", &Transactions));
 						}
-						else VisitMaterialExpressionInputs(**Candidate, [&](uint32 Index, FMaterialExpressionInput& Input) {
-							if (Index == Pin.InputIndex) Input = Link;
-						});
-						const auto Position = std::ranges::find(State.Presentation.Nodes, Expression->Id, &FMaterialGraphNodePresentation::NodeId);
-						const int32 X = Position == State.Presentation.Nodes.end() ? -320 : Position->X - 320;
-						const int32 Y = Position == State.Presentation.Nodes.end() ? 0 : Position->Y;
-						State.Presentation.Nodes.push_back({Parameter->Id, X, Y});
-						State.Expressions.emplace_back(Parameter.Get());
-						Submit(GraphEditInternals::CommitOwnedExpressions(Owner, State, "Promote Input Parameter", &Transactions));
 					}
 				}
+				if (!Changed && bConnected && ImGui::BeginMenu("When disconnected"))
+				{
+					ImGui::TextUnformatted("Value used after disconnecting");
+					ImGui::SetNextItemWidth(ImGui::GetFontSize() * 16.0f);
+					EditValue();
+					ImGui::EndMenu();
+				}
+				ImGui::EndPopup();
 			}
-			MonaImGui::PropertyEdit::EndRow();
-			if (!Changed && bConnected
-				&& MonaImGui::PropertyEdit::BeginGroup("DisconnectedValue", "When disconnected", ImGuiTreeNodeFlags_None))
-			{
-				EditValue();
-				MonaImGui::PropertyEdit::EndGroup();
-			}
-			MonaImGui::PropertyEdit::EndGroup();
 			ImGui::PopID();
 		}
 		MonaImGui::PropertyEdit::EndTable();
