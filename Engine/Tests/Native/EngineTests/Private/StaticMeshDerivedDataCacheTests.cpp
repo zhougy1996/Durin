@@ -888,33 +888,33 @@ TEST(FStaticMeshSourceVersionTests, AuthoredLoadRequiresFileVersionAndPreservesS
 	ASSERT_TRUE(UnloadPackage(Fixture.AssetPath));
 }
 
-TEST(FStaticMeshSourceVersionTests, MaintainedSourcesLoadAfterRestart)
+TEST(FStaticMeshSourceVersionTests, AuthoredSourceLoadsAfterRestart)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
 	Testing::FScopedMountRegistryFixture MountRegistry;
-	Testing::RegisterMountPointForTests("/Engine/", FPaths::EngineContentDir());
-	Testing::RegisterMountPointForTests("/Game/",
-		(std::filesystem::path(FPaths::RootDir()) / "Sandbox/Content").generic_string());
+	const FScopedDerivedDataCacheRestore CacheRestore;
+	auto Fixture = ImportCacheFixture("StaticMeshSourceRestart");
+	ASSERT_NE(Fixture.Mesh, nullptr);
+	const auto Identity = Fixture.Mesh->GetSource().GetIdentity();
+	const auto Key = GetStaticMeshKey(*Fixture.Mesh);
+	ASSERT_TRUE(SavePackage(Fixture.Mesh->GetPackage()));
+	ASSERT_TRUE(UnloadPackage(Fixture.AssetPath));
+	Fixture.Mesh = nullptr;
 	ShutdownAssetManager();
 	CollectGarbage();
 	ASSERT_TRUE(InitializeAssetManager());
 	const auto Scan = RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation);
 	ASSERT_TRUE(Scan) << (Scan.Errors.empty() ? "Incomplete registry" : Scan.Errors.front().Message);
-	for (const auto* Name : {"/Engine/Models/Box", "/Engine/Models/Sphere",
-		"/Engine/Models/SplineBox", "/Game/Models/GrayboxPawn"})
-	{
-		SCOPED_TRACE(Name);
-		FPackagePath Path;
-		ASSERT_TRUE(FPackagePath::TryCreate(Name, Path));
-		DStaticMesh* Mesh = nullptr;
-		const auto Result = LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Mesh);
-		ASSERT_TRUE(Result) << Result.Message;
-		ASSERT_TRUE(Mesh->GetSource().IsValid());
-		std::string Error;
-		ASSERT_TRUE(Mesh->GetSource().AcquireGeometry(Error)) << Error;
-		ASSERT_TRUE(UnloadPackage(Path));
-	}
+	DStaticMesh* Mesh = nullptr;
+	const auto Result = LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Fixture.AssetPath), Mesh);
+	ASSERT_TRUE(Result) << Result.Message;
+	ASSERT_NE(Mesh, nullptr);
+	EXPECT_EQ(Mesh->GetSource().GetIdentity(), Identity);
+	EXPECT_EQ(GetStaticMeshKey(*Mesh), Key);
+	std::string Error;
+	ASSERT_TRUE(Mesh->GetSource().AcquireGeometry(Error)) << Error;
+	ASSERT_TRUE(UnloadPackage(Fixture.AssetPath));
 	ShutdownAssetManager();
 	CollectGarbage();
 	ASSERT_TRUE(InitializeAssetManager());
@@ -925,10 +925,13 @@ TEST(FStaticMeshSourceResidencyTests, ExistingAuthoredPackageAndDuplicateRetainC
 	using namespace Durin;
 	InitializeDObjectSystem();
 	Testing::FScopedMountRegistryFixture MountRegistry;
-	FMountPaths::InitDefaultMountPoints();
-	ASSERT_TRUE(RefreshAssetRegistry());
-	FPackagePath Path;
-	ASSERT_TRUE(FPackagePath::TryCreate("/Engine/Models/Box", Path));
+	const FScopedDerivedDataCacheRestore CacheRestore;
+	auto Fixture = ImportCacheFixture("StaticMeshSourceDuplicate");
+	ASSERT_NE(Fixture.Mesh, nullptr);
+	ASSERT_TRUE(SavePackage(Fixture.Mesh->GetPackage()));
+	const auto Path = Fixture.AssetPath;
+	ASSERT_TRUE(UnloadPackage(Path));
+	Fixture.Mesh = nullptr;
 	DStaticMesh* Mesh = nullptr;
 	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Mesh));
 	ASSERT_NE(Mesh, nullptr);
@@ -943,6 +946,8 @@ TEST(FStaticMeshSourceResidencyTests, ExistingAuthoredPackageAndDuplicateRetainC
 	ASSERT_TRUE(Copied) << Error;
 	EXPECT_EQ(Copied->Meshes.size(), Geometry->Meshes.size());
 	EXPECT_EQ(Copied->Meshes.front().Indices, Geometry->Meshes.front().Indices);
+	MarkObjectHierarchyAsGarbage(Duplicate);
+	ASSERT_TRUE(UnloadPackage(Path));
 }
 
 TEST(FStaticMeshAuthoredCompilationTests, CancellationIsTypedAndDiscardsProducts)

@@ -309,21 +309,37 @@ TEST(FMaterialPackageTests, MixedPackageRequiresBothVersionDomainsAndPreservesIn
 	ASSERT_TRUE(UnloadPackage(Path));
 }
 
-TEST(FMaterialPackageTests, MaintainedGraphVersionsLoadAfterRestartAndFunctionsDuplicate)
+TEST(FMaterialPackageTests, AuthoredGraphVersionsLoadAfterRestartAndFunctionsDuplicate)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
-	ASSERT_TRUE(FMountPaths::InitDefaultMountPoints());
+	Testing::FScopedMountRegistryFixture MountRegistry;
+	const auto Root = Testing::CreateTestFixtureDirectory("MaterialGraphRestart");
+	Testing::RegisterMountPointForTests("/MaterialGraphRestart/", Root.generic_string() + "/");
+	FPackagePath MaterialPath, FunctionPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/MaterialGraphRestart/Material", MaterialPath));
+	ASSERT_TRUE(FPackagePath::TryCreate("/MaterialGraphRestart/Function", FunctionPath));
+	DMaterial* Material = nullptr;
+	DMaterialFunction* Function = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(MaterialPath, Material));
+	ASSERT_TRUE(SetBindingProgram(*Material));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(FunctionPath, Function));
+	const auto ExpectedSignature = Function->GetFunctionSignature();
+	const auto ExpectedExpressionCount = Function->GetExpressionCollection().Expressions.size();
+	ASSERT_GT(ExpectedExpressionCount, 0u);
+	ASSERT_TRUE(SavePackage(Material->GetPackage()));
+	ASSERT_TRUE(SavePackage(Function->GetPackage()));
+	ASSERT_TRUE(UnloadPackage(MaterialPath));
+	ASSERT_TRUE(UnloadPackage(FunctionPath));
+	Material = nullptr;
+	Function = nullptr;
 	ShutdownAssetManager();
 	CollectGarbage();
 	ASSERT_TRUE(InitializeAssetManager());
 	ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
-	const std::array Names{"DefaultMaterial", "Functions/DecodeImportedNormalRG", "Functions/ImportedSurfaceValues",
-		"Functions/SampleNormal", "Functions/SampleORM", "Functions/StandardPBR", "Functions/StandardPBR_ORM", "Functions/UVTransform"};
-	for (const auto* Name : Names)
+	for (const auto& Path : {MaterialPath, FunctionPath})
 	{
-		FPackagePath Path;
-		ASSERT_TRUE(FPackagePath::TryCreate("/Engine/Materials/" + std::string(Name), Path));
+		SCOPED_TRACE(Path.ToString());
 		const auto Data = FindAssetExact(Path);
 		ASSERT_NE(Data, nullptr);
 		FByteBuffer Bytes;
@@ -333,14 +349,18 @@ TEST(FMaterialPackageTests, MaintainedGraphVersionsLoadAfterRestartAndFunctionsD
 		ASSERT_EQ(Linker.CustomVersions, (std::vector<FCustomVersion>{{FMaterialGraphVersion::Guid, FMaterialGraphVersion::CurrentVersion}}));
 		DObject* Loaded = nullptr;
 		const auto Result = LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Loaded);
-		ASSERT_TRUE(Result) << Name << ": " << Result.Message;
+		ASSERT_TRUE(Result) << Result.Message;
 		if (auto* Function = Cast<DMaterialFunction>(Loaded))
 		{
+			EXPECT_EQ(Function->GetFunctionSignature(), ExpectedSignature);
+			EXPECT_EQ(Function->GetExpressionCollection().Expressions.size(), ExpectedExpressionCount);
 			auto* Copy = Cast<DMaterialFunction>(DuplicateObject(Function, nullptr, NAME_None));
 			ASSERT_NE(Copy, nullptr);
 			EXPECT_EQ(Copy->GetExpressionCollection().Expressions.size(), Function->GetExpressionCollection().Expressions.size());
+			EXPECT_EQ(Copy->GetFunctionSignature(), ExpectedSignature);
 			MarkObjectHierarchyAsGarbage(Copy);
 		}
+		ASSERT_TRUE(UnloadPackage(Path));
 	}
 	ShutdownAssetManager();
 	CollectGarbage();
