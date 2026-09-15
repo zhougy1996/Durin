@@ -182,12 +182,12 @@ class TestCore:
     def test_parallel_cases_select_all_or_google_test_globs(self, case_filter: str, workers, expected) -> None:
         preset = self.make_preset()
         request = replace(request_fixtures.command_request(models.Action.TEST,
-            options=request_fixtures.TestActionOptions(target='MaterialTests')),
+            options=request_fixtures.TestActionOptions(target='MaterialCompilerTests')),
             test_mode=models.TestMode.ISOLATION, test_parallel_jobs=workers, test_filter=case_filter)
         request_validation.validate_request(request, preset)
         context = build_context.BuildContext(request, models.LocalConfig(), self.make_profile(),
             {'debug': preset}, preset, 'windows', cmake='cmake', jobs=12,
-            environment={}, resolved_test_targets=('MaterialTests',))
+            environment={}, resolved_test_targets=('MaterialCompilerTests',))
         output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
         output.context(context)
         assert 'Build jobs: 12' in output.console.file.getvalue()

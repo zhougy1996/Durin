@@ -26,9 +26,9 @@ native tests. It can expose shared-state cleanup failures, but can also mask
 missing per-case setup. A case must pass when run alone.
 
 ```powershell
-.\DevTool.bat test MaterialTests --parallel
-.\DevTool.bat test MaterialTests --parallel 4
-.\DevTool.bat test MaterialTests FMaterialTests.* --parallel 4
+.\DevTool.bat test MaterialCompilerTests --parallel
+.\DevTool.bat test MaterialCompilerTests --parallel 4
+.\DevTool.bat test MaterialCompilerTests FMaterialExpressionTests.* --parallel 4
 ```
 
 `--parallel [N]` runs each selected case in a separate process through CTest,

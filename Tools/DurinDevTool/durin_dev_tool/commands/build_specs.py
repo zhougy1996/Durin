@@ -115,7 +115,7 @@ COMMAND_SPECS = (
             "Common examples:\n"
             "  DevTool test CoreUtilityTests\n"
             "  DevTool test CoreUtilityTests Suite.Case\n"
-            "  DevTool test MaterialTests --parallel 4 --report\n"
+            "  DevTool test MaterialCompilerTests --parallel 4 --report\n"
             "  DevTool test affected\n"
             "  DevTool test affected --base HEAD~1 --explain\n"
             "  DevTool test fast-all\n"

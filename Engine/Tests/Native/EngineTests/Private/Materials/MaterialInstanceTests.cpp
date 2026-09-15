@@ -4,7 +4,7 @@
 #include "Asset/OfflinePreparation.h"
 #include "NativeAssetTestSupport.h"
 
-TEST(FMaterialTests, TypedValueAlternativesAndReferenceRewriting)
+TEST(FMaterialInstanceTests, TypedValueAlternativesAndReferenceRewriting)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
@@ -47,7 +47,7 @@ TEST(FMaterialTests, TypedValueAlternativesAndReferenceRewriting)
 	CollectGarbage();
 }
 
-TEST(FMaterialTests, UnifiedVectorStoragePreservesWidthAndClearsUnusedComponents)
+TEST(FMaterialInstanceTests, UnifiedVectorStoragePreservesWidthAndClearsUnusedComponents)
 {
 	using namespace Durin;
 	FMaterialVectorParameterValue Record;
@@ -62,7 +62,7 @@ TEST(FMaterialTests, UnifiedVectorStoragePreservesWidthAndClearsUnusedComponents
 	EXPECT_EQ(Record.GetValue(), FMaterialParameterValue::MakeVector2(FVector2(.1f, .2f)));
 }
 
-TEST(FMaterialTests, TypedOverrideArraysRoundTripOrphansAndRejectCrossTypeDuplicates)
+TEST(FMaterialInstanceTests, TypedOverrideArraysRoundTripOrphansAndRejectCrossTypeDuplicates)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
@@ -153,7 +153,7 @@ namespace
 	}
 }
 
-TEST(FMaterialTests, BoundMaterialAndParentChangesUpdateProxyInPlace)
+TEST(FMaterialInstanceTests, BoundMaterialAndParentChangesUpdateProxyInPlace)
 {
 	FRenderSceneHarness Harness;
 	Durin::DMaterial* Base = MakeExpandedMaterial(nullptr, "LiveBaseMaterial");
@@ -198,7 +198,7 @@ TEST(FMaterialTests, BoundMaterialAndParentChangesUpdateProxyInPlace)
 	Durin::CollectGarbage();
 }
 
-TEST(FMaterialTests, InstanceStaticOverridesNeverReuseIncompatibleParentCode)
+TEST(FMaterialInstanceTests, InstanceStaticOverridesNeverReuseIncompatibleParentCode)
 {
 	FRenderSceneHarness Harness;
 	auto* Base = MakeExpandedMaterial(nullptr, "StaticPermutationBase");
@@ -236,7 +236,7 @@ TEST(FMaterialTests, InstanceStaticOverridesNeverReuseIncompatibleParentCode)
 	Durin::CollectGarbage();
 }
 
-TEST(FMaterialTests, PerFieldPropertiesPreserveIntentAndResolveSourcesAcrossParents)
+TEST(FMaterialInstanceTests, PerFieldPropertiesPreserveIntentAndResolveSourcesAcrossParents)
 {
 	InitializeDObjectSystem();
 	auto* Root = MakeExpandedMaterial(nullptr, "PropertyRoot");
@@ -292,7 +292,7 @@ TEST(FMaterialTests, PerFieldPropertiesPreserveIntentAndResolveSourcesAcrossPare
 	Durin::CollectGarbage();
 }
 
-TEST(FMaterialTests, PropertyResolutionRejectsDepthOverflowAndCorruptCycles)
+TEST(FMaterialInstanceTests, PropertyResolutionRejectsDepthOverflowAndCorruptCycles)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
@@ -326,7 +326,7 @@ TEST(FMaterialTests, PropertyResolutionRejectsDepthOverflowAndCorruptCycles)
 	CollectGarbage();
 }
 
-TEST(FMaterialTests, PerFieldOverridesRoundTrip)
+TEST(FMaterialInstanceTests, PerFieldOverridesRoundTrip)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
@@ -359,7 +359,7 @@ TEST(FMaterialTests, PerFieldOverridesRoundTrip)
 	ASSERT_TRUE(UnloadPackage(RootPath));
 }
 
-TEST(FMaterialTests, PositionalOverrideTransfersAcrossMeshSwitch)
+TEST(FMaterialInstanceTests, PositionalOverrideTransfersAcrossMeshSwitch)
 {
 	FRenderSceneHarness Harness;
 	Durin::DMaterial* Default = MakeExpandedMaterial(nullptr, "BoundMeshDefault");
@@ -401,7 +401,7 @@ TEST(FMaterialTests, PositionalOverrideTransfersAcrossMeshSwitch)
 	Durin::CollectGarbage();
 }
 
-TEST(FMaterialTests, BoundTextureChangesUpdateProxyResourceSnapshotInPlace)
+TEST(FMaterialInstanceTests, BoundTextureChangesUpdateProxyResourceSnapshotInPlace)
 {
 	FRenderSceneHarness Harness;
 	Durin::DMaterial* Base = MakeExpandedMaterial(nullptr, "LiveTextureBaseMaterial");
@@ -449,7 +449,7 @@ TEST(FMaterialTests, BoundTextureChangesUpdateProxyResourceSnapshotInPlace)
 	Durin::ShutdownRenderingThread();
 }
 
-TEST(FMaterialTests, SceneCommandsPreserveLatestTransformAndReleaseAllProxies)
+TEST(FMaterialInstanceTests, SceneCommandsPreserveLatestTransformAndReleaseAllProxies)
 {
 	FRenderSceneHarness Harness;
 	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
@@ -473,7 +473,7 @@ TEST(FMaterialTests, SceneCommandsPreserveLatestTransformAndReleaseAllProxies)
 	Durin::CollectGarbage();
 }
 
-TEST(FMaterialTests, InstancesInheritOverrideAndRejectParentCycles)
+TEST(FMaterialInstanceTests, InstancesInheritOverrideAndRejectParentCycles)
 {
 	InitializeDObjectSystem();
 	Durin::DMaterial* Base = MakeExpandedMaterial(nullptr, "BaseMaterial");
@@ -497,7 +497,7 @@ TEST(FMaterialTests, InstancesInheritOverrideAndRejectParentCycles)
 	Durin::CollectGarbage();
 }
 
-TEST(FMaterialTests, MultiLevelResolutionReportsSupplyingSourceAndCurrentOverrideState)
+TEST(FMaterialInstanceTests, MultiLevelResolutionReportsSupplyingSourceAndCurrentOverrideState)
 {
 	InitializeDObjectSystem();
 	Durin::DMaterial* Base = MakeExpandedMaterial(nullptr, "ResolutionBase");
@@ -530,7 +530,7 @@ TEST(FMaterialTests, MultiLevelResolutionReportsSupplyingSourceAndCurrentOverrid
 	Durin::CollectGarbage();
 }
 
-TEST(FMaterialTests, ParentRemovalPreservesOrphansAndExcludesThemFromRendering)
+TEST(FMaterialInstanceTests, ParentRemovalPreservesOrphansAndExcludesThemFromRendering)
 {
 	InitializeDObjectSystem();
 	Durin::DMaterial* Base = MakeExpandedMaterial(nullptr, "OrphanBase");
@@ -560,7 +560,7 @@ TEST(FMaterialTests, ParentRemovalPreservesOrphansAndExcludesThemFromRendering)
 	Durin::CollectGarbage();
 }
 
-TEST(FMaterialTests, GuidOverrideRejectsUnknownAndPreservesVersionOnNoOp)
+TEST(FMaterialInstanceTests, GuidOverrideRejectsUnknownAndPreservesVersionOnNoOp)
 {
 	InitializeDObjectSystem();
 	Durin::DMaterial* Base = MakeExpandedMaterial(nullptr, "GuidOverrideBase");
@@ -593,7 +593,7 @@ TEST(FMaterialTests, GuidOverrideRejectsUnknownAndPreservesVersionOnNoOp)
 	Durin::CollectGarbage();
 }
 
-TEST(FMaterialTests, InstanceOverrideStateTracksSetAndClear)
+TEST(FMaterialInstanceTests, InstanceOverrideStateTracksSetAndClear)
 {
 	InitializeDObjectSystem();
 	Durin::DMaterial* Base = MakeExpandedMaterial(nullptr, "OverrideStateBase");
@@ -622,7 +622,7 @@ TEST(FMaterialTests, InstanceOverrideStateTracksSetAndClear)
 	Durin::CollectGarbage();
 }
 
-TEST(FMaterialTests, TextureParametersInheritOverrideAndPreserveExplicitNull)
+TEST(FMaterialInstanceTests, TextureParametersInheritOverrideAndPreserveExplicitNull)
 {
 	InitializeDObjectSystem();
 	Durin::InitRenderingThread();
@@ -656,7 +656,7 @@ TEST(FMaterialTests, TextureParametersInheritOverrideAndPreserveExplicitNull)
 	Durin::ShutdownRenderingThread();
 }
 
-TEST(FMaterialTests, ReflectedTextureParameterKeepsTextureReachable)
+TEST(FMaterialInstanceTests, ReflectedTextureParameterKeepsTextureReachable)
 {
 	InitializeDObjectSystem();
 	Durin::InitRenderingThread();
@@ -677,7 +677,7 @@ TEST(FMaterialTests, ReflectedTextureParameterKeepsTextureReachable)
 	Durin::ShutdownRenderingThread();
 }
 
-TEST(FMaterialTests, ReflectedInstanceOverrideKeepsNestedTextureReachable)
+TEST(FMaterialInstanceTests, ReflectedInstanceOverrideKeepsNestedTextureReachable)
 {
 	InitializeDObjectSystem();
 	Durin::InitRenderingThread();
@@ -702,7 +702,7 @@ TEST(FMaterialTests, ReflectedInstanceOverrideKeepsNestedTextureReachable)
 	Durin::ShutdownRenderingThread();
 }
 
-TEST(FMaterialTests, DuplicateInstancePreservesParentAndNestedTextureOverride)
+TEST(FMaterialInstanceTests, DuplicateInstancePreservesParentAndNestedTextureOverride)
 {
 	InitializeDObjectSystem();
 	Durin::DMaterial* Base = MakeExpandedMaterial(nullptr, "DuplicateOverrideBase");

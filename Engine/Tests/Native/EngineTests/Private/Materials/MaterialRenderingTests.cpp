@@ -1,63 +1,4 @@
-#include "ExplicitMaterialProgramTestFixture.h"
-#include "StaticMesh/StaticMeshCompilation.h"
-#include "Misc/MountPathTestSupport.h"
-#include "MaterialTestSupport.h"
-#include "Console/ConsoleCommand.h"
-#include "DefaultTextures.h"
-#include "DynamicRHI.h"
-#include "Modules/ModuleManager.h"
-#include "NativeTestSupport.h"
-#include "PBRLighting.h"
-#include "Preview/PreviewMeshResources.h"
-#include "RHICommandList.h"
-#include "RHIGlobals.h"
-#include "StaticMesh/StaticMeshBuild.h"
-#include "Thumbnail/ThumbnailPreviewScene.h"
-#include "Thumbnail/AssetThumbnailTestFixtures.h"
-#include "Thumbnail/MaterialThumbnailRenderer.h"
-#include "Thumbnail/AssetThumbnailPool.h"
-#include "Thumbnail/StaticMeshThumbnailRenderer.h"
-#include "Thumbnail/TextureCubeThumbnailRenderer.h"
-#include "Texture/TextureCubeRenderResource.h"
-#include "AssetForge/Builtins/Texture2DImport.h"
-
-#include <array>
-#include <chrono>
-#include <cmath>
-#include <condition_variable>
-#include <limits>
-#include <thread>
-
-namespace
-{
-	class FScopedPreviewMeshCompiler
-	{
-	public:
-		FScopedPreviewMeshCompiler()
-		{
-			InitializeDObjectSystem();
-			if (Durin::GetStaticMeshCompilationManagerDiagnostics().bAcceptingRequests) return;
-			auto& Aggregate = Durin::FAssetCompilingManager::Get();
-			Aggregate.Start();
-			Registration = Aggregate.RegisterCompiler({
-				.Name = Durin::FName("Durin.StaticMesh"),
-				.AssetClasses = {Durin::DStaticMesh::StaticClass()},
-				.Manager = Durin::AssetPrivate::CreateStaticMeshCompilingManager()});
-		}
-	private:
-		Durin::FAssetCompilerRegistrationHandle Registration;
-	};
-
-	auto MakeExpandedMaterial(Durin::DObject* Outer, const char* Name)
-		-> Durin::DMaterial*
-	{
-		auto* Material = Durin::NewObject<Durin::DMaterial>(Outer, Name);
-		if (!Material || !Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*Material)) return nullptr;
-		if (!FinishMaterialCompileForTest(*Material)) return nullptr;
-		return Material;
-	}
-
-}
+#include "MaterialRenderingTestFixture.h"
 
 TEST(FMaterialRenderingTests, LocalLightAttenuationHasFiniteExactBoundaries)
 {
@@ -78,7 +19,7 @@ TEST(FMaterialRenderingTests, LocalLightAttenuationHasFiniteExactBoundaries)
 		Durin::EvaluateSpotLightConeAttenuation(0.5001f, 0.5f, 0.5f), 1.0f);
 }
 
-TEST(FMaterialTests, DirectPBRReferenceMatchesFrozenAlignedLightValues)
+TEST(FMaterialRenderingTests, DirectPBRReferenceMatchesFrozenAlignedLightValues)
 {
 	Durin::FPBRDirectLightingInput Input;
 	Input.BaseColor = Durin::FVector3f(0.5f);
@@ -108,7 +49,7 @@ TEST(FMaterialTests, DirectPBRReferenceMatchesFrozenAlignedLightValues)
 	EXPECT_NEAR(RoughDielectric.b, 0.15597184f, 1.0e-6f);
 }
 
-TEST(FMaterialTests, DirectPBRReferenceStabilizesValidatedExtremes)
+TEST(FMaterialRenderingTests, DirectPBRReferenceStabilizesValidatedExtremes)
 {
 	Durin::FPBRDirectLightingInput Input;
 	Input.BaseColor = Durin::FVector3f(
@@ -128,7 +69,7 @@ TEST(FMaterialTests, DirectPBRReferenceStabilizesValidatedExtremes)
 	EXPECT_EQ(Result, Durin::FVector3f(0.0f));
 }
 
-TEST(FMaterialTests, DirectPBRReferenceMatchesFrozenLowRoughnessSweep)
+TEST(FMaterialRenderingTests, DirectPBRReferenceMatchesFrozenLowRoughnessSweep)
 {
 	struct FReference
 	{
@@ -168,7 +109,7 @@ TEST(FMaterialTests, DirectPBRReferenceMatchesFrozenLowRoughnessSweep)
 	}
 }
 
-TEST(FMaterialTests, SpecularAARoughnessFilteringIsFiniteBoundedAndMonotonic)
+TEST(FMaterialRenderingTests, SpecularAARoughnessFilteringIsFiniteBoundedAndMonotonic)
 {
 	EXPECT_FLOAT_EQ(Durin::FilterSpecularRoughness(0.2f, 0.0f), 0.2f);
 	EXPECT_FLOAT_EQ(
@@ -201,7 +142,7 @@ TEST(FMaterialTests, SpecularAARoughnessFilteringIsFiniteBoundedAndMonotonic)
 		0.2f);
 }
 
-TEST(FMaterialTests, MappedNormalReferencePreservesRNMAndMirroredHandedness)
+TEST(FMaterialRenderingTests, MappedNormalReferencePreservesRNMAndMirroredHandedness)
 {
 	Durin::FPBRMappedNormalInput Input;
 	Input.EncodedTextureNormal = Durin::FVector2f(0.5f, 0.75f);
@@ -226,7 +167,7 @@ TEST(FMaterialTests, MappedNormalReferencePreservesRNMAndMirroredHandedness)
 	EXPECT_NEAR(ConstantOnly.z, 0.8f, 1.0e-6f);
 }
 
-TEST(FMaterialTests, MappedNormalReferenceFallsBackForMissingTangentData)
+TEST(FMaterialRenderingTests, MappedNormalReferenceFallsBackForMissingTangentData)
 {
 	Durin::FPBRMappedNormalInput Input;
 	Input.EncodedTextureNormal = Durin::FVector2f(1.0f, 1.0f);
@@ -236,7 +177,7 @@ TEST(FMaterialTests, MappedNormalReferenceFallsBackForMissingTangentData)
 		Durin::EvaluatePBRMappedNormal(Input), Input.GeometricNormal);
 }
 
-TEST(FMaterialTests, EnvironmentPBRReferenceScopesAOToIndirectLighting)
+TEST(FMaterialRenderingTests, EnvironmentPBRReferenceScopesAOToIndirectLighting)
 {
 	Durin::FPBREnvironmentLightingInput Input;
 	Input.BaseColor = Durin::FVector3f(0.5f, 0.25f, 0.125f);
@@ -258,7 +199,7 @@ TEST(FMaterialTests, EnvironmentPBRReferenceScopesAOToIndirectLighting)
 		Durin::FVector3f(0.0f));
 }
 
-TEST(FMaterialTests, StaticMeshProxyCapturesAssignedMaterialRenderData)
+TEST(FMaterialRenderingTests, StaticMeshProxyCapturesAssignedMaterialRenderData)
 {
 	FRenderSceneHarness Harness;
 	Durin::DMaterial* Material = MakeExpandedMaterial(nullptr, "ProxyMaterial");
@@ -283,7 +224,7 @@ TEST(FMaterialTests, StaticMeshProxyCapturesAssignedMaterialRenderData)
 	Durin::CollectGarbage();
 }
 
-TEST(FMaterialTests, StaticPropertyChangesUpdatePlanningPassIdentityWithoutRecreatingProxy)
+TEST(FMaterialRenderingTests, StaticPropertyChangesUpdatePlanningPassIdentityWithoutRecreatingProxy)
 {
 	FRenderSceneHarness Harness;
 	auto* Material = MakeExpandedMaterial(nullptr, "StaticIdentityMaterial");
@@ -322,7 +263,7 @@ TEST(FMaterialTests, StaticPropertyChangesUpdatePlanningPassIdentityWithoutRecre
 	Durin::CollectGarbage();
 }
 
-TEST(FMaterialTests, StaticMeshProxyCapturesPerSlotMaterials)
+TEST(FMaterialRenderingTests, StaticMeshProxyCapturesPerSlotMaterials)
 {
 	FRenderSceneHarness Harness;
 	Durin::DMaterial* First = MakeExpandedMaterial(nullptr, "FirstSlotMaterial");
@@ -355,7 +296,7 @@ TEST(FMaterialTests, StaticMeshProxyCapturesPerSlotMaterials)
 	Durin::CollectGarbage();
 }
 
-TEST(FMaterialTests, StaticMeshProxyUsesSharedEngineDefaultForUnassignedSlots)
+TEST(FMaterialRenderingTests, StaticMeshProxyUsesSharedEngineDefaultForUnassignedSlots)
 {
 	InitializeDObjectSystem();
 	Durin::ResetMaterialFallbackDiagnosticsForTests();
@@ -394,7 +335,7 @@ TEST(FMaterialTests, StaticMeshProxyUsesSharedEngineDefaultForUnassignedSlots)
 	Durin::CollectGarbage();
 }
 
-TEST(FMaterialTests, StaticMeshProxyResolvesPrecedenceAndUpdatesEverySharedMaterialSlot)
+TEST(FMaterialRenderingTests, StaticMeshProxyResolvesPrecedenceAndUpdatesEverySharedMaterialSlot)
 {
 	InitializeDObjectSystem();
 	ASSERT_TRUE(Durin::FMountPaths::InitDefaultMountPoints());
@@ -469,7 +410,7 @@ TEST(FMaterialTests, StaticMeshProxyResolvesPrecedenceAndUpdatesEverySharedMater
 	Durin::CollectGarbage();
 }
 
-TEST(FMaterialTests, StaticMeshProxyOrdersRapidBindingChangesAndRejectsStaleRevisions)
+TEST(FMaterialRenderingTests, StaticMeshProxyOrdersRapidBindingChangesAndRejectsStaleRevisions)
 {
 	FRenderSceneHarness Harness;
 	auto* First = MakeExpandedMaterial(nullptr, "RapidFirstMaterial");
@@ -535,7 +476,7 @@ TEST(FMaterialTests, StaticMeshProxyOrdersRapidBindingChangesAndRejectsStaleRevi
 	Durin::CollectGarbage();
 }
 
-TEST(FMaterialTests, DebugStaticMeshProvidesCompleteSplitVertexAttributes)
+TEST(FMaterialRenderingTests, DebugStaticMeshProvidesCompleteSplitVertexAttributes)
 {
 	InitializeDObjectSystem();
 	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
@@ -585,147 +526,4 @@ TEST(FMaterialTests, DebugStaticMeshProvidesCompleteSplitVertexAttributes)
 
 	Durin::MarkAsGarbage(Mesh);
 	Durin::CollectGarbage();
-}
-
-TEST(FMaterialTests, EngineMaterialPreviewMeshesAreSharedRetainedAssets)
-{
-	InitializeDObjectSystem();
-	FScopedPreviewMeshCompiler MeshCompiler;
-	ASSERT_TRUE(Durin::GetStaticMeshCompilationManagerDiagnostics().bAcceptingRequests);
-	Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
-	Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
-	InitializeDObjectSystem();
-	Durin::Testing::FScopedMountRegistryFixture MountRegistry;
-	Durin::FMountPaths::InitDefaultMountPoints();
-	ASSERT_TRUE(Durin::RefreshAssetRegistry());
-	for (const std::string_view PathText : {
-		"/Engine/Models/Sphere.Sphere",
-		"/Engine/Models/Box.Box"})
-	{
-		Durin::FObjectPath Path;
-		ASSERT_TRUE(Durin::FObjectPath::TryCreate(PathText, Path));
-		Durin::Editor::FRetainedAsset First;
-		Durin::Editor::FRetainedAsset Second;
-		std::string Error;
-		ASSERT_TRUE(Durin::Editor::FAssetRetentionService::Acquire(Path, First, Error)) << Error;
-		ASSERT_TRUE(Durin::Editor::FAssetRetentionService::Acquire(Path, Second, Error)) << Error;
-		EXPECT_EQ(First.Get(), Second.Get());
-		auto* Mesh = Durin::Cast<Durin::DStaticMesh>(First.Get());
-		ASSERT_NE(Mesh, nullptr) << Error;
-		Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
-		const Durin::FStaticMeshRenderData* RenderData = Mesh->GetRenderData();
-		ASSERT_NE(RenderData, nullptr);
-		ASSERT_EQ(RenderData->LODResources.size(), 1u);
-		const Durin::FStaticMeshLODResources& LOD = RenderData->LODResources[0];
-		EXPECT_GT(LOD.GetNumVertices(), 8u);
-		EXPECT_GT(LOD.GetNumIndices(), 12u);
-		EXPECT_EQ(LOD.NumTexCoords, 1u);
-		EXPECT_EQ(
-			LOD.VertexBuffers.StaticMeshVertexBuffer
-				.TexCoordVertexBuffer.GetTexCoords()[0].size(),
-			LOD.GetNumVertices());
-	}
-	Durin::CollectGarbage();
-	EXPECT_EQ(Durin::Editor::FAssetRetentionService::NumRetained(), 0u);
-}
-
-TEST(FMaterialTests, EditorPreviewMeshOwnerRetainsPreparedMeshesWithoutOpenPreviews)
-{
-	InitializeDObjectSystem();
-	FScopedPreviewMeshCompiler MeshCompiler;
-	Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
-	Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
-	Durin::Testing::FScopedMountRegistryFixture MountRegistry;
-	Durin::FMountPaths::InitDefaultMountPoints();
-	ASSERT_TRUE(Durin::RefreshAssetRegistry());
-	Durin::Editor::FPreviewMeshResources Resources;
-	std::string Error;
-	ASSERT_TRUE(Resources.Initialize(Error)) << Error;
-	auto* Sphere = Resources.GetSphere();
-	auto* Box = Resources.GetBox();
-	ASSERT_NE(Sphere, nullptr);
-	ASSERT_NE(Box, nullptr);
-	const auto* SphereData = Sphere->GetRenderData();
-	const auto* BoxData = Box->GetRenderData();
-	ASSERT_NE(SphereData, nullptr);
-	ASSERT_NE(BoxData, nullptr);
-	EXPECT_FALSE(Durin::HasPendingStaticMeshCompilation(*Sphere));
-	EXPECT_FALSE(Durin::HasPendingStaticMeshCompilation(*Box));
-	for (uint32 Visit = 0; Visit < 3; ++Visit)
-	{
-		Durin::FObjectPath Path;
-		ASSERT_TRUE(Durin::FObjectPath::TryCreate(Resources.SphereAssetPath, Path));
-		Durin::Editor::FRetainedAsset Consumer;
-		ASSERT_TRUE(Durin::Editor::FAssetRetentionService::Acquire(Path, Consumer, Error)) << Error;
-		EXPECT_EQ(Consumer.Get(), Sphere);
-		Consumer = {};
-		Durin::CollectGarbage();
-		EXPECT_EQ(Durin::Editor::FAssetRetentionService::NumRetained(), 2u);
-		ASSERT_TRUE(Resources.Initialize(Error)) << Error;
-		EXPECT_EQ(Resources.GetSphere(), Sphere);
-		EXPECT_EQ(Resources.GetBox(), Box);
-		EXPECT_EQ(Sphere->GetRenderData(), SphereData);
-		EXPECT_EQ(Box->GetRenderData(), BoxData);
-	}
-	Resources.Reset();
-	Resources.Reset();
-	EXPECT_EQ(Resources.GetSphere(), nullptr);
-	EXPECT_EQ(Resources.GetBox(), nullptr);
-	EXPECT_EQ(Durin::Editor::FAssetRetentionService::NumRetained(), 0u);
-	Durin::CollectGarbage();
-}
-
-TEST(FMaterialTests, MaterialPreviewDocumentsShareAssetsAcrossGarbageCollectionAndTeardown)
-{
-	InitializeDObjectSystem();
-	FScopedPreviewMeshCompiler MeshCompiler;
-	ASSERT_TRUE(Durin::GetStaticMeshCompilationManagerDiagnostics().bAcceptingRequests);
-	Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
-	Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
-	Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
-	FMaterialPreviewHarness Harness;
-	Durin::Testing::FScopedMountRegistryFixture MountRegistry;
-	Durin::FMountPaths::InitDefaultMountPoints();
-	ASSERT_TRUE(Durin::RefreshAssetRegistry());
-
-	constexpr uint64 FirstPreviewId = 987654321;
-	constexpr uint64 SecondPreviewId = 987654322;
-	const std::string FirstLightName = std::format("MaterialPreviewLight_{}", FirstPreviewId);
-	const std::string SecondLightName = std::format("MaterialPreviewLight_{}", SecondPreviewId);
-	{
-		Durin::Editor::Material::FMaterialPreview FirstPreview(FirstPreviewId);
-		Durin::Editor::Material::FMaterialPreview SecondPreview(SecondPreviewId);
-		ASSERT_EQ(Durin::Editor::FAssetRetentionService::NumRetained(), 2u);
-		ASSERT_NE(FindObjectByName(FirstLightName), nullptr);
-		ASSERT_NE(FindObjectByName(SecondLightName), nullptr);
-
-		Durin::CollectGarbage();
-		Durin::FObjectPath SpherePath;
-		Durin::FObjectPath BoxPath;
-		ASSERT_TRUE(Durin::FObjectPath::TryCreate("/Engine/Models/Sphere.Sphere", SpherePath));
-		ASSERT_TRUE(Durin::FObjectPath::TryCreate("/Engine/Models/Box.Box", BoxPath));
-		Durin::Editor::FRetainedAsset SphereAsset;
-		Durin::Editor::FRetainedAsset BoxAsset;
-		std::string Error;
-		ASSERT_TRUE(Durin::Editor::FAssetRetentionService::Acquire(SpherePath, SphereAsset, Error)) << Error;
-		ASSERT_TRUE(Durin::Editor::FAssetRetentionService::Acquire(BoxPath, BoxAsset, Error)) << Error;
-		auto* Sphere = Durin::Cast<Durin::DStaticMesh>(SphereAsset.Get());
-		auto* Box = Durin::Cast<Durin::DStaticMesh>(BoxAsset.Get());
-		ASSERT_NE(Sphere, nullptr);
-		ASSERT_NE(Box, nullptr);
-		// Retention starts asynchronous preparation; a fresh process has no prepared mesh state.
-		Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Sphere);
-		Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Box);
-		ASSERT_FALSE(Durin::HasPendingStaticMeshCompilation(*Sphere));
-		ASSERT_FALSE(Durin::HasPendingStaticMeshCompilation(*Box));
-		ASSERT_NE(Sphere->GetRenderData(), nullptr);
-		ASSERT_NE(Box->GetRenderData(), nullptr);
-		EXPECT_FALSE(Sphere->GetRenderData()->LODResources.empty());
-		EXPECT_FALSE(Box->GetRenderData()->LODResources.empty());
-	}
-
-	Durin::CollectGarbage();
-	EXPECT_EQ(Durin::Editor::FAssetRetentionService::NumRetained(), 0u);
-	EXPECT_EQ(FindObjectByName(FirstLightName), nullptr);
-	EXPECT_EQ(FindObjectByName(SecondLightName), nullptr);
 }

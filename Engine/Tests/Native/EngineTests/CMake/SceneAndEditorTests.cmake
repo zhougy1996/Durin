@@ -368,7 +368,7 @@ durin_add_engine_functional_test(TextureCookIntegrationTests
 durin_add_engine_functional_test(MaterialCreationQualificationTests
 	EDITOR_ONLY
 	KIND qualification
-	DOMAINS renderer rhi-creation
+	DOMAINS material renderer rhi-creation
 	MODULES engine renderer vulkan-rhi
 	BACKENDS vulkan
 	STACKS renderer

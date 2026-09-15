@@ -283,9 +283,36 @@ selection outside the sandbox. Record the unsandboxed device name and receipt;
 never bypass authorization or weaken the test to turn sandbox initialization
 failure into a pass.
 
+## Material Test Selection
+
+The former `MaterialTests` executable is replaced by focused targets. Use
+`.\DevTool.bat test "@domain=material,kind=feature" --report` for the material
+feature regression. CTest schedules whole targets concurrently; cases within
+each target retain sequential lifecycle coverage. The feature intersection
+excludes Vulkan integration and qualification without a separate CPU domain.
+
+| Target | Additional domain | Coverage |
+| --- | --- | --- |
+| `MaterialCompilerTests` | `material-compiler` | Typed expressions, IR normalization, layouts, and shader compilation |
+| `MaterialFunctionTests` | `material-function` | Function recipes, expansion, interfaces, and dependencies |
+| `MaterialEditingTests` | `material-editing` | Graph operations, transactions, editing sessions, panels, and preview ownership |
+| `MaterialRuntimeTests` | `material-runtime` | Instance inheritance, publication, render proxies, and CPU rendering contracts |
+| `MaterialCompileLifecycleTests` | `material-compilation` | Scheduling, cancellation, async apply, failure fallback, and shutdown |
+| `MaterialCookTests` | `material-cook` | Cook fingerprints, graph stripping, and cooked-only loading |
+| `MaterialPackageTests` | `material-package` | Authored material/instance persistence and schema rejection |
+| `StaticMeshMaterialTests` | `material-binding`, `static-mesh` | Imported slots, component assignments, and slot editing |
+| `MaterialThumbnailTests` | `thumbnail` | Material thumbnail extensions |
+
+Every row also belongs to `material`. Use a named target or one additional
+domain for focused changes. `StaticMeshTests` retains mesh import settings,
+derived data, lifetime, and other mesh coverage outside the material selection.
+`MaterialVulkanTests` remains a separate GPU integration target: `@material`
+includes it, while `@domain=material,kind=feature` does not. GPU execution still
+requires the authorization described in the agent testing workflow.
+
 ## Performance Qualification and Concurrent Agents
 
-`MaterialTests` retains material correctness coverage without repeated latency
+Material feature targets retain correctness coverage without repeated latency
 sampling. Run `./DevTool test MaterialQualificationTests --mode qualification --report`
 explicitly (on Windows, use `.\DevTool.bat` as the launcher) for
 maximum-graph layout median/p95, graph-load timing, cold/warm shader compilation,

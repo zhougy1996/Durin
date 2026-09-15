@@ -181,28 +181,57 @@ durin_add_engine_functional_test(LevelMutationTests
 	LIBRARIES DurinEd
 )
 
-durin_add_engine_functional_test(MaterialTests
+# Shared material domains select whole targets; each suite and native source has one owner.
+durin_add_engine_functional_test(MaterialCompilerTests
 	KIND feature
-	DOMAINS material
-	MODULES asset-tools engine material-editor renderer static-mesh-build asset-forge-builtins
+	DOMAINS material material-compiler
+	MODULES engine material-editor renderer asset-tools asset-forge-builtins static-mesh-build
+	STACKS editor renderer
+	TIMEOUT 300
+	RUNTIME_STACK_RATIONALE "Exercises typed expression validation, detached IR normalization, and complete shader compilation."
+	SOURCES
+		Private/Materials/MaterialCompilerTests.cpp
+		Private/Materials/MaterialExpressionTests.cpp
+	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
+	LIBRARIES ApplicationCore RenderCore Renderer AssetTools AssetForgeBuiltins
+		MonaCore Mona MonaImGui DurinEd MaterialEditor StaticMeshEditor TextureEditor StaticMeshBuild
+	DATA_DIRECTORIES
+		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
+		${CMAKE_CURRENT_SOURCE_DIR}/Data
+)
+
+durin_add_engine_functional_test(MaterialFunctionTests
+	KIND feature
+	DOMAINS material material-function
+	MODULES engine material-editor renderer asset-tools asset-forge-builtins static-mesh-build
+	STACKS editor renderer
+	TIMEOUT 300
+	RUNTIME_STACK_RATIONALE "Exercises authored material-function recipes, expansion, dependencies, and interface contracts."
+	SOURCES
+		Private/Materials/MaterialFunctionTests.cpp
+	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
+	LIBRARIES ApplicationCore RenderCore Renderer AssetTools AssetForgeBuiltins
+		MonaCore Mona MonaImGui DurinEd MaterialEditor StaticMeshEditor TextureEditor StaticMeshBuild
+	DATA_DIRECTORIES
+		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
+		${CMAKE_CURRENT_SOURCE_DIR}/Data
+)
+
+durin_add_engine_functional_test(MaterialEditingTests
+	KIND feature
+	DOMAINS material material-editing
+	MODULES engine material-editor renderer asset-tools asset-forge-builtins static-mesh-build
 	STACKS editor renderer
 	PRIVATE_SOURCE_OWNER MaterialEditor
-	PRIVATE_SOURCE_RATIONALE
-		"MaterialEditor-owned preview and panel white-box coverage avoids widening the editor module API."
-	TIMEOUT 900
-	RUNTIME_STACK_RATIONALE "Exercises rendered material editing and preview lifecycle."
+	PRIVATE_SOURCE_RATIONALE "Exercises MaterialEditor-owned private widgets without exporting test-only APIs."
+	TIMEOUT 300
+	RUNTIME_STACK_RATIONALE "Exercises graph authoring, transactions, private widgets, and editor preview ownership."
 	SOURCES
-		Private/Materials/MaterialSchemaAndEditingTests.cpp
-		Private/Materials/MaterialFunctionTests.cpp
-		Private/Materials/MaterialExpressionTests.cpp
+		Private/Materials/MaterialPropertyEditingTests.cpp
 		Private/Materials/MaterialGraphOperationsTests.cpp
 		Private/Materials/MaterialEditingSessionTests.cpp
-		Private/Materials/MaterialCompileLifecycleTests.cpp
-		Private/Materials/MaterialDependencyTests.cpp
-		Private/Materials/MaterialRenderProxyTests.cpp
-		Private/Materials/MaterialInstanceTests.cpp
-		Private/Materials/MaterialRenderingTests.cpp
-		Private/Materials/MaterialRenderRepresentationTests.cpp
+		Private/Materials/MaterialFunctionEditingTests.cpp
+		Private/Materials/MaterialPreviewTests.cpp
 		Private/MaterialParameterPanelModelTests.cpp
 	PRIVATE_SOURCES
 		${_durin_material_editor_private}/Graph/MaterialGraphCanvas.cpp
@@ -217,20 +246,86 @@ durin_add_engine_functional_test(MaterialTests
 		${_durin_material_editor_private}/Widgets/MaterialFunctionCallPicker.cpp
 		${_durin_material_editor_private}/Settings/MaterialEditorSessionSettings.cpp
 	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
-	LIBRARIES
-		ApplicationCore
-		RenderCore
-		Renderer
-		AssetTools
-		AssetForgeBuiltins
-		MonaCore
-		Mona
-		MonaImGui
-		DurinEd
-		MaterialEditor
-		StaticMeshEditor
-		TextureEditor
-		StaticMeshBuild
+	LIBRARIES ApplicationCore RenderCore Renderer AssetTools AssetForgeBuiltins
+		MonaCore Mona MonaImGui DurinEd MaterialEditor StaticMeshEditor TextureEditor StaticMeshBuild
+	DATA_DIRECTORIES
+		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
+		${CMAKE_CURRENT_SOURCE_DIR}/Data
+)
+
+durin_add_engine_functional_test(MaterialRuntimeTests
+	KIND feature
+	DOMAINS material material-runtime
+	MODULES engine material-editor renderer asset-tools asset-forge-builtins static-mesh-build
+	STACKS editor renderer
+	TIMEOUT 300
+	RUNTIME_STACK_RATIONALE "Exercises material inheritance, publication, render binding, and CPU scene integration."
+	SOURCES
+		Private/Materials/MaterialDependencyTests.cpp
+		Private/Materials/MaterialRenderProxyTests.cpp
+		Private/Materials/MaterialInstanceTests.cpp
+		Private/Materials/MaterialRenderingTests.cpp
+		Private/Materials/MaterialRenderRepresentationTests.cpp
+		Private/Materials/MaterialProgramPublicationTests.cpp
+	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
+	LIBRARIES ApplicationCore RenderCore Renderer AssetTools AssetForgeBuiltins
+		MonaCore Mona MonaImGui DurinEd MaterialEditor StaticMeshEditor TextureEditor StaticMeshBuild
+	DATA_DIRECTORIES
+		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
+		${CMAKE_CURRENT_SOURCE_DIR}/Data
+)
+
+durin_add_engine_functional_test(MaterialCompileLifecycleTests
+	KIND feature
+	DOMAINS material material-compilation
+	MODULES engine material-editor renderer asset-tools asset-forge-builtins static-mesh-build
+	STACKS editor renderer
+	PRIVATE_SOURCE_OWNER MaterialEditor
+	PRIVATE_SOURCE_RATIONALE "Exercises MaterialEditor-owned private widgets without exporting test-only APIs."
+	TIMEOUT 300
+	RUNTIME_STACK_RATIONALE "Exercises asynchronous compiler scheduling, owner cancellation, editor apply, and shutdown."
+	SOURCES
+		Private/Materials/MaterialCompileLifecycleTests.cpp
+		Private/Materials/MaterialAsyncEditingSessionTestSupport.cpp
+	PRIVATE_SOURCES ${_durin_material_editor_private}/Widgets/MaterialEditingSession.cpp
+	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
+	LIBRARIES ApplicationCore RenderCore Renderer AssetTools AssetForgeBuiltins
+		MonaCore Mona MonaImGui DurinEd MaterialEditor StaticMeshEditor TextureEditor StaticMeshBuild
+	DATA_DIRECTORIES
+		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
+		${CMAKE_CURRENT_SOURCE_DIR}/Data
+)
+
+durin_add_engine_functional_test(MaterialCookTests
+	KIND feature
+	DOMAINS material material-cook
+	MODULES engine material-editor renderer asset-tools asset-forge-builtins static-mesh-build
+	STACKS editor renderer
+	TIMEOUT 300
+	RUNTIME_STACK_RATIONALE "Exercises material cooking, function dependency fingerprints, and cooked-only loading."
+	SOURCES
+		Private/Materials/MaterialCookTests.cpp
+		Private/Materials/MaterialFunctionCookTests.cpp
+	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
+	LIBRARIES ApplicationCore RenderCore Renderer AssetTools AssetForgeBuiltins
+		MonaCore Mona MonaImGui DurinEd MaterialEditor StaticMeshEditor TextureEditor StaticMeshBuild
+	DATA_DIRECTORIES
+		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
+		${CMAKE_CURRENT_SOURCE_DIR}/Data
+)
+
+durin_add_engine_functional_test(MaterialPackageTests
+	KIND feature
+	DOMAINS material material-package
+	MODULES engine material-editor renderer asset-tools asset-forge-builtins static-mesh-build
+	STACKS editor renderer
+	TIMEOUT 300
+	RUNTIME_STACK_RATIONALE "Exercises authored material package persistence, texture dependencies, and schema rejection."
+	SOURCES
+		Private/Materials/MaterialPackageTests.cpp
+	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
+	LIBRARIES ApplicationCore RenderCore Renderer AssetTools AssetForgeBuiltins
+		MonaCore Mona MonaImGui DurinEd MaterialEditor StaticMeshEditor TextureEditor StaticMeshBuild TextureBuild
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -291,13 +386,10 @@ durin_add_engine_functional_test(StaticMeshTests
 	DOMAINS static-mesh
 	MODULES asset-tools engine static-mesh-build level-editor static-mesh-editor
 	STACKS editor renderer
-	PRIVATE_SOURCE_OWNER LevelEditor
-	PRIVATE_SOURCE_RATIONALE
-		"LevelEditor-owned static-mesh details white-box coverage avoids exporting private customization symbols."
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises renderer-backed static-mesh editing and derived data."
 	SOURCES
-		Private/Materials/StaticMeshMaterialTests.cpp
+		Private/Materials/StaticMeshImportTests.cpp
 		Private/Materials/StaticMeshRenderDataLifetimeContractTests.cpp
 		Private/Materials/StaticMeshUpdateTests.cpp
 		Private/StaticMeshTestEnvironment.cpp
@@ -305,14 +397,28 @@ durin_add_engine_functional_test(StaticMeshTests
 		Private/StaticMeshDerivedDataCacheTests.cpp
 		Private/StaticMeshPayloadCodecTests.cpp
 		Private/StaticMeshCollisionRoutineTests.cpp
-		Private/StaticMeshMaterialSlotDetailsTests.cpp
 		Private/StaticMeshEditorTests.cpp
+	LIBRARIES AssetTools StaticMeshBuild TextureBuild AssetForgeBuiltins RenderCore Renderer DurinEd StaticMeshEditor
+	INCLUDE_DIRECTORIES
+		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
+	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
+)
+
+durin_add_engine_functional_test(StaticMeshMaterialTests
+	KIND feature
+	DOMAINS material material-binding static-mesh
+	MODULES asset-tools engine static-mesh-build level-editor static-mesh-editor
+	STACKS editor renderer
+	PRIVATE_SOURCE_OWNER LevelEditor
+	PRIVATE_SOURCE_RATIONALE "Exercises LevelEditor-owned material slot customization without exporting private symbols."
+	TIMEOUT 300
+	RUNTIME_STACK_RATIONALE "Exercises imported mesh material slots, component bindings, and material slot editing."
+	SOURCES Private/Materials/StaticMeshMaterialTests.cpp Private/StaticMeshMaterialSlotDetailsTests.cpp
 	PRIVATE_SOURCES
 		${_durin_level_editor_private}/Customizations/StaticMeshMaterialSlotDetails.cpp
 		${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
 	LIBRARIES AssetTools StaticMeshBuild TextureBuild AssetForgeBuiltins RenderCore Renderer DurinEd StaticMeshEditor
-	INCLUDE_DIRECTORIES
-		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
+	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 )
 
