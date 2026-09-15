@@ -156,6 +156,8 @@ def repository_markdown_files(repository: Path) -> list[Path]:
     result = subprocess.run(
         [
             "git",
+            "-c",
+            f"safe.directory={repository.resolve().as_posix()}",
             "-C",
             str(repository),
             "ls-files",

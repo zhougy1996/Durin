@@ -244,6 +244,8 @@ class DocumentWorkspace:
         result = subprocess.run(
             [
                 "git",
+                "-c",
+                f"safe.directory={self.repository_root.resolve().as_posix()}",
                 "-C",
                 str(self.repository_root),
                 "status",

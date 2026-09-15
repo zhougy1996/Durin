@@ -51,6 +51,50 @@ Concrete evidence.
 '''
 
 
+@pytest.mark.parametrize('operation', ['changed', 'markdown'])
+def test_document_discovery_accepts_repository_with_different_owner(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+) -> None:
+    repository = tmp_path / 'repository with spaces'
+    subprocess.run(['git', 'init', '-q', str(repository)], check=True)
+    documentation = repository / 'Documentation'
+    documentation.mkdir()
+    document = documentation / 'Example.md'
+    document.write_text('# Example\n', encoding='utf-8')
+    subprocess.run(
+        ['git', '-c', f'safe.directory={repository.resolve().as_posix()}',
+         '-C', str(repository), 'add', 'Documentation/Example.md'],
+        check=True,
+    )
+
+    # Clear inherited trust so the fixture exercises Git's ownership check.
+    git_config = tmp_path / 'empty.gitconfig'
+    git_config.write_text('', encoding='utf-8')
+    monkeypatch.setenv('GIT_CONFIG_NOSYSTEM', '1')
+    monkeypatch.setenv('GIT_CONFIG_GLOBAL', str(git_config))
+    monkeypatch.setenv('GIT_CONFIG_COUNT', '0')
+    monkeypatch.delenv('GIT_CONFIG_PARAMETERS', raising=False)
+    monkeypatch.setenv('GIT_TEST_ASSUME_DIFFERENT_OWNER', '1')
+    untrusted = subprocess.run(
+        ['git', '-C', str(repository), 'status', '--porcelain'],
+        capture_output=True,
+        check=False,
+    )
+    assert untrusted.returncode != 0
+    assert b'safe.directory' in untrusted.stderr
+
+    if operation == 'changed':
+        paths = {
+            (repository / path).resolve()
+            for path in DocumentWorkspace(repository)._changed_document_paths()
+        }
+    else:
+        paths = set(changes_module.repository_markdown_files(repository))
+    assert paths == {document.resolve()}
+
+
 class TestTaskCatalog:
 
     def test_catalog_extracts_outcome_and_sorts_tasks(self, tmp_path: Path) -> None:
