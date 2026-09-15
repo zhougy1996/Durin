@@ -198,11 +198,11 @@ namespace Durin::Editor::Material
 		float BodyPadding = 10.0f;
 		float ColumnGap = 96.0f;
 		float RowGap = 28.0f;
-		float SurfaceWidth = 360.0f;
+		float SurfaceWidth = 268.0f;
 		float SurfaceHeaderHeight = 48.0f;
 		float SurfaceLabelWidth = 144.0f;
 		float SurfaceValueGap = 12.0f;
-		float SurfaceValueWidth = 184.0f;
+		float SurfaceValueWidth = 92.0f;
 		float MinimumHitDiameter = 16.0f;
 	};
 

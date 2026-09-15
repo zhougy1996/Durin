@@ -175,8 +175,13 @@ Settings in Details: the supported Surface domain, Lit/Unlit shading, blend mode
 masked cutoff, two-sided rendering and depth-write policy. Settings use reflected
 property transactions on the working material, so Apply/Discard and Undo/Redo
 retain their ordinary atomic behavior. Inactive cutoff values remain stored.
-Inactive property labels are dimmed without removing connections or editable
-defaults. The compiler's explicit final anchor and aggregate/per-property
+Inactive property labels and pins are dimmed, with their default editors hidden;
+values and connections remain stored. Active disconnected inputs expose compact
+scalar drags, color swatches for Base Color and Emissive, and an Edit button for
+Normal. Color and Normal popups commit on Apply and discard drafts on dismissal.
+Connected inputs hide default editors and resume their retained values when
+disconnected. Tooltips identify defaults as values used when unconnected.
+The compiler's explicit final anchor and aggregate/per-property
 exclusion rule are unchanged; reusable Surface values do not become extra roots.
 
 Window controls reopen optional panels and reset the default layout. Material

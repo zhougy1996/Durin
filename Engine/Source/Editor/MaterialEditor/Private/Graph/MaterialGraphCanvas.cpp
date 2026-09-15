@@ -1454,7 +1454,8 @@ namespace Durin::Editor::Material
 						{SurfaceMaximum.x - 2.0f, SurfacePins[Index].y + 10.0f},
 						IM_COL32(190, 145, 55, 75));
 				DrawList->AddCircleFilled(SurfacePins[Index], std::max(2.0f, 5.0f * Zoom),
-					TypeColor(SurfaceTypes[Index]));
+					IsSurfaceInputActive(Index) ? TypeColor(SurfaceTypes[Index])
+						: IM_COL32(125, 132, 145, 255));
 				if (DetailLevel != EMaterialGraphDetailLevel::Overview)
 				{
 					const ImVec4 LabelClip(
@@ -1470,7 +1471,8 @@ namespace Durin::Editor::Material
 							: IM_COL32(125, 132, 145, 255), SurfaceNames[Index],
 						nullptr, 0.0f, &LabelClip);
 					if (DetailLevel == EMaterialGraphDetailLevel::Readable
-						&& Index < 8 && !OutputLinks[Index]->SourceNodeId.IsValid())
+						&& Index < 8 && IsSurfaceInputActive(Index)
+						&& !OutputLinks[Index]->SourceNodeId.IsValid())
 					{
 						const auto& Value = GetMaterialSurfaceOutputDefault(View.Outputs,
 							static_cast<EMaterialSurfaceOutput>(Index));
@@ -1486,7 +1488,8 @@ namespace Durin::Editor::Material
 							IM_COL32(165, 172, 186, 255), Text.c_str(), nullptr, 0.0f, &ValueClip);
 					}
 					if (DetailLevel == EMaterialGraphDetailLevel::Editing
-						&& Index < 8 && !OutputLinks[Index]->SourceNodeId.IsValid())
+						&& Index < 8 && IsSurfaceInputActive(Index)
+						&& !OutputLinks[Index]->SourceNodeId.IsValid())
 					{
 						const EMaterialSurfaceOutput Output =
 							static_cast<EMaterialSurfaceOutput>(Index);
@@ -1511,9 +1514,52 @@ namespace Durin::Editor::Material
 							GraphControlFramePadding);
 						ImGui::PushStyleVar(ImGuiStyleVar_ItemInnerSpacing,
 							GraphControlItemSpacing);
-						const bool bValueSubmitted = DrawNumericInputEditor(
-							"##SurfaceDefault", SurfaceTypes[Index],
-							SurfaceDefaultDrafts[Index].data());
+						const bool bPopupEditor = SurfaceTypes[Index] == EMaterialProgramValueType::Float3;
+						bool bValueSubmitted = false;
+						bool bPopupOpen = false;
+						if (bPopupEditor)
+						{
+							const auto& Draft = SurfaceDefaultDrafts[Index];
+							const bool bColor = Output == EMaterialSurfaceOutput::BaseColor
+								|| Output == EMaterialSurfaceOutput::Emissive;
+							const bool bOpen = bColor
+								? ImGui::ColorButton("##SurfaceDefault", {Draft[0], Draft[1], Draft[2], 1.0f},
+									ImGuiColorEditFlags_NoTooltip, {Metrics.SurfaceValueWidth * Zoom, GraphControlHeight})
+								: ImGui::Button("Edit...", {Metrics.SurfaceValueWidth * Zoom, GraphControlHeight});
+							if (ImGui::IsItemHovered())
+								ImGui::SetTooltip("Value when unconnected: %.3g, %.3g, %.3g", Draft[0], Draft[1], Draft[2]);
+							bEmbeddedControlHoveredOrActive |= ImGui::IsItemHovered() || ImGui::IsItemActive();
+							if (bOpen) ImGui::OpenPopup("SurfaceDefaultEditor");
+							if (ImGui::BeginPopup("SurfaceDefaultEditor"))
+							{
+								ImGui::TextUnformatted(SurfaceNames[Index]);
+								ImGui::TextDisabled("Value when unconnected");
+								ImGui::SetNextItemWidth(240.0f);
+								if (bColor)
+									ImGui::ColorPicker3("##Color", SurfaceDefaultDrafts[Index].data(),
+										ImGuiColorEditFlags_Float | (Output == EMaterialSurfaceOutput::Emissive
+											? ImGuiColorEditFlags_HDR : 0));
+								else
+									DrawNumericDragEditor("##Normal", SurfaceTypes[Index], SurfaceDefaultDrafts[Index].data());
+								if (ImGui::Button("Apply"))
+								{
+									bValueSubmitted = true;
+									ImGui::CloseCurrentPopup();
+								}
+								ImGui::SameLine();
+								if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape))
+									ImGui::CloseCurrentPopup();
+								ImGui::EndPopup();
+							}
+							bPopupOpen = ImGui::IsPopupOpen("SurfaceDefaultEditor");
+							bEmbeddedControlHoveredOrActive |= bPopupOpen;
+						}
+						else
+						{
+							DrawNumericDragEditor("##SurfaceDefault", SurfaceTypes[Index],
+								SurfaceDefaultDrafts[Index].data());
+							if (ImGui::IsItemHovered()) ImGui::SetTooltip("Value when unconnected");
+						}
 						bEmbeddedControlHoveredOrActive |=
 							ImGui::IsItemHovered() || ImGui::IsItemActive();
 						const bool bInlineActive = ImGui::IsItemActive();
@@ -1521,7 +1567,7 @@ namespace Durin::Editor::Material
 							&& (bInlineActive || ImGui::IsItemFocused());
 						if (bCancelInline)
 							bSurfaceDefaultDraftInitialized[Index] = false;
-						else if (bValueSubmitted || ImGui::IsItemDeactivatedAfterEdit())
+						else if (bValueSubmitted || (!bPopupEditor && ImGui::IsItemDeactivatedAfterEdit()))
 						{
 							ReportCommand(FMaterialGraphOperations::SetSurfaceDefault(
 								Material, {.Output = Output, .Value = {
@@ -1532,7 +1578,7 @@ namespace Durin::Editor::Material
 								&Transactions), ReportError);
 							bSurfaceDefaultDraftInitialized[Index] = false;
 						}
-						if (!bInlineActive)
+						if (!bInlineActive && !bPopupOpen)
 							bSurfaceDefaultDraftInitialized[Index] = false;
 						ImGui::PopStyleVar(2);
 						ImGui::PopFont();
@@ -1545,6 +1591,9 @@ namespace Durin::Editor::Material
 					&& std::hypot(Mouse.x - SurfacePins[Index].x,
 					Mouse.y - SurfacePins[Index].y) <= 8.0f)
 					HoveredSurfaceOutput = static_cast<EMaterialSurfaceOutput>(Index);
+				if (HoveredSurfaceOutput == static_cast<EMaterialSurfaceOutput>(Index)
+					&& !IsSurfaceInputActive(Index))
+					ImGui::SetTooltip("Inactive in the current material mode. Its value and connection are retained.");
 			}
 			const bool bCanvasPointerInteractionAvailable = bHovered
 				&& !bEmbeddedControlHoveredOrActive;
