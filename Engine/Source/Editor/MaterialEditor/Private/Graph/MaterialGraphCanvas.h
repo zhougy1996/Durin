@@ -62,6 +62,30 @@ namespace Durin::Editor::Material
 		friend struct FMaterialGraphCanvasTestAccess;
 		struct FVisualNode;
 		struct FVisualGraph;
+		struct FPointerHit
+		{
+			const FVisualNode* Node = nullptr;
+			const FVisualNode* InputNode = nullptr;
+			const FVisualNode* OutputNode = nullptr;
+			uint32 InputIndex = 0;
+			size_t OutputIndex = 0;
+		};
+		struct FSurfaceInteractionTarget
+		{
+			std::optional<EMaterialSurfaceOutput> Output;
+			bool bHoveredHeader = false;
+			bool bHoveredBody = false;
+			ImVec2 GraphPosition{};
+			std::array<ImVec2, 9> Pins{};
+		};
+		auto HandleViewportInput(const ImVec2& Minimum, const ImVec2& Mouse, bool bHovered) -> void;
+		auto HitTest(const FVisualGraph& VisualGraph, const ImVec2& Minimum,
+			const ImVec2& Maximum, const ImVec2& Mouse) const -> FPointerHit;
+		auto HandlePointerInput(DObject& Owner, DTransactor& Transactions,
+			const FMaterialGraphView& View, const FVisualGraph& VisualGraph,
+			const ImVec2& Minimum, const ImVec2& Maximum, const ImVec2& Size,
+			const ImVec2& Mouse, bool bPointerAvailable, const FSurfaceInteractionTarget& Surface,
+			const FReportError& ReportError) -> void;
 		struct FTexturePreviewState;
 		auto UpdateTexturePreviews(DMaterial& Material) -> void;
 		auto DrawTexturePreview(const FGuid& NodeId, const ImVec2& Position, float Size) -> void;
@@ -80,6 +104,7 @@ namespace Durin::Editor::Material
 		{
 			FGuid DestinationNode;
 			uint32 DestinationInputIndex = 0;
+			FGuid DestinationInputId;
 		};
 		struct FReconnectingSurfaceInteraction
 		{
@@ -129,26 +154,26 @@ namespace Durin::Editor::Material
 		auto DrawLinks(const FVisualGraph& VisualGraph,
 			const ImVec2& CanvasMinimum, const ImVec2& CanvasMaximum,
 			ImDrawList& DrawList) const -> void;
-		auto HandleKeyboardInput(DMaterial& Material,
+		auto HandleKeyboardInput(DObject& Owner,
 			::Durin::DTransactor& Transactions, const FMaterialGraphView& View,
 			const ImVec2& CanvasMinimum, const ImVec2& CanvasSize,
 			const ImVec2& Mouse, bool bInputAvailable,
 			const FReportError& ReportError) -> void;
-		auto CopyNodes(DMaterial& Material, std::span<const FGuid> NodeIds,
+		auto CopyNodes(DObject& Owner, std::span<const FGuid> NodeIds,
 			const FReportError& ReportError) -> void;
-		auto CutNodes(DMaterial& Material, ::Durin::DTransactor& Transactions,
+		auto CutNodes(DObject& Owner, ::Durin::DTransactor& Transactions,
 			std::span<const FGuid> NodeIds,
 			const FReportError& ReportError) -> void;
-		auto DuplicateNodes(DMaterial& Material,
+		auto DuplicateNodes(DObject& Owner,
 			::Durin::DTransactor& Transactions, std::span<const FGuid> NodeIds,
 			const FReportError& ReportError) -> void;
 		auto PasteNodes(DObject& Owner, ::Durin::DTransactor& Transactions,
 			const ImVec2& GraphPosition,
 			const FReportError& ReportError) -> void;
-		auto RemoveNodes(DMaterial& Material, ::Durin::DTransactor& Transactions,
+		auto RemoveNodes(DObject& Owner, ::Durin::DTransactor& Transactions,
 			std::span<const FGuid> NodeIds,
 			const FReportError& ReportError) -> void;
-		auto DrawContextMenu(DMaterial& Material,
+		auto DrawContextMenu(DObject& Owner,
 			::Durin::DTransactor& Transactions, const FMaterialGraphView& View,
 			const FReportError& ReportError) -> void;
 		auto RememberCreation(const FMaterialGraphCatalogEntry& Node) -> void;
@@ -165,6 +190,7 @@ namespace Durin::Editor::Material
 
 		ImVec2 Pan{40.0f, 40.0f};
 		float Zoom = 1.0f;
+		bool bFunctionGraph = false;
 		EMaterialGraphDetailLevel DetailLevel = EMaterialGraphDetailLevel::Editing;
 		std::optional<ImVec2> SurfaceGraphPosition;
 		std::unordered_set<FMaterialGraphCanvasNodeId> SelectedNodes;

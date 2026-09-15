@@ -83,6 +83,18 @@ Creation-menu rendering is isolated from canvas rendering and pointer gestures.
 Numeric controls and parameter/literal type conversions are shared by graph
 editing paths so each supported vector dimension has one conversion contract.
 
+Material and function graphs use one canvas interaction handler and hit test.
+Ctrl-click toggles node selection; dragging a selected node moves its selection;
+blank-space dragging replaces selection and Shift adds a marquee region. Both
+paths share pan/zoom, keyboard selection/clipboard/framing, node context menus,
+creation shortcuts, blank double-click creation, and link-drop creation. Hit tests
+follow reverse paint order and disable pins in Overview. Graph mutations use
+`FMaterialGraphDocument`; material output geometry and its commands remain a
+material-only extension. Reconnection records the semantic input index or stable
+function port ID, independently of filtered pin rows, and keeps the original
+link until a valid replacement commits. Function node movement remains a detached
+presentation draft until release, with Escape discarding the draft.
+
 The MaterialEditor canvas uses the existing ImGui draw/input stack and one
 logical geometry authority shared with layout and native tests. Nodes use a
 stable 224-unit width and height derived from their named pin rows. Operation

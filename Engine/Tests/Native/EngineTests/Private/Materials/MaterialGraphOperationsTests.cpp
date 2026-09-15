@@ -3712,3 +3712,164 @@ TEST(FMaterialGraphOperationsTests, SharedTextureParametersPreserveLocalSampling
 	EXPECT_EQ(FindExpression<DMaterialExpressionTextureSampleParameter2D>(*Material, BId)->DefaultValue.TextureFallback, EMaterialTextureFallback::FlatRGNormal);
 	ASSERT_TRUE(UnloadPackage(Path)); CollectGarbage();
 }
+
+// Replay the same real ImGui gestures through both document renderers.
+class FMaterialGraphCanvasInteractionTests : public ::testing::TestWithParam<bool> {};
+
+TEST_P(FMaterialGraphCanvasInteractionTests, SelectionReconnectionCreationAndKeyboardAgree)
+{
+	InitializeDObjectSystem();
+	const bool bFunction = GetParam();
+	DObject* Owner = bFunction ? static_cast<DObject*>(NewObject<DMaterialFunction>(nullptr, "FunctionGestures"))
+		: static_cast<DObject*>(NewObject<DMaterial>(nullptr, "MaterialGestures"));
+	FMaterialGraphDocument Document(*Owner);
+	FMaterialGraphDocumentState Initial;
+	ASSERT_TRUE(Document.Capture(Initial));
+	for (auto& Position : Initial.Presentation.Nodes) { Position.X = 1800; Position.Y = 1200; }
+	ASSERT_TRUE(Document.Commit(std::move(Initial), "Arrange fixture"));
+	auto Source = Testing::MakeGraphExpression<DMaterialExpressionScalarConstant>();
+	auto Previous = Testing::MakeGraphExpression<DMaterialExpressionScalarConstant>();
+	auto Consumer = Testing::MakeGraphExpression<DMaterialExpressionSaturate>();
+	Consumer->Input = {Previous->Id};
+	ASSERT_TRUE(Document.CreateExpression(*Source.Get(), 0, 0));
+	ASSERT_TRUE(Document.CreateExpression(*Previous.Get(), 0, 280));
+	ASSERT_TRUE(Document.CreateExpression(*Consumer.Get(), 350, 0));
+	ImGuiContext* Context = ImGui::CreateContext();
+	auto& IO = ImGui::GetIO();
+	IO.DisplaySize = {1200, 760}; IO.DeltaTime = 1.0f / 60.0f; IO.IniFilename = nullptr;
+	IO.Fonts->AddFontDefault(); IO.Fonts->Build();
+	Durin::Tests::FTestTransactorOwner Transactions;
+	FMaterialGraphCanvas Canvas;
+	Canvas.SetViewport(1.0f, {40, 40});
+	ImVec2 Origin;
+	int Errors = 0;
+	const auto Frame = [&](ImVec2 Mouse, bool Down) {
+		IO.AddMousePosEvent(Mouse.x, Mouse.y);
+		IO.AddMouseButtonEvent(ImGuiMouseButton_Left, Down);
+		ImGui::NewFrame();
+		ImGui::SetNextWindowPos({0, 0}); ImGui::SetNextWindowSize({1200, 760});
+		ImGui::Begin("Shared gestures", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize);
+		if (bFunction) Canvas.DrawFunction(*Cast<DMaterialFunction>(Owner), *Transactions.Get(), 660,
+			[&](std::string) { ++Errors; }, [](std::string_view) {});
+		else Canvas.Draw(*Cast<DMaterial>(Owner), *Transactions.Get(), 660, [&](std::string) { ++Errors; });
+		const auto* Child = ImGui::GetCurrentWindow()->DC.ChildWindows.back();
+		Origin = {Child->Pos.x + Child->WindowPadding.x + 40,
+			Child->Pos.y + Child->WindowPadding.y + 40 + (bFunction ? 0 : ImGui::GetFrameHeightWithSpacing())};
+		ImGui::End(); ImGui::Render();
+	};
+	const auto Click = [&](ImVec2 At) { Frame(At, false); Frame(At, true); Frame(At, false); };
+	const auto Key = [&](ImGuiKey Code) {
+		IO.AddKeyEvent(Code, true); Frame({1050, 580}, false);
+		IO.AddKeyEvent(Code, false); Frame({1050, 580}, false);
+	};
+	Frame({1100, 600}, false); Frame({1100, 600}, false);
+	const ImVec2 Header{Origin.x + 80, Origin.y + 12};
+	Click(Header);
+	EXPECT_TRUE(Canvas.GetSelection().contains(Source->Id));
+	IO.AddKeyEvent(ImGuiMod_Ctrl, true); Frame(Header, false); Click(Header);
+	EXPECT_FALSE(Canvas.GetSelection().contains(Source->Id));
+	EXPECT_TRUE(FMaterialGraphCanvasTestAccess::Idle(Canvas));
+	Click(Header);
+	EXPECT_TRUE(Canvas.GetSelection().contains(Source->Id));
+	IO.AddKeyEvent(ImGuiMod_Ctrl, false); Frame(Header, false);
+
+	// Empty-space marquee replaces selection; Shift adds another region.
+	Frame({Origin.x + 330, Origin.y - 10}, true);
+	Frame({Origin.x + 590, Origin.y + 150}, true);
+	Frame({Origin.x + 590, Origin.y + 150}, false);
+	EXPECT_TRUE(Canvas.GetSelection().contains(Consumer->Id));
+	EXPECT_FALSE(Canvas.GetSelection().contains(Source->Id));
+	IO.AddKeyEvent(ImGuiMod_Shift, true); Frame({Origin.x - 10, Origin.y - 10}, false);
+	Frame({Origin.x - 10, Origin.y - 10}, true);
+	Frame({Origin.x + 245, Origin.y + 150}, true);
+	Frame({Origin.x + 245, Origin.y + 150}, false);
+	EXPECT_TRUE(Canvas.GetSelection().contains(Source->Id));
+	EXPECT_TRUE(Canvas.GetSelection().contains(Consumer->Id));
+	IO.AddKeyEvent(ImGuiMod_Shift, false); Frame({1050, 580}, false);
+
+	// A group drag is one undo step, and Escape discards the entire draft.
+	Frame(Header, true); Frame({Header.x + 40, Header.y + 20}, true);
+	Frame({Header.x + 40, Header.y + 20}, false);
+	EXPECT_EQ(FindViewNode(Document.Inspect(), Source->Id)->Presentation.X, 40);
+	EXPECT_EQ(FindViewNode(Document.Inspect(), Consumer->Id)->Presentation.X, 390);
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(FindViewNode(Document.Inspect(), Source->Id)->Presentation.X, 0);
+	EXPECT_EQ(FindViewNode(Document.Inspect(), Consumer->Id)->Presentation.X, 350);
+	Frame(Header, false); Frame(Header, true); Frame({Header.x + 60, Header.y + 30}, true);
+	IO.AddKeyEvent(ImGuiKey_Escape, true); Frame({Header.x + 60, Header.y + 30}, true);
+	IO.AddKeyEvent(ImGuiKey_Escape, false); Frame(Header, false);
+	EXPECT_EQ(FindViewNode(Document.Inspect(), Source->Id)->Presentation.X, 0);
+	EXPECT_EQ(FindViewNode(Document.Inspect(), Consumer->Id)->Presentation.X, 350);
+
+	const auto& Metrics = FMaterialGraphGeometry::GetMetrics();
+	const float PinY = Metrics.HeaderHeight + Metrics.SecondaryHeight + Metrics.BodyPadding;
+	const ImVec2 Input{Origin.x + 350, Origin.y + PinY};
+	const ImVec2 Output{Origin.x + Metrics.NodeWidth, Origin.y + PinY};
+	const auto SourceLink = [&] { return FindViewNode(Document.Inspect(), Consumer->Id)->Inputs.front().Link.SourceNodeId; };
+	Frame(Input, true); Frame(Output, true);
+	EXPECT_EQ(SourceLink(), Previous->Id); // Preserve the authored link throughout the drag.
+	Frame(Output, false);
+	EXPECT_EQ(SourceLink(), Source->Id);
+	ASSERT_TRUE(Transactions->Undo()); EXPECT_EQ(SourceLink(), Previous->Id);
+	ASSERT_TRUE(Transactions->Redo()); EXPECT_EQ(SourceLink(), Source->Id);
+	Frame(Input, false); Frame(Input, true); Frame({1000, 560}, true); Frame({1000, 560}, false);
+	EXPECT_EQ(SourceLink(), Source->Id);
+	EXPECT_TRUE(FMaterialGraphCanvasTestAccess::Idle(Canvas));
+	Frame(Input, true); IO.AddKeyEvent(ImGuiKey_Escape, true); Frame(Output, true);
+	IO.AddKeyEvent(ImGuiKey_Escape, false); Frame(Output, false);
+	EXPECT_EQ(SourceLink(), Source->Id);
+	EXPECT_TRUE(FMaterialGraphCanvasTestAccess::Idle(Canvas));
+
+	// Stable function-call input IDs also reconnect through either owner.
+	auto* Dependency = NewObject<DMaterialFunction>(nullptr, "GestureDependency");
+	FMaterialGraphDocument DependencyDocument(*Dependency);
+	ASSERT_TRUE(DependencyDocument.AddPort(false, {.Name = "Amount", .Default = {.Kind = EMaterialFunctionDefaultKind::Numeric}}));
+	const auto PortId = Dependency->GetFunctionSignature().Inputs.back().Id;
+	const auto Call = Document.InsertFunctionCall(*Dependency, 700, 0);
+	ASSERT_TRUE(Call);
+	const auto CallId = Call.GeneratedNodeIds.front();
+	ASSERT_TRUE(Document.ConnectCallInput(CallId, PortId, {Previous->Id}));
+	const auto CallView = Document.Inspect();
+	const auto* CallNode = FindViewNode(CallView, CallId);
+	const auto Port = std::ranges::find(CallNode->Inputs, PortId, &FMaterialGraphPinView::PortId);
+	ASSERT_NE(Port, CallNode->Inputs.end());
+	const ImVec2 CallInput{Origin.x + 700,
+		Origin.y + PinY + static_cast<float>(Port - CallNode->Inputs.begin()) * Metrics.PinRowHeight};
+	Frame(CallInput, false); Frame(CallInput, true); Frame(Output, true); Frame(Output, false);
+	const auto ConnectedView = Document.Inspect();
+	const auto* ConnectedCall = FindViewNode(ConnectedView, CallId);
+	EXPECT_EQ(std::ranges::find(ConnectedCall->Inputs, PortId, &FMaterialGraphPinView::PortId)->Link.SourceNodeId, Source->Id);
+	ASSERT_TRUE(Transactions->Undo());
+	const auto UndoneView = Document.Inspect();
+	const auto* UndoneCall = FindViewNode(UndoneView, CallId);
+	EXPECT_EQ(std::ranges::find(UndoneCall->Inputs, PortId, &FMaterialGraphPinView::PortId)->Link.SourceNodeId, Previous->Id);
+
+	// Shared keyboard commands retain selection and one-step undo.
+	FMaterialGraphCanvasTestAccess::Select(Canvas, {Source->Id});
+	const auto BeforeDuplicate = Document.Inspect().Nodes.size();
+	IO.AddKeyEvent(ImGuiMod_Ctrl, true); Frame({1050, 580}, false);
+	Key(ImGuiKey_D);
+	EXPECT_EQ(Document.Inspect().Nodes.size(), BeforeDuplicate + 1);
+	EXPECT_EQ(Canvas.GetSelection().size(), 1u);
+	EXPECT_FALSE(Canvas.GetSelection().contains(Source->Id));
+	Key(ImGuiKey_X);
+	EXPECT_EQ(Document.Inspect().Nodes.size(), BeforeDuplicate);
+	EXPECT_TRUE(Canvas.GetSelection().empty());
+	Key(ImGuiKey_V);
+	EXPECT_EQ(Document.Inspect().Nodes.size(), BeforeDuplicate + 1);
+	Key(ImGuiKey_A);
+	EXPECT_EQ(Canvas.GetSelection().size(), Document.Inspect().Nodes.size());
+	IO.AddKeyEvent(ImGuiMod_Ctrl, false); Frame({1050, 580}, false);
+
+	// Blank double click opens creation instead of starting a second marquee.
+	Click({850, 510}); Click({850, 510});
+	EXPECT_TRUE(FMaterialGraphCanvasTestAccess::Menu(Canvas));
+	EXPECT_EQ(Errors, 0);
+	Canvas.CancelInteraction();
+	EXPECT_TRUE(Transactions->Reset());
+	ImGui::DestroyContext(Context);
+	MarkAsGarbage(Owner); MarkAsGarbage(Dependency); CollectGarbage();
+}
+
+INSTANTIATE_TEST_SUITE_P(MaterialAndFunction, FMaterialGraphCanvasInteractionTests,
+	::testing::Bool(), [](const auto& Info) { return Info.param ? "Function" : "Material"; });
