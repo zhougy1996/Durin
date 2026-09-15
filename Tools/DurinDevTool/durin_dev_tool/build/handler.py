@@ -73,13 +73,10 @@ def request_from_namespace(namespace: argparse.Namespace) -> BaseRequest:
     if action is Action.TEST:
         positional_selection = str(namespace_value(namespace, "selection", ""))
         positional_filter = str(namespace_value(namespace, "case_filter", ""))
-        option_filter = str(namespace_value(namespace, "filter", ""))
-        if positional_filter and option_filter:
-            raise BuildToolError("positional case filter and --filter cannot be used together")
         operation = "run"
         query = ""
         target = positional_selection
-        test_filter = option_filter or positional_filter
+        test_filter = positional_filter
         if positional_selection == "list":
             operation, query, target, test_filter = "list", positional_filter, "", ""
         elif positional_selection == "explain":
@@ -87,10 +84,15 @@ def request_from_namespace(namespace: argparse.Namespace) -> BaseRequest:
         elif positional_selection == "affected":
             if positional_filter:
                 raise BuildToolError("test affected accepts a Git base only through --base <ref>")
-            if option_filter:
-                raise BuildToolError("test affected does not accept --filter")
             operation, query, target, test_filter = "affected", "", "affected", ""
         test_mode = TestMode(str(namespace_value(namespace, "mode", "routine")))
+        parallel_jobs = namespace_value(namespace, "parallel", None)
+        if parallel_jobs is not None:
+            if operation != "run" or target.casefold() in {"all", "fast-all"}:
+                raise BuildToolError("--parallel requires a named target or @set selection.")
+            if test_mode not in {TestMode.ROUTINE, TestMode.ISOLATION}:
+                raise BuildToolError("--parallel cannot be combined with this --mode.")
+            test_mode = TestMode.ISOLATION
         report_path = namespace_value(namespace, "report", None)
         return NativeTestRequest(
             context=context,
@@ -100,7 +102,9 @@ def request_from_namespace(namespace: argparse.Namespace) -> BaseRequest:
             test_operation=operation,
             test_query=query,
             test_mode=test_mode,
-            test_report_path=report_path,
+            test_parallel_jobs=parallel_jobs,
+            test_report_enabled=report_path is not None,
+            test_report_path=report_path if isinstance(report_path, Path) else None,
             test_timeout_seconds=int(namespace_value(namespace, "timeout", 300)),
             test_base=str(namespace_value(namespace, "base", "")),
             test_explain_affected=bool(namespace_value(namespace, "explain_affected", False)),

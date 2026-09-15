@@ -82,8 +82,8 @@ def validate_request(request: ConcreteRequest, preset: ConfigurePreset) -> None:
             raise BuildToolError("test list, explain, and affected do not accept --mode.")
         if request.test_operation != "affected" and (request.test_base or request.test_explain_affected):
             raise BuildToolError("--base and --explain are accepted only by test affected.")
-        if request.test_operation == "affected" and request.test_report_path is not None:
-            raise BuildToolError("test affected does not accept --report; select --mode report explicitly on a bounded set.")
+        if request.test_operation != "run" and (request.test_report_enabled or request.test_report_path is not None):
+            raise BuildToolError("--report requires a test run; select a target or @set explicitly.")
     if request.action is Action.REBUILD and request.target:
         validate_target(request.target, action=request.action)
     if (
@@ -93,15 +93,15 @@ def validate_request(request: ConcreteRequest, preset: ConfigurePreset) -> None:
         and request.test_filter
     ):
         raise BuildToolError(
-            "--filter requires a single native test target and cannot be used with "
+            "A case filter requires a single native test target and cannot be used with "
             "test all."
         )
     if request.action is Action.TEST and request.test_operation == "run":
         if request.test_mode is TestMode.ISOLATION:
-            if not request.test_filter or request.target.casefold() == "all":
+            if request.target.casefold() in {"all", "fast-all"}:
                 raise BuildToolError(
-                    "isolation mode requires a bounded selection and one case filter.",
-                    recovery="Run test <target-or-@set> <suite.case> --mode isolation.",
+                    "isolation mode requires a named target or @set selection.",
+                    recovery="Run test <target-or-@set> --parallel 4.",
                 )
         elif request.test_filter and (
             request.target.startswith("@") or request.target.casefold() == "fast-all"
@@ -110,8 +110,6 @@ def validate_request(request: ConcreteRequest, preset: ConfigurePreset) -> None:
                 "A case filter on a set requires --mode isolation.",
                 recovery=f"Run test {request.target} {request.test_filter} --mode isolation.",
             )
-        if request.test_report_path is not None and request.test_mode is not TestMode.REPORT:
-            raise BuildToolError("--report requires --mode report.")
         if request.test_mode in {TestMode.CHARACTERIZATION, TestMode.QUALIFICATION} and request.target.casefold() == "all":
             raise BuildToolError(
                 f"{request.test_mode.value} mode requires an explicit target or @set."

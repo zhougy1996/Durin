@@ -1,6 +1,6 @@
 # Native Test Execution
 
-Last reviewed: 2026-09-10
+Last reviewed: 2026-09-15
 
 This is the complete native-test selection, execution, diagnosis, and
 infrastructure specification. Agents selecting routine task validation should
@@ -105,16 +105,32 @@ Execution scenarios keep the routine path short:
 ```powershell
 .\DevTool.bat test "@viewport" ViewportSuite.Resize --mode isolation
 .\DevTool.bat test "@viewport" --mode stress
-.\DevTool.bat test "@viewport" --mode report
+.\DevTool.bat test "@viewport" --report
 .\DevTool.bat test "@kind=characterization,domain=launch" --mode characterization
 .\DevTool.bat test "@kind=qualification,domain=renderer" --mode qualification
 ```
 
-Isolation requires a bounded selection and case filter. Stress mode randomizes
-CTest scheduling and GoogleTest order, printing a reproducible seed. Report
-mode writes JUnit XML under
+For direct-hosted targets, `test <Target>` executes cases sequentially in one
+process. Use `test <Target> --parallel 4` to run each case in an independent
+process with four concurrent cases. Add an optional GoogleTest glob filter;
+`*`, `?`, colon-separated alternatives, and exclusions after `-` have the same
+meaning as in a direct run. No filter selects every case in the target.
+`--parallel` accepts named targets or `@set` selections, implies isolation mode,
+and leaves build jobs unchanged. It combines with `--report`, but cannot combine with other execution modes.
+`--jobs` controls build parallelism and the default CTest concurrency when no
+`--parallel` override is supplied; it does not make a direct GoogleTest process
+run cases concurrently. Existing resource locks remain authoritative.
+
+Isolation requires a named target or `@set`; the case filter is optional.
+The longer `--mode isolation --jobs 4` form remains supported. Whole-target
+runs detect shared-state cleanup problems; isolated runs detect missing setup
+that earlier tests might otherwise supply. Stress mode randomizes
+CTest scheduling and GoogleTest order, printing a reproducible seed.
+`--report` writes XML under
 `Build/NativeTestResults/<Preset>/<Selection>.xml` unless `--report <path>` is
-given. Characterization and qualification admission are always explicit.
+given. Direct targets use GoogleTest XML; CTest selections use JUnit XML.
+Report output never changes the execution strategy. Characterization and
+qualification admission are always explicit.
 Qualification targets own performance, scale, memory, or hardware-baseline
 measurements that should not extend routine correctness feedback.
 
@@ -157,10 +173,10 @@ with a case filter and `--mode isolation`. Native-test executables and
 GoogleTest are excluded from CMake's
 default `all` target, so routine `build` and `rebuild` commands do not compile
 tests even when the selected preset enables `BUILD_TESTING`.
-Its timeout applies to each CTest-registered test. GoogleTest `--filter` syntax
+Its timeout applies to each CTest-registered test. GoogleTest positional filter syntax
 is executable-specific and therefore cannot be combined with `test all`.
 Stress mode prints and forwards a GoogleTest shuffle seed so order failures can
-be reproduced with `GTEST_RANDOM_SEED`. Report mode writes the CTest JUnit
+be reproduced with `GTEST_RANDOM_SEED`. `--report` writes the CTest JUnit
 result described above.
 
 Use a focused `test <Target> <GoogleTestFilter>` command for the
@@ -174,7 +190,7 @@ rather than a routine smoke, owns the required environment and scheduling.
 
 Do not record a current test or registration total in repository documentation.
 CTest discovery is the source of truth; use the command summary or
-`--mode report` when a review needs an auditable count.
+`--report` when a review needs an auditable count.
 
 DurinDevTool clears build recovery state before launching the test executable. A failed assertion, crash, timeout, or interrupted test should be diagnosed and rerun with `test`; it does not require `rebuild`. Build ownership, recovery, and parallelism rules are documented in `Documentation/Development/Build/BuildAndRun.md`.
 

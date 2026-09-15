@@ -115,6 +115,8 @@ class NativeTestRequest(BaseRequest):
     test_base: str = ""
     test_explain_affected: bool = False
     action: Action = Action.TEST
+    test_parallel_jobs: int | None = None
+    test_report_enabled: bool = False
 
     @property
     def requires_toolchain(self) -> bool:

@@ -19,15 +19,20 @@ class TestCore:
         request = request_fixtures.command_request(models.Action.TEST, options=request_fixtures.TestActionOptions(target='CoreTests'))
         with pytest.raises(errors.BuildToolError, match='does not enable BUILD_TESTING'):
             request_validation.validate_request(request, self.make_preset(testing='OFF'))
-    def test_compact_native_test_enables_gtest_brief_output(self, tmp_path_factory: pytest.TempPathFactory) -> None:
+    @pytest.mark.parametrize("report_enabled", [False, True])
+    def test_compact_native_test_enables_gtest_brief_output(self, tmp_path_factory: pytest.TempPathFactory, report_enabled: bool) -> None:
         preset = self.make_preset()
         context = build_context.BuildContext(request_fixtures.command_request(models.Action.TEST, options=request_fixtures.TestActionOptions(target='CoreTests', filter='Core.*')), models.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', environment={})
+        context.request = replace(context.request, test_report_enabled=report_enabled)
         output = BuildOutput(plain=True, output_mode=models.OutputMode.COMPACT, stdout=io.StringIO(), stderr=io.StringIO())
         directory = tmp_path_factory.mktemp('case')
         with mock.patch.object(build_runtime, 'test_executable_path', return_value=Path(directory) / 'CoreTests.exe') as executable_path, mock.patch.object(build_runtime, 'run_command') as run:
             executable_path.return_value.touch()
             build_runtime.run_native_test(context, output)
-        assert run.call_args.args[0] == [str(executable_path.return_value), '--gtest_filter=Core.*', '--gtest_brief=1']
+        expected = [str(executable_path.return_value), '--gtest_filter=Core.*', '--gtest_brief=1']
+        if report_enabled:
+            expected.append(f'--gtest_output=xml:{settings.default_build_paths().root / "Build/NativeTestResults/debug/CoreTests.xml"}')
+        assert run.call_args.args[0] == expected
         assert run.call_args.kwargs['colorize_test_output']
     @pytest.mark.parametrize(
         ('resolved_host', 'expected_runner'),
@@ -87,7 +92,7 @@ class TestCore:
     def test_all_native_tests_use_target_ctest_registration_and_report_mode(self) -> None:
         preset = self.make_preset()
         cmake = 'C:/Tools/CMake/bin/cmake.exe'
-        context = build_context.BuildContext(request_fixtures.command_request(models.Action.TEST, options=request_fixtures.TestActionOptions(target='ALL', mode=models.TestMode.REPORT, report_path=Path('Build/results.xml'), timeout_seconds=60)), models.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', cmake=cmake, jobs=4, environment={'PATH': 'cached'})
+        context = build_context.BuildContext(request_fixtures.command_request(models.Action.TEST, options=request_fixtures.TestActionOptions(target='ALL', report_path=Path('Build/results.xml'), timeout_seconds=60)), models.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', cmake=cmake, jobs=4, environment={'PATH': 'cached'})
         output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
         build_directory = Path('Build/debug')
         with mock.patch.object(build_runtime, 'preset_build_directory', return_value=build_directory), mock.patch.object(build_runtime, 'run_command') as run:
@@ -108,9 +113,9 @@ class TestCore:
             models.Action.TEST,
             options=request_fixtures.TestActionOptions(
                 target='@viewport',
-                mode=models.TestMode.REPORT,
             ),
         )
+        request = replace(request, test_report_enabled=True)
         context = build_context.BuildContext(
             request,
             models.LocalConfig(),
@@ -172,6 +177,34 @@ class TestCore:
             '-j',
             '4',
         ]
+    @pytest.mark.parametrize("case_filter", ["", "Suite.*:Other.Case-Suite.Slow?"])
+    def test_parallel_cases_select_all_or_google_test_globs(self, case_filter: str) -> None:
+        preset = self.make_preset()
+        request = replace(request_fixtures.command_request(models.Action.TEST,
+            options=request_fixtures.TestActionOptions(target='MaterialTests')),
+            test_mode=models.TestMode.ISOLATION, test_parallel_jobs=4, test_filter=case_filter)
+        request_validation.validate_request(request, preset)
+        context = build_context.BuildContext(request, models.LocalConfig(), self.make_profile(),
+            {'debug': preset}, preset, 'windows', cmake='cmake', jobs=12,
+            environment={}, resolved_test_targets=('MaterialTests',))
+        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        output.context(context)
+        assert 'Build jobs: 12' in output.console.file.getvalue()
+        assert 'Case processes: 4' in output.console.file.getvalue()
+        with mock.patch.object(build_runtime, 'run_command') as run:
+            build_runtime.run_selected_native_tests(context, output)
+        command = run.call_args.args[0]
+        assert command[command.index('-j') + 1] == '4'
+        assert context.jobs == 12
+        assert 'native-test-case' in command
+        if case_filter:
+            assert command[command.index('-R') + 1] == r'^(Suite\..*|Other\.Case)$'
+            assert command[command.index('-E') + 1] == r'^(Suite\.Slow.)$'
+            assert run.call_args.kwargs['environment']['GTEST_FILTER'] == case_filter
+        else:
+            assert '-R' not in command
+            assert '-E' not in command
+
     def test_all_native_tests_reject_gtest_filter(self) -> None:
         request = request_fixtures.command_request(models.Action.TEST, options=request_fixtures.TestActionOptions(target='all', filter='Core.*'))
         with pytest.raises(errors.BuildToolError, match='cannot be used with test all'):

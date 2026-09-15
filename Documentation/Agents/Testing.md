@@ -19,6 +19,37 @@ Use the smallest sufficient selection:
 .\DevTool.bat test all
 ```
 
+## Choose Execution
+
+`test <Target>` runs its cases sequentially in one process for direct-hosted
+native tests. It can expose shared-state cleanup failures, but can also mask
+missing per-case setup. A case must pass when run alone.
+
+```powershell
+.\DevTool.bat test MaterialTests --parallel 4
+.\DevTool.bat test MaterialTests FMaterialTests.* --parallel 4
+```
+
+`--parallel N` runs each selected case in a separate process through CTest,
+with at most N concurrent cases. Use it for faster bounded CPU correctness
+feedback after checking isolation; begin with 4 workers. It accepts a named
+target or `@set`, and needs no wildcard when selecting all its cases.
+Use `--report` to save an XML result under the preset's
+`Build/NativeTestResults` directory, or `--report <path>` to choose its location.
+It works with serial and parallel runs without changing execution.
+Use the positional case filter; the redundant `--filter` and `--mode report`
+forms have been removed.
+
+Build concurrency remains controlled by `--jobs`. Existing CTest resource
+locks and execution-host rules still apply; parallelism does not authorize GPU
+or application-hosted coverage. A failure that also occurs when run alone is an
+isolation/setup issue, not evidence of a concurrency conflict.
+
+`affected`, `fast-all`, and ordinary `@set` runs instead schedule whole test
+targets through CTest. Their cases remain sequential inside each process.
+`--jobs` controls both build concurrency and the default CTest concurrency;
+it does not parallelize cases for ordinary `test <Target>`.
+
 `test affected` defaults to staged, unstaged, and untracked changes. Use `--base`
 for changes relative to a Git ref, or `--explain` to inspect selection without
 execution. It is the default handoff selection when runtime tests are needed.

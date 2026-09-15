@@ -9,7 +9,7 @@ from .specification import ArgumentSpec, CommandSpec, argument
 
 CMAKE = argument("--cmake", help="CMake executable override")
 ENVIRONMENT_SETUP = argument("--environment-setup", help="toolchain environment script override")
-JOBS = argument("--jobs", type=int, choices=range(1, 257), metavar="1..256", help="parallel build job limit")
+JOBS = argument("--jobs", type=int, choices=range(1, 257), metavar="1..256", help="build job limit; also the CTest concurrency default for test selections")
 OUTPUT_MODE = argument(
     "--output", dest="output_mode", choices=("auto", "compact", "progress", "full"),
     default=None, help="child output mode (default: auto)",
@@ -103,10 +103,10 @@ COMMAND_SPECS = (
         "test", "list, explain, build, and run native-test selections",
         TOOL_ARGUMENTS + (
             argument("selection", nargs="?", default="", help="target, affected, fast-all, @set selector, all, list [query], or explain <selection>"),
-            argument("case_filter", nargs="?", default=""),
-            argument("--filter", default="", help="GoogleTest filter for a single native test target"),
-            argument("--mode", choices=("routine", "isolation", "stress", "report", "characterization", "qualification"), default="routine", help="execution scenario (default: routine)"),
-            argument("--report", type=Path, default=None, help="JUnit path for report mode (default: preset result directory)"),
+            argument("case_filter", nargs="?", default="", help="optional GoogleTest Suite.Case filter"),
+            argument("--parallel", type=int, choices=range(1, 257), default=None, metavar="N", help="run cases in separate processes with N concurrent tests (build jobs unchanged)"),
+            argument("--mode", choices=("routine", "isolation", "stress", "characterization", "qualification"), default="routine", help="execution scenario (default: routine)"),
+            argument("--report", nargs="?", const=True, type=Path, default=None, metavar="PATH", help="write an XML report without changing execution (default: preset result directory)"),
             argument("--timeout", type=int, choices=range(0, 86401), default=300, metavar="0..86400", help="test timeout in seconds; 0 disables it (default: 300)"),
             argument("--base", default="", metavar="REF", help="Git base for test affected (default: current staged, unstaged, and untracked changes)"),
             argument("--explain", dest="explain_affected", action="store_true", help="explain test affected without building or running"),
@@ -115,6 +115,7 @@ COMMAND_SPECS = (
             "Common examples:\n"
             "  DevTool test CoreUtilityTests\n"
             "  DevTool test CoreUtilityTests Suite.Case\n"
+            "  DevTool test MaterialTests --parallel 4 --report\n"
             "  DevTool test affected\n"
             "  DevTool test affected --base HEAD~1 --explain\n"
             "  DevTool test fast-all\n"

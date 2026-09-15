@@ -58,7 +58,6 @@ class TestMode(str, Enum):
     ROUTINE = "routine"
     ISOLATION = "isolation"
     STRESS = "stress"
-    REPORT = "report"
     CHARACTERIZATION = "characterization"
     QUALIFICATION = "qualification"
 

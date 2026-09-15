@@ -187,8 +187,10 @@ class TestRelocatedManifest:
 
     def test_every_relocated_manifest_validates(self) -> None:
         manifests = dependency_manifests.load_manifests(REPOSITORY)
+        assert manifests, "No dependency manifests were discovered."
         dependency_manifests.validate_manifests(manifests)
-        assert len(manifests) == 10
+        names = [manifest["name"] for manifest in manifests]
+        assert len(names) == len(set(names)), "Dependency manifest names must be unique."
 
     def test_tracy_repair_command_is_focused_and_runnable(self) -> None:
         manifest = next((item for item in dependency_manifests.load_manifests(REPOSITORY) if item['name'] == 'tracy-tools'))

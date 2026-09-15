@@ -13,7 +13,7 @@ from rich.text import Text
 
 from .build_context import BuildContext
 from .errors import BuildToolError
-from .models import Action, OutputMode
+from .models import Action, OutputMode, TestMode
 from .selection import preset_build_directory
 from .requests import request_target
 from .requests import ConcreteRequest
@@ -269,14 +269,14 @@ class BuildOutput:
             if context.repository
             else default_build_paths()
         )
-        rows: Mapping[str, object] = {
+        rows: dict[str, object] = {
             "Action": context.request.action.value,
             "Profile": context.profile.name,
             "Preset": context.preset.name,
             "Target": context.target or "-",
             "Build directory": preset_build_directory(context.preset, root=paths.root),
             "CMake": context.cmake or "not required",
-            "Parallel jobs": context.jobs or "not required",
+            "Build jobs": context.jobs or "not required",
             "Child output": (
                 f"auto ({self.resolved_output_mode.value})"
                 if self.output_mode is OutputMode.AUTO
@@ -287,6 +287,8 @@ class BuildOutput:
                 )
             ),
         }
+        if context.request.action is Action.TEST and context.request.test_mode is TestMode.ISOLATION:
+            rows["Case processes"] = context.request.test_parallel_jobs or context.jobs
         if self.plain:
             self.console.print("DurinDevTool")
             for label, value in rows.items():

@@ -61,7 +61,7 @@ class TestBuildRegistry:
 
 
     def test_direct_and_shell_entry_paths_dispatch_identical_requests(self) -> None:
-        commands = ('stop --plain', 'presets --profile windows-msvc-x64 --preset win-msvc-x64-debug', 'preset win-msvc-x64-release --plain', 'status --jobs 8', 'path runtime --preset win-msvc-x64-debug', 'open runtime --preset win-msvc-x64-debug', 'configure --fresh -DFEATURE=ON --define LIMIT=4 --jobs 8', 'build --target Core --output compact', 'clean --plain', 'recover --cmake cmake', 'purge --all-presets --yes', 'rebuild --target all', 'test CoreTests Core.* --timeout 45', 'test all --mode report --report Build/results.xml', 'run --project "Examples/Sandbox/Sandbox.dproject" --args --scene Sample', 'create module Sample --project Examples/Sandbox/Sandbox.dproject --kind editor --link static --public-dependency Core --enable base --dry-run', 'create project Sample --path Examples/Sample --dry-run')
+        commands = ('stop --plain', 'presets --profile windows-msvc-x64 --preset win-msvc-x64-debug', 'preset win-msvc-x64-release --plain', 'status --jobs 8', 'path runtime --preset win-msvc-x64-debug', 'open runtime --preset win-msvc-x64-debug', 'configure --fresh -DFEATURE=ON --define LIMIT=4 --jobs 8', 'build --target Core --output compact', 'clean --plain', 'recover --cmake cmake', 'purge --all-presets --yes', 'rebuild --target all', 'test CoreTests Core.* --timeout 45', 'test all --report Build/results.xml', 'run --project "Examples/Sandbox/Sandbox.dproject" --args --scene Sample', 'create module Sample --project Examples/Sandbox/Sandbox.dproject --kind editor --link static --public-dependency Core --enable base --dry-run', 'create project Sample --path Examples/Sample --dry-run')
         stdout = io.StringIO()
         stderr = io.StringIO()
 
@@ -108,6 +108,27 @@ class TestBuildRegistry:
             )
 
         assert direct_requests == shell_requests
+
+    @pytest.mark.parametrize("extra,parallel", [([], False), (["--parallel", "4"], True)])
+    @pytest.mark.parametrize("report_args,path", [(["--report"], None), (["--report", "Build/out.xml"], Path("Build/out.xml"))])
+    def test_report_does_not_change_execution(self, extra, parallel, report_args, path) -> None:
+        request = handler.request_from_namespace(self.parse(["test", "MaterialTests", *extra, *report_args]))
+        assert request.test_report_enabled
+        assert request.test_report_path == path
+        assert request.test_mode.value == ("isolation" if parallel else "routine")
+
+    def test_parallel_cases_keep_build_jobs_independent(self) -> None:
+        request = handler.request_from_namespace(self.parse(
+            ["test", "MaterialTests", "--parallel", "4", "--jobs", "12"]))
+        assert request.test_mode.value == "isolation"
+        assert request.test_parallel_jobs == 4
+        assert request.test_filter == ""
+        assert request.context.jobs == 12
+
+    @pytest.mark.parametrize("selection", ["all", "fast-all", "affected", "list"])
+    def test_parallel_cases_require_bounded_run(self, selection: str) -> None:
+        with pytest.raises(DevToolError, match="--parallel requires"):
+            handler.request_from_namespace(self.parse(["test", selection, "--parallel", "4"]))
 
     def test_native_test_positional_and_scenario_grammar(self) -> None:
         request = handler.request_from_namespace(
@@ -171,6 +192,8 @@ class TestBuildRegistry:
         for command in (
             'open-runtime',
             'test all --include-direct',
+            'test MaterialTests --filter Suite.Case',
+            'test MaterialTests --mode report',
             'test --target CoreUtilityTests',
             'test all --granularity hybrid',
             'test all --ctest-regex Core',

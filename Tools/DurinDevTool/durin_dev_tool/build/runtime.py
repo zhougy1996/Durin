@@ -88,6 +88,9 @@ def run_native_test(context: BuildContext, output: BuildOutput) -> None:
         command.append(f"--gtest_filter={request.test_filter}")
     if output.compact:
         command.append("--gtest_brief=1")
+    report_path = _selected_report_path(context)
+    if report_path is not None:
+        command.append(f"--gtest_output=xml:{report_path}")
     with output.stage("Test"):
         run_command(
             command,
@@ -202,7 +205,7 @@ def _ctest_invocation(
         "--output-on-failure",
         "--no-tests=error",
         "-j",
-        str(context.jobs),
+        str(request.test_parallel_jobs or context.jobs),
     ]
     command.extend(selection_arguments)
     if request.test_timeout_seconds:
@@ -260,12 +263,7 @@ def _run_all_native_test_phase(
 
 def run_all_native_tests(context: BuildContext, output: BuildOutput) -> None:
     request = context.request
-    junit_path = None
-    if request.test_mode is TestMode.REPORT:
-        junit_path = _resolved_junit_path(
-            request.test_report_path
-            or Path("Build") / "NativeTestResults" / context.preset.name / "all.xml"
-        )
+    junit_path = _selected_report_path(context)
     try:
         _run_all_native_test_phase(
             context,
@@ -283,7 +281,7 @@ def run_all_native_tests(context: BuildContext, output: BuildOutput) -> None:
 
 def _selected_report_path(context: BuildContext) -> Path | None:
     request = context.request
-    if request.test_mode is not TestMode.REPORT:
+    if not request.test_report_enabled and request.test_report_path is None:
         return None
     if request.test_report_path is not None:
         return _resolved_junit_path(request.test_report_path, root=_context_paths(context).root)
@@ -311,7 +309,14 @@ def run_selected_native_tests(context: BuildContext, output: BuildOutput) -> Non
                 ["-LE", "native-test-characterization|native-test-qualification"]
             )
         if request.test_filter:
-            selection_arguments.extend(["-R", request.test_filter])
+            positive, separator, negative = request.test_filter.partition("-")
+            def case_regex(patterns: str) -> str:
+                alternatives = [re.escape(pattern).replace(r"\*", ".*").replace(r"\?", ".")
+                                for pattern in patterns.split(":")]
+                return "^(" + "|".join(alternatives) + ")$"
+            selection_arguments.extend(["-R", case_regex(positive or "*")])
+            if separator and negative:
+                selection_arguments.extend(["-E", case_regex(negative)])
     elif request.test_mode is TestMode.QUALIFICATION:
         selection_arguments = [
             "-L",
