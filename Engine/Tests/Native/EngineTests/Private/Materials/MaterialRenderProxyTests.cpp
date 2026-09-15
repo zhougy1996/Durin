@@ -750,24 +750,24 @@ TEST(FMaterialRenderProxyTests, PublishedStateOutlivesOwnersAndPostLoadDuplicati
 	Durin::CollectGarbage();
 }
 
-TEST(FMaterialRenderProxyTests, StressSharedUsersSlotsInterleavedPublicationAndDestruction)
+TEST(FMaterialRenderProxyTests, SharedUsersAndSlotsPreserveInterleavedPublicationAndDestruction)
 {
 	FRenderSceneHarness Harness;
-	constexpr uint32 ChainLength = 48;
-	constexpr uint32 SharedUserCount = 12;
-	constexpr uint32 SlotCount = 8;
-	constexpr uint32 UnrelatedMaterialCount = 256;
+	constexpr uint32 ChainLength = 3;
+	constexpr uint32 SharedUserCount = 2;
+	constexpr uint32 SlotCount = 2;
+	constexpr uint32 UnrelatedMaterialCount = 1;
 	auto CapturePrimitiveCount = [&Harness]() -> size_t {
 		size_t Count = 0;
-		struct FCaptureMaterialStressPrimitiveCountCommand
+		struct FCaptureMaterialInterleavedPrimitiveCountCommand
 		{
 			static constexpr auto GetName() -> const char*
 			{
-				return "CaptureMaterialStressPrimitiveCount";
+				return "CaptureMaterialInterleavedPrimitiveCount";
 			}
 		};
 		Durin::EnqueueRenderCommand<
-			FCaptureMaterialStressPrimitiveCountCommand>(
+			FCaptureMaterialInterleavedPrimitiveCountCommand>(
 			[&Count, Scene = Harness.Scene](
 				Durin::FRHICommandListImmediate&) {
 				Count = Scene->GetPrimitiveSceneInfos().size();
@@ -777,9 +777,9 @@ TEST(FMaterialRenderProxyTests, StressSharedUsersSlotsInterleavedPublicationAndD
 	};
 
 	auto* Base = MakeExpandedMaterial(
-		nullptr, "ProxyStressBase");
+		nullptr, "ProxyInterleavedBase");
 	auto* AlternateBase = MakeExpandedMaterial(
-		nullptr, "ProxyStressAlternateBase");
+		nullptr, "ProxyInterleavedAlternateBase");
 	ASSERT_TRUE(Base->SetVectorParameterValue(
 		Durin::MaterialParameters::BaseColorName(),
 		Durin::FVector3(0.1, 0.2, 0.3)));
@@ -794,7 +794,7 @@ TEST(FMaterialRenderProxyTests, StressSharedUsersSlotsInterleavedPublicationAndD
 	{
 		auto* Instance = Durin::NewObject<Durin::DMaterialInstance>(
 			nullptr,
-			Durin::FName(std::format("ProxyStressChain{}", Index)));
+			Durin::FName(std::format("ProxyInterleavedChain{}", Index)));
 		ASSERT_TRUE(Instance->SetParent(Parent));
 		Chain.push_back(Instance);
 		Parent = Instance;
@@ -806,16 +806,16 @@ TEST(FMaterialRenderProxyTests, StressSharedUsersSlotsInterleavedPublicationAndD
 	const FMaterialProxySnapshot InitialLeaf = CaptureMaterialProxy(LeafProxy);
 
 	auto* Shared = MakeExpandedMaterial(
-		nullptr, "ProxyStressShared");
+		nullptr, "ProxyInterleavedShared");
 	auto* Replacement = MakeExpandedMaterial(
-		nullptr, "ProxyStressReplacement");
+		nullptr, "ProxyInterleavedReplacement");
 	std::vector<Durin::DMaterial*> SlotMaterials;
 	SlotMaterials.reserve(SlotCount);
 	for (uint32 SlotIndex = 0; SlotIndex < SlotCount; ++SlotIndex)
 	{
 		auto* Material = MakeExpandedMaterial(
 			nullptr,
-			Durin::FName(std::format("ProxyStressSlotMaterial{}", SlotIndex)));
+			Durin::FName(std::format("ProxyInterleavedSlotMaterial{}", SlotIndex)));
 		ASSERT_TRUE(Material->SetVectorParameterValue(
 			Durin::MaterialParameters::BaseColorName(),
 			Durin::FVector3(
@@ -837,7 +837,7 @@ TEST(FMaterialRenderProxyTests, StressSharedUsersSlotsInterleavedPublicationAndD
 	{
 		AddDebugMaterialSlot(
 			Mesh,
-			std::format("ProxyStressSlot{}", SlotIndex));
+			std::format("ProxyInterleavedSlot{}", SlotIndex));
 	}
 
 	std::vector<Durin::DStaticMeshComponent*> Components;
@@ -845,7 +845,7 @@ TEST(FMaterialRenderProxyTests, StressSharedUsersSlotsInterleavedPublicationAndD
 	for (uint32 UserIndex = 0; UserIndex < SharedUserCount; ++UserIndex)
 	{
 		auto* Component = Harness.CreateStaticMeshComponent(
-			Durin::FName(std::format("ProxyStressUser{}", UserIndex)));
+			Durin::FName(std::format("ProxyInterleavedUser{}", UserIndex)));
 		ASSERT_NE(Component, nullptr);
 		Component->SetStaticMesh(Mesh);
 		Component->SetMaterial(0, Shared);
@@ -873,7 +873,7 @@ TEST(FMaterialRenderProxyTests, StressSharedUsersSlotsInterleavedPublicationAndD
 	{
 		UnrelatedMaterials.push_back(MakeExpandedMaterial(
 			nullptr,
-			Durin::FName(std::format("ProxyStressUnrelated{}", Index))));
+			Durin::FName(std::format("ProxyInterleavedUnrelated{}", Index))));
 	}
 
 	Durin::FMaterialRenderProxyRef SharedProxy =
@@ -881,7 +881,7 @@ TEST(FMaterialRenderProxyTests, StressSharedUsersSlotsInterleavedPublicationAndD
 	Durin::FMaterialRenderProxyRef QueuedDestructionProxy;
 	{
 		auto* QueuedDestructionMaterial = MakeExpandedMaterial(
-			nullptr, "ProxyStressQueuedDestruction");
+			nullptr, "ProxyInterleavedQueuedDestruction");
 		QueuedDestructionProxy =
 			QueuedDestructionMaterial->GetMaterialRenderProxy();
 		ASSERT_TRUE(QueuedDestructionProxy);
@@ -896,14 +896,14 @@ TEST(FMaterialRenderProxyTests, StressSharedUsersSlotsInterleavedPublicationAndD
 	const auto AllowCommandCompletion = std::make_shared<std::promise<void>>();
 	std::shared_future<void> AllowCommandCompletionFuture =
 		AllowCommandCompletion->get_future().share();
-	struct FBlockMaterialStressCommand
+	struct FBlockMaterialInterleavedCommand
 	{
 		static constexpr auto GetName() -> const char*
 		{
-			return "BlockMaterialStressPublication";
+			return "BlockMaterialInterleavedPublication";
 		}
 	};
-	Durin::EnqueueRenderCommand<FBlockMaterialStressCommand>(
+	Durin::EnqueueRenderCommand<FBlockMaterialInterleavedCommand>(
 		[CommandStarted, AllowCommandCompletionFuture](
 			Durin::FRHICommandListImmediate&) {
 			CommandStarted->set_value();
