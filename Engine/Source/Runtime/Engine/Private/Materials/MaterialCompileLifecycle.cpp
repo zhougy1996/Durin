@@ -256,6 +256,10 @@ namespace Durin
 					if (const auto Existing = Flights.find(Key);
 						Existing != Flights.end())
 					{
+						// Cancellation is irreversible. Keep the retiring flight counted
+						// until completion, then retry through the bounded owner scan.
+						if (Existing->second->Cancellation.GetToken().IsCancellationRequested())
+							return EMaterialCompileState::Deferred;
 						Request.bSingleFlightConsumer = true;
 						Existing->second->Consumers.push_back(std::move(Request));
 						++Diagnostics.AcceptedRequests;

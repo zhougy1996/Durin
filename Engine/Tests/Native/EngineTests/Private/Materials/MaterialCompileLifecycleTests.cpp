@@ -53,6 +53,54 @@ namespace
 
 namespace
 {
+auto QualifyCanceledFlightResubmission() -> void
+{
+	using namespace Durin;
+	auto* Material = NewObject<DMaterial>(nullptr, "CanceledFlightResubmission");
+	struct FObjectCleanup
+	{
+		DMaterial* Material;
+		~FObjectCleanup() { MarkAsGarbage(Material); CollectGarbage(); }
+	} Cleanup{Material};
+	// Keep this fixture's retained result separate from the default-material
+	// identity used by the subsequent cold single-flight assertions.
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	ASSERT_TRUE(EditRoughnessDefault(*Material, 0.173125f));
+	for (const bool bExplicitCancel : {false, true})
+	{
+		SCOPED_TRACE(bExplicitCancel ? "cancel then compile" : "compile twice");
+		{
+			const auto WorkerCount = GetTaskSchedulerDiagnostics().WorkerCount;
+			FThreadEvent Started, Release;
+			std::atomic<uint32> StartedCount = 0;
+			std::vector<FTaskHandle> Blockers;
+			struct FReleaseWorkers
+			{
+				FThreadEvent& Release;
+				std::vector<FTaskHandle>& Blockers;
+				~FReleaseWorkers() { Release.Trigger(); for (const auto& Task : Blockers) WaitTask(Task); }
+			} ReleaseWorkers{Release, Blockers};
+			for (uint32 Index = 0; Index < WorkerCount; ++Index)
+				Blockers.push_back(Tasks::LaunchTask("HoldCanceledMaterialFlight", [&] {
+					if (StartedCount.fetch_add(1) + 1 == WorkerCount) Started.Trigger();
+					Release.WaitFor(10.0);
+				}).GetCompletion().GetTaskHandle());
+			ASSERT_TRUE(Started.WaitFor(2.0));
+			// Force compilation so the second iteration cannot use a retained hit.
+			ASSERT_TRUE(RequestMaterialRecompile(*Material, true));
+			const auto Generation = Material->GetMaterialCompileStatus().RequestGeneration;
+			if (bExplicitCancel)
+				FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Material);
+			ASSERT_TRUE(RequestMaterialRecompile(*Material, true));
+			EXPECT_GT(Material->GetMaterialCompileStatus().RequestGeneration, Generation);
+			EXPECT_EQ(Material->GetMaterialCompileStatus().State, EMaterialCompileState::Deferred);
+		}
+		ASSERT_TRUE(WaitForMaterialCompile(*Material));
+		EXPECT_TRUE(Material->GetMaterialCompileStatus().IsCurrent());
+		EXPECT_EQ(Material->GetMaterialCompileStatus().CacheOutcome, EMaterialCompileCacheOutcome::Forced);
+	}
+}
+
 auto QualifyEditScheduling() -> void
 {
 	using namespace Durin;
@@ -148,6 +196,7 @@ TEST(FMaterialCompileLifecycleTests,
 	const bool bOwnsScheduler = !Durin::IsTaskSchedulerRunning();
 	if (bOwnsScheduler) ASSERT_TRUE(Durin::InitializeTaskScheduler(2));
 	ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
+	QualifyCanceledFlightResubmission();
 	Durin::Testing::CheckInstanceVariantsForTest(false);
 	QualifyInstanceCompilationOwners();
 
