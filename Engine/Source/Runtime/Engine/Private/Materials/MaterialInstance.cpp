@@ -135,17 +135,19 @@ namespace Durin
 	auto DMaterialInstance::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
 	{
 		Super::PostEditChangeProperty(Event);
-		MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters);
+		auto DirtyFlags = EMaterialRenderDirtyFlags::DynamicParameters;
 		if (Event.MemberProperty && Event.MemberProperty->NamePrivate == FName("PropertyOverrides"))
 		{
 			InvalidateMaterialCompilation(true, true);
-			MarkRenderDataDirty(EMaterialRenderDirtyFlags::AllRenderState);
+			DirtyFlags = DirtyFlags | EMaterialRenderDirtyFlags::AllRenderState;
 		}
-		if (Event.MemberProperty && Event.MemberProperty->NamePrivate == FName("Parent"))
+		else if (Event.MemberProperty && Event.MemberProperty->NamePrivate == FName("Parent"))
 		{
 			InvalidateMaterialCompilation();
-			MarkRenderDataDirty(EMaterialRenderDirtyFlags::ParentChain | EMaterialRenderDirtyFlags::AllRenderState);
+			DirtyFlags = DirtyFlags | EMaterialRenderDirtyFlags::ParentChain | EMaterialRenderDirtyFlags::AllRenderState;
 		}
+		// Publish once, after compilation invalidation has observed the completed edit.
+		MarkRenderDataDirty(DirtyFlags);
 	}
 
 	auto DMaterialInstance::GetParent() const -> DMaterialInterface*

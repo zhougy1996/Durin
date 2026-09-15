@@ -139,6 +139,60 @@ TEST(FMaterialDependencyTests, LoadedQueriesSeparateDirectChildrenFromTransitive
 	Durin::CollectGarbage();
 }
 
+TEST(FMaterialDependencyTests, InstancePropertyEditPublishesDependentsOnce)
+{
+	InitializeDObjectSystem();
+	auto* Base = Durin::NewObject<Durin::DMaterial>(nullptr, "EditNotificationBase");
+	Base->SetEditCompileMode(Durin::EMaterialEditCompileMode::Manual);
+	auto* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "EditNotificationInstance");
+	auto* Child = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "EditNotificationChild");
+	ASSERT_TRUE(Instance->SetParent(Base));
+	ASSERT_TRUE(Child->SetParent(Instance));
+
+	auto ExpectSingleNotification = [&](Durin::FProperty* Property, uint64 ExpectedQueries) {
+		const auto InstanceVersion = Instance->GetRenderStateVersion();
+		const auto ChildVersion = Child->GetRenderStateVersion();
+		const auto BaseVersion = Base->GetRenderStateVersion();
+		Durin::ResetMaterialLoadedQueryDiagnostics();
+		Instance->PostEditChangeProperty({.MemberProperty = Property});
+		EXPECT_EQ(Instance->GetRenderStateVersion(), InstanceVersion + 1);
+		EXPECT_EQ(Child->GetRenderStateVersion(), ChildVersion + 1);
+		EXPECT_EQ(Base->GetRenderStateVersion(), BaseVersion);
+		const auto Diagnostics = Durin::GetMaterialLoadedQueryDiagnostics();
+		EXPECT_EQ(Diagnostics.QueryCount, ExpectedQueries);
+		EXPECT_EQ(Diagnostics.SnapshotCount, ExpectedQueries);
+	};
+
+	auto* ParentProperty = Instance->GetClass()->FindPropertyByName("Parent");
+	auto* OverridesProperty = Instance->GetClass()->FindPropertyByName("PropertyOverrides");
+	auto* ScalarProperty = Instance->GetClass()->FindPropertyByName("ScalarParameterValues");
+	ASSERT_NE(ParentProperty, nullptr);
+	ASSERT_NE(OverridesProperty, nullptr);
+	ASSERT_NE(ScalarProperty, nullptr);
+	const auto Revision = Instance->GetMaterialCompileStatus().AuthoredRevision;
+	const auto ChildRevision = Child->GetMaterialCompileStatus().AuthoredRevision;
+	// Static edits perform one compilation query and one publication query.
+	ExpectSingleNotification(ParentProperty, 2);
+	EXPECT_EQ(Instance->GetMaterialCompileStatus().AuthoredRevision, Revision + 1);
+	EXPECT_EQ(Child->GetMaterialCompileStatus().AuthoredRevision, ChildRevision + 1);
+	auto* Overrides = OverridesProperty->ContainerPtrToValuePtr<Durin::FMaterialPropertyOverrides>(Instance);
+	Overrides->bOverrideShadingModel = true;
+	Overrides->Values.ShadingModel = Durin::EMaterialShadingModel::Unlit;
+	ExpectSingleNotification(OverridesProperty, 2);
+	EXPECT_EQ(Instance->GetMaterialCompileStatus().AuthoredRevision, Revision + 2);
+	EXPECT_EQ(Child->GetMaterialCompileStatus().AuthoredRevision, ChildRevision + 2);
+	EXPECT_EQ(Child->GetStaticProperties().ShadingModel, Durin::EMaterialShadingModel::Unlit);
+	const auto DynamicRevision = Instance->GetMaterialCompileStatus().AuthoredRevision;
+	ExpectSingleNotification(ScalarProperty, 1);
+	ExpectSingleNotification(nullptr, 1);
+	EXPECT_EQ(Instance->GetMaterialCompileStatus().AuthoredRevision, DynamicRevision);
+
+	Durin::MarkAsGarbage(Child);
+	Durin::MarkAsGarbage(Instance);
+	Durin::MarkAsGarbage(Base);
+	Durin::CollectGarbage();
+}
+
 TEST(FMaterialDependencyTests, LoadedQueriesFilterGarbageAndReturnGenerationSafeHandles)
 {
 	InitializeDObjectSystem();
