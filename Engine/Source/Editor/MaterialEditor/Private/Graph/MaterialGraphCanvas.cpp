@@ -285,9 +285,13 @@ namespace Durin::Editor::Material
 			++CatalogRevision;
 		}
 		if (CachedMaterial != &Material
-			|| CachedProgramRevision != ProgramRevision)
+			|| CachedProgramRevision != ProgramRevision
+			|| CachedExpressionRevision != Material.GetMaterialProgramRevision()
+			|| CachedRenderStateVersion != Material.GetRenderStateVersion()
+			|| CachedSchemaRevision != SchemaRevision)
 		{
-			CachedView = FMaterialGraphOperations::Inspect(Material, Catalog);
+			CachedInspection = FMaterialGraphOperations::Inspect(Material, Catalog);
+			CachedView = CachedInspection;
 			if (!bShowAdvancedInputs) HideUnusedAdvancedPins(CachedView);
 			CachedNodeIndices.clear();
 			CachedNodeIndices.reserve(CachedView.Nodes.size());
@@ -295,23 +299,11 @@ namespace Durin::Editor::Material
 				CachedNodeIndices.emplace(CachedView.Nodes[Index].Node.Id, Index);
 			CachedMaterial = &Material;
 			CachedProgramRevision = ProgramRevision;
+			CachedExpressionRevision = Material.GetMaterialProgramRevision();
+			CachedRenderStateVersion = Material.GetRenderStateVersion();
 			CachedPresentationRevision = PresentationRevision;
 			CachedSchemaRevision = SchemaRevision;
 			bVisualGraphTopologyStale = true;
-		}
-		if (CachedSchemaRevision != SchemaRevision)
-		{
-			for (FMaterialGraphNodeView& Node : CachedView.Nodes)
-			{
-				if (Node.Node.GetParameterId().IsValid())
-				{
-					if (const auto* Definition = Material.FindParameterDefinition(Node.Node.GetParameterId()))
-						Node.PrimaryLabel = Definition->DisplayName.empty()
-							? Definition->Name.ToString() : Definition->DisplayName;
-				}
-				else Node.SecondaryLabel = Node.Presentation.DisplayName;
-			}
-			CachedSchemaRevision = SchemaRevision;
 		}
 		if (CachedPresentationRevision != PresentationRevision)
 		{
@@ -321,9 +313,11 @@ namespace Durin::Editor::Material
 				const auto It = CachedNodeIndices.find(Position.NodeId);
 				check(It != CachedNodeIndices.end());
 				CachedView.Nodes[It->second].Presentation = Position;
+				CachedInspection.Nodes[It->second].Presentation = Position;
 			}
 			CachedView.MaterialOutputPosition = {
 				Presentation.MaterialOutputX, Presentation.MaterialOutputY};
+			CachedInspection.MaterialOutputPosition = CachedView.MaterialOutputPosition;
 			CachedPresentationRevision = PresentationRevision;
 		}
 		SurfaceGraphPosition = {
@@ -809,12 +803,23 @@ namespace Durin::Editor::Material
 			});
 			++CatalogRevision;
 		}
-		std::vector<std::pair<DObject*, uint64>> Revisions{{&Function, Function.GetFunctionRevision()}};
-		for (const auto& Dependency : Function.GetFunctionDependencies())
-			if (Dependency) Revisions.emplace_back(Dependency.Get(), Dependency->GetFunctionRevision());
 		const auto& Positions = Function.GetFunctionPresentation().Nodes;
-		if (CachedFunction == &Function && CachedFunctionRevisions == Revisions && CachedFunctionPositions == Positions) return;
-		CachedView = FMaterialGraphDocument(Function).Inspect(Catalog);
+		// A stable dependency closure only needs revision reads, not graph enumeration.
+		if (CachedFunction == &Function && CachedFunctionPositions == Positions
+			&& std::ranges::all_of(CachedFunctionRevisions, [](const auto& Entry) {
+				return Cast<DMaterialFunctionInterface>(Entry.first)->GetFunctionRevision() == Entry.second;
+			})) return;
+		std::vector<std::pair<DObject*, uint64>> Revisions;
+		std::unordered_set<DMaterialFunctionInterface*> Visited;
+		const auto Visit = [&](auto&& Self, DMaterialFunctionInterface& Current) -> void {
+			if (!Visited.emplace(&Current).second) return;
+			Revisions.emplace_back(&Current, Current.GetFunctionRevision());
+			for (const auto& Dependency : Current.GetFunctionDependencies())
+				if (Dependency) Self(Self, *Dependency);
+		};
+		Visit(Visit, Function);
+		CachedInspection = FMaterialGraphDocument(Function).Inspect(Catalog);
+		CachedView = CachedInspection;
 		if (!bShowAdvancedInputs) HideUnusedAdvancedPins(CachedView);
 		CachedNodeIndices.clear();
 		for (size_t Index = 0; Index < CachedView.Nodes.size(); ++Index) CachedNodeIndices.emplace(CachedView.Nodes[Index].Node.Id, Index);

@@ -183,6 +183,7 @@ namespace Durin::Editor::Material
 			const FReportError& ReportError) -> void;
 		auto ResetInteraction() -> void;
 		auto PrepareFunctionView(DMaterialFunction& Function) -> void;
+		auto PrepareDetailsView(DObject& Owner) -> const FMaterialGraphView&;
 		auto HandleCreationShortcut(DObject& Owner, DTransactor& Transactions,
 			const ImVec2& Position, const FReportError& ReportError) -> bool;
 		auto DrawNodeHeading(const FVisualNode& Visual, ImDrawList& DrawList,
@@ -214,10 +215,14 @@ namespace Durin::Editor::Material
 		std::vector<size_t> CachedCreationMenuResults;
 		size_t CachedCreationMenuRecentCount = 0;
 		uint64 CachedProgramRevision = 0;
+		uint64 CachedExpressionRevision = 0;
+		uint64 CachedRenderStateVersion = 0;
 		uint64 CachedPresentationRevision = 0;
 		uint64 CachedSchemaRevision = 0;
 		std::vector<FMaterialGraphCatalogEntry> Catalog;
 		FMaterialGraphView CachedView;
+		// Full inspection shared by Details and the canvas, before pin visibility filtering.
+		FMaterialGraphView CachedInspection;
 		std::unordered_map<FGuid, size_t> CachedNodeIndices;
 		std::unique_ptr<FVisualGraph> CachedVisualGraph;
 		std::shared_ptr<FTexturePreviewState> TexturePreviews;

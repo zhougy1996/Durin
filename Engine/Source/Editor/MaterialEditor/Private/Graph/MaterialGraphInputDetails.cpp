@@ -11,6 +11,14 @@
 
 namespace Durin::Editor::Material
 {
+	auto FMaterialGraphCanvas::PrepareDetailsView(DObject& Owner) -> const FMaterialGraphView&
+	{
+		// Refresh here too: Details can be drawn before the canvas or while it is hidden.
+		if (auto* Material = Cast<DMaterial>(&Owner)) PrepareView(*Material);
+		else if (auto* Function = Cast<DMaterialFunction>(&Owner)) PrepareFunctionView(*Function);
+		return CachedInspection;
+	}
+
 	auto FMaterialGraphCanvas::DrawSelectionDetails(DObject& Owner, DTransactor& Transactions,
 		const FReportError& ReportError) -> void
 	{
@@ -30,7 +38,7 @@ namespace Durin::Editor::Material
 			if (!State.Capture(Owner)) return State.Expressions.end();
 			return std::ranges::find(State.Expressions, Selection.front(), [](const auto& E) { return E->Id; });
 		};
-		const auto View = Document.Inspect();
+		const auto& View = PrepareDetailsView(Owner);
 		const auto Selected = std::ranges::find(View.Nodes, Selection.front(),
 			[](const auto& Entry) { return Entry.Node.Id; });
 		if (Selected == View.Nodes.end()) return;

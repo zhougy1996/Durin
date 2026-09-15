@@ -57,6 +57,8 @@ namespace Durin::Editor::Material
 		{ Canvas.bShowAdvancedInputs = false; Canvas.CachedMaterial = nullptr; }
 		static auto Prepare(FMaterialGraphCanvas& Canvas, DMaterial& Material)
 			-> const FMaterialGraphView& { return Canvas.PrepareView(Material); }
+		static auto Details(FMaterialGraphCanvas& Canvas, DObject& Owner)
+			-> const FMaterialGraphView& { return Canvas.PrepareDetailsView(Owner); }
 		static auto PrepareVisuals(FMaterialGraphCanvas& Canvas) -> void
 		{
 			Canvas.PrepareVisualGraph(Canvas.CachedView, {});
@@ -1127,6 +1129,14 @@ TEST(FMaterialGraphOperationsTests, HiddenAdvancedPinsRetainStableIdentitiesAndR
 	ASSERT_EQ(CallView->Inputs.size(), 2u); // The default Surface input remains visible.
 	EXPECT_EQ(CallView->Inputs.back().PortId, Visible);
 	EXPECT_EQ(CallView->Inputs.back().InputIndex, 2u);
+	const auto& Details = FMaterialGraphCanvasTestAccess::Details(Canvas, *Material);
+	ASSERT_EQ(FindViewNode(Details, Call.GeneratedNodeIds[0])->Inputs.size(), 3u);
+	FMaterialGraphCanvasTestAccess::PrepareVisuals(Canvas);
+	for (int Frame = 0; Frame < 3; ++Frame)
+	{
+		FMaterialGraphCanvasTestAccess::Details(Canvas, *Material);
+		EXPECT_FALSE(FMaterialGraphCanvasTestAccess::TopologyStale(Canvas));
+	}
 	ASSERT_TRUE(Document.SetInputDefault(Call.GeneratedNodeIds[0], 0,
 		{.Kind = EMaterialInputDefaultKind::Literal, .Literal = {.X = .7f}}, Advanced));
 	const auto& Revealed = FMaterialGraphCanvasTestAccess::Prepare(Canvas, *Material);
@@ -2062,6 +2072,17 @@ TEST(FMaterialGraphOperationsTests, CanvasPositionRefreshPreservesTopologyStorag
 	FMaterialGraphCanvasTestAccess::Prepare(Canvas, *Material);
 	EXPECT_EQ(FindViewNode(View, ParameterId)->PrimaryLabel,
 		Material->FindParameterDefinition(Definition.Id)->DisplayName);
+	EXPECT_EQ(FindViewNode(FMaterialGraphCanvasTestAccess::Details(Canvas, *Material), ParameterId)->PrimaryLabel,
+		Material->FindParameterDefinition(Definition.Id)->DisplayName);
+	FMaterialGraphCanvasTestAccess::PrepareVisuals(Canvas);
+	const auto AuthoredRevision = Material->GetMaterialCompileStatus().AuthoredRevision;
+	ASSERT_TRUE(Material->SetParameterValue(Definition.Id, FMaterialParameterValue::MakeScalar(.75f)));
+	EXPECT_EQ(Material->GetMaterialCompileStatus().AuthoredRevision, AuthoredRevision);
+	FMaterialGraphCanvasTestAccess::Details(Canvas, *Material);
+	EXPECT_TRUE(FMaterialGraphCanvasTestAccess::TopologyStale(Canvas));
+	FMaterialGraphCanvasTestAccess::PrepareVisuals(Canvas);
+	FMaterialGraphCanvasTestAccess::Details(Canvas, *Material);
+	EXPECT_FALSE(FMaterialGraphCanvasTestAccess::TopologyStale(Canvas));
 	MarkAsGarbage(Material);
 	CollectGarbage();
 }
@@ -2699,7 +2720,8 @@ TEST(FMaterialGraphOperationsTests, FunctionCanvasCacheTracksPositionsAndDepende
 	const auto Call = Document.InsertFunctionCall(*Dependency, 100, 200);
 	ASSERT_TRUE(Call);
 	FMaterialGraphCanvas Canvas;
-	FMaterialGraphCanvasTestAccess::PrepareFunction(Canvas, *Function);
+	// Details initializes the shared cache even before the canvas is drawn.
+	FMaterialGraphCanvasTestAccess::Details(Canvas, *Function);
 	FMaterialGraphCanvasTestAccess::PrepareVisuals(Canvas);
 	FMaterialGraphCanvasTestAccess::PrepareFunction(Canvas, *Function);
 	EXPECT_FALSE(FMaterialGraphCanvasTestAccess::TopologyStale(Canvas));
@@ -2714,6 +2736,16 @@ TEST(FMaterialGraphOperationsTests, FunctionCanvasCacheTracksPositionsAndDepende
 	ASSERT_TRUE(DependencyDocument.AddPort(true, {.Name = "Extra"}, {Value.GeneratedNodeIds.front()}));
 	FMaterialGraphCanvasTestAccess::PrepareFunction(Canvas, *Function);
 	EXPECT_TRUE(FMaterialGraphCanvasTestAccess::TopologyStale(Canvas));
+	const auto& Details = FMaterialGraphCanvasTestAccess::Details(Canvas, *Function);
+	EXPECT_EQ(FindViewNode(Details, Call.GeneratedNodeIds.front())->Outputs.size(), Dependency->GetFunctionSignature().Outputs.size());
+	auto* Leaf = NewObject<DMaterialFunction>(nullptr, "CachedLeafDependency");
+	ASSERT_TRUE(DependencyDocument.InsertFunctionCall(*Leaf, 0, 0));
+	FMaterialGraphCanvasTestAccess::Details(Canvas, *Function);
+	FMaterialGraphCanvasTestAccess::PrepareVisuals(Canvas);
+	ASSERT_TRUE(Testing::CreateGraphConstant(FMaterialGraphDocument(*Leaf), .8f));
+	FMaterialGraphCanvasTestAccess::Details(Canvas, *Function);
+	EXPECT_TRUE(FMaterialGraphCanvasTestAccess::TopologyStale(Canvas));
+	MarkAsGarbage(Leaf);
 	MarkAsGarbage(Function); MarkAsGarbage(Dependency); CollectGarbage();
 }
 
