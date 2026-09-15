@@ -1,4 +1,6 @@
 #include "Diagnostics/StaticMeshPayloadInspection.h"
+#include "StaticMesh/StaticMeshCustomVersion.h"
+#include "DObject/PackageFormat.h"
 #include "StaticMesh/StaticMeshBuildTestSupport.h"
 #include <gtest/gtest.h>
 #include "NativeAssetRuntimeTestSupport.h"
@@ -840,6 +842,82 @@ TEST(FStaticMeshSourceResidencyTests, WarmCacheSkipsUnreadableBulkAndMissPreserv
 	EXPECT_FALSE(BuildStaticMeshDerivedData(Request, Product, Error));
 	EXPECT_EQ(Resource->GetReadStats().RequestCount, 2u);
 	ASSERT_TRUE(UnloadPackage(Fixture.AssetPath));
+}
+
+TEST(FStaticMeshSourceVersionTests, AuthoredLoadRequiresFileVersionAndPreservesSourceIdentity)
+{
+	using namespace Durin;
+	const FScopedDerivedDataCacheRestore CacheRestore;
+	auto Fixture = ImportCacheFixture("StaticMeshSourceVersion");
+	ASSERT_NE(Fixture.Mesh, nullptr);
+	const auto Identity = Fixture.Mesh->GetSource().GetIdentity();
+	const auto Key = GetStaticMeshKey(*Fixture.Mesh);
+	FByteBuffer Original;
+	const auto File = Fixture.Root / "Content/Mesh.dasset";
+	ASSERT_TRUE(FFileHelper::LoadFileToArray(Original, File));
+	ObjectPackage::FLinkerTables Saved;
+	ASSERT_TRUE(ObjectPackage::ReadPackage(Original, {}, Fixture.AssetPath, Saved));
+	ASSERT_EQ(Saved.CustomVersions, (std::vector<FCustomVersion>{{FStaticMeshSourceVersion::Guid, FStaticMeshSourceVersion::CurrentVersion}}));
+	ASSERT_TRUE(UnloadPackage(Fixture.AssetPath));
+	for (const int32 Version : {-1, 0, 2})
+	{
+		auto Candidate = Saved;
+		if (Version < 0) Candidate.CustomVersions.clear();
+		else Candidate.CustomVersions.front().Version = Version;
+		FByteBuffer Bytes, Bulk;
+		ASSERT_TRUE(ObjectPackage::WritePackage(Candidate, Bytes, Bulk));
+		ASSERT_TRUE(Bulk.empty());
+		ASSERT_TRUE(FFileHelper::SaveArrayToFile(Bytes, File));
+		DStaticMesh* Loaded = nullptr;
+		const auto Result = LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Fixture.AssetPath), Loaded);
+		EXPECT_EQ(Result.Error, EAssetError::UnsupportedVersion) << Result.Message;
+		EXPECT_EQ(Loaded, nullptr);
+		EXPECT_EQ(FindResidentPackage(Fixture.AssetPath), nullptr);
+		FByteBuffer Unchanged;
+		ASSERT_TRUE(FFileHelper::LoadFileToArray(Unchanged, File));
+		EXPECT_EQ(Unchanged, Bytes);
+	}
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Original, File));
+	DStaticMesh* Loaded = nullptr;
+	const auto Result = LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Fixture.AssetPath), Loaded);
+	ASSERT_TRUE(Result) << Result.Message;
+	EXPECT_EQ(Loaded->GetSource().GetIdentity(), Identity);
+	EXPECT_EQ(GetStaticMeshKey(*Loaded), Key);
+	std::string Error;
+	ASSERT_TRUE(Loaded->GetSource().AcquireGeometry(Error)) << Error;
+	ASSERT_TRUE(UnloadPackage(Fixture.AssetPath));
+}
+
+TEST(FStaticMeshSourceVersionTests, MaintainedSourcesLoadAfterRestart)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	Testing::FScopedMountRegistryFixture MountRegistry;
+	Testing::RegisterMountPointForTests("/Engine/", FPaths::EngineContentDir());
+	Testing::RegisterMountPointForTests("/Game/",
+		(std::filesystem::path(FPaths::RootDir()) / "Sandbox/Content").generic_string());
+	ShutdownAssetManager();
+	CollectGarbage();
+	ASSERT_TRUE(InitializeAssetManager());
+	const auto Scan = RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation);
+	ASSERT_TRUE(Scan) << (Scan.Errors.empty() ? "Incomplete registry" : Scan.Errors.front().Message);
+	for (const auto* Name : {"/Engine/Models/Box", "/Engine/Models/Sphere",
+		"/Engine/Models/SplineBox", "/Game/Models/GrayboxPawn"})
+	{
+		SCOPED_TRACE(Name);
+		FPackagePath Path;
+		ASSERT_TRUE(FPackagePath::TryCreate(Name, Path));
+		DStaticMesh* Mesh = nullptr;
+		const auto Result = LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Mesh);
+		ASSERT_TRUE(Result) << Result.Message;
+		ASSERT_TRUE(Mesh->GetSource().IsValid());
+		std::string Error;
+		ASSERT_TRUE(Mesh->GetSource().AcquireGeometry(Error)) << Error;
+		ASSERT_TRUE(UnloadPackage(Path));
+	}
+	ShutdownAssetManager();
+	CollectGarbage();
+	ASSERT_TRUE(InitializeAssetManager());
 }
 
 TEST(FStaticMeshSourceResidencyTests, ExistingAuthoredPackageAndDuplicateRetainCanonicalSource)
@@ -1825,6 +1903,22 @@ TEST(FStaticMeshPayloadInspectionTests, AuthoredAndCookedMetadataDoesNotDependOn
 	EXPECT_EQ(GDObjectArray.GetNum(), ObjectCount);
 	EXPECT_EQ(Snapshot.Fields[0].State, "Metadata present");
 	EXPECT_EQ(Snapshot.Fields[1].State, "Absent");
+	const auto SourceVersions = Package.CustomVersions;
+	ASSERT_EQ(SourceVersions, (std::vector<FCustomVersion>{{FStaticMeshSourceVersion::Guid, FStaticMeshSourceVersion::CurrentVersion}}));
+	std::vector<FAssetPackageField> SourceFields;
+	ASSERT_TRUE(Package.FindField("Source")->TryInspectStructFields(SourceFields));
+	EXPECT_EQ(std::ranges::find(SourceFields, "SchemaVersion", &FAssetPackageField::Name), SourceFields.end());
+	for (const int32 Version : {-1, 0, 2})
+	{
+		Package.CustomVersions = SourceVersions;
+		if (Version < 0) Package.CustomVersions.clear();
+		else Package.CustomVersions.front().Version = Version;
+		ASSERT_TRUE(InspectStaticMeshPayloadPackage(Package, Snapshot));
+		EXPECT_EQ(Snapshot.Fields[0].State, "Unsupported");
+		EXPECT_EQ(GDObjectArray.GetNum(), ObjectCount);
+	}
+	Package.CustomVersions = SourceVersions;
+	ASSERT_TRUE(InspectStaticMeshPayloadPackage(Package, Snapshot));
 	const auto Identity = Snapshot.Fields[0].Identity;
 	Package.PhysicalPath = "/nonexistent/absent-companion/Mesh.dasset";
 	ASSERT_TRUE(InspectStaticMeshPayloadPackage(Package, Snapshot));
@@ -1841,6 +1935,7 @@ TEST(FStaticMeshPayloadInspectionTests, AuthoredAndCookedMetadataDoesNotDependOn
 	FPackagePath CookedPath;
 	ASSERT_TRUE(FPackagePath::TryCreateProjectContent("/Game/InspectionMesh", CookedPath));
 	ASSERT_TRUE(InspectAssetPackage((CookRoot / "Game/InspectionMesh.dasset").generic_string(), CookedPath, Package));
+	EXPECT_EQ(std::ranges::find(Package.CustomVersions, FStaticMeshSourceVersion::Guid, &FCustomVersion::Guid), Package.CustomVersions.end());
 	Package.PhysicalPath = "/nonexistent/cooked/Mesh.dasset";
 	ASSERT_TRUE(InspectStaticMeshPayloadPackage(Package, Snapshot));
 	EXPECT_EQ(Snapshot.Fields[0].State, "Absent");

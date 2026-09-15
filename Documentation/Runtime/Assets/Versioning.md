@@ -110,6 +110,31 @@ checks through `DObject::SerializeCooked` and virtual `Serialize`; graph strippi
 does not remove the material package version. Future incompatible changes must
 advance the owning domain and define their explicit migration policy.
 
+## Static Mesh Source Versions
+
+`FStaticMeshSourceVersion` versions authored static mesh source metadata at
+version 1. `DStaticMesh::Serialize` declares it during authored discovery/save
+and requires the exact current file version on load, including meshes with
+default or empty source data. Missing, old and future records are rejected.
+The reflected `FStaticMeshSource::SchemaVersion` and its accessor are removed.
+Construct-free `FAssetPackageInspection::CustomVersions` exposes file records
+without consulting the local registry; static mesh diagnostics use those records.
+
+The Source field is EditorOnly. Cooked discovery and serialization omit its
+custom-version domain, and cooked runtime loads do not require it. ObjectGraph,
+Duplicate, PropertySnapshot and EditableCopy also do not require package records.
+
+Geometry bulk remains independently self-describing through
+`StaticMeshSourceGeometryPayloadVersion` (1). Its codec bytes, source identity
+and DDC keys retain their previous representation. Changing the authored package
+domain does not implicitly change this bulk codec. Future incompatible changes
+must advance the domain that owns the changed contract.
+
+The maintained Box, Sphere, SplineBox and GrayboxPawn packages were converted
+offline by adding the source version and removing the old field/schema entries.
+The temporary converter verified unchanged bulk and exact original package bytes
+after reversing those edits, then was removed. No legacy load fallback remains.
+
 ## Authored Package Policy
 
 DAST has one permanent nonzero format GUID and current production wire version

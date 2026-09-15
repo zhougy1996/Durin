@@ -1,6 +1,7 @@
 #include "Asset/OfflinePreparation.h"
 #include "Logging/LogMacros.h"
 #include "StaticMesh/StaticMesh.h"
+#include "StaticMesh/StaticMeshCustomVersion.h"
 
 #include "DObject/Package.h"
 
@@ -76,6 +77,12 @@ namespace Durin
 
 
 
+	}
+
+	auto DStaticMesh::Serialize(FArchive& Ar) -> void
+	{
+		if (!FStaticMeshSourceVersion::Serialize(Ar)) return;
+		Super::Serialize(Ar);
 	}
 
 	auto DStaticMesh::SerializeCooked(FArchive& Ar) -> void

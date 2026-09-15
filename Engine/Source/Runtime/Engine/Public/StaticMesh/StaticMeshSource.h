@@ -8,7 +8,7 @@ namespace Durin
 {
 	inline constexpr FGuid StaticMeshSourceGeometryPayloadId{
 		0x442898cd, 0x801d49ed, 0x93459533, 0x4531fc1d};
-	inline constexpr uint32 StaticMeshSourceSchemaVersion = 1;
+	inline constexpr uint32 StaticMeshSourceGeometryPayloadVersion = 1;
 	inline constexpr uint64 MaximumStaticMeshSourceBytes =
 		1024ull * 1024ull * 1024ull;
 
@@ -39,7 +39,6 @@ namespace Durin
 		auto GetGeometryBulk() const -> const FEditorBulkData& { return Geometry; }
 		auto GetMaterialSlotCount() const -> uint32 { return MaterialSlotCount; }
 		auto GetMeshCount() const -> uint32 { return MeshCount; }
-		auto GetSchemaVersion() const -> uint32 { return SchemaVersion; }
 
 	private:
 		DPROPERTY()
@@ -50,9 +49,6 @@ namespace Durin
 
 		DPROPERTY()
 		uint32 MeshCount = 0;
-
-		DPROPERTY(AlwaysSerialize)
-		uint32 SchemaVersion = StaticMeshSourceSchemaVersion;
 
 		mutable std::mutex ResidencyMutex;
 		mutable FStaticMeshGeometryReadHandle ResidentGeometry;

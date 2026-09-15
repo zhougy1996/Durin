@@ -2,6 +2,7 @@
 #include "Physics/BodySetup.h"
 #include "StaticMesh/StaticMeshResources.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
+#include "StaticMesh/StaticMeshCustomVersion.h"
 
 namespace Durin
 {
@@ -88,10 +89,10 @@ namespace Durin
 		{ Source.State = "Malformed"; Source.Diagnostic = "Source geometry metadata is malformed; restore or reimport authored data."; }
 		if (bStructValid)
 		{
-			uint32 Schema = 0;
-			for (const auto& Field : Fields) if (Field.Name == "SchemaVersion") Field.TryReadScalar(Schema);
-			if (Schema != StaticMeshSourceSchemaVersion)
-			{ Source.State = "Unsupported"; Source.Diagnostic = "Authored source schema unavailable or unsupported; restore or reimport."; }
+			const auto Version = std::ranges::find(Package.CustomVersions,
+				FStaticMeshSourceVersion::Guid, &FCustomVersion::Guid);
+			if (Version == Package.CustomVersions.end() || Version->Version != FStaticMeshSourceVersion::CurrentVersion)
+			{ Source.State = "Unsupported"; Source.Diagnostic = "Authored source custom version missing or unsupported; restore or reimport."; }
 		}
 		OutInspection.Fields.push_back(std::move(Source));
 		OutInspection.Fields.push_back(InspectField("RenderData", Package.FindField("RenderData")));

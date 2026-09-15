@@ -1,6 +1,7 @@
 #pragma once
 
 #include "EngineAPI.h"
+#include "Serialization/CustomVersion.h"
 #include "Asset/EditorBulkDataStorageTypes.h"
 #include "AssetRegistry/Catalog.h"
 #include "AssetRegistry/PackageTypes.h"
@@ -96,6 +97,8 @@ namespace Durin
 		std::string PhysicalPath;
 		FAssetPackageHeader Header;
 		FAssetPackageFingerprint Fingerprint;
+		// File records, independent of the inspecting process's registered capabilities.
+		std::vector<FCustomVersion> CustomVersions;
 		std::vector<FAssetPackageObjectInspection> Objects;
 
 		auto FindField(std::string_view Name) const -> const FAssetPackageField*

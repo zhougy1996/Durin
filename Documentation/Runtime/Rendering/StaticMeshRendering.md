@@ -4,7 +4,7 @@ Summary: Define static-mesh render data, scene proxies, materials, draw preparat
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-09-09
+Last reviewed: 2026-09-15
 
 SplineMesh is a distinct primitive/deformation domain that borrows these
 StaticMesh LOD resources and uses the same material/pass/LOD/lighting policy.
@@ -378,8 +378,11 @@ validated as another fallback, so no partial payload can reach a draw.
 `StaticMeshSource.h/.cpp` owns canonical source storage and its codec;
 `StaticMeshGeometry.h` defines detached decoded sections and material mappings.
 The reflected `FStaticMeshSource` retains `Geometry: FEditorBulkData`,
-`MaterialSlotCount: uint32`, `MeshCount: uint32`, and `SchemaVersion: uint32`.
-The owning `DStaticMesh::Source` remains EditorOnly. Schema 1 canonical bytes,
+`MaterialSlotCount: uint32` and `MeshCount: uint32`.
+The owning `DStaticMesh::Source` remains EditorOnly. Authored packages use
+`FStaticMeshSourceVersion`; see [source versioning](../Assets/Versioning.md#static-mesh-source-versions).
+The independent geometry bulk codec uses `StaticMeshSourceGeometryPayloadVersion`.
+Version 1 canonical bytes,
 XXH3-128 content hashing, source identity and DDC keys are unchanged.
 Reflection legacy names accept the former source type and owner field when
 loading authored packages; new saves use FStaticMeshSource and Source.

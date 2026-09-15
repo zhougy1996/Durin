@@ -361,6 +361,7 @@ namespace Durin::AssetPrivate::TaggedPackage
 			ObjectPackage::FLinkerTables Linker;
 			if (FAssetResult Result = ReadLinker(Context, Linker); !Result) return Result;
 			FAssetPackageInspection Inspection;
+			Inspection.CustomVersions = Linker.CustomVersions;
 			if (FAssetResult Result = ReadHeader(Context, Inspection.Header); !Result) return Result;
 			Inspection.Fingerprint = {
 				.FileSize = Context.PackageBytes.size(),

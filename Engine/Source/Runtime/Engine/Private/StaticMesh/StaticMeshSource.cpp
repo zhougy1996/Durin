@@ -65,9 +65,9 @@ namespace Durin
 		auto SerializeStaticMeshSourceGeometry(
 			FArchive& Ar, FStaticMeshDecodedGeometry& Value, FSourceReadControl* Control = nullptr) -> void
 		{
-			uint32 Schema = StaticMeshSourceSchemaVersion;
+			uint32 Schema = StaticMeshSourceGeometryPayloadVersion;
 			Ar << Schema;
-			if (Ar.IsLoading() && Schema != StaticMeshSourceSchemaVersion)
+			if (Ar.IsLoading() && Schema != StaticMeshSourceGeometryPayloadVersion)
 			{
 				Ar.Fail(EArchiveFailureCode::InvalidData,
 					"StaticMesh source schema is incompatible.");
@@ -187,7 +187,6 @@ namespace Durin
 		Geometry = Other.Geometry;
 		MaterialSlotCount = Other.MaterialSlotCount;
 		MeshCount = Other.MeshCount;
-		SchemaVersion = Other.SchemaVersion;
 		ResidentGeometry = Other.ResidentGeometry;
 		ResidentIdentity = Other.ResidentIdentity;
 		return *this;
@@ -295,8 +294,7 @@ namespace Durin
 
 	auto FStaticMeshSource::IsValid() const -> bool
 	{
-		return SchemaVersion == StaticMeshSourceSchemaVersion
-			&& MaterialSlotCount > 0 && MaterialSlotCount <= MaximumMeshMaterialSlots
+		return MaterialSlotCount > 0 && MaterialSlotCount <= MaximumMeshMaterialSlots
 			&& MeshCount > 0 && MeshCount <= 65536
 			&& Geometry.GetPayloadSize() > 0
 			&& Geometry.GetPayloadSize() <= MaximumStaticMeshSourceBytes;
@@ -306,7 +304,7 @@ namespace Durin
 	{
 		if (!IsValid()) return {};
 		FXxHash128Builder Builder;
-		Builder.UpdateValue(SchemaVersion);
+		Builder.UpdateValue(StaticMeshSourceGeometryPayloadVersion);
 		Builder.UpdateValue(MaterialSlotCount);
 		Builder.UpdateValue(MeshCount);
 		Builder.UpdateValue(Geometry.GetPayloadId());
