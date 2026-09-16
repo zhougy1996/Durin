@@ -15,10 +15,6 @@ namespace Durin
 	{
 		if (!FMaterialOutputVersion::Serialize(Ar)) return;
 		Super::Serialize(Ar);
-		if (Ar.IsLoading() && Ar.GetPurpose() == EArchivePurpose::AuthoredPackage)
-			if (const auto* Version = Ar.GetVersionContext().FindCustom(FMaterialOutputVersion::Guid);
-				Version && Version->Version == 1)
-				Outputs.bUseMaterialAttributes = Outputs.Surface.ExpressionId.IsValid();
 	}
 
 	auto GetMaterialDomainOutputPins(EMaterialDomain Domain) -> std::span<const FMaterialOutputPinDefinition>

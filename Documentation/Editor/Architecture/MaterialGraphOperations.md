@@ -261,7 +261,7 @@ Connection, disconnection, promotion and paste never switch modes or erase the
 other connection set. A source incompatible with Surface produces compiler
 diagnostics. A disconnected aggregate input uses standard surface defaults,
 independently of retained individual defaults. Output package version 2 persists
-the mode; version 1 loads infer it from the aggregate connection.
+the mode and is required on load; older output versions are rejected.
 
 Semantic commands record participating objects before changing their live fields
 and publish through the owner after storage checks. `ReplaceExpression()` copies

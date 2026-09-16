@@ -300,7 +300,7 @@ TEST(FMaterialPackageTests, MixedPackageRequiresAllVersionDomainsAndPreservesIns
 			auto Candidate = Saved;
 			const auto Record = std::ranges::find(Candidate.CustomVersions, Guid, &FCustomVersion::Guid);
 			ASSERT_NE(Record, Candidate.CustomVersions.end());
-			if (Version == Record->Version || (Guid == FMaterialOutputVersion::Guid && Version == 1)) continue;
+			if (Version == Record->Version) continue;
 			if (Version < 0) Candidate.CustomVersions.erase(Record);
 			else Record->Version = Version;
 			FByteBuffer Bytes, Bulk;
@@ -380,7 +380,7 @@ TEST(FMaterialPackageTests, AuthoredGraphVersionsLoadAfterRestartAndFunctionsDup
 	ASSERT_TRUE(InitializeAssetManager());
 }
 
-TEST(FMaterialPackageTests, OutputModePersistsBothConnectionsAndUpgradesLegacyPackages)
+TEST(FMaterialPackageTests, OutputModePersistsBothConnections)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
@@ -413,25 +413,9 @@ TEST(FMaterialPackageTests, OutputModePersistsBothConnectionsAndUpgradesLegacyPa
 	Graph.Outputs.bUseMaterialAttributes = false;
 	ASSERT_TRUE(Graph.Apply(*Material));
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));
-	FByteBuffer Bytes;
-	ASSERT_TRUE(SerializeAssetPackageBytes(Material->GetPackage(), Bytes));
-	ObjectPackage::FLinkerTables Linker;
-	ASSERT_TRUE(ObjectPackage::ReadPackage(Bytes, {}, Path, Linker));
 	ASSERT_TRUE(UnloadPackage(Path));
 	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Material));
-	EXPECT_FALSE(Material->GetExpressionOutputs().bUseMaterialAttributes);
-	EXPECT_EQ(Material->GetExpressionOutputs().Surface, Expected.Surface);
-	ASSERT_TRUE(UnloadPackage(Path));
-	// Version 1 selected aggregate mode by connection presence. The new flag's
-	// default false is omitted by tagged serialization, matching an old package.
-	for (auto& Version : Linker.CustomVersions)
-		if (Version.Guid == FMaterialOutputVersion::Guid) Version.Version = 1;
-	FByteBuffer Legacy, Bulk;
-	ASSERT_TRUE(ObjectPackage::WritePackage(Linker, Legacy, Bulk));
-	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Legacy, Root / "Base.dasset"));
-	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Material));
-	EXPECT_TRUE(Material->GetExpressionOutputs().bUseMaterialAttributes);
-	EXPECT_EQ(Material->GetExpressionOutputs().Surface, Expected.Surface);
+	EXPECT_EQ(Material->GetExpressionOutputs(), Graph.Outputs);
 	ASSERT_TRUE(UnloadPackage(Path));
 	Testing::RemoveTestWorkDirectory(Root);
 }
