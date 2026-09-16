@@ -1,5 +1,4 @@
 #include "Asset/AssetImportData.h"
-#include "Logging/LogMacros.h"
 #include "Asset/SourceHint.h"
 #include "StaticMesh/StaticMeshCompilation.h"
 
@@ -310,22 +309,6 @@ namespace Durin
 		SourceData = std::move(State.SourceData);
 		if (auto* Mesh = Cast<DStaticMesh>(GetOuter()); Mesh && Mesh->GetAssetImportData() == this)
 			NotifyStaticMeshCompilationMutation(*Mesh);
-	}
-
-	auto DAssetImportData::PostLoad() -> void
-	{
-		std::string Error;
-		Super::PostLoad();
-		if (SchemaVersion == 2)
-		{
-			SourceData.Normalize();
-			SchemaVersion = AssetImportDataSchemaVersion;
-		}
-		if (!Validate(Error))
-		{
-			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
-			return;
-		}
 	}
 
 	auto InspectAssetImportInfo(
