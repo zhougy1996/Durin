@@ -284,11 +284,9 @@ TEST(FMaterialGraphOperationsTests, MaterialOutputMovementIsPresentationOnlyAndT
 	CollectGarbage();
 }
 
-TEST(FMaterialGraphOperationsTests, CatalogAndInspectionCoverTheClosedOpcodeDomain)
+TEST(FMaterialGraphOperationsTests, CatalogAndSearchCoverTheClosedOpcodeDomain)
 {
 	InitializeDObjectSystem();
-	DMaterial* Material = NewObject<DMaterial>(nullptr, "GraphCatalogMaterial");
-	ASSERT_NE(Material, nullptr);
 	const std::vector<FMaterialGraphCatalogEntry> Catalog =
 		FMaterialGraphOperations::EnumerateCatalog();
 	EXPECT_FALSE(Catalog.empty());
@@ -319,21 +317,6 @@ TEST(FMaterialGraphOperationsTests, CatalogAndInspectionCoverTheClosedOpcodeDoma
 			[Value](const FMaterialGraphCatalogEntry& Entry) {
 				return static_cast<uint8>(Entry.Opcode) == Value;
 			})) << "Missing opcode " << static_cast<uint32>(Value);
-	}
-	const FMaterialGraphView View = FMaterialGraphOperations::Inspect(*Material);
-	EXPECT_EQ(View.Nodes.size(), Material->GetExpressionCollection().Expressions.size());
-	for (const FMaterialGraphNodeView& Node : View.Nodes)
-	{
-		EXPECT_FALSE(Node.PrimaryLabel.empty());
-		const auto Expression = std::ranges::find_if(Material->GetExpressionCollection().Expressions,
-			[&](const auto& Value) { return Value->Id == Node.Node.Id; });
-		ASSERT_NE(Expression, Material->GetExpressionCollection().Expressions.end());
-		EXPECT_EQ(Node.Inputs.size(), (*Expression)->GetAuthoredInputCount());
-		for (const FMaterialGraphPinView& Input : Node.Inputs)
-		{
-			EXPECT_FALSE(Input.Name.empty());
-			EXPECT_FALSE(Input.AcceptedTypes.empty());
-		}
 	}
 	for (const FMaterialGraphCatalogEntry& Entry : Catalog)
 	{
@@ -369,8 +352,6 @@ TEST(FMaterialGraphOperationsTests, CatalogAndInspectionCoverTheClosedOpcodeDoma
 			Entry.AcceptedInputTypes.front().end());
 	}
 
-	MarkAsGarbage(Material);
-	CollectGarbage();
 }
 
 TEST(FMaterialGraphOperationsTests, ParameterAndChannelPaletteGroupsWidths)
@@ -642,6 +623,20 @@ TEST(FMaterialGraphOperationsTests, EveryCatalogShapeCreatesItsConcreteExpressio
 		EXPECT_EQ((*It)->GetOuter(), Material);
 		const auto ObjectRevision = GDObjectArray.GetRevision();
 		const auto View = Document.Inspect(Catalog);
+		EXPECT_EQ(View.Nodes.size(), Material->GetExpressionCollection().Expressions.size());
+		for (const FMaterialGraphNodeView& Node : View.Nodes)
+		{
+			EXPECT_FALSE(Node.PrimaryLabel.empty());
+			const auto Expression = std::ranges::find_if(Material->GetExpressionCollection().Expressions,
+				[&](const auto& Value) { return Value->Id == Node.Node.Id; });
+			ASSERT_NE(Expression, Material->GetExpressionCollection().Expressions.end());
+			EXPECT_EQ(Node.Inputs.size(), (*Expression)->GetAuthoredInputCount());
+			for (const FMaterialGraphPinView& Input : Node.Inputs)
+			{
+				EXPECT_FALSE(Input.Name.empty());
+				EXPECT_FALSE(Input.AcceptedTypes.empty());
+			}
+		}
 		const auto* Viewed = FindViewNode(View, (*It)->Id);
 		ASSERT_NE(Viewed, nullptr);
 		EXPECT_EQ(Viewed->Node.Opcode, NarrowParameter ? EMaterialProgramOpcode::Swizzle : Entry.Opcode);
@@ -1961,41 +1956,43 @@ TEST(FMaterialGraphOperationsTests,
 	CollectGarbage();
 }
 
-TEST(FMaterialGraphOperationsTests,
-	CompactTransactionAccountingExcludesUnchangedProgramSnapshots)
+TEST(FMaterialGraphOperationsTests, MoveAndDefaultHistoryDoNotGrowWithUnrelatedNodes)
 {
 	InitializeDObjectSystem();
-	DMaterial* Material = MakeExpandedGraphMaterial("CompactGraphTransactions");
-	ASSERT_NE(Material, nullptr);
-	ASSERT_FALSE(Material->GetExpressionCollection().Expressions.empty());
-	const FGuid NodeId = Material->GetExpressionCollection().Expressions.front()->Id;
-	const auto OriginalPosition = std::ranges::find(
-		Material->GetMaterialGraphPresentation().Nodes, NodeId,
-		&FMaterialGraphNodePresentation::NodeId);
-	ASSERT_NE(OriginalPosition,
-		Material->GetMaterialGraphPresentation().Nodes.end());
-	Durin::Tests::FTestTransactorOwner Transactions;
-
-	const FMaterialGraphNodePresentation Moved{
-		NodeId, OriginalPosition->X + 17, OriginalPosition->Y + 29};
-	ASSERT_TRUE(FMaterialGraphOperations::MoveNodes(
-		*Material, std::span(&Moved, 1), Transactions.Get()));
-	const size_t PresentationTransactionBytes = Transactions->GetOwnedBytes();
-	EXPECT_GT(PresentationTransactionBytes, 0u);
-
-	ASSERT_TRUE(Transactions->Reset());
-	const float Roughness =
-		Material->GetExpressionOutputs().RoughnessDefault;
-	ASSERT_TRUE(FMaterialGraphOperations::SetSurfaceDefault(*Material, {
-		.Output = EMaterialSurfaceOutput::Roughness,
-		.Value = {Roughness == 0.41f ? 0.42f : 0.41f, 0.0f, 0.0f, 0.0f}},
-		Transactions.Get()));
-	const size_t SemanticTransactionBytes = Transactions->GetOwnedBytes();
-	EXPECT_GT(SemanticTransactionBytes, PresentationTransactionBytes);
-
-	EXPECT_TRUE(Transactions->Reset());
-	MarkAsGarbage(Material);
-	CollectGarbage();
+	std::optional<size_t> SmallMoveBytes, SmallDefaultBytes;
+	for (uint32 UnrelatedCount : {0u, 128u})
+	{
+		TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+		Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+		const auto Created = Testing::CreateGraphConstant(FMaterialGraphDocument(*Material), .5f, 10, 20);
+		ASSERT_TRUE(Created);
+		const auto NodeId = Created.GeneratedNodeIds.front();
+		std::vector<DMaterialExpression*> Nodes;
+		for (auto& E : Material->GetExpressionCollection().Expressions) Nodes.push_back(E.Get());
+		for (uint32 I = 0; I < UnrelatedCount; ++I)
+		{
+			auto* E = NewObject<DMaterialExpressionScalarConstant>(nullptr, NAME_None);
+			E->Id = FGuid::NewGuid(); Nodes.push_back(E);
+		}
+		ASSERT_TRUE(Material->SetMaterialExpressions(Nodes));
+		Durin::Tests::FTestTransactorOwner Transactions;
+		const FMaterialGraphNodePresentation Moved{NodeId, 40, 80};
+		ASSERT_TRUE(FMaterialGraphOperations::MoveNodes(*Material, std::span(&Moved, 1), Transactions.Get()));
+		const auto MoveBytes = Transactions->GetOwnedBytes();
+		EXPECT_GT(MoveBytes, 0u);
+		if (SmallMoveBytes) EXPECT_EQ(MoveBytes, *SmallMoveBytes);
+		else SmallMoveBytes = MoveBytes;
+		ASSERT_TRUE(Transactions->Reset());
+		ASSERT_TRUE(FMaterialGraphOperations::SetSurfaceDefault(*Material,
+			{.Output = EMaterialSurfaceOutput::Roughness, .Value = {.41f, 0.f, 0.f, 0.f}}, Transactions.Get()));
+		const auto DefaultBytes = Transactions->GetOwnedBytes();
+		EXPECT_GT(DefaultBytes, 0u);
+		if (SmallDefaultBytes) EXPECT_EQ(DefaultBytes, *SmallDefaultBytes);
+		else SmallDefaultBytes = DefaultBytes;
+		ASSERT_TRUE(Transactions->Undo());
+		ASSERT_TRUE(Transactions->Redo());
+		EXPECT_FLOAT_EQ(Material->GetExpressionOutputs().RoughnessDefault, .41f);
+	}
 }
 
 
