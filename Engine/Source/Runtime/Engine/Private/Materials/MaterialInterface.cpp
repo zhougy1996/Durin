@@ -71,9 +71,16 @@ namespace Durin
 		}
 	}
 
+	auto GetMaterialFunctionChangedEvent() -> FMaterialFunctionChangedEvent&
+	{
+		static FMaterialFunctionChangedEvent Event;
+		return Event;
+	}
+
 	auto NotifyMaterialFunctionChanged(const DMaterialFunctionInterface& Function) -> void
 	{
 		CheckMaterialQueryThread();
+		GetMaterialFunctionChangedEvent().Broadcast(Function);
 		if (GetAssetRuntimeConfiguration().RequiresCookedPayload()) return;
 		const auto Owners = QueryLoadedMaterialHandles(EMaterialLoadedQueryOperation::Dependents,
 			[&](const DMaterialInterface* Material) {
@@ -103,6 +110,7 @@ namespace Durin
 				auto& Revision = Material->CompilationOwner.MaterialCompileStatus.AuthoredRevision;
 				Revision = Revision == std::numeric_limits<uint64>::max() ? 1 : Revision + 1;
 				Private::FMaterialCompilationLifecycle::ScheduleEdit(*Material);
+				Material->ParameterChanges.Broadcast();
 			}
 	}
 
@@ -470,6 +478,7 @@ namespace Durin
 				.Source = {.Category = EMaterialProgramDiagnosticCategory::Dependency, .Message = Error},
 				.AssetPath = Owner->GetObjectPath(), .Generation = Status.RequestGeneration}};
 			Owner->RetireFailedMaterialGeneration();
+			Owner->ParameterChanges.Broadcast();
 		}
 		bAcceptingMaterialProxyPublications = false;
 		ReleaseMaterialRenderProxy_GameThread(
@@ -580,6 +589,7 @@ namespace Durin
 	auto DMaterialInterface::RefreshReloadedAssetBindings() -> void
 	{
 		PublishMaterialRenderProxyState();
+		ParameterChanges.Broadcast();
 	}
 
 	auto DMaterialInterface::SubmitMaterialRenderProxyState(
@@ -608,6 +618,15 @@ namespace Durin
 		{
 			LastSubmittedMaterialProxyLocalVersion = SubmittedVersion;
 		}
+	}
+
+	auto DMaterialInterface::NotifyParameterChanges() -> void
+	{
+		CheckMaterialQueryThread();
+		ParameterChanges.Broadcast();
+		for (const auto Handle : GetLoadedMaterialDependents(this))
+			if (auto* Owner = Cast<DMaterialInterface>(ResolveObjectHandle(Handle)); IsValid(Owner) && Owner != this)
+				Owner->ParameterChanges.Broadcast();
 	}
 
 	auto DMaterialInterface::MarkRenderDataDirty(EMaterialRenderDirtyFlags DirtyFlags) -> void

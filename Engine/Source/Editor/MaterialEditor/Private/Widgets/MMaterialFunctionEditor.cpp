@@ -29,7 +29,7 @@ namespace Durin::Editor::Material
 		FMaterialGraphCanvas Canvas;
 		std::unique_ptr<FMaterialPreview> Preview;
 		FGuid Output;
-		uint64 PreviewRevision = 0;
+		FMaterialFunctionPreviewInvalidation PreviewInvalidation;
 		bool bPreviewValid = false;
 		bool bLayout = false;
 		bool bOutputPort = false;
@@ -71,6 +71,7 @@ namespace Durin::Editor::Material
 		if (!Loaded || !Function) { Error = Loaded ? "The asset is not an editable function." : Loaded.Message; return EDocumentOpenResult::Rejected; }
 		auto Document = std::make_unique<FDocument>();
 		Document->Owner = Function;
+		Document->PreviewInvalidation.SetFunction(Function);
 		const auto Mount = FMountPaths::FindMountForVirtualPath(Function->GetPackage()->GetPackagePath());
 		if (!Mount) { Error = Mount.Message; return EDocumentOpenResult::Rejected; }
 		FPackagePath PreviewPath;
@@ -137,7 +138,7 @@ namespace Durin::Editor::Material
 			if (auto* Function = Document->Function(); Function && Function->GetPackage() == Previous)
 			{
 				Document->Owner = Cast<DMaterialFunction>(Replacement->FindTopLevelAsset(Function->GetFName()));
-				Document->Canvas.CancelInteraction(); Document->PreviewRevision = 0; Document->EditingPort = {}; Document->EditingNode = {};
+				Document->Canvas.CancelInteraction(); Document->PreviewInvalidation.RequestRefresh(); Document->EditingPort = {}; Document->EditingNode = {};
 			}
 	}
 	auto MMaterialFunctionEditor::OnAssetsRelocated(std::span<const FAssetRelocationMapping> Mappings) -> void
@@ -366,18 +367,18 @@ namespace Durin::Editor::Material
 		if (!GEditor) { ImGui::TextDisabled("Editor transactions are unavailable."); return; }
 		if (ImGui::Button("Save")) SaveDocument(Tab);
 		ImGui::SameLine();
-		if (ImGui::Button("Compile Preview")) Document.PreviewRevision = 0;
+		if (ImGui::Button("Compile Preview")) Document.PreviewInvalidation.RequestRefresh();
 		ImGui::SameLine();
 		if (ImGui::BeginCombo("Output", Document.Output.IsValid() ? "Selected output" : "Choose output"))
 		{
 			for (const auto& Port : Function.GetFunctionSignature().Outputs)
-				if (ImGui::Selectable(Port.Name.c_str(), Port.Id == Document.Output)) { Document.Output = Port.Id; Document.PreviewRevision = 0; }
+				if (ImGui::Selectable(Port.Name.c_str(), Port.Id == Document.Output)) { Document.Output = Port.Id; Document.PreviewInvalidation.RequestRefresh(); }
 			ImGui::EndCombo();
 		}
 		if (!Error.empty()) ImGui::TextWrapped("%s", Error.c_str());
-		if (Document.PreviewRevision != Function.GetFunctionRevision())
+		Document.PreviewInvalidation.SetFunction(&Function);
+		if (Document.PreviewInvalidation.ConsumeRefreshRequest())
 		{
-			Document.PreviewRevision = Function.GetFunctionRevision();
 			auto Result = BuildMaterialFunctionPreview(Function, Document.Output, *Document.Material());
 			Document.Diagnostics = Result.Diagnostics;
 			Document.bPreviewValid = static_cast<bool>(Result);

@@ -5,6 +5,55 @@
 
 namespace Durin::Editor::Material
 {
+	struct FMaterialFunctionPreviewInvalidation::FState
+	{
+		TWeakObjectPtr<DMaterialFunctionInterface> Function;
+		bool bRequested = true;
+	};
+
+	FMaterialFunctionPreviewInvalidation::FMaterialFunctionPreviewInvalidation()
+		: State(std::make_shared<FState>())
+	{
+		Handle = GetMaterialFunctionChangedEvent().AddLambda(
+			[Weak = std::weak_ptr<FState>(State)](const DMaterialFunctionInterface& Changed) {
+				const auto Current = Weak.lock();
+				if (!Current || Current->bRequested) return;
+				std::vector<DMaterialFunctionInterface*> Pending{Current->Function.Get()};
+				std::unordered_set<DMaterialFunctionInterface*> Visited;
+				while (!Pending.empty())
+				{
+					auto* Function = Pending.back();
+					Pending.pop_back();
+					if (!IsValid(Function) || !Visited.insert(Function).second) continue;
+					// Conservative recovery for malformed excessive dependency closures.
+					if (Function == &Changed || Visited.size() > MaterialFunctionMaxDependencies)
+					{
+						Current->bRequested = true;
+						return;
+					}
+					for (const auto& Dependency : Function->GetFunctionDependencies()) Pending.push_back(Dependency.Get());
+				}
+			});
+	}
+
+	FMaterialFunctionPreviewInvalidation::~FMaterialFunctionPreviewInvalidation()
+	{
+		GetMaterialFunctionChangedEvent().Remove(Handle);
+	}
+
+	auto FMaterialFunctionPreviewInvalidation::SetFunction(DMaterialFunctionInterface* Function) -> void
+	{
+		if (State->Function.Get() == Function) return;
+		State->Function = Function;
+		RequestRefresh();
+	}
+
+	auto FMaterialFunctionPreviewInvalidation::RequestRefresh() -> void { State->bRequested = true; }
+	auto FMaterialFunctionPreviewInvalidation::ConsumeRefreshRequest() -> bool
+	{
+		return std::exchange(State->bRequested, false);
+	}
+
 	auto BuildMaterialFunctionPreview(DMaterialFunctionInterface& Function,
 		const FGuid& OutputId, DMaterial& Preview) -> FMaterialGraphCommandResult
 	{

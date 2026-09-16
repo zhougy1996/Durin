@@ -4,7 +4,7 @@ Summary: Define material preview resources, compilation controls, Apply and Save
 
 Modules: MaterialEditor, Engine, DurinEd
 
-Last reviewed: 2026-09-15
+Last reviewed: 2026-09-16
 
 Expression ownership and command publication are defined in
 [Material Graph Operations](MaterialGraphOperations.md#ownership). Panels and
@@ -67,6 +67,15 @@ editing. Base Details edits the selected owner. Numeric inline edits and Details
 node-owned default through parameter commands/sessions. Dynamic value changes do
 not request shader compilation. Resource-only combined-node outputs contribute the
 resource dependency without traversing the unused sampling UV branch.
+
+Parameter panels subscribe to the current material's owning-thread parameter
+invalidation event. Engine propagates definition, value, parent-chain and function
+dependency edits to loaded descendants; reflected edits and history replay use the
+same mutation boundaries. Package replacement invalidates retained row snapshots.
+Stable frames do not traverse parent chains or compare package/render versions.
+Position edits and compilation alone do not invalidate parameter rows. A notified
+refresh compares schema identities and Engine's immutable reachability snapshot
+to decide whether to rebuild dependency rows; value edits reuse that structure.
 
 Instance rows use the resolved root program's same snapshot for override
 eligibility and source labels. A local override which becomes unreachable moves

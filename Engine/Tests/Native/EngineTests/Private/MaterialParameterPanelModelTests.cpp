@@ -6,6 +6,12 @@
 #include "DObject/ObjectLifecycle.h"
 #include "Editor/EditorTransactionTestSupport.h"
 #include "EngineTestSupport.h"
+#include "Asset/PackageReload.h"
+#include "Asset/OfflinePreparation.h"
+#include "Asset/Testing.h"
+#include "Misc/MountPathTestSupport.h"
+#include "NativeAssetTestSupport.h"
+#include "NativeTestSupport.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
 #include "Materials/MaterialFunction.h"
@@ -396,8 +402,10 @@ TEST(FMaterialParameterPanelModelTests, RefreshReusesDependenciesAndInvalidatesF
 	const auto Id = Durin::MaterialParameters::GetBuiltinParameterIds(
 		Durin::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value;
 	Durin::Editor::Material::FMaterialParameterPanelModel Model(Child);
+	EXPECT_FALSE(Model.NeedsRefresh());
 	EXPECT_FALSE(Model.Refresh());
 	ASSERT_TRUE(Parent->SetScalarParameterValue(Durin::MaterialParameters::OpacityName(), 0.4f));
+	EXPECT_TRUE(Model.NeedsRefresh());
 	EXPECT_FALSE(Model.Refresh());
 	ASSERT_NE(FindEntry(Model, Id), nullptr);
 	EXPECT_FLOAT_EQ(FindEntry(Model, Id)->Value.GetScalar(), 0.4f);
@@ -599,6 +607,7 @@ TEST(FMaterialParameterPanelModelTests, ReachabilitySharesFunctionOutputAnalysis
 	EXPECT_TRUE(Changed->ParameterIds.contains(ParameterB->Metadata.Id));
 	EXPECT_TRUE(Initial->ParameterIds.contains(ParameterA->Metadata.Id));
 	EXPECT_TRUE(Instance->IsParameterValueOrphan(ParameterA->Metadata.Id));
+	EXPECT_TRUE(Model.NeedsRefresh());
 	EXPECT_TRUE(Model.Refresh());
 	ASSERT_NE(FindEntry(Model, ParameterA->Metadata.Id), nullptr);
 	EXPECT_TRUE(FindEntry(Model, ParameterA->Metadata.Id)->bOrphan);
@@ -619,4 +628,94 @@ TEST(FMaterialParameterPanelModelTests, ReachabilitySharesFunctionOutputAnalysis
 	ASSERT_TRUE(Recovered->Validation);
 	EXPECT_TRUE(Recovered->ParameterIds.contains(ParameterB->Metadata.Id));
 	EXPECT_EQ(Recovered, Sibling->GetParameterReachability());
+}
+
+TEST(FMaterialParameterPanelModelTests, PresentationAndCompileDoNotInvalidateParameterRows)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterial> Base(MakeExpandedBase("PanelNotifications"));
+	TStrongObjectPtr<DMaterialInstance> Instance(NewObject<DMaterialInstance>(nullptr, "PanelNotificationInstance"));
+	ASSERT_TRUE(Instance->SetParent(Base.Get()));
+	Editor::Material::FMaterialParameterPanelModel Model(Instance.Get());
+	const auto* Rows = Model.GetEntries().data();
+	auto Presentation = Base->GetMaterialGraphPresentation();
+	Presentation.Nodes.push_back({Base->GetOutputNode()->Id, 10, 20});
+	EXPECT_EQ(Base->SetMaterialGraphPresentation(Presentation), EMaterialGraphPresentationResult::Changed);
+	EXPECT_FALSE(Model.NeedsRefresh());
+	EXPECT_FALSE(Model.Refresh());
+	EXPECT_EQ(Model.GetEntries().data(), Rows);
+	Base->CompileEdits();
+	EXPECT_FALSE(Model.NeedsRefresh());
+	Base->RefreshReloadedAssetBindings();
+	// Reload refreshes every live owner; the instance receives its own invalidation.
+	Instance->RefreshReloadedAssetBindings();
+	EXPECT_TRUE(Model.NeedsRefresh());
+	EXPECT_FALSE(Model.Refresh());
+	EXPECT_FALSE(Model.NeedsRefresh());
+}
+
+TEST(FMaterialParameterPanelModelTests, MetadataNotificationsReachEachObserverAcrossUndoRedo)
+{
+	using namespace Durin;
+	using namespace Durin::Editor::Material;
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterial> Base(MakeExpandedBase("PanelMetadataNotifications"));
+	TStrongObjectPtr<DMaterialInstance> Instance(NewObject<DMaterialInstance>(nullptr, "PanelMetadataInstance"));
+	ASSERT_TRUE(Instance->SetParent(Base.Get()));
+	const auto Id = MaterialParameters::GetBuiltinParameterIds(MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value;
+	FMaterialParameterPanelModel First(Base.Get()), Second(Instance.Get());
+	Tests::FTestTransactorOwner Transactions;
+	ASSERT_TRUE(FMaterialGraphOperations::RenameParameter(*Base, Id, "Coverage", Transactions.Get()));
+	EXPECT_TRUE(First.NeedsRefresh());
+	EXPECT_TRUE(Second.NeedsRefresh());
+	First.Refresh();
+	EXPECT_FALSE(First.NeedsRefresh());
+	EXPECT_TRUE(Second.NeedsRefresh());
+	Second.Refresh();
+	ASSERT_NE(FindEntry(Second, Id), nullptr);
+	EXPECT_EQ(FindEntry(Second, Id)->Definition->Name, FName("Coverage"));
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_TRUE(Second.NeedsRefresh());
+	Second.Refresh();
+	EXPECT_EQ(FindEntry(Second, Id)->Definition->Name, MaterialParameters::OpacityName());
+	ASSERT_TRUE(Transactions->Redo());
+	EXPECT_TRUE(Second.NeedsRefresh());
+	Second.Refresh();
+	EXPECT_EQ(FindEntry(Second, Id)->Definition->Name, FName("Coverage"));
+	EXPECT_TRUE(Transactions->Reset());
+}
+
+TEST(FMaterialParameterPanelModelTests, ParentPackageReplacementInvalidatesRetainedRows)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	FScopedOfflinePreparation Offline;
+	const auto Root = Testing::CreateTestFixtureDirectory("ParameterPanelReload");
+	const std::array Mounts{FMountPoint{.VirtualRoot = "/ParameterPanelReload/", .Owner = EMountOwner::Test,
+		.Root = Root, .bAutoScan = true, .bContentWritable = true}};
+	Testing::FScopedMountRegistryFixture Registry(Mounts);
+	ASSERT_TRUE(Registry.IsValid());
+	ASSERT_TRUE(RefreshAssetRegistry());
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/ParameterPanelReload/Base", Path));
+	DMaterial* Base = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Base));
+	ASSERT_TRUE(Testing::MakePBRMaterialExpressionsForTest().Apply(*Base));
+	ASSERT_TRUE(SavePackage(Base->GetPackage()));
+	TStrongObjectPtr<DMaterialInstance> Instance(NewObject<DMaterialInstance>(nullptr, "ReloadedParentInstance"));
+	ASSERT_TRUE(Instance->SetParent(Base));
+	const auto Id = MaterialParameters::GetBuiltinParameterIds(MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value;
+	Editor::Material::FMaterialParameterPanelModel Model(Instance.Get());
+	ASSERT_TRUE(Base->SetScalarParameterValue(MaterialParameters::OpacityName(), .25f));
+	Model.Refresh();
+	EXPECT_FLOAT_EQ(FindEntry(Model, Id)->Value.GetScalar(), .25f);
+	auto Reload = ReloadPackages({.Packages = {Base->GetPackage()}});
+	ASSERT_TRUE(Reload.Wait());
+	EXPECT_NE(Instance->GetParent(), Base);
+	EXPECT_TRUE(Model.NeedsRefresh());
+	EXPECT_TRUE(Model.Refresh());
+	ASSERT_NE(FindEntry(Model, Id), nullptr);
+	EXPECT_FLOAT_EQ(FindEntry(Model, Id)->Value.GetScalar(), 1.f);
+	EXPECT_EQ(FindEntry(Model, Id)->Source, Instance->GetParent());
 }

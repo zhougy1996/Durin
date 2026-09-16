@@ -112,6 +112,7 @@ namespace Durin
 		else InvalidateMaterialCompilation(true, !bParentChanged);
 		MarkPackageDirty();
 		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ParentChain | EMaterialRenderDirtyFlags::AllRenderState);
+		if (bParentChanged) NotifyParameterChanges();
 		return true;
 	}
 
@@ -169,6 +170,8 @@ namespace Durin
 		}
 		// Publish once, after compilation invalidation has observed the completed edit.
 		MarkRenderDataDirty(DirtyFlags);
+		if (!Event.MemberProperty || Event.MemberProperty->NamePrivate != FName("PropertyOverrides"))
+			NotifyParameterChanges();
 	}
 
 	auto DMaterialInstance::GetParent() const -> DMaterialInterface*
@@ -282,6 +285,7 @@ namespace Durin
 		});
 		MarkPackageDirty();
 		MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters);
+		NotifyParameterChanges();
 		return true;
 	}
 
@@ -294,6 +298,7 @@ namespace Durin
 		if (!bRemoved) return false;
 		MarkPackageDirty();
 		MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters);
+		NotifyParameterChanges();
 		return true;
 	}
 
@@ -444,5 +449,6 @@ namespace Durin
 		}
 		else RequestMaterialRecompile(*this);
 		PublishMaterialRenderProxyState();
+		NotifyParameterChanges();
 	}
 }

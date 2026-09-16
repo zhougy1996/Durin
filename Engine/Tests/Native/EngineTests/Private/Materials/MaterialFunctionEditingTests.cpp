@@ -49,8 +49,12 @@ TEST(FMaterialFunctionEditingTests, WorkspaceSavesAndReloadsFunctionsAcrossOpenD
 	const auto CopiedCallId = GetFunctionCalls(*Second)[0]->Id;
 	FMaterialGraphClipboardPayload Clipboard;
 	ASSERT_TRUE(FMaterialGraphDocument(*Second).CopySelection(std::span(&CopiedCallId, 1), Clipboard));
+	FMaterialFunctionPreviewInvalidation PreviewInvalidation;
+	PreviewInvalidation.SetFunction(Second);
+	EXPECT_TRUE(PreviewInvalidation.ConsumeRefreshRequest());
 	Signature.Outputs[0].Name = "Discarded Surface";
 	ASSERT_TRUE(FMaterialGraphDocument(*First).SetPort(true, Signature.Outputs[0]));
+	EXPECT_TRUE(PreviewInvalidation.ConsumeRefreshRequest());
 	const bool Discarded = Workspace->DiscardDocument(FirstTab);
 	if (!Discarded)
 	{
@@ -63,6 +67,7 @@ TEST(FMaterialFunctionEditingTests, WorkspaceSavesAndReloadsFunctionsAcrossOpenD
 	ASSERT_NE(Reloaded, nullptr);
 	EXPECT_EQ(Reloaded->GetFunctionSignature().Outputs[0].Name, "Saved Surface");
 	EXPECT_EQ(GetFunctionCalls(*Second)[0]->Function.Get(), Reloaded);
+	EXPECT_TRUE(PreviewInvalidation.ConsumeRefreshRequest());
 	const auto Pasted = FMaterialGraphDocument(*Second).Paste(Clipboard, 300, 300);
 	EXPECT_TRUE(Pasted) << Pasted.Message;
 	EXPECT_EQ(GetFunctionCalls(*Second).back()->Function.Get(), Reloaded);
@@ -302,4 +307,56 @@ TEST(FMaterialFunctionEditingTests, TerminalPortIsTheOnlyAuthoredInterfaceAndUnd
 	Output->Port.Id = Edited.Id;
 	EXPECT_FALSE(Document.Commit(std::move(Draft), "Duplicate port identity"));
 	EXPECT_EQ(Function->GetFunctionSignature().Outputs[0], Before.Outputs[0]);
+}
+
+TEST(FMaterialFunctionEditingTests, PreviewInvalidationTracksTransitiveEditsAndExplicitRequests)
+{
+	using namespace Durin;
+	using namespace Durin::Editor::Material;
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterialFunction> Leaf(NewObject<DMaterialFunction>(nullptr, "PreviewLeaf"));
+	TStrongObjectPtr<DMaterialFunction> Wrapper(NewObject<DMaterialFunction>(nullptr, "PreviewParent"));
+	TStrongObjectPtr<DMaterialFunction> Root(NewObject<DMaterialFunction>(nullptr, "PreviewRoot"));
+	TStrongObjectPtr<DMaterialFunction> Other(NewObject<DMaterialFunction>(nullptr, "PreviewOther"));
+	ASSERT_TRUE(FMaterialGraphDocument(*Wrapper).InsertFunctionCall(*Leaf, 0, 100));
+	ASSERT_TRUE(FMaterialGraphDocument(*Root).InsertFunctionCall(*Wrapper, 0, 100));
+	FMaterialFunctionPreviewInvalidation First, Second;
+	First.SetFunction(Root.Get());
+	Second.SetFunction(Root.Get());
+	EXPECT_TRUE(First.ConsumeRefreshRequest());
+	EXPECT_TRUE(Second.ConsumeRefreshRequest());
+	EXPECT_FALSE(First.ConsumeRefreshRequest());
+	auto Presentation = Leaf->GetFunctionPresentation();
+	Presentation.Nodes.push_back({Leaf->GetExpressionCollection().Expressions.front()->Id, 55, 44});
+	ASSERT_TRUE(Leaf->SetFunctionPresentation(Presentation));
+	EXPECT_FALSE(First.ConsumeRefreshRequest());
+	auto Port = Other->GetFunctionSignature().Outputs.front();
+	Port.Name = "Unrelated edit";
+	ASSERT_TRUE(FMaterialGraphDocument(*Other).SetPort(true, Port));
+	EXPECT_FALSE(First.ConsumeRefreshRequest());
+
+	Tests::FTestTransactorOwner Transactions;
+	Port = Leaf->GetFunctionSignature().Outputs.front();
+	Port.Name = "Transitive edit";
+	ASSERT_TRUE(FMaterialGraphDocument(*Leaf).SetPort(true, Port, Transactions.Get()));
+	EXPECT_TRUE(First.ConsumeRefreshRequest());
+	EXPECT_TRUE(Second.ConsumeRefreshRequest());
+	EXPECT_FALSE(First.ConsumeRefreshRequest());
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_TRUE(First.ConsumeRefreshRequest());
+	ASSERT_TRUE(Transactions->Redo());
+	EXPECT_TRUE(First.ConsumeRefreshRequest());
+	First.RequestRefresh();
+	First.RequestRefresh();
+	EXPECT_TRUE(First.ConsumeRefreshRequest());
+	EXPECT_FALSE(First.ConsumeRefreshRequest());
+	First.SetFunction(Other.Get());
+	EXPECT_TRUE(First.ConsumeRefreshRequest());
+	First.SetFunction(Other.Get());
+	EXPECT_FALSE(First.ConsumeRefreshRequest());
+	Port.Name = "Former dependency";
+	ASSERT_TRUE(FMaterialGraphDocument(*Leaf).SetPort(true, Port));
+	EXPECT_FALSE(First.ConsumeRefreshRequest());
+	EXPECT_TRUE(Second.ConsumeRefreshRequest());
+	EXPECT_TRUE(Transactions->Reset());
 }

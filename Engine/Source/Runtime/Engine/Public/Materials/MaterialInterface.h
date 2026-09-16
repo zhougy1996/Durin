@@ -9,11 +9,15 @@
 #include "Materials/MaterialCompileLifecycle.h"
 #include "Materials/MaterialFunctionInterface.h"
 #include <chrono>
+#include "Delegates/Delegate.h"
 
 #include "MaterialInterface.gen.h"
 
 namespace Durin
 {
+	// Owning-thread invalidation of parameter definitions, values, ancestry or reachability.
+	DECLARE_MULTICAST_DELEGATE(FMaterialParameterChangedEvent)
+
 	class DMaterialInstance;
 	class DTexture2D;
 	inline constexpr uint32 MaterialMaximumParentDepth = 64;
@@ -142,6 +146,8 @@ namespace Durin
 		// Refreshes native texture bindings after a referenced texture package was
 		// atomically replaced. Authored material state and dirty flags are unchanged.
 		ENGINE_API auto RefreshReloadedAssetBindings() -> void;
+		// Includes inherited changes; callbacks should invalidate snapshots, not edit owners.
+		auto GetParameterChanges() -> FMaterialParameterChangedEvent& { return ParameterChanges; }
 		auto GetRenderStateVersion() const -> uint64 { return RenderStateVersion; }
 		ENGINE_API auto BeginDestroy() -> void override;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
@@ -163,6 +169,7 @@ namespace Durin
 		ENGINE_API virtual auto BuildMaterialLocalRenderLayer() const
 			-> FMaterialLocalRenderLayer;
 		ENGINE_API auto PublishMaterialRenderProxyState() -> void;
+		ENGINE_API auto NotifyParameterChanges() -> void;
 		ENGINE_API auto MarkRenderDataDirty(EMaterialRenderDirtyFlags DirtyFlags) -> void;
 
 	private:
@@ -181,6 +188,7 @@ namespace Durin
 		auto PublishMaterialRenderProxyState(FMaterialLocalRenderLayer LocalLayer) -> void;
 		auto SubmitMaterialRenderProxyState(FMaterialLocalRenderLayer LocalLayer) const -> void;
 
+		FMaterialParameterChangedEvent ParameterChanges;
 		uint64 RenderStateVersion = 1;
 		mutable std::shared_ptr<const FMaterialParameterReachability> ParameterReachability;
 		mutable uint64 ParameterReachabilityProgramRevision = 0;

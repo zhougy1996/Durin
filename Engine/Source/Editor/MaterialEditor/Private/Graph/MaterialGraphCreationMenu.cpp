@@ -45,7 +45,7 @@ namespace Durin::Editor::Material
 		std::erase(RecentCreationMenuEntries, Key);
 		RecentCreationMenuEntries.insert(RecentCreationMenuEntries.begin(), Key);
 		if (RecentCreationMenuEntries.size() > 8) RecentCreationMenuEntries.resize(8);
-		++RecentCreationMenuRevision;
+		bCreationMenuResultsDirty = true;
 	}
 
 	auto FMaterialGraphCanvas::DrawCreationMenu(
@@ -96,8 +96,7 @@ namespace Durin::Editor::Material
 			for (const auto& Pin : Source->Outputs)
 				if (Pin.PortId == CreationMenu->SourceOutputId && Pin.OutputIndex == CreationMenu->SourceOutputIndex) SourceType = Pin.Type;
 		const bool bCreationMenuResultsStale =
-			CachedCreationMenuCatalogRevision != CatalogRevision
-			|| CachedRecentCreationMenuRevision != RecentCreationMenuRevision
+			bCreationMenuResultsDirty
 			|| CachedCreationMenuQuery != CreationMenu->Search.data()
 			|| CachedCreationMenuSourceType != SourceType;
 		if (bCreationMenuResultsStale)
@@ -119,8 +118,7 @@ namespace Durin::Editor::Material
 				CachedCreationMenuRecentCount = Recent.size();
 				CachedCreationMenuResults.insert(CachedCreationMenuResults.begin(), Recent.begin(), Recent.end());
 			}
-			CachedCreationMenuCatalogRevision = CatalogRevision;
-			CachedRecentCreationMenuRevision = RecentCreationMenuRevision;
+			bCreationMenuResultsDirty = false;
 			CachedCreationMenuQuery = CreationMenu->Search.data();
 			CachedCreationMenuSourceType = SourceType;
 		}

@@ -128,6 +128,11 @@ UV0 before RGB display. Numeric and texture wrappers use unlit emissive output.
 Required inputs use explicit neutral preview values and optional inputs keep their
 declared defaults. The wrapper uses existing compilation, dependency invalidation
 and preview rendering. Closing a function document cancels and retires its wrapper.
+Preview refresh requests coalesce independently of function revision stamps. Root
+and transitive dependency semantic notifications invalidate the wrapper; layout
+edits and unrelated functions do not. Output selection, Compile Preview, and
+package replacement explicitly request refresh. An unsuccessful preview build
+waits for a new invalidation or explicit request instead of retrying every frame.
 An unavailable output displays diagnostics without presenting an earlier wrapper
 as the selected result.
 
@@ -420,6 +425,10 @@ positions, and pointer-up records one applied transaction. Escape, document
 switch, deactivation, discard, close, destruction, or stale owner cancels the
 gesture and restores its original presentation. Each document owns a distinct
 canvas and move session.
+
+Creation-menu results have one local invalidation flag, set when their catalog or
+recent-entry ordering changes. Search text and source output type remain explicit
+query keys. Each canvas owns its results and clears invalidation after rebuilding.
 
 ## Clipboard and layout
 

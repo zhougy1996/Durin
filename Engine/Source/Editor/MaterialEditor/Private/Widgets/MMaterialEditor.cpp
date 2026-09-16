@@ -146,23 +146,8 @@ namespace Durin::Editor::Material
 	public:
 		auto Synchronize(DMaterialInterface* Material) -> const FMaterialParameterPanelModel&
 		{
-			ObservedRevision.clear();
-			for (DMaterialInterface* Current = Material;
-				Current && std::ranges::find(ObservedRevision, Current,
-					&FRevisionNode::Material) == ObservedRevision.end();
-				Current = Current->GetParent())
-			{
-				DPackage* Package = Current->GetPackage();
-				ObservedRevision.push_back({
-					.Material = Current,
-					.Package = Package,
-					.PackageEditRevision = Package ? Package->GetEditRevision() : 0,
-					.RenderStateRevision = Current->GetRenderStateVersion(),
-				});
-			}
-			if (Model && ObservedRevision == Revision) return *Model;
+			if (Model && Model->GetMaterial() == Material && !Model->NeedsRefresh()) return *Model;
 
-			Revision = ObservedRevision;
 			if (!Model || Model->GetMaterial() != Material)
 				Model = std::make_unique<FMaterialParameterPanelModel>(Material);
 			else
@@ -194,16 +179,6 @@ namespace Durin::Editor::Material
 		auto GetRoot() const -> const FMaterialParameterGroup& { return Root; }
 
 	private:
-		struct FRevisionNode
-		{
-			DMaterialInterface* Material = nullptr;
-			DPackage* Package = nullptr;
-			uint64 PackageEditRevision = 0;
-			uint64 RenderStateRevision = 0;
-
-			auto operator==(const FRevisionNode&) const -> bool = default;
-		};
-
 		struct FSchemaNode
 		{
 			FGuid ParameterId;
@@ -213,9 +188,6 @@ namespace Durin::Editor::Material
 			auto operator==(const FSchemaNode&) const -> bool = default;
 		};
 
-		std::vector<FRevisionNode> Revision;
-		// Reused by the per-frame validation path so a stable parent depth allocates nothing.
-		std::vector<FRevisionNode> ObservedRevision;
 		std::vector<FSchemaNode> Schema;
 		std::unique_ptr<FMaterialParameterPanelModel> Model;
 		FMaterialParameterGroup Root;

@@ -249,6 +249,7 @@ namespace Durin
 		*Entry = std::move(Definition);
 		MarkPackageDirty();
 		MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters);
+		NotifyParameterChanges();
 		GraphChanges.Publish(*this);
 		return true;
 	}
@@ -471,6 +472,7 @@ namespace Durin
 		AdvanceRevision(MaterialProgramRevision);
 		RequestProgramCompile(StaticProperties);
 		PublishMaterialRenderProxyState();
+		NotifyParameterChanges();
 		GraphChanges.Publish(*this);
 	}
 
@@ -496,6 +498,7 @@ namespace Durin
 				if (!bShaderChanged)
 				{
 					MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters);
+					NotifyParameterChanges();
 					GraphChanges.Publish(*this);
 					return;
 				}
@@ -505,6 +508,7 @@ namespace Durin
 			Private::FMaterialCompilationLifecycle::ScheduleEdit(*this);
 			MarkRenderDataDirty(EMaterialRenderDirtyFlags::ShaderMap);
 		}
+		if (Name == FName("ExpressionCollection")) NotifyParameterChanges();
 		GraphChanges.Publish(*this);
 	}
 

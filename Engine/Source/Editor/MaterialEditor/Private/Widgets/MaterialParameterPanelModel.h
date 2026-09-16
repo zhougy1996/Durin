@@ -2,6 +2,7 @@
 
 #include "Editor/PropertyView.h"
 #include "Materials/MaterialTypes.h"
+#include "DObject/WeakObjectPtr.h"
 
 namespace Durin
 {
@@ -47,6 +48,10 @@ namespace Durin::Editor::Material
 	{
 	public:
 		explicit FMaterialParameterPanelModel(DMaterialInterface* InMaterial);
+		~FMaterialParameterPanelModel();
+		FMaterialParameterPanelModel(const FMaterialParameterPanelModel&) = delete;
+		auto operator=(const FMaterialParameterPanelModel&) -> FMaterialParameterPanelModel& = delete;
+		auto NeedsRefresh() const -> bool { return *Invalidated; }
 		// Refreshes row snapshots; returns whether the dependency structure was rebuilt.
 		auto Refresh() -> bool;
 
@@ -75,11 +80,13 @@ namespace Durin::Editor::Material
 		) const -> bool;
 
 	private:
+		std::shared_ptr<bool> Invalidated = std::make_shared<bool>(true);
+		TWeakObjectPtr<DMaterialInterface> ObservedMaterial;
+		FDelegateHandle ChangeHandle;
 		DMaterialInterface* Material = nullptr;
 		DMaterialInstance* Instance = nullptr;
 		// Values and presentation metadata do not invalidate graph reachability.
 		DMaterial* DependencyMaterial = nullptr;
-		uint64 DependencyProgramRevision = 0;
 		std::vector<std::pair<FGuid, EMaterialParameterType>> DependencySchema;
 		std::vector<FGuid> ParameterIds;
 		std::shared_ptr<const FMaterialParameterReachability> DependencyReachability;

@@ -213,7 +213,7 @@ namespace Durin
 			return true;
 		}
 
-		auto RefreshExternalRenderBindings(std::span<DObject* const> Objects,
+		auto RefreshExternalBindings(std::span<DObject* const> Objects,
 			bool bTextures, bool bMaterials) -> void
 		{
 			for (DObject* Object : Objects)
@@ -228,8 +228,13 @@ namespace Durin
 						Material->RefreshReloadedAssetBindings();
 				}
 				if (bMaterials)
+				{
+					// Parent references have been rewritten; retained parameter rows must reread them.
+					if (!bTextures)
+						if (auto* Material = Cast<DMaterialInterface>(Object)) Material->GetParameterChanges().Broadcast();
 					if (auto* Primitive = Cast<DPrimitiveComponent>(Object))
 						Primitive->MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags::MaterialBinding);
+				}
 			}
 		}
 	}
@@ -557,7 +562,7 @@ namespace Durin
 					// cannot be represented as an ordinary rollback failure.
 					State->Result.Diagnostics.push_back({{}, {}, Stage::Retire, ReleaseResult.Message});
 				}
-				RefreshExternalRenderBindings(ExternalRenderConsumers, bTextures, bMaterials);
+				RefreshExternalBindings(ExternalRenderConsumers, bTextures, bMaterials);
 				RefreshMaterialGraphObservers();
 				for (const auto& Path : Paths)
 					if (auto* Package = FindResidentPackage(Path))

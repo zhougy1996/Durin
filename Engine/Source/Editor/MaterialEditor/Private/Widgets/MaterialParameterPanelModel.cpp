@@ -102,11 +102,25 @@ namespace Durin::Editor::Material
 		: Material(InMaterial)
 		, Instance(Cast<DMaterialInstance>(InMaterial))
 	{
+		ObservedMaterial = InMaterial;
+		if (InMaterial)
+			ChangeHandle = InMaterial->GetParameterChanges().AddLambda(
+				[State = std::weak_ptr<bool>(Invalidated)] {
+					if (const auto Dirty = State.lock()) *Dirty = true;
+				});
 		Refresh();
+	}
+
+	FMaterialParameterPanelModel::~FMaterialParameterPanelModel()
+	{
+		if (auto* Owner = ObservedMaterial.Get()) Owner->GetParameterChanges().Remove(ChangeHandle);
 	}
 
 	auto FMaterialParameterPanelModel::Refresh() -> bool
 	{
+		if (!std::exchange(*Invalidated, false)) return false;
+		Material = ObservedMaterial.Get();
+		Instance = Cast<DMaterialInstance>(Material);
 		Entries.clear();
 		if (!Material) return false;
 		DMaterial* BaseMaterial = nullptr;
@@ -120,15 +134,13 @@ namespace Durin::Editor::Material
 		std::vector<std::pair<FGuid, EMaterialParameterType>> Schema;
 		for (const auto& Definition : Material->GetParameterDefinitions())
 			Schema.emplace_back(Definition.Id, Definition.Type);
-		const uint64 ProgramRevision = BaseMaterial ? BaseMaterial->GetMaterialProgramRevision() : 0;
 		const auto Reachability = Instance ? Material->GetParameterReachability() : nullptr;
 		const bool bRebuildDependencies = !bDependenciesInitialized || !BaseMaterial
-			|| BaseMaterial != DependencyMaterial || ProgramRevision != DependencyProgramRevision
+			|| BaseMaterial != DependencyMaterial
 			|| Schema != DependencySchema || Reachability != DependencyReachability;
 		if (bRebuildDependencies)
 		{
 			DependencyMaterial = BaseMaterial;
-			DependencyProgramRevision = ProgramRevision;
 			DependencySchema = std::move(Schema);
 			DependencyReachability = Reachability;
 			ParameterIds.clear();

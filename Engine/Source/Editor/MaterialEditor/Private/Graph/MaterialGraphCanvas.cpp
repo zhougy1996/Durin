@@ -263,7 +263,7 @@ namespace Durin::Editor::Material
 				return Entry.Opcode == EMaterialProgramOpcode::Parameter || Entry.Opcode == EMaterialProgramOpcode::TextureParameter
 					|| Entry.Opcode == EMaterialProgramOpcode::TextureSampleParameter2D;
 			});
-			++CatalogRevision;
+			bCreationMenuResultsDirty = true;
 			bViewStale = true;
 		}
 		bFunctionGraph = bFunction;

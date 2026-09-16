@@ -185,10 +185,7 @@ namespace Durin::Editor::Material
 		bool bViewStale = true;
 		std::optional<ImVec2> LastPasteAnchor;
 		uint32 RepeatedPasteCount = 0;
-		uint64 CatalogRevision = 0;
-		uint64 RecentCreationMenuRevision = 0;
-		uint64 CachedCreationMenuCatalogRevision = 0;
-		uint64 CachedRecentCreationMenuRevision = 0;
+		bool bCreationMenuResultsDirty = true;
 		std::string CachedCreationMenuQuery;
 		std::optional<EMaterialProgramValueType> CachedCreationMenuSourceType;
 		std::vector<size_t> CachedCreationMenuResults;
