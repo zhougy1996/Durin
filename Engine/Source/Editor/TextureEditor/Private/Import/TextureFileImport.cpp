@@ -6,7 +6,7 @@
 #include "DObject/DObjectGlobals.h"
 #include "DObject/Package.h"
 #include "Editor/Import/AssetDestinationValidation.h"
-#include "Misc/StringHelper.h"
+#include "Misc/StringConvert.h"
 #include "Asset/AssetCompilingManager.h"
 
 namespace Durin::Editor::Texture

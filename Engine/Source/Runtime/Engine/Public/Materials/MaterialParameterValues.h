@@ -73,6 +73,10 @@ namespace Durin
 		case EMaterialParameterType::Scalar: return Visitor.template operator()<FMaterialScalarParameterValue>();
 		case EMaterialParameterType::Vector4: return Visitor.template operator()<FMaterialVectorParameterValue>();
 		case EMaterialParameterType::Texture: return Visitor.template operator()<FMaterialTextureParameterValue>();
+		case EMaterialParameterType::Vector:
+		case EMaterialParameterType::Vector2:
+			// Reflected parameter records support vectors through Vector4 only.
+			return false;
 		}
 		return false;
 	}

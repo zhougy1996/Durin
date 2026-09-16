@@ -104,6 +104,7 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::Splat3: return "Splat";
 			case EMaterialProgramOpcode::Splat4: return "Splat";
 			case EMaterialProgramOpcode::BlendNormalsRNM: return "Blend Normals RNM";
+			case EMaterialProgramOpcode::DecodeNormalRG: return "Decode Normal RG";
 			case EMaterialProgramOpcode::UVChannel: return "UV Channel";
 			case EMaterialProgramOpcode::Sine: return "Sine";
 			case EMaterialProgramOpcode::Cosine: return "Cosine";
@@ -212,6 +213,7 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::Splat3:
 			case EMaterialProgramOpcode::Splat4: Entry.Description = "Replicates a scalar across vector components."; break;
 			case EMaterialProgramOpcode::BlendNormalsRNM: Entry.Description = "Blends two tangent-space normals with RNM."; break;
+			case EMaterialProgramOpcode::DecodeNormalRG: Entry.Description = "Decodes a tangent-space normal from its RG channels."; break;
 			case EMaterialProgramOpcode::UVChannel: Entry.Description = "Selects mesh UV channel 0-3 using an explicit scalar input, rounded and clamped."; break;
 			case EMaterialProgramOpcode::Sine: Entry.Description = "Returns the component-wise sine in radians."; break;
 			case EMaterialProgramOpcode::Cosine: Entry.Description = "Returns the component-wise cosine in radians."; break;

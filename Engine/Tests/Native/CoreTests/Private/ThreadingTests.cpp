@@ -998,7 +998,7 @@ namespace Durin
 		ASSERT_TRUE(Handle.IsValid());
 		EXPECT_STREQ("HandleCompletion", Handle.GetDebugName());
 
-		WaitTask(Handle).TaskState;
+		EXPECT_EQ(ETaskState::Succeeded, WaitTask(Handle).TaskState);
 
 		EXPECT_TRUE(Handle.IsComplete());
 		EXPECT_TRUE(bTaskRan.load(std::memory_order::acquire));
@@ -1059,7 +1059,7 @@ namespace Durin
 		});
 		ASSERT_TRUE(BlockedHandle.IsValid());
 
-		WaitTask(TargetHandle).TaskState;
+		EXPECT_EQ(ETaskState::Succeeded, WaitTask(TargetHandle).TaskState);
 
 		EXPECT_TRUE(TargetHandle.IsComplete());
 		EXPECT_TRUE(bTargetTaskRan.load(std::memory_order::acquire));
@@ -1067,7 +1067,7 @@ namespace Durin
 		EXPECT_FALSE(BlockedHandle.IsComplete());
 
 		ReleaseBlockedTask.Trigger();
-		WaitTask(BlockedHandle).TaskState;
+		EXPECT_EQ(ETaskState::Succeeded, WaitTask(BlockedHandle).TaskState);
 	}
 
 	TEST(FTaskTests, WorkerWaitHelpsNestedTaskOnSingleWorkerPool)
@@ -1086,12 +1086,12 @@ namespace Durin
 			});
 
 			bChildHandleWasValid.store(ChildHandle.IsValid(), std::memory_order::release);
-			WaitTask(ChildHandle).TaskState;
+			EXPECT_EQ(ETaskState::Succeeded, WaitTask(ChildHandle).TaskState);
 			bParentTaskFinished.store(true, std::memory_order::release);
 		});
 		ASSERT_TRUE(ParentHandle.IsValid());
 
-		WaitTask(ParentHandle).TaskState;
+		EXPECT_EQ(ETaskState::Succeeded, WaitTask(ParentHandle).TaskState);
 
 		EXPECT_TRUE(ParentHandle.IsComplete());
 		EXPECT_TRUE(bChildHandleWasValid.load(std::memory_order::acquire));
@@ -1853,7 +1853,7 @@ namespace Durin
 		FThreadEvent WaiterStarted;
 		std::thread Waiter([&]() {
 			WaiterStarted.Trigger();
-			WaitTask(Blocker).TaskState;
+			EXPECT_EQ(ETaskState::Succeeded, WaitTask(Blocker).TaskState);
 		});
 		ASSERT_TRUE(WaiterStarted.WaitFor(1.0));
 		const auto LongWaitDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
@@ -1879,7 +1879,7 @@ namespace Durin
 		FTaskHandle Parent = SubmitKernelTask("DiagnosticParent", [&]() {
 			AllowParentWork.Wait();
 			Child = SubmitKernelTask("DiagnosticChild", []() {});
-			WaitTask(Child).TaskState;
+			EXPECT_EQ(ETaskState::Succeeded, WaitTask(Child).TaskState);
 		});
 		AllowParentWork.Trigger();
 		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Parent).TaskState);

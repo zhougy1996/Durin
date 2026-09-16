@@ -22,6 +22,10 @@ namespace Durin::AssetForge::Builtins::Private
 			DMaterialExpressionParameter* Parameter = nullptr;
 			switch (Definition.Value.GetType())
 			{
+			case EMaterialParameterType::Vector:
+			case EMaterialParameterType::Vector2:
+				// Authored recipes require Vector4 parameter expressions.
+				break;
 			case EMaterialParameterType::Scalar:
 			{
 				auto* N = Add<DMaterialExpressionScalarParameter>(Role, X, Y);

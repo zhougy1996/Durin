@@ -161,6 +161,7 @@ FMaterialSurface EvaluateGeneratedMaterial(VSOutput input)
 			case EMaterialProgramOpcode::TextureCoordinates:
 			case EMaterialProgramOpcode::GetSurfaceAttributes:
 			case EMaterialProgramOpcode::SetSurfaceAttributes:
+			case EMaterialProgramOpcode::AppendVector:
 				// Authored operations must be expanded before source generation.
 				break;
 			case EMaterialProgramOpcode::WorldPosition: Expression = "input.worldPosition"; break;

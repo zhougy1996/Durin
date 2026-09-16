@@ -202,6 +202,8 @@ namespace Durin::Editor::Material
 					: EMaterialParameterControlKind::Scalar;
 			case EMaterialParameterType::Vector4: return EMaterialParameterControlKind::Vector;
 			case EMaterialParameterType::Texture: return EMaterialParameterControlKind::AssetPicker;
+			case EMaterialParameterType::Vector:
+			case EMaterialParameterType::Vector2: return EMaterialParameterControlKind::Unsupported;
 			}
 		}
 		return EMaterialParameterControlKind::Unsupported;
