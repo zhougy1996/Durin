@@ -111,8 +111,7 @@ namespace Durin
 		if (GetAssetRuntimeConfiguration().RequiresCookedPayload()) AdoptParentRuntimeProgram();
 		else InvalidateMaterialCompilation(true, !bParentChanged);
 		MarkPackageDirty();
-		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ParentChain | EMaterialRenderDirtyFlags::AllRenderState);
-		if (bParentChanged) NotifyParameterChanges();
+		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ParentChain | EMaterialRenderDirtyFlags::AllRenderState, bParentChanged);
 		return true;
 	}
 
@@ -169,9 +168,8 @@ namespace Durin
 			DirtyFlags = DirtyFlags | EMaterialRenderDirtyFlags::ParentChain | EMaterialRenderDirtyFlags::AllRenderState;
 		}
 		// Publish once, after compilation invalidation has observed the completed edit.
-		MarkRenderDataDirty(DirtyFlags);
-		if (!Event.MemberProperty || Event.MemberProperty->NamePrivate != FName("PropertyOverrides"))
-			NotifyParameterChanges();
+		MarkRenderDataDirty(DirtyFlags,
+			!Event.MemberProperty || Event.MemberProperty->NamePrivate != FName("PropertyOverrides"));
 	}
 
 	auto DMaterialInstance::GetParent() const -> DMaterialInterface*
@@ -284,8 +282,7 @@ namespace Durin
 			It->SetValue(StoredValue);
 		});
 		MarkPackageDirty();
-		MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters);
-		NotifyParameterChanges();
+		MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters, true);
 		return true;
 	}
 
@@ -297,8 +294,7 @@ namespace Durin
 		});
 		if (!bRemoved) return false;
 		MarkPackageDirty();
-		MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters);
-		NotifyParameterChanges();
+		MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters, true);
 		return true;
 	}
 

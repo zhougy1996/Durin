@@ -193,6 +193,49 @@ TEST(FMaterialDependencyTests, InstancePropertyEditPublishesDependentsOnce)
 	Durin::CollectGarbage();
 }
 
+TEST(FMaterialDependencyTests, ParameterNotificationsFollowCompleteDependentPublication)
+{
+	InitializeDObjectSystem();
+	auto* Base = Durin::NewObject<Durin::DMaterial>(nullptr, "NotificationOrderBase");
+	Base->SetEditCompileMode(Durin::EMaterialEditCompileMode::Manual);
+	auto* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "NotificationOrderInstance");
+	auto* Child = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "NotificationOrderChild");
+	ASSERT_TRUE(Instance->SetParent(Base));
+	ASSERT_TRUE(Child->SetParent(Instance));
+	const auto InstanceVersion = Instance->GetRenderStateVersion();
+	const auto ChildVersion = Child->GetRenderStateVersion();
+	const auto BaseVersion = Base->GetRenderStateVersion();
+	uint32 InstanceNotifications = 0, ChildNotifications = 0, BaseNotifications = 0;
+	auto CheckPublished = [&] {
+		EXPECT_EQ(Instance->GetRenderStateVersion(), InstanceVersion + 1);
+		EXPECT_EQ(Child->GetRenderStateVersion(), ChildVersion + 1);
+		EXPECT_EQ(Base->GetRenderStateVersion(), BaseVersion);
+	};
+	const auto InstanceHandle = Instance->GetParameterChanges().AddLambda([&] {
+		++InstanceNotifications;
+		CheckPublished();
+	});
+	const auto ChildHandle = Child->GetParameterChanges().AddLambda([&] {
+		++ChildNotifications;
+		CheckPublished();
+	});
+	const auto BaseHandle = Base->GetParameterChanges().AddLambda([&] { ++BaseNotifications; });
+	Durin::ResetMaterialLoadedQueryDiagnostics();
+	Instance->PostEditChangeProperty({});
+	EXPECT_EQ(InstanceNotifications, 1u);
+	EXPECT_EQ(ChildNotifications, 1u);
+	EXPECT_EQ(BaseNotifications, 0u);
+	EXPECT_EQ(Durin::GetMaterialLoadedQueryDiagnostics().QueryCount, 1u);
+	EXPECT_EQ(Durin::GetMaterialLoadedQueryDiagnostics().SnapshotCount, 1u);
+	Instance->GetParameterChanges().Remove(InstanceHandle);
+	Child->GetParameterChanges().Remove(ChildHandle);
+	Base->GetParameterChanges().Remove(BaseHandle);
+	Durin::MarkAsGarbage(Child);
+	Durin::MarkAsGarbage(Instance);
+	Durin::MarkAsGarbage(Base);
+	Durin::CollectGarbage();
+}
+
 TEST(FMaterialDependencyTests, LoadedQueriesFilterGarbageAndReturnGenerationSafeHandles)
 {
 	InitializeDObjectSystem();

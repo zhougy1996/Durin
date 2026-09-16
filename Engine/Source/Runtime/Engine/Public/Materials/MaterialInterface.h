@@ -170,9 +170,13 @@ namespace Durin
 			-> FMaterialLocalRenderLayer;
 		ENGINE_API auto PublishMaterialRenderProxyState() -> void;
 		ENGINE_API auto NotifyParameterChanges() -> void;
-		ENGINE_API auto MarkRenderDataDirty(EMaterialRenderDirtyFlags DirtyFlags) -> void;
+		// Optional parameter notifications reuse the publication snapshot and run
+		// only after every affected owner's render state has been updated.
+		ENGINE_API auto MarkRenderDataDirty(EMaterialRenderDirtyFlags DirtyFlags,
+			bool bNotifyParameterChanges = false) -> void;
 
 	private:
+		auto BroadcastParameterChanges(std::span<const FObjectHandle> Dependents) -> void;
 		friend auto ::Durin::ContributeEngineCookAsset(
 			DObject&, std::string_view, FCookContext&, std::string&) -> bool;
 		ENGINE_API auto ContributeToCook(

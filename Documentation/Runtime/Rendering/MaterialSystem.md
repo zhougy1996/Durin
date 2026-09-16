@@ -4,7 +4,7 @@ Summary: Define material assets, parameters, render proxies, invalidation, passe
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-09-15
+Last reviewed: 2026-09-16
 
 Durin's material architecture keeps declaration ownership, instance resolution,
 editor presentation, and renderer consumption at explicit boundaries.
@@ -702,10 +702,13 @@ publish through the stable proxy and dynamic-only changes reuse shader identity.
   duplication, destruction, and garbage collection therefore have no
   registration-reconciliation step.
 - Ordinary material mutation does not construct or flush a global material
-  update context. It publishes directly to the stable material proxy, performs
-  no `GDObjectArray` snapshot, and performs no component enumeration.
-  Parent and descendant proxies observe inherited changes during their next
-  render-thread resolution without a child enumeration.
+  update context or enumerate components. Render-state publication queries
+  loaded dependents once and refreshes their retained local layers and stable
+  proxies. Parameter-change notifications reuse that same generation-safe
+  handle snapshot, after every affected owner has been updated; they do not
+  perform a second global object scan. Standalone notifications still acquire
+  their own snapshot. Shader invalidation remains a separate query when needed.
+  Parent and descendant proxies resolve inherited values on the render thread.
 - The removed global material update context had no production callers after
   proxy publication. Explicit structural work now uses the generic primitive
   and scene lifecycle APIs owned by the initiating subsystem; material queries

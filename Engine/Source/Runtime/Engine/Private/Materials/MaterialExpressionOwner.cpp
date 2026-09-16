@@ -157,8 +157,7 @@ namespace Durin
 			Private::FMaterialCompilationLifecycle::ScheduleEdit(*this);
 		}
 		MarkPackageDirty();
-		MarkRenderDataDirty(bShaderChanged ? EMaterialRenderDirtyFlags::ShaderMap : EMaterialRenderDirtyFlags::DynamicParameters);
-		NotifyParameterChanges();
+		MarkRenderDataDirty(bShaderChanged ? EMaterialRenderDirtyFlags::ShaderMap : EMaterialRenderDirtyFlags::DynamicParameters, true);
 		GraphChanges.Publish(*this);
 		return Result;
 	}

@@ -623,13 +623,19 @@ namespace Durin
 	auto DMaterialInterface::NotifyParameterChanges() -> void
 	{
 		CheckMaterialQueryThread();
+		BroadcastParameterChanges(GetLoadedMaterialDependents(this));
+	}
+
+	auto DMaterialInterface::BroadcastParameterChanges(std::span<const FObjectHandle> Dependents) -> void
+	{
 		ParameterChanges.Broadcast();
-		for (const auto Handle : GetLoadedMaterialDependents(this))
+		for (const auto Handle : Dependents)
 			if (auto* Owner = Cast<DMaterialInterface>(ResolveObjectHandle(Handle)); IsValid(Owner) && Owner != this)
 				Owner->ParameterChanges.Broadcast();
 	}
 
-	auto DMaterialInterface::MarkRenderDataDirty(EMaterialRenderDirtyFlags DirtyFlags) -> void
+	auto DMaterialInterface::MarkRenderDataDirty(EMaterialRenderDirtyFlags DirtyFlags,
+		bool bNotifyParameterChanges) -> void
 	{
 		if (DirtyFlags == EMaterialRenderDirtyFlags::None) return;
 		auto Publish = [](DMaterialInterface& Owner) {
@@ -649,12 +655,14 @@ namespace Durin
 				Owner.PublishMaterialRenderProxyState();
 			}
 		};
+		const auto Dependents = GetLoadedMaterialDependents(this);
 		Publish(*this);
-		for (const auto Handle : GetLoadedMaterialDependents(this))
+		for (const auto Handle : Dependents)
 		{
 			auto* Owner = Cast<DMaterialInterface>(ResolveObjectHandle(Handle));
 			if (IsValid(Owner) && Owner != this) Publish(*Owner);
 		}
+		if (bNotifyParameterChanges) BroadcastParameterChanges(Dependents);
 	}
 
 	auto GetLoadedDirectMaterialChildren(
