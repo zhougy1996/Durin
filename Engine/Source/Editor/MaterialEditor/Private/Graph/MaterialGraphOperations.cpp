@@ -373,7 +373,7 @@ namespace Durin::Editor::Material
 		Definition.Value = MakeParameterValue(Type, GetSurfaceDefault(State.GetOutputs(), Request.Output));
 		auto Parameter = MakeParameterExpression(Definition);
 		const auto Id = Parameter->Id;
-		*Link = {Id}; State.GetOutputs().Surface = {};
+		*Link = {Id};
 		State.Presentation.Nodes.push_back({Id, Request.X, Request.Y});
 		State.Expressions.emplace_back(Parameter.Get());
 		if (Type == EMaterialProgramValueType::Float2 || Type == EMaterialProgramValueType::Float3)
@@ -410,7 +410,7 @@ namespace Durin::Editor::Material
 		}
 		const auto Id = Texture->Id, ParameterId = Texture->Metadata.Id;
 		constexpr std::array<uint8, 8> Channels{1, 1, 4, 3, 2, 1, 5, 2};
-		*Link = {Id, Channels[static_cast<size_t>(Request.Output)]}; State.GetOutputs().Surface = {};
+		*Link = {Id, Channels[static_cast<size_t>(Request.Output)]};
 		State.Presentation.Nodes.push_back({Id, Request.X, Request.Y, Texture->Metadata.DisplayName});
 		State.Expressions.emplace_back(Texture.Get());
 		auto Result = CommitGraphEdit(Material, State, "Add Material Surface Texture", Transactions);

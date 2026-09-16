@@ -115,7 +115,7 @@ namespace Durin::Editor::Material
 			}
 		FMaterialExpressionInput Value{Call->Id, 0, OutputId};
 		FMaterialStaticProperties Properties;
-		if (Output->Type == Type::Surface) State.GetOutputs().Surface = Value;
+		if (Output->Type == Type::Surface) { State.GetOutputs().Surface = Value; State.GetOutputs().bUseMaterialAttributes = true; }
 		else
 		{
 			Properties.ShadingModel = EMaterialShadingModel::Unlit;

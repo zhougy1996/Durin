@@ -241,17 +241,17 @@ TEST(FMaterialProgramNormalizationTests,
 		<< " active_bindings=" << ActiveBindings << '\n';
 }
 
-TEST(FMaterialProgramSchemaTests, AggregateAndPropertyOutputsAreExclusive)
+TEST(FMaterialProgramSchemaTests, AggregateInputRequiresMaterialAttributesType)
 {
 	InitializeDObjectSystem();
 	auto Graph = Durin::Testing::MakePBRMaterialExpressionsForTest();
-	Graph.Outputs.Surface = Graph.Outputs.BaseColor;
+	Graph.Outputs.Surface = Graph.Outputs.BaseColor; Graph.Outputs.bUseMaterialAttributes = true;
 	std::vector<Durin::DMaterialExpression*> Expressions;
 	for (const auto& Expression : Graph.Expressions) Expressions.push_back(Expression.Get());
 	auto Validation = Durin::FMaterialExpressionBuildContext::ValidateSurface(Expressions, Graph.Outputs);
 	EXPECT_FALSE(Validation);
 	ASSERT_FALSE(Validation.Diagnostics.empty());
-	EXPECT_NE(Validation.Diagnostics.front().Message.find("cannot be combined"), std::string::npos);
+	EXPECT_NE(Validation.Diagnostics.front().Message.find("requires a Surface expression"), std::string::npos);
 	EXPECT_NE(std::ranges::find(Validation.Diagnostics,
 		Durin::EMaterialProgramDiagnosticCategory::Type,
 		&Durin::FMaterialProgramDiagnostic::Category),
@@ -518,8 +518,8 @@ TEST(FMaterialProgramCompilerTests,
 		: Compiled.Diagnostics.front().Message);
 	EXPECT_EQ(Compiled.Identity, Normalized.Identity);
 	ASSERT_EQ(Compiled.CompiledShaders.size(), 3u);
-	EXPECT_EQ(Compiled.CompiledShaders[0].Reflection.ResourceBindings.size(), 24u);
-	EXPECT_EQ(Compiled.CompiledShaders[1].Reflection.ResourceBindings.size(), 17u);
+	EXPECT_EQ(Compiled.CompiledShaders[0].Reflection.ResourceBindings.size(), 20u);
+	EXPECT_EQ(Compiled.CompiledShaders[1].Reflection.ResourceBindings.size(), 13u);
 	EXPECT_TRUE(Compiled.CompiledShaders[2].Reflection.ResourceBindings.empty());
 	std::vector CorruptedStages = Compiled.CompiledShaders;
 	CorruptedStages[1].Reflection.ResourceBindings.back().BindingIndex = 99;
@@ -932,4 +932,57 @@ TEST(FMaterialProgramSchemaTests, EnvironmentInputsCompileWithoutMaterialParamet
 
 	EXPECT_FALSE(GetMaterialProgramNodeSignature(EMaterialProgramOpcode::WorldPosition, EMaterialProgramValueType::Float4));
 	EXPECT_FALSE(GetMaterialProgramNodeSignature(EMaterialProgramOpcode::Time, EMaterialProgramValueType::Float3));
+}
+
+TEST(FMaterialProgramNormalizationTests, PackedAndIndividualInputsSharePropertyActivation)
+{
+	using namespace Durin;
+	auto Individual = MakeSyntheticMaterialCompilerInput();
+	auto Packed = Individual;
+	std::vector<uint32> Attributes;
+	for (const auto& Root : Packed.IR.SurfaceRoot.Inputs)
+	{
+		if (Root.bExpression) Attributes.push_back(Root.ExpressionIndex);
+		else
+		{
+			Attributes.push_back(static_cast<uint32>(Packed.IR.Nodes.size()));
+			Packed.IR.Nodes.push_back({.Opcode = EMaterialProgramOpcode::Constant,
+				.ResultType = Root.Type, .Payload = Root.Literal});
+		}
+	}
+	Individual.IR.Nodes = Packed.IR.Nodes;
+	for (size_t Index = 0; Index < 8; ++Index)
+	{
+		Individual.IR.SurfaceRoot.Inputs[Index].bExpression = true;
+		Individual.IR.SurfaceRoot.Inputs[Index].ExpressionIndex = Attributes[Index];
+	}
+	Packed.IR.SurfaceRoot.bAggregate = true;
+	Packed.IR.SurfaceRoot.AggregateExpressionIndex = static_cast<uint32>(Packed.IR.Nodes.size());
+	Packed.IR.Nodes.push_back({.Opcode = EMaterialProgramOpcode::MakeSurface,
+		.ResultType = EMaterialProgramValueType::Surface, .Inputs = Attributes});
+	for (const auto Shading : {EMaterialShadingModel::Lit, EMaterialShadingModel::Unlit})
+		for (const auto Blend : {EMaterialBlendMode::Opaque, EMaterialBlendMode::Masked, EMaterialBlendMode::Translucent})
+		{
+			Individual.StaticProperties.ShadingModel = Packed.StaticProperties.ShadingModel = Shading;
+			Individual.StaticProperties.BlendMode = Packed.StaticProperties.BlendMode = Blend;
+			const auto A = NormalizeMaterialIR(Individual), B = NormalizeMaterialIR(Packed);
+			ASSERT_TRUE(A); ASSERT_TRUE(B);
+			EXPECT_FALSE(A.IR.SurfaceRoot.bAggregate); EXPECT_FALSE(B.IR.SurfaceRoot.bAggregate);
+			for (size_t Index = 0; Index < 8; ++Index)
+			{
+				const bool bActive = IsMaterialSurfaceOutputActive(static_cast<EMaterialSurfaceOutput>(Index), Individual.StaticProperties);
+				if (!bActive)
+				{
+					EXPECT_FALSE(A.IR.SurfaceRoot.Inputs[Index].bExpression);
+					EXPECT_FALSE(B.IR.SurfaceRoot.Inputs[Index].bExpression);
+				}
+			}
+			// Every inactive property's exclusive source is absent in both normalized graphs.
+			EXPECT_EQ(A.IR.Nodes.size(), B.IR.Nodes.size());
+			FByteBuffer BytesA, BytesB;
+			std::string Error;
+			ASSERT_TRUE(EncodeMaterialIRCanonical(A.IR, BytesA, Error));
+			ASSERT_TRUE(EncodeMaterialIRCanonical(B.IR, BytesB, Error));
+			EXPECT_EQ(BytesA, BytesB);
+		}
 }

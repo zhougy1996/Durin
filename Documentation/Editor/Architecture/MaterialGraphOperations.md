@@ -37,7 +37,9 @@ but cannot be deleted or duplicated. Copying a mixed selection excludes it.
 
 `DMaterial::Domain` selects the output-pin definition contract; Surface is the
 only implemented domain. `EMaterialOutputPin` gives pins stable semantic keys,
-independent of display order (the aggregate Surface row is displayed first).
+independent of display order. The output terminal stores `bUseMaterialAttributes`: false
+shows eight property inputs; true shows only Material Attributes. Both connection
+sets and property defaults persist across mode changes.
 Connections and edits address those keys. Additional domains must define their
 pin schema and validation/migration policy in Engine; canvas rendering consumes
 ordinary node input descriptors. Domain switching is not implemented.
@@ -253,9 +255,13 @@ removal, connection, disconnection, surface assignment, movement, layout,
 surface-default edit/reset, parameter promotion, explicit texture-branch
 creation, copy, cut, paste, and duplication. Each result reports a stable status,
 affected/generated GUIDs, bounded validation diagnostics, and a message; an
-automation caller never needs to scrape canvas labels. Aggregate assignment is
-atomic: it connects the source and clears all property links in one edit.
-A source incompatible with Surface produces compiler diagnostics. Disconnect restores the retained property fallbacks.
+automation caller never needs to scrape canvas labels. `SetUseMaterialAttributes`
+switches the terminal mode as one undoable edit.
+Connection, disconnection, promotion and paste never switch modes or erase the
+other connection set. A source incompatible with Surface produces compiler
+diagnostics. A disconnected aggregate input uses standard surface defaults,
+independently of retained individual defaults. Output package version 2 persists
+the mode; version 1 loads infer it from the aggregate connection.
 
 Semantic commands record participating objects before changing their live fields
 and publish through the owner after storage checks. `ReplaceExpression()` copies
@@ -285,8 +291,12 @@ eight fixed Surface inputs is optionally connected. Disconnecting or
 deleting a surface source clears its link and returns to the retained typed
 fallback; ordinary inputs similarly restore retained literals. Required inputs without a fallback remain visible as compiler diagnostics. The
 canvas makes input replacement explicit with Shift and uses the same command
-result for invalid-target feedback. Aggregate and per-property sources cannot
-coexist in a valid expression graph.
+result for invalid-target feedback. Both output connection sets remain structurally validated, but only the selected
+mode contributes output roots. Normalization unpacks aggregate roots and applies
+`IsMaterialSurfaceOutputActive` to both modes: normal, metallic, roughness and AO
+require Lit; opacity requires Translucent; opacity mask requires Masked. Unused
+property branches and their exclusive parameter bindings are pruned. These rules
+use the compiling material variant's settings, including instance overrides.
 
 Imported structural parents use the same Surface as a new material: each input
 accepts the final property value. Factor/sample composition lives upstream. Reusable
@@ -438,6 +448,9 @@ recent-entry ordering changes. Search text and source output type remain explici
 query keys. Each canvas owns its results and clears invalidation after rebuilding.
 
 ## Clipboard and layout
+
+The shared graph clipboard releases its retained expression objects before editor
+module shutdown.
 
 `FMaterialGraphClipboardPayload` schema 8 contains at most 256 independently
 cloned concrete expressions (including terminal port definitions), presentation

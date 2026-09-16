@@ -342,6 +342,9 @@ namespace Durin
 		operator bool() const { return bSucceeded; }
 	};
 
+	ENGINE_API auto IsMaterialSurfaceOutputActive(EMaterialSurfaceOutput Output,
+		const FMaterialStaticProperties& Properties) -> bool;
+
 	ENGINE_API auto GetMaterialSurfaceOutputType(EMaterialSurfaceOutput Output)
 		-> EMaterialProgramValueType;
 	ENGINE_API auto GetMaterialSurfaceOutputLink(

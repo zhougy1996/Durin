@@ -14,7 +14,7 @@ namespace Durin
 		const FCustomVersionRegistration InstanceRegistration{
 			FMaterialInstanceVersion::Guid, FMaterialInstanceVersion::CurrentVersion, "MaterialInstanceParameters"};
 
-		auto SerializePackageVersion(FArchive& Ar, FGuid Guid, int32 CurrentVersion, std::string_view Name) -> bool
+		auto SerializePackageVersion(FArchive& Ar, FGuid Guid, int32 CurrentVersion, std::string_view Name, int32 MinimumVersion = -1) -> bool
 		{
 			const auto Purpose = Ar.GetPurpose();
 			if (Purpose != EArchivePurpose::Discovery && Purpose != EArchivePurpose::AuthoredPackage
@@ -23,7 +23,8 @@ namespace Durin
 			if (Ar.IsLoading())
 			{
 				const auto* Version = Ar.GetVersionContext().FindCustom(Guid);
-				if (!Version || Version->Version != CurrentVersion)
+				if (!Version || Version->Version > CurrentVersion
+					|| Version->Version < (MinimumVersion < 0 ? CurrentVersion : MinimumVersion))
 					Ar.Fail(EArchiveFailureCode::UnsupportedVersion, std::format(
 						"{} requires custom version {} at {}; file version is {}.", Name,
 						Guid.ToString(), CurrentVersion, Version ? std::to_string(Version->Version) : "missing"));
@@ -34,7 +35,7 @@ namespace Durin
 
 	auto FMaterialOutputVersion::Serialize(FArchive& Ar) -> bool
 	{
-		return SerializePackageVersion(Ar, Guid, CurrentVersion, "MaterialOutputNode");
+		return SerializePackageVersion(Ar, Guid, CurrentVersion, "MaterialOutputNode", 1);
 	}
 
 	auto FMaterialGraphVersion::Serialize(FArchive& Ar) -> bool

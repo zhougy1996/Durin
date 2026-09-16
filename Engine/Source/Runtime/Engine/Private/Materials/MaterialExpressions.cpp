@@ -1,5 +1,7 @@
 #include "Materials/MaterialExpressions.h"
 #include "Materials/MaterialExpressionBuild.h"
+#include "Materials/MaterialCustomVersion.h"
+#include "Serialization/Archive.h"
 
 #include "Threading/RunnableThread.h"
 #include "Materials/MaterialFunctionInterface.h"
@@ -9,12 +11,22 @@
 
 namespace Durin
 {
+	auto DMaterialExpressionMaterialOutput::Serialize(FArchive& Ar) -> void
+	{
+		if (!FMaterialOutputVersion::Serialize(Ar)) return;
+		Super::Serialize(Ar);
+		if (Ar.IsLoading() && Ar.GetPurpose() == EArchivePurpose::AuthoredPackage)
+			if (const auto* Version = Ar.GetVersionContext().FindCustom(FMaterialOutputVersion::Guid);
+				Version && Version->Version == 1)
+				Outputs.bUseMaterialAttributes = Outputs.Surface.ExpressionId.IsValid();
+	}
+
 	auto GetMaterialDomainOutputPins(EMaterialDomain Domain) -> std::span<const FMaterialOutputPinDefinition>
 	{
 		using P = EMaterialOutputPin;
 		using T = EMaterialProgramValueType;
 		static constexpr std::array Pins{
-			FMaterialOutputPinDefinition{P::Surface, "Surface", T::Surface},
+			FMaterialOutputPinDefinition{P::Surface, "Material Attributes", T::Surface},
 			FMaterialOutputPinDefinition{P::BaseColor, "Base Color", T::Float3},
 			FMaterialOutputPinDefinition{P::Normal, "Normal", T::Float3},
 			FMaterialOutputPinDefinition{P::Metallic, "Metallic", T::Float},

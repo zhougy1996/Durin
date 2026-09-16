@@ -33,7 +33,7 @@ nodes or function calls.
 The single nondeletable root is labeled Material Output. Selecting it or clearing
 the graph selection shows the same
 material identity and directly expanded properties in Details, without a Surface
-Settings header: Lit/Unlit shading, blend mode,
+Settings header: Use material attributes, Lit/Unlit shading, blend mode,
 masked cutoff, two-sided rendering and depth-write policy. Settings use reflected
 property transactions on the working material, so Apply/Discard and Undo/Redo
 retain their ordinary atomic behavior. Inactive cutoff values remain stored.
@@ -135,10 +135,15 @@ position is stored in the ordinary node presentation list. A missing saved
 position has a fixed fallback; explicit layout places it from its input edges.
 The terminal is an authored graph node but produces no value instruction in the
 compiled material program. Its input descriptors come from the material domain:
-Surface exposes the aggregate Surface pin and eight property pins, each with a
-stable semantic key independent of the displayed row. Aggregate assignment clears
-property connections atomically; property assignment clears the aggregate link.
-Values and defaults are edited in Details.
+Surface displays eight property pins by default. Enabling Use material attributes
+in material Details displays only the Material Attributes input. Stable semantic
+pin keys do not depend on display order. Mode changes are undoable and preserve
+both connection sets; wiring never switches modes. Individual inputs unused by
+the current Shading/Blend settings are dimmed with a tooltip explaining that their
+connections and defaults remain stored. Changes to those settings invalidate the
+output node's cached interface. Packed input remains available across settings;
+the compiler selects the effective attributes using the same rules. Values and
+defaults are edited in Details.
 
 Visible links are coarsely culled before curve drawing. When nodes or a surface
 output are selected, unrelated links dim while adjacent paths receive a thicker

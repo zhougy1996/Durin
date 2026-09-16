@@ -82,7 +82,7 @@ TEST(FMaterialFunctionTests, ExplicitMRTemplateRetainsIndependentInstanceParamet
 	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Material, {.CompilerIdentity = "ExplicitMRTemplate"}, Input));
 	const auto Normalized = NormalizeMaterialIR(Input);
 	ASSERT_TRUE(Normalized);
-	EXPECT_EQ(Normalized.Layout.ResourceFieldCount, 8u);
+	EXPECT_EQ(Normalized.Layout.ResourceFieldCount, 6u);
 	TStrongObjectPtr<DMaterialInstance> Instance(NewObject<DMaterialInstance>(nullptr, "MRInstance"));
 	ASSERT_TRUE(Instance->SetParent(Material.Get()));
 	const auto MetallicId = GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::Metallic, Kind::Value);
@@ -197,7 +197,7 @@ TEST(FMaterialFunctionTests, ExpandedAndFunctionRecipesPreserveCompilationAndInd
 	ASSERT_TRUE(CandidateSource);
 	EXPECT_NE(BaselineSource.Source, CandidateSource.Source);
 	EXPECT_NE(CandidateSource.Source.find("return EvaluateMaterialSurface(result)"), std::string::npos);
-	ASSERT_EQ(Baseline.Layout.Fields.size(), 48u);
+	ASSERT_EQ(Baseline.Layout.Fields.size(), 36u);
 	const auto ArtifactRoot = Testing::GetTestWorkDirectory() / "MaterialAuthoringBaseline";
 	std::filesystem::create_directories(ArtifactRoot);
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Baseline.CanonicalBytes, ArtifactRoot / "canonical-ir.bin"));
@@ -630,7 +630,7 @@ TEST(FMaterialFunctionTests, BaseTypedCallsRoundTripAndSnapshotsDoNotRetainOwner
 		Call->Outputs = {{Output.Id, Output.Type}};
 		const std::array<DMaterialExpression*, 1> Expressions{Call};
 		FMaterialExpressionSurfaceOutputs Outputs;
-		Outputs.Surface = {.ExpressionId = Call->Id, .OutputId = Output.Id};
+		Outputs.Surface = {.ExpressionId = Call->Id, .OutputId = Output.Id}; Outputs.bUseMaterialAttributes = true;
 		auto Result = BuildTypedExpressions(Expressions, Outputs);
 		MarkAsGarbage(Call);
 		return Result;
@@ -905,7 +905,7 @@ TEST(FMaterialFunctionTests, NestedTextureDefaultsYieldToConnectedRootResource)
 	ASSERT_TRUE(Graph.Apply(*Leaf));
 	Call->Function = Leaf;
 	Call->Outputs[0].ExpectedType = EMaterialProgramValueType::Surface;
-	Outputs = {}; Outputs.Surface = {.ExpressionId = RootCall, .OutputId = Graph.Signature.Outputs[0].Id};
+	Outputs = {}; Outputs.Surface = {.ExpressionId = RootCall, .OutputId = Graph.Signature.Outputs[0].Id}; Outputs.bUseMaterialAttributes = true;
 	auto Built = BuildTypedExpressions(Expressions, Outputs);
 	ASSERT_TRUE(Built);
 	FMaterialIRCompilerInput Input;
@@ -939,7 +939,7 @@ TEST(FMaterialFunctionTests, RootCallsCommitAtomicallyAndSnapshotThroughInstance
 	Call->Outputs = {{Output.Id, Output.Type}};
 	const std::array<DMaterialExpression*, 1> Expressions{Call.Get()};
 	FMaterialExpressionSurfaceOutputs Outputs;
-	Outputs.Surface = {.ExpressionId = CallId, .OutputId = Output.Id};
+	Outputs.Surface = {.ExpressionId = CallId, .OutputId = Output.Id}; Outputs.bUseMaterialAttributes = true;
 	const auto Before = Material->GetExpressionOutputs();
 	const auto BeforeRevision = Material->GetMaterialProgramRevision();
 	auto InvalidOutputs = Outputs;
@@ -1237,7 +1237,7 @@ TEST(FMaterialFunctionTests, SurfaceOverridesSupportAllEightAttributesAndRejectI
 		*Inputs[Index] = {Constant->Id}; Set->Attributes.push_back({Attribute, *Inputs[Index]});
 	}
 	FMaterialExpressionSurfaceOutputs Outputs;
-	Outputs.Surface = {Set->Id};
+	Outputs.Surface = {Set->Id}; Outputs.bUseMaterialAttributes = true;
 	const auto Normalized = NormalizeTypedExpressions(Expressions, Outputs);
 	ASSERT_TRUE(Normalized);
 	EXPECT_TRUE(GenerateMaterialProgramSlang(Normalized.IR, Normalized.Layout));
@@ -1286,7 +1286,7 @@ TEST(FMaterialFunctionTests, NestedDiagnosticsIdentifyOwningDocumentAndRootInvoc
 	Terminal->Source.ExpressionId = {99, 99, 99, 99};
 	const std::array<DMaterialExpression*, 1> Expressions{Call};
 	FMaterialExpressionSurfaceOutputs Outputs;
-	Outputs.Surface = {.ExpressionId = Call->Id, .OutputId = Output.Id};
+	Outputs.Surface = {.ExpressionId = Call->Id, .OutputId = Output.Id}; Outputs.bUseMaterialAttributes = true;
 	const auto Broken = NormalizeTypedExpressions(Expressions, Outputs);
 	EXPECT_FALSE(Broken);
 	EXPECT_TRUE(std::ranges::any_of(Broken.Diagnostics, [&](const auto& Diagnostic) {

@@ -1049,6 +1049,14 @@ namespace Durin::Editor::Material
 			if (bShowMaterialDetails
 				&& MonaImGui::PropertyEdit::BeginTable("SurfaceProperties", MakeMaterialPropertyTableConfig()))
 			{
+				bool bAttributes = BaseMaterial->GetExpressionOutputs().bUseMaterialAttributes;
+				if (DetailsStyle::EditRow("Use material attributes", [&] { return ImGui::Checkbox("##Value", &bAttributes); }))
+				{
+					const auto Result = FMaterialGraphDocument(*BaseMaterial).SetUseMaterialAttributes(
+						bAttributes, GEditor ? GEditor->GetTransactor() : nullptr);
+					if (!Result) SetError(Result.Message);
+				}
+				if (ImGui::IsItemHovered()) ImGui::SetTooltip("Switch output inputs. Both modes retain their connections. Only the selected mode is used.");
 				auto Properties = BaseMaterial->GetStaticProperties();
 				int Shading = static_cast<int>(Properties.ShadingModel);
 				int Blend = static_cast<int>(Properties.BlendMode);

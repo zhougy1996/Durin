@@ -189,6 +189,8 @@ namespace Durin
 		MarkRenderDataDirty(
 			EMaterialRenderDirtyFlags::ShaderMap
 				| EMaterialRenderDirtyFlags::PipelineState, false, &Context);
+		Context.EndDiscovery();
+		GraphChanges.Publish(*this);
 		return true;
 	}
 

@@ -467,6 +467,9 @@ TEST(FMaterialInstanceTests, InstancesInheritOverrideAndRejectParentCycles)
 {
 	InitializeDObjectSystem();
 	Durin::DMaterial* Base = MakeExpandedMaterial(nullptr, "BaseMaterial");
+	Durin::FMaterialStaticProperties OpacityProperties = Base->GetStaticProperties();
+	OpacityProperties.BlendMode = Durin::EMaterialBlendMode::Translucent;
+	ASSERT_TRUE(Base->SetStaticProperties(OpacityProperties));
 	Durin::DMaterialInstance* First = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "FirstInstance");
 	Durin::DMaterialInstance* Second = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "SecondInstance");
 
@@ -492,6 +495,9 @@ TEST(FMaterialInstanceTests, RenderLayerResolvesMixedOverridesAndRefreshesEachBu
 	using namespace Durin;
 	InitializeDObjectSystem();
 	auto* Root = MakeExpandedMaterial(nullptr, "BatchResolutionRoot");
+	Durin::FMaterialStaticProperties OpacityProperties = Root->GetStaticProperties();
+	OpacityProperties.BlendMode = Durin::EMaterialBlendMode::Translucent;
+	ASSERT_TRUE(Root->SetStaticProperties(OpacityProperties));
 	auto* Parent = NewObject<DMaterialInstance>(nullptr, "BatchResolutionParent");
 	auto* Child = NewObject<DMaterialInstance>(nullptr, "BatchResolutionChild");
 	ASSERT_TRUE(Parent->SetParent(Root));

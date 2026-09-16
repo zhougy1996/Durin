@@ -529,6 +529,17 @@ namespace Durin::Editor::Material
 		return CommitGraphEdit(*Owner.Get(), State, "Connect Graph Input", Transactions);
 	}
 
+	auto FMaterialGraphDocument::SetUseMaterialAttributes(bool bEnabled, DTransactor* Transactions) const -> FMaterialGraphCommandResult
+	{
+		if (!Owner.IsValid()) return {.Status = EMaterialGraphCommandStatus::StaleOwner};
+		auto* Material = Cast<DMaterial>(Owner.Get());
+		if (!Material) return MakeRejected("Only materials have a material output mode.");
+		if (Material->GetExpressionOutputs().bUseMaterialAttributes == bEnabled) return {.Status = EMaterialGraphCommandStatus::NoChange};
+		FGraphEditSession State(*Material);
+		State.GetOutputs().bUseMaterialAttributes = bEnabled;
+		return CommitGraphEdit(*Material, State, "Change Material Output Mode", Transactions);
+	}
+
 	auto FMaterialGraphDocument::AssignMaterialOutput(std::optional<EMaterialSurfaceOutput> Attribute,
 		FMaterialProgramLink Source, DTransactor* Transactions) const -> FMaterialGraphCommandResult
 	{
@@ -547,12 +558,10 @@ namespace Durin::Editor::Material
 			const auto Index = static_cast<uint32>(*Attribute);
 			if (Index >= Attributes.size()) return MakeRejected("The material output attribute is invalid.");
 			*Attributes[Index] = Connection;
-			if (Connection.ExpressionId.IsValid()) State.GetOutputs().Surface = {};
 		}
 		else
 		{
 			State.GetOutputs().Surface = Connection;
-			if (Connection.ExpressionId.IsValid()) for (auto* Output : Attributes) *Output = {};
 		}
 		if (State.GetOutputs() == Previous) return {.Status = EMaterialGraphCommandStatus::NoChange};
 		IncludeCallOutput(State, Connection);

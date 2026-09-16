@@ -1,4 +1,5 @@
 #include "MaterialEditorModule.h"
+#include "Graph/MaterialGraphCanvas.h"
 
 #include "ContentBrowser/ContentBrowserContracts.h"
 #include "Icons/FontAwesomeIcons.h"
@@ -78,6 +79,7 @@ namespace Durin
 	auto FMaterialEditorModule::ShutdownModule() -> void
 	{
 		UnregisterMaterialEditor();
+		Editor::Material::FMaterialGraphCanvas::ClearSharedClipboard();
 		if (GEditor)
 			checkf(GEditor->GetTransactor()
 				->DiscardCustomChangesByModule("MaterialEditor"),

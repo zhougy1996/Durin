@@ -206,6 +206,8 @@ namespace Durin::Editor::Material
 	FMaterialGraphCanvas::FMaterialGraphCanvas() = default;
 	FMaterialGraphCanvas::~FMaterialGraphCanvas() = default;
 
+	auto FMaterialGraphCanvas::ClearSharedClipboard() -> void { GraphClipboard.reset(); }
+
 	auto FMaterialGraphCanvas::SelectAndFrame(const FGuid& NodeId) -> bool
 	{
 		if (!NodeId.IsValid()) return false;
@@ -1348,12 +1350,12 @@ namespace Durin::Editor::Material
 				for (size_t Index = 0; Index < Visual.InputPins.size(); ++Index)
 				{
 					DrawList->AddCircleFilled(Visual.InputPins[Index], PinRadius,
-						TypeColor(Visual.View->Inputs[Index].SourceType));
+						Visual.View->Inputs[Index].bActive ? TypeColor(Visual.View->Inputs[Index].SourceType) : IM_COL32(90, 95, 105, 255));
 					if (DetailLevel == EMaterialGraphDetailLevel::Editing)
 						DrawList->AddText(ImGui::GetFont(), GraphBodyFontSize,
 							Add(Visual.InputPins[Index],
 								{9.0f * Zoom, -GraphBodyFontSize * 0.5f}),
-							IM_COL32(205, 210, 220, 255),
+							Visual.View->Inputs[Index].bActive ? IM_COL32(205, 210, 220, 255) : IM_COL32(100, 105, 115, 255),
 							Ellipsize(InputLabel(*Visual.View, Visual.View->Inputs[Index], &Material),
 								(GraphNodeWidth(*Visual.View) - (Index < Visual.OutputPins.size() && !GraphOutputLabel(*Visual.View, Index).empty() ? 85.f : 20.f)) * Zoom
 									* ImGui::GetFontSize() / GraphBodyFontSize).c_str());
@@ -1370,7 +1372,8 @@ namespace Durin::Editor::Material
 					if (Hit.InputNode == &Visual && Hit.InputIndex == Index)
 					{
 						const auto& Pin = Visual.View->Inputs[Index];
-						ImGui::SetTooltip("%s%s%s\n%s%s", Pin.Name.c_str(), Pin.bRequired ? " (required)" : "",
+						if (!Pin.bActive) ImGui::SetTooltip("Inactive for the current shading/blend settings. Its connection and default are retained.");
+						else ImGui::SetTooltip("%s%s%s\n%s%s", Pin.Name.c_str(), Pin.bRequired ? " (required)" : "",
 							Pin.bMissing ? " (missing port)" : "", (Pin.InlineDefault.Kind == EMaterialInputDefaultKind::Literal
 							? FormatGraphNumericValue(Pin.InlineDefault.Type, Pin.InlineDefault.Literal, 9)
 							: DescribeFunctionDefault(Pin.Default)).c_str(), BroadcastHint(Pin));

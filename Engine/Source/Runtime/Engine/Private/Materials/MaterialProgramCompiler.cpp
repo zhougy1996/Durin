@@ -326,11 +326,27 @@ namespace Durin
 		};
 		if (IR.SurfaceRoot.bAggregate)
 		{
-			IR.SurfaceRoot.AggregateExpressionIndex = Emit(IR.SurfaceRoot.AggregateExpressionIndex);
-			for (auto& Root : IR.SurfaceRoot.Inputs) Root = {.Type = Root.Type};
+			// Surface construction is lowered before normalization. Both authoring
+			// modes share final-property filtering and reachability from this point.
+			const auto& Surface = Nodes[IR.SurfaceRoot.AggregateExpressionIndex];
+			for (size_t Index = 0; Index < IR.SurfaceRoot.Inputs.size(); ++Index)
+			{
+				auto& Root = IR.SurfaceRoot.Inputs[Index];
+				Root.bExpression = true;
+				Root.ExpressionIndex = Surface.Inputs[Index];
+			}
+			IR.SurfaceRoot.bAggregate = false;
 		}
-		else
 		{
+			const FMaterialSurfaceOutputs Defaults;
+			for (size_t Index = 0; Index < IR.SurfaceRoot.Inputs.size(); ++Index)
+				if (!IsMaterialSurfaceOutputActive(static_cast<EMaterialSurfaceOutput>(Index), Input.StaticProperties))
+				{
+					auto& Root = IR.SurfaceRoot.Inputs[Index];
+					Root.bExpression = false;
+					Root.Literal = GetMaterialSurfaceOutputDefault(Defaults, static_cast<EMaterialSurfaceOutput>(Index));
+				}
+
 			IR.SurfaceRoot.AggregateExpressionIndex = 0;
 			for (auto& Root : IR.SurfaceRoot.Inputs)
 			{

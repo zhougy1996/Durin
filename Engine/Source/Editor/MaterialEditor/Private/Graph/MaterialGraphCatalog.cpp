@@ -416,12 +416,16 @@ namespace Durin::Editor::Material
 				auto* Terminal = Cast<DMaterialExpressionMaterialOutput>(ExpressionsById.at(Node.Id));
 				for (const auto& Definition : GetMaterialDomainOutputPins(Material->GetDomain()))
 				{
+					const bool bAttributes = Definition.Id == EMaterialOutputPin::Surface;
+					if (bAttributes != Terminal->Outputs.bUseMaterialAttributes) continue;
 					const auto& Input = *GetMaterialOutputInput(Terminal->Outputs, Definition.Id);
 					FMaterialGraphPinView Pin{.InputIndex = static_cast<uint32>(Definition.Id), .Name = std::string(Definition.Name),
 						.Link = LinkView(Input), .SourceType = SourceType(LinkView(Input)), .AcceptedTypes = {Definition.Type}};
 					if (Definition.Type > EMaterialProgramValueType::Float && Definition.Type <= EMaterialProgramValueType::Float4)
 						Pin.AcceptedTypes.push_back(EMaterialProgramValueType::Float);
 					Pin.InlineDefault = DefaultView(ReadMaterialOutputDefault(Terminal->Outputs, Definition.Id));
+					Pin.bActive = bAttributes || IsMaterialSurfaceOutputActive(
+						static_cast<EMaterialSurfaceOutput>(Definition.Id), Material->GetStaticProperties());
 					View.Inputs.push_back(std::move(Pin));
 				}
 				const auto Position = Positions.find(Node.Id);

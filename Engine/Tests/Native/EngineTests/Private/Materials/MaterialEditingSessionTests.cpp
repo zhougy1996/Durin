@@ -175,7 +175,7 @@ TEST_F(FMaterialEditingSessionTests, FunctionCallDraftIsCompleteAndAppliesBindin
 	Call->Id = CallId; Call->Function = First; Call->Outputs = {{Output.Id, Output.Type}};
 	const std::array<DMaterialExpression*, 1> Expressions{Call.Get()};
 	FMaterialExpressionSurfaceOutputs Outputs;
-	Outputs.Surface = {.ExpressionId = CallId, .OutputId = Output.Id};
+	Outputs.Surface = {.ExpressionId = CallId, .OutputId = Output.Id}; Outputs.bUseMaterialAttributes = true;
 	ASSERT_TRUE(Source->SetMaterialExpressions(Expressions, Outputs));
 	const auto GetCall = [](DMaterial& Material) {
 		return Cast<DMaterialExpressionFunctionCall>(Material.GetExpressionCollection().Expressions.at(0).Get());

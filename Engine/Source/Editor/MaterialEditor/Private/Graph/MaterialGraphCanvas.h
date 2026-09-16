@@ -24,6 +24,8 @@ namespace Durin::Editor::Material
 		using FReportError = std::function<void(std::string)>;
 		FMaterialGraphCanvas();
 		~FMaterialGraphCanvas();
+		// Release shared clipboard object references before the object system shuts down.
+		static auto ClearSharedClipboard() -> void;
 
 		auto Draw(
 			DMaterial& Material,

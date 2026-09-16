@@ -19,7 +19,7 @@ namespace Durin
 	struct FMaterialOutputVersion
 	{
 		static constexpr FGuid Guid{0x92e65c3f, 0xbd864756, 0xb3e9d2ac, 0x843a7b10};
-		static constexpr int32 CurrentVersion = 1;
+		static constexpr int32 CurrentVersion = 2; // Explicit material-attributes input mode.
 		ENGINE_API static auto Serialize(FArchive& Ar) -> bool;
 	};
 

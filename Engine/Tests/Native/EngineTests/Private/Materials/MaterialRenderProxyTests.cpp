@@ -306,6 +306,12 @@ TEST(FMaterialRenderProxyTests, AuthoredValuesMatchDirectCompilationForBasesAndI
 	EXPECT_EQ(BaseBinding.Emissive, Durin::FVector3f(3.0f, 5.0f, 7.0f));
 	for (size_t Role = 0; Role < BaseBinding.UVChannels.size(); ++Role)
 	{
+		if (!Durin::IsMaterialSurfaceOutputActive(static_cast<Durin::EMaterialSurfaceOutput>(Role), Base->GetStaticProperties()))
+		{
+			EXPECT_FLOAT_EQ(BaseBinding.UVChannels[Role], 0.0f);
+			EXPECT_EQ(BaseBinding.UVScales[Role], Durin::FVector2f(1.0f));
+			continue;
+		}
 		EXPECT_FLOAT_EQ(BaseBinding.UVChannels[Role], 2.6f);
 		EXPECT_EQ(BaseBinding.UVScales[Role], Durin::FVector2f(2.0f, -3.0f));
 		EXPECT_EQ(BaseBinding.UVOffsets[Role], Durin::FVector2f(7.0f, -11.0f));
@@ -413,7 +419,9 @@ TEST(FMaterialRenderProxyTests, AuthoredValuesMatchDirectCompilationForBasesAndI
 				if (Durin::GetMaterialSurfaceParameterId(static_cast<Durin::EMaterialSurfaceOutput>(RoleIndex),
 					Durin::MaterialParameters::EMaterialBuiltinParameterKind::Texture) == Definition.Id) break;
 			ASSERT_LT(RoleIndex, size_t{8});
-			EXPECT_EQ(GetMaterialBinding(Overridden.RenderData).Textures[RoleIndex], ExpectedTexture);
+			if (Durin::IsMaterialSurfaceOutputActive(static_cast<Durin::EMaterialSurfaceOutput>(RoleIndex), Instance->GetStaticProperties()))
+				EXPECT_EQ(GetMaterialBinding(Overridden.RenderData).Textures[RoleIndex], ExpectedTexture);
+			else EXPECT_EQ(GetMaterialBinding(Overridden.RenderData).Textures[RoleIndex], Durin::FRHITextureReferenceRef{});
 			++TextureRole;
 		}
 
@@ -620,8 +628,12 @@ TEST(FMaterialRenderProxyTests, DescendantsResolveParentChangesLazilyAcrossLongC
 	FRenderSceneHarness Harness;
 	auto* FirstBase = MakeExpandedMaterial(
 		nullptr, "ProxyChainFirstBase");
+	Durin::FMaterialStaticProperties OpacityProperties = FirstBase->GetStaticProperties();
+	OpacityProperties.BlendMode = Durin::EMaterialBlendMode::Translucent;
+	ASSERT_TRUE(FirstBase->SetStaticProperties(OpacityProperties));
 	auto* SecondBase = MakeExpandedMaterial(
 		nullptr, "ProxyChainSecondBase");
+	ASSERT_TRUE(SecondBase->SetStaticProperties(OpacityProperties));
 	ASSERT_TRUE(FirstBase->SetVectorParameterValue(
 		Durin::MaterialParameters::BaseColorName(),
 		Durin::FVector3(0.1, 0.2, 0.3)));

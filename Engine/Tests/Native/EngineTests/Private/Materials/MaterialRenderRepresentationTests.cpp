@@ -427,6 +427,9 @@ TEST(FMaterialRenderRepresentationTests, MaterialSnapshotsResolveThroughTheSelec
 {
 	InitializeDObjectSystem();
 	Durin::DMaterial* Base = MakeExpandedMaterial("RepresentationBase");
+	Durin::FMaterialStaticProperties OpacityProperties = Base->GetStaticProperties();
+	OpacityProperties.BlendMode = Durin::EMaterialBlendMode::Translucent;
+	ASSERT_TRUE(Base->SetStaticProperties(OpacityProperties));
 	Durin::DMaterialInstance* Instance =
 		Durin::NewObject<Durin::DMaterialInstance>(nullptr, "RepresentationInstance");
 	ASSERT_TRUE(Instance->SetParent(Base));

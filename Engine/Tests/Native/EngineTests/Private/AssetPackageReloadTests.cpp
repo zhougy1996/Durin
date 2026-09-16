@@ -245,7 +245,7 @@ TEST_F(FAssetPackageReloadTests, FunctionReloadRebindsNestedCallersAndPreservesA
 		Call->Id = RootCall; Call->Function = Wrapper.Get(); Call->Outputs = {{Output.Id, Output.Type}};
 		const std::array<DMaterialExpression*, 1> Expressions{Call.Get()};
 		FMaterialExpressionSurfaceOutputs Outputs;
-		Outputs.Surface = {.ExpressionId = RootCall, .OutputId = Output.Id};
+		Outputs.Surface = {.ExpressionId = RootCall, .OutputId = Output.Id}; Outputs.bUseMaterialAttributes = true;
 		ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 	}
 	ASSERT_TRUE(Material->CompileEdits()) << (Material->GetMaterialCompileDiagnostics().empty() ? "No diagnostic" : Material->GetMaterialCompileDiagnostics()[0].Source.Message);

@@ -37,7 +37,8 @@ namespace Durin::Editor::Material
 		MATERIALEDITOR_API auto ConnectInput(const FGuid& NodeId, uint32 InputIndex,
 			FMaterialProgramLink Source, bool bReplaceExisting = false,
 			DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
-		// No attribute selects the aggregate Surface output; an empty link disconnects.
+		MATERIALEDITOR_API auto SetUseMaterialAttributes(bool bEnabled, DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
+		// No attribute selects the aggregate input; assignment never switches the output mode.
 		MATERIALEDITOR_API auto AssignMaterialOutput(std::optional<EMaterialSurfaceOutput> Attribute,
 			FMaterialProgramLink Source, DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto InsertFunctionCall(DMaterialFunctionInterface& Function,

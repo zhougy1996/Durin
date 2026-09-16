@@ -291,6 +291,10 @@ namespace Durin
 		DPROPERTY()
 		float OpacityMaskDefault = 1.0f;
 
+		// Both connection sets are retained; only the selected set drives the output.
+		DPROPERTY()
+		bool bUseMaterialAttributes = false;
+
 		auto operator==(const FMaterialExpressionSurfaceOutputs&) const -> bool = default;
 	};
 
@@ -322,6 +326,7 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionMaterialOutput(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		ENGINE_API auto Serialize(FArchive& Ar) -> void override;
 		DPROPERTY()
 		FMaterialExpressionSurfaceOutputs Outputs;
 		auto GetAuthoredInputCount() const -> uint32 override { return 9; }

@@ -697,7 +697,7 @@ auto QualifyMaterialFunctionCompilationAsync() -> void
 		Expression->Id = Call; Expression->Function = Wrapper; Expression->Outputs = {{Output.Id, Output.Type}};
 		const std::array<DMaterialExpression*, 1> Expressions{Expression.Get()};
 		FMaterialExpressionSurfaceOutputs Outputs;
-		Outputs.Surface = {.ExpressionId = Call, .OutputId = Output.Id};
+		Outputs.Surface = {.ExpressionId = Call, .OutputId = Output.Id}; Outputs.bUseMaterialAttributes = true;
 		ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 	}
 	{
@@ -797,8 +797,7 @@ TEST(FMaterialCompileLifecycleTests,
 	EXPECT_EQ(DecodedProperties, Material->GetStaticProperties());
 	EXPECT_EQ(DecodedProgram->ActiveParameters,
 		Material->GetAcceptedCompiledProgram()->ActiveParameters);
-	EXPECT_EQ(DecodedProgram->ActiveParameters.size(),
-		Durin::GetPBRMaterialParameterDefinitions().size());
+	EXPECT_EQ(DecodedProgram->ActiveParameters.size(), 36u);
 	ASSERT_EQ(DecodedProgram->CompiledShaders.size(),
 		Material->GetAcceptedCompiledProgram()->CompiledShaders.size());
 	for (size_t Index = 0; Index < DecodedProgram->CompiledShaders.size(); ++Index)

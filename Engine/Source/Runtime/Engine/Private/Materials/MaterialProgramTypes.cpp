@@ -4,6 +4,22 @@
 
 namespace Durin
 {
+	auto IsMaterialSurfaceOutputActive(EMaterialSurfaceOutput Output,
+		const FMaterialStaticProperties& Properties) -> bool
+	{
+		switch (Output)
+		{
+		case EMaterialSurfaceOutput::Normal:
+		case EMaterialSurfaceOutput::Metallic:
+		case EMaterialSurfaceOutput::Roughness:
+		case EMaterialSurfaceOutput::AmbientOcclusion: return Properties.ShadingModel == EMaterialShadingModel::Lit;
+		case EMaterialSurfaceOutput::Opacity: return Properties.BlendMode == EMaterialBlendMode::Translucent;
+		case EMaterialSurfaceOutput::OpacityMask: return Properties.BlendMode == EMaterialBlendMode::Masked;
+		default: return true;
+		}
+	}
+
+
 	auto GetMaterialSurfaceParameterId(
 		EMaterialSurfaceOutput Output,
 		MaterialParameters::EMaterialBuiltinParameterKind Kind) -> FGuid

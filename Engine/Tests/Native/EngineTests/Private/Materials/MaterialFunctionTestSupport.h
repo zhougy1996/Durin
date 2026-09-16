@@ -69,7 +69,7 @@ namespace
 		Call->Outputs = {{Output.Id, Output.Type}};
 		const std::array<Durin::DMaterialExpression*, 1> Expressions{Call.Get()};
 		Durin::FMaterialExpressionSurfaceOutputs Outputs;
-		Outputs.Surface = {.ExpressionId = CallId, .OutputId = Output.Id};
+		Outputs.Surface = {.ExpressionId = CallId, .OutputId = Output.Id}; Outputs.bUseMaterialAttributes = true;
 		return Material.SetMaterialExpressions(Expressions, Outputs);
 	}
 

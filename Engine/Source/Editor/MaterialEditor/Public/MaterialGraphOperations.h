@@ -59,6 +59,7 @@ namespace Durin::Editor::Material
 		FMaterialFunctionDefault Default;
 		FMaterialInputDefault InlineDefault;
 		bool bAdvanced = false;
+		bool bActive = true;
 	};
 
 	struct FMaterialGraphOutputPinView

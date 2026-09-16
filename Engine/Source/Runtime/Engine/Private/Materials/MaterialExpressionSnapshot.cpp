@@ -30,6 +30,8 @@ namespace Durin
 			return Input.ExpressionId.IsValid() || (Input.OutputIndex == 0 && !Input.OutputId.IsValid());
 		};
 		BuildAllExpressions();
+		const bool bAggregate = Outputs.bUseMaterialAttributes;
+		const FMaterialSurfaceOutputs StandardDefaults;
 		const auto OutputLinks = std::ranges::count_if(Inputs, [](const auto& Input) { return Input.ExpressionId.IsValid(); })
 			+ (Outputs.Surface.ExpressionId.IsValid() ? 1 : 0);
 		if (AuthoredLinks + OutputLinks > MaterialProgramMaxLinkCount) OutputError(0, "Material output connections exceed the authored link bound.");
@@ -44,24 +46,20 @@ namespace Durin
 				break;
 			}
 			auto& Root = Result.IR.SurfaceRoot.Inputs[Index];
-			Root.Literal = Default;
+			Root.Literal = bAggregate ? GetMaterialSurfaceOutputDefault(StandardDefaults,
+				static_cast<EMaterialSurfaceOutput>(Index)) : Default;
 			if (!Input.ExpressionId.IsValid()) continue;
-			if (Outputs.Surface.ExpressionId.IsValid())
-			{
-				OutputError(Index, "Aggregate Surface and individual output connections cannot be combined.");
-				break;
-			}
-			Root.ExpressionIndex = *BroadcastScalar(ResolveIndex(Input), Root.Type).GetIndex();
-			Root.bExpression = true;
-			if (Result.Diagnostics.empty() && Result.IR.Nodes[Root.ExpressionIndex].ResultType != Root.Type)
+			const auto ExpressionIndex = *BroadcastScalar(ResolveIndex(Input), Root.Type).GetIndex();
+			if (!bAggregate) { Root.ExpressionIndex = ExpressionIndex; Root.bExpression = true; }
+			if (Result.Diagnostics.empty() && Result.IR.Nodes[ExpressionIndex].ResultType != Root.Type)
 				OutputError(Index, "Material output source has an incompatible type.");
 		}
 		if (Outputs.Surface.ExpressionId.IsValid() && Result.Diagnostics.empty())
 		{
 			auto& Root = Result.IR.SurfaceRoot;
-			Root.bAggregate = true;
-			Root.AggregateExpressionIndex = ResolveIndex(Outputs.Surface);
-			if (Result.Diagnostics.empty() && Result.IR.Nodes[Root.AggregateExpressionIndex].ResultType != EMaterialProgramValueType::Surface)
+			const auto ExpressionIndex = ResolveIndex(Outputs.Surface);
+			if (bAggregate) { Root.bAggregate = true; Root.AggregateExpressionIndex = ExpressionIndex; }
+			if (Result.Diagnostics.empty() && Result.IR.Nodes[ExpressionIndex].ResultType != EMaterialProgramValueType::Surface)
 				OutputError(0, "Aggregate material output requires a Surface expression.");
 		}
 		return Finish({});

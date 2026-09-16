@@ -204,8 +204,6 @@ namespace Durin::Editor::Material
 		}
 		if (Payload.bConnectAggregateSurface && !State.bFunction)
 		{
-			for (auto* Output : {&State.GetOutputs().BaseColor, &State.GetOutputs().Normal, &State.GetOutputs().Metallic, &State.GetOutputs().Roughness,
-				&State.GetOutputs().AmbientOcclusion, &State.GetOutputs().Emissive, &State.GetOutputs().Opacity, &State.GetOutputs().OpacityMask}) *Output = {};
 			State.GetOutputs().Surface = {Remap.at(Payload.AggregateSourceNodeId), Payload.AggregateSourceOutputIndex, Payload.AggregateSourceOutputId};
 		}
 		auto Result = CommitGraphEdit(*Owner.Get(), State, "Paste Graph Nodes", Transactions);

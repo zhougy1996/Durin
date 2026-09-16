@@ -567,14 +567,14 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Material, Environment, Input));
 	const auto Normalized = NormalizeMaterialIR(Input);
 	ASSERT_TRUE(Normalized) << (Normalized.Diagnostics.empty() ? "no diagnostic" : Normalized.Diagnostics.front().Message);
-	EXPECT_EQ(Normalized.Layout.ResourceFieldCount, 8u);
-	EXPECT_EQ(std::ranges::count(Normalized.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &FMaterialIRNode::Opcode), 8);
+	EXPECT_EQ(Normalized.Layout.ResourceFieldCount, 6u);
+	EXPECT_EQ(std::ranges::count(Normalized.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &FMaterialIRNode::Opcode), 6);
 	const auto NormalizedSource = GenerateMaterialProgramSlang(Normalized.IR, Normalized.Layout);
 	ASSERT_TRUE(NormalizedSource);
 	size_t NormalizedSamples = 0;
 	for (size_t Offset = 0; (Offset = NormalizedSource.Source.find(".Sample(", Offset)) != std::string::npos; ++Offset)
 		++NormalizedSamples;
-	EXPECT_EQ(NormalizedSamples, 8u);
+	EXPECT_EQ(NormalizedSamples, 6u);
 
 	auto Packed = Testing::MakeStandardMaterialExpressionsForTest(Functions);
 	TStrongObjectPtr<DMaterialExpressionFunctionCall> PackedCall(NewObject<DMaterialExpressionFunctionCall>(nullptr, NAME_None));
@@ -606,20 +606,20 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 		PackedCall->Inputs.push_back({PortId(Role == 2 ? 41 : 30 + Role), EMaterialProgramValueType::Float2, Sample->UV});
 	}
 	PackedCall->Outputs = {{StandardMaterialPortId(EStandardMaterialFunction::StandardPBR_ORM, 100), EMaterialProgramValueType::Surface}};
-	Packed.Outputs = {}; Packed.Outputs.Surface = {.ExpressionId = PackedCall->Id, .OutputId = PackedCall->Outputs[0].OutputId};
+	Packed.Outputs = {}; Packed.Outputs.Surface = {.ExpressionId = PackedCall->Id, .OutputId = PackedCall->Outputs[0].OutputId}; Packed.Outputs.bUseMaterialAttributes = true;
 	Packed.Expressions.emplace_back(PackedCall.Get());
 	ASSERT_TRUE(Packed.Apply(*Material));
 	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Material, Environment, Input));
 	const auto PackedNormalized = NormalizeMaterialIR(Input);
 	ASSERT_TRUE(PackedNormalized) << (PackedNormalized.Diagnostics.empty() ? "no diagnostic" : PackedNormalized.Diagnostics.front().Message);
-	EXPECT_EQ(PackedNormalized.Layout.ResourceFieldCount, 6u);
-	EXPECT_EQ(std::ranges::count(PackedNormalized.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &FMaterialIRNode::Opcode), 6);
+	EXPECT_EQ(PackedNormalized.Layout.ResourceFieldCount, 4u);
+	EXPECT_EQ(std::ranges::count(PackedNormalized.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &FMaterialIRNode::Opcode), 4);
 	const auto PackedNormalizedSource = GenerateMaterialProgramSlang(PackedNormalized.IR, PackedNormalized.Layout);
 	ASSERT_TRUE(PackedNormalizedSource);
 	size_t PackedNormalizedSamples = 0;
 	for (size_t Offset = 0; (Offset = PackedNormalizedSource.Source.find(".Sample(", Offset)) != std::string::npos; ++Offset)
 		++PackedNormalizedSamples;
-	EXPECT_EQ(PackedNormalizedSamples, 6u);
+	EXPECT_EQ(PackedNormalizedSamples, 4u);
 
 	ASSERT_TRUE(Compact.Apply(*Material));
 	const auto Clone = [](const auto& Expressions) {

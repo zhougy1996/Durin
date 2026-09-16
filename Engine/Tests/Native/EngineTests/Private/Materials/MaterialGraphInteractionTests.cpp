@@ -1,5 +1,13 @@
 #include "MaterialGraphTestSupport.h"
 
+namespace
+{
+	struct FScopedGraphClipboard
+	{
+		~FScopedGraphClipboard() { Durin::Editor::Material::FMaterialGraphCanvas::ClearSharedClipboard(); }
+	};
+}
+
 namespace Durin::Editor::Material
 {
 	struct FMaterialGraphCanvasTestAccess
@@ -372,6 +380,7 @@ TEST(FMaterialGraphInteractionTests, CanvasPositionRefreshPreservesTopologyStora
 
 TEST(FMaterialGraphInteractionTests, FunctionCanvasConnectsAndMovesNodesWithUndo)
 {
+	FScopedGraphClipboard Clipboard;
 	InitializeDObjectSystem();
 	auto* Function = NewObject<DMaterialFunction>(nullptr, "InteractiveFunction");
 	FMaterialGraphDocument Document(*Function);
@@ -438,7 +447,7 @@ TEST(FMaterialGraphInteractionTests, FunctionCanvasConnectsAndMovesNodesWithUndo
 	EXPECT_EQ(Created->Presentation.X, static_cast<int32>(std::round(Empty.x - Origin.x)));
 	EXPECT_EQ(Created->Presentation.Y, static_cast<int32>(std::round(Empty.y - Origin.y)));
 	IO.AddKeyEvent(ImGuiKey_3, false); Frame(Empty, false);
-	IO.AddKeyEvent(ImGuiMod_Ctrl, true); IO.AddKeyEvent(ImGuiKey_C, true);
+	IO.AddKeyEvent(IO.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl, true); IO.AddKeyEvent(ImGuiKey_C, true);
 	Frame(Empty, false); IO.AddKeyEvent(ImGuiKey_C, false); Frame(Empty, false);
 	const ImVec2 PastePoint{650, 700};
 	Frame(PastePoint, false); Frame(PastePoint, false);
@@ -687,9 +696,9 @@ TEST(FMaterialGraphInteractionTests, CanvasLinkReleaseEndsGestureAcrossFrames)
 	EXPECT_EQ(Errors, 1);
 	EXPECT_EQ(FindViewNode(FMaterialGraphOperations::Inspect(*Material), Destination)
 		->Inputs.front().Link.SourceNodeId, Source);
-	Drop({Origin.x + 700, Origin.y + (GraphNodePinOffset(*FindViewNode(View, Material->GetOutputNode()->Id)) + Metrics.PinRowHeight * 4)}, false);
+	Drop({Origin.x + 700, Origin.y + (GraphNodePinOffset(*FindViewNode(View, Material->GetOutputNode()->Id)) + Metrics.PinRowHeight * 3)}, false);
 	EXPECT_EQ(Material->GetExpressionOutputs().Roughness.ExpressionId, Source);
-	Drop({Origin.x + 700, Origin.y + (GraphNodePinOffset(*FindViewNode(View, Material->GetOutputNode()->Id)) + Metrics.PinRowHeight)}, false);
+	Drop({Origin.x + 700, Origin.y + (GraphNodePinOffset(*FindViewNode(View, Material->GetOutputNode()->Id)))}, false);
 	EXPECT_EQ(Errors, 1);
 	EXPECT_EQ(Material->GetExpressionOutputs().BaseColor.ExpressionId, Source);
 	Drop({Origin.x + 380, Origin.y + 10}, false);
@@ -1212,6 +1221,7 @@ class FMaterialGraphCanvasInteractionTests : public ::testing::TestWithParam<boo
 
 TEST_P(FMaterialGraphCanvasInteractionTests, SelectionReconnectionCreationAndKeyboardAgree)
 {
+	FScopedGraphClipboard Clipboard;
 	InitializeDObjectSystem();
 	const bool bFunction = GetParam();
 	DObject* Owner = bFunction ? static_cast<DObject*>(NewObject<DMaterialFunction>(nullptr, "FunctionGestures"))
@@ -1261,12 +1271,12 @@ TEST_P(FMaterialGraphCanvasInteractionTests, SelectionReconnectionCreationAndKey
 	const ImVec2 Header{Origin.x + 80, Origin.y + 12};
 	Click(Header);
 	EXPECT_TRUE(Canvas.GetSelection().contains(Source->Id));
-	IO.AddKeyEvent(ImGuiMod_Ctrl, true); Frame(Header, false); Click(Header);
+	IO.AddKeyEvent(IO.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl, true); Frame(Header, false); Click(Header);
 	EXPECT_FALSE(Canvas.GetSelection().contains(Source->Id));
 	EXPECT_TRUE(FMaterialGraphCanvasTestAccess::Idle(Canvas));
 	Click(Header);
 	EXPECT_TRUE(Canvas.GetSelection().contains(Source->Id));
-	IO.AddKeyEvent(ImGuiMod_Ctrl, false); Frame(Header, false);
+	IO.AddKeyEvent(IO.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl, false); Frame(Header, false);
 
 	// Empty-space marquee replaces selection; Shift adds another region.
 	Frame({Origin.x + 330, Origin.y - 10}, true);
@@ -1344,7 +1354,7 @@ TEST_P(FMaterialGraphCanvasInteractionTests, SelectionReconnectionCreationAndKey
 	// Shared keyboard commands retain selection and one-step undo.
 	FMaterialGraphCanvasTestAccess::Select(Canvas, {Source->Id});
 	const auto BeforeDuplicate = Document.Inspect().Nodes.size();
-	IO.AddKeyEvent(ImGuiMod_Ctrl, true); Frame({1050, 580}, false);
+	IO.AddKeyEvent(IO.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl, true); Frame({1050, 580}, false);
 	Key(ImGuiKey_D);
 	EXPECT_EQ(Document.Inspect().Nodes.size(), BeforeDuplicate + 1);
 	EXPECT_EQ(Canvas.GetSelection().size(), 1u);
@@ -1356,7 +1366,7 @@ TEST_P(FMaterialGraphCanvasInteractionTests, SelectionReconnectionCreationAndKey
 	EXPECT_EQ(Document.Inspect().Nodes.size(), BeforeDuplicate + 1);
 	Key(ImGuiKey_A);
 	EXPECT_EQ(Canvas.GetSelection().size(), Document.Inspect().Nodes.size());
-	IO.AddKeyEvent(ImGuiMod_Ctrl, false); Frame({1050, 580}, false);
+	IO.AddKeyEvent(IO.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl, false); Frame({1050, 580}, false);
 
 	// Blank double click opens creation instead of starting a second marquee.
 	Click({850, 510}); Click({850, 510});

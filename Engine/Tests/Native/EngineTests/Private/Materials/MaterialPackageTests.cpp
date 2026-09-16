@@ -74,10 +74,15 @@ TEST(FMaterialPackageTests, MaterialInstanceAssetsRoundTripParentAndOverrides)
 	ASSERT_TRUE(Durin::WaitForTexture2DCompilation(*LoadedTexture, 10.0));
 	(void)Durin::FAssetCompilingManager::Get().FinishAllCompilation();
 	EXPECT_EQ(Loaded->GetStaticProperties(), StaticProperties);
-	ExpectColorNear(GetMaterialBinding(Loaded->GetRenderData()).BaseColor, Durin::FVector4f(0.2f, 0.4f, 0.6f, 0.35f));
+	ExpectColorNear(GetMaterialBinding(Loaded->GetRenderData()).BaseColor, Durin::FVector4f(0.2f, 0.4f, 0.6f, 1.0f));
 	const auto LoadedBinding = GetMaterialBinding(Loaded->GetRenderData());
-	EXPECT_FLOAT_EQ(LoadedBinding.Metallic, 0.8f);
-	EXPECT_FLOAT_EQ(LoadedBinding.Roughness, 0.7f);
+	EXPECT_FLOAT_EQ(LoadedBinding.Metallic, 0.0f);
+	float Retained = 0;
+	ASSERT_TRUE(Loaded->GetScalarParameterValue(Durin::MaterialParameters::MetallicName(), Retained));
+	EXPECT_FLOAT_EQ(Retained, 0.8f);
+	EXPECT_FLOAT_EQ(LoadedBinding.Roughness, 0.5f);
+	ASSERT_TRUE(Loaded->GetScalarParameterValue(Durin::MaterialParameters::RoughnessName(), Retained));
+	EXPECT_FLOAT_EQ(Retained, 0.7f);
 	EXPECT_FLOAT_EQ(LoadedBinding.UVChannels[0], 2.0f);
 	EXPECT_EQ(LoadedBinding.UVScales[0], Durin::FVector2f(2.0f, -1.0f));
 	EXPECT_EQ(LoadedBinding.UVOffsets[0], Durin::FVector2f(0.25f, 0.5f));
@@ -87,7 +92,7 @@ TEST(FMaterialPackageTests, MaterialInstanceAssetsRoundTripParentAndOverrides)
 	auto* LoadedBase = Durin::Cast<Durin::DMaterial>(Loaded->GetParent());
 	ASSERT_NE(LoadedBase, nullptr);
 	LoadedBase->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.6, 0.4, 0.2));
-	ExpectColorNear(GetMaterialBinding(Loaded->GetRenderData()).BaseColor, Durin::FVector4f(0.6f, 0.4f, 0.2f, 0.35f));
+	ExpectColorNear(GetMaterialBinding(Loaded->GetRenderData()).BaseColor, Durin::FVector4f(0.6f, 0.4f, 0.2f, 1.0f));
 	ASSERT_TRUE(Durin::UnloadPackage(InstancePath));
 	ASSERT_TRUE(Durin::UnloadPackage(
 		BasePath,
@@ -295,7 +300,7 @@ TEST(FMaterialPackageTests, MixedPackageRequiresAllVersionDomainsAndPreservesIns
 			auto Candidate = Saved;
 			const auto Record = std::ranges::find(Candidate.CustomVersions, Guid, &FCustomVersion::Guid);
 			ASSERT_NE(Record, Candidate.CustomVersions.end());
-			if (Version == Record->Version) continue;
+			if (Version == Record->Version || (Guid == FMaterialOutputVersion::Guid && Version == 1)) continue;
 			if (Version < 0) Candidate.CustomVersions.erase(Record);
 			else Record->Version = Version;
 			FByteBuffer Bytes, Bulk;
@@ -373,4 +378,60 @@ TEST(FMaterialPackageTests, AuthoredGraphVersionsLoadAfterRestartAndFunctionsDup
 	ShutdownAssetManager();
 	CollectGarbage();
 	ASSERT_TRUE(InitializeAssetManager());
+}
+
+TEST(FMaterialPackageTests, OutputModePersistsBothConnectionsAndUpgradesLegacyPackages)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	const auto Root = Testing::GetTestWorkDirectory() / "MaterialOutputModes";
+	Testing::RemoveTestWorkDirectory(Root);
+	Testing::RegisterMountPointForTests("/MaterialOutputModes/", Root.generic_string() + "/");
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/MaterialOutputModes/Base", Path));
+	DMaterial* Material = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Material));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	auto Graph = Testing::MakePBRMaterialExpressionsForTest();
+	TStrongObjectPtr<DMaterialExpressionMakeSurface> Packed(NewObject<DMaterialExpressionMakeSurface>(nullptr, NAME_None));
+	Packed->Id = FGuid::NewGuid();
+	Packed->BaseColor = Graph.Outputs.BaseColor; Packed->Normal = Graph.Outputs.Normal;
+	Packed->Metallic = Graph.Outputs.Metallic; Packed->Roughness = Graph.Outputs.Roughness;
+	Packed->AmbientOcclusion = Graph.Outputs.AmbientOcclusion; Packed->Emissive = Graph.Outputs.Emissive;
+	Packed->Opacity = Graph.Outputs.Opacity; Packed->OpacityMask = Graph.Outputs.OpacityMask;
+	Graph.Expressions.emplace_back(Packed.Get());
+	Graph.Outputs.Surface = {Packed->Id};
+	Graph.Outputs.bUseMaterialAttributes = true;
+	ASSERT_TRUE(Graph.Apply(*Material));
+	ASSERT_TRUE(SavePackage(Material->GetPackage()));
+	const auto Expected = Material->GetExpressionOutputs();
+	ASSERT_TRUE(UnloadPackage(Path));
+	Material = nullptr;
+	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Material));
+	EXPECT_EQ(Material->GetExpressionOutputs(), Expected);
+	// Write a current package with the packed connection retained but inactive.
+	Graph.Outputs.bUseMaterialAttributes = false;
+	ASSERT_TRUE(Graph.Apply(*Material));
+	ASSERT_TRUE(SavePackage(Material->GetPackage()));
+	FByteBuffer Bytes;
+	ASSERT_TRUE(SerializeAssetPackageBytes(Material->GetPackage(), Bytes));
+	ObjectPackage::FLinkerTables Linker;
+	ASSERT_TRUE(ObjectPackage::ReadPackage(Bytes, {}, Path, Linker));
+	ASSERT_TRUE(UnloadPackage(Path));
+	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Material));
+	EXPECT_FALSE(Material->GetExpressionOutputs().bUseMaterialAttributes);
+	EXPECT_EQ(Material->GetExpressionOutputs().Surface, Expected.Surface);
+	ASSERT_TRUE(UnloadPackage(Path));
+	// Version 1 selected aggregate mode by connection presence. The new flag's
+	// default false is omitted by tagged serialization, matching an old package.
+	for (auto& Version : Linker.CustomVersions)
+		if (Version.Guid == FMaterialOutputVersion::Guid) Version.Version = 1;
+	FByteBuffer Legacy, Bulk;
+	ASSERT_TRUE(ObjectPackage::WritePackage(Linker, Legacy, Bulk));
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Legacy, Root / "Base.dasset"));
+	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Material));
+	EXPECT_TRUE(Material->GetExpressionOutputs().bUseMaterialAttributes);
+	EXPECT_EQ(Material->GetExpressionOutputs().Surface, Expected.Surface);
+	ASSERT_TRUE(UnloadPackage(Path));
+	Testing::RemoveTestWorkDirectory(Root);
 }
