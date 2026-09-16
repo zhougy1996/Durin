@@ -4,7 +4,7 @@ Summary: Define mounted package discovery, rebuildable catalog/reference project
 
 Modules: Core, AssetRegistry, Engine, AssetTools, ContentBrowser, DurinEd, LevelEditor
 
-Last reviewed: 2026-09-07
+Last reviewed: 2026-09-16
 
 Package identity, serialization, loading, and residency are defined by
 [Asset Packages](AssetPackages.md). Authored, derived, and cooked storage
@@ -141,7 +141,8 @@ failed-save cleanup. Engine exposes no separate asset-duplication operation.
 AssetRegistry owns persistent package discovery, bounded header projection,
 immutable package metadata and dependency snapshots, their revisions, and the
 single rebuildable registry cache. CoreDObject owns object/package construction
-and graph copying. Engine owns package residency, bytes and writing, exact
+and graph copying, reflected capture and package persistence. Engine owns asset
+publication transactions, package residency, exact
 on-demand package inspection, Cook, bounded artifact publication, and
 forward-only relocation/fix-up jobs. `Asset/PackageRemoval.h` supplies bounded
 batch residency release and catalog removal against expected package metadata
@@ -155,6 +156,12 @@ DurinEd's mounted-content mutation revision exactly once and never enter the
 global object-edit Undo/Redo history.
 
 ## Asynchronous Save Staging
+
+[Package persistence](../Core/PackagePersistence.md) is implemented in CoreDObject.
+Engine delegates generic capture and file staging/replacement to lower layers,
+but its save APIs retain asset admission and catalog publication. Package members
+must not replace these APIs in editor import or asset transaction workflows.
+
 
 `FAsyncPackageSave` owns a single loaded dirty package save. `Begin` runs on the
 GameThread, pins the package, serializes and validates the closure, and captures

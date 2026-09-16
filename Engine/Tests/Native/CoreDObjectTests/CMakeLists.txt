@@ -40,3 +40,10 @@ durin_add_native_test(PackageWriterContractTests
 	SOURCES Private/PackageWriterTests.cpp
 	LIBRARIES Core CoreDObject
 )
+durin_add_native_test(PackagePersistenceTests
+	KIND feature
+	DOMAINS reflection
+	MODULES core-dobject
+	SOURCES Private/PackagePersistenceTests.cpp
+	LIBRARIES Core CoreDObject
+)

@@ -4,7 +4,7 @@ Summary: Define asset identity, canonical DAST v10 packages, runtime residency, 
 
 Modules: AssetRegistry, Engine, CoreDObject, AssetMaintenance, AssetTools
 
-Last reviewed: 2026-09-14
+Last reviewed: 2026-09-16
 
 Durin object assets are stored as versioned `.dasset` packages. A package is a
 residency and persistence container with zero or more independently addressable
@@ -32,10 +32,11 @@ removal; selection, confirmation, companions, and deletion callbacks belong to
 Ownership is deliberately one-way:
 
 - `CoreDObject` owns format-neutral linker tables, canonical tagged values,
-  production DAST v10 read/write, and bounded validation.
+  production DAST v10 read/write, generic live graph capture, package persistence,
+  and bounded validation. See [Package Persistence](../Core/PackagePersistence.md).
 - `AssetRegistry` owns canonical mounted-file discovery, bounded front-matter
   reads, and immutable package metadata/dependency snapshots.
-- `Engine` captures live graphs into linker tables, applies validated linker
+- `Engine` prepares asset-specific capture inputs, applies validated linker
   tables to unpublished object graphs, owns residency, and provides transient
   exact inspection and mutation tools. Engine contains no package-table or
   tagged-value wire parser.

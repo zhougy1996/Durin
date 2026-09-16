@@ -245,7 +245,9 @@ pinned until completion, and saving waits for successful build and provenance
 publication. Ordinary factory calls remain synchronous, and reimport preserves
 its configured settings.
 
-The import queue uses `FAssetSaveOperation` after compilation: preparation and
+The import queue retains Engine asset publication through `FAssetSaveOperation`;
+CoreDObject package-only saves do not publish catalog metadata or editor notifications.
+After compilation: preparation and
 final publication run on the GameThread, while package/bulk staging and byte
 verification run on the scheduler's BlockingIO pool. The presenter reports
 `Saving` and polls without waiting. Mutation pauses defer final publication;

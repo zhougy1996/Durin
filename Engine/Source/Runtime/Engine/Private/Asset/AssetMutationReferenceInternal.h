@@ -1,10 +1,11 @@
 #pragma once
+#include "DObject/PackageValueCodec.h"
 
 #include "AssetMutationJournalInternal.h"
 
 namespace Durin::AssetPrivate
 {
-	struct FByteReader;
+	using FByteReader = PackagePrivate::FByteReader;
 	struct FMutationPackageMetadata
 	{
 		uint32 FormatVersion = 0;

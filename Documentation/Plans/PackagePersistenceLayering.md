@@ -4,22 +4,52 @@ Summary: Move generic package persistence into CoreDObject while preserving Engi
 
 Last reviewed: 2026-09-16
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-09-16
 
 ## Current Status
 
-Planning only; implementation has not started. The uncommitted
-`SavePackageAsync` facade, `DPackage` forwarding members, consumer migrations,
-and their tests were discarded at the user's request. The committed asynchronous
-staging implementation in `63b7b16f9` remains the baseline.
+Stages 0–4 are complete and validated on the macos-xcode-arm64 profile.
+CoreDObject now owns generic capture, save overrides, bulk descriptors and
+`DPackage::Save` / `SaveAsync`. Core provides shared verified staging and
+rollback-capable file replacement. Engine keeps its codec/cook/redirector adapters,
+asset admission, participant snapshots, publication and recovery policy.
 
-Today CoreDObject owns package identity, reflection, linker tables, and canonical
-DAST encoding. Engine owns live graph capture, save admission, staging, file
-publication, and asset catalog coordination. `FAsyncPackageSave` prepares on the
-GameThread, writes detached bytes on BlockingIO workers, and requires explicit
-GameThread completion to publish. Its current contract is documented in
+The source/test consumer audit covered Engine, Sandbox and RoadWeaver as declared
+in `Durin.dworkspace` (72 matching files). Existing production save callers require
+asset publication and retain their Engine entry points. Compatibility includes
+and type aliases remain where those consumers still use the old header names;
+there is no alternate generic capture or file replacement implementation.
+
+The committed async staging implementation in `63b7b16f9` was the behavioral
+baseline, while the checked-out canonical writer is DAST v10. The previously
+discarded facade was not restored. Lasting contracts are documented in
+[Package Persistence](../Runtime/Core/PackagePersistence.md) and
 [Asset Catalog and Mutation](../Runtime/Assets/AssetCatalogAndMutation.md#asynchronous-save-staging).
+
+Validation evidence (2026-09-16, `MacOS-arm64-Debug-DurinEditor`):
+
+- `./DevTool build --target all` passed for the final code, including Engine,
+  editor, Sandbox and RoadWeaver (`20260916-210417-342167-22780-cmake.log`).
+- `./DevTool test PackagePersistenceTests` passed all 11 cases; the final
+  `--isolate --test-jobs 4` run also passed all 11 cases
+  (`20260916-210503-850966-22850-ctest.log`).
+- `./DevTool test @reflection` passed all seven selected targets.
+- `./DevTool test @asset-package` passed all four selected targets, including
+  the 159-case AssetPackageTests suite and package reload coverage.
+- `./DevTool test @asset-workflow` passed all seven selected targets, including
+  editor asset workflows, texture import and texture saves.
+- `./DevTool test @asset-cook` passed all four selected targets;
+  `./DevTool test MaterialPackageTests` passed all five cases.
+- Header dependency inspection found no Engine/AssetRegistry includes or asset
+  result types in the lower-layer persistence implementation. `otool -L` confirmed
+  PackagePersistenceTests links only Core, CoreDObject and system libraries.
+- Changed-document validation, all-plan validation and staged diff checks passed.
+
+Command logs are in `Build/.agent-state/logs/`. Native tests used direct hosts;
+macOS GUI smoke, GPU qualification and performance runs were not part of this
+ownership migration. Compatibility headers remain because existing asset callers
+still consume them; their implementation delegates to the lower-layer core.
 
 ## Goal
 
@@ -113,21 +143,71 @@ package pin ownership. Preserve revision checks before commit and clear dirty
 state only for the revision actually saved. Keep distinct outcomes for failure
 before publication and failure after content commit.
 
+## Stage 0 Decisions and Migration Inventory
+
+The working tree uses the DAST v10 ordinary writer and supports v10 only.
+Preserve the actual writer and supported reader set; the earlier v9 ownership
+summary is historical, not an instruction to downgrade persisted data.
+
+| Existing implementation | Destination / retained adapter |
+| --- | --- |
+| `AssetPackageLinkerCapture.cpp`: capture archive, frozen graph, default plan, linker construction | CoreDObject package capture; separate the legacy load archive, which remains Engine-owned |
+| `PackageSerialization.h`: object/property save overrides | CoreDObject; Engine includes the lower-layer declarations for source compatibility |
+| `AssetPackageValueCodec.h`: byte readers and reflected signatures | CoreDObject helpers; Engine compatibility include |
+| Tagged codec `Write` | Engine format dispatch delegates to CoreDObject capture and existing canonical writer |
+| Cook platform/profile and redirector metadata | Engine converts to generic archive target and per-export metadata before capture |
+| Bulk capture descriptors and immutable buffers | CoreDObject accepts archive bulk values; preserve placement, alignment and hashes; Engine retains payload preparation and storage APIs |
+| `AssetPackageOperations.cpp`: staging and file replacement | Shared lower-layer staged operation; Engine retains participant snapshots, journals, catalog rollback and publication guards |
+| `AssetRuntimeFacade.cpp` and `SavePackagesAtomically` | Remain Engine asset publication entry points |
+| Editor import/save callers | Retain Engine publication; migrate only package-only callers |
+
+Engine consumes the staged core through `StageFileVerified` and
+`FFileReplacement`, keeping its existing task handle and package-bundle coordinator.
+It does not wrap a second `FPackageSaveOperation`: that would recapture bytes and
+duplicate package pins. Both entry paths share generic capture and physical file
+mutation; Engine alone owns asset participant lifetime and publication policy.
+
+The lower-layer API uses `FPackageSaveOptions`, `FPackageSaveResult` and
+`FPackageSaveOperation`; no Engine or AssetRegistry types occur in its headers.
+Explicit destinations bypass global asset state. An optional destination resolver
+is configured on GameThread and resolves once during preparation. Capture options
+use `FArchiveTarget`, generic save overrides and per-export redirect metadata;
+concrete asset classes and cook enumerations remain in Engine adapters.
+
+The asynchronous handle owns the package pin, detached output and worker lifetime.
+`IsStagingReady()` only signals I/O readiness. `Complete()` on GameThread performs
+revision/conflict validation and file commit; `WaitAndComplete()` waits only on
+I/O and then completes on its calling GameThread, supporting non-ticking tools.
+Terminal results are cached; recursive completion is rejected. Cancellation before
+commit drains I/O and removes temporary files; cancellation cannot interrupt a
+commit already running. Destruction drains only I/O and abandons unpublished
+output. Owners release operations before object/scheduler shutdown. Workers never
+queue GameThread work, so these waits cannot require the waiting thread to pump.
+
+A staged operation retains rollback state until its caller finalizes publication.
+Engine can validate all participants before commit, roll back after catalog
+failure when required, or finalize content with projection pending. Package-only
+results distinguish uncommitted failure, committed content and failed rollback.
+`.dasset` and `.dbulk` replacements are ordered and recoverable within an operation,
+but two renames are not crash-atomic; persistent transaction recovery stays in
+Engine. Destination and stage conflicts, revision validation and dirty-state
+clearing must be tested independently of catalog policy.
+
 ## Implementation Stages
 
 ### Stage 0: Freeze Contracts and Dependency Boundaries
 
 Dependencies: none. Outcome: an executable API and migration inventory.
 
-- [ ] Audit `AssetPackageOperations.cpp`, `AssetRuntimeFacade.cpp`,
+- [x] Audit `AssetPackageOperations.cpp`, `AssetRuntimeFacade.cpp`,
   `PackageSerialization.h`, codec/archive/value helpers, and bulk storage helpers.
-- [ ] Classify each dependency as generic persistence or asset policy; record
+- [x] Classify each dependency as generic persistence or asset policy; record
   target ownership and required adapters before moving code.
-- [ ] Specify package save options, result and async operation types, destination
+- [x] Specify package save options, result and async operation types, destination
   resolution, staged commit extension points, and compatibility names.
-- [ ] Define GameThread completion for editor ticks and headless tools, operation
+- [x] Define GameThread completion for editor ticks and headless tools, operation
   lifetime during shutdown, and cancellation boundaries.
-- [ ] Record handling of `.dasset`/`.dbulk` replacement and failure recovery;
+- [x] Record handling of `.dasset`/`.dbulk` replacement and failure recovery;
   do not claim a pair of filesystem renames is crash-atomic.
 
 Acceptance: the proposed dependency graph contains no CoreDObject-to-Engine or
@@ -139,10 +219,10 @@ identified owner. Record any changed decision here before implementation.
 Dependencies: Stage 0. Outcome: Engine delegates generic serialization to
 CoreDObject while retaining its existing public save behavior.
 
-- [ ] Move generic reflected graph capture and value serialization into
+- [x] Move generic reflected graph capture and value serialization into
   CoreDObject and adapt Engine-specific preparation and validation.
-- [ ] Define generic bulk output and snapshot ownership without payload copies.
-- [ ] Add package-only round-trip coverage for object references, defaults,
+- [x] Define generic bulk output and snapshot ownership without payload copies.
+- [x] Add package-only round-trip coverage for object references, defaults,
   Delta/Complete modes, and external bulk; compare output with the baseline.
 
 Acceptance: ordinary reflected package capture and read-back work without Engine
@@ -152,14 +232,14 @@ or asset registry initialization; existing asset serialization behavior passes.
 
 Dependencies: Stage 1. Outcome: independently usable CoreDObject save APIs.
 
-- [ ] Extract reusable file staging/replacement primitives into Core only where
+- [x] Extract reusable file staging/replacement primitives into Core only where
   they have no package-format or asset-policy dependency.
-- [ ] Implement `DPackage::Save()` and `DPackage::SaveAsync()` using shared
+- [x] Implement `DPackage::Save()` and `DPackage::SaveAsync()` using shared
   CoreDObject persistence logic and package-specific result types.
-- [ ] Support explicit destinations and the defined default resolver contract.
-- [ ] Implement staged commit integration and the async lifetime/completion
+- [x] Support explicit destinations and the defined default resolver contract.
+- [x] Implement staged commit integration and the async lifetime/completion
   contract; preserve destination conflict checks and dirty revision semantics.
-- [ ] Verify failure, rollback, cancellation, abandonment, and shutdown cleanup.
+- [x] Verify failure, rollback, cancellation, abandonment, and shutdown cleanup.
 
 Acceptance: a target linking CoreDObject and lower dependencies saves and reads
 an ordinary package synchronously and asynchronously without Engine or a catalog.
@@ -170,15 +250,15 @@ Both paths produce equivalent persisted content and accurate completion results.
 Dependencies: Stage 2. Outcome: Engine uses lower-layer persistence without
 weakening its asset transaction guarantees.
 
-- [ ] Adapt `FAsyncPackageSave` and `SavePackagesAtomically` to the staged core;
+- [x] Adapt `FAsyncPackageSave` and `SavePackagesAtomically` to the staged core;
   eliminate duplicate capture, staging, and file publication implementations.
-- [ ] Preserve participant validation, readiness checks, registry failure
+- [x] Preserve participant validation, readiness checks, registry failure
   rollback, committed-content/pending-projection results, and exactly-once callbacks.
-- [ ] Keep texture import progress, cancellation, retry retention, and successful
+- [x] Keep texture import progress, cancellation, retry retention, and successful
   unload behavior consistent with final asset publication.
-- [ ] Search source and test roots for every project in `Durin.dworkspace`;
+- [x] Search source and test roots for every project in `Durin.dworkspace`;
   migrate consumers according to package-only versus asset publication needs.
-- [ ] Retain compatibility adapters until all affected consumers are validated.
+- [x] Retain compatibility adapters until all affected consumers are validated.
 
 Acceptance: Engine publication and editor workflows preserve existing behavior;
 independent concurrent saves, stale edits, competing writers, stage corruption,
@@ -188,14 +268,14 @@ registry failure, and abandoned operations remain covered.
 
 Dependencies: Stage 3. Outcome: validated migration and authoritative documentation.
 
-- [ ] Verify lower-layer headers and link dependencies in an Engine-free target.
-- [ ] Run owning-module tests and affected Engine, editor, Sandbox, and RoadWeaver
+- [x] Verify lower-layer headers and link dependencies in an Engine-free target.
+- [x] Run owning-module tests and affected Engine, editor, Sandbox, and RoadWeaver
   targets following [Testing](../Agents/Testing.md).
-- [ ] Complete the shared Engine API `all` build following
+- [x] Complete the shared Engine API `all` build following
   [Build and Run](../Agents/BuildAndRun.md).
-- [ ] Update module ownership, package persistence, asset mutation, and editor
+- [x] Update module ownership, package persistence, asset mutation, and editor
   workflow contracts; remove transitional adapters when no consumers remain.
-- [ ] Record validation evidence and complete the plan only after all gates pass.
+- [x] Record validation evidence and complete the plan only after all gates pass.
 
 Performance benchmarks and sampling remain separate qualification runs, never
 part of routine correctness tests. Do not make performance claims from correctness

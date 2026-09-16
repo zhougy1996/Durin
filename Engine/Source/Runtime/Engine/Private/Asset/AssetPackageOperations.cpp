@@ -29,6 +29,7 @@
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
 #include "Misc/FileHelper.h"
+#include "Misc/FilePublication.h"
 #include "Misc/FileTime.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
@@ -52,117 +53,6 @@ namespace Durin
 			return Result;
 		}
 
-		auto FailSaveOverride(std::string_view Message, std::string* OutError) -> bool
-		{
-			if (OutError) *OutError = Message;
-			return false;
-		}
-
-		auto ObjectOwnsProperty(const DObject& Object, const FProperty& Property) -> bool
-		{
-			if (!Object.GetClass()) return false;
-			bool bFound = false;
-			Object.GetClass()->ForEachProperty([&](FProperty* Candidate) {
-				bFound = bFound || Candidate == &Property;
-			}, true);
-			return bFound;
-		}
-	}
-
-	auto FObjectSaveOverrides::FindMutableObject(const DObject& Object) -> FObjectSaveOverride*
-	{
-		auto It = std::ranges::find(Objects, &Object, &FObjectSaveOverride::Object);
-		return It == Objects.end() ? nullptr : &*It;
-	}
-
-	auto FObjectSaveOverrides::FindObject(const DObject& Object) const -> const FObjectSaveOverride*
-	{
-		auto It = std::ranges::find(Objects, &Object, &FObjectSaveOverride::Object);
-		return It == Objects.end() ? nullptr : &*It;
-	}
-
-	auto FObjectSaveOverrides::AddObjectOmission(
-		const DObject& Object, std::string* OutError) -> bool
-	{
-		if (OutError) OutError->clear();
-		if (FObjectSaveOverride* Existing = FindMutableObject(Object))
-		{
-			if (Existing->bOmitObject || !Existing->Properties.empty())
-				return FailSaveOverride("A conflicting save override already exists for the object.", OutError);
-			Existing->bOmitObject = true;
-			return true;
-		}
-		Objects.push_back({.Object = &Object, .bOmitObject = true});
-		return true;
-	}
-
-	auto FObjectSaveOverrides::AddPropertyOmission(
-		const DObject& Object, const FProperty& Property, std::string* OutError) -> bool
-	{
-		if (OutError) OutError->clear();
-		if (!ObjectOwnsProperty(Object, Property))
-			return FailSaveOverride("The omitted property does not belong to the target object's reflected schema.", OutError);
-		FObjectSaveOverride* ObjectOverride = FindMutableObject(Object);
-		if (!ObjectOverride)
-		{
-			Objects.push_back({.Object = &Object});
-			ObjectOverride = &Objects.back();
-		}
-		if (ObjectOverride->bOmitObject
-			|| std::ranges::find(ObjectOverride->Properties, &Property,
-				&FPropertySaveOverride::Property) != ObjectOverride->Properties.end())
-			return FailSaveOverride("A conflicting save override already exists for the property.", OutError);
-		ObjectOverride->Properties.push_back({.Property = &Property});
-		return true;
-	}
-
-	auto FObjectSaveOverrides::AddPropertyValueRaw(
-		const DObject& Object, const FProperty& Property, const void* Replacement,
-		size_t ReplacementSize, size_t ReplacementAlignment,
-		DurinCodeGen::EPropertyGenFlags ReplacementKind,
-		const DStruct* ReplacementStruct, const DClass* ReplacementClass,
-		std::string* OutError) -> bool
-	{
-		if (OutError) OutError->clear();
-		if (!ObjectOwnsProperty(Object, Property))
-			return FailSaveOverride("The replacement property does not belong to the target object's reflected schema.", OutError);
-		if (!Replacement || Property.GetArrayDim() != 1
-			|| Property.GetValueSize() != ReplacementSize
-			|| Property.GetValueAlignment() != ReplacementAlignment
-			|| Property.GetKind() != ReplacementKind)
-			return FailSaveOverride("The replacement value does not exactly match the reflected property storage type.", OutError);
-		if (ReplacementKind == DurinCodeGen::EPropertyGenFlags::Struct
-			&& static_cast<const FStructProperty&>(Property).GetStruct() != ReplacementStruct)
-			return FailSaveOverride("The replacement Struct type does not match the reflected property type.", OutError);
-		if ((ReplacementKind == DurinCodeGen::EPropertyGenFlags::Object
-				|| ReplacementKind == DurinCodeGen::EPropertyGenFlags::SoftObject)
-			&& (Property.GetReferencedClass() != ReplacementClass
-				|| (ReplacementKind == DurinCodeGen::EPropertyGenFlags::Object
-					&& !Property.IsObjectPtrWrapper())))
-			return FailSaveOverride("The replacement object wrapper type does not match the reflected property type.", OutError);
-		FObjectSaveOverride* ObjectOverride = FindMutableObject(Object);
-		if (!ObjectOverride)
-		{
-			Objects.push_back({.Object = &Object});
-			ObjectOverride = &Objects.back();
-		}
-		if (ObjectOverride->bOmitObject
-			|| std::ranges::find(ObjectOverride->Properties, &Property,
-				&FPropertySaveOverride::Property) != ObjectOverride->Properties.end())
-			return FailSaveOverride("A conflicting save override already exists for the property.", OutError);
-
-		FReflectedValueStorage Storage;
-		std::string CaptureError;
-		if (!Storage.CopyConstruct(&Property, Replacement, 0, &CaptureError))
-			return FailSaveOverride(CaptureError, OutError);
-		FPropertyValueSnapshot Snapshot;
-		if (!CapturePropertyValue(&Property, Storage.GetContainer(), 0, Snapshot, &CaptureError))
-			return FailSaveOverride(CaptureError, OutError);
-		ObjectOverride->Properties.push_back({
-			.Property = &Property,
-			.Kind = EPropertySaveOverrideKind::Replace,
-			.Replacement = std::move(Snapshot)});
-		return true;
 	}
 
 	using AssetPrivate::FAssetReferenceStoreRegistry;
@@ -423,6 +313,7 @@ namespace Durin
 			bool bHadFinal = false;
 			bool bPublished = false;
 			bool bPreparedFile = false;
+			FFileReplacement Replacement;
 		};
 
 		auto PrepareEditorBulkDataCompanionState(
@@ -490,96 +381,30 @@ namespace Durin
 					OutTransaction.FinalPath.generic_string(), ErrorCode.message());
 				return false;
 			}
-			if (OutTransaction.bPreparedFile)
+			auto Staged = PreparedFile;
+			const bool OwnsStage = Staged.empty();
+			if (OwnsStage)
 			{
-				ErrorCode.clear();
-				if (OutTransaction.bHadFinal)
-					std::filesystem::rename(OutTransaction.FinalPath, OutTransaction.BackupPath, ErrorCode);
-				if (!ErrorCode) std::filesystem::rename(PreparedFile, OutTransaction.FinalPath, ErrorCode);
-				if (ErrorCode)
+				Staged = OutTransaction.FinalPath.string() + ".bulk-stage-" + FGuid::NewGuid().ToString();
+				if (!StageFileVerified(Staged, Bytes, OutError))
 				{
-					if (OutTransaction.bHadFinal)
-					{
-						std::error_code RestoreError;
-						if (std::filesystem::exists(OutTransaction.BackupPath, RestoreError))
-							std::filesystem::rename(OutTransaction.BackupPath, OutTransaction.FinalPath, RestoreError);
-					}
-					OutError = ErrorCode.message();
-					return false;
-				}
-				OutTransaction.bPublished = true;
-				return true;
-			}
-			if (OutTransaction.bHadFinal)
-			{
-				FByteBuffer PriorBytes;
-				if (!FFileHelper::LoadFileToArray(PriorBytes, OutTransaction.FinalPath))
-				{
-					OutError = "Prior authored bulk companion is unreadable.";
-					return false;
-				}
-				FFileHelper::FAtomicFileError BackupError;
-				if (!FFileHelper::SaveArrayToFileAtomically(
-						PriorBytes, OutTransaction.BackupPath, &BackupError))
-				{
-					OutError = BackupError.ToString();
+					std::filesystem::remove(Staged, ErrorCode);
 					return false;
 				}
 			}
-			FFileHelper::FAtomicFileError PublicationError;
-			if (!FFileHelper::SaveArrayToFileAtomically(
-					Bytes, OutTransaction.FinalPath, &PublicationError))
-			{
-				std::filesystem::remove(OutTransaction.BackupPath, ErrorCode);
-				OutError = PublicationError.ToString();
-				return false;
-			}
-			OutTransaction.bPublished = true;
-			OutError.clear();
-			return true;
+			OutTransaction.Replacement = {OutTransaction.FinalPath, Staged, OutTransaction.BackupPath};
+			const bool Published = OutTransaction.Replacement.Publish(OutError);
+			if (!Published && OwnsStage) std::filesystem::remove(Staged, ErrorCode);
+			OutTransaction.bPublished = Published;
+			return Published;
 		}
 
 		auto RollbackEditorBulkDataCompanion(
 			FEditorBulkDataCompanionTransaction& Transaction,
 			std::string& OutError) -> bool
 		{
-			if (!Transaction.bPublished) return true;
-			std::error_code ErrorCode;
-			if (!Transaction.bHadFinal)
-			{
-				std::filesystem::remove(Transaction.FinalPath, ErrorCode);
-				if (!ErrorCode) std::filesystem::remove(Transaction.BackupPath, ErrorCode);
-			}
-			else if (Transaction.bPreparedFile)
-			{
-				std::filesystem::remove(Transaction.FinalPath, ErrorCode);
-				if (!ErrorCode) std::filesystem::rename(Transaction.BackupPath, Transaction.FinalPath, ErrorCode);
-			}
-			else
-			{
-				FByteBuffer PriorBytes;
-				if (!FFileHelper::LoadFileToArray(PriorBytes, Transaction.BackupPath))
-				{
-					OutError = "Authored bulk rollback backup is missing or unreadable.";
-					return false;
-				}
-				FFileHelper::FAtomicFileError PublicationError;
-				if (!FFileHelper::SaveArrayToFileAtomically(
-						PriorBytes, Transaction.FinalPath, &PublicationError))
-				{
-					OutError = PublicationError.ToString();
-					return false;
-				}
-				std::filesystem::remove(Transaction.BackupPath, ErrorCode);
-			}
-			if (ErrorCode)
-			{
-				OutError = std::format("Authored bulk rollback cleanup failed: {}",
-					ErrorCode.message());
-				return false;
-			}
+			if (!Transaction.Replacement.Rollback(OutError)) return false;
 			Transaction.bPublished = false;
-			OutError.clear();
 			return true;
 		}
 
@@ -603,8 +428,8 @@ namespace Durin
 		auto CommitEditorBulkDataCompanion(
 			FEditorBulkDataCompanionTransaction& Transaction) -> void
 		{
-			std::error_code ErrorCode;
-			std::filesystem::remove(Transaction.BackupPath, ErrorCode);
+			std::string Error;
+			(void)Transaction.Replacement.Finalize(Error);
 			Transaction.bPublished = false;
 		}
 
@@ -960,11 +785,11 @@ namespace Durin
 				return Error(EAssetError::InvalidPath, "Package path is invalid.");
 			if (OutFile)
 			{
-				OutFile->BulkBytes = Closure.BulkBytes;
+				OutFile->BulkBytes = std::move(Closure.BulkBytes);
 				FAssetPackageHeader Header;
 				const AssetPrivate::FAssetPackageReadContext Context{
 					.PackageBytes = Closure.PackageBytes,
-					.BulkBytes = Closure.BulkBytes,
+					.BulkBytes = OutFile->BulkBytes,
 					.PackagePath = PackagePath,
 					.PhysicalPackageBytes = Closure.PackageBytes.size()};
 				if (FAssetResult HeaderResult = Codec->ReadHeader(Context, Header); !HeaderResult)
@@ -1067,25 +892,9 @@ namespace Durin
 
 	struct FAsyncPackageSave::FState
 	{
-		struct FStamp
-		{
-			bool Exists = false;
-			uintmax_t Size = 0;
-			std::filesystem::file_time_type Time{};
-			auto operator==(const FStamp&) const -> bool = default;
-		};
+		using FStamp = FFilePublicationStamp;
 		static auto Inspect(const std::filesystem::path& Path, FStamp& Stamp) -> bool
-		{
-			std::error_code Ec;
-			Stamp.Exists = std::filesystem::exists(Path, Ec);
-			if (Ec) return false;
-			if (!Stamp.Exists) return true;
-			if (!std::filesystem::is_regular_file(Path, Ec) || Ec) return false;
-			Stamp.Size = std::filesystem::file_size(Path, Ec);
-			if (Ec) return false;
-			Stamp.Time = std::filesystem::last_write_time(Path, Ec);
-			return !Ec;
-		}
+		{ return FStamp::Inspect(Path, Stamp); }
 		TStrongObjectPtr<DPackage> Package;
 		FPackagePath Path;
 		uint64 EditRevision = 0;
@@ -1163,15 +972,9 @@ namespace Durin
 				std::filesystem::create_directories(Data.Destination.parent_path(), Ec);
 				if (Ec) return Error(EAssetError::IoError, Ec.message());
 				auto Write = [](const std::filesystem::path& Path, FByteView Bytes) -> FAssetResult {
-					FFileHelper::FAtomicFileError Failure;
-					if (!FFileHelper::SaveArrayToFileAtomically(Bytes, Path, &Failure))
-						return Error(EAssetError::IoError, Failure.ToString());
-					FByteBuffer Verified;
-					if (!FFileHelper::LoadFileToArray(Verified, Path)
-						|| Verified.size() != Bytes.size()
-						|| FXxHash128::HashBuffer(Verified) != FXxHash128::HashBuffer(Bytes))
-						return Error(EAssetError::CorruptFile, "Staged save failed byte verification.");
-					return {};
+					std::string Error;
+					return StageFileVerified(Path, Bytes, Error) ? FAssetResult{}
+						: FAssetResult{EAssetError::IoError, std::move(Error)};
 				};
 				if (auto Result = Write(Data.Staged, Data.Bytes); !Result) return Result;
 				if (!Data.File.BulkBytes.empty())
@@ -1253,7 +1056,7 @@ namespace Durin
 			uintmax_t PublishedFileSize = 0;
 			std::filesystem::file_time_type PublishedLastWriteTime{};
 			bool bHadDestination = false;
-			bool bPublished = false;
+			FFileReplacement Replacement;
 		};
 
 		if (Packages.empty())
@@ -1346,28 +1149,35 @@ namespace Durin
 				std::filesystem::remove(Staged.Staged, Ec);
 			}
 		};
-		auto RollbackCompanions = [&] {
-			std::string IgnoredError;
+		auto RollbackCompanions = [&](FAssetResult Failure) {
+			std::string RestoreError;
 			for (auto It = StagedPackages.rbegin(); It != StagedPackages.rend(); ++It)
-				RollbackEditorBulkDataCompanion(It->CompanionTransaction, IgnoredError);
+				if (!RollbackEditorBulkDataCompanion(It->CompanionTransaction, RestoreError))
+				{
+					Failure.Disposition = EAssetResultDisposition::RecoveryRequired;
+					Failure.Message += "; companion rollback: " + RestoreError;
+					Failure.RecoveryLocation = It->CompanionTransaction.BackupPath;
+				}
+			return Failure;
 		};
-		auto AbortStaging = [&] {
+		auto AbortStaging = [&](FAssetResult Failure) {
 			CleanupStaging();
-			RollbackCompanions();
+			return RollbackCompanions(std::move(Failure));
 		};
-		auto RollbackPublication = [&] {
+		auto RollbackPublication = [&](FAssetResult Failure) {
 			for (auto It = StagedPackages.rbegin(); It != StagedPackages.rend(); ++It)
 			{
 				std::error_code Ec;
-				if (It->bPublished) std::filesystem::remove(It->Destination, Ec);
-				if (It->bHadDestination && std::filesystem::exists(It->Backup, Ec))
+				std::string RestoreError;
+				if (!It->Replacement.Rollback(RestoreError))
 				{
-					Ec.clear();
-					std::filesystem::rename(It->Backup, It->Destination, Ec);
+					Failure.Disposition = EAssetResultDisposition::RecoveryRequired;
+					Failure.Message += "; package rollback: " + RestoreError;
+					Failure.RecoveryLocation = It->Replacement.Backup;
 				}
 				std::filesystem::remove(It->Staged, Ec);
 			}
-			RollbackCompanions();
+			return RollbackCompanions(std::move(Failure));
 		};
 
 		for (size_t Index = 0; Index < StagedPackages.size(); ++Index)
@@ -1375,26 +1185,23 @@ namespace Durin
 			FStagedPackage& Staged = StagedPackages[Index];
 			if (Options.ShouldFail && Options.ShouldFail(EAssetBundleSavePhase::CreateDirectories, Index))
 			{
-				AbortStaging();
-				return Error(EAssetError::IoError, "Injected asset-bundle directory creation failure.");
+				return AbortStaging(Error(EAssetError::IoError, "Injected asset-bundle directory creation failure."));
 			}
 			std::error_code Ec;
 			std::filesystem::create_directories(Staged.Destination.parent_path(), Ec);
 			if (Ec)
 			{
-				AbortStaging();
-				return Error(EAssetError::IoError, std::format(
+				return AbortStaging(Error(EAssetError::IoError, std::format(
 					"Failed to create package directory {}: {}",
-					Staged.Destination.parent_path().generic_string(), Ec.message()));
+					Staged.Destination.parent_path().generic_string(), Ec.message())));
 			}
 			if (!Staged.File.BulkBytes.empty())
 			{
 				if (Options.ShouldFail
 					&& Options.ShouldFail(EAssetBundleSavePhase::PublishCompanion, Index))
 				{
-					AbortStaging();
-					return Error(EAssetError::IoError,
-						"Injected asset-bundle companion publication failure.");
+					return AbortStaging(Error(EAssetError::IoError,
+						"Injected asset-bundle companion publication failure."));
 				}
 				const FByteBuffer& CompanionBytes = Staged.File.BulkBytes;
 				FPackageBulkSegmentSummary SegmentSummary;
@@ -1407,8 +1214,7 @@ namespace Durin
 						Staged.CompanionTransaction, CompanionError,
 						Prepared ? Prepared->StagedBulk : std::filesystem::path{}))
 				{
-					AbortStaging();
-					return Error(EAssetError::IoError, std::move(CompanionError));
+					return AbortStaging(Error(EAssetError::IoError, std::move(CompanionError)));
 				}
 			}
 			else
@@ -1417,23 +1223,17 @@ namespace Durin
 				if (!PrepareEditorBulkDataCompanionState(
 						Staged.Destination, CompanionError))
 				{
-					AbortStaging();
-					return Error(EAssetError::IoError, std::move(CompanionError));
+					return AbortStaging(Error(EAssetError::IoError, std::move(CompanionError)));
 				}
 			}
 			if (Options.ShouldFail && Options.ShouldFail(EAssetBundleSavePhase::StagePackage, Index))
 			{
-				AbortStaging();
-				return Error(EAssetError::IoError, "Injected asset-bundle package staging failure.");
+				return AbortStaging(Error(EAssetError::IoError, "Injected asset-bundle package staging failure."));
 			}
-			FFileHelper::FAtomicFileError PublicationError;
-			if (!Prepared && !FFileHelper::SaveArrayToFileAtomically(
-				std::span{reinterpret_cast<const std::byte*>(Staged.Bytes.data()), Staged.Bytes.size()},
-				Staged.Staged,
-				&PublicationError))
+			std::string PublicationError;
+			if (!Prepared && !StageFileVerified(Staged.Staged, Staged.Bytes, PublicationError))
 			{
-				AbortStaging();
-				return Error(EAssetError::IoError, PublicationError.ToString());
+				return AbortStaging(Error(EAssetError::IoError, std::move(PublicationError)));
 			}
 		}
 
@@ -1448,34 +1248,14 @@ namespace Durin
 				: EAssetBundleSavePhase::PublishPackage;
 			if (Options.ShouldFail && Options.ShouldFail(Phase, Index))
 			{
-				RollbackPublication();
-				return Error(EAssetError::IoError, "Injected asset-bundle package publication failure.");
+				return RollbackPublication(Error(EAssetError::IoError, "Injected asset-bundle package publication failure."));
 			}
-			std::error_code Ec;
-			if (Staged.bHadDestination)
+			Staged.Replacement = {Staged.Destination, Staged.Staged, Staged.Backup};
+			std::string PublicationError;
+			if (!Staged.Replacement.Publish(PublicationError))
 			{
-				std::filesystem::rename(Staged.Destination, Staged.Backup, Ec);
-				if (Ec)
-				{
-					RollbackPublication();
-					return Error(EAssetError::IoError, std::format(
-						"Failed to back up package {}: {}", Staged.Path.ToString(), Ec.message()));
-				}
+				return RollbackPublication(Error(EAssetError::IoError, std::move(PublicationError)));
 			}
-			Ec.clear();
-			std::filesystem::rename(Staged.Staged, Staged.Destination, Ec);
-			if (Ec)
-			{
-				if (Staged.bHadDestination)
-				{
-					std::error_code RestoreError;
-					std::filesystem::rename(Staged.Backup, Staged.Destination, RestoreError);
-				}
-				RollbackPublication();
-				return Error(EAssetError::IoError, std::format(
-					"Failed to publish package {}: {}", Staged.Path.ToString(), Ec.message()));
-			}
-			Staged.bPublished = true;
 		}
 		for (FStagedPackage& Staged : StagedPackages)
 		{
@@ -1486,10 +1266,9 @@ namespace Durin
 				std::filesystem::file_size(Staged.Destination, Ec);
 			if (Ec)
 			{
-				RollbackPublication();
-				return Error(EAssetError::IoError, std::format(
+				return RollbackPublication(Error(EAssetError::IoError, std::format(
 					"Failed to inspect published package {}: {}",
-					Staged.Path.ToString(), Ec.message()));
+					Staged.Path.ToString(), Ec.message())));
 			}
 		}
 		for (FStagedPackage& Staged : StagedPackages)
@@ -1498,11 +1277,10 @@ namespace Durin
 			if (!VerifyEditorBulkDataCompanion(
 					Staged.CompanionTransaction, CompanionError))
 			{
-				RollbackPublication();
-				return Error(EAssetError::CorruptFile,
+				return RollbackPublication(Error(EAssetError::CorruptFile,
 					CompanionError.empty()
 						? "Published authored bulk companion failed verification."
-						: std::move(CompanionError));
+						: std::move(CompanionError)));
 			}
 		}
 		const bool bInjectRegistryFailure = Options.ShouldFail
@@ -1549,8 +1327,7 @@ namespace Durin
 			: Registry.PublishDelta(std::move(Delta));
 		if (!RegistryResult && Options.bRollbackOnRegistryFailure)
 		{
-			RollbackPublication();
-			return RegistryResult;
+			return RollbackPublication(RegistryResult);
 		}
 
 		for (FStagedPackage& Staged : StagedPackages)
@@ -1560,7 +1337,8 @@ namespace Durin
 			if (!Prepared || Staged.Package->GetEditRevision() == Prepared->EditRevision)
 				Staged.Package->ClearDirty();
 			std::error_code Ec;
-			std::filesystem::remove(Staged.Backup, Ec);
+			std::string FinalizeError;
+			(void)Staged.Replacement.Finalize(FinalizeError);
 			CommitEditorBulkDataCompanion(Staged.CompanionTransaction);
 			CleanupStaleEditorBulkDataCompanions(
 				Staged.Destination, Staged.PublishedCompanion);

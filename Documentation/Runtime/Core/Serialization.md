@@ -4,7 +4,7 @@ Summary: Define canonical byte archives, object-aware logical serialization, obj
 
 Modules: Core, CoreDObject
 
-Last reviewed: 2026-09-14
+Last reviewed: 2026-09-16
 
 ## Archive And Object Serialization
 
@@ -433,6 +433,8 @@ pretending to serialize a complete object; snapshots root their captured hard
 references and remain process-local and unversioned.
 
 ## Related Documentation
+
+- [Package persistence](PackagePersistence.md): reflected capture, save operations and staged commit.
 
 - [Generated Reflection System](ReflectionSystem.md)
 - [Asset Packages](../Assets/AssetPackages.md)

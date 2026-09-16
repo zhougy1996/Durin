@@ -35,6 +35,7 @@ requires; do not read unrelated topics or scan an entire directory.
 | Runtime startup, shutdown, or frame lifecycle | [Runtime lifecycle](Runtime/Core/RuntimeLifecycle.md) |
 | Async asset build completion, editor commit, rollback, or compensation | [Async asset operations](Editor/Architecture/AsyncAssetOperations.md) |
 | Log ordering, queue admission, structured history, sinks, or logger shutdown | [Logging](Runtime/Core/Logging.md) |
+| Engine-free package saves, async completion, or staged package persistence | [Package persistence](Runtime/Core/PackagePersistence.md) |
 | Canonical archives, object serialization, duplication, defaults, or authored override intent | [Serialization](Runtime/Core/Serialization.md) |
 | Window decoration modes, custom title bars, or native hit testing | [Window frames](Runtime/Core/WindowFrames.md) |
 | Image decoding, Radiance HDR, or grayscale16 PNG | [Core image codec](Runtime/Core/ImageCodec.md) |

@@ -4,6 +4,7 @@
 #include "DObject/AssetPath.h"
 #include "DObject/Object.h"
 #include "DObject/ObjectPtr.h"
+#include "DObject/PackagePersistence.h"
 
 #include "Package.gen.h"
 
@@ -28,6 +29,11 @@ namespace Durin
 	public:
 		COREDOBJECT_API explicit DPackage(const FObjectInitializer& ObjectInitializer);
 		COREDOBJECT_API ~DPackage() override;
+
+		// Persists package files only. Asset publication must use the Engine coordinator.
+		COREDOBJECT_API auto Save(const FPackageSaveOptions& Options = {}) -> FPackageSaveResult;
+		COREDOBJECT_API auto SaveAsync(FPackageSaveResult& Admission,
+			const FPackageSaveOptions& Options = {}) -> std::unique_ptr<FPackageSaveOperation>;
 
 		// Temporary string spelling shared with compiled-in packages during migration.
 		auto GetPackagePath() const -> const std::string& { return RegisteredPath; }
