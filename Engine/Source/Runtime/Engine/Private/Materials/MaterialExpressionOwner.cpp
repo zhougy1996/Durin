@@ -149,7 +149,6 @@ namespace Durin
 		const bool bShaderChanged = Code != ObservedExpressionCode;
 		ObservedExpressionCode = Code;
 		auto Advance = [](uint64& Revision) { Revision = Revision == std::numeric_limits<uint64>::max() ? 1 : Revision + 1; };
-		if (ParameterSchema != Schema) Advance(ParameterDefinitionSchemaRevision);
 		ParameterSchema = std::move(Schema);
 		Advance(MaterialProgramRevision);
 		if (bShaderChanged)

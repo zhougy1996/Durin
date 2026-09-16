@@ -321,49 +321,58 @@ TEST(FMaterialGraphOperationsTests, DeclarationAndFloat4ReferenceUndoTogether)
 	CollectGarbage();
 }
 
-TEST(FMaterialGraphOperationsTests,
-	GraphViewRevisionsTrackRelevantAuthoredState)
+TEST(FMaterialGraphOperationsTests, PresentationWritesReportChangesAndPreserveSemanticState)
 {
 	InitializeDObjectSystem();
-	DMaterial* Material = MakeExpandedGraphMaterial("GraphViewRevisions");
+	DMaterial* Material = MakeExpandedGraphMaterial("PresentationResults");
 	ASSERT_NE(Material, nullptr);
-	const uint64 InitialProgramRevision = Material->GetMaterialProgramRevision();
-	const uint64 InitialPresentationRevision =
-		Material->GetMaterialGraphPresentationRevision();
-	const uint64 InitialSchemaRevision =
-		Material->GetParameterDefinitionSchemaRevision();
+	const auto ProgramRevision = Material->GetMaterialProgramRevision();
+	const auto AuthoredRevision = Material->GetMaterialCompileStatus().AuthoredRevision;
+	const auto Definitions = Material->GetParameterDefinitions();
+	const std::vector<FMaterialParameterDefinition> BeforeDefinitions(Definitions.begin(), Definitions.end());
+	int Notifications = 0;
+	const auto Observer = Material->GetGraphChanges().Subscribe(*Material,
+		[&](const FMaterialGraphChangeSet&) { ++Notifications; });
 
-	FMaterialGraphPresentation Presentation =
-		Material->GetMaterialGraphPresentation();
-	Testing::OutputPosition(*Material, Presentation).X += 64;
-	ASSERT_TRUE(Material->SetMaterialGraphPresentation(Presentation));
-	EXPECT_EQ(Material->GetMaterialProgramRevision(), InitialProgramRevision);
-	EXPECT_GT(Material->GetMaterialGraphPresentationRevision(),
-		InitialPresentationRevision);
-	EXPECT_EQ(Material->GetParameterDefinitionSchemaRevision(),
-		InitialSchemaRevision);
-	const uint64 MovedPresentationRevision =
-		Material->GetMaterialGraphPresentationRevision();
-	ASSERT_TRUE(Material->SetMaterialGraphPresentation(Presentation));
-	EXPECT_EQ(Material->GetMaterialGraphPresentationRevision(),
-		MovedPresentationRevision);
+	FMaterialGraphPresentation Presentation = Material->GetMaterialGraphPresentation();
+	auto& Output = Testing::OutputPosition(*Material, Presentation);
+	Output.X += 64;
+	const auto Position = Output;
+	EXPECT_EQ(Material->SetMaterialGraphPresentation(Presentation), EMaterialGraphPresentationResult::Changed);
+	EXPECT_EQ(Notifications, 1);
+	EXPECT_EQ(Material->SetMaterialGraphPresentation(Presentation), EMaterialGraphPresentationResult::NoChange);
+	EXPECT_EQ(Material->ApplyMaterialGraphNodePositions({&Position, 1}, AuthoredRevision),
+		EMaterialGraphPresentationResult::NoChange);
+	EXPECT_EQ(Notifications, 1);
+	auto Unsanitized = Presentation;
+	Unsanitized.Nodes.push_back({FGuid::NewGuid(), 10, 20});
+	EXPECT_EQ(Material->SetMaterialGraphPresentation(Unsanitized), EMaterialGraphPresentationResult::NoChange);
+	EXPECT_EQ(Material->ApplyMaterialGraphNodePositions({}, AuthoredRevision),
+		EMaterialGraphPresentationResult::NoChange);
+	EXPECT_EQ(Notifications, 1);
 
-	FMaterialGraphDocumentState Candidate;
-	FMaterialGraphDocument Document(*Material);
-	ASSERT_TRUE(Document.Capture(Candidate));
-	Candidate.GetOutputs().RoughnessDefault = 0.75f;
-	auto Validation = Document.Commit(std::move(Candidate), "Change roughness default");
-	ASSERT_TRUE(Validation);
-	EXPECT_GT(Material->GetMaterialProgramRevision(), InitialProgramRevision);
-	EXPECT_EQ(Material->GetMaterialGraphPresentationRevision(),
-		MovedPresentationRevision);
-	EXPECT_EQ(Material->GetParameterDefinitionSchemaRevision(),
-		InitialSchemaRevision);
-
-	ASSERT_TRUE(Material->SetVectorParameterValue(
-		MaterialParameters::BaseColorName(), {0.2f, 0.3f, 0.4f}));
-	EXPECT_EQ(Material->GetParameterDefinitionSchemaRevision(),
-		InitialSchemaRevision);
+	auto Moved = Position;
+	Moved.X += 32;
+	EXPECT_EQ(Material->ApplyMaterialGraphNodePositions({&Moved, 1}, AuthoredRevision),
+		EMaterialGraphPresentationResult::Changed);
+	EXPECT_EQ(Notifications, 2);
+	const auto AfterMove = Material->GetMaterialGraphPresentation();
+	EXPECT_EQ(Material->ApplyMaterialGraphNodePositions({&Position, 1}, AuthoredRevision + 1),
+		EMaterialGraphPresentationResult::Rejected);
+	const std::array Duplicate{Position, Position};
+	EXPECT_EQ(Material->ApplyMaterialGraphNodePositions(Duplicate, AuthoredRevision),
+		EMaterialGraphPresentationResult::Rejected);
+	auto Unknown = Position;
+	Unknown.NodeId = FGuid::NewGuid();
+	const std::array InvalidBatch{Position, Unknown};
+	EXPECT_EQ(Material->ApplyMaterialGraphNodePositions(InvalidBatch, AuthoredRevision),
+		EMaterialGraphPresentationResult::Rejected);
+	EXPECT_EQ(Material->GetMaterialGraphPresentation(), AfterMove);
+	EXPECT_EQ(Notifications, 2);
+	EXPECT_EQ(Material->GetMaterialProgramRevision(), ProgramRevision);
+	EXPECT_EQ(Material->GetMaterialCompileStatus().AuthoredRevision, AuthoredRevision);
+	EXPECT_TRUE(std::ranges::equal(Material->GetParameterDefinitions(), BeforeDefinitions));
+	Material->GetGraphChanges().Unsubscribe(Observer);
 	MarkAsGarbage(Material);
 	CollectGarbage();
 }
@@ -458,7 +467,7 @@ TEST(FMaterialGraphOperationsTests,
 	ASSERT_TRUE(SurfaceId.IsValid());
 	FMaterialGraphPresentation AggregatePresentation;
 	AggregatePresentation.Nodes.push_back({SurfaceId, 100, 100});
-	ASSERT_TRUE(Material->SetMaterialGraphPresentation(AggregatePresentation));
+	ASSERT_TRUE(Material->SetMaterialGraphPresentation(AggregatePresentation) != Durin::EMaterialGraphPresentationResult::Rejected);
 	ASSERT_TRUE(FMaterialGraphOperations::DisconnectAggregateSurface(*Material));
 	ASSERT_TRUE(FMaterialGraphOperations::AssignAggregateSurface(
 		*Material, SurfaceId));
@@ -526,7 +535,7 @@ TEST(FMaterialGraphOperationsTests, PresentationReachesMaximumNodeBoundAndDuplic
 	Material->PostLoad();
 	const FGuid NodeId = Material->GetExpressionCollection().Expressions.front()->Id;
 	ASSERT_TRUE(Material->SetMaterialGraphPresentation(
-		{.Nodes = {{NodeId, 100, -200}, {Material->GetOutputNode()->Id, 420, -30}}}));
+		{.Nodes = {{NodeId, 100, -200}, {Material->GetOutputNode()->Id, 420, -30}}}) != Durin::EMaterialGraphPresentationResult::Rejected);
 	DMaterial* Duplicate = Cast<DMaterial>(DuplicateObject(
 		Material, nullptr, "PresentationDuplicate"));
 	ASSERT_NE(Duplicate, nullptr);
@@ -561,7 +570,7 @@ TEST(FMaterialGraphOperationsTests, MaterialOutputMovementIsPresentationOnlyAndT
 	ASSERT_NE(Unrelated, UnrelatedPresentation.Nodes.end());
 	Unrelated->X += 37;
 	const FMaterialGraphNodePresentation UnrelatedPosition = *Unrelated;
-	ASSERT_TRUE(Material->SetMaterialGraphPresentation(UnrelatedPresentation));
+	ASSERT_TRUE(Material->SetMaterialGraphPresentation(UnrelatedPresentation) != Durin::EMaterialGraphPresentationResult::Rejected);
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Testing::OutputPosition(*Material, Material->GetMaterialGraphPresentation()).X,
 		Testing::OutputPosition(*Material, OriginalPresentation).X);
@@ -1308,7 +1317,7 @@ TEST(FMaterialGraphOperationsTests, TypedInputDefaultsCoverWidthsCoordinatesAndF
 		Add->BDefault.assign(Width, 1.f);
 		const auto Id = Add->Id;
 		ASSERT_TRUE(Material->SetMaterialExpressions(std::array<DMaterialExpression*, 1>{Add}, {}));
-		ASSERT_TRUE(Material->SetMaterialGraphPresentation({.Nodes = {{Id, 400, 100}}}));
+		ASSERT_TRUE(Material->SetMaterialGraphPresentation({.Nodes = {{Id, 400, 100}}}) != Durin::EMaterialGraphPresentationResult::Rejected);
 		const FMaterialInputDefault Value{.Kind = EMaterialInputDefaultKind::Literal,
 			.Type = Add->ResultType, .Literal = {2, 3, 4, 5}};
 		ASSERT_TRUE(Document.SetInputDefault(Id, 1, Value));
@@ -1330,7 +1339,7 @@ TEST(FMaterialGraphOperationsTests, TypedInputDefaultsCoverWidthsCoordinatesAndF
 	Coordinates->Id = FGuid::NewGuid();
 	const auto CoordinatesId = Coordinates->Id;
 	ASSERT_TRUE(Material->SetMaterialExpressions(std::array<DMaterialExpression*, 1>{Coordinates}, {}));
-	ASSERT_TRUE(Material->SetMaterialGraphPresentation({.Nodes = {{CoordinatesId, 400, 100}}}));
+	ASSERT_TRUE(Material->SetMaterialGraphPresentation({.Nodes = {{CoordinatesId, 400, 100}}}) != Durin::EMaterialGraphPresentationResult::Rejected);
 	EXPECT_FALSE(Document.SetInputDefault(CoordinatesId, 0, {.Kind = EMaterialInputDefaultKind::Literal,
 		.Type = EMaterialProgramValueType::Float3, .Literal = {2, 3, 4}}));
 	ASSERT_TRUE(Document.SetInputDefault(CoordinatesId, 0, {.Kind = EMaterialInputDefaultKind::Literal,
@@ -1706,7 +1715,7 @@ TEST(FMaterialGraphOperationsTests, TypedLayoutIncludesCallAndSurfaceDependencie
 	const auto BaseId = Base->Id, ConstantId = Constant->Id, OverrideId = Override->Id, CallId = Call->Id;
 	ASSERT_TRUE(Material->SetMaterialExpressions(std::array<DMaterialExpression*, 4>{Call, Override, Base, Constant},
 		{.Surface = {CallId, 0, OutputPort}}));
-	ASSERT_TRUE(Material->SetMaterialGraphPresentation({.Nodes = {{ConstantId, 100, 100, "Retained label"}}}));
+	ASSERT_TRUE(Material->SetMaterialGraphPresentation({.Nodes = {{ConstantId, 100, 100, "Retained label"}}}) != Durin::EMaterialGraphPresentationResult::Rejected);
 	const auto Revision = Material->GetMaterialCompileStatus().AuthoredRevision;
 	Durin::Tests::FTestTransactorOwner Transactions;
 	ASSERT_TRUE(FMaterialGraphOperations::Layout(*Material, {}, Transactions.Get()));
@@ -2101,7 +2110,7 @@ TEST(FMaterialGraphOperationsTests, CanvasPositionRefreshPreservesTopologyStorag
 		auto Presentation = Material->GetMaterialGraphPresentation();
 		Presentation.Nodes.front().X += 7;
 		Testing::OutputPosition(*Material, Presentation).Y += 3;
-		ASSERT_TRUE(Material->SetMaterialGraphPresentation(Presentation));
+		ASSERT_TRUE(Material->SetMaterialGraphPresentation(Presentation) != Durin::EMaterialGraphPresentationResult::Rejected);
 		FMaterialGraphCanvasTestAccess::Prepare(Canvas, *Material);
 		EXPECT_EQ(View.Nodes.data(), Nodes);
 		EXPECT_FALSE(FMaterialGraphCanvasTestAccess::TopologyStale(Canvas));
@@ -2362,7 +2371,7 @@ TEST(FMaterialGraphOperationsTests, CanvasConnectsASecondFunctionOutputAndRefres
 	auto Presentation = Material->GetMaterialGraphPresentation();
 	Testing::OutputPosition(*Material, Presentation).X = 700;
 	Testing::OutputPosition(*Material, Presentation).Y = 0;
-	ASSERT_TRUE(Material->SetMaterialGraphPresentation(Presentation));
+	ASSERT_TRUE(Material->SetMaterialGraphPresentation(Presentation) != Durin::EMaterialGraphPresentationResult::Rejected);
 	ImGuiContext* Context = ImGui::CreateContext();
 	auto& IO = ImGui::GetIO();
 	IO.DisplaySize = {1200, 720}; IO.DeltaTime = 1.0f / 60.0f; IO.IniFilename = nullptr;
@@ -2497,7 +2506,7 @@ TEST(FMaterialGraphOperationsTests, CanvasLinkReleaseEndsGestureAcrossFrames)
 	Presentation.Nodes = {{Source, 0, 0}, {Destination, 350, 0}, {PreviousSource, 0, 300}};
 	Testing::OutputPosition(*Material, Presentation).X = 700;
 	Testing::OutputPosition(*Material, Presentation).Y = 0;
-	ASSERT_TRUE(Material->SetMaterialGraphPresentation(Presentation));
+	ASSERT_TRUE(Material->SetMaterialGraphPresentation(Presentation) != Durin::EMaterialGraphPresentationResult::Rejected);
 	ImGuiContext* Context = ImGui::CreateContext();
 	auto& IO = ImGui::GetIO();
 	IO.DisplaySize = {1200, 720};
@@ -3141,7 +3150,7 @@ TEST(FMaterialGraphOperationsTests, SurfaceTexturesUseCompactSamplesAndPreserveU
 	auto Presentation = Material->GetMaterialGraphPresentation();
 	Testing::OutputPosition(*Material, Presentation).X = 760;
 	Testing::OutputPosition(*Material, Presentation).Y = 100;
-	ASSERT_TRUE(Material->SetMaterialGraphPresentation(std::move(Presentation)));
+	ASSERT_TRUE(Material->SetMaterialGraphPresentation(std::move(Presentation)) != Durin::EMaterialGraphPresentationResult::Rejected);
 	ImGuiContext* Context = ImGui::CreateContext();
 	auto& IO = ImGui::GetIO();
 	IO.DisplaySize = {1200, 850}; IO.DeltaTime = 1.f / 60; IO.IniFilename = nullptr;
@@ -4136,14 +4145,14 @@ TEST(FMaterialGraphOperationsTests, ReadModelPositionUpdatesAndReentrantPublicat
 		{
 			auto Position = Material->GetMaterialGraphPresentation();
 			Position.Nodes[0].X = 222;
-			EXPECT_TRUE(Material->SetMaterialGraphPresentation(Position));
+			EXPECT_TRUE(Material->SetMaterialGraphPresentation(Position) != Durin::EMaterialGraphPresentationResult::Rejected);
 		}
 		--Depth;
 	});
 	auto Position = Material->GetMaterialGraphPresentation();
 	Position.Nodes[0].X = 111;
 	const auto CompileRevision = Material->GetMaterialCompileStatus().AuthoredRevision;
-	ASSERT_TRUE(Material->SetMaterialGraphPresentation(Position));
+	ASSERT_TRUE(Material->SetMaterialGraphPresentation(Position) != Durin::EMaterialGraphPresentationResult::Rejected);
 	EXPECT_EQ(Events, 2);
 	EXPECT_EQ(MaximumDepth, 1);
 	const auto Change = Model.Refresh(*Material.Get(), Catalog);

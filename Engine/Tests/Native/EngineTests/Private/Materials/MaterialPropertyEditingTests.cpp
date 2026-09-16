@@ -12,14 +12,15 @@ TEST(FMaterialPropertyEditingTests, OwnedParametersShareIdentityAndRejectConflic
 	const std::array<DMaterialExpression*, 1> Original{Owner.Get()};
 	ASSERT_TRUE(Material->SetMaterialExpressions(Original, {}));
 	ASSERT_EQ(Material->GetParameterDefinitions().size(), 1u);
-	const auto Revision = Material->GetParameterDefinitionSchemaRevision();
+	const auto Definition = Material->GetParameterDefinitions().front();
 	TStrongObjectPtr<DMaterialExpressionScalarParameter> Duplicate(Cast<DMaterialExpressionScalarParameter>(DuplicateObject(Owner.Get(), nullptr, NAME_None)));
 	Duplicate->Id = FGuid::NewGuid();
 	const std::array<DMaterialExpression*, 2> Duplicated{Owner.Get(), Duplicate.Get()};
 	ASSERT_TRUE(Material->SetMaterialExpressions(Duplicated, {}));
 	Duplicate->Metadata.Id = FGuid::NewGuid(); Duplicate->Metadata.Name = "rustamount";
 	EXPECT_FALSE(Material->SetMaterialExpressions(Duplicated, {}));
-	EXPECT_EQ(Material->GetParameterDefinitionSchemaRevision(), Revision);
+	ASSERT_EQ(Material->GetParameterDefinitions().size(), 1u);
+	EXPECT_EQ(Material->GetParameterDefinitions().front(), Definition);
 	ASSERT_EQ(Material->GetExpressionCollection().Expressions.size(), 3u);
 	Owner->Metadata.Name = "Weathering";
 	ASSERT_TRUE(Material->SetMaterialExpressions(Original, {}));

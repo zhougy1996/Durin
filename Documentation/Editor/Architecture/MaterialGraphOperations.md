@@ -258,7 +258,11 @@ advances authored state once and schedules compilation through the root material
 edit policy. Immediate callers submit one generation; automatic editor edits
 coalesce before submission, and manual edits remain unsubmitted. Presentation-only commands sanitize
 and commit positions, mark the package dirty, and never compile or invalidate
-render data.
+render data. Engine presentation setters return `Changed`, `NoChange`, or
+`Rejected`; callers consume that result directly instead of comparing revisions.
+Whole-presentation writes compare the sanitized state; bounded position writes
+validate the complete request before applying it. Parameter definitions and graph
+presentation have no public revision counters; observers consume graph changes.
 
 Concrete expression inputs retain numeric defaults, and each of the
 eight fixed Surface inputs is optionally connected. Disconnecting or

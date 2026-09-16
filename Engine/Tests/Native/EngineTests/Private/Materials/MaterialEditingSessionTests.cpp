@@ -238,7 +238,7 @@ TEST_F(FMaterialEditingSessionTests, DefaultsStaticPropertiesAndPresentationStay
 	ASSERT_TRUE(Draft->SetStaticProperties(Properties));
 	auto Presentation = OriginalPresentation;
 	Testing::OutputPosition(*Draft, Presentation).X += 100;
-	ASSERT_TRUE(Draft->SetMaterialGraphPresentation(Presentation));
+	ASSERT_TRUE(Draft->SetMaterialGraphPresentation(Presentation) != Durin::EMaterialGraphPresentationResult::Rejected);
 	EXPECT_EQ(Source->GetStaticProperties(), OriginalProperties);
 	EXPECT_EQ(Source->GetMaterialGraphPresentation(), OriginalPresentation);
 	EXPECT_EQ(Source->FindParameterDefinition(Definition.Id), nullptr);

@@ -94,26 +94,25 @@ namespace Durin
 
 
 	auto DMaterial::SetMaterialGraphPresentation(
-		FMaterialGraphPresentation InPresentation) -> bool
+		FMaterialGraphPresentation InPresentation) -> EMaterialGraphPresentationResult
 	{
 		std::vector<FGuid> Ids;
 		for (const auto& Expression : ExpressionCollection.Expressions) if (Expression) Ids.push_back(Expression->Id);
 		InPresentation = SanitizeMaterialGraphPresentation(InPresentation, Ids);
-		if (GraphPresentation == InPresentation) return true;
+		if (GraphPresentation == InPresentation) return EMaterialGraphPresentationResult::NoChange;
 		GraphPresentation = std::move(InPresentation);
-		AdvanceRevision(MaterialGraphPresentationRevision);
 		MarkPackageDirty();
 		GraphChanges.PublishPresentation(*this);
-		return true;
+		return EMaterialGraphPresentationResult::Changed;
 	}
 
 	auto DMaterial::ApplyMaterialGraphNodePositions(
 		std::span<const FMaterialGraphNodePresentation> Positions,
-		uint64 ExpectedAuthoredRevision) -> bool
+		uint64 ExpectedAuthoredRevision) -> EMaterialGraphPresentationResult
 	{
 		if (CompilationOwner.MaterialCompileStatus.AuthoredRevision != ExpectedAuthoredRevision
 			|| Positions.size() > MaterialProgramMaxNodeCount)
-			return false;
+			return EMaterialGraphPresentationResult::Rejected;
 		std::unordered_set<FGuid> RequestedNodes;
 		RequestedNodes.reserve(Positions.size());
 		for (const FMaterialGraphNodePresentation& Position : Positions)
@@ -126,7 +125,7 @@ namespace Durin
 				|| Position.Y > MaterialGraphPresentationCoordinateLimit
 				|| !std::ranges::any_of(ExpressionCollection.Expressions,
 					[&](const auto& Expression) { return Expression && Expression->Id == Position.NodeId; }))
-				return false;
+				return EMaterialGraphPresentationResult::Rejected;
 		}
 
 		bool bChanged = false;
@@ -146,11 +145,10 @@ namespace Durin
 				bChanged = true;
 			}
 		}
-		if (!bChanged) return true;
-		AdvanceRevision(MaterialGraphPresentationRevision);
+		if (!bChanged) return EMaterialGraphPresentationResult::NoChange;
 		MarkPackageDirty();
 		GraphChanges.PublishPresentation(*this);
-		return true;
+		return EMaterialGraphPresentationResult::Changed;
 	}
 
 	auto DMaterial::GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition>
@@ -471,8 +469,6 @@ namespace Durin
 		for (const auto& Expression : ExpressionCollection.Expressions) if (Expression) Ids.push_back(Expression->Id);
 		GraphPresentation = SanitizeMaterialGraphPresentation(GraphPresentation, Ids);
 		AdvanceRevision(MaterialProgramRevision);
-		AdvanceRevision(MaterialGraphPresentationRevision);
-		AdvanceRevision(ParameterDefinitionSchemaRevision);
 		RequestProgramCompile(StaticProperties);
 		PublishMaterialRenderProxyState();
 		GraphChanges.Publish(*this);
@@ -495,7 +491,6 @@ namespace Durin
 				if (!DeriveExpressionParameterSchema(ExpressionCollection, Schema)
 					|| !ValidateExpressionGraph(ExpressionCollection, GetExpressionOutputs(), &Code)) return;
 				ParameterSchema = std::move(Schema);
-				AdvanceRevision(ParameterDefinitionSchemaRevision);
 				const bool bShaderChanged = Code != ObservedExpressionCode;
 				ObservedExpressionCode = Code;
 				if (!bShaderChanged)
@@ -509,10 +504,6 @@ namespace Durin
 			AdvanceAuthoredRevision();
 			Private::FMaterialCompilationLifecycle::ScheduleEdit(*this);
 			MarkRenderDataDirty(EMaterialRenderDirtyFlags::ShaderMap);
-		}
-		else if (Name == FName("GraphPresentation"))
-		{
-			AdvanceRevision(MaterialGraphPresentationRevision);
 		}
 		GraphChanges.Publish(*this);
 	}

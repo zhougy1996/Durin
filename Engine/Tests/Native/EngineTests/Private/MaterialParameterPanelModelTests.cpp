@@ -444,14 +444,12 @@ TEST(FMaterialParameterPanelModelTests, ReflectedDefaultEditsRefreshValuesWithou
 	std::string Error;
 	const auto Context = MakeContext(Transactions, Error);
 	ASSERT_NE(FindEntry(BaseModel, Id), nullptr);
-	const auto SchemaRevision = Base->GetParameterDefinitionSchemaRevision();
 	const auto Target = MakeMaterialValueTarget(Base, Id, "ScalarValue");
 	ASSERT_TRUE(Target.has_value());
 	ASSERT_TRUE(PropertyView.SubmitPropertyValueEdit(Context, *Target,
 		[](Durin::FProperty* Property, void* Container, uint32 Index) {
 			*Property->ContainerPtrToValuePtr<float>(Container, Index) = 0.35f;
 		}, true));
-	EXPECT_GT(Base->GetParameterDefinitionSchemaRevision(), SchemaRevision);
 	EXPECT_FALSE(Model.Refresh());
 	EXPECT_FALSE(BaseModel.Refresh());
 	EXPECT_FLOAT_EQ(FindEntry(Model, Id)->Value.GetScalar(), 0.35f);

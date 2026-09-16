@@ -22,8 +22,8 @@ namespace Durin
 		const auto Layout =
 			Editor::Material::FMaterialGraphOperations::CalculateLayout(
 				Material, {}, Presentation);
-		if (!Layout || !Material.SetMaterialGraphPresentation(
-				std::move(Presentation)))
+		if (!Layout || Material.SetMaterialGraphPresentation(
+				std::move(Presentation)) == EMaterialGraphPresentationResult::Rejected)
 		{
 			OutError = Layout.Message.empty()
 				? "The new material graph presentation could not be initialized."

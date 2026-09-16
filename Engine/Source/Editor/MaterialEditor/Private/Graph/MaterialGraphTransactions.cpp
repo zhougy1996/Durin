@@ -111,7 +111,8 @@ namespace Durin::Editor::Material
 						Current->Y = Desired->Y;
 					}
 				}
-				return Target->SetMaterialGraphPresentation(std::move(Candidate));
+				return Target->SetMaterialGraphPresentation(std::move(Candidate))
+					!= EMaterialGraphPresentationResult::Rejected;
 			}
 
 			TWeakObjectPtr<DMaterial> Material;
@@ -210,14 +211,13 @@ namespace Durin::Editor::Material
 			if (Transactions && Transactions->HasPendingOperation())
 				return MakeRejected("The editor transactor is busy.");
 
-			const uint64 BeforeRevision =
-				Material.GetMaterialGraphPresentationRevision();
 			FMaterialGraphPresentation BeforePresentation;
 			if (Transactions)
 				BeforePresentation = Material.GetMaterialGraphPresentation();
-			if (!Material.SetMaterialGraphPresentation(std::move(CandidatePresentation)))
+			const auto Result = Material.SetMaterialGraphPresentation(std::move(CandidatePresentation));
+			if (Result == EMaterialGraphPresentationResult::Rejected)
 				return MakeRejected("The material rejected the candidate graph presentation.");
-			if (Material.GetMaterialGraphPresentationRevision() == BeforeRevision)
+			if (Result == EMaterialGraphPresentationResult::NoChange)
 				return {.Status = EMaterialGraphCommandStatus::NoChange};
 
 			if (Transactions)

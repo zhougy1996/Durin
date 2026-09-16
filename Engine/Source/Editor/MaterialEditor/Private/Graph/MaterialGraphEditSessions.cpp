@@ -121,13 +121,12 @@ namespace Durin::Editor::Material
 				|| Position.Y > MaterialGraphPresentationCoordinateLimit)
 				return MakeRejected("A material graph move preview is outside the supported coordinate range.");
 		}
-		const uint64 BeforeRevision =
-			Material->GetMaterialGraphPresentationRevision();
-		if (!Material->ApplyMaterialGraphNodePositions(
-			Positions, Impl->AuthoredRevision))
+		const auto Result = Material->ApplyMaterialGraphNodePositions(
+			Positions, Impl->AuthoredRevision);
+		if (Result == EMaterialGraphPresentationResult::Rejected)
 			return MakeRejected("The material rejected the graph move preview.");
-		return {.Status = Material->GetMaterialGraphPresentationRevision()
-			== BeforeRevision ? EMaterialGraphCommandStatus::NoChange
+		return {.Status = Result == EMaterialGraphPresentationResult::NoChange
+			? EMaterialGraphCommandStatus::NoChange
 			: EMaterialGraphCommandStatus::Succeeded,
 			.AffectedNodeIds = std::vector<FGuid>(
 				RequestedNodes.begin(), RequestedNodes.end())};

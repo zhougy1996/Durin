@@ -81,7 +81,7 @@ namespace Durin::Editor::Material::GraphEditInternals
 			}
 			auto* Material = Cast<DMaterial>(&Owner);
 			return Material && (MatchesGraph(Owner) || Material->SetMaterialExpressions(Nodes))
-				&& Material->SetMaterialGraphPresentation(Presentation);
+				&& Material->SetMaterialGraphPresentation(Presentation) != EMaterialGraphPresentationResult::Rejected;
 		}
 
 		auto AddReferencedObjects(FReferenceCollector& Collector) -> void

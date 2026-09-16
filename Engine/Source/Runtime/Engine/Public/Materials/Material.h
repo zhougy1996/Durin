@@ -14,6 +14,12 @@
 
 namespace Durin
 {
+	// Accepted writes distinguish unchanged sanitized state from an actual edit.
+	enum class EMaterialGraphPresentationResult : uint8
+	{
+		Rejected, NoChange, Changed,
+	};
+
 	// Owns the base-material graph and its parameter definitions.
 	DCLASS()
 	class DMaterial : public DMaterialInterface
@@ -41,14 +47,6 @@ namespace Durin
 		{
 			return MaterialProgramRevision;
 		}
-		auto GetMaterialGraphPresentationRevision() const -> uint64
-		{
-			return MaterialGraphPresentationRevision;
-		}
-		auto GetParameterDefinitionSchemaRevision() const -> uint64
-		{
-			return ParameterDefinitionSchemaRevision;
-		}
 		// Transient editor preference, inherited by loaded instances. Switching policy
 		// reschedules unsubmitted edits without modifying authored or saved state.
 		ENGINE_API auto SetEditCompileMode(EMaterialEditCompileMode Mode) -> void;
@@ -56,13 +54,13 @@ namespace Durin
 		// Explicitly submits the current root and all loaded dependent variants, using caches.
 		ENGINE_API auto CompileEdits() -> bool;
 		ENGINE_API auto SetMaterialGraphPresentation(
-			FMaterialGraphPresentation InPresentation) -> bool;
+			FMaterialGraphPresentation InPresentation) -> EMaterialGraphPresentationResult;
 		// Applies bounded graph-position edits without copying or sanitizing the
 		// complete authored program/presentation. ExpectedAuthoredRevision keeps
 		// an interactive edit from crossing a semantic material change.
 		ENGINE_API auto ApplyMaterialGraphNodePositions(
 			std::span<const FMaterialGraphNodePresentation> Positions,
-			uint64 ExpectedAuthoredRevision) -> bool;
+			uint64 ExpectedAuthoredRevision) -> EMaterialGraphPresentationResult;
 		ENGINE_API auto ResolveParameterValue(const FGuid& Id, FResolvedMaterialParameter& OutParameter) const -> bool override;
 		auto GetStaticProperties() const -> const FMaterialStaticProperties& override { return StaticProperties; }
 		ENGINE_API auto SetStaticProperties(const FMaterialStaticProperties& InProperties) -> bool;
@@ -119,10 +117,8 @@ namespace Durin
 		// Detached code checkpoint classifies reflected default/metadata edits without retaining resources.
 		FXxHash128 ObservedExpressionCode;
 
-		// Transient monotonic revisions invalidate editor graph caches independently.
+		// Transient revision validates program-dependent caches and snapshots.
 		uint64 MaterialProgramRevision = 1;
-		uint64 MaterialGraphPresentationRevision = 1;
-		uint64 ParameterDefinitionSchemaRevision = 1;
 
 
 		friend struct Private::FMaterialCompilationLifecycle;
