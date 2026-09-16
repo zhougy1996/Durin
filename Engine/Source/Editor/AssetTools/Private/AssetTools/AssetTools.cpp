@@ -6,8 +6,10 @@
 #include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
+#include "DObject/StrongObjectPtr.h"
 #include "Factories/Factory.h"
 #include "Editor/EditorEngine.h"
+#include "Editor/Import/AssetDestinationValidation.h"
 #include "Threading/RunnableThread.h"
 
 namespace Durin
@@ -48,6 +50,40 @@ namespace Durin
 			}
 			return true;
 		}
+
+		auto InspectImport(const FAssetImportRequest& Item) -> FAssetImportValidation
+		{
+			if (!Item.AssetPath.IsValid())
+				return {nullptr, "The destination asset path is invalid."};
+			if (!Item.AssetClass || !Item.AssetClass->IsChildOf(DObject::StaticClass())
+				|| Item.AssetClass->HasAnyClassFlags(EClassFlags::Abstract))
+				return {nullptr, "The requested asset class cannot be constructed."};
+			if (Item.Filename.empty())
+				return {nullptr, "A source filename is required for import."};
+			const auto Destination = Editor::InspectAssetDestination(
+				Item.AssetPath.GetPackagePath().GetView());
+			if (!Destination) return {nullptr, Destination.Message};
+			// Also reject files not yet projected into the catalog.
+			std::error_code Error;
+			const bool bExists = std::filesystem::exists(Destination.PhysicalPath, Error);
+			if (Error) return {nullptr, "The destination package could not be inspected: " + Error.message()};
+			if (bExists) return {nullptr, "A package file already occupies the destination."};
+			const DFactory* Factory = Item.Factory;
+			if (!Factory)
+			{
+				const auto Extension = std::filesystem::path(Item.Filename).extension().generic_string();
+				const auto Candidates = DFactory::FindFactories(Item.AssetClass, Extension);
+				if (Candidates.size() > 1)
+					return {nullptr, std::format(
+						"Multiple factories support {} for the requested asset class.", Extension)};
+				if (!Candidates.empty()) Factory = Candidates.front();
+			}
+			// Preserve class-based fallback for factories with custom source layouts.
+			if (!Factory) Factory = DFactory::FindFactory(Item.AssetClass);
+			std::string Message;
+			if (!ValidateFactory(Factory, Item.AssetClass, Message)) return {nullptr, std::move(Message)};
+			return {Factory, {}};
+		}
 	}
 
 	class FAssetTools final : public IAssetTools
@@ -72,8 +108,13 @@ namespace Durin
 			DObject* Context,
 			EObjectFlags Flags) -> FAssetToolsResult override
 		{
+			checkf(IsInGameThread(), "Asset import must run on the game thread.");
+			const auto Validation = InspectImport({
+				AssetPath, AssetClass, std::string(Filename), Factory, Context, Flags});
+			if (!Validation)
+				return MakeRejectedAssetOperation(EAssetOperationKind::Import, Validation.Message);
 			return CreateWithFactory(
-				AssetPath, AssetClass, Factory, Filename, Context, Flags, true);
+				AssetPath, AssetClass, Validation.Factory, Filename, Context, Flags, true);
 		}
 
 		auto DiscardPackage(DPackage* Package) -> bool override
@@ -156,17 +197,6 @@ namespace Durin
 					Kind, "A source filename is required for import.");
 
 			const DFactory* Factory = RequestedFactory;
-			if (!Factory && bFromFile)
-			{
-				const std::string Extension =
-					std::filesystem::path(Filename).extension().generic_string();
-				std::vector<const DFactory*> Candidates =
-					DFactory::FindFactories(AssetClass, Extension);
-				if (Candidates.size() > 1)
-					return MakeRejectedAssetOperation(Kind, std::format(
-						"Multiple factories support {} for the requested asset class.", Extension));
-				if (!Candidates.empty()) Factory = Candidates.front();
-			}
 			if (!Factory) Factory = DFactory::FindFactory(AssetClass);
 			std::string Error;
 			if ((Factory || bFromFile)
@@ -204,6 +234,7 @@ namespace Durin
 				return MakeRejectedAssetOperation(Kind, std::move(Message));
 			}
 			if (!Asset->IsA(AssetClass) || Asset->GetOuter() != Package
+				|| Asset->GetFName() != AssetName
 				|| Package->FindTopLevelAsset(Asset->GetFName()) != Asset)
 			{
 				DiscardPackage(Package);
@@ -221,6 +252,62 @@ namespace Durin
 				.Package = Package};
 		}
 	};
+
+	auto IAssetTools::InspectImports(std::span<const FAssetImportRequest> Items)
+		-> std::vector<FAssetImportValidation>
+	{
+		checkf(IsInGameThread(), "Asset import inspection must run on the game thread.");
+		std::unordered_map<FPackagePath, size_t> Counts;
+		for (const auto& Item : Items)
+			if (Item.AssetPath.IsValid()) ++Counts[Item.AssetPath.GetPackagePath()];
+		std::vector<FAssetImportValidation> Results;
+		Results.reserve(Items.size());
+		for (const auto& Item : Items)
+		{
+			if (Item.AssetPath.IsValid() && Counts[Item.AssetPath.GetPackagePath()] > 1)
+				Results.push_back({nullptr, "Multiple imports target the same package."});
+			else Results.push_back(InspectImport(Item));
+		}
+		return Results;
+	}
+
+	auto IAssetTools::ImportAssets(const FAssetImportBatchRequest& Request)
+		-> FAssetImportBatchResult
+	{
+		checkf(IsInGameThread(), "Asset batch import must run on the game thread.");
+		// Own request values and pin invocation objects across failed-package GC.
+		const FAssetImportBatchRequest Batch = Request;
+		std::vector<FStrongObjectPtr> Retained;
+		for (const auto& Item : Batch.Items)
+		{
+			Retained.emplace_back(Item.AssetClass);
+			Retained.emplace_back(const_cast<DFactory*>(Item.Factory));
+			Retained.emplace_back(Item.Context);
+		}
+		const auto Validation = InspectImports(Batch.Items);
+		for (const auto& Item : Validation)
+			Retained.emplace_back(const_cast<DFactory*>(Item.Factory));
+		FAssetImportBatchResult Result;
+		Result.Items.resize(Batch.Items.size());
+		for (size_t Index = 0; Index < Batch.Items.size(); ++Index)
+		{
+			if (Batch.ShouldCancel && Batch.ShouldCancel())
+			{
+				for (size_t Remaining = Index; Remaining < Result.Items.size(); ++Remaining)
+					Result.Items[Remaining].State = EAssetImportItemState::Canceled;
+				break;
+			}
+			const auto& Item = Batch.Items[Index];
+			auto& Output = Result.Items[Index];
+			Output.Operation = Validation[Index]
+				? ImportAsset(Item.AssetPath, Item.AssetClass, Item.Filename,
+					Validation[Index].Factory, Item.Context, Item.Flags)
+				: MakeRejectedAssetOperation(EAssetOperationKind::Import, Validation[Index].Message);
+			Output.State = Output.Operation ? EAssetImportItemState::Accepted : EAssetImportItemState::Rejected;
+			if (!Output.Operation && Batch.bStopOnFailure) break;
+		}
+		return Result;
+	}
 
 	auto FAssetToolsModule::StartupModule() -> void
 	{

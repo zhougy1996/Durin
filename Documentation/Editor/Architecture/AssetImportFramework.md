@@ -4,7 +4,7 @@ Summary: Define Factory-backed standalone import, immutable source capture, fami
 
 Modules: CoreDObject, AssetTools, AssetForgeBuiltins, DurinEd
 
-Last reviewed: 2026-09-11
+Last reviewed: 2026-09-16
 
 Durin creates standalone authored assets through `IAssetTools` and reflected
 concrete `DFactory` classes. Texture2D, TextureCube, VolumeTexture, and StaticMesh
@@ -130,6 +130,36 @@ systems. The built-in import boundary does not provide a second operation state 
 cancellation history, mailbox, activity projection, or shutdown pump for these
 workflows. Missing or corrupt disposable data uses the owning family build or
 PostLoad policy rather than import `Recover` semantics.
+
+## Standalone Batch Admission
+
+`FAssetImportRequest` carries an explicit top-level destination, source filename,
+asset class, optional configured factory, context, and object flags.
+`IAssetTools::InspectImports` returns one validation per input without creating
+packages or decoding sources. It checks constructibility, writable mounted
+destinations, resident/catalog/file occupancy, and factory selection. Every item
+sharing a destination package is rejected, even with different top-level names.
+Source capture and format validation remain factory responsibilities; preflight
+does not guarantee decoding or compilation success.
+
+`ImportAssets` snapshots the request and dispatches standalone factories in input
+order on the game thread. Execution revalidates each destination using the same
+admission policy as single-file `ImportAsset`. The returned object must have the
+requested class, package, and exact name. Configured factories and context objects
+are strongly retained throughout the call, including failed-package collection.
+
+Results preserve input order and distinguish `Accepted`, `Rejected`,
+`NotAttempted` after stop-on-failure, and `Canceled` before dispatch. Failure
+continues by default; stop-on-failure preserves earlier successful peers.
+Cancellation is checked between items and cannot interrupt a running factory.
+Empty batches return no results. A rejected item retains its operation diagnostic.
+
+Acceptance means the factory returned a valid live asset. It does not imply that
+deferred family compilation or persistence has completed. Successful packages
+remain dirty; callers coordinate family completion before `SaveAssets` and own
+save retry and presentation. The batch performs no automatic save, publication,
+peer rollback, naming policy, or Scene orchestration. Existing dialogs continue
+to use their single-asset workflows.
 
 ## Scene Import
 

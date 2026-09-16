@@ -67,7 +67,7 @@ namespace
 	class DAssetToolsFactoryForTest : public Durin::DFactory
 	{
 	public:
-		enum class EMode { Success, Fail, WrongClass, WrongOuter };
+		enum class EMode { Success, Fail, WrongClass, WrongOuter, WrongName };
 
 		explicit DAssetToolsFactoryForTest(
 			const Durin::FObjectInitializer& Initializer = Durin::FObjectInitializer::Get())
@@ -127,7 +127,8 @@ namespace
 				return Durin::NewObject(
 					Durin::DObject::StaticClass(), InParent, InName, Flags);
 			return Durin::NewObject(
-				InClass, Mode == EMode::WrongOuter ? nullptr : InParent, InName, Flags);
+				InClass, Mode == EMode::WrongOuter ? nullptr : InParent,
+				Mode == EMode::WrongName ? Durin::FName("UnexpectedName") : InName, Flags);
 		}
 
 		auto FactoryCreateFromFile(
@@ -252,6 +253,144 @@ namespace
 		Factory->Mode = Mode;
 		return Factory;
 	}
+
+	auto MakeImportRequest(std::string_view Path, const Durin::DFactory* Factory)
+		-> Durin::FAssetImportRequest
+	{
+		Durin::FPackagePath PackagePath;
+		Durin::FPackagePath::TryCreate(Path, PackagePath);
+		return {
+			Durin::Testing::MakePackageLeafTopLevelAssetPathForTests(PackagePath),
+			DFactoryAssetForTest::StaticClass(), "source.factorytest", Factory};
+	}
+}
+
+TEST(DFactoryTests, BatchPreflightRejectsEveryDuplicateWithoutCreatingPackages)
+{
+	InitializeFactoryTestGameThread();
+	EnsureAssetToolsTestMount();
+	auto First = MakeImportRequest("/AssetToolsTests/BatchDuplicate",
+		MakeFactory(DAssetToolsFactoryForTest::EMode::Success));
+	auto Second = First;
+	ASSERT_TRUE(Durin::FTopLevelAssetPath::TryCreate(
+		First.AssetPath.GetPackagePath(), "AnotherAsset", Second.AssetPath));
+	const std::array Items{First, Second};
+	const auto Validation = Durin::IAssetTools::Get().InspectImports(Items);
+	ASSERT_EQ(Validation.size(), 2u);
+	EXPECT_FALSE(Validation[0]);
+	EXPECT_FALSE(Validation[1]);
+	const auto Result = Durin::IAssetTools::Get().ImportAssets({.Items = {First, Second}});
+	ASSERT_EQ(Result.Items.size(), 2u);
+	EXPECT_EQ(Result.Items[0].State, Durin::EAssetImportItemState::Rejected);
+	EXPECT_EQ(Result.Items[1].State, Durin::EAssetImportItemState::Rejected);
+	EXPECT_EQ(Durin::FindPackage(First.AssetPath.GetPackagePath().GetView()), nullptr);
+}
+
+TEST(DFactoryTests, BatchContinuesAfterFactoryFailureAndKeepsSuccessfulPeersDirty)
+{
+	InitializeFactoryTestGameThread();
+	EnsureAssetToolsTestMount();
+	auto* Success = MakeFactory(DAssetToolsFactoryForTest::EMode::Success);
+	const Durin::FAssetImportBatchRequest Batch{.Items = {
+		MakeImportRequest("/AssetToolsTests/BatchFirst", Success),
+		MakeImportRequest("/AssetToolsTests/BatchFailed", MakeFactory(DAssetToolsFactoryForTest::EMode::Fail)),
+		MakeImportRequest("/AssetToolsTests/BatchLast", Success)}};
+	const auto Result = Durin::IAssetTools::Get().ImportAssets(Batch);
+	ASSERT_EQ(Result.Items.size(), 3u);
+	EXPECT_EQ(Result.Items[0].State, Durin::EAssetImportItemState::Accepted);
+	EXPECT_EQ(Result.Items[1].State, Durin::EAssetImportItemState::Rejected);
+	EXPECT_EQ(Result.Items[1].Operation.Message, "test factory failure");
+	EXPECT_EQ(Result.Items[2].State, Durin::EAssetImportItemState::Accepted);
+	EXPECT_EQ(Durin::FindPackage(Batch.Items[1].AssetPath.GetPackagePath().GetView()), nullptr);
+	for (const size_t Index : {0u, 2u})
+	{
+		EXPECT_EQ(Result.Items[Index].Operation.Persistence, Durin::EAssetOperationPersistenceState::Dirty);
+		ASSERT_NE(Result.Items[Index].Operation.Package, nullptr);
+		EXPECT_TRUE(Durin::IAssetTools::Get().DiscardPackage(Result.Items[Index].Operation.Package));
+	}
+}
+
+TEST(DFactoryTests, BatchStopAndCancelLeaveUnattemptedPackagesAbsent)
+{
+	InitializeFactoryTestGameThread();
+	EnsureAssetToolsTestMount();
+	auto First = MakeImportRequest("/AssetToolsTests/BatchStop", nullptr);
+	First.Filename.clear();
+	const auto Second = MakeImportRequest("/AssetToolsTests/BatchUnattempted", nullptr);
+	const auto Stopped = Durin::IAssetTools::Get().ImportAssets({
+		.Items = {First, Second}, .bStopOnFailure = true});
+	ASSERT_EQ(Stopped.Items.size(), 2u);
+	EXPECT_EQ(Stopped.Items[0].State, Durin::EAssetImportItemState::Rejected);
+	EXPECT_EQ(Stopped.Items[1].State, Durin::EAssetImportItemState::NotAttempted);
+	const auto Canceled = Durin::IAssetTools::Get().ImportAssets({
+		.Items = {First, Second}, .ShouldCancel = [] { return true; }});
+	ASSERT_EQ(Canceled.Items.size(), 2u);
+	for (const auto& Item : Canceled.Items)
+		EXPECT_EQ(Item.State, Durin::EAssetImportItemState::Canceled);
+	EXPECT_EQ(Durin::FindPackage(Second.AssetPath.GetPackagePath().GetView()), nullptr);
+	EXPECT_TRUE(Durin::IAssetTools::Get().ImportAssets({}).Items.empty());
+}
+
+TEST(DFactoryTests, ImportRejectsUncatalogedDestinationFileAndWrongAssetName)
+{
+	InitializeFactoryTestGameThread();
+	EnsureAssetToolsTestMount();
+	const auto File = Durin::Testing::GetTestWorkDirectory() / "AssetTools" / "BatchOccupied.dasset";
+	const std::array Bytes{std::byte{42}};
+	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(Bytes, File));
+	const auto Occupied = MakeImportRequest("/AssetToolsTests/BatchOccupied",
+		MakeFactory(DAssetToolsFactoryForTest::EMode::Success));
+	const auto WrongName = MakeImportRequest("/AssetToolsTests/BatchWrongName",
+		MakeFactory(DAssetToolsFactoryForTest::EMode::WrongName));
+	const auto Result = Durin::IAssetTools::Get().ImportAssets({.Items = {Occupied, WrongName}});
+	ASSERT_EQ(Result.Items.size(), 2u);
+	for (const auto& Item : Result.Items)
+		EXPECT_EQ(Item.State, Durin::EAssetImportItemState::Rejected);
+	EXPECT_EQ(Result.Items[0].Operation.Message, "A package file already occupies the destination.");
+	EXPECT_EQ(Durin::FindPackage(WrongName.AssetPath.GetPackagePath().GetView()), nullptr);
+	EXPECT_EQ(std::filesystem::file_size(File), 1u);
+	std::filesystem::remove(File);
+}
+
+TEST(DFactoryTests, BatchRevalidatesDestinationAfterPreflight)
+{
+	InitializeFactoryTestGameThread();
+	EnsureAssetToolsTestMount();
+	const auto Item = MakeImportRequest("/AssetToolsTests/BatchRevalidated",
+		MakeFactory(DAssetToolsFactoryForTest::EMode::Success));
+	const std::array Items{Item};
+	const auto Validation = Durin::IAssetTools::Get().InspectImports(Items);
+	ASSERT_EQ(Validation.size(), 1u);
+	ASSERT_TRUE(Validation[0]) << Validation[0].Message;
+	EXPECT_EQ(Durin::FindPackage(Item.AssetPath.GetPackagePath().GetView()), nullptr);
+	Durin::DPackage* Occupant = nullptr;
+	const auto Result = Durin::IAssetTools::Get().ImportAssets({
+		.Items = {Item}, .ShouldCancel = [&] {
+			Occupant = Durin::CreatePackage(Item.AssetPath.GetPackagePath());
+			return false;
+		}});
+	ASSERT_NE(Occupant, nullptr);
+	ASSERT_EQ(Result.Items.size(), 1u);
+	EXPECT_EQ(Result.Items[0].State, Durin::EAssetImportItemState::Rejected);
+	EXPECT_EQ(Durin::FindPackage(Item.AssetPath.GetPackagePath().GetView()), Occupant);
+	EXPECT_TRUE(Durin::IAssetTools::Get().DiscardPackage(Occupant));
+}
+
+TEST(DFactoryTests, BatchCancellationPreservesAlreadyAcceptedAsset)
+{
+	InitializeFactoryTestGameThread();
+	EnsureAssetToolsTestMount();
+	auto* Factory = MakeFactory(DAssetToolsFactoryForTest::EMode::Success);
+	const auto First = MakeImportRequest("/AssetToolsTests/BatchBeforeCancel", Factory);
+	const auto Second = MakeImportRequest("/AssetToolsTests/BatchAfterCancel", Factory);
+	size_t Checks = 0;
+	const auto Result = Durin::IAssetTools::Get().ImportAssets({
+		.Items = {First, Second}, .ShouldCancel = [&] { return ++Checks == 2; }});
+	ASSERT_EQ(Result.Items.size(), 2u);
+	EXPECT_EQ(Result.Items[0].State, Durin::EAssetImportItemState::Accepted);
+	EXPECT_EQ(Result.Items[1].State, Durin::EAssetImportItemState::Canceled);
+	EXPECT_EQ(Durin::FindPackage(Second.AssetPath.GetPackagePath().GetView()), nullptr);
+	EXPECT_TRUE(Durin::IAssetTools::Get().DiscardPackage(Result.Items[0].Operation.Package));
 }
 
 TEST(DFactoryTests, ExposesAbstractReflectedFactoryContract)

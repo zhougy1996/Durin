@@ -3,6 +3,7 @@
 #include "AssetToolsAPI.h"
 #include "AssetTools/AssetDeletion.h"
 #include "AssetTools/AssetDuplicate.h"
+#include "AssetTools/AssetImport.h"
 #include "AssetTools/AssetMutation.h"
 #include "AssetTools/AssetSave.h"
 #include "Asset/PackageReload.h"
@@ -32,6 +33,15 @@ namespace Durin
 			DObject* Context = nullptr,
 			EObjectFlags Flags = EObjectFlags::Public)
 			-> FAssetToolsResult = 0;
+
+		// Preflight creates no packages and decodes no sources. It is advisory;
+		// execution revalidates destinations. All duplicate package targets fail.
+		ASSETTOOLS_API auto InspectImports(std::span<const FAssetImportRequest> Items)
+			-> std::vector<FAssetImportValidation>;
+		// Synchronous standalone factory dispatch, without automatic save/rollback
+		// of successful peers. Scene transactions remain owned by their importer.
+		ASSETTOOLS_API auto ImportAssets(const FAssetImportBatchRequest& Request)
+			-> FAssetImportBatchResult;
 
 		virtual auto ImportAsset(
 			const FTopLevelAssetPath& AssetPath,
