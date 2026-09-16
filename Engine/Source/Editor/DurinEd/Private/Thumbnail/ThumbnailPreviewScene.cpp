@@ -172,6 +172,7 @@ namespace Durin::Editor
 		FTextureRHIRef RenderTarget;
 		FSceneView View;
 		std::optional<FViewEnvironmentOverride> Environment;
+		FThumbnailImageRenderer ImageRenderer;
 		std::shared_ptr<FCapture> Capture = std::make_shared<FCapture>();
 		std::string Error;
 
@@ -357,6 +358,23 @@ namespace Durin::Editor
 		return true;
 	}
 
+	auto FThumbnailPreviewScenePool::SetImageRenderer(FThumbnailImageRenderer Renderer,
+		std::string& OutError) -> bool
+	{
+		checkf(IsInGameThread(), "Thumbnail image setup must run on the game thread.");
+		OutError.clear();
+		std::lock_guard Lock(Impl->Capture->Mutex);
+		if (!IsAvailable() || !Renderer
+			|| Impl->Capture->State == EThumbnailCaptureState::Rendering
+			|| Impl->Capture->State == EThumbnailCaptureState::ReadbackPending)
+		{
+			OutError = "Thumbnail image capture is unavailable or already in flight.";
+			return false;
+		}
+		Impl->ImageRenderer = std::move(Renderer);
+		return true;
+	}
+
 	auto FThumbnailPreviewScenePool::BeginCapture(
 		std::string& OutError
 	) -> bool
@@ -389,16 +407,27 @@ namespace Durin::Editor
 		FSceneInterface* Scene = Impl->PreviewScene->GetRenderScene();
 		FTextureRHIRef RenderTarget = Impl->RenderTarget;
 		const FSceneView View = Impl->View;
+		const auto ImageRenderer = Impl->ImageRenderer;
+		const auto Output = Impl->Output;
 		const FSceneViewRenderOptions Options{
 			.Environment = Impl->Environment
 		};
 		ENQUEUE_RENDER_COMMAND(RenderAssetThumbnailPreview)(
-			[Capture, Generation, Renderer, Scene, RenderTarget, View, Options](
+			[Capture, Generation, Renderer, Scene, RenderTarget, View, Options, ImageRenderer, Output](
 				FRHICommandListImmediate& CommandList
 			) {
 				std::shared_ptr<FRHITextureReadback> Readback;
 				std::string Error;
-				if (Renderer == nullptr || Scene == nullptr || RenderTarget == nullptr)
+				if (ImageRenderer)
+				{
+					CommandList.SwitchPipeline(ERHIPipeline::Graphics);
+					auto Image = ImageRenderer(CommandList, Output.Width, Output.Height);
+					if (Image && Image->GetSizeX() == Output.Width && Image->GetSizeY() == Output.Height
+						&& Image->GetFormat() == EPixelFormat::SRGBA8_UNORM)
+						Readback = CommandList.EnqueueTextureReadback(Image);
+					if (!Readback) Error = "Thumbnail image rendering or readback failed.";
+				}
+				else if (Renderer == nullptr || Scene == nullptr || RenderTarget == nullptr)
 				{
 					Error = "Rendered-thumbnail resources were released before capture.";
 				}
@@ -485,5 +514,6 @@ namespace Durin::Editor
 		}
 		Impl->View = BuildView(Impl->Output, MakeDefaultPreviewView());
 		Impl->Environment.reset();
+		Impl->ImageRenderer = {};
 	}
 } // namespace Durin::Editor

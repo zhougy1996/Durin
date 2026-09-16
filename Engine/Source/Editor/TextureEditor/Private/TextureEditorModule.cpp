@@ -13,7 +13,7 @@
 #include "Thumbnail/TextureCubeThumbnailRenderer.h"
 #include "Widgets/MTextureEditor.h"
 #include "Widgets/MVolumeTextureEditor.h"
-#include "Widgets/TexturePreview.h"
+#include "TexturePreview.h"
 #include "Workspace/TextureEditorWorkspace.h"
 #include "Workspace/VolumeTextureEditorWorkspace.h"
 #include "Import/TextureImportDialog.h"

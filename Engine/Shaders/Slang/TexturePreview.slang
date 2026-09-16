@@ -17,7 +17,9 @@ struct VSOutput
 struct PreviewSettingsUniform
 {
     uint Channel;
-    uint3 Padding;
+    uint DecodeNormal;
+    uint InputSRGB;
+    uint Padding;
 };
 
 [[vk::binding(0, 0)]] Texture2D<float4> PreviewTexture;
@@ -37,14 +39,23 @@ VSOutput VertexMain(VSInput input)
 float4 FragmentMain(VSOutput input) : SV_Target
 {
     float4 sampled = PreviewTexture.Sample(PreviewSampler, input.uv);
-    if (PreviewSettings.Channel == 5)
+    // Recover stored values for explicit inspection before interpretation.
+    if (PreviewSettings.InputSRGB != 0)
+        sampled.rgb = select(sampled.rgb <= 0.0031308, sampled.rgb * 12.92,
+            1.055 * pow(max(sampled.rgb, 0.0), 1.0 / 2.4) - 0.055);
+    if (PreviewSettings.DecodeNormal != 0)
     {
         // Match material sampling, then map the signed normal to display RGB.
-        return float4(DecodeTextureNormal(sampled.rg) * 0.5 + 0.5, 1.0);
+        sampled = float4(DecodeTextureNormal(sampled.rg) * 0.5 + 0.5, 1.0);
     }
-    uint channelIndex = PreviewSettings.Channel > 0
-        ? min(PreviewSettings.Channel - 1, 3)
-        : 0;
-    float channelValue = sampled[channelIndex];
-    return float4(channelValue, channelValue, channelValue, 1.0);
+    if (PreviewSettings.Channel != 0)
+    {
+        float value = sampled[min(PreviewSettings.Channel - 1, 3)];
+        sampled = float4(value, value, value, 1.0);
+    }
+    // The shared output is sRGB, like cached thumbnails and other UI images.
+    // Convert display values to linear here; the render target encodes them once.
+    float3 linear = select(sampled.rgb <= 0.04045, sampled.rgb / 12.92,
+        pow(max((sampled.rgb + 0.055) / 1.055, 0.0), 2.4));
+    return float4(linear, sampled.a);
 }

@@ -26,7 +26,10 @@ adapts to panel aspect-ratio changes. Mouse-wheel zoom is relative to that frami
 Fit and mesh changes restore the fitted view.
 
 Preview rendering follows [Material System](../../Runtime/Rendering/MaterialSystem.md).
-Thumbnail sessions follow [Asset Thumbnails](AssetThumbnails.md).
+Thumbnail sessions and texture-node images follow the shared
+[texture preview contract](AssetThumbnails.md#identity-and-output-size). Texture
+nodes sample published built allocations for every usage, including normals;
+missing or pending allocations show a placeholder instead of source thumbnails.
 
 ## Compile, Apply, and Save
 

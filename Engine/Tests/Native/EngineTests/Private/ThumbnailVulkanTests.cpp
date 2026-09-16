@@ -22,6 +22,8 @@
 #include "Thumbnail/AssetThumbnailPool.h"
 #include "Thumbnail/StaticMeshThumbnailRenderer.h"
 #include "Thumbnail/TextureCubeThumbnailRenderer.h"
+#include "Thumbnail/TextureThumbnailRenderer.h"
+#include "TexturePreview.h"
 #include "Texture/TextureCubeRenderResource.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
 
@@ -136,6 +138,7 @@ namespace
 			});
 			Durin::FlushRenderingCommands();
 			Durin::GEngine = nullptr;
+			Durin::Editor::Texture::FTexturePreview::ReleaseSharedResources();
 			RendererLifecycle.Shutdown();
 			Durin::FlushRenderingCommands();
 			Durin::ShutdownRenderingThread();
@@ -632,4 +635,150 @@ TEST_F(FThumbnailVulkanTests, EnvironmentValidationAndCancellationReleaseReferen
 	);
 	EXPECT_TRUE(CancelledPixels.empty());
 	EXPECT_TRUE(Error.empty());
+}
+
+TEST_F(FThumbnailVulkanTests, Texture2DThumbnailUsesBuiltNormalAndRejectsReplacedAllocation)
+{
+	using namespace Durin;
+	using namespace Durin::Editor;
+	using namespace Durin::Editor::Texture;
+	auto* Asset = ImportTexture();
+	ASSERT_NE(Asset, nullptr);
+	FAssetCompilingManager::Get().FinishCompilationForObject(*Asset);
+	Asset->SetSource({});
+	Asset->SetBuildSettings(ETextureUsage::Normal, false, 0, ETextureCompressionQuality::Normal,
+		ETextureAlphaMipMode::Average, 0.5f);
+	// No source art is present: the built BC5 allocation is the only preview input.
+	auto Platform = std::make_unique<FTexturePlatformData>();
+	Platform->PixelFormat = EPixelFormat::BC5_UNORM;
+	FTexture2DMipData Mip;
+	Mip.Width = Mip.Height = 4;
+	Mip.RowPitch = 16;
+	Mip.Pixels.resize(16, std::byte{0});
+	Mip.Pixels[0] = Mip.Pixels[1] = Mip.Pixels[8] = Mip.Pixels[9] = std::byte{128};
+	Platform->Mips.push_back(std::move(Mip));
+	Asset->SetPlatformData(std::move(Platform));
+	Asset->UpdateResource();
+	ASSERT_TRUE(WaitForResourcePublication([&] { return !Asset->IsResourceUpdatePending(); }));
+	ASSERT_TRUE(Asset->HasUsableResource());
+	ASSERT_FALSE(Asset->GetSource().IsValid());
+	const auto Data = FindAssetExact(Packages.back());
+	ASSERT_TRUE(Data);
+	FAssetThumbnailRequest Request;
+	Request.Asset = {
+		.AssetPath = Testing::MakePackageLeafTopLevelAssetPathForTests(Packages.back()),
+		.PackagePath = Packages.back(), .AssetClassName = Data->AssetClassName,
+		.PackageFormatVersion = Data->FormatVersion, .FileSize = static_cast<uint64>(Data->FileSize),
+		.LastWriteTimeTicks = Data->LastWriteTimeTicks};
+	DTextureThumbnailRenderer Renderer;
+	FAssetThumbnailGenerationRequest Captured;
+	ASSERT_TRUE(Renderer.CaptureGenerationRequest(Request, 1, Captured, Error)) << Error;
+	ASSERT_EQ(Captured.GeneratedPixels, nullptr);
+	ASSERT_NE(Captured.Input, nullptr);
+	auto Session = Renderer.CreateGenerationSession(Captured, *Captured.Input, Error);
+	ASSERT_NE(Session, nullptr);
+	const auto Loaded = Session->Load();
+	ASSERT_EQ(Loaded.State, EThumbnailRendererSessionState::ReadyToRender) << Loaded.Diagnostic;
+	FThumbnailPreviewScenePool Pool(Contract);
+	ASSERT_TRUE(Session->PreparePreview(Pool, Error)) << Error;
+	ASSERT_TRUE(Session->ValidateRevisions(Loaded.AssetRevision, Loaded.ResourceRevision, Error)) << Error;
+	ASSERT_TRUE(Pool.BeginCapture(Error)) << Error;
+	FlushRenderingCommands();
+	FByteBuffer Pixels;
+	EThumbnailCaptureState CaptureState{};
+	ASSERT_TRUE(WaitForResourcePublication([&] {
+		CaptureState = Pool.PollCapture(Pixels, Error);
+		return CaptureState == EThumbnailCaptureState::Ready || CaptureState == EThumbnailCaptureState::Failed;
+	}));
+	ASSERT_EQ(CaptureState, EThumbnailCaptureState::Ready) << Error;
+	ASSERT_EQ(Pixels.size(), 64u * 64u * 4u);
+	const size_t Center = (32 * 64 + 32) * 4;
+	EXPECT_NEAR(std::to_integer<int>(Pixels[Center]), 128, 1);
+	EXPECT_NEAR(std::to_integer<int>(Pixels[Center + 1]), 128, 1);
+	EXPECT_NEAR(std::to_integer<int>(Pixels[Center + 2]), 255, 1);
+	EXPECT_EQ(Pixels[Center + 3], std::byte{255});
+	Pool.Reset();
+	// Exercise the complete cold/warm scheduler path, not only the renderer session.
+	auto Registration = GetDefaultThumbnailManager().RegisterScoped(
+		std::make_unique<DTextureThumbnailRenderer>(), Error);
+	ASSERT_TRUE(Registration) << Error;
+	Tests::FThumbnailTestUIBackend Backend;
+	Tests::FScopedActiveUIBackend BackendScope(Backend);
+	const auto CacheRoot = Testing::GetTestWorkDirectory() / "BuiltTextureThumbnailCache";
+	for (const bool Warm : {false, true})
+	{
+		FAssetThumbnailPool Cache({}, {.CacheRoot = CacheRoot, .ObjectExtension = ".png"});
+		FAssetThumbnailView View;
+		ASSERT_TRUE(WaitForResourcePublication([&] {
+			Cache.BeginFrame();
+			Cache.Request(Request.Asset, EAssetThumbnailPriority::Visible);
+			View = Cache.Find(Request.Asset.AssetPath);
+			Cache.EndFrame();
+			return View.State == EAssetThumbnailState::Ready || View.State == EAssetThumbnailState::Failed;
+		}));
+		ASSERT_EQ(View.State, EAssetThumbnailState::Ready) << View.Diagnostic;
+		ASSERT_NE(View.Texture, nullptr);
+		const auto Stats = Cache.GetStats().Generation;
+		EXPECT_EQ(Stats.Renders, Warm ? 0u : 1u);
+		EXPECT_EQ(Stats.Readbacks, Warm ? 0u : 1u);
+		EXPECT_EQ(Stats.Loads, Warm ? 0u : 1u);
+		EXPECT_EQ(Stats.DiskHits, Warm ? 1u : 0u);
+		if (!Warm)
+			ASSERT_TRUE(WaitForResourcePublication([&] {
+				Cache.BeginFrame(); Cache.EndFrame();
+				return Cache.GetStats().Generation.CacheWrites == 1;
+			}));
+	}
+
+	Asset->UpdateResource();
+	EXPECT_FALSE(Session->ValidateRevisions(Loaded.AssetRevision, Loaded.ResourceRevision, Error));
+	ASSERT_TRUE(WaitForResourcePublication([&] { return !Asset->IsResourceUpdatePending(); }));
+	EXPECT_FALSE(Session->ValidateRevisions(Loaded.AssetRevision, Loaded.ResourceRevision, Error));
+	Session->ResetPreview();
+}
+
+TEST_F(FThumbnailVulkanTests, TexturePreviewPreservesRawChannelsSrgbAndAspectRatio)
+{
+	using namespace Durin;
+	using namespace Durin::Editor;
+	using namespace Durin::Editor::Texture;
+	FTextureRHIRef Input;
+	ENQUEUE_RENDER_COMMAND(CreatePreviewTestInput)([&Input](FRHICommandListImmediate& Commands) {
+		auto Desc = FRHITextureCreateDesc::Create2D("PreviewTestInput", 2, 1, EPixelFormat::SRGBA8_UNORM);
+		Desc.AddFlags(ETextureCreateFlags::ShaderResource);
+		Input = GDynamicRHI->RHICreateTexture(Commands, Desc);
+		const FByteBuffer Pixels{std::byte{128}, std::byte{64}, std::byte{32}, std::byte{128},
+			std::byte{128}, std::byte{64}, std::byte{32}, std::byte{128}};
+		if (Input) GDynamicRHI->RHIUpdateTexture2D(Commands, Input, 0, 0,
+			FUpdateTextureRegion2D(0, 0, 0, 0, 2, 1), 8, Pixels);
+	});
+	FlushRenderingCommands();
+	ASSERT_NE(Input, nullptr);
+	FThumbnailPreviewScenePool Pool(Contract);
+	for (const auto Channel : {ETexturePreviewChannel::RGBA, ETexturePreviewChannel::Blue, ETexturePreviewChannel::Alpha})
+	{
+		ASSERT_TRUE(Pool.SetImageRenderer([Input, Channel](FRHICommandListImmediate& Commands, uint32 W, uint32 H) {
+			return RenderTexturePreview(Commands, Input, W, H,
+				{.Usage = ETextureUsage::Normal, .Interpretation = Channel == ETexturePreviewChannel::RGBA
+					? ETexturePreviewInterpretation::Raw : ETexturePreviewInterpretation::Auto, .Channel = Channel});
+		}, Error));
+		ASSERT_TRUE(Pool.BeginCapture(Error));
+		FlushRenderingCommands();
+		FByteBuffer Pixels;
+		EThumbnailCaptureState CaptureState{};
+		ASSERT_TRUE(WaitForResourcePublication([&] {
+			CaptureState = Pool.PollCapture(Pixels, Error);
+			return CaptureState == EThumbnailCaptureState::Ready || CaptureState == EThumbnailCaptureState::Failed;
+		}));
+		ASSERT_EQ(CaptureState, EThumbnailCaptureState::Ready) << Error;
+		ASSERT_EQ(Pixels.size(), 64u * 64u * 4u);
+		EXPECT_EQ(Pixels[3], std::byte{0}); // Aspect-fit margin stays transparent.
+		const size_t Center = (32 * 64 + 32) * 4;
+		const int Expected = Channel == ETexturePreviewChannel::Blue ? 32 : 128;
+		EXPECT_NEAR(std::to_integer<int>(Pixels[Center]), Expected, 1);
+		EXPECT_NEAR(std::to_integer<int>(Pixels[Center + 1]), Channel == ETexturePreviewChannel::RGBA ? 64 : Expected, 1);
+		EXPECT_NEAR(std::to_integer<int>(Pixels[Center + 2]), Channel == ETexturePreviewChannel::RGBA ? 32 : Expected, 1);
+		EXPECT_EQ(Pixels[Center + 3], Channel == ETexturePreviewChannel::RGBA ? std::byte{128} : std::byte{255});
+		Pool.Reset();
+	}
 }

@@ -4,7 +4,7 @@
 #include "Texture/Texture.h"
 #include "Editor/Workspace.h"
 #include "Editor/WorkspaceRootWindow.h"
-#include "Widgets/TexturePreview.h"
+#include "TexturePreview.h"
 #include "VolumeTexturePreview.h"
 
 namespace Durin { class DVolumeTexture; struct FVolumeTexturePlatformData; }

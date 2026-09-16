@@ -2,16 +2,90 @@
 
 #include "Asset/Asset.h"
 #include "Texture/Texture2D.h"
+#include "TexturePreview.h"
+#include "DObject/Package.h"
+#include "DObject/WeakObjectPtr.h"
 
 namespace Durin::Editor::Texture
 {
+	namespace
+	{
+		class FTextureThumbnailGenerationInput final : public IAssetThumbnailGenerationInput
+		{
+		public:
+			explicit FTextureThumbnailGenerationInput(FTopLevelAssetPath Path) : AssetPath(std::move(Path)) {}
+			FTopLevelAssetPath AssetPath;
+		};
+
+		class FTextureThumbnailSession final : public IThumbnailRendererSession
+		{
+		public:
+			explicit FTextureThumbnailSession(FTopLevelAssetPath Path) : AssetPath(std::move(Path)) {}
+			auto Load() -> FThumbnailRendererSessionUpdate override
+			{
+				DObject* Loaded = nullptr;
+				const auto Result = LoadObject(AssetPath, Loaded);
+				Texture = Result ? Cast<DTexture2D>(Loaded) : nullptr;
+				if (!Texture.IsValid()) return {.Diagnostic = "Texture2D asset could not be loaded."};
+				AssetRevision = Texture.Get()->GetPackage() ? Texture.Get()->GetPackage()->GetEditRevision() : 0;
+				Platform = Texture.Get()->GetPlatformDataShared();
+				Options.Usage = Texture.Get()->GetUsage();
+				return PollResources();
+			}
+			auto PollResources() -> FThumbnailRendererSessionUpdate override
+			{
+				if (!Texture.IsValid()) return {.Diagnostic = "Texture2D asset is unavailable."};
+				if (Texture.Get()->IsResourceUpdatePending())
+					return {.State = EThumbnailRendererSessionState::WaitingForResources, .AssetRevision = AssetRevision};
+				if (!Texture.Get()->HasUsableResource())
+					return {.Diagnostic = "Texture2D built render resource is unavailable."};
+				// The allocation snapshot is the freshness authority; this nonzero
+				// session token admits the shared scheduler's ready transition.
+				return {.State = EThumbnailRendererSessionState::ReadyToRender,
+					.AssetRevision = AssetRevision, .ResourceRevision = 1};
+			}
+			auto PreparePreview(IThumbnailPreviewScene& Scene, std::string& Error) -> bool override
+			{
+				Snapshot = Texture.IsValid() ? Texture.Get()->GetPublishedTexture() : FTextureRHIRef{};
+				if (!Snapshot) { Error = "Texture2D built allocation is unavailable."; return false; }
+				return Scene.SetImageRenderer([Input = Snapshot, Display = Options](
+					FRHICommandListImmediate& Commands, uint32 Width, uint32 Height) {
+					return RenderTexturePreview(Commands, Input, Width, Height, Display);
+				}, Error);
+			}
+			auto ValidateRevisions(uint64 ExpectedAssetRevision, uint64 ExpectedResourceRevision,
+				std::string& Error) const -> bool override
+			{
+				if (!Texture.IsValid() || Texture.Get()->IsResourceUpdatePending() || !Snapshot
+					|| !Texture.Get()->HasUsableResource() || Texture.Get()->GetPublishedTexture() != Snapshot
+					|| Texture.Get()->GetPlatformDataShared() != Platform || Texture.Get()->GetUsage() != Options.Usage
+					|| (Texture.Get()->GetPackage() ? Texture.Get()->GetPackage()->GetEditRevision() : 0) != ExpectedAssetRevision
+					|| ExpectedResourceRevision != 1)
+				{
+					Error = "Texture2D changed while its thumbnail was being generated.";
+					return false;
+				}
+				Error.clear();
+				return true;
+			}
+			auto ResetPreview() -> void override { Snapshot = nullptr; }
+		private:
+			FTopLevelAssetPath AssetPath;
+			TWeakObjectPtr<DTexture2D> Texture;
+			std::shared_ptr<const FTexturePlatformData> Platform;
+			FTexturePreviewOptions Options;
+			FTextureRHIRef Snapshot;
+			uint64 AssetRevision = 0;
+		};
+	}
+
 	auto DTextureThumbnailRenderer::GetRegistration() const
 		-> ::Durin::Editor::FThumbnailRenderingInfo
 	{
 		return {
 			.AssetClassName = DTexture2D::StaticClass()->GetQualifiedName().ToString(),
-			.RendererName = "Texture2DSourceThumbnail",
-			.GeneratorSchemaVersion = 1};
+			.RendererName = "Texture2DBuiltThumbnail",
+			.GeneratorSchemaVersion = 2};
 	}
 
 	auto DTextureThumbnailRenderer::CaptureGenerationRequest(
@@ -36,61 +110,30 @@ namespace Durin::Editor::Texture
 			OutError = "Texture2D thumbnail registry data is missing or changed.";
 			return false;
 		}
-		DObject* Loaded = nullptr;
-		const FAssetResult Load = LoadObject(Request.Asset.AssetPath, Loaded);
-		auto* Texture = Load ? Cast<DTexture2D>(Loaded) : nullptr;
-		const auto Mips = Texture ? Texture->GetSource().GetMipData() : FTextureSource::FMipData{};
-		const auto View = Mips.IsValid() ? Mips.GetMipImage(0, 0, 0) : Image::FImageView{};
-		if (!Texture || !View.IsValid() || View.GetInfo().Format != Image::ERawImageFormat::RGBA8)
-		{
-			OutError = Load ? "Texture2D canonical source pixels are unavailable." : Load.Message;
-			return false;
-		}
-
-		constexpr uint32 OutputSize = 256;
-		auto Generated = std::make_shared<::Durin::Editor::FAssetThumbnailGeneratedPixels>();
-		Generated->Width = OutputSize;
-		Generated->Height = OutputSize;
-		Generated->Pixels.assign(static_cast<size_t>(OutputSize) * OutputSize * 4, std::byte{0});
-		const double Scale = std::min(
-			static_cast<double>(OutputSize) / View.GetInfo().Width,
-			static_cast<double>(OutputSize) / View.GetInfo().Height);
-		const uint32 DrawWidth = std::max(1u,
-			static_cast<uint32>(std::floor(View.GetInfo().Width * Scale)));
-		const uint32 DrawHeight = std::max(1u,
-			static_cast<uint32>(std::floor(View.GetInfo().Height * Scale)));
-		const uint32 OffsetX = (OutputSize - DrawWidth) / 2;
-		const uint32 OffsetY = (OutputSize - DrawHeight) / 2;
-		for (uint32 Y = 0; Y < DrawHeight; ++Y)
-			for (uint32 X = 0; X < DrawWidth; ++X)
-			{
-				const uint32 SourceX = std::min(View.GetInfo().Width - 1,
-					static_cast<uint32>((static_cast<uint64>(X) * View.GetInfo().Width) / DrawWidth));
-				const uint32 SourceY = std::min(View.GetInfo().Height - 1,
-					static_cast<uint32>((static_cast<uint64>(Y) * View.GetInfo().Height) / DrawHeight));
-				const size_t SourcePixel =
-					(static_cast<size_t>(SourceY) * View.GetInfo().Width + SourceX) * 4;
-				const size_t OutputPixel =
-					(static_cast<size_t>(OffsetY + Y) * OutputSize + OffsetX + X) * 4;
-				std::copy_n(View.GetPixels().begin() + static_cast<ptrdiff_t>(SourcePixel),
-					4, Generated->Pixels.begin() + static_cast<ptrdiff_t>(OutputPixel));
-			}
-		const FXxHash128 Identity = Texture->GetSource().GetIdentity();
-		Generated->AssetRevision = Identity.HashLow ^ Identity.HashHigh;
-		if (Generated->AssetRevision == 0) Generated->AssetRevision = 1;
+		// Capture package identity only. Loading and GPU readiness belong to the
+		// scheduled cold-miss session; warm cache hits never inspect source pixels.
 		OutRequest.KeyInput.Asset = Request.Asset;
 		OutRequest.KeyInput.RendererName = GetRegistration().RendererName;
 		OutRequest.KeyInput.GeneratorSchemaVersion = GetRegistration().GeneratorSchemaVersion;
-		OutRequest.KeyInput.Output = {.Width = OutputSize, .Height = OutputSize};
-		OutRequest.KeyInput.PreviewFixtureIdentity = Identity.ToString();
+		OutRequest.KeyInput.Output = {.Width = 256, .Height = 256};
+		OutRequest.KeyInput.PreviewFixtureIdentity = "Texture2D.Built.Auto.RGBA";
 		OutRequest.KeyInput.PreviewFixtureVersion = 1;
-		OutRequest.GeneratedPixels = std::move(Generated);
+		OutRequest.KeyInput.ShaderContractVersion = 2;
+		OutRequest.Input = std::make_shared<FTextureThumbnailGenerationInput>(Request.Asset.AssetPath);
 		OutRequest.RendererGeneration = RendererGeneration;
 		OutRequest.RequestSerial = Request.RequestSerial;
-		OutRequest.bHasTransparency = Texture->GetSource().HasTransparency();
-		OutRequest.AssetRevision = OutRequest.GeneratedPixels->AssetRevision;
+		OutRequest.bHasTransparency = true;
 		OutError.clear();
 		return true;
 	}
 
+	auto DTextureThumbnailRenderer::CreateGenerationSession(
+		const FAssetThumbnailGenerationRequest&, const IAssetThumbnailGenerationInput& Input,
+		std::string& Error) -> std::unique_ptr<IThumbnailRendererSession>
+	{
+		const auto* Typed = dynamic_cast<const FTextureThumbnailGenerationInput*>(&Input);
+		if (!Typed) { Error = "Invalid Texture2D thumbnail input."; return nullptr; }
+		Error.clear();
+		return std::make_unique<FTextureThumbnailSession>(Typed->AssetPath);
+	}
 } // namespace Durin::Editor::Texture

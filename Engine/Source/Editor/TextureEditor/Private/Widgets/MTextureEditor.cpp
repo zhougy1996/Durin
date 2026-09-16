@@ -20,7 +20,7 @@
 #include "Texture/Texture2DCompilation.h"
 #include "Texture/Texture2DRenderResource.h"
 #include "EditorReimportHandler.h"
-#include "Widgets/TexturePreview.h"
+#include "TexturePreview.h"
 #include "Workspace/TextureEditorWorkspace.h"
 
 namespace Durin::Editor::Texture
@@ -566,19 +566,13 @@ namespace Durin::Editor::Texture
 		FTexturePreview& Preview = *PreviewState.Preview;
 
 		const FTexturePlatformData* Platform = Texture->GetPlatformData();
-		const auto Mips = Texture ? Texture->GetSource().GetMipData() : FTextureSource::FMipData{};
-		const auto View = Mips.IsValid() ? Mips.GetMipImage(0, 0, 0) : Image::FImageView{};
-		const bool bSourceAvailable = View.IsValid() && View.GetInfo().Format == Image::ERawImageFormat::RGBA8;
+		const bool bSourceAvailable = Texture->GetSource().IsValid()
+			&& Texture->GetSource().GetFormat() == ETextureSourceFormat::RGBA8;
 		const bool bPlatformAvailable = Platform && Platform->IsValid();
 		if (PreviewState.bPreviewSource && !bSourceAvailable) PreviewState.bPreviewSource = false;
-		if (!bPlatformAvailable && bSourceAvailable) PreviewState.bPreviewSource = true;
 
 		const bool bRevisionChanged = PreviewState.PlatformInput.lock() != Texture->GetPlatformDataShared() || PreviewState.SourceIdentity != Texture->GetSource().GetIdentity();
 		if (bRevisionChanged) PreviewState.SelectedMipIndex = 0;
-
-		const uint32 MipCount = (!PreviewState.bPreviewSource && bPlatformAvailable)
-			? static_cast<uint32>(Platform->Mips.size())
-			: (bSourceAvailable ? 1u : 0u);
 
 		if (ImGui::BeginChild("TexturePreviewPanel", ImVec2(Width, Height), ImGuiChildFlags_Borders))
 		{
@@ -594,7 +588,7 @@ namespace Durin::Editor::Texture
 				PreviewState.bPreviewSource = true;
 			if (!bSourceAvailable) ImGui::EndDisabled();
 			if (!bSourceAvailable && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-				ImGui::SetTooltip("Decoded source pixels are not resident.");
+				ImGui::SetTooltip("RGBA8 source data is unavailable.");
 
 			ImGui::SameLine();
 			ImGui::TextDisabled("|");
@@ -626,18 +620,22 @@ namespace Durin::Editor::Texture
 				}
 			}
 
-			const bool bNormalTexture = Texture->GetUsage() == ETextureUsage::Normal;
-			if (bNormalTexture)
+			ImGui::TextDisabled("Display");
+			constexpr std::array ModeLabels = {"Auto", "Raw", "Normal"};
+			for (uint32 Index = 0; Index < ModeLabels.size(); ++Index)
 			{
 				ImGui::SameLine();
-				ImGui::Checkbox("Decode Normal", &PreviewState.bDecodeNormal);
-				if (ImGui::IsItemHovered())
-					ImGui::SetTooltip("Reconstruct the normal from RG for the RGBA view. Individual channels show stored values.");
+				const auto Mode = static_cast<ETexturePreviewInterpretation>(Index);
+				if (ImGui::RadioButton(ModeLabels[Index], PreviewState.Interpretation == Mode))
+					PreviewState.Interpretation = Mode;
 			}
-			const ETexturePreviewChannel DisplayChannel = bNormalTexture && PreviewState.bDecodeNormal
-				&& PreviewState.SelectedChannel == ETexturePreviewChannel::RGBA
-				? ETexturePreviewChannel::Normal : PreviewState.SelectedChannel;
+			const FTexturePreviewOptions Options{
+				.Usage = Texture->GetUsage(), .Interpretation = PreviewState.Interpretation,
+				.Channel = PreviewState.SelectedChannel};
 
+			const uint32 MipCount = PreviewState.bPreviewSource
+				? (bSourceAvailable ? 1u : 0u)
+				: (bPlatformAvailable ? static_cast<uint32>(Platform->Mips.size()) : 0u);
 			if (MipCount == 0)
 			{
 				Preview.Release();
@@ -662,23 +660,28 @@ namespace Durin::Editor::Texture
 
 			const bool bMipChanged = PreviewState.SelectedMipIndex != PreviewState.LastUploadedMipIndex;
 			const bool bPreviewModeChanged = PreviewState.bPreviewSource != PreviewState.bLastUploadWasSource;
-			const bool bChannelChanged = DisplayChannel != PreviewState.LastAppliedChannel;
+			const bool bChannelChanged = Options != PreviewState.LastAppliedOptions;
 			if (bRevisionChanged || bMipChanged || bPreviewModeChanged || !Preview.IsValid())
 			{
 				if (PreviewState.bPreviewSource)
-					Preview.UploadSource(View, DisplayChannel);
+				{
+					const auto Mips = Texture->GetSource().GetMipData();
+					const auto View = Mips.IsValid() ? Mips.GetMipImage(0, 0, 0) : Image::FImageView{};
+					Preview.Release();
+					Preview.UploadSource(View, Options);
+				}
 				else
-					Preview.Upload(*Platform, PreviewState.SelectedMipIndex, DisplayChannel);
+					Preview.Upload(*Platform, PreviewState.SelectedMipIndex, Options);
 				PreviewState.LastUploadedMipIndex = PreviewState.SelectedMipIndex;
 				PreviewState.PlatformInput = Texture->GetPlatformDataShared();
 				PreviewState.SourceIdentity = Texture->GetSource().GetIdentity();
 				PreviewState.bLastUploadWasSource = PreviewState.bPreviewSource;
-				PreviewState.LastAppliedChannel = DisplayChannel;
+				PreviewState.LastAppliedOptions = Options;
 			}
 			else if (bChannelChanged)
 			{
-				Preview.SetChannel(DisplayChannel);
-				PreviewState.LastAppliedChannel = DisplayChannel;
+				Preview.SetOptions(Options);
+				PreviewState.LastAppliedOptions = Options;
 			}
 
 			ImGui::Separator();

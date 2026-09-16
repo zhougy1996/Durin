@@ -78,7 +78,7 @@ public:
 	std::optional<Durin::FViewEnvironmentOverride> LastEnvironment;
 };
 
-TEST(FTextureAssetThumbnailTests, Texture2DRendererGeneratesCanonicalSquarePixels)
+TEST(FTextureAssetThumbnailTests, Texture2DRendererCapturesBuiltSessionWithoutSourcePixels)
 {
 	Durin::Tests::FAssetThumbnailFixtureSet Fixtures;
 	std::string Error;
@@ -96,16 +96,16 @@ TEST(FTextureAssetThumbnailTests, Texture2DRendererGeneratesCanonicalSquarePixel
 	Durin::Editor::FAssetThumbnailGenerationRequest Captured;
 	ASSERT_TRUE(Renderer.CaptureGenerationRequest(
 		MakeRequest(*Data), 7, Captured, Error)) << Error;
-	ASSERT_NE(Captured.GeneratedPixels, nullptr);
-	EXPECT_EQ(Captured.GeneratedPixels->Width, 256u);
-	EXPECT_EQ(Captured.GeneratedPixels->Height, 256u);
-	EXPECT_EQ(Captured.GeneratedPixels->Pixels.size(), 256u * 256u * 4u);
-	EXPECT_NE(Captured.GeneratedPixels->AssetRevision, 0u);
-	EXPECT_EQ(Captured.AssetRevision, Captured.GeneratedPixels->AssetRevision);
+	EXPECT_EQ(Captured.GeneratedPixels, nullptr);
+	ASSERT_NE(Captured.Input, nullptr);
+	EXPECT_EQ(Captured.KeyInput.GeneratorSchemaVersion, 2u);
+	EXPECT_EQ(Captured.KeyInput.ShaderContractVersion, 2u);
+	auto Session = Renderer.CreateGenerationSession(Captured, *Captured.Input, Error);
+	ASSERT_NE(Session, nullptr) << Error;
 	EXPECT_EQ(Captured.RendererGeneration, 7u);
 	EXPECT_EQ(Captured.KeyInput.Output.Width, 256u);
 	EXPECT_EQ(Captured.KeyInput.Output.Height, 256u);
-	EXPECT_EQ(Captured.KeyInput.RendererName, "Texture2DSourceThumbnail");
+	EXPECT_EQ(Captured.KeyInput.RendererName, "Texture2DBuiltThumbnail");
 	EXPECT_FALSE(Captured.KeyInput.PreviewFixtureIdentity.empty());
 }
 

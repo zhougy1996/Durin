@@ -7,15 +7,15 @@
         "Core",
         "CoreDObject",
         "ApplicationCore",
-        "RHI",
         "RenderCore",
-        "Engine",
         "AssetForgeBuiltins",
         "MonaImGui",
 		"MonaCore",
 		"ContentBrowser"
 	],
 	"PublicDependencies": [
+        "Engine",
+        "RHI",
 		"DurinEd"
     ]
 }

@@ -280,7 +280,7 @@ namespace Durin::Editor::Texture
 					Platform->PixelFormat, State.Axis, State.Slice)
 				: ExtractVolumeTexturePreviewSlice(Source, State.Axis, State.Slice);
 			if (Slice.IsValid()) State.Preview->UploadRGBA8(
-				Slice.Width, Slice.Height, Slice.Pixels, State.Channel);
+				Slice.Width, Slice.Height, Slice.Pixels, {.Channel = State.Channel});
 			else State.Preview->Release();
 			State.PlatformInput = Texture->GetPlatformDataShared();
 			State.SourceIdentity = Texture->GetSource().GetIdentity();

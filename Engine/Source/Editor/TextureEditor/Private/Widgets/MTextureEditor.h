@@ -7,7 +7,7 @@
 #include "Editor/PropertyView.h"
 #include "Source/SourceReferenceIndex.h"
 #include "TextureEditorAPI.h"
-#include "Widgets/TexturePreview.h"
+#include "TexturePreview.h"
 
 namespace Durin { class DTexture2D; struct FTexturePlatformData; }
 
@@ -77,10 +77,10 @@ namespace Durin::Editor::Texture
 			float Zoom = 0.0f;
 			bool bShowCheckerboard = true;
 			bool bPreviewSource = false;
-			bool bDecodeNormal = true;
+			ETexturePreviewInterpretation Interpretation = ETexturePreviewInterpretation::Auto;
 			bool bLastUploadWasSource = false;
 			ETexturePreviewChannel SelectedChannel = ETexturePreviewChannel::RGBA;
-			ETexturePreviewChannel LastAppliedChannel = ETexturePreviewChannel::RGBA;
+			FTexturePreviewOptions LastAppliedOptions;
 		};
 		std::unordered_map<std::string, FTexturePreviewState> PreviewStates;
 		float PreviewPaneRatio = 0.70f;

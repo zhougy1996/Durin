@@ -46,6 +46,10 @@ namespace Durin
 	};
 
 	// Exposes the leased shared preview world and renderer-neutral view setup.
+	// Optional image renderers return SRGBA8 under the same capture/readback budget as scenes.
+	using FThumbnailImageRenderer = std::function<FTextureRHIRef(
+		FRHICommandListImmediate&, uint32, uint32)>;
+
 	// The extension may attach only session-owned content and must remove it in ResetPreview.
 	class IThumbnailPreviewScene
 	{
@@ -59,6 +63,12 @@ namespace Durin
 		virtual auto SetViewEnvironment(
 			const FViewEnvironmentOverride& Environment,
 			std::string& OutError) -> bool = 0;
+		virtual auto SetImageRenderer(FThumbnailImageRenderer Renderer,
+			std::string& OutError) -> bool
+		{
+			OutError = "This preview scene does not support image rendering.";
+			return false;
+		}
 	};
 
 	// Owns all renderer-specific state for one persistent-cache miss.

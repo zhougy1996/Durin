@@ -4,7 +4,7 @@ Summary: Define the shared Thumbnail Manager, renderer, asset-thumbnail, pool, p
 
 Modules: DurinEd, ContentBrowser, MainFrame, MaterialEditor, TextureEditor, StaticMeshEditor, LevelEditor
 
-Last reviewed: 2026-09-13
+Last reviewed: 2026-09-16
 
 Asset thumbnails are optional editor-derived data. They never replace authored
 packages or source files, and deleting the thumbnail cache cannot lose project
@@ -57,8 +57,24 @@ allocation. Material keys include the sorted, cycle-guarded parent-material and
 texture dependency closure.
 StaticMesh keys include LOD 0 framing and default-material closure. TextureCube
 keys preserve wide environment orientation and visual-contract versions.
-Texture2D derives fixed output from canonical pixels stored in the asset rather
-than following an external reimport hint.
+Texture2D captures the published built GPU allocation through the shared
+TextureEditor preview renderer, including compression and mip sampling. It never
+reads source art or falls back to it. Cold sessions wait for pending publication,
+retain an immutable allocation snapshot, and reject changed package revisions,
+platform data, usage, or allocations before publication. Keys identify the
+Built/Auto/RGBA presentation and its shader/schema versions; package fingerprints
+cover saved build settings. Warm hits do not load textures or source pixels.
+Image captures use the same scheduler, cancellation, readback, and persistence
+budget as scene captures.
+
+TextureEditor owns `FTexturePreviewOptions` and `RenderTexturePreview`. Data
+selection (Built or explicit Source), interpretation (Auto, Raw, Normal), and
+channel inspection (RGBA/R/G/B/A) are independent. Auto reconstructs normal RG
+with the material decoder and maps signed XYZ to display RGB; individual channels
+always inspect stored values. Color sampling restores sRGB display encoding
+without transforming alpha. Output fits the aspect ratio with transparent margins.
+The texture editor and material graph use the same renderer as thumbnails;
+material nodes retain and share bounded 256-pixel previews of built allocations.
 
 `DEditorEngine` owns `FPreviewMeshResources` for the editor session. Before
 creating the shell, it acquires `/Engine/Models/Sphere.Sphere` and
@@ -191,8 +207,8 @@ refresh, panel close, and shutdown deterministically release references.
 Ordinary PNG/JPEG/BMP/TGA files are not assets. Their physical-path decode,
 disk reuse, upload, and view remain in the Content Browser-private
 `FSourceImageThumbnailCache`. Physical file identity never enters the manager,
-asset pool, or asset DDC key. Texture2D assets use canonical package pixels in
-`DTextureThumbnailRenderer`; an external source hint is never probed implicitly.
+asset pool, or asset DDC key. Texture2D assets use built GPU allocations in
+`DTextureThumbnailRenderer`; source art and external source hints are never used.
 
 Pending and failed assets retain the asset icon. Ready output preserves its
 transparency policy and diagnostic. Unsupported exact classes create no pool

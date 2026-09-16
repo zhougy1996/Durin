@@ -1,4 +1,4 @@
-#include "Widgets/TexturePreview.h"
+#include "TexturePreview.h"
 
 #include "DynamicRHI.h"
 #include "MonaCoreGlobals.h"
@@ -25,7 +25,9 @@ namespace Durin::Editor::Texture
 		struct alignas(16) FTexturePreviewSettings
 		{
 			uint32 Channel = 0;
-			uint32 Padding[3]{};
+			uint32 DecodeNormal = 0;
+			uint32 InputSRGB = 0;
+			uint32 Padding = 0;
 		};
 
 		class FTexturePreviewVertexShader : public FShader
@@ -97,7 +99,7 @@ namespace Durin::Editor::Texture
 			FRHIRenderTargetLayout Layout;
 			Layout.NumColorRenderTargets = 1;
 			FRHIAttachmentLayout& ColorAttachment = Layout.ColorAttachments[0].RenderTarget;
-			ColorAttachment.Format = EPixelFormat::RGBA8_UNORM;
+			ColorAttachment.Format = EPixelFormat::SRGBA8_UNORM;
 			ColorAttachment.LoadAction = ERHIRenderTargetLoadAction::Clear;
 			ColorAttachment.StoreAction = ERHIRenderTargetStoreAction::Store;
 			ColorAttachment.InitialLayout = ERHITextureLayout::Undefined;
@@ -279,62 +281,71 @@ namespace Durin::Editor::Texture
 			return true;
 		}
 
-		auto RenderTexturePreviewChannel(
-			FRHICommandListImmediate& CommandList,
-			FRHITexture* InputTexture,
-			uint32 Width,
-			uint32 Height,
-			ETexturePreviewChannel Channel
-		) -> FTextureRHIRef
+	}
+
+	auto RenderTexturePreview(
+		FRHICommandListImmediate& CommandList,
+		FRHITexture* InputTexture,
+		uint32 Width,
+		uint32 Height,
+		FTexturePreviewOptions Options
+	) -> FTextureRHIRef
+	{
+		if (GTexturePreviewRendererState.Slot.GetFailure() != nullptr)
 		{
-			if (GTexturePreviewRendererState.Slot.GetFailure() != nullptr)
-			{
-				GTexturePreviewRendererState.Generation.Advance(
-					ERenderResourceGenerationDependency::Manual);
-			}
-			if (!InputTexture
-				|| Channel == ETexturePreviewChannel::RGBA
-				|| !EnsureTexturePreviewRendererResources(CommandList))
-			{
-				return nullptr;
-			}
-
-			FRHITextureCreateDesc OutputDesc = FRHITextureCreateDesc::Create2D(
-				"TexturePreviewChannelOutput",
-				Width,
-				Height,
-				EPixelFormat::RGBA8_UNORM);
-			OutputDesc.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource);
-			OutputDesc.SetClearValue(FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f));
-			FTextureRHIRef OutputTexture = GDynamicRHI->RHICreateTexture(CommandList, OutputDesc);
-			if (!OutputTexture) return nullptr;
-
-			const FRHIRenderTargetLayout RenderTargetLayout = MakeTexturePreviewRenderTargetLayout();
-			FRHIRenderPassInfo PassInfo;
-			PassInfo.RenderTargetLayout = RenderTargetLayout;
-			PassInfo.ColorRenderTargets[0] = OutputTexture;
-			PassInfo.ColorClearValues[0] = FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f);
-
-			FTexturePreviewRendererState& State = GTexturePreviewRendererState;
-			CommandList.BeginRenderPass(PassInfo, "TexturePreviewChannelPass");
-			CommandList.SetGraphicsPipelineState(*State.PipelineState);
-			CommandList.SetViewport(0.0f, 0.0f, 0.0f, static_cast<float>(Width), static_cast<float>(Height), 1.0f);
-			CommandList.SetScissor(0.0f, 0.0f, static_cast<float>(Width), static_cast<float>(Height));
-			CommandList.BindVertexBuffer(0, State.VertexBuffer, 0);
-			CommandList.BindIndexBuffer(State.IndexBuffer, 0);
-
-			FTexturePreviewSettings Settings;
-			Settings.Channel = static_cast<uint32>(Channel);
-			FTexturePreviewFragmentShader::FParameters ShaderParameters;
-			ShaderParameters.PreviewTexture = InputTexture;
-			ShaderParameters.PreviewSampler = State.Sampler;
-			ShaderParameters.PreviewSettings =
-				CommandList.AllocateDynamicUniformBuffer(&Settings, sizeof(Settings));
-			SetShaderParameters(CommandList, State.FragmentShader, ShaderParameters);
-			CommandList.DrawIndexed(3, 0, 0);
-			CommandList.EndRenderPass();
-			return OutputTexture;
+			GTexturePreviewRendererState.Generation.Advance(
+				ERenderResourceGenerationDependency::Manual);
 		}
+		if (!InputTexture
+			|| Width == 0 || Height == 0
+			|| !EnsureTexturePreviewRendererResources(CommandList))
+		{
+			return nullptr;
+		}
+
+		FRHITextureCreateDesc OutputDesc = FRHITextureCreateDesc::Create2D(
+			"TexturePreviewChannelOutput",
+			Width,
+			Height,
+			EPixelFormat::SRGBA8_UNORM);
+		OutputDesc.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::CPUReadback);
+		OutputDesc.SetClearValue(FClearValueBinding(0.0f, 0.0f, 0.0f, 0.0f));
+		FTextureRHIRef OutputTexture = GDynamicRHI->RHICreateTexture(CommandList, OutputDesc);
+		if (!OutputTexture) return nullptr;
+
+		const FRHIRenderTargetLayout RenderTargetLayout = MakeTexturePreviewRenderTargetLayout();
+		FRHIRenderPassInfo PassInfo;
+		PassInfo.RenderTargetLayout = RenderTargetLayout;
+		PassInfo.ColorRenderTargets[0] = OutputTexture;
+		PassInfo.ColorClearValues[0] = FClearValueBinding(0.0f, 0.0f, 0.0f, 0.0f);
+
+		FTexturePreviewRendererState& State = GTexturePreviewRendererState;
+		CommandList.BeginRenderPass(PassInfo, "TexturePreviewChannelPass");
+		CommandList.SetGraphicsPipelineState(*State.PipelineState);
+		const float Scale = std::min(static_cast<float>(Width) / InputTexture->GetSizeX(),
+			static_cast<float>(Height) / InputTexture->GetSizeY());
+		const float DrawWidth = std::max(1.0f, std::floor(InputTexture->GetSizeX() * Scale));
+		const float DrawHeight = std::max(1.0f, std::floor(InputTexture->GetSizeY() * Scale));
+		const float X = std::floor((Width - DrawWidth) * 0.5f);
+		const float Y = std::floor((Height - DrawHeight) * 0.5f);
+		CommandList.SetViewport(X, Y, 0.0f, X + DrawWidth, Y + DrawHeight, 1.0f);
+		CommandList.SetScissor(0.0f, 0.0f, static_cast<float>(Width), static_cast<float>(Height));
+		CommandList.BindVertexBuffer(0, State.VertexBuffer, 0);
+		CommandList.BindIndexBuffer(State.IndexBuffer, 0);
+
+		FTexturePreviewSettings Settings;
+		Settings.Channel = static_cast<uint32>(Options.Channel);
+		Settings.DecodeNormal = Options.DecodesNormal();
+		Settings.InputSRGB = GetPixelFormatInfo(InputTexture->GetFormat()).bIsSRGB;
+		FTexturePreviewFragmentShader::FParameters ShaderParameters;
+		ShaderParameters.PreviewTexture = InputTexture;
+		ShaderParameters.PreviewSampler = State.Sampler;
+		ShaderParameters.PreviewSettings =
+			CommandList.AllocateDynamicUniformBuffer(&Settings, sizeof(Settings));
+		SetShaderParameters(CommandList, State.FragmentShader, ShaderParameters);
+		CommandList.DrawIndexed(3, 0, 0);
+		CommandList.EndRenderPass();
+		return OutputTexture;
 	}
 
 	FTexturePreview::~FTexturePreview()
@@ -380,90 +391,90 @@ namespace Durin::Editor::Texture
 	auto FTexturePreview::Upload(
 		const FTexturePlatformData& Platform,
 		uint32 MipIndex,
-		ETexturePreviewChannel Channel
+		FTexturePreviewOptions Options
 	) -> void
 	{
 		if (!Platform.IsValid() || MipIndex >= Platform.Mips.size()) return;
-		SelectedChannel = Channel;
+		DisplayOptions = Options;
 		const FTexture2DMipData& Mip = Platform.Mips[MipIndex];
 		UploadPixels(Platform.PixelFormat, Mip.Width, Mip.Height, Mip.RowPitch, Mip.Pixels);
 	}
 
 	auto FTexturePreview::UploadSource(
 		Image::FImageView Source,
-		ETexturePreviewChannel Channel
+		FTexturePreviewOptions Options
 	) -> void
 	{
 		if (!Source.IsValid() || Source.GetInfo().Format != Image::ERawImageFormat::RGBA8
 			|| Source.GetInfo().Depth != 1 || Source.GetInfo().SliceCount != 1) return;
-		SelectedChannel = Channel;
+		DisplayOptions = Options;
 		// Source data is always RGBA8; preview it without color-space conversion.
 		UploadPixels(EPixelFormat::RGBA8_UNORM, Source.GetInfo().Width,
 			Source.GetInfo().Height, Source.GetInfo().Width * 4, Source.GetPixels());
 	}
 
 	auto FTexturePreview::UploadRGBA8(uint32 Width, uint32 Height,
-		FByteView Pixels, ETexturePreviewChannel Channel) -> void
+		FByteView Pixels, FTexturePreviewOptions Options) -> void
 	{
 		if (Width == 0 || Height == 0
 			|| Pixels.size() != static_cast<uint64>(Width) * Height * 4) return;
-		SelectedChannel = Channel;
+		DisplayOptions = Options;
 		UploadPixels(EPixelFormat::RGBA8_UNORM, Width, Height, Width * 4, Pixels);
 	}
 
-	auto FTexturePreview::SetChannel(ETexturePreviewChannel Channel) -> void
+	auto FTexturePreview::SetOptions(FTexturePreviewOptions Options) -> void
 	{
-		if (SelectedChannel == Channel) return;
-		SelectedChannel = Channel;
+		if (DisplayOptions == Options) return;
+		DisplayOptions = Options;
+		RefreshDisplayTexture();
+	}
+
+	auto FTexturePreview::SetTexture(FTextureRHIRef Texture, uint32 Width, uint32 Height,
+		FTexturePreviewOptions Options) -> void
+	{
+		if (UploadedTexture == Texture && PreviewWidth == Width && PreviewHeight == Height
+			&& DisplayOptions == Options) return;
+		Release();
+		UploadedTexture = std::move(Texture);
+		PreviewWidth = Width;
+		PreviewHeight = Height;
+		DisplayOptions = Options;
 		RefreshDisplayTexture();
 	}
 
 	auto FTexturePreview::RefreshDisplayTexture() -> void
 	{
 		UnregisterDisplayTexture();
-		FilteredTexture = nullptr;
 		if (!UploadedTexture || !Mona::GetActiveUIBackend()) return;
-
-		if (SelectedChannel == ETexturePreviewChannel::RGBA)
+		FTextureRHIRef Output;
+		const auto Input = UploadedTexture;
+		const auto Options = DisplayOptions;
+		const uint32 Width = PreviewWidth, Height = PreviewHeight;
+		ENQUEUE_RENDER_COMMAND(RenderTexturePreview)(
+			[&Output, Input, Width, Height, Options](FRHICommandListImmediate& Commands) {
+				Commands.SwitchPipeline(ERHIPipeline::Graphics);
+				Output = RenderTexturePreview(Commands, Input, Width, Height, Options);
+			});
+		FlushRenderingCommands();
+		DisplayTexture = std::move(Output);
+		if (DisplayTexture)
 		{
-			DisplayTexture = UploadedTexture;
+			RegisteredBackend = Mona::GetActiveUIBackend();
+			RegisteredBackend->RegisterTexture(DisplayTexture);
 		}
-		else
-		{
-			FTextureRHIRef NewFilteredTexture;
-			const FTextureRHIRef InputTexture = UploadedTexture;
-			const uint32 Width = PreviewWidth;
-			const uint32 Height = PreviewHeight;
-			const ETexturePreviewChannel Channel = SelectedChannel;
-			ENQUEUE_RENDER_COMMAND(RenderTexturePreviewChannel)(
-				[&NewFilteredTexture, InputTexture, Width, Height, Channel](FRHICommandListImmediate& CommandList) {
-					CommandList.SwitchPipeline(ERHIPipeline::Graphics);
-					NewFilteredTexture = RenderTexturePreviewChannel(
-						CommandList,
-						InputTexture,
-						Width,
-						Height,
-						Channel);
-				});
-			FlushRenderingCommands();
-			FilteredTexture = std::move(NewFilteredTexture);
-			DisplayTexture = FilteredTexture ? FilteredTexture : UploadedTexture;
-		}
-
-		Mona::GetActiveUIBackend()->RegisterTexture(DisplayTexture);
 	}
 
 	auto FTexturePreview::UnregisterDisplayTexture() -> void
 	{
-		if (DisplayTexture && Mona::GetActiveUIBackend())
-			Mona::GetActiveUIBackend()->UnregisterTexture(DisplayTexture);
+		if (DisplayTexture && RegisteredBackend && RegisteredBackend == Mona::GetActiveUIBackend())
+			RegisteredBackend->UnregisterTexture(DisplayTexture);
+		RegisteredBackend = nullptr;
 		DisplayTexture = nullptr;
 	}
 
 	auto FTexturePreview::Release() -> void
 	{
 		UnregisterDisplayTexture();
-		FilteredTexture = nullptr;
 		UploadedTexture = nullptr;
 		PreviewWidth = 0;
 		PreviewHeight = 0;

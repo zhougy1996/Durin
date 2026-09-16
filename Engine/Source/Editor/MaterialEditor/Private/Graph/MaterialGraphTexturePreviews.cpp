@@ -1,7 +1,7 @@
 #include "MaterialGraphCanvas.h"
 #include "MaterialGraphExpressionState.h"
 #include "Asset/Asset.h"
-#include "AssetThumbnail.h"
+#include "TexturePreview.h"
 #include "Editor/AssetDragDrop.h"
 #include "MonaCoreGlobals.h"
 #include "MonaUIBackend.h"
@@ -13,22 +13,14 @@ namespace Durin::Editor::Material
 	{
 		struct FRegisteredPreview
 		{
-			FTextureRHIRef Texture;
+			Texture::FTexturePreview Preview;
 			Mona::IMonaUIBackend* Backend = nullptr;
-			bool bOwned = false;
-			std::unique_ptr<FAssetThumbnail> SourceThumbnail;
-			~FRegisteredPreview()
-			{
-				if (bOwned && Backend == Mona::GetActiveUIBackend()) Backend->UnregisterTexture(Texture);
-			}
 		};
-		// Multiple open documents may display the same published allocation.
+		// Coalesce bounded built previews across nodes and open documents.
 		std::unordered_map<FRHITexture*, std::weak_ptr<FRegisteredPreview>> Registrations;
 	}
 	struct FMaterialGraphCanvas::FTexturePreviewState
 	{
-		// Own the frame pump so a canvas works with the Content Browser closed.
-		std::unique_ptr<FAssetThumbnailPool> SourcePool;
 		std::unordered_map<FGuid, std::shared_ptr<FRegisteredPreview>> Nodes;
 	};
 	auto FMaterialGraphCanvas::UpdateTexturePreviews(DMaterial& Material) -> void
@@ -36,58 +28,27 @@ namespace Durin::Editor::Material
 		auto* Backend = Mona::GetActiveUIBackend();
 		if (!Backend) { TexturePreviews.reset(); return; }
 		if (!TexturePreviews) TexturePreviews = std::make_shared<FTexturePreviewState>();
-		if (TexturePreviews->SourcePool) TexturePreviews->SourcePool->BeginFrame();
 		std::unordered_map<FGuid, std::shared_ptr<FRegisteredPreview>> Current;
 		for (const auto& Expression : Material.GetExpressionCollection().Expressions)
 		{
 			const auto* Parameter = Cast<DMaterialExpressionTextureParameter>(Expression.Get());
 			if (!Parameter || !Parameter->DefaultValue.Texture.IsValid()) continue;
-			// BC5 contains only encoded XY. Display the same source thumbnail as
-			// the Content Browser instead of presenting missing blue as yellow.
-			if (Parameter->DefaultValue.Texture->GetUsage() == ETextureUsage::Normal)
-			{
-				FTopLevelAssetPath Path;
-				if (!FTopLevelAssetPath::TryCreate(Parameter->DefaultValue.Texture->GetObjectPath(), Path)) continue;
-				const auto Entry = FindTopLevelAssetExact(Path);
-				if (!Entry) continue;
-				if (!TexturePreviews->SourcePool)
-				{
-					TexturePreviews->SourcePool = std::make_unique<FAssetThumbnailPool>();
-					TexturePreviews->SourcePool->BeginFrame();
-				}
-				FAssetThumbnailPackageFingerprint Fingerprint{
-					.AssetPath = Path, .PackagePath = Path.GetPackagePath(),
-					.AssetClassName = Entry->AssetClassName,
-					.PackageFormatVersion = Entry.Package->FormatVersion,
-					.FileSize = static_cast<uint64>(Entry.Package->FileSize),
-					.LastWriteTimeTicks = Entry.Package->LastWriteTimeTicks};
-				auto Existing = TexturePreviews->Nodes.find(Expression->Id);
-				auto Preview = Existing != TexturePreviews->Nodes.end() && Existing->second->SourceThumbnail
-					? Existing->second : std::make_shared<FRegisteredPreview>();
-				if (Preview->SourceThumbnail) Preview->SourceThumbnail->Reassign(std::move(Fingerprint));
-				else Preview->SourceThumbnail = std::make_unique<FAssetThumbnail>(std::move(Fingerprint),
-					256, 256, TexturePreviews->SourcePool.get());
-				Preview->SourceThumbnail->Request(EAssetThumbnailPriority::Visible);
-				Current.emplace(Expression->Id, std::move(Preview));
-				continue;
-			}
-			auto Allocation = Parameter->DefaultValue.Texture->GetPublishedTexture();
+			auto* Asset = Parameter->DefaultValue.Texture.Get();
+			if (Asset->IsResourceUpdatePending() || !Asset->HasUsableResource()) continue;
+			auto Allocation = Asset->GetPublishedTexture();
 			if (!Allocation) continue;
 			auto& Entry = Registrations[Allocation.GetReference()];
 			auto Shared = Entry.lock();
 			if (!Shared || Shared->Backend != Backend)
 			{
 				Shared = std::make_shared<FRegisteredPreview>();
-				Shared->Texture = Allocation;
 				Shared->Backend = Backend;
-				Shared->bOwned = !Backend->IsTextureRegistered(Allocation.GetReference());
-				if (Shared->bOwned) Backend->RegisterTexture(Allocation);
 				Entry = Shared;
 			}
+			Shared->Preview.SetTexture(Allocation, 256, 256, {.Usage = Asset->GetUsage()});
 			Current.emplace(Expression->Id, std::move(Shared));
 		}
 		TexturePreviews->Nodes = std::move(Current);
-		if (TexturePreviews->SourcePool) TexturePreviews->SourcePool->EndFrame();
 		std::erase_if(Registrations, [](const auto& Entry) { return Entry.second.expired(); });
 	}
 	auto FMaterialGraphCanvas::DrawTexturePreview(const FGuid& NodeId, const ImVec2& Position, float Size) -> void
@@ -96,8 +57,7 @@ namespace Durin::Editor::Material
 			if (const auto Found = TexturePreviews->Nodes.find(NodeId); Found != TexturePreviews->Nodes.end())
 			{
 				auto* Backend = Mona::GetActiveUIBackend();
-				auto* Texture = Found->second->SourceThumbnail
-					? Found->second->SourceThumbnail->GetView().Texture : Found->second->Texture.GetReference();
+				auto* Texture = Found->second->Preview.GetTexture();
 				if (Backend && Texture)
 				{
 					const auto Cursor = ImGui::GetCursorScreenPos();
