@@ -77,6 +77,7 @@ namespace Durin::Editor::Texture
 			float Zoom = 0.0f;
 			bool bShowCheckerboard = true;
 			bool bPreviewSource = false;
+			bool bDecodeNormal = true;
 			bool bLastUploadWasSource = false;
 			ETexturePreviewChannel SelectedChannel = ETexturePreviewChannel::RGBA;
 			ETexturePreviewChannel LastAppliedChannel = ETexturePreviewChannel::RGBA;

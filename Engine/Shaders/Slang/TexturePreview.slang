@@ -1,5 +1,7 @@
 // Offscreen channel filtering for Texture Editor previews.
 
+import Material.SurfaceMaterial;
+
 struct VSInput
 {
     float2 pos : POSITION;
@@ -35,6 +37,11 @@ VSOutput VertexMain(VSInput input)
 float4 FragmentMain(VSOutput input) : SV_Target
 {
     float4 sampled = PreviewTexture.Sample(PreviewSampler, input.uv);
+    if (PreviewSettings.Channel == 5)
+    {
+        // Match material sampling, then map the signed normal to display RGB.
+        return float4(DecodeTextureNormal(sampled.rg) * 0.5 + 0.5, 1.0);
+    }
     uint channelIndex = PreviewSettings.Channel > 0
         ? min(PreviewSettings.Channel - 1, 3)
         : 0;

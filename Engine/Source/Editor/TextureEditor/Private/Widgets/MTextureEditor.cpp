@@ -626,6 +626,18 @@ namespace Durin::Editor::Texture
 				}
 			}
 
+			const bool bNormalTexture = Texture->GetUsage() == ETextureUsage::Normal;
+			if (bNormalTexture)
+			{
+				ImGui::SameLine();
+				ImGui::Checkbox("Decode Normal", &PreviewState.bDecodeNormal);
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("Reconstruct the normal from RG for the RGBA view. Individual channels show stored values.");
+			}
+			const ETexturePreviewChannel DisplayChannel = bNormalTexture && PreviewState.bDecodeNormal
+				&& PreviewState.SelectedChannel == ETexturePreviewChannel::RGBA
+				? ETexturePreviewChannel::Normal : PreviewState.SelectedChannel;
+
 			if (MipCount == 0)
 			{
 				Preview.Release();
@@ -650,23 +662,23 @@ namespace Durin::Editor::Texture
 
 			const bool bMipChanged = PreviewState.SelectedMipIndex != PreviewState.LastUploadedMipIndex;
 			const bool bPreviewModeChanged = PreviewState.bPreviewSource != PreviewState.bLastUploadWasSource;
-			const bool bChannelChanged = PreviewState.SelectedChannel != PreviewState.LastAppliedChannel;
+			const bool bChannelChanged = DisplayChannel != PreviewState.LastAppliedChannel;
 			if (bRevisionChanged || bMipChanged || bPreviewModeChanged || !Preview.IsValid())
 			{
 				if (PreviewState.bPreviewSource)
-					Preview.UploadSource(View, PreviewState.SelectedChannel);
+					Preview.UploadSource(View, DisplayChannel);
 				else
-					Preview.Upload(*Platform, PreviewState.SelectedMipIndex, PreviewState.SelectedChannel);
+					Preview.Upload(*Platform, PreviewState.SelectedMipIndex, DisplayChannel);
 				PreviewState.LastUploadedMipIndex = PreviewState.SelectedMipIndex;
 				PreviewState.PlatformInput = Texture->GetPlatformDataShared();
 				PreviewState.SourceIdentity = Texture->GetSource().GetIdentity();
 				PreviewState.bLastUploadWasSource = PreviewState.bPreviewSource;
-				PreviewState.LastAppliedChannel = PreviewState.SelectedChannel;
+				PreviewState.LastAppliedChannel = DisplayChannel;
 			}
 			else if (bChannelChanged)
 			{
-				Preview.SetChannel(PreviewState.SelectedChannel);
-				PreviewState.LastAppliedChannel = PreviewState.SelectedChannel;
+				Preview.SetChannel(DisplayChannel);
+				PreviewState.LastAppliedChannel = DisplayChannel;
 			}
 
 			ImGui::Separator();

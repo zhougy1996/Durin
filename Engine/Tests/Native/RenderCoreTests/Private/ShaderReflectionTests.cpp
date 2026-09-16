@@ -227,6 +227,26 @@ namespace Durin
 		EXPECT_EQ(Bindings[2].Type, ERHIBindingType::StorageImage);
 	}
 
+	TEST(FShaderReflectionTests, TexturePreviewCompilesWithMaterialNormalDecoder)
+	{
+		const auto ShaderPath = std::filesystem::path(DURIN_ENGINE_SHADER_SOURCE_DIR)
+			/ "TexturePreview.slang";
+		FShaderCompileOptions Options;
+		Options.VirtualShaderPath = "/Engine/TexturePreview";
+		Options.EntryPoints = {"VertexMain", "FragmentMain"};
+		Options.Frequencies = {EShaderFrequency::Vertex, EShaderFrequency::Fragment};
+		FSlangShaderCompiler Compiler;
+		const auto Output = Compiler.Compile(ShaderPath.string(), Options);
+		ASSERT_TRUE(Output) << Output.ErrorMessage;
+		ASSERT_EQ(Output.CompiledShaders.size(), 2u);
+		EXPECT_TRUE(Output.CompiledShaders[0].Reflection.ResourceBindings.empty());
+		const auto& Fragment = Output.CompiledShaders[1];
+		ASSERT_EQ(Fragment.Reflection.ResourceBindings.size(), 3u);
+		ExpectBinding(Fragment, "PreviewTexture", 0, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(Fragment, "PreviewSampler", 1, ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
+		ExpectBinding(Fragment, "PreviewSettings", 2, ERHIBindingType::UniformBuffer, EShaderStageFlags::Fragment);
+	}
+
 	TEST(FShaderReflectionTests, VolumetricCloudPublishesMatchedSpatialBindingsAndRgba16Output)
 	{
 		const std::filesystem::path ShaderPath =

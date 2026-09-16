@@ -17,6 +17,7 @@ namespace Durin::Editor::Texture
 		Green,
 		Blue,
 		Alpha,
+		Normal,
 	};
 
 	// Lightweight GPU texture owner for the Texture Editor preview panel.
