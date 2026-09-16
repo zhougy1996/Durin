@@ -493,10 +493,12 @@ namespace Durin
 			{
 				std::vector<FMaterialParameterDefinition> Schema;
 				FXxHash128 Code;
-				if (!DeriveExpressionParameterSchema(ExpressionCollection, Schema)
-					|| !ValidateExpressionGraph(ExpressionCollection, GetExpressionOutputs(), &Code)) return;
+				if (!DeriveExpressionParameterSchema(ExpressionCollection, Schema)) return;
+				// An editable graph may have compiler diagnostics. Invalidate failed
+				// graphs too, so an old successful preview cannot mask the new error.
+				const bool bCompilable = static_cast<bool>(ValidateExpressionGraph(ExpressionCollection, GetExpressionOutputs(), &Code));
 				ParameterSchema = std::move(Schema);
-				const bool bShaderChanged = Code != ObservedExpressionCode;
+				const bool bShaderChanged = !bCompilable || Code != ObservedExpressionCode;
 				ObservedExpressionCode = Code;
 				if (!bShaderChanged)
 				{

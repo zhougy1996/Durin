@@ -1078,7 +1078,8 @@ TEST(FMaterialFunctionTests, TypedFieldsRoundtripAndRejectInvalidCoordinateDefau
 	ASSERT_NE(Sample, nullptr);
 	const auto TextureId = Sample->Metadata.Id;
 	ASSERT_TRUE(SavePackage(Function->GetPackage()));
-	ASSERT_TRUE(SavePackage(Material->GetPackage()));
+	const auto SaveMaterial = SavePackage(Material->GetPackage());
+	ASSERT_TRUE(SaveMaterial) << SaveMaterial.Message;
 	ASSERT_TRUE(UnloadPackage(MaterialPath));
 	ASSERT_TRUE(UnloadPackage(FunctionPath));
 	CollectGarbage();

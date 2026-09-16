@@ -1,6 +1,6 @@
 #include "MaterialGraphDocument.h"
 #include "MaterialGraphEditInternals.h"
-#include "MaterialGraphExpressionState.h"
+#include "MaterialGraphEditSession.h"
 #include "MaterialExpressionInputs.h"
 
 namespace Durin::Editor::Material
@@ -26,16 +26,17 @@ namespace Durin::Editor::Material
 			}
 		};
 
-		auto FindExpression(FOwnedGraphSnapshot& State, FGuid Id) -> DMaterialExpression*
+		auto FindExpression(FGraphEditSession& State, FGuid Id) -> DMaterialExpression*
 		{
 			const auto It = std::ranges::find(State.Expressions, Id, [](const auto& Expression) { return Expression->Id; });
 			return It == State.Expressions.end() ? nullptr : It->Get();
 		}
 
-		auto FindInput(FOwnedGraphSnapshot& State, FGuid NodeId, uint32 Index, FGuid PortId) -> FEditableInput
+		auto FindInput(FGraphEditSession& State, FGuid NodeId, uint32 Index, FGuid PortId) -> FEditableInput
 		{
 			auto* Expression = FindExpression(State, NodeId);
 			if (!Expression) return {};
+			State.Modify(*Expression);
 			if (auto* Output = Cast<DMaterialExpressionMaterialOutput>(Expression))
 			{
 				if (PortId.IsValid() || Index > static_cast<uint32>(EMaterialOutputPin::Surface)) return {};
@@ -73,7 +74,7 @@ namespace Durin::Editor::Material
 			return Result;
 		}
 
-		auto HasConsumer(FOwnedGraphSnapshot& State, FGuid Id) -> bool
+		auto HasConsumer(FGraphEditSession& State, FGuid Id) -> bool
 		{
 			bool bFound = false;
 			for (auto& Expression : State.Expressions)
@@ -105,8 +106,8 @@ namespace Durin::Editor::Material
 	auto FMaterialGraphDocument::SetInputDefault(const FGuid& NodeId, uint32 InputIndex,
 		FMaterialInputDefault Value, FGuid PortId, DTransactor* Transactions) const -> FMaterialGraphCommandResult
 	{
-		FOwnedGraphSnapshot State;
-		if (!Owner.IsValid() || !State.Capture(*Owner.Get())) return {.Status = EMaterialGraphCommandStatus::StaleOwner};
+		if (!Owner.IsValid()) return {.Status = EMaterialGraphCommandStatus::StaleOwner};
+		FGraphEditSession State(*Owner.Get());
 		const auto Input = FindInput(State, NodeId, InputIndex, PortId);
 		if (!Input.SupportsDefault()) return MakeRejected("This input does not support an inline numeric value.");
 		std::vector<float> Components;
@@ -118,14 +119,14 @@ namespace Durin::Editor::Material
 		else if (Value.Kind != EMaterialInputDefaultKind::None) return MakeRejected("The input default is not numeric.");
 		if (Input.Read() == Components) return {.Status = EMaterialGraphCommandStatus::NoChange};
 		if (!Input.Write(Components)) return MakeRejected("The input default has an incompatible width.");
-		return CommitOwnedExpressions(*Owner.Get(), std::move(State), "Edit Input Default", Transactions);
+		return CommitGraphEdit(*Owner.Get(), State, "Edit Input Default", Transactions);
 	}
 
 	auto FMaterialGraphDocument::ExtractInputDefault(const FGuid& NodeId, uint32 InputIndex,
 		FGuid PortId, DTransactor* Transactions) const -> FMaterialGraphCommandResult
 	{
-		FOwnedGraphSnapshot State;
-		if (!Owner.IsValid() || !State.Capture(*Owner.Get())) return {.Status = EMaterialGraphCommandStatus::StaleOwner};
+		if (!Owner.IsValid()) return {.Status = EMaterialGraphCommandStatus::StaleOwner};
+		FGraphEditSession State(*Owner.Get());
 		const auto Input = FindInput(State, NodeId, InputIndex, PortId);
 		if (!Input.SupportsDefault() || Input.Source->ExpressionId.IsValid() || Input.Read().empty())
 			return MakeRejected("Only an unconnected explicit numeric binding can be extracted.");
@@ -137,8 +138,8 @@ namespace Durin::Editor::Material
 		if (Position == State.Presentation.Nodes.end()) return MakeRejected("The input owner has no authored position.");
 		State.Presentation.Nodes.push_back({Constant->Id, Position->X - 320, Position->Y});
 		const auto Id = Constant->Id;
-		State.Expressions.push_back(std::move(Constant));
-		auto Result = CommitOwnedExpressions(*Owner.Get(), std::move(State), "Extract Input Node", Transactions);
+		State.Expressions.emplace_back(Constant.Get());
+		auto Result = CommitGraphEdit(*Owner.Get(), State, "Extract Input Node", Transactions);
 		if (Result) Result.GeneratedNodeIds = {Id};
 		return Result;
 	}
@@ -146,8 +147,8 @@ namespace Durin::Editor::Material
 	auto FMaterialGraphDocument::InlineInputNode(const FGuid& NodeId, uint32 InputIndex,
 		FGuid PortId, DTransactor* Transactions) const -> FMaterialGraphCommandResult
 	{
-		FOwnedGraphSnapshot State;
-		if (!Owner.IsValid() || !State.Capture(*Owner.Get())) return {.Status = EMaterialGraphCommandStatus::StaleOwner};
+		if (!Owner.IsValid()) return {.Status = EMaterialGraphCommandStatus::StaleOwner};
+		FGraphEditSession State(*Owner.Get());
 		const auto Input = FindInput(State, NodeId, InputIndex, PortId);
 		if (!Input.SupportsDefault() || Input.Source->OutputIndex != 0 || Input.Source->OutputId.IsValid())
 			return MakeRejected("This source cannot be represented by an inline binding.");
@@ -161,7 +162,7 @@ namespace Durin::Editor::Material
 			std::erase_if(State.Expressions, [&](const auto& Expression) { return Expression->Id == SourceId; });
 			std::erase_if(State.Presentation.Nodes, [&](const auto& Position) { return Position.NodeId == SourceId; });
 		}
-		return CommitOwnedExpressions(*Owner.Get(), std::move(State), "Inline Input Node", Transactions);
+		return CommitGraphEdit(*Owner.Get(), State, "Inline Input Node", Transactions);
 	}
 
 }

@@ -114,6 +114,18 @@ namespace
 	using namespace Durin::Editor;
 	using namespace Durin::Editor::Material;
 
+	auto HasGraphDiagnostics(DObject& Owner) -> bool
+	{
+		const auto* Material = Cast<DMaterial>(&Owner);
+		const auto& Collection = Material ? Material->GetExpressionCollection() : Cast<DMaterialFunction>(&Owner)->GetExpressionCollection();
+		std::vector<DMaterialExpression*> Nodes;
+		for (auto& E : Collection.Expressions) Nodes.push_back(E.Get());
+		const auto Result = Material ? FMaterialExpressionBuildContext::ValidateSurface(Nodes, Material->GetExpressionOutputs())
+			: FMaterialExpressionBuildContext::ValidateFunction(Nodes);
+		return !Result && !Result.Diagnostics.empty();
+	}
+
+
 	struct FExpressionGraphSnapshot
 	{
 		std::vector<TStrongObjectPtr<DMaterialExpression>> Expressions;
@@ -707,7 +719,7 @@ TEST(FMaterialGraphOperationsTests, ParameterAndChannelPaletteGroupsWidths)
 	EXPECT_TRUE(FMaterialGraphOperations::SearchCatalog("channels", Type::Texture2D).empty());
 }
 
-TEST(FMaterialGraphOperationsTests, AppendInfersWidthsThroughMasksAndRejectsOverflowAtomically)
+TEST(FMaterialGraphOperationsTests, AppendInfersWidthsAndKeepsUndoableOverflowDiagnostics)
 {
 	InitializeDObjectSystem();
 	auto* Material = NewObject<DMaterial>(nullptr, NAME_None);
@@ -729,7 +741,9 @@ TEST(FMaterialGraphOperationsTests, AppendInfersWidthsThroughMasksAndRejectsOver
 	ASSERT_TRUE(Document.SetSwizzleComponents(MaskId, std::array<uint8, 3>{0, 1, 2}, Transactions.Get()));
 	EXPECT_EQ(FindViewNode(Document.Inspect(), Id)->Node.ResultType, Type::Float4);
 	const auto After = CaptureExpressions(*Material);
-	EXPECT_FALSE(Document.SetSwizzleComponents(MaskId, std::array<uint8, 4>{0, 1, 2, 3}, Transactions.Get()));
+	ASSERT_TRUE(Document.SetSwizzleComponents(MaskId, std::array<uint8, 4>{0, 1, 2, 3}, Transactions.Get()));
+	EXPECT_TRUE(HasGraphDiagnostics(*Material));
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(CaptureExpressions(*Material), After);
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(CaptureExpressions(*Material), Before);
@@ -754,7 +768,9 @@ TEST(FMaterialGraphOperationsTests, SwizzleWidthChangesRepeatChannelsAndUndo)
 	ASSERT_TRUE(Document.SetSwizzleComponents(Id, std::array<uint8, 4>{0, 0, 0, 0}, Transactions.Get()));
 	EXPECT_EQ(FindViewNode(Document.Inspect(), Id)->Node.ResultType, EMaterialProgramValueType::Float4);
 	const auto After = CaptureExpressions(*Material);
-	EXPECT_FALSE(Document.SetSwizzleComponents(Id, std::array<uint8, 2>{0, 1}, Transactions.Get()));
+	ASSERT_TRUE(Document.SetSwizzleComponents(Id, std::array<uint8, 2>{0, 1}, Transactions.Get()));
+	EXPECT_TRUE(HasGraphDiagnostics(*Material));
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(CaptureExpressions(*Material), After);
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(CaptureExpressions(*Material), Before);
@@ -819,7 +835,9 @@ TEST(FMaterialGraphOperationsTests, MathWidthsPropagateBroadcastAndUndoAtomicall
 			return N.ResultType == Width && N.Opcode >= EMaterialProgramOpcode::Splat2 && N.Opcode <= EMaterialProgramOpcode::Splat4;
 		}));
 		const auto After = CaptureExpressions(*Material);
-		EXPECT_FALSE(Document.ConnectInput(M, 1, {Other.GeneratedNodeIds.front()}, true, Transactions.Get()));
+		ASSERT_TRUE(Document.ConnectInput(M, 1, {Other.GeneratedNodeIds.front()}, true, Transactions.Get()));
+		EXPECT_TRUE(HasGraphDiagnostics(*Material));
+		ASSERT_TRUE(Transactions->Undo());
 		EXPECT_EQ(CaptureExpressions(*Material), After);
 		ASSERT_TRUE(Transactions->Undo()); EXPECT_EQ(CaptureExpressions(*Material), Before);
 		ASSERT_TRUE(Transactions->Redo()); EXPECT_EQ(CaptureExpressions(*Material), After);
@@ -831,7 +849,9 @@ TEST(FMaterialGraphOperationsTests, MathWidthsPropagateBroadcastAndUndoAtomicall
 		ASSERT_TRUE(MakeVector);
 		ASSERT_TRUE(Document.ConnectInput(MakeVector.GeneratedNodeIds.front(), 0, {A}));
 		const auto Fixed = CaptureExpressions(*Material);
-		EXPECT_FALSE(Document.ConnectInput(M, 0, {Vector.GeneratedNodeIds.front()}, true));
+		ASSERT_TRUE(Document.ConnectInput(M, 0, {Vector.GeneratedNodeIds.front()}, true, Transactions.Get()));
+		EXPECT_TRUE(HasGraphDiagnostics(*Material));
+		ASSERT_TRUE(Transactions->Undo());
 		EXPECT_EQ(CaptureExpressions(*Material), Fixed);
 	}
 }
@@ -861,8 +881,12 @@ TEST(FMaterialGraphOperationsTests, FixedInputsBroadcastScalarsAndUndoWithoutAut
 	const auto View = Document.Inspect();
 	const auto& Types = FindViewNode(View, M)->Inputs[0].AcceptedTypes;
 	EXPECT_NE(std::ranges::find(Types, Type::Float), Types.end());
-	EXPECT_FALSE(Document.ConnectInput(M, 0, {V}, true));
-	EXPECT_FALSE(Document.ConnectInput(M, 2, {V}));
+	ASSERT_TRUE(Document.ConnectInput(M, 0, {V}, true, Transactions.Get()));
+	EXPECT_TRUE(HasGraphDiagnostics(*Material));
+	ASSERT_TRUE(Transactions->Undo());
+	ASSERT_TRUE(Document.ConnectInput(M, 2, {V}, false, Transactions.Get()));
+	EXPECT_TRUE(HasGraphDiagnostics(*Material));
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(CaptureExpressions(*Material), After);
 	ASSERT_TRUE(Transactions->Undo()); EXPECT_EQ(CaptureExpressions(*Material), Before);
 	ASSERT_TRUE(Transactions->Redo()); EXPECT_EQ(CaptureExpressions(*Material), After);
@@ -877,7 +901,7 @@ TEST(FMaterialGraphOperationsTests, FixedInputsBroadcastScalarsAndUndoWithoutAut
 	ASSERT_TRUE(Transactions->Redo()); EXPECT_EQ(Material->GetExpressionOutputs().BaseColor.ExpressionId, S);
 }
 
-TEST(FMaterialGraphOperationsTests, FunctionMathAdaptsAndKeepsNormalizeAndLerpConstraints)
+TEST(FMaterialGraphOperationsTests, FunctionMathAdaptsAndReportsNormalizeAndLerpDiagnostics)
 {
 	InitializeDObjectSystem();
 	using Type = EMaterialProgramValueType;
@@ -901,9 +925,10 @@ TEST(FMaterialGraphOperationsTests, FunctionMathAdaptsAndKeepsNormalizeAndLerpCo
 	const auto View = Document.Inspect();
 	EXPECT_EQ(FindViewNode(View, N)->Node.ResultType, Type::Float3);
 	EXPECT_EQ(FindViewNode(View, L)->Node.ResultType, Type::Float3);
-	EXPECT_FALSE(Document.ConnectInput(N, 0, {S}, true));
-	EXPECT_FALSE(Document.ConnectInput(L, 2, {V}));
-	ASSERT_TRUE(Document.ConnectInput(L, 2, {S}));
+	ASSERT_TRUE(Document.ConnectInput(N, 0, {S}, true));
+	ASSERT_TRUE(Document.ConnectInput(L, 2, {V}));
+	EXPECT_TRUE(HasGraphDiagnostics(*Function));
+	ASSERT_TRUE(Document.ConnectInput(L, 2, {S}, true));
 	ASSERT_TRUE(Document.ConnectInput(N, 0, {}, true));
 	ASSERT_TRUE(Document.ConnectInput(N, 0, {V}));
 }
@@ -1340,8 +1365,9 @@ TEST(FMaterialGraphOperationsTests, TypedInputDefaultsCoverWidthsCoordinatesAndF
 	const auto CoordinatesId = Coordinates->Id;
 	ASSERT_TRUE(Material->SetMaterialExpressions(std::array<DMaterialExpression*, 1>{Coordinates}, {}));
 	ASSERT_TRUE(Material->SetMaterialGraphPresentation({.Nodes = {{CoordinatesId, 400, 100}}}) != Durin::EMaterialGraphPresentationResult::Rejected);
-	EXPECT_FALSE(Document.SetInputDefault(CoordinatesId, 0, {.Kind = EMaterialInputDefaultKind::Literal,
+	ASSERT_TRUE(Document.SetInputDefault(CoordinatesId, 0, {.Kind = EMaterialInputDefaultKind::Literal,
 		.Type = EMaterialProgramValueType::Float3, .Literal = {2, 3, 4}}));
+	EXPECT_TRUE(HasGraphDiagnostics(*Material));
 	ASSERT_TRUE(Document.SetInputDefault(CoordinatesId, 0, {.Kind = EMaterialInputDefaultKind::Literal,
 		.Type = EMaterialProgramValueType::Float, .Literal = {2}}, {}, Transactions.Get()));
 	ASSERT_TRUE(Document.ExtractInputDefault(CoordinatesId, 0, {}, Transactions.Get()));
@@ -1586,9 +1612,11 @@ TEST(FMaterialGraphOperationsTests, ConstantPaletteUsesOneEntryAndTypeChangesPre
 	const auto Connected = CaptureExpressions(*Material);
 	const auto Revision = Material->GetMaterialCompileStatus().AuthoredRevision;
 	ResultType = EMaterialProgramValueType::Float4;
-	EXPECT_FALSE(ApplyValue());
+	ASSERT_TRUE(ApplyValue());
+	EXPECT_TRUE(HasGraphDiagnostics(*Material));
+	EXPECT_GT(Material->GetMaterialCompileStatus().AuthoredRevision, Revision);
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(CaptureExpressions(*Material), Connected);
-	EXPECT_EQ(Material->GetMaterialCompileStatus().AuthoredRevision, Revision);
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_FALSE(Material->GetExpressionOutputs().Roughness.ExpressionId.IsValid());
 	MarkAsGarbage(Material);
@@ -1948,7 +1976,9 @@ TEST(FMaterialGraphOperationsTests,
 	const FMaterialGraphCommandResult RequiredRemoval =
 		FMaterialGraphOperations::RemoveNodes(
 			*Material, std::span(&RequiredSource, 1), Transactions.Get());
-	EXPECT_EQ(RequiredRemoval.Status, EMaterialGraphCommandStatus::Rejected);
+	ASSERT_TRUE(RequiredRemoval);
+	EXPECT_TRUE(HasGraphDiagnostics(*Material));
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(CaptureExpressions(*Material), BeforeRejected);
 	FMaterialGraphClipboardPayload Partial;
 	ASSERT_TRUE(FMaterialGraphOperations::CopySelection(
@@ -3594,7 +3624,8 @@ TEST(FMaterialGraphOperationsTests, TypedHistoryRestoresDeletedChildrenWithoutSh
 	EXPECT_EQ(Material->GetExpressionCollection().Expressions.size(), 1u);
 	Parameter.Reset();
 	CollectGarbage();
-	EXPECT_FALSE(Deleted.IsValid());
+	EXPECT_TRUE(Deleted.IsValid());
+	EXPECT_EQ(Deleted.Get()->GetOuter(), nullptr);
 	ASSERT_TRUE(Transactions->Undo());
 	ASSERT_EQ(Material->GetExpressionCollection().Expressions.size(), 2u);
 	auto* Restored = Cast<DMaterialExpressionScalarParameter>(Material->GetExpressionCollection().Expressions[0].Get());
@@ -3604,7 +3635,7 @@ TEST(FMaterialGraphOperationsTests, TypedHistoryRestoresDeletedChildrenWithoutSh
 	EXPECT_FLOAT_EQ(Restored->DefaultValue, 0.37f);
 	EXPECT_FLOAT_EQ(Restored->MinimumValue, 0.1f);
 	EXPECT_FLOAT_EQ(Restored->MaximumValue, 0.9f);
-	// Direct live edits must not mutate the transaction's independent copy.
+	// Direct live edits must not mutate the serialized history payload.
 	Restored->DefaultValue = 0.72f;
 	Restored->Metadata.DisplayName = "Live edit";
 	ASSERT_TRUE(Transactions->Redo());
@@ -4260,4 +4291,122 @@ TEST(FMaterialGraphOperationsTests, MaterialOutputUsesStablePinsAndOrdinaryNodeC
 	EXPECT_EQ(Material->GetOutputNode()->Id, OutputId);
 	Material->GetGraphChanges().Unsubscribe(Handle);
 	EXPECT_TRUE(Transactions->Reset());
+}
+
+
+TEST(FMaterialGraphOperationsTests, ConnectionsAndReplayPreserveObjectsWithoutGraphCopies)
+{
+	InitializeDObjectSystem();
+	std::optional<size_t> SmallHistoryBytes;
+	for (const uint32 UnrelatedCount : {0u, 128u})
+	{
+		TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+		Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+		FMaterialGraphDocument Document(*Material);
+		const auto Source = Testing::CreateGraphConstant(Document, .5f);
+		const auto Destination = Testing::CreateGraphCatalogNode(Document, EMaterialProgramOpcode::Add, EMaterialProgramValueType::Float);
+		ASSERT_TRUE(Source); ASSERT_TRUE(Destination);
+		std::vector<DMaterialExpression*> Nodes;
+		for (auto& E : Material->GetExpressionCollection().Expressions) Nodes.push_back(E.Get());
+		for (uint32 Index = 0; Index < UnrelatedCount; ++Index)
+		{
+			auto* E = NewObject<DMaterialExpressionScalarConstant>(nullptr, NAME_None);
+			E->Id = FGuid::NewGuid(); E->Value = float(Index);
+			Nodes.push_back(E);
+		}
+		ASSERT_TRUE(Material->SetMaterialExpressions(Nodes));
+		const auto Original = Material->GetExpressionCollection().Expressions;
+		Durin::Tests::FTestTransactorOwner Transactions;
+		const auto ObjectCount = GDObjectArray.GetNum();
+		ASSERT_TRUE(Document.ConnectInput(Destination.GeneratedNodeIds.front(), 0, {Source.GeneratedNodeIds.front()}, false, Transactions.Get()));
+		EXPECT_EQ(Material->GetExpressionCollection().Expressions, Original);
+		EXPECT_EQ(GDObjectArray.GetNum(), ObjectCount);
+		const auto HistoryBytes = Transactions->GetOwnedBytes();
+		if (SmallHistoryBytes) EXPECT_EQ(HistoryBytes, *SmallHistoryBytes);
+		else SmallHistoryBytes = HistoryBytes;
+		EXPECT_EQ(Document.ConnectInput(Destination.GeneratedNodeIds.front(), 0, {Source.GeneratedNodeIds.front()}, false, Transactions.Get()).Status,
+			EMaterialGraphCommandStatus::NoChange);
+		EXPECT_EQ(Transactions->GetOwnedBytes(), HistoryBytes);
+		ASSERT_TRUE(Transactions->Undo());
+		ASSERT_TRUE(Transactions->Redo());
+		EXPECT_EQ(Material->GetExpressionCollection().Expressions, Original);
+		EXPECT_EQ(GDObjectArray.GetNum(), ObjectCount);
+		ASSERT_TRUE(Document.ConnectInput(Destination.GeneratedNodeIds.front(), 0, {}, true));
+		EXPECT_EQ(Material->GetExpressionCollection().Expressions, Original);
+		EXPECT_EQ(GDObjectArray.GetNum(), ObjectCount);
+	}
+}
+
+TEST(FMaterialGraphOperationsTests, InvalidTypesRemainEditableAndUndoRestoresDiagnostics)
+{
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	FMaterialGraphDocument Document(*Material);
+	const auto Vector = Testing::CreateGraphCatalogNode(Document, EMaterialProgramOpcode::Constant, EMaterialProgramValueType::Float2);
+	const auto Scalar = Testing::CreateGraphConstant(Document, .5f);
+	ASSERT_TRUE(Vector); ASSERT_TRUE(Scalar);
+	const auto Original = Material->GetExpressionCollection().Expressions;
+	Durin::Tests::FTestTransactorOwner Transactions;
+	ASSERT_TRUE(Document.AssignMaterialOutput(EMaterialSurfaceOutput::Roughness, {Vector.GeneratedNodeIds.front()}, Transactions.Get()));
+	EXPECT_TRUE(HasGraphDiagnostics(*Material));
+	ASSERT_TRUE(Document.SetConstantValue(Scalar.GeneratedNodeIds.front(), FMaterialParameterValue::MakeScalar(.75f), Transactions.Get()));
+	EXPECT_TRUE(HasGraphDiagnostics(*Material));
+	EXPECT_EQ(Material->GetExpressionCollection().Expressions, Original);
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_TRUE(HasGraphDiagnostics(*Material));
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_FALSE(HasGraphDiagnostics(*Material));
+	ASSERT_TRUE(Transactions->Redo());
+	EXPECT_TRUE(HasGraphDiagnostics(*Material));
+	EXPECT_EQ(Material->GetExpressionCollection().Expressions, Original);
+}
+
+TEST(FMaterialGraphOperationsTests, BusyTransactorLeavesLiveObjectsAndNotificationsUnchanged)
+{
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	FMaterialGraphDocument Document(*Material);
+	const auto Source = Testing::CreateGraphConstant(Document, .5f);
+	const auto Destination = Testing::CreateGraphCatalogNode(Document, EMaterialProgramOpcode::Add, EMaterialProgramValueType::Float);
+	ASSERT_TRUE(Source); ASSERT_TRUE(Destination);
+	const auto Before = CaptureExpressions(*Material);
+	const auto Original = Material->GetExpressionCollection().Expressions;
+	const auto Revision = Material->GetMaterialProgramRevision();
+	uint32 Notifications = 0;
+	const auto Observer = Material->GetGraphChanges().Subscribe(*Material, [&](const auto&) { ++Notifications; });
+	Durin::Tests::FTestTransactorOwner Transactions;
+	const auto Pending = Transactions->Begin({.Description = "Other operation"});
+	ASSERT_TRUE(Pending);
+	EXPECT_FALSE(Document.ConnectInput(Destination.GeneratedNodeIds.front(), 0, {Source.GeneratedNodeIds.front()}, false, Transactions.Get()));
+	EXPECT_EQ(CaptureExpressions(*Material), Before);
+	EXPECT_EQ(Material->GetExpressionCollection().Expressions, Original);
+	EXPECT_EQ(Material->GetMaterialProgramRevision(), Revision);
+	EXPECT_EQ(Notifications, 0u);
+	EXPECT_EQ(Transactions->GetHistoryCount(), 0u);
+	(void)Transactions->Cancel(Pending.ScopeId);
+	Material->GetGraphChanges().Unsubscribe(Observer);
+}
+
+
+TEST(FMaterialGraphOperationsTests, ReplayRejectsParticipantsReplacedOutsideHistory)
+{
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	FMaterialGraphDocument Document(*Material);
+	const auto Created = Testing::CreateGraphConstant(Document, .25f);
+	ASSERT_TRUE(Created);
+	Durin::Tests::FTestTransactorOwner Transactions;
+	ASSERT_TRUE(Document.SetConstantValue(Created.GeneratedNodeIds.front(), FMaterialParameterValue::MakeScalar(.5f), Transactions.Get()));
+	std::vector<DMaterialExpression*> Nodes;
+	for (auto& E : Material->GetExpressionCollection().Expressions) Nodes.push_back(E.Get());
+	ASSERT_TRUE(Material->SetMaterialExpressions(Nodes));
+	const auto Before = CaptureExpressions(*Material);
+	const auto Revision = Material->GetMaterialProgramRevision();
+	EXPECT_FALSE(Transactions->Undo());
+	EXPECT_EQ(CaptureExpressions(*Material), Before);
+	EXPECT_EQ(Material->GetMaterialProgramRevision(), Revision);
+	EXPECT_TRUE(Transactions->CanUndo());
 }

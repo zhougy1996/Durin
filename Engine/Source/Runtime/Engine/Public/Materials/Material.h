@@ -86,6 +86,7 @@ namespace Durin
 		auto GetGraphChanges() -> FMaterialGraphChangeSource& { return GraphChanges; }
 
 	private:
+		friend struct FMaterialExpressionEditing;
 		FMaterialGraphChangeSource GraphChanges;
 		auto AdvanceAuthoredRevision(FObjectCacheContext* Context = nullptr) -> void;
 		EMaterialEditCompileMode EditCompileMode = EMaterialEditCompileMode::Immediate;

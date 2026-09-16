@@ -39,6 +39,7 @@ namespace Durin
 		auto GetGraphChanges() -> FMaterialGraphChangeSource& { return GraphChanges; }
 
 	private:
+		friend struct FMaterialExpressionEditing;
 		FMaterialGraphChangeSource GraphChanges;
 
 		// Read-only projection; never serialized or independently edited.

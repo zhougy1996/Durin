@@ -193,9 +193,9 @@ TEST(FMaterialFunctionEditingTests, SharedDocumentsEditStableCallsAndInterfacesW
 	const auto Before = State;
 	State.Expressions.emplace_back(Testing::MakeGraphExpression<DMaterialExpressionScalarConstant>({73, 1, 2, 3}).Get());
 	ASSERT_TRUE(MaterialDocument.Commit(State, "Add Numeric Constant"));
-	EXPECT_FALSE(MaterialDocument.ConnectCallInput(Inserted.GeneratedNodeIds[0],
+	ASSERT_TRUE(MaterialDocument.ConnectCallInput(Inserted.GeneratedNodeIds[0],
 		Wrapper->GetFunctionSignature().Inputs[0].Id, {{73, 1, 2, 3}}));
-	EXPECT_TRUE(GetFunctionCalls(*Material)[0]->Inputs.empty());
+	EXPECT_EQ(GetFunctionCalls(*Material)[0]->Inputs[0].Input.ExpressionId, (FGuid{73, 1, 2, 3}));
 	ASSERT_TRUE(MaterialDocument.Commit(Before, "Remove Numeric Constant"));
 	MarkAsGarbage(Material);
 	MarkAsGarbage(Wrapper);

@@ -1,7 +1,7 @@
 #include "MaterialGraphCanvas.h"
 #include "Widgets/MaterialDetailsStyle.h"
 #include "MaterialGraphDocument.h"
-#include "MaterialGraphExpressionState.h"
+#include "MaterialGraphEditSession.h"
 #include "MaterialExpressionParameters.h"
 #include "MaterialExpressionInputs.h"
 #include "MaterialGraphValueTypes.h"
@@ -32,11 +32,12 @@ namespace Durin::Editor::Material
 		const auto Existing = std::ranges::find(Collection->Expressions, Selection.front(), [](const auto& E) { return E->Id; });
 		if (Existing == Collection->Expressions.end()) return;
 		const TStrongObjectPtr<DMaterialExpression> Expression(Existing->Get());
-		GraphEditInternals::FOwnedGraphSnapshot State;
-		const auto CaptureSelected = [&]() {
-			State = {};
-			if (!State.Capture(Owner)) return State.Expressions.end();
-			return std::ranges::find(State.Expressions, Selection.front(), [](const auto& E) { return E->Id; });
+		std::optional<GraphEditInternals::FGraphEditSession> Session;
+		const auto BeginSelectedEdit = [&]() {
+			Session.emplace(Owner);
+			const auto It = std::ranges::find(Session->Expressions, Selection.front(), [](const auto& E) { return E->Id; });
+			if (It != Session->Expressions.end()) Session->Modify(**It);
+			return It;
 		};
 		const auto& View = PrepareDetailsView(Owner);
 		const auto Selected = std::ranges::find(View.Nodes, Selection.front(),
@@ -88,15 +89,13 @@ namespace Durin::Editor::Material
 				auto Replacement = GraphEditInternals::MakeParameterExpression(Parameter);
 				if (!Replacement) { ReportError("The parameter definition is invalid."); return; }
 				Replacement->Id = Expression->Id;
-				const auto ExpressionIt = CaptureSelected();
-				if (ExpressionIt == State.Expressions.end()) return;
-				if (auto* Sample = Cast<DMaterialExpressionTextureSampleParameter2D>(ExpressionIt->Get()); Sample && Parameter.Type == EMaterialParameterType::Texture)
+				if (const auto* Sample = Cast<DMaterialExpressionTextureSampleParameter2D>(Expression.Get()); Sample && Parameter.Type == EMaterialParameterType::Texture)
 				{
-					const auto* Texture = Cast<DMaterialExpressionTextureParameter>(Replacement.Get());
-					Sample->Metadata = Texture->Metadata; Sample->DefaultValue = Texture->DefaultValue; Sample->TextureUsage = Texture->TextureUsage;
+					TStrongObjectPtr<DMaterialExpressionTextureSampleParameter2D> Copy(DuplicateObject(Sample, nullptr, NAME_None));
+					if (!Copy || !Copy->SetParameterDefinition(Parameter)) { ReportError("The parameter definition is invalid."); return; }
+					Submit(Document.ReplaceExpression(*Copy.Get(), &Transactions));
 				}
-				else *ExpressionIt = Replacement.Get();
-				Submit(Document.ReplaceExpression(**ExpressionIt, &Transactions));
+				else Submit(Document.ReplaceExpression(*Replacement.Get(), &Transactions));
 			};
 			std::string Name = Parameter.Name.ToString();
 			if (!Changed && EditText("Parameter name", Name)) { Parameter.Name = FName(Name); CommitParameter(); }
@@ -163,17 +162,7 @@ namespace Durin::Editor::Material
 			else if (const auto* E = Cast<DMaterialExpressionVector4Constant>(Expression.Get())) { Type = EMaterialProgramValueType::Float4; Value = {static_cast<float>(E->Value.x), static_cast<float>(E->Value.y), static_cast<float>(E->Value.z), static_cast<float>(E->Value.w)}; }
 			else bConstant = false;
 			if (bConstant && EditLiteral("Value", Type, Value))
-			{
-				const auto Candidate = CaptureSelected();
-				if (Candidate != State.Expressions.end())
-				{
-					if (auto* E = Cast<DMaterialExpressionScalarConstant>(Candidate->Get())) E->Value = Value.X;
-					if (auto* E = Cast<DMaterialExpressionVector2Constant>(Candidate->Get())) E->Value = FVector2(Value.X, Value.Y);
-					if (auto* E = Cast<DMaterialExpressionVector3Constant>(Candidate->Get())) E->Value = FVector3(Value.X, Value.Y, Value.Z);
-					if (auto* E = Cast<DMaterialExpressionVector4Constant>(Candidate->Get())) E->Value = FVector4(Value.X, Value.Y, Value.Z, Value.W);
-					Submit(GraphEditInternals::CommitOwnedExpressions(Owner, State, "Edit Constant Expression", &Transactions));
-				}
-			}
+				Submit(Document.SetConstantValue(Expression->Id, MakeParameterValue(Type, Value), &Transactions));
 		}
 		if (const auto* Swizzle = Cast<DMaterialExpressionSwizzle>(Expression.Get()); Swizzle && !Changed)
 		{
@@ -259,14 +248,15 @@ namespace Durin::Editor::Material
 							Definition.Name = FName(std::format("Parameter{}", Suffix));
 						Definition.DisplayName = Definition.Name.ToString();
 						auto Parameter = GraphEditInternals::MakeParameterExpression(Definition);
-						if (const auto Candidate = Parameter ? CaptureSelected() : State.Expressions.end(); Candidate != State.Expressions.end())
+						if (Parameter)
+						if (const auto SelectedExpression = BeginSelectedEdit(); SelectedExpression != Session->Expressions.end())
 						{
-							auto* Destination = Candidate->Get();
+							auto* Destination = SelectedExpression->Get();
 							FMaterialExpressionInput Link{Parameter->Id};
 							if (Value.Type == EMaterialProgramValueType::Float2 || Value.Type == EMaterialProgramValueType::Float3)
 							{
 								auto Mask = GraphEditInternals::MakeParameterMask(*Parameter.Get(), Value.Type);
-								Link = {Mask->Id}; State.Expressions.emplace_back(Mask.Get());
+								Link = {Mask->Id}; Session->Expressions.emplace_back(Mask.Get());
 							}
 							if (Pin.PortId.IsValid())
 							{
@@ -278,12 +268,12 @@ namespace Durin::Editor::Material
 							else VisitMaterialExpressionInputs(*Destination, [&](uint32 Index, FMaterialExpressionInput& Input) {
 								if (Index == Pin.InputIndex) Input = Link;
 							});
-							const auto Position = std::ranges::find(State.Presentation.Nodes, Expression->Id, &FMaterialGraphNodePresentation::NodeId);
-							const int32 X = Position == State.Presentation.Nodes.end() ? -320 : Position->X - 320;
-							const int32 Y = Position == State.Presentation.Nodes.end() ? 0 : Position->Y;
-							State.Presentation.Nodes.push_back({Parameter->Id, X, Y});
-							State.Expressions.emplace_back(Parameter.Get());
-							Submit(GraphEditInternals::CommitOwnedExpressions(Owner, State, "Promote Input Parameter", &Transactions));
+							const auto Position = std::ranges::find(Session->Presentation.Nodes, Expression->Id, &FMaterialGraphNodePresentation::NodeId);
+							const int32 X = Position == Session->Presentation.Nodes.end() ? -320 : Position->X - 320;
+							const int32 Y = Position == Session->Presentation.Nodes.end() ? 0 : Position->Y;
+							Session->Presentation.Nodes.push_back({Parameter->Id, X, Y});
+							Session->Expressions.emplace_back(Parameter.Get());
+							Submit(GraphEditInternals::CommitGraphEdit(Owner, *Session, "Promote Input Parameter", &Transactions));
 						}
 					}
 				}

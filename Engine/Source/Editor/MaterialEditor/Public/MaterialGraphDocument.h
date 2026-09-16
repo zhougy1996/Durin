@@ -6,7 +6,7 @@
 
 namespace Durin::Editor::Material
 {
-	// A detached candidate; Capture clones expressions and Commit takes an independent copy.
+	// Explicit detached bulk export/import. Ordinary commands edit the owner in place.
 	struct FMaterialGraphDocumentState
 	{
 		bool bFunction = false;

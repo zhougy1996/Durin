@@ -50,32 +50,37 @@ Source and preview never share mutable expression children. The applied checkpoi
 retains independent expression copies and compares their reflected authored fields,
 static properties, outputs and presentation. A changed callee with unchanged node
 IDs is still an unapplied edit. Invalid candidates leave the source unchanged.
-Semantic commands validate concrete expressions and their call bindings together.
-Engine owner validation checks local types and topology without expanding callees;
-missing dependency bodies remain compiler diagnostics and do not prevent editing
-or Undo/Redo. Commands that insert or replace callees additionally enforce their
-dependency rules before publication.
+Semantic commands preserve storage identity and parameter-definition consistency;
+numeric type mismatches and missing required values remain compiler diagnostics.
+Missing expression references, invalid source pins selected by a connection command,
+and recursive function dependencies are rejected. Apply and package validation
+retain their strict graph-validation boundary.
 
 `FMaterialGraphDocument` is the shared owning-thread command boundary for both
-owners. `Capture()` duplicates expression children (including the material output)
-and presentation into `FMaterialGraphDocumentState`. `Commit()` makes
-another independent copy so caller-retained draft handles cannot mutate history;
-it validates candidate state through the owning Engine asset and
-records a complete undoable change. History retains independent concrete expression
-copies and presentation. Undo/Redo
-publishes through the typed owner setters, which duplicate those copies again;
-later live edits cannot mutate retained history. Publication and replay compare
-reflected expression fields first: presentation-only movement skips the graph
-setter and preserves the function revision. Retired owner children are
-detached and can be collected independently of those snapshots. Full presentation
-replacement includes labels, so replay can restore an empty name. Function state cannot contain root parameter
-declarations or Surface bindings. Transaction reference collection retains
-function and texture dependencies. Material canvas semantic commits use this same
-boundary. Port editing and creation/removal operate on independent expression
-snapshots and publish through `SetFunctionExpressions`. Material Surface output
-assignment, call insertion, and call-input connection/disconnection use the same
-typed snapshot publication boundary. Call inputs retain numeric defaults while
-disconnected; connecting an additional callee output records its stable output ID.
+owners. Ordinary commands use `FGraphEditSession` to mutate the owner's expression
+objects directly. Before writing a participant, `Modify()` captures its reflected
+members using DurinEd's focused transaction snapshots. Type adaptation registers
+its own modified participants. Only changed member payloads enter the global
+transactor, grouped into one material change so replay restores all fields before
+updating derived state and notifying observers. There is no candidate graph and
+no expression duplication during connection commands or their Undo/Redo.
+Structural commands also retain collection membership and serialized state for
+added/removed children. Deleted children are detached and retained by history's
+reference collector, then restored with their original object identity. Unchanged
+children remain the same objects. History payloads do not alias mutable live values.
+`FMaterialExpressionEditing` provides Engine storage admission, ownership reconciliation,
+and publication without invoking the bulk duplicating setters. Abandoned/rejected
+edit scopes restore their local writes without publishing revisions or notifications;
+this is domain compensation, not a change to generic `Modify()` or `Cancel()` semantics.
+Presentation-only changes skip semantic publication. Full presentation replacement
+includes labels, so replay can restore an empty name. History enumerates texture,
+function, and participant references and reports native payload allocation sizes.
+Explicit `Capture()`/`Commit()` remain detached bulk export/import APIs for callers
+that need complete state. Import preserves matching object identities and copies
+caller-owned data into the live edit; these APIs are not the ordinary command path.
+Function state cannot contain root parameters or material outputs. Call inputs
+retain numeric defaults while disconnected; connecting another callee output
+records its stable output binding in the same transaction.
 Call insertion validates required inputs and rejects recursive dependencies before
 publishing its concrete expression.
 Generic input connection and node removal also operate on expression snapshots.
@@ -83,7 +88,7 @@ Fixed pins follow reflected connection-member declaration order; Surface overrid
 pins are keyed by attribute and call connections by their input bindings. Deletion
 clears references to removed nodes without changing retained numeric defaults.
 Deleting a Surface override source removes that binding and restores the base
-Surface attribute; Undo restores the independent previous expression graph. Terminals own their complete `FMaterialFunctionPort`: stable port GUID, type,
+Surface attribute; Undo restores the original objects and recorded fields. Terminals own their complete `FMaterialFunctionPort`: stable port GUID, type,
 name, display order, flags and default. `GetFunctionSignature()` derives and caches
 a read-only projection of those nodes; no separate signature is serialized. These commands retain their typed snapshots
 for Undo/Redo and provide positions for terminals without saved layout.
@@ -92,7 +97,7 @@ use stable GUIDs; insertion rejects a dependency closure that would recurse into
 the current function. Adding an interface port creates its typed terminal in the
 same transaction; output creation requires a source link. Removing a port rejects
 if retained graph links still require its terminal. Interface type edits update
-terminal types atomically and reject incompatible retained wiring. Shared node
+terminal types atomically; incompatible retained wiring remains editable with compiler diagnostics. Shared node
 creation/replacement/removal and positional-input connection work for both graph
 kinds. Surface assignment accepts the full source link, including a
 function output GUID. Removing a call also removes its call record and restores
@@ -210,11 +215,11 @@ commands infer math result widths in upstream order and propagate changes throug
 downstream math nodes. Linked operands and nonuniform disconnected literals constrain
 the width; uniform defaults can collapse to an equivalent scalar when the width
 changes. A graph without constraining operands retains its current width. Different
-vector widths reject, while scalars broadcast. Lerp Alpha stays scalar; Normalize
-requires at least two components. Owner validation checks fixed consumers before
-publication, and Undo/Redo restores the complete graph including inferred types.
-Append Vector participates in upstream width inference, summing both input widths
-and rejecting totals above four. Compilation expands it into existing scalar
+vector widths produce compiler diagnostics, while scalars broadcast. Lerp Alpha
+stays scalar; Normalize requires at least two components. These compilation rules
+do not block editing. Undo/Redo restores recorded fields, including inferred types.
+Append Vector participates in upstream width inference, summing both input widths;
+totals above four produce compiler diagnostics. Compilation expands it into existing scalar
 selection and vector-construction IR, preserving A-then-B component order.
 Graph editing commands turn new narrow parameters into a Float4 owner plus a mask;
 templates and imported materials use the same representation. Vector parameter
@@ -244,13 +249,14 @@ surface-default edit/reset, parameter promotion, explicit texture-branch
 creation, copy, cut, paste, and duplication. Each result reports a stable status,
 affected/generated GUIDs, bounded validation diagnostics, and a message; an
 automation caller never needs to scrape canvas labels. Aggregate assignment is
-atomic: it accepts only a Surface node and clears all property links in the same
-validated candidate. Disconnect restores the retained property fallbacks.
+atomic: it connects the source and clears all property links in one edit.
+A source incompatible with Surface produces compiler diagnostics. Disconnect restores the retained property fallbacks.
 
-Semantic commands clone the owned expression collection, edit the typed
-candidate and publish through the owner expression API only after validation.
-`ReplaceExpression()` publishes an independent concrete copy; constant value/type
-and swizzle edits use typed commands. Function node drafts own a concrete expression
+Semantic commands record participating objects before changing their live fields
+and publish through the owner after storage checks. `ReplaceExpression()` copies
+fields into the existing object when the class matches; a class change creates
+one replacement object with the same node GUID. Constant value/type and swizzle
+edits use typed commands. Function node drafts own a concrete expression
 and retain unapplied fields while refreshing shared input edits. Function graph
 publication validates dependency closure, including recursive replacement targets.
 `CreateExpression()` publishes a concrete candidate with a stable GUID and position.
@@ -272,7 +278,7 @@ presentation have no public revision counters; observers consume graph changes.
 Concrete expression inputs retain numeric defaults, and each of the
 eight fixed Surface inputs is optionally connected. Disconnecting or
 deleting a surface source clears its link and returns to the retained typed
-fallback; ordinary inputs similarly restore retained literals. Required inputs without any fallback still reject. The
+fallback; ordinary inputs similarly restore retained literals. Required inputs without a fallback remain visible as compiler diagnostics. The
 canvas makes input replacement explicit with Shift and uses the same command
 result for invalid-target feedback. Aggregate and per-property sources cannot
 coexist in a valid expression graph.
@@ -355,12 +361,11 @@ asset's texture usage, and selects a flat-normal fallback for normal textures. S
 Details edits node parameter bindings, texture usage, resource, sampler/fallback
 policy and numeric defaults. The Parameters panel edits shared names, display
 names, group/order and presentation/range hints. Neither panel offers node type
-conversion. Both read concrete expression fields and capture an independent
-candidate only when an edit is submitted; idle frames do not duplicate managed
-objects. Parameter metadata
+conversion. Both read concrete expression fields and record touched objects only
+when an edit is submitted; idle frames do not duplicate managed objects. Parameter metadata
 updates preserve sampling expressions and their UV connections. Class replacement
-preserves node identity and publishes only after graph validation. Type changes
-which invalidate links reject with diagnostics. Resource assignment is undoable.
+preserves the node GUID and publishes after storage checks. Type changes
+which invalidate links remain editable with compiler diagnostics. Resource assignment is undoable.
 
 Texture Sample UV inputs accept Float2 or a scalar broadcast to both coordinates,
 and show Mesh UV0 when disconnected.
@@ -376,15 +381,13 @@ published RHI allocations and retire registrations after their last canvas consu
 
 ## Transactions and gestures
 
-`FMaterialGraphDocument::Commit()` publishes owned expression candidates through
-`SetMaterialExpressions` or `SetFunctionExpressions` and one transaction. It clones
-candidates before publication so caller-held drafts cannot mutate history. Undo/Redo
-retains independent expression children, nested texture/callee references and
-GUID-keyed presentation. Storage accounting includes nested arrays
-and strings. `CreateParameter`, `RenameParameter` and `DeleteParameter` create, edit
-or remove concrete parameter expressions through typed snapshots. Numeric constant
-promotion and Surface default/parameter/texture commands use the same publication
-boundary. Invalid candidates add no undo entry. New parameter nodes and constant
+Material graph commands edit live expression objects and retain focused member
+before/after payloads in one global transaction. Structural changes additionally
+retain membership and added/removed object state. Undo/Redo restores these values
+in place and publishes once through the Engine edit boundary. `Capture()`/`Commit()`
+are reserved for explicit bulk state transfer. `CreateParameter`, `RenameParameter`
+and `DeleteParameter` share the live editing boundary with numeric promotion,
+Surface commands, and clipboard paste. Rejected edits add no undo entry. New parameter nodes and constant
 promotion reuse an existing case-insensitive name when its type matches, adopting
 its parameter GUID, default and shared metadata. Type conflicts reject. Nodes keep
 independent GUIDs, positions and connections; the derived instance list has one
@@ -407,7 +410,7 @@ with default mesh UV0 and selects its attribute channel, including normal
 decode. Resource policy remains on that expression.
 
 One user-visible command produces one global editor transaction. Semantic
-commands retain before/after program and presentation values; presentation-only
+commands retain changed reflected member values and necessary structural state; presentation-only
 commands retain only changed node positions; parameter-only
 commands retain only the parameter GUID and before/after values. Every custom
 change reports its owned native allocations to the bounded transaction buffer.
@@ -457,7 +460,7 @@ callee port GUIDs and selected output identities. Copied interface terminals gai
 new port GUIDs and unique names in the destination function; root parameters cannot
 enter a function and terminals cannot enter a material. Removing terminals removes
 their port declarations in the same validated transaction. Function dependency
-changes reject recursive closures before mutation, including clipboard insertion.
+changes reject recursive closures before publication, including clipboard insertion.
 
 Retired StandardSurface and role-dependent TextureCoordinate opcode values are
 invalid in both authored graphs and clipboard payloads. Custom parameters are

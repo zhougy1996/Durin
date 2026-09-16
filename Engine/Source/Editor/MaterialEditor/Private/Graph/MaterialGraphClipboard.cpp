@@ -2,7 +2,7 @@
 #include "Materials/MaterialExpressionBuild.h"
 #include "MaterialGraphEditInternals.h"
 #include "MaterialGraphDocument.h"
-#include "MaterialGraphExpressionState.h"
+#include "MaterialGraphEditSession.h"
 #include "MaterialExpressionInputs.h"
 
 namespace Durin::Editor::Material
@@ -22,8 +22,13 @@ namespace Durin::Editor::Material
 		FMaterialGraphClipboardPayload& OutPayload) const -> FMaterialGraphCommandResult
 	{
 		OutPayload = {};
-		FOwnedGraphSnapshot State;
-		if (!Owner.IsValid() || !State.Capture(*Owner.Get())) return {.Status = EMaterialGraphCommandStatus::StaleOwner};
+		if (!Owner.IsValid()) return {.Status = EMaterialGraphCommandStatus::StaleOwner};
+		FMaterialGraphDocumentState State;
+		State.bFunction = Cast<DMaterialFunction>(Owner.Get()) != nullptr;
+		const auto& Collection = FMaterialExpressionEditing::GetExpressions(*Owner.Get());
+		for (auto& E : Collection) State.Expressions.emplace_back(E.Get());
+		if (auto* M = Cast<DMaterial>(Owner.Get())) State.Presentation = M->GetMaterialGraphPresentation();
+		else State.Presentation.Nodes = Cast<DMaterialFunction>(Owner.Get())->GetFunctionPresentation().Nodes;
 		if (NodeIds.empty() || NodeIds.size() > MaterialProgramMaxNodeCount)
 			return MakeRejected("The material graph copy selection is empty or exceeds the node bound.");
 		std::unordered_set<FGuid> Selected(NodeIds.begin(), NodeIds.end());
@@ -49,7 +54,9 @@ namespace Durin::Editor::Material
 		{
 			const auto It = std::ranges::find(State.Expressions, Id, [](const auto& Expression) { return Expression->Id; });
 			const auto& Position = Positions.at(Id);
-			OutPayload.Nodes.push_back({*It, Position.DisplayName, Position.X - MinimumX, Position.Y - MinimumY});
+			auto* Copy = DuplicateObject(It->Get(), nullptr, NAME_None);
+			if (!Copy) return MakeRejected("Unable to copy the selected expression.");
+			OutPayload.Nodes.push_back({TStrongObjectPtr<DMaterialExpression>(Copy), Position.DisplayName, Position.X - MinimumX, Position.Y - MinimumY});
 		}
 		if (!State.bFunction && Selected.contains(State.GetOutputs().Surface.ExpressionId))
 		{
@@ -77,8 +84,8 @@ namespace Durin::Editor::Material
 	auto FMaterialGraphDocument::Paste(const FMaterialGraphClipboardPayload& Payload,
 		int32 X, int32 Y, DTransactor* Transactions) const -> FMaterialGraphCommandResult
 	{
-		FOwnedGraphSnapshot State;
-		if (!Owner.IsValid() || !State.Capture(*Owner.Get())) return {.Status = EMaterialGraphCommandStatus::StaleOwner};
+		if (!Owner.IsValid()) return {.Status = EMaterialGraphCommandStatus::StaleOwner};
+		FGraphEditSession State(*Owner.Get());
 		if (Payload.SchemaVersion != CurrentMaterialGraphClipboardSchemaVersion)
 			return MakeRejected("The material graph clipboard schema version is unsupported.");
 		if (Payload.Nodes.empty() || Payload.Nodes.size() > MaterialProgramMaxNodeCount
@@ -184,7 +191,7 @@ namespace Durin::Editor::Material
 				return MakeRejected("Pasting would place a material graph node outside the supported coordinate range.");
 			Generated.push_back(Expression->Id);
 			State.Presentation.Nodes.push_back({Expression->Id, static_cast<int32>(PositionX), static_cast<int32>(PositionY), Entry.DisplayName});
-			State.Expressions.push_back(std::move(Expression));
+			State.Expressions.emplace_back(Expression.Get());
 		}
 		if (State.bFunction)
 		{
@@ -203,7 +210,7 @@ namespace Durin::Editor::Material
 				&State.GetOutputs().AmbientOcclusion, &State.GetOutputs().Emissive, &State.GetOutputs().Opacity, &State.GetOutputs().OpacityMask}) *Output = {};
 			State.GetOutputs().Surface = {Remap.at(Payload.AggregateSourceNodeId), Payload.AggregateSourceOutputIndex, Payload.AggregateSourceOutputId};
 		}
-		auto Result = CommitOwnedExpressions(*Owner.Get(), std::move(State), "Paste Graph Nodes", Transactions);
+		auto Result = CommitGraphEdit(*Owner.Get(), State, "Paste Graph Nodes", Transactions);
 		if (Result)
 		{
 			Result.AffectedNodeIds = Generated;

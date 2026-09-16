@@ -4,6 +4,7 @@
 #include "Graph/MaterialGraphValueTypes.h"
 #include "Graph/MaterialGraphCanvas.h"
 #include "MaterialGraphDocument.h"
+#include "MaterialGraphEditSession.h"
 
 #include "Editor/Transaction.h"
 #include "MonaImGui.h"
@@ -947,9 +948,7 @@ namespace Durin::Editor::Material
 				else
 				{
 					// Function movement is a detached preview until the document accepts release.
-					FMaterialGraphDocumentState State;
-					FMaterialGraphDocument Document(Owner);
-					if (Document.Capture(State))
+					GraphEditInternals::FGraphEditSession State(Owner);
 					{
 						bool bChanged = false;
 						for (auto& Position : State.Presentation.Nodes)
@@ -960,7 +959,7 @@ namespace Durin::Editor::Material
 									bChanged |= Position != Draft;
 									Position = Draft;
 								}
-						if (bChanged) ReportCommand(Document.Commit(std::move(State), "Move Graph Nodes", &Transactions), ReportError);
+						if (bChanged) ReportCommand(State.Commit("Move Graph Nodes", &Transactions), ReportError);
 					}
 				}
 				ResetInteraction();

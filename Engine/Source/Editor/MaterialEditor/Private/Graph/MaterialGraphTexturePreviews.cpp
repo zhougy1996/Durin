@@ -1,5 +1,5 @@
 #include "MaterialGraphCanvas.h"
-#include "MaterialGraphExpressionState.h"
+#include "MaterialGraphEditSession.h"
 #include "Asset/Asset.h"
 #include "TexturePreview.h"
 #include "Editor/AssetDragDrop.h"
@@ -84,8 +84,7 @@ namespace Durin::Editor::Material
 				DTexture2D* Texture = nullptr;
 				if (FObjectPath::TryCreate(Asset.AssetPath.data(), Path, &Error) && LoadObject(Path, Texture) && Texture)
 				{
-					GraphEditInternals::FOwnedGraphSnapshot State;
-					if (State.Capture(Material))
+					GraphEditInternals::FGraphEditSession State(Material);
 					{
 						TStrongObjectPtr<DMaterialExpressionTextureSampleParameter2D> Expression(
 							NewObject<DMaterialExpressionTextureSampleParameter2D>(nullptr, NAME_None));
@@ -105,7 +104,7 @@ namespace Durin::Editor::Material
 						const auto Mouse = ImGui::GetMousePos();
 						State.Presentation.Nodes.push_back({Id, static_cast<int32>((Mouse.x - CanvasMinimum.x - Pan.x) / Zoom),
 							static_cast<int32>((Mouse.y - CanvasMinimum.y - Pan.y) / Zoom)});
-						const auto Result = GraphEditInternals::CommitOwnedExpressions(Material, std::move(State), "Add Texture Sample Parameter", &Transactions);
+						const auto Result = GraphEditInternals::CommitGraphEdit(Material, State, "Add Texture Sample Parameter", &Transactions);
 						if (!Result) ReportError(Result.Message);
 						else SelectedNodes = {Id};
 					}
