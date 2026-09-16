@@ -296,21 +296,21 @@ namespace Durin::Editor::Material
 	{
 		FOwnedGraphSnapshot State;
 		if (!State.Capture(Material)) return {.Status = EMaterialGraphCommandStatus::StaleOwner};
-		const auto Previous = State.Outputs;
+		const auto Previous = State.GetOutputs();
 		const auto& Value = Request.Value;
 		switch (Request.Output)
 		{
-		case EMaterialSurfaceOutput::BaseColor: State.Outputs.BaseColorDefault = FVector3(Value.X, Value.Y, Value.Z); break;
-		case EMaterialSurfaceOutput::Normal: State.Outputs.NormalDefault = FVector3(Value.X, Value.Y, Value.Z); break;
-		case EMaterialSurfaceOutput::Metallic: State.Outputs.MetallicDefault = Value.X; break;
-		case EMaterialSurfaceOutput::Roughness: State.Outputs.RoughnessDefault = Value.X; break;
-		case EMaterialSurfaceOutput::AmbientOcclusion: State.Outputs.AmbientOcclusionDefault = Value.X; break;
-		case EMaterialSurfaceOutput::Emissive: State.Outputs.EmissiveDefault = FVector3(Value.X, Value.Y, Value.Z); break;
-		case EMaterialSurfaceOutput::Opacity: State.Outputs.OpacityDefault = Value.X; break;
-		case EMaterialSurfaceOutput::OpacityMask: State.Outputs.OpacityMaskDefault = Value.X; break;
+		case EMaterialSurfaceOutput::BaseColor: State.GetOutputs().BaseColorDefault = FVector3(Value.X, Value.Y, Value.Z); break;
+		case EMaterialSurfaceOutput::Normal: State.GetOutputs().NormalDefault = FVector3(Value.X, Value.Y, Value.Z); break;
+		case EMaterialSurfaceOutput::Metallic: State.GetOutputs().MetallicDefault = Value.X; break;
+		case EMaterialSurfaceOutput::Roughness: State.GetOutputs().RoughnessDefault = Value.X; break;
+		case EMaterialSurfaceOutput::AmbientOcclusion: State.GetOutputs().AmbientOcclusionDefault = Value.X; break;
+		case EMaterialSurfaceOutput::Emissive: State.GetOutputs().EmissiveDefault = FVector3(Value.X, Value.Y, Value.Z); break;
+		case EMaterialSurfaceOutput::Opacity: State.GetOutputs().OpacityDefault = Value.X; break;
+		case EMaterialSurfaceOutput::OpacityMask: State.GetOutputs().OpacityMaskDefault = Value.X; break;
 		default: return MakeRejected("The material surface output is invalid.");
 		}
-		if (State.Outputs == Previous) return {.Status = EMaterialGraphCommandStatus::NoChange};
+		if (State.GetOutputs() == Previous) return {.Status = EMaterialGraphCommandStatus::NoChange};
 		return CommitOwnedExpressions(Material, std::move(State), "Edit Material Surface Default", Transactions);
 	}
 
@@ -358,7 +358,7 @@ namespace Durin::Editor::Material
 	{
 		FOwnedGraphSnapshot State;
 		if (!State.Capture(Material)) return {.Status = EMaterialGraphCommandStatus::StaleOwner};
-		auto* Link = GetSurfaceLink(State.Outputs, Request.Output);
+		auto* Link = GetSurfaceLink(State.GetOutputs(), Request.Output);
 		if (!Link) return MakeRejected("The material surface output is invalid.");
 		if (Link->ExpressionId.IsValid()) return MakeRejected("Only an unconnected material surface output can be promoted.");
 		FMaterialParameterDefinition Definition;
@@ -368,10 +368,10 @@ namespace Durin::Editor::Material
 		Definition.DisplayName = Definition.Name.ToString();
 		const auto Type = GetMaterialSurfaceOutputType(Request.Output);
 		Definition.Type = *GetParameterType(Type);
-		Definition.Value = MakeParameterValue(Type, GetSurfaceDefault(State.Outputs, Request.Output));
+		Definition.Value = MakeParameterValue(Type, GetSurfaceDefault(State.GetOutputs(), Request.Output));
 		auto Parameter = MakeParameterExpression(Definition);
 		const auto Id = Parameter->Id;
-		*Link = {Id}; State.Outputs.Surface = {};
+		*Link = {Id}; State.GetOutputs().Surface = {};
 		State.Presentation.Nodes.push_back({Id, Request.X, Request.Y});
 		State.Expressions.emplace_back(Parameter.Get());
 		if (Type == EMaterialProgramValueType::Float2 || Type == EMaterialProgramValueType::Float3)
@@ -394,7 +394,7 @@ namespace Durin::Editor::Material
 	{
 		FOwnedGraphSnapshot State;
 		if (!State.Capture(Material)) return {.Status = EMaterialGraphCommandStatus::StaleOwner};
-		auto* Link = GetSurfaceLink(State.Outputs, Request.Output);
+		auto* Link = GetSurfaceLink(State.GetOutputs(), Request.Output);
 		if (!Link) return MakeRejected("The material surface output is invalid.");
 		TStrongObjectPtr<DMaterialExpressionTextureSampleParameter2D> Texture(NewObject<DMaterialExpressionTextureSampleParameter2D>(nullptr, NAME_None));
 		Texture->Id = FGuid::NewGuid();
@@ -409,7 +409,7 @@ namespace Durin::Editor::Material
 		}
 		const auto Id = Texture->Id, ParameterId = Texture->Metadata.Id;
 		constexpr std::array<uint8, 8> Channels{1, 1, 4, 3, 2, 1, 5, 2};
-		*Link = {Id, Channels[static_cast<size_t>(Request.Output)]}; State.Outputs.Surface = {};
+		*Link = {Id, Channels[static_cast<size_t>(Request.Output)]}; State.GetOutputs().Surface = {};
 		State.Presentation.Nodes.push_back({Id, Request.X, Request.Y, Texture->Metadata.DisplayName});
 		State.Expressions.emplace_back(Texture.Get());
 		auto Result = CommitOwnedExpressions(Material, std::move(State), "Add Material Surface Texture", Transactions);

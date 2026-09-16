@@ -119,10 +119,10 @@ TEST(FMaterialPackageTests, TypedExpressionsRoundTripDuplicateAndRejectMalformed
 	const auto CheckGraph = [&](DMaterial* Candidate) {
 		ASSERT_NE(Candidate, nullptr);
 		const auto& Children = Candidate->GetExpressionCollection().Expressions;
-		ASSERT_EQ(Children.size(), Authored.Expressions.size());
+		ASSERT_EQ(Children.size(), Authored.Expressions.size() + 1);
 		EXPECT_EQ(Candidate->GetExpressionOutputs(), Authored.Outputs);
 		EXPECT_EQ(Candidate->GetMaterialGraphPresentation(), Presentation);
-		for (size_t Index = 0; Index < Children.size(); ++Index)
+		for (size_t Index = 0; Index < Authored.Expressions.size(); ++Index)
 		{
 			const auto* Expected = Authored.Expressions[Index].Get();
 			const auto* Actual = Children[Index].Get();
@@ -144,11 +144,11 @@ TEST(FMaterialPackageTests, TypedExpressionsRoundTripDuplicateAndRejectMalformed
 	ObjectPackage::FLinkerTables Linker;
 	ASSERT_TRUE(ObjectPackage::ReadPackage(FirstSerialization, {}, Path, Linker));
 	EXPECT_FALSE(ContainsSerializedField(Linker, "GraphOwnershipVersion"));
-	ASSERT_EQ(Linker.CustomVersions.size(), 1u);
+	ASSERT_EQ(Linker.CustomVersions.size(), 2u);
 	EXPECT_EQ(Linker.CustomVersions.front(), (FCustomVersion{FMaterialGraphVersion::Guid, FMaterialGraphVersion::CurrentVersion}));
 	EXPECT_TRUE(ContainsSerializedField(Linker, "ExpressionCollection"));
 	EXPECT_TRUE(ContainsSerializedField(Linker, "Expressions"));
-	EXPECT_TRUE(ContainsSerializedField(Linker, "ExpressionOutputs"));
+	EXPECT_FALSE(ContainsSerializedField(Linker, "ExpressionOutputs"));
 	EXPECT_FALSE(ContainsSerializedField(Linker, "Program"));
 	EXPECT_FALSE(ContainsSerializedField(Linker, "FunctionCalls"));
 	auto* Duplicate = Cast<DMaterial>(DuplicateObject(Material, nullptr, "DuplicatedExpressions"));
@@ -258,7 +258,7 @@ TEST(FMaterialPackageTests, MissingInstanceCustomVersionRejectsInstanceWithoutCh
 	EXPECT_EQ(After, BaseBytes);
 }
 
-TEST(FMaterialPackageTests, MixedPackageRequiresBothVersionDomainsAndPreservesInstanceDuplication)
+TEST(FMaterialPackageTests, MixedPackageRequiresAllVersionDomainsAndPreservesInstanceDuplication)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
@@ -269,6 +269,7 @@ TEST(FMaterialPackageTests, MixedPackageRequiresBothVersionDomainsAndPreservesIn
 	DMaterial* Base = nullptr;
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Base));
 	ASSERT_TRUE(SetBindingProgram(*Base));
+	NewObject<DMaterialFunction>(Base->GetPackage(), "Function");
 	auto* Instance = NewObject<DMaterialInstance>(Base->GetPackage(), "Overrides");
 	ASSERT_TRUE(Instance->SetParent(Base));
 	ASSERT_TRUE(Instance->SetScalarParameterValue(MaterialParameters::OpacityName(), .25f));
@@ -283,15 +284,18 @@ TEST(FMaterialPackageTests, MixedPackageRequiresBothVersionDomainsAndPreservesIn
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(Original, Root / "Base.dasset"));
 	ObjectPackage::FLinkerTables Saved;
 	ASSERT_TRUE(ObjectPackage::ReadPackage(Original, {}, Path, Saved));
-	ASSERT_EQ(Saved.CustomVersions.size(), 2u);
+	ASSERT_EQ(Saved.CustomVersions.size(), 4u);
 	EXPECT_FALSE(ContainsSerializedField(Saved, "ParameterStorageVersion"));
+	EXPECT_FALSE(ContainsSerializedField(Saved, "Signature"));
+	EXPECT_FALSE(ContainsSerializedField(Saved, "PortId"));
 	ASSERT_TRUE(UnloadPackage(Path));
-	for (const FGuid Guid : {FMaterialGraphVersion::Guid, FMaterialInstanceVersion::Guid})
-		for (const int32 Version : {-1, 0, 2})
+	for (const FGuid Guid : {FMaterialGraphVersion::Guid, FMaterialInstanceVersion::Guid, FMaterialFunctionVersion::Guid, FMaterialOutputVersion::Guid})
+		for (const int32 Version : {-1, 0, 1, 2, 3})
 		{
 			auto Candidate = Saved;
 			const auto Record = std::ranges::find(Candidate.CustomVersions, Guid, &FCustomVersion::Guid);
 			ASSERT_NE(Record, Candidate.CustomVersions.end());
+			if (Version == Record->Version) continue;
 			if (Version < 0) Candidate.CustomVersions.erase(Record);
 			else Record->Version = Version;
 			FByteBuffer Bytes, Bulk;
@@ -346,7 +350,11 @@ TEST(FMaterialPackageTests, AuthoredGraphVersionsLoadAfterRestartAndFunctionsDup
 		ASSERT_TRUE(FFileHelper::LoadFileToArray(Bytes, Data->PhysicalPath));
 		ObjectPackage::FLinkerTables Linker;
 		ASSERT_TRUE(ObjectPackage::ReadPackage(Bytes, {}, Path, Linker));
-		ASSERT_EQ(Linker.CustomVersions, (std::vector<FCustomVersion>{{FMaterialGraphVersion::Guid, FMaterialGraphVersion::CurrentVersion}}));
+		auto ExpectedVersions = std::vector<FCustomVersion>{{FMaterialGraphVersion::Guid, FMaterialGraphVersion::CurrentVersion}};
+		if (Path == MaterialPath) ExpectedVersions.push_back({FMaterialOutputVersion::Guid, FMaterialOutputVersion::CurrentVersion});
+		if (Path == FunctionPath) ExpectedVersions.push_back({FMaterialFunctionVersion::Guid, FMaterialFunctionVersion::CurrentVersion});
+		std::ranges::sort(ExpectedVersions, {}, &FCustomVersion::Guid);
+		ASSERT_EQ(Linker.CustomVersions, ExpectedVersions);
 		DObject* Loaded = nullptr;
 		const auto Result = LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Loaded);
 		ASSERT_TRUE(Result) << Result.Message;

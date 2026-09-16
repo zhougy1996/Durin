@@ -35,17 +35,13 @@ namespace Durin::Editor::Material
 					bValid = false; return Type::Float;
 				}
 				if (const auto* Terminal = Cast<DMaterialExpressionFunctionInput>(E))
-				{
-					const auto Port = std::ranges::find(State.Signature.Inputs, Terminal->PortId, &FMaterialFunctionPort::Id);
-					if (Port != State.Signature.Inputs.end()) return Port->Type;
-					bValid = false; return Type::Float;
-				}
+					return Terminal->Port.Type;
 				const auto Shape = std::ranges::find(Catalog, E->GetClass(), &FMaterialGraphCatalogEntry::ExpressionClass);
 				if (Shape == Catalog.end()) { bValid = false; return Type::Float; }
 				const auto Opcode = Shape->Opcode;
 				if (Opcode == EMaterialProgramOpcode::TextureSampleParameter2D && Input.OutputIndex == 7) return Type::Texture2D;
 				if (IsMaterialSamplingNode(Opcode) && Input.OutputIndex != 0)
-					return Input.OutputIndex == 1 || Input.OutputIndex == 8 ? Type::Float3 : Type::Float;
+					return Input.OutputIndex == 1 ? Type::Float3 : Type::Float;
 				if (Opcode == EMaterialProgramOpcode::GetSurfaceAttributes && Input.OutputIndex < 8)
 					return GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(Input.OutputIndex));
 				if (Resolved.contains(E->Id)) return Resolved.at(E->Id);
@@ -165,9 +161,10 @@ namespace Durin::Editor::Material
 			auto* Function = Cast<DMaterialFunction>(&Owner);
 			auto* Material = Cast<DMaterial>(&Owner);
 			if (!Function && !Material) return {.Status = EMaterialGraphCommandStatus::StaleOwner};
+			FScopedMaterialGraphChange PublishChange(Owner);
+			if (Material) std::stable_partition(Candidate.Expressions.begin(), Candidate.Expressions.end(),
+				[](const auto& Expression) { return !Cast<DMaterialExpressionMaterialOutput>(Expression.Get()); });
 			if (Candidate.bFunction != (Function != nullptr)) return MakeRejected("The graph document kind cannot change.");
-			if ((Function && Candidate.Outputs != FMaterialExpressionSurfaceOutputs{})
-				|| (Material && Candidate.Signature != FMaterialFunctionSignature{})) return MakeRejected("The graph contains fields for a different document kind.");
 			if (Candidate.Expressions.size() > MaterialProgramMaxNodeCount
 				|| std::ranges::any_of(Candidate.Expressions, [](const auto& Expression) { return !Expression.Get(); }))
 				return MakeRejected("The graph has too many expressions or contains a missing expression.");
@@ -201,8 +198,8 @@ namespace Durin::Editor::Material
 					if (std::ranges::any_of(Closure, [&](const auto& Dependency) { return Dependency.AssetPath == Owner.GetObjectPath(); }))
 						return MakeRejected("This change would introduce recursive function dependencies.");
 				}
-				const auto Validation = Function ? Function->SetFunctionExpressions(Candidate.Signature, Expressions)
-					: Material->SetMaterialExpressions(Expressions, Candidate.Outputs);
+				const auto Validation = Function ? Function->SetFunctionExpressions(Expressions)
+					: Material->SetMaterialExpressions(Expressions);
 				if (!Validation) return MakeRejected("The expression graph is invalid.", Validation.Diagnostics);
 			}
 			else if (Function ? Candidate.Presentation.Nodes == Function->GetFunctionPresentation().Nodes
@@ -247,24 +244,31 @@ namespace Durin::Editor::Material
 		}
 		for (const auto& Expression : State.Expressions)
 			VisitMaterialExpressionInputs(*Expression, [&](uint32, FMaterialExpressionInput& Input) { IncludeCallOutput(State, Input); });
-		for (const auto* Output : {&State.Outputs.Surface, &State.Outputs.BaseColor, &State.Outputs.Normal, &State.Outputs.Metallic,
-			&State.Outputs.Roughness, &State.Outputs.AmbientOcclusion, &State.Outputs.Emissive, &State.Outputs.Opacity, &State.Outputs.OpacityMask})
-			IncludeCallOutput(State, *Output);
 		return CommitOwnedExpressions(*Owner.Get(), std::move(State), std::move(Description), Transactions);
 	}
 
-	auto FMaterialGraphDocument::SetSignature(FMaterialFunctionSignature Signature,
+	auto FMaterialGraphDocument::SetPort(bool bOutput, FMaterialFunctionPort Port,
 		DTransactor* Transactions) const -> FMaterialGraphCommandResult
 	{
 		if (!Owner.IsValid()) return {.Status = EMaterialGraphCommandStatus::StaleOwner};
 		auto* Function = Cast<DMaterialFunction>(Owner.Get());
 		if (!Function) return MakeRejected("Only function documents have an interface.");
-		if (Signature == Function->GetFunctionSignature()) return {.Status = EMaterialGraphCommandStatus::NoChange};
 		FOwnedGraphSnapshot State;
 		if (!State.Capture(*Function)) return MakeRejected("Unable to snapshot the function expressions.");
-		State.Signature = std::move(Signature);
-		// Terminal types are derived from the function signature, never written to nodes.
-		return CommitOwnedExpressions(*Function, std::move(State), "Edit Function Interface", Transactions);
+		for (auto& Expression : State.Expressions)
+		{
+			FMaterialFunctionPort* Target = nullptr;
+			if (bOutput)
+			{
+				if (auto* Terminal = Cast<DMaterialExpressionFunctionOutput>(Expression.Get())) Target = &Terminal->Port;
+			}
+			else if (auto* Terminal = Cast<DMaterialExpressionFunctionInput>(Expression.Get())) Target = &Terminal->Port;
+			if (!Target || Target->Id != Port.Id) continue;
+			if (*Target == Port) return {.Status = EMaterialGraphCommandStatus::NoChange};
+			*Target = std::move(Port);
+			return CommitOwnedExpressions(*Function, std::move(State), "Edit Function Port", Transactions);
+		}
+		return MakeRejected("The function port is unavailable.");
 	}
 
 	auto FMaterialGraphDocument::AddPort(bool bOutput, FMaterialFunctionPort Port,
@@ -280,17 +284,16 @@ namespace Durin::Editor::Material
 		if (bOutput)
 		{
 			auto* Terminal = NewObject<DMaterialExpressionFunctionOutput>(nullptr, NAME_None);
-			Terminal->Id = NodeId; Terminal->PortId = Port.Id;
+			Terminal->Id = NodeId; Terminal->Port = std::move(Port);
 			Terminal->Source = {Source.SourceNodeId, Source.SourceOutputIndex, Source.SourceOutputId};
 			State.Expressions.emplace_back(Terminal);
 		}
 		else
 		{
 			auto* Terminal = NewObject<DMaterialExpressionFunctionInput>(nullptr, NAME_None);
-			Terminal->Id = NodeId; Terminal->PortId = Port.Id;
+			Terminal->Id = NodeId; Terminal->Port = std::move(Port);
 			State.Expressions.emplace_back(Terminal);
 		}
-		(bOutput ? State.Signature.Outputs : State.Signature.Inputs).push_back(std::move(Port));
 		State.Presentation.Nodes.push_back({NodeId, X, Y});
 		auto Result = CommitOwnedExpressions(*Function, std::move(State),
 			bOutput ? "Add Function Output" : "Add Function Input", Transactions);
@@ -306,18 +309,16 @@ namespace Durin::Editor::Material
 		if (!Function) return MakeRejected("Only function documents have an interface.");
 		FOwnedGraphSnapshot State;
 		if (!State.Capture(*Function)) return MakeRejected("Unable to snapshot the function expressions.");
-		auto& Ports = bOutput ? State.Signature.Outputs : State.Signature.Inputs;
-		if (!std::erase_if(Ports, [&](const auto& Port) { return Port.Id == PortId; }))
-			return {.Status = EMaterialGraphCommandStatus::NoChange};
-		std::erase_if(State.Expressions, [&](const auto& Expression) {
+		const auto Removed = std::erase_if(State.Expressions, [&](const auto& Expression) {
 			if (bOutput)
 			{
 				const auto* Terminal = Cast<DMaterialExpressionFunctionOutput>(Expression.Get());
-				return Terminal && Terminal->PortId == PortId;
+				return Terminal && Terminal->Port.Id == PortId;
 			}
 			const auto* Terminal = Cast<DMaterialExpressionFunctionInput>(Expression.Get());
-			return Terminal && Terminal->PortId == PortId;
+			return Terminal && Terminal->Port.Id == PortId;
 		});
+		if (!Removed) return {.Status = EMaterialGraphCommandStatus::NoChange};
 		return CommitOwnedExpressions(*Function, std::move(State), "Remove Function Port", Transactions);
 	}
 
@@ -514,16 +515,10 @@ namespace Durin::Editor::Material
 		FOwnedGraphSnapshot State;
 		if (!State.Capture(*Owner.Get())) return {.Status = EMaterialGraphCommandStatus::StaleOwner};
 		const std::unordered_set<FGuid> Removed(NodeIds.begin(), NodeIds.end());
+		if (std::ranges::any_of(State.Expressions, [&](const auto& E) { return Removed.contains(E->Id) && Cast<DMaterialExpressionMaterialOutput>(E.Get()); }))
+			return MakeRejected("The material output node cannot be removed.");
 		if (std::ranges::none_of(State.Expressions, [&](const auto& Expression) { return Removed.contains(Expression->Id); }))
 			return {.Status = EMaterialGraphCommandStatus::NoChange};
-		for (const auto& Expression : State.Expressions)
-		{
-			if (!Removed.contains(Expression->Id)) continue;
-			if (const auto* Input = Cast<DMaterialExpressionFunctionInput>(Expression.Get()))
-				std::erase_if(State.Signature.Inputs, [&](const auto& Port) { return Port.Id == Input->PortId; });
-			if (const auto* Output = Cast<DMaterialExpressionFunctionOutput>(Expression.Get()))
-				std::erase_if(State.Signature.Outputs, [&](const auto& Port) { return Port.Id == Output->PortId; });
-		}
 		std::erase_if(State.Expressions, [&](const auto& Expression) { return Removed.contains(Expression->Id); });
 		std::erase_if(State.Presentation.Nodes, [&](const auto& Position) { return Removed.contains(Position.NodeId); });
 		for (auto& Expression : State.Expressions)
@@ -534,9 +529,6 @@ namespace Durin::Editor::Material
 				if (Removed.contains(Input.ExpressionId)) Input = {};
 			});
 		}
-		for (auto* Output : {&State.Outputs.Surface, &State.Outputs.BaseColor, &State.Outputs.Normal, &State.Outputs.Metallic,
-			&State.Outputs.Roughness, &State.Outputs.AmbientOcclusion, &State.Outputs.Emissive, &State.Outputs.Opacity, &State.Outputs.OpacityMask})
-			if (Removed.contains(Output->ExpressionId)) *Output = {};
 		auto Result = CommitOwnedExpressions(*Owner.Get(), std::move(State), "Remove Graph Nodes", Transactions);
 		if (Result)
 		{
@@ -564,6 +556,9 @@ namespace Durin::Editor::Material
 		if (Target->ExpressionId.IsValid() && *Target != Connection && !bReplaceExisting)
 			return MakeRejected("The graph input is already connected.");
 		if (*Target == Connection) return {.Status = EMaterialGraphCommandStatus::NoChange};
+		if (Cast<DMaterialExpressionMaterialOutput>(Node->Get()))
+			return AssignMaterialOutput(InputIndex == static_cast<uint32>(EMaterialOutputPin::Surface)
+				? std::nullopt : std::optional(static_cast<EMaterialSurfaceOutput>(InputIndex)), Source, Transactions);
 		*Target = Connection;
 		IncludeCallOutput(State, Connection);
 		return CommitOwnedExpressions(*Owner.Get(), std::move(State), "Connect Graph Input", Transactions);
@@ -578,23 +573,23 @@ namespace Durin::Editor::Material
 		FOwnedGraphSnapshot State;
 		if (!State.Capture(*Material)) return MakeRejected("Unable to snapshot the material expressions.");
 		const FMaterialExpressionInput Connection{Source.SourceNodeId, Source.SourceOutputIndex, Source.SourceOutputId};
-		const auto Previous = State.Outputs;
-		const std::array Attributes{&State.Outputs.BaseColor, &State.Outputs.Normal, &State.Outputs.Metallic,
-			&State.Outputs.Roughness, &State.Outputs.AmbientOcclusion, &State.Outputs.Emissive,
-			&State.Outputs.Opacity, &State.Outputs.OpacityMask};
+		const auto Previous = State.GetOutputs();
+		const std::array Attributes{&State.GetOutputs().BaseColor, &State.GetOutputs().Normal, &State.GetOutputs().Metallic,
+			&State.GetOutputs().Roughness, &State.GetOutputs().AmbientOcclusion, &State.GetOutputs().Emissive,
+			&State.GetOutputs().Opacity, &State.GetOutputs().OpacityMask};
 		if (Attribute)
 		{
 			const auto Index = static_cast<uint32>(*Attribute);
 			if (Index >= Attributes.size()) return MakeRejected("The material output attribute is invalid.");
 			*Attributes[Index] = Connection;
-			if (Connection.ExpressionId.IsValid()) State.Outputs.Surface = {};
+			if (Connection.ExpressionId.IsValid()) State.GetOutputs().Surface = {};
 		}
 		else
 		{
-			State.Outputs.Surface = Connection;
+			State.GetOutputs().Surface = Connection;
 			if (Connection.ExpressionId.IsValid()) for (auto* Output : Attributes) *Output = {};
 		}
-		if (State.Outputs == Previous) return {.Status = EMaterialGraphCommandStatus::NoChange};
+		if (State.GetOutputs() == Previous) return {.Status = EMaterialGraphCommandStatus::NoChange};
 		IncludeCallOutput(State, Connection);
 		return CommitOwnedExpressions(*Material, std::move(State), "Connect Surface", Transactions);
 	}

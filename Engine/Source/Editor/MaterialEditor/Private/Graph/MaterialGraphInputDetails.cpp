@@ -16,7 +16,7 @@ namespace Durin::Editor::Material
 		// Refresh here too: Details can be drawn before the canvas or while it is hidden.
 		if (auto* Material = Cast<DMaterial>(&Owner)) PrepareView(*Material);
 		else if (auto* Function = Cast<DMaterialFunction>(&Owner)) PrepareFunctionView(*Function);
-		return CachedInspection;
+		return ReadModel.GetView();
 	}
 
 	auto FMaterialGraphCanvas::DrawSelectionDetails(DObject& Owner, DTransactor& Transactions,

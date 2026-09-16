@@ -11,10 +11,28 @@
 namespace Durin
 {
 
+	auto DMaterialFunction::GetFunctionSignature() const -> const FMaterialFunctionSignature&
+	{
+		if (!bSignatureCached)
+		{
+			std::vector<DMaterialExpression*> Expressions;
+			for (const auto& Expression : ExpressionCollection.Expressions) Expressions.push_back(Expression.Get());
+			CachedSignature = DeriveMaterialFunctionSignature(Expressions);
+			bSignatureCached = true;
+		}
+		return CachedSignature;
+	}
+
+	auto DMaterialFunction::PostLoad() -> void
+	{
+		Super::PostLoad();
+		bSignatureCached = false;
+		GraphChanges.Publish(*this);
+	}
 
 	auto DMaterialFunction::GetExpressionBody() const -> FMaterialExpressionFunctionBody
 	{
-		FMaterialExpressionFunctionBody Body{.Signature = Signature, .AssetPath = GetObjectPath(), .Revision = Revision};
+		FMaterialExpressionFunctionBody Body{.Signature = GetFunctionSignature(), .AssetPath = GetObjectPath(), .Revision = Revision};
 		for (const auto& Expression : ExpressionCollection.Expressions) Body.Expressions.push_back(Expression.Get());
 		return Body;
 	}
@@ -25,7 +43,7 @@ namespace Durin
 		if (!Private::ValidateExpressionOwnership(*this, ExpressionCollection, OutError)) return false;
 		std::vector<DMaterialExpression*> Expressions;
 		for (const auto& Expression : ExpressionCollection.Expressions) Expressions.push_back(Expression.Get());
-		if (!FMaterialExpressionBuildContext::ValidateFunction(Expressions, Signature))
+		if (!FMaterialExpressionBuildContext::ValidateFunction(Expressions))
 		{
 			OutError = "Function expression collection or signature is invalid.";
 			return false;
@@ -33,24 +51,24 @@ namespace Durin
 		return true;
 	}
 
-	auto DMaterialFunction::SetFunctionExpressions(FMaterialFunctionSignature InSignature,
-		std::span<DMaterialExpression* const> Expressions) -> FMaterialProgramValidationResult
+	auto DMaterialFunction::SetFunctionExpressions(std::span<DMaterialExpression* const> Expressions) -> FMaterialProgramValidationResult
 	{
 		check(IsInGameThread());
-		auto Result = FMaterialExpressionBuildContext::ValidateFunction(Expressions, InSignature);
+		auto Result = FMaterialExpressionBuildContext::ValidateFunction(Expressions);
 		if (!Result) return Result;
 		Result = Private::ReplaceOwnedExpressions(*this, ExpressionCollection, Expressions);
 		if (!Result) return Result;
-		Signature = std::move(InSignature);
+		bSignatureCached = false;
 		Revision = Revision == std::numeric_limits<uint64>::max() ? 1 : Revision + 1;
 		NotifyMaterialFunctionChanged(*this);
 		MarkPackageDirty();
+		GraphChanges.Publish(*this);
 		return Result;
 	}
 
 	auto DMaterialFunction::Serialize(FArchive& Ar) -> void
 	{
-		if (!FMaterialGraphVersion::Serialize(Ar)) return;
+		if (!FMaterialGraphVersion::Serialize(Ar) || !FMaterialFunctionVersion::Serialize(Ar)) return;
 		Super::Serialize(Ar);
 		if (!Ar.HasError() && !IsTemplateObject() && Ar.IsSaving() && Ar.GetPurpose() == EArchivePurpose::AuthoredPackage)
 		{
@@ -84,17 +102,15 @@ namespace Durin
 		const FGuid OutputId{0x690923fd, 0x879544a9, 0x864a3518, 0x81f59b74};
 		const FGuid InputNodeId{0xc5e3f95b, 0x818a4f46, 0x90564e64, 0x45f39324};
 		const FGuid OutputNodeId{0x61a6db91, 0xb6d741cf, 0xa4e8d91d, 0xc14794f2};
-		Signature.Inputs.push_back({.Id = InputId, .Type = EMaterialProgramValueType::Surface,
-			.Name = "Surface", .Default = {.Kind = EMaterialFunctionDefaultKind::Surface}});
-		Signature.Outputs.push_back({.Id = OutputId, .Type = EMaterialProgramValueType::Surface, .Name = "Surface"});
 		if (!IsTemplateConstructionPurpose(Initializer.Purpose)
 			&& Initializer.Purpose != EObjectConstructionPurpose::AssetLoad
 			&& Initializer.Purpose != EObjectConstructionPurpose::Duplication)
 		{
 			auto* Input = NewObject<DMaterialExpressionFunctionInput>(this, "FunctionInput");
 			auto* Output = NewObject<DMaterialExpressionFunctionOutput>(this, "FunctionOutput");
-			Input->Id = InputNodeId; Input->PortId = InputId;
-			Output->Id = OutputNodeId; Output->PortId = OutputId; Output->Source = {InputNodeId};
+			Input->Id = InputNodeId; Input->Port = {.Id = InputId, .Type = EMaterialProgramValueType::Surface,
+				.Name = "Surface", .Default = {.Kind = EMaterialFunctionDefaultKind::Surface}};
+			Output->Id = OutputNodeId; Output->Port = {.Id = OutputId, .Type = EMaterialProgramValueType::Surface, .Name = "Surface"}; Output->Source = {InputNodeId};
 			ExpressionCollection.Expressions = {Input, Output};
 		}
 
@@ -113,7 +129,6 @@ namespace Durin
 		return Dependencies;
 	}
 
-
 	auto DMaterialFunction::SetFunctionPresentation(FMaterialFunctionPresentation Candidate) -> bool
 	{
 		check(IsInGameThread());
@@ -126,16 +141,19 @@ namespace Durin
 		if (Candidate == Presentation) return true;
 		Presentation = std::move(Candidate);
 		MarkPackageDirty();
+		GraphChanges.PublishPresentation(*this);
 		return true;
 	}
 
 	auto DMaterialFunction::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
 	{
 		Super::PostEditChangeProperty(Event);
-		if (Event.MemberProperty && (Event.MemberProperty->NamePrivate == FName("ExpressionCollection") || Event.MemberProperty->NamePrivate == FName("Signature")))
+		if (Event.MemberProperty && Event.MemberProperty->NamePrivate == FName("ExpressionCollection"))
 		{
+			bSignatureCached = false;
 			AdvanceFunctionRevision(Revision);
 			NotifyMaterialFunctionChanged(*this);
 		}
+		GraphChanges.Publish(*this);
 	}
 }

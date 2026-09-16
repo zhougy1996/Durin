@@ -20,7 +20,7 @@ TEST(FMaterialPropertyEditingTests, OwnedParametersShareIdentityAndRejectConflic
 	Duplicate->Metadata.Id = FGuid::NewGuid(); Duplicate->Metadata.Name = "rustamount";
 	EXPECT_FALSE(Material->SetMaterialExpressions(Duplicated, {}));
 	EXPECT_EQ(Material->GetParameterDefinitionSchemaRevision(), Revision);
-	ASSERT_EQ(Material->GetExpressionCollection().Expressions.size(), 2u);
+	ASSERT_EQ(Material->GetExpressionCollection().Expressions.size(), 3u);
 	Owner->Metadata.Name = "Weathering";
 	ASSERT_TRUE(Material->SetMaterialExpressions(Original, {}));
 	EXPECT_EQ(Material->FindParameterDefinition("Weathering")->Id, Owner->Metadata.Id);
@@ -839,7 +839,7 @@ TEST(FMaterialPropertyEditingTests, ProductionClassDefaultsMatchFreshOrdinaryObj
 			}
 			Template->GetClass()->ForEachProperty([&](Durin::FProperty* Property) {
 				// Dynamic authored collections are explicitly serialized and have no fixed CDO children.
-				if (Class == Durin::DMaterialFunction::StaticClass()
+				if ((Class == Durin::DMaterialFunction::StaticClass() || Class == Durin::DMaterial::StaticClass())
 					&& Property->NamePrivate == Durin::FName("ExpressionCollection")) return;
 				if (Property->HasAnyPropertyFlags(Durin::EPropertyFlags::Transient)
 					|| Property->NamePrivate == Durin::FName("VolumetricCloudSceneId")

@@ -84,7 +84,7 @@ namespace Durin
 			const auto* Concrete = Cast<DMaterialFunction>(Function);
 			if (!Concrete) return Fail("Function has no typed expression body.", Path);
 			const auto Body = Concrete->GetExpressionBody();
-			auto Validation = FMaterialExpressionBuildContext::ValidateFunction(Body.Expressions, Body.Signature);
+			auto Validation = FMaterialExpressionBuildContext::ValidateFunction(Body.Expressions);
 			if (!Validation) { Append(std::move(Validation), Path); return false; }
 			uint64 Bytes = Path.size() + Body.Expressions.size() * sizeof(DMaterialExpression*);
 			for (const auto& Port : Body.Signature.Inputs) Bytes += sizeof(Port) + Port.Name.size();

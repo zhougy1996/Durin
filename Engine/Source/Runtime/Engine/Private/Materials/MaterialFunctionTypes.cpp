@@ -1,4 +1,5 @@
 #include "Materials/MaterialFunctionTypes.h"
+#include "Materials/MaterialExpressions.h"
 
 #include <cmath>
 #include <unordered_map>
@@ -28,6 +29,18 @@ namespace Durin
 					: EMaterialProgramDiagnosticLocationKind::Program,
 				.NodeId = NodeId, .Message = std::move(Message), .PortId = PortId});
 		}
+	}
+
+	auto DeriveMaterialFunctionSignature(std::span<DMaterialExpression* const> Expressions)
+		-> FMaterialFunctionSignature
+	{
+		FMaterialFunctionSignature Result;
+		for (const auto* Expression : Expressions)
+		{
+			if (const auto* Input = Cast<DMaterialExpressionFunctionInput>(Expression)) Result.Inputs.push_back(Input->Port);
+			else if (const auto* Output = Cast<DMaterialExpressionFunctionOutput>(Expression)) Result.Outputs.push_back(Output->Port);
+		}
+		return Result;
 	}
 
 	auto ValidateMaterialFunctionSignature(const FMaterialFunctionSignature& Signature)

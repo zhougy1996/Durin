@@ -217,14 +217,6 @@ namespace Durin
 		return Context.Numeric(EMaterialProgramOpcode::Splat4, EMaterialProgramValueType::Float4, Inputs, Defaults);
 	}
 
-	auto DMaterialExpressionDecodeNormalRG::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
-	{
-		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail("Expression has only its primary output.");
-		const std::array Inputs{&Input};
-		const std::array Defaults{&InputDefault};
-		return Context.Numeric(EMaterialProgramOpcode::DecodeNormalRG, EMaterialProgramValueType::Float3, Inputs, Defaults);
-	}
-
 	auto DMaterialExpressionBlendNormalsRNM::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
 	{
 		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail("Expression has only its primary output.");

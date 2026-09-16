@@ -1,3 +1,4 @@
+#include "Materials/FunctionPortTestFixture.h"
 #include "Actors/SkyLightActor.h"
 #include "Components/SkyLightComponent.h"
 #include "Asset/Asset.h"
@@ -40,7 +41,7 @@ namespace
 	{
 		std::vector<Durin::DMaterialExpression*> Values;
 		for (const auto& Expression : Expressions) Values.push_back(Expression.Get());
-		return Function.SetFunctionExpressions(Signature, Values);
+		return Function.SetFunctionExpressions(Durin::Testing::WithFunctionPorts(Signature, Values));
 	}
 	auto ConnectFunction(Durin::DMaterialFunction& Caller, Durin::DMaterialFunction& Callee, Durin::FGuid Id)
 		-> Durin::FMaterialProgramValidationResult

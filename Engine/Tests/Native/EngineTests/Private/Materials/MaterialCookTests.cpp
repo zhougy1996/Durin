@@ -59,7 +59,8 @@ TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 	Durin::ObjectPackage::FLinkerTables VersionLinker;
 	ASSERT_TRUE(Durin::ObjectPackage::ReadPackage(OriginalBytes, {}, Path, VersionLinker));
 	ASSERT_EQ(VersionLinker.CustomVersions, (std::vector<Durin::FCustomVersion>{
-		{Durin::FMaterialGraphVersion::Guid, Durin::FMaterialGraphVersion::CurrentVersion}}));
+		{Durin::FMaterialGraphVersion::Guid, Durin::FMaterialGraphVersion::CurrentVersion},
+		{Durin::FMaterialOutputVersion::Guid, Durin::FMaterialOutputVersion::CurrentVersion}}));
 	VersionLinker.CustomVersions.clear();
 	Durin::FByteBuffer MissingVersionBytes, UnusedBulk;
 	ASSERT_TRUE(Durin::ObjectPackage::WritePackage(VersionLinker, MissingVersionBytes, UnusedBulk));

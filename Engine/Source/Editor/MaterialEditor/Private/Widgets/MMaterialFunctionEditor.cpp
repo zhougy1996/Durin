@@ -272,10 +272,7 @@ namespace Durin::Editor::Material
 			if (Document.bOutputPort) { Document.PortDraft.bRequired = false; Document.PortDraft.Default = {}; }
 			if (Document.EditingPort.IsValid())
 			{
-				auto Signature = Function.GetFunctionSignature();
-				auto& Ports = Document.bOutputPort ? Signature.Outputs : Signature.Inputs;
-				if (auto Port = std::ranges::find(Ports, Document.EditingPort, &FMaterialFunctionPort::Id); Port != Ports.end()) *Port = Document.PortDraft;
-				Apply(Graph.SetSignature(std::move(Signature), GEditor->GetTransactor()));
+				Apply(Graph.SetPort(Document.bOutputPort, Document.PortDraft, GEditor->GetTransactor()));
 			}
 			else Apply(Graph.AddPort(Document.bOutputPort, Document.PortDraft, Document.OutputSource, 0, 240, GEditor->GetTransactor()));
 		}

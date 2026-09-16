@@ -22,9 +22,8 @@ namespace Durin::AssetForge::Builtins
 		-> FImportedSurfaceRecipe
 	{
 		FImportedSurfaceRecipe Result;
-		Result.CanonicalKey = "Durin.ImportedSurface:3";
-		Result.Graph.Presentation.bHasMaterialOutputPosition = true;
-		Result.Graph.Presentation.MaterialOutputX = 1000;
+		Result.CanonicalKey = "Durin.ImportedSurface:4";
+		Result.Graph.OutputPosition = {1000, 0};
 		const auto Definitions = MakePBRMaterialParameterDefinitions();
 		std::vector<uint32> Groups;
 		std::vector<Link> Samples;
@@ -88,9 +87,9 @@ namespace Durin::AssetForge::Builtins
 					if (UVMask & (1u << U)) Result.Owners.push_back({Role, UVKinds[U], GetMaterialSurfaceParameterId(OwnerRole, UVKinds[U])});
 			}
 			Output = Samples[Group];
-			Output.OutputIndex = Sample.bDecodeNormal ? 8 : Sample.OutputIndex;
+			Output.OutputIndex = Sample.OutputIndex;
 			const FMaterialProgramLiteral Identity = ValueType == Type::Float3 ? FMaterialProgramLiteral{1, 1, 1} : FMaterialProgramLiteral{1};
-			const bool bFactor = !Sample.bDecodeNormal && Input.Value != Identity;
+			const bool bFactor = I != 1 && Input.Value != Identity;
 			if (bFactor)
 			{
 				const auto Factor = Parameter(I, Kind::Value);
@@ -100,7 +99,7 @@ namespace Durin::AssetForge::Builtins
 			}
 			Result.CanonicalKey += "s" + std::to_string(Group) + "," + std::to_string(Sample.OutputIndex) +
 				"," + std::to_string(static_cast<uint32>(Sample.Usage)) + "," + std::to_string(UVMask) +
-				"," + (Sample.bDecodeNormal ? "n2" : "c") + "," + (bFactor ? "f" : "i");
+				"," + (I == 1 ? "normal" : "c") + "," + (bFactor ? "f" : "i");
 		}
 		return Result;
 	}

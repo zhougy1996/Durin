@@ -24,6 +24,7 @@ namespace Durin::Editor::Material
 			State.Expressions.emplace_back(Value);
 			return Value;
 		};
+		auto* Terminal = Add.operator()<DMaterialExpressionMaterialOutput>();
 		std::array<FMaterialExpressionInput, 6> RequiredValues;
 		auto* Call = Add.operator()<DMaterialExpressionFunctionCall>();
 		Call->Function = &Function;
@@ -63,7 +64,7 @@ namespace Durin::Editor::Material
 			}
 		FMaterialExpressionInput Value{Call->Id, 0, OutputId};
 		FMaterialStaticProperties Properties;
-		if (Output->Type == Type::Surface) State.Outputs.Surface = Value;
+		if (Output->Type == Type::Surface) State.GetOutputs().Surface = Value;
 		else
 		{
 			Properties.ShadingModel = EMaterialShadingModel::Unlit;
@@ -89,13 +90,13 @@ namespace Durin::Editor::Material
 				auto* Mask = Add.operator()<DMaterialExpressionSwizzle>();
 				Mask->Input = Value; Mask->Components = {0, 1, 2}; Value = {Mask->Id};
 			}
-			State.Outputs.Emissive = Value;
+			State.GetOutputs().Emissive = Value;
 		}
 		for (size_t Index = 0; Index < State.Expressions.size(); ++Index)
 			State.Presentation.Nodes.push_back({State.Expressions[Index]->Id, static_cast<int32>(Index % 4) * 320,
 				static_cast<int32>(Index / 4) * 240});
-		State.Presentation.bHasMaterialOutputPosition = true;
-		State.Presentation.MaterialOutputX = 1280;
+		for (auto& Position : State.Presentation.Nodes)
+			if (Position.NodeId == Terminal->Id) Position.X = 1280;
 		auto Result = CommitOwnedExpressions(Preview, std::move(State), "Build Function Preview", nullptr);
 		if (Result && !Preview.SetStaticProperties(Properties)) return MakeRejected("The preview properties are invalid.");
 		return Result;

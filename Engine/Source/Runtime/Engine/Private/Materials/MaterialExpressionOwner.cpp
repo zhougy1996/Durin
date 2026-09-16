@@ -6,14 +6,39 @@
 #include "Asset/Asset.h"
 #include "DObject/Archive.h"
 #include "DObject/Package.h"
+#include "DObject/StrongObjectPtr.h"
 #include "Threading/RunnableThread.h"
 #include <unordered_set>
 
 namespace Durin
 {
+	auto DMaterial::GetOutputNode() const -> const DMaterialExpressionMaterialOutput*
+	{
+		for (const auto& Expression : ExpressionCollection.Expressions)
+			if (const auto* Output = Cast<DMaterialExpressionMaterialOutput>(Expression.Get())) return Output;
+		return nullptr;
+	}
+
+	auto DMaterial::GetExpressionOutputs() const -> const FMaterialExpressionSurfaceOutputs&
+	{
+		if (const auto* Output = GetOutputNode()) return Output->Outputs;
+		static const FMaterialExpressionSurfaceOutputs Empty;
+		return Empty; // Cooked assets contain the compiled projection, not an authored graph.
+	}
+
 	auto DMaterial::ValidateExpressionGraph(const FMaterialExpressionCollection& Collection,
 		const FMaterialExpressionSurfaceOutputs& Outputs, FXxHash128* OutCodeFingerprint) -> FMaterialProgramValidationResult
 	{
+		const auto Count = std::ranges::count_if(Collection.Expressions, [](const auto& Expression) {
+			return Cast<DMaterialExpressionMaterialOutput>(Expression.Get()) != nullptr;
+		});
+		if (Count != 1)
+		{
+			FMaterialProgramValidationResult Invalid;
+			Invalid.Diagnostics.push_back({.Category = EMaterialProgramDiagnosticCategory::Graph,
+				.Message = "A material graph requires exactly one material output node."});
+			return Invalid;
+		}
 		std::vector<DMaterialExpression*> Expressions;
 		for (const auto& Expression : Collection.Expressions) Expressions.push_back(Expression.Get());
 		return FMaterialExpressionBuildContext::ValidateSurface(Expressions, Outputs, OutCodeFingerprint);
@@ -57,13 +82,12 @@ namespace Durin
 	}
 
 
-
-
 	auto DMaterial::ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context, std::string& OutError) const -> bool
 	{
 		if (Context.bCooked) return true;
+		if (GetMaterialDomainOutputPins(Domain).empty()) { OutError = "Unsupported material domain."; return false; }
 		if (!Private::ValidateExpressionOwnership(*this, ExpressionCollection, OutError)) return false;
-		const auto Validation = ValidateExpressionGraph(ExpressionCollection, ExpressionOutputs);
+		const auto Validation = ValidateExpressionGraph(ExpressionCollection, GetExpressionOutputs());
 		if (!Validation)
 		{
 			OutError = Validation.Diagnostics.empty() ? "Invalid material expression graph." : Validation.Diagnostics.front().Message;
@@ -75,6 +99,28 @@ namespace Durin
 	auto DMaterial::SetMaterialExpressions(std::span<DMaterialExpression* const> Expressions,
 		FMaterialExpressionSurfaceOutputs Outputs) -> FMaterialProgramValidationResult
 	{
+		// Recipe convenience: publish an ordinary output node together with the supplied expressions.
+		TStrongObjectPtr<DMaterialExpressionMaterialOutput> Terminal(NewObject<DMaterialExpressionMaterialOutput>(nullptr, NAME_None));
+		const auto* Existing = GetOutputNode();
+		Terminal->Id = Existing ? Existing->Id : FGuid::NewGuid();
+		Terminal->Outputs = std::move(Outputs);
+		std::vector<DMaterialExpression*> Nodes;
+		bool bHasOutput = false;
+		for (auto* Expression : Expressions)
+		{
+			if (const auto* Output = Cast<DMaterialExpressionMaterialOutput>(Expression))
+			{
+				if (bHasOutput) return {.Diagnostics = {{.Message = "A material graph cannot contain multiple output nodes."}}};
+				bHasOutput = true; Terminal->Id = Output->Id; continue;
+			}
+			Nodes.push_back(Expression);
+		}
+		Nodes.push_back(Terminal.Get());
+		return SetMaterialExpressions(Nodes);
+	}
+
+	auto DMaterial::SetMaterialExpressions(std::span<DMaterialExpression* const> Expressions) -> FMaterialProgramValidationResult
+	{
 		check(IsInGameThread());
 		FMaterialProgramValidationResult Result;
 		FMaterialExpressionCollection Candidate;
@@ -83,12 +129,24 @@ namespace Durin
 		Result = DeriveExpressionParameterSchema(Candidate, Schema);
 		if (!Result) return Result;
 		FXxHash128 Code;
-		Result = ValidateExpressionGraph(Candidate, Outputs, &Code);
+		const DMaterialExpressionMaterialOutput* Output = nullptr;
+		for (auto* Expression : Expressions)
+			if (const auto* Terminal = Cast<DMaterialExpressionMaterialOutput>(Expression))
+			{
+				if (Output) return {.Diagnostics = {{.Message = "A material graph requires exactly one output node."}}};
+				Output = Terminal;
+			}
+		if (!Output) return {.Diagnostics = {{.Message = "The material graph has no output node."}}};
+		if (GetMaterialDomainOutputPins(Domain).empty()) return {.Diagnostics = {{.Message = "Unsupported material domain."}}};
+		Result = ValidateExpressionGraph(Candidate, Output->Outputs, &Code);
 		if (!Result) return Result;
-		Result = Private::ReplaceOwnedExpressions(*this, ExpressionCollection, Expressions);
+		std::vector<DMaterialExpression*> Ordered;
+		for (auto* Expression : Expressions)
+			if (Expression != Output) Ordered.push_back(Expression);
+		Ordered.push_back(const_cast<DMaterialExpressionMaterialOutput*>(Output));
+		Result = Private::ReplaceOwnedExpressions(*this, ExpressionCollection, Ordered);
 		if (!Result) return Result;
 		const bool bShaderChanged = Code != ObservedExpressionCode;
-		ExpressionOutputs = std::move(Outputs);
 		ObservedExpressionCode = Code;
 		auto Advance = [](uint64& Revision) { Revision = Revision == std::numeric_limits<uint64>::max() ? 1 : Revision + 1; };
 		if (ParameterSchema != Schema) Advance(ParameterDefinitionSchemaRevision);
@@ -101,6 +159,7 @@ namespace Durin
 		}
 		MarkPackageDirty();
 		MarkRenderDataDirty(bShaderChanged ? EMaterialRenderDirtyFlags::ShaderMap : EMaterialRenderDirtyFlags::DynamicParameters);
+		GraphChanges.Publish(*this);
 		return Result;
 	}
 }

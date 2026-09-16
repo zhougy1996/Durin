@@ -12,11 +12,14 @@ namespace Durin::Editor::Material
 		{
 			FMaterialExpressionInput* Source = nullptr;
 			std::vector<float>* Default = nullptr;
+			FMaterialExpressionSurfaceOutputs* MaterialOutputs = nullptr;
+			EMaterialOutputPin OutputPin = EMaterialOutputPin::Surface;
 
-			auto SupportsDefault() const -> bool { return Default != nullptr; }
-			auto Read() const -> std::vector<float> { return Default ? *Default : std::vector<float>{}; }
+			auto SupportsDefault() const -> bool { return Default != nullptr || (MaterialOutputs && OutputPin != EMaterialOutputPin::Surface); }
+			auto Read() const -> std::vector<float> { return MaterialOutputs ? ReadMaterialOutputDefault(*MaterialOutputs, OutputPin) : Default ? *Default : std::vector<float>{}; }
 			auto Write(const std::vector<float>& Value) const -> bool
 			{
+				if (MaterialOutputs) return WriteMaterialOutputDefault(*MaterialOutputs, OutputPin, Value);
 				if (!Default) return false;
 				*Default = Value;
 				return true;
@@ -33,6 +36,12 @@ namespace Durin::Editor::Material
 		{
 			auto* Expression = FindExpression(State, NodeId);
 			if (!Expression) return {};
+			if (auto* Output = Cast<DMaterialExpressionMaterialOutput>(Expression))
+			{
+				if (PortId.IsValid() || Index > static_cast<uint32>(EMaterialOutputPin::Surface)) return {};
+				return {.Source = GetMaterialOutputInput(Output->Outputs, static_cast<EMaterialOutputPin>(Index)),
+					.MaterialOutputs = &Output->Outputs, .OutputPin = static_cast<EMaterialOutputPin>(Index)};
+			}
 			if (PortId.IsValid())
 			{
 				auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression);
@@ -69,9 +78,6 @@ namespace Durin::Editor::Material
 			bool bFound = false;
 			for (auto& Expression : State.Expressions)
 				VisitMaterialExpressionInputs(*Expression, [&](uint32, FMaterialExpressionInput& Input) { bFound |= Input.ExpressionId == Id; });
-			for (const auto* Output : {&State.Outputs.Surface, &State.Outputs.BaseColor, &State.Outputs.Normal, &State.Outputs.Metallic,
-				&State.Outputs.Roughness, &State.Outputs.AmbientOcclusion, &State.Outputs.Emissive, &State.Outputs.Opacity, &State.Outputs.OpacityMask})
-				bFound |= Output->ExpressionId == Id;
 			return bFound;
 		}
 
@@ -126,6 +132,7 @@ namespace Durin::Editor::Material
 		auto Constant = MakeConstant(Input.Read());
 		if (!Constant) return MakeRejected("The input default has an unsupported width.");
 		*Input.Source = {Constant->Id};
+		if (Input.MaterialOutputs) Input.MaterialOutputs->Surface = {};
 		const auto Position = std::ranges::find(State.Presentation.Nodes, NodeId, &FMaterialGraphNodePresentation::NodeId);
 		if (Position == State.Presentation.Nodes.end()) return MakeRejected("The input owner has no authored position.");
 		State.Presentation.Nodes.push_back({Constant->Id, Position->X - 320, Position->Y});

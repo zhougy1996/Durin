@@ -15,6 +15,12 @@ namespace Durin::Editor::Material
 			for (uint32 Index = 0; Index < Call->Inputs.size(); ++Index) Visit(Index, Call->Inputs[Index].Input);
 			return;
 		}
+		if (auto* Output = Cast<DMaterialExpressionMaterialOutput>(&Expression))
+		{
+			for (const auto& Pin : GetMaterialDomainOutputPins(EMaterialDomain::Surface))
+				Visit(static_cast<uint32>(Pin.Id), *GetMaterialOutputInput(Output->Outputs, Pin.Id));
+			return;
+		}
 		uint32 Index = 0;
 		Expression.GetClass()->ForEachProperty([&](FProperty* Property) {
 			if (Property->GetKind() != DurinCodeGen::EPropertyGenFlags::Struct) return;

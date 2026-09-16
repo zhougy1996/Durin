@@ -558,6 +558,7 @@ namespace Durin
 					State->Result.Diagnostics.push_back({{}, {}, Stage::Retire, ReleaseResult.Message});
 				}
 				RefreshExternalRenderBindings(ExternalRenderConsumers, bTextures, bMaterials);
+				RefreshMaterialGraphObservers();
 				for (const auto& Path : Paths)
 					if (auto* Package = FindResidentPackage(Path))
 						for (DObject* Object : Package->GetTopLevelAssets())

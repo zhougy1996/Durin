@@ -1,3 +1,4 @@
+#include "../Materials/FunctionPortTestFixture.h"
 #include "Misc/MountPathTestSupport.h"
 #include "NativeDObjectTestSupport.h"
 #include "TextureTestSupport.h"
@@ -354,7 +355,8 @@ TEST(FSceneImportTests, FailedPublicationDiscardsGeneratedParentAndRetrySucceeds
 	EXPECT_TRUE(FindAssetExact(ParentPath));
 	auto* Parent = Cast<DMaterial>(FindResidentPackage(ParentPath)->FindTopLevelAsset(FName(ParentPath.GetPackageName())));
 	ASSERT_NE(Parent, nullptr);
-	EXPECT_EQ(Parent->GetExpressionCollection().Expressions.size(), 1u);
+	EXPECT_EQ(Parent->GetExpressionCollection().Expressions.size(), 2u);
+	EXPECT_NE(Parent->GetOutputNode(), nullptr);
 	EXPECT_EQ(Parent->GetParameterDefinitions().size(), 1u);
 }
 
@@ -632,7 +634,7 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 	const auto Apply = [&](const auto& Expressions, const FMaterialFunctionSignature& CandidateSignature) {
 		std::vector<DMaterialExpression*> Values;
 		for (const auto& Expression : Expressions) Values.push_back(Expression.Get());
-		return Functions.StandardPBR->SetFunctionExpressions(CandidateSignature, Values);
+		return Functions.StandardPBR->SetFunctionExpressions(Durin::Testing::WithFunctionPorts(CandidateSignature, Values));
 	};
 	const auto Matches = [&](const auto& Expressions, const FMaterialFunctionSignature& ExpectedSignature) {
 		const auto& Actual = Functions.StandardPBR->GetExpressionCollection().Expressions;
@@ -659,8 +661,8 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 	Signature.Inputs.front().Id = FGuid::NewGuid();
 	const auto OldId = OriginalSignature.Inputs.front().Id;
 	for (const auto& Expression : Edited)
-		if (auto* Input = Cast<DMaterialExpressionFunctionInput>(Expression.Get()); Input && Input->PortId == OldId)
-			Input->PortId = Signature.Inputs.front().Id;
+		if (auto* Input = Cast<DMaterialExpressionFunctionInput>(Expression.Get()); Input && Input->Port.Id == OldId)
+			Input->Port.Id = Signature.Inputs.front().Id;
 	for (auto& Port : Signature.Inputs)
 		if (Port.Default.InputId == OldId) Port.Default.InputId = Signature.Inputs.front().Id;
 	ASSERT_TRUE(Apply(Edited, Signature));
@@ -677,6 +679,6 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 	EXPECT_EQ(Functions.StandardPBR->GetAuthoringSourceVersion(), StandardMaterialFunctionVersion);
 	EXPECT_TRUE(std::ranges::any_of(Material->GetExpressionCollection().Expressions, [&](const auto& Expression) {
 		const auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression.Get());
-		return Call && Call->Function.Get() == Functions.DecodeImportedNormalRG.Get();
+		return Call && Call->Function.Get() == Functions.SampleNormal.Get();
 	}));
 }

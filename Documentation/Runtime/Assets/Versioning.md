@@ -4,7 +4,7 @@ Summary: Define engine release, Archive, authored package, custom-version, and c
 
 Modules: Core, CoreDObject, Engine, AssetRegistry, AssetMaintenance
 
-Last reviewed: 2026-09-15
+Last reviewed: 2026-09-16
 
 Durin's engine release version is defined once in `Engine/Build/Build.version`.
 CMake validates that file, exposes the numeric core as the workspace project
@@ -90,10 +90,13 @@ discarding. Cooked native serializer fields remain strict.
 
 `FMaterialGraphVersion` is shared by `DMaterial` and `DMaterialFunction`;
 `FMaterialInstanceVersion` independently versions typed instance parameter storage.
-Both domains start at version 1 and are registered when Engine loads. Package
+`FMaterialFunctionVersion` versions terminal-owned function port definitions.
+`FMaterialOutputVersion` versions terminal-owned material output data.
+The graph domain is at version 2; the other three domains are at version 1.
+All four are registered when Engine loads. Package
 serializers declare the appropriate domain during discovery and saving, and
 require exactly the current version on authored/cooked loads. Missing versions
-are not inferred from reflected defaults or obsolete fields. Both domains can
+are not inferred from reflected defaults or obsolete fields. These domains can
 appear in a multi-asset package; an instance does not declare its parent's graph
 domain unless that graph is also serialized in the same package.
 
@@ -101,14 +104,30 @@ The maintained DefaultMaterial and seven standard material-function packages
 were converted offline by adding only the graph-version record. No maintained
 instance package required conversion. The old instance `ParameterStorageVersion`
 field is removed, and there is no retained converter or legacy-reader fallback.
-Material/function graph data and instance override values retain their existing
-representation. Ordinary non-version `AlwaysSerialize` fields remain unchanged.
+The seven maintained function packages were then resaved with complete port
+definitions on FunctionInput/FunctionOutput expressions, preserving node and port
+GUIDs, connections and presentation. Functions now require the function-port
+version in addition to the graph version. The independent serialized Signature
+and terminal PortId fields, and the temporary offline converter, are removed.
+DefaultMaterial and M_MetalRust were resaved offline with a unique material
+output expression containing their links and defaults, and ordinary GUID-keyed
+output positions. Materials require the output-node version in addition to the
+graph version. The separate ExpressionOutputs and special output-position fields
+and the temporary converter are removed. Instance overrides are unchanged.
+Ordinary non-version `AlwaysSerialize` fields remain unchanged.
 
 In-memory ObjectGraph, Duplicate, PropertySnapshot and EditableCopy operations do
 not require package version records. Cooked dispatch reaches the same version
 checks through `DObject::SerializeCooked` and virtual `Serialize`; graph stripping
 does not remove the material package version. Future incompatible changes must
 advance the owning domain and define their explicit migration policy.
+
+Graph version 2 removes the authored DecodeNormalRG class and retired normal
+sample output index 8. The two maintained materials and six retained standard
+functions were resaved offline; SampleNormal now consumes decoded RGB and the
+unreferenced DecodeImportedNormalRG asset was removed. Standard recipe provenance
+is version 3. Readers require the current graph version, with no legacy decoder,
+port alias, or migration branch retained in runtime code.
 
 ## Static Mesh Source Versions
 

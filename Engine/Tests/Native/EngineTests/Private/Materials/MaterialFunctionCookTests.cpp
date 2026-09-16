@@ -147,7 +147,7 @@ TEST_F(FMaterialFunctionCookTests, StructuralNormalParentRoundTripsDuplicatesAnd
 	for (uint32 I = 0; I < Roles.size(); ++I)
 		Roles[I].Value = GetMaterialSurfaceOutputDefault(Defaults, static_cast<EMaterialSurfaceOutput>(I));
 	Roles[1].Sample = FImportedSurfaceSample{.ResourceIdentity = "normal", .Usage = ETextureUsage::Normal,
-		.OutputIndex = 8, .bDecodeNormal = true};
+		.OutputIndex = 1};
 	const auto Recipe = MakeImportedSurfaceRecipe(Roles);
 	ASSERT_EQ(Recipe.Graph.Expressions.size(), 1u);
 	ASSERT_TRUE(Recipe.Graph.Apply(*Material));
@@ -234,15 +234,15 @@ TEST_F(FMaterialFunctionCookTests, StandardMaterialFixtureCooksAndLoadsWithoutAu
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(MaterialPath, Material));
 	ASSERT_NE(Material, nullptr);
 	AssetForge::Builtins::FStandardMaterialFunctions Functions;
-	// This fixture references only the normal decoder; unrelated standard assets
+	// This fixture references only the normal sampler; unrelated standard assets
 	// belong to recipe coverage and unnecessarily expand registry/cook setup here.
 	FPackagePath FunctionPath;
-	ASSERT_TRUE(FPackagePath::TryCreate("/Engine/Materials/Functions/DecodeImportedNormalRG", FunctionPath));
+	ASSERT_TRUE(FPackagePath::TryCreate("/Engine/Materials/Functions/SampleNormal", FunctionPath));
 	DMaterialFunction* Function = nullptr;
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(FunctionPath, Function));
 	ASSERT_TRUE(AssetForge::Builtins::MakeStandardMaterialFunctionExpressions(
-		AssetForge::Builtins::EStandardMaterialFunction::DecodeImportedNormalRG, Functions).Apply(*Function));
-	Functions.DecodeImportedNormalRG = Function;
+		AssetForge::Builtins::EStandardMaterialFunction::SampleNormal, Functions).Apply(*Function));
+	Functions.SampleNormal = Function;
 	ASSERT_TRUE(SavePackage(Function->GetPackage()));
 	ASSERT_TRUE(Testing::MakeStandardMaterialExpressionsForTest(Functions).Apply(*Material));
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));

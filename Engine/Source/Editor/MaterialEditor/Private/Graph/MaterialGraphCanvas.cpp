@@ -29,8 +29,8 @@ namespace Durin::Editor::Material
 			};
 			for (const auto& Node : View.Nodes)
 				for (const auto& Pin : Node.Inputs) MarkOutput(Pin.Link);
-			for (uint32 Index = 0; Index < 8; ++Index)
-				MarkOutput(GetMaterialSurfaceOutputLink(View.Outputs, static_cast<EMaterialSurfaceOutput>(Index)));
+			for (const auto& Node : View.Nodes)
+				for (const auto& Input : Node.Inputs) MarkOutput(Input.Link);
 			for (auto& Node : View.Nodes)
 				if (IsMaterialSamplingNode(Node.Node.Opcode))
 					std::erase_if(Node.Outputs, [&](const auto& Pin) {
@@ -130,7 +130,7 @@ namespace Durin::Editor::Material
 				return IM_COL32(48, 100, 66, 255);
 			case Op::Constant: case Op::UVChannel: case Op::TextureCoordinates: case Op::WorldPosition: case Op::Time:
 				return IM_COL32(44, 83, 126, 255);
-			case Op::TextureSample2D: case Op::DecodeNormalRG: case Op::BlendNormalsRNM:
+			case Op::TextureSample2D: case Op::BlendNormalsRNM:
 				return IM_COL32(114, 79, 43, 255);
 			case Op::Swizzle: case Op::AppendVector: case Op::MakeFloat2: case Op::MakeFloat3: case Op::MakeFloat4:
 			case Op::Splat2: case Op::Splat3: case Op::Splat4:
@@ -162,37 +162,6 @@ namespace Durin::Editor::Material
 			return (Color & IM_COL32(255, 255, 255, 0)) | IM_COL32(0, 0, 0, Alpha);
 		}
 
-		auto SurfaceLinks(const FMaterialSurfaceOutputs& Outputs)
-			-> std::array<const FMaterialProgramLink*, 9>
-		{
-			return {&Outputs.BaseColor, &Outputs.Normal, &Outputs.Metallic,
-				&Outputs.Roughness, &Outputs.AmbientOcclusion, &Outputs.Emissive,
-				&Outputs.Opacity, &Outputs.OpacityMask, &Outputs.Surface};
-		}
-
-		auto SurfaceGraphMinimum(const FMaterialGraphView& View) -> ImVec2
-		{
-			bool bFound = false;
-			float MaximumX = 0.0f;
-			float MinimumY = 0.0f;
-			float MaximumY = 0.0f;
-			for (const FMaterialGraphNodeView& Node : View.Nodes)
-			{
-				const float Y = static_cast<float>(Node.Presentation.Y);
-				const float Height = GraphNodeHeight(Node);
-				MaximumX = std::max(MaximumX,
-					static_cast<float>(Node.Presentation.X) + GraphNodeWidth(Node));
-				if (!bFound) { MinimumY = Y; MaximumY = Y + Height; bFound = true; }
-				else { MinimumY = std::min(MinimumY, Y); MaximumY = std::max(MaximumY, Y + Height); }
-			}
-			const float Height = Metrics.SurfaceHeaderHeight
-				+ Metrics.PinRowHeight
-					* (View.Outputs.Surface.SourceNodeId.IsValid() ? 1.0f : 8.0f)
-				+ Metrics.BodyPadding;
-			return {MaximumX + Metrics.ColumnGap,
-				bFound ? (MinimumY + MaximumY - Height) * 0.5f : 0.0f};
-		}
-
 		auto Ellipsize(std::string_view Text, float LogicalWidth) -> std::string
 		{
 			if (Text.empty()) return {};
@@ -216,13 +185,9 @@ namespace Durin::Editor::Material
 		std::vector<ImVec2> InputPins;
 		auto OutputIndex(const FMaterialProgramLink& Link) const -> size_t
 		{
-			// Retained package links to the retired Normal output keep their
-			// compiler semantics, but share the RGB anchor in the canvas.
-			const uint8 VisibleIndex = IsMaterialSamplingNode(View->Node.Opcode)
-				&& Link.SourceOutputIndex == 8 ? 1 : Link.SourceOutputIndex;
 			for (size_t Index = 0; Index < View->Outputs.size(); ++Index)
 				if (View->Outputs[Index].PortId == Link.SourceOutputId
-					&& View->Outputs[Index].OutputIndex == VisibleIndex) return Index;
+					&& View->Outputs[Index].OutputIndex == Link.SourceOutputIndex) return Index;
 			return 0;
 		}
 		auto OutputPosition(const FMaterialProgramLink& Link) const -> ImVec2
@@ -244,7 +209,6 @@ namespace Durin::Editor::Material
 	{
 		if (!NodeId.IsValid()) return false;
 		SelectedSurfaceOutput.reset();
-		bPendingFrameSurface = false;
 		SelectedNodes = {NodeId};
 		PendingFrameNode = NodeId;
 		return true;
@@ -263,11 +227,10 @@ namespace Durin::Editor::Material
 		case EMaterialProgramDiagnosticLocationKind::SurfaceOutput:
 			if (Diagnostic.LocationIndex
 				> static_cast<uint32>(EMaterialSurfaceOutput::OpacityMask)) return false;
-			SelectedNodes = {EMaterialGraphTerminal::MaterialOutput};
-			PendingFrameNode = {};
+			SelectedNodes = {Diagnostic.NodeId.IsValid() ? Diagnostic.NodeId : OutputNodeId};
+			PendingFrameNode = Diagnostic.NodeId.IsValid() ? Diagnostic.NodeId : OutputNodeId;
 			SelectedSurfaceOutput =
 				static_cast<EMaterialSurfaceOutput>(Diagnostic.LocationIndex);
-			bPendingFrameSurface = true;
 			return true;
 		case EMaterialProgramDiagnosticLocationKind::Program:
 			return false;
@@ -280,10 +243,9 @@ namespace Durin::Editor::Material
 		if (MoveSession.IsActive())
 		{
 			MoveSession.Cancel();
-			SurfaceGraphPosition.reset();
 		}
 		Interaction = FIdleInteraction{};
-		CachedFunction = nullptr;
+		bViewStale = true;
 	}
 
 	auto FMaterialGraphCanvas::ResetInteraction() -> void
@@ -291,59 +253,59 @@ namespace Durin::Editor::Material
 		CancelInteraction();
 	}
 
-	auto FMaterialGraphCanvas::PrepareView(DMaterial& Material)
-		-> const FMaterialGraphView&
+	auto FMaterialGraphCanvas::PrepareDocumentView(DObject& Owner) -> void
 	{
-		bFunctionGraph = false;
-		const uint64 ProgramRevision = Material.GetMaterialCompileStatus().AuthoredRevision;
-		const uint64 PresentationRevision =
-			Material.GetMaterialGraphPresentationRevision();
-		const uint64 SchemaRevision =
-			Material.GetParameterDefinitionSchemaRevision();
-		if (Catalog.empty())
+		const bool bFunction = Cast<DMaterialFunction>(&Owner) != nullptr;
+		if (Catalog.empty() || bFunctionGraph != bFunction)
 		{
 			Catalog = FMaterialGraphOperations::EnumerateCatalog();
+			if (bFunction) std::erase_if(Catalog, [](const auto& Entry) {
+				return Entry.Opcode == EMaterialProgramOpcode::Parameter || Entry.Opcode == EMaterialProgramOpcode::TextureParameter
+					|| Entry.Opcode == EMaterialProgramOpcode::TextureSampleParameter2D;
+			});
 			++CatalogRevision;
+			bViewStale = true;
 		}
-		if (CachedMaterial != &Material
-			|| CachedProgramRevision != ProgramRevision
-			|| CachedExpressionRevision != Material.GetMaterialProgramRevision()
-			|| CachedRenderStateVersion != Material.GetRenderStateVersion()
-			|| CachedSchemaRevision != SchemaRevision)
+		bFunctionGraph = bFunction;
+		const auto Changes = ReadModel.Refresh(Owner, Catalog);
+		const auto& Inspection = ReadModel.GetView();
+		using N = EMaterialGraphNodeChange;
+		if (bViewStale || Changes.Has(EMaterialGraphChange::Reset)
+			|| std::ranges::any_of(Changes.Nodes, [](const auto& Node) {
+				return (Node.Flags & (N::Added | N::Removed | N::Interface | N::Inputs)) != N::None;
+			}))
 		{
-			CachedInspection = FMaterialGraphOperations::Inspect(Material, Catalog);
-			CachedView = CachedInspection;
+			CachedView = Inspection;
 			if (!bShowAdvancedInputs) HideUnusedAdvancedPins(CachedView);
 			CachedNodeIndices.clear();
-			CachedNodeIndices.reserve(CachedView.Nodes.size());
 			for (size_t Index = 0; Index < CachedView.Nodes.size(); ++Index)
 				CachedNodeIndices.emplace(CachedView.Nodes[Index].Node.Id, Index);
-			CachedMaterial = &Material;
-			CachedProgramRevision = ProgramRevision;
-			CachedExpressionRevision = Material.GetMaterialProgramRevision();
-			CachedRenderStateVersion = Material.GetRenderStateVersion();
-			CachedPresentationRevision = PresentationRevision;
-			CachedSchemaRevision = SchemaRevision;
 			bVisualGraphTopologyStale = true;
+			bViewStale = false;
 		}
-		if (CachedPresentationRevision != PresentationRevision)
+		else if (!Changes.IsEmpty())
 		{
-			const auto& Presentation = Material.GetMaterialGraphPresentation();
-			for (const auto& Position : Presentation.Nodes)
+			for (const auto& Change : Changes.Nodes)
 			{
-				const auto It = CachedNodeIndices.find(Position.NodeId);
-				check(It != CachedNodeIndices.end());
-				CachedView.Nodes[It->second].Presentation = Position;
-				CachedInspection.Nodes[It->second].Presentation = Position;
+				const auto It = CachedNodeIndices.find(Change.NodeId);
+				if (It == CachedNodeIndices.end()) continue;
+				const auto& Node = Inspection.Nodes[It->second];
+				if ((Change.Flags & N::Content) != N::None)
+				{
+					CachedView.Nodes[It->second] = Node;
+					bVisualGraphTopologyStale = true;
+				}
+				else CachedView.Nodes[It->second].Presentation = Node.Presentation;
 			}
-			CachedView.MaterialOutputPosition = {
-				Presentation.MaterialOutputX, Presentation.MaterialOutputY};
-			CachedInspection.MaterialOutputPosition = CachedView.MaterialOutputPosition;
-			CachedPresentationRevision = PresentationRevision;
+			if (!bShowAdvancedInputs) HideUnusedAdvancedPins(CachedView);
 		}
-		SurfaceGraphPosition = {
-			static_cast<float>(CachedView.MaterialOutputPosition.first),
-			static_cast<float>(CachedView.MaterialOutputPosition.second)};
+	}
+
+	auto FMaterialGraphCanvas::PrepareView(DMaterial& Material) -> const FMaterialGraphView&
+	{
+		OutputNodeId = Material.GetOutputNode() ? Material.GetOutputNode()->Id : FGuid{};
+		PrepareDocumentView(Material);
+
 		return CachedView;
 	}
 
@@ -428,25 +390,6 @@ namespace Durin::Editor::Material
 				Minimum.y = std::min(Minimum.y, Position.y);
 				Maximum.x = std::max(Maximum.x, Position.x + GraphNodeWidth(Node));
 				Maximum.y = std::max(Maximum.y, Position.y + Height);
-			}
-		}
-		if (!bFunctionGraph && (Scope == EFrameScope::All
-			|| SelectedNodes.contains(EMaterialGraphTerminal::MaterialOutput)))
-		{
-			const ImVec2 SurfaceMinimum = SurfaceGraphPosition.value_or(
-				SurfaceGraphMinimum(View));
-			const ImVec2 SurfaceMaximum = Add(SurfaceMinimum,
-				{Metrics.SurfaceWidth, Metrics.SurfaceHeaderHeight
-					+ Metrics.PinRowHeight
-						* (View.Outputs.Surface.SourceNodeId.IsValid() ? 1.0f : 8.0f)
-					+ Metrics.BodyPadding});
-			if (!bFound) { Minimum = SurfaceMinimum; Maximum = SurfaceMaximum; bFound = true; }
-			else
-			{
-				Minimum.x = std::min(Minimum.x, SurfaceMinimum.x);
-				Minimum.y = std::min(Minimum.y, SurfaceMinimum.y);
-				Maximum.x = std::max(Maximum.x, SurfaceMaximum.x);
-				Maximum.y = std::max(Maximum.y, SurfaceMaximum.y);
 			}
 		}
 		if (!bFound) return;
@@ -652,14 +595,14 @@ namespace Durin::Editor::Material
 			[](const FMaterialGraphNodeView& Node) { return Node.Node.Id; });
 		const FMaterialGraphNodeView* ContextNodeView =
 			ContextNodeIt == View.Nodes.end() ? nullptr : &*ContextNodeIt;
-		if (ContextNodeView)
+		if (ContextNodeView && !ContextSurfaceOutput)
 		{
 			std::vector<FGuid> ContextSelection;
 			if (SelectedNodes.contains(ContextNodeView->Node.Id))
 				ContextSelection = GetSelectedProgramNodes();
 			else ContextSelection = {ContextNodeView->Node.Id};
 			const auto& Edited = ContextNodeView->Node;
-			if (Edited.Opcode == EMaterialProgramOpcode::Constant && ImGui::BeginMenu("Type"))
+			if (!Edited.bMaterialOutput && Edited.Opcode == EMaterialProgramOpcode::Constant && ImGui::BeginMenu("Type"))
 			{
 				for (EMaterialProgramValueType Type : {EMaterialProgramValueType::Float,
 					EMaterialProgramValueType::Float2, EMaterialProgramValueType::Float3,
@@ -673,7 +616,7 @@ namespace Durin::Editor::Material
 				}
 				ImGui::EndMenu();
 			}
-			if (SurfaceMaterial && Edited.Opcode == EMaterialProgramOpcode::Constant && ImGui::BeginMenu("Promote to Parameter"))
+			if (SurfaceMaterial && !Edited.bMaterialOutput && Edited.Opcode == EMaterialProgramOpcode::Constant && ImGui::BeginMenu("Promote to Parameter"))
 			{
 				ImGui::InputTextWithHint("##ParameterName", "Parameter name", PromotionNameDraft.data(), PromotionNameDraft.size());
 				if (ImGui::MenuItem("Create / Reuse"))
@@ -702,8 +645,7 @@ namespace Durin::Editor::Material
 			{
 				const FMaterialProgramLink& Link = GetMaterialSurfaceOutputLink(
 					View.Outputs, *ContextSurfaceOutput);
-				const ImVec2 SurfacePosition = SurfaceGraphPosition.value_or(
-					SurfaceGraphMinimum(View));
+				const ImVec2 SurfacePosition = ImVec2(static_cast<float>(ContextNodeView->Presentation.X), static_cast<float>(ContextNodeView->Presentation.Y));
 				const FMaterialGraphSurfaceNodeRequest NodeRequest{
 					.Output = *ContextSurfaceOutput,
 					.X = static_cast<int32>(std::round(SurfacePosition.x
@@ -812,40 +754,7 @@ namespace Durin::Editor::Material
 
 	auto FMaterialGraphCanvas::PrepareFunctionView(DMaterialFunction& Function) -> void
 	{
-		bFunctionGraph = true;
-		if (Catalog.empty())
-		{
-			Catalog = FMaterialGraphOperations::EnumerateCatalog();
-			std::erase_if(Catalog, [](const auto& Entry) {
-				return Entry.Opcode == EMaterialProgramOpcode::Parameter || Entry.Opcode == EMaterialProgramOpcode::TextureParameter
-					|| Entry.Opcode == EMaterialProgramOpcode::TextureSampleParameter2D;
-			});
-			++CatalogRevision;
-		}
-		const auto& Positions = Function.GetFunctionPresentation().Nodes;
-		// A stable dependency closure only needs revision reads, not graph enumeration.
-		if (CachedFunction == &Function && CachedFunctionPositions == Positions
-			&& std::ranges::all_of(CachedFunctionRevisions, [](const auto& Entry) {
-				return Cast<DMaterialFunctionInterface>(Entry.first)->GetFunctionRevision() == Entry.second;
-			})) return;
-		std::vector<std::pair<DObject*, uint64>> Revisions;
-		std::unordered_set<DMaterialFunctionInterface*> Visited;
-		const auto Visit = [&](auto&& Self, DMaterialFunctionInterface& Current) -> void {
-			if (!Visited.emplace(&Current).second) return;
-			Revisions.emplace_back(&Current, Current.GetFunctionRevision());
-			for (const auto& Dependency : Current.GetFunctionDependencies())
-				if (Dependency) Self(Self, *Dependency);
-		};
-		Visit(Visit, Function);
-		CachedInspection = FMaterialGraphDocument(Function).Inspect(Catalog);
-		CachedView = CachedInspection;
-		if (!bShowAdvancedInputs) HideUnusedAdvancedPins(CachedView);
-		CachedNodeIndices.clear();
-		for (size_t Index = 0; Index < CachedView.Nodes.size(); ++Index) CachedNodeIndices.emplace(CachedView.Nodes[Index].Node.Id, Index);
-		bVisualGraphTopologyStale = true;
-		CachedFunction = &Function;
-		CachedFunctionRevisions = std::move(Revisions);
-		CachedFunctionPositions = Positions;
+		PrepareDocumentView(Function);
 	}
 
 	auto FMaterialGraphCanvas::HitTest(const FVisualGraph& Graph, const ImVec2& Minimum,
@@ -890,7 +799,7 @@ namespace Durin::Editor::Material
 	auto FMaterialGraphCanvas::HandlePointerInput(DObject& Owner, DTransactor& Transactions,
 		const FMaterialGraphView& View, const FVisualGraph& VisualGraph,
 		const ImVec2& CanvasMinimum, const ImVec2& CanvasMaximum, const ImVec2& CanvasSize,
-		const ImVec2& Mouse, bool bPointerAvailable, const FSurfaceInteractionTarget& Surface,
+		const ImVec2& Mouse, bool bPointerAvailable,
 		const FReportError& ReportError) -> void
 	{
 		const auto Hit = HitTest(VisualGraph, CanvasMinimum, CanvasMaximum, Mouse);
@@ -899,10 +808,6 @@ namespace Durin::Editor::Material
 		const auto* HoveredOutput = Hit.OutputNode;
 		const auto HoveredInputIndex = Hit.InputIndex;
 		const auto HoveredOutputIndex = Hit.OutputIndex;
-		const auto HoveredSurfaceOutput = Surface.Output;
-		const bool bHoveredMaterialOutputHeader = Surface.bHoveredHeader;
-		const auto CurrentSurfaceGraphPosition = Surface.GraphPosition;
-		const auto& SurfacePins = Surface.Pins;
 		auto* SurfaceMaterial = Cast<DMaterial>(&Owner);
 		const auto& VisualNodes = VisualGraph.Nodes;
 		const auto& VisualIndices = VisualGraph.Indices;
@@ -930,8 +835,6 @@ namespace Durin::Editor::Material
 			&& std::holds_alternative<FIdleInteraction>(Interaction)
 			&& !IO.KeyCtrl && !IO.KeyShift && !IO.KeyAlt && !IO.KeySuper
 			&& !HoveredNode && !HoveredOutput && !HoveredInputNode
-			&& !HoveredSurfaceOutput
-			&& !Surface.bHoveredBody
 			&& !ImGui::IsMouseDown(ImGuiMouseButton_Middle)
 			&& !ImGui::IsMouseDown(ImGuiMouseButton_Right)
 			&& ImGui::IsMouseClicked(ImGuiMouseButton_Left))
@@ -943,8 +846,7 @@ namespace Durin::Editor::Material
 			&& !bCreationShortcutHandled
 			&& std::holds_alternative<FIdleInteraction>(Interaction)
 			&& ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)
-			&& !HoveredNode && !HoveredOutput && !HoveredInputNode
-			&& !HoveredSurfaceOutput && !Surface.bHoveredBody;
+			&& !HoveredNode && !HoveredOutput && !HoveredInputNode;
 		if (bOpenCreationMenuByDoubleClick)
 		{
 			Interaction = FNodeCreationMenuInteraction{
@@ -957,7 +859,6 @@ namespace Durin::Editor::Material
 			if (MoveSession.IsActive())
 			{
 				ReportCommand(MoveSession.Cancel(), ReportError);
-				SurfaceGraphPosition.reset();
 			}
 			ResetInteraction();
 		}
@@ -978,31 +879,11 @@ namespace Durin::Editor::Material
 				const auto& Pin = HoveredOutput->View->Outputs[HoveredOutputIndex];
 				Interaction = FLinkingInteraction{HoveredOutput->View->Node.Id, Pin.OutputIndex, Pin.PortId};
 			}
-			else if (HoveredSurfaceOutput)
-			{
-				SelectedNodes = {EMaterialGraphTerminal::MaterialOutput};
-				SelectedSurfaceOutput = HoveredSurfaceOutput;
-				Interaction = FReconnectingSurfaceInteraction{*HoveredSurfaceOutput};
-			}
-			else if (bHoveredMaterialOutputHeader)
-			{
-				SelectedNodes.clear();
-				SelectedSurfaceOutput.reset();
-				SelectedNodes.insert(EMaterialGraphTerminal::MaterialOutput);
-				const FMaterialGraphCommandResult Begun =
-					MoveSession.BeginMaterialOutput(*SurfaceMaterial, &Transactions);
-				ReportCommand(Begun, ReportError);
-				if (Begun)
-				{
-					Interaction = FMovingInteraction{
-						.StartMouse = Mouse,
-						.MaterialOutputStart = CurrentSurfaceGraphPosition};
-				}
-			}
+
+
 			else if (HoveredNode)
 			{
 				const FGuid Id = HoveredNode->View->Node.Id;
-				SelectedNodes.erase(EMaterialGraphTerminal::MaterialOutput);
 				SelectedSurfaceOutput.reset();
 				bool bRemovedFromSelection = false;
 				if (ImGui::GetIO().KeyCtrl)
@@ -1044,15 +925,6 @@ namespace Durin::Editor::Material
 			if (ImGui::IsMouseDragging(ImGuiMouseButton_Left))
 			{
 				const ImVec2 Delta = Multiply(Subtract(Mouse, Moving->StartMouse), 1.0f / Zoom);
-				if (Moving->MaterialOutputStart)
-				{
-					const ImVec2 Position = Add(*Moving->MaterialOutputStart, Delta);
-					ReportCommand(MoveSession.ApplyMaterialOutput(
-						static_cast<int32>(std::round(Position.x)),
-						static_cast<int32>(std::round(Position.y))), ReportError);
-					SurfaceGraphPosition = Position;
-				}
-				else
 				{
 					std::vector<FMaterialGraphNodePresentation> Positions;
 					for (const auto& [Id, Start] : Moving->StartPositions)
@@ -1130,14 +1002,9 @@ namespace Durin::Editor::Material
 				if (bPointerAvailable && HoveredInputNode)
 					ReportCommand(ConnectPin(HoveredInputNode->View->Node.Id, HoveredInputIndex,
 						SourceLink, ImGui::GetIO().KeyShift), ReportError);
-				else if (bPointerAvailable && HoveredSurfaceOutput)
-				{
-					ReportCommand(FMaterialGraphDocument(Owner).AssignMaterialOutput(
-						static_cast<size_t>(*HoveredSurfaceOutput) == 8 ? std::nullopt : HoveredSurfaceOutput,
-						SourceLink, &Transactions), ReportError);
-				}
+
 				else if (bCanvasPointerInteractionAvailable && !HoveredNode
-					&& !HoveredOutput && !Surface.bHoveredBody)
+					&& !HoveredOutput)
 				{
 					Interaction = FNodeCreationMenuInteraction{
 						.SourceNode = SourceNode,
@@ -1184,30 +1051,7 @@ namespace Durin::Editor::Material
 				ResetInteraction();
 			}
 		}
-		if (const auto* Reconnecting =
-			std::get_if<FReconnectingSurfaceInteraction>(&Interaction))
-		{
-			const EMaterialSurfaceOutput ReconnectSurfaceOutput = Reconnecting->Output;
-			const size_t OutputIndex = static_cast<size_t>(ReconnectSurfaceOutput);
-			if (OutputIndex < SurfacePins.size())
-			{
-				const ImVec2 A = SurfacePins[OutputIndex];
-				DrawList->AddBezierCubic(A, Subtract(A, {60.0f, 0.0f}),
-					Add(Mouse, {60.0f, 0.0f}), Mouse,
-					IM_COL32(240, 210, 105, 255), 2.5f);
-			}
-			if (ImGui::IsMouseReleased(ImGuiMouseButton_Left))
-			{
-				if (bPointerAvailable && HoveredOutput)
-				{
-					const auto& Pin = HoveredOutput->View->Outputs[HoveredOutputIndex];
-					ReportCommand(FMaterialGraphDocument(Owner).AssignMaterialOutput(
-						OutputIndex == 8 ? std::nullopt : std::optional{ReconnectSurfaceOutput},
-						{HoveredOutput->View->Node.Id, Pin.OutputIndex, Pin.PortId}, &Transactions), ReportError);
-				}
-				ResetInteraction();
-			}
-		}
+
 
 		HandleKeyboardInput(Owner, Transactions, View, CanvasMinimum,
 			CanvasSize, Mouse, bCanvasKeyboardInteractionAvailable, ReportError);
@@ -1215,7 +1059,7 @@ namespace Durin::Editor::Material
 			&& std::holds_alternative<FIdleInteraction>(Interaction)
 			&& ImGui::IsMouseClicked(ImGuiMouseButton_Right))
 		{
-			if (!HoveredNode && !HoveredInputNode && !HoveredSurfaceOutput)
+			if (!HoveredNode && !HoveredInputNode)
 			{
 				Interaction = FNodeCreationMenuInteraction{
 					.GraphPosition = Multiply(
@@ -1226,7 +1070,7 @@ namespace Durin::Editor::Material
 				Interaction = FContextMenuInteraction{
 					.ContextNode = HoveredNode ? HoveredNode->View->Node.Id
 						: HoveredInputNode ? HoveredInputNode->View->Node.Id : FGuid{},
-					.SurfaceOutput = HoveredSurfaceOutput};
+					.SurfaceOutput = HoveredInputNode && HoveredInputNode->View->Node.bMaterialOutput ? std::optional{static_cast<EMaterialSurfaceOutput>(HoveredInputNode->View->Inputs[HoveredInputIndex].InputIndex)} : std::nullopt};
 				ImGui::OpenPopup("MaterialGraphContext");
 			}
 		}
@@ -1340,7 +1184,7 @@ namespace Durin::Editor::Material
 			&& !HoveredNode->View->FunctionPath.empty())
 			OpenFunction(HoveredNode->View->FunctionPath);
 		HandlePointerInput(Function, Transactions, CachedView, Visual, Minimum, Maximum,
-			Size, Mouse, Hovered, {}, ReportError);
+			Size, Mouse, Hovered, ReportError);
 		DrawList.PopClipRect();
 		DrawContextMenu(Function, Transactions, CachedView, ReportError);
 		DrawCreationMenu(Function, Transactions, CachedView, ReportError);
@@ -1363,7 +1207,7 @@ namespace Durin::Editor::Material
 			ImGui::SameLine();
 			if (ImGui::Checkbox("Advanced pins", &bShowAdvancedInputs))
 			{
-				CachedMaterial = nullptr;
+				bViewStale = true;
 				ResetInteraction();
 			}
 			ImGui::SameLine();
@@ -1374,7 +1218,6 @@ namespace Durin::Editor::Material
 				const FMaterialGraphCommandResult Layout = FMaterialGraphOperations::Layout(
 					Material, {}, &Transactions);
 				ReportCommand(Layout, ReportError);
-				if (Layout) SurfaceGraphPosition.reset();
 			}
 			ImGui::SameLine();
 			const char* DetailName = DetailLevel == EMaterialGraphDetailLevel::Overview
@@ -1452,82 +1295,13 @@ namespace Durin::Editor::Material
 
 			DrawLinks(VisualGraph, CanvasMinimum, CanvasMaximum, *DrawList);
 
-			constexpr std::array SurfaceNames{
-				"Base Color", "Normal", "Metallic", "Roughness",
-				"Ambient Occlusion", "Emissive", "Opacity", "Opacity Mask",
-				"Surface"};
-			constexpr std::array SurfaceTypes{
-				EMaterialProgramValueType::Float3,
-				EMaterialProgramValueType::Float3,
-				EMaterialProgramValueType::Float,
-				EMaterialProgramValueType::Float,
-				EMaterialProgramValueType::Float,
-				EMaterialProgramValueType::Float3,
-				EMaterialProgramValueType::Float,
-				EMaterialProgramValueType::Float,
-				EMaterialProgramValueType::Surface};
 			const FLinkingInteraction* Linking =
 				std::get_if<FLinkingInteraction>(&Interaction);
 			const FGuid LinkSourceNode = Linking ? Linking->SourceNode : FGuid{};
 			const FMaterialProgramLink LinkSource{LinkSourceNode, Linking ? Linking->SourceOutputIndex : uint8{0},
 				Linking ? Linking->SourceOutputId : FGuid{}};
-			const bool bConnectingAggregate = std::ranges::any_of(View.Nodes,
-				[&](const FMaterialGraphNodeView& Node) {
-					return Node.Node.Id == LinkSourceNode
-						&& std::ranges::any_of(Node.Outputs, [&](const auto& Pin) {
-							return Pin.PortId == LinkSource.SourceOutputId && Pin.OutputIndex == LinkSource.SourceOutputIndex
-								&& Pin.Type == EMaterialProgramValueType::Surface;
-						});
-				});
-			const bool bAggregateOutput = View.Outputs.Surface.SourceNodeId.IsValid()
-				|| bConnectingAggregate;
-			const auto& SurfaceProperties = Material.GetStaticProperties();
-			const auto IsSurfaceInputActive = [&](size_t Index) {
-				if (Index >= 1 && Index <= 4) return SurfaceProperties.ShadingModel == EMaterialShadingModel::Lit;
-				if (Index == 6) return SurfaceProperties.BlendMode == EMaterialBlendMode::Translucent;
-				if (Index == 7) return SurfaceProperties.BlendMode == EMaterialBlendMode::Masked;
-				return true;
-			};
-			std::vector<size_t> ActiveSurfaceIndices;
-			if (bAggregateOutput) ActiveSurfaceIndices = {8};
-			else ActiveSurfaceIndices = {0, 1, 2, 3, 4, 5, 6, 7};
-			const ImVec2 CurrentSurfaceGraphPosition = *SurfaceGraphPosition;
-			const ImVec2 SurfaceMinimum = Add(CanvasMinimum,
-				Add(Pan, Multiply(CurrentSurfaceGraphPosition, Zoom)));
-			const ImVec2 SurfaceMaximum = Add(SurfaceMinimum, Multiply({
-				Metrics.SurfaceWidth,
-				Metrics.SurfaceHeaderHeight + PinSpacing * ActiveSurfaceIndices.size()
-					+ NodePadding}, Zoom));
-			std::array<ImVec2, 9> SurfacePins;
-			const auto OutputLinks = SurfaceLinks(View.Outputs);
-			for (size_t Row = 0; Row < ActiveSurfaceIndices.size(); ++Row)
-			{
-				const size_t Index = ActiveSurfaceIndices[Row];
-				SurfacePins[Index] = {SurfaceMinimum.x,
-					SurfaceMinimum.y + FMaterialGraphGeometry::GetSurfacePinOffset(
-						static_cast<uint32>(Row)) * Zoom};
-				const auto SourceIt = VisualIndices.find(OutputLinks[Index]->SourceNodeId);
-				if (SourceIt == VisualIndices.end()) continue;
-				const ImVec2 A = VisualNodes[SourceIt->second].OutputPosition(*OutputLinks[Index]);
-				const ImVec2 B = SurfacePins[Index];
-				const bool bFocused = SelectedNodes.empty()
-					|| SelectedNodes.contains(VisualNodes[SourceIt->second].View->Node.Id)
-					|| (SelectedNodes.contains(EMaterialGraphTerminal::MaterialOutput)
-						&& (!SelectedSurfaceOutput
-							|| static_cast<size_t>(*SelectedSurfaceOutput) == Index));
-				const ImU32 Color = TypeColor(SurfaceTypes[Index]);
-				DrawCulledLink(*DrawList, A, B, CanvasMinimum, CanvasMaximum,
-					bFocused ? Color : WithAlpha(Color, 72), bFocused ? 3.0f : 1.5f);
-			}
-
 			const auto Hit = HitTest(VisualGraph, CanvasMinimum, CanvasMaximum, Mouse);
 			const auto* HoveredNode = Hit.Node;
-			std::optional<EMaterialSurfaceOutput> HoveredSurfaceOutput;
-			const bool bHoveredMaterialOutputHeader =
-				Contains(SurfaceMinimum,
-					{SurfaceMaximum.x,
-						SurfaceMinimum.y + Metrics.SurfaceHeaderHeight * Zoom}, Mouse)
-				&& Mouse.y < SurfaceMinimum.y + Metrics.SurfaceHeaderHeight * Zoom;
 			std::optional<EMaterialProgramValueType> LinkSourceType;
 
 			if (const auto It = VisualIndices.find(LinkSourceNode);
@@ -1621,96 +1395,8 @@ namespace Durin::Editor::Material
 				ImGui::TextDisabled("Output: %s", GetProgramTypeName(HoveredNode->View->Node.ResultType));
 				ImGui::EndTooltip();
 			}
-			const bool bMaterialOutputSelected =
-				SelectedNodes.contains(EMaterialGraphTerminal::MaterialOutput);
-			DrawList->AddRectFilled(SurfaceMinimum, SurfaceMaximum,
-				bMaterialOutputSelected ? IM_COL32(55, 72, 94, GraphSelectedNodeBodyAlpha)
-					: IM_COL32(38, 42, 50, GraphNodeBodyAlpha), 6.0f);
-			DrawList->AddRect(SurfaceMinimum, SurfaceMaximum,
-				bMaterialOutputSelected ? IM_COL32(90, 170, 245, 255)
-					: IM_COL32(92, 100, 116, 255), 6.0f, 0,
-				bMaterialOutputSelected ? 2.5f : 1.0f);
-			DrawList->AddRectFilled(SurfaceMinimum,
-				{SurfaceMaximum.x,
-					SurfaceMinimum.y + Metrics.SurfaceHeaderHeight * Zoom},
-				NodeTitleColor(EMaterialProgramOpcode::MakeSurface), 6.0f, ImDrawFlags_RoundCornersTop);
-			if (DetailLevel != EMaterialGraphDetailLevel::Overview)
-			{
-				const float FontSize = GraphTitleFontSize;
-				const float SecondaryFontSize = GraphSecondaryFontSize;
-				const std::string MaterialName = Ellipsize(Material.GetName(),
-					(Metrics.SurfaceWidth - 20.0f) * Zoom
-						* ImGui::GetFontSize() / FontSize);
-				const ImVec4 Clip(SurfaceMinimum.x + 5.0f, SurfaceMinimum.y,
-					SurfaceMaximum.x - 5.0f,
-					SurfaceMinimum.y + Metrics.SurfaceHeaderHeight * Zoom);
-				DrawList->AddText(ImGui::GetFont(), FontSize,
-					Add(SurfaceMinimum, {10.0f * Zoom, 6.0f * Zoom}),
-					IM_COL32(235, 238, 242, 255), MaterialName.c_str(), nullptr, 0.0f, &Clip);
-				const std::string SurfaceLabel = std::format("Surface | {} | {}",
-					SurfaceProperties.ShadingModel == EMaterialShadingModel::Lit ? "Lit" : "Unlit",
-					SurfaceProperties.BlendMode == EMaterialBlendMode::Opaque ? "Opaque"
-						: SurfaceProperties.BlendMode == EMaterialBlendMode::Masked ? "Masked" : "Translucent");
-				DrawList->AddText(ImGui::GetFont(), SecondaryFontSize,
-					Add(SurfaceMinimum,
-						{10.0f * Zoom, 24.0f * Zoom}),
-					IM_COL32(165, 172, 186, 255), SurfaceLabel.c_str(), nullptr, 0.0f, &Clip);
-			}
-			if (bHovered && bHoveredMaterialOutputHeader)
-				ImGui::SetTooltip("Surface domain. Select this root to edit material settings.\nDim inputs are inactive in the current mode; their values and bindings are retained.");
-			for (size_t Index : ActiveSurfaceIndices)
-			{
-				if (SelectedSurfaceOutput
-					&& static_cast<size_t>(*SelectedSurfaceOutput) == Index)
-					DrawList->AddRectFilled(
-						{SurfaceMinimum.x + 2.0f, SurfacePins[Index].y - 10.0f},
-						{SurfaceMaximum.x - 2.0f, SurfacePins[Index].y + 10.0f},
-						IM_COL32(190, 145, 55, 75));
-				DrawList->AddCircleFilled(SurfacePins[Index], std::max(2.0f, 5.0f * Zoom),
-					IsSurfaceInputActive(Index) ? TypeColor(SurfaceTypes[Index])
-						: IM_COL32(125, 132, 145, 255));
-				if (DetailLevel != EMaterialGraphDetailLevel::Overview)
-				{
-					const ImVec4 LabelClip(
-						SurfaceMinimum.x + NodePadding * Zoom,
-						SurfacePins[Index].y - PinSpacing * 0.5f * Zoom,
-						SurfaceMinimum.x
-							+ (NodePadding + Metrics.SurfaceLabelWidth) * Zoom,
-						SurfacePins[Index].y + PinSpacing * 0.5f * Zoom);
-					DrawList->AddText(ImGui::GetFont(), GraphBodyFontSize,
-						Add(SurfacePins[Index],
-							{NodePadding * Zoom, -GraphBodyFontSize * 0.5f}),
-						IsSurfaceInputActive(Index) ? IM_COL32(210, 214, 222, 255)
-							: IM_COL32(125, 132, 145, 255), SurfaceNames[Index],
-						nullptr, 0.0f, &LabelClip);
-
-				}
-				if (DetailLevel != EMaterialGraphDetailLevel::Overview
-					&& std::hypot(Mouse.x - SurfacePins[Index].x,
-					Mouse.y - SurfacePins[Index].y) <= 8.0f)
-					HoveredSurfaceOutput = static_cast<EMaterialSurfaceOutput>(Index);
-				if (DetailLevel != EMaterialGraphDetailLevel::Overview && bHovered
-					&& Contains({SurfaceMinimum.x, SurfacePins[Index].y - PinSpacing * 0.5f * Zoom},
-						{SurfaceMaximum.x, SurfacePins[Index].y + PinSpacing * 0.5f * Zoom}, Mouse))
-				{
-					if (!IsSurfaceInputActive(Index))
-						ImGui::SetTooltip("Inactive in the current material mode. Its value and connection are retained.");
-					else if (Index < 8 && !OutputLinks[Index]->SourceNodeId.IsValid())
-					{
-						const auto& Value = GetMaterialSurfaceOutputDefault(View.Outputs,
-							static_cast<EMaterialSurfaceOutput>(Index));
-						ImGui::SetTooltip("Value when unconnected: %s\nConnect a node to change this input.\nRight-click the pin to promote the retained value to a parameter.%s",
-							FormatGraphNumericValue(SurfaceTypes[Index], Value, 9).c_str(),
-							SurfaceTypes[Index] == EMaterialProgramValueType::Float3 ? "\nScalar inputs are copied to every component." : "");
-					}
-					else if (Index < 8 && SurfaceTypes[Index] == EMaterialProgramValueType::Float3)
-						ImGui::SetTooltip("%s\nScalar inputs are copied to every component.", SurfaceNames[Index]);
-				}
-			}
 			HandlePointerInput(Material, Transactions, View, VisualGraph, CanvasMinimum,
 				CanvasMaximum, CanvasSize, Mouse, bHovered,
-				{HoveredSurfaceOutput, bHoveredMaterialOutputHeader,
-					Contains(SurfaceMinimum, SurfaceMaximum, Mouse), CurrentSurfaceGraphPosition, SurfacePins},
 				ReportError);
 			if (bFrameSelectionRequested)
 				FrameNodes(View, CanvasSize, EFrameScope::Selection);
@@ -1722,11 +1408,7 @@ namespace Durin::Editor::Material
 				FrameNodes(View, CanvasSize, EFrameScope::Selection);
 				PendingFrameNode = {};
 			}
-			if (bPendingFrameSurface)
-			{
-				FrameNodes(View, CanvasSize, EFrameScope::Selection);
-				bPendingFrameSurface = false;
-			}
+
 			DetailLevel = FMaterialGraphGeometry::SelectDetailLevel(Zoom, DetailLevel);
 
 			DrawContextMenu(Material, Transactions, View, ReportError);

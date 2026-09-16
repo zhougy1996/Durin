@@ -14,7 +14,6 @@ namespace Durin::Editor::Material
 		std::unordered_set<FGuid> NodeIds;
 		DTransactor* Transactions = nullptr;
 		uint64 AuthoredRevision = 0;
-		bool bMaterialOutput = false;
 		bool bActive = false;
 
 		auto AbortStaleSemanticChange(DMaterial& Target)
@@ -22,14 +21,6 @@ namespace Durin::Editor::Material
 		{
 			FMaterialGraphPresentation Restored =
 				Target.GetMaterialGraphPresentation();
-			if (bMaterialOutput)
-			{
-				Restored.bHasMaterialOutputPosition =
-					BeforePresentation.bHasMaterialOutputPosition;
-				Restored.MaterialOutputX = BeforePresentation.MaterialOutputX;
-				Restored.MaterialOutputY = BeforePresentation.MaterialOutputY;
-			}
-			else
 			{
 				for (const FGuid& NodeId : NodeIds)
 				{
@@ -93,32 +84,10 @@ namespace Durin::Editor::Material
 		Impl->Transactions = Transactions;
 		Impl->AuthoredRevision =
 			Material.GetMaterialCompileStatus().AuthoredRevision;
-		Impl->bMaterialOutput = false;
 		Impl->bActive = true;
 		std::vector<FGuid> Affected(NodeIds.begin(), NodeIds.end());
 		return {.Status = EMaterialGraphCommandStatus::Succeeded,
 			.AffectedNodeIds = std::move(Affected)};
-	}
-
-	auto FMaterialGraphMoveSession::BeginMaterialOutput(
-		DMaterial& Material,
-		DTransactor* Transactions) -> FMaterialGraphCommandResult
-	{
-		if (Impl->bActive) return MakeRejected("A material graph move is already active.");
-		if (!IsValid(&Material))
-			return {.Status = EMaterialGraphCommandStatus::StaleOwner,
-				.Message = "The material graph owner is no longer available."};
-		if (Transactions && Transactions->HasPendingOperation())
-			return MakeRejected("The editor transactor is busy.");
-		Impl->Material = &Material;
-		Impl->BeforePresentation = Material.GetMaterialGraphPresentation();
-		Impl->NodeIds.clear();
-		Impl->Transactions = Transactions;
-		Impl->AuthoredRevision =
-			Material.GetMaterialCompileStatus().AuthoredRevision;
-		Impl->bMaterialOutput = true;
-		Impl->bActive = true;
-		return {.Status = EMaterialGraphCommandStatus::Succeeded};
 	}
 
 	auto FMaterialGraphMoveSession::Apply(
@@ -126,8 +95,6 @@ namespace Durin::Editor::Material
 		-> FMaterialGraphCommandResult
 	{
 		if (!Impl->bActive) return MakeRejected("No material graph move is active.");
-		if (Impl->bMaterialOutput)
-			return MakeRejected("The active move addresses Surface, not graph nodes.");
 		DMaterial* Material = Impl->Material.Get();
 		if (!Material)
 		{
@@ -166,38 +133,6 @@ namespace Durin::Editor::Material
 				RequestedNodes.begin(), RequestedNodes.end())};
 	}
 
-	auto FMaterialGraphMoveSession::ApplyMaterialOutput(int32 X, int32 Y)
-		-> FMaterialGraphCommandResult
-	{
-		if (!Impl->bActive) return MakeRejected("No material graph move is active.");
-		if (!Impl->bMaterialOutput)
-			return MakeRejected("The active move addresses graph nodes, not Surface.");
-		DMaterial* Material = Impl->Material.Get();
-		if (!Material)
-		{
-			Impl->bActive = false;
-			return {.Status = EMaterialGraphCommandStatus::StaleOwner,
-				.Message = "The material graph owner is no longer available."};
-		}
-		if (Material->GetMaterialCompileStatus().AuthoredRevision
-			!= Impl->AuthoredRevision)
-			return Impl->AbortStaleSemanticChange(*Material);
-		if (X < -MaterialGraphPresentationCoordinateLimit
-			|| X > MaterialGraphPresentationCoordinateLimit
-			|| Y < -MaterialGraphPresentationCoordinateLimit
-			|| Y > MaterialGraphPresentationCoordinateLimit)
-			return MakeRejected(
-				"The Surface move preview is outside the supported coordinate range.");
-		const uint64 BeforeRevision =
-			Material->GetMaterialGraphPresentationRevision();
-		if (!Material->ApplyMaterialGraphOutputPosition(
-			X, Y, Impl->AuthoredRevision))
-			return MakeRejected("The material rejected the Surface move preview.");
-		return {.Status = Material->GetMaterialGraphPresentationRevision()
-			== BeforeRevision ? EMaterialGraphCommandStatus::NoChange
-			: EMaterialGraphCommandStatus::Succeeded};
-	}
-
 	auto FMaterialGraphMoveSession::Commit() -> FMaterialGraphCommandResult
 	{
 		if (!Impl->bActive) return MakeRejected("No material graph move is active.");
@@ -223,8 +158,7 @@ namespace Durin::Editor::Material
 					*Material,
 					Impl->BeforePresentation,
 					CurrentPresentation,
-					Impl->bMaterialOutput
-						? "Move Surface" : "Move Material Nodes"));
+					"Move Material Nodes"));
 			check(bRecorded);
 		}
 		std::vector<FGuid> Affected(Impl->NodeIds.begin(), Impl->NodeIds.end());

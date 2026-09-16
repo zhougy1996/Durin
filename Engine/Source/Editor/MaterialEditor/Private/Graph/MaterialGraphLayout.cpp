@@ -21,13 +21,6 @@ namespace Durin::Editor::Material
 			+ Metrics.PinRowHeight * std::max(1u, InputCount);
 	}
 
-	auto FMaterialGraphGeometry::GetSurfacePinOffset(uint32 InputIndex) -> float
-	{
-		const FMaterialGraphCanvasMetrics& Metrics = GetMetrics();
-		return Metrics.SurfaceHeaderHeight
-			+ Metrics.PinRowHeight * (static_cast<float>(InputIndex) + 0.5f);
-	}
-
 	auto FMaterialGraphGeometry::SelectDetailLevel(
 		float Zoom,
 		EMaterialGraphDetailLevel Previous) -> EMaterialGraphDetailLevel
@@ -80,19 +73,10 @@ namespace Durin::Editor::Material
 		int32 Y,
 		DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
-		if (X < -MaterialGraphPresentationCoordinateLimit
-			|| X > MaterialGraphPresentationCoordinateLimit
-			|| Y < -MaterialGraphPresentationCoordinateLimit
-			|| Y > MaterialGraphPresentationCoordinateLimit)
-			return MakeRejected(
-				"The Surface position is outside the supported coordinate range.");
-		FMaterialGraphPresentation Presentation =
-			Material.GetMaterialGraphPresentation();
-		Presentation.bHasMaterialOutputPosition = true;
-		Presentation.MaterialOutputX = X;
-		Presentation.MaterialOutputY = Y;
-		return CommitPresentationChange(Material, std::move(Presentation),
-			"Move Surface", {}, Transactions);
+		const auto* Output = Material.GetOutputNode();
+		if (!Output) return MakeRejected("The material output node is unavailable.");
+		const FMaterialGraphNodePresentation Position{Output->Id, X, Y};
+		return MoveNodes(Material, std::span(&Position, 1), Transactions);
 	}
 
 	auto FMaterialGraphOperations::CalculateLayout(
@@ -119,7 +103,6 @@ namespace Durin::Editor::Material
 			const auto It = std::ranges::find(Nodes, Id, &FLayoutNode::Id);
 			return It == Nodes.end() ? nullptr : &*It;
 		};
-		const auto& Outputs = Material.GetExpressionOutputs();
 		if (NodeIds.size() > MaterialProgramMaxNodeCount)
 			return MakeRejected("The material graph layout request exceeds the node bound.");
 		std::unordered_set<FGuid> Requested(NodeIds.begin(), NodeIds.end());
@@ -136,22 +119,11 @@ namespace Durin::Editor::Material
 		for (const FLayoutNode& Node : Nodes)
 			for (const FGuid& Input : Node.Inputs)
 				Consumers[Input].push_back(Node.Id);
-		std::unordered_set<FGuid> SurfaceSources{
-			Outputs.BaseColor.ExpressionId,
-			Outputs.Normal.ExpressionId,
-			Outputs.Metallic.ExpressionId,
-			Outputs.Roughness.ExpressionId,
-			Outputs.AmbientOcclusion.ExpressionId,
-			Outputs.Emissive.ExpressionId,
-			Outputs.Opacity.ExpressionId,
-			Outputs.OpacityMask.ExpressionId,
-			Outputs.Surface.ExpressionId,
-		};
 		std::unordered_map<FGuid, uint32> DistanceToSink;
 		std::function<uint32(const FGuid&)> Visit = [&](const FGuid& Id) -> uint32 {
 			if (const auto It = DistanceToSink.find(Id); It != DistanceToSink.end())
 				return It->second;
-			uint32 Distance = SurfaceSources.contains(Id) ? 1u : 0u;
+			uint32 Distance = 0;
 			if (const auto It = Consumers.find(Id); It != Consumers.end())
 				for (const FGuid& Consumer : It->second)
 					Distance = std::max(Distance, Visit(Consumer) + 1);
@@ -175,34 +147,6 @@ namespace Durin::Editor::Material
 				NodeColumns.emplace(Nodes[Index], Column);
 				Ranks[Nodes[Index]] = Index;
 			}
-		}
-
-		const std::array SurfaceOrder{
-			Outputs.BaseColor.ExpressionId,
-			Outputs.Normal.ExpressionId,
-			Outputs.Metallic.ExpressionId,
-			Outputs.Roughness.ExpressionId,
-			Outputs.AmbientOcclusion.ExpressionId,
-			Outputs.Emissive.ExpressionId,
-			Outputs.Opacity.ExpressionId,
-			Outputs.OpacityMask.ExpressionId,
-			Outputs.Surface.ExpressionId,
-		};
-		std::unordered_map<FGuid, size_t> SurfaceRanks;
-		for (size_t Index = 0; Index < SurfaceOrder.size(); ++Index)
-			SurfaceRanks.try_emplace(SurfaceOrder[Index], Index);
-		if (!Columns.empty())
-		{
-			auto& SinkNodes = Columns.rbegin()->second;
-			std::ranges::stable_sort(SinkNodes, [&](const FGuid& A, const FGuid& B) {
-				const size_t RankA = SurfaceRanks.contains(A)
-					? SurfaceRanks[A] : SurfaceOrder.size();
-				const size_t RankB = SurfaceRanks.contains(B)
-					? SurfaceRanks[B] : SurfaceOrder.size();
-				return RankA == RankB ? A < B : RankA < RankB;
-			});
-			for (size_t Index = 0; Index < SinkNodes.size(); ++Index)
-				Ranks[SinkNodes[Index]] = Index;
 		}
 
 		auto Median = [&](const FGuid& Id, uint32 NeighborColumn,
@@ -308,42 +252,6 @@ namespace Durin::Editor::Material
 				&FMaterialGraphNodePresentation::NodeId);
 			if (It == Presentation.Nodes.end()) Presentation.Nodes.push_back(Position);
 			else { It->X = Position.X; It->Y = Position.Y; }
-		}
-		if (NodeIds.empty())
-		{
-			bool bFound = false;
-			float MaximumX = 0.0f;
-			float MinimumY = 0.0f;
-			float MaximumY = 0.0f;
-			for (const FMaterialGraphNodePresentation& Position : Presentation.Nodes)
-			{
-				const FLayoutNode* Node = FindLayoutNode(Position.NodeId);
-				if (!Node) continue;
-				const float Y = static_cast<float>(Position.Y);
-				const float Height = Node->Height;
-				MaximumX = std::max(MaximumX,
-					static_cast<float>(Position.X) + Node->Width);
-				if (!bFound)
-				{
-					MinimumY = Y;
-					MaximumY = Y + Height;
-					bFound = true;
-				}
-				else
-				{
-					MinimumY = std::min(MinimumY, Y);
-					MaximumY = std::max(MaximumY, Y + Height);
-				}
-			}
-			const float OutputHeight = Metrics.SurfaceHeaderHeight
-				+ Metrics.PinRowHeight
-					* (Outputs.Surface.ExpressionId.IsValid() ? 1.0f : 8.0f)
-				+ Metrics.BodyPadding;
-			Presentation.bHasMaterialOutputPosition = true;
-			Presentation.MaterialOutputX = static_cast<int32>(std::round(
-				MaximumX + Metrics.ColumnGap));
-			Presentation.MaterialOutputY = static_cast<int32>(std::round(
-				bFound ? (MinimumY + MaximumY - OutputHeight) * 0.5f : 0.0f));
 		}
 		std::vector<FGuid> Affected(Requested.begin(), Requested.end());
 		OutPresentation = std::move(Presentation);

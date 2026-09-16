@@ -1,3 +1,4 @@
+#include "FunctionPortTestFixture.h"
 #include "TypedMaterialGraphTestFixture.h"
 #include "Widgets/MaterialEditingSession.h"
 #include "MaterialGraphOperations.h"
@@ -165,7 +166,7 @@ TEST_F(FMaterialEditingSessionTests, FunctionCallDraftIsCompleteAndAppliesBindin
 	Signature.Inputs[0].Default.Surface.RoughnessDefault.X = 0.23f;
 	std::vector<DMaterialExpression*> Body;
 	for (const auto& Expression : Second->GetExpressionCollection().Expressions) Body.push_back(Expression.Get());
-	ASSERT_TRUE(Second->SetFunctionExpressions(Signature, Body));
+	ASSERT_TRUE(Second->SetFunctionExpressions(Durin::Testing::WithFunctionPorts(Signature, Body)));
 	Source->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	const auto Output = First->GetFunctionSignature().Outputs[0];
 	const FGuid CallId{72, 1, 1, 1};
@@ -183,7 +184,7 @@ TEST_F(FMaterialEditingSessionTests, FunctionCallDraftIsCompleteAndAppliesBindin
 	std::string Error;
 	ASSERT_TRUE(Session.Initialize(*Source, EMaterialEditCompileMode::Manual, Error, Transactions.Get())) << Error;
 	auto* Draft = Session.GetWorkingMaterial();
-	ASSERT_EQ(Draft->GetExpressionCollection().Expressions.size(), 1u);
+	ASSERT_EQ(Draft->GetExpressionCollection().Expressions.size(), 2u);
 	EXPECT_EQ(GetCall(*Draft)->Function.Get(), First);
 	EXPECT_FALSE(Session.HasUnappliedChanges());
 	FMaterialGraphDocument Document(*Draft);
@@ -236,7 +237,7 @@ TEST_F(FMaterialEditingSessionTests, DefaultsStaticPropertiesAndPresentationStay
 	Properties.bTwoSided = !Properties.bTwoSided;
 	ASSERT_TRUE(Draft->SetStaticProperties(Properties));
 	auto Presentation = OriginalPresentation;
-	Presentation.MaterialOutputX += 100;
+	Testing::OutputPosition(*Draft, Presentation).X += 100;
 	ASSERT_TRUE(Draft->SetMaterialGraphPresentation(Presentation));
 	EXPECT_EQ(Source->GetStaticProperties(), OriginalProperties);
 	EXPECT_EQ(Source->GetMaterialGraphPresentation(), OriginalPresentation);

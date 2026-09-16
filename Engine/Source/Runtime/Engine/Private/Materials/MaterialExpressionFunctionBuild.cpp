@@ -7,14 +7,14 @@ namespace Durin
 		uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
 	{
 		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail("Function input terminal has only its primary output.");
-		return Context.FunctionInput(PortId);
+		return Context.FunctionInput(Port.Id);
 	}
 
 	auto DMaterialExpressionFunctionOutput::Build(FMaterialExpressionBuildContext& Context,
 		uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
 	{
 		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail("Function output terminal has only its primary output.");
-		return Context.FunctionOutput(PortId, Source);
+		return Context.FunctionOutput(Port.Id, Source);
 	}
 
 	auto DMaterialExpressionFunctionCall::Build(FMaterialExpressionBuildContext& Context,
@@ -110,28 +110,17 @@ namespace Durin
 		return CallOutputs.at(Call.Id).at(OutputId);
 	}
 
-	auto FMaterialExpressionBuildContext::ValidateFunction(std::span<DMaterialExpression* const> Expressions,
-		const FMaterialFunctionSignature& Signature) -> FMaterialProgramValidationResult
+	auto FMaterialExpressionBuildContext::ValidateFunction(std::span<DMaterialExpression* const> Expressions) -> FMaterialProgramValidationResult
 	{
+		const auto Signature = DeriveMaterialFunctionSignature(Expressions);
 		auto Validation = ValidateMaterialFunctionSignature(Signature);
 		if (!Validation) return Validation;
 		FMaterialExpressionBuildContext Context(Expressions);
 		Context.bValidateAuthoring = true;
 		Context.Signature = &Signature;
-		std::set<FGuid> Terminals;
 		for (const auto& [Id, Expression] : Context.Expressions)
-		{
-			if (Cast<DMaterialExpressionParameter>(Expression)) Context.Fail("Functions cannot declare material parameters.");
-			const auto* Input = Cast<DMaterialExpressionFunctionInput>(Expression);
-			const auto* Output = Cast<DMaterialExpressionFunctionOutput>(Expression);
-			if (!Input && !Output) continue;
-			const auto PortId = Input ? Input->PortId : Output->PortId;
-			const auto& Ports = Input ? Signature.Inputs : Signature.Outputs;
-			if (std::ranges::find(Ports, PortId, &FMaterialFunctionPort::Id) == Ports.end() || !Terminals.insert(PortId).second)
-				Context.Fail("Function terminal does not match a unique declared port.", PortId);
-		}
-		for (const auto& Output : Signature.Outputs)
-			if (!Terminals.contains(Output.Id)) Context.Fail("Function output has no terminal expression.", Output.Id);
+			if (Cast<DMaterialExpressionParameter>(Expression) || Cast<DMaterialExpressionMaterialOutput>(Expression))
+				Context.Fail("Functions cannot declare material parameters or material outputs.");
 		auto Built = Context.Finish({});
 		return {.bSucceeded = static_cast<bool>(Built), .Diagnostics = std::move(Built.Diagnostics)};
 	}
@@ -291,7 +280,7 @@ namespace Durin
 			const auto* Input = Cast<DMaterialExpressionFunctionInput>(Expression);
 			const auto* Output = Cast<DMaterialExpressionFunctionOutput>(Expression);
 			if (!Input && !Output) continue;
-			const auto PortId = Input ? Input->PortId : Output->PortId;
+			const auto PortId = Input ? Input->Port.Id : Output->Port.Id;
 			const auto& Ports = Input ? Body.Signature.Inputs : Body.Signature.Outputs;
 			if (std::ranges::find(Ports, PortId, &FMaterialFunctionPort::Id) == Ports.end() || !TerminalIds.insert(PortId).second)
 				return Child.Fail("Function terminal does not match a unique declared port.");

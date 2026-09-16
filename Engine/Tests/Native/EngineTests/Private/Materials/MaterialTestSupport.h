@@ -540,6 +540,7 @@ namespace
 			Result.Id = FGuid::NewGuid(); Result.Name = FName(Name);
 			Result.DisplayName = Name; Result.Type = EMaterialParameterType::Texture;
 			Result.Value = FMaterialParameterValue::MakeTexture(nullptr, {}, Fallback);
+			Result.TextureUsage = Fallback == EMaterialTextureFallback::FlatRGNormal ? ETextureUsage::Normal : ETextureUsage::Color;
 			return Result;
 		};
 		std::vector<FMaterialParameterDefinition> Definitions{
@@ -581,9 +582,9 @@ namespace
 				EMaterialProgramValueType::Float4, {Parameter, ScaledUV});
 		};
 		const auto MetalColor = Swizzle(Sample(0), EMaterialProgramValueType::Float3, {0, 1, 2});
-		const auto MetalNormalRG = Swizzle(Sample(1), EMaterialProgramValueType::Float2, {0, 1});
+		auto MetalNormal = Sample(1); MetalNormal.OutputIndex = 1;
 		const auto RustColor = Swizzle(Sample(2), EMaterialProgramValueType::Float3, {0, 1, 2});
-		const auto RustNormalRG = Swizzle(Sample(3), EMaterialProgramValueType::Float2, {0, 1});
+		auto RustNormal = Sample(3); RustNormal.OutputIndex = 1;
 		const auto RustMask = Swizzle(Sample(4), EMaterialProgramValueType::Float, {0});
 		const auto Amount = Add(EMaterialProgramOpcode::Parameter,
 			EMaterialProgramValueType::Float, {}, RustAmountId);
@@ -593,10 +594,6 @@ namespace
 			EMaterialProgramValueType::Float, {WeightedMask});
 		Graph.Outputs.BaseColor = Add(EMaterialProgramOpcode::Lerp,
 			EMaterialProgramValueType::Float3, {MetalColor, RustColor, Alpha});
-		const auto MetalNormal = Add(EMaterialProgramOpcode::DecodeNormalRG,
-			EMaterialProgramValueType::Float3, {MetalNormalRG});
-		const auto RustNormal = Add(EMaterialProgramOpcode::DecodeNormalRG,
-			EMaterialProgramValueType::Float3, {RustNormalRG});
 		Graph.Outputs.Normal = Add(EMaterialProgramOpcode::Lerp,
 			EMaterialProgramValueType::Float3, {MetalNormal, RustNormal, Alpha});
 		return {std::move(Definitions), std::move(Graph)};

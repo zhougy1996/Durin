@@ -5,6 +5,19 @@
 
 namespace Durin::Testing
 {
+	inline auto OutputPosition(const DMaterial& Material, FMaterialGraphPresentation& Presentation) -> FMaterialGraphNodePresentation&
+	{
+		const auto Id = Material.GetOutputNode()->Id;
+		const auto It = std::ranges::find(Presentation.Nodes, Id, &FMaterialGraphNodePresentation::NodeId);
+		if (It != Presentation.Nodes.end()) return *It;
+		return Presentation.Nodes.emplace_back(FMaterialGraphNodePresentation{Id, 96, 0});
+	}
+	inline auto OutputPosition(const DMaterial& Material, const FMaterialGraphPresentation& Presentation) -> FMaterialGraphNodePresentation
+	{
+		const auto Id = Material.GetOutputNode()->Id;
+		const auto It = std::ranges::find(Presentation.Nodes, Id, &FMaterialGraphNodePresentation::NodeId);
+		return It != Presentation.Nodes.end() ? *It : FMaterialGraphNodePresentation{Id, 96, 0};
+	}
 	template<class T> auto MakeGraphExpression(FGuid Id = FGuid::NewGuid()) -> TStrongObjectPtr<T>
 	{
 		TStrongObjectPtr<T> Expression(NewObject<T>(nullptr, NAME_None));

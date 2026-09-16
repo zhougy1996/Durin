@@ -192,7 +192,6 @@ namespace Durin::Editor::Material
 			{
 				const auto Layout = FMaterialGraphOperations::Layout(*Base, {}, &Transactions);
 				ReportCommand(Layout, ReportError);
-				if (Layout) SurfaceGraphPosition.reset();
 				ResetInteraction();
 				ImGui::CloseCurrentPopup();
 				ImGui::EndPopup();

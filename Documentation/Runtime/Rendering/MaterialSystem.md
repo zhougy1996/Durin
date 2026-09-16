@@ -175,9 +175,8 @@ are explicit upstream math expressions. Import and PBR recipes preserve their UV
 parameters using these operations; multiple samples can share the resulting Float2.
 Synthetic expression source records retain authored node, input and call path.
 These authoring forms lower before normalization and do
-not change layout v4 or cooked shader semantics. DecodeImportedNormalRG retains
-the previous strength-one encoded RG arithmetic before explicit DecodeNormalRG.
-Fresh materials own zero expression nodes and eight unconnected defaults:
+not change layout v4. Fresh materials own one material-output expression node
+and eight unconnected property defaults:
 BaseColor `(0.5, 0.5, 0.5)`, Normal `(0, 0, 1)`, Metallic `0`, Roughness
 `0.5`, AmbientOcclusion `1`, Emissive `(0, 0, 0)`, Opacity `1`, and
 OpacityMask `1`. Aggregate mode accepts one Surface source and requires all
@@ -275,14 +274,20 @@ computed roughness and deferred lighting does not apply AA again.
 
 ### Decoded normal sample output
 
-Both sampling opcodes expose decoded tangent-space Normal at output index 8;
-existing RGBA/channel/resource indices retain their meaning. Lowering applies
-DecodeNormalRG to the existing fetch's RG channels, with no second fetch or RNM
-blend. The final Surface boundary still normalizes the resulting direction.
-Manual Surface texture creation and structural imports use this output. Explicit
-SampleNormal function graphs retain their authored strength and blend behavior.
-Normal-bearing structural keys use the `n2` branch token, selecting a new immutable
-parent without overwriting an older normal recipe; non-normal keys are unchanged.
+Both sampling forms use RGB output index 1 for Float3 values. For a Normal texture
+resource, lowering decodes its RG channels into a tangent-space normal. RGBA and
+scalar channels retain encoded data. The internal DecodeNormalRG IR operation and
+shader helper remain compiler details; no authored decode expression exists.
+Indices 6 and 8 are invalid, while the sampled parameter's Texture resource stays
+at index 7. The canvas has no aliases for retired output pins.
+
+SampleNormal interpolates from the flat normal `(0,0,1)` to the decoded RGB value
+using Strength, then composes it with its Normal input through RNM's safe
+normalization. Strength zero is flat and strength one uses the sampled direction.
+Intermediate strengths operate in decoded vector space, replacing the former
+encoded-RG scaling rule. Structural imports already bake strength into their
+source images and consume RGB directly. Import recipe keys use version 4, so
+parents from previous semantics are not silently reused.
 
 ## Reusable Functions and Standard Library
 
@@ -326,10 +331,10 @@ incrementally reusable. Explicit function runtime roots are rejected; Cook emits
 no runtime function packages. DMAT contains the expanded compiled stages; cooked
 loading needs no function graph, function source package or compiler.
 
-AssetForgeBuiltins owns seven ordinary source assets under
+AssetForgeBuiltins owns six ordinary source assets under
 `/Engine/Materials/Functions`: `UVTransform`, `SampleNormal`, `SampleORM`,
-`StandardPBR`, `StandardPBR_ORM`, `ImportedSurfaceValues` and `DecodeImportedNormalRG`. UVTransform computes rotation of scaled UV
-plus offset. SampleNormal preserves RG decode, strength and RNM composition.
+`StandardPBR`, `StandardPBR_ORM` and `ImportedSurfaceValues`. UVTransform computes rotation of scaled UV
+plus offset. SampleNormal consumes decoded sampling results and provides strength and RNM composition.
 SampleORM samples once and exposes R occlusion, G roughness and B metallic.
 StandardPBR accepts independent maps and per-map UVs; its ORM variant shares one
 map/UV binding for those three channels. Missing maps retain existing PBR defaults

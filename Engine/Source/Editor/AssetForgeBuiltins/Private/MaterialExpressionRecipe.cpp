@@ -29,12 +29,21 @@ namespace Durin::AssetForge::Builtins
 		std::vector<DMaterialExpression*> Nodes;
 		for (const auto& Expression : Expressions) Nodes.push_back(Expression.Get());
 		auto Result = Material.SetMaterialExpressions(Nodes, Outputs);
-		if (Result) Material.SetMaterialGraphPresentation(Presentation);
+		if (Result)
+		{
+			auto Layout = Presentation;
+			if (const auto* Output = Material.GetOutputNode())
+				Layout.Nodes.push_back({Output->Id, OutputPosition.first, OutputPosition.second});
+			Material.SetMaterialGraphPresentation(std::move(Layout));
+		}
 		return Result;
 	}
 	auto FMaterialExpressionRecipe::MatchesGraph(const DMaterial& Material) const -> bool
 	{
-		return Outputs == Material.GetExpressionOutputs() && SameExpressions(Expressions, Material.GetExpressionCollection().Expressions);
+		std::vector<TObjectPtr<DMaterialExpression>> Body;
+		for (const auto& Expression : Material.GetExpressionCollection().Expressions)
+			if (!Cast<DMaterialExpressionMaterialOutput>(Expression.Get())) Body.push_back(Expression);
+		return Outputs == Material.GetExpressionOutputs() && SameExpressions(Expressions, Body);
 	}
 	auto FMaterialExpressionRecipe::MatchesGraph(const FMaterialExpressionRecipe& Other) const -> bool
 	{

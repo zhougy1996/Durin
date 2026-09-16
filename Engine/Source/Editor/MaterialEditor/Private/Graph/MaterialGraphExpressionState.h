@@ -19,14 +19,12 @@ namespace Durin::Editor::Material::GraphEditInternals
 			if (const auto* Material = Cast<DMaterial>(&Owner))
 			{
 				Collection = &Material->GetExpressionCollection();
-				Outputs = Material->GetExpressionOutputs();
 				Presentation = Material->GetMaterialGraphPresentation();
 			}
 			else if (const auto* Function = Cast<DMaterialFunction>(&Owner))
 			{
 				bFunction = true;
 				Collection = &Function->GetExpressionCollection();
-				Signature = Function->GetFunctionSignature();
 				Presentation.Nodes = Function->GetFunctionPresentation().Nodes;
 			}
 			else return false;
@@ -45,13 +43,13 @@ namespace Durin::Editor::Material::GraphEditInternals
 			if (bFunction)
 			{
 				const auto* Function = Cast<DMaterialFunction>(&Owner);
-				if (!Function || Signature != Function->GetFunctionSignature()) return false;
+				if (!Function) return false;
 				Current = &Function->GetExpressionCollection();
 			}
 			else
 			{
 				const auto* Material = Cast<DMaterial>(&Owner);
-				if (!Material || Outputs != Material->GetExpressionOutputs()) return false;
+				if (!Material) return false;
 				Current = &Material->GetExpressionCollection();
 			}
 			if (Expressions.size() != Current->Expressions.size()) return false;
@@ -72,16 +70,17 @@ namespace Durin::Editor::Material::GraphEditInternals
 
 		auto Apply(DObject& Owner) const -> bool
 		{
+			FScopedMaterialGraphChange PublishChange(Owner);
 			std::vector<DMaterialExpression*> Nodes;
 			for (const auto& Expression : Expressions) Nodes.push_back(Expression.Get());
 			if (bFunction)
 			{
 				auto* Function = Cast<DMaterialFunction>(&Owner);
-				return Function && (MatchesGraph(Owner) || Function->SetFunctionExpressions(Signature, Nodes))
+				return Function && (MatchesGraph(Owner) || Function->SetFunctionExpressions(Nodes))
 					&& Function->SetFunctionPresentation({.Nodes = Presentation.Nodes});
 			}
 			auto* Material = Cast<DMaterial>(&Owner);
-			return Material && (MatchesGraph(Owner) || Material->SetMaterialExpressions(Nodes, Outputs))
+			return Material && (MatchesGraph(Owner) || Material->SetMaterialExpressions(Nodes))
 				&& Material->SetMaterialGraphPresentation(Presentation);
 		}
 
@@ -102,11 +101,6 @@ namespace Durin::Editor::Material::GraphEditInternals
 			size_t Bytes = Expressions.capacity() * sizeof(TStrongObjectPtr<DMaterialExpression>)
 				+ Presentation.Nodes.capacity() * sizeof(FMaterialGraphNodePresentation);
 			for (const auto& Node : Presentation.Nodes) Bytes += Node.DisplayName.capacity();
-			for (const auto* Ports : {&Signature.Inputs, &Signature.Outputs})
-			{
-				Bytes += Ports->capacity() * sizeof(FMaterialFunctionPort);
-				for (const auto& Port : *Ports) Bytes += Port.Name.capacity();
-			}
 			return Bytes;
 		}
 	};

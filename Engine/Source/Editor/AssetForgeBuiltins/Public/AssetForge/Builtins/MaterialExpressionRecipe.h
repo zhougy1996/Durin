@@ -11,6 +11,7 @@ namespace Durin::AssetForge::Builtins
 		std::vector<TStrongObjectPtr<DMaterialExpression>> Expressions;
 		FMaterialExpressionSurfaceOutputs Outputs;
 		FMaterialGraphPresentation Presentation;
+		std::pair<int32, int32> OutputPosition{96, 0};
 		ASSETFORGEBUILTINS_API auto Apply(DMaterial& Material) const -> FMaterialProgramValidationResult;
 		// Compare authored graph fields, excluding independently editable presentation.
 		ASSETFORGEBUILTINS_API auto MatchesGraph(const DMaterial& Material) const -> bool;

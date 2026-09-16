@@ -9,9 +9,9 @@ namespace Durin::Editor::Material
 	// Keep canvas, framing and automatic layout on the same node-specific geometry.
 	inline auto IsHeaderOnlyGraphNode(const FMaterialGraphNodeView& Node) -> bool
 	{
-		return Node.Node.Opcode == EMaterialProgramOpcode::Constant
+		return !Node.Node.bMaterialOutput && (Node.Node.Opcode == EMaterialProgramOpcode::Constant
 			|| Node.Node.Opcode == EMaterialProgramOpcode::Time
-			|| Node.Node.Opcode == EMaterialProgramOpcode::WorldPosition;
+			|| Node.Node.Opcode == EMaterialProgramOpcode::WorldPosition);
 	}
 
 	inline auto IsCompactGraphOperation(const FMaterialGraphNodeView& Node) -> bool
@@ -22,7 +22,7 @@ namespace Durin::Editor::Material
 
 	inline auto GraphNodeWidth(const FMaterialGraphNodeView& Node) -> float
 	{
-		if (Node.Node.Opcode == EMaterialProgramOpcode::Constant)
+		if (!Node.Node.bMaterialOutput && Node.Node.Opcode == EMaterialProgramOpcode::Constant)
 			return 112.0f + 32.0f * static_cast<float>(Node.Node.ResultType);
 		if (IsHeaderOnlyGraphNode(Node)) return 160.0f;
 		if (Node.Node.Opcode == EMaterialProgramOpcode::Parameter) return 192.0f;
@@ -82,6 +82,7 @@ namespace Durin::Editor::Material
 		const DMaterial* Material = nullptr) -> FMaterialGraphNodeDisplay
 	{
 		FMaterialGraphNodeDisplay Display{Node.PrimaryLabel, Node.SecondaryLabel};
+		if (Node.Node.bMaterialOutput) return Display;
 		if (Node.Node.Opcode == EMaterialProgramOpcode::Constant)
 		{
 			Display.Value = Node.Node.GetConstantLiteral();

@@ -120,7 +120,6 @@ namespace Durin::Testing
 			}
 			case EMaterialProgramOpcode::Splat2: Expression = NewObject<DMaterialExpressionSplat2>(nullptr, NAME_None); break;
 			case EMaterialProgramOpcode::MakeFloat2: Expression = NewObject<DMaterialExpressionMakeVector2>(nullptr, NAME_None); break;
-			case EMaterialProgramOpcode::DecodeNormalRG: Expression = NewObject<DMaterialExpressionDecodeNormalRG>(nullptr, NAME_None); break;
 			case EMaterialProgramOpcode::BlendNormalsRNM: Expression = NewObject<DMaterialExpressionBlendNormalsRNM>(nullptr, NAME_None); break;
 			default: check(false); break;
 			}

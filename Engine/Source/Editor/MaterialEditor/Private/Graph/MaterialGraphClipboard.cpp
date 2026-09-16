@@ -28,6 +28,9 @@ namespace Durin::Editor::Material
 			return MakeRejected("The material graph copy selection is empty or exceeds the node bound.");
 		std::unordered_set<FGuid> Selected(NodeIds.begin(), NodeIds.end());
 		if (Selected.size() != NodeIds.size()) return MakeRejected("The material graph copy selection contains duplicate node GUIDs.");
+		for (const auto& Expression : State.Expressions)
+			if (Cast<DMaterialExpressionMaterialOutput>(Expression.Get())) Selected.erase(Expression->Id);
+		if (Selected.empty()) return MakeRejected("The material output terminal cannot be copied.");
 		std::unordered_map<FGuid, FMaterialGraphNodePresentation> Positions;
 		for (const auto& Position : State.Presentation.Nodes) Positions.emplace(Position.NodeId, Position);
 		int32 MinimumX = MaterialGraphPresentationCoordinateLimit, MinimumY = MaterialGraphPresentationCoordinateLimit;
@@ -45,25 +48,15 @@ namespace Durin::Editor::Material
 		for (const auto& Id : Ordered)
 		{
 			const auto It = std::ranges::find(State.Expressions, Id, [](const auto& Expression) { return Expression->Id; });
-			const auto* Input = Cast<DMaterialExpressionFunctionInput>(It->Get());
-			const auto* Output = Cast<DMaterialExpressionFunctionOutput>(It->Get());
-			if (Input || Output)
-			{
-				const auto PortId = Input ? Input->PortId : Output->PortId;
-				const auto& Ports = Input ? State.Signature.Inputs : State.Signature.Outputs;
-				const auto Port = std::ranges::find(Ports, PortId, &FMaterialFunctionPort::Id);
-				if (Port == Ports.end()) { OutPayload = {}; return MakeRejected("A copied function port is unavailable."); }
-				(Input ? OutPayload.Signature.Inputs : OutPayload.Signature.Outputs).push_back(*Port);
-			}
 			const auto& Position = Positions.at(Id);
 			OutPayload.Nodes.push_back({*It, Position.DisplayName, Position.X - MinimumX, Position.Y - MinimumY});
 		}
-		if (Selected.contains(State.Outputs.Surface.ExpressionId))
+		if (!State.bFunction && Selected.contains(State.GetOutputs().Surface.ExpressionId))
 		{
 			OutPayload.bConnectAggregateSurface = true;
-			OutPayload.AggregateSourceNodeId = State.Outputs.Surface.ExpressionId;
-			OutPayload.AggregateSourceOutputIndex = State.Outputs.Surface.OutputIndex;
-			OutPayload.AggregateSourceOutputId = State.Outputs.Surface.OutputId;
+			OutPayload.AggregateSourceNodeId = State.GetOutputs().Surface.ExpressionId;
+			OutPayload.AggregateSourceOutputIndex = State.GetOutputs().Surface.OutputIndex;
+			OutPayload.AggregateSourceOutputId = State.GetOutputs().Surface.OutputId;
 		}
 		return {
 			.Status = EMaterialGraphCommandStatus::Succeeded,
@@ -92,7 +85,9 @@ namespace Durin::Editor::Material
 			|| State.Expressions.size() + Payload.Nodes.size() > MaterialProgramMaxNodeCount)
 			return MakeRejected("Pasting would exceed the material graph node bounds.");
 		const bool bSameRoot = Payload.SourceRoot.Get() == Owner.Get();
-		if (!State.bFunction && (!Payload.Signature.Inputs.empty() || !Payload.Signature.Outputs.empty()))
+		if (!State.bFunction && std::ranges::any_of(Payload.Nodes, [](const auto& Node) {
+			return Cast<DMaterialExpressionFunctionInput>(Node.Expression.Get()) || Cast<DMaterialExpressionFunctionOutput>(Node.Expression.Get());
+		}))
 			return MakeRejected("Function interface terminals can only be pasted into a function.");
 		std::unordered_map<FGuid, FGuid> Remap;
 		std::unordered_set<FGuid> UsedIds;
@@ -125,28 +120,39 @@ namespace Durin::Editor::Material
 		if (State.bFunction && !Definitions.empty()) return MakeRejected("Functions cannot own root parameters.");
 		if (Payload.bConnectAggregateSurface && !Remap.contains(Payload.AggregateSourceNodeId))
 			return MakeRejected("The aggregate Surface clipboard source is missing from the selection.");
-		std::unordered_map<FGuid, FGuid> PortRemap;
+		std::unordered_map<FGuid, FMaterialFunctionPort> PortRemap;
 		for (bool bOutput : {false, true})
 		{
-			const auto& SourcePorts = bOutput ? Payload.Signature.Outputs : Payload.Signature.Inputs;
-			auto& DestinationPorts = bOutput ? State.Signature.Outputs : State.Signature.Inputs;
-			for (auto Port : SourcePorts)
+			const auto GetPort = [bOutput](DMaterialExpression* Expression) -> const FMaterialFunctionPort* {
+				if (bOutput)
+				{
+					const auto* Terminal = Cast<DMaterialExpressionFunctionOutput>(Expression);
+					return Terminal ? &Terminal->Port : nullptr;
+				}
+				const auto* Terminal = Cast<DMaterialExpressionFunctionInput>(Expression);
+				return Terminal ? &Terminal->Port : nullptr;
+			};
+			std::unordered_set<std::string> Names;
+			for (const auto& Expression : State.Expressions)
+				if (const auto* Port = GetPort(Expression.Get())) Names.insert(Port->Name);
+			for (const auto& Node : Payload.Nodes)
 			{
+				const auto* Source = GetPort(Node.Expression.Get());
+				if (!Source) continue;
+				auto Port = *Source;
 				const auto OldId = Port.Id;
 				if (!OldId.IsValid() || PortRemap.contains(OldId)) return MakeRejected("The clipboard contains duplicate or invalid function ports.");
 				Port.Id = FGuid::NewGuid();
 				const auto BaseName = Port.Name;
-				for (uint32 Suffix = 2; std::ranges::any_of(DestinationPorts, [&](const auto& Existing) { return Existing.Name == Port.Name; }); ++Suffix)
-					Port.Name = std::format("{} {}", BaseName, Suffix);
-				PortRemap.emplace(OldId, Port.Id);
-				DestinationPorts.push_back(std::move(Port));
+				for (uint32 Suffix = 2; Names.contains(Port.Name); ++Suffix) Port.Name = std::format("{} {}", BaseName, Suffix);
+				Names.insert(Port.Name);
+				PortRemap.emplace(OldId, std::move(Port));
 			}
 		}
-		for (auto& Port : State.Signature.Inputs)
-			if (std::ranges::any_of(PortRemap, [&](const auto& Pair) { return Pair.second == Port.Id; })
-				&& Port.Default.Kind == EMaterialFunctionDefaultKind::Input)
+		for (auto& [OldId, Port] : PortRemap)
+			if (Port.Default.Kind == EMaterialFunctionDefaultKind::Input)
 			{
-				if (const auto It = PortRemap.find(Port.Default.InputId); It != PortRemap.end()) Port.Default.InputId = It->second;
+				if (const auto It = PortRemap.find(Port.Default.InputId); It != PortRemap.end()) Port.Default.InputId = It->second.Id;
 				else if (!bSameRoot) return MakeRejected("A copied port default references an input outside the selection.");
 			}
 		const auto RemapLink = [&](FMaterialExpressionInput& Input) {
@@ -162,14 +168,8 @@ namespace Durin::Editor::Material
 			TStrongObjectPtr<DMaterialExpression> Expression(DuplicateObject(Entry.Expression.Get(), nullptr, NAME_None));
 			if (!Expression) return MakeRejected("Unable to duplicate a clipboard expression.");
 			Expression->Id = Remap.at(Entry.Expression->Id);
-			FGuid* PortId = nullptr;
-			if (auto* Input = Cast<DMaterialExpressionFunctionInput>(Expression.Get())) PortId = &Input->PortId;
-			if (auto* Output = Cast<DMaterialExpressionFunctionOutput>(Expression.Get())) PortId = &Output->PortId;
-			if (PortId)
-			{
-				if (!PortRemap.contains(*PortId)) return MakeRejected("A clipboard terminal has no port declaration.");
-				*PortId = PortRemap.at(*PortId);
-			}
+			if (auto* Input = Cast<DMaterialExpressionFunctionInput>(Expression.Get())) Input->Port = PortRemap.at(Input->Port.Id);
+			if (auto* Output = Cast<DMaterialExpressionFunctionOutput>(Expression.Get())) Output->Port = PortRemap.at(Output->Port.Id);
 			if (auto* Parameter = Cast<DMaterialExpressionParameter>(Expression.Get()))
 			{
 				Parameter->Metadata.Id = FGuid::NewGuid();
@@ -199,9 +199,9 @@ namespace Durin::Editor::Material
 		}
 		if (Payload.bConnectAggregateSurface && !State.bFunction)
 		{
-			for (auto* Output : {&State.Outputs.BaseColor, &State.Outputs.Normal, &State.Outputs.Metallic, &State.Outputs.Roughness,
-				&State.Outputs.AmbientOcclusion, &State.Outputs.Emissive, &State.Outputs.Opacity, &State.Outputs.OpacityMask}) *Output = {};
-			State.Outputs.Surface = {Remap.at(Payload.AggregateSourceNodeId), Payload.AggregateSourceOutputIndex, Payload.AggregateSourceOutputId};
+			for (auto* Output : {&State.GetOutputs().BaseColor, &State.GetOutputs().Normal, &State.GetOutputs().Metallic, &State.GetOutputs().Roughness,
+				&State.GetOutputs().AmbientOcclusion, &State.GetOutputs().Emissive, &State.GetOutputs().Opacity, &State.GetOutputs().OpacityMask}) *Output = {};
+			State.GetOutputs().Surface = {Remap.at(Payload.AggregateSourceNodeId), Payload.AggregateSourceOutputIndex, Payload.AggregateSourceOutputId};
 		}
 		auto Result = CommitOwnedExpressions(*Owner.Get(), std::move(State), "Paste Graph Nodes", Transactions);
 		if (Result)

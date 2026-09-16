@@ -1058,7 +1058,7 @@ namespace Durin::Editor::Material
 		auto* BaseMaterial = Cast<DMaterial>(Material);
 		const bool bShowMaterialDetails = !BaseMaterial
 			|| GetOrCreateCanvas(Document).GetSelection().empty()
-			|| GetOrCreateCanvas(Document).GetSelection().contains(EMaterialGraphTerminal::MaterialOutput);
+			|| (BaseMaterial->GetOutputNode() && GetOrCreateCanvas(Document).GetSelection().contains(BaseMaterial->GetOutputNode()->Id));
 		if (bShowMaterialDetails)
 		{
 			ImGui::TextWrapped("%s", Material->GetName().c_str());

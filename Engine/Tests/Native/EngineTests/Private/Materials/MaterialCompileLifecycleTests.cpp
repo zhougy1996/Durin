@@ -1,3 +1,4 @@
+#include "FunctionPortTestFixture.h"
 #include "ExplicitMaterialProgramTestFixture.h"
 #include "MaterialVariantTestFixture.h"
 #include "Threading/TaskComposition.h"
@@ -671,7 +672,7 @@ auto QualifyMaterialFunctionCompilationAsync() -> void
 	std::vector<DMaterialExpression*> BodyValues;
 	for (const auto& Expression : Body) BodyValues.push_back(Expression.Get());
 	BodyValues.push_back(Nested.Get());
-	ASSERT_TRUE(Wrapper->SetFunctionExpressions(Wrapper->GetFunctionSignature(), BodyValues));
+	ASSERT_TRUE(Wrapper->SetFunctionExpressions(Durin::Testing::WithFunctionPorts(Wrapper->GetFunctionSignature(), BodyValues)));
 	const auto Output = Wrapper->GetFunctionSignature().Outputs[0];
 	for (auto* Material : {First, Second})
 	{
@@ -704,7 +705,7 @@ auto QualifyMaterialFunctionCompilationAsync() -> void
 	const auto ApplyLeafSignature = [&] {
 		std::vector<DMaterialExpression*> Expressions;
 		for (const auto& Expression : Leaf->GetExpressionCollection().Expressions) Expressions.push_back(Expression.Get());
-		return Leaf->SetFunctionExpressions(LeafSignature, Expressions);
+		return Leaf->SetFunctionExpressions(Durin::Testing::WithFunctionPorts(LeafSignature, Expressions));
 	};
 	{
 		FHoldWorkers Hold;

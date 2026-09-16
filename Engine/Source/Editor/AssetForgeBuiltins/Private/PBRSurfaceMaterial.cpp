@@ -7,10 +7,10 @@ namespace Durin::AssetForge::Builtins
 	{
 		using Kind = MaterialParameters::EMaterialBuiltinParameterKind;
 		FMaterialExpressionRecipe Recipe;
-		Recipe.Presentation = {.bHasMaterialOutputPosition = true, .MaterialOutputX = 1600, .MaterialOutputY = 400};
+		Recipe.OutputPosition = {1600, 400};
 		Private::FMaterialExpressionRecipeBuilder B{Recipe, 0x7f53711b, 0x48249b21};
 		const auto Definitions = MakePBRMaterialParameterDefinitions();
-		constexpr std::array<uint8, 8> Channels{1, 8, 4, 3, 2, 1, 5, 2};
+		constexpr std::array<uint8, 8> Channels{1, 1, 4, 3, 2, 1, 5, 2};
 		for (uint32 I = 0; I < Channels.size(); ++I)
 		{
 			const auto Role = static_cast<EMaterialSurfaceOutput>(I);

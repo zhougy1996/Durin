@@ -44,14 +44,18 @@ namespace Durin
 
 	DMaterial::DMaterial(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
-		, GraphPresentation({
-			.bHasMaterialOutputPosition = true,
-			.MaterialOutputX = 96,
-			.MaterialOutputY = 0})
 	{
+		if (!IsTemplateConstructionPurpose(ObjectInitializer.Purpose)
+			&& ObjectInitializer.Purpose != EObjectConstructionPurpose::AssetLoad
+			&& ObjectInitializer.Purpose != EObjectConstructionPurpose::Duplication)
+		{
+			auto* Output = NewObject<DMaterialExpressionMaterialOutput>(this, "MaterialOutput");
+			Output->Id = FGuid::NewGuid();
+			ExpressionCollection.Expressions.push_back(Output);
+		}
 		if (!IsTemplateConstructionPurpose(ObjectInitializer.Purpose))
 		{
-			ValidateExpressionGraph(ExpressionCollection, ExpressionOutputs, &ObservedExpressionCode);
+			ValidateExpressionGraph(ExpressionCollection, GetExpressionOutputs(), &ObservedExpressionCode);
 			if (!IsMaterialCompilationAcceptingRequests())
 				RequestProgramCompile(StaticProperties);
 			PublishMaterialRenderProxyState();
@@ -99,6 +103,7 @@ namespace Durin
 		GraphPresentation = std::move(InPresentation);
 		AdvanceRevision(MaterialGraphPresentationRevision);
 		MarkPackageDirty();
+		GraphChanges.PublishPresentation(*this);
 		return true;
 	}
 
@@ -144,27 +149,7 @@ namespace Durin
 		if (!bChanged) return true;
 		AdvanceRevision(MaterialGraphPresentationRevision);
 		MarkPackageDirty();
-		return true;
-	}
-
-	auto DMaterial::ApplyMaterialGraphOutputPosition(
-		int32 X, int32 Y, uint64 ExpectedAuthoredRevision) -> bool
-	{
-		if (CompilationOwner.MaterialCompileStatus.AuthoredRevision != ExpectedAuthoredRevision
-			|| X < -MaterialGraphPresentationCoordinateLimit
-			|| X > MaterialGraphPresentationCoordinateLimit
-			|| Y < -MaterialGraphPresentationCoordinateLimit
-			|| Y > MaterialGraphPresentationCoordinateLimit)
-			return false;
-		if (GraphPresentation.bHasMaterialOutputPosition
-			&& GraphPresentation.MaterialOutputX == X
-			&& GraphPresentation.MaterialOutputY == Y)
-			return true;
-		GraphPresentation.bHasMaterialOutputPosition = true;
-		GraphPresentation.MaterialOutputX = X;
-		GraphPresentation.MaterialOutputY = Y;
-		AdvanceRevision(MaterialGraphPresentationRevision);
-		MarkPackageDirty();
+		GraphChanges.PublishPresentation(*this);
 		return true;
 	}
 
@@ -266,6 +251,7 @@ namespace Durin
 		*Entry = std::move(Definition);
 		MarkPackageDirty();
 		MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters);
+		GraphChanges.Publish(*this);
 		return true;
 	}
 
@@ -295,7 +281,7 @@ namespace Durin
 
 	auto DMaterial::Serialize(FArchive& Ar) -> void
 	{
-		if (!FMaterialGraphVersion::Serialize(Ar)) return;
+		if (!FMaterialGraphVersion::Serialize(Ar) || !FMaterialOutputVersion::Serialize(Ar)) return;
 		Super::Serialize(Ar);
 		if (!Ar.HasError() && !IsTemplateObject() && Ar.IsSaving() && Ar.GetPurpose() == EArchivePurpose::AuthoredPackage)
 		{
@@ -472,7 +458,7 @@ namespace Durin
 			return;
 		}
 		const FMaterialProgramValidationResult ProgramValidation =
-			ValidateExpressionGraph(ExpressionCollection, ExpressionOutputs, &ObservedExpressionCode);
+			ValidateExpressionGraph(ExpressionCollection, GetExpressionOutputs(), &ObservedExpressionCode);
 		if (!ProgramValidation)
 		{
 			Error = ProgramValidation.Diagnostics.empty()
@@ -489,6 +475,7 @@ namespace Durin
 		AdvanceRevision(ParameterDefinitionSchemaRevision);
 		RequestProgramCompile(StaticProperties);
 		PublishMaterialRenderProxyState();
+		GraphChanges.Publish(*this);
 	}
 
 	auto DMaterial::PostEditChangeProperty(
@@ -498,15 +485,15 @@ namespace Durin
 		if (!Event.MemberProperty) return;
 		const FName Name = Event.MemberProperty->NamePrivate;
 		if (Name == FName("StaticProperties")) InvalidateMaterialCompilation(false, true);
-		if (Name == FName("ExpressionCollection") || Name == FName("ExpressionOutputs") || (Name == FName("StaticProperties")
+		if (Name == FName("ExpressionCollection") || (Name == FName("StaticProperties")
 			&& CanonicalizeMaterialShaderProperties(StaticProperties) != CompilationOwner.LastObservedShaderProperties))
 		{
-			if (Name == FName("ExpressionCollection") || Name == FName("ExpressionOutputs"))
+			if (Name == FName("ExpressionCollection"))
 			{
 				std::vector<FMaterialParameterDefinition> Schema;
 				FXxHash128 Code;
 				if (!DeriveExpressionParameterSchema(ExpressionCollection, Schema)
-					|| !ValidateExpressionGraph(ExpressionCollection, ExpressionOutputs, &Code)) return;
+					|| !ValidateExpressionGraph(ExpressionCollection, GetExpressionOutputs(), &Code)) return;
 				ParameterSchema = std::move(Schema);
 				AdvanceRevision(ParameterDefinitionSchemaRevision);
 				const bool bShaderChanged = Code != ObservedExpressionCode;
@@ -514,6 +501,7 @@ namespace Durin
 				if (!bShaderChanged)
 				{
 					MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters);
+					GraphChanges.Publish(*this);
 					return;
 				}
 				AdvanceRevision(MaterialProgramRevision);
@@ -526,7 +514,7 @@ namespace Durin
 		{
 			AdvanceRevision(MaterialGraphPresentationRevision);
 		}
-
+		GraphChanges.Publish(*this);
 	}
 
 	auto DMaterial::BeginDestroy() -> void

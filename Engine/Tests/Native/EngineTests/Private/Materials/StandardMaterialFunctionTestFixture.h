@@ -17,7 +17,7 @@ namespace Durin::Testing
 		FTestMaterialExpressionGraph Graph;
 		const auto Recipe = MakePBRMaterialParameterDefinitions();
 		auto& Presentation = Graph.Presentation;
-		Presentation = {.bHasMaterialOutputPosition = true, .MaterialOutputX = 2000, .MaterialOutputY = 400};
+		Presentation = {};
 		const auto Node = [&](Op Opcode, Type ValueType, std::vector<FMaterialExpressionInput> Inputs = {}, FGuid ParameterId = {}) {
 			auto& Expression = Graph.Add(Opcode, ValueType, std::move(Inputs), ParameterId, {}, Recipe);
 			Expression.Id = {0xf67a24b1, 0x4378491a, 6, static_cast<uint32>(Graph.Expressions.size())};
@@ -35,7 +35,7 @@ namespace Durin::Testing
 		const std::array OutputLinks{&Graph.Outputs.BaseColor, &Graph.Outputs.Normal, &Graph.Outputs.Metallic, &Graph.Outputs.Roughness,
 			&Graph.Outputs.AmbientOcclusion, &Graph.Outputs.Emissive, &Graph.Outputs.Opacity, &Graph.Outputs.OpacityMask};
 		using ParameterKind = MaterialParameters::EMaterialBuiltinParameterKind;
-		constexpr std::array<uint8, 8> Channels{1, 0, 4, 3, 2, 1, 5, 2};
+		constexpr std::array<uint8, 8> Channels{1, 1, 4, 3, 2, 1, 5, 2};
 		for (uint32 I = 0; I < 8; ++I)
 		{
 			const auto Role = static_cast<EMaterialSurfaceOutput>(I);
@@ -74,9 +74,9 @@ namespace Durin::Testing
 			Sample.OutputIndex = Channels[I];
 			if (I == 1)
 			{
-				Sample = Node(Op::Swizzle, Type::Float2, {Sample});
-				Cast<DMaterialExpressionSwizzle>(Graph.Expressions.back().Get())->Components = {0, 1};
-				Sample = Call(Functions.DecodeImportedNormalRG.Get(), {{AssetForge::Builtins::StandardMaterialPortId(Entry::DecodeImportedNormalRG, 1), Type::Float2, Sample}});
+				Sample = Call(Functions.SampleNormal.Get(), {
+					{AssetForge::Builtins::StandardMaterialPortId(Entry::SampleNormal, 1), Type::Texture2D, {Sample.ExpressionId, 7}},
+					{AssetForge::Builtins::StandardMaterialPortId(Entry::SampleNormal, 2), Type::Float2, UV}});
 				Presentation.Nodes.push_back({Sample.ExpressionId, 320, static_cast<int32>(I) * 600 + 150});
 			}
 			const auto FirstCompositionNode = Graph.Expressions.size();
@@ -96,7 +96,7 @@ namespace Durin::Testing
 		using namespace AssetForge::Builtins;
 		FStandardMaterialFunctions Functions;
 		const std::array Slots{&Functions.UVTransform, &Functions.SampleNormal, &Functions.SampleORM,
-			&Functions.StandardPBR, &Functions.StandardPBR_ORM, &Functions.ImportedSurfaceValues, &Functions.DecodeImportedNormalRG};
+			&Functions.StandardPBR, &Functions.StandardPBR_ORM, &Functions.ImportedSurfaceValues};
 		for (uint32 I = 0; I < Slots.size(); ++I)
 		{
 			auto* Function = NewObject<DMaterialFunction>(&Material, FName(std::format("StandardFunction{}", I + 1)));

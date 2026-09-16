@@ -8,6 +8,8 @@
 #include "Materials/MaterialExpressions.h"
 #include "Texture/Texture2D.h"
 
+#include "Materials/MaterialGraphChanges.h"
+
 #include "Material.gen.h"
 
 namespace Durin
@@ -23,7 +25,10 @@ namespace Durin
 
 		ENGINE_API auto GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition> override;
 		auto GetExpressionCollection() const -> const FMaterialExpressionCollection& { return ExpressionCollection; }
-		auto GetExpressionOutputs() const -> const FMaterialExpressionSurfaceOutputs& { return ExpressionOutputs; }
+		ENGINE_API auto GetExpressionOutputs() const -> const FMaterialExpressionSurfaceOutputs&;
+		ENGINE_API auto GetOutputNode() const -> const DMaterialExpressionMaterialOutput*;
+		auto GetDomain() const -> EMaterialDomain { return Domain; }
+		[[nodiscard]] ENGINE_API auto SetMaterialExpressions(std::span<DMaterialExpression* const> Expressions) -> FMaterialProgramValidationResult;
 		[[nodiscard]] ENGINE_API auto SetMaterialExpressions(std::span<DMaterialExpression* const> Expressions,
 			FMaterialExpressionSurfaceOutputs Outputs) -> FMaterialProgramValidationResult;
 		ENGINE_API auto ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context, std::string& OutError) const -> bool override;
@@ -58,8 +63,6 @@ namespace Durin
 		ENGINE_API auto ApplyMaterialGraphNodePositions(
 			std::span<const FMaterialGraphNodePresentation> Positions,
 			uint64 ExpectedAuthoredRevision) -> bool;
-		ENGINE_API auto ApplyMaterialGraphOutputPosition(
-			int32 X, int32 Y, uint64 ExpectedAuthoredRevision) -> bool;
 		ENGINE_API auto ResolveParameterValue(const FGuid& Id, FResolvedMaterialParameter& OutParameter) const -> bool override;
 		auto GetStaticProperties() const -> const FMaterialStaticProperties& override { return StaticProperties; }
 		ENGINE_API auto SetStaticProperties(const FMaterialStaticProperties& InProperties) -> bool;
@@ -82,7 +85,10 @@ namespace Durin
 			const FPropertyChangedEvent& Event) -> void override;
 		ENGINE_API auto BeginDestroy() -> void override;
 
+		auto GetGraphChanges() -> FMaterialGraphChangeSource& { return GraphChanges; }
+
 	private:
+		FMaterialGraphChangeSource GraphChanges;
 		auto AdvanceAuthoredRevision() -> void;
 		EMaterialEditCompileMode EditCompileMode = EMaterialEditCompileMode::Immediate;
 		// These values are inherited by instances and will form shader and pipeline keys.
@@ -96,8 +102,9 @@ namespace Durin
 		DPROPERTY(EditorOnly, AlwaysSerialize)
 		FMaterialExpressionCollection ExpressionCollection;
 
-		DPROPERTY(EditorOnly)
-		FMaterialExpressionSurfaceOutputs ExpressionOutputs;
+		DPROPERTY()
+		EMaterialDomain Domain = EMaterialDomain::Surface;
+
 
 		static auto ValidateExpressionGraph(const FMaterialExpressionCollection& Collection,
 			const FMaterialExpressionSurfaceOutputs& Outputs, FXxHash128* OutCodeFingerprint = nullptr) -> FMaterialProgramValidationResult;

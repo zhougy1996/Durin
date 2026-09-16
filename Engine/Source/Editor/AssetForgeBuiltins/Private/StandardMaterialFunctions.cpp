@@ -19,7 +19,7 @@ namespace Durin::AssetForge::Builtins
 		using Link = FMaterialExpressionInput;
 		constexpr std::array RoleNames{"BaseColor", "Normal", "Metallic", "Roughness",
 			"AmbientOcclusion", "Emissive", "Opacity", "OpacityMask"};
-		constexpr std::array EntryNames{"UVTransform", "SampleNormal", "SampleORM", "StandardPBR", "StandardPBR_ORM", "ImportedSurfaceValues", "DecodeImportedNormalRG"};
+		constexpr std::array EntryNames{"UVTransform", "SampleNormal", "SampleORM", "StandardPBR", "StandardPBR_ORM", "ImportedSurfaceValues"};
 		constexpr auto Id(Entry Function, uint32 Slot) -> FGuid { return StandardMaterialPortId(Function, Slot); }
 		auto Numeric(float X, float Y = 0, float Z = 0) -> FMaterialFunctionDefault
 			{ return {.Kind = Kind::Numeric, .Numeric = {.X = X, .Y = Y, .Z = Z}}; }
@@ -30,6 +30,7 @@ namespace Durin::AssetForge::Builtins
 		{
 			Entry Family;
 			FStandardMaterialFunctionExpressions Recipe;
+			int32 InputCount = 0, OutputCount = 0;
 			template<typename T>
 			auto Add() -> T*
 			{
@@ -48,6 +49,7 @@ namespace Durin::AssetForge::Builtins
 				if constexpr (requires { N->A; N->B; }) { N->A = Inputs[0]; N->B = Inputs[1]; }
 				if constexpr (std::is_same_v<T, DMaterialExpressionBlendNormalsRNM>)
 					{ N->Base = Inputs[0]; N->Detail = Inputs[1]; }
+				if constexpr (std::is_same_v<T, DMaterialExpressionLerp>) N->Alpha = Inputs[2];
 				if constexpr (requires { N->Input; }) N->Input = Inputs[0];
 				if constexpr (std::is_same_v<T, DMaterialExpressionClamp>)
 					{ N->Minimum = Inputs[1]; N->Maximum = Inputs[2]; }
@@ -66,21 +68,20 @@ namespace Durin::AssetForge::Builtins
 			auto Input(uint32 Slot, std::string Name, Type ValueType,
 				FMaterialFunctionDefault Default, bool bAdvanced = false) -> Link
 			{
-				const auto Port = Id(Family == Entry::StandardPBR_ORM ? Entry::StandardPBR : Family, Slot);
-				Recipe.Signature.Inputs.push_back({.Id = Port, .Type = ValueType,
-					.Name = std::move(Name), .DisplayOrder = static_cast<int32>(Recipe.Signature.Inputs.size()),
-					.bAdvanced = bAdvanced, .Default = std::move(Default)});
 				auto* N = Add<DMaterialExpressionFunctionInput>();
-				N->PortId = Port;
+				const auto Port = Id(Family == Entry::StandardPBR_ORM ? Entry::StandardPBR : Family, Slot);
+				N->Port = {.Id = Port, .Type = ValueType,
+					.Name = std::move(Name), .DisplayOrder = InputCount++,
+					.bAdvanced = bAdvanced, .Default = std::move(Default)};
 				return {N->Id};
 			}
 			auto Output(uint32 Slot, std::string Name, Type ValueType, Link Source) -> void
 			{
-				const auto Port = Id(Family, Slot);
-				Recipe.Signature.Outputs.push_back({.Id = Port, .Type = ValueType, .Name = std::move(Name),
-					.DisplayOrder = static_cast<int32>(Recipe.Signature.Outputs.size())});
 				auto* N = Add<DMaterialExpressionFunctionOutput>();
-				N->PortId = Port; N->Source = Source;
+				const auto Port = Id(Family, Slot);
+				N->Port = {.Id = Port, .Type = ValueType, .Name = std::move(Name),
+					.DisplayOrder = OutputCount++};
+				N->Source = Source;
 			}
 			auto Constant(Type ValueType, float X, float Y = 0, float Z = 0) -> Link
 			{
@@ -171,15 +172,11 @@ namespace Durin::AssetForge::Builtins
 			{
 				const auto Strength = B.Input(3, "Strength", Type::Float, Numeric(1));
 				const auto Normal = B.Input(4, "Normal", Type::Float3, Numeric(0, 0, 1));
-				const auto RG = B.Swizzle(Sample, Type::Float2, 0, 1);
-				// Scale encoded RG about its neutral midpoint before the existing safe decoder.
-				const auto Half = B.Constant(Type::Float2, .5f, .5f);
-				const auto Centered = B.Node<DMaterialExpressionSubtract>(Type::Float2, {RG, Half});
-				const auto Strength2 = B.Node<DMaterialExpressionSplat2>(Type::Float2, {Strength});
-				const auto Scaled = B.Node<DMaterialExpressionMultiply>(Type::Float2, {Centered, Strength2});
-				const auto Encoded = B.Node<DMaterialExpressionAdd>(Type::Float2, {Scaled, Half});
-				const auto Decoded = B.Node<DMaterialExpressionDecodeNormalRG>(Type::Float3, {Encoded});
-				B.Output(100, "Normal", Type::Float3, B.Node<DMaterialExpressionBlendNormalsRNM>(Type::Float3, {Normal, Decoded}));
+				const Link Decoded{Sample.ExpressionId, 1};
+				const auto Flat = B.Constant(Type::Float3, 0, 0, 1);
+				// Strength acts on decoded normals; RNM safely normalizes the result.
+				const auto Detail = B.Node<DMaterialExpressionLerp>(Type::Float3, {Flat, Decoded, Strength});
+				B.Output(100, "Normal", Type::Float3, B.Node<DMaterialExpressionBlendNormalsRNM>(Type::Float3, {Normal, Detail}));
 			}
 			else
 			{
@@ -187,18 +184,6 @@ namespace Durin::AssetForge::Builtins
 				B.Output(101, "Roughness", Type::Float, B.Swizzle(Sample, Type::Float, 1));
 				B.Output(102, "Metallic", Type::Float, B.Swizzle(Sample, Type::Float, 2));
 			}
-		}
-		else if (Function == Entry::DecodeImportedNormalRG)
-		{
-			const auto RG = B.Input(1, "RG", Type::Float2, Numeric(.5f, .5f));
-			// Retain the shipped SampleNormal strength-one arithmetic exactly.
-			const auto Half = B.Constant(Type::Float2, .5f, .5f);
-			const auto Centered = B.Node<DMaterialExpressionSubtract>(Type::Float2, {RG, Half});
-			const auto Strength = B.Constant(Type::Float, 1);
-			const auto Strength2 = B.Node<DMaterialExpressionSplat2>(Type::Float2, {Strength});
-			const auto Scaled = B.Node<DMaterialExpressionMultiply>(Type::Float2, {Centered, Strength2});
-			const auto Encoded = B.Node<DMaterialExpressionAdd>(Type::Float2, {Scaled, Half});
-			B.Output(100, "Normal", Type::Float3, B.Node<DMaterialExpressionDecodeNormalRG>(Type::Float3, {Encoded}));
 		}
 		else
 		{
@@ -267,17 +252,24 @@ namespace Durin::AssetForge::Builtins
 		return std::move(B.Recipe);
 	}
 
+	auto FStandardMaterialFunctionExpressions::GetSignature() const -> FMaterialFunctionSignature
+	{
+		std::vector<DMaterialExpression*> Nodes;
+		for (const auto& Expression : Expressions) Nodes.push_back(Expression.Get());
+		return DeriveMaterialFunctionSignature(Nodes);
+	}
+
 	auto FStandardMaterialFunctionExpressions::Apply(DMaterialFunction& Function) const -> FMaterialProgramValidationResult
 	{
 		std::vector<DMaterialExpression*> Nodes;
 		for (const auto& Expression : Expressions) Nodes.push_back(Expression.Get());
-		return Function.SetFunctionExpressions(Signature, Nodes);
+		return Function.SetFunctionExpressions(Nodes);
 	}
 
 	auto FStandardMaterialFunctionExpressions::Matches(const DMaterialFunction& Function) const -> bool
 	{
 		const auto& Current = Function.GetExpressionCollection().Expressions;
-		if (Signature != Function.GetFunctionSignature() || Expressions.size() != Current.size()) return false;
+		if (Expressions.size() != Current.size()) return false;
 		for (size_t Index = 0; Index < Expressions.size(); ++Index)
 		{
 			const auto* A = Expressions[Index].Get(); const auto* B = Current[Index].Get();
@@ -296,7 +288,7 @@ namespace Durin::AssetForge::Builtins
 	{
 		FStandardMaterialFunctions Result;
 		const std::array Slots{&Result.UVTransform, &Result.SampleNormal, &Result.SampleORM,
-			&Result.StandardPBR, &Result.StandardPBR_ORM, &Result.ImportedSurfaceValues, &Result.DecodeImportedNormalRG};
+			&Result.StandardPBR, &Result.StandardPBR_ORM, &Result.ImportedSurfaceValues};
 		for (uint32 I = 0; I < Slots.size(); ++I)
 		{
 			const auto EntryKind = static_cast<Entry>(I + 1);
@@ -319,7 +311,7 @@ namespace Durin::AssetForge::Builtins
 			{
 				if (!Function || Function->GetAuthoringSource() != Source
 					|| Function->GetAuthoringSourceVersion() != StandardMaterialFunctionVersion
-					|| Function->GetFunctionSignature() != Expected.Signature)
+					|| Function->GetFunctionSignature() != Expected.GetSignature())
 				{
 					OutError = std::format("Standard function {} has incompatible provenance or an edited interface; preserve it and resolve the conflict before importing.", Path.ToString());
 					return false;

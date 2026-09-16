@@ -294,6 +294,41 @@ namespace Durin
 		auto operator==(const FMaterialExpressionSurfaceOutputs&) const -> bool = default;
 	};
 
+	DENUM()
+	enum class EMaterialDomain : uint8 { Surface = 0 };
+
+	// Persistent semantic identities; their values do not encode visual pin order.
+	enum class EMaterialOutputPin : uint8
+	{
+		BaseColor = 0, Normal = 1, Metallic = 2, Roughness = 3,
+		AmbientOcclusion = 4, Emissive = 5, Opacity = 6, OpacityMask = 7, Surface = 8,
+	};
+	struct FMaterialOutputPinDefinition
+	{
+		EMaterialOutputPin Id;
+		std::string_view Name;
+		EMaterialProgramValueType Type;
+	};
+	ENGINE_API auto GetMaterialDomainOutputPins(EMaterialDomain Domain) -> std::span<const FMaterialOutputPinDefinition>;
+	ENGINE_API auto GetMaterialOutputInput(FMaterialExpressionSurfaceOutputs& Outputs, EMaterialOutputPin Pin) -> FMaterialExpressionInput*;
+
+	ENGINE_API auto ReadMaterialOutputDefault(const FMaterialExpressionSurfaceOutputs& Outputs, EMaterialOutputPin Pin) -> std::vector<float>;
+	ENGINE_API auto WriteMaterialOutputDefault(FMaterialExpressionSurfaceOutputs& Outputs, EMaterialOutputPin Pin, std::span<const float> Value) -> bool;
+
+	// A graph sink: connections/defaults are authored here, while its owner supplies the domain.
+	DCLASS()
+	class DMaterialExpressionMaterialOutput : public DMaterialExpression
+	{
+		GENERATED_BODY()
+	public:
+		explicit DMaterialExpressionMaterialOutput(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		DPROPERTY()
+		FMaterialExpressionSurfaceOutputs Outputs;
+		auto GetAuthoredInputCount() const -> uint32 override { return 9; }
+		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
+			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
+	};
+
 	// Groups numeric expressions; concrete families own their applicable pins and defaults.
 	DCLASS(Abstract, NoClassDefaultObject)
 	class DMaterialExpressionNumeric : public DMaterialExpression
@@ -885,27 +920,6 @@ namespace Durin
 
 	};
 
-	// Owns only the inputs and width required by DecodeNormalRG.
-	DCLASS()
-	class DMaterialExpressionDecodeNormalRG : public DMaterialExpressionNumeric
-	{
-		GENERATED_BODY()
-	public:
-		explicit DMaterialExpressionDecodeNormalRG(const FObjectInitializer& Initializer) : Super(Initializer) {}
-
-		DPROPERTY()
-		FMaterialExpressionInput Input;
-
-		DPROPERTY()
-		std::vector<float> InputDefault;
-
-		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
-
-		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
-			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
-
-	};
-
 	// Owns only the inputs and width required by BlendNormalsRNM.
 	DCLASS()
 	class DMaterialExpressionBlendNormalsRNM : public DMaterialExpressionNumeric
@@ -1218,7 +1232,7 @@ namespace Durin
 
 	};
 
-	// The owning function signature supplies terminal type and presentation.
+	// Owns the function port definition; the function signature is derived from terminals.
 	DCLASS()
 	class DMaterialExpressionFunctionInput : public DMaterialExpression
 	{
@@ -1227,14 +1241,14 @@ namespace Durin
 		explicit DMaterialExpressionFunctionInput(const FObjectInitializer& Initializer) : Super(Initializer) {}
 
 		DPROPERTY()
-		FGuid PortId;
+		FMaterialFunctionPort Port;
 
 		ENGINE_API auto Build(FMaterialExpressionBuildContext& Context,
 			uint8 OutputIndex = 0, FGuid OutputId = {}) const -> FMaterialExpressionBuildValue override;
 
 	};
 
-	// The owning function signature supplies terminal type and presentation.
+	// Owns the function port definition; the function signature is derived from terminals.
 	DCLASS()
 	class DMaterialExpressionFunctionOutput : public DMaterialExpression
 	{
@@ -1243,7 +1257,7 @@ namespace Durin
 		explicit DMaterialExpressionFunctionOutput(const FObjectInitializer& Initializer) : Super(Initializer) {}
 
 		DPROPERTY()
-		FGuid PortId;
+		FMaterialFunctionPort Port;
 
 		DPROPERTY()
 		FMaterialExpressionInput Source;

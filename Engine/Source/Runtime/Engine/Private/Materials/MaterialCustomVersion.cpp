@@ -5,8 +5,12 @@ namespace Durin
 {
 	namespace
 	{
+		const FCustomVersionRegistration OutputRegistration{
+			FMaterialOutputVersion::Guid, FMaterialOutputVersion::CurrentVersion, "MaterialOutputNode"};
 		const FCustomVersionRegistration GraphRegistration{
 			FMaterialGraphVersion::Guid, FMaterialGraphVersion::CurrentVersion, "MaterialGraph"};
+		const FCustomVersionRegistration FunctionRegistration{
+			FMaterialFunctionVersion::Guid, FMaterialFunctionVersion::CurrentVersion, "MaterialFunctionPorts"};
 		const FCustomVersionRegistration InstanceRegistration{
 			FMaterialInstanceVersion::Guid, FMaterialInstanceVersion::CurrentVersion, "MaterialInstanceParameters"};
 
@@ -28,9 +32,19 @@ namespace Durin
 		}
 	}
 
+	auto FMaterialOutputVersion::Serialize(FArchive& Ar) -> bool
+	{
+		return SerializePackageVersion(Ar, Guid, CurrentVersion, "MaterialOutputNode");
+	}
+
 	auto FMaterialGraphVersion::Serialize(FArchive& Ar) -> bool
 	{
 		return SerializePackageVersion(Ar, Guid, CurrentVersion, "MaterialGraph");
+	}
+
+	auto FMaterialFunctionVersion::Serialize(FArchive& Ar) -> bool
+	{
+		return SerializePackageVersion(Ar, Guid, CurrentVersion, "MaterialFunctionPorts");
 	}
 
 	auto FMaterialInstanceVersion::Serialize(FArchive& Ar) -> bool

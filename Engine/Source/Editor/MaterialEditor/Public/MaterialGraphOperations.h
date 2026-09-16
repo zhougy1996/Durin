@@ -18,7 +18,7 @@ namespace Durin
 
 namespace Durin::Editor::Material
 {
-	inline constexpr uint32 CurrentMaterialGraphClipboardSchemaVersion = 7;
+	inline constexpr uint32 CurrentMaterialGraphClipboardSchemaVersion = 8;
 
 	// Identifies the stable outcome of one graph inspection or mutation request.
 	enum class EMaterialGraphCommandStatus : uint8
@@ -93,6 +93,7 @@ namespace Durin::Editor::Material
 	struct FMaterialGraphNodeDescriptor
 	{
 		FGuid Id;
+		bool bMaterialOutput = false;
 		EMaterialProgramOpcode Opcode = EMaterialProgramOpcode::Constant;
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
 		std::variant<std::monostate, FMaterialParameterValue, FMaterialGraphParameterInfo,
@@ -128,7 +129,6 @@ namespace Durin::Editor::Material
 	{
 		std::vector<FMaterialGraphNodeView> Nodes;
 		FMaterialSurfaceOutputs Outputs;
-		std::pair<int32, int32> MaterialOutputPosition;
 		bool bFunction = false;
 	};
 
@@ -176,7 +176,6 @@ namespace Durin::Editor::Material
 		uint32 SchemaVersion = CurrentMaterialGraphClipboardSchemaVersion;
 		TWeakObjectPtr<DObject> SourceRoot;
 		std::vector<FMaterialGraphClipboardNode> Nodes;
-		FMaterialFunctionSignature Signature;
 		bool bConnectAggregateSurface = false;
 		FGuid AggregateSourceNodeId;
 		uint8 AggregateSourceOutputIndex = 0;
@@ -194,7 +193,6 @@ namespace Durin::Editor::Material
 		float ColumnGap = 96.0f;
 		float RowGap = 28.0f;
 		float SurfaceWidth = 268.0f;
-		float SurfaceHeaderHeight = 48.0f;
 		float SurfaceLabelWidth = 144.0f;
 		float SurfaceValueGap = 12.0f;
 		float SurfaceValueWidth = 92.0f;
@@ -215,7 +213,6 @@ namespace Durin::Editor::Material
 		MATERIALEDITOR_API static auto GetMetrics()
 			-> const FMaterialGraphCanvasMetrics&;
 		MATERIALEDITOR_API static auto GetNodeHeight(uint32 InputCount) -> float;
-		MATERIALEDITOR_API static auto GetSurfacePinOffset(uint32 InputIndex) -> float;
 		MATERIALEDITOR_API static auto SelectDetailLevel(
 			float Zoom,
 			EMaterialGraphDetailLevel Previous) -> EMaterialGraphDetailLevel;
@@ -387,14 +384,8 @@ namespace Durin::Editor::Material
 			std::span<const FGuid> NodeIds,
 			DTransactor* Transactions = nullptr)
 			-> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API auto BeginMaterialOutput(
-			DMaterial& Material,
-			DTransactor* Transactions = nullptr)
-			-> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto Apply(
 			std::span<const FMaterialGraphNodePresentation> Positions)
-			-> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API auto ApplyMaterialOutput(int32 X, int32 Y)
 			-> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto Commit() -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto Cancel() -> FMaterialGraphCommandResult;

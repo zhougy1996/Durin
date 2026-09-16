@@ -17,7 +17,6 @@ namespace Durin::AssetForge::Builtins
 		FMaterialProgramLiteral UVOffset;
 		FMaterialProgramLiteral UVRotation;
 		uint8 OutputIndex = 1;
-		bool bDecodeNormal = false;
 	};
 	struct FImportedSurfaceRole
 	{

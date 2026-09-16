@@ -1,3 +1,4 @@
+#include "FunctionPortTestFixture.h"
 #include "MaterialFunctionTestSupport.h"
 
 TEST(FMaterialFunctionEditingTests, WorkspaceSavesAndReloadsFunctionsAcrossOpenDocuments)
@@ -40,7 +41,7 @@ TEST(FMaterialFunctionEditingTests, WorkspaceSavesAndReloadsFunctionsAcrossOpenD
 	ASSERT_TRUE(Workspace);
 	auto Signature = First->GetFunctionSignature();
 	Signature.Outputs[0].Name = "Saved Surface";
-	ASSERT_TRUE(FMaterialGraphDocument(*First).SetSignature(Signature));
+	ASSERT_TRUE(FMaterialGraphDocument(*First).SetPort(true, Signature.Outputs[0]));
 	EXPECT_TRUE(Workspace->IsDocumentDirty(FirstTab));
 	EXPECT_EQ(Manager.RequestCloseDocument(FirstTab.Id), EDocumentCloseResult::PendingConfirmation);
 	ASSERT_TRUE(Workspace->SaveDocument(FirstTab));
@@ -49,7 +50,7 @@ TEST(FMaterialFunctionEditingTests, WorkspaceSavesAndReloadsFunctionsAcrossOpenD
 	FMaterialGraphClipboardPayload Clipboard;
 	ASSERT_TRUE(FMaterialGraphDocument(*Second).CopySelection(std::span(&CopiedCallId, 1), Clipboard));
 	Signature.Outputs[0].Name = "Discarded Surface";
-	ASSERT_TRUE(FMaterialGraphDocument(*First).SetSignature(Signature));
+	ASSERT_TRUE(FMaterialGraphDocument(*First).SetPort(true, Signature.Outputs[0]));
 	const bool Discarded = Workspace->DiscardDocument(FirstTab);
 	if (!Discarded)
 	{
@@ -87,10 +88,10 @@ TEST(FMaterialFunctionEditingTests, PreviewWrappersCompileEveryOutputTypeWithout
 		const auto Output = FunctionPort(2, Type, "Output");
 		const FMaterialFunctionSignature Signature{{Input}, {Output}};
 		auto* InputExpression = NewObject<DMaterialExpressionFunctionInput>(nullptr, NAME_None);
-		InputExpression->Id = {1, 1, 1, 1}; InputExpression->PortId = Input.Id;
+		InputExpression->Id = {1, 1, 1, 1}; InputExpression->Port.Id = Input.Id;
 		auto* OutputExpression = NewObject<DMaterialExpressionFunctionOutput>(nullptr, NAME_None);
-		OutputExpression->Id = {1, 1, 1, 2}; OutputExpression->PortId = Output.Id; OutputExpression->Source = {InputExpression->Id};
-		ASSERT_TRUE(Function->SetFunctionExpressions(Signature, std::array<DMaterialExpression*, 2>{InputExpression, OutputExpression}));
+		OutputExpression->Id = {1, 1, 1, 2}; OutputExpression->Port.Id = Output.Id; OutputExpression->Source = {InputExpression->Id};
+		ASSERT_TRUE(Function->SetFunctionExpressions(Durin::Testing::WithFunctionPorts(Signature, std::array<DMaterialExpression*, 2>{InputExpression, OutputExpression})));
 		const auto SourceExpressions = Function->GetExpressionCollection().Expressions;
 		const auto Revision = Function->GetFunctionRevision();
 		const auto Built = BuildMaterialFunctionPreview(*Function, Output.Id, *Preview);
@@ -158,7 +159,7 @@ TEST(FMaterialFunctionEditingTests, SharedDocumentsEditStableCallsAndInterfacesW
 	FMaterialGraphDocument FunctionDocument(*Function), WrapperDocument(*Wrapper), MaterialDocument(*Material);
 	auto Signature = Function->GetFunctionSignature();
 	Signature.Inputs[0].Name = "Renamed Surface";
-	ASSERT_TRUE(FunctionDocument.SetSignature(Signature, Transactions.Get()));
+	ASSERT_TRUE(FunctionDocument.SetPort(false, Signature.Inputs[0], Transactions.Get()));
 	ASSERT_TRUE(Transactions.Get()->Undo());
 	EXPECT_NE(Function->GetFunctionSignature().Inputs[0].Name, Signature.Inputs[0].Name);
 	ASSERT_TRUE(Transactions.Get()->Redo());
@@ -219,7 +220,7 @@ TEST(FMaterialFunctionEditingTests, CommandsAuthorFunctionPortsAndCompileASelect
 		[](const auto& Expression) { return Expression->Id; });
 	ASSERT_NE(Terminal, Function->GetExpressionCollection().Expressions.end());
 	ASSERT_NE(Cast<DMaterialExpressionFunctionInput>(Terminal->Get()), nullptr);
-	EXPECT_EQ(Cast<DMaterialExpressionFunctionInput>(Terminal->Get())->PortId, Input.Id);
+	EXPECT_EQ(Cast<DMaterialExpressionFunctionInput>(Terminal->Get())->Port.Id, Input.Id);
 	const auto AddedNode = Testing::CreateGraphCatalogNode(Document, EMaterialProgramOpcode::Saturate,
 		EMaterialProgramValueType::Float, {AddedInput.GeneratedNodeIds[0]}, 100, 0, Transactions.Get());
 	ASSERT_TRUE(AddedNode);
@@ -235,9 +236,10 @@ TEST(FMaterialFunctionEditingTests, CommandsAuthorFunctionPortsAndCompileASelect
 	ASSERT_TRUE(Material->GetAcceptedCompiledProgram());
 	const auto Identity = Material->GetAcceptedCompiledProgram()->Identity;
 	auto Signature = Function->GetFunctionSignature();
-	std::ranges::reverse(Signature.Inputs);
-	std::ranges::reverse(Signature.Outputs);
-	ASSERT_TRUE(Document.SetSignature(Signature, Transactions.Get()));
+	for (auto& Port : Signature.Inputs) Port.DisplayOrder = -Port.DisplayOrder - 1;
+	for (auto& Port : Signature.Outputs) Port.DisplayOrder = -Port.DisplayOrder - 1;
+	for (const auto& Port : Signature.Inputs) ASSERT_TRUE(Document.SetPort(false, Port, Transactions.Get()));
+	for (const auto& Port : Signature.Outputs) ASSERT_TRUE(Document.SetPort(true, Port, Transactions.Get()));
 	ASSERT_TRUE(Material->CompileEdits());
 	EXPECT_EQ(Material->GetAcceptedCompiledProgram()->Identity, Identity);
 	const auto CallId = Inserted.GeneratedNodeIds[0];
@@ -254,4 +256,50 @@ TEST(FMaterialFunctionEditingTests, CommandsAuthorFunctionPortsAndCompileASelect
 	MarkAsGarbage(Material);
 	MarkAsGarbage(Function);
 	CollectGarbage();
+}
+
+TEST(FMaterialFunctionEditingTests, TerminalPortIsTheOnlyAuthoredInterfaceAndUndoRestoresIt)
+{
+	using namespace Durin;
+	using namespace Durin::Editor::Material;
+	InitializeDObjectSystem();
+	FScopedOfflinePreparation Offline;
+	TStrongObjectPtr<DMaterialFunction> Function(NewObject<DMaterialFunction>(nullptr, "NodeOwnedInterface"));
+	EXPECT_EQ(Function->GetClass()->FindPropertyByName("Signature"), nullptr);
+	EXPECT_EQ(DMaterialExpressionFunctionInput::StaticClass()->FindPropertyByName("PortId"), nullptr);
+	FMaterialGraphDocument Document(*Function.Get());
+	Tests::FTestTransactorOwner Transactions;
+	const auto Before = Function->GetFunctionSignature();
+	FMaterialGraphDocumentState Draft;
+	ASSERT_TRUE(Document.Capture(Draft));
+	auto* Input = Cast<DMaterialExpressionFunctionInput>(Draft.Expressions[0].Get());
+	ASSERT_NE(Input, nullptr);
+	const auto NodeId = Input->Id;
+	Input->Port.Name = "Authored on node";
+	Input->Port.Default.Surface.RoughnessDefault.X = .27f;
+	const auto Edited = Input->Port;
+	std::vector<FMaterialGraphChangeSet> Events;
+	const auto Handle = Function->GetGraphChanges().Subscribe(*Function.Get(), [&](const auto& Change) {
+		Events.push_back(Change);
+		EXPECT_EQ(Function->GetFunctionSignature().Inputs[0], Edited);
+	});
+	const auto Result = Document.Commit(std::move(Draft), "Edit terminal", Transactions.Get());
+	Function->GetGraphChanges().Unsubscribe(Handle);
+	ASSERT_TRUE(Result) << Result.Message;
+	ASSERT_EQ(Events.size(), 1u);
+	ASSERT_EQ(Events[0].Nodes.size(), 1u);
+	EXPECT_EQ(Events[0].Flags, EMaterialGraphChange::None);
+	EXPECT_EQ(Events[0].Nodes[0].NodeId, NodeId);
+	EXPECT_NE(Events[0].Nodes[0].Flags & EMaterialGraphNodeChange::Interface, EMaterialGraphNodeChange::None);
+	EXPECT_EQ(Function->GetFunctionSignature().Inputs[0], Edited);
+	ASSERT_TRUE(Transactions.Get()->Undo());
+	EXPECT_EQ(Function->GetFunctionSignature(), Before);
+	ASSERT_TRUE(Transactions.Get()->Redo());
+	EXPECT_EQ(Function->GetFunctionSignature().Inputs[0], Edited);
+	ASSERT_TRUE(Document.Capture(Draft));
+	auto* Output = Cast<DMaterialExpressionFunctionOutput>(Draft.Expressions[1].Get());
+	ASSERT_NE(Output, nullptr);
+	Output->Port.Id = Edited.Id;
+	EXPECT_FALSE(Document.Commit(std::move(Draft), "Duplicate port identity"));
+	EXPECT_EQ(Function->GetFunctionSignature().Outputs[0], Before.Outputs[0]);
 }

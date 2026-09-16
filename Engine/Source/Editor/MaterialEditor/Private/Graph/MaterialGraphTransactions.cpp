@@ -23,16 +23,6 @@ namespace Durin::Editor::Material
 			std::optional<FMaterialGraphPosition> After;
 		};
 
-		struct FMaterialGraphOutputPresentation
-		{
-			bool bHasPosition = false;
-			int32 X = 0;
-			int32 Y = 0;
-
-			auto operator==(const FMaterialGraphOutputPresentation&) const
-				-> bool = default;
-		};
-
 		// Replays only changed positions so unrelated presentation edits survive undo.
 		class FMaterialGraphPresentationTransaction final
 			: public ITransactionCustomChange
@@ -71,15 +61,6 @@ namespace Durin::Editor::Material
 							FMaterialGraphPosition{After.X, After.Y}});
 				}
 
-				BeforeOutput = {
-					BeforePresentation.bHasMaterialOutputPosition,
-					BeforePresentation.MaterialOutputX,
-					BeforePresentation.MaterialOutputY};
-				AfterOutput = {
-					AfterPresentation.bHasMaterialOutputPosition,
-					AfterPresentation.MaterialOutputX,
-					AfterPresentation.MaterialOutputY};
-				bOutputChanged = BeforeOutput != AfterOutput;
 				AffectedPackages.front() = InMaterial.GetPackage();
 			}
 
@@ -130,22 +111,11 @@ namespace Durin::Editor::Material
 						Current->Y = Desired->Y;
 					}
 				}
-				if (bOutputChanged)
-				{
-					const FMaterialGraphOutputPresentation& Output =
-						bBefore ? BeforeOutput : AfterOutput;
-					Candidate.bHasMaterialOutputPosition = Output.bHasPosition;
-					Candidate.MaterialOutputX = Output.X;
-					Candidate.MaterialOutputY = Output.Y;
-				}
 				return Target->SetMaterialGraphPresentation(std::move(Candidate));
 			}
 
 			TWeakObjectPtr<DMaterial> Material;
 			std::vector<FMaterialGraphNodePresentationChange> NodeChanges;
-			FMaterialGraphOutputPresentation BeforeOutput;
-			FMaterialGraphOutputPresentation AfterOutput;
-			bool bOutputChanged = false;
 			std::string Description;
 			std::array<DPackage*, 1> AffectedPackages{};
 		};

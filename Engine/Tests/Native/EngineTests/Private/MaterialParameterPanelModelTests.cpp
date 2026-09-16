@@ -1,3 +1,4 @@
+#include "Materials/FunctionPortTestFixture.h"
 #include "Materials/TypedMaterialGraphTestFixture.h"
 #include "Materials/ExplicitMaterialProgramTestFixture.h"
 #include "Materials/MaterialTestSupport.h"
@@ -514,7 +515,7 @@ TEST(FMaterialParameterPanelModelTests, TypedResourceOutputsSkipUnusedUVDependen
 	Editor::Material::FMaterialParameterPanelModel Model(Instance.Get());
 	EXPECT_NE(FindEntry(Model, Sample->Metadata.Id), nullptr);
 	EXPECT_EQ(FindEntry(Model, UV->Metadata.Id), nullptr);
-	Outputs.Normal = {Sample->Id, 8};
+	Outputs.Normal = {Sample->Id, 1};
 	ASSERT_TRUE(Base->SetMaterialExpressions(Expressions, Outputs));
 	EXPECT_TRUE(Model.Refresh());
 	EXPECT_NE(FindEntry(Model, UV->Metadata.Id), nullptr);
@@ -542,13 +543,13 @@ TEST(FMaterialParameterPanelModelTests, ReachabilitySharesFunctionOutputAnalysis
 		{.Id = B, .Type = EMaterialProgramValueType::Float, .Name = "B", .bRequired = true}};
 	Signature.Outputs = {{.Id = X, .Type = EMaterialProgramValueType::Float, .Name = "X"},
 		{.Id = Y, .Type = EMaterialProgramValueType::Float, .Name = "Y"}};
-	auto InputA = Testing::MakeGraphExpression<DMaterialExpressionFunctionInput>(); InputA->PortId = A;
-	auto InputB = Testing::MakeGraphExpression<DMaterialExpressionFunctionInput>(); InputB->PortId = B;
-	auto OutputX = Testing::MakeGraphExpression<DMaterialExpressionFunctionOutput>(); OutputX->PortId = X;
-	auto OutputY = Testing::MakeGraphExpression<DMaterialExpressionFunctionOutput>(); OutputY->PortId = Y;
+	auto InputA = Testing::MakeGraphExpression<DMaterialExpressionFunctionInput>(); InputA->Port.Id = A;
+	auto InputB = Testing::MakeGraphExpression<DMaterialExpressionFunctionInput>(); InputB->Port.Id = B;
+	auto OutputX = Testing::MakeGraphExpression<DMaterialExpressionFunctionOutput>(); OutputX->Port.Id = X;
+	auto OutputY = Testing::MakeGraphExpression<DMaterialExpressionFunctionOutput>(); OutputY->Port.Id = Y;
 	OutputX->Source = {InputA->Id}; OutputY->Source = {InputB->Id};
 	const std::array<DMaterialExpression*, 4> Body{InputA.Get(), InputB.Get(), OutputX.Get(), OutputY.Get()};
-	ASSERT_TRUE(Function->SetFunctionExpressions(Signature, Body));
+	ASSERT_TRUE(Function->SetFunctionExpressions(Durin::Testing::WithFunctionPorts(Signature, Body)));
 	auto Nested = Testing::MakeGraphExpression<DMaterialExpressionFunctionCall>();
 	Nested->Function = Function.Get();
 	Nested->Inputs = {{A, EMaterialProgramValueType::Float, {InputA->Id}},
@@ -556,7 +557,7 @@ TEST(FMaterialParameterPanelModelTests, ReachabilitySharesFunctionOutputAnalysis
 	Nested->Outputs = {{X, EMaterialProgramValueType::Float}, {Y, EMaterialProgramValueType::Float}};
 	OutputX->Source = {Nested->Id, 0, X}; OutputY->Source = {Nested->Id, 0, Y};
 	const std::array<DMaterialExpression*, 5> WrapperBody{InputA.Get(), InputB.Get(), OutputX.Get(), OutputY.Get(), Nested.Get()};
-	ASSERT_TRUE(Wrapper->SetFunctionExpressions(Signature, WrapperBody));
+	ASSERT_TRUE(Wrapper->SetFunctionExpressions(Durin::Testing::WithFunctionPorts(Signature, WrapperBody)));
 	auto ParameterA = Testing::MakeGraphExpression<DMaterialExpressionScalarParameter>();
 	ParameterA->Metadata.Id = FGuid::NewGuid(); ParameterA->Metadata.Name = "ParameterA";
 	auto ParameterB = Testing::MakeGraphExpression<DMaterialExpressionScalarParameter>();
@@ -590,7 +591,7 @@ TEST(FMaterialParameterPanelModelTests, ReachabilitySharesFunctionOutputAnalysis
 	const auto RootRevision = Base->GetMaterialProgramRevision();
 	const auto WrapperRevision = Wrapper->GetFunctionRevision();
 	OutputX->Source = {InputB->Id}; OutputY->Source = {InputA->Id};
-	ASSERT_TRUE(Function->SetFunctionExpressions(Signature, Body));
+	ASSERT_TRUE(Function->SetFunctionExpressions(Durin::Testing::WithFunctionPorts(Signature, Body)));
 	EXPECT_EQ(RootRevision, Base->GetMaterialProgramRevision());
 	EXPECT_EQ(WrapperRevision, Wrapper->GetFunctionRevision());
 	const auto Changed = Instance->GetParameterReachability();
@@ -608,14 +609,14 @@ TEST(FMaterialParameterPanelModelTests, ReachabilitySharesFunctionOutputAnalysis
 	// A stale call signature fails analysis, then recovers after the dependency is repaired.
 	auto BrokenSignature = Signature;
 	BrokenSignature.Outputs[0].Id = FGuid::NewGuid();
-	OutputX->PortId = BrokenSignature.Outputs[0].Id;
-	ASSERT_TRUE(Function->SetFunctionExpressions(BrokenSignature, Body));
+	OutputX->Port.Id = BrokenSignature.Outputs[0].Id;
+	ASSERT_TRUE(Function->SetFunctionExpressions(Durin::Testing::WithFunctionPorts(BrokenSignature, Body)));
 	const auto Failed = Instance->GetParameterReachability();
 	EXPECT_FALSE(Failed->Validation);
 	EXPECT_TRUE(Failed->ParameterIds.empty());
 	EXPECT_FALSE(Failed->Validation.Diagnostics.empty());
-	OutputX->PortId = X;
-	ASSERT_TRUE(Function->SetFunctionExpressions(Signature, Body));
+	OutputX->Port.Id = X;
+	ASSERT_TRUE(Function->SetFunctionExpressions(Durin::Testing::WithFunctionPorts(Signature, Body)));
 	const auto Recovered = Instance->GetParameterReachability();
 	ASSERT_TRUE(Recovered->Validation);
 	EXPECT_TRUE(Recovered->ParameterIds.contains(ParameterB->Metadata.Id));

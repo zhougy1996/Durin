@@ -49,7 +49,7 @@ namespace Durin
 				Fail("Parameter expressions require valid parameter GUIDs and a material owner.");
 				return;
 			}
-			AuthoredLinks += Expression->GetAuthoredInputCount();
+			if (!Cast<DMaterialExpressionMaterialOutput>(Expression)) AuthoredLinks += Expression->GetAuthoredInputCount();
 			if (AuthoredLinks > MaterialProgramMaxLinkCount)
 			{
 				Fail("Expression collection exceeds the authored input/link bound.");
@@ -287,11 +287,11 @@ namespace Durin
 
 	auto FMaterialExpressionBuildContext::SampleOutput(const DMaterialExpression& Expression, uint8 OutputIndex) -> uint32
 	{
-		if (OutputIndex > 8 || OutputIndex == 6 || OutputIndex == 7) return Fail("Sample expression output selector is invalid.");
+		if (OutputIndex > 5) return Fail("Sample expression output selector is invalid.");
 		const auto Sample = ResolveIndex({Expression.Id});
 		if (Sample == InvalidMaterialExpressionIndex) return Sample;
 		if (OutputIndex == 0) return Sample;
-		bool bDecodeNormal = OutputIndex == 8;
+		bool bDecodeNormal = false;
 		if (OutputIndex == 1)
 		{
 			if (const auto* Parameter = Cast<DMaterialExpressionTextureParameter>(&Expression))
@@ -309,7 +309,7 @@ namespace Durin
 			}
 		}
 		// RGB is the ready-to-use normal; raw RGBA and scalar channels retain
-		// their encoded values for masks and existing explicit decode graphs.
+		// their encoded values for channel processing.
 		const uint8 Width = bDecodeNormal ? 2 : OutputIndex == 1 ? 3 : 1;
 		const auto Selected = Emit({.Opcode = EMaterialProgramOpcode::Swizzle,
 			.ResultType = static_cast<EMaterialProgramValueType>(Width - 1), .Inputs = {Sample},
@@ -324,6 +324,7 @@ namespace Durin
 		for (const auto& [Id, Expression] : Expressions)
 		{
 			if (!Result.Diagnostics.empty()) return;
+			if (Cast<DMaterialExpressionMaterialOutput>(Expression)) continue;
 			FMaterialExpressionInput Probe{Id};
 			if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression); Call && !Call->Outputs.empty())
 				Probe.OutputId = Call->Outputs.front().OutputId;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "MaterialGraphOperations.h"
+#include "MaterialGraphReadModel.h"
 #include "MonaImGui.h"
 
 #include <variant>
@@ -13,9 +14,8 @@ namespace Durin
 
 namespace Durin::Editor::Material
 {
-	// Canvas identity includes the derived terminal without adding a semantic program node.
-	enum class EMaterialGraphTerminal { MaterialOutput };
-	using FMaterialGraphCanvasNodeId = std::variant<FGuid, EMaterialGraphTerminal>;
+	// All canvas selections refer to authored expression identities.
+	using FMaterialGraphCanvasNodeId = std::variant<FGuid>;
 
 	// Owns one document's transient material graph viewport and interaction state.
 	class FMaterialGraphCanvas
@@ -70,21 +70,14 @@ namespace Durin::Editor::Material
 			uint32 InputIndex = 0;
 			size_t OutputIndex = 0;
 		};
-		struct FSurfaceInteractionTarget
-		{
-			std::optional<EMaterialSurfaceOutput> Output;
-			bool bHoveredHeader = false;
-			bool bHoveredBody = false;
-			ImVec2 GraphPosition{};
-			std::array<ImVec2, 9> Pins{};
-		};
+
 		auto HandleViewportInput(const ImVec2& Minimum, const ImVec2& Mouse, bool bHovered) -> void;
 		auto HitTest(const FVisualGraph& VisualGraph, const ImVec2& Minimum,
 			const ImVec2& Maximum, const ImVec2& Mouse) const -> FPointerHit;
 		auto HandlePointerInput(DObject& Owner, DTransactor& Transactions,
 			const FMaterialGraphView& View, const FVisualGraph& VisualGraph,
 			const ImVec2& Minimum, const ImVec2& Maximum, const ImVec2& Size,
-			const ImVec2& Mouse, bool bPointerAvailable, const FSurfaceInteractionTarget& Surface,
+			const ImVec2& Mouse, bool bPointerAvailable,
 			const FReportError& ReportError) -> void;
 		struct FTexturePreviewState;
 		auto UpdateTexturePreviews(DMaterial& Material) -> void;
@@ -97,7 +90,6 @@ namespace Durin::Editor::Material
 		{
 			ImVec2 StartMouse{};
 			std::unordered_map<FGuid, FMaterialGraphNodePresentation> StartPositions;
-			std::optional<ImVec2> MaterialOutputStart;
 		};
 		struct FLinkingInteraction { FGuid SourceNode; uint8 SourceOutputIndex = 0; FGuid SourceOutputId; };
 		struct FReconnectingInputInteraction
@@ -106,10 +98,7 @@ namespace Durin::Editor::Material
 			uint32 DestinationInputIndex = 0;
 			FGuid DestinationInputId;
 		};
-		struct FReconnectingSurfaceInteraction
-		{
-			EMaterialSurfaceOutput Output = EMaterialSurfaceOutput::BaseColor;
-		};
+
 		struct FMarqueeInteraction { ImVec2 Start{}; };
 		struct FNodeCreationMenuInteraction
 		{
@@ -132,7 +121,6 @@ namespace Durin::Editor::Material
 			FMovingInteraction,
 			FLinkingInteraction,
 			FReconnectingInputInteraction,
-			FReconnectingSurfaceInteraction,
 			FMarqueeInteraction,
 			FNodeCreationMenuInteraction,
 			FContextMenuInteraction>;
@@ -176,6 +164,7 @@ namespace Durin::Editor::Material
 			const FReportError& ReportError) -> void;
 		auto ResetInteraction() -> void;
 		auto PrepareFunctionView(DMaterialFunction& Function) -> void;
+		auto PrepareDocumentView(DObject& Owner) -> void;
 		auto PrepareDetailsView(DObject& Owner) -> const FMaterialGraphView&;
 		auto HandleCreationShortcut(DObject& Owner, DTransactor& Transactions,
 			const ImVec2& Position, const FReportError& ReportError) -> bool;
@@ -185,18 +174,15 @@ namespace Durin::Editor::Material
 		ImVec2 Pan{40.0f, 40.0f};
 		float Zoom = 1.0f;
 		bool bFunctionGraph = false;
+		FGuid OutputNodeId;
 		EMaterialGraphDetailLevel DetailLevel = EMaterialGraphDetailLevel::Editing;
-		std::optional<ImVec2> SurfaceGraphPosition;
 		std::unordered_set<FMaterialGraphCanvasNodeId> SelectedNodes;
 		FGuid PendingFrameNode;
 		std::optional<FMaterialProgramDiagnostic> SelectedDiagnostic;
 		std::optional<EMaterialSurfaceOutput> SelectedSurfaceOutput;
-		bool bPendingFrameSurface = false;
 		std::vector<std::string> RecentCreationMenuEntries;
-		DMaterial* CachedMaterial = nullptr;
-		DMaterialFunction* CachedFunction = nullptr;
-		std::vector<std::pair<DObject*, uint64>> CachedFunctionRevisions;
-		std::vector<FMaterialGraphNodePresentation> CachedFunctionPositions;
+		FMaterialGraphReadModel ReadModel;
+		bool bViewStale = true;
 		std::optional<ImVec2> LastPasteAnchor;
 		uint32 RepeatedPasteCount = 0;
 		uint64 CatalogRevision = 0;
@@ -207,15 +193,8 @@ namespace Durin::Editor::Material
 		std::optional<EMaterialProgramValueType> CachedCreationMenuSourceType;
 		std::vector<size_t> CachedCreationMenuResults;
 		size_t CachedCreationMenuRecentCount = 0;
-		uint64 CachedProgramRevision = 0;
-		uint64 CachedExpressionRevision = 0;
-		uint64 CachedRenderStateVersion = 0;
-		uint64 CachedPresentationRevision = 0;
-		uint64 CachedSchemaRevision = 0;
 		std::vector<FMaterialGraphCatalogEntry> Catalog;
 		FMaterialGraphView CachedView;
-		// Full inspection shared by Details and the canvas, before pin visibility filtering.
-		FMaterialGraphView CachedInspection;
 		std::unordered_map<FGuid, size_t> CachedNodeIndices;
 		std::unique_ptr<FVisualGraph> CachedVisualGraph;
 		std::shared_ptr<FTexturePreviewState> TexturePreviews;

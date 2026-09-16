@@ -4,7 +4,7 @@ Summary: Define shared MaterialEditor expression ownership, inspection, commands
 
 Modules: MaterialEditor, Engine, DurinEd
 
-Last reviewed: 2026-09-15
+Last reviewed: 2026-09-16
 
 ## Task routing
 
@@ -12,6 +12,7 @@ Last reviewed: 2026-09-15
 | --- | --- |
 | Expression ownership, snapshots, or function publication | [Ownership](#ownership) |
 | Built-in function recipes or imported parent authoring | [Standard function authoring](#standard-function-authoring) |
+| Graph change notifications and cached inspection | [Change observation](#change-observation) |
 | Detached inspection, node creation, or connection commands | [Inspection and commands](#inspection-and-commands) |
 | Inline defaults, texture parameters, or UV connections | [Compact input and texture authoring](#compact-input-and-texture-authoring) |
 | Undo/Redo or movement sessions | [Transactions and gestures](#transactions-and-gestures) |
@@ -27,6 +28,19 @@ an ordered reading sequence.
 `DMaterial` and `DMaterialFunction` own concrete `DMaterialExpression` children.
 Expression connections use stable GUIDs and output indices; presentation stores
 GUID-keyed positions and labels separately from expression payloads. Material instances never own or edit a graph.
+Each authored material owns exactly one `DMaterialExpressionMaterialOutput`. Its
+`Outputs` field owns terminal links and literal defaults; `GetExpressionOutputs()`
+is a read-through accessor, not separately serialized state. The strict graph
+setter rejects missing or duplicate output nodes. The recipe overload constructs
+the terminal before publishing the graph. The terminal is selectable and movable,
+but cannot be deleted or duplicated. Copying a mixed selection excludes it.
+
+`DMaterial::Domain` selects the output-pin definition contract; Surface is the
+only implemented domain. `EMaterialOutputPin` gives pins stable semantic keys,
+independent of display order (the aggregate Surface row is displayed first).
+Connections and edits address those keys. Additional domains must define their
+pin schema and validation/migration policy in Engine; canvas rendering consumes
+ordinary node input descriptors. Domain switching is not implemented.
 Base-material documents edit a transient working `DMaterial`; Apply transfers
 its authored state to the existing package-owned source material. Graph commands
 remain reusable against either owner and never implicitly select a source asset.
@@ -43,12 +57,12 @@ or Undo/Redo. Commands that insert or replace callees additionally enforce their
 dependency rules before publication.
 
 `FMaterialGraphDocument` is the shared owning-thread command boundary for both
-owners. `Capture()` duplicates expression children, typed Surface outputs, function
-signatures and presentation into `FMaterialGraphDocumentState`. `Commit()` makes
+owners. `Capture()` duplicates expression children (including the material output)
+and presentation into `FMaterialGraphDocumentState`. `Commit()` makes
 another independent copy so caller-retained draft handles cannot mutate history;
 it validates candidate state through the owning Engine asset and
 records a complete undoable change. History retains independent concrete expression
-copies, function signatures, typed material outputs and presentation. Undo/Redo
+copies and presentation. Undo/Redo
 publishes through the typed owner setters, which duplicate those copies again;
 later live edits cannot mutate retained history. Publication and replay compare
 reflected expression fields first: presentation-only movement skips the graph
@@ -57,7 +71,7 @@ detached and can be collected independently of those snapshots. Full presentatio
 replacement includes labels, so replay can restore an empty name. Function state cannot contain root parameter
 declarations or Surface bindings. Transaction reference collection retains
 function and texture dependencies. Material canvas semantic commits use this same
-boundary. Interface replacement and port creation/removal operate on independent expression
+boundary. Port editing and creation/removal operate on independent expression
 snapshots and publish through `SetFunctionExpressions`. Material Surface output
 assignment, call insertion, and call-input connection/disconnection use the same
 typed snapshot publication boundary. Call inputs retain numeric defaults while
@@ -69,10 +83,11 @@ Fixed pins follow reflected connection-member declaration order; Surface overrid
 pins are keyed by attribute and call connections by their input bindings. Deletion
 clears references to removed nodes without changing retained numeric defaults.
 Deleting a Surface override source removes that binding and restores the base
-Surface attribute; Undo restores the independent previous expression graph. Terminal types are derived
-from the function-owned signature. These commands retain their typed snapshots
+Surface attribute; Undo restores the independent previous expression graph. Terminals own their complete `FMaterialFunctionPort`: stable port GUID, type,
+name, display order, flags and default. `GetFunctionSignature()` derives and caches
+a read-only projection of those nodes; no separate signature is serialized. These commands retain their typed snapshots
 for Undo/Redo and provide positions for terminals without saved layout.
-Interface replacement, call insertion and call input connection commands
+Port editing, call insertion and call input connection commands
 use stable GUIDs; insertion rejects a dependency closure that would recurse into
 the current function. Adding an interface port creates its typed terminal in the
 same transaction; output creation requires a source link. Removing a port rejects
@@ -118,11 +133,11 @@ as the selected result.
 
 `DMaterial::GraphPresentation` is a separate `EditorOnly` reflected value. It
 contains schema version 2, exactly one integral graph-space position for every
-live node GUID, and one integral Surface position. New material and
+live node GUID, including the material output node. New material and
 node creation establish those positions before publication. Sanitization retains
 the first valid record and removes duplicate, dangling, invalid, and out-of-range
-entries; an incomplete presentation violates the editable graph contract rather
-than selecting an alternate transient layout. Presentation is copied by ordinary
+entries. Read-only inspection supplies deterministic fallback positions for
+missing records without persisting them. Presentation is copied by ordinary
 reflection but is excluded from program validation, normalized IR, compile
 snapshots, shader-map identity, derived data, and the cooked DMAT payload.
 
@@ -132,7 +147,7 @@ and per-document controller state. None of those values are serialized.
 ## Standard function authoring
 
 `MakeStandardMaterialFunctionExpressions` constructs the seven built-in recipes as
-strongly retained concrete expressions plus their function-owned signatures.
+strongly retained concrete expressions whose terminal nodes own port definitions.
 Publication duplicates these children through `SetFunctionExpressions`; recipe
 objects and published functions never share mutable children. Recipe comparison
 uses reflected expression fields and stable port identities, excluding presentation.
@@ -214,7 +229,7 @@ types, names, defaults, required flags and missing-port markers. Function termin
 have typed named pins; Surface attribute pins retain their fixed attribute indices.
 The material canvas draws each output separately and preserves the full source
 link through drag, reconnection, Surface assignment and node creation.
-Callee authored revisions refresh the cached inspection, including interface-only
+Callee interface notifications refresh the cached inspection, including interface-only
 renames. Surface attribute reconnection uses the same document command boundary.
 
 Commands use node GUIDs, explicit pin indices, parameter GUIDs, and
@@ -257,6 +272,48 @@ Imported structural parents use the same Surface as a new material: each input
 accepts the final property value. Factor/sample composition lives upstream. Reusable
 functions can still return an aggregate Surface through the existing aggregate mode.
 
+## Change observation
+
+`DMaterial` and `DMaterialFunction` publish owning-thread graph changes through
+`FMaterialGraphChangeSource`. `FMaterialGraphChangeSet` contains one node list
+with GUIDs and combinable Added, Removed, Content, Interface, Inputs, and Position
+flags, plus a graph-level Reset flag. Material output connections, defaults and
+position produce ordinary node changes; there are no output-specific graph flags.
+These are invalidation hints for reading the current owner, not replayable edits
+or transaction history. Unknown expression-property changes conservatively
+invalidate that node's content, interface, and inputs.
+
+Observation uses exact reflected property payloads without retaining expression
+or resource objects. Checkpoints exist only while subscribers are attached;
+ordinary setters and reflected property edits compare after publication, so
+rejected changes and identical observations emit nothing. Position setters compare
+presentation only, without recapturing expression properties. Compilation and
+render-state changes are not graph notifications.
+
+`FScopedMaterialGraphChange` batches expression and presentation publication for
+commands and history replay; observers see the completed owner state once.
+Repeated changes to a node merge, deletion supersedes local edits, an unpublished
+addition followed by removal cancels, and removal followed by addition invalidates
+the replacement's complete view. Reset supersedes local hints. Reentrant
+publications are queued until the current notification finishes, and unsubscribe
+also disables callbacks already present in a dispatch snapshot.
+
+`FMaterialGraphReadModel` takes an initial complete inspection, subscribes to its
+owner and directly called function interfaces, and accumulates notifications until
+refresh. Content changes reread selected nodes; position changes update positions
+without rebuilding pins; structural changes rebuild inspection. A callee interface
+change refreshes call pins: terminal node events trigger comparison of the derived
+interface, without polling revisions or maintaining a graph-level Signature flag. Callee body edits, transitive implementation edits, and
+callee layout edits do not invalidate the caller's visible graph; compilation
+maintains its separate dependency policy. Committed package replacement refreshes
+observed owners after external references have been rewritten, allowing dependency
+subscriptions to follow replacement functions.
+
+The canvas and Details share this read model and do not poll compile, render,
+expression, schema, or function revisions. Canvas visibility filters and detached
+interaction drafts remain UI state. Compiler generations, package save checkpoints,
+and optimistic editing-session revisions retain their separate existing roles.
+
 ## Compact input and texture authoring
 
 Advanced pins are hidden initially. For inputs, the toggle hides only optional
@@ -280,9 +337,9 @@ There is no separate Normal pin, including in the advanced view. RGB automatical
 when the texture parameter's usage is Normal; connect RGB directly to the surface
 Normal input. Separate Texture Sample nodes inherit this behavior from their
 resource parameter, including resources passed through functions. Raw RGBA and
-individual channels remain encoded, preserving explicit Decode Normal RG graphs.
-Retained package links to legacy Normal slot 8 still compile and draw from the
-RGB anchor; new normal connections use RGB slot 1.
+individual channels remain encoded for channel processing. Decode Normal RG is
+compiler-only and has no authored expression or catalog entry. Retired Normal
+slot 8 is rejected; normal connections use RGB slot 1.
 The resource slot does not execute that node's UV transform or sample. A texture
 drop creates one uniquely named owner and sample node atomically, inherits the
 asset's texture usage, and selects a flat-normal fallback for normal textures. Selected-node
@@ -342,7 +399,7 @@ decode. Resource policy remains on that expression.
 
 One user-visible command produces one global editor transaction. Semantic
 commands retain before/after program and presentation values; presentation-only
-commands retain only changed node or Surface positions; parameter-only
+commands retain only changed node positions; parameter-only
 commands retain only the parameter GUID and before/after values. Every custom
 change reports its owned native allocations to the bounded transaction buffer.
 Undo and Redo restore semantic state through the ordinary material mutation
@@ -362,9 +419,9 @@ canvas and move session.
 
 ## Clipboard and layout
 
-`FMaterialGraphClipboardPayload` schema 7 contains at most 256 independently
-cloned concrete expressions, presentation labels, relative positions, function
-port declarations and a weak source-owner identity. Strong expression roots keep
+`FMaterialGraphClipboardPayload` schema 8 contains at most 256 independently
+cloned concrete expressions (including terminal port definitions), presentation
+labels, relative positions and a weak source-owner identity. Strong expression roots keep
 reflected texture and callee references alive independently of the source asset;
 reference replacement visits the expression properties directly. Paste clones the
 payload again before remapping typed connections, so it cannot mutate the payload.
@@ -394,7 +451,7 @@ invalid in both authored graphs and clipboard payloads. Custom parameters are
 never remapped into fixed role slots.
 
 A selection containing the active aggregate source records that source; paste
-reconnects the remapped Surface node atomically without copying the derived
+reconnects the remapped Surface node atomically without copying the unique material output
 terminal. Cut copies before one validated delete. Duplicate uses the same
 payload and paste path with a deterministic offset. The canvas stores this
 structured payload directly, so canvas and automation semantics agree.
@@ -403,8 +460,7 @@ Automatic layout is presentation-only and deterministic. It derives consumer
 edges directly from concrete expression connections, including function-call and
 Surface override inputs, and calculates each node's longest distance to a
 surface sink, places dependencies before consumers in fixed-width columns, and
-uses four forward/backward median sweeps with surface-output order as the sink
-seed. Stable prior order and GUIDs break all ties. Columns use computed node
+uses four forward/backward median sweeps over the same node edges. Stable prior order and GUIDs break all ties. Columns use computed node
 heights and fixed gaps; selected-only layout treats every unselected node as an
 occupied rectangle and searches downward for the nearest collision-free slot.
 It rejects atomically if the bounded search fails. Layout never changes program

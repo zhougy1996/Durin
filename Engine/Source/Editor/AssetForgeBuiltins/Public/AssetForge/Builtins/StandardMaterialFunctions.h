@@ -10,9 +10,9 @@ namespace Durin::AssetForge::Builtins
 	enum class EStandardMaterialFunction : uint32
 	{
 		UVTransform = 1, SampleNormal = 2, SampleORM = 3, StandardPBR = 4, StandardPBR_ORM = 5,
-		ImportedSurfaceValues = 6, DecodeImportedNormalRG = 7,
+		ImportedSurfaceValues = 6,
 	};
-	inline constexpr uint32 StandardMaterialFunctionVersion = 2;
+	inline constexpr uint32 StandardMaterialFunctionVersion = 3;
 	constexpr auto StandardMaterialPortId(EStandardMaterialFunction Function, uint32 Slot) -> FGuid
 	{
 		return {0x78e431b9, 0x4afe4982, static_cast<uint32>(Function), Slot};
@@ -20,12 +20,12 @@ namespace Durin::AssetForge::Builtins
 	struct FStandardMaterialFunctions
 	{
 		TObjectPtr<DMaterialFunction> UVTransform, SampleNormal, SampleORM, StandardPBR, StandardPBR_ORM;
-		TObjectPtr<DMaterialFunction> ImportedSurfaceValues, DecodeImportedNormalRG;
+		TObjectPtr<DMaterialFunction> ImportedSurfaceValues;
 	};
 	// Owning-thread recipe; keeps concrete children alive until validated publication.
 	struct FStandardMaterialFunctionExpressions
 	{
-		FMaterialFunctionSignature Signature;
+		ASSETFORGEBUILTINS_API auto GetSignature() const -> FMaterialFunctionSignature;
 		std::vector<TStrongObjectPtr<DMaterialExpression>> Expressions;
 		ASSETFORGEBUILTINS_API auto Apply(DMaterialFunction& Function) const -> FMaterialProgramValidationResult;
 		ASSETFORGEBUILTINS_API auto Matches(const DMaterialFunction& Function) const -> bool;

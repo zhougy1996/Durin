@@ -1,6 +1,7 @@
 #pragma once
 
 #include "MaterialGraphOperations.h"
+#include <unordered_set>
 #include "Materials/MaterialFunction.h"
 
 namespace Durin::Editor::Material
@@ -10,8 +11,14 @@ namespace Durin::Editor::Material
 	{
 		bool bFunction = false;
 		std::vector<TStrongObjectPtr<DMaterialExpression>> Expressions;
-		FMaterialExpressionSurfaceOutputs Outputs;
-		FMaterialFunctionSignature Signature;
+		// Convenience for Surface-specific commands; storage belongs to the terminal node.
+		auto GetOutputs() const -> FMaterialExpressionSurfaceOutputs&
+		{
+			for (const auto& Expression : Expressions)
+				if (auto* Output = Cast<DMaterialExpressionMaterialOutput>(Expression.Get())) return Output->Outputs;
+			check(false);
+			std::terminate();
+		}
 		FMaterialGraphPresentation Presentation;
 	};
 
@@ -23,9 +30,11 @@ namespace Durin::Editor::Material
 		MATERIALEDITOR_API auto Capture(FMaterialGraphDocumentState& OutState) const -> bool;
 		MATERIALEDITOR_API auto Inspect() const -> FMaterialGraphView;
 		MATERIALEDITOR_API auto Inspect(std::span<const FMaterialGraphCatalogEntry> Catalog) const -> FMaterialGraphView;
+		MATERIALEDITOR_API auto InspectNodes(std::span<const FGuid> Nodes,
+			std::span<const FMaterialGraphCatalogEntry> Catalog) const -> FMaterialGraphView;
 		MATERIALEDITOR_API auto Commit(FMaterialGraphDocumentState Candidate,
 			std::string Description, DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API auto SetSignature(FMaterialFunctionSignature Signature,
+		MATERIALEDITOR_API auto SetPort(bool bOutput, FMaterialFunctionPort Port,
 			DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto AddPort(bool bOutput, FMaterialFunctionPort Port,
 			FMaterialProgramLink Source = {}, int32 X = 0, int32 Y = 0,
@@ -73,6 +82,8 @@ namespace Durin::Editor::Material
 		MATERIALEDITOR_API auto CutSelection(std::span<const FGuid> NodeIds,
 			FMaterialGraphClipboardPayload& OutPayload, DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
 	private:
+		auto InspectSelection(std::span<const FMaterialGraphCatalogEntry> Catalog,
+			const std::unordered_set<FGuid>* Selection) const -> FMaterialGraphView;
 		TWeakObjectPtr<DObject> Owner;
 	};
 }

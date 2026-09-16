@@ -312,7 +312,7 @@ namespace Durin::AssetForge::Builtins
 			const auto Texture = std::ranges::find(Plan.Outputs, Link.TextureIdentity, &FSceneOutputData::StableIdentity);
 			require(Texture != Plan.Outputs.end());
 			const auto& Binding = Link.Binding;
-			constexpr std::array<uint8, 8> Channels{1, 8, 4, 3, 2, 1, 2, 2};
+			constexpr std::array<uint8, 8> Channels{1, 1, 4, 3, 2, 1, 2, 2};
 			Roles[Link.MaterialRole].Sample = FImportedSurfaceSample{
 				.ResourceIdentity = Link.TextureIdentity, .Usage = Texture->TextureUsage,
 				.Sampler = MakeMaterialSamplerState(Binding.Sampler),
@@ -320,7 +320,7 @@ namespace Durin::AssetForge::Builtins
 				.UVScale = {Binding.Scale.x, Binding.Scale.y},
 				.UVOffset = {Binding.Offset.x, Binding.Offset.y},
 				.UVRotation = {Binding.RotationRadians},
-				.OutputIndex = Channels[Link.MaterialRole], .bDecodeNormal = Link.MaterialRole == 1};
+				.OutputIndex = Channels[Link.MaterialRole]};
 			// Emissive and normal strength are already baked into derived source images.
 			if (Link.MaterialRole == 5) Roles[5].Value = {1, 1, 1};
 		}

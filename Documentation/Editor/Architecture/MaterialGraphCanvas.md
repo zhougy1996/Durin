@@ -4,7 +4,7 @@ Summary: Define material editor panels, canvas geometry, semantic zoom, node cre
 
 Modules: MaterialEditor, Engine, DurinEd
 
-Last reviewed: 2026-09-15
+Last reviewed: 2026-09-16
 
 Commands, ownership, transactions, and clipboard semantics are defined in
 [Material Graph Operations](MaterialGraphOperations.md). Preview resources and
@@ -27,11 +27,11 @@ lives in Details alongside the shared input editor, so selection does not resize
 or displace the canvas. Details owns selected-node authoring and instance
 inheritance and rendering properties. Parameters owns shared parameter metadata
 and material-instance overrides. New materials contain only
-Surface with eight property inputs and retained defaults, without expression
+Surface with eight property inputs and retained defaults, without computational expression
 nodes or function calls.
 
-The single nondeletable Surface root displays the material identity, shading model
-and blend mode. Selecting it or clearing the graph selection shows the same
+The single nondeletable root is labeled Material Output. Selecting it or clearing
+the graph selection shows the same
 material identity and directly expanded properties in Details, without a Surface
 Settings header: Lit/Unlit shading, blend mode,
 masked cutoff, two-sided rendering and depth-write policy. Settings use reflected
@@ -40,8 +40,8 @@ retain their ordinary atomic behavior. Inactive cutoff values remain stored.
 Root property inputs show only names, pins, and connections at readable and
 editing zoom; no scalar fields, color swatches, vector Edit buttons, or inline
 default values are displayed. Change input values by connecting expression nodes.
-Inactive property labels and pins are dimmed. Existing authored defaults and
-connections remain stored; disconnected inputs resume their retained values.
+Authored defaults and connections remain stored; disconnected inputs resume
+their retained values.
 Hovering an active disconnected row shows its retained value. The pin context
 menu can promote that value to a connected parameter without changing its effect.
 Constant and parameter nodes retain read-only value displays; all values are edited in Details.
@@ -127,19 +127,18 @@ omitted; hover tooltips retain textual output types.
 Semantic zoom has hysteretic overview, readable, and editing bands. Overview
 keeps silhouettes, selection, focus, pan, and framing while disabling pin
 mutation. Readable mode adds clipped operation titles. Editing mode adds
-secondary identity where applicable, named pins, and tooltips. Frame All includes the derived surface proxy; Frame Selection uses
-only the selection. The derived `Surface` terminal is initially placed
-one logical column after the rightmost node and remains stable during manual
-node arrangement. Its header displays the material asset name with `Material
-Output` as secondary identity. The terminal can be selected and dragged like a
-node; its optional integral position is persisted in graph presentation, while
-automatic layout derives and persists a fresh position. It pans and zooms with
-the graph, participates in bounds and diagnostic framing, and remains absent
-from the semantic material program. Per-property mode owns fixed Base Color,
-Normal, Metallic, Roughness, Ambient Occlusion, Emissive, Opacity, and Opacity
-Mask rows; aggregate mode owns one typed Surface row. Readable and editing modes
-retain these input names without embedded value controls. Change surface inputs
-by connecting expressions, whose values are edited in Details.
+secondary identity where applicable, named pins, and tooltips. Frame All includes
+all authored nodes, including the unique material output. Frame Selection uses
+only the selection. The output terminal uses the same GUID-based selection,
+movement, connection, bounds and diagnostic framing as other nodes. Its integral
+position is stored in the ordinary node presentation list. A missing saved
+position has a fixed fallback; explicit layout places it from its input edges.
+The terminal is an authored graph node but produces no value instruction in the
+compiled material program. Its input descriptors come from the material domain:
+Surface exposes the aggregate Surface pin and eight property pins, each with a
+stable semantic key independent of the displayed row. Aggregate assignment clears
+property connections atomically; property assignment clears the aggregate link.
+Values and defaults are edited in Details.
 
 Visible links are coarsely culled before curve drawing. When nodes or a surface
 output are selected, unrelated links dim while adjacent paths receive a thicker
@@ -211,9 +210,12 @@ anchor add a 24-unit offset and select the generated nodes. Function toolbar
 paste and Add Node use the viewport center.
 Menu requests and editing keyboard commands do not replace an active drag.
 Resetting an interaction cancels any remaining move or parameter edit session.
-Function inspection and visual topology are retained until the function or its
-direct dependencies change revision, its positions change, or interaction cleanup
-invalidates a draft. No timing guarantee is implied by this cache.
+Material and function canvases share the event-driven document read model described
+in [Change observation](MaterialGraphOperations.md#change-observation). Position-only
+notifications preserve node and pin storage. Direct callee interface changes refresh
+call pins; callee body and layout changes do not rebuild the caller's visible graph.
+Interaction cleanup restores detached drafts from the read model. No timing
+guarantee is implied by this cache.
 Right-clicking a node or surface input retains its editing context menu. Search ranks exact,
 prefix, and substring matches, then uses stable category, operation, type,
 parameter GUID, and catalog order ties. Opening from a source output filters the
@@ -243,8 +245,9 @@ connected outputs remain visible even when advanced pins are hidden. Display ord
 and visibility never change serialized output indices. RG selection uses an explicit
 Component Mask node. Sample output 6 is invalid; there is no legacy RG migration or
 compatibility path. Texture keeps index 7. The separate Normal pin is retired;
-existing serialized index-8 links retain their decode semantics and use the RGB
-canvas anchor, while new normal connections use RGB index 1.
+index 8 is rejected, and normal connections use RGB index 1. Decode Normal RG is
+not an authored node or palette entry; the compiler inserts normal decoding when
+the sampled texture has Normal usage.
 Component Mask titles show selected channels (for example, `Component Mask RG`).
 R/G/B/A checkboxes determine output width without a separate width selector.
 Empty masks, invalid source channels, and incompatible consumers reject atomically.

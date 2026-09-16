@@ -84,20 +84,9 @@ namespace Durin::Testing
 			NormalIds.Value,
 			EMaterialProgramValueType::Float3);
 		auto& NormalSample = Sample(NormalIds.Texture);
-		auto& NormalRg = Swizzle(
-			NormalSample, EMaterialProgramValueType::Float2, {0, 1});
-		auto& Half = AddNode(EMaterialProgramOpcode::Constant, EMaterialProgramValueType::Float2, {}, {}, {.5f, .5f});
-		auto& CenteredNormal = Binary(EMaterialProgramOpcode::Subtract, NormalRg, Half);
-		auto& Strength = AddNode(EMaterialProgramOpcode::Constant, EMaterialProgramValueType::Float, {}, {}, {1});
-		auto& Strength2 = AddNode(EMaterialProgramOpcode::Splat2, EMaterialProgramValueType::Float2, {MakeLink(Strength)});
-		auto& ScaledNormal = Binary(EMaterialProgramOpcode::Multiply, CenteredNormal, Strength2);
-		auto& EncodedNormal = Binary(EMaterialProgramOpcode::Add, ScaledNormal, Half);
-		auto& DecodedNormal = AddNode(
-			EMaterialProgramOpcode::DecodeNormalRG,
-			EMaterialProgramValueType::Float3, {MakeLink(EncodedNormal)});
-		auto& Normal = Binary(
-			EMaterialProgramOpcode::BlendNormalsRNM,
-			NormalParameter, DecodedNormal);
+		const auto NormalLink = FMaterialExpressionInput{NormalSample.Id, 1};
+		auto& Normal = AddNode(EMaterialProgramOpcode::BlendNormalsRNM,
+			EMaterialProgramValueType::Float3, {MakeLink(NormalParameter), NormalLink});
 
 		auto MakeScalarProduct = [&](FGuid ParameterId, FGuid TextureId,
 			uint8 Component) -> DMaterialExpression& {

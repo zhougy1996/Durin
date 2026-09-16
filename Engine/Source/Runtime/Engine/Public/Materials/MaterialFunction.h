@@ -3,6 +3,8 @@
 #include "Materials/MaterialFunctionInterface.h"
 #include "Materials/MaterialExpressions.h"
 
+#include "Materials/MaterialGraphChanges.h"
+
 #include "MaterialFunction.gen.h"
 
 namespace Durin
@@ -15,15 +17,13 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		ENGINE_API explicit DMaterialFunction(const FObjectInitializer& Initializer);
-		auto GetFunctionSignature() const -> const FMaterialFunctionSignature& override
-			{ return Signature; }
+		ENGINE_API auto GetFunctionSignature() const -> const FMaterialFunctionSignature& override;
 		ENGINE_API auto GetFunctionDependencies() const
 			-> std::vector<TObjectPtr<DMaterialFunctionInterface>> override;
 		auto GetFunctionRevision() const -> uint64 override { return Revision; }
 		auto GetExpressionCollection() const -> const FMaterialExpressionCollection& { return ExpressionCollection; }
 		ENGINE_API auto GetExpressionBody() const -> FMaterialExpressionFunctionBody;
-		[[nodiscard]] ENGINE_API auto SetFunctionExpressions(FMaterialFunctionSignature InSignature,
-			std::span<DMaterialExpression* const> Expressions) -> FMaterialProgramValidationResult;
+		[[nodiscard]] ENGINE_API auto SetFunctionExpressions(std::span<DMaterialExpression* const> Expressions) -> FMaterialProgramValidationResult;
 		// Bootstrap provenance is editor metadata, never part of compiler semantics.
 		auto GetAuthoringSource() const -> const std::string& { return AuthoringSource; }
 		auto GetAuthoringSourceVersion() const -> uint32 { return AuthoringSourceVersion; }
@@ -34,15 +34,19 @@ namespace Durin
 		ENGINE_API auto SetFunctionPresentation(FMaterialFunctionPresentation Candidate) -> bool;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 		ENGINE_API auto Serialize(FArchive& Ar) -> void override;
+		ENGINE_API auto PostLoad() -> void override;
 		ENGINE_API auto ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context, std::string& OutError) const -> bool override;
-	private:
+		auto GetGraphChanges() -> FMaterialGraphChangeSource& { return GraphChanges; }
 
-		DPROPERTY(EditorOnly, AlwaysSerialize)
-		FMaterialFunctionSignature Signature;
+	private:
+		FMaterialGraphChangeSource GraphChanges;
+
+		// Read-only projection; never serialized or independently edited.
+		mutable FMaterialFunctionSignature CachedSignature;
+		mutable bool bSignatureCached = false;
 
 		DPROPERTY(EditorOnly, AlwaysSerialize)
 		FMaterialExpressionCollection ExpressionCollection;
-
 
 		DPROPERTY(EditorOnly)
 		FMaterialFunctionPresentation Presentation;

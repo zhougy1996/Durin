@@ -1,3 +1,4 @@
+#include "FunctionPortTestFixture.h"
 #pragma once
 
 #include "TypedMaterialGraphTestFixture.h"
@@ -46,9 +47,9 @@ namespace
 			return Result;
 		}
 		auto Validate() const -> Durin::FMaterialProgramValidationResult
-		{ return Durin::FMaterialExpressionBuildContext::ValidateFunction(Pointers(), Signature); }
+		{ return Durin::FMaterialExpressionBuildContext::ValidateFunction(Durin::Testing::WithFunctionPorts(Signature, Pointers())); }
 		auto Apply(Durin::DMaterialFunction& Function) const -> Durin::FMaterialProgramValidationResult
-		{ return Function.SetFunctionExpressions(Signature, Pointers()); }
+		{ return Function.SetFunctionExpressions(Durin::Testing::WithFunctionPorts(Signature, Pointers())); }
 	};
 	auto CaptureFunctionExpressions(const Durin::DMaterialFunction& Function) -> FFunctionTestExpressions
 	{
@@ -124,6 +125,6 @@ namespace
 		Expressions.emplace_back(Call.Get());
 		std::vector<DMaterialExpression*> Values;
 		for (const auto& Expression : Expressions) Values.push_back(Expression.Get());
-		ASSERT_TRUE(Caller.SetFunctionExpressions(Caller.GetFunctionSignature(), Values));
+		ASSERT_TRUE(Caller.SetFunctionExpressions(Durin::Testing::WithFunctionPorts(Caller.GetFunctionSignature(), Values)));
 	}
 }

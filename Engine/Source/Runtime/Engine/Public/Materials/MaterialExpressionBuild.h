@@ -77,8 +77,7 @@ namespace Durin
 		// Its opaque function values stay private and can never become compiler snapshots.
 		ENGINE_API static auto ValidateSurface(std::span<DMaterialExpression* const> Expressions,
 			const FMaterialExpressionSurfaceOutputs& Outputs, FXxHash128* OutCodeFingerprint = nullptr) -> FMaterialProgramValidationResult;
-		ENGINE_API static auto ValidateFunction(std::span<DMaterialExpression* const> Expressions,
-			const FMaterialFunctionSignature& Signature) -> FMaterialProgramValidationResult;
+		ENGINE_API static auto ValidateFunction(std::span<DMaterialExpression* const> Expressions) -> FMaterialProgramValidationResult;
 		ENGINE_API auto Resolve(const FMaterialExpressionInput& Input) -> FMaterialExpressionBuildValue;
 		ENGINE_API auto ResolveIndex(const FMaterialExpressionInput& Input) -> uint32;
 		ENGINE_API auto FunctionInput(FGuid PortId) -> FMaterialExpressionBuildValue;

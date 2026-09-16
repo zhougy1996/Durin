@@ -9,6 +9,7 @@
 namespace Durin
 {
 	class DMaterialFunctionInterface;
+	class DMaterialExpression;
 
 	// Owning-thread admission metadata. Never included in a compiler snapshot.
 	struct FMaterialFunctionOwnerStamp
@@ -155,6 +156,10 @@ namespace Durin
 		std::vector<FMaterialGraphNodePresentation> Nodes;
 		auto operator==(const FMaterialFunctionPresentation&) const -> bool = default;
 	};
+
+	// Derived from terminal-owned port definitions, in expression collection order.
+	ENGINE_API auto DeriveMaterialFunctionSignature(std::span<DMaterialExpression* const> Expressions)
+		-> FMaterialFunctionSignature;
 
 	ENGINE_API auto ValidateMaterialFunctionSignature(const FMaterialFunctionSignature& Signature)
 		-> FMaterialProgramValidationResult;

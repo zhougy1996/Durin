@@ -34,9 +34,9 @@ TEST(FMaterialProgramSchemaTests,
 	EXPECT_NE(DMaterialExpressionScalarConstant::StaticClass()->FindPropertyByName("Value"), nullptr);
 	DStruct* Presentation = FMaterialGraphPresentation::StaticStruct();
 	ASSERT_NE(Presentation, nullptr);
-	EXPECT_NE(Presentation->FindPropertyByName("bHasMaterialOutputPosition"), nullptr);
-	EXPECT_NE(Presentation->FindPropertyByName("MaterialOutputX"), nullptr);
-	EXPECT_NE(Presentation->FindPropertyByName("MaterialOutputY"), nullptr);
+	EXPECT_EQ(Presentation->FindPropertyByName("bHasMaterialOutputPosition"), nullptr);
+	EXPECT_EQ(Presentation->FindPropertyByName("MaterialOutputX"), nullptr);
+	EXPECT_EQ(Presentation->FindPropertyByName("MaterialOutputY"), nullptr);
 	EXPECT_EQ(DMaterial::StaticClass()->FindPropertyByName("Program"), nullptr);
 	EXPECT_NE(DMaterial::StaticClass()->FindPropertyByName("ExpressionCollection"), nullptr);
 	EXPECT_EQ(DMaterialInstance::StaticClass()->FindPropertyByName("ExpressionCollection"), nullptr);
@@ -152,8 +152,8 @@ TEST(FMaterialProgramSchemaTests,
 	std::ranges::reverse(Graph.Expressions);
 	ASSERT_TRUE(Graph.Apply(*Base));
 	const auto& Owned = Base->GetExpressionCollection().Expressions;
-	ASSERT_EQ(Owned.size(), Graph.Expressions.size());
-	for (size_t Index = 0; Index < Owned.size(); ++Index)
+	ASSERT_EQ(Owned.size(), Graph.Expressions.size() + 1);
+	for (size_t Index = 0; Index < Graph.Expressions.size(); ++Index)
 	{
 		EXPECT_EQ(Owned[Index]->Id, Graph.Expressions[Index]->Id);
 		EXPECT_EQ(Owned[Index]->GetOuter(), Base.Get());
