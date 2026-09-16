@@ -701,11 +701,15 @@ TEST(FMaterialParameterPanelModelTests, ParentPackageReplacementInvalidatesRetai
 	ASSERT_TRUE(FPackagePath::TryCreate("/ParameterPanelReload/Base", Path));
 	DMaterial* Base = nullptr;
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Base));
-	ASSERT_TRUE(Testing::MakePBRMaterialExpressionsForTest().Apply(*Base));
+	// Parent replacement needs one retained row, not the full expanded PBR recipe.
+	const auto Id = MaterialParameters::GetBuiltinParameterIds(MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value;
+	auto Opacity = Testing::MakeGraphExpression<DMaterialExpressionScalarParameter>();
+	Opacity->Metadata.Id = Id; Opacity->Metadata.Name = MaterialParameters::OpacityName();
+	Opacity->DefaultValue = 1.f;
+	ASSERT_TRUE(Base->SetMaterialExpressions(std::array<DMaterialExpression*, 1>{Opacity.Get()}, {.Opacity = {Opacity->Id}}));
 	ASSERT_TRUE(SavePackage(Base->GetPackage()));
 	TStrongObjectPtr<DMaterialInstance> Instance(NewObject<DMaterialInstance>(nullptr, "ReloadedParentInstance"));
 	ASSERT_TRUE(Instance->SetParent(Base));
-	const auto Id = MaterialParameters::GetBuiltinParameterIds(MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value;
 	Editor::Material::FMaterialParameterPanelModel Model(Instance.Get());
 	ASSERT_TRUE(Base->SetScalarParameterValue(MaterialParameters::OpacityName(), .25f));
 	Model.Refresh();

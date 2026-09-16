@@ -1019,6 +1019,31 @@ TEST(FMaterialGraphOperationsTests, CatalogPinsAgreeWithRuntimeValidation)
 	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	FMaterialGraphDocument Document(*Material);
 	const auto Catalog = FMaterialGraphOperations::EnumerateCatalog();
+	// Input sources are immutable throughout the matrix. Build each type once;
+	// every case still rewrites all target links and runs both validation checks.
+	Testing::FTestMaterialExpressionGraph Graph;
+	FMaterialParameterDefinition Texture;
+	Texture.Id = FGuid::NewGuid(); Texture.Name = "SignatureTexture";
+	Texture.Type = EMaterialParameterType::Texture; Texture.Value = FMaterialParameterValue::MakeTexture(nullptr);
+	const std::array Definitions{Texture};
+	std::function<FMaterialExpressionInput(Type)> AddSource = [&](Type ValueType) {
+		if (ValueType == Type::Texture2D)
+			return Testing::MakeLink(Graph.Add(EMaterialProgramOpcode::TextureParameter, ValueType, {}, Texture.Id, {}, Definitions));
+		std::vector<FMaterialExpressionInput> Inputs;
+		if (ValueType == Type::Surface)
+			for (uint32 Index = 0; Index < 8; ++Index) Inputs.push_back(AddSource(GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(Index))));
+		return Testing::MakeLink(Graph.Add(ValueType == Type::Surface ? EMaterialProgramOpcode::MakeSurface : EMaterialProgramOpcode::Constant,
+			ValueType, std::move(Inputs), {}, {}));
+	};
+	std::array<FMaterialExpressionInput, 6> Sources;
+	std::array<std::vector<DMaterialExpression*>, 6> SourceExpressions;
+	for (uint32 I = 0; I < Sources.size(); ++I)
+	{
+		const auto First = Graph.Expressions.size();
+		Sources[I] = AddSource(static_cast<Type>(I));
+		for (size_t J = First; J < Graph.Expressions.size(); ++J) SourceExpressions[I].push_back(Graph.Expressions[J].Get());
+	}
+	std::vector<DMaterialExpression*> Expressions;
 	for (const auto& Entry : Catalog)
 	{
 		if (Entry.AcceptedInputTypes.empty()) continue;
@@ -1038,34 +1063,26 @@ TEST(FMaterialGraphOperationsTests, CatalogPinsAgreeWithRuntimeValidation)
 		const auto* Original = FindExpression<DMaterialExpression>(*Material, Created.GeneratedNodeIds.front());
 		ASSERT_NE(Original, nullptr);
 		ASSERT_EQ(Original->GetAuthoredInputCount(), Entry.AcceptedInputTypes.size());
+		TStrongObjectPtr<DMaterialExpression> Target(DuplicateObject(Original, nullptr, NAME_None));
+		if (auto* Swizzle = Cast<DMaterialExpressionSwizzle>(Target.Get()))
+			std::ranges::fill(Swizzle->Components, 0);
 		for (uint32 Pin = 0; Pin < Entry.AcceptedInputTypes.size(); ++Pin)
 			for (Type SourceType : {Type::Float, Type::Float2, Type::Float3, Type::Float4, Type::Texture2D, Type::Surface})
 			{
 				SCOPED_TRACE(std::format("{} result {} pin {} source {}", Entry.OperationName,
 					static_cast<uint8>(Entry.ResultType), Pin, static_cast<uint8>(SourceType)));
-				Testing::FTestMaterialExpressionGraph Graph;
-				FMaterialParameterDefinition Texture;
-				Texture.Id = FGuid::NewGuid(); Texture.Name = "SignatureTexture";
-				Texture.Type = EMaterialParameterType::Texture; Texture.Value = FMaterialParameterValue::MakeTexture(nullptr);
-				const std::array Definitions{Texture};
-				std::function<FMaterialExpressionInput(Type)> AddSource = [&](Type ValueType) {
-					if (ValueType == Type::Texture2D)
-						return Testing::MakeLink(Graph.Add(EMaterialProgramOpcode::TextureParameter, ValueType, {}, Texture.Id, {}, Definitions));
-					std::vector<FMaterialExpressionInput> Inputs;
-					if (ValueType == Type::Surface)
-						for (uint32 Index = 0; Index < 8; ++Index) Inputs.push_back(AddSource(GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(Index))));
-					return Testing::MakeLink(Graph.Add(ValueType == Type::Surface ? EMaterialProgramOpcode::MakeSurface : EMaterialProgramOpcode::Constant,
-						ValueType, std::move(Inputs), {}, {}));
-				};
-				TStrongObjectPtr<DMaterialExpression> Target(DuplicateObject(Original, nullptr, NAME_None));
-				if (auto* Swizzle = Cast<DMaterialExpressionSwizzle>(Target.Get()))
-					std::ranges::fill(Swizzle->Components, 0);
+				Expressions.clear();
+				std::array<bool, 6> Included{};
 				VisitMaterialExpressionInputs(*Target, [&](uint32 Index, FMaterialExpressionInput& Input) {
-					Input = AddSource(Index == Pin ? SourceType : Entry.AcceptedInputTypes[Index].front());
+					const auto TypeIndex = static_cast<size_t>(Index == Pin ? SourceType : Entry.AcceptedInputTypes[Index].front());
+					Input = Sources[TypeIndex];
+					if (!Included[TypeIndex])
+					{
+						Included[TypeIndex] = true;
+						Expressions.insert(Expressions.end(), SourceExpressions[TypeIndex].begin(), SourceExpressions[TypeIndex].end());
+					}
 				});
-				Graph.Expressions.emplace_back(Target.Get());
-				std::vector<DMaterialExpression*> Expressions;
-				for (const auto& Expression : Graph.Expressions) Expressions.push_back(Expression.Get());
+				Expressions.push_back(Target.Get());
 				const auto& Accepted = Entry.AcceptedInputTypes[Pin];
 				const bool bAccepted = std::ranges::find(Accepted, SourceType) != Accepted.end();
 				EXPECT_EQ(static_cast<bool>(FMaterialExpressionBuildContext::ValidateSurface(Expressions, {})), bAccepted);
