@@ -236,12 +236,21 @@ inside that workflow. Reimport continues to query loaded-object capabilities.
 Create and Import invocation share Content Browser's asset-mutation admission
 policy.
 
-TextureEditor uses a direct native file picker for Texture2D. Its private
-`FTextureFileImport` service owns unique naming, factory invocation, save, and
-failed-save retry independently from UI. The factory opts into filename/content
-usage inference after its single immutable capture and decode; explicit factory
-settings and reimport retain their existing behavior. The current first-import
-path finishes Texture2D compilation synchronously before saving.
+TextureEditor uses a native multi-select file picker for Texture2D. Its private
+`FTextureFileImport` service owns a bounded batch queue, unique naming, factory
+invocation, save, and failed-save retry independently from UI. One detached source
+is captured, decoded, and classified on a worker at a time. A prepared-source
+factory opt-in submits asynchronous texture compilation; the accepted object is
+pinned until completion, and saving waits for successful build and provenance
+publication. Ordinary factory calls remain synchronous, and reimport preserves
+its configured settings.
+
+The host presenter advances the queue even when the browser is hidden, subject
+to mutation admission. Cancellation skips queued files after the current item;
+failures continue to the next item. Batch completion coalesces browser presentation
+and reports counts and diagnostics through notifications. Teardown joins decoding,
+cancels/drains active compilation, and discards the unfinished package before
+releasing feature code. Failed saves retain completed resident assets for retry.
 
 Standalone StaticMesh dialogs are host presentations owned by their feature
 module. The Scene dialog

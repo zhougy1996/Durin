@@ -21,6 +21,8 @@
 #include "Misc/Project.h"
 #include "MonaImGui.h"
 #include "Asset/Load.h"
+#include "Editor/EditorEngine.h"
+#include "Editor/Notification.h"
 
 namespace Durin
 {
@@ -32,7 +34,9 @@ namespace Durin
 		std::vector<Editor::ContentBrowser::FScopedExtensionRegistration> TypePresentations;
 		Editor::ContentBrowser::FScopedExtensionRegistration ImportExtension;
 		Editor::ContentBrowser::FScopedExtensionRegistration RetrySaveExtension;
-		std::unique_ptr<Editor::Texture::FTextureFileImport> FileImport;
+		std::shared_ptr<Editor::Texture::FTextureFileImport> FileImport;
+		std::string LastSourceDirectory;
+		Editor::FNotificationId ImportProgress = 0;
 	};
 
 	FTextureEditorModule::FTextureEditorModule()
@@ -65,7 +69,7 @@ namespace Durin
 		WorkspaceRegistration.reset();
 		Texture2DThumbnailRegistration.reset();
 		TextureCubeThumbnailRegistration.reset();
-		Integration->FileImport = std::make_unique<Editor::Texture::FTextureFileImport>(ImportCallbacks);
+		Integration->FileImport = std::make_shared<Editor::Texture::FTextureFileImport>(ImportCallbacks);
 		std::shared_ptr<MTextureEditor> Workspace = std::make_shared<MTextureEditor>(WorkspaceManager);
 		std::shared_ptr<MVolumeTextureEditor> VolumeEditor =
 			std::make_shared<MVolumeTextureEditor>(WorkspaceManager);
@@ -144,25 +148,73 @@ namespace Durin
 			.Category = Editor::ContentBrowser::EExtensionCategory::Import,
 			.Order = 100,
 			.Mutation = ::Durin::Editor::ContentBrowser::EContentMutation::MutatesContent,
-			.IsApplicable = [](const auto& Context) {
-				return !Context.VirtualDirectory.empty();
+			.IsApplicable = [this](const auto& Context) {
+				return !Context.VirtualDirectory.empty() && !Integration->FileImport->IsRunning();
 			},
 			.Invoke = [this, ImportCallbacks](const auto& Invocation) {
 				FFileDialogRequest Request;
 				Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
-				Request.Title = "Import Texture From File";
+				Request.Title = "Import Textures From Files";
+				Request.bAllowMultiple = true;
 				Request.Filters = {{"Texture Images", "*.png;*.jpg;*.jpeg;*.bmp;*.tga"}};
 				if (const FProjectInfo* Project = GetCurrentProject())
 					Request.InitialDirectory = Project->ProjectDir;
+				if (!Integration->LastSourceDirectory.empty())
+					Request.InitialDirectory = Integration->LastSourceDirectory;
 				const auto Selected = OpenFileDialog(Request);
 				if (Selected.Status == EFileDialogStatus::Error)
 					ImportCallbacks.Report(Selected.ErrorMessage);
 				else if (Selected.Status == EFileDialogStatus::Selected)
 				{
-					const auto Imported = Integration->FileImport->ImportFile(
-						Selected.FilePath, Invocation.Context.VirtualDirectory);
-					if (Imported) UnloadPackage(Imported.Package);
+					Integration->LastSourceDirectory =
+						std::filesystem::path(Selected.FilePath).parent_path().generic_string();
+					if (!Integration->FileImport->Begin(Selected.FilePaths, Invocation.Context.VirtualDirectory)) return;
+					if (GEditor)
+						Integration->ImportProgress = GEditor->GetNotificationManager().BeginProgress({
+							.Message = "Importing textures...", .Progress = 0.0f,
+							.Cancel = [Weak = std::weak_ptr(Integration->FileImport)] {
+								if (auto Importer = Weak.lock()) Importer->Cancel();
+							},
+							.Presentation = Editor::ENotificationPresentation::StatusBar, .bRecordInHistory = false});
 				}
+			},
+			.DrawHostPresentation = [this](bool bAllowMutation) {
+				auto& Importer = *Integration->FileImport;
+				const bool bWasRunning = Importer.IsRunning();
+				Importer.Tick(bAllowMutation);
+				if (!bWasRunning) return;
+				if (!GEditor) return;
+				auto& Notifications = GEditor->GetNotificationManager();
+				if (Importer.IsRunning())
+				{
+					Notifications.UpdateProgress(Integration->ImportProgress,
+						static_cast<float>(Importer.GetCompletedCount()) / Importer.GetTotalCount(),
+						bAllowMutation ? Importer.GetActivity() : "Texture import paused");
+					return;
+				}
+				const auto Summary = std::format("Textures: {} imported, {} failed, {} canceled.",
+					Importer.GetSavedCount(), Importer.GetFailedCount(), Importer.GetCanceledCount());
+				if (Importer.GetFailedCount()) Notifications.FailProgress(Integration->ImportProgress, Summary);
+				else if (Importer.GetCanceledCount()) Notifications.CancelProgress(Integration->ImportProgress, Summary);
+				else Notifications.CompleteProgress(Integration->ImportProgress, Summary);
+				Integration->ImportProgress = 0;
+				std::string Details;
+				for (const auto& Error : Importer.GetErrors()) Details += Error + "\n";
+				Editor::FNotificationDesc Result{
+					.Type = Importer.GetFailedCount() ? Editor::ENotificationType::Warning
+						: Importer.GetCanceledCount() ? Editor::ENotificationType::Info : Editor::ENotificationType::Success,
+					.Message = Summary, .Details = std::move(Details)};
+				if (Importer.HasPendingSaves())
+					Result.Action = Editor::FNotificationAction{
+						.Label = "Retry saves",
+						.IsEnabled = [Weak = std::weak_ptr(Integration->FileImport)] {
+							auto Importer = Weak.lock();
+							return Importer && Importer->CanRetrySaves();
+						},
+						.Invoke = [Weak = std::weak_ptr(Integration->FileImport)] {
+							if (auto Importer = Weak.lock()) Importer->RetryPendingSaves();
+						}};
+				Notifications.Post(std::move(Result));
 			},
 			}, Error);
 		if (!ImportExtension.IsValid())
@@ -178,7 +230,7 @@ namespace Durin
 			.Category = Editor::ContentBrowser::EExtensionCategory::Import,
 			.Order = 110,
 			.Mutation = Editor::ContentBrowser::EContentMutation::MutatesContent,
-			.IsApplicable = [this](const auto&) { return Integration->FileImport->HasPendingSaves(); },
+			.IsApplicable = [this](const auto&) { return !Integration->FileImport->IsRunning() && Integration->FileImport->HasPendingSaves(); },
 			.Invoke = [this](const auto&) { Integration->FileImport->RetryPendingSaves(); },
 		}, Error);
 		if (!Integration->RetrySaveExtension.IsValid())
@@ -243,6 +295,9 @@ namespace Durin
 		Integration->TypePresentations.clear();
 		Integration->ImportExtension.Reset();
 		Integration->RetrySaveExtension.Reset();
+		if (Integration->ImportProgress && GEditor)
+			GEditor->GetNotificationManager().CancelProgress(Integration->ImportProgress, "Texture import stopped.");
+		Integration->ImportProgress = 0;
 		Integration->FileImport.reset();
 		TextureCubeThumbnailRegistration.reset();
 		Texture2DThumbnailRegistration.reset();

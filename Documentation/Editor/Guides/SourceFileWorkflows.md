@@ -15,13 +15,14 @@ deletion never move, replace, or delete a source file.
 
 Content Browser exposes a fixed built-in Import menu:
 
-- **From File...** imports one PNG, JPEG, BMP, or TGA as a Texture2D;
+- **From File...** imports one or more PNG, JPEG, BMP, or TGA files as Texture2D assets;
 - **Scene Source (FBX/glTF)...** creates a set of peer scene outputs;
 - **Static Mesh (Geometry Only)...** creates one geometry asset without Scene
   material or texture outputs.
 
-For Texture2D, choose a file directly. The current Content Browser folder is the
-destination; the filename supplies the asset name, with numeric suffixes added
+For Texture2D, select one or more files directly. The chooser remembers the last
+source folder for this editor session. The current Content Browser folder is the
+fixed destination for the batch; the filename supplies the asset name, with numeric suffixes added
 for occupied names. There is no texture configuration dialog. Cube and volume
 first-import dialogs are currently unavailable; existing assets remain usable
 and reimportable. Mesh and Scene workflows still ask for their destination.
@@ -37,9 +38,18 @@ sRGB. This heuristic does not infer or flip the normal-map green-channel
 convention. Settings remain editable in the Texture Editor, and reimport
 preserves those edits.
 
-Successful texture imports are saved and revealed automatically. Save failure
-keeps the imported asset resident and reports an error; **Import > Retry Texture
-Saves** retries persistence without rereading or rebuilding the source.
+Texture imports run as a bounded editor queue: capture, decode, and usage inference
+run on a worker, then the texture compiler builds asynchronously. Object changes
+and saving remain on the main thread. The status bar shows progress and offers
+cancellation of remaining files; the current file finishes. Failed items do not
+stop the batch. Mutation restrictions pause queue advancement.
+
+Successful imports are saved automatically. The browser refreshes once at batch
+completion, revealing a single asset or the destination folder for multiple assets.
+The result notification summarizes successes, failures, and canceled items; failure
+details remain in notification history. Save failure keeps the asset resident;
+**Retry saves** on the notification or **Import > Retry Texture Saves** retries
+persistence without rereading or rebuilding the source.
 
 For every single-output choice, the editor creates the final package and final
 asset object directly through the selected concrete Factory. Import is not a

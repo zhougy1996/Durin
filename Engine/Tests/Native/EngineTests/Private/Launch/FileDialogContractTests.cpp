@@ -6,6 +6,7 @@ TEST(FFileDialogContractTests, NonInteractiveRequestsFailExplicitlyWithoutFabric
 {
 	Durin::FFileDialogRequest Request;
 	Request.bAllowUserInteraction = false;
+	Request.bAllowMultiple = true;
 	for (const Durin::FFileDialogResult Result : {
 		Durin::OpenFileDialog(Request),
 		Durin::OpenFolderDialog(Request),
@@ -13,6 +14,7 @@ TEST(FFileDialogContractTests, NonInteractiveRequestsFailExplicitlyWithoutFabric
 	{
 		EXPECT_EQ(Result.Status, Durin::EFileDialogStatus::Error);
 		EXPECT_TRUE(Result.FilePath.empty());
+		EXPECT_TRUE(Result.FilePaths.empty());
 		EXPECT_NE(Result.ErrorMessage.find("disabled"), std::string::npos);
 	}
 }

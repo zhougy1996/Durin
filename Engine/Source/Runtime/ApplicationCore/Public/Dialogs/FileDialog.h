@@ -22,6 +22,8 @@ namespace Durin
 		std::string DefaultFileName;
 		// Tests and headless tools disable interaction and receive an explicit error.
 		bool bAllowUserInteraction = true;
+		// OpenFileDialog only; single selection remains the default.
+		bool bAllowMultiple = false;
 	};
 
 	// Distinguishes a selection from cancellation and native-dialog failure.
@@ -38,6 +40,8 @@ namespace Durin
 		EFileDialogStatus Status = EFileDialogStatus::Error;
 		std::string FilePath;
 		std::string ErrorMessage;
+		// Populated by OpenFileDialog; FilePath remains the first selection.
+		std::vector<std::string> FilePaths;
 	};
 
 	APPLICATIONCORE_API auto OpenFileDialog(const FFileDialogRequest& Request) -> FFileDialogResult;

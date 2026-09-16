@@ -2,10 +2,23 @@
 
 #include "AssetForgeBuiltinsAPI.h"
 #include "Texture/Texture2D.h"
+#include "Hash/XxHash.h"
 #include "Texture/Texture2DCompilation.h"
 
 namespace Durin::AssetForge::Builtins
 {
+	// Detached source capture. Safe to prepare on a worker; no object or mount access.
+	struct FPreparedTexture2DImport
+	{
+		std::string Filename;
+		FTextureSource Source;
+		FXxHash128 ContentHash{};
+		uint64 ByteCount = 0;
+		FTexture2DImportSettings InferredSettings;
+	};
+	ASSETFORGEBUILTINS_API auto PrepareTexture2DImport(std::string_view Filename,
+		FPreparedTexture2DImport& OutPrepared, std::string& OutError) -> bool;
+
 	// Conservative first-import defaults from the filename's final semantic token,
 	// then optional decoded-source normal detection. Flat colors stay ambiguous.
 	// Reimport preserves the asset's settings instead of inferring them again.

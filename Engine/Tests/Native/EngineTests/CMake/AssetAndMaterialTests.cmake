@@ -82,18 +82,16 @@ durin_add_native_test(EditorAssetWorkflowTests
 	STACKS editor
 	PRIVATE_SOURCE_OWNER TextureEditor
 	PRIVATE_SOURCE_RATIONALE
-		"TextureEditor-owned file import policy and browser detail cache remain private while their behavior is white-box tested."
+		"TextureEditor-owned browser detail cache remains private while its behavior is white-box tested."
 	SOURCES
 		Private/Editor/AssetMaintenanceContractTests.cpp
 		Private/Editor/AssetCompatibilityAuditTests.cpp
 		Private/Editor/AssetDestinationValidationTests.cpp
 		Private/Editor/ImportDialogStateTests.cpp
-		Private/Editor/TextureFileImportTests.cpp
 		Private/Editor/TextureCubeDetailsTests.cpp
 		Private/SourceLibraryReferenceContractTests.cpp
 		Private/SourceReferenceIndexTests.cpp
 	PRIVATE_SOURCES
-		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/TextureEditor/Private/Import/TextureFileImport.cpp
 		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/TextureEditor/Private/ContentBrowser/TextureCubeDetails.cpp
 	INCLUDE_DIRECTORIES
 		${CMAKE_CURRENT_SOURCE_DIR}/Private
@@ -121,6 +119,28 @@ durin_add_native_test(EditorAssetWorkflowTests
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
 	HEAVY_RUNTIME_RATIONALE "Exercises editor asset workflows across DurinEd and Mona UI models."
+)
+
+# Async import owns a process separate from compatibility audit tests, which
+# deliberately restart the task scheduler and invalidate compiler task lifetimes.
+durin_add_native_test(TextureImportWorkflowTests
+	KIND feature
+	DOMAINS asset-workflow texture
+	MODULES texture-editor asset-forge-builtins
+	STACKS editor
+	PRIVATE_SOURCE_OWNER TextureEditor
+	PRIVATE_SOURCE_RATIONALE "Exercises the private import queue, persistence retry, and async teardown lifecycle."
+	SOURCES Private/Editor/TextureFileImportTests.cpp
+	PRIVATE_SOURCES
+		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/TextureEditor/Private/Import/TextureFileImport.cpp
+	INCLUDE_DIRECTORIES
+		${CMAKE_CURRENT_SOURCE_DIR}/Private
+		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/TextureEditor/Private
+	LIBRARIES Core CoreDObject Engine AssetTools AssetForgeBuiltins DurinEd TextureBuild
+		bc7enc_rdo::bc7enc_rdo
+	REQUIRES editor
+	REQUIREMENT_RATIONALE "Exercises editor-only texture factories and import policy."
+	HEAVY_RUNTIME_RATIONALE "Uses native texture compilation and editor asset persistence without an application host."
 )
 
 durin_add_native_test(ContentBrowserWorkflowTests

@@ -120,12 +120,27 @@ on splitExtensions(extensionText)
     return extensionItems
 end splitExtensions
 
+on escapePath(pathText)
+    set oldDelimiters to AppleScript's text item delimiters
+    set AppleScript's text item delimiters to "%"
+    set pathParts to text items of pathText
+    set AppleScript's text item delimiters to "%25"
+    set pathText to pathParts as text
+    set AppleScript's text item delimiters to (ASCII character 31)
+    set pathParts to text items of pathText
+    set AppleScript's text item delimiters to "%1F"
+    set pathText to pathParts as text
+    set AppleScript's text item delimiters to oldDelimiters
+    return pathText
+end escapePath
+
 on run argv
     set dialogKind to item 1 of argv
     set promptText to item 2 of argv
     set initialText to item 3 of argv
     set extensionItems to splitExtensions(item 4 of argv)
     set defaultName to item 5 of argv
+    set allowMultiple to (item 6 of argv is "true")
     if promptText is "" then set promptText to "Select a path"
     if dialogKind is "folder" then
         if initialText is "" then
@@ -142,27 +157,34 @@ on run argv
     else
         if initialText is "" then
             if (count extensionItems) is 0 then
-                set picked to choose file with prompt promptText
+                set picked to choose file with prompt promptText multiple selections allowed allowMultiple
             else
-                set picked to choose file with prompt promptText of type extensionItems
+                set picked to choose file with prompt promptText multiple selections allowed allowMultiple of type extensionItems
             end if
         else
             if (count extensionItems) is 0 then
-                set picked to choose file with prompt promptText default location POSIX file initialText
+                set picked to choose file with prompt promptText multiple selections allowed allowMultiple default location POSIX file initialText
             else
-                set picked to choose file with prompt promptText of type extensionItems default location POSIX file initialText
+                set picked to choose file with prompt promptText multiple selections allowed allowMultiple of type extensionItems default location POSIX file initialText
             end if
         end if
+    end if
+    if dialogKind is "open" and allowMultiple then
+        set pathsText to ""
+        repeat with selectedFile in picked
+            set pathsText to pathsText & (my escapePath(POSIX path of selectedFile)) & (ASCII character 31)
+        end repeat
+        return pathsText
     end if
     return POSIX path of picked
 end run
 )APPLESCRIPT";
 
-			std::array<std::string, 10> Storage = {
+			std::array<std::string, 11> Storage = {
 				"/usr/bin/osascript", "-e", std::string(Script), "--",
 				std::string(Kind), Request.Title, Request.InitialDirectory,
-				FileExtensions(Request), Request.DefaultFileName, {}};
-			std::array<char*, 10> Arguments{};
+				FileExtensions(Request), Request.DefaultFileName, Request.bAllowMultiple ? "true" : "false", {}};
+			std::array<char*, 11> Arguments{};
 			for (size_t Index = 0; Index + 1 < Storage.size(); ++Index)
 				Arguments[Index] = Storage[Index].data();
 
@@ -202,8 +224,38 @@ end run
 			while (!Output.empty() && std::isspace(static_cast<unsigned char>(Output.back())))
 				Output.pop_back();
 			if (WIFEXITED(Status) && WEXITSTATUS(Status) == 0 && !Output.empty())
-				return {EFileDialogStatus::Selected,
-					std::filesystem::path(Output).lexically_normal().generic_string(), {}};
+			{
+				FFileDialogResult Selected{EFileDialogStatus::Selected};
+				if (Kind == "open" && Request.bAllowMultiple)
+				{
+					for (size_t Start = 0; Start < Output.size();)
+					{
+						const auto End = Output.find('\x1f', Start);
+						if (End == std::string::npos) break;
+						// osascript emits escaped UTF-8 fields separated by US. Escape
+						// percent and US so even control characters in names round-trip.
+						std::string Path;
+						for (size_t Offset = Start; Offset < End; ++Offset)
+						{
+							if (Offset + 2 < End && Output.compare(Offset, 3, "%25") == 0)
+							{ Path.push_back('%'); Offset += 2; }
+							else if (Offset + 2 < End && Output.compare(Offset, 3, "%1F") == 0)
+							{ Path.push_back('\x1f'); Offset += 2; }
+							else Path.push_back(Output[Offset]);
+						}
+						Selected.FilePaths.push_back(std::filesystem::path(Path).lexically_normal().generic_string());
+						Start = End + 1;
+					}
+					if (Selected.FilePaths.empty()) return MacOSDialogError("No selected file paths were returned.");
+					Selected.FilePath = Selected.FilePaths.front();
+				}
+				else
+				{
+					Selected.FilePath = std::filesystem::path(Output).lexically_normal().generic_string();
+					if (Kind == "open") Selected.FilePaths.push_back(Selected.FilePath);
+				}
+				return Selected;
+			}
 			if (Output.find("(-128)") != std::string::npos
 				|| Output.find("User canceled") != std::string::npos)
 				return {EFileDialogStatus::Cancelled, {}, {}};
@@ -235,7 +287,8 @@ end run
 		FILEOPENDIALOGOPTIONS Options = 0;
 		if (SUCCEEDED(Dialog->GetOptions(&Options)))
 		{
-			Dialog->SetOptions(Options | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST | FOS_PATHMUSTEXIST | FOS_NOCHANGEDIR);
+			Dialog->SetOptions(Options | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST | FOS_PATHMUSTEXIST | FOS_NOCHANGEDIR
+				| (Request.bAllowMultiple ? FOS_ALLOWMULTISELECT : 0));
 		}
 
 		std::vector<std::wstring> FilterNames;
@@ -274,19 +327,29 @@ end run
 			return {EFileDialogStatus::Error, {}, HResultMessage("Showing the file dialog", Result)};
 		}
 
-		IShellItem* SelectedItem = nullptr;
-		Result = Dialog->GetResult(&SelectedItem);
+		IShellItemArray* Items = nullptr;
+		Result = Dialog->GetResults(&Items);
 		Dialog->Release();
-		if (FAILED(Result)) return {EFileDialogStatus::Error, {}, HResultMessage("Reading the selected file", Result)};
-
-		PWSTR SelectedPath = nullptr;
-		Result = SelectedItem->GetDisplayName(SIGDN_FILESYSPATH, &SelectedPath);
-		SelectedItem->Release();
-		if (FAILED(Result)) return {EFileDialogStatus::Error, {}, HResultMessage("Reading the selected file path", Result)};
-
-		std::string FilePath = StringUtils::WideToUtf8(SelectedPath);
-		::CoTaskMemFree(SelectedPath);
-		return {EFileDialogStatus::Selected, std::move(FilePath), {}};
+		if (FAILED(Result)) return {EFileDialogStatus::Error, {}, HResultMessage("Reading selected files", Result)};
+		DWORD Count = 0;
+		Result = Items->GetCount(&Count);
+		FFileDialogResult Selected{EFileDialogStatus::Selected};
+		for (DWORD Index = 0; SUCCEEDED(Result) && Index < Count; ++Index)
+		{
+			IShellItem* Item = nullptr;
+			Result = Items->GetItemAt(Index, &Item);
+			if (FAILED(Result)) break;
+			PWSTR Path = nullptr;
+			Result = Item->GetDisplayName(SIGDN_FILESYSPATH, &Path);
+			Item->Release();
+			if (SUCCEEDED(Result)) Selected.FilePaths.push_back(StringUtils::WideToUtf8(Path));
+			::CoTaskMemFree(Path);
+		}
+		Items->Release();
+		if (FAILED(Result)) return {EFileDialogStatus::Error, {}, HResultMessage("Reading selected file paths", Result)};
+		if (Selected.FilePaths.empty()) return {EFileDialogStatus::Error, {}, "No files were selected."};
+		Selected.FilePath = Selected.FilePaths.front();
+		return Selected;
 #elif defined(__APPLE__)
 		return RunMacOSDialog(Request, "open");
 #else
