@@ -496,3 +496,14 @@ Surface movement persist presentation through ordinary transactions.
 - [Reflected Property Editing](ReflectedPropertyEditing.md)
 - [Workspace Framework](WorkspaceFramework.md)
 - [Asset Catalog and Mutation](../../Runtime/Assets/AssetCatalogAndMutation.md)
+
+## Native validation
+
+`MaterialGraphEditingTests` owns graph commands, inference, and Undo/Redo;
+`MaterialEditorInteractionTests` owns canvas, property-panel, and preview tests;
+`MaterialEditingPersistenceTests` owns editing sessions, package roundtrips, and
+workspace save/reload. The former `MaterialEditingTests` target is retired.
+Run `DevTool test "@domain=material-editing"` for all three, or select one target.
+Their finer domains are `material-graph-editing`, `material-editor-interaction`,
+and `material-editing-persistence`. Test source changes resolve to their registered
+target; production module changes can still select all three.

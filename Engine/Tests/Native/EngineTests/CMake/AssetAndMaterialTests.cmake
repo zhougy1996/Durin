@@ -340,9 +340,52 @@ durin_add_native_test(MaterialFunctionTests
 		"Exercises authored material-function recipes, expansion, dependencies, and interface contracts."
 )
 
-durin_add_native_test(MaterialEditingTests
+durin_add_native_test(MaterialGraphEditingTests
 	KIND feature
-	DOMAINS material material-editing
+	DOMAINS material material-editing material-graph-editing
+	MODULES engine material-editor renderer asset-tools asset-forge-builtins static-mesh-build
+	STACKS editor renderer
+	TIMEOUT 300
+	SOURCES
+		Private/Materials/MaterialGraphOperationsTests.cpp
+		Private/Materials/MaterialFunctionEditingTests.cpp
+	INCLUDE_DIRECTORIES
+		${CMAKE_CURRENT_SOURCE_DIR}/Private
+		${_durin_level_editor_private}
+		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Public
+		${_durin_material_editor_private}
+		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/MaterialEditor/Public
+		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/StaticMeshEditor/Public
+		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
+		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
+	LIBRARIES
+		Core
+		CoreDObject
+		Engine
+		ApplicationCore
+		RenderCore
+		Renderer
+		AssetTools
+		AssetForgeBuiltins
+		MonaCore
+		Mona
+		MonaImGui
+		DurinEd
+		MaterialEditor
+		StaticMeshEditor
+		TextureEditor
+		StaticMeshBuild
+	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport ${CMAKE_CURRENT_SOURCE_DIR}/Data
+	REQUIRES editor
+	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
+	ENVIRONMENTS authored-shaders
+	HEAVY_RUNTIME_RATIONALE
+		"Exercises material and function graph commands, inference, and transaction replay."
+)
+
+durin_add_native_test(MaterialEditorInteractionTests
+	KIND feature
+	DOMAINS material material-editing material-editor-interaction
 	MODULES engine material-editor renderer asset-tools asset-forge-builtins static-mesh-build
 	STACKS editor renderer
 	PRIVATE_SOURCE_OWNER MaterialEditor
@@ -350,9 +393,8 @@ durin_add_native_test(MaterialEditingTests
 	TIMEOUT 300
 	SOURCES
 		Private/Materials/MaterialPropertyEditingTests.cpp
-		Private/Materials/MaterialGraphOperationsTests.cpp
-		Private/Materials/MaterialEditingSessionTests.cpp
-		Private/Materials/MaterialFunctionEditingTests.cpp
+		Private/Materials/MaterialGraphInteractionTests.cpp
+		Private/Materials/MaterialFunctionInteractionTests.cpp
 		Private/Materials/MaterialPreviewTests.cpp
 		Private/MaterialParameterPanelModelTests.cpp
 	PRIVATE_SOURCES
@@ -361,11 +403,7 @@ durin_add_native_test(MaterialEditingTests
 		${_durin_material_editor_private}/Graph/MaterialGraphInputDetails.cpp
 		${_durin_material_editor_private}/Graph/MaterialGraphCreationMenu.cpp
 		${_durin_material_editor_private}/Widgets/MaterialPreview.cpp
-		${_durin_material_editor_private}/Widgets/MaterialEditingSession.cpp
 		${_durin_material_editor_private}/Widgets/MaterialParameterPanelModel.cpp
-		${_durin_material_editor_private}/Widgets/MMaterialEditor.cpp
-		${_durin_material_editor_private}/Widgets/MMaterialFunctionEditor.cpp
-		${_durin_material_editor_private}/Widgets/MaterialFunctionCallPicker.cpp
 		${_durin_material_editor_private}/Settings/MaterialEditorSessionSettings.cpp
 	INCLUDE_DIRECTORIES
 		${CMAKE_CURRENT_SOURCE_DIR}/Private
@@ -399,7 +437,56 @@ durin_add_native_test(MaterialEditingTests
 	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
 	ENVIRONMENTS authored-shaders
 	HEAVY_RUNTIME_RATIONALE
-		"Exercises graph authoring, transactions, private widgets, and editor preview ownership."
+		"Exercises material editor canvas, property panels, and preview interaction."
+)
+
+durin_add_native_test(MaterialEditingPersistenceTests
+	KIND feature
+	DOMAINS material material-editing material-editing-persistence
+	MODULES engine material-editor renderer asset-tools asset-forge-builtins static-mesh-build
+	STACKS editor renderer
+	PRIVATE_SOURCE_OWNER MaterialEditor
+	PRIVATE_SOURCE_RATIONALE "Exercises MaterialEditor-owned private widgets without exporting test-only APIs."
+	TIMEOUT 300
+	SOURCES
+		Private/Materials/MaterialEditingSessionTests.cpp
+		Private/Materials/MaterialGraphPersistenceTests.cpp
+		Private/Materials/MaterialFunctionPersistenceTests.cpp
+	PRIVATE_SOURCES
+		${_durin_material_editor_private}/Widgets/MaterialEditingSession.cpp
+	INCLUDE_DIRECTORIES
+		${CMAKE_CURRENT_SOURCE_DIR}/Private
+		${_durin_level_editor_private}
+		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Public
+		${_durin_material_editor_private}
+		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/MaterialEditor/Public
+		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/StaticMeshEditor/Public
+		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
+		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
+	LIBRARIES
+		Core
+		CoreDObject
+		Engine
+		ApplicationCore
+		RenderCore
+		Renderer
+		AssetTools
+		AssetForgeBuiltins
+		MonaCore
+		Mona
+		MonaImGui
+		DurinEd
+		MaterialEditor
+		StaticMeshEditor
+		TextureEditor
+		StaticMeshBuild
+	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport ${CMAKE_CURRENT_SOURCE_DIR}/Data
+	COMPILE_DEFINITIONS MATERIALEDITOR_EXPORTS
+	REQUIRES editor
+	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
+	ENVIRONMENTS authored-shaders
+	HEAVY_RUNTIME_RATIONALE
+		"Exercises material editing sessions, workspace documents, and package persistence."
 )
 
 durin_add_native_test(MaterialRuntimeTests
