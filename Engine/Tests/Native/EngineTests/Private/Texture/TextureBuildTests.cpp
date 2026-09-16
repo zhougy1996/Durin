@@ -1772,6 +1772,37 @@ TEST(FTexture2DTests, CooperativeBuildCancellationUsesFrozenCheckpointIntervals)
 	EXPECT_FALSE(Platform.IsValid());
 }
 
+TEST(FTexture2DTests, SharedSourceSlicesStayImmutableDuringWorkerBuild)
+{
+	InitializeDObjectSystem();
+	using namespace Durin;
+	// Nonzero offsets catch accidental reads from the backing allocation's start.
+	FByteBuffer Bytes(11 + 9 * 7 * 4 + 4 * 3 * 4 + 13, std::byte{37});
+	for (size_t Index = 11; Index < Bytes.size() - 13; ++Index)
+		Bytes[Index] = static_cast<std::byte>((Index * 71) % 256);
+	const auto Expected = Bytes;
+	const auto Storage = FSharedByteBuffer::Take(std::move(Bytes));
+	std::vector<Image::FImage> Images(2);
+	ASSERT_TRUE(Image::FImage::TryCreate({.Width = 9, .Height = 7,
+		.Format = Image::ERawImageFormat::RGBA8}, Storage.MakeView(11, 9 * 7 * 4), Images[0]));
+	ASSERT_TRUE(Image::FImage::TryCreate({.Width = 4, .Height = 3,
+		.Format = Image::ERawImageFormat::RGBA8}, Storage.MakeView(11 + 9 * 7 * 4, 4 * 3 * 4), Images[1]));
+	FTexturePlatformData Generated, Supplied;
+	bool Succeeded = false;
+	auto Task = Tasks::LaunchTask("Test.SharedTextureSource", [Images = std::move(Images), &Generated, &Supplied, &Succeeded] {
+		Succeeded = TextureBuilder::BuildMipChain(std::span(Images.data(), 1),
+			ETextureUsage::Color, false, Generated, 0, ETextureCompressionQuality::Normal,
+			ETextureAlphaMipMode::PreserveCoverage)
+			&& TextureBuilder::BuildMipChain(Images, ETextureUsage::Color, false, Supplied);
+	});
+	ASSERT_EQ(WaitTask(Task.GetCompletion().GetTaskHandle()).TaskState, ETaskState::Succeeded);
+	ASSERT_TRUE(Succeeded);
+	EXPECT_EQ(Generated.Mips.size(), 4u);
+	EXPECT_EQ(Supplied.Mips.size(), 2u);
+	EXPECT_TRUE(std::ranges::equal(Storage.GetBytes(), Expected));
+	EXPECT_EQ(Generated.Mips.front().Pixels, Supplied.Mips.front().Pixels);
+}
+
 TEST(FTexture2DTests, ParallelCompressionMatchesSerialBytes)
 {
 	InitializeDObjectSystem();

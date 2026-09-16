@@ -9,6 +9,7 @@ namespace Durin::TextureBuilder
 	{
 		uint64 MipGenerationNanoseconds = 0;
 		uint64 CompressionNanoseconds = 0;
+		// Generated uncompressed mip storage; excludes shared source and output bytes.
 		uint64 PeakIntermediateBytes = 0;
 	};
 

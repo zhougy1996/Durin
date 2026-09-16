@@ -12,12 +12,25 @@ namespace Durin::TextureBuilder
 	{
 		constexpr uint32 BlockWidth = 4;
 
+		// Borrowed only within synchronous build helpers. The mip-chain FImages
+		// retain shared immutable storage until all compression tasks have drained.
+		struct FReadOnlyMip
+		{
+			FByteView Pixels;
+			uint32 Width, Height, RowPitch;
+			FReadOnlyMip(const Image::FImage& Image)
+				: Pixels(Image.GetPixels()), Width(Image.GetInfo().Width),
+				Height(Image.GetInfo().Height), RowPitch(Width * ChannelCount) {}
+			FReadOnlyMip(const FTexture2DMipData& Mip)
+				: Pixels(Mip.Pixels), Width(Mip.Width), Height(Mip.Height), RowPitch(Mip.RowPitch) {}
+		};
+
 		auto IsCancellationRequested(const FBuildExecutionControl* ExecutionControl) -> bool
 		{
 			return ExecutionControl && ExecutionControl->ShouldCancel
 				&& ExecutionControl->ShouldCancel();
 		}
-		auto GatherTextureBlock(const FTexture2DMipData& Source, uint32 BlockX, uint32 BlockY,
+		auto GatherTextureBlock(const FReadOnlyMip& Source, uint32 BlockX, uint32 BlockY,
 			std::array<uint8, BlockWidth * BlockWidth * ChannelCount>& OutPixels) -> void
 		{
 			for (uint32 Y = 0; Y < BlockWidth; ++Y)
@@ -44,7 +57,7 @@ namespace Durin::TextureBuilder
 			}
 		}
 
-		auto CompressTextureMip(const FTexture2DMipData& Source, EPixelFormat Format,
+		auto CompressTextureMip(const FReadOnlyMip& Source, EPixelFormat Format,
 			ETextureCompressionQuality Quality,
 			FTexture2DMipData& OutMip,
 			const FBuildExecutionControl* ExecutionControl) -> FTexture2DBuildResult
@@ -152,7 +165,7 @@ namespace Durin::TextureBuilder
 		}
 
 		auto BuildNextMip(
-			const FTexture2DMipData& Source,
+			const FReadOnlyMip& Source,
 			ETextureUsage Usage,
 			bool bSRGB,
 			FTexture2DMipData& OutResult,
@@ -232,7 +245,7 @@ namespace Durin::TextureBuilder
 		}
 
 		auto CalculateAlphaCoverage(
-			const FTexture2DMipData& Mip,
+			const FReadOnlyMip& Mip,
 			float Threshold,
 			double Scale,
 			double& OutCoverage,
@@ -392,16 +405,9 @@ namespace Durin::TextureBuilder
 			return {ETexture2DBuildStatus::Failed,
 				"Selected pixel format is not supported by the current RHI backend."};
 		}
-		std::vector<FTexture2DMipData> UncompressedMips;
-		for (const Image::FImage& Mip : SourceMips)
-		{
-			const auto& Info = Mip.GetInfo();
-			const auto Pixels = Mip.GetPixels();
-			UncompressedMips.push_back({.Pixels = FByteBuffer(Pixels.begin(), Pixels.end()),
-				.Width = Info.Width, .Height = Info.Height,
-				.RowPitch = Info.Width * ChannelCount});
-		}
-		FTexture2DMipData& BaseMip = UncompressedMips.front();
+		// FImage copies share the source allocation; no writable source copy is needed.
+		std::vector<Image::FImage> UncompressedMips(SourceMips.begin(), SourceMips.end());
+		const Image::FImage& BaseMip = UncompressedMips.front();
 		const bool bPreserveAlphaCoverage = Usage == ETextureUsage::Color
 			&& bHasTransparency && AlphaMipMode == ETextureAlphaMipMode::PreserveCoverage;
 		double SourceAlphaCoverage = 0.0;
@@ -418,7 +424,7 @@ namespace Durin::TextureBuilder
 		}
 		const FClock::time_point MipStart = FClock::now();
 		while (SourceMips.size() == 1
-			&& (UncompressedMips.back().Width > 1 || UncompressedMips.back().Height > 1))
+			&& (UncompressedMips.back().GetInfo().Width > 1 || UncompressedMips.back().GetInfo().Height > 1))
 		{
 			if (IsCancelled())
 			{
@@ -432,11 +438,10 @@ namespace Durin::TextureBuilder
 				OutPlatformData = {};
 				return {ETexture2DBuildStatus::Cancelled, "Texture build was cancelled."};
 			}
-			UncompressedMips.push_back(std::move(NextMip));
 			if (bPreserveAlphaCoverage)
 			{
 				if (!PreserveAlphaCoverage(
-					UncompressedMips.back(),
+					NextMip,
 					AlphaCoverageThreshold,
 					SourceAlphaCoverage,
 					ExecutionControl))
@@ -445,6 +450,16 @@ namespace Durin::TextureBuilder
 					return {ETexture2DBuildStatus::Cancelled, "Texture build was cancelled."};
 				}
 			}
+			Image::FImage FrozenMip;
+			if (!Image::FImage::TryCreate({.Width = NextMip.Width, .Height = NextMip.Height,
+				.Format = Image::ERawImageFormat::RGBA8,
+				.GammaSpace = SourceMips.front().GetInfo().GammaSpace},
+				std::move(NextMip.Pixels), FrozenMip))
+			{
+				OutPlatformData = {};
+				return {ETexture2DBuildStatus::Failed, "Generated texture mip layout is invalid."};
+			}
+			UncompressedMips.push_back(std::move(FrozenMip));
 		}
 		const FClock::time_point MipFinish = FClock::now();
 		if (ExecutionControl && ExecutionControl->Metrics)
@@ -452,15 +467,16 @@ namespace Durin::TextureBuilder
 			FBuildMipChainMetrics& Metrics = *ExecutionControl->Metrics;
 			Metrics.MipGenerationNanoseconds = static_cast<uint64>(
 				std::chrono::duration_cast<std::chrono::nanoseconds>(MipFinish - MipStart).count());
-			for (const FTexture2DMipData& Mip : UncompressedMips)
-				Metrics.PeakIntermediateBytes += Mip.Pixels.size();
+			// Shared source bytes are already accounted as decoded input by the caller.
+			for (size_t Index = SourceMips.size(); Index < UncompressedMips.size(); ++Index)
+				Metrics.PeakIntermediateBytes += UncompressedMips[Index].GetPixels().size();
 		}
 		size_t FirstMipIndex = 0;
 		if (MaxResolution > 0)
 		{
 			while (FirstMipIndex + 1 < UncompressedMips.size()
-				&& (UncompressedMips[FirstMipIndex].Width > MaxResolution
-					|| UncompressedMips[FirstMipIndex].Height > MaxResolution))
+				&& (UncompressedMips[FirstMipIndex].GetInfo().Width > MaxResolution
+					|| UncompressedMips[FirstMipIndex].GetInfo().Height > MaxResolution))
 			{
 				++FirstMipIndex;
 			}

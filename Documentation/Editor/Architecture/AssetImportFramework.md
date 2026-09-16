@@ -251,6 +251,13 @@ mips and nested parallel loops run serially. Encoder settings and output bytes
 are unchanged. Cancellation predicates are serialized and all chunks drain
 before the result or its storage is released.
 
+Build requests and the uncompressed mip chain retain shared immutable image
+buffers, including source mip slices. Building does not duplicate source pixels.
+Only generated mips allocate writable pixels; after filtering and optional alpha
+coverage adjustment, ownership moves into immutable images without copying.
+Compression borrows read-only views until its tasks drain. Intermediate-memory
+metrics count generated mip storage, excluding shared decoded input and output.
+
 Completed compilation attempts include preparation, compilation elapsed time,
 mip generation, compression, cache write, cache origin, and save timing in the
 notification history details. Compilation elapsed time includes admission,
