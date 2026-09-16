@@ -55,6 +55,9 @@ namespace Durin::Editor::Texture
 		std::future<FPreparation> Preparation;
 		std::shared_ptr<std::optional<FTexture2DCompilationResult>> Completion;
 		TStrongObjectPtr<DTexture2D> Active;
+		std::unique_ptr<FAssetSaveOperation> DiskSave;
+		bool bSaveStarted = false;
+		std::chrono::steady_clock::time_point SaveStarted;
 		std::vector<std::string> Files;
 		std::string Directory;
 		std::vector<std::string> Published;

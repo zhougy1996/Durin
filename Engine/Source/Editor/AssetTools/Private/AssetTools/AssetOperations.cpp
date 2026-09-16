@@ -56,6 +56,44 @@ namespace Durin
 		}
 	}
 
+	struct FAssetSaveOperation::FState
+	{
+		FAssetSaveRequest Request;
+		std::unique_ptr<FAsyncPackageSave> Save;
+		std::optional<FAssetOperationResult> Result;
+	};
+	FAssetSaveOperation::FAssetSaveOperation() : State(std::make_unique<FState>()) {}
+	FAssetSaveOperation::~FAssetSaveOperation() = default;
+	auto FAssetSaveOperation::Begin(const FAssetSaveRequest& Request, FAssetOperationResult& OutResult)
+		-> std::unique_ptr<FAssetSaveOperation>
+	{
+		if (Request.AssetPaths.size() != 1 || Request.Mode != EAssetSaveMode::LoadedDirtyPackage)
+		{
+			OutResult = MakeRejectedAssetOperation(EAssetOperationKind::Save,
+				"Async save requires one loaded dirty package.");
+			return {};
+		}
+		auto Operation = std::unique_ptr<FAssetSaveOperation>(new FAssetSaveOperation());
+		Operation->State->Request = Request;
+		FAssetResult Result;
+		Operation->State->Save = FAsyncPackageSave::Begin(FindResidentPackage(Request.AssetPaths.front()), Result);
+		OutResult = AssetToolsPrivate::FromEngineResult(EAssetOperationKind::Save, Result, Request.AssetPaths);
+		if (!Operation->State->Save) return {};
+		return Operation;
+	}
+	auto FAssetSaveOperation::IsReady() const -> bool { return State->Save->IsReady(); }
+	auto FAssetSaveOperation::Complete() -> FAssetOperationResult
+	{
+		if (State->Result) return *State->Result;
+		if (!IsReady()) return MakeRejectedAssetOperation(EAssetOperationKind::Save, "Save is still running.");
+		auto Result = AssetToolsPrivate::FromEngineResult(EAssetOperationKind::Save,
+			State->Save->Complete(), State->Request.AssetPaths);
+		Result.Persistence = Result ? EAssetOperationPersistenceState::Persisted : EAssetOperationPersistenceState::Dirty;
+		State->Result = Result;
+		Publish(State->Request.Publish, *State->Result);
+		return *State->Result;
+	}
+
 	auto DuplicateAssetWithEditorPolicy(const FAssetDuplicateRequest& Request)
 		-> FAssetOperationResult
 	{

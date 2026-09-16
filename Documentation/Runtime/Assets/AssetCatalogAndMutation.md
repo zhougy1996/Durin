@@ -154,6 +154,31 @@ physical deletion for mixed selections. Successful authored operations advance
 DurinEd's mounted-content mutation revision exactly once and never enter the
 global object-edit Undo/Redo history.
 
+## Asynchronous Save Staging
+
+`FAsyncPackageSave` owns a single loaded dirty package save. `Begin` runs on the
+GameThread, pins the package, serializes and validates the closure, and captures
+the package edit revision, participant catalog metadata and destination file
+stamps. A bounded scheduler BlockingIO task writes unique sibling temporary
+files and verifies their bytes. It does not publish packages, access live objects
+or update the Registry. No package or bulk file becomes visible before completion.
+
+`IsReady` supports host polling. GameThread `Complete` rejects changed objects,
+paths, participants, destination files or staged files before publication;
+unrelated catalog changes do not invalidate the operation. It reuses the existing
+save transaction for short file renames, Registry publication and dirty-state
+finalization. Prepared bulk files use rename-based backup/rollback instead of
+reading and rewriting the old companion. The default projection-pending and
+optional Registry-failure rollback policies remain unchanged. Successful repeated
+completion is idempotent. Destruction drains staging and deletes uncommitted
+temporaries; owners must destroy operations before asset/scheduler shutdown.
+
+`FAssetSaveOperation` adds editor result and once-only notification policy.
+It currently accepts one `LoadedDirtyPackage` request; existing synchronous
+multi-package and canonical-resave entry points retain their behavior.
+Serialization, final file switching and Registry publication remain on the
+GameThread. This API moves bulk disk transfer off the UI thread, not all save work.
+
 ## Relocation Jobs
 
 Relocation is batched even for one mapping. Preparation captures the catalog

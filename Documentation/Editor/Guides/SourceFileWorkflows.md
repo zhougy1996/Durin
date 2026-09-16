@@ -44,7 +44,9 @@ and saving remain on the main thread. The status bar shows progress and offers
 cancellation of remaining files; the current file finishes. Failed items do not
 stop the batch. Mutation restrictions pause queue advancement.
 
-Successful imports are saved automatically. The browser refreshes once at batch
+Successful imports are saved automatically. During `Saving`, disk writes run in
+the background; final publication waits until the editor permits content changes.
+The browser refreshes once at batch
 completion, revealing a single asset or the destination folder for multiple assets.
 The result notification summarizes successes, failures, and canceled items; failure
 details remain in notification history. Save failure keeps the asset resident;

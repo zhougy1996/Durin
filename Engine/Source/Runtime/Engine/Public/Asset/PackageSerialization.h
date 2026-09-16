@@ -189,6 +189,7 @@ namespace Durin
 		PublishRegistry
 	};
 
+	class FAsyncPackageSave;
 	struct FAssetBundleSaveOptions
 	{
 		DPackage* RootPackage = nullptr;
@@ -199,6 +200,25 @@ namespace Durin
 		// Admits only private packages owned by this prepared publication operation.
 		const FObjectGraphReplacement* PreparedPublication = nullptr;
 		EAssetPackageSaveMode Mode = EAssetPackageSaveMode::Delta;
+		// Internal handoff from FAsyncPackageSave::Complete; not a caller-supplied snapshot.
+		const FAsyncPackageSave* PreparedSave = nullptr;
+	};
+
+	// Game-thread owner of a single-package save. Serialization stays on the
+	// caller; workers only stage and verify detached bytes. Complete publishes
+	// on the game thread. Destruction drains staging and discards uncommitted files.
+	class ENGINE_API FAsyncPackageSave
+	{
+	public:
+		static auto Begin(DPackage* Package, FAssetResult& OutResult) -> std::unique_ptr<FAsyncPackageSave>;
+		~FAsyncPackageSave();
+		auto IsReady() const -> bool;
+		auto Complete(FAssetBundleSaveOptions Options = {}) -> FAssetResult;
+	private:
+		FAsyncPackageSave();
+		struct FState;
+		std::unique_ptr<FState> State;
+		friend class FAssetMutationCoordinator;
 	};
 
 	ENGINE_API auto SerializeAssetPackageBytes(

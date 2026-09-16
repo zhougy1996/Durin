@@ -245,6 +245,16 @@ pinned until completion, and saving waits for successful build and provenance
 publication. Ordinary factory calls remain synchronous, and reimport preserves
 its configured settings.
 
+The import queue uses `FAssetSaveOperation` after compilation: preparation and
+final publication run on the GameThread, while package/bulk staging and byte
+verification run on the scheduler's BlockingIO pool. The presenter reports
+`Saving` and polls without waiting. Mutation pauses defer final publication;
+teardown drains and abandons the staged save before discarding the candidate.
+Snapshot conflicts retain the dirty asset for retry. Explicit Retry Texture
+Saves and ordinary synchronous callers continue to use the existing save path.
+See [asynchronous save staging](../../Runtime/Assets/AssetCatalogAndMutation.md#asynchronous-save-staging)
+for ownership and transaction boundaries.
+
 Each texture compresses independent block rows through the CPU task scheduler,
 with at most eight chunks per mip and a 4096-block batching threshold. Small
 mips and nested parallel loops run serially. Encoder settings and output bytes
@@ -262,7 +272,8 @@ Completed compilation attempts include preparation, compilation elapsed time,
 mip generation, compression, cache write, cache origin, and save timing in the
 notification history details. Compilation elapsed time includes admission,
 queueing, host ticks and pauses; it is not a pure CPU measurement. Preparation
-includes source capture, decoding and classification. These diagnostics do not
+includes source capture, decoding and classification. Save elapsed time includes
+staging, host polling and mutation pauses. These diagnostics do not
 set timing acceptance thresholds.
 
 The host presenter advances the queue even when the browser is hidden, subject

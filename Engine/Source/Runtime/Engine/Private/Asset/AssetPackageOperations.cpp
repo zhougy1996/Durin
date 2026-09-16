@@ -33,6 +33,9 @@
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
 #include "Threading/RunnableThread.h"
+#include "Threading/TaskComposition.h"
+#include "DObject/StrongObjectPtr.h"
+#include "Misc/Guid.h"
 
 namespace Durin
 {
@@ -419,6 +422,7 @@ namespace Durin
 			uint64 Extent = 0;
 			bool bHadFinal = false;
 			bool bPublished = false;
+			bool bPreparedFile = false;
 		};
 
 		auto PrepareEditorBulkDataCompanionState(
@@ -463,7 +467,8 @@ namespace Durin
 			uint64 Extent,
 			FByteView Bytes,
 			FEditorBulkDataCompanionTransaction& OutTransaction,
-			std::string& OutError) -> bool
+			std::string& OutError,
+			const std::filesystem::path& PreparedFile = {}) -> bool
 		{
 			OutTransaction = {};
 			if (!PrepareEditorBulkDataCompanionState(PackagePath, OutError)
@@ -474,6 +479,7 @@ namespace Durin
 			OutTransaction.BackupPath += EditorBulkDataCompanionBackupSuffix;
 			OutTransaction.ContainerHash = ContainerHash;
 			OutTransaction.Extent = Extent;
+			OutTransaction.bPreparedFile = !PreparedFile.empty();
 
 			std::error_code ErrorCode;
 			OutTransaction.bHadFinal =
@@ -483,6 +489,26 @@ namespace Durin
 				OutError = std::format("Failed to inspect authored bulk companion {}: {}",
 					OutTransaction.FinalPath.generic_string(), ErrorCode.message());
 				return false;
+			}
+			if (OutTransaction.bPreparedFile)
+			{
+				ErrorCode.clear();
+				if (OutTransaction.bHadFinal)
+					std::filesystem::rename(OutTransaction.FinalPath, OutTransaction.BackupPath, ErrorCode);
+				if (!ErrorCode) std::filesystem::rename(PreparedFile, OutTransaction.FinalPath, ErrorCode);
+				if (ErrorCode)
+				{
+					if (OutTransaction.bHadFinal)
+					{
+						std::error_code RestoreError;
+						if (std::filesystem::exists(OutTransaction.BackupPath, RestoreError))
+							std::filesystem::rename(OutTransaction.BackupPath, OutTransaction.FinalPath, RestoreError);
+					}
+					OutError = ErrorCode.message();
+					return false;
+				}
+				OutTransaction.bPublished = true;
+				return true;
 			}
 			if (OutTransaction.bHadFinal)
 			{
@@ -524,6 +550,11 @@ namespace Durin
 				std::filesystem::remove(Transaction.FinalPath, ErrorCode);
 				if (!ErrorCode) std::filesystem::remove(Transaction.BackupPath, ErrorCode);
 			}
+			else if (Transaction.bPreparedFile)
+			{
+				std::filesystem::remove(Transaction.FinalPath, ErrorCode);
+				if (!ErrorCode) std::filesystem::rename(Transaction.BackupPath, Transaction.FinalPath, ErrorCode);
+			}
 			else
 			{
 				FByteBuffer PriorBytes;
@@ -556,7 +587,7 @@ namespace Durin
 			const FEditorBulkDataCompanionTransaction& Transaction,
 			std::string& OutError) -> bool
 		{
-			if (!Transaction.bPublished) return true;
+			if (!Transaction.bPublished || Transaction.bPreparedFile) return true;
 			FByteBuffer Bytes;
 			if (!FFileHelper::LoadFileToArray(Bytes, Transaction.FinalPath)
 				|| Bytes.size() != Transaction.Extent
@@ -1034,6 +1065,162 @@ namespace Durin
 		return {};
 	}
 
+	struct FAsyncPackageSave::FState
+	{
+		struct FStamp
+		{
+			bool Exists = false;
+			uintmax_t Size = 0;
+			std::filesystem::file_time_type Time{};
+			auto operator==(const FStamp&) const -> bool = default;
+		};
+		static auto Inspect(const std::filesystem::path& Path, FStamp& Stamp) -> bool
+		{
+			std::error_code Ec;
+			Stamp.Exists = std::filesystem::exists(Path, Ec);
+			if (Ec) return false;
+			if (!Stamp.Exists) return true;
+			if (!std::filesystem::is_regular_file(Path, Ec) || Ec) return false;
+			Stamp.Size = std::filesystem::file_size(Path, Ec);
+			if (Ec) return false;
+			Stamp.Time = std::filesystem::last_write_time(Path, Ec);
+			return !Ec;
+		}
+		TStrongObjectPtr<DPackage> Package;
+		FPackagePath Path;
+		uint64 EditRevision = 0;
+		std::unordered_map<FPackagePath, std::optional<FAssetData>> Participants;
+		FPackageFile File;
+		FByteBuffer Bytes;
+		std::filesystem::path Destination, Companion, Staged, StagedBulk;
+		FStamp PackageStamp, BulkStamp, StagedStamp, StagedBulkStamp;
+		Tasks::FTaskGroup Group;
+		Tasks::TTask<FAssetResult> Worker;
+		std::optional<FAssetResult> Result;
+		bool bCommitting = false;
+	};
+
+	FAsyncPackageSave::FAsyncPackageSave() : State(std::make_unique<FState>()) {}
+	FAsyncPackageSave::~FAsyncPackageSave()
+	{
+		check(IsInGameThread());
+		if (State->Worker.IsValid()) State->Worker.Wait();
+		std::error_code Ec;
+		if (!State->Staged.empty()) std::filesystem::remove(State->Staged, Ec);
+		if (!State->StagedBulk.empty()) std::filesystem::remove(State->StagedBulk, Ec);
+	}
+
+	auto FAsyncPackageSave::Begin(DPackage* Package, FAssetResult& OutResult)
+		-> std::unique_ptr<FAsyncPackageSave>
+	{
+		check(IsInGameThread());
+		if (!IsTaskSchedulerRunning() || !FAssetRuntimeState::Get().IsAcceptingRequests())
+		{
+			OutResult = Error(EAssetError::StaleData, "Asset saves are not accepting asynchronous work.");
+			return {};
+		}
+		if (!Package || !Package->IsAssetPackage() || Package->IsGraphPrivate() || !Package->IsDirty())
+		{
+			OutResult = Error(EAssetError::InvalidPackageType, "Async save requires a loaded dirty asset package.");
+			return {};
+		}
+		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("save", ""); !Guard)
+		{ OutResult = Guard; return {}; }
+		if (FAssetRuntimeState::Get().GetRuntimeConfiguration().IsCooked())
+		{ OutResult = Error(EAssetError::ReadOnlyMode, "Cooked packages cannot be saved."); return {}; }
+		auto Operation = std::unique_ptr<FAsyncPackageSave>(new FAsyncPackageSave());
+		auto& Data = *Operation->State;
+		Data.Package = Package;
+		if (!FPackagePath::TryCreate(Package->GetPackagePath(), Data.Path))
+		{ OutResult = Error(EAssetError::InvalidPath, "Invalid package path."); return {}; }
+		OutResult = ValidatePackageWriteAdmission(Data.Path);
+		if (!OutResult) return {};
+		Data.Destination = GetPhysicalPath(Data.Path);
+		Data.Companion = Data.Destination;
+		Data.Companion.replace_extension(".dbulk");
+		if (Data.Destination.empty() || FindResidentPackage(Data.Path) != Package
+			|| !FState::Inspect(Data.Destination, Data.PackageStamp)
+			|| !FState::Inspect(Data.Companion, Data.BulkStamp))
+		{ OutResult = Error(EAssetError::StaleData, "Package destination is unavailable."); return {}; }
+		Data.EditRevision = Package->GetEditRevision();
+		OutResult = BuildPackageBytes(Package, Data.Bytes, &Data.File);
+		if (!OutResult) return {};
+		OutResult = ValidateAssetPackageBytes(Data.Bytes, Data.Path, Data.File.BulkBytes);
+		if (!OutResult) return {};
+		Data.Participants.emplace(Data.Path, FindAssetExact(Data.Path).Data);
+		for (const auto& Path : Data.File.Dependencies)
+			Data.Participants.emplace(Path, FindAssetExact(Path).Data);
+		for (const auto& Path : Data.File.SoftDependencies)
+			Data.Participants.emplace(Path, FindAssetExact(Path).Data);
+		const auto Suffix = ".async-save-" + FGuid::NewGuid().ToString();
+		Data.Staged = Data.Destination; Data.Staged += Suffix;
+		Data.StagedBulk = Data.Companion; Data.StagedBulk += Suffix;
+		// Only detached bytes and paths are touched by the I/O worker. The owner
+		// drains this task before releasing its state or package pin.
+		Data.Worker = Tasks::LaunchTask(Data.Group, Tasks::ETaskExecutor::BlockingIO,
+			{.DebugName = "Asset.SaveStaging"}, [&Data]() -> FAssetResult {
+				std::error_code Ec;
+				std::filesystem::create_directories(Data.Destination.parent_path(), Ec);
+				if (Ec) return Error(EAssetError::IoError, Ec.message());
+				auto Write = [](const std::filesystem::path& Path, FByteView Bytes) -> FAssetResult {
+					FFileHelper::FAtomicFileError Failure;
+					if (!FFileHelper::SaveArrayToFileAtomically(Bytes, Path, &Failure))
+						return Error(EAssetError::IoError, Failure.ToString());
+					FByteBuffer Verified;
+					if (!FFileHelper::LoadFileToArray(Verified, Path)
+						|| Verified.size() != Bytes.size()
+						|| FXxHash128::HashBuffer(Verified) != FXxHash128::HashBuffer(Bytes))
+						return Error(EAssetError::CorruptFile, "Staged save failed byte verification.");
+					return {};
+				};
+				if (auto Result = Write(Data.Staged, Data.Bytes); !Result) return Result;
+				if (!Data.File.BulkBytes.empty())
+					if (auto Result = Write(Data.StagedBulk, Data.File.BulkBytes); !Result) return Result;
+				if (!FState::Inspect(Data.Staged, Data.StagedStamp)
+					|| !FState::Inspect(Data.StagedBulk, Data.StagedBulkStamp))
+					return Error(EAssetError::IoError, "Cannot inspect staged save files.");
+				return {};
+			});
+		return Operation;
+	}
+
+	auto FAsyncPackageSave::IsReady() const -> bool { return State->Worker.IsCompleted(); }
+	auto FAsyncPackageSave::Complete(FAssetBundleSaveOptions Options) -> FAssetResult
+	{
+		check(IsInGameThread());
+		auto& Data = *State;
+		if (Data.Result) return *Data.Result;
+		if (Data.bCommitting) return Error(EAssetError::StaleData, "Save publication is already running.");
+		if (Options.PreparedSave || Options.Mode != EAssetPackageSaveMode::Delta || Options.PreparedPublication)
+			return Error(EAssetError::StaleData, "Prepared save policy does not match its snapshot.");
+		if (!IsReady()) return Error(EAssetError::StaleData, "Save staging is still running.");
+		if (Data.Worker.GetCompletion().GetState() != ETaskState::Succeeded)
+			return *(Data.Result = Error(EAssetError::IoError, "Save staging task failed or was canceled."));
+		if (const auto Result = Data.Worker.GetResult(); !Result) return *(Data.Result = Result);
+		FState::FStamp CurrentPackage, CurrentBulk, CurrentStaged, CurrentStagedBulk;
+		const bool ParticipantsChanged = std::ranges::any_of(Data.Participants, [](const auto& Entry) {
+			return FindAssetExact(Entry.first).Data != Entry.second;
+		});
+		if (FindResidentPackage(Data.Path) != Data.Package.Get()
+			|| Data.Package->GetPackagePath() != Data.Path.GetView()
+			|| Data.Package->GetEditRevision() != Data.EditRevision
+			|| ParticipantsChanged
+			|| GetPhysicalPath(Data.Path) != Data.Destination.generic_string()
+			|| !FState::Inspect(Data.Destination, CurrentPackage) || CurrentPackage != Data.PackageStamp
+			|| !FState::Inspect(Data.Companion, CurrentBulk) || CurrentBulk != Data.BulkStamp)
+			return *(Data.Result = Error(EAssetError::StaleData,
+				"Asset or destination changed while saving; retry the current version."));
+		if (!FState::Inspect(Data.Staged, CurrentStaged) || CurrentStaged != Data.StagedStamp
+			|| !FState::Inspect(Data.StagedBulk, CurrentStagedBulk) || CurrentStagedBulk != Data.StagedBulkStamp)
+			return *(Data.Result = Error(EAssetError::StaleData, "Staged save files changed before publication."));
+		DPackage* Package = Data.Package.Get();
+		Data.bCommitting = true;
+		Options.PreparedSave = this;
+		Data.Result = SavePackagesAtomically(std::span(&Package, 1), Options);
+		Data.bCommitting = false;
+		return *Data.Result;
+	}
+
 	auto SavePackagesAtomically(
 		std::span<DPackage* const> Packages,
 		const FAssetBundleSaveOptions& Options) -> FAssetResult
@@ -1048,6 +1235,10 @@ namespace Durin
 		const FAssetBundleSaveOptions& Options) -> FAssetResult
 	{
 		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("mutation", ""); !Guard) return Guard;
+		auto* Prepared = Options.PreparedSave ? Options.PreparedSave->State.get() : nullptr;
+		if (Prepared && (!Prepared->bCommitting || Packages.size() != 1
+			|| Packages.front() != Prepared->Package.Get()))
+			return Error(EAssetError::StaleData, "Invalid prepared save handoff.");
 		struct FStagedPackage
 		{
 			DPackage* Package = nullptr;
@@ -1104,18 +1295,25 @@ namespace Durin
 			Staged.Path = Path;
 			FAssetPackageSerializationOptions Serialization;
 			Serialization.Mode = Options.Mode;
-			Result = BuildPackageBytes(
-				Package, Staged.Bytes, &Staged.File, Serialization);
-			if (!Result) return Result;
-			Result = ValidateAssetPackageBytes(
-				Staged.Bytes, Path, Staged.File.BulkBytes);
-			if (!Result) return Result;
+			if (Prepared)
+			{
+				Staged.Bytes = std::move(Prepared->Bytes);
+				Staged.File = std::move(Prepared->File);
+			}
+			else
+			{
+				Result = BuildPackageBytes(Package, Staged.Bytes, &Staged.File, Serialization);
+				if (!Result) return Result;
+				Result = ValidateAssetPackageBytes(Staged.Bytes, Path, Staged.File.BulkBytes);
+				if (!Result) return Result;
+			}
 			Staged.Destination = GetPhysicalPath(Path);
 			if (Staged.Destination.empty())
 				return Error(EAssetError::InvalidPath, std::format(
 					"Failed to resolve package {}.", Path.ToString()));
 			Staged.Staged = Staged.Destination;
 			Staged.Staged += ".bundle-stage";
+			if (Prepared) Staged.Staged = Prepared->Staged;
 			Staged.Backup = Staged.Destination;
 			Staged.Backup += ".bundle-backup";
 			std::error_code Ec;
@@ -1135,7 +1333,7 @@ namespace Durin
 			if (bDestinationExists && !Staged.bHadDestination)
 				return Error(EAssetError::AlreadyExists, std::format(
 					"Package destination {} is occupied.", Staged.Destination.generic_string()));
-			if (std::filesystem::exists(Staged.Staged, Ec)
+			if ((!Prepared && std::filesystem::exists(Staged.Staged, Ec))
 				|| std::filesystem::exists(Staged.Backup, Ec))
 				return Error(EAssetError::AlreadyExists, std::format(
 					"Package transaction staging path for {} is occupied.", Path.ToString()));
@@ -1198,17 +1396,16 @@ namespace Durin
 					return Error(EAssetError::IoError,
 						"Injected asset-bundle companion publication failure.");
 				}
-				FByteBuffer CompanionBytes;
+				const FByteBuffer& CompanionBytes = Staged.File.BulkBytes;
 				FPackageBulkSegmentSummary SegmentSummary;
 				std::string CompanionError;
-				CompanionBytes = Staged.File.BulkBytes;
-				SegmentSummary = {CompanionBytes.size(),
-					FXxHash128::HashBuffer(CompanionBytes)};
+				SegmentSummary = {Staged.File.BulkSegmentExtent, Staged.File.BulkSegmentDigest};
 				Staged.PublishedCompanion = Staged.Destination;
 				Staged.PublishedCompanion.replace_extension(".dbulk");
 				if (!PublishEditorBulkDataCompanion(
 						Staged.Destination, SegmentSummary.Digest, SegmentSummary.Extent, CompanionBytes,
-						Staged.CompanionTransaction, CompanionError))
+						Staged.CompanionTransaction, CompanionError,
+						Prepared ? Prepared->StagedBulk : std::filesystem::path{}))
 				{
 					AbortStaging();
 					return Error(EAssetError::IoError, std::move(CompanionError));
@@ -1230,7 +1427,7 @@ namespace Durin
 				return Error(EAssetError::IoError, "Injected asset-bundle package staging failure.");
 			}
 			FFileHelper::FAtomicFileError PublicationError;
-			if (!FFileHelper::SaveArrayToFileAtomically(
+			if (!Prepared && !FFileHelper::SaveArrayToFileAtomically(
 				std::span{reinterpret_cast<const std::byte*>(Staged.Bytes.data()), Staged.Bytes.size()},
 				Staged.Staged,
 				&PublicationError))
@@ -1360,7 +1557,8 @@ namespace Durin
 		{
 			if (FindResidentPackage(Staged.Path) == Staged.Package)
 				Staged.Package->MarkAsPublished();
-			Staged.Package->ClearDirty();
+			if (!Prepared || Staged.Package->GetEditRevision() == Prepared->EditRevision)
+				Staged.Package->ClearDirty();
 			std::error_code Ec;
 			std::filesystem::remove(Staged.Backup, Ec);
 			CommitEditorBulkDataCompanion(Staged.CompanionTransaction);

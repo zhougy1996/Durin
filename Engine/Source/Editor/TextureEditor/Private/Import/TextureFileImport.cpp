@@ -111,6 +111,7 @@ namespace Durin::Editor::Texture
 		// Join detached decoding before unloading feature code. Compiler completion
 		// owns only a result cell, never this importer or the host callbacks.
 		if (Preparation.valid()) Preparation.wait();
+		DiskSave.reset(); // Drain detached writes before discarding an unfinished asset.
 		if (Active)
 		{
 			auto* Package = Active->GetPackage();
@@ -139,7 +140,7 @@ namespace Durin::Editor::Texture
 	auto FTextureFileImport::GetActivity() const -> std::string
 	{
 		if (!bRunning || Next >= Files.size()) return {};
-		return std::format("{} {}/{}: {}", Active ? "Building" : "Reading",
+		return std::format("{} {}/{}: {}", DiskSave ? "Saving" : Active ? "Building" : "Reading",
 			Next + 1, Files.size(), std::filesystem::path(Files[Next]).filename().generic_string());
 	}
 
@@ -161,23 +162,44 @@ namespace Durin::Editor::Texture
 		if (Active)
 		{
 			if (!Completion || !Completion->has_value()) return;
-			const auto CompilationEnd = std::chrono::steady_clock::now();
+			const auto CompilationEnd = bSaveStarted ? SaveStarted : std::chrono::steady_clock::now();
 			const auto Diagnostic = GetTexture2DCompilationDiagnostic(*Active);
 			auto* Package = Active->GetPackage();
 			FPackagePath Path;
 			require(FPackagePath::TryCreate(Package->GetPackagePath(), Path));
+			std::optional<FAssetOperationResult> Saved;
+			if (Completion->value().Succeeded() && !SaveOperation)
+			{
+				if (!bSaveStarted)
+				{
+					bSaveStarted = true;
+					SaveStarted = CompilationEnd;
+					FAssetOperationResult Admission;
+					DiskSave = FAssetSaveOperation::Begin({.AssetPaths = {Path},
+						.Publish = [this, Path](const FAssetOperationNotification&) {
+							Published.push_back(Path.ToString());
+						}}, Admission);
+					if (!DiskSave) Saved = std::move(Admission);
+				}
+				if (DiskSave)
+				{
+					if (!DiskSave->IsReady()) return;
+					Saved = DiskSave->Complete();
+					DiskSave.reset();
+				}
+			}
 			const auto Filename = Files[Next];
 			double SaveMilliseconds = 0;
 			if (Completion->value().Succeeded())
 			{
-				const auto SaveStart = std::chrono::steady_clock::now();
-				const auto Result = Save(Path);
+				const auto SaveStart = bSaveStarted ? SaveStarted : std::chrono::steady_clock::now();
+				const auto Result = Saved ? std::move(*Saved) : Save(Path);
 				SaveMilliseconds = std::chrono::duration<double, std::milli>(
 					std::chrono::steady_clock::now() - SaveStart).count();
 				if (Result) { ++SavedCount; ++Next; }
 				else { PendingSaves.push_back(Path); Fail(Result.Message); }
 				Active.Reset();
-				if (Result) UnloadPackage(Package);
+				if (Result && !Package->IsDirty()) UnloadPackage(Package);
 			}
 			else
 			{
@@ -195,6 +217,7 @@ namespace Durin::Editor::Texture
 				Diagnostic.Origin == ETexture2DCompilationOrigin::CacheHit ? "cache hit" : "build",
 				SaveMilliseconds);
 			Completion.reset();
+			bSaveStarted = false;
 			return;
 		}
 		if (Preparation.valid())
