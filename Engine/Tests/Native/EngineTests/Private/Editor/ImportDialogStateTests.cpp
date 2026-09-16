@@ -1,6 +1,6 @@
 #include "Misc/MountPathTestSupport.h"
 #include "Editor/Import/ImportDialogSupport.h"
-#include "Import/TextureImportDialogState.h"
+
 
 #include "EngineTestSupport.h"
 #include "NativeTestSupport.h"
@@ -11,7 +11,7 @@ namespace
 {
 	using namespace Durin;
 	using namespace Durin::Editor;
-	using namespace Durin::Editor::Texture;
+
 
 	auto EmptyOccupancy(const FPackagePath&) -> FAssetDestinationOccupancy
 	{
@@ -115,57 +115,6 @@ TEST(FImportDialogDestinationModelTests, DelegatesValidationToAssetDestination)
 	EXPECT_EQ(Validation.AssetPath.ToString(), "/Project/Textures/Stone");
 	EXPECT_EQ(Validation.PhysicalPath.lexically_normal(),
 		(Root / "Project/Content/Textures/Stone.dasset").lexically_normal());
-}
-
-TEST(FTextureImportDialogStateTests, DefaultsToTexture2DAndResetsEveryForm)
-{
-	FTextureImportDialogState State;
-	State.Reset();
-	EXPECT_EQ(State.GetAssetType(), ETextureImportAssetType::Texture2D);
-	EXPECT_EQ(State.GetTextureCube().SourceLayout,
-		ETextureCubeSourceLayout::EquirectangularPanorama);
-	EXPECT_EQ(State.GetVolumeTexture().SliceWidth, 128u);
-	EXPECT_EQ(State.GetVolumeTexture().Depth, 128u);
-
-	State.SetAssetType(ETextureImportAssetType::VolumeTexture);
-	State.GetTexture2D().SourcePathBuffer[0] = '2';
-	State.GetTextureCube().PanoramaPathBuffer[0] = 'c';
-	State.GetTextureCube().SourceLayout = ETextureCubeSourceLayout::SixFaces;
-	State.GetVolumeTexture().SourcePathBuffer[0] = 'v';
-	State.GetVolumeTexture().Depth = 17;
-
-	State.Reset();
-	EXPECT_EQ(State.GetAssetType(), ETextureImportAssetType::Texture2D);
-	EXPECT_EQ(State.GetTexture2D().SourcePathBuffer[0], '\0');
-	EXPECT_EQ(State.GetTextureCube().PanoramaPathBuffer[0], '\0');
-	EXPECT_EQ(State.GetTextureCube().SourceLayout,
-		ETextureCubeSourceLayout::EquirectangularPanorama);
-	EXPECT_EQ(State.GetVolumeTexture().SourcePathBuffer[0], '\0');
-	EXPECT_EQ(State.GetVolumeTexture().Depth, 128u);
-}
-
-TEST(FTextureImportDialogStateTests, PreservesInactiveFormsAcrossTypeSwitches)
-{
-	FTextureImportDialogState State;
-	State.Reset();
-	State.GetTexture2D().SourcePathBuffer[0] = '2';
-	State.GetTextureCube().PanoramaPathBuffer[0] = 'p';
-	State.GetTextureCube().FacePathBuffers[0][0] = 'f';
-	State.GetTextureCube().SourceLayout = ETextureCubeSourceLayout::SixFaces;
-	State.GetVolumeTexture().SourcePathBuffer[0] = 'v';
-	State.GetVolumeTexture().TilesX = 7;
-
-	State.SetAssetType(ETextureImportAssetType::TextureCube);
-	State.SetAssetType(ETextureImportAssetType::VolumeTexture);
-	State.SetAssetType(ETextureImportAssetType::Texture2D);
-
-	EXPECT_EQ(State.GetTexture2D().SourcePathBuffer[0], '2');
-	EXPECT_EQ(State.GetTextureCube().PanoramaPathBuffer[0], 'p');
-	EXPECT_EQ(State.GetTextureCube().FacePathBuffers[0][0], 'f');
-	EXPECT_EQ(State.GetTextureCube().SourceLayout,
-		ETextureCubeSourceLayout::SixFaces);
-	EXPECT_EQ(State.GetVolumeTexture().SourcePathBuffer[0], 'v');
-	EXPECT_EQ(State.GetVolumeTexture().TilesX, 7u);
 }
 
 TEST(FMeshCoordinateImportModelTests, AppliesSharedPresets)

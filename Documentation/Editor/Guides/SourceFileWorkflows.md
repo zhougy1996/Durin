@@ -4,7 +4,7 @@ Summary: Explain how built-in importers select, persist, reimport, and diagnose 
 
 Modules: AssetTools, DurinEd, AssetForgeBuiltins
 
-Last reviewed: 2026-08-31
+Last reviewed: 2026-09-16
 
 Durin imports from ordinary files selected with the platform file chooser.
 Source files do not need to live beneath an Asset mount, and the editor does
@@ -15,16 +15,31 @@ deletion never move, replace, or delete a source file.
 
 Content Browser exposes a fixed built-in Import menu:
 
-- **Texture...** creates Texture2D, TextureCube, or VolumeTexture assets;
+- **From File...** imports one PNG, JPEG, BMP, or TGA as a Texture2D;
 - **Scene Source (FBX/glTF)...** creates a set of peer scene outputs;
 - **Static Mesh (Geometry Only)...** creates one geometry asset without Scene
   material or texture outputs.
 
-Choose a physical file, then choose the exact top-level asset destination or
-output directory. Package/file ownership is derived separately from that
-destination. The
-source row is read-only; selecting a different file uses the file chooser
-rather than editing a virtual source destination.
+For Texture2D, choose a file directly. The current Content Browser folder is the
+destination; the filename supplies the asset name, with numeric suffixes added
+for occupied names. There is no texture configuration dialog. Cube and volume
+first-import dialogs are currently unavailable; existing assets remain usable
+and reimportable. Mesh and Scene workflows still ask for their destination.
+
+Texture2D first import infers usage from the final filename token. Normal tokens
+(`normal`, `normalgl`, `normaldx`, `n`) select Normal; data tokens such as
+`roughness`, `metallic`, `ao`, `height`, `mask`, and `orm` select Data / Mask.
+Explicit color tokens (`color`, `albedo`, `basecolor`, `diffuse`, `emissive`)
+select Color. Unnamed RGB sources are sampled for varied, approximately unit
+tangent-space normal vectors centered on positive Z. Flat colors and uncertain
+images default to Color. Normal and Data / Mask use linear sampling; Color uses
+sRGB. This heuristic does not infer or flip the normal-map green-channel
+convention. Settings remain editable in the Texture Editor, and reimport
+preserves those edits.
+
+Successful texture imports are saved and revealed automatically. Save failure
+keeps the imported asset resident and reports an error; **Import > Retry Texture
+Saves** retries persistence without rereading or rebuilding the source.
 
 For every single-output choice, the editor creates the final package and final
 asset object directly through the selected concrete Factory. Import is not a

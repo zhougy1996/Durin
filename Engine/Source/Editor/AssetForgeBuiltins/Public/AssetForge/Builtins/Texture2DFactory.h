@@ -15,6 +15,9 @@ namespace Durin::AssetForge::Builtins
 		GENERATED_BODY()
 
 	public:
+		// Opt-in first-import inference after capture/decode; explicit callers and
+		// reimport retain their configured settings.
+		auto SetAutoDetectSettings(bool bEnabled) -> void { bAutoDetectSettings = bEnabled; }
 		auto SetImportSettings(const FTexture2DImportSettings& InSettings) -> void
 		{
 			Settings = InSettings;
@@ -51,5 +54,6 @@ namespace Durin::AssetForge::Builtins
 			const FObjectInitializer& ObjectInitializer);
 
 		FTexture2DImportSettings Settings;
+		bool bAutoDetectSettings = false;
 	};
 }

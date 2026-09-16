@@ -5,7 +5,7 @@ and owned GPU-resource update contracts for package-backed volume textures.
 
 Modules: Engine, TextureBuild, AssetForgeBuiltins, RHI, VulkanRHI
 
-Last reviewed: 2026-09-09
+Last reviewed: 2026-09-16
 
 ## Asset boundary
 
@@ -29,16 +29,17 @@ older build before entering the current repository baseline.
 
 ## PNG atlas source import
 
-The existing texture import dialog can interpret a selected PNG as either a
-normal `DTexture2D` or a `DVolumeTexture`. Volume mode currently supports one
-`PNG Row-Major Atlas`: each tile is one Z slice, tiles advance left-to-right and
-then top-to-bottom, and unused cells after `depth` are ignored. Selecting a PNG
-decodes its actual dimensions and sampled channel content without interpreting
-its filename. Cubic layouts whose slice size divides both atlas axes are ranked
-by power-of-two dimensions and atlas-cell utilization. A uniquely strong
-candidate is applied automatically; ambiguous candidates remain explicit user
-choices, and non-cubic layouts remain available through advanced slice width,
-height, depth, column, and row fields. The inferred or user-selected channel is
+The VolumeTexture factory supports one `PNG Row-Major Atlas`: each tile is one
+Z slice, tiles advance left-to-right and then top-to-bottom, and unused cells
+after `depth` are ignored. The Content Browser's direct From File action is
+currently Texture2D-only; the former volume import form has been removed.
+Existing VolumeTexture assets retain editor and reimport support.
+
+The source-inspection helper decodes actual PNG dimensions and sampled channel
+content without interpreting its filename. Cubic layouts whose slice size
+divides both atlas axes are ranked by power-of-two dimensions and atlas-cell
+utilization. Factory callers supply the chosen slice width, height, depth,
+columns, rows, and channel settings explicitly. The selected channel is
 one of `red`, `green`, `blue`, `alpha`, `luminance`, or `rgba`. Scalar selections
 produce `R8_UNORM`; `rgba` preserves all four channels as `RGBA8_UNORM`. Luminance is
 `(54R + 183G + 19B + 128) / 256` using integer arithmetic.

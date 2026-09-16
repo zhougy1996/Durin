@@ -16,7 +16,11 @@
 #include "TexturePreview.h"
 #include "Workspace/TextureEditorWorkspace.h"
 #include "Workspace/VolumeTextureEditorWorkspace.h"
-#include "Import/TextureImportDialog.h"
+#include "Import/TextureFileImport.h"
+#include "Dialogs/FileDialog.h"
+#include "Misc/Project.h"
+#include "MonaImGui.h"
+#include "Asset/Load.h"
 
 namespace Durin
 {
@@ -27,7 +31,8 @@ namespace Durin
 	{
 		std::vector<Editor::ContentBrowser::FScopedExtensionRegistration> TypePresentations;
 		Editor::ContentBrowser::FScopedExtensionRegistration ImportExtension;
-		std::unique_ptr<Editor::Texture::FTextureImportDialog> ImportDialog;
+		Editor::ContentBrowser::FScopedExtensionRegistration RetrySaveExtension;
+		std::unique_ptr<Editor::Texture::FTextureFileImport> FileImport;
 	};
 
 	FTextureEditorModule::FTextureEditorModule()
@@ -60,8 +65,7 @@ namespace Durin
 		WorkspaceRegistration.reset();
 		Texture2DThumbnailRegistration.reset();
 		TextureCubeThumbnailRegistration.reset();
-		Integration->ImportDialog = std::make_unique<Editor::Texture::FTextureImportDialog>(
-			std::move(ImportCallbacks));
+		Integration->FileImport = std::make_unique<Editor::Texture::FTextureFileImport>(ImportCallbacks);
 		std::shared_ptr<MTextureEditor> Workspace = std::make_shared<MTextureEditor>(WorkspaceManager);
 		std::shared_ptr<MVolumeTextureEditor> VolumeEditor =
 			std::make_shared<MVolumeTextureEditor>(WorkspaceManager);
@@ -136,21 +140,29 @@ namespace Durin
 				std::move(TextureCubeHandle));
 		auto ImportExtension = Editor::ContentBrowser::RegisterExtension({
 			.Id = "texture.import-texture",
-			.Label = "Texture...",
+			.Label = "From File...",
 			.Category = Editor::ContentBrowser::EExtensionCategory::Import,
 			.Order = 100,
 			.Mutation = ::Durin::Editor::ContentBrowser::EContentMutation::MutatesContent,
 			.IsApplicable = [](const auto& Context) {
 				return !Context.VirtualDirectory.empty();
 			},
-			.Invoke = [this](const auto& Invocation) {
-				if (Integration->ImportDialog)
-					Integration->ImportDialog->Open(
-						Invocation.Context.VirtualDirectory);
-			},
-			.DrawHostPresentation = [this](bool bAllowAssetMutation) {
-				if (Integration->ImportDialog)
-					Integration->ImportDialog->Draw(bAllowAssetMutation);
+			.Invoke = [this, ImportCallbacks](const auto& Invocation) {
+				FFileDialogRequest Request;
+				Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
+				Request.Title = "Import Texture From File";
+				Request.Filters = {{"Texture Images", "*.png;*.jpg;*.jpeg;*.bmp;*.tga"}};
+				if (const FProjectInfo* Project = GetCurrentProject())
+					Request.InitialDirectory = Project->ProjectDir;
+				const auto Selected = OpenFileDialog(Request);
+				if (Selected.Status == EFileDialogStatus::Error)
+					ImportCallbacks.Report(Selected.ErrorMessage);
+				else if (Selected.Status == EFileDialogStatus::Selected)
+				{
+					const auto Imported = Integration->FileImport->ImportFile(
+						Selected.FilePath, Invocation.Context.VirtualDirectory);
+					if (Imported) UnloadPackage(Imported.Package);
+				}
 			},
 			}, Error);
 		if (!ImportExtension.IsValid())
@@ -160,6 +172,21 @@ namespace Durin
 			return false;
 		}
 		Integration->ImportExtension = std::move(ImportExtension);
+		Integration->RetrySaveExtension = Editor::ContentBrowser::RegisterExtension({
+			.Id = "texture.retry-import-save",
+			.Label = "Retry Texture Saves",
+			.Category = Editor::ContentBrowser::EExtensionCategory::Import,
+			.Order = 110,
+			.Mutation = Editor::ContentBrowser::EContentMutation::MutatesContent,
+			.IsApplicable = [this](const auto&) { return Integration->FileImport->HasPendingSaves(); },
+			.Invoke = [this](const auto&) { Integration->FileImport->RetryPendingSaves(); },
+		}, Error);
+		if (!Integration->RetrySaveExtension.IsValid())
+		{
+			DURIN_ERROR("Could not register texture import save retry: {}", Error);
+			UnregisterTextureEditor();
+			return false;
+		}
 		std::string PresentationError;
 		{
 			auto Handle = Editor::ContentBrowser::RegisterAssetTypePresentation({
@@ -215,7 +242,8 @@ namespace Durin
 	{
 		Integration->TypePresentations.clear();
 		Integration->ImportExtension.Reset();
-		Integration->ImportDialog.reset();
+		Integration->RetrySaveExtension.Reset();
+		Integration->FileImport.reset();
 		TextureCubeThumbnailRegistration.reset();
 		Texture2DThumbnailRegistration.reset();
 		WorkspaceRegistration.reset();

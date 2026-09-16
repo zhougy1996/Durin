@@ -17,6 +17,59 @@
 namespace Durin::AssetForge::Builtins
 {
 	using namespace Durin;
+	auto InferTexture2DImportSettings(std::string_view Filename, const FTextureSource* Source)
+		-> FTexture2DImportSettings
+	{
+		std::string Stem = std::filesystem::path(Filename).stem().generic_string();
+		for (char& Character : Stem)
+			if (Character >= 'A' && Character <= 'Z') Character += 'a' - 'A';
+		const size_t Separator = Stem.find_last_of("_- .");
+		const std::string_view Token = std::string_view(Stem).substr(
+			Separator == std::string::npos ? 0 : Separator + 1);
+		FTexture2DImportSettings Settings;
+		if (Token == "normal" || Token == "normalgl" || Token == "normaldx" || Token == "n")
+			Settings.Usage = ETextureUsage::Normal;
+		else if (Token == "roughness" || Token == "metallic" || Token == "metalness"
+			|| Token == "ao" || Token == "occlusion" || Token == "height"
+			|| Token == "displacement" || Token == "mask" || Token == "opacity"
+			|| Token == "orm" || Token == "rma" || Token == "mra")
+			Settings.Usage = ETextureUsage::DataMask;
+		else if (Token != "color" && Token != "albedo" && Token != "basecolor"
+			&& Token != "diffuse" && Token != "emissive" && Source
+			&& Source->GetSourceChannelCount() >= 3 && Source->GetFormat() == ETextureSourceFormat::RGBA8)
+		{
+			// Inspect encoded RGB, without gamma conversion or another source read.
+			// Tangent-space normals should be varied, nearly unit length, centered
+			// in X/Y and predominantly face +Z. Flat colors remain ambiguous.
+			const auto Mips = Source->GetMipData();
+			const auto Image = Mips.GetMipImage(0, 0, 0);
+			if (!Image.IsValid()) return Settings;
+			const auto Pixels = Image.GetPixels();
+			const size_t Count = Pixels.size() / 4;
+			if (Count < 16) return Settings;
+			const size_t Samples = std::min<size_t>(Count, 4096);
+			size_t NormalSamples = 0;
+			double SumX = 0, SumY = 0, SumZ = 0, SumXY2 = 0;
+			for (size_t Sample = 0; Sample < Samples; ++Sample)
+			{
+				const size_t Offset = (Sample * Count / Samples) * 4;
+				const double X = std::to_integer<uint8>(Pixels[Offset]) / 127.5 - 1.0;
+				const double Y = std::to_integer<uint8>(Pixels[Offset + 1]) / 127.5 - 1.0;
+				const double Z = std::to_integer<uint8>(Pixels[Offset + 2]) / 127.5 - 1.0;
+				const double Length2 = X * X + Y * Y + Z * Z;
+				if (Z > 0.2 && Length2 > 0.88 && Length2 < 1.12) ++NormalSamples;
+				SumX += X; SumY += Y; SumZ += Z; SumXY2 += X * X + Y * Y;
+			}
+			const double MeanX = SumX / Samples, MeanY = SumY / Samples;
+			const double Variance = SumXY2 / Samples - MeanX * MeanX - MeanY * MeanY;
+			if (NormalSamples * 100 >= Samples * 95 && SumZ / Samples > 0.5
+				&& MeanX > -0.12 && MeanX < 0.12 && MeanY > -0.12 && MeanY < 0.12
+				&& Variance > 0.002)
+				Settings.Usage = ETextureUsage::Normal;
+		}
+		return Settings;
+	}
+
 	auto MakeTexture2DBuildSettings(const DTexture2D& Texture)
 		-> FTexture2DBuildSettings;
 	namespace
@@ -211,18 +264,20 @@ namespace Durin::AssetForge::Builtins
 		FTextureSource SourceData;
 		if (!TranslateTexture2DSource(
 			Snapshot.GetBytes(), SourceData, Error)) return Failed(std::move(Error));
+		const FTexture2DImportSettings EffectiveSettings = bAutoDetectSettings
+			? InferTexture2DImportSettings(Filename, &SourceData) : Settings;
 
 		auto* Texture = NewObject<DTexture2D>(
 			InClass, Package, InName, Flags);
 		if (!Texture) return Failed("Texture2D object could not be created.");
 		FTextureSource Candidate = std::move(SourceData);
 		if (!BuildTexture2DSynchronously(*Texture, MakeTexture2DBuildRequest(Candidate, {
-				.Usage = Settings.Usage,
-				.CompressionQuality = Settings.CompressionQuality,
-				.AlphaMipMode = Settings.AlphaMipMode,
-				.AlphaCoverageThreshold = Settings.AlphaCoverageThreshold,
-				.MaxResolution = Settings.MaxResolution,
-				.bSRGB = Settings.bSRGB}), {.SourceReplacement = Candidate}, Error))
+				.Usage = EffectiveSettings.Usage,
+				.CompressionQuality = EffectiveSettings.CompressionQuality,
+				.AlphaMipMode = EffectiveSettings.AlphaMipMode,
+				.AlphaCoverageThreshold = EffectiveSettings.AlphaCoverageThreshold,
+				.MaxResolution = EffectiveSettings.MaxResolution,
+				.bSRGB = EffectiveSettings.bSRGB}), {.SourceReplacement = Candidate}, Error))
 			return Failed(std::move(Error));
 		if (!PublishTexture2DImportData(
 			*Texture, std::move(SourceHint), HintBase,

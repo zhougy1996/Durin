@@ -82,17 +82,18 @@ durin_add_native_test(EditorAssetWorkflowTests
 	STACKS editor
 	PRIVATE_SOURCE_OWNER TextureEditor
 	PRIVATE_SOURCE_RATIONALE
-		"TextureEditor-owned import forms and browser detail cache remain private while their state and metadata inspection are white-box tested."
+		"TextureEditor-owned file import policy and browser detail cache remain private while their behavior is white-box tested."
 	SOURCES
 		Private/Editor/AssetMaintenanceContractTests.cpp
 		Private/Editor/AssetCompatibilityAuditTests.cpp
 		Private/Editor/AssetDestinationValidationTests.cpp
 		Private/Editor/ImportDialogStateTests.cpp
+		Private/Editor/TextureFileImportTests.cpp
 		Private/Editor/TextureCubeDetailsTests.cpp
 		Private/SourceLibraryReferenceContractTests.cpp
 		Private/SourceReferenceIndexTests.cpp
 	PRIVATE_SOURCES
-		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/TextureEditor/Private/Import/TextureImportDialogState.cpp
+		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/TextureEditor/Private/Import/TextureFileImport.cpp
 		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/TextureEditor/Private/ContentBrowser/TextureCubeDetails.cpp
 	INCLUDE_DIRECTORIES
 		${CMAKE_CURRENT_SOURCE_DIR}/Private

@@ -215,7 +215,7 @@ roots receive a stable `$DurinRoot`.
 ## Editor Dispatch
 
 Content Browser Import workflows are feature-owned scoped extensions.
-TextureEditor registers Texture, LevelEditor registers Scene, and StaticMeshEditor
+TextureEditor registers From File, LevelEditor registers Scene, and StaticMeshEditor
 registers standalone Static Mesh. Stable IDs and
 explicit order values preserve the visible menu independently of module load
 order. ContentBrowser invokes applicable entries directly. Owners unregister extensions
@@ -236,8 +236,15 @@ inside that workflow. Reimport continues to query loaded-object capabilities.
 Create and Import invocation share Content Browser's asset-mutation admission
 policy.
 
-Dialogs use ordinary read-only file pickers. Texture and standalone StaticMesh
-dialogs are host presentations owned by their feature modules. The Scene dialog
+TextureEditor uses a direct native file picker for Texture2D. Its private
+`FTextureFileImport` service owns unique naming, factory invocation, save, and
+failed-save retry independently from UI. The factory opts into filename/content
+usage inference after its single immutable capture and decode; explicit factory
+settings and reimport retain their existing behavior. The current first-import
+path finishes Texture2D compilation synchronously before saving.
+
+Standalone StaticMesh dialogs are host presentations owned by their feature
+module. The Scene dialog
 is owned by the Level Editor workspace and also draws through its registered host
 presenter, independently of the active workspace.
 Standalone dialogs

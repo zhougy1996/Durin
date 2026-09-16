@@ -4,26 +4,25 @@ Summary: Import, inspect, and use six-face or equirectangular TextureCube assets
 
 ## Import A Texture Cube
 
-Open the Content Browser `Import` menu, choose `Texture...`, and select
-`Texture Cube` as the asset type. Then select one source layout:
+The Content Browser's `Import > From File...` action currently creates only
+Texture2D assets. The TextureCube first-import dialog has been removed.
+Existing TextureCube assets remain usable and reimportable. The underlying
+TextureCube factory still supports these source layouts:
 
 - `Six Faces` accepts one ordinary source file for each face in
   `+X/-X/+Y/-Y/+Z/-Z` order.
 - `Equirectangular Panorama` accepts one PNG, JPEG, BMP, TGA, or Radiance HDR
   source.
 
-Switching layouts retains the current inputs for both modes. Sources may be
-project-relative or external absolute files; the editor reads them in place
-and does not copy them into Content.
+Sources may be project-relative or external absolute files; reimport reads them
+in place and does not copy them into Content.
 
 For a panorama, face dimension zero selects the `Width / 4` default. Explicit
 dimensions must be in `[1, 4096]`. Exposure is available only for HDR input and
 remains an offline HDR-to-LDR build setting.
 
-The dialog validates decode, projection, color conversion, mip generation, and
-platform format before changing files and repeats validation immediately before
-publication. The preview reports source dimensions and range, output face size,
-mip count, projection convention, and the resulting LDR format.
+The factory validates decode, projection, color conversion, mip generation, and
+platform format before publication.
 
 ## Inspect And Reimport
 

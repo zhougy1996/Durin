@@ -117,15 +117,15 @@ an item is an asset or an ordinary file.
 
 ## Operations
 
-Texture asset creation enters through the `Import > Texture...` action. Its
-explicit asset-type selection creates Texture2D, TextureCube, or VolumeTexture
-without inferring asset identity from a source extension; each type retains
-its own source-layout and validation contract. Texture2D accepts a direct
-physical filename without a source-mount destination. VolumeTexture inspects selected
-PNG content to suggest an atlas interpretation, while ambiguous layouts remain
-explicit choices and advanced fields stay editable. Import submission failures
-remain inline in the open modal so the complete form can be corrected and
-retried without re-entry.
+Texture creation enters through `Import > From File...`, currently restricted
+to Texture2D. TextureEditor opens the native file picker and delegates naming,
+factory invocation, save, and retry to its UI-independent file-import service.
+The current browser directory and a collision-free filename-derived name select
+the destination. AssetForgeBuiltins infers first-import texture settings from
+filename hints and decoded source content. Errors use host notifications;
+successful persistence refreshes and reveals the asset. A failed save exposes
+`Import > Retry Texture Saves` while retaining the complete live asset. See
+[Source File Workflows](../Guides/SourceFileWorkflows.md) for automatic defaults.
 
 Assets open through registered asset editors. ContentBrowser's private
 `FContentBrowserOperationService` owns browser mutation orchestration. Panel

@@ -6,6 +6,13 @@
 
 namespace Durin::AssetForge::Builtins
 {
+	// Conservative first-import defaults from the filename's final semantic token,
+	// then optional decoded-source normal detection. Flat colors stay ambiguous.
+	// Reimport preserves the asset's settings instead of inferring them again.
+	ASSETFORGEBUILTINS_API auto InferTexture2DImportSettings(
+		std::string_view Filename, const FTextureSource* Source = nullptr)
+		-> FTexture2DImportSettings;
+
 	ASSETFORGEBUILTINS_API auto IsTexture2DSourceExtension(
 		std::string_view Extension) -> bool;
 	// Decodes one image into detached authored source, retaining original channel metadata.
