@@ -1,7 +1,7 @@
 #include "Materials/MaterialExpressionBuild.h"
 #include "MaterialFunctionPreview.h"
 #include "MaterialGraphEditInternals.h"
-#include "MaterialGraphExpressionState.h"
+#include "MaterialGraphEditSession.h"
 
 namespace Durin::Editor::Material
 {
@@ -66,7 +66,9 @@ namespace Durin::Editor::Material
 		const std::array<DMaterialFunctionInterface*, 1> Roots{&Function};
 		auto Validation = ValidateMaterialFunctionDependencies(Roots, Closure);
 		if (!Validation) return MakeRejected("The function cannot be previewed.", std::move(Validation.Diagnostics));
-		FOwnedGraphSnapshot State;
+		FGraphEditSession State(Preview);
+		State.Expressions.clear();
+		State.Presentation = {};
 		const auto Add = [&]<typename Expression>() -> Expression* {
 			auto* Value = NewObject<Expression>(nullptr, NAME_None);
 			Value->Id = FGuid::NewGuid();
@@ -146,7 +148,7 @@ namespace Durin::Editor::Material
 				static_cast<int32>(Index / 4) * 240});
 		for (auto& Position : State.Presentation.Nodes)
 			if (Position.NodeId == Terminal->Id) Position.X = 1280;
-		auto Result = CommitOwnedExpressions(Preview, std::move(State), "Build Function Preview", nullptr);
+		auto Result = State.Commit("Build Function Preview", nullptr);
 		if (Result && !Preview.SetStaticProperties(Properties)) return MakeRejected("The preview properties are invalid.");
 		return Result;
 	}

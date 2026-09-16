@@ -179,9 +179,7 @@ TEST(FMaterialFunctionEditingTests, SharedDocumentsEditStableCallsAndInterfacesW
 	EXPECT_TRUE(GetFunctionCalls(*Material).empty());
 	ASSERT_TRUE(Transactions.Get()->Redo());
 	EXPECT_EQ(GetFunctionCalls(*Material)[0]->Id, Inserted.GeneratedNodeIds[0]);
-	FMaterialGraphDocumentState State;
-	ASSERT_TRUE(WrapperDocument.Capture(State));
-	const auto InputNode = State.Expressions[0]->Id;
+	const auto InputNode = Wrapper->GetExpressionCollection().Expressions[0]->Id;
 	const auto InputPort = Function->GetFunctionSignature().Inputs[0].Id;
 	ASSERT_TRUE(WrapperDocument.ConnectCallInput(Nested.GeneratedNodeIds[0], InputPort, {InputNode}, false, Transactions.Get()));
 	EXPECT_EQ(GetFunctionCalls(*Wrapper)[0]->Inputs[0].InputId, InputPort);
@@ -189,14 +187,12 @@ TEST(FMaterialFunctionEditingTests, SharedDocumentsEditStableCallsAndInterfacesW
 	EXPECT_TRUE(GetFunctionCalls(*Wrapper)[0]->Inputs.empty());
 	ASSERT_TRUE(Transactions.Get()->Undo());
 	EXPECT_EQ(GetFunctionCalls(*Wrapper)[0]->Inputs[0].Input.ExpressionId, InputNode);
-	ASSERT_TRUE(MaterialDocument.Capture(State));
-	const auto Before = State;
-	State.Expressions.emplace_back(Testing::MakeGraphExpression<DMaterialExpressionScalarConstant>({73, 1, 2, 3}).Get());
-	ASSERT_TRUE(MaterialDocument.Commit(State, "Add Numeric Constant"));
+	auto Constant = Testing::MakeGraphExpression<DMaterialExpressionScalarConstant>({73, 1, 2, 3});
+	ASSERT_TRUE(MaterialDocument.CreateExpression(*Constant));
 	ASSERT_TRUE(MaterialDocument.ConnectCallInput(Inserted.GeneratedNodeIds[0],
 		Wrapper->GetFunctionSignature().Inputs[0].Id, {{73, 1, 2, 3}}));
 	EXPECT_EQ(GetFunctionCalls(*Material)[0]->Inputs[0].Input.ExpressionId, (FGuid{73, 1, 2, 3}));
-	ASSERT_TRUE(MaterialDocument.Commit(Before, "Remove Numeric Constant"));
+	ASSERT_TRUE(MaterialDocument.RemoveNodes(std::span(&Constant->Id, 1)));
 	MarkAsGarbage(Material);
 	MarkAsGarbage(Wrapper);
 	MarkAsGarbage(Function);
@@ -275,20 +271,18 @@ TEST(FMaterialFunctionEditingTests, TerminalPortIsTheOnlyAuthoredInterfaceAndUnd
 	FMaterialGraphDocument Document(*Function.Get());
 	Tests::FTestTransactorOwner Transactions;
 	const auto Before = Function->GetFunctionSignature();
-	FMaterialGraphDocumentState Draft;
-	ASSERT_TRUE(Document.Capture(Draft));
-	auto* Input = Cast<DMaterialExpressionFunctionInput>(Draft.Expressions[0].Get());
+	const auto* Input = Cast<DMaterialExpressionFunctionInput>(Function->GetExpressionCollection().Expressions[0].Get());
 	ASSERT_NE(Input, nullptr);
 	const auto NodeId = Input->Id;
-	Input->Port.Name = "Authored on node";
-	Input->Port.Default.Surface.RoughnessDefault.X = .27f;
-	const auto Edited = Input->Port;
+	auto Edited = Input->Port;
+	Edited.Name = "Authored on node";
+	Edited.Default.Surface.RoughnessDefault.X = .27f;
 	std::vector<FMaterialGraphChangeSet> Events;
 	const auto Handle = Function->GetGraphChanges().Subscribe(*Function.Get(), [&](const auto& Change) {
 		Events.push_back(Change);
 		EXPECT_EQ(Function->GetFunctionSignature().Inputs[0], Edited);
 	});
-	const auto Result = Document.Commit(std::move(Draft), "Edit terminal", Transactions.Get());
+	const auto Result = Document.SetPort(false, Edited, Transactions.Get());
 	Function->GetGraphChanges().Unsubscribe(Handle);
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_EQ(Events.size(), 1u);
@@ -301,11 +295,9 @@ TEST(FMaterialFunctionEditingTests, TerminalPortIsTheOnlyAuthoredInterfaceAndUnd
 	EXPECT_EQ(Function->GetFunctionSignature(), Before);
 	ASSERT_TRUE(Transactions.Get()->Redo());
 	EXPECT_EQ(Function->GetFunctionSignature().Inputs[0], Edited);
-	ASSERT_TRUE(Document.Capture(Draft));
-	auto* Output = Cast<DMaterialExpressionFunctionOutput>(Draft.Expressions[1].Get());
-	ASSERT_NE(Output, nullptr);
-	Output->Port.Id = Edited.Id;
-	EXPECT_FALSE(Document.Commit(std::move(Draft), "Duplicate port identity"));
+	auto Output = Function->GetFunctionSignature().Outputs[0];
+	Output.Id = Edited.Id;
+	EXPECT_FALSE(Document.SetPort(true, Output, Transactions.Get()));
 	EXPECT_EQ(Function->GetFunctionSignature().Outputs[0], Before.Outputs[0]);
 }
 

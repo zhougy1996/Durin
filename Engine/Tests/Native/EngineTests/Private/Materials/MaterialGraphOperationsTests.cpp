@@ -7,6 +7,7 @@
 #include "Misc/MountPathTestSupport.h"
 #include "MaterialGraphOperations.h"
 #include "MaterialGraphDocument.h"
+#include "Graph/MaterialGraphEditSession.h"
 #include "Editor/EditorTransactionTestSupport.h"
 #include "MaterialAssetCreation.h"
 #include "Graph/MaterialGraphCanvas.h"
@@ -309,12 +310,9 @@ TEST(FMaterialGraphOperationsTests, DeclarationAndFloat4ReferenceUndoTogether)
 	Parameter->Metadata.Name = Definition.Name;
 	Parameter->DefaultValue = Definition.Value.GetVector4();
 	FMaterialGraphDocument Document(*Material);
-	FMaterialGraphDocumentState Candidate;
-	ASSERT_TRUE(Document.Capture(Candidate));
-	Candidate.Expressions.emplace_back(Parameter.Get());
 	const auto Original = CaptureExpressions(*Material);
 	const uint64 Revision = Material->GetMaterialCompileStatus().AuthoredRevision;
-	ASSERT_TRUE(Document.Commit(Candidate, "Replace Graph", Transactions.Get()));
+	ASSERT_TRUE(Document.CreateExpression(*Parameter, 0, 0, Transactions.Get()));
 	const auto Program = CaptureExpressions(*Material);
 	EXPECT_EQ(Material->GetMaterialCompileStatus().AuthoredRevision, Revision + 1);
 	ASSERT_NE(Material->FindParameterDefinition(Definition.Id), nullptr);
@@ -327,7 +325,7 @@ TEST(FMaterialGraphOperationsTests, DeclarationAndFloat4ReferenceUndoTogether)
 	EXPECT_EQ(CaptureExpressions(*Material), Program);
 	ASSERT_NE(Material->FindParameterDefinition(Definition.Id), nullptr);
 	EXPECT_EQ(Material->FindParameterDefinition(Definition.Id)->Type, EMaterialParameterType::Vector4);
-	const auto NoChange = Document.Commit(Candidate, "Replace Graph", Transactions.Get());
+	const auto NoChange = Document.ReplaceExpression(*Parameter, Transactions.Get());
 	EXPECT_EQ(NoChange.Status, EMaterialGraphCommandStatus::NoChange);
 	MarkAsGarbage(Material);
 	CollectGarbage();
@@ -1450,21 +1448,20 @@ TEST(FMaterialGraphOperationsTests, SamplingClipboardRemapsSharedExplicitCoordin
 	CollectGarbage();
 }
 
-TEST(FMaterialGraphOperationsTests, PublicTypedCandidatesCannotMutateOwnerOrHistoryAfterCommit)
+TEST(FMaterialGraphOperationsTests, ReplacementDraftCannotMutateOwnerOrHistoryAfterCommit)
 {
 	InitializeDObjectSystem();
 	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
 	FMaterialGraphDocument Document(*Material.Get());
 	const auto Created = Testing::CreateGraphConstant(Document, 0.25f);
 	ASSERT_TRUE(Created);
-	FMaterialGraphDocumentState Candidate;
-	ASSERT_TRUE(Document.Capture(Candidate));
-	auto* Constant = Cast<DMaterialExpressionScalarConstant>(Candidate.Expressions.front().Get());
+	auto Draft = Testing::MakeGraphExpression<DMaterialExpressionScalarConstant>(Created.GeneratedNodeIds[0]);
+	auto* Constant = Draft.Get();
 	ASSERT_NE(Constant, nullptr);
 	EXPECT_NE(Constant, Material->GetExpressionCollection().Expressions.front().Get());
 	Constant->Value = 0.5f;
 	Durin::Tests::FTestTransactorOwner Transactions;
-	ASSERT_TRUE(Document.Commit(Candidate, "Edit captured constant", Transactions.Get()));
+	ASSERT_TRUE(Document.ReplaceExpression(*Constant, Transactions.Get()));
 	Constant->Value = 0.9f;
 	const auto Read = [&]() { return Cast<DMaterialExpressionScalarConstant>(Material->GetExpressionCollection().Expressions.front().Get())->Value; };
 	EXPECT_FLOAT_EQ(Read(), 0.5f);
@@ -1474,11 +1471,8 @@ TEST(FMaterialGraphOperationsTests, PublicTypedCandidatesCannotMutateOwnerOrHist
 	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_FLOAT_EQ(Read(), 0.5f);
 	const auto Revision = Material->GetMaterialCompileStatus().AuthoredRevision;
-	Candidate.bFunction = true;
-	EXPECT_FALSE(Document.Commit(Candidate, "Invalid document kind", Transactions.Get()));
-	Candidate.bFunction = false;
-	Candidate.Expressions.emplace_back();
-	EXPECT_FALSE(Document.Commit(Candidate, "Missing expression", Transactions.Get()));
+	Constant->Value = std::numeric_limits<float>::quiet_NaN();
+	EXPECT_FALSE(Document.SetConstantValue(Constant->Id, FMaterialParameterValue::MakeScalar(Constant->Value), Transactions.Get()));
 	EXPECT_EQ(Material->GetMaterialCompileStatus().AuthoredRevision, Revision);
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_FLOAT_EQ(Read(), 0.25f);
@@ -3007,10 +3001,8 @@ TEST(FMaterialGraphOperationsTests,
 	ASSERT_TRUE(MoveSession.Apply(std::span(&Preview, 1)));
 
 	FMaterialGraphDocument Document(*Material);
-	FMaterialGraphDocumentState Candidate;
-	ASSERT_TRUE(Document.Capture(Candidate));
-	Candidate.GetOutputs().RoughnessDefault = 0.37f;
-	auto Validation = Document.Commit(std::move(Candidate), "Change roughness default");
+	auto Validation = Document.SetInputDefault(Material->GetOutputNode()->Id,
+		static_cast<uint32>(EMaterialOutputPin::Roughness), {.Kind = EMaterialInputDefaultKind::Literal, .Type = EMaterialProgramValueType::Float, .Literal = {.X = .37f}});
 	ASSERT_TRUE(Validation);
 	const uint64 SemanticRevision =
 		Material->GetMaterialCompileStatus().AuthoredRevision;
@@ -3845,10 +3837,11 @@ TEST_P(FMaterialGraphCanvasInteractionTests, SelectionReconnectionCreationAndKey
 	DObject* Owner = bFunction ? static_cast<DObject*>(NewObject<DMaterialFunction>(nullptr, "FunctionGestures"))
 		: static_cast<DObject*>(NewObject<DMaterial>(nullptr, "MaterialGestures"));
 	FMaterialGraphDocument Document(*Owner);
-	FMaterialGraphDocumentState Initial;
-	ASSERT_TRUE(Document.Capture(Initial));
-	for (auto& Position : Initial.Presentation.Nodes) { Position.X = 1800; Position.Y = 1200; }
-	ASSERT_TRUE(Document.Commit(std::move(Initial), "Arrange fixture"));
+	{
+		GraphEditInternals::FGraphEditSession Initial(*Owner);
+		for (auto& Position : Initial.Presentation.Nodes) { Position.X = 1800; Position.Y = 1200; }
+		ASSERT_TRUE(Initial.Commit("Arrange fixture", nullptr));
+	}
 	auto Source = Testing::MakeGraphExpression<DMaterialExpressionScalarConstant>();
 	auto Previous = Testing::MakeGraphExpression<DMaterialExpressionScalarConstant>();
 	auto Consumer = Testing::MakeGraphExpression<DMaterialExpressionSaturate>();
@@ -4278,15 +4271,17 @@ TEST(FMaterialGraphOperationsTests, MaterialOutputUsesStablePinsAndOrdinaryNodeC
 	EXPECT_FALSE(Document.RemoveNodes(std::span(&OutputId, 1), Transactions.Get()));
 	FMaterialGraphClipboardPayload Clipboard;
 	EXPECT_FALSE(Document.CopySelection(std::span(&OutputId, 1), Clipboard));
-	FMaterialGraphDocumentState Missing;
-	ASSERT_TRUE(Document.Capture(Missing));
-	std::erase_if(Missing.Expressions, [&](const auto& E) { return E->Id == OutputId; });
-	EXPECT_FALSE(Document.Commit(std::move(Missing), "Reject missing output"));
-	FMaterialGraphDocumentState Duplicate;
-	ASSERT_TRUE(Document.Capture(Duplicate));
-	auto Extra = Testing::MakeGraphExpression<DMaterialExpressionMaterialOutput>();
-	Duplicate.Expressions.emplace_back(Extra.Get());
-	EXPECT_FALSE(Document.Commit(std::move(Duplicate), "Reject duplicate output"));
+	{
+		GraphEditInternals::FGraphEditSession Missing(*Material);
+		std::erase_if(Missing.Expressions, [&](const auto& E) { return E->Id == OutputId; });
+		EXPECT_FALSE(Missing.Commit("Reject missing output", nullptr));
+	}
+	{
+		GraphEditInternals::FGraphEditSession Duplicate(*Material);
+		auto Extra = Testing::MakeGraphExpression<DMaterialExpressionMaterialOutput>();
+		Duplicate.Expressions.emplace_back(Extra.Get());
+		EXPECT_FALSE(Duplicate.Commit("Reject duplicate output", nullptr));
+	}
 	EXPECT_EQ(Events.size(), BeforeRejected);
 	EXPECT_EQ(Material->GetOutputNode()->Id, OutputId);
 	Material->GetGraphChanges().Unsubscribe(Handle);
@@ -4409,4 +4404,68 @@ TEST(FMaterialGraphOperationsTests, ReplayRejectsParticipantsReplacedOutsideHist
 	EXPECT_EQ(CaptureExpressions(*Material), Before);
 	EXPECT_EQ(Material->GetMaterialProgramRevision(), Revision);
 	EXPECT_TRUE(Transactions->CanUndo());
+}
+
+TEST(FMaterialGraphOperationsTests, TypeInferenceSkipsValuesAndUnrelatedBranches)
+{
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	auto Scalar = Testing::MakeGraphExpression<DMaterialExpressionScalarConstant>();
+	auto Vector = Testing::MakeGraphExpression<DMaterialExpressionVector3Constant>();
+	auto OtherVector = Testing::MakeGraphExpression<DMaterialExpressionVector3Constant>();
+	auto Add = Testing::MakeGraphExpression<DMaterialExpressionAdd>();
+	auto Multiply = Testing::MakeGraphExpression<DMaterialExpressionMultiply>();
+	Add->A = {Scalar->Id}; Multiply->A = {Add->Id};
+	{
+		GraphEditInternals::FGraphEditSession Setup(*Material);
+		for (auto* E : std::array<DMaterialExpression*, 5>{Scalar.Get(), Vector.Get(), OtherVector.Get(), Add.Get(), Multiply.Get()})
+			Setup.Expressions.emplace_back(E);
+		for (uint32 I = 0; I < 64; ++I)
+			Setup.Expressions.emplace_back(Testing::MakeGraphExpression<DMaterialExpressionAdd>().Get());
+		ASSERT_TRUE(Setup.Commit("Build branches", nullptr));
+	}
+	Tests::FTestTransactorOwner Transactions;
+	{
+		GraphEditInternals::FGraphEditSession Edit(*Material);
+		Edit.Modify(*Scalar); Scalar->Value = .25f;
+		ASSERT_TRUE(Edit.Commit("Change scalar value", Transactions.Get()));
+		EXPECT_EQ(Edit.InferredNumericNodes, 0u);
+	}
+	{
+		GraphEditInternals::FGraphEditSession Edit(*Material);
+		Edit.Modify(*Add); Add->A = {Vector->Id};
+		ASSERT_TRUE(Edit.Commit("Connect vector", Transactions.Get()));
+		EXPECT_EQ(Edit.InferredNumericNodes, 2u);
+		EXPECT_EQ(Add->ResultType, EMaterialProgramValueType::Float3);
+		EXPECT_EQ(Multiply->ResultType, EMaterialProgramValueType::Float3);
+	}
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(Add->ResultType, EMaterialProgramValueType::Float);
+	EXPECT_EQ(Multiply->ResultType, EMaterialProgramValueType::Float);
+	ASSERT_TRUE(Transactions->Redo());
+	EXPECT_EQ(Multiply->ResultType, EMaterialProgramValueType::Float3);
+	{
+		GraphEditInternals::FGraphEditSession Edit(*Material);
+		Edit.Modify(*Add); Add->A = {OtherVector->Id};
+		ASSERT_TRUE(Edit.Commit("Reconnect same width", Transactions.Get()));
+		EXPECT_EQ(Edit.InferredNumericNodes, 1u);
+		EXPECT_EQ(Multiply->ResultType, EMaterialProgramValueType::Float3);
+	}
+	FMaterialGraphDocument Document(*Material);
+	ASSERT_TRUE(Document.SetConstantValue(OtherVector->Id, FMaterialParameterValue::MakeVector2({.2f, .3f}), Transactions.Get()));
+	EXPECT_EQ(Add->ResultType, EMaterialProgramValueType::Float2);
+	EXPECT_EQ(Multiply->ResultType, EMaterialProgramValueType::Float2);
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(Multiply->ResultType, EMaterialProgramValueType::Float3);
+	{
+		// A same-class draft may explicitly author the result width before inference.
+		GraphEditInternals::FGraphEditSession Edit(*Material);
+		Edit.Modify(*Add); Add->A = {}; Add->ResultType = EMaterialProgramValueType::Float4;
+		ASSERT_TRUE(Edit.Commit("Author unconstrained width", Transactions.Get()));
+		EXPECT_EQ(Edit.InferredNumericNodes, 2u);
+		EXPECT_EQ(Multiply->ResultType, EMaterialProgramValueType::Float4);
+	}
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(Multiply->ResultType, EMaterialProgramValueType::Float3);
 }

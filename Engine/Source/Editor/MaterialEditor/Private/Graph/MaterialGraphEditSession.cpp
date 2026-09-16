@@ -132,6 +132,7 @@ namespace Durin::Editor::Material::GraphEditInternals
 	{
 		DObject& Owner;
 		FNodes Original;
+		std::unordered_set<DMaterialExpression*> OriginalObjects;
 		FMaterialGraphPresentation OriginalPresentation;
 		std::vector<FMemberChange> Members;
 		std::unordered_set<DMaterialExpression*> Modified;
@@ -144,7 +145,7 @@ namespace Durin::Editor::Material::GraphEditInternals
 		Impl(std::make_unique<FImpl>(Owner))
 	{
 		Impl->OriginalPresentation = Presentation;
-		for (auto& E : Expressions) Impl->Original.emplace_back(E.Get());
+		for (auto& E : Expressions) { Impl->Original.emplace_back(E.Get()); Impl->OriginalObjects.insert(E.Get()); }
 	}
 	FGraphEditSession::~FGraphEditSession()
 	{
@@ -157,7 +158,7 @@ namespace Durin::Editor::Material::GraphEditInternals
 	{
 		if (!Impl->Modified.insert(&Expression).second) return;
 		// New objects are retained by structural history; they have no prior authored state.
-		if (std::ranges::none_of(Impl->Original, [&](auto& E) { return E.Get() == &Expression; })) return;
+		if (!Impl->OriginalObjects.contains(&Expression)) return;
 		Expression.GetClass()->ForEachProperty([&](FProperty* P) {
 			if (P->HasAnyPropertyFlags(EPropertyFlags::Transient)) return;
 			for (uint32 Index = 0; Index < P->GetArrayDim(); ++Index)
@@ -218,7 +219,28 @@ namespace Durin::Editor::Material::GraphEditInternals
 					return MakeRejected("This edit would introduce recursive function dependencies.");
 			}
 			// Type inference is best effort. Incompatible widths remain compiler diagnostics.
-			AdaptNumericTypes(*this);
+			std::unordered_set<FGuid> TypeChanges, ChangedOutputs;
+			for (auto& M : Impl->Members)
+			{
+				if (!M.CaptureAfter()) return MakeRejected("Unable to inspect the edited expression.");
+				if (M.IsNoOp()) continue;
+				auto* E = Cast<DMaterialExpression>(M.Object());
+				// Constant values never change their class-defined output width.
+				// Other fields are conservative seeds: defaults can constrain math widths.
+				if (M.Property()->NamePrivate == FName("Value")
+					&& (Cast<DMaterialExpressionScalarConstant>(E) || Cast<DMaterialExpressionVector2Constant>(E)
+						|| Cast<DMaterialExpressionVector3Constant>(E) || Cast<DMaterialExpressionVector4Constant>(E))) continue;
+				TypeChanges.insert(E->Id);
+				if (M.Property()->NamePrivate == FName("ResultType")) ChangedOutputs.insert(E->Id);
+			}
+			for (auto& E : Expressions)
+				if (!Impl->OriginalObjects.contains(E.Get())) { TypeChanges.insert(E->Id); ChangedOutputs.insert(E->Id); }
+			if (!TypeChanges.empty())
+			{
+				const std::vector<FGuid> Seeds(TypeChanges.begin(), TypeChanges.end());
+				const std::vector<FGuid> Outputs(ChangedOutputs.begin(), ChangedOutputs.end());
+				AdaptNumericTypes(*this, Seeds, Outputs);
+			}
 			if (!Impl->bCaptured) return MakeRejected("Unable to record the edited expression.");
 			if (!bFunction) std::stable_partition(Expressions.begin(), Expressions.end(), [](auto& E) { return !Cast<DMaterialExpressionMaterialOutput>(E.Get()); });
 		}

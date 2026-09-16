@@ -6,34 +6,15 @@
 
 namespace Durin::Editor::Material
 {
-	// Explicit detached bulk export/import. Ordinary commands edit the owner in place.
-	struct FMaterialGraphDocumentState
-	{
-		bool bFunction = false;
-		std::vector<TStrongObjectPtr<DMaterialExpression>> Expressions;
-		// Convenience for Surface-specific commands; storage belongs to the terminal node.
-		auto GetOutputs() const -> FMaterialExpressionSurfaceOutputs&
-		{
-			for (const auto& Expression : Expressions)
-				if (auto* Output = Cast<DMaterialExpressionMaterialOutput>(Expression.Get())) return Output->Outputs;
-			check(false);
-			std::terminate();
-		}
-		FMaterialGraphPresentation Presentation;
-	};
-
 	// The shared owning-thread editing boundary; retains no asset or preview owner.
 	class FMaterialGraphDocument
 	{
 	public:
 		MATERIALEDITOR_API explicit FMaterialGraphDocument(DObject& Owner);
-		MATERIALEDITOR_API auto Capture(FMaterialGraphDocumentState& OutState) const -> bool;
 		MATERIALEDITOR_API auto Inspect() const -> FMaterialGraphView;
 		MATERIALEDITOR_API auto Inspect(std::span<const FMaterialGraphCatalogEntry> Catalog) const -> FMaterialGraphView;
 		MATERIALEDITOR_API auto InspectNodes(std::span<const FGuid> Nodes,
 			std::span<const FMaterialGraphCatalogEntry> Catalog) const -> FMaterialGraphView;
-		MATERIALEDITOR_API auto Commit(FMaterialGraphDocumentState Candidate,
-			std::string Description, DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto SetPort(bool bOutput, FMaterialFunctionPort Port,
 			DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto AddPort(bool bOutput, FMaterialFunctionPort Port,

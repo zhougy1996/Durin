@@ -75,15 +75,15 @@ this is domain compensation, not a change to generic `Modify()` or `Cancel()` se
 Presentation-only changes skip semantic publication. Full presentation replacement
 includes labels, so replay can restore an empty name. History enumerates texture,
 function, and participant references and reports native payload allocation sizes.
-Explicit `Capture()`/`Commit()` remain detached bulk export/import APIs for callers
-that need complete state. Import preserves matching object identities and copies
-caller-owned data into the live edit; these APIs are not the ordinary command path.
+The document has no whole-graph snapshot export/import API. Function previews
+construct their own new expressions inside a live edit of the preview material.
+Clipboard copy duplicates selected expressions only.
 Function state cannot contain root parameters or material outputs. Call inputs
 retain numeric defaults while disconnected; connecting another callee output
 records its stable output binding in the same transaction.
 Call insertion validates required inputs and rejects recursive dependencies before
 publishing its concrete expression.
-Generic input connection and node removal also operate on expression snapshots.
+Generic input connection and node removal use the same live edit boundary.
 Fixed pins follow reflected connection-member declaration order; Surface override
 pins are keyed by attribute and call connections by their input bindings. Deletion
 clears references to removed nodes without changing retained numeric defaults.
@@ -211,8 +211,13 @@ catalog entries.
 
 The catalog retains concrete numeric shapes for inspection and structured callers;
 palette search selects one shape per math operation. Before publication, editing
-commands infer math result widths in upstream order and propagate changes through
-downstream math nodes. Linked operands and nonuniform disconnected literals constrain
+commands infer math result widths only in the downstream closure of changed nodes,
+resolving affected dependencies in upstream order. Same-class constant value edits
+skip inference. Propagation stops when an adaptive node's output width is unchanged. Newly added
+or class-replaced nodes and explicitly authored result widths force propagation
+to their consumers. Each inference pass builds temporary
+node and reverse-edge indexes; storage checks and publication can still scan the
+graph. Undo/Redo replays recorded types without rerunning inference. Linked operands and nonuniform disconnected literals constrain
 the width; uniform defaults can collapse to an equivalent scalar when the width
 changes. A graph without constraining operands retains its current width. Different
 vector widths produce compiler diagnostics, while scalars broadcast. Lerp Alpha
@@ -384,8 +389,7 @@ published RHI allocations and retire registrations after their last canvas consu
 Material graph commands edit live expression objects and retain focused member
 before/after payloads in one global transaction. Structural changes additionally
 retain membership and added/removed object state. Undo/Redo restores these values
-in place and publishes once through the Engine edit boundary. `Capture()`/`Commit()`
-are reserved for explicit bulk state transfer. `CreateParameter`, `RenameParameter`
+in place and publishes once through the Engine edit boundary. `CreateParameter`, `RenameParameter`
 and `DeleteParameter` share the live editing boundary with numeric promotion,
 Surface commands, and clipboard paste. Rejected edits add no undo entry. New parameter nodes and constant
 promotion reuse an existing case-insensitive name when its type matches, adopting

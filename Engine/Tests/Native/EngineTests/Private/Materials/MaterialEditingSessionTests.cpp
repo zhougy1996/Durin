@@ -1,3 +1,4 @@
+#include "Graph/MaterialGraphEditSession.h"
 #include "FunctionPortTestFixture.h"
 #include "TypedMaterialGraphTestFixture.h"
 #include "Widgets/MaterialEditingSession.h"
@@ -187,13 +188,13 @@ TEST_F(FMaterialEditingSessionTests, FunctionCallDraftIsCompleteAndAppliesBindin
 	ASSERT_EQ(Draft->GetExpressionCollection().Expressions.size(), 2u);
 	EXPECT_EQ(GetCall(*Draft)->Function.Get(), First);
 	EXPECT_FALSE(Session.HasUnappliedChanges());
-	FMaterialGraphDocument Document(*Draft);
-	FMaterialGraphDocumentState Renamed;
-	ASSERT_TRUE(Document.Capture(Renamed));
-	const auto Position = std::ranges::find(Renamed.Presentation.Nodes, CallId, &FMaterialGraphNodePresentation::NodeId);
-	if (Position == Renamed.Presentation.Nodes.end()) Renamed.Presentation.Nodes.push_back({.NodeId = CallId, .DisplayName = "Reusable Surface"});
-	else Position->DisplayName = "Reusable Surface";
-	ASSERT_TRUE(Document.Commit(Renamed, "Rename Call", Transactions.Get()));
+	{
+		GraphEditInternals::FGraphEditSession Renamed(*Draft);
+		const auto Position = std::ranges::find(Renamed.Presentation.Nodes, CallId, &FMaterialGraphNodePresentation::NodeId);
+		if (Position == Renamed.Presentation.Nodes.end()) Renamed.Presentation.Nodes.push_back({.NodeId = CallId, .DisplayName = "Reusable Surface"});
+		else Position->DisplayName = "Reusable Surface";
+		ASSERT_TRUE(Renamed.Commit("Rename Call", Transactions.Get()));
+	}
 	ASSERT_TRUE(Transactions.Get()->Undo());
 	EXPECT_EQ(Draft->GetExpressionOutputs(), Outputs);
 	ASSERT_TRUE(Transactions.Get()->Redo());

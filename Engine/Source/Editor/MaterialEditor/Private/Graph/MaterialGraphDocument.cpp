@@ -3,7 +3,6 @@
 #include "MaterialGraphDocument.h"
 #include "MaterialGraphEditInternals.h"
 #include "MaterialExpressionInputs.h"
-#include "MaterialGraphExpressionState.h"
 #include "MaterialGraphEditSession.h"
 #include "DObject/Package.h"
 #include "MaterialGraphValueTypes.h"
@@ -17,7 +16,7 @@ namespace Durin::Editor::Material
 		// Update inferred widths on live objects, recording each participant before
 		// writing. Unresolvable types remain compiler diagnostics during editing.
 		template<class TState>
-		auto AdaptNumericTypesImpl(TState& State) -> bool
+		auto AdaptNumericTypesImpl(TState& State, std::span<const FGuid> ChangedNodes, std::span<const FGuid> ChangedOutputNodes) -> bool
 		{
 			using Type = EMaterialProgramValueType;
 			const auto Catalog = FMaterialGraphOperations::EnumerateCatalog();
@@ -25,12 +24,26 @@ namespace Durin::Editor::Material
 			std::map<FGuid, Type> Resolved;
 			std::set<FGuid> Active;
 			for (const auto& E : State.Expressions) Expressions.emplace(E->Id, E.Get());
+			// Build reverse edges once for this edit. Only the downstream closure is
+			// eligible for inference; unrelated objects retain their authored state.
+			std::map<FGuid, std::vector<FGuid>> Consumers;
+			for (const auto& E : State.Expressions)
+				VisitMaterialExpressionInputs(*E, [&](uint32, const FMaterialExpressionInput& Input) {
+					if (Input.ExpressionId.IsValid()) Consumers[Input.ExpressionId].push_back(E->Id);
+				});
+			std::set<FGuid> Seeds(ChangedNodes.begin(), ChangedNodes.end()), Affected = Seeds, ChangedTypes;
+			const std::set<FGuid> ForcedOutputs(ChangedOutputNodes.begin(), ChangedOutputNodes.end());
+			std::vector<FGuid> Pending(ChangedNodes.begin(), ChangedNodes.end());
+			for (size_t I = 0; I < Pending.size(); ++I)
+				for (const auto& Consumer : Consumers[Pending[I]])
+					if (Affected.insert(Consumer).second) Pending.push_back(Consumer);
 			bool bValid = true;
 			std::function<Type(const FMaterialExpressionInput&)> Resolve;
 			Resolve = [&](const FMaterialExpressionInput& Input) -> Type {
 				const auto Found = Expressions.find(Input.ExpressionId);
 				if (Found == Expressions.end()) { bValid = false; return Type::Float; }
 				auto* E = Found->second;
+				if (Seeds.contains(E->Id) && !Resolved.contains(E->Id)) ChangedTypes.insert(E->Id);
 				if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(E))
 				{
 					const auto Port = std::ranges::find(Call->Outputs, Input.OutputId, &FMaterialFunctionOutputBinding::OutputId);
@@ -53,6 +66,19 @@ namespace Durin::Editor::Material
 				auto Result = Property ? *static_cast<Type*>(Property->GetValuePtr(E)) : Shape->ResultType;
 				if (const auto* Swizzle = Cast<DMaterialExpressionSwizzle>(E))
 					Result = static_cast<Type>(Swizzle->Components.size() - 1);
+				const auto PreviousType = Result;
+				if (!Affected.contains(E->Id)) { Active.erase(E->Id); return Result; }
+				bool bInputChanged = false;
+				VisitMaterialExpressionInputs(*E, [&](uint32, const FMaterialExpressionInput& Operand) {
+					if (!Operand.ExpressionId.IsValid()) return;
+					Resolve(Operand);
+					bInputChanged |= ChangedTypes.contains(Operand.ExpressionId);
+				});
+				if (!Seeds.contains(E->Id) && !bInputChanged)
+				{
+					Active.erase(E->Id); Resolved.emplace(E->Id, Result); return Result;
+				}
+				if (IsMaterialAdaptiveNumeric(Opcode) || Opcode == EMaterialProgramOpcode::AppendVector) ++State.InferredNumericNodes;
 				if (auto* Append = Cast<DMaterialExpressionAppendVector>(E))
 				{
 					const auto Width = [&](const FMaterialExpressionInput& Operand, const std::vector<float>& Default) -> size_t {
@@ -108,6 +134,9 @@ namespace Durin::Editor::Material
 						});
 					});
 				}
+				if (Result != PreviousType) ChangedTypes.insert(E->Id);
+				else if (!ForcedOutputs.contains(E->Id) && (IsMaterialAdaptiveNumeric(Opcode) || Opcode == EMaterialProgramOpcode::AppendVector))
+					ChangedTypes.erase(E->Id);
 				Active.erase(E->Id);
 				Resolved.emplace(E->Id, Result);
 				return Result;
@@ -115,12 +144,12 @@ namespace Durin::Editor::Material
 			for (const auto& E : State.Expressions)
 			{
 				const auto Shape = std::ranges::find(Catalog, E->GetClass(), &FMaterialGraphCatalogEntry::ExpressionClass);
-				if (Shape != Catalog.end() && (IsMaterialAdaptiveNumeric(Shape->Opcode) || Shape->Opcode == EMaterialProgramOpcode::AppendVector)) Resolve({E->Id});
+				if (Affected.contains(E->Id) && Shape != Catalog.end() && (IsMaterialAdaptiveNumeric(Shape->Opcode) || Shape->Opcode == EMaterialProgramOpcode::AppendVector)) Resolve({E->Id});
 			}
 			return bValid;
 		}
 
-		auto AdaptNumericTypes(FGraphEditSession& State) -> bool { return AdaptNumericTypesImpl(State); }
+		auto AdaptNumericTypes(FGraphEditSession& State, std::span<const FGuid> ChangedNodes, std::span<const FGuid> ChangedOutputNodes) -> bool { return AdaptNumericTypesImpl(State, ChangedNodes, ChangedOutputNodes); }
 
 		template<class TState>
 		auto IsSourceAvailable(const TState& State, const FMaterialExpressionInput& Input) -> bool
@@ -158,56 +187,10 @@ namespace Durin::Editor::Material
 			if (const auto Port = std::ranges::find(Ports, Source.OutputId, &FMaterialFunctionPort::Id); Port != Ports.end())
 				{ State.Modify(*Call); Call->Outputs.push_back({Port->Id, Port->Type}); }
 		}
-		auto CommitOwnedExpressions(DObject& Owner, FOwnedGraphSnapshot State,
-			std::string Description, DTransactor* Transactions) -> FMaterialGraphCommandResult
-		{
-			if (State.bFunction != (Cast<DMaterialFunction>(&Owner) != nullptr)) return MakeRejected("The graph document kind cannot change.");
-			FGraphEditSession Edit(Owner);
-			std::vector<TObjectPtr<DMaterialExpression>> Imported;
-			for (const auto& E : State.Expressions)
-			{
-				if (!E) return MakeRejected("The imported graph contains a missing expression.");
-				const auto It = std::ranges::find(Edit.Expressions, E->Id, [](auto& V) { return V->Id; });
-				if (It == Edit.Expressions.end() || (*It)->GetClass() != E->GetClass()) { Imported.emplace_back(E.Get()); continue; }
-				auto* Target = It->Get();
-				if (!Edit.Assign(*Target, *E)) return MakeRejected("Unable to import the expression properties.");
-				Imported.emplace_back(Target);
-			}
-			Edit.Expressions = std::move(Imported);
-			Edit.Presentation = std::move(State.Presentation);
-			return Edit.Commit(std::move(Description), Transactions);
-		}
 
 	}
 
 	FMaterialGraphDocument::FMaterialGraphDocument(DObject& InOwner) : Owner(&InOwner) {}
-
-	auto FMaterialGraphDocument::Capture(FMaterialGraphDocumentState& OutState) const -> bool
-	{
-		FOwnedGraphSnapshot State;
-		if (!Owner.IsValid() || !State.Capture(*Owner.Get())) return false;
-		OutState = std::move(static_cast<FMaterialGraphDocumentState&>(State));
-		return true;
-	}
-
-	auto FMaterialGraphDocument::Commit(FMaterialGraphDocumentState Candidate,
-		std::string Description, DTransactor* Transactions) const -> FMaterialGraphCommandResult
-	{
-		if (!Owner.IsValid()) return {.Status = EMaterialGraphCommandStatus::StaleOwner};
-		FOwnedGraphSnapshot State;
-		static_cast<FMaterialGraphDocumentState&>(State) = std::move(Candidate);
-		// A caller can retain candidate handles. Transaction history must never alias them.
-		for (auto& Expression : State.Expressions)
-		{
-			if (!Expression.Get()) return MakeRejected("The candidate contains a missing expression.");
-			auto* Copy = DuplicateObject(Expression.Get(), nullptr, NAME_None);
-			if (!Copy) return MakeRejected("Unable to copy the graph candidate.");
-			Expression = TStrongObjectPtr<DMaterialExpression>(Copy);
-		}
-		for (const auto& Expression : State.Expressions)
-			VisitMaterialExpressionInputs(*Expression, [&](uint32, FMaterialExpressionInput& Input) { IncludeCallOutput(State, Input); });
-		return CommitOwnedExpressions(*Owner.Get(), std::move(State), std::move(Description), Transactions);
-	}
 
 	auto FMaterialGraphDocument::SetPort(bool bOutput, FMaterialFunctionPort Port,
 		DTransactor* Transactions) const -> FMaterialGraphCommandResult

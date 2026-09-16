@@ -20,6 +20,8 @@ namespace Durin::Editor::Material::GraphEditInternals
 		auto Assign(DMaterialExpression& Target, const DMaterialExpression& Source) -> bool;
 		auto GetOutputs() -> FMaterialExpressionSurfaceOutputs&;
 		auto Commit(std::string Description, DTransactor* Transactions) -> FMaterialGraphCommandResult;
+		// Work counter for profiling and bounded-inference regression checks.
+		uint32 InferredNumericNodes = 0;
 		bool bFunction;
 		std::vector<TObjectPtr<DMaterialExpression>>& Expressions;
 		FMaterialGraphPresentation Presentation;
@@ -28,7 +30,7 @@ namespace Durin::Editor::Material::GraphEditInternals
 		std::unique_ptr<FImpl> Impl;
 	};
 
-	auto AdaptNumericTypes(FGraphEditSession& State) -> bool;
+	auto AdaptNumericTypes(FGraphEditSession& State, std::span<const FGuid> ChangedNodes, std::span<const FGuid> ChangedOutputNodes) -> bool;
 	inline auto CommitGraphEdit(DObject&, FGraphEditSession& State, std::string Description,
 		DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{

@@ -23,25 +23,23 @@ namespace Durin::Editor::Material
 	{
 		OutPayload = {};
 		if (!Owner.IsValid()) return {.Status = EMaterialGraphCommandStatus::StaleOwner};
-		FMaterialGraphDocumentState State;
-		State.bFunction = Cast<DMaterialFunction>(Owner.Get()) != nullptr;
-		const auto& Collection = FMaterialExpressionEditing::GetExpressions(*Owner.Get());
-		for (auto& E : Collection) State.Expressions.emplace_back(E.Get());
-		if (auto* M = Cast<DMaterial>(Owner.Get())) State.Presentation = M->GetMaterialGraphPresentation();
-		else State.Presentation.Nodes = Cast<DMaterialFunction>(Owner.Get())->GetFunctionPresentation().Nodes;
+		const auto* Material = Cast<DMaterial>(Owner.Get());
+		const auto& Expressions = FMaterialExpressionEditing::GetExpressions(*Owner.Get());
+		const auto& Presentation = Material ? Material->GetMaterialGraphPresentation().Nodes
+			: Cast<DMaterialFunction>(Owner.Get())->GetFunctionPresentation().Nodes;
 		if (NodeIds.empty() || NodeIds.size() > MaterialProgramMaxNodeCount)
 			return MakeRejected("The material graph copy selection is empty or exceeds the node bound.");
 		std::unordered_set<FGuid> Selected(NodeIds.begin(), NodeIds.end());
 		if (Selected.size() != NodeIds.size()) return MakeRejected("The material graph copy selection contains duplicate node GUIDs.");
-		for (const auto& Expression : State.Expressions)
+		for (const auto& Expression : Expressions)
 			if (Cast<DMaterialExpressionMaterialOutput>(Expression.Get())) Selected.erase(Expression->Id);
 		if (Selected.empty()) return MakeRejected("The material output terminal cannot be copied.");
 		std::unordered_map<FGuid, FMaterialGraphNodePresentation> Positions;
-		for (const auto& Position : State.Presentation.Nodes) Positions.emplace(Position.NodeId, Position);
+		for (const auto& Position : Presentation) Positions.emplace(Position.NodeId, Position);
 		int32 MinimumX = MaterialGraphPresentationCoordinateLimit, MinimumY = MaterialGraphPresentationCoordinateLimit;
 		for (const auto& Id : Selected)
 		{
-			if (std::ranges::none_of(State.Expressions, [&](const auto& Expression) { return Expression->Id == Id; }))
+			if (std::ranges::none_of(Expressions, [&](const auto& Expression) { return Expression->Id == Id; }))
 				return MakeRejected("A copied material graph node does not exist.");
 			const auto It = Positions.find(Id);
 			if (It == Positions.end()) return MakeRejected("A copied material graph node has no authored position.");
@@ -52,18 +50,18 @@ namespace Durin::Editor::Material
 		OutPayload.SourceRoot = Owner.Get();
 		for (const auto& Id : Ordered)
 		{
-			const auto It = std::ranges::find(State.Expressions, Id, [](const auto& Expression) { return Expression->Id; });
+			const auto It = std::ranges::find(Expressions, Id, [](const auto& Expression) { return Expression->Id; });
 			const auto& Position = Positions.at(Id);
 			auto* Copy = DuplicateObject(It->Get(), nullptr, NAME_None);
 			if (!Copy) return MakeRejected("Unable to copy the selected expression.");
 			OutPayload.Nodes.push_back({TStrongObjectPtr<DMaterialExpression>(Copy), Position.DisplayName, Position.X - MinimumX, Position.Y - MinimumY});
 		}
-		if (!State.bFunction && Selected.contains(State.GetOutputs().Surface.ExpressionId))
+		if (Material && Selected.contains(Material->GetExpressionOutputs().Surface.ExpressionId))
 		{
 			OutPayload.bConnectAggregateSurface = true;
-			OutPayload.AggregateSourceNodeId = State.GetOutputs().Surface.ExpressionId;
-			OutPayload.AggregateSourceOutputIndex = State.GetOutputs().Surface.OutputIndex;
-			OutPayload.AggregateSourceOutputId = State.GetOutputs().Surface.OutputId;
+			OutPayload.AggregateSourceNodeId = Material->GetExpressionOutputs().Surface.ExpressionId;
+			OutPayload.AggregateSourceOutputIndex = Material->GetExpressionOutputs().Surface.OutputIndex;
+			OutPayload.AggregateSourceOutputId = Material->GetExpressionOutputs().Surface.OutputId;
 		}
 		return {
 			.Status = EMaterialGraphCommandStatus::Succeeded,
