@@ -691,11 +691,9 @@ publish through the stable proxy and dynamic-only changes reuse shader identity.
   canonical relationship, and dependency tests walk that chain iteratively with
   a cycle guard. A material depends on itself; a base material has no other
   material dependency.
-- Loaded direct-child and transitive-dependent queries share one stable
-  `GDObjectArray` snapshot helper on the game thread and return sorted,
-  generation-safe object handles. They do not load assets, retain dependents, or
-  expose the live object array during callbacks. The helper reports the query
-  operation, snapshot count, scanned work, and result count for diagnostics.
+- Loaded direct-child and transitive-dependent queries use the Engine-owned
+  [scoped material query cache](MaterialQueries.md). It owns temporary parent
+  tables and provides raw-pointer ranges under GC deferral.
 - Materials and static meshes own no reverse component collections, and
   instances and components keep no registered-value mirrors for Parent, mesh,
   or material assignments. Loading, reflected edits, transactions,
@@ -704,10 +702,10 @@ publish through the stable proxy and dynamic-only changes reuse shader identity.
 - Ordinary material mutation does not construct or flush a global material
   update context or enumerate components. Render-state publication queries
   loaded dependents once and refreshes their retained local layers and stable
-  proxies. Parameter-change notifications reuse that same generation-safe
-  handle snapshot, after every affected owner has been updated; they do not
-  perform a second global object scan. Standalone notifications still acquire
-  their own snapshot. Shader invalidation remains a separate query when needed.
+  proxies. Compilation invalidation and publication explicitly share one batch
+  context. Notifications consume prepared results after discovery is sealed;
+  reentrant edits synchronously create fresh contexts. Standalone notifications
+  acquire their own context.
   Parent and descendant proxies resolve inherited values on the render thread.
 - The removed global material update context had no production callers after
   proxy publication. Explicit structural work now uses the generic primitive

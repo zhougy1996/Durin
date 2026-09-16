@@ -7,33 +7,24 @@ namespace Durin
 {
 	namespace
 	{
-		struct FObjectHandleHash
+auto GetStrongReferences() -> std::unordered_map<FObjectKey, uint32, FObjectKeyHash>&
 		{
-			auto operator()(FObjectHandle Handle) const noexcept -> size_t
-			{
-				return std::hash<uint32>{}(Handle.Index)
-					^ (std::hash<uint32>{}(Handle.Generation) << 1);
-			}
-		};
-
-		auto GetStrongReferences() -> std::unordered_map<FObjectHandle, uint32, FObjectHandleHash>&
-		{
-			static std::unordered_map<FObjectHandle, uint32, FObjectHandleHash> References;
+			static std::unordered_map<FObjectKey, uint32, FObjectKeyHash> References;
 			return References;
 		}
 
-		auto AcquireStrongReference(FObjectHandle Handle) -> FObjectHandle
+		auto AcquireStrongReference(FObjectKey Handle) -> FObjectKey
 		{
 			if (GIsGameThreadIdInitialized) CheckGameThread();
-			DObject* Object = ResolveObjectHandle(Handle);
+			DObject* Object = ResolveObjectKey(Handle);
 			if (!IsValid(Object)) return nullptr;
 			++GetStrongReferences()[Handle];
 			return Handle;
 		}
 
-		auto ReleaseStrongReference(FObjectHandle Handle) -> void
+		auto ReleaseStrongReference(FObjectKey Handle) -> void
 		{
-			if (IsObjectHandleNull(Handle)) return;
+			if (IsObjectKeyNull(Handle)) return;
 			if (GIsGameThreadIdInitialized) CheckGameThread();
 			auto& References = GetStrongReferences();
 			const auto It = References.find(Handle);
@@ -43,11 +34,11 @@ namespace Durin
 	}
 
 	FStrongObjectPtr::FStrongObjectPtr(DObject* InObject)
-		: Handle(AcquireStrongReference(MakeObjectHandle(InObject)))
+		: Handle(AcquireStrongReference(FObjectKey(InObject)))
 	{
 	}
 
-	FStrongObjectPtr::FStrongObjectPtr(FObjectHandle InHandle)
+	FStrongObjectPtr::FStrongObjectPtr(FObjectKey InHandle)
 		: Handle(AcquireStrongReference(InHandle))
 	{
 	}
@@ -87,7 +78,7 @@ namespace Durin
 	auto FStrongObjectPtr::Get() const -> DObject*
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
-		DObject* Object = ResolveObjectHandle(Handle);
+		DObject* Object = ResolveObjectKey(Handle);
 		return Durin::IsValid(Object) ? Object : nullptr;
 	}
 
@@ -99,7 +90,7 @@ namespace Durin
 
 	namespace Private
 	{
-		auto GetStrongObjectReferenceCount(FObjectHandle Handle) -> uint32
+		auto GetStrongObjectReferenceCount(FObjectKey Handle) -> uint32
 		{
 			const auto It = GetStrongReferences().find(Handle);
 			return It == GetStrongReferences().end() ? 0 : It->second;
@@ -110,7 +101,7 @@ namespace Durin
 			for (const auto& [Handle, Count] : GetStrongReferences())
 			{
 				(void)Count;
-				DObject* Object = ResolveObjectHandle(Handle);
+				DObject* Object = ResolveObjectKey(Handle);
 				if (IsValid(Object)) Collector.AddReferencedObject(Object);
 			}
 		}

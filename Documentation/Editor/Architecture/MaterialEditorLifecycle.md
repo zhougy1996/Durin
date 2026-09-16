@@ -106,6 +106,10 @@ copy. External package replacement also resets the working copy; relocation
 retains it while remapping the existing document. Deletion and module shutdown
 release the working copy with its canvas and preview. Material-instance documents
 continue editing their own overrides live and see base edits only after Apply.
+Material callbacks remain synchronous. Runtime discovery is sealed before
+notifications, and edits performed by listeners use fresh batches; see
+[scoped material queries](../../Runtime/Rendering/MaterialQueries.md#external-notifications-and-reentrancy).
+
 Canvas maps use document IDs, so selection cannot leak across materials or
 instances. User-scoped material-editor session settings retain the left, right,
 and diagnostic pane proportions and the pan/zoom viewport for each material

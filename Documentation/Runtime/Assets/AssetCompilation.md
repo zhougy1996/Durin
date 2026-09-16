@@ -4,7 +4,7 @@ Summary: Define the Engine-owned object-aware compilation aggregate, class routi
 
 Modules: Engine, Launch, TextureBuild, StaticMeshBuild
 
-Last reviewed: 2026-09-11
+Last reviewed: 2026-09-16
 
 `FAssetCompilingManager` is the one process authority for asynchronous asset
 compilation. Launch starts it after Core task scheduling and pumps it once per
@@ -122,7 +122,7 @@ Texture compilation is Engine-owned. One `FTextureCompilingManager` owns
 typed asset state, worker admission, priority fairness, memory budget,
 cancellation, the completion mailbox, latest-wins request serials, GameThread
 completion application, and exactly-once completion callbacks. Active records are keyed by
-`FObjectHandle`; the manager owns request serials, active/last request ids,
+`FObjectKey`; the manager owns request serials, active/last request ids,
 failure state, and bounded terminal diagnostics. Active work ends at terminal
 delivery, while completed asset diagnostics remain under a separate bound.
 The deterministic input/provider identity remains separate from request serials
@@ -178,7 +178,7 @@ state object. Reuse stays at these Engine-owned boundaries:
 | Stable boundary | Shared rule |
 | --- | --- |
 | Aggregate/compiler contract | Stop admission, process bounded completions, route object operations, finish accepted work, then shut down. |
-| Object identity | Carry an `FObjectHandle`; never use an asset path as live-object identity. |
+| Object identity | Use `FObjectKey` for identity and weak references for deferred owner access; never use an asset path as live-object identity. |
 | Freshness | Carry an independently named per-object completion epoch. Material uses authored/dependency revisions and generation; Texture2D uses request serial plus deterministic input/provider identity. |
 | Detached completion | Workers produce family-owned value envelopes; only the GameThread resolves the owner and attempts result application. |
 | Cancellation and terminal delivery | Cancellation is advisory, late results are consumed, and every accepted consumer reaches one typed terminal outcome. |

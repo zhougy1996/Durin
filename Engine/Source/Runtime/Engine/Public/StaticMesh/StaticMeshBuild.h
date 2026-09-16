@@ -14,7 +14,7 @@ namespace Durin
 		std::vector<FMeshMaterialSlotDefinition> MaterialSlots;
 		float NormalizedSize = 1.5f;
 		FXxHash128 SourceIdentity;
-		FObjectHandle Body;
+		FObjectKey Body;
 		uint64 BodyRevision = 0;
 		EBodySetupCollisionSourceMode CollisionMode = EBodySetupCollisionSourceMode::None;
 		EBodySetupCollisionQueryPolicy CollisionPolicy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;

@@ -10,12 +10,17 @@
 
 namespace Durin
 {
+	auto FObjectKey::SerializeForSnapshot(FArchive& Archive) -> void
+	{
+		Archive << Index << Generation;
+	}
+
 	auto FPropertyValueSnapshotPayload::TryGetAllocatedSize(size_t& OutBytes) const -> bool
 	{
 		const size_t ByteCapacity = Bytes.capacity();
-		if (ReferencedObjectHandles.capacity() > std::numeric_limits<size_t>::max()
-			/ sizeof(FObjectHandle)) return false;
-		const size_t HandleBytes = ReferencedObjectHandles.capacity() * sizeof(FObjectHandle);
+		if (ReferencedObjectKeys.capacity() > std::numeric_limits<size_t>::max()
+			/ sizeof(FObjectKey)) return false;
+		const size_t HandleBytes = ReferencedObjectKeys.capacity() * sizeof(FObjectKey);
 		if (ByteCapacity > std::numeric_limits<size_t>::max() - HandleBytes) return false;
 		OutBytes = ByteCapacity + HandleBytes;
 		return true;
@@ -40,7 +45,7 @@ namespace Durin
 				Property, Left.GetContainer(), 0, Right.GetContainer(), 0);
 		}
 		return Bytes == Other.Bytes
-			&& ReferencedObjectHandles == Other.ReferencedObjectHandles;
+			&& ReferencedObjectKeys == Other.ReferencedObjectKeys;
 	}
 
 	namespace
@@ -1576,7 +1581,7 @@ namespace Durin
 		class FSnapshotWriter final : public FObjectMemoryWriter
 		{
 		public:
-			FSnapshotWriter(FByteBuffer& InBytes, std::vector<FObjectHandle>& InReferences)
+			FSnapshotWriter(FByteBuffer& InBytes, std::vector<FObjectKey>& InReferences)
 				: FObjectMemoryWriter(InBytes, EArchivePurpose::PropertySnapshot), References(InReferences)
 			{
 				EnableCapabilities(EArchiveCapability::ObjectReferences);
@@ -1586,7 +1591,7 @@ namespace Durin
 				uint64 Id = 0;
 				if (Object)
 				{
-					const FObjectHandle Handle = MakeObjectHandle(Object);
+					const FObjectKey Handle = FObjectKey(Object);
 					auto It = std::find(References.begin(), References.end(), Handle);
 					if (It == References.end())
 					{
@@ -1602,16 +1607,16 @@ namespace Durin
 			}
 			auto SerializeWeakObjectReference(FWeakObjectPtr& Value) -> void override
 			{
-				FObjectHandle Handle = Value.GetHandle();
-				*this << Handle.Index << Handle.Generation;
+				FObjectKey Handle = Value.GetKey();
+				Handle.SerializeForSnapshot(*this);
 			}
 		private:
-			std::vector<FObjectHandle>& References;
+			std::vector<FObjectKey>& References;
 		};
 
 		FPropertyValueSnapshotPayload Payload;
 		Payload.Property = Property;
-		FSnapshotWriter Writer(Payload.Bytes, Payload.ReferencedObjectHandles);
+		FSnapshotWriter Writer(Payload.Bytes, Payload.ReferencedObjectKeys);
 		SerializePropertyValue(Writer, const_cast<FProperty*>(Property), const_cast<void*>(Container), ArrayIndex, true);
 		if (Writer.HasError())
 		{
@@ -1621,21 +1626,21 @@ namespace Durin
 		class FSnapshotReferenceCollector final : public FReferenceCollector
 		{
 		public:
-			explicit FSnapshotReferenceCollector(std::vector<FObjectHandle>& InReferences)
+			explicit FSnapshotReferenceCollector(std::vector<FObjectKey>& InReferences)
 				: References(InReferences) {}
 			auto AddReferencedObject(DObject*& Object) -> void override
 			{
-				const FObjectHandle Handle = MakeObjectHandle(Object);
-				if (!IsObjectHandleNull(Handle)
+				const FObjectKey Handle = FObjectKey(Object);
+				if (!IsObjectKeyNull(Handle)
 					&& std::ranges::find(References, Handle) == References.end())
 				{
 					References.push_back(Handle);
 				}
 			}
 		private:
-			std::vector<FObjectHandle>& References;
+			std::vector<FObjectKey>& References;
 		};
-		FSnapshotReferenceCollector ReferenceCollector(Payload.ReferencedObjectHandles);
+		FSnapshotReferenceCollector ReferenceCollector(Payload.ReferencedObjectKeys);
 		Private::FGCReferenceSchemaRegistry::VisitProperty(
 			const_cast<FProperty*>(Property), const_cast<void*>(Container), ArrayIndex, ReferenceCollector);
 		OutPayload = std::move(Payload);
@@ -1671,7 +1676,7 @@ namespace Durin
 			class FSnapshotReader final : public FObjectMemoryReader
 		{
 		public:
-			FSnapshotReader(const FByteBuffer& InBytes, const std::vector<FObjectHandle>& InReferences)
+			FSnapshotReader(const FByteBuffer& InBytes, const std::vector<FObjectKey>& InReferences)
 				: FObjectMemoryReader(InBytes, EArchivePurpose::PropertySnapshot), References(InReferences)
 			{
 				EnableCapabilities(EArchiveCapability::ObjectReferences);
@@ -1687,22 +1692,22 @@ namespace Durin
 					return;
 				}
 				Object = Id == 0 ? nullptr
-					: ResolveObjectHandle(References[static_cast<size_t>(Id - 1)]);
+					: ResolveObjectKey(References[static_cast<size_t>(Id - 1)]);
 				if (Object && Object->IsPendingKill()) Object = nullptr;
 				if (Id != 0 && !Object)
 					SetError("Property snapshot hard reference no longer resolves.");
 			}
 			auto SerializeWeakObjectReference(FWeakObjectPtr& Value) -> void override
 			{
-				FObjectHandle Handle;
-				*this << Handle.Index << Handle.Generation;
-				if (!HasError()) Value.SetHandle(Handle);
+				FObjectKey Handle;
+				Handle.SerializeForSnapshot(*this);
+				if (!HasError()) Value.SetKey(Handle);
 			}
 		private:
-			const std::vector<FObjectHandle>& References;
+			const std::vector<FObjectKey>& References;
 		};
 
-		FSnapshotReader Reader(Payload.Bytes, Payload.ReferencedObjectHandles);
+		FSnapshotReader Reader(Payload.Bytes, Payload.ReferencedObjectKeys);
 		SerializeReflectedPropertyValue(
 			Reader, *const_cast<FProperty*>(Property), Container, ArrayIndex, true);
 		if (!Reader.HasError() && Reader.GetRemainingPayloadBytes() != 0)
@@ -1723,9 +1728,9 @@ namespace Durin
 		FPropertyValueSnapshot Snapshot;
 		if (!CapturePropertyValuePayload(
 			Property, Container, ArrayIndex, Snapshot.Payload, OutError)) return false;
-		for (FObjectHandle Handle : Snapshot.Payload.GetReferencedObjectHandles())
+		for (FObjectKey Handle : Snapshot.Payload.GetReferencedObjectKeys())
 		{
-			if (DObject* Object = ResolveObjectHandle(Handle))
+			if (DObject* Object = ResolveObjectKey(Handle))
 				Snapshot.ReferencedObjects.push_back(Object);
 		}
 		Snapshot.AddStrongReferences();

@@ -1,4 +1,5 @@
 #pragma once
+#include "DObject/ObjectPtr.h"
 
 #include "Asset/AssetDefinitions.h"
 #include "DObject/AssetPath.h"

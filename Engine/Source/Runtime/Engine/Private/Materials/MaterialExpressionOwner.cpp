@@ -1,3 +1,4 @@
+#include "ObjectCacheContext.h"
 #include "Materials/Material.h"
 #include "MaterialExpressionOwnership.h"
 #include "Materials/MaterialExpressionBuild.h"
@@ -146,6 +147,7 @@ namespace Durin
 		Ordered.push_back(const_cast<DMaterialExpressionMaterialOutput*>(Output));
 		Result = Private::ReplaceOwnedExpressions(*this, ExpressionCollection, Ordered);
 		if (!Result) return Result;
+		FObjectCacheContext Context;
 		const bool bShaderChanged = Code != ObservedExpressionCode;
 		ObservedExpressionCode = Code;
 		auto Advance = [](uint64& Revision) { Revision = Revision == std::numeric_limits<uint64>::max() ? 1 : Revision + 1; };
@@ -153,11 +155,11 @@ namespace Durin
 		Advance(MaterialProgramRevision);
 		if (bShaderChanged)
 		{
-			AdvanceAuthoredRevision();
-			Private::FMaterialCompilationLifecycle::ScheduleEdit(*this);
+			AdvanceAuthoredRevision(&Context);
+			Private::FMaterialCompilationLifecycle::ScheduleEdit(*this, &Context);
 		}
 		MarkPackageDirty();
-		MarkRenderDataDirty(bShaderChanged ? EMaterialRenderDirtyFlags::ShaderMap : EMaterialRenderDirtyFlags::DynamicParameters, true);
+		MarkRenderDataDirty(bShaderChanged ? EMaterialRenderDirtyFlags::ShaderMap : EMaterialRenderDirtyFlags::DynamicParameters, true, &Context);
 		GraphChanges.Publish(*this);
 		return Result;
 	}

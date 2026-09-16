@@ -1,3 +1,4 @@
+#include "ObjectCacheContext.h"
 #include "MaterialPreparedProgram.h"
 #include "MaterialCompileRetryQueue.h"
 #include "Threading/TaskComposition.h"
@@ -38,10 +39,9 @@ namespace Durin
 			return Value == std::numeric_limits<uint64>::max() ? 1 : Value + 1;
 		}
 
-		auto SameOwner(FObjectHandle Left, FObjectHandle Right) -> bool
+		auto SameOwner(FWeakObjectPtr Left, FWeakObjectPtr Right) -> bool
 		{
-			return Left.Index == Right.Index
-				&& Left.Generation == Right.Generation;
+			return Left.GetKey() == Right.GetKey();
 		}
 
 		auto EstimateRequestBytes(const FMaterialCompileRequest& Request) -> uint64
@@ -311,7 +311,7 @@ namespace Durin
 				return EMaterialCompileState::Running;
 			}
 
-			auto CancelOwner(FObjectHandle Owner) -> bool
+			auto CancelOwner(FWeakObjectPtr Owner) -> bool
 			{
 				CheckMaterialCompileGameThread();
 				std::scoped_lock Lock(Mutex);
@@ -344,7 +344,7 @@ namespace Durin
 				return Results;
 			}
 
-			auto HasOwner(FObjectHandle Owner) const -> bool
+			auto HasOwner(FWeakObjectPtr Owner) const -> bool
 			{
 				std::scoped_lock Lock(Mutex);
 				for (const auto& [Key, Flight] : Flights)
@@ -557,12 +557,12 @@ namespace Durin
 				RetainedProgramBytes += Bytes;
 			}
 
-			auto SupersedeOwnerLocked(FObjectHandle Owner) -> void
+			auto SupersedeOwnerLocked(FWeakObjectPtr Owner) -> void
 			{
 				(void)CancelOwnerLocked(Owner, true);
 			}
 
-			auto CancelOwnerLocked(FObjectHandle Owner, bool bSuperseded) -> bool
+			auto CancelOwnerLocked(FWeakObjectPtr Owner, bool bSuperseded) -> bool
 			{
 				bool bFound = false;
 				for (auto& [Key, Flight] : Flights)
@@ -641,18 +641,19 @@ namespace Durin
 			std::vector<FMaterialCompileResult> Results =
 				State.Pump(MaximumCount);
 			Processed.ProcessedCompletionCount = static_cast<uint32>(Results.size());
+			FObjectCacheContext CompletionContext;
 			for (FMaterialCompileResult& Result : Results)
 			{
-				DObject* Object = ResolveObjectHandle(Result.Owner);
+				DObject* Object = Result.Owner.Get();
 				if (auto* Material = Cast<DMaterialInterface>(Object); IsValid(Material)
 					&& Private::FMaterialCompilationLifecycle::Admit(
-						*Material, std::move(Result)))
+						*Material, std::move(Result), &CompletionContext))
 					Processed.SuccessfullyCompiledAssets.emplace_back(Material);
 				State.ConsumeOutstanding();
 			}
 			Private::GetMaterialCompileRetryQueue().Process(
-				Private::MaterialCompileMaxRetryChecks, [&State](FObjectHandle Owner) {
-					auto* Material = Cast<DMaterialInterface>(ResolveObjectHandle(Owner));
+				Private::MaterialCompileMaxRetryChecks, [&State](FWeakObjectPtr Owner) {
+					auto* Material = Cast<DMaterialInterface>(Owner.Get());
 					if (!IsValid(Material)) return false;
 					const auto IsDeferred = [&] {
 						const auto Status = Material->GetMaterialCompileStatus().State;
@@ -688,8 +689,8 @@ namespace Durin
 			{
 				State.StopAdmission();
 				auto& RetryQueue = Private::GetMaterialCompileRetryQueue();
-				RetryQueue.Process(RetryQueue.Num(), [](FObjectHandle Owner) {
-					if (auto* Material = Cast<DMaterialInterface>(ResolveObjectHandle(Owner)); IsValid(Material))
+				RetryQueue.Process(RetryQueue.Num(), [](FWeakObjectPtr Owner) {
+					if (auto* Material = Cast<DMaterialInterface>(Owner.Get()); IsValid(Material))
 						Private::FMaterialCompilationLifecycle::MarkCanceled(*Material);
 					return false;
 				});
@@ -709,16 +710,16 @@ namespace Durin
 				-> FAssetCompileProcessResult override
 			{
 				FAssetCompileProcessResult Aggregate;
-				std::vector<FObjectHandle> Owners;
+				std::vector<FWeakObjectPtr> Owners;
 				for (DObject* Object : Objects)
 					if (auto* Material = Cast<DMaterialInterface>(Object); IsValid(Material))
 					{
 						if (Material->GetMaterialCompileStatus().State == EMaterialCompileState::Scheduled)
 							Private::FMaterialCompilationLifecycle::RequestCurrent(*Material, false);
-						Owners.push_back(MakeObjectHandle(Material));
+						Owners.push_back(FWeakObjectPtr(Material));
 					}
-				while (std::ranges::any_of(Owners, [this](FObjectHandle Owner) {
-					auto* Material = Cast<DMaterialInterface>(ResolveObjectHandle(Owner));
+				while (std::ranges::any_of(Owners, [this](FWeakObjectPtr Owner) {
+					auto* Material = Cast<DMaterialInterface>(Owner.Get());
 					return State.HasOwner(Owner) || (IsValid(Material)
 						&& Material->GetMaterialCompileStatus().State == EMaterialCompileState::Deferred);
 				}))
@@ -785,7 +786,7 @@ namespace Durin
 			return Queue;
 		}
 
-		auto FMaterialCompilationLifecycle::ScheduleEdit(DMaterialInterface& Material) -> void
+		auto FMaterialCompilationLifecycle::ScheduleEdit(DMaterialInterface& Material, FObjectCacheContext* Context) -> void
 		{
 			CheckMaterialCompileGameThread();
 			if (GetAssetRuntimeConfiguration().RequiresCookedPayload()) return;
@@ -796,7 +797,7 @@ namespace Durin
 			const auto Mode = Base ? Base->GetEditCompileMode() : EMaterialEditCompileMode::Immediate;
 			if (Mode == EMaterialEditCompileMode::Immediate)
 			{
-				RequestCurrent(Material, false);
+				RequestCurrent(Material, false, Context);
 				return;
 			}
 			CancelMaterialCompileDomain(Material);
@@ -818,23 +819,23 @@ namespace Durin
 			Material.CompilationOwner.EditCompileDeadline =
 				std::chrono::steady_clock::now() + std::chrono::milliseconds(400);
 			if (Status.State == EMaterialCompileState::Scheduled)
-				GetMaterialCompileRetryQueue().Add(MakeObjectHandle(&Material));
+				GetMaterialCompileRetryQueue().Add(FWeakObjectPtr(&Material));
 		}
 
 		auto FMaterialCompilationLifecycle::Submit(
 			DMaterialInterface& Material,
 			FMaterialIRCompilerInput Input,
-			bool bForceRecompile, std::vector<FMaterialFunctionOwnerStamp> FunctionOwners) -> bool
+			bool bForceRecompile, std::vector<FMaterialFunctionOwnerStamp> FunctionOwners, FObjectCacheContext* Context) -> bool
 		{
 			CheckMaterialCompileGameThread();
-			Private::GetMaterialCompileRetryQueue().Remove(MakeObjectHandle(&Material));
+			Private::GetMaterialCompileRetryQueue().Remove(FWeakObjectPtr(&Material));
 			const auto Manager = GetMaterialCompilingManager();
 			FMaterialCompilationState* Compilation =
 				Manager ? &Manager->GetState() : nullptr;
 			// Construction precedes DObject handle registration. In a running engine,
 			// defer that bootstrap request to PostLoad, an authored edit, or an
 			// explicit request instead of performing expensive work on GameThread.
-			if (IsObjectHandleNull(MakeObjectHandle(&Material))
+			if (FWeakObjectPtr(&Material).GetKey().IsNull()
 				&& Compilation && Compilation->IsAccepting())
 			{
 				Material.CompilationOwner.MaterialCompileStatus.State =
@@ -859,7 +860,7 @@ namespace Durin
 				Material.CompilationOwner.MaterialCompileDiagnostics.clear();
 
 				FMaterialCompileRequest Request{
-					.Owner = MakeObjectHandle(&Material),
+					.Owner = FWeakObjectPtr(&Material),
 					.AuthoredRevision = Material.CompilationOwner.MaterialCompileStatus.AuthoredRevision,
 					.Generation = Material.CompilationOwner.MaterialCompileStatus.RequestGeneration,
 					.DependencyRevision = Material.CompilationOwner.MaterialCompileStatus.DependencyRevision,
@@ -887,7 +888,7 @@ namespace Durin
 						Material.CompilationOwner.MaterialCompileDiagnostics.push_back(MakeDiagnostic(
 							Request, MapProgramCategory(Diagnostic.Category), Diagnostic));
 					}
-					Material.RetireFailedMaterialGeneration();
+					Material.RetireFailedMaterialGeneration(Context);
 					return false;
 				}
 
@@ -914,13 +915,13 @@ namespace Durin
 								.Target = Request.Target,
 								.State = EMaterialCompileState::Ready,
 								.CacheOutcome = EMaterialCompileCacheOutcome::RetainedHit,
-								.CompiledProgram = Program});
+								.CompiledProgram = Program}, Context);
 						}
 					}
 				}
 
 				if (FScopedOfflinePreparation::IsActive()
-					|| IsObjectHandleNull(Request.Owner)
+					|| Request.Owner.GetKey().IsNull()
 					|| !Compilation || !Compilation->IsAccepting()
 					|| !IsTaskSchedulerRunning())
 				{
@@ -952,7 +953,7 @@ namespace Durin
 							: Compiled.Diagnostics)
 							Result.Diagnostics.push_back(MakeDiagnostic(
 								Request, MapProgramCategory(Diagnostic.Category), Diagnostic));
-					Admit(Material, std::move(Result));
+					Admit(Material, std::move(Result), Context);
 					return Material.CompilationOwner.MaterialCompileStatus.State
 						== EMaterialCompileState::Ready;
 				}
@@ -968,7 +969,7 @@ namespace Durin
 					Material.CompilationOwner.MaterialCompileStatus.ResultCategory =
 						EMaterialCompileResultCategory::Admission;
 					FMaterialCompileRequest DiagnosticRequest;
-					DiagnosticRequest.Owner = MakeObjectHandle(&Material);
+					DiagnosticRequest.Owner = FWeakObjectPtr(&Material);
 					DiagnosticRequest.Generation =
 						Material.CompilationOwner.MaterialCompileStatus.RequestGeneration;
 					DiagnosticRequest.ProgramIdentity =
@@ -978,18 +979,18 @@ namespace Durin
 						DiagnosticRequest, EMaterialCompileResultCategory::Admission,
 						{.Category = EMaterialProgramDiagnosticCategory::Compile,
 						 .Message = "Material compile admission was rejected."}));
-					Material.RetireFailedMaterialGeneration();
+					Material.RetireFailedMaterialGeneration(Context);
 					return false;
 				}
 				Material.CompilationOwner.bDeferredForceRecompile = bForceRecompile;
 				Material.CompilationOwner.MaterialCompileStatus.State = Submitted;
 				if (Submitted == EMaterialCompileState::Deferred)
-					GetMaterialCompileRetryQueue().Add(MakeObjectHandle(&Material));
+					GetMaterialCompileRetryQueue().Add(FWeakObjectPtr(&Material));
 				return true;
 		}
 
 		auto FMaterialCompilationLifecycle::Admit(
-			DMaterialInterface& Material, FMaterialCompileResult Result) -> bool
+			DMaterialInterface& Material, FMaterialCompileResult Result, FObjectCacheContext* Context) -> bool
 		{
 				CheckMaterialCompileGameThread();
 				FMaterialCompileStatus& Status = Material.CompilationOwner.MaterialCompileStatus;
@@ -1003,15 +1004,15 @@ namespace Durin
 					return false;
 				}
 
-				const auto OwnerHandle = MakeObjectHandle(&Material);
-				if (!IsObjectHandleNull(OwnerHandle))
+				const auto OwnerHandle = FWeakObjectPtr(&Material);
+				if (!OwnerHandle.GetKey().IsNull())
 				{
 					if (!SameOwner(Result.Owner, OwnerHandle)) return false;
 					FResolvedMaterialProperties Resolved;
 					std::string Error;
 					if (!ResolveMaterialProperties(Material, Resolved, Error))
 					{
-						RequestCurrent(Material, false);
+						RequestCurrent(Material, false, Context);
 						return false;
 					}
 				}
@@ -1019,7 +1020,7 @@ namespace Durin
 				if (!AreMaterialFunctionOwnersCurrent(Material.CompilationOwner.RequestedFunctionOwners))
 				{
 					Status.AuthoredRevision = AdvanceNonzero(Status.AuthoredRevision);
-					ScheduleEdit(Material);
+					ScheduleEdit(Material, Context);
 					return false;
 				}
 
@@ -1052,7 +1053,7 @@ namespace Durin
 						{
 							Status.State = EMaterialCompileState::Rejected;
 							Status.ResultCategory = EMaterialCompileResultCategory::Admission;
-							Material.RetireFailedMaterialGeneration();
+							Material.RetireFailedMaterialGeneration(Context);
 							return false;
 						}
 						Candidate.Parameters.push_back(BuildMaterialLocalRenderParameter(
@@ -1067,7 +1068,7 @@ namespace Durin
 						+ Material.CompilationOwner.RenderLayer.CompiledProgram->Timings.CompilationMicroseconds;
 					Material.MarkRenderDataDirty(
 						EMaterialRenderDirtyFlags::ShaderMap
-							| EMaterialRenderDirtyFlags::PipelineState);
+							| EMaterialRenderDirtyFlags::PipelineState, false, Context);
 					return true;
 				}
 
@@ -1078,14 +1079,14 @@ namespace Durin
 				}
 				if (Status.State == EMaterialCompileState::Failed
 					|| Status.State == EMaterialCompileState::Rejected)
-					Material.RetireFailedMaterialGeneration();
+					Material.RetireFailedMaterialGeneration(Context);
 				return false;
 		}
 
 		auto FMaterialCompilationLifecycle::MarkCanceled(
 			DMaterialInterface& Material) -> void
 		{
-			GetMaterialCompileRetryQueue().Remove(MakeObjectHandle(&Material));
+			GetMaterialCompileRetryQueue().Remove(FWeakObjectPtr(&Material));
 			Material.CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Canceled;
 			Material.CompilationOwner.MaterialCompileStatus.ResultCategory =
 				EMaterialCompileResultCategory::Cancellation;
@@ -1099,9 +1100,9 @@ namespace Durin
 		}
 
 		auto FMaterialCompilationLifecycle::RequestCurrent(
-			DMaterialInterface& Material, bool bForceRecompile) -> bool
+			DMaterialInterface& Material, bool bForceRecompile, FObjectCacheContext* Context) -> bool
 		{
-			GetMaterialCompileRetryQueue().Remove(MakeObjectHandle(&Material));
+			GetMaterialCompileRetryQueue().Remove(FWeakObjectPtr(&Material));
 			if (GetAssetRuntimeConfiguration().RequiresCookedPayload()) return false;
 			FResolvedMaterialProperties Resolved;
 			std::string Error;
@@ -1117,11 +1118,11 @@ namespace Durin
 						.Message = Error.empty() ? "Material has no authored program." : Error},
 					.AssetPath = Material.GetObjectPath(),
 					.Generation = Material.CompilationOwner.MaterialCompileStatus.RequestGeneration}};
-				Material.RetireFailedMaterialGeneration();
+				Material.RetireFailedMaterialGeneration(Context);
 				return false;
 			}
 			return Material.RequestProgramCompile(
-				Material.GetStaticProperties(), bForceRecompile);
+				Material.GetStaticProperties(), bForceRecompile, Context);
 		}
 	}
 
@@ -1160,10 +1161,10 @@ namespace Durin
 		auto CancelMaterialCompileDomain(DMaterialInterface& Material) -> bool
 		{
 			CheckMaterialCompileGameThread();
-			Private::GetMaterialCompileRetryQueue().Remove(MakeObjectHandle(&Material));
+			Private::GetMaterialCompileRetryQueue().Remove(FWeakObjectPtr(&Material));
 			const auto Manager = GetMaterialCompilingManager();
 			const bool bCanceled = Manager
-				&& Manager->GetState().CancelOwner(MakeObjectHandle(&Material));
+				&& Manager->GetState().CancelOwner(FWeakObjectPtr(&Material));
 			if (bCanceled || Material.GetMaterialCompileStatus().State == EMaterialCompileState::Deferred
 				|| Material.GetMaterialCompileStatus().State == EMaterialCompileState::Scheduled)
 				Private::FMaterialCompilationLifecycle::MarkCanceled(Material);

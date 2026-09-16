@@ -331,8 +331,8 @@ namespace
 	{
 		static uint64 MaterialIndex = 0;
 		++MaterialIndex;
-		static Durin::FObjectHandle RootHandle;
-		auto* Root = Durin::Cast<Durin::DMaterial>(Durin::ResolveObjectHandle(RootHandle));
+		static Durin::FObjectKey RootHandle;
+		auto* Root = Durin::Cast<Durin::DMaterial>(Durin::ResolveObjectKey(RootHandle));
 		if (!Durin::IsValid(Root))
 		{
 			Root = Durin::NewObject<Durin::DMaterial>(nullptr, "DirectionalShadowVariantRoot");
@@ -341,7 +341,7 @@ namespace
 				ADD_FAILURE() << "Failed to create the shared variant graph.";
 				return {};
 			}
-			RootHandle = Durin::MakeObjectHandle(Root);
+			RootHandle = Durin::FObjectKey(Root);
 		}
 		auto* Material = Durin::NewObject<Durin::DMaterialInstance>(nullptr, std::format("DirectionalShadowMaterial{}", MaterialIndex));
 		Durin::FMaterialPropertyOverrides Overrides;

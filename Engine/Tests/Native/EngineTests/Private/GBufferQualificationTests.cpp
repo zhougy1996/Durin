@@ -119,8 +119,8 @@ namespace
 		float Roughness = 0.5f,
 		float Opacity = 1.0f) -> Durin::DMaterialInstance*
 	{
-		static Durin::FObjectHandle RootHandle;
-		auto* Root = Durin::Cast<Durin::DMaterial>(Durin::ResolveObjectHandle(RootHandle));
+		static Durin::FObjectKey RootHandle;
+		auto* Root = Durin::Cast<Durin::DMaterial>(Durin::ResolveObjectKey(RootHandle));
 		if (!Durin::IsValid(Root))
 		{
 			Root = Durin::NewObject<Durin::DMaterial>(nullptr, "GBufferVariantRoot");
@@ -129,7 +129,7 @@ namespace
 				ADD_FAILURE() << "Failed to create the shared variant graph.";
 				return {};
 			}
-			RootHandle = Durin::MakeObjectHandle(Root);
+			RootHandle = Durin::FObjectKey(Root);
 		}
 		auto* Material = Durin::NewObject<Durin::DMaterialInstance>(nullptr, Name);
 		Durin::FMaterialPropertyOverrides Overrides;

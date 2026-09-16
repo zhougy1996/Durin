@@ -696,7 +696,7 @@ TEST(FTexture2DTests, SamePathReplacementCannotReceiveDestroyedOwnerCompletion)
 	auto* First = Durin::NewObject<Durin::DTexture2D>(
 		nullptr, Durin::FName("ReusedTextureCompileTarget"));
 	ASSERT_NE(First, nullptr);
-	const Durin::FObjectHandle FirstHandle = Durin::MakeObjectHandle(First);
+	const Durin::FObjectKey FirstHandle = Durin::FObjectKey(First);
 	std::optional<Durin::FTexture2DCompilationResult> FirstResult;
 	std::string Error;
 	ASSERT_TRUE(Durin::SubmitTexture2DCompilation(
@@ -711,13 +711,13 @@ TEST(FTexture2DTests, SamePathReplacementCannotReceiveDestroyedOwnerCompletion)
 	}
 	Durin::MarkAsGarbage(First);
 	Durin::CollectGarbage();
-	EXPECT_EQ(Durin::ResolveObjectHandle(FirstHandle), nullptr);
+	EXPECT_EQ(Durin::ResolveObjectKey(FirstHandle), nullptr);
 
 	Durin::AssetPrivate::SetTexture2DCompilationPhaseHookForTests({});
 	auto* Replacement = Durin::NewObject<Durin::DTexture2D>(
 		nullptr, Durin::FName("ReusedTextureCompileTarget"));
 	ASSERT_NE(Replacement, nullptr);
-	EXPECT_NE(Durin::MakeObjectHandle(Replacement), FirstHandle);
+	EXPECT_NE(Durin::FObjectKey(Replacement), FirstHandle);
 	std::optional<Durin::FTexture2DCompilationResult> ReplacementResult;
 	ASSERT_TRUE(Durin::SubmitTexture2DCompilation(
 		*Replacement, MakeRequest(73), Error,

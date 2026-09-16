@@ -1,6 +1,6 @@
 #pragma once
 
-#include "DObject/ObjectPtr.h"
+#include "DObject/ObjectKey.h"
 
 namespace Durin
 {
@@ -17,14 +17,16 @@ namespace Durin
 		FWeakObjectPtr() = default;
 		FWeakObjectPtr(std::nullptr_t) {}
 		COREDOBJECT_API explicit FWeakObjectPtr(DObject* InObject);
+		explicit FWeakObjectPtr(FObjectKey InKey) : Key(InKey) {}
 
 		COREDOBJECT_API auto Get() const -> DObject*;
 		COREDOBJECT_API auto SetObject(DObject* InObject) -> void;
 		COREDOBJECT_API auto IsValid() const -> bool;
 
-		auto Reset() -> void { Handle = nullptr; }
-		auto GetHandle() const -> FObjectHandle { return Handle; }
-		auto SetHandle(FObjectHandle InHandle) -> void { Handle = InHandle; }
+		auto Reset() -> void { Key = nullptr; }
+		auto GetKey() const -> FObjectKey { return Key; }
+		auto SetKey(FObjectKey InKey) -> void { Key = InKey; }
+		friend auto operator==(const FWeakObjectPtr&, const FWeakObjectPtr&) -> bool = default;
 
 		auto operator=(std::nullptr_t) -> FWeakObjectPtr&
 		{
@@ -35,10 +37,10 @@ namespace Durin
 		COREDOBJECT_API auto operator=(DObject* InObject) -> FWeakObjectPtr&;
 
 	private:
-		FObjectHandle Handle = nullptr;
+		FObjectKey Key;
 	};
 
-	static_assert(sizeof(FWeakObjectPtr) == sizeof(FObjectHandle));
+	static_assert(sizeof(FWeakObjectPtr) == sizeof(uint64));
 	static_assert(std::is_trivially_copyable_v<FWeakObjectPtr>);
 
 	// Provides typed non-owning access with the same game-thread resolution contract as FWeakObjectPtr.
@@ -56,7 +58,7 @@ namespace Durin
 		auto Get() const -> T* { return FromDObject(WeakPtr.Get()); }
 		auto IsValid() const -> bool { return WeakPtr.IsValid(); }
 		auto Reset() -> void { WeakPtr.Reset(); }
-		auto GetHandle() const -> FObjectHandle { return WeakPtr.GetHandle(); }
+		auto GetKey() const -> FObjectKey { return WeakPtr.GetKey(); }
 		auto GetBase() -> FWeakObjectPtr& { return WeakPtr; }
 		auto GetBase() const -> const FWeakObjectPtr& { return WeakPtr; }
 

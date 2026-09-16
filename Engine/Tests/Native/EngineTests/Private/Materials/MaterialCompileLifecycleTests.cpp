@@ -199,64 +199,79 @@ auto QualifyEditScheduling() -> void
 TEST(FMaterialCompileLifecycleTests, RetryQueueBoundsChecksAndRotatesWithoutDuplicates)
 {
 	using namespace Durin;
+	InitializeDObjectSystem();
 	Private::FMaterialCompileRetryQueue Queue;
 	constexpr uint32 Budget = Private::MaterialCompileMaxRetryChecks;
-	std::vector<FObjectHandle> Visited;
-	const auto Keep = [&](FObjectHandle Owner) { Visited.push_back(Owner); return true; };
+	std::vector<FWeakObjectPtr> Visited;
+	std::vector<FWeakObjectPtr> Owners;
+	for (uint32 I = 0; I < Budget + 3; ++I) Owners.emplace_back(NewObject<DObject>(nullptr, NAME_None));
+	const auto Keep = [&](FWeakObjectPtr Owner) { Visited.push_back(Owner); return true; };
 	Queue.Process(Budget, Keep);
 	EXPECT_TRUE(Visited.empty());
 	for (uint32 Index = 0; Index < Budget + 3; ++Index)
 	{
-		Queue.Add({Index, 1});
-		Queue.Add({Index, 1});
+		Queue.Add(Owners[Index]);
+		Queue.Add(Owners[Index]);
 	}
 	EXPECT_EQ(Queue.Num(), Budget + 3);
 	Queue.Process(Budget, Keep);
 	ASSERT_EQ(Visited.size(), Budget);
-	EXPECT_EQ(Visited.front(), FObjectHandle(0, 1));
-	EXPECT_EQ(Visited.back(), FObjectHandle(Budget - 1, 1));
+	EXPECT_EQ(Visited.front(), Owners[0]);
+	EXPECT_EQ(Visited.back(), Owners[Budget - 1]);
 	Visited.clear();
 	Queue.Process(Budget, Keep);
 	ASSERT_EQ(Visited.size(), Budget);
-	EXPECT_EQ(Visited.front(), FObjectHandle(Budget, 1));
-	EXPECT_EQ(Visited[3], FObjectHandle(0, 1));
+	EXPECT_EQ(Visited.front(), Owners[Budget]);
+	EXPECT_EQ(Visited[3], Owners[0]);
 	EXPECT_EQ(Queue.Num(), Budget + 3);
 
 	// Discarded/stale entries consume the same budget as retries.
 	Visited.clear();
-	Queue.Process(Budget, [&](FObjectHandle Owner) { Visited.push_back(Owner); return false; });
+	Queue.Process(Budget, [&](FWeakObjectPtr Owner) { Visited.push_back(Owner); return false; });
 	EXPECT_EQ(Visited.size(), Budget);
 	EXPECT_EQ(Queue.Num(), 3u);
 	Visited.clear();
 	Queue.Process(Budget, Keep);
 	EXPECT_EQ(Visited.size(), 3u); // Requeued owners are not revisited this pump.
+	for (const auto Owner : Owners) MarkAsGarbage(Owner.Get());
+	CollectGarbage();
 }
 
 TEST(FMaterialCompileLifecycleTests, RetryQueueRemovesOwnersAndDistinguishesSlotGenerations)
 {
 	using namespace Durin;
+	InitializeDObjectSystem();
 	Private::FMaterialCompileRetryQueue Queue;
 	Queue.Add({});
 	EXPECT_EQ(Queue.Num(), 0u);
-	Queue.Add({7, 1});
-	Queue.Add({7, 2});
-	Queue.Add({8, 1});
-	Queue.Remove({7, 1});
-	Queue.Remove({7, 1});
+	auto* Old = NewObject<DObject>(nullptr, NAME_None);
+	const FWeakObjectPtr First(Old);
+	Queue.Add(First);
+	MarkAsGarbage(Old);
+	CollectGarbage();
+	const FWeakObjectPtr Second(NewObject<DObject>(nullptr, NAME_None));
+	const FWeakObjectPtr Third(NewObject<DObject>(nullptr, NAME_None));
+	Queue.Add(Second);
+	Queue.Add(Third);
+	Queue.Remove(First);
+	Queue.Remove(First);
 	EXPECT_EQ(Queue.Num(), 2u);
-	std::vector<FObjectHandle> Visited;
-	Queue.Process(256, [&](FObjectHandle Owner) {
+	std::vector<FWeakObjectPtr> Visited;
+	Queue.Process(256, [&](FWeakObjectPtr Owner) {
 		Visited.push_back(Owner);
 		// Submission may register the popped owner itself. Requeue must deduplicate.
 		Queue.Add(Owner);
 		return true;
 	});
 	ASSERT_EQ(Visited.size(), 2u);
-	EXPECT_EQ(Visited[0], FObjectHandle(7, 2));
-	EXPECT_EQ(Visited[1], FObjectHandle(8, 1));
+	EXPECT_EQ(Visited[0], Second);
+	EXPECT_EQ(Visited[1], Third);
 	EXPECT_EQ(Queue.Num(), 2u);
-	Queue.Remove({7, 2});
-	Queue.Remove({8, 1});
+	Queue.Remove(Second);
+	Queue.Remove(Third);
+	MarkAsGarbage(Second.Get());
+	MarkAsGarbage(Third.Get());
+	CollectGarbage();
 	EXPECT_EQ(Queue.Num(), 0u);
 }
 
@@ -377,7 +392,7 @@ TEST(FMaterialCompileLifecycleTests,
 		First->GetMaterialCompileStatus();
 	Durin::FAssetCompilingManager::Get().MarkCompilationAsCanceled(*First);
 	Durin::FMaterialCompileResult Failed{
-		.Owner = Durin::MakeObjectHandle(First),
+		.Owner = Durin::FWeakObjectPtr(First),
 		.AuthoredRevision = Pending.AuthoredRevision,
 		.Generation = Pending.RequestGeneration,
 		.DependencyRevision = Pending.DependencyRevision,
@@ -402,7 +417,7 @@ TEST(FMaterialCompileLifecycleTests,
 		GetMaterialBinding(Durin::GetErrorMaterialRenderData()).BaseColor);
 
 	Durin::FMaterialCompileResult Stale{
-		.Owner = Durin::MakeObjectHandle(First),
+		.Owner = Durin::FWeakObjectPtr(First),
 		.AuthoredRevision = Pending.AuthoredRevision,
 		.Generation = Pending.RequestGeneration - 1,
 		.DependencyRevision = Pending.DependencyRevision,
@@ -415,7 +430,7 @@ TEST(FMaterialCompileLifecycleTests,
 		*First, std::move(Stale)));
 	EXPECT_FALSE(First->GetAcceptedCompiledProgram());
 	Durin::FMaterialCompileResult WrongTarget{
-		.Owner = Durin::MakeObjectHandle(First),
+		.Owner = Durin::FWeakObjectPtr(First),
 		.AuthoredRevision = Pending.AuthoredRevision,
 		.Generation = Pending.RequestGeneration,
 		.DependencyRevision = Pending.DependencyRevision,
@@ -427,7 +442,7 @@ TEST(FMaterialCompileLifecycleTests,
 	EXPECT_FALSE(Durin::Private::FMaterialCompilationLifecycle::Admit(
 		*First, std::move(WrongTarget)));
 	Durin::FMaterialCompileResult WrongDependency{
-		.Owner = Durin::MakeObjectHandle(First),
+		.Owner = Durin::FWeakObjectPtr(First),
 		.AuthoredRevision = Pending.AuthoredRevision,
 		.Generation = Pending.RequestGeneration,
 		.DependencyRevision = Pending.DependencyRevision + 1,
@@ -490,7 +505,7 @@ TEST(FMaterialCompileLifecycleTests,
 			const auto Pending = Root->GetMaterialCompileStatus();
 			Durin::FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Root);
 			Durin::FMaterialCompileResult Failed{
-				.Owner = Durin::MakeObjectHandle(Root),
+				.Owner = Durin::FWeakObjectPtr(Root),
 				.AuthoredRevision = Pending.AuthoredRevision,
 				.Generation = Pending.RequestGeneration,
 				.DependencyRevision = Pending.DependencyRevision,

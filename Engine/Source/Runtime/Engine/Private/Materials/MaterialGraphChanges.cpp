@@ -194,7 +194,7 @@ namespace Durin
 		if (!Impl->Changed.IsBound())
 		{
 			Impl->Checkpoint = {};
-			std::erase_if(ObservedOwners, [&](const auto& Entry) { return Entry.GetHandle() == Impl->Owner.GetHandle() || !Entry.IsValid(); });
+			std::erase_if(ObservedOwners, [&](const auto& Entry) { return Entry.GetKey() == Impl->Owner.GetKey() || !Entry.IsValid(); });
 		}
 	}
 	auto FMaterialGraphChangeSource::Publish(DObject& Owner) -> void

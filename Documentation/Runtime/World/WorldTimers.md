@@ -4,7 +4,7 @@ Summary: Define play-scoped World timers, gameplay time, object bindings, and ca
 
 Modules: Engine
 
-Last reviewed: 2026-09-14
+Last reviewed: 2026-09-16
 
 ## Ownership And Time
 
@@ -101,7 +101,7 @@ GC was deferred throughout callback execution.
 ## Object Bindings
 
 `SetTimerForObject` and `SetTimerForObjectNextTick` accept an owner and a callback
-taking `DObject&`. They retain only a generation-checked `FObjectHandle`, resolve
+taking `DObject&`. They retain only a generation-checked `FWeakObjectPtr`, resolve
 it immediately before invocation, and never report it as a GC root. Ordinary
 lambda captures are opaque to the collector; use the supplied callback argument
 instead of capturing an unguarded object pointer.

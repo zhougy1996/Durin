@@ -68,12 +68,12 @@ namespace
 				? "PreparationTranslucentMaterial"
 				: (bTwoSided ? "PreparationTwoSidedMaterial"
 					: "PreparationOpaqueMaterial"));
-		static Durin::FObjectHandle RootHandle;
-		auto* Root = Durin::Cast<Durin::DMaterial>(Durin::ResolveObjectHandle(RootHandle));
+		static Durin::FObjectKey RootHandle;
+		auto* Root = Durin::Cast<Durin::DMaterial>(Durin::ResolveObjectKey(RootHandle));
 		if (!Durin::IsValid(Root))
 		{
 			Root = Durin::NewObject<Durin::DMaterial>(nullptr, "PreparationVariantRoot");
-			RootHandle = Durin::MakeObjectHandle(Root);
+			RootHandle = Durin::FObjectKey(Root);
 		}
 		auto* Material = Durin::NewObject<Durin::DMaterialInstance>(nullptr, Name);
 		Durin::FMaterialPropertyOverrides Overrides;

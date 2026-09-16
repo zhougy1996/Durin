@@ -954,7 +954,7 @@ TEST(FMaterialFunctionTests, RootCallsCommitAtomicallyAndSnapshotThroughInstance
 	std::vector<FMaterialFunctionOwnerStamp> Owners;
 	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Instance, {.CompilerIdentity = "RootFunctionTest"}, Input, &Owners));
 	ASSERT_EQ(Owners.size(), 1u);
-	EXPECT_EQ(Owners[0].Owner, MakeObjectHandle(Function));
+	EXPECT_EQ(Owners[0].Owner, FObjectKey(Function));
 	EXPECT_TRUE(std::ranges::any_of(Input.Sources, [&](const auto& Source) {
 		return !Source.CallPath.empty() && Source.CallPath.front() == CallId;
 	}));
@@ -1345,7 +1345,7 @@ TEST(FMaterialFunctionTests, DependencyEditsPreserveAcceptedContractsAndOwnerSou
 		EXPECT_EQ(Caller->GetMaterialCompileStatus().State, EMaterialCompileState::NeedsCompile);
 		EXPECT_EQ(Caller->GetAcceptedCompiledProgram(), Accepted);
 	}
-	FMaterialCompileResult Stale{.Owner = MakeObjectHandle(First), .AuthoredRevision = Before.AuthoredRevision,
+	FMaterialCompileResult Stale{.Owner = FWeakObjectPtr(First), .AuthoredRevision = Before.AuthoredRevision,
 		.Generation = Before.RequestGeneration, .DependencyRevision = Before.DependencyRevision,
 		.ParentChainRevision = Before.ParentChainRevision, .ProgramIdentity = Before.RequestedIdentity,
 		.StaticProperties = First->GetStaticProperties(), .Target = Before.Target,
@@ -1384,7 +1384,7 @@ TEST(FMaterialFunctionTests, DependencyEditsPreserveAcceptedContractsAndOwnerSou
 	FirstBinding->Function = Wrapper;
 	SecondBinding->Function = Wrapper;
 	EXPECT_EQ(First->GetMaterialCompileStatus().AuthoredRevision, Current.AuthoredRevision);
-	FMaterialCompileResult StaleClosure{.Owner = MakeObjectHandle(First), .AuthoredRevision = Current.AuthoredRevision,
+	FMaterialCompileResult StaleClosure{.Owner = FWeakObjectPtr(First), .AuthoredRevision = Current.AuthoredRevision,
 		.Generation = Current.RequestGeneration, .DependencyRevision = Current.DependencyRevision,
 		.ParentChainRevision = Current.ParentChainRevision, .ProgramIdentity = Current.RequestedIdentity,
 		.StaticProperties = First->GetStaticProperties(), .Target = Current.Target,

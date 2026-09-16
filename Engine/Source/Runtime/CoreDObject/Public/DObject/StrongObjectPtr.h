@@ -13,7 +13,7 @@ namespace Durin
 		FStrongObjectPtr() = default;
 		FStrongObjectPtr(std::nullptr_t) {}
 		COREDOBJECT_API explicit FStrongObjectPtr(DObject* InObject);
-		COREDOBJECT_API explicit FStrongObjectPtr(FObjectHandle InHandle);
+		COREDOBJECT_API explicit FStrongObjectPtr(FObjectKey InHandle);
 		COREDOBJECT_API ~FStrongObjectPtr();
 		COREDOBJECT_API FStrongObjectPtr(const FStrongObjectPtr& Other);
 		COREDOBJECT_API auto operator=(const FStrongObjectPtr& Other) -> FStrongObjectPtr&;
@@ -21,13 +21,13 @@ namespace Durin
 		COREDOBJECT_API auto operator=(FStrongObjectPtr&& Other) noexcept -> FStrongObjectPtr&;
 
 		COREDOBJECT_API auto Get() const -> DObject*;
-		auto GetHandle() const -> FObjectHandle { return Handle; }
+		auto GetKey() const -> FObjectKey { return Handle; }
 		auto IsValid() const -> bool { return Get() != nullptr; }
 		COREDOBJECT_API auto Reset() -> void;
 		explicit operator bool() const { return IsValid(); }
 
 	private:
-		FObjectHandle Handle = nullptr;
+		FObjectKey Handle = nullptr;
 	};
 
 	// Provides typed access over an independently owned native strong reference.
@@ -38,10 +38,10 @@ namespace Durin
 		TStrongObjectPtr() = default;
 		TStrongObjectPtr(std::nullptr_t) {}
 		TStrongObjectPtr(T* InObject) : StrongPtr(ToDObject(InObject)) {}
-		explicit TStrongObjectPtr(FObjectHandle InHandle) : StrongPtr(InHandle) {}
+		explicit TStrongObjectPtr(FObjectKey InHandle) : StrongPtr(InHandle) {}
 
 		auto Get() const -> T* { return FromDObject(StrongPtr.Get()); }
-		auto GetHandle() const -> FObjectHandle { return StrongPtr.GetHandle(); }
+		auto GetKey() const -> FObjectKey { return StrongPtr.GetKey(); }
 		auto IsValid() const -> bool { return StrongPtr.IsValid(); }
 		auto Reset() -> void { StrongPtr.Reset(); }
 
@@ -96,6 +96,6 @@ namespace Durin
 	{
 		COREDOBJECT_API auto AddStrongObjectReferences(FReferenceCollector& Collector) -> void;
 		// Admission auditing only; counts owners, not writable reference slots.
-		COREDOBJECT_API auto GetStrongObjectReferenceCount(FObjectHandle Handle) -> uint32;
+		COREDOBJECT_API auto GetStrongObjectReferenceCount(FObjectKey Handle) -> uint32;
 	}
 }

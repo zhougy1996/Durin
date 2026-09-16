@@ -1,5 +1,7 @@
 #include "Materials/MaterialInterface.h"
 #include "MaterialCompileRetryQueue.h"
+#include "ObjectCacheContext.h"
+#include "MaterialLoadedQueryDiagnostics.h"
 
 #include "Asset/Asset.h"
 #include "Asset/AssetCompilingManager.h"
@@ -44,10 +46,10 @@ namespace Durin
 		auto QueryLoadedMaterialHandles(
 			EMaterialLoadedQueryOperation Operation,
 			Predicate&& PredicateFn
-		) -> std::vector<FObjectHandle>
+		) -> std::vector<FObjectKey>
 		{
 			CheckMaterialQueryThread();
-			std::vector<FObjectHandle> Result;
+			std::vector<FObjectKey> Result;
 			const std::vector<DObject*> Objects = GDObjectArray.Snapshot(EObjectQueryScope::LiveOnly);
 			++GMaterialLoadedQueryDiagnostics.QueryCount;
 			++GMaterialLoadedQueryDiagnostics.SnapshotCount;
@@ -59,16 +61,20 @@ namespace Durin
 				if (!IsValid(Material)) continue;
 				++GMaterialLoadedQueryDiagnostics.ScannedMaterialCount;
 				if (!PredicateFn(Material)) continue;
-				const FObjectHandle Handle = MakeObjectHandle(Material);
-				if (!IsObjectHandleNull(Handle)) Result.push_back(Handle);
+				const FObjectKey Handle = FObjectKey(Material);
+				if (!IsObjectKeyNull(Handle)) Result.push_back(Handle);
 			}
-			std::ranges::sort(Result, [](FObjectHandle Left, FObjectHandle Right) {
-				return Left.Index < Right.Index
-				|| (Left.Index == Right.Index && Left.Generation < Right.Generation);
+			std::ranges::sort(Result, [](FObjectKey Left, FObjectKey Right) {
+				return Left < Right;
 			});
 			GMaterialLoadedQueryDiagnostics.LastResultCount = Result.size();
 			return Result;
 		}
+	}
+
+	auto Private::GetMutableMaterialLoadedQueryDiagnostics() -> FMaterialLoadedQueryDiagnostics&
+	{
+		return GMaterialLoadedQueryDiagnostics;
 	}
 
 	auto GetMaterialFunctionChangedEvent() -> FMaterialFunctionChangedEvent&
@@ -82,6 +88,7 @@ namespace Durin
 		CheckMaterialQueryThread();
 		GetMaterialFunctionChangedEvent().Broadcast(Function);
 		if (GetAssetRuntimeConfiguration().RequiresCookedPayload()) return;
+		FObjectCacheContext Context;
 		const auto Owners = QueryLoadedMaterialHandles(EMaterialLoadedQueryOperation::Dependents,
 			[&](const DMaterialInterface* Material) {
 				std::unordered_set<const DMaterialFunctionInterface*> Visited;
@@ -97,7 +104,7 @@ namespace Durin
 				FResolvedMaterialProperties Resolved;
 				std::string Error;
 				if (!ResolveMaterialProperties(*Material, Resolved, Error)) return false;
-				const auto* Root = Cast<DMaterial>(ResolveObjectHandle(Resolved.Root));
+				const auto* Root = Cast<DMaterial>(ResolveObjectKey(Resolved.Root));
 				if (!Root) return false;
 				for (const auto& Expression : Root->GetExpressionCollection().Expressions)
 					if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression.Get());
@@ -105,13 +112,15 @@ namespace Durin
 				return false;
 			});
 		for (const auto Handle : Owners)
-			if (auto* Material = Cast<DMaterialInterface>(ResolveObjectHandle(Handle)); IsValid(Material))
+			if (auto* Material = Cast<DMaterialInterface>(ResolveObjectKey(Handle)); IsValid(Material))
 			{
 				auto& Revision = Material->CompilationOwner.MaterialCompileStatus.AuthoredRevision;
 				Revision = Revision == std::numeric_limits<uint64>::max() ? 1 : Revision + 1;
-				Private::FMaterialCompilationLifecycle::ScheduleEdit(*Material);
-				Material->ParameterChanges.Broadcast();
+				Private::FMaterialCompilationLifecycle::ScheduleEdit(*Material, &Context);
 			}
+		Context.EndDiscovery();
+		for (const auto Key : Owners)
+			if (auto* Material = Cast<DMaterialInterface>(Key.ResolveObjectPtr())) Material->ParameterChanges.Broadcast();
 	}
 
 	auto ResolveMaterialProperties(const DMaterialInterface& Material,
@@ -139,7 +148,7 @@ namespace Durin
 			return false;
 		}
 		FResolvedMaterialProperties Result;
-		Result.Root = MakeObjectHandle(const_cast<DMaterial*>(Root));
+		Result.Root = FObjectKey(const_cast<DMaterial*>(Root));
 		Result.Properties = Root->GetStaticProperties();
 		if (!ValidateMaterialStaticProperties(Result.Properties, OutError)) return false;
 		Result.Sources.fill(Result.Root);
@@ -158,7 +167,7 @@ namespace Durin
 				Overrides.bOverrideOpacityMaskThreshold, Overrides.bOverrideTwoSided,
 				Overrides.bOverrideDepthWritePolicy};
 			for (size_t Index = 0; Index < Enabled.size(); ++Index)
-				if (Enabled[Index]) Result.Sources[Index] = MakeObjectHandle(const_cast<DMaterialInstance*>(Instance));
+				if (Enabled[Index]) Result.Sources[Index] = FObjectKey(const_cast<DMaterialInstance*>(Instance));
 		}
 		Result.ShaderProperties = CanonicalizeMaterialShaderProperties(Result.Properties);
 		OutProperties = Result;
@@ -188,9 +197,9 @@ namespace Durin
 
 	auto DMaterialInterface::RequestProgramCompile(
 		const FMaterialStaticProperties& CandidateProperties,
-		bool bForceRecompile) -> bool
+		bool bForceRecompile, FObjectCacheContext* Context) -> bool
 	{
-		Private::GetMaterialCompileRetryQueue().Remove(MakeObjectHandle(this));
+		Private::GetMaterialCompileRetryQueue().Remove(FWeakObjectPtr(this));
 		if (GetAssetRuntimeConfiguration().RequiresCookedPayload()) return false;
 		CompilationOwner.LastObservedShaderProperties = CanonicalizeMaterialShaderProperties(CandidateProperties);
 		FModuleManager::Get().LoadModule("RenderCore");
@@ -214,7 +223,7 @@ namespace Durin
 				.AssetPath = GetObjectPath(),
 				.Generation = CompilationOwner.MaterialCompileStatus.RequestGeneration,
 			}};
-			RetireFailedMaterialGeneration();
+			RetireFailedMaterialGeneration(Context);
 			return false;
 		}
 		FMaterialIRCompilerInput Input;
@@ -237,21 +246,22 @@ namespace Durin
 						? EMaterialCompileResultCategory::Dependency : EMaterialCompileResultCategory::Validation,
 					.Source = Diagnostic,
 					.AssetPath = GetObjectPath(), .Generation = Status.RequestGeneration});
-			RetireFailedMaterialGeneration();
+			RetireFailedMaterialGeneration(Context);
 			return false;
 		}
 		CompilationOwner.LastObservedParameters = Input.Parameters;
 		return Private::FMaterialCompilationLifecycle::Submit(
-			*this, std::move(Input), bForceRecompile, std::move(FunctionOwners));
+			*this, std::move(Input), bForceRecompile, std::move(FunctionOwners), Context);
 	}
 
-	auto DMaterialInterface::InvalidateMaterialCompilation(bool bIncludeSelf, bool bOnlyIfShaderChanged) -> void
+	auto DMaterialInterface::InvalidateMaterialCompilation(bool bIncludeSelf, bool bOnlyIfShaderChanged, FObjectCacheContext* Context) -> void
 	{
 		CheckMaterialQueryThread();
 		if (GetAssetRuntimeConfiguration().RequiresCookedPayload()) return;
-		for (const FObjectHandle Handle : GetLoadedMaterialDependents(this))
+		std::optional<FObjectCacheContext> LocalContext;
+		if (!Context) { LocalContext.emplace(); Context = &*LocalContext; }
+		for (auto* Owner : Context->GetMaterialsAffectedByMaterial(this))
 		{
-			auto* Owner = Cast<DMaterialInterface>(ResolveObjectHandle(Handle));
 			if (!IsValid(Owner) || (!bIncludeSelf && Owner == this)) continue;
 			if (bOnlyIfShaderChanged
 				&& CanonicalizeMaterialShaderProperties(Owner->GetStaticProperties())
@@ -261,7 +271,7 @@ namespace Durin
 				? 1 : Status.AuthoredRevision + 1;
 			Status.ParentChainRevision = Status.ParentChainRevision == std::numeric_limits<uint64>::max()
 				? 1 : Status.ParentChainRevision + 1;
-			Private::FMaterialCompilationLifecycle::ScheduleEdit(*Owner);
+			Private::FMaterialCompilationLifecycle::ScheduleEdit(*Owner, Context);
 		}
 	}
 
@@ -363,7 +373,7 @@ namespace Durin
 		CompilationOwner.RenderLayer.StaticProperties = GetStaticProperties();
 		CompilationOwner.RenderLayer.Parameters = BuildMaterialLocalRenderLayer().Parameters;
 		auto& Status = CompilationOwner.MaterialCompileStatus;
-		Private::GetMaterialCompileRetryQueue().Remove(MakeObjectHandle(this));
+		Private::GetMaterialCompileRetryQueue().Remove(FWeakObjectPtr(this));
 		Status.State = EMaterialCompileState::Ready;
 		Status.CompiledIdentity = Program->Identity;
 		Status.RequestedIdentity = Program->Identity;
@@ -459,8 +469,10 @@ namespace Durin
 
 	auto DMaterialInterface::BeginDestroy() -> void
 	{
-		Private::GetMaterialCompileRetryQueue().Remove(MakeObjectHandle(this));
+		Private::GetMaterialCompileRetryQueue().Remove(FWeakObjectPtr(this));
 		FAssetCompilingManager::Get().MarkCompilationAsCanceled(*this);
+		FObjectCacheContext Context;
+		std::vector<FWeakObjectPtr> Notifications;
 		// A live child must retire a broken chain even if no compile is pending.
 		for (DObject* Object : GDObjectArray.Snapshot(EObjectQueryScope::LiveOnly))
 		{
@@ -477,9 +489,12 @@ namespace Durin
 				.Category = EMaterialCompileResultCategory::Dependency,
 				.Source = {.Category = EMaterialProgramDiagnosticCategory::Dependency, .Message = Error},
 				.AssetPath = Owner->GetObjectPath(), .Generation = Status.RequestGeneration}};
-			Owner->RetireFailedMaterialGeneration();
-			Owner->ParameterChanges.Broadcast();
+			Owner->RetireFailedMaterialGeneration(&Context);
+			Notifications.emplace_back(Owner);
 		}
+		Context.EndDiscovery();
+		for (const auto& Weak : Notifications)
+			if (auto* Owner = Cast<DMaterialInterface>(Weak.Get())) Owner->ParameterChanges.Broadcast();
 		bAcceptingMaterialProxyPublications = false;
 		ReleaseMaterialRenderProxy_GameThread(
 			std::move(MaterialRenderProxy));
@@ -488,6 +503,12 @@ namespace Durin
 
 	auto DMaterialInterface::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
 	{
+		FObjectCacheContext Context;
+		PostEditChangePropertyWithContext(Event, Context);
+	}
+
+	auto DMaterialInterface::PostEditChangePropertyWithContext(const FPropertyChangedEvent& Event, FObjectCacheContext& Context) -> void
+	{
 		Super::PostEditChangeProperty(Event);
 		if (!Event.MemberProperty) return;
 		const FName Name = Event.MemberProperty->NamePrivate;
@@ -495,7 +516,7 @@ namespace Durin
 		{
 			MarkRenderDataDirty(
 				EMaterialRenderDirtyFlags::ShaderMap
-				| EMaterialRenderDirtyFlags::PipelineState);
+				| EMaterialRenderDirtyFlags::PipelineState, false, &Context);
 		}
 	}
 
@@ -514,7 +535,7 @@ namespace Durin
 		std::string Error;
 		if (ResolveMaterialProperties(*this, Properties, Error))
 		{
-			auto* Root = Cast<DMaterial>(ResolveObjectHandle(Properties.Root));
+			auto* Root = Cast<DMaterial>(ResolveObjectKey(Properties.Root));
 			const auto Definitions = Root->GetParameterDefinitions();
 			Parameters.reserve(Definitions.size());
 			for (const auto& Definition : Definitions)
@@ -559,13 +580,13 @@ namespace Durin
 		return Result;
 	}
 
-	auto DMaterialInterface::RetireFailedMaterialGeneration() -> void
+	auto DMaterialInterface::RetireFailedMaterialGeneration(FObjectCacheContext* Context) -> void
 	{
 		CompilationOwner.RenderLayer = {};
 		CompilationOwner.AcceptedExpressionSources.clear();
 		CompilationOwner.MaterialCompileStatus.CompiledIdentity = {};
 		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ShaderMap
-			| EMaterialRenderDirtyFlags::PipelineState);
+			| EMaterialRenderDirtyFlags::PipelineState, false, Context);
 	}
 
 	auto DMaterialInterface::PublishMaterialRenderProxyState() -> void
@@ -623,19 +644,22 @@ namespace Durin
 	auto DMaterialInterface::NotifyParameterChanges() -> void
 	{
 		CheckMaterialQueryThread();
-		BroadcastParameterChanges(GetLoadedMaterialDependents(this));
+		FObjectCacheContext Context;
+		const auto Dependents = Context.GetMaterialsAffectedByMaterial(this);
+		Context.EndDiscovery();
+		BroadcastParameterChanges(Dependents);
 	}
 
-	auto DMaterialInterface::BroadcastParameterChanges(std::span<const FObjectHandle> Dependents) -> void
+	auto DMaterialInterface::BroadcastParameterChanges(const TObjectCacheIterator<DMaterialInterface>& Dependents) -> void
 	{
 		ParameterChanges.Broadcast();
-		for (const auto Handle : Dependents)
-			if (auto* Owner = Cast<DMaterialInterface>(ResolveObjectHandle(Handle)); IsValid(Owner) && Owner != this)
+		for (auto* Owner : Dependents)
+			if (IsValid(Owner) && Owner != this)
 				Owner->ParameterChanges.Broadcast();
 	}
 
 	auto DMaterialInterface::MarkRenderDataDirty(EMaterialRenderDirtyFlags DirtyFlags,
-		bool bNotifyParameterChanges) -> void
+		bool bNotifyParameterChanges, FObjectCacheContext* Context) -> void
 	{
 		if (DirtyFlags == EMaterialRenderDirtyFlags::None) return;
 		auto Publish = [](DMaterialInterface& Owner) {
@@ -655,38 +679,34 @@ namespace Durin
 				Owner.PublishMaterialRenderProxyState();
 			}
 		};
-		const auto Dependents = GetLoadedMaterialDependents(this);
+		std::optional<FObjectCacheContext> LocalContext;
+		if (!Context) { LocalContext.emplace(); Context = &*LocalContext; }
+		const auto Dependents = Context->GetMaterialsAffectedByMaterial(this);
 		Publish(*this);
-		for (const auto Handle : Dependents)
+		for (auto* Owner : Dependents)
 		{
-			auto* Owner = Cast<DMaterialInterface>(ResolveObjectHandle(Handle));
 			if (IsValid(Owner) && Owner != this) Publish(*Owner);
 		}
-		if (bNotifyParameterChanges) BroadcastParameterChanges(Dependents);
+		if (bNotifyParameterChanges)
+		{
+			Context->EndDiscovery();
+			BroadcastParameterChanges(Dependents);
+		}
 	}
 
-	auto GetLoadedDirectMaterialChildren(
-		const DMaterialInterface* Parent
-	) -> std::vector<FObjectHandle>
+	auto GetLoadedDirectMaterialChildren(const DMaterialInterface* Parent) -> std::vector<FObjectKey>
 	{
-		if (!IsValid(Parent)) return {};
-		return QueryLoadedMaterialHandles(
-			EMaterialLoadedQueryOperation::DirectChildren,
-			[Parent](DMaterialInterface* Material) {
-				auto* Instance = Cast<DMaterialInstance>(Material);
-				return IsValid(Instance) && Instance->GetParent() == Parent;
-			});
+		FObjectCacheContext Context;
+		std::vector<FObjectKey> Result;
+		for (auto* Object : Context.GetDirectMaterialChildren(Parent)) Result.emplace_back(Object);
+		return Result;
 	}
 
-	auto GetLoadedMaterialDependents(
-		const DMaterialInterface* Dependency
-	) -> std::vector<FObjectHandle>
+	auto GetLoadedMaterialDependents(const DMaterialInterface* Dependency) -> std::vector<FObjectKey>
 	{
-		if (!IsValid(Dependency)) return {};
-		return QueryLoadedMaterialHandles(
-			EMaterialLoadedQueryOperation::Dependents,
-			[Dependency](DMaterialInterface* Material) {
-				return Material->IsDependent(Dependency);
-			});
+		FObjectCacheContext Context;
+		std::vector<FObjectKey> Result;
+		for (auto* Object : Context.GetMaterialsAffectedByMaterial(Dependency)) Result.emplace_back(Object);
+		return Result;
 	}
 }

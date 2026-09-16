@@ -12,16 +12,7 @@ namespace Durin
 {
 	struct FTextureCompilingManager::FCompilationState
 	{
-		struct FObjectHandleHash
-		{
-			auto operator()(FObjectHandle Handle) const noexcept -> size_t
-			{
-				return static_cast<size_t>((static_cast<uint64>(Handle.Generation) << 32)
-					| static_cast<uint64>(Handle.Index));
-			}
-		};
-
-		struct FAssetState
+struct FAssetState
 		{
 			TWeakObjectPtr<DTexture2D> Texture;
 			uint64 RequestSerial = 0;
@@ -33,32 +24,32 @@ namespace Durin
 			FTexture2DCompilationCompletion Completion;
 		};
 
-		auto FindLocked(FObjectHandle Owner) -> FAssetState*
+		auto FindLocked(FObjectKey Owner) -> FAssetState*
 		{
 			const auto It = Assets.find(Owner);
 			return It == Assets.end() ? nullptr : &It->second;
 		}
 
-		auto FindLocked(FObjectHandle Owner) const -> const FAssetState*
+		auto FindLocked(FObjectKey Owner) const -> const FAssetState*
 		{
 			const auto It = Assets.find(Owner);
 			return It == Assets.end() ? nullptr : &It->second;
 		}
 
 		mutable std::mutex Mutex;
-		std::unordered_map<FObjectHandle, FAssetState, FObjectHandleHash> Assets;
-		std::deque<FObjectHandle> CompletedOrder;
+		std::unordered_map<FObjectKey, FAssetState, FObjectKeyHash> Assets;
+		std::deque<FObjectKey> CompletedOrder;
 		static constexpr size_t MaximumRetainedAssetDiagnostics = 256;
 		std::vector<FWeakObjectPtr> SuccessfullyAppliedTextures;
 
-		auto RetainCompletedLocked(FObjectHandle Owner) -> void
+		auto RetainCompletedLocked(FObjectKey Owner) -> void
 		{
 			CompletedOrder.erase(std::remove(
 				CompletedOrder.begin(), CompletedOrder.end(), Owner), CompletedOrder.end());
 			CompletedOrder.push_back(Owner);
 			while (CompletedOrder.size() > MaximumRetainedAssetDiagnostics)
 			{
-				const FObjectHandle Oldest = CompletedOrder.front();
+				const FObjectKey Oldest = CompletedOrder.front();
 				CompletedOrder.pop_front();
 				if (FAssetState* State = FindLocked(Oldest);
 					State && State->ActiveRequestId == 0) Assets.erase(Oldest);
@@ -160,7 +151,7 @@ namespace Durin
 			CompilationState->RetainCompletedLocked(Result.Owner);
 		}
 		DTexture2D* Texture = WeakTexture.Get();
-		if (!Texture || MakeObjectHandle(Texture) != Result.Owner)
+		if (!Texture || FObjectKey(Texture) != Result.Owner)
 		{
 			if (Completion) Completion({
 				.Status = ETexture2DCompilationStatus::Failed,
@@ -249,7 +240,7 @@ namespace Durin
 			auto* Texture = Cast<DTexture2D>(Object);
 			if (!IsValid(Texture)) continue;
 			uint64 RequestId = 0;
-			const FObjectHandle Owner = MakeObjectHandle(Texture);
+			const FObjectKey Owner = FObjectKey(Texture);
 			{
 				std::lock_guard Lock(CompilationState->Mutex);
 				if (FCompilationState::FAssetState* State =
@@ -320,8 +311,8 @@ namespace Durin
 		}
 
 		const std::string Identity = Texture.GetObjectPath();
-		const FObjectHandle Owner = MakeObjectHandle(&Texture);
-		if (IsObjectHandleNull(Owner))
+		const FObjectKey Owner = FObjectKey(&Texture);
+		if (IsObjectKeyNull(Owner))
 		{
 			OutError = "Texture2D compilation submission requires a live object handle.";
 			return false;
@@ -421,7 +412,7 @@ namespace Durin
 		{
 			std::lock_guard Lock(CompilationState->Mutex);
 			if (const FCompilationState::FAssetState* State =
-				CompilationState->FindLocked(MakeObjectHandle(
+				CompilationState->FindLocked(FObjectKey(
 					const_cast<DTexture2D*>(&Texture))))
 				RequestId = State->ActiveRequestId != 0
 					? State->ActiveRequestId : State->LastRequestId;
@@ -447,7 +438,7 @@ namespace Durin
 		if (!CompilationState) return false;
 		std::lock_guard Lock(CompilationState->Mutex);
 		const FCompilationState::FAssetState* State =
-			CompilationState->FindLocked(MakeObjectHandle(
+			CompilationState->FindLocked(FObjectKey(
 				const_cast<DTexture2D*>(&Texture)));
 		return State && State->Texture.Get() == &Texture && State->ActiveRequestId != 0;
 	}
@@ -459,7 +450,7 @@ namespace Durin
 		{
 			std::lock_guard Lock(CompilationState->Mutex);
 			FCompilationState::FAssetState* State =
-				CompilationState->FindLocked(MakeObjectHandle(&Texture));
+				CompilationState->FindLocked(FObjectKey(&Texture));
 			if (State && State->Texture.Get() == &Texture) RequestId = State->ActiveRequestId;
 		}
 		return RequestId != 0 && CancelWork(RequestId);
@@ -474,7 +465,7 @@ namespace Durin
 		{
 			std::lock_guard Lock(CompilationState->Mutex);
 			FCompilationState::FAssetState* State =
-				CompilationState->FindLocked(MakeObjectHandle(&Texture));
+				CompilationState->FindLocked(FObjectKey(&Texture));
 			if (State && State->Texture.Get() == &Texture)
 			{
 				RequestId = State->ActiveRequestId;
@@ -488,7 +479,7 @@ namespace Durin
 		{
 			std::lock_guard Lock(CompilationState->Mutex);
 			if (const FCompilationState::FAssetState* State =
-				CompilationState->FindLocked(MakeObjectHandle(&Texture)))
+				CompilationState->FindLocked(FObjectKey(&Texture)))
 				bLastRequestFailed = State->bLastRequestFailed;
 		}
 		return !HasPending(Texture) && !bLastRequestFailed

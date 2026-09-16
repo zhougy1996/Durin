@@ -36,7 +36,7 @@ namespace Durin::Editor::StaticMesh
 
 	struct FStaticMeshImportDialog::FOperationState
 	{
-		FObjectHandle Owner;
+		FObjectKey Owner;
 		FPackagePath Package;
 		std::optional<FStaticMeshCompilationDiagnostic> Result;
 		bool bSaveFailed = false;
@@ -46,7 +46,7 @@ namespace Durin::Editor::StaticMesh
 	{
 		auto Detached = std::move(Operation);
 		if (Detached && !Detached->Result)
-			if (auto* Mesh = Cast<DStaticMesh>(ResolveObjectHandle(Detached->Owner)))
+			if (auto* Mesh = Cast<DStaticMesh>(ResolveObjectKey(Detached->Owner)))
 			{
 				CancelStaticMeshCompilation(*Mesh);
 				// Module/widget retirement releases the callback code before the owning DLL can unload.
@@ -262,7 +262,7 @@ namespace Durin::Editor::StaticMesh
 				? "StaticMesh import failed." : Result.Message);
 			return false;
 		}
-		Operation->Owner = MakeObjectHandle(Result.Asset);
+		Operation->Owner = FObjectKey(Result.Asset);
 		return false; // Keep the modal open until completion and save.
 	}
 

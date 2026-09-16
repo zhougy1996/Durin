@@ -3621,14 +3621,14 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		DLifecycleTestObject::ResetLifecycleCounts();
 
 		auto* Object = Durin::NewObject<DLifecycleTestObject>(nullptr, Durin::FName("GarbageRequestTestObject"));
-		const Durin::FObjectHandle Handle = Durin::MakeObjectHandle(Object);
+		const Durin::FObjectKey Handle = Durin::FObjectKey(Object);
 		ASSERT_TRUE(ObjectArrayContains(Object));
 
 		Durin::MarkAsGarbage(Object);
 
 		EXPECT_FALSE(Durin::IsValid(Object));
 		EXPECT_TRUE(ObjectArrayContains(Object));
-		EXPECT_EQ(Durin::ResolveObjectHandle(Handle), Object);
+		EXPECT_EQ(Durin::GDObjectArray.Resolve(Handle), Object);
 		EXPECT_EQ(DLifecycleTestObject::BeginDestroyCount, 0u);
 		EXPECT_EQ(DLifecycleTestObject::FinishDestroyCount, 0u);
 		EXPECT_EQ(DLifecycleTestObject::DestructorCount, 0u);
@@ -3636,7 +3636,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Durin::CollectGarbage();
 
 		EXPECT_FALSE(ObjectArrayContains(Object));
-		EXPECT_EQ(Durin::ResolveObjectHandle(Handle), nullptr);
+		EXPECT_EQ(Durin::ResolveObjectKey(Handle), nullptr);
 		EXPECT_EQ(DLifecycleTestObject::BeginDestroyCount, 1u);
 		EXPECT_EQ(DLifecycleTestObject::FinishDestroyCount, 1u);
 		EXPECT_EQ(DLifecycleTestObject::DestructorCount, 1u);
@@ -4063,7 +4063,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_FALSE(ObjectArrayContains(RootedObject));
 
 		Durin::DObject* StrongObject = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("GCStrongObject"));
-		const Durin::FObjectHandle StrongHandle = Durin::MakeObjectHandle(StrongObject);
+		const Durin::FObjectKey StrongHandle = Durin::FObjectKey(StrongObject);
 		Durin::TStrongObjectPtr<Durin::DObject> First(StrongObject);
 		Durin::TStrongObjectPtr<Durin::DObject> Second(First);
 
@@ -4541,39 +4541,67 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		ObjectPtr = ReferencedObject;
 		EXPECT_TRUE(ObjectPtr);
 		EXPECT_EQ(ObjectPtr.Get(), ReferencedObject);
-		EXPECT_FALSE(Durin::IsObjectHandleNull(ObjectPtr.GetHandle()));
-		EXPECT_EQ(Durin::ResolveObjectHandle(ObjectPtr.GetHandle()), ReferencedObject);
+		EXPECT_FALSE(Durin::IsObjectKeyNull(ObjectPtr.GetKey()));
+		EXPECT_EQ(Durin::ResolveObjectKey(ObjectPtr.GetKey()), ReferencedObject);
 		EXPECT_EQ(static_cast<Durin::DObject*>(ObjectPtr), ReferencedObject);
 
 		Durin::MarkAsGarbage(ReferencedObject);
 		Durin::CollectGarbage();
 		EXPECT_FALSE(ObjectPtr);
 		EXPECT_EQ(ObjectPtr.Get(), nullptr);
-		EXPECT_EQ(Durin::ResolveObjectHandle(ObjectPtr.GetHandle()), nullptr);
+		EXPECT_EQ(Durin::ResolveObjectKey(ObjectPtr.GetKey()), nullptr);
 
 		ObjectPtr.Reset();
 		EXPECT_FALSE(ObjectPtr);
 		EXPECT_EQ(ObjectPtr.Get(), nullptr);
-		EXPECT_TRUE(Durin::IsObjectHandleNull(ObjectPtr.GetHandle()));
+		EXPECT_TRUE(Durin::IsObjectKeyNull(ObjectPtr.GetKey()));
 	}
 
 	TEST(FCoreDObjectReflectionTests, ObjectPtrUsesGenerationHandleInAllBuilds)
 	{
-		EXPECT_EQ(sizeof(Durin::FObjectHandle), sizeof(Durin::DObject*));
+		EXPECT_EQ(sizeof(Durin::FObjectKey), sizeof(Durin::DObject*));
 		EXPECT_EQ(sizeof(Durin::FObjectPtr), sizeof(Durin::DObject*));
 		EXPECT_EQ(sizeof(Durin::TObjectPtr<Durin::DObject>), sizeof(Durin::DObject*));
 
 		Durin::DObject* Object = nullptr;
-		Durin::FObjectHandle NullHandle = Durin::MakeObjectHandle(Object);
-		EXPECT_TRUE(Durin::IsObjectHandleNull(NullHandle));
-		EXPECT_EQ(Durin::ResolveObjectHandle(NullHandle), nullptr);
+		Durin::FObjectKey NullHandle = Durin::FObjectKey(Object);
+		EXPECT_TRUE(Durin::IsObjectKeyNull(NullHandle));
+		EXPECT_EQ(Durin::ResolveObjectKey(NullHandle), nullptr);
 
 		Durin::DObject* ReferencedObject = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("ObjectHandleStorageReferencedObject"));
-		Durin::FObjectHandle ObjectHandle = Durin::MakeObjectHandle(ReferencedObject);
-		EXPECT_FALSE(Durin::IsObjectHandleNull(ObjectHandle));
-		EXPECT_EQ(Durin::ResolveObjectHandle(ObjectHandle), ReferencedObject);
+		Durin::FObjectKey ObjectHandle = Durin::FObjectKey(ReferencedObject);
+		EXPECT_FALSE(Durin::IsObjectKeyNull(ObjectHandle));
+		EXPECT_EQ(Durin::ResolveObjectKey(ObjectHandle), ReferencedObject);
 
 		Durin::MarkAsGarbage(ReferencedObject);
+	}
+
+	TEST(FCoreDObjectReflectionTests, ObjectKeysRetainIdentityWithoutRetainingObjects)
+	{
+		EnsureDObjectInitialized();
+		Durin::CollectGarbage();
+		auto* First = Durin::NewObject<Durin::DObject>(nullptr, "ObjectKeyFirst");
+		const Durin::FObjectKey Key(First);
+		const Durin::TObjectKey<Durin::DObject> Typed(First);
+		const Durin::FWeakObjectPtr Weak(Key);
+		const auto Hash = std::hash<Durin::FObjectKey>{}(Key);
+		EXPECT_EQ(Typed.ResolveObjectPtr(), First);
+		EXPECT_EQ(Typed.GetKey(), Key);
+		EXPECT_EQ(Weak.GetKey(), Key);
+		EXPECT_FALSE(Key.IsNull());
+		Durin::CollectGarbage(); // Keys and weak pointers are not roots.
+		EXPECT_EQ(Key.ResolveObjectPtr(), nullptr);
+		EXPECT_EQ(Weak.Get(), nullptr);
+		EXPECT_EQ(std::hash<Durin::FObjectKey>{}(Key), Hash);
+		EXPECT_NE(Key, Durin::FObjectKey{});
+		auto* Second = Durin::NewObject<Durin::DObject>(nullptr, "ObjectKeySecond");
+		EXPECT_NE(Key, Durin::FObjectKey(Second));
+		EXPECT_EQ(Key.ResolveObjectPtr(), nullptr);
+		const Durin::FObjectKey SecondKey(Second);
+		Durin::MarkAsGarbage(Second);
+		EXPECT_EQ(SecondKey.ResolveObjectPtr(), nullptr);
+		EXPECT_NE(SecondKey, Durin::FObjectKey{});
+		Durin::CollectGarbage();
 	}
 
 	TEST(FCoreDObjectReflectionTests, WeakObjectPtrResolvesLiveObjectAndResets)
@@ -4583,20 +4611,20 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Durin::TWeakObjectPtr<Durin::DObject> WeakObject;
 		EXPECT_EQ(WeakObject.Get(), nullptr);
 		EXPECT_FALSE(WeakObject.IsValid());
-		EXPECT_TRUE(Durin::IsObjectHandleNull(WeakObject.GetHandle()));
+		EXPECT_TRUE(Durin::IsObjectKeyNull(WeakObject.GetKey()));
 
 		Durin::DObject* Object = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("WeakObjectPtrLiveObject"));
 		WeakObject = Object;
 		EXPECT_EQ(WeakObject.Get(), Object);
 		EXPECT_TRUE(WeakObject.IsValid());
-		EXPECT_FALSE(Durin::IsObjectHandleNull(WeakObject.GetHandle()));
+		EXPECT_FALSE(Durin::IsObjectKeyNull(WeakObject.GetKey()));
 
 		Durin::TWeakObjectPtr<Durin::DObject> Copy = WeakObject;
 		EXPECT_EQ(Copy.Get(), Object);
 
 		WeakObject.Reset();
 		EXPECT_EQ(WeakObject.Get(), nullptr);
-		EXPECT_TRUE(Durin::IsObjectHandleNull(WeakObject.GetHandle()));
+		EXPECT_TRUE(Durin::IsObjectKeyNull(WeakObject.GetKey()));
 		EXPECT_EQ(Copy.Get(), Object);
 
 		Durin::MarkAsGarbage(Object);
@@ -4609,16 +4637,16 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 		Durin::DObject* Object = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("WeakObjectPtrGarbageObject"));
 		Durin::TWeakObjectPtr<Durin::DObject> WeakObject = Object;
-		const Durin::FObjectHandle Handle = WeakObject.GetHandle();
+		const Durin::FObjectKey Handle = WeakObject.GetKey();
 
 		Durin::MarkAsGarbage(Object);
-		EXPECT_EQ(Durin::ResolveObjectHandle(Handle), Object);
+		EXPECT_EQ(Durin::GDObjectArray.Resolve(Handle), Object);
 		EXPECT_EQ(WeakObject.Get(), nullptr);
 		EXPECT_FALSE(WeakObject.IsValid());
 
 		Durin::MarkAsGarbage(Object);
 		Durin::CollectGarbage();
-		EXPECT_EQ(Durin::ResolveObjectHandle(Handle), nullptr);
+		EXPECT_EQ(Durin::ResolveObjectKey(Handle), nullptr);
 	}
 
 	TEST(FCoreDObjectReflectionTests, WeakObjectPtrUsesGenerationToRejectReusedSlot)
@@ -4628,16 +4656,14 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 		Durin::DObject* First = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("WeakObjectPtrFirst"));
 		Durin::TWeakObjectPtr<Durin::DObject> WeakFirst = First;
-		const Durin::FObjectHandle FirstHandle = WeakFirst.GetHandle();
+		const Durin::FObjectKey FirstHandle = WeakFirst.GetKey();
 		Durin::MarkAsGarbage(First);
 		Durin::CollectGarbage();
 
 		Durin::DObject* Second = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("WeakObjectPtrSecond"));
 		Durin::TWeakObjectPtr<Durin::DObject> WeakSecond = Second;
-		const Durin::FObjectHandle SecondHandle = WeakSecond.GetHandle();
-
-		EXPECT_EQ(FirstHandle.Index, SecondHandle.Index);
-		EXPECT_NE(FirstHandle.Generation, SecondHandle.Generation);
+		const Durin::FObjectKey SecondHandle = WeakSecond.GetKey();
+		EXPECT_NE(FirstHandle, SecondHandle);
 		EXPECT_EQ(WeakFirst.Get(), nullptr);
 		EXPECT_EQ(WeakSecond.Get(), Second);
 
@@ -4646,8 +4672,8 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 	TEST(FCoreDObjectReflectionTests, WeakObjectPtrRemainsPointerSizedAndTriviallyCopyable)
 	{
-		EXPECT_EQ(sizeof(Durin::FWeakObjectPtr), sizeof(Durin::FObjectHandle));
-		EXPECT_EQ(sizeof(Durin::TWeakObjectPtr<Durin::DObject>), sizeof(Durin::FObjectHandle));
+		EXPECT_EQ(sizeof(Durin::FWeakObjectPtr), sizeof(Durin::FObjectKey));
+		EXPECT_EQ(sizeof(Durin::TWeakObjectPtr<Durin::DObject>), sizeof(Durin::FObjectKey));
 		EXPECT_TRUE(std::is_trivially_copyable_v<Durin::FWeakObjectPtr>);
 		EXPECT_TRUE(std::is_trivially_copyable_v<Durin::TWeakObjectPtr<Durin::DObject>>);
 	}

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Asset/BulkData.h"
-#include "DObject/ObjectHandle.h"
+#include "DObject/ObjectKey.h"
 #include "EngineAPI.h"
 #include "Templates/MoveOnlyFunction.h"
 #include "Threading/Task.h"
@@ -33,7 +33,7 @@ namespace Durin
 
 	struct FCookedMeshLoadIdentity
 	{
-		FObjectHandle Owner;
+		FObjectKey Owner;
 		ECookedMeshFamily Family = ECookedMeshFamily::StaticMesh;
 		uint64 LoadGeneration = 0;
 		uint64 ResourceRevision = 0;
@@ -41,8 +41,7 @@ namespace Durin
 
 		auto operator==(const FCookedMeshLoadIdentity& Other) const -> bool
 		{
-			return Owner.Index == Other.Owner.Index
-				&& Owner.Generation == Other.Owner.Generation
+			return Owner == Other.Owner
 				&& Family == Other.Family
 				&& LoadGeneration == Other.LoadGeneration
 				&& ResourceRevision == Other.ResourceRevision
@@ -143,9 +142,9 @@ namespace Durin
 		// Polls ready I/O, launches worker work, and publishes a bounded number
 		// of current results without waiting for unfinished package requests.
 		auto Pump() -> uint32;
-		auto Cancel(FObjectHandle Owner) -> bool;
+		auto Cancel(FObjectKey Owner) -> bool;
 		// Explicit blocking compatibility boundary for one selected owner.
-		auto Finish(FObjectHandle Owner) -> void;
+		auto Finish(FObjectKey Owner) -> void;
 		auto StopAdmission() -> void;
 		// Cancels and drains every owned read/task/result without publication.
 		auto Shutdown() -> void;

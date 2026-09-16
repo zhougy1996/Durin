@@ -417,7 +417,7 @@ TEST(FPersistentObjectRefTests, PreservesExactIdentityAndRejectsGarbageAndSlotRe
 	EXPECT_EQ(Reference.Resolve(), nullptr);
 
 	auto* Reused = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("PersistentReusedSlot"));
-	EXPECT_NE(Durin::MakeObjectHandle(Reused), Reference.GetHandle());
+	EXPECT_NE(Durin::FObjectKey(Reused), Reference.GetKey());
 	EXPECT_EQ(Reference.Resolve(), nullptr);
 	Durin::MarkAsGarbage(Reused);
 	Durin::CollectGarbage();
@@ -433,8 +433,8 @@ TEST(FFocusedTransactionObjectSnapshotTests, CollectorTraversalRetainsOnlyTarget
 	auto* Sibling = Durin::NewObject<Durin::DObject>(Outer, Durin::FName("TransactionRecordSibling"));
 	auto* Hard = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("TransactionRecordHard"));
 	auto* Weak = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("TransactionRecordWeak"));
-	const Durin::FObjectHandle SiblingHandle = Durin::MakeObjectHandle(Sibling);
-	const Durin::FObjectHandle WeakHandle = Durin::MakeObjectHandle(Weak);
+	const Durin::FObjectKey SiblingHandle = Durin::FObjectKey(Sibling);
+	const Durin::FObjectKey WeakHandle = Durin::FObjectKey(Weak);
 	Target->Hard = Hard;
 	Target->Weak = Weak;
 	auto HardRecord = CaptureSnapshot(Target, "Hard");
@@ -454,17 +454,17 @@ TEST(FFocusedTransactionObjectSnapshotTests, CollectorTraversalRetainsOnlyTarget
 	EXPECT_TRUE(Contains(Target));
 	EXPECT_TRUE(Contains(Outer));
 	EXPECT_TRUE(Contains(Hard));
-	EXPECT_EQ(Durin::ResolveObjectHandle(SiblingHandle), nullptr);
-	EXPECT_EQ(Durin::ResolveObjectHandle(WeakHandle), nullptr);
+	EXPECT_EQ(Durin::ResolveObjectKey(SiblingHandle), nullptr);
+	EXPECT_EQ(Durin::ResolveObjectKey(WeakHandle), nullptr);
 
-	const Durin::FObjectHandle TargetHandle = Durin::MakeObjectHandle(Target);
-	const Durin::FObjectHandle OuterHandle = Durin::MakeObjectHandle(Outer);
-	const Durin::FObjectHandle HardHandle = Durin::MakeObjectHandle(Hard);
+	const Durin::FObjectKey TargetHandle = Durin::FObjectKey(Target);
+	const Durin::FObjectKey OuterHandle = Durin::FObjectKey(Outer);
+	const Durin::FObjectKey HardHandle = Durin::FObjectKey(Hard);
 	Owner->Records.clear();
 	Durin::CollectGarbage();
-	EXPECT_EQ(Durin::ResolveObjectHandle(TargetHandle), nullptr);
-	EXPECT_EQ(Durin::ResolveObjectHandle(OuterHandle), nullptr);
-	EXPECT_EQ(Durin::ResolveObjectHandle(HardHandle), nullptr);
+	EXPECT_EQ(Durin::ResolveObjectKey(TargetHandle), nullptr);
+	EXPECT_EQ(Durin::ResolveObjectKey(OuterHandle), nullptr);
+	EXPECT_EQ(Durin::ResolveObjectKey(HardHandle), nullptr);
 }
 
 TEST(FFocusedTransactionObjectSnapshotTests, MarkedGarbageTargetIsNotRescued)
@@ -474,10 +474,10 @@ TEST(FFocusedTransactionObjectSnapshotTests, MarkedGarbageTargetIsNotRescued)
 	Durin::TStrongObjectPtr<Durin::DObject> OwnerRoot(Owner);
 	auto* Target = Durin::NewObject<DTransactionRecordParticipant>(nullptr, Durin::FName("GarbageRecordTarget"));
 	Owner->Records.push_back(CaptureSnapshot(Target, "Value"));
-	const Durin::FObjectHandle Handle = Durin::MakeObjectHandle(Target);
+	const Durin::FObjectKey Handle = Durin::FObjectKey(Target);
 	Durin::MarkAsGarbage(Target);
 	Durin::CollectGarbage();
-	EXPECT_EQ(Durin::ResolveObjectHandle(Handle), nullptr);
+	EXPECT_EQ(Durin::ResolveObjectKey(Handle), nullptr);
 	EXPECT_EQ(Owner->Records.front().GetTarget().Resolve(), nullptr);
 }
 
@@ -642,12 +642,12 @@ TEST(FTransBufferTests, NestedScopesCancelToSavepointsAndCommitOneEntry)
 		Durin::Editor::FScopedTransaction Inner(Buffer, {"property", "Ignored nested description"});
 		ASSERT_TRUE(Inner.IsActive());
 		auto* InnerTarget = Durin::NewObject<DTransactionRecordParticipant>(nullptr, "InnerCanceledTarget");
-		const auto InnerTargetHandle = Durin::MakeObjectHandle(InnerTarget);
+		const auto InnerTargetHandle = Durin::FObjectKey(InnerTarget);
 		Inner.Modify(InnerTarget);
 		EXPECT_EQ(Inner.Cancel().Code, Durin::Editor::ETransactorResultCode::Discarded);
 		EXPECT_FALSE(Inner.IsActive());
 		Durin::CollectGarbage();
-		EXPECT_EQ(Durin::ResolveObjectHandle(InnerTargetHandle), nullptr);
+		EXPECT_EQ(Durin::ResolveObjectKey(InnerTargetHandle), nullptr);
 	}
 	EXPECT_EQ(Buffer->GetState(), Durin::Editor::ETransactorState::Recording);
 	EXPECT_TRUE(Outer.End());
@@ -920,14 +920,14 @@ TEST(FTransBufferTests, CancellationEvictionAndDestructionReleaseCollectorEdges)
 	};
 
 	auto* Canceled = MakeTarget("CanceledTarget");
-	const auto CanceledHandle = Durin::MakeObjectHandle(Canceled);
+	const auto CanceledHandle = Durin::FObjectKey(Canceled);
 	{
 		Durin::Editor::FScopedTransaction Scope(Buffer, {"test", "Canceled"});
 		Scope.Modify(Canceled);
 		EXPECT_EQ(Scope.Cancel().Code, Durin::Editor::ETransactorResultCode::Discarded);
 	}
 	Durin::CollectGarbage();
-	EXPECT_EQ(Durin::ResolveObjectHandle(CanceledHandle), nullptr);
+	EXPECT_EQ(Durin::ResolveObjectKey(CanceledHandle), nullptr);
 
 	ASSERT_TRUE(Buffer->SetLimits({.MaximumEntries = 1, .MaximumOwnedBytes = 1024u * 1024u}));
 	auto Commit = [&](DTransactionRecordParticipant* Target, std::string Description) {
@@ -937,19 +937,19 @@ TEST(FTransBufferTests, CancellationEvictionAndDestructionReleaseCollectorEdges)
 		EXPECT_TRUE(Scope.End());
 	};
 	auto* Evicted = MakeTarget("EvictedTarget");
-	const auto EvictedHandle = Durin::MakeObjectHandle(Evicted);
+	const auto EvictedHandle = Durin::FObjectKey(Evicted);
 	Commit(Evicted, "Evicted");
 	auto* Retained = MakeTarget("RetainedTarget");
 	Durin::TStrongObjectPtr<Durin::DObject> RetainedRoot(Retained);
 	Commit(Retained, "Retained");
 	Durin::CollectGarbage();
-	EXPECT_EQ(Durin::ResolveObjectHandle(EvictedHandle), nullptr);
+	EXPECT_EQ(Durin::ResolveObjectKey(EvictedHandle), nullptr);
 
-	const auto RetainedHandle = Durin::MakeObjectHandle(Retained);
+	const auto RetainedHandle = Durin::FObjectKey(Retained);
 	RetainedRoot = Durin::TStrongObjectPtr<Durin::DObject>(nullptr);
 	Buffer->BeginDestroy();
 	Durin::CollectGarbage();
-	EXPECT_EQ(Durin::ResolveObjectHandle(RetainedHandle), nullptr);
+	EXPECT_EQ(Durin::ResolveObjectKey(RetainedHandle), nullptr);
 }
 
 TEST(FTransBufferTests, CollectorRetainsPendingAndHistoryEdgesAndReleasesBranches)
@@ -962,22 +962,22 @@ TEST(FTransBufferTests, CollectorRetainsPendingAndHistoryEdgesAndReleasesBranche
 	auto* Weak = Durin::NewObject<Durin::DObject>(nullptr, "GCWeakValue");
 	First->Hard = Hard;
 	First->Weak = Weak;
-	const auto FirstHandle = Durin::MakeObjectHandle(First);
-	const auto HardHandle = Durin::MakeObjectHandle(Hard);
-	const auto WeakHandle = Durin::MakeObjectHandle(Weak);
+	const auto FirstHandle = Durin::FObjectKey(First);
+	const auto HardHandle = Durin::FObjectKey(Hard);
+	const auto WeakHandle = Durin::FObjectKey(Weak);
 	{
 		Durin::Editor::FScopedTransaction Scope(Buffer, {"test", "First GC"});
 		Scope.Modify(First);
 		First->Hard = nullptr;
 		First->Weak = nullptr;
 		Durin::CollectGarbage();
-		EXPECT_NE(Durin::ResolveObjectHandle(FirstHandle), nullptr);
-		EXPECT_NE(Durin::ResolveObjectHandle(HardHandle), nullptr);
-		EXPECT_EQ(Durin::ResolveObjectHandle(WeakHandle), nullptr);
+		EXPECT_NE(Durin::ResolveObjectKey(FirstHandle), nullptr);
+		EXPECT_NE(Durin::ResolveObjectKey(HardHandle), nullptr);
+		EXPECT_EQ(Durin::ResolveObjectKey(WeakHandle), nullptr);
 	}
 	Durin::CollectGarbage();
-	EXPECT_NE(Durin::ResolveObjectHandle(FirstHandle), nullptr);
-	EXPECT_NE(Durin::ResolveObjectHandle(HardHandle), nullptr);
+	EXPECT_NE(Durin::ResolveObjectKey(FirstHandle), nullptr);
+	EXPECT_NE(Durin::ResolveObjectKey(HardHandle), nullptr);
 	ASSERT_TRUE(Buffer->Undo());
 
 	auto* Second = Durin::NewObject<DTransactionRecordParticipant>(nullptr, "GCSecondTarget");
@@ -988,13 +988,13 @@ TEST(FTransBufferTests, CollectorRetainsPendingAndHistoryEdgesAndReleasesBranche
 		++Second->Value;
 	}
 	Durin::CollectGarbage();
-	EXPECT_EQ(Durin::ResolveObjectHandle(FirstHandle), nullptr);
-	EXPECT_EQ(Durin::ResolveObjectHandle(HardHandle), nullptr);
+	EXPECT_EQ(Durin::ResolveObjectKey(FirstHandle), nullptr);
+	EXPECT_EQ(Durin::ResolveObjectKey(HardHandle), nullptr);
 	ASSERT_TRUE(Buffer->Reset());
 	SecondRoot = Durin::TStrongObjectPtr<Durin::DObject>(nullptr);
-	const auto SecondHandle = Durin::MakeObjectHandle(Second);
+	const auto SecondHandle = Durin::FObjectKey(Second);
 	Durin::CollectGarbage();
-	EXPECT_EQ(Durin::ResolveObjectHandle(SecondHandle), nullptr);
+	EXPECT_EQ(Durin::ResolveObjectKey(SecondHandle), nullptr);
 }
 
 TEST(FTransBufferTests, DetachedOwnedChildSurvivesCollectionUndoRedoAndReleasesWithHistory)
@@ -1009,11 +1009,11 @@ TEST(FTransBufferTests, DetachedOwnedChildSurvivesCollectionUndoRedoAndReleasesW
 	Child->Value = 71;
 	Owner->Hard = Child;
 	auto* HistoryOuter = NewObject<DObject>(nullptr, "DetachedGraphObjects");
-	const auto ChildHandle = MakeObjectHandle(Child);
-	const auto HistoryHandle = MakeObjectHandle(HistoryOuter);
+	const auto ChildHandle = FObjectKey(Child);
+	const auto HistoryHandle = FObjectKey(HistoryOuter);
 	ASSERT_TRUE(Buffer->Execute(std::make_unique<FDetachedChildChange>(Owner, Child, HistoryOuter)));
 	CollectGarbage();
-	ASSERT_EQ(ResolveObjectHandle(ChildHandle), Child);
+	ASSERT_EQ(ResolveObjectKey(ChildHandle), Child);
 	EXPECT_EQ(Child->GetOuter(), HistoryOuter);
 	EXPECT_EQ(Owner->Hard.Get(), nullptr);
 	EXPECT_TRUE(GDObjectArray.GetObjectsWithOuter(Owner, EObjectQueryScope::LiveOnly).empty());
@@ -1024,12 +1024,12 @@ TEST(FTransBufferTests, DetachedOwnedChildSurvivesCollectionUndoRedoAndReleasesW
 	EXPECT_EQ(Child->Value, 71);
 	ASSERT_TRUE(Buffer->Redo());
 	CollectGarbage();
-	EXPECT_EQ(ResolveObjectHandle(ChildHandle), Child);
+	EXPECT_EQ(ResolveObjectKey(ChildHandle), Child);
 	EXPECT_EQ(Child->GetOuter(), HistoryOuter);
 	ASSERT_TRUE(Buffer->Reset());
 	CollectGarbage();
-	EXPECT_EQ(ResolveObjectHandle(ChildHandle), nullptr);
-	EXPECT_EQ(ResolveObjectHandle(HistoryHandle), nullptr);
+	EXPECT_EQ(ResolveObjectKey(ChildHandle), nullptr);
+	EXPECT_EQ(ResolveObjectKey(HistoryHandle), nullptr);
 	EXPECT_EQ(Owner->Hard.Get(), nullptr);
 }
 
@@ -1094,16 +1094,16 @@ TEST(FTransBufferTests, CustomReferencesAndModuleDrainReleaseHistory)
 	auto* Buffer = Durin::NewObject<Durin::DTransBuffer>(nullptr, "ModuleCustomTransBuffer");
 	Durin::TStrongObjectPtr<Durin::DObject> BufferRoot(Buffer);
 	auto* Referenced = Durin::NewObject<Durin::DObject>(nullptr, "CustomReferencedObject");
-	const Durin::FObjectHandle Handle = Durin::MakeObjectHandle(Referenced);
+	const Durin::FObjectKey Handle = Durin::FObjectKey(Referenced);
 	int Value = 1;
 	ASSERT_TRUE(Buffer->Execute(std::make_unique<FTestCustomChange>(
 		Value, 1, 2, Referenced, "TestModule")));
 	Durin::CollectGarbage();
-	EXPECT_NE(Durin::ResolveObjectHandle(Handle), nullptr);
+	EXPECT_NE(Durin::ResolveObjectKey(Handle), nullptr);
 	ASSERT_TRUE(Buffer->DiscardCustomChangesByModule("TestModule"));
 	EXPECT_EQ(Buffer->GetHistoryCount(), 0u);
 	Durin::CollectGarbage();
-	EXPECT_EQ(Durin::ResolveObjectHandle(Handle), nullptr);
+	EXPECT_EQ(Durin::ResolveObjectKey(Handle), nullptr);
 }
 
 TEST(FTransBufferTests, FailedCompensationPreservesEveryCauseAndDisablesHistory)

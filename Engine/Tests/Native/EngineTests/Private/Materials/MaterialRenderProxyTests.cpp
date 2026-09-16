@@ -1014,7 +1014,7 @@ TEST(FMaterialRenderProxyTests, FailedCompilationPublishesErrorAndRecoveryForEac
 		const auto Before = CaptureMaterialProxy(Proxy);
 		const auto Status = Owner->GetMaterialCompileStatus();
 		Durin::FMaterialCompileResult Failed{
-			.Owner = Durin::MakeObjectHandle(Owner),
+			.Owner = Durin::FWeakObjectPtr(Owner),
 			.AuthoredRevision = Status.AuthoredRevision,
 			.Generation = Status.RequestGeneration,
 			.DependencyRevision = Status.DependencyRevision,
@@ -1052,7 +1052,7 @@ TEST(FMaterialRenderProxyTests, FailedCompilationPublishesErrorAndRecoveryForEac
 		const auto Ready = Owner->GetMaterialCompileStatus();
 		ASSERT_TRUE(Ready.IsCurrent());
 		Durin::FMaterialCompileResult Rejected{
-			.Owner = Durin::MakeObjectHandle(Owner),
+			.Owner = Durin::FWeakObjectPtr(Owner),
 			.AuthoredRevision = Ready.AuthoredRevision,
 			.Generation = Ready.RequestGeneration,
 			.DependencyRevision = Ready.DependencyRevision,

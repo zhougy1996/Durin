@@ -2,7 +2,7 @@
 
 #include "Materials/MaterialProgramTypes.h"
 #include "Materials/MaterialTypes.h"
-#include "DObject/ObjectHandle.h"
+#include "DObject/ObjectKey.h"
 
 #include "MaterialFunctionTypes.gen.h"
 
@@ -14,7 +14,7 @@ namespace Durin
 	// Owning-thread admission metadata. Never included in a compiler snapshot.
 	struct FMaterialFunctionOwnerStamp
 	{
-		FObjectHandle Owner;
+		FObjectKey Owner;
 		std::string AssetPath;
 		uint64 Revision = 0;
 		auto operator==(const FMaterialFunctionOwnerStamp&) const -> bool = default;

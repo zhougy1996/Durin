@@ -3,7 +3,7 @@
 #include "CoreDObjectAPI.h"
 #include "DObjectFwd.h"
 #include "DObject/ObjectMacros.h"
-#include "DObject/ObjectHandle.h"
+#include "DObject/ObjectKey.h"
 #include "DObject/StrongObjectPtr.h"
 #include "Serialization/Archive.h"
 
@@ -258,9 +258,9 @@ namespace Durin
 		auto IsValid() const -> bool { return Property != nullptr; }
 		auto GetProperty() const -> const FProperty* { return Property; }
 		auto GetBytes() const -> const FByteBuffer& { return Bytes; }
-		auto GetReferencedObjectHandles() const -> const std::vector<FObjectHandle>&
+		auto GetReferencedObjectKeys() const -> const std::vector<FObjectKey>&
 		{
-			return ReferencedObjectHandles;
+			return ReferencedObjectKeys;
 		}
 		COREDOBJECT_API auto operator==(const FPropertyValueSnapshotPayload& Other) const -> bool;
 		// Reports only capacity owned by the payload, excluding referenced managed objects.
@@ -269,7 +269,7 @@ namespace Durin
 	private:
 		const FProperty* Property = nullptr;
 		FByteBuffer Bytes;
-		std::vector<FObjectHandle> ReferencedObjectHandles;
+		std::vector<FObjectKey> ReferencedObjectKeys;
 		friend COREDOBJECT_API auto CapturePropertyValuePayload(
 			const FProperty*, const void*, uint32, FPropertyValueSnapshotPayload&, std::string*) -> bool;
 		friend COREDOBJECT_API auto RestorePropertyValuePayload(

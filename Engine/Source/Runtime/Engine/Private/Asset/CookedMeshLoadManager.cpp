@@ -7,9 +7,9 @@ namespace Durin
 {
 	namespace
 	{
-		auto SameOwner(FObjectHandle Left, FObjectHandle Right) -> bool
+		auto SameOwner(FObjectKey Left, FObjectKey Right) -> bool
 		{
-			return Left.Index == Right.Index && Left.Generation == Right.Generation;
+			return Left == Right;
 		}
 
 		enum class EFlightPhase : uint8 { Reading, Working, CompletionQueued };
@@ -98,7 +98,7 @@ namespace Durin
 				});
 		}
 
-		auto HasOwner(FObjectHandle Owner) const -> bool
+		auto HasOwner(FObjectKey Owner) const -> bool
 		{
 			return std::ranges::any_of(Flights,
 				[Owner](const std::shared_ptr<FFlight>& Flight) {
@@ -214,7 +214,7 @@ namespace Durin
 	auto FCookedMeshLoadManager::Submit(FCookedMeshLoadRequest Request) -> bool
 	{
 		CheckGameThread();
-		if (IsObjectHandleNull(Request.Identity.Owner)
+		if (IsObjectKeyNull(Request.Identity.Owner)
 			|| Request.Identity.LoadGeneration == 0
 			|| Request.Identity.ResourceRevision == 0
 			|| Request.Fields.empty() || !Request.Worker || !Request.Publish)
@@ -476,7 +476,7 @@ namespace Durin
 			bool bCurrent = false;
 			if (Terminal == ECookedMeshTerminalState::Succeeded)
 			{
-				Owner = ResolveObjectHandle(Completion.Flight->Identity.Owner);
+				Owner = ResolveObjectKey(Completion.Flight->Identity.Owner);
 				bCurrent = Owner && (!Completion.Flight->IsCurrent
 					|| Completion.Flight->IsCurrent(*Owner, Completion.Flight->Identity));
 				if (!bCurrent)
@@ -498,7 +498,7 @@ namespace Durin
 				&& Terminal != ECookedMeshTerminalState::Stale
 				&& Completion.Flight->OnTerminal)
 			{
-				if (!Owner) Owner = ResolveObjectHandle(Completion.Flight->Identity.Owner);
+				if (!Owner) Owner = ResolveObjectKey(Completion.Flight->Identity.Owner);
 				if (Owner && (!Completion.Flight->IsCurrent
 					|| Completion.Flight->IsCurrent(*Owner, Completion.Flight->Identity)))
 				{
@@ -527,7 +527,7 @@ namespace Durin
 		return Processed;
 	}
 
-	auto FCookedMeshLoadManager::Cancel(FObjectHandle Owner) -> bool
+	auto FCookedMeshLoadManager::Cancel(FObjectKey Owner) -> bool
 	{
 		CheckGameThread();
 		std::scoped_lock Lock(State->Mutex);
@@ -555,7 +555,7 @@ namespace Durin
 		return bFound;
 	}
 
-	auto FCookedMeshLoadManager::Finish(FObjectHandle Owner) -> void
+	auto FCookedMeshLoadManager::Finish(FObjectKey Owner) -> void
 	{
 		CheckGameThread();
 		for (;;)

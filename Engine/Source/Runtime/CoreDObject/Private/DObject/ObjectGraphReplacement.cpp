@@ -446,7 +446,7 @@ namespace Durin
 		std::vector<FObjectReplacementPackagePair> Packages;
 		std::vector<std::shared_ptr<IObjectReplacementParticipant>> Participants;
 		std::vector<FStrongObjectPtr> Pins;
-		std::vector<std::pair<FObjectHandle, std::string>> Identities;
+		std::vector<std::pair<FObjectKey, std::string>> Identities;
 		std::vector<uint64> PackageRevisions;
 		uint64 ArrayRevision = 0;
 
@@ -456,7 +456,7 @@ namespace Durin
 			{
 				uint64 Claimed = 1; // This operation pins every live object once.
 				for (const auto& P : Participants) Claimed += P->GetStrongReferenceCount(*Entry.Previous);
-				if (Private::GetStrongObjectReferenceCount(MakeObjectHandle(Entry.Previous)) != Claimed) return false;
+				if (Private::GetStrongObjectReferenceCount(FObjectKey(Entry.Previous)) != Claimed) return false;
 			}
 			return true;
 		}
@@ -517,7 +517,7 @@ namespace Durin
 				if (!IsValid(Object)) continue;
 				Impl->Pins.emplace_back(Object);
 				if (Impl->Map.Find(Object) || PreparedSet.contains(Object))
-					Impl->Identities.emplace_back(MakeObjectHandle(Object), Object->GetObjectPath());
+					Impl->Identities.emplace_back(FObjectKey(Object), Object->GetObjectPath());
 			}
 			for (const auto& Pair : Packages)
 			{
@@ -552,7 +552,7 @@ namespace Durin
 			if (GDObjectArray.GetRevision() != Impl->ArrayRevision) return Fail(E::Stale, "Object membership changed during preparation.");
 			for (const auto& [Handle, Path] : Impl->Identities)
 			{
-				DObject* Object = ResolveObjectHandle(Handle);
+				DObject* Object = ResolveObjectKey(Handle);
 				if (!IsValid(Object) || Object->GetObjectPath() != Path) return Fail(E::Stale, "Graph identity changed.");
 			}
 			for (const auto& Entry : Impl->Map.GetEntries())
@@ -627,7 +627,7 @@ namespace Durin
 		for (const auto& P : Impl->Participants) if (!P->CanRetire()) return false;
 		for (const auto& Entry : Impl->Map.GetEntries())
 			if (Entry.Previous->HasAnyInternalFlags(EObjectInternalFlags::RootSet)
-				|| Private::GetStrongObjectReferenceCount(MakeObjectHandle(Entry.Previous)) != 1) return false;
+				|| Private::GetStrongObjectReferenceCount(FObjectKey(Entry.Previous)) != 1) return false;
 		// Late callbacks cannot turn forced retirement into a dangling strong edge.
 		try
 		{

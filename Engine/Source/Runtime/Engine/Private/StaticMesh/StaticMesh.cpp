@@ -205,7 +205,7 @@ namespace Durin
 		{
 			if (FCookedMeshLoadManager* Manager =
 				GetCookedMeshLoadManager())
-				Manager->Cancel(MakeObjectHandle(this));
+				Manager->Cancel(FObjectKey(this));
 			CookedLoadPhase.store(ECookedMeshCpuPhase::Unloaded, std::memory_order_release);
 			CookedLoadGeneration.fetch_add(1, std::memory_order_acq_rel);
 		}
@@ -220,7 +220,7 @@ namespace Durin
 				GetCookedMeshLoadManager();
 				Manager && Initial.CpuPhase != ECookedMeshCpuPhase::Unloaded)
 			{
-				Manager->Finish(MakeObjectHandle(this));
+				Manager->Finish(FObjectKey(this));
 			}
 		}
 		if (!RenderData && CookedLoadPhase.load(std::memory_order_acquire)
@@ -619,7 +619,7 @@ namespace Durin
 	{
 		CancelStaticMeshCompilation(*this);
 		if (FCookedMeshLoadManager* Manager = GetCookedMeshLoadManager())
-			Manager->Cancel(MakeObjectHandle(this));
+			Manager->Cancel(FObjectKey(this));
 		const EStaticMeshRenderResourceState State =
 			LoadRenderResourceState();
 		const bool bHasQueuedResourceWork =
@@ -692,7 +692,7 @@ namespace Durin
 	auto DStaticMesh::InvalidateRenderData() -> void
 	{
 		CancelStaticMeshCompilation(*this);
-		if (auto* Manager = GetCookedMeshLoadManager()) Manager->Cancel(MakeObjectHandle(this));
+		if (auto* Manager = GetCookedMeshLoadManager()) Manager->Cancel(FObjectKey(this));
 		CookedLoadGeneration.fetch_add(1, std::memory_order_acq_rel);
 		// Superseded cooked bytes must not restore geometry after a failed authored replacement.
 		CookedRenderData = {};

@@ -10,18 +10,17 @@ namespace Durin
 {
 	namespace
 	{
-		auto HandleLess(FObjectHandle Left, FObjectHandle Right) -> bool
+		auto HandleLess(FObjectKey Left, FObjectKey Right) -> bool
 		{
-			return Left.Index < Right.Index
-				|| (Left.Index == Right.Index && Left.Generation < Right.Generation);
+			return Left < Right;
 		}
 	}
 
 	FStaticMeshRenderStateRecreateContext::FStaticMeshRenderStateRecreateContext(
 		DStaticMesh* StaticMesh)
-		: StaticMeshHandle(MakeObjectHandle(StaticMesh))
+		: StaticMeshHandle(FObjectKey(StaticMesh))
 	{
-		if (!IsValid(StaticMesh) || IsObjectHandleNull(StaticMeshHandle)) return;
+		if (!IsValid(StaticMesh) || IsObjectKeyNull(StaticMeshHandle)) return;
 
 		for (DObject* Object : GDObjectArray.Snapshot(EObjectQueryScope::LiveOnly))
 		{
@@ -34,15 +33,15 @@ namespace Durin
 				|| (StaticComponent && StaticComponent->GetStaticMesh() != StaticMesh)
 				|| (SplineComponent && SplineComponent->GetStaticMesh() != StaticMesh))
 				continue;
-			const FObjectHandle Handle = MakeObjectHandle(Component);
-			if (IsObjectHandleNull(Handle)) continue;
+			const FObjectKey Handle = FObjectKey(Component);
+			if (IsObjectKeyNull(Handle)) continue;
 			ComponentHandles.push_back(Handle);
 		}
 		std::ranges::sort(ComponentHandles, HandleLess);
 
-		for (FObjectHandle Handle : ComponentHandles)
+		for (FObjectKey Handle : ComponentHandles)
 		{
-			auto* Object = ResolveObjectHandle(Handle);
+			auto* Object = ResolveObjectKey(Handle);
 			auto* StaticComponent = Cast<DStaticMeshComponent>(Object);
 			auto* SplineComponent = Cast<DSplineMeshComponent>(Object);
 			DPrimitiveComponent* Component = StaticComponent
@@ -57,12 +56,12 @@ namespace Durin
 
 	FStaticMeshRenderStateRecreateContext::~FStaticMeshRenderStateRecreateContext()
 	{
-		auto* StaticMesh = Cast<DStaticMesh>(ResolveObjectHandle(StaticMeshHandle));
+		auto* StaticMesh = Cast<DStaticMesh>(ResolveObjectKey(StaticMeshHandle));
 		if (!IsValid(StaticMesh)) return;
 
-		for (FObjectHandle Handle : ComponentHandles)
+		for (FObjectKey Handle : ComponentHandles)
 		{
-			auto* Object = ResolveObjectHandle(Handle);
+			auto* Object = ResolveObjectKey(Handle);
 			if (auto* Component = Cast<DStaticMeshComponent>(Object);
 				IsValid(Component) && Component->IsRegistered()
 				&& Component->GetStaticMesh() == StaticMesh)

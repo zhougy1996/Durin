@@ -1,3 +1,4 @@
+#include "ObjectCacheContext.h"
 #include "Widgets/MMaterialEditor.h"
 #include "Widgets/MaterialDetailsStyle.h"
 #include "Widgets/MMaterialFunctionEditor.h"
@@ -637,8 +638,9 @@ namespace Durin::Editor::Material
 				if (ImGui::Button("Cancel Compile"))
 				{
 					if (auto* Session = FindEditingSession(Material)) Session->CancelApply();
-					for (const auto Handle : GetLoadedMaterialDependents(Material))
-						if (auto* Owner = ResolveObjectHandle(Handle); IsValid(Owner))
+					FObjectCacheContext Context;
+				for (auto* Owner : Context.GetMaterialsAffectedByMaterial(Material))
+						if (IsValid(Owner))
 							FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Owner);
 				}
 			}
@@ -1132,7 +1134,7 @@ namespace Durin::Editor::Material
 				ImGui::EndDisabled();
 				if (bResolved)
 				{
-					const auto* Source = ResolveObjectHandle(Resolved.Sources[Index]);
+					const auto* Source = ResolveObjectKey(Resolved.Sources[Index]);
 					ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
 					ImGui::TextWrapped("Source: %s", Source ? Source->GetObjectPath().c_str() : "unavailable");
 					ImGui::PopStyleColor();

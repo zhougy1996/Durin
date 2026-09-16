@@ -15,7 +15,7 @@ namespace Durin
 				Mesh.GetMaterialSlots().begin(), Mesh.GetMaterialSlots().end()),
 			.NormalizedSize = Mesh.GetNormalizedSize(),
 			.SourceIdentity = Mesh.GetSource().GetIdentity(),
-			.Body = MakeObjectHandle(Body),
+			.Body = FObjectKey(Body),
 			.BodyRevision = Body ? Body->GetRevision() : 0,
 			.CollisionMode = Body ? Body->GetCollisionSourceMode() : EBodySetupCollisionSourceMode::None,
 			.CollisionPolicy = Body ? Body->GetCollisionQueryPolicy() : EBodySetupCollisionQueryPolicy::SimpleAndComplex};

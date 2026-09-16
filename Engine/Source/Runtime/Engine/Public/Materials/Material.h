@@ -87,7 +87,7 @@ namespace Durin
 
 	private:
 		FMaterialGraphChangeSource GraphChanges;
-		auto AdvanceAuthoredRevision() -> void;
+		auto AdvanceAuthoredRevision(FObjectCacheContext* Context = nullptr) -> void;
 		EMaterialEditCompileMode EditCompileMode = EMaterialEditCompileMode::Immediate;
 		// These values are inherited by instances and will form shader and pipeline keys.
 		DPROPERTY(Edit)

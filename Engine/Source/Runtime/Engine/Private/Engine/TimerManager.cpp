@@ -40,7 +40,7 @@ namespace Durin
 		struct FTimer
 		{
 			FTimerHandle Handle;
-			FObjectHandle Owner;
+			FWeakObjectPtr Owner;
 			std::function<void(DObject*)> Callback;
 			double Deadline = 0.0;
 			double Interval = 0.0;
@@ -79,7 +79,7 @@ namespace Durin
 		auto Find(FTimerHandle Handle) const -> std::shared_ptr<FTimer>
 		{
 			RequireTimerThread();
-			if (Handle.Generation == 0 || Handle.World != MakeObjectHandle(&World) || Handle.Slot >= Slots.size()) return {};
+			if (Handle.Generation == 0 || Handle.World != FObjectKey(&World) || Handle.Slot >= Slots.size()) return {};
 			auto Timer = Slots[Handle.Slot];
 			return Timer && Timer->Handle == Handle && Timer->bActive ? Timer : nullptr;
 		}
@@ -116,8 +116,8 @@ namespace Durin
 		uint32 Slot;
 		if (S.FreeSlots.empty()) { Slot = static_cast<uint32>(S.Slots.size()); S.Slots.push_back({}); }
 		else { Slot = S.FreeSlots.back(); S.FreeSlots.pop_back(); }
-		Timer->Handle = {MakeObjectHandle(&S.World), Slot, ++S.Generation};
-		Timer->Owner = MakeObjectHandle(Owner);
+		Timer->Handle = {FObjectKey(&S.World), Slot, ++S.Generation};
+		Timer->Owner = FWeakObjectPtr(Owner);
 		Timer->Callback = std::move(Callback);
 		Timer->Deadline = S.Time + Delay;
 		Timer->Interval = Interval;
@@ -162,10 +162,10 @@ namespace Durin
 	{
 		RequireTimerThread();
 		if (!Owner) return;
-		const auto Identity = MakeObjectHandle(const_cast<DObject*>(Owner));
+		const auto Identity = FObjectKey(const_cast<DObject*>(Owner));
 		std::vector<FTimerHandle> Handles;
 		for (const auto& Timer : State->Slots)
-			if (Timer && Timer->Owner == Identity) Handles.push_back(Timer->Handle);
+			if (Timer && Timer->Owner.GetKey() == Identity) Handles.push_back(Timer->Handle);
 		for (const auto Handle : Handles) ClearTimer(Handle);
 	}
 	auto FTimerManager::PauseTimer(FTimerHandle Handle) -> bool
@@ -238,8 +238,8 @@ namespace Durin
 			auto Entry = std::move(S.Ready.front()); S.Ready.pop_front();
 			if (!Entry.IsCurrent()) continue;
 			auto Timer = Entry.Timer;
-			DObject* Owner = ResolveObjectHandle(Timer->Owner);
-			if (!IsObjectHandleNull(Timer->Owner) && !IsTimerOwnerEligible(Owner, S.World)) { S.Remove(Timer); continue; }
+			DObject* Owner = Timer->Owner.Get();
+			if (!Timer->Owner.GetKey().IsNull() && !IsTimerOwnerEligible(Owner, S.World)) { S.Remove(Timer); continue; }
 			if (Timer->Interval > 0.0)
 			{
 				// Publish the next period before user code so self-pause preserves that remainder.

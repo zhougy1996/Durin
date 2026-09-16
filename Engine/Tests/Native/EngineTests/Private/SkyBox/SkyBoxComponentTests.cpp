@@ -142,9 +142,9 @@ TEST(FSkyBoxTests, ActorDefaultsSerializeAndRetainCubeReference)
 	EXPECT_EQ(Component->GetIntensity(), 0.0f);
 
 	Durin::AddToRoot(Actor);
-	const Durin::FObjectHandle CubeHandle = Durin::MakeObjectHandle(Cube);
+	const Durin::FObjectKey CubeHandle = Durin::FObjectKey(Cube);
 	Durin::CollectGarbage();
-	EXPECT_EQ(Durin::ResolveObjectHandle(CubeHandle), Cube);
+	EXPECT_EQ(Durin::ResolveObjectKey(CubeHandle), Cube);
 	Component->SetTextureCube(nullptr);
 
 	Durin::FByteBuffer Bytes;
@@ -161,7 +161,7 @@ TEST(FSkyBoxTests, ActorDefaultsSerializeAndRetainCubeReference)
 	Durin::MarkAsGarbage(Actor);
 	Durin::MarkAsGarbage(LoadedActor);
 	Durin::CollectGarbage();
-	EXPECT_EQ(Durin::ResolveObjectHandle(CubeHandle), nullptr);
+	EXPECT_EQ(Durin::ResolveObjectKey(CubeHandle), nullptr);
 }
 
 TEST(FSkyBoxTests, ComponentSynchronizesRegistrationVisibilityTransformAndProperties)

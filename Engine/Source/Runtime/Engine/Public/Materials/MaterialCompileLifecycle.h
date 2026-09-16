@@ -1,6 +1,6 @@
 #pragma once
 
-#include "DObject/ObjectHandle.h"
+#include "DObject/WeakObjectPtr.h"
 #include "EngineAPI.h"
 #include "Materials/MaterialProgramCompiler.h"
 #include "Threading/Task.h"
@@ -11,6 +11,7 @@
 
 namespace Durin
 {
+	class FObjectCacheContext;
 	class DMaterialInterface;
 
 	inline constexpr uint32 MaterialCompileMaxConcurrentRequests = 64;
@@ -89,7 +90,7 @@ namespace Durin
 	// Immutable snapshot captured on GameThread before Worker admission.
 	struct FMaterialCompileRequest
 	{
-		FObjectHandle Owner;
+		FWeakObjectPtr Owner;
 		uint64 AuthoredRevision = 0;
 		uint64 Generation = 0;
 		uint64 DependencyRevision = 0;
@@ -105,7 +106,7 @@ namespace Durin
 	// Value-owned Worker result admitted only after all owner-generation qualifiers match.
 	struct FMaterialCompileResult
 	{
-		FObjectHandle Owner;
+		FWeakObjectPtr Owner;
 		uint64 AuthoredRevision = 0;
 		uint64 Generation = 0;
 		uint64 DependencyRevision = 0;
@@ -186,18 +187,18 @@ namespace Durin
 		struct FMaterialCompilationLifecycle
 		{
 			// Coalesces edits before compiler-input construction, using the root's policy.
-			ENGINE_API static auto ScheduleEdit(DMaterialInterface& Material) -> void;
+			ENGINE_API static auto ScheduleEdit(DMaterialInterface& Material, FObjectCacheContext* Context = nullptr) -> void;
 			ENGINE_API static auto Submit(
 				DMaterialInterface& Material,
 				FMaterialIRCompilerInput Input,
-				bool bForceRecompile, std::vector<FMaterialFunctionOwnerStamp> FunctionOwners = {}) -> bool;
+				bool bForceRecompile, std::vector<FMaterialFunctionOwnerStamp> FunctionOwners = {}, FObjectCacheContext* Context = nullptr) -> bool;
 			ENGINE_API static auto Admit(
 				DMaterialInterface& Material,
-				FMaterialCompileResult Result) -> bool;
+				FMaterialCompileResult Result, FObjectCacheContext* Context = nullptr) -> bool;
 			ENGINE_API static auto MarkCanceled(DMaterialInterface& Material) -> void;
 			ENGINE_API static auto RetryDeferred(DMaterialInterface& Material) -> void;
 			ENGINE_API static auto RequestCurrent(
-				DMaterialInterface& Material, bool bForceRecompile) -> bool;
+				DMaterialInterface& Material, bool bForceRecompile, FObjectCacheContext* Context = nullptr) -> bool;
 		};
 	}
 }

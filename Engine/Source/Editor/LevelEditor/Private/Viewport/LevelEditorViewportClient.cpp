@@ -488,7 +488,7 @@ namespace Durin::Editor::Level
 			const FEditorVisualizationHit Hit = Visualizations->HitTest(View, ViewportPosition);
 			if (Hit.Actor && Hit.Component)
 			{
-				const FObjectHandle Handle = TWeakObjectPtr<DActorComponent>(Hit.Component).GetHandle();
+				const FObjectKey Handle = TWeakObjectPtr<DActorComponent>(Hit.Component).GetKey();
 				Visualization = FViewportPickHit{
 					.Kind = EViewportPickHitKind::EditorVisualization,
 					.Actor = Hit.Actor,
@@ -496,7 +496,7 @@ namespace Durin::Editor::Level
 					.Element = Hit.Element,
 					.Distance = Hit.Distance,
 					.Priority = Hit.Priority,
-					.StableTieKey = (static_cast<uint64>(Handle.Generation) << 32) | Handle.Index,
+					.StableTieKey = Handle.GetHash(),
 					.bDepthIndependent = Hit.bDepthIndependent,
 				};
 			}

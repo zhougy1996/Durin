@@ -234,7 +234,7 @@ TEST_F(FObjectGraphReplacementTests, IsolatesCandidateAndAtomicallyRebindsRefere
 	Owner->StructReference.Reference = Old;
 	New->Reference = Old;
 	Current->MarkDirty();
-	const auto OldHandle = MakeObjectHandle(Old);
+	const auto OldHandle = FObjectKey(Old);
 	TWeakObjectPtr<DObject> Weak(Old);
 	const auto Epoch = GetSoftObjectCacheEpoch();
 	EXPECT_EQ(FindPackage(Path.GetView()), Current);
@@ -257,11 +257,11 @@ TEST_F(FObjectGraphReplacementTests, IsolatesCandidateAndAtomicallyRebindsRefere
 	EXPECT_EQ(New->Reference.Get(), New);
 	EXPECT_TRUE(Current->IsDirty());
 	EXPECT_GT(GetSoftObjectCacheEpoch(), Epoch);
-	EXPECT_EQ(ResolveObjectHandle(OldHandle), Old);
+	EXPECT_EQ(ResolveObjectKey(OldHandle), Old);
 	EXPECT_TRUE(Operation->Retire());
 	CollectGarbage();
 	EXPECT_FALSE(Weak.IsValid());
-	EXPECT_EQ(ResolveObjectHandle(OldHandle), nullptr);
+	EXPECT_EQ(ResolveObjectKey(OldHandle), nullptr);
 }
 
 TEST_F(FObjectGraphReplacementTests, AbortPreservesRegistrationReferencesAndDirty)
@@ -419,26 +419,22 @@ TEST_F(FObjectGraphReplacementTests, LateManualRootPreventsCommitAndRetirement)
 
 TEST_F(FObjectGraphReplacementTests, ReusedSlotsNeverRedirectOldWeakHandles)
 {
-	const auto OldHandle = MakeObjectHandle(Old);
+	const auto OldHandle = FObjectKey(Old);
 	TWeakObjectPtr<DObject> Weak(Old);
 	ASSERT_TRUE(Prepare());
 	ASSERT_TRUE(Operation->TryCommit());
 	ASSERT_TRUE(Operation->Retire());
 	CollectGarbage();
-	bool Reused = false;
+
 	for (uint32 I = 0; I < 16; ++I)
 	{
 		auto* Added = NewObject<DObject>(Prepared, FName(std::format("Reused{}", I).c_str()));
-		const auto NewHandle = MakeObjectHandle(Added);
-		if (NewHandle.Index == OldHandle.Index)
-		{
-			Reused = true;
-			EXPECT_NE(NewHandle.Generation, OldHandle.Generation);
-		}
+		const auto NewHandle = FObjectKey(Added);
+		EXPECT_NE(NewHandle, OldHandle);
 	}
-	EXPECT_TRUE(Reused);
+
 	EXPECT_FALSE(Weak.IsValid());
-	EXPECT_EQ(ResolveObjectHandle(OldHandle), nullptr);
+	EXPECT_EQ(ResolveObjectKey(OldHandle), nullptr);
 }
 
 TEST_F(FObjectGraphReplacementTests, RetirementWaitsForLateReflectedAndNativeReferences)

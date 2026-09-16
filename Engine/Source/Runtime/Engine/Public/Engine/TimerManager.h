@@ -1,7 +1,7 @@
 #pragma once
 
 #include "EngineAPI.h"
-#include "DObject/ObjectHandle.h"
+#include "DObject/ObjectKey.h"
 
 namespace Durin
 {
@@ -10,7 +10,7 @@ namespace Durin
 	// Identifies one timer incarnation in one World; clearing never revives old handles.
 	struct FTimerHandle
 	{
-		FObjectHandle World;
+		FObjectKey World;
 		uint32 Slot = 0;
 		uint64 Generation = 0;
 		friend auto operator==(const FTimerHandle&, const FTimerHandle&) -> bool = default;

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "DObject/ObjectHandle.h"
+#include "DObject/WeakObjectPtr.h"
 
 #include <algorithm>
 #include <list>
@@ -19,16 +19,16 @@ namespace Durin::Private
 		FMaterialCompileRetryQueue(const FMaterialCompileRetryQueue&) = delete;
 		auto operator=(const FMaterialCompileRetryQueue&) -> FMaterialCompileRetryQueue& = delete;
 
-		auto Add(FObjectHandle Owner) -> void
+		auto Add(FWeakObjectPtr Owner) -> void
 		{
-			if (IsObjectHandleNull(Owner) || Entries.contains(Key(Owner))) return;
+			if (Owner.GetKey().IsNull() || Entries.contains(Owner.GetKey())) return;
 			Owners.push_back(Owner);
-			Entries.emplace(Key(Owner), std::prev(Owners.end()));
+			Entries.emplace(Owner.GetKey(), std::prev(Owners.end()));
 		}
 
-		auto Remove(FObjectHandle Owner) -> void
+		auto Remove(FWeakObjectPtr Owner) -> void
 		{
-			const auto It = Entries.find(Key(Owner));
+			const auto It = Entries.find(Owner.GetKey());
 			if (It == Entries.end()) return;
 			Owners.erase(It->second);
 			Entries.erase(It);
@@ -44,20 +44,15 @@ namespace Durin::Private
 			const size_t Count = std::min(MaximumChecks, Num());
 			for (size_t Index = 0; Index < Count && !Owners.empty(); ++Index)
 			{
-				const FObjectHandle Owner = Owners.front();
+				const FWeakObjectPtr Owner = Owners.front();
 				Remove(Owner);
 				if (Visit(Owner)) Add(Owner);
 			}
 		}
 
 	private:
-		static auto Key(FObjectHandle Owner) -> uint64
-		{
-			return (uint64{Owner.Generation} << 32) | Owner.Index;
-		}
-
-		std::list<FObjectHandle> Owners;
-		std::unordered_map<uint64, std::list<FObjectHandle>::iterator> Entries;
+std::list<FWeakObjectPtr> Owners;
+		std::unordered_map<FObjectKey, std::list<FWeakObjectPtr>::iterator> Entries;
 	};
 
 	// Shared by lifecycle and owner teardown, including edits before manager start.

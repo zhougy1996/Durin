@@ -51,7 +51,7 @@ namespace Durin
 
 		CompilationOwner.RenderLayer.CompiledProgram = std::move(ProgramCandidate);
 		CompilationOwner.RenderLayer.StaticProperties = PayloadProperties;
-		Private::GetMaterialCompileRetryQueue().Remove(MakeObjectHandle(this));
+		Private::GetMaterialCompileRetryQueue().Remove(FWeakObjectPtr(this));
 		CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Ready;
 		CompilationOwner.MaterialCompileStatus.ResultCategory =
 			EMaterialCompileResultCategory::None;

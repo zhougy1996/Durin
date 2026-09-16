@@ -15,6 +15,8 @@
 
 namespace Durin
 {
+	class FObjectCacheContext;
+	template<typename T> class TObjectCacheIterator;
 	// Owning-thread invalidation of parameter definitions, values, ancestry or reachability.
 	DECLARE_MULTICAST_DELEGATE(FMaterialParameterChangedEvent)
 
@@ -33,11 +35,11 @@ namespace Durin
 	// GameThread resolution reports source owners without retaining their lifetimes.
 	struct FResolvedMaterialProperties
 	{
-		FObjectHandle Root;
+		FObjectKey Root;
 		FMaterialStaticProperties Properties;
 		FMaterialStaticProperties ShaderProperties;
 		// Blend, shading, cutoff, culling, depth, in that order.
-		std::array<FObjectHandle, 5> Sources{};
+		std::array<FObjectKey, 5> Sources{};
 	};
 
 	ENGINE_API auto ResolveMaterialProperties(const DMaterialInterface& Material,
@@ -55,6 +57,7 @@ namespace Durin
 		EMaterialLoadedQueryOperation LastOperation = EMaterialLoadedQueryOperation::None;
 		uint64 QueryCount = 0;
 		uint64 SnapshotCount = 0;
+		uint64 ParentTableBuildCount = 0;
 		uint64 ScannedObjectCount = 0;
 		uint64 ScannedMaterialCount = 0;
 		uint64 LastResultCount = 0;
@@ -153,6 +156,7 @@ namespace Durin
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 
 	protected:
+		ENGINE_API auto PostEditChangePropertyWithContext(const FPropertyChangedEvent& Event, FObjectCacheContext& Context) -> void;
 		ENGINE_API auto LoadCookedProgram(std::string& OutError) -> bool;
 		// A transient runtime owner can select only an already compiled compatible variant.
 		ENGINE_API auto AdoptParentRuntimeProgram() -> bool;
@@ -160,10 +164,10 @@ namespace Durin
 		std::string MaterialCookDiagnostic;
 		ENGINE_API auto RequestProgramCompile(
 			const FMaterialStaticProperties& CandidateProperties,
-			bool bForceRecompile = false) -> bool;
+			bool bForceRecompile = false, FObjectCacheContext* Context = nullptr) -> bool;
 		// Invalidates authored dependencies before requesting detached replacements.
 		ENGINE_API auto InvalidateMaterialCompilation(bool bIncludeSelf = true,
-			bool bOnlyIfShaderChanged = false) -> void;
+			bool bOnlyIfShaderChanged = false, FObjectCacheContext* Context = nullptr) -> void;
 		FMaterialCompilationOwnerState CompilationOwner;
 
 		ENGINE_API virtual auto BuildMaterialLocalRenderLayer() const
@@ -173,10 +177,10 @@ namespace Durin
 		// Optional parameter notifications reuse the publication snapshot and run
 		// only after every affected owner's render state has been updated.
 		ENGINE_API auto MarkRenderDataDirty(EMaterialRenderDirtyFlags DirtyFlags,
-			bool bNotifyParameterChanges = false) -> void;
+			bool bNotifyParameterChanges = false, FObjectCacheContext* Context = nullptr) -> void;
 
 	private:
-		auto BroadcastParameterChanges(std::span<const FObjectHandle> Dependents) -> void;
+		auto BroadcastParameterChanges(const TObjectCacheIterator<DMaterialInterface>& Dependents) -> void;
 		friend auto ::Durin::ContributeEngineCookAsset(
 			DObject&, std::string_view, FCookContext&, std::string&) -> bool;
 		ENGINE_API auto ContributeToCook(
@@ -188,7 +192,7 @@ namespace Durin
 		DPROPERTY(EditorOnly)
 		FMaterialImportProvenance ImportProvenance;
 		// Retires the failed owner's complete renderable generation and publishes ErrorMaterial.
-		auto RetireFailedMaterialGeneration() -> void;
+		auto RetireFailedMaterialGeneration(FObjectCacheContext* Context = nullptr) -> void;
 		auto PublishMaterialRenderProxyState(FMaterialLocalRenderLayer LocalLayer) -> void;
 		auto SubmitMaterialRenderProxyState(FMaterialLocalRenderLayer LocalLayer) const -> void;
 
@@ -208,10 +212,10 @@ namespace Durin
 	// Returns loaded material instances whose canonical Parent is exactly Parent.
 	ENGINE_API auto GetLoadedDirectMaterialChildren(
 		const DMaterialInterface* Parent
-	) -> std::vector<FObjectHandle>;
+	) -> std::vector<FObjectKey>;
 
 	// Returns loaded materials whose canonical Parent chain contains Dependency, including itself.
 	ENGINE_API auto GetLoadedMaterialDependents(
 		const DMaterialInterface* Dependency
-	) -> std::vector<FObjectHandle>;
+	) -> std::vector<FObjectKey>;
 }

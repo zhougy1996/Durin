@@ -1524,7 +1524,7 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerDoesNotKeepUnloadedPackageAlive
 	FScopedDerivedDataCacheRestore RestoreCache;
 	const auto Fixture = ImportCacheFixture("ManagerPackageRetirement");
 	ASSERT_NE(nullptr, Fixture.Mesh);
-	const auto Owner = MakeObjectHandle(Fixture.Mesh);
+	const auto Owner = FObjectKey(Fixture.Mesh);
 	std::optional<EStaticMeshCompilationStatus> Terminal;
 	std::string Error;
 	FStaticMeshWorkerBarrier Barrier;
@@ -1533,7 +1533,7 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerDoesNotKeepUnloadedPackageAlive
 	ASSERT_TRUE(Barrier.Wait(1));
 	const auto Unloaded = UnloadPackage(Fixture.AssetPath, EAssetPackageUnloadPolicy::DiscardUnsaved);
 	EXPECT_TRUE(Unloaded) << Unloaded.Message;
-	EXPECT_EQ(nullptr, ResolveObjectHandle(Owner));
+	EXPECT_EQ(nullptr, ResolveObjectKey(Owner));
 	Barrier.Release();
 	FAssetCompilingManager::Get().FinishAllCompilation();
 	ASSERT_TRUE(Terminal.has_value());

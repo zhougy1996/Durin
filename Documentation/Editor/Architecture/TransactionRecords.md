@@ -4,7 +4,7 @@ Summary: Define exact editor transaction object identity, collector-enumerated r
 
 Modules: CoreDObject, DurinEd
 
-Last reviewed: 2026-08-31
+Last reviewed: 2026-09-16
 
 ## Scope
 
@@ -21,7 +21,7 @@ run on the game thread under CoreDObject's synchronous collection contract.
 
 ## Exact Participant Identity
 
-`FPersistentObjectRef` stores only an `FObjectHandle`: one object-array slot and
+`FPersistentObjectRef` stores only an `FObjectKey`: one object-array slot and
 its generation. A null reference has the invalid slot. A non-null reference
 resolves only while that exact generation remains registered and is not
 garbage or begin-destroyed.

@@ -21,14 +21,13 @@ namespace Durin
 	auto FWeakObjectPtr::Get() const -> DObject*
 	{
 		CheckWeakObjectThread();
-		DObject* Object = ResolveObjectHandle(Handle);
-		return Object && !Object->IsPendingKill() ? Object : nullptr;
+		return Key.ResolveObjectPtr();
 	}
 
 	auto FWeakObjectPtr::SetObject(DObject* InObject) -> void
 	{
 		CheckWeakObjectThread();
-		Handle = MakeObjectHandle(InObject);
+		Key = FObjectKey(InObject);
 	}
 
 	auto FWeakObjectPtr::IsValid() const -> bool

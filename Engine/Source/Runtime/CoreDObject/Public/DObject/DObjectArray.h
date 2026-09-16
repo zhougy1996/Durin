@@ -2,6 +2,7 @@
 
 #include "CoreDObjectAPI.h"
 #include "DObject/ObjectHandle.h"
+#include "DObject/ObjectKey.h"
 
 namespace Durin
 {
@@ -25,6 +26,8 @@ namespace Durin
 		COREDOBJECT_API auto Contains(const DObject* Object) const -> bool;
 		COREDOBJECT_API auto MakeHandle(const DObject* Object) const -> FObjectHandle;
 		COREDOBJECT_API auto Resolve(FObjectHandle Handle) const -> DObject*;
+		COREDOBJECT_API auto MakeKey(const DObject* Object) const -> FObjectKey;
+		COREDOBJECT_API auto Resolve(FObjectKey Key) const -> DObject*;
 
 		auto GetNum() const -> uint64 { return static_cast<uint64>(Objects.size()); }
 		auto GetRevision() const -> uint64 { return Revision; }

@@ -4,7 +4,7 @@ Summary: Define managed-object reachability, collection, rooting, and destructio
 
 Modules: CoreDObject
 
-Last reviewed: 2026-09-09
+Last reviewed: 2026-09-16
 
 Durin uses a synchronous, stop-the-world, non-moving mark-sweep collector for `DObject` instances. Collection runs on the game thread and does not scan the native stack. Object hierarchy and object lifetime are related in one direction only: a reachable child keeps its Outer chain alive, while a reachable Outer does not keep its children alive.
 
@@ -140,7 +140,7 @@ The collector does not follow:
 A local or otherwise unreflected `TObjectPtr` is a handle, not an automatically discovered root. It keeps an object alive only when it is stored in a reflected reachable field or explicitly reported to the reference collector.
 
 `TStrongObjectPtr` is the native-owner counterpart. Construction from a live
-object or exact `FObjectHandle` registers a collector root before the caller
+object or exact `FObjectKey` registers a collector root before the caller
 continues; copying creates an independently releasable strong reference, moving
 transfers one, and destruction or `Reset()` releases it. Construction and
 release run on the game thread. A stale, removed, garbage, or begin-destroyed
@@ -219,7 +219,23 @@ The Outer index is used only to order independently selected candidates so child
 
 ## Pointer And Handle Semantics
 
-`TObjectPtr` and `TWeakObjectPtr` use stable index-and-generation handles. Handle resolution and registry removal are constant-time, and generation changes prevent stale handles from resolving after slot reuse.
+`FObjectPtr`/`TObjectPtr` retain their object-pointer representation and assignment
+barrier. `FWeakObjectPtr`/`TWeakObjectPtr` instead store object-key identity,
+independently of `FObjectHandle` encoding. `FObjectKey`/`TObjectKey<T>` are
+non-owning eight-byte process-local identity values for comparison, ordering and
+hashing. Capture from a pointer and explicit `ResolveObjectPtr()` run on the game
+thread; resolution rejects pending destruction. Null and stale identities remain
+distinct, and equality/hash/order never resolve a pointer. Independent copies
+may be compared or hashed on workers; concurrent mutation of one value is not
+supported. Typed wrappers support forward-declared object types.
+
+Keys retain slot/generation identity after destruction and never redirect to a
+replacement graph. The object array remains the sole slot authority. Existing
+32-bit generation wrap skips zero; an ancient identity can alias after
+2^32-1 reuses of the same slot. Keys and weak identities must not be persisted
+as asset/package identities. In-memory weak snapshots preserve stale identity
+without rooting targets. Use `FWeakObjectPtr(Key)` explicitly for deferred access
+and `FStrongObjectPtr(Key)` only when independent retention is intended.
 
 - Reflected `TObjectPtr` fields are GC strong references.
 - Raw `DObject*` fields are not automatically traversed and must not be retained across collection unless another strong reference guarantees lifetime.

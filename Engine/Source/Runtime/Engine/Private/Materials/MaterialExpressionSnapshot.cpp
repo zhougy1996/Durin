@@ -130,7 +130,7 @@ namespace Durin
 			-> std::optional<FMaterialExpressionFunctionBody> {
 			const auto* Concrete = Cast<DMaterialFunction>(&Function);
 			if (!Concrete) return std::nullopt;
-			Owners.push_back({MakeObjectHandle(const_cast<DMaterialFunction*>(Concrete)), Concrete->GetObjectPath(), Concrete->GetFunctionRevision()});
+			Owners.push_back({FObjectKey(const_cast<DMaterialFunction*>(Concrete)), Concrete->GetObjectPath(), Concrete->GetFunctionRevision()});
 			return Concrete->GetExpressionBody();
 		}});
 		auto Built = Context.FinishSurface(Owner->GetExpressionOutputs());
@@ -154,7 +154,7 @@ namespace Durin
 		check(IsInGameThread());
 		for (const auto& Stamp : Owners)
 		{
-			const auto* Owner = Cast<DMaterialFunctionInterface>(ResolveObjectHandle(Stamp.Owner));
+			const auto* Owner = Cast<DMaterialFunctionInterface>(ResolveObjectKey(Stamp.Owner));
 			if (!IsValid(Owner) || Owner->GetFunctionRevision() != Stamp.Revision || Owner->GetObjectPath() != Stamp.AssetPath) return false;
 		}
 		return true;
@@ -192,7 +192,7 @@ namespace Durin
 			Result->Validation.Diagnostics.push_back({.Message = std::move(Error)});
 			return Result;
 		}
-		const auto* Root = Cast<DMaterial>(ResolveObjectHandle(Properties.Root));
+		const auto* Root = Cast<DMaterial>(ResolveObjectKey(Properties.Root));
 		// Structural reachability is independent of instance values and static properties.
 		// Store it on the graph owner so all instances share the same analysis.
 		if (Root != this) return Root->GetParameterReachability();

@@ -75,7 +75,7 @@ namespace
 	{
 		return {
 			.Identity = {
-				.Owner = MakeObjectHandle(&Owner),
+				.Owner = FObjectKey(&Owner),
 				.Family = Family,
 				.LoadGeneration = Generation,
 				.ResourceRevision = 1,
@@ -185,7 +185,7 @@ TEST(FCookedMeshLoadManagerTests,
 	ASSERT_TRUE(Manager.Submit(MakeRequest(*Owners[0], 2,
 		MakeBulkData(SuccessorResource), &bCurrent, &PublishCount, 4,
 		&TerminalCount, ECookedMeshFamily::StaticMesh)));
-	EXPECT_TRUE(Manager.Cancel(MakeObjectHandle(Owners[1])));
+	EXPECT_TRUE(Manager.Cancel(FObjectKey(Owners[1])));
 	std::thread RetireThread([Resource = Resources[2]] { Resource->Retire(); });
 	RemoveFromRoot(Owners[3]);
 	MarkObjectHierarchyAsGarbage(Owners[3]);
@@ -365,7 +365,7 @@ TEST(FCookedMeshLoadManagerTests,
 	ASSERT_TRUE(Manager.Submit(MakeRequest(
 		*Second, 2, MakeBulkData(CancelledResource), &bCurrent, &PublishCount)));
 	ASSERT_TRUE(PumpUntil(Manager, [&] { return CancelledResource->HasStarted(); }));
-	EXPECT_TRUE(Manager.Cancel(MakeObjectHandle(Second)));
+	EXPECT_TRUE(Manager.Cancel(FObjectKey(Second)));
 	CancelledResource->Release();
 	ASSERT_TRUE(PumpUntil(Manager, [&] {
 		return Manager.GetDiagnostics().InFlightCount == 0;

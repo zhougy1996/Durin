@@ -148,7 +148,7 @@ namespace Durin::AssetForge::Builtins
 			FStaticMeshSource Source;
 			if (!Source.Initialize(MakeStaticMeshDecodedGeometry(Scene), OutError)) return false;
 			auto State = MakeImportDataState(Filename, HintBase, PhysicalPath, Snapshot, Settings);
-			const auto Owner = MakeObjectHandle(&Mesh);
+			const auto Owner = FObjectKey(&Mesh);
 			State.SourceData.Normalize();
 			if (!State.Validate(OutError)) return false;
 			const auto Save = SaveOptions ? std::optional<FAssetBundleSaveOptions>(*SaveOptions) : std::nullopt;
@@ -166,7 +166,7 @@ namespace Durin::AssetForge::Builtins
 				*Result = Value;
 				if (Value.Status == EStaticMeshCompilationStatus::Succeeded && Save)
 				{
-					auto* Mesh = Cast<DStaticMesh>(ResolveObjectHandle(Owner));
+					auto* Mesh = Cast<DStaticMesh>(ResolveObjectKey(Owner));
 					DPackage* Package = Mesh ? Mesh->GetPackage() : nullptr;
 					if (!Package)
 					{

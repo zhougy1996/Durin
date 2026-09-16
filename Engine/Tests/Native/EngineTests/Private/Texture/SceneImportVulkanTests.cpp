@@ -5,6 +5,7 @@
 #include "Asset/AssetCompilingManager.h"
 #include "Asset/AssetRetention.h"
 #include "DObject/ObjectLifecycle.h"
+#include "DObject/DObjectArray.h"
 #include "DynamicRHI.h"
 #include "Engine/Engine.h"
 #include "Rendering/PrimitiveSceneProxy.h"
@@ -445,8 +446,8 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 			BlockedRenderCommand->CV.wait(
 				Lock, [&] { return BlockedRenderCommand->bContinue; });
 		});
-	const Durin::FObjectHandle LifecycleHandle =
-		Durin::MakeObjectHandle(LifecycleMesh);
+	const Durin::FObjectKey LifecycleHandle =
+		Durin::FObjectKey(LifecycleMesh);
 	const Durin::FStaticMeshRenderResourceStatus StatusBeforeRelease =
 		LifecycleMesh->GetRenderResourceStatus();
 	ASSERT_TRUE(StatusBeforeRelease.IsReady());
@@ -459,7 +460,8 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		ReleaseQueuedStatus.Readiness,
 		Durin::EStaticMeshRenderResourceReadiness::Unavailable);
 	EXPECT_GT(ReleaseQueuedStatus.Revision, StatusBeforeRelease.Revision);
-	EXPECT_NE(Durin::ResolveObjectHandle(LifecycleHandle), nullptr);
+	EXPECT_EQ(Durin::ResolveObjectKey(LifecycleHandle), nullptr);
+	EXPECT_NE(Durin::GDObjectArray.Resolve(LifecycleHandle), nullptr);
 	EXPECT_FALSE(LifecycleMesh->IsReadyForFinishDestroy());
 	{
 		std::lock_guard Lock(BlockedRenderCommand->Mutex);
@@ -478,7 +480,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		LifecycleMesh->GetRenderData()->GetNumInitializedResources(),
 		0u);
 	Durin::CollectGarbage();
-	EXPECT_EQ(Durin::ResolveObjectHandle(LifecycleHandle), nullptr);
+	EXPECT_EQ(Durin::ResolveObjectKey(LifecycleHandle), nullptr);
 
 	Durin::RemoveFromRoot(InvalidMesh);
 	Durin::MarkAsGarbage(InvalidMesh);
@@ -691,7 +693,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		const auto& PbrGraph = PbrParent->GetExpressionCollection();
 		EXPECT_EQ(std::ranges::count_if(PbrGraph.Expressions,
 			[](const auto& Expression) { return Durin::Cast<Durin::DMaterialExpressionTextureSampleParameter2D>(Expression.Get()) != nullptr; }), 6);
-		EXPECT_EQ(PbrParent->GetExpressionOutputs().Normal.OutputIndex, 8u);
+		EXPECT_EQ(PbrParent->GetExpressionOutputs().Normal.OutputIndex, 1u);
 		EXPECT_TRUE(std::ranges::none_of(PbrGraph.Expressions,
 			[](const auto& Expression) { return Durin::Cast<Durin::DMaterialExpressionFunctionCall>(Expression.Get()) != nullptr; }));
 		std::cout << "[SurfaceAcceptance] complex_nodes=" << PbrGraph.Expressions.size()

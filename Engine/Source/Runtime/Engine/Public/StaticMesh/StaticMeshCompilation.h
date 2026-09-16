@@ -12,7 +12,7 @@ namespace Durin
 	struct FStaticMeshCompilationDiagnostic
 	{
 		uint64 RequestId = 0;
-		FObjectHandle Owner;
+		FObjectKey Owner;
 		EStaticMeshCompilationStatus Status = EStaticMeshCompilationStatus::Failed;
 		EStaticMeshCompilationPhase Phase = EStaticMeshCompilationPhase::Queued;
 		uint64 ReservedBytes = 0;

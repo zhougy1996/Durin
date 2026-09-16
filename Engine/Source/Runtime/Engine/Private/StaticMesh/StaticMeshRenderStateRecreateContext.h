@@ -1,6 +1,6 @@
 #pragma once
 
-#include "DObject/ObjectHandle.h"
+#include "DObject/ObjectKey.h"
 #include "EngineAPI.h"
 
 namespace Durin
@@ -21,7 +21,7 @@ namespace Durin
 			-> FStaticMeshRenderStateRecreateContext& = delete;
 
 	private:
-		FObjectHandle StaticMeshHandle;
-		std::vector<FObjectHandle> ComponentHandles;
+		FObjectKey StaticMeshHandle;
+		std::vector<FObjectKey> ComponentHandles;
 	};
 } // namespace Durin

@@ -123,18 +123,17 @@ TEST(FStaticMeshRenderStateRecreateContextTests, RejectsReusedObjectSlotGenerati
 		nullptr, "RecreatePreviousGeneration");
 	Previous->SetStaticMesh(Mesh);
 	Previous->RegisterComponent();
-	const Durin::FObjectHandle PreviousHandle = Durin::MakeObjectHandle(Previous);
+	const Durin::FObjectKey PreviousHandle = Durin::FObjectKey(Previous);
 	auto Context = std::make_unique<Durin::FStaticMeshRenderStateRecreateContext>(Mesh);
 
 	Durin::MarkAsGarbage(Previous);
 	Durin::CollectGarbage();
-	ASSERT_EQ(Durin::ResolveObjectHandle(PreviousHandle), nullptr);
+	ASSERT_EQ(Durin::ResolveObjectKey(PreviousHandle), nullptr);
 
 	auto* Replacement = Durin::NewObject<Durin::DStaticMeshComponent>(
 		nullptr, "RecreateReplacementGeneration");
-	const Durin::FObjectHandle ReplacementHandle = Durin::MakeObjectHandle(Replacement);
-	ASSERT_EQ(ReplacementHandle.Index, PreviousHandle.Index);
-	ASSERT_NE(ReplacementHandle.Generation, PreviousHandle.Generation);
+	const Durin::FObjectKey ReplacementHandle = Durin::FObjectKey(Replacement);
+	ASSERT_NE(ReplacementHandle, PreviousHandle);
 	Replacement->SetStaticMesh(Mesh);
 	Replacement->RegisterComponent();
 	Context.reset();
@@ -230,18 +229,17 @@ TEST(FStaticMeshUpdateTests, LaterScansResolveReusedObjectSlotsByGenerationAndCu
 	auto* SecondMesh = Durin::DStaticMesh::CreateDebugTriangle();
 	auto* Previous = Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "PreviousStaticMeshScanComponent");
 	Previous->SetStaticMesh(FirstMesh);
-	const Durin::FObjectHandle PreviousHandle = Durin::MakeObjectHandle(Previous);
+	const Durin::FObjectKey PreviousHandle = Durin::FObjectKey(Previous);
 
 	Durin::AddToRoot(FirstMesh);
 	Durin::AddToRoot(SecondMesh);
 	Durin::MarkAsGarbage(Previous);
 	Durin::CollectGarbage();
-	EXPECT_EQ(Durin::ResolveObjectHandle(PreviousHandle), nullptr);
+	EXPECT_EQ(Durin::ResolveObjectKey(PreviousHandle), nullptr);
 
 	auto* Replacement = Harness.CreateStaticMeshComponent("ReplacementStaticMeshScanComponent");
-	const Durin::FObjectHandle ReplacementHandle = Durin::MakeObjectHandle(Replacement);
-	EXPECT_TRUE(ReplacementHandle.Index != PreviousHandle.Index
-		|| ReplacementHandle.Generation != PreviousHandle.Generation);
+	const Durin::FObjectKey ReplacementHandle = Durin::FObjectKey(Replacement);
+	EXPECT_TRUE(ReplacementHandle != PreviousHandle);
 	Replacement->SetStaticMesh(SecondMesh);
 	Replacement->RegisterComponent();
 	const FMaterialSlotsSnapshot Initial = CaptureMaterialSlots(Harness.Scene);
@@ -270,9 +268,9 @@ TEST(FStaticMeshUpdateTests, NoRHIStaticMeshDestructionNeedsNoRenderFenceSubmiss
 {
 	ASSERT_EQ(Durin::GDynamicRHI, nullptr);
 	auto* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
-	const Durin::FObjectHandle Handle = Durin::MakeObjectHandle(Mesh);
+	const Durin::FObjectKey Handle = Durin::FObjectKey(Mesh);
 
 	Durin::MarkAsGarbage(Mesh);
 	Durin::CollectGarbage();
-	EXPECT_EQ(Durin::ResolveObjectHandle(Handle), nullptr);
+	EXPECT_EQ(Durin::ResolveObjectKey(Handle), nullptr);
 }

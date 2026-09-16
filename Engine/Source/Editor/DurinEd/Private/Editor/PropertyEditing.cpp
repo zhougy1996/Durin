@@ -658,8 +658,8 @@ namespace Durin::Editor
 	{
 		Target.AddReferencedObjects(Collector);
 		auto AddPayload = [&](const FPropertyValueSnapshotPayload& Payload) {
-			for (const FObjectHandle Handle : Payload.GetReferencedObjectHandles())
-				FPersistentObjectRef::FromHandle(Handle).AddReferencedObjects(Collector);
+			for (const FObjectKey Handle : Payload.GetReferencedObjectKeys())
+				FPersistentObjectRef::FromKey(Handle).AddReferencedObjects(Collector);
 		};
 		AddPayload(Before);
 		AddPayload(After);
@@ -723,7 +723,7 @@ namespace Durin::Editor
 			Reset();
 			return false;
 		}
-		TargetObject = TStrongObjectPtr<DObject>(MakeObjectHandle(InTarget.Object));
+		TargetObject = TStrongObjectPtr<DObject>(FObjectKey(InTarget.Object));
 		if (!TargetObject)
 		{
 			Reset();

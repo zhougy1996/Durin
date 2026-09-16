@@ -46,8 +46,8 @@ namespace Durin
 		{
 			FStaticMeshCompilationDiagnostic Diagnostic;
 			FStaticMeshReconciliationSnapshot Snapshot;
-			FObjectHandle Package;
-			FObjectHandle ImportData;
+			FObjectKey Package;
+			FObjectKey ImportData;
 			FStaticMeshSource RequestedSource;
 			FVector3 BodyDimensions{0};
 			FVector3 BodyCenter{0};
@@ -145,8 +145,8 @@ namespace Durin
 					Record->BodyCenter = Body->GetCenter();
 					Record->BodyShape = Body->GetShapeType();
 				}
-				Record->Package = MakeObjectHandle(Mesh.GetPackage());
-				Record->ImportData = MakeObjectHandle(Mesh.GetAssetImportData());
+				Record->Package = FObjectKey(Mesh.GetPackage());
+				Record->ImportData = FObjectKey(Mesh.GetAssetImportData());
 				if (Mesh.GetAssetImportData()) Record->ImportState = Mesh.GetAssetImportData()->GetCompilationIdentity();
 				Record->Descriptor = *Provider.Value;
 				Record->Completion = std::move(Completion);
@@ -159,7 +159,7 @@ namespace Durin
 				Record->Work->ProviderRegistration = Provider.RegistrationIdentity;
 				Record->Priority = Request.Priority;
 				Record->bMarkPackageDirty = Request.bMarkPackageDirty;
-				Record->Diagnostic = {.RequestId = NextRequest++, .Owner = MakeObjectHandle(&Mesh), .ReservedBytes = Bytes};
+				Record->Diagnostic = {.RequestId = NextRequest++, .Owner = FObjectKey(&Mesh), .ReservedBytes = Bytes};
 				Record->Diagnostic.SourceIdentity = Record->RequestedSource.GetIdentity();
 				Record->Diagnostic.Descriptor = Record->Descriptor;
 				Record->Diagnostic.ProviderRegistration = Provider.RegistrationIdentity;
@@ -191,8 +191,8 @@ namespace Durin
 			auto FinishCompilationForObjects(std::span<DObject* const> Objects) -> FAssetCompileProcessResult override
 			{
 				CheckOwnerThread();
-				std::vector<FObjectHandle> Selected;
-				for (auto* Object : Objects) Selected.push_back(MakeObjectHandle(Object));
+				std::vector<FObjectKey> Selected;
+				for (auto* Object : Objects) Selected.push_back(FObjectKey(Object));
 				if (Selected.empty()) return {};
 				return Finish(Selected);
 			}
@@ -201,7 +201,7 @@ namespace Durin
 				CheckOwnerThread();
 				for (auto* Object : Objects)
 					for (const auto& Record : Records)
-						if (Record->Diagnostic.Owner == MakeObjectHandle(Object))
+						if (Record->Diagnostic.Owner == FObjectKey(Object))
 						{ Record->bRequeue = false; Terminate(*Record, EStaticMeshCompilationStatus::Cancelled); }
 			}
 			auto FinishAllCompilation() -> FAssetCompileProcessResult override { CheckOwnerThread(); return Finish({}); }
@@ -220,9 +220,9 @@ namespace Durin
 			auto Mutated(DStaticMesh& Mesh) -> void
 			{
 				CheckOwnerThread();
-				if (PublishingOwner == MakeObjectHandle(&Mesh)) return;
+				if (PublishingOwner == FObjectKey(&Mesh)) return;
 				for (const auto& Record : Records)
-					if (Record->Diagnostic.Owner == MakeObjectHandle(&Mesh) && !Record->Terminal && !Record->bDelivered)
+					if (Record->Diagnostic.Owner == FObjectKey(&Mesh) && !Record->Terminal && !Record->bDelivered)
 					{
 						Record->bRequeue = !Mesh.GetRenderData() && !Record->PreparePublication;
 						Terminate(*Record, EStaticMeshCompilationStatus::Superseded);
@@ -233,10 +233,10 @@ namespace Durin
 			{
 				CheckOwnerThread();
 				for (const auto& Record : Records)
-					if (Record->Diagnostic.Owner == MakeObjectHandle(const_cast<DStaticMesh*>(&Mesh))
+					if (Record->Diagnostic.Owner == FObjectKey(const_cast<DStaticMesh*>(&Mesh))
 						&& !Record->bDelivered && !Record->Terminal && !Record->PreparePublication
 						&& Record->RequestedSource.GetIdentity() == Source.GetIdentity() && IsCurrent(*Record, Mesh)
-						&& MakeObjectHandle(const_cast<DAssetImportData*>(Mesh.GetAssetImportData())) == Record->ImportData
+						&& FObjectKey(const_cast<DAssetImportData*>(Mesh.GetAssetImportData())) == Record->ImportData
 						&& (!Record->ImportState || (Mesh.GetAssetImportData()
 							&& Mesh.GetAssetImportData()->GetCompilationIdentity() == *Record->ImportState)))
 					{
@@ -255,7 +255,7 @@ namespace Durin
 			auto HasSourceMutation(const DStaticMesh& Mesh) const -> bool
 			{
 				for (const auto& Record : Records)
-					if (Record->Diagnostic.Owner == MakeObjectHandle(const_cast<DStaticMesh*>(&Mesh))
+					if (Record->Diagnostic.Owner == FObjectKey(const_cast<DStaticMesh*>(&Mesh))
 						&& !Record->bDelivered && !Record->Terminal
 						&& (Record->PreparePublication || Record->RequestedSource.GetIdentity() != Mesh.GetSource().GetIdentity())) return true;
 				return false;
@@ -264,13 +264,13 @@ namespace Durin
 			auto HasPending(const DStaticMesh& Mesh) const -> bool
 			{
 				CheckOwnerThread();
-				const auto Owner = MakeObjectHandle(const_cast<DStaticMesh*>(&Mesh));
+				const auto Owner = FObjectKey(const_cast<DStaticMesh*>(&Mesh));
 				return std::ranges::any_of(Records, [&](const auto& Record) { return Record->Diagnostic.Owner == Owner && !Record->bDelivered; });
 			}
 			auto Diagnostic(const DStaticMesh& Mesh) const -> FStaticMeshCompilationDiagnostic
 			{
 				CheckOwnerThread();
-				const auto Owner = MakeObjectHandle(const_cast<DStaticMesh*>(&Mesh));
+				const auto Owner = FObjectKey(const_cast<DStaticMesh*>(&Mesh));
 				FStaticMeshCompilationDiagnostic Result;
 				for (const auto& Record : Records)
 					if (Record->Diagnostic.Owner == Owner && Record->Diagnostic.RequestId > Result.RequestId)
@@ -366,14 +366,14 @@ namespace Durin
 				return true;
 			}
 
-			static auto Selected(const FRecord& Record, std::span<const FObjectHandle> Owners) -> bool
+			static auto Selected(const FRecord& Record, std::span<const FObjectKey> Owners) -> bool
 			{
 				return Owners.empty() || std::ranges::find(Owners, Record.Diagnostic.Owner) != Owners.end();
 			}
-			auto Pump(std::span<const FObjectHandle> Owners, uint32 Maximum, FClock::time_point Deadline) -> FAssetCompileProcessResult
+			auto Pump(std::span<const FObjectKey> Owners, uint32 Maximum, FClock::time_point Deadline) -> FAssetCompileProcessResult
 			{
 				FAssetCompileProcessResult Result;
-				std::vector<std::pair<FObjectHandle, FStaticMeshCompilationRequest>> Requeues;
+				std::vector<std::pair<FObjectKey, FStaticMeshCompilationRequest>> Requeues;
 				// Scheduler cancellation may retire a task without entering its body.
 				for (const auto& Record : Records)
 				{
@@ -398,7 +398,7 @@ namespace Durin
 					// late worker before releasing that charge, even when the queue is saturated.
 					if (Record->bRequeue && (!Record->Work->Done.load(std::memory_order_acquire)
 						|| (Record->Task.IsValid() && !Record->Task.IsComplete()))) continue;
-					auto* Mesh = Cast<DStaticMesh>(ResolveObjectHandle(Record->Diagnostic.Owner));
+					auto* Mesh = Cast<DStaticMesh>(ResolveObjectKey(Record->Diagnostic.Owner));
 					if (!Record->Terminal)
 					{
 						Record->Diagnostic.Message = Record->Work->Outcome.Diagnostic;
@@ -410,7 +410,7 @@ namespace Durin
 								Record->Diagnostic.Collision = Candidate->GetCollisionObservation();
 							Record->Diagnostic.Message += Candidate->GetPersistenceDiagnostic();
 						}
-						if (!Mesh || MakeObjectHandle(Mesh->GetPackage()) != Record->Package)
+						if (!Mesh || FObjectKey(Mesh->GetPackage()) != Record->Package)
 							Record->Terminal = EStaticMeshCompilationStatus::Cancelled;
 						else if (!Record->Work->Outcome)
 							Record->Terminal = Record->Work->Outcome.Status == EStaticMeshBuildStatus::Cancelled
@@ -424,7 +424,7 @@ namespace Durin
 										&& Current.RenderBuilderVersion == Record->Descriptor.RenderBuilderVersion
 										&& Current.CollisionBuilderVersion == Record->Descriptor.CollisionBuilderVersion;
 								}, Record->Work->ProviderRegistration);
-							const bool bImportCurrent = MakeObjectHandle(Mesh->GetAssetImportData()) == Record->ImportData
+							const bool bImportCurrent = FObjectKey(Mesh->GetAssetImportData()) == Record->ImportData
 								&& (!Record->ImportState || (Mesh->GetAssetImportData() && Mesh->GetAssetImportData()->GetCompilationIdentity() == *Record->ImportState));
 							if (!Provider.WasInvoked() || !Provider.Value.value_or(false) || !bImportCurrent)
 								Record->Terminal = EStaticMeshCompilationStatus::Superseded;
@@ -478,7 +478,7 @@ namespace Durin
 					return true;
 				});
 				for (auto& [Owner, Request] : Requeues)
-					if (auto* Mesh = Cast<DStaticMesh>(ResolveObjectHandle(Owner)); Mesh && !HasPending(*Mesh))
+					if (auto* Mesh = Cast<DStaticMesh>(ResolveObjectKey(Owner)); Mesh && !HasPending(*Mesh))
 					{
 						std::string Error;
 						Submit(*Mesh, std::move(Request), Error, {});
@@ -486,7 +486,7 @@ namespace Durin
 				Admit();
 				return Result;
 			}
-			auto Finish(std::span<const FObjectHandle> Owners) -> FAssetCompileProcessResult
+			auto Finish(std::span<const FObjectKey> Owners) -> FAssetCompileProcessResult
 			{
 				FAssetCompileProcessResult Result;
 				while (std::ranges::any_of(Records, [&](const auto& Record) { return Selected(*Record, Owners); }))
@@ -508,7 +508,7 @@ namespace Durin
 			std::deque<FStaticMeshCompilationDiagnostic> History;
 			std::shared_ptr<FWorkerState> Workers = std::make_shared<FWorkerState>();
 			FTaskScope Scope;
-			FObjectHandle PublishingOwner;
+			FObjectKey PublishingOwner;
 			uint64 NextRequest = 1;
 			uint64 LastPumpIdentity = 0;
 			uint32 PumpCount = 0;

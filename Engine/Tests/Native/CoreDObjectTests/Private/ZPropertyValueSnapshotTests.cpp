@@ -514,18 +514,18 @@ namespace
 
 		Durin::DObject* Referenced = Durin::NewObject<Durin::DObject>(
 			nullptr, Durin::FName("RetentionNeutralSnapshotReference"));
-		const Durin::FObjectHandle Handle = Durin::MakeObjectHandle(Referenced);
+		const Durin::FObjectKey Handle = Durin::FObjectKey(Referenced);
 		FObjectOwner Owner{Referenced};
 		Durin::FPropertyValueSnapshotPayload Payload;
 		std::string Error;
 		ASSERT_TRUE(Durin::CapturePropertyValuePayload(
 			&Property, &Owner, 0, Payload, &Error)) << Error;
-		ASSERT_EQ(Payload.GetReferencedObjectHandles().size(), 1u);
-		EXPECT_EQ(Payload.GetReferencedObjectHandles().front(), Handle);
+		ASSERT_EQ(Payload.GetReferencedObjectKeys().size(), 1u);
+		EXPECT_EQ(Payload.GetReferencedObjectKeys().front(), Handle);
 
 		Owner.Value = nullptr;
 		Durin::CollectGarbage();
-		EXPECT_EQ(Durin::ResolveObjectHandle(Handle), nullptr);
+		EXPECT_EQ(Durin::ResolveObjectKey(Handle), nullptr);
 		EXPECT_FALSE(Durin::RestorePropertyValuePayload(
 			&Property, &Owner, 0, Payload, &Error));
 		EXPECT_FALSE(Error.empty());

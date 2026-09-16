@@ -332,7 +332,7 @@ namespace Durin
 
 		FCookedMeshLoadRequest Request{
 			.Identity = {
-				.Owner = MakeObjectHandle(this),
+				.Owner = FObjectKey(this),
 				.Family = ECookedMeshFamily::StaticMesh,
 				.LoadGeneration = Generation,
 				.ResourceRevision = ResourceRevision,

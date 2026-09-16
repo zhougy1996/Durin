@@ -250,9 +250,9 @@ TEST(FMaterialInstanceTests, PerFieldPropertiesPreserveIntentAndResolveSourcesAc
 	EXPECT_TRUE(Resolved.Properties.bTwoSided);
 	EXPECT_FLOAT_EQ(Resolved.Properties.OpacityMaskThreshold, 0.75f);
 	EXPECT_FLOAT_EQ(Resolved.ShaderProperties.OpacityMaskThreshold, 0.333f);
-	EXPECT_EQ(Durin::ResolveObjectHandle(Resolved.Sources[0]), Child);
-	EXPECT_EQ(Durin::ResolveObjectHandle(Resolved.Sources[3]), Parent);
-	EXPECT_EQ(Durin::ResolveObjectHandle(Resolved.Sources[1]), Root);
+	EXPECT_EQ(Durin::ResolveObjectKey(Resolved.Sources[0]), Child);
+	EXPECT_EQ(Durin::ResolveObjectKey(Resolved.Sources[3]), Parent);
+	EXPECT_EQ(Durin::ResolveObjectKey(Resolved.Sources[1]), Root);
 	const auto Generation = Root->GetMaterialCompileStatus().RequestGeneration;
 	auto RootProperties = Root->GetStaticProperties();
 	RootProperties.OpacityMaskThreshold = 0.25f;

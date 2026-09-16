@@ -160,13 +160,13 @@ namespace Durin
 				std::numeric_limits<uint32>::max()));
 			for (const FWeakObjectPtr& Candidate : Source.SuccessfullyCompiledAssets)
 			{
-				const FObjectHandle Handle = Candidate.GetHandle();
-				if (IsObjectHandleNull(Handle)) continue;
+				const FObjectKey Handle = Candidate.GetKey();
+				if (IsObjectKeyNull(Handle)) continue;
 				const bool bDuplicate = std::ranges::any_of(
 					Destination.SuccessfullyCompiledAssets,
 					[Handle](const FWeakObjectPtr& Existing) {
-						const FObjectHandle Other = Existing.GetHandle();
-						return Handle.Index == Other.Index && Handle.Generation == Other.Generation;
+						const FObjectKey Other = Existing.GetKey();
+						return Handle == Other;
 					});
 				if (!bDuplicate) Destination.SuccessfullyCompiledAssets.push_back(Candidate);
 			}

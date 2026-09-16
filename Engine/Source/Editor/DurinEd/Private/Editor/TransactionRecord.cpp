@@ -17,11 +17,11 @@ namespace Durin::Editor
 	}
 
 	FPersistentObjectRef::FPersistentObjectRef(DObject* Object)
-		: Handle(MakeObjectHandle(Object))
+		: Handle(FObjectKey(Object))
 	{
 	}
 
-	auto FPersistentObjectRef::FromHandle(FObjectHandle Handle) -> FPersistentObjectRef
+	auto FPersistentObjectRef::FromKey(FObjectKey Handle) -> FPersistentObjectRef
 	{
 		FPersistentObjectRef Result;
 		Result.Handle = Handle;
@@ -30,7 +30,7 @@ namespace Durin::Editor
 
 	auto FPersistentObjectRef::Resolve() const -> DObject*
 	{
-		DObject* Object = ResolveObjectHandle(Handle);
+		DObject* Object = ResolveObjectKey(Handle);
 		return IsValid(Object) ? Object : nullptr;
 	}
 
@@ -144,9 +144,9 @@ namespace Durin::Editor
 		if (!CapturePropertyValuePayload(
 			MemberProperty, InTarget, ArrayIndex, Snapshot.Payload, OutError)) return false;
 
-		for (FObjectHandle Handle : Snapshot.Payload.GetReferencedObjectHandles())
+		for (FObjectKey Handle : Snapshot.Payload.GetReferencedObjectKeys())
 		{
-			const FPersistentObjectRef Reference = FPersistentObjectRef::FromHandle(Handle);
+			const FPersistentObjectRef Reference = FPersistentObjectRef::FromKey(Handle);
 			if (Reference != Snapshot.Target) Snapshot.HardReferences.Add(Reference);
 		}
 		OutSnapshot = std::move(Snapshot);

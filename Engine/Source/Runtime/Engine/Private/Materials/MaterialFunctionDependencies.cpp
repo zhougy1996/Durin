@@ -109,7 +109,7 @@ namespace Durin
 			if (Function->GetFunctionRevision() != Body.Revision || Function->GetObjectPath() != Body.AssetPath)
 				return Fail("Function changed while its dependencies were validated.", Path);
 			Active.erase(Function); Heights.emplace(Function, Height);
-			Owners.push_back({MakeObjectHandle(Function), Path, Body.Revision});
+			Owners.push_back({FObjectKey(Function), Path, Body.Revision});
 			return true;
 		};
 		if (Roots.size() > MaterialProgramMaxNodeCount)

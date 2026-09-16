@@ -59,10 +59,9 @@ namespace Durin
 	{
 		if (Call.Inputs.size() > MaterialFunctionMaxInputs || Call.Outputs.empty() || Call.Outputs.size() > MaterialFunctionMaxOutputs)
 			return Fail("Function call port bindings exceed their bounds.");
-		const auto Callee = MakeObjectHandle(Call.Function.Get());
+		const auto Callee = FObjectKey(Call.Function.Get());
 		AuthoringCodeHash.UpdateValue(Call.Id);
-		AuthoringCodeHash.UpdateValue(Callee.Index);
-		AuthoringCodeHash.UpdateValue(Callee.Generation);
+		AuthoringCodeHash.UpdateValue(Callee.GetHash());
 		AuthoringCodeHash.UpdateValue(static_cast<uint32>(Call.Inputs.size()));
 		AuthoringCodeHash.UpdateValue(static_cast<uint32>(Call.Outputs.size()));
 		std::set<FGuid> InputIds, OutputIds;

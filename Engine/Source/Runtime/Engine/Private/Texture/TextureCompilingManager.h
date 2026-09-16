@@ -12,7 +12,7 @@ namespace Durin
 	{
 		std::string AssetIdentity;
 		FTexture2DBuildRequest Build;
-		FObjectHandle Owner;
+		FObjectKey Owner;
 		uint64 RequestSerial = 0;
 		uint32 EstimatedWidth = 0;
 		uint32 EstimatedHeight = 0;
@@ -23,7 +23,7 @@ namespace Durin
 	struct FTexture2DCompilationWorkResult
 	{
 		uint64 RequestId = 0;
-		FObjectHandle Owner;
+		FObjectKey Owner;
 		uint64 RequestSerial = 0;
 		std::string AssetIdentity;
 		std::unique_ptr<FTexturePlatformData> PlatformData;

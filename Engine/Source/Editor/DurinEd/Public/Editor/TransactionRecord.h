@@ -3,7 +3,7 @@
 #include "DurinEdAPI.h"
 
 #include "DObject/Archive.h"
-#include "DObject/ObjectHandle.h"
+#include "DObject/ObjectKey.h"
 
 namespace Durin
 {
@@ -22,10 +22,10 @@ namespace Durin::Editor
 		FPersistentObjectRef() = default;
 		FPersistentObjectRef(std::nullptr_t) {}
 		DURINED_API explicit FPersistentObjectRef(DObject* Object);
-		DURINED_API static auto FromHandle(FObjectHandle Handle) -> FPersistentObjectRef;
+		DURINED_API static auto FromKey(FObjectKey Handle) -> FPersistentObjectRef;
 
-		auto IsNull() const -> bool { return IsObjectHandleNull(Handle); }
-		auto GetHandle() const -> FObjectHandle { return Handle; }
+		auto IsNull() const -> bool { return IsObjectKeyNull(Handle); }
+		auto GetKey() const -> FObjectKey { return Handle; }
 		DURINED_API auto Resolve() const -> DObject*;
 		DURINED_API auto IsStale() const -> bool;
 		DURINED_API auto AddReferencedObjects(FReferenceCollector& Collector) const -> void;
@@ -34,7 +34,7 @@ namespace Durin::Editor
 			const FPersistentObjectRef&, const FPersistentObjectRef&) -> bool = default;
 
 	private:
-		FObjectHandle Handle;
+		FObjectKey Handle;
 	};
 
 	// Owns a deduplicated set of exact object identities for explicit collector traversal.

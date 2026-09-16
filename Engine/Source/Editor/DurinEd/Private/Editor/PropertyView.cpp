@@ -311,7 +311,7 @@ namespace Durin::Editor
 		if (!Reference) return {.State = EWeakObjectViewState::TypeMismatch};
 		DObject* Object = Reference->Get();
 		if (Object) return {.State = EWeakObjectViewState::Live, .Object = Object};
-		return {.State = IsObjectHandleNull(Reference->GetHandle())
+		return {.State = IsObjectKeyNull(Reference->GetKey())
 			? EWeakObjectViewState::Null : EWeakObjectViewState::Expired};
 	}
 

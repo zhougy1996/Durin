@@ -1,4 +1,5 @@
 #include "WorldTestSupport.h"
+#include "DObject/DObjectArray.h"
 #include <stdexcept>
 
 namespace Durin
@@ -296,7 +297,7 @@ TEST_F(FWorldTimerTests, BoundCallbackCanDestroyItselfAndRequestGarbageCollectio
 {
 	auto& Timers = World->GetTimerManager();
 	auto* Actor = World->SpawnActor<Durin::AActor>();
-	const auto Identity = Durin::MakeObjectHandle(Actor);
+	const auto Identity = Durin::FObjectKey(Actor);
 	int Calls = 0;
 	const auto Handle = Timers.SetTimerForObject(Actor, 0.0, [&](Durin::DObject& Target)
 	{
@@ -304,7 +305,7 @@ TEST_F(FWorldTimerTests, BoundCallbackCanDestroyItselfAndRequestGarbageCollectio
 		EXPECT_EQ(&Target, Actor);
 		EXPECT_TRUE(World->DestroyActor(Actor));
 		Durin::CollectGarbage();
-		EXPECT_EQ(Durin::ResolveObjectHandle(Identity), &Target);
+		EXPECT_EQ(Durin::GDObjectArray.Resolve(Identity), &Target);
 	}, 1.0);
 	Tick();
 	EXPECT_EQ(Calls, 1);

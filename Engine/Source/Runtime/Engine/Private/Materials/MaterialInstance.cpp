@@ -1,3 +1,4 @@
+#include "ObjectCacheContext.h"
 #include "Materials/MaterialInstance.h"
 #include "Materials/MaterialCustomVersion.h"
 #include "Logging/LogMacros.h"
@@ -108,10 +109,11 @@ namespace Durin
 		if (!bParentChanged && PropertyOverrides == Overrides) return true;
 		Parent = InParent;
 		PropertyOverrides = Overrides;
+		FObjectCacheContext Context;
 		if (GetAssetRuntimeConfiguration().RequiresCookedPayload()) AdoptParentRuntimeProgram();
-		else InvalidateMaterialCompilation(true, !bParentChanged);
+		else InvalidateMaterialCompilation(true, !bParentChanged, &Context);
 		MarkPackageDirty();
-		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ParentChain | EMaterialRenderDirtyFlags::AllRenderState, bParentChanged);
+		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ParentChain | EMaterialRenderDirtyFlags::AllRenderState, bParentChanged, &Context);
 		return true;
 	}
 
@@ -155,21 +157,22 @@ namespace Durin
 
 	auto DMaterialInstance::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
 	{
-		Super::PostEditChangeProperty(Event);
+		FObjectCacheContext Context;
+		Super::PostEditChangePropertyWithContext(Event, Context);
 		auto DirtyFlags = EMaterialRenderDirtyFlags::DynamicParameters;
 		if (Event.MemberProperty && Event.MemberProperty->NamePrivate == FName("PropertyOverrides"))
 		{
-			InvalidateMaterialCompilation(true, true);
+			InvalidateMaterialCompilation(true, true, &Context);
 			DirtyFlags = DirtyFlags | EMaterialRenderDirtyFlags::AllRenderState;
 		}
 		else if (Event.MemberProperty && Event.MemberProperty->NamePrivate == FName("Parent"))
 		{
-			InvalidateMaterialCompilation();
+			InvalidateMaterialCompilation(true, false, &Context);
 			DirtyFlags = DirtyFlags | EMaterialRenderDirtyFlags::ParentChain | EMaterialRenderDirtyFlags::AllRenderState;
 		}
 		// Publish once, after compilation invalidation has observed the completed edit.
 		MarkRenderDataDirty(DirtyFlags,
-			!Event.MemberProperty || Event.MemberProperty->NamePrivate != FName("PropertyOverrides"));
+			!Event.MemberProperty || Event.MemberProperty->NamePrivate != FName("PropertyOverrides"), &Context);
 	}
 
 	auto DMaterialInstance::GetParent() const -> DMaterialInterface*
@@ -206,7 +209,7 @@ namespace Durin
 		FResolvedMaterialProperties Resolved;
 		std::string Error;
 		if (!ResolveMaterialProperties(*this, Resolved, Error)) return {};
-		auto* Root = Cast<DMaterialInterface>(ResolveObjectHandle(Resolved.Root));
+		auto* Root = Cast<DMaterialInterface>(ResolveObjectKey(Resolved.Root));
 		return Root ? Root->GetParameterDefinitions() : std::span<const FMaterialParameterDefinition>{};
 	}
 

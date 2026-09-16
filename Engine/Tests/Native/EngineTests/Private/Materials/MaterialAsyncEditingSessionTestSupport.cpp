@@ -56,7 +56,7 @@ auto QualifyMaterialEditingSessionAsync() -> void
 	const auto Pending = Draft->GetMaterialCompileStatus();
 	FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Draft);
 	FMaterialCompileResult Failed{
-		.Owner = MakeObjectHandle(Draft),
+		.Owner = FWeakObjectPtr(Draft),
 		.AuthoredRevision = Pending.AuthoredRevision,
 		.Generation = Pending.RequestGeneration,
 		.DependencyRevision = Pending.DependencyRevision,

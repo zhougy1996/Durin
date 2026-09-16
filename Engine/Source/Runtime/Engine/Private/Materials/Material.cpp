@@ -1,3 +1,4 @@
+#include "ObjectCacheContext.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialCustomVersion.h"
 #include "Logging/LogMacros.h"
@@ -62,32 +63,33 @@ namespace Durin
 		}
 	}
 
-	auto DMaterial::AdvanceAuthoredRevision() -> void
+	auto DMaterial::AdvanceAuthoredRevision(FObjectCacheContext* Context) -> void
 	{
 		AdvanceRevision(CompilationOwner.MaterialCompileStatus.AuthoredRevision);
-		InvalidateMaterialCompilation(false);
+		InvalidateMaterialCompilation(false, false, Context);
 	}
 
 	auto DMaterial::SetEditCompileMode(EMaterialEditCompileMode Mode) -> void
 	{
 		if (EditCompileMode == Mode) return;
 		EditCompileMode = Mode;
-		for (const auto Handle : GetLoadedMaterialDependents(this))
-			if (auto* Owner = Cast<DMaterialInterface>(ResolveObjectHandle(Handle)); IsValid(Owner))
+		FObjectCacheContext Context;
+		for (auto* Owner : Context.GetMaterialsAffectedByMaterial(this))
+			if (IsValid(Owner))
 			{
 				const auto State = Owner->GetMaterialCompileStatus().State;
 				if (State == EMaterialCompileState::NeedsCompile || State == EMaterialCompileState::Scheduled)
-					Private::FMaterialCompilationLifecycle::ScheduleEdit(*Owner);
+					Private::FMaterialCompilationLifecycle::ScheduleEdit(*Owner, &Context);
 			}
 	}
 
 	auto DMaterial::CompileEdits() -> bool
 	{
-		bool bAccepted = RequestMaterialRecompile(*this);
-		for (const auto Handle : GetLoadedMaterialDependents(this))
-			if (auto* Owner = Cast<DMaterialInterface>(ResolveObjectHandle(Handle));
-				IsValid(Owner) && Owner != this)
-				bAccepted = RequestMaterialRecompile(*Owner) && bAccepted;
+		FObjectCacheContext Context;
+		bool bAccepted = Private::FMaterialCompilationLifecycle::RequestCurrent(*this, false, &Context);
+		for (auto* Owner : Context.GetMaterialsAffectedByMaterial(this))
+			if (IsValid(Owner) && Owner != this)
+				bAccepted = Private::FMaterialCompilationLifecycle::RequestCurrent(*Owner, false, &Context) && bAccepted;
 		return bAccepted;
 	}
 
@@ -176,16 +178,17 @@ namespace Durin
 			CanonicalizeMaterialShaderProperties(StaticProperties)
 				!= CanonicalizeMaterialShaderProperties(InProperties);
 		StaticProperties = InProperties;
+		FObjectCacheContext Context;
 		if (bShaderIdentityChanged)
 		{
 			AdvanceRevision(CompilationOwner.MaterialCompileStatus.AuthoredRevision);
-			Private::FMaterialCompilationLifecycle::ScheduleEdit(*this);
+			Private::FMaterialCompilationLifecycle::ScheduleEdit(*this, &Context);
 		}
-		InvalidateMaterialCompilation(false, true);
+		InvalidateMaterialCompilation(false, true, &Context);
 		MarkPackageDirty();
 		MarkRenderDataDirty(
 			EMaterialRenderDirtyFlags::ShaderMap
-				| EMaterialRenderDirtyFlags::PipelineState);
+				| EMaterialRenderDirtyFlags::PipelineState, false, &Context);
 		return true;
 	}
 
@@ -478,10 +481,11 @@ namespace Durin
 	auto DMaterial::PostEditChangeProperty(
 		const FPropertyChangedEvent& Event) -> void
 	{
-		Super::PostEditChangeProperty(Event);
+		FObjectCacheContext Context;
+		Super::PostEditChangePropertyWithContext(Event, Context);
 		if (!Event.MemberProperty) return;
 		const FName Name = Event.MemberProperty->NamePrivate;
-		if (Name == FName("StaticProperties")) InvalidateMaterialCompilation(false, true);
+		if (Name == FName("StaticProperties")) InvalidateMaterialCompilation(false, true, &Context);
 		if (Name == FName("ExpressionCollection") || (Name == FName("StaticProperties")
 			&& CanonicalizeMaterialShaderProperties(StaticProperties) != CompilationOwner.LastObservedShaderProperties))
 		{
@@ -496,16 +500,18 @@ namespace Durin
 				ObservedExpressionCode = Code;
 				if (!bShaderChanged)
 				{
-					MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters, true);
+					MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters, true, &Context);
+					Context.EndDiscovery();
 					GraphChanges.Publish(*this);
 					return;
 				}
 				AdvanceRevision(MaterialProgramRevision);
 			}
-			AdvanceAuthoredRevision();
-			Private::FMaterialCompilationLifecycle::ScheduleEdit(*this);
-			MarkRenderDataDirty(EMaterialRenderDirtyFlags::ShaderMap, Name == FName("ExpressionCollection"));
+			AdvanceAuthoredRevision(&Context);
+			Private::FMaterialCompilationLifecycle::ScheduleEdit(*this, &Context);
+			MarkRenderDataDirty(EMaterialRenderDirtyFlags::ShaderMap, Name == FName("ExpressionCollection"), &Context);
 		}
+		Context.EndDiscovery();
 		GraphChanges.Publish(*this);
 	}
 

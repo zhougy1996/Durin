@@ -2,10 +2,44 @@
 
 #include "DObject/Object.h"
 #include "DObject/Package.h"
+#include "CoreGlobals.h"
+#include "Threading/RunnableThread.h"
 
 namespace Durin
 {
 	FDObjectArray GDObjectArray;
+
+	FObjectKey::FObjectKey(const DObject* Object)
+	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		*this = GDObjectArray.MakeKey(Object);
+	}
+
+	auto FObjectKey::ResolveObjectPtr() const -> DObject*
+	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		auto* Object = GDObjectArray.Resolve(*this);
+		return Object && !Object->IsPendingKill() ? Object : nullptr;
+	}
+
+	auto FDObjectArray::MakeKey(const DObject* Object) const -> FObjectKey
+	{
+		FObjectKey Key;
+		const auto It = ObjectToSlot.find(Object);
+		if (It != ObjectToSlot.end())
+		{
+			Key.Index = It->second;
+			Key.Generation = Slots[It->second].Generation;
+		}
+		return Key;
+	}
+
+	auto FDObjectArray::Resolve(FObjectKey Key) const -> DObject*
+	{
+		if (Key.IsNull() || Key.Index >= Slots.size()) return nullptr;
+		const auto& Slot = Slots[Key.Index];
+		return Slot.Generation == Key.Generation ? Slot.Object : nullptr;
+	}
 
 	auto FDObjectArray::Add(DObject* ObjToAdd) -> void
 	{

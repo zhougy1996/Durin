@@ -2,20 +2,11 @@
 
 #include "DObject/Object.h"
 #include "DObject/ObjectHandle.h"
+#include "DObject/ObjectKey.h"
 
 namespace Durin
 {
 	COREDOBJECT_API auto ConditionallyMarkAsReachable(DObject* Object) -> void;
-
-	template<typename T, typename = void>
-	struct TIsCompleteType : std::false_type
-	{
-	};
-
-	template<typename T>
-	struct TIsCompleteType<T, std::void_t<decltype(sizeof(T))>> : std::true_type
-	{
-	};
 
 	// Stores a garbage-collection-aware object handle and marks assigned objects reachable.
 	class FObjectPtr
@@ -32,7 +23,13 @@ namespace Durin
 			ConditionallyMarkAsReachable(InObject);
 		}
 
-		auto GetHandle() const -> FObjectHandle { return Handle; }
+		auto GetKey() const -> FObjectKey
+		{
+			FObjectKey Key;
+			Key.Index = Handle.Index;
+			Key.Generation = Handle.Generation;
+			return Key;
+		}
 		auto IsValid() const -> bool { DObject* Object = Get(); return Object && !Object->IsPendingKill(); }
 		auto Reset() -> void { SetObject(nullptr); }
 		explicit operator bool() const { return Get() != nullptr; }
@@ -52,7 +49,7 @@ namespace Durin
 
 		auto Get() const -> T* { return FromDObject(ObjectPtr.Get()); }
 		auto Reset() -> void { ObjectPtr.Reset(); }
-		auto GetHandle() const -> FObjectHandle { return ObjectPtr.GetHandle(); }
+		auto GetKey() const -> FObjectKey { return ObjectPtr.GetKey(); }
 		auto IsValid() const -> bool { return ObjectPtr.IsValid(); }
 
 		auto operator=(std::nullptr_t) -> TObjectPtr&

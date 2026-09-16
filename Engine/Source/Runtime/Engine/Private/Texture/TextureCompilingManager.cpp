@@ -89,7 +89,7 @@ namespace Durin
 
 		auto Submit(FTexture2DCompilationWork Request, FTexture2DCompilationWorkCompletion Completion) -> uint64
 		{
-			if (!Completion || IsObjectHandleNull(Request.Owner)
+			if (!Completion || IsObjectKeyNull(Request.Owner)
 				|| Request.AssetIdentity.empty() || Request.Build.SourceMips.empty()
 				|| Request.Build.SourceIdentity.IsZero()) return 0;
 			auto RequestState = std::make_shared<FRequestState>();

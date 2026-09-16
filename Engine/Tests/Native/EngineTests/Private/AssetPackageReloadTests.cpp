@@ -256,13 +256,13 @@ TEST_F(FAssetPackageReloadTests, FunctionReloadRebindsNestedCallersAndPreservesA
 	ASSERT_TRUE(Material->CompileEdits());
 	const auto Accepted = Material->GetAcceptedCompiledProgram();
 	ASSERT_NE(Accepted->Identity, SavedIdentity);
-	const auto OldHandle = MakeObjectHandle(Function);
+	const auto OldHandle = FObjectKey(Function);
 	auto Operation = ReloadPackages({.Packages = {Function->GetPackage()}});
 	const auto Result = Operation.Wait();
 	ASSERT_TRUE(Result) << (Result.Diagnostics.empty() ? "" : Result.Diagnostics[0].Message);
 	Function = Cast<DMaterialFunction>(FindResidentPackage(Path)->FindTopLevelAsset(Name));
 	ASSERT_NE(Function, nullptr);
-	EXPECT_NE(MakeObjectHandle(Function), OldHandle);
+	EXPECT_NE(FObjectKey(Function), OldHandle);
 	EXPECT_TRUE(std::ranges::any_of(Wrapper->GetExpressionCollection().Expressions, [&](const auto& Expression) {
 		const auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression.Get());
 		return Call && Call->Id == InnerCall && Call->Function.Get() == Function;
@@ -305,12 +305,12 @@ TEST_F(FAssetPackageReloadTests, InvalidSavedFunctionClosureCannotReplaceValidLi
 	ASSERT_TRUE(ConnectFunction(*Function, *Function, {62, 1, 1, 1}));
 	ASSERT_TRUE(SavePackage(Function->GetPackage()));
 	ASSERT_TRUE(PublishFunctionExpressions(*Function, Valid, Signature));
-	const auto Handle = MakeObjectHandle(Function);
+	const auto Handle = FObjectKey(Function);
 	auto Operation = ReloadPackages({.Packages = {Function->GetPackage()}});
 	const auto Result = Operation.Wait();
 	EXPECT_EQ(Result.Status, EPackageReloadStatus::Failed);
 	EXPECT_EQ(Result.Failure, EPackageReloadFailure::ResourcePreparationFailed);
-	EXPECT_EQ(ResolveObjectHandle(Handle), Function);
+	EXPECT_EQ(ResolveObjectKey(Handle), Function);
 	EXPECT_EQ(Function->GetFunctionSignature(), Signature);
 	const auto& Actual = Function->GetExpressionCollection().Expressions;
 	ASSERT_EQ(Actual.size(), Valid.size());

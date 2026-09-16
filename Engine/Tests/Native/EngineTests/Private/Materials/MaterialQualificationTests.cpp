@@ -7,6 +7,7 @@
 #include "Materials/MaterialExpressionBuild.h"
 #include "Materials/MaterialCookedProgram.h"
 #include "Hash/XxHash.h"
+#include "ObjectCacheContext.h"
 
 #include <iostream>
 
@@ -262,4 +263,73 @@ TEST(FMaterialQualificationTests, InstanceVariantPayloadBaseline)
 	ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
 	Durin::Testing::CheckInstanceVariantsForTest(true);
 	Durin::ShutdownAssetCompilingManager();
+}
+
+TEST(FMaterialQualificationTests, ObjectQueryCacheCandidateCost)
+{
+	InitializeDObjectSystem();
+	CollectGarbage();
+	auto* Base = NewObject<DMaterial>(nullptr, "MeasuredQueryBase");
+	std::vector<DMaterialInterface*> Materials{Base};
+	for (uint32 I = 1; I < 32; ++I)
+	{
+		auto* Child = NewObject<DMaterialInstance>(nullptr, FName(std::format("MeasuredQuery{}", I).c_str()));
+		auto* Parent = static_cast<FObjectProperty*>(Child->GetClass()->FindPropertyByName("Parent"));
+		Parent->SetObjectPropertyValue(Child, Materials.back());
+		Materials.push_back(Child);
+	}
+	std::vector<DObject*> Unrelated;
+	using FClock = std::chrono::steady_clock;
+	const auto Micros = [](auto Start) {
+		return std::chrono::duration<double, std::micro>(FClock::now() - Start).count();
+	};
+	for (const uint32 Count : {0u, 2000u, 20000u})
+	{
+		while (Unrelated.size() < Count) Unrelated.push_back(NewObject<DObject>(nullptr, NAME_None));
+		std::vector<double> LegacyTimes, ColdTimes, WarmTimes;
+		uint64 ScannedObjects = 0, ScannedMaterials = 0;
+		// One warm-up and sixteen recorded samples. Diagnostic CPU measurements,
+		// deliberately without a machine-dependent latency pass/fail threshold.
+		for (int32 Sample = -1; Sample < 16; ++Sample)
+		{
+			auto Start = FClock::now();
+			std::vector<FObjectKey> Expected;
+			for (auto* Object : GDObjectArray.Snapshot(EObjectQueryScope::LiveOnly))
+				if (auto* Material = Cast<DMaterialInterface>(Object); IsValid(Material) && Material->IsDependent(Base))
+					Expected.emplace_back(Material);
+			std::ranges::sort(Expected);
+			const double Legacy = Micros(Start);
+			Start = FClock::now();
+			FObjectCacheContext Context;
+			std::vector<FObjectKey> Actual;
+			for (auto* Material : Context.GetMaterialsAffectedByMaterial(Base)) Actual.emplace_back(Material);
+			const double Cold = Micros(Start);
+			EXPECT_EQ(Actual, Expected);
+			EXPECT_EQ(Actual.size(), Materials.size());
+			Start = FClock::now();
+			uint64 Consumed = 0;
+			for (uint32 Query = 0; Query < 8; ++Query)
+				for (auto* Material : Context.GetMaterialsAffectedByMaterial(Base))
+					Consumed += Material != nullptr;
+			const double Warm = Micros(Start) / 8;
+			EXPECT_EQ(Consumed, 8 * Materials.size());
+			const auto& Stats = Context.GetDiagnostics();
+			EXPECT_EQ(Stats.SnapshotCount, 1u);
+			EXPECT_EQ(Stats.ParentTableBuildCount, 1u);
+			EXPECT_EQ(Stats.QueryCount, 9u);
+			ScannedObjects = Stats.ScannedObjectCount;
+			ScannedMaterials = Stats.ScannedMaterialCount;
+			if (Sample >= 0) { LegacyTimes.push_back(Legacy); ColdTimes.push_back(Cold); WarmTimes.push_back(Warm); }
+		}
+		std::ranges::sort(LegacyTimes);
+		std::ranges::sort(ColdTimes);
+		std::ranges::sort(WarmTimes);
+		std::cout << "OBJECT_CACHE_MEASUREMENT unrelated=" << Count
+			<< " candidates=" << ScannedObjects << " materials=" << ScannedMaterials
+			<< " legacy_median_us=" << LegacyTimes[8] << " cold_median_us=" << ColdTimes[8]
+			<< " warm_median_us=" << WarmTimes[8] << " cold_p95_us=" << ColdTimes[15] << '\n';
+	}
+	for (auto* Object : Unrelated) MarkAsGarbage(Object);
+	for (auto* Material : Materials) MarkAsGarbage(Material);
+	CollectGarbage();
 }
