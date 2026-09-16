@@ -200,6 +200,7 @@ namespace Durin
 				Integration->ImportProgress = 0;
 				std::string Details;
 				for (const auto& Error : Importer.GetErrors()) Details += Error + "\n";
+				Details += Importer.GetTimingDetails();
 				Editor::FNotificationDesc Result{
 					.Type = Importer.GetFailedCount() ? Editor::ENotificationType::Warning
 						: Importer.GetCanceledCount() ? Editor::ENotificationType::Info : Editor::ENotificationType::Success,

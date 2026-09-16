@@ -245,6 +245,19 @@ pinned until completion, and saving waits for successful build and provenance
 publication. Ordinary factory calls remain synchronous, and reimport preserves
 its configured settings.
 
+Each texture compresses independent block rows through the CPU task scheduler,
+with at most eight chunks per mip and a 4096-block batching threshold. Small
+mips and nested parallel loops run serially. Encoder settings and output bytes
+are unchanged. Cancellation predicates are serialized and all chunks drain
+before the result or its storage is released.
+
+Completed compilation attempts include preparation, compilation elapsed time,
+mip generation, compression, cache write, cache origin, and save timing in the
+notification history details. Compilation elapsed time includes admission,
+queueing, host ticks and pauses; it is not a pure CPU measurement. Preparation
+includes source capture, decoding and classification. These diagnostics do not
+set timing acceptance thresholds.
+
 The host presenter advances the queue even when the browser is hidden, subject
 to mutation admission. Cancellation skips queued files after the current item;
 failures continue to the next item. Batch completion coalesces browser presentation

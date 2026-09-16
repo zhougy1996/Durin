@@ -23,6 +23,15 @@ failure into a pass.
 
 ## Performance Qualification and Concurrent Agents
 
+`TextureCompressionQualificationTests` is an explicit CPU qualification target:
+run `./DevTool test TextureCompressionQualificationTests --mode qualification`.
+It compares serial and bounded parallel compression of deterministic 1024x1024
+inputs for BC1, BC5 and BC7, with one warm-up and three measured samples per
+mode in alternating order. It reports median compression time without timing
+assertions. Results describe the selected build profile and host; they do not
+measure end-to-end file import. This target is excluded from ordinary affected
+and fast-all runs. Routine texture tests only check output and lifecycle behavior.
+
 Material feature targets retain correctness coverage without repeated latency
 sampling. Run `./DevTool test MaterialQualificationTests --mode qualification --report`
 explicitly (on Windows, use `.\DevTool.bat` as the launcher) for

@@ -130,6 +130,7 @@ namespace Durin::Editor::Texture
 		Directory = std::move(InDirectory);
 		Next = SavedCount = 0;
 		Published.clear(); Errors.clear();
+		TimingDetails.clear();
 		bCancelRequested = false;
 		bRunning = true;
 		return true;
@@ -160,12 +161,19 @@ namespace Durin::Editor::Texture
 		if (Active)
 		{
 			if (!Completion || !Completion->has_value()) return;
+			const auto CompilationEnd = std::chrono::steady_clock::now();
+			const auto Diagnostic = GetTexture2DCompilationDiagnostic(*Active);
 			auto* Package = Active->GetPackage();
 			FPackagePath Path;
 			require(FPackagePath::TryCreate(Package->GetPackagePath(), Path));
+			const auto Filename = Files[Next];
+			double SaveMilliseconds = 0;
 			if (Completion->value().Succeeded())
 			{
+				const auto SaveStart = std::chrono::steady_clock::now();
 				const auto Result = Save(Path);
+				SaveMilliseconds = std::chrono::duration<double, std::milli>(
+					std::chrono::steady_clock::now() - SaveStart).count();
 				if (Result) { ++SavedCount; ++Next; }
 				else { PendingSaves.push_back(Path); Fail(Result.Message); }
 				Active.Reset();
@@ -177,6 +185,15 @@ namespace Durin::Editor::Texture
 				Active.Reset();
 				UnloadPackage(Package, EAssetPackageUnloadPolicy::DiscardUnsaved);
 			}
+			TimingDetails += std::format(
+				"{}: prepare {:.1f} ms, compilation elapsed {:.1f} ms (mips {:.1f}, compression {:.1f}, cache write {:.1f} ms; {}), save {:.1f} ms\n",
+				Filename, PreparationMilliseconds,
+				std::chrono::duration<double, std::milli>(CompilationEnd - CompilationStart).count(),
+				Diagnostic.Metrics.MipGenerationNanoseconds / 1e6,
+				Diagnostic.Metrics.CompressionNanoseconds / 1e6,
+				Diagnostic.Metrics.PersistenceNanoseconds / 1e6,
+				Diagnostic.Origin == ETexture2DCompilationOrigin::CacheHit ? "cache hit" : "build",
+				SaveMilliseconds);
 			Completion.reset();
 			return;
 		}
@@ -184,8 +201,10 @@ namespace Durin::Editor::Texture
 		{
 			if (Preparation.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
 			auto Prepared = Preparation.get();
+			PreparationMilliseconds = Prepared.PreparationMilliseconds;
 			if (!Prepared.Data) { Fail(std::move(Prepared.Error)); return; }
 			Completion = std::make_shared<std::optional<FTexture2DCompilationResult>>();
+			CompilationStart = std::chrono::steady_clock::now();
 			const auto Result = AdmitFile(Files[Next], Directory, std::move(Prepared.Data),
 				[Cell = Completion](FTexture2DCompilationResult Value) { *Cell = std::move(Value); });
 			if (!Result) { Completion.reset(); Fail(Result.Message); return; }
@@ -197,6 +216,7 @@ namespace Durin::Editor::Texture
 		{
 			Preparation = std::async(std::launch::async, [Filename = Files[Next]] {
 				FPreparation Result;
+				const auto Start = std::chrono::steady_clock::now();
 				try
 				{
 					Result.Data = std::make_shared<AssetForge::Builtins::FPreparedTexture2DImport>();
@@ -204,6 +224,8 @@ namespace Durin::Editor::Texture
 						Result.Data.reset();
 				}
 				catch (const std::exception& Error) { Result.Data.reset(); Result.Error = Error.what(); }
+				Result.PreparationMilliseconds = std::chrono::duration<double, std::milli>(
+					std::chrono::steady_clock::now() - Start).count();
 				return Result;
 			});
 		}

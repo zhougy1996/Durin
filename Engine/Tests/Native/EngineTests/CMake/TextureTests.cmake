@@ -24,6 +24,19 @@ durin_add_native_test(TextureTests
 	DATA_DIRECTORIES "${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport" "${CMAKE_CURRENT_SOURCE_DIR}/Data"
 )
 
+durin_add_native_test(TextureCompressionQualificationTests
+	KIND qualification
+	DOMAINS texture
+	MODULES texture-build
+	STACKS editor
+	SOURCES Private/Texture/TextureCompressionQualificationTests.cpp
+	INCLUDE_DIRECTORIES ${_durin_texture_test_include_directories}
+	LIBRARIES Core CoreDObject Engine TextureBuild
+	REQUIRES editor
+	REQUIREMENT_RATIONALE "Measures the editor-only CPU texture compression provider."
+	TIMEOUT 600
+)
+
 durin_add_native_test(SceneImportTests
 	REQUIRES editor
 	REQUIREMENT_RATIONALE

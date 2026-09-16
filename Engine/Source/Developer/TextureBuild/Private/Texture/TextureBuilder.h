@@ -16,6 +16,8 @@ namespace Durin::TextureBuilder
 	{
 		std::function<bool()> ShouldCancel;
 		FBuildMipChainMetrics* Metrics = nullptr;
+		// Diagnostic/reference execution; production uses bounded scheduler parallelism.
+		bool bParallelCompression = true;
 	};
 
 	inline constexpr uint32 ChannelCount = 4;

@@ -18,6 +18,7 @@
 #include "Texture/VolumeTextureBuilder.h"
 #include "DObject/DefaultDeltaPlan.h"
 #include "Asset/EditorBulkDataStorage.h"
+#include "Threading/TaskComposition.h"
 
 namespace
 {
@@ -1769,6 +1770,71 @@ TEST(FTexture2DTests, CooperativeBuildCancellationUsesFrozenCheckpointIntervals)
 	EXPECT_EQ(BuildResult.Status, Durin::ETexture2DBuildStatus::Cancelled);
 	EXPECT_EQ(BuildResult.Diagnostic, "Texture build was cancelled.");
 	EXPECT_FALSE(Platform.IsValid());
+}
+
+TEST(FTexture2DTests, ParallelCompressionMatchesSerialBytes)
+{
+	InitializeDObjectSystem();
+	using namespace Durin;
+	Image::FImage Source;
+	FByteBuffer Pixels(257 * 259 * 4);
+	uint32 Random = 12345;
+	for (auto& Byte : Pixels)
+	{
+		Random = Random * 1664525u + 1013904223u;
+		Byte = static_cast<std::byte>(Random >> 24);
+	}
+	ASSERT_TRUE(Image::FImage::TryCreate({.Width = 257, .Height = 259,
+		.Format = Image::ERawImageFormat::RGBA8}, Pixels, Source));
+	for (auto Usage : {ETextureUsage::Color, ETextureUsage::Normal, ETextureUsage::DataMask})
+	for (bool Transparent : {false, true})
+	for (auto Quality : {ETextureCompressionQuality::Low, ETextureCompressionQuality::Normal,
+		ETextureCompressionQuality::High})
+	{
+		if (Transparent && Usage != ETextureUsage::Color) continue;
+		FTexturePlatformData Serial, Parallel;
+		const TextureBuilder::FBuildExecutionControl Control{.bParallelCompression = false};
+		ASSERT_TRUE(TextureBuilder::BuildMipChain(std::span(&Source, 1), Usage, false,
+			Serial, 0, Quality, ETextureAlphaMipMode::Average, 0.5f, &Control, Transparent));
+		ASSERT_TRUE(TextureBuilder::BuildMipChain(std::span(&Source, 1), Usage, false,
+			Parallel, 0, Quality, ETextureAlphaMipMode::Average, 0.5f, nullptr, Transparent));
+		ASSERT_EQ(Serial.PixelFormat, Parallel.PixelFormat);
+		ASSERT_EQ(Serial.Mips.size(), Parallel.Mips.size());
+		for (size_t Index = 0; Index < Serial.Mips.size(); ++Index)
+		{
+			EXPECT_EQ(Serial.Mips[Index].Width, Parallel.Mips[Index].Width);
+			EXPECT_EQ(Serial.Mips[Index].Height, Parallel.Mips[Index].Height);
+			EXPECT_EQ(Serial.Mips[Index].RowPitch, Parallel.Mips[Index].RowPitch);
+			EXPECT_EQ(Serial.Mips[Index].Pixels, Parallel.Mips[Index].Pixels);
+		}
+	}
+}
+
+TEST(FTexture2DTests, WorkerCompressionCancellationDrainsAndDiscardsOutput)
+{
+	InitializeDObjectSystem();
+	using namespace Durin;
+	Image::FImage Source;
+	ASSERT_TRUE(Image::FImage::TryCreate({.Width = 512, .Height = 512,
+		.Format = Image::ERawImageFormat::RGBA8},
+		FByteBuffer(512 * 512 * 4, std::byte{127}), Source));
+	TextureBuilder::FBuildMipChainMetrics Metrics;
+	uint32 CompressionCheckpoints = 0;
+	const TextureBuilder::FBuildExecutionControl Control{
+		.ShouldCancel = [&] {
+			return Metrics.MipGenerationNanoseconds && ++CompressionCheckpoints == 20;
+		}, .Metrics = &Metrics};
+	FTexturePlatformData Platform;
+	FTexture2DBuildResult Result;
+	auto Task = Tasks::LaunchTask("Test.TextureCompressionCancellation", [&] {
+		Result = TextureBuilder::BuildMipChain(std::span(&Source, 1),
+			ETextureUsage::DataMask, false, Platform, 0, ETextureCompressionQuality::Normal,
+			ETextureAlphaMipMode::Average, 0.5f, &Control, false);
+	});
+	ASSERT_EQ(WaitTask(Task.GetCompletion().GetTaskHandle()).TaskState, ETaskState::Succeeded);
+	EXPECT_EQ(Result.Status, ETexture2DBuildStatus::Cancelled);
+	EXPECT_EQ(CompressionCheckpoints, 20u);
+	EXPECT_TRUE(Platform.Mips.empty());
 }
 
 TEST(FTexture2DTests, ValidationFailureIsNotReclassifiedAsCancellation)

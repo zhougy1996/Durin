@@ -186,6 +186,8 @@ TEST_F(FTextureImportQueueTests, BatchContinuesAfterFailureAndPresentsOnce)
 	EXPECT_EQ(Importer.GetCanceledCount(), 0u);
 	EXPECT_EQ(Assets, 0);
 	EXPECT_EQ(Directories, 1);
+	EXPECT_NE(Importer.GetTimingDetails().find("wall_normal.tga: prepare"), std::string::npos);
+	EXPECT_NE(Importer.GetTimingDetails().find("cache hit"), std::string::npos);
 	EXPECT_TRUE(std::filesystem::exists(Root / "Content" / "wall_normal.dasset"));
 	EXPECT_TRUE(std::filesystem::exists(Root / "Content" / "other_normal.dasset"));
 }

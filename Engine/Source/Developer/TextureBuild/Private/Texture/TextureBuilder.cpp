@@ -1,6 +1,7 @@
 #include "Texture/TextureBuilder.h"
 
 #include "Math/Color.h"
+#include "Threading/Task.h"
 
 #include <bc7enc.h>
 #include <rgbcx.h>
@@ -90,21 +91,31 @@ namespace Durin::TextureBuilder
 			const uint32 AlphaSearchRadius = Quality == ETextureCompressionQuality::Low ? 1
 				: Quality == ETextureCompressionQuality::High ? 5 : rgbcx::BC4_DEFAULT_SEARCH_RAD;
 
-			std::array<uint8, BlockWidth * BlockWidth * ChannelCount> BlockPixels{};
-			for (uint32 BlockY = 0; BlockY < Layout.BlocksHigh; ++BlockY)
-			{
-				if (IsCancellationRequested(ExecutionControl))
-				{
-					return {ETexture2DBuildStatus::Cancelled,
-						"Texture build was cancelled."};
-				}
+			// Rows write disjoint output ranges. Keep cancellation callbacks serialized:
+			// callers are not required to provide a concurrently callable predicate.
+			std::mutex CancellationMutex;
+			bool bCancelled = false;
+			auto ShouldCancel = [&] {
+				std::lock_guard Lock(CancellationMutex);
+				bCancelled = bCancelled || IsCancellationRequested(ExecutionControl);
+				return bCancelled;
+			};
+			const bool bParallel = !ExecutionControl || ExecutionControl->bParallelCompression;
+			// A 4096-block batching threshold, no more than eight chunks per mip.
+			const uint64 RowsPerChunk = std::max<uint64>(
+				(4096ull + Layout.BlocksWide - 1) / Layout.BlocksWide,
+				(Layout.BlocksHigh + 7ull) / 8);
+			const auto Compression = ParallelFor("Texture.CompressRows", Layout.BlocksHigh,
+				[&](uint64 Row) {
+				const uint32 BlockY = static_cast<uint32>(Row);
+				if (ShouldCancel()) return;
+				std::array<uint8, BlockWidth * BlockWidth * ChannelCount> BlockPixels{};
 				for (uint32 BlockX = 0; BlockX < Layout.BlocksWide; ++BlockX)
 				{
 					if (BlockX != 0 && BlockX % CancellationBlockInterval == 0
-						&& IsCancellationRequested(ExecutionControl))
+						&& ShouldCancel())
 					{
-						return {ETexture2DBuildStatus::Cancelled,
-							"Texture build was cancelled."};
+						return;
 					}
 					GatherTextureBlock(Source, BlockX, BlockY, BlockPixels);
 					uint8* DestBlock = reinterpret_cast<uint8*>(OutMip.Pixels.data())
@@ -129,12 +140,14 @@ namespace Durin::TextureBuilder
 						bc7enc_compress_block(DestBlock, BlockPixels.data(), &BC7Params);
 						break;
 					default:
-						return {ETexture2DBuildStatus::Failed,
-							std::format("Texture compression is unavailable for pixel format {}.",
-								GetPixelFormatInfo(Format).Name)};
+						throw std::runtime_error("Unsupported texture compression format.");
 					}
 				}
-			}
+			}, {.MinBatchSize = bParallel ? RowsPerChunk : std::numeric_limits<uint64>::max()});
+			if (bCancelled)
+				return {ETexture2DBuildStatus::Cancelled, "Texture build was cancelled."};
+			if (Compression.State != ETaskState::Succeeded)
+				return {ETexture2DBuildStatus::Failed, Compression.Diagnostic};
 			return {ETexture2DBuildStatus::Succeeded, {}};
 		}
 

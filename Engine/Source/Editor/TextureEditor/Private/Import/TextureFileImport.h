@@ -30,6 +30,7 @@ namespace Durin::Editor::Texture
 		auto GetCanceledCount() const -> size_t { return bRunning ? 0 : Files.size() - Next; }
 		auto GetErrors() const -> const std::vector<std::string>& { return Errors; }
 		auto GetActivity() const -> std::string;
+		auto GetTimingDetails() const -> const std::string& { return TimingDetails; }
 		auto ImportFile(std::string_view Filename, std::string_view Directory)
 			-> FAssetOperationResult;
 		auto RetryPendingSaves() -> void;
@@ -49,6 +50,7 @@ namespace Durin::Editor::Texture
 		{
 			std::shared_ptr<AssetForge::Builtins::FPreparedTexture2DImport> Data;
 			std::string Error;
+			double PreparationMilliseconds = 0;
 		};
 		std::future<FPreparation> Preparation;
 		std::shared_ptr<std::optional<FTexture2DCompilationResult>> Completion;
@@ -57,6 +59,9 @@ namespace Durin::Editor::Texture
 		std::string Directory;
 		std::vector<std::string> Published;
 		std::vector<std::string> Errors;
+		std::string TimingDetails;
+		double PreparationMilliseconds = 0;
+		std::chrono::steady_clock::time_point CompilationStart;
 		size_t Next = 0, SavedCount = 0;
 		bool bRunning = false, bCancelRequested = false, bMutationAllowed = true;
 	};
