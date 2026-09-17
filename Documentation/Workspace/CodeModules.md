@@ -20,12 +20,12 @@ direction.
 
 | Module | Primary responsibility | Source root |
 | --- | --- | --- |
-| `Core` | Platform abstraction, containers, threading, logging, math, modules, serialization primitives, domain-neutral structured diagnostics, and low-level utilities | [source](../../Engine/Source/Runtime/Core) |
+| `Core` | Platform abstraction, containers, threading, logging, math, modules, serialization primitives, domain-neutral structured diagnostics, detached package writer operations, and low-level utilities | [source](../../Engine/Source/Runtime/Core) |
 | `PhysicsCore` | Engine-independent collision shapes, handles, filters, hits, validation, and reference geometry math | [source](../../Engine/Source/Runtime/PhysicsCore) |
 | `Physics` | World-independent physics scene body storage and synchronous query orchestration | [source](../../Engine/Source/Runtime/Physics) |
-| `CoreDObject` | Managed objects, reflection, properties, garbage collection, object serialization, format-neutral package linker tables, canonical reflected Map-key tokens, canonical DAST v10 read/write, generic live graph capture, and package persistence | [source](../../Engine/Source/Runtime/CoreDObject) |
+| `CoreDObject` | Managed objects, reflection, properties, garbage collection, object serialization, format-neutral package linker tables, canonical reflected Map-key tokens, canonical DAST v10 read/write, generic live graph capture, save contexts, and package persistence | [source](../../Engine/Source/Runtime/CoreDObject) |
 | `ApplicationCore` | Native application, window, input-message, GLFW, and file-dialog integration | [source](../../Engine/Source/Runtime/ApplicationCore) |
-| `AssetRegistry` | Mounted canonical-v10 package discovery, bounded Registry projection, immutable package metadata/dependency snapshots and queries, revisions, and one rebuildable registry cache | [source](../../Engine/Source/Runtime/AssetRegistry) |
+| `AssetRegistry` | Mounted canonical-v10 package discovery, bounded Registry projection, immutable package metadata/dependency snapshots and queries, saved-metadata publication, revisions, and one rebuildable registry cache | [source](../../Engine/Source/Runtime/AssetRegistry) |
 | `Engine` | Asset package construction, residency, asset preparation, linker application and publication, transient exact package inspection, cooking, and mutation; plus worlds, actors, components, levels, runtime asset types, editor-only Texture DDC orchestration and completion application, Material/Texture compilation, input, render-facing engine objects, and producer-facing primitive draw submission | [source](../../Engine/Source/Runtime/Engine) |
 | `RHI` | Backend-neutral GPU resources, command lists, contexts, feature levels, shader parameters, and RHI-thread contracts | [source](../../Engine/Source/Runtime/RHI) |
 | `VulkanRHI` | Vulkan instance/device selection, queues, resources, pipelines, descriptors, swapchains, and backend diagnostics | [source](../../Engine/Source/Runtime/VulkanRHI) |

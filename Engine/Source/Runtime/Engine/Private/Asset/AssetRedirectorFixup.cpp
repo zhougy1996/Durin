@@ -222,7 +222,7 @@ namespace Durin
 				"Redirector Fix Up cannot delete aliases because the reference index is incomplete.");
 
 		auto State = std::make_shared<FAssetRedirectorFixupState>();
-		const FAssetPublicationState Prepared = Registry.CapturePreparedState();
+		const FAssetRegistryPublication Prepared = CaptureAssetRegistryPublication();
 		const auto FindPrepared = [&](const FPackagePath& Path) -> const FAssetData* {
 			const auto It = Prepared.Assets.find(Path);
 			return It == Prepared.Assets.end() ? nullptr : &It->second;
@@ -876,7 +876,7 @@ namespace Durin
 		std::vector<FPackagePath> FencedPaths = State.Redirectors;
 		for (const FFixupPackageState& Package : State.Packages)
 			FencedPaths.push_back(Package.SourcePath);
-		Result = Registry.ReconcileProjection(FencedPaths);
+		Result = RefreshSavedPackages(FencedPaths);
 		if (!Result) return ForwardPending(Result.Message);
 		State.bProjectionPublished = true;
 		State.ExpectedRegistryRevision = GetAssetCatalogRevision();

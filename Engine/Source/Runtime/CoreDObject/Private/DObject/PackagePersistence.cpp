@@ -20,14 +20,29 @@ namespace Durin
 		check(IsInGameThread());
 		DestinationResolver = std::move(Resolver);
 	}
+	auto ToPackageSaveResult(FPackageWriteResult Result) -> FPackageSaveResult
+	{
+		EPackageSaveError Error = EPackageSaveError::None;
+		switch (Result.Error)
+		{
+		case EPackageWriteError::None: break;
+		case EPackageWriteError::IoError: Error = EPackageSaveError::IoError; break;
+		case EPackageWriteError::StaleData: Error = EPackageSaveError::StaleData; break;
+		case EPackageWriteError::CorruptFile: Error = EPackageSaveError::CorruptFile; break;
+		case EPackageWriteError::InvalidState: Error = EPackageSaveError::Busy; break;
+		}
+		const auto State = Result.State == EPackageWriteState::Committed ? EPackageCommitState::Committed
+			: Result.State == EPackageWriteState::RecoveryRequired ? EPackageCommitState::RecoveryRequired
+			: EPackageCommitState::NotCommitted;
+		return {Error, std::move(Result.Message), State, std::move(Result.RecoveryFiles)};
+	}
 	struct FPackageSaveOperation::FState
 	{
 		TStrongObjectPtr<DPackage> Package;
 		FPackagePath Identity;
 		uint64 Revision = 0;
-		FByteBuffer Bytes, Bulk;
-		FFileReplacement MainFile, BulkFile;
-		FFilePublicationStamp MainStamp, BulkStamp;
+		FSavePackageContext Context;
+		std::unique_ptr<IPackageWriteOperation> Write;
 		std::unique_ptr<Tasks::FTaskGroup> Group;
 		Tasks::TTask<FPackageSaveResult> Worker;
 		FPackageSaveResult StagingResult;
@@ -35,30 +50,8 @@ namespace Durin
 		bool bCommitted = false;
 		bool bCommitting = false;
 		bool bClearDirty = true;
-		auto Stage() -> FPackageSaveResult
-		{
-			std::error_code Ec;
-			std::filesystem::create_directories(MainFile.Destination.parent_path(), Ec);
-			if (Ec) return Fail(EPackageSaveError::IoError, Ec.message());
-			std::string Error;
-			if (!StageFileVerified(MainFile.Staged, Bytes, Error)
-				|| (!Bulk.empty() && !StageFileVerified(BulkFile.Staged, Bulk, Error)))
-				return Fail(EPackageSaveError::IoError, Error);
-			return {};
-		}
-		auto Cleanup() -> void
-		{
-			std::error_code Ec;
-			if (!MainFile.Staged.empty()) std::filesystem::remove(MainFile.Staged, Ec);
-			if (!BulkFile.Staged.empty()) std::filesystem::remove(BulkFile.Staged, Ec);
-		}
-		auto VerifyStage(const FFileReplacement& File, FByteView Expected) -> bool
-		{
-			if (File.Staged.empty()) return Expected.empty();
-			FByteBuffer Read;
-			return FFileHelper::LoadFileToArray(Read, File.Staged) && Read.size() == Expected.size()
-				&& FXxHash128::HashBuffer(Read) == FXxHash128::HashBuffer(Expected);
-		}
+		auto Stage() -> FPackageSaveResult { return ToPackageSaveResult(Write->Stage()); }
+		auto Cleanup() -> void { Write.reset(); }
 	};
 	FPackageSaveOperation::FPackageSaveOperation() : State(std::make_unique<FState>()) {}
 	FPackageSaveOperation::~FPackageSaveOperation()
@@ -71,6 +64,12 @@ namespace Durin
 	auto FPackageSaveOperation::Begin(DPackage* Package, const FPackageSaveOptions& Options,
 		FPackageSaveResult& Admission, bool bAsync) -> std::unique_ptr<FPackageSaveOperation>
 	{
+		return Begin(Package, FSavePackageContext{Options}, Admission, bAsync);
+	}
+	auto FPackageSaveOperation::Begin(DPackage* Package, const FSavePackageContext& Context,
+		FPackageSaveResult& Admission, bool bAsync) -> std::unique_ptr<FPackageSaveOperation>
+	{
+		const auto& Options = Context.Options;
 		check(IsInGameThread());
 		Admission = {};
 		if (!Package || !Package->IsAssetPackage() || Package->IsGraphPrivate())
@@ -87,36 +86,43 @@ namespace Durin
 		auto Operation = std::unique_ptr<FPackageSaveOperation>(new FPackageSaveOperation());
 		auto& Data = *Operation->State;
 		Data.Package = Package;
+		Data.Context = Context;
+		FFileReplacement MainFile, BulkFile;
+		FFilePublicationStamp MainStamp, BulkStamp;
+		FByteBuffer Bytes, Bulk;
 		Data.Identity = Package->GetPackagePathIdentity();
 		Data.Revision = Package->GetEditRevision();
 		Data.bClearDirty = !Options.Capture.bCooking && !Options.Capture.PropertyFilter
 			&& (!Options.Capture.SaveOverrides || Options.Capture.SaveOverrides->IsEmpty());
 		auto Resolver = DestinationResolver;
-		Data.MainFile.Destination = Options.Destination.empty() && Resolver ? Resolver(*Package) : Options.Destination;
-		if (Data.MainFile.Destination.empty() || Data.MainFile.Destination.extension() != ".dasset")
+		MainFile.Destination = Options.Destination.empty() && Resolver ? Resolver(*Package) : Options.Destination;
+		if (MainFile.Destination.empty() || MainFile.Destination.extension() != ".dasset")
 		{ Admission = Fail(EPackageSaveError::InvalidPath, "An explicit .dasset destination or configured resolver is required."); return {}; }
 		std::error_code Ec;
-		Data.MainFile.Destination = std::filesystem::absolute(Data.MainFile.Destination, Ec).lexically_normal();
+		MainFile.Destination = std::filesystem::absolute(MainFile.Destination, Ec).lexically_normal();
 		if (Ec) { Admission = Fail(EPackageSaveError::InvalidPath, Ec.message()); return {}; }
-		Data.BulkFile.Destination = Data.MainFile.Destination;
-		Data.BulkFile.Destination.replace_extension(".dbulk");
-		if (!FFilePublicationStamp::Inspect(Data.MainFile.Destination, Data.MainStamp)
-			|| !FFilePublicationStamp::Inspect(Data.BulkFile.Destination, Data.BulkStamp))
+		BulkFile.Destination = MainFile.Destination;
+		BulkFile.Destination.replace_extension(".dbulk");
+		if (!FFilePublicationStamp::Inspect(MainFile.Destination, MainStamp)
+			|| !FFilePublicationStamp::Inspect(BulkFile.Destination, BulkStamp))
 		{ Admission = Fail(EPackageSaveError::IoError, "Cannot inspect package destination."); return {}; }
 		ObjectPackage::FLinkerTables Linker;
-		Admission = CapturePackageLinker(Package, Options.Mode == EPackageSaveMode::Complete
-			? EDefaultDeltaMode::NoDelta : EDefaultDeltaMode::Enabled, Options.Capture, Linker);
+		Admission = Data.Context.Capture(Package, Linker);
 		if (!Admission) return {};
 		ObjectPackage::FPackageWriterDiagnostic Diagnostic;
-		if (!ObjectPackage::WritePackage(Linker, Data.Bytes, Data.Bulk, &Diagnostic))
+		if (!ObjectPackage::WritePackage(Linker, Bytes, Bulk, &Diagnostic))
 		{ Admission = Fail(EPackageSaveError::UnsupportedProperty, Diagnostic.Message); return {}; }
 		if (Package->GetEditRevision() != Data.Revision || Package->GetPackagePathIdentity() != Data.Identity)
 		{ Admission = Fail(EPackageSaveError::StaleData, "Package changed during capture."); return {}; }
 		const std::string Suffix = ".package-save-" + FGuid::NewGuid().ToString();
-		Data.MainFile.Staged = Data.MainFile.Destination.string() + Suffix;
-		Data.MainFile.Backup = Data.MainFile.Staged.string() + ".backup";
-		Data.BulkFile.Backup = Data.BulkFile.Destination.string() + Suffix + ".backup";
-		if (!Data.Bulk.empty()) Data.BulkFile.Staged = Data.BulkFile.Destination.string() + Suffix;
+		MainFile.Staged = MainFile.Destination.string() + Suffix;
+		MainFile.Backup = MainFile.Staged.string() + ".backup";
+		BulkFile.Backup = BulkFile.Destination.string() + Suffix + ".backup";
+		if (!Bulk.empty()) BulkFile.Staged = BulkFile.Destination.string() + Suffix;
+		std::vector<FPackageWriteFile> Files;
+		Files.push_back({std::move(BulkFile), BulkStamp, std::move(Bulk)});
+		Files.push_back({std::move(MainFile), MainStamp, std::move(Bytes)});
+		Data.Write = Data.Context.BeginWrite(std::move(Files));
 		if (bAsync)
 		{
 			if (!IsTaskSchedulerRunning())
@@ -149,49 +155,25 @@ namespace Durin
 			Data.StagingResult = Data.Worker.GetResult();
 		}
 		if (!Data.StagingResult) return FinishFailure(Data.StagingResult);
-		FFilePublicationStamp Main, Bulk;
 		if (Data.Package->GetEditRevision() != Data.Revision
-			|| Data.Package->GetPackagePathIdentity() != Data.Identity
-			|| !FFilePublicationStamp::Inspect(Data.MainFile.Destination, Main) || Main != Data.MainStamp
-			|| !FFilePublicationStamp::Inspect(Data.BulkFile.Destination, Bulk) || Bulk != Data.BulkStamp)
-			return FinishFailure(Fail(EPackageSaveError::StaleData, "Package or destination changed while saving."));
-		if (!Data.VerifyStage(Data.MainFile, Data.Bytes) || !Data.VerifyStage(Data.BulkFile, Data.Bulk))
-			return FinishFailure(Fail(EPackageSaveError::CorruptFile, "Staged package content changed."));
+			|| Data.Package->GetPackagePathIdentity() != Data.Identity)
+			return FinishFailure(Fail(EPackageSaveError::StaleData, "Package changed while saving."));
 		Data.bCommitting = true;
-		std::string Error;
-		if (!Data.BulkFile.Publish(Error) || !Data.MainFile.Publish(Error))
-		{
-			std::string RestoreError, BulkRestoreError;
-			const bool MainRestored = Data.MainFile.Rollback(RestoreError);
-			const bool BulkRestored = Data.BulkFile.Rollback(BulkRestoreError);
-			if (!BulkRestored) RestoreError += "; bulk: " + BulkRestoreError;
-			Data.bCommitting = false;
-			auto Result = Fail(EPackageSaveError::IoError, Error);
-			if (!MainRestored || !BulkRestored)
-			{ Result.CommitState = EPackageCommitState::RecoveryRequired; Result.Message += "; rollback: " + RestoreError;
-				if (Data.MainFile.bBackedUp) Result.RecoveryFiles.push_back(Data.MainFile.Backup);
-				if (Data.BulkFile.bBackedUp) Result.RecoveryFiles.push_back(Data.BulkFile.Backup); }
-			return FinishFailure(Result);
-		}
-		Data.bCommitted = true;
+		auto Result = ToPackageSaveResult(Data.Write->Commit());
 		Data.bCommitting = false;
-		return {EPackageSaveError::None, {}, EPackageCommitState::Committed};
+		if (!Result) return FinishFailure(std::move(Result));
+		Data.bCommitted = true;
+		return Result;
 	}
 	auto FPackageSaveOperation::RollbackCommit() -> FPackageSaveResult
 	{
 		check(IsInGameThread());
 		auto& Data = *State;
 		if (!Data.bCommitted) return Data.Result.value_or(FPackageSaveResult{});
-		std::string Error, BulkError;
-		const bool Main = Data.MainFile.Rollback(Error);
-		const bool Bulk = Data.BulkFile.Rollback(BulkError);
-		if (!Bulk) Error += "; bulk: " + BulkError;
+		auto Result = ToPackageSaveResult(Data.Write->Rollback());
 		Data.bCommitted = false;
-		Data.Result = FPackageSaveResult{EPackageSaveError::Cancelled, "Package commit rolled back."};
-		if (!Main || !Bulk) Data.Result = FPackageSaveResult{EPackageSaveError::IoError,
-			"Rollback failed: " + Error, EPackageCommitState::RecoveryRequired};
-		if (Data.MainFile.bBackedUp) Data.Result->RecoveryFiles.push_back(Data.MainFile.Backup);
-		if (Data.BulkFile.bBackedUp) Data.Result->RecoveryFiles.push_back(Data.BulkFile.Backup);
+		if (Result) Result = Fail(EPackageSaveError::Cancelled, "Package commit rolled back.");
+		Data.Result = std::move(Result);
 		return *Data.Result;
 	}
 	auto FPackageSaveOperation::FinalizeCommit() -> FPackageSaveResult
@@ -200,17 +182,10 @@ namespace Durin
 		auto& Data = *State;
 		if (Data.Result) return *Data.Result;
 		if (!Data.bCommitted) return Fail(EPackageSaveError::Busy, "No committed package to finalize.");
-		std::string Error, BulkError;
-		const bool Main = Data.MainFile.Finalize(Error);
-		const bool Bulk = Data.BulkFile.Finalize(BulkError);
-		if (!Bulk) Error += "; bulk: " + BulkError;
+		Data.Result = ToPackageSaveResult(Data.Write->Finalize());
 		Data.bCommitted = false;
 		if (Data.bClearDirty && Data.Package->GetEditRevision() == Data.Revision
 			&& Data.Package->GetPackagePathIdentity() == Data.Identity) Data.Package->ClearDirty();
-		Data.Result = FPackageSaveResult{Main && Bulk ? EPackageSaveError::None : EPackageSaveError::IoError,
-			Error, EPackageCommitState::Committed};
-		if (Data.MainFile.bBackedUp) Data.Result->RecoveryFiles.push_back(Data.MainFile.Backup);
-		if (Data.BulkFile.bBackedUp) Data.Result->RecoveryFiles.push_back(Data.BulkFile.Backup);
 		Data.Cleanup();
 		return *Data.Result;
 	}

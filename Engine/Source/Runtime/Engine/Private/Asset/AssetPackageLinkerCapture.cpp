@@ -1,5 +1,5 @@
 #include "AssetPackageArchive.h"
-#include "DObject/PackageCapture.h"
+#include "DObject/PackagePersistence.h"
 #include "Asset/PackageVersionPolicy.h"
 #include "AssetPackageLinker.h"
 #include "Asset/EditorBulkData.h"
@@ -673,7 +673,9 @@ namespace Durin::AssetPrivate
   const FAssetPackageSerializationOptions& Options, ObjectPackage::FLinkerTables& OutLinker,
   std::string* OutError, uint32 FormatVersion) -> FAssetResult
  {
-  FPackageCaptureOptions Capture;
+  FSavePackageContext SaveContext;
+  SaveContext.Options.Mode = DeltaMode == EDefaultDeltaMode::NoDelta ? EPackageSaveMode::Complete : EPackageSaveMode::Delta;
+  auto& Capture = SaveContext.Options.Capture;
   Capture.bCooking = Options.Domain == EAssetPackageSaveDomain::Cooked;
   Capture.bRetainEditorOnlyData = Options.bRetainEditorOnlyData;
   Capture.Target.Platform = Options.TargetPlatform == ECookTargetPlatform::Win64 ? "Win64" : "";
@@ -691,7 +693,7 @@ namespace Durin::AssetPrivate
      return {EAssetError::CorruptFile, "Redirector destination is invalid."};
     Capture.RedirectDestinations.emplace(Asset, std::move(Path));
    }
-  auto Result = CapturePackageLinker(Package, DeltaMode, Capture, OutLinker, OutError, FormatVersion);
+  auto Result = SaveContext.Capture(Package, OutLinker, OutError, FormatVersion);
   switch (Result.Error)
   {
    case EPackageSaveError::None: return {};

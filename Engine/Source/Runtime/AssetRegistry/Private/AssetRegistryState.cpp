@@ -701,6 +701,30 @@ namespace Durin
 		return Result;
 	}
 
+	auto AssetsSaved(
+		std::vector<FAssetData> Assets, const FAssetRegistryPublication& Expected) -> FAssetRegistryResult
+	{
+		if (Assets.empty()) return {};
+		std::unordered_set<FPackagePath> SeenPaths;
+		for (const FAssetData& Data : Assets)
+		{
+			if (!Data.PackagePath.IsValid()
+				|| !SeenPaths.insert(Data.PackagePath).second)
+				return {EAssetRegistryError::InvalidPath, "Asset metadata batch contains an invalid or duplicate package path."};
+		}
+		FAssetRegistryDelta Delta{.ExpectedRevision = Expected.ExpectedRevision};
+		for (FAssetData& Data : Assets)
+		{
+			const FPackagePath Path = Data.PackagePath;
+			if (Expected.Assets.contains(Path))
+				Delta.Replaces.push_back(std::move(Data));
+			else
+				Delta.Adds.push_back(std::move(Data));
+			Delta.ReferenceInvalidations.push_back(Path);
+		}
+		return PublishAssetRegistryDelta(std::move(Delta));
+	}
+
 	auto PublishAssetRegistryDelta(FAssetRegistryDelta Delta) -> FAssetRegistryResult
 	{
 		FAssetRegistryResult Result = AssetPrivate::GetAssetRegistryState().PublishDelta(

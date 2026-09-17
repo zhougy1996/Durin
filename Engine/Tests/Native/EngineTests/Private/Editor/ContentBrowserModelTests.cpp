@@ -2944,6 +2944,32 @@ TEST_F(FContentBrowserModelTests, ServiceRechecksPolicyAndPublishesFilesystemCha
 	EXPECT_EQ(Publications, 1);
 }
 
+TEST_F(FContentBrowserModelTests, PartialBatchSaveRefreshesSuccessfulContentOnce)
+{
+	FPackagePath Saved, Failed;
+	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/Saved", Saved));
+	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/Failed", Failed));
+	int Publications = 0;
+	FContentBrowserAssetServices Assets;
+	Assets.SaveAssets = [&](const FAssetSaveRequest&) {
+		return FAssetOperationResult{
+			.Kind = EAssetOperationKind::Save,
+			.State = EAssetOperationTerminalState::Rejected,
+			.Persistence = EAssetOperationPersistenceState::PartiallyPersisted,
+			.AffectedAssets = {Saved},
+			.Warnings = {{Failed, "Save failed"}}};
+	};
+	FContentBrowserOperationService Service({}, {}, {}, {},
+		[&] { ++Publications; }, {}, std::move(Assets));
+	const auto Result = Service.Save({Saved, Failed});
+	EXPECT_FALSE(Result);
+	EXPECT_TRUE(Result.bContentChanged);
+	EXPECT_EQ(Publications, 1);
+	EXPECT_EQ(Result.Warning, "Save failed");
+	ASSERT_TRUE(Result.AssetResult);
+	EXPECT_EQ(Result.AssetResult->AffectedAssets, std::vector{Saved});
+}
+
 TEST_F(FContentBrowserModelTests, ServiceRetainsStructuredAssetFailureAndFixUpScope)
 {
 	FPackagePath Path;

@@ -8,7 +8,6 @@
 
 namespace Durin
 {
-	class FAssetPublicationCoordinator;
 }
 
 namespace Durin::AssetPrivate
@@ -147,9 +146,7 @@ namespace Durin::AssetPrivate
 		std::string_view Message) -> FAssetResult;
 	auto IsMutationJournalRecoveryRequired(
 		const FAssetMutationJournal& Journal) -> bool;
-	auto RecoverPendingMutationJournals(
-		FAssetPublicationCoordinator& Registry
-	) -> FAssetResult;
+	auto RecoverPendingMutationJournals() -> FAssetResult;
 	auto PublishRelocationFile(const FAssetMutationJournalEntry& Entry)
 		-> FAssetResult;
 }

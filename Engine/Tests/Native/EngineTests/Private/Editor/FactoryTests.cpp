@@ -695,6 +695,54 @@ TEST(DFactoryTests, AssetToolsSaveAndDuplicatePublishStructuredCompletionOnce)
 	EXPECT_TRUE(Durin::UnloadPackage(SourcePath));
 }
 
+TEST(DFactoryTests, BatchSaveContinuesAfterFailureAndPublishesOnlySavedPackages)
+{
+	using namespace Durin;
+	InitializeFactoryTestGameThread();
+	EnsureAssetToolsTestMount();
+	std::vector<FPackagePath> Paths;
+	std::vector<DPackage*> Packages;
+	for (const auto* Name : {"BatchFirst", "BatchBlocked", "BatchLast"})
+	{
+		FPackagePath Path;
+		ASSERT_TRUE(FPackagePath::TryCreate(std::string("/AssetToolsTests/") + Name, Path));
+		const auto Created = IAssetTools::Get().CreatePackageLeafAssetForTesting(
+			Path, DFactoryAssetForTest::StaticClass(), MakeFactory(DAssetToolsFactoryForTest::EMode::Success));
+		ASSERT_TRUE(Created);
+		Paths.push_back(Path);
+		Packages.push_back(Created.Package);
+	}
+	const auto Blocker = Testing::GetTestWorkDirectory() / "AssetTools" / "BatchBlocked.dasset";
+	ASSERT_TRUE(std::filesystem::create_directory(Blocker));
+	int Notifications = 0;
+	const auto Result = IAssetTools::Get().SaveAssets({.AssetPaths = {Paths[0], Paths[1], Paths[2], Paths[0]},
+		.Publish = [&](const FAssetOperationNotification& Event) {
+			++Notifications;
+			EXPECT_EQ(Event.Persistence, EAssetOperationPersistenceState::PartiallyPersisted);
+			EXPECT_EQ(Event.AffectedAssets, (std::vector{Paths[0], Paths[2]}));
+		}});
+	EXPECT_FALSE(Result);
+	EXPECT_EQ(Result.Persistence, EAssetOperationPersistenceState::PartiallyPersisted);
+	EXPECT_EQ(Result.AffectedAssets, (std::vector{Paths[0], Paths[2]}));
+	ASSERT_EQ(Result.Warnings.size(), 1u);
+	EXPECT_EQ(Result.Warnings.front().AssetPath, Paths[1]);
+	EXPECT_EQ(Notifications, 1);
+	EXPECT_TRUE(Result.bPublished);
+	EXPECT_FALSE(Packages[0]->IsDirty());
+	EXPECT_TRUE(Packages[1]->IsDirty());
+	EXPECT_FALSE(Packages[2]->IsDirty());
+	const auto FailedOnly = IAssetTools::Get().SaveAssets({.AssetPaths = {Paths[1]},
+		.Publish = [&](const FAssetOperationNotification&) { ++Notifications; }});
+	EXPECT_FALSE(FailedOnly);
+	EXPECT_EQ(FailedOnly.Persistence, EAssetOperationPersistenceState::Dirty);
+	EXPECT_TRUE(FailedOnly.AffectedAssets.empty());
+	EXPECT_EQ(Notifications, 1);
+	std::filesystem::remove(Blocker);
+	const auto Retry = IAssetTools::Get().SaveAssets({.AssetPaths = {Paths[1]}});
+	EXPECT_TRUE(Retry) << Retry.Message;
+	for (const auto& Path : Paths) EXPECT_TRUE(UnloadPackage(Path));
+}
+
 TEST(DFactoryTests, DuplicateSaveFailureDiscardsOnlyDisposableDestination)
 {
 	InitializeFactoryTestGameThread();

@@ -1,6 +1,6 @@
 #include "Asset/RegistryOperations.h"
 #include "AssetRegistry/Scan.h"
-#include "AssetPublicationCoordinatorInternal.h"
+#include "AssetRegistryOperationsInternal.h"
 #include "AssetRegistryResultAdapter.h"
 #include "AssetMutationReferenceInternal.h"
 #include "AssetMutationRegistryInternal.h"
@@ -97,11 +97,6 @@ namespace Durin
 
 	namespace
 	{
-		constexpr size_t MaximumReferencesPerSnapshot = 1000000;
-		constexpr uint32 MaximumRedirectDepth = 64;
-		constexpr std::string_view RedirectorClassName =
-			"Durin::DAssetRedirector";
-
 		auto ResolveAuthoredPackagePath(const FPackagePath& Path) -> std::string
 		{
 			const FAssetPathResult Resolved = FMountPaths::ResolveAssetPath(
@@ -125,40 +120,6 @@ namespace Durin
 		auto Error(EAssetError Code, std::string Message) -> FAssetResult
 		{
 			return {Code, std::move(Message)};
-		}
-
-		auto IsMissingPathError(const std::error_code& ErrorCode) -> bool
-		{
-			return ErrorCode == std::errc::no_such_file_or_directory
-				   || ErrorCode.value() == 2
-				   || ErrorCode.value() == 3;
-		}
-
-		auto PackageReferenceLess(const FAssetPackageReferenceEdge& Left,
-			const FAssetPackageReferenceEdge& Right) -> bool
-		{
-			return std::tuple(Left.TargetPath.GetView(), Left.SourcePackage.GetView(), Left.Kind)
-				< std::tuple(Right.TargetPath.GetView(), Right.SourcePackage.GetView(), Right.Kind);
-		}
-
-		auto AppendPackageReferences(const FAssetData& Data,
-			std::vector<FAssetPackageReferenceEdge>& OutEdges,
-			FAssetPackageFingerprint& OutFingerprint) -> FAssetResult
-		{
-			OutFingerprint = {.FileSize = Data.FileSize,
-				.LastWriteTimeTicks = Data.LastWriteTimeTicks,
-				.ReaderVersion = Data.FormatVersion};
-			auto Add = [&](EAssetReferenceKind Kind, const FPackagePath& Target)
-			{
-				OutEdges.push_back({.SourcePackage = Data.PackagePath,
-					.SourceFingerprint = OutFingerprint, .Kind = Kind,
-					.TargetPath = Target});
-			};
-			VisitAssetPackageReferences(Data, Add);
-			if (OutEdges.size() > MaximumReferencesPerSnapshot)
-				return Error(EAssetError::CorruptFile,
-					"AssetReferenceIndexSnapshotExceeded: mutation exceeds 1,000,000 package edges.");
-			return {};
 		}
 
 		template<typename TResolution>
@@ -357,92 +318,7 @@ namespace Durin
 		return {};
 	}
 
-	auto BuildAssetPackageReferenceProjection(
-		const std::unordered_map<FPackagePath, FAssetData>& Assets,
-		std::vector<FAssetPackageReferenceEdge>& OutEdges,
-		std::unordered_map<FPackagePath, FAssetPackageFingerprint>& OutFingerprints)
-		-> FAssetResult
-	{
-		OutEdges.clear();
-		OutFingerprints.clear();
-		std::vector<const FAssetData*> SortedAssets;
-		SortedAssets.reserve(Assets.size());
-		for (const auto& [Path, Data] : Assets)
-		{
-			(void)Path;
-			SortedAssets.push_back(&Data);
-		}
-		std::ranges::sort(SortedAssets, [](const FAssetData* Left,
-			const FAssetData* Right) {
-			return Left->PackagePath.GetView() < Right->PackagePath.GetView();
-		});
-		for (const FAssetData* Data : SortedAssets)
-		{
-			FAssetPackageFingerprint Fingerprint;
-			FAssetResult Result = AppendPackageReferences(
-				*Data, OutEdges, Fingerprint);
-			if (!Result) return Result;
-			OutFingerprints.emplace(Data->PackagePath, Fingerprint);
-		}
-		std::ranges::sort(OutEdges, PackageReferenceLess);
-		OutEdges.erase(std::unique(OutEdges.begin(), OutEdges.end(),
-			[](const FAssetPackageReferenceEdge& Left,
-				const FAssetPackageReferenceEdge& Right) {
-				return Left.SourcePackage == Right.SourcePackage
-					&& Left.TargetPath == Right.TargetPath && Left.Kind == Right.Kind;
-			}), OutEdges.end());
-		return {};
-	}
-
-	auto FAssetPublicationCoordinator::PublishAssetMetadata(FAssetData Data)
-		-> FAssetResult
-	{
-		std::vector<FAssetData> Batch;
-		Batch.push_back(std::move(Data));
-		return PublishAssetMetadataBatch(std::move(Batch));
-	}
-
-	auto FAssetPublicationCoordinator::PublishAssetMetadataBatch(
-		std::vector<FAssetData> Assets
-	) -> FAssetResult
-	{
-		if (Assets.empty()) return {};
-		FAssetRegistryPublication Publication = CaptureAssetRegistryPublication();
-		const uint64 ExpectedRevision = Publication.ExpectedRevision;
-		if (!Publication.bReferenceIndexComplete
-			|| !Publication.ReferenceErrors.empty())
-			return Error(EAssetError::StaleData, "Asset metadata cannot publish while the reference index is incomplete.");
-
-		std::unordered_set<FPackagePath> SeenPaths;
-		std::vector<FPackagePath> Paths;
-		Paths.reserve(Assets.size());
-		for (const FAssetData& Data : Assets)
-		{
-			if (!Data.PackagePath.IsValid()
-				|| !SeenPaths.insert(Data.PackagePath).second)
-				return Error(EAssetError::InvalidPath, "Asset metadata batch contains an invalid or duplicate package path.");
-			Paths.push_back(Data.PackagePath);
-		}
-		FAssetRegistryDelta Delta{.ExpectedRevision = ExpectedRevision};
-		for (FAssetData& Data : Assets)
-		{
-			const FPackagePath Path = Data.PackagePath;
-			if (Publication.Assets.contains(Path))
-				Delta.Replaces.push_back(std::move(Data));
-			else
-				Delta.Adds.push_back(std::move(Data));
-			Delta.ReferenceInvalidations.push_back(Path);
-		}
-		return PublishDelta(std::move(Delta));
-	}
-
-	auto FAssetPublicationCoordinator::PublishDelta(FAssetRegistryDelta Delta)
-		-> FAssetResult
-	{
-		return AssetPrivate::ToAssetResult(PublishAssetRegistryDelta(std::move(Delta)));
-	}
-
-	auto FAssetPublicationCoordinator::ReconcileProjection(
+	auto RefreshSavedPackages(
 		std::span<const FPackagePath> Paths) -> FAssetResult
 	{
 		if (Paths.empty()) return {};
@@ -492,20 +368,10 @@ namespace Durin
 			else Delta.Adds.push_back(std::move(Data));
 			Delta.ReferenceInvalidations.push_back(Path);
 		}
-		return PublishDelta(std::move(Delta));
+		return AssetPrivate::ToAssetResult(PublishAssetRegistryDelta(std::move(Delta)));
 	}
 
-	auto FAssetPublicationCoordinator::CapturePreparedState() const
-		-> FAssetPublicationState
-	{
-		FAssetRegistryPublication Publication = CaptureAssetRegistryPublication();
-		return {
-			.Assets = std::move(Publication.Assets),
-			.ReferenceEdges = std::move(Publication.ReferenceEdges),
-			.ReferenceFingerprints = std::move(Publication.ReferenceFingerprints),
-			.ReferenceErrors = std::move(Publication.ReferenceErrors),
-			.bReferenceIndexComplete = Publication.bReferenceIndexComplete
-		};
-	}
-
+	auto FlushAssetCatalogSnapshotForTesting() -> void { FlushAssetRegistryCaches(); }
+	auto IsAssetCatalogSnapshotDirtyForTesting() -> bool { return IsAssetRegistryCacheDirty(); }
+	auto GetAssetCatalogCacheWarningForTesting() -> std::string { return GetAssetRegistryCacheWarning(); }
 } // namespace Durin

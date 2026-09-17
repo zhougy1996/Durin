@@ -3,7 +3,7 @@
 #include "CookOutputInternal.h"
 #include "Asset/PackageSerialization.h"
 
-#include "AssetPublicationCoordinatorInternal.h"
+#include "AssetRegistryOperationsInternal.h"
 #include "BulkContainerInfrastructure.h"
 #include "DObject/Package.h"
 #include "Hash/XxHash.h"
@@ -124,7 +124,7 @@ namespace Durin
 					VirtualPackagePath, RequestedPath
 				))
 				return true;
-			const FAssetPublicationCoordinator& Registry = GetAssetPublicationCoordinator();
+
 			if (!Durin::FindAssetExact(RequestedPath)) return true;
 			const FAssetPathResolveResult Resolution =
 				Durin::ResolveAssetPathForOperation(RequestedPath);

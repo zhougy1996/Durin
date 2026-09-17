@@ -48,6 +48,9 @@ namespace Durin
 		FAssetRegistryPublication Publication) -> FAssetRegistryResult;
 	ASSETREGISTRY_API auto PublishAssetRegistryDelta(FAssetRegistryDelta Delta)
 		-> FAssetRegistryResult;
+	// Owned saved metadata, checked against the caller's admission revision.
+	ASSETREGISTRY_API auto AssetsSaved(std::vector<FAssetData> Assets,
+		const FAssetRegistryPublication& Expected) -> FAssetRegistryResult;
 	ASSETREGISTRY_API auto FenceAssetRegistryProjection(
 		std::span<const FPackagePath> Paths) -> void;
 	ASSETREGISTRY_API auto ClearAssetRegistryProjectionFence(

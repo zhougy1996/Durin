@@ -164,7 +164,7 @@ namespace Durin
 
 		auto State = std::make_shared<FAssetRelocationState>();
 		State->ExpectedRegistryRevision = GetAssetCatalogRevision();
-		const FAssetPublicationState Prepared = Registry.CapturePreparedState();
+		const FAssetRegistryPublication Prepared = CaptureAssetRegistryPublication();
 		const auto FindPrepared = [&](const FPackagePath& Path) -> const FAssetData* {
 			const auto It = Prepared.Assets.find(Path);
 			return It == Prepared.Assets.end() ? nullptr : &It->second;
@@ -699,7 +699,7 @@ namespace Durin
 			Paths.push_back(Mapping.SourcePath);
 			Paths.push_back(Mapping.DestinationPath);
 		}
-		Result = Registry.ReconcileProjection(Paths);
+		Result = RefreshSavedPackages(Paths);
 		if (!Result) return ForwardPending(Result.Message);
 		State.bProjectionPublished = true;
 		State.ExpectedRegistryRevision = GetAssetCatalogRevision();

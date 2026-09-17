@@ -1362,6 +1362,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			Result.bContentChanged |= !Asset.AffectedAssets.empty()
 				&& (Asset.State == EAssetOperationTerminalState::Completed
 					|| Asset.State == EAssetOperationTerminalState::ForwardPending
+					|| Asset.Persistence == EAssetOperationPersistenceState::PartiallyPersisted
 					|| Asset.State == EAssetOperationTerminalState::ContentCommittedProjectionPending);
 		}
 		if (Result.bContentChanged)

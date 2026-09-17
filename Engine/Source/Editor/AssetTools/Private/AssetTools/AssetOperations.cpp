@@ -31,7 +31,8 @@ namespace Durin
 			const FPublishAssetOperation& Callback,
 			FAssetOperationResult& Result) -> void
 		{
-			if (!Callback || !Result) return;
+			if (!Callback || (!Result
+				&& Result.Persistence != EAssetOperationPersistenceState::PartiallyPersisted)) return;
 			Callback({
 				.Kind = Result.Kind,
 				.Persistence = Result.Persistence,
@@ -255,24 +256,50 @@ namespace Durin
 			return Result;
 		}
 
+		FAssetOperationResult Result{.Kind = EAssetOperationKind::Save};
+		std::unordered_set<FPackagePath> Visited;
+		bool bFailed = false;
 		for (const FPackagePath& Path : Request.AssetPaths)
 		{
+			if (!Visited.insert(Path).second) continue;
 			DPackage* Package = FindResidentPackage(Path);
-			if (!Package || !Package->IsDirty())
-				return MakeRejectedAssetOperation(EAssetOperationKind::Save,
-					"Save Package is available only for a loaded package with authored changes.");
+			const FAssetResult Saved = Package && Package->IsDirty()
+				? SavePackage(Package)
+				: FAssetResult{EAssetError::InvalidPackageType,
+					"Save requires a loaded package with authored changes."};
+			const auto Item = AssetToolsPrivate::FromEngineResult(EAssetOperationKind::Save, Saved);
+			if (Item)
+			{
+				Result.AffectedAssets.push_back(Path);
+				if (Item.State == EAssetOperationTerminalState::ContentCommittedProjectionPending)
+				{
+					if (!bFailed)
+					{
+						Result.State = Item.State;
+						Result.Message = Saved.Message;
+					}
+					Result.Warnings.push_back({Path, Saved.Message});
+				}
+				continue;
+			}
+			// Keep the first failure, preferring a recovery-required result, while
+			// continuing independent packages and retaining every path diagnostic.
+			if (!bFailed || (Item.State == EAssetOperationTerminalState::RecoveryRequired
+				&& Result.State != EAssetOperationTerminalState::RecoveryRequired))
+			{
+				Result.State = Item.State;
+				Result.Message = Saved.Message;
+				Result.FailedParticipant = Path.ToString();
+				Result.OperationId = Item.OperationId;
+				Result.DesiredDirection = Item.DesiredDirection;
+				Result.RecoveryLocation = Item.RecoveryLocation;
+			}
+			bFailed = true;
+			Result.Warnings.push_back({Path, std::format("{}: {}", Path.ToString(), Saved.Message)});
 		}
-		std::vector<DPackage*> Packages;
-		Packages.reserve(Request.AssetPaths.size());
-		for (const FPackagePath& Path : Request.AssetPaths)
-			Packages.push_back(FindResidentPackage(Path));
-		const FAssetResult Saved =
-			SavePackagesAtomically(Packages);
-		FAssetOperationResult Result = AssetToolsPrivate::FromEngineResult(
-			EAssetOperationKind::Save, Saved, Request.AssetPaths);
-		Result.Persistence = Result
-			? EAssetOperationPersistenceState::Persisted
-			: EAssetOperationPersistenceState::Dirty;
+		Result.Persistence = Result.AffectedAssets.empty() ? EAssetOperationPersistenceState::Dirty
+			: bFailed ? EAssetOperationPersistenceState::PartiallyPersisted
+			: EAssetOperationPersistenceState::Persisted;
 		Publish(Request.Publish, Result);
 		return Result;
 	}

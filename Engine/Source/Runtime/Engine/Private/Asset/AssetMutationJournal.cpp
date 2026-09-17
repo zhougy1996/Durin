@@ -1,7 +1,7 @@
 #include "AssetMutationJournalInternal.h"
 #include "AssetMutationRegistryInternal.h"
 #include "AssetPackageCodec.h"
-#include "AssetPublicationCoordinatorInternal.h"
+#include "AssetRegistryOperationsInternal.h"
 #include "Asset/PackageVersionPolicy.h"
 
 #include "Misc/FileTime.h"
@@ -1172,8 +1172,7 @@ namespace Durin::AssetPrivate
 		}
 
 		auto RecoverMutationJournal(
-			FAssetMutationJournal& Journal,
-			FAssetPublicationCoordinator& Registry
+			FAssetMutationJournal& Journal
 		) -> FAssetResult
 		{
 			if (Journal.State == EAssetMutationState::Committed) return {};
@@ -1236,7 +1235,7 @@ namespace Durin::AssetPrivate
 					Journal,
 					"Injected interruption before recovered projection reconciliation."
 				);
-			FAssetResult Result = Registry.ReconcileProjection(Paths);
+			FAssetResult Result = RefreshSavedPackages(Paths);
 			if (!Result) return MakeRecoveryPending(Journal, Result.Message);
 			Result = TransitionMutationJournalState(
 				Journal, EAssetMutationState::Committed
@@ -1248,9 +1247,7 @@ namespace Durin::AssetPrivate
 		}
 	} // namespace
 
-	auto RecoverPendingMutationJournals(
-		FAssetPublicationCoordinator& Registry
-	) -> FAssetResult
+	auto RecoverPendingMutationJournals() -> FAssetResult
 	{
 		const std::filesystem::path Directory =
 			GetMutationRecoveryDirectory();
@@ -1277,7 +1274,7 @@ namespace Durin::AssetPrivate
 			);
 			if (!Result) return Result;
 			if (!Journal) continue;
-			Result = RecoverMutationJournal(*Journal, Registry);
+			Result = RecoverMutationJournal(*Journal);
 			if (!Result) return Result;
 		}
 		return {};

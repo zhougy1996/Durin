@@ -66,8 +66,6 @@ namespace Durin
 		// Admits only private packages owned by this prepared publication operation.
 		const FObjectGraphReplacement* PreparedPublication = nullptr;
 		EAssetPackageSaveMode Mode = EAssetPackageSaveMode::Delta;
-		// Internal handoff from FAsyncPackageSave::Complete; not a caller-supplied snapshot.
-		const FAsyncPackageSave* PreparedSave = nullptr;
 	};
 
 	// Game-thread owner of a single-package save. Serialization stays on the
@@ -84,7 +82,6 @@ namespace Durin
 		FAsyncPackageSave();
 		struct FState;
 		std::unique_ptr<FState> State;
-		friend class FAssetMutationCoordinator;
 	};
 
 	ENGINE_API auto SerializeAssetPackageBytes(

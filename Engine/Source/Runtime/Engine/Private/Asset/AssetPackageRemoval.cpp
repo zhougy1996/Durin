@@ -1,3 +1,4 @@
+#include "AssetRegistryResultAdapter.h"
 #include "AssetRuntimeStateInternal.h"
 #include "Asset/PackageRemoval.h"
 #include "DObject/ObjectLifecycle.h"
@@ -88,7 +89,7 @@ namespace Durin
 			Delta.Removes.push_back(Entry.PackagePath);
 			Delta.ReferenceInvalidations.push_back(Entry.PackagePath);
 		}
-		return Registry.PublishDelta(std::move(Delta));
+		return AssetPrivate::ToAssetResult(PublishAssetRegistryDelta(std::move(Delta)));
 	}
 
 }

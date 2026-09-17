@@ -4,7 +4,7 @@ Summary: Define Engine-free reflected package capture, synchronous and asynchron
 
 Modules: Core, CoreDObject
 
-Last reviewed: 2026-09-16
+Last reviewed: 2026-09-17
 
 ## Ownership and Entry Points
 
@@ -12,7 +12,7 @@ Last reviewed: 2026-09-16
 ordinary reflected package files without Engine or an initialized asset registry.
 They do not admit assets, prepare texture payloads, validate catalog dependencies,
 or publish asset metadata. Asset callers continue through the
-[Engine publication coordinator](../Assets/AssetCatalogAndMutation.md#asynchronous-save-staging).
+[Engine save orchestration](../Assets/AssetCatalogAndMutation.md#asynchronous-save-staging).
 CoreDObject depends only on lower layers for these operations.
 
 `FPackageSaveOptions::Destination` supplies an explicit physical `.dasset` path.
@@ -22,6 +22,13 @@ called on GameThread and resolves once per operation. Logical package identity
 still follows the Core mount/path contract; explicit physical destinations do not
 require the asset runtime. Private prepared graphs are owned by Engine publication
 and are not admitted by these ordinary save members.
+
+`FSavePackageContext` owns effective `FPackageSaveOptions` and a shared
+`IPackageWriter`. Existing save overloads construct a default file-backed context;
+`FPackageSaveOperation::Begin` also accepts an explicit context. Its owned copy
+keeps settings and writer alive through asynchronous completion. `Capture` maps
+the effective mode and generic archive target once; `BeginWrite` transfers detached
+file descriptors and buffers without recapturing objects.
 
 `CapturePackageLinker` captures reflected and native archive fields into the
 existing canonical DAST v10 linker representation. `FObjectSaveOverrides` owns
@@ -71,13 +78,23 @@ closure and leaves dirty state intact. A rolled-back operation terminates with
 interpreted as an uncommitted save. Failed restoration retains backup files and reports their paths in `RecoveryFiles`.
 Synchronous saving does not require an initialized task scheduler.
 
-Core's `StageFileVerified`, `FFilePublicationStamp` and `FFileReplacement` own
-generic staging verification, optimistic destination checks, file switching,
-backup retention and rollback. CoreDObject commits the companion before its main
-file and removes obsolete companions transactionally. Engine uses the same file
-primitives while retaining multi-package ordering, companion recovery policy,
-catalog snapshots and registry-failure rollback. Editor callbacks and notifications
-remain attached to final Engine publication.
+Core's reusable `IPackageWriter` creates isolated `IPackageWriteOperation`
+instances. The file implementation uses `StageFileVerified`,
+`FFilePublicationStamp` and `FFileReplacement` for all package/bulk staging and
+switching. Each input owns its bytes, expected destination stamp and distinct
+staging/backup paths; an empty stage denotes removal. `Stage` writes and verifies
+output, `Commit` rechecks destination stamps and staged hashes before switching
+files in input order, `Finalize` releases backups, and `Rollback` restores files
+in reverse order. Results retain committed/recovery-required state and recovery
+paths. Destruction removes only owned stages and rolls back unfinished commits;
+failed rollback or finalization retains recovery files. The enclosing operation
+must drain staging before calling other methods or destroying writer state.
+
+CoreDObject commits the companion before its main file and removes obsolete
+companions transactionally. Engine uses the same writer while retaining
+multi-package ordering, companion recovery policy, catalog snapshots and
+registry-failure rollback. Editor callbacks and notifications remain attached to
+final Engine publication.
 
 Two file renames are not crash-atomic. These primitives offer in-process rollback,
 not persistent multi-file crash recovery. Cross-process writers require external

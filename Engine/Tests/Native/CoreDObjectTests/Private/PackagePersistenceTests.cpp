@@ -287,3 +287,69 @@ TEST_F(FPackagePersistenceTests, ShutdownDuringResolverIsAnAdmissionFailure)
 	EXPECT_EQ(Admission.Error, EPackageSaveError::ShuttingDown);
 	EXPECT_FALSE(std::filesystem::exists(Options.Destination));
 }
+
+TEST_F(FPackagePersistenceTests, SharedWriterIsolatesOperationsAndRetainsOccupiedStages)
+{
+	auto Writer = GetFilePackageWriter();
+	const auto Destination = Root / "Detached.bin";
+	const auto Stage = Root / "Detached.stage";
+	const auto Backup = Root / "Detached.backup";
+	FByteBuffer Bytes(4);
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Bytes, Stage));
+	{
+		std::vector<FPackageWriteFile> Files;
+		Files.push_back({{Destination, Stage, Backup}, {}, Bytes});
+		auto Write = Writer->Begin(std::move(Files));
+		EXPECT_FALSE(Write->Stage());
+	}
+	EXPECT_TRUE(std::filesystem::exists(Stage));
+	std::filesystem::remove(Stage);
+	std::vector<FPackageWriteFile> Files;
+	Files.push_back({{Destination, Stage, Backup}, {}, std::move(Bytes)});
+	auto Write = Writer->Begin(std::move(Files));
+	EXPECT_FALSE(Write->Commit());
+	EXPECT_FALSE(Write->Finalize());
+	ASSERT_TRUE(Write->Stage());
+	ASSERT_TRUE(Write->Commit());
+	EXPECT_TRUE(std::filesystem::exists(Destination));
+	{
+		FSavePackageContext Context{Options, Writer};
+		FPackageSaveResult Admission;
+		auto Save = FPackageSaveOperation::Begin(Package, Context, Admission);
+		ASSERT_TRUE(Admission);
+		ASSERT_NE(Save, nullptr);
+		Context.Options.Destination = Root / "NotUsed.dasset";
+		Context.Writer.reset();
+		ASSERT_TRUE(Save->WaitAndComplete());
+	}
+	EXPECT_TRUE(std::filesystem::exists(Options.Destination));
+	ASSERT_TRUE(Write->Rollback());
+	EXPECT_FALSE(std::filesystem::exists(Destination));
+	EXPECT_TRUE(std::filesystem::exists(Options.Destination));
+}
+
+TEST_F(FPackagePersistenceTests, FinalizeFailureRetainsCommittedResultAndRecoveryPath)
+{
+	ASSERT_TRUE(Package->Save(Options));
+	Package->MarkDirty();
+	FPackageSaveResult Admission;
+	auto Save = FPackageSaveOperation::Begin(Package, Options, Admission, false);
+	ASSERT_TRUE(Admission);
+	ASSERT_TRUE(Save->CommitStaged());
+	std::filesystem::path Backup;
+	for (const auto& Entry : std::filesystem::directory_iterator(Root))
+		if (Entry.path().extension() == ".backup") Backup = Entry.path();
+	ASSERT_FALSE(Backup.empty());
+	// A nonempty directory deterministically makes backup deletion fail.
+	ASSERT_TRUE(std::filesystem::remove(Backup));
+	ASSERT_TRUE(std::filesystem::create_directory(Backup));
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(FByteBuffer(1), Backup / "Blocker"));
+	const auto Result = Save->FinalizeCommit();
+	EXPECT_FALSE(Result);
+	EXPECT_EQ(Result.CommitState, EPackageCommitState::Committed);
+	ASSERT_EQ(Result.RecoveryFiles.size(), 1);
+	EXPECT_EQ(Result.RecoveryFiles.front(), Backup);
+	EXPECT_TRUE(std::filesystem::exists(Options.Destination));
+	EXPECT_FALSE(Package->IsDirty());
+	EXPECT_EQ(Save->Complete().CommitState, EPackageCommitState::Committed);
+}

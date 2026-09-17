@@ -2,7 +2,7 @@
 
 #include "AssetSubsystemFwd.h"
 #include "Asset/Load.h"
-#include "AssetPublicationCoordinatorInternal.h"
+#include "AssetRegistryOperationsInternal.h"
 
 namespace Durin
 {
@@ -11,11 +11,9 @@ namespace Durin
 	{
 	public:
 		FAssetLoadService(
-			FAssetPublicationCoordinator& InCatalog,
 			FAssetRuntimeConfiguration& InRuntimeConfiguration,
 			bool& bInAcceptingRequests)
-			: Registry(InCatalog)
-			, RuntimeConfiguration(InRuntimeConfiguration)
+			: RuntimeConfiguration(InRuntimeConfiguration)
 			, bAcceptingRequests(bInAcceptingRequests)
 		{
 		}
@@ -77,7 +75,6 @@ namespace Durin
 			FAssetLoadReport* OutReport = nullptr) -> FAssetResult;
 		auto IsPackageReferenced(const DPackage* Package) const -> bool;
 
-		FAssetPublicationCoordinator& Registry;
 		FAssetRuntimeConfiguration& RuntimeConfiguration;
 		bool& bAcceptingRequests;
 		std::unordered_set<FPackagePath> LoadingPackages;
@@ -92,12 +89,10 @@ namespace Durin
 	{
 	public:
 		FAssetMutationCoordinator(
-			FAssetPublicationCoordinator& InCatalog,
 			FAssetLoadService& InLoader,
 			FAssetRuntimeConfiguration& InRuntimeConfiguration,
 			bool& bInAcceptingRequests)
-			: Registry(InCatalog)
-			, Loader(InLoader)
+			: Loader(InLoader)
 			, LoadingPackages(InLoader.LoadingPackages)
 			, RuntimeConfiguration(InRuntimeConfiguration)
 			, bAcceptingRequests(bInAcceptingRequests)
@@ -150,7 +145,6 @@ namespace Durin
 			return Loader.UnloadPackage(Path);
 		}
 
-		FAssetPublicationCoordinator& Registry;
 		FAssetLoadService& Loader;
 		std::unordered_set<FPackagePath>& LoadingPackages;
 		FAssetRuntimeConfiguration& RuntimeConfiguration;

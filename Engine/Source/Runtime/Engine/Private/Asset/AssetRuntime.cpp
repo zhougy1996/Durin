@@ -288,9 +288,8 @@ namespace Durin
 	}
 
 	FAssetRuntimeState::FAssetRuntimeState()
-		: Loader(GetAssetPublicationCoordinator(), RuntimeConfiguration, bAcceptingRequests)
+		: Loader(RuntimeConfiguration, bAcceptingRequests)
 		, Mutations(
-			GetAssetPublicationCoordinator(),
 			Loader,
 			RuntimeConfiguration,
 			bAcceptingRequests)
@@ -758,9 +757,7 @@ namespace Durin
 		RuntimeConfiguration = std::move(Configuration);
 		if (!RuntimeConfiguration.IsCooked())
 		{
-			FAssetResult RecoveryResult = RecoverPendingMutationJournals(
-				GetAssetPublicationCoordinator()
-			);
+			FAssetResult RecoveryResult = RecoverPendingMutationJournals();
 			if (!RecoveryResult) return RecoveryResult;
 		}
 		bAcceptingRequests = true;

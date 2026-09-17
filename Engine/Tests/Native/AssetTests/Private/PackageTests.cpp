@@ -49,6 +49,7 @@
 #include "Serialization/BinaryEnvelope.h"
 #include "Serialization/BinaryFormat.h"
 #include "Threading/RunnableThread.h"
+#include "Threading/Task.h"
 #include "Asset/AssetPackageValueCodec.h"
 
 #include <chrono>
@@ -3330,6 +3331,78 @@ TEST(FPackageAssetTests, PreparedClosureReadsSavedBytesWithoutChangingLivePackag
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Prepared.GetMainBytes(), File));
 	Live->ClearDirty(); // End the deliberately dirty fixture before removal admission.
 	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(Path));
+}
+
+TEST(FPackageAssetTests, OrdinarySaveSurvivesUnrelatedRegistryScanFailure)
+{
+	using namespace Durin;
+	InitializeAssetTests();
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/SaveDuringScanFailure", Path));
+	DPackageAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
+	const auto Broken = Testing::GetTestWorkDirectory() / "Assets" / "Unrelated.dasset";
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(FByteBuffer(3, std::byte{1}), Broken));
+	EXPECT_FALSE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
+	ASSERT_TRUE(SavePackage(Asset->GetPackage()));
+	EXPECT_FALSE(Asset->GetPackage()->IsDirty());
+	EXPECT_TRUE(FindAssetExact(Path));
+	EXPECT_FALSE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
+	std::filesystem::remove(Broken);
+	EXPECT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
+}
+
+TEST(FPackageAssetTests, AsyncSaveChecksHardReferenceIdentityButIgnoresDependencyContentAndSoftTargets)
+{
+	using namespace Durin;
+	InitializeAssetTests();
+	const bool bOwnScheduler = !IsTaskSchedulerRunning();
+	if (bOwnScheduler) ASSERT_TRUE(InitializeTaskScheduler(2));
+	struct FSchedulerScope { bool bOwn; ~FSchedulerScope() { if (bOwn) ShutdownTaskScheduler(); } } Scheduler{bOwnScheduler};
+	FPackagePath SourcePath, HardPath, SoftPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/AsyncSource", SourcePath));
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/AsyncHard", HardPath));
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/AsyncSoft", SoftPath));
+	DAuthoredArchiveAssetForTest* Source = nullptr;
+	DPackageAssetForTest* Hard = nullptr;
+	DPackageAssetForTest* Soft = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(SourcePath, Source));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(HardPath, Hard));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(SoftPath, Soft));
+	ASSERT_TRUE(SavePackage(Hard->GetPackage()));
+	ASSERT_TRUE(SavePackage(Soft->GetPackage()));
+	Source->HardReference = Hard;
+	Source->SoftReference = Testing::MakePackageLeafAssetObjectPathForTests(SoftPath);
+	FAssetResult Admission;
+	auto Save = FAsyncPackageSave::Begin(Source->GetPackage(), Admission);
+	ASSERT_TRUE(Save) << Admission.Message;
+	Hard->Label = "Changed dependency content";
+	Hard->GetPackage()->MarkDirty();
+	ASSERT_TRUE(SavePackage(Hard->GetPackage()));
+	FAssetRegistryDelta Delta{.ExpectedRevision = CaptureAssetRegistryPublication().ExpectedRevision};
+	Delta.Removes.push_back(SoftPath);
+	ASSERT_TRUE(PublishAssetRegistryDelta(std::move(Delta)));
+	const auto Wait = [](FAsyncPackageSave& Operation) {
+		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+		while (!Operation.IsReady() && std::chrono::steady_clock::now() < Deadline)
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		return Operation.IsReady();
+	};
+	ASSERT_TRUE(Wait(*Save));
+	EXPECT_TRUE(Save->Complete());
+	Save.reset();
+	Source->GetPackage()->MarkDirty();
+	Save = FAsyncPackageSave::Begin(Source->GetPackage(), Admission);
+	ASSERT_TRUE(Save) << Admission.Message;
+	auto Changed = *FindAssetExact(HardPath);
+	Changed.TopLevelAssets.front().AssetClassName = "Tests::OtherClass";
+	Changed.AssetClassName = "Tests::OtherClass";
+	Delta = {.ExpectedRevision = CaptureAssetRegistryPublication().ExpectedRevision};
+	Delta.Replaces.push_back(std::move(Changed));
+	ASSERT_TRUE(PublishAssetRegistryDelta(std::move(Delta)));
+	ASSERT_TRUE(Wait(*Save));
+	EXPECT_EQ(Save->Complete().Error, EAssetError::StaleData);
+	EXPECT_TRUE(Source->GetPackage()->IsDirty());
 }
 
 TEST(FPackageAssetTests, TransactionalRegistryFailureRestoresOldAndNewClosures)

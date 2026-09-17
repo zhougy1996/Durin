@@ -1,5 +1,6 @@
 #pragma once
 #include "DObject/PackageCapture.h"
+#include "Misc/PackageWriter.h"
 
 namespace Durin
 {
@@ -11,6 +12,23 @@ namespace Durin
 		EPackageSaveMode Mode = EPackageSaveMode::Delta;
 		FPackageCaptureOptions Capture;
 	};
+	struct FSavePackageContext
+	{
+		FPackageSaveOptions Options;
+		std::shared_ptr<IPackageWriter> Writer = GetFilePackageWriter();
+		auto Capture(DPackage* Package, ObjectPackage::FLinkerTables& OutLinker,
+			std::string* OutError = nullptr, uint32 FormatVersion = ObjectPackage::DastV10FormatVersion) const
+			-> FPackageSaveResult
+		{
+			return CapturePackageLinker(Package, Options.Mode == EPackageSaveMode::Complete
+				? EDefaultDeltaMode::NoDelta : EDefaultDeltaMode::Enabled, Options.Capture, OutLinker, OutError, FormatVersion);
+		}
+		// Detached callers supply file order and recovery paths; ownership transfers.
+		auto BeginWrite(std::vector<FPackageWriteFile> Files) const
+			-> std::unique_ptr<IPackageWriteOperation>
+		{ return (Writer ? Writer : GetFilePackageWriter())->Begin(std::move(Files)); }
+	};
+	COREDOBJECT_API auto ToPackageSaveResult(FPackageWriteResult Result) -> FPackageSaveResult;
 	using FPackageDestinationResolver = std::function<std::filesystem::path(const DPackage&)>;
 	COREDOBJECT_API auto SetPackageDestinationResolver(FPackageDestinationResolver Resolver) -> void;
 
@@ -21,6 +39,8 @@ namespace Durin
 	public:
 		~FPackageSaveOperation();
 		static auto Begin(DPackage* Package, const FPackageSaveOptions& Options,
+			FPackageSaveResult& Admission, bool bAsync = true) -> std::unique_ptr<FPackageSaveOperation>;
+		static auto Begin(DPackage* Package, const FSavePackageContext& Context,
 			FPackageSaveResult& Admission, bool bAsync = true) -> std::unique_ptr<FPackageSaveOperation>;
 		auto IsStagingReady() const -> bool;
 		auto IsCompleted() const -> bool;

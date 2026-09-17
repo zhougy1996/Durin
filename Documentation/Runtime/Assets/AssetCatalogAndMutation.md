@@ -4,7 +4,7 @@ Summary: Define mounted package discovery, rebuildable catalog/reference project
 
 Modules: Core, AssetRegistry, Engine, AssetTools, ContentBrowser, DurinEd, LevelEditor
 
-Last reviewed: 2026-09-16
+Last reviewed: 2026-09-17
 
 Package identity, serialization, loading, and residency are defined by
 [Asset Packages](AssetPackages.md). Authored, derived, and cooked storage
@@ -30,9 +30,18 @@ header fallback.
 Schema, package-format, serialization, mount-manifest, or snapshot corruption
 causes a nonfatal rebuild. Full validation bypasses fingerprint reuse but keeps
 the same front-matter boundary; it does not read export/value payloads.
-Engine publishes path-scoped `FAssetRegistryDelta` Add, Replace, Remove, and
-reference-invalidation sets against an expected revision. Final metadata and
-reference facts are derived at this boundary from committed package artifacts;
+AssetRegistry `AssetsSaved` accepts owned saved metadata and the caller's
+`FAssetRegistryPublication` admission snapshot, returning `FAssetRegistryResult`.
+It selects Add/Replace from that snapshot and publishes a path-scoped delta against
+its revision. Empty batches succeed without mutation; invalid or duplicate paths
+fail before mutation. Registry delta validation atomically updates metadata and
+reference facts while preserving unrelated reference errors and completeness.
+Engine converts results at its boundaries and constructs saved metadata from the
+captured bytes plus observed output stamps, without a success-path rescan;
+removal uses `PublishAssetRegistryDelta` directly. Internal Engine
+`RefreshSavedPackages` retains mount resolution and recovery/removal policy;
+relocation and redirector repair capture native registry publication snapshots.
+There is no publication coordinator service or injected registry wrapper;
 affected paths may be fenced while a failed projection is reconciled. Public callers receive
 owned `FAssetCatalogEntry` values and immutable `FAssetCatalogSnapshot` values,
 never pointers into mutable storage.
@@ -171,20 +180,40 @@ files and verifies their bytes. It does not publish packages, access live object
 or update the Registry. No package or bulk file becomes visible before completion.
 
 `IsReady` supports host polling. GameThread `Complete` rejects changed objects,
-paths, participants, destination files or staged files before publication;
-unrelated catalog changes do not invalidate the operation. It reuses the existing
-save transaction for short file renames, Registry publication and dirty-state
-finalization. Prepared bulk files use rename-based backup/rollback instead of
-reading and rewriting the old companion. The default projection-pending and
+paths, saved-package metadata, destination files or staged files before publication.
+Hard dependencies must retain their catalog presence, physical path, top-level
+asset identities, classes and redirect destinations, and must not be projection-fenced.
+Changes to their content metadata (including size, timestamp and dependency lists)
+do not invalidate the snapshot. Soft dependency metadata is not a commit participant.
+Unrelated catalog changes do not invalidate the operation. After participant
+validation it captures the commit-time registry revision, commits its detached
+writer, calls `AssetsSaved`, and finalizes the saved revision directly.
+Synchronous ordinary saves follow the same boundaries with their admission
+snapshot; neither uses `SavePackagesAtomically` as an implementation entry point.
+Explicit bundles compose the same writer operations and retain root-last ordering
+and registry-failure rollback. Bulk files use rename-based backup/rollback. The default projection-pending and
 optional Registry-failure rollback policies remain unchanged. Successful repeated
 completion is idempotent. Destruction drains staging and deletes uncommitted
 temporaries; owners must destroy operations before asset/scheduler shutdown.
 
 `FAssetSaveOperation` adds editor result and once-only notification policy.
 It currently accepts one `LoadedDirtyPackage` request; existing synchronous
-multi-package and canonical-resave entry points retain their behavior.
+Engine multi-package and canonical-resave entry points retain their behavior.
 Serialization, final file switching and Registry publication remain on the
 GameThread. This API moves bulk disk transfer off the UI thread, not all save work.
+
+Ordinary saves do not require a globally complete reference index. Their path-scoped
+Registry deltas preserve unrelated index errors and completeness state. Prepared
+graph publication retains the complete-projection admission requirement.
+
+Synchronous AssetTools `LoadedDirtyPackage` batches save each distinct package
+independently and continue after failures. `AffectedAssets` contains committed
+packages; path-associated `Warnings` report failures and projection-pending saves.
+A mixed batch returns a failed terminal state with `PartiallyPersisted`, retains
+the successful files, and emits one completion notification for those successes.
+Content Browser refreshes after partial persistence even when the aggregate result
+is unsuccessful. Explicit `SavePackagesAtomically` callers and canonical resaves
+retain their existing coordination contracts.
 
 ## Relocation Jobs
 

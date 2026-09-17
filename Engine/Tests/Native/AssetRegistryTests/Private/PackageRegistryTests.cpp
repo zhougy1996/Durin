@@ -533,3 +533,40 @@ TEST(FPackageRegistryContractTests, OwnedQueriesResolveUnloadedTypesAndExactRedi
 	Changed.Catalog.Assets.at(Path("/Owned/Middle")).TopLevelAssets.front().RedirectDestination = {};
 	EXPECT_EQ(Changed.ResolveAssetObjectPath(Input).State, EAssetPathResolveState::CorruptRedirector);
 }
+
+TEST(FPackageRegistryContractTests, AssetsSavedPreservesAdmissionAndUnrelatedReferenceState)
+{
+	Testing::InitializeDObjectSystemForTests();
+	const auto Root = Testing::CreateTestFixtureDirectory("AssetsSaved");
+	Testing::FScopedMountRegistryFixture Mounts;
+	Testing::RegisterMountPointForTests("/Saved/", Root.generic_string() + "/");
+	FPaths::SetDerivedDataCacheDirForTests((Root / "Cache").generic_string());
+	FByteBuffer Main, Bulk;
+	ASSERT_TRUE(Package::WritePackage(MakeRegistryFixture("/Saved/Original", {}, {}), Main, Bulk));
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Main, Root / "Original.dasset"));
+	ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
+	auto Expected = CaptureAssetRegistryPublication();
+	auto Changed = Expected.Assets.at(Path("/Saved/Original"));
+	Changed.FileSize += 1;
+	Changed.SoftDependencies = {Path("/Saved/Target")};
+	EXPECT_TRUE(AssetsSaved({}, {}));
+	EXPECT_EQ(GetAssetCatalogRevision(), Expected.ExpectedRevision);
+	EXPECT_FALSE(AssetsSaved({Changed, Changed}, Expected));
+	auto Invalid = Changed; Invalid.PackagePath = {};
+	EXPECT_FALSE(AssetsSaved({Invalid}, Expected));
+	EXPECT_EQ(CaptureAssetRegistryPublication().Assets, Expected.Assets);
+	ASSERT_TRUE(AssetsSaved({Changed}, Expected));
+	EXPECT_FALSE(AssetsSaved({Changed}, Expected));
+	auto After = CaptureAssetRegistryPublication();
+	EXPECT_EQ(After.bReferenceIndexComplete, Expected.bReferenceIndexComplete);
+	ASSERT_EQ(After.ReferenceErrors.size(), Expected.ReferenceErrors.size());
+	for (size_t Index = 0; Index < After.ReferenceErrors.size(); ++Index)
+		EXPECT_EQ(After.ReferenceErrors[Index].Message, Expected.ReferenceErrors[Index].Message);
+	EXPECT_EQ(CaptureAssetReferenceIndex().FindTargets(Changed.PackagePath), Changed.SoftDependencies);
+	auto Added = Changed; Added.PackagePath = Path("/Saved/Added");
+	FTopLevelAssetPath AssetPath;
+	ASSERT_TRUE(FTopLevelAssetPath::TryCreate(Added.PackagePath, "RegistryFixture", AssetPath));
+	Added.TopLevelAssets.front().AssetPath = AssetPath;
+	ASSERT_TRUE(AssetsSaved({Added}, After));
+	EXPECT_TRUE(FindAssetExact(Added.PackagePath));
+}
