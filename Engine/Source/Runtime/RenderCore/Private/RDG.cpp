@@ -1792,7 +1792,7 @@ namespace Durin
 		FRDGBudget Budget;
 		ERDGBuilderState Lifecycle = ERDGBuilderState::Building;
 		FRDGExecutionResult ExecutionResult;
-		std::vector<FRHIGPUSubmissionReceipt> SubmissionReceipts;
+		std::vector<FRHIGPUSyncPointRef> SubmissionSyncPoints;
 		std::shared_ptr<FRDGAllocationRetirement> AllocationRetirement;
 		bool bCompiled = false;
 		uint32 PendingConstructions = 0;
@@ -2975,8 +2975,8 @@ namespace Durin
 	auto FRDGBuilder::GetExecutionPlan() const -> const FRDGExecutionPlan&
 	{ return Compiled->ExecutionPlan; }
 
-	auto FRDGBuilder::GetSubmissionReceipts() const -> std::span<const FRHIGPUSubmissionReceipt>
-	{ return State->SubmissionReceipts; }
+	auto FRDGBuilder::GetSubmissionSyncPoints() const -> std::span<const FRHIGPUSyncPointRef>
+	{ return State->SubmissionSyncPoints; }
 
 	auto FRDGBuilder::GetCompileMicroseconds() const -> uint64
 	{
@@ -3337,7 +3337,7 @@ namespace Durin
 		std::vector<std::vector<uint32>> Predecessors(Compiled->ExecutionPlan.Batches.size());
 		if (bExplicitSubmissions)
 		{
-			State->SubmissionReceipts.resize(Compiled->ExecutionPlan.Batches.size());
+			State->SubmissionSyncPoints.resize(Compiled->ExecutionPlan.Batches.size());
 			for (const auto& Edge : Compiled->ExecutionPlan.Dependencies)
 				Predecessors[Edge.After.Index].push_back(Edge.Before.Index);
 			for (auto& Inputs : Predecessors)
@@ -3352,7 +3352,7 @@ namespace Durin
 		State->ExecutionResult.Status = ERDGExecutionStatus::InvalidState;
 		State->ExecutionResult.Result =
 			{ERDGError::InvalidState, "render graph recording did not complete"};
-		FRHIGPUSubmissionReceipt InitialSignal;
+		FRHIGPUSyncPointRef InitialSignal;
 		if (!InitialReleases.empty())
 		{
 			InitialSignal = CommandList.BeginGPUSubmission({.Queue = Queues->Graphics});
@@ -3366,8 +3366,8 @@ namespace Durin
 				FRHIGPUSubmissionDesc Desc{.Queue = PhysicalQueue(Batch.Queue)};
 				if (WaitForInitial[Batch.Id.Index]) Desc.Waits.push_back(InitialSignal);
 				for (uint32 Input : Predecessors[Batch.Id.Index])
-					Desc.Waits.push_back(State->SubmissionReceipts[Input]);
-				State->SubmissionReceipts[Batch.Id.Index] = CommandList.BeginGPUSubmission(Desc);
+					Desc.Waits.push_back(State->SubmissionSyncPoints[Input]);
+				State->SubmissionSyncPoints[Batch.Id.Index] = CommandList.BeginGPUSubmission(Desc);
 			}
 			struct FCloseSubmission
 			{
@@ -3401,8 +3401,8 @@ namespace Durin
 		}
 		if (State->AllocationRetirement)
 		{
-			require(!State->SubmissionReceipts.empty());
-			State->AllocationRetirement->Completion = State->SubmissionReceipts.back();
+			require(!State->SubmissionSyncPoints.empty());
+			State->AllocationRetirement->Completion = State->SubmissionSyncPoints.back();
 		}
 		for (uint32 Index = 0; Index < Compiled->Resources.size(); ++Index)
 		{

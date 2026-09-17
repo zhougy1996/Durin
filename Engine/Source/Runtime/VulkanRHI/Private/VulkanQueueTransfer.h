@@ -8,7 +8,7 @@ namespace Durin::VulkanRHI
 	class FVulkanQueue;
 
 	// An owning, single-use pair. The acquire reuses the release's exact native
-	// ranges/layouts and consumes its queue ticket; it never reconstructs a pair.
+	// ranges/layouts and consumes its queue sync point; it never reconstructs a pair.
 	class FVulkanQueueTransfer final : public FRHIQueueTransfer
 	{
 	public:
@@ -17,9 +17,9 @@ namespace Durin::VulkanRHI
 			bool bUseSynchronization2 = true);
 		~FVulkanQueueTransfer() override;
 		auto RecordRelease(FVulkanQueue& Queue, vk::CommandBuffer Commands,
-			const FRHIGPUSubmissionTicket& Ticket) -> void;
+			const FRHIGPUSyncPointRef& SyncPoint) -> void;
 		auto RecordAcquire(FVulkanQueue& Queue, vk::CommandBuffer Commands) -> void;
-		auto GetReleaseTicket() const -> FRHIGPUSubmissionTicket;
+		auto GetReleaseSyncPoint() const -> FRHIGPUSyncPointRef;
 	private:
 		struct FState;
 		std::unique_ptr<FState> State;

@@ -13,6 +13,93 @@
 
 namespace Durin::VulkanRHI
 {
+	static auto UpdateDescriptorSets(FVulkanDevice& Device,
+		std::span<const FRHIShaderParameterResource> Resources,
+		std::span<const vk::DescriptorSet> DescriptorSets) -> void
+	{
+		// Vulkan write descriptors store pointers into these arrays until updateDescriptorSets returns.
+		std::vector<vk::DescriptorBufferInfo> BufferInfos;
+		std::vector<vk::DescriptorImageInfo> ImageInfos;
+		std::vector<vk::WriteDescriptorSet> DescriptorWrites;
+		BufferInfos.reserve(Resources.size());
+		ImageInfos.reserve(Resources.size());
+		DescriptorWrites.reserve(Resources.size());
+
+		for (const FRHIShaderParameterResource& Resource : Resources)
+		{
+			if (Resource.Resource == nullptr)
+			{
+				continue;
+			}
+			check(Resource.SetIndex < DescriptorSets.size());
+
+			vk::WriteDescriptorSet DescriptorWrite{};
+			DescriptorWrite
+				.setDstSet(DescriptorSets[Resource.SetIndex])
+				.setDstBinding(Resource.BindingIndex)
+				.setDstArrayElement(Resource.ArrayElement)
+				.setDescriptorType(ToVulkan_RHIBindingType(Resource.Type))
+				.setDescriptorCount(1);
+
+			switch (Resource.Type)
+			{
+			case ERHIBindingType::UniformBuffer:
+			case ERHIBindingType::UniformBufferDynamic:
+			case ERHIBindingType::StorageBuffer:
+				{
+					const auto* View = static_cast<const FVulkanBufferView*>(Resource.Resource);
+					const auto* Buffer = static_cast<const FVulkanBuffer*>(View->GetBuffer());
+					const FRHIBufferViewDesc& ViewDesc = View->GetDesc();
+					if (Resource.Type == ERHIBindingType::StorageBuffer)
+					{
+						checkf(
+							EnumHasAnyFlags(Buffer->GetUsage(), EBufferUsageFlags::UnorderedAccess | EBufferUsageFlags::StructuredBuffer | EBufferUsageFlags::ByteAddressBuffer | EBufferUsageFlags::ShaderResource),
+							"A storage buffer descriptor requires a buffer created with shader-storage usage");
+					}
+					vk::DescriptorBufferInfo& BufferInfo = BufferInfos.emplace_back();
+					BufferInfo
+						.setBuffer(Buffer->GetHandle())
+						.setOffset(ViewDesc.Offset)
+						.setRange(ViewDesc.Size);
+					DescriptorWrite.setBufferInfo(BufferInfo);
+					break;
+				}
+			case ERHIBindingType::Texture:
+			case ERHIBindingType::StorageImage:
+				{
+					const auto* View = static_cast<const FVulkanTextureView*>(Resource.Resource);
+					if (Resource.Type == ERHIBindingType::StorageImage)
+					{
+						const auto* Texture = static_cast<const FVulkanTexture*>(View->GetTexture());
+						checkf(EnumHasAnyFlags(Texture->CreateFlags, ETextureCreateFlags::Storage),
+							"A storage image descriptor requires a texture created with ETextureCreateFlags::Storage");
+					}
+					vk::DescriptorImageInfo& ImageInfo = ImageInfos.emplace_back();
+					ImageInfo
+						.setImageView(View->GetHandle())
+						.setImageLayout(GetVulkanDescriptorImageLayout(Resource.Type));
+					DescriptorWrite.setImageInfo(ImageInfo);
+					break;
+				}
+			case ERHIBindingType::Sampler:
+				{
+					const FVulkanSampler* Sampler = static_cast<const FVulkanSampler*>(Resource.Resource);
+					vk::DescriptorImageInfo& ImageInfo = ImageInfos.emplace_back();
+					ImageInfo.setSampler(Sampler->GetHandle());
+					DescriptorWrite.setImageInfo(ImageInfo);
+					break;
+				}
+			default:
+				checkf(false, "Unsupported shader parameter resource type: {}", static_cast<uint32>(Resource.Type));
+				break;
+			}
+
+			DescriptorWrites.push_back(DescriptorWrite);
+		}
+
+		Device.GetHandle().updateDescriptorSets(DescriptorWrites, {});
+	}
+
 	auto FVulkanPendingComputeState::SetComputePipelineState(
 		FVulkanComputePipelineState& InPipelineState,
 		vk::CommandBuffer InCmdBuffer) -> void
@@ -189,50 +276,7 @@ namespace Durin::VulkanRHI
 			{
 				CachedDescriptorSets = Device.GetGlobalDescriptorPool().AllocateDescriptorSets(
 					Handles, Layout.GetInfo().GetDescriptorRequirements());
-				std::vector<vk::DescriptorBufferInfo> BufferInfos;
-				std::vector<vk::DescriptorImageInfo> ImageInfos;
-				std::vector<vk::WriteDescriptorSet> Writes;
-				BufferInfos.reserve(PendingResources.size());
-				ImageInfos.reserve(PendingResources.size());
-				Writes.reserve(PendingResources.size());
-				for (const FRHIShaderParameterResource& Resource : PendingResources)
-				{
-					vk::WriteDescriptorSet Write;
-					Write.setDstSet(CachedDescriptorSets[Resource.SetIndex])
-						.setDstBinding(Resource.BindingIndex)
-						.setDstArrayElement(Resource.ArrayElement)
-						.setDescriptorType(ToVulkan_RHIBindingType(Resource.Type))
-						.setDescriptorCount(1);
-					if (Resource.Type == ERHIBindingType::UniformBuffer
-						|| Resource.Type == ERHIBindingType::UniformBufferDynamic
-						|| Resource.Type == ERHIBindingType::StorageBuffer)
-					{
-						const auto* View = static_cast<const FVulkanBufferView*>(Resource.Resource);
-						const auto* Buffer = static_cast<const FVulkanBuffer*>(View->GetBuffer());
-						auto& Info = BufferInfos.emplace_back();
-						Info.setBuffer(Buffer->GetHandle()).setOffset(View->GetDesc().Offset)
-							.setRange(View->GetDesc().Size);
-						Write.setBufferInfo(Info);
-					}
-					else if (Resource.Type == ERHIBindingType::Texture
-						|| Resource.Type == ERHIBindingType::StorageImage)
-					{
-						const auto* View = static_cast<const FVulkanTextureView*>(Resource.Resource);
-						auto& Info = ImageInfos.emplace_back();
-						Info.setImageView(View->GetHandle())
-							.setImageLayout(GetVulkanDescriptorImageLayout(Resource.Type));
-						Write.setImageInfo(Info);
-					}
-					else
-					{
-						const auto* Sampler = static_cast<const FVulkanSampler*>(Resource.Resource);
-						auto& Info = ImageInfos.emplace_back();
-						Info.setSampler(Sampler->GetHandle());
-						Write.setImageInfo(Info);
-					}
-					Writes.push_back(Write);
-				}
-				Device.GetHandle().updateDescriptorSets(Writes, {});
+				UpdateDescriptorSets(Device, PendingResources, CachedDescriptorSets);
 				CachedResources = PendingResources;
 				CachedOwners.clear();
 				for (FRHIShaderParameterResource& Resource : CachedResources)
@@ -402,7 +446,6 @@ namespace Durin::VulkanRHI
 		if (const auto It = PipelineStates.find(PipelineState);
 			It != PipelineStates.end())
 		{
-			delete It->second;
 			PipelineStates.erase(It);
 			VerifyDescriptorCacheOccupancy();
 		}
@@ -412,11 +455,6 @@ namespace Durin::VulkanRHI
 	{
 		CurrentPipelineState = nullptr;
 		CurrentDescriptorState = nullptr;
-		// PipelineStates owns its values; keys are non-owning PSO pointers.
-		for (const auto& State : PipelineStates | std::views::values)
-		{
-			delete State;
-		}
 		PipelineStates.clear();
 		VerifyDescriptorCacheOccupancy();
 	}
@@ -451,9 +489,9 @@ namespace Durin::VulkanRHI
 			return *FoundIt->second;
 		}
 
-		FVulkanGraphicsPipelineDescriptorState* NewDescriptorState = new FVulkanGraphicsPipelineDescriptorState(*this);
-		PipelineStates.emplace(&InPipelineState, NewDescriptorState);
-		return *NewDescriptorState;
+		const auto [It, bInserted] = PipelineStates.emplace(
+			&InPipelineState, std::make_unique<FVulkanGraphicsPipelineDescriptorState>(*this));
+		return *It->second;
 	}
 
 	static auto SortDescriptorResources(std::vector<FRHIShaderParameterResource>& Resources) -> void
@@ -625,92 +663,7 @@ namespace Durin::VulkanRHI
 			DescriptorSetsLayout.GetInfo().GetDescriptorRequirements()
 		);
 
-		// Vulkan write descriptors store pointers into these arrays until updateDescriptorSets returns.
-		std::vector<vk::DescriptorBufferInfo> BufferInfos;
-		std::vector<vk::DescriptorImageInfo> ImageInfos;
-		std::vector<vk::WriteDescriptorSet> DescriptorWrites;
-		BufferInfos.reserve(NewEntry.Resources.size());
-		ImageInfos.reserve(NewEntry.Resources.size());
-		DescriptorWrites.reserve(NewEntry.Resources.size());
-
-		for (const FRHIShaderParameterResource& Resource : NewEntry.Resources)
-		{
-			if (Resource.Resource == nullptr)
-			{
-				continue;
-			}
-			check(Resource.SetIndex < NewEntry.DescriptorSets.size());
-
-			vk::WriteDescriptorSet DescriptorWrite{};
-			DescriptorWrite
-				.setDstSet(NewEntry.DescriptorSets[Resource.SetIndex])
-				.setDstBinding(Resource.BindingIndex)
-				.setDstArrayElement(Resource.ArrayElement)
-				.setDescriptorType(ToVulkan_RHIBindingType(Resource.Type))
-				.setDescriptorCount(1);
-
-			switch (Resource.Type)
-			{
-			case ERHIBindingType::UniformBuffer:
-			case ERHIBindingType::UniformBufferDynamic:
-			case ERHIBindingType::StorageBuffer:
-				{
-					const auto* View = static_cast<const FVulkanBufferView*>(Resource.Resource);
-					const auto* Buffer = static_cast<const FVulkanBuffer*>(View->GetBuffer());
-					const FRHIBufferViewDesc& ViewDesc = View->GetDesc();
-					if (Resource.Type == ERHIBindingType::StorageBuffer)
-					{
-						checkf(
-							EnumHasAnyFlags(Buffer->GetUsage(), EBufferUsageFlags::UnorderedAccess | EBufferUsageFlags::StructuredBuffer | EBufferUsageFlags::ByteAddressBuffer | EBufferUsageFlags::ShaderResource),
-							"A storage buffer descriptor requires a buffer created with shader-storage usage");
-					}
-					vk::DescriptorBufferInfo& BufferInfo = BufferInfos.emplace_back();
-					BufferInfo
-						.setBuffer(Buffer->GetHandle())
-						.setOffset(ViewDesc.Offset)
-						.setRange(ViewDesc.Size);
-					DescriptorWrite.setBufferInfo(BufferInfo);
-					break;
-				}
-			case ERHIBindingType::Texture:
-				{
-					const auto* View = static_cast<const FVulkanTextureView*>(Resource.Resource);
-					vk::DescriptorImageInfo& ImageInfo = ImageInfos.emplace_back();
-					ImageInfo
-						.setImageView(View->GetHandle())
-						.setImageLayout(GetVulkanDescriptorImageLayout(Resource.Type));
-					DescriptorWrite.setImageInfo(ImageInfo);
-					break;
-				}
-			case ERHIBindingType::StorageImage:
-				{
-					const auto* View = static_cast<const FVulkanTextureView*>(Resource.Resource);
-					const auto* Texture = static_cast<const FVulkanTexture*>(View->GetTexture());
-					checkf(EnumHasAnyFlags(Texture->CreateFlags, ETextureCreateFlags::Storage), "A storage image descriptor requires a texture created with ETextureCreateFlags::Storage");
-					vk::DescriptorImageInfo& ImageInfo = ImageInfos.emplace_back();
-					ImageInfo
-						.setImageView(View->GetHandle())
-						.setImageLayout(GetVulkanDescriptorImageLayout(Resource.Type));
-					DescriptorWrite.setImageInfo(ImageInfo);
-					break;
-				}
-			case ERHIBindingType::Sampler:
-				{
-					const FVulkanSampler* Sampler = static_cast<const FVulkanSampler*>(Resource.Resource);
-					vk::DescriptorImageInfo& ImageInfo = ImageInfos.emplace_back();
-					ImageInfo.setSampler(Sampler->GetHandle());
-					DescriptorWrite.setImageInfo(ImageInfo);
-					break;
-				}
-			default:
-				checkf(false, "Unsupported shader parameter resource type: {}", static_cast<uint32>(Resource.Type));
-				break;
-			}
-
-			DescriptorWrites.push_back(DescriptorWrite);
-		}
-
-		Device.GetHandle().updateDescriptorSets(DescriptorWrites, {});
+		UpdateDescriptorSets(Device, NewEntry.Resources, NewEntry.DescriptorSets);
 		++Device.AccessPipelineCacheStatistics().Get().DescriptorSnapshots.NativeCreations;
 		++Device.AccessPipelineCacheStatistics().Get().DescriptorAllocations;
 		DescriptorSetCache.push_back(std::move(NewEntry));
@@ -778,7 +731,7 @@ namespace Durin::VulkanRHI
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 		uint64 EntryCount = 0;
 		uint64 ValueCount = 0;
-		for (const auto* State : PipelineStates | std::views::values)
+		for (const auto& State : PipelineStates | std::views::values)
 		{
 			GVulkanDescriptorOccupancyVerificationVisitCount.fetch_add(
 				1, std::memory_order_relaxed);
@@ -805,7 +758,7 @@ namespace Durin::VulkanRHI
 			FVulkanGraphicsPipelineDescriptorState* VictimState = nullptr;
 			size_t VictimIndex = 0;
 			uint64 Oldest = std::numeric_limits<uint64>::max();
-			for (auto* State : PipelineStates | std::views::values)
+			for (const auto& State : PipelineStates | std::views::values)
 			{
 				for (size_t Index = 0; Index < State->DescriptorSetCache.size(); ++Index)
 				{
@@ -813,7 +766,7 @@ namespace Durin::VulkanRHI
 					if (Entry.LastUsed < Oldest)
 					{
 						Oldest = Entry.LastUsed;
-						VictimState = State;
+						VictimState = State.get();
 						VictimIndex = Index;
 					}
 				}

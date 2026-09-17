@@ -102,14 +102,16 @@ namespace Durin
 		public:
 			IRHICommandContext* SecondaryQueue = nullptr;
 			bool bStorageAttached = false;
+			std::vector<FRHIGPUSyncPointRef> SubmissionWaits;
 			auto RHIGetQueueContext(FRHIQueueId Queue) -> IRHICommandContext* override
 			{ return Queue.Index == 1 ? SecondaryQueue : this; }
-			auto RHIBeginGPUSubmission(const FRHIGPUSubmissionDesc&) -> void override
+			auto RHIBeginGPUSubmission(const FRHIGPUSubmissionDesc& Desc) -> void override
 			{
 				EXPECT_TRUE(bStorageAttached);
+				SubmissionWaits = Desc.Waits;
 				Operations.emplace_back("BeginSubmission");
 			}
-			auto RHIEndGPUSubmission(const FRHIGPUSubmissionReceipt&) -> void override
+			auto RHIEndGPUSubmission(const FRHIGPUSyncPointRef&) -> void override
 			{ Operations.emplace_back("EndSubmission"); }
 			auto RHIReleaseQueueOwnership(const std::shared_ptr<FRHIQueueTransfer>& Transfer) -> void override
 			{ Operations.emplace_back("ReleaseQueueOwnership"); }
@@ -426,7 +428,7 @@ namespace Durin
 
 	TEST(FRHICommandListTests, DiscardedRecordingCancelsItsUnresolvedGPUSignal)
 	{
-		FRHIGPUSubmissionReceipt Signal;
+		FRHIGPUSyncPointRef Signal;
 		{
 			FRHICommandList Commands;
 			Signal = Commands.BeginGPUSubmission({});
@@ -435,6 +437,23 @@ namespace Durin
 			EXPECT_EQ(Signal.GetState(), ERHIGPUSubmissionState::Pending);
 		}
 		EXPECT_EQ(Signal.GetState(), ERHIGPUSubmissionState::Canceled);
+	}
+
+	TEST(FRHICommandListTests, RecordingOwnsExactDeduplicatedUnassociatedDependencies)
+	{
+		FRecordingCommandContext Context;
+		FRHICommandListExecutor Executor(Context);
+		auto& Commands = Executor.GetImmediateCommandList();
+		const auto First = FRHIGPUSyncPoint::Create(), Second = FRHIGPUSyncPoint::Create();
+		FRHIGPUSubmissionDesc Desc{.Waits = {First, Second, First}};
+		Commands.BeginGPUSubmission(Desc);
+		Commands.EndGPUSubmission();
+		Desc.Waits.clear();
+		Executor.Submit({}, ERHISubmitFlags::None);
+		Executor.CreateFence().Wait();
+		EXPECT_EQ(Context.SubmissionWaits, (std::vector<FRHIGPUSyncPointRef>{First, Second}));
+		EXPECT_EQ(First.GetState(), ERHIGPUSubmissionState::Pending);
+		EXPECT_EQ(Second.GetState(), ERHIGPUSubmissionState::Pending);
 	}
 
 	TEST(FRHICommandListTests, FinishRecordingDoesNotSubmitOrExecute)

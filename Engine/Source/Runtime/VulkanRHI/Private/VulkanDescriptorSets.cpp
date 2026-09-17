@@ -1,4 +1,5 @@
 #include "VulkanDescriptorSets.h"
+#include "Backend/RHICompletionBackend.h"
 
 #include "VulkanDevice.h"
 #include "VulkanSubmission.h"
@@ -72,7 +73,6 @@ namespace Durin::VulkanRHI
 		{
 			Device.GetRHI().GetDebugUtils().NameObject(NewEntry.Handle,
 				Device.GetRHI().GetDebugUtils().MakeInternalName("DescriptorSetLayout"));
-			NewEntry.HandleId = ++GVulkanDSetLayoutHandleIdCounter;
 			const auto [InsertedIt, bInserted] = DLayoutMap.emplace(Layout, NewEntry);
 			check(bInserted);
 		}
@@ -114,11 +114,6 @@ namespace Durin::VulkanRHI
 		{
 			LayoutHandles.push_back(Device.GetDescriptorSetLayoutCache().GetOrCreateDescriptorSetLayout(SetLayout));
 		}
-	}
-
-	FVulkanDescriptorSetCache::FVulkanDescriptorSetCache(FVulkanDevice* InDevice)
-		: Device(InDevice)
-	{
 	}
 
 	FVulkanGlobalDescriptorPool::FVulkanGlobalDescriptorPool(FVulkanDevice& InDevice)
@@ -378,9 +373,9 @@ namespace Durin::VulkanRHI
 			if (const auto Owner = Batches[Index].Owner.lock())
 			{
 				const auto Uses = Device.GetSubmissionCoordinator().GetAllocationUses(Owner);
-				for (const auto& Ticket : Uses.GetTickets())
-					if (Ticket.GetPoint().Queue == Device.GetGraphicsQueue()->GetId())
-						Result[Index] = Ticket.GetPoint().Value;
+				for (const auto& SyncPoint : Uses.GetSyncPoints())
+					if (FRHIGPUSyncPointBackend::GetPoint(SyncPoint).Queue == Device.GetGraphicsQueue()->GetId())
+						Result[Index] = FRHIGPUSyncPointBackend::GetPoint(SyncPoint).Value;
 			}
 		}
 		return Result;

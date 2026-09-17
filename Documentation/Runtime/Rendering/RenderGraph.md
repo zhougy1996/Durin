@@ -4,7 +4,7 @@ Summary: Define the deterministic frame-local graph compiler and its boundary wi
 
 Modules: RenderCore, RHI
 
-Last reviewed: 2026-09-12
+Last reviewed: 2026-09-17
 
 ## Ownership Boundary
 
@@ -204,7 +204,7 @@ After successful private compilation, the execution allocator receives immutable
 records containing resource ID, kind, exact description, retained lifetime,
 observation tag, and explicit `bExtracted` ownership intent. For independent
 queue execution, execution-local copies additionally carry a shared
-`FRDGAllocationRetirement` proof; compiled logical requests remain ticket-free.
+`FRDGAllocationRetirement` proof; compiled logical requests remain free of runtime sync points.
 Allocators detach extracted allocations from reusable storage before returning
 success; counted references then own the exported resource, with no implicit
 return to the pool when those references expire. Renderer may promote an
@@ -221,8 +221,8 @@ and RHI retains responsibility for native resource retirement.
 
 Renderer opts into independent queues by retaining this proof with each pool
 entry. Reuse and ordinary pressure eviction require the graph's explicit
-terminal join receipt to be `Complete`; the join depends on both queue tails.
-Unpublished, pending, canceled, failed, or device-lost receipts never authorize
+terminal join sync point to be `Complete`; the join depends on both queue tails.
+Unpublished, pending, canceled, failed, or device-lost sync points never authorize
 reuse. Selection for eviction is captured before compaction so concurrent GPU
 progress cannot remove an entry absent from eviction accounting. This is a
 conservative whole-graph completion requirement, not graph-local aliasing.
@@ -401,7 +401,7 @@ same queue; it never replaces a use on another queue. Cross-queue producers add
 execution dependencies to the handoff consumer. Initial transitions have no
 graph producer. Texture ranges use exact aspect/mip/layer cells; buffers retain
 the compiler's conservative whole-resource tracking. Captures and dumps retain
-these producer endpoints separately from physical completion tickets.
+these producer endpoints separately from runtime completion sync points.
 Range ownership starts on the logical graphics queue. A queue change emits a
 handoff even for equal read access, and records the source queue independently
 of its producer endpoints. The epilogue returns ranges last used on async
@@ -413,7 +413,7 @@ they do not claim concurrent cross-queue sharing of one range.
 Preparation resolves all logical barriers into execution-local physical
 transition arrays before any graph callback or command is recorded. Recording
 traverses the batch intervals and emits RHI GPU submission scopes with owning
-wait receipts. Physical async lowering requires enabled graph policy, an
+wait sync points. Physical async lowering requires enabled graph policy, an
 independent queue capability, and either no allocation requests or an allocator
 whose `SupportsAsyncCompute()` explicitly accepts multi-queue reuse. Other
 graphs map both roles to graphics. The allocator default is false.
@@ -421,11 +421,11 @@ Preparation creates every cross-queue release/acquire object before graph
 recording. These owning objects replace their ordinary barrier entries and are
 recorded at the source producer's tail and consumer's prologue. A separate
 graphics preamble releases initially graphics-owned ranges with no graph
-producer; only affected consumers wait its receipt. Transfer creation failure
+producer; only affected consumers wait its sync point. Transfer creation failure
 fails preparation before callbacks or graph commands are recorded.
 The current single-queue Vulkan mapping coalesces same-queue batches into
 native payloads and satisfies their dependencies through FIFO execution and
-resource barriers, without a CPU wait between passes. `GetSubmissionReceipts()`
+resource barriers, without a CPU wait between passes. `GetSubmissionSyncPoints()`
 exposes runtime signals in batch order; these are separate from the immutable
 plan and do not certify graph success or extraction publication.
 `FRDGCapture::ExecutionPlan` owns a copy, and the dump includes stable

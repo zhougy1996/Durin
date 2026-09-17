@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "Backend/RHICompletionBackend.h"
 #include "../../RDGTestAccess.h"
 #include "RDG.h"
 
@@ -1287,9 +1288,9 @@ namespace Durin
 				const auto Result = Graph.Execute(Commands);
 				ASSERT_TRUE(Result.IsSuccess()) << Result.Result.Message;
 				Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::None);
-				ASSERT_EQ(Graph.GetSubmissionReceipts().size(), 4u);
+				ASSERT_EQ(Graph.GetSubmissionSyncPoints().size(), 4u);
 				for (uint32 Index = 0; Index < 3; ++Index)
-					EXPECT_EQ(Graph.GetSubmissionReceipts()[Index].GetTicket().GetPoint().Queue, Queues.Compute);
+					EXPECT_EQ(FRHIGPUSyncPointBackend::GetPoint(Graph.GetSubmissionSyncPoints()[Index]).Queue, Queues.Compute);
 			}
 			if (!*QueuePolicy)
 			{

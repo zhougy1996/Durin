@@ -4,7 +4,7 @@ Summary: Define RenderCore resource state, deferred C++ cleanup, producer teardo
 
 Modules: RenderCore, Engine, MonaImGui
 
-Last reviewed: 2026-09-08
+Last reviewed: 2026-09-17
 
 `FRenderResource` owns registry membership and the rendering-thread
 initialization, update, and release state machine. This contract covers generic
@@ -31,6 +31,12 @@ points assert the caller thread and preserve command ordering; actual
 rendering-thread only.
 
 ## Deferred C++ Cleanup
+
+GPU completion and allocation reuse follow the owning
+[RHI sync-point contract](RHICommandExecution.md). Retaining or releasing a
+`FRHIGPUSyncPointRef` affects metadata lifetime only; it never cancels executable
+work or proves that an allocation's other queue uses have retired. Canceled
+detached work may permit retirement, but cannot make its output ready.
 
 Released concrete C++ storage is transferred to
 `FDeferredRenderResourceCleanup`. Its ordered rendering-thread flush destroys

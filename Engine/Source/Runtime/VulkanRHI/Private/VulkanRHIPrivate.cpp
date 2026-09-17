@@ -1,4 +1,5 @@
 #include "VulkanRHIPrivate.h"
+#include "Backend/RHICompletionBackend.h"
 #include "VulkanGPUTiming.h"
 #include "VulkanCreationTiming.h"
 
@@ -403,7 +404,7 @@ namespace Durin::VulkanRHI
 		const std::array TextureTransitions{FRHITextureTransition{Texture.GetReference(), Range, ERHIAccess::TransferWrite, ERHIAccess::TransferRead}};
 		auto Transfer = std::make_shared<FVulkanQueueTransfer>(Device, SourceQueue.GetId(), DestinationQueue.GetId(),
 			BufferTransitions, TextureTransitions, bSynchronization2);
-		// A canceled later recording must not replace the release's producer ticket.
+		// A canceled later recording must not replace the release's producer sync point.
 		FVulkanCommandListContext OtherGraphics(&RHI, Device, &SourceQueue);
 		auto LaterGraphics = OtherGraphics.Finalize();
 		Graphics.ReleaseQueueOwnership(Transfer);
@@ -419,12 +420,12 @@ namespace Durin::VulkanRHI
 		Compute.RHITransitionBuffers(HostRead);
 		// Seal consumer first; the coordinator orders its still-unsubmitted release.
 		Device.GetSubmissionCoordinator().SubmitPendingContexts(&Compute);
-		const auto Completion = DestinationQueue.GetCompletionTracker().GetLastReservedTicket();
+		const auto Completion = DestinationQueue.GetCompletionTracker().GetLastReservedSyncPoint();
 		std::weak_ptr<FVulkanQueueTransfer> Observer = Transfer;
 		Transfer.reset();
 		FVulkanQueueTransferTestResult Result;
 		Result.bRetainedUntilCompletion = !Observer.expired();
-		require(DestinationQueue.GetCompletionTracker().WaitForTicket(Completion, 1'000'000'000) == ERHIGPUWaitResult::Complete);
+		require(DestinationQueue.GetCompletionTracker().WaitForSyncPoint(Completion, 1'000'000'000) == ERHIGPUWaitResult::Complete);
 		Device.PollQueues();
 		Result.bReleasedAfterCompletion = Observer.expired();
 		Readback->InvalidateMappedMemory(0, 32);
@@ -512,7 +513,7 @@ namespace Durin::VulkanRHI
 		FVulkanTransferArena TestTransfers(Device, {
 			.AllocationClass = EVulkanAllocationClassCandidate::TransferUpload,
 			.PageSize = 256, .MaxPageCount = 1, .DebugName = "DelayedComputeTransfer"});
-		auto Submit = [&](FVulkanQueue& Queue, const FRHIGPUSubmissionTicket& Wait, std::shared_ptr<void> Owner = {}, FVulkanGPUTimingQuery* Timing = nullptr) {
+		auto Submit = [&](FVulkanQueue& Queue, const FRHIGPUSyncPointRef& Wait, std::shared_ptr<void> Owner = {}, FVulkanGPUTimingQuery* Timing = nullptr) {
 			auto& Tracker = Queue.GetCompletionTracker();
 			std::unique_ptr<FVulkanPayload> Payload;
 			if (Timing)
@@ -523,10 +524,10 @@ namespace Durin::VulkanRHI
 				Context.RHIEndGPUTimingQuery(Timing);
 				Payload = Context.Finalize();
 			}
-			else Payload = std::make_unique<FVulkanPayload>(Queue, Tracker.ReserveToken());
+			else Payload = std::make_unique<FVulkanPayload>(Queue, Tracker.ReserveSyncPoint());
 			if (&Queue == &Compute)
 			{
-				auto Allocation = TestTransfers.Acquire(256, 16, Payload->GetTicket());
+				auto Allocation = TestTransfers.Acquire(256, 16, Payload->GetSyncPoint());
 				require(Allocation.Range);
 				Payload->RetainAllocation(Allocation.Range.GetAllocationOwner());
 				// Destruction before submission must preserve the payload's interval.
@@ -571,7 +572,7 @@ namespace Durin::VulkanRHI
 			const auto Producer = Submit(Compute, {}, TestPools.GetAllocationOwner(), Timing.GetReference());
 			// Graphics completion alone must not reset a pool also used by compute.
 			const auto Independent = Submit(Graphics, {}, TestPools.GetAllocationOwner());
-			require(Graphics.GetCompletionTracker().WaitForTicket(Independent, 1'000'000'000) == ERHIGPUWaitResult::Complete);
+			require(Graphics.GetCompletionTracker().WaitForSyncPoint(Independent, 1'000'000'000) == ERHIGPUWaitResult::Complete);
 			Device.PollQueues();
 			Result.bTimingBlocked = Timing && Timing->GetResult().State == ERHIGPUTimingResultState::Pending;
 			Result.bTransferReuseBlocked = !TestTransfers.Acquire(256, 16, Producer).Range;
@@ -594,16 +595,16 @@ namespace Durin::VulkanRHI
 			TestPools.RetireUsedPools();
 			const auto Consumer = Submit(Graphics, Producer);
 			const auto Uses = Device.GetLastReservedUses();
-			Result.Producer = Producer.GetPoint();
-			Result.Consumer = Consumer.GetPoint();
-			Result.bConsumerBlocked = Graphics.GetCompletionTracker().WaitForTicket(Consumer, 0) == ERHIGPUWaitResult::Timeout;
+			Result.Producer = FRHIGPUSyncPointBackend::GetPoint(Producer);
+			Result.Consumer = FRHIGPUSyncPointBackend::GetPoint(Consumer);
+			Result.bConsumerBlocked = Graphics.GetCompletionTracker().WaitForSyncPoint(Consumer, 0) == ERHIGPUWaitResult::Timeout;
 			Result.bRetirementBlocked = !Uses.IsRetirementEligible();
 			ReleaseGate();
 			Device.GetSubmissionCoordinator().WaitForAllocation(PoolOwner);
 			Result.bTimingCompleted = Timing && Timing->GetResult().State == ERHIGPUTimingResultState::Ready;
 			Result.bTransferReusedAfterCompletion = bool(TestTransfers.Acquire(256, 16, Producer).Range);
-			Result.bCompleted = Graphics.GetCompletionTracker().WaitForTicket(Consumer, 1'000'000'000) == ERHIGPUWaitResult::Complete
-				&& Compute.GetCompletionTracker().WaitForTicket(Producer, 1'000'000'000) == ERHIGPUWaitResult::Complete
+			Result.bCompleted = Graphics.GetCompletionTracker().WaitForSyncPoint(Consumer, 1'000'000'000) == ERHIGPUWaitResult::Complete
+				&& Compute.GetCompletionTracker().WaitForSyncPoint(Producer, 1'000'000'000) == ERHIGPUWaitResult::Complete
 				&& Uses.IsRetirementEligible();
 			TestUniforms.PrepareForProducer();
 			require(TestUniforms.TryAllocate(&UniformData, sizeof(UniformData), ReusedUniform));
@@ -614,18 +615,18 @@ namespace Durin::VulkanRHI
 			require(TestPools.AllocateDescriptorSets(Layouts, Requirements).size() == 1);
 			Device.WaitUtilIdle();
 			auto MakePayload = [](FVulkanQueue& Queue) {
-				return std::make_unique<FVulkanPayload>(Queue, Queue.GetCompletionTracker().ReserveToken());
+				return std::make_unique<FVulkanPayload>(Queue, Queue.GetCompletionTracker().ReserveSyncPoint());
 			};
 			auto ProducerPayload = MakePayload(Compute);
-			const auto BatchProducer = ProducerPayload->GetTicket();
+			const auto BatchProducer = ProducerPayload->GetSyncPoint();
 			auto ConsumerPayload = MakePayload(Graphics);
-			const auto BatchConsumer = ConsumerPayload->GetTicket();
+			const auto BatchConsumer = ConsumerPayload->GetSyncPoint();
 			ConsumerPayload->AddCompletionWait(BatchProducer);
 			std::vector<std::unique_ptr<FVulkanPayload>> Batch;
 			Batch.push_back(std::move(ConsumerPayload)); // Admission order is deliberately reversed.
 			Batch.push_back(std::move(ProducerPayload));
 			Device.GetSubmissionCoordinator().SubmitBatch(std::move(Batch));
-			Result.bBatchOrdered = Graphics.GetCompletionTracker().WaitForTicket(BatchConsumer,
+			Result.bBatchOrdered = Graphics.GetCompletionTracker().WaitForSyncPoint(BatchConsumer,
 				1'000'000'000) == ERHIGPUWaitResult::Complete;
 			Device.PollQueues();
 			Result.bBatchOrdered &= BatchProducer.GetState() == ERHIGPUSubmissionState::Complete;
@@ -634,17 +635,17 @@ namespace Durin::VulkanRHI
 			{
 				auto First = MakePayload(Graphics);
 				auto Second = MakePayload(bSameQueue ? Graphics : Compute);
-				const auto FirstTicket = First->GetTicket(), SecondTicket = Second->GetTicket();
-				First->AddCompletionWait(SecondTicket);
-				if (!bSameQueue) Second->AddCompletionWait(FirstTicket);
+				const auto FirstSyncPoint = First->GetSyncPoint(), SecondSyncPoint = Second->GetSyncPoint();
+				First->AddCompletionWait(SecondSyncPoint);
+				if (!bSameQueue) Second->AddCompletionWait(FirstSyncPoint);
 				const auto Before = Graphics.GetCompletionTracker().GetLastSubmittedToken();
 				std::vector<std::unique_ptr<FVulkanPayload>> Cycle;
 				Cycle.push_back(std::move(First)); Cycle.push_back(std::move(Second));
 				bool bRejected = false;
 				try { Device.GetSubmissionCoordinator().SubmitBatch(std::move(Cycle)); }
 				catch (const std::runtime_error&) { bRejected = true; }
-				Result.bBatchCycleRejected &= bRejected && FirstTicket.GetState() == ERHIGPUSubmissionState::Canceled
-					&& SecondTicket.GetState() == ERHIGPUSubmissionState::Canceled
+				Result.bBatchCycleRejected &= bRejected && FirstSyncPoint.GetState() == ERHIGPUSubmissionState::Canceled
+					&& SecondSyncPoint.GetState() == ERHIGPUSubmissionState::Canceled
 					&& Graphics.GetCompletionTracker().GetLastSubmittedToken() == Before;
 			}
 			{
@@ -652,8 +653,8 @@ namespace Durin::VulkanRHI
 				auto MissingReservation = MakePayload(Graphics);
 				auto Last = MakePayload(Graphics);
 				auto Independent = MakePayload(Compute);
-				const auto FirstTicket = First->GetTicket(), LastTicket = Last->GetTicket();
-				const auto IndependentTicket = Independent->GetTicket();
+				const auto FirstSyncPoint = First->GetSyncPoint(), LastSyncPoint = Last->GetSyncPoint();
+				const auto IndependentSyncPoint = Independent->GetSyncPoint();
 				const auto BeforeGraphics = Graphics.GetCompletionTracker().GetLastSubmittedToken();
 				const auto BeforeCompute = Compute.GetCompletionTracker().GetLastSubmittedToken();
 				std::vector<std::unique_ptr<FVulkanPayload>> Incomplete;
@@ -662,21 +663,21 @@ namespace Durin::VulkanRHI
 				Incomplete.push_back(std::move(Last));
 				try { Device.GetSubmissionCoordinator().SubmitBatch(std::move(Incomplete)); }
 				catch (const std::runtime_error&) { Result.bBatchMissingReservationRejected = true; }
-				Result.bBatchMissingReservationRejected &= FirstTicket.GetState() == ERHIGPUSubmissionState::Canceled
-					&& LastTicket.GetState() == ERHIGPUSubmissionState::Canceled
-					&& IndependentTicket.GetState() == ERHIGPUSubmissionState::Canceled
-					&& MissingReservation->GetTicket().GetState() == ERHIGPUSubmissionState::Pending
+				Result.bBatchMissingReservationRejected &= FirstSyncPoint.GetState() == ERHIGPUSubmissionState::Canceled
+					&& LastSyncPoint.GetState() == ERHIGPUSubmissionState::Canceled
+					&& IndependentSyncPoint.GetState() == ERHIGPUSubmissionState::Canceled
+					&& MissingReservation->GetSyncPoint().GetState() == ERHIGPUSubmissionState::Pending
 					&& Graphics.GetCompletionTracker().GetLastSubmittedToken() == BeforeGraphics
 					&& Compute.GetCompletionTracker().GetLastSubmittedToken() == BeforeCompute;
 			}
 			auto Missing = MakePayload(Compute);
 			auto Dependent = MakePayload(Graphics);
-			const auto DependentTicket = Dependent->GetTicket();
-			Dependent->AddCompletionWait(Missing->GetTicket());
+			const auto DependentSyncPoint = Dependent->GetSyncPoint();
+			Dependent->AddCompletionWait(Missing->GetSyncPoint());
 			try { Device.GetSubmissionCoordinator().Submit(std::move(Dependent)); }
 			catch (const std::runtime_error&) { Result.bBatchMissingProducerRejected = true; }
-			Result.bBatchMissingProducerRejected &= DependentTicket.GetState() == ERHIGPUSubmissionState::Canceled
-				&& Missing->GetTicket().GetState() == ERHIGPUSubmissionState::Pending;
+			Result.bBatchMissingProducerRejected &= DependentSyncPoint.GetState() == ERHIGPUSubmissionState::Canceled
+				&& Missing->GetSyncPoint().GetState() == ERHIGPUSubmissionState::Pending;
 		}
 		catch (...)
 		{
@@ -698,22 +699,38 @@ namespace Durin::VulkanRHI
 		const auto Before = Tracker.GetLastSubmittedToken();
 		FVulkanSubmissionBoundaryTestResult Result;
 		{
+			// Construction order need not match reservation order on the same queue.
+			const auto EarlierSyncPoint = Tracker.ReserveSyncPoint();
+			const auto LaterSyncPoint = Tracker.ReserveSyncPoint();
+			auto Later = std::make_unique<FVulkanPayload>(*Context.GetQueue(), LaterSyncPoint);
+			auto Earlier = std::make_unique<FVulkanPayload>(*Context.GetQueue(), EarlierSyncPoint);
+			Result.bPayloadUsesExplicitSyncPoint = FRHIGPUSyncPointBackend::GetPoint(Earlier->GetSyncPoint()) == FRHIGPUSyncPointBackend::GetPoint(EarlierSyncPoint)
+				&& FRHIGPUSyncPointBackend::GetPoint(Later->GetSyncPoint()) == FRHIGPUSyncPointBackend::GetPoint(LaterSyncPoint)
+				&& FRHIGPUSyncPointBackend::GetPoint(Tracker.GetLastReservedSyncPoint()) == FRHIGPUSyncPointBackend::GetPoint(LaterSyncPoint)
+				&& Tracker.GetLastReservedToken() == FRHIGPUSyncPointBackend::GetPoint(LaterSyncPoint).Value;
+			Earlier.reset();
+			Result.bPayloadUsesExplicitSyncPoint &= EarlierSyncPoint.GetState() == ERHIGPUSubmissionState::Canceled
+				&& LaterSyncPoint.GetState() == ERHIGPUSubmissionState::Pending;
+			Later.reset();
+			Result.bPayloadUsesExplicitSyncPoint &= LaterSyncPoint.GetState() == ERHIGPUSubmissionState::Canceled;
+		}
+		{
 			// Independent contexts can interleave reservations on one physical queue.
 			// Publishing the earlier recording must not capture the later reservation.
 			Context.RHIBeginGPUSubmission({Context.GetQueue()->GetId(), {}});
 			FVulkanCommandListContext Other(&FVulkanDynamicRHI::Get(), Device, Context.GetQueue());
 			auto Later = Other.Finalize();
-			const auto Receipt = FRHIGPUSubmissionReceipt::CreatePending();
-			Context.RHIEndGPUSubmission(Receipt);
+			const auto LogicalSignal = FRHIGPUSyncPoint::Create();
+			Context.RHIEndGPUSubmission(LogicalSignal);
 			auto Earlier = Context.Finalize();
-			Result.bReceiptUsesRecordingTicket = Receipt.GetTicket().GetPoint() == Earlier->GetTicket().GetPoint()
-				&& Receipt.GetTicket().GetPoint() != Later->GetTicket().GetPoint();
+			Result.bLogicalSignalUsesRecordingSyncPoint = FRHIGPUSyncPointBackend::GetPoint(LogicalSignal) == FRHIGPUSyncPointBackend::GetPoint(Earlier->GetSyncPoint())
+				&& FRHIGPUSyncPointBackend::GetPoint(LogicalSignal) != FRHIGPUSyncPointBackend::GetPoint(Later->GetSyncPoint());
 			Later.reset();
 			Earlier.reset();
-			Result.bReceiptUsesRecordingTicket &= Receipt.GetState() == ERHIGPUSubmissionState::Canceled;
+			Result.bLogicalSignalUsesRecordingSyncPoint &= LogicalSignal.GetState() == ERHIGPUSubmissionState::Canceled;
 		}
 		auto First = Context.Finalize();
-		const auto FirstTicket = First->GetTicket();
+		const auto FirstSyncPoint = First->GetSyncPoint();
 		auto Storage = std::make_shared<int>(1);
 		FVulkanGlobalDescriptorPool TestPools(Device);
 		TestPools.PrepareForUse();
@@ -725,20 +742,20 @@ namespace Durin::VulkanRHI
 		Context.RHIBeginGPUTimingQuery(Timing);
 		Context.RHIEndGPUTimingQuery(Timing);
 		auto Second = Context.Finalize();
-		const auto SecondTicket = Second->GetTicket();
+		const auto SecondSyncPoint = Second->GetSyncPoint();
 		Context.RHISetReplayStorageOwner({});
 		Storage.reset();
 		TestPools.RetireUsedPools();
 		Result.bAllocationRetained = TestPools.IsBatchRetainedForTesting(0);
 		Result.bSealDidNotSubmit = Tracker.GetLastSubmittedToken() == Before
-			&& FirstTicket.GetState() == ERHIGPUSubmissionState::Pending
-			&& SecondTicket.GetState() == ERHIGPUSubmissionState::Pending;
+			&& FirstSyncPoint.GetState() == ERHIGPUSubmissionState::Pending
+			&& SecondSyncPoint.GetState() == ERHIGPUSubmissionState::Pending;
 		Result.bStorageRetained = !Weak.expired();
 		Device.GetSubmissionCoordinator().Submit(std::move(First));
-		Result.bEarlierTicketSubmitted = FirstTicket.GetState() == ERHIGPUSubmissionState::Submitted
-			&& SecondTicket.GetState() == ERHIGPUSubmissionState::Pending;
+		Result.bEarlierSyncPointSubmitted = FirstSyncPoint.GetState() == ERHIGPUSubmissionState::Submitted
+			&& SecondSyncPoint.GetState() == ERHIGPUSubmissionState::Pending;
 		Second.reset();
-		Result.bDiscardCanceled = SecondTicket.GetState() == ERHIGPUSubmissionState::Canceled;
+		Result.bDiscardCanceled = SecondSyncPoint.GetState() == ERHIGPUSubmissionState::Canceled;
 		Result.bTimingDiscarded = Timing->GetResult().State == ERHIGPUTimingResultState::Invalid
 			&& Timing->TryReserveRecording();
 		Timing->CancelRecording();
@@ -746,7 +763,7 @@ namespace Durin::VulkanRHI
 		Result.bAllocationReturned = !TestPools.IsBatchRetainedForTesting(0);
 		TestPools.PrepareForUse();
 		Result.bAllocationReturned &= TestPools.GetActiveBatchIndexForTesting() == 0;
-		require(Tracker.WaitForTicket(FirstTicket, 1'000'000'000) == ERHIGPUWaitResult::Complete);
+		require(Tracker.WaitForSyncPoint(FirstSyncPoint, 1'000'000'000) == ERHIGPUWaitResult::Complete);
 		for (bool bDiscard : {false, true})
 		{
 			auto Owner = std::make_shared<int>(42);
@@ -767,8 +784,8 @@ namespace Durin::VulkanRHI
 			{
 				// Submitting a new context recording drains its sealed predecessor too.
 				const auto Last = Device.GetSubmissionCoordinator().SubmitContext(Context);
-				bPassed &= Last.GetPoint().Value > Queued.GetPoint().Value;
-				bPassed &= Tracker.WaitForTicket(Last, 1'000'000'000) == ERHIGPUWaitResult::Complete;
+				bPassed &= FRHIGPUSyncPointBackend::GetPoint(Last).Value > FRHIGPUSyncPointBackend::GetPoint(Queued).Value;
+				bPassed &= Tracker.WaitForSyncPoint(Last, 1'000'000'000) == ERHIGPUWaitResult::Complete;
 				Result.bQueuedStorageRetired = bPassed && Observer.expired()
 					&& Queued.GetState() == ERHIGPUSubmissionState::Complete;
 			}
@@ -776,12 +793,113 @@ namespace Durin::VulkanRHI
 		return Result;
 	}
 
-	auto GetLastVulkanSubmissionTicketForTesting() -> FRHIGPUSubmissionTicket
+	auto GetLastVulkanSyncPointForTesting() -> FRHIGPUSyncPointRef
 	{
 		CheckVulkanRHIThread();
 		auto* Device = FVulkanDynamicRHI::Get().GetDeviceForTesting();
-		return Device ? Device->GetCompletionTracker().GetLastReservedTicket()
-			: FRHIGPUSubmissionTicket{};
+		return Device ? Device->GetCompletionTracker().GetLastReservedSyncPoint()
+			: FRHIGPUSyncPointRef{};
+	}
+
+	// Only the backend test helper arms this counter, on the serialized RHI lane.
+	static int32 GSubmissionsBeforeFailure = -1;
+	static bool GSubmitFailureDeviceLost = false;
+	auto ConsumeVulkanSubmitFailureForTesting() -> std::optional<vk::Result>
+	{
+		if (GSubmissionsBeforeFailure < 0) return {};
+		if (GSubmissionsBeforeFailure-- != 0) return {};
+		return GSubmitFailureDeviceLost ? vk::Result::eErrorDeviceLost : vk::Result::eErrorUnknown;
+	}
+
+	auto TestVulkanSyncPointFailure(bool bDeviceLost) -> FVulkanSyncPointFailureTestResult
+	{
+		CheckVulkanRHIThread();
+		auto& Device = *FVulkanDynamicRHI::Get().GetDeviceForTesting();
+		auto& Queue = *Device.GetGraphicsQueue();
+		auto& Tracker = Queue.GetCompletionTracker();
+		auto& Coordinator = Device.GetSubmissionCoordinator();
+		Coordinator.SubmitPendingContexts();
+		Tracker.WaitForAll();
+		auto MakePayload = [&] { return std::make_unique<FVulkanPayload>(Queue, Tracker.ReserveSyncPoint()); };
+		FVulkanSyncPointFailureTestResult Result;
+		{
+			auto Producer = MakePayload();
+			const auto Signal = FRHIGPUSyncPoint::Create();
+			require(Producer->AttachSignal(Signal));
+			Producer.reset();
+			auto Consumer = MakePayload();
+			Consumer->AddCompletionWait(Signal);
+			const auto ConsumerSignal = Consumer->GetSyncPoint();
+			const auto Before = Tracker.GetLastSubmittedToken();
+			try { Coordinator.Submit(std::move(Consumer)); }
+			catch (const std::runtime_error&)
+			{
+				Result.bRejectedCanceledProducer = Tracker.GetLastSubmittedToken() == Before
+					&& ConsumerSignal.GetState() == ERHIGPUSubmissionState::Canceled && !Signal.IsComplete();
+			}
+		}
+		std::vector<std::unique_ptr<FVulkanPayload>> Batch;
+		for (size_t Index = 0; Index != 3; ++Index)
+		{
+			auto Payload = MakePayload();
+			Result.Signals[Index] = FRHIGPUSyncPoint::Create();
+			require(Payload->AttachSignal(Result.Signals[Index]));
+			auto Owner = std::make_shared<int>(0);
+			Result.Owners[Index] = Owner;
+			Payload->RetainAllocation(std::move(Owner));
+			Batch.push_back(std::move(Payload));
+		}
+		GSubmissionsBeforeFailure = 1;
+		GSubmitFailureDeviceLost = bDeviceLost;
+		try { Coordinator.SubmitBatch(std::move(Batch)); }
+		catch (const vk::SystemError&)
+		{
+			Result.bQuarantinedAcceptedPrefix = Tracker.GetPendingSubmissionCount() == 2
+				&& !Result.Owners[0].expired() && !Result.Owners[1].expired() && Result.Owners[2].expired();
+		}
+		GSubmissionsBeforeFailure = -1;
+		return Result;
+	}
+
+	auto TestVulkanSyncPointStorage() -> bool
+	{
+		CheckVulkanRHIThread();
+		auto& Device = *FVulkanDynamicRHI::Get().GetDeviceForTesting();
+		auto& Queue = *Device.GetGraphicsQueue();
+		auto& Tracker = Queue.GetCompletionTracker();
+		auto& Coordinator = Device.GetSubmissionCoordinator();
+		Coordinator.SubmitPendingContexts();
+		Tracker.WaitForAll();
+		std::vector<FRHIGPUSyncPointRef> Observers;
+		std::weak_ptr<FRHIGPUReservationState> FirstStorage;
+		size_t WarmFenceCount = 0;
+		bool bPassed = true;
+		for (int Index = 0; Index != 128; ++Index)
+		{
+			auto Payload = std::make_unique<FVulkanPayload>(Queue, Tracker.ReserveSyncPoint());
+			const auto First = FRHIGPUSyncPoint::Create(), Second = FRHIGPUSyncPoint::Create();
+			require(Payload->AttachSignal(First) && Payload->AttachSignal(Second));
+			Observers.push_back(First);
+			Observers.push_back(Second);
+			if (Index == 0) FirstStorage = FRHIGPUSyncPointBackend::GetReservation(First);
+			if (Index % 2)
+			{
+				Payload.reset();
+				bPassed &= First.GetState() == ERHIGPUSubmissionState::Canceled && !Second->IsComplete();
+			}
+			else
+			{
+				Coordinator.Submit(std::move(Payload));
+				bPassed &= Tracker.WaitForSyncPoint(First, 1'000'000'000) == ERHIGPUWaitResult::Complete;
+				bPassed &= First->IsComplete() && Second->IsComplete();
+			}
+			const auto FenceCount = Device.GetFenceManager().GetAllocatedFenceCountForTesting();
+			if (Index == 0) WarmFenceCount = FenceCount;
+			bPassed &= FenceCount == WarmFenceCount && Tracker.GetPendingSubmissionCount() == 0;
+		}
+		bPassed &= !FirstStorage.expired();
+		Observers.clear();
+		return bPassed && FirstStorage.expired();
 	}
 
 	auto GetVulkanCompletionTestStats() -> FVulkanCompletionTestStats
@@ -820,7 +938,7 @@ namespace Durin::VulkanRHI
 		CheckVulkanRHIThread();
 		FVulkanDevice* Device = FVulkanDynamicRHI::Get().GetDeviceForTesting();
 		const FVulkanCompletionToken Token =
-			Device->GetSubmissionCoordinator().SubmitContext(*Device->GetImmediateContext()).GetPoint().Value;
+			FRHIGPUSyncPointBackend::GetPoint(Device->GetSubmissionCoordinator().SubmitContext(*Device->GetImmediateContext())).Value;
 		Device->GetGlobalDescriptorPool().RetireUsedPools();
 		return Token;
 	}
@@ -1209,5 +1327,4 @@ namespace Durin::VulkanRHI
 	std::atomic<uint64> GVulkanBufferViewHandleIdCounter = 0;
 	std::atomic<uint64> GVulkanImageViewHandleIdCounter = 0;
 	std::atomic<uint64> GVulkanSamplerHandleIdCounter = 0;
-	std::atomic<uint64> GVulkanDSetLayoutHandleIdCounter = 0;
 } // namespace Durin::VulkanRHI

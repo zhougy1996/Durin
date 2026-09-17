@@ -2,6 +2,7 @@
 
 #include "PixelFormat.h"
 #include "RHICompletion.h"
+#include "Backend/RHICompletionBackend.h"
 #include "RHIDefinitions.h"
 #include "Threading/RunnableThread.h"
 #include "VulkanRHIAPI.h"
@@ -153,14 +154,25 @@ namespace Durin::VulkanRHI
 		uint64 PendingSubmissionCount = 0;
 	};
 
-	VULKANRHI_API auto GetLastVulkanSubmissionTicketForTesting() -> FRHIGPUSubmissionTicket;
+	VULKANRHI_API auto GetLastVulkanSyncPointForTesting() -> FRHIGPUSyncPointRef;
+	auto ConsumeVulkanSubmitFailureForTesting() -> std::optional<vk::Result>;
+	struct FVulkanSyncPointFailureTestResult
+	{
+		std::array<FRHIGPUSyncPointRef, 3> Signals;
+		std::array<std::weak_ptr<void>, 3> Owners;
+		bool bRejectedCanceledProducer = false;
+		bool bQuarantinedAcceptedPrefix = false;
+	};
+	VULKANRHI_API auto TestVulkanSyncPointFailure(bool bDeviceLost) -> FVulkanSyncPointFailureTestResult;
+	VULKANRHI_API auto TestVulkanSyncPointStorage() -> bool;
 	struct FVulkanSubmissionBoundaryTestResult
 	{
-		bool bReceiptUsesRecordingTicket = false;
+		bool bPayloadUsesExplicitSyncPoint = false;
+		bool bLogicalSignalUsesRecordingSyncPoint = false;
 		bool bQueuedStorageRetired = false;
 		bool bQueuedStorageDiscarded = false;
 		bool bSealDidNotSubmit = false;
-		bool bEarlierTicketSubmitted = false;
+		bool bEarlierSyncPointSubmitted = false;
 		bool bDiscardCanceled = false;
 		bool bStorageRetained = false;
 		bool bStorageReleased = false;
@@ -281,6 +293,5 @@ namespace Durin::VulkanRHI
 	extern std::atomic<uint64> GVulkanBufferViewHandleIdCounter;
 	extern std::atomic<uint64> GVulkanImageViewHandleIdCounter;
 	extern std::atomic<uint64> GVulkanSamplerHandleIdCounter;
-	extern std::atomic<uint64> GVulkanDSetLayoutHandleIdCounter;
 
 } // namespace Durin::VulkanRHI

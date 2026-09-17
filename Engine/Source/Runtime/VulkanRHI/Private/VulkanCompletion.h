@@ -1,6 +1,7 @@
 #pragma once
 
 #include "VulkanRHIAPI.h"
+#include "Backend/RHICompletionBackend.h"
 #include "RHICompletion.h"
 
 namespace Durin::VulkanRHI
@@ -17,21 +18,22 @@ namespace Durin::VulkanRHI
 	public:
 		FVulkanCompletionTracker(FVulkanDevice& InDevice, uint64 InDeviceGeneration, FRHIQueueId InQueue);
 
-		auto ReserveToken() -> FVulkanCompletionToken;
-		auto CancelUnsubmitted(const FRHIGPUSubmissionTicket& Ticket) -> void;
+		auto ReserveSyncPoint() -> FRHIGPUSyncPointRef;
+		auto CancelUnsubmitted(const FRHIGPUSyncPointRef& SyncPoint) -> void;
 		// Allocate ownership storage before vkQueueSubmit; commit never allocates.
-		auto PrepareSubmission(FVulkanCompletionToken Token, FVulkanFence* Fence,
+		auto PrepareSubmission(FVulkanFence* Fence,
 			std::span<FVulkanPayload* const> Payloads) -> void;
 		auto CommitSubmission() -> FVulkanCompletionToken;
 		// Quarantine ambiguous native failure until device teardown, without recycling.
 		auto FailSubmission(bool bDeviceLost = false) -> void;
 		auto ReleaseAfterDeviceStopped() -> void;
-		auto GetLastReservedTicket() const -> FRHIGPUSubmissionTicket;
-		auto WaitForTicket(const FRHIGPUSubmissionTicket& Ticket, uint64 TimeoutNanoseconds)
+		auto GetLastReservedSyncPoint() const -> FRHIGPUSyncPointRef;
+		auto WaitForSyncPoint(const FRHIGPUSyncPointRef& SyncPoint, uint64 TimeoutNanoseconds)
 			-> ERHIGPUWaitResult;
 		auto GetDeviceGeneration() const -> uint64 { return DeviceGeneration; }
-		auto Owns(const FRHIGPUSubmissionTicket& Ticket) const -> bool { return Timeline.Owns(Ticket); }
-		auto CanSubmitBatch(std::span<const FRHIGPUSubmissionTicket> Tickets) const -> bool { return Timeline.CanSubmitBatch(Tickets); }
+		auto HasFailed() const -> bool { return bFailed; }
+		auto Owns(const FRHIGPUSyncPointRef& SyncPoint) const -> bool { return Timeline.Owns(SyncPoint); }
+		auto CanSubmitBatch(std::span<const FRHIGPUSyncPointRef> SyncPoints) const -> bool { return Timeline.CanSubmitBatch(SyncPoints); }
 		auto Poll() -> void;
 		auto WaitForToken(FVulkanCompletionToken Token) -> void;
 		auto WaitForAll() -> void;
@@ -48,11 +50,12 @@ namespace Durin::VulkanRHI
 			FVulkanCompletionToken Token = 0;
 			FVulkanFence* Fence = nullptr;
 			std::vector<FVulkanPayload*> Payloads;
-			FRHIGPUSubmissionTicket Ticket;
+			FRHIGPUSyncPointRef SyncPoint;
 			bool bSubmitted = false;
 		};
 
 		auto ObserveThrough(FVulkanCompletionToken Token) -> void;
+		auto ResolveResults(FSubmission& Submission) -> bool;
 		auto ReleaseCompleted() -> void;
 
 		FVulkanDevice& Device;
@@ -60,8 +63,8 @@ namespace Durin::VulkanRHI
 		std::atomic<FVulkanCompletionToken> CompletedToken = 0;
 		const uint64 DeviceGeneration;
 		FRHIGPUQueueTimeline Timeline;
-		mutable std::mutex TicketMutex;
-		FRHIGPUSubmissionTicket LastReservedTicket;
+		mutable std::mutex SyncPointMutex;
+		FRHIGPUSyncPointRef LastReservedSyncPoint;
 		bool bFailed = false;
 		std::deque<FSubmission> Submissions;
 		std::atomic<FVulkanCompletionToken> LastSubmittedToken = 0;

@@ -33,7 +33,7 @@ namespace Durin::VulkanRHI
 		auto RHIGetQueueContext(FRHIQueueId Id) -> IRHICommandContext* override;
 		auto RHISetReplayStorageOwner(std::shared_ptr<void> Owner) -> void override;
 		auto RHIBeginGPUSubmission(const FRHIGPUSubmissionDesc& Desc) -> void override;
-		auto RHIEndGPUSubmission(const FRHIGPUSubmissionReceipt& Signal) -> void override;
+		auto RHIEndGPUSubmission(const FRHIGPUSyncPointRef& Signal) -> void override;
 		auto RHIReleaseQueueOwnership(const std::shared_ptr<FRHIQueueTransfer>& Transfer) -> void override;
 		auto RHIAcquireQueueOwnership(const std::shared_ptr<FRHIQueueTransfer>& Transfer) -> void override;
 		auto ReleaseQueueOwnership(const std::shared_ptr<FVulkanQueueTransfer>& Transfer) -> void;

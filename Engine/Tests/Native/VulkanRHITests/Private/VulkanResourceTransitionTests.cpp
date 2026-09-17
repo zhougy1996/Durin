@@ -1,4 +1,5 @@
 #include "../../RDGTestAccess.h"
+#include "Backend/RHICompletionBackend.h"
 #include "PCH.VulkanRHI.h"
 #include "VulkanResourceState.h"
 
@@ -422,7 +423,7 @@ namespace Durin::VulkanRHI
 			EBufferUsageFlags::Static | EBufferUsageFlags::DestinationCopy));
 		ASSERT_TRUE(Buffer);
 		FBufferRHIRef Extracted;
-		FRHIGPUSubmissionTicket Prefix;
+		FRHIGPUSyncPointRef Prefix;
 		{
 			FRDGBuilder Graph;
 			const auto Resource = Graph.RegisterExternalBuffer(Buffer, "PartialGraph",
@@ -430,7 +431,7 @@ namespace Durin::VulkanRHI
 			const auto Pass = FRDGBuilderTestAccessor::AddPass(Graph, "SubmitThenFail", ERDGPassType::Copy,
 				[&](FRHICommandListImmediate& List, const FRDGPassResources&) {
 					List.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
-					Prefix = GetLastVulkanSubmissionTicketForTesting();
+					Prefix = GetLastVulkanSyncPointForTesting();
 					throw std::runtime_error("injected graph callback failure");
 				});
 			FRDGBuilderTestAccessor::UseBuffer(Graph, Pass, Resource, 0, 64,
@@ -485,7 +486,7 @@ namespace Durin::VulkanRHI
 				AllocationError = Rejected.Result.Message;
 			}
 			EXPECT_FALSE(bExecuted);
-			EXPECT_TRUE(RejectedBuilder.GetSubmissionReceipts().empty());
+			EXPECT_TRUE(RejectedBuilder.GetSubmissionSyncPoints().empty());
 			EXPECT_EQ(AllocationError, "injected allocation failure");
 
 			FRDGBuilder Builder;
@@ -519,11 +520,11 @@ namespace Durin::VulkanRHI
 				ERHISubmitFlags::SubmitToGPU);
 
 			auto* VulkanBuffer = static_cast<FVulkanBuffer*>(Buffer.GetReference());
-			ASSERT_EQ(Builder.GetSubmissionReceipts().size(), Builder.GetExecutionPlan().Batches.size());
-			for (const auto& Receipt : Builder.GetSubmissionReceipts())
+			ASSERT_EQ(Builder.GetSubmissionSyncPoints().size(), Builder.GetExecutionPlan().Batches.size());
+			for (const auto& LogicalSignal : Builder.GetSubmissionSyncPoints())
 			{
-				EXPECT_EQ(Receipt.GetState(), ERHIGPUSubmissionState::Submitted);
-				EXPECT_EQ(Receipt.GetTicket().GetPoint(), Builder.GetSubmissionReceipts().back().GetTicket().GetPoint());
+				EXPECT_EQ(LogicalSignal.GetState(), ERHIGPUSubmissionState::Submitted);
+				EXPECT_EQ(FRHIGPUSyncPointBackend::GetPoint(LogicalSignal), FRHIGPUSyncPointBackend::GetPoint(Builder.GetSubmissionSyncPoints().back()));
 			}
 			auto* VulkanTexture = static_cast<FVulkanTexture*>(Texture.GetReference());
 			EXPECT_EQ(VulkanBuffer->GetStateTracker().GetIntervals(),

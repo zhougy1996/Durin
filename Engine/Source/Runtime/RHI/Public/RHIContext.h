@@ -30,7 +30,7 @@ namespace Durin
 		// GPU ordering requirements, never CPU waits inserted between callbacks.
 		virtual auto RHIBeginGPUSubmission(const FRHIGPUSubmissionDesc& Desc) -> void
 		{ requiref(false, "This RHI context does not support explicit GPU submissions."); }
-		virtual auto RHIEndGPUSubmission(const FRHIGPUSubmissionReceipt& Signal) -> void
+		virtual auto RHIEndGPUSubmission(const FRHIGPUSyncPointRef& Signal) -> void
 		{ requiref(false, "This RHI context does not support explicit GPU submissions."); }
 		virtual auto RHIReleaseQueueOwnership(const std::shared_ptr<FRHIQueueTransfer>& Transfer) -> void
 		{ requiref(false, "This RHI context does not support queue ownership transfers."); }

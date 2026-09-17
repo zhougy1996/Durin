@@ -1,4 +1,5 @@
 #include "VulkanContext.h"
+#include "Backend/RHICompletionBackend.h"
 
 #include "RHIResources.h"
 
@@ -110,7 +111,9 @@ namespace Durin::VulkanRHI
 	{
 		CheckVulkanRHIThread();
 		ReplayStorageOwner = std::move(Owner);
-		if (ReplayStorageOwner) GetPayload();
+		// Teardown replays CPU-only detach commands after admission has closed.
+		// They must not reserve fresh native work on a failed timeline.
+		if (ReplayStorageOwner && !Queue->GetCompletionTracker().HasFailed()) GetPayload();
 	}
 
 	auto FVulkanCommandListContext::RHIGetQueueContext(FRHIQueueId Id) -> IRHICommandContext*
@@ -136,16 +139,16 @@ namespace Durin::VulkanRHI
 		auto& Payload = GetPayload();
 		for (const auto& Wait : Desc.Waits)
 		{
-			const auto Ticket = Wait.GetTicket();
-			const auto State = Ticket.GetState();
-			auto* Producer = Device.FindQueue(Ticket.GetPoint().Queue);
-			requiref(Producer && Producer->GetCompletionTracker().Owns(Ticket)
+			const auto SyncPoint = Wait;
+			const auto State = SyncPoint.GetState();
+			auto* Producer = Device.FindQueue(FRHIGPUSyncPointBackend::GetPoint(SyncPoint).Queue);
+			requiref(Producer && Producer->GetCompletionTracker().Owns(SyncPoint)
 				&& (State == ERHIGPUSubmissionState::Pending
 					|| State == ERHIGPUSubmissionState::Submitted
 					|| State == ERHIGPUSubmissionState::Complete),
 				"GPU dependency must resolve to live work owned by this device.");
-			if (Producer != Queue) Payload.AddCompletionWait(Ticket);
-			else requiref(Ticket.GetPoint().Value <= Payload.GetTicket().GetPoint().Value,
+			if (Producer != Queue) Payload.AddCompletionWait(SyncPoint);
+			else requiref(FRHIGPUSyncPointBackend::GetPoint(SyncPoint).Value <= FRHIGPUSyncPointBackend::GetPoint(Payload.GetSyncPoint()).Value,
 				"Same-queue dependencies must precede their consumer recording.");
 		}
 		// Same-queue dependencies use FIFO execution and the recorded resource barriers.
@@ -154,15 +157,15 @@ namespace Durin::VulkanRHI
 		bInsideGPUSubmission = true;
 	}
 
-	auto FVulkanCommandListContext::RHIEndGPUSubmission(const FRHIGPUSubmissionReceipt& Signal) -> void
+	auto FVulkanCommandListContext::RHIEndGPUSubmission(const FRHIGPUSyncPointRef& Signal) -> void
 	{
 		CheckVulkanRHIThread();
 		requiref(bInsideGPUSubmission, "GPU submission end requires a matching begin.");
 		if (Queue != Device.GetGraphicsQueue())
 			requiref(DiagnosticRegions.empty() && ActiveTimingQueries.empty(),
 				"Diagnostic and timing intervals must close before returning to graphics.");
-		requiref(Signal.Resolve(GetPayload().GetTicket()),
-			"GPU submission signal must be unresolved and live.");
+		requiref(GetPayload().AttachSignal(Signal),
+			"GPU submission signal must be unassociated and live.");
 		bInsideGPUSubmission = false;
 		if (Device.GetQueueCapabilities().Queues.size() > 1)
 			Device.GetSubmissionCoordinator().EnqueueContext(*this);
@@ -192,7 +195,7 @@ namespace Durin::VulkanRHI
 		require(Transfer && PendingAttachmentStates.empty());
 		auto& Payload = GetPayload();
 		Payload.RetainedTransitions.push_back(Transfer);
-		Transfer->RecordRelease(*Queue, GetCommandBuffer()->GetHandle(), Payload.GetTicket());
+		Transfer->RecordRelease(*Queue, GetCommandBuffer()->GetHandle(), Payload.GetSyncPoint());
 	}
 
 	auto FVulkanCommandListContext::AcquireQueueOwnership(const std::shared_ptr<FVulkanQueueTransfer>& Transfer) -> void
@@ -201,7 +204,7 @@ namespace Durin::VulkanRHI
 		require(Transfer && PendingAttachmentStates.empty());
 		auto& Payload = GetPayload();
 		Payload.RetainedTransitions.push_back(Transfer);
-		Payload.AddCompletionWait(Transfer->GetReleaseTicket());
+		Payload.AddCompletionWait(Transfer->GetReleaseSyncPoint());
 		Transfer->RecordAcquire(*Queue, GetCommandBuffer()->GetHandle());
 	}
 
@@ -854,7 +857,7 @@ namespace Durin::VulkanRHI
 		for (const auto& Readback : PendingReadbacks) LiveBytes += Readback.Range.GetSize();
 		if (Size > MaximumReadbackBytes - LiveBytes) return {};
 		auto& Payload = GetPayload();
-		auto Result = Device.GetReadbackArena().Acquire(Size, Alignment, Payload.GetTicket());
+		auto Result = Device.GetReadbackArena().Acquire(Size, Alignment, Payload.GetSyncPoint());
 		if (Result.Range) Payload.RetainAllocation(Result.Range.GetAllocationOwner());
 		return std::move(Result.Range);
 	}
@@ -871,12 +874,12 @@ namespace Durin::VulkanRHI
 		if (PendingReadbacks.empty()) return;
 		Device.PollQueues();
 		std::erase_if(PendingReadbacks, [](FPendingReadback& Readback) {
-			const auto State = Readback.Range.GetTicket().GetState();
+			const auto State = Readback.Range.GetSyncPoint().GetState();
 			// Canceled in-flight copies still count against admission and byte limits.
 			if (State == ERHIGPUSubmissionState::Pending || State == ERHIGPUSubmissionState::Submitted) return false;
 			if (Readback.Request->GetState() == ERHITextureReadbackState::Canceled)
 			{
-				// Retirement preserves the GPU ticket even when publication is canceled.
+				// Retirement preserves the GPU sync point even when publication is canceled.
 				Readback.Range.Retire();
 				return true;
 			}
@@ -1186,7 +1189,7 @@ namespace Durin::VulkanRHI
 		{
 			auto& Payload = GetPayload();
 			FVulkanTransferAcquireResult Result =
-				Arena.Acquire(Size, Alignment, Payload.GetTicket());
+				Arena.Acquire(Size, Alignment, Payload.GetSyncPoint());
 			if (Result.Range)
 			{
 				Payload.RetainAllocation(Result.Range.GetAllocationOwner());
@@ -1198,12 +1201,12 @@ namespace Durin::VulkanRHI
 					"Vulkan transfer arena allocation failed: class={}, bytes={}.",
 					static_cast<uint32>(AllocationClass), Size));
 			}
-			requiref(Result.WaitTicket.GetState() != ERHIGPUSubmissionState::Invalid,
+			requiref(Result.WaitSyncPoint.GetState() != ERHIGPUSubmissionState::Invalid,
 				"Vulkan transfer arena exhausted without a retireable range: class={}, bytes={}.",
 				static_cast<uint32>(AllocationClass), Size);
-			if (Result.WaitTicket.GetState() == ERHIGPUSubmissionState::Pending)
+			if (Result.WaitSyncPoint.GetState() == ERHIGPUSubmissionState::Pending)
 			{
-				auto* Producer = Device.GetQueueContext(Result.WaitTicket.GetPoint().Queue);
+				auto* Producer = Device.GetQueueContext(FRHIGPUSyncPointBackend::GetPoint(Result.WaitSyncPoint).Queue);
 				require(Producer);
 				Device.GetSubmissionCoordinator().SubmitContext(*Producer);
 			}
@@ -1245,7 +1248,7 @@ namespace Durin::VulkanRHI
 		{
 			Payloads.reserve(1);
 			auto Payload = std::make_unique<FVulkanPayload>(
-				*Queue, Queue->GetCompletionTracker().ReserveToken());
+				*Queue, Queue->GetCompletionTracker().ReserveSyncPoint());
 			Payloads.push_back(Payload.release());
 		}
 		auto& Payload = *Payloads.back();

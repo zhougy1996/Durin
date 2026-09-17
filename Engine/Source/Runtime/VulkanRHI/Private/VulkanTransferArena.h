@@ -39,7 +39,7 @@ namespace Durin::VulkanRHI
 		auto GetBuffer() const -> FVulkanBuffer* { return Buffer; }
 		auto GetOffset() const -> uint64 { return Offset; }
 		auto GetSize() const -> uint64 { return Size; }
-		auto GetTicket() const -> const FRHIGPUSubmissionTicket& { return Ticket; }
+		auto GetSyncPoint() const -> const FRHIGPUSyncPointRef& { return SyncPoint; }
 		auto GetAllocationOwner() const -> const std::shared_ptr<void>& { return AllocationOwner; }
 		auto GetMappedPointer() const -> std::byte*;
 		auto Flush() const -> void;
@@ -54,7 +54,7 @@ namespace Durin::VulkanRHI
 		FVulkanBuffer* Buffer = nullptr;
 		uint64 Offset = 0;
 		uint64 Size = 0;
-		FRHIGPUSubmissionTicket Ticket;
+		FRHIGPUSyncPointRef SyncPoint;
 		std::shared_ptr<void> AllocationOwner;
 		bool bOversize = false;
 	};
@@ -62,7 +62,7 @@ namespace Durin::VulkanRHI
 	struct FVulkanTransferAcquireResult
 	{
 		FVulkanTransferRange Range;
-		FRHIGPUSubmissionTicket WaitTicket;
+		FRHIGPUSyncPointRef WaitSyncPoint;
 		std::weak_ptr<void> WaitOwner;
 		bool bAllocationFailed = false;
 	};
@@ -79,7 +79,7 @@ namespace Durin::VulkanRHI
 			-> FVulkanTransferArena& = delete;
 
 		auto Acquire(uint64 Size, uint64 Alignment,
-			const FRHIGPUSubmissionTicket& Ticket) -> FVulkanTransferAcquireResult;
+			const FRHIGPUSyncPointRef& SyncPoint) -> FVulkanTransferAcquireResult;
 		auto ReclaimCompleted() -> void;
 		auto GetConfig() const -> const FVulkanTransferArenaConfig&
 		{
@@ -98,7 +98,7 @@ namespace Durin::VulkanRHI
 		{
 			uint64 Offset = 0;
 			uint64 Size = 0;
-			FRHIGPUSubmissionTicket Ticket;
+			FRHIGPUSyncPointRef SyncPoint;
 			std::weak_ptr<void> AllocationOwner;
 			uint64 RetirementOrder = 0;
 		};
@@ -114,7 +114,7 @@ namespace Durin::VulkanRHI
 		};
 		auto CreatePage(uint64 Size, bool bOversize, FRHIQueueId Queue) -> FPage*;
 		auto TryAllocateFromPage(FPage& Page, uint64 Size, uint64 Alignment,
-			const FRHIGPUSubmissionTicket& Ticket) -> FVulkanTransferRange;
+			const FRHIGPUSyncPointRef& SyncPoint) -> FVulkanTransferRange;
 		auto GetOldestRetiredRange() const -> const FRetiredRange*;
 		auto Cancel(FVulkanTransferRange& Range) -> void;
 		auto Retire(FVulkanTransferRange& Range) -> void;

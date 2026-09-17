@@ -1,4 +1,5 @@
 #include "VulkanCreationTiming.h"
+#include "Backend/RHICompletionBackend.h"
 #include "VulkanBuffer.h"
 
 #include "RHICommandList.h"
@@ -354,9 +355,9 @@ namespace Durin::VulkanRHI
 		for (uint32 Index = 0; Index < ProducerStates.size(); ++Index)
 		{
 			// Graphics projection for legacy diagnostics, never a reuse authority.
-			for (const auto& Ticket : ProducerStates[Index].Uses.GetTickets())
-				if (Ticket.GetPoint().Queue == Device.GetGraphicsQueue()->GetId())
-					Result[Index] = Ticket.GetPoint().Value;
+			for (const auto& SyncPoint : ProducerStates[Index].Uses.GetSyncPoints())
+				if (FRHIGPUSyncPointBackend::GetPoint(SyncPoint).Queue == Device.GetGraphicsQueue()->GetId())
+					Result[Index] = FRHIGPUSyncPointBackend::GetPoint(SyncPoint).Value;
 		}
 		return Result;
 	}

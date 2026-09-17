@@ -110,7 +110,7 @@ single-use native release/acquire pair. Source recording captures actual
 access scopes and layouts; both sides retain identical ranges, and distinct
 families retain identical source/destination family indices and old/new
 layouts. Shared-family handoffs omit ownership indices and perform the image
-layout change once, on release. Acquire waits for the accepted release ticket
+layout change once, on release. Acquire waits for the accepted release sync point
 through the native queue's timeline dependencies. Synchronization2 and legacy
 lowering use the same saved access mapping. Context payloads retain the pair
 and its resource references until their respective queue completions. State

@@ -1,4 +1,5 @@
 #include "VulkanDevice.h"
+#include "Backend/RHICompletionBackend.h"
 #include "VulkanCompletion.h"
 #include "VulkanDiagnostics.h"
 
@@ -239,8 +240,8 @@ namespace Durin::VulkanRHI
 
 	auto FDeferredDeletionQueue::EnqueueGenericResource(EType Type, uint64 Handle) -> void
 	{
-		const auto Ticket = Device->GetCompletionTracker().GetLastReservedTicket();
-		FEntry Entry{.Type = Type, .CompletionToken = Ticket.GetPoint().Value, .Handle = Handle};
+		const auto SyncPoint = Device->GetCompletionTracker().GetLastReservedSyncPoint();
+		FEntry Entry{.Type = Type, .CompletionToken = FRHIGPUSyncPointBackend::GetPoint(SyncPoint).Value, .Handle = Handle};
 		Entry.Prerequisites = Device->GetLastReservedUses();
 		std::lock_guard<std::mutex> Lock(Mutex);
 		Entries.push_back(std::move(Entry));
@@ -249,8 +250,8 @@ namespace Durin::VulkanRHI
 
 	auto FDeferredDeletionQueue::EnqueueAllocatedResource(EType Type, uint64 Handle, const FVulkanAllocation& Allocation) -> void
 	{
-		const auto Ticket = Device->GetCompletionTracker().GetLastReservedTicket();
-		FEntry Entry{.Type = Type, .CompletionToken = Ticket.GetPoint().Value,
+		const auto SyncPoint = Device->GetCompletionTracker().GetLastReservedSyncPoint();
+		FEntry Entry{.Type = Type, .CompletionToken = FRHIGPUSyncPointBackend::GetPoint(SyncPoint).Value,
 			.Handle = Handle, .Allocation = Allocation};
 		Entry.Prerequisites = Device->GetLastReservedUses();
 		std::lock_guard<std::mutex> Lock(Mutex);
@@ -642,9 +643,9 @@ namespace Durin::VulkanRHI
 		FRHIRetirementPrerequisites Result;
 		for (auto* Queue : PhysicalQueues)
 		{
-			const auto Ticket = Queue->GetCompletionTracker().GetLastReservedTicket();
-			if (Ticket.GetState() != ERHIGPUSubmissionState::Invalid)
-				require(Result.Add(Ticket));
+			const auto SyncPoint = Queue->GetCompletionTracker().GetLastReservedSyncPoint();
+			if (SyncPoint.GetState() != ERHIGPUSubmissionState::Invalid)
+				require(Result.Add(SyncPoint));
 		}
 		return Result;
 	}
@@ -652,11 +653,11 @@ namespace Durin::VulkanRHI
 	auto FVulkanDevice::WaitForUses(const FRHIRetirementPrerequisites& Uses) const -> void
 	{
 		CheckVulkanRHIThread();
-		for (const auto& Ticket : Uses.GetTickets())
+		for (const auto& SyncPoint : Uses.GetSyncPoints())
 		{
-			if (Ticket.IsRetirementEligible()) continue;
-			auto* Queue = FindQueue(Ticket.GetPoint().Queue);
-			require(Queue && Queue->GetCompletionTracker().WaitForTicket(Ticket, UINT64_MAX)
+			if (SyncPoint.IsRetirementEligible()) continue;
+			auto* Queue = FindQueue(FRHIGPUSyncPointBackend::GetPoint(SyncPoint).Queue);
+			require(Queue && Queue->GetCompletionTracker().WaitForSyncPoint(SyncPoint, UINT64_MAX)
 				== ERHIGPUWaitResult::Complete);
 		}
 		require(Uses.IsRetirementEligible());

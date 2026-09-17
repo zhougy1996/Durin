@@ -1,4 +1,5 @@
 #include "VulkanTransferArena.h"
+#include "Backend/RHICompletionBackend.h"
 
 #include "VulkanBuffer.h"
 #include "VulkanDevice.h"
@@ -45,7 +46,7 @@ namespace Durin::VulkanRHI
 		Buffer = std::exchange(Other.Buffer, nullptr);
 		Offset = std::exchange(Other.Offset, 0);
 		Size = std::exchange(Other.Size, 0);
-		Ticket = std::exchange(Other.Ticket, {});
+		SyncPoint = std::exchange(Other.SyncPoint, {});
 		AllocationOwner = std::move(Other.AllocationOwner);
 		bOversize = std::exchange(Other.bOversize, false);
 		return *this;
@@ -119,23 +120,23 @@ namespace Durin::VulkanRHI
 	}
 
 	auto FVulkanTransferArena::Acquire(uint64 Size, uint64 Alignment,
-		const FRHIGPUSubmissionTicket& Ticket) -> FVulkanTransferAcquireResult
+		const FRHIGPUSyncPointRef& SyncPoint) -> FVulkanTransferAcquireResult
 	{
 		CheckVulkanRHIThread();
 		check(Size > 0 && Size <= std::numeric_limits<uint32>::max()
 			&& Alignment > 0);
-		auto* Queue = Device.FindQueue(Ticket.GetPoint().Queue);
-		require(Queue && Queue->GetCompletionTracker().Owns(Ticket));
-		require(Ticket.GetState() == ERHIGPUSubmissionState::Pending
-			|| Ticket.GetState() == ERHIGPUSubmissionState::Submitted
-			|| Ticket.GetState() == ERHIGPUSubmissionState::Complete);
+		auto* Queue = Device.FindQueue(FRHIGPUSyncPointBackend::GetPoint(SyncPoint).Queue);
+		require(Queue && Queue->GetCompletionTracker().Owns(SyncPoint));
+		require(SyncPoint.GetState() == ERHIGPUSubmissionState::Pending
+			|| SyncPoint.GetState() == ERHIGPUSubmissionState::Submitted
+			|| SyncPoint.GetState() == ERHIGPUSubmissionState::Complete);
 		ReclaimCompleted();
 		if (Size > Config.PageSize)
 		{
 			try
 			{
-				FPage* Page = CreatePage(Size, true, Ticket.GetPoint().Queue);
-				auto Range = TryAllocateFromPage(*Page, Size, Alignment, Ticket);
+				FPage* Page = CreatePage(Size, true, FRHIGPUSyncPointBackend::GetPoint(SyncPoint).Queue);
+				auto Range = TryAllocateFromPage(*Page, Size, Alignment, SyncPoint);
 				check(Range);
 				return {.Range = std::move(Range)};
 			}
@@ -149,14 +150,14 @@ namespace Durin::VulkanRHI
 
 		for (const auto& Page : Pages)
 		{
-			if (auto Range = TryAllocateFromPage(*Page, Size, Alignment, Ticket))
+			if (auto Range = TryAllocateFromPage(*Page, Size, Alignment, SyncPoint))
 			{
 				return {.Range = std::move(Range)};
 			}
 		}
 		if (Pages.size() >= Config.MaxPageCount)
 			std::erase_if(Pages, [&](const auto& Page) {
-				if (Page->Queue == Ticket.GetPoint().Queue || !Page->RetiredRanges.empty()
+				if (Page->Queue == FRHIGPUSyncPointBackend::GetPoint(SyncPoint).Queue || !Page->RetiredRanges.empty()
 					|| Page->FreeRanges.size() != 1 || Page->FreeRanges[0].Size != Page->Size) return false;
 				DestroyPage(*Page);
 				return true;
@@ -165,8 +166,8 @@ namespace Durin::VulkanRHI
 		{
 			try
 			{
-				FPage* Page = CreatePage(Config.PageSize, false, Ticket.GetPoint().Queue);
-				auto Range = TryAllocateFromPage(*Page, Size, Alignment, Ticket);
+				FPage* Page = CreatePage(Config.PageSize, false, FRHIGPUSyncPointBackend::GetPoint(SyncPoint).Queue);
+				auto Range = TryAllocateFromPage(*Page, Size, Alignment, SyncPoint);
 				check(Range);
 				return {.Range = std::move(Range)};
 			}
@@ -182,7 +183,7 @@ namespace Durin::VulkanRHI
 		GVulkanMemoryBaselineTracker.RecordArenaOverflow(Config.AllocationClass);
 		const auto* Oldest = GetOldestRetiredRange();
 		if (!Oldest) return {};
-		return {.WaitTicket = Oldest->Ticket, .WaitOwner = Oldest->AllocationOwner};
+		return {.WaitSyncPoint = Oldest->SyncPoint, .WaitOwner = Oldest->AllocationOwner};
 	}
 
 	auto FVulkanTransferArena::ReclaimCompleted() -> void
@@ -258,9 +259,9 @@ namespace Durin::VulkanRHI
 	}
 
 	auto FVulkanTransferArena::TryAllocateFromPage(FPage& Page, uint64 Size,
-		uint64 Alignment, const FRHIGPUSubmissionTicket& Ticket) -> FVulkanTransferRange
+		uint64 Alignment, const FRHIGPUSyncPointRef& SyncPoint) -> FVulkanTransferRange
 	{
-		if (Page.Queue != Ticket.GetPoint().Queue) return {};
+		if (Page.Queue != FRHIGPUSyncPointBackend::GetPoint(SyncPoint).Queue) return {};
 		for (auto It = Page.FreeRanges.begin(); It != Page.FreeRanges.end(); ++It)
 		{
 			const uint64 AlignedOffset = AlignUp(It->Offset, Alignment);
@@ -296,7 +297,7 @@ namespace Durin::VulkanRHI
 			Result.Buffer = Page.Buffer.GetReference();
 			Result.Offset = AlignedOffset;
 			Result.Size = Size;
-			Result.Ticket = Ticket;
+			Result.SyncPoint = SyncPoint;
 			Result.AllocationOwner = std::move(AllocationOwner);
 			Result.bOversize = Page.bOversize;
 			return Result;
@@ -358,7 +359,7 @@ namespace Durin::VulkanRHI
 	{
 		check(Range.Owner == this && Range.Page);
 		auto& Page = *static_cast<FPage*>(Range.Page);
-		Page.RetiredRanges.push_back({Range.Offset, Range.Size, Range.Ticket,
+		Page.RetiredRanges.push_back({Range.Offset, Range.Size, Range.SyncPoint,
 			Range.AllocationOwner, NextRetirementOrder++});
 		Range.Owner = nullptr;
 		Range.Page = nullptr;

@@ -1,4 +1,5 @@
 #include "VulkanQueue.h"
+#include "Backend/RHICompletionBackend.h"
 
 #include "VulkanDevice.h"
 #include "VulkanCommandBuffer.h"
@@ -68,11 +69,11 @@ namespace Durin::VulkanRHI
 			std::ranges::transform(Payload->WaitSemaphores, std::back_inserter(WaitSemaphores), &FVulkanSemaphore::GetHandle);
 			Storage.WaitStages = Payload->WaitFlags;
 			Storage.WaitValues.resize(WaitSemaphores.size(), 0);
-			for (const auto& Ticket : Payload->CompletionWaits)
+			for (const auto& SyncPoint : Payload->CompletionWaits)
 			{
-				auto* Producer = Device->FindQueue(Ticket.GetPoint().Queue);
-				const auto Status = Ticket.GetState();
-				requiref(Producer && Producer->GetCompletionTracker().Owns(Ticket)
+				auto* Producer = Device->FindQueue(FRHIGPUSyncPointBackend::GetPoint(SyncPoint).Queue);
+				const auto Status = SyncPoint.GetState();
+				requiref(Producer && Producer->GetCompletionTracker().Owns(SyncPoint)
 					&& (Status == ERHIGPUSubmissionState::Submitted || Status == ERHIGPUSubmissionState::Complete),
 					"Cross-queue waits require an accepted producer on this device.");
 				if (Producer == this) continue;
@@ -81,11 +82,11 @@ namespace Durin::VulkanRHI
 				if (Existing != WaitSemaphores.end())
 				{
 					auto& Value = Storage.WaitValues[static_cast<size_t>(Existing - WaitSemaphores.begin())];
-					Value = std::max(Value, Ticket.GetPoint().Value);
+					Value = std::max(Value, FRHIGPUSyncPointBackend::GetPoint(SyncPoint).Value);
 					continue;
 				}
 				WaitSemaphores.push_back(Producer->GetTimelineSemaphore());
-				Storage.WaitValues.push_back(Ticket.GetPoint().Value);
+				Storage.WaitValues.push_back(FRHIGPUSyncPointBackend::GetPoint(SyncPoint).Value);
 				Storage.WaitStages.push_back(vk::PipelineStageFlagBits::eAllCommands);
 			}
 			SubmitInfo.setWaitDstStageMask(Storage.WaitStages);
@@ -99,7 +100,7 @@ namespace Durin::VulkanRHI
 			if (TimelineSemaphore)
 			{
 				SignalSemaphores.push_back(TimelineSemaphore);
-				Storage.SignalValues.push_back(Payload->Token);
+				Storage.SignalValues.push_back(FRHIGPUSyncPointBackend::GetPoint(Payload->GetSyncPoint()).Value);
 				Storage.TimelineInfo.setWaitSemaphoreValues(Storage.WaitValues);
 				Storage.TimelineInfo.setSignalSemaphoreValues(Storage.SignalValues);
 				SubmitInfo.setPNext(&Storage.TimelineInfo);
@@ -114,7 +115,7 @@ namespace Durin::VulkanRHI
 		check(Payloads.size() == 1);
 		try
 		{
-			Tracker.PrepareSubmission(Payloads.front()->Token, Fence, Payloads);
+			Tracker.PrepareSubmission(Fence, Payloads);
 		}
 		catch (...)
 		{
@@ -123,6 +124,10 @@ namespace Durin::VulkanRHI
 		}
 		try
 		{
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			if (const auto Failure = ConsumeVulkanSubmitFailureForTesting())
+				throw vk::SystemError(vk::make_error_code(*Failure), "Injected native submit failure");
+#endif
 			Queue.submit(SubmitInfos, Fence->GetHandle());
 		}
 		catch (const vk::SystemError& Error)

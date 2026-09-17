@@ -36,7 +36,7 @@ namespace Durin
 	public:
 		RHI_API virtual ~FRHICommandListBase();
 		// Records a signal and owned waits without dispatching or reserving native work.
-		RHI_API auto BeginGPUSubmission(const FRHIGPUSubmissionDesc& Desc) -> FRHIGPUSubmissionReceipt;
+		RHI_API auto BeginGPUSubmission(const FRHIGPUSubmissionDesc& Desc) -> FRHIGPUSyncPointRef;
 		RHI_API auto EndGPUSubmission() -> void;
 		// Records an ordered copy without waiting for RHI replay or GPU completion.
 		// Record PollTextureReadbacks in later frames until the result is terminal.
@@ -235,9 +235,6 @@ namespace Durin
 
 		RHI_API auto FinishRecording() -> void;
 		RHI_API auto IsFinished() const -> bool;
-
-	protected:
-		explicit FRHICommandList(bool bImmediate);
 	};
 
 	// Selects how far an immediate command-list flush advances queued RHI work.

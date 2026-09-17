@@ -1,5 +1,6 @@
 #pragma once
 #include "RHICompletion.h"
+#include "Backend/RHICompletionBackend.h"
 
 #include "RHIDefinitions.h"
 #include "RHIPipelineCreation.h"

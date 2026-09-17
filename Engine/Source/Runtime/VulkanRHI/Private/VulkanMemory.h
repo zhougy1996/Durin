@@ -156,6 +156,10 @@ namespace Durin::VulkanRHI
 		auto WaitForFence(FVulkanFence* InFence, uint64 InTimeoutInNanoseconds) -> bool;
 
 		auto ResetFence(FVulkanFence* InFence) -> void;
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		auto GetAllocatedFenceCountForTesting() -> size_t
+		{ std::lock_guard Lock(FenceMutex); return FreeFences.size() + UsedFences.size(); }
+#endif
 
 	private:
 		auto CheckFenceSignaled(FVulkanFence* InFence) const -> bool;

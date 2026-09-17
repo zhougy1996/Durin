@@ -892,7 +892,7 @@ namespace Durin
 		auto IsReusable() const -> bool { return Completion.GetState() == ERHIGPUSubmissionState::Complete; }
 	private:
 		friend class FRDGBuilder;
-		FRHIGPUSubmissionReceipt Completion;
+		FRHIGPUSyncPointRef Completion;
 	};
 
 	// Describes one retained graph-created resource for execution allocation.
@@ -1471,8 +1471,8 @@ namespace Durin
 			-> std::span<const FRDGCullingDecision>;
 		RENDERCORE_API auto GetFinalBarriers() const -> const FRDGBarrierBatch&;
 		RENDERCORE_API auto GetExecutionPlan() const -> const FRDGExecutionPlan&;
-		// Runtime receipts follow logical batch order; they are not graph-success proofs.
-		RENDERCORE_API auto GetSubmissionReceipts() const -> std::span<const FRHIGPUSubmissionReceipt>;
+		// Runtime sync points follow logical batch order; they are not graph-success proofs.
+		RENDERCORE_API auto GetSubmissionSyncPoints() const -> std::span<const FRHIGPUSyncPointRef>;
 		RENDERCORE_API auto GetCompileMicroseconds() const -> uint64;
 		RENDERCORE_API auto GetBudget() const -> const FRDGBudget&;
 		RENDERCORE_API auto GetStatistics() const -> FRDGStatistics;

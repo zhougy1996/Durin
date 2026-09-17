@@ -1,53 +1,8 @@
-#include "RHICompletion.h"
+#include "Backend/RHICompletionBackend.h"
+#include "DynamicRHI.h"
 
 namespace Durin
 {
-	struct FRHIGPUReceiptState final
-	{
-		mutable std::mutex Mutex;
-		FRHIGPUSubmissionTicket Ticket;
-		bool bCanceled = false;
-	};
-
-	auto FRHIGPUSubmissionReceipt::CreatePending() -> FRHIGPUSubmissionReceipt
-	{
-		FRHIGPUSubmissionReceipt Result;
-		Result.State = std::make_shared<FRHIGPUReceiptState>();
-		return Result;
-	}
-
-	auto FRHIGPUSubmissionReceipt::GetTicket() const -> FRHIGPUSubmissionTicket
-	{
-		if (!State) return {};
-		std::lock_guard Lock(State->Mutex);
-		return State->Ticket;
-	}
-
-	auto FRHIGPUSubmissionReceipt::GetState() const -> ERHIGPUSubmissionState
-	{
-		if (!State) return ERHIGPUSubmissionState::Invalid;
-		std::lock_guard Lock(State->Mutex);
-		if (State->bCanceled) return ERHIGPUSubmissionState::Canceled;
-		const auto Status = State->Ticket.GetState();
-		return Status == ERHIGPUSubmissionState::Invalid ? ERHIGPUSubmissionState::Pending : Status;
-	}
-
-	auto FRHIGPUSubmissionReceipt::Resolve(const FRHIGPUSubmissionTicket& Ticket) const -> bool
-	{
-		if (!State || Ticket.GetState() == ERHIGPUSubmissionState::Invalid) return false;
-		std::lock_guard Lock(State->Mutex);
-		if (State->bCanceled || State->Ticket.GetState() != ERHIGPUSubmissionState::Invalid) return false;
-		State->Ticket = Ticket;
-		return true;
-	}
-
-	auto FRHIGPUSubmissionReceipt::CancelUnresolved() const -> void
-	{
-		if (!State) return;
-		std::lock_guard Lock(State->Mutex);
-		if (State->Ticket.GetState() == ERHIGPUSubmissionState::Invalid) State->bCanceled = true;
-	}
-
 	// Shared RHI metadata has no backend vtable, native handle or device pointer.
 	struct FRHIGPUTimelineState final
 	{
@@ -56,7 +11,7 @@ namespace Durin
 		std::atomic<uint64> RetiredThrough = 0;
 	};
 
-	struct FRHIGPUTicketState final
+	struct FRHIGPUReservationState final
 	{
 		std::shared_ptr<FRHIGPUTimelineState> Timeline;
 		uint64 Value;
@@ -75,27 +30,6 @@ namespace Durin
 		}
 	}
 
-	auto FRHIGPUSubmissionTicket::GetPoint() const -> FRHIGPUCompletionPoint
-	{
-		return State ? FRHIGPUCompletionPoint{
-			State->Timeline->DeviceGeneration, State->Timeline->Queue, State->Value}
-			: FRHIGPUCompletionPoint{};
-	}
-
-	auto FRHIGPUSubmissionTicket::GetState() const -> ERHIGPUSubmissionState
-	{
-		return State ? State->Status.load(std::memory_order_acquire)
-			: ERHIGPUSubmissionState::Invalid;
-	}
-
-	auto FRHIGPUSubmissionTicket::IsRetirementEligible() const -> bool
-	{
-		const auto Status = GetState();
-		return (Status == ERHIGPUSubmissionState::Complete
-			|| Status == ERHIGPUSubmissionState::Canceled)
-			&& State->Timeline->RetiredThrough.load(std::memory_order_acquire) >= State->Value;
-	}
-
 	FRHIGPUQueueTimeline::FRHIGPUQueueTimeline(uint64 DeviceGeneration, FRHIQueueId Queue)
 		: State(std::make_shared<FRHIGPUTimelineState>())
 	{
@@ -110,64 +44,67 @@ namespace Durin
 		Fail();
 	}
 
-	auto FRHIGPUQueueTimeline::Reserve() -> FRHIGPUSubmissionTicket
+	auto FRHIGPUQueueTimeline::Reserve() -> FRHIGPUSyncPointRef
 	{
 		if (bClosed) return {};
 		require(NextValue != UINT64_MAX);
-		auto Ticket = std::make_shared<FRHIGPUTicketState>();
-		Ticket->Timeline = State;
-		Ticket->Value = NextValue;
-		Pending.push_back(Ticket);
+		auto Signal = FRHIGPUSyncPoint::Create();
+		auto Reservation = std::make_shared<FRHIGPUReservationState>();
+		Reservation->Timeline = State;
+		Reservation->Value = NextValue;
+		Signal->Reservation = Reservation;
+		Pending.push_back(std::move(Reservation));
 		++NextValue;
-		return FRHIGPUSubmissionTicket(std::move(Ticket));
+		return Signal;
 	}
 
-	auto FRHIGPUQueueTimeline::Owns(const FRHIGPUSubmissionTicket& Ticket) const -> bool
+	auto FRHIGPUQueueTimeline::Owns(const FRHIGPUSyncPointRef& SyncPoint) const -> bool
 	{
-		return Ticket.State && Ticket.State->Timeline == State;
+		const auto Reservation = FRHIGPUSyncPointBackend::GetReservation(SyncPoint);
+		return Reservation && Reservation->Timeline == State;
 	}
 
-	auto FRHIGPUQueueTimeline::CanSubmit(const FRHIGPUSubmissionTicket& Ticket) const -> bool
+	auto FRHIGPUQueueTimeline::CanSubmit(const FRHIGPUSyncPointRef& SyncPoint) const -> bool
 	{
-		return CanSubmitBatch(std::span{&Ticket, 1});
+		return CanSubmitBatch(std::span{&SyncPoint, 1});
 	}
 
-	auto FRHIGPUQueueTimeline::CanSubmitBatch(std::span<const FRHIGPUSubmissionTicket> Tickets) const -> bool
+	auto FRHIGPUQueueTimeline::CanSubmitBatch(std::span<const FRHIGPUSyncPointRef> SyncPoints) const -> bool
 	{
 		if (bClosed) return false;
-		if (Tickets.empty()) return true;
+		if (SyncPoints.empty()) return true;
 		size_t Index = 0;
 		for (const auto& Reservation : Pending)
 		{
 			if (Reservation->Status.load() != ERHIGPUSubmissionState::Pending) continue;
-			if (Reservation != Tickets[Index].State) return false;
-			if (++Index == Tickets.size()) return true;
+			if (Reservation != FRHIGPUSyncPointBackend::GetReservation(SyncPoints[Index])) return false;
+			if (++Index == SyncPoints.size()) return true;
 		}
 		return false;
 	}
 
-	auto FRHIGPUQueueTimeline::MarkSubmitted(const FRHIGPUSubmissionTicket& Ticket) -> bool
+	auto FRHIGPUQueueTimeline::MarkSubmitted(const FRHIGPUSyncPointRef& SyncPoint) -> bool
 	{
-		if (!CanSubmit(Ticket)) return false;
-		Ticket.State->Status.store(ERHIGPUSubmissionState::Submitted, std::memory_order_release);
+		if (!CanSubmit(SyncPoint)) return false;
+		FRHIGPUSyncPointBackend::GetReservation(SyncPoint)->Status.store(ERHIGPUSubmissionState::Submitted, std::memory_order_release);
 		return true;
 	}
 
-	auto FRHIGPUQueueTimeline::ObserveCompleted(const FRHIGPUSubmissionTicket& Ticket) -> bool
+	auto FRHIGPUQueueTimeline::ObserveCompleted(const FRHIGPUSyncPointRef& SyncPoint) -> bool
 	{
-		if (!Owns(Ticket)) return false;
-		if (Ticket.GetState() == ERHIGPUSubmissionState::Complete) return true;
-		if (bClosed || Ticket.GetState() != ERHIGPUSubmissionState::Submitted) return false;
-		Ticket.State->bObserved = true;
+		if (!Owns(SyncPoint)) return false;
+		if (SyncPoint.GetState() == ERHIGPUSubmissionState::Complete) return true;
+		if (bClosed || SyncPoint.GetState() != ERHIGPUSubmissionState::Submitted) return false;
+		FRHIGPUSyncPointBackend::GetReservation(SyncPoint)->bObserved = true;
 		AdvanceRetirement();
 		return true;
 	}
 
-	auto FRHIGPUQueueTimeline::Cancel(const FRHIGPUSubmissionTicket& Ticket) -> bool
+	auto FRHIGPUQueueTimeline::Cancel(const FRHIGPUSyncPointRef& SyncPoint) -> bool
 	{
-		if (bClosed || !Owns(Ticket) || Ticket.GetState() != ERHIGPUSubmissionState::Pending)
+		if (bClosed || !Owns(SyncPoint) || SyncPoint.GetState() != ERHIGPUSubmissionState::Pending)
 			return false;
-		Ticket.State->Status.store(ERHIGPUSubmissionState::Canceled, std::memory_order_release);
+		FRHIGPUSyncPointBackend::GetReservation(SyncPoint)->Status.store(ERHIGPUSubmissionState::Canceled, std::memory_order_release);
 		AdvanceRetirement();
 		return true;
 	}
@@ -176,12 +113,12 @@ namespace Durin
 	{
 		while (!Pending.empty())
 		{
-			const auto& Ticket = Pending.front();
-			if (Ticket->Status.load() != ERHIGPUSubmissionState::Canceled && !Ticket->bObserved)
+			const auto& SyncPoint = Pending.front();
+			if (SyncPoint->Status.load() != ERHIGPUSubmissionState::Canceled && !SyncPoint->bObserved)
 				break;
-			if (Ticket->bObserved)
-				Ticket->Status.store(ERHIGPUSubmissionState::Complete, std::memory_order_release);
-			State->RetiredThrough.store(Ticket->Value, std::memory_order_release);
+			if (SyncPoint->bObserved)
+				SyncPoint->Status.store(ERHIGPUSubmissionState::Complete, std::memory_order_release);
+			State->RetiredThrough.store(SyncPoint->Value, std::memory_order_release);
 			Pending.pop_front();
 		}
 	}
@@ -189,33 +126,105 @@ namespace Durin
 	auto FRHIGPUQueueTimeline::Fail(bool bDeviceLost) -> void
 	{
 		bClosed = true;
-		for (auto& Ticket : Pending)
-			if (Ticket->Status.load() != ERHIGPUSubmissionState::Canceled)
-				Ticket->Status.store(bDeviceLost ? ERHIGPUSubmissionState::DeviceLost
+		for (auto& SyncPoint : Pending)
+			if (SyncPoint->Status.load() != ERHIGPUSubmissionState::Canceled)
+				SyncPoint->Status.store(bDeviceLost ? ERHIGPUSubmissionState::DeviceLost
 					: ERHIGPUSubmissionState::Failed, std::memory_order_release);
 		Pending.clear();
 	}
 
-	auto FRHIRetirementPrerequisites::Add(const FRHIGPUSubmissionTicket& Ticket) -> bool
+
+	auto FRHIGPUSyncPoint::Create() -> FRHIGPUSyncPointRef
+	{ return FRHIGPUSyncPointRef(new FRHIGPUSyncPoint); }
+
+	auto FRHIGPUSyncPoint::Release() const -> uint32
 	{
-		if (Ticket.GetState() == ERHIGPUSubmissionState::Invalid) return false;
-		const auto Point = Ticket.GetPoint();
-		for (auto& Existing : Tickets)
+		const auto Remaining = References.fetch_sub(1, std::memory_order_acq_rel) - 1;
+		if (!Remaining) delete this;
+		return Remaining;
+	}
+
+	auto FRHIGPUSyncPoint::GetState() const -> ERHIGPUSubmissionState
+	{
+		std::lock_guard Lock(Mutex);
+		if (bCanceled) return ERHIGPUSubmissionState::Canceled;
+		return Reservation ? Reservation->Status.load(std::memory_order_acquire)
+			: ERHIGPUSubmissionState::Pending;
+	}
+
+	auto FRHIGPUSyncPoint::IsRetirementEligible() const -> bool
+	{
+		std::lock_guard Lock(Mutex);
+		if (!Reservation) return bCanceled;
+		const auto Status = Reservation->Status.load(std::memory_order_acquire);
+		return (Status == ERHIGPUSubmissionState::Complete || Status == ERHIGPUSubmissionState::Canceled)
+			&& Reservation->Timeline->RetiredThrough.load(std::memory_order_acquire) >= Reservation->Value;
+	}
+
+	auto FRHIGPUSyncPointBackend::GetReservation(const FRHIGPUSyncPointRef& Signal)
+		-> std::shared_ptr<FRHIGPUReservationState>
+	{
+		if (!Signal) return {};
+		std::lock_guard Lock(Signal->Mutex);
+		return Signal->Reservation;
+	}
+
+	auto FRHIGPUSyncPointBackend::GetPoint(const FRHIGPUSyncPointRef& Signal) -> FRHIGPUCompletionPoint
+	{
+		const auto State = GetReservation(Signal);
+		return State ? FRHIGPUCompletionPoint{State->Timeline->DeviceGeneration,
+			State->Timeline->Queue, State->Value} : FRHIGPUCompletionPoint{};
+	}
+
+	auto FRHIGPUSyncPointBackend::Attach(const FRHIGPUSyncPointRef& Signal,
+		const FRHIGPUSyncPointRef& Producer) -> bool
+	{
+		const auto State = GetReservation(Producer);
+		if (!Signal || !State || State->Status.load() != ERHIGPUSubmissionState::Pending) return false;
+		std::lock_guard Lock(Signal->Mutex);
+		if (Signal->Reservation || Signal->bCanceled) return false;
+		Signal->Reservation = State;
+		return true;
+	}
+
+	auto FRHIGPUSyncPointBackend::CancelUnassociated(const FRHIGPUSyncPointRef& Signal) -> void
+	{
+		if (!Signal) return;
+		std::lock_guard Lock(Signal->Mutex);
+		if (!Signal->Reservation) Signal->bCanceled = true;
+	}
+
+	auto FRHIRetirementPrerequisites::Add(const FRHIGPUSyncPointRef& Signal) -> bool
+	{
+		if (!Signal) return false;
+		const auto State = FRHIGPUSyncPointBackend::GetReservation(Signal);
+		for (const auto& Existing : Signals)
 		{
-			const auto Other = Existing.GetPoint();
-			if (Point.DeviceGeneration == Other.DeviceGeneration && Point.Queue == Other.Queue)
-			{
-				if (Ticket.State->Timeline != Existing.State->Timeline) return false;
-				if (Point.Value > Other.Value) Existing = Ticket;
-				return true;
-			}
+			if (Existing == Signal) return true;
+			const auto Other = FRHIGPUSyncPointBackend::GetReservation(Existing);
+			if (State && Other && State->Timeline->DeviceGeneration == Other->Timeline->DeviceGeneration
+				&& State->Timeline->Queue == Other->Timeline->Queue && State->Timeline != Other->Timeline) return false;
 		}
-		Tickets.push_back(Ticket);
+		std::erase_if(Signals, [](const auto& Existing) { return Existing.IsRetirementEligible(); });
+		Signals.push_back(Signal);
 		return true;
 	}
 
 	auto FRHIRetirementPrerequisites::IsRetirementEligible() const -> bool
+	{ return std::ranges::all_of(Signals, &FRHIGPUSyncPointRef::IsRetirementEligible); }
+
+	auto WaitForRHIGPUSyncPoint(const FRHIGPUSyncPointRef& Signal, uint64 TimeoutNanoseconds) -> ERHIGPUWaitResult
 	{
-		return std::ranges::all_of(Tickets, &FRHIGPUSubmissionTicket::IsRetirementEligible);
+		switch (Signal.GetState())
+		{
+		case ERHIGPUSubmissionState::Complete: return ERHIGPUWaitResult::Complete;
+		case ERHIGPUSubmissionState::Pending: return ERHIGPUWaitResult::Pending;
+		case ERHIGPUSubmissionState::Canceled: return ERHIGPUWaitResult::Canceled;
+		case ERHIGPUSubmissionState::Failed: return ERHIGPUWaitResult::Failed;
+		case ERHIGPUSubmissionState::DeviceLost: return ERHIGPUWaitResult::DeviceLost;
+		case ERHIGPUSubmissionState::Invalid: return ERHIGPUWaitResult::Invalid;
+		case ERHIGPUSubmissionState::Submitted: break;
+		}
+		return GDynamicRHI ? GDynamicRHI->RHIWaitForCompletion(Signal, TimeoutNanoseconds) : ERHIGPUWaitResult::Invalid;
 	}
 }

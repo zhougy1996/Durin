@@ -21,32 +21,34 @@ namespace Durin::VulkanRHI
 		friend class FVulkanSubmissionCoordinator;
 
 	public:
-		FVulkanPayload(FVulkanQueue& InQueue, uint64 InToken);
+		FVulkanPayload(FVulkanQueue& InQueue, FRHIGPUSyncPointRef InSyncPoint);
 		~FVulkanPayload();
 		FVulkanPayload(const FVulkanPayload&) = delete;
 		auto operator=(const FVulkanPayload&) -> FVulkanPayload& = delete;
-		auto GetTicket() const -> const FRHIGPUSubmissionTicket& { return Ticket; }
+		auto GetSyncPoint() const -> const FRHIGPUSyncPointRef& { return SyncPoint; }
+		auto AttachSignal(const FRHIGPUSyncPointRef& Signal) -> bool;
 		auto RetainAllocation(std::shared_ptr<void> Owner) -> void
 		{
 			require(Owner);
 			if (std::ranges::find(AllocationOwners, Owner) == AllocationOwners.end())
 				AllocationOwners.push_back(std::move(Owner));
 		}
-		auto AddCompletionWait(const FRHIGPUSubmissionTicket& Ticket) -> void
+		auto AddCompletionWait(const FRHIGPUSyncPointRef& SyncPoint) -> void
 		{
 			// Preserve every success dependency until its authority/state is validated.
-			CompletionWaits.push_back(Ticket);
+			if (std::ranges::find(CompletionWaits, SyncPoint) == CompletionWaits.end())
+				CompletionWaits.push_back(SyncPoint);
 		}
 
 	private:
 		FVulkanQueue& Queue;
-		uint64 Token = 0;
-		FRHIGPUSubmissionTicket Ticket;
+		FRHIGPUSyncPointRef SyncPoint;
+		std::vector<FRHIGPUSyncPointRef> Signals;
 		std::vector<std::shared_ptr<void>> AllocationOwners;
 		std::vector<TRefCountPtr<FVulkanGPUTimingQuery>> TimingQueries;
 		std::vector<std::shared_ptr<void>> ReplayStorageOwners;
 		std::vector<std::shared_ptr<void>> RetainedTransitions;
-		std::vector<FRHIGPUSubmissionTicket> CompletionWaits;
+		std::vector<FRHIGPUSyncPointRef> CompletionWaits;
 
 		std::vector<vk::PipelineStageFlags> WaitFlags; // Pipeline stages to wait on for each wait semaphore. Must match 1:1 with WaitSemaphores.
 		std::vector<FVulkanSemaphore*> WaitSemaphores;
@@ -62,11 +64,11 @@ namespace Durin::VulkanRHI
 	{
 	public:
 		explicit FVulkanSubmissionCoordinator(FVulkanDevice& InDevice) : Device(InDevice) {}
-		auto EnqueueContext(FVulkanCommandListContext& Context) -> FRHIGPUSubmissionTicket;
+		auto EnqueueContext(FVulkanCommandListContext& Context) -> FRHIGPUSyncPointRef;
 		auto DiscardPending() -> void;
-		auto Submit(std::unique_ptr<FVulkanPayload> Payload) -> FRHIGPUSubmissionTicket;
+		auto Submit(std::unique_ptr<FVulkanPayload> Payload) -> FRHIGPUSyncPointRef;
 		auto SubmitBatch(std::vector<std::unique_ptr<FVulkanPayload>> Payloads) -> void;
-		auto SubmitContext(FVulkanCommandListContext& Context) -> FRHIGPUSubmissionTicket;
+		auto SubmitContext(FVulkanCommandListContext& Context) -> FRHIGPUSyncPointRef;
 		auto SubmitPendingContexts(FVulkanCommandListContext* CallingContext = nullptr) -> void;
 		auto GetAllocationUses(const std::shared_ptr<void>& Owner) const -> FRHIRetirementPrerequisites;
 		auto WaitForAllocation(const std::weak_ptr<void>& Owner) -> void;

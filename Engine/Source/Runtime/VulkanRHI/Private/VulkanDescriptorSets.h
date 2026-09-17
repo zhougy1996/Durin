@@ -157,8 +157,6 @@ namespace Durin::VulkanRHI
 	{
 		// The Vulkan descriptor set layout handle
 		vk::DescriptorSetLayout Handle{};
-		// The unique ID of the layout, in case we want to judge whether two layouts are the same, since the handle may be reused by Vulkan after one of them is destroyed and recreated
-		uint64 HandleId = 0;
 		std::shared_ptr<void> MetadataReservation;
 	};
 
@@ -266,16 +264,6 @@ namespace Durin::VulkanRHI
 		uint32 PeakAllocatedDescriptorSets;
 		std::unordered_map<vk::DescriptorType, uint32> DescriptorCapacities;
 		std::unordered_map<vk::DescriptorType, uint32> NumAllocatedDescriptors;
-	};
-
-	// Reuses descriptor sets whose bound-resource identity remains unchanged.
-	class FVulkanDescriptorSetCache
-	{
-	public:
-		explicit FVulkanDescriptorSetCache(FVulkanDevice* InDevice);
-
-	private:
-		FVulkanDevice* Device;
 	};
 
 	// Coordinates descriptor allocation and caching across frames for one device.

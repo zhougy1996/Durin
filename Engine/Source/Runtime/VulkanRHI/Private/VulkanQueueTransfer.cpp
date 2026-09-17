@@ -14,7 +14,7 @@ namespace Durin::VulkanRHI
 		FRHIQueueId Source, Destination;
 		bool bSync2;
 		enum class EPhase { Prepared, Released, Acquired } Phase = EPhase::Prepared;
-		FRHIGPUSubmissionTicket Signal;
+		FRHIGPUSyncPointRef Signal;
 		std::vector<FRHIBufferTransition> Buffers;
 		std::vector<FRHITextureTransition> Textures;
 		std::vector<FBufferRHIRef> BufferOwners;
@@ -111,15 +111,15 @@ namespace Durin::VulkanRHI
 	}
 
 	FVulkanQueueTransfer::~FVulkanQueueTransfer() = default;
-	auto FVulkanQueueTransfer::GetReleaseTicket() const -> FRHIGPUSubmissionTicket { return State->Signal; }
+	auto FVulkanQueueTransfer::GetReleaseSyncPoint() const -> FRHIGPUSyncPointRef { return State->Signal; }
 
 	auto FVulkanQueueTransfer::RecordRelease(FVulkanQueue& Queue, vk::CommandBuffer Commands,
-		const FRHIGPUSubmissionTicket& Ticket) -> void
+		const FRHIGPUSyncPointRef& SyncPoint) -> void
 	{
 		CheckVulkanRHIThread();
 		require(State->Phase == FState::EPhase::Prepared && Queue.GetId() == State->Source);
 		require(State->Device.FindQueue(Queue.GetId()) == &Queue);
-		require(Queue.GetCompletionTracker().Owns(Ticket) && Ticket.GetState() == ERHIGPUSubmissionState::Pending);
+		require(Queue.GetCompletionTracker().Owns(SyncPoint) && SyncPoint.GetState() == ERHIGPUSubmissionState::Pending);
 		const auto SourceFamily = Queue.GetFamilyIndex();
 		const auto DestinationFamily = State->Device.FindQueue(State->Destination)->GetFamilyIndex();
 		const bool bSameFamily = SourceFamily == DestinationFamily;
@@ -172,7 +172,7 @@ namespace Durin::VulkanRHI
 		State->Emit(Commands, true);
 		for (auto& [Buffer, Candidate] : BufferStates) Buffer->GetStateTracker() = std::move(Candidate);
 		for (auto& [Texture, Candidate] : TextureStates) Texture->GetStateTracker() = std::move(Candidate);
-		State->Signal = Ticket;
+		State->Signal = SyncPoint;
 		State->Phase = FState::EPhase::Released;
 	}
 

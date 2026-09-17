@@ -1,4 +1,5 @@
 #include "VulkanDynamicRHI.h"
+#include "Backend/RHICompletionBackend.h"
 #include "VulkanPresentationSupport.h"
 #include "VulkanPresentationCandidate.h"
 
@@ -202,23 +203,28 @@ namespace Durin::VulkanRHI
 		return std::make_shared<FVulkanQueueTransfer>(*Device, Desc.Source, Desc.Destination, Desc.Buffers, Desc.Textures);
 	}
 
-	auto FVulkanDynamicRHI::RHIGetCompletionStatus(const FRHIGPUSubmissionTicket& Ticket) const
+	auto FVulkanDynamicRHI::RHIGetCompletionStatus(const FRHIGPUSyncPointRef& SyncPoint) const
 		-> ERHIGPUSubmissionState
 	{
-		if (Device && Ticket.GetPoint().DeviceGeneration == Device->GetDeviceGeneration())
-			if (auto* Queue = Device->FindQueue(Ticket.GetPoint().Queue))
-				if (Queue->GetCompletionTracker().Owns(Ticket)) return Ticket.GetState();
+		if (Device && FRHIGPUSyncPointBackend::GetPoint(SyncPoint).DeviceGeneration == Device->GetDeviceGeneration())
+			if (auto* Queue = Device->FindQueue(FRHIGPUSyncPointBackend::GetPoint(SyncPoint).Queue))
+				if (Queue->GetCompletionTracker().Owns(SyncPoint)) return SyncPoint.GetState();
 		return ERHIGPUSubmissionState::Invalid;
 	}
 
-	auto FVulkanDynamicRHI::RHIWaitForCompletion(const FRHIGPUSubmissionTicket& Ticket,
+	auto FVulkanDynamicRHI::RHIWaitForCompletion(const FRHIGPUSyncPointRef& SyncPoint,
 		uint64 TimeoutNanoseconds) -> ERHIGPUWaitResult
 	{
+		// Do not queue an operation behind the replay that would associate this signal.
+		if (FRHIGPUSyncPointBackend::GetPoint(SyncPoint).Value == 0)
+			return SyncPoint.GetState() == ERHIGPUSubmissionState::Pending ? ERHIGPUWaitResult::Pending
+				: SyncPoint.GetState() == ERHIGPUSubmissionState::Canceled ? ERHIGPUWaitResult::Canceled
+				: ERHIGPUWaitResult::Invalid;
 		ERHIGPUWaitResult Result = ERHIGPUWaitResult::Invalid;
 		auto Wait = [&] {
-			if (Device && Ticket.GetPoint().DeviceGeneration == Device->GetDeviceGeneration())
-				if (auto* Queue = Device->FindQueue(Ticket.GetPoint().Queue))
-					Result = Queue->GetCompletionTracker().WaitForTicket(Ticket, TimeoutNanoseconds);
+			if (Device && FRHIGPUSyncPointBackend::GetPoint(SyncPoint).DeviceGeneration == Device->GetDeviceGeneration())
+				if (auto* Queue = Device->FindQueue(FRHIGPUSyncPointBackend::GetPoint(SyncPoint).Queue))
+					Result = Queue->GetCompletionTracker().WaitForSyncPoint(SyncPoint, TimeoutNanoseconds);
 		};
 		if (IsInRHIThread()) Wait();
 		else GCommandListExecutor.ExecuteSynchronousOperation(false, Wait);

@@ -1,4 +1,5 @@
 #include "DynamicRHI.h"
+#include "Backend/RHICompletionBackend.h"
 
 #include "RHICommandList.h"
 
@@ -13,18 +14,18 @@ namespace Durin
 	auto FDynamicRHI::RHICreateQueueTransfer(const FRHIQueueTransferDesc&) -> std::shared_ptr<FRHIQueueTransfer>
 	{ return {}; }
 
-	auto FDynamicRHI::RHIGetCompletionStatus(const FRHIGPUSubmissionTicket& Ticket) const
+	auto FDynamicRHI::RHIGetCompletionStatus(const FRHIGPUSyncPointRef& SyncPoint) const
 		-> ERHIGPUSubmissionState
 	{
 		const auto& Capabilities = RHIGetQueueCapabilities();
-		const auto Point = Ticket.GetPoint();
+		const auto Point = FRHIGPUSyncPointBackend::GetPoint(SyncPoint);
 		if (Point.DeviceGeneration == 0 || Point.DeviceGeneration != Capabilities.DeviceGeneration
 			|| std::ranges::find(Capabilities.Queues, Point.Queue, &FRHIQueueInfo::Id) == Capabilities.Queues.end())
 			return ERHIGPUSubmissionState::Invalid;
-		return Ticket.GetState();
+		return SyncPoint.GetState();
 	}
 
-	auto FDynamicRHI::RHIWaitForCompletion(const FRHIGPUSubmissionTicket&, uint64)
+	auto FDynamicRHI::RHIWaitForCompletion(const FRHIGPUSyncPointRef&, uint64)
 		-> ERHIGPUWaitResult
 	{
 		return ERHIGPUWaitResult::Invalid;

@@ -1,4 +1,5 @@
 #include "VulkanCompletion.h"
+#include "Backend/RHICompletionBackend.h"
 
 #include "VulkanCommandBuffer.h"
 #include "VulkanDevice.h"
@@ -18,47 +19,45 @@ namespace Durin::VulkanRHI
 	{
 	}
 
-	auto FVulkanCompletionTracker::ReserveToken() -> FVulkanCompletionToken
+	auto FVulkanCompletionTracker::ReserveSyncPoint() -> FRHIGPUSyncPointRef
 	{
 		CheckVulkanRHIThread();
-		const auto Ticket = Timeline.Reserve();
-		require(Ticket.GetState() == ERHIGPUSubmissionState::Pending);
-		LastReservedToken = Ticket.GetPoint().Value;
-		require(Ticket.GetPoint().Value == LastReservedToken.load());
+		const auto SyncPoint = Timeline.Reserve();
+		require(SyncPoint.GetState() == ERHIGPUSubmissionState::Pending);
+		LastReservedToken = FRHIGPUSyncPointBackend::GetPoint(SyncPoint).Value;
 		{
-			std::lock_guard Lock(TicketMutex);
-			LastReservedTicket = Ticket;
+			std::lock_guard Lock(SyncPointMutex);
+			LastReservedSyncPoint = SyncPoint;
 		}
-		return LastReservedToken;
+		return SyncPoint;
 	}
 
-	auto FVulkanCompletionTracker::CancelUnsubmitted(const FRHIGPUSubmissionTicket& Ticket) -> void
+	auto FVulkanCompletionTracker::CancelUnsubmitted(const FRHIGPUSyncPointRef& SyncPoint) -> void
 	{
 		CheckVulkanRHIThread();
-		require(Timeline.Cancel(Ticket));
+		require(Timeline.Cancel(SyncPoint));
 	}
 
-	auto FVulkanCompletionTracker::GetLastReservedTicket() const -> FRHIGPUSubmissionTicket
+	auto FVulkanCompletionTracker::GetLastReservedSyncPoint() const -> FRHIGPUSyncPointRef
 	{
-		std::lock_guard Lock(TicketMutex);
-		return LastReservedTicket;
+		std::lock_guard Lock(SyncPointMutex);
+		return LastReservedSyncPoint;
 	}
 
 	auto FVulkanCompletionTracker::PrepareSubmission(
-		FVulkanCompletionToken Token, FVulkanFence* Fence,
+		FVulkanFence* Fence,
 		std::span<FVulkanPayload* const> Payloads) -> void
 	{
 		CheckVulkanRHIThread();
 		require(!bFailed && Fence && !Payloads.empty());
 		require(Submissions.empty() || Submissions.back().bSubmitted);
 		FSubmission Submission;
-		Submission.Token = Token;
 		Submission.Fence = Fence;
 		Submission.Payloads.assign(Payloads.begin(), Payloads.end());
 		require(Payloads.size() == 1);
-		Submission.Ticket = Payloads.front()->GetTicket();
-		require(Submission.Ticket.GetPoint().Value == Token
-			&& Timeline.CanSubmit(Submission.Ticket));
+		Submission.SyncPoint = Payloads.front()->GetSyncPoint();
+		Submission.Token = FRHIGPUSyncPointBackend::GetPoint(Submission.SyncPoint).Value;
+		require(Timeline.CanSubmit(Submission.SyncPoint));
 		Submissions.push_back(std::move(Submission));
 	}
 
@@ -67,7 +66,7 @@ namespace Durin::VulkanRHI
 		CheckVulkanRHIThread();
 		require(!bFailed && !Submissions.empty() && !Submissions.back().bSubmitted);
 		auto& Submission = Submissions.back();
-		const bool bAccepted = Timeline.MarkSubmitted(Submission.Ticket);
+		const bool bAccepted = Timeline.MarkSubmitted(Submission.SyncPoint);
 		require(bAccepted);
 		Submission.bSubmitted = true;
 		LastSubmittedToken = Submission.Token;
@@ -106,7 +105,9 @@ namespace Durin::VulkanRHI
 			{
 				break;
 			}
-			const bool bObserved = Timeline.ObserveCompleted(Submission.Ticket);
+			// Result processing is part of completion publication, not just recycling.
+			if (!ResolveResults(Submission)) break;
+			const bool bObserved = Timeline.ObserveCompleted(Submission.SyncPoint);
 			require(bObserved);
 			CompletedToken.store(Submission.Token, std::memory_order_release);
 		}
@@ -138,15 +139,15 @@ namespace Durin::VulkanRHI
 		ReleaseCompleted();
 	}
 
-	auto FVulkanCompletionTracker::WaitForTicket(const FRHIGPUSubmissionTicket& Ticket,
+	auto FVulkanCompletionTracker::WaitForSyncPoint(const FRHIGPUSyncPointRef& SyncPoint,
 		uint64 TimeoutNanoseconds) -> ERHIGPUWaitResult
 	{
 		CheckVulkanRHIThread();
-		if (!Timeline.Owns(Ticket)) return ERHIGPUWaitResult::Invalid;
+		if (!Timeline.Owns(SyncPoint)) return ERHIGPUWaitResult::Invalid;
 		try
 		{
 			Poll();
-			switch (Ticket.GetState())
+			switch (SyncPoint.GetState())
 			{
 			case ERHIGPUSubmissionState::Complete: return ERHIGPUWaitResult::Complete;
 			case ERHIGPUSubmissionState::Pending: return ERHIGPUWaitResult::Pending;
@@ -156,7 +157,7 @@ namespace Durin::VulkanRHI
 			case ERHIGPUSubmissionState::Invalid: return ERHIGPUWaitResult::Invalid;
 			case ERHIGPUSubmissionState::Submitted: break;
 			}
-			const auto Token = Ticket.GetPoint().Value;
+			const auto Token = FRHIGPUSyncPointBackend::GetPoint(SyncPoint).Value;
 			const auto It = std::ranges::find(Submissions, Token, &FSubmission::Token);
 			require(It != Submissions.end() && It->bSubmitted);
 			const auto Start = std::chrono::steady_clock::now();
@@ -166,7 +167,7 @@ namespace Durin::VulkanRHI
 			if (!bComplete) return ERHIGPUWaitResult::Timeout;
 			ObserveThrough(Token);
 			ReleaseCompleted();
-			return ERHIGPUWaitResult::Complete;
+			return SyncPoint.IsComplete() ? ERHIGPUWaitResult::Complete : ERHIGPUWaitResult::Timeout;
 		}
 		catch (const vk::SystemError& Error)
 		{
@@ -218,7 +219,8 @@ namespace Durin::VulkanRHI
 			requiref(Device.GetFenceManager().IsFenceSignaled(Submission.Fence),
 				"Vulkan queue completion was not contiguous at token {}.",
 				Submission.Token);
-			const bool bObserved = Timeline.ObserveCompleted(Submission.Ticket);
+			if (!ResolveResults(Submission)) break;
+			const bool bObserved = Timeline.ObserveCompleted(Submission.SyncPoint);
 			require(bObserved);
 			CompletedToken.store(Submission.Token, std::memory_order_release);
 		}
@@ -232,20 +234,25 @@ namespace Durin::VulkanRHI
 			for (const auto* Payload : Submission.Payloads)
 				if (std::ranges::find(Payload->AllocationOwners, Owner) != Payload->AllocationOwners.end())
 				{
-					require(Uses.Add(Submission.Ticket));
+					require(Uses.Add(Submission.SyncPoint));
 					break;
 				}
+	}
+
+	auto FVulkanCompletionTracker::ResolveResults(FSubmission& Submission) -> bool
+	{
+		for (auto* Payload : Submission.Payloads)
+			if (!Payload->TimingQueries.empty()
+				&& !Device.GetGPUTimingManager().ResolveCompleted(Payload->TimingQueries)) return false;
+		return true;
 	}
 
 	auto FVulkanCompletionTracker::ReleaseCompleted() -> void
 	{
 		while (!Submissions.empty()
-			&& Submissions.front().Ticket.IsRetirementEligible())
+			&& Submissions.front().SyncPoint.IsRetirementEligible())
 		{
 			FSubmission& Submission = Submissions.front();
-			for (FVulkanPayload* Payload : Submission.Payloads)
-				if (!Payload->TimingQueries.empty()
-					&& !Device.GetGPUTimingManager().ResolveCompleted(Payload->TimingQueries)) return;
 			for (FVulkanPayload* Payload : Submission.Payloads)
 			{
 				for (FVulkanCommandBuffer* CommandBuffer : Payload->CommandBuffers)

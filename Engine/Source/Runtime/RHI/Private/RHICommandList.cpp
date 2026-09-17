@@ -1,4 +1,5 @@
 #include "RHICommandList.h"
+#include "Backend/RHICompletionBackend.h"
 
 #include "DynamicRHI.h"
 #include "RHIContext.h"
@@ -144,7 +145,7 @@ namespace Durin
 			if (ActivePipeline != ERHIPipeline::None) ActiveContext = Context;
 		}
 
-		auto EndGPUSubmission(const FRHIGPUSubmissionReceipt& Signal) -> void
+		auto EndGPUSubmission(const FRHIGPUSyncPointRef& Signal) -> void
 		{
 			require(SubmissionContext);
 			SubmissionContext->RHIEndGPUSubmission(Signal);
@@ -489,8 +490,8 @@ namespace Durin
 		struct FGPUSubmissionRecordingLease final
 		{
 			FRHIQueueId Queue;
-			FRHIGPUSubmissionReceipt Signal = FRHIGPUSubmissionReceipt::CreatePending();
-			~FGPUSubmissionRecordingLease() { Signal.CancelUnresolved(); }
+			FRHIGPUSyncPointRef Signal = FRHIGPUSyncPoint::Create();
+			~FGPUSubmissionRecordingLease() { FRHIGPUSyncPointBackend::CancelUnassociated(Signal); }
 		};
 
 		struct FBeginGPUSubmissionCommand final
@@ -500,7 +501,7 @@ namespace Durin
 			auto Execute(void* Context) -> void
 			{ GetReplayContext(Context).BeginGPUSubmission(Desc); }
 			auto GetOwnedPayloadBytes() const -> size_t
-			{ return Desc.Waits.capacity() * sizeof(FRHIGPUSubmissionReceipt); }
+			{ return Desc.Waits.capacity() * sizeof(FRHIGPUSyncPointRef); }
 		};
 		struct FEndGPUSubmissionCommand final
 		{
@@ -1733,10 +1734,6 @@ namespace Durin
 	}
 
 	FRHICommandList::FRHICommandList() = default;
-	FRHICommandList::FRHICommandList(bool bImmediate)
-	{
-		(void)bImmediate;
-	}
 	FRHICommandList::~FRHICommandList() = default;
 	FRHICommandList::FRHICommandList(FRHICommandList&& Other) noexcept = default;
 	auto FRHICommandList::operator=(FRHICommandList&& Other) noexcept
@@ -1763,14 +1760,20 @@ namespace Durin
 	}
 
 	auto FRHICommandListBase::BeginGPUSubmission(const FRHIGPUSubmissionDesc& Desc)
-		-> FRHIGPUSubmissionReceipt
+		-> FRHIGPUSyncPointRef
 	{
 		requiref(!bInsideRenderPass && !ActiveGPUSubmissionLease, "GPU submissions cannot nest or begin inside a render pass.");
+		FRHIGPUSubmissionDesc Recorded{.Queue = Desc.Queue};
+		Recorded.Waits.reserve(Desc.Waits.size());
 		for (const auto& Wait : Desc.Waits)
+		{
 			requiref(Wait.GetState() != ERHIGPUSubmissionState::Invalid, "GPU submission has an invalid dependency.");
+			if (std::ranges::find(Recorded.Waits, Wait) == Recorded.Waits.end())
+				Recorded.Waits.push_back(Wait);
+		}
 		auto Lease = std::make_shared<FGPUSubmissionRecordingLease>();
 		Lease->Queue = Desc.Queue;
-		RecordCommand<FBeginGPUSubmissionCommand>(Desc, Lease);
+		RecordCommand<FBeginGPUSubmissionCommand>(std::move(Recorded), Lease);
 		ActiveGPUSubmissionLease = Lease;
 		return Lease->Signal;
 	}
@@ -2184,8 +2187,7 @@ namespace Durin
 
 	FRHICommandListImmediate::FRHICommandListImmediate(
 		FRHICommandListExecutor& InExecutor)
-		: FRHICommandList(true)
-		, Executor(&InExecutor)
+		: Executor(&InExecutor)
 		, LockState(std::make_unique<FLockState>())
 	{
 	}

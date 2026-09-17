@@ -2,12 +2,22 @@
 
 Summary: Introduce explicit GPU queue submission, completion, and resource retirement contracts across RDG, RHI, and Vulkan, then enable asynchronous compute, split barriers, and safe transient aliasing.
 
-Last reviewed: 2026-09-12
+Last reviewed: 2026-09-17
 
 Status: Active
 Completed:
 
 ## Current Status
+
+Completion API follow-up (2026-09-17): the completed
+[RHI Sync Point Refactor Plan](RhiSyncPointRefactor.md) replaces public
+submission tickets/receipts with stable one-shot sync-point references and
+backend-only coordinates. It passed the workspace `all` build and all 22
+affected test targets, including 93 RHI command/completion and 100 Vulkan
+integration cases. Failure quarantine, canceled-prefix retirement and native
+cross-queue ownership guarantees remain intact. This plan continues to own
+scheduling, split barriers, aliasing and its outstanding qualification gates;
+none of those gates are closed by the completion API migration.
 
 Stage 0's ownership audit is recorded below; its performance measurement is
 deferred by explicit operator instruction. Stage 1's single-queue correctness
@@ -370,36 +380,39 @@ ownership simultaneously.
 
 #### Completion, Failure, and Ownership Protocol
 
-`FRHIGPUCompletionPoint { uint64 DeviceGeneration; FRHIQueueId Queue;
-uint64 Value; }` is a non-owning identifier. Values are nonzero and increase only
-within one physical queue. `FRHICommandBatchSerial` and `FRDGSubmissionId` are
-separate wrappers without implicit conversion to this type. Device generations
-are allocated monotonically by RHI across backend replacement, not reset by a
-Vulkan device constructor.
+The completed [sync-point refactor](RhiSyncPointRefactor.md) supersedes the
+ticket/receipt API below: callers retain one `FRHIGPUSyncPointRef` throughout
+recording, replay and completion. Creation reserves no native coordinate;
+backend association is single assignment, including coalesced logical signals.
+Physical coordinates and timeline mutation are backend-only. Retirement sets
+retain exact logical uses; output readiness always requires producer success.
+The historical implementation evidence below remains evidence for the original
+implementation, not validation of the replacement. Scheduling, ownership and
+remaining hardware gates in this plan are unchanged.
 
-An owning `FRHIGPUSubmissionTicket` retains the state of a reserved point.
-Its states are `Pending`, `Submitted`, `Complete`, `Canceled`, `Failed`, and
-`DeviceLost`. Polling a foreign/expired identifier yields `Invalid`; it must
-never yield `Complete`. Metadata needed by a live ticket survives deque
-compaction without retaining the hardware fence after completion. This avoids
-an unbounded device-wide history of dead reservations.
+The caller-facing contract is an owning `FRHIGPUSyncPointRef` with stable
+logical identity and thread-safe Pending/Submitted/Complete/Canceled/Failed/
+DeviceLost observation. Native coordinates are backend-only metadata with
+RHI-owned device generations. No caller resolves a second handle. See the
+[RHI completion contract](../Runtime/Rendering/RHICommandExecution.md) for
+storage, bounded waits and shutdown behavior. Retained observers hold no native
+fence or backend pointer and require no unbounded completed-signal registry.
 
 Reservations are ordered per queue. A later reservation cannot submit while an
 earlier one is still pending; it may proceed after that earlier reservation is
 irrevocably canceled. A canceled reservation is never signaled as GPU work.
-The query for that ticket stays `Canceled` even if a later signal has a larger
+The query for that sync point stays `Canceled` even if a later signal has a larger
 value. Explicit terminal reservation state lets retirement traverse canceled
 holes without calling them successful completion. Submission rejection before
 ownership transfer leaves the caller's finished batch intact and pending;
 cancellation is allowed only after removal from every executable path.
 
-`FRHIRetirementPrerequisites` retains owning tickets and keeps the maximum use
-only within the same queue/generation, using the enforced reservation order.
-Its retirement predicate accepts successful completion or irrevocable
-cancellation, not unknown points, pending work, failure, or device loss.
-Publication/readiness additionally tracks producer success: replacing a lower
-canceled producer with a later completed point must not make its output valid.
-Do not compress success dependencies as though they were retirement uses.
+`FRHIRetirementPrerequisites` retains exact deduplicated logical sync-point
+references. A canceled associated signal remains gated by its ordered queue
+prefix; canceled detached recordings may retire without claiming output success.
+Failure and device loss require teardown, never ordinary reuse. Success
+prerequisites retain every producer until authority and state validation; only
+backend-native semaphore lowering may reduce validated waits per queue.
 An explicit join submits a real wait-for-all batch and returns its signal;
 cross-queue prerequisite elimination requires that recorded coverage proof.
 
@@ -419,7 +432,7 @@ detach all work, destroy device-owned objects in dependency order, then release
 quarantined host owners. Never advance completion to infinity to force cleanup.
 Ordinary shutdown instead submits accepted pending work, waits every submitted
 queue, then destroys contexts, pools, deferred handles and the device. Already
-retained tickets remain terminal and cannot address a replacement device.
+retained sync points remain terminal and cannot address a replacement device.
 
 #### Concrete API Boundaries
 
@@ -428,14 +441,14 @@ The selected public signatures for implementation are:
 ```cpp
 // FDynamicRHI: immutable capabilities and thread-safe state observation.
 auto RHIGetQueueCapabilities() const -> const FRHIQueueCapabilities&;
-auto RHIGetCompletionStatus(const FRHIGPUSubmissionTicket& Ticket) const
+auto RHIGetCompletionStatus(const FRHIGPUSyncPointRef& Signal) const
     -> ERHIGPUSubmissionState;
-auto RHIWaitForCompletion(const FRHIGPUSubmissionTicket& Ticket,
+auto RHIWaitForCompletion(const FRHIGPUSyncPointRef& Signal,
     uint64 TimeoutNanoseconds) -> ERHIGPUWaitResult;
 
 // FRHICommandListImmediate: recorded, balanced batch boundaries.
 auto BeginGPUSubmission(const FRHIGPUSubmissionDesc& Desc)
-    -> FRHIGPUSubmissionTicket;
+    -> FRHIGPUSyncPointRef;
 auto EndGPUSubmission() -> void;
 
 // FRHIResource: counted readiness snapshot, separate from logical access.
@@ -450,9 +463,8 @@ auto RegisterExternalBuffer(FBufferRHIRef Buffer, std::string Name,
     -> FRDGBufferHandle;
 ```
 
-`FRHIGPUSubmissionDesc` owns queue identity, dependency tickets and resource-use
-bundles; no borrowed spans survive recording. Begin reserves a ticket without
-calling a native queue. End seals a balanced batch; ordinary executor dispatch
+`FRHIGPUSubmissionDesc` owns queue identity, owning dependency sync points; no borrowed spans survive recording. Begin
+creates a logical signal without reserving a native coordinate. End seals a balanced batch; ordinary executor dispatch
 performs replay/submission. Admission rejects cycles, foreign generations,
 illegal context commands and open render-pass/batch scopes. No CPU wait is
 inserted between passes. Nonblocking status observes published backend state;
@@ -462,10 +474,10 @@ waiting for its own pending replay. Allowed wait purposes remain readback,
 bounded allocator pressure, frame pacing and shutdown.
 
 Existing external-registration overloads inherit the resource's recorded
-readiness. Extraction retains the resource and its producing tickets; it
+readiness. Extraction retains the resource and its producing sync points; it
 publishes a reference after successful recording, not completed contents.
-Failure of a producing ticket invalidates content readiness. External native
-work must enter through an owned RHI submission ticket with an explicit
+Failure of a producing sync point invalidates content readiness. External native
+work must enter through an owned RHI submission sync point with an explicit
 resource-use bundle; untracked foreign queue access is unsupported. Raw native
 integration hooks must finish or import their work before returning resources
 to ordinary RDG use.

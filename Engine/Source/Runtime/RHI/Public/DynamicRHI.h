@@ -217,11 +217,11 @@ namespace Durin
 		// Unsupported topology or invalid descriptions return null.
 		RHI_API virtual auto RHICreateQueueTransfer(const FRHIQueueTransferDesc& Desc) -> std::shared_ptr<FRHIQueueTransfer>;
 		// Observes published metadata without dispatching CPU work or waiting for GPU.
-		RHI_API virtual auto RHIGetCompletionStatus(const FRHIGPUSubmissionTicket& Ticket) const
+		RHI_API virtual auto RHIGetCompletionStatus(const FRHIGPUSyncPointRef& SyncPoint) const
 			-> ERHIGPUSubmissionState;
 		// GPU timeout excludes the CPU dispatch needed to reach the backend owner.
 		// Intended for readback, bounded pool pressure, pacing and shutdown only.
-		RHI_API virtual auto RHIWaitForCompletion(const FRHIGPUSubmissionTicket& Ticket,
+		RHI_API virtual auto RHIWaitForCompletion(const FRHIGPUSyncPointRef& SyncPoint,
 			uint64 TimeoutNanoseconds) -> ERHIGPUWaitResult;
 		RHI_API auto RHIGetCapabilities() const -> const FRHICapabilities*;
 		// Counters accumulate for the device lifetime until explicitly reset.

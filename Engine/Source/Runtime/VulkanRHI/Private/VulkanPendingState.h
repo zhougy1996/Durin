@@ -153,8 +153,8 @@ namespace Durin::VulkanRHI
 		float DepthBiasClamp = 0.0f;
 		float DepthBiasSlopeFactor = 0.0f;
 
-		// Owns descriptor states by raw pointer; Reset deletes every value.
-		std::unordered_map<FVulkanGraphicsPipelineState*, FVulkanGraphicsPipelineDescriptorState*> PipelineStates;
+		// Owns descriptor states; pipeline keys are non-owning.
+		std::unordered_map<FVulkanGraphicsPipelineState*, std::unique_ptr<FVulkanGraphicsPipelineDescriptorState>> PipelineStates;
 		uint64 DescriptorAccessSerial = 0;
 		uint64 DescriptorEntryOccupancy = 0;
 		uint64 DescriptorValueOccupancy = 0;

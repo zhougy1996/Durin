@@ -88,7 +88,8 @@ submissions retain their query owners in quarantine until device shutdown.
 Vulkan lazily allocates at most twenty pages of 64 intervals (128 timestamp
 slots per page, 1,280 live intervals total). Each pair is reset and written in
 its recording command buffer, retained by the exact submission payload, and
-read without a wait flag only after that payload's queue ticket completes.
+read without a wait flag after native fence completion, before publishing the
+payload's logical sync points as successfully complete.
 The timing manager owns query slots, conversion and statistics; it does not
 maintain a separate completion timeline or pending-query owner list. Slot reuse requires
 completion and a released query generation. Exhaustion fails without waiting;

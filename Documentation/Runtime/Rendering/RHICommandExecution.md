@@ -101,31 +101,46 @@ An executor fence targets one exact accepted serial. CPU completion means replay
 and the ordered executor events above have finished; it does not imply GPU idle.
 Vulkan submission tokens and their pooled fences represent queue completion.
 
-`FRHIGPUCompletionPoint` qualifies a queue-local value with physical queue
-identity and RHI-owned device generation. An owning
-`FRHIGPUSubmissionTicket` observes pending, submitted, completed, canceled,
-failed or device-lost metadata independently of CPU fences. Metadata survives
-backend teardown without holding a native fence or backend pointer. Foreign
-device completion queries return Invalid. Queue capabilities publish physical
-identity separately from command roles; roles may share one queue.
+`FRHIGPUSyncPoint` is a noncopyable one-shot metadata object; owning
+`FRHIGPUSyncPointRef` copies retain the same identity from recording through
+completion. It uses RHI intrusive reference counting with immediate metadata
+destruction, not GPU-resource deferred deletion. `IsComplete()` is a thread-safe
+metadata read and is true only after successful native completion and required
+result processing. `GetState()` distinguishes Pending, Submitted, Complete,
+Canceled, Failed and DeviceLost; an empty reference reports Invalid. Observers
+survive backend teardown without holding a native fence or backend pointer.
+
+Physical queue coordinates, reservation mutation and single-assignment binding
+are confined to `Backend/RHICompletionBackend.h`. A recording creates no native
+reservation. Replay associates the same logical object with its producing
+payload; multiple logical objects can share one authoritative reservation.
+Queue capabilities still publish physical identity separately from command
+roles; roles may share one queue. Foreign/replacement-device backend queries
+return Invalid even when the old object's retained metadata says Complete.
 
 `FRHIGPUQueueTimeline::CanSubmitBatch` preflights an ordered pending prefix
-without changing ticket states. Every earlier pending reservation must appear
+without changing signal states. Every earlier pending reservation must appear
 in that prefix; submitted and canceled positions may be omitted. Duplicate,
-foreign, terminal, and out-of-order tickets reject admission. Native acceptance
+foreign, terminal, and out-of-order signals reject admission. Native acceptance
 still precedes each `MarkSubmitted` call.
 
-`FRHIRetirementPrerequisites` is a conjunction of queue prefixes. It merges
-values only in the same queue and generation. Cancellation remains distinct
-from successful content production. A canceled maximum becomes retireable only
-after its earlier queue prefix retires; otherwise compression could hide older
-GPU uses. Failure and device loss never authorize ordinary retirement.
+`FRHIRetirementPrerequisites` retains exact deduplicated logical uses, including
+unassociated recordings. Adding a use may prune already retireable entries.
+Cancellation remains distinct from successful content production. An associated
+canceled signal becomes retireable only after its earlier queue prefix retires;
+an unassociated canceled recording is retireable after executable owners detach.
+Failure and device loss never authorize ordinary retirement. Success dependencies
+retain every producer and never replace failed/canceled output with a later value.
 
 `RHIGetCompletionStatus` reads published metadata without dispatch or GPU waits.
-`RHIWaitForCompletion` waits an exact submitted ticket with a GPU timeout and
+`RHIWaitForCompletion` waits an exact submitted sync point with a GPU timeout and
 returns separate pending, timeout, cancellation, failure and device-loss
 outcomes. CPU dispatch latency is outside that GPU timeout. The wait does not
 submit pending GPU work or infer completion from another device generation.
+`WaitForRHIGPUSyncPoint` first observes terminal metadata and is safe after
+backend shutdown. Pending recordings return Pending without dispatching replay
+or blocking the backend thread on its own work; submitted signals route through
+the active backend. Observer destruction never cancels executable work.
 
 The executor `FrameNumber` starts at zero and advances only after a successful
 replayed `RHIEndFrame`; callers do not supply it. Ordered `BeginFrame` passes the
@@ -242,28 +257,30 @@ token completes. See [Vulkan memory and GPU completion](VulkanMemoryAndGPUComple
 
 ## Recorded GPU Submissions
 
-`BeginGPUSubmission` copies a physical queue ID and dependency receipts into
-the recording and returns a pending `FRHIGPUSubmissionReceipt`.
+`BeginGPUSubmission` copies a physical queue ID and owning dependency sync points
+into the recording and returns a pending `FRHIGPUSyncPointRef`.
 `EndGPUSubmission` closes the scope; scopes cannot nest or cross a render-pass
 boundary. A regular recorder must close the scope before `FinishRecording`.
 The immediate recorder may replay or submit a CPU segment inside a scope.
 Both recorded boundary commands and the open scope share its cancellation
 lease, so retiring an early native payload cannot cancel the later signal.
-Discarding all executable owners cancels an unresolved receipt.
+Discarding all executable owners cancels an unassociated signal.
 
-Backend replay resolves each signal once to an RHI-owned native ticket. Until
-then `GetTicket()` is invalid even though the receipt state is pending. A
-resolved receipt observes its ticket's submission, completion, or failure;
-canceling an unresolved recording never cancels already-submitted native work.
-Receipts certify covered GPU work, not the success of a graph callback.
+Backend replay binds each signal once to backend reservation metadata and the
+payload retains that same object. Callers never resolve a second handle. The
+recording lease's final detach cannot cancel a bound signal; its native owner
+now decides completion or failure. Canceling an unassociated recording never
+cancels already-submitted native work. Sync points certify covered GPU work,
+not the success of a graph callback.
 
-Vulkan currently accepts graphics-queue batches only. Dependencies must resolve
-to live or completed tickets owned by that queue's timeline. Same-queue waits
-lower to FIFO ordering and resource barriers; consecutive logical batches can
-share one native ticket. Their boundaries do not finalize command buffers or
+Vulkan accepts provisioned physical queues. Dependencies must identify live or
+completed work owned by this device. Same-queue waits lower to FIFO ordering
+and resource barriers; consecutive logical batches on a single-queue device can
+share one native reservation. Their boundaries do not finalize command buffers or
 interrupt surrounding diagnostic and GPU-timing scopes. Existing explicit
 submission, frame pacing and upload-pressure boundaries still submit payloads.
-No cross-queue semaphore behavior is implied by this single-queue mapping.
+Cross-queue dependencies lower to native timeline semaphore waits and preserve
+release/acquire ownership barriers; no per-pass CPU wait is introduced.
 
 Explicit `ReleaseQueueOwnership` and `AcquireQueueOwnership` commands retain
 shared transfer pairs through replay and route each side by its physical queue

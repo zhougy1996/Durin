@@ -1,4 +1,5 @@
 #include "VulkanSubmission.h"
+#include "Backend/RHICompletionBackend.h"
 
 #include "VulkanCommandBuffer.h"
 #include "VulkanCompletion.h"
@@ -10,30 +11,41 @@
 
 namespace Durin::VulkanRHI
 {
-	FVulkanPayload::FVulkanPayload(FVulkanQueue& InQueue, uint64 InToken)
-		: Queue(InQueue), Token(InToken), Ticket(InQueue.GetCompletionTracker().GetLastReservedTicket())
+	FVulkanPayload::FVulkanPayload(FVulkanQueue& InQueue, FRHIGPUSyncPointRef InSyncPoint)
+		: Queue(InQueue), SyncPoint(std::move(InSyncPoint))
 	{
-		require(Ticket.GetPoint().Value == Token);
+		require(Queue.GetCompletionTracker().Owns(SyncPoint)
+			&& SyncPoint.GetState() == ERHIGPUSubmissionState::Pending);
 	}
 
 	FVulkanPayload::~FVulkanPayload()
 	{
 		if (!TimingQueries.empty()) Queue.GetDevice().GetGPUTimingManager().Discard(TimingQueries);
-		if (Ticket.GetState() == ERHIGPUSubmissionState::Pending)
+		if (SyncPoint.GetState() == ERHIGPUSubmissionState::Pending)
 		{
-			Queue.GetCompletionTracker().CancelUnsubmitted(Ticket);
+			Queue.GetCompletionTracker().CancelUnsubmitted(SyncPoint);
 			for (auto* CommandBuffer : CommandBuffers) CommandBuffer->Reset();
 		}
 	}
 
-	auto FVulkanSubmissionCoordinator::Submit(std::unique_ptr<FVulkanPayload> Payload) -> FRHIGPUSubmissionTicket
+	auto FVulkanPayload::AttachSignal(const FRHIGPUSyncPointRef& Signal) -> bool
+	{
+		CheckVulkanRHIThread();
+		// Retain the same logical object, allocating storage before publishing its binding.
+		Signals.push_back(Signal);
+		if (FRHIGPUSyncPointBackend::Attach(Signal, SyncPoint)) return true;
+		Signals.pop_back();
+		return false;
+	}
+
+	auto FVulkanSubmissionCoordinator::Submit(std::unique_ptr<FVulkanPayload> Payload) -> FRHIGPUSyncPointRef
 	{
 		require(Payload);
-		const auto Ticket = Payload->GetTicket();
+		const auto SyncPoint = Payload->GetSyncPoint();
 		std::vector<std::unique_ptr<FVulkanPayload>> Batch;
 		Batch.push_back(std::move(Payload));
 		SubmitBatch(std::move(Batch));
-		return Ticket;
+		return SyncPoint;
 	}
 
 	auto FVulkanSubmissionCoordinator::SubmitBatch(std::vector<std::unique_ptr<FVulkanPayload>> Payloads) -> void
@@ -48,16 +60,16 @@ namespace Durin::VulkanRHI
 		for (size_t Index = 0; Index < Payloads.size(); ++Index)
 		{
 			const auto& Payload = Payloads[Index];
-			require(Payload && Device.FindQueue(Payload->Ticket.GetPoint().Queue) == &Payload->Queue
-				&& Payload->Queue.GetCompletionTracker().Owns(Payload->Ticket)
-				&& Payload->Ticket.GetState() == ERHIGPUSubmissionState::Pending);
+			require(Payload && Device.FindQueue(FRHIGPUSyncPointBackend::GetPoint(Payload->SyncPoint).Queue) == &Payload->Queue
+				&& Payload->Queue.GetCompletionTracker().Owns(Payload->SyncPoint)
+				&& Payload->SyncPoint.GetState() == ERHIGPUSubmissionState::Pending);
 			for (size_t Earlier = 0; Earlier < Payloads.size(); ++Earlier)
 				if (Payloads[Earlier] && &Payloads[Earlier]->Queue == &Payload->Queue
-					&& Payloads[Earlier]->Token < Payload->Token)
+					&& FRHIGPUSyncPointBackend::GetPoint(Payloads[Earlier]->SyncPoint).Value < FRHIGPUSyncPointBackend::GetPoint(Payload->SyncPoint).Value)
 					Dependencies[Index].push_back(Earlier);
 			for (const auto& Wait : Payload->CompletionWaits)
 			{
-				auto* Producer = Device.FindQueue(Wait.GetPoint().Queue);
+				auto* Producer = Device.FindQueue(FRHIGPUSyncPointBackend::GetPoint(Wait).Queue);
 				if (!Producer || !Producer->GetCompletionTracker().Owns(Wait))
 					throw std::runtime_error("Vulkan batch dependency has foreign completion authority.");
 				const auto State = Wait.GetState();
@@ -65,7 +77,7 @@ namespace Durin::VulkanRHI
 				if (State != ERHIGPUSubmissionState::Pending)
 					throw std::runtime_error("Vulkan batch dependency cannot complete successfully.");
 				const auto It = std::ranges::find_if(Payloads, [&](const auto& Candidate) {
-					return Candidate && Candidate->Ticket.GetPoint() == Wait.GetPoint();
+					return Candidate && FRHIGPUSyncPointBackend::GetPoint(Candidate->SyncPoint) == FRHIGPUSyncPointBackend::GetPoint(Wait);
 				});
 				if (It == Payloads.end())
 					throw std::runtime_error("Vulkan batch is missing an unsubmitted producer.");
@@ -92,11 +104,11 @@ namespace Durin::VulkanRHI
 		// Validate every queue's complete pending prefix before the first native call.
 		for (const auto& QueueInfo : Device.GetQueueCapabilities().Queues)
 		{
-			std::vector<FRHIGPUSubmissionTicket> Tickets;
+			std::vector<FRHIGPUSyncPointRef> SyncPoints;
 			for (size_t Index : Order)
-				if (Payloads[Index]->Ticket.GetPoint().Queue == QueueInfo.Id)
-					Tickets.push_back(Payloads[Index]->Ticket);
-			if (!Tickets.empty() && !Device.FindQueue(QueueInfo.Id)->GetCompletionTracker().CanSubmitBatch(Tickets))
+				if (FRHIGPUSyncPointBackend::GetPoint(Payloads[Index]->SyncPoint).Queue == QueueInfo.Id)
+					SyncPoints.push_back(Payloads[Index]->SyncPoint);
+			if (!SyncPoints.empty() && !Device.FindQueue(QueueInfo.Id)->GetCompletionTracker().CanSubmitBatch(SyncPoints))
 				throw std::runtime_error("Vulkan batch is missing an earlier queue reservation.");
 		}
 		for (size_t Index : Order) SubmitNative(std::move(Payloads[Index]));
@@ -105,7 +117,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanSubmissionCoordinator::SubmitNative(std::unique_ptr<FVulkanPayload> Payload) -> void
 	{
 		CheckVulkanRHIThread();
-		require(Payload && Device.FindQueue(Payload->Ticket.GetPoint().Queue) == &Payload->Queue);
+		require(Payload && Device.FindQueue(FRHIGPUSyncPointBackend::GetPoint(Payload->SyncPoint).Queue) == &Payload->Queue);
 		std::vector<FVulkanPayload*> NativePayloads{Payload.get()};
 		try { Payload->Queue.SubmitPayloads(NativePayloads); }
 		catch (...)
@@ -118,20 +130,20 @@ namespace Durin::VulkanRHI
 		Device.GetGPUTimingManager().MarkSubmitted(Submitted->TimingQueries);
 	}
 
-	auto FVulkanSubmissionCoordinator::SubmitContext(FVulkanCommandListContext& Context) -> FRHIGPUSubmissionTicket
+	auto FVulkanSubmissionCoordinator::SubmitContext(FVulkanCommandListContext& Context) -> FRHIGPUSyncPointRef
 	{
-		const auto Ticket = EnqueueContext(Context);
+		const auto SyncPoint = EnqueueContext(Context);
 		SubmitPendingContexts();
-		return Ticket;
+		return SyncPoint;
 	}
 
-	auto FVulkanSubmissionCoordinator::EnqueueContext(FVulkanCommandListContext& Context) -> FRHIGPUSubmissionTicket
+	auto FVulkanSubmissionCoordinator::EnqueueContext(FVulkanCommandListContext& Context) -> FRHIGPUSyncPointRef
 	{
 		CheckVulkanRHIThread();
 		auto Payload = Context.Finalize();
-		const auto Ticket = Payload->GetTicket();
+		const auto SyncPoint = Payload->GetSyncPoint();
 		PendingPayloads.push_back(std::move(Payload));
-		return Ticket;
+		return SyncPoint;
 	}
 
 	auto FVulkanSubmissionCoordinator::DiscardPending() -> void
@@ -166,7 +178,7 @@ namespace Durin::VulkanRHI
 		if (auto Retained = Owner.lock())
 		{
 			const auto Uses = GetAllocationUses(Retained);
-			requiref(!Uses.GetTickets().empty(), "Allocation is still owned by an unsubmitted recording.");
+			requiref(!Uses.GetSyncPoints().empty(), "Allocation is still owned by an unsubmitted recording.");
 			Device.WaitForUses(Uses);
 		}
 		requiref(Owner.expired(), "Allocation is still owned outside completed submissions.");
