@@ -202,24 +202,28 @@ namespace Durin::ObjectPackage
 		auto operator==(const FPackageSummary&) const -> bool = default;
 	};
 
-	enum class ELinkerFailure : uint8
+	enum class ELinkerError : uint8
 	{
-		None,
-		InvalidIndex,
-		InvalidType,
-		InvalidTopology,
-		LimitExceeded,
-		UnsupportedValue,
+		None, OuterCycle, ImportIndexOutOfRange, ExportIndexOutOfRange,
 	};
 
-	struct FLinkerDiagnostic
+	struct FLinkerError
 	{
-		ELinkerFailure Failure = ELinkerFailure::None;
-		std::string LogicalPath;
-		std::string Message;
-
-		auto Reset() -> void { *this = {}; }
+		ELinkerError Code = ELinkerError::None;
+		FPackageIndex RequestedIndex;
+		FPackageIndex FailedIndex;
+		size_t TableSize = 0;
+		auto HasError() const -> bool { return Code != ELinkerError::None; }
 	};
+
+	struct FLinkerResult
+	{
+		FLinkerError Error;
+		auto Succeeded() const -> bool { return !Error.HasError(); }
+		explicit operator bool() const { return Succeeded(); }
+	};
+
+	COREDOBJECT_API auto FormatLinkerError(const FLinkerError& Error) -> std::string;
 
 	// Owns the format-neutral package tables consumed by save/load linkers.
 	class FLinkerTables
@@ -239,8 +243,7 @@ namespace Durin::ObjectPackage
 		COREDOBJECT_API auto TryGetSchema(uint64 OneBasedIndex, const FSerializedSchema*& Out) const -> bool;
 		COREDOBJECT_API auto TryGetImport(FPackageIndex Index, const FPackageImport*& Out) const -> bool;
 		COREDOBJECT_API auto TryGetExport(FPackageIndex Index, const FPackageExport*& Out) const -> bool;
-		COREDOBJECT_API auto TryResolvePath(FPackageIndex Index, std::string& Out,
-			FLinkerDiagnostic* OutDiagnostic = nullptr) const -> bool;
+		COREDOBJECT_API auto TryResolvePath(FPackageIndex Index, std::string& Out) const -> FLinkerResult;
 
 		auto operator==(const FLinkerTables&) const -> bool = default;
 	};

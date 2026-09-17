@@ -273,6 +273,15 @@ custom versions, imports, exports, property tags, provenance, values, and BulkDa
 placement facts. `FPackageIndex` represents null/import/export identity without
 exposing wire arithmetic.
 
+`FLinkerTables::TryResolvePath` returns `FLinkerResult` with a typed cause,
+requested/failed package indices, and the relevant table size. Detached
+`ObjectPackage::BuildCanonicalMapKeyToken` returns `FCanonicalMapKeyResult`
+with the failing kind, type parameter, value/count context, and an owned
+outer-to-inner field/array route. Both derive success from their error and
+publish output only on success. `FormatLinkerError` and
+`FormatCanonicalMapKeyError` generate text at presentation or legacy adapters;
+neither migrated API accepts an error output parameter.
+
 The closed value domain covers scalar integers and floats, Bool, String, Name,
 Guid, Enum, intrinsic math values, Struct, fixed and dynamic arrays, Map, hard
 and soft references, bytes, and BulkData. Every property tag carries declaring

@@ -445,10 +445,10 @@ namespace Durin::AssetPrivate
 				for (size_t Index = 0; Index < Value.Elements.size(); Index += 2)
 				{
 					FByteBuffer Token;
-					std::string Error;
-					if (!ObjectPackage::BuildCanonicalMapKeyToken(
-						Type.Children[0], Value.Elements[Index], Token, &Error))
-						return LinkerApplyFail(Diagnostic, EAssetError::CorruptFile, Error);
+					if (const auto Result = ObjectPackage::BuildCanonicalMapKeyToken(
+						Type.Children[0], Value.Elements[Index], Token); !Result)
+						return LinkerApplyFail(Diagnostic, EAssetError::CorruptFile,
+							ObjectPackage::FormatCanonicalMapKeyError(Result.Error));
 					Path.push_back(FAuthoredOverridePathToken::MapValue(std::move(Token)));
 					if (!RestoreNestedReplacements(Type.Children[1], Value.Elements[Index + 1], Linker, Path,
 						Entries, Diagnostic)) return false;

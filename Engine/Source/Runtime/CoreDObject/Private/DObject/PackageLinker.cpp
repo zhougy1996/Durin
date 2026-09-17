@@ -16,13 +16,6 @@ namespace Durin::ObjectPackage
 			}
 			return Left.size() <=> Right.size();
 		}
-
-		auto Fail(FLinkerDiagnostic* Diagnostic, ELinkerFailure Failure,
-			std::string Message, std::string Path = {}) -> bool
-		{
-			if (Diagnostic) *Diagnostic = {Failure, std::move(Path), std::move(Message)};
-			return false;
-		}
 	}
 
 	auto FPackageIndex::TryFromRaw(int64 Raw, FPackageIndex& Out) -> bool
@@ -123,35 +116,29 @@ namespace Durin::ObjectPackage
 		return true;
 	}
 
-	auto FLinkerTables::TryResolvePath(FPackageIndex Index, std::string& Out,
-		FLinkerDiagnostic* OutDiagnostic) const -> bool
+	auto FLinkerTables::TryResolvePath(FPackageIndex Index, std::string& Out) const -> FLinkerResult
 	{
-		if (OutDiagnostic) OutDiagnostic->Reset();
 		std::vector<FPackageIndex> Chain;
 		FPackageIndex Current = Index;
 		while (!Current.IsNull())
 		{
 			if (Chain.size() > Imports.size() + Exports.size())
-				return Fail(OutDiagnostic, ELinkerFailure::InvalidTopology,
-					"Package Outer topology contains a cycle.");
+				return {{ELinkerError::OuterCycle, Index, Current, Imports.size() + Exports.size()}};
 			if (std::ranges::find(Chain, Current) != Chain.end())
-				return Fail(OutDiagnostic, ELinkerFailure::InvalidTopology,
-					"Package Outer topology contains a cycle.");
+				return {{ELinkerError::OuterCycle, Index, Current, Imports.size() + Exports.size()}};
 			Chain.push_back(Current);
 			if (Current.IsImport())
 			{
 				const FPackageImport* Import = nullptr;
 				if (!TryGetImport(Current, Import))
-					return Fail(OutDiagnostic, ELinkerFailure::InvalidIndex,
-						"Package import index is out of range.");
+					return {{ELinkerError::ImportIndexOutOfRange, Index, Current, Imports.size()}};
 				Current = Import->Outer;
 			}
 			else
 			{
 				const FPackageExport* Export = nullptr;
 				if (!TryGetExport(Current, Export))
-					return Fail(OutDiagnostic, ELinkerFailure::InvalidIndex,
-						"Package export index is out of range.");
+					return {{ELinkerError::ExportIndexOutOfRange, Index, Current, Exports.size()}};
 				Current = Export->Outer;
 			}
 		}
@@ -171,6 +158,18 @@ namespace Durin::ObjectPackage
 			Result.append(Name);
 		}
 		Out = std::move(Result);
-		return true;
+		return {};
+	}
+
+	auto FormatLinkerError(const FLinkerError& Error) -> std::string
+	{
+		switch (Error.Code)
+		{
+		case ELinkerError::None: return {};
+		case ELinkerError::OuterCycle: return "Package Outer topology contains a cycle.";
+		case ELinkerError::ImportIndexOutOfRange: return "Package import index is out of range.";
+		case ELinkerError::ExportIndexOutOfRange: return "Package export index is out of range.";
+		}
+		return {};
 	}
 }

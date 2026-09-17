@@ -29,10 +29,17 @@ namespace Durin::ObjectPackage
 			AppendBigEndian(Out, Bits);
 		}
 
-		auto Fail(std::string_view Message, std::string* OutError) -> bool
+		auto Fail(ECanonicalMapKeyError Code, const FSerializedType& Type,
+			const FSerializedValue& Value, size_t ActualCount = 0, size_t ExpectedCount = 0)
+			-> FCanonicalMapKeyResult
 		{
-			if (OutError) *OutError = Message;
-			return false;
+			return {{Code, Type.Kind, Type.Parameter, Value.Signed, Value.Unsigned, ActualCount, ExpectedCount}};
+		}
+
+		auto At(FCanonicalMapKeyResult Result, size_t Index) -> FCanonicalMapKeyResult
+		{
+			Result.Error.ValueRoute.insert(Result.Error.ValueRoute.begin(), Index);
+			return Result;
 		}
 
 		auto IntegerWidth(EValueKind Kind) -> std::optional<ECanonicalIntegerWidth>
@@ -97,16 +104,16 @@ namespace Durin::ObjectPackage
 		}
 
 		auto AppendValue(const FSerializedType& Type, const FSerializedValue& Value,
-			FCanonicalMapKeyWriter& Writer, std::string* OutError) -> bool;
+			FCanonicalMapKeyWriter& Writer) -> FCanonicalMapKeyResult;
 
 		auto AppendIntrinsic(const FSerializedType& Type, const FSerializedValue& Value,
-			FCanonicalMapKeyWriter& Writer, std::string* OutError) -> bool
+			FCanonicalMapKeyWriter& Writer) -> FCanonicalMapKeyResult
 		{
 			Writer.WriteType(ECanonicalMapKeyKind::Struct);
 			if (Type.Parameter == 5)
 			{
 				if (Value.ComponentBits.size() != 10)
-					return Fail("CanonicalMapKeyInvalidValue: transform component count is invalid.", OutError);
+					return Fail(ECanonicalMapKeyError::TransformComponentCount, Type, Value, Value.ComponentBits.size(), 10);
 				for (const auto [Ordinal, Layout, Offset, Count] : {
 					std::tuple<uint32, uint64, size_t, size_t>{0, 4, 0, 4},
 					std::tuple<uint32, uint64, size_t, size_t>{1, 2, 4, 3},
@@ -118,15 +125,15 @@ namespace Durin::ObjectPackage
 					ChildValue.ComponentBits.assign(
 						Value.ComponentBits.begin() + static_cast<ptrdiff_t>(Offset),
 						Value.ComponentBits.begin() + static_cast<ptrdiff_t>(Offset + Count));
-					if (!AppendIntrinsic(Child, ChildValue, Writer, OutError)) return false;
+					if (auto Result = AppendIntrinsic(Child, ChildValue, Writer); !Result) return At(std::move(Result), Ordinal);
 				}
-				return true;
+				return {};
 			}
 
 			const uint64 Count = Type.Parameter == 1 ? 2 :
 				(Type.Parameter == 2 ? 3 : (Type.Parameter == 3 || Type.Parameter == 4 || Type.Parameter == 6 ? 4 : 0));
 			if (Count == 0 || Value.ComponentBits.size() != Count)
-				return Fail("CanonicalMapKeyInvalidValue: intrinsic layout or component count is invalid.", OutError);
+				return Fail(ECanonicalMapKeyError::IntrinsicLayout, Type, Value, Value.ComponentBits.size(), Count);
 			for (uint32 Index = 0; Index < Count; ++Index)
 			{
 				Writer.WriteStructField(Index, 0);
@@ -141,14 +148,14 @@ namespace Durin::ObjectPackage
 					Writer.WriteFloat64Bits(Value.ComponentBits[Index]);
 				}
 			}
-			return true;
+			return {};
 		}
 
 		auto AppendStruct(const FSerializedType& Type, const FSerializedValue& Value,
-			FCanonicalMapKeyWriter& Writer, std::string* OutError) -> bool
+			FCanonicalMapKeyWriter& Writer) -> FCanonicalMapKeyResult
 		{
 			if (Type.Children.size() != Value.Elements.size())
-				return Fail("CanonicalMapKeyInvalidValue: struct fields do not match their type.", OutError);
+				return Fail(ECanonicalMapKeyError::StructFieldCount, Type, Value, Value.Elements.size(), Type.Children.size());
 			Writer.WriteType(ECanonicalMapKeyKind::Struct);
 			for (size_t Ordinal = 0; Ordinal < Type.Children.size(); ++Ordinal)
 			{
@@ -157,70 +164,71 @@ namespace Durin::ObjectPackage
 				if (Child.Kind == EValueKind::FixedArray)
 				{
 					if (Child.Children.size() != 1 || Child.Parameter != ChildValue.Elements.size())
-						return Fail("CanonicalMapKeyInvalidValue: fixed-array field shape is invalid.", OutError);
+						return At(Fail(ECanonicalMapKeyError::FixedArrayShape, Child, ChildValue, ChildValue.Elements.size(), Child.Parameter), Ordinal);
 					for (size_t Index = 0; Index < ChildValue.Elements.size(); ++Index)
 					{
 						Writer.WriteStructField(static_cast<uint32>(Ordinal), static_cast<uint32>(Index));
-						if (!AppendValue(Child.Children.front(), ChildValue.Elements[Index], Writer, OutError)) return false;
+						if (auto Result = AppendValue(Child.Children.front(), ChildValue.Elements[Index], Writer); !Result)
+							return At(At(std::move(Result), Index), Ordinal);
 					}
 				}
 				else
 				{
 					Writer.WriteStructField(static_cast<uint32>(Ordinal), 0);
-					if (!AppendValue(Child, ChildValue, Writer, OutError)) return false;
+					if (auto Result = AppendValue(Child, ChildValue, Writer); !Result) return At(std::move(Result), Ordinal);
 				}
 			}
-			return true;
+			return {};
 		}
 
 		auto AppendValue(const FSerializedType& Type, const FSerializedValue& Value,
-			FCanonicalMapKeyWriter& Writer, std::string* OutError) -> bool
+			FCanonicalMapKeyWriter& Writer) -> FCanonicalMapKeyResult
 		{
-			if (Type.Kind == EValueKind::Intrinsic) return AppendIntrinsic(Type, Value, Writer, OutError);
-			if (Type.Kind == EValueKind::Struct) return AppendStruct(Type, Value, Writer, OutError);
+			if (Type.Kind == EValueKind::Intrinsic) return AppendIntrinsic(Type, Value, Writer);
+			if (Type.Kind == EValueKind::Struct) return AppendStruct(Type, Value, Writer);
 			const auto Tag = CanonicalKind(Type.Kind);
-			if (!Tag) return Fail("CanonicalMapKeyUnsupported: value type is not canonicalizable.", OutError);
+			if (!Tag) return Fail(ECanonicalMapKeyError::UnsupportedType, Type, Value);
 			Writer.WriteType(*Tag);
 			switch (Type.Kind)
 			{
-			case EValueKind::Bool: Writer.WriteBool(Value.Bool); return true;
+			case EValueKind::Bool: Writer.WriteBool(Value.Bool); return {};
 			case EValueKind::I8: case EValueKind::I16: case EValueKind::I32: case EValueKind::I64:
 				if (!SignedFits(Type.Kind, Value.Signed))
-					return Fail("CanonicalMapKeyInvalidValue: signed value is out of range.", OutError);
-				Writer.WriteSigned(Value.Signed, *IntegerWidth(Type.Kind)); return true;
+					return Fail(ECanonicalMapKeyError::SignedOutOfRange, Type, Value);
+				Writer.WriteSigned(Value.Signed, *IntegerWidth(Type.Kind)); return {};
 			case EValueKind::U8: case EValueKind::U16: case EValueKind::U32: case EValueKind::U64:
 				if (!UnsignedFits(Type.Kind, Value.Unsigned))
-					return Fail("CanonicalMapKeyInvalidValue: unsigned value is out of range.", OutError);
-				Writer.WriteUnsigned(Value.Unsigned, *IntegerWidth(Type.Kind)); return true;
-			case EValueKind::F32: Writer.WriteFloat32Bits(static_cast<uint32>(Value.FloatingBits)); return true;
-			case EValueKind::F64: Writer.WriteFloat64Bits(Value.FloatingBits); return true;
-			case EValueKind::String: Writer.WriteString(Value.Text); return true;
-			case EValueKind::Name: Writer.WriteName(Value.Text, Value.NameNumber); return true;
-			case EValueKind::Guid: Writer.WriteGuid(Value.Guid); return true;
+					return Fail(ECanonicalMapKeyError::UnsignedOutOfRange, Type, Value);
+				Writer.WriteUnsigned(Value.Unsigned, *IntegerWidth(Type.Kind)); return {};
+			case EValueKind::F32: Writer.WriteFloat32Bits(static_cast<uint32>(Value.FloatingBits)); return {};
+			case EValueKind::F64: Writer.WriteFloat64Bits(Value.FloatingBits); return {};
+			case EValueKind::String: Writer.WriteString(Value.Text); return {};
+			case EValueKind::Name: Writer.WriteName(Value.Text, Value.NameNumber); return {};
+			case EValueKind::Guid: Writer.WriteGuid(Value.Guid); return {};
 			case EValueKind::Byte:
 				if (Value.Unsigned > std::numeric_limits<uint8>::max())
-					return Fail("CanonicalMapKeyInvalidValue: byte value is out of range.", OutError);
-				Writer.WriteUnsigned(Value.Unsigned, ECanonicalIntegerWidth::One); return true;
+					return Fail(ECanonicalMapKeyError::ByteOutOfRange, Type, Value);
+				Writer.WriteUnsigned(Value.Unsigned, ECanonicalIntegerWidth::One); return {};
 			case EValueKind::Enum:
 			{
 				const EValueKind Storage = static_cast<EValueKind>(Type.Parameter);
 				const auto Width = IntegerWidth(Storage);
-				if (!Width) return Fail("CanonicalMapKeyUnsupported: enum storage type is invalid.", OutError);
+				if (!Width) return Fail(ECanonicalMapKeyError::InvalidEnumStorage, Type, Value);
 				if (Storage >= EValueKind::I8 && Storage <= EValueKind::I64)
 				{
 					if (!SignedFits(Storage, Value.Signed))
-						return Fail("CanonicalMapKeyInvalidValue: enum value is out of range.", OutError);
+						return Fail(ECanonicalMapKeyError::EnumOutOfRange, Type, Value);
 					Writer.WriteSigned(Value.Signed, *Width);
 				}
 				else
 				{
 					if (!UnsignedFits(Storage, Value.Unsigned))
-						return Fail("CanonicalMapKeyInvalidValue: enum value is out of range.", OutError);
+						return Fail(ECanonicalMapKeyError::EnumOutOfRange, Type, Value);
 					Writer.WriteUnsigned(Value.Unsigned, *Width);
 				}
-				return true;
+				return {};
 			}
-			default: return Fail("CanonicalMapKeyUnsupported: value type is not canonicalizable.", OutError);
+			default: return Fail(ECanonicalMapKeyError::UnsupportedType, Type, Value);
 			}
 		}
 	}
@@ -295,12 +303,30 @@ namespace Durin::ObjectPackage
 	}
 
 	auto BuildCanonicalMapKeyToken(const FSerializedType& Type, const FSerializedValue& Value,
-		FByteBuffer& OutToken, std::string* OutError) -> bool
+		FByteBuffer& OutToken) -> FCanonicalMapKeyResult
 	{
-		if (OutError) OutError->clear();
 		FCanonicalMapKeyWriter Writer;
-		if (!AppendValue(Type, Value, Writer, OutError)) return false;
+		if (auto Result = AppendValue(Type, Value, Writer); !Result) return Result;
 		OutToken = Writer.TakeBytes();
-		return true;
+		return {};
+	}
+
+	auto FormatCanonicalMapKeyError(const FCanonicalMapKeyError& Error) -> std::string
+	{
+		switch (Error.Code)
+		{
+		case ECanonicalMapKeyError::None: return {};
+		case ECanonicalMapKeyError::TransformComponentCount: return "CanonicalMapKeyInvalidValue: transform component count is invalid.";
+		case ECanonicalMapKeyError::IntrinsicLayout: return "CanonicalMapKeyInvalidValue: intrinsic layout or component count is invalid.";
+		case ECanonicalMapKeyError::StructFieldCount: return "CanonicalMapKeyInvalidValue: struct fields do not match their type.";
+		case ECanonicalMapKeyError::FixedArrayShape: return "CanonicalMapKeyInvalidValue: fixed-array field shape is invalid.";
+		case ECanonicalMapKeyError::UnsupportedType: return "CanonicalMapKeyUnsupported: value type is not canonicalizable.";
+		case ECanonicalMapKeyError::SignedOutOfRange: return "CanonicalMapKeyInvalidValue: signed value is out of range.";
+		case ECanonicalMapKeyError::UnsignedOutOfRange: return "CanonicalMapKeyInvalidValue: unsigned value is out of range.";
+		case ECanonicalMapKeyError::ByteOutOfRange: return "CanonicalMapKeyInvalidValue: byte value is out of range.";
+		case ECanonicalMapKeyError::InvalidEnumStorage: return "CanonicalMapKeyUnsupported: enum storage type is invalid.";
+		case ECanonicalMapKeyError::EnumOutOfRange: return "CanonicalMapKeyInvalidValue: enum value is out of range.";
+		}
+		return {};
 	}
 }

@@ -57,10 +57,39 @@ namespace Durin::ObjectPackage
 		FByteBuffer Bytes;
 	};
 
+	enum class ECanonicalMapKeyError : uint8
+	{
+		None, TransformComponentCount, IntrinsicLayout, StructFieldCount,
+		FixedArrayShape, UnsupportedType, SignedOutOfRange, UnsignedOutOfRange,
+		ByteOutOfRange, InvalidEnumStorage, EnumOutOfRange,
+	};
+
+	struct FCanonicalMapKeyError
+	{
+		ECanonicalMapKeyError Code = ECanonicalMapKeyError::None;
+		EValueKind Kind = EValueKind::Bool;
+		uint64 TypeParameter = 0;
+		int64 SignedValue = 0;
+		uint64 UnsignedValue = 0;
+		size_t ActualCount = 0;
+		size_t ExpectedCount = 0;
+		// Outer-to-inner field ordinals and fixed-array indices.
+		std::vector<size_t> ValueRoute;
+		auto HasError() const -> bool { return Code != ECanonicalMapKeyError::None; }
+	};
+
+	struct FCanonicalMapKeyResult
+	{
+		FCanonicalMapKeyError Error;
+		auto Succeeded() const -> bool { return !Error.HasError(); }
+		explicit operator bool() const { return Succeeded(); }
+	};
+
+	COREDOBJECT_API auto FormatCanonicalMapKeyError(const FCanonicalMapKeyError& Error) -> std::string;
+
 	// Builds one detached canonical token and replaces output only after complete success.
 	COREDOBJECT_API auto BuildCanonicalMapKeyToken(
 		const FSerializedType& Type,
 		const FSerializedValue& Value,
-		FByteBuffer& OutToken,
-		std::string* OutError = nullptr) -> bool;
+		FByteBuffer& OutToken) -> FCanonicalMapKeyResult;
 }

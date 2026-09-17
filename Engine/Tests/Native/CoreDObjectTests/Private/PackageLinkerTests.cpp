@@ -23,8 +23,8 @@ namespace
 		-> Durin::FByteBuffer
 	{
 		Durin::FByteBuffer Result;
-		std::string Error;
-		EXPECT_TRUE(Package::BuildCanonicalMapKeyToken({.Kind = Kind}, Value, Result, &Error)) << Error;
+		const auto Status = Package::BuildCanonicalMapKeyToken({.Kind = Kind}, Value, Result);
+		EXPECT_TRUE(Status) << Package::FormatCanonicalMapKeyError(Status.Error);
 		return Result;
 	}
 
@@ -234,19 +234,21 @@ TEST(FPackageLinkerContractTests, CheckedTablesResolvePathsAndRejectInvalidTopol
 	EXPECT_EQ(Name, "Root");
 	EXPECT_FALSE(Tables.TryGetName(0, Name));
 	std::string Path = "sentinel";
-	Package::FLinkerDiagnostic Diagnostic;
-	EXPECT_TRUE(Tables.TryResolvePath(Child, Path, &Diagnostic));
+	EXPECT_TRUE(Tables.TryResolvePath(Child, Path));
 	EXPECT_EQ(Path, "Root/Child");
 	Package::FPackageIndex Import;
 	ASSERT_TRUE(Package::FPackageIndex::TryImport(0, Import));
 	Durin::FObjectPath ExternalPath;
 	ASSERT_TRUE(Durin::FObjectPath::TryCreate("/Game/External.External", ExternalPath));
 	Tables.Imports = {{.ObjectPath = ExternalPath}};
-	EXPECT_TRUE(Tables.TryResolvePath(Import, Path, &Diagnostic));
+	EXPECT_TRUE(Tables.TryResolvePath(Import, Path));
 	EXPECT_EQ(Path, "/Game/External.External");
 	Tables.Exports.front().Outer = Child;
-	EXPECT_FALSE(Tables.TryResolvePath(Child, Path, &Diagnostic));
-	EXPECT_EQ(Diagnostic.Failure, Package::ELinkerFailure::InvalidTopology);
+	const auto Cycle = Tables.TryResolvePath(Child, Path);
+	EXPECT_FALSE(Cycle);
+	EXPECT_EQ(Cycle.Error.Code, Package::ELinkerError::OuterCycle);
+	EXPECT_EQ(Cycle.Error.RequestedIndex, Child);
+	EXPECT_EQ(Cycle.Error.FailedIndex, Child);
 	EXPECT_EQ(Path, "/Game/External.External");
 }
 
@@ -355,11 +357,122 @@ TEST(FPackageLinkerContractTests, CanonicalEnumStorageWidthsRemainExact)
 TEST(FPackageLinkerContractTests, CanonicalTokenFailureIsAtomic)
 {
 	Durin::FByteBuffer TokenBytes = Bytes({0xaa});
-	std::string Error;
-	EXPECT_FALSE(Package::BuildCanonicalMapKeyToken(
-		{.Kind = Package::EValueKind::Map}, {}, TokenBytes, &Error));
+	const auto Result = Package::BuildCanonicalMapKeyToken(
+		{.Kind = Package::EValueKind::Map}, {}, TokenBytes);
+	EXPECT_FALSE(Result);
+	EXPECT_EQ(Result.Error.Code, Package::ECanonicalMapKeyError::UnsupportedType);
+	EXPECT_EQ(Result.Error.Kind, Package::EValueKind::Map);
 	EXPECT_EQ(TokenBytes, Bytes({0xaa}));
-	EXPECT_EQ(Error, "CanonicalMapKeyUnsupported: value type is not canonicalizable.");
+	EXPECT_TRUE(Result.Error.ValueRoute.empty());
+}
+
+TEST(FPackageLinkerContractTests, LinkerErrorsRetainRequestedAndFailedIndices)
+{
+	Package::FLinkerTables Tables;
+	Package::FPackageIndex Root, MissingExport, MissingImport;
+	ASSERT_TRUE(Package::FPackageIndex::TryExport(0, Root));
+	ASSERT_TRUE(Package::FPackageIndex::TryExport(3, MissingExport));
+	ASSERT_TRUE(Package::FPackageIndex::TryImport(4, MissingImport));
+	Tables.Exports = {{.ObjectName = "Root", .Outer = MissingExport}};
+	std::string Path = "sentinel";
+	const auto ExportFailure = Tables.TryResolvePath(Root, Path);
+	ASSERT_FALSE(ExportFailure);
+	EXPECT_EQ(ExportFailure.Error.Code, Package::ELinkerError::ExportIndexOutOfRange);
+	EXPECT_EQ(ExportFailure.Error.RequestedIndex, Root);
+	EXPECT_EQ(ExportFailure.Error.FailedIndex, MissingExport);
+	EXPECT_EQ(ExportFailure.Error.TableSize, 1u);
+	EXPECT_EQ(Path, "sentinel");
+
+	Tables.Exports.front().Outer = MissingImport;
+	const auto ImportFailure = Tables.TryResolvePath(Root, Path);
+	ASSERT_FALSE(ImportFailure);
+	EXPECT_EQ(ImportFailure.Error.Code, Package::ELinkerError::ImportIndexOutOfRange);
+	EXPECT_EQ(ImportFailure.Error.RequestedIndex, Root);
+	EXPECT_EQ(ImportFailure.Error.FailedIndex, MissingImport);
+	EXPECT_EQ(ImportFailure.Error.TableSize, 0u);
+	EXPECT_EQ(Path, "sentinel");
+
+	Tables.Exports.front().Outer = Package::FPackageIndex::Null();
+	const auto Success = Tables.TryResolvePath(Root, Path);
+	EXPECT_TRUE(Success);
+	EXPECT_FALSE(Success.Error.HasError());
+	EXPECT_EQ(Path, "Root");
+	EXPECT_TRUE(Tables.TryResolvePath(Package::FPackageIndex::Null(), Path));
+	EXPECT_TRUE(Path.empty());
+	// Previously returned failures own their context and survive table changes.
+	EXPECT_EQ(ExportFailure.Error.FailedIndex, MissingExport);
+}
+
+TEST(FPackageLinkerContractTests, CanonicalErrorsRetainNestedRouteAndValue)
+{
+	using K = Package::EValueKind;
+	using E = Package::ECanonicalMapKeyError;
+	Package::FSerializedType Type{.Kind = K::Struct, .Children = {
+		{.Kind = K::Bool},
+		{.Kind = K::FixedArray, .Parameter = 2, .Children = {{.Kind = K::I8}}}}};
+	Package::FSerializedValue Value;
+	Value.Elements = {{.Bool = true}, {.Elements = {{.Signed = 0}, {.Signed = 128}}}};
+	Durin::FByteBuffer Output = Bytes({0xaa});
+	const auto Result = Package::BuildCanonicalMapKeyToken(Type, Value, Output);
+	ASSERT_FALSE(Result);
+	EXPECT_EQ(Result.Error.Code, E::SignedOutOfRange);
+	EXPECT_EQ(Result.Error.Kind, K::I8);
+	EXPECT_EQ(Result.Error.SignedValue, 128);
+	EXPECT_EQ(Result.Error.ValueRoute, (std::vector<size_t>{1, 1}));
+	EXPECT_EQ(Output, Bytes({0xaa}));
+
+	Value.Elements[1].Elements.pop_back();
+	const auto Shape = Package::BuildCanonicalMapKeyToken(Type, Value, Output);
+	ASSERT_FALSE(Shape);
+	EXPECT_EQ(Shape.Error.Code, E::FixedArrayShape);
+	EXPECT_EQ(Shape.Error.ValueRoute, (std::vector<size_t>{1}));
+	EXPECT_EQ(Shape.Error.ActualCount, 1u);
+	EXPECT_EQ(Shape.Error.ExpectedCount, 2u);
+	EXPECT_EQ(Output, Bytes({0xaa}));
+	EXPECT_EQ(Result.Error.ValueRoute, (std::vector<size_t>{1, 1}));
+}
+
+TEST(FPackageLinkerContractTests, CanonicalErrorsClassifyScalarAndLayoutFailures)
+{
+	using K = Package::EValueKind;
+	using E = Package::ECanonicalMapKeyError;
+	struct FCase { Package::FSerializedType Type; Package::FSerializedValue Value; E Code; };
+	const std::array Cases{
+		FCase{{.Kind = K::U8}, {.Unsigned = 256}, E::UnsignedOutOfRange},
+		FCase{{.Kind = K::Byte}, {.Unsigned = 256}, E::ByteOutOfRange},
+		FCase{{.Kind = K::Enum, .Parameter = uint64(K::Bool)}, {}, E::InvalidEnumStorage},
+		FCase{{.Kind = K::Enum, .Parameter = uint64(K::I8)}, {.Signed = -129}, E::EnumOutOfRange},
+		FCase{{.Kind = K::Enum, .Parameter = uint64(K::U8)}, {.Unsigned = 256}, E::EnumOutOfRange},
+		FCase{{.Kind = K::Intrinsic, .Parameter = 5}, {}, E::TransformComponentCount},
+		FCase{{.Kind = K::Intrinsic, .Parameter = 2}, {}, E::IntrinsicLayout},
+		FCase{{.Kind = K::Struct, .Children = {{.Kind = K::Bool}}}, {}, E::StructFieldCount},
+	};
+	for (const auto& Case : Cases)
+	{
+		Durin::FByteBuffer Output = Bytes({0xaa});
+		const auto Result = Package::BuildCanonicalMapKeyToken(Case.Type, Case.Value, Output);
+		ASSERT_FALSE(Result);
+		EXPECT_EQ(Result.Error.Code, Case.Code);
+		EXPECT_EQ(Result.Error.Kind, Case.Type.Kind);
+		EXPECT_EQ(Result.Error.TypeParameter, Case.Type.Parameter);
+		EXPECT_EQ(Result.Error.SignedValue, Case.Value.Signed);
+		EXPECT_EQ(Result.Error.UnsignedValue, Case.Value.Unsigned);
+		EXPECT_EQ(Output, Bytes({0xaa}));
+	}
+	Durin::FByteBuffer Output;
+	const auto Success = Package::BuildCanonicalMapKeyToken({.Kind = K::Bool}, {}, Output);
+	EXPECT_TRUE(Success);
+	EXPECT_FALSE(Success.Error.HasError());
+}
+
+TEST(FPackageLinkerContractTests, TypedErrorFormattingIsAnExplicitBoundary)
+{
+	EXPECT_TRUE(Package::FormatLinkerError({}).empty());
+	EXPECT_TRUE(Package::FormatCanonicalMapKeyError({}).empty());
+	EXPECT_EQ(Package::FormatLinkerError({.Code = Package::ELinkerError::OuterCycle}),
+		"Package Outer topology contains a cycle.");
+	EXPECT_EQ(Package::FormatCanonicalMapKeyError({.Code = Package::ECanonicalMapKeyError::UnsupportedType}),
+		"CanonicalMapKeyUnsupported: value type is not canonicalizable.");
 }
 
 TEST(FPackageLinkerContractTests, LiveReflectedAndDetachedValuesShareCanonicalBytes)
@@ -376,7 +489,7 @@ TEST(FPackageLinkerContractTests, LiveReflectedAndDetachedValuesShareCanonicalBy
 	ASSERT_TRUE(Durin::BuildCanonicalMapKeyToken(
 		&IntegerProperty, &Integer, 0, Live, &Error)) << Error;
 	ASSERT_TRUE(Package::BuildCanonicalMapKeyToken(
-		{.Kind = Package::EValueKind::I32}, {.Signed = Integer}, Detached, &Error)) << Error;
+		{.Kind = Package::EValueKind::I32}, {.Signed = Integer}, Detached));
 	EXPECT_EQ(Live, Detached);
 
 	std::string Text = "shared";
@@ -387,6 +500,6 @@ TEST(FPackageLinkerContractTests, LiveReflectedAndDetachedValuesShareCanonicalBy
 	ASSERT_TRUE(Durin::BuildCanonicalMapKeyToken(
 		&StringProperty, &Text, 0, Live, &Error)) << Error;
 	ASSERT_TRUE(Package::BuildCanonicalMapKeyToken(
-		{.Kind = Package::EValueKind::String}, {.Text = Text}, Detached, &Error)) << Error;
+		{.Kind = Package::EValueKind::String}, {.Text = Text}, Detached));
 	EXPECT_EQ(Live, Detached);
 }

@@ -241,11 +241,11 @@ namespace Durin::ObjectPackage
 				FPackageIndex PackageIndex;
 				const bool bIndexOk = bImports ? FPackageIndex::TryImport(Index, PackageIndex)
 					: FPackageIndex::TryExport(Index, PackageIndex);
-				FLinkerDiagnostic LinkerDiagnostic;
-				if (!bIndexOk || !Linker.TryResolvePath(PackageIndex, Out[Index], &LinkerDiagnostic)
+				const auto PathResult = bIndexOk ? Linker.TryResolvePath(PackageIndex, Out[Index]) : FLinkerResult{};
+				if (!bIndexOk || !PathResult
 					|| Out[Index].empty())
 					return Fail(Diagnostic,
-						LinkerDiagnostic.Failure == ELinkerFailure::InvalidTopology
+						PathResult.Error.Code == ELinkerError::OuterCycle
 							? EPackageWriterFailure::InvalidTopology : EPackageWriterFailure::InvalidIndex,
 						"A package table path cannot be resolved.",
 						std::string(bImports ? "Imports[" : "Exports[") + std::to_string(Index) + "]");
@@ -415,9 +415,8 @@ namespace Durin::ObjectPackage
 					for (size_t Index = 0; Index < Value.Elements.size(); Index += 2)
 					{
 						FByteBuffer Token;
-						std::string Error;
-						if (!BuildCanonicalMapKeyToken(Type.Children[0], Value.Elements[Index], Token, &Error))
-							return Fail(Diagnostic, EPackageWriterFailure::InvalidValue, std::move(Error), Path);
+						if (const auto Result = BuildCanonicalMapKeyToken(Type.Children[0], Value.Elements[Index], Token); !Result)
+							return Fail(Diagnostic, EPackageWriterFailure::InvalidValue, FormatCanonicalMapKeyError(Result.Error), Path);
 						Entries.push_back({Index, std::move(Token)});
 					}
 					std::ranges::sort(Entries, [](const FEntry& A, const FEntry& B) { return A.Token < B.Token; });
@@ -801,9 +800,8 @@ namespace Durin::ObjectPackage
 				for (size_t Index = 0; Index < Value.Elements.size(); Index += 2)
 				{
 					FByteBuffer Token;
-					std::string Error;
-					if (!BuildCanonicalMapKeyToken(Type.Children[0], Value.Elements[Index], Token, &Error))
-						return Fail(Diagnostic, EPackageWriterFailure::InvalidValue, std::move(Error), std::string(Path));
+					if (const auto Result = BuildCanonicalMapKeyToken(Type.Children[0], Value.Elements[Index], Token); !Result)
+						return Fail(Diagnostic, EPackageWriterFailure::InvalidValue, FormatCanonicalMapKeyError(Result.Error), std::string(Path));
 					Entries.push_back({Index, std::move(Token)});
 				}
 				std::ranges::sort(Entries, [](const FEntry& A, const FEntry& B) { return A.Token < B.Token; });
