@@ -3078,3 +3078,163 @@ TEST(FMaterialGraphOperationsTests, PinAddressesPreserveDefaultsAndRejectReplace
 	EXPECT_EQ(Material->GetExpressionOutputs().RoughnessDefault, Default);
 	EXPECT_FALSE(Document.Connect(Target, {A.GeneratedNodeIds[0], EMaterialGraphPinKind::Input}, true));
 }
+
+TEST(FMaterialGraphOperationsTests, SharedMoveDraftPreservesIndependentPresentationEdits)
+{
+	InitializeDObjectSystem();
+	for (const bool bFunction : {false, true})
+	{
+		SCOPED_TRACE(bFunction);
+		TStrongObjectPtr<DObject> Owner(bFunction ? static_cast<DObject*>(NewObject<DMaterialFunction>(nullptr, NAME_None))
+			: static_cast<DObject*>(NewObject<DMaterial>(nullptr, NAME_None)));
+		FMaterialGraphDocument Document(*Owner.Get());
+		const auto Created = Testing::CreateGraphConstant(Document, .5f, 40, 80);
+		const auto Other = Testing::CreateGraphConstant(Document, .7f, 200, 80);
+		ASSERT_TRUE(Created); ASSERT_TRUE(Other);
+		const auto Id = Created.GeneratedNodeIds.front(), OtherId = Other.GeneratedNodeIds.front();
+		const auto Read = [&] { return GraphEditInternals::ReadGraphPresentation(*Owner.Get()); };
+		const auto Write = [&](FMaterialGraphPresentation P) {
+			ASSERT_NE(GraphEditInternals::WriteGraphPresentation(*Owner.Get(), std::move(P)), EMaterialGraphPresentationResult::Rejected);
+		};
+		auto Initial = Read();
+		std::ranges::find(Initial.Nodes, Id, &FMaterialGraphNodePresentation::NodeId)->DisplayName = "Original";
+		Write(Initial);
+		Durin::Tests::FTestTransactorOwner Transactions;
+		FMaterialGraphMoveSession Move;
+		ASSERT_TRUE(Move.Begin(*Owner.Get(), std::array{Id}, Transactions.Get()));
+		ASSERT_TRUE(Move.Apply(std::array{FMaterialGraphNodePresentation{Id, 400, 240, "Ignored"}}));
+		EXPECT_EQ(Read(), Initial); // Preview cannot dirty or publish the owner.
+		EXPECT_EQ(Transactions->GetUndoCount(), 0u);
+		auto External = Read();
+		std::ranges::find(External.Nodes, Id, &FMaterialGraphNodePresentation::NodeId)->DisplayName = "Renamed";
+		std::ranges::find(External.Nodes, OtherId, &FMaterialGraphNodePresentation::NodeId)->X = 900;
+		Write(External);
+		ASSERT_TRUE(Move.Cancel());
+		EXPECT_EQ(Read(), External);
+		ASSERT_TRUE(Move.Begin(*Owner.Get(), std::array{Id}, Transactions.Get()));
+		ASSERT_TRUE(Move.Apply(std::array{FMaterialGraphNodePresentation{Id, 400, 240}}));
+		ASSERT_TRUE(Move.Commit());
+		EXPECT_EQ(Transactions->GetUndoCount(), 1u);
+		EXPECT_EQ(FindViewNode(Document.Inspect(), Id)->Presentation.DisplayName, "Renamed");
+		auto Later = Read();
+		std::ranges::find(Later.Nodes, Id, &FMaterialGraphNodePresentation::NodeId)->DisplayName = "After move";
+		std::ranges::find(Later.Nodes, OtherId, &FMaterialGraphNodePresentation::NodeId)->X = 1100;
+		Write(Later);
+		ASSERT_TRUE(Transactions->Undo());
+		EXPECT_EQ(FindViewNode(Document.Inspect(), Id)->Presentation.X, 40);
+		EXPECT_EQ(FindViewNode(Document.Inspect(), Id)->Presentation.DisplayName, "After move");
+		EXPECT_EQ(FindViewNode(Document.Inspect(), OtherId)->Presentation.X, 1100);
+		ASSERT_TRUE(Transactions->Redo());
+		EXPECT_EQ(Read(), Later);
+		ASSERT_TRUE(Transactions->Reset());
+		ASSERT_TRUE(Move.Begin(*Owner.Get(), std::array{Id}, Transactions.Get()));
+		ASSERT_TRUE(Move.Apply(std::array{FMaterialGraphNodePresentation{Id, 400, 240}}));
+		EXPECT_EQ(Move.Commit().Status, EMaterialGraphCommandStatus::NoChange);
+		EXPECT_EQ(Transactions->GetUndoCount(), 0u);
+		// Direct position commands must also ignore the presentation label argument.
+		ASSERT_TRUE(Document.MoveNodes(std::array{FMaterialGraphNodePresentation{Id, 450, 240, "Ignored"}}, Transactions.Get()));
+		EXPECT_EQ(FindViewNode(Document.Inspect(), Id)->Presentation.DisplayName, "After move");
+		ASSERT_TRUE(Transactions->Undo());
+		EXPECT_EQ(Read(), Later);
+	}
+}
+
+TEST(FMaterialGraphOperationsTests, SharedMoveRejectsInvalidDraftsAndStaleOwners)
+{
+	InitializeDObjectSystem();
+	for (const bool bFunction : {false, true})
+	{
+		SCOPED_TRACE(bFunction);
+		TStrongObjectPtr<DObject> Owner(bFunction ? static_cast<DObject*>(NewObject<DMaterialFunction>(nullptr, NAME_None))
+			: static_cast<DObject*>(NewObject<DMaterial>(nullptr, NAME_None)));
+		FMaterialGraphDocument Document(*Owner.Get());
+		const auto Created = Testing::CreateGraphConstant(Document, .5f, 40, 80);
+		ASSERT_TRUE(Created);
+		const auto Id = Created.GeneratedNodeIds.front();
+		Durin::Tests::FTestTransactorOwner Transactions;
+		FMaterialGraphMoveSession Move;
+		ASSERT_TRUE(Move.Begin(*Owner.Get(), std::array{Id}, Transactions.Get()));
+		const FMaterialGraphNodePresentation Position{Id, 400, 240};
+		ASSERT_TRUE(Move.Apply(std::array{Position}));
+		EXPECT_FALSE(Move.Apply(std::array{Position, Position}));
+		EXPECT_FALSE(Move.Apply(std::array{FMaterialGraphNodePresentation{FGuid::NewGuid(), 0, 0}}));
+		EXPECT_FALSE(Move.Apply(std::array{FMaterialGraphNodePresentation{Id, MaterialGraphPresentationCoordinateLimit + 1, 0}}));
+		ASSERT_EQ(Move.GetPositions().size(), 1u);
+		EXPECT_EQ(Move.GetPositions().front().X, 400);
+		ASSERT_TRUE(Document.SetConstantValue(Id, FMaterialParameterValue::MakeScalar(.8f)));
+		EXPECT_FALSE(Move.Commit());
+		EXPECT_FALSE(Move.IsActive());
+		EXPECT_EQ(Transactions->GetUndoCount(), 0u);
+		EXPECT_EQ(FindViewNode(Document.Inspect(), Id)->Presentation.X, 40);
+		// A node without an authored presentation can still be moved and undone.
+		auto P = GraphEditInternals::ReadGraphPresentation(*Owner.Get());
+		std::erase_if(P.Nodes, [&](const auto& N) { return N.NodeId == Id; });
+		ASSERT_NE(GraphEditInternals::WriteGraphPresentation(*Owner.Get(), P), EMaterialGraphPresentationResult::Rejected);
+		ASSERT_TRUE(Move.Begin(*Owner.Get(), std::array{Id}, Transactions.Get()));
+		ASSERT_TRUE(Move.Apply(std::array{Position})); ASSERT_TRUE(Move.Commit());
+		EXPECT_EQ(FindViewNode(Document.Inspect(), Id)->Presentation.X, 400);
+		ASSERT_TRUE(Transactions->Undo());
+		EXPECT_EQ(GraphEditInternals::ReadGraphPresentation(*Owner.Get()), P);
+		const auto Fallback = FindViewNode(Document.Inspect(), Id)->Presentation;
+		ASSERT_TRUE(Transactions->Redo());
+		auto Labeled = GraphEditInternals::ReadGraphPresentation(*Owner.Get());
+		std::ranges::find(Labeled.Nodes, Id, &FMaterialGraphNodePresentation::NodeId)->DisplayName = "New label";
+		ASSERT_NE(GraphEditInternals::WriteGraphPresentation(*Owner.Get(), Labeled), EMaterialGraphPresentationResult::Rejected);
+		ASSERT_TRUE(Transactions->Undo());
+		const auto Restored = FindViewNode(Document.Inspect(), Id)->Presentation;
+		EXPECT_EQ(Restored.X, Fallback.X); EXPECT_EQ(Restored.Y, Fallback.Y);
+		EXPECT_EQ(Restored.DisplayName, "New label");
+	}
+}
+
+TEST(FMaterialGraphOperationsTests, FunctionLayoutUsesPositionHistoryAndPreservesLabels)
+{
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterialFunction> Function(NewObject<DMaterialFunction>(nullptr, NAME_None));
+	FMaterialGraphDocument Document(*Function.Get());
+	const auto First = Testing::CreateGraphConstant(Document, .5f, 0, 0);
+	const auto Second = Testing::CreateGraphConstant(Document, .7f, 0, 0);
+	ASSERT_TRUE(First); ASSERT_TRUE(Second);
+	auto Original = Function->GetFunctionPresentation();
+	Original.Nodes.front().DisplayName = "Keep label";
+	ASSERT_TRUE(Function->SetFunctionPresentation(Original));
+	const auto Revision = Function->GetFunctionRevision();
+	FMaterialGraphPresentation A, B;
+	ASSERT_TRUE(Document.CalculateLayout({}, A)); ASSERT_TRUE(Document.CalculateLayout({}, B));
+	EXPECT_EQ(A, B);
+	EXPECT_EQ(Function->GetFunctionPresentation(), Original);
+	Durin::Tests::FTestTransactorOwner Transactions;
+	ASSERT_TRUE(Document.Layout({}, Transactions.Get()));
+	EXPECT_EQ(Function->GetFunctionPresentation().Nodes, A.Nodes);
+	ASSERT_TRUE(Transactions->Undo()); EXPECT_EQ(Function->GetFunctionPresentation(), Original);
+	ASSERT_TRUE(Transactions->Redo()); EXPECT_EQ(Function->GetFunctionPresentation().Nodes, A.Nodes);
+	EXPECT_EQ(Function->GetFunctionRevision(), Revision);
+}
+
+TEST(FMaterialGraphOperationsTests, MoveHistorySizeDoesNotGrowWithUnchangedNodes)
+{
+	InitializeDObjectSystem();
+	for (const bool bFunction : {false, true})
+	{
+		SCOPED_TRACE(bFunction);
+		TStrongObjectPtr<DObject> Owner(bFunction ? static_cast<DObject*>(NewObject<DMaterialFunction>(nullptr, NAME_None))
+			: static_cast<DObject*>(NewObject<DMaterial>(nullptr, NAME_None)));
+		FMaterialGraphDocument Document(*Owner.Get());
+		const auto Created = Testing::CreateGraphConstant(Document, .5f, 40, 80);
+		ASSERT_TRUE(Created);
+		const auto Id = Created.GeneratedNodeIds.front();
+		Durin::Tests::FTestTransactorOwner Transactions;
+		FMaterialGraphMoveSession Move;
+		ASSERT_TRUE(Move.Begin(*Owner.Get(), std::array{Id}, Transactions.Get()));
+		ASSERT_TRUE(Move.Apply(std::array{FMaterialGraphNodePresentation{Id, 400, 240}}));
+		ASSERT_TRUE(Move.Commit());
+		const auto SmallBytes = Transactions->GetOwnedBytes();
+		ASSERT_TRUE(Transactions->Reset());
+		for (int Index = 0; Index < 32; ++Index)
+			ASSERT_TRUE(Testing::CreateGraphConstant(Document, .7f, Index * 100, 500));
+		ASSERT_TRUE(Move.Begin(*Owner.Get(), std::array{Id}, Transactions.Get()));
+		ASSERT_TRUE(Move.Apply(std::array{FMaterialGraphNodePresentation{Id, 600, 240}}));
+		ASSERT_TRUE(Move.Commit());
+		EXPECT_EQ(Transactions->GetOwnedBytes(), SmallBytes);
+	}
+}

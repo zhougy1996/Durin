@@ -76,7 +76,12 @@ parameters, including disconnected owners, with search by name, display name or
 group and grouping by slash-separated paths. Clicking a parameter selects and
 frames its owner; shared parameters expose navigation to each reference. Expanding
 a parameter exposes shared renaming, display name, group, sort order, compatible
-presentation modes and scalar range hints. These edits preserve parameter IDs,
+presentation modes, scalar range hints and numeric default values. Details and
+Parameters share continuous scalar/vector drags and Color presentation controls
+for base-material defaults. Each gesture previews parameter values without
+recompiling and records one undo step on release. Escape restores the original
+value; hiding the edited control or cancelling the document interaction discards
+its unfinished gesture. These edits preserve parameter IDs,
 instance overrides and per-node sampling inputs through ordinary transactions.
 Instances show their parameter override list in Parameters because they do not
 own a graph. The Window menu reopens Parameters and its visibility is persisted.

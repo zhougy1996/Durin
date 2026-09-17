@@ -191,22 +191,11 @@ namespace Durin::Editor::Material
 			State.Presentation.Nodes.push_back({Expression->Id, static_cast<int32>(PositionX), static_cast<int32>(PositionY), Entry.DisplayName});
 			State.Expressions.emplace_back(Expression.Get());
 		}
-		if (State.bFunction)
-		{
-			std::vector<DMaterialFunctionInterface*> Roots;
-			for (const auto& Expression : State.Expressions)
-				if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression.Get())) Roots.push_back(Call->Function.Get());
-			std::vector<FMaterialFunctionOwnerStamp> Closure;
-			const auto Result = ValidateMaterialFunctionDependencies(Roots, Closure, EMaterialFunctionValidationMode::Editing);
-			if (!Result) return MakeRejected("The function dependencies are invalid.", Result.Diagnostics);
-			if (std::ranges::any_of(Closure, [&](const auto& Dependency) { return Dependency.AssetPath == Owner.Get()->GetObjectPath(); }))
-				return MakeRejected("This change would introduce recursive function dependencies.");
-		}
 		if (Payload.bConnectAggregateSurface && !State.bFunction)
 		{
 			State.GetOutputs().Surface = {Remap.at(Payload.AggregateSourceNodeId), Payload.AggregateSourceOutputIndex, Payload.AggregateSourceOutputId};
 		}
-		auto Result = CommitGraphEdit(*Owner.Get(), State, "Paste Graph Nodes", Transactions);
+		auto Result = State.Commit("Paste Graph Nodes", Transactions);
 		if (Result)
 		{
 			Result.AffectedNodeIds = Generated;
@@ -222,14 +211,22 @@ namespace Durin::Editor::Material
 		int32 OffsetY,
 		DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
+		return FMaterialGraphDocument(Material).DuplicateNodes(NodeIds, OffsetX, OffsetY, Transactions);
+	}
+
+	auto FMaterialGraphDocument::DuplicateNodes(std::span<const FGuid> NodeIds,
+		int32 OffsetX, int32 OffsetY, DTransactor* Transactions) const -> FMaterialGraphCommandResult
+	{
 		FMaterialGraphClipboardPayload Payload;
-		FMaterialGraphCommandResult Copied = CopySelection(Material, NodeIds, Payload);
+		const auto Copied = CopySelection(NodeIds, Payload);
 		if (!Copied) return Copied;
-		const auto& Presentation = Material.GetMaterialGraphPresentation();
+		const auto* Material = Cast<DMaterial>(Owner.Get());
+		const auto& Presentation = Material ? Material->GetMaterialGraphPresentation().Nodes
+			: Cast<DMaterialFunction>(Owner.Get())->GetFunctionPresentation().Nodes;
 		int32 MinimumX = MaterialGraphPresentationCoordinateLimit;
 		int32 MinimumY = MaterialGraphPresentationCoordinateLimit;
-		std::unordered_set<FGuid> Selected(NodeIds.begin(), NodeIds.end());
-		for (const FMaterialGraphNodePresentation& Position : Presentation.Nodes)
+		std::unordered_set<FGuid> Selected(Copied.AffectedNodeIds.begin(), Copied.AffectedNodeIds.end());
+		for (const FMaterialGraphNodePresentation& Position : Presentation)
 			if (Selected.contains(Position.NodeId))
 			{
 				MinimumX = std::min(MinimumX, Position.X);
@@ -242,7 +239,7 @@ namespace Durin::Editor::Material
 			|| AnchorY < -MaterialGraphPresentationCoordinateLimit
 			|| AnchorY > MaterialGraphPresentationCoordinateLimit)
 			return MakeRejected("Duplicating would place a material graph node outside the supported coordinate range.");
-		return Paste(Material, Payload, static_cast<int32>(AnchorX),
+		return Paste(Payload, static_cast<int32>(AnchorX),
 			static_cast<int32>(AnchorY), Transactions);
 	}
 

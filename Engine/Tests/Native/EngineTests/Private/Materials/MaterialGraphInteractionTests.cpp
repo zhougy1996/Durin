@@ -1,4 +1,77 @@
 #include "MaterialGraphTestSupport.h"
+#include "Widgets/MaterialDetailsStyle.h"
+
+TEST(FMaterialGraphInteractionTests, ParameterValueControlsPreviewCoalesceAndCancel)
+{
+	InitializeDObjectSystem();
+	for (const auto Presentation : {EMaterialParameterPresentation::Drag, EMaterialParameterPresentation::Default,
+		EMaterialParameterPresentation::Color})
+	{
+		TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+		Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+		FMaterialParameterDefinition Definition;
+		Definition.Id = FGuid::NewGuid(); Definition.Name = "Continuous"; Definition.DisplayName = "Continuous";
+		Definition.Presentation = Presentation;
+		Definition.Type = Presentation == EMaterialParameterPresentation::Drag ? EMaterialParameterType::Scalar : EMaterialParameterType::Vector4;
+		Definition.Value = Definition.Type == EMaterialParameterType::Scalar ? FMaterialParameterValue::MakeScalar(.2f)
+			: FMaterialParameterValue::MakeVector4({.2, .3, .4, 1});
+		ASSERT_TRUE(FMaterialGraphOperations::CreateParameter(*Material, Definition));
+		const auto Original = Material->FindParameterDefinition(Definition.Id)->Value;
+		const auto Generation = Material->GetMaterialCompileStatus().RequestGeneration;
+		Durin::Tests::FTestTransactorOwner Transactions;
+		FMaterialGraphCanvas Canvas;
+		auto* Context = ImGui::CreateContext();
+		auto& IO = ImGui::GetIO();
+		IO.DisplaySize = {900, 500}; IO.DeltaTime = 1.f / 60; IO.IniFilename = nullptr;
+		IO.Fonts->AddFontDefault(); IO.Fonts->Build();
+		ImVec2 Start;
+		int Errors = 0;
+		const auto Frame = [&](ImVec2 Mouse, bool Down, bool Visible = true) {
+			IO.AddMousePosEvent(Mouse.x, Mouse.y); IO.AddMouseButtonEvent(ImGuiMouseButton_Left, Down);
+			ImGui::NewFrame();
+			ImGui::SetNextWindowPos({0, 0}); ImGui::SetNextWindowSize({800, 400});
+			ImGui::Begin("Parameter value", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize);
+			if (Visible && MonaImGui::PropertyEdit::BeginTable("Values", DetailsStyle::MakeTableConfig()))
+			{
+				Canvas.DrawParameterValue(*Material, *Material->FindParameterDefinition(Definition.Id), *Transactions.Get(),
+					[&](std::string Error) { ++Errors; ADD_FAILURE() << Error; });
+				Start = {ImGui::GetItemRectMin().x + 30, (ImGui::GetItemRectMin().y + ImGui::GetItemRectMax().y) / 2};
+				MonaImGui::PropertyEdit::EndTable();
+			}
+			Canvas.EndParameterFrame();
+			ImGui::End(); ImGui::Render();
+		};
+		Frame({850, 450}, false); Frame({850, 450}, false);
+		const auto Drag = [&]() {
+			Frame(Start, false); Frame(Start, true);
+			Frame({Start.x + 30, Start.y}, true); Frame({Start.x + 60, Start.y}, true);
+		};
+		Drag();
+		const auto Preview = Material->FindParameterDefinition(Definition.Id)->Value;
+		EXPECT_NE(Preview, Original);
+		EXPECT_EQ(Transactions->GetUndoCount(), 0u);
+		Frame({Start.x + 60, Start.y}, false);
+		EXPECT_EQ(Transactions->GetUndoCount(), 1u);
+		ASSERT_TRUE(Transactions->Undo());
+		EXPECT_EQ(Material->FindParameterDefinition(Definition.Id)->Value, Original);
+		ASSERT_TRUE(Transactions->Redo());
+		EXPECT_EQ(Material->FindParameterDefinition(Definition.Id)->Value, Preview);
+		ASSERT_TRUE(Transactions->Reset());
+		Drag();
+		IO.AddKeyEvent(ImGuiKey_Escape, true); Frame({Start.x + 60, Start.y}, true);
+		IO.AddKeyEvent(ImGuiKey_Escape, false); Frame({Start.x + 60, Start.y}, false);
+		EXPECT_EQ(Material->FindParameterDefinition(Definition.Id)->Value, Preview);
+		EXPECT_EQ(Transactions->GetUndoCount(), 0u);
+		Drag();
+		Frame({Start.x + 60, Start.y}, true, false);
+		EXPECT_EQ(Material->FindParameterDefinition(Definition.Id)->Value, Preview);
+		EXPECT_EQ(Transactions->GetUndoCount(), 0u);
+		EXPECT_EQ(Material->GetMaterialCompileStatus().RequestGeneration, Generation);
+		EXPECT_EQ(Errors, 0);
+		Canvas.CancelInteraction();
+		ImGui::DestroyContext(Context);
+	}
+}
 
 namespace
 {
@@ -12,6 +85,12 @@ namespace Durin::Editor::Material
 {
 	struct FMaterialGraphCanvasTestAccess
 	{
+		static auto Duplicate(FMaterialGraphCanvas& Canvas, DMaterial& Material,
+			DTransactor& Transactions, std::span<const FGuid> Nodes) -> void
+		{
+			Canvas.DuplicateNodes(Material, Transactions, Nodes,
+				[](const std::string& Error) { ADD_FAILURE() << Error; });
+		}
 		static auto Select(FMaterialGraphCanvas& Canvas,
 			std::initializer_list<FMaterialGraphCanvasNodeId> Nodes) -> void
 		{ Canvas.SelectedNodes = Nodes; }
@@ -92,6 +171,61 @@ namespace Durin::Editor::Material
 		static auto OpenCreationAt(FMaterialGraphCanvas& Canvas, ImVec2 Position) -> void
 		{ Canvas.Interaction = FMaterialGraphCanvas::FNodeCreationMenuInteraction{.GraphPosition = Position}; }
 	};
+}
+
+TEST(FMaterialGraphInteractionTests, DuplicateMixedOutputSelectionPreservesCopiedNodePositions)
+{
+	InitializeDObjectSystem();
+	for (const bool bCanvas : {false, true})
+	{
+		SCOPED_TRACE(bCanvas ? "Canvas" : "Operations");
+		TStrongObjectPtr<DMaterial> Material(MakeExpandedGraphMaterial("MixedDuplicate"));
+		ASSERT_NE(Material.Get(), nullptr);
+		Tests::FTestTransactorOwner Transactions;
+		FMaterialGraphDocument Document(*Material);
+		const auto First = Testing::CreateGraphConstant(Document, 0.25f, 500, 300);
+		const auto Second = Testing::CreateGraphConstant(Document, 0.75f, 700, 200);
+		ASSERT_TRUE(First);
+		ASSERT_TRUE(Second);
+		const FGuid OutputId = Material->GetOutputNode()->Id;
+		const FMaterialGraphNodePresentation OutputPosition{OutputId, 0, 0};
+		ASSERT_TRUE(FMaterialGraphOperations::MoveNodes(*Material,
+			std::span(&OutputPosition, 1)));
+		const auto Before = Material->GetMaterialGraphPresentation();
+		const std::array Selection{OutputId, First.GeneratedNodeIds.front(), Second.GeneratedNodeIds.front()};
+		std::vector<FGuid> Generated;
+		if (bCanvas)
+		{
+			FMaterialGraphCanvas Canvas;
+			FMaterialGraphCanvasTestAccess::Duplicate(Canvas, *Material, *Transactions.Get(), Selection);
+			Generated = FMaterialGraphCanvasTestAccess::ProgramSelection(Canvas);
+		}
+		else
+		{
+			const auto Result = FMaterialGraphOperations::DuplicateNodes(*Material, Selection, 40, 40, Transactions.Get());
+			ASSERT_TRUE(Result) << Result.Message;
+			Generated = Result.GeneratedNodeIds;
+		}
+		ASSERT_EQ(Generated.size(), 2u);
+		const auto View = Document.Inspect();
+		std::vector<std::pair<int32, int32>> Positions;
+		for (const auto& Id : Generated)
+		{
+			const auto* Node = FindViewNode(View, Id);
+			ASSERT_NE(Node, nullptr);
+			Positions.emplace_back(Node->Presentation.X, Node->Presentation.Y);
+		}
+		std::ranges::sort(Positions);
+		const std::vector<std::pair<int32, int32>> Expected{{540, 340}, {740, 240}};
+		EXPECT_EQ(Positions, Expected);
+		EXPECT_EQ(Material->GetOutputNode()->Id, OutputId);
+		const auto After = Material->GetMaterialGraphPresentation();
+		ASSERT_TRUE(Transactions->Undo());
+		EXPECT_EQ(Material->GetMaterialGraphPresentation(), Before);
+		ASSERT_TRUE(Transactions->Redo());
+		EXPECT_EQ(Material->GetMaterialGraphPresentation(), After);
+		EXPECT_TRUE(Transactions->Reset());
+	}
 }
 
 TEST(FMaterialGraphInteractionTests, FunctionNodesCanBeCreatedFromSearchBeforeWiring)

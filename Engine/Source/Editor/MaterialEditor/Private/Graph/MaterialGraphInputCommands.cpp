@@ -63,14 +63,7 @@ namespace Durin::Editor::Material
 				if (Pin == Index) Result.Source = &Input;
 			});
 			if (!Result.Source || Cast<DMaterialExpressionFunctionCall>(Expression)) return {};
-			// Concrete numeric families pair each connection with its named float-vector default.
-			Expression->GetClass()->ForEachProperty([&](FProperty* Property) {
-				if (Property->GetValuePtr(Expression) != Result.Source) return;
-				auto* Default = Expression->GetClass()->FindPropertyByName(FName(Property->NamePrivate.ToString() + "Default"));
-				if (!Default || Default->GetKind() != DurinCodeGen::EPropertyGenFlags::Array) return;
-				if (static_cast<FArrayProperty*>(Default)->GetInner()->GetKind() != DurinCodeGen::EPropertyGenFlags::Float) return;
-				Result.Default = static_cast<std::vector<float>*>(Default->GetValuePtr(Expression));
-			});
+			Result.Default = FindMaterialExpressionInputDefault(*Expression, *Result.Source);
 			return Result;
 		}
 
@@ -119,7 +112,7 @@ namespace Durin::Editor::Material
 		else if (Value.Kind != EMaterialInputDefaultKind::None) return MakeRejected("The input default is not numeric.");
 		if (Input.Read() == Components) return {.Status = EMaterialGraphCommandStatus::NoChange};
 		if (!Input.Write(Components)) return MakeRejected("The input default has an incompatible width.");
-		return CommitGraphEdit(*Owner.Get(), State, "Edit Input Default", Transactions);
+		return State.Commit("Edit Input Default", Transactions);
 	}
 
 	auto FMaterialGraphDocument::ExtractInputDefault(const FGuid& NodeId, uint32 InputIndex,
@@ -138,7 +131,7 @@ namespace Durin::Editor::Material
 		State.Presentation.Nodes.push_back({Constant->Id, Position->X - 320, Position->Y});
 		const auto Id = Constant->Id;
 		State.Expressions.emplace_back(Constant.Get());
-		auto Result = CommitGraphEdit(*Owner.Get(), State, "Extract Input Node", Transactions);
+		auto Result = State.Commit("Extract Input Node", Transactions);
 		if (Result) Result.GeneratedNodeIds = {Id};
 		return Result;
 	}
@@ -161,7 +154,7 @@ namespace Durin::Editor::Material
 			std::erase_if(State.Expressions, [&](const auto& Expression) { return Expression->Id == SourceId; });
 			std::erase_if(State.Presentation.Nodes, [&](const auto& Position) { return Position.NodeId == SourceId; });
 		}
-		return CommitGraphEdit(*Owner.Get(), State, "Inline Input Node", Transactions);
+		return State.Commit("Inline Input Node", Transactions);
 	}
 
 }

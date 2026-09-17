@@ -31,9 +31,4 @@ namespace Durin::Editor::Material::GraphEditInternals
 	};
 
 	auto AdaptNumericTypes(FGraphEditSession& State, std::span<const FGuid> ChangedNodes, std::span<const FGuid> ChangedOutputNodes) -> bool;
-	inline auto CommitGraphEdit(DObject&, FGraphEditSession& State, std::string Description,
-		DTransactor* Transactions) -> FMaterialGraphCommandResult
-	{
-		return State.Commit(std::move(Description), Transactions);
-	}
 }

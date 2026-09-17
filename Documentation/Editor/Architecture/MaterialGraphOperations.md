@@ -460,12 +460,15 @@ checkpoint. Undoing back to the open or most recently saved revision therefore
 clears the package dirty state and removes the unsaved marker; Redo marks it dirty
 again when it moves away from that checkpoint.
 
-Node and Surface movement use `FMaterialGraphMoveSession`. Pointer-down
-captures the selection and presentation, every drag sample previews sanitized
-positions, and pointer-up records one applied transaction. Escape, document
-switch, deactivation, discard, close, destruction, or stale owner cancels the
-gesture and restores its original presentation. Each document owns a distinct
-canvas and move session.
+Material and function node movement use `FMaterialGraphMoveSession`. Pointer-down
+captures the selection and semantic revision; drag samples validate detached position
+drafts displayed by the canvas. Pointer-up merges only drafted coordinates into the
+current presentation through `FMaterialGraphDocument::MoveNodes` and records one
+position-delta transaction. Labels are never written by movement. Escape, document
+switch, deactivation, discard, close, destruction, or stale owner discards the draft
+without changing the asset or unrelated presentation edits. Each document owns a
+distinct canvas and move session. Structural and label edits retain full presentation
+state through the graph edit session.
 
 Creation-menu results have one local invalidation flag, set when their catalog or
 recent-entry ordering changes. Search text and source output type remain explicit
@@ -513,6 +516,7 @@ terminal. Cut copies before one validated delete. Duplicate uses the same
 payload and paste path with a deterministic offset. The canvas stores this
 structured payload directly, so canvas and automation semantics agree.
 
+Material and function documents share automatic layout and position-delta history.
 Automatic layout is presentation-only and deterministic. It derives consumer
 edges directly from concrete expression connections, including function-call and
 Surface override inputs, and calculates each node's longest distance to a

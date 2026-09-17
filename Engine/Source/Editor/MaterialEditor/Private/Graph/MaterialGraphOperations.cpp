@@ -14,34 +14,19 @@ namespace Durin::Editor::Material
 	{
 		auto GetSurfaceLink(FMaterialExpressionSurfaceOutputs& Outputs, EMaterialSurfaceOutput Attribute) -> FMaterialExpressionInput*
 		{
-			const std::array Links{&Outputs.BaseColor, &Outputs.Normal, &Outputs.Metallic, &Outputs.Roughness,
-				&Outputs.AmbientOcclusion, &Outputs.Emissive, &Outputs.Opacity, &Outputs.OpacityMask};
-			const auto Index = static_cast<size_t>(Attribute);
-			return Index < Links.size() ? Links[Index] : nullptr;
+			if (Attribute > EMaterialSurfaceOutput::OpacityMask) return nullptr;
+			return GetMaterialOutputInput(Outputs, static_cast<EMaterialOutputPin>(Attribute));
 		}
 		auto GetSurfaceDefault(const FMaterialExpressionSurfaceOutputs& Outputs, EMaterialSurfaceOutput Attribute) -> FMaterialProgramLiteral
 		{
-			const auto Vector = [](FVector3 Value) -> FMaterialProgramLiteral {
-				return {static_cast<float>(Value.x), static_cast<float>(Value.y), static_cast<float>(Value.z)};
-			};
-			switch (Attribute)
-			{
-			case EMaterialSurfaceOutput::BaseColor: return Vector(Outputs.BaseColorDefault);
-			case EMaterialSurfaceOutput::Normal: return Vector(Outputs.NormalDefault);
-			case EMaterialSurfaceOutput::Metallic: return {Outputs.MetallicDefault};
-			case EMaterialSurfaceOutput::Roughness: return {Outputs.RoughnessDefault};
-			case EMaterialSurfaceOutput::AmbientOcclusion: return {Outputs.AmbientOcclusionDefault};
-			case EMaterialSurfaceOutput::Emissive: return Vector(Outputs.EmissiveDefault);
-			case EMaterialSurfaceOutput::Opacity: return {Outputs.OpacityDefault};
-			case EMaterialSurfaceOutput::OpacityMask: return {Outputs.OpacityMaskDefault};
-			default: return {};
-			}
+			const auto Value = ReadMaterialOutputDefault(Outputs, static_cast<EMaterialOutputPin>(Attribute));
+			return Value.size() == 3 ? FMaterialProgramLiteral{Value[0], Value[1], Value[2]}
+				: Value.size() == 1 ? FMaterialProgramLiteral{Value[0]} : FMaterialProgramLiteral{};
 		}
 	}
 	namespace GraphEditInternals
 	{
-		template<class TState>
-		auto ResolveParameterExpressionImpl(TState& State, DMaterialExpressionParameter& Parameter,
+		auto ResolveParameterExpression(FGraphEditSession& State, DMaterialExpressionParameter& Parameter,
 			const DMaterialExpressionParameter* Previous) -> std::string
 		{
 			if (State.bFunction) return "Functions cannot own root parameters.";
@@ -76,10 +61,6 @@ namespace Durin::Editor::Material
 			}
 			return {};
 		}
-
-		auto ResolveParameterExpression(FGraphEditSession& State, DMaterialExpressionParameter& Parameter,
-			const DMaterialExpressionParameter* Previous) -> std::string
-		{ return ResolveParameterExpressionImpl(State, Parameter, Previous); }
 
 		auto MakeParameterExpression(const FMaterialParameterDefinition& InputDefinition) -> TStrongObjectPtr<DMaterialExpressionParameter>
 		{
@@ -136,7 +117,7 @@ namespace Durin::Editor::Material
 		Definition = Parameter->GetParameterDefinition();
 		State.Presentation.Nodes.push_back({NodeId});
 		State.Expressions.emplace_back(Parameter.Get());
-		auto Result = CommitGraphEdit(Material, State, "Create Parameter", Transactions);
+		auto Result = State.Commit("Create Parameter", Transactions);
 		if (Result)
 		{
 			Result.AffectedParameterIds = {Definition.Id};
@@ -163,7 +144,7 @@ namespace Durin::Editor::Material
 				Peer->Metadata.Name = Name;
 				Peer->Metadata.DisplayName = Name.ToString();
 			}
-		auto Result = CommitGraphEdit(Material, State, "Rename Parameter", Transactions);
+		auto Result = State.Commit("Rename Parameter", Transactions);
 		if (Result) Result.AffectedParameterIds = {ParameterId};
 		return Result;
 	}
@@ -216,7 +197,7 @@ namespace Durin::Editor::Material
 		const auto Position = std::ranges::find(State.Presentation.Nodes, NodeId, &FMaterialGraphNodePresentation::NodeId);
 		if (Position != State.Presentation.Nodes.end()) Position->DisplayName = Definition.DisplayName;
 		else State.Presentation.Nodes.push_back({.NodeId = NodeId, .DisplayName = Definition.DisplayName});
-		auto Result = CommitGraphEdit(Material, State, "Promote Constant Parameter", Transactions);
+		auto Result = State.Commit("Promote Constant Parameter", Transactions);
 		if (Result)
 		{
 			Result.AffectedNodeIds = {NodeId};
@@ -301,20 +282,13 @@ namespace Durin::Editor::Material
 		FGraphEditSession State(Material);
 		const auto Previous = State.GetOutputs();
 		const auto& Value = Request.Value;
-		switch (Request.Output)
-		{
-		case EMaterialSurfaceOutput::BaseColor: State.GetOutputs().BaseColorDefault = FVector3(Value.X, Value.Y, Value.Z); break;
-		case EMaterialSurfaceOutput::Normal: State.GetOutputs().NormalDefault = FVector3(Value.X, Value.Y, Value.Z); break;
-		case EMaterialSurfaceOutput::Metallic: State.GetOutputs().MetallicDefault = Value.X; break;
-		case EMaterialSurfaceOutput::Roughness: State.GetOutputs().RoughnessDefault = Value.X; break;
-		case EMaterialSurfaceOutput::AmbientOcclusion: State.GetOutputs().AmbientOcclusionDefault = Value.X; break;
-		case EMaterialSurfaceOutput::Emissive: State.GetOutputs().EmissiveDefault = FVector3(Value.X, Value.Y, Value.Z); break;
-		case EMaterialSurfaceOutput::Opacity: State.GetOutputs().OpacityDefault = Value.X; break;
-		case EMaterialSurfaceOutput::OpacityMask: State.GetOutputs().OpacityMaskDefault = Value.X; break;
-		default: return MakeRejected("The material surface output is invalid.");
-		}
+		const auto Pin = static_cast<EMaterialOutputPin>(Request.Output);
+		const std::array Components{Value.X, Value.Y, Value.Z};
+		const auto Width = ReadMaterialOutputDefault(Previous, Pin).size();
+		if (!WriteMaterialOutputDefault(State.GetOutputs(), Pin, std::span(Components).first(Width)))
+			return MakeRejected("The material surface output is invalid.");
 		if (State.GetOutputs() == Previous) return {.Status = EMaterialGraphCommandStatus::NoChange};
-		return CommitGraphEdit(Material, State, "Edit Material Surface Default", Transactions);
+		return State.Commit("Edit Material Surface Default", Transactions);
 	}
 
 	auto FMaterialGraphOperations::ResetSurfaceDefault(DMaterial& Material,
@@ -382,7 +356,7 @@ namespace Durin::Editor::Material
 			*Link = {Mask->Id}; State.Presentation.Nodes.push_back({Mask->Id, Request.X + 260, Request.Y});
 			State.Expressions.emplace_back(Mask.Get());
 		}
-		auto Result = CommitGraphEdit(Material, State, "Promote Surface Parameter", Transactions);
+		auto Result = State.Commit("Promote Surface Parameter", Transactions);
 		if (Result)
 		{
 			Result.GeneratedNodeIds = Result.AffectedNodeIds = {Id};
@@ -413,7 +387,7 @@ namespace Durin::Editor::Material
 		*Link = {Id, Channels[static_cast<size_t>(Request.Output)]};
 		State.Presentation.Nodes.push_back({Id, Request.X, Request.Y, Texture->Metadata.DisplayName});
 		State.Expressions.emplace_back(Texture.Get());
-		auto Result = CommitGraphEdit(Material, State, "Add Material Surface Texture", Transactions);
+		auto Result = State.Commit("Add Material Surface Texture", Transactions);
 		if (Result)
 		{
 			Result.AffectedNodeIds = Result.GeneratedNodeIds = {Id};

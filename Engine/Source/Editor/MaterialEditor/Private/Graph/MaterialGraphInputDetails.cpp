@@ -11,6 +11,73 @@
 
 namespace Durin::Editor::Material
 {
+	auto FMaterialGraphCanvas::DrawParameterValue(DMaterial& Material,
+		const FMaterialParameterDefinition& Parameter, DTransactor& Transactions,
+		const FReportError& ReportError) -> void
+	{
+		if (Parameter.Type == EMaterialParameterType::Texture) return;
+		ImGui::PushID(Parameter.Id.ToString().c_str());
+		MonaImGui::PropertyEdit::BeginRow("Default value");
+		const ImGuiID Widget = ImGui::GetID("##Value");
+		auto Value = Parameter.Value;
+		bool Edited = false;
+		const float Minimum = Parameter.bHasRange ? Parameter.MinimumValue : 0.0f;
+		const float Maximum = Parameter.bHasRange ? Parameter.MaximumValue : 0.0f;
+		const auto Flags = Parameter.bHasRange ? ImGuiSliderFlags_AlwaysClamp : ImGuiSliderFlags_None;
+		if (Parameter.Type == EMaterialParameterType::Scalar)
+		{
+			Edited = ImGui::DragFloat("##Value", &Value.GetScalar(),
+				Parameter.Presentation == EMaterialParameterPresentation::Integer ? 1.0f : 0.01f,
+				Minimum, Maximum, Parameter.Presentation == EMaterialParameterPresentation::Integer ? "%.0f" : "%.4g", Flags);
+			if (Parameter.Presentation == EMaterialParameterPresentation::Integer)
+			{
+				Value.GetScalar() = std::round(Value.GetScalar());
+				if (Parameter.bHasRange) Value.GetScalar() = std::clamp(Value.GetScalar(), Minimum, Maximum);
+			}
+		}
+		else if (Parameter.Type == EMaterialParameterType::Vector4)
+		{
+			const auto V = Value.GetVector4();
+			float Components[]{static_cast<float>(V.x), static_cast<float>(V.y), static_cast<float>(V.z), static_cast<float>(V.w)};
+			Edited = Parameter.Presentation == EMaterialParameterPresentation::Color
+				? ImGui::ColorEdit4("##Value", Components, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_InputRGB | ImGuiColorEditFlags_HDR)
+				: ImGui::DragFloat4("##Value", Components, 0.01f, Minimum, Maximum, "%.4g", Flags);
+			Value.GetVector4() = FVector4(Components[0], Components[1], Components[2], Components[3]);
+		}
+		const bool Active = ImGui::IsItemActive();
+		const bool Deactivated = ImGui::IsItemDeactivatedAfterEdit();
+		const auto Report = [&](const FMaterialGraphCommandResult& Result) {
+			if (!Result && ReportError) ReportError(Result.Message);
+			return static_cast<bool>(Result);
+		};
+		if (Edited)
+		{
+			if (ParameterSession.IsActive() && (ParameterWidget != Widget || EditingParameterId != Parameter.Id))
+				Report(ParameterSession.Commit());
+			if (!ParameterSession.IsActive() && Report(ParameterSession.Begin(Material, Parameter.Id, &Transactions)))
+			{
+				ParameterWidget = Widget;
+				EditingParameterId = Parameter.Id;
+			}
+			if (ParameterSession.IsActive() && ParameterWidget == Widget) Report(ParameterSession.Apply(Value));
+		}
+		if (ParameterSession.IsActive() && ParameterWidget == Widget)
+		{
+			ParameterFrame = ImGui::GetFrameCount();
+			// Escape may deactivate an ImGui input before this check; cancellation wins.
+			if (ImGui::IsKeyPressed(ImGuiKey_Escape)) Report(ParameterSession.Cancel());
+			else if (Deactivated || (!Active && Edited)) Report(ParameterSession.Commit());
+		}
+		MonaImGui::PropertyEdit::EndRow();
+		ImGui::PopID();
+	}
+
+	auto FMaterialGraphCanvas::EndParameterFrame() -> void
+	{
+		// A hidden/collapsed panel or a changed selection cannot retain a live draft.
+		if (ParameterSession.IsActive() && ParameterFrame != ImGui::GetFrameCount()) ParameterSession.Cancel();
+	}
+
 	auto FMaterialGraphCanvas::PrepareDetailsView(DObject& Owner) -> const FMaterialGraphView&
 	{
 		// Refresh here too: Details can be drawn before the canvas or while it is hidden.
@@ -136,20 +203,7 @@ namespace Durin::Editor::Material
 					MonaImGui::PropertyEdit::EndGroup();
 				}
 			}
-			else if (!Changed)
-			{
-				auto Literal = ReadParameterLiteral(GetProgramType(Parameter.Type), Parameter.Value);
-				if (EditLiteral("Default value", GetProgramType(Parameter.Type), Literal))
-				{
-					if (Parameter.Presentation == EMaterialParameterPresentation::Integer)
-					{
-						Literal.X = std::round(Literal.X);
-						if (Parameter.bHasRange) Literal.X = std::clamp(Literal.X, Parameter.MinimumValue, Parameter.MaximumValue);
-					}
-					Submit(FMaterialGraphOperations::SetParameterValue(*Material, Parameter.Id,
-						MakeParameterValue(GetProgramType(Parameter.Type), Literal), &Transactions));
-				}
-			}
+			else if (!Changed) DrawParameterValue(*Material, Parameter, Transactions, ReportError);
 		}
 		else
 		{
@@ -272,7 +326,7 @@ namespace Durin::Editor::Material
 							const int32 Y = Position == Session->Presentation.Nodes.end() ? 0 : Position->Y;
 							Session->Presentation.Nodes.push_back({Parameter->Id, X, Y});
 							Session->Expressions.emplace_back(Parameter.Get());
-							Submit(GraphEditInternals::CommitGraphEdit(Owner, *Session, "Promote Input Parameter", &Transactions));
+							Submit(Session->Commit("Promote Input Parameter", &Transactions));
 						}
 					}
 				}

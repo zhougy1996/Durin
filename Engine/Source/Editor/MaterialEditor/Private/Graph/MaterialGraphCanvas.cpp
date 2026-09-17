@@ -248,6 +248,7 @@ namespace Durin::Editor::Material
 
 	auto FMaterialGraphCanvas::CancelInteraction() -> void
 	{
+		if (ParameterSession.IsActive()) ParameterSession.Cancel();
 		if (MoveSession.IsActive())
 		{
 			MoveSession.Cancel();
@@ -263,6 +264,7 @@ namespace Durin::Editor::Material
 
 	auto FMaterialGraphCanvas::PrepareDocumentView(DObject& Owner) -> void
 	{
+		if (MoveSession.IsActive() && !MoveSession.IsCurrent(Owner)) CancelInteraction();
 		const bool bFunction = Cast<DMaterialFunction>(&Owner) != nullptr;
 		if (Catalog.empty() || bFunctionGraph != bFunction)
 		{
@@ -303,6 +305,12 @@ namespace Durin::Editor::Material
 			}
 			if (!bShowAdvancedInputs) HideUnusedAdvancedPins(CachedView);
 		}
+		for (const auto& Position : MoveSession.GetPositions())
+			if (const auto It = CachedNodeIndices.find(Position.NodeId); It != CachedNodeIndices.end())
+			{
+				auto& Target = CachedView.Nodes[It->second].Presentation;
+				Target.X = Position.X; Target.Y = Position.Y;
+			}
 	}
 
 	auto FMaterialGraphCanvas::PrepareView(DMaterial& Material) -> const FMaterialGraphView&
@@ -517,19 +525,7 @@ namespace Durin::Editor::Material
 	{
 		if (NodeIds.empty()) return;
 		FMaterialGraphDocument Document(Owner);
-		FMaterialGraphClipboardPayload Payload;
-		const auto Copied = Document.CopySelection(NodeIds, Payload);
-		ReportCommand(Copied, ReportError);
-		if (!Copied) return;
-		const auto View = Document.Inspect();
-		int32 X = MaterialGraphPresentationCoordinateLimit, Y = MaterialGraphPresentationCoordinateLimit;
-		for (const auto& Node : View.Nodes)
-			if (std::ranges::find(NodeIds, Node.Node.Id) != NodeIds.end())
-			{
-				X = std::min(X, Node.Presentation.X);
-				Y = std::min(Y, Node.Presentation.Y);
-			}
-		const auto Duplicated = Document.Paste(Payload, X + 40, Y + 40, &Transactions);
+		const auto Duplicated = Document.DuplicateNodes(NodeIds, 40, 40, &Transactions);
 		ReportCommand(Duplicated, ReportError);
 		if (!Duplicated) return;
 		SelectedNodes.clear();
@@ -922,8 +918,7 @@ namespace Durin::Editor::Material
 				if (!bRemovedFromSelection)
 				{
 					const std::vector<FGuid> Selection = GetSelectedProgramNodes();
-					const FMaterialGraphCommandResult Begun = SurfaceMaterial ? MoveSession.Begin(
-						*SurfaceMaterial, Selection, &Transactions) : FMaterialGraphCommandResult{.Status = EMaterialGraphCommandStatus::Succeeded};
+					const FMaterialGraphCommandResult Begun = MoveSession.Begin(Owner, Selection, &Transactions);
 					ReportCommand(Begun, ReportError);
 					if (Begun)
 					{
@@ -961,33 +956,20 @@ namespace Durin::Editor::Material
 						Position.Y = static_cast<int32>(std::round(Start.Y + Delta.y));
 						Positions.push_back(std::move(Position));
 					}
-					if (MoveSession.IsActive()) ReportCommand(MoveSession.Apply(Positions), ReportError);
-					else
-						for (const auto& Position : Positions)
+					const auto Applied = MoveSession.Apply(Positions);
+					ReportCommand(Applied, ReportError);
+					if (Applied)
+						for (const auto& Position : MoveSession.GetPositions())
 							if (const auto It = CachedNodeIndices.find(Position.NodeId); It != CachedNodeIndices.end())
-								CachedView.Nodes[It->second].Presentation = Position;
+							{
+								auto& Target = CachedView.Nodes[It->second].Presentation;
+								Target.X = Position.X; Target.Y = Position.Y;
+							}
 				}
 			}
 			if (ImGui::IsMouseReleased(ImGuiMouseButton_Left))
 			{
-				if (MoveSession.IsActive()) ReportCommand(MoveSession.Commit(), ReportError);
-				else
-				{
-					// Function movement is a detached preview until the document accepts release.
-					GraphEditInternals::FGraphEditSession State(Owner);
-					{
-						bool bChanged = false;
-						for (auto& Position : State.Presentation.Nodes)
-							if (Moving->StartPositions.contains(Position.NodeId))
-								if (const auto It = CachedNodeIndices.find(Position.NodeId); It != CachedNodeIndices.end())
-								{
-									const auto& Draft = CachedView.Nodes[It->second].Presentation;
-									bChanged |= Position != Draft;
-									Position = Draft;
-								}
-						if (bChanged) ReportCommand(State.Commit("Move Graph Nodes", &Transactions), ReportError);
-					}
-				}
+				ReportCommand(MoveSession.Commit(), ReportError);
 				ResetInteraction();
 			}
 		}
@@ -1112,6 +1094,9 @@ namespace Durin::Editor::Material
 		ImGui::PushID(this);
 		if (ImGui::Checkbox("Advanced pins", &bShowAdvancedInputs)) ResetInteraction();
 		PrepareFunctionView(Function);
+		if (ImGui::Button("Auto Layout"))
+			ReportCommand(FMaterialGraphDocument(Function).Layout({}, &Transactions), ReportError);
+		ImGui::SameLine();
 		const auto Selection = GetSelectedProgramNodes();
 		if (ImGui::Button("Frame All")) FrameNodes(CachedView, ImGui::GetContentRegionAvail(), EFrameScope::All);
 		ImGui::SameLine();

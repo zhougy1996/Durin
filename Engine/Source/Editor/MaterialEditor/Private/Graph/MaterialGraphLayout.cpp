@@ -1,4 +1,6 @@
 #include "MaterialGraphEditInternals.h"
+#include "MaterialGraphDocument.h"
+#include "Materials/MaterialExpressionEditing.h"
 #include "MaterialExpressionInputs.h"
 #include "MaterialGraphNodeDisplay.h"
 
@@ -34,20 +36,28 @@ namespace Durin::Editor::Material
 		return EMaterialGraphDetailLevel::Readable;
 	}
 
-	auto FMaterialGraphOperations::MoveNodes(
-		DMaterial& Material,
+	auto FMaterialGraphOperations::MoveNodes(DMaterial& Material,
 		std::span<const FMaterialGraphNodePresentation> Positions,
 		DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
+		return FMaterialGraphDocument(Material).MoveNodes(Positions, Transactions);
+	}
+
+	auto FMaterialGraphDocument::MoveNodes(
+		std::span<const FMaterialGraphNodePresentation> Positions,
+		DTransactor* Transactions) const -> FMaterialGraphCommandResult
+	{
+		if (!Owner.IsValid()) return {.Status = EMaterialGraphCommandStatus::StaleOwner};
+		auto& Expressions = FMaterialExpressionEditing::GetExpressions(*Owner.Get());
 		if (Positions.empty()) return {.Status = EMaterialGraphCommandStatus::NoChange};
 		if (Positions.size() > MaterialProgramMaxNodeCount)
 			return MakeRejected("The material graph move request exceeds the node bound.");
-		FMaterialGraphPresentation Presentation = Material.GetMaterialGraphPresentation();
+		FMaterialGraphPresentation Presentation = ReadGraphPresentation(*Owner.Get());
 		std::vector<FGuid> Affected;
 		std::unordered_set<FGuid> RequestedNodes;
 		for (const FMaterialGraphNodePresentation& Position : Positions)
 		{
-			if (std::ranges::none_of(Material.GetExpressionCollection().Expressions,
+			if (std::ranges::none_of(Expressions,
 				[&](const auto& Expression) { return Expression->Id == Position.NodeId; }))
 				return MakeRejected("A moved material graph node does not exist.");
 			if (!RequestedNodes.insert(Position.NodeId).second)
@@ -59,11 +69,11 @@ namespace Durin::Editor::Material
 				return MakeRejected("A material graph position is outside the supported coordinate range.");
 			auto It = std::ranges::find(Presentation.Nodes, Position.NodeId,
 				&FMaterialGraphNodePresentation::NodeId);
-			if (It == Presentation.Nodes.end()) Presentation.Nodes.push_back(Position);
-			else *It = Position;
+			if (It == Presentation.Nodes.end()) Presentation.Nodes.push_back({Position.NodeId, Position.X, Position.Y});
+			else { It->X = Position.X; It->Y = Position.Y; }
 			Affected.push_back(Position.NodeId);
 		}
-		return CommitPresentationChange(Material, std::move(Presentation),
+		return CommitPresentationChange(*Owner.Get(), std::move(Presentation),
 			"Move Material Nodes", std::move(Affected), Transactions);
 	}
 
@@ -79,16 +89,16 @@ namespace Durin::Editor::Material
 		return MoveNodes(Material, std::span(&Position, 1), Transactions);
 	}
 
-	auto FMaterialGraphOperations::CalculateLayout(
-		const DMaterial& Material,
+	auto FMaterialGraphDocument::CalculateLayout(
 		std::span<const FGuid> NodeIds,
-		FMaterialGraphPresentation& OutPresentation) -> FMaterialGraphCommandResult
+		FMaterialGraphPresentation& OutPresentation) const -> FMaterialGraphCommandResult
 	{
-		OutPresentation = Material.GetMaterialGraphPresentation();
+		if (!Owner.IsValid()) return {.Status = EMaterialGraphCommandStatus::StaleOwner};
+		OutPresentation = ReadGraphPresentation(*Owner.Get());
 		struct FLayoutNode { FGuid Id; std::vector<FGuid> Inputs; float Width = 224.0f; float Height = 94.0f; };
 		std::vector<FLayoutNode> Nodes;
-		const auto View = Inspect(Material);
-		for (const auto& Expression : Material.GetExpressionCollection().Expressions)
+		const auto View = Inspect();
+		for (const auto& Expression : FMaterialExpressionEditing::GetExpressions(*Owner.Get()))
 		{
 			const auto Visual = std::ranges::find(View.Nodes, Expression->Id,
 				[](const auto& Item) { return Item.Node.Id; });
@@ -204,7 +214,7 @@ namespace Durin::Editor::Material
 				}
 			}
 
-		FMaterialGraphPresentation Presentation = Material.GetMaterialGraphPresentation();
+		FMaterialGraphPresentation Presentation = OutPresentation;
 		const FMaterialGraphCanvasMetrics& Metrics = FMaterialGraphGeometry::GetMetrics();
 		struct FRect { float MinX; float MinY; float MaxX; float MaxY; };
 		std::vector<FRect> Occupied;
@@ -262,16 +272,25 @@ namespace Durin::Editor::Material
 		};
 	}
 
-	auto FMaterialGraphOperations::Layout(
-		DMaterial& Material,
-		std::span<const FGuid> NodeIds,
+	auto FMaterialGraphOperations::CalculateLayout(const DMaterial& Material,
+		std::span<const FGuid> NodeIds, FMaterialGraphPresentation& OutPresentation) -> FMaterialGraphCommandResult
+	{
+		return FMaterialGraphDocument(const_cast<DMaterial&>(Material)).CalculateLayout(NodeIds, OutPresentation);
+	}
+
+	auto FMaterialGraphOperations::Layout(DMaterial& Material, std::span<const FGuid> NodeIds,
 		DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
+		return FMaterialGraphDocument(Material).Layout(NodeIds, Transactions);
+	}
+
+	auto FMaterialGraphDocument::Layout(std::span<const FGuid> NodeIds,
+		DTransactor* Transactions) const -> FMaterialGraphCommandResult
+	{
 		FMaterialGraphPresentation Presentation;
-		FMaterialGraphCommandResult Calculated = CalculateLayout(
-			Material, NodeIds, Presentation);
+		auto Calculated = CalculateLayout(NodeIds, Presentation);
 		if (!Calculated) return Calculated;
-		return CommitPresentationChange(Material, std::move(Presentation),
-			"Layout Material Graph", std::move(Calculated.AffectedNodeIds), Transactions);
+		return CommitPresentationChange(*Owner.Get(), std::move(Presentation),
+			"Layout Graph Nodes", std::move(Calculated.AffectedNodeIds), Transactions);
 	}
 }

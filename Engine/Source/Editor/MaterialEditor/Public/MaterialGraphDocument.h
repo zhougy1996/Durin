@@ -69,8 +69,18 @@ namespace Durin::Editor::Material
 			FMaterialGraphClipboardPayload& OutPayload) const -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto Paste(const FMaterialGraphClipboardPayload& Payload,
 			int32 X, int32 Y, DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API auto DuplicateNodes(std::span<const FGuid> NodeIds,
+			int32 OffsetX, int32 OffsetY, DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto CutSelection(std::span<const FGuid> NodeIds,
 			FMaterialGraphClipboardPayload& OutPayload, DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
+		// Position commands ignore labels and preserve unrelated presentation fields.
+		MATERIALEDITOR_API auto MoveNodes(std::span<const FMaterialGraphNodePresentation> Positions,
+			DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API auto CalculateLayout(std::span<const FGuid> NodeIds,
+			FMaterialGraphPresentation& OutPresentation) const -> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API auto Layout(std::span<const FGuid> NodeIds = {},
+			DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
+
 	private:
 		auto InspectSelection(std::span<const FMaterialGraphCatalogEntry> Catalog,
 			const std::unordered_set<FGuid>* Selection) const -> FMaterialGraphView;

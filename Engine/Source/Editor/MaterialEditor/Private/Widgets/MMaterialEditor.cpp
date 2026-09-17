@@ -242,11 +242,11 @@ namespace Durin::Editor::Material
 
 		auto HandleContinuousEdit(bool bDeactivatedAfterEdit, bool bActive) -> void
 		{
-			if (bDeactivatedAfterEdit && Editor.PropertyView.IsEditing())
-				Editor.FinishActivePropertyEdit(false);
-			else if (bActive && ImGui::IsKeyPressed(ImGuiKey_Escape)
+			if ((bActive || bDeactivatedAfterEdit) && ImGui::IsKeyPressed(ImGuiKey_Escape)
 				&& Editor.PropertyView.IsEditing())
 				Editor.FinishActivePropertyEdit(true);
+			else if (bDeactivatedAfterEdit && Editor.PropertyView.IsEditing())
+				Editor.FinishActivePropertyEdit(false);
 		}
 
 	private:
@@ -421,6 +421,8 @@ namespace Durin::Editor::Material
 	auto MMaterialEditor::DrawWorkspace(bool bActive) -> bool
 	{
 		if (!bActive && PropertyView.IsEditing()) FinishActivePropertyEdit(true);
+		if (!bActive)
+			for (auto& [Id, Canvas] : MaterialGraphCanvases) Canvas->CancelInteraction();
 		for (auto& [ResourceId, Session] : EditingSessions)
 		{
 			std::string Error;
@@ -450,6 +452,7 @@ namespace Durin::Editor::Material
 			[this](const ::Durin::Editor::FDocumentTab& Document, bool bVisible) {
 				if (!bVisible)
 				{
+					CancelCanvasInteraction(Document.Id.Value);
 					if (const auto PreviewIt = MaterialPreviews.find(Document.Id.Value); PreviewIt != MaterialPreviews.end())
 						PreviewIt->second->SetVisible(false);
 					const auto DockType = Workspace::MakeDocumentDockType(Document);
@@ -578,6 +581,7 @@ namespace Durin::Editor::Material
 		ImGui::Spacing();
 
 		DrawDockLayout(Document, Material);
+		GetOrCreateCanvas(Document).EndParameterFrame();
 
 		if (Documents.GetActiveResourceId() != Document.ResourceId) return;
 		MonaImGui::ErrorDialog("Material Editor Error", ErrorMessage);
@@ -987,6 +991,8 @@ namespace Durin::Editor::Material
 							}
 						}
 					}
+					if (!bSubmitted) Canvas.DrawParameterValue(*Base, Parameter, *GEditor->GetTransactor(),
+						[this](std::string Error) { SetError(std::move(Error)); });
 					MonaImGui::PropertyEdit::EndTable();
 				}
 				if (NodeIds.size() > 1)

@@ -1,4 +1,6 @@
 #include "MaterialGraphEditInternals.h"
+#include "MaterialGraphDocument.h"
+#include "Materials/MaterialExpressionEditing.h"
 
 #include "DObject/Package.h"
 #include "DObject/WeakObjectPtr.h"
@@ -7,187 +9,105 @@ namespace Durin::Editor::Material
 {
 	using namespace GraphEditInternals;
 
+	namespace
+	{
+		auto GraphSemanticRevision(const DObject& Owner) -> uint64
+		{
+			if (const auto* Material = Cast<DMaterial>(&Owner)) return Material->GetMaterialCompileStatus().AuthoredRevision;
+			return Cast<DMaterialFunction>(&Owner)->GetFunctionRevision();
+		}
+	}
+
 	struct FMaterialGraphMoveSession::FImpl
 	{
-		TWeakObjectPtr<DMaterial> Material;
-		FMaterialGraphPresentation BeforePresentation;
+		TWeakObjectPtr<DObject> Owner;
 		std::unordered_set<FGuid> NodeIds;
+		std::vector<FMaterialGraphNodePresentation> Draft;
 		DTransactor* Transactions = nullptr;
 		uint64 AuthoredRevision = 0;
 		bool bActive = false;
-
-		auto AbortStaleSemanticChange(DMaterial& Target)
-			-> FMaterialGraphCommandResult
-		{
-			FMaterialGraphPresentation Restored =
-				Target.GetMaterialGraphPresentation();
-			{
-				for (const FGuid& NodeId : NodeIds)
-				{
-					auto Current = std::ranges::find(
-						Restored.Nodes, NodeId,
-						&FMaterialGraphNodePresentation::NodeId);
-					const auto Before = std::ranges::find(
-						BeforePresentation.Nodes, NodeId,
-						&FMaterialGraphNodePresentation::NodeId);
-					if (Before == BeforePresentation.Nodes.end())
-					{
-						if (Current != Restored.Nodes.end())
-							Restored.Nodes.erase(Current);
-					}
-					else if (Current == Restored.Nodes.end())
-						Restored.Nodes.push_back(*Before);
-					else
-						*Current = *Before;
-				}
-			}
-			Target.SetMaterialGraphPresentation(std::move(Restored));
-			bActive = false;
-			return MakeRejected(
-				"The material changed semantically during the graph move.");
-		}
 	};
 
-	FMaterialGraphMoveSession::FMaterialGraphMoveSession()
-		: Impl(std::make_unique<FImpl>())
-	{
-	}
+	FMaterialGraphMoveSession::FMaterialGraphMoveSession() : Impl(std::make_unique<FImpl>()) {}
+	FMaterialGraphMoveSession::~FMaterialGraphMoveSession() = default;
 
-	FMaterialGraphMoveSession::~FMaterialGraphMoveSession()
-	{
-		if (Impl && Impl->bActive) Cancel();
-	}
-
-	auto FMaterialGraphMoveSession::Begin(
-		DMaterial& Material,
-		std::span<const FGuid> NodeIds,
+	auto FMaterialGraphMoveSession::Begin(DObject& Owner, std::span<const FGuid> NodeIds,
 		DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
-		if (Impl->bActive) return MakeRejected("A material graph move is already active.");
-		if (!IsValid(&Material))
-			return {.Status = EMaterialGraphCommandStatus::StaleOwner,
-				.Message = "The material graph owner is no longer available."};
+		if (Impl->bActive) return MakeRejected("A graph move is already active.");
+		if (!IsValid(&Owner)) return {.Status = EMaterialGraphCommandStatus::StaleOwner};
+		if (!Cast<DMaterial>(&Owner) && !Cast<DMaterialFunction>(&Owner)) return MakeRejected("Unsupported graph owner.");
 		if (NodeIds.empty() || NodeIds.size() > MaterialProgramMaxNodeCount)
-			return MakeRejected("The material graph move selection is empty or exceeds the node bound.");
-		if (Transactions && Transactions->HasPendingOperation())
-			return MakeRejected("The editor transactor is busy.");
+			return MakeRejected("The graph move selection is empty or exceeds the node bound.");
+		if (Transactions && Transactions->HasPendingOperation()) return MakeRejected("The editor transactor is busy.");
 		Impl->NodeIds.clear();
-		for (const FGuid& Id : NodeIds)
+		const auto& Expressions = FMaterialExpressionEditing::GetExpressions(Owner);
+		for (const auto& Id : NodeIds)
 		{
-			if (std::ranges::none_of(Material.GetExpressionCollection().Expressions, [&](const auto& Expression) { return Expression->Id == Id; }))
-				return MakeRejected("A selected material graph node does not exist.");
-			if (!Impl->NodeIds.insert(Id).second)
-				return MakeRejected("The material graph move selection contains a duplicate node GUID.");
+			if (std::ranges::none_of(Expressions, [&](const auto& E) { return E->Id == Id; }))
+				return MakeRejected("A selected graph node does not exist.");
+			if (!Impl->NodeIds.insert(Id).second) return MakeRejected("The graph move selection contains a duplicate node GUID.");
 		}
-		Impl->Material = &Material;
-		Impl->BeforePresentation = Material.GetMaterialGraphPresentation();
+		Impl->Owner = &Owner;
+		Impl->Draft.clear();
 		Impl->Transactions = Transactions;
-		Impl->AuthoredRevision =
-			Material.GetMaterialCompileStatus().AuthoredRevision;
+		Impl->AuthoredRevision = GraphSemanticRevision(Owner);
 		Impl->bActive = true;
-		std::vector<FGuid> Affected(NodeIds.begin(), NodeIds.end());
 		return {.Status = EMaterialGraphCommandStatus::Succeeded,
-			.AffectedNodeIds = std::move(Affected)};
+			.AffectedNodeIds = std::vector<FGuid>(NodeIds.begin(), NodeIds.end())};
 	}
 
-	auto FMaterialGraphMoveSession::Apply(
-		std::span<const FMaterialGraphNodePresentation> Positions)
+	auto FMaterialGraphMoveSession::IsCurrent(const DObject& Owner) const -> bool
+	{
+		return Impl->bActive && Impl->Owner.Get() == &Owner && GraphSemanticRevision(Owner) == Impl->AuthoredRevision;
+	}
+
+	auto FMaterialGraphMoveSession::Apply(std::span<const FMaterialGraphNodePresentation> Positions)
 		-> FMaterialGraphCommandResult
 	{
-		if (!Impl->bActive) return MakeRejected("No material graph move is active.");
-		DMaterial* Material = Impl->Material.Get();
-		if (!Material)
+		if (!Impl->bActive) return MakeRejected("No graph move is active.");
+		if (!Impl->Owner.IsValid()) { Cancel(); return {.Status = EMaterialGraphCommandStatus::StaleOwner}; }
+		if (!IsCurrent(*Impl->Owner.Get())) { Cancel(); return MakeRejected("The graph changed semantically during the move."); }
+		if (Positions.size() > MaterialProgramMaxNodeCount) return MakeRejected("The graph move preview exceeds the node bound.");
+		std::unordered_set<FGuid> Requested;
+		for (const auto& Position : Positions)
 		{
-			Impl->bActive = false;
-			return {.Status = EMaterialGraphCommandStatus::StaleOwner,
-				.Message = "The material graph owner is no longer available."};
+			if (!Impl->NodeIds.contains(Position.NodeId)) return MakeRejected("The graph move preview addresses a node outside the selection.");
+			if (!Requested.insert(Position.NodeId).second) return MakeRejected("The graph move preview contains a duplicate node GUID.");
+			if (Position.X < -MaterialGraphPresentationCoordinateLimit || Position.X > MaterialGraphPresentationCoordinateLimit
+				|| Position.Y < -MaterialGraphPresentationCoordinateLimit || Position.Y > MaterialGraphPresentationCoordinateLimit)
+				return MakeRejected("The graph move preview is outside the supported coordinate range.");
 		}
-		if (Material->GetMaterialCompileStatus().AuthoredRevision
-			!= Impl->AuthoredRevision)
-			return Impl->AbortStaleSemanticChange(*Material);
-		if (Positions.empty()) return {.Status = EMaterialGraphCommandStatus::NoChange};
-		if (Positions.size() > MaterialProgramMaxNodeCount)
-			return MakeRejected("The material graph move preview exceeds the node bound.");
-		std::unordered_set<FGuid> RequestedNodes;
-		for (const FMaterialGraphNodePresentation& Position : Positions)
+		bool bChanged = false;
+		for (const auto& Position : Positions)
 		{
-			if (!Impl->NodeIds.contains(Position.NodeId))
-				return MakeRejected("A material graph move preview addresses a node outside the selection.");
-			if (!RequestedNodes.insert(Position.NodeId).second)
-				return MakeRejected("A material graph move preview contains a duplicate node GUID.");
-			if (Position.X < -MaterialGraphPresentationCoordinateLimit
-				|| Position.X > MaterialGraphPresentationCoordinateLimit
-				|| Position.Y < -MaterialGraphPresentationCoordinateLimit
-				|| Position.Y > MaterialGraphPresentationCoordinateLimit)
-				return MakeRejected("A material graph move preview is outside the supported coordinate range.");
+			auto It = std::ranges::find(Impl->Draft, Position.NodeId, &FMaterialGraphNodePresentation::NodeId);
+			if (It == Impl->Draft.end()) { Impl->Draft.push_back({Position.NodeId, Position.X, Position.Y}); bChanged = true; }
+			else { bChanged |= It->X != Position.X || It->Y != Position.Y; It->X = Position.X; It->Y = Position.Y; }
 		}
-		const auto Result = Material->ApplyMaterialGraphNodePositions(
-			Positions, Impl->AuthoredRevision);
-		if (Result == EMaterialGraphPresentationResult::Rejected)
-			return MakeRejected("The material rejected the graph move preview.");
-		return {.Status = Result == EMaterialGraphPresentationResult::NoChange
-			? EMaterialGraphCommandStatus::NoChange
-			: EMaterialGraphCommandStatus::Succeeded,
-			.AffectedNodeIds = std::vector<FGuid>(
-				RequestedNodes.begin(), RequestedNodes.end())};
+		return {.Status = bChanged ? EMaterialGraphCommandStatus::Succeeded : EMaterialGraphCommandStatus::NoChange,
+			.AffectedNodeIds = std::vector<FGuid>(Requested.begin(), Requested.end())};
 	}
 
 	auto FMaterialGraphMoveSession::Commit() -> FMaterialGraphCommandResult
 	{
-		if (!Impl->bActive) return MakeRejected("No material graph move is active.");
-		DMaterial* Material = Impl->Material.Get();
-		if (!Material)
-		{
-			Impl->bActive = false;
-			return {.Status = EMaterialGraphCommandStatus::StaleOwner,
-				.Message = "The material graph owner is no longer available."};
-		}
-		if (Impl->Transactions && Impl->Transactions->HasPendingOperation())
-			return MakeRejected("The editor transactor is busy.");
-		if (Material->GetMaterialCompileStatus().AuthoredRevision
-			!= Impl->AuthoredRevision)
-			return Impl->AbortStaleSemanticChange(*Material);
-		const FMaterialGraphPresentation& CurrentPresentation =
-			Material->GetMaterialGraphPresentation();
-		const bool bChanged = Impl->BeforePresentation != CurrentPresentation;
-		if (bChanged && Impl->Transactions)
-		{
-			const auto bRecorded = Impl->Transactions->CommitApplied(
-				MakeMaterialGraphPresentationTransaction(
-					*Material,
-					Impl->BeforePresentation,
-					CurrentPresentation,
-					"Move Material Nodes"));
-			check(bRecorded);
-		}
-		std::vector<FGuid> Affected(Impl->NodeIds.begin(), Impl->NodeIds.end());
-		Impl->bActive = false;
-		return {
-			.Status = bChanged ? EMaterialGraphCommandStatus::Succeeded
-				: EMaterialGraphCommandStatus::NoChange,
-			.AffectedNodeIds = std::move(Affected),
-		};
+		const auto Validated = Apply({});
+		if (!Validated) return Validated;
+		auto Result = FMaterialGraphDocument(*Impl->Owner.Get()).MoveNodes(Impl->Draft, Impl->Transactions);
+		if (Result) { Impl->bActive = false; Impl->Draft.clear(); }
+		return Result;
 	}
 
 	auto FMaterialGraphMoveSession::Cancel() -> FMaterialGraphCommandResult
 	{
-		if (!Impl->bActive) return MakeRejected("No material graph move is active.");
-		DMaterial* Material = Impl->Material.Get();
+		if (!Impl->bActive) return MakeRejected("No graph move is active.");
 		Impl->bActive = false;
-		if (!Material)
-			return {.Status = EMaterialGraphCommandStatus::StaleOwner,
-				.Message = "The material graph owner is no longer available."};
-		const bool bChanged = Impl->BeforePresentation
-			!= Material->GetMaterialGraphPresentation();
-		Material->SetMaterialGraphPresentation(Impl->BeforePresentation);
-		return {.Status = bChanged ? EMaterialGraphCommandStatus::Succeeded
-			: EMaterialGraphCommandStatus::NoChange};
+		Impl->Draft.clear();
+		return {.Status = EMaterialGraphCommandStatus::Succeeded};
 	}
 
-	auto FMaterialGraphMoveSession::IsActive() const -> bool
-	{
-		return Impl->bActive;
-	}
+	auto FMaterialGraphMoveSession::IsActive() const -> bool { return Impl->bActive; }
+	auto FMaterialGraphMoveSession::GetPositions() const -> std::span<const FMaterialGraphNodePresentation> { return Impl->Draft; }
 
 	struct FMaterialGraphParameterEditSession::FImpl
 	{

@@ -35,6 +35,9 @@ namespace Durin::Editor::Material
 		auto SelectAndFrame(const FGuid& NodeId) -> bool;
 		auto DrawSelectionDetails(DObject& Owner, DTransactor& Transactions,
 			const FReportError& ReportError) -> void;
+		auto DrawParameterValue(DMaterial& Material, const FMaterialParameterDefinition& Parameter,
+			DTransactor& Transactions, const FReportError& ReportError) -> void;
+		auto EndParameterFrame() -> void;
 		auto DrawFunction(DMaterialFunction& Function, ::Durin::DTransactor& Transactions,
 			float Height, const FReportError& ReportError,
 			const std::function<void(std::string_view)>& OpenFunction) -> void;
@@ -203,5 +206,9 @@ namespace Durin::Editor::Material
 		std::array<char, 256> NodeTextureSearch{};
 		FInteraction Interaction = FIdleInteraction{};
 		FMaterialGraphMoveSession MoveSession;
+		FMaterialGraphParameterEditSession ParameterSession;
+		FGuid EditingParameterId;
+		ImGuiID ParameterWidget = 0;
+		int ParameterFrame = -1;
 	};
 }

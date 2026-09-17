@@ -5,6 +5,21 @@
 
 namespace Durin::Editor::Material
 {
+	// Fixed numeric inputs pair a connection member with a float-array default.
+	inline auto FindMaterialExpressionInputDefault(DMaterialExpression& Expression,
+		const FMaterialExpressionInput& Input) -> std::vector<float>*
+	{
+		std::vector<float>* Result = nullptr;
+		Expression.GetClass()->ForEachProperty([&](FProperty* Property) {
+			if (Property->GetValuePtr(&Expression) != &Input) return;
+			auto* Default = Expression.GetClass()->FindPropertyByName(FName(Property->NamePrivate.ToString() + "Default"));
+			if (!Default || Default->GetKind() != DurinCodeGen::EPropertyGenFlags::Array) return;
+			if (static_cast<FArrayProperty*>(Default)->GetInner()->GetKind() != DurinCodeGen::EPropertyGenFlags::Float) return;
+			Result = static_cast<std::vector<float>*>(Default->GetValuePtr(&Expression));
+		});
+		return Result;
+	}
+
 	// Reflected connection members retain declaration order, matching fixed pins.
 	// Dynamic surface pins use attribute indices; calls use their binding order.
 	template<typename Visitor>

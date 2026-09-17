@@ -1,6 +1,81 @@
 #include "FunctionPortTestFixture.h"
 #include "MaterialFunctionTestSupport.h"
 
+TEST(FMaterialFunctionEditingTests, DuplicateUsesDocumentOffsetsAndRejectsOutOfRangePositions)
+{
+	using namespace Durin;
+	using namespace Durin::Editor::Material;
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterialFunction> Function(NewObject<DMaterialFunction>(nullptr, "DuplicateFunction"));
+	FMaterialGraphDocument Graph(*Function);
+	Tests::FTestTransactorOwner Transactions;
+	const auto Created = Testing::CreateGraphConstant(Graph, 0.5f, 500, 300);
+	ASSERT_TRUE(Created);
+	const auto Before = Function->GetFunctionPresentation();
+	const auto Duplicated = Graph.DuplicateNodes(Created.GeneratedNodeIds, -40, 60, Transactions.Get());
+	ASSERT_TRUE(Duplicated) << Duplicated.Message;
+	ASSERT_EQ(Duplicated.GeneratedNodeIds.size(), 1u);
+	const auto After = Function->GetFunctionPresentation();
+	const auto Position = std::ranges::find(After.Nodes, Duplicated.GeneratedNodeIds.front(), &FMaterialGraphNodePresentation::NodeId);
+	ASSERT_NE(Position, After.Nodes.end());
+	EXPECT_EQ(Position->X, 460);
+	EXPECT_EQ(Position->Y, 360);
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(Function->GetFunctionPresentation(), Before);
+	ASSERT_TRUE(Transactions->Redo());
+	EXPECT_EQ(Function->GetFunctionPresentation(), After);
+	ASSERT_TRUE(Transactions->Reset());
+	const auto Expressions = Function->GetExpressionCollection().Expressions;
+	for (const auto Offset : {std::numeric_limits<int32>::min(), std::numeric_limits<int32>::max()})
+	{
+		EXPECT_FALSE(Graph.DuplicateNodes(Created.GeneratedNodeIds, Offset, 0, Transactions.Get()));
+		EXPECT_FALSE(Graph.DuplicateNodes(Created.GeneratedNodeIds, 0, Offset, Transactions.Get()));
+	}
+	// The anchor fits, but a later node would exceed the coordinate bound.
+	const std::array Selection{Created.GeneratedNodeIds.front(), Duplicated.GeneratedNodeIds.front()};
+	EXPECT_FALSE(Graph.DuplicateNodes(Selection, MaterialGraphPresentationCoordinateLimit - 460, 0, Transactions.Get()));
+	EXPECT_EQ(Function->GetExpressionCollection().Expressions, Expressions);
+	EXPECT_EQ(Function->GetFunctionPresentation(), After);
+	EXPECT_FALSE(Transactions->Undo());
+}
+
+TEST(FMaterialFunctionEditingTests, PasteRejectsRecursiveDependenciesWithoutPublishingOrRecordingUndo)
+{
+	using namespace Durin;
+	using namespace Durin::Editor::Material;
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterialFunction> Function(NewObject<DMaterialFunction>(nullptr, "PasteCycleRoot"));
+	TStrongObjectPtr<DMaterialFunction> Wrapper(NewObject<DMaterialFunction>(nullptr, "PasteCycleWrapper"));
+	TStrongObjectPtr<DMaterialFunction> Donor(NewObject<DMaterialFunction>(nullptr, "PasteCycleDonor"));
+	FMaterialGraphDocument Graph(*Function), Nested(*Wrapper), Source(*Donor);
+	ASSERT_TRUE(Testing::CreateGraphConstant(Graph, 0.5f));
+	const auto Direct = Nested.InsertFunctionCall(*Function, 10, 20);
+	ASSERT_TRUE(Direct);
+	const auto Indirect = Source.InsertFunctionCall(*Wrapper, 30, 40);
+	ASSERT_TRUE(Indirect);
+	FMaterialGraphClipboardPayload DirectPayload, IndirectPayload;
+	ASSERT_TRUE(Nested.CopySelection(Direct.GeneratedNodeIds, DirectPayload));
+	ASSERT_TRUE(Source.CopySelection(Indirect.GeneratedNodeIds, IndirectPayload));
+	const auto Expressions = Function->GetExpressionCollection().Expressions;
+	const auto Presentation = Function->GetFunctionPresentation();
+	const auto Signature = Function->GetFunctionSignature();
+	Tests::FTestTransactorOwner Transactions;
+	int Notifications = 0;
+	const auto Observer = Function->GetGraphChanges().Subscribe(*Function,
+		[&](const FMaterialGraphChangeSet&) { ++Notifications; });
+	for (const auto* Payload : {&DirectPayload, &IndirectPayload})
+	{
+		const auto Rejected = Graph.Paste(*Payload, 100, 200, Transactions.Get());
+		EXPECT_EQ(Rejected.Status, EMaterialGraphCommandStatus::Rejected);
+		EXPECT_EQ(Function->GetExpressionCollection().Expressions, Expressions);
+		EXPECT_EQ(Function->GetFunctionPresentation(), Presentation);
+		EXPECT_EQ(Function->GetFunctionSignature(), Signature);
+		EXPECT_EQ(Notifications, 0);
+		EXPECT_FALSE(Transactions->Undo());
+	}
+	Function->GetGraphChanges().Unsubscribe(Observer);
+}
+
 TEST(FMaterialFunctionEditingTests, UnfinishedCallsRemainEditableAndCompileAfterConnecting)
 {
 	using namespace Durin;

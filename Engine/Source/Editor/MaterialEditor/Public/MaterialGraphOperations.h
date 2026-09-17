@@ -415,7 +415,7 @@ namespace Durin::Editor::Material
 			-> FMaterialGraphCommandResult;
 	};
 
-	// Coalesces presentation previews from one pointer gesture into one transaction.
+	// Keeps detached position drafts and commits one position delta on pointer release.
 	class FMaterialGraphMoveSession
 	{
 	public:
@@ -426,7 +426,7 @@ namespace Durin::Editor::Material
 			-> FMaterialGraphMoveSession& = delete;
 
 		MATERIALEDITOR_API auto Begin(
-			DMaterial& Material,
+			DObject& Owner,
 			std::span<const FGuid> NodeIds,
 			DTransactor* Transactions = nullptr)
 			-> FMaterialGraphCommandResult;
@@ -436,6 +436,9 @@ namespace Durin::Editor::Material
 		MATERIALEDITOR_API auto Commit() -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto Cancel() -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto IsActive() const -> bool;
+
+		MATERIALEDITOR_API auto IsCurrent(const DObject& Owner) const -> bool;
+		MATERIALEDITOR_API auto GetPositions() const -> std::span<const FMaterialGraphNodePresentation>;
 
 	private:
 		struct FImpl;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "MaterialGraphOperations.h"
+#include "Materials/MaterialFunction.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Editor/Transactor.h"
 
@@ -19,8 +20,24 @@ namespace Durin::Editor::Material::GraphEditInternals
 		};
 	}
 
+	inline auto ReadGraphPresentation(const DObject& Owner) -> FMaterialGraphPresentation
+	{
+		if (const auto* Material = Cast<DMaterial>(&Owner)) return Material->GetMaterialGraphPresentation();
+		return {.Nodes = Cast<DMaterialFunction>(&Owner)->GetFunctionPresentation().Nodes};
+	}
+
+	inline auto WriteGraphPresentation(DObject& Owner, FMaterialGraphPresentation Value)
+		-> EMaterialGraphPresentationResult
+	{
+		if (auto* Material = Cast<DMaterial>(&Owner)) return Material->SetMaterialGraphPresentation(std::move(Value));
+		auto* Function = Cast<DMaterialFunction>(&Owner);
+		if (Value.Nodes == Function->GetFunctionPresentation().Nodes) return EMaterialGraphPresentationResult::NoChange;
+		return Function->SetFunctionPresentation({.Nodes = std::move(Value.Nodes)})
+			? EMaterialGraphPresentationResult::Changed : EMaterialGraphPresentationResult::Rejected;
+	}
+
 	auto MakeMaterialGraphPresentationTransaction(
-		DMaterial& Material,
+		DObject& Material,
 		const FMaterialGraphPresentation& BeforePresentation,
 		const FMaterialGraphPresentation& AfterPresentation,
 		std::string Description)
@@ -34,7 +51,7 @@ namespace Durin::Editor::Material::GraphEditInternals
 		-> std::unique_ptr<ITransactionCustomChange>;
 
 	auto CommitPresentationChange(
-		DMaterial& Material,
+		DObject& Material,
 		FMaterialGraphPresentation CandidatePresentation,
 		std::string Description,
 		std::vector<FGuid> Affected,
