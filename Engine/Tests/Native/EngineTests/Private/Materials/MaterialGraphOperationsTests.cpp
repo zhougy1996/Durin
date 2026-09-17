@@ -2855,6 +2855,48 @@ TEST(FMaterialGraphOperationsTests, TypeInferenceSkipsValuesAndUnrelatedBranches
 	EXPECT_EQ(Multiply->ResultType, EMaterialProgramValueType::Float3);
 }
 
+TEST(FMaterialGraphOperationsTests, ExtractOutputDefaultPreservesMaterialAttributesConnection)
+{
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, "ExtractOutputDefault"));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	auto Graph = Testing::MakePBRMaterialExpressionsForTest();
+	auto Packed = Testing::MakeGraphExpression<DMaterialExpressionMakeSurface>();
+	Packed->BaseColor = Graph.Outputs.BaseColor; Packed->Normal = Graph.Outputs.Normal;
+	Packed->Metallic = Graph.Outputs.Metallic; Packed->Roughness = Graph.Outputs.Roughness;
+	Packed->AmbientOcclusion = Graph.Outputs.AmbientOcclusion; Packed->Emissive = Graph.Outputs.Emissive;
+	Packed->Opacity = Graph.Outputs.Opacity; Packed->OpacityMask = Graph.Outputs.OpacityMask;
+	Graph.Expressions.emplace_back(Packed.Get());
+	Graph.Outputs.Surface = {Packed->Id};
+	Graph.Outputs.Metallic = {};
+	Graph.Outputs.MetallicDefault = .7f;
+	ASSERT_TRUE(Graph.Apply(*Material));
+	const FMaterialGraphNodePresentation Position{Material->GetOutputNode()->Id, 600, 120};
+	ASSERT_TRUE(FMaterialGraphOperations::MoveNodes(*Material, std::span(&Position, 1)));
+	FMaterialGraphDocument Document(*Material);
+	Durin::Tests::FTestTransactorOwner Transactions;
+	const auto Before = Material->GetExpressionOutputs();
+	const auto Extracted = Document.ExtractInputDefault(Material->GetOutputNode()->Id,
+		static_cast<uint32>(EMaterialOutputPin::Metallic), {}, Transactions.Get());
+	ASSERT_TRUE(Extracted) << Extracted.Message;
+	ASSERT_EQ(Extracted.GeneratedNodeIds.size(), 1u);
+	const auto After = Material->GetExpressionOutputs();
+	auto Expected = Before;
+	Expected.Metallic = {Extracted.GeneratedNodeIds.front()};
+	EXPECT_EQ(After, Expected);
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(Material->GetExpressionOutputs(), Before);
+	ASSERT_TRUE(Transactions->Redo());
+	EXPECT_EQ(Material->GetExpressionOutputs(), Expected);
+	ASSERT_TRUE(Document.SetUseMaterialAttributes(true));
+	EXPECT_EQ(Material->GetExpressionOutputs().Surface, Before.Surface);
+	std::vector<DMaterialExpression*> Expressions;
+	for (const auto& Expression : Material->GetExpressionCollection().Expressions) Expressions.push_back(Expression.Get());
+	const auto Built = FMaterialExpressionBuildContext(Expressions).FinishSurface(Material->GetExpressionOutputs());
+	ASSERT_TRUE(Built);
+	EXPECT_TRUE(Built.IR.SurfaceRoot.bAggregate);
+}
+
 TEST(FMaterialGraphOperationsTests, OutputModeRetainsConnectionsAndUndoRestoresVisiblePins)
 {
 	InitializeDObjectSystem();

@@ -133,7 +133,6 @@ namespace Durin::Editor::Material
 		auto Constant = MakeConstant(Input.Read());
 		if (!Constant) return MakeRejected("The input default has an unsupported width.");
 		*Input.Source = {Constant->Id};
-		if (Input.MaterialOutputs) Input.MaterialOutputs->Surface = {};
 		const auto Position = std::ranges::find(State.Presentation.Nodes, NodeId, &FMaterialGraphNodePresentation::NodeId);
 		if (Position == State.Presentation.Nodes.end()) return MakeRejected("The input owner has no authored position.");
 		State.Presentation.Nodes.push_back({Constant->Id, Position->X - 320, Position->Y});
