@@ -2,6 +2,27 @@
 
 namespace Durin
 {
+	namespace
+	{
+		auto LimitName(ERDGLimit Dimension) -> std::string_view
+		{
+			switch (Dimension)
+			{
+			case ERDGLimit::Passes: return "passes";
+			case ERDGLimit::Resources: return "resources";
+			case ERDGLimit::Uses: return "uses";
+			case ERDGLimit::Dependencies: return "dependencies";
+			case ERDGLimit::RangeCells: return "range-cells";
+			case ERDGLimit::RangeCellCandidates: return "range-cell-candidates";
+			case ERDGLimit::CellVisits: return "cell-visits";
+			case ERDGLimit::TextureTransitions: return "texture-transitions";
+			case ERDGLimit::BufferTransitions: return "buffer-transitions";
+			case ERDGLimit::AllocationBytes: return "allocation-bytes";
+			}
+			return "unknown-limit";
+		}
+	}
+
 	auto FormatRDGError(const FRDGResult& Result) -> std::string
 	{
 		if (Result.IsSuccess()) return {};
@@ -110,18 +131,30 @@ namespace Durin
 			else if constexpr (std::is_same_v<T, FRDGDependencyErrorContext>)
 				Text += std::format(": producer={} consumer={}", Context.Producer, Context.Consumer);
 			else if constexpr (std::is_same_v<T, FRDGLimitErrorContext>)
-				Text += std::format(": {} actual={} limit={}", Context.Dimension, Context.Actual, Context.Limit);
+				Text += std::format(": {} actual={} limit={}", LimitName(Context.Dimension), Context.Actual, Context.Limit);
 			else if constexpr (std::is_same_v<T, FRDGAllocationErrorContext>)
+				Text += std::format(": resource={}", Context.ResourceId);
+			else if constexpr (std::is_same_v<T, FRDGBufferAllocationErrorContext>)
 			{
 				Text += std::format(": resource={}", Context.ResourceId);
-				for (const auto* Buffer : {&Context.ActualBuffer, &Context.ExpectedBuffer})
-					Text += std::format(" buffer=(size={},stride={},usage={})",
-						Buffer->Size, Buffer->Stride, static_cast<uint64>(Buffer->Usage));
-				for (const auto* Texture : {&Context.ActualTexture, &Context.ExpectedTexture})
-					Text += std::format(" texture=(dimension={},extent={}x{},depth={},array={},mips={},samples={},format={},flags={})",
-						static_cast<uint32>(Texture->Dimension), Texture->Extent.x, Texture->Extent.y,
-						Texture->Depth, Texture->ArraySize, Texture->NumMips, Texture->NumSamples,
-						static_cast<uint32>(Texture->Format), static_cast<uint64>(Texture->Flags));
+				auto Append = [&](std::string_view Label, const FRHIBufferDesc& Buffer) {
+					Text += std::format(" {}=(size={},stride={},usage={})", Label,
+						Buffer.Size, Buffer.Stride, static_cast<uint64>(Buffer.Usage));
+				};
+				Append("expected", Context.Expected);
+				Append("actual", Context.Actual);
+			}
+			else if constexpr (std::is_same_v<T, FRDGTextureAllocationErrorContext>)
+			{
+				Text += std::format(": resource={}", Context.ResourceId);
+				auto Append = [&](std::string_view Label, const FRHITextureDesc& Texture) {
+					Text += std::format(" {}=(dimension={},extent={}x{},depth={},array={},mips={},samples={},format={},flags={})",
+						Label, static_cast<uint32>(Texture.Dimension), Texture.Extent.x, Texture.Extent.y,
+						Texture.Depth, Texture.ArraySize, Texture.NumMips, Texture.NumSamples,
+						static_cast<uint32>(Texture.Format), static_cast<uint64>(Texture.Flags));
+				};
+				Append("expected", Context.Expected);
+				Append("actual", Context.Actual);
 			}
 			else if constexpr (std::is_same_v<T, FRDGExternalConflictContext>)
 			{

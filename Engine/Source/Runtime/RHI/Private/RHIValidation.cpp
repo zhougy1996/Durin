@@ -336,6 +336,16 @@ namespace Durin
 		if (Error.ActualBindingType) Text += std::format(" actual-type={}", static_cast<uint32>(*Error.ActualBindingType));
 		return Text;
 	}
+	auto FRHICreationError::GetSemanticFingerprint() const -> size_t
+	{
+		size_t Fingerprint = 0;
+		auto Add = [&]<typename T>(const T& Value) {
+			Fingerprint ^= std::hash<T>{}(Value) + 0x9e3779b9 + (Fingerprint << 6) + (Fingerprint >> 2);
+		};
+		Add(Failure); Add(Source); Add(NativeCode);
+		return Fingerprint;
+	}
+
 	auto FormatRHICreationError(const FRHICreationError& Error) -> std::string
 	{
 		if (!Error.HasError()) return {};

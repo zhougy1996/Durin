@@ -341,7 +341,7 @@ namespace Durin
 			++State->Failures;
 			PublishStatistics(0, 0);
 			return {ERDGError::AllocationFailed, ERDGReason::AllocationBudgetExceeded,
-				FRDGLimitErrorContext{"allocation-bytes", RequestedBytes, FRendererRDGAllocationPolicy::MaximumRetainedBytes}};
+				FRDGLimitErrorContext{ERDGLimit::AllocationBytes, RequestedBytes, FRendererRDGAllocationPolicy::MaximumRetainedBytes}};
 		}
 
 		struct FCandidate final

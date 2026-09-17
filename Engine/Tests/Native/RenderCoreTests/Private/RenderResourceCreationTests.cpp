@@ -105,6 +105,13 @@ namespace Durin
 			Second = First;
 			std::get<FShaderError>(Second.Cause).ActualIdentity = "/Other/Source";
 			EXPECT_NE(First.GetFingerprint(), Second.GetFingerprint());
+			Second = First;
+			std::get<FShaderError>(Second.Cause).CaptureLimit =
+				FShaderCaptureLimitContext{EShaderCaptureLimit::Files, 10, 11};
+			EXPECT_NE(First.GetFingerprint(), Second.GetFingerprint());
+			First = Second;
+			std::get<FShaderError>(Second.Cause).CaptureLimit->Actual = 12;
+			EXPECT_NE(First.GetFingerprint(), Second.GetFingerprint());
 			Second.Cause = FRHICreationError{.Failure = ERHIResourceCreationFailure::OutOfMemory,
 				.Source = ERHICreationFailureSource::NativeBackend, .NativeCode = -2};
 			EXPECT_NE(First.GetFingerprint(), Second.GetFingerprint());

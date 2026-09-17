@@ -2,6 +2,38 @@
 
 namespace Durin
 {
+	auto FShaderError::GetSemanticFingerprint() const -> size_t
+	{
+		size_t Fingerprint = 0;
+		auto Add = [&]<typename T>(const T& Value) {
+			Fingerprint ^= std::hash<T>{}(Value) + 0x9e3779b9 + (Fingerprint << 6) + (Fingerprint >> 2);
+		};
+		auto AddNative = [&](const std::error_code& Error) {
+			Add(Error.value());
+			Add(std::string(Error.category().name()));
+		};
+		Add(Code); Add(ShaderType); Add(Parameter);
+		Add(ExpectedIdentity); Add(ActualIdentity);
+		Add(Index); Add(ElementIndex); Add(Expected); Add(Actual);
+		Add(SetIndex); Add(BindingIndex);
+		Add(ExistingBegin); Add(ExistingEnd); Add(NewBegin); Add(NewEnd);
+		Add(ProviderStatus); Add(CompilerPhase); Add(NativeStatus);
+		AddNative(SystemError);
+		Add(CaptureLimit.has_value());
+		if (CaptureLimit)
+		{
+			Add(CaptureLimit->Kind); Add(CaptureLimit->Maximum); Add(CaptureLimit->Actual);
+		}
+		Add(FileError.has_value());
+		if (FileError)
+		{
+			Add(FileError->Operation); AddNative(FileError->NativeError);
+			Add(FileError->Path.generic_string()); Add(FileError->Offset); Add(FileError->Size);
+		}
+		return Fingerprint;
+	}
+
+
 	namespace
 	{
 		auto CaptureLimitName(EShaderCaptureLimit Kind) -> std::string_view

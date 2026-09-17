@@ -18,6 +18,8 @@ namespace Durin
 		ERHICreationFailureSource Source = ERHICreationFailureSource::None;
 		// Backend-neutral storage of the native status; no backend headers leak into RHI.
 		std::optional<int32> NativeCode;
+		// In-process diagnostic identity, not a persistent cache key.
+		RHI_API auto GetSemanticFingerprint() const -> size_t;
 		auto HasError() const -> bool { return Failure != ERHIResourceCreationFailure::None; }
 	};
 

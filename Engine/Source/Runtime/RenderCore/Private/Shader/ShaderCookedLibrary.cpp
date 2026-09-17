@@ -450,7 +450,7 @@ namespace Durin
 			std::vector<std::string> Entries;
 			FShaderCompileOptions Options;
 			MakeCompileOptions(Record.Request, Options, Entries);
-			if (const auto Result = ShaderCompiledOutput::Encode(Options, Record.Output, Item.Payload); !Result)
+			if (auto Result = ShaderCompiledOutput::Encode(Options, Record.Output, Item.Payload); !Result)
 			{
 				return Result;
 			}

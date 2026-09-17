@@ -8,37 +8,12 @@ namespace Durin
 		auto Add = [&]<typename T>(const T& Value) {
 			Fingerprint ^= std::hash<T>{}(Value) + 0x9e3779b9 + (Fingerprint << 6) + (Fingerprint >> 2);
 		};
-		auto AddNative = [&](const std::error_code& Error) {
-			Add(Error.value());
-			Add(std::string(Error.category().name()));
-		};
 		Add(Category); Add(Reason); Add(Context); Add(Identity);
 		Add(RetryDependencies); Add(bRetainedFallback); Add(Cause.index());
 		if (const auto* Shader = std::get_if<FShaderError>(&Cause))
-		{
-			Add(Shader->Code); Add(Shader->ShaderType); Add(Shader->Parameter);
-			Add(Shader->ExpectedIdentity); Add(Shader->ActualIdentity);
-			Add(Shader->Index); Add(Shader->ElementIndex); Add(Shader->Expected); Add(Shader->Actual);
-			Add(Shader->SetIndex); Add(Shader->BindingIndex);
-			Add(Shader->ExistingBegin); Add(Shader->ExistingEnd); Add(Shader->NewBegin); Add(Shader->NewEnd);
-			Add(Shader->ProviderStatus); Add(Shader->CompilerPhase); Add(Shader->NativeStatus);
-			AddNative(Shader->SystemError);
-			Add(Shader->CaptureLimit.has_value());
-			if (Shader->CaptureLimit)
-			{
-				Add(Shader->CaptureLimit->Kind); Add(Shader->CaptureLimit->Maximum); Add(Shader->CaptureLimit->Actual);
-			}
-			Add(Shader->FileError.has_value());
-			if (Shader->FileError)
-			{
-				Add(Shader->FileError->Operation); AddNative(Shader->FileError->NativeError);
-				Add(Shader->FileError->Path.generic_string()); Add(Shader->FileError->Offset); Add(Shader->FileError->Size);
-			}
-		}
+			Add(Shader->GetSemanticFingerprint());
 		else if (const auto* RHI = std::get_if<FRHICreationError>(&Cause))
-		{
-			Add(RHI->Failure); Add(RHI->Source); Add(RHI->NativeCode);
-		}
+			Add(RHI->GetSemanticFingerprint());
 		return Fingerprint;
 	}
 

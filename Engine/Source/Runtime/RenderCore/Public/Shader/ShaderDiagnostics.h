@@ -183,6 +183,8 @@ namespace Durin
 		// Reserved for the compiler/provider boundary; never classify this text.
 		std::string ExternalDiagnostic;
 
+		// In-process diagnostic identity; excludes external wording, not a persistent cache key.
+		RENDERCORE_API auto GetSemanticFingerprint() const -> size_t;
 		auto IsSuccess() const -> bool { return Code == EShaderError::None; }
 		RENDERCORE_API static auto FromSlang(
 			ESlangShaderError Phase,

@@ -3926,6 +3926,9 @@ namespace Durin
 		Error = TextureResult.Result;
 		EXPECT_FALSE(TextureResult.IsSuccess()) << FormatRDGError(TextureResult.Result);
 		EXPECT_EQ(Error.Reason, ERDGReason::TextureAllocationIncompatible);
+		const auto& TextureError = std::get<FRDGTextureAllocationErrorContext>(Error.Context);
+		EXPECT_EQ(TextureError.Expected.Flags, ETextureCreateFlags::RenderTargetable);
+		EXPECT_EQ(TextureError.Actual.Flags, ETextureCreateFlags::ShaderResource);
 
 		auto BufferBacking = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create(
 			"BufferBacking", 64, 4, EBufferUsageFlags::StructuredBuffer));
@@ -3946,6 +3949,9 @@ namespace Durin
 		Error = BufferResult.Result;
 		EXPECT_FALSE(BufferResult.IsSuccess()) << FormatRDGError(BufferResult.Result);
 		EXPECT_EQ(Error.Reason, ERDGReason::BufferAllocationIncompatible);
+		const auto& BufferError = std::get<FRDGBufferAllocationErrorContext>(Error.Context);
+		EXPECT_EQ(BufferError.Expected.Usage, EBufferUsageFlags::UnorderedAccess);
+		EXPECT_EQ(BufferError.Actual.Usage, EBufferUsageFlags::StructuredBuffer);
 	}
 
 	TEST_F(FRDGTests, AcceptsBackingWithSupersetUsageFlags)
@@ -4178,7 +4184,7 @@ namespace Durin
 
 	namespace
 	{
-		auto ExpectLimit(const FRDGResult& Result, std::string_view Dimension,
+		auto ExpectLimit(const FRDGResult& Result, ERDGLimit Dimension,
 			uint64 Actual, uint64 Limit) -> void
 		{
 			EXPECT_EQ(Result.Error, ERDGError::SafetyLimitExceeded);
@@ -4241,8 +4247,21 @@ namespace Durin
 	{
 		EXPECT_TRUE(FormatRDGError({}).empty());
 		const FRDGResult Result{ERDGError::SafetyLimitExceeded, ERDGReason::StructuralLimit,
-			FRDGLimitErrorContext{"passes", 2, 1}};
+			FRDGLimitErrorContext{ERDGLimit::Passes, 2, 1}};
 		EXPECT_EQ(FormatRDGError(Result), "structural limit: passes actual=2 limit=1");
+	}
+
+	TEST_F(FRDGTests, AllocationFormattingOnlyShowsRelevantContext)
+	{
+		FRDGResult Result{ERDGError::MissingAllocation, ERDGReason::AllocationMissing,
+			FRDGAllocationErrorContext{.ResourceId = 3}};
+		EXPECT_EQ(FormatRDGError(Result), "allocation missing: resource=3");
+		Result = {ERDGError::IncompatibleAllocation, ERDGReason::BufferAllocationIncompatible,
+			FRDGBufferAllocationErrorContext{.ResourceId = 3,
+				.Expected = FRHIBufferDesc(64, 4, EBufferUsageFlags::None),
+				.Actual = FRHIBufferDesc(32, 4, EBufferUsageFlags::None)}};
+		EXPECT_EQ(FormatRDGError(Result),
+			"buffer allocation incompatible: resource=3 expected=(size=64,stride=4,usage=0) actual=(size=32,stride=4,usage=0)");
 	}
 
 	TEST_F(FRDGTests, DiagnosticFormattingPreservesNestedCauses)
@@ -4273,7 +4292,7 @@ namespace Durin
 		auto Result = FRDGBuilderTestAccessor::Compile(Builder);
 		EXPECT_FALSE(Result.IsSuccess());
 		EXPECT_EQ(Result.Result.Error, ERDGError::SafetyLimitExceeded);
-		ExpectLimit(Result.Result, "passes", 2, 1);
+		ExpectLimit(Result.Result, ERDGLimit::Passes, 2, 1);
 	}
 
 	TEST_F(FRDGTests, BoundsRangeExpansionAndVisitsBeforeDependencyCompilation)
@@ -4293,11 +4312,11 @@ namespace Durin
 			}
 			return FRDGBuilderTestAccessor::Compile(Builder).Result;
 		};
-		ExpectLimit(Compile({.MaxResources = 0}), "resources", 1, 0);
-		ExpectLimit(Compile({.MaxUses = 3}), "uses", 4, 3);
-		ExpectLimit(Compile({.MaxRangeCells = 3}), "range-cells", 4, 3);
-		ExpectLimit(Compile({.MaxRangeCellCandidates = 3}), "range-cell-candidates", 4, 3);
-		ExpectLimit(Compile({.MaxCellVisits = 0}), "cell-visits", 1, 0);
+		ExpectLimit(Compile({.MaxResources = 0}), ERDGLimit::Resources, 1, 0);
+		ExpectLimit(Compile({.MaxUses = 3}), ERDGLimit::Uses, 4, 3);
+		ExpectLimit(Compile({.MaxRangeCells = 3}), ERDGLimit::RangeCells, 4, 3);
+		ExpectLimit(Compile({.MaxRangeCellCandidates = 3}), ERDGLimit::RangeCellCandidates, 4, 3);
+		ExpectLimit(Compile({.MaxCellVisits = 0}), ERDGLimit::CellVisits, 1, 0);
 		EXPECT_TRUE(Compile({.MaxRangeCells = 16, .MaxRangeCellCandidates = 16}).IsSuccess());
 	}
 

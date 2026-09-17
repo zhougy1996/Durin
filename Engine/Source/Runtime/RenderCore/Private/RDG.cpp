@@ -1142,10 +1142,10 @@ namespace Durin
 			}
 		};
 
-		auto SafetyLimit(std::string_view Name, size_t Actual, size_t Limit)
+		auto SafetyLimit(ERDGLimit Dimension, size_t Actual, size_t Limit)
 			-> FRDGResult
 		{
-			return {ERDGError::SafetyLimitExceeded, ERDGReason::StructuralLimit, FRDGLimitErrorContext{std::string(Name), Actual, Limit}};
+			return {ERDGError::SafetyLimitExceeded, ERDGReason::StructuralLimit, FRDGLimitErrorContext{Dimension, Actual, Limit}};
 		}
 
 		struct FRangeWork final
@@ -1155,7 +1155,7 @@ namespace Durin
 			size_t Visits = 0;
 			auto Visit() -> bool { return ++Visits <= Budget.MaxCellVisits; }
 			auto Error() const -> FRDGResult
-			{ return SafetyLimit("cell-visits", Visits, Budget.MaxCellVisits); }
+			{ return SafetyLimit(ERDGLimit::CellVisits, Visits, Budget.MaxCellVisits); }
 		};
 
 		// Fixed texture subresource indices and one tracking cell per buffer or token.
@@ -1335,7 +1335,7 @@ namespace Durin
 			}
 			if (Graph.Dependencies.size() >= Graph.MaxDependencies)
 			{
-				return SafetyLimit("dependencies", Graph.Dependencies.size() + 1,
+				return SafetyLimit(ERDGLimit::Dependencies, Graph.Dependencies.size() + 1,
 					Graph.MaxDependencies);
 			}
 			Graph.EdgeIndices.emplace(Key, Graph.Dependencies.size());
@@ -1473,9 +1473,9 @@ namespace Durin
 				auto Add = [&](FRHITextureSubresourceRange Range) -> FRDGResult {
 					if (!Work.Visit()) return Work.Error();
 					if (Result.Ranges.size() >= Work.Budget.MaxRangeCells)
-						return SafetyLimit("range-cells", Result.Ranges.size() + 1, Work.Budget.MaxRangeCells);
+						return SafetyLimit(ERDGLimit::RangeCells, Result.Ranges.size() + 1, Work.Budget.MaxRangeCells);
 					if (++Work.Candidates > Work.Budget.MaxRangeCellCandidates)
-						return SafetyLimit("range-cell-candidates", Work.Candidates, Work.Budget.MaxRangeCellCandidates);
+						return SafetyLimit(ERDGLimit::RangeCellCandidates, Work.Candidates, Work.Budget.MaxRangeCellCandidates);
 					Result.Ranges.push_back({Resource.Kind, ResourceIndex, Range, 0,
 						Resource.Kind == ERDGResourceKind::Buffer ? Resource.BufferDesc.Size : 0});
 					return {};
@@ -2571,7 +2571,7 @@ namespace Durin
 		if (!State->DeclarationErrors.empty())
 			return State->DeclarationErrors.front();
 		if (State->Resources.size() > State->Budget.MaxResources)
-			return SafetyLimit("resources", State->Resources.size(), State->Budget.MaxResources);
+			return SafetyLimit(ERDGLimit::Resources, State->Resources.size(), State->Budget.MaxResources);
 		size_t TotalUses = 0;
 		size_t ExplicitDependencyCount = 0;
 		for (const auto& Pass : State->Passes)
@@ -2579,7 +2579,7 @@ namespace Durin
 			TotalUses += Pass.Uses.size();
 			ExplicitDependencyCount += Pass.Prerequisites.size();
 			if (TotalUses > State->Budget.MaxUses)
-				return SafetyLimit("uses", TotalUses, State->Budget.MaxUses);
+				return SafetyLimit(ERDGLimit::Uses, TotalUses, State->Budget.MaxUses);
 		}
 		bool bHasExport = false;
 		for (const auto& Resource : State->Resources)
@@ -2587,11 +2587,11 @@ namespace Durin
 			{
 				bHasExport = true;
 				if (++TotalUses > State->Budget.MaxUses)
-					return SafetyLimit("uses", TotalUses, State->Budget.MaxUses);
+					return SafetyLimit(ERDGLimit::Uses, TotalUses, State->Budget.MaxUses);
 			}
 		const size_t TotalPasses = State->Passes.size() + (bHasExport ? 1 : 0);
 		if (TotalPasses > State->Budget.MaxPasses)
-			return SafetyLimit("passes", TotalPasses, State->Budget.MaxPasses);
+			return SafetyLimit(ERDGLimit::Passes, TotalPasses, State->Budget.MaxPasses);
 		if (auto Error = ValidateGraphResources(State->Resources);
 			!Error.IsSuccess())
 			return Error;
@@ -2745,7 +2745,7 @@ namespace Durin
 		for (uint32 Index = 0; Index < ScheduledCount; ++Index)
 			DeclarationToSubmission[CompiledState->Passes[Index].DeclarationIndex] = Index;
 		std::vector<std::array<uint32, 2>> RangeUsers(Cells.Ranges.size(), {UINT32_MAX, UINT32_MAX});
-		const auto TransitionError = TraverseExecutionStates(Cells, State->Resources,
+		auto TransitionError = TraverseExecutionStates(Cells, State->Resources,
 			Passes, CompiledState->Passes, CompiledState->ResourceLifetimes, &Work, State->bAsyncComputeEnabled,
 			[&](const FRDGTransitionCapture& Event, size_t CellIndex) -> FRDGResult
 			{
@@ -2766,14 +2766,14 @@ namespace Durin
 				if (Resource.Kind == ERDGResourceKind::Texture)
 				{
 					if (++TextureTransitionCount > State->Budget.MaxTextureTransitions)
-						return SafetyLimit("texture-transitions", TextureTransitionCount, State->Budget.MaxTextureTransitions);
+						return SafetyLimit(ERDGLimit::TextureTransitions, TextureTransitionCount, State->Budget.MaxTextureTransitions);
 					Barriers.AddTransition(FRDGTextureTransition{Event.ResourceId, Event.TextureRange,
 						Event.Before, Event.After, Event.bDiscardContents});
 				}
 				else
 				{
 					if (++BufferTransitionCount > State->Budget.MaxBufferTransitions)
-						return SafetyLimit("buffer-transitions", BufferTransitionCount, State->Budget.MaxBufferTransitions);
+						return SafetyLimit(ERDGLimit::BufferTransitions, BufferTransitionCount, State->Budget.MaxBufferTransitions);
 					Barriers.AddTransition(FRDGBufferTransition{Event.ResourceId, Event.BufferOffset,
 						Event.BufferSize, Event.Before, Event.After, Event.bDiscardContents});
 				}
@@ -3221,7 +3221,7 @@ namespace Durin
 				for (auto& Request : AsyncRequests) Request.Retirement = State->AllocationRetirement;
 				Requests = AsyncRequests;
 			}
-			const auto AllocationResult = Context->Allocator.Allocate(Requests, Candidate);
+			auto AllocationResult = Context->Allocator.Allocate(Requests, Candidate);
 			Compiled->AllocationStatistics = Candidate.Statistics;
 			if (!AllocationResult.IsSuccess())
 			{
@@ -3244,9 +3244,9 @@ namespace Durin
 					{
 						return {ERDGError::IncompatibleAllocation,
 							ERDGReason::TextureAllocationIncompatible,
-							FRDGAllocationErrorContext{.ResourceId = Request.ResourceId,
-								.ExpectedTexture = Request.TextureDesc,
-								.ActualTexture = Actual}};
+							FRDGTextureAllocationErrorContext{.ResourceId = Request.ResourceId,
+								.Expected = Request.TextureDesc,
+								.Actual = Actual}};
 					}
 				}
 				else if (!BufferBackingIsCompatible(
@@ -3255,9 +3255,9 @@ namespace Durin
 				{
 					return {ERDGError::IncompatibleAllocation,
 						ERDGReason::BufferAllocationIncompatible,
-						FRDGAllocationErrorContext{.ResourceId = Request.ResourceId,
-							.ExpectedBuffer = Request.BufferDesc,
-							.ActualBuffer = Candidate.Buffers[Request.ResourceId]->GetDesc()}};
+						FRDGBufferAllocationErrorContext{.ResourceId = Request.ResourceId,
+							.Expected = Request.BufferDesc,
+							.Actual = Candidate.Buffers[Request.ResourceId]->GetDesc()}};
 				}
 			}
 			for (const FRDGAllocationRequest& Request : Compiled->AllocationRequests)

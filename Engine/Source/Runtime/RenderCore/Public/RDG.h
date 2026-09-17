@@ -135,7 +135,11 @@ namespace Durin
 		uint64 Index = 0, OtherIndex = 0, Expected = 0, Actual = 0;
 	};
 	struct FRDGDependencyErrorContext { uint32 Producer = UINT32_MAX, Consumer = UINT32_MAX; };
-	struct FRDGLimitErrorContext { std::string Dimension; uint64 Actual = 0, Limit = 0; };
+	enum class ERDGLimit : uint8
+	{
+		Passes, Resources, Uses, Dependencies, RangeCells, RangeCellCandidates, CellVisits, TextureTransitions, BufferTransitions, AllocationBytes
+	};
+	struct FRDGLimitErrorContext { ERDGLimit Dimension; uint64 Actual = 0, Limit = 0; };
 	struct FRDGResourceContractContext
 	{
 		std::string Name;
@@ -148,12 +152,21 @@ namespace Durin
 	struct FRDGAllocationErrorContext
 	{
 		uint32 ResourceId = UINT32_MAX;
-		FRHITextureDesc ExpectedTexture, ActualTexture;
-		FRHIBufferDesc ExpectedBuffer, ActualBuffer;
+	};
+	struct FRDGTextureAllocationErrorContext
+	{
+		uint32 ResourceId = UINT32_MAX;
+		FRHITextureDesc Expected, Actual;
+	};
+	struct FRDGBufferAllocationErrorContext
+	{
+		uint32 ResourceId = UINT32_MAX;
+		FRHIBufferDesc Expected, Actual;
 	};
 	using FRDGErrorContext = std::variant<std::monostate, FRDGMetadataErrorContext,
 		FRDGUseErrorContext, FRDGIdentityErrorContext, FRDGDependencyErrorContext,
-		FRDGLimitErrorContext, FRDGExternalConflictContext, FRDGAllocationErrorContext>;
+		FRDGLimitErrorContext, FRDGExternalConflictContext, FRDGAllocationErrorContext,
+		FRDGTextureAllocationErrorContext, FRDGBufferAllocationErrorContext>;
 	using FRDGErrorCause = std::variant<std::monostate, FRenderResourceCreateError, FRHICreationError>;
 
 	struct [[nodiscard]] FRDGResult final
@@ -483,7 +496,7 @@ namespace Durin
 	struct FRDGParameterLayoutBuildResult final
 	{
 		std::unique_ptr<const FRDGParameterLayout> Layout;
-		FRDGResult Result{ERDGError::InvalidParameterMetadata, {}};
+		FRDGResult Result{ERDGError::InvalidParameterMetadata, ERDGReason::Unspecified};
 	};
 
 	RENDERCORE_API auto BuildRDGParameterLayout(
@@ -1456,7 +1469,7 @@ namespace Durin
 	struct FRDGExecutionResult final
 	{
 		ERDGExecutionStatus Status = ERDGExecutionStatus::InvalidState;
-		FRDGResult Result{ERDGError::InvalidState, {}};
+		FRDGResult Result{ERDGError::InvalidState, ERDGReason::Unspecified};
 		auto IsSuccess() const -> bool { return Status == ERDGExecutionStatus::Recorded; }
 	};
 
