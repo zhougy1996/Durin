@@ -2,6 +2,9 @@
 
 #include "CoreAPI.h"
 #include <cstring>
+#include <format>
+#include <limits>
+#include <span>
 
 struct FClangKeepDebugInfo
 {
@@ -145,6 +148,8 @@ namespace Durin
 	{
 	public:
 		static constexpr uint32 MaxSize = FNameMaxSize;
+		// Maximum plain bytes, underscore, uint32 decimal digits, and terminating null.
+		static constexpr size_t StringBufferSize = MaxSize + 1 + std::numeric_limits<uint32>::digits10 + 1;
 
 		CORE_API FName();
 
@@ -176,6 +181,13 @@ namespace Durin
 		[[nodiscard]] CORE_API auto Equals(const FName& Other, ENameCase CompareMethod = ENameCase::IgnoreCase, const bool bCompareNumber = true) const -> bool;
 
 		[[nodiscard]] CORE_API auto ToString() const -> std::string;
+
+		// Writes the full display name and a terminating null. OutLength always receives the
+		// required UTF-8 byte count excluding the null. Insufficient capacity leaves Buffer unchanged.
+		[[nodiscard]] CORE_API auto TryWriteString(std::span<char> Buffer, size_t& OutLength) const -> bool;
+
+		// Appends the full display name, preserving existing contents.
+		CORE_API auto AppendString(std::string& Out) const -> void;
 
 		[[nodiscard]] CORE_API auto GetComparisonNameEntry() const -> const FNameEntry*;
 
@@ -245,6 +257,22 @@ namespace Durin
 	CORE_API auto FNameInit() -> void;
 	[[nodiscard]] CORE_API auto IsFNameInitialized() -> bool;
 }
+
+template<>
+struct std::formatter<Durin::FName> : std::formatter<std::string_view>
+{
+	auto format(const Durin::FName& Name, std::format_context& Context) const
+	{
+		if (!Name.HasNumber())
+			return std::formatter<std::string_view>::format(Name.GetPlainNameView(), Context);
+
+		char Buffer[Durin::FName::StringBufferSize];
+		size_t Length = 0;
+		if (!Name.TryWriteString(Buffer, Length))
+			throw std::format_error("FName display buffer is too small");
+		return std::formatter<std::string_view>::format(std::string_view(Buffer, Length), Context);
+	}
+};
 
 template<>
 struct std::hash<Durin::FName>

@@ -199,6 +199,61 @@ namespace
 		EXPECT_EQ(UnparsedName.GetPlainNameView(), "ViewActor_04");
 	}
 
+	TEST(FNameTests, WritesCompleteNamesWithoutPartialOutput)
+	{
+		const std::pair<Durin::FName, std::string> Cases[] = {
+			{Durin::FName(), "None"},
+			{Durin::FName("Actor"), "Actor"},
+			{Durin::FName("Actor_0"), "Actor_0"},
+			{Durin::FName("Actor_123"), "Actor_123"},
+			{Durin::FName("Actor_04"), "Actor_04"},
+			{Durin::FName("\xe4\xb8\xad", 42), "\xe4\xb8\xad_42"},
+			{Durin::FName(std::string(Durin::FName::MaxSize - 1, 'x'), INT_MAX - 1),
+				std::string(Durin::FName::MaxSize - 1, 'x') + "_2147483646"},
+		};
+		for (const auto& [Name, Expected] : Cases)
+		{
+			SCOPED_TRACE(Expected);
+			size_t Length = 0;
+			EXPECT_FALSE(Name.TryWriteString({}, Length));
+			EXPECT_EQ(Length, Expected.size());
+			std::vector<char> Buffer(Expected.size() + 2, '!');
+			EXPECT_FALSE(Name.TryWriteString(std::span<char>(Buffer.data(), Expected.size()), Length));
+			EXPECT_EQ(Buffer, std::vector<char>(Buffer.size(), '!'));
+			ASSERT_TRUE(Name.TryWriteString(std::span<char>(Buffer.data(), Expected.size() + 1), Length));
+			EXPECT_EQ(std::string_view(Buffer.data(), Length), Expected);
+			EXPECT_EQ(Buffer[Length], '\0');
+			EXPECT_EQ(Buffer[Length + 1], '!');
+			char MaxBuffer[Durin::FName::StringBufferSize];
+			ASSERT_TRUE(Name.TryWriteString(MaxBuffer, Length));
+			std::string Appended = "Selected: ";
+			Name.AppendString(Appended);
+			EXPECT_EQ(Appended, "Selected: " + Expected);
+			EXPECT_EQ(Name.ToString(), Expected);
+			EXPECT_EQ(std::format("Selected: {}", Name), "Selected: " + Expected);
+			EXPECT_EQ(std::format("{:*>16.7}", Name), std::format("{:*>16.7}", Expected));
+		}
+	}
+
+	TEST(FNameTests, FormatsNamesWithStringSpecificationsAndOutputIterators)
+	{
+		for (const Durin::FName Name : {Durin::FName("Actor"), Durin::FName("Actor_123")})
+		{
+			const std::string Text = Name.ToString();
+			EXPECT_EQ(std::format("{:>{}}", Name, 16), std::format("{:>{}}", Text, 16));
+			EXPECT_EQ(std::format("{:^16}", Name), std::format("{:^16}", Text));
+			EXPECT_EQ(std::format("{:.{}}", Name, 3), std::format("{:.{}}", Text, 3));
+			std::string Output = "Prefix ";
+			std::format_to(std::back_inserter(Output), "{}!", Name);
+			EXPECT_EQ(Output, "Prefix " + Text + "!");
+			char Truncated[3];
+			const auto Result = std::format_to_n(Truncated, 3, "{}", Name);
+			EXPECT_EQ(Result.size, Text.size());
+			EXPECT_EQ(std::string_view(Truncated, 3), Text.substr(0, 3));
+			EXPECT_THROW(std::vformat("{:d}", std::make_format_args(Name)), std::format_error);
+		}
+	}
+
 	TEST(FNameTests, PreservesOutOfRangeNumericSuffixesAsPlainNames)
 	{
 		const Durin::FName LargestSupported("Bone_2147483646");

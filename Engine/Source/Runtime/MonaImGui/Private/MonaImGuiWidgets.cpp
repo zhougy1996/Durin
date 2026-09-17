@@ -9,8 +9,11 @@ namespace Durin::MonaImGui
 	{
 		if (Name.HasNumber())
 		{
-			const std::string Text = Name.ToString();
-			ImGui::TextUnformatted(Text.data(), Text.data() + Text.size());
+			char Buffer[FName::StringBufferSize];
+			size_t Length = 0;
+			const bool bWritten = Name.TryWriteString(Buffer, Length);
+			check(bWritten);
+			ImGui::TextUnformatted(Buffer, Buffer + Length);
 			return;
 		}
 

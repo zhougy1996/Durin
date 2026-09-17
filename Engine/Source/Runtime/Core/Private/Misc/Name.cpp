@@ -985,15 +985,42 @@ namespace Durin
 
 	auto FName::ToString() const -> std::string
 	{
-		std::string PlainNameString = GetDisplayNameEntry()->GetPlainNameString();
-		if (Number == NoNumberInternal)
+		std::string Result;
+		AppendString(Result);
+		return Result;
+	}
+
+	auto FName::TryWriteString(std::span<char> Buffer, size_t& OutLength) const -> bool
+	{
+		const std::string_view Plain = GetPlainNameView();
+		char Suffix[1 + std::numeric_limits<uint32>::digits10 + 1];
+		size_t SuffixLength = 0;
+		if (HasNumber())
 		{
-			return PlainNameString;
+			Suffix[0] = '_';
+			const auto Result = std::to_chars(Suffix + 1, Suffix + sizeof(Suffix), NumberInternalToExternal(Number));
+			SuffixLength = static_cast<size_t>(Result.ptr - Suffix);
 		}
-		else
+		OutLength = Plain.size() + SuffixLength;
+		if (Buffer.size() <= OutLength) return false;
+		std::memcpy(Buffer.data(), Plain.data(), Plain.size());
+		if (SuffixLength != 0) std::memcpy(Buffer.data() + Plain.size(), Suffix, SuffixLength);
+		Buffer[OutLength] = '\0';
+		return true;
+	}
+
+	auto FName::AppendString(std::string& Out) const -> void
+	{
+		if (!HasNumber())
 		{
-			return PlainNameString + "_" + std::to_string(NumberInternalToExternal(Number));
+			Out.append(GetPlainNameView());
+			return;
 		}
+		char Buffer[StringBufferSize];
+		size_t Length = 0;
+		const bool bWritten = TryWriteString(Buffer, Length);
+		check(bWritten);
+		Out.append(Buffer, Length);
 	}
 
 	auto FName::GetComparisonNameEntry() const -> const FNameEntry*
