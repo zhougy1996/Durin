@@ -4,6 +4,20 @@ namespace Durin
 {
 	namespace
 	{
+		auto CaptureLimitName(EShaderCaptureLimit Kind) -> std::string_view
+		{
+			switch (Kind)
+			{
+			case EShaderCaptureLimit::Mounts: return "mount count";
+			case EShaderCaptureLimit::DirectoryEntries: return "directory entry count";
+			case EShaderCaptureLimit::Files: return "file count";
+			case EShaderCaptureLimit::PathBytes: return "path bytes";
+			case EShaderCaptureLimit::FileBytes: return "file bytes";
+			case EShaderCaptureLimit::TotalBytes: return "total bytes";
+			}
+			return "unknown limit";
+		}
+
 		auto ShaderCompilerPhaseName(ESlangShaderError Phase) -> std::string_view
 		{
 			switch (Phase)
@@ -36,6 +50,12 @@ namespace Durin
 
 	auto FormatShaderError(const FShaderError& Error) -> std::string
 	{
+		if (!Error.IsSuccess() && Error.CaptureLimit)
+		{
+			const auto& Limit = *Error.CaptureLimit;
+			return std::format("Shader capture {} limit exceeded for '{}': maximum {}, actual {}.",
+				CaptureLimitName(Limit.Kind), Error.ActualIdentity, Limit.Maximum, Limit.Actual);
+		}
 		switch (Error.Code)
 		{
 		case EShaderError::None: return {};
@@ -49,11 +69,11 @@ namespace Durin
 		case EShaderError::FileSystemFailure:
 			return std::format("Shader filesystem operation failed for '{}': {}", Error.ActualIdentity, Error.SystemError.message());
 		case EShaderError::CaptureDirectoryLimit: return "Shader directory entry limit exceeded.";
-		case EShaderError::CaptureSymlink: return "Shader capture requires regular source files, not symbolic links.";
+		case EShaderError::CaptureSymlink: return std::format("Shader capture requires regular source files, not symbolic links: '{}'.", Error.ActualIdentity);
 		case EShaderError::FileReadFailure:
 			return Error.FileError ? Error.FileError->ToString() : "Shader file read failed.";
 		case EShaderError::CaptureInputLimit: return "Shader capture input limit exceeded.";
-		case EShaderError::CaptureDuplicateFile: return "Shader capture contains duplicate logical files.";
+		case EShaderError::CaptureDuplicateFile: return std::format("Shader capture contains duplicate logical file '{}'.", Error.ActualIdentity);
 		case EShaderError::DependencyNotCaptured: return std::format("Shader dependency '{}' was not captured.", Error.ActualIdentity);
 		case EShaderError::DependencyIdentityMissing:
 			return std::format("Shader dependency '{}' has no registered virtual identity.", Error.ActualIdentity);
@@ -146,6 +166,12 @@ namespace Durin
 			return "Material shader map requires at least one shader type.";
 		case EShaderError::InvalidOpacityMaskThreshold:
 			return "Material shader identity has a non-finite opacity mask threshold.";
+		case EShaderError::MaterialProgramInvalid: return "Accepted material compiler result is invalid.";
+		case EShaderError::MaterialLayoutMismatch:
+			return std::format("Material layout '{}' version {} does not match '{}' version {}.",
+				Error.ActualIdentity, Error.Actual, Error.ExpectedIdentity, Error.Expected);
+		case EShaderError::MaterialPassContractMismatch:
+			return std::format("Material pass contract {} does not match {}.", Error.Actual, Error.Expected);
 		case EShaderError::MaterialProgramIdentityMismatch:
 			return std::format(
 				"Compiled material program identity '{}' does not match requested identity '{}'.",

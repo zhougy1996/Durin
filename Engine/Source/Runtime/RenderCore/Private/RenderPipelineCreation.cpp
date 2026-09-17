@@ -99,7 +99,9 @@ namespace Durin
 			Current->MarkPending();
 			if (Current->bRequiresFirstUse) FRenderPipelinePreparationBatch::Add(Request);
 		}
-		return Request.GetResult().Graphics;
+		auto Result = Request.GetResult();
+		if (Result.Error.HasError() && !Current->Failure.HasError()) Current->Failure = Result.Error;
+		return Result.Graphics;
 	}
 	auto FRenderPipelineRequestScope::Compute(FName Name, const FComputePipelineStateInitializer& Initializer)
 		-> FComputePipelineStateRHIRef
@@ -119,6 +121,8 @@ namespace Durin
 			Current->MarkPending();
 			if (Current->bRequiresFirstUse) FRenderPipelinePreparationBatch::Add(Request);
 		}
-		return Request.GetResult().Compute;
+		auto Result = Request.GetResult();
+		if (Result.Error.HasError() && !Current->Failure.HasError()) Current->Failure = Result.Error;
+		return Result.Compute;
 	}
 }

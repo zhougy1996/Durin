@@ -101,22 +101,22 @@ namespace Durin
 	}
 
 	auto FDynamicRHI::RHITryCreateTexture(FRHICommandListBase& RHICmdList,
-		const FRHITextureCreateDesc& CreateDesc, ERHIResourceCreationFailure& OutFailure)
+		const FRHITextureCreateDesc& CreateDesc, FRHICreationError& OutFailure)
 		-> TRefCountPtr<FRHITexture>
 	{
 		auto Resource = RHICreateTexture(RHICmdList, CreateDesc);
-		OutFailure = Resource ? ERHIResourceCreationFailure::None
-			: ERHIResourceCreationFailure::Unknown;
+		OutFailure = Resource ? FRHICreationError{} : FRHICreationError{
+			.Failure = ERHIResourceCreationFailure::Unknown, .Source = ERHICreationFailureSource::BackendReturnedNull};
 		return Resource;
 	}
 
 	auto FDynamicRHI::RHITryCreateBuffer(FRHICommandListImmediate& RHICmdList,
-		const FRHIBufferCreateDesc& CreateDesc, ERHIResourceCreationFailure& OutFailure)
+		const FRHIBufferCreateDesc& CreateDesc, FRHICreationError& OutFailure)
 		-> TRefCountPtr<FRHIBuffer>
 	{
 		auto Resource = RHICreateBuffer(RHICmdList, CreateDesc);
-		OutFailure = Resource ? ERHIResourceCreationFailure::None
-			: ERHIResourceCreationFailure::Unknown;
+		OutFailure = Resource ? FRHICreationError{} : FRHICreationError{
+			.Failure = ERHIResourceCreationFailure::Unknown, .Source = ERHICreationFailureSource::BackendReturnedNull};
 		return Resource;
 	}
 

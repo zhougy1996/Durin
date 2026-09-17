@@ -160,21 +160,21 @@ namespace Durin
 				FShaderType& FragmentType =
 					FGBufferFragmentShader::StaticType();
 				FMaterialShaderMap ShaderMap;
-				std::string ErrorMessage;
-				const bool bInitialized = RendererPrivate::InitializeMaterialShaderMap(
+
+				auto ShaderResult = RendererPrivate::InitializeMaterialShaderMap(
 					*VertexType, FragmentType,
 					Factory->GetType(),
 					RendererPrivate::MaterialMeshPassGBuffer, ShaderKey.Material,
 					Coordinator.GetGeneration_RenderThread(), CompiledProgram.get(),
-					Options, ShaderMap, ErrorMessage);
-				if (!bInitialized)
+					Options, ShaderMap);
+				if (!ShaderResult)
 				{
 					return FShaderResult::Failure(
 						MakeRendererResourceCreateError(
 							ERenderResourceCreateErrorCategory::ShaderCompile,
 							"GBufferShaderMap",
 							std::to_string(ShaderKey.FactoryKey.HashValue),
-							std::move(ErrorMessage),
+							std::move(ShaderResult.Error),
 							ERenderResourceGenerationDependency::Shader
 								| ERenderResourceGenerationDependency::Manual));
 				}
@@ -192,7 +192,7 @@ namespace Durin
 							ERenderResourceCreateErrorCategory::RHIResource,
 							"GBufferShaderMap",
 							std::to_string(ShaderKey.FactoryKey.HashValue),
-							"RHI shader creation returned null.",
+							ERenderResourceCreateErrorReason::ShaderCreationFailed,
 							ERenderResourceGenerationDependency::Shader
 								| ERenderResourceGenerationDependency::Device
 								| ERenderResourceGenerationDependency::Manual));
@@ -251,7 +251,7 @@ namespace Durin
 							ERenderResourceCreateErrorCategory::GraphicsPipeline,
 							"GBufferPipeline",
 							GetGBufferPlanningPassIdentity(PipelineKey),
-							"Graphics pipeline creation returned null.",
+							ERenderResourceCreateErrorReason::PipelineCreationFailed,
 							ERenderResourceGenerationDependency::Shader
 								| ERenderResourceGenerationDependency::Device
 								| ERenderResourceGenerationDependency::Manual));

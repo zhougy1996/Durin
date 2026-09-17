@@ -127,10 +127,9 @@ namespace Durin
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::ShaderCompile,
 						"DeferredDirectionalLighting", "shader",
-						"Global shader set is unavailable.",
+						ERenderResourceCreateErrorReason::GlobalShaderUnavailable,
 						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Manual,
-						ERenderResourceCreateErrorReason::GlobalShaderUnavailable
+							| ERenderResourceGenerationDependency::Manual
 					));
 				}
 				Candidate.VertexShader = TShaderMapRef<FDeferredDirectionalVertexShader>(Candidate.ShaderSet);
@@ -142,7 +141,7 @@ namespace Durin
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::RHIResource,
 						"DeferredDirectionalLighting", "fullscreen-geometry",
-						"Shared fullscreen geometry is unavailable.",
+						ERenderResourceCreateErrorReason::FullscreenGeometryUnavailable,
 						ERenderResourceGenerationDependency::Device
 							| ERenderResourceGenerationDependency::Manual
 					));
@@ -159,7 +158,7 @@ namespace Durin
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::RHIResource,
 						"DeferredDirectionalLighting", "shader",
-						"RHI shader creation returned null.",
+						ERenderResourceCreateErrorReason::ShaderCreationFailed,
 						ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Device
 							| ERenderResourceGenerationDependency::Manual
@@ -204,7 +203,7 @@ namespace Durin
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::GraphicsPipeline,
 						"DeferredDirectionalLighting", "pipeline",
-						"Graphics pipeline or fallback sampler creation returned null.",
+						ERenderResourceCreateErrorReason::PipelineCreationFailed,
 						ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Device
 							| ERenderResourceGenerationDependency::Manual

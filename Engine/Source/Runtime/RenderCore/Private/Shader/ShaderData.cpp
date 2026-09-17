@@ -62,7 +62,7 @@ namespace Durin
 		{
 			if (!IsShaderBuildProviderAvailable())
 			{
-				return {.Error = {.Code = EShaderError::ProviderRequired}};
+				return FShaderOperationResult::Failure(EShaderError::ProviderRequired);
 			}
 			Configuration.TargetPlatform = EShaderTargetPlatform::Win64;
 			Configuration.TargetProfile = EShaderTargetProfile::EditorValidation;
@@ -70,7 +70,7 @@ namespace Durin
 		}
 		else if (IsShaderBuildProviderAvailable())
 		{
-			return {.Error = {.Code = EShaderError::ProviderForbidden}};
+			return FShaderOperationResult::Failure(EShaderError::ProviderForbidden);
 		}
 		else if (Configuration.TargetPlatform != EShaderTargetPlatform::Win64
 			|| Configuration.TargetProfile != EShaderTargetProfile::Game
@@ -78,13 +78,13 @@ namespace Durin
 			|| !Configuration.CookRoot.is_absolute()
 			|| Configuration.CookRoot.lexically_normal() != Configuration.CookRoot)
 		{
-			return {.Error = {.Code = EShaderError::DataConfigurationInvalid}};
+			return FShaderOperationResult::Failure(EShaderError::DataConfigurationInvalid);
 		}
 		FShaderDataState& State = ShaderDataState();
 		std::lock_guard Lock(State.Mutex);
 		if (State.Configuration)
 		{
-			return {.Error = {.Code = EShaderError::DataAlreadyInitialized}};
+			return FShaderOperationResult::Failure(EShaderError::DataAlreadyInitialized);
 		}
 		State.Configuration = std::move(Configuration);
 
@@ -114,21 +114,20 @@ namespace Durin
 		std::span<const FShaderType* const> ShaderTypes,
 		FShaderCompilerOutput& OutOutput) -> FShaderOperationResult
 	{
-		FShaderOperationResult ErrorResult;
 		OutOutput = {};
 		FShaderDataState& State = ShaderDataState();
 		std::lock_guard Lock(State.Mutex);
 		if (!State.Configuration
 			|| State.Configuration->Domain != EShaderDataDomain::Cooked)
 		{
-			return {.Error = {.Code = EShaderError::CookedDomainRequired}};
+			return FShaderOperationResult::Failure(EShaderError::CookedDomainRequired);
 		}
 		if (!State.Library.IsOpen())
 		{
-			if (!(ErrorResult = FreezeShaderRuntimeInventory(State.Configuration->TargetPlatform, State.Configuration->TargetProfile, State.Requests))) return ErrorResult;
+			if (auto Result = FreezeShaderRuntimeInventory(State.Configuration->TargetPlatform, State.Configuration->TargetProfile, State.Requests); !Result) return Result;
 			const std::filesystem::path LibraryPath = State.Configuration->CookRoot
 				/ ShaderCookedLibraryRelativePath;
-			if (!(ErrorResult = FShaderCookedLibrary::Open(LibraryPath, State.Configuration->TargetPlatform, State.Configuration->TargetProfile, State.Requests, State.Library))) return ErrorResult;
+			if (auto Result = FShaderCookedLibrary::Open(LibraryPath, State.Configuration->TargetPlatform, State.Configuration->TargetProfile, State.Requests, State.Library); !Result) return Result;
 		}
 		const auto Found = std::ranges::find_if(State.Requests,
 			[RequestName](const FShaderRuntimeRequest& Request) {
@@ -235,7 +234,7 @@ namespace Durin
 	{
 		if (!Work || CapturedProvider)
 		{
-			return {.Error = {.Code = EShaderError::InvalidProviderCapture}};
+			return FShaderOperationResult::Failure(EShaderError::InvalidProviderCapture);
 		}
 		auto Result = FModularFeatureRegistry::Get().InvokeSingle<IShaderBuildProvider>(
 			[&](IShaderBuildProvider& Provider) {

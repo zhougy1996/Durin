@@ -17,7 +17,7 @@ namespace Durin
 					ERenderResourceCreateErrorCategory::GraphicsPipeline,
 				.Context = "StaticMeshPipeline",
 				.Identity = "test-key",
-				.Message = "injected pipeline failure",
+				.Cause = FRHICreationError{.Failure = ERHIResourceCreationFailure::OutOfMemory, .Source = ERHICreationFailureSource::NativeBackend},
 				.RetryDependencies =
 					EDependency::Shader
 					| EDependency::Device
@@ -32,7 +32,7 @@ namespace Durin
 					ERenderResourceCreateErrorCategory::ShaderCompile,
 				.Context = "StaticMeshShaderMap",
 				.Identity = "test-shader-map",
-				.Message = "injected shader compile failure",
+				.Cause = FShaderError{.Code = EShaderError::InvalidCompileRequest},
 				.RetryDependencies =
 					EDependency::Shader | EDependency::Manual,
 			};

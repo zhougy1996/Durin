@@ -205,10 +205,9 @@ namespace Durin
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::ShaderCompile,
 						"GroundTruthAmbientOcclusion", "raw-shader",
-						"Global shader set is unavailable.",
+						ERenderResourceCreateErrorReason::GlobalShaderUnavailable,
 						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Manual,
-						ERenderResourceCreateErrorReason::GlobalShaderUnavailable));
+							| ERenderResourceGenerationDependency::Manual));
 				}
 				Candidate.FilterShaderSet = GetGlobalShaderMap().ResolveShaderSet(
 					"GroundTruthAmbientOcclusion.Filter", FilterTypes, true,
@@ -218,10 +217,9 @@ namespace Durin
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::ShaderCompile,
 						"GroundTruthAmbientOcclusion", "filter-shader",
-						"Global shader set is unavailable.",
+						ERenderResourceCreateErrorReason::GlobalShaderUnavailable,
 						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Manual,
-						ERenderResourceCreateErrorReason::GlobalShaderUnavailable));
+							| ERenderResourceGenerationDependency::Manual));
 				}
 				Candidate.RawVertexShader = TShaderMapRef<FGTAOVertexShader>(Candidate.RawShaderSet);
 				Candidate.FilterVertexShader = TShaderMapRef<FGTAOVertexShader>(Candidate.FilterShaderSet);
@@ -236,7 +234,7 @@ namespace Durin
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::RHIResource,
 						"GroundTruthAmbientOcclusion", "fullscreen-geometry",
-						"Shared fullscreen geometry is unavailable.",
+						ERenderResourceCreateErrorReason::FullscreenGeometryUnavailable,
 						ERenderResourceGenerationDependency::Device
 							| ERenderResourceGenerationDependency::Manual));
 				}
@@ -264,7 +262,7 @@ namespace Durin
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::RHIResource,
 						"GroundTruthAmbientOcclusion", "raw-shader",
-						"RHI shader creation returned null.",
+						ERenderResourceCreateErrorReason::ShaderCreationFailed,
 						ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Device
 							| ERenderResourceGenerationDependency::Manual));
@@ -287,7 +285,7 @@ namespace Durin
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::GraphicsPipeline,
 						"GroundTruthAmbientOcclusion", "raw-pipeline",
-						"RHI graphics pipeline creation returned null.",
+						ERenderResourceCreateErrorReason::PipelineCreationFailed,
 						ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Device
 							| ERenderResourceGenerationDependency::Manual));
@@ -308,7 +306,7 @@ namespace Durin
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::GraphicsPipeline,
 						"GroundTruthAmbientOcclusion", "half-raw-pipeline",
-						"RHI graphics pipeline creation returned null.",
+						ERenderResourceCreateErrorReason::PipelineCreationFailed,
 						ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Device
 							| ERenderResourceGenerationDependency::Manual));
@@ -327,7 +325,7 @@ namespace Durin
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::GraphicsPipeline,
 						"GroundTruthAmbientOcclusion", "filter-pipeline",
-						"RHI graphics pipeline creation returned null.",
+						ERenderResourceCreateErrorReason::PipelineCreationFailed,
 						ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Device
 							| ERenderResourceGenerationDependency::Manual));
@@ -346,7 +344,7 @@ namespace Durin
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::GraphicsPipeline,
 						"GroundTruthAmbientOcclusion", "half-filter-resolve-pipeline",
-						"One or more RHI graphics pipelines returned null.",
+						ERenderResourceCreateErrorReason::PipelineCreationFailed,
 						ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Device
 							| ERenderResourceGenerationDependency::Manual));

@@ -8,17 +8,24 @@ namespace Durin
 		ERenderResourceCreateErrorCategory Category,
 		std::string Context,
 		std::string Identity,
-		std::string Message,
+		ERenderResourceCreateErrorReason Reason,
 		ERenderResourceGenerationDependency RetryDependencies,
-		ERenderResourceCreateErrorReason Reason)
+		FRenderResourceCreateCause Cause)
 		-> FRenderResourceCreateError
 	{
+		if (std::holds_alternative<std::monostate>(Cause)
+			&& (Reason == ERenderResourceCreateErrorReason::ShaderCreationFailed
+				|| Reason == ERenderResourceCreateErrorReason::ResourceCreationFailed
+				|| Reason == ERenderResourceCreateErrorReason::PipelineCreationFailed
+				|| Reason == ERenderResourceCreateErrorReason::SamplerCreationFailed))
+			Cause = FRHICreationError{.Failure = ERHIResourceCreationFailure::Unknown,
+				.Source = ERHICreationFailureSource::BackendReturnedNull};
 		return {
 			.Category = Category,
 			.Reason = Reason,
 			.Context = std::move(Context),
 			.Identity = std::move(Identity),
-			.Message = std::move(Message),
+			.Cause = std::move(Cause),
 			.RetryDependencies = RetryDependencies,
 		};
 	}
@@ -51,7 +58,7 @@ namespace Durin
 			Error.AttemptedGeneration.Device,
 			Error.AttemptedGeneration.Manual,
 			Error.bRetainedFallback,
-			Error.Message);
+			FormatRenderResourceCreateError(Error));
 	}
 
 	auto ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable(

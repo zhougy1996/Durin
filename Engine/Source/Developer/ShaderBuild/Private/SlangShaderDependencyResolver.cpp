@@ -27,12 +27,11 @@ namespace Durin
 		const FShaderCompileOptions& Options,
 		std::vector<std::string>& OutDependencyPaths) const -> FShaderOperationResult
 	{
-		FShaderOperationResult ErrorResult;
 		auto GlobalSession = GlobalSessions.Acquire();
 		Slang::ComPtr<slang::ISession> Session;
-		if (!(ErrorResult = FSlangSessionEnvironment::CreateSession(*GlobalSession, Options, Session)))
+		if (auto Result = FSlangSessionEnvironment::CreateSession(*GlobalSession, Options, Session); !Result)
 		{
-			return ErrorResult;
+			return Result;
 		}
 
 		const std::string SourceFilePath(ShaderSourceFilePath);
@@ -70,11 +69,10 @@ namespace Durin
 		const FShaderCompileOptions& Options,
 		std::vector<std::string>& OutDependencyPaths) const -> FShaderOperationResult
 	{
-		FShaderOperationResult ErrorResult;
 		auto GlobalSession = GlobalSessions.Acquire();
 		Slang::ComPtr<slang::ISession> Session;
-		if (!(ErrorResult = FSlangSessionEnvironment::CreateSession(*GlobalSession, Options, Session, std::filesystem::path(SourcePathHint).parent_path().generic_string())))
-			return ErrorResult;
+		if (auto Result = FSlangSessionEnvironment::CreateSession(*GlobalSession, Options, Session, std::filesystem::path(SourcePathHint).parent_path().generic_string()); !Result)
+			return Result;
 		const std::string Name(ModuleName);
 		const std::string Path(SourcePathHint);
 		const std::string Text(Source);

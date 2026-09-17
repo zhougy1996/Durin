@@ -113,10 +113,9 @@ namespace Durin
 				{
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::ShaderCompile,
-						"GBufferDebug", "debug", "Global shader set is unavailable.",
+						"GBufferDebug", "debug", ERenderResourceCreateErrorReason::GlobalShaderUnavailable,
 						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Manual,
-						ERenderResourceCreateErrorReason::GlobalShaderUnavailable));
+							| ERenderResourceGenerationDependency::Manual));
 				}
 				Candidate.VertexShader = TShaderMapRef<FGBufferDebugVertexShader>(Candidate.ShaderSet);
 				Candidate.FragmentShader = TShaderMapRef<FGBufferDebugFragmentShader>(Candidate.ShaderSet);
@@ -126,7 +125,7 @@ namespace Durin
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::RHIResource,
 						"GBufferDebug", "fullscreen-geometry",
-						"Shared fullscreen geometry is unavailable.",
+						ERenderResourceCreateErrorReason::FullscreenGeometryUnavailable,
 						ERenderResourceGenerationDependency::Device
 							| ERenderResourceGenerationDependency::Manual));
 				}
@@ -139,7 +138,7 @@ namespace Durin
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::RHIResource,
 						"GBufferDebug", "debug",
-						"RHI shader creation returned null.",
+						ERenderResourceCreateErrorReason::ShaderCreationFailed,
 						ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Device
 							| ERenderResourceGenerationDependency::Manual));
@@ -163,7 +162,7 @@ namespace Durin
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::GraphicsPipeline,
 						"GBufferDebug", "debug",
-						"RHI pipeline creation returned null.",
+						ERenderResourceCreateErrorReason::PipelineCreationFailed,
 						ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Device
 							| ERenderResourceGenerationDependency::Manual));

@@ -142,14 +142,13 @@ namespace Durin
 		Slang::ComPtr<slang::ISession>& OutSession,
 		std::string_view SearchPath) -> FShaderOperationResult
 	{
-		FShaderOperationResult ErrorResult;
 		if (Options.SourceArtifacts)
 		{
 			const auto& Files = Options.SourceArtifacts->GetFiles();
 			uint64 TotalBytes = 0;
 			if (Files.size() > 65536)
 			{
-				return {.Error = {.Code = EShaderError::CaptureFileLimit}};
+				return FShaderOperationResult::Failure(EShaderError::CaptureFileLimit);
 			}
 			for (const auto& [Path, Bytes] : Files)
 			{
@@ -158,14 +157,14 @@ namespace Durin
 					|| Bytes.size() > 64ull * 1024 * 1024
 					|| (TotalBytes += Bytes.size()) > 512ull * 1024 * 1024)
 				{
-					return {.Error = {.Code = EShaderError::CaptureInputInvalid}};
+					return FShaderOperationResult::Failure(EShaderError::CaptureInputInvalid);
 				}
 			}
 		}
 		std::vector<FShaderMacroDefinition> NormalizedMacros;
-		if (!(ErrorResult = NormalizeMacros(Options, NormalizedMacros)))
+		if (auto Result = NormalizeMacros(Options, NormalizedMacros); !Result)
 		{
-			return ErrorResult;
+			return Result;
 		}
 
 		std::vector<slang::PreprocessorMacroDesc> SlangMacros;
@@ -198,7 +197,7 @@ namespace Durin
 		{
 			const auto& Roots = Options.SourceArtifacts->GetSearchRoots();
 			if (Roots.size() > 256)
-			{ return {.Error = {.Code = EShaderError::CaptureSearchRootLimit}}; }
+			{ return FShaderOperationResult::Failure(EShaderError::CaptureSearchRootLimit); }
 			for (const auto& Root : Roots)
 			{
 				if (Root.empty() || Root.size() > 4096 || Root.find('\0') != std::string::npos)

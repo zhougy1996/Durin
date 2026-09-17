@@ -54,8 +54,8 @@ namespace Durin
 			ERDGAllocationObservation Observation) const -> uint64;
 		auto Release_RenderThread() -> void;
 		auto Allocate(std::span<const FRDGAllocationRequest> Requests,
-			FRDGAllocatedResources& OutResources, std::string& OutError)
-			-> bool override;
+			FRDGAllocatedResources& OutResources)
+			-> FRDGResult override;
 
 	private:
 		struct FState;

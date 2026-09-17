@@ -88,10 +88,10 @@ namespace Durin::VulkanRHI
 		auto RHIIsTextureSupported(const FRHITextureCreateDesc& CreateDesc) const -> bool override;
 		auto RHICreateTexture(FRHICommandListBase& RHICmdList, const FRHITextureCreateDesc& CreateDesc) -> FTextureRHIRef override;
 		auto RHITryCreateTexture(FRHICommandListBase& RHICmdList,
-			const FRHITextureCreateDesc& CreateDesc, ERHIResourceCreationFailure& OutFailure)
+			const FRHITextureCreateDesc& CreateDesc, FRHICreationError& OutFailure)
 			-> FTextureRHIRef override;
 		auto RHITryCreateBuffer(FRHICommandListImmediate& RHICmdList,
-			const FRHIBufferCreateDesc& CreateDesc, ERHIResourceCreationFailure& OutFailure)
+			const FRHIBufferCreateDesc& CreateDesc, FRHICreationError& OutFailure)
 			-> FBufferRHIRef override;
 		auto RHICollectCompletedResources() -> void override;
 		auto RHICreateSampler(const FRHISamplerDesc& CreateDesc) -> TRefCountPtr<FRHISampler> override;

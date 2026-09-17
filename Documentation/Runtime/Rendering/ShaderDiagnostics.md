@@ -47,6 +47,14 @@ fingerprint interface still supplies text, so `FromFileFingerprint` retains its
 path and a bounded diagnostic at that adapter. None of these strings determine
 success or error classification.
 
+Routine operation failures use `FShaderOperationResult::Failure`; filesystem
+failures use `FileSystemFailure` with an owned path and native error. Source
+capture uses named budgets and a typed capture-limit context (kind, maximum,
+actual). Metadata errors identify the current entry; iterator increment errors
+retain the last known entry without dereferencing a failed iterator. Formatting
+exposes capture paths and limits. Results are inspected in scope and forwarded
+without building intermediate diagnostic strings.
+
 Material and Cook framework adapters format the structured result only where
 their existing contracts require text.
 

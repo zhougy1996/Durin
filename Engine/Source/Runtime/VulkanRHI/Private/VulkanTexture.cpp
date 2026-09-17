@@ -249,18 +249,18 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanDynamicRHI::RHICreateTexture(FRHICommandListBase& RHICmdList, const FRHITextureCreateDesc& CreateDesc) -> TRefCountPtr<FRHITexture>
 	{
-		ERHIResourceCreationFailure Failure;
+		FRHICreationError Failure;
 		return RHITryCreateTexture(RHICmdList, CreateDesc, Failure);
 	}
 
 	auto FVulkanDynamicRHI::RHITryCreateTexture(FRHICommandListBase& RHICmdList,
-		const FRHITextureCreateDesc& CreateDesc, ERHIResourceCreationFailure& OutFailure)
+		const FRHITextureCreateDesc& CreateDesc, FRHICreationError& OutFailure)
 		-> FTextureRHIRef
 	{
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 		FVulkanCreationTimingScope TimingScope(EVulkanCreationKind::Texture);
 #endif
-		OutFailure = ERHIResourceCreationFailure::None;
+		OutFailure = {};
 #if DO_CHECK
 		const auto ValidationResult = ValidateTextureCreateDesc(CreateDesc);
 		checkf(ValidationResult,
@@ -269,7 +269,7 @@ namespace Durin::VulkanRHI
 		const FRHITextureCreateDesc NormalizedDesc = NormalizeTextureCreateDesc(CreateDesc);
 		if (!RHIIsTextureSupported(NormalizedDesc))
 		{
-			OutFailure = ERHIResourceCreationFailure::UnsupportedDescriptor;
+			OutFailure = {.Failure = ERHIResourceCreationFailure::UnsupportedDescriptor, .Source = ERHICreationFailureSource::NativeBackend};
 			DURIN_ERROR("Failed to create Vulkan RHI texture '{}': the exact texture description is unsupported.",
 				CreateDesc.DebugName ? CreateDesc.DebugName : "<unnamed>");
 			return nullptr;
@@ -282,7 +282,7 @@ namespace Durin::VulkanRHI
 		const auto CreationResult = ExecuteFallibleRHICreationOperation(CreationOperation);
 		if (!CreationResult.IsSuccess())
 		{
-			OutFailure = CreationResult.Error.Failure;
+			OutFailure = CreationResult.Error;
 			DURIN_ERROR("Failed to create Vulkan RHI texture '{}': {}",
 				CreateDesc.DebugName ? CreateDesc.DebugName : "<unnamed>",
 				FormatRHICreationError(CreationResult.Error));

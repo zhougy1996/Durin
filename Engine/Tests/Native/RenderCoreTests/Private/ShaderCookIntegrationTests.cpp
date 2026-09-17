@@ -32,6 +32,12 @@ namespace Durin
 		ASSERT_NE(RendererHandle, nullptr) << FPlatformMisc::GetLastLibraryError();
 		ASSERT_TRUE(FModuleManager::Get().LoadModule("ShaderBuild"));
 
+		std::string CancelledIdentity = "stale";
+		const auto CancelledCapture = GetShaderCookInputIdentity(CancelledIdentity, [] { return true; });
+		EXPECT_EQ(CancelledCapture.Error.Code, EShaderError::Cancelled);
+		EXPECT_TRUE(CancelledIdentity.empty());
+
+
 		const std::array<std::string_view, 4> FragmentNames{
 			"FSurfaceFragmentShader", "FGBufferFragmentShader", "FSurfaceMaskedShadowFragmentShader", "FSurfaceOpaqueShadowFragmentShader"};
 		std::array<const FShaderType*, 4> FragmentTypes{};

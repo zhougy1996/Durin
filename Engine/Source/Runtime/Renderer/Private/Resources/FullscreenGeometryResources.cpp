@@ -65,8 +65,8 @@ namespace Durin
 							ERenderResourceCreateErrorCategory::RHIResource,
 						.Context = "FullscreenGeometryResources",
 						.Identity = "shared-triangle",
-						.Message =
-							"RHI declaration or buffer creation returned null.",
+						.Cause = FRHICreationError{.Failure = ERHIResourceCreationFailure::Unknown,
+							.Source = ERHICreationFailureSource::BackendReturnedNull},
 						.RetryDependencies =
 							ERenderResourceGenerationDependency::Device
 							| ERenderResourceGenerationDependency::Manual,
@@ -87,7 +87,7 @@ namespace Durin
 				}
 				DURIN_ERROR(
 					"Shared fullscreen geometry creation failed: {}",
-					Diagnostic.Error->Message);
+					FormatRenderResourceCreateError(*Diagnostic.Error));
 			}) != nullptr;
 	}
 

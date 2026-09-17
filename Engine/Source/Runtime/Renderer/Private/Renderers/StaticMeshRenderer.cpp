@@ -282,28 +282,28 @@ namespace Durin
 					FShaderType& OpaqueShadowFragmentShaderType =
 						FSurfaceOpaqueShadowFragmentShader::StaticType();
 					FMaterialShaderMap ShaderMap;
-					std::string ErrorMessage;
+
 					const bool bOpaqueShadow = bShadowDepth
 						&& Identity.BlendMode != EMaterialBlendMode::Masked;
 					const FShaderType& SelectedFragmentType = bOpaqueShadow
 						? OpaqueShadowFragmentShaderType
 						: bShadowDepth ? ShadowFragmentShaderType : FragmentShaderType;
-					const bool bInitialized = InitializeMaterialShaderMap(
+					auto ShaderResult = InitializeMaterialShaderMap(
 						VertexShaderType, SelectedFragmentType,
 						Factory->GetType(),
 						bShadowDepth ? MaterialMeshPassShadow : MaterialMeshPassForward,
 						Identity,
 						Coordinator.GetGeneration_RenderThread(),
 						bOpaqueShadow ? nullptr : Material.CompiledProgram.get(),
-						CompileOptions, ShaderMap, ErrorMessage);
-					if (!bInitialized)
+						CompileOptions, ShaderMap);
+					if (!ShaderResult)
 					{
 						return FShaderMapResult::Failure(
 							MakeRendererResourceCreateError(
 								ERenderResourceCreateErrorCategory::ShaderCompile,
 								"StaticMeshShaderMap",
 								GetIdentityText(Identity),
-								std::move(ErrorMessage),
+								std::move(ShaderResult.Error),
 								ERenderResourceGenerationDependency::Shader
 									| ERenderResourceGenerationDependency::Manual
 							)
@@ -336,7 +336,7 @@ namespace Durin
 								ERenderResourceCreateErrorCategory::RHIResource,
 								"StaticMeshShaderMap",
 								GetIdentityText(Identity),
-								"RHI shader creation returned null.",
+								ERenderResourceCreateErrorReason::ShaderCreationFailed,
 								ERenderResourceGenerationDependency::Shader
 									| ERenderResourceGenerationDependency::Device
 									| ERenderResourceGenerationDependency::Manual
@@ -423,7 +423,7 @@ namespace Durin
 							ERenderResourceCreateErrorCategory::GraphicsPipeline,
 							"StaticMeshPipeline",
 							GetIdentityText(Identity),
-							"Graphics pipeline creation returned null.",
+							ERenderResourceCreateErrorReason::PipelineCreationFailed,
 							ERenderResourceGenerationDependency::Shader
 								| ERenderResourceGenerationDependency::Device
 								| ERenderResourceGenerationDependency::Manual

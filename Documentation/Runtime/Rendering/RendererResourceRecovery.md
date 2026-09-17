@@ -234,10 +234,24 @@ declarations, atlas resources, and upload buffers before lazy reconstruction;
 shutdown performs the same ordered release.
 
 Each owner tracks independent shader, device, and manual generations. A failed
-attempt records its generation, error category, context, identity, diagnostic,
+attempt records its generation, error category/reason, owned context and identity, typed cause,
 retry dependencies, and fallback state. Repeated lookup in the same relevant
 generation neither calls the factory nor logs the same failure again. A later
 relevant generation permits one new lazy attempt.
+
+`FRenderResourceCreateError` owns a mutually exclusive Shader or RHI cause.
+`FormatRenderResourceCreateError` is the presentation boundary; factories and
+slots do not store formatted diagnostics. Nullable backend interfaces retain an
+explicit `BackendReturnedNull` cause when no richer error is available. Pipeline
+request scopes retain the original asynchronous `FRHICreationError` and attach
+it to the failed pipeline slot before publication. Material binding validation
+formats its own typed Material error directly at its immediate logging boundary.
+
+Failure fingerprints include category, reason, owner/identity, selected nested
+semantic context, retry dependencies, and retained-fallback state. They exclude
+attempt generations and opaque external diagnostics, so changing compiler prose
+does not change failure identity. Shader paths, native codes, limits, binding
+locations, and numeric conflict ranges remain owned through producer teardown.
 
 Same-device shader or manual refresh may retain a complete last-known-good
 payload as stale-ready. Device-generation changes always discard dependent RHI

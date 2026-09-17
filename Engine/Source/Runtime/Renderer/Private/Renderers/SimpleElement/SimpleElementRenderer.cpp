@@ -293,7 +293,7 @@ namespace Durin
 						.Error = MakeRendererResourceCreateError(
 							ERenderResourceCreateErrorCategory::RHIResource,
 							"SimpleElement", "line-base",
-							"Line shader or vertex declaration creation returned null.",
+							ERenderResourceCreateErrorReason::ResourceCreationFailed,
 							ERenderResourceGenerationDependency::Device
 								| ERenderResourceGenerationDependency::Manual),
 					});
@@ -304,7 +304,7 @@ namespace Durin
 						.Error = MakeRendererResourceCreateError(
 							ERenderResourceCreateErrorCategory::RHIResource,
 							"SimpleElement", "sprite-base",
-							"Sprite declaration, atlas, or sampler creation returned null.",
+							ERenderResourceCreateErrorReason::ResourceCreationFailed,
 							ERenderResourceGenerationDependency::Device
 								| ERenderResourceGenerationDependency::Manual),
 					});
@@ -318,7 +318,7 @@ namespace Durin
 					return FBaseResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::RHIResource,
 						"SimpleElement", "base",
-						"Every requested simple-element shader class is unavailable.",
+						ERenderResourceCreateErrorReason::ShaderCreationFailed,
 						ERenderResourceGenerationDependency::Device
 							| ERenderResourceGenerationDependency::Manual));
 				}
@@ -364,7 +364,7 @@ namespace Durin
 				.Error = MakeRendererResourceCreateError(
 					ERenderResourceCreateErrorCategory::RHIResource,
 					"SimpleElement", std::move(Identity),
-					"Dynamic buffer allocation returned null.",
+					ERenderResourceCreateErrorReason::ResourceCreationFailed,
 					ERenderResourceGenerationDependency::Device
 						| ERenderResourceGenerationDependency::Manual),
 			});
@@ -463,7 +463,7 @@ namespace Durin
 						return FPipelineResult::Failure(MakeRendererResourceCreateError(
 							ERenderResourceCreateErrorCategory::GraphicsPipeline,
 							"SimpleElement", PipelineName,
-							"RHI graphics pipeline creation returned null.",
+							ERenderResourceCreateErrorReason::PipelineCreationFailed,
 							ERenderResourceGenerationDependency::Shader
 								| ERenderResourceGenerationDependency::Device
 								| ERenderResourceGenerationDependency::Manual));

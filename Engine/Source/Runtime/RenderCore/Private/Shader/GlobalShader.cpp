@@ -164,9 +164,10 @@ namespace Durin
 					{
 						return FResult::Failure({
 							.Category = ERenderResourceCreateErrorCategory::InvalidConfiguration,
+							.Reason = ERenderResourceCreateErrorReason::ShaderFailure,
 							.Context = std::string(SectionIdentity),
 							.Identity = TypeIdentity,
-							.Message = "Global shader set contains a null type.",
+							.Cause = FShaderError{.Code = EShaderError::NullShaderType},
 							.RetryDependencies = ERenderResourceGenerationDependency::Manual});
 					}
 				}
@@ -196,9 +197,10 @@ namespace Durin
 				{
 					return FResult::Failure({
 						.Category = ERenderResourceCreateErrorCategory::ShaderCompile,
+						.Reason = ERenderResourceCreateErrorReason::ShaderFailure,
 						.Context = std::string(SectionIdentity),
 						.Identity = TypeIdentity,
-						.Message = FormatShaderError(ShaderResult.IsSuccess() ? Error.Error : ShaderResult.Error),
+						.Cause = ShaderResult.IsSuccess() ? std::move(Error.Error) : std::move(ShaderResult.Error),
 						.RetryDependencies = ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Manual});
 				}
@@ -209,9 +211,10 @@ namespace Durin
 					{
 						return FResult::Failure({
 							.Category = ERenderResourceCreateErrorCategory::ShaderBinding,
+							.Reason = ERenderResourceCreateErrorReason::ShaderFailure,
 							.Context = std::string(SectionIdentity),
 							.Identity = TypeIdentity,
-							.Message = std::format("Global shader set is missing type '{}'.", Type->GetName()),
+							.Cause = FShaderError{.Code = EShaderError::MissingShaderType, .ShaderType = std::string(Type->GetName())},
 							.RetryDependencies = ERenderResourceGenerationDependency::Shader
 								| ERenderResourceGenerationDependency::Manual});
 					}
@@ -220,13 +223,13 @@ namespace Durin
 					{
 						return FResult::Failure({
 							.Category = ERenderResourceCreateErrorCategory::RHIResource,
+							.Reason = ERenderResourceCreateErrorReason::ShaderFailure,
 							.Context = std::string(SectionIdentity),
 							.Identity = TypeIdentity,
-							.Message = std::format(
-								"RHI shader creation returned null for type='{}', path='{}', entry='{}', frequency={}.",
-								Type->GetName(), Type->GetVirtualShaderPath(),
-								Type->GetEntryPoint(),
-								static_cast<uint8>(Type->GetFrequency())),
+							.Cause = FShaderError{.Code = EShaderError::RHIShaderCreationFailed,
+								.ShaderType = std::string(Type->GetName()), .Parameter = std::string(Type->GetEntryPoint()),
+								.ActualIdentity = std::string(Type->GetVirtualShaderPath()),
+								.Actual = static_cast<uint8>(Type->GetFrequency())},
 							.RetryDependencies = ERenderResourceGenerationDependency::Device
 								| ERenderResourceGenerationDependency::Manual});
 					}

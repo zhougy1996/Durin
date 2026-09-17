@@ -57,32 +57,36 @@ namespace Durin::RendererPrivate
 		const FRenderResourceGeneration& Generation,
 		const FMaterialCompilerResult* MaterialProgram,
 		const FShaderCompileOptions& VertexCompileOptions,
-		FMaterialShaderMap& OutShaderMap,
-		std::string& OutError) -> bool
+		FMaterialShaderMap& OutShaderMap) -> FShaderOperationResult
 	{
-		if (MaterialProgram != nullptr
-			&& (!MaterialProgram->bSucceeded
-				|| MaterialProgram->Identity != Identity.ProgramIdentity
-				|| MaterialProgram->Layout.Identity != Identity.RenderLayout
-				|| !ValidateMaterialCompilerResult(*MaterialProgram)
-				|| MaterialProgram->PassContractVersion
-					!= CurrentMaterialPassContractVersion))
+		if (MaterialProgram != nullptr)
 		{
-			OutError = "Accepted material compiler result does not match the requested identity or pass contract.";
-			return false;
+			if (!MaterialProgram->bSucceeded || !ValidateMaterialCompilerResult(*MaterialProgram))
+				return FShaderOperationResult::Failure(EShaderError::MaterialProgramInvalid);
+			if (MaterialProgram->Identity != Identity.ProgramIdentity)
+				return {.Error = {.Code = EShaderError::MaterialProgramIdentityMismatch,
+					.ExpectedIdentity = Identity.ProgramIdentity.ToString(),
+					.ActualIdentity = MaterialProgram->Identity.ToString()}};
+			if (MaterialProgram->Layout.Identity != Identity.RenderLayout)
+				return {.Error = {.Code = EShaderError::MaterialLayoutMismatch,
+					.ExpectedIdentity = Identity.RenderLayout.Id.ToString(),
+					.ActualIdentity = MaterialProgram->Layout.Identity.Id.ToString(),
+					.Expected = Identity.RenderLayout.Version, .Actual = MaterialProgram->Layout.Identity.Version}};
+			if (MaterialProgram->PassContractVersion != CurrentMaterialPassContractVersion)
+				return {.Error = {.Code = EShaderError::MaterialPassContractMismatch,
+					.Expected = CurrentMaterialPassContractVersion, .Actual = MaterialProgram->PassContractVersion}};
 		}
 		const auto Factory = FindMeshVertexFactory(VertexFactoryType.GetStableKey());
 		if (!Factory)
 		{
-			OutError = "Material vertex factory is not registered.";
-			return false;
+			return {.Error = {.Code = EShaderError::MissingVertexFactory, .ShaderType = std::string(VertexType.GetName())}};
 		}
 		const std::array<const FShaderType*, 2> Types{
 			&VertexType, &FragmentType};
 		const std::span<const FCompiledShader> GeneratedStages = MaterialProgram
 			? std::span<const FCompiledShader>(MaterialProgram->CompiledShaders)
 			: std::span<const FCompiledShader>{};
-		const auto Result = FMaterialShaderMap::TryCompile({
+		return FMaterialShaderMap::TryCompile({
 			.Identity = Identity,
 			.Generation = Generation,
 			.Target = MaterialProgram ? MaterialProgram->Target
@@ -99,8 +103,6 @@ namespace Durin::RendererPrivate
 			.CompiledTarget = MaterialProgram
 				? MaterialProgram->Target : std::string{},
 			.bCreateRHIShaders = true}, OutShaderMap);
-		OutError = FormatShaderError(Result.Error);
-		return Result.IsSuccess();
 	}
 
 	class FStaticMeshVertexShader : public FMeshMaterialShader

@@ -1,6 +1,6 @@
 #include "Renderers/MaterialBindingResolution.h"
 
-#include "Renderers/RendererResourceDiagnostics.h"
+#include "CoreGlobals.h"
 
 namespace Durin::RendererPrivate
 {
@@ -15,13 +15,8 @@ namespace Durin::RendererPrivate
 				Material.Representation, OutBinding, Diagnostic))
 			return true;
 
-		FRenderResourceCreateDiagnostic ResourceDiagnostic;
-		ResourceDiagnostic.Error = MakeRendererResourceCreateError(
-			ERenderResourceCreateErrorCategory::ShaderBinding,
-			std::string(DiagnosticResource), "prepared-material",
-			Durin::FormatMaterialError(Diagnostic.Error),
-			ERenderResourceGenerationDependency::Manual);
-		ReportRendererResourceCreateDiagnostic(ResourceDiagnostic);
+		DURIN_ERROR("Renderer material binding failed: context={}, identity=prepared-material, message={}",
+			DiagnosticResource, FormatMaterialError(Diagnostic.Error));
 		return false;
 	}
 
@@ -41,17 +36,9 @@ namespace Durin::RendererPrivate
 		RecordMaterialFallbackReason(EMaterialFallbackReason::UnsupportedLayout);
 		const FMaterialRenderLayoutIdentity RejectedIdentity =
 			Material.Representation.GetLayout().Identity;
-		FRenderResourceCreateDiagnostic ResourceDiagnostic;
-		ResourceDiagnostic.Error = MakeRendererResourceCreateError(
-			ERenderResourceCreateErrorCategory::ShaderBinding,
-			std::string(DiagnosticResource),
-			std::format(
-				"layout-version={},layout-id={}",
-				RejectedIdentity.Version,
-				RejectedIdentity.Id.ToString()),
-			std::format("{} ErrorMaterial was selected.", Durin::FormatMaterialError(Diagnostic.Error)),
-			ERenderResourceGenerationDependency::Manual);
-		ReportRendererResourceCreateDiagnostic(ResourceDiagnostic);
+		DURIN_ERROR("Renderer material binding failed: context={}, layout-version={}, layout-id={}, message={}. ErrorMaterial was selected.",
+			DiagnosticResource, RejectedIdentity.Version, RejectedIdentity.Id.ToString(),
+			FormatMaterialError(Diagnostic.Error));
 
 		Material = GetErrorMaterialRenderData();
 		FMaterialRenderValidationDiagnostic ErrorDiagnostic;

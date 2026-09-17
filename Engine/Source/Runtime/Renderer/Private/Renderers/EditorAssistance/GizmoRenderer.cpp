@@ -322,10 +322,9 @@ namespace Durin
 							ERenderResourceCreateErrorCategory::ShaderCompile,
 							"Gizmo",
 							"base",
-							"Global shader set is unavailable.",
+							ERenderResourceCreateErrorReason::GlobalShaderUnavailable,
 							ERenderResourceGenerationDependency::Shader
-								| ERenderResourceGenerationDependency::Manual,
-							ERenderResourceCreateErrorReason::GlobalShaderUnavailable));
+								| ERenderResourceGenerationDependency::Manual));
 				}
 				Candidate.VertexShader = TShaderMapRef<FGizmoVertexShader>(Candidate.ShaderSet);
 				Candidate.FragmentShader = TShaderMapRef<FGizmoFragmentShader>(Candidate.ShaderSet);
@@ -403,7 +402,7 @@ namespace Durin
 							ERenderResourceCreateErrorCategory::RHIResource,
 							"Gizmo",
 							"base",
-							"RHI creation returned null.",
+							ERenderResourceCreateErrorReason::ResourceCreationFailed,
 							ERenderResourceGenerationDependency::Device
 								| ERenderResourceGenerationDependency::Manual));
 				}
@@ -481,7 +480,7 @@ namespace Durin
 										GraphicsPipeline,
 									"Gizmo",
 									PipelineName,
-									"RHI graphics pipeline creation returned null.",
+									ERenderResourceCreateErrorReason::PipelineCreationFailed,
 									ERenderResourceGenerationDependency::Shader
 										| ERenderResourceGenerationDependency::
 											Device

@@ -379,6 +379,26 @@ path. Uncomposed and manual uses retain their previous capture form.
 
 ## Diagnostics and Budgets
 
+`FRDGResult::Error` remains the sole success/category discriminator. Failures add
+an `ERDGReason` and owned context alternatives for metadata, pass/resource uses,
+identities, dependencies, limits, external contracts, and allocations. Context
+retains names, indices, byte/subresource ranges, and expected/actual descriptions;
+no diagnostic borrows builder metadata or physical resource pointers.
+`FormatRDGError` formats these values only at logs, assertions, and UI boundaries.
+A retained result remains usable after graph reset or destruction.
+
+`FRDGAllocator::Allocate` returns an `FRDGResult` with typed resource or RHI
+causes. Preparation forwards it without formatting or replacing the reason.
+Renderer allocation retains native status even when a later attempt is suppressed,
+and publishes a complete allocation batch only after all resources validate.
+The existing retry, rollback, resource-retirement and execution-state rules apply.
+
+Nested causes format through the owning Shader/resource/RHI formatter at the
+final RDG presentation boundary. Capture dependency `Cause` strings, allocation
+observation tags, and resource names describe graph identities; they are not
+error codes or error transport. Console-command messages and Core modular-feature
+retirement messages likewise remain owned by their separate contracts.
+
 `GetExecutionPlan()` exposes immutable logical submission records. Each
 retained pass occupies one batch, followed by an
 epilogue batch when the graph has work. Empty graphs create no synthetic batch.

@@ -11,6 +11,24 @@
 
 namespace Durin
 {
+	namespace
+	{
+		constexpr uint64 MaximumMounts = 256;
+		constexpr uint64 MaximumDirectoryEntries = 131072;
+		constexpr uint64 MaximumFiles = 65536;
+		constexpr uint64 MaximumPathBytes = 4096;
+		constexpr uint64 MaximumFileBytes = 64ull * 1024 * 1024;
+		constexpr uint64 MaximumTotalBytes = 512ull * 1024 * 1024;
+		constexpr size_t ReadChunkBytes = 4 * 1024 * 1024;
+
+		auto CaptureLimitFailure(EShaderError Code, EShaderCaptureLimit Kind,
+			uint64 Maximum, uint64 Actual, std::string_view Path = {}) -> FShaderOperationResult
+		{
+			return {.Error = {.Code = Code, .ActualIdentity = std::string(Path),
+				.CaptureLimit = FShaderCaptureLimitContext{Kind, Maximum, Actual}}};
+		}
+	}
+
 	class FShaderBuildProvider final : public IShaderBuildProvider
 	{
 	public:
@@ -52,9 +70,9 @@ namespace Durin
 		{
 			OutIdentity.clear();
 			const auto Mounts = FShaderPaths::GetRegisteredMountPoints();
-			if (Mounts.size() > 256) { return {.Error = {.Code = EShaderError::CaptureMountLimit,
-				.Expected = 256,
-				.Actual = Mounts.size()}}; }
+			if (Mounts.size() > MaximumMounts)
+				return CaptureLimitFailure(EShaderError::CaptureMountLimit,
+					EShaderCaptureLimit::Mounts, MaximumMounts, Mounts.size());
 			uint64 Entries = 0;
 			std::map<std::string, FXxHash128> Files;
 			std::vector<std::string> SearchRoots;
@@ -64,29 +82,23 @@ namespace Durin
 			{
 				const std::filesystem::path Root(Mount.SourceDir);
 				SearchRoots.push_back(Mount.VirtualRoot);
+				auto FailurePath = Root;
 				std::filesystem::recursive_directory_iterator It(Root, Error), End;
-				if (Error) { return {.Error = {.Code = EShaderError::FileSystemFailure,
-					.ActualIdentity = Root.generic_string(),
-					.SystemError = Error}}; }
+				if (Error) { return FShaderOperationResult::FileSystemFailure(FailurePath, Error); }
 				for (; It != End; It.increment(Error))
 				{
-					if (IsCancelled && IsCancelled()) { return {.Error = {.Code = EShaderError::Cancelled}}; }
-					if (++Entries > 131072) { return {.Error = {.Code = EShaderError::CaptureDirectoryLimit,
-						.Expected = 131072,
-						.Actual = Entries}}; }
-					if (Error) { return {.Error = {.Code = EShaderError::FileSystemFailure,
-						.ActualIdentity = Root.generic_string(),
-						.SystemError = Error}}; }
+					if (IsCancelled && IsCancelled()) { return FShaderOperationResult::Failure(EShaderError::Cancelled); }
+					if (++Entries > MaximumDirectoryEntries)
+						return CaptureLimitFailure(EShaderError::CaptureDirectoryLimit,
+							EShaderCaptureLimit::DirectoryEntries, MaximumDirectoryEntries, Entries, Root.generic_string());
+					if (Error) { return FShaderOperationResult::FileSystemFailure(FailurePath, Error); }
+					FailurePath = It->path();
 					if (It->is_symlink(Error))
 					{ return {.Error = {.Code = EShaderError::CaptureSymlink, .ActualIdentity = It->path().generic_string()}}; }
-					if (Error) { return {.Error = {.Code = EShaderError::FileSystemFailure,
-						.ActualIdentity = Root.generic_string(),
-						.SystemError = Error}}; }
+					if (Error) { return FShaderOperationResult::FileSystemFailure(FailurePath, Error); }
 					if (!It->is_regular_file(Error))
 					{
-						if (Error) { return {.Error = {.Code = EShaderError::FileSystemFailure,
-							.ActualIdentity = Root.generic_string(),
-							.SystemError = Error}}; }
+						if (Error) { return FShaderOperationResult::FileSystemFailure(FailurePath, Error); }
 						continue;
 					}
 					const auto Name = (std::filesystem::path(Mount.VirtualRoot)
@@ -95,24 +107,30 @@ namespace Durin
 					auto File = FFileHelper::OpenRead(It->path(), &ReadError);
 					if (!File) { return {.Error = {.Code = EShaderError::FileReadFailure, .FileError = ReadError}}; }
 					const auto Size = File->GetSize();
-					if (Files.size() >= 65536 || Name.size() > 4096
-						|| Size > 64ull * 1024 * 1024 || Size > 512ull * 1024 * 1024 - TotalBytes)
-					{ return {.Error = {.Code = EShaderError::CaptureInputLimit, .ActualIdentity = Name, .Actual = Size}}; }
+					if (Files.size() >= MaximumFiles)
+						return CaptureLimitFailure(EShaderError::CaptureInputLimit,
+							EShaderCaptureLimit::Files, MaximumFiles, Files.size() + 1, Name);
+					if (Name.size() > MaximumPathBytes)
+						return CaptureLimitFailure(EShaderError::CaptureInputLimit,
+							EShaderCaptureLimit::PathBytes, MaximumPathBytes, Name.size(), Name);
+					if (Size > MaximumFileBytes)
+						return CaptureLimitFailure(EShaderError::CaptureInputLimit,
+							EShaderCaptureLimit::FileBytes, MaximumFileBytes, Size, Name);
+					if (Size > MaximumTotalBytes - TotalBytes)
+						return CaptureLimitFailure(EShaderError::CaptureInputLimit,
+							EShaderCaptureLimit::TotalBytes, MaximumTotalBytes, TotalBytes + Size, Name);
 					FByteBuffer Bytes(static_cast<size_t>(Size));
-					constexpr size_t Chunk = 4 * 1024 * 1024;
-					for (size_t Offset = 0; Offset < Bytes.size(); Offset += Chunk)
+					for (size_t Offset = 0; Offset < Bytes.size(); Offset += ReadChunkBytes)
 					{
-						if (IsCancelled && IsCancelled()) { return {.Error = {.Code = EShaderError::Cancelled}}; }
-						if (!File->ReadAt(Offset, std::span(Bytes).subspan(Offset, std::min(Chunk, Bytes.size() - Offset)), &ReadError))
+						if (IsCancelled && IsCancelled()) { return FShaderOperationResult::Failure(EShaderError::Cancelled); }
+						if (!File->ReadAt(Offset, std::span(Bytes).subspan(Offset, std::min(ReadChunkBytes, Bytes.size() - Offset)), &ReadError))
 						{ return {.Error = {.Code = EShaderError::FileReadFailure, .FileError = ReadError}}; }
 					}
 					TotalBytes += Size;
 					if (!Files.emplace(Name, FXxHash128::HashBuffer(Bytes)).second)
 					{ return {.Error = {.Code = EShaderError::CaptureDuplicateFile, .ActualIdentity = Name}}; }
 				}
-				if (Error) { return {.Error = {.Code = EShaderError::FileSystemFailure,
-					.ActualIdentity = Root.generic_string(),
-					.SystemError = Error}}; }
+				if (Error) { return FShaderOperationResult::FileSystemFailure(FailurePath, Error); }
 			}
 			FBinaryWriter Identity;
 			Identity.WriteString(GetCompilerEnvironmentIdentity());
@@ -155,9 +173,9 @@ namespace Durin
 		{
 			FShaderPaths::InitDefaultMountPoints();
 			InitShaderCompileService();
-			FShaderOperationResult Error;
-			requiref((Error = InitializeShaderData(FShaderDataConfiguration::Authored())),
-				"Authored Shader data initialization failed: {}", FormatShaderError(Error.Error));
+			const auto Result = InitializeShaderData(FShaderDataConfiguration::Authored());
+			requiref(Result,
+				"Authored Shader data initialization failed: {}", FormatShaderError(Result.Error));
 		}
 	}
 

@@ -97,7 +97,6 @@ namespace Durin
 				const FShaderCompileOptions& Options,
 				std::vector<FShaderSourceDependencyFingerprint>& OutDependencies) -> FShaderOperationResult
 			{
-				FShaderOperationResult ErrorResult;
 				OutDependencies.clear();
 
 				if (VirtualShaderPath.empty())
@@ -107,8 +106,8 @@ namespace Durin
 				if (Options.SourceArtifacts)
 				{
 					std::vector<std::string> Paths;
-					if (!(ErrorResult = DependencyResolver.Resolve(VirtualShaderPath, Options, Paths)))
-						return ErrorResult;
+					if (auto Result = DependencyResolver.Resolve(VirtualShaderPath, Options, Paths); !Result)
+						return Result;
 					for (const auto& Path : Paths)
 					{
 						const auto Found = Options.SourceArtifacts->GetFiles().find(Path);
@@ -125,7 +124,7 @@ namespace Durin
 				EffectiveOptions.VirtualShaderPath = std::string(VirtualShaderPath);
 				EffectiveOptions.CompilerEnvironment = CompilerEnvironmentIdentity;
 				std::vector<std::string> PhysicalDependencies;
-				if (!(ErrorResult = DependencyResolver.Resolve(FShaderPaths::SourcePath(VirtualShaderPath), EffectiveOptions, PhysicalDependencies))) return ErrorResult;
+				if (auto Result = DependencyResolver.Resolve(FShaderPaths::SourcePath(VirtualShaderPath), EffectiveOptions, PhysicalDependencies); !Result) return Result;
 
 				OutDependencies.reserve(PhysicalDependencies.size());
 				for (const std::string& PhysicalPath : PhysicalDependencies)
@@ -134,18 +133,16 @@ namespace Durin
 					if (!FShaderPaths::TryMakeVirtualSourcePath(
 						PhysicalPath, VirtualPath))
 					{
-						ErrorResult = {.Error = {.Code = EShaderError::DependencyIdentityMissing}};
 						OutDependencies.clear();
-						return ErrorResult;
+						return {.Error = {.Code = EShaderError::DependencyIdentityMissing, .ActualIdentity = PhysicalPath}};
 					}
 					FXxHash128 ContentHash;
 					std::error_code ErrorCode;
 					if (!FFileHelper::HashFileXx128(
 						PhysicalPath, ContentHash, ErrorCode))
 					{
-						ErrorResult = {.Error = {.Code = EShaderError::FileSystemFailure, .ActualIdentity = VirtualPath, .SystemError = ErrorCode}};
 						OutDependencies.clear();
-						return ErrorResult;
+						return FShaderOperationResult::FileSystemFailure(PhysicalPath, ErrorCode);
 					}
 					OutDependencies.push_back({
 						.VirtualPath = std::move(VirtualPath),
@@ -168,7 +165,6 @@ namespace Durin
 				const FShaderCompileOptions& Options,
 				FShaderSourceDependencyFingerprint& OutFingerprint) -> FShaderOperationResult
 			{
-				FShaderOperationResult ErrorResult;
 				OutFingerprint = {};
 
 				if (VirtualShaderPath.empty())
@@ -178,8 +174,8 @@ namespace Durin
 				if (Options.SourceArtifacts)
 				{
 					std::vector<FShaderSourceDependencyFingerprint> Dependencies;
-					if (!(ErrorResult = BuildSourceDependencyManifest(VirtualShaderPath, Options, Dependencies)))
-						return ErrorResult;
+					if (auto Result = BuildSourceDependencyManifest(VirtualShaderPath, Options, Dependencies); !Result)
+						return Result;
 					FXxHash128Builder Hash;
 					Hash.Update("DurinCapturedShaderSources_v1");
 					for (const auto& Dependency : Dependencies)
@@ -195,7 +191,7 @@ namespace Durin
 				EffectiveOptions.VirtualShaderPath = std::string(VirtualShaderPath);
 				EffectiveOptions.CompilerEnvironment = CompilerEnvironmentIdentity;
 				std::vector<FShaderMacroDefinition> NormalizedMacros;
-				if (!(ErrorResult = ShaderCompileUtilities::NormalizeMacros(EffectiveOptions, NormalizedMacros))) return ErrorResult;
+				if (auto Result = ShaderCompileUtilities::NormalizeMacros(EffectiveOptions, NormalizedMacros); !Result) return Result;
 				FShaderDependencyKey DependencyKey;
 				ShaderCompileUtilities::BuildDependencyKey(
 					VirtualShaderPath, NormalizedMacros,
@@ -219,7 +215,7 @@ namespace Durin
 					}
 				}
 				FShaderMetaData MetaData;
-				if (!(ErrorResult = ResolveSourceMetaData(VirtualShaderPath, FShaderPaths::SourcePath(VirtualShaderPath), EffectiveOptions, NormalizedMacros, MetaData))) return ErrorResult;
+				if (auto Result = ResolveSourceMetaData(VirtualShaderPath, FShaderPaths::SourcePath(VirtualShaderPath), EffectiveOptions, NormalizedMacros, MetaData); !Result) return Result;
 				OutFingerprint = {
 					.VirtualPath = std::string(VirtualShaderPath),
 					.ContentHash = MetaData.SourceTreeSignature};
@@ -262,8 +258,9 @@ namespace Durin
 				EffectiveOptions.CompilerEnvironment = CompilerEnvironmentIdentity;
 
 				std::vector<FShaderMacroDefinition> NormalizedMacros;
-				if (!(Output.Error = ShaderCompileUtilities::NormalizeMacros(EffectiveOptions, NormalizedMacros).Error).IsSuccess())
+				if (auto Result = ShaderCompileUtilities::NormalizeMacros(EffectiveOptions, NormalizedMacros); !Result)
 				{
+					Output.Error = std::move(Result.Error);
 					return Output;
 				}
 
@@ -310,8 +307,11 @@ namespace Durin
 					return {.Error = {.Code = EShaderError::InvalidCompileRequest}};
 				std::vector<FShaderMacroDefinition> Macros;
 				FShaderCompilerOutput Output;
-				if (!(Output.Error = ShaderCompileUtilities::NormalizeMacros(Options, Macros).Error).IsSuccess())
+				if (auto Result = ShaderCompileUtilities::NormalizeMacros(Options, Macros); !Result)
+				{
+					Output.Error = std::move(Result.Error);
 					return Output;
+				}
 				FXxHash128Builder Builder;
 				UpdateHashStringField(Builder, "GeneratedRequest_v1");
 				UpdateHashStringField(Builder, BuildRequestKey(Request.VirtualPath, Options, Macros));
@@ -369,7 +369,11 @@ namespace Durin
 				}
 
 				std::vector<FShaderMacroDefinition> Macros;
-				if (!(Output.Error = ShaderCompileUtilities::NormalizeMacros(Options, Macros).Error).IsSuccess()) return Output;
+				if (auto Result = ShaderCompileUtilities::NormalizeMacros(Options, Macros); !Result)
+				{
+					Output.Error = std::move(Result.Error);
+					return Output;
+				}
 				std::vector<std::string> AllowedImportVirtualPrefixes =
 					Request.AllowedImportVirtualPrefixes;
 				std::ranges::sort(AllowedImportVirtualPrefixes);
@@ -379,8 +383,11 @@ namespace Durin
 				if (Options.SourceArtifacts)
 				{
 					std::vector<std::string> Dependencies;
-					if (!(Output.Error = DependencyResolver.ResolveSource(Request.VirtualPath.substr(1), Request.VirtualPath, Request.Source, Options, Dependencies).Error).IsSuccess())
+					if (auto Result = DependencyResolver.ResolveSource(Request.VirtualPath.substr(1), Request.VirtualPath, Request.Source, Options, Dependencies); !Result)
+					{
+						Output.Error = std::move(Result.Error);
 						return Output;
+					}
 					for (const auto& Path : Dependencies)
 					{
 						if (!Options.SourceArtifacts->GetFiles().contains(Path)
@@ -461,10 +468,22 @@ namespace Durin
 				else
 				{
 					DependencyResolutions.fetch_add(1, std::memory_order_relaxed);
-					if (!(Output.Error = DependencyResolver.ResolveSource(Request.VirtualPath.substr(1), SourcePathHint, Request.Source, Options, DependencyPaths).Error).IsSuccess()) return Output;
-					if (!(Output.Error = ShaderCompileUtilities::BuildShaderMetaData(DependencyPaths, FileFingerprintCache, DependencyMetaData).Error).IsSuccess()) return Output;
+					if (auto Result = DependencyResolver.ResolveSource(Request.VirtualPath.substr(1), SourcePathHint, Request.Source, Options, DependencyPaths); !Result)
+					{
+						Output.Error = std::move(Result.Error);
+						return Output;
+					}
+					if (auto Result = ShaderCompileUtilities::BuildShaderMetaData(DependencyPaths, FileFingerprintCache, DependencyMetaData); !Result)
+					{
+						Output.Error = std::move(Result.Error);
+						return Output;
+					}
 				}
-				if (!(Output.Error = ValidateGeneratedImports(DependencyPaths, AllowedImportVirtualPrefixes).Error).IsSuccess()) return Output;
+				if (auto Result = ValidateGeneratedImports(DependencyPaths, AllowedImportVirtualPrefixes); !Result)
+				{
+					Output.Error = std::move(Result.Error);
+					return Output;
+				}
 				if (!bManifestCurrent)
 				{
 					if (!ManifestStore.Save(
@@ -544,11 +563,10 @@ namespace Durin
 						DdcCorruptMisses.fetch_add(1, std::memory_order_relaxed);
 					return false;
 				}
-				FShaderOperationResult Error;
-				if (!(Error = ShaderDerivedData::Decode(Result.Value.GetBytes(), Options, OutOutput)))
+				if (const auto DecodeResult = ShaderDerivedData::Decode(Result.Value.GetBytes(), Options, OutOutput); !DecodeResult)
 				{
 					DdcCorruptMisses.fetch_add(1, std::memory_order_relaxed);
-					DURIN_WARN("Shader DDC value was rejected: {}", FormatShaderError(Error.Error));
+					DURIN_WARN("Shader DDC value was rejected: {}", FormatShaderError(DecodeResult.Error));
 					return false;
 				}
 				return true;
@@ -560,13 +578,18 @@ namespace Durin
 			{
 				using namespace DerivedData;
 				FByteBuffer Bytes;
-				FShaderOperationResult Error;
 				const FCacheKey Key = ShaderDerivedData::BuildKey(
 					VariantKey, Options);
-				if (!Key.IsValid() || !(Error = ShaderDerivedData::Encode(Options, Output, Bytes)))
+				if (!Key.IsValid())
 				{
 					DdcStoreFailures.fetch_add(1, std::memory_order_relaxed);
-					DURIN_WARN("Shader DDC encoding failed: {}", FormatShaderError(Error.Error));
+					DURIN_WARN("Shader DDC encoding skipped: invalid cache key.");
+					return;
+				}
+				if (const auto EncodeResult = ShaderDerivedData::Encode(Options, Output, Bytes); !EncodeResult)
+				{
+					DdcStoreFailures.fetch_add(1, std::memory_order_relaxed);
+					DURIN_WARN("Shader DDC encoding failed: {}", FormatShaderError(EncodeResult.Error));
 					return;
 				}
 				const FCachePutResult Put = DerivedData::GetCache().Put({
@@ -670,7 +693,6 @@ namespace Durin
 				const std::vector<FShaderMacroDefinition>& NormalizedMacros,
 				FShaderMetaData& OutMetaData) -> FShaderOperationResult
 			{
-				FShaderOperationResult ErrorResult;
 				FShaderDependencyKey DependencyKey;
 				ShaderCompileUtilities::BuildDependencyKey(
 					VirtualShaderPath, NormalizedMacros,
@@ -698,13 +720,12 @@ namespace Durin
 
 				std::vector<std::string> DependencyPaths;
 				DependencyResolutions.fetch_add(1, std::memory_order_relaxed);
-				if (!(ErrorResult = DependencyResolver.Resolve(SourceFilePath, EffectiveOptions, DependencyPaths)))
+				if (auto Result = DependencyResolver.Resolve(SourceFilePath, EffectiveOptions, DependencyPaths); !Result)
 				{
-
-					return ErrorResult;
+					return Result;
 				}
-				if (!(ErrorResult = ShaderCompileUtilities::BuildShaderMetaData(DependencyPaths, FileFingerprintCache, OutMetaData)))
-					return ErrorResult;
+				if (auto Result = ShaderCompileUtilities::BuildShaderMetaData(DependencyPaths, FileFingerprintCache, OutMetaData); !Result)
+					return Result;
 				if (!ManifestStore.Save(
 					VirtualShaderPath, DependencyKey, OutMetaData))
 				{
@@ -723,7 +744,11 @@ namespace Durin
 			{
 				FShaderCompilerOutput Output;
 				FShaderMetaData CurrentMetaData;
-				if (!(Output.Error = ResolveSourceMetaData(VirtualShaderPath, SourceFilePath, EffectiveOptions, NormalizedMacros, CurrentMetaData).Error).IsSuccess()) return Output;
+				if (auto Result = ResolveSourceMetaData(VirtualShaderPath, SourceFilePath, EffectiveOptions, NormalizedMacros, CurrentMetaData); !Result)
+				{
+					Output.Error = std::move(Result.Error);
+					return Output;
+				}
 
 				FShaderVariantKey VariantKey;
 				ShaderCompileUtilities::BuildVariantKey(VirtualShaderPath, CurrentMetaData, NormalizedMacros, EffectiveOptions.CompilerEnvironment, VariantKey);

@@ -317,7 +317,6 @@ namespace Durin
 			slang::IMetadata* Metadata,
 			FShaderReflectionData& OutReflection) -> FShaderOperationResult
 		{
-			FShaderOperationResult ErrorResult;
 			if (!TypeLayout)
 			{
 				return {};
@@ -329,9 +328,9 @@ namespace Durin
 				slang::VariableReflection* LeafVariable = TypeLayout->getBindingRangeLeafVariable(BindingRangeIndex);
 				const std::string BindingName = (LeafVariable && LeafVariable->getName()) ? LeafVariable->getName() : "";
 				bool bBindingUsed = true;
-				if (!(ErrorResult = IsBindingRangeUsed(TypeLayout, BindingRangeIndex, Metadata, BindingName, bBindingUsed)))
+				if (auto Result = IsBindingRangeUsed(TypeLayout, BindingRangeIndex, Metadata, BindingName, bBindingUsed); !Result)
 				{
-					return ErrorResult;
+					return Result;
 				}
 				if (!bBindingUsed)
 				{
@@ -433,7 +432,6 @@ namespace Durin
 			EShaderFrequency Frequency,
 			FShaderReflectionData& OutReflection) -> FShaderOperationResult
 		{
-			FShaderOperationResult ErrorResult;
 			OutReflection = {};
 
 			slang::EntryPointReflection* EntryPointReflection = ProgramLayout ? ProgramLayout->getEntryPointByIndex(EntryPointIndex) : nullptr;
@@ -447,13 +445,13 @@ namespace Durin
 			CollectPushConstantOffsets(ProgramLayout->getGlobalParamsVarLayout(), StageFlags, PushConstantRanges);
 			CollectPushConstantOffsets(EntryPointReflection->getVarLayout(), StageFlags, PushConstantRanges);
 
-			if (!(ErrorResult = ExtractBindingsFromTypeLayout(ProgramLayout->getGlobalParamsTypeLayout(), StageFlags, PushConstantRanges, Metadata, OutReflection)))
+			if (auto Result = ExtractBindingsFromTypeLayout(ProgramLayout->getGlobalParamsTypeLayout(), StageFlags, PushConstantRanges, Metadata, OutReflection); !Result)
 			{
-				return ErrorResult;
+				return Result;
 			}
-			if (!(ErrorResult = ExtractBindingsFromTypeLayout(EntryPointReflection->getTypeLayout(), StageFlags, PushConstantRanges, Metadata, OutReflection)))
+			if (auto Result = ExtractBindingsFromTypeLayout(EntryPointReflection->getTypeLayout(), StageFlags, PushConstantRanges, Metadata, OutReflection); !Result)
 			{
-				return ErrorResult;
+				return Result;
 			}
 
 			AppendUsedPushConstantRanges(PushConstantRanges, SpirvWords, OutReflection);
@@ -533,20 +531,12 @@ namespace Durin
 		EShaderFrequency Frequency,
 		FCompiledShader& OutCompiledShader) -> FShaderOperationResult
 	{
-		FShaderOperationResult ErrorResult;
 		Slang::ComPtr<slang::IBlob> LayoutDiagnostics;
 		slang::ProgramLayout* ProgramLayout = ComposedProgram->getLayout(0, LayoutDiagnostics.writeRef());
 		if (!ProgramLayout)
 		{
-			if (LayoutDiagnostics)
-			{
-				ErrorResult = {.Error = FShaderError::FromSlang(ESlangShaderError::Layout, static_cast<const char*>(LayoutDiagnostics->getBufferPointer()))};
-			}
-			else
-			{
-				ErrorResult = {.Error = FShaderError::FromSlang(ESlangShaderError::Layout, {})};
-			}
-			return ErrorResult;
+			return {.Error = FShaderError::FromSlang(ESlangShaderError::Layout,
+				LayoutDiagnostics ? static_cast<const char*>(LayoutDiagnostics->getBufferPointer()) : "")};
 		}
 
 		Slang::ComPtr<slang::IBlob> CodeBlob;
@@ -579,12 +569,10 @@ namespace Durin
 		std::vector<uint32> SpirvWords(OutCompiledShader.Code->size() / sizeof(uint32));
 		std::memcpy(SpirvWords.data(), OutCompiledShader.Code->data(), OutCompiledShader.Code->size());
 
-		FShaderOperationResult ReflectionErrorMessage;
-		if (!(ReflectionErrorMessage = BuildReflectionData(ProgramLayout, Metadata.get(), SpirvWords, 0, OutCompiledShader.Frequency, OutCompiledShader.Reflection)))
+		if (auto Result = BuildReflectionData(ProgramLayout, Metadata.get(), SpirvWords, 0, OutCompiledShader.Frequency, OutCompiledShader.Reflection); !Result)
 		{
-			ErrorResult = ReflectionErrorMessage;
-			ErrorResult.Error.ActualIdentity = OutCompiledShader.SourceEntryPoint;
-			return ErrorResult;
+			Result.Error.ActualIdentity = OutCompiledShader.SourceEntryPoint;
+			return Result;
 		}
 
 		return {};
@@ -640,8 +628,9 @@ namespace Durin
 				DURIN_WARN("Slang reported non-fatal diagnostics for shader entry point '{}': {}", EntryPointName, static_cast<const char*>(DiagnosticsBlob->getBufferPointer()));
 			}
 
-			if (!(Output.Error = FillCompiledShaderOutput(ComposedProgram, Options.VirtualShaderPath, EntryPoints[Index], Options.Frequencies[Index], Output.CompiledShaders[Index]).Error).IsSuccess())
+			if (auto Result = FillCompiledShaderOutput(ComposedProgram, Options.VirtualShaderPath, EntryPoints[Index], Options.Frequencies[Index], Output.CompiledShaders[Index]); !Result)
 			{
+				Output.Error = std::move(Result.Error);
 				return Output;
 			}
 		}
@@ -657,7 +646,11 @@ namespace Durin
 		auto GlobalSession = GlobalSessions.Acquire();
 		FShaderCompilerOutput Output;
 		Slang::ComPtr<slang::ISession> Session;
-		if (!(Output.Error = FSlangSessionEnvironment::CreateSession(*GlobalSession, Options, Session).Error).IsSuccess()) return Output;
+		if (auto Result = FSlangSessionEnvironment::CreateSession(*GlobalSession, Options, Session); !Result)
+		{
+			Output.Error = std::move(Result.Error);
+			return Output;
+		}
 		const std::string Path(ShaderSourceFilePath);
 		Slang::ComPtr<slang::IBlob> Diagnostics;
 		slang::IModule* Module = Session->loadModule(
@@ -679,8 +672,11 @@ namespace Durin
 		if (OnSessionAcquired) OnSessionAcquired(Options.VirtualShaderPath);
 		FShaderCompilerOutput Output;
 		Slang::ComPtr<slang::ISession> Session;
-		if (!(Output.Error = FSlangSessionEnvironment::CreateSession(*GlobalSession, Options, Session, std::filesystem::path(SourcePathHint).parent_path().generic_string()).Error).IsSuccess())
+		if (auto Result = FSlangSessionEnvironment::CreateSession(*GlobalSession, Options, Session, std::filesystem::path(SourcePathHint).parent_path().generic_string()); !Result)
+		{
+			Output.Error = std::move(Result.Error);
 			return Output;
+		}
 		const std::string Name(ModuleName);
 		const std::string Path(SourcePathHint);
 		const std::string Text(Source);

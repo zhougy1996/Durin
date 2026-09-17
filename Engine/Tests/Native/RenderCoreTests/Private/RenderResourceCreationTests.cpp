@@ -87,9 +87,49 @@ namespace Durin
 				.Reason = Reason,
 				.Context = "TestResource",
 				.Identity = "variant=1",
-				.Message = "injected compile failure",
+				.Cause = FShaderError{.Code = EShaderError::InvalidCompileRequest},
 				.RetryDependencies = RetryDependencies,
 			};
+		}
+
+		TEST(FRenderResourceCreationTests, FingerprintsIgnoreExternalWordingAndRetainSemanticCauses)
+		{
+			auto First = MakeError();
+			First.Cause = FShaderError::FromSlang(ESlangShaderError::Module, "first wording", -7);
+			auto Second = First;
+			std::get<FShaderError>(Second.Cause).ExternalDiagnostic = "different wording";
+			Second.AttemptedGeneration.Shader = 99;
+			EXPECT_EQ(First.GetFingerprint(), Second.GetFingerprint());
+			std::get<FShaderError>(Second.Cause).NativeStatus = -8;
+			EXPECT_NE(First.GetFingerprint(), Second.GetFingerprint());
+			Second = First;
+			std::get<FShaderError>(Second.Cause).ActualIdentity = "/Other/Source";
+			EXPECT_NE(First.GetFingerprint(), Second.GetFingerprint());
+			Second.Cause = FRHICreationError{.Failure = ERHIResourceCreationFailure::OutOfMemory,
+				.Source = ERHICreationFailureSource::NativeBackend, .NativeCode = -2};
+			EXPECT_NE(First.GetFingerprint(), Second.GetFingerprint());
+			First = Second;
+			std::get<FRHICreationError>(Second.Cause).NativeCode = -3;
+			EXPECT_NE(First.GetFingerprint(), Second.GetFingerprint());
+		}
+
+		TEST(FRenderResourceCreationTests, StoredFailureOwnsCauseAfterProducerDestruction)
+		{
+			FSlot Slot;
+			std::optional<FRenderResourceCreateDiagnostic> Report;
+			Slot.Resolve({}, [] {
+				auto Error = MakeError();
+				Error.Cause = FShaderOperationResult::FileSystemFailure(
+					std::filesystem::path("/Temporary/Source"), std::make_error_code(std::errc::permission_denied)).Error;
+				return FResult::Failure(std::move(Error));
+			}, [&](auto Diagnostic) { Report = std::move(Diagnostic); });
+			Slot.Reset();
+			ASSERT_TRUE(Report && Report->Error);
+			const auto& Cause = std::get<FShaderError>(Report->Error->Cause);
+			EXPECT_EQ(Cause.Code, EShaderError::FileSystemFailure);
+			EXPECT_EQ(Cause.ActualIdentity, "/Temporary/Source");
+			EXPECT_EQ(Cause.SystemError, std::make_error_code(std::errc::permission_denied));
+			EXPECT_EQ(FormatRenderResourceCreateError(*Report->Error), FormatShaderError(Cause));
 		}
 
 		TEST(
@@ -102,6 +142,50 @@ namespace Durin
 				ERenderResourceCreateErrorReason::GlobalShaderUnavailable);
 			EXPECT_NE(Generic.GetFingerprint(),
 				GlobalShaderUnavailable.GetFingerprint());
+		}
+
+		TEST(FRenderResourceCreationTests, AsyncPipelineFailurePreservesNativeCause)
+		{
+			ASSERT_EQ(GDynamicRHI, nullptr);
+			GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+			GIsGameThreadIdInitialized = true;
+			ASSERT_TRUE(InitializeTaskScheduler(1));
+			struct FCoreGuard { ~FCoreGuard() { GDynamicRHI = nullptr; ShutdownTaskScheduler(); RHIFlushDeferredResources(); } } CoreGuard;
+			FPipelineSlotTestRHI RHI;
+			GDynamicRHI = &RHI;
+			RHI.BeforeCreate = [](uint32) {
+				throw FRHIRecoverableCreationError({.Failure = ERHIResourceCreationFailure::OutOfMemory,
+					.Source = ERHICreationFailureSource::NativeBackend, .NativeCode = -7});
+			};
+			auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
+			FComputePipelineStateInitializer Initializer;
+			Initializer.ComputeShader = Shader;
+			Initializer.PipelineLayout.BindingLayouts.emplace_back().BindingLayouts.emplace_back(
+				EShaderStageFlags::Compute, 0, ERHIBindingType::UniformBuffer);
+			FSlot Slot;
+			auto Resolve = [&] {
+				return Slot.Resolve({}, [&] {
+					auto Pipeline = FRenderPipelineRequestScope::Compute("native failure", Initializer);
+					if (Pipeline) return FResult::Success(1);
+					auto Error = MakeError();
+					Error.Category = ERenderResourceCreateErrorCategory::GraphicsPipeline;
+					Error.Reason = ERenderResourceCreateErrorReason::PipelineCreationFailed;
+					return FResult::Failure(std::move(Error));
+				}, [](const auto&) {});
+			};
+			{
+				FRenderPipelinePreparationBatch Batch;
+				EXPECT_EQ(Resolve(), nullptr);
+				Batch.Wait();
+			}
+			EXPECT_EQ(Resolve(), nullptr);
+			ASSERT_NE(Slot.GetFailure(), nullptr);
+			const auto* Cause = std::get_if<FRHICreationError>(&Slot.GetFailure()->Cause);
+			ASSERT_NE(Cause, nullptr);
+			EXPECT_EQ(Cause->Failure, ERHIResourceCreationFailure::OutOfMemory);
+			EXPECT_EQ(Cause->Source, ERHICreationFailureSource::NativeBackend);
+			EXPECT_EQ(Cause->NativeCode, -7);
+			Slot.Reset();
 		}
 
 		TEST(FRenderResourceCreationTests, PendingPipelinesRetryAndLateGenerationsCannotReplaceCurrentPayload)

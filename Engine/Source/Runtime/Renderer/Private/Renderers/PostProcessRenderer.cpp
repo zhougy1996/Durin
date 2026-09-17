@@ -171,10 +171,9 @@ namespace Durin
 							ERenderResourceCreateErrorCategory::ShaderCompile,
 							"PostProcess",
 							"copy",
-							"Global shader set is unavailable.",
+							ERenderResourceCreateErrorReason::GlobalShaderUnavailable,
 							ERenderResourceGenerationDependency::Shader
-								| ERenderResourceGenerationDependency::Manual,
-							ERenderResourceCreateErrorReason::GlobalShaderUnavailable));
+								| ERenderResourceGenerationDependency::Manual));
 				}
 				Candidate.FXAAShaderSet = GetGlobalShaderMap().ResolveShaderSet(
 					"PostProcess.FXAA", FXAAShaderTypes, true,
@@ -186,10 +185,9 @@ namespace Durin
 							ERenderResourceCreateErrorCategory::ShaderCompile,
 							"PostProcess",
 							"fxaa",
-							"Global shader set is unavailable.",
+							ERenderResourceCreateErrorReason::GlobalShaderUnavailable,
 							ERenderResourceGenerationDependency::Shader
-								| ERenderResourceGenerationDependency::Manual,
-							ERenderResourceCreateErrorReason::GlobalShaderUnavailable));
+								| ERenderResourceGenerationDependency::Manual));
 				}
 
 				Candidate.CopyVertexShader = TShaderMapRef<FPostProcessVertexShader>(Candidate.CopyShaderSet);
@@ -205,7 +203,7 @@ namespace Durin
 							ERenderResourceCreateErrorCategory::RHIResource,
 							"PostProcess",
 							"fullscreen-geometry",
-							"Shared fullscreen geometry is unavailable.",
+							ERenderResourceCreateErrorReason::FullscreenGeometryUnavailable,
 							ERenderResourceGenerationDependency::Device
 								| ERenderResourceGenerationDependency::Manual));
 				}
@@ -229,7 +227,7 @@ namespace Durin
 							ERenderResourceCreateErrorCategory::RHIResource,
 							"PostProcess",
 							"copy+fxaa",
-							"RHI shader or sampler creation returned null.",
+							ERenderResourceCreateErrorReason::ResourceCreationFailed,
 							ERenderResourceGenerationDependency::Shader
 								| ERenderResourceGenerationDependency::Device
 								| ERenderResourceGenerationDependency::Manual));
@@ -356,7 +354,7 @@ namespace Durin
 								GraphicsPipeline,
 							"PostProcess",
 							"copy+fxaa",
-							"RHI resource or pipeline creation returned null.",
+							ERenderResourceCreateErrorReason::PipelineCreationFailed,
 							ERenderResourceGenerationDependency::Shader
 								| ERenderResourceGenerationDependency::Device
 								| ERenderResourceGenerationDependency::Manual));

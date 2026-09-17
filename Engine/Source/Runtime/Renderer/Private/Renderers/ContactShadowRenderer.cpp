@@ -184,10 +184,9 @@ namespace Durin
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::ShaderCompile,
 						"ContactVisibilityCompute", "shader",
-						"Global shader set is unavailable.",
+						ERenderResourceCreateErrorReason::GlobalShaderUnavailable,
 						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Manual,
-						ERenderResourceCreateErrorReason::GlobalShaderUnavailable));
+							| ERenderResourceGenerationDependency::Manual));
 				Candidate.ComputeShader =
 					TShaderMapRef<FContactVisibilityComputeShader>(Candidate.ShaderSet);
 				FRHIShader* ComputeRHI = Candidate.ComputeShader.GetRHIShader(false);
@@ -195,7 +194,7 @@ namespace Durin
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::RHIResource,
 						"ContactVisibilityCompute", "pipeline",
-						"Compute shader RHI creation returned null.",
+						ERenderResourceCreateErrorReason::ShaderCreationFailed,
 						ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Device
 							| ERenderResourceGenerationDependency::Manual));
@@ -208,7 +207,7 @@ namespace Durin
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::GraphicsPipeline,
 						"ContactVisibilityCompute", "pipeline",
-						"Compute pipeline creation returned null.",
+						ERenderResourceCreateErrorReason::PipelineCreationFailed,
 						ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Device
 							| ERenderResourceGenerationDependency::Manual));
@@ -235,10 +234,9 @@ namespace Durin
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::ShaderCompile,
 						"ContactVisibility", "shader",
-						"Global shader set is unavailable.",
+						ERenderResourceCreateErrorReason::GlobalShaderUnavailable,
 						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Manual,
-						ERenderResourceCreateErrorReason::GlobalShaderUnavailable));
+							| ERenderResourceGenerationDependency::Manual));
 				Candidate.VertexShader =
 					TShaderMapRef<FContactVisibilityVertexShader>(Candidate.ShaderSet);
 				Candidate.FragmentShader =
@@ -247,7 +245,7 @@ namespace Durin
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::RHIResource,
 						"ContactVisibility", "fullscreen-geometry",
-						"Shared fullscreen geometry is unavailable.",
+						ERenderResourceCreateErrorReason::FullscreenGeometryUnavailable,
 						ERenderResourceGenerationDependency::Device
 							| ERenderResourceGenerationDependency::Manual));
 				FRHIShader* VertexRHI = Candidate.VertexShader.GetRHIShader(false);
@@ -256,7 +254,7 @@ namespace Durin
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::RHIResource,
 						"ContactVisibility", "pipeline",
-						"RHI shader creation returned null.",
+						ERenderResourceCreateErrorReason::ShaderCreationFailed,
 						ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Device
 							| ERenderResourceGenerationDependency::Manual));
@@ -275,7 +273,7 @@ namespace Durin
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::GraphicsPipeline,
 						"ContactVisibility", "pipeline",
-						"Graphics pipeline creation returned null.",
+						ERenderResourceCreateErrorReason::PipelineCreationFailed,
 						ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Device
 							| ERenderResourceGenerationDependency::Manual));

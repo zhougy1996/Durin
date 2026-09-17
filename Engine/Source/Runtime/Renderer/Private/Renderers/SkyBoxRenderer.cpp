@@ -107,10 +107,9 @@ namespace Durin
 							ERenderResourceCreateErrorCategory::ShaderCompile,
 							"SkyBox",
 							"default",
-							"Global shader set is unavailable.",
+							ERenderResourceCreateErrorReason::GlobalShaderUnavailable,
 							ERenderResourceGenerationDependency::Shader
-								| ERenderResourceGenerationDependency::Manual,
-							ERenderResourceCreateErrorReason::GlobalShaderUnavailable
+								| ERenderResourceGenerationDependency::Manual
 						)
 					);
 				}
@@ -128,7 +127,7 @@ namespace Durin
 							ERenderResourceCreateErrorCategory::RHIResource,
 							"SkyBox",
 							"default",
-							"RHI shader creation returned null.",
+							ERenderResourceCreateErrorReason::ShaderCreationFailed,
 							ERenderResourceGenerationDependency::Shader
 								| ERenderResourceGenerationDependency::Device
 								| ERenderResourceGenerationDependency::Manual
@@ -190,7 +189,7 @@ namespace Durin
 							ERenderResourceCreateErrorCategory::RHIResource,
 							"SkyBox",
 							"default",
-							"RHI resource creation returned null.",
+							ERenderResourceCreateErrorReason::ResourceCreationFailed,
 							ERenderResourceGenerationDependency::Shader
 								| ERenderResourceGenerationDependency::Device
 								| ERenderResourceGenerationDependency::Manual
@@ -205,7 +204,7 @@ namespace Durin
 							ERenderResourceCreateErrorCategory::GraphicsPipeline,
 							"SkyBox",
 							"default",
-							"RHI graphics pipeline creation returned null.",
+							ERenderResourceCreateErrorReason::PipelineCreationFailed,
 							ERenderResourceGenerationDependency::Shader
 								| ERenderResourceGenerationDependency::Device
 								| ERenderResourceGenerationDependency::Manual

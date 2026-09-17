@@ -6,13 +6,19 @@ namespace Durin
 {
 	auto MakeRendererResourceCreateError(
 		ERenderResourceCreateErrorCategory Category,
-		std::string Context,
-		std::string Identity,
-		std::string Message,
+		std::string Context, std::string Identity,
+		ERenderResourceCreateErrorReason Reason,
 		ERenderResourceGenerationDependency RetryDependencies,
-		ERenderResourceCreateErrorReason Reason =
-			ERenderResourceCreateErrorReason::Unspecified)
-		-> FRenderResourceCreateError;
+		FRenderResourceCreateCause Cause = {}) -> FRenderResourceCreateError;
+
+	inline auto MakeRendererResourceCreateError(
+		ERenderResourceCreateErrorCategory Category,
+		std::string Context, std::string Identity, FShaderError Cause,
+		ERenderResourceGenerationDependency RetryDependencies) -> FRenderResourceCreateError
+	{
+		return MakeRendererResourceCreateError(Category, std::move(Context), std::move(Identity),
+			ERenderResourceCreateErrorReason::ShaderFailure, RetryDependencies, std::move(Cause));
+	}
 
 	auto ReportRendererResourceCreateDiagnostic(
 		const FRenderResourceCreateDiagnostic& Diagnostic) -> void;

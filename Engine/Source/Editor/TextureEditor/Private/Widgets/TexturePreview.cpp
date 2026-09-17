@@ -125,23 +125,23 @@ namespace Durin::Editor::Texture
 					std::array<const FShaderType*, 2> ShaderTypes = {
 						&VertexShaderType, &FragmentShaderType};
 					auto ShaderMap = std::make_shared<FShaderMapBase>();
-					FShaderOperationResult ErrorMessage;
-					auto MakeError = [](auto Category, std::string Message) {
+										auto MakeError = [](auto Category, ERenderResourceCreateErrorReason Reason, FRenderResourceCreateCause Cause = {}) {
 						return FRenderResourceCreateError{
 							.Category = Category,
+							.Reason = Reason,
 							.Context = "TextureEditorPreview",
 							.Identity = "channel-filter",
-							.Message = std::move(Message),
+							.Cause = std::move(Cause),
 							.RetryDependencies =
 								ERenderResourceGenerationDependency::Shader
 								| ERenderResourceGenerationDependency::Device
 								| ERenderResourceGenerationDependency::Manual,
 						};
 					};
-					if (!(ErrorMessage = ShaderMap->InitializeFromShaderTypes(ShaderTypes, CompileOptions)))
+					if (auto Result = ShaderMap->InitializeFromShaderTypes(ShaderTypes, CompileOptions); !Result)
 						return FResult::Failure(MakeError(
 							ERenderResourceCreateErrorCategory::ShaderCompile,
-							FormatShaderError(ErrorMessage.Error)));
+							ERenderResourceCreateErrorReason::ShaderFailure, std::move(Result.Error)));
 					auto* VertexShader =
 						static_cast<FTexturePreviewVertexShader*>(
 							ShaderMap->GetShader(&VertexShaderType));
@@ -151,7 +151,7 @@ namespace Durin::Editor::Texture
 					if (VertexShader == nullptr || FragmentShader == nullptr)
 						return FResult::Failure(MakeError(
 							ERenderResourceCreateErrorCategory::ShaderBinding,
-							"Compiled shader map is missing a typed shader."));
+							ERenderResourceCreateErrorReason::ShaderFailure, FShaderError{.Code = EShaderError::MissingShaderType}));
 					FTexturePreviewRendererState::FPayload Candidate;
 					Candidate.ShaderMap = std::move(ShaderMap);
 					Candidate.VertexShader =
@@ -167,7 +167,7 @@ namespace Durin::Editor::Texture
 					if (VertexRHI == nullptr || FragmentRHI == nullptr)
 						return FResult::Failure(MakeError(
 							ERenderResourceCreateErrorCategory::RHIResource,
-							"RHI shader creation returned null."));
+							ERenderResourceCreateErrorReason::ShaderCreationFailed));
 					constexpr uint32 VertexStride =
 						sizeof(FTexturePreviewVertex);
 					FVertexDeclarationElementList VertexElements;
@@ -241,11 +241,11 @@ namespace Durin::Editor::Texture
 						|| Candidate.Sampler == nullptr)
 						return FResult::Failure(MakeError(
 							ERenderResourceCreateErrorCategory::RHIResource,
-							"RHI resource creation returned null."));
+							ERenderResourceCreateErrorReason::ResourceCreationFailed));
 					if (Candidate.PipelineState == nullptr)
 						return FResult::Failure(MakeError(
 							ERenderResourceCreateErrorCategory::GraphicsPipeline,
-							"RHI graphics pipeline creation returned null."));
+							ERenderResourceCreateErrorReason::PipelineCreationFailed));
 					return FResult::Success(std::move(Candidate));
 				},
 				[](const FRenderResourceCreateDiagnostic& Diagnostic) {
@@ -265,7 +265,7 @@ namespace Durin::Editor::Texture
 						Diagnostic.Error->AttemptedGeneration.Device,
 						Diagnostic.Error->AttemptedGeneration.Manual,
 						Diagnostic.Error->bRetainedFallback,
-						Diagnostic.Error->Message);
+						FormatRenderResourceCreateError(*Diagnostic.Error));
 				});
 			if (Payload == nullptr)
 				return false;

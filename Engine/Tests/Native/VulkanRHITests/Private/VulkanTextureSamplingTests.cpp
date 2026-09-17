@@ -1281,7 +1281,7 @@ namespace Durin
 						Index == 0 ? ERDGUse::Write : ERDGUse::ReadWrite, ERHIAccess::ComputeShaderReadWrite, Index == 0);
 				}
 				const auto Result = Graph.Execute(Commands);
-				ASSERT_TRUE(Result.IsSuccess()) << Result.Result.Message;
+				ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
 				Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::None);
 				ASSERT_EQ(Graph.GetSubmissionSyncPoints().size(), 4u);
 				for (uint32 Index = 0; Index < 3; ++Index)

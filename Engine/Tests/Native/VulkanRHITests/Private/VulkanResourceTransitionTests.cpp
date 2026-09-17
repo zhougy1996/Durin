@@ -32,13 +32,12 @@ namespace Durin::VulkanRHI
 			}
 
 			auto Allocate(std::span<const FRDGAllocationRequest> Requests,
-				FRDGAllocatedResources& OutResources, std::string& OutError)
-				-> bool override
+				FRDGAllocatedResources& OutResources)
+				-> FRDGResult override
 			{
 				if (bFail)
 				{
-					OutError = "injected allocation failure";
-					return false;
+					return {ERDGError::AllocationFailed, ERDGReason::AllocatorFailure};
 				}
 				for (const FRDGAllocationRequest& Request : Requests)
 				{
@@ -50,12 +49,11 @@ namespace Durin::VulkanRHI
 							Request.ResourceId + 1);
 					if (!bPublished)
 					{
-						OutError = "test allocator could not publish resource";
-						return false;
+						return {ERDGError::AllocationFailed, ERDGReason::AllocationPublicationFailed};
 					}
 				}
-				OutError.clear();
-				return true;
+
+				return {};
 			}
 
 		private:
@@ -477,17 +475,18 @@ namespace Durin::VulkanRHI
 			FRDGBuilderTestAccessor::UseBuffer(RejectedBuilder, RejectedPass, RejectedBuffer, 0, 64,
 				ERDGUse::Write, ERHIAccess::TransferWrite, true);
 			RejectedBuilder.MarkPassRoot(RejectedPass, "external-effect");
-			std::string AllocationError;
+			FRDGResult AllocationError;
 			{
 				FTransitionTestRDGAllocator RejectedAllocator(Buffer, Texture, true);
 				FRDGExecutionContext RejectedContext{RejectedAllocator};
 				const auto Rejected = RejectedBuilder.Execute(Commands, &RejectedContext);
 				EXPECT_EQ(Rejected.Status, ERDGExecutionStatus::PreparationFailed);
-				AllocationError = Rejected.Result.Message;
+				AllocationError = Rejected.Result;
 			}
 			EXPECT_FALSE(bExecuted);
 			EXPECT_TRUE(RejectedBuilder.GetSubmissionSyncPoints().empty());
-			EXPECT_EQ(AllocationError, "injected allocation failure");
+			EXPECT_EQ(AllocationError.Error, ERDGError::AllocationFailed);
+			EXPECT_EQ(AllocationError.Reason, ERDGReason::AllocatorFailure);
 
 			FRDGBuilder Builder;
 			const auto GraphBuffer = Builder.CreateBuffer(
@@ -513,7 +512,7 @@ namespace Durin::VulkanRHI
 				FTransitionTestRDGAllocator Allocator(Buffer, Texture);
 				FRDGExecutionContext Context{Allocator};
 				const auto Result = Builder.Execute(Commands, &Context);
-				ASSERT_TRUE(Result.IsSuccess()) << Result.Result.Message;
+				ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
 				EXPECT_EQ(Builder.Execute(Commands, &Context).Status, ERDGExecutionStatus::InvalidState);
 			}
 			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread,
@@ -542,7 +541,7 @@ namespace Durin::VulkanRHI
 			FRDGBuilderTestAccessor::UseTexture(Compact, CompactWrite, CompactTexture,
 				{ERHITextureAspect::Color, 0, 2, 0, 1}, ERDGUse::Write, ERHIAccess::TransferWrite, true);
 			const auto CompactResult = Compact.Execute(Commands);
-			ASSERT_TRUE(CompactResult.IsSuccess()) << CompactResult.Result.Message;
+			ASSERT_TRUE(CompactResult.IsSuccess()) << FormatRDGError(CompactResult.Result);
 			EXPECT_EQ(Compact.GetStatistics().TextureTransitions, 2u);
 			EXPECT_EQ(Compact.GetStatistics().TextureTransitionSubresources, 4u);
 			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
@@ -557,7 +556,7 @@ namespace Durin::VulkanRHI
 			FRDGBuilderTestAccessor::UseBuffer(Next, Rewrite, External, 0, 64, ERDGUse::Write,
 				ERHIAccess::TransferWrite, true);
 			const auto Handoff = Next.Execute(Commands);
-			ASSERT_TRUE(Handoff.IsSuccess()) << Handoff.Result.Message;
+			ASSERT_TRUE(Handoff.IsSuccess()) << FormatRDGError(Handoff.Result);
 			ASSERT_EQ(Next.GetPasses()[0].Barriers.GetBufferTransitions().size(), 1u);
 			EXPECT_EQ(Next.GetPasses()[0].Barriers.GetBufferTransitions()[0].ExpectedBefore,
 				ERHIAccess::VertexBufferRead);

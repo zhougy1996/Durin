@@ -267,10 +267,10 @@ namespace Durin
 		virtual auto RHICreateTexture(FRHICommandListBase& RHICmdList, const FRHITextureCreateDesc& CreateDesc) -> TRefCountPtr<FRHITexture> = 0;
 		// Preserve candidate failure categories for demand-driven retry policies.
 		RHI_API virtual auto RHITryCreateTexture(FRHICommandListBase& RHICmdList,
-			const FRHITextureCreateDesc& CreateDesc, ERHIResourceCreationFailure& OutFailure)
+			const FRHITextureCreateDesc& CreateDesc, FRHICreationError& OutFailure)
 			-> TRefCountPtr<FRHITexture>;
 		RHI_API virtual auto RHITryCreateBuffer(FRHICommandListImmediate& RHICmdList,
-			const FRHIBufferCreateDesc& CreateDesc, ERHIResourceCreationFailure& OutFailure)
+			const FRHIBufferCreateDesc& CreateDesc, FRHICreationError& OutFailure)
 			-> TRefCountPtr<FRHIBuffer>;
 		// Process CPU retirement and completed GPU deletions without waiting for GPU idle.
 		// Called on the rendering thread before allocating under memory pressure.

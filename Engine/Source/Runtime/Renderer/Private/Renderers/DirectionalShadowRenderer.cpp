@@ -124,7 +124,7 @@ namespace Durin
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::RHIResource,
 						"DirectionalShadow", "3x2048-D32-array",
-						"Array target, exact views, or comparison sampler creation returned null.",
+						ERenderResourceCreateErrorReason::ResourceCreationFailed,
 						ERenderResourceGenerationDependency::Device
 							| ERenderResourceGenerationDependency::Manual));
 				const std::array InitialTransition{FRHITextureTransition::Whole(

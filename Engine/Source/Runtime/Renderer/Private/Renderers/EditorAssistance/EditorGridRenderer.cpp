@@ -174,7 +174,7 @@ namespace Durin
 								GraphicsPipeline,
 							"EditorGrid",
 							PipelineName,
-							"RHI graphics pipeline creation returned null.",
+							ERenderResourceCreateErrorReason::PipelineCreationFailed,
 							ERenderResourceGenerationDependency::Shader
 								| ERenderResourceGenerationDependency::Device
 								| ERenderResourceGenerationDependency::Manual));

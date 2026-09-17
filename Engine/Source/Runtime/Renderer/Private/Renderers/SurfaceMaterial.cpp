@@ -44,7 +44,7 @@ namespace Durin::RendererPrivate
 					static_cast<uint8>(State.MagFilter),
 					static_cast<uint8>(State.AddressU),
 					static_cast<uint8>(State.AddressV)),
-				"RHI sampler creation returned null.",
+				ERenderResourceCreateErrorReason::SamplerCreationFailed,
 				ERenderResourceGenerationDependency::Device
 					| ERenderResourceGenerationDependency::Manual));
 		}

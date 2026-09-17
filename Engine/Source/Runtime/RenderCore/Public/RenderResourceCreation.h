@@ -3,6 +3,8 @@
 #include "Misc/CoreTypes.h"
 #include "Misc/AssertionMacros.h"
 #include "RenderPipelineCreation.h"
+#include "Shader/ShaderDiagnostics.h"
+#include <variant>
 
 #include <cstddef>
 #include <functional>
@@ -28,6 +30,12 @@ namespace Durin
 	{
 		Unspecified,
 		GlobalShaderUnavailable,
+		ShaderFailure,
+		ShaderCreationFailed,
+		ResourceCreationFailed,
+		PipelineCreationFailed,
+		SamplerCreationFailed,
+		FullscreenGeometryUnavailable,
 	};
 
 	enum class ERenderResourceGenerationDependency : uint8
@@ -121,6 +129,8 @@ namespace Durin
 				&& Earlier.Manual != Later.Manual);
 	}
 
+	using FRenderResourceCreateCause = std::variant<std::monostate, FShaderError, FRHICreationError>;
+
 	struct FRenderResourceCreateError
 	{
 		ERenderResourceCreateErrorCategory Category =
@@ -129,28 +139,16 @@ namespace Durin
 			ERenderResourceCreateErrorReason::Unspecified;
 		std::string Context;
 		std::string Identity;
-		std::string Message;
+		FRenderResourceCreateCause Cause;
 		ERenderResourceGenerationDependency RetryDependencies =
 			ERenderResourceGenerationDependency::Manual;
 		FRenderResourceGeneration AttemptedGeneration;
 		bool bRetainedFallback = false;
 
-		auto GetFingerprint() const -> size_t
-		{
-			size_t Fingerprint = static_cast<size_t>(Category);
-			auto Combine = [&Fingerprint](size_t Value) {
-				Fingerprint ^= Value + 0x9e3779b9 + (Fingerprint << 6)
-					+ (Fingerprint >> 2);
-			};
-			Combine(static_cast<size_t>(Reason));
-			Combine(std::hash<std::string>{}(Context));
-			Combine(std::hash<std::string>{}(Identity));
-			Combine(std::hash<std::string>{}(Message));
-			Combine(static_cast<size_t>(RetryDependencies));
-			Combine(static_cast<size_t>(bRetainedFallback));
-			return Fingerprint;
-		}
+		RENDERCORE_API auto GetFingerprint() const -> size_t;
 	};
+
+	RENDERCORE_API auto FormatRenderResourceCreateError(const FRenderResourceCreateError& Error) -> std::string;
 
 	enum class ERenderResourceAvailability : uint8
 	{
@@ -279,6 +277,9 @@ namespace Durin
 			}
 
 			Failure.emplace(Result.TakeError());
+			if (Failure->Category == ERenderResourceCreateErrorCategory::GraphicsPipeline
+				&& PipelineScope.GetFailure().HasError())
+				Failure->Cause = PipelineScope.GetFailure();
 			Failure->AttemptedGeneration = Generation;
 			Failure->bRetainedFallback = Payload.has_value();
 			FailureFingerprint = Failure->GetFingerprint();

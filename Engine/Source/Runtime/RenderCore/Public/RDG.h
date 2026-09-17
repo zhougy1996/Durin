@@ -3,6 +3,7 @@
 #include "RenderCoreAPI.h"
 #include "RHIResources.h"
 #include "RHICompletion.h"
+#include "RenderResourceCreation.h"
 
 namespace Durin
 {
@@ -21,13 +22,149 @@ namespace Durin
 		IncompatibleAllocation
 	};
 
-	// Owns the outcome of one RDG operation, including failures without a message.
+	enum class ERDGReason : uint8
+	{
+		Unspecified,
+		MetadataNull,
+		MetadataNameEmpty,
+		MetadataLayoutMismatch,
+		MetadataNestingLimit,
+		MemberNameEmpty,
+		MemberNameDuplicate,
+		MemberLayoutEmpty,
+		MemberOffsetInvalid,
+		NestedMetadataInvalid,
+		UnexpectedNestedMetadata,
+		WrapperLayoutMismatch,
+		OptionalLayoutMismatch,
+		DeclarationSemanticsInvalid,
+		ShaderBindingNameEmpty,
+		ShaderBindingDuplicate,
+		ShaderDeclarationIncompatible,
+		ShaderBindingAuthorityMissing,
+		NestedShaderBindingDuplicate,
+		ResourceHandleInvalid,
+		FinalAccessInvalid,
+		RequiredAccessInvalid,
+		PassAccessIncompatible,
+		UseAccessMismatch,
+		ReadDiscardInvalid,
+		ManagedResultAccessInvalid,
+		BufferRangeInvalid,
+		TextureRangeInvalid,
+		UsesOverlap,
+		StructuralLimit,
+		DependencyNotForward,
+		ResourceNameEmpty,
+		PhysicalResourceMissing,
+		ExternalFinalAccessMissing,
+		ResourceNameDuplicate,
+		PassNameEmpty,
+		PassNameDuplicate,
+		ProducerHandleInvalid,
+		ValueWriterCount,
+		BufferProducerMissing,
+		ResourceProducerMissing,
+		BuilderConsumed,
+		CompilationIncomplete,
+		PreparationIncomplete,
+		ParameterLayoutMismatch,
+		ValueStorageInvalid,
+		ValueTypeNameChanged,
+		ValueTypeNameReused,
+		ExternalContractConflict,
+		TextureExtractionHandleInvalid,
+		TextureExtractionInvalid,
+		TextureExtractionDuplicate,
+		BufferExtractionHandleInvalid,
+		BufferExtractionInvalid,
+		BufferExtractionDuplicate,
+		ParameterAllocationInvalid,
+		ParameterAllocationSubmitted,
+		PassHandleInvalid,
+		ManualUseOnParameterizedPass,
+		RootHandleInvalid,
+		AsyncPassInvalid,
+		ConsumerHandleInvalid,
+		ValueDirectionInvalid,
+		ValueHandleInvalid,
+		StorageIncomplete,
+		AllocatorFailure,
+		AllocationMissing,
+		TextureAllocationIncompatible,
+		BufferAllocationIncompatible,
+		AllocatorMissing,
+		QueueTransferFailed,
+		RecordingIncomplete,
+		AllocationBudgetExceeded,
+		AllocationRetrySuppressed,
+		AllocationKindInvalid,
+		AllocationRetryDeferred,
+		AllocationRetirementPending,
+		PhysicalAllocationFailed,
+		AllocationPublicationFailed,
+	};
+
+	enum class ERDGResourceKind : uint8;
+	enum class ERDGPassType : uint8;
+	enum class ERDGUse : uint8;
+
+	// Context alternatives own names and value descriptions; no graph or RHI pointers.
+	struct FRDGMetadataErrorContext
+	{
+		std::string StructName, MemberName, OtherMemberName, BindingName;
+		uint64 MemberIndex = 0, ExpectedSize = 0, ActualSize = 0;
+		uint64 ExpectedAlignment = 0, ActualAlignment = 0, Offset = 0, ArraySize = 0, Depth = 0;
+	};
+	struct FRDGUseErrorContext
+	{
+		std::string PassName, ResourceName, ParameterPath, OtherParameterPath;
+		ERDGResourceKind Kind{};
+		ERDGPassType PassType{};
+		ERDGUse Use{};
+		uint32 PassIndex = UINT32_MAX, ResourceIndex = UINT32_MAX;
+		uint32 UseIndex = UINT32_MAX, OtherUseIndex = UINT32_MAX;
+		ERHIAccess Access = ERHIAccess::None, ResultAccess = ERHIAccess::None;
+		uint64 BufferOffset = 0, BufferSize = 0, BufferCapacity = 0;
+		FRHITextureSubresourceRange TextureRange;
+		uint32 TextureMips = 0, TextureLayers = 0;
+	};
+	struct FRDGIdentityErrorContext
+	{
+		std::string Name, OtherName, TypeName;
+		uint64 Index = 0, OtherIndex = 0, Expected = 0, Actual = 0;
+	};
+	struct FRDGDependencyErrorContext { uint32 Producer = UINT32_MAX, Consumer = UINT32_MAX; };
+	struct FRDGLimitErrorContext { std::string Dimension; uint64 Actual = 0, Limit = 0; };
+	struct FRDGResourceContractContext
+	{
+		std::string Name;
+		ERDGResourceKind Kind{};
+		FRHITextureDesc Texture;
+		FRHIBufferDesc Buffer;
+		ERHIAccess InitialAccess = ERHIAccess::None, FinalAccess = ERHIAccess::None;
+	};
+	struct FRDGExternalConflictContext { FRDGResourceContractContext Canonical, Requested; };
+	struct FRDGAllocationErrorContext
+	{
+		uint32 ResourceId = UINT32_MAX;
+		FRHITextureDesc ExpectedTexture, ActualTexture;
+		FRHIBufferDesc ExpectedBuffer, ActualBuffer;
+	};
+	using FRDGErrorContext = std::variant<std::monostate, FRDGMetadataErrorContext,
+		FRDGUseErrorContext, FRDGIdentityErrorContext, FRDGDependencyErrorContext,
+		FRDGLimitErrorContext, FRDGExternalConflictContext, FRDGAllocationErrorContext>;
+	using FRDGErrorCause = std::variant<std::monostate, FRenderResourceCreateError, FRHICreationError>;
+
 	struct [[nodiscard]] FRDGResult final
 	{
 		ERDGError Error = ERDGError::None;
-		std::string Message;
+		ERDGReason Reason = ERDGReason::Unspecified;
+		FRDGErrorContext Context;
+		FRDGErrorCause Cause;
 		auto IsSuccess() const -> bool { return Error == ERDGError::None; }
 	};
+	RENDERCORE_API auto FormatRDGError(const FRDGResult& Result) -> std::string;
 
 	class FRHICommandListImmediate;
 	class FRDGBuilder;
@@ -963,8 +1100,8 @@ namespace Durin
 		// Opt in only when reuse accounts for all prior GPU queue uses.
 		virtual auto SupportsAsyncCompute() const -> bool { return false; }
 		virtual auto Allocate(std::span<const FRDGAllocationRequest> Requests,
-			FRDGAllocatedResources& OutResources, std::string& OutError)
-			-> bool = 0;
+			FRDGAllocatedResources& OutResources)
+			-> FRDGResult = 0;
 	};
 
 	struct FRDGExecutionContext final
@@ -1581,8 +1718,7 @@ namespace Durin
 			ERHIAccess Access, bool bDiscard, bool bStore = true,
 			bool bPassManagedTransition = false,
 			ERHIAccess ResultAccess = ERHIAccess::None) -> void;
-		RENDERCORE_API auto CanDeclareManualUse(FRDGPassHandle Pass,
-			std::string_view InvalidHandleError) -> bool;
+		RENDERCORE_API auto CanDeclareManualUse(FRDGPassHandle Pass) -> bool;
 		RENDERCORE_API auto AllocateParameterStorage(size_t Size, size_t Alignment,
 			const FRDGParametersMetadata* Metadata,
 			const FRDGParameterLayoutBuildResult& LayoutResult,

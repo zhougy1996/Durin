@@ -151,7 +151,7 @@ namespace Durin
 						ERenderResourceCreateErrorCategory::RHIResource,
 						"DefaultTextureResources",
 						"fallback-set",
-						"One or more default texture creations returned null.",
+						ERenderResourceCreateErrorReason::ResourceCreationFailed,
 						ERenderResourceGenerationDependency::Device
 							| ERenderResourceGenerationDependency::Manual));
 				}

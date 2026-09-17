@@ -1369,6 +1369,29 @@ namespace Durin
 		EXPECT_TRUE(Layout.PushConstantRanges.empty());
 	}
 
+	TEST(FShaderFoundationTests, ShaderFailureFactoriesOwnContext)
+	{
+		const auto Cancelled = FShaderOperationResult::Failure(EShaderError::Cancelled);
+		EXPECT_FALSE(Cancelled);
+		EXPECT_EQ(Cancelled.Error.Code, EShaderError::Cancelled);
+		auto Path = std::filesystem::path("/Shaders/entry.slang");
+		const auto NativeError = std::make_error_code(std::errc::permission_denied);
+		const auto Result = FShaderOperationResult::FileSystemFailure(Path, NativeError);
+		Path.clear();
+		EXPECT_EQ(Result.Error.Code, EShaderError::FileSystemFailure);
+		EXPECT_EQ(Result.Error.ActualIdentity, "/Shaders/entry.slang");
+		EXPECT_EQ(Result.Error.SystemError, NativeError);
+	}
+
+	TEST(FShaderFoundationTests, CaptureLimitFormattingExposesKindPathAndBounds)
+	{
+		const FShaderError Error{.Code = EShaderError::CaptureInputLimit,
+			.ActualIdentity = "/Test/large.slang",
+			.CaptureLimit = FShaderCaptureLimitContext{EShaderCaptureLimit::FileBytes, 64, 65}};
+		EXPECT_EQ(FormatShaderError(Error),
+			"Shader capture file bytes limit exceeded for '/Test/large.slang': maximum 64, actual 65.");
+	}
+
 	TEST(FShaderFoundationTests, ShaderDiagnosticFormattingAndExternalBounds)
 	{
 		EXPECT_TRUE(FormatShaderError({}).empty());

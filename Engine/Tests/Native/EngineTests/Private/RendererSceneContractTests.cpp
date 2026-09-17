@@ -580,7 +580,7 @@ TEST(FRendererSceneContractTests, OptionalVisibilityResultsRetainOnlyRequestedPr
 			});
 		Graph.MarkPassRoot(Consumer, "test output");
 		const auto Execution = Graph.Execute(Executor.GetImmediateCommandList());
-		ASSERT_TRUE(Execution.IsSuccess()) << Execution.Result.Message;
+		ASSERT_TRUE(Execution.IsSuccess()) << FormatRDGError(Execution.Result);
 		EXPECT_EQ(ProducerCalls, bRequested ? 1u : 0u);
 		EXPECT_EQ(ConsumerCalls, 1u);
 		EXPECT_EQ(Graph.GetStatistics().ScheduledPasses, bRequested ? 2u : 1u);
@@ -1373,7 +1373,7 @@ TEST(FRendererSceneContractTests, SceneRenderGraphInspectionPublishesOwningSnaps
 		Builder.MarkPassRoot(Final, "offscreen-output");
 		Durin::FRHICommandListExecutor Executor;
 		const auto Result = Builder.Execute(Executor.GetImmediateCommandList());
-		ASSERT_TRUE(Result.IsSuccess()) << Result.Result.Message;
+		ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
 		Durin::PublishSceneRenderGraphCapture(Builder, &ExplicitCapture);
 	}
 	Durin::SetSceneRenderGraphCaptureSink(nullptr);
@@ -2412,7 +2412,7 @@ namespace Durin::Tests
 			auto RHICreateBuffer(FRHICommandListImmediate&, const FRHIBufferCreateDesc&)
 				-> FBufferRHIRef override { return {}; }
 			auto RHITryCreateTexture(FRHICommandListBase&, const FRHITextureCreateDesc& Desc,
-				ERHIResourceCreationFailure& OutFailure) -> FTextureRHIRef override
+				FRHICreationError& OutFailure) -> FTextureRHIRef override
 			{
 				if (ShouldFail(OutFailure)) return {};
 				auto Resource = MakeRefCount<TAccountedRDGResource<FRHITexture>>(
@@ -2421,7 +2421,7 @@ namespace Durin::Tests
 				return Resource;
 			}
 			auto RHITryCreateBuffer(FRHICommandListImmediate&, const FRHIBufferCreateDesc& Desc,
-				ERHIResourceCreationFailure& OutFailure) -> FBufferRHIRef override
+				FRHICreationError& OutFailure) -> FBufferRHIRef override
 			{
 				if (ShouldFail(OutFailure)) return {};
 				auto Resource = MakeRefCount<TAccountedRDGResource<FRHIBuffer>>(
@@ -2435,11 +2435,12 @@ namespace Durin::Tests
 				RHIFlushDeferredResources();
 			}
 		private:
-			auto ShouldFail(ERHIResourceCreationFailure& OutFailure) -> bool
+			auto ShouldFail(FRHICreationError& OutFailure) -> bool
 			{
 				++Creates;
-				OutFailure = Creates == FailOnCreate ? Failure : ERHIResourceCreationFailure::None;
-				return OutFailure != ERHIResourceCreationFailure::None;
+				OutFailure = Creates == FailOnCreate ? FRHICreationError{.Failure = Failure,
+					.Source = ERHICreationFailureSource::NativeBackend, .NativeCode = -7} : FRHICreationError{};
+				return OutFailure.HasError();
 			}
 			FDynamicRHI* Previous;
 		};
@@ -2449,11 +2450,11 @@ namespace Durin::Tests
 		public:
 			explicit FUnpublishedAllocator(FRendererRDGAllocator& InPool) : Pool(InPool) {}
 			auto Allocate(std::span<const FRDGAllocationRequest> Requests,
-				FRDGAllocatedResources& Resources, std::string& Error) -> bool override
+				FRDGAllocatedResources& Resources) -> FRDGResult override
 			{
 				std::vector<FRDGAllocationRequest> Copies(Requests.begin(), Requests.end());
 				for (auto& Copy : Copies) Copy.Retirement = std::make_shared<FRDGAllocationRetirement>();
-				return Pool.Allocate(Copies, Resources, Error);
+				return Pool.Allocate(Copies, Resources);
 			}
 		private:
 			FRendererRDGAllocator& Pool;
@@ -2505,7 +2506,7 @@ namespace Durin::Tests
 			}
 			FRDGExecutionContext Context{Allocator};
 			const auto Result = Builder.Execute(Executor.GetImmediateCommandList(), &Context);
-			EXPECT_NE(Result.Status, ERDGExecutionStatus::CompileFailed) << Result.Result.Message;
+			EXPECT_NE(Result.Status, ERDGExecutionStatus::CompileFailed) << FormatRDGError(Result.Result);
 			return Builder.Capture();
 		}
 
@@ -2515,6 +2516,43 @@ namespace Durin::Tests
 			return ExecuteAllocationBatch(Allocator,
 				std::span<const FRDGTestRequest>(Requests.begin(), Requests.size()));
 		}
+	}
+
+	TEST(FRendererSceneContractTests, RDGNativeFailureAndSuppressedRetryPreserveCause)
+	{
+		FRenderingThreadScope RenderingThread;
+		EnqueueRenderCommand<FRDGAllocatorTestCommand>([](FRHICommandListImmediate& CommandList) {
+			FRDGAllocationTestRHI RHI;
+			RHI.FailOnCreate = 1;
+			RHI.Failure = ERHIResourceCreationFailure::UnsupportedDescriptor;
+			FRendererResourceCoordinator Coordinator;
+			FRendererRDGAllocator Allocator(Coordinator);
+			auto Execute = [&] {
+				FRDGBuilder Builder;
+				const auto Buffer = Builder.CreateBuffer({.Buffer = FRHIBufferDesc(64, 4,
+					EBufferUsageFlags::UnorderedAccess)}, "RejectedBuffer");
+				const auto Pass = FRDGBuilderTestAccessor::AddPass(Builder, "Write", ERDGPassType::Compute);
+				FRDGBuilderTestAccessor::UseBuffer(Builder, Pass, Buffer, 0, 64, ERDGUse::Write,
+					ERHIAccess::ComputeShaderReadWrite, true);
+				FRDGExecutionContext Context{Allocator};
+				return Builder.Execute(CommandList, &Context).Result;
+			};
+			const auto First = Execute();
+			const auto Retry = Execute();
+			EXPECT_EQ(First.Reason, ERDGReason::PhysicalAllocationFailed);
+			EXPECT_EQ(Retry.Reason, ERDGReason::AllocationRetrySuppressed);
+			EXPECT_EQ(RHI.Creates, 1u);
+			for (const auto* Result : {&First, &Retry})
+			{
+				EXPECT_EQ(Result->Error, ERDGError::AllocationFailed);
+				const auto* Cause = std::get_if<FRHICreationError>(&Result->Cause);
+				ASSERT_NE(Cause, nullptr);
+				EXPECT_EQ(Cause->Failure, ERHIResourceCreationFailure::UnsupportedDescriptor);
+				EXPECT_EQ(Cause->Source, ERHICreationFailureSource::NativeBackend);
+				EXPECT_EQ(Cause->NativeCode, -7);
+			}
+		});
+		FlushRenderingCommands();
 	}
 
 	TEST(FRendererSceneContractTests, RDGUnpublishedRetirementCannotEvictOrExceedThePoolBudget)

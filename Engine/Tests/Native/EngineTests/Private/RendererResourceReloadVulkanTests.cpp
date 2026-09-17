@@ -109,13 +109,13 @@ float4 FragmentMain() : SV_Target
 
 		auto MakeReloadError(
 			ERenderResourceCreateErrorCategory Category,
-			std::string Message) -> FRenderResourceCreateError
+			FRenderResourceCreateCause Cause) -> FRenderResourceCreateError
 		{
 			return {
 				.Category = Category,
 				.Context = "RendererReloadVulkanTest",
 				.Identity = "controlled-shader",
-				.Message = std::move(Message),
+				.Cause = std::move(Cause),
 				.RetryDependencies =
 					ERenderResourceGenerationDependency::Shader
 						| ERenderResourceGenerationDependency::Device
@@ -192,7 +192,7 @@ float4 FragmentMain() : SV_Target
 					else
 					{
 						const auto Result = Graph.Execute(Commands, &Context);
-						EXPECT_TRUE(Result.IsSuccess()) << Result.Result.Message;
+						EXPECT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
 						if (!Result.IsSuccess()) return std::pair{uint64(0), FRHIGPUSyncPointRef{}};
 					}
 					return std::pair{Graph.Capture().Resources[0].PhysicalAllocationId, Graph.GetSubmissionSyncPoints().back()};
@@ -405,7 +405,7 @@ float4 FragmentMain() : SV_Target
 								return FResult::Failure(MakeReloadError(
 									ERenderResourceCreateErrorCategory::
 										ShaderCompile,
-									FormatShaderError(ErrorMessage.Error)));
+									ErrorMessage.Error));
 							}
 							auto* VertexShader =
 								static_cast<FReloadTestVertexShader*>(
@@ -419,8 +419,7 @@ float4 FragmentMain() : SV_Target
 								return FResult::Failure(MakeReloadError(
 									ERenderResourceCreateErrorCategory::
 										ShaderBinding,
-									"Compiled shader map is missing a typed "
-									"shader."));
+									FShaderError{.Code = EShaderError::MissingShaderType}));
 							}
 
 							FReloadTestPayload Candidate;
@@ -465,7 +464,7 @@ float4 FragmentMain() : SV_Target
 								return FResult::Failure(MakeReloadError(
 									ERenderResourceCreateErrorCategory::
 										GraphicsPipeline,
-									"RHI pipeline creation returned null."));
+									FRHICreationError{.Failure = ERHIResourceCreationFailure::Unknown, .Source = ERHICreationFailureSource::BackendReturnedNull}));
 							}
 							return FResult::Success(
 								std::move(Candidate));
@@ -714,7 +713,7 @@ float4 FragmentMain() : SV_Target
 					Initializer.PipelineLayout.PushConstantRanges.push_back({EShaderStageFlags::Vertex, 0, 4});
 					auto Candidate = FRenderPipelineRequestScope::Graphics("AsyncReloadPrewarm", Initializer);
 					if (Candidate) return FResult::Success(std::move(Candidate));
-					return FResult::Failure(MakeReloadError(ERenderResourceCreateErrorCategory::GraphicsPipeline, "prewarm failed"));
+					return FResult::Failure(MakeReloadError(ERenderResourceCreateErrorCategory::GraphicsPipeline, FRHICreationError{.Failure = ERHIResourceCreationFailure::Unknown, .Source = ERHICreationFailureSource::BackendReturnedNull}));
 				}, [](const auto&) { ADD_FAILURE() << "Pending must not report a candidate failure"; });
 				if (Ready) PreparedPipeline = *Ready;
 			});

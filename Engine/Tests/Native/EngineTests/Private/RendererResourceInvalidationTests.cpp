@@ -105,7 +105,7 @@ namespace Durin
 						ERenderResourceCreateErrorCategory::RHIResource,
 					.Context = "DeviceInvalidationTest",
 					.Identity = "payload",
-					.Message = "injected RHI failure",
+					.Cause = FRHICreationError{.Failure = ERHIResourceCreationFailure::Unknown, .Source = ERHICreationFailureSource::BackendReturnedNull},
 					.RetryDependencies = EDependency::Manual,
 				});
 			},
@@ -168,7 +168,7 @@ namespace Durin
 									ShaderCompile,
 							.Context = "ShaderReloadTest",
 							.Identity = "correctable",
-							.Message = "injected shader compile failure",
+							.Cause = FShaderError{.Code = EShaderError::InvalidCompileRequest},
 							.RetryDependencies = EDependency::Shader,
 						});
 					}

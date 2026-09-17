@@ -47,6 +47,7 @@ namespace Durin
 		~FRenderPipelineRequestScope();
 		FRenderPipelineRequestScope(const FRenderPipelineRequestScope&) = delete;
 		auto HasPending() const -> bool { return bPending; }
+		auto GetFailure() const -> const FRHICreationError& { return Failure; }
 		auto MarkPending() -> void { bPending = true; }
 		static auto Graphics(FName Name, const FGraphicsPipelineStateInitializer& Initializer) -> FGraphicsPipelineStateRHIRef;
 		static auto Compute(FName Name, const FComputePipelineStateInitializer& Initializer) -> FComputePipelineStateRHIRef;
@@ -54,6 +55,7 @@ namespace Durin
 		FRenderPipelineRequests& Requests;
 		FRenderPipelineRequestScope* Previous;
 		const FRenderResourceGeneration& Generation;
+		FRHICreationError Failure;
 		bool bPending = false;
 		bool bRequiresFirstUse;
 
