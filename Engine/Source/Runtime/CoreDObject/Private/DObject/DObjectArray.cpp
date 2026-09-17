@@ -28,17 +28,17 @@ namespace Durin
 		const auto It = ObjectToSlot.find(Object);
 		if (It != ObjectToSlot.end())
 		{
-			Key.Index = It->second;
-			Key.Generation = Slots[It->second].Generation;
+			Key.ObjectIndex = It->second;
+			Key.ObjectSerialNumber = Slots[It->second].ObjectSerialNumber;
 		}
 		return Key;
 	}
 
 	auto FDObjectArray::Resolve(FObjectKey Key) const -> DObject*
 	{
-		if (Key.IsNull() || Key.Index >= Slots.size()) return nullptr;
-		const auto& Slot = Slots[Key.Index];
-		return Slot.Generation == Key.Generation ? Slot.Object : nullptr;
+		if (Key.IsNull() || Key.ObjectIndex >= Slots.size()) return nullptr;
+		const auto& Slot = Slots[Key.ObjectIndex];
+		return Slot.ObjectSerialNumber == Key.ObjectSerialNumber ? Slot.Object : nullptr;
 	}
 
 	auto FDObjectArray::Add(DObject* ObjToAdd) -> void
@@ -99,8 +99,8 @@ namespace Durin
 		Slot.Object = nullptr;
 		Slot.DenseIndex = 0;
 		Slot.OuterIndex = std::numeric_limits<uint32>::max();
-		++Slot.Generation;
-		if (Slot.Generation == 0) Slot.Generation = 1;
+		++Slot.ObjectSerialNumber;
+		if (Slot.ObjectSerialNumber == 0) Slot.ObjectSerialNumber = 1;
 		FreeSlots.push_back(SlotIndex);
 		++Revision;
 	}
@@ -116,14 +116,14 @@ namespace Durin
 		auto It = ObjectToSlot.find(Object);
 		if (It == ObjectToSlot.end()) return nullptr;
 		const uint32 SlotIndex = It->second;
-		return FObjectHandle(SlotIndex, Slots[SlotIndex].Generation);
+		return FObjectHandle(SlotIndex, Slots[SlotIndex].ObjectSerialNumber);
 	}
 
 	auto FDObjectArray::Resolve(FObjectHandle Handle) const -> DObject*
 	{
-		if (IsObjectHandleNull(Handle) || Handle.Index >= Slots.size()) return nullptr;
-		const FObjectSlot& Slot = Slots[Handle.Index];
-		return Slot.Object && Slot.Generation == Handle.Generation ? Slot.Object : nullptr;
+		if (IsObjectHandleNull(Handle) || Handle.ObjectIndex >= Slots.size()) return nullptr;
+		const FObjectSlot& Slot = Slots[Handle.ObjectIndex];
+		return Slot.Object && Slot.ObjectSerialNumber == Handle.ObjectSerialNumber ? Slot.Object : nullptr;
 	}
 
 	auto FDObjectArray::GetAll(EObjectQueryScope Scope) const -> std::vector<DObject*>

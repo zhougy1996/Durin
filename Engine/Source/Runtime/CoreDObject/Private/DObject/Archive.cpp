@@ -12,7 +12,7 @@ namespace Durin
 {
 	auto FObjectKey::SerializeForSnapshot(FArchive& Archive) -> void
 	{
-		Archive << Index << Generation;
+		Archive << ObjectIndex << ObjectSerialNumber;
 	}
 
 	auto FPropertyValueSnapshotPayload::TryGetAllocatedSize(size_t& OutBytes) const -> bool

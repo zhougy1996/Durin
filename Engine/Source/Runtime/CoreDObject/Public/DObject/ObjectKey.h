@@ -19,19 +19,19 @@ namespace Durin
 		FObjectKey() = default;
 		FObjectKey(std::nullptr_t) {}
 		COREDOBJECT_API explicit FObjectKey(const DObject* Object);
-		auto IsNull() const -> bool { return Index == std::numeric_limits<uint32>::max(); }
+		auto IsNull() const -> bool { return ObjectIndex == std::numeric_limits<uint32>::max(); }
 		COREDOBJECT_API auto ResolveObjectPtr() const -> DObject*;
 		// In-memory transaction snapshots only; never a persistent identity format.
 		COREDOBJECT_API auto SerializeForSnapshot(FArchive& Archive) -> void;
 		auto GetHash() const noexcept -> size_t
 		{
-			return std::hash<uint64>{}((static_cast<uint64>(Index) << 32) | Generation);
+			return std::hash<uint64>{}((static_cast<uint64>(ObjectIndex) << 32) | ObjectSerialNumber);
 		}
 		friend auto operator<=>(const FObjectKey&, const FObjectKey&) = default;
 
 	private:
-		uint32 Index = std::numeric_limits<uint32>::max();
-		uint32 Generation = 0;
+		uint32 ObjectIndex = std::numeric_limits<uint32>::max();
+		uint32 ObjectSerialNumber = 0;
 		friend class FDObjectArray;
 		friend class FWeakObjectPtr;
 		friend class FObjectPtr;

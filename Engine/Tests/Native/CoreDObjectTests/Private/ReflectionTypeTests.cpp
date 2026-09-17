@@ -4557,7 +4557,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_TRUE(Durin::IsObjectKeyNull(ObjectPtr.GetKey()));
 	}
 
-	TEST(FCoreDObjectReflectionTests, ObjectPtrUsesGenerationHandleInAllBuilds)
+	TEST(FCoreDObjectReflectionTests, ObjectPtrUsesObjectSerialNumberHandleInAllBuilds)
 	{
 		EXPECT_EQ(sizeof(Durin::FObjectKey), sizeof(Durin::DObject*));
 		EXPECT_EQ(sizeof(Durin::FObjectPtr), sizeof(Durin::DObject*));
@@ -4649,7 +4649,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_EQ(Durin::ResolveObjectKey(Handle), nullptr);
 	}
 
-	TEST(FCoreDObjectReflectionTests, WeakObjectPtrUsesGenerationToRejectReusedSlot)
+	TEST(FCoreDObjectReflectionTests, WeakObjectPtrUsesObjectSerialNumberToRejectReusedSlot)
 	{
 		EnsureDObjectInitialized();
 		Durin::CollectGarbage();
@@ -5042,7 +5042,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 	}
 #endif
 
-	TEST(FCoreDObjectReflectionTests, ReusedObjectSlotInvalidatesOldHandleGeneration)
+	TEST(FCoreDObjectReflectionTests, ReusedObjectSlotInvalidatesOldHandleObjectSerialNumber)
 	{
 		EnsureDObjectInitialized();
 		Durin::CollectGarbage();
@@ -5053,8 +5053,8 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 		Durin::DObject* Second = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("ObjectHandleSecond"));
 		const Durin::FObjectHandle SecondHandle = Durin::MakeObjectHandle(Second);
-		EXPECT_EQ(FirstHandle.Index, SecondHandle.Index);
-		EXPECT_NE(FirstHandle.Generation, SecondHandle.Generation);
+		EXPECT_EQ(FirstHandle.ObjectIndex, SecondHandle.ObjectIndex);
+		EXPECT_NE(FirstHandle.ObjectSerialNumber, SecondHandle.ObjectSerialNumber);
 		EXPECT_EQ(Durin::ResolveObjectHandle(FirstHandle), nullptr);
 		EXPECT_EQ(Durin::ResolveObjectHandle(SecondHandle), Second);
 		Durin::MarkAsGarbage(Second);

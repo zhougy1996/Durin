@@ -26,8 +26,8 @@ namespace Durin
 		auto GetKey() const -> FObjectKey
 		{
 			FObjectKey Key;
-			Key.Index = Handle.Index;
-			Key.Generation = Handle.Generation;
+			Key.ObjectIndex = Handle.ObjectIndex;
+			Key.ObjectSerialNumber = Handle.ObjectSerialNumber;
 			return Key;
 		}
 		auto IsValid() const -> bool { DObject* Object = Get(); return Object && !Object->IsPendingKill(); }

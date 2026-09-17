@@ -47,7 +47,7 @@ namespace Durin
 		struct FObjectSlot
 		{
 			DObject* Object = nullptr;
-			uint32 Generation = 1;
+			uint32 ObjectSerialNumber = 1;
 			uint32 DenseIndex = 0;
 			// Mutable back-pointer into the current Outer's vector, not a stable object ID.
 			uint32 OuterIndex = std::numeric_limits<uint32>::max();

@@ -9,20 +9,20 @@ namespace Durin
 {
 	class DObject;
 
-	// Identifies an object-array slot and generation so stale handles fail resolution.
+	// Identifies an object-array slot and object serial number so stale handles fail resolution.
 	struct FObjectHandle
 	{
 		static constexpr uint32 InvalidIndex = std::numeric_limits<uint32>::max();
 
 		FObjectHandle() = default;
 		FObjectHandle(std::nullptr_t) {}
-		FObjectHandle(uint32 InIndex, uint32 InGeneration)
-			: Index(InIndex), Generation(InGeneration)
+		FObjectHandle(uint32 InObjectIndex, uint32 InObjectSerialNumber)
+			: ObjectIndex(InObjectIndex), ObjectSerialNumber(InObjectSerialNumber)
 		{
 		}
 
-		uint32 Index = InvalidIndex;
-		uint32 Generation = 0;
+		uint32 ObjectIndex = InvalidIndex;
+		uint32 ObjectSerialNumber = 0;
 
 		friend auto operator==(const FObjectHandle&, const FObjectHandle&) -> bool = default;
 	};
@@ -33,7 +33,7 @@ namespace Durin
 
 	inline auto IsObjectHandleNull(FObjectHandle Handle) -> bool
 	{
-		return Handle.Index == FObjectHandle::InvalidIndex;
+		return Handle.ObjectIndex == FObjectHandle::InvalidIndex;
 	}
 
 	COREDOBJECT_API auto ResolveObjectHandle(FObjectHandle Handle) -> DObject*;
