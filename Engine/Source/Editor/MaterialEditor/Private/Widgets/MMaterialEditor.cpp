@@ -1027,7 +1027,9 @@ namespace Durin::Editor::Material
 			|| (BaseMaterial->GetOutputNode() && GetOrCreateCanvas(Document).GetSelection().contains(BaseMaterial->GetOutputNode()->Id));
 		if (bShowMaterialDetails)
 		{
-			ImGui::TextWrapped("%s", Material->GetName().c_str());
+			ImGui::PushTextWrapPos(0.0f);
+			MonaImGui::TextName(Material->GetFName());
+			ImGui::PopTextWrapPos();
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", Document.ResourceId.c_str());
 			ImGui::TextDisabled("%s", Cast<DMaterialInstance>(Material) ? "Material Instance" : "Surface Material");
 			ImGui::Spacing();

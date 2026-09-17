@@ -399,7 +399,7 @@ namespace Durin::Editor::StaticMesh
 			{
 				ImGui::TableNextRow();
 				ImGui::TableSetColumnIndex(0);
-				ImGui::TextUnformatted(Slot.Name.ToString().c_str());
+				MonaImGui::TextName(Slot.Name);
 				ImGui::TableSetColumnIndex(1);
 				const std::string MaterialPath = Slot.DefaultMaterial ? Slot.DefaultMaterial->GetObjectPath() : std::string("None");
 				ImGui::TextUnformatted(MaterialPath.c_str());

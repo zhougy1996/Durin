@@ -46,7 +46,8 @@ namespace Durin::Editor::Level
 			const std::string TypeName = Helpers::ClassDisplayName(Object->GetClass());
 			const bool bUsesDefaultName = Object->GetClass()
 				&& Object->GetName() == Object->GetClass()->GetDefaultObjectName();
-			ImGui::TextUnformatted(bUsesDefaultName ? TypeName.c_str() : Object->GetName().c_str());
+			if (bUsesDefaultName) ImGui::TextUnformatted(TypeName.c_str());
+			else MonaImGui::TextName(Object->GetFName());
 			if (!bUsesDefaultName)
 			{
 				ImGui::SameLine();
