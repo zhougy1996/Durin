@@ -562,6 +562,36 @@ namespace Durin
 			return SaveArrayToFile(std::span{reinterpret_cast<const std::byte*>(Array.data()), Array.size() * sizeof(uint32)}, FilePath);
 		}
 
+		auto SaveArrayToNewFile(
+			FByteView Array,
+			const std::filesystem::path& FilePath,
+			FAtomicFileError* OutError
+		) -> bool
+		{
+			FAtomicFileError LocalError;
+			FAtomicFileError* Error = OutError ? OutError : &LocalError;
+			*Error = {};
+
+			std::error_code ErrorCode;
+			const auto Destination = std::filesystem::absolute(FilePath, ErrorCode).lexically_normal();
+			if (ErrorCode)
+			{
+				SetAtomicFileError(Error, EAtomicFileOperation::NormalizeDestination, ErrorCode, FilePath);
+				return false;
+			}
+			std::filesystem::create_directories(Destination.parent_path(), ErrorCode);
+			if (ErrorCode)
+			{
+				SetAtomicFileError(Error, EAtomicFileOperation::CreateParentDirectories, ErrorCode, Destination);
+				return false;
+			}
+			if (WriteTemporaryFile(Destination, Array, Error)) return true;
+			// A failed exclusive create never grants ownership of the existing path.
+			if (Error->Operation != EAtomicFileOperation::CreateTemporaryFile)
+				std::filesystem::remove(Destination, ErrorCode);
+			return false;
+		}
+
 		auto SaveArrayToFileAtomically(
 			FByteView Array,
 			const std::filesystem::path& FilePath,

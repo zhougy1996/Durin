@@ -52,6 +52,12 @@ at the physical I/O boundary.
 
 ## Atomic Byte Publication
 
+`FFileHelper::SaveArrayToNewFile()` exclusively creates a caller-selected path,
+writes all bytes, flushes and closes it. It creates parent directories, preserves
+existing paths on creation failure and performs best-effort cleanup after a
+write, flush or close failure. It does not provide atomic visibility while
+writing; package staging uses it before publication through `Commit()`.
+
 `FFileHelper::SaveArrayToFileAtomically()` is the shared publication primitive
 for a complete byte buffer. `CopyFileAtomically()` provides the same sibling
 temporary, flush, and replacement contract while copying an existing file

@@ -3405,6 +3405,69 @@ TEST(FPackageAssetTests, AsyncSaveChecksHardReferenceIdentityButIgnoresDependenc
 	EXPECT_TRUE(Source->GetPackage()->IsDirty());
 }
 
+TEST(FPackageAssetTests, AsyncSaveRejectsChangedDestinationAndStagedClosureFiles)
+{
+	using namespace Durin;
+	InitializeAssetTests();
+	const bool bOwnScheduler = !IsTaskSchedulerRunning();
+	if (bOwnScheduler) ASSERT_TRUE(InitializeTaskScheduler(2));
+	struct FSchedulerScope { bool bOwn; ~FSchedulerScope() { if (bOwn) ShutdownTaskScheduler(); } } Scheduler{bOwnScheduler};
+	for (bool bStage : {false, true}) for (bool bBulk : {false, true})
+	{
+		SCOPED_TRACE(std::format("stage={}, bulk={}", bStage, bBulk));
+		FPackagePath Path;
+		ASSERT_TRUE(FPackagePath::TryCreate(std::format("/TestAssets/AsyncFileConflict{}{}", bStage, bBulk), Path));
+		DBulkPackageAssetForTest* Asset = nullptr;
+		ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
+		FByteBuffer Payload(static_cast<size_t>(EditorBulkDataExternalThreshold + 17), std::byte{0x5a});
+		ASSERT_TRUE(Asset->Payload.UpdatePayload(Payload));
+		ASSERT_TRUE(SavePackage(Asset->GetPackage()));
+		const auto Metadata = FindAssetExact(Path).Data;
+		ASSERT_TRUE(Metadata);
+		const auto Main = std::filesystem::path(Metadata->PhysicalPath);
+		auto Bulk = Main; Bulk.replace_extension(".dbulk");
+		Payload.front() = std::byte{0x63};
+		ASSERT_TRUE(Asset->Payload.UpdatePayload(Payload));
+		Asset->GetPackage()->MarkDirty();
+		FAssetResult Admission;
+		auto Save = FAsyncPackageSave::Begin(Asset->GetPackage(), Admission);
+		ASSERT_TRUE(Save) << Admission.Message;
+		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+		while (!Save->IsReady() && std::chrono::steady_clock::now() < Deadline)
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		ASSERT_TRUE(Save->IsReady());
+		auto Changed = bBulk ? Bulk : Main;
+		if (bStage)
+		{
+			const auto Prefix = Changed.filename().string() + ".save-";
+			std::filesystem::path Stage;
+			for (const auto& Entry : std::filesystem::directory_iterator(Main.parent_path()))
+				if (Entry.path().filename().string().starts_with(Prefix))
+				{
+					ASSERT_TRUE(Stage.empty());
+					Stage = Entry.path();
+				}
+			ASSERT_FALSE(Stage.empty());
+			Changed = Stage;
+		}
+		std::filesystem::resize_file(Changed, std::filesystem::file_size(Changed) + 1);
+		FByteBuffer MainBefore, BulkBefore, MainAfter, BulkAfter;
+		ASSERT_TRUE(FFileHelper::LoadFileToArray(MainBefore, Main));
+		ASSERT_TRUE(FFileHelper::LoadFileToArray(BulkBefore, Bulk));
+		const auto Expected = bStage ? EAssetError::CorruptFile : EAssetError::StaleData;
+		EXPECT_EQ(Save->Complete().Error, Expected);
+		EXPECT_EQ(Save->Complete().Error, Expected);
+		EXPECT_TRUE(Asset->GetPackage()->IsDirty());
+		EXPECT_EQ(FindAssetExact(Path).Data, Metadata);
+		ASSERT_TRUE(FFileHelper::LoadFileToArray(MainAfter, Main));
+		ASSERT_TRUE(FFileHelper::LoadFileToArray(BulkAfter, Bulk));
+		EXPECT_EQ(MainAfter, MainBefore);
+		EXPECT_EQ(BulkAfter, BulkBefore);
+		Save.reset();
+		if (bStage) EXPECT_FALSE(std::filesystem::exists(Changed));
+	}
+}
+
 TEST(FPackageAssetTests, TransactionalRegistryFailureRestoresOldAndNewClosures)
 {
 	using namespace Durin;
@@ -3556,7 +3619,8 @@ TEST(FPackageAssetTests, OrdinaryV8PublishesLoadsAndRollsBackExternalClosure)
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(LoadedPayload, Companions.front()));
 	EXPECT_TRUE(std::ranges::equal(LoadedPayload, Payload));
 	EXPECT_TRUE(Durin::SavePackage(Asset->GetPackage()));
-	EXPECT_FALSE(std::filesystem::exists(BackupPath));
+	EXPECT_TRUE(std::filesystem::exists(BackupPath));
+	ASSERT_TRUE(std::filesystem::remove(BackupPath));
 
 	Durin::FByteBuffer BeforeFailedReplacement;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
@@ -3614,6 +3678,54 @@ TEST(FPackageAssetTests, OrdinaryV8PublishesLoadsAndRollsBackExternalClosure)
 		Durin::ObjectPackage::DastV10FormatVersion);
 }
 
+
+TEST(FPackageAssetTests, InlineSaveRemovesObsoleteCompanionAndRollbackRestoresIt)
+{
+	using namespace Durin;
+	InitializeAssetTests();
+	for (bool bBundle : {false, true})
+	{
+		SCOPED_TRACE(bBundle);
+		FPackagePath Path;
+		ASSERT_TRUE(FPackagePath::TryCreate(std::format("/TestAssets/InlineTransition{}", bBundle), Path));
+		DBulkPackageAssetForTest* Asset = nullptr;
+		ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
+		FByteBuffer Payload(static_cast<size_t>(EditorBulkDataExternalThreshold + 17), std::byte{0x5a});
+		ASSERT_TRUE(Asset->Payload.UpdatePayload(Payload));
+		ASSERT_TRUE(SavePackage(Asset->GetPackage()));
+		const auto Main = std::filesystem::path(FindAssetExact(Path)->PhysicalPath);
+		auto Bulk = Main; Bulk.replace_extension(".dbulk");
+		FByteBuffer MainBefore, BulkBefore, MainAfter, BulkAfter;
+		ASSERT_TRUE(FFileHelper::LoadFileToArray(MainBefore, Main));
+		ASSERT_TRUE(FFileHelper::LoadFileToArray(BulkBefore, Bulk));
+		Payload.resize(1);
+		ASSERT_TRUE(Asset->Payload.UpdatePayload(Payload));
+		Asset->GetPackage()->MarkDirty();
+		DPackage* Unit[] = {Asset->GetPackage()};
+		const auto Failed = SavePackagesAtomically(Unit, {
+			.ShouldFail = [](EAssetBundleSavePhase Phase, size_t) {
+				return Phase == EAssetBundleSavePhase::PublishRegistry;
+			},
+			.bRollbackOnRegistryFailure = true});
+		EXPECT_FALSE(Failed);
+		EXPECT_TRUE(Asset->GetPackage()->IsDirty());
+		ASSERT_TRUE(FFileHelper::LoadFileToArray(MainAfter, Main));
+		ASSERT_TRUE(FFileHelper::LoadFileToArray(BulkAfter, Bulk));
+		EXPECT_EQ(MainAfter, MainBefore);
+		EXPECT_EQ(BulkAfter, BulkBefore);
+		const auto Saved = bBundle ? SavePackagesAtomically(Unit) : SavePackage(Asset->GetPackage());
+		ASSERT_TRUE(Saved) << Saved.Message;
+		EXPECT_FALSE(std::filesystem::exists(Bulk));
+		EXPECT_FALSE(std::filesystem::exists(Bulk.string() + std::string(EditorBulkDataCompanionBackupSuffix)));
+		EXPECT_FALSE(Asset->GetPackage()->IsDirty());
+		ASSERT_TRUE(UnloadPackage(Path));
+		DBulkPackageAssetForTest* Reloaded = nullptr;
+		ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Reloaded));
+		const auto Read = Reloaded->Payload.GetPayload().Wait();
+		ASSERT_TRUE(Read);
+		EXPECT_TRUE(std::ranges::equal(Read.Buffer.GetBytes(), Payload));
+	}
+}
 
 TEST(FPackageAssetTests, V8FieldBulkClosureMeetsBoundedLooseFixtureBudgets)
 {

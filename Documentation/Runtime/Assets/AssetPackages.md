@@ -312,13 +312,22 @@ explicit. Owned per-save overrides may omit objects/properties or supply copied
 replacement values without mutating live state; validation rejects foreign or
 conflicting entries and hard references to omitted objects.
 
-An ordinary save is a one-package invocation of `SavePackagesAtomically`. It
-validates the complete new v10 closure, publishes owned payloads before the main
-image that binds them, verifies the stable closure, clears Dirty/NewlyCreated,
-then publishes a revisioned Registry delta. Failure before authored commit
+Synchronous, asynchronous, and atomic bundle saves share destination admission,
+version validation, destination stamp capture, closure encoding,
+and writer preparation. Ordinary saves use their own shared commit path; bundles
+retain coordinated publication and rollback. Saving validates the complete new
+v10 closure, publishes owned payloads before the main image that binds them,
+verifies the stable closure, publishes a revisioned Registry delta, then clears
+Dirty/NewlyCreated. Failure before authored commit
 restores the prior closure and leaves the package retryably Dirty. Registry
 failure after authored commit keeps valid bytes, fences the affected path, and
 returns `ContentCommittedProjectionPending` for reconciliation.
+
+Each package writer assigns one unique save ID to its main/bulk staging and
+backup siblings beside the destination files. Backups serve only that writer's
+in-process rollback and are released by finalization. Save preparation does not
+recover or delete files abandoned by earlier saves; those files do not reserve
+paths for a new save. This is not persistent crash recovery across files.
 
 Transactions owning a complete candidate set can opt into
 `bRollbackOnRegistryFailure`, restoring prior package/bulk bytes instead of

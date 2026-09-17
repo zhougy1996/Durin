@@ -79,10 +79,13 @@ interpreted as an uncommitted save. Failed restoration retains backup files and 
 Synchronous saving does not require an initialized task scheduler.
 
 Core's reusable `IPackageWriter` creates isolated `IPackageWriteOperation`
-instances. The file implementation uses `FFileHelper::SaveArrayToFileAtomically`,
+instances. The file implementation uses `FFileHelper::SaveArrayToNewFile`,
 `FFilePublicationStamp` and `FFileReplacement` for all package/bulk staging and
 switching. Each input owns its bytes, expected destination stamp and distinct
-staging/backup paths; an empty stage denotes removal. `Stage` writes output,
+staging/backup paths; an empty stage denotes removal. `Stage` exclusively creates
+each staging file and writes, flushes and closes it without an intermediate
+replacement. Failed creation never grants ownership of an occupied path; failed
+writes clean up only newly created files. After a successful write, `Stage`
 checks its size against the input buffer and records its modification time, then
 releases the buffer. `Commit` rechecks destination and staged stamps before switching
 files in input order, `Finalize` releases backups, and `Rollback` restores files
@@ -99,7 +102,7 @@ error handling, destination conflict checks and rollback remain required.
 
 CoreDObject commits the companion before its main file and removes obsolete
 companions transactionally. Engine uses the same writer while retaining
-multi-package ordering, companion recovery policy, catalog snapshots and
+multi-package ordering, transaction-specific sibling paths, catalog snapshots and
 registry-failure rollback. Editor callbacks and notifications remain attached to
 final Engine publication.
 

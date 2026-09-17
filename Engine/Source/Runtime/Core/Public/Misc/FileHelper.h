@@ -87,6 +87,16 @@ namespace Durin
 
 		CORE_API bool SaveArrayToFile(const std::span<const uint32>& Array, const std::filesystem::path& FilePath);
 
+		// Exclusively creates FilePath, then writes, flushes and closes its bytes.
+		// Existing paths are never overwritten or removed. Failure after creation
+		// performs best-effort cleanup. Partial bytes are visible until completion;
+		// the caller must keep this path unpublished while writing.
+		CORE_API auto SaveArrayToNewFile(
+			FByteView Array,
+			const std::filesystem::path& FilePath,
+			FAtomicFileError* OutError = nullptr
+		) -> bool;
+
 		// Publishes complete bytes through a fixed-length sibling temporary file.
 		// Concurrent publishers are last-writer-wins and never expose partial bytes.
 		CORE_API auto SaveArrayToFileAtomically(

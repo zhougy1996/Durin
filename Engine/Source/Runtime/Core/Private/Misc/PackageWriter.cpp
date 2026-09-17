@@ -65,14 +65,14 @@ namespace Durin
 					std::error_code Ec;
 					std::filesystem::create_directories(File.Replacement.Destination.parent_path(), Ec);
 					FFileHelper::FAtomicFileError Error;
-					if (!File.Replacement.Staged.empty()) OwnedStages.push_back(File.Replacement.Staged);
 					if (Ec || (!File.Replacement.Staged.empty()
-						&& !FFileHelper::SaveArrayToFileAtomically(File.Bytes, File.Replacement.Staged, &Error)))
+						&& !FFileHelper::SaveArrayToNewFile(File.Bytes, File.Replacement.Staged, &Error)))
 					{
 						bTerminal = true;
 						Cleanup();
 						return Result = {EPackageWriteError::IoError, Ec ? Ec.message() : Error.ToString()};
 					}
+					if (!File.Replacement.Staged.empty()) OwnedStages.push_back(File.Replacement.Staged);
 					FFilePublicationStamp Stamp;
 					if (!File.Replacement.Staged.empty()
 						&& (!FFilePublicationStamp::Inspect(File.Replacement.Staged, Stamp)

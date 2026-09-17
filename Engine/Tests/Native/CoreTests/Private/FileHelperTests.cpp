@@ -60,6 +60,52 @@ namespace
 	}
 }
 
+TEST(FFileHelperTests, ExclusivelyCreatesCompleteBytes)
+{
+	const auto Root = TestRoot("Exclusive");
+	const auto Destination = Root / "Nested" / "Stage.bin";
+	const Durin::FByteBuffer Payload(128 * 1024 + 7, std::byte{0x53});
+	Durin::FFileHelper::FAtomicFileError Error;
+	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToNewFile(Payload, Destination, &Error)) << Error.ToString();
+	EXPECT_EQ(ReadBytes(Destination), Payload);
+	EXPECT_FALSE(Durin::FFileHelper::SaveArrayToNewFile({}, Destination, &Error));
+	EXPECT_EQ(Error.Operation, Durin::FFileHelper::EAtomicFileOperation::CreateTemporaryFile);
+	EXPECT_EQ(ReadBytes(Destination), Payload);
+	EXPECT_FALSE(Durin::FFileHelper::SaveArrayToNewFile({}, Destination));
+	EXPECT_EQ(ReadBytes(Destination), Payload);
+	EXPECT_FALSE(Durin::FFileHelper::SaveArrayToNewFile({}, Root, &Error));
+	EXPECT_TRUE(std::filesystem::is_directory(Root));
+	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToNewFile({}, Root / "Empty.bin", &Error)) << Error.ToString();
+	EXPECT_TRUE(ReadBytes(Root / "Empty.bin").empty());
+}
+
+TEST(FFileHelperTests, ConcurrentExclusiveCreatorsPreserveWinner)
+{
+	const auto Destination = TestRoot("ExclusiveRace") / "Stage.bin";
+	std::atomic_bool Start = false;
+	std::atomic_uint32_t Successes = 0;
+	std::atomic_int Winner = -1;
+	std::vector<std::thread> Writers;
+	for (int Index = 0; Index < 8; ++Index)
+	{
+		Writers.emplace_back([&, Index]
+		{
+			const Durin::FByteBuffer Payload(64 * 1024 + Index, static_cast<std::byte>(Index));
+			while (!Start.load()) std::this_thread::yield();
+			if (Durin::FFileHelper::SaveArrayToNewFile(Payload, Destination))
+			{
+				++Successes;
+				Winner = Index;
+			}
+		});
+	}
+	Start = true;
+	for (auto& Writer : Writers) Writer.join();
+	ASSERT_EQ(Successes.load(), 1u);
+	EXPECT_EQ(ReadBytes(Destination), Durin::FByteBuffer(64 * 1024 + Winner.load(),
+		static_cast<std::byte>(Winner.load())));
+}
+
 TEST(FFileHelperTests, PublishesAndReplacesCompleteBytes)
 {
 	const std::filesystem::path Destination = TestRoot("Replace") / "Value.bin";
