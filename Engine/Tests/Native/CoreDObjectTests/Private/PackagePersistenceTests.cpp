@@ -203,7 +203,7 @@ TEST_F(FPackagePersistenceTests, ResolverAndAdmissionFailureAreExplicit)
 	EXPECT_EQ(Admission.Error, EPackageSaveError::ShuttingDown);
 	EXPECT_TRUE(Package->Save()) << "Synchronous persistence must not require a scheduler.";
 }
-TEST_F(FPackagePersistenceTests, CorruptedStageAndDestinationConflictDoNotClearDirty)
+TEST_F(FPackagePersistenceTests, ChangedStageAndDestinationConflictDoNotClearDirty)
 {
 	FPackageSaveResult Admission;
 	auto Staged = FPackageSaveOperation::Begin(Package, Options, Admission, false);
@@ -216,7 +216,9 @@ TEST_F(FPackagePersistenceTests, CorruptedStageAndDestinationConflictDoNotClearD
 			ASSERT_TRUE(FFileHelper::LoadFileToArray(Bytes, Entry.path()));
 			ASSERT_FALSE(Bytes.empty());
 			Bytes.back() ^= std::byte{1};
+			const auto OriginalTime = std::filesystem::last_write_time(Entry.path());
 			ASSERT_TRUE(FFileHelper::SaveArrayToFileAtomically(Bytes, Entry.path()));
+			std::filesystem::last_write_time(Entry.path(), OriginalTime + std::chrono::seconds(10));
 			Corrupted = true;
 		}
 	ASSERT_TRUE(Corrupted);
@@ -229,6 +231,58 @@ TEST_F(FPackagePersistenceTests, CorruptedStageAndDestinationConflictDoNotClearD
 	FByteBuffer Current;
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(Current, Options.Destination));
 	EXPECT_EQ(Current, FByteBuffer{std::byte{1}});
+}
+TEST_F(FPackagePersistenceTests, StagedMetadataChecksDetectChangesWithoutReadingContent)
+{
+	const auto Destination = Root / "Detached.bin";
+	const auto Stage = Root / "Detached.stage";
+	const auto Backup = Root / "Detached.backup";
+	const FByteBuffer Original{std::byte{7}};
+	for (int Change = 0; Change < 5; ++Change)
+	{
+		SCOPED_TRACE(Change);
+		ASSERT_TRUE(FFileHelper::SaveArrayToFileAtomically(Original, Destination));
+		FFilePublicationStamp Expected;
+		ASSERT_TRUE(FFilePublicationStamp::Inspect(Destination, Expected));
+		FByteBuffer Bytes(Change == 4 ? 0 : 128 * 1024 + 3, std::byte{1});
+		std::vector<FPackageWriteFile> Files;
+		Files.push_back({{Destination, Stage, Backup}, Expected, Bytes});
+		auto Write = GetFilePackageWriter()->Begin(std::move(Files));
+		ASSERT_TRUE(Write->Stage());
+		const auto StagedTime = std::filesystem::last_write_time(Stage);
+		if (Change == 0) ASSERT_TRUE(std::filesystem::remove(Stage));
+		else if (Change == 1)
+		{
+			std::filesystem::resize_file(Stage, Bytes.size() - 1);
+			std::filesystem::last_write_time(Stage, StagedTime);
+		}
+		else if (Change == 2)
+			std::filesystem::last_write_time(Stage, StagedTime + std::chrono::seconds(10));
+		else if (Change == 3)
+		{
+			// Same-size changes with a restored timestamp are outside this contract.
+			Bytes.back() = std::byte{2};
+			ASSERT_TRUE(FFileHelper::SaveArrayToFileAtomically(Bytes, Stage));
+			std::filesystem::last_write_time(Stage, StagedTime);
+		}
+		const auto Result = Write->Commit();
+		FByteBuffer Current;
+		ASSERT_TRUE(FFileHelper::LoadFileToArray(Current, Destination));
+		if (Change >= 3)
+		{
+			ASSERT_TRUE(Result);
+			EXPECT_EQ(Current, Bytes);
+			ASSERT_TRUE(Write->Finalize());
+		}
+		else
+		{
+			EXPECT_EQ(Result.Error, EPackageWriteError::CorruptFile);
+			EXPECT_EQ(Current, Original);
+			EXPECT_FALSE(std::filesystem::exists(Backup));
+		}
+		Write.reset();
+		EXPECT_FALSE(std::filesystem::exists(Stage));
+	}
 }
 TEST_F(FPackagePersistenceTests, IoFailureAndSchedulerDrainRemainObservable)
 {

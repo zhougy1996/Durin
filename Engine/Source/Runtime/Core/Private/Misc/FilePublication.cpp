@@ -1,5 +1,4 @@
 #include "Misc/FilePublication.h"
-#include "Misc/FileHelper.h"
 
 namespace Durin
 {
@@ -15,17 +14,6 @@ namespace Durin
 		if (Ec) return false;
 		Out.Time = std::filesystem::last_write_time(Path, Ec);
 		return !Ec;
-	}
-	auto StageFileVerified(const std::filesystem::path& Path, FByteView Bytes, std::string& Error) -> bool
-	{
-		FFileHelper::FAtomicFileError Failure;
-		if (!FFileHelper::SaveArrayToFileAtomically(Bytes, Path, &Failure))
-		{ Error = Failure.ToString(); return false; }
-		FByteBuffer Verified;
-		if (!FFileHelper::LoadFileToArray(Verified, Path) || Verified.size() != Bytes.size()
-			|| FXxHash128::HashBuffer(Verified) != FXxHash128::HashBuffer(Bytes))
-		{ Error = "Staged file failed byte verification."; return false; }
-		Error.clear(); return true;
 	}
 	auto FFileReplacement::Publish(std::string& Error) -> bool
 	{

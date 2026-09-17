@@ -8,6 +8,7 @@ namespace Durin
 		class FFilePackageWriteOperation final : public IPackageWriteOperation
 		{
 			std::vector<FPackageWriteFile> Files;
+			std::vector<FFilePublicationStamp> StagedStamps;
 			std::vector<std::filesystem::path> OwnedStages;
 			bool bStaged = false, bCommitted = false, bTerminal = false;
 			FPackageWriteResult Result;
@@ -59,19 +60,31 @@ namespace Durin
 						return Result = {EPackageWriteError::IoError, "Writer staging or backup path is occupied."};
 					}
 				}
-				for (const auto& File : Files)
+				for (auto& File : Files)
 				{
 					std::error_code Ec;
 					std::filesystem::create_directories(File.Replacement.Destination.parent_path(), Ec);
-					std::string Error;
+					FFileHelper::FAtomicFileError Error;
 					if (!File.Replacement.Staged.empty()) OwnedStages.push_back(File.Replacement.Staged);
 					if (Ec || (!File.Replacement.Staged.empty()
-						&& !StageFileVerified(File.Replacement.Staged, File.Bytes, Error)))
+						&& !FFileHelper::SaveArrayToFileAtomically(File.Bytes, File.Replacement.Staged, &Error)))
 					{
 						bTerminal = true;
 						Cleanup();
-						return Result = {EPackageWriteError::IoError, Ec ? Ec.message() : Error};
+						return Result = {EPackageWriteError::IoError, Ec ? Ec.message() : Error.ToString()};
 					}
+					FFilePublicationStamp Stamp;
+					if (!File.Replacement.Staged.empty()
+						&& (!FFilePublicationStamp::Inspect(File.Replacement.Staged, Stamp)
+							|| !Stamp.Exists || Stamp.Size != File.Bytes.size()))
+					{
+						bTerminal = true;
+						Cleanup();
+						return Result = {EPackageWriteError::IoError, "Cannot verify staged package metadata."};
+					}
+					StagedStamps.push_back(Stamp);
+					// Publication needs only paths and metadata; release bytes on the staging thread.
+					FByteBuffer{}.swap(File.Bytes);
 				}
 				bStaged = true;
 				return {};
@@ -80,17 +93,16 @@ namespace Durin
 			{
 				if (bTerminal || bCommitted) return Result;
 				if (!bStaged) return {EPackageWriteError::InvalidState, "Writer has not staged its output."};
-				for (const auto& File : Files)
+				for (size_t Index = 0; Index < Files.size(); ++Index)
 				{
+					const auto& File = Files[Index];
 					FFilePublicationStamp Current;
 					if (!FFilePublicationStamp::Inspect(File.Replacement.Destination, Current) || Current != File.Expected)
 						return {EPackageWriteError::StaleData, "Package destination changed while saving."};
 					if (!File.Replacement.Staged.empty())
 					{
-						FByteBuffer Read;
-						if (!FFileHelper::LoadFileToArray(Read, File.Replacement.Staged) || Read.size() != File.Bytes.size()
-							|| FXxHash128::HashBuffer(Read) != FXxHash128::HashBuffer(File.Bytes))
-							return {EPackageWriteError::CorruptFile, "Staged package content changed."};
+						if (!FFilePublicationStamp::Inspect(File.Replacement.Staged, Current) || Current != StagedStamps[Index])
+							return {EPackageWriteError::CorruptFile, "Staged package metadata changed."};
 					}
 				}
 				for (auto& File : Files)

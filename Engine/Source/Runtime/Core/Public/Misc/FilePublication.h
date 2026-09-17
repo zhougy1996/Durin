@@ -24,6 +24,4 @@ namespace Durin
 		CORE_API auto Rollback(std::string& Error) -> bool;
 		CORE_API auto Finalize(std::string& Error) -> bool;
 	};
-	CORE_API auto StageFileVerified(const std::filesystem::path& Path, FByteView Bytes,
-		std::string& Error) -> bool;
 }

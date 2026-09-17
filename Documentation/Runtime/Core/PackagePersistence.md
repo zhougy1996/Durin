@@ -49,12 +49,12 @@ this API does not add a general object loader.
 result. Successful admission is not successful persistence. Preparation and live
 object access run on GameThread. A bounded BlockingIO worker owns no live-object
 access: it stages detached bytes and paths only. The operation retains the package
-pin and output buffers until its I/O has drained.
+pin until its I/O has drained; the file writer releases output buffers during staging.
 
 `IsStagingReady()` reports worker readiness; `IsCompleted()` reports a cached
 terminal result. GameThread `Complete()` returns `Busy` while staging runs, then
-validates the package identity, edit revision, destination stamps and staged byte
-hashes before committing. `WaitAndComplete()` waits only for I/O and then commits
+validates the package identity, edit revision, destination stamps and staged file
+metadata before committing. `WaitAndComplete()` waits only for I/O and then commits
 on its calling GameThread, allowing headless tools to finish without a tick loop.
 Workers never queue GameThread work. Repeated terminal completion is idempotent.
 Recursive preparation of the same package is rejected.
@@ -79,16 +79,23 @@ interpreted as an uncommitted save. Failed restoration retains backup files and 
 Synchronous saving does not require an initialized task scheduler.
 
 Core's reusable `IPackageWriter` creates isolated `IPackageWriteOperation`
-instances. The file implementation uses `StageFileVerified`,
+instances. The file implementation uses `FFileHelper::SaveArrayToFileAtomically`,
 `FFilePublicationStamp` and `FFileReplacement` for all package/bulk staging and
 switching. Each input owns its bytes, expected destination stamp and distinct
-staging/backup paths; an empty stage denotes removal. `Stage` writes and verifies
-output, `Commit` rechecks destination stamps and staged hashes before switching
+staging/backup paths; an empty stage denotes removal. `Stage` writes output,
+checks its size against the input buffer and records its modification time, then
+releases the buffer. `Commit` rechecks destination and staged stamps before switching
 files in input order, `Finalize` releases backups, and `Rollback` restores files
 in reverse order. Results retain committed/recovery-required state and recovery
 paths. Destruction removes only owned stages and rolls back unfinished commits;
 failed rollback or finalization retains recovery files. The enclosing operation
 must drain staging before calling other methods or destroying writer state.
+
+Staged checks use existence, size and modification time only; saving does not
+read back file contents or compute verification hashes. These checks detect
+common accidental changes, not tampering that preserves size and time, or changes
+between inspection and rename. Internal staging files are trusted. Atomic write
+error handling, destination conflict checks and rollback remain required.
 
 CoreDObject commits the companion before its main file and removes obsolete
 companions transactionally. Engine uses the same writer while retaining
