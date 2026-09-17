@@ -1,5 +1,62 @@
 #include "MaterialProgramTestFixture.h"
 
+TEST(FMaterialDiagnosticTests, ExistingDomainSuccessAndExternalProviderFailuresRemainDistinct)
+{
+	using namespace Durin;
+	EXPECT_TRUE(FMaterialOperationResult{});
+	EXPECT_FALSE(FMaterialError(EMaterialLayoutError::None).HasError());
+	EXPECT_FALSE(FMaterialError(EMaterialParameterError::None).HasError());
+	const FMaterialError Layout(EMaterialLayoutError::InvalidField, 7);
+	EXPECT_TRUE(Layout.HasError());
+	EXPECT_EQ(Layout.Index, 7u);
+	EXPECT_TRUE(Layout.ExternalDiagnostic.empty());
+	const FGuid ParameterId{1, 2, 3, 4};
+	const FMaterialError LayoutContext(FMaterialLayoutValidationResult{
+		.Error = EMaterialLayoutError::InvalidField, .ParameterId = ParameterId, .FieldIndex = 7});
+	EXPECT_EQ(LayoutContext.ParameterId, ParameterId);
+	EXPECT_EQ(LayoutContext.Index, 7u);
+	const auto Archive = FMaterialError::FromArchive({
+		.Code = EArchiveFailureCode::TruncatedPayload, .Path = "Program/Layout", .Message = "opaque archive text"});
+	EXPECT_EQ(Archive.ArchiveCode, EArchiveFailureCode::TruncatedPayload);
+	EXPECT_EQ(Archive.ArchivePath, "Program/Layout");
+	EXPECT_TRUE(Archive.ExternalDiagnostic.empty());
+	const auto Provider = FMaterialError::FromExternal(
+		EMaterialCompileError::ShaderCompilerFailed, std::string(1024, 'x'));
+	EXPECT_EQ(Provider.Code, FMaterialError::FCode(EMaterialCompileError::ShaderCompilerFailed));
+	EXPECT_EQ(Provider.ExternalDiagnostic.size(), MaterialProgramMaxDiagnosticMessageBytes);
+	EXPECT_FALSE(FormatMaterialError(Provider).empty());
+}
+
+TEST(FMaterialDiagnosticTests, FailedCodecsDoNotPublishPartialProducts)
+{
+	using namespace Durin;
+	FMaterialIR Invalid;
+	Invalid.Version = 0;
+	FByteBuffer Bytes{std::byte{1}, std::byte{2}};
+	const auto Encoded = EncodeMaterialIRCanonical(Invalid, Bytes);
+	EXPECT_FALSE(Encoded);
+	EXPECT_EQ(Encoded.Error.Code, FMaterialError::FCode(EMaterialIRError::InvalidStructure));
+	EXPECT_TRUE(Bytes.empty());
+	EXPECT_TRUE(Encoded.Error.ExternalDiagnostic.empty());
+	const auto Generated = GenerateMaterialProgramSlang(Invalid);
+	EXPECT_FALSE(Generated);
+	EXPECT_TRUE(Generated.Source.empty());
+	ASSERT_FALSE(Generated.Diagnostics.empty());
+	EXPECT_EQ(Generated.Diagnostics.front().Error.Code, Encoded.Error.Code);
+
+	FMaterialStaticProperties Properties;
+	Properties.OpacityMaskThreshold = 0.25f;
+	const auto Original = Properties;
+	auto Previous = std::make_shared<const FMaterialCompilerResult>();
+	auto Program = Previous;
+	const auto Decoded = DecodeMaterialCookedProgram({}, ECookTargetPlatform::Win64,
+		ECookTargetProfile::Game, Properties, Program);
+	EXPECT_FALSE(Decoded);
+	EXPECT_EQ(Decoded.Error.Code, FMaterialError::FCode(EMaterialCookError::CookedProgramByteExtentInvalid));
+	EXPECT_EQ(Properties, Original);
+	EXPECT_EQ(Program, Previous);
+}
+
 TEST(FMaterialProgramSchemaTests,
 	TypedExpressionsAreReflectedBoundedAndDeterministicallyValid)
 {
@@ -47,53 +104,55 @@ TEST(FMaterialProgramSchemaTests,
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
-	const auto ExpectFailure = [&](const Testing::FTestMaterialExpressionGraph& Graph, std::string_view Message) {
+	const auto ExpectFailure = [&](const Testing::FTestMaterialExpressionGraph& Graph, EMaterialExpressionError Code) {
 		std::vector<DMaterialExpression*> Expressions;
 		for (const auto& Expression : Graph.Expressions) Expressions.push_back(Expression.Get());
 		auto Validation = FMaterialExpressionBuildContext::ValidateSurface(Expressions, Graph.Outputs);
 		EXPECT_FALSE(Validation);
 		EXPECT_FALSE(Validation.Diagnostics.empty());
-		if (!Validation.Diagnostics.empty()) EXPECT_NE(Validation.Diagnostics.front().Message.find(Message), std::string::npos)
-			<< Validation.Diagnostics.front().Message;
+		if (!Validation.Diagnostics.empty()) EXPECT_EQ(Validation.Diagnostics.front().Error.Code, FMaterialError::FCode(Code))
+			<< Durin::FormatMaterialError(Validation.Diagnostics.front().Error);
 		return Validation;
 	};
 	{
 		auto Graph = Testing::MakePBRMaterialExpressionsForTest();
 		Graph.Expressions[1]->Id = Graph.Expressions[0]->Id;
-		ExpectFailure(Graph, "duplicate GUID");
+		ExpectFailure(Graph, EMaterialExpressionError::CollectionContainsNullOwnerInvalidGUIDDuplicateGUID);
 	}
 	{
 		auto Graph = Testing::MakePBRMaterialExpressionsForTest();
 		Graph.Expressions.emplace_back();
-		ExpectFailure(Graph, "null owner");
+		ExpectFailure(Graph, EMaterialExpressionError::CollectionContainsNullOwnerInvalidGUIDDuplicateGUID);
 	}
 	{
 		auto Graph = Testing::MakePBRMaterialExpressionsForTest();
 		Graph.Outputs.Metallic.ExpressionId = {1, 2, 3, 4};
-		ExpectFailure(Graph, "missing expression");
+		ExpectFailure(Graph, EMaterialExpressionError::InputDisconnectedRefersMissingExpression);
 	}
 	{
 		auto Graph = Testing::MakePBRMaterialExpressionsForTest();
 		Graph.Outputs.Metallic = Graph.Outputs.BaseColor;
-		const auto Validation = ExpectFailure(Graph, "type");
+		const auto Validation = ExpectFailure(Graph, EMaterialExpressionError::OutputSourceIncompatibleType);
 		ASSERT_FALSE(Validation.Diagnostics.empty());
 		EXPECT_EQ(Validation.Diagnostics.front().Category, EMaterialProgramDiagnosticCategory::Type);
 		EXPECT_EQ(Validation.Diagnostics.front().LocationKind, EMaterialProgramDiagnosticLocationKind::SurfaceOutput);
 		EXPECT_EQ(Validation.Diagnostics.front().LocationIndex, static_cast<uint32>(EMaterialSurfaceOutput::Metallic));
+		EXPECT_EQ(Validation.Diagnostics.front().Error.ExpectedType, EMaterialProgramValueType::Float);
+		EXPECT_EQ(Validation.Diagnostics.front().Error.ActualType, EMaterialProgramValueType::Float3);
 	}
 	{
 		Testing::FTestMaterialExpressionGraph Graph;
 		TStrongObjectPtr<DMaterialExpressionScalarConstant> Constant(NewObject<DMaterialExpressionScalarConstant>(nullptr, NAME_None));
 		Constant->Id = FGuid::NewGuid(); Constant->Value = std::numeric_limits<float>::infinity();
 		Graph.Expressions.emplace_back(Constant.Get());
-		ExpectFailure(Graph, "finite");
+		ExpectFailure(Graph, EMaterialExpressionError::NonFiniteConstant);
 	}
 	{
 		Testing::FTestMaterialExpressionGraph Graph;
 		TStrongObjectPtr<DMaterialExpressionAdd> Invalid(NewObject<DMaterialExpressionAdd>(nullptr, NAME_None));
 		Invalid->Id = FGuid::NewGuid(); Invalid->ResultType = static_cast<EMaterialProgramValueType>(255);
 		Graph.Expressions.emplace_back(Invalid.Get());
-		ExpectFailure(Graph, "signature");
+		ExpectFailure(Graph, EMaterialExpressionError::NumericSignatureMismatch);
 	}
 	{
 		Testing::FTestMaterialExpressionGraph Graph;
@@ -101,7 +160,7 @@ TEST(FMaterialProgramSchemaTests,
 		TStrongObjectPtr<DMaterialExpressionNegate> B(NewObject<DMaterialExpressionNegate>(nullptr, NAME_None));
 		A->Id = FGuid::NewGuid(); B->Id = FGuid::NewGuid(); A->Input = {B->Id}; B->Input = {A->Id};
 		Graph.Expressions.emplace_back(A.Get()); Graph.Expressions.emplace_back(B.Get());
-		ExpectFailure(Graph, "cycle");
+		ExpectFailure(Graph, EMaterialExpressionError::InputsContainCycleExceedTraversalDepthBound);
 	}
 	{
 		Testing::FTestMaterialExpressionGraph Graph;
@@ -113,7 +172,7 @@ TEST(FMaterialProgramSchemaTests,
 			Node->InputDefault = {0}; Previous = Node->Id;
 			Graph.Expressions.emplace_back(Node.Get());
 		}
-		ExpectFailure(Graph, "depth");
+		ExpectFailure(Graph, EMaterialExpressionError::BuildExceedsIRDepthBound);
 	}
 	{
 		Testing::FTestMaterialExpressionGraph Graph;
@@ -122,7 +181,7 @@ TEST(FMaterialProgramSchemaTests,
 			TStrongObjectPtr<DMaterialExpressionScalarConstant> Node(NewObject<DMaterialExpressionScalarConstant>(nullptr, NAME_None));
 			Node->Id = FGuid::NewGuid(); Graph.Expressions.emplace_back(Node.Get());
 		}
-		ExpectFailure(Graph, "node bound");
+		ExpectFailure(Graph, EMaterialExpressionError::CollectionExceedsAuthoredNodeBound);
 	}
 	{
 		auto Graph = Testing::MakePBRMaterialExpressionsForTest();
@@ -130,12 +189,12 @@ TEST(FMaterialProgramSchemaTests,
 		ASSERT_NE(Found, Graph.Expressions.end());
 		auto* Parameter = Cast<DMaterialExpressionParameter>(Found->Get());
 		Parameter->Metadata.Id = {};
-		ExpectFailure(Graph, "parameter GUID");
+		ExpectFailure(Graph, EMaterialExpressionError::ParameterExpressionsRequireValidParameterGUIDsMaterialOwner);
 		Parameter->Metadata.Id = FGuid::NewGuid();
 		Parameter->Metadata.DisplayName.assign(MaterialProgramMaxDisplayNameBytes + 1, 'x');
-		const auto Forward = ExpectFailure(Graph, "metadata");
+		const auto Forward = ExpectFailure(Graph, EMaterialExpressionError::ParameterExpressionMetadataDefaultInvalid);
 		std::ranges::reverse(Graph.Expressions);
-		const auto Reversed = ExpectFailure(Graph, "metadata");
+		const auto Reversed = ExpectFailure(Graph, EMaterialExpressionError::ParameterExpressionMetadataDefaultInvalid);
 		EXPECT_EQ(Forward.Diagnostics, Reversed.Diagnostics);
 	}
 }
@@ -218,16 +277,17 @@ TEST(FMaterialProgramNormalizationTests,
 	EXPECT_EQ(Normalized.IR.SurfaceRoot.Inputs[1].Literal,
 		(Durin::FMaterialProgramLiteral{0.0f, 0.0f, 1.0f, 0.0f}));
 	std::string Source;
-	std::string Error;
-	ASSERT_TRUE(Durin::GenerateMaterialProgramSlang(
-		Normalized.IR, Source, Error)) << Error;
+	Durin::FMaterialOperationResult Error;
+	const auto SourceGeneration = Durin::GenerateMaterialProgramSlang(Normalized.IR);
+	ASSERT_TRUE(SourceGeneration);
+	Source = SourceGeneration.Source;
 	EXPECT_EQ(Source.find("BaseColorTexture.Sample"), std::string::npos);
 	EXPECT_EQ(Source.find("NormalTexture.Sample"), std::string::npos);
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
 	const Durin::FMaterialCompilerResult Compiled =
 		Durin::CompileMaterialIR(Input);
 	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty()
-		? std::string("no diagnostic") : Compiled.Diagnostics.front().Message);
+		? std::string("no diagnostic") : Durin::FormatMaterialError(Compiled.Diagnostics.front().Error));
 	size_t ActiveBindings = 0;
 	for (const Durin::FCompiledShader& Shader : Compiled.CompiledShaders)
 		ActiveBindings += Shader.Reflection.ResourceBindings.size();
@@ -251,7 +311,7 @@ TEST(FMaterialProgramSchemaTests, AggregateInputRequiresMaterialAttributesType)
 	auto Validation = Durin::FMaterialExpressionBuildContext::ValidateSurface(Expressions, Graph.Outputs);
 	EXPECT_FALSE(Validation);
 	ASSERT_FALSE(Validation.Diagnostics.empty());
-	EXPECT_NE(Validation.Diagnostics.front().Message.find("requires a Surface expression"), std::string::npos);
+	EXPECT_EQ(Validation.Diagnostics.front().Error.Code, Durin::FMaterialError::FCode(Durin::EMaterialExpressionError::AggregateMaterialOutputRequiresSurfaceExpression));
 	EXPECT_NE(std::ranges::find(Validation.Diagnostics,
 		Durin::EMaterialProgramDiagnosticCategory::Type,
 		&Durin::FMaterialProgramDiagnostic::Category),
@@ -488,9 +548,9 @@ TEST(FMaterialProgramCompilerTests,
 	InitializeDObjectSystem();
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
 	Durin::FMaterialIRCompilerInput Input = MakeSyntheticMaterialCompilerInput();
-	std::string EnvironmentError;
-	ASSERT_TRUE(Durin::BuildDefaultMaterialCompilerEnvironment(
-		Input.Environment, EnvironmentError)) << EnvironmentError;
+	Durin::FMaterialOperationResult EnvironmentError;
+	ASSERT_TRUE((EnvironmentError = Durin::BuildDefaultMaterialCompilerEnvironment(
+		Input.Environment))) << Durin::FormatMaterialError(EnvironmentError.Error);
 	ASSERT_EQ(Input.Environment.Dependencies.size(), 1u);
 	EXPECT_EQ(Input.Environment.Dependencies.front().VirtualPath,
 		"/Engine/MaterialCompilerEnvironment");
@@ -499,11 +559,13 @@ TEST(FMaterialProgramCompilerTests,
 	ASSERT_TRUE(Normalized);
 	std::string FirstSource;
 	std::string SecondSource;
-	std::string Error;
-	ASSERT_TRUE(Durin::GenerateMaterialProgramSlang(
-		Normalized.IR, FirstSource, Error)) << Error;
-	ASSERT_TRUE(Durin::GenerateMaterialProgramSlang(
-		Normalized.IR, SecondSource, Error)) << Error;
+	Durin::FMaterialOperationResult Error;
+	const auto FirstSourceGeneration = Durin::GenerateMaterialProgramSlang(Normalized.IR);
+	ASSERT_TRUE(FirstSourceGeneration);
+	FirstSource = FirstSourceGeneration.Source;
+	const auto SecondSourceGeneration = Durin::GenerateMaterialProgramSlang(Normalized.IR);
+	ASSERT_TRUE(SecondSourceGeneration);
+	SecondSource = SecondSourceGeneration.Source;
 	EXPECT_EQ(FirstSource, SecondSource);
 	EXPECT_LE(FirstSource.size(), Durin::MaterialProgramMaxCanonicalBytes);
 	EXPECT_NE(FirstSource.find("module DurinGeneratedMaterial"),
@@ -515,7 +577,7 @@ TEST(FMaterialProgramCompilerTests,
 		Durin::CompileMaterialIR(Input, true);
 	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty()
 		? "missing diagnostic"
-		: Compiled.Diagnostics.front().Message);
+		: Durin::FormatMaterialError(Compiled.Diagnostics.front().Error));
 	EXPECT_EQ(Compiled.Identity, Normalized.Identity);
 	ASSERT_EQ(Compiled.CompiledShaders.size(), 3u);
 	EXPECT_EQ(Compiled.CompiledShaders[0].Reflection.ResourceBindings.size(), 20u);
@@ -530,8 +592,7 @@ TEST(FMaterialProgramCompilerTests,
 	Durin::FMaterialIR InvalidIR = Normalized.IR;
 	InvalidIR.Version++;
 	std::string InvalidSource;
-	EXPECT_FALSE(Durin::GenerateMaterialProgramSlang(
-		InvalidIR, InvalidSource, Error));
+	EXPECT_FALSE(Durin::GenerateMaterialProgramSlang(InvalidIR));
 	EXPECT_TRUE(InvalidSource.empty());
 	Durin::FMaterialIRCompilerInput InvalidInput = Input;
 	InvalidInput.Environment.Target.clear();
@@ -546,14 +607,14 @@ TEST(FMaterialProgramCompilerTests, NormalizedIRRecompilationPreservesSourceAndS
 	using namespace Durin;
 	InitializeDObjectSystem();
 	auto Input = MakeSyntheticMaterialCompilerInput();
-	std::string Error;
-	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Input.Environment, Error)) << Error;
+	Durin::FMaterialOperationResult Error;
+	ASSERT_TRUE((Error = BuildDefaultMaterialCompilerEnvironment(Input.Environment))) << Durin::FormatMaterialError(Error.Error);
 	const auto Baseline = CompileMaterialIR(Input);
 	ASSERT_TRUE(Baseline);
 	FMaterialIRCompilerInput Direct{.IR = Baseline.IR, .Parameters = Input.Parameters,
 		.StaticProperties = Input.StaticProperties, .Environment = Input.Environment};
 	const auto Compiled = CompileMaterialIR(Direct);
-	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "Missing diagnostic" : Compiled.Diagnostics.front().Message);
+	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "Missing diagnostic" : Durin::FormatMaterialError(Compiled.Diagnostics.front().Error));
 	EXPECT_EQ(Compiled.GeneratedSource, Baseline.GeneratedSource);
 	EXPECT_EQ(Compiled.Layout, Baseline.Layout);
 	ASSERT_EQ(Compiled.CompiledShaders.size(), Baseline.CompiledShaders.size());
@@ -711,8 +772,8 @@ TEST(FMaterialProgramCompilerTests, CustomNumericTextureAndResourceFreeProgramsC
 	InitializeDObjectSystem();
 	FMaterialIRCompilerInput Input;
 	Input.IR = MakeDefaultMaterialCompilerIR();
-	std::string Error;
-	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Input.Environment, Error)) << Error;
+	Durin::FMaterialOperationResult Error;
+	ASSERT_TRUE((Error = BuildDefaultMaterialCompilerEnvironment(Input.Environment))) << Durin::FormatMaterialError(Error.Error);
 	Input.StaticProperties.BlendMode = EMaterialBlendMode::Masked;
 	const FGuid Tint{0, 0, 1, 1}, UV{0, 0, 1, 2}, Texture{0, 0, 1, 3}, Amount{0, 0, 1, 4};
 	Input.Parameters = {{Tint, EMaterialParameterType::Vector4}, {UV, EMaterialParameterType::Vector4},
@@ -738,27 +799,27 @@ TEST(FMaterialProgramCompilerTests, CustomNumericTextureAndResourceFreeProgramsC
 	Input.IR.SurfaceRoot.Inputs[7].bExpression = true;
 	Input.IR.SurfaceRoot.Inputs[7].ExpressionIndex = Add(EMaterialProgramOpcode::Parameter, EMaterialProgramValueType::Float, Amount);
 	const auto Compiled = CompileMaterialIR(Input);
-	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "missing diagnostic" : Compiled.Diagnostics.front().Message);
+	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "missing diagnostic" : Durin::FormatMaterialError(Compiled.Diagnostics.front().Error));
 	EXPECT_EQ(Compiled.Layout.Identity.Version, 4u);
 	EXPECT_EQ(Compiled.Layout.Fields.size(), 4u);
 	EXPECT_EQ(Compiled.Layout.ResourceFieldCount, 1u);
 	EXPECT_TRUE(ValidateMaterialCompiledStages(Compiled.CompiledShaders, Compiled.Layout));
 	EXPECT_TRUE(ValidateMaterialCompilerResult(Compiled));
 	FByteBuffer CookedBytes;
-	ASSERT_TRUE(EncodeMaterialCookedProgram(Compiled, Input.StaticProperties,
-		ECookTargetPlatform::Win64, ECookTargetProfile::Game, CookedBytes, Error)) << Error;
+	ASSERT_TRUE((Error = EncodeMaterialCookedProgram(Compiled, Input.StaticProperties,
+		ECookTargetPlatform::Win64, ECookTargetProfile::Game, CookedBytes))) << Durin::FormatMaterialError(Error.Error);
 	FMaterialStaticProperties CookedProperties;
 	std::shared_ptr<const FMaterialCompilerResult> Cooked;
-	ASSERT_TRUE(DecodeMaterialCookedProgram(CookedBytes, ECookTargetPlatform::Win64,
-		ECookTargetProfile::Game, CookedProperties, Cooked, Error)) << Error;
+	ASSERT_TRUE((Error = DecodeMaterialCookedProgram(CookedBytes, ECookTargetPlatform::Win64,
+		ECookTargetProfile::Game, CookedProperties, Cooked))) << Durin::FormatMaterialError(Error.Error);
 	ASSERT_NE(Cooked, nullptr);
 	EXPECT_EQ(Cooked->Layout, Compiled.Layout);
 	EXPECT_EQ(Cooked->ActiveParameters, Compiled.ActiveParameters);
 	EXPECT_TRUE(Cooked->IR.Nodes.empty());
 	EXPECT_TRUE(Cooked->GeneratedSource.empty());
 	FByteBuffer Reencoded;
-	ASSERT_TRUE(EncodeMaterialCookedProgram(*Cooked, CookedProperties,
-		ECookTargetPlatform::Win64, ECookTargetProfile::Game, Reencoded, Error));
+	ASSERT_TRUE((Error = EncodeMaterialCookedProgram(*Cooked, CookedProperties,
+		ECookTargetPlatform::Win64, ECookTargetProfile::Game, Reencoded)));
 	EXPECT_EQ(Reencoded, CookedBytes);
 	for (uint32 Mutation = 0; Mutation < 5; ++Mutation)
 	{
@@ -768,21 +829,21 @@ TEST(FMaterialProgramCompilerTests, CustomNumericTextureAndResourceFreeProgramsC
 		if (Mutation == 2) Invalid.Layout.UniformPayloadSize += 16;
 		if (Mutation == 3) Invalid.ActiveParameters.pop_back();
 		if (Mutation == 4) Invalid.CompiledShaders.front().BinaryEntryPoint.clear();
-		EXPECT_FALSE(EncodeMaterialCookedProgram(Invalid, Input.StaticProperties,
-			ECookTargetPlatform::Win64, ECookTargetProfile::Game, Reencoded, Error));
+		EXPECT_FALSE((Error = EncodeMaterialCookedProgram(Invalid, Input.StaticProperties,
+			ECookTargetPlatform::Win64, ECookTargetProfile::Game, Reencoded)));
 	}
 	const auto AcceptedCooked = Cooked;
 	for (size_t Position : {size_t{4}, CookedBytes.size() / 2, CookedBytes.size() - 1})
 	{
 		auto Broken = CookedBytes; Broken[Position] ^= std::byte{1};
-		EXPECT_FALSE(DecodeMaterialCookedProgram(Broken, ECookTargetPlatform::Win64,
-			ECookTargetProfile::Game, CookedProperties, Cooked, Error));
+		EXPECT_FALSE((Error = DecodeMaterialCookedProgram(Broken, ECookTargetPlatform::Win64,
+			ECookTargetProfile::Game, CookedProperties, Cooked)));
 		EXPECT_EQ(Cooked, AcceptedCooked);
 	}
 	auto LegacyCooked = CookedBytes; LegacyCooked[4] = std::byte{3};
-	EXPECT_FALSE(DecodeMaterialCookedProgram(LegacyCooked, ECookTargetPlatform::Win64,
-		ECookTargetProfile::Game, CookedProperties, Cooked, Error));
-	EXPECT_NE(Error.find("recook"), std::string::npos);
+	EXPECT_FALSE((Error = DecodeMaterialCookedProgram(LegacyCooked, ECookTargetPlatform::Win64,
+		ECookTargetProfile::Game, CookedProperties, Cooked)));
+	EXPECT_EQ(Error.Error.Code, FMaterialError::FCode(EMaterialCookError::IncompatiblePayloadFormat));
 
 	auto InvalidResult = Compiled;
 	InvalidResult.ActiveParameters.pop_back();
@@ -818,7 +879,7 @@ TEST(FMaterialProgramCompilerTests, CustomNumericTextureAndResourceFreeProgramsC
 	Input.Parameters.clear();
 	Input.StaticProperties = {.ShadingModel = EMaterialShadingModel::Unlit};
 	const auto ResourceFree = CompileMaterialIR(Input);
-	ASSERT_TRUE(ResourceFree) << (ResourceFree.Diagnostics.empty() ? "missing diagnostic" : ResourceFree.Diagnostics.front().Message);
+	ASSERT_TRUE(ResourceFree) << (ResourceFree.Diagnostics.empty() ? "missing diagnostic" : Durin::FormatMaterialError(ResourceFree.Diagnostics.front().Error));
 	EXPECT_TRUE(ResourceFree.Layout.Fields.empty());
 	for (const auto& Stage : ResourceFree.CompiledShaders)
 		EXPECT_TRUE(Stage.Reflection.ResourceBindings.empty()) << Stage.SourceEntryPoint;
@@ -830,8 +891,8 @@ TEST(FMaterialProgramCompilerTests, ExplicitUVAndSurfaceCompositionUseOnlyAuthor
 	InitializeDObjectSystem();
 	FMaterialIRCompilerInput Input;
 	Input.IR = MakeDefaultMaterialCompilerIR();
-	std::string Error;
-	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Input.Environment, Error)) << Error;
+	Durin::FMaterialOperationResult Error;
+	ASSERT_TRUE((Error = BuildDefaultMaterialCompilerEnvironment(Input.Environment))) << Durin::FormatMaterialError(Error.Error);
 	const FGuid Channel = FGuid::NewGuid(), Angle = FGuid::NewGuid();
 	Input.Parameters = {{Channel, EMaterialParameterType::Scalar}, {Angle, EMaterialParameterType::Scalar}};
 	auto Add = [&](EMaterialProgramOpcode Op, EMaterialProgramValueType Type,
@@ -860,7 +921,7 @@ TEST(FMaterialProgramCompilerTests, ExplicitUVAndSurfaceCompositionUseOnlyAuthor
 	Input.IR.SurfaceRoot.AggregateExpressionIndex = Add(EMaterialProgramOpcode::MakeSurface, EMaterialProgramValueType::Surface,
 		{Color, Normal, Zero, One, One, Color, One, One});
 	const auto Compiled = CompileMaterialIR(Input);
-	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "missing diagnostic" : Compiled.Diagnostics.front().Message);
+	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "missing diagnostic" : Durin::FormatMaterialError(Compiled.Diagnostics.front().Error));
 	ASSERT_TRUE(ValidateMaterialCompilerResult(Compiled));
 	EXPECT_EQ(Compiled.Layout.Fields.size(), 2u);
 	EXPECT_EQ(Compiled.Layout.ResourceFieldCount, 0u);
@@ -907,8 +968,8 @@ TEST(FMaterialProgramSchemaTests, EnvironmentInputsCompileWithoutMaterialParamet
 	ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 	EXPECT_TRUE(Material->GetParameterDefinitions().empty());
 	FMaterialCompilerEnvironment Environment;
-	std::string Error;
-	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Environment, Error)) << Error;
+	Durin::FMaterialOperationResult Error;
+	ASSERT_TRUE((Error = BuildDefaultMaterialCompilerEnvironment(Environment))) << Durin::FormatMaterialError(Error.Error);
 	FMaterialIRCompilerInput Input;
 	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Material, Environment, Input));
 	const auto Normalized = NormalizeMaterialIR(Input);
@@ -920,7 +981,7 @@ TEST(FMaterialProgramSchemaTests, EnvironmentInputsCompileWithoutMaterialParamet
 	EXPECT_EQ(Source.Source.find("materialTime :"), std::string::npos);
 	Input.StaticProperties.BlendMode = EMaterialBlendMode::Masked;
 	const auto Compiled = CompileMaterialIR(Input);
-	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "missing diagnostic" : Compiled.Diagnostics.front().Message);
+	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "missing diagnostic" : Durin::FormatMaterialError(Compiled.Diagnostics.front().Error));
 	EXPECT_TRUE(ValidateMaterialCompilerResult(Compiled));
 	for (const auto& Stage : Compiled.CompiledShaders)
 	{
@@ -980,9 +1041,9 @@ TEST(FMaterialProgramNormalizationTests, PackedAndIndividualInputsSharePropertyA
 			// Every inactive property's exclusive source is absent in both normalized graphs.
 			EXPECT_EQ(A.IR.Nodes.size(), B.IR.Nodes.size());
 			FByteBuffer BytesA, BytesB;
-			std::string Error;
-			ASSERT_TRUE(EncodeMaterialIRCanonical(A.IR, BytesA, Error));
-			ASSERT_TRUE(EncodeMaterialIRCanonical(B.IR, BytesB, Error));
+			Durin::FMaterialOperationResult Error;
+			ASSERT_TRUE((Error = EncodeMaterialIRCanonical(A.IR, BytesA)));
+			ASSERT_TRUE((Error = EncodeMaterialIRCanonical(B.IR, BytesB)));
 			EXPECT_EQ(BytesA, BytesB);
 		}
 }

@@ -808,7 +808,7 @@ namespace Durin::Editor::Material
 			const auto* Source = Session->GetSourceMaterial();
 			ImGui::Text("Scene material: %s", FormatCompileState(Source->GetMaterialCompileStatus().State));
 			for (const auto& Diagnostic : Source->GetMaterialCompileDiagnostics())
-				ImGui::TextWrapped("Scene: %s", Diagnostic.Source.Message.c_str());
+				ImGui::TextWrapped("Scene: %s", FormatMaterialError(Diagnostic.Source.Error).c_str());
 		}
 		uint32 DiagnosticIndex = 0;
 		for (const FMaterialCompileDiagnostic& Diagnostic
@@ -849,13 +849,13 @@ namespace Durin::Editor::Material
 				}
 				ImGui::SameLine();
 			}
-			ImGui::TextWrapped("%s%s", Diagnostic.Source.Message.c_str(),
+			ImGui::TextWrapped("%s%s", FormatMaterialError(Diagnostic.Source.Error).c_str(),
 				bStale || (Diagnostic.Source.LocationKind
 					!= EMaterialProgramDiagnosticLocationKind::Program && !bLocated)
 					? " (stale location)" : "");
 			ImGui::PopID();
 		}
-		const std::string_view CookDiagnostic = Material->GetMaterialCookDiagnostic();
+		const std::string CookDiagnostic = Durin::FormatMaterialError(Material->GetMaterialCookDiagnostic());
 		if (!CookDiagnostic.empty())
 			ImGui::TextWrapped("Cook: %.*s",
 				static_cast<int>(CookDiagnostic.size()), CookDiagnostic.data());
@@ -1099,8 +1099,8 @@ namespace Durin::Editor::Material
 		const std::array<bool*, 5> Flags{&Overrides.bOverrideBlendMode, &Overrides.bOverrideShadingModel,
 			&Overrides.bOverrideOpacityMaskThreshold, &Overrides.bOverrideTwoSided, &Overrides.bOverrideDepthWritePolicy};
 		FResolvedMaterialProperties Resolved;
-		std::string ResolveError;
-		const bool bResolved = ResolveMaterialProperties(*Instance, Resolved, ResolveError);
+		Durin::FMaterialOperationResult ResolveError;
+		const bool bResolved = static_cast<bool>(ResolveError = ResolveMaterialProperties(*Instance, Resolved));
 		bool bChanged = false;
 		if (MonaImGui::PropertyEdit::BeginTable("RenderingOverrides", MakeMaterialPropertyTableConfig()))
 		{
@@ -1147,7 +1147,7 @@ namespace Durin::Editor::Material
 			MonaImGui::PropertyEdit::EndTable();
 		}
 		ImGui::TextWrapped("Enable an override to edit; clear it to inherit.");
-		if (!bResolved) ImGui::TextWrapped("%s", ResolveError.c_str());
+		if (!bResolved) ImGui::TextWrapped("%s", FormatMaterialError(ResolveError.Error).c_str());
 		if (bChanged)
 		{
 			if (auto* Property = Instance->GetClass()->FindPropertyByName(FName("PropertyOverrides")))

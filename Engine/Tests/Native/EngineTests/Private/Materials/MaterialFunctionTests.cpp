@@ -18,7 +18,7 @@ TEST(FMaterialFunctionTests, StandardRecipesOwnTypedExpressionsAndPublishIndepen
 		Owners.emplace_back(NewObject<DMaterialFunction>(nullptr, NAME_None));
 		auto& Function = *Owners.back();
 		const auto Result = Recipe.Apply(Function);
-		ASSERT_TRUE(Result) << (Result.Diagnostics.empty() ? "" : Result.Diagnostics.front().Message);
+		ASSERT_TRUE(Result) << (Result.Diagnostics.empty() ? "" : Durin::FormatMaterialError(Result.Diagnostics.front().Error));
 		*Slots[Index] = &Function;
 		EXPECT_TRUE(Recipe.Matches(Function));
 		const auto& Published = Function.GetExpressionCollection().Expressions;
@@ -438,7 +438,7 @@ TEST(FMaterialFunctionTests, ResourceOutputSkipsOwnerUVAndPreservesIndependentSa
 	}));
 	for (const auto& Node : Snapshot.IR.Nodes) EXPECT_TRUE(Node.HasValidPayload());
 	const auto Normalized = NormalizeMaterialIR(Snapshot);
-	ASSERT_TRUE(Normalized) << (Normalized.Diagnostics.empty() ? "" : Normalized.Diagnostics.front().Message);
+	ASSERT_TRUE(Normalized) << (Normalized.Diagnostics.empty() ? "" : Durin::FormatMaterialError(Normalized.Diagnostics.front().Error));
 	ASSERT_EQ(Normalized.ActiveParameters.size(), 1u);
 	EXPECT_EQ(Normalized.ActiveParameters.front().Id, Owner->Metadata.Id);
 	EXPECT_EQ(std::ranges::count(Normalized.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &FMaterialIRNode::Opcode), 2);
@@ -791,7 +791,7 @@ TEST(FMaterialFunctionTests, ExpansionPreservesIndependentInputsMultipleOutputsA
 	Outputs.Roughness = {.ExpressionId = SecondCall, .OutputId = Signature.Outputs[0].Id};
 	Outputs.AmbientOcclusion = {.ExpressionId = FirstCall, .OutputId = Signature.Outputs[1].Id};
 	const auto Normalized = NormalizeTypedExpressions(Expressions, Outputs);
-	ASSERT_TRUE(Normalized) << (Normalized.Diagnostics.empty() ? "" : Normalized.Diagnostics[0].Message);
+	ASSERT_TRUE(Normalized) << (Normalized.Diagnostics.empty() ? "" : Durin::FormatMaterialError(Normalized.Diagnostics[0].Error));
 	const auto& Metal = Normalized.IR.Nodes[Normalized.IR.SurfaceRoot.Inputs[2].ExpressionIndex];
 	const auto& Rough = Normalized.IR.Nodes[Normalized.IR.SurfaceRoot.Inputs[3].ExpressionIndex];
 	ASSERT_EQ(Metal.Opcode, EMaterialProgramOpcode::Add);
@@ -873,7 +873,7 @@ TEST(FMaterialFunctionTests, NestedTextureDefaultsYieldToConnectedRootResource)
 	FMaterialExpressionSurfaceOutputs Outputs;
 	Outputs.BaseColor = {.ExpressionId = RootCall, .OutputId = Graph.Signature.Outputs[0].Id};
 	const auto Default = NormalizeTypedExpressions(Expressions, Outputs);
-	ASSERT_TRUE(Default) << (Default.Diagnostics.empty() ? "" : Default.Diagnostics[0].Message);
+	ASSERT_TRUE(Default) << (Default.Diagnostics.empty() ? "" : Durin::FormatMaterialError(Default.Diagnostics[0].Error));
 	EXPECT_EQ(Default.Layout.ResourceFieldCount, 0u);
 	EXPECT_TRUE(std::ranges::any_of(Default.IR.Nodes, [](const auto& Node) {
 		return Node.Opcode == EMaterialProgramOpcode::Constant && Node.ResultType == EMaterialProgramValueType::Float4
@@ -884,7 +884,7 @@ TEST(FMaterialFunctionTests, NestedTextureDefaultsYieldToConnectedRootResource)
 	Expressions.push_back(Parameter);
 	Call->Inputs.push_back({Graph.Signature.Inputs[0].Id, EMaterialProgramValueType::Texture2D, {ParameterNode}});
 	const auto Connected = NormalizeTypedExpressions(Expressions, Outputs);
-	ASSERT_TRUE(Connected) << (Connected.Diagnostics.empty() ? "" : Connected.Diagnostics[0].Message);
+	ASSERT_TRUE(Connected) << (Connected.Diagnostics.empty() ? "" : Durin::FormatMaterialError(Connected.Diagnostics[0].Error));
 	EXPECT_EQ(Connected.Layout.ResourceFieldCount, 1u);
 	EXPECT_EQ(std::ranges::count(Connected.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &FMaterialIRNode::Opcode), 1);
 	ASSERT_EQ(Connected.ActiveParameters.size(), 1u);
@@ -911,10 +911,10 @@ TEST(FMaterialFunctionTests, NestedTextureDefaultsYieldToConnectedRootResource)
 	FMaterialIRCompilerInput Input;
 	Input.IR = std::move(Built.IR); Input.Parameters = std::move(Built.Parameters); Input.Sources = std::move(Built.Sources);
 	FModuleManager::Get().LoadModule("RenderCore");
-	std::string Error;
-	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Input.Environment, Error)) << Error;
+	Durin::FMaterialOperationResult Error;
+	ASSERT_TRUE((Error = BuildDefaultMaterialCompilerEnvironment(Input.Environment))) << Durin::FormatMaterialError(Error.Error);
 	const auto Compiled = CompileMaterialIR(Input, true);
-	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "" : Compiled.Diagnostics[0].Message);
+	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "" : Durin::FormatMaterialError(Compiled.Diagnostics[0].Error));
 	EXPECT_EQ(Compiled.Layout.ResourceFieldCount, 1u);
 	EXPECT_FALSE(Compiled.CompiledShaders.empty());
 	for (auto* Expression : Expressions) MarkAsGarbage(Expression);
@@ -959,7 +959,7 @@ TEST(FMaterialFunctionTests, RootCallsCommitAtomicallyAndSnapshotThroughInstance
 		return !Source.CallPath.empty() && Source.CallPath.front() == CallId;
 	}));
 	const auto Normalized = NormalizeMaterialIR(Input);
-	ASSERT_TRUE(Normalized) << (Normalized.Diagnostics.empty() ? "" : Normalized.Diagnostics[0].Message);
+	ASSERT_TRUE(Normalized) << (Normalized.Diagnostics.empty() ? "" : Durin::FormatMaterialError(Normalized.Diagnostics[0].Error));
 	EXPECT_TRUE(GenerateMaterialProgramSlang(Normalized.IR, Normalized.Layout));
 	Call->Function = nullptr;
 	ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
@@ -1102,7 +1102,7 @@ TEST(FMaterialFunctionTests, TypedFieldsRoundtripAndRejectInvalidCoordinateDefau
 	EXPECT_FALSE(Rejected);
 	ASSERT_FALSE(Rejected.Diagnostics.empty());
 	EXPECT_EQ(Rejected.Diagnostics.front().NodeId, Invalid->Id);
-	EXPECT_EQ(Rejected.Diagnostics.front().Message, "Disconnected UV input has an output selector.");
+	EXPECT_EQ(Rejected.Diagnostics.front().Error.Code, FMaterialError::FCode(EMaterialExpressionError::DisconnectedUVInputOutputSelector));
 	EXPECT_EQ(CaptureFields(*Material), Expected);
 	ASSERT_TRUE(UnloadPackage(MaterialPath));
 	ASSERT_TRUE(UnloadPackage(FunctionPath));
@@ -1189,7 +1189,7 @@ TEST(FMaterialFunctionTests, NestedSurfaceOverridesAndSelectedOutputsPreserveAtt
 	Outputs.BaseColor = {GetId, static_cast<uint8>(EMaterialSurfaceOutput::Normal)};
 	Outputs.Roughness = {GetId, static_cast<uint8>(EMaterialSurfaceOutput::Metallic)};
 	const auto Normalized = NormalizeTypedExpressions(Expressions, Outputs);
-	ASSERT_TRUE(Normalized) << (Normalized.Diagnostics.empty() ? "" : Normalized.Diagnostics[0].Message);
+	ASSERT_TRUE(Normalized) << (Normalized.Diagnostics.empty() ? "" : Durin::FormatMaterialError(Normalized.Diagnostics[0].Error));
 	EXPECT_EQ(Normalized.IR.Nodes[Normalized.IR.SurfaceRoot.Inputs[0].ExpressionIndex].GetLiteral(), (FMaterialProgramLiteral{0, 0, 1}));
 	EXPECT_EQ(Normalized.IR.Nodes[Normalized.IR.SurfaceRoot.Inputs[3].ExpressionIndex].GetLiteral().X, 0.75f);
 	EXPECT_TRUE(std::ranges::all_of(Normalized.IR.Nodes, [](const auto& Node) { return Node.Opcode < EMaterialProgramOpcode::FunctionInput; }));

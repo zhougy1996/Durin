@@ -87,7 +87,7 @@ namespace Durin
 	auto DMaterialExpressionMaterialOutput::Build(FMaterialExpressionBuildContext& Context,
 		uint8, FGuid) const -> FMaterialExpressionBuildValue
 	{
-		return Context.Fail("A material output is a sink and cannot be used as an expression source.");
+		return Context.Fail(EMaterialExpressionError::MaterialOutputSinkUsedAsExpressionSource);
 	}
 
 	auto DMaterialExpression::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void

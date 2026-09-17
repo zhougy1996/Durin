@@ -6,21 +6,21 @@ namespace Durin
 	auto DMaterialExpressionFunctionInput::Build(FMaterialExpressionBuildContext& Context,
 		uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
 	{
-		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail("Function input terminal has only its primary output.");
+		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail(EMaterialFunctionError::InputTerminalPrimaryOutput);
 		return Context.FunctionInput(Port.Id);
 	}
 
 	auto DMaterialExpressionFunctionOutput::Build(FMaterialExpressionBuildContext& Context,
 		uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
 	{
-		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail("Function output terminal has only its primary output.");
+		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail(EMaterialFunctionError::OutputTerminalPrimaryOutput);
 		return Context.FunctionOutput(Port.Id, Source);
 	}
 
 	auto DMaterialExpressionFunctionCall::Build(FMaterialExpressionBuildContext& Context,
 		uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
 	{
-		if (OutputIndex != 0 || !OutputId.IsValid()) return Context.Fail("Function call connections require an output GUID and zero output index.");
+		if (OutputIndex != 0 || !OutputId.IsValid()) return Context.Fail(EMaterialFunctionError::CallConnectionsRequireOutputGUIDZeroOutputIndex);
 		return Context.FunctionCall(*this, OutputId);
 	}
 
@@ -39,14 +39,14 @@ namespace Durin
 		}
 		if (Type > EMaterialProgramValueType::Surface || Result.IR.Nodes.size() >= MaterialFunctionMaxExpandedNodes
 			|| LinkCount + Inputs.size() > MaterialFunctionMaxExpandedLinks)
-			return Fail("Function authoring value has an invalid type or exceeds graph bounds.");
+			return Fail(EMaterialFunctionError::AuthoringValueInvalidTypeExceedsGraphBounds);
 		uint32 Depth = 1;
 		for (const auto Input : Inputs)
 		{
-			if (Input >= Depths.size()) return Fail("Function authoring input is invalid.");
+			if (Input >= Depths.size()) return Fail(EMaterialFunctionError::AuthoringInputInvalid);
 			Depth = std::max(Depth, Depths[Input] + 1);
 		}
-		if (Depth > MaterialProgramMaxDepth) return Fail("Function authoring value exceeds expression depth.");
+		if (Depth > MaterialProgramMaxDepth) return Fail(EMaterialFunctionError::AuthoringValueExceedsExpressionDepth);
 		const auto Index = static_cast<uint32>(Result.IR.Nodes.size());
 		LinkCount += static_cast<uint32>(Inputs.size());
 		Result.IR.Nodes.push_back({.Opcode = Opcode, .ResultType = Type, .Inputs = std::move(Inputs)});
@@ -58,7 +58,7 @@ namespace Durin
 		FGuid OutputId) -> FMaterialExpressionBuildValue
 	{
 		if (Call.Inputs.size() > MaterialFunctionMaxInputs || Call.Outputs.empty() || Call.Outputs.size() > MaterialFunctionMaxOutputs)
-			return Fail("Function call port bindings exceed their bounds.");
+			return Fail(EMaterialFunctionError::CallPortBindingsExceedBounds);
 		const auto Callee = FObjectKey(Call.Function.Get());
 		AuthoringCodeHash.UpdateValue(Call.Id);
 		AuthoringCodeHash.UpdateValue(Callee.GetHash());
@@ -70,23 +70,23 @@ namespace Durin
 		{
 			if (!Binding.InputId.IsValid() || !InputIds.insert(Binding.InputId).second
 				|| Binding.ExpectedType > EMaterialProgramValueType::Surface)
-				return Fail("Function call input requires a unique valid typed port.", Binding.InputId);
+				return Fail(EMaterialFunctionError::CallInputRequiresUniqueValidTypedPort, Binding.InputId);
 			AuthoringCodeHash.UpdateValue(Binding.InputId);
 			AuthoringCodeHash.UpdateValue(Binding.ExpectedType);
 			const auto& Default = Binding.InputDefault;
 			if (!Default.empty() && (Default.size() > 4 || static_cast<EMaterialProgramValueType>(Default.size() - 1) != Binding.ExpectedType
 				|| !std::ranges::all_of(Default, [](float Value) { return std::isfinite(Value); })))
-				return Fail("Retained function binding default has an invalid type or component.", Binding.InputId);
+				return Fail(EMaterialFunctionError::RetainedFunctionBindingDefaultInvalidTypeComponent, Binding.InputId);
 			AuthoringCodeHash.UpdateValue(static_cast<uint32>(Default.size()));
 			for (const auto Value : Default) AuthoringCodeHash.UpdateValue(Value);
 			if (!Binding.Input.ExpressionId.IsValid() && (Binding.Input.OutputIndex != 0 || Binding.Input.OutputId.IsValid()))
-				return Fail("Disconnected function binding has an output selector.", Binding.InputId);
+				return Fail(EMaterialFunctionError::DisconnectedFunctionBindingOutputSelector, Binding.InputId);
 			if (Binding.Input.ExpressionId.IsValid())
 			{
 				PortStack.push_back(Binding.InputId);
 				const auto Value = BroadcastScalar(Resolve(Binding.Input), Binding.ExpectedType);
 				PortStack.pop_back();
-				if (!MatchesType(Value, Binding.ExpectedType)) return Fail("Function binding value does not match its declared type.", Binding.InputId);
+				if (!MatchesType(Value, Binding.ExpectedType)) return Fail(EMaterialFunctionError::BindingTypeMismatch, Binding.InputId);
 				if (Value.GetIndex()) Inputs.push_back(*Value.GetIndex());
 			}
 		}
@@ -96,14 +96,14 @@ namespace Durin
 		{
 			if (!Output.OutputId.IsValid() || InputIds.contains(Output.OutputId) || !OutputIds.insert(Output.OutputId).second
 				|| Output.ExpectedType > EMaterialProgramValueType::Surface)
-				return Fail("Function call output requires a unique valid typed port.", Output.OutputId);
+				return Fail(EMaterialFunctionError::CallOutputRequiresUniqueValidTypedPort, Output.OutputId);
 			AuthoringCodeHash.UpdateValue(Output.OutputId);
 			AuthoringCodeHash.UpdateValue(Output.ExpectedType);
 			auto [TypeValue, bInserted] = TypeValues.try_emplace(Output.ExpectedType, InvalidMaterialExpressionIndex);
 			if (bInserted) TypeValue->second = OpaqueAuthoringValue(EMaterialProgramOpcode::FunctionCall, Output.ExpectedType, Inputs);
 			Outputs.emplace(Output.OutputId, TypeValue->second);
 		}
-		if (!Outputs.contains(OutputId)) return Fail("Function call output GUID is not bound.", OutputId);
+		if (!Outputs.contains(OutputId)) return Fail(EMaterialFunctionError::CallOutputGUIDBound, OutputId);
 		if (!Result.Diagnostics.empty()) return InvalidMaterialExpressionIndex;
 		CallOutputs.emplace(Call.Id, std::move(Outputs));
 		return CallOutputs.at(Call.Id).at(OutputId);
@@ -119,21 +119,21 @@ namespace Durin
 		Context.Signature = &Signature;
 		for (const auto& [Id, Expression] : Context.Expressions)
 			if (Cast<DMaterialExpressionParameter>(Expression) || Cast<DMaterialExpressionMaterialOutput>(Expression))
-				Context.Fail("Functions cannot declare material parameters or material outputs.");
+				Context.Fail(EMaterialFunctionError::UnsupportedMaterialExpression);
 		auto Built = Context.Finish({});
 		return {.bSucceeded = static_cast<bool>(Built), .Diagnostics = std::move(Built.Diagnostics)};
 	}
 
 	auto FMaterialExpressionBuildContext::FunctionInput(FGuid PortId) -> FMaterialExpressionBuildValue
 	{
-		if (!Signature) return Fail("Function input terminal has no owning invocation.");
+		if (!Signature) return Fail(EMaterialFunctionError::InputTerminalNoOwningInvocation);
 		const auto Port = std::ranges::find(Signature->Inputs, PortId, &FMaterialFunctionPort::Id);
-		if (Port == Signature->Inputs.end()) return Fail("Function input terminal has no matching declaration.");
+		if (Port == Signature->Inputs.end()) return Fail(EMaterialFunctionError::InputTerminalNoMatchingDeclaration);
 		if (bValidateAuthoring) return OpaqueAuthoringValue(EMaterialProgramOpcode::FunctionInput, Port->Type);
 		if (const auto Bound = BoundInputs.find(PortId); Bound != BoundInputs.end()) return Bound->second;
-		if (Port->bRequired) return Fail("Required function input has no binding.");
+		if (Port->bRequired) return Fail(EMaterialFunctionError::RequiredFunctionInputNoBinding);
 		if (PortStack.size() >= MaterialFunctionMaxInputs || std::ranges::find(PortStack, PortId) != PortStack.end())
-			return Fail("Function input defaults contain a cycle.");
+			return Fail(EMaterialFunctionError::InputDefaultsContainCycle);
 		PortStack.push_back(PortId);
 		FMaterialExpressionBuildValue Value;
 		const auto& Default = Port->Default;
@@ -142,7 +142,7 @@ namespace Durin
 		case EMaterialFunctionDefaultKind::Numeric:
 		{
 			const std::array Components{Default.Numeric.X, Default.Numeric.Y, Default.Numeric.Z, Default.Numeric.W};
-			if (Port->Type > EMaterialProgramValueType::Float4) { Fail("Numeric function default has a non-numeric type."); break; }
+			if (Port->Type > EMaterialProgramValueType::Float4) { Fail(EMaterialFunctionError::NumericFunctionDefaultNonNumericType); break; }
 			Value = Literal(std::span(Components).first(static_cast<size_t>(Port->Type) + 1));
 			break;
 		}
@@ -173,9 +173,9 @@ namespace Durin
 			Value = Emit(std::move(Surface));
 			break;
 		}
-		default: Fail("Function input has no usable binding or default."); break;
+		default: Fail(EMaterialFunctionError::InputNoUsableBindingDefault); break;
 		}
-		if (!MatchesType(Value, Port->Type)) Fail("Function default type does not match its input declaration.");
+		if (!MatchesType(Value, Port->Type)) Fail(EMaterialFunctionError::DefaultTypeMismatch);
 		PortStack.pop_back();
 		if (!Result.Diagnostics.empty()) return InvalidMaterialExpressionIndex;
 		BoundInputs.emplace(PortId, Value);
@@ -185,11 +185,11 @@ namespace Durin
 	auto FMaterialExpressionBuildContext::FunctionOutput(FGuid PortId, const FMaterialExpressionInput& Source)
 		-> FMaterialExpressionBuildValue
 	{
-		if (!Signature) return Fail("Function output terminal has no owning invocation.");
+		if (!Signature) return Fail(EMaterialFunctionError::OutputTerminalNoOwningInvocation);
 		const auto Port = std::ranges::find(Signature->Outputs, PortId, &FMaterialFunctionPort::Id);
-		if (Port == Signature->Outputs.end()) return Fail("Function output terminal has no matching declaration.");
+		if (Port == Signature->Outputs.end()) return Fail(EMaterialFunctionError::OutputTerminalNoMatchingDeclaration);
 		const auto Value = BroadcastScalar(Resolve(Source), Port->Type);
-		if (!MatchesType(Value, Port->Type)) return Fail("Function output source does not match its declared type.");
+		if (!MatchesType(Value, Port->Type)) return Fail(EMaterialFunctionError::OutputTypeMismatch);
 		return Value;
 	}
 
@@ -200,28 +200,28 @@ namespace Durin
 		if (const auto Built = CallOutputs.find(Call.Id); Built != CallOutputs.end())
 		{
 			const auto Output = Built->second.find(OutputId);
-			return Output != Built->second.end() ? Output->second : FMaterialExpressionBuildValue(Fail("Function call output GUID is not bound."));
+			return Output != Built->second.end() ? Output->second : FMaterialExpressionBuildValue(Fail(EMaterialFunctionError::CallOutputGUIDBound));
 		}
 		if (bValidateAuthoring) return ValidateAuthoringCall(Call, OutputId);
 		const auto* Function = Call.Function.Get();
-		if (!IsValid(Function) || !Environment.FindFunction) return Fail("Function call has no available expression body.");
+		if (!IsValid(Function) || !Environment.FindFunction) return Fail(EMaterialFunctionError::CallNoAvailableExpressionBody);
 		if (Shared->ActiveFunctions.size() >= MaterialFunctionMaxCallDepth
 			|| std::ranges::find(Shared->ActiveFunctions, Function) != Shared->ActiveFunctions.end())
-			return Fail("Function Build contains recursion or exceeds the call depth bound.");
+			return Fail(EMaterialFunctionError::BuildContainsRecursionExceedsCallDepthBound);
 		auto Found = Shared->Functions.find(Function);
 		if (Found == Shared->Functions.end())
 		{
-			if (Shared->Functions.size() >= MaterialFunctionMaxDependencies) return Fail("Function Build exceeds the dependency bound.");
+			if (Shared->Functions.size() >= MaterialFunctionMaxDependencies) return Fail(EMaterialFunctionError::BuildExceedsDependencyBound);
 			auto Body = Environment.FindFunction(*Function);
-			if (!Body) return Fail("Function expression body is unavailable.");
+			if (!Body) return Fail(EMaterialFunctionError::ExpressionBodyUnavailable);
 			if (Body->Expressions.size() > MaterialProgramMaxNodeCount || Body->Signature.Inputs.size() > MaterialFunctionMaxInputs
 				|| Body->Signature.Outputs.empty() || Body->Signature.Outputs.size() > MaterialFunctionMaxOutputs)
-				return Fail("Function expression body exceeds node or signature bounds.");
+				return Fail(EMaterialFunctionError::ExpressionBodyExceedsNodeSignatureBounds);
 			uint64 Bytes = Body->AssetPath.size() + Body->Expressions.size() * sizeof(DMaterialExpression*);
 			for (const auto& Port : Body->Signature.Inputs) Bytes += sizeof(Port) + Port.Name.size();
 			for (const auto& Port : Body->Signature.Outputs) Bytes += sizeof(Port) + Port.Name.size();
 			if (Bytes > MaterialFunctionMaxClosureBytes || Shared->ClosureBytes > MaterialFunctionMaxClosureBytes - Bytes)
-				return Fail("Function expression body metadata exceeds the closure byte bound.");
+				return Fail(EMaterialFunctionError::ExpressionBodyMetadataExceedsClosureByteBound);
 			auto Validation = ValidateMaterialFunctionSignature(Body->Signature);
 			if (!Validation)
 			{
@@ -240,35 +240,35 @@ namespace Durin
 		}
 		const auto& Body = Found->second;
 		if (Call.Inputs.size() > MaterialFunctionMaxInputs || Call.Outputs.empty() || Call.Outputs.size() > MaterialFunctionMaxOutputs)
-			return Fail("Function call port bindings exceed their bounds.");
+			return Fail(EMaterialFunctionError::CallPortBindingsExceedBounds);
 		std::set<FGuid> InputIds, OutputIds;
 		for (const auto& Output : Call.Outputs)
 		{
 			const auto Port = std::ranges::find(Body.Signature.Outputs, Output.OutputId, &FMaterialFunctionPort::Id);
 			if (Port == Body.Signature.Outputs.end() || Port->Type != Output.ExpectedType || !OutputIds.insert(Output.OutputId).second)
-				return Fail("Function call output binding does not match a unique typed port.", Output.OutputId);
+				return Fail(EMaterialFunctionError::InvalidOutputBinding, Output.OutputId);
 		}
-		if (!OutputIds.contains(OutputId)) return Fail("Function call output GUID is not bound.");
+		if (!OutputIds.contains(OutputId)) return Fail(EMaterialFunctionError::CallOutputGUIDBound);
 		FMaterialExpressionBuildContext Child(*this, Body, Call.Id);
 		if (!Result.Diagnostics.empty()) return InvalidMaterialExpressionIndex;
 		for (const auto& Binding : Call.Inputs)
 		{
 			const auto Port = std::ranges::find(Body.Signature.Inputs, Binding.InputId, &FMaterialFunctionPort::Id);
 			if (Port == Body.Signature.Inputs.end() || Port->Type != Binding.ExpectedType || !InputIds.insert(Binding.InputId).second)
-				return Fail("Function call input binding does not match a unique typed port.", Binding.InputId);
+				return Fail(EMaterialFunctionError::InvalidInputBinding, Binding.InputId);
 			const auto& Default = Binding.InputDefault;
 			if (!Default.empty() && (Default.size() > 4 || static_cast<EMaterialProgramValueType>(Default.size() - 1) != Port->Type
 				|| !std::ranges::all_of(Default, [](float Value) { return std::isfinite(Value); })))
-				return Fail("Retained function binding default has an invalid type or component.", Binding.InputId);
+				return Fail(EMaterialFunctionError::RetainedFunctionBindingDefaultInvalidTypeComponent, Binding.InputId);
 			if (!Binding.Input.ExpressionId.IsValid() && (Binding.Input.OutputIndex != 0 || Binding.Input.OutputId.IsValid()))
-				return Fail("Disconnected function binding has an output selector.", Binding.InputId);
+				return Fail(EMaterialFunctionError::DisconnectedFunctionBindingOutputSelector, Binding.InputId);
 			if (Binding.Input.ExpressionId.IsValid() || !Default.empty())
 			{
 				PortStack.push_back(Binding.InputId);
 				const auto Value = Binding.Input.ExpressionId.IsValid()
 					? BroadcastScalar(Resolve(Binding.Input), Port->Type) : FMaterialExpressionBuildValue(Literal(Default));
 				PortStack.pop_back();
-				if (!MatchesType(Value, Port->Type)) return Fail("Function binding value does not match its declared type.", Binding.InputId);
+				if (!MatchesType(Value, Port->Type)) return Fail(EMaterialFunctionError::BindingTypeMismatch, Binding.InputId);
 				Child.BoundInputs.emplace(Binding.InputId, Value);
 			}
 		}
@@ -282,14 +282,14 @@ namespace Durin
 			const auto PortId = Input ? Input->Port.Id : Output->Port.Id;
 			const auto& Ports = Input ? Body.Signature.Inputs : Body.Signature.Outputs;
 			if (std::ranges::find(Ports, PortId, &FMaterialFunctionPort::Id) == Ports.end() || !TerminalIds.insert(PortId).second)
-				return Child.Fail("Function terminal does not match a unique declared port.");
+				return Child.Fail(EMaterialFunctionError::InvalidTerminalPort);
 			if (Output) OutputTerminals.emplace(PortId, Id);
 		}
 		for (const auto& Output : Body.Signature.Outputs)
-			if (!OutputTerminals.contains(Output.Id)) return Child.Fail("Function output has no terminal expression.");
+			if (!OutputTerminals.contains(Output.Id)) return Child.Fail(EMaterialFunctionError::OutputNoTerminalExpression);
 		Shared->ActiveFunctions.push_back(Function);
 		for (const auto& Input : Body.Signature.Inputs)
-			if (Input.bRequired && !Child.BoundInputs.contains(Input.Id)) Child.Fail("Required function input has no binding.", Input.Id);
+			if (Input.bRequired && !Child.BoundInputs.contains(Input.Id)) Child.Fail(EMaterialFunctionError::RequiredFunctionInputNoBinding, Input.Id);
 		// Admit every authored expression, including disconnected nodes and unused calls.
 		for (const auto& [Id, Expression] : Child.Expressions)
 		{

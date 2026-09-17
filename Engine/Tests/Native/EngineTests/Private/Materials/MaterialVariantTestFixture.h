@@ -27,8 +27,8 @@ namespace Durin::Testing
 		ASSERT_TRUE(Root->GetMaterialCompileStatus().IsCurrent());
 		Durin::FMaterialIRCompilerInput Input;
 		Durin::FMaterialCompilerEnvironment Environment;
-		std::string Error;
-		ASSERT_TRUE(Durin::BuildDefaultMaterialCompilerEnvironment(Environment, Error)) << Error;
+		Durin::FMaterialOperationResult Error;
+		ASSERT_TRUE((Error = Durin::BuildDefaultMaterialCompilerEnvironment(Environment))) << Durin::FormatMaterialError(Error.Error);
 		ASSERT_TRUE(Durin::SnapshotMaterialCompilerInput(*Root, Environment, Input));
 
 		const auto Before = Durin::GetMaterialCompilationDiagnostics();
@@ -84,15 +84,15 @@ namespace Durin::Testing
 		for (auto* Instance : Instances)
 		{
 			Durin::FByteBuffer Payload;
-			ASSERT_TRUE(Durin::EncodeMaterialCookedProgram(*Instance->GetAcceptedCompiledProgram(),
+			ASSERT_TRUE((Error = Durin::EncodeMaterialCookedProgram(*Instance->GetAcceptedCompiledProgram(),
 				Instance->GetRenderableStaticProperties(), Durin::ECookTargetPlatform::Win64,
-				Durin::ECookTargetProfile::Game, Payload, Error)) << Error;
+				Durin::ECookTargetProfile::Game, Payload))) << Durin::FormatMaterialError(Error.Error);
 			InstancePayloadBytes += Payload.size();
 		}
 		Durin::FByteBuffer Bytes;
-		ASSERT_TRUE(Durin::EncodeMaterialCookedProgram(*Root->GetAcceptedCompiledProgram(),
+		ASSERT_TRUE((Error = Durin::EncodeMaterialCookedProgram(*Root->GetAcceptedCompiledProgram(),
 			Root->GetRenderableStaticProperties(), Durin::ECookTargetPlatform::Win64,
-			Durin::ECookTargetProfile::Game, Bytes, Error)) << Error;
+			Durin::ECookTargetProfile::Game, Bytes))) << Durin::FormatMaterialError(Error.Error);
 		std::cout << "Variant baseline: owners=" << Instances.size()
 			<< " effective_identities=" << Identities.size()
 			<< " compatible_instances=" << CompatibleOwners

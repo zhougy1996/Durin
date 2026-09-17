@@ -196,7 +196,11 @@ namespace Durin::Editor::Material
 			Error = "Unable to snapshot the working material expressions.";
 			return false;
 		}
-		if (!ValidateMaterialStaticProperties(Candidate.Properties, Error)) return false;
+		if (const auto Validation = ValidateMaterialStaticProperties(Candidate.Properties); !Validation)
+		{
+			Error = FormatMaterialError(Validation.Error);
+			return false;
+		}
 		const auto PreviousMode = Source->GetEditCompileMode();
 		Source->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 		const auto Result = CopyExpressions(*Source, *Working);

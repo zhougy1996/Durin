@@ -6,6 +6,7 @@
 
 namespace Durin
 {
+
 	namespace
 	{
 		constexpr uint32 MaterialCookedProgramMagic = 0x54414d44; // DMAT
@@ -25,8 +26,8 @@ namespace Durin
 			Ar << Shader.BlendMode << Shader.ShadingModel << Shader.OpacityMaskThreshold;
 			if (Ar.IsLoading())
 			{
-				std::string Error;
-				if (!ValidateMaterialStaticProperties(Shader, Error)
+				Durin::FMaterialOperationResult Error;
+				if (!(Error = ValidateMaterialStaticProperties(Shader))
 					|| Shader != CanonicalizeMaterialShaderProperties(Shader))
 				{
 					Ar.Fail(EArchiveFailureCode::InvalidData, "Noncanonical cooked material shader properties.");
@@ -156,17 +157,15 @@ namespace Durin
 		auto ValidateDecodedProgram(
 			const FMaterialCompilerResult& Program,
 			const FMaterialStaticProperties& StaticProperties,
-			bool bRequireCurrentEnvironment,
-			std::string& OutError) -> bool
+			bool bRequireCurrentEnvironment) -> FMaterialOperationResult
 		{
 			if (!Program.Identity.IsValid() || Program.CompilerIdentity.empty()
 				|| Program.Target.empty()
 				|| Program.PassContractVersion
 					!= CurrentMaterialPassContractVersion)
-				return Fail("Material cooked program identity or environment is invalid.",
-					&OutError);
+				return {EMaterialCookError::CookedProgramIdentityEnvironmentInvalid};
 			if (bRequireCurrentEnvironment && Program.Target != "vulkan-spirv-1.5")
-				return Fail("Material cooked program target is incompatible.", &OutError);
+				return {EMaterialCookError::CookedProgramTargetIncompatible};
 			// Cooked execution has no compiler provider. Versions, target, layout,
 			// stage contracts and byte hashes validate its source-independent ABI.
 			if (bRequireCurrentEnvironment && !GetAssetRuntimeConfiguration().IsCooked())
@@ -176,33 +175,29 @@ namespace Durin
 				if (CurrentCompilerIdentity.empty()
 					|| Program.CompilerIdentity != CurrentCompilerIdentity
 					|| Program.Target != "vulkan-spirv-1.5")
-					return Fail(
-						"Material cooked program compiler or target identity is incompatible.",
-						&OutError);
+					return {EMaterialCookError::CookedProgramCompilerTargetIdentityIncompatible};
 			}
-			if (!ValidateMaterialStaticProperties(StaticProperties, OutError))
-				return false;
+			if (const auto Validation = ValidateMaterialStaticProperties(StaticProperties); !Validation) return Validation;
 			if (Program.ActiveParameters.size() > MaterialProgramMaxReferencedParameterCount)
-				return Fail("Material active parameter count exceeds its limit.", &OutError);
+				return {EMaterialCookError::ActiveParameterCountExceedsLimit};
 			FGuid PreviousId;
 			for (const auto& Parameter : Program.ActiveParameters)
 			{
 
 				if (!Parameter.Id.IsValid()
 					|| (PreviousId.IsValid() && !(PreviousId < Parameter.Id)))
-					return Fail("Material active parameter contract is invalid.", &OutError);
+					return {EMaterialCookError::ActiveParameterContractInvalid};
 				PreviousId = Parameter.Id;
 			}
 			for (const FCompiledShader& Shader : Program.CompiledShaders)
 			{
 				if (!Shader.Code || Shader.Code->empty() || Shader.BinaryEntryPoint.empty()
 					|| FXxHash128::HashBuffer(*Shader.Code) != Shader.Hash)
-					return Fail("Material cooked shader code hash is invalid.", &OutError);
+					return {EMaterialCookError::CookedShaderCodeHashInvalid};
 			}
 			const auto Contract = ValidateMaterialCompilerResult(Program);
-			if (!Contract) return Fail(std::string(GetMaterialLayoutErrorText(Contract.Error)), &OutError);
-			OutError.clear();
-			return true;
+			if (!Contract) return {FMaterialError(Contract)};
+			return {};
 		}
 	}
 
@@ -211,14 +206,14 @@ namespace Durin
 		const FMaterialStaticProperties& StaticProperties,
 		ECookTargetPlatform TargetPlatform,
 		ECookTargetProfile TargetProfile,
-		FByteBuffer& OutBytes,
-		std::string& OutError) -> bool
+		FByteBuffer& OutBytes) -> FMaterialOperationResult
 	{
 		OutBytes.clear();
 		if (TargetPlatform != ECookTargetPlatform::Win64 || TargetProfile != ECookTargetProfile::Game)
-			return Fail("Material cooked program target is unsupported.", &OutError);
-		if (!Program || !ValidateDecodedProgram(
-				Program, StaticProperties, false, OutError)) return false;
+			return {EMaterialCookError::CookedProgramTargetUnsupported};
+		if (!Program) return {EMaterialCookError::ProgramUnavailable};
+		if (const auto Validation = ValidateDecodedProgram(
+				Program, StaticProperties, false); !Validation) return Validation;
 		FMaterialCompilerResult Copy = Program;
 		FMaterialStaticProperties PropertyCopy = StaticProperties;
 		FCanonicalMemoryWriter Ar(OutBytes, EArchivePurpose::CookedPayload);
@@ -226,9 +221,9 @@ namespace Durin
 			Ar, Copy, PropertyCopy, TargetPlatform, TargetProfile);
 		if (Ar.HasError())
 		{
-			OutError = Ar.GetFailure()->Message;
+			const auto Error = FMaterialError::FromArchive(*Ar.GetFailure());
 			OutBytes.clear();
-			return false;
+			return {Error};
 		}
 		if (!Ar.HasError())
 		{
@@ -238,11 +233,9 @@ namespace Durin
 		if (Ar.HasError() || OutBytes.size() > MaterialCookedProgramMaxPayloadBytes)
 		{
 			OutBytes.clear();
-			return Fail("Material cooked program exceeds its payload byte limit.",
-				&OutError);
+			return {EMaterialCookError::CookedProgramExceedsPayloadByteLimit};
 		}
-		OutError.clear();
-		return true;
+		return {};
 	}
 
 	auto DecodeMaterialCookedProgram(
@@ -250,22 +243,21 @@ namespace Durin
 		ECookTargetPlatform ExpectedPlatform,
 		ECookTargetProfile ExpectedProfile,
 		FMaterialStaticProperties& OutStaticProperties,
-		std::shared_ptr<const FMaterialCompilerResult>& OutProgram,
-		std::string& OutError) -> bool
+		std::shared_ptr<const FMaterialCompilerResult>& OutProgram) -> FMaterialOperationResult
 	{
 		if (Bytes.size() < 24 || Bytes.size() > MaterialCookedProgramMaxPayloadBytes)
-			return Fail("Material cooked program byte extent is invalid.", &OutError);
+			return {EMaterialCookError::CookedProgramByteExtentInvalid};
 		FCanonicalMemoryReader Header(Bytes.first(8), EArchivePurpose::CookedPayload);
 		uint32 Magic = 0, Version = 0;
 		Header << Magic << Version;
 		if (Header.HasError() || Magic != MaterialCookedProgramMagic || Version != MaterialCookedProgramPayloadSchemaVersion)
-			return Fail("Material cooked program format is incompatible; recook from authored assets.", &OutError);
+			return {EMaterialCookError::IncompatiblePayloadFormat};
 		const FByteView Payload = Bytes.first(Bytes.size() - 16);
 		FCanonicalMemoryReader ChecksumReader(Bytes.last(16), EArchivePurpose::CookedPayload);
 		FXxHash128 StoredChecksum;
 		SerializeHash(ChecksumReader, StoredChecksum);
 		if (ChecksumReader.HasError() || StoredChecksum != FXxHash128::HashBuffer(Payload))
-			return Fail("Material cooked program checksum is invalid.", &OutError);
+			return {EMaterialCookError::CookedProgramChecksumInvalid};
 		FMaterialCompilerResult Candidate;
 		FMaterialStaticProperties CandidateProperties;
 		ECookTargetPlatform Platform = ECookTargetPlatform::Invalid;
@@ -273,18 +265,17 @@ namespace Durin
 		FCanonicalMemoryReader Ar(Payload, EArchivePurpose::CookedPayload);
 		SerializePayload(Ar, Candidate, CandidateProperties, Platform, Profile);
 		if (Ar.HasError() || !RequireArchiveEnd(Ar))
-			return Fail(Ar.GetFailure() ? Ar.GetFailure()->Message
-				: "Material cooked program contains trailing data.", &OutError);
+		{
+			return {FMaterialError::FromArchive(*Ar.GetFailure())};
+		}
 		if (Platform != ExpectedPlatform || Profile != ExpectedProfile)
-			return Fail("Material cooked program target is incompatible.", &OutError);
+			return {EMaterialCookError::CookedProgramTargetIncompatible};
 		Candidate.bSucceeded = true;
-		if (!ValidateDecodedProgram(
-				Candidate, CandidateProperties, true, OutError))
-			return false;
+		if (const auto Validation = ValidateDecodedProgram(
+				Candidate, CandidateProperties, true); !Validation) return Validation;
 		OutStaticProperties = CandidateProperties;
 		OutProgram = std::make_shared<const FMaterialCompilerResult>(
 			std::move(Candidate));
-		OutError.clear();
-		return true;
+		return {};
 	}
 }

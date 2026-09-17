@@ -225,27 +225,6 @@ namespace Durin
 		return Definitions;
 	}
 
-	auto GetMaterialParameterErrorText(EMaterialParameterError Error) -> std::string_view
-	{
-		switch (Error)
-		{
-		case EMaterialParameterError::None: return "";
-		case EMaterialParameterError::TooManyDefinitions: return "Material declaration count exceeds its bound.";
-		case EMaterialParameterError::InvalidId: return "Material declaration GUID is invalid.";
-		case EMaterialParameterError::DuplicateId: return "Material declaration GUID is duplicated.";
-		case EMaterialParameterError::InvalidName: return "Material declaration name must not be None.";
-		case EMaterialParameterError::DuplicateName: return "Material declaration name is already occupied.";
-		case EMaterialParameterError::InvalidText: return "Material declaration text is invalid or exceeds its bound.";
-		case EMaterialParameterError::InvalidType: return "Material declaration type is invalid.";
-		case EMaterialParameterError::InvalidDefault: return "Material declaration default must be finite.";
-		case EMaterialParameterError::InvalidMetadata: return "Material declaration metadata is invalid.";
-		case EMaterialParameterError::NotFound: return "Material declaration does not exist.";
-		case EMaterialParameterError::TypeConflict: return "Changing a declaration type requires a new GUID and an unoccupied name.";
-		case EMaterialParameterError::UnsupportedProgramSchema: return "Unsupported material program schema.";
-		case EMaterialParameterError::InvalidProgram: return "Material declaration change would produce an invalid program.";
-		}
-		return "Unknown material parameter error.";
-	}
 
 	auto IsValidMaterialSampling(FMaterialSamplerState State, EMaterialTextureFallback Fallback) -> bool
 	{
@@ -325,11 +304,8 @@ namespace Durin
 	}
 
 	auto ValidateMaterialStaticProperties(
-		const FMaterialStaticProperties& Properties,
-		std::string& OutError
-	) -> bool
+		const FMaterialStaticProperties& Properties) -> FMaterialOperationResult
 	{
-		OutError.clear();
 		switch (Properties.BlendMode)
 		{
 		case EMaterialBlendMode::Opaque:
@@ -337,8 +313,7 @@ namespace Durin
 		case EMaterialBlendMode::Translucent:
 			break;
 		default:
-			OutError = "Material blend mode is invalid.";
-			return false;
+			return {EMaterialPropertyError::BlendModeInvalid};
 		}
 		switch (Properties.ShadingModel)
 		{
@@ -346,8 +321,7 @@ namespace Durin
 		case EMaterialShadingModel::Unlit:
 			break;
 		default:
-			OutError = "Material shading model is invalid.";
-			return false;
+			return {EMaterialPropertyError::ShadingModelInvalid};
 		}
 		switch (Properties.DepthWritePolicy)
 		{
@@ -356,16 +330,14 @@ namespace Durin
 		case EMaterialDepthWritePolicy::Disabled:
 			break;
 		default:
-			OutError = "Material depth-write policy is invalid.";
-			return false;
+			return {EMaterialPropertyError::DepthWritePolicyInvalid};
 		}
 		if (!std::isfinite(Properties.OpacityMaskThreshold)
 			|| Properties.OpacityMaskThreshold < 0.0f
 			|| Properties.OpacityMaskThreshold > 1.0f)
 		{
-			OutError = "Material opacity-mask threshold must be finite and in the inclusive range [0, 1].";
-			return false;
+			return {EMaterialPropertyError::InvalidOpacityMaskThreshold};
 		}
-		return true;
+		return {};
 	}
 }

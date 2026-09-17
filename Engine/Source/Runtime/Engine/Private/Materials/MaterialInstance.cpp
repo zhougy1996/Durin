@@ -102,9 +102,9 @@ namespace Durin
 	auto DMaterialInstance::SetParentAndPropertyOverrides(DMaterialInterface* InParent,
 		const FMaterialPropertyOverrides& Overrides) -> bool
 	{
-		std::string Error;
+		Durin::FMaterialOperationResult Error;
 		if (WouldCreateParentCycle(this, InParent)
-			|| !ValidateMaterialStaticProperties(Overrides.Values, Error)) return false;
+			|| !(Error = ValidateMaterialStaticProperties(Overrides.Values))) return false;
 		const bool bParentChanged = Parent != InParent;
 		if (!bParentChanged && PropertyOverrides == Overrides) return true;
 		Parent = InParent;
@@ -130,7 +130,9 @@ namespace Durin
 		{
 			const auto* Overrides = Proposal.DraftRootProperty->ContainerPtrToValuePtr<FMaterialPropertyOverrides>(
 				Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex);
-			return ValidateMaterialStaticProperties(Overrides->Values, OutError);
+			const auto Validation = ValidateMaterialStaticProperties(Overrides->Values);
+			OutError = FormatMaterialError(Validation.Error);
+			return static_cast<bool>(Validation);
 		}
 		if (!Proposal.MemberProperty || Proposal.MemberProperty->NamePrivate != FName("Parent")
 			|| !Proposal.DraftRootProperty || !Proposal.DraftRootContainer) return true;
@@ -183,8 +185,8 @@ namespace Durin
 	auto DMaterialInstance::GetStaticProperties() const -> const FMaterialStaticProperties&
 	{
 		FResolvedMaterialProperties Resolved;
-		std::string Error;
-		ResolvedStaticProperties = ResolveMaterialProperties(*this, Resolved, Error)
+		Durin::FMaterialOperationResult Error;
+		ResolvedStaticProperties = (Error = ResolveMaterialProperties(*this, Resolved))
 			? Resolved.Properties : FMaterialStaticProperties{};
 		return ResolvedStaticProperties;
 	}
@@ -194,8 +196,8 @@ namespace Durin
 		-> std::shared_ptr<const FMaterialCompilerResult>
 	{
 		FResolvedMaterialProperties Resolved;
-		std::string Error;
-		if (!ResolveMaterialProperties(*this, Resolved, Error)) return nullptr;
+		const auto Error = ResolveMaterialProperties(*this, Resolved);
+		if (!Error) return nullptr;
 		return Super::GetAcceptedCompiledProgram();
 	}
 
@@ -207,8 +209,8 @@ namespace Durin
 	auto DMaterialInstance::GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition>
 	{
 		FResolvedMaterialProperties Resolved;
-		std::string Error;
-		if (!ResolveMaterialProperties(*this, Resolved, Error)) return {};
+		const auto Error = ResolveMaterialProperties(*this, Resolved);
+		if (!Error) return {};
 		auto* Root = Cast<DMaterialInterface>(ResolveObjectKey(Resolved.Root));
 		return Root ? Root->GetParameterDefinitions() : std::span<const FMaterialParameterDefinition>{};
 	}
@@ -431,10 +433,10 @@ namespace Durin
 			DURIN_ERROR("PostLoad '{}': material instance parent cycle; clearing parent.", GetObjectPath());
 			Parent = nullptr;
 		}
-		std::string Error;
-		if (!ValidateMaterialStaticProperties(PropertyOverrides.Values, Error))
+		const auto Error = ValidateMaterialStaticProperties(PropertyOverrides.Values);
+		if (!Error)
 		{
-			DURIN_ERROR("PostLoad '{}': {}; disabling static property overrides.", GetObjectPath(), Error);
+			DURIN_ERROR("PostLoad '{}': {}; disabling static property overrides.", GetObjectPath(), FormatMaterialError(Error.Error));
 			PropertyOverrides = {};
 		}
 		if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
@@ -442,8 +444,8 @@ namespace Durin
 			CompilationOwner.RenderLayer = {};
 			if (CookedProgramData.GetMetadata().LogicalSize == 0)
 			{
-				MaterialCookDiagnostic = "Cooked material instance requires its own ProgramData field.";
-				DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), MaterialCookDiagnostic);
+				MaterialCookDiagnostic = EMaterialCookError::ProgramUnavailable;
+				DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), FormatMaterialError(MaterialCookDiagnostic));
 			}
 		}
 		else RequestMaterialRecompile(*this);

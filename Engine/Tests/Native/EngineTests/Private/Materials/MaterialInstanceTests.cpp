@@ -245,8 +245,8 @@ TEST(FMaterialInstanceTests, PerFieldPropertiesPreserveIntentAndResolveSourcesAc
 	ChildOverrides.bOverrideBlendMode = true;
 	ASSERT_TRUE(Child->SetPropertyOverrides(ChildOverrides));
 	Durin::FResolvedMaterialProperties Resolved;
-	std::string Error;
-	ASSERT_TRUE(Durin::ResolveMaterialProperties(*Child, Resolved, Error)) << Error;
+	Durin::FMaterialOperationResult Error;
+	ASSERT_TRUE((Error = Durin::ResolveMaterialProperties(*Child, Resolved))) << Durin::FormatMaterialError(Error.Error);
 	EXPECT_TRUE(Resolved.Properties.bTwoSided);
 	EXPECT_FLOAT_EQ(Resolved.Properties.OpacityMaskThreshold, 0.75f);
 	EXPECT_FLOAT_EQ(Resolved.ShaderProperties.OpacityMaskThreshold, 0.333f);
@@ -300,15 +300,15 @@ TEST(FMaterialInstanceTests, PropertyResolutionRejectsDepthOverflowAndCorruptCyc
 		Previous = Child;
 	}
 	FResolvedMaterialProperties Resolved;
-	std::string Error;
-	ASSERT_TRUE(ResolveMaterialProperties(*Previous, Resolved, Error)) << Error;
+	Durin::FMaterialOperationResult Error;
+	ASSERT_TRUE((Error = ResolveMaterialProperties(*Previous, Resolved))) << Durin::FormatMaterialError(Error.Error);
 	auto* Overflow = NewObject<DMaterialInstance>(nullptr, "PropertyOverflow");
 	EXPECT_FALSE(Overflow->SetParent(Previous));
 	auto* ParentProperty = Chain.front()->GetClass()->FindPropertyByName("Parent");
 	ASSERT_NE(ParentProperty, nullptr);
 	*ParentProperty->ContainerPtrToValuePtr<TObjectPtr<DMaterialInterface>>(Chain.front()) = Chain.back();
-	EXPECT_FALSE(ResolveMaterialProperties(*Previous, Resolved, Error));
-	EXPECT_FALSE(Error.empty());
+	EXPECT_FALSE((Error = ResolveMaterialProperties(*Previous, Resolved)));
+	EXPECT_EQ(Error.Error.Code, FMaterialError::FCode(EMaterialPropertyError::ParentCycleOrDepthExceeded));
 	*ParentProperty->ContainerPtrToValuePtr<TObjectPtr<DMaterialInterface>>(Chain.front()) = Root;
 	for (auto* Child : Chain) MarkAsGarbage(Child);
 	MarkAsGarbage(Overflow);

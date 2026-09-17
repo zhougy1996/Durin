@@ -102,8 +102,8 @@ namespace Durin
 					return false;
 				};
 				FResolvedMaterialProperties Resolved;
-				std::string Error;
-				if (!ResolveMaterialProperties(*Material, Resolved, Error)) return false;
+				const auto Error = ResolveMaterialProperties(*Material, Resolved);
+				if (!Error) return false;
 				const auto* Root = Cast<DMaterial>(ResolveObjectKey(Resolved.Root));
 				if (!Root) return false;
 				for (const auto& Expression : Root->GetExpressionCollection().Expressions)
@@ -124,7 +124,7 @@ namespace Durin
 	}
 
 	auto ResolveMaterialProperties(const DMaterialInterface& Material,
-		FResolvedMaterialProperties& OutProperties, std::string& OutError) -> bool
+		FResolvedMaterialProperties& OutProperties) -> FMaterialOperationResult
 	{
 		CheckMaterialQueryThread();
 		std::array<const DMaterialInterface*, MaterialMaximumParentDepth> Chain{};
@@ -135,8 +135,7 @@ namespace Durin
 			if (Count == Chain.size()
 				|| std::find(Chain.begin(), Chain.begin() + Count, Current) != Chain.begin() + Count)
 			{
-				OutError = "Material parent chain exceeds 64 owners or contains a cycle.";
-				return false;
+				return {EMaterialPropertyError::ParentCycleOrDepthExceeded};
 			}
 			if (!IsValid(Current)) break;
 			Chain[Count++] = Current;
@@ -144,24 +143,22 @@ namespace Durin
 		}
 		if (!Root)
 		{
-			OutError = "Material parent chain has no valid root material.";
-			return false;
+			return {EMaterialPropertyError::ParentChainNoValidRootMaterial};
 		}
 		FResolvedMaterialProperties Result;
 		Result.Root = FObjectKey(const_cast<DMaterial*>(Root));
 		Result.Properties = Root->GetStaticProperties();
-		if (!ValidateMaterialStaticProperties(Result.Properties, OutError)) return false;
+		if (const auto Validation = ValidateMaterialStaticProperties(Result.Properties); !Validation) return Validation;
 		Result.Sources.fill(Result.Root);
 		while (Count > 1)
 		{
 			const auto* Instance = Cast<DMaterialInstance>(Chain[--Count - 1]);
 			if (!Instance)
 			{
-				OutError = "Material parent chain contains an unsupported material owner.";
-				return false;
+				return {EMaterialPropertyError::ParentChainContainsUnsupportedMaterialOwner};
 			}
 			const auto& Overrides = Instance->GetPropertyOverrides();
-			if (!ValidateMaterialStaticProperties(Overrides.Values, OutError)) return false;
+			if (const auto Validation = ValidateMaterialStaticProperties(Overrides.Values); !Validation) return Validation;
 			Overrides.ApplyTo(Result.Properties);
 			const std::array Enabled{Overrides.bOverrideBlendMode, Overrides.bOverrideShadingModel,
 				Overrides.bOverrideOpacityMaskThreshold, Overrides.bOverrideTwoSided,
@@ -171,8 +168,7 @@ namespace Durin
 		}
 		Result.ShaderProperties = CanonicalizeMaterialShaderProperties(Result.Properties);
 		OutProperties = Result;
-		OutError.clear();
-		return true;
+		return {};
 	}
 
 	auto GetMaterialLoadedQueryDiagnostics() -> FMaterialLoadedQueryDiagnostics
@@ -204,9 +200,9 @@ namespace Durin
 		CompilationOwner.LastObservedShaderProperties = CanonicalizeMaterialShaderProperties(CandidateProperties);
 		FModuleManager::Get().LoadModule("RenderCore");
 		FMaterialCompilerEnvironment Environment;
-		std::string EnvironmentError;
-		if (!BuildDefaultMaterialCompilerEnvironment(
-			Environment, EnvironmentError))
+		const auto EnvironmentError = BuildDefaultMaterialCompilerEnvironment(
+			Environment);
+		if (!EnvironmentError)
 		{
 			CompilationOwner.MaterialCompileStatus.RequestGeneration =
 				CompilationOwner.MaterialCompileStatus.RequestGeneration
@@ -219,7 +215,7 @@ namespace Durin
 				.Category = EMaterialCompileResultCategory::Dependency,
 				.Source = {
 					.Category = EMaterialProgramDiagnosticCategory::Dependency,
-					.Message = std::move(EnvironmentError)},
+					.Error = std::move(EnvironmentError.Error)},
 				.AssetPath = GetObjectPath(),
 				.Generation = CompilationOwner.MaterialCompileStatus.RequestGeneration,
 			}};
@@ -355,8 +351,7 @@ namespace Durin
 			&& GetAssetRuntimeConfiguration().RequiresCookedPayload()
 			&& CookedProgramData.GetMetadata().LogicalSize != 0)
 		{
-			std::string Error;
-			const_cast<DMaterialInterface*>(this)->LoadCookedProgram(Error);
+			const_cast<DMaterialInterface*>(this)->LoadCookedProgram();
 		}
 		return CompilationOwner.RenderLayer.CompiledProgram;
 	}
@@ -479,15 +474,15 @@ namespace Durin
 			auto* Owner = Cast<DMaterialInstance>(Object);
 			if (!IsValid(Owner)) continue;
 			FResolvedMaterialProperties Resolved;
-			std::string Error;
-			if (ResolveMaterialProperties(*Owner, Resolved, Error)) continue;
+			const auto Error = ResolveMaterialProperties(*Owner, Resolved);
+			if (Error) continue;
 			FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Owner);
 			auto& Status = Owner->CompilationOwner.MaterialCompileStatus;
 			Status.State = EMaterialCompileState::Failed;
 			Status.ResultCategory = EMaterialCompileResultCategory::Dependency;
 			Owner->CompilationOwner.MaterialCompileDiagnostics = {{
 				.Category = EMaterialCompileResultCategory::Dependency,
-				.Source = {.Category = EMaterialProgramDiagnosticCategory::Dependency, .Message = Error},
+				.Source = {.Category = EMaterialProgramDiagnosticCategory::Dependency, .Error = Error.Error},
 				.AssetPath = Owner->GetObjectPath(), .Generation = Status.RequestGeneration}};
 			Owner->RetireFailedMaterialGeneration(&Context);
 			Notifications.emplace_back(Owner);
@@ -532,8 +527,8 @@ namespace Durin
 		// ResolveParameterValue per active parameter repeats all of that work.
 		std::unordered_map<FGuid, FResolvedMaterialParameter> Parameters;
 		FResolvedMaterialProperties Properties;
-		std::string Error;
-		if (ResolveMaterialProperties(*this, Properties, Error))
+		const auto Error = ResolveMaterialProperties(*this, Properties);
+		if (Error)
 		{
 			auto* Root = Cast<DMaterial>(ResolveObjectKey(Properties.Root));
 			const auto Definitions = Root->GetParameterDefinitions();

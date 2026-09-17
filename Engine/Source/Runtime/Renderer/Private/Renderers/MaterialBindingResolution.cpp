@@ -19,7 +19,7 @@ namespace Durin::RendererPrivate
 		ResourceDiagnostic.Error = MakeRendererResourceCreateError(
 			ERenderResourceCreateErrorCategory::ShaderBinding,
 			std::string(DiagnosticResource), "prepared-material",
-			Diagnostic.Message,
+			Durin::FormatMaterialError(Diagnostic.Error),
 			ERenderResourceGenerationDependency::Manual);
 		ReportRendererResourceCreateDiagnostic(ResourceDiagnostic);
 		return false;
@@ -49,7 +49,7 @@ namespace Durin::RendererPrivate
 				"layout-version={},layout-id={}",
 				RejectedIdentity.Version,
 				RejectedIdentity.Id.ToString()),
-			std::format("{} ErrorMaterial was selected.", Diagnostic.Message),
+			std::format("{} ErrorMaterial was selected.", Durin::FormatMaterialError(Diagnostic.Error)),
 			ERenderResourceGenerationDependency::Manual);
 		ReportRendererResourceCreateDiagnostic(ResourceDiagnostic);
 
@@ -64,7 +64,7 @@ namespace Durin::RendererPrivate
 		checkf(
 			false,
 			"ErrorMaterial must satisfy the compiled layout binding contract: %s",
-			ErrorDiagnostic.Message.c_str());
+			Durin::FormatMaterialError(ErrorDiagnostic.Error).c_str());
 		return false;
 	}
 }

@@ -20,11 +20,11 @@ namespace Durin
 			FMaterialProgramLiteral{Outputs.MetallicDefault}, FMaterialProgramLiteral{Outputs.RoughnessDefault},
 			FMaterialProgramLiteral{Outputs.AmbientOcclusionDefault}, Vector(Outputs.EmissiveDefault),
 			FMaterialProgramLiteral{Outputs.OpacityDefault}, FMaterialProgramLiteral{Outputs.OpacityMaskDefault}};
-		auto OutputError = [&](uint32 Index, std::string Message) {
+		auto OutputError = [&](uint32 Index, FMaterialError Error) {
 			if (Result.Diagnostics.empty())
 				Result.Diagnostics.push_back({.Category = EMaterialProgramDiagnosticCategory::Type,
 					.LocationKind = EMaterialProgramDiagnosticLocationKind::SurfaceOutput,
-					.LocationIndex = Index, .Message = std::move(Message)});
+					.LocationIndex = Index, .Error = std::move(Error)});
 		};
 		auto ValidSelector = [](const FMaterialExpressionInput& Input) {
 			return Input.ExpressionId.IsValid() || (Input.OutputIndex == 0 && !Input.OutputId.IsValid());
@@ -34,15 +34,15 @@ namespace Durin
 		const FMaterialSurfaceOutputs StandardDefaults;
 		const auto OutputLinks = std::ranges::count_if(Inputs, [](const auto& Input) { return Input.ExpressionId.IsValid(); })
 			+ (Outputs.Surface.ExpressionId.IsValid() ? 1 : 0);
-		if (AuthoredLinks + OutputLinks > MaterialProgramMaxLinkCount) OutputError(0, "Material output connections exceed the authored link bound.");
-		if (!ValidSelector(Outputs.Surface)) OutputError(0, "Disconnected Surface output has an output selector.");
+		if (AuthoredLinks + OutputLinks > MaterialProgramMaxLinkCount) OutputError(0, EMaterialExpressionError::OutputConnectionsExceedAuthoredLinkBound);
+		if (!ValidSelector(Outputs.Surface)) OutputError(0, EMaterialExpressionError::DisconnectedSurfaceOutputOutputSelector);
 		for (uint32 Index = 0; Index < Inputs.size() && Result.Diagnostics.empty(); ++Index)
 		{
 			const auto& Input = Inputs[Index];
 			const auto& Default = Defaults[Index];
 			if (!ValidSelector(Input) || !std::isfinite(Default.X) || !std::isfinite(Default.Y) || !std::isfinite(Default.Z))
 			{
-				OutputError(Index, "Material output has an invalid selector or retained default.");
+				OutputError(Index, EMaterialExpressionError::OutputInvalidSelectorRetainedDefault);
 				break;
 			}
 			auto& Root = Result.IR.SurfaceRoot.Inputs[Index];
@@ -52,7 +52,12 @@ namespace Durin
 			const auto ExpressionIndex = *BroadcastScalar(ResolveIndex(Input), Root.Type).GetIndex();
 			if (!bAggregate) { Root.ExpressionIndex = ExpressionIndex; Root.bExpression = true; }
 			if (Result.Diagnostics.empty() && Result.IR.Nodes[ExpressionIndex].ResultType != Root.Type)
-				OutputError(Index, "Material output source has an incompatible type.");
+				{
+				FMaterialError Error(EMaterialExpressionError::OutputSourceIncompatibleType);
+				Error.ExpectedType = Root.Type;
+				Error.ActualType = Result.IR.Nodes[ExpressionIndex].ResultType;
+				OutputError(Index, std::move(Error));
+			}
 		}
 		if (Outputs.Surface.ExpressionId.IsValid() && Result.Diagnostics.empty())
 		{
@@ -60,7 +65,7 @@ namespace Durin
 			const auto ExpressionIndex = ResolveIndex(Outputs.Surface);
 			if (bAggregate) { Root.bAggregate = true; Root.AggregateExpressionIndex = ExpressionIndex; }
 			if (Result.Diagnostics.empty() && Result.IR.Nodes[ExpressionIndex].ResultType != EMaterialProgramValueType::Surface)
-				OutputError(0, "Aggregate material output requires a Surface expression.");
+				OutputError(0, EMaterialExpressionError::AggregateMaterialOutputRequiresSurfaceExpression);
 		}
 		return Finish({});
 	}
@@ -118,7 +123,7 @@ namespace Durin
 		const auto* Owner = Cast<DMaterial>(Root);
 		if (!Owner)
 		{
-			Validation.Diagnostics.push_back({.Message = "Material has no typed expression owner."});
+			Validation.Diagnostics.push_back({.Error = EMaterialExpressionError::NoTypedExpressionOwner});
 			return Validation;
 		}
 		std::vector<DMaterialExpression*> Expressions;
@@ -170,7 +175,7 @@ namespace Durin
 			auto Result = std::make_shared<FMaterialParameterReachability>();
 			if (!Program)
 			{
-				Result->Validation.Diagnostics.push_back({.Message = "Material has no accepted compiled program."});
+				Result->Validation.Diagnostics.push_back({.Error = EMaterialExpressionError::NoAcceptedCompiledProgram});
 				return Result;
 			}
 			for (const auto& Parameter : Program->ActiveParameters) Result->ParameterIds.insert(Parameter.Id);
@@ -183,11 +188,11 @@ namespace Durin
 		}
 
 		FResolvedMaterialProperties Properties;
-		std::string Error;
-		if (!ResolveMaterialProperties(*this, Properties, Error))
+		const auto Error = ResolveMaterialProperties(*this, Properties);
+		if (!Error)
 		{
 			auto Result = std::make_shared<FMaterialParameterReachability>();
-			Result->Validation.Diagnostics.push_back({.Message = std::move(Error)});
+			Result->Validation.Diagnostics.push_back({.Error = std::move(Error.Error)});
 			return Result;
 		}
 		const auto* Root = Cast<DMaterial>(ResolveObjectKey(Properties.Root));

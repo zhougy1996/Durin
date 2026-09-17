@@ -35,7 +35,7 @@ namespace Durin
 	{
 		EMaterialRenderValidationFailure Failure = EMaterialRenderValidationFailure::None;
 		uint32 FieldIndex = 0;
-		std::string Message;
+		FMaterialError Error;
 	};
 
 	struct FMaterialRenderRepresentationInput

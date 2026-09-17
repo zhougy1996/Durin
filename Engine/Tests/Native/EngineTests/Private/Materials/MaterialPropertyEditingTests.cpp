@@ -190,9 +190,9 @@ TEST(FMaterialPropertyEditingTests, StaticPropertiesHaveStableDefaultsAndInstanc
 	EXPECT_EQ(Base->GetStaticProperties(), Properties);
 	EXPECT_EQ(Base->GetRenderStateVersion(), InitialVersion);
 
-	std::string Error;
-	EXPECT_FALSE(Durin::ValidateMaterialStaticProperties(Invalid, Error));
-	EXPECT_FALSE(Error.empty());
+	Durin::FMaterialOperationResult Error;
+	EXPECT_FALSE((Error = Durin::ValidateMaterialStaticProperties(Invalid)));
+	EXPECT_TRUE(Error.Error.HasError());
 
 	Durin::MarkAsGarbage(Child);
 	Durin::MarkAsGarbage(Parent);

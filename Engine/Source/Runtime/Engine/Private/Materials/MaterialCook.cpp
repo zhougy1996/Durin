@@ -10,41 +10,46 @@
 
 namespace Durin
 {
-	auto DMaterialInterface::LoadCookedProgram(std::string& OutError) -> bool
+	auto DMaterialInterface::LoadCookedProgram() -> FMaterialOperationResult
 	{
-		auto FailCooked = [&](std::string Message) {
-			MaterialCookDiagnostic = std::format(
-				"Cooked Material '{}': {}", GetObjectPath(), Message);
-			OutError = MaterialCookDiagnostic;
-			return false;
+		auto FailCooked = [&](FMaterialError Error) -> FMaterialOperationResult {
+			MaterialCookDiagnostic = Error;
+			return {std::move(Error)};
 		};
 		auto Read = CookedProgramData.AcquireRead();
-		if (!Read) return FailCooked(Read.Error.Message);
+		if (!Read)
+		{
+			FMaterialError Error(EMaterialCookError::PayloadReadFailed);
+			Error.BulkStatus = Read.Status;
+			Error.ResourceStatus = Read.Error.Status;
+			return FailCooked(std::move(Error));
+		}
 		const FByteView Bytes = Read.Lock.GetBytes();
 
 		FMaterialStaticProperties PayloadProperties;
 		std::shared_ptr<const FMaterialCompilerResult> ProgramCandidate;
-		if (!DecodeMaterialCookedProgram(
+		const auto Decoded = DecodeMaterialCookedProgram(
 			Bytes,
 			ECookTargetPlatform::Win64,
 			ECookTargetProfile::Game,
-			PayloadProperties, ProgramCandidate, OutError))
+			PayloadProperties, ProgramCandidate);
+		if (!Decoded)
 		{
-			return FailCooked(OutError);
+			return FailCooked(Decoded.Error);
 		}
 		auto ExpectedProperties = GetStaticProperties();
 		ExpectedProperties.OpacityMaskThreshold = CanonicalizeMaterialShaderProperties(ExpectedProperties).OpacityMaskThreshold;
 		if (PayloadProperties != ExpectedProperties)
 		{
 			return FailCooked(
-				"payload static properties do not match package metadata.");
+				EMaterialCookError::StaticPropertiesMismatch);
 		}
 		for (const auto& Parameter : ProgramCandidate->ActiveParameters)
 		{
 			const auto* Definition = FindParameterDefinition(Parameter.Id);
 			if (!Definition || Definition->Type != Parameter.Type)
 			{
-				return FailCooked("payload parameter contract does not match package metadata.");
+				return FailCooked(EMaterialCookError::ParameterContractMismatch);
 			}
 		}
 		Read.Lock.Reset();
@@ -64,12 +69,9 @@ namespace Durin
 			CompilationOwner.RenderLayer.CompiledProgram->Identity;
 		CompilationOwner.MaterialCompileStatus.Target = CompilationOwner.RenderLayer.CompiledProgram->Target;
 		CompilationOwner.MaterialCompileDiagnostics.clear();
-		MaterialCookDiagnostic = std::format(
-			"Loaded cooked material program {} for '{}'.",
-			CompilationOwner.RenderLayer.CompiledProgram->Identity.ToString(), GetObjectPath());
+		MaterialCookDiagnostic = {};
 		PublishMaterialRenderProxyState();
-		OutError.clear();
-		return true;
+		return {};
 	}
 
 	auto DMaterialInterface::SerializeCooked(FArchive& Ar) -> void
@@ -97,14 +99,18 @@ namespace Durin
 				return;
 			}
 			FByteBuffer Bytes;
-			std::string Error;
-			if (!EncodeMaterialCookedProgram(
-					*CompilationOwner.RenderLayer.CompiledProgram, GetRenderableStaticProperties(),
-					ECookTargetPlatform::Win64,
-					ECookTargetProfile::Game, Bytes, Error)
-				|| !FBulkData::TryCreateDetached(Bytes, Projection, &Error))
+			const auto Encoded = EncodeMaterialCookedProgram(
+				*CompilationOwner.RenderLayer.CompiledProgram, GetRenderableStaticProperties(),
+				ECookTargetPlatform::Win64, ECookTargetProfile::Game, Bytes);
+			if (!Encoded)
 			{
-				Ar.Fail(EArchiveFailureCode::InvalidData, std::move(Error));
+				Ar.Fail(EArchiveFailureCode::InvalidData, FormatMaterialError(Encoded.Error));
+				return;
+			}
+			std::string BulkError;
+			if (!FBulkData::TryCreateDetached(Bytes, Projection, &BulkError))
+			{
+				Ar.Fail(EArchiveFailureCode::InvalidData, BulkError);
 				return;
 			}
 			FieldValue = &Projection;

@@ -121,22 +121,19 @@ namespace Durin
 			AppendLittleEndian(Bytes, Node.GetSwizzle().Components[3]);
 		}
 
-		auto MakeNormalizationFailure(std::string Message)
+		auto MakeNormalizationFailure(FMaterialError Error)
 			-> FMaterialProgramDiagnostic
 		{
-			if (Message.size() > MaterialProgramMaxDiagnosticMessageBytes)
-				Message.resize(MaterialProgramMaxDiagnosticMessageBytes);
 			return {
 				.Category = EMaterialProgramDiagnosticCategory::Normalization,
 				.LocationKind =
 					EMaterialProgramDiagnosticLocationKind::Program,
-				.Message = std::move(Message)};
+				.Error = std::move(Error)};
 		}
 	}
 
 	auto BuildDefaultMaterialCompilerEnvironment(
-		FMaterialCompilerEnvironment& OutEnvironment,
-		std::string& OutError) -> bool
+		FMaterialCompilerEnvironment& OutEnvironment) -> FMaterialOperationResult
 	{
 		FShaderCompileOptions Options;
 		Options.EntryPoints = {
@@ -149,10 +146,13 @@ namespace Durin
 		Options.Macros.emplace_back(
 			"DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS", "1056964608");
 		FShaderSourceDependencyFingerprint SourceTree;
+		std::string ProviderError;
 		if (!BuildShaderSourceTreeFingerprint(
 			"/Engine/MaterialCompilerEnvironment", Options, SourceTree,
-			OutError))
-			return false;
+			ProviderError))
+		{
+			return {FMaterialError::FromExternal(EMaterialCompileError::ShaderEnvironmentUnavailable, std::move(ProviderError))};
+		}
 
 		FMaterialCompilerEnvironment Environment;
 		if (const auto* Capabilities = GDynamicRHI ? GDynamicRHI->RHIGetCapabilities() : nullptr)
@@ -170,18 +170,18 @@ namespace Durin
 			.VirtualPath = std::move(SourceTree.VirtualPath),
 			.ContentHash = SourceTree.ContentHash});
 		OutEnvironment = std::move(Environment);
-		return true;
+		return {};
 	}
 
 	static auto ValidateNormalizationEnvironment(const FMaterialIRCompilerInput& Input) -> FMaterialNormalizationResult
 	{
 		FMaterialNormalizationResult Result;
-		std::string StaticPropertiesError;
-		if (!ValidateMaterialStaticProperties(
-			Input.StaticProperties, StaticPropertiesError))
+		const auto StaticPropertiesError = ValidateMaterialStaticProperties(
+			Input.StaticProperties);
+		if (!StaticPropertiesError)
 		{
 			Result.Diagnostics.push_back(MakeNormalizationFailure(
-				std::move(StaticPropertiesError)));
+				std::move(StaticPropertiesError.Error)));
 			return Result;
 		}
 		if (Input.Environment.CompilerIdentity.empty()
@@ -194,7 +194,7 @@ namespace Durin
 			|| Input.Environment.Dependencies.size() > 64)
 		{
 			Result.Diagnostics.push_back(MakeNormalizationFailure(
-				"Material compiler environment identity, target, pass contract, or dependency bounds are invalid."));
+				EMaterialIRError::InvalidCompilerEnvironment));
 			return Result;
 		}
 		for (size_t Index = 0;
@@ -214,7 +214,7 @@ namespace Durin
 				|| Dependency.ContentHash.IsZero())
 			{
 				Result.Diagnostics.push_back(MakeNormalizationFailure(
-					"Material compiler dependency manifest contains an invalid entry."));
+					EMaterialIRError::CompilerDependencyManifestContainsInvalidEntry));
 				return Result;
 			}
 			for (size_t Other = 0; Other < Index; ++Other)
@@ -222,7 +222,7 @@ namespace Durin
 					== Dependency.VirtualPath)
 				{
 					Result.Diagnostics.push_back(MakeNormalizationFailure(
-						"Material compiler dependency manifest contains a duplicate virtual path."));
+						EMaterialIRError::CompilerDependencyManifestContainsDuplicateVirtualPath));
 					return Result;
 				}
 		}
@@ -240,7 +240,7 @@ namespace Durin
 		if (!Validation) { Result.Diagnostics = std::move(Validation.Diagnostics); return Result; }
 		if (Input.Sources.size() > MaterialFunctionMaxExpandedNodes)
 		{
-			Result.Diagnostics.push_back(MakeNormalizationFailure("IR source metadata count exceeds its bound."));
+			Result.Diagnostics.push_back(MakeNormalizationFailure(EMaterialIRError::SourceMetadataCountExceedsBound));
 			return Result;
 		}
 		uint64 SourceBytes = 0;
@@ -252,7 +252,7 @@ namespace Durin
 				|| (Source.InputIndex && *Source.InputIndex >= MaterialProgramMaxNodeInputCount)
 				|| (Source.UVFieldIndex && *Source.UVFieldIndex >= 4))
 			{
-				Result.Diagnostics.push_back(MakeNormalizationFailure("IR source metadata is invalid or exceeds its bound."));
+				Result.Diagnostics.push_back(MakeNormalizationFailure(EMaterialIRError::SourceMetadataInvalidExceedsBound));
 				return Result;
 			}
 		}
@@ -378,35 +378,32 @@ namespace Durin
 		auto Layout = CompileMaterialLayout(Result.ActiveParameters, Input.Environment.ResourceLimits);
 		if (!Layout)
 		{
-			Result.Diagnostics.push_back(MakeNormalizationFailure(std::string(GetMaterialLayoutErrorText(Layout.Validation.Error))));
+			Result.Diagnostics.push_back(MakeNormalizationFailure(FMaterialError(Layout.Validation)));
 			return Result;
 		}
-		std::string Error;
-		if (!EncodeMaterialIRCanonical(IR, Result.CanonicalBytes, Error))
+		const auto Error = EncodeMaterialIRCanonical(IR, Result.CanonicalBytes);
+		if (!Error)
 		{
-			Result.Diagnostics.push_back(MakeNormalizationFailure(std::move(Error)));
+			Result.Diagnostics.push_back(MakeNormalizationFailure(std::move(Error.Error)));
 			return Result;
 		}
 		Result.Layout = std::move(Layout.Layout);
 		Result.Identity = BuildMaterialProgramIdentity(Input, Result.CanonicalBytes, Result.Layout);
 		Result.IR = std::move(IR);
 		Result.bSucceeded = Result.Identity.IsValid();
-		if (!Result.bSucceeded) Result.Diagnostics.push_back(MakeNormalizationFailure("Material IR identity unexpectedly resolved to zero."));
+		if (!Result.bSucceeded) Result.Diagnostics.push_back(MakeNormalizationFailure(EMaterialIRError::IdentityUnexpectedlyResolvedZero));
 		return Result;
 	}
 
 	auto EncodeMaterialIRCanonical(
 		const FMaterialIR& IR,
-		FByteBuffer& OutBytes,
-		std::string& OutError) -> bool
+		FByteBuffer& OutBytes) -> FMaterialOperationResult
 	{
 		OutBytes.clear();
-		OutError.clear();
 		if (IR.Version != CurrentMaterialIRVersion
 			|| IR.Nodes.size() > MaterialFunctionMaxExpandedNodes)
 		{
-			OutError = "Material IR version, node count, or surface output count is invalid.";
-			return false;
+			return {EMaterialIRError::InvalidStructure};
 		}
 		constexpr std::string_view Domain = "DurinMaterialProgramIR";
 		OutBytes.insert(OutBytes.end(),
@@ -420,8 +417,7 @@ namespace Durin
 			if (!Node.HasValidPayload())
 			{
 				OutBytes.clear();
-				OutError = "Material IR opcode and immediate payload do not agree.";
-				return false;
+				return {EMaterialIRError::OpcodePayloadMismatch};
 			}
 			AppendIRNode(OutBytes, Node);
 		}
@@ -433,8 +429,7 @@ namespace Durin
 					!= EMaterialProgramValueType::Surface))
 		{
 			OutBytes.clear();
-			OutError = "Material IR aggregate Surface Root expression is invalid.";
-			return false;
+			return {EMaterialIRError::AggregateSurfaceRootExpressionInvalid};
 		}
 		for (size_t Index = 0; Index < IR.SurfaceRoot.Inputs.size(); ++Index)
 		{
@@ -449,17 +444,15 @@ namespace Durin
 				|| Input.Type != GetMaterialSurfaceOutputType(GSurfaceOutputOrder[Index]))
 			{
 				OutBytes.clear();
-				OutError = "Material IR per-property Surface Root input is invalid.";
-				return false;
+				return {EMaterialIRError::PerPropertySurfaceRootInputInvalid};
 			}
 		}
 		if (OutBytes.size() > MaterialProgramMaxCanonicalBytes)
 		{
 			OutBytes.clear();
-			OutError = "Material IR canonical bytes exceed the version-2 bound.";
-			return false;
+			return {EMaterialIRError::CanonicalBytesExceedVersion2Bound};
 		}
-		return true;
+		return {};
 	}
 
 	static auto BuildInputIdentity(

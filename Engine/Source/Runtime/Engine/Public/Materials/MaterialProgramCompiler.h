@@ -188,9 +188,8 @@ namespace Durin
 		-> FMaterialProgramValidationResult;
 	ENGINE_API auto AreMaterialFunctionOwnersCurrent(std::span<const FMaterialFunctionOwnerStamp> Owners) -> bool;
 
-	ENGINE_API auto BuildDefaultMaterialCompilerEnvironment(
-		FMaterialCompilerEnvironment& OutEnvironment,
-		std::string& OutError) -> bool;
+	[[nodiscard]] ENGINE_API auto BuildDefaultMaterialCompilerEnvironment(
+		FMaterialCompilerEnvironment& OutEnvironment) -> FMaterialOperationResult;
 
 	ENGINE_API auto NormalizeMaterialIR(const FMaterialIRCompilerInput& Input) -> FMaterialNormalizationResult;
 	[[nodiscard]] ENGINE_API auto ValidateMaterialIR(const FMaterialIR& IR,
@@ -198,10 +197,9 @@ namespace Durin
 	[[nodiscard]] ENGINE_API auto ValidateMaterialIR(const FMaterialIR& IR,
 		std::span<const FMaterialCompilerParameterDeclaration> Parameters) -> FMaterialProgramValidationResult;
 
-	ENGINE_API auto EncodeMaterialIRCanonical(
+	[[nodiscard]] ENGINE_API auto EncodeMaterialIRCanonical(
 		const FMaterialIR& IR,
-		FByteBuffer& OutBytes,
-		std::string& OutError) -> bool;
+		FByteBuffer& OutBytes) -> FMaterialOperationResult;
 
 	ENGINE_API auto BuildMaterialProgramIdentity(const FMaterialIRCompilerInput& Input,
 		FByteView CanonicalIR, const FMaterialRenderLayout& Layout) -> FMaterialProgramIdentity;
@@ -219,9 +217,8 @@ namespace Durin
 	[[nodiscard]] ENGINE_API auto ValidateMaterialCompiledStages(
 		std::span<const FCompiledShader> Stages, const FMaterialRenderLayout& Layout,
 		const FMaterialCompilerResourceLimits& Limits = {}) -> FMaterialLayoutValidationResult;
-	ENGINE_API auto GenerateMaterialProgramSlang(
-		const FMaterialIR& IR, std::string& OutSource,
-		std::string& OutError) -> bool;
+	[[nodiscard]] ENGINE_API auto GenerateMaterialProgramSlang(
+		const FMaterialIR& IR) -> FMaterialSourceGenerationResult;
 	ENGINE_API auto CompileMaterialIR(const FMaterialIRCompilerInput& Input,
 		bool bForceRecompile = false) -> FMaterialCompilerResult;
 }

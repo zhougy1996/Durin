@@ -15,14 +15,14 @@ namespace Durin
 		if (Layout.Identity.Version != CompiledMaterialRenderLayoutVersion)
 		{
 			OutDiagnostic.Failure = EMaterialRenderValidationFailure::UnsupportedVersion;
-			OutDiagnostic.Message = "Material render layouts require compiled version 4; migrate and recompile older assets.";
+			OutDiagnostic.Error = EMaterialRenderError::UnsupportedLayoutVersion;
 			return false;
 		}
 		const auto Result = ValidateCompiledMaterialLayout(Layout);
 		if (Result) return true;
 		OutDiagnostic.Failure = EMaterialRenderValidationFailure::InvalidField;
 		OutDiagnostic.FieldIndex = Result.FieldIndex;
-		OutDiagnostic.Message = GetMaterialLayoutErrorText(Result.Error);
+		OutDiagnostic.Error = FMaterialError(Result);
 		return false;
 	}
 }

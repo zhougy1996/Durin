@@ -27,8 +27,8 @@ TEST(FMaterialExpressionTests, TypedSnapshotIsDetachedFromCopiedInputsAndLaterEd
 	Outputs.BaseColor = {Mask->Id}; Outputs.Roughness = {Roughness->Id};
 	ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 	FMaterialCompilerEnvironment Environment;
-	std::string Error;
-	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Environment, Error)) << Error;
+	Durin::FMaterialOperationResult Error;
+	ASSERT_TRUE((Error = BuildDefaultMaterialCompilerEnvironment(Environment))) << Durin::FormatMaterialError(Error.Error);
 	FMaterialIRCompilerInput Initial;
 	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Material, Environment, Initial));
 	const auto Before = NormalizeMaterialIR(Initial);
@@ -607,7 +607,7 @@ TEST(FMaterialExpressionTests, SamplingOutputSelectorsPreserveChannelsAndRejectR
 			SCOPED_TRACE(static_cast<int>(Index));
 			const auto Built = BuildMaterialExpressionGraph(Expressions, std::array{FMaterialExpressionInput{Expression->Id, Index}});
 			const bool Valid = Index <= 5 || (Expression == Parameter.Get() && Index == 7);
-			ASSERT_EQ(static_cast<bool>(Built), Valid) << (Built.Diagnostics.empty() ? "" : Built.Diagnostics.front().Message);
+			ASSERT_EQ(static_cast<bool>(Built), Valid) << (Built.Diagnostics.empty() ? "" : Durin::FormatMaterialError(Built.Diagnostics.front().Error));
 			if (!Valid) continue;
 			const auto& Root = Built.IR.Nodes[Built.Roots.front()];
 			EXPECT_EQ(Root.ResultType, Index == 0 ? EMaterialProgramValueType::Float4
@@ -653,10 +653,10 @@ TEST(FMaterialExpressionTests, BuildSamplesAndSurfaceAttributesWithoutProgramNod
 	ASSERT_TRUE(Source);
 	EXPECT_NE(Source.Source.find("Sample("), std::string::npos);
 	FMaterialIRCompilerInput CompilerInput{.IR = Built.IR, .Parameters = Built.Parameters, .Sources = Built.Sources};
-	std::string Error;
-	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(CompilerInput.Environment, Error)) << Error;
+	Durin::FMaterialOperationResult Error;
+	ASSERT_TRUE((Error = BuildDefaultMaterialCompilerEnvironment(CompilerInput.Environment))) << Durin::FormatMaterialError(Error.Error);
 	const auto Compiled = CompileMaterialIR(CompilerInput);
-	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "Missing diagnostic" : Compiled.Diagnostics.front().Message);
+	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "Missing diagnostic" : Durin::FormatMaterialError(Compiled.Diagnostics.front().Error));
 	EXPECT_EQ(Compiled.CompiledShaders.size(), 3u);
 	Get->AttributeMask = 2;
 	EXPECT_FALSE(BuildMaterialExpressionGraph(Expressions, Roots));
@@ -996,7 +996,7 @@ TEST(FMaterialExpressionTests, LocalCallsAdmitAllPortTypesAtTheAuthoredNodeBound
 		Expressions.push_back(Call);
 	}
 	const auto Validation = FMaterialExpressionBuildContext::ValidateSurface(Expressions, {});
-	ASSERT_TRUE(Validation) << (Validation.Diagnostics.empty() ? "" : Validation.Diagnostics.front().Message);
+	ASSERT_TRUE(Validation) << (Validation.Diagnostics.empty() ? "" : Durin::FormatMaterialError(Validation.Diagnostics.front().Error));
 }
 
 TEST(FMaterialExpressionTests, AuthoringFingerprintTracksCallPortsAndExcludesParameterDefaults)

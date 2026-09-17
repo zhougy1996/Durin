@@ -42,8 +42,8 @@ namespace Durin
 		std::array<FObjectKey, 5> Sources{};
 	};
 
-	ENGINE_API auto ResolveMaterialProperties(const DMaterialInterface& Material,
-		FResolvedMaterialProperties& OutProperties, std::string& OutError) -> bool;
+	[[nodiscard]] ENGINE_API auto ResolveMaterialProperties(const DMaterialInterface& Material,
+		FResolvedMaterialProperties& OutProperties) -> FMaterialOperationResult;
 
 	enum class EMaterialLoadedQueryOperation : uint8
 	{
@@ -135,7 +135,7 @@ namespace Durin
 		{
 			return CookedProgramData;
 		}
-		auto GetMaterialCookDiagnostic() const -> std::string_view
+		auto GetMaterialCookDiagnostic() const -> const FMaterialError&
 		{
 			return MaterialCookDiagnostic;
 		}
@@ -157,11 +157,11 @@ namespace Durin
 
 	protected:
 		ENGINE_API auto PostEditChangePropertyWithContext(const FPropertyChangedEvent& Event, FObjectCacheContext& Context) -> void;
-		ENGINE_API auto LoadCookedProgram(std::string& OutError) -> bool;
+		ENGINE_API auto LoadCookedProgram() -> FMaterialOperationResult;
 		// A transient runtime owner can select only an already compiled compatible variant.
 		ENGINE_API auto AdoptParentRuntimeProgram() -> bool;
 		FBulkData CookedProgramData;
-		std::string MaterialCookDiagnostic;
+		FMaterialError MaterialCookDiagnostic;
 		ENGINE_API auto RequestProgramCompile(
 			const FMaterialStaticProperties& CandidateProperties,
 			bool bForceRecompile = false, FObjectCacheContext* Context = nullptr) -> bool;

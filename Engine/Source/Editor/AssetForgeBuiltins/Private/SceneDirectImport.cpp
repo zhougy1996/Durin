@@ -593,7 +593,7 @@ namespace Durin::AssetForge::Builtins
 				const auto Valid = Recipe.Graph.Apply(*Parent);
 				if (!Valid)
 				{
-					Error = Valid.Diagnostics.empty() ? "Generated surface program is invalid." : Valid.Diagnostics.front().Message;
+					Error = Valid.Diagnostics.empty() ? "Generated surface program is invalid." : Durin::FormatMaterialError(Valid.Diagnostics.front().Error);
 					return nullptr;
 				}
 				if (!Parent->SetImportProvenance({.RecipeId = "Durin.ImportedSurface", .RecipeVersion = 1,
@@ -759,7 +759,7 @@ namespace Durin::AssetForge::Builtins
 			const auto Diagnostics = Material->GetMaterialCompileDiagnostics();
 			const std::string Message = Diagnostics.empty() ? std::format("Scene material variant is not ready: {} (state {}).",
 				Material->GetObjectPath(), static_cast<uint32>(Material->GetMaterialCompileStatus().State))
-				: Diagnostics.front().Source.Message;
+				: Durin::FormatMaterialError(Diagnostics.front().Source.Error);
 			Abandon(Prepared);
 			return AddError(OutResult, EImportDiagnosticCategory::ValidationFailure,
 				"scene-material-compile", Message);

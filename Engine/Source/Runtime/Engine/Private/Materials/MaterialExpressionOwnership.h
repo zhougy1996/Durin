@@ -6,7 +6,7 @@ namespace Durin::Private
 {
 	// Checks that the collection accounts for every expression child of this owner.
 	auto ValidateExpressionOwnership(const DObject& Owner,
-		const FMaterialExpressionCollection& Collection, std::string& OutError) -> bool;
+		const FMaterialExpressionCollection& Collection) -> FMaterialOperationResult;
 
 	// GameThread only. The caller validates graph semantics before applying.
 	// Duplicates every candidate before changing ownership; failure leaves the

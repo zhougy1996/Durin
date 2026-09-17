@@ -205,7 +205,7 @@ namespace Durin::Editor::Material::GraphEditInternals
 			for (auto& E : Expressions) VisitMaterialExpressionInputs(*E, [&](uint32, const FMaterialExpressionInput& Input) {
 				bMissingSource |= Input.ExpressionId.IsValid() && !Ids.contains(Input.ExpressionId);
 			});
-			if (bMissingSource) return MakeRejected("A connection refers to a missing expression.", {{.Message = "A connection refers to a missing expression."}});
+			if (bMissingSource) return MakeRejected("A connection refers to a missing expression.", {{.Error = EMaterialExpressionError::InputDisconnectedRefersMissingExpression}});
 			if (bFunction)
 			{
 				std::vector<DMaterialFunctionInterface*> Roots;

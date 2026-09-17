@@ -40,7 +40,9 @@ namespace Durin
 	auto DMaterialFunction::ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context, std::string& OutError) const -> bool
 	{
 		if (Context.bCooked) return true;
-		if (!Private::ValidateExpressionOwnership(*this, ExpressionCollection, OutError)) return false;
+		const auto OwnershipError = Private::ValidateExpressionOwnership(*this, ExpressionCollection);
+		if (!OwnershipError)
+		{ OutError = FormatMaterialError(OwnershipError.Error); return false; }
 		std::vector<DMaterialExpression*> Expressions;
 		for (const auto& Expression : ExpressionCollection.Expressions) Expressions.push_back(Expression.Get());
 		if (!FMaterialExpressionBuildContext::ValidateFunction(Expressions))

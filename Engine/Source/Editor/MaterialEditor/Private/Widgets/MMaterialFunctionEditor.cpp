@@ -419,7 +419,7 @@ namespace Durin::Editor::Material
 		if (WorkspaceUI::BeginDockablePanel(DockType, "Diagnostics", "Diagnostics"))
 		{
 			const auto DrawDiagnostic = [&](const FMaterialProgramDiagnostic& Diagnostic) {
-				if (ImGui::Selectable(Diagnostic.Message.c_str()))
+				if (ImGui::Selectable(FormatMaterialError(Diagnostic.Error).c_str()))
 				{
 					if (Diagnostic.FunctionAssetPath.empty() || Diagnostic.FunctionAssetPath == Function.GetObjectPath()) Document.Canvas.SelectAndFrame(Diagnostic.NodeId);
 					else if (Manager.OpenAsset(Diagnostic.FunctionAssetPath, DMaterialFunction::StaticClass()->GetQualifiedName().ToString()))

@@ -156,9 +156,9 @@ TEST(FMaterialQualificationTests, ColdAndWarmCompilerBaseline)
 	InitializeDObjectSystem();
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
 	Durin::FMaterialIRCompilerInput Input = MakeSyntheticMaterialCompilerInput();
-	std::string EnvironmentError;
-	ASSERT_TRUE(Durin::BuildDefaultMaterialCompilerEnvironment(
-		Input.Environment, EnvironmentError)) << EnvironmentError;
+	Durin::FMaterialOperationResult EnvironmentError;
+	ASSERT_TRUE((EnvironmentError = Durin::BuildDefaultMaterialCompilerEnvironment(
+		Input.Environment))) << Durin::FormatMaterialError(EnvironmentError.Error);
 	ASSERT_EQ(Input.Environment.Dependencies.size(), 1u);
 	EXPECT_EQ(Input.Environment.Dependencies.front().VirtualPath,
 		"/Engine/MaterialCompilerEnvironment");
@@ -167,11 +167,13 @@ TEST(FMaterialQualificationTests, ColdAndWarmCompilerBaseline)
 	ASSERT_TRUE(Normalized);
 	std::string FirstSource;
 	std::string SecondSource;
-	std::string Error;
-	ASSERT_TRUE(Durin::GenerateMaterialProgramSlang(
-		Normalized.IR, FirstSource, Error)) << Error;
-	ASSERT_TRUE(Durin::GenerateMaterialProgramSlang(
-		Normalized.IR, SecondSource, Error)) << Error;
+	Durin::FMaterialOperationResult Error;
+	const auto FirstSourceGeneration = Durin::GenerateMaterialProgramSlang(Normalized.IR);
+	ASSERT_TRUE(FirstSourceGeneration);
+	FirstSource = FirstSourceGeneration.Source;
+	const auto SecondSourceGeneration = Durin::GenerateMaterialProgramSlang(Normalized.IR);
+	ASSERT_TRUE(SecondSourceGeneration);
+	SecondSource = SecondSourceGeneration.Source;
 	EXPECT_EQ(FirstSource, SecondSource);
 	EXPECT_LE(FirstSource.size(), Durin::MaterialProgramMaxCanonicalBytes);
 	EXPECT_NE(FirstSource.find("module DurinGeneratedMaterial"),
@@ -183,7 +185,7 @@ TEST(FMaterialQualificationTests, ColdAndWarmCompilerBaseline)
 		Durin::CompileMaterialIR(Input, true);
 	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty()
 		? "missing diagnostic"
-		: Compiled.Diagnostics.front().Message);
+		: Durin::FormatMaterialError(Compiled.Diagnostics.front().Error));
 	EXPECT_EQ(Compiled.Identity, Normalized.Identity);
 	ASSERT_EQ(Compiled.CompiledShaders.size(), 3u);
 	EXPECT_EQ(Compiled.CompiledShaders[0].Reflection.ResourceBindings.size(), 24u);
@@ -197,7 +199,7 @@ TEST(FMaterialQualificationTests, ColdAndWarmCompilerBaseline)
 	const Durin::FMaterialCompilerResult Warm =
 		Durin::CompileMaterialIR(Input);
 	ASSERT_TRUE(Warm) << (Warm.Diagnostics.empty()
-		? "missing diagnostic" : Warm.Diagnostics.front().Message);
+		? "missing diagnostic" : Durin::FormatMaterialError(Warm.Diagnostics.front().Error));
 	ASSERT_EQ(Warm.CompiledShaders.size(), Compiled.CompiledShaders.size());
 	uint64 SpirvBytes = 0;
 	for (size_t Index = 0; Index < Compiled.CompiledShaders.size(); ++Index)
@@ -208,9 +210,9 @@ TEST(FMaterialQualificationTests, ColdAndWarmCompilerBaseline)
 		SpirvBytes += Compiled.CompiledShaders[Index].Code->size();
 	}
 	Durin::FByteBuffer CookedBytes;
-	ASSERT_TRUE(Durin::EncodeMaterialCookedProgram(Compiled, {},
+	ASSERT_TRUE((Error = Durin::EncodeMaterialCookedProgram(Compiled, {},
 		Durin::ECookTargetPlatform::Win64,
-		Durin::ECookTargetProfile::Game, CookedBytes, Error)) << Error;
+		Durin::ECookTargetProfile::Game, CookedBytes))) << Durin::FormatMaterialError(Error.Error);
 	RecordProperty("GeneratedSourceBytes", Compiled.GeneratedSource.size());
 	RecordProperty("DependencyCount", Compiled.Dependencies.size());
 	RecordProperty("SpirvBytes", SpirvBytes);
@@ -245,8 +247,7 @@ TEST(FMaterialQualificationTests, ColdAndWarmCompilerBaseline)
 	Durin::FMaterialIR InvalidIR = Normalized.IR;
 	InvalidIR.Version++;
 	std::string InvalidSource;
-	EXPECT_FALSE(Durin::GenerateMaterialProgramSlang(
-		InvalidIR, InvalidSource, Error));
+	EXPECT_FALSE(Durin::GenerateMaterialProgramSlang(InvalidIR));
 	EXPECT_TRUE(InvalidSource.empty());
 	Durin::FMaterialIRCompilerInput InvalidInput = Input;
 	InvalidInput.Environment.Target.clear();

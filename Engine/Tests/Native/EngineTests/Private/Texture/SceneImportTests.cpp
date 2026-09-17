@@ -563,10 +563,11 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 		Outputs.AmbientOcclusion, Outputs.Emissive, Outputs.Opacity, Outputs.OpacityMask}) EXPECT_TRUE(Link.ExpressionId.IsValid());
 	FMaterialIRCompilerInput Input;
 	FMaterialCompilerEnvironment Environment;
-	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Environment, Error)) << Error;
+	const auto EnvironmentResult = BuildDefaultMaterialCompilerEnvironment(Environment);
+	ASSERT_TRUE(EnvironmentResult) << FormatMaterialError(EnvironmentResult.Error);
 	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Material, Environment, Input));
 	const auto Normalized = NormalizeMaterialIR(Input);
-	ASSERT_TRUE(Normalized) << (Normalized.Diagnostics.empty() ? "no diagnostic" : Normalized.Diagnostics.front().Message);
+	ASSERT_TRUE(Normalized) << (Normalized.Diagnostics.empty() ? "no diagnostic" : Durin::FormatMaterialError(Normalized.Diagnostics.front().Error));
 	EXPECT_EQ(Normalized.Layout.ResourceFieldCount, 6u);
 	EXPECT_EQ(std::ranges::count(Normalized.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &FMaterialIRNode::Opcode), 6);
 	const auto NormalizedSource = GenerateMaterialProgramSlang(Normalized.IR, Normalized.Layout);
@@ -611,7 +612,7 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 	ASSERT_TRUE(Packed.Apply(*Material));
 	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Material, Environment, Input));
 	const auto PackedNormalized = NormalizeMaterialIR(Input);
-	ASSERT_TRUE(PackedNormalized) << (PackedNormalized.Diagnostics.empty() ? "no diagnostic" : PackedNormalized.Diagnostics.front().Message);
+	ASSERT_TRUE(PackedNormalized) << (PackedNormalized.Diagnostics.empty() ? "no diagnostic" : Durin::FormatMaterialError(PackedNormalized.Diagnostics.front().Error));
 	EXPECT_EQ(PackedNormalized.Layout.ResourceFieldCount, 4u);
 	EXPECT_EQ(std::ranges::count(PackedNormalized.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &FMaterialIRNode::Opcode), 4);
 	const auto PackedNormalizedSource = GenerateMaterialProgramSlang(PackedNormalized.IR, PackedNormalized.Layout);

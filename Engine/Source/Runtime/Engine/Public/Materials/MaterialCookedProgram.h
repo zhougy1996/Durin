@@ -14,20 +14,18 @@ namespace Durin
 		0x4d415450, 0x7c4d4a68, 0xa141390e, 0x71b2c418};
 
 	// Encodes only target runtime program data; authored IR and generated source stay editor-owned.
-	ENGINE_API auto EncodeMaterialCookedProgram(
+	[[nodiscard]] ENGINE_API auto EncodeMaterialCookedProgram(
 		const FMaterialCompilerResult& Program,
 		const FMaterialStaticProperties& StaticProperties,
 		ECookTargetPlatform TargetPlatform,
 		ECookTargetProfile TargetProfile,
-		FByteBuffer& OutBytes,
-		std::string& OutError) -> bool;
+		FByteBuffer& OutBytes) -> FMaterialOperationResult;
 
 	// Validates a complete bounded target payload before publishing an immutable program.
-	ENGINE_API auto DecodeMaterialCookedProgram(
+	[[nodiscard]] ENGINE_API auto DecodeMaterialCookedProgram(
 		FByteView Bytes,
 		ECookTargetPlatform ExpectedPlatform,
 		ECookTargetProfile ExpectedProfile,
 		FMaterialStaticProperties& OutStaticProperties,
-		std::shared_ptr<const FMaterialCompilerResult>& OutProgram,
-		std::string& OutError) -> bool;
+		std::shared_ptr<const FMaterialCompilerResult>& OutProgram) -> FMaterialOperationResult;
 }

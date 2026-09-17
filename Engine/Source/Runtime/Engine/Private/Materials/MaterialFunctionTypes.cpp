@@ -17,17 +17,16 @@ namespace Durin
 		auto IsDisconnected(const FMaterialProgramLink& Link) -> bool
 			{ return !Link.SourceNodeId.IsValid() && !Link.SourceOutputId.IsValid()
 				&& Link.SourceOutputIndex == 0; }
-		auto Error(FMaterialProgramValidationResult& Result, std::string Message,
+		auto Error(FMaterialProgramValidationResult& Result, FMaterialError Error,
 			FGuid NodeId = {}, FGuid PortId = {},
 			EMaterialProgramDiagnosticCategory Category = EMaterialProgramDiagnosticCategory::Graph) -> void
 		{
 			Result.bSucceeded = false;
 			if (Result.Diagnostics.size() == MaterialProgramMaxDiagnosticCount) return;
-			Message.resize(std::min<size_t>(Message.size(), MaterialProgramMaxDiagnosticMessageBytes));
 			Result.Diagnostics.push_back({.Category = Category,
 				.LocationKind = NodeId.IsValid() ? EMaterialProgramDiagnosticLocationKind::Node
 					: EMaterialProgramDiagnosticLocationKind::Program,
-				.NodeId = NodeId, .Message = std::move(Message), .PortId = PortId});
+				.NodeId = NodeId, .Error = std::move(Error), .PortId = PortId});
 		}
 	}
 
@@ -50,7 +49,7 @@ namespace Durin
 		if (Signature.Inputs.size() > MaterialFunctionMaxInputs || Signature.Outputs.empty()
 			|| Signature.Outputs.size() > MaterialFunctionMaxOutputs)
 		{
-			Error(Result, "Function signature exceeds input/output bounds.", {}, {},
+			Error(Result, EMaterialFunctionError::SignatureExceedsInputOutputBounds, {}, {},
 				EMaterialProgramDiagnosticCategory::Bounds);
 			return Result;
 		}
@@ -62,15 +61,15 @@ namespace Durin
 			for (const auto& Port : bInput ? Signature.Inputs : Signature.Outputs)
 			{
 				if (!Port.Id.IsValid() || !Ids.emplace(Port.Id).second)
-					Error(Result, "Function port GUID is missing or duplicated.", {}, Port.Id);
+					Error(Result, EMaterialFunctionError::PortGUIDMissingDuplicated, {}, Port.Id);
 				if (!IsType(Port.Type) || Port.Name.empty()
 					|| Port.Name.size() > MaterialProgramMaxDisplayNameBytes)
-					Error(Result, "Function port type or name is invalid.", {}, Port.Id);
+					Error(Result, EMaterialFunctionError::PortTypeNameInvalid, {}, Port.Id);
 				const auto& Default = Port.Default;
 				if (!bInput || Port.bRequired)
 				{
 					if (Default.Kind != EMaterialFunctionDefaultKind::None || (!bInput && Port.bRequired))
-						Error(Result, "Outputs and required inputs cannot declare defaults.", {}, Port.Id);
+						Error(Result, EMaterialFunctionError::OutputsRequiredInputsDeclareDefaults, {}, Port.Id);
 					continue;
 				}
 				bool bValid = false;
@@ -102,7 +101,7 @@ namespace Durin
 					break;
 				default: break;
 				}
-				if (!bValid) Error(Result, "Optional function input has a missing or incompatible default.", {}, Port.Id);
+				if (!bValid) Error(Result, EMaterialFunctionError::OptionalFunctionInputMissingIncompatibleDefault, {}, Port.Id);
 			}
 		std::vector<uint8> State(Signature.Inputs.size());
 		const auto Visit = [&](auto&& Self, size_t Index) -> void {
@@ -110,7 +109,7 @@ namespace Durin
 			if (State[Index] == 2) return;
 			if (State[Index] == 1)
 			{
-				Error(Result, "Function input defaults contain a cycle.", {}, Port.Id);
+				Error(Result, EMaterialFunctionError::InputDefaultsContainCycle, {}, Port.Id);
 				return;
 			}
 			State[Index] = 1;

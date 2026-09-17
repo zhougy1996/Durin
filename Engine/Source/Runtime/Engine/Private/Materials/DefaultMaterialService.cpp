@@ -75,7 +75,7 @@ namespace Durin
 			DURIN_ERROR_CATEGORY(
 				"Material",
 				"DefaultAssetUnavailable: material '{}' did not produce a compiled program: {}; ErrorMaterial will be used.",
-				DefaultMaterialObjectPath, Material->GetMaterialCookDiagnostic());
+				DefaultMaterialObjectPath, Durin::FormatMaterialError(Material->GetMaterialCookDiagnostic()));
 			return false;
 		}
 

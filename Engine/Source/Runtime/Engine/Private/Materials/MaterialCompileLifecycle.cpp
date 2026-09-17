@@ -88,7 +88,7 @@ namespace Durin
 					* sizeof(FPushConstantRange);
 			}
 			for (const FMaterialProgramDiagnostic& Diagnostic : Result.Diagnostics)
-				Bytes += sizeof(Diagnostic) + Diagnostic.Message.size();
+				Bytes += sizeof(Diagnostic) + Diagnostic.Error.ExternalDiagnostic.size() + Diagnostic.Error.ArchivePath.size();
 			return Bytes;
 		}
 
@@ -123,8 +123,8 @@ namespace Durin
 			EMaterialCompileResultCategory Category,
 			FMaterialProgramDiagnostic Source) -> FMaterialCompileDiagnostic
 		{
-			if (Source.Message.size() > MaterialProgramMaxDiagnosticMessageBytes)
-				Source.Message.resize(MaterialProgramMaxDiagnosticMessageBytes);
+			if (Source.Error.ExternalDiagnostic.size() > MaterialProgramMaxDiagnosticMessageBytes)
+				Source.Error.ExternalDiagnostic.resize(MaterialProgramMaxDiagnosticMessageBytes);
 			std::string AssetPath = Request.AssetPath;
 			if (AssetPath.size() > MaterialProgramMaxDiagnosticMessageBytes)
 				AssetPath.resize(MaterialProgramMaxDiagnosticMessageBytes);
@@ -413,7 +413,7 @@ namespace Durin
 				const FMaterialCompileRequest& Request,
 				EMaterialCompileState State,
 				EMaterialCompileResultCategory Category,
-				std::string Message) -> FMaterialCompileResult
+				FMaterialError Error) -> FMaterialCompileResult
 			{
 				FMaterialCompileResult Result{
 					.Owner = Request.Owner,
@@ -430,7 +430,7 @@ namespace Durin
 				Result.Diagnostics.push_back(MakeDiagnostic(
 					Request, Category,
 					{.Category = EMaterialProgramDiagnosticCategory::Compile,
-					 .Message = std::move(Message)}));
+					 .Error = std::move(Error)}));
 				return Result;
 			}
 
@@ -464,7 +464,7 @@ namespace Durin
 						Category = EMaterialCompileResultCategory::Admission;
 						Compiled.Diagnostics = {{
 							.Category = EMaterialProgramDiagnosticCategory::Bounds,
-							.Message = "Compiled material result exceeds the retained-result byte limit."}};
+							.Error = EMaterialCompileError::CompiledMaterialResultExceedsRetainedResultByteLimit}};
 					}
 					else
 					{
@@ -515,7 +515,7 @@ namespace Durin
 						Result.Diagnostics.push_back(MakeDiagnostic(
 							Consumer, Category,
 							{.Category = EMaterialProgramDiagnosticCategory::Compile,
-							 .Message = "Material compilation was canceled."}));
+							 .Error = EMaterialCompileError::CompilationCanceled}));
 					}
 					else
 					{
@@ -978,7 +978,7 @@ namespace Durin
 					Material.CompilationOwner.MaterialCompileDiagnostics.push_back(MakeDiagnostic(
 						DiagnosticRequest, EMaterialCompileResultCategory::Admission,
 						{.Category = EMaterialProgramDiagnosticCategory::Compile,
-						 .Message = "Material compile admission was rejected."}));
+						 .Error = EMaterialCompileError::AdmissionRejected}));
 					Material.RetireFailedMaterialGeneration(Context);
 					return false;
 				}
@@ -1009,8 +1009,8 @@ namespace Durin
 				{
 					if (!SameOwner(Result.Owner, OwnerHandle)) return false;
 					FResolvedMaterialProperties Resolved;
-					std::string Error;
-					if (!ResolveMaterialProperties(Material, Resolved, Error))
+					const auto Error = ResolveMaterialProperties(Material, Resolved);
+					if (!Error)
 					{
 						RequestCurrent(Material, false, Context);
 						return false;
@@ -1105,8 +1105,8 @@ namespace Durin
 			GetMaterialCompileRetryQueue().Remove(FWeakObjectPtr(&Material));
 			if (GetAssetRuntimeConfiguration().RequiresCookedPayload()) return false;
 			FResolvedMaterialProperties Resolved;
-			std::string Error;
-			if (!ResolveMaterialProperties(Material, Resolved, Error))
+			const auto Error = ResolveMaterialProperties(Material, Resolved);
+			if (!Error)
 			{
 				Material.CompilationOwner.MaterialCompileStatus.RequestGeneration = AdvanceNonzero(
 					Material.CompilationOwner.MaterialCompileStatus.RequestGeneration);
@@ -1115,7 +1115,7 @@ namespace Durin
 				Material.CompilationOwner.MaterialCompileDiagnostics = {{
 					.Category = EMaterialCompileResultCategory::Dependency,
 					.Source = {.Category = EMaterialProgramDiagnosticCategory::Dependency,
-						.Message = Error.empty() ? "Material has no authored program." : Error},
+						.Error = Error.Error.HasError() ? Error.Error : FMaterialError(EMaterialCompileError::NoAuthoredProgram)},
 					.AssetPath = Material.GetObjectPath(),
 					.Generation = Material.CompilationOwner.MaterialCompileStatus.RequestGeneration}};
 				Material.RetireFailedMaterialGeneration(Context);

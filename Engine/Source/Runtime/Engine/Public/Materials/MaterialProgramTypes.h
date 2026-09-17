@@ -4,6 +4,7 @@
 #include "DObject/ObjectMacros.h"
 #include "Misc/Guid.h"
 #include "EngineAPI.h"
+#include "Materials/MaterialDiagnostic.h"
 #include "Materials/MaterialTypes.h"
 
 #include "MaterialProgramTypes.gen.h"
@@ -344,7 +345,7 @@ namespace Durin
 			EMaterialProgramDiagnosticLocationKind::Program;
 		FGuid NodeId;
 		uint32 LocationIndex = 0;
-		std::string Message;
+		FMaterialError Error;
 		FGuid PortId;
 		std::string FunctionAssetPath;
 		std::vector<FGuid> CallPath;

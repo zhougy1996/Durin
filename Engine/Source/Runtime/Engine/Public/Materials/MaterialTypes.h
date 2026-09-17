@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Materials/MaterialDiagnostic.h"
+
 #include "DObject/DObjectFwd.h"
 #include "DObject/ObjectMacros.h"
 #include "DObject/ObjectPtr.h"
@@ -531,9 +533,7 @@ namespace Durin
 	// Creates the ordinary-graph PBR template declarations. Sampling policy belongs
 	// to each Texture2D value.
 	ENGINE_API auto MakePBRMaterialParameterDefinitions() -> std::vector<FMaterialParameterDefinition>;
-	ENGINE_API auto ValidateMaterialStaticProperties(
-		const FMaterialStaticProperties& Properties,
-		std::string& OutError
-	) -> bool;
+	[[nodiscard]] ENGINE_API auto ValidateMaterialStaticProperties(
+		const FMaterialStaticProperties& Properties) -> FMaterialOperationResult;
 
 }

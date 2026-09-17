@@ -327,7 +327,7 @@ namespace Durin::AssetForge::Builtins
 				const auto Applied = Expected.Apply(*Function);
 				if (!Applied)
 				{
-					OutError = Applied.Diagnostics.empty() ? "Standard function graph is invalid." : Applied.Diagnostics.front().Message;
+					OutError = Applied.Diagnostics.empty() ? "Standard function graph is invalid." : Durin::FormatMaterialError(Applied.Diagnostics.front().Error);
 					UnloadPackage(Function->GetPackage(), EAssetPackageUnloadPolicy::DiscardUnsaved);
 					return false;
 				}

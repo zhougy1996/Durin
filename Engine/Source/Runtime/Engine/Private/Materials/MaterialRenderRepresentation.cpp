@@ -5,11 +5,11 @@ namespace Durin
 	namespace
 	{
 		auto SetValidationFailure(FMaterialRenderValidationDiagnostic& OutDiagnostic,
-			EMaterialRenderValidationFailure Failure, uint32 FieldIndex, std::string Message) -> bool
+			EMaterialRenderValidationFailure Failure, uint32 FieldIndex, FMaterialError Error) -> bool
 		{
 			OutDiagnostic.Failure = Failure;
 			OutDiagnostic.FieldIndex = FieldIndex;
-			OutDiagnostic.Message = std::move(Message);
+			OutDiagnostic.Error = std::move(Error);
 			return false;
 		}
 
@@ -57,7 +57,7 @@ namespace Durin
 				OutDiagnostic,
 				EMaterialRenderValidationFailure::InvalidPayloadSize,
 				0,
-				"Material render uniform payload size does not match its layout.");
+				EMaterialRenderError::PayloadSizeMismatch);
 			return false;
 		}
 		if (Input.Resources.size() != Input.Layout.ResourceFieldCount)
@@ -66,7 +66,7 @@ namespace Durin
 				OutDiagnostic,
 				EMaterialRenderValidationFailure::InvalidResource,
 				0,
-				"Material render resource count does not match its layout.");
+				EMaterialRenderError::ResourceCountMismatch);
 			return false;
 		}
 
@@ -75,11 +75,11 @@ namespace Durin
 			if (Input.Samplers.size() != Input.Resources.size()
 				|| Input.TextureFallbacks.size() != Input.Resources.size())
 				return SetValidationFailure(OutDiagnostic, EMaterialRenderValidationFailure::InvalidCounts, 0,
-					"Material sampler and fallback counts must match texture resources.");
+					EMaterialRenderError::SamplerCountMismatch);
 			for (uint32 Index = 0; Index < Input.Resources.size(); ++Index)
 				if (!IsValidMaterialSampling(Input.Samplers[Index], Input.TextureFallbacks[Index]))
 					return SetValidationFailure(OutDiagnostic, EMaterialRenderValidationFailure::InvalidResource, Index,
-						"Material sampling state or fallback is invalid.");
+						EMaterialRenderError::SamplingStateFallbackInvalid);
 		}
 		std::vector<bool> Covered(Input.UniformPayload.size(), false);
 		for (uint32 FieldIndex = 0; FieldIndex < Input.Layout.Fields.size(); ++FieldIndex)
@@ -108,7 +108,7 @@ namespace Durin
 						OutDiagnostic,
 						EMaterialRenderValidationFailure::NonFiniteValue,
 						FieldIndex,
-						"Material render uniform payload contains a non-finite value.");
+						EMaterialRenderError::UniformPayloadContainsNonFiniteValue);
 					return false;
 				}
 			}
@@ -121,7 +121,7 @@ namespace Durin
 					OutDiagnostic,
 					EMaterialRenderValidationFailure::NonZeroPadding,
 					0,
-					"Material render uniform padding must be zero.");
+					EMaterialRenderError::NonZeroPadding);
 				return false;
 			}
 		}
@@ -180,7 +180,7 @@ namespace Durin
 		}
 		return SetValidationFailure(OutDiagnostic,
 			EMaterialRenderValidationFailure::UnsupportedVersion, 0,
-			"Only compiled material layout v4 can bind.");
+			EMaterialRenderError::UnsupportedBindingLayout);
 	}
 
 	FMaterialRenderRepresentationBuilder::FMaterialRenderRepresentationBuilder(
@@ -329,9 +329,7 @@ namespace Durin
 			OutDiagnostic = {
 				.Failure = EMaterialRenderValidationFailure::InvalidField,
 				.FieldIndex = 0,
-				.Message = std::format(
-					"Material render parameter {} does not match the selected layout.",
-					InvalidParameterId.ToString()),
+				.Error = FMaterialError(EMaterialLayoutError::InvalidField, InvalidParameterId),
 			};
 			return false;
 		}

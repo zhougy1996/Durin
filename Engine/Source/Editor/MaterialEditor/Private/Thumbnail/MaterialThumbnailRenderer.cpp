@@ -105,8 +105,8 @@ namespace Durin::Editor::Material
 					|| CompileStatus.State == EMaterialCompileState::Running)
 					return Revision == 0 ? 1 : Revision;
 				const auto Diagnostics = Material->GetMaterialCompileDiagnostics();
-				OutError = !Diagnostics.empty() && !Diagnostics.front().Source.Message.empty()
-					? Diagnostics.front().Source.Message
+				OutError = !Diagnostics.empty() && !Durin::FormatMaterialError(Diagnostics.front().Source.Error).empty()
+					? Durin::FormatMaterialError(Diagnostics.front().Source.Error)
 					: "The material has no current compiled program.";
 				return 0;
 			}

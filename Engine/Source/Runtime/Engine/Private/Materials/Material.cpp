@@ -171,8 +171,8 @@ namespace Durin
 
 	auto DMaterial::SetStaticProperties(const FMaterialStaticProperties& InProperties) -> bool
 	{
-		std::string Error;
-		if (!ValidateMaterialStaticProperties(InProperties, Error)) return false;
+		const auto Error = ValidateMaterialStaticProperties(InProperties);
+		if (!Error) return false;
 		if (StaticProperties == InProperties) return true;
 		const bool bShaderIdentityChanged =
 			CanonicalizeMaterialShaderProperties(StaticProperties)
@@ -430,28 +430,23 @@ namespace Durin
 
 	auto DMaterial::PostLoad() -> void
 	{
-		std::string Error;
 		Super::PostLoad();
-		if (!ValidateMaterialStaticProperties(StaticProperties, Error))
+		if (const auto Validation = ValidateMaterialStaticProperties(StaticProperties); !Validation)
 		{
-			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
+			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), FormatMaterialError(Validation.Error));
 			return;
 		}
 		if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
 			if (CookedProgramData.GetMetadata().LogicalSize == 0)
 			{
-				Error = std::format(
-					"Cooked Material '{}': required ProgramData field is missing.",
-					GetObjectPath());
-				MaterialCookDiagnostic = Error;
-				DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
+				MaterialCookDiagnostic = EMaterialCookError::ProgramUnavailable;
+				DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), FormatMaterialError(MaterialCookDiagnostic));
 				return;
 			}
 			CompilationOwner.RenderLayer.CompiledProgram.reset();
 			CompilationOwner.MaterialCompileDiagnostics.clear();
-			MaterialCookDiagnostic = std::format(
-				"Loaded cooked Material metadata for '{}'.", GetObjectPath());
+			MaterialCookDiagnostic = {};
 			return;
 		}
 		const auto SchemaValidation = DeriveExpressionParameterSchema(ExpressionCollection, ParameterSchema);
@@ -464,10 +459,10 @@ namespace Durin
 			ValidateExpressionGraph(ExpressionCollection, GetExpressionOutputs(), &ObservedExpressionCode);
 		if (!ProgramValidation)
 		{
-			Error = ProgramValidation.Diagnostics.empty()
+			const auto Message = ProgramValidation.Diagnostics.empty()
 				? "Material program validation failed."
-				: ProgramValidation.Diagnostics.front().Message;
-			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
+				: Durin::FormatMaterialError(ProgramValidation.Diagnostics.front().Error);
+			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Message);
 			return;
 		}
 		std::vector<FGuid> Ids;

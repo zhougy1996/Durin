@@ -162,7 +162,7 @@ namespace Durin
 						{
 							OutResult = MakeResult(Status::Failed, Failure::ResourcePreparationFailed,
 								Stage::PrepareRuntimeProducts, {}, std::format("Function preparation failed for {}: {}",
-									Object->GetObjectPath(), Validation.Diagnostics.empty() ? "Invalid closure." : Validation.Diagnostics[0].Message));
+									Object->GetObjectPath(), Validation.Diagnostics.empty() ? "Invalid closure." : Durin::FormatMaterialError(Validation.Diagnostics[0].Error)));
 							return false;
 						}
 					}
