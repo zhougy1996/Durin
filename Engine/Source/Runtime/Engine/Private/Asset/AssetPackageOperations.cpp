@@ -491,7 +491,7 @@ namespace Durin
 						std::format(
 							"CustomStructCodecRequired: '{}' does not declare a complete authored "
 							"field representation.",
-							Struct->GetQualifiedName().ToString()));
+							Struct->GetQualifiedName()));
 				if (!Struct->CanDefaultConstruct() || !Struct->CanDestroy()
 					|| !Struct->CanCopyAssign())
 					return Error(
@@ -499,7 +499,7 @@ namespace Durin
 						std::format(
 							"DStructOperationUnavailable: authored loading requires "
 							"DefaultConstruct, Destroy, and CopyAssign for '{}'.",
-							Struct->GetQualifiedName().ToString()));
+							Struct->GetQualifiedName()));
 				std::string StorageError;
 				std::optional<FStructProperty> DetachedProperty;
 				const FProperty* StorageProperty = Property;
@@ -563,7 +563,7 @@ namespace Durin
 							PostDeserializeError.empty()
 								? std::format(
 									"PostDeserializeRejected: '{}' rejected the authored value.",
-									Struct->GetQualifiedName().ToString())
+									Struct->GetQualifiedName())
 								: std::format(
 									"PostDeserializeRejected: {}", PostDeserializeError));
 				}
@@ -1385,7 +1385,7 @@ namespace Durin
 			|| Struct->PropertiesSize > std::numeric_limits<uint16>::max()
 			|| Struct->MinAlignment == 0
 			|| (Struct->MinAlignment & (Struct->MinAlignment - 1)) != 0
-			|| TypeSignature != std::format("Struct<{}>", Struct->GetQualifiedName().ToString()))
+			|| TypeSignature != std::format("Struct<{}>", Struct->GetQualifiedName()))
 			return false;
 
 		FStructProperty RootProperty(

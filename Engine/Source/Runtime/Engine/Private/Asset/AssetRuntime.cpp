@@ -389,7 +389,7 @@ namespace Durin
 		if (ExpectedClass && !Object->IsA(ExpectedClass))
 			return Finish(Error(EAssetError::TypeMismatch, std::format(
 				"Object {} is not a {}.", Resolution.FinalPath.ToString(),
-				ExpectedClass->GetQualifiedName().ToString())));
+				ExpectedClass->GetQualifiedName())));
 		if (OutReport)
 		{
 			OutReport->RequestedPath = Path.GetPackagePath();
@@ -813,7 +813,7 @@ namespace Durin
 						return {
 							.Result = Error(EAssetError::TypeMismatch, std::format(
 								"Asset {} is not a {}.", Path.ToString(),
-								ExpectedClass->GetQualifiedName().ToString())),
+								ExpectedClass->GetQualifiedName())),
 							.State = ESoftObjectResolveState::NotLoaded};
 					std::string ValidationError;
 					if (!Reference.TrySetResolvedObject(
@@ -862,7 +862,7 @@ namespace Durin
 			return {
 				.Result = Error(EAssetError::TypeMismatch, std::format(
 					"Asset {} is not a {}.",
-					Resolution.FinalPath.ToString(), ExpectedClass->GetQualifiedName().ToString())),
+					Resolution.FinalPath.ToString(), ExpectedClass->GetQualifiedName())),
 				.State = ESoftObjectResolveState::NotLoaded,
 				.ResolvedPath = Resolution.FinalPath,
 				.bRedirected = !Resolution.RedirectChain.empty()};

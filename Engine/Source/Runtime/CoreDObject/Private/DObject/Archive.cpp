@@ -510,7 +510,7 @@ namespace Durin
 					Ar.Fail(EArchiveFailureCode::UnsupportedOperation, std::format(
 						"DStructOperationUnavailable: transactional loading requires "
 						"DefaultConstruct, Destroy, and CopyAssign for '{}'.",
-						Struct->GetQualifiedName().ToString()));
+						Struct->GetQualifiedName()));
 					break;
 				}
 				std::optional<FStructProperty> DetachedProperty;
@@ -567,7 +567,7 @@ namespace Durin
 					{
 						Ar.SetError(PostDeserializeError.empty()
 							? std::format("PostDeserializeRejected: '{}' rejected the loaded value.",
-								Struct->GetQualifiedName().ToString())
+								Struct->GetQualifiedName())
 							: std::format("PostDeserializeRejected: {}", PostDeserializeError));
 						break;
 					}
@@ -1111,7 +1111,7 @@ namespace Durin
 			Fail(EArchiveFailureCode::UnsupportedCapability, "Field scopes require StructuredFields.");
 			return {};
 		}
-		const std::string Identity = std::format("{}::{}", Field.DeclaringType.ToString(), Field.Name.ToString());
+		const std::string Identity = std::format("{}::{}", Field.DeclaringType, Field.Name);
 		if (!ObjectScopes.empty())
 		{
 			auto& Scope = ObjectScopes.back();

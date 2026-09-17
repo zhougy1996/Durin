@@ -14,7 +14,7 @@ namespace Durin
 			if (!Object) return FailSoftObject("A loaded soft-object cache cannot be null.", OutError);
 			if (Cast<DPackage>(Object)) return FailSoftObject("A package cannot be assigned as a soft object.", OutError);
 			if (EnumHasAnyFlags(Object->GetObjectFlags(), EObjectFlags::Transient)) return FailSoftObject("A transient object cannot be assigned as a soft object.", OutError);
-			if (ExpectedClass && !Object->IsA(ExpectedClass)) return FailSoftObject(std::format("Object {} is not a {}.", Object->GetObjectPath(), ExpectedClass->GetQualifiedName().ToString()), OutError);
+			if (ExpectedClass && !Object->IsA(ExpectedClass)) return FailSoftObject(std::format("Object {} is not a {}.", Object->GetObjectPath(), ExpectedClass->GetQualifiedName()), OutError);
 			DPackage* Package = Object->GetPackage();
 			if (!Package || !Package->IsAssetPackage()) return FailSoftObject("An unpackaged object cannot be assigned as a soft object.", OutError);
 			return FObjectPath::TryCreate(Object->GetObjectPath(), OutPath, OutError);

@@ -430,7 +430,7 @@ namespace Durin
 					Diagnostic.ApplicableLimit = DefaultDeltaMaxFields;
 					return false;
 				}
-				const std::string ChildPath = std::format("{}.{}", Path, Field.Descriptor.Name.ToString());
+				const std::string ChildPath = std::format("{}.{}", Path, Field.Descriptor.Name);
 				if (ChildPath.size() > DefaultDeltaMaxPathLength)
 				{
 					Diagnostic.Reason = EDefaultDeltaFailureReason::PathLimit;

@@ -291,7 +291,7 @@ namespace Durin
 	auto ReleaseClassDefaultObjectsForModule(FName ModuleName) -> bool
 	{
 		CheckObjectThread();
-		const std::string ModulePackagePath = std::format("/Cpp/{}", ModuleName.ToString());
+		const std::string ModulePackagePath = std::format("/Cpp/{}", ModuleName);
 		auto IsOwnedByModule = [&](const DObject* Object) {
 			if (!Object || !Object->IsTemplateObject()) return false;
 			const DObject* Outer = Object;
@@ -347,7 +347,7 @@ namespace Durin
 	auto ReleaseDStructDefaultsForModule(FName ModuleName) -> void
 	{
 		CheckObjectThread();
-		const std::string ModulePackagePath = std::format("/Cpp/{}", ModuleName.ToString());
+		const std::string ModulePackagePath = std::format("/Cpp/{}", ModuleName);
 		ReleaseMatchingDStructDefaults([&](const DStruct* Struct) {
 			const DPackage* Package = Struct->GetPackage();
 			return Package && Package->GetPackagePath() == ModulePackagePath;

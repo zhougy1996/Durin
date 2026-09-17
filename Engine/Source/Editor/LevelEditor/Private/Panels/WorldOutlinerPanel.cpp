@@ -433,7 +433,7 @@ namespace Durin::Editor::Level
 							bLevelSelected = false;
 						}
 						else
-							Context.SetError(std::format("Failed to create actor of class {}.", Class->GetQualifiedName().ToString()));
+							Context.SetError(std::format("Failed to create actor of class {}.", Class->GetQualifiedName()));
 					}
 				}
 				ImGui::EndMenu();

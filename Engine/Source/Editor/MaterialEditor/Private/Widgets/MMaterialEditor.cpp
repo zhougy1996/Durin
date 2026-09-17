@@ -883,8 +883,8 @@ namespace Durin::Editor::Material
 		std::vector<FMaterialParameterPanelEntry> Entries;
 		for (const auto& Definition : Base->GetParameterDefinitions())
 		{
-			const auto Searchable = std::format("{} {} {}", Definition.Name.ToString(),
-				Definition.DisplayName, Definition.GroupName.ToString());
+			const auto Searchable = std::format("{} {} {}", Definition.Name,
+				Definition.DisplayName, Definition.GroupName);
 			if (Filter.PassFilter(Searchable.c_str())) Entries.push_back({.Definition = Definition});
 		}
 		std::ranges::sort(Entries, [](const auto& A, const auto& B) {

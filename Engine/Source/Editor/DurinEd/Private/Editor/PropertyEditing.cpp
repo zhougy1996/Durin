@@ -732,7 +732,7 @@ namespace Durin::Editor
 		Target.Object = TargetObject.Get();
 		Transactor = InTransactor;
 		Description = InDescription.empty()
-			? std::format("Edit {}", Target.MemberProperty->NamePrivate.ToString())
+			? std::format("Edit {}", Target.MemberProperty->NamePrivate)
 			: InDescription;
 		if (!CaptureTargetValue(Target, OriginalValue, OutError))
 		{

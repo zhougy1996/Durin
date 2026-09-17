@@ -337,7 +337,7 @@ namespace Durin::Editor::Level
 					}
 					if (!bSucceeded)
 					{
-						Context.SetError(std::format("Failed to add component of class {}.", Class->GetQualifiedName().ToString()));
+						Context.SetError(std::format("Failed to add component of class {}.", Class->GetQualifiedName()));
 					}
 					else
 					{

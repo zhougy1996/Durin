@@ -455,7 +455,7 @@ namespace Durin
 		const auto Existing = std::ranges::find(MaterialSlots, Name, &FMeshMaterialSlotDefinition::Name);
 		if (Existing != MaterialSlots.end() && Existing != MaterialSlots.begin() + SlotIndex)
 		{
-			OutError = std::format("Static mesh material slot name '{}' is already in use.", Name.ToString());
+			OutError = std::format("Static mesh material slot name '{}' is already in use.", Name);
 			return false;
 		}
 		if (MaterialSlots[SlotIndex].Name == Name)

@@ -278,7 +278,7 @@ namespace Durin::Editor
 		auto MakePropertySearchText(const FProperty& Property, uint32 ArrayIndex) -> std::string
 		{
 			const std::string SourceName = Property.GetArrayDim() > 1
-				? std::format("{}[{}]", Property.NamePrivate.ToString(), ArrayIndex)
+				? std::format("{}[{}]", Property.NamePrivate, ArrayIndex)
 				: Property.NamePrivate.ToString();
 			const std::string DisplayName = MakePropertyLabel(Property, ArrayIndex);
 			if (Property.GetKind() == DurinCodeGen::EPropertyGenFlags::Struct
@@ -858,7 +858,7 @@ namespace Durin::Editor
 				{
 					Enum->ForEachValue([&](const FEnumValue& Value) {
 						const bool bSelected = Value.Value == CurrentValue;
-						const std::string Label = std::format("{}##EnumValue_{}", Value.DisplayName, Value.Name.ToString());
+						const std::string Label = std::format("{}##EnumValue_{}", Value.DisplayName, Value.Name);
 						if (ImGui::Selectable(Label.c_str(), bSelected))
 						{
 							CaptureResult(true, false);

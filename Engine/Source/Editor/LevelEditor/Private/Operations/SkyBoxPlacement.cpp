@@ -62,8 +62,8 @@ namespace Durin::Editor::Level
 			auto GetDetails(::Durin::Editor::ETransactionOperation Operation) const -> std::string override
 			{
 				return Operation == ::Durin::Editor::ETransactionOperation::Undo
-					? std::format("Remove sky box '{}'", ActorName.ToString())
-					: std::format("Create sky box '{}'", ActorName.ToString());
+					? std::format("Remove sky box '{}'", ActorName)
+					: std::format("Create sky box '{}'", ActorName);
 			}
 			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return AffectedPackages; }
 			auto Undo() -> bool override

@@ -101,14 +101,14 @@ namespace Durin::Editor::Level
 			if (!StaticMeshActor)
 			{
 				OutError = Actor
-					? std::format("Actor '{}' is no longer a StaticMeshActor.", Expected.Name.ToString())
-					: std::format("Actor '{}' no longer exists.", Expected.Name.ToString());
+					? std::format("Actor '{}' is no longer a StaticMeshActor.", Expected.Name)
+					: std::format("Actor '{}' no longer exists.", Expected.Name);
 				return nullptr;
 			}
 			if (!FStaticMeshLevelMutations::IsSupportedActor(*StaticMeshActor, &OutError)) return nullptr;
 			if (!EqualState(CaptureState(*StaticMeshActor), Expected))
 			{
-				OutError = std::format("Actor '{}' changed after the operation was planned.", Expected.Name.ToString());
+				OutError = std::format("Actor '{}' changed after the operation was planned.", Expected.Name);
 				return nullptr;
 			}
 			return StaticMeshActor;
@@ -194,13 +194,13 @@ namespace Durin::Editor::Level
 				if (!Destination) continue;
 				if (Destination->StaticMesh.Get() && !IsValid(Destination->StaticMesh.Get()))
 				{
-					OutError = std::format("StaticMesh for actor '{}' is no longer available.", Destination->Name.ToString());
+					OutError = std::format("StaticMesh for actor '{}' is no longer available.", Destination->Name);
 					return false;
 				}
 				if (AActor* Collision = Level.FindActorByName(Destination->Name);
 					Collision && !SourceActors.contains(Collision))
 				{
-					OutError = std::format("Actor name '{}' is now occupied.", Destination->Name.ToString());
+					OutError = std::format("Actor name '{}' is now occupied.", Destination->Name);
 					return false;
 				}
 			}
@@ -240,7 +240,7 @@ namespace Durin::Editor::Level
 				if (!Level.RenameActor(Sources[Index], Temporary)
 					|| Sources[Index]->GetFName() != Temporary)
 				{
-					OutError = std::format("Failed to reserve a temporary name for '{}'.", Source->Name.ToString());
+					OutError = std::format("Failed to reserve a temporary name for '{}'.", Source->Name);
 					return false;
 				}
 				Renames.push_back({Sources[Index], Source->Name});
@@ -257,7 +257,7 @@ namespace Durin::Editor::Level
 				if (Source && !Destination)
 				{
 					if (!Level.DestroyActor(Sources[Index]))
-						return FailAfterMutation(std::format("Failed to remove actor '{}'.", Source->Name.ToString()));
+						return FailAfterMutation(std::format("Failed to remove actor '{}'.", Source->Name));
 					Removed.push_back(*Source);
 					#if DURIN_LEVEL_AUTHORING_TEST_FAILURE_INJECTION
 					if (ConsumeInjectedFailure(Testing::EStaticMeshLevelMutationFailurePoint::AfterRemove))
@@ -278,7 +278,7 @@ namespace Durin::Editor::Level
 					if (!Actor || Actor->GetFName() != Destination->Name)
 					{
 						if (Actor) Level.DestroyActor(Actor);
-						OutError = std::format("Failed to create actor '{}'.", Destination->Name.ToString());
+						OutError = std::format("Failed to create actor '{}'.", Destination->Name);
 						return FailAfterMutation(OutError);
 					}
 					Created.push_back(Actor);
@@ -291,7 +291,7 @@ namespace Durin::Editor::Level
 				{
 					const FName PreviousName = Actor->GetFName();
 					if (!Level.RenameActor(Actor, Destination->Name) || Actor->GetFName() != Destination->Name)
-						return FailAfterMutation(std::format("Failed to rename actor to '{}'.", Destination->Name.ToString()));
+						return FailAfterMutation(std::format("Failed to rename actor to '{}'.", Destination->Name));
 					Renames.push_back({Actor, PreviousName});
 					#if DURIN_LEVEL_AUTHORING_TEST_FAILURE_INJECTION
 					if (ConsumeInjectedFailure(Testing::EStaticMeshLevelMutationFailurePoint::AfterFinalRename))
@@ -302,7 +302,7 @@ namespace Durin::Editor::Level
 				Actor->GetStaticMeshComponent()->SetStaticMesh(Destination->StaticMesh.Get());
 				if (!Actor->SetActorTransform(Destination->Transform))
 				{
-					return FailAfterMutation(std::format("Failed to set the transform for '{}'.", Destination->Name.ToString()));
+					return FailAfterMutation(std::format("Failed to set the transform for '{}'.", Destination->Name));
 				}
 				Actor->SetHidden(Destination->bHidden);
 				#if DURIN_LEVEL_AUTHORING_TEST_FAILURE_INJECTION
@@ -462,7 +462,7 @@ namespace Durin::Editor::Level
 				if (Existing)
 				{
 					Result.Diagnostic = MakeDiagnostic(EStaticMeshLevelMutationError::NameConflict,
-						std::format("Actor name '{}' is already occupied.", Mutation.TargetName.ToString()), Index);
+						std::format("Actor name '{}' is already occupied.", Mutation.TargetName), Index);
 					return Result;
 				}
 				Delta.After = Mutation.Desired;
@@ -473,14 +473,14 @@ namespace Durin::Editor::Level
 				if (!Existing)
 				{
 					Result.Diagnostic = MakeDiagnostic(EStaticMeshLevelMutationError::MissingActor,
-						std::format("Actor '{}' does not exist.", Mutation.TargetName.ToString()), Index);
+						std::format("Actor '{}' does not exist.", Mutation.TargetName), Index);
 					return Result;
 				}
 				std::string Reason;
 				if (!StaticMeshActor || !IsSupportedActor(*StaticMeshActor, &Reason))
 				{
 					Result.Diagnostic = MakeDiagnostic(EStaticMeshLevelMutationError::UnsupportedActor,
-						Reason.empty() ? std::format("Actor '{}' is not supported.", Mutation.TargetName.ToString()) : Reason, Index);
+						Reason.empty() ? std::format("Actor '{}' is not supported.", Mutation.TargetName) : Reason, Index);
 					return Result;
 				}
 				Delta.Before = CaptureState(*StaticMeshActor);
@@ -504,13 +504,13 @@ namespace Durin::Editor::Level
 			if (Delta.After && !IsFiniteTransform(Delta.After->Transform))
 			{
 				Result.Diagnostic = MakeDiagnostic(EStaticMeshLevelMutationError::InvalidTransform,
-					std::format("Actor '{}' has a non-finite transform.", Delta.After->Name.ToString()), Index);
+					std::format("Actor '{}' has a non-finite transform.", Delta.After->Name), Index);
 				return Result;
 			}
 			if (Delta.After && Delta.After->StaticMesh.Get() && !IsValid(Delta.After->StaticMesh.Get()))
 			{
 				Result.Diagnostic = MakeDiagnostic(EStaticMeshLevelMutationError::InvalidRequest,
-					std::format("StaticMesh for actor '{}' is unavailable.", Delta.After->Name.ToString()), Index);
+					std::format("StaticMesh for actor '{}' is unavailable.", Delta.After->Name), Index);
 				return Result;
 			}
 			if (!ClaimedNames.insert(Mutation.TargetName).second
@@ -527,7 +527,7 @@ namespace Durin::Editor::Level
 					Collision && Collision != Existing)
 				{
 					Result.Diagnostic = MakeDiagnostic(EStaticMeshLevelMutationError::NameConflict,
-						std::format("Actor name '{}' is already occupied.", Delta.After->Name.ToString()), Index);
+						std::format("Actor name '{}' is already occupied.", Delta.After->Name), Index);
 					return Result;
 				}
 			}

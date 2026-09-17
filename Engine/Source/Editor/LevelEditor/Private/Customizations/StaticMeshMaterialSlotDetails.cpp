@@ -185,9 +185,9 @@ namespace Durin::Editor::Level
 				DMaterialInterface* Resolved = Component->GetMaterial(Index);
 				const EStaticMeshMaterialSource Source = Override ? EStaticMeshMaterialSource::ComponentOverride
 					: Slot.DefaultMaterial ? EStaticMeshMaterialSource::MeshDefault : EStaticMeshMaterialSource::EngineDefault;
-				const std::string Label = std::format("[{}] {}", Index, Slot.Name.ToString());
+				const std::string Label = std::format("[{}] {}", Index, Slot.Name);
 				CurrentEntries.push_back({Index, Label,
-					std::format("Materials Material Slot {} {} {}", Index, Slot.Name.ToString(), GetSourceLabel(Source)),
+					std::format("Materials Material Slot {} {} {}", Index, Slot.Name, GetSourceLabel(Source)),
 					Resolved, Source, Override != nullptr});
 				++Index;
 			}

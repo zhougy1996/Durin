@@ -53,7 +53,7 @@ namespace Durin::Editor::Level
 		if (!Object || !Property || ArrayIndex >= Property->GetArrayDim()) return;
 		const std::string Label = Options.Label.empty() ? ::Durin::Editor::MakePropertyLabel(*Property, ArrayIndex) : Options.Label;
 		Rows.push_back({Object, Property, ArrayIndex, Label,
-			std::format("{} {} {}", Property->NamePrivate.ToString(), Label, SearchKeywords), {}});
+			std::format("{} {} {}", Property->NamePrivate, Label, SearchKeywords), {}});
 	}
 
 	auto FObjectPropertyViewBuilder::AddCustomRow(std::string_view SearchKeywords, FCustomRowDrawer Drawer) -> void

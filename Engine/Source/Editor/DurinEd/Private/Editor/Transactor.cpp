@@ -448,7 +448,7 @@ namespace Durin::Editor
 				{
 					Failure = {.Code = ETransactorResultCode::Failed, .ScopeId = ScopeId,
 						.Message = std::format("Unable to capture '{}': {}",
-							Property->NamePrivate.ToString(), Error)};
+							Property->NamePrivate, Error)};
 					return;
 				}
 				FTransactionObjectRecord ObjectRecord;
@@ -457,7 +457,7 @@ namespace Durin::Editor
 				{
 					Failure = {.Code = ETransactorResultCode::Failed, .ScopeId = ScopeId,
 						.Message = std::format("Unable to prepare '{}': {}",
-							Property->NamePrivate.ToString(), Error)};
+							Property->NamePrivate, Error)};
 					return;
 				}
 				FTransactorResult RecordResult = Record(std::move(ObjectRecord));
@@ -523,7 +523,7 @@ namespace Durin::Editor
 			{
 				return {.Code = ETransactorResultCode::Failed, .ScopeId = ScopeId,
 					.Message = std::format("Unable to capture the final value of '{}': {}",
-						Modified->Target.MemberProperty->NamePrivate.ToString(), Error)};
+						Modified->Target.MemberProperty->NamePrivate, Error)};
 			}
 			FTransactionObjectRecord Record;
 			if (!FTransactionObjectRecord::Capture(Modified->Target,
@@ -531,7 +531,7 @@ namespace Durin::Editor
 			{
 				return {.Code = ETransactorResultCode::Failed, .ScopeId = ScopeId,
 					.Message = std::format("Unable to finalize '{}': {}",
-						Modified->Target.MemberProperty->NamePrivate.ToString(), Error)};
+						Modified->Target.MemberProperty->NamePrivate, Error)};
 			}
 			FTransactorResult Result = UpdateRecord(Modified->RecordId, std::move(Record));
 			if (!Result) return Result;

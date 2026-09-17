@@ -189,7 +189,7 @@ namespace Durin
 				*OutError = std::format(
 					"DStructOperationUnavailable: {} is unavailable for '{}'.",
 					Operation,
-					Struct->GetQualifiedName().ToString()
+					Struct->GetQualifiedName()
 				);
 			}
 			else
@@ -605,7 +605,7 @@ namespace Durin
 					Struct->ForEachProperty([&](FProperty* Field) {
 						if (!bSupported || !Field || Field->HasAnyPropertyFlags(EPropertyFlags::Transient)) return;
 						std::string ChildPath;
-						const std::string Segment = std::format(".{}", Field->NamePrivate.ToString());
+						const std::string Segment = std::format(".{}", Field->NamePrivate);
 						bSupported = AppendIdentityPath(Context, Path, Segment, Field->GetKind(), ChildPath)
 							&& ValidatePropertyIdentityDescriptorImpl(Field, Depth + 1, ChildPath, Context);
 					}, false);
