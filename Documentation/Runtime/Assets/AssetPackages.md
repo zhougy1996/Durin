@@ -307,6 +307,15 @@ consumption, and canonical re-emission before replacing its output. Neither
 entry constructs a `DObject`, resolves dependencies, invokes callbacks, or
 writes files.
 
+All six public freeze/write/read entry points return `FPackageWriterResult` or
+`FPackageReaderResult`; no diagnostic output overload remains. Success derives
+from the typed failure category. Each failure retains a specific reason and an
+owned logical path or subject. Causes retain envelope error codes, Linker index
+context, canonical Map-key context, or the complete Writer result from reader
+canonical validation. A recorded inner value failure survives the outer
+property decoder. `FormatPackageError` owns codec prose; Engine and Registry
+adapters format explicitly while their outer result contracts remain separate.
+
 ### BulkData Closure
 
 Bulk Directory binds each `BulkData` value to an Inline Bulk or external raw

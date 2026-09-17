@@ -1202,11 +1202,11 @@ namespace Durin::AssetPrivate
 						return {S::InvalidClosure, CurrentPath, "Duplicate package identity in preparation batch."};
 				auto& Application = Applications[Index];
 				Application.PackagePath = CurrentPath;
-				ObjectPackage::FPackageReaderDiagnostic ReaderDiagnostic;
+				ObjectPackage::FPackageReaderResult ReaderDiagnostic;
 				const auto& Bulk = Source.Storage.GetBulkResource();
-				if (!ObjectPackage::ReadPackageMetadata(Source.Storage.GetMainBytes(),
-					Bulk ? Bulk->GetSegmentExtent() : 0, CurrentPath, Application.Linker, &ReaderDiagnostic))
-					return {S::InvalidClosure, CurrentPath, ReaderDiagnostic.Message};
+				if (!(ReaderDiagnostic = ObjectPackage::ReadPackageMetadata(Source.Storage.GetMainBytes(),
+					Bulk ? Bulk->GetSegmentExtent() : 0, CurrentPath, Application.Linker)))
+					return {S::InvalidClosure, CurrentPath, ObjectPackage::FormatPackageError(ReaderDiagnostic)};
 				FLinkerApplyDiagnostic Diagnostic;
 				if (auto Result = ValidateLinker(Application, {}, Diagnostic); !Result)
 					return {S::InvalidClosure, CurrentPath, Result.Message};

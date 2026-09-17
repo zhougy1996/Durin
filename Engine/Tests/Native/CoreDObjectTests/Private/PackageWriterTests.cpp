@@ -286,19 +286,18 @@ TEST(FPackageFormatContractTests, MultipleTopLevelAssetsRoundTripAndProjectExact
 
 	Durin::FByteBuffer Main;
 	Durin::FByteBuffer Bulk;
-	Package::FPackageWriterDiagnostic WriterDiagnostic;
-	ASSERT_TRUE(Package::WritePackage(Linker, Main, Bulk, &WriterDiagnostic))
-		<< WriterDiagnostic.Message;
+	Package::FPackageWriterResult WriterDiagnostic;
+	ASSERT_TRUE((WriterDiagnostic = Package::WritePackage(Linker, Main, Bulk)))
+		<< Durin::ObjectPackage::FormatPackageError(WriterDiagnostic);
 	EXPECT_EQ(Read<uint32>(Main, 24), Package::DastV10FormatVersion);
 	const Durin::FXxHash128 FixtureHash = Durin::FXxHash128::HashBuffer(Main);
 	EXPECT_EQ(FixtureHash.HashLow, 6855489284108035300ull);
 	EXPECT_EQ(FixtureHash.HashHigh, 13282341067721308400ull);
 	Package::FPackageRegistryData Registry;
-	Package::FPackageReaderDiagnostic ReaderDiagnostic;
-	ASSERT_TRUE(Package::ReadPackageRegistry(
+	Package::FPackageReaderResult ReaderDiagnostic;
+	ASSERT_TRUE((ReaderDiagnostic = Package::ReadPackageRegistry(
 		std::span(Main).first(static_cast<size_t>(Read<uint64>(Main, 32))),
-		Main.size(), Bulk.size(), Linker.Summary.PackagePath, Registry,
-		&ReaderDiagnostic)) << ReaderDiagnostic.Message;
+		Main.size(), Bulk.size(), Linker.Summary.PackagePath, Registry))) << Durin::ObjectPackage::FormatPackageError(ReaderDiagnostic);
 	ASSERT_EQ(Registry.TopLevelAssets.size(), 2u);
 	EXPECT_EQ(Registry.TopLevelAssets[0].AssetPath.ToString(),
 		"/Game/WriterFixture.Secondary");
@@ -307,12 +306,12 @@ TEST(FPackageFormatContractTests, MultipleTopLevelAssetsRoundTripAndProjectExact
 		"/Game/WriterFixture.WriterFixture");
 
 	Package::FLinkerTables Decoded;
-	ASSERT_TRUE(Package::ReadPackage(Main, Bulk, Linker.Summary.PackagePath,
-		Decoded, &ReaderDiagnostic)) << ReaderDiagnostic.Message;
+	ASSERT_TRUE((ReaderDiagnostic = Package::ReadPackage(Main, Bulk, Linker.Summary.PackagePath,
+		Decoded))) << Durin::ObjectPackage::FormatPackageError(ReaderDiagnostic);
 	Durin::FByteBuffer ReemittedMain;
 	Durin::FByteBuffer ReemittedBulk;
-	ASSERT_TRUE(Package::WritePackage(
-		Decoded, ReemittedMain, ReemittedBulk, &WriterDiagnostic));
+	ASSERT_TRUE((WriterDiagnostic = Package::WritePackage(
+		Decoded, ReemittedMain, ReemittedBulk)));
 	EXPECT_EQ(ReemittedMain, Main);
 	EXPECT_EQ(ReemittedBulk, Bulk);
 }
@@ -328,8 +327,8 @@ TEST(FPackageWriterContractTests, FrozenLayoutAndFixtureHashAreExact)
 	const Package::FLinkerTables Linker = MakeFixture();
 	Durin::FByteBuffer Main;
 	Durin::FByteBuffer Bulk;
-	Package::FPackageWriterDiagnostic Diagnostic;
-	ASSERT_TRUE(Package::WritePackage(Linker, Main, Bulk, &Diagnostic)) << Diagnostic.Message;
+	Package::FPackageWriterResult Diagnostic;
+	ASSERT_TRUE((Diagnostic = Package::WritePackage(Linker, Main, Bulk))) << Durin::ObjectPackage::FormatPackageError(Diagnostic);
 	ASSERT_GE(Main.size(), Package::DastFirstSectionOffset);
 	EXPECT_EQ(std::string(reinterpret_cast<const char*>(Main.data()), 4), "DURF");
 	EXPECT_EQ(Read<uint32>(Main, 24), Package::DastV10FormatVersion);
@@ -389,12 +388,12 @@ TEST(FPackageWriterContractTests, FailuresAreTypedAndAtomic)
 	Durin::FByteBuffer Bulk = Bytes({4, 5});
 	const auto OriginalMain = Main;
 	const auto OriginalBulk = Bulk;
-	Package::FPackageWriterDiagnostic Diagnostic;
-	EXPECT_FALSE(Package::WritePackage(Invalid, Main, Bulk, &Diagnostic));
+	Package::FPackageWriterResult Diagnostic;
+	EXPECT_FALSE((Diagnostic = Package::WritePackage(Invalid, Main, Bulk)));
 	EXPECT_EQ(Diagnostic.Failure, Package::EPackageWriterFailure::InvalidBulkData);
 	EXPECT_EQ(Main, OriginalMain);
 	EXPECT_EQ(Bulk, OriginalBulk);
-	EXPECT_FALSE(Package::WritePackage(MakeFixture(), Main, Main, &Diagnostic));
+	EXPECT_FALSE((Diagnostic = Package::WritePackage(MakeFixture(), Main, Main)));
 	EXPECT_EQ(Diagnostic.Failure, Package::EPackageWriterFailure::AliasedOutput);
 	EXPECT_EQ(Main, OriginalMain);
 }
@@ -437,9 +436,9 @@ TEST(FPackageWriterContractTests, EveryNativeValueKindHasOneFrozenFixture)
 {
 	Durin::FByteBuffer Main;
 	Durin::FByteBuffer Bulk;
-	Package::FPackageWriterDiagnostic Diagnostic;
-	ASSERT_TRUE(Package::WritePackage(MakeAllKindsFixture(), Main, Bulk, &Diagnostic))
-		<< Diagnostic.LogicalPath << ": " << Diagnostic.Message;
+	Package::FPackageWriterResult Diagnostic;
+	ASSERT_TRUE((Diagnostic = Package::WritePackage(MakeAllKindsFixture(), Main, Bulk)))
+		<< Diagnostic.LogicalPath << ": " << Durin::ObjectPackage::FormatPackageError(Diagnostic);
 	EXPECT_TRUE(Bulk.empty());
 	EXPECT_EQ(Durin::FXxHash128::HashBuffer(Main).ToString(), "9cf8e6fd6b584069aceed4e76726c63c");
 
@@ -455,15 +454,15 @@ TEST(FPackageWriterContractTests, MapCollisionsAndInvalidTopologyFailAtomically)
 	Elements[2].Text = Elements[0].Text;
 	Durin::FByteBuffer Main = Bytes({7});
 	Durin::FByteBuffer Bulk = Bytes({8});
-	Package::FPackageWriterDiagnostic Diagnostic;
-	EXPECT_FALSE(Package::WritePackage(InvalidMap, Main, Bulk, &Diagnostic));
+	Package::FPackageWriterResult Diagnostic;
+	EXPECT_FALSE((Diagnostic = Package::WritePackage(InvalidMap, Main, Bulk)));
 	EXPECT_EQ(Diagnostic.Failure, Package::EPackageWriterFailure::DuplicateIdentity);
 	EXPECT_EQ(Main, Bytes({7}));
 	EXPECT_EQ(Bulk, Bytes({8}));
 
 	Package::FLinkerTables Cyclic = MakeFixture();
 	Cyclic.Exports.front().Outer = Cyclic.Summary.TopLevelAssets.front().Export;
-	EXPECT_FALSE(Package::WritePackage(Cyclic, Main, Bulk, &Diagnostic));
+	EXPECT_FALSE((Diagnostic = Package::WritePackage(Cyclic, Main, Bulk)));
 	EXPECT_EQ(Diagnostic.Failure, Package::EPackageWriterFailure::InvalidTopology);
 	EXPECT_EQ(Main, Bytes({7}));
 	EXPECT_EQ(Bulk, Bytes({8}));
@@ -474,9 +473,9 @@ TEST(FPackageWriterContractTests, ImportExportAndReferenceIdsRemapAcrossShuffled
 	const Package::FLinkerTables A = MakeReferenceFixture(false);
 	const Package::FLinkerTables B = MakeReferenceFixture(true);
 	Durin::FByteBuffer MainA, BulkA, MainB, BulkB;
-	Package::FPackageWriterDiagnostic Diagnostic;
-	ASSERT_TRUE(Package::WritePackage(A, MainA, BulkA, &Diagnostic)) << Diagnostic.Message;
-	ASSERT_TRUE(Package::WritePackage(B, MainB, BulkB, &Diagnostic)) << Diagnostic.Message;
+	Package::FPackageWriterResult Diagnostic;
+	ASSERT_TRUE((Diagnostic = Package::WritePackage(A, MainA, BulkA))) << Durin::ObjectPackage::FormatPackageError(Diagnostic);
+	ASSERT_TRUE((Diagnostic = Package::WritePackage(B, MainB, BulkB))) << Durin::ObjectPackage::FormatPackageError(Diagnostic);
 	EXPECT_EQ(MainA, MainB);
 	EXPECT_EQ(BulkA, BulkB);
 	Package::FPackageWriterManifest Manifest;
@@ -494,9 +493,9 @@ TEST(FPackageReaderContractTests, RegistryProjectionUsesOnlyDeclaredFrontMatter)
 	ASSERT_TRUE(Package::WritePackage(Fixture, Main, Bulk));
 	const uint64 HeaderBytes = Read<uint64>(Main, 32);
 	Package::FPackageRegistryData Registry;
-	Package::FPackageReaderDiagnostic Diagnostic;
-	ASSERT_TRUE(Package::ReadPackageRegistry(std::span(Main).first(static_cast<size_t>(HeaderBytes)),
-		Main.size(), Bulk.size(), Fixture.Summary.PackagePath, Registry, &Diagnostic)) << Diagnostic.Message;
+	Package::FPackageReaderResult Diagnostic;
+	ASSERT_TRUE((Diagnostic = Package::ReadPackageRegistry(std::span(Main).first(static_cast<size_t>(HeaderBytes)),
+		Main.size(), Bulk.size(), Fixture.Summary.PackagePath, Registry))) << Durin::ObjectPackage::FormatPackageError(Diagnostic);
 	EXPECT_EQ(Registry.PackagePath, Fixture.Summary.PackagePath);
 	ASSERT_EQ(Registry.TopLevelAssets.size(), 1u);
 	EXPECT_EQ(Registry.TopLevelAssets.front().ClassName, "Example::WriterAsset");
@@ -519,9 +518,9 @@ TEST(FPackageReaderContractTests, CanonicalFixturesReadAndWriteByteIdentically)
 		Durin::FByteBuffer Bulk;
 		ASSERT_TRUE(Package::WritePackage(Source, Main, Bulk));
 		Package::FLinkerTables Decoded;
-		Package::FPackageReaderDiagnostic Diagnostic;
-		ASSERT_TRUE(Package::ReadPackage(Main, Bulk, Source.Summary.PackagePath, Decoded, &Diagnostic))
-			<< Diagnostic.LogicalPath << ": " << Diagnostic.Message;
+		Package::FPackageReaderResult Diagnostic;
+		ASSERT_TRUE((Diagnostic = Package::ReadPackage(Main, Bulk, Source.Summary.PackagePath, Decoded)))
+			<< Diagnostic.LogicalPath << ": " << Durin::ObjectPackage::FormatPackageError(Diagnostic);
 		Durin::FByteBuffer RoundTripMain;
 		Durin::FByteBuffer RoundTripBulk;
 		ASSERT_TRUE(Package::WritePackage(Decoded, RoundTripMain, RoundTripBulk));
@@ -549,17 +548,17 @@ TEST(FPackageReaderContractTests, EnvelopeSectionAndBulkFailuresAreAtomic)
 	ASSERT_TRUE(Package::WritePackage(Fixture, Main, Bulk));
 	Package::FLinkerTables Sentinel;
 	Sentinel.Summary.PackagePath = PackagePath("/Game/Sentinel");
-	Package::FPackageReaderDiagnostic Diagnostic;
+	Package::FPackageReaderResult Diagnostic;
 
 	Durin::FByteBuffer CorruptHeader = Main;
 	CorruptHeader[48] ^= std::byte{1};
-	EXPECT_FALSE(Package::ReadPackage(CorruptHeader, Bulk, Fixture.Summary.PackagePath, Sentinel, &Diagnostic));
+	EXPECT_FALSE((Diagnostic = Package::ReadPackage(CorruptHeader, Bulk, Fixture.Summary.PackagePath, Sentinel)));
 	EXPECT_EQ(Diagnostic.Failure, Package::EPackageReaderFailure::InvalidEnvelope);
 	EXPECT_EQ(Sentinel.Summary.PackagePath.ToString(), "/Game/Sentinel");
 
 	Durin::FByteBuffer CorruptSection = Main;
 	CorruptSection.back() ^= std::byte{1};
-	EXPECT_FALSE(Package::ReadPackage(CorruptSection, Bulk, Fixture.Summary.PackagePath, Sentinel, &Diagnostic));
+	EXPECT_FALSE((Diagnostic = Package::ReadPackage(CorruptSection, Bulk, Fixture.Summary.PackagePath, Sentinel)));
 	EXPECT_EQ(Diagnostic.Failure, Package::EPackageReaderFailure::HashMismatch);
 	EXPECT_EQ(Sentinel.Summary.PackagePath.ToString(), "/Game/Sentinel");
 
@@ -569,13 +568,13 @@ TEST(FPackageReaderContractTests, EnvelopeSectionAndBulkFailuresAreAtomic)
 	ASSERT_TRUE(Durin::FinalizeBinaryEnvelopeHeader(
 		std::span(CorruptDirectory).first(static_cast<size_t>(HeaderBytes)), CorruptDirectory.size(),
 		{Package::DastMaximumHeaderBytes, Package::DastMaximumPackageBytes}));
-	EXPECT_FALSE(Package::ReadPackage(CorruptDirectory, Bulk, Fixture.Summary.PackagePath, Sentinel, &Diagnostic));
+	EXPECT_FALSE((Diagnostic = Package::ReadPackage(CorruptDirectory, Bulk, Fixture.Summary.PackagePath, Sentinel)));
 	EXPECT_EQ(Diagnostic.Failure, Package::EPackageReaderFailure::InvalidDirectory);
 	EXPECT_EQ(Sentinel.Summary.PackagePath.ToString(), "/Game/Sentinel");
 
 	Durin::FByteBuffer CorruptBulk = Bulk;
 	CorruptBulk.front() ^= std::byte{1};
-	EXPECT_FALSE(Package::ReadPackage(Main, CorruptBulk, Fixture.Summary.PackagePath, Sentinel, &Diagnostic));
+	EXPECT_FALSE((Diagnostic = Package::ReadPackage(Main, CorruptBulk, Fixture.Summary.PackagePath, Sentinel)));
 	EXPECT_EQ(Diagnostic.Failure, Package::EPackageReaderFailure::HashMismatch);
 	EXPECT_EQ(Sentinel.Summary.PackagePath.ToString(), "/Game/Sentinel");
 }
@@ -588,15 +587,15 @@ TEST(FPackageReaderContractTests, WrongIdentityAndTruncatedFrontMatterDoNotPubli
 	ASSERT_TRUE(Package::WritePackage(Fixture, Main, Bulk));
 	const uint64 HeaderBytes = Read<uint64>(Main, 32);
 	Package::FPackageRegistryData Registry{.PackagePath = PackagePath("/Game/Sentinel")};
-	Package::FPackageReaderDiagnostic Diagnostic;
-	EXPECT_FALSE(Package::ReadPackageRegistry(
+	Package::FPackageReaderResult Diagnostic;
+	EXPECT_FALSE((Diagnostic = Package::ReadPackageRegistry(
 		std::span(Main).first(static_cast<size_t>(HeaderBytes)), Main.size(), Bulk.size(),
-		PackagePath("/Game/Missing"), Registry, &Diagnostic));
+		PackagePath("/Game/Missing"), Registry)));
 	EXPECT_EQ(Diagnostic.Failure, Package::EPackageReaderFailure::InvalidRegistry);
 	EXPECT_EQ(Registry.PackagePath.ToString(), "/Game/Sentinel");
-	EXPECT_FALSE(Package::ReadPackageRegistry(
+	EXPECT_FALSE((Diagnostic = Package::ReadPackageRegistry(
 		std::span(Main).first(static_cast<size_t>(HeaderBytes - 1)), Main.size(), Bulk.size(),
-		Fixture.Summary.PackagePath, Registry, &Diagnostic));
+		Fixture.Summary.PackagePath, Registry)));
 	EXPECT_EQ(Registry.PackagePath.ToString(), "/Game/Sentinel");
 }
 
@@ -614,8 +613,8 @@ TEST(FPackageReaderContractTests, RetiredAndFutureVersionsFailWithoutPublishing)
 			{Package::DastMaximumHeaderBytes, Package::DastMaximumPackageBytes}));
 		Package::FLinkerTables Sentinel;
 		Sentinel.Summary.PackagePath = PackagePath("/Game/Sentinel");
-		Package::FPackageReaderDiagnostic Diagnostic;
-		EXPECT_FALSE(Package::ReadPackage(Main, Bulk, Fixture.Summary.PackagePath, Sentinel, &Diagnostic));
+		Package::FPackageReaderResult Diagnostic;
+		EXPECT_FALSE((Diagnostic = Package::ReadPackage(Main, Bulk, Fixture.Summary.PackagePath, Sentinel)));
 		EXPECT_EQ(Diagnostic.Failure, Package::EPackageReaderFailure::InvalidEnvelope);
 		EXPECT_EQ(Sentinel.Summary.PackagePath.ToString(), "/Game/Sentinel");
 		Package::FPackageRegistryData Registry;
@@ -632,7 +631,7 @@ TEST(FPackageReaderContractTests, LateValueTopologyAndBulkFailuresAreTypedAndAto
 {
 	Package::FLinkerTables Sentinel;
 	Sentinel.Summary.PackagePath = PackagePath("/Game/Sentinel");
-	Package::FPackageReaderDiagnostic Diagnostic;
+	Package::FPackageReaderResult Diagnostic;
 
 	Durin::FByteBuffer Main;
 	Durin::FByteBuffer Bulk;
@@ -642,7 +641,7 @@ TEST(FPackageReaderContractTests, LateValueTopologyAndBulkFailuresAreTypedAndAto
 	// The export baseline flag follows the table version, export count and id.
 	Main[static_cast<size_t>(ValuesOffset + 6)] = std::byte{2};
 	RehashSection(Main, 6);
-	EXPECT_FALSE(Package::ReadPackage(Main, Bulk, Fixture.Summary.PackagePath, Sentinel, &Diagnostic));
+	EXPECT_FALSE((Diagnostic = Package::ReadPackage(Main, Bulk, Fixture.Summary.PackagePath, Sentinel)));
 	EXPECT_EQ(Diagnostic.Failure, Package::EPackageReaderFailure::InvalidValue);
 	EXPECT_EQ(Sentinel.Summary.PackagePath.ToString(), "/Game/Sentinel");
 
@@ -650,7 +649,7 @@ TEST(FPackageReaderContractTests, LateValueTopologyAndBulkFailuresAreTypedAndAto
 	const uint64 BulkDirectoryOffset = Read<uint64>(Main, Package::DastDirectoryOffset + 7 * 48 + 8);
 	Main[static_cast<size_t>(BulkDirectoryOffset + 5)] = std::byte{2};
 	RehashSection(Main, 7);
-	EXPECT_FALSE(Package::ReadPackage(Main, Bulk, Fixture.Summary.PackagePath, Sentinel, &Diagnostic));
+	EXPECT_FALSE((Diagnostic = Package::ReadPackage(Main, Bulk, Fixture.Summary.PackagePath, Sentinel)));
 	EXPECT_EQ(Diagnostic.Failure, Package::EPackageReaderFailure::InvalidBulkData);
 	EXPECT_EQ(Sentinel.Summary.PackagePath.ToString(), "/Game/Sentinel");
 
@@ -659,7 +658,7 @@ TEST(FPackageReaderContractTests, LateValueTopologyAndBulkFailuresAreTypedAndAto
 	const uint64 ExportsOffset = Read<uint64>(Main, Package::DastDirectoryOffset + 3 * 48 + 8);
 	Main[static_cast<size_t>(ExportsOffset + 10)] = std::byte{4};
 	RehashSection(Main, 3);
-	EXPECT_FALSE(Package::ReadPackage(Main, Bulk, ReferenceFixture.Summary.PackagePath, Sentinel, &Diagnostic));
+	EXPECT_FALSE((Diagnostic = Package::ReadPackage(Main, Bulk, ReferenceFixture.Summary.PackagePath, Sentinel)));
 	EXPECT_EQ(Diagnostic.Failure, Package::EPackageReaderFailure::InvalidTopology);
 	EXPECT_EQ(Sentinel.Summary.PackagePath.ToString(), "/Game/Sentinel");
 }
@@ -687,4 +686,115 @@ TEST(FPackageReaderContractTests, CustomVersionRecordsRejectInvalidFactsAndRetir
 	Fixture.CustomVersions.front().Version = 7;
 	Fixture.CustomVersions.push_back(Fixture.CustomVersions.front());
 	EXPECT_FALSE(Package::WritePackage(Fixture, Main, Bulk));
+}
+
+TEST(FPackageWriterContractTests, NestedCausesRetainContextAndOutputs)
+{
+	Durin::FByteBuffer Main = Bytes({7}), Bulk = Bytes({8});
+	auto Fixture = MakeFixture();
+	Package::FPackageIndex Child;
+	ASSERT_TRUE(Package::FPackageIndex::TryExport(1, Child));
+	Fixture.Exports.push_back({.ObjectName = "Child", .ClassName = "Example::Child", .Outer = Child});
+	const auto Topology = Package::WritePackage(Fixture, Main, Bulk);
+	ASSERT_FALSE(Topology);
+	EXPECT_EQ(Topology.Reason, Package::EPackageWriterReason::UnresolvedTablePath);
+	const auto* Linker = std::get_if<Package::FLinkerError>(&Topology.Cause);
+	ASSERT_NE(Linker, nullptr);
+	EXPECT_EQ(Linker->Code, Package::ELinkerError::OuterCycle);
+	EXPECT_EQ(Linker->RequestedIndex, Child);
+	EXPECT_EQ(Linker->FailedIndex, Child);
+	EXPECT_EQ(Topology.LogicalPath, "Exports[1]");
+	EXPECT_EQ(Main, Bytes({7}));
+	EXPECT_EQ(Bulk, Bytes({8}));
+
+	Fixture = MakeFixture();
+	auto& Labels = Fixture.Exports.front().Properties.back();
+	Labels.Type.Children[0].Kind = Package::EValueKind::I8;
+	Fixture.Schemas.front().Fields.back().Type = Labels.Type;
+	Labels.Value.Elements[0].Signed = 128;
+	const auto Key = Package::WritePackage(Fixture, Main, Bulk);
+	ASSERT_FALSE(Key);
+	EXPECT_EQ(Key.Reason, Package::EPackageWriterReason::CanonicalKeyRejected);
+	const auto* KeyError = std::get_if<Package::FCanonicalMapKeyError>(&Key.Cause);
+	ASSERT_NE(KeyError, nullptr);
+	EXPECT_EQ(KeyError->Code, Package::ECanonicalMapKeyError::SignedOutOfRange);
+	EXPECT_EQ(KeyError->SignedValue, 128);
+	EXPECT_EQ(Key.LogicalPath, "WriterFixture.Example::WriterAsset.Labels");
+	Fixture = {};
+	EXPECT_EQ(KeyError->SignedValue, 128);
+	EXPECT_EQ(Main, Bytes({7}));
+	EXPECT_EQ(Bulk, Bytes({8}));
+}
+
+TEST(FPackageReaderContractTests, CanonicalValidationPreservesWriterCause)
+{
+	auto Fixture = MakeFixture();
+	Fixture.Exports.front().Properties.resize(1);
+	Fixture.Schemas.front().Fields.resize(1);
+	Fixture.Exports.front().Properties.front().Type.Kind = Package::EValueKind::I8;
+	Fixture.Schemas.front().Fields.front().Type.Kind = Package::EValueKind::I8;
+	Fixture.Exports.front().Properties.front().Value.Signed = 64;
+	Durin::FByteBuffer Main, Bulk;
+	ASSERT_TRUE(Package::WritePackage(Fixture, Main, Bulk));
+	const auto ValuesOffset = Read<uint64>(Main, Package::DastDirectoryOffset + 6 * 48 + 8);
+	// One export and one scalar field: header, identities, provenance, tag, zigzag value.
+	ASSERT_EQ(Main[ValuesOffset + 12], std::byte(uint8(Package::EValueKind::I8) + 1));
+	ASSERT_EQ(Main[ValuesOffset + 13], std::byte{0x80});
+	ASSERT_EQ(Main[ValuesOffset + 14], std::byte{1});
+	Main[ValuesOffset + 14] = std::byte{2}; // 128 is decodable but outside I8 storage.
+	RehashSection(Main, 6);
+	Package::FLinkerTables Output;
+	Output.Summary.PackagePath = PackagePath("/Game/Sentinel");
+	const auto Result = Package::ReadPackage(Main, Bulk, Fixture.Summary.PackagePath, Output);
+	ASSERT_FALSE(Result);
+	EXPECT_EQ(Result.Reason, Package::EPackageReaderReason::CanonicalWriterRejected);
+	const auto* Writer = std::get_if<Package::FPackageWriterResult>(&Result.Cause);
+	ASSERT_NE(Writer, nullptr);
+	EXPECT_EQ(Writer->Failure, Package::EPackageWriterFailure::InvalidValue);
+	EXPECT_EQ(Writer->Reason, Package::EPackageWriterReason::SignedRange);
+	EXPECT_EQ(Writer->LogicalPath, "WriterFixture.Example::WriterAsset.Count");
+	EXPECT_EQ(Output.Summary.PackagePath.ToString(), "/Game/Sentinel");
+	Main.clear();
+	EXPECT_EQ(Writer->LogicalPath, "WriterFixture.Example::WriterAsset.Count");
+}
+
+TEST(FPackageReaderContractTests, EnvelopeAndNestedValueReasonsSurvivePropagation)
+{
+	auto Fixture = MakeFixture();
+	Durin::FByteBuffer Main, Bulk;
+	ASSERT_TRUE(Package::WritePackage(Fixture, Main, Bulk));
+	Package::FLinkerTables Output;
+	Output.Summary.PackagePath = PackagePath("/Game/Sentinel");
+	auto Corrupt = Main;
+	Corrupt[48] ^= std::byte{1};
+	const auto Envelope = Package::ReadPackage(Corrupt, Bulk, Fixture.Summary.PackagePath, Output);
+	ASSERT_FALSE(Envelope);
+	EXPECT_EQ(Envelope.Reason, Package::EPackageReaderReason::EnvelopeRejected);
+	const auto* Cause = std::get_if<Durin::EBinaryEnvelopeError>(&Envelope.Cause);
+	ASSERT_NE(Cause, nullptr);
+	EXPECT_EQ(*Cause, Durin::EBinaryEnvelopeError::HeaderHashMismatch);
+	EXPECT_EQ(Output.Summary.PackagePath.ToString(), "/Game/Sentinel");
+
+	const auto ValuesOffset = Read<uint64>(Main, Package::DastDirectoryOffset + 6 * 48 + 8);
+	Main[ValuesOffset + 12] = std::byte{0};
+	RehashSection(Main, 6);
+	const auto Value = Package::ReadPackage(Main, Bulk, Fixture.Summary.PackagePath, Output);
+	ASSERT_FALSE(Value);
+	EXPECT_EQ(Value.Reason, Package::EPackageReaderReason::ValueTag);
+	EXPECT_EQ(Value.LogicalPath, "WriterFixture.Example::WriterAsset.Count");
+	EXPECT_EQ(Output.Summary.PackagePath.ToString(), "/Game/Sentinel");
+}
+
+TEST(FPackageFormatContractTests, ResultFormattingAndSuccessHaveNoRetainedError)
+{
+	Durin::FByteBuffer Main, Bulk;
+	auto Result = Package::WritePackage(MakeFixture(), Main, Main);
+	ASSERT_FALSE(Result);
+	EXPECT_EQ(Result.Reason, Package::EPackageWriterReason::AliasedOutput);
+	EXPECT_EQ(Package::FormatPackageError(Result), "The main and bulk output buffers must not alias.");
+	Result = Package::WritePackage(MakeFixture(), Main, Bulk);
+	EXPECT_TRUE(Result);
+	EXPECT_EQ(Result.Reason, Package::EPackageWriterReason::None);
+	EXPECT_TRUE(std::holds_alternative<std::monostate>(Result.Cause));
+	EXPECT_TRUE(Package::FormatPackageError(Result).empty());
 }

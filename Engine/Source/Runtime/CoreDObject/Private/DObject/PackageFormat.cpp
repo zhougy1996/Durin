@@ -54,10 +54,11 @@ namespace Durin::ObjectPackage
 			FXxHash128 Hash;
 		};
 
-		auto Fail(FPackageWriterDiagnostic* Diagnostic, EPackageWriterFailure Failure,
-			std::string Message, std::string Path = {}) -> bool
+		auto Fail(FPackageWriterResult* Diagnostic, EPackageWriterFailure Failure,
+			EPackageWriterReason Reason, std::string Path = {},
+			decltype(FPackageWriterResult::Cause) Cause = {}, std::string Subject = {}) -> bool
 		{
-			if (Diagnostic) *Diagnostic = {Failure, std::move(Path), std::move(Message)};
+			if (Diagnostic) *Diagnostic = {Failure, std::move(Path), Reason, std::move(Cause), std::move(Subject)};
 			return false;
 		}
 
@@ -128,17 +129,17 @@ namespace Durin::ObjectPackage
 		}
 
 		auto AddName(std::vector<std::string>& Names, std::string_view Name,
-			FPackageWriterDiagnostic* Diagnostic, std::string_view Path, bool bNullable = false) -> bool
+			FPackageWriterResult* Diagnostic, std::string_view Path, bool bNullable = false) -> bool
 		{
 			if (Name.empty())
 				return bNullable || Fail(Diagnostic, EPackageWriterFailure::InvalidInput,
-					"A required package name is empty.", std::string(Path));
+					EPackageWriterReason::RequiredNameEmpty, std::string(Path));
 			if (Name.size() > DastMaximumStringBytes)
 				return Fail(Diagnostic, EPackageWriterFailure::LimitExceeded,
-					"A package name exceeds the format string limit.", std::string(Path));
+					EPackageWriterReason::NameLimit, std::string(Path));
 			if (!IsValidUtf8(Name))
 				return Fail(Diagnostic, EPackageWriterFailure::InvalidUtf8,
-					"A package name is not valid UTF-8.", std::string(Path));
+					EPackageWriterReason::InvalidNameUtf8, std::string(Path));
 			Names.emplace_back(Name);
 			return true;
 		}
@@ -169,11 +170,11 @@ namespace Durin::ObjectPackage
 		}
 
 		auto ValidateType(const FSerializedType& Type, uint32 Depth,
-			FPackageWriterDiagnostic* Diagnostic, std::string_view Path) -> bool
+			FPackageWriterResult* Diagnostic, std::string_view Path) -> bool
 		{
 			if (Depth > DastMaximumValueDepth)
 				return Fail(Diagnostic, EPackageWriterFailure::LimitExceeded,
-					"A serialized type exceeds the format nesting limit.", std::string(Path));
+					EPackageWriterReason::TypeDepth, std::string(Path));
 			const size_t Children = Type.Children.size();
 			switch (Type.Kind)
 			{
@@ -181,37 +182,37 @@ namespace Durin::ObjectPackage
 				if (Type.QualifiedName.empty() || Children != 0
 					|| Type.Parameter < uint64(EValueKind::I8) || Type.Parameter > uint64(EValueKind::U64))
 					return Fail(Diagnostic, EPackageWriterFailure::InvalidType,
-						"An enum type has an invalid name, storage kind, or child list.", std::string(Path));
+						EPackageWriterReason::InvalidEnumType, std::string(Path));
 				break;
 			case EValueKind::Intrinsic:
 				if (Children != 0 || Type.Parameter < 1 || Type.Parameter > 6)
 					return Fail(Diagnostic, EPackageWriterFailure::InvalidType,
-						"An intrinsic type has an invalid layout.", std::string(Path));
+						EPackageWriterReason::InvalidIntrinsicType, std::string(Path));
 				break;
 			case EValueKind::Struct:
 				if (Type.QualifiedName.empty())
 					return Fail(Diagnostic, EPackageWriterFailure::InvalidType,
-						"A struct type has no qualified name.", std::string(Path));
+						EPackageWriterReason::MissingStructName, std::string(Path));
 				break;
 			case EValueKind::FixedArray:
 				if (Children != 1 || Type.Parameter > DastMaximumContainerElements)
 					return Fail(Diagnostic, EPackageWriterFailure::InvalidType,
-						"A fixed-array type has an invalid element descriptor or count.", std::string(Path));
+						EPackageWriterReason::InvalidFixedArrayType, std::string(Path));
 				break;
 			case EValueKind::Array:
 				if (Children != 1)
 					return Fail(Diagnostic, EPackageWriterFailure::InvalidType,
-						"An array type must have one child type.", std::string(Path));
+						EPackageWriterReason::InvalidArrayType, std::string(Path));
 				break;
 			case EValueKind::Map:
 				if (Children != 2)
 					return Fail(Diagnostic, EPackageWriterFailure::InvalidType,
-						"A Map type must have key and value child types.", std::string(Path));
+						EPackageWriterReason::InvalidMapType, std::string(Path));
 				break;
 			default:
 				if (Children != 0)
 					return Fail(Diagnostic, EPackageWriterFailure::InvalidType,
-						"A scalar type cannot have child descriptors.", std::string(Path));
+						EPackageWriterReason::ScalarChildren, std::string(Path));
 				break;
 			}
 			for (const FSerializedType& Child : Type.Children)
@@ -220,7 +221,7 @@ namespace Durin::ObjectPackage
 		}
 
 		auto CollectType(const FSerializedType& Type, std::vector<FSerializedType>& Types,
-			std::vector<std::string>& Names, FPackageWriterDiagnostic* Diagnostic,
+			std::vector<std::string>& Names, FPackageWriterResult* Diagnostic,
 			std::string_view Path) -> bool
 		{
 			if (!ValidateType(Type, 0, Diagnostic, Path)) return false;
@@ -232,7 +233,7 @@ namespace Durin::ObjectPackage
 		}
 
 		auto ResolvePaths(const FLinkerTables& Linker, bool bImports,
-			std::vector<std::string>& Out, FPackageWriterDiagnostic* Diagnostic) -> bool
+			std::vector<std::string>& Out, FPackageWriterResult* Diagnostic) -> bool
 		{
 			const size_t Count = bImports ? Linker.Imports.size() : Linker.Exports.size();
 			Out.resize(Count);
@@ -247,27 +248,27 @@ namespace Durin::ObjectPackage
 					return Fail(Diagnostic,
 						PathResult.Error.Code == ELinkerError::OuterCycle
 							? EPackageWriterFailure::InvalidTopology : EPackageWriterFailure::InvalidIndex,
-						"A package table path cannot be resolved.",
-						std::string(bImports ? "Imports[" : "Exports[") + std::to_string(Index) + "]");
+						EPackageWriterReason::UnresolvedTablePath,
+						std::string(bImports ? "Imports[" : "Exports[") + std::to_string(Index) + "]", PathResult.Error);
 			}
 			return true;
 		}
 
 		auto RemapIndex(const FFrozenPackage& Frozen, FPackageIndex Index, int64& Out,
-			FPackageWriterDiagnostic* Diagnostic, std::string_view Path) -> bool
+			FPackageWriterResult* Diagnostic, std::string_view Path) -> bool
 		{
 			if (Index.IsNull()) { Out = 0; return true; }
 			if (Index.IsImport())
 			{
 				if (Index.GetTableIndex() >= Frozen.ImportRemap.size())
 					return Fail(Diagnostic, EPackageWriterFailure::InvalidIndex,
-						"An import index is out of range.", std::string(Path));
+						EPackageWriterReason::ImportIndex, std::string(Path));
 				Out = -int64(Frozen.ImportRemap[Index.GetTableIndex()] + 1);
 				return true;
 			}
 			if (Index.GetTableIndex() >= Frozen.ExportRemap.size())
 				return Fail(Diagnostic, EPackageWriterFailure::InvalidIndex,
-					"An export index is out of range.", std::string(Path));
+					EPackageWriterReason::ExportIndex, std::string(Path));
 			Out = int64(Frozen.ExportRemap[Index.GetTableIndex()] + 1);
 			return true;
 		}
@@ -280,7 +281,7 @@ namespace Durin::ObjectPackage
 
 		auto CollectValue(FFrozenPackage& Frozen, const FSerializedType& Type,
 			const FSerializedValue& Value, uint32 ExportId, uint32 SchemaId, uint32 FieldId,
-			std::string Path, uint32 Depth, FPackageWriterDiagnostic* Diagnostic,
+			std::string Path, uint32 Depth, FPackageWriterResult* Diagnostic,
 			bool bAllowBaseline = false, bool bAllowTypeDefault = false, bool bTypeRelative = false) -> bool
 		{
 			if (uint8(Value.Baseline) > uint8(EArchiveStructBaseline::TypeDefault)
@@ -288,10 +289,10 @@ namespace Durin::ObjectPackage
 				|| (Value.Baseline == EArchiveStructBaseline::Parent && !bAllowBaseline)
 				|| (Value.Baseline == EArchiveStructBaseline::TypeDefault && !bAllowTypeDefault))
 				return Fail(Diagnostic, EPackageWriterFailure::InvalidValue,
-					"A Struct value requests an invalid or unavailable baseline.", Path);
+					EPackageWriterReason::InvalidStructBaseline, Path);
 			if (Depth > DastMaximumValueDepth)
 				return Fail(Diagnostic, EPackageWriterFailure::LimitExceeded,
-					"A serialized value exceeds the format nesting limit.", std::move(Path));
+					EPackageWriterReason::ValueDepth, std::move(Path));
 			bTypeRelative = Value.Baseline == EArchiveStructBaseline::TypeDefault
 				|| (bTypeRelative && Value.Baseline == EArchiveStructBaseline::Parent);
 			switch (Type.Kind)
@@ -299,17 +300,17 @@ namespace Durin::ObjectPackage
 			case EValueKind::I8: case EValueKind::I16: case EValueKind::I32: case EValueKind::I64:
 				if (!SignedFits(Type.Kind, Value.Signed))
 					return Fail(Diagnostic, EPackageWriterFailure::InvalidValue,
-						"A signed value is out of range for its type.", Path);
+						EPackageWriterReason::SignedRange, Path);
 				break;
 			case EValueKind::U8: case EValueKind::U16: case EValueKind::U32: case EValueKind::U64:
 				if (!UnsignedFits(Type.Kind, Value.Unsigned))
 					return Fail(Diagnostic, EPackageWriterFailure::InvalidValue,
-						"An unsigned value is out of range for its type.", Path);
+						EPackageWriterReason::UnsignedRange, Path);
 				break;
 			case EValueKind::F32:
 				if (Value.FloatingBits > std::numeric_limits<uint32>::max())
 					return Fail(Diagnostic, EPackageWriterFailure::InvalidValue,
-						"An F32 value contains bits outside its storage width.", Path);
+						EPackageWriterReason::Float32Width, Path);
 				break;
 			case EValueKind::Enum:
 			{
@@ -317,13 +318,13 @@ namespace Durin::ObjectPackage
 				if ((Storage >= EValueKind::I8 && Storage <= EValueKind::I64 && !SignedFits(Storage, Value.Signed))
 					|| (Storage >= EValueKind::U8 && Storage <= EValueKind::U64 && !UnsignedFits(Storage, Value.Unsigned)))
 					return Fail(Diagnostic, EPackageWriterFailure::InvalidValue,
-						"An enum value is out of range for its storage type.", Path);
+						EPackageWriterReason::EnumRange, Path);
 				break;
 			}
 			case EValueKind::String:
 				if (Value.Text.size() > DastMaximumStringBytes || !IsValidUtf8(Value.Text))
 					return Fail(Diagnostic, EPackageWriterFailure::InvalidValue,
-						"A serialized string is invalid or exceeds the format limit.", std::move(Path));
+						EPackageWriterReason::InvalidString, std::move(Path));
 				break;
 			case EValueKind::Name:
 			case EValueKind::SoftReference:
@@ -343,7 +344,7 @@ namespace Durin::ObjectPackage
 					: Type.Parameter == 5 ? 10 : 0;
 				if (Value.ComponentBits.size() != Count)
 					return Fail(Diagnostic, EPackageWriterFailure::InvalidValue,
-						"An intrinsic value has the wrong component count.", std::move(Path));
+						EPackageWriterReason::IntrinsicComponentCount, std::move(Path));
 				break;
 			}
 			case EValueKind::Struct:
@@ -351,20 +352,20 @@ namespace Durin::ObjectPackage
 				{
 					const auto Schema = std::ranges::find(Frozen.Source->Schemas, Type.QualifiedName, &FSerializedSchema::QualifiedName);
 					if (Schema == Frozen.Source->Schemas.end())
-						return Fail(Diagnostic, EPackageWriterFailure::InvalidType, "Missing Struct schema.", Path);
+						return Fail(Diagnostic, EPackageWriterFailure::InvalidType, EPackageWriterReason::MissingStructSchema, Path);
 					for (const auto& Field : Schema->Fields)
 						if (ContainsHardReferenceType(Field.Type) && std::ranges::find(Value.FieldNames, Field.Name) == Value.FieldNames.end())
 							return Fail(Diagnostic, EPackageWriterFailure::InvalidValue,
-								"Type-relative Struct must carry hard-reference fields.", Path);
+								EPackageWriterReason::MissingHardReferenceFields, Path);
 				}
 				if (Value.Baseline == EArchiveStructBaseline::Complete
 					&& Value.Elements.size() != Type.Children.size())
-					return Fail(Diagnostic, EPackageWriterFailure::InvalidValue, "Complete Struct value is missing fields.", Path);
+					return Fail(Diagnostic, EPackageWriterFailure::InvalidValue, EPackageWriterReason::MissingCompleteFields, Path);
 				if (Value.Elements.size() != StructFieldTypes(Type, Value).size()
 					|| Value.FieldNames.size() != Value.Elements.size()
 					|| (!Value.Provenances.empty() && Value.Provenances.size() != Value.Elements.size()))
 					return Fail(Diagnostic, EPackageWriterFailure::InvalidValue,
-						"A struct value does not match its descriptor.", std::move(Path));
+						EPackageWriterReason::StructDescriptor, std::move(Path));
 				{
 					std::vector<size_t> Order(Value.Elements.size());
 					std::iota(Order.begin(), Order.end(), 0);
@@ -375,12 +376,12 @@ namespace Durin::ObjectPackage
 						const size_t Index = Order[Position];
 						if (Position != 0 && Value.FieldNames[Order[Position - 1]] == Value.FieldNames[Index])
 							return Fail(Diagnostic, EPackageWriterFailure::DuplicateIdentity,
-								"A struct contains duplicate field names.", Path);
+								EPackageWriterReason::DuplicateStructField, Path);
 						const auto Schema = std::ranges::find(Frozen.Source->Schemas, Type.QualifiedName, &FSerializedSchema::QualifiedName);
-						if (Schema == Frozen.Source->Schemas.end()) return Fail(Diagnostic, EPackageWriterFailure::InvalidType, "Missing Struct schema.", Path);
+						if (Schema == Frozen.Source->Schemas.end()) return Fail(Diagnostic, EPackageWriterFailure::InvalidType, EPackageWriterReason::MissingStructSchema, Path);
 						const auto Field = std::ranges::find(Schema->Fields, Value.FieldNames[Index], &FSerializedField::Name);
 						if (Field == Schema->Fields.end() || Field->Type != StructFieldTypes(Type, Value)[Index])
-							return Fail(Diagnostic, EPackageWriterFailure::InvalidType, "Struct field type does not match schema.", Path);
+							return Fail(Diagnostic, EPackageWriterFailure::InvalidType, EPackageWriterReason::StructFieldType, Path);
 						if (!AddName(Frozen.Names, Value.FieldNames[Index], Diagnostic, Path)) return false;
 						if (!CollectValue(Frozen, StructFieldTypes(Type, Value)[Index], Value.Elements[Index], ExportId,
 							SchemaId, FieldId, Path + "." + Value.FieldNames[Index], Depth + 1, Diagnostic,
@@ -395,12 +396,12 @@ namespace Durin::ObjectPackage
 			case EValueKind::FixedArray:
 				if (Value.Elements.size() != Type.Parameter)
 					return Fail(Diagnostic, EPackageWriterFailure::InvalidValue,
-						"A fixed-array value has the wrong element count.", std::move(Path));
+						EPackageWriterReason::FixedArrayCount, std::move(Path));
 				[[fallthrough]];
 			case EValueKind::Array:
 				if (Value.Elements.size() > DastMaximumContainerElements)
 					return Fail(Diagnostic, EPackageWriterFailure::LimitExceeded,
-						"An array exceeds the format element limit.", std::move(Path));
+						EPackageWriterReason::ArrayLimit, std::move(Path));
 				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
 					if (!CollectValue(Frozen, Type.Children.front(), Value.Elements[Index], ExportId,
 						SchemaId, FieldId, Path + "[" + std::to_string(Index) + "]", Depth + 1, Diagnostic, false, bAllowTypeDefault)) return false;
@@ -408,7 +409,7 @@ namespace Durin::ObjectPackage
 			case EValueKind::Map:
 				if ((Value.Elements.size() % 2) != 0 || Value.Elements.size() / 2 > DastMaximumContainerElements)
 					return Fail(Diagnostic, EPackageWriterFailure::InvalidValue,
-						"A Map has an invalid entry count.", std::move(Path));
+						EPackageWriterReason::MapCount, std::move(Path));
 				{
 					struct FEntry { size_t Index; FByteBuffer Token; };
 					std::vector<FEntry> Entries;
@@ -416,7 +417,7 @@ namespace Durin::ObjectPackage
 					{
 						FByteBuffer Token;
 						if (const auto Result = BuildCanonicalMapKeyToken(Type.Children[0], Value.Elements[Index], Token); !Result)
-							return Fail(Diagnostic, EPackageWriterFailure::InvalidValue, FormatCanonicalMapKeyError(Result.Error), Path);
+							return Fail(Diagnostic, EPackageWriterFailure::InvalidValue, EPackageWriterReason::CanonicalKeyRejected, Path, Result.Error);
 						Entries.push_back({Index, std::move(Token)});
 					}
 					std::ranges::sort(Entries, [](const FEntry& A, const FEntry& B) { return A.Token < B.Token; });
@@ -424,7 +425,7 @@ namespace Durin::ObjectPackage
 					{
 						if (Position != 0 && Entries[Position - 1].Token == Entries[Position].Token)
 							return Fail(Diagnostic, EPackageWriterFailure::DuplicateIdentity,
-								"A Map contains colliding canonical keys.", Path);
+								EPackageWriterReason::DuplicateMapKey, Path);
 						const size_t Index = Entries[Position].Index;
 						const std::string EntryPath = Path + "[" + std::to_string(Position) + "]";
 						if (!CollectValue(Frozen, Type.Children[0], Value.Elements[Index], ExportId,
@@ -437,7 +438,7 @@ namespace Durin::ObjectPackage
 			case EValueKind::Bytes:
 				if (Value.Bytes.size() > DastMaximumPackageBytes)
 					return Fail(Diagnostic, EPackageWriterFailure::LimitExceeded,
-						"A byte blob exceeds the format package limit.", std::move(Path));
+						EPackageWriterReason::BlobLimit, std::move(Path));
 				break;
 			case EValueKind::BulkData:
 			{
@@ -452,7 +453,7 @@ namespace Durin::ObjectPackage
 						&& (Value.BulkStorage != EBulkStorageKind::External
 							|| !Value.Bytes.empty() || Value.BulkContentHash.IsZero())))
 					return Fail(Diagnostic, EPackageWriterFailure::InvalidBulkData,
-						"BulkData requires explicit valid storage, element size, alignment, and extent.", std::move(Path));
+						EPackageWriterReason::InvalidBulkDescriptor, std::move(Path));
 				Frozen.BulkValues.push_back({&Value, ExportId, SchemaId, FieldId, std::move(Path)});
 				break;
 			}
@@ -463,17 +464,17 @@ namespace Durin::ObjectPackage
 
 		auto ValidateObjectPaths(const FSerializedType& Type,
 			const FSerializedValue& Value, std::string_view Path, uint32 Depth,
-			FPackageWriterDiagnostic* Diagnostic) -> bool
+			FPackageWriterResult* Diagnostic) -> bool
 		{
 			if (Depth > DastMaximumValueDepth)
 				return Fail(Diagnostic, EPackageWriterFailure::LimitExceeded,
-					"A value exceeds the nesting limit.", std::string(Path));
+					EPackageWriterReason::ReferenceDepth, std::string(Path));
 			if (Type.Kind == EValueKind::SoftReference)
 			{
 				FObjectPath ObjectPath;
 				if (!Value.Text.empty() && !FObjectPath::TryCreate(Value.Text, ObjectPath))
 					return Fail(Diagnostic, EPackageWriterFailure::InvalidValue,
-						"A soft reference is not a canonical complete object path.", std::string(Path));
+						EPackageWriterReason::InvalidSoftPath, std::string(Path));
 				return true;
 			}
 			if (Type.Kind == EValueKind::Struct)
@@ -501,17 +502,17 @@ namespace Durin::ObjectPackage
 		}
 
 		auto Freeze(const FLinkerTables& Linker, FFrozenPackage& Out,
-			FPackageWriterDiagnostic* Diagnostic) -> bool
+			FPackageWriterResult* Diagnostic) -> bool
 		{
 			if (!IsSupportedPackageReaderVersion(Linker.FormatVersion))
-				return Fail(Diagnostic, EPackageWriterFailure::InvalidInput, "Unsupported writer version.");
+				return Fail(Diagnostic, EPackageWriterFailure::InvalidInput, EPackageWriterReason::UnsupportedVersion);
 			FFrozenPackage Frozen;
 			Frozen.Source = &Linker;
 			if (Linker.Imports.size() > DastMaximumTableEntries
 				|| Linker.Exports.size() > DastMaximumTableEntries
 				|| Linker.Schemas.size() > DastMaximumTableEntries)
 				return Fail(Diagnostic, EPackageWriterFailure::LimitExceeded,
-					"A package table exceeds the format entry limit.");
+					EPackageWriterReason::TableLimit);
 
 			if (!Linker.Summary.PackagePath.IsValid()
 					|| !AddName(Frozen.Names, Linker.Summary.PackagePath.ToString(), Diagnostic,
@@ -524,14 +525,14 @@ namespace Durin::ObjectPackage
 						|| Asset.ClassName.empty())
 					{
 						return Fail(Diagnostic, EPackageWriterFailure::InvalidTopology,
-							"A top-level asset record is invalid.", "Summary.TopLevelAssets");
+							EPackageWriterReason::InvalidTopLevelAsset, "Summary.TopLevelAssets");
 					}
 					const FPackageExport& Export = Linker.Exports[Asset.Export.GetTableIndex()];
 					if (!Export.Outer.IsNull() || Export.ObjectName != Asset.AssetPath.GetAssetName()
 						|| Export.ClassName != Asset.ClassName)
 					{
 						return Fail(Diagnostic, EPackageWriterFailure::InvalidTopology,
-							"A top-level asset record does not match its package-outer export.",
+							EPackageWriterReason::TopLevelExportMismatch,
 							Asset.AssetPath.ToString());
 					}
 					if (!AddName(Frozen.Names, Asset.AssetPath.ToString(), Diagnostic, "Summary.TopLevelAssets.AssetPath")
@@ -575,7 +576,7 @@ namespace Durin::ObjectPackage
 			for (size_t Index = 1; Index < Frozen.ImportOrder.size(); ++Index)
 				if (Frozen.ImportPaths[Frozen.ImportOrder[Index - 1]] == Frozen.ImportPaths[Frozen.ImportOrder[Index]])
 					return Fail(Diagnostic, EPackageWriterFailure::DuplicateIdentity,
-						"Two imports have the same logical identity.", Frozen.ImportPaths[Frozen.ImportOrder[Index]]);
+						EPackageWriterReason::DuplicateImport, Frozen.ImportPaths[Frozen.ImportOrder[Index]]);
 
 			Frozen.ExportOrder.resize(Linker.Exports.size());
 			std::iota(Frozen.ExportOrder.begin(), Frozen.ExportOrder.end(), 0u);
@@ -587,7 +588,7 @@ namespace Durin::ObjectPackage
 			for (size_t Index = 1; Index < Frozen.ExportOrder.size(); ++Index)
 				if (Frozen.ExportPaths[Frozen.ExportOrder[Index - 1]] == Frozen.ExportPaths[Frozen.ExportOrder[Index]])
 					return Fail(Diagnostic, EPackageWriterFailure::DuplicateIdentity,
-						"Two exports have the same logical identity.", Frozen.ExportPaths[Frozen.ExportOrder[Index]]);
+						EPackageWriterReason::DuplicateExport, Frozen.ExportPaths[Frozen.ExportOrder[Index]]);
 			{
 				std::unordered_set<uint32> RecordedExports;
 				std::unordered_set<FTopLevelAssetPath> RecordedPaths;
@@ -597,7 +598,7 @@ namespace Durin::ObjectPackage
 						|| !RecordedPaths.insert(Asset.AssetPath).second)
 					{
 						return Fail(Diagnostic, EPackageWriterFailure::DuplicateIdentity,
-							"A top-level asset record is duplicated.", Asset.AssetPath.ToString());
+							EPackageWriterReason::DuplicateTopLevelAsset, Asset.AssetPath.ToString());
 					}
 				}
 				for (uint32 ExportIndex = 0; ExportIndex < Linker.Exports.size(); ++ExportIndex)
@@ -605,7 +606,7 @@ namespace Durin::ObjectPackage
 						&& !RecordedExports.contains(ExportIndex))
 					{
 						return Fail(Diagnostic, EPackageWriterFailure::InvalidTopology,
-							"A package-outer export has no top-level asset record.",
+							EPackageWriterReason::MissingTopLevelAsset,
 							Linker.Exports[ExportIndex].ObjectName);
 					}
 			}
@@ -623,7 +624,7 @@ namespace Durin::ObjectPackage
 						|| !CollectType(Field.Type, Frozen.Types, Frozen.Names, Diagnostic, Schema.QualifiedName)) return false;
 					if (Index != 0 && Schema.Fields[Index - 1].Name == Field.Name)
 						return Fail(Diagnostic, EPackageWriterFailure::DuplicateIdentity,
-							"A schema contains duplicate field names.", Schema.QualifiedName + "." + Field.Name);
+							EPackageWriterReason::DuplicateSchemaField, Schema.QualifiedName + "." + Field.Name);
 				}
 			}
 			std::ranges::sort(Frozen.Schemas, [](const FSerializedSchema& A, const FSerializedSchema& B)
@@ -631,7 +632,7 @@ namespace Durin::ObjectPackage
 			for (size_t Index = 1; Index < Frozen.Schemas.size(); ++Index)
 				if (Frozen.Schemas[Index - 1].QualifiedName == Frozen.Schemas[Index].QualifiedName)
 					return Fail(Diagnostic, EPackageWriterFailure::DuplicateIdentity,
-						"Two schemas have the same qualified name.", Frozen.Schemas[Index].QualifiedName);
+						EPackageWriterReason::DuplicateSchema, Frozen.Schemas[Index].QualifiedName);
 
 			for (const FSerializedType& Type : Linker.Types)
 				if (!CollectType(Type, Frozen.Types, Frozen.Names, Diagnostic, "Types")) return false;
@@ -639,23 +640,23 @@ namespace Durin::ObjectPackage
 			Frozen.Types.erase(std::unique(Frozen.Types.begin(), Frozen.Types.end()), Frozen.Types.end());
 			if (Frozen.Types.size() > DastMaximumTableEntries)
 				return Fail(Diagnostic, EPackageWriterFailure::LimitExceeded,
-					"The canonical type table exceeds the format entry limit.");
+					EPackageWriterReason::TypeTableLimit);
 
 			if (Linker.CustomVersions.size() > DastMaximumTableEntries)
 				return Fail(Diagnostic, EPackageWriterFailure::LimitExceeded,
-					"The custom version table exceeds the format entry limit.", "CustomVersions");
+					EPackageWriterReason::CustomVersionLimit, "CustomVersions");
 			Frozen.CustomVersions = Linker.CustomVersions;
 			for (const auto& Version : Frozen.CustomVersions)
 				if (!Version.Guid.IsValid() || Version.Version < 0)
 					return Fail(Diagnostic, EPackageWriterFailure::InvalidValue,
-						"A custom version requires a valid GUID and nonnegative version.", "CustomVersions");
+						EPackageWriterReason::InvalidCustomVersion, "CustomVersions");
 			std::ranges::sort(Frozen.CustomVersions, [](const FCustomVersion& A, const FCustomVersion& B)
 			{ return std::tie(A.Guid.A, A.Guid.B, A.Guid.C, A.Guid.D)
 				< std::tie(B.Guid.A, B.Guid.B, B.Guid.C, B.Guid.D); });
 			for (size_t Index = 1; Index < Frozen.CustomVersions.size(); ++Index)
 				if (Frozen.CustomVersions[Index - 1].Guid == Frozen.CustomVersions[Index].Guid)
 					return Fail(Diagnostic, EPackageWriterFailure::DuplicateIdentity,
-						"Two custom versions have the same GUID.", "CustomVersions");
+						EPackageWriterReason::DuplicateCustomVersion, "CustomVersions");
 
 			for (uint32 NewExport = 0; NewExport < Frozen.ExportOrder.size(); ++NewExport)
 			{
@@ -672,21 +673,21 @@ namespace Durin::ObjectPackage
 						+ Property.DeclaringType + "." + Property.FieldName;
 					if (!Property.Payload.empty())
 						return Fail(Diagnostic, EPackageWriterFailure::InvalidValue,
-							"An opaque retained property payload cannot be emitted as DAST v10.", Path);
+							EPackageWriterReason::OpaqueProperty, Path);
 					if (PropertyIndex != 0 && Properties[PropertyIndex - 1]->DeclaringType == Property.DeclaringType
 						&& Properties[PropertyIndex - 1]->FieldName == Property.FieldName)
 						return Fail(Diagnostic, EPackageWriterFailure::DuplicateIdentity,
-							"An export contains duplicate property identities.", Path);
+							EPackageWriterReason::DuplicateProperty, Path);
 					const uint32 SchemaId = FindSchemaId(Frozen, Property.DeclaringType);
 					if (SchemaId == 0)
 						return Fail(Diagnostic, EPackageWriterFailure::ManifestMismatch,
-							"A property declaring schema is missing.", Path);
+							EPackageWriterReason::MissingPropertySchema, Path);
 					const FSerializedSchema& Schema = Frozen.Schemas[SchemaId - 1];
 					const auto FieldIt = std::lower_bound(Schema.Fields.begin(), Schema.Fields.end(), Property.FieldName,
 						[](const FSerializedField& Field, std::string_view Name) { return BytewiseLess(Field.Name, Name); });
 					if (FieldIt == Schema.Fields.end() || FieldIt->Name != Property.FieldName || FieldIt->Type != Property.Type)
 						return Fail(Diagnostic, EPackageWriterFailure::ManifestMismatch,
-							"A property does not match its frozen schema field.", Path);
+							EPackageWriterReason::PropertySchemaMismatch, Path);
 					if (!CollectType(Property.Type, Frozen.Types, Frozen.Names, Diagnostic, Path)) return false;
 					if (!ValidateObjectPaths(Property.Type, Property.Value,
 						Path, 0, Diagnostic)) return false;
@@ -706,7 +707,7 @@ namespace Durin::ObjectPackage
 			Frozen.Names.erase(std::unique(Frozen.Names.begin(), Frozen.Names.end()), Frozen.Names.end());
 			if (Frozen.Names.size() > DastMaximumTableEntries)
 				return Fail(Diagnostic, EPackageWriterFailure::LimitExceeded,
-					"The canonical name table exceeds the format entry limit.");
+					EPackageWriterReason::NameTableLimit);
 
 			Frozen.Manifest.Names = Frozen.Names;
 			Frozen.Manifest.Types = Frozen.Types;
@@ -733,11 +734,11 @@ namespace Durin::ObjectPackage
 
 		auto WriteValue(FBinaryWriter& Writer, const FFrozenPackage& Frozen,
 			const FSerializedType& Type, const FSerializedValue& Value, size_t& BulkCursor,
-			std::string_view Path, uint32 Depth, FPackageWriterDiagnostic* Diagnostic) -> bool
+			std::string_view Path, uint32 Depth, FPackageWriterResult* Diagnostic) -> bool
 		{
 			if (Depth > DastMaximumValueDepth)
 				return Fail(Diagnostic, EPackageWriterFailure::LimitExceeded,
-					"A value exceeds the format nesting limit.", std::string(Path));
+					EPackageWriterReason::EmissionDepth, std::string(Path));
 			Writer.WriteU8(static_cast<uint8>(Type.Kind) + 1);
 			switch (Type.Kind)
 			{
@@ -772,7 +773,7 @@ namespace Durin::ObjectPackage
 				for (size_t Index = 1; Index < Order.size(); ++Index)
 					if (Value.FieldNames[Order[Index - 1]] == Value.FieldNames[Order[Index]])
 						return Fail(Diagnostic, EPackageWriterFailure::DuplicateIdentity,
-							"A struct contains duplicate field names.", std::string(Path));
+							EPackageWriterReason::DuplicateStructField, std::string(Path));
 				Writer.WriteU8(uint8(Value.Baseline));
 				Writer.WriteVarUInt(Order.size());
 				for (size_t Index : Order)
@@ -801,14 +802,14 @@ namespace Durin::ObjectPackage
 				{
 					FByteBuffer Token;
 					if (const auto Result = BuildCanonicalMapKeyToken(Type.Children[0], Value.Elements[Index], Token); !Result)
-						return Fail(Diagnostic, EPackageWriterFailure::InvalidValue, FormatCanonicalMapKeyError(Result.Error), std::string(Path));
+						return Fail(Diagnostic, EPackageWriterFailure::InvalidValue, EPackageWriterReason::CanonicalKeyRejected, std::string(Path), Result.Error);
 					Entries.push_back({Index, std::move(Token)});
 				}
 				std::ranges::sort(Entries, [](const FEntry& A, const FEntry& B) { return A.Token < B.Token; });
 				for (size_t Index = 1; Index < Entries.size(); ++Index)
 					if (Entries[Index - 1].Token == Entries[Index].Token)
 						return Fail(Diagnostic, EPackageWriterFailure::DuplicateIdentity,
-							"A Map contains colliding canonical keys.", std::string(Path));
+							EPackageWriterReason::DuplicateMapKey, std::string(Path));
 				Writer.WriteVarUInt(Entries.size());
 				for (size_t Position = 0; Position < Entries.size(); ++Position)
 				{
@@ -831,7 +832,7 @@ namespace Durin::ObjectPackage
 			case EValueKind::SoftReference: Writer.WriteVarUInt(FindNameId(Frozen, Value.Text)); break;
 			case EValueKind::Byte:
 				if (Value.Unsigned > 255) return Fail(Diagnostic, EPackageWriterFailure::InvalidValue,
-					"A byte value is out of range.", std::string(Path));
+					EPackageWriterReason::ByteRange, std::string(Path));
 				Writer.WriteU8(static_cast<uint8>(Value.Unsigned)); break;
 			case EValueKind::Bytes:
 				Writer.WriteVarUInt(Value.Bytes.size()); Writer.WriteBytes(Value.Bytes); break;
@@ -840,41 +841,41 @@ namespace Durin::ObjectPackage
 					|| Frozen.BulkValues[BulkCursor].Value != &Value
 					|| Frozen.BulkValues[BulkCursor].LogicalPath != Path)
 					return Fail(Diagnostic, EPackageWriterFailure::ManifestMismatch,
-						"BulkData discovery and emission order differ.", std::string(Path));
+						EPackageWriterReason::BulkOrder, std::string(Path));
 				Writer.WriteVarUInt(++BulkCursor);
 				break;
 			}
 			return !Writer.HasError() || Fail(Diagnostic, EPackageWriterFailure::LimitExceeded,
-				"A value section exceeded its writer limit.", std::string(Path));
+				EPackageWriterReason::ValueSectionLimit, std::string(Path));
 		}
 
 		auto AlignPayload(FByteBuffer& Bytes, uint32 Alignment,
-			FPackageWriterDiagnostic* Diagnostic, std::string_view Path) -> bool
+			FPackageWriterResult* Diagnostic, std::string_view Path) -> bool
 		{
 			const uint64 Current = Bytes.size();
 			const uint64 Mask = Alignment - 1;
 			if (Current > std::numeric_limits<uint64>::max() - Mask)
 				return Fail(Diagnostic, EPackageWriterFailure::ArithmeticOverflow,
-					"BulkData alignment overflowed.", std::string(Path));
+					EPackageWriterReason::BulkAlignmentOverflow, std::string(Path));
 			const uint64 Aligned = (Current + Mask) & ~Mask;
 			if (Aligned > DastMaximumBulkBytes)
 				return Fail(Diagnostic, EPackageWriterFailure::LimitExceeded,
-					"BulkData padding exceeds the format limit.", std::string(Path));
+					EPackageWriterReason::BulkPaddingLimit, std::string(Path));
 			Bytes.resize(static_cast<size_t>(Aligned), std::byte{0});
 			return true;
 		}
 
 		auto AlignPayloadExtent(uint64& Extent, uint32 Alignment,
-			FPackageWriterDiagnostic* Diagnostic, std::string_view Path) -> bool
+			FPackageWriterResult* Diagnostic, std::string_view Path) -> bool
 		{
 			const uint64 Mask = Alignment - 1;
 			if (Extent > std::numeric_limits<uint64>::max() - Mask)
 				return Fail(Diagnostic, EPackageWriterFailure::ArithmeticOverflow,
-					"BulkData alignment overflowed.", std::string(Path));
+					EPackageWriterReason::BulkAlignmentOverflow, std::string(Path));
 			Extent = (Extent + Mask) & ~Mask;
 			return Extent <= DastMaximumBulkBytes || Fail(Diagnostic,
 				EPackageWriterFailure::LimitExceeded,
-				"BulkData padding exceeds the format limit.", std::string(Path));
+				EPackageWriterReason::BulkPaddingLimit, std::string(Path));
 		}
 
 		struct FPlacedBulk
@@ -887,7 +888,7 @@ namespace Durin::ObjectPackage
 		auto PlaceBulk(const FFrozenPackage& Frozen, FByteBuffer& Inline,
 			FByteBuffer* External, uint64& ExternalExtent,
 			std::vector<FPlacedBulk>& Placed,
-			FPackageWriterDiagnostic* Diagnostic) -> bool
+			FPackageWriterResult* Diagnostic) -> bool
 		{
 			for (const FBulkOccurrence& Bulk : Frozen.BulkValues)
 			{
@@ -903,7 +904,7 @@ namespace Durin::ObjectPackage
 					const uint64 Offset = Inline.size();
 					if (BulkSize > DastMaximumBulkBytes - Inline.size())
 						return Fail(Diagnostic, EPackageWriterFailure::LimitExceeded,
-							"BulkData payloads exceed the format segment limit.", Bulk.LogicalPath);
+							EPackageWriterReason::BulkSegmentLimit, Bulk.LogicalPath);
 					Inline.insert(Inline.end(), Value.Bytes.begin(), Value.Bytes.end());
 					Placed.push_back({&Bulk, Offset, BulkHash});
 					continue;
@@ -913,14 +914,14 @@ namespace Durin::ObjectPackage
 						Diagnostic, Bulk.LogicalPath)
 					|| BulkSize > DastMaximumBulkBytes - ExternalExtent)
 					return Fail(Diagnostic, EPackageWriterFailure::LimitExceeded,
-						"BulkData payloads exceed the format segment limit.", Bulk.LogicalPath);
+						EPackageWriterReason::BulkSegmentLimit, Bulk.LogicalPath);
 				const uint64 Offset = ExternalExtent;
 				ExternalExtent += BulkSize;
 				if (External)
 				{
 					if (!Value.bBulkPayloadAvailable) return Fail(Diagnostic,
 						EPackageWriterFailure::InvalidBulkData,
-						"External BulkData payload bytes are unavailable for full emission.",
+						EPackageWriterReason::MissingBulkPayload,
 						Bulk.LogicalPath);
 					External->resize(static_cast<size_t>(Offset), std::byte{0});
 					External->insert(External->end(), Value.Bytes.begin(), Value.Bytes.end());
@@ -931,13 +932,13 @@ namespace Durin::ObjectPackage
 		}
 
 		auto WriteRecord(FBinaryWriter& Destination, const std::function<void(FBinaryWriter&)>& Body,
-			FPackageWriterDiagnostic* Diagnostic) -> bool
+			FPackageWriterResult* Diagnostic) -> bool
 		{
 			FBinaryWriter Record({DastMaximumPackageBytes, DastMaximumStringBytes});
 			Body(Record);
 			if (Record.HasError())
 				return Fail(Diagnostic, EPackageWriterFailure::LimitExceeded,
-					"A package record exceeds the format limit.");
+					EPackageWriterReason::RecordLimit);
 			Destination.WriteVarUInt(Record.Tell());
 			Destination.WriteBytes(Record.GetBytes());
 			return !Destination.HasError();
@@ -945,7 +946,7 @@ namespace Durin::ObjectPackage
 
 		auto EncodeSections(const FFrozenPackage& Frozen, std::vector<FSection>& Sections,
 			FByteBuffer* External, uint64 BoundExternalExtent,
-			FXxHash128 BoundExternalHash, FPackageWriterDiagnostic* Diagnostic) -> bool
+			FXxHash128 BoundExternalHash, FPackageWriterResult* Diagnostic) -> bool
 		{
 			FByteBuffer Inline;
 			std::vector<FPlacedBulk> Placed;
@@ -957,14 +958,14 @@ namespace Durin::ObjectPackage
 			if (!External && (ExternalExtent != BoundExternalExtent
 					|| ((ExternalExtent == 0) != ExternalHash.IsZero())))
 				return Fail(Diagnostic, EPackageWriterFailure::InvalidBulkData,
-					"External BulkData descriptors do not match their package binding.");
+					EPackageWriterReason::BulkBindingMismatch);
 
 			auto MakeWriter = [] { return std::make_unique<FBinaryWriter>(
 				FBinaryCursorLimits{DastMaximumPackageBytes, DastMaximumStringBytes}); };
 			auto Publish = [&](EDastSection Kind, std::unique_ptr<FBinaryWriter> Writer) -> bool
 			{
 				if (Writer->HasError()) return Fail(Diagnostic, EPackageWriterFailure::LimitExceeded,
-					"A package section exceeds the format limit.");
+					EPackageWriterReason::SectionLimit);
 				Sections.push_back({Kind, Writer->TakeBytes()});
 				return true;
 			};
@@ -1103,7 +1104,7 @@ namespace Durin::ObjectPackage
 			}
 			if (BulkCursor != Frozen.BulkValues.size())
 				return Fail(Diagnostic, EPackageWriterFailure::ManifestMismatch,
-					"The emitted BulkData count differs from the frozen manifest.");
+					EPackageWriterReason::BulkCount);
 			if (!Publish(EDastSection::Values, std::move(Writer))) return false;
 
 			Writer = MakeWriter(); Writer->WriteU32(DastTableVersion); Writer->WriteVarUInt(Placed.size());
@@ -1135,7 +1136,7 @@ namespace Durin::ObjectPackage
 		}
 
 		auto Assemble(std::vector<FSection>& Sections, FByteBuffer& Out,
-			FPackageWriterDiagnostic* Diagnostic, uint32 FormatVersion,
+			FPackageWriterResult* Diagnostic, uint32 FormatVersion,
 			bool bRedirect) -> bool
 		{
 			uint64 Cursor = FirstSectionOffset;
@@ -1143,7 +1144,7 @@ namespace Durin::ObjectPackage
 			{
 				if (Section.Bytes.size() > DastMaximumPackageBytes - Cursor)
 					return Fail(Diagnostic, EPackageWriterFailure::LimitExceeded,
-						"The assembled package exceeds the format file limit.");
+						EPackageWriterReason::PackageLimit);
 				Section.Offset = Cursor;
 				Section.Hash = FXxHash128::HashBuffer(Section.Bytes);
 				Cursor += Section.Bytes.size();
@@ -1151,7 +1152,7 @@ namespace Durin::ObjectPackage
 			const uint64 HeaderBytes = Sections[2].Offset + Sections[2].Bytes.size();
 			if (HeaderBytes > DastMaximumHeaderBytes)
 				return Fail(Diagnostic, EPackageWriterFailure::LimitExceeded,
-					"The discovery header exceeds its limit.");
+					EPackageWriterReason::HeaderLimit);
 			FByteBuffer Bytes(static_cast<size_t>(Cursor), std::byte{0});
 			FBinaryEnvelopePreamble Preamble{
 				.FormatId = DastFormatId, .FormatVersion = FormatVersion,
@@ -1160,7 +1161,7 @@ namespace Durin::ObjectPackage
 			if (!EncodeBinaryEnvelopePreamble(Preamble,
 				std::span(Bytes).first(BinaryEnvelopePreambleBytes), &EnvelopeDiagnostic))
 				return Fail(Diagnostic, EPackageWriterFailure::EnvelopeFailure,
-					std::string(EnvelopeDiagnostic.Message));
+					EPackageWriterReason::EnvelopeRejected, {}, EnvelopeDiagnostic.Error);
 			WriteLittleEndianAt(Bytes, FormatHeaderOffset, uint32(bRedirect ? 1 : 0));
 			WriteLittleEndianAt(Bytes, FormatHeaderOffset + 4, uint32(0));
 			WriteLittleEndianAt(Bytes, FormatHeaderOffset + 8, uint64(DirectoryOffset));
@@ -1183,14 +1184,14 @@ namespace Durin::ObjectPackage
 			if (!FinalizeBinaryEnvelopeHeader(std::span(Bytes).first(static_cast<size_t>(HeaderBytes)), Cursor,
 				{DastMaximumHeaderBytes, DastMaximumPackageBytes}, &EnvelopeDiagnostic))
 				return Fail(Diagnostic, EPackageWriterFailure::EnvelopeFailure,
-					std::string(EnvelopeDiagnostic.Message));
+					EPackageWriterReason::EnvelopeRejected, {}, EnvelopeDiagnostic.Error);
 			Out = std::move(Bytes);
 			return true;
 		}
 	}
 
-	auto FreezePackage(const FLinkerTables& Linker, FPackageWriterManifest& OutManifest,
-		FPackageWriterDiagnostic* OutDiagnostic) -> bool
+	static auto FreezePackageInternal(const FLinkerTables& Linker, FPackageWriterManifest& OutManifest,
+		FPackageWriterResult* OutDiagnostic) -> bool
 	{
 		if (OutDiagnostic) OutDiagnostic->Reset();
 		FFrozenPackage Frozen;
@@ -1199,15 +1200,15 @@ namespace Durin::ObjectPackage
 		return true;
 	}
 
-	auto WritePackage(const FLinkerTables& Linker,
+	static auto WritePackageInternal(const FLinkerTables& Linker,
 		FByteBuffer& OutPackageBytes,
 		FByteBuffer& OutBulkBytes,
-		FPackageWriterDiagnostic* OutDiagnostic) -> bool
+		FPackageWriterResult* OutDiagnostic) -> bool
 	{
 		if (OutDiagnostic) OutDiagnostic->Reset();
 		if (&OutPackageBytes == &OutBulkBytes)
 			return Fail(OutDiagnostic, EPackageWriterFailure::AliasedOutput,
-				"The main and bulk output buffers must not alias.");
+				EPackageWriterReason::AliasedOutput);
 		FFrozenPackage Frozen;
 		if (!Freeze(Linker, Frozen, OutDiagnostic)) return false;
 		std::vector<FSection> Sections;
@@ -1221,15 +1222,15 @@ namespace Durin::ObjectPackage
 		return true;
 	}
 
-	auto WritePackageMain(const FLinkerTables& Linker, uint64 ExternalBulkBytes,
+	static auto WritePackageMainInternal(const FLinkerTables& Linker, uint64 ExternalBulkBytes,
 		FXxHash128 ExternalBulkHash, FByteBuffer& OutPackageBytes,
-		FPackageWriterDiagnostic* OutDiagnostic) -> bool
+		FPackageWriterResult* OutDiagnostic) -> bool
 	{
 		if (OutDiagnostic) OutDiagnostic->Reset();
 		if (ExternalBulkBytes > DastMaximumBulkBytes
 			|| ((ExternalBulkBytes == 0) != ExternalBulkHash.IsZero()))
 			return Fail(OutDiagnostic, EPackageWriterFailure::InvalidBulkData,
-				"External BulkData binding is invalid.");
+				EPackageWriterReason::InvalidBulkBinding);
 		FFrozenPackage Frozen;
 		if (!Freeze(Linker, Frozen, OutDiagnostic)) return false;
 		std::vector<FSection> Sections;
@@ -1240,6 +1241,33 @@ namespace Durin::ObjectPackage
 			Linker.FormatVersion, false)) return false;
 		OutPackageBytes = std::move(PackageBytes);
 		return true;
+	}
+
+	auto FreezePackage(const FLinkerTables& Linker, FPackageWriterManifest& OutManifest) -> FPackageWriterResult
+	{
+		FPackageWriterResult Result;
+		if (!FreezePackageInternal(Linker, OutManifest, &Result) && Result.Succeeded())
+			Result = {EPackageWriterFailure::InvalidValue, {}, EPackageWriterReason::IncompleteEncoding};
+		return Result;
+	}
+
+	auto WritePackage(const FLinkerTables& Linker,
+		FByteBuffer& OutPackageBytes,
+		FByteBuffer& OutBulkBytes) -> FPackageWriterResult
+	{
+		FPackageWriterResult Result;
+		if (!WritePackageInternal(Linker, OutPackageBytes, OutBulkBytes, &Result) && Result.Succeeded())
+			Result = {EPackageWriterFailure::InvalidValue, {}, EPackageWriterReason::IncompleteEncoding};
+		return Result;
+	}
+
+	auto WritePackageMain(const FLinkerTables& Linker, uint64 ExternalBulkBytes,
+		FXxHash128 ExternalBulkHash, FByteBuffer& OutPackageBytes) -> FPackageWriterResult
+	{
+		FPackageWriterResult Result;
+		if (!WritePackageMainInternal(Linker, ExternalBulkBytes, ExternalBulkHash, OutPackageBytes, &Result) && Result.Succeeded())
+			Result = {EPackageWriterFailure::InvalidValue, {}, EPackageWriterReason::IncompleteEncoding};
+		return Result;
 	}
 
 }

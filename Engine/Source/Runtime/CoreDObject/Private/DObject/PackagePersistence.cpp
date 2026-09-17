@@ -264,9 +264,9 @@ namespace Durin
 		ObjectPackage::FLinkerTables Linker;
 		Admission = Data.Context.Capture(Package, Linker);
 		if (!Admission) return {};
-		ObjectPackage::FPackageWriterDiagnostic Diagnostic;
-		if (!ObjectPackage::WritePackage(Linker, Bytes, Bulk, &Diagnostic))
-		{ Admission = Fail(EPackageSaveError::UnsupportedProperty, Diagnostic.Message); return {}; }
+		ObjectPackage::FPackageWriterResult Diagnostic;
+		if (!(Diagnostic = ObjectPackage::WritePackage(Linker, Bytes, Bulk)))
+		{ Admission = Fail(EPackageSaveError::UnsupportedProperty, Durin::ObjectPackage::FormatPackageError(Diagnostic)); return {}; }
 		if (Package->GetEditRevision() != Data.Revision || Package->GetPackagePathIdentity() != Data.Identity)
 		{ Admission = Fail(EPackageSaveError::StaleData, "Package changed during capture."); return {}; }
 		const std::string Suffix = ".package-save-" + FGuid::NewGuid().ToString();

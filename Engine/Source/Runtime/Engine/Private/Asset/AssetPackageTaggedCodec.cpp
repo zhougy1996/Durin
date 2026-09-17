@@ -22,11 +22,11 @@ namespace Durin::AssetPrivate::TaggedPackage
 			return {Code, std::move(Message)};
 		}
 
-		auto ReaderError(const ObjectPackage::FPackageReaderDiagnostic& Diagnostic)
+		auto ReaderError(const ObjectPackage::FPackageReaderResult& Diagnostic)
 			-> FAssetResult
 		{
 			return Error(EAssetError::CorruptFile,
-				std::format("DAST package validation failed: {}", Diagnostic.Message));
+				std::format("DAST package validation failed: {}", Durin::ObjectPackage::FormatPackageError(Diagnostic)));
 		}
 
 		auto ReadLinker(const FAssetPackageReadContext& Context,
@@ -35,13 +35,12 @@ namespace Durin::AssetPrivate::TaggedPackage
 			if (!Context.PackagePath.IsValid())
 				return Error(EAssetError::InvalidPath,
 					"DAST requires the mounted package identity.");
-			ObjectPackage::FPackageReaderDiagnostic Diagnostic;
-			const bool bRead = Context.bResourceBackedBulk
+			const auto Diagnostic = Context.bResourceBackedBulk
 				? ObjectPackage::ReadPackageMetadata(Context.PackageBytes,
-					Context.PhysicalBulkBytes, Context.PackagePath, Out, &Diagnostic)
+					Context.PhysicalBulkBytes, Context.PackagePath, Out)
 				: ObjectPackage::ReadPackage(Context.PackageBytes, Context.BulkBytes,
-					Context.PackagePath, Out, &Diagnostic);
-			if (!bRead)
+					Context.PackagePath, Out);
+			if (!Diagnostic)
 				return ReaderError(Diagnostic);
 			return {};
 		}
@@ -689,15 +688,15 @@ namespace Durin::AssetPrivate::TaggedPackage
 			if (FAssetResult Result = CaptureLivePackageLinker(Package, DeltaMode,
 				Options, Linker, &ErrorMessage); !Result) return Result;
 			FAssetPackageEncodedClosure Closure;
-			ObjectPackage::FPackageWriterDiagnostic Diagnostic;
-			if (!ObjectPackage::WritePackage(Linker, Closure.PackageBytes,
-				Closure.BulkBytes, &Diagnostic))
+			ObjectPackage::FPackageWriterResult Diagnostic;
+			if (!(Diagnostic = ObjectPackage::WritePackage(Linker, Closure.PackageBytes,
+				Closure.BulkBytes)))
 				return Error(EAssetError::CorruptFile,
-					std::format("DAST package write failed: {}", Diagnostic.Message));
+					std::format("DAST package write failed: {}", Durin::ObjectPackage::FormatPackageError(Diagnostic)));
 			ObjectPackage::FLinkerTables Verified;
-			ObjectPackage::FPackageReaderDiagnostic ReaderDiagnostic;
-			if (!ObjectPackage::ReadPackage(Closure.PackageBytes, Closure.BulkBytes,
-				Linker.Summary.PackagePath, Verified, &ReaderDiagnostic))
+			ObjectPackage::FPackageReaderResult ReaderDiagnostic;
+			if (!(ReaderDiagnostic = ObjectPackage::ReadPackage(Closure.PackageBytes, Closure.BulkBytes,
+				Linker.Summary.PackagePath, Verified)))
 				return ReaderError(ReaderDiagnostic);
 			OutClosure = std::move(Closure);
 			return {};
@@ -708,15 +707,15 @@ namespace Durin::AssetPrivate::TaggedPackage
 		{
 			Linker.Names.clear();
 			FAssetPackageEncodedClosure Closure;
-			ObjectPackage::FPackageWriterDiagnostic Diagnostic;
-			if (!ObjectPackage::WritePackage(Linker, Closure.PackageBytes,
-				Closure.BulkBytes, &Diagnostic))
+			ObjectPackage::FPackageWriterResult Diagnostic;
+			if (!(Diagnostic = ObjectPackage::WritePackage(Linker, Closure.PackageBytes,
+				Closure.BulkBytes)))
 				return Error(EAssetError::CorruptFile,
-					std::format("DAST package mutation failed: {}", Diagnostic.Message));
+					std::format("DAST package mutation failed: {}", Durin::ObjectPackage::FormatPackageError(Diagnostic)));
 			ObjectPackage::FLinkerTables Verified;
-			ObjectPackage::FPackageReaderDiagnostic ReaderDiagnostic;
-			if (!ObjectPackage::ReadPackage(Closure.PackageBytes, Closure.BulkBytes,
-				Linker.Summary.PackagePath, Verified, &ReaderDiagnostic))
+			ObjectPackage::FPackageReaderResult ReaderDiagnostic;
+			if (!(ReaderDiagnostic = ObjectPackage::ReadPackage(Closure.PackageBytes, Closure.BulkBytes,
+				Linker.Summary.PackagePath, Verified)))
 				return ReaderError(ReaderDiagnostic);
 			OutClosure = std::move(Closure);
 			return {};

@@ -105,8 +105,8 @@ namespace
 			auto Companion = Options.Destination; Companion.replace_extension(".dbulk");
 			if (std::filesystem::exists(Companion)) EXPECT_TRUE(FFileHelper::LoadFileToArray(Bulk, Companion));
 			ObjectPackage::FLinkerTables Linker;
-			ObjectPackage::FPackageReaderDiagnostic Diagnostic;
-			EXPECT_TRUE(ObjectPackage::ReadPackage(Main, Bulk, Path, Linker, &Diagnostic)) << Diagnostic.Message;
+			ObjectPackage::FPackageReaderResult Diagnostic;
+			EXPECT_TRUE((Diagnostic = ObjectPackage::ReadPackage(Main, Bulk, Path, Linker))) << Durin::ObjectPackage::FormatPackageError(Diagnostic);
 			return Linker;
 		}
 		std::filesystem::path Root;

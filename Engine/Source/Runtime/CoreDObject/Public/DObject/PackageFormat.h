@@ -1,7 +1,8 @@
 #pragma once
 
 #include "CoreDObjectAPI.h"
-#include "DObject/PackageLinker.h"
+#include "DObject/CanonicalMapKey.h"
+#include "Serialization/BinaryEnvelope.h"
 #include "Hash/XxHash.h"
 
 namespace Durin::ObjectPackage
@@ -68,14 +69,99 @@ namespace Durin::ObjectPackage
 		AliasedOutput,
 	};
 
-	struct FPackageWriterDiagnostic
+	enum class EPackageWriterReason : uint8
+	{
+		None,
+		RequiredNameEmpty,
+		NameLimit,
+		InvalidNameUtf8,
+		TypeDepth,
+		InvalidEnumType,
+		InvalidIntrinsicType,
+		MissingStructName,
+		InvalidFixedArrayType,
+		InvalidArrayType,
+		InvalidMapType,
+		ScalarChildren,
+		UnresolvedTablePath,
+		ImportIndex,
+		ExportIndex,
+		InvalidStructBaseline,
+		ValueDepth,
+		SignedRange,
+		UnsignedRange,
+		Float32Width,
+		EnumRange,
+		InvalidString,
+		IntrinsicComponentCount,
+		MissingStructSchema,
+		MissingHardReferenceFields,
+		MissingCompleteFields,
+		StructDescriptor,
+		DuplicateStructField,
+		StructFieldType,
+		FixedArrayCount,
+		ArrayLimit,
+		MapCount,
+		DuplicateMapKey,
+		BlobLimit,
+		InvalidBulkDescriptor,
+		ReferenceDepth,
+		InvalidSoftPath,
+		UnsupportedVersion,
+		TableLimit,
+		InvalidTopLevelAsset,
+		TopLevelExportMismatch,
+		DuplicateImport,
+		DuplicateExport,
+		DuplicateTopLevelAsset,
+		MissingTopLevelAsset,
+		DuplicateSchemaField,
+		DuplicateSchema,
+		TypeTableLimit,
+		CustomVersionLimit,
+		InvalidCustomVersion,
+		DuplicateCustomVersion,
+		OpaqueProperty,
+		DuplicateProperty,
+		MissingPropertySchema,
+		PropertySchemaMismatch,
+		NameTableLimit,
+		EmissionDepth,
+		ByteRange,
+		BulkOrder,
+		ValueSectionLimit,
+		BulkAlignmentOverflow,
+		BulkPaddingLimit,
+		BulkSegmentLimit,
+		MissingBulkPayload,
+		RecordLimit,
+		BulkBindingMismatch,
+		SectionLimit,
+		BulkCount,
+		PackageLimit,
+		HeaderLimit,
+		AliasedOutput,
+		InvalidBulkBinding,
+		EnvelopeRejected,
+		CanonicalKeyRejected,
+		IncompleteEncoding,
+	};
+
+	struct FPackageWriterResult
 	{
 		EPackageWriterFailure Failure = EPackageWriterFailure::None;
 		std::string LogicalPath;
-		std::string Message;
+		EPackageWriterReason Reason = EPackageWriterReason::None;
+		std::variant<std::monostate, EBinaryEnvelopeError, FLinkerError, FCanonicalMapKeyError> Cause;
+		std::string Subject;
 
+		auto Succeeded() const -> bool { return Failure == EPackageWriterFailure::None; }
+		explicit operator bool() const { return Succeeded(); }
 		auto Reset() -> void { *this = {}; }
 	};
+	COREDOBJECT_API auto FormatPackageError(const FPackageWriterResult& Error) -> std::string;
+
 
 	struct FPackageWriterManifest
 	{
@@ -143,31 +229,103 @@ namespace Durin::ObjectPackage
 		ArithmeticOverflow,
 	};
 
-	struct FPackageReaderDiagnostic
+	enum class EPackageReaderReason : uint8
+	{
+		None,
+		InvalidLimits,
+		InputExtent,
+		DeclaredExtent,
+		UnsupportedVersion,
+		FormatHeader,
+		Directory,
+		SectionOverflow,
+		SectionHash,
+		SectionCoverage,
+		NameTableHeader,
+		NonCanonicalNames,
+		NameTableTrailing,
+		ImportTableHeader,
+		ImportRecord,
+		ImportPath,
+		ImportTableTrailing,
+		MissingPackageIdentity,
+		RegistryIdentity,
+		TopLevelRecord,
+		TopLevelPath,
+		TopLevelOrder,
+		RedirectPath,
+		RegistryListCount,
+		RegistryListOrder,
+		DependencyPath,
+		RegistryBulk,
+		ExportTableHeader,
+		ExportRecord,
+		ExportTableTrailing,
+		TypeTableHeader,
+		TypeRecordExtent,
+		TypeRecordHeader,
+		ChildTypeIndex,
+		TypeRecordTrailing,
+		TypeTableTrailing,
+		TypeCycle,
+		SchemaSectionHeader,
+		CustomVersionRecord,
+		SchemaCount,
+		SchemaHeader,
+		SchemaField,
+		SchemaTrailing,
+		ValueDepth,
+		ValueTag,
+		StructBaseline,
+		ExportBaseline,
+		PropertyValue,
+		ValueTrailing,
+		BulkHandle,
+		BulkOwner,
+		BulkRange,
+		BulkHash,
+		BulkLimit,
+		MalformedTable,
+		TopLevelExportIndex,
+		TopLevelTopology,
+		TopLevelIndexOverflow,
+		MissingTopLevelAsset,
+		ExternalBulkHash,
+		ExportTopology,
+		BulkCoverage,
+		CanonicalWriterRejected,
+		NonCanonicalBytes,
+		EnvelopeRejected,
+	};
+
+	struct FPackageReaderResult
 	{
 		EPackageReaderFailure Failure = EPackageReaderFailure::None;
 		std::string LogicalPath;
-		std::string Message;
+		EPackageReaderReason Reason = EPackageReaderReason::None;
+		std::variant<std::monostate, EBinaryEnvelopeError, FLinkerError, FPackageWriterResult> Cause;
+		std::string Subject;
 
+		auto Succeeded() const -> bool { return Failure == EPackageReaderFailure::None; }
+		explicit operator bool() const { return Succeeded(); }
 		auto Reset() -> void { *this = {}; }
 	};
+	COREDOBJECT_API auto FormatPackageError(const FPackageReaderResult& Error) -> std::string;
+
 
 	// Freezes a detached linker model without emitting package bytes.
 	COREDOBJECT_API auto FreezePackage(
 		const FLinkerTables& Linker,
-		FPackageWriterManifest& OutManifest,
-		FPackageWriterDiagnostic* OutDiagnostic = nullptr) -> bool;
+		FPackageWriterManifest& OutManifest) -> FPackageWriterResult;
 	COREDOBJECT_API auto WritePackage(
 		const FLinkerTables& Linker,
 		FByteBuffer& OutPackageBytes,
-		FByteBuffer& OutBulkBytes,
-		FPackageWriterDiagnostic* OutDiagnostic = nullptr) -> bool;
+		FByteBuffer& OutBulkBytes) -> FPackageWriterResult;
 	COREDOBJECT_API auto WritePackageMain(
 		const FLinkerTables& Linker,
 		uint64 ExternalBulkBytes,
 		FXxHash128 ExternalBulkHash,
-		FByteBuffer& OutPackageBytes,
-		FPackageWriterDiagnostic* OutDiagnostic = nullptr) -> bool;
+		FByteBuffer& OutPackageBytes) -> FPackageWriterResult;
 
 	// Validates exactly the declared front matter and publishes package-level Registry data.
 	COREDOBJECT_API auto ReadPackageRegistry(
@@ -176,20 +334,17 @@ namespace Durin::ObjectPackage
 		uint64 PhysicalBulkBytes,
 		const FPackagePath& PackagePath,
 		FPackageRegistryData& OutRegistry,
-		FPackageReaderDiagnostic* OutDiagnostic = nullptr,
-		const FPackageReaderLimits& Limits = {}) -> bool;
+		const FPackageReaderLimits& Limits = {}) -> FPackageReaderResult;
 	COREDOBJECT_API auto ReadPackage(
 		FByteView PackageBytes,
 		FByteView BulkBytes,
 		const FPackagePath& PackagePath,
 		FLinkerTables& OutLinker,
-		FPackageReaderDiagnostic* OutDiagnostic = nullptr,
-		const FPackageReaderLimits& Limits = {}) -> bool;
+		const FPackageReaderLimits& Limits = {}) -> FPackageReaderResult;
 	COREDOBJECT_API auto ReadPackageMetadata(
 		FByteView PackageBytes,
 		uint64 PhysicalBulkBytes,
 		const FPackagePath& PackagePath,
 		FLinkerTables& OutLinker,
-		FPackageReaderDiagnostic* OutDiagnostic = nullptr,
-		const FPackageReaderLimits& Limits = {}) -> bool;
+		const FPackageReaderLimits& Limits = {}) -> FPackageReaderResult;
 }

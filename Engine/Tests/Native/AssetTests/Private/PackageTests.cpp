@@ -1749,11 +1749,11 @@ namespace
 		BulkPath.replace_extension(".dbulk");
 		if (std::filesystem::exists(BulkPath)) ASSERT_TRUE(FFileHelper::LoadFileToArray(Bulk, BulkPath));
 		ObjectPackage::FLinkerTables Linker;
-		ObjectPackage::FPackageReaderDiagnostic ReadDiagnostic;
-		ASSERT_TRUE(ObjectPackage::ReadPackage(Main, Bulk, Path, Linker, &ReadDiagnostic)) << ReadDiagnostic.Message;
+		ObjectPackage::FPackageReaderResult ReadDiagnostic;
+		ASSERT_TRUE((ReadDiagnostic = ObjectPackage::ReadPackage(Main, Bulk, Path, Linker))) << ObjectPackage::FormatPackageError(ReadDiagnostic);
 		Edit(Linker);
-		ObjectPackage::FPackageWriterDiagnostic WriteDiagnostic;
-		ASSERT_TRUE(ObjectPackage::WritePackage(Linker, Main, Bulk, &WriteDiagnostic)) << WriteDiagnostic.Message;
+		ObjectPackage::FPackageWriterResult WriteDiagnostic;
+		ASSERT_TRUE((WriteDiagnostic = ObjectPackage::WritePackage(Linker, Main, Bulk))) << ObjectPackage::FormatPackageError(WriteDiagnostic);
 		WriteTestBytes(File->PhysicalPath, Main);
 		if (!Bulk.empty()) WriteTestBytes(BulkPath, Bulk);
 	}
@@ -4650,9 +4650,9 @@ TEST(FPackageAssetTests, PreservesExternalPayloadBytesAndPlacement)
 	Durin::FByteBuffer Bulk;
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(Bulk, BulkPath));
 	ObjectPackage::FLinkerTables Linker;
-	ObjectPackage::FPackageReaderDiagnostic Diagnostic;
-	ASSERT_TRUE(ObjectPackage::ReadPackage(
-		Main, Bulk, Path, Linker, &Diagnostic)) << Diagnostic.Message;
+	ObjectPackage::FPackageReaderResult Diagnostic;
+	ASSERT_TRUE((Diagnostic = ObjectPackage::ReadPackage(
+		Main, Bulk, Path, Linker))) << ObjectPackage::FormatPackageError(Diagnostic);
 	ASSERT_EQ(Linker.Exports.size(), 1);
 	ASSERT_EQ(Linker.Exports.front().Properties.size(), 1);
 	const auto& Value = Linker.Exports.front().Properties.front().Value;
@@ -4660,9 +4660,9 @@ TEST(FPackageAssetTests, PreservesExternalPayloadBytesAndPlacement)
 	EXPECT_EQ(Value.Bytes, Payload);
 	EXPECT_EQ(Bulk, Payload);
 	ObjectPackage::FLinkerTables MetadataLinker;
-	ASSERT_TRUE(ObjectPackage::ReadPackageMetadata(
-		Main, Bulk.size(), Path, MetadataLinker, &Diagnostic))
-		<< Diagnostic.Message;
+	ASSERT_TRUE((Diagnostic = ObjectPackage::ReadPackageMetadata(
+		Main, Bulk.size(), Path, MetadataLinker)))
+		<< ObjectPackage::FormatPackageError(Diagnostic);
 	ASSERT_EQ(MetadataLinker.Exports.size(), 1u);
 	ASSERT_EQ(MetadataLinker.Exports.front().Properties.size(), 1u);
 	const auto& MetadataValue =

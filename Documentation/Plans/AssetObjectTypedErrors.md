@@ -16,9 +16,13 @@ all three workspace projects have been inspected and migrated where needed.
 Stage 1 is in progress: Linker path resolution and detached canonical Map key
 construction now return typed results, including requested/failed indices,
 scalar and layout context, and owned nested field/array routes. Their consumers
-are migrated without legacy overloads. Reader/Writer and Engine load adapters
-still format explicitly into their pending contracts. The live reflected Map
-key API is also still pending; it is distinct from the detached package API.
+are migrated without legacy overloads. Reader/Writer public APIs now return
+`FPackageReaderResult` and `FPackageWriterResult` directly, with typed reasons,
+owned context, and underlying envelope, Linker, Map-key, or Writer causes.
+`DecodeValues` preserves a previously recorded inner value error. Engine and
+Registry adapters still format explicitly into their pending contracts. The
+live reflected Map key API is also pending; it is distinct from the detached
+package API.
 The remaining Stage 1 boundaries and Stage 2 are not complete.
 
 Validation on `Win64-Debug-DurinEditor`: the final `all` build passed. The affected
@@ -42,10 +46,19 @@ Stage 1 Linker/Map-key validation: `PackageLinkerContractTests` passed all
 17 cases; the affected selection passed all 56 targets. Five added/updated
 error contract cases also passed in serial per-case isolation. Evidence:
 `Build/.agent-state/logs/20260917-203718-063159-30180-ctest.log`,
-`Build/.agent-state/logs/20260917-203851-479601-35360-ctest.log`, and
-`Build/NativeTestResults/Win64-Debug-DurinEditor/affected.xml`.
+`Build/.agent-state/logs/20260917-203851-479601-35360-ctest.log`.
 The final `all` build passed; log:
 `Build/.agent-state/logs/20260917-203903-451430-21904-cmake.log`.
+
+
+Stage 1 Reader/Writer validation: all 20 `PackageWriterContractTests` cases,
+57 affected targets, and four new cases in serial per-case isolation passed.
+The final `all` build passed. Evidence:
+`Build/.agent-state/logs/20260917-205512-417344-36600-ctest.log`,
+`Build/.agent-state/logs/20260917-205704-224245-6736-ctest.log`, and
+`Build/.agent-state/logs/20260917-205707-016812-5532-cmake.log`.
+The current affected report is
+`Build/NativeTestResults/Win64-Debug-DurinEditor/affected.xml`.
 
 
 ## Goal
@@ -79,7 +92,9 @@ requires an explicit bounded external-diagnostic contract.
 
 - [x] Return typed Linker path and detached canonical Map key results; retain
   owned failure context and unchanged output on failure.
-- [ ] Replace Package Reader/Writer, Capture, property snapshot/copy,
+- [x] Return typed Package Reader/Writer results, remove diagnostic outputs and
+  Message fields, and preserve nested causes through canonical validation.
+- [ ] Replace Capture, property snapshot/copy,
   save overrides, and graph replacement text with typed causes and context.
 - [ ] Migrate graph-load and property-edit framework callbacks, including material
   adapters, while preserving publication and rollback contracts.

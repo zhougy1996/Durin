@@ -21,12 +21,12 @@ namespace Durin
 			return {Code, std::move(Message)};
 		}
 
-		auto ReaderError(const ObjectPackage::FPackageReaderDiagnostic& Diagnostic)
+		auto ReaderError(const ObjectPackage::FPackageReaderResult& Diagnostic)
 			-> FAssetRegistryResult
 		{
 			return Error(EAssetRegistryError::CorruptFile,
 				std::format("DAST v10 Registry projection failed: {}",
-					Diagnostic.Message));
+					Durin::ObjectPackage::FormatPackageError(Diagnostic)));
 		}
 	}
 
@@ -55,11 +55,11 @@ namespace Durin
 				"DAST v10 Registry projection requires the mounted package identity.");
 
 		ObjectPackage::FPackageRegistryData Registry;
-		ObjectPackage::FPackageReaderDiagnostic ReaderDiagnostic;
-		if (!ObjectPackage::ReadPackageRegistry(
+		ObjectPackage::FPackageReaderResult ReaderDiagnostic;
+		if (!(ReaderDiagnostic = ObjectPackage::ReadPackageRegistry(
 			FrontMatter.first(static_cast<size_t>(Preamble.HeaderBytes)),
 			PhysicalFileBytes, PhysicalBulkBytes, PackagePath,
-			Registry, &ReaderDiagnostic))
+			Registry)))
 			return ReaderError(ReaderDiagnostic);
 
 		FAssetPackageHeader Header{

@@ -47,10 +47,11 @@ namespace Durin::ObjectPackage
 			uint64 Size = 0;
 		};
 
-		auto Fail(FPackageReaderDiagnostic* Diagnostic, EPackageReaderFailure Failure,
-			std::string Message, std::string Path = {}) -> bool
+		auto Fail(FPackageReaderResult* Diagnostic, EPackageReaderFailure Failure,
+			EPackageReaderReason Reason, std::string Path = {},
+			decltype(FPackageReaderResult::Cause) Cause = {}, std::string Subject = {}) -> bool
 		{
-			if (Diagnostic) *Diagnostic = {Failure, std::move(Path), std::move(Message)};
+			if (Diagnostic) *Diagnostic = {Failure, std::move(Path), Reason, std::move(Cause), std::move(Subject)};
 			return false;
 		}
 
@@ -93,7 +94,7 @@ namespace Durin::ObjectPackage
 		}
 
 		auto ValidateLimits(const FPackageReaderLimits& Limits,
-			FPackageReaderDiagnostic* Diagnostic) -> bool
+			FPackageReaderResult* Diagnostic) -> bool
 		{
 			if (Limits.MaximumHeaderBytes < BinaryEnvelopePreambleBytes
 				|| Limits.MaximumHeaderBytes > Limits.MaximumPackageBytes
@@ -104,32 +105,32 @@ namespace Durin::ObjectPackage
 				|| Limits.MaximumContainerElements > DastMaximumContainerElements
 				|| Limits.MaximumValueDepth > DastMaximumValueDepth)
 				return Fail(Diagnostic, EPackageReaderFailure::LimitExceeded,
-					"DAST v10 reader limits are internally inconsistent or exceed format limits.");
+					EPackageReaderReason::InvalidLimits);
 			return true;
 		}
 
 		auto ParseLayout(FByteView Available, uint64 PhysicalBytes,
 			bool bComplete, const FPackageReaderLimits& Limits, FParsedLayout& Out,
-			FPackageReaderDiagnostic* Diagnostic) -> bool
+			FPackageReaderResult* Diagnostic) -> bool
 		{
 			if (!ValidateLimits(Limits, Diagnostic)) return false;
 			if (PhysicalBytes > Limits.MaximumPackageBytes || Available.size() < BinaryEnvelopePreambleBytes)
 				return Fail(Diagnostic, EPackageReaderFailure::LimitExceeded,
-					"DAST v10 input is truncated or exceeds the package limit.");
+					EPackageReaderReason::InputExtent);
 			FBinaryEnvelopePreamble Preamble;
 			FBinaryEnvelopeDiagnostic EnvelopeDiagnostic;
 			if (!ParseBinaryEnvelopePrefix(Available.first(BinaryEnvelopePreambleBytes), PhysicalBytes,
 				{Limits.MaximumHeaderBytes, Limits.MaximumPackageBytes}, Preamble, &EnvelopeDiagnostic))
 				return Fail(Diagnostic, EPackageReaderFailure::InvalidEnvelope,
-					std::string(EnvelopeDiagnostic.Message));
+					EPackageReaderReason::EnvelopeRejected, {}, EnvelopeDiagnostic.Error);
 			if (Preamble.HeaderBytes > Available.size()
 				|| (!bComplete && Preamble.HeaderBytes != Available.size())
 				|| (bComplete && PhysicalBytes != Available.size()))
 				return Fail(Diagnostic, EPackageReaderFailure::InvalidEnvelope,
-					"DAST v10 input does not match its declared header or file extent.");
+					EPackageReaderReason::DeclaredExtent);
 			const uint32 FormatVersion = Preamble.FormatVersion;
 			if (!IsSupportedPackageReaderVersion(FormatVersion))
-				return Fail(Diagnostic, EPackageReaderFailure::InvalidEnvelope, "Unsupported package version.");
+				return Fail(Diagnostic, EPackageReaderFailure::InvalidEnvelope, EPackageReaderReason::UnsupportedVersion);
 			FBinaryFormatRegistry Registry;
 			const FBinaryFormatDescriptor Descriptor{
 				.FormatId = DastFormatId, .DebugName = std::string(DastFormatName),
@@ -139,13 +140,13 @@ namespace Durin::ObjectPackage
 				.Limits = {Limits.MaximumHeaderBytes, Limits.MaximumPackageBytes}};
 			if (!FBinaryFormatRegistry::Create(std::span(&Descriptor, 1), Registry, &EnvelopeDiagnostic))
 				return Fail(Diagnostic, EPackageReaderFailure::InvalidEnvelope,
-					std::string(EnvelopeDiagnostic.Message));
+					EPackageReaderReason::EnvelopeRejected, {}, EnvelopeDiagnostic.Error);
 			FValidatedBinaryEnvelope Validated;
 			if (!ValidateBinaryEnvelopeHeader(Available.first(static_cast<size_t>(Preamble.HeaderBytes)),
 				PhysicalBytes, {Limits.MaximumHeaderBytes, Limits.MaximumPackageBytes}, Registry,
 				Validated, &EnvelopeDiagnostic))
 				return Fail(Diagnostic, EPackageReaderFailure::InvalidEnvelope,
-					std::string(EnvelopeDiagnostic.Message));
+					EPackageReaderReason::EnvelopeRejected, {}, EnvelopeDiagnostic.Error);
 
 			uint32 PackageKind = 0, Flags = 0, SectionCount = 0, EntryBytes = 0;
 			uint64 Directory = 0, Reserved = 0;
@@ -160,7 +161,7 @@ namespace Durin::ObjectPackage
 				|| SectionCount != DastSectionCount || EntryBytes != DastSectionEntryBytes
 				|| Reserved != 0)
 				return Fail(Diagnostic, EPackageReaderFailure::InvalidFormatHeader,
-					"DAST v10 format header is invalid.");
+					EPackageReaderReason::FormatHeader);
 
 			FParsedLayout Parsed;
 			Parsed.Preamble = Preamble;
@@ -180,22 +181,22 @@ namespace Durin::ObjectPackage
 					|| Kind != Index + 1 || EntryFlags != 1 || EntryReserved != 0
 					|| Offset != ExpectedOffset || Size > PhysicalBytes - std::min(Offset, PhysicalBytes))
 					return Fail(Diagnostic, EPackageReaderFailure::InvalidDirectory,
-						"DAST v10 section directory is invalid.", "Directory[" + std::to_string(Index) + "]");
+						EPackageReaderReason::Directory, "Directory[" + std::to_string(Index) + "]");
 				if (Offset > PhysicalBytes || Size > PhysicalBytes - Offset)
 					return Fail(Diagnostic, EPackageReaderFailure::ArithmeticOverflow,
-						"DAST v10 section extent overflows the file.", "Directory[" + std::to_string(Index) + "]");
+						EPackageReaderReason::SectionOverflow, "Directory[" + std::to_string(Index) + "]");
 				Parsed.Entries[Index] = {static_cast<EDastSection>(Kind), Offset, Size, {HashLow, HashHigh}};
 				ExpectedOffset = Offset + Size;
 				if ((bComplete || Index <= 2)
 					&& FXxHash128::HashBuffer(Available.subspan(static_cast<size_t>(Offset), static_cast<size_t>(Size)))
 						!= Parsed.Entries[Index].Hash)
 					return Fail(Diagnostic, EPackageReaderFailure::HashMismatch,
-						"A DAST v10 section digest does not match.", "Directory[" + std::to_string(Index) + "]");
+						EPackageReaderReason::SectionHash, "Directory[" + std::to_string(Index) + "]");
 			}
 			if (ExpectedOffset != PhysicalBytes
 				|| Preamble.HeaderBytes != Parsed.Entries[2].Offset + Parsed.Entries[2].Size)
 				return Fail(Diagnostic, EPackageReaderFailure::InvalidDirectory,
-					"DAST v10 sections or header boundary do not cover their exact declared extents.");
+					EPackageReaderReason::SectionCoverage);
 			Out = Parsed;
 			return true;
 		}
@@ -216,7 +217,7 @@ namespace Durin::ObjectPackage
 		}
 
 		auto DecodeNames(const FParsedLayout& Layout, const FPackageReaderLimits& Limits,
-			std::vector<std::string>& Out, FPackageReaderDiagnostic* Diagnostic) -> bool
+			std::vector<std::string>& Out, FPackageReaderResult* Diagnostic) -> bool
 		{
 			FBinaryReader Reader(Section(Layout, EDastSection::Names),
 				{Layout.Entries[1].Size, Limits.MaximumStringBytes});
@@ -225,7 +226,7 @@ namespace Durin::ObjectPackage
 			if (!Reader.ReadU32(Version) || Version != DastTableVersion
 				|| !Reader.ReadVarUInt(Count) || Count > Limits.MaximumTableEntries)
 				return Fail(Diagnostic, EPackageReaderFailure::InvalidTable,
-					"DAST v10 name table header is invalid.", "Names");
+					EPackageReaderReason::NameTableHeader, "Names");
 			std::vector<std::string> Names;
 			Names.reserve(static_cast<size_t>(Count));
 			for (uint64 Index = 0; Index < Count; ++Index)
@@ -234,19 +235,19 @@ namespace Durin::ObjectPackage
 				if (!Reader.ReadString(Name, Limits.MaximumStringBytes) || Name.empty() || !IsValidUtf8(Name)
 					|| (!Names.empty() && !BytewiseLess(Names.back(), Name)))
 					return Fail(Diagnostic, EPackageReaderFailure::NonCanonical,
-						"DAST v10 names are invalid, duplicate, or out of canonical order.",
+						EPackageReaderReason::NonCanonicalNames,
 						"Names[" + std::to_string(Index) + "]");
 				Names.push_back(std::move(Name));
 			}
 			if (!Reader.IsAtEnd()) return Fail(Diagnostic, EPackageReaderFailure::InvalidTable,
-				"DAST v10 name table has trailing or malformed bytes.", "Names");
+				EPackageReaderReason::NameTableTrailing, "Names");
 			Out = std::move(Names);
 			return true;
 		}
 
 		auto DecodeImports(const FParsedLayout& Layout, const std::vector<std::string>& Names,
 			const FPackageReaderLimits& Limits, std::vector<FPackageImport>& Out,
-			FPackageReaderDiagnostic* Diagnostic) -> bool
+			FPackageReaderResult* Diagnostic) -> bool
 		{
 			FBinaryReader Reader(Section(Layout, EDastSection::Imports),
 				{Layout.Entries[2].Size, Limits.MaximumStringBytes});
@@ -255,7 +256,7 @@ namespace Durin::ObjectPackage
 			if (!Reader.ReadU32(Version) || Version != DastTableVersion
 				|| !Reader.ReadVarUInt(Count) || Count > Limits.MaximumTableEntries)
 				return Fail(Diagnostic, EPackageReaderFailure::InvalidTable,
-					"DAST v10 import table header is invalid.", "Imports");
+					EPackageReaderReason::ImportTableHeader, "Imports");
 			std::vector<FPackageImport> Imports;
 			Imports.reserve(static_cast<size_t>(Count));
 			for (uint64 Index = 0; Index < Count; ++Index)
@@ -267,13 +268,13 @@ namespace Durin::ObjectPackage
 					|| !ReadNameId(Reader, Names, ClassId, true) || !Reader.ReadVarInt(Outer)
 					|| !FPackageIndex::TryFromRaw(Outer, OuterIndex))
 					return Fail(Diagnostic, EPackageReaderFailure::InvalidTable,
-						"A DAST v10 import record is invalid.", "Imports[" + std::to_string(Index) + "]");
+						EPackageReaderReason::ImportRecord, "Imports[" + std::to_string(Index) + "]");
 				FObjectPath ObjectPath;
 				if (ObjectId != 0 || !OuterIndex.IsNull()
 					|| !FObjectPath::TryCreate(Names[PackageId - 1], ObjectPath))
 				{
 					return Fail(Diagnostic, EPackageReaderFailure::InvalidTable,
-						"A DAST v10 import target is not an exact object path.",
+						EPackageReaderReason::ImportPath,
 						"Imports[" + std::to_string(Index) + "]");
 				}
 				Imports.push_back({.ObjectPath = std::move(ObjectPath),
@@ -281,7 +282,7 @@ namespace Durin::ObjectPackage
 					.Outer = OuterIndex});
 			}
 			if (!Reader.IsAtEnd()) return Fail(Diagnostic, EPackageReaderFailure::InvalidTable,
-				"DAST v10 import table has trailing or malformed bytes.", "Imports");
+				EPackageReaderReason::ImportTableTrailing, "Imports");
 			Out = std::move(Imports);
 			return true;
 		}
@@ -289,12 +290,12 @@ namespace Durin::ObjectPackage
 		auto DecodeRegistry(const FParsedLayout& Layout,
 			const std::vector<std::string>& Names, const FPackagePath& PackagePath,
 			uint64 PhysicalBulkBytes, FPackageRegistryData& Out,
-			FPackageReaderDiagnostic* Diagnostic) -> bool
+			FPackageReaderResult* Diagnostic) -> bool
 		{
 			if (!PackagePath.IsValid()
 				|| !std::ranges::binary_search(Names, PackagePath.GetView(), BytewiseLess))
 				return Fail(Diagnostic, EPackageReaderFailure::InvalidRegistry,
-					"The caller-supplied package identity is absent from the canonical name table.",
+					EPackageReaderReason::MissingPackageIdentity,
 					"Registry.PackagePath");
 			FBinaryReader Reader(Section(Layout, EDastSection::Registry));
 			uint32 Version = 0;
@@ -303,7 +304,7 @@ namespace Durin::ObjectPackage
 				|| !Reader.ReadVarUInt(ExportCount) || ExportCount > DastMaximumTableEntries
 				|| !Reader.ReadVarUInt(AssetCount) || AssetCount > ExportCount)
 				return Fail(Diagnostic, EPackageReaderFailure::InvalidRegistry,
-					"DAST v10 Registry identity fields are invalid.", "Registry");
+					EPackageReaderReason::RegistryIdentity, "Registry");
 			FPackageRegistryData Registry{
 				.PackagePath = PackagePath,
 				.ExportCount = static_cast<uint32>(ExportCount)};
@@ -320,7 +321,7 @@ namespace Durin::ObjectPackage
 					|| !ReadNameId(Reader, Names, RedirectId, true)
 					|| !ExportIds.insert(static_cast<uint32>(ExportId)).second)
 					return Fail(Diagnostic, EPackageReaderFailure::InvalidRegistry,
-						"A DAST v10 top-level asset record is invalid.",
+						EPackageReaderReason::TopLevelRecord,
 						"Registry.TopLevelAssets[" + std::to_string(Index) + "]");
 				FTopLevelAssetPath AssetPath;
 				FObjectPath RedirectDestination;
@@ -331,17 +332,16 @@ namespace Durin::ObjectPackage
 				if (AssetName.empty() || AssetName.find_first_of(".:") != std::string_view::npos
 					|| !FTopLevelAssetPath::TryCreate(PackagePath, AssetName, AssetPath))
 					return Fail(Diagnostic, EPackageReaderFailure::NonCanonical,
-						std::format("DAST v10 top-level asset path '{}' is invalid.",
-							Names[PathId - 1]),
-						"Registry.TopLevelAssets[" + std::to_string(Index) + "]");
+						EPackageReaderReason::TopLevelPath,
+						"Registry.TopLevelAssets[" + std::to_string(Index) + "]", {}, Names[PathId - 1]);
 				if (!PreviousPath.empty() && !BytewiseLess(PreviousPath, AssetPath.ToString()))
 					return Fail(Diagnostic, EPackageReaderFailure::NonCanonical,
-						"DAST v10 top-level asset paths are duplicate or out of order.",
+						EPackageReaderReason::TopLevelOrder,
 						"Registry.TopLevelAssets[" + std::to_string(Index) + "]");
 				if (RedirectId && !FObjectPath::TryCreate(
 					Names[RedirectId - 1], RedirectDestination))
 					return Fail(Diagnostic, EPackageReaderFailure::NonCanonical,
-						"A DAST v10 redirect destination is invalid.",
+						EPackageReaderReason::RedirectPath,
 						"Registry.TopLevelAssets[" + std::to_string(Index) + "]");
 				PreviousPath = AssetPath.ToString();
 				Registry.TopLevelAssets.push_back({
@@ -355,14 +355,14 @@ namespace Durin::ObjectPackage
 				uint64 Count = 0;
 				if (!Reader.ReadVarUInt(Count) || Count > DastMaximumTableEntries)
 					return Fail(Diagnostic, EPackageReaderFailure::InvalidRegistry,
-						"A DAST v10 Registry list count is invalid.", "Registry");
+						EPackageReaderReason::RegistryListCount, "Registry");
 				uint32 Previous = 0;
 				for (uint64 Index = 0; Index < Count; ++Index)
 				{
 					uint32 Id = 0;
 					if (!ReadNameId(Reader, Names, Id) || Id <= Previous)
 						return Fail(Diagnostic, EPackageReaderFailure::NonCanonical,
-							"A DAST v10 Registry id list is duplicate or out of order.", "Registry");
+							EPackageReaderReason::RegistryListOrder, "Registry");
 					Previous = Id;
 					if (ListIndex == 2) Registry.SearchableNames.push_back(Names[Id - 1]);
 					else
@@ -370,7 +370,7 @@ namespace Durin::ObjectPackage
 						FPackagePath Path;
 						if (!FPackagePath::TryCreate(Names[Id - 1], Path))
 							return Fail(Diagnostic, EPackageReaderFailure::InvalidRegistry,
-								"A DAST v10 dependency is not a canonical mounted package path.", "Registry");
+								EPackageReaderReason::DependencyPath, "Registry");
 						(ListIndex == 0 ? Registry.HardPackageReferences
 							: Registry.SoftPackageReferences).push_back(std::move(Path));
 					}
@@ -381,14 +381,14 @@ namespace Durin::ObjectPackage
 				|| Registry.ExternalBulkBytes != PhysicalBulkBytes
 				|| (Registry.ExternalBulkBytes == 0 && !Registry.ExternalBulkHash.IsZero()))
 				return Fail(Diagnostic, EPackageReaderFailure::InvalidRegistry,
-					"DAST v10 Registry bulk binding or extent is invalid.", "Registry.Bulk");
+					EPackageReaderReason::RegistryBulk, "Registry.Bulk");
 			Out = std::move(Registry);
 			return true;
 		}
 
 		auto DecodeExports(const FParsedLayout& Layout, const std::vector<std::string>& Names,
 			const FPackageReaderLimits& Limits, std::vector<FPackageExport>& Out,
-			FPackageReaderDiagnostic* Diagnostic) -> bool
+			FPackageReaderResult* Diagnostic) -> bool
 		{
 			FBinaryReader Reader(Section(Layout, EDastSection::Exports));
 			uint32 Version = 0;
@@ -396,7 +396,7 @@ namespace Durin::ObjectPackage
 			if (!Reader.ReadU32(Version) || Version != DastTableVersion
 				|| !Reader.ReadVarUInt(Count) || Count > Limits.MaximumTableEntries)
 				return Fail(Diagnostic, EPackageReaderFailure::InvalidTable,
-					"DAST v10 export table header is invalid.", "Exports");
+					EPackageReaderReason::ExportTableHeader, "Exports");
 			std::vector<FPackageExport> Exports;
 			for (uint64 Index = 0; Index < Count; ++Index)
 			{
@@ -406,19 +406,19 @@ namespace Durin::ObjectPackage
 				if (!ReadNameId(Reader, Names, ObjectId) || !ReadNameId(Reader, Names, ClassId)
 					|| !Reader.ReadVarInt(Outer) || !FPackageIndex::TryFromRaw(Outer, OuterIndex))
 					return Fail(Diagnostic, EPackageReaderFailure::InvalidTable,
-						"A DAST v10 export record is invalid.", "Exports[" + std::to_string(Index) + "]");
+						EPackageReaderReason::ExportRecord, "Exports[" + std::to_string(Index) + "]");
 				Exports.push_back({.ObjectName = Names[ObjectId - 1], .ClassName = Names[ClassId - 1],
 					.Outer = OuterIndex});
 			}
 			if (!Reader.IsAtEnd()) return Fail(Diagnostic, EPackageReaderFailure::InvalidTable,
-				"DAST v10 export table has trailing or malformed bytes.", "Exports");
+				EPackageReaderReason::ExportTableTrailing, "Exports");
 			Out = std::move(Exports);
 			return true;
 		}
 
 		auto DecodeTypes(const FParsedLayout& Layout, const std::vector<std::string>& Names,
 			const FPackageReaderLimits& Limits, std::vector<FSerializedType>& Out,
-			FPackageReaderDiagnostic* Diagnostic) -> bool
+			FPackageReaderResult* Diagnostic) -> bool
 		{
 			FBinaryReader Reader(Section(Layout, EDastSection::Types));
 			uint32 Version = 0;
@@ -426,7 +426,7 @@ namespace Durin::ObjectPackage
 			if (!Reader.ReadU32(Version) || Version != DastTableVersion
 				|| !Reader.ReadVarUInt(Count) || Count > Limits.MaximumTableEntries)
 				return Fail(Diagnostic, EPackageReaderFailure::InvalidType,
-					"DAST v10 type table header is invalid.", "Types");
+					EPackageReaderReason::TypeTableHeader, "Types");
 			std::vector<FRawType> Raw;
 			Raw.reserve(static_cast<size_t>(Count));
 			for (uint64 Index = 0; Index < Count; ++Index)
@@ -434,7 +434,7 @@ namespace Durin::ObjectPackage
 				uint64 RecordBytes = 0;
 				if (!Reader.ReadVarUInt(RecordBytes) || RecordBytes > Reader.GetRemainingBytes())
 					return Fail(Diagnostic, EPackageReaderFailure::InvalidType,
-						"A DAST v10 type record extent is invalid.", "Types[" + std::to_string(Index) + "]");
+						EPackageReaderReason::TypeRecordExtent, "Types[" + std::to_string(Index) + "]");
 				FByteView RecordSpan;
 				if (!Reader.ReadRegion(RecordSpan, RecordBytes, Layout.Entries[4].Size)) return false;
 				FBinaryReader Record(RecordSpan);
@@ -445,22 +445,22 @@ namespace Durin::ObjectPackage
 					|| !ReadNameId(Record, Names, NameId, true) || !Record.ReadVarUInt(Parameter)
 					|| !Record.ReadVarUInt(ChildCount) || ChildCount > Limits.MaximumTableEntries)
 					return Fail(Diagnostic, EPackageReaderFailure::InvalidType,
-						"A DAST v10 type record header is invalid.", "Types[" + std::to_string(Index) + "]");
+						EPackageReaderReason::TypeRecordHeader, "Types[" + std::to_string(Index) + "]");
 				FRawType Type{static_cast<EValueKind>(Tag - 1), NameId, Parameter};
 				for (uint64 Child = 0; Child < ChildCount; ++Child)
 				{
 					uint64 Id = 0;
 					if (!Record.ReadVarUInt(Id) || Id == 0 || Id > Count)
 						return Fail(Diagnostic, EPackageReaderFailure::InvalidType,
-							"A DAST v10 child type id is invalid.", "Types[" + std::to_string(Index) + "]");
+							EPackageReaderReason::ChildTypeIndex, "Types[" + std::to_string(Index) + "]");
 					Type.Children.push_back(static_cast<uint32>(Id));
 				}
 				if (!Record.IsAtEnd()) return Fail(Diagnostic, EPackageReaderFailure::InvalidType,
-					"A DAST v10 type record has trailing bytes.", "Types[" + std::to_string(Index) + "]");
+					EPackageReaderReason::TypeRecordTrailing, "Types[" + std::to_string(Index) + "]");
 				Raw.push_back(std::move(Type));
 			}
 			if (!Reader.IsAtEnd()) return Fail(Diagnostic, EPackageReaderFailure::InvalidType,
-				"DAST v10 type table has trailing bytes.", "Types");
+				EPackageReaderReason::TypeTableTrailing, "Types");
 
 			std::vector<std::optional<FSerializedType>> Cache(Raw.size());
 			std::vector<bool> Active(Raw.size());
@@ -469,7 +469,7 @@ namespace Durin::ObjectPackage
 				const size_t Index = Id - 1;
 				if (Cache[Index]) { Result = *Cache[Index]; return true; }
 				if (Active[Index]) return Fail(Diagnostic, EPackageReaderFailure::InvalidType,
-					"DAST v10 structural type graph contains a cycle.", "Types[" + std::to_string(Index) + "]");
+					EPackageReaderReason::TypeCycle, "Types[" + std::to_string(Index) + "]");
 				Active[Index] = true;
 				const FRawType& Source = Raw[Index];
 				FSerializedType Type{.Kind = Source.Kind,
@@ -500,7 +500,7 @@ namespace Durin::ObjectPackage
 		auto DecodeSchemas(const FParsedLayout& Layout, const std::vector<std::string>& Names,
 			const std::vector<FSerializedType>& Types, const FPackageReaderLimits& Limits,
 			std::vector<FCustomVersion>& OutVersions, std::vector<FSerializedSchema>& OutSchemas,
-			FPackageReaderDiagnostic* Diagnostic) -> bool
+			FPackageReaderResult* Diagnostic) -> bool
 		{
 			FBinaryReader Reader(Section(Layout, EDastSection::Schemas));
 			uint32 Version = 0;
@@ -508,7 +508,7 @@ namespace Durin::ObjectPackage
 			if (!Reader.ReadU32(Version) || Version != DastTableVersion
 				|| !Reader.ReadVarUInt(VersionCount) || VersionCount > Limits.MaximumTableEntries)
 				return Fail(Diagnostic, EPackageReaderFailure::InvalidTable,
-					"DAST v10 schema section header is invalid.", "Schemas");
+					EPackageReaderReason::SchemaSectionHeader, "Schemas");
 			std::vector<FCustomVersion> Versions;
 			std::unordered_set<FGuid> VersionGuids;
 			for (uint64 Index = 0; Index < VersionCount; ++Index)
@@ -521,7 +521,7 @@ namespace Durin::ObjectPackage
 					|| !VersionGuids.insert(Custom.Guid).second
 					|| !Reader.ReadU8(Flags) || Flags != 0)
 					return Fail(Diagnostic, EPackageReaderFailure::InvalidTable,
-						"A DAST v10 custom-version record is invalid.", "CustomVersions");
+						EPackageReaderReason::CustomVersionRecord, "CustomVersions");
 				Custom.Version = static_cast<int32>(Value);
 
 				Versions.push_back(Custom);
@@ -529,7 +529,7 @@ namespace Durin::ObjectPackage
 			uint64 SchemaCount = 0;
 			if (!Reader.ReadVarUInt(SchemaCount) || SchemaCount > Limits.MaximumTableEntries)
 				return Fail(Diagnostic, EPackageReaderFailure::InvalidTable,
-					"DAST v10 schema count is invalid.", "Schemas");
+					EPackageReaderReason::SchemaCount, "Schemas");
 			std::vector<FSerializedSchema> Schemas;
 			for (uint64 SchemaIndex = 0; SchemaIndex < SchemaCount; ++SchemaIndex)
 			{
@@ -538,7 +538,7 @@ namespace Durin::ObjectPackage
 				if (!ReadNameId(Reader, Names, NameId) || !Reader.ReadVarUInt(FieldCount)
 					|| FieldCount > Limits.MaximumTableEntries)
 					return Fail(Diagnostic, EPackageReaderFailure::InvalidTable,
-						"A DAST v10 schema header is invalid.", "Schemas");
+						EPackageReaderReason::SchemaHeader, "Schemas");
 				FSerializedSchema Schema{.QualifiedName = Names[NameId - 1]};
 				for (uint64 FieldIndex = 0; FieldIndex < FieldCount; ++FieldIndex)
 				{
@@ -547,13 +547,13 @@ namespace Durin::ObjectPackage
 					if (!ReadNameId(Reader, Names, FieldNameId) || !Reader.ReadVarUInt(TypeId)
 						|| TypeId == 0 || TypeId > Types.size() || !Reader.ReadVarUInt(Flags))
 						return Fail(Diagnostic, EPackageReaderFailure::InvalidTable,
-							"A DAST v10 schema field is invalid.", "Schemas");
+							EPackageReaderReason::SchemaField, "Schemas");
 					Schema.Fields.push_back({Names[FieldNameId - 1], Types[TypeId - 1], Flags});
 				}
 				Schemas.push_back(std::move(Schema));
 			}
 			if (!Reader.IsAtEnd()) return Fail(Diagnostic, EPackageReaderFailure::InvalidTable,
-				"DAST v10 schema section has trailing bytes.", "Schemas");
+				EPackageReaderReason::SchemaTrailing, "Schemas");
 			OutVersions = std::move(Versions);
 			OutSchemas = std::move(Schemas);
 			return true;
@@ -562,14 +562,14 @@ namespace Durin::ObjectPackage
 		auto ReadValue(FBinaryReader& Reader, const std::vector<std::string>& Names,
 			const std::vector<FSerializedType>& Types, const FSerializedType& Type,
 			const FPackageReaderLimits& Limits, FSerializedValue& Out, uint32 Depth,
-			FPackageReaderDiagnostic* Diagnostic, std::string Path) -> bool
+			FPackageReaderResult* Diagnostic, std::string Path) -> bool
 		{
 			if (Depth > Limits.MaximumValueDepth) return Fail(Diagnostic,
-				EPackageReaderFailure::LimitExceeded, "A DAST v10 value exceeds the nesting limit.", Path);
+				EPackageReaderFailure::LimitExceeded, EPackageReaderReason::ValueDepth, Path);
 			uint8 Tag = 0;
 			if (!Reader.ReadU8(Tag) || Tag != static_cast<uint8>(Type.Kind) + 1)
 				return Fail(Diagnostic, EPackageReaderFailure::InvalidValue,
-					"A DAST v10 value tag does not match its declared type.", Path);
+					EPackageReaderReason::ValueTag, Path);
 			FSerializedValue Value;
 			switch (Type.Kind)
 			{
@@ -617,7 +617,7 @@ namespace Durin::ObjectPackage
 				uint64 Count = 0;
 				uint8 Baseline = 0;
 				if (!Reader.ReadU8(Baseline) || Baseline > 2)
-					return Fail(Diagnostic, EPackageReaderFailure::InvalidValue, "Invalid Struct baseline mode.", Path);
+					return Fail(Diagnostic, EPackageReaderFailure::InvalidValue, EPackageReaderReason::StructBaseline, Path);
 				Value.Baseline = static_cast<EArchiveStructBaseline>(Baseline);
 				if (!Reader.ReadVarUInt(Count) || Count > Limits.MaximumTableEntries) return false;
 				struct FField { std::string Name; FSerializedType Type; EPropertyProvenance Provenance{}; FSerializedValue Value; };
@@ -700,7 +700,7 @@ namespace Durin::ObjectPackage
 		auto DecodeValues(const FParsedLayout& Layout, const std::vector<std::string>& Names,
 			const std::vector<FSerializedType>& Types, const std::vector<FSerializedSchema>& Schemas,
 			const FPackageReaderLimits& Limits, std::vector<FPackageExport>& Exports,
-			FPackageReaderDiagnostic* Diagnostic) -> bool
+			FPackageReaderResult* Diagnostic) -> bool
 		{
 			FBinaryReader Reader(Section(Layout, EDastSection::Values));
 			uint32 Version = 0;
@@ -713,7 +713,7 @@ namespace Durin::ObjectPackage
 				if (!Reader.ReadVarUInt(ExportId) || ExportId != ExportIndex + 1) return false;
 				uint8 Baseline = 0;
 				if (!Reader.ReadU8(Baseline) || Baseline > 1)
-					return Fail(Diagnostic, EPackageReaderFailure::InvalidValue, "Invalid export baseline mode.", "Values");
+					return Fail(Diagnostic, EPackageReaderFailure::InvalidValue, EPackageReaderReason::ExportBaseline, "Values");
 				Exports[ExportIndex].bUseClassDefaults = Baseline != 0;
 				if (!Reader.ReadVarUInt(PropertyCount) || PropertyCount > Limits.MaximumTableEntries) return false;
 				for (uint64 PropertyIndex = 0; PropertyIndex < PropertyCount; ++PropertyIndex)
@@ -731,18 +731,19 @@ namespace Durin::ObjectPackage
 						.Type = Types[TypeId - 1], .Provenance = static_cast<EPropertyProvenance>(Provenance)};
 					const std::string Path = Exports[ExportIndex].ObjectName + "." + Schema.QualifiedName + "." + Field.Name;
 					if (!ReadValue(Reader, Names, Types, Property.Type, Limits, Property.Value, 0, Diagnostic, Path))
-						return Fail(Diagnostic, EPackageReaderFailure::InvalidValue,
-							"A DAST v10 property value is malformed.", Path);
+						return Diagnostic && !Diagnostic->Succeeded() ? false
+							: Fail(Diagnostic, EPackageReaderFailure::InvalidValue,
+								EPackageReaderReason::PropertyValue, Path);
 					Exports[ExportIndex].Properties.push_back(std::move(Property));
 				}
 			}
 			return Reader.IsAtEnd() || Fail(Diagnostic, EPackageReaderFailure::InvalidValue,
-				"DAST v10 value section has trailing bytes.", "Values");
+				EPackageReaderReason::ValueTrailing, "Values");
 		}
 
 		auto DecodeBulkDirectory(const FParsedLayout& Layout, const std::vector<std::string>& Names,
 			const FPackageReaderLimits& Limits, std::vector<FBulkEntry>& Out,
-			FPackageReaderDiagnostic* Diagnostic) -> bool
+			FPackageReaderResult* Diagnostic) -> bool
 		{
 			FBinaryReader Reader(Section(Layout, EDastSection::BulkDirectory));
 			uint32 Version = 0;
@@ -777,20 +778,20 @@ namespace Durin::ObjectPackage
 			const std::vector<std::string>& Names, const std::vector<FBulkEntry>& Entries,
 			FByteView Inline, FByteView External,
 			uint64 ExternalExtent, bool bExternalPayloadAvailable,
-			std::array<uint64, 2>& Cursors, size_t& Used, FPackageReaderDiagnostic* Diagnostic) -> bool
+			std::array<uint64, 2>& Cursors, size_t& Used, FPackageReaderResult* Diagnostic) -> bool
 		{
 			if (Type.Kind == EValueKind::BulkData)
 			{
 				const uint64 Id = Value.Unsigned;
 				if (Id != Used + 1 || Id > Entries.size()) return Fail(Diagnostic,
-					EPackageReaderFailure::InvalidBulkData, "A BulkData handle is missing, repeated, or out of order.", Path);
+					EPackageReaderFailure::InvalidBulkData, EPackageReaderReason::BulkHandle, Path);
 				const FBulkEntry& Entry = Entries[Id - 1];
 				if (Entry.ExportId != ExportId || Entry.SchemaId != SchemaId || Entry.FieldId != FieldId
 					|| Names[Entry.PathNameId - 1] != Path || Entry.LogicalSize != Entry.Size
 					|| Entry.ElementSize == 0 || Entry.Alignment == 0 || Entry.Alignment > 4096
 					|| (Entry.Alignment & (Entry.Alignment - 1)) != 0 || Entry.Size % Entry.ElementSize != 0)
 					return Fail(Diagnostic, EPackageReaderFailure::InvalidBulkData,
-						"A BulkData directory owner or shape is invalid.", Path);
+						EPackageReaderReason::BulkOwner, Path);
 				const size_t SegmentIndex = Entry.Storage == EBulkStorageKind::Inline ? 0 : 1;
 				const bool bPayloadAvailable = SegmentIndex == 0 || bExternalPayloadAvailable;
 				const FByteView Segment = SegmentIndex == 0 ? Inline : External;
@@ -805,7 +806,7 @@ namespace Durin::ObjectPackage
 							static_cast<size_t>(Expected - Cursors[SegmentIndex])),
 						[](std::byte Byte) { return Byte == std::byte{0}; })))
 					return Fail(Diagnostic, EPackageReaderFailure::InvalidBulkData,
-						"A BulkData range, alignment, or padding is invalid.", Path);
+						EPackageReaderReason::BulkRange, Path);
 				Value.Unsigned = 0;
 				if (bPayloadAvailable)
 				{
@@ -813,7 +814,7 @@ namespace Durin::ObjectPackage
 						static_cast<size_t>(Entry.Size));
 					if (FXxHash128::HashBuffer(Payload) != Entry.Hash)
 						return Fail(Diagnostic, EPackageReaderFailure::HashMismatch,
-							"A BulkData payload digest does not match.", Path);
+							EPackageReaderReason::BulkHash, Path);
 					Value.Bytes.assign(Payload.begin(), Payload.end());
 				}
 				else
@@ -859,10 +860,10 @@ namespace Durin::ObjectPackage
 		}
 	}
 
-	auto ReadPackageRegistry(FByteView FrontMatter,
+	static auto ReadPackageRegistryInternal(FByteView FrontMatter,
 		uint64 PhysicalPackageBytes, uint64 PhysicalBulkBytes,
 		const FPackagePath& PackagePath, FPackageRegistryData& OutRegistry,
-		FPackageReaderDiagnostic* OutDiagnostic, const FPackageReaderLimits& Limits) -> bool
+		FPackageReaderResult* OutDiagnostic, const FPackageReaderLimits& Limits) -> bool
 	{
 		if (OutDiagnostic) OutDiagnostic->Reset();
 		FParsedLayout Layout;
@@ -884,13 +885,13 @@ namespace Durin::ObjectPackage
 		auto ReadPackageImpl(FByteView PackageBytes,
 			FByteView BulkBytes, uint64 PhysicalBulkBytes,
 			bool bExternalPayloadAvailable, const FPackagePath& PackagePath,
-			FLinkerTables& OutLinker, FPackageReaderDiagnostic* OutDiagnostic,
+			FLinkerTables& OutLinker, FPackageReaderResult* OutDiagnostic,
 			const FPackageReaderLimits& Limits) -> bool
 		{
 			if (OutDiagnostic) OutDiagnostic->Reset();
 			if (PhysicalBulkBytes > Limits.MaximumBulkBytes)
 				return Fail(OutDiagnostic, EPackageReaderFailure::LimitExceeded,
-					"The supplied DAST v10 bulk segment exceeds its limit.");
+					EPackageReaderReason::BulkLimit);
 			FParsedLayout Layout;
 			if (!ParseLayout(PackageBytes, PackageBytes.size(), true,
 				Limits, Layout, OutDiagnostic)) return false;
@@ -913,7 +914,7 @@ namespace Durin::ObjectPackage
 			{
 				return OutDiagnostic && OutDiagnostic->Failure != EPackageReaderFailure::None ? false
 					: Fail(OutDiagnostic, EPackageReaderFailure::InvalidTable,
-						"A DAST v10 package table is malformed.");
+						EPackageReaderReason::MalformedTable);
 			}
 
 			Linker.Summary.PackagePath = PackagePath;
@@ -927,17 +928,17 @@ namespace Durin::ObjectPackage
 				if (ExportIndex >= Linker.Exports.size()
 					|| !TopLevelExports.insert(ExportIndex).second)
 					return Fail(OutDiagnostic, EPackageReaderFailure::InvalidRegistry,
-						"A DAST v10 top-level asset export id is invalid.", "Registry.TopLevelAssets");
+						EPackageReaderReason::TopLevelExportIndex, "Registry.TopLevelAssets");
 				const FPackageExport& Export = Linker.Exports[ExportIndex];
 				if (!Export.Outer.IsNull() || Export.ObjectName != Asset.AssetPath.GetAssetName()
 					|| Export.ClassName != Asset.ClassName)
 					return Fail(OutDiagnostic, EPackageReaderFailure::InvalidTopology,
-						"A DAST v10 top-level asset record does not match export topology.",
+						EPackageReaderReason::TopLevelTopology,
 						Asset.AssetPath.ToString());
 				FPackageIndex ExportId;
 				if (!FPackageIndex::TryExport(ExportIndex, ExportId))
 					return Fail(OutDiagnostic, EPackageReaderFailure::InvalidIndex,
-						"A DAST v10 top-level asset export id cannot be represented.");
+						EPackageReaderReason::TopLevelIndexOverflow);
 				Linker.Summary.TopLevelAssets.push_back({
 					.Export = ExportId,
 					.AssetPath = Asset.AssetPath,
@@ -948,7 +949,7 @@ namespace Durin::ObjectPackage
 				if (Linker.Exports[ExportIndex].Outer.IsNull()
 					&& !TopLevelExports.contains(ExportIndex))
 					return Fail(OutDiagnostic, EPackageReaderFailure::InvalidTopology,
-						"A DAST v10 package-outer export is missing its top-level asset record.",
+						EPackageReaderReason::MissingTopLevelAsset,
 						Linker.Exports[ExportIndex].ObjectName);
 
 			if (Registry.ExternalBulkBytes != PhysicalBulkBytes
@@ -956,7 +957,7 @@ namespace Durin::ObjectPackage
 					&& (BulkBytes.empty() ? !Registry.ExternalBulkHash.IsZero()
 						: FXxHash128::HashBuffer(BulkBytes) != Registry.ExternalBulkHash)))
 				return Fail(OutDiagnostic, EPackageReaderFailure::HashMismatch,
-					"The external DAST v10 bulk segment binding does not match.", "Registry.Bulk");
+					EPackageReaderReason::ExternalBulkHash, "Registry.Bulk");
 			const auto Inline = Section(Layout, EDastSection::InlineBulk);
 			std::array<uint64, 2> Cursors{};
 			size_t UsedBulk = 0;
@@ -966,8 +967,8 @@ namespace Durin::ObjectPackage
 				std::string ExportPath;
 				FPackageIndex Index;
 				FPackageIndex::TryExport(ExportIndex, Index);
-				if (!Linker.TryResolvePath(Index, ExportPath)) return Fail(OutDiagnostic,
-					EPackageReaderFailure::InvalidTopology, "The DAST v10 export topology is invalid.", "Exports");
+				if (const auto Result = Linker.TryResolvePath(Index, ExportPath); !Result) return Fail(OutDiagnostic,
+					EPackageReaderFailure::InvalidTopology, EPackageReaderReason::ExportTopology, "Exports", Result.Error);
 				for (FPropertyTag& Property : Export.Properties)
 				{
 					const auto SchemaIt = std::ranges::find(Linker.Schemas, Property.DeclaringType,
@@ -986,45 +987,76 @@ namespace Durin::ObjectPackage
 			if (UsedBulk != BulkEntries.size() || Cursors[0] != Inline.size()
 				|| Cursors[1] != PhysicalBulkBytes)
 				return Fail(OutDiagnostic, EPackageReaderFailure::InvalidBulkData,
-					"DAST v10 bulk entries do not consume their exact inline/external segments.",
+					EPackageReaderReason::BulkCoverage,
 					"BulkDirectory");
 
 			FByteBuffer CanonicalMain;
-			FPackageWriterDiagnostic WriterDiagnostic;
 			FByteBuffer CanonicalBulk;
-			const bool bCanonical = bExternalPayloadAvailable
-				? WritePackage(Linker, CanonicalMain, CanonicalBulk, &WriterDiagnostic)
+			const auto WriterDiagnostic = bExternalPayloadAvailable
+				? WritePackage(Linker, CanonicalMain, CanonicalBulk)
 				: WritePackageMain(Linker, Registry.ExternalBulkBytes,
-					Registry.ExternalBulkHash, CanonicalMain, &WriterDiagnostic);
-			if (!bCanonical)
+					Registry.ExternalBulkHash, CanonicalMain);
+			if (!WriterDiagnostic)
 				return Fail(OutDiagnostic, EPackageReaderFailure::NonCanonical,
-					"Decoded DAST v10 data violates the canonical linker contract: "
-						+ WriterDiagnostic.Message, WriterDiagnostic.LogicalPath);
+					EPackageReaderReason::CanonicalWriterRejected, WriterDiagnostic.LogicalPath, WriterDiagnostic);
 			if (!std::ranges::equal(CanonicalMain, PackageBytes)
 				|| (bExternalPayloadAvailable && !std::ranges::equal(CanonicalBulk, BulkBytes)))
 				return Fail(OutDiagnostic, EPackageReaderFailure::NonCanonical,
-					"DAST v10 bytes are logically valid but not in canonical writer form.");
+					EPackageReaderReason::NonCanonicalBytes);
 			OutLinker = std::move(Linker);
 			return true;
 		}
 	}
 
-	auto ReadPackage(FByteView PackageBytes,
+	static auto ReadPackageInternal(FByteView PackageBytes,
 		FByteView BulkBytes, const FPackagePath& PackagePath,
-		FLinkerTables& OutLinker, FPackageReaderDiagnostic* OutDiagnostic,
+		FLinkerTables& OutLinker, FPackageReaderResult* OutDiagnostic,
 		const FPackageReaderLimits& Limits) -> bool
 	{
 		return ReadPackageImpl(PackageBytes, BulkBytes, BulkBytes.size(), true,
 			PackagePath, OutLinker, OutDiagnostic, Limits);
 	}
 
-	auto ReadPackageMetadata(FByteView PackageBytes,
+	static auto ReadPackageMetadataInternal(FByteView PackageBytes,
 		uint64 PhysicalBulkBytes, const FPackagePath& PackagePath,
-		FLinkerTables& OutLinker, FPackageReaderDiagnostic* OutDiagnostic,
+		FLinkerTables& OutLinker, FPackageReaderResult* OutDiagnostic,
 		const FPackageReaderLimits& Limits) -> bool
 	{
 		return ReadPackageImpl(PackageBytes, {}, PhysicalBulkBytes, false,
 			PackagePath, OutLinker, OutDiagnostic, Limits);
+	}
+
+	auto ReadPackageRegistry(FByteView FrontMatter,
+		uint64 PhysicalPackageBytes, uint64 PhysicalBulkBytes,
+		const FPackagePath& PackagePath, FPackageRegistryData& OutRegistry,
+		const FPackageReaderLimits& Limits) -> FPackageReaderResult
+	{
+		FPackageReaderResult Result;
+		if (!ReadPackageRegistryInternal(FrontMatter, PhysicalPackageBytes, PhysicalBulkBytes, PackagePath, OutRegistry, &Result, Limits) && Result.Succeeded())
+			Result = {EPackageReaderFailure::InvalidTable, {}, EPackageReaderReason::MalformedTable};
+		return Result;
+	}
+
+	auto ReadPackage(FByteView PackageBytes,
+		FByteView BulkBytes, const FPackagePath& PackagePath,
+		FLinkerTables& OutLinker,
+		const FPackageReaderLimits& Limits) -> FPackageReaderResult
+	{
+		FPackageReaderResult Result;
+		if (!ReadPackageInternal(PackageBytes, BulkBytes, PackagePath, OutLinker, &Result, Limits) && Result.Succeeded())
+			Result = {EPackageReaderFailure::InvalidTable, {}, EPackageReaderReason::MalformedTable};
+		return Result;
+	}
+
+	auto ReadPackageMetadata(FByteView PackageBytes,
+		uint64 PhysicalBulkBytes, const FPackagePath& PackagePath,
+		FLinkerTables& OutLinker,
+		const FPackageReaderLimits& Limits) -> FPackageReaderResult
+	{
+		FPackageReaderResult Result;
+		if (!ReadPackageMetadataInternal(PackageBytes, PhysicalBulkBytes, PackagePath, OutLinker, &Result, Limits) && Result.Succeeded())
+			Result = {EPackageReaderFailure::InvalidTable, {}, EPackageReaderReason::MalformedTable};
+		return Result;
 	}
 
 }
