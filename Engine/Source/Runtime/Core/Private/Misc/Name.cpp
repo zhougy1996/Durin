@@ -978,6 +978,11 @@ namespace Durin
 			   && (!bCompareNumber || Number == Other.Number);
 	}
 
+	auto FName::GetPlainNameView() const -> std::string_view
+	{
+		return GetDisplayNameEntry()->MakeView();
+	}
+
 	auto FName::ToString() const -> std::string
 	{
 		std::string PlainNameString = GetDisplayNameEntry()->GetPlainNameString();

@@ -173,6 +173,32 @@ namespace
 		EXPECT_EQ(UnnumberedName.GetNumber(), 0U);
 	}
 
+	TEST(FNameTests, PlainNameViewBorrowsDisplayStorageAndExcludesOnlyParsedSuffixes)
+	{
+		const Durin::FName DefaultName;
+		EXPECT_FALSE(DefaultName.HasNumber());
+		EXPECT_EQ(DefaultName.GetPlainNameView(), "None");
+
+		const Durin::FName LowerName("viewname_\xe4\xb8\xad");
+		const Durin::FName DisplayName("ViewName_\xe4\xb8\xad");
+		EXPECT_EQ(LowerName, DisplayName);
+		EXPECT_FALSE(DisplayName.HasNumber());
+		EXPECT_EQ(DisplayName.GetPlainNameView(), "ViewName_\xe4\xb8\xad");
+		EXPECT_EQ(DisplayName.GetPlainNameView().data(), DisplayName.GetDisplayNameEntry()->MakeView().data());
+
+		const Durin::FName ParsedName("ViewActor_0");
+		const Durin::FName ExplicitName("ViewActor", 3);
+		EXPECT_TRUE(ParsedName.HasNumber());
+		EXPECT_TRUE(ExplicitName.HasNumber());
+		EXPECT_EQ(ParsedName.GetPlainNameView(), "ViewActor");
+		EXPECT_EQ(ExplicitName.GetPlainNameView(), "ViewActor");
+		EXPECT_EQ(ParsedName.GetPlainNameView().data(), ExplicitName.GetPlainNameView().data());
+
+		const Durin::FName UnparsedName("ViewActor_04");
+		EXPECT_FALSE(UnparsedName.HasNumber());
+		EXPECT_EQ(UnparsedName.GetPlainNameView(), "ViewActor_04");
+	}
+
 	TEST(FNameTests, PreservesOutOfRangeNumericSuffixesAsPlainNames)
 	{
 		const Durin::FName LargestSupported("Bone_2147483646");

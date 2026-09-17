@@ -3,8 +3,19 @@
 #include "MonaImGuiAPI.h"
 #include "ThirdParty/ImGui/ImGuiCommon.h"
 
+namespace Durin
+{
+	class FName;
+}
+
 namespace Durin::MonaImGui
 {
+	// Draws the full display name, including any numeric suffix, as one unformatted text item.
+	// Unnumbered names borrow pool storage without a string copy; numbered names use a temporary
+	// ToString() result. Explicit text bounds avoid requiring null-terminated pool storage.
+	// Requires an active ImGui window, just like TextUnformatted(); this is text, not a widget label/ID.
+	MONAIMGUI_API auto TextName(const FName& Name) -> void;
+
 	// Selects the screen-space axis along which a splitter divides content.
 	enum class EUISplitterAxis : uint8
 	{

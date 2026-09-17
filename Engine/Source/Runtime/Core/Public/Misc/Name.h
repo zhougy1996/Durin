@@ -162,6 +162,17 @@ namespace Durin
 
 		[[nodiscard]] FORCEINLINE auto GetNumber() const -> uint32 { return Number; }
 
+		// True when a numeric suffix is stored separately, including _0. GetNumber() stores
+		// the displayed suffix plus one; zero means no suffix. Literal suffixes such as _04
+		// that are not parsed into Number remain part of the plain name.
+		[[nodiscard]] FORCEINLINE auto HasNumber() const -> bool { return Number != NoNumberInternal; }
+
+		// Borrows immutable UTF-8 storage from the process-lifetime name pool, preserving display case.
+		// Excludes the numeric suffix (Actor_3 yields Actor); not guaranteed to be null-terminated.
+		// The view outlives this FName and remains valid across pool growth. A default FName yields
+		// "None". Use ToString() when a contiguous full name including the suffix is required.
+		[[nodiscard]] CORE_API auto GetPlainNameView() const -> std::string_view;
+
 		[[nodiscard]] CORE_API auto Equals(const FName& Other, ENameCase CompareMethod = ENameCase::IgnoreCase, const bool bCompareNumber = true) const -> bool;
 
 		[[nodiscard]] CORE_API auto ToString() const -> std::string;

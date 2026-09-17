@@ -1,9 +1,23 @@
 #include "MonaImGuiWidgets.h"
 
 #include "MonaImGui.h"
+#include "Misc/Name.h"
 
 namespace Durin::MonaImGui
 {
+	auto TextName(const FName& Name) -> void
+	{
+		if (Name.HasNumber())
+		{
+			const std::string Text = Name.ToString();
+			ImGui::TextUnformatted(Text.data(), Text.data() + Text.size());
+			return;
+		}
+
+		const std::string_view Text = Name.GetPlainNameView();
+		ImGui::TextUnformatted(Text.data(), Text.data() + Text.size());
+	}
+
 	namespace
 	{
 		auto ResizeStringInput(ImGuiInputTextCallbackData* Data) -> int
