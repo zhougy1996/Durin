@@ -68,6 +68,7 @@ requires; do not read unrelated topics or scan an entire directory.
 | Loaded material dependency queries, batch caches, or notification reentrancy | [Scoped material queries](Runtime/Rendering/MaterialQueries.md) |
 | Material error codes, diagnostic context, result contracts, or error text formatting | [Material diagnostics](Runtime/Rendering/MaterialDiagnostics.md) |
 | RHI or Vulkan validation results, creation error codes, or diagnostic formatting | [RHI diagnostics](Runtime/Rendering/RHIDiagnostics.md) |
+| Shader validation, compilation, cooked-library errors, or diagnostic formatting | [Shader diagnostics](Runtime/Rendering/ShaderDiagnostics.md) |
 | Material graph commands, function authoring, UV inputs, transactions, or clipboard | [Material graph operations](Editor/Architecture/MaterialGraphOperations.md) |
 | Material editor panels, canvas geometry, node menus, or graph diagnostics | [Material graph canvas](Editor/Architecture/MaterialGraphCanvas.md) |
 | Material preview resources, Compile/Apply/Save, document lifecycle, or instance overrides | [Material editor lifecycle](Editor/Architecture/MaterialEditorLifecycle.md) |

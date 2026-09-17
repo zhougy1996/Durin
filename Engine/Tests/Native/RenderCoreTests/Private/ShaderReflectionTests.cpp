@@ -214,7 +214,7 @@ namespace Durin
 
 		FSlangShaderCompiler Compiler;
 		const FShaderCompilerOutput Output = Compiler.Compile(ShaderPath.string(), Options);
-		ASSERT_TRUE(Output) << Output.ErrorMessage;
+		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
 		ASSERT_EQ(Output.CompiledShaders.size(), 1u);
 
 		const auto& Bindings = Output.CompiledShaders[0].Reflection.ResourceBindings;
@@ -237,7 +237,7 @@ namespace Durin
 		Options.Frequencies = {EShaderFrequency::Vertex, EShaderFrequency::Fragment};
 		FSlangShaderCompiler Compiler;
 		const auto Output = Compiler.Compile(ShaderPath.string(), Options);
-		ASSERT_TRUE(Output) << Output.ErrorMessage;
+		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
 		ASSERT_EQ(Output.CompiledShaders.size(), 2u);
 		EXPECT_TRUE(Output.CompiledShaders[0].Reflection.ResourceBindings.empty());
 		const auto& Fragment = Output.CompiledShaders[1];
@@ -260,7 +260,7 @@ namespace Durin
 		FSlangShaderCompiler Compiler;
 		const FShaderCompilerOutput Output =
 			Compiler.Compile(ShaderPath.string(), Options);
-		ASSERT_TRUE(Output) << Output.ErrorMessage;
+		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
 		ASSERT_EQ(Output.CompiledShaders.size(), 3u);
 		const FCompiledShader& Vertex = Output.CompiledShaders[0];
 		const FCompiledShader& Fragment = Output.CompiledShaders[1];
@@ -299,7 +299,7 @@ namespace Durin
 		const FShaderCompilerOutput Output = Compiler.Compile(
 			ShaderPath.string(), Options
 		);
-		ASSERT_TRUE(Output) << Output.ErrorMessage;
+		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
 		ASSERT_EQ(Output.CompiledShaders.size(), 3u);
 		const FCompiledShader& Fragment = Output.CompiledShaders[1];
 		const FCompiledShader& Compute = Output.CompiledShaders[2];
@@ -332,7 +332,7 @@ namespace Durin
 		};
 		FSlangShaderCompiler Compiler;
 		const FShaderCompilerOutput Output = Compiler.Compile(ShaderPath.string(), Options);
-		ASSERT_TRUE(Output) << Output.ErrorMessage;
+		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
 		ASSERT_EQ(Output.CompiledShaders.size(), 2u);
 		EXPECT_TRUE(Output.CompiledShaders[0].Reflection.ResourceBindings.empty());
 		const FCompiledShader& Fragment = Output.CompiledShaders[1];
@@ -357,7 +357,7 @@ namespace Durin
 		};
 		FSlangShaderCompiler Compiler;
 		const FShaderCompilerOutput Output = Compiler.Compile(ShaderPath.string(), Options);
-		ASSERT_TRUE(Output) << Output.ErrorMessage;
+		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
 		ASSERT_EQ(Output.CompiledShaders.size(), 2u);
 		EXPECT_TRUE(Output.CompiledShaders[0].Reflection.ResourceBindings.empty());
 		const FCompiledShader& Fragment = Output.CompiledShaders[1];
@@ -377,7 +377,7 @@ namespace Durin
 
 		FSlangShaderCompiler Compiler;
 		const FShaderCompilerOutput Output = Compiler.Compile(ShaderPath.string(), Options);
-		ASSERT_TRUE(Output) << Output.ErrorMessage;
+		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
 		ASSERT_EQ(Output.CompiledShaders.size(), 1u);
 
 		const FCompiledShader& Shader = Output.CompiledShaders[0];
@@ -387,8 +387,8 @@ namespace Durin
 		EXPECT_TRUE(Shader.Reflection.PushConstantRanges.empty());
 
 		FPipelineLayoutDesc PipelineLayout;
-		std::string ErrorMessage;
-		ASSERT_TRUE(BuildPipelineLayoutFromShaders(Output.CompiledShaders, PipelineLayout, ErrorMessage)) << ErrorMessage;
+		FShaderOperationResult ErrorMessage;
+		ASSERT_TRUE((ErrorMessage = BuildPipelineLayoutFromShaders(Output.CompiledShaders, PipelineLayout))) << FormatShaderError(ErrorMessage.Error);
 		EXPECT_TRUE(PipelineLayout.BindingLayouts.empty());
 		EXPECT_TRUE(PipelineLayout.PushConstantRanges.empty());
 	}
@@ -409,7 +409,7 @@ namespace Durin
 		FSlangShaderCompiler Compiler;
 		const FShaderCompilerOutput Output =
 			Compiler.Compile(ShaderPath.string(), Options);
-		ASSERT_TRUE(Output) << Output.ErrorMessage;
+		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
 		ASSERT_EQ(Output.CompiledShaders.size(), 2u);
 		const FCompiledShader& VertexShader =
 			Output.CompiledShaders[0];
@@ -440,9 +440,8 @@ namespace Durin
 		EXPECT_TRUE(FragmentShader.Reflection.ResourceBindings.empty());
 		EXPECT_TRUE(FragmentShader.Reflection.PushConstantRanges.empty());
 		FPipelineLayoutDesc PipelineLayout;
-		std::string ErrorMessage;
-		ASSERT_TRUE(BuildPipelineLayoutFromShaders(Output.CompiledShaders,
-			PipelineLayout, ErrorMessage)) << ErrorMessage;
+		FShaderOperationResult ErrorMessage;
+		ASSERT_TRUE((ErrorMessage = BuildPipelineLayoutFromShaders(Output.CompiledShaders, PipelineLayout))) << FormatShaderError(ErrorMessage.Error);
 		ASSERT_EQ(PipelineLayout.BindingLayouts.size(), 1u);
 		const auto& SetLayout = PipelineLayout.BindingLayouts[0].BindingLayouts;
 		ASSERT_EQ(SetLayout.size(), 1u);
@@ -481,7 +480,7 @@ namespace Durin
 
 			const FShaderCompilerOutput Output =
 				Compiler.Compile(ShaderPath.string(), Options);
-			ASSERT_TRUE(Output) << Name << ": " << Output.ErrorMessage;
+			ASSERT_TRUE(Output) << Name << ": " << FormatShaderError(Output.Error);
 			ASSERT_EQ(Output.CompiledShaders.size(), 2u) << Name;
 			const FCompiledShader& Fragment = Output.CompiledShaders[1];
 			EXPECT_EQ(Fragment.SourceEntryPoint, "GeometryFragmentMain")
@@ -512,7 +511,7 @@ namespace Durin
 		FSlangShaderCompiler Compiler;
 		const FShaderCompilerOutput Output =
 			Compiler.Compile(ShaderPath.string(), Options);
-		ASSERT_TRUE(Output) << Output.ErrorMessage;
+		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
 		ASSERT_EQ(Output.CompiledShaders.size(), 2u);
 		const FCompiledShader& Fragment = Output.CompiledShaders[1];
 		EXPECT_EQ(GetSpirvOutputLocations(Fragment), (std::set<uint32>{0}));
@@ -539,7 +538,7 @@ namespace Durin
 		FSlangShaderCompiler Compiler;
 		const FShaderCompilerOutput Output =
 			Compiler.Compile(ShaderPath.string(), Options);
-		ASSERT_TRUE(Output) << Output.ErrorMessage;
+		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
 		ASSERT_EQ(Output.CompiledShaders.size(), 2u);
 		const FCompiledShader& Fragment = Output.CompiledShaders[1];
 		EXPECT_EQ(GetSpirvOutputLocations(Fragment), (std::set<uint32>{0}));
@@ -566,7 +565,7 @@ namespace Durin
 		Options.Frequencies = {EShaderFrequency::Compute};
 		const FShaderCompilerOutput Output =
 			FSlangShaderCompiler().Compile(ShaderPath.string(), Options);
-		ASSERT_TRUE(Output) << Output.ErrorMessage;
+		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
 		ASSERT_EQ(Output.CompiledShaders.size(), 1u);
 		const FCompiledShader& Compute = Output.CompiledShaders[0];
 		ASSERT_EQ(Compute.Reflection.ResourceBindings.size(), 7u);
@@ -596,7 +595,7 @@ namespace Durin
 		FSlangShaderCompiler Compiler;
 		const FShaderCompilerOutput Output =
 			Compiler.Compile(ShaderPath.string(), Options);
-		ASSERT_TRUE(Output) << Output.ErrorMessage;
+		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
 		ASSERT_EQ(Output.CompiledShaders.size(), 2u);
 		const FCompiledShader& Fragment = Output.CompiledShaders[1];
 		EXPECT_EQ(GetSpirvOutputLocations(Fragment), (std::set<uint32>{0}));

@@ -399,16 +399,13 @@ float4 FragmentMain() : SV_Target
 							};
 							auto ShaderMap =
 								std::make_shared<FShaderMapBase>();
-							std::string ErrorMessage;
-							if (!ShaderMap->InitializeFromShaderTypes(
-									ShaderTypes,
-									CompileOptions,
-									ErrorMessage))
+							FShaderOperationResult ErrorMessage;
+							if (!(ErrorMessage = ShaderMap->InitializeFromShaderTypes(ShaderTypes, CompileOptions)))
 							{
 								return FResult::Failure(MakeReloadError(
 									ERenderResourceCreateErrorCategory::
 										ShaderCompile,
-									std::move(ErrorMessage)));
+									FormatShaderError(ErrorMessage.Error)));
 							}
 							auto* VertexShader =
 								static_cast<FReloadTestVertexShader*>(

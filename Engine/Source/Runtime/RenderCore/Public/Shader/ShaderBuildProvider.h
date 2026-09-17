@@ -28,7 +28,7 @@ namespace Durin
 	public:
 		static constexpr std::string_view FeatureName =
 			"RenderCore.ShaderBuildProvider";
-		static constexpr uint32 FeatureVersion = 4;
+		static constexpr uint32 FeatureVersion = 5;
 
 		virtual auto CompileMounted(
 			std::string_view VirtualShaderPath,
@@ -40,39 +40,33 @@ namespace Durin
 		virtual auto BuildSourceDependencyManifest(
 			std::string_view VirtualShaderPath,
 			const FShaderCompileOptions& Options,
-			std::vector<FShaderSourceDependencyFingerprint>& OutDependencies,
-			std::string& OutError) -> bool = 0;
+			std::vector<FShaderSourceDependencyFingerprint>& OutDependencies) -> FShaderOperationResult = 0;
 		virtual auto BuildSourceTreeFingerprint(
 			std::string_view VirtualShaderPath,
 			const FShaderCompileOptions& Options,
-			FShaderSourceDependencyFingerprint& OutFingerprint,
-			std::string& OutError) -> bool = 0;
+			FShaderSourceDependencyFingerprint& OutFingerprint) -> FShaderOperationResult = 0;
 		// Hashes stable mounted sources and compiler settings without retaining file bytes.
-		virtual auto GetCookInputIdentity(std::string& OutIdentity, std::string& OutError,
-			const std::function<bool()>& IsCancelled = {}) -> bool
+		virtual auto GetCookInputIdentity(std::string& OutIdentity, const std::function<bool()>& IsCancelled = {}) -> FShaderOperationResult
 		{
 			OutIdentity.clear();
-			OutError = "Shader provider does not declare Cook input identity.";
-			return false;
+			return {.Error = {.Code = EShaderError::CookInputIdentityUnsupported}};
 		}
 		virtual auto GetStats() const -> FShaderBuildStats = 0;
 		virtual auto BuildCookedLibrary(
 			EShaderTargetPlatform TargetPlatform,
 			EShaderTargetProfile TargetProfile,
 			FByteBuffer& OutBytes,
-			std::string& OutError,
 			std::shared_ptr<const FShaderSourceArtifacts> Artifacts = {},
-			const std::function<bool()>& IsCancelled = {}) -> bool = 0;
+			const std::function<bool()>& IsCancelled = {}) -> FShaderOperationResult = 0;
 	};
 
 	// Retains one provider invocation through Work; nested shader calls use that
 	// provider even if its registration retires. Nested capture visitors fail.
-	RENDERCORE_API auto WithShaderBuildProvider(
-		const std::function<bool(IShaderBuildProvider&)>& Work,
-		std::string& OutError) -> bool;
+	RENDERCORE_API auto WithShaderBuildProvider(const std::function<bool(IShaderBuildProvider&)>& Work) -> FShaderOperationResult;
 
-	RENDERCORE_API auto GetShaderCookInputIdentity(std::string& OutIdentity, std::string& OutError,
-		const std::function<bool()>& IsCancelled = {}) -> bool;
+	RENDERCORE_API auto GetShaderCookInputIdentity(
+		std::string& OutIdentity,
+		const std::function<bool()>& IsCancelled = {}) -> FShaderOperationResult;
 
 	RENDERCORE_API auto IsShaderBuildProviderAvailable() -> bool;
 	RENDERCORE_API auto GetShaderBuildStats() -> FShaderBuildStats;
@@ -80,5 +74,5 @@ namespace Durin
 		EShaderTargetPlatform TargetPlatform,
 		EShaderTargetProfile TargetProfile,
 		FByteBuffer& OutBytes,
-		std::string& OutError, const std::function<bool()>& IsCancelled = {}) -> bool;
+		const std::function<bool()>& IsCancelled = {}) -> FShaderOperationResult;
 }

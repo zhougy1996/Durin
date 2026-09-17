@@ -35,29 +35,26 @@ namespace Durin
 		auto BuildSourceDependencyManifest(
 			std::string_view VirtualShaderPath,
 			const FShaderCompileOptions& Options,
-			std::vector<FShaderSourceDependencyFingerprint>& OutDependencies,
-			std::string& OutError) -> bool override
+			std::vector<FShaderSourceDependencyFingerprint>& OutDependencies) -> FShaderOperationResult override
 		{
-			return BuildShaderSourceDependencyManifestFromService(
-				VirtualShaderPath, Options, OutDependencies, OutError);
+			return BuildShaderSourceDependencyManifestFromService(VirtualShaderPath, Options, OutDependencies);
 		}
 
 		auto BuildSourceTreeFingerprint(
 			std::string_view VirtualShaderPath,
 			const FShaderCompileOptions& Options,
-			FShaderSourceDependencyFingerprint& OutFingerprint,
-			std::string& OutError) -> bool override
+			FShaderSourceDependencyFingerprint& OutFingerprint) -> FShaderOperationResult override
 		{
-			return BuildShaderSourceTreeFingerprintFromService(
-				VirtualShaderPath, Options, OutFingerprint, OutError);
+			return BuildShaderSourceTreeFingerprintFromService(VirtualShaderPath, Options, OutFingerprint);
 		}
 
-		auto GetCookInputIdentity(std::string& OutIdentity,
-			std::string& OutError, const std::function<bool()>& IsCancelled) -> bool override
+		auto GetCookInputIdentity(std::string& OutIdentity, const std::function<bool()>& IsCancelled) -> FShaderOperationResult override
 		{
 			OutIdentity.clear();
 			const auto Mounts = FShaderPaths::GetRegisteredMountPoints();
-			if (Mounts.size() > 256) { OutError = "Shader mount limit exceeded."; return false; }
+			if (Mounts.size() > 256) { return {.Error = {.Code = EShaderError::CaptureMountLimit,
+				.Expected = 256,
+				.Actual = Mounts.size()}}; }
 			uint64 Entries = 0;
 			std::map<std::string, FXxHash128> Files;
 			std::vector<std::string> SearchRoots;
@@ -68,42 +65,54 @@ namespace Durin
 				const std::filesystem::path Root(Mount.SourceDir);
 				SearchRoots.push_back(Mount.VirtualRoot);
 				std::filesystem::recursive_directory_iterator It(Root, Error), End;
-				if (Error) { OutError = Error.message(); return false; }
+				if (Error) { return {.Error = {.Code = EShaderError::FileSystemFailure,
+					.ActualIdentity = Root.generic_string(),
+					.SystemError = Error}}; }
 				for (; It != End; It.increment(Error))
 				{
-					if (IsCancelled && IsCancelled()) { OutError = "Shader input capture cancelled."; return false; }
-					if (++Entries > 131072) { OutError = "Shader directory entry limit exceeded."; return false; }
-					if (Error) { OutError = Error.message(); return false; }
+					if (IsCancelled && IsCancelled()) { return {.Error = {.Code = EShaderError::Cancelled}}; }
+					if (++Entries > 131072) { return {.Error = {.Code = EShaderError::CaptureDirectoryLimit,
+						.Expected = 131072,
+						.Actual = Entries}}; }
+					if (Error) { return {.Error = {.Code = EShaderError::FileSystemFailure,
+						.ActualIdentity = Root.generic_string(),
+						.SystemError = Error}}; }
 					if (It->is_symlink(Error))
-					{ OutError = "Shader capture requires regular source files, not symbolic links."; return false; }
-					if (Error) { OutError = Error.message(); return false; }
+					{ return {.Error = {.Code = EShaderError::CaptureSymlink, .ActualIdentity = It->path().generic_string()}}; }
+					if (Error) { return {.Error = {.Code = EShaderError::FileSystemFailure,
+						.ActualIdentity = Root.generic_string(),
+						.SystemError = Error}}; }
 					if (!It->is_regular_file(Error))
 					{
-						if (Error) { OutError = Error.message(); return false; }
+						if (Error) { return {.Error = {.Code = EShaderError::FileSystemFailure,
+							.ActualIdentity = Root.generic_string(),
+							.SystemError = Error}}; }
 						continue;
 					}
 					const auto Name = (std::filesystem::path(Mount.VirtualRoot)
 						/ It->path().lexically_relative(Root)).lexically_normal().generic_string();
 					FFileHelper::FFileIoError ReadError;
 					auto File = FFileHelper::OpenRead(It->path(), &ReadError);
-					if (!File) { OutError = ReadError.ToString(); return false; }
+					if (!File) { return {.Error = {.Code = EShaderError::FileReadFailure, .FileError = ReadError}}; }
 					const auto Size = File->GetSize();
 					if (Files.size() >= 65536 || Name.size() > 4096
 						|| Size > 64ull * 1024 * 1024 || Size > 512ull * 1024 * 1024 - TotalBytes)
-					{ OutError = "Shader capture input limit exceeded."; return false; }
+					{ return {.Error = {.Code = EShaderError::CaptureInputLimit, .ActualIdentity = Name, .Actual = Size}}; }
 					FByteBuffer Bytes(static_cast<size_t>(Size));
 					constexpr size_t Chunk = 4 * 1024 * 1024;
 					for (size_t Offset = 0; Offset < Bytes.size(); Offset += Chunk)
 					{
-						if (IsCancelled && IsCancelled()) { OutError = "Shader input capture cancelled."; return false; }
+						if (IsCancelled && IsCancelled()) { return {.Error = {.Code = EShaderError::Cancelled}}; }
 						if (!File->ReadAt(Offset, std::span(Bytes).subspan(Offset, std::min(Chunk, Bytes.size() - Offset)), &ReadError))
-						{ OutError = ReadError.ToString(); return false; }
+						{ return {.Error = {.Code = EShaderError::FileReadFailure, .FileError = ReadError}}; }
 					}
 					TotalBytes += Size;
 					if (!Files.emplace(Name, FXxHash128::HashBuffer(Bytes)).second)
-					{ OutError = "Shader capture contains duplicate logical files."; return false; }
+					{ return {.Error = {.Code = EShaderError::CaptureDuplicateFile, .ActualIdentity = Name}}; }
 				}
-				if (Error) { OutError = Error.message(); return false; }
+				if (Error) { return {.Error = {.Code = EShaderError::FileSystemFailure,
+					.ActualIdentity = Root.generic_string(),
+					.SystemError = Error}}; }
 			}
 			FBinaryWriter Identity;
 			Identity.WriteString(GetCompilerEnvironmentIdentity());
@@ -116,7 +125,7 @@ namespace Durin
 			}
 			const auto Digest = FXxHash128::HashBuffer(Identity.GetBytes());
 			OutIdentity = std::format("{:016x}{:016x}", Digest.HashHigh, Digest.HashLow);
-			return true;
+			return {};
 		}
 
 		auto GetStats() const -> FShaderBuildStats override
@@ -128,11 +137,11 @@ namespace Durin
 			EShaderTargetPlatform TargetPlatform,
 			EShaderTargetProfile TargetProfile,
 			FByteBuffer& OutBytes,
-			std::string& OutError, std::shared_ptr<const FShaderSourceArtifacts> Artifacts,
-			const std::function<bool()>& IsCancelled) -> bool override
+			std::shared_ptr<const FShaderSourceArtifacts> Artifacts,
+			const std::function<bool()>& IsCancelled) -> FShaderOperationResult override
 		{
 			return ProduceCookedShaderLibrary(
-				TargetPlatform, TargetProfile, OutBytes, OutError, std::move(Artifacts), IsCancelled);
+				TargetPlatform, TargetProfile, OutBytes, std::move(Artifacts), IsCancelled);
 		}
 	};
 
@@ -146,10 +155,9 @@ namespace Durin
 		{
 			FShaderPaths::InitDefaultMountPoints();
 			InitShaderCompileService();
-			std::string Error;
-			requiref(InitializeShaderData(
-				FShaderDataConfiguration::Authored(), Error),
-				"Authored Shader data initialization failed: {}", Error);
+			FShaderOperationResult Error;
+			requiref((Error = InitializeShaderData(FShaderDataConfiguration::Authored())),
+				"Authored Shader data initialization failed: {}", FormatShaderError(Error.Error));
 		}
 	}
 

@@ -13,11 +13,9 @@ namespace Durin
 	auto BuildShaderSourceDependencyManifestFromProvider(
 		std::string_view VirtualShaderPath,
 		const FShaderCompileOptions& Options,
-		std::vector<FShaderSourceDependencyFingerprint>& OutDependencies,
-		std::string& OutError) -> bool;
+		std::vector<FShaderSourceDependencyFingerprint>& OutDependencies) -> FShaderOperationResult;
 	auto BuildShaderSourceTreeFingerprintFromProvider(
 		std::string_view VirtualShaderPath,
 		const FShaderCompileOptions& Options,
-		FShaderSourceDependencyFingerprint& OutFingerprint,
-		std::string& OutError) -> bool;
+		FShaderSourceDependencyFingerprint& OutFingerprint) -> FShaderOperationResult;
 }

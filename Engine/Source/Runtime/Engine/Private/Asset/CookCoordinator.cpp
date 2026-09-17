@@ -502,10 +502,10 @@ namespace Durin
 					if (ShouldFail && ShouldFail(ECookOperationStage::StageAuxiliary, 0, Error))
 						return Finish(ECookRunStatus::Failed, "auxiliary-injected-failure", Error);
 					FByteBuffer ShaderBytes;
-					if (!BuildCookedShaderLibrary(EShaderTargetPlatform::Win64, EShaderTargetProfile::Game, ShaderBytes, Error, Request.IsCancelled))
+					if (const auto ShaderResult = BuildCookedShaderLibrary(EShaderTargetPlatform::Win64, EShaderTargetProfile::Game, ShaderBytes, Request.IsCancelled); !ShaderResult)
 						return IsCancelled(Request.IsCancelled)
-							? Finish(ECookRunStatus::Cancelled, "cancelled", Error)
-							: Finish(ECookRunStatus::Failed, "shader-library-failed", Error);
+							? Finish(ECookRunStatus::Cancelled, "cancelled", FormatShaderError(ShaderResult.Error))
+							: Finish(ECookRunStatus::Failed, "shader-library-failed", FormatShaderError(ShaderResult.Error));
 					if (!RetainOutput(ShaderBytes.size(), 0)) return Finish(ECookRunStatus::Failed, "output-limit", OutResult.InputFailure.Message);
 					AuxiliaryOutputs.push_back({ECookManifestEntryKind::ShaderLibrary,
 						std::string(ShaderCookedLibraryRelativePath), std::move(ShaderBytes)});

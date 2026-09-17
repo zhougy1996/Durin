@@ -13,12 +13,16 @@ namespace Durin
 		FSlangShaderDependencyResolver();
 		~FSlangShaderDependencyResolver();
 
-		auto Resolve(std::string_view ShaderSourceFilePath, const FShaderCompileOptions& Options, std::vector<std::string>& OutDependencyPaths, std::string& OutDiagnostics) const -> bool;
-		auto ResolveSource(std::string_view ModuleName,
-			std::string_view SourcePathHint, std::string_view Source,
+		auto Resolve(
+			std::string_view ShaderSourceFilePath,
 			const FShaderCompileOptions& Options,
-			std::vector<std::string>& OutDependencyPaths,
-			std::string& OutDiagnostics) const -> bool;
+			std::vector<std::string>& OutDependencyPaths) const -> FShaderOperationResult;
+		auto ResolveSource(
+			std::string_view ModuleName,
+			std::string_view SourcePathHint,
+			std::string_view Source,
+			const FShaderCompileOptions& Options,
+			std::vector<std::string>& OutDependencyPaths) const -> FShaderOperationResult;
 
 	private:
 		mutable FSlangGlobalSessionPool GlobalSessions;

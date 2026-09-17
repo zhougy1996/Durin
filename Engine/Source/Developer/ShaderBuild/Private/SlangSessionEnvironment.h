@@ -19,16 +19,12 @@ namespace Durin
 
 		static auto NormalizeMacros(
 			const FShaderCompileOptions& Options,
-			std::vector<FShaderMacroDefinition>& OutMacros,
-			std::string& OutErrorMessage
-		) -> bool;
+			std::vector<FShaderMacroDefinition>& OutMacros) -> FShaderOperationResult;
 
 		static auto CreateSession(
 			slang::IGlobalSession& GlobalSession,
 			const FShaderCompileOptions& Options,
 			Slang::ComPtr<slang::ISession>& OutSession,
-			std::string& OutErrorMessage,
-			std::string_view SearchPath = {}
-		) -> bool;
+			std::string_view SearchPath = {}) -> FShaderOperationResult;
 	};
 } // namespace Durin

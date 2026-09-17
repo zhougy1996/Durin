@@ -22,14 +22,17 @@ namespace Durin
 	FSlangShaderDependencyResolver::FSlangShaderDependencyResolver() = default;
 	FSlangShaderDependencyResolver::~FSlangShaderDependencyResolver() = default;
 
-	auto FSlangShaderDependencyResolver::Resolve(std::string_view ShaderSourceFilePath, const FShaderCompileOptions& Options, std::vector<std::string>& OutDependencyPaths, std::string& OutDiagnostics) const -> bool
+	auto FSlangShaderDependencyResolver::Resolve(
+		std::string_view ShaderSourceFilePath,
+		const FShaderCompileOptions& Options,
+		std::vector<std::string>& OutDependencyPaths) const -> FShaderOperationResult
 	{
+		FShaderOperationResult ErrorResult;
 		auto GlobalSession = GlobalSessions.Acquire();
 		Slang::ComPtr<slang::ISession> Session;
-		if (!FSlangSessionEnvironment::CreateSession(
-			*GlobalSession, Options, Session, OutDiagnostics))
+		if (!(ErrorResult = FSlangSessionEnvironment::CreateSession(*GlobalSession, Options, Session)))
 		{
-			return false;
+			return ErrorResult;
 		}
 
 		const std::string SourceFilePath(ShaderSourceFilePath);
@@ -37,11 +40,8 @@ namespace Durin
 		slang::IModule* Module = Session->loadModule(SourceFilePath.data(), DiagnosticsBlob.writeRef());
 		if (!Module)
 		{
-			if (DiagnosticsBlob)
-			{
-				OutDiagnostics = static_cast<const char*>(DiagnosticsBlob->getBufferPointer());
-			}
-			return false;
+			return {.Error = FShaderError::FromSlang(ESlangShaderError::Dependencies,
+				DiagnosticsBlob ? static_cast<const char*>(DiagnosticsBlob->getBufferPointer()) : "")};
 		}
 
 		OutDependencyPaths.clear();
@@ -60,21 +60,21 @@ namespace Durin
 		std::ranges::sort(OutDependencyPaths);
 		const auto UniqueEnd = std::ranges::unique(OutDependencyPaths).begin();
 		OutDependencyPaths.erase(UniqueEnd, OutDependencyPaths.end());
-		return true;
+		return {};
 	}
 
 	auto FSlangShaderDependencyResolver::ResolveSource(
-		std::string_view ModuleName, std::string_view SourcePathHint,
-		std::string_view Source, const FShaderCompileOptions& Options,
-		std::vector<std::string>& OutDependencyPaths,
-		std::string& OutDiagnostics) const -> bool
+		std::string_view ModuleName,
+		std::string_view SourcePathHint,
+		std::string_view Source,
+		const FShaderCompileOptions& Options,
+		std::vector<std::string>& OutDependencyPaths) const -> FShaderOperationResult
 	{
+		FShaderOperationResult ErrorResult;
 		auto GlobalSession = GlobalSessions.Acquire();
 		Slang::ComPtr<slang::ISession> Session;
-		if (!FSlangSessionEnvironment::CreateSession(
-			*GlobalSession, Options, Session, OutDiagnostics,
-			std::filesystem::path(SourcePathHint).parent_path().generic_string()))
-			return false;
+		if (!(ErrorResult = FSlangSessionEnvironment::CreateSession(*GlobalSession, Options, Session, std::filesystem::path(SourcePathHint).parent_path().generic_string())))
+			return ErrorResult;
 		const std::string Name(ModuleName);
 		const std::string Path(SourcePathHint);
 		const std::string Text(Source);
@@ -83,10 +83,7 @@ namespace Durin
 			Name.c_str(), Path.c_str(), Text.c_str(), Diagnostics.writeRef());
 		if (!Module)
 		{
-			OutDiagnostics = Diagnostics
-				? static_cast<const char*>(Diagnostics->getBufferPointer())
-				: "Failed to resolve generated shader module";
-			return false;
+			return {.Error = FShaderError::FromSlang(ESlangShaderError::Dependencies, Diagnostics ? static_cast<const char*>(Diagnostics->getBufferPointer()) : "")};
 		}
 		OutDependencyPaths.clear();
 		const std::string NormalizedSourcePath = NormalizePath(Path, Options.SourceArtifacts != nullptr);
@@ -105,7 +102,7 @@ namespace Durin
 		OutDependencyPaths.erase(
 			std::ranges::unique(OutDependencyPaths).begin(),
 			OutDependencyPaths.end());
-		return true;
+		return {};
 	}
 
 } // namespace Durin

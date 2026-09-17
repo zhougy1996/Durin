@@ -243,8 +243,8 @@ namespace Durin::AssetPrivate
 	auto FCookDependencyDiscovery::Acquire(std::span<const FPackagePath> Roots,
 		const FAssetReferenceStoreCapture& ExternalRoots) -> FAssetResult
 	{
-		std::string ShaderError;
-		(void)GetShaderCookInputIdentity(ShaderBuildIdentity, ShaderError, Request.IsCancelled);
+		FShaderOperationResult ShaderError;
+		(void)(ShaderError = GetShaderCookInputIdentity(ShaderBuildIdentity, Request.IsCancelled));
 		if (Roots.size() > MaximumCookDependencyRecords)
 			return Fail(EAssetError::CorruptFile, "Cook root limit exceeded.", ECookInputStatus::LimitExceeded);
 		std::vector<FPackagePath> Pending(Roots.begin(), Roots.end());

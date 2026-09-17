@@ -33,14 +33,13 @@ namespace Durin
 				std::forward<TVisitor>(Visitor));
 		}
 
-		auto UnavailableOutput(std::string_view Operation)
-			-> FShaderCompilerOutput
+		auto ProviderFailure(EFeatureInvokeStatus Status, uint32 MatchingCount) -> FShaderError
 		{
-			FShaderCompilerOutput Output;
-			Output.ErrorMessage = std::format(
-				"ShaderBuild provider is unavailable for {}.", Operation);
-			return Output;
+			return {.Code = Status == EFeatureInvokeStatus::Unavailable
+				? EShaderError::ProviderUnavailable : EShaderError::ProviderInvocationFailed,
+				.Actual = MatchingCount, .ProviderStatus = Status};
 		}
+
 	}
 
 	auto FShaderDataConfiguration::Authored() -> FShaderDataConfiguration
@@ -57,16 +56,13 @@ namespace Durin
 			std::move(InCookRoot)};
 	}
 
-	auto InitializeShaderData(
-		FShaderDataConfiguration Configuration,
-		std::string& OutError) -> bool
+	auto InitializeShaderData(FShaderDataConfiguration Configuration) -> FShaderOperationResult
 	{
 		if (Configuration.Domain == EShaderDataDomain::Authored)
 		{
 			if (!IsShaderBuildProviderAvailable())
 			{
-				OutError = "Authored Shader data requires a ShaderBuild provider.";
-				return false;
+				return {.Error = {.Code = EShaderError::ProviderRequired}};
 			}
 			Configuration.TargetPlatform = EShaderTargetPlatform::Win64;
 			Configuration.TargetProfile = EShaderTargetProfile::EditorValidation;
@@ -74,8 +70,7 @@ namespace Durin
 		}
 		else if (IsShaderBuildProviderAvailable())
 		{
-			OutError = "Cooked Shader data forbids a ShaderBuild provider.";
-			return false;
+			return {.Error = {.Code = EShaderError::ProviderForbidden}};
 		}
 		else if (Configuration.TargetPlatform != EShaderTargetPlatform::Win64
 			|| Configuration.TargetProfile != EShaderTargetProfile::Game
@@ -83,19 +78,17 @@ namespace Durin
 			|| !Configuration.CookRoot.is_absolute()
 			|| Configuration.CookRoot.lexically_normal() != Configuration.CookRoot)
 		{
-			OutError = "Cooked Shader data configuration is invalid.";
-			return false;
+			return {.Error = {.Code = EShaderError::DataConfigurationInvalid}};
 		}
 		FShaderDataState& State = ShaderDataState();
 		std::lock_guard Lock(State.Mutex);
 		if (State.Configuration)
 		{
-			OutError = "Shader data domain is already initialized.";
-			return false;
+			return {.Error = {.Code = EShaderError::DataAlreadyInitialized}};
 		}
 		State.Configuration = std::move(Configuration);
-		OutError.clear();
-		return true;
+
+		return {};
 	}
 
 	auto ShutdownShaderData() -> void
@@ -119,30 +112,23 @@ namespace Durin
 	auto LoadCookedShaderRuntimeRequest(
 		std::string_view RequestName,
 		std::span<const FShaderType* const> ShaderTypes,
-		FShaderCompilerOutput& OutOutput,
-		std::string& OutError) -> bool
+		FShaderCompilerOutput& OutOutput) -> FShaderOperationResult
 	{
+		FShaderOperationResult ErrorResult;
 		OutOutput = {};
 		FShaderDataState& State = ShaderDataState();
 		std::lock_guard Lock(State.Mutex);
 		if (!State.Configuration
 			|| State.Configuration->Domain != EShaderDataDomain::Cooked)
 		{
-			OutError = "Cooked Shader data was requested outside the Cooked domain.";
-			return false;
+			return {.Error = {.Code = EShaderError::CookedDomainRequired}};
 		}
 		if (!State.Library.IsOpen())
 		{
-			if (!FreezeShaderRuntimeInventory(
-					State.Configuration->TargetPlatform,
-					State.Configuration->TargetProfile,
-					State.Requests, OutError)) return false;
+			if (!(ErrorResult = FreezeShaderRuntimeInventory(State.Configuration->TargetPlatform, State.Configuration->TargetProfile, State.Requests))) return ErrorResult;
 			const std::filesystem::path LibraryPath = State.Configuration->CookRoot
 				/ ShaderCookedLibraryRelativePath;
-			if (!FShaderCookedLibrary::Open(
-					LibraryPath, State.Configuration->TargetPlatform,
-					State.Configuration->TargetProfile, State.Requests,
-					State.Library, OutError)) return false;
+			if (!(ErrorResult = FShaderCookedLibrary::Open(LibraryPath, State.Configuration->TargetPlatform, State.Configuration->TargetProfile, State.Requests, State.Library))) return ErrorResult;
 		}
 		const auto Found = std::ranges::find_if(State.Requests,
 			[RequestName](const FShaderRuntimeRequest& Request) {
@@ -150,23 +136,21 @@ namespace Durin
 			});
 		if (Found == State.Requests.end())
 		{
-			OutError = std::format(
-				"Cooked Shader request '{}' is not registered.", RequestName);
-			return false;
+			return {.Error = {.Code = EShaderError::RequestUnregistered, .ActualIdentity = std::string(RequestName)}};
 		}
 		if (Found->Members.size() != ShaderTypes.size())
 		{
-			OutError = "Cooked Shader request type count does not match registration.";
-			return false;
+			return {.Error = {.Code = EShaderError::RequestTypeCountMismatch,
+				.Expected = Found->Members.size(),
+				.Actual = ShaderTypes.size()}};
 		}
 		for (size_t Index = 0; Index < ShaderTypes.size(); ++Index)
 			if (!ShaderTypes[Index]
 				|| Found->Members[Index].TypeName != ShaderTypes[Index]->GetName())
 			{
-				OutError = "Cooked Shader request types do not match registration.";
-				return false;
+				return {.Error = {.Code = EShaderError::RequestTypesMismatch, .Index = Index}};
 			}
-		return State.Library.Load(*Found, OutOutput, OutError);
+		return State.Library.Load(*Found, OutOutput);
 	}
 
 	auto GetOrCompileShader(
@@ -179,7 +163,7 @@ namespace Durin
 				return Provider.CompileMounted(VirtualShaderPath, EffectiveOptions);
 			});
 		return Result.WasInvoked() && Result.Value
-			? std::move(*Result.Value) : UnavailableOutput("mounted compilation");
+			? std::move(*Result.Value) : FShaderCompilerOutput{.Error = ProviderFailure(Result.Status, Result.MatchingRegistrationCount)};
 	}
 
 	auto GetOrCompileGeneratedShader(
@@ -191,7 +175,7 @@ namespace Durin
 				return Provider.CompileGenerated(EffectiveRequest);
 			});
 		return Result.WasInvoked() && Result.Value
-			? std::move(*Result.Value) : UnavailableOutput("generated compilation");
+			? std::move(*Result.Value) : FShaderCompilerOutput{.Error = ProviderFailure(Result.Status, Result.MatchingRegistrationCount)};
 	}
 
 	auto GetShaderCompilerEnvironmentIdentityFromProvider() -> std::string
@@ -207,35 +191,29 @@ namespace Durin
 	auto BuildShaderSourceDependencyManifestFromProvider(
 		std::string_view VirtualShaderPath,
 		const FShaderCompileOptions& Options,
-		std::vector<FShaderSourceDependencyFingerprint>& OutDependencies,
-		std::string& OutError) -> bool
+		std::vector<FShaderSourceDependencyFingerprint>& OutDependencies) -> FShaderOperationResult
 	{
-		auto Result = InvokeProvider<bool>([&](IShaderBuildProvider& Provider) {
+		auto Result = InvokeProvider<FShaderOperationResult>([&](IShaderBuildProvider& Provider) {
 			auto EffectiveOptions = Options;
-			return Provider.BuildSourceDependencyManifest(
-				VirtualShaderPath, EffectiveOptions, OutDependencies, OutError);
+			return Provider.BuildSourceDependencyManifest(VirtualShaderPath, EffectiveOptions, OutDependencies);
 		});
 		if (Result.WasInvoked() && Result.Value) return *Result.Value;
 		OutDependencies.clear();
-		OutError = "ShaderBuild provider is unavailable for dependency inspection.";
-		return false;
+		return {.Error = ProviderFailure(Result.Status, Result.MatchingRegistrationCount)};
 	}
 
 	auto BuildShaderSourceTreeFingerprintFromProvider(
 		std::string_view VirtualShaderPath,
 		const FShaderCompileOptions& Options,
-		FShaderSourceDependencyFingerprint& OutFingerprint,
-		std::string& OutError) -> bool
+		FShaderSourceDependencyFingerprint& OutFingerprint) -> FShaderOperationResult
 	{
-		auto Result = InvokeProvider<bool>([&](IShaderBuildProvider& Provider) {
+		auto Result = InvokeProvider<FShaderOperationResult>([&](IShaderBuildProvider& Provider) {
 			auto EffectiveOptions = Options;
-			return Provider.BuildSourceTreeFingerprint(
-				VirtualShaderPath, EffectiveOptions, OutFingerprint, OutError);
+			return Provider.BuildSourceTreeFingerprint(VirtualShaderPath, EffectiveOptions, OutFingerprint);
 		});
 		if (Result.WasInvoked() && Result.Value) return *Result.Value;
 		OutFingerprint = {};
-		OutError = "ShaderBuild provider is unavailable for source fingerprinting.";
-		return false;
+		return {.Error = ProviderFailure(Result.Status, Result.MatchingRegistrationCount)};
 	}
 
 	auto IsShaderBuildProviderAvailable() -> bool
@@ -253,14 +231,11 @@ namespace Durin
 			? *Result.Value : FShaderBuildStats{};
 	}
 
-	auto WithShaderBuildProvider(
-		const std::function<bool(IShaderBuildProvider&)>& Work,
-		std::string& OutError) -> bool
+	auto WithShaderBuildProvider(const std::function<bool(IShaderBuildProvider&)>& Work) -> FShaderOperationResult
 	{
 		if (!Work || CapturedProvider)
 		{
-			OutError = "Invalid or nested ShaderBuild capture visitor.";
-			return false;
+			return {.Error = {.Code = EShaderError::InvalidProviderCapture}};
 		}
 		auto Result = FModularFeatureRegistry::Get().InvokeSingle<IShaderBuildProvider>(
 			[&](IShaderBuildProvider& Provider) {
@@ -271,33 +246,32 @@ namespace Durin
 				CapturedProvider = &Provider;
 				return Work(Provider);
 			});
-		if (Result.WasInvoked() && Result.Value) return *Result.Value;
-		OutError = "ShaderBuild capture provider is unavailable or its visitor failed.";
-		return false;
+		if (Result.WasInvoked() && Result.Value)
+			return *Result.Value ? FShaderOperationResult{} : FShaderOperationResult{.Error = {.Code = EShaderError::ProviderWorkFailed}};
+		return {.Error = ProviderFailure(Result.Status, Result.MatchingRegistrationCount)};
 	}
 
-	auto GetShaderCookInputIdentity(std::string& OutIdentity, std::string& OutError,
-		const std::function<bool()>& IsCancelled) -> bool
+	auto GetShaderCookInputIdentity(std::string& OutIdentity, const std::function<bool()>& IsCancelled) -> FShaderOperationResult
 	{
-		auto Result = InvokeProvider<bool>([&](IShaderBuildProvider& Provider) {
-			return Provider.GetCookInputIdentity(OutIdentity, OutError, IsCancelled);
+		auto Result = InvokeProvider<FShaderOperationResult>([&](IShaderBuildProvider& Provider) {
+			return Provider.GetCookInputIdentity(OutIdentity, IsCancelled);
 		});
-		return Result.WasInvoked() && Result.Value && *Result.Value;
+		if (Result.WasInvoked() && Result.Value) return *Result.Value;
+		return {.Error = ProviderFailure(Result.Status, Result.MatchingRegistrationCount)};
 	}
 
 	auto BuildCookedShaderLibrary(
 		EShaderTargetPlatform TargetPlatform,
 		EShaderTargetProfile TargetProfile,
 		FByteBuffer& OutBytes,
-		std::string& OutError, const std::function<bool()>& IsCancelled) -> bool
+		const std::function<bool()>& IsCancelled) -> FShaderOperationResult
 	{
-		auto Result = InvokeProvider<bool>([&](IShaderBuildProvider& Provider) {
+		auto Result = InvokeProvider<FShaderOperationResult>([&](IShaderBuildProvider& Provider) {
 			return Provider.BuildCookedLibrary(
-				TargetPlatform, TargetProfile, OutBytes, OutError, {}, IsCancelled);
+				TargetPlatform, TargetProfile, OutBytes, {}, IsCancelled);
 		});
 		if (Result.WasInvoked() && Result.Value) return *Result.Value;
 		OutBytes.clear();
-		OutError = "ShaderBuild provider is unavailable for Cook production.";
-		return false;
+		return {.Error = ProviderFailure(Result.Status, Result.MatchingRegistrationCount)};
 	}
 }

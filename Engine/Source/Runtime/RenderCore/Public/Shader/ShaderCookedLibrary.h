@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Shader/ShaderDiagnostics.h"
+
 #include "RenderCoreAPI.h"
 #include "Shader/ShaderCompilerCore.h"
 
@@ -66,8 +68,8 @@ namespace Durin
 	RENDERCORE_API auto RegisterShaderRuntimeRequest(
 		FShaderRuntimeRequest Request,
 		EShaderRequestEligibility Eligibility,
-		std::span<const FShaderType* const> BuildTypes = {},
-		std::string* OutError = nullptr) -> FShaderRequestRegistration;
+		FShaderRequestRegistration& OutRegistration,
+		std::span<const FShaderType* const> BuildTypes = {}) -> FShaderOperationResult;
 
 	// Owns registration of one target-filtered request contribution.
 	class FShaderRequestRegistration final
@@ -83,31 +85,28 @@ namespace Durin
 		RENDERCORE_API auto operator=(FShaderRequestRegistration&& Other) noexcept
 			-> FShaderRequestRegistration&;
 		[[nodiscard]] auto IsValid() const -> bool { return Handle != 0; }
-		RENDERCORE_API auto Reset(std::string* OutError = nullptr) -> bool;
+		RENDERCORE_API auto Reset() -> FShaderOperationResult;
 
 	private:
 		explicit FShaderRequestRegistration(uint64 InHandle) : Handle(InHandle) {}
 		uint64 Handle = 0;
 		friend RENDERCORE_API auto RegisterShaderRuntimeRequest(
 			FShaderRuntimeRequest, EShaderRequestEligibility,
-			std::span<const FShaderType* const>, std::string*)
-			-> FShaderRequestRegistration;
+			FShaderRequestRegistration&, std::span<const FShaderType* const>)
+			-> FShaderOperationResult;
 	};
 
 	RENDERCORE_API auto FreezeShaderRuntimeInventory(
 		EShaderTargetPlatform TargetPlatform,
 		EShaderTargetProfile TargetProfile,
-		std::vector<FShaderRuntimeRequest>& OutRequests,
-		std::string& OutError) -> bool;
+		std::vector<FShaderRuntimeRequest>& OutRequests) -> FShaderOperationResult;
 	RENDERCORE_API auto ResetShaderRuntimeInventoryForTesting() -> void;
 	RENDERCORE_API auto BuildShaderRuntimeRequestIdentity(
 		const FShaderRuntimeRequest& Request,
-		FXxHash128& OutIdentity,
-		std::string& OutError) -> bool;
+		FXxHash128& OutIdentity) -> FShaderOperationResult;
 	RENDERCORE_API auto GetShaderRuntimeRequestBuildTypes(
 		const FShaderRuntimeRequest& Request,
-		std::vector<const FShaderType*>& OutTypes,
-		std::string& OutError) -> bool;
+		std::vector<const FShaderType*>& OutTypes) -> FShaderOperationResult;
 
 	// Registers one finite feature-owned Shader program and its build types.
 	class FShaderProgramRegistration final
@@ -139,8 +138,7 @@ namespace Durin
 		EShaderTargetPlatform TargetPlatform,
 		EShaderTargetProfile TargetProfile,
 		std::span<const FShaderCookedLibraryRecord> Records,
-		FByteBuffer& OutBytes,
-		std::string& OutError) -> bool;
+		FByteBuffer& OutBytes) -> FShaderOperationResult;
 
 	// Owns preflight-qualified library bytes and returns value-owned decoded data.
 	class FShaderCookedLibrary final
@@ -152,19 +150,14 @@ namespace Durin
 			EShaderTargetPlatform TargetPlatform,
 			EShaderTargetProfile TargetProfile,
 			std::span<const FShaderRuntimeRequest> RequiredRequests,
-			FShaderCookedLibrary& OutLibrary,
-			std::string& OutError) -> bool;
+			FShaderCookedLibrary& OutLibrary) -> FShaderOperationResult;
 		RENDERCORE_API static auto OpenBytes(
 			std::shared_ptr<const FByteBuffer> Bytes,
 			EShaderTargetPlatform TargetPlatform,
 			EShaderTargetProfile TargetProfile,
 			std::span<const FShaderRuntimeRequest> RequiredRequests,
-			FShaderCookedLibrary& OutLibrary,
-			std::string& OutError) -> bool;
-		RENDERCORE_API auto Load(
-			const FShaderRuntimeRequest& Request,
-			FShaderCompilerOutput& OutOutput,
-			std::string& OutError) const -> bool;
+			FShaderCookedLibrary& OutLibrary) -> FShaderOperationResult;
+		RENDERCORE_API auto Load(const FShaderRuntimeRequest& Request, FShaderCompilerOutput& OutOutput) const -> FShaderOperationResult;
 		[[nodiscard]] auto IsOpen() const -> bool { return State != nullptr; }
 		RENDERCORE_API auto GetRecordCount() const -> uint32;
 		RENDERCORE_API auto GetGenerationIdentity() const -> FXxHash128;

@@ -9166,17 +9166,16 @@ namespace
 		auto CompileGenerated(const Durin::FGeneratedShaderCompileRequest&) -> Durin::FShaderCompilerOutput override { return {}; }
 		auto GetCompilerEnvironmentIdentity() -> std::string override { return "cook-fixture-compiler-v1"; }
 		auto BuildSourceDependencyManifest(std::string_view, const Durin::FShaderCompileOptions&,
-			std::vector<Durin::FShaderSourceDependencyFingerprint>&, std::string&) -> bool override { return false; }
+			std::vector<Durin::FShaderSourceDependencyFingerprint>&) -> Durin::FShaderOperationResult override { return {.Error = {.Code = Durin::EShaderError::ProviderUnavailable}}; }
 		auto BuildSourceTreeFingerprint(std::string_view, const Durin::FShaderCompileOptions&,
-			Durin::FShaderSourceDependencyFingerprint&, std::string&) -> bool override { return false; }
+			Durin::FShaderSourceDependencyFingerprint&) -> Durin::FShaderOperationResult override { return {.Error = {.Code = Durin::EShaderError::ProviderUnavailable}}; }
 		auto GetStats() const -> Durin::FShaderBuildStats override { return {}; }
-		auto BuildCookedLibrary(Durin::EShaderTargetPlatform, Durin::EShaderTargetProfile,
-			Durin::FByteBuffer& Out, std::string&, std::shared_ptr<const Durin::FShaderSourceArtifacts> Sources, const std::function<bool()>&) -> bool override
+		auto BuildCookedLibrary(Durin::EShaderTargetPlatform, Durin::EShaderTargetProfile, Durin::FByteBuffer& Out, std::shared_ptr<const Durin::FShaderSourceArtifacts> Sources, const std::function<bool()>&) -> Durin::FShaderOperationResult override
 		{
 			EXPECT_EQ(Sources, nullptr);
 			++Libraries;
 			Out = {std::byte{1}, std::byte{2}, std::byte{3}};
-			return true;
+			return {};
 		}
 	};
 }

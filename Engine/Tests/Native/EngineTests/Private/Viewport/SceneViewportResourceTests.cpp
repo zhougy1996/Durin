@@ -46,7 +46,7 @@ namespace Durin
 				bCreatedOnRenderThread &= IsInRenderingThread();
 				// Exercise the same immediate-list lock guard as Vulkan creation.
 				const auto Result = GCommandListExecutor.ExecuteFallibleSynchronousOperation(false, [] {});
-				return Result.bSucceeded && !bFailCreation ? FTextureRHIRef(new FViewportTestTexture(Desc)) : FTextureRHIRef{};
+			return Result.IsSuccess() && !bFailCreation ? FTextureRHIRef(new FViewportTestTexture(Desc)) : FTextureRHIRef{};
 			}
 			auto RHICreateSampler(const FRHISamplerDesc&) -> FSamplerRHIRef override { return {}; }
 			auto RHICreateShader(const FRHIShaderCreateDesc&) -> FShaderRHIRef override { return {}; }

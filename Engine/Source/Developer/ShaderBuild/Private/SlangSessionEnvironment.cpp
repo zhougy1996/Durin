@@ -110,9 +110,7 @@ namespace Durin
 
 	auto FSlangSessionEnvironment::NormalizeMacros(
 		const FShaderCompileOptions& Options,
-		std::vector<FShaderMacroDefinition>& OutMacros,
-		std::string& OutErrorMessage
-	) -> bool
+		std::vector<FShaderMacroDefinition>& OutMacros) -> FShaderOperationResult
 	{
 		OutMacros = Options.Macros;
 		std::ranges::sort(OutMacros, [](const FShaderMacroDefinition& A, const FShaderMacroDefinition& B) {
@@ -131,30 +129,27 @@ namespace Durin
 		{
 			if (OutMacros[Index - 1].Name == OutMacros[Index].Name)
 			{
-				OutErrorMessage = std::format("Duplicate shader macro definition is not allowed: {}", OutMacros[Index].Name);
-				return false;
+				return {.Error = {.Code = EShaderError::DuplicateMacro, .Parameter = OutMacros[Index].Name}};
 			}
 		}
 
-		return true;
+		return {};
 	}
 
 	auto FSlangSessionEnvironment::CreateSession(
 		slang::IGlobalSession& GlobalSession,
 		const FShaderCompileOptions& Options,
 		Slang::ComPtr<slang::ISession>& OutSession,
-		std::string& OutErrorMessage,
-		std::string_view SearchPath
-	) -> bool
+		std::string_view SearchPath) -> FShaderOperationResult
 	{
+		FShaderOperationResult ErrorResult;
 		if (Options.SourceArtifacts)
 		{
 			const auto& Files = Options.SourceArtifacts->GetFiles();
 			uint64 TotalBytes = 0;
 			if (Files.size() > 65536)
 			{
-				OutErrorMessage = "Captured shader file count exceeds the limit.";
-				return false;
+				return {.Error = {.Code = EShaderError::CaptureFileLimit}};
 			}
 			for (const auto& [Path, Bytes] : Files)
 			{
@@ -163,15 +158,14 @@ namespace Durin
 					|| Bytes.size() > 64ull * 1024 * 1024
 					|| (TotalBytes += Bytes.size()) > 512ull * 1024 * 1024)
 				{
-					OutErrorMessage = "Captured shader paths or bytes exceed canonical input limits.";
-					return false;
+					return {.Error = {.Code = EShaderError::CaptureInputInvalid}};
 				}
 			}
 		}
 		std::vector<FShaderMacroDefinition> NormalizedMacros;
-		if (!NormalizeMacros(Options, NormalizedMacros, OutErrorMessage))
+		if (!(ErrorResult = NormalizeMacros(Options, NormalizedMacros)))
 		{
-			return false;
+			return ErrorResult;
 		}
 
 		std::vector<slang::PreprocessorMacroDesc> SlangMacros;
@@ -204,11 +198,11 @@ namespace Durin
 		{
 			const auto& Roots = Options.SourceArtifacts->GetSearchRoots();
 			if (Roots.size() > 256)
-			{ OutErrorMessage = "Captured shader search root limit exceeded."; return false; }
+			{ return {.Error = {.Code = EShaderError::CaptureSearchRootLimit}}; }
 			for (const auto& Root : Roots)
 			{
 				if (Root.empty() || Root.size() > 4096 || Root.find('\0') != std::string::npos)
-				{ OutErrorMessage = "Invalid captured shader search root."; return false; }
+				{ return {.Error = {.Code = EShaderError::CaptureSearchRootInvalid, .ActualIdentity = Root}}; }
 				SearchPaths.push_back(Root);
 			}
 		}
@@ -217,12 +211,12 @@ namespace Durin
 		SessionDesc.searchPaths = SearchPathPointers.data();
 		SessionDesc.searchPathCount = SearchPathPointers.size();
 
-		if (SLANG_FAILED(GlobalSession.createSession(SessionDesc, OutSession.writeRef())))
+		const auto SessionResult = GlobalSession.createSession(SessionDesc, OutSession.writeRef());
+		if (SLANG_FAILED(SessionResult))
 		{
-			OutErrorMessage = "createSession failed";
-			return false;
+			return {.Error = FShaderError::FromSlang(ESlangShaderError::Session, {}, SessionResult)};
 		}
 
-		return true;
+		return {};
 	}
 } // namespace Durin

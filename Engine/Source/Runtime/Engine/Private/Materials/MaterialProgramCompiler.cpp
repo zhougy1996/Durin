@@ -146,12 +146,10 @@ namespace Durin
 		Options.Macros.emplace_back(
 			"DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS", "1056964608");
 		FShaderSourceDependencyFingerprint SourceTree;
-		std::string ProviderError;
-		if (!BuildShaderSourceTreeFingerprint(
-			"/Engine/MaterialCompilerEnvironment", Options, SourceTree,
-			ProviderError))
+		FShaderOperationResult ProviderError;
+		if (!(ProviderError = BuildShaderSourceTreeFingerprint("/Engine/MaterialCompilerEnvironment", Options, SourceTree)))
 		{
-			return {FMaterialError::FromExternal(EMaterialCompileError::ShaderEnvironmentUnavailable, std::move(ProviderError))};
+			return {FMaterialError::FromExternal(EMaterialCompileError::ShaderEnvironmentUnavailable, FormatShaderError(ProviderError.Error))};
 		}
 
 		FMaterialCompilerEnvironment Environment;

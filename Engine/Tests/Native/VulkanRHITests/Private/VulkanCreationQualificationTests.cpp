@@ -48,7 +48,7 @@ namespace Durin::VulkanRHI
 		FSlangShaderCompiler Compiler;
 		const auto Compiled = Compiler.Compile((std::filesystem::path(DURIN_TEST_DATA_DIR)
 			/ "CreationQualification.slang").string(), Options);
-		ASSERT_TRUE(Compiled) << Compiled.ErrorMessage;
+		ASSERT_TRUE(Compiled) << FormatShaderError(Compiled.Error);
 		ASSERT_EQ(Compiled.CompiledShaders.size(), 3u);
 		const auto Output = Testing::CreateTestFixtureDirectory("CreationTiming");
 		for (size_t Index = 0; Index < Compiled.CompiledShaders.size(); ++Index)
@@ -213,7 +213,7 @@ namespace Durin::VulkanRHI
 		FSlangShaderCompiler Compiler;
 		const auto Compiled = Compiler.Compile((std::filesystem::path(DURIN_TEST_DATA_DIR)
 			/ "CreationQualification.slang").string(), Options);
-		ASSERT_TRUE(Compiled) << Compiled.ErrorMessage;
+		ASSERT_TRUE(Compiled) << FormatShaderError(Compiled.Error);
 		const auto Output = Testing::CreateTestFixtureDirectory("ResourceCreationTiming");
 		const auto CachePath = Output / "PipelineCache-v1.bin";
 		SetVulkanPipelineCachePathForTest(CachePath);
@@ -355,7 +355,7 @@ namespace Durin::VulkanRHI
 		Options.Frequencies = {EShaderFrequency::Vertex, EShaderFrequency::Fragment, EShaderFrequency::Compute};
 		FSlangShaderCompiler Compiler;
 		const auto Compiled = Compiler.Compile((std::filesystem::path(DURIN_TEST_DATA_DIR) / "CreationQualification.slang").string(), Options);
-		ASSERT_TRUE(Compiled) << Compiled.ErrorMessage;
+		ASSERT_TRUE(Compiled) << FormatShaderError(Compiled.Error);
 		const auto Output = Testing::CreateTestFixtureDirectory("AsyncCreationTiming");
 		std::ofstream Native(Output / "native.csv"), Observers(Output / "observers.csv"), Rounds(Output / "rounds.csv"), Hardware(Output / "device.txt");
 		Native << "round,scenario," << CreationRequestColumns << '\n';

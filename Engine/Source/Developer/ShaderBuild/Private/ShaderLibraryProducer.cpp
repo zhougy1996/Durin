@@ -7,12 +7,6 @@ namespace Durin
 {
 	namespace
 	{
-		auto Fail(std::string& OutError, std::string Message) -> bool
-		{
-			OutError = std::move(Message);
-			return false;
-		}
-
 		auto MakeCompileOptions(
 			std::span<const FShaderType* const> Types,
 			FShaderCompileOptions& OutOptions) -> bool
@@ -36,39 +30,37 @@ namespace Durin
 		EShaderTargetPlatform TargetPlatform,
 		EShaderTargetProfile TargetProfile,
 		FByteBuffer& OutBytes,
-		std::string& OutError,
 		std::shared_ptr<const FShaderSourceArtifacts> Artifacts,
-		const std::function<bool()>& IsCancelled) -> bool
+		const std::function<bool()>& IsCancelled) -> FShaderOperationResult
 	{
+		FShaderOperationResult ErrorResult;
 		OutBytes.clear();
 		std::vector<FShaderRuntimeRequest> Inventory;
-		if (!FreezeShaderRuntimeInventory(
-			TargetPlatform, TargetProfile, Inventory, OutError)) return false;
+		if (!(ErrorResult = FreezeShaderRuntimeInventory(TargetPlatform, TargetProfile, Inventory))) return ErrorResult;
 		if (Inventory.empty())
-			return Fail(OutError, "Cooked Shader inventory is empty.");
+			return {.Error = {.Code = EShaderError::InventoryEmpty}};
 		std::vector<FShaderCookedLibraryRecord> Records;
 		Records.reserve(Inventory.size());
 		for (const FShaderRuntimeRequest& Request : Inventory)
 		{
-			if (IsCancelled && IsCancelled()) { OutError = "Shader library capture cancelled."; return false; }
+			if (IsCancelled && IsCancelled()) { return {.Error = {.Code = EShaderError::Cancelled}}; }
 			std::vector<const FShaderType*> Types;
-			if (!GetShaderRuntimeRequestBuildTypes(Request, Types, OutError))
-				return false;
+			if (!(ErrorResult = GetShaderRuntimeRequestBuildTypes(Request, Types)))
+				return ErrorResult;
 			FShaderCompileOptions Options;
 			if (!MakeCompileOptions(Types, Options))
-				return Fail(OutError, std::format(
-					"Cooked Shader request '{}' has incompatible build types.",
-					Request.Name));
+				return {.Error = {.Code = EShaderError::RequestBuildTypesMismatch, .ActualIdentity = Request.Name}};
 			Options.SourceArtifacts = Artifacts;
 			FShaderCompilerOutput Output = GetOrCompileShader(
 				Options.VirtualShaderPath, Options);
 			if (!Output)
-				return Fail(OutError, std::format(
-					"Cooked Shader request '{}' failed: {}",
-					Request.Name, Output.ErrorMessage));
+			{
+				auto Error = Output.Error;
+				Error.ActualIdentity = Request.Name;
+				return {.Error = std::move(Error)};
+			}
 			FXxHash128 RuntimeIdentity;
-			if (!BuildShaderRuntimeRequestIdentity(
-				Request, RuntimeIdentity, OutError)) return false;
+			if (!(ErrorResult = BuildShaderRuntimeRequestIdentity(Request, RuntimeIdentity))) return ErrorResult;
 			FXxHash128Builder Production;
 			Production.Update("DurinCookedShaderProduction_v1");
 			Production.UpdateValue(RuntimeIdentity);
@@ -77,7 +69,6 @@ namespace Durin
 				Production.UpdateValue(Shader.Hash);
 			Records.push_back({Request, Production.Finalize(), std::move(Output)});
 		}
-		return EncodeShaderCookedLibrary(
-			TargetPlatform, TargetProfile, Records, OutBytes, OutError);
+		return EncodeShaderCookedLibrary(TargetPlatform, TargetProfile, Records, OutBytes);
 	}
 }

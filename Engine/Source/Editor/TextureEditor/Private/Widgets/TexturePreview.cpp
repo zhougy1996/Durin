@@ -125,7 +125,7 @@ namespace Durin::Editor::Texture
 					std::array<const FShaderType*, 2> ShaderTypes = {
 						&VertexShaderType, &FragmentShaderType};
 					auto ShaderMap = std::make_shared<FShaderMapBase>();
-					std::string ErrorMessage;
+					FShaderOperationResult ErrorMessage;
 					auto MakeError = [](auto Category, std::string Message) {
 						return FRenderResourceCreateError{
 							.Category = Category,
@@ -138,11 +138,10 @@ namespace Durin::Editor::Texture
 								| ERenderResourceGenerationDependency::Manual,
 						};
 					};
-					if (!ShaderMap->InitializeFromShaderTypes(
-							ShaderTypes, CompileOptions, ErrorMessage))
+					if (!(ErrorMessage = ShaderMap->InitializeFromShaderTypes(ShaderTypes, CompileOptions)))
 						return FResult::Failure(MakeError(
 							ERenderResourceCreateErrorCategory::ShaderCompile,
-							std::move(ErrorMessage)));
+							FormatShaderError(ErrorMessage.Error)));
 					auto* VertexShader =
 						static_cast<FTexturePreviewVertexShader*>(
 							ShaderMap->GetShader(&VertexShaderType));

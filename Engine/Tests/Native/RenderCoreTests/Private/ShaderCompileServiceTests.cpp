@@ -144,7 +144,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		InitShaderCompileService();
 		const FShaderCompilerOutput Repaired = GetOrCompileShader(
 			"/ShaderCompileServiceTests/Simple", Options);
-		ASSERT_TRUE(Repaired) << Repaired.ErrorMessage;
+		ASSERT_TRUE(Repaired) << FormatShaderError(Repaired.Error);
 		const FShaderCompileServiceStats Stats =
 			GetShaderCompileServiceStats();
 		EXPECT_EQ(Stats.DdcHits, 0u);
@@ -166,7 +166,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		InitShaderCompileService();
 		const FShaderCompilerOutput Output = GetOrCompileShader(
 			"/ShaderCompileServiceTests/Simple", MakeServiceOptions());
-		ASSERT_TRUE(Output) << Output.ErrorMessage;
+		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
 		const FShaderCompileServiceStats Stats =
 			GetShaderCompileServiceStats();
 		EXPECT_EQ(Stats.Compilations, 1u);
@@ -180,18 +180,14 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		const FShaderCompileOptions Options = MakeServiceOptions();
 		InitShaderCompileService();
 		FShaderSourceDependencyFingerprint ColdFingerprint;
-		std::string Error;
-		ASSERT_TRUE(BuildShaderSourceTreeFingerprintFromService(
-			"/ShaderCompileServiceTests/Simple", Options,
-			ColdFingerprint, Error)) << Error;
+		FShaderOperationResult Error;
+		ASSERT_TRUE((Error = BuildShaderSourceTreeFingerprintFromService("/ShaderCompileServiceTests/Simple", Options, ColdFingerprint))) << FormatShaderError(Error.Error);
 		EXPECT_EQ(ColdFingerprint.VirtualPath,
 			"/ShaderCompileServiceTests/Simple");
 		EXPECT_FALSE(ColdFingerprint.ContentHash.IsZero());
 		EXPECT_EQ(GetShaderCompileServiceStats().DependencyResolutions, 1u);
 		FShaderSourceDependencyFingerprint SameGenerationFingerprint;
-		ASSERT_TRUE(BuildShaderSourceTreeFingerprintFromService(
-			"/ShaderCompileServiceTests/Simple", Options,
-			SameGenerationFingerprint, Error)) << Error;
+		ASSERT_TRUE((Error = BuildShaderSourceTreeFingerprintFromService("/ShaderCompileServiceTests/Simple", Options, SameGenerationFingerprint))) << FormatShaderError(Error.Error);
 		EXPECT_EQ(SameGenerationFingerprint, ColdFingerprint);
 		const auto SameGenerationStats = GetShaderCompileServiceStats();
 		EXPECT_EQ(SameGenerationStats.DependencyResolutions, 1u);
@@ -201,9 +197,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		ShutdownShaderCompileService();
 		InitShaderCompileService();
 		FShaderSourceDependencyFingerprint WarmFingerprint;
-		ASSERT_TRUE(BuildShaderSourceTreeFingerprintFromService(
-			"/ShaderCompileServiceTests/Simple", Options,
-			WarmFingerprint, Error)) << Error;
+		ASSERT_TRUE((Error = BuildShaderSourceTreeFingerprintFromService("/ShaderCompileServiceTests/Simple", Options, WarmFingerprint))) << FormatShaderError(Error.Error);
 		EXPECT_EQ(WarmFingerprint, ColdFingerprint);
 		const auto WarmStats = GetShaderCompileServiceStats();
 		EXPECT_EQ(WarmStats.DependencyResolutions, 0u);
@@ -219,9 +213,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 }
 )");
 		FShaderSourceDependencyFingerprint BeforeReloadFingerprint;
-		ASSERT_TRUE(BuildShaderSourceTreeFingerprintFromService(
-			"/ShaderCompileServiceTests/Simple", Options,
-			BeforeReloadFingerprint, Error)) << Error;
+		ASSERT_TRUE((Error = BuildShaderSourceTreeFingerprintFromService("/ShaderCompileServiceTests/Simple", Options, BeforeReloadFingerprint))) << FormatShaderError(Error.Error);
 		EXPECT_EQ(BeforeReloadFingerprint, WarmFingerprint);
 		EXPECT_EQ(GetShaderCompileServiceStats().DependencyResolutions, 0u);
 		EXPECT_EQ(
@@ -229,9 +221,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		const uint64 PreviousReloadGeneration = GetShaderReloadGeneration();
 		EXPECT_GT(AdvanceShaderReloadGeneration(), PreviousReloadGeneration);
 		FShaderSourceDependencyFingerprint ChangedFingerprint;
-		ASSERT_TRUE(BuildShaderSourceTreeFingerprintFromService(
-			"/ShaderCompileServiceTests/Simple", Options,
-			ChangedFingerprint, Error)) << Error;
+		ASSERT_TRUE((Error = BuildShaderSourceTreeFingerprintFromService("/ShaderCompileServiceTests/Simple", Options, ChangedFingerprint))) << FormatShaderError(Error.Error);
 		EXPECT_NE(ChangedFingerprint.ContentHash,
 			ColdFingerprint.ContentHash);
 		EXPECT_EQ(GetShaderCompileServiceStats().DependencyResolutions, 1u);
@@ -260,13 +250,13 @@ float4 FragmentMain() : SV_Target0
 			"/ShaderCompileServiceTests/"};
 		const FShaderCompilerOutput First =
 			GetOrCompileGeneratedShader(Request);
-		ASSERT_TRUE(First) << First.ErrorMessage;
+		ASSERT_TRUE(First) << FormatShaderError(First.Error);
 		ASSERT_EQ(First.CompiledShaders.size(), 1u);
 		const auto ColdStats = GetShaderCompileServiceStats();
 		EXPECT_EQ(ColdStats.Compilations, 1u);
 		const FShaderCompilerOutput Warm =
 			GetOrCompileGeneratedShader(Request);
-		ASSERT_TRUE(Warm) << Warm.ErrorMessage;
+		ASSERT_TRUE(Warm) << FormatShaderError(Warm.Error);
 		const auto WarmStats = GetShaderCompileServiceStats();
 		EXPECT_EQ(WarmStats.Compilations, ColdStats.Compilations);
 		EXPECT_EQ(WarmStats.MemoryHits, ColdStats.MemoryHits + 1u);
@@ -275,7 +265,7 @@ float4 FragmentMain() : SV_Target0
 		InitShaderCompileService();
 		const FShaderCompilerOutput RestartWarm =
 			GetOrCompileGeneratedShader(Request);
-		ASSERT_TRUE(RestartWarm) << RestartWarm.ErrorMessage;
+		ASSERT_TRUE(RestartWarm) << FormatShaderError(RestartWarm.Error);
 		const auto RestartWarmStats = GetShaderCompileServiceStats();
 		EXPECT_EQ(RestartWarmStats.DependencyResolutions, 0u);
 		EXPECT_EQ(RestartWarmStats.ManifestHits, 1u);
@@ -287,7 +277,7 @@ float4 FragmentMain() : SV_Target0
 		const FShaderCompilerOutput Rejected =
 			GetOrCompileGeneratedShader(Request);
 		EXPECT_FALSE(Rejected);
-		EXPECT_NE(Rejected.ErrorMessage.find("allowlisted"), std::string::npos);
+		EXPECT_EQ(Rejected.Error.Code, EShaderError::ImportNotAllowed);
 	}
 
 	TEST_F(FShaderCompileServiceTests,
@@ -316,7 +306,7 @@ float4 FragmentMain() : SV_Target0
 		InitShaderCompileService();
 		const FShaderCompilerOutput First =
 			GetOrCompileGeneratedShader(Request);
-		ASSERT_TRUE(First) << First.ErrorMessage;
+		ASSERT_TRUE(First) << FormatShaderError(First.Error);
 		ASSERT_EQ(First.CompiledShaders.size(), 1u);
 		const FXxHash128 FirstHash = First.CompiledShaders.front().Hash;
 		ShutdownShaderCompileService();
@@ -330,7 +320,7 @@ float4 FragmentMain() : SV_Target0
 		InitShaderCompileService();
 		const FShaderCompilerOutput Changed =
 			GetOrCompileGeneratedShader(Request);
-		ASSERT_TRUE(Changed) << Changed.ErrorMessage;
+		ASSERT_TRUE(Changed) << FormatShaderError(Changed.Error);
 		ASSERT_EQ(Changed.CompiledShaders.size(), 1u);
 		EXPECT_NE(Changed.CompiledShaders.front().Hash, FirstHash);
 		const auto Stats = GetShaderCompileServiceStats();
@@ -359,13 +349,13 @@ float4 FragmentMain() : SV_Target0
 		InitShaderCompileService();
 		const FShaderCompilerOutput First =
 			GetOrCompileGeneratedShader(Request);
-		ASSERT_TRUE(First) << First.ErrorMessage;
+		ASSERT_TRUE(First) << FormatShaderError(First.Error);
 		ShutdownShaderCompileService();
 
 		InitShaderCompileService();
 		const FShaderCompilerOutput Warm =
 			GetOrCompileGeneratedShader(Request);
-		ASSERT_TRUE(Warm) << Warm.ErrorMessage;
+		ASSERT_TRUE(Warm) << FormatShaderError(Warm.Error);
 		const auto Stats = GetShaderCompileServiceStats();
 		EXPECT_EQ(Stats.DependencyResolutions, 0u);
 		EXPECT_EQ(Stats.ManifestHits, 1u);
@@ -523,8 +513,8 @@ float4 FragmentMain() : SV_Target0
 		const auto FirstOutput = First.get();
 		const auto SecondOutput = Second.get();
 		EXPECT_FALSE(Invalid.get());
-		ASSERT_TRUE(FirstOutput) << FirstOutput.ErrorMessage;
-		ASSERT_TRUE(SecondOutput) << SecondOutput.ErrorMessage;
+		ASSERT_TRUE(FirstOutput) << FormatShaderError(FirstOutput.Error);
+		ASSERT_TRUE(SecondOutput) << FormatShaderError(SecondOutput.Error);
 		ASSERT_EQ(FirstOutput.CompiledShaders.size(), 1u);
 		ASSERT_EQ(SecondOutput.CompiledShaders.size(), 1u);
 		EXPECT_NE(FirstOutput.CompiledShaders[0].Hash, SecondOutput.CompiledShaders[0].Hash);
@@ -607,7 +597,7 @@ float4 FragmentMain() : SV_Target0
 		for (auto& Request : Requests)
 		{
 			const FShaderCompilerOutput Output = Request.get();
-			EXPECT_TRUE(Output) << Output.ErrorMessage;
+			EXPECT_TRUE(Output) << FormatShaderError(Output.Error);
 		}
 		const FShaderCompileServiceStats Stats =
 			GetShaderCompileServiceStats();
@@ -629,7 +619,7 @@ float4 FragmentMain() : SV_Target0
 		const FShaderCompilerOutput Broken =
 			GetOrCompileShader("/ShaderCompileServiceTests/Simple", Options);
 		EXPECT_FALSE(Broken);
-		EXPECT_FALSE(Broken.ErrorMessage.empty());
+		EXPECT_EQ(Broken.Error.Code, EShaderError::SlangFailure);
 
 		WriteTestShader(ShaderPath);
 		std::filesystem::last_write_time(
@@ -756,8 +746,8 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 			"/ShaderCompileServiceTests/DependentA", Options);
 		const FShaderCompilerOutput FirstB = GetOrCompileShader(
 			"/ShaderCompileServiceTests/DependentB", Options);
-		ASSERT_TRUE(FirstA) << FirstA.ErrorMessage;
-		ASSERT_TRUE(FirstB) << FirstB.ErrorMessage;
+		ASSERT_TRUE(FirstA) << FormatShaderError(FirstA.Error);
+		ASSERT_TRUE(FirstB) << FormatShaderError(FirstB.Error);
 		ASSERT_EQ(FirstA.CompiledShaders.size(), 1u);
 		ASSERT_EQ(FirstB.CompiledShaders.size(), 1u);
 		const FXxHash128 FirstAHash =
@@ -774,8 +764,8 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 			"/ShaderCompileServiceTests/DependentA", Options);
 		const FShaderCompilerOutput SecondB = GetOrCompileShader(
 			"/ShaderCompileServiceTests/DependentB", Options);
-		ASSERT_TRUE(SecondA) << SecondA.ErrorMessage;
-		ASSERT_TRUE(SecondB) << SecondB.ErrorMessage;
+		ASSERT_TRUE(SecondA) << FormatShaderError(SecondA.Error);
+		ASSERT_TRUE(SecondB) << FormatShaderError(SecondB.Error);
 		ASSERT_EQ(SecondA.CompiledShaders.size(), 1u);
 		ASSERT_EQ(SecondB.CompiledShaders.size(), 1u);
 		EXPECT_NE(SecondA.CompiledShaders[0].Hash, FirstAHash);
@@ -820,13 +810,11 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		InitShaderCompileService();
 		std::vector<FShaderSourceDependencyFingerprint> FirstManifest;
 		std::vector<FShaderSourceDependencyFingerprint> SecondManifest;
-		std::string ManifestError;
-		ASSERT_TRUE(BuildShaderSourceDependencyManifestFromService(
-			VirtualPath, Options, FirstManifest, ManifestError))
-			<< ManifestError;
-		ASSERT_TRUE(BuildShaderSourceDependencyManifestFromService(
-			VirtualPath, Options, SecondManifest, ManifestError))
-			<< ManifestError;
+		FShaderOperationResult ManifestError;
+		ASSERT_TRUE((ManifestError = BuildShaderSourceDependencyManifestFromService(VirtualPath, Options, FirstManifest)))
+			<< FormatShaderError(ManifestError.Error);
+		ASSERT_TRUE((ManifestError = BuildShaderSourceDependencyManifestFromService(VirtualPath, Options, SecondManifest)))
+			<< FormatShaderError(ManifestError.Error);
 		EXPECT_EQ(FirstManifest, SecondManifest);
 		ASSERT_EQ(FirstManifest.size(), 8u);
 		EXPECT_TRUE(std::ranges::is_sorted(FirstManifest, {},
@@ -844,11 +832,10 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		EXPECT_NE(CompilerIdentity.find("spirv"), std::string::npos);
 
 		std::vector<std::string> Dependencies;
-		std::string DependencyDiagnostic;
+		FShaderOperationResult DependencyDiagnostic;
 		FSlangShaderDependencyResolver Resolver;
-		ASSERT_TRUE(Resolver.Resolve(
-			SourcePath.generic_string(), Options, Dependencies,
-			DependencyDiagnostic)) << DependencyDiagnostic;
+		ASSERT_TRUE((DependencyDiagnostic = Resolver.Resolve(
+			SourcePath.generic_string(), Options, Dependencies))) << FormatShaderError(DependencyDiagnostic.Error);
 		ASSERT_FALSE(Dependencies.empty());
 
 		FShaderCompileOptions ColdOptions = Options;
@@ -857,7 +844,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		const FShaderCompilerOutput Cold = GetOrCompileShader(
 			VirtualPath, ColdOptions);
 		const auto ColdEnd = std::chrono::steady_clock::now();
-		ASSERT_TRUE(Cold) << Cold.ErrorMessage;
+		ASSERT_TRUE(Cold) << FormatShaderError(Cold.Error);
 		ASSERT_EQ(Cold.CompiledShaders.size(), 4u);
 		const FShaderCompileServiceStats ColdStats =
 			GetShaderCompileServiceStats();
@@ -890,7 +877,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		const FShaderCompilerOutput Warm = GetOrCompileShader(
 			VirtualPath, Options);
 		const auto WarmEnd = std::chrono::steady_clock::now();
-		ASSERT_TRUE(Warm) << Warm.ErrorMessage;
+		ASSERT_TRUE(Warm) << FormatShaderError(Warm.Error);
 		const FShaderCompileServiceStats WarmStats =
 			GetShaderCompileServiceStats();
 		EXPECT_EQ(WarmStats.Compilations, ColdStats.Compilations);
@@ -972,21 +959,21 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		Options.SourceArtifacts = Artifacts;
 		Files.clear();
 		std::vector<FShaderSourceDependencyFingerprint> Before, After;
-		std::string Error;
-		ASSERT_TRUE(BuildShaderSourceDependencyManifestFromService(Main, Options, Before, Error)) << Error;
+		FShaderOperationResult Error;
+		ASSERT_TRUE((Error = BuildShaderSourceDependencyManifestFromService(Main, Options, Before))) << FormatShaderError(Error.Error);
 		ASSERT_EQ(Before.size(), 2u);
 		WriteTextFile(Root / "Owned.slang", "invalid live root");
 		WriteTextFile(Root / "OwnedInclude.slang", "invalid live include");
 		const auto Output = GetOrCompileShader(Main, Options);
-		ASSERT_TRUE(Output) << Output.ErrorMessage;
-		ASSERT_TRUE(BuildShaderSourceDependencyManifestFromService(Main, Options, After, Error)) << Error;
+		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
+		ASSERT_TRUE((Error = BuildShaderSourceDependencyManifestFromService(Main, Options, After))) << FormatShaderError(Error.Error);
 		EXPECT_EQ(Before, After);
 		WriteTextFile(Root / "OwnedInclude.slang", Included);
 		auto Incomplete = Artifacts->GetFiles();
 		Incomplete.erase(Include);
 		Options.SourceArtifacts = std::make_shared<FShaderSourceArtifacts>(Incomplete);
 		EXPECT_FALSE(GetOrCompileShader(Main, Options));
-		EXPECT_FALSE(BuildShaderSourceDependencyManifestFromService(Main, Options, After, Error));
+		EXPECT_FALSE((Error = BuildShaderSourceDependencyManifestFromService(Main, Options, After)));
 	}
 	TEST_F(FShaderCompileServiceTests, GeneratedRootUsesCapturedIncludeAndDeclarationLimits)
 	{
@@ -1006,7 +993,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position { return CapturedPo
 			std::map<std::string, FByteBuffer>{{"/Captured/Included.slang", FByteBuffer(View.begin(), View.end())}},
 			std::vector<std::string>{"/Captured/"});
 		const auto Output = GetOrCompileGeneratedShader(Request);
-		ASSERT_TRUE(Output) << Output.ErrorMessage;
+		ASSERT_TRUE(Output) << FormatShaderError(Output.Error);
 		Request.AllowedImportVirtualPrefixes = {"/Different/"};
 		EXPECT_FALSE(GetOrCompileGeneratedShader(Request));
 	}
@@ -1020,24 +1007,31 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position { return CapturedPo
 			auto CompileGenerated(const FGeneratedShaderCompileRequest&) -> FShaderCompilerOutput override { return {}; }
 			auto GetCompilerEnvironmentIdentity() -> std::string override { return "pinned-provider"; }
 			auto BuildSourceDependencyManifest(std::string_view, const FShaderCompileOptions&,
-				std::vector<FShaderSourceDependencyFingerprint>&, std::string&) -> bool override { return false; }
+				std::vector<FShaderSourceDependencyFingerprint>&) -> FShaderOperationResult override { return {.Error = {.Code = EShaderError::ProviderUnavailable}}; }
 			auto BuildSourceTreeFingerprint(std::string_view, const FShaderCompileOptions&,
-				FShaderSourceDependencyFingerprint&, std::string&) -> bool override { return false; }
+				FShaderSourceDependencyFingerprint&) -> FShaderOperationResult override { return {.Error = {.Code = EShaderError::ProviderUnavailable}}; }
 			auto GetStats() const -> FShaderBuildStats override { return {}; }
-			auto BuildCookedLibrary(EShaderTargetPlatform, EShaderTargetProfile,
-				FByteBuffer&, std::string&, std::shared_ptr<const FShaderSourceArtifacts>, const std::function<bool()>&) -> bool override { return false; }
+			auto BuildCookedLibrary(EShaderTargetPlatform, EShaderTargetProfile, FByteBuffer&, std::shared_ptr<const FShaderSourceArtifacts>, const std::function<bool()>&) -> FShaderOperationResult override { return {.Error = {.Code = EShaderError::ProviderUnavailable}}; }
 		} Provider;
 		FModuleTestOwner Owner("CapturedShaderProviderTest");
 		auto Registration = Owner.RegisterFeature<IShaderBuildProvider>(Provider);
 		ASSERT_TRUE(Registration.IsValid());
-		std::string Error;
-		ASSERT_TRUE(WithShaderBuildProvider([&](IShaderBuildProvider&) {
+		const auto FailedWork = WithShaderBuildProvider([](IShaderBuildProvider&) { return false; });
+		EXPECT_EQ(FailedWork.Error.Code, EShaderError::ProviderWorkFailed);
+		const auto ThrownWork = WithShaderBuildProvider([](IShaderBuildProvider&) -> bool {
+			throw std::runtime_error("provider visitor test");
+		});
+		EXPECT_EQ(ThrownWork.Error.Code, EShaderError::ProviderInvocationFailed);
+		EXPECT_EQ(ThrownWork.Error.ProviderStatus, EFeatureInvokeStatus::VisitorFailed);
+		FShaderOperationResult Error;
+		ASSERT_TRUE((Error = WithShaderBuildProvider([&](IShaderBuildProvider&) {
 			Registration.Retire();
 			EXPECT_EQ(GetShaderCompilerEnvironmentIdentity(), "pinned-provider");
-			EXPECT_FALSE(WithShaderBuildProvider([](IShaderBuildProvider&) { return true; }, Error));
+			const auto Nested = WithShaderBuildProvider([](IShaderBuildProvider&) { return true; });
+			EXPECT_EQ(Nested.Error.Code, EShaderError::InvalidProviderCapture);
 			EXPECT_EQ(Owner.GetFeatureSnapshot().InFlightInvocationCount, 1u);
 			return true;
-		}, Error)) << Error;
+		}))) << FormatShaderError(Error.Error);
 		EXPECT_EQ(Owner.GetFeatureSnapshot().InFlightInvocationCount, 0u);
 		EXPECT_TRUE(GetShaderCompilerEnvironmentIdentity().empty());
 		EXPECT_TRUE(Registration.Reset().Succeeded());

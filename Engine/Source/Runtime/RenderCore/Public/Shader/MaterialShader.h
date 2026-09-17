@@ -196,14 +196,8 @@ namespace Durin
 		FMaterialShaderMap() = default;
 		explicit operator bool() const { return Payload != nullptr; }
 
-		RENDERCORE_API static auto TryCreate(
-			FMaterialShaderMapBuildInput Input,
-			FMaterialShaderMap& OutMap,
-			std::string& OutError) -> bool;
-		RENDERCORE_API static auto TryCompile(
-			FMaterialShaderMapCompileInput Input,
-			FMaterialShaderMap& OutMap,
-			std::string& OutError) -> bool;
+		RENDERCORE_API static auto TryCreate(FMaterialShaderMapBuildInput Input, FMaterialShaderMap& OutMap) -> FShaderOperationResult;
+		RENDERCORE_API static auto TryCompile(FMaterialShaderMapCompileInput Input, FMaterialShaderMap& OutMap) -> FShaderOperationResult;
 
 		RENDERCORE_API auto GetIdentity() const
 			-> const FMaterialShaderMapIdentity&;

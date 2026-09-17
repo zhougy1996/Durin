@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Shader/ShaderDiagnostics.h"
+
 #include "RenderCoreAPI.h"
 #include "RHICommandList.h"
 #include "RHIResources.h"
@@ -96,7 +98,7 @@ namespace Durin
 		auto GetParameterBindings() const -> std::span<const FShaderParameterBinding> { return ParameterBindings; }
 
 		RENDERCORE_API auto GetOrCreateRHIShader(bool bRequired = true) -> FRHIShader*;
-		RENDERCORE_API auto InitializeParameterBindings(std::string& OutErrorMessage) -> bool;
+		RENDERCORE_API auto InitializeParameterBindings() -> FShaderOperationResult;
 
 	protected:
 		const FShaderType* Type = nullptr;
@@ -281,9 +283,7 @@ namespace Durin
 	RENDERCORE_API auto BuildShaderParameterBindings(
 		const FShaderParametersMetadata* ParametersMetadata,
 		const FShaderReflectionData& Reflection,
-		std::vector<FShaderParameterBinding>& OutBindings,
-		std::string& OutErrorMessage
-	) -> bool;
+		std::vector<FShaderParameterBinding>& OutBindings) -> FShaderOperationResult;
 
 	RENDERCORE_API auto SetShaderParametersImpl(
 		FRHICommandListBase& RHICmdList,
@@ -509,14 +509,10 @@ namespace Durin
 	RENDERCORE_API auto MakeShaderCreateDesc(const FCompiledShader& CompiledShader) -> FRHIShaderCreateDesc;
 	RENDERCORE_API auto BuildPipelineLayoutFromReflection(
 		std::span<const FShaderReflectionData> ReflectionData,
-		FPipelineLayoutDesc& OutPipelineLayout,
-		std::string& OutErrorMessage
-	) -> bool;
+		FPipelineLayoutDesc& OutPipelineLayout) -> FShaderOperationResult;
 	RENDERCORE_API auto BuildPipelineLayoutFromShaders(
 		std::span<const FCompiledShader> CompiledShaders,
-		FPipelineLayoutDesc& OutPipelineLayout,
-		std::string& OutErrorMessage
-	) -> bool;
+		FPipelineLayoutDesc& OutPipelineLayout) -> FShaderOperationResult;
 	// Reports cache occupancy for compiled shader-map resource code.
 	struct FShaderMapResourceCacheStats
 	{
@@ -577,19 +573,17 @@ namespace Durin
 		auto GetMergedPipelineLayout() const -> const FPipelineLayoutDesc& { return MergedPipelineLayout; }
 		auto GetCacheKey() const -> FXxHash128 { return CacheKey; }
 
-		RENDERCORE_API auto Initialize(std::span<const FShaderType* const> ShaderTypes, const FShaderCompilerOutput& Output, std::string& OutErrorMessage) -> bool;
+		RENDERCORE_API auto Initialize(
+			std::span<const FShaderType* const> ShaderTypes,
+			const FShaderCompilerOutput& Output) -> FShaderOperationResult;
 		RENDERCORE_API auto Initialize(
 			std::span<const FShaderType* const> ShaderTypes,
 			const FShaderCompilerOutput& Output,
 			const FShaderCompileOptions& CompileOptions,
-			std::string& OutErrorMessage,
-			bool bAllowMixedSources = false
-		) -> bool;
+			bool bAllowMixedSources = false) -> FShaderOperationResult;
 		RENDERCORE_API auto InitializeFromShaderTypes(
 			std::span<const FShaderType* const> ShaderTypes,
-			const FShaderCompileOptions& CompileOptions,
-			std::string& OutErrorMessage
-		) -> bool;
+			const FShaderCompileOptions& CompileOptions) -> FShaderOperationResult;
 		RENDERCORE_API auto FindShaderIndex(const FShaderType* ShaderType) const -> const uint32*;
 		RENDERCORE_API auto GetShader(const FShaderType* ShaderType) const -> FShader*;
 		RENDERCORE_API auto GetOrCreateShaderRHI(const FShaderType* ShaderType, bool bRequired = true) -> FRHIShader*;

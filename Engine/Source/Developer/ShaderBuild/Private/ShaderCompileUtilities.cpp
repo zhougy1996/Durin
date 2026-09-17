@@ -20,37 +20,32 @@ namespace Durin::ShaderCompileUtilities
 		}
 	}
 
-	auto NormalizeMacros(const FShaderCompileOptions& Options, std::vector<FShaderMacroDefinition>& OutMacros, std::string& OutErrorMessage) -> bool
+	auto NormalizeMacros(const FShaderCompileOptions& Options, std::vector<FShaderMacroDefinition>& OutMacros) -> FShaderOperationResult
 	{
-		return FSlangSessionEnvironment::NormalizeMacros(
-			Options, OutMacros, OutErrorMessage);
+		return FSlangSessionEnvironment::NormalizeMacros(Options, OutMacros);
 	}
 
 	auto BuildShaderMetaData(
 		const std::vector<std::string>& InDependencyPaths,
 		FFileFingerprintCache& FileFingerprintCache,
-		FShaderMetaData& OutMetaData,
-		std::string& OutErrorMessage
-	) -> bool
+		FShaderMetaData& OutMetaData) -> FShaderOperationResult
 	{
 		OutMetaData = {};
 
 		for (const std::string& DependencyPath : InDependencyPaths)
 		{
 			FFileFingerprint Fingerprint;
-			if (!FileFingerprintCache.TryGet(DependencyPath, Fingerprint, OutErrorMessage))
+			std::string FingerprintDiagnostic;
+			if (!FileFingerprintCache.TryGet(DependencyPath, Fingerprint, FingerprintDiagnostic))
 			{
-				return false;
+				return {.Error = FShaderError::FromFileFingerprint(DependencyPath, FingerprintDiagnostic)};
 			}
 
 			std::string VirtualPath;
 			if (!FShaderPaths::TryMakeVirtualSourcePath(
 				Fingerprint.NormalizedPath, VirtualPath))
 			{
-				OutErrorMessage = std::format(
-					"Shader dependency has no registered virtual identity: {}",
-					Fingerprint.NormalizedPath);
-				return false;
+				return {.Error = {.Code = EShaderError::DependencyIdentityMissing, .ActualIdentity = Fingerprint.NormalizedPath}};
 			}
 			OutMetaData.Dependencies.push_back(std::move(Fingerprint));
 			OutMetaData.PortableDependencies.push_back({
@@ -77,10 +72,7 @@ namespace Durin::ShaderCompileUtilities
 				if (Sorted.PortableDependencies.back().ContentHash
 					!= Dependency.ContentHash)
 				{
-					OutErrorMessage = std::format(
-						"Shader virtual dependency resolves to conflicting content: {}",
-						Dependency.VirtualPath);
-					return false;
+					return {.Error = {.Code = EShaderError::DependencyContentConflict, .ActualIdentity = Dependency.VirtualPath}};
 				}
 				continue;
 			}
@@ -104,7 +96,7 @@ namespace Durin::ShaderCompileUtilities
 
 		Sorted.SourceTreeSignature = TreeSignatureBuilder.Finalize();
 		OutMetaData = std::move(Sorted);
-		return true;
+		return {};
 	}
 
 	auto BuildVariantKey(
@@ -184,7 +176,7 @@ namespace Durin::ShaderCompileUtilities
 			if (ReuseResult.Status == EFileFingerprintReuseStatus::Failed)
 			{
 				return {.Status = EMetaDataReuseStatus::Failed,
-					.Diagnostic = std::move(ReuseResult.Diagnostic)};
+					.Error = FShaderError::FromFileFingerprint(Fingerprint.NormalizedPath, ReuseResult.Diagnostic)};
 			}
 			if (ReuseResult.Status == EFileFingerprintReuseStatus::Stale)
 			{

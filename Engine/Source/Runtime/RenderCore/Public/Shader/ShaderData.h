@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Shader/ShaderDiagnostics.h"
+
 #include "RenderCoreAPI.h"
 #include "Shader/ShaderCookedLibrary.h"
 
@@ -27,14 +29,11 @@ namespace Durin
 			-> FShaderDataConfiguration;
 	};
 
-	RENDERCORE_API auto InitializeShaderData(
-		FShaderDataConfiguration Configuration,
-		std::string& OutError) -> bool;
+	RENDERCORE_API auto InitializeShaderData(FShaderDataConfiguration Configuration) -> FShaderOperationResult;
 	RENDERCORE_API auto ShutdownShaderData() -> void;
 	RENDERCORE_API auto GetShaderDataDomain() -> EShaderDataDomain;
 	RENDERCORE_API auto LoadCookedShaderRuntimeRequest(
 		std::string_view RequestName,
 		std::span<const FShaderType* const> ShaderTypes,
-		FShaderCompilerOutput& OutOutput,
-		std::string& OutError) -> bool;
+		FShaderCompilerOutput& OutOutput) -> FShaderOperationResult;
 }

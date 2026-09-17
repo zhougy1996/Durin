@@ -19,17 +19,15 @@ namespace Durin
 		struct FMetaDataReuseResult
 		{
 			EMetaDataReuseStatus Status = EMetaDataReuseStatus::Failed;
-			std::string Diagnostic;
+			FShaderError Error;
 		};
 
-		auto NormalizeMacros(const FShaderCompileOptions& Options, std::vector<FShaderMacroDefinition>& OutMacros, std::string& OutErrorMessage) -> bool;
+		auto NormalizeMacros(const FShaderCompileOptions& Options, std::vector<FShaderMacroDefinition>& OutMacros) -> FShaderOperationResult;
 
 		auto BuildShaderMetaData(
 			const std::vector<std::string>& InDependencyPaths,
 			FFileFingerprintCache& FileFingerprintCache,
-			FShaderMetaData& OutMetaData,
-			std::string& OutErrorMessage
-		) -> bool;
+			FShaderMetaData& OutMetaData) -> FShaderOperationResult;
 
 		auto BuildVariantKey(
 			std::string_view VirtualShaderPath,

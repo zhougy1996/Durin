@@ -139,11 +139,11 @@ namespace Durin
 			return false;
 		}
 #else
-		std::string ShaderDataError;
-		if (!InitializeShaderData(FShaderDataConfiguration::Cooked(
-				std::filesystem::path(FPaths::LaunchDir()).lexically_normal()), ShaderDataError))
+		FShaderOperationResult ShaderDataError;
+		if (!(ShaderDataError = InitializeShaderData(FShaderDataConfiguration::Cooked(
+				std::filesystem::path(FPaths::LaunchDir()).lexically_normal()))))
 		{
-			DURIN_ERROR("Engine pre-initialization failed because Cooked Shader data could not start: {}", ShaderDataError);
+			DURIN_ERROR("Engine pre-initialization failed because Cooked Shader data could not start: {}", FormatShaderError(ShaderDataError.Error));
 			Exit();
 			return false;
 		}

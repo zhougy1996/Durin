@@ -1104,7 +1104,7 @@ namespace Durin::VulkanRHI
 		FSlangShaderCompiler Compiler;
 		const FShaderCompilerOutput CompileOutput =
 			Compiler.Compile(ShaderPath.string(), CompileOptions);
-		ASSERT_TRUE(CompileOutput) << CompileOutput.ErrorMessage;
+		ASSERT_TRUE(CompileOutput) << FormatShaderError(CompileOutput.Error);
 		ASSERT_EQ(CompileOutput.CompiledShaders.size(), 2u);
 
 		std::array<Durin::FByteBuffer, 2> ModePixels;
@@ -1313,7 +1313,7 @@ namespace Durin::VulkanRHI
 		Options.Frequencies = {EShaderFrequency::Compute};
 		FSlangShaderCompiler Compiler;
 		const auto Compiled = Compiler.Compile((std::filesystem::path(DURIN_TEST_DATA_DIR) / "CreationQualification.slang").string(), Options);
-		ASSERT_TRUE(Compiled) << Compiled.ErrorMessage;
+		ASSERT_TRUE(Compiled) << FormatShaderError(Compiled.Error);
 		for (const char* Mode : {"threaded", "inline"})
 		{
 			SCOPED_TRACE(Mode);
@@ -1611,7 +1611,7 @@ namespace Durin::VulkanRHI
 		FSlangShaderCompiler Compiler;
 		const auto Compiled = Compiler.Compile((std::filesystem::path(DURIN_TEST_DATA_DIR)
 			/ "CreationQualification.slang").string(), Options);
-		ASSERT_TRUE(Compiled) << Compiled.ErrorMessage;
+		ASSERT_TRUE(Compiled) << FormatShaderError(Compiled.Error);
 		for (const char* Mode : {"threaded", "inline"})
 		{
 			SCOPED_TRACE(Mode);
@@ -1736,7 +1736,7 @@ namespace Durin::VulkanRHI
 		FSlangShaderCompiler Compiler;
 		const auto Compiled = Compiler.Compile((std::filesystem::path(DURIN_TEST_DATA_DIR)
 			/ "CreationQualification.slang").string(), Options);
-		ASSERT_TRUE(Compiled) << Compiled.ErrorMessage;
+		ASSERT_TRUE(Compiled) << FormatShaderError(Compiled.Error);
 		ASSERT_EQ(Compiled.CompiledShaders.size(), 3u);
 		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
 		ASSERT_NE(GRHIThread, nullptr);
@@ -1943,7 +1943,7 @@ namespace Durin::VulkanRHI
 		FSlangShaderCompiler Compiler;
 		const FShaderCompilerOutput CompileOutput =
 			Compiler.Compile(ShaderPath.string(), CompileOptions);
-		ASSERT_TRUE(CompileOutput) << CompileOutput.ErrorMessage;
+		ASSERT_TRUE(CompileOutput) << FormatShaderError(CompileOutput.Error);
 		ASSERT_EQ(CompileOutput.CompiledShaders.size(), 3u);
 
 		auto MakeCreateDesc = [](const FCompiledShader& CompiledShader) {

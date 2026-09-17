@@ -278,10 +278,10 @@ namespace Durin::MonaImGui
 		FShaderType& FragmentShaderType = FImGuiFragmentShader::StaticType();
 		std::array<const FShaderType*, 2> ShaderTypes = {&VertexShaderType, &FragmentShaderType};
 		std::shared_ptr<FShaderMapBase> ShaderMap = std::make_shared<FShaderMapBase>();
-		std::string ErrorMessage;
-		if (!ShaderMap->InitializeFromShaderTypes(ShaderTypes, CompileOptions, ErrorMessage))
+		FShaderOperationResult ErrorMessage;
+		if (!(ErrorMessage = ShaderMap->InitializeFromShaderTypes(ShaderTypes, CompileOptions)))
 		{
-			DURIN_ERROR("Failed to initialize ImGui shader map: {}", ErrorMessage);
+			DURIN_ERROR("Failed to initialize ImGui shader map: {}", FormatShaderError(ErrorMessage.Error));
 			return;
 		}
 

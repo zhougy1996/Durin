@@ -304,13 +304,13 @@ namespace Durin
 
 		const std::array<const FShaderType*, 2> TypesA{&VertexType, &FragmentType};
 		FShaderCompilerOutput OutputA;
-		OutputA.bSucceeded = true;
+		OutputA.Error = {};
 		OutputA.CompiledShaders = {
 			MakeCompiledShader(EShaderFrequency::Vertex, "vertexMain", "MaterialVertex", 51),
 			MakeCompiledShader(EShaderFrequency::Fragment, "fragmentMain", "MaterialFragment", 52)};
 		FMaterialShaderMap MapA;
-		std::string Error;
-		ASSERT_TRUE(FMaterialShaderMap::TryCreate({
+		FShaderOperationResult Error;
+		ASSERT_TRUE((Error = FMaterialShaderMap::TryCreate({
 			.Identity = Identity,
 			.Generation = Generation,
 			.Target = "vulkan-spirv-1.5",
@@ -321,16 +321,16 @@ namespace Durin
 			.bContainsGeneratedMaterialStages = true,
 			.CompiledProgramIdentity = Identity.ProgramIdentity,
 			.CompiledTarget = "vulkan-spirv-1.5",
-			.bCreateRHIShaders = false}, MapA, Error)) << Error;
+			.bCreateRHIShaders = false}, MapA))) << FormatShaderError(Error.Error);
 
 		const std::array<const FShaderType*, 2> TypesB{&FragmentType, &VertexType};
 		FShaderCompilerOutput OutputB;
-		OutputB.bSucceeded = true;
+		OutputB.Error = {};
 		OutputB.CompiledShaders = {
 			MakeCompiledShader(EShaderFrequency::Fragment, "fragmentMain", "MaterialFragment", 52),
 			MakeCompiledShader(EShaderFrequency::Vertex, "vertexMain", "MaterialVertex", 51)};
 		FMaterialShaderMap MapB;
-		ASSERT_TRUE(FMaterialShaderMap::TryCreate({
+		ASSERT_TRUE((Error = FMaterialShaderMap::TryCreate({
 			.Identity = Identity,
 			.Generation = Generation,
 			.Target = "vulkan-spirv-1.5",
@@ -341,7 +341,7 @@ namespace Durin
 			.bContainsGeneratedMaterialStages = true,
 			.CompiledProgramIdentity = Identity.ProgramIdentity,
 			.CompiledTarget = "vulkan-spirv-1.5",
-			.bCreateRHIShaders = false}, MapB, Error)) << Error;
+			.bCreateRHIShaders = false}, MapB))) << FormatShaderError(Error.Error);
 		EXPECT_EQ(MapA.GetCompatibilityHash(), MapB.GetCompatibilityHash());
 		EXPECT_EQ(MapA.GetCompatibilityText(), MapB.GetCompatibilityText());
 
@@ -359,14 +359,14 @@ namespace Durin
 		FShaderType& FragmentType = FMaterialFixtureFragmentShader::StaticType();
 		const std::array<const FShaderType*, 1> Types{&FragmentType};
 		FShaderCompilerOutput Output;
-		Output.bSucceeded = true;
+		Output.Error = {};
 		Output.CompiledShaders = {MakeCompiledShader(
 			EShaderFrequency::Fragment, "fragmentMain", "MaterialFragment", 61)};
 		const FMaterialShaderMapIdentity Identity{
 			.ProgramIdentity = {.Digest = {.HashLow = 1, .HashHigh = 1}}};
 		FMaterialShaderMap Map;
-		std::string Error;
-		EXPECT_FALSE(FMaterialShaderMap::TryCreate({
+		FShaderOperationResult Error;
+		EXPECT_FALSE((Error = FMaterialShaderMap::TryCreate({
 			.Identity = Identity,
 			.Target = "vulkan-spirv-1.5",
 			.ShaderTypes = Types,
@@ -374,11 +374,11 @@ namespace Durin
 			.bContainsGeneratedMaterialStages = true,
 			.CompiledProgramIdentity = {.Digest = {.HashLow = 2, .HashHigh = 2}},
 			.CompiledTarget = "vulkan-spirv-1.5",
-			.bCreateRHIShaders = false}, Map, Error));
-		EXPECT_NE(Error.find("does not match requested identity"), std::string::npos);
+			.bCreateRHIShaders = false}, Map)));
+		EXPECT_EQ(Error.Error.Code, EShaderError::MaterialProgramIdentityMismatch);
 
 		Output.CompiledShaders[0].SourceEntryPoint = "missingMain";
-		EXPECT_FALSE(FMaterialShaderMap::TryCreate({
+		EXPECT_FALSE((Error = FMaterialShaderMap::TryCreate({
 			.Identity = Identity,
 			.Target = "vulkan-spirv-1.5",
 			.ShaderTypes = Types,
@@ -386,8 +386,8 @@ namespace Durin
 			.bContainsGeneratedMaterialStages = true,
 			.CompiledProgramIdentity = Identity.ProgramIdentity,
 			.CompiledTarget = "vulkan-spirv-1.5",
-			.bCreateRHIShaders = false}, Map, Error));
-		EXPECT_NE(Error.find("entry point"), std::string::npos);
+			.bCreateRHIShaders = false}, Map)));
+		EXPECT_EQ(Error.Error.Code, EShaderError::CompiledEntryPointMismatch);
 	}
 
 	TEST(FShaderFoundationTests, ShaderMapLookupByTypeIsStable)
@@ -396,7 +396,7 @@ namespace Durin
 		FShaderType FragmentShaderType("UnitFragmentShader", "/Unit/TestShader", EShaderFrequency::Fragment, "fragmentMain");
 
 		FShaderCompilerOutput Output;
-		Output.bSucceeded = true;
+		Output.Error = {};
 		Output.CompiledShaders = {
 			MakeCompiledShader(EShaderFrequency::Vertex, "vertexMain", "UnitVertexShader", 1),
 			MakeCompiledShader(EShaderFrequency::Fragment, "fragmentMain", "UnitFragmentShader", 21)
@@ -404,8 +404,8 @@ namespace Durin
 
 		std::array<const FShaderType*, 2> ShaderTypes = {&VertexShaderType, &FragmentShaderType};
 		FShaderMapBase ShaderMap;
-		std::string ErrorMessage;
-		ASSERT_TRUE(ShaderMap.Initialize(ShaderTypes, Output, ErrorMessage)) << ErrorMessage;
+		FShaderOperationResult ErrorMessage;
+		ASSERT_TRUE((ErrorMessage = ShaderMap.Initialize(ShaderTypes, Output))) << FormatShaderError(ErrorMessage.Error);
 
 		const uint32* VertexIndex = ShaderMap.FindShaderIndex(&VertexShaderType);
 		const uint32* FragmentIndex = ShaderMap.FindShaderIndex(&FragmentShaderType);
@@ -466,9 +466,8 @@ namespace Durin
 				.SetIndex = 0, .BindingIndex = 3,
 				.Type = ERHIBindingType::Sampler, .ArraySize = 1}};
 		std::vector<FShaderParameterBinding> Bindings;
-		std::string Error;
-		ASSERT_TRUE(BuildShaderParameterBindings(Metadata, Reflection, Bindings,
-			Error)) << Error;
+		FShaderOperationResult Error;
+		ASSERT_TRUE((Error = BuildShaderParameterBindings(Metadata, Reflection, Bindings))) << FormatShaderError(Error.Error);
 		ASSERT_EQ(Bindings.size(), 4u);
 		EXPECT_TRUE(Bindings[0].bGraphResource);
 		EXPECT_TRUE(Bindings[1].bGraphResource);
@@ -482,7 +481,7 @@ namespace Durin
 		FShaderType FragmentShaderType("UnitFragmentShader", "/Unit/TestShader", EShaderFrequency::Fragment, "fragmentMain");
 
 		FShaderCompilerOutput Output;
-		Output.bSucceeded = true;
+		Output.Error = {};
 		Output.CompiledShaders = {
 			MakeCompiledShader(EShaderFrequency::Vertex, "vertexMain", "UnitVertexShader", 1),
 			MakeCompiledShader(EShaderFrequency::Fragment, "fragmentMain", "UnitFragmentShader", 21)
@@ -496,9 +495,9 @@ namespace Durin
 		std::array<const FShaderType*, 2> ShaderTypes = {&VertexShaderType, &FragmentShaderType};
 		FShaderMapBase ShaderMapA;
 		FShaderMapBase ShaderMapB;
-		std::string ErrorMessage;
-		ASSERT_TRUE(ShaderMapA.Initialize(ShaderTypes, Output, CompileOptions, ErrorMessage)) << ErrorMessage;
-		ASSERT_TRUE(ShaderMapB.Initialize(ShaderTypes, Output, CompileOptions, ErrorMessage)) << ErrorMessage;
+		FShaderOperationResult ErrorMessage;
+		ASSERT_TRUE((ErrorMessage = ShaderMapA.Initialize(ShaderTypes, Output, CompileOptions))) << FormatShaderError(ErrorMessage.Error);
+		ASSERT_TRUE((ErrorMessage = ShaderMapB.Initialize(ShaderTypes, Output, CompileOptions))) << FormatShaderError(ErrorMessage.Error);
 
 		EXPECT_FALSE(ShaderMapA.GetCacheKey().IsZero());
 		EXPECT_EQ(ShaderMapA.GetCacheKey(), ShaderMapB.GetCacheKey());
@@ -514,7 +513,7 @@ namespace Durin
 		FShaderType ShaderType("ReclaimableShader", "/Unit/ReclaimableShader", EShaderFrequency::Vertex, "vertexMain");
 		const std::array<const FShaderType*, 1> ShaderTypes = {&ShaderType};
 		FShaderCompilerOutput Output;
-		Output.bSucceeded = true;
+		Output.Error = {};
 		Output.CompiledShaders = {MakeCompiledShader(EShaderFrequency::Vertex, "vertexMain", "ReclaimableShader", 77)};
 		FShaderCompileOptions Options;
 		Options.VirtualShaderPath = "/Unit/ReclaimableShader";
@@ -523,8 +522,8 @@ namespace Durin
 
 		{
 			FShaderMapBase ShaderMap;
-			std::string ErrorMessage;
-			ASSERT_TRUE(ShaderMap.Initialize(ShaderTypes, Output, Options, ErrorMessage)) << ErrorMessage;
+			FShaderOperationResult ErrorMessage;
+			ASSERT_TRUE((ErrorMessage = ShaderMap.Initialize(ShaderTypes, Output, Options))) << FormatShaderError(ErrorMessage.Error);
 			const FShaderMapResourceCacheStats Stats = GetShaderMapResourceCacheStats();
 			EXPECT_EQ(Stats.EntryCount, 1u);
 			EXPECT_EQ(Stats.LiveEntryCount, 1u);
@@ -542,7 +541,7 @@ namespace Durin
 		std::array<const FShaderType*, 2> ShaderTypes = {&VertexShaderType, &FragmentShaderType};
 
 		FShaderCompilerOutput OutputA;
-		OutputA.bSucceeded = true;
+		OutputA.Error = {};
 		OutputA.CompiledShaders = {
 			MakeCompiledShader(EShaderFrequency::Vertex, "vertexMain", "UnitVertexShader", 2),
 			MakeCompiledShader(EShaderFrequency::Fragment, "fragmentMain", "UnitFragmentShader", 22)
@@ -562,10 +561,10 @@ namespace Durin
 		FShaderMapBase ShaderMapBaseIdentity;
 		FShaderMapBase ShaderMapMacroVariant;
 		FShaderMapBase ShaderMapBytecodeVariant;
-		std::string ErrorMessage;
-		ASSERT_TRUE(ShaderMapBaseIdentity.Initialize(ShaderTypes, OutputA, BaseOptions, ErrorMessage)) << ErrorMessage;
-		ASSERT_TRUE(ShaderMapMacroVariant.Initialize(ShaderTypes, OutputA, MacroOptions, ErrorMessage)) << ErrorMessage;
-		ASSERT_TRUE(ShaderMapBytecodeVariant.Initialize(ShaderTypes, OutputB, BaseOptions, ErrorMessage)) << ErrorMessage;
+		FShaderOperationResult ErrorMessage;
+		ASSERT_TRUE((ErrorMessage = ShaderMapBaseIdentity.Initialize(ShaderTypes, OutputA, BaseOptions))) << FormatShaderError(ErrorMessage.Error);
+		ASSERT_TRUE((ErrorMessage = ShaderMapMacroVariant.Initialize(ShaderTypes, OutputA, MacroOptions))) << FormatShaderError(ErrorMessage.Error);
+		ASSERT_TRUE((ErrorMessage = ShaderMapBytecodeVariant.Initialize(ShaderTypes, OutputB, BaseOptions))) << FormatShaderError(ErrorMessage.Error);
 
 		EXPECT_NE(ShaderMapBaseIdentity.GetCacheKey(), ShaderMapMacroVariant.GetCacheKey());
 		EXPECT_NE(ShaderMapBaseIdentity.GetResource(), ShaderMapMacroVariant.GetResource());
@@ -596,7 +595,7 @@ namespace Durin
 		std::array<const FShaderType*, 1> ShaderTypes = {&VertexShaderType};
 
 		FShaderCompilerOutput Output;
-		Output.bSucceeded = true;
+		Output.Error = {};
 		Output.CompiledShaders = {
 			MakeCompiledShader(EShaderFrequency::Vertex, "vertexMain", "UnitVertexShader", 5)
 		};
@@ -613,9 +612,9 @@ namespace Durin
 
 		FShaderMapBase PresenceOnlyShaderMap;
 		FShaderMapBase ExplicitValueShaderMap;
-		std::string ErrorMessage;
-		ASSERT_TRUE(PresenceOnlyShaderMap.Initialize(ShaderTypes, Output, PresenceOnlyOptions, ErrorMessage)) << ErrorMessage;
-		ASSERT_TRUE(ExplicitValueShaderMap.Initialize(ShaderTypes, Output, ExplicitValueOptions, ErrorMessage)) << ErrorMessage;
+		FShaderOperationResult ErrorMessage;
+		ASSERT_TRUE((ErrorMessage = PresenceOnlyShaderMap.Initialize(ShaderTypes, Output, PresenceOnlyOptions))) << FormatShaderError(ErrorMessage.Error);
+		ASSERT_TRUE((ErrorMessage = ExplicitValueShaderMap.Initialize(ShaderTypes, Output, ExplicitValueOptions))) << FormatShaderError(ErrorMessage.Error);
 
 		EXPECT_NE(PresenceOnlyShaderMap.GetCacheKey(), ExplicitValueShaderMap.GetCacheKey());
 	}
@@ -682,8 +681,8 @@ namespace Durin
 		};
 
 		FPipelineLayoutDesc PipelineLayout;
-		std::string ErrorMessage;
-		ASSERT_TRUE(BuildPipelineLayoutFromShaders(CompiledShaders, PipelineLayout, ErrorMessage)) << ErrorMessage;
+		FShaderOperationResult ErrorMessage;
+		ASSERT_TRUE((ErrorMessage = BuildPipelineLayoutFromShaders(CompiledShaders, PipelineLayout))) << FormatShaderError(ErrorMessage.Error);
 		ASSERT_EQ(PipelineLayout.BindingLayouts.size(), 1u);
 		ASSERT_EQ(PipelineLayout.BindingLayouts[0].BindingLayouts.size(), 3u);
 
@@ -733,9 +732,9 @@ namespace Durin
 		};
 
 		FPipelineLayoutDesc PipelineLayout;
-		std::string ErrorMessage;
-		EXPECT_FALSE(BuildPipelineLayoutFromShaders(CompiledShaders, PipelineLayout, ErrorMessage));
-		EXPECT_FALSE(ErrorMessage.empty());
+		FShaderOperationResult ErrorMessage;
+		EXPECT_FALSE((ErrorMessage = BuildPipelineLayoutFromShaders(CompiledShaders, PipelineLayout)));
+		EXPECT_EQ(ErrorMessage.Error.Code, EShaderError::BindingTypeConflict);
 	}
 
 	TEST(FShaderFoundationTests, BuildShaderParameterBindingsResolvesReflectionSlots)
@@ -770,9 +769,9 @@ namespace Durin
 		});
 
 		std::vector<FShaderParameterBinding> Bindings;
-		std::string ErrorMessage;
+		FShaderOperationResult ErrorMessage;
 		const FShaderParametersMetadata ParametersMetadata = MakeTestParametersMetadata<FParameters>(Metadata);
-		ASSERT_TRUE(BuildShaderParameterBindings(&ParametersMetadata, Reflection, Bindings, ErrorMessage)) << ErrorMessage;
+		ASSERT_TRUE((ErrorMessage = BuildShaderParameterBindings(&ParametersMetadata, Reflection, Bindings))) << FormatShaderError(ErrorMessage.Error);
 		ASSERT_EQ(Bindings.size(), 2u);
 		EXPECT_STREQ(Bindings[0].Name, "FontTexture");
 		EXPECT_EQ(Bindings[0].Offset, offsetof(FParameters, FontTexture));
@@ -805,9 +804,8 @@ namespace Durin
 			.SetIndex = 0, .BindingIndex = 2, .Type = ERHIBindingType::Sampler,
 			.ArraySize = 2});
 		std::vector<FShaderParameterBinding> Bindings;
-		std::string Error;
-		ASSERT_TRUE(BuildShaderParameterBindings(Metadata, Reflection, Bindings,
-			Error)) << Error;
+		FShaderOperationResult Error;
+		ASSERT_TRUE((Error = BuildShaderParameterBindings(Metadata, Reflection, Bindings))) << FormatShaderError(Error.Error);
 		ASSERT_EQ(Bindings.size(), 2u);
 		EXPECT_EQ(Bindings[0].ArraySize, 2u);
 		EXPECT_EQ(Bindings[1].ArraySize, 2u);
@@ -845,9 +843,9 @@ namespace Durin
 		});
 
 		std::vector<FShaderParameterBinding> Bindings;
-		std::string ErrorMessage;
+		FShaderOperationResult ErrorMessage;
 		const FShaderParametersMetadata ParametersMetadata = MakeTestParametersMetadata<FParameters>(Metadata);
-		ASSERT_TRUE(BuildShaderParameterBindings(&ParametersMetadata, Reflection, Bindings, ErrorMessage)) << ErrorMessage;
+		ASSERT_TRUE((ErrorMessage = BuildShaderParameterBindings(&ParametersMetadata, Reflection, Bindings))) << FormatShaderError(ErrorMessage.Error);
 		ASSERT_EQ(Bindings.size(), 2u);
 		EXPECT_EQ(Bindings[0].Type, ERHIBindingType::StorageBuffer);
 		EXPECT_EQ(Bindings[0].SetIndex, 1u);
@@ -879,9 +877,9 @@ namespace Durin
 		});
 
 		std::vector<FShaderParameterBinding> Bindings;
-		std::string ErrorMessage;
+		FShaderOperationResult ErrorMessage;
 		const FShaderParametersMetadata ParametersMetadata = MakeTestParametersMetadata<FParameters>(Metadata);
-		ASSERT_TRUE(BuildShaderParameterBindings(&ParametersMetadata, Reflection, Bindings, ErrorMessage)) << ErrorMessage;
+		ASSERT_TRUE((ErrorMessage = BuildShaderParameterBindings(&ParametersMetadata, Reflection, Bindings))) << FormatShaderError(ErrorMessage.Error);
 		ASSERT_EQ(Bindings.size(), 1u);
 		EXPECT_EQ(Bindings[0].Type, ERHIBindingType::UniformBufferDynamic);
 		EXPECT_EQ(Bindings[0].SetIndex, 1u);
@@ -924,14 +922,14 @@ namespace Durin
 		});
 
 		FShaderCompilerOutput Output;
-		Output.bSucceeded = true;
+		Output.Error = {};
 		Output.CompiledShaders = {
 			MakeCompiledShader(EShaderFrequency::Vertex, "vertexMain", "UnitDynamicUniformVertexShader", 14, Reflection)
 		};
 
 		FShaderMapBase ShaderMap;
-		std::string ErrorMessage;
-		ASSERT_TRUE(ShaderMap.Initialize(ShaderTypes, Output, ErrorMessage)) << ErrorMessage;
+		FShaderOperationResult ErrorMessage;
+		ASSERT_TRUE((ErrorMessage = ShaderMap.Initialize(ShaderTypes, Output))) << FormatShaderError(ErrorMessage.Error);
 		ASSERT_EQ(ShaderMap.GetMergedPipelineLayout().BindingLayouts.size(), 1u);
 		ASSERT_EQ(ShaderMap.GetMergedPipelineLayout().BindingLayouts[0].BindingLayouts.size(), 1u);
 		EXPECT_EQ(ShaderMap.GetMergedPipelineLayout().BindingLayouts[0].BindingLayouts[0].Type, ERHIBindingType::UniformBufferDynamic);
@@ -950,10 +948,11 @@ namespace Durin
 
 		FShaderReflectionData Reflection;
 		std::vector<FShaderParameterBinding> Bindings;
-		std::string ErrorMessage;
+		FShaderOperationResult ErrorMessage;
 		const FShaderParametersMetadata ParametersMetadata = MakeTestParametersMetadata<FParameters>(Metadata);
-		EXPECT_FALSE(BuildShaderParameterBindings(&ParametersMetadata, Reflection, Bindings, ErrorMessage));
-		EXPECT_FALSE(ErrorMessage.empty());
+		EXPECT_FALSE((ErrorMessage = BuildShaderParameterBindings(&ParametersMetadata, Reflection, Bindings)));
+		EXPECT_EQ(ErrorMessage.Error.Code, EShaderError::MissingParameter);
+		EXPECT_EQ(ErrorMessage.Error.Parameter, "MissingTexture");
 		EXPECT_TRUE(Bindings.empty());
 	}
 
@@ -984,11 +983,10 @@ namespace Durin
 		});
 
 		std::vector<FShaderParameterBinding> Bindings;
-		std::string ErrorMessage;
+		FShaderOperationResult ErrorMessage;
 		const FShaderParametersMetadata ParametersMetadata =
 			MakeTestParametersMetadata<FParameters>(Metadata);
-		ASSERT_TRUE(BuildShaderParameterBindings(&ParametersMetadata, Reflection,
-			Bindings, ErrorMessage)) << ErrorMessage;
+		ASSERT_TRUE((ErrorMessage = BuildShaderParameterBindings(&ParametersMetadata, Reflection, Bindings))) << FormatShaderError(ErrorMessage.Error);
 		ASSERT_EQ(Bindings.size(), 1u);
 		EXPECT_STREQ(Bindings.front().Name, "Material");
 		EXPECT_EQ(Bindings.front().BindingIndex, 2u);
@@ -1016,10 +1014,13 @@ namespace Durin
 		});
 
 		std::vector<FShaderParameterBinding> Bindings;
-		std::string ErrorMessage;
+		FShaderOperationResult ErrorMessage;
 		const FShaderParametersMetadata ParametersMetadata = MakeTestParametersMetadata<FParameters>(Metadata);
-		EXPECT_FALSE(BuildShaderParameterBindings(&ParametersMetadata, Reflection, Bindings, ErrorMessage));
-		EXPECT_FALSE(ErrorMessage.empty());
+		EXPECT_FALSE((ErrorMessage = BuildShaderParameterBindings(&ParametersMetadata, Reflection, Bindings)));
+		EXPECT_EQ(ErrorMessage.Error.Code, EShaderError::ParameterTypeMismatch);
+		EXPECT_EQ(ErrorMessage.Error.Parameter, "FontTexture");
+		EXPECT_EQ(ErrorMessage.Error.Expected, static_cast<uint64>(ERHIBindingType::Texture));
+		EXPECT_EQ(ErrorMessage.Error.Actual, static_cast<uint64>(ERHIBindingType::Sampler));
 		EXPECT_TRUE(Bindings.empty());
 	}
 
@@ -1058,14 +1059,14 @@ namespace Durin
 		});
 
 		FShaderCompilerOutput Output;
-		Output.bSucceeded = true;
+		Output.Error = {};
 		Output.CompiledShaders = {
 			MakeCompiledShader(EShaderFrequency::Fragment, "fragmentMain", "UnitFragmentShader", 13, Reflection)
 		};
 
 		FShaderMapBase ShaderMap;
-		std::string ErrorMessage;
-		ASSERT_TRUE(ShaderMap.Initialize(ShaderTypes, Output, ErrorMessage)) << ErrorMessage;
+		FShaderOperationResult ErrorMessage;
+		ASSERT_TRUE((ErrorMessage = ShaderMap.Initialize(ShaderTypes, Output))) << FormatShaderError(ErrorMessage.Error);
 		const FShader* Shader = ShaderMap.GetShader(&FragmentShaderType);
 		ASSERT_NE(Shader, nullptr);
 
@@ -1105,7 +1106,7 @@ namespace Durin
 		});
 
 		FShaderCompilerOutput Output;
-		Output.bSucceeded = true;
+		Output.Error = {};
 		Output.CompiledShaders = {
 			MakeCompiledShader(EShaderFrequency::Vertex, "vertexMain", "StaticVertexShader", 3),
 			MakeCompiledShader(EShaderFrequency::Fragment, "fragmentMain", "StaticFragmentShader", 7, Reflection)
@@ -1113,8 +1114,8 @@ namespace Durin
 
 		std::array<const FShaderType*, 2> ShaderTypes = {&VertexShaderType, &FragmentShaderType};
 		FShaderMapBase ShaderMap;
-		std::string ErrorMessage;
-		ASSERT_TRUE(ShaderMap.Initialize(ShaderTypes, Output, ErrorMessage)) << ErrorMessage;
+		FShaderOperationResult ErrorMessage;
+		ASSERT_TRUE((ErrorMessage = ShaderMap.Initialize(ShaderTypes, Output))) << FormatShaderError(ErrorMessage.Error);
 
 		const auto* FragmentShader = static_cast<const FStaticFragmentShader*>(ShaderMap.GetShader(&FragmentShaderType));
 		ASSERT_NE(FragmentShader, nullptr);
@@ -1229,7 +1230,7 @@ namespace Durin
 		});
 
 		FShaderCompilerOutput Output;
-		Output.bSucceeded = true;
+		Output.Error = {};
 		Output.CompiledShaders = {
 			MakeCompiledShader(EShaderFrequency::Vertex, "baseMain", "FIntermediateShader", 31, BaseReflection),
 			MakeCompiledShader(EShaderFrequency::Vertex, "derivedNoParamsMain", "FDerivedShaderNoParameters", 32, BaseReflection),
@@ -1238,8 +1239,8 @@ namespace Durin
 
 		std::array<const FShaderType*, 3> ShaderTypes = {&BaseShaderType, &DerivedNoParametersType, &DerivedWithParametersType};
 		FShaderMapBase ShaderMap;
-		std::string ErrorMessage;
-		ASSERT_TRUE(ShaderMap.Initialize(ShaderTypes, Output, ErrorMessage)) << ErrorMessage;
+		FShaderOperationResult ErrorMessage;
+		ASSERT_TRUE((ErrorMessage = ShaderMap.Initialize(ShaderTypes, Output))) << FormatShaderError(ErrorMessage.Error);
 
 		const auto* BaseShader = static_cast<const FIntermediateShader*>(ShaderMap.GetShader(&BaseShaderType));
 		const auto* DerivedNoParametersShader = static_cast<const FDerivedShaderNoParameters*>(ShaderMap.GetShader(&DerivedNoParametersType));
@@ -1288,7 +1289,7 @@ namespace Durin
 		});
 
 		FShaderCompilerOutput Output;
-		Output.bSucceeded = true;
+		Output.Error = {};
 		Output.CompiledShaders = {
 			MakeCompiledShader(EShaderFrequency::Fragment, "includeBaseMain", "FIncludedParametersShader", 41, Reflection),
 			MakeCompiledShader(EShaderFrequency::Fragment, "includeOnlyMain", "FExplicitIncludeOnlyShader", 42, Reflection),
@@ -1297,8 +1298,8 @@ namespace Durin
 
 		std::array<const FShaderType*, 3> ShaderTypes = {&IncludedParametersType, &IncludeOnlyType, &IncludeWithOwnType};
 		FShaderMapBase ShaderMap;
-		std::string ErrorMessage;
-		ASSERT_TRUE(ShaderMap.Initialize(ShaderTypes, Output, ErrorMessage)) << ErrorMessage;
+		FShaderOperationResult ErrorMessage;
+		ASSERT_TRUE((ErrorMessage = ShaderMap.Initialize(ShaderTypes, Output))) << FormatShaderError(ErrorMessage.Error);
 
 		const auto* IncludeOnlyShader = static_cast<const FExplicitIncludeOnlyShader*>(ShaderMap.GetShader(&IncludeOnlyType));
 		const auto* IncludeWithOwnShader = static_cast<const FExplicitIncludeWithOwnParametersShader*>(ShaderMap.GetShader(&IncludeWithOwnType));
@@ -1317,15 +1318,15 @@ namespace Durin
 		std::array<const FShaderType*, 1> ShaderTypes = {&VertexShaderType};
 
 		FShaderCompilerOutput Output;
-		Output.bSucceeded = true;
+		Output.Error = {};
 		Output.CompiledShaders = {
 			MakeCompiledShader(EShaderFrequency::Vertex, "unexpectedMain", "UnitVertexShader", 12)
 		};
 
 		FShaderMapBase ShaderMap;
-		std::string ErrorMessage;
-		EXPECT_FALSE(ShaderMap.Initialize(ShaderTypes, Output, ErrorMessage));
-		EXPECT_FALSE(ErrorMessage.empty());
+		FShaderOperationResult ErrorMessage;
+		EXPECT_FALSE((ErrorMessage = ShaderMap.Initialize(ShaderTypes, Output)));
+		EXPECT_EQ(ErrorMessage.Error.Code, EShaderError::CompiledEntryPointMismatch);
 	}
 
 	TEST(FShaderFoundationTests, UnmountedShaderCacheFallsBackUnderDerivedDataCache)
@@ -1335,6 +1336,49 @@ namespace Durin
 		EXPECT_TRUE(MetaPath.starts_with(FPaths::DerivedDataCacheDir() + "Shaders/SPIR-V/"));
 		EXPECT_EQ(MetaPath.find("ShaderCache"), std::string::npos);
 		EXPECT_NE(std::filesystem::path(MetaPath).parent_path().parent_path(), std::filesystem::path(OtherMetaPath).parent_path().parent_path());
+	}
+
+
+	TEST(FShaderFoundationTests, ShaderLayoutErrorsRetainBindingAndRangeContext)
+	{
+		std::array<FShaderReflectionData, 2> Reflections;
+		Reflections[0].ResourceBindings.push_back({
+			.Name = "Textures", .SetIndex = 2, .BindingIndex = 7,
+			.Type = ERHIBindingType::Texture, .ArraySize = 3});
+		Reflections[1] = Reflections[0];
+		Reflections[1].ResourceBindings[0].ArraySize = 5;
+		FPipelineLayoutDesc Layout;
+		Layout.BindingLayouts.resize(1);
+		const auto BindingResult = BuildPipelineLayoutFromReflection(Reflections, Layout);
+		EXPECT_EQ(BindingResult.Error.Code, EShaderError::BindingArraySizeConflict);
+		EXPECT_EQ(BindingResult.Error.SetIndex, 2u);
+		EXPECT_EQ(BindingResult.Error.BindingIndex, 7u);
+		EXPECT_EQ(BindingResult.Error.Expected, 3u);
+		EXPECT_EQ(BindingResult.Error.Actual, 5u);
+		EXPECT_TRUE(Layout.BindingLayouts.empty());
+
+		for (auto& Reflection : Reflections) Reflection.ResourceBindings.clear();
+		Reflections[0].PushConstantRanges.push_back({EShaderStageFlags::Vertex, 0, 16});
+		Reflections[1].PushConstantRanges.push_back({EShaderStageFlags::Fragment, 8, 16});
+		const auto RangeResult = BuildPipelineLayoutFromReflection(Reflections, Layout);
+		EXPECT_EQ(RangeResult.Error.Code, EShaderError::PushConstantOverlap);
+		EXPECT_EQ(RangeResult.Error.ExistingBegin, 0u);
+		EXPECT_EQ(RangeResult.Error.ExistingEnd, 16u);
+		EXPECT_EQ(RangeResult.Error.NewBegin, 8u);
+		EXPECT_EQ(RangeResult.Error.NewEnd, 24u);
+		EXPECT_TRUE(Layout.PushConstantRanges.empty());
+	}
+
+	TEST(FShaderFoundationTests, ShaderDiagnosticFormattingAndExternalBounds)
+	{
+		EXPECT_TRUE(FormatShaderError({}).empty());
+		const FShaderError Error{.Code = EShaderError::MissingParameter, .Parameter = "Texture"};
+		EXPECT_EQ(FormatShaderError(Error), "Shader parameter 'Texture' was not found in shader reflection");
+		const auto External = FShaderError::FromSlang(ESlangShaderError::Module, std::string(8192, 'x'), -7);
+		EXPECT_EQ(External.Code, EShaderError::SlangFailure);
+		EXPECT_EQ(External.CompilerPhase, ESlangShaderError::Module);
+		EXPECT_EQ(External.NativeStatus, -7);
+		EXPECT_EQ(External.ExternalDiagnostic.size(), 4096u);
 	}
 
 } // namespace Durin

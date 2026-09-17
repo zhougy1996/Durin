@@ -82,7 +82,7 @@ namespace Durin::RendererPrivate
 		const std::span<const FCompiledShader> GeneratedStages = MaterialProgram
 			? std::span<const FCompiledShader>(MaterialProgram->CompiledShaders)
 			: std::span<const FCompiledShader>{};
-		return FMaterialShaderMap::TryCompile({
+		const auto Result = FMaterialShaderMap::TryCompile({
 			.Identity = Identity,
 			.Generation = Generation,
 			.Target = MaterialProgram ? MaterialProgram->Target
@@ -98,7 +98,9 @@ namespace Durin::RendererPrivate
 				? MaterialProgram->Identity : FMaterialProgramIdentity{},
 			.CompiledTarget = MaterialProgram
 				? MaterialProgram->Target : std::string{},
-			.bCreateRHIShaders = true}, OutShaderMap, OutError);
+			.bCreateRHIShaders = true}, OutShaderMap);
+		OutError = FormatShaderError(Result.Error);
+		return Result.IsSuccess();
 	}
 
 	class FStaticMeshVertexShader : public FMeshMaterialShader

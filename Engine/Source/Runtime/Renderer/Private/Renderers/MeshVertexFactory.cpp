@@ -130,9 +130,10 @@ namespace Durin::RendererPrivate
 				Request.Category = EShaderRuntimeRequestCategory::FeatureProgram;
 				Request.Owner = "MeshVertexFactory";
 				Request.Name = Implementation->GetRuntimeRequestName(Pass);
-				auto Registration = RegisterShaderRuntimeRequest(std::move(Request),
-					EShaderRequestEligibility::GameAndEditor, std::span(&Shader, 1));
-				if (!Registration.IsValid()) return {};
+				FShaderRequestRegistration Registration;
+				const auto RegistrationResult = RegisterShaderRuntimeRequest(std::move(Request),
+					EShaderRequestEligibility::GameAndEditor, Registration, std::span(&Shader, 1));
+				if (!RegistrationResult) return {};
 				Result.Requests.push_back(std::move(Registration));
 			}
 			if (!Result.Requests.empty()) Result.Implementation = std::move(Implementation);

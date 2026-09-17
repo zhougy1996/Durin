@@ -68,11 +68,11 @@ namespace Durin
 		Request.Owner = Owner;
 		Request.Name = Name;
 		std::vector<const FShaderType*> BaseTypes(Types.begin(), Types.end());
-		std::string Error;
-		Registration = RegisterShaderRuntimeRequest(
-			std::move(Request), Eligibility, BaseTypes, &Error);
+		FShaderOperationResult Error;
+		Error = RegisterShaderRuntimeRequest(
+			std::move(Request), Eligibility, Registration, BaseTypes);
 		requiref(Registration.IsValid(),
-			"Global Shader set registration failed for '{}': {}", Name, Error);
+			"Global Shader set registration failed for '{}': {}", Name, FormatShaderError(Error.Error));
 	}
 
 	struct FGlobalShaderMap::FSectionEntry
@@ -176,23 +176,21 @@ namespace Durin
 				Candidate->Identity = TypeIdentity;
 				std::vector<const FShaderType*> BaseTypes(
 					Entry.Types.begin(), Entry.Types.end());
-				std::string Error;
+				FShaderOperationResult ShaderResult;
+				FShaderOperationResult Error;
 				bool bInitialized = false;
 				if (GetShaderDataDomain() == EShaderDataDomain::Cooked)
 				{
 					FShaderCompilerOutput Output;
-					bInitialized = LoadCookedShaderRuntimeRequest(
-						SectionIdentity, BaseTypes, Output, Error)
-						&& Candidate->ShaderMap->Initialize(
-							BaseTypes, Output, Error);
+					bInitialized = (Error = LoadCookedShaderRuntimeRequest(SectionIdentity, BaseTypes, Output))
+						&& (ShaderResult = Candidate->ShaderMap->Initialize(BaseTypes, Output));
 				}
 				else
 				{
 					FShaderCompileOptions Options;
 					Options.bForceRecompile =
 						ForceRecompileShaderGeneration == Generation.Shader;
-					bInitialized = Candidate->ShaderMap->InitializeFromShaderTypes(
-						BaseTypes, Options, Error);
+					bInitialized = (ShaderResult = Candidate->ShaderMap->InitializeFromShaderTypes(BaseTypes, Options)).IsSuccess();
 				}
 				if (!bInitialized)
 				{
@@ -200,7 +198,7 @@ namespace Durin
 						.Category = ERenderResourceCreateErrorCategory::ShaderCompile,
 						.Context = std::string(SectionIdentity),
 						.Identity = TypeIdentity,
-						.Message = std::move(Error),
+						.Message = FormatShaderError(ShaderResult.IsSuccess() ? Error.Error : ShaderResult.Error),
 						.RetryDependencies = ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Manual});
 				}

@@ -310,7 +310,7 @@ namespace Durin
 		CompileOptions.Frequencies = {EShaderFrequency::Compute};
 		FSlangShaderCompiler Compiler;
 		const FShaderCompilerOutput CompileOutput = Compiler.Compile(ShaderPath.string(), CompileOptions);
-		ASSERT_TRUE(CompileOutput) << CompileOutput.ErrorMessage;
+		ASSERT_TRUE(CompileOutput) << FormatShaderError(CompileOutput.Error);
 		ASSERT_EQ(CompileOutput.CompiledShaders.size(), 1u);
 		const FCompiledShader& CompiledShader = CompileOutput.CompiledShaders[0];
 
@@ -1091,18 +1091,14 @@ namespace Durin
 		const FShaderCompilerOutput Compiled = FSlangShaderCompiler().Compile(
 			(std::filesystem::path(DURIN_TEST_DATA_DIR)
 				/ "PublicComputePipeline.slang").string(), Options);
-		ASSERT_TRUE(Compiled) << Compiled.ErrorMessage;
+		ASSERT_TRUE(Compiled) << FormatShaderError(Compiled.Error);
 		ASSERT_EQ(Compiled.CompiledShaders.size(), 2u);
 		const FCompiledShader& CompiledShader = Compiled.CompiledShaders[0];
 		FPipelineLayoutDesc ReflectedLayout;
-		std::string ReflectionError;
-		ASSERT_TRUE(BuildPipelineLayoutFromReflection(
-			std::span(&CompiledShader.Reflection, 1), ReflectedLayout,
-			ReflectionError)) << ReflectionError;
+		FShaderOperationResult ReflectionError;
+		ASSERT_TRUE((ReflectionError = BuildPipelineLayoutFromReflection(std::span(&CompiledShader.Reflection, 1), ReflectedLayout))) << FormatShaderError(ReflectionError.Error);
 		FPipelineLayoutDesc SecondReflectedLayout;
-		ASSERT_TRUE(BuildPipelineLayoutFromReflection(
-			std::span(&Compiled.CompiledShaders[1].Reflection, 1),
-			SecondReflectedLayout, ReflectionError)) << ReflectionError;
+		ASSERT_TRUE((ReflectionError = BuildPipelineLayoutFromReflection(std::span(&Compiled.CompiledShaders[1].Reflection, 1), SecondReflectedLayout))) << FormatShaderError(ReflectionError.Error);
 		FShaderCompileOptions InteropOptions;
 		InteropOptions.EntryPoints = {"VertexMain", "FragmentMain"};
 		InteropOptions.Frequencies = {
@@ -1111,14 +1107,13 @@ namespace Durin
 			FSlangShaderCompiler().Compile(
 				(std::filesystem::path(DURIN_TEST_DATA_DIR)
 					/ "ComputeGraphicsInterop.slang").string(), InteropOptions);
-		ASSERT_TRUE(InteropCompiled) << InteropCompiled.ErrorMessage;
+		ASSERT_TRUE(InteropCompiled) << FormatShaderError(InteropCompiled.Error);
 		ASSERT_EQ(InteropCompiled.CompiledShaders.size(), 2u);
 		FPipelineLayoutDesc InteropLayout;
 		const std::array InteropReflections{
 			InteropCompiled.CompiledShaders[0].Reflection,
 			InteropCompiled.CompiledShaders[1].Reflection};
-		ASSERT_TRUE(BuildPipelineLayoutFromReflection(
-			InteropReflections, InteropLayout, ReflectionError)) << ReflectionError;
+		ASSERT_TRUE((ReflectionError = BuildPipelineLayoutFromReflection(InteropReflections, InteropLayout))) << FormatShaderError(ReflectionError.Error);
 
 		for (const char* QueuePolicy : {"", "same-family", "dedicated"})
 		for (const char* Mode : {"inline", "threaded"})
@@ -1420,13 +1415,12 @@ namespace Durin
 		const FShaderCompilerOutput Compiled = FSlangShaderCompiler().Compile(
 			(std::filesystem::path(DURIN_TEST_DATA_DIR)
 				/ "VolumeTextureCompute.slang").string(), Options);
-		ASSERT_TRUE(Compiled) << Compiled.ErrorMessage;
+		ASSERT_TRUE(Compiled) << FormatShaderError(Compiled.Error);
 		ASSERT_EQ(Compiled.CompiledShaders.size(), 1u);
 		const FCompiledShader& CompiledShader = Compiled.CompiledShaders[0];
 		FPipelineLayoutDesc Layout;
-		std::string Error;
-		ASSERT_TRUE(BuildPipelineLayoutFromReflection(
-			std::span(&CompiledShader.Reflection, 1), Layout, Error)) << Error;
+		FShaderOperationResult Error;
+		ASSERT_TRUE((Error = BuildPipelineLayoutFromReflection(std::span(&CompiledShader.Reflection, 1), Layout))) << FormatShaderError(Error.Error);
 		ASSERT_EQ(Layout.BindingLayouts.size(), 1u);
 		ASSERT_EQ(Layout.BindingLayouts[0].BindingLayouts.size(), 4u);
 		EXPECT_EQ(Layout.BindingLayouts[0].BindingLayouts[0].Type, ERHIBindingType::Texture);
@@ -1565,13 +1559,12 @@ namespace Durin
 		const FShaderCompilerOutput Compiled = FSlangShaderCompiler().Compile(
 			(std::filesystem::path(DURIN_TEST_DATA_DIR)
 				/ "VolumetricCloudFixture.slang").string(), Options);
-		ASSERT_TRUE(Compiled) << Compiled.ErrorMessage;
+		ASSERT_TRUE(Compiled) << FormatShaderError(Compiled.Error);
 		ASSERT_EQ(Compiled.CompiledShaders.size(), 1u);
 		const FCompiledShader& CompiledShader = Compiled.CompiledShaders[0];
 		FPipelineLayoutDesc Layout;
-		std::string Error;
-		ASSERT_TRUE(BuildPipelineLayoutFromReflection(
-			std::span(&CompiledShader.Reflection, 1), Layout, Error)) << Error;
+		FShaderOperationResult Error;
+		ASSERT_TRUE((Error = BuildPipelineLayoutFromReflection(std::span(&CompiledShader.Reflection, 1), Layout))) << FormatShaderError(Error.Error);
 
 		for (const char* Mode : {"inline", "threaded"})
 		{
@@ -1757,7 +1750,7 @@ namespace Durin
 		const FShaderCompilerOutput Compiled = FSlangShaderCompiler().Compile(
 			(std::filesystem::path(DURIN_TEST_DATA_DIR) / "DualUseTexture.slang").string(),
 			Options);
-		ASSERT_TRUE(Compiled) << Compiled.ErrorMessage;
+		ASSERT_TRUE(Compiled) << FormatShaderError(Compiled.Error);
 		ASSERT_EQ(Compiled.CompiledShaders.size(), 3u);
 
 		for (const char* Mode : {"inline", "threaded"})

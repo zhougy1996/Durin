@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Shader/ShaderDiagnostics.h"
+
 #include "RHIDefinitions.h"
 #include "RHIResources.h"
 #include "RenderCoreAPI.h"
@@ -104,14 +106,13 @@ namespace Durin
 		FShaderReflectionData Reflection;
 	};
 
-	// Reports compilation status and either compiled stages or a diagnostic message.
+	// Owns compiled stages and a structured compilation outcome.
 	struct FShaderCompilerOutput
 	{
-		bool bSucceeded = false;
 		std::vector<FCompiledShader> CompiledShaders;
-		std::string ErrorMessage;
+		FShaderError Error{.Code = EShaderError::CompilationNotStarted};
 
-		operator bool() const { return bSucceeded; }
+		operator bool() const { return Error.IsSuccess(); }
 	};
 
 	struct FShaderSourceDependencyFingerprint
@@ -143,16 +144,14 @@ namespace Durin
 	RENDERCORE_API auto BuildShaderSourceDependencyManifest(
 		std::string_view VirtualShaderPath,
 		const FShaderCompileOptions& Options,
-		std::vector<FShaderSourceDependencyFingerprint>& OutDependencies,
-		std::string& OutError) -> bool;
+		std::vector<FShaderSourceDependencyFingerprint>& OutDependencies) -> FShaderOperationResult;
 	// Returns one stable fingerprint for the entire reachable source tree. The
 	// ordinary shader dependency manifest is reused so warm calls only validate
 	// persisted file metadata instead of parsing imports again.
 	RENDERCORE_API auto BuildShaderSourceTreeFingerprint(
 		std::string_view VirtualShaderPath,
 		const FShaderCompileOptions& Options,
-		FShaderSourceDependencyFingerprint& OutFingerprint,
-		std::string& OutError) -> bool;
+		FShaderSourceDependencyFingerprint& OutFingerprint) -> FShaderOperationResult;
 	// Source-tree fingerprints are memoized within this generation. Explicit
 	// shader reload advances it so the next request revalidates persisted state.
 	RENDERCORE_API auto GetShaderReloadGeneration() -> uint64;

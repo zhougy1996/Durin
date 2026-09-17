@@ -21,9 +21,11 @@ namespace Durin::RendererPrivate
 	DURIN_IMPLEMENT_MESH_MATERIAL_SHADER(FSurfaceOpaqueShadowFragmentShader);
 	const auto GOpaqueShadowRequest = [] {
 		const FShaderType* Type = &FSurfaceOpaqueShadowFragmentShader::StaticType();
-		return RegisterShaderRuntimeRequest({.Category = EShaderRuntimeRequestCategory::FeatureProgram,
+		FShaderRequestRegistration Registration;
+		(void)RegisterShaderRuntimeRequest({.Category = EShaderRuntimeRequestCategory::FeatureProgram,
 			.Owner = "SurfaceMaterial", .Name = "Surface.OpaqueShadow"},
-			EShaderRequestEligibility::GameAndEditor, std::span(&Type, 1));
+			EShaderRequestEligibility::GameAndEditor, Registration, std::span(&Type, 1));
+		return Registration;
 	}();
 
 	namespace

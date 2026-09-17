@@ -9,8 +9,7 @@ namespace Durin
 	{
 		auto NormalizeShaderMacros(
 			const FShaderCompileOptions& Options,
-			std::vector<FShaderMacroDefinition>& OutMacros,
-			std::string& OutError) -> bool
+			std::vector<FShaderMacroDefinition>& OutMacros) -> FShaderOperationResult
 		{
 			OutMacros = Options.Macros;
 			std::ranges::sort(OutMacros,
@@ -22,12 +21,9 @@ namespace Durin
 			for (size_t Index = 1; Index < OutMacros.size(); ++Index)
 			{
 				if (OutMacros[Index - 1].Name != OutMacros[Index].Name) continue;
-				OutError = std::format(
-					"Duplicate shader macro definition is not allowed: {}",
-					OutMacros[Index].Name);
-				return false;
+				return {.Error = {.Code = EShaderError::DuplicateMacro, .Parameter = OutMacros[Index].Name}};
 			}
-			return true;
+			return {};
 		}
 
 		struct FShaderBindingKey
@@ -202,12 +198,9 @@ namespace Durin
 			std::span<const FShaderType* const> ShaderTypes,
 			const FShaderCompileOptions* InCompileOptions,
 			FShaderCompileOptions& OutCompileOptions,
-			std::string& OutErrorMessage,
-			bool bAllowMixedSources = false
-		) -> bool
+			bool bAllowMixedSources = false) -> FShaderOperationResult
 		{
 			OutCompileOptions = {};
-			OutErrorMessage.clear();
 
 			if (InCompileOptions)
 			{
@@ -221,7 +214,7 @@ namespace Durin
 				{
 					OutCompileOptions.VirtualShaderPath = InCompileOptions->VirtualShaderPath;
 				}
-				return true;
+				return {};
 			}
 
 			const FShaderType* FirstShaderType = ShaderTypes.front();
@@ -230,18 +223,14 @@ namespace Durin
 			const std::string_view ShaderPath = FirstShaderType->GetVirtualShaderPath();
 			if (ShaderPath.empty())
 			{
-				OutErrorMessage = "Shader type virtual shader path must not be empty";
-				return false;
+				return {.Error = {.Code = EShaderError::MissingVirtualPath}};
 			}
 
 			if (InCompileOptions && !InCompileOptions->VirtualShaderPath.empty() && InCompileOptions->VirtualShaderPath != ShaderPath)
 			{
-				OutErrorMessage = std::format(
-					"Shader compile options virtual path '{}' does not match shader type virtual path '{}'",
-					InCompileOptions->VirtualShaderPath,
-					ShaderPath
-				);
-				return false;
+				return {.Error = {.Code = EShaderError::VirtualPathMismatch,
+					.ExpectedIdentity = std::string(ShaderPath),
+					.ActualIdentity = InCompileOptions->VirtualShaderPath}};
 			}
 
 			OutCompileOptions.VirtualShaderPath = std::string(ShaderPath);
@@ -255,13 +244,10 @@ namespace Durin
 
 				if (!bAllowMixedSources && ShaderType->GetVirtualShaderPath() != ShaderPath)
 				{
-					OutErrorMessage = std::format(
-						"Shader type '{}' uses path '{}' but shader map expects '{}'",
-						ShaderType->GetName(),
-						ShaderType->GetVirtualShaderPath(),
-						ShaderPath
-					);
-					return false;
+					return {.Error = {.Code = EShaderError::ShaderTypePathMismatch,
+						.ShaderType = std::string(ShaderType->GetName()),
+						.ExpectedIdentity = std::string(ShaderPath),
+						.ActualIdentity = std::string(ShaderType->GetVirtualShaderPath())}};
 				}
 
 				OutCompileOptions.EntryPoints.push_back(ShaderType->GetEntryPoint().data());
@@ -272,12 +258,9 @@ namespace Durin
 					if (ShaderTypeIndex >= InCompileOptions->EntryPoints.size()
 						|| std::string_view(InCompileOptions->EntryPoints[ShaderTypeIndex]) != ShaderType->GetEntryPoint())
 					{
-						OutErrorMessage = std::format(
-							"Shader compile options entry point at index {} does not match shader type '{}'",
-							ShaderTypeIndex,
-							ShaderType->GetName()
-						);
-						return false;
+						return {.Error = {.Code = EShaderError::EntryPointMismatch,
+							.ShaderType = std::string(ShaderType->GetName()),
+							.Index = ShaderTypeIndex}};
 					}
 				}
 
@@ -286,59 +269,47 @@ namespace Durin
 					if (ShaderTypeIndex >= InCompileOptions->Frequencies.size()
 						|| InCompileOptions->Frequencies[ShaderTypeIndex] != ShaderType->GetFrequency())
 					{
-						OutErrorMessage = std::format(
-							"Shader compile options frequency at index {} does not match shader type '{}'",
-							ShaderTypeIndex,
-							ShaderType->GetName()
-						);
-						return false;
+						return {.Error = {.Code = EShaderError::FrequencyMismatch,
+							.ShaderType = std::string(ShaderType->GetName()),
+							.Index = ShaderTypeIndex}};
 					}
 				}
 			}
 
 			if (InCompileOptions && !InCompileOptions->EntryPoints.empty() && InCompileOptions->EntryPoints.size() != ShaderTypes.size())
 			{
-				OutErrorMessage = std::format(
-					"Shader compile options entry point count ({}) does not match shader type count ({})",
-					InCompileOptions->EntryPoints.size(),
-					ShaderTypes.size()
-				);
-				return false;
+				return {.Error = {.Code = EShaderError::EntryPointCountMismatch,
+					.Expected = ShaderTypes.size(),
+					.Actual = InCompileOptions->EntryPoints.size()}};
 			}
 
 			if (InCompileOptions && !InCompileOptions->Frequencies.empty() && InCompileOptions->Frequencies.size() != ShaderTypes.size())
 			{
-				OutErrorMessage = std::format(
-					"Shader compile options frequency count ({}) does not match shader type count ({})",
-					InCompileOptions->Frequencies.size(),
-					ShaderTypes.size()
-				);
-				return false;
+				return {.Error = {.Code = EShaderError::FrequencyCountMismatch,
+					.Expected = ShaderTypes.size(),
+					.Actual = InCompileOptions->Frequencies.size()}};
 			}
 
-			return true;
+			return {};
 		}
 
 		auto BuildShaderMapCacheKey(
 			const FShaderCompileOptions& CompileOptions,
 			const FShaderCompilerOutput& Output,
-			FXxHash128& OutCacheKey,
-			std::string& OutErrorMessage
-		) -> bool
+			FXxHash128& OutCacheKey) -> FShaderOperationResult
 		{
+			FShaderOperationResult Result;
 			OutCacheKey = {};
-			OutErrorMessage.clear();
 
 			if (CompileOptions.VirtualShaderPath.empty())
 			{
-				return true;
+				return {};
 			}
 
 			std::vector<FShaderMacroDefinition> NormalizedMacros;
-			if (!NormalizeShaderMacros(
-				CompileOptions, NormalizedMacros, OutErrorMessage))
+			if (!(Result = NormalizeShaderMacros(CompileOptions, NormalizedMacros)))
 			{
-				return false;
+				return Result;
 			}
 
 			FXxHash128Builder Builder;
@@ -379,7 +350,7 @@ namespace Durin
 			}
 
 			OutCacheKey = Builder.Finalize();
-			return true;
+			return {};
 		}
 
 		auto FlattenShaderParameterMembers(
@@ -480,21 +451,18 @@ namespace Durin
 		return (ShaderMap && Type) ? ShaderMap->GetOrCreateShaderRHI(Type, bRequired) : nullptr;
 	}
 
-	auto FShader::InitializeParameterBindings(std::string& OutErrorMessage) -> bool
+	auto FShader::InitializeParameterBindings() -> FShaderOperationResult
 	{
 		ParameterBindings.clear();
-		return BuildShaderParameterBindings(Type ? Type->GetParametersMetadata() : nullptr, Reflection, ParameterBindings, OutErrorMessage);
+		return BuildShaderParameterBindings(Type ? Type->GetParametersMetadata() : nullptr, Reflection, ParameterBindings);
 	}
 
 	auto BuildShaderParameterBindings(
 		const FShaderParametersMetadata* ParametersMetadata,
 		const FShaderReflectionData& Reflection,
-		std::vector<FShaderParameterBinding>& OutBindings,
-		std::string& OutErrorMessage
-	) -> bool
+		std::vector<FShaderParameterBinding>& OutBindings) -> FShaderOperationResult
 	{
 		OutBindings.clear();
-		OutErrorMessage.clear();
 
 		const std::span<const FShaderParameterMemberMetadata> ParameterMetadata = ParametersMetadata ? ParametersMetadata->Members : std::span<const FShaderParameterMemberMetadata>{};
 		for (const FShaderParameterMemberMetadata& Parameter : ParameterMetadata)
@@ -506,8 +474,7 @@ namespace Durin
 
 			if (Parameter.Name == nullptr || Parameter.Name[0] == '\0')
 			{
-				OutErrorMessage = "Shader parameter metadata contains an empty name";
-				return false;
+				return {.Error = {.Code = EShaderError::EmptyParameterName}};
 			}
 
 			const auto FoundIt = std::ranges::find_if(Reflection.ResourceBindings, [&Parameter](const FShaderResourceBinding& Binding) {
@@ -520,20 +487,23 @@ namespace Durin
 				{
 					continue;
 				}
-				OutErrorMessage = std::format("Shader parameter '{}' was not found in shader reflection", Parameter.Name);
-				return false;
+				return {.Error = {.Code = EShaderError::MissingParameter, .Parameter = Parameter.Name}};
 			}
 
 			if (!AreShaderBindingTypesCompatible(FoundIt->Type, Parameter.Type))
 			{
-				OutErrorMessage = std::format("Shader parameter '{}' type does not match reflection", Parameter.Name);
-				return false;
+				return {.Error = {.Code = EShaderError::ParameterTypeMismatch,
+					.Parameter = Parameter.Name,
+					.Expected = static_cast<uint64>(Parameter.Type),
+					.Actual = static_cast<uint64>(FoundIt->Type)}};
 			}
 
 			if (FoundIt->ArraySize != Parameter.ArraySize)
 			{
-				OutErrorMessage = std::format("Shader parameter '{}' array size does not match reflection", Parameter.Name);
-				return false;
+				return {.Error = {.Code = EShaderError::ParameterArraySizeMismatch,
+					.Parameter = Parameter.Name,
+					.Expected = Parameter.ArraySize,
+					.Actual = FoundIt->ArraySize}};
 			}
 
 			FShaderParameterBinding Binding;
@@ -547,7 +517,7 @@ namespace Durin
 			OutBindings.push_back(Binding);
 		}
 
-		return true;
+		return {};
 	}
 
 	auto BuildCombinedShaderParametersMetadataStorage(
@@ -886,12 +856,9 @@ namespace Durin
 
 	auto BuildPipelineLayoutFromReflection(
 		std::span<const FShaderReflectionData> ReflectionData,
-		FPipelineLayoutDesc& OutPipelineLayout,
-		std::string& OutErrorMessage
-	) -> bool
+		FPipelineLayoutDesc& OutPipelineLayout) -> FShaderOperationResult
 	{
 		OutPipelineLayout = {};
-		OutErrorMessage.clear();
 
 		std::unordered_map<FShaderBindingKey, FShaderResourceBinding, FShaderBindingKeyHasher> MergedBindings;
 		std::vector<FPushConstantRange> MergedPushConstants;
@@ -914,21 +881,19 @@ namespace Durin
 				FShaderResourceBinding& ExistingBinding = FoundIt->second;
 				if (ExistingBinding.Type != Binding.Type)
 				{
-					OutErrorMessage = std::format(
-						"Conflicting shader binding types at set {}, binding {}",
-						Binding.SetIndex,
-						Binding.BindingIndex
-					);
-					return false;
+					return {.Error = {.Code = EShaderError::BindingTypeConflict,
+						.Expected = static_cast<uint64>(ExistingBinding.Type),
+						.Actual = static_cast<uint64>(Binding.Type),
+						.SetIndex = Binding.SetIndex,
+						.BindingIndex = Binding.BindingIndex}};
 				}
 				if (ExistingBinding.ArraySize != Binding.ArraySize)
 				{
-					OutErrorMessage = std::format(
-						"Conflicting shader binding array sizes at set {}, binding {}",
-						Binding.SetIndex,
-						Binding.BindingIndex
-					);
-					return false;
+					return {.Error = {.Code = EShaderError::BindingArraySizeConflict,
+						.Expected = ExistingBinding.ArraySize,
+						.Actual = Binding.ArraySize,
+						.SetIndex = Binding.SetIndex,
+						.BindingIndex = Binding.BindingIndex}};
 				}
 
 				ExistingBinding.StageFlags |= Binding.StageFlags;
@@ -957,14 +922,11 @@ namespace Durin
 
 					if (NewBegin < ExistingEnd && ExistingBegin < NewEnd)
 					{
-						OutErrorMessage = std::format(
-							"Conflicting push constant ranges: existing [{}..{}), new [{}..{})",
-							ExistingBegin,
-							ExistingEnd,
-							NewBegin,
-							NewEnd
-						);
-						return false;
+						return {.Error = {.Code = EShaderError::PushConstantOverlap,
+							.ExistingBegin = ExistingBegin,
+							.ExistingEnd = ExistingEnd,
+							.NewBegin = NewBegin,
+							.NewEnd = NewEnd}};
 					}
 				}
 
@@ -1002,14 +964,12 @@ namespace Durin
 			return A.Size < B.Size;
 		});
 		OutPipelineLayout.PushConstantRanges = std::move(MergedPushConstants);
-		return true;
+		return {};
 	}
 
 	auto BuildPipelineLayoutFromShaders(
 		std::span<const FCompiledShader> CompiledShaders,
-		FPipelineLayoutDesc& OutPipelineLayout,
-		std::string& OutErrorMessage
-	) -> bool
+		FPipelineLayoutDesc& OutPipelineLayout) -> FShaderOperationResult
 	{
 		std::vector<FShaderReflectionData> ReflectionData;
 		ReflectionData.reserve(CompiledShaders.size());
@@ -1018,7 +978,7 @@ namespace Durin
 			ReflectionData.push_back(CompiledShader.Reflection);
 		}
 
-		return BuildPipelineLayoutFromReflection(ReflectionData, OutPipelineLayout, OutErrorMessage);
+		return BuildPipelineLayoutFromReflection(ReflectionData, OutPipelineLayout);
 	}
 
 	auto FShaderMapResourceCode::AddCompiledShader(const FCompiledShader& CompiledShader) -> uint32
@@ -1087,49 +1047,47 @@ namespace Durin
 		Reset();
 	}
 
-	auto FShaderMapBase::Initialize(std::span<const FShaderType* const> ShaderTypes, const FShaderCompilerOutput& Output, std::string& OutErrorMessage) -> bool
+	auto FShaderMapBase::Initialize(
+		std::span<const FShaderType* const> ShaderTypes,
+		const FShaderCompilerOutput& Output) -> FShaderOperationResult
 	{
+		FShaderOperationResult Result;
 		FShaderCompileOptions CompileOptions;
-		if (!BuildShaderMapCompileOptions(ShaderTypes, nullptr, CompileOptions, OutErrorMessage))
+		if (!(Result = BuildShaderMapCompileOptions(ShaderTypes, nullptr, CompileOptions)))
 		{
 			Reset();
-			return false;
+			return Result;
 		}
-		return Initialize(ShaderTypes, Output, CompileOptions, OutErrorMessage);
+		return Initialize(ShaderTypes, Output, CompileOptions);
 	}
 
 	auto FShaderMapBase::Initialize(
 		std::span<const FShaderType* const> ShaderTypes,
 		const FShaderCompilerOutput& Output,
 		const FShaderCompileOptions& CompileOptions,
-		std::string& OutErrorMessage,
-		bool bAllowMixedSources
-	) -> bool
+		bool bAllowMixedSources) -> FShaderOperationResult
 	{
+		FShaderOperationResult Result;
 		Reset();
-		OutErrorMessage.clear();
 
 		FShaderCompileOptions EffectiveCompileOptions;
-		if (!BuildShaderMapCompileOptions(ShaderTypes, &CompileOptions, EffectiveCompileOptions, OutErrorMessage, bAllowMixedSources))
+		if (!(Result = BuildShaderMapCompileOptions(ShaderTypes, &CompileOptions, EffectiveCompileOptions, bAllowMixedSources)))
 		{
 			Reset();
-			return false;
+			return Result;
 		}
 
 		if (ShaderTypes.size() != Output.CompiledShaders.size())
 		{
-			OutErrorMessage = std::format(
-				"Shader type count ({}) does not match compiled shader count ({})",
-				ShaderTypes.size(),
-				Output.CompiledShaders.size()
-			);
-			return false;
+			return {.Error = {.Code = EShaderError::CompiledShaderCountMismatch,
+				.Expected = ShaderTypes.size(),
+				.Actual = Output.CompiledShaders.size()}};
 		}
 
-		if (!BuildShaderMapCacheKey(EffectiveCompileOptions, Output, CacheKey, OutErrorMessage))
+		if (!(Result = BuildShaderMapCacheKey(EffectiveCompileOptions, Output, CacheKey)))
 		{
 			Reset();
-			return false;
+			return Result;
 		}
 
 		if (CacheKey.IsZero())
@@ -1157,40 +1115,39 @@ namespace Durin
 			const FCompiledShader& CompiledShader = Code->GetCompiledShader(ShaderIndex);
 			if (CompiledShader.Frequency != ShaderType->GetFrequency())
 			{
-				OutErrorMessage = std::format(
-					"Compiled shader frequency does not match shader type '{}' at index {}",
-					ShaderType->GetName(),
-					ShaderIndex
-				);
+				Result = {.Error = {.Code = EShaderError::CompiledFrequencyMismatch,
+					.ShaderType = std::string(ShaderType->GetName()),
+					.Index = ShaderIndex,
+					.Expected = static_cast<uint64>(ShaderType->GetFrequency()),
+					.Actual = static_cast<uint64>(CompiledShader.Frequency)}};
 				Reset();
-				return false;
+				return Result;
 			}
 
 			if (!ShaderType->GetEntryPoint().empty() && CompiledShader.SourceEntryPoint != ShaderType->GetEntryPoint())
 			{
-				OutErrorMessage = std::format(
-					"Compiled shader entry point '{}' does not match shader type '{}' entry point '{}'",
-					CompiledShader.SourceEntryPoint,
-					ShaderType->GetName(),
-					ShaderType->GetEntryPoint()
-				);
+				Result = {.Error = {.Code = EShaderError::CompiledEntryPointMismatch,
+					.ShaderType = std::string(ShaderType->GetName()),
+					.ExpectedIdentity = std::string(ShaderType->GetEntryPoint()),
+					.ActualIdentity = CompiledShader.SourceEntryPoint}};
 				Reset();
-				return false;
+				return Result;
 			}
 
 			ShaderTypeToIndex.emplace(ShaderType, ShaderIndex);
 			std::unique_ptr<FShader> ShaderInstance = ShaderType->CreateShaderInstance(this, CompiledShader.Reflection);
 			if (!ShaderInstance)
 			{
-				OutErrorMessage = std::format("Shader type '{}' failed to create a shader instance", ShaderType->GetName());
+				Result = {.Error = {.Code = EShaderError::ShaderInstanceCreationFailed,
+					.ShaderType = std::string(ShaderType->GetName())}};
 				Reset();
-				return false;
+				return Result;
 			}
-			if (!ShaderInstance->InitializeParameterBindings(OutErrorMessage))
+			if (!(Result = ShaderInstance->InitializeParameterBindings()))
 			{
-				OutErrorMessage = std::format("Shader type '{}' parameter binding failed: {}", ShaderType->GetName(), OutErrorMessage);
+				Result.Error.ShaderType = std::string(ShaderType->GetName());
 				Reset();
-				return false;
+				return Result;
 			}
 			ShaderInstances.emplace(ShaderType, std::move(ShaderInstance));
 			CompiledShaders.push_back(CompiledShader);
@@ -1205,37 +1162,35 @@ namespace Durin
 			PipelineReflectionData.push_back(std::move(ReflectionWithOverrides));
 		}
 
-		if (!BuildPipelineLayoutFromReflection(PipelineReflectionData, MergedPipelineLayout, OutErrorMessage))
+		if (!(Result = BuildPipelineLayoutFromReflection(PipelineReflectionData, MergedPipelineLayout)))
 		{
 			Reset();
-			return false;
+			return Result;
 		}
 
-		return true;
+		return {};
 	}
 
 	auto FShaderMapBase::InitializeFromShaderTypes(
 		std::span<const FShaderType* const> ShaderTypes,
-		const FShaderCompileOptions& CompileOptions,
-		std::string& OutErrorMessage
-	) -> bool
+		const FShaderCompileOptions& CompileOptions) -> FShaderOperationResult
 	{
+		FShaderOperationResult Result;
 		FShaderCompileOptions EffectiveCompileOptions;
-		if (!BuildShaderMapCompileOptions(ShaderTypes, &CompileOptions, EffectiveCompileOptions, OutErrorMessage))
+		if (!(Result = BuildShaderMapCompileOptions(ShaderTypes, &CompileOptions, EffectiveCompileOptions)))
 		{
 			Reset();
-			return false;
+			return Result;
 		}
 
 		const FShaderCompilerOutput Output = GetOrCompileShader(EffectiveCompileOptions.VirtualShaderPath, EffectiveCompileOptions);
 		if (!Output)
 		{
 			Reset();
-			OutErrorMessage = Output.ErrorMessage;
-			return false;
+			return {.Error = Output.Error};
 		}
 
-		return Initialize(ShaderTypes, Output, EffectiveCompileOptions, OutErrorMessage);
+		return Initialize(ShaderTypes, Output, EffectiveCompileOptions);
 	}
 
 	auto FShaderMapBase::FindShaderIndex(const FShaderType* ShaderType) const -> const uint32*

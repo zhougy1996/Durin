@@ -729,7 +729,7 @@ float4 FragmentMain(
 		{
 			Result.Diagnostics.push_back(MakeDiagnostic(
 				EMaterialProgramDiagnosticCategory::Compile,
-				FMaterialError::FromExternal(EMaterialCompileError::ShaderCompilerFailed, std::move(Output.ErrorMessage))));
+				FMaterialError::FromExternal(EMaterialCompileError::ShaderCompilerFailed, FormatShaderError(Output.Error))));
 			return Result;
 		}
 		const auto Reflection = ValidateMaterialCompiledStages(Output.CompiledShaders, Result.Layout, Input.Environment.ResourceLimits);
