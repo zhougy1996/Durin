@@ -28,7 +28,8 @@ namespace Durin::Editor::Material
 		{
 			std::unordered_map<FGuid, uint16> UsedSampleOutputs;
 			const auto MarkOutput = [&](const FMaterialProgramLink& Link) {
-				if (Link.SourceNodeId.IsValid() && !Link.SourceOutputId.IsValid() && Link.SourceOutputIndex < 9)
+				if (Link.SourceNodeId.IsValid() && !Link.SourceOutputId.IsValid()
+					&& FindMaterialSampleOutput(EMaterialProgramOpcode::TextureSampleParameter2D, Link.SourceOutputIndex))
 					UsedSampleOutputs[Link.SourceNodeId] |= static_cast<uint16>(1u << Link.SourceOutputIndex);
 			};
 			for (const auto& Node : View.Nodes)
@@ -38,7 +39,8 @@ namespace Durin::Editor::Material
 			for (auto& Node : View.Nodes)
 				if (IsMaterialSamplingNode(Node.Node.Opcode))
 					std::erase_if(Node.Outputs, [&](const auto& Pin) {
-						return Pin.OutputIndex >= 7 && !(UsedSampleOutputs[Node.Node.Id] & (1u << Pin.OutputIndex));
+						return Pin.Type == EMaterialProgramValueType::Texture2D
+							&& !(UsedSampleOutputs[Node.Node.Id] & (1u << Pin.OutputIndex));
 					});
 
 			for (auto& Node : View.Nodes)

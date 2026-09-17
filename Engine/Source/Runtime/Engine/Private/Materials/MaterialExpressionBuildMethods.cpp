@@ -304,7 +304,9 @@ namespace Durin
 	auto DMaterialExpressionTextureSample2D::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
 	{
 		if (OutputId.IsValid()) return Context.Fail("Sample output requires an index, not an output GUID.");
-		if (OutputIndex != 0) return Context.SampleOutput(*this, OutputIndex);
+		const auto* Output = FindMaterialSampleOutput(EMaterialProgramOpcode::TextureSample2D, OutputIndex);
+		if (!Output) return Context.Fail("Sample expression output selector is invalid.");
+		if (Output->Id != EMaterialSampleOutput::RGBA) return Context.SampleOutput(*this, OutputIndex);
 		if (!UV.ExpressionId.IsValid() && (UV.OutputIndex != 0 || UV.OutputId.IsValid())) return Context.Fail("Disconnected UV input has an output selector.");
 		const auto Coordinates = UV.ExpressionId.IsValid() ? Context.ResolveIndex(UV) : Context.Coordinates();
 		const auto ResourceValue = Context.Resolve(Texture);
@@ -324,8 +326,10 @@ namespace Durin
 	auto DMaterialExpressionTextureSampleParameter2D::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
 	{
 		if (OutputId.IsValid()) return Context.Fail("Sample output requires an index, not an output GUID.");
-		if (OutputIndex == 7) return Context.Parameter(Metadata.Id, EMaterialParameterType::Texture);
-		if (OutputIndex != 0) return Context.SampleOutput(*this, OutputIndex);
+		const auto* Output = FindMaterialSampleOutput(EMaterialProgramOpcode::TextureSampleParameter2D, OutputIndex);
+		if (!Output) return Context.Fail("Sample expression output selector is invalid.");
+		if (Output->Id == EMaterialSampleOutput::Texture) return Context.Parameter(Metadata.Id, EMaterialParameterType::Texture);
+		if (Output->Id != EMaterialSampleOutput::RGBA) return Context.SampleOutput(*this, OutputIndex);
 		if (!UV.ExpressionId.IsValid() && (UV.OutputIndex != 0 || UV.OutputId.IsValid())) return Context.Fail("Disconnected UV input has an output selector.");
 		const auto Resource = Context.Parameter(Metadata.Id, EMaterialParameterType::Texture);
 		const auto Coordinates = UV.ExpressionId.IsValid() ? Context.ResolveIndex(UV) : Context.Coordinates();

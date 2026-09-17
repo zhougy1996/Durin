@@ -55,9 +55,11 @@ namespace Durin::Editor::Material
 				const auto Shape = std::ranges::find(Catalog, E->GetClass(), &FMaterialGraphCatalogEntry::ExpressionClass);
 				if (Shape == Catalog.end()) { bValid = false; return Type::Float; }
 				const auto Opcode = Shape->Opcode;
-				if (Opcode == EMaterialProgramOpcode::TextureSampleParameter2D && Input.OutputIndex == 7) return Type::Texture2D;
-				if (IsMaterialSamplingNode(Opcode) && Input.OutputIndex != 0)
-					return Input.OutputIndex == 1 ? Type::Float3 : Type::Float;
+				if (IsMaterialSamplingNode(Opcode))
+				{
+					if (const auto* Output = FindMaterialSampleOutput(Opcode, Input.OutputIndex)) return Output->Type;
+					bValid = false; return Type::Float;
+				}
 				if (Opcode == EMaterialProgramOpcode::GetSurfaceAttributes && Input.OutputIndex < 8)
 					return GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(Input.OutputIndex));
 				if (Resolved.contains(E->Id)) return Resolved.at(E->Id);
@@ -162,8 +164,10 @@ namespace Durin::Editor::Material
 				return Call->Function.IsValid() && Input.OutputIndex == 0
 					&& std::ranges::any_of(Call->Function->GetFunctionSignature().Outputs, [&](const auto& Port) { return Port.Id == Input.OutputId; });
 			if (Input.OutputId.IsValid() || Cast<DMaterialExpressionMaterialOutput>(E) || Cast<DMaterialExpressionFunctionOutput>(E)) return false;
-			if (Cast<DMaterialExpressionTextureSampleParameter2D>(E)) return Input.OutputIndex < 8;
-			if (Cast<DMaterialExpressionTextureSample2D>(E)) return Input.OutputIndex < 7;
+			if (Cast<DMaterialExpressionTextureSampleParameter2D>(E))
+				return FindMaterialSampleOutput(EMaterialProgramOpcode::TextureSampleParameter2D, Input.OutputIndex) != nullptr;
+			if (Cast<DMaterialExpressionTextureSample2D>(E))
+				return FindMaterialSampleOutput(EMaterialProgramOpcode::TextureSample2D, Input.OutputIndex) != nullptr;
 			if (const auto* Surface = Cast<DMaterialExpressionGetSurfaceAttributes>(E))
 				return Input.OutputIndex < 8 && (Surface->AttributeMask & (1u << Input.OutputIndex));
 			return Input.OutputIndex == 0;

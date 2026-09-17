@@ -386,11 +386,8 @@ namespace Durin::Editor::Material
 			}
 			const auto Source = NodesById.find(Link.SourceNodeId);
 			if (Source == NodesById.end()) return EMaterialProgramValueType::Float;
-			if (Source->second->Opcode == EMaterialProgramOpcode::TextureSampleParameter2D && Link.SourceOutputIndex == 7)
-				return EMaterialProgramValueType::Texture2D;
-			if (IsMaterialSamplingNode(Source->second->Opcode) && Link.SourceOutputIndex != 0)
-				return Link.SourceOutputIndex == 1 ? EMaterialProgramValueType::Float3
-					: EMaterialProgramValueType::Float;
+			if (const auto* Output = FindMaterialSampleOutput(Source->second->Opcode, Link.SourceOutputIndex))
+				return Output->Type;
 			if (Source->second->Opcode == EMaterialProgramOpcode::GetSurfaceAttributes && Link.SourceOutputIndex < 8)
 				return GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(Link.SourceOutputIndex));
 			return Source->second->ResultType;
@@ -516,13 +513,8 @@ namespace Durin::Editor::Material
 			}
 			else if (IsMaterialSamplingNode(Node.Opcode))
 			{
-				constexpr std::array Names{"RGBA", "RGB", "R", "G", "B", "A"};
-				for (const uint8 Index : {1, 2, 3, 4, 5, 0})
-					View.Outputs.push_back({.OutputIndex = Index, .Name = Names[Index],
-						.Type = Index == 0 ? EMaterialProgramValueType::Float4 : Index == 1 ? EMaterialProgramValueType::Float3
-						: EMaterialProgramValueType::Float});
-				if (Node.Opcode == EMaterialProgramOpcode::TextureSampleParameter2D)
-					View.Outputs.push_back({.OutputIndex = 7, .Name = "Texture", .Type = EMaterialProgramValueType::Texture2D});
+				for (const auto& Output : GetMaterialSampleOutputs(Node.Opcode))
+					View.Outputs.push_back({.OutputIndex = static_cast<uint8>(Output.Id), .Name = Output.Name, .Type = Output.Type});
 			}
 			else if (Node.Opcode == EMaterialProgramOpcode::GetSurfaceAttributes)
 			{

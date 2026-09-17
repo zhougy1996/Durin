@@ -2,6 +2,34 @@
 
 namespace Durin
 {
+	auto GetMaterialSampleOutputs(EMaterialProgramOpcode Opcode) -> std::span<const FMaterialSampleOutputDefinition>
+	{
+		using Output = EMaterialSampleOutput;
+		using Type = EMaterialProgramValueType;
+		static constexpr std::array Definitions{
+			FMaterialSampleOutputDefinition{Output::RGB, "RGB", Type::Float3},
+			FMaterialSampleOutputDefinition{Output::R, "R", Type::Float, 0},
+			FMaterialSampleOutputDefinition{Output::G, "G", Type::Float, 1},
+			FMaterialSampleOutputDefinition{Output::B, "B", Type::Float, 2},
+			FMaterialSampleOutputDefinition{Output::A, "A", Type::Float, 3},
+			FMaterialSampleOutputDefinition{Output::RGBA, "RGBA", Type::Float4},
+			FMaterialSampleOutputDefinition{Output::Texture, "Texture", Type::Texture2D},
+		};
+		switch (Opcode)
+		{
+		case EMaterialProgramOpcode::TextureSample2D: return std::span{Definitions}.first(Definitions.size() - 1);
+		case EMaterialProgramOpcode::TextureSampleParameter2D: return Definitions;
+		default: return {};
+		}
+	}
+
+	auto FindMaterialSampleOutput(EMaterialProgramOpcode Opcode, uint8 OutputIndex) -> const FMaterialSampleOutputDefinition*
+	{
+		for (const auto& Output : GetMaterialSampleOutputs(Opcode))
+			if (static_cast<uint8>(Output.Id) == OutputIndex) return &Output;
+		return nullptr;
+	}
+
 	auto IsMaterialSamplingNode(EMaterialProgramOpcode Opcode) -> bool
 	{
 		return Opcode == EMaterialProgramOpcode::TextureSample2D

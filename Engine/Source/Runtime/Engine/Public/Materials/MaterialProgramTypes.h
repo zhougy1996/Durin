@@ -197,6 +197,26 @@ namespace Durin
 
 	ENGINE_API auto IsMaterialSamplingNode(EMaterialProgramOpcode Opcode) -> bool;
 
+	// Serialized output identities; retired index 6 must not be reused.
+	enum class EMaterialSampleOutput : uint8
+	{
+		RGBA = 0, RGB = 1, R = 2, G = 3, B = 4, A = 5, Texture = 7,
+	};
+
+	struct FMaterialSampleOutputDefinition
+	{
+		EMaterialSampleOutput Id;
+		const char* Name;
+		EMaterialProgramValueType Type;
+		uint8 FirstComponent = 0;
+	};
+
+	// Definitions are in display order, independent of serialized identities.
+	ENGINE_API auto GetMaterialSampleOutputs(EMaterialProgramOpcode Opcode)
+		-> std::span<const FMaterialSampleOutputDefinition>;
+	ENGINE_API auto FindMaterialSampleOutput(EMaterialProgramOpcode Opcode, uint8 OutputIndex)
+		-> const FMaterialSampleOutputDefinition*;
+
 	DSTRUCT()
 	struct FMaterialSurfaceOutputs
 	{

@@ -287,12 +287,13 @@ namespace Durin
 
 	auto FMaterialExpressionBuildContext::SampleOutput(const DMaterialExpression& Expression, uint8 OutputIndex) -> uint32
 	{
-		if (OutputIndex > 5) return Fail("Sample expression output selector is invalid.");
+		const auto* Output = FindMaterialSampleOutput(EMaterialProgramOpcode::TextureSample2D, OutputIndex);
+		if (!Output) return Fail("Sample expression output selector is invalid.");
 		const auto Sample = ResolveIndex({Expression.Id});
 		if (Sample == InvalidMaterialExpressionIndex) return Sample;
-		if (OutputIndex == 0) return Sample;
+		if (Output->Id == EMaterialSampleOutput::RGBA) return Sample;
 		bool bDecodeNormal = false;
-		if (OutputIndex == 1)
+		if (Output->Id == EMaterialSampleOutput::RGB)
 		{
 			if (const auto* Parameter = Cast<DMaterialExpressionTextureParameter>(&Expression))
 				bDecodeNormal = Parameter->TextureUsage == ETextureUsage::Normal;
@@ -310,10 +311,10 @@ namespace Durin
 		}
 		// RGB is the ready-to-use normal; raw RGBA and scalar channels retain
 		// their encoded values for channel processing.
-		const uint8 Width = bDecodeNormal ? 2 : OutputIndex == 1 ? 3 : 1;
+		const uint8 Width = bDecodeNormal ? 2 : static_cast<uint8>(Output->Type) + 1;
 		const auto Selected = Emit({.Opcode = EMaterialProgramOpcode::Swizzle,
 			.ResultType = static_cast<EMaterialProgramValueType>(Width - 1), .Inputs = {Sample},
-			.Payload = FMaterialIRSwizzle{Width, {static_cast<uint8>(OutputIndex >= 2 && OutputIndex <= 5 ? OutputIndex - 2 : 0),
+			.Payload = FMaterialIRSwizzle{Width, {Output->FirstComponent,
 				static_cast<uint8>(Width > 1 ? 1 : 0), static_cast<uint8>(Width > 2 ? 2 : 0)}}});
 		return bDecodeNormal ? Emit({.Opcode = EMaterialProgramOpcode::DecodeNormalRG,
 			.ResultType = EMaterialProgramValueType::Float3, .Inputs = {Selected}}) : Selected;

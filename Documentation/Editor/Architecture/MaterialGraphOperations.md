@@ -4,7 +4,7 @@ Summary: Define shared MaterialEditor expression ownership, inspection, commands
 
 Modules: MaterialEditor, Engine, DurinEd
 
-Last reviewed: 2026-09-16
+Last reviewed: 2026-09-17
 
 ## Task routing
 
@@ -367,6 +367,12 @@ Undo/Redo transaction. Function paste rejects all root parameter payloads.
 
 Texture Object Parameter owns a Texture2D resource. Texture Sample Parameter 2D
 owns a resource and exposes raw RGBA/R/G/B/A, RGB and Texture2D slot 7.
+Engine's `EMaterialSampleOutput` and `GetMaterialSampleOutputs()` define stable
+sampling output identities, types, component selection and display order.
+Commands, type inference, inspection and compilation share this definition through
+`FindMaterialSampleOutput()`. Numeric outputs retain slots 0–5; retired slot 6 is
+invalid, and resource slot 7 exists only on Texture Sample Parameter 2D. Connection
+commands reject unavailable selectors before mutating the graph.
 There is no separate Normal pin, including in the advanced view. RGB automatically decodes tangent-space normals
 when the texture parameter's usage is Normal; connect RGB directly to the surface
 Normal input. Separate Texture Sample nodes inherit this behavior from their

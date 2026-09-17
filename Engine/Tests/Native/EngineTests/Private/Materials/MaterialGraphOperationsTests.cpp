@@ -1,5 +1,56 @@
 #include "MaterialGraphTestSupport.h"
 
+TEST(FMaterialGraphOperationsTests, SamplingOutputsRejectRetiredSelectorsWithoutMutatingGraph)
+{
+	InitializeDObjectSystem();
+	for (const auto Opcode : {EMaterialProgramOpcode::TextureSample2D, EMaterialProgramOpcode::TextureSampleParameter2D})
+	{
+		TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+		Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+		FMaterialGraphDocument Document(*Material);
+		FMaterialExpressionInput Resource;
+		if (Opcode == EMaterialProgramOpcode::TextureSample2D)
+		{
+			const auto Texture = Testing::CreateGraphCatalogNode(Document, EMaterialProgramOpcode::TextureParameter, EMaterialProgramValueType::Texture2D);
+			ASSERT_TRUE(Texture) << Texture.Message;
+			Resource = {Texture.GeneratedNodeIds.front()};
+		}
+		const auto Sample = Testing::CreateGraphCatalogNode(Document, Opcode, EMaterialProgramValueType::Float4, Resource);
+		const auto Surface = Testing::CreateGraphCatalogNode(Document, EMaterialProgramOpcode::MakeSurface, EMaterialProgramValueType::Surface);
+		ASSERT_TRUE(Sample) << Sample.Message;
+		ASSERT_TRUE(Surface) << Surface.Message;
+		const auto Id = Sample.GeneratedNodeIds.front();
+		const auto Target = Surface.GeneratedNodeIds.front();
+		const auto View = Document.Inspect();
+		const auto* Node = FindViewNode(View, Id);
+		ASSERT_NE(Node, nullptr);
+		std::vector<uint8> Indices;
+		for (const auto& Output : Node->Outputs) Indices.push_back(Output.OutputIndex);
+		std::vector<uint8> Expected{1, 2, 3, 4, 5, 0};
+		if (Opcode == EMaterialProgramOpcode::TextureSampleParameter2D) Expected.push_back(7);
+		EXPECT_EQ(Indices, Expected);
+		for (const uint8 Index : Expected)
+		{
+			ASSERT_TRUE(Document.ConnectInput(Target, 0, {Id, Index}, true));
+			const auto Connected = Document.Inspect();
+			EXPECT_EQ(FindViewNode(Connected, Target)->Inputs[0].SourceType,
+				FindMaterialSampleOutput(Opcode, Index)->Type);
+		}
+		const auto Before = CaptureExpressions(*Material);
+		const auto Revision = Material->GetMaterialCompileStatus().AuthoredRevision;
+		for (const uint8 Index : {6, 8, 255})
+		{
+			EXPECT_EQ(Document.ConnectInput(Target, 0, {Id, Index}, true).Status, EMaterialGraphCommandStatus::Rejected);
+			EXPECT_EQ(Document.AssignMaterialOutput(EMaterialSurfaceOutput::BaseColor, {Id, Index}).Status,
+				EMaterialGraphCommandStatus::Rejected);
+		}
+		if (Opcode == EMaterialProgramOpcode::TextureSample2D)
+			EXPECT_EQ(Document.ConnectInput(Target, 0, {Id, 7}, true).Status, EMaterialGraphCommandStatus::Rejected);
+		EXPECT_EQ(CaptureExpressions(*Material), Before);
+		EXPECT_EQ(Material->GetMaterialCompileStatus().AuthoredRevision, Revision);
+	}
+}
+
 TEST(FMaterialGraphOperationsTests, DeclarationAndFloat4ReferenceUndoTogether)
 {
 	InitializeDObjectSystem();

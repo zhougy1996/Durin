@@ -588,6 +588,40 @@ TEST(FMaterialExpressionTests, BuildEmitsDetachedNumericIRAndRejectsInvalidGraph
 	Add->ADefault = {std::numeric_limits<float>::infinity()}; Reject();
 }
 
+TEST(FMaterialExpressionTests, SamplingOutputSelectorsPreserveChannelsAndRejectRetiredIndex)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterialExpressionTextureSample2D> Sample(NewObject<DMaterialExpressionTextureSample2D>(nullptr, NAME_None));
+	TStrongObjectPtr<DMaterialExpressionTextureSampleParameter2D> Parameter(NewObject<DMaterialExpressionTextureSampleParameter2D>(nullptr, NAME_None));
+	Sample->Id = FGuid::NewGuid();
+	Parameter->Id = FGuid::NewGuid();
+	Parameter->Metadata.Id = FGuid::NewGuid();
+	Parameter->Metadata.Name = "Sample";
+	Sample->Texture = {Parameter->Id, 7};
+	const std::array<DMaterialExpression*, 2> Expressions{Sample.Get(), Parameter.Get()};
+	for (auto* Expression : std::array<DMaterialExpression*, 2>{Sample.Get(), Parameter.Get()})
+	{
+		for (const uint8 Index : {0, 1, 2, 3, 4, 5, 6, 7, 8, 255})
+		{
+			SCOPED_TRACE(static_cast<int>(Index));
+			const auto Built = BuildMaterialExpressionGraph(Expressions, std::array{FMaterialExpressionInput{Expression->Id, Index}});
+			const bool Valid = Index <= 5 || (Expression == Parameter.Get() && Index == 7);
+			ASSERT_EQ(static_cast<bool>(Built), Valid) << (Built.Diagnostics.empty() ? "" : Built.Diagnostics.front().Message);
+			if (!Valid) continue;
+			const auto& Root = Built.IR.Nodes[Built.Roots.front()];
+			EXPECT_EQ(Root.ResultType, Index == 0 ? EMaterialProgramValueType::Float4
+				: Index == 1 ? EMaterialProgramValueType::Float3
+				: Index == 7 ? EMaterialProgramValueType::Texture2D : EMaterialProgramValueType::Float);
+			if (Index >= 1 && Index <= 5)
+			{
+				EXPECT_EQ(Root.Opcode, EMaterialProgramOpcode::Swizzle);
+				EXPECT_EQ(std::get<FMaterialIRSwizzle>(Root.Payload).Components[0], Index == 1 ? 0 : Index - 2);
+			}
+		}
+	}
+}
+
 TEST(FMaterialExpressionTests, BuildSamplesAndSurfaceAttributesWithoutProgramNodes)
 {
 	using namespace Durin;
