@@ -14,6 +14,12 @@
 namespace
 {
 	using namespace Durin;
+	auto FinishSave(Tasks::TTask<FPackageSaveResult>& Task) -> FPackageSaveResult
+	{
+		EXPECT_TRUE(DPackage::DrainAsyncSaves());
+		if (Task.GetState() != ETaskState::Succeeded) return {EPackageSaveError::IoError, "Task execution failed."};
+		return Task.GetResult();
+	}
 	class DPersistedObject : public DObject
 	{
 	public:
@@ -69,6 +75,8 @@ namespace
 		{
 			Testing::InitializeDObjectSystemForTests();
 			ASSERT_TRUE(InitializeTaskScheduler(2));
+			ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
+			PackageSavePrivate::SetAsyncSaveAdmission(true);
 			Root = Testing::CreateTestFixtureDirectory("PackagePersistence");
 			Testing::RegisterMountPointForTests("/Persistence/", Root.generic_string() + "/");
 			ASSERT_TRUE(FPackagePath::TryCreate("/Persistence/Package", Path));
@@ -82,7 +90,11 @@ namespace
 		auto TearDown() -> void override
 		{
 			SetPackageDestinationResolver({});
-			ShutdownTaskScheduler();
+			PackageSavePrivate::SetAsyncSavePublicationFaultForTests(PackageSavePrivate::EPublicationFault::None);
+			(void)DPackage::DrainAsyncSaves();
+			PackageSavePrivate::SetAsyncSaveLimitsForTests(64, 256ull * 1024 * 1024);
+			PackageSavePrivate::SetAsyncSaveAdmission(true);
+			ShutdownTaskSystem(ETaskShutdownMode::Drain);
 			MarkObjectHierarchyAsGarbage(Package);
 			CollectGarbage();
 		}
@@ -132,16 +144,103 @@ TEST_F(FPackagePersistenceTests, AsyncCompletionMatchesSynchronousBytes)
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(Before, Options.Destination));
 	Package->MarkDirty();
 	FPackageSaveResult Admission;
-	auto Operation = Package->SaveAsync(Admission, Options);
-	ASSERT_TRUE(Operation) << Admission.Message;
-	EXPECT_FALSE(Operation->IsCompleted());
-	ASSERT_TRUE(Operation->WaitAndComplete());
-	EXPECT_TRUE(Operation->IsCompleted());
-	EXPECT_TRUE(Operation->Complete());
+	auto Operation = Package->SaveAsync(Admission, FSavePackageContext{Options});
+	ASSERT_TRUE(Operation.IsValid()) << Admission.Message;
+	EXPECT_FALSE(Operation.IsCompleted());
+	ASSERT_TRUE(FinishSave(Operation));
+	EXPECT_TRUE(Operation.IsCompleted());
+	EXPECT_TRUE(Operation.GetResult());
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(After, Options.Destination));
 	EXPECT_EQ(Before, After);
 	EXPECT_FALSE(Package->IsDirty());
 }
+TEST_F(FPackagePersistenceTests, ProtectedTaskCompletesOnHostPumpAndRejectsGameThreadWait)
+{
+	FPackageSaveResult Admission;
+	auto Task = Package->SaveAsync(Admission, FSavePackageContext{Options});
+	ASSERT_TRUE(Task.IsValid()) << Admission.Message;
+	EXPECT_EQ(Task.Wait().WaitStatus, ETaskWaitStatus::UnsupportedThread);
+	ASSERT_EQ(DPackage::WaitForAsyncFileWrites().WaitStatus, ETaskWaitStatus::Completed);
+	EXPECT_FALSE(Task.IsCompleted());
+	EXPECT_TRUE(Package->IsDirty());
+	EXPECT_FALSE(std::filesystem::exists(Options.Destination));
+	PumpGameThreadDeferredWork();
+	ASSERT_TRUE(Task.IsCompleted());
+	ASSERT_EQ(Task.GetState(), ETaskState::Succeeded);
+	EXPECT_TRUE(Task.GetResult());
+	EXPECT_FALSE(Package->IsDirty());
+}
+
+TEST_F(FPackagePersistenceTests, AsyncCapacityIncludesPublicationAndRejectsDirectFlags)
+{
+	FPackageSaveResult Admission;
+	Options.Flags = SAVE_Async;
+	EXPECT_FALSE(Package->SaveAsync(Admission, FSavePackageContext{Options}).IsValid());
+	EXPECT_EQ(Admission.Error, EPackageSaveError::InvalidPackageType);
+	Options.Flags = SAVE_None;
+	PackageSavePrivate::SetAsyncSaveLimitsForTests(1, 1);
+	EXPECT_FALSE(Package->SaveAsync(Admission, FSavePackageContext{Options}).IsValid());
+	EXPECT_EQ(Admission.Error, EPackageSaveError::Busy);
+	PackageSavePrivate::SetAsyncSaveLimitsForTests(1, 256ull * 1024 * 1024);
+	auto Task = Package->SaveAsync(Admission, FSavePackageContext{Options});
+	ASSERT_TRUE(Task.IsValid());
+	ASSERT_EQ(DPackage::WaitForAsyncFileWrites().WaitStatus, ETaskWaitStatus::Completed);
+	EXPECT_FALSE(Package->SaveAsync(Admission, FSavePackageContext{Options}).IsValid());
+	EXPECT_EQ(Admission.Error, EPackageSaveError::Busy);
+	ASSERT_TRUE(DPackage::DrainAsyncSaves());
+	EXPECT_TRUE(Task.GetResult());
+	auto Next = Package->SaveAsync(Admission, FSavePackageContext{Options});
+	ASSERT_TRUE(Next.IsValid());
+	EXPECT_TRUE(FinishSave(Next));
+}
+
+TEST_F(FPackagePersistenceTests, MissingDeferredExecutorRejectsBeforeWriting)
+{
+	ShutdownTaskSystem(ETaskShutdownMode::Drain);
+	ASSERT_TRUE(InitializeTaskScheduler(2));
+	FPackageSaveResult Admission;
+	EXPECT_FALSE(Package->SaveAsync(Admission, FSavePackageContext{Options}).IsValid());
+	EXPECT_EQ(Admission.Error, EPackageSaveError::ShuttingDown);
+	EXPECT_TRUE(std::filesystem::is_empty(Root));
+}
+
+TEST_F(FPackagePersistenceTests, RejectedPublicationCannotStartDiskWorkAndReleasesCapacity)
+{
+	PackageSavePrivate::SetAsyncSavePublicationFaultForTests(PackageSavePrivate::EPublicationFault::RejectAdmission);
+	bool bWrote = false, bFinished = false;
+	auto Result = PackageSavePrivate::SubmitAsyncSave(1, [&] { bWrote = true; }, [&](bool) { bFinished = true; });
+	EXPECT_FALSE(Result);
+	EXPECT_FALSE(bWrote);
+	EXPECT_FALSE(bFinished);
+	EXPECT_FALSE(DPackage::HasAsyncFileWrites());
+	PackageSavePrivate::SetAsyncSaveLimitsForTests(1, 256ull * 1024 * 1024);
+	FPackageSaveResult Admission;
+	EXPECT_FALSE(Package->SaveAsync(Admission, FSavePackageContext{Options}).IsValid());
+	EXPECT_TRUE(std::filesystem::is_empty(Root));
+	PackageSavePrivate::SetAsyncSavePublicationFaultForTests(PackageSavePrivate::EPublicationFault::None);
+	auto Task = Package->SaveAsync(Admission, FSavePackageContext{Options});
+	ASSERT_TRUE(Task.IsValid());
+	EXPECT_TRUE(FinishSave(Task));
+}
+
+TEST_F(FPackagePersistenceTests, CanceledPublicationIsReapedOnGameThreadBeforeTaskShutdown)
+{
+	PackageSavePrivate::SetAsyncSavePublicationFaultForTests(PackageSavePrivate::EPublicationFault::CancelContinuation);
+	FPackageSaveResult Admission;
+	auto Task = Package->SaveAsync(Admission, FSavePackageContext{Options});
+	ASSERT_TRUE(Task.IsValid());
+	ASSERT_EQ(DPackage::WaitForAsyncFileWrites().WaitStatus, ETaskWaitStatus::Completed);
+	EXPECT_FALSE(Task.IsCompleted());
+	PackageSavePrivate::SetAsyncSaveAdmission(false);
+	PackageSavePrivate::PollAsyncSaves();
+	ASSERT_TRUE(Task.IsCompleted());
+	ASSERT_EQ(Task.GetState(), ETaskState::Succeeded);
+	EXPECT_TRUE(Task.GetResult());
+	EXPECT_FALSE(Package->IsDirty());
+	EXPECT_TRUE(DPackage::DrainAsyncSaves());
+	ShutdownTaskSystem(ETaskShutdownMode::Cancel);
+}
+
 TEST_F(FPackagePersistenceTests, ExternalBulkRoundTripsAndObsoleteCompanionIsRemoved)
 {
 	Options.Mode = EPackageSaveMode::Complete;
@@ -157,32 +256,36 @@ TEST_F(FPackagePersistenceTests, ExternalBulkRoundTripsAndObsoleteCompanionIsRem
 	ASSERT_TRUE(Package->Save(Options));
 	EXPECT_FALSE(std::filesystem::exists(Root / "Package.dbulk"));
 }
-TEST_F(FPackagePersistenceTests, StaleEditsCancelAndAbandonDoNotPublish)
+TEST_F(FPackagePersistenceTests, StaleEditsAndCancellationRejectButDroppedHandlesComplete)
 {
 	FPackageSaveResult Admission;
-	auto Operation = Package->SaveAsync(Admission, Options);
-	ASSERT_TRUE(Operation) << Admission.Message;
+	auto Operation = Package->SaveAsync(Admission, FSavePackageContext{Options});
+	ASSERT_TRUE(Operation.IsValid()) << Admission.Message;
 	Package->MarkDirty();
-	EXPECT_EQ(Operation->WaitAndComplete().Error, EPackageSaveError::StaleData);
+	EXPECT_EQ(FinishSave(Operation).Error, EPackageSaveError::StaleData);
 	EXPECT_TRUE(Package->IsDirty());
 	EXPECT_FALSE(std::filesystem::exists(Options.Destination));
-	Operation = Package->SaveAsync(Admission, Options);
-	ASSERT_TRUE(Operation);
-	EXPECT_EQ(Operation->Cancel().Error, EPackageSaveError::Cancelled);
-	Operation = Package->SaveAsync(Admission, Options);
-	ASSERT_TRUE(Operation);
-	Operation.reset();
-	EXPECT_TRUE(std::filesystem::is_empty(Root));
+	Operation = Package->SaveAsync(Admission, FSavePackageContext{Options});
+	ASSERT_TRUE(Operation.IsValid());
+	EXPECT_TRUE(Tasks::Cancel(Operation.GetCompletion()));
+	ASSERT_TRUE(DPackage::DrainAsyncSaves());
+	EXPECT_EQ(Operation.GetState(), ETaskState::Canceled);
+	Operation = Package->SaveAsync(Admission, FSavePackageContext{Options});
+	ASSERT_TRUE(Operation.IsValid());
+	Operation = {};
+	ASSERT_TRUE(DPackage::DrainAsyncSaves());
+	EXPECT_FALSE(Package->IsDirty());
+	EXPECT_TRUE(std::filesystem::exists(Options.Destination));
 }
 TEST_F(FPackagePersistenceTests, CompetingWriterAndStagedRollbackPreservePreviousContent)
 {
 	ASSERT_TRUE(Package->Save(Options));
 	FPackageSaveResult Admission;
-	auto Older = Package->SaveAsync(Admission, Options);
-	ASSERT_TRUE(Older);
+	auto Older = Package->SaveAsync(Admission, FSavePackageContext{Options});
+	ASSERT_TRUE(Older.IsValid());
 	Asset->Value = 33; Package->MarkDirty();
 	ASSERT_TRUE(Package->Save(Options));
-	EXPECT_EQ(Older->WaitAndComplete().Error, EPackageSaveError::StaleData);
+	EXPECT_EQ(FinishSave(Older).Error, EPackageSaveError::StaleData);
 	Asset->Value = 55; Package->MarkDirty();
 	auto Staged = FPackageSaveOperation::Begin(Package, Options, Admission, false);
 	ASSERT_TRUE(Staged);
@@ -197,9 +300,10 @@ TEST_F(FPackagePersistenceTests, ResolverAndAdmissionFailureAreExplicit)
 	EXPECT_EQ(Package->Save().Error, EPackageSaveError::InvalidPath);
 	SetPackageDestinationResolver([&](const DPackage&) { return Options.Destination; });
 	ASSERT_TRUE(Package->Save());
-	ShutdownTaskScheduler();
+	(void)DPackage::DrainAsyncSaves();
+	ShutdownTaskSystem(ETaskShutdownMode::Drain);
 	FPackageSaveResult Admission;
-	EXPECT_FALSE(Package->SaveAsync(Admission));
+	EXPECT_FALSE(Package->SaveAsync(Admission, FSavePackageContext{}).IsValid());
 	EXPECT_EQ(Admission.Error, EPackageSaveError::ShuttingDown);
 	EXPECT_TRUE(Package->Save()) << "Synchronous persistence must not require a scheduler.";
 }
@@ -232,6 +336,145 @@ TEST_F(FPackagePersistenceTests, ChangedStageAndDestinationConflictDoNotClearDir
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(Current, Options.Destination));
 	EXPECT_EQ(Current, FByteBuffer{std::byte{1}});
 }
+TEST_F(FPackagePersistenceTests, DirectWriterPublishesWithoutStagingOrBackupAndCannotRollback)
+{
+	const auto Main = Root / "Direct.dasset";
+	const auto Bulk = Root / "Direct.dbulk";
+	const FByteBuffer Old{std::byte{1}}, New{std::byte{2}, std::byte{3}};
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Old, Main));
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Old, Bulk));
+	FFilePublicationStamp MainStamp, BulkStamp;
+	ASSERT_TRUE(FFilePublicationStamp::Inspect(Main, MainStamp));
+	ASSERT_TRUE(FFilePublicationStamp::Inspect(Bulk, BulkStamp));
+	auto Write = GetDirectFilePackageWriter()->Begin({
+		{{Bulk, {}, Bulk.string() + ".backup"}, BulkStamp, {}},
+		{{Main, Main.string() + ".stage", Main.string() + ".backup"}, MainStamp, New}});
+	FByteBuffer Current;
+	ASSERT_TRUE(FFileHelper::LoadFileToArray(Current, Main));
+	EXPECT_EQ(Current, Old);
+	const auto Result = Write->Stage();
+	ASSERT_TRUE(Result) << Result.Message;
+	EXPECT_EQ(Result.State, EPackageWriteState::Committed);
+	EXPECT_TRUE(Result.RecoveryFiles.empty());
+	ASSERT_TRUE(FFileHelper::LoadFileToArray(Current, Main));
+	EXPECT_EQ(Current, New);
+	EXPECT_FALSE(std::filesystem::exists(Bulk));
+	EXPECT_FALSE(std::filesystem::exists(Main.string() + ".stage"));
+	EXPECT_FALSE(std::filesystem::exists(Main.string() + ".backup"));
+	EXPECT_FALSE(std::filesystem::exists(Bulk.string() + ".backup"));
+	EXPECT_FALSE(Write->Rollback());
+	EXPECT_TRUE(Write->Finalize());
+	Write.reset();
+	ASSERT_TRUE(FFileHelper::LoadFileToArray(Current, Main));
+	EXPECT_EQ(Current, New);
+}
+
+TEST_F(FPackagePersistenceTests, DirectWriterReportsPartialClosureWithoutRestoringOldBytes)
+{
+	const auto Main = Root / "Partial.dasset";
+	const auto Bulk = Root / "Partial.dbulk";
+	const FByteBuffer Old{std::byte{1}}, New{std::byte{2}};
+	for (const size_t FailIndex : {size_t{0}, size_t{1}})
+	{
+		ASSERT_TRUE(FFileHelper::SaveArrayToFile(Old, Main));
+		ASSERT_TRUE(FFileHelper::SaveArrayToFile(Old, Bulk));
+		FFilePublicationStamp MainStamp, BulkStamp;
+		ASSERT_TRUE(FFilePublicationStamp::Inspect(Main, MainStamp));
+		ASSERT_TRUE(FFilePublicationStamp::Inspect(Bulk, BulkStamp));
+		auto Write = GetDirectFilePackageWriter([=](size_t Index) { return Index == FailIndex; })->Begin({
+			{{Bulk, Bulk.string() + ".unused", {}}, BulkStamp, New},
+			{{Main, Main.string() + ".unused", {}}, MainStamp, New}});
+		const auto Result = Write->Stage();
+		EXPECT_FALSE(Result);
+		EXPECT_EQ(Result.State, FailIndex == 0 ? EPackageWriteState::NotCommitted : EPackageWriteState::PartiallyWritten);
+		EXPECT_TRUE(Result.RecoveryFiles.empty());
+		EXPECT_EQ(Result.AffectedFiles.size(), FailIndex);
+		if (FailIndex) EXPECT_EQ(Result.AffectedFiles.front(), Bulk);
+		EXPECT_EQ(ToPackageSaveResult(Result).CommitState,
+			FailIndex == 0 ? EPackageCommitState::NotCommitted : EPackageCommitState::PartiallyWritten);
+		Write.reset();
+		FByteBuffer Current;
+		ASSERT_TRUE(FFileHelper::LoadFileToArray(Current, Main));
+		EXPECT_EQ(Current, Old);
+		ASSERT_TRUE(FFileHelper::LoadFileToArray(Current, Bulk));
+		EXPECT_EQ(Current, FailIndex == 0 ? Old : New);
+	}
+}
+
+TEST_F(FPackagePersistenceTests, PhysicalClosureAdmissionExcludesReadersAndProtectedCommits)
+{
+	const auto Main = Root / "Excluded.dasset";
+	const auto Bulk = Root / "Excluded.dbulk";
+	const std::array Paths{Main, Bulk};
+	auto Read = FPackageFileAccess::TryAcquire(Paths, false);
+	ASSERT_TRUE(Read);
+	EXPECT_TRUE(FPackageFileAccess::TryAcquire(Paths, false));
+	EXPECT_FALSE(FPackageFileAccess::TryAcquire(Paths, true));
+	Read.reset();
+	auto Protected = GetFilePackageWriter()->Begin({
+		{{Main, Main.string() + ".stage", Main.string() + ".backup"}, {}, {std::byte{1}}}});
+	ASSERT_TRUE(Protected->Stage());
+	auto Direct = GetDirectFilePackageWriter()->Begin({
+		{{Main, Main.string() + ".unused", {}}, {}, {std::byte{2}}},
+		{{Bulk, {}, {}}, {}, {}}});
+	EXPECT_FALSE(FPackageFileAccess::TryAcquire(Paths, false));
+	EXPECT_FALSE(Protected->Commit());
+	ASSERT_TRUE(Direct->Stage());
+	Direct.reset();
+	EXPECT_TRUE(FPackageFileAccess::TryAcquire(Paths, false));
+	EXPECT_EQ(Protected->Commit().Error, EPackageWriteError::StaleData);
+	// The failed operation may remain observable without blocking a fresh save.
+	EXPECT_TRUE(FPackageFileAccess::TryAcquire(Paths, true));
+}
+
+TEST_F(FPackagePersistenceTests, DirectWriterRejectsStaleDestinationsAndProtectedUse)
+{
+	const auto Main = Root / "Stale.dasset";
+	const FByteBuffer Old{std::byte{7}};
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Old, Main));
+	auto Write = GetDirectFilePackageWriter()->Begin({
+		{{Main, Main.string() + ".unused", {}}, {}, {std::byte{2}}}});
+	const auto Result = Write->Stage();
+	EXPECT_EQ(Result.Error, EPackageWriteError::StaleData);
+	EXPECT_EQ(Result.State, EPackageWriteState::NotCommitted);
+	EXPECT_TRUE(Result.AffectedFiles.empty());
+	FByteBuffer Current;
+	ASSERT_TRUE(FFileHelper::LoadFileToArray(Current, Main));
+	EXPECT_EQ(Current, Old);
+	FSavePackageContext Context{Options, GetDirectFilePackageWriter()};
+	FPackageSaveResult Admission;
+	EXPECT_FALSE(FPackageSaveOperation::Begin(Package, Context, Admission));
+	EXPECT_EQ(Admission.Error, EPackageSaveError::InvalidPackageType);
+	EXPECT_TRUE(Package->IsDirty());
+	EXPECT_FALSE(std::filesystem::exists(Options.Destination));
+}
+
+TEST_F(FPackagePersistenceTests, PhysicalClosureAdmissionIsAtomicAndNormalizesAliases)
+{
+	const auto Main = Root / "Alias.dasset";
+	const auto Bulk = Root / "Alias.dbulk";
+	const std::array MainPaths{Main};
+	const std::array BulkPaths{Bulk};
+	const std::array Both{Bulk, Root / "Unused" / ".." / "Alias.dasset"};
+	auto MainOwner = FPackageFileAccess::TryAcquire(MainPaths, true);
+	ASSERT_TRUE(MainOwner);
+	EXPECT_FALSE(FPackageFileAccess::TryAcquire(Both, true));
+	// Failed multi-file admission must not retain its non-conflicting prefix.
+	EXPECT_TRUE(FPackageFileAccess::TryAcquire(BulkPaths, true));
+	MainOwner.reset();
+	EXPECT_TRUE(FPackageFileAccess::TryAcquire(Both, true));
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(FByteBuffer{std::byte{1}}, Main));
+	std::error_code Ec;
+	const auto Alias = Root / "HardLink.dasset";
+	std::filesystem::create_hard_link(Main, Alias, Ec);
+	if (!Ec)
+	{
+		EXPECT_FALSE(FPackageFileAccess::TryAcquire(MainPaths, true));
+		const std::array AliasPaths{Alias};
+		EXPECT_FALSE(FPackageFileAccess::TryAcquire(AliasPaths, true));
+	}
+}
+
 TEST_F(FPackagePersistenceTests, StagedMetadataChecksDetectChangesWithoutReadingContent)
 {
 	const auto Destination = Root / "Detached.bin";
@@ -293,12 +536,13 @@ TEST_F(FPackagePersistenceTests, IoFailureAndSchedulerDrainRemainObservable)
 	EXPECT_TRUE(Package->IsDirty());
 	Options.Destination = Root / "Package.dasset";
 	FPackageSaveResult Admission;
-	auto Operation = Package->SaveAsync(Admission, Options);
-	ASSERT_TRUE(Operation);
-	ShutdownTaskScheduler();
-	const auto Result = Operation->WaitAndComplete();
+	auto Operation = Package->SaveAsync(Admission, FSavePackageContext{Options});
+	ASSERT_TRUE(Operation.IsValid());
+	(void)DPackage::DrainAsyncSaves();
+	ShutdownTaskSystem(ETaskShutdownMode::Drain);
+	const auto Result = FinishSave(Operation);
 	// Shutdown may cancel admitted work; it must expose the outcome and drain safely.
-	EXPECT_TRUE(Operation->IsCompleted());
+	EXPECT_TRUE(Operation.IsCompleted());
 	EXPECT_EQ(std::filesystem::exists(Options.Destination), Result.Succeeded());
 	EXPECT_EQ(Package->IsDirty(), !Result.Succeeded());
 }
@@ -333,11 +577,12 @@ TEST_F(FPackagePersistenceTests, FilteredSnapshotsPreserveAuthoredDirtyState)
 TEST_F(FPackagePersistenceTests, ShutdownDuringResolverIsAnAdmissionFailure)
 {
 	SetPackageDestinationResolver([&](const DPackage&) {
-		ShutdownTaskScheduler();
+		(void)DPackage::DrainAsyncSaves();
+		ShutdownTaskSystem(ETaskShutdownMode::Drain);
 		return Options.Destination;
 	});
 	FPackageSaveResult Admission;
-	EXPECT_FALSE(Package->SaveAsync(Admission));
+	EXPECT_FALSE(Package->SaveAsync(Admission, FSavePackageContext{}).IsValid());
 	EXPECT_EQ(Admission.Error, EPackageSaveError::ShuttingDown);
 	EXPECT_FALSE(std::filesystem::exists(Options.Destination));
 }

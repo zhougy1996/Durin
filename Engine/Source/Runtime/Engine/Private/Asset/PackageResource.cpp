@@ -1,3 +1,4 @@
+#include "Misc/PackageWriter.h"
 #include "Asset/PackageResource.h"
 
 #include "AssetPackageCodec.h"
@@ -188,6 +189,9 @@ namespace Durin
 			{
 				if (bCancelled.load(std::memory_order_acquire))
 					return Result(EPackageResourceReadStatus::Cancelled, "Package range request was cancelled.");
+				const std::array Paths{SegmentPath};
+				auto Access = FPackageFileAccess::TryAcquire(Paths, false);
+				if (!Access || IsRetired()) return Result(EPackageResourceReadStatus::Retired, "Package output is being written.");
 				std::error_code Error;
 				const uint64 BeforeSize = std::filesystem::file_size(SegmentPath, Error);
 				if (Error)
@@ -292,6 +296,8 @@ namespace Durin
 		FPreparedPackageResource& Out, const std::function<bool()>& IsCancelled)
 		-> FPreparedPackageResourceResult
 	{
+		auto Access = FPackageFileAccess::TryReadPackage(PackagePath);
+		if (!Access) return {EPreparedStatus::Stale, "Package output is being written."};
 		if (IsCancelled && IsCancelled())
 			return {EPreparedStatus::Cancelled, "Package closure read was cancelled."};
 		if (!LogicalPath.IsValid())
@@ -370,6 +376,8 @@ namespace Durin
 		FPreparedPackageResource& Out, const std::function<bool()>& IsCancelled)
 		-> FPreparedPackageResourceResult
 	{
+		auto Access = FPackageFileAccess::TryReadPackage(PackagePath);
+		if (!Access) return {EPreparedStatus::Stale, "Package output is being written."};
 		if (IsCancelled && IsCancelled())
 			return {EPreparedStatus::Cancelled, "Package closure preparation was cancelled."};
 		if (ValidatedMain.IsEmpty() || PackagePath.empty())
@@ -429,6 +437,8 @@ namespace Durin
 	auto FPreparedPackageResource::Revalidate(const std::function<bool()>& IsCancelled) const
 		-> FPreparedPackageResourceResult
 	{
+		auto Access = FPackageFileAccess::TryReadPackage(MainPath);
+		if (!Access) return {EPreparedStatus::Stale, "Package output is being written."};
 		if (IsCancelled && IsCancelled())
 			return {EPreparedStatus::Cancelled, "Package closure validation was cancelled."};
 		if (MainBytes.IsEmpty())
@@ -679,6 +689,8 @@ namespace Durin
 	) -> FPackageResourceRegistrationResult
 	{
 		require(!LogicalPackageId.empty());
+		auto Access = FPackageFileAccess::TryReadPackage(PackagePath);
+		if (!Access) return {.Status = EPackageResourceRegistrationStatus::InvalidGeneration, .Message = "Package output is being written."};
 		std::string MetadataError;
 		if (Summary.Extent == 0) return {.Message = "Loose bulk registration requires a nonempty segment."};
 		if (!ValidatePackageBulkDataMetadata(Summary, Entries, &MetadataError)) return {.Message = std::move(MetadataError)};

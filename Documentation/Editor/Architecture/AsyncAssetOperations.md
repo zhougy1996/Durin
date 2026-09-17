@@ -4,7 +4,7 @@ Summary: Define completion, compensation, and UI ownership for nonblocking edito
 
 Modules: TextureBuild, AssetForgeBuiltins, DurinEd, TextureEditor, StaticMeshEditor, Engine
 
-Last reviewed: 2026-09-08
+Last reviewed: 2026-09-17
 
 ## Ownership Layers
 
@@ -64,6 +64,15 @@ Explicit abort reports a terminal failure to its UI owner; destruction does
 not call presentation callbacks.
 
 ## Typed Adapters and UI
+
+AssetTools saves consume `DPackage::SaveAsync` with an explicit
+`FAssetPackageSaveContext`. The typed task represents final persistence and
+Registry disposition. Editor `FAssetSaveOperation::Complete` converts that result
+and emits notifications once; it never initiates publication. Normal host ticks
+advance the GameThread continuation. Headless hosts explicitly drain saves as
+specified by [Package persistence](../../Runtime/Core/PackagePersistence.md#operation-lifetime-and-completion).
+Do not replace confirmation-dependent import saves with admission-only
+`SAVE_Async`; accepted direct I/O cannot justify an editor Persisted result.
 
 An asset-family adapter supplies preparation, apply start, commit, rollback,
 compensation start, cancellation, and final notification callables. The adapter

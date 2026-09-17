@@ -1,4 +1,5 @@
 #include "Asset/EditorBulkData.h"
+#include "EditorBulkDataSaveRetention.h"
 
 namespace Durin
 {
@@ -192,6 +193,13 @@ namespace Durin
 					Payload.Message.empty() ? "Authored bulk payload cannot be read for serialization."
 						: Payload.Message);
 				return;
+			}
+			if (AssetPrivate::FScopedBulkSaveRetention::IsEnabled())
+			{
+				auto Expected = Snapshot;
+				const auto Resident = MakeMemoryState(Snapshot->InstanceId, Snapshot->ContentId, Payload.Buffer);
+				std::atomic_compare_exchange_strong_explicit(&State, &Expected, Resident,
+					std::memory_order_release, std::memory_order_acquire);
 			}
 		}
 		FArchiveBulkDataValue Value{

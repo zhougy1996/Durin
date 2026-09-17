@@ -1,3 +1,4 @@
+#include "Misc/PackageWriter.h"
 #include "AssetRegistry/PackageHeader.h"
 
 #include "DObject/PackageFormat.h"
@@ -97,6 +98,8 @@ namespace Durin
 		const FPackagePath& PackagePath, FAssetPackageHeader& OutHeader)
 		-> FAssetRegistryResult
 	{
+		auto Access = FPackageFileAccess::TryReadPackage(std::filesystem::path(PhysicalPath));
+		if (!Access) return Error(EAssetRegistryError::IoError, "Package output is being written.");
 		OutHeader = {};
 		std::ifstream Stream(
 			std::filesystem::path(PhysicalPath), std::ios::binary | std::ios::ate);

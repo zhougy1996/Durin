@@ -4,34 +4,42 @@ Summary: Add UE-style SAVE_Async admission-only background writes and replace ex
 
 Last reviewed: 2026-09-17
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-09-17
 
 ## Current Status
 
-Planning only; implementation has not started. The selected public direction is
-`SavePackage(..., SAVE_Async)` without a per-save task handle, and
-`DPackage::SaveAsync(...)` returning a task for the complete protected save.
-Implementation begins with Stage 0; unresolved API integration details below are
-not implemented contracts.
+Stages 0-4 are complete. `SAVE_Async` owns bounded direct writes internally;
+explicit-context `DPackage::SaveAsync` returns the final protected save Task.
+AssetTools and all discovered Engine/Sandbox/RoadWeaver callers are migrated.
+Physical reader/writer admission, lazy-resource retirement with authored-byte
+retention, partial-write fencing/retry, terminal delivery and shutdown draining
+are integrated. Authoritative contracts now live in the four documents linked
+by Stage 4; the design record below preserves the implementation decision.
 
-The completed [Asset Save Flow Simplification](AssetSaveFlowSimplification.md)
-is the baseline. Follow-up commits `9a0d0b1c7` and `691e07327` unified Engine save
-preparation and gave each writer unique staging/backup siblings. Save preparation
-no longer recovers or deletes abandoned backups. Ordinary sync and async asset
-saves share `FinishOrdinarySave`; explicit bundles retain coordinated rollback.
+Validation on `Win64-Debug-DurinEditor` (2026-09-17):
 
-Current interfaces differ from the requested endpoint:
+- `test affected --report`: all 67 registered affected targets passed, including
+  package/bulk/transaction/import/task-lifecycle coverage and SandboxGameplayTests.
+  Receipt: `Build/NativeTestResults/Win64-Debug-DurinEditor/affected.xml`.
+- `test PackagePersistenceTests`: all 24 cases passed. Five new host completion,
+  bounded admission, missing executor, rejected publication and canceled
+  continuation cases also passed with `--isolate --test-jobs 4`.
+- `test TextureImportWorkflowTests`: all 21 cases passed after the final shutdown
+  change, including the real asset-manager shutdown draining accepted direct I/O.
+  All three `FTextureImportQueueTests.DirectSave*` cases also passed with
+  `--isolate --test-jobs 3`.
+- `test RoadSceneIntegrationTests`: all five cases passed.
+- `AssetPackageTests` includes the new lazy bulk retirement/retry case, also
+  validated independently during implementation.
+- Final `build --target all`: passed after all source changes.
+- Workspace symbol search found no remaining declaration or consumer of the
+  removed `FAsyncPackageSave` protocol across all three projects.
 
-- CoreDObject `DPackage::Save` and `SaveAsync(Admission, Options)` persist files
-  without Engine. The latter returns `unique_ptr<FPackageSaveOperation>` and
-  requires explicit completion.
-- Engine `FAsyncPackageSave::Begin` returns an operation with `IsReady` and
-  GameThread `Complete`, including asset admission and Registry publication.
-- AssetTools `FAssetSaveOperation` wraps the Engine operation and publishes
-  editor results once. It must consume the final task result after migration.
-- Task waits do not pump GameThread work. A task that depends on deferred
-  GameThread completion cannot be synchronously waited on by that thread.
+The broad run found and resolved a stale material diagnostic accessor in
+`AssetPackageReloadTests` and shutdown before GameThread initialization in
+configuration-only cook tools. No required validation gate remains outstanding.
+Document and all-plan validation receipts are recorded by the completion commit.
 
 ## Goal
 
@@ -111,24 +119,24 @@ submission time, since there will be no public `Complete(Options)` step.
 
 Dependencies: none. Outcome: reviewed, concrete signatures and ownership design.
 
-- [ ] Inventory declarations and consumers of `Save`, `SavePackage`, `SaveAsync`,
+- [x] Inventory declarations and consumers of `Save`, `SavePackage`, `SaveAsync`,
   `FPackageSaveOperation`, `FAsyncPackageSave`, and editor completion wrappers in
   source/test roots of every project in `Durin.dworkspace` (Engine, Sandbox,
   RoadWeaver). Record affected modules and targets here.
-- [ ] Specify the UE-style `SavePackage` surface, save-flag type and options,
+- [x] Specify the UE-style `SavePackage` surface, save-flag type and options,
   typed task result, admission-error representation, and exact global wait/query
   signatures. Resolve the existing CoreDObject `SaveAsync` signature collision.
-- [ ] Select a lower-layer extension/context mechanism for Engine asset policy
+- [x] Select a lower-layer extension/context mechanism for Engine asset policy
   and completion, including registration lifetime and missing-provider behavior.
   Give explicit file-only and asset-aware call examples and map every existing
   caller. Avoid implicit routing that can silently omit Registry publication.
-- [ ] Define same-path write admission and reader coordination, release of pins,
+- [x] Define same-path write admission and reader coordination, release of pins,
   partial-write reporting, error sink, retries and shutdown sequencing.
-- [ ] Define headless completion and wait behavior against the existing Task
+- [x] Define headless completion and wait behavior against the existing Task
   contract: no implicit GameThread pumping inside ordinary Task waits. Select an
   explicit host drain/pump for final publication where needed, and distinguish it
   from waiting only for file I/O. Reject unsupported waits without hanging.
-- [ ] Record the resolved design in this plan before changing shared APIs.
+- [x] Record the resolved design in this plan before changing shared APIs.
 
 Acceptance: signatures, ownership diagram and failure/result mapping cover both
 CoreDObject-only tools and Engine/editor callers without a dependency inversion
@@ -138,13 +146,13 @@ or GameThread self-wait.
 
 Dependencies: Stage 0. Outcome: admission-only saves run without a caller handle.
 
-- [ ] Add flags and direct-file output using shared detached preparation; retain
+- [x] Add flags and direct-file output using shared detached preparation; retain
   the existing protected writer for sync, task and explicit transaction paths.
-- [ ] Add bounded internal lifetime tracking, global query/wait, startup admission
+- [x] Add bounded internal lifetime tracking, global query/wait, startup admission
   and shutdown drain, including GameThread result delivery.
-- [ ] Implement same-path coordination and lazy-resource safety, Dirty/revision
+- [x] Implement same-path coordination and lazy-resource safety, Dirty/revision
   handling, Registry publication/fencing, diagnostics and retry behavior.
-- [ ] Test admission rejection, delayed I/O after return, absence of backup files,
+- [x] Test admission rejection, delayed I/O after return, absence of backup files,
   success, partial main/bulk failure, changed revision, competing write modes,
   global drains and shutdown with queued/running writes.
 
@@ -155,14 +163,14 @@ I/O failure is observable and cannot publish an inconsistent asset as valid.
 
 Dependencies: Stages 0 and 1. Outcome: one task represents protected completion.
 
-- [ ] Implement the selected CoreDObject/Engine integration and owned preparation,
+- [x] Implement the selected CoreDObject/Engine integration and owned preparation,
   staging, GameThread validation/publication and terminal result continuation.
-- [ ] Migrate both the existing package-only SaveAsync and Engine asynchronous
+- [x] Migrate both the existing package-only SaveAsync and Engine asynchronous
   owner; keep explicit staged coordinator internals only where still needed.
-- [ ] Test no publication before staging, automatic completion without an old
+- [x] Test no publication before staging, automatic completion without an old
   `Complete` call, final-result timing, stale inputs, rollback and partial recovery,
   cancellation, dropped handles, reentrancy and exactly-once callbacks.
-- [ ] Test normal host ticking, headless completion, unsupported GameThread waits,
+- [x] Test normal host ticking, headless completion, unsupported GameThread waits,
   deferred-queue admission failure and shutdown before object/module teardown.
 
 Acceptance: callers can observe a final save result through a Task; no live-object
@@ -172,14 +180,14 @@ mutation occurs on an I/O worker, and no completion path can deadlock its owner.
 
 Dependencies: Stage 2. Outcome: all workspace callers use the selected contracts.
 
-- [ ] Migrate AssetTools, import queues, tests and other discovered callers to the
+- [x] Migrate AssetTools, import queues, tests and other discovered callers to the
   protected task result where they need persistence confirmation or notifications.
   Do not switch these callers to weak SAVE_Async merely to simplify migration.
-- [ ] Remove public `FAsyncPackageSave` and obsolete caller-driven completion
+- [x] Remove public `FAsyncPackageSave` and obsolete caller-driven completion
   adapters after migration; preserve necessary internal bundle coordination.
-- [ ] Verify sync saves, serialization modes, bulk removal, prepared graph
+- [x] Verify sync saves, serialization modes, bulk removal, prepared graph
   publication, atomic bundles and Registry-failure rollback retain their contracts.
-- [ ] Search all workspace project source/test roots again for removed APIs and
+- [x] Search all workspace project source/test roots again for removed APIs and
   update affected project targets as well as owning modules.
 
 Acceptance: no stale public API consumers; editor callbacks fire once only after
@@ -189,19 +197,203 @@ the final save result, and explicit transaction guarantees remain intact.
 
 Dependencies: Stage 3. Outcome: validated migration and authoritative documentation.
 
-- [ ] Follow [Testing](../Agents/Testing.md) to select registered targets. Include
+- [x] Follow [Testing](../Agents/Testing.md) to select registered targets. Include
   package persistence, asset package, import/async save, task lifecycle and the
   affected explicit transaction tests; add fault injection at destructive writes
   and completion boundaries. Verify independent case setup where relevant.
-- [ ] Complete the required `all` build for this shared Engine API migration and
+- [x] Complete the required `all` build for this shared Engine API migration and
   affected project validation under [Build And Run](../Agents/BuildAndRun.md).
-- [ ] Update [Package Persistence](../Runtime/Core/PackagePersistence.md),
+- [x] Update [Package Persistence](../Runtime/Core/PackagePersistence.md),
   [Asset Packages](../Runtime/Assets/AssetPackages.md),
   [Asset Catalog and Mutation](../Runtime/Assets/AssetCatalogAndMutation.md), and
   [Async Asset Operations](../Editor/Architecture/AsyncAssetOperations.md).
   Update [Task System](../Runtime/Core/TaskSystem.md) only if its contract changes.
-- [ ] Record exact passed validation and any outstanding gates, validate the plan
+- [x] Record exact passed validation and any outstanding gates, validate the plan
   and changed documents, and mark completion only after every required gate passes.
+
+## Stage 0 Design Record
+
+### Workspace Inventory
+
+The inventory covers `Engine/Source`, `Engine/Tests/Native`, `Sandbox/Source`,
+`Sandbox/Tests/Native`, `RoadWeaver/Source`, and `RoadWeaver/Tests/Native`, as
+declared by all three projects in `Durin.dworkspace`.
+
+- Core owns `IPackageWriter`, detached buffers, file replacement and Tasks.
+  CoreDObject owns `DPackage::Save`, the existing operation-returning
+  `SaveAsync`, and `FPackageSaveOperation`. Package-only async callers are in
+  `PackagePersistenceTests.cpp`; staged-operation tests also exercise rollback.
+- Engine owns `SavePackage`, `SavePackagesAtomically`, `FAsyncPackageSave`,
+  package resources and asset-runtime shutdown. Async consumers are
+  `PackageTests.cpp`, `TextureFileImportTests.cpp`, and AssetTools'
+  `AssetOperations.cpp`. No Sandbox or RoadWeaver async consumer was found.
+- AssetTools' `FAssetSaveOperation` is used by TextureEditor's import queue.
+  It must consume the complete task before producing its once-only editor result.
+- Existing synchronous calls in DurinEd, LevelEditor, MaterialEditor,
+  AssetForgeBuiltins, AssetTools, DurinAssetTool and Engine/native tests retain
+  asset-aware `SavePackage`. `StudioCubeGenerate` retains file-only persistence.
+  RoadWeaverEditor's `RoadNetCreateDialog.cpp` and `RoadSceneIntegrationTests.cpp`
+  retain synchronous asset saves. Sandbox has no package-save call to migrate.
+
+Registered validation targets include `PackagePersistenceTests`,
+`PackageWriterContractTests`, `AssetPackageTests`, `AssetBulkContainerTests`,
+`AssetSaveReadinessTests`, `EditorAssetWorkflowTests`,
+`TextureImportWorkflowTests`, `EditorOperationTests`,
+`AsyncTaskPilotLifecycleTests`, `RoadSceneIntegrationTests`, and
+`SandboxGameplayTests`, and `CoreConcurrencyTests`. Build `all` after the shared API migration; validate RoadWeaver and
+Sandbox through their registered targets rather than guessed executable names.
+
+### Explicit Context and Public Signatures
+
+Use an explicit typed context instead of a process-global Engine callback.
+CoreDObject must not depend on `FAssetResult` or Engine option types. The package
+member accepts a context whose `SaveAsync(DPackage*)` returns the existing typed
+Task. Contexts copy submission options into the internally owned operation.
+Engine implements `FAssetPackageSaveContext`; CoreDObject implements the file-only
+`FSavePackageContext`. There is no default context and no fallback from asset
+policy to file-only persistence. No provider registration/unregistration is
+needed; owned Engine work must drain before Engine or its consumers unload.
+
+Implemented signatures:
+
+```cpp
+enum EPackageSaveFlags : uint32 { SAVE_None = 0, SAVE_Async = 1 };
+
+// Engine; preserve the existing two-argument serialization-mode overload.
+auto SavePackage(DPackage*, EPackageSaveFlags,
+                 EAssetPackageSaveMode = EAssetPackageSaveMode::Delta) -> FAssetResult;
+
+// CoreDObject; the context is required, and supplies the typed result.
+template<class TResult, class TContext>
+auto DPackage::SaveAsync(TResult& Admission, const TContext& Context)
+    -> decltype(Context.SaveAsync(this, Admission));
+
+auto FSavePackageContext::SaveAsync(DPackage*, FPackageSaveResult& Admission) const
+    -> Tasks::TTask<FPackageSaveResult>;
+auto FAssetPackageSaveContext::SaveAsync(DPackage*, FAssetResult& Admission) const
+    -> Tasks::TTask<FAssetResult>;
+
+static auto DPackage::HasAsyncFileWrites() -> bool;
+static auto DPackage::WaitForAsyncFileWrites() -> FTaskWaitResult;
+static auto DPackage::DrainAsyncSaves() -> FPackageSaveResult;
+```
+
+File-only example: `Package->SaveAsync(Admission, FSavePackageContext{Options})`.
+Asset-aware example: `Package->SaveAsync(Admission, FAssetPackageSaveContext{Options})`.
+The asset context copies `FAssetBundleSaveOptions` at submission, rejects private
+prepared-publication contexts, and supports Complete/Delta without a later
+`Complete(Options)` call. Both contexts reject `SAVE_Async`: protected saves
+cannot silently switch to destructive output. Replace the old admission-reference
+overload; retain staged coordinator primitives only for explicit transactions.
+
+Synchronous admission rejection writes the domain error to `Admission` and
+returns an invalid task, including when the scheduler or completion executor is
+unavailable. Successful admission returns a valid task and an acceptance-only
+`Admission` value. This preserves checked admission without invoking Task
+construction outside scheduler lifetime. The task's value reports the final
+save-domain result; no caller completion call is required.
+
+### Ownership, Coordination and Results
+
+```text
+GameThread submission -> bounded internal save owner -> detached I/O task
+                              |                           |
+                              |<---- staging / write -----|
+                              v
+                    GameThread terminal continuation
+                    validate / commit / publish / finalize
+                              |
+                    typed result or direct-write sink
+                              |
+                    release pins and closure reservation
+```
+
+The internal owner survives task-handle release. It retains copied options,
+package pins and writer state; workers use only detached bytes and paths.
+Terminal delivery occurs once, after cleanup, on GameThread. Cancellation is
+advisory before commit, with staged output discarded; an in-progress commit
+finishes publication/finalization or rollback before releasing ownership.
+Task execution failure/cancellation and a successful task containing a failed
+save are distinct outcomes that every consumer must inspect.
+
+Use a Core physical-closure reservation shared by both file writers and Engine.
+Normalize absolute paths and filesystem aliases before reserving `.dasset` and
+`.dbulk` together; reject hard-linked files rather than treating their path aliases
+as independent destinations. Direct output reserves before scheduling its writes.
+Protected output may stage concurrently, but acquires exclusive destination
+ownership before commit and holds it until terminal finalization. This preserves
+optimistic protected staging without letting it overlap a destructive writer. An
+expected timestamp alone cannot authorize a second writer. Bundles acquire their
+whole closure before their first publication and unwind admission atomically.
+
+Implementation refinement: direct capture materializes successfully read authored
+bulk sources into immutable live memory without changing their content identity
+or edit revision. Otherwise retiring the old resource would make a later retry
+of a partially failed save unable to recover its own source bytes. External
+holders of old resource handles still observe retirement; the live authored
+values retain their validated snapshot for continued editing and retries.
+
+Direct writes also require read exclusion. Existing loose resources reopen the
+bulk path in `FLoosePackageResource::ReadRangeImpl`; retirement already cancels
+and drains admitted reads. Capture must finish before retiring the old generation,
+and retirement must finish before the first destructive write. Resource
+registration, detached preparation/revalidation and package load/inspection must
+participate in physical read admission. Reads already in progress must drain;
+new reads reject while the direct reservation is held. Old resource handles stay
+retired and require explicit reload/rebinding; do not let them read the new
+generation or weaken existing size/digest checks. Owned immutable resources
+remain usable because they do not reopen the overwritten files.
+
+Direct-write admission reports only acceptance: Dirty, published state, Registry
+metadata and editor Persisted results remain unchanged. After successful bytes,
+publish captured metadata on GameThread; clear Dirty only when identity and edit
+revision still match. Partial output reports all affected physical paths with a
+new explicit partial-write disposition, keeps Dirty, and fences the Registry
+projection. Do not report backup recovery paths when no backup exists. Successful
+bytes followed by failed Registry publication use
+`ContentCommittedProjectionPending`. A fenced destination may be retried by the
+same resident package using a full fresh capture, or reconciled by explicit
+validated catalog admission; fence removal follows successful publication only.
+Other asset operations remain fenced throughout recovery.
+
+The process-wide direct-write completion sink receives success and failure once
+on GameThread and has a default diagnostic logger. Retain diagnostics independent
+of any caller handle. Bound accepted operation count and retained detached bytes;
+reject excess admission before scheduling destructive work. Initially permit at
+most 64 internally owned saves and 256 MiB of retained detached output across
+both asynchronous contracts. Account bytes after capture but before accepting
+the request, and keep the operation slot until GameThread terminal delivery.
+Oversized requests may use synchronous saving; do not admit one unbounded async
+exception. Tests use scoped limits/fault injection rather than large fixtures.
+
+### Wait and Shutdown Boundaries
+
+`HasAsyncFileWrites` covers outstanding disk work for all internally owned async
+saves in this process, including protected staging. It does not imply Registry
+publication has completed. `WaitForAsyncFileWrites` snapshots admitted disk tasks
+at entry, waits only those tasks, and never pumps GameThread or waits for later
+submissions. It returns unsupported-thread/dependency status without pretending
+the cutoff drained. Ordinary typed Task waits keep their existing no-pump rule;
+GameThread waits for unfinished protected save tasks must reject.
+
+`DrainAsyncSaves` is a separate explicit GameThread/headless host operation. It
+drains the submission cutoff through terminal publication, including I/O and
+GameThread continuation, and rejects reentrant use from publication callbacks.
+Normal hosts advance saves through their deferred executor. Submission requires
+an initialized GameThread deferred executor; headless hosts initialize the same
+executor and call the explicit drain;
+deferred admission failure must release pins on GameThread and produce a domain
+failure before starting destructive I/O.
+
+Shutdown closes admission, drains owned saves and diagnostics on GameThread,
+then flushes Registry state, retires package resources, releases object pins and
+allows module/object/task teardown. Engine's current asset shutdown retires
+resources and marks packages garbage, so the new drain must precede those steps.
+CoreDObject-only tools need the same explicit save drain before object teardown.
+The internal tracking owner must retain cleanup authority even if a queued
+continuation is canceled; cancellation cannot release its last pin on a worker.
+Test scheduler cancellation and owner shutdown separately; a canceled deferred
+task must never be the last owner responsible for GameThread pin destruction.
 
 ## Local UE Reference
 

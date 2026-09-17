@@ -13,6 +13,7 @@
 #include "Texture/TexturePlatformDataTestFixtures.h"
 
 #include <gtest/gtest.h>
+#include <future>
 
 namespace
 {
@@ -156,12 +157,22 @@ namespace
 		{
 			const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
 			while (!Save.IsReady() && std::chrono::steady_clock::now() < Deadline)
-				std::this_thread::sleep_for(std::chrono::milliseconds(1));
+			{ PumpGameThreadDeferredWork(); std::this_thread::sleep_for(std::chrono::milliseconds(1)); }
 			return Save.IsReady();
+		}
+		auto WaitForSave(Tasks::TTask<FAssetResult>&) -> bool
+		{ return DPackage::WaitForAsyncFileWrites().WaitStatus == ETaskWaitStatus::Completed; }
+		auto FinishSave(Tasks::TTask<FAssetResult>& Save) -> FAssetResult
+		{
+			EXPECT_TRUE(DPackage::DrainAsyncSaves());
+			if (Save.GetState() != ETaskState::Succeeded) return {EAssetError::IoError, "Task execution failed."};
+			return Save.GetResult();
 		}
 		auto SetUp() -> void override
 		{
 			InitializeDObjectSystem();
+			if (!GetGameThreadDeferredWorkQueueDiagnostics().bInstalled) ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
+			PackageSavePrivate::SetAsyncSaveAdmission(true);
 			if (!FAssetCompilingManager::Get().IsAcceptingRequests()) ASSERT_TRUE(InitializeAssetCompilingManager());
 			FModuleManager::Get().LoadModuleChecked("TextureBuild");
 			const std::string TestName = testing::UnitTest::GetInstance()->current_test_info()->name();
@@ -185,10 +196,19 @@ namespace
 			while (Importer.IsRunning() && std::chrono::steady_clock::now() < Deadline)
 			{
 				FAssetCompilingManager::Get().ProcessAsyncTasks();
+				PumpGameThreadDeferredWork();
 				Importer.Tick();
 				std::this_thread::sleep_for(std::chrono::milliseconds(1));
 			}
 			return !Importer.IsRunning();
+		}
+		auto TearDown() -> void override
+		{
+			EXPECT_TRUE(DPackage::DrainAsyncSaves());
+			SetAsyncPackageSaveSink({});
+			Private::SetDirectPackageWriteFailureForTests({});
+			AssetPrivate::SetAsyncSavePublicationFailureForTests(false);
+			PackageSavePrivate::SetAsyncSaveAdmission(true);
 		}
 	};
 }
@@ -205,11 +225,12 @@ TEST_F(FTextureImportQueueTests, AsyncSavePublishesVerifiedBulkOnlyOnCompletion)
 	Save = FAssetSaveOperation::Begin({.AssetPaths = {Path},
 		.Publish = [&](const auto&) { ++Published; EXPECT_TRUE(Save->Complete()); }}, Admission);
 	ASSERT_TRUE(Save) << Admission.Message;
-	ASSERT_TRUE(WaitForSave(*Save));
+	ASSERT_EQ(DPackage::WaitForAsyncFileWrites().WaitStatus, ETaskWaitStatus::Completed);
 	EXPECT_FALSE(std::filesystem::exists(Root / "Content/save.dasset"));
 	EXPECT_FALSE(std::filesystem::exists(Root / "Content/save.dbulk"));
 	EXPECT_EQ(Published, 0);
 	EXPECT_TRUE(Texture->GetPackage()->IsDirty());
+	ASSERT_TRUE(WaitForSave(*Save));
 	const auto Result = Save->Complete();
 	ASSERT_TRUE(Result) << Result.Message;
 	EXPECT_TRUE(Save->Complete());
@@ -239,10 +260,10 @@ TEST_F(FTextureImportQueueTests, SavePathsRejectUnsupportedVersionBeforeStaging)
 	DPackage* Packages[] = {Package};
 	EXPECT_EQ(SavePackagesAtomically(Packages, {}).Error, EAssetError::UnsupportedVersion);
 	FAssetResult Admission;
-	auto Save = FAsyncPackageSave::Begin(Package, Admission);
-	EXPECT_FALSE(Save);
+	auto Save = (Package)->SaveAsync(Admission, FAssetPackageSaveContext{});
+	EXPECT_FALSE(Save.IsValid());
 	EXPECT_EQ(Admission.Error, EAssetError::UnsupportedVersion);
-	Save.reset();
+	Save = {};
 	EXPECT_TRUE(Package->IsDirty());
 	EXPECT_FALSE(std::filesystem::exists(Bulk));
 	EXPECT_TRUE(std::filesystem::exists(Backup));
@@ -279,10 +300,10 @@ TEST_F(FTextureImportQueueTests, SaveTransactionsIgnoreUnownedStagingAndBackups)
 		}
 		else
 		{
-			auto Save = FAsyncPackageSave::Begin(Package, Result);
-			ASSERT_TRUE(Save) << Result.Message;
-			ASSERT_TRUE(WaitForSave(*Save));
-			Result = Save->Complete();
+			auto Save = (Package)->SaveAsync(Result, FAssetPackageSaveContext{});
+			ASSERT_TRUE(Save.IsValid()) << Result.Message;
+			ASSERT_TRUE(WaitForSave(Save));
+			Result = FinishSave(Save);
 		}
 		ASSERT_TRUE(Result) << Result.Message;
 		EXPECT_FALSE(Package->IsDirty());
@@ -305,14 +326,14 @@ TEST_F(FTextureImportQueueTests, CompetingAsyncSavesOwnSeparateTemporaryFiles)
 	ASSERT_TRUE(SavePackage(Texture->GetPackage()));
 	Texture->GetPackage()->MarkDirty();
 	FAssetResult Admission;
-	auto First = FAsyncPackageSave::Begin(Texture->GetPackage(), Admission);
-	ASSERT_TRUE(First) << Admission.Message;
-	auto Second = FAsyncPackageSave::Begin(Texture->GetPackage(), Admission);
-	ASSERT_TRUE(Second) << Admission.Message;
-	ASSERT_TRUE(WaitForSave(*First)); ASSERT_TRUE(WaitForSave(*Second));
-	EXPECT_TRUE(First->Complete());
-	EXPECT_EQ(Second->Complete().Error, EAssetError::StaleData);
-	First.reset(); Second.reset();
+	auto First = (Texture->GetPackage())->SaveAsync(Admission, FAssetPackageSaveContext{});
+	ASSERT_TRUE(First.IsValid()) << Admission.Message;
+	auto Second = (Texture->GetPackage())->SaveAsync(Admission, FAssetPackageSaveContext{});
+	ASSERT_TRUE(Second.IsValid()) << Admission.Message;
+	ASSERT_TRUE(WaitForSave(First)); ASSERT_TRUE(WaitForSave(Second));
+	EXPECT_TRUE(FinishSave(First));
+	EXPECT_EQ(FinishSave(Second).Error, EAssetError::StaleData);
+	First = {}; Second = {};
 	for (const auto& Entry : std::filesystem::directory_iterator(Root / "Content"))
 		EXPECT_TRUE(Entry.path().extension() == ".dasset" || Entry.path().extension() == ".dbulk");
 }
@@ -321,17 +342,17 @@ TEST_F(FTextureImportQueueTests, AsyncSaveRejectsNewEditsAndRetriesCurrentVersio
 {
 	auto* Texture = MakeSaveTexture(); ASSERT_NE(Texture, nullptr);
 	FAssetResult Admission;
-	auto Save = FAsyncPackageSave::Begin(Texture->GetPackage(), Admission);
-	ASSERT_TRUE(Save) << Admission.Message;
-	ASSERT_TRUE(WaitForSave(*Save));
+	auto Save = (Texture->GetPackage())->SaveAsync(Admission, FAssetPackageSaveContext{});
+	ASSERT_TRUE(Save.IsValid()) << Admission.Message;
+	ASSERT_TRUE(WaitForSave(Save));
 	Texture->GetPackage()->MarkDirty();
-	EXPECT_FALSE(Save->Complete());
+	EXPECT_FALSE(FinishSave(Save));
 	EXPECT_TRUE(Texture->GetPackage()->IsDirty());
 	EXPECT_FALSE(std::filesystem::exists(Root / "Content/save.dasset"));
-	Save.reset();
-	Save = FAsyncPackageSave::Begin(Texture->GetPackage(), Admission);
-	ASSERT_TRUE(Save); ASSERT_TRUE(WaitForSave(*Save));
-	EXPECT_TRUE(Save->Complete());
+	Save = {};
+	Save = (Texture->GetPackage())->SaveAsync(Admission, FAssetPackageSaveContext{});
+	ASSERT_TRUE(Save.IsValid()); ASSERT_TRUE(WaitForSave(Save));
+	EXPECT_TRUE(FinishSave(Save));
 	EXPECT_FALSE(Texture->GetPackage()->IsDirty());
 }
 
@@ -339,18 +360,18 @@ TEST_F(FTextureImportQueueTests, AsyncSaveRejectsCompetingSaveAndChangedStaging)
 {
 	auto* Texture = MakeSaveTexture(); ASSERT_NE(Texture, nullptr);
 	FAssetResult Admission;
-	auto Save = FAsyncPackageSave::Begin(Texture->GetPackage(), Admission);
-	ASSERT_TRUE(Save); ASSERT_TRUE(WaitForSave(*Save));
+	auto Save = (Texture->GetPackage())->SaveAsync(Admission, FAssetPackageSaveContext{});
+	ASSERT_TRUE(Save.IsValid()); ASSERT_TRUE(WaitForSave(Save));
 	ASSERT_TRUE(SavePackage(Texture->GetPackage()));
-	EXPECT_FALSE(Save->Complete());
-	Save.reset();
+	EXPECT_FALSE(FinishSave(Save));
+	Save = {};
 	Texture->GetPackage()->MarkDirty();
-	Save = FAsyncPackageSave::Begin(Texture->GetPackage(), Admission);
-	ASSERT_TRUE(Save); ASSERT_TRUE(WaitForSave(*Save));
+	Save = (Texture->GetPackage())->SaveAsync(Admission, FAssetPackageSaveContext{});
+	ASSERT_TRUE(Save.IsValid()); ASSERT_TRUE(WaitForSave(Save));
 	for (const auto& Entry : std::filesystem::directory_iterator(Root / "Content"))
 		if (Entry.path().filename().generic_string().starts_with("save.dasset.save-"))
 			ASSERT_TRUE(FFileHelper::SaveArrayToFile(FByteBuffer(1, std::byte{0}), Entry.path()));
-	EXPECT_FALSE(Save->Complete());
+	EXPECT_FALSE(FinishSave(Save));
 	EXPECT_TRUE(Texture->GetPackage()->IsDirty());
 }
 
@@ -359,22 +380,22 @@ TEST_F(FTextureImportQueueTests, IndependentAsyncSavesCanBothCommit)
 	auto* First = MakeSaveTexture("first"); auto* Second = MakeSaveTexture("second");
 	ASSERT_NE(First, nullptr); ASSERT_NE(Second, nullptr);
 	FAssetResult Admission;
-	auto FirstSave = FAsyncPackageSave::Begin(First->GetPackage(), Admission);
-	auto SecondSave = FAsyncPackageSave::Begin(Second->GetPackage(), Admission);
-	ASSERT_TRUE(FirstSave); ASSERT_TRUE(SecondSave);
-	ASSERT_TRUE(WaitForSave(*FirstSave)); ASSERT_TRUE(WaitForSave(*SecondSave));
-	EXPECT_TRUE(FirstSave->Complete()); EXPECT_TRUE(SecondSave->Complete());
+	auto FirstSave = (First->GetPackage())->SaveAsync(Admission, FAssetPackageSaveContext{});
+	auto SecondSave = (Second->GetPackage())->SaveAsync(Admission, FAssetPackageSaveContext{});
+	ASSERT_TRUE(FirstSave.IsValid()); ASSERT_TRUE(SecondSave.IsValid());
+	ASSERT_TRUE(WaitForSave(FirstSave)); ASSERT_TRUE(WaitForSave(SecondSave));
+	EXPECT_TRUE(FinishSave(FirstSave)); EXPECT_TRUE(FinishSave(SecondSave));
 }
 
 TEST_F(FTextureImportQueueTests, AsyncSaveRejectsNewDestinationOccupant)
 {
 	auto* Texture = MakeSaveTexture(); ASSERT_NE(Texture, nullptr);
 	FAssetResult Admission;
-	auto Save = FAsyncPackageSave::Begin(Texture->GetPackage(), Admission);
-	ASSERT_TRUE(Save); ASSERT_TRUE(WaitForSave(*Save));
+	auto Save = (Texture->GetPackage())->SaveAsync(Admission, FAssetPackageSaveContext{});
+	ASSERT_TRUE(Save.IsValid()); ASSERT_TRUE(WaitForSave(Save));
 	const FByteBuffer OtherBytes(3, std::byte{99});
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(OtherBytes, Root / "Content/save.dasset"));
-	EXPECT_FALSE(Save->Complete());
+	EXPECT_FALSE(FinishSave(Save));
 	FByteBuffer Actual;
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(Actual, Root / "Content/save.dasset"));
 	EXPECT_EQ(Actual, OtherBytes);
@@ -398,11 +419,10 @@ TEST_F(FTextureImportQueueTests, AsyncSaveRollsBackBulkWhenCommitFails)
 	for (auto Failure : {EAssetBundleSavePhase::PublishPackage, EAssetBundleSavePhase::PublishRegistry})
 	{
 		FAssetResult Admission;
-		auto Save = FAsyncPackageSave::Begin(Texture->GetPackage(), Admission);
-		ASSERT_TRUE(Save); ASSERT_TRUE(WaitForSave(*Save));
-		EXPECT_FALSE(Save->Complete({.ShouldFail = [Failure](auto Phase, size_t) {
-			return Phase == Failure;
-		}, .bRollbackOnRegistryFailure = true}));
+		auto Save = Texture->GetPackage()->SaveAsync(Admission, FAssetPackageSaveContext{
+			.Options = {.ShouldFail = [Failure](auto Phase, size_t) { return Phase == Failure; }, .bRollbackOnRegistryFailure = true}});
+		ASSERT_TRUE(Save.IsValid()); ASSERT_TRUE(WaitForSave(Save));
+		EXPECT_FALSE(FinishSave(Save));
 		EXPECT_TRUE(Texture->GetPackage()->IsDirty());
 		FByteBuffer AfterPackage, AfterBulk;
 		ASSERT_TRUE(FFileHelper::LoadFileToArray(AfterPackage, Root / "Content/save.dasset"));
@@ -411,14 +431,113 @@ TEST_F(FTextureImportQueueTests, AsyncSaveRollsBackBulkWhenCommitFails)
 	}
 }
 
-TEST_F(FTextureImportQueueTests, AbandonedAsyncSaveDrainsAndRemovesTemporaryFiles)
+TEST_F(FTextureImportQueueTests, DroppedAsyncSaveHandleStillPublishes)
 {
 	auto* Texture = MakeSaveTexture(); ASSERT_NE(Texture, nullptr);
 	FAssetResult Admission;
-	auto Save = FAsyncPackageSave::Begin(Texture->GetPackage(), Admission);
-	ASSERT_TRUE(Save); Save.reset();
-	EXPECT_TRUE(Texture->GetPackage()->IsDirty());
-	EXPECT_TRUE(std::filesystem::is_empty(Root / "Content"));
+	auto Save = (Texture->GetPackage())->SaveAsync(Admission, FAssetPackageSaveContext{});
+	ASSERT_TRUE(Save.IsValid()); Save = {};
+	ASSERT_TRUE(DPackage::DrainAsyncSaves());
+	EXPECT_FALSE(Texture->GetPackage()->IsDirty());
+	EXPECT_TRUE(std::filesystem::exists(Root / "Content/save.dasset"));
+}
+
+TEST_F(FTextureImportQueueTests, DirectSaveAdmissionAndDiskDrainDoNotPublish)
+{
+	auto* Texture = MakeSaveTexture(); ASSERT_NE(Texture, nullptr);
+	auto* Package = Texture->GetPackage();
+	auto Results = std::make_shared<std::vector<FAssetResult>>();
+	SetAsyncPackageSaveSink([Results](const auto&, const auto& Result) {
+		EXPECT_TRUE(IsInGameThread());
+		EXPECT_EQ(DPackage::DrainAsyncSaves().Error, EPackageSaveError::Busy);
+		Results->push_back(Result);
+	});
+	std::promise<void> Release;
+	auto Gate = Release.get_future().share();
+	Private::SetDirectPackageWriteFailureForTests([Gate](size_t) { Gate.wait(); return false; });
+	ASSERT_TRUE(SavePackage(Package, SAVE_Async));
+	EXPECT_TRUE(DPackage::HasAsyncFileWrites());
+	EXPECT_TRUE(Package->IsDirty());
+	EXPECT_TRUE(Package->IsNewlyCreated());
+	EXPECT_TRUE(Results->empty());
+	EXPECT_FALSE(std::filesystem::exists(Root / "Content/save.dasset"));
+	EXPECT_FALSE(SavePackage(Package));
+	EXPECT_FALSE(SavePackage(Package, SAVE_Async));
+	FAssetResult Admission;
+	EXPECT_FALSE(Package->SaveAsync(Admission, FAssetPackageSaveContext{}).IsValid());
+	FAssetPackageInspection Inspection;
+	EXPECT_FALSE(InspectAssetPackage((Root / "Content/save.dasset").generic_string(), Inspection));
+	Release.set_value();
+	ASSERT_EQ(DPackage::WaitForAsyncFileWrites().WaitStatus, ETaskWaitStatus::Completed);
+	EXPECT_FALSE(DPackage::HasAsyncFileWrites());
+	EXPECT_TRUE(Package->IsDirty());
+	EXPECT_TRUE(Results->empty());
+	Package->MarkDirty(); // Captured bytes can publish, but cannot clear a later edit.
+	ASSERT_TRUE(DPackage::DrainAsyncSaves());
+	ASSERT_EQ(Results->size(), 1u);
+	EXPECT_TRUE(Results->front()) << Results->front().Message;
+	EXPECT_TRUE(Package->IsDirty());
+	EXPECT_FALSE(Package->IsNewlyCreated());
+	for (const auto& Entry : std::filesystem::directory_iterator(Root / "Content"))
+		EXPECT_TRUE(Entry.path().extension() == ".dasset" || Entry.path().extension() == ".dbulk");
+}
+
+TEST_F(FTextureImportQueueTests, DirectSaveFailureFencesOnlyDestructiveOutputAndCanRetry)
+{
+	auto* Texture = MakeSaveTexture(); ASSERT_NE(Texture, nullptr);
+	auto* Package = Texture->GetPackage();
+	const auto Path = Package->GetPackagePathIdentity();
+	ASSERT_TRUE(SavePackage(Package));
+	for (size_t FailIndex : {size_t{0}, size_t{1}})
+	{
+		SCOPED_TRACE(FailIndex);
+		Package->MarkDirty();
+		auto Results = std::make_shared<std::vector<FAssetResult>>();
+		SetAsyncPackageSaveSink([Results](const auto&, const auto& Result) { Results->push_back(Result); });
+		Private::SetDirectPackageWriteFailureForTests([FailIndex](size_t Index) { return Index == FailIndex; });
+		ASSERT_TRUE(SavePackage(Package, SAVE_Async));
+		ASSERT_TRUE(DPackage::DrainAsyncSaves());
+		ASSERT_EQ(Results->size(), 1u);
+		EXPECT_FALSE(Results->front());
+		EXPECT_EQ(Results->front().Disposition, FailIndex == 0 ? EAssetResultDisposition::Default : EAssetResultDisposition::PartiallyWritten);
+		EXPECT_EQ(Results->front().AffectedFiles.size(), FailIndex);
+		EXPECT_EQ(IsAssetRegistryProjectionFenced(Path), FailIndex != 0);
+		EXPECT_TRUE(Package->IsDirty());
+		Private::SetDirectPackageWriteFailureForTests({});
+		ASSERT_TRUE(SavePackage(Package, SAVE_Async));
+		ASSERT_TRUE(DPackage::DrainAsyncSaves());
+		ASSERT_EQ(Results->size(), 2u);
+		EXPECT_TRUE(Results->back()) << Results->back().Message;
+		EXPECT_FALSE(IsAssetRegistryProjectionFenced(Path));
+		EXPECT_FALSE(Package->IsDirty());
+	}
+}
+
+TEST_F(FTextureImportQueueTests, DirectSaveProjectionFailureCanReconcileAndShutdownDrains)
+{
+	auto* Texture = MakeSaveTexture(); ASSERT_NE(Texture, nullptr);
+	auto* Package = Texture->GetPackage();
+	const auto Path = Package->GetPackagePathIdentity();
+	auto Results = std::make_shared<std::vector<FAssetResult>>();
+	SetAsyncPackageSaveSink([Results](const auto&, const auto& Result) { Results->push_back(Result); });
+	AssetPrivate::SetAsyncSavePublicationFailureForTests(true);
+	ASSERT_TRUE(SavePackage(Package, SAVE_Async));
+	ASSERT_TRUE(DPackage::DrainAsyncSaves());
+	ASSERT_EQ(Results->size(), 1u);
+	EXPECT_EQ(Results->front().Disposition, EAssetResultDisposition::ContentCommittedProjectionPending);
+	EXPECT_TRUE(IsAssetRegistryProjectionFenced(Path));
+	EXPECT_TRUE(Package->IsDirty());
+	AssetPrivate::SetAsyncSavePublicationFailureForTests(false);
+	ASSERT_TRUE(SavePackage(Package, SAVE_Async));
+	PackageSavePrivate::SetAsyncSaveAdmission(false);
+	EXPECT_FALSE(SavePackage(Package, SAVE_Async));
+	ShutdownAssetManager();
+	ASSERT_EQ(Results->size(), 2u);
+	EXPECT_TRUE(Results->back()) << Results->back().Message;
+	EXPECT_FALSE(IsAssetRegistryProjectionFenced(Path));
+	EXPECT_FALSE(Package->IsDirty());
+	EXPECT_FALSE(DPackage::HasAsyncFileWrites());
+	EXPECT_TRUE(InitializeAssetManager());
 }
 
 TEST_F(FTextureImportQueueTests, BatchContinuesAfterFailureAndPresentsOnce)
@@ -433,6 +552,7 @@ TEST_F(FTextureImportQueueTests, BatchContinuesAfterFailureAndPresentsOnce)
 		Second.generic_string(), Source.generic_string()}, Destination));
 	EXPECT_FALSE(Importer.Begin({Source.generic_string()}, Destination));
 	EXPECT_EQ(Importer.GetTotalCount(), 3u);
+	PumpGameThreadDeferredWork();
 	Importer.Tick(false);
 	EXPECT_EQ(Importer.GetCompletedCount(), 0u);
 	EXPECT_EQ(Assets + Directories, 0);
@@ -480,6 +600,7 @@ TEST_F(FTextureImportQueueTests, FailedBatchSaveRetainsAssetForRetryWithoutSourc
 	EXPECT_EQ(Importer.GetFailedCount(), 1u);
 	EXPECT_EQ(Published, 0);
 	ASSERT_TRUE(std::filesystem::remove(Source));
+	PumpGameThreadDeferredWork();
 	Importer.Tick(false);
 	EXPECT_FALSE(Importer.CanRetrySaves());
 	Importer.RetryPendingSaves();

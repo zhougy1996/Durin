@@ -13,13 +13,14 @@ namespace Durin
 		None, InvalidPath, InvalidPackageType, InvalidObjectGraph, UnsupportedProperty,
 		UnsupportedVersion, CorruptFile, IoError, StaleData, Cancelled, Busy, ShuttingDown
 	};
-	enum class EPackageCommitState : uint8 { NotCommitted, Committed, RecoveryRequired };
+	enum class EPackageCommitState : uint8 { NotCommitted, Committed, RecoveryRequired, PartiallyWritten };
 	struct FPackageSaveResult
 	{
 		EPackageSaveError Error = EPackageSaveError::None;
 		std::string Message;
 		EPackageCommitState CommitState = EPackageCommitState::NotCommitted;
 		std::vector<std::filesystem::path> RecoveryFiles;
+		std::vector<std::filesystem::path> AffectedFiles;
 		auto Succeeded() const -> bool { return Error == EPackageSaveError::None; }
 		explicit operator bool() const { return Succeeded(); }
 	};

@@ -60,7 +60,7 @@ namespace Durin
 	struct FAssetSaveOperation::FState
 	{
 		FAssetSaveRequest Request;
-		std::unique_ptr<FAsyncPackageSave> Save;
+		Tasks::TTask<FAssetResult> Save;
 		std::optional<FAssetOperationResult> Result;
 	};
 	FAssetSaveOperation::FAssetSaveOperation() : State(std::make_unique<FState>()) {}
@@ -77,19 +77,23 @@ namespace Durin
 		auto Operation = std::unique_ptr<FAssetSaveOperation>(new FAssetSaveOperation());
 		Operation->State->Request = Request;
 		FAssetResult Result;
-		Operation->State->Save = FAsyncPackageSave::Begin(FindResidentPackage(Request.AssetPaths.front()), Result);
+		auto* Package = FindResidentPackage(Request.AssetPaths.front());
+		if (!Package) { OutResult = MakeRejectedAssetOperation(EAssetOperationKind::Save, "Package is not resident."); return {}; }
+		Operation->State->Save = Package->SaveAsync(Result, FAssetPackageSaveContext{});
 		OutResult = AssetToolsPrivate::FromEngineResult(EAssetOperationKind::Save, Result, Request.AssetPaths);
-		if (!Operation->State->Save) return {};
+		if (!Operation->State->Save.IsValid()) return {};
 		return Operation;
 	}
-	auto FAssetSaveOperation::IsReady() const -> bool { return State->Save->IsReady(); }
+	auto FAssetSaveOperation::IsReady() const -> bool { return State->Save.IsCompleted(); }
 	auto FAssetSaveOperation::Complete() -> FAssetOperationResult
 	{
 		if (State->Result) return *State->Result;
 		if (!IsReady()) return MakeRejectedAssetOperation(EAssetOperationKind::Save, "Save is still running.");
 		auto Result = AssetToolsPrivate::FromEngineResult(EAssetOperationKind::Save,
-			State->Save->Complete(), State->Request.AssetPaths);
-		Result.Persistence = Result ? EAssetOperationPersistenceState::Persisted : EAssetOperationPersistenceState::Dirty;
+			State->Save.GetState() == ETaskState::Succeeded ? State->Save.GetResult()
+				: FAssetResult{EAssetError::IoError, "Save task failed or was canceled."}, State->Request.AssetPaths);
+		Result.Persistence = Result || Result.State == EAssetOperationTerminalState::ContentCommittedProjectionPending
+			? EAssetOperationPersistenceState::Persisted : EAssetOperationPersistenceState::Dirty;
 		State->Result = Result;
 		Publish(State->Request.Publish, *State->Result);
 		return *State->Result;

@@ -3352,13 +3352,68 @@ TEST(FPackageAssetTests, OrdinarySaveSurvivesUnrelatedRegistryScanFailure)
 	EXPECT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
 }
 
+TEST(FPackageAssetTests, DirectSaveRetiresLazyResourcesButRetainsAuthoredBytesForRetry)
+{
+	using namespace Durin;
+	InitializeAssetTests();
+	const bool bOwnScheduler = !IsTaskSchedulerRunning();
+	if (bOwnScheduler) ASSERT_TRUE(InitializeTaskScheduler(2));
+	if (!GetGameThreadDeferredWorkQueueDiagnostics().bInstalled) ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
+	PackageSavePrivate::SetAsyncSaveAdmission(true);
+	struct FScope
+	{
+		bool bOwn;
+		~FScope()
+		{
+			(void)DPackage::DrainAsyncSaves(); SetAsyncPackageSaveSink({});
+			Private::SetDirectPackageWriteFailureForTests({});
+			if (bOwn) ShutdownTaskSystem(ETaskShutdownMode::Drain);
+		}
+	} Scope{bOwnScheduler};
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/DirectLazyRetry", Path));
+	DBulkPackageAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
+	FByteBuffer Payload(static_cast<size_t>(EditorBulkDataExternalThreshold + 17), std::byte{0x5a});
+	ASSERT_TRUE(Asset->Payload.UpdatePayload(Payload));
+	ASSERT_TRUE(SavePackage(Asset->GetPackage()));
+	ASSERT_TRUE(UnloadPackage(Path));
+	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Asset));
+	ASSERT_FALSE(Asset->Payload.IsMemoryResident());
+	auto Resource = GetPackageResourceManager().FindPackage(Path.ToString());
+	ASSERT_TRUE(Resource);
+	Asset->GetPackage()->MarkDirty();
+	auto Results = std::make_shared<std::vector<FAssetResult>>();
+	SetAsyncPackageSaveSink([Results](const auto&, const auto& Result) { Results->push_back(Result); });
+	Private::SetDirectPackageWriteFailureForTests([](size_t Index) { return Index == 1; });
+	ASSERT_TRUE(SavePackage(Asset->GetPackage(), SAVE_Async));
+	EXPECT_TRUE(Resource->IsRetired());
+	EXPECT_TRUE(Asset->Payload.IsMemoryResident());
+	ASSERT_TRUE(DPackage::DrainAsyncSaves());
+	ASSERT_EQ(Results->size(), 1u);
+	EXPECT_EQ(Results->front().Disposition, EAssetResultDisposition::PartiallyWritten);
+	const auto Resident = Asset->Payload.GetPayload().Wait();
+	ASSERT_TRUE(Resident);
+	EXPECT_TRUE(std::ranges::equal(Resident.Buffer.GetBytes(), Payload));
+	EXPECT_EQ(Resource->ReadRange(0, 1).Status, EPackageResourceReadStatus::Retired);
+	Private::SetDirectPackageWriteFailureForTests({});
+	ASSERT_TRUE(SavePackage(Asset->GetPackage(), SAVE_Async));
+	ASSERT_TRUE(DPackage::DrainAsyncSaves());
+	ASSERT_EQ(Results->size(), 2u);
+	EXPECT_TRUE(Results->back()) << Results->back().Message;
+	EXPECT_FALSE(IsAssetRegistryProjectionFenced(Path));
+	EXPECT_FALSE(Asset->GetPackage()->IsDirty());
+}
+
 TEST(FPackageAssetTests, AsyncSaveChecksHardReferenceIdentityButIgnoresDependencyContentAndSoftTargets)
 {
 	using namespace Durin;
 	InitializeAssetTests();
 	const bool bOwnScheduler = !IsTaskSchedulerRunning();
 	if (bOwnScheduler) ASSERT_TRUE(InitializeTaskScheduler(2));
-	struct FSchedulerScope { bool bOwn; ~FSchedulerScope() { if (bOwn) ShutdownTaskScheduler(); } } Scheduler{bOwnScheduler};
+	if (!GetGameThreadDeferredWorkQueueDiagnostics().bInstalled) ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
+	PackageSavePrivate::SetAsyncSaveAdmission(true);
+	struct FSchedulerScope { bool bOwn; ~FSchedulerScope() { (void)DPackage::DrainAsyncSaves(); if (bOwn) ShutdownTaskSystem(ETaskShutdownMode::Drain); } } Scheduler{bOwnScheduler};
 	FPackagePath SourcePath, HardPath, SoftPath;
 	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/AsyncSource", SourcePath));
 	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/AsyncHard", HardPath));
@@ -3374,34 +3429,31 @@ TEST(FPackageAssetTests, AsyncSaveChecksHardReferenceIdentityButIgnoresDependenc
 	Source->HardReference = Hard;
 	Source->SoftReference = Testing::MakePackageLeafAssetObjectPathForTests(SoftPath);
 	FAssetResult Admission;
-	auto Save = FAsyncPackageSave::Begin(Source->GetPackage(), Admission);
-	ASSERT_TRUE(Save) << Admission.Message;
+	auto Save = (Source->GetPackage())->SaveAsync(Admission, FAssetPackageSaveContext{});
+	ASSERT_TRUE(Save.IsValid()) << Admission.Message;
 	Hard->Label = "Changed dependency content";
 	Hard->GetPackage()->MarkDirty();
 	ASSERT_TRUE(SavePackage(Hard->GetPackage()));
 	FAssetRegistryDelta Delta{.ExpectedRevision = CaptureAssetRegistryPublication().ExpectedRevision};
 	Delta.Removes.push_back(SoftPath);
 	ASSERT_TRUE(PublishAssetRegistryDelta(std::move(Delta)));
-	const auto Wait = [](FAsyncPackageSave& Operation) {
-		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
-		while (!Operation.IsReady() && std::chrono::steady_clock::now() < Deadline)
-			std::this_thread::sleep_for(std::chrono::milliseconds(1));
-		return Operation.IsReady();
-	};
-	ASSERT_TRUE(Wait(*Save));
-	EXPECT_TRUE(Save->Complete());
-	Save.reset();
+	const auto Wait = [](Tasks::TTask<FAssetResult>&) { return DPackage::WaitForAsyncFileWrites().WaitStatus == ETaskWaitStatus::Completed; };
+	ASSERT_TRUE(Wait(Save));
+	ASSERT_TRUE(DPackage::DrainAsyncSaves());
+	EXPECT_TRUE(Save.GetResult());
+	Save = {};
 	Source->GetPackage()->MarkDirty();
-	Save = FAsyncPackageSave::Begin(Source->GetPackage(), Admission);
-	ASSERT_TRUE(Save) << Admission.Message;
+	Save = (Source->GetPackage())->SaveAsync(Admission, FAssetPackageSaveContext{});
+	ASSERT_TRUE(Save.IsValid()) << Admission.Message;
 	auto Changed = *FindAssetExact(HardPath);
 	Changed.TopLevelAssets.front().AssetClassName = "Tests::OtherClass";
 	Changed.AssetClassName = "Tests::OtherClass";
 	Delta = {.ExpectedRevision = CaptureAssetRegistryPublication().ExpectedRevision};
 	Delta.Replaces.push_back(std::move(Changed));
 	ASSERT_TRUE(PublishAssetRegistryDelta(std::move(Delta)));
-	ASSERT_TRUE(Wait(*Save));
-	EXPECT_EQ(Save->Complete().Error, EAssetError::StaleData);
+	ASSERT_TRUE(Wait(Save));
+	ASSERT_TRUE(DPackage::DrainAsyncSaves());
+	EXPECT_EQ(Save.GetResult().Error, EAssetError::StaleData);
 	EXPECT_TRUE(Source->GetPackage()->IsDirty());
 }
 
@@ -3411,7 +3463,9 @@ TEST(FPackageAssetTests, AsyncSaveRejectsChangedDestinationAndStagedClosureFiles
 	InitializeAssetTests();
 	const bool bOwnScheduler = !IsTaskSchedulerRunning();
 	if (bOwnScheduler) ASSERT_TRUE(InitializeTaskScheduler(2));
-	struct FSchedulerScope { bool bOwn; ~FSchedulerScope() { if (bOwn) ShutdownTaskScheduler(); } } Scheduler{bOwnScheduler};
+	if (!GetGameThreadDeferredWorkQueueDiagnostics().bInstalled) ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
+	PackageSavePrivate::SetAsyncSaveAdmission(true);
+	struct FSchedulerScope { bool bOwn; ~FSchedulerScope() { (void)DPackage::DrainAsyncSaves(); if (bOwn) ShutdownTaskSystem(ETaskShutdownMode::Drain); } } Scheduler{bOwnScheduler};
 	for (bool bStage : {false, true}) for (bool bBulk : {false, true})
 	{
 		SCOPED_TRACE(std::format("stage={}, bulk={}", bStage, bBulk));
@@ -3430,12 +3484,9 @@ TEST(FPackageAssetTests, AsyncSaveRejectsChangedDestinationAndStagedClosureFiles
 		ASSERT_TRUE(Asset->Payload.UpdatePayload(Payload));
 		Asset->GetPackage()->MarkDirty();
 		FAssetResult Admission;
-		auto Save = FAsyncPackageSave::Begin(Asset->GetPackage(), Admission);
-		ASSERT_TRUE(Save) << Admission.Message;
-		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
-		while (!Save->IsReady() && std::chrono::steady_clock::now() < Deadline)
-			std::this_thread::sleep_for(std::chrono::milliseconds(1));
-		ASSERT_TRUE(Save->IsReady());
+		auto Save = (Asset->GetPackage())->SaveAsync(Admission, FAssetPackageSaveContext{});
+		ASSERT_TRUE(Save.IsValid()) << Admission.Message;
+		ASSERT_EQ(DPackage::WaitForAsyncFileWrites().WaitStatus, ETaskWaitStatus::Completed);
 		auto Changed = bBulk ? Bulk : Main;
 		if (bStage)
 		{
@@ -3455,15 +3506,16 @@ TEST(FPackageAssetTests, AsyncSaveRejectsChangedDestinationAndStagedClosureFiles
 		ASSERT_TRUE(FFileHelper::LoadFileToArray(MainBefore, Main));
 		ASSERT_TRUE(FFileHelper::LoadFileToArray(BulkBefore, Bulk));
 		const auto Expected = bStage ? EAssetError::CorruptFile : EAssetError::StaleData;
-		EXPECT_EQ(Save->Complete().Error, Expected);
-		EXPECT_EQ(Save->Complete().Error, Expected);
+		ASSERT_TRUE(DPackage::DrainAsyncSaves());
+		EXPECT_EQ(Save.GetResult().Error, Expected);
+		EXPECT_EQ(Save.GetResult().Error, Expected);
 		EXPECT_TRUE(Asset->GetPackage()->IsDirty());
 		EXPECT_EQ(FindAssetExact(Path).Data, Metadata);
 		ASSERT_TRUE(FFileHelper::LoadFileToArray(MainAfter, Main));
 		ASSERT_TRUE(FFileHelper::LoadFileToArray(BulkAfter, Bulk));
 		EXPECT_EQ(MainAfter, MainBefore);
 		EXPECT_EQ(BulkAfter, BulkBefore);
-		Save.reset();
+		Save = {};
 		if (bStage) EXPECT_FALSE(std::filesystem::exists(Changed));
 	}
 }

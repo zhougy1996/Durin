@@ -314,16 +314,22 @@ conflicting entries and hard references to omitted objects.
 
 Synchronous, asynchronous, and atomic bundle saves share destination admission,
 version validation, destination stamp capture, closure encoding,
-and writer preparation. Ordinary saves use their own shared commit path; bundles
+and writer preparation. Synchronous and protected task saves use their shared commit path; bundles
 retain coordinated publication and rollback. Saving validates the complete new
 v10 closure, publishes owned payloads before the main image that binds them,
 verifies the stable closure, publishes a revisioned Registry delta, then clears
-Dirty/NewlyCreated. Failure before authored commit
+Dirty/NewlyCreated for the saved revision. Failure before authored commit
 restores the prior closure and leaves the package retryably Dirty. Registry
 failure after authored commit keeps valid bytes, fences the affected path, and
 returns `ContentCommittedProjectionPending` for reconciliation.
 
-Each package writer assigns one unique save ID to its main/bulk staging and
+Admission-only `SavePackage(..., SAVE_Async)` instead writes final files directly,
+without rollback. Its return value does not confirm persistence; partial writes
+fence the projection and retain Dirty. See the authoritative
+[asynchronous save contracts](AssetCatalogAndMutation.md#asynchronous-save-staging)
+for typed protected tasks, resource retirement, completion and retries.
+
+Each protected package writer assigns one unique save ID to its main/bulk staging and
 backup siblings beside the destination files. Backups serve only that writer's
 in-process rollback and are released by finalization. Save preparation does not
 recover or delete files abandoned by earlier saves; those files do not reserve

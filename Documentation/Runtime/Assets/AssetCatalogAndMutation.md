@@ -166,41 +166,59 @@ global object-edit Undo/Redo history.
 
 ## Asynchronous Save Staging
 
-[Package persistence](../Core/PackagePersistence.md) is implemented in CoreDObject.
-Engine delegates generic capture and file staging/replacement to lower layers,
-but its save APIs retain asset admission and catalog publication. Package members
-must not replace these APIs in editor import or asset transaction workflows.
+`SavePackage(Package, SAVE_None, Mode)` retains synchronous saving.
+`SAVE_Async` is a scheduling flag, independent of Delta/Complete mode. It returns
+only admission and exposes no task handle. For persistence confirmation use
+`Package->SaveAsync(Admission, FAssetPackageSaveContext{Options})`, which returns
+`Tasks::TTask<FAssetResult>`. The explicit Engine context keeps asset readiness,
+participant validation and Registry publication; the CoreDObject file-only
+context cannot substitute for it in editor workflows. Shared lifetime, capacity,
+wait and shutdown rules are defined by
+[Package persistence](../Core/PackagePersistence.md#operation-lifetime-and-completion).
 
+Protected tasks capture on GameThread, stage detached output on BlockingIO and
+complete after GameThread validation, commit, Registry publication and finalization
+or rollback. Dropping the task does not cancel publication. The old public
+`FAsyncPackageSave::Begin` / `Complete` protocol is removed. Completion options,
+including optional Registry-failure rollback, are copied at submission.
 
-`FAsyncPackageSave` owns a single loaded dirty package save. `Begin` runs on the
-GameThread, pins the package, serializes and validates the closure, and captures
-the package edit revision, participant catalog metadata and destination file
-stamps. A bounded scheduler BlockingIO task writes unique sibling temporary
-files and verifies their bytes. It does not publish packages, access live objects
-or update the Registry. No package or bulk file becomes visible before completion.
+Both contracts capture the root and hard-dependency catalog participants. Hard
+dependencies must retain catalog presence, physical path, top-level identities,
+classes and redirect destinations, and must not be projection-fenced. Dependency
+content metadata changes do not invalidate that identity snapshot. Soft references
+and unrelated catalog changes are not commit participants. Protected saves reject
+changed root revisions, destinations and staged files before commit, then use the
+commit-time Registry revision. Ordinary sync and protected saves share their
+commit policy; explicit bundles retain coordinated root-last publication and
+Registry-failure rollback.
 
-`IsReady` supports host polling. GameThread `Complete` rejects changed objects,
-paths, saved-package metadata, destination files or staged files before publication.
-Hard dependencies must retain their catalog presence, physical path, top-level
-asset identities, classes and redirect destinations, and must not be projection-fenced.
-Changes to their content metadata (including size, timestamp and dependency lists)
-do not invalidate the snapshot. Soft dependency metadata is not a commit participant.
-Unrelated catalog changes do not invalidate the operation. After participant
-validation it captures the commit-time registry revision, commits its detached
-writer, calls `AssetsSaved`, and finalizes the saved revision directly.
-Synchronous ordinary saves follow the same boundaries with their admission
-snapshot; neither uses `SavePackagesAtomically` as an implementation entry point.
-Explicit bundles compose the same writer operations and retain root-last ordering
-and registry-failure rollback. Bulk files use rename-based backup/rollback. The default projection-pending and
-optional Registry-failure rollback policies remain unchanged. Successful repeated
-completion is idempotent. Destruction drains staging and deletes uncommitted
-temporaries; owners must destroy operations before asset/scheduler shutdown.
+Direct async saves capture validated detached bytes, retire and drain the old
+loose resource generation, and exclusively reserve the physical main/bulk closure
+before admitting work. Authored bulk values retain validated immutable bytes for
+editing and retry; external old resource handles stay retired. New reads and
+competing writes reject while the reservation is held. The worker writes final
+files, companion first, without temporary files, backups or old-file restoration.
+Admission neither clears Dirty/NewlyCreated nor publishes Registry metadata.
+After successful I/O, GameThread publishes captured metadata and clears Dirty
+only if the captured revision still matches.
 
-`FAssetSaveOperation` adds editor result and once-only notification policy.
-It currently accepts one `LoadedDirtyPackage` request; existing synchronous
-Engine multi-package and canonical-resave entry points retain their behavior.
-Serialization, final file switching and Registry publication remain on the
-GameThread. This API moves bulk disk transfer off the UI thread, not all save work.
+A destructive failure reports `PartiallyWritten` and `AffectedFiles`, keeps Dirty
+and fences the projection. No backup recovery paths exist. Successful bytes with
+failed participant or Registry publication report
+`ContentCommittedProjectionPending`. The same resident package can retry with a
+fresh capture; successful publication clears the fence. Explicit validated catalog
+admission can also reconcile disk content. Other operations remain fenced until
+recovery. `SetAsyncPackageSaveSink` installs a callback copied at submission;
+it receives success or failure exactly once on GameThread after owned cleanup.
+Failures and affected paths are logged independently of the sink. Direct output
+has no rollback or persistent multi-file crash-recovery guarantee.
+
+AssetTools' `FAssetSaveOperation` consumes the protected task's final result and
+adds once-only editor notification. Its `Complete` method observes persistence;
+it does not trigger file or Registry publication. It accepts one loaded dirty
+package; existing synchronous batch and canonical-resave behavior is unchanged.
+Serialization and protected file switching remain on GameThread; detached disk
+transfer is the background work.
 
 Ordinary saves do not require a globally complete reference index. Their path-scoped
 Registry deltas preserve unrelated index errors and completeness state. Prepared

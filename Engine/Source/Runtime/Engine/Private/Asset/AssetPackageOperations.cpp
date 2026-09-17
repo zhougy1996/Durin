@@ -12,7 +12,9 @@
 #include "Asset/PackageVersionPolicy.h"
 #include "Asset/Redirector.h"
 #include "Asset/EditorBulkData.h"
+#include "EditorBulkDataSaveRetention.h"
 #include "Asset/EditorBulkDataStorage.h"
+#include "Asset/PackageResource.h"
 #include "AssetPackageArchive.h"
 #include "AssetPropertyKindTraits.h"
 #include "DObject/PackageValueCodec.h"
@@ -756,6 +758,9 @@ namespace Durin
 			if (!Result) Out.Error = Result.Error == EPackageWriteError::StaleData ? EAssetError::StaleData
 				: Result.Error == EPackageWriteError::CorruptFile ? EAssetError::CorruptFile : EAssetError::IoError;
 			Out.Message = std::move(Result.Message);
+			Out.AffectedFiles = std::move(Result.AffectedFiles);
+			if (Result.State == EPackageWriteState::PartiallyWritten)
+				Out.Disposition = EAssetResultDisposition::PartiallyWritten;
 			if (Result.State == EPackageWriteState::RecoveryRequired
 				|| (!Result && Result.State == EPackageWriteState::Committed))
 				Out.Disposition = EAssetResultDisposition::RecoveryRequired;
@@ -763,7 +768,7 @@ namespace Durin
 			return Out;
 		}
 		auto BeginAssetWrite(const std::filesystem::path& Destination, FByteBuffer Bytes, FByteBuffer Bulk,
-			const FFilePublicationStamp& MainStamp, const FFilePublicationStamp& BulkStamp)
+			const FFilePublicationStamp& MainStamp, const FFilePublicationStamp& BulkStamp, bool bDirect = false)
 			-> std::unique_ptr<IPackageWriteOperation>
 		{
 			// Each writer owns only its transaction's siblings; abandoned files from
@@ -776,20 +781,21 @@ namespace Durin
 			Files.push_back({{Companion, Bulk.empty() ? std::filesystem::path{} : BulkPrefix + ".stage",
 				BulkPrefix + ".backup"}, BulkStamp, std::move(Bulk)});
 			Files.push_back({{Destination, MainPrefix + ".stage", MainPrefix + ".backup"}, MainStamp, std::move(Bytes)});
-			return FSavePackageContext{}.BeginWrite(std::move(Files));
+			return (bDirect ? GetDirectFilePackageWriter() : GetFilePackageWriter())->Begin(std::move(Files));
 		}
 		struct FPreparedPackageSave
 		{
 			DPackage* Package = nullptr;
 			FPackagePath Path;
 			uint64 Revision = 0;
+			uint64 DetachedBytes = 0;
 			FPackageFile File;
 			std::filesystem::path Destination;
 			std::unique_ptr<IPackageWriteOperation> Write;
 		};
 
 		auto PreparePackageSave(DPackage* Package, const FPackagePath& Path,
-			EAssetPackageSaveMode Mode, FPreparedPackageSave& Out) -> FAssetResult
+			EAssetPackageSaveMode Mode, FPreparedPackageSave& Out, bool bDirect = false) -> FAssetResult
 		{
 			if (auto Result = ValidatePackageWriteAdmission(Path); !Result) return Result;
 			if (auto Result = ValidateSaveVersion(Path); !Result) return Result;
@@ -798,6 +804,8 @@ namespace Durin
 			Prepared.Path = Path;
 			Prepared.Destination = GetPhysicalPath(Path);
 			if (Prepared.Destination.empty()) return Error(EAssetError::InvalidPath, "Cannot resolve package destination.");
+			auto ReadAccess = FPackageFileAccess::TryReadPackage(Prepared.Destination);
+			if (!ReadAccess) return Error(EAssetError::InUse, "Package output is being written.");
 			auto Companion = Prepared.Destination; Companion.replace_extension(".dbulk");
 			FFilePublicationStamp MainStamp, BulkStamp;
 			if (!FFilePublicationStamp::Inspect(Prepared.Destination, MainStamp) || !FFilePublicationStamp::Inspect(Companion, BulkStamp))
@@ -805,11 +813,43 @@ namespace Durin
 			Prepared.Revision = Package->GetEditRevision();
 			FByteBuffer Bytes;
 			FAssetPackageSerializationOptions Serialization; Serialization.Mode = Mode;
+			AssetPrivate::FScopedBulkSaveRetention RetainSources(bDirect);
 			if (auto Result = BuildPackageBytes(Package, Bytes, &Prepared.File, Serialization); !Result) return Result;
+			if (Package->GetEditRevision() != Prepared.Revision || Package->GetPackagePathIdentity() != Prepared.Path
+				|| GetPhysicalPath(Prepared.Path) != Prepared.Destination.generic_string())
+				return Error(EAssetError::StaleData, "Package or destination changed during capture.");
+			Prepared.DetachedBytes = Bytes.size() + Prepared.File.BulkBytes.size();
+			if (bDirect)
+			{
+				if (auto Result = PackageSavePrivate::CheckAsyncAdmission(Prepared.DetachedBytes); !Result)
+					return Error(EAssetError::InUse, Result.Message);
+				ReadAccess.reset();
+				GetPackageResourceManager().RetirePackage(Path.ToString());
+			}
 			Prepared.Write = BeginAssetWrite(Prepared.Destination, std::move(Bytes), std::move(Prepared.File.BulkBytes),
-				MainStamp, BulkStamp);
+				MainStamp, BulkStamp, bDirect);
+			if (auto Result = ToAssetWriteResult(Prepared.Write->GetAdmissionResult()); !Result) return Result;
+			// Catch registration which finished between the first retirement and
+			// exclusive physical admission. New registration is now excluded.
+			if (bDirect) GetPackageResourceManager().RetirePackage(Path.ToString());
 			Out = std::move(Prepared);
 			return {};
+		}
+
+		using FSaveParticipants = std::unordered_map<FPackagePath, std::optional<FAssetData>>;
+		auto SaveParticipantsChanged(const FSaveParticipants& Participants, const FPackagePath& Path) -> bool
+		{
+			return std::ranges::any_of(Participants, [&](const auto& Entry) {
+				const auto Current = FindAssetExact(Entry.first).Data;
+				// The saved package remains an exact participant. Dependencies only need
+				// stable identities and reference routing, not unchanged content metadata.
+				if (Entry.first == Path) return Current != Entry.second;
+				if (IsAssetRegistryProjectionFenced(Entry.first)) return true;
+				if (Current.has_value() != Entry.second.has_value()) return true;
+				if (!Current) return false;
+				return Current->PhysicalPath != Entry.second->PhysicalPath
+					|| !std::ranges::is_permutation(Current->TopLevelAssets, Entry.second->TopLevelAssets);
+			});
 		}
 
 		auto RollbackAssetWrite(IPackageWriteOperation& Write, FAssetResult Failure) -> FAssetResult
@@ -866,27 +906,39 @@ namespace Durin
 		}
 	}
 
-	struct FAsyncPackageSave::FState
+	class FProtectedAssetSave
+	{
+	public:
+		static auto Begin(DPackage*, FAssetResult&, const FAssetBundleSaveOptions&) -> std::shared_ptr<FProtectedAssetSave>;
+		~FProtectedAssetSave();
+		auto Stage() -> void;
+		auto Complete() -> FAssetResult;
+		auto GetDetachedBytes() const -> uint64;
+	private:
+		FProtectedAssetSave();
+		struct FState;
+		std::unique_ptr<FState> State;
+	};
+	struct FProtectedAssetSave::FState
 	{
 		TStrongObjectPtr<DPackage> Package;
 		FPreparedPackageSave Prepared;
 		std::unordered_map<FPackagePath, std::optional<FAssetData>> Participants;
-		Tasks::FTaskGroup Group;
-		Tasks::TTask<FAssetResult> Worker;
+		FAssetBundleSaveOptions Options;
+		FAssetResult StagingResult;
 		std::optional<FAssetResult> Result;
 		bool bCommitting = false;
 	};
 
-	FAsyncPackageSave::FAsyncPackageSave() : State(std::make_unique<FState>()) {}
-	FAsyncPackageSave::~FAsyncPackageSave()
+	FProtectedAssetSave::FProtectedAssetSave() : State(std::make_unique<FState>()) {}
+	FProtectedAssetSave::~FProtectedAssetSave()
 	{
 		check(IsInGameThread());
-		if (State->Worker.IsValid()) State->Worker.Wait();
 
 	}
 
-	auto FAsyncPackageSave::Begin(DPackage* Package, FAssetResult& OutResult)
-		-> std::unique_ptr<FAsyncPackageSave>
+	auto FProtectedAssetSave::Begin(DPackage* Package, FAssetResult& OutResult, const FAssetBundleSaveOptions& Options)
+		-> std::shared_ptr<FProtectedAssetSave>
 	{
 		check(IsInGameThread());
 		if (!IsTaskSchedulerRunning() || !FAssetRuntimeState::Get().IsAcceptingRequests())
@@ -903,51 +955,34 @@ namespace Durin
 		{ OutResult = Guard; return {}; }
 		if (FAssetRuntimeState::Get().GetRuntimeConfiguration().IsCooked())
 		{ OutResult = Error(EAssetError::ReadOnlyMode, "Cooked packages cannot be saved."); return {}; }
-		auto Operation = std::unique_ptr<FAsyncPackageSave>(new FAsyncPackageSave());
+		auto Operation = std::shared_ptr<FProtectedAssetSave>(new FProtectedAssetSave());
 		auto& Data = *Operation->State;
 		Data.Package = Package;
+		Data.Options = Options;
 		FPackagePath Path;
 		if (!FPackagePath::TryCreate(Package->GetPackagePath(), Path))
 		{ OutResult = Error(EAssetError::InvalidPath, "Invalid package path."); return {}; }
 		if (FindResidentPackage(Path) != Package)
 		{ OutResult = Error(EAssetError::StaleData, "Package destination is unavailable."); return {}; }
-		OutResult = PreparePackageSave(Package, Path, EAssetPackageSaveMode::Delta, Data.Prepared);
+		OutResult = PreparePackageSave(Package, Path, Options.Mode, Data.Prepared);
 		if (!OutResult) return {};
 		Data.Participants.emplace(Path, FindAssetExact(Path).Data);
 		for (const auto& Dependency : Data.Prepared.File.Dependencies)
 			Data.Participants.emplace(Dependency, FindAssetExact(Dependency).Data);
-		// The owner drains staging before releasing its writer or package pin.
-		Data.Worker = Tasks::LaunchTask(Data.Group, Tasks::ETaskExecutor::BlockingIO,
-			{.DebugName = "Asset.SaveStaging"}, [&Data]() -> FAssetResult {
-				return ToAssetWriteResult(Data.Prepared.Write->Stage());
-			});
 		return Operation;
 	}
 
-	auto FAsyncPackageSave::IsReady() const -> bool { return State->Worker.IsCompleted(); }
-	auto FAsyncPackageSave::Complete(FAssetBundleSaveOptions Options) -> FAssetResult
+	auto FProtectedAssetSave::Stage() -> void { State->StagingResult = ToAssetWriteResult(State->Prepared.Write->Stage()); }
+	auto FProtectedAssetSave::GetDetachedBytes() const -> uint64 { return State->Prepared.DetachedBytes; }
+	auto FProtectedAssetSave::Complete() -> FAssetResult
 	{
 		check(IsInGameThread());
 		auto& Data = *State;
 		if (Data.Result) return *Data.Result;
 		if (Data.bCommitting) return Error(EAssetError::StaleData, "Save publication is already running.");
-		if (Options.Mode != EAssetPackageSaveMode::Delta || Options.PreparedPublication)
-			return Error(EAssetError::StaleData, "Prepared save policy does not match its snapshot.");
-		if (!IsReady()) return Error(EAssetError::StaleData, "Save staging is still running.");
-		if (Data.Worker.GetCompletion().GetState() != ETaskState::Succeeded)
-			return *(Data.Result = Error(EAssetError::IoError, "Save staging task failed or was canceled."));
-		if (const auto Result = Data.Worker.GetResult(); !Result) return *(Data.Result = Result);
-		const bool ParticipantsChanged = std::ranges::any_of(Data.Participants, [&](const auto& Entry) {
-			const auto Current = FindAssetExact(Entry.first).Data;
-			// The saved package remains an exact participant. Dependencies only need
-			// stable identities and reference routing, not unchanged content metadata.
-			if (Entry.first == Data.Prepared.Path) return Current != Entry.second;
-			if (IsAssetRegistryProjectionFenced(Entry.first)) return true;
-			if (Current.has_value() != Entry.second.has_value()) return true;
-			if (!Current) return false;
-			return Current->PhysicalPath != Entry.second->PhysicalPath
-				|| !std::ranges::is_permutation(Current->TopLevelAssets, Entry.second->TopLevelAssets);
-		});
+		const auto& Options = Data.Options;
+		if (!Data.StagingResult) return *(Data.Result = Data.StagingResult);
+		const bool ParticipantsChanged = SaveParticipantsChanged(Data.Participants, Data.Prepared.Path);
 		if (FindResidentPackage(Data.Prepared.Path) != Data.Package.Get()
 			|| Data.Package->GetPackagePath() != Data.Prepared.Path.GetView()
 			|| Data.Package->GetEditRevision() != Data.Prepared.Revision
@@ -961,6 +996,120 @@ namespace Durin
 			Data.Prepared.Destination, *Data.Prepared.Write, Options, CaptureAssetRegistryPublication());
 		Data.bCommitting = false;
 		return *Data.Result;
+	}
+
+	auto FAssetPackageSaveContext::SaveAsync(DPackage* Package, FAssetResult& Admission) const
+		-> Tasks::TTask<FAssetResult>
+	{
+		if (Flags != SAVE_None || Options.PreparedPublication || (Options.RootPackage && Options.RootPackage != Package))
+		{ Admission = Error(EAssetError::InvalidPackageType, "Invalid protected async save policy."); return {}; }
+		if (auto Result = PackageSavePrivate::CheckAsyncAdmission(); !Result)
+		{ Admission = Error(EAssetError::ShuttingDown, Result.Message); return {}; }
+		auto Operation = FProtectedAssetSave::Begin(Package, Admission, Options);
+		if (!Operation) return {};
+		if (auto Result = PackageSavePrivate::CheckAsyncAdmission(Operation->GetDetachedBytes()); !Result)
+		{ Admission = Error(EAssetError::ShuttingDown, Result.Message); return {}; }
+		auto Source = Tasks::TCompletionSource<FAssetResult>::Create({.DebugName = "Asset.SaveAsync"});
+		auto Task = Source.TakeTask();
+		auto Submitted = PackageSavePrivate::SubmitAsyncSave(Operation->GetDetachedBytes(),
+			[Operation] { Operation->Stage(); },
+			[Operation, Source, Cancellation = Cancellation](bool bSucceeded) mutable {
+				const bool bCancelled = Cancellation.IsCancellationRequested()
+					|| Private::FTaskRuntimeAccess::IsCancellationRequested(Source.GetCompletion().GetTaskHandle());
+				auto Result = !bSucceeded || bCancelled ? Error(EAssetError::IoError, "Save canceled or I/O task failed.")
+					: Operation->Complete();
+				Operation.reset();
+				Source.TrySetValue(std::move(Result));
+			});
+		if (!Submitted)
+		{ Admission = Error(EAssetError::InUse, Submitted.Message); Source.TrySetValue(Admission); return {}; }
+		Admission = {};
+		return Task;
+	}
+	namespace
+	{
+		FAsyncPackageSaveSink AsyncSaveSink;
+		bool bFailDirectPublication = false;
+		struct FDirectAssetSave
+		{
+			TStrongObjectPtr<DPackage> Package;
+			FPreparedPackageSave Prepared;
+			FPackageWriteResult Written;
+			FSaveParticipants Participants;
+			bool bStarted = false;
+		};
+	}
+	auto SetAsyncPackageSaveSink(FAsyncPackageSaveSink Sink) -> void
+	{ check(IsInGameThread()); AsyncSaveSink = std::move(Sink); }
+	namespace AssetPrivate
+	{
+		auto SetAsyncSavePublicationFailureForTests(bool bFail) -> void
+		{ check(IsInGameThread()); bFailDirectPublication = bFail; }
+	}
+	auto SavePackage(DPackage* Package, EPackageSaveFlags Flags, EAssetPackageSaveMode Mode) -> FAssetResult
+	{
+		if (Flags == SAVE_None) return SavePackage(Package, Mode);
+		if (Flags != SAVE_Async) return Error(EAssetError::InvalidPackageType, "Unknown package save flags.");
+		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("save", ""); !Guard) return Guard;
+		if (FAssetRuntimeState::Get().GetRuntimeConfiguration().IsCooked())
+			return Error(EAssetError::ReadOnlyMode, "Cooked packages cannot be saved.");
+		if (!FAssetRuntimeState::Get().IsAcceptingRequests()) return Error(EAssetError::ShuttingDown, "Asset runtime is shutting down.");
+		if (auto Result = PackageSavePrivate::CheckAsyncAdmission(); !Result) return Error(EAssetError::InUse, Result.Message);
+		if (!Package || !Package->IsAssetPackage() || Package->IsGraphPrivate()
+			|| FindResidentPackage(Package->GetPackagePathIdentity()) != Package)
+			return Error(EAssetError::InvalidPackageType, "A resident asset package is required.");
+		auto Data = std::make_shared<FDirectAssetSave>();
+		Data->Package = Package;
+		if (auto Result = PreparePackageSave(Package, Package->GetPackagePathIdentity(), Mode, Data->Prepared, true); !Result) return Result;
+		Data->Participants.emplace(Data->Prepared.Path, FindAssetExact(Data->Prepared.Path).Data);
+		for (const auto& Dependency : Data->Prepared.File.Dependencies)
+			Data->Participants.emplace(Dependency, FindAssetExact(Dependency).Data);
+		auto Submitted = PackageSavePrivate::SubmitAsyncSave(Data->Prepared.DetachedBytes,
+			[Data] { Data->bStarted = true; Data->Written = Data->Prepared.Write->Stage(); },
+			[Data, Sink = AsyncSaveSink, bFailPublication = bFailDirectPublication](bool bSucceeded) mutable {
+				auto& Prepared = Data->Prepared;
+				const auto Path = Prepared.Path;
+				auto Result = ToAssetWriteResult(Data->Written);
+				if (!bSucceeded)
+				{
+					Result = Error(EAssetError::IoError, "Direct write task failed; the closure requires reconciliation.");
+					Result.Disposition = Data->bStarted ? EAssetResultDisposition::PartiallyWritten : EAssetResultDisposition::Default;
+					auto Bulk = Prepared.Destination; Bulk.replace_extension(".dbulk");
+					Result.AffectedFiles = {Bulk, Prepared.Destination};
+				}
+				if (Result)
+				{
+					FFilePublicationStamp Stamp;
+					if (SaveParticipantsChanged(Data->Participants, Path)
+						|| FindResidentPackage(Path) != Data->Package.Get() || Data->Package->GetPackagePathIdentity() != Path
+						|| GetPhysicalPath(Path) != Prepared.Destination.generic_string()
+						|| !FFilePublicationStamp::Inspect(Prepared.Destination, Stamp) || !Stamp.Exists)
+						Result = Error(EAssetError::StaleData, "Written package identity or destination changed before publication.");
+					else
+						Result = bFailPublication ? Error(EAssetError::StaleData, "Injected Registry publication failure.")
+							: AssetPrivate::ToAssetResult(AssetsSaved({BuildSavedAssetMetadata(Prepared.File,
+							Path, Prepared.Destination, Stamp.Size, Stamp.Time)}, CaptureAssetRegistryPublication()));
+					if (!Result) Result.Disposition = EAssetResultDisposition::ContentCommittedProjectionPending;
+					else
+					{
+						Data->Package->MarkAsPublished();
+						if (Data->Package->GetEditRevision() == Prepared.Revision) Data->Package->ClearDirty();
+					}
+				}
+				if (!Result && Result.Disposition != EAssetResultDisposition::Default)
+				{
+					if (!Data->Package->IsDirty()) Data->Package->MarkDirty();
+					FenceAssetRegistryProjection(std::span(&Path, 1));
+				}
+				Data.reset();
+				if (!Result)
+				{
+					DURIN_ERROR("Async save {} failed: {}", Path.ToString(), Result.Message);
+					for (const auto& File : Result.AffectedFiles) DURIN_ERROR("Affected package file: {}", File.string());
+				}
+				if (Sink) Sink(Path, Result);
+			});
+		return Submitted ? FAssetResult{} : Error(EAssetError::InUse, Submitted.Message);
 	}
 
 	auto SavePackagesAtomically(
@@ -1016,6 +1165,8 @@ namespace Durin
 			return A.Package != Options.RootPackage && B.Package == Options.RootPackage;
 		});
 		std::vector<FAssetData> Metadata;
+		for (auto& Staged : StagedPackages)
+			if (auto Result = ToAssetWriteResult(Staged.Write->ReserveCommit()); !Result) return Rollback(Result);
 		for (size_t Index = 0; Index < StagedPackages.size(); ++Index)
 		{
 			auto& Staged = StagedPackages[Index];
@@ -1074,6 +1225,8 @@ namespace Durin
 		if (FAssetRegistryResult Result = ReadAssetPackageHeader(
 			PhysicalPath, Path, Header); !Result)
 			return AssetPrivate::ToAssetResult(std::move(Result));
+		auto ReadAccess = FPackageFileAccess::TryReadPackage(std::filesystem::path(PhysicalPath));
+		if (!ReadAccess) return Error(EAssetError::InUse, "Package output is being written.");
 		FByteBuffer Bytes;
 		if (!FFileHelper::LoadFileToArray(Bytes, PhysicalPath))
 			return Error(EAssetError::IoError,
@@ -1345,6 +1498,8 @@ namespace Durin
 		FAssetPackageInspection& OutInspection) -> FAssetResult
 	{
 		OutInspection = {};
+		auto ReadAccess = FPackageFileAccess::TryReadPackage(std::filesystem::path(PhysicalPath));
+		if (!ReadAccess) return Error(EAssetError::InUse, "Package output is being written.");
 		FByteBuffer Bytes;
 		if (!FFileHelper::LoadFileToArray(Bytes, PhysicalPath))
 			return Error(EAssetError::IoError, std::format("Failed to open asset package {}.", PhysicalPath));

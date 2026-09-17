@@ -248,7 +248,7 @@ TEST_F(FAssetPackageReloadTests, FunctionReloadRebindsNestedCallersAndPreservesA
 		Outputs.Surface = {.ExpressionId = RootCall, .OutputId = Output.Id}; Outputs.bUseMaterialAttributes = true;
 		ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 	}
-	ASSERT_TRUE(Material->CompileEdits()) << (Material->GetMaterialCompileDiagnostics().empty() ? "No diagnostic" : Material->GetMaterialCompileDiagnostics()[0].Source.Message);
+	ASSERT_TRUE(Material->CompileEdits()) << (Material->GetMaterialCompileDiagnostics().empty() ? "No diagnostic" : FormatMaterialError(Material->GetMaterialCompileDiagnostics()[0].Source.Error));
 	const auto SavedIdentity = Material->GetAcceptedCompiledProgram()->Identity;
 	auto Signature = Function->GetFunctionSignature();
 	Signature.Inputs[0].Default.Surface.RoughnessDefault.X = 0.15f;

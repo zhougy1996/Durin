@@ -1,3 +1,4 @@
+#include "Misc/PackageWriter.h"
 #include "CookDependencyDiscovery.h"
 #include "CookMemoryBudget.h"
 #include "Shader/ShaderBuildProvider.h"
@@ -64,6 +65,9 @@ namespace Durin::AssetPrivate
 
 	auto FCookDependencyDiscovery::ReadFile(const std::filesystem::path& Path, FByteBuffer& Out) -> FAssetResult
 	{
+		const std::array Paths{Path};
+		auto Access = FPackageFileAccess::TryAcquire(Paths, false);
+		if (!Access) return Fail(EAssetError::InUse, "Cook input is being written.");
 		FFileHelper::FFileIoError Error;
 		auto File = FFileHelper::OpenRead(Path, &Error);
 		if (!File) return Fail(EAssetError::IoError, Error.ToString());

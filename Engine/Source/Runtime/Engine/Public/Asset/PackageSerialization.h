@@ -9,6 +9,7 @@
 #include "DObject/ObjectPtr.h"
 #include "DObject/Property.h"
 #include "DObject/SoftObjectPtr.h"
+#include "DObject/PackagePersistence.h"
 
 namespace Durin
 {
@@ -55,7 +56,6 @@ namespace Durin
 		PublishRegistry
 	};
 
-	class FAsyncPackageSave;
 	struct FAssetBundleSaveOptions
 	{
 		DPackage* RootPackage = nullptr;
@@ -68,21 +68,16 @@ namespace Durin
 		EAssetPackageSaveMode Mode = EAssetPackageSaveMode::Delta;
 	};
 
-	// Game-thread owner of a single-package save. Serialization stays on the
-	// caller; workers only stage and verify detached bytes. Complete publishes
-	// on the game thread. Destruction drains staging and discards uncommitted files.
-	class ENGINE_API FAsyncPackageSave
+	struct FAssetPackageSaveContext
 	{
-	public:
-		static auto Begin(DPackage* Package, FAssetResult& OutResult) -> std::unique_ptr<FAsyncPackageSave>;
-		~FAsyncPackageSave();
-		auto IsReady() const -> bool;
-		auto Complete(FAssetBundleSaveOptions Options = {}) -> FAssetResult;
-	private:
-		FAsyncPackageSave();
-		struct FState;
-		std::unique_ptr<FState> State;
+		FAssetBundleSaveOptions Options;
+		EPackageSaveFlags Flags = SAVE_None;
+		FTaskCancellationToken Cancellation;
+		ENGINE_API auto SaveAsync(DPackage*, FAssetResult& Admission) const -> Tasks::TTask<FAssetResult>;
 	};
+	using FAsyncPackageSaveSink = std::function<void(const FPackagePath&, const FAssetResult&)>;
+	ENGINE_API auto SetAsyncPackageSaveSink(FAsyncPackageSaveSink Sink) -> void;
+	namespace AssetPrivate { ENGINE_API auto SetAsyncSavePublicationFailureForTests(bool bFail) -> void; }
 
 	ENGINE_API auto SerializeAssetPackageBytes(
 		DPackage* Package,
@@ -100,6 +95,8 @@ namespace Durin
 		const FAssetBundleSaveOptions& Options = {}
 	) -> FAssetResult;
 	ENGINE_API auto SavePackage(DPackage* Package, EAssetPackageSaveMode Mode = EAssetPackageSaveMode::Delta) -> FAssetResult;
+	ENGINE_API auto SavePackage(DPackage* Package, EPackageSaveFlags Flags,
+		EAssetPackageSaveMode Mode = EAssetPackageSaveMode::Delta) -> FAssetResult;
 	ENGINE_API auto AdmitAssetPackageToCatalog(
 		const FPackagePath& Path
 	) -> FAssetResult;

@@ -12,6 +12,7 @@ namespace Durin
 		ForwardPending,
 		ContentCommittedProjectionPending,
 		RecoveryRequired,
+		PartiallyWritten,
 	};
 
 	// Classifies Engine-owned asset loading, storage, Cook, and mutation failures.
@@ -46,6 +47,7 @@ namespace Durin
 		std::string DesiredDirection;
 		std::string FailedParticipant;
 		std::filesystem::path RecoveryLocation;
+		std::vector<std::filesystem::path> AffectedFiles;
 
 		auto Succeeded() const -> bool { return Error == EAssetError::None; }
 		explicit operator bool() const { return Succeeded(); }

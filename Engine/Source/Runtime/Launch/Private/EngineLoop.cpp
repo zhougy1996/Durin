@@ -1,3 +1,4 @@
+#include "DObject/Package.h"
 #include "Texture/Texture.h"
 #include "EngineLoop.h"
 
@@ -333,6 +334,7 @@ namespace Durin
 		}
 		Diagnostics.Tick();
 		PumpGameThreadDeferredWork();
+		PackageSavePrivate::PollAsyncSaves();
 		FAssetCompilingManager::Get().ProcessAsyncTasks();
 		GFrameCounter++;
 
@@ -401,6 +403,8 @@ namespace Durin
 			ShutdownAssetCompilingManager();
 		}
 
+		PackageSavePrivate::SetAsyncSaveAdmission(false);
+		(void)DPackage::DrainAsyncSaves();
 		if (GEngine) GEngine->PrepareForShutdown();
 
 #if DURIN_WITH_EDITOR

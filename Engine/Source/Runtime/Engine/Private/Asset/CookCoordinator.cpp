@@ -1,3 +1,4 @@
+#include "Misc/PackageWriter.h"
 #include "CookOutputInternal.h"
 #include "CookDependencyDiscovery.h"
 #include "Asset/OfflinePreparation.h"
@@ -92,6 +93,9 @@ namespace Durin
 		auto ReadBoundedCookFile(const std::filesystem::path& Path, FByteBuffer& Out,
 			const std::function<bool()>& Continue = {}) -> bool
 		{
+			const std::array Paths{Path};
+			auto Access = FPackageFileAccess::TryAcquire(Paths, false);
+			if (!Access) return false;
 			Out.clear();
 			auto File = FFileHelper::OpenRead(Path);
 			if (!File || File->GetSize() > MaximumCookStateBytes) return false;

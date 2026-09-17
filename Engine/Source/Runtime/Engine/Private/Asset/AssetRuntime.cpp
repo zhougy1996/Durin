@@ -1,3 +1,4 @@
+#include "DObject/PackagePersistence.h"
 #include "Asset/RegistryOperations.h"
 #include "AssetRuntimeStateInternal.h"
 #include "AssetLiveLoadGuard.h"
@@ -481,6 +482,8 @@ namespace Durin
 		FAssetLoadReport* OutReport) -> FAssetResult
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Asset.LoadPackage");
+		auto ReadAccess = FPackageFileAccess::TryReadPackage(std::filesystem::path(PhysicalPath));
+		if (!ReadAccess) return Error(EAssetError::InUse, "Package output is being written.");
 		if (DPackage* Resident = FindResidentPackage(Path))
 		{
 			OutPackage = Resident;
@@ -732,6 +735,9 @@ namespace Durin
 	{
 		if (!AssetPrivate::FAssetLiveLoadGuard::Check("Shutdown", "")) return;
 		StopAcceptingRequests();
+		PackageSavePrivate::SetAsyncSaveAdmission(false);
+		if (auto Drain = DPackage::DrainAsyncSaves(); !Drain)
+		{ DURIN_ERROR("Asset shutdown could not drain saves: {}", Drain.Message); return; }
 		FlushAssetRegistryCaches();
 		GetPackageResourceManager().RetireAllPackages();
 		std::vector<DPackage*> Packages = GetResidentAssetPackages();
@@ -760,6 +766,7 @@ namespace Durin
 			FAssetResult RecoveryResult = RecoverPendingMutationJournals();
 			if (!RecoveryResult) return RecoveryResult;
 		}
+		PackageSavePrivate::SetAsyncSaveAdmission(true);
 		bAcceptingRequests = true;
 		return {};
 	}
