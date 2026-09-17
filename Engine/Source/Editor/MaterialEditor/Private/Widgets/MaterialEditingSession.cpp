@@ -89,8 +89,8 @@ namespace Durin::Editor::Material
 			Error = Mount.Message;
 			return false;
 		}
-		if (!FPackagePath::TryCreate(std::format("{}__MaterialEditorPreview/{}",
-			Mount.Mount->VirtualRoot, FGuid::NewGuid().ToString()), Path, &Error)) return false;
+		if (const auto PathValidation = FPackagePath::TryCreate(std::format("{}__MaterialEditorPreview/{}",
+			Mount.Mount->VirtualRoot, FGuid::NewGuid().ToString()), Path); !PathValidation) { Error = FormatObjectError(PathValidation.Error); return false; }
 		WorkingPackage = NewObject<DPackage>(DPackage::StaticClass(), nullptr,
 			NAME_None, EObjectFlags::Transient);
 		WorkingPackage->InitializeAssetPackage(Path);

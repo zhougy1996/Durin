@@ -124,8 +124,7 @@ namespace Durin::Tests
 				std::string Error;
 				if (!FObjectPath::TryCreate(
 						Editor::FThumbnailVisualContract::SphereAssetPath,
-						SpherePath,
-						&Error)
+						SpherePath)
 					|| !Editor::FAssetRetentionService::Acquire(
 						SpherePath, SphereAsset, Error))
 					return nullptr;
@@ -293,7 +292,7 @@ namespace Durin::Tests
 
 	inline auto MakeThumbnailFixturePath(std::string_view Value, FPackagePath& OutPath) -> bool
 	{
-		return FPackagePath::TryCreate(Value, OutPath);
+		return FPackagePath::TryCreate(Value, OutPath).Succeeded();
 	}
 
 	inline auto GetAssetThumbnailFixtureRoot() -> std::filesystem::path

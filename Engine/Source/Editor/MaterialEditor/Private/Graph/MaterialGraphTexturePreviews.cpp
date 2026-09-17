@@ -82,7 +82,9 @@ namespace Durin::Editor::Material
 				FObjectPath Path;
 				std::string Error;
 				DTexture2D* Texture = nullptr;
-				if (FObjectPath::TryCreate(Asset.AssetPath.data(), Path, &Error) && LoadObject(Path, Texture) && Texture)
+				const auto PathValidation = FObjectPath::TryCreate(Asset.AssetPath.data(), Path);
+				if (!PathValidation) Error = FormatObjectError(PathValidation.Error);
+				if (PathValidation && LoadObject(Path, Texture) && Texture)
 				{
 					GraphEditInternals::FGraphEditSession State(Material);
 					{

@@ -250,9 +250,10 @@ namespace Durin::Editor::Level
 		{
 			FPackagePath PackagePath;
 			std::string PathError;
-			if (!FPackagePath::TryCreate(
-					Settings.DefaultLevel, PackagePath, &PathError))
+			if (const auto PathValidation = FPackagePath::TryCreate(
+					Settings.DefaultLevel, PackagePath); !PathValidation)
 			{
+				PathError = FormatObjectError(PathValidation.Error);
 				DURIN_WARN("Project default level '{}' is invalid: {}", Settings.DefaultLevel, PathError);
 				return false;
 			}
@@ -642,9 +643,12 @@ namespace Durin::Editor::Level
 							return true;
 						}
 						FTopLevelAssetPath AssetPath;
-						if (!FTopLevelAssetPath::TryCreate(
-								SelectionPath, AssetPath, &OutError))
+						if (const auto PathValidation = FTopLevelAssetPath::TryCreate(
+								SelectionPath, AssetPath); !PathValidation)
+						{
+							OutError = FormatObjectError(PathValidation.Error);
 							return false;
+						}
 						FObjectPath LevelPath;
 						const FAssetResult Resolution =
 							ResolveLevelPackage(

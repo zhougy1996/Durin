@@ -2,6 +2,7 @@
 
 #include "CoreDObjectAPI.h"
 #include "Misc/Name.h"
+#include "DObject/ObjectDiagnostic.h"
 
 namespace Durin
 {
@@ -12,9 +13,9 @@ namespace Durin
 	{
 	public:
 		FPackagePath() = default;
-		COREDOBJECT_API static auto TryCreate(std::string_view InPath, FPackagePath& OutPath, std::string* OutError = nullptr) -> bool;
-		COREDOBJECT_API static auto TryCreateProjectContent(std::string_view InPath, FPackagePath& OutPath, std::string* OutError = nullptr) -> bool;
-		COREDOBJECT_API static auto IsValid(std::string_view InPath, std::string* OutError = nullptr) -> bool;
+		COREDOBJECT_API static auto TryCreate(std::string_view InPath, FPackagePath& OutPath) -> FObjectOperationResult;
+		COREDOBJECT_API static auto TryCreateProjectContent(std::string_view InPath, FPackagePath& OutPath) -> FObjectOperationResult;
+		COREDOBJECT_API static auto IsValid(std::string_view InPath) -> FObjectOperationResult;
 		auto IsValid() const -> bool { return !Path.IsNone(); }
 		COREDOBJECT_API auto ToString() const -> std::string;
 		COREDOBJECT_API auto GetView() const -> std::string_view;
@@ -32,8 +33,8 @@ namespace Durin
 	{
 	public:
 		FTopLevelAssetPath() = default;
-		COREDOBJECT_API static auto TryCreate(std::string_view InPath, FTopLevelAssetPath& OutPath, std::string* OutError = nullptr) -> bool;
-		COREDOBJECT_API static auto TryCreate(const FPackagePath& InPackagePath, std::string_view InAssetName, FTopLevelAssetPath& OutPath, std::string* OutError = nullptr) -> bool;
+		COREDOBJECT_API static auto TryCreate(std::string_view InPath, FTopLevelAssetPath& OutPath) -> FObjectOperationResult;
+		COREDOBJECT_API static auto TryCreate(const FPackagePath& InPackagePath, std::string_view InAssetName, FTopLevelAssetPath& OutPath) -> FObjectOperationResult;
 		auto IsValid() const -> bool { return PackagePath.IsValid() && !AssetName.IsNone(); }
 		auto GetPackagePath() const -> const FPackagePath& { return PackagePath; }
 		COREDOBJECT_API auto GetAssetName() const -> std::string_view;
@@ -76,9 +77,9 @@ namespace Durin
 	{
 	public:
 		FObjectPath() = default;
-		COREDOBJECT_API static auto TryCreate(std::string_view InPath, FObjectPath& OutPath, std::string* OutError = nullptr) -> bool;
-		COREDOBJECT_API static auto TryCreate(const FTopLevelAssetPath& InAssetPath, std::span<const std::string> InSubobjectNames, FObjectPath& OutPath, std::string* OutError = nullptr) -> bool;
-		COREDOBJECT_API static auto TryCreate(const FTopLevelAssetPath& InAssetPath, FSubobjectPathView InSubobjectNames, FObjectPath& OutPath, std::string* OutError = nullptr) -> bool;
+		COREDOBJECT_API static auto TryCreate(std::string_view InPath, FObjectPath& OutPath) -> FObjectOperationResult;
+		COREDOBJECT_API static auto TryCreate(const FTopLevelAssetPath& InAssetPath, std::span<const std::string> InSubobjectNames, FObjectPath& OutPath) -> FObjectOperationResult;
+		COREDOBJECT_API static auto TryCreate(const FTopLevelAssetPath& InAssetPath, FSubobjectPathView InSubobjectNames, FObjectPath& OutPath) -> FObjectOperationResult;
 		auto IsValid() const -> bool { return AssetPath.IsValid(); }
 		auto GetAssetPath() const -> const FTopLevelAssetPath& { return AssetPath; }
 		auto GetPackagePath() const -> const FPackagePath& { return AssetPath.GetPackagePath(); }

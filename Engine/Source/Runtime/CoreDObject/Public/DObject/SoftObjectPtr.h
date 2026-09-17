@@ -25,8 +25,8 @@
 		auto operator=(std::nullptr_t) -> FSoftObjectPtr& { Reset(); return *this; }
 
 		COREDOBJECT_API auto SetPath(FObjectPath InPath) -> void;
-		COREDOBJECT_API auto TrySetObject(DObject* InObject, const DClass* ExpectedClass = nullptr, std::string* OutError = nullptr) -> bool;
-		COREDOBJECT_API auto TrySetLoadedObject(DObject* InObject, const DClass* ExpectedClass = nullptr, std::string* OutError = nullptr) -> bool;
+		COREDOBJECT_API auto TrySetObject(DObject* InObject, const DClass* ExpectedClass = nullptr) -> FObjectOperationResult;
+		COREDOBJECT_API auto TrySetLoadedObject(DObject* InObject, const DClass* ExpectedClass = nullptr) -> FObjectOperationResult;
 		COREDOBJECT_API auto Get(const DClass* ExpectedClass = nullptr) const -> DObject*;
 		COREDOBJECT_API auto GetState(const DClass* ExpectedClass = nullptr) const -> ESoftObjectPtrState;
 		auto IsLoaded(const DClass* ExpectedClass = nullptr) const -> bool { return Get(ExpectedClass) != nullptr; }
@@ -38,7 +38,7 @@
 		friend auto operator<=>(const FSoftObjectPtr& Left, const FSoftObjectPtr& Right) -> std::strong_ordering { return Left.AuthoredPath <=> Right.AuthoredPath; }
 
 	private:
-		COREDOBJECT_API auto TrySetResolvedObject(DObject* InObject, const FObjectPath& AuthoredPath, const FObjectPath& ResolvedPath, const DClass* ExpectedClass, std::string* OutError) -> bool;
+		COREDOBJECT_API auto TrySetResolvedObject(DObject* InObject, const FObjectPath& AuthoredPath, const FObjectPath& ResolvedPath, const DClass* ExpectedClass) -> FObjectOperationResult;
 		auto ResetCache() -> void { WeakObject.Reset(); CacheEpoch = 0; }
 		FObjectPath AuthoredPath;
 		FWeakObjectPtr WeakObject;
@@ -57,8 +57,8 @@
 		auto operator=(std::nullptr_t) -> TSoftObjectPtr& { Reset(); return *this; }
 		auto operator=(T* InObject) -> TSoftObjectPtr& { (void)TrySetObject(InObject); return *this; }
 		auto SetPath(FObjectPath InPath) -> void { SoftObjectPtr.SetPath(std::move(InPath)); }
-		auto TrySetObject(T* InObject, std::string* OutError = nullptr) -> bool { return SoftObjectPtr.TrySetObject(ToDObject(InObject), GetExpectedClass(), OutError); }
-		auto TrySetLoadedObject(T* InObject, std::string* OutError = nullptr) -> bool { return SoftObjectPtr.TrySetLoadedObject(ToDObject(InObject), GetExpectedClass(), OutError); }
+		auto TrySetObject(T* InObject) -> FObjectOperationResult { return SoftObjectPtr.TrySetObject(ToDObject(InObject), GetExpectedClass()); }
+		auto TrySetLoadedObject(T* InObject) -> FObjectOperationResult { return SoftObjectPtr.TrySetLoadedObject(ToDObject(InObject), GetExpectedClass()); }
 		auto Get() const -> T* { return FromDObject(SoftObjectPtr.Get(GetExpectedClass())); }
 		auto GetState() const -> ESoftObjectPtrState { return SoftObjectPtr.GetState(GetExpectedClass()); }
 		auto IsLoaded() const -> bool { return Get() != nullptr; }

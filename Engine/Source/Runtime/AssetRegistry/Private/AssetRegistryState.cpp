@@ -69,7 +69,7 @@ namespace Durin
 			for (std::string_view Component : SourceSubobjects)
 				Components.emplace_back(Component);
 			return FObjectPath::TryCreate(
-				Destination.GetAssetPath(), Components, OutPath);
+				Destination.GetAssetPath(), Components, OutPath).Succeeded();
 		}
 
 		auto ResolveAssetObjectPathInCatalog(

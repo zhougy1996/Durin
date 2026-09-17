@@ -27,8 +27,11 @@ namespace Durin::AssetForge::Builtins
 	{
 		FPackagePath ParsedPath;
 		std::string Error;
-		if (!FPackagePath::TryCreate(AssetPath, ParsedPath, &Error))
+		if (const auto PathValidation = FPackagePath::TryCreate(AssetPath, ParsedPath); !PathValidation)
+		{
+			Error = Durin::FormatObjectError(PathValidation.Error);
 			return {false, std::move(Error), nullptr};
+		}
 		auto* Factory = NewObject<DTextureCubeFactory>(
 			nullptr, "TextureCubeFacesTestFactory", EObjectFlags::Transient);
 		Factory->ConfigureFaces(FaceFiles, Settings);
@@ -44,8 +47,11 @@ namespace Durin::AssetForge::Builtins
 	{
 		FPackagePath ParsedPath;
 		std::string Error;
-		if (!FPackagePath::TryCreate(AssetPath, ParsedPath, &Error))
+		if (const auto PathValidation = FPackagePath::TryCreate(AssetPath, ParsedPath); !PathValidation)
+		{
+			Error = Durin::FormatObjectError(PathValidation.Error);
 			return {false, std::move(Error), nullptr};
+		}
 		auto* Factory = NewObject<DTextureCubeFactory>(
 			nullptr, "TextureCubePanoramaTestFactory", EObjectFlags::Transient);
 		Factory->ConfigurePanorama(Settings);

@@ -822,12 +822,11 @@ namespace Durin
 								"Asset {} is not a {}.", Path.ToString(),
 								ExpectedClass->GetQualifiedName())),
 							.State = ESoftObjectResolveState::NotLoaded};
-					std::string ValidationError;
-					if (!Reference.TrySetResolvedObject(
+					if (const auto Validation = Reference.TrySetResolvedObject(
 						LoadedObject, Reference.GetPath(), Reference.GetPath(),
-						ExpectedClass, &ValidationError))
+						ExpectedClass); !Validation)
 						return {
-							.Result = Error(EAssetError::InvalidObjectGraph, std::move(ValidationError)),
+							.Result = Error(EAssetError::InvalidObjectGraph, FormatObjectError(Validation.Error)),
 							.State = ESoftObjectResolveState::NotLoaded};
 					return {
 						.State = ESoftObjectResolveState::Loaded,
@@ -875,13 +874,12 @@ namespace Durin
 				.bRedirected = !Resolution.RedirectChain.empty()};
 		}
 
-		std::string ValidationError;
-		if (!Reference.TrySetResolvedObject(
+		if (const auto Validation = Reference.TrySetResolvedObject(
 			Object, Reference.GetPath(), Resolution.FinalPath,
-			ExpectedClass, &ValidationError))
+			ExpectedClass); !Validation)
 		{
 			return {
-				.Result = Error(EAssetError::InvalidObjectGraph, std::move(ValidationError)),
+				.Result = Error(EAssetError::InvalidObjectGraph, FormatObjectError(Validation.Error)),
 				.State = ESoftObjectResolveState::NotLoaded,
 				.ResolvedPath = Resolution.FinalPath,
 				.bRedirected = !Resolution.RedirectChain.empty()};
@@ -928,11 +926,10 @@ namespace Durin
 			ResolvedObjectPath, ExpectedClass, LoadedObject, OutReport);
 		if (!Result) return Result;
 
-		std::string ValidationError;
-		if (!Reference.TrySetResolvedObject(
+		if (const auto Validation = Reference.TrySetResolvedObject(
 			LoadedObject, Reference.GetPath(), ResolvedObjectPath,
-			ExpectedClass, &ValidationError))
-			return Error(EAssetError::InvalidObjectGraph, std::move(ValidationError));
+			ExpectedClass); !Validation)
+			return Error(EAssetError::InvalidObjectGraph, FormatObjectError(Validation.Error));
 		OutObject = LoadedObject;
 		return {};
 	}

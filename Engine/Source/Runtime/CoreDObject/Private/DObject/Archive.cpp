@@ -1286,9 +1286,10 @@ namespace Durin
 		if (IsLoading())
 		{
 			FObjectPath Loaded;
-			std::string Error;
-			if (!FObjectPath::TryCreate(Path, Loaded, &Error))
-				Fail(EArchiveFailureCode::InvalidPath, Error.empty() ? "Archive contains an invalid soft object path." : Error);
+			if (const auto PathValidation = FObjectPath::TryCreate(Path, Loaded); !PathValidation)
+			{
+				Fail(EArchiveFailureCode::InvalidPath, FormatObjectError(PathValidation.Error));
+			}
 			else Value = std::move(Loaded);
 		}
 	}

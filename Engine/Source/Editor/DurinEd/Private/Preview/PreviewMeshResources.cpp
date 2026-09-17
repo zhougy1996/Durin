@@ -27,8 +27,12 @@ namespace Durin::Editor
 		{
 			FObjectPath Path;
 			std::string Error;
-			if (!FObjectPath::TryCreate(Paths[Index], Path, &Error)
-				|| !FAssetRetentionService::Acquire(Path, Meshes[Index], Error))
+			if (const auto PathValidation = FObjectPath::TryCreate(Paths[Index], Path); !PathValidation)
+			{
+				Report(Index, FormatObjectError(PathValidation.Error));
+				continue;
+			}
+			if (!FAssetRetentionService::Acquire(Path, Meshes[Index], Error))
 			{
 				Report(Index, Error);
 				continue;

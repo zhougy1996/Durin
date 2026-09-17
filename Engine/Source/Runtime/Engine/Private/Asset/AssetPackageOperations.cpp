@@ -401,10 +401,10 @@ namespace Durin
 				if (!Reader.ReadString(PathString, Durin::PackagePrivate::MaximumPackageStringBytes) || PathString.empty())
 					return Error(EAssetError::CorruptFile, "Truncated or overlong soft object path.");
 				FObjectPath Path;
-				std::string PathError;
-				if (!FObjectPath::TryCreate(PathString, Path, &PathError))
-					return Error(EAssetError::InvalidPath, PathError.empty()
-						? "Invalid soft object path." : std::move(PathError));
+				if (const auto PathValidation = FObjectPath::TryCreate(PathString, Path); !PathValidation)
+				{
+					return Error(EAssetError::InvalidPath, FormatObjectError(PathValidation.Error));
+				}
 				Reference->SetPath(std::move(Path));
 				return {};
 			}

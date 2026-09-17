@@ -293,10 +293,13 @@ namespace Durin
 					std::format("SoftReferencePayloadPath: {} is truncated or overlong.", PropertyPath));
 			FObjectPath SoftPath;
 			std::string PathError;
-			if (!FObjectPath::TryCreate(PathString, SoftPath, &PathError))
+			if (const auto PathValidation = FObjectPath::TryCreate(PathString, SoftPath); !PathValidation)
+			{
+				PathError = Durin::FormatObjectError(PathValidation.Error);
 				return Error(EAssetError::InvalidPath, std::format(
 					"SoftReferenceInvalidPath: {} contains '{}': {}",
 					PropertyPath, PathString, PathError));
+			}
 			auto* SoftProperty = static_cast<FSoftObjectProperty*>(Property);
 			DClass* ExpectedClass = SoftProperty->GetExpectedClass();
 			if (!ExpectedClass)
@@ -725,8 +728,11 @@ namespace Durin
 				|| PathString.empty())
 				return Error(EAssetError::CorruptFile,
 					"AssetReferenceFixupPath: soft path is truncated or overlong.");
-			if (!FObjectPath::TryCreate(PathString, Path, &PathError))
+			if (const auto PathValidation = FObjectPath::TryCreate(PathString, Path); !PathValidation)
+			{
+				PathError = Durin::FormatObjectError(PathValidation.Error);
 				return Error(EAssetError::InvalidPath, std::move(PathError));
+			}
 			if (const FPackagePath* Destination = FindFixupDestination(
 				Path.GetPackagePath(), Mappings))
 			{

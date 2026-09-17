@@ -4733,6 +4733,71 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_EQ(ReturnedWeak.Get(), nullptr);
 	}
 
+	TEST(FCoreDObjectReflectionTests, PathErrorsPreserveCodesContextAndOutput)
+	{
+		using namespace Durin;
+		EnsureDObjectInitialized();
+		EnsurePackageTestMount();
+		FPackagePath Package;
+		ASSERT_TRUE(FPackagePath::TryCreate("/CoreTests/PathDiagnostic", Package));
+		const auto OriginalPackage = Package;
+		const auto Relative = FPackagePath::TryCreate("relative", Package);
+		EXPECT_EQ(std::get<EObjectPathError>(Relative.Error.Code), EObjectPathError::NotAbsolute);
+		EXPECT_EQ(Relative.Error.Subject, "relative");
+		EXPECT_EQ(Package, OriginalPackage);
+		const auto UnknownMount = FPackagePath::TryCreate("/__UnregisteredDiagnosticMount/Asset", Package);
+		EXPECT_EQ(std::get<EObjectPathError>(UnknownMount.Error.Code), EObjectPathError::MountLookupFailed);
+		EXPECT_EQ(UnknownMount.Error.MountError, EMountPathError::UnknownMount);
+		EXPECT_EQ(Package, OriginalPackage);
+		const auto Deferred = FPackagePath::TryCreateProjectContent("/CoreTests/Asset", Package);
+		EXPECT_EQ(std::get<EObjectPathError>(Deferred.Error.Code), EObjectPathError::WrongDeferredMount);
+		EXPECT_EQ(Package, OriginalPackage);
+		const auto EmptySegment = FPackagePath::TryCreate("/CoreTests//Asset", Package);
+		EXPECT_EQ(std::get<EObjectPathError>(EmptySegment.Error.Code), EObjectPathError::EmptyComponent);
+		EXPECT_EQ(EmptySegment.Error.Part, EObjectPathPart::PackageSegment);
+		EXPECT_EQ(EmptySegment.Error.ComponentIndex, 1u);
+
+		FTopLevelAssetPath Asset;
+		ASSERT_TRUE(FTopLevelAssetPath::TryCreate(Package, "PathDiagnostic", Asset));
+		const auto OriginalAsset = Asset;
+		const std::string LongName(FName::MaxSize, 'x');
+		const auto TooLong = FTopLevelAssetPath::TryCreate(Package, LongName, Asset);
+		EXPECT_EQ(std::get<EObjectPathError>(TooLong.Error.Code), EObjectPathError::ComponentTooLong);
+		EXPECT_EQ(TooLong.Error.Part, EObjectPathPart::AssetName);
+		EXPECT_EQ(TooLong.Error.ActualBytes, LongName.size());
+		EXPECT_EQ(TooLong.Error.MaximumBytes, FName::MaxSize - 1);
+		EXPECT_EQ(Asset, OriginalAsset);
+
+		FObjectPath Object;
+		ASSERT_TRUE(FObjectPath::TryCreate("/CoreTests/PathDiagnostic.PathDiagnostic:Child", Object));
+		const auto OriginalObject = Object;
+		const auto EmptyChild = FObjectPath::TryCreate("/CoreTests/PathDiagnostic.PathDiagnostic:Child..Leaf", Object);
+		EXPECT_EQ(std::get<EObjectPathError>(EmptyChild.Error.Code), EObjectPathError::EmptySubobject);
+		EXPECT_EQ(Object, OriginalObject);
+		std::vector<std::string> Names{"Child", "Bad/Leaf"};
+		const auto InvalidChild = FObjectPath::TryCreate(Asset, std::span<const std::string>(Names), Object);
+		EXPECT_EQ(std::get<EObjectPathError>(InvalidChild.Error.Code), EObjectPathError::ReservedSeparator);
+		EXPECT_EQ(InvalidChild.Error.ComponentIndex, 1u);
+		EXPECT_EQ(InvalidChild.Error.Subject, "Bad/Leaf");
+		Names[1] = "Changed";
+		EXPECT_EQ(InvalidChild.Error.Subject, "Bad/Leaf");
+		EXPECT_EQ(Object, OriginalObject);
+		const auto InvalidUtf8 = FTopLevelAssetPath::TryCreate(Package, std::string(1, char(0xff)), Asset);
+		EXPECT_EQ(std::get<EObjectPathError>(InvalidUtf8.Error.Code), EObjectPathError::InvalidUtf8);
+		EXPECT_EQ(Asset, OriginalAsset);
+		ASSERT_TRUE(FObjectPath::TryCreate(Asset, OriginalObject.GetSubobjectNames(), Object));
+		EXPECT_EQ(Object, OriginalObject);
+	}
+
+	TEST(FCoreDObjectReflectionTests, ObjectErrorFormattingIsAnExplicitBoundary)
+	{
+		using namespace Durin;
+		EXPECT_TRUE(FormatObjectError({}).empty());
+		FPackagePath Package;
+		const auto Result = FPackagePath::TryCreate("relative", Package);
+		EXPECT_EQ(FormatObjectError(Result.Error), "Package path must be absolute.");
+	}
+
 	TEST(FCoreDObjectReflectionTests, SoftObjectPtrUsesPathIdentityAndWeakLoadedState)
 	{
 		EnsureDObjectInitialized();
@@ -4815,16 +4880,27 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Durin::FSoftObjectPtr Reference;
 		ASSERT_TRUE(Reference.TrySetObject(Asset));
 		const Durin::FObjectPath OriginalPath = Reference.GetPath();
-		std::string Error;
-		EXPECT_FALSE(Reference.TrySetObject(Package, nullptr, &Error));
-		EXPECT_FALSE(Error.empty());
-		EXPECT_TRUE(Reference.TrySetObject(Inner, nullptr, &Error));
+		const auto NullLoaded = Reference.TrySetLoadedObject(nullptr);
+		EXPECT_EQ(std::get<Durin::ESoftObjectError>(NullLoaded.Error.Code), Durin::ESoftObjectError::NullLoadedObject);
+		const auto WrongPath = Reference.TrySetLoadedObject(Inner);
+		EXPECT_EQ(std::get<Durin::ESoftObjectError>(WrongPath.Error.Code), Durin::ESoftObjectError::LoadedPathMismatch);
+		EXPECT_EQ(WrongPath.Error.Expected, OriginalPath.ToString());
+		EXPECT_EQ(WrongPath.Error.Actual, Inner->GetObjectPath());
+		EXPECT_EQ(Reference.GetPath(), OriginalPath);
+		EXPECT_EQ(Reference.Get(), Asset);
+		const auto PackageFailure = Reference.TrySetObject(Package);
+		EXPECT_EQ(std::get<Durin::ESoftObjectError>(PackageFailure.Error.Code), Durin::ESoftObjectError::PackageObject);
+		EXPECT_TRUE(Reference.TrySetObject(Inner));
 		EXPECT_EQ(Reference.GetPath().ToString(),
 			"/CoreTests/SoftObjectValidation.SoftObjectValidation:Inner");
 		ASSERT_TRUE(Reference.TrySetObject(Asset));
-		EXPECT_FALSE(Reference.TrySetObject(Asset, Durin::DPackage::StaticClass(), &Error));
+		const auto ClassFailure = Reference.TrySetObject(Asset, Durin::DPackage::StaticClass());
+		EXPECT_EQ(std::get<Durin::ESoftObjectError>(ClassFailure.Error.Code), Durin::ESoftObjectError::ClassMismatch);
+		EXPECT_EQ(ClassFailure.Error.Subject, Asset->GetObjectPath());
+		EXPECT_EQ(ClassFailure.Error.Expected, Durin::DPackage::StaticClass()->GetQualifiedName().ToString());
+		EXPECT_EQ(ClassFailure.Error.Actual, Asset->GetClass()->GetQualifiedName().ToString());
 		Durin::DObject* Unpackaged = Durin::NewObject<Durin::DObject>(nullptr, "UnpackagedSoftObject");
-		EXPECT_FALSE(Reference.TrySetObject(Unpackaged, nullptr, &Error));
+		EXPECT_EQ(std::get<Durin::ESoftObjectError>(Reference.TrySetObject(Unpackaged).Error.Code), Durin::ESoftObjectError::UnpackagedObject);
 
 		auto* TransientType = new Durin::DStruct(
 			Durin::EC_StaticConstructor,
@@ -4834,7 +4910,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			1,
 			Durin::EObjectFlags::Transient
 		);
-		EXPECT_FALSE(Reference.TrySetObject(TransientType, nullptr, &Error));
+		EXPECT_EQ(std::get<Durin::ESoftObjectError>(Reference.TrySetObject(TransientType).Error.Code), Durin::ESoftObjectError::TransientObject);
 		delete TransientType;
 
 		EXPECT_EQ(Reference.GetPath(), OriginalPath);
@@ -4842,7 +4918,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 		Durin::TSoftObjectPtr<Durin::DPackage> WrongType(OriginalPath);
 		EXPECT_FALSE(WrongType.GetBase().TrySetObject(
-			Asset, Durin::DPackage::StaticClass(), &Error));
+			Asset, Durin::DPackage::StaticClass()));
 		EXPECT_EQ(WrongType.GetPath(), OriginalPath);
 		EXPECT_FALSE(WrongType.IsLoaded());
 

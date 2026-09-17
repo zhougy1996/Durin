@@ -274,9 +274,10 @@ namespace Durin
 					Relative.replace_extension();
 					FPackagePath PackagePath;
 					std::string PathError;
-					if (!FPackagePath::TryCreate(Mount.VirtualRoot + Relative.generic_string(),
-						PackagePath, &PathError))
+					if (const auto PathValidation = FPackagePath::TryCreate(Mount.VirtualRoot + Relative.generic_string(),
+						PackagePath); !PathValidation)
 					{
+						PathError = FormatObjectError(PathValidation.Error);
 						Result.Status = EAssetPackageSnapshotStatus::Failed;
 						Result.Error = std::format("Invalid mounted package path '{}': {}",
 							It->path().generic_string(), PathError);

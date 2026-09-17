@@ -165,8 +165,9 @@ namespace Durin::Editor::Texture
 		if (FindOpenTexture(Document.ResourceId)) return ::Durin::Editor::EDocumentOpenResult::Opened;
 		FObjectPath AssetPath;
 		std::string PathError;
-		if (!FObjectPath::TryCreate(Document.ResourceId, AssetPath, &PathError))
+		if (const auto PathValidation = FObjectPath::TryCreate(Document.ResourceId, AssetPath); !PathValidation)
 		{
+			PathError = Durin::FormatObjectError(PathValidation.Error);
 			SetError(std::move(PathError));
 			return ::Durin::Editor::EDocumentOpenResult::Rejected;
 		}

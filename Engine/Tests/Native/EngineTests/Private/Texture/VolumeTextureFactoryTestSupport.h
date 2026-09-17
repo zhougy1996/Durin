@@ -18,8 +18,11 @@ namespace Durin::AssetForge::Builtins
 	{
 		FPackagePath ParsedPath;
 		std::string Error;
-		if (!FPackagePath::TryCreate(AssetPath, ParsedPath, &Error))
+		if (const auto PathValidation = FPackagePath::TryCreate(AssetPath, ParsedPath); !PathValidation)
+		{
+			Error = Durin::FormatObjectError(PathValidation.Error);
 			return {false, std::move(Error), nullptr};
+		}
 		auto* Factory = NewObject<DVolumeTextureFactory>(
 			nullptr, "VolumeTextureTestFactory", EObjectFlags::Transient);
 		Factory->SetImportSettings(Settings);

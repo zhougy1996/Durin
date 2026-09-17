@@ -75,9 +75,8 @@ namespace Durin
 				FPackagePath PackagePath;
 				FObjectPath LevelPath;
 				DLevel* Level = nullptr;
-				std::string PathError;
-				if (FPackagePath::TryCreate(
-						Settings.DefaultLevel, PackagePath, &PathError))
+				const auto PathValidation = FPackagePath::TryCreate(Settings.DefaultLevel, PackagePath);
+				if (PathValidation)
 				{
 					FAssetResult Result =
 						ResolveLevelPackage(PackagePath, LevelPath);
@@ -101,7 +100,7 @@ namespace Durin
 				{
 					StartupError = std::format(
 						"Project Game.DefaultLevel '{}' is not a valid package path: {}",
-						Settings.DefaultLevel, PathError);
+						Settings.DefaultLevel, FormatObjectError(PathValidation.Error));
 					DURIN_WARN("{}", StartupError);
 				}
 			}

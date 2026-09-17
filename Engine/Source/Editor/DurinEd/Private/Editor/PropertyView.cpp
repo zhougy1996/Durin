@@ -973,7 +973,9 @@ namespace Durin::Editor
 						SelectedPath = {};
 						return true;
 					}
-					return FObjectPath::TryCreate(Path, SelectedPath, &Error);
+					const auto PathValidation = FObjectPath::TryCreate(Path, SelectedPath);
+					if (!PathValidation) Error = FormatObjectError(PathValidation.Error);
+					return PathValidation.Succeeded();
 				},
 				.TrailingAction = LoadAction,
 				.AdditionalTrailingActions = AdditionalActions,

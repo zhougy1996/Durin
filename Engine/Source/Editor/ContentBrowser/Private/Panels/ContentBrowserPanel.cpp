@@ -26,7 +26,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			OutPath = {};
 			const char* Clipboard = ImGui::GetClipboardText();
 			if (!Clipboard) return false;
-			return FTopLevelAssetPath::TryCreate(Clipboard, OutPath);
+			return FTopLevelAssetPath::TryCreate(Clipboard, OutPath).Succeeded();
 		}
 	}
 

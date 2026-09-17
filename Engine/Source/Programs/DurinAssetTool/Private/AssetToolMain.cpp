@@ -646,8 +646,9 @@ namespace
 			if (bExact)
 			{
 				Durin::FPackagePath Path;
-				if (!Durin::FPackagePath::TryCreate(Value, Path, &OutError))
+				if (const auto PathValidation = Durin::FPackagePath::TryCreate(Value, Path); !PathValidation)
 				{
+					OutError = Durin::FormatObjectError(PathValidation.Error);
 					OutError = std::format("invalid scope '{}': {}", Value, OutError);
 					return 2;
 				}
@@ -841,8 +842,9 @@ namespace
 		{
 			FPackagePath Path;
 			std::string Error;
-			if (!FPackagePath::TryCreate(Value, Path, &Error))
+			if (const auto PathValidation = FPackagePath::TryCreate(Value, Path); !PathValidation)
 			{
+				Error = Durin::FormatObjectError(PathValidation.Error);
 				std::cerr << "Error: invalid Cook root '" << Value << "': " << Error << '\n';
 				return 2;
 			}
@@ -853,8 +855,9 @@ namespace
 		{
 			FPackagePath Path;
 			std::string Error;
-			if (!FPackagePath::TryCreate(Value, Path, &Error))
+			if (const auto PathValidation = FPackagePath::TryCreate(Value, Path); !PathValidation)
 			{
+				Error = Durin::FormatObjectError(PathValidation.Error);
 				std::cerr << "Error: invalid Engine Cook root '" << Value << "': " << Error << '\n';
 				return 1;
 			}
@@ -1047,8 +1050,9 @@ int main(int ArgC, char** ArgV)
 #if DURIN_WITH_EDITOR
 		Durin::FPackagePath Path;
 		std::string Error;
-		if (!Durin::FPackagePath::TryCreate(Options.Scopes.front(), Path, &Error))
+		if (const auto PathValidation = Durin::FPackagePath::TryCreate(Options.Scopes.front(), Path); !PathValidation)
 		{
+			Error = Durin::FormatObjectError(PathValidation.Error);
 			std::cerr << Error << '\n';
 			return 1;
 		}

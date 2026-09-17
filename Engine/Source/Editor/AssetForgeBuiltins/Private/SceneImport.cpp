@@ -166,8 +166,9 @@ namespace Durin::AssetForge::Builtins
 			std::filesystem::path OutputPath(DestinationDirectory.ToString());
 			if (!DirectoryName.empty()) OutputPath /= DirectoryName;
 			OutputPath /= Leaf;
-			return FPackagePath::TryCreate(
-				OutputPath.generic_string(), OutPath, &OutError);
+			const auto Validation = FPackagePath::TryCreate(OutputPath.generic_string(), OutPath);
+			if (!Validation) OutError = FormatObjectError(Validation.Error);
+			return Validation.Succeeded();
 		}
 
 		auto StableSuffix(std::string_view Value) -> std::string

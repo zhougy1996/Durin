@@ -7,7 +7,18 @@ namespace Durin
 {
 	namespace
 	{
-		auto FailPath(std::string Message, std::string* OutError) -> bool { if (OutError) *OutError = std::move(Message); return false; }
+		auto FailPath(EObjectPathError Code, EObjectPathPart Part, std::string_view Subject,
+			size_t MaximumBytes = 0, size_t ComponentIndex = 0) -> FObjectOperationResult
+		{
+			FObjectError Error;
+			Error.Code = Code;
+			Error.Part = Part;
+			Error.Subject = Subject;
+			Error.ActualBytes = Subject.size();
+			Error.MaximumBytes = MaximumBytes;
+			Error.ComponentIndex = ComponentIndex;
+			return {std::move(Error)};
+		}
 		auto IsValidUtf8(std::string_view Value) -> bool
 		{
 			for (size_t Index = 0; Index < Value.size();)
@@ -24,29 +35,34 @@ namespace Durin
 			}
 			return true;
 		}
-		auto ValidateComponent(std::string_view Component, std::string_view Kind, std::string* OutError, size_t MaximumBytes = MaximumObjectPathComponentBytes) -> bool
+		auto ValidateComponent(std::string_view Component, EObjectPathPart Part,
+			size_t MaximumBytes = MaximumObjectPathComponentBytes, size_t Index = 0) -> FObjectOperationResult
 		{
-			if (Component.empty()) return FailPath(std::format("{} cannot be empty.", Kind), OutError);
-			if (Component.size() > MaximumBytes) return FailPath(std::format("{} exceeds the {} byte component limit.", Kind, MaximumBytes), OutError);
-			if (!IsValidUtf8(Component)) return FailPath(std::format("{} must be valid UTF-8.", Kind), OutError);
-			if (Component == "." || Component == ".." || Component.find_first_of("/\\.:") != std::string_view::npos) return FailPath(std::format("{} contains a reserved separator.", Kind), OutError);
-			return true;
+			if (Component.empty()) return FailPath(EObjectPathError::EmptyComponent, Part, Component, 0, Index);
+			if (Component.size() > MaximumBytes) return FailPath(EObjectPathError::ComponentTooLong, Part, Component, MaximumBytes, Index);
+			if (!IsValidUtf8(Component)) return FailPath(EObjectPathError::InvalidUtf8, Part, Component, 0, Index);
+			if (Component == "." || Component == ".." || Component.find_first_of("/\\.:") != std::string_view::npos)
+				return FailPath(EObjectPathError::ReservedSeparator, Part, Component, 0, Index);
+			return {};
 		}
-		auto ValidatePackageSyntax(std::string_view InPath, std::string* OutError) -> bool
+		auto ValidatePackageSyntax(std::string_view InPath) -> FObjectOperationResult
 		{
-			if (InPath.empty() || InPath.front() != '/') return FailPath("Package path must be absolute.", OutError);
-			if (InPath.size() >= FName::MaxSize) return FailPath(std::format("Package path exceeds the {} byte interned-name limit.", FName::MaxSize - 1), OutError);
-			if (InPath.size() > MaximumObjectPathBytes) return FailPath(std::format("Package path exceeds the {} byte path limit.", MaximumObjectPathBytes), OutError);
-			if (InPath.back() == '/') return FailPath("Package path must name a package.", OutError);
-			if (!IsValidUtf8(InPath)) return FailPath("Package path must be valid UTF-8.", OutError);
-			if (InPath.find_first_of("\\.:") != std::string_view::npos) return FailPath("Package path cannot contain an object or file suffix.", OutError);
-			for (size_t Start = 1; Start < InPath.size();)
+			constexpr auto Part = EObjectPathPart::Package;
+			if (InPath.empty() || InPath.front() != '/') return FailPath(EObjectPathError::NotAbsolute, Part, InPath);
+			if (InPath.size() >= FName::MaxSize) return FailPath(EObjectPathError::InternedNameTooLong, Part, InPath, FName::MaxSize - 1);
+			if (InPath.size() > MaximumObjectPathBytes) return FailPath(EObjectPathError::PathTooLong, Part, InPath, MaximumObjectPathBytes);
+			if (InPath.back() == '/') return FailPath(EObjectPathError::MissingPackageName, Part, InPath);
+			if (!IsValidUtf8(InPath)) return FailPath(EObjectPathError::InvalidUtf8, Part, InPath);
+			if (InPath.find_first_of("\\.:") != std::string_view::npos) return FailPath(EObjectPathError::PackageSuffix, Part, InPath);
+			size_t Index = 0;
+			for (size_t Start = 1; Start < InPath.size(); ++Index)
 			{
-				const size_t End = InPath.find('/', Start); const auto Segment = InPath.substr(Start, End == std::string_view::npos ? InPath.size() - Start : End - Start);
-				if (!ValidateComponent(Segment, "Package path segment", OutError)) return false;
+				const size_t End = InPath.find('/', Start);
+				const auto Segment = InPath.substr(Start, End == std::string_view::npos ? InPath.size() - Start : End - Start);
+				if (auto Result = ValidateComponent(Segment, EObjectPathPart::PackageSegment, MaximumObjectPathComponentBytes, Index); !Result) return Result;
 				Start = End == std::string_view::npos ? InPath.size() : End + 1;
 			}
-			return true;
+			return {};
 		}
 		auto CompareFolded(std::string_view Left, std::string_view Right) -> std::strong_ordering
 		{
@@ -56,27 +72,47 @@ namespace Durin
 		}
 	}
 
-	auto FPackagePath::TryCreate(std::string_view InPath, FPackagePath& OutPath, std::string* OutError) -> bool { if (!IsValid(InPath, OutError)) return false; OutPath = FPackagePath(FName(InPath, -1)); return true; }
-	auto FPackagePath::TryCreateProjectContent(std::string_view InPath, FPackagePath& OutPath, std::string* OutError) -> bool { if (!ValidatePackageSyntax(InPath, OutError)) return false; if (!InPath.starts_with(FMountPaths::ProjectContentMountRoot)) return FailPath("Deferred package path must use the /Game mount.", OutError); OutPath = FPackagePath(FName(InPath, -1)); return true; }
-	auto FPackagePath::IsValid(std::string_view InPath, std::string* OutError) -> bool { if (!ValidatePackageSyntax(InPath, OutError)) return false; const FMountLookupResult Lookup = FMountPaths::FindMountForVirtualPath(InPath); return Lookup ? true : FailPath(Lookup.Message, OutError); }
+	auto FPackagePath::TryCreate(std::string_view InPath, FPackagePath& OutPath) -> FObjectOperationResult
+	{
+		if (auto Result = IsValid(InPath); !Result) return Result;
+		OutPath = FPackagePath(FName(InPath, -1));
+		return {};
+	}
+	auto FPackagePath::TryCreateProjectContent(std::string_view InPath, FPackagePath& OutPath) -> FObjectOperationResult
+	{
+		if (auto Result = ValidatePackageSyntax(InPath); !Result) return Result;
+		if (!InPath.starts_with(FMountPaths::ProjectContentMountRoot))
+			return FailPath(EObjectPathError::WrongDeferredMount, EObjectPathPart::Package, InPath);
+		OutPath = FPackagePath(FName(InPath, -1));
+		return {};
+	}
+	auto FPackagePath::IsValid(std::string_view InPath) -> FObjectOperationResult
+	{
+		if (auto Result = ValidatePackageSyntax(InPath); !Result) return Result;
+		const FMountLookupResult Lookup = FMountPaths::FindMountForVirtualPath(InPath);
+		if (Lookup) return {};
+		auto Result = FailPath(EObjectPathError::MountLookupFailed, EObjectPathPart::Package, InPath);
+		Result.Error.MountError = Lookup.Error;
+		return Result;
+	}
 	auto FPackagePath::ToString() const -> std::string { return Path.IsNone() ? std::string{} : Path.ToString(); }
 	auto FPackagePath::GetView() const -> std::string_view { return Path.IsNone() ? std::string_view{} : Path.GetComparisonNameEntry()->MakeView(); }
 	auto FPackagePath::operator<=>(const FPackagePath& Other) const -> std::strong_ordering { return CompareFolded(GetView(), Other.GetView()); }
 
-	auto FTopLevelAssetPath::TryCreate(std::string_view InPath, FTopLevelAssetPath& OutPath, std::string* OutError) -> bool
+	auto FTopLevelAssetPath::TryCreate(std::string_view InPath, FTopLevelAssetPath& OutPath) -> FObjectOperationResult
 	{
-		if (InPath.size() > MaximumObjectPathBytes) return FailPath(std::format("Top-level asset path exceeds the {} byte path limit.", MaximumObjectPathBytes), OutError);
-		if (InPath.find(':') != std::string_view::npos) return FailPath("Top-level asset path cannot contain a subobject suffix.", OutError);
+		if (InPath.size() > MaximumObjectPathBytes) return FailPath(EObjectPathError::PathTooLong, EObjectPathPart::Asset, InPath, MaximumObjectPathBytes);
+		if (InPath.find(':') != std::string_view::npos) return FailPath(EObjectPathError::SubobjectSuffix, EObjectPathPart::Asset, InPath);
 		const size_t Slash = InPath.find_last_of('/'); const size_t Dot = InPath.find('.', Slash == std::string_view::npos ? 0 : Slash + 1);
-		if (Dot == std::string_view::npos || InPath.find('.', Dot + 1) != std::string_view::npos) return FailPath("Top-level asset path must contain exactly one asset separator.", OutError);
-		FPackagePath Package; if (!FPackagePath::TryCreate(InPath.substr(0, Dot), Package, OutError)) return false; return TryCreate(Package, InPath.substr(Dot + 1), OutPath, OutError);
+		if (Dot == std::string_view::npos || InPath.find('.', Dot + 1) != std::string_view::npos) return FailPath(EObjectPathError::AssetSeparator, EObjectPathPart::Asset, InPath);
+		FPackagePath Package; if (auto Result = FPackagePath::TryCreate(InPath.substr(0, Dot), Package); !Result) return Result; return TryCreate(Package, InPath.substr(Dot + 1), OutPath);
 	}
-	auto FTopLevelAssetPath::TryCreate(const FPackagePath& InPackagePath, std::string_view InAssetName, FTopLevelAssetPath& OutPath, std::string* OutError) -> bool
+	auto FTopLevelAssetPath::TryCreate(const FPackagePath& InPackagePath, std::string_view InAssetName, FTopLevelAssetPath& OutPath) -> FObjectOperationResult
 	{
-		if (!InPackagePath.IsValid()) return FailPath("Top-level asset path requires a package path.", OutError);
-		if (!ValidateComponent(InAssetName, "Top-level asset name", OutError, FName::MaxSize - 1)) return false;
-		if (InPackagePath.GetView().size() + 1 + InAssetName.size() > MaximumObjectPathBytes) return FailPath(std::format("Top-level asset path exceeds the {} byte path limit.", MaximumObjectPathBytes), OutError);
-		FTopLevelAssetPath Candidate; Candidate.PackagePath = InPackagePath; Candidate.AssetName = FName(InAssetName, -1); OutPath = std::move(Candidate); return true;
+		if (!InPackagePath.IsValid()) return FailPath(EObjectPathError::MissingPackagePath, EObjectPathPart::Asset, InAssetName);
+		if (auto Result = ValidateComponent(InAssetName, EObjectPathPart::AssetName, FName::MaxSize - 1); !Result) return Result;
+		if (InPackagePath.GetView().size() + 1 + InAssetName.size() > MaximumObjectPathBytes) return FailPath(EObjectPathError::PathTooLong, EObjectPathPart::Asset, InPackagePath.ToString() + "." + std::string(InAssetName), MaximumObjectPathBytes);
+		FTopLevelAssetPath Candidate; Candidate.PackagePath = InPackagePath; Candidate.AssetName = FName(InAssetName, -1); OutPath = std::move(Candidate); return {};
 	}
 	auto FTopLevelAssetPath::GetAssetName() const -> std::string_view { return AssetName.IsNone() ? std::string_view{} : AssetName.GetComparisonNameEntry()->MakeView(); }
 	auto FTopLevelAssetPath::AppendTo(std::string& Out) const -> void { if (!IsValid()) return; Out.append(PackagePath.GetView()); Out.push_back('.'); Out.append(GetAssetName()); }
@@ -88,46 +124,46 @@ namespace Durin
 	auto FSubobjectPathView::size() const -> size_t { return Path.empty() ? 0 : 1 + std::ranges::count(Path, '.'); }
 	auto FSubobjectPathView::operator[](size_t Index) const -> std::string_view { auto It = begin(); while (Index-- > 0 && It != end()) ++It; return It == end() ? std::string_view{} : *It; }
 
-	auto FObjectPath::TryCreate(std::string_view InPath, FObjectPath& OutPath, std::string* OutError) -> bool
+	auto FObjectPath::TryCreate(std::string_view InPath, FObjectPath& OutPath) -> FObjectOperationResult
 	{
-		if (InPath.size() > MaximumObjectPathBytes) return FailPath(std::format("Object path exceeds the {} byte path limit.", MaximumObjectPathBytes), OutError);
-		const size_t Colon = InPath.find(':'); if (Colon != std::string_view::npos && InPath.find(':', Colon + 1) != std::string_view::npos) return FailPath("Object path can contain at most one subobject separator.", OutError);
-		FTopLevelAssetPath Asset; if (!FTopLevelAssetPath::TryCreate(InPath.substr(0, Colon), Asset, OutError)) return false;
-		std::string Suffix;
+		if (InPath.size() > MaximumObjectPathBytes) return FailPath(EObjectPathError::PathTooLong, EObjectPathPart::Object, InPath, MaximumObjectPathBytes);
+		const size_t Colon = InPath.find(':'); if (Colon != std::string_view::npos && InPath.find(':', Colon + 1) != std::string_view::npos) return FailPath(EObjectPathError::MultipleSubobjectSeparators, EObjectPathPart::Object, InPath);
+		FTopLevelAssetPath Asset; if (auto Result = FTopLevelAssetPath::TryCreate(InPath.substr(0, Colon), Asset); !Result) return Result;
+		std::string Suffix; size_t Index = 0;
 		if (Colon != std::string_view::npos)
 		{
-			const std::string_view View = InPath.substr(Colon + 1); if (View.empty() || View.front() == '.' || View.back() == '.' || View.find("..") != std::string_view::npos) return FailPath("Object path contains an empty subobject name.", OutError);
-			for (size_t Start = 0; Start < View.size();) { const size_t End = View.find('.', Start); const auto Name = View.substr(Start, End == std::string_view::npos ? View.size() - Start : End - Start); if (!ValidateComponent(Name, "Subobject name", OutError)) return false; Start = End == std::string_view::npos ? View.size() : End + 1; }
+			const std::string_view View = InPath.substr(Colon + 1); if (View.empty() || View.front() == '.' || View.back() == '.' || View.find("..") != std::string_view::npos) return FailPath(EObjectPathError::EmptySubobject, EObjectPathPart::Subobject, View);
+			for (size_t Start = 0; Start < View.size();) { const size_t End = View.find('.', Start); const auto Name = View.substr(Start, End == std::string_view::npos ? View.size() - Start : End - Start); if (auto Result = ValidateComponent(Name, EObjectPathPart::Subobject, MaximumObjectPathComponentBytes, Index++); !Result) return Result; Start = End == std::string_view::npos ? View.size() : End + 1; }
 			Suffix = View;
 		}
-		FObjectPath Candidate; Candidate.AssetPath = std::move(Asset); Candidate.SubobjectPath = std::move(Suffix); OutPath = std::move(Candidate); return true;
+		FObjectPath Candidate; Candidate.AssetPath = std::move(Asset); Candidate.SubobjectPath = std::move(Suffix); OutPath = std::move(Candidate); return {};
 	}
-	auto FObjectPath::TryCreate(const FTopLevelAssetPath& InAssetPath, std::span<const std::string> Names, FObjectPath& OutPath, std::string* OutError) -> bool
+	auto FObjectPath::TryCreate(const FTopLevelAssetPath& InAssetPath, std::span<const std::string> Names, FObjectPath& OutPath) -> FObjectOperationResult
 	{
-		if (!InAssetPath.IsValid()) return FailPath("Object path requires a top-level asset path.", OutError); std::string Suffix;
-		for (const std::string& Name : Names) { if (!ValidateComponent(Name, "Subobject name", OutError)) return false; if (!Suffix.empty()) Suffix.push_back('.'); Suffix += Name; }
-		if (InAssetPath.ToString().size() + (Suffix.empty() ? 0 : 1 + Suffix.size()) > MaximumObjectPathBytes) return FailPath(std::format("Object path exceeds the {} byte path limit.", MaximumObjectPathBytes), OutError);
-		FObjectPath Candidate; Candidate.AssetPath = InAssetPath; Candidate.SubobjectPath = std::move(Suffix); OutPath = std::move(Candidate); return true;
+		if (!InAssetPath.IsValid()) return FailPath(EObjectPathError::MissingAssetPath, EObjectPathPart::Object, {}); std::string Suffix; size_t Index = 0;
+		for (const std::string& Name : Names) { if (auto Result = ValidateComponent(Name, EObjectPathPart::Subobject, MaximumObjectPathComponentBytes, Index++); !Result) return Result; if (!Suffix.empty()) Suffix.push_back('.'); Suffix += Name; }
+		if (InAssetPath.ToString().size() + (Suffix.empty() ? 0 : 1 + Suffix.size()) > MaximumObjectPathBytes) return FailPath(EObjectPathError::PathTooLong, EObjectPathPart::Object, InAssetPath.ToString() + ":" + Suffix, MaximumObjectPathBytes);
+		FObjectPath Candidate; Candidate.AssetPath = InAssetPath; Candidate.SubobjectPath = std::move(Suffix); OutPath = std::move(Candidate); return {};
 	}
-	auto FObjectPath::TryCreate(const FTopLevelAssetPath& InAssetPath, FSubobjectPathView Names, FObjectPath& OutPath, std::string* OutError) -> bool
+	auto FObjectPath::TryCreate(const FTopLevelAssetPath& InAssetPath, FSubobjectPathView Names, FObjectPath& OutPath) -> FObjectOperationResult
 	{
-		if (!InAssetPath.IsValid()) return FailPath("Object path requires a top-level asset path.", OutError);
-		std::string Suffix;
+		if (!InAssetPath.IsValid()) return FailPath(EObjectPathError::MissingAssetPath, EObjectPathPart::Object, {});
+		std::string Suffix; size_t Index = 0;
 		for (const std::string_view Name : Names)
 		{
-			if (!ValidateComponent(Name, "Subobject name", OutError)) return false;
+			if (auto Result = ValidateComponent(Name, EObjectPathPart::Subobject, MaximumObjectPathComponentBytes, Index++); !Result) return Result;
 			if (!Suffix.empty()) Suffix.push_back('.');
 			Suffix.append(Name);
 		}
 		const size_t AssetPathBytes = InAssetPath.GetPackagePath().GetView().size()
 			+ 1 + InAssetPath.GetAssetName().size();
 		if (AssetPathBytes + (Suffix.empty() ? 0 : 1 + Suffix.size()) > MaximumObjectPathBytes)
-			return FailPath(std::format("Object path exceeds the {} byte path limit.", MaximumObjectPathBytes), OutError);
+			return FailPath(EObjectPathError::PathTooLong, EObjectPathPart::Object, InAssetPath.ToString() + ":" + Suffix, MaximumObjectPathBytes);
 		FObjectPath Candidate;
 		Candidate.AssetPath = InAssetPath;
 		Candidate.SubobjectPath = std::move(Suffix);
 		OutPath = std::move(Candidate);
-		return true;
+		return {};
 	}
 	auto FObjectPath::AppendTo(std::string& Out) const -> void { if (!IsValid()) return; AssetPath.AppendTo(Out); if (!SubobjectPath.empty()) { Out.push_back(':'); Out += SubobjectPath; } }
 	auto FObjectPath::ToString() const -> std::string

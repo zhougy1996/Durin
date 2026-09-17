@@ -113,9 +113,17 @@ namespace Durin::Editor::Material
 
 			FObjectPath SpherePath;
 			FObjectPath BoxPath;
-			if (!FObjectPath::TryCreate(FPreviewMeshResources::SphereAssetPath, SpherePath, &Error)
-				|| !FObjectPath::TryCreate(FPreviewMeshResources::BoxAssetPath, BoxPath, &Error)
-				|| !::Durin::Editor::FAssetRetentionService::Acquire(SpherePath, SphereAsset, Error)
+			if (const auto Validation = FObjectPath::TryCreate(FPreviewMeshResources::SphereAssetPath, SpherePath); !Validation)
+			{
+				Error = FormatObjectError(Validation.Error);
+				return;
+			}
+			if (const auto Validation = FObjectPath::TryCreate(FPreviewMeshResources::BoxAssetPath, BoxPath); !Validation)
+			{
+				Error = FormatObjectError(Validation.Error);
+				return;
+			}
+			if (!::Durin::Editor::FAssetRetentionService::Acquire(SpherePath, SphereAsset, Error)
 				|| !::Durin::Editor::FAssetRetentionService::Acquire(BoxPath, BoxAsset, Error))
 			{
 				return;

@@ -302,12 +302,11 @@ namespace Durin::AssetPrivate
 						"Soft object path payload is empty.");
 					return;
 				}
-				std::string Error;
 				FObjectPath Loaded;
-				if (!FObjectPath::TryCreate(PathString, Loaded, &Error))
+				if (const auto PathValidation = FObjectPath::TryCreate(PathString, Loaded); !PathValidation)
 				{
 					FailLoad(EAssetError::InvalidPath, EArchiveFailureCode::InvalidPath,
-						Error.empty() ? "Invalid soft object path." : Error);
+						FormatObjectError(PathValidation.Error));
 					return;
 				}
 				Value = std::move(Loaded);

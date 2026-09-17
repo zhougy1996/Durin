@@ -78,7 +78,7 @@ namespace Durin::Editor::ContentBrowser
 				Opened = Path;
 				EXPECT_EQ(ClassName, DLevel::StaticClass()->GetQualifiedName().ToString());
 				FObjectPath ObjectPath;
-				if (!FObjectPath::TryCreate(Path, ObjectPath, &OpenError)) return false;
+				if (const auto PathValidation = FObjectPath::TryCreate(Path, ObjectPath); !PathValidation) { OpenError = Durin::FormatObjectError(PathValidation.Error); return false; }
 				const auto Result = LoadObject(ObjectPath, OpenedLevel);
 				OpenError = Result.Message;
 				return Result.Succeeded();

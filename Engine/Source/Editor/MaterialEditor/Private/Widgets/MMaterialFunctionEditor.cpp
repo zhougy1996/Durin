@@ -64,7 +64,7 @@ namespace Durin::Editor::Material
 	{
 		if (Find(Tab.ResourceId)) return EDocumentOpenResult::Opened;
 		FObjectPath Path;
-		if (!FObjectPath::TryCreate(Tab.ResourceId, Path, &Error)) return EDocumentOpenResult::Rejected;
+		if (const auto PathValidation = FObjectPath::TryCreate(Tab.ResourceId, Path); !PathValidation) { Error = Durin::FormatObjectError(PathValidation.Error); return EDocumentOpenResult::Rejected; }
 		DMaterialFunction* Function = nullptr;
 		const auto Loaded = LoadObject(Path, Function);
 		if (!Loaded || !Function) { Error = Loaded ? "The asset is not an editable function." : Loaded.Message; return EDocumentOpenResult::Rejected; }
@@ -74,8 +74,11 @@ namespace Durin::Editor::Material
 		const auto Mount = FMountPaths::FindMountForVirtualPath(Function->GetPackage()->GetPackagePath());
 		if (!Mount) { Error = Mount.Message; return EDocumentOpenResult::Rejected; }
 		FPackagePath PreviewPath;
-		if (!FPackagePath::TryCreate(std::format("{}__FunctionPreview/{}", Mount.Mount->VirtualRoot, FGuid::NewGuid().ToString()), PreviewPath, &Error))
+		if (const auto PathValidation = FPackagePath::TryCreate(std::format("{}__FunctionPreview/{}", Mount.Mount->VirtualRoot, FGuid::NewGuid().ToString()), PreviewPath); !PathValidation)
+		{
+			Error = Durin::FormatObjectError(PathValidation.Error);
 			return EDocumentOpenResult::Rejected;
+		}
 		auto* Package = NewObject<DPackage>(DPackage::StaticClass(), nullptr, NAME_None, EObjectFlags::Transient);
 		Package->InitializeAssetPackage(PreviewPath);
 		Package->SetStandaloneResidency(false);

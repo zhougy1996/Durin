@@ -39,8 +39,10 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 		const auto Destination = InspectAssetDestination(Directory + Name.data());
 		OutError = Destination.Message;
-		return Destination && FTopLevelAssetPath::TryCreate(
-			Destination.AssetPath, Name.data(), OutPath, &OutError);
+		if (!Destination) return false;
+		const auto PathValidation = FTopLevelAssetPath::TryCreate(Destination.AssetPath, Name.data(), OutPath);
+		if (!PathValidation) OutError = FormatObjectError(PathValidation.Error);
+		return PathValidation.Succeeded();
 	}
 
 	auto FAssetCreationDialog::Confirm(bool bAllowAssetMutation) -> bool

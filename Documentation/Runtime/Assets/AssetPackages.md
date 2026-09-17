@@ -63,6 +63,17 @@ Ordinary `FPackagePath::TryCreate` remains mount-bound. Cook staging may use the
 explicit `TryCreateProjectContent` factory for a canonical `/Game/...` target
 before the fixed output mount exists; that exception admits no other namespace.
 
+Path factories and soft-reference assignment return `FObjectOperationResult`.
+Its `FObjectError` discriminates path and soft-object error codes; success is an
+absent code. Failures own their subject and expected/actual identities, retain
+component indices and byte limits where relevant, and preserve `EMountPathError`
+for mount lookup failures. Failed factories do not publish output paths; failed
+soft-reference assignment leaves authored identity and loaded-cache state intact.
+`TrySetObject(nullptr)` remains a successful reset, while a null loaded-cache
+assignment fails. `FormatObjectError` generates prose at UI, logging, command,
+and adapters to framework interfaces that still require strings. Semantic tests
+assert codes and context, not formatted text.
+
 Package, asset, and subobject identities compare case-sensitively by canonical
 UTF-8 spelling. Factories reject invalid separators, empty components, and
 inputs beyond the frozen component or complete-path bounds.

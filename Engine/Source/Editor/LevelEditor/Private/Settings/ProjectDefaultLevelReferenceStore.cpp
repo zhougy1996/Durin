@@ -89,11 +89,14 @@ namespace Durin::Editor::Level
 			if (!Settings.DefaultLevel.empty())
 			{
 				std::string PathError;
-				if (!FPackagePath::TryCreate(Settings.DefaultLevel, OutState.Path, &PathError))
+				if (const auto PathValidation = FPackagePath::TryCreate(Settings.DefaultLevel, OutState.Path); !PathValidation)
+				{
+					PathError = Durin::FormatObjectError(PathValidation.Error);
 					return StoreError(
 						EAssetError::InvalidPath,
 						std::format("Project default level is invalid: {}",
 							PathError));
+				}
 			}
 			OutState.Fingerprint = MakeFingerprint(
 				OutState.SettingsFile, true, OutState.Bytes);

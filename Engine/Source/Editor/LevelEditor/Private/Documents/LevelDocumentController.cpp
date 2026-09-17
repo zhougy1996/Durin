@@ -203,8 +203,9 @@ namespace Durin::Editor::Level
 		if (ClearError) ClearError();
 		FObjectPath Path;
 		std::string PathError;
-		if (!FObjectPath::TryCreate(PathString, Path, &PathError))
+		if (const auto PathValidation = FObjectPath::TryCreate(PathString, Path); !PathValidation)
 		{
+			PathError = Durin::FormatObjectError(PathValidation.Error);
 			SetError(PathError);
 			return ELevelDocumentOpenResult::Rejected;
 		}
@@ -285,8 +286,9 @@ namespace Durin::Editor::Level
 
 		FPackagePath OldPath;
 		std::string PathError;
-		if (!FPackagePath::TryCreate(Package->GetPackagePath(), OldPath, &PathError))
+		if (const auto PathValidation = FPackagePath::TryCreate(Package->GetPackagePath(), OldPath); !PathValidation)
 		{
+			PathError = Durin::FormatObjectError(PathValidation.Error);
 			SetError(PathError);
 			return false;
 		}
@@ -294,8 +296,9 @@ namespace Durin::Editor::Level
 		const size_t Separator = OldPathString.find_last_of('/');
 		const std::string NewPathString = OldPathString.substr(0, Separator + 1) + std::string(NewName);
 		FPackagePath NewPath;
-		if (!FPackagePath::TryCreate(NewPathString, NewPath, &PathError))
+		if (const auto PathValidation = FPackagePath::TryCreate(NewPathString, NewPath); !PathValidation)
 		{
+			PathError = Durin::FormatObjectError(PathValidation.Error);
 			SetError(PathError);
 			return false;
 		}

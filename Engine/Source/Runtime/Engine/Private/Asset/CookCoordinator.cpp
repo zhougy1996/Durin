@@ -140,7 +140,7 @@ namespace Durin
 			const FTopLevelAssetPath& AssetPath, FObjectPath& OutPath) -> bool
 		{
 			return FObjectPath::TryCreate(
-				AssetPath, std::span<const std::string>{}, OutPath);
+				AssetPath, std::span<const std::string>{}, OutPath).Succeeded();
 		}
 
 	} // namespace
@@ -324,8 +324,11 @@ namespace Durin
 			{
 				FPackagePath DefaultLevel;
 				std::string PathError;
-				if (!FPackagePath::TryCreate(Settings.DefaultLevel, DefaultLevel, &PathError))
+				if (const auto PathValidation = FPackagePath::TryCreate(Settings.DefaultLevel, DefaultLevel); !PathValidation)
+				{
+					PathError = Durin::FormatObjectError(PathValidation.Error);
 					return Finish(ECookRunStatus::Failed, "invalid-default-level", std::format("CookInvalidDefaultLevel: {}: {}", Settings.DefaultLevel, PathError));
+				}
 				Roots.push_back(std::move(DefaultLevel));
 			}
 		}

@@ -8,16 +8,25 @@ namespace Durin
 	namespace
 	{
 		std::atomic<uint64> GSoftObjectCacheEpoch = 1;
-		auto FailSoftObject(std::string Message, std::string* OutError) -> bool { if (OutError) *OutError = std::move(Message); return false; }
-		auto ValidateSoftObject(DObject* Object, const DClass* ExpectedClass, FObjectPath& OutPath, std::string* OutError) -> bool
+		auto FailSoftObject(ESoftObjectError Code, std::string Subject = {},
+			std::string Expected = {}, std::string Actual = {}) -> FObjectOperationResult
 		{
-			if (!Object) return FailSoftObject("A loaded soft-object cache cannot be null.", OutError);
-			if (Cast<DPackage>(Object)) return FailSoftObject("A package cannot be assigned as a soft object.", OutError);
-			if (EnumHasAnyFlags(Object->GetObjectFlags(), EObjectFlags::Transient)) return FailSoftObject("A transient object cannot be assigned as a soft object.", OutError);
-			if (ExpectedClass && !Object->IsA(ExpectedClass)) return FailSoftObject(std::format("Object {} is not a {}.", Object->GetObjectPath(), ExpectedClass->GetQualifiedName()), OutError);
+			FObjectError Error;
+			Error.Code = Code;
+			Error.Subject = std::move(Subject);
+			Error.Expected = std::move(Expected);
+			Error.Actual = std::move(Actual);
+			return {std::move(Error)};
+		}
+		auto ValidateSoftObject(DObject* Object, const DClass* ExpectedClass, FObjectPath& OutPath) -> FObjectOperationResult
+		{
+			if (!Object) return FailSoftObject(ESoftObjectError::NullLoadedObject);
+			if (Cast<DPackage>(Object)) return FailSoftObject(ESoftObjectError::PackageObject, Object->GetObjectPath());
+			if (EnumHasAnyFlags(Object->GetObjectFlags(), EObjectFlags::Transient)) return FailSoftObject(ESoftObjectError::TransientObject, Object->GetObjectPath());
+			if (ExpectedClass && !Object->IsA(ExpectedClass)) return FailSoftObject(ESoftObjectError::ClassMismatch, Object->GetObjectPath(), ExpectedClass->GetQualifiedName().ToString(), Object->GetClass()->GetQualifiedName().ToString());
 			DPackage* Package = Object->GetPackage();
-			if (!Package || !Package->IsAssetPackage()) return FailSoftObject("An unpackaged object cannot be assigned as a soft object.", OutError);
-			return FObjectPath::TryCreate(Object->GetObjectPath(), OutPath, OutError);
+			if (!Package || !Package->IsAssetPackage()) return FailSoftObject(ESoftObjectError::UnpackagedObject, Object->GetObjectPath());
+			return FObjectPath::TryCreate(Object->GetObjectPath(), OutPath);
 		}
 	}
 
@@ -34,31 +43,31 @@ namespace Durin
 		if (this != &Other) { AuthoredPath = std::move(Other.AuthoredPath); WeakObject = Other.WeakObject; CacheEpoch = Other.CacheEpoch; Other.Reset(); } return *this;
 	}
 	auto FSoftObjectPtr::SetPath(FObjectPath InPath) -> void { AuthoredPath = std::move(InPath); ResetCache(); }
-	auto FSoftObjectPtr::TrySetObject(DObject* InObject, const DClass* ExpectedClass, std::string* OutError) -> bool
+	auto FSoftObjectPtr::TrySetObject(DObject* InObject, const DClass* ExpectedClass) -> FObjectOperationResult
 	{
-		if (!InObject) { Reset(); return true; }
-		FObjectPath ObjectPath; if (!ValidateSoftObject(InObject, ExpectedClass, ObjectPath, OutError)) return false;
-		AuthoredPath = ObjectPath; WeakObject.SetObject(InObject); CacheEpoch = GetSoftObjectCacheEpoch(); return true;
+		if (!InObject) { Reset(); return {}; }
+		FObjectPath ObjectPath; if (auto Result = ValidateSoftObject(InObject, ExpectedClass, ObjectPath); !Result) return Result;
+		AuthoredPath = ObjectPath; WeakObject.SetObject(InObject); CacheEpoch = GetSoftObjectCacheEpoch(); return {};
 	}
-	auto FSoftObjectPtr::TrySetLoadedObject(DObject* InObject, const DClass* ExpectedClass, std::string* OutError) -> bool
+	auto FSoftObjectPtr::TrySetLoadedObject(DObject* InObject, const DClass* ExpectedClass) -> FObjectOperationResult
 	{
-		FObjectPath ObjectPath; if (!ValidateSoftObject(InObject, ExpectedClass, ObjectPath, OutError)) return false;
-		if (!AuthoredPath.IsValid() || AuthoredPath != ObjectPath) return FailSoftObject("The loaded object does not match the stored soft-object path.", OutError);
-		WeakObject.SetObject(InObject); CacheEpoch = GetSoftObjectCacheEpoch(); return true;
+		FObjectPath ObjectPath; if (auto Result = ValidateSoftObject(InObject, ExpectedClass, ObjectPath); !Result) return Result;
+		if (!AuthoredPath.IsValid() || AuthoredPath != ObjectPath) return FailSoftObject(ESoftObjectError::LoadedPathMismatch, ObjectPath.ToString(), AuthoredPath.ToString(), ObjectPath.ToString());
+		WeakObject.SetObject(InObject); CacheEpoch = GetSoftObjectCacheEpoch(); return {};
 	}
-	auto FSoftObjectPtr::TrySetResolvedObject(DObject* InObject, const FObjectPath& InAuthoredPath, const FObjectPath& ResolvedPath, const DClass* ExpectedClass, std::string* OutError) -> bool
+	auto FSoftObjectPtr::TrySetResolvedObject(DObject* InObject, const FObjectPath& InAuthoredPath, const FObjectPath& ResolvedPath, const DClass* ExpectedClass) -> FObjectOperationResult
 	{
-		FObjectPath ObjectPath; if (!ValidateSoftObject(InObject, ExpectedClass, ObjectPath, OutError)) return false;
-		if (!AuthoredPath.IsValid() || AuthoredPath != InAuthoredPath) return FailSoftObject("The resolved object does not match the authored soft-object path.", OutError);
-		if (!ResolvedPath.IsValid() || ObjectPath != ResolvedPath) return FailSoftObject("The resolved object does not match the exact resolved object path.", OutError);
-		WeakObject.SetObject(InObject); CacheEpoch = GetSoftObjectCacheEpoch(); return true;
+		FObjectPath ObjectPath; if (auto Result = ValidateSoftObject(InObject, ExpectedClass, ObjectPath); !Result) return Result;
+		if (!AuthoredPath.IsValid() || AuthoredPath != InAuthoredPath) return FailSoftObject(ESoftObjectError::AuthoredPathMismatch, ObjectPath.ToString(), AuthoredPath.ToString(), InAuthoredPath.ToString());
+		if (!ResolvedPath.IsValid() || ObjectPath != ResolvedPath) return FailSoftObject(ESoftObjectError::ResolvedPathMismatch, ObjectPath.ToString(), ResolvedPath.ToString(), ObjectPath.ToString());
+		WeakObject.SetObject(InObject); CacheEpoch = GetSoftObjectCacheEpoch(); return {};
 	}
 	auto FSoftObjectPtr::Get(const DClass* ExpectedClass) const -> DObject*
 	{
 		DObject* Object = WeakObject.Get();
 		if (!AuthoredPath.IsValid() || CacheEpoch == 0 || CacheEpoch != GetSoftObjectCacheEpoch()) return nullptr;
 		if (!Object) return nullptr;
-		FObjectPath ObjectPath; return ValidateSoftObject(Object, ExpectedClass, ObjectPath, nullptr) && ObjectPath.IsValid() ? Object : nullptr;
+		FObjectPath ObjectPath; return ValidateSoftObject(Object, ExpectedClass, ObjectPath) && ObjectPath.IsValid() ? Object : nullptr;
 	}
 	auto FSoftObjectPtr::GetState(const DClass* ExpectedClass) const -> ESoftObjectPtrState
 	{
