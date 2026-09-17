@@ -778,7 +778,7 @@ namespace Durin
 			const auto MainPrefix = Destination.string() + Suffix;
 			const auto BulkPrefix = Companion.string() + Suffix;
 			std::vector<FPackageWriteFile> Files;
-			Files.push_back({{Companion, Bulk.empty() ? std::filesystem::path{} : BulkPrefix + ".stage",
+			Files.push_back({{Companion, Bulk.empty() ? std::filesystem::path{} : std::filesystem::path{BulkPrefix + ".stage"},
 				BulkPrefix + ".backup"}, BulkStamp, std::move(Bulk)});
 			Files.push_back({{Destination, MainPrefix + ".stage", MainPrefix + ".backup"}, MainStamp, std::move(Bytes)});
 			return (bDirect ? GetDirectFilePackageWriter() : GetFilePackageWriter())->Begin(std::move(Files));
