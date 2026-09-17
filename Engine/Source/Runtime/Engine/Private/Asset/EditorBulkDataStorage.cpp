@@ -9,7 +9,7 @@ namespace Durin
 		auto CollectDescriptors(
 			DurinCodeGen::EPropertyGenFlags Kind,
 			FByteView Payload,
-			std::vector<FEditorBulkDataStorageDescriptor>& Out,
+			std::vector<FPackageBulkStorageDescriptor>& Out,
 			uint32 Depth,
 			uint32 SourceFormatVersion,
 			std::string* OutError) -> bool
@@ -23,7 +23,7 @@ namespace Durin
 				FAssetPackageField Field{.Kind = Kind,
 					.Payload = FByteBuffer(Payload.begin(), Payload.end()),
 					.SourceFormatVersion = SourceFormatVersion};
-				FEditorBulkDataStorageDescriptor Descriptor;
+				FPackageBulkStorageDescriptor Descriptor;
 				if (!Field.TryReadEditorBulkDataStorageDescriptor(Descriptor))
 					return Fail("Inspected authored bulk descriptor is invalid.", OutError);
 				Out.push_back(std::move(Descriptor));
@@ -69,11 +69,11 @@ namespace Durin
 		std::string* OutError) -> bool
 	{
 		OutPaths.clear();
-		std::vector<FEditorBulkDataStorageDescriptor> Descriptors;
+		std::vector<FPackageBulkStorageDescriptor> Descriptors;
 		if (!InspectEditorBulkDataStorageDescriptors(Inspection, Descriptors, OutError))
 			return false;
 		if (std::ranges::any_of(Descriptors, [](const auto& Descriptor) {
-			return Descriptor.StorageKind == EEditorBulkDataStorageKind::External;
+			return Descriptor.StorageKind == EPackageBulkStorageKind::External;
 		}))
 		{
 			std::filesystem::path Path = PackagePath;
@@ -86,7 +86,7 @@ namespace Durin
 
 	auto InspectEditorBulkDataStorageDescriptors(
 		const FAssetPackageInspection& Inspection,
-		std::vector<FEditorBulkDataStorageDescriptor>& OutDescriptors,
+		std::vector<FPackageBulkStorageDescriptor>& OutDescriptors,
 		std::string* OutError) -> bool
 	{
 		OutDescriptors.clear();

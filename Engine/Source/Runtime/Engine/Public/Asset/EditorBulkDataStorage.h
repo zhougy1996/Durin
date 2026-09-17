@@ -1,7 +1,7 @@
 #pragma once
 
 #include "EngineAPI.h"
-#include "Asset/EditorBulkDataStorageTypes.h"
+#include "DObject/PackageBulkStorage.h"
 #include "Asset/PackageInspection.h"
 
 namespace Durin
@@ -17,7 +17,7 @@ namespace Durin
 		std::string* OutError = nullptr) -> bool;
 	ENGINE_API auto InspectEditorBulkDataStorageDescriptors(
 		const FAssetPackageInspection& Inspection,
-		std::vector<FEditorBulkDataStorageDescriptor>& OutDescriptors,
+		std::vector<FPackageBulkStorageDescriptor>& OutDescriptors,
 		std::string* OutError = nullptr) -> bool;
 	ENGINE_API auto InspectOrphanedEditorBulkDataCompanionPaths(
 		const std::filesystem::path& PackagePath,

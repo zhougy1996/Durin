@@ -122,7 +122,7 @@ namespace Durin
 			std::string Domain, const FAssetPackageField* Field)
 			-> FTexturePayloadInspectionEntry
 		{
-			FEditorBulkDataStorageDescriptor Descriptor;
+			FPackageBulkStorageDescriptor Descriptor;
 			const bool bPresent = Field
 				&& Field->TryReadBulkDataStorageDescriptor(Descriptor);
 			return {
@@ -137,7 +137,7 @@ namespace Durin
 				.StoredByteCount = bPresent ? Descriptor.StoredByteCount : 0,
 				.PayloadId = bPresent ? Descriptor.PayloadId : FGuid{},
 				.Placement = bPresent
-					? (Descriptor.StorageKind == EEditorBulkDataStorageKind::External
+					? (Descriptor.StorageKind == EPackageBulkStorageKind::External
 						? "PackageBulkRange" : "PackageInlineBulk")
 					: "PackageBulkField",
 				.Diagnostic = bPresent
@@ -225,7 +225,7 @@ namespace Durin
 				ReadScalar(SourceFields, "SchemaVersion", SchemaVersion);
 				ReadScalar(SourceFields, "DecodedPayloadSize", DecodedPayloadSize);
 			}
-			FEditorBulkDataStorageDescriptor Descriptor;
+			FPackageBulkStorageDescriptor Descriptor;
 			const FAssetPackageField* VoxelsField = FindField(SourceFields, "Payload");
 			const bool bHasDescriptor = VoxelsField
 				&& VoxelsField->TryReadEditorBulkDataStorageDescriptor(Descriptor);
@@ -239,7 +239,7 @@ namespace Durin
 				: "Editor source metadata or storage descriptor is malformed.";
 			std::string Placement = "EditorPackageInline";
 			if (bHasDescriptor
-				&& Descriptor.StorageKind == EEditorBulkDataStorageKind::External)
+				&& Descriptor.StorageKind == EPackageBulkStorageKind::External)
 			{
 				Placement = "EditorPackageCompanion";
 				std::filesystem::path CompanionPath;

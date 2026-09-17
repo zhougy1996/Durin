@@ -13,7 +13,7 @@
 #include "Asset/PackageVersionPolicy.h"
 #include "Asset/Redirector.h"
 #include "AssetPackageArchive.h"
-#include "AssetPackageValueCodec.h"
+#include "DObject/PackageValueCodec.h"
 #include "Profiling/Profiling.h"
 
 #include "CoreGlobals.h"
@@ -538,7 +538,7 @@ namespace Durin
 				FAssetPackageInspection Inspection;
 				Result = Codec->Inspect(ReadContext, Inspection);
 				if (!Result) return Result;
-				std::vector<FEditorBulkDataStorageDescriptor> Descriptors;
+				std::vector<FPackageBulkStorageDescriptor> Descriptors;
 				std::string BulkDiagnostic;
 				if (!InspectEditorBulkDataStorageDescriptors(
 						Inspection, Descriptors, &BulkDiagnostic))
@@ -551,7 +551,7 @@ namespace Durin
 					Entries.push_back({
 						.FieldIndex = Index + 1,
 						.Placement = Descriptor.StorageKind
-							== EEditorBulkDataStorageKind::External
+							== EPackageBulkStorageKind::External
 							? EPackageBulkDataPlacement::External
 							: EPackageBulkDataPlacement::Inline,
 						.LogicalSize = Descriptor.LogicalByteCount,

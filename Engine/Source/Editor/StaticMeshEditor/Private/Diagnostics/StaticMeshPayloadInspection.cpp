@@ -55,11 +55,11 @@ namespace Durin
 			if (!Field) { Result.Diagnostic = "Field absent; restore/reimport authored data or recook cooked data as appropriate."; return Result; }
 			if (!ObjectPackage::IsSupportedPackageReaderVersion(Field->SourceFormatVersion))
 			{ Result.State = "Unsupported"; Result.Diagnostic = "Descriptor format unsupported; readability unavailable."; return Result; }
-			FEditorBulkDataStorageDescriptor Descriptor;
+			FPackageBulkStorageDescriptor Descriptor;
 			if (!Field->TryReadBulkDataStorageDescriptor(Descriptor, false))
 			{ Result.State = "Malformed"; Result.Diagnostic = "Malformed field descriptor; restore/reimport source or recook this field."; return Result; }
 			Result.State = "Metadata present";
-			Result.Placement = Descriptor.StorageKind == EEditorBulkDataStorageKind::External ? "Package companion range" : "Package inline";
+			Result.Placement = Descriptor.StorageKind == EPackageBulkStorageKind::External ? "Package companion range" : "Package inline";
 			Result.LogicalBytes = Descriptor.LogicalByteCount;
 			Result.StoredBytes = Descriptor.StoredByteCount;
 			Result.Identity = Descriptor.ContentHash;

@@ -1961,13 +1961,13 @@ TEST(FStaticMeshPayloadInspectionTests, MetadataModeDoesNotHashInlinePayloadOrRe
 	Append(uint32{1}); Append(uint64{1}); Append(FGuid{1, 2, 3, 4});
 	Append(uint64{1}); Append(uint64{2}); Append(uint64{1}); Append(uint64{1}); Append(uint64{0});
 	Field.Payload.push_back(std::byte{0x42});
-	FEditorBulkDataStorageDescriptor Descriptor;
+	FPackageBulkStorageDescriptor Descriptor;
 	EXPECT_FALSE(Field.TryReadBulkDataStorageDescriptor(Descriptor));
 	EXPECT_TRUE(Field.TryReadBulkDataStorageDescriptor(Descriptor, false));
 	Field.Payload[4] = std::byte{1};
 	Field.Payload.pop_back();
 	EXPECT_TRUE(Field.TryReadBulkDataStorageDescriptor(Descriptor, false));
-	EXPECT_EQ(Descriptor.StorageKind, EEditorBulkDataStorageKind::External);
+	EXPECT_EQ(Descriptor.StorageKind, EPackageBulkStorageKind::External);
 }
 
 TEST(FStaticMeshReplacementTests, FailureDropsDerivedDataAndValidSourceCanBeRebuilt)

@@ -2,7 +2,7 @@
 
 #include "EngineAPI.h"
 #include "Serialization/CustomVersion.h"
-#include "Asset/EditorBulkDataStorageTypes.h"
+#include "DObject/PackageBulkStorage.h"
 #include "AssetRegistry/Catalog.h"
 #include "AssetRegistry/PackageTypes.h"
 #include "Asset/AssetDefinitions.h"
@@ -51,11 +51,11 @@ namespace Durin
 			std::vector<FAssetPackageObjectReference>& OutValues
 		) const -> bool;
 		ENGINE_API auto TryReadEditorBulkDataStorageDescriptor(
-			FEditorBulkDataStorageDescriptor& OutValue
+			FPackageBulkStorageDescriptor& OutValue
 		) const -> bool;
 		// False parses placement only and skips inline payload hashing. Neither mode opens bulk storage.
 		ENGINE_API auto TryReadBulkDataStorageDescriptor(
-			FEditorBulkDataStorageDescriptor& OutValue, bool bValidateInlinePayload = true
+			FPackageBulkStorageDescriptor& OutValue, bool bValidateInlinePayload = true
 		) const -> bool;
 		// Decodes the tagged fields of one reflected struct without constructing its
 		// C++ value or resolving nested bulk storage.

@@ -338,7 +338,7 @@ namespace Durin
 			FAssetPackageInspection Inspection;
 			if (auto Result = Codec->Inspect(Context, Inspection); !Result)
 				return {EPreparedStatus::InvalidClosure, std::move(Result.Message)};
-			std::vector<FEditorBulkDataStorageDescriptor> Descriptors;
+			std::vector<FPackageBulkStorageDescriptor> Descriptors;
 			std::string Diagnostic;
 			if (!InspectEditorBulkDataStorageDescriptors(Inspection, Descriptors, &Diagnostic))
 				return {EPreparedStatus::InvalidClosure, std::move(Diagnostic)};
@@ -346,7 +346,7 @@ namespace Durin
 			Entries.reserve(Descriptors.size());
 			for (const auto& Descriptor : Descriptors)
 				Entries.push_back({.FieldIndex = Entries.size() + 1,
-					.Placement = Descriptor.StorageKind == EEditorBulkDataStorageKind::External
+					.Placement = Descriptor.StorageKind == EPackageBulkStorageKind::External
 						? EPackageBulkDataPlacement::External : EPackageBulkDataPlacement::Inline,
 					.LogicalSize = Descriptor.LogicalByteCount,
 					.StoredSize = Descriptor.StoredByteCount,

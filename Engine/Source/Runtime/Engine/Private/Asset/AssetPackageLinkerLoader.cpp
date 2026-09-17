@@ -2,7 +2,7 @@
 #include "AssetLiveLoadGuard.h"
 
 #include "AssetPackageArchive.h"
-#include "AssetPackageValueCodec.h"
+#include "DObject/PackageValueCodec.h"
 #include "Asset/Load.h"
 #include "AssetRuntimeStateInternal.h"
 #include "AssetRegistry/Publication.h"
@@ -166,12 +166,12 @@ namespace Durin::AssetPrivate
 		}
 
 		template<typename T>
-		auto WriteInteger(AssetPrivate::FByteWriter& Writer, uint64 Value) -> void
+		auto WriteInteger(Durin::PackagePrivate::FByteWriter& Writer, uint64 Value) -> void
 		{
 			Writer.Write(static_cast<T>(Value));
 		}
 
-		auto WriteProjectedField(AssetPrivate::FByteWriter& Writer, std::string_view Owner,
+		auto WriteProjectedField(Durin::PackagePrivate::FByteWriter& Writer, std::string_view Owner,
 			std::string_view Name, DurinCodeGen::EPropertyGenFlags Kind,
 			std::string Signature, FByteBuffer Payload) -> void
 		{
@@ -180,7 +180,7 @@ namespace Durin::AssetPrivate
 		}
 
 		auto EncodeIntrinsicLoadValue(uint64 Layout, std::span<const uint64> Components,
-			FByteWriter& Writer, FLinkerApplyDiagnostic& Diagnostic) -> bool
+			Durin::PackagePrivate::FByteWriter& Writer, FLinkerApplyDiagnostic& Diagnostic) -> bool
 		{
 			const std::string Owner(IntrinsicName(Layout));
 			if (Owner.empty()) return LinkerApplyFail(Diagnostic, EAssetError::CorruptFile, "Intrinsic layout is invalid.");
@@ -193,7 +193,7 @@ namespace Durin::AssetPrivate
 					std::tuple<std::string_view, uint64, size_t, size_t>{"Rotation", 4, 0, 4},
 					{"Translation", 2, 4, 3}, {"Scale3D", 2, 7, 3}})
 				{
-					FByteWriter Payload;
+					Durin::PackagePrivate::FByteWriter Payload;
 					if (!EncodeIntrinsicLoadValue(ChildLayout, Components.subspan(Offset, Count), Payload, Diagnostic)) return false;
 					WriteProjectedField(Writer, Owner, Name, DurinCodeGen::EPropertyGenFlags::Struct,
 						std::format("Struct<{}>", IntrinsicName(ChildLayout)), std::move(Payload.Bytes));
@@ -207,7 +207,7 @@ namespace Durin::AssetPrivate
 			Writer.Write(Count);
 			for (uint64 Index = 0; Index < Count; ++Index)
 			{
-				FByteWriter Payload;
+				Durin::PackagePrivate::FByteWriter Payload;
 				if (Layout == 6) Payload.Write(uint32(Components[Index])); else Payload.Write(Components[Index]);
 				const std::string_view Name = Layout == 6 ? Color[Index]
 					: Layout == 4 ? Lower[(Index + 3) % 4] : Lower[Index];
@@ -250,7 +250,7 @@ namespace Durin::AssetPrivate
 
 		auto EncodeLoadArchiveValue(const ObjectPackage::FSerializedType& Type,
 			const ObjectPackage::FSerializedValue& Value,
-			const ObjectPackage::FLinkerTables& Linker, FByteWriter& Writer,
+			const ObjectPackage::FLinkerTables& Linker, Durin::PackagePrivate::FByteWriter& Writer,
 			uint64& BulkFieldIndex, FLinkerApplyDiagnostic& Diagnostic,
 			std::string Path, bool bDiscardRemovedFields) -> bool
 		{
@@ -305,7 +305,7 @@ namespace Durin::AssetPrivate
 					if (It == Schema->Fields.end()) return LinkerApplyFail(Diagnostic, EAssetError::CorruptFile, "Struct field is absent from its schema.", 0, std::move(Path));
 					if (bDiscardRemovedFields && IsRemovedField(Schema->QualifiedName, It->Name)) continue;
 					const auto& ChildType = ObjectPackage::StructFieldTypes(Type, Value)[Index];
-					FByteWriter Payload;
+					Durin::PackagePrivate::FByteWriter Payload;
 					if (!EncodeLoadArchiveValue(ChildType, Value.Elements[Index], Linker, Payload,
 						BulkFieldIndex, Diagnostic,
 						std::format("{}::{}", Schema->QualifiedName, It->Name), bDiscardRemovedFields)) return false;
@@ -636,7 +636,7 @@ namespace Durin::AssetPrivate
 			const std::string Signature = TypeSignature(Type);
 			if (FProperty* Current = Owner->FindPropertyByName(FName(Field.Name), false);
 				Current && !Current->IsDeprecated() && Current->GetKind() == Kind
-				&& AssetPrivate::GetSerializedTypeSignature(Current) == Signature) return nullptr;
+				&& Durin::PackagePrivate::GetSerializedTypeSignature(Current) == Signature) return nullptr;
 			FProperty* Match = nullptr;
 			bool bAmbiguous = false;
 			Owner->ForEachProperty([&](FProperty* Property) {
@@ -644,7 +644,7 @@ namespace Durin::AssetPrivate
 				const FPropertyDeprecation* Deprecation = Property->GetDeprecation();
 				if (!Deprecation || Deprecation->HistoricalName.ToString() != Field.Name
 					|| Property->GetKind() != Kind
-					|| AssetPrivate::GetSerializedTypeSignature(Property) != Signature) return;
+					|| Durin::PackagePrivate::GetSerializedTypeSignature(Property) != Signature) return;
 				if (Match) bAmbiguous = true;
 				else Match = Property;
 			}, false);
@@ -675,7 +675,7 @@ namespace Durin::AssetPrivate
 					const auto& ChildType = ObjectPackage::StructFieldTypes(Type, Value)[Index];
 					FProperty* Expected = Owner->FindPropertyByName(FName(Field->Name), false);
 					if (!(Expected && !Expected->IsDeprecated() && Expected->GetKind() == TypeKind(ChildType)
-						&& GetSerializedTypeSignature(Expected) == TypeSignature(ChildType))
+						&& Durin::PackagePrivate::GetSerializedTypeSignature(Expected) == TypeSignature(ChildType))
 						&& !FindLinkerDeprecatedRoute(Linker, *Schema, *Field, ChildType))
 						return LinkerApplyFail(Diagnostic, EAssetError::UnsupportedProperty,
 							std::format("Serialized struct field {}::{} is incompatible with the live schema.",
@@ -863,7 +863,7 @@ namespace Durin::AssetPrivate
 					const bool bCurrentCompatible = Expected
 						&& !Expected->GetDeprecation()
 						&& Expected->GetKind() == TypeKind(Property.Type)
-						&& GetSerializedTypeSignature(Expected) == TypeSignature(Property.Type);
+						&& Durin::PackagePrivate::GetSerializedTypeSignature(Expected) == TypeSignature(Property.Type);
 					const bool bDeprecatedCompatible =
 						FindLinkerDeprecatedRoute(Linker, *Schema, *Field, Property.Type);
 					// Cooked native projection fields are validated against the exact
@@ -1027,7 +1027,7 @@ namespace Durin::AssetPrivate
 				for (const auto& Property : Exports[ObjectIndex].Export->Properties)
 				{
 					if (!Options.bCooked && IsRemovedField(Property.DeclaringType, Property.FieldName)) continue;
-					FByteWriter Payload;
+					Durin::PackagePrivate::FByteWriter Payload;
 					if (!EncodeLoadArchiveValue(Property.Type, Property.Value, Linker, Payload,
 						BulkFieldIndex, Diagnostic,
 						std::format("{}::{}", Property.DeclaringType, Property.FieldName), !Options.bCooked))

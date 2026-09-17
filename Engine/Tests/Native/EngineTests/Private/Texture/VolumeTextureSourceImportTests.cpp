@@ -375,12 +375,12 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 	ASSERT_EQ(InlineEntry->FormatVersion, ObjectPackage::DastV10FormatVersion);
 	FAssetPackageInspection InlineInspection;
 	ASSERT_TRUE(InspectAssetPackage(InlineEntry->PhysicalPath, InlineInspection));
-	std::vector<FEditorBulkDataStorageDescriptor> InlineDescriptors;
+	std::vector<FPackageBulkStorageDescriptor> InlineDescriptors;
 	ASSERT_TRUE(InspectEditorBulkDataStorageDescriptors(
 		InlineInspection, InlineDescriptors, &RepairError)) << RepairError;
 	ASSERT_EQ(InlineDescriptors.size(), 1u);
 	EXPECT_EQ(InlineDescriptors.front().StorageKind,
-		EEditorBulkDataStorageKind::Inline);
+		EPackageBulkStorageKind::Inline);
 	ASSERT_TRUE(UnloadPackage(BaseAssetPath));
 	ASSERT_TRUE(UnloadPackage(DetailAssetPath));
 	DVolumeTexture* ReloadedBase = nullptr;
@@ -452,12 +452,12 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 	ASSERT_EQ(PackageEntry->FormatVersion, ObjectPackage::DastV10FormatVersion);
 	FAssetPackageInspection V6Inspection;
 	ASSERT_TRUE(InspectAssetPackage(PackageEntry->PhysicalPath, V6Inspection));
-	std::vector<FEditorBulkDataStorageDescriptor> V6Descriptors;
+	std::vector<FPackageBulkStorageDescriptor> V6Descriptors;
 	ASSERT_TRUE(InspectEditorBulkDataStorageDescriptors(
 		V6Inspection, V6Descriptors, &Error)) << Error;
 	ASSERT_EQ(V6Descriptors.size(), 1u);
 	EXPECT_EQ(V6Descriptors.front().StorageKind,
-		EEditorBulkDataStorageKind::Inline);
+		EPackageBulkStorageKind::Inline);
 	std::vector<std::filesystem::path> V6Companions;
 	ASSERT_TRUE(InspectEditorBulkDataCompanionPaths(
 		PackageEntry->PhysicalPath, V6Inspection, V6Companions, &Error)) << Error;

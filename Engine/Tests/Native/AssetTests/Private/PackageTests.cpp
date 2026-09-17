@@ -50,7 +50,7 @@
 #include "Serialization/BinaryFormat.h"
 #include "Threading/RunnableThread.h"
 #include "Threading/Task.h"
-#include "Asset/AssetPackageValueCodec.h"
+#include "DObject/PackageValueCodec.h"
 
 #include <chrono>
 #include <bit>
@@ -3151,12 +3151,12 @@ TEST(FPackageAssetTests, PackageLoadBindingsResolvePrivateObjectsWithoutLiveFall
 	ASSERT_TRUE(Private->InitializePreparedAssetPackage(Path));
 	auto* Candidate = NewObject<DAuthoredArchiveAssetForTest>(Private, Live->GetFName());
 	const auto PathToResolve = Testing::MakePackageLeafAssetObjectPathForTests(Path);
-	FByteWriter Payload;
+	Durin::PackagePrivate::FByteWriter Payload;
 	Payload.Write(uint8{2});
 	Payload.WriteString(PathToResolve.ToString());
 	const auto Type = FArchiveLogicalTypeDescriptor::Object(DObject::StaticClass()->GetQualifiedName());
 	FAuthoredPackageFieldRecord Field{"Tests::DAuthoredArchiveAssetForTest", "HardReference",
-		GetNativeKind(Type), GetNativeTypeSignature(Type), std::move(Payload.Bytes)};
+		Durin::PackagePrivate::GetNativeKind(Type), Durin::PackagePrivate::GetNativeTypeSignature(Type), std::move(Payload.Bytes)};
 	DObject* Objects[] = {Candidate};
 	const auto Count = GDObjectArray.GetAll(EObjectQueryScope::IncludeUnpublished).size();
 	FPackageLoadBindings Bindings;
@@ -3187,7 +3187,7 @@ TEST(FPackageAssetTests, PackageLoadBindingsResolvePrivateObjectsWithoutLiveFall
 	EXPECT_NE(Read().Message.find("Rejected private dependency."), std::string::npos);
 	// Internal references use the supplied skeleton table even without a resolver.
 	Bindings = {};
-	FByteWriter Internal;
+	Durin::PackagePrivate::FByteWriter Internal;
 	Internal.Write(uint8{1});
 	Internal.Write(uint64{1});
 	Field.Payload = std::move(Internal.Bytes);
@@ -3231,9 +3231,9 @@ TEST(FPackageAssetTests, PackageLoadBindingsAttachSnapshotWithoutUsingLiveBulkRe
 	ASSERT_TRUE(InspectAssetPackage(File.generic_string(), Inspection));
 	const auto* StoredField = Inspection.FindField("Payload");
 	ASSERT_NE(StoredField, nullptr);
-	FEditorBulkDataStorageDescriptor Storage;
+	FPackageBulkStorageDescriptor Storage;
 	ASSERT_TRUE(StoredField->TryReadEditorBulkDataStorageDescriptor(Storage));
-	FByteWriter Payload;
+	Durin::PackagePrivate::FByteWriter Payload;
 	Payload.Write(uint64{1});
 	Payload.Write(uint8{1});
 	Payload.Write(uint8{0});
@@ -3528,13 +3528,13 @@ TEST(FPackageAssetTests, OrdinaryV8PublishesLoadsAndRollsBackExternalClosure)
 	ASSERT_TRUE(Durin::InspectAssetPackage(V6Data->PhysicalPath, Inspection));
 	EXPECT_EQ(Inspection.Header.FormatVersion,
 		Durin::ObjectPackage::DastV10FormatVersion);
-	std::vector<Durin::FEditorBulkDataStorageDescriptor> Descriptors;
+	std::vector<Durin::FPackageBulkStorageDescriptor> Descriptors;
 	std::string Error;
 	ASSERT_TRUE(Durin::InspectEditorBulkDataStorageDescriptors(
 		Inspection, Descriptors, &Error)) << Error;
 	ASSERT_EQ(Descriptors.size(), 1u);
 	EXPECT_EQ(Descriptors.front().StorageKind,
-		Durin::EEditorBulkDataStorageKind::External);
+		Durin::EPackageBulkStorageKind::External);
 	std::vector<std::filesystem::path> Companions;
 	ASSERT_TRUE(Durin::InspectEditorBulkDataCompanionPaths(
 		V6Data->PhysicalPath, Inspection, Companions, &Error)) << Error;
@@ -4896,12 +4896,12 @@ TEST(FPackageAssetTests, CookPublishesHeaderlessRawPlatformDataFields)
 	const Durin::FAssetPackageField* PlatformField =
 		Inspection.FindField("CookedBulk");
 	ASSERT_NE(PlatformField, nullptr);
-	Durin::FEditorBulkDataStorageDescriptor PlatformStorage;
+	Durin::FPackageBulkStorageDescriptor PlatformStorage;
 	ASSERT_TRUE(PlatformField->TryReadBulkDataStorageDescriptor(PlatformStorage));
 	EXPECT_EQ(PlatformStorage.LogicalByteCount, BulkBytes.size());
 	EXPECT_EQ(PlatformStorage.StoredByteCount, BulkBytes.size());
 	EXPECT_EQ(PlatformStorage.StorageKind,
-		Durin::EEditorBulkDataStorageKind::External);
+		Durin::EPackageBulkStorageKind::External);
 
 	Durin::ShutdownAssetManager();
 	Durin::CollectGarbage();

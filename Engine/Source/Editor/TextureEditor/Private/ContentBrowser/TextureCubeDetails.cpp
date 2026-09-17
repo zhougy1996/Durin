@@ -153,7 +153,7 @@ namespace Durin::Editor::Texture
 			Snapshot.InputRange = Extension == ".hdr" ? "Radiance HDR" : "LDR";
 		}
 
-		FEditorBulkDataStorageDescriptor CookedPayload;
+		FPackageBulkStorageDescriptor CookedPayload;
 		const FAssetPackageField* CookedField =
 			Inspection.FindField("PlatformData");
 		if (CookedField

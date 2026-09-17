@@ -1329,12 +1329,12 @@ TEST(FTexture2DTests, CanonicalImportedPixelsRoundTripThroughExternalAuthoredBul
 	const Durin::FAssetResult Inspected =
 		Durin::InspectAssetPackage(Entry->PhysicalPath, Inspection);
 	ASSERT_TRUE(Inspected) << Inspected.Message;
-	std::vector<Durin::FEditorBulkDataStorageDescriptor> Descriptors;
+	std::vector<Durin::FPackageBulkStorageDescriptor> Descriptors;
 	ASSERT_TRUE(Durin::InspectEditorBulkDataStorageDescriptors(
 		Inspection, Descriptors, &Error)) << Error;
 	ASSERT_EQ(Descriptors.size(), 1u);
 	EXPECT_EQ(Descriptors.front().StorageKind,
-		Durin::EEditorBulkDataStorageKind::External);
+		Durin::EPackageBulkStorageKind::External);
 	EXPECT_TRUE(Descriptors.front().PayloadId.IsValid());
 	EXPECT_EQ(Descriptors.front().ContentHash,
 		Imported.Asset->GetSource().GetBulkData().GetPayloadId());

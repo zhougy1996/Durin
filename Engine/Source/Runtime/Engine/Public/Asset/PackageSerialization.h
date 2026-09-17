@@ -2,7 +2,7 @@
 
 #include "EngineAPI.h"
 #include "Asset/AssetDefinitions.h"
-#include "Asset/EditorBulkDataStorageTypes.h"
+#include "DObject/PackageBulkStorage.h"
 #include "Asset/CookedAsset.h"
 #include "DObject/Archive.h"
 #include "DObject/PackageSaveOverrides.h"
@@ -41,7 +41,7 @@ namespace Durin
 		bool bRetainEditorOnlyData = false;
 		std::shared_ptr<const FObjectSaveOverrides> SaveOverrides;
 		std::function<bool(const DObject*, const FProperty*)> PropertyFilter;
-		std::vector<FEditorBulkDataStoragePayload>* EditorBulkDataStoragePayloads = nullptr;
+		std::vector<FPackageBulkStoragePayload>* EditorBulkDataStoragePayloads = nullptr;
 		EAssetPackageSaveMode Mode = EAssetPackageSaveMode::Delta;
 	};
 

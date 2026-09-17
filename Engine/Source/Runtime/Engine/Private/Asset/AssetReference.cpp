@@ -1,6 +1,6 @@
 #include "AssetMutationReferenceInternal.h"
 #include "AssetPackageCodec.h"
-#include "AssetPackageValueCodec.h"
+#include "DObject/PackageValueCodec.h"
 #include "Asset/PackageVersionPolicy.h"
 
 #include "DObject/Class.h"
@@ -12,11 +12,6 @@ namespace Durin
 {
 	using AssetPrivate::AssetReferenceLess;
 	using AssetPrivate::DecodeReferenceByteToolValue;
-	using AssetPrivate::FByteReader;
-	using AssetPrivate::FByteWriter;
-	using AssetPrivate::GetSerializedTypeSignature;
-	using AssetPrivate::IsSerializedTypeSignatureCompatible;
-	using AssetPrivate::MaximumPackageStringBytes;
 
 	namespace
 	{
@@ -176,7 +171,7 @@ namespace Durin
 
 	auto ExtractReferenceValue(
 		FProperty* Property,
-		FByteReader& Reader,
+		Durin::PackagePrivate::FByteReader& Reader,
 		const FReferenceExtractionContext& Context,
 		std::vector<FAssetReferenceRouteSegment>& Route,
 		const std::string& PropertyPath,
@@ -190,7 +185,7 @@ namespace Durin
 		const std::string& PropertyPath,
 		uint32 ContainerDepth) -> FAssetResult
 	{
-		FByteReader Reader{Payload};
+		Durin::PackagePrivate::FByteReader Reader{Payload};
 		for (uint32 ArrayIndex = 0; ArrayIndex < Property->GetArrayDim(); ++ArrayIndex)
 		{
 			const bool bFixedArray = Property->GetArrayDim() > 1;
@@ -219,7 +214,7 @@ namespace Durin
 
 	auto ExtractReferenceValue(
 		FProperty* Property,
-		FByteReader& Reader,
+		Durin::PackagePrivate::FByteReader& Reader,
 		const FReferenceExtractionContext& Context,
 		std::vector<FAssetReferenceRouteSegment>& Route,
 		const std::string& PropertyPath,
@@ -254,7 +249,7 @@ namespace Durin
 					std::format("AssetReferencePayloadTag: {} has unknown tag {}.", PropertyPath, ReferenceKind));
 			std::string PathString;
 			FObjectPath TargetPath;
-			if (!Reader.ReadString(PathString, MaximumPackageStringBytes)
+			if (!Reader.ReadString(PathString, Durin::PackagePrivate::MaximumPackageStringBytes)
 				|| !FObjectPath::TryCreate(PathString, TargetPath))
 				return Error(EAssetError::InvalidPath,
 					std::format("AssetReferenceInvalidPath: {} has an invalid external path.", PropertyPath));
@@ -293,7 +288,7 @@ namespace Durin
 				return Error(EAssetError::CorruptFile,
 					std::format("SoftReferencePayloadTag: {} has unknown tag {}.", PropertyPath, ReferenceKind));
 			std::string PathString;
-			if (!Reader.ReadString(PathString, MaximumPackageStringBytes) || PathString.empty())
+			if (!Reader.ReadString(PathString, Durin::PackagePrivate::MaximumPackageStringBytes) || PathString.empty())
 				return Error(EAssetError::CorruptFile,
 					std::format("SoftReferencePayloadPath: {} is truncated or overlong.", PropertyPath));
 			FObjectPath SoftPath;
@@ -409,7 +404,7 @@ namespace Durin
 			DStruct* Struct = StructProperty->GetStruct();
 			std::string StructName;
 			uint64 FieldCount = 0;
-			if (!Struct || !Reader.ReadString(StructName, MaximumPackageStringBytes)
+			if (!Struct || !Reader.ReadString(StructName, Durin::PackagePrivate::MaximumPackageStringBytes)
 				|| StructName != Struct->GetQualifiedName().ToString()
 				|| !Reader.Read(FieldCount) || FieldCount > 100000)
 				return Error(EAssetError::TypeMismatch,
@@ -422,10 +417,10 @@ namespace Durin
 				uint8 Kind = 0;
 				uint64 PayloadSize = 0;
 				FByteView FieldPayload;
-				if (!Reader.ReadString(DeclaringStruct, MaximumPackageStringBytes)
-					|| !Reader.ReadString(FieldName, MaximumPackageStringBytes)
+				if (!Reader.ReadString(DeclaringStruct, Durin::PackagePrivate::MaximumPackageStringBytes)
+					|| !Reader.ReadString(FieldName, Durin::PackagePrivate::MaximumPackageStringBytes)
 					|| !Reader.Read(Kind)
-					|| !Reader.ReadString(Signature, MaximumPackageStringBytes)
+					|| !Reader.ReadString(Signature, Durin::PackagePrivate::MaximumPackageStringBytes)
 					|| !Reader.Read(PayloadSize) || PayloadSize > Reader.Bytes.size()
 					|| !Reader.ReadSpan(static_cast<size_t>(PayloadSize), FieldPayload))
 					return Error(EAssetError::CorruptFile,
@@ -435,7 +430,7 @@ namespace Durin
 				if (!Field || Field->HasAnyPropertyFlags(EPropertyFlags::Transient)
 					|| !ContainsAssetReferenceProperty(Field)) continue;
 				if (static_cast<uint8>(Field->GetKind()) != Kind
-					|| !IsSerializedTypeSignatureCompatible(Field, Signature))
+					|| !Durin::PackagePrivate::IsSerializedTypeSignatureCompatible(Field, Signature))
 					return Error(EAssetError::TypeMismatch, std::format(
 						"SoftReferenceSchemaMismatch: {}.{} has an incompatible signature.",
 						PropertyPath, FieldName));
@@ -635,8 +630,8 @@ namespace Durin
 
 	auto RewriteSerializedReferenceValue(
 		FProperty* Property,
-		FByteReader& Reader,
-		FByteWriter& Writer,
+		Durin::PackagePrivate::FByteReader& Reader,
+		Durin::PackagePrivate::FByteWriter& Writer,
 		std::span<const FAssetRedirectorFixupMapping> Mappings,
 		uint64& RewriteCount,
 		uint32 ContainerDepth) -> FAssetResult;
@@ -649,8 +644,8 @@ namespace Durin
 		uint64& RewriteCount,
 		uint32 ContainerDepth = 0) -> FAssetResult
 	{
-		FByteReader Reader{Payload};
-		FByteWriter Writer;
+		Durin::PackagePrivate::FByteReader Reader{Payload};
+		Durin::PackagePrivate::FByteWriter Writer;
 		for (uint32 ArrayIndex = 0; ArrayIndex < Property->GetArrayDim(); ++ArrayIndex)
 		{
 			FAssetResult Result = RewriteSerializedReferenceValue(
@@ -667,8 +662,8 @@ namespace Durin
 
 	auto RewriteSerializedReferenceValue(
 		FProperty* Property,
-		FByteReader& Reader,
-		FByteWriter& Writer,
+		Durin::PackagePrivate::FByteReader& Reader,
+		Durin::PackagePrivate::FByteWriter& Writer,
 		std::span<const FAssetRedirectorFixupMapping> Mappings,
 		uint64& RewriteCount,
 		uint32 ContainerDepth) -> FAssetResult
@@ -700,7 +695,7 @@ namespace Durin
 					"AssetReferenceFixupTag: unknown object reference tag.");
 			std::string PathString;
 			FPackagePath Path;
-			if (!Reader.ReadString(PathString, MaximumPackageStringBytes)
+			if (!Reader.ReadString(PathString, Durin::PackagePrivate::MaximumPackageStringBytes)
 				|| !FPackagePath::TryCreate(PathString, Path))
 				return Error(EAssetError::InvalidPath,
 					"AssetReferenceFixupPath: invalid external object path.");
@@ -726,7 +721,7 @@ namespace Durin
 			std::string PathString;
 			FObjectPath Path;
 			std::string PathError;
-			if (!Reader.ReadString(PathString, MaximumPackageStringBytes)
+			if (!Reader.ReadString(PathString, Durin::PackagePrivate::MaximumPackageStringBytes)
 				|| PathString.empty())
 				return Error(EAssetError::CorruptFile,
 					"AssetReferenceFixupPath: soft path is truncated or overlong.");
@@ -797,7 +792,7 @@ namespace Durin
 			DStruct* Struct = StructProperty->GetStruct();
 			std::string StructName;
 			uint64 FieldCount = 0;
-			if (!Struct || !Reader.ReadString(StructName, MaximumPackageStringBytes)
+			if (!Struct || !Reader.ReadString(StructName, Durin::PackagePrivate::MaximumPackageStringBytes)
 				|| StructName != Struct->GetQualifiedName().ToString()
 				|| !Reader.Read(FieldCount) || FieldCount > 100000)
 				return Error(EAssetError::TypeMismatch,
@@ -812,10 +807,10 @@ namespace Durin
 				uint8 Kind = 0;
 				uint64 PayloadSize = 0;
 				FByteView FieldPayload;
-				if (!Reader.ReadString(DeclaringStruct, MaximumPackageStringBytes)
-					|| !Reader.ReadString(FieldName, MaximumPackageStringBytes)
+				if (!Reader.ReadString(DeclaringStruct, Durin::PackagePrivate::MaximumPackageStringBytes)
+					|| !Reader.ReadString(FieldName, Durin::PackagePrivate::MaximumPackageStringBytes)
 					|| !Reader.Read(Kind)
-					|| !Reader.ReadString(Signature, MaximumPackageStringBytes)
+					|| !Reader.ReadString(Signature, Durin::PackagePrivate::MaximumPackageStringBytes)
 					|| !Reader.Read(PayloadSize) || PayloadSize > Reader.Bytes.size()
 					|| !Reader.ReadSpan(static_cast<size_t>(PayloadSize), FieldPayload))
 					return Error(EAssetError::CorruptFile,
@@ -834,7 +829,7 @@ namespace Durin
 					continue;
 				}
 				if (static_cast<uint8>(Field->GetKind()) != Kind
-					|| !IsSerializedTypeSignatureCompatible(Field, Signature))
+					|| !Durin::PackagePrivate::IsSerializedTypeSignatureCompatible(Field, Signature))
 					return Error(EAssetError::TypeMismatch,
 						"AssetReferenceFixupSchemaMismatch: struct field signature changed.");
 				FByteBuffer RewrittenPayload;
@@ -1019,7 +1014,7 @@ namespace Durin
 						Field.TypeSignature.find("SoftObject:") != std::string::npos
 						|| Field.TypeSignature.find("Object:") != std::string::npos;
 					if (Property->GetKind() != Field.Kind
-						|| !IsSerializedTypeSignatureCompatible(Property, Field.TypeSignature))
+						|| !Durin::PackagePrivate::IsSerializedTypeSignatureCompatible(Property, Field.TypeSignature))
 					{
 						if (bCurrentContainsReference || bStoredContainsReference)
 							return Error(EAssetError::TypeMismatch, std::format(

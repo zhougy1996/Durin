@@ -15,7 +15,7 @@
 #include "Asset/EditorBulkDataStorage.h"
 #include "AssetPackageArchive.h"
 #include "AssetPropertyKindTraits.h"
-#include "AssetPackageValueCodec.h"
+#include "DObject/PackageValueCodec.h"
 #include "DObject/DefaultDeltaPlan.h"
 #include "Profiling/Profiling.h"
 #include "Serialization/BinaryEnvelope.h"
@@ -120,11 +120,6 @@ namespace Durin
 			return {EAssetError::CorruptFile,
 				"Asset resolution returned an unknown state."};
 		}
-		using AssetPrivate::MaximumPackageStringBytes;
-		using AssetPrivate::FByteReader;
-		using AssetPrivate::FByteWriter;
-		using AssetPrivate::GetSerializedTypeSignature;
-		using AssetPrivate::IsSerializedTypeSignatureCompatible;
 		constexpr uint32 MaximumRedirectDepth = 32;
 		constexpr std::string_view RedirectorClassName = "Durin::DAssetRedirector";
 
@@ -164,7 +159,7 @@ namespace Durin
 				return true;
 			}
 
-			auto ReadString(std::string& Value, uint64 MaximumSize = MaximumPackageStringBytes) -> bool
+			auto ReadString(std::string& Value, uint64 MaximumSize = Durin::PackagePrivate::MaximumPackageStringBytes) -> bool
 			{
 				uint64 Size = 0;
 				if (!Read(Size) || Size > MaximumSize || Size > FileSize - std::min(Offset, FileSize)) return false;
@@ -394,7 +389,7 @@ namespace Durin
 			FProperty* Property,
 			void* Container,
 			uint32 ArrayIndex,
-			FByteReader& Reader,
+			Durin::PackagePrivate::FByteReader& Reader,
 			const std::vector<DObject*>& Objects,
 			uint32 SourceVersion = ObjectPackage::DastV10FormatVersion) -> FAssetResult
 		{
@@ -469,7 +464,7 @@ namespace Durin
 				if (ReferenceKind != 1)
 					return Error(EAssetError::CorruptFile, "Unknown soft object reference tag.");
 				std::string PathString;
-				if (!Reader.ReadString(PathString, MaximumPackageStringBytes) || PathString.empty())
+				if (!Reader.ReadString(PathString, Durin::PackagePrivate::MaximumPackageStringBytes) || PathString.empty())
 					return Error(EAssetError::CorruptFile, "Truncated or overlong soft object path.");
 				FObjectPath Path;
 				std::string PathError;
@@ -534,14 +529,14 @@ namespace Durin
 						continue;
 					}
 					if (static_cast<uint8>(Field->GetKind()) != Kind
-						|| !IsSerializedTypeSignatureCompatible(Field, Signature))
+						|| !Durin::PackagePrivate::IsSerializedTypeSignatureCompatible(Field, Signature))
 						return Error(
 							EAssetError::TypeMismatch,
 							std::format(
 								"Serialized struct field {}::{} is incompatible with the current schema.",
 								StructName,
 								FieldName));
-					FByteReader PayloadReader{Payload};
+					Durin::PackagePrivate::FByteReader PayloadReader{Payload};
 					for (uint32 FieldIndex = 0; FieldIndex < Field->GetArrayDim(); ++FieldIndex)
 					{
 						FAssetResult Result = DecodeByteToolValue(
@@ -704,7 +699,7 @@ namespace Durin
 				return Error(EAssetError::UnsupportedVersion,
 					"The ordinary asset package writer is unavailable.");
 			FAssetPackageSerializationOptions EffectiveOptions = Options;
-			std::vector<FEditorBulkDataStoragePayload> BulkPayloads;
+			std::vector<FPackageBulkStoragePayload> BulkPayloads;
 			if (OutFile) EffectiveOptions.EditorBulkDataStoragePayloads = &BulkPayloads;
 			AssetPrivate::FAssetPackageEncodedClosure Closure;
 			FAssetResult Result = Codec->Write(
@@ -778,7 +773,7 @@ namespace Durin
 			FProperty* Property,
 			void* Container,
 			uint32 ArrayIndex,
-			FByteReader& Reader,
+			Durin::PackagePrivate::FByteReader& Reader,
 			const std::vector<DObject*>& Objects,
 			uint32 SourceVersion) -> FAssetResult
 		{
@@ -1218,14 +1213,14 @@ namespace Durin
 
 	auto FAssetPackageField::TryReadString(std::string& OutValue) const -> bool
 	{
-		FByteReader Reader{Payload};
-		return Reader.ReadString(OutValue, MaximumPackageStringBytes) && Reader.Offset == Payload.size();
+		Durin::PackagePrivate::FByteReader Reader{Payload};
+		return Reader.ReadString(OutValue, Durin::PackagePrivate::MaximumPackageStringBytes) && Reader.Offset == Payload.size();
 	}
 
 	namespace
 	{
 		auto ReadInspectedObjectReference(
-			FByteReader& Reader,
+			Durin::PackagePrivate::FByteReader& Reader,
 			FAssetPackageObjectReference& OutValue) -> bool
 		{
 			OutValue = {};
@@ -1236,7 +1231,7 @@ namespace Durin
 			if (OutValue.Kind == EAssetPackageObjectReferenceKind::Internal)
 				return Reader.Read(OutValue.ObjectId) && OutValue.ObjectId != 0;
 			std::string PathString;
-			return Reader.ReadString(PathString, MaximumPackageStringBytes)
+			return Reader.ReadString(PathString, Durin::PackagePrivate::MaximumPackageStringBytes)
 				&& FObjectPath::TryCreate(PathString, OutValue.ExternalPath);
 		}
 	}
@@ -1244,7 +1239,7 @@ namespace Durin
 	auto FAssetPackageField::TryReadObjectReference(
 		FAssetPackageObjectReference& OutValue) const -> bool
 	{
-		FByteReader Reader{Payload};
+		Durin::PackagePrivate::FByteReader Reader{Payload};
 		return ReadInspectedObjectReference(Reader, OutValue)
 			&& Reader.Offset == Payload.size();
 	}
@@ -1253,7 +1248,7 @@ namespace Durin
 		std::vector<FAssetPackageObjectReference>& OutValues) const -> bool
 	{
 		OutValues.clear();
-		FByteReader Reader{Payload};
+		Durin::PackagePrivate::FByteReader Reader{Payload};
 		uint64 Count = 0;
 		if (!Reader.Read(Count) || Count > 10000000) return false;
 		OutValues.reserve(static_cast<size_t>(Count));
@@ -1267,12 +1262,12 @@ namespace Durin
 	}
 
 	auto FAssetPackageField::TryReadBulkDataStorageDescriptor(
-		FEditorBulkDataStorageDescriptor& OutValue, bool bValidateInlinePayload) const -> bool
+		FPackageBulkStorageDescriptor& OutValue, bool bValidateInlinePayload) const -> bool
 	{
 		OutValue = {};
 		if (Kind != DurinCodeGen::EPropertyGenFlags::BulkData
 			|| !ObjectPackage::IsSupportedPackageReaderVersion(SourceFormatVersion)) return false;
-		FByteReader Reader{Payload};
+		Durin::PackagePrivate::FByteReader Reader{Payload};
 		uint32 Version = 0;
 		uint8 Placement = 0;
 		uint8 Reserved = 0;
@@ -1295,8 +1290,8 @@ namespace Durin
 			|| !Reader.Read(OutValue.SegmentOffset)) return false;
 		OutValue.ContentHash = {HashLow, HashHigh};
 		OutValue.StorageKind = Placement == 0
-			? EEditorBulkDataStorageKind::Inline
-			: EEditorBulkDataStorageKind::External;
+			? EPackageBulkStorageKind::Inline
+			: EPackageBulkStorageKind::External;
 		OutValue.Alignment = Alignment;
 		if (!OutValue.PayloadId.IsValid() || OutValue.ContentHash.IsZero()
 			|| OutValue.LogicalByteCount != OutValue.StoredByteCount) return false;
@@ -1312,19 +1307,19 @@ namespace Durin
 	}
 
 	auto FAssetPackageField::TryReadEditorBulkDataStorageDescriptor(
-		FEditorBulkDataStorageDescriptor& OutValue) const -> bool
+		FPackageBulkStorageDescriptor& OutValue) const -> bool
 	{
 		return TryReadBulkDataStorageDescriptor(OutValue);
 	}
 
 	namespace
 	{
-		auto ReadInspectedStructFields(FByteReader& Reader, uint32 SourceFormatVersion,
+		auto ReadInspectedStructFields(Durin::PackagePrivate::FByteReader& Reader, uint32 SourceFormatVersion,
 			std::vector<FAssetPackageField>& OutFields) -> bool
 		{
 			std::string StructName;
 			uint64 FieldCount = 0;
-			if (!Reader.ReadString(StructName, MaximumPackageStringBytes)
+			if (!Reader.ReadString(StructName, Durin::PackagePrivate::MaximumPackageStringBytes)
 				|| !Reader.Read(FieldCount) || FieldCount > 100000) return false;
 			OutFields.reserve(static_cast<size_t>(FieldCount));
 			for (uint64 Index = 0; Index < FieldCount; ++Index)
@@ -1332,10 +1327,10 @@ namespace Durin
 				FAssetPackageField Field;
 				uint8 FieldKind = 0;
 				uint64 PayloadSize = 0;
-				if (!Reader.ReadString(Field.DeclaringClass, MaximumPackageStringBytes)
-					|| !Reader.ReadString(Field.Name, MaximumPackageStringBytes)
+				if (!Reader.ReadString(Field.DeclaringClass, Durin::PackagePrivate::MaximumPackageStringBytes)
+					|| !Reader.ReadString(Field.Name, Durin::PackagePrivate::MaximumPackageStringBytes)
 					|| !Reader.Read(FieldKind)
-					|| !Reader.ReadString(Field.TypeSignature, MaximumPackageStringBytes)
+					|| !Reader.ReadString(Field.TypeSignature, Durin::PackagePrivate::MaximumPackageStringBytes)
 					|| !Reader.Read(PayloadSize)
 					|| Reader.Offset > Reader.Bytes.size()
 					|| PayloadSize > Reader.Bytes.size() - Reader.Offset) return false;
@@ -1356,7 +1351,7 @@ namespace Durin
 	{
 		OutFields.clear();
 		if (Kind != DurinCodeGen::EPropertyGenFlags::Struct) return false;
-		FByteReader Reader{Payload};
+		Durin::PackagePrivate::FByteReader Reader{Payload};
 		return ReadInspectedStructFields(Reader, SourceFormatVersion, OutFields)
 			&& Reader.Offset == Payload.size();
 	}
@@ -1367,7 +1362,7 @@ namespace Durin
 		OutElements.clear();
 		if (Kind != DurinCodeGen::EPropertyGenFlags::Array
 			|| !TypeSignature.starts_with("Array<Struct<")) return false;
-		FByteReader Reader{Payload};
+		Durin::PackagePrivate::FByteReader Reader{Payload};
 		uint64 Count = 0;
 		if (!Reader.Read(Count) || Count > 100000 || Count > Payload.size() / 16) return false;
 		std::vector<std::vector<FAssetPackageField>> Elements(static_cast<size_t>(Count));
@@ -1391,7 +1386,7 @@ namespace Durin
 		FStructProperty RootProperty(
 			FFieldVariant(), FName("InspectedStructValue"), EObjectFlags::NoFlags,
 			EPropertyFlags::None, 1, 0, Struct);
-		FByteReader Reader{Payload};
+		Durin::PackagePrivate::FByteReader Reader{Payload};
 		return DecodeByteToolValue(
 			&RootProperty, OutValue, 0, Reader, {},
 			SourceFormatVersion == 0 ? ObjectPackage::DastV10FormatVersion : SourceFormatVersion)

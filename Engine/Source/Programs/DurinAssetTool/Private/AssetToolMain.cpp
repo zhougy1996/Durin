@@ -373,7 +373,7 @@ namespace
 
 	struct FQualificationDescriptor
 	{
-		Durin::FEditorBulkDataStorageDescriptor Descriptor;
+		Durin::FPackageBulkStorageDescriptor Descriptor;
 		std::filesystem::path CompanionPath;
 		bool bReachable = true;
 		std::string Diagnostic;
@@ -417,7 +417,7 @@ namespace
 			}
 			if (Package.Result)
 			{
-				std::vector<FEditorBulkDataStorageDescriptor> Descriptors;
+				std::vector<FPackageBulkStorageDescriptor> Descriptors;
 				if (!InspectEditorBulkDataStorageDescriptors(
 						Package.Inspection, Descriptors, &Package.DescriptorDiagnostic
 					))
@@ -426,10 +426,10 @@ namespace
 				}
 				else
 				{
-					for (const FEditorBulkDataStorageDescriptor& Descriptor : Descriptors)
+					for (const FPackageBulkStorageDescriptor& Descriptor : Descriptors)
 					{
 						FQualificationDescriptor Item{.Descriptor = Descriptor};
-						if (Descriptor.StorageKind == EEditorBulkDataStorageKind::External)
+						if (Descriptor.StorageKind == EPackageBulkStorageKind::External)
 						{
 							Item.CompanionPath = Input.PhysicalPath;
 							Item.CompanionPath.replace_extension(".dbulk");
@@ -521,7 +521,7 @@ namespace
 				DescriptorNode.SetChildValue("contentHash", Descriptor.ContentHash.ToString());
 				DescriptorNode.SetChildValue("containerHash", Descriptor.ContainerHash.ToString());
 				DescriptorNode.SetChildValue("storage",
-					Descriptor.StorageKind == EEditorBulkDataStorageKind::Inline ? "Inline" : "External");
+					Descriptor.StorageKind == EPackageBulkStorageKind::Inline ? "Inline" : "External");
 				DescriptorNode.SetChildValue("companionPath", Item.CompanionPath.generic_string());
 				DescriptorNode.SetChildValue("reachable", Item.bReachable);
 				DescriptorNode.SetChildValue("diagnostic", Item.Diagnostic);
