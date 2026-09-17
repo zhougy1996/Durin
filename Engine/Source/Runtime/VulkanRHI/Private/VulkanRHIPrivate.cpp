@@ -53,7 +53,7 @@ namespace Durin::VulkanRHI
 						|| NativeResult == vk::Result::eErrorOutOfDeviceMemory
 						? ERHIResourceCreationFailure::OutOfMemory
 						: ERHIResourceCreationFailure::ResourceExhausted;
-				throw FRHIRecoverableCreationError(Exception.what(), Failure);
+				throw FRHIRecoverableCreationError({Failure, ERHICreationFailureSource::NativeBackend, static_cast<int32>(NativeResult)});
 			}
 		};
 	}

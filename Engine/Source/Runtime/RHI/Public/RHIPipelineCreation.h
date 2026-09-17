@@ -1,4 +1,5 @@
 #pragma once
+#include "RHICreationError.h"
 
 #include "RHIResources.h"
 #include "Threading/TaskComposition.h"
@@ -55,7 +56,7 @@ namespace Durin
 		ERHIPipelineRequestState State = ERHIPipelineRequestState::Pending;
 		FGraphicsPipelineStateRHIRef Graphics;
 		FComputePipelineStateRHIRef Compute;
-		std::string Diagnostic;
+		FRHICreationError Error;
 	};
 
 	// One observer of shared device work. Copying a handle copies that observer;

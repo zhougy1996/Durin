@@ -15,7 +15,7 @@ namespace Durin
 		auto Current = Used->load();
 		do
 		{
-			if (Bytes > Capacity - Current) throw FRHIRecoverableCreationError("Pipeline CPU metadata budget is full.");
+			if (Bytes > Capacity - Current) throw FRHIRecoverableCreationError({ERHIResourceCreationFailure::ResourceExhausted, ERHICreationFailureSource::MetadataBudget});
 		} while (!Used->compare_exchange_weak(Current, Current + Bytes));
 		// On control-block allocation failure, shared_ptr also invokes this deleter.
 		return std::shared_ptr<void>(nullptr, [Budget = Used, Bytes](void*) { Budget->fetch_sub(Bytes); });
@@ -159,7 +159,7 @@ namespace Durin
 	}
 	auto FRHIPipelineCreationRequest::GetResult() const -> FRHIPipelineCreationResult
 	{
-		if (!State) return {.State = ERHIPipelineRequestState::Failed, .Diagnostic = "Pipeline request was not admitted."};
+		if (!State) return {.State = ERHIPipelineRequestState::Failed, .Error = {ERHIResourceCreationFailure::Unknown, ERHICreationFailureSource::RequestNotAdmitted}};
 		if (State->Lifetime->Failed.load())
 			std::rethrow_exception(State->Lifetime->TerminalFailure);
 		if (State->Lifetime->Retired.load()) return {.State = ERHIPipelineRequestState::Canceled};
@@ -167,7 +167,7 @@ namespace Durin
 			if (const auto Value = State->Published.Load()) return Value->Snapshot();
 		if (State->Task.GetState() == ETaskState::Canceled) return {.State = ERHIPipelineRequestState::Canceled};
 		if (State->Task.GetState() == ETaskState::Failed)
-			return {.State = ERHIPipelineRequestState::Failed, .Diagnostic = "Pipeline observer completion failed."};
+			return {.State = ERHIPipelineRequestState::Failed, .Error = {ERHIResourceCreationFailure::Unknown, ERHICreationFailureSource::ObserverFailed}};
 		return {};
 	}
 	auto FRHIPipelineCreationRequest::GetCompletion() const -> Tasks::FTaskCompletion
@@ -266,10 +266,9 @@ namespace Durin
 			{
 				using TKey = std::conditional_t<Graphics, FGraphicsPipelineStateKey, FComputePipelineStateKey>;
 				TKey NativeKey;
-				std::string Error;
-				bool Valid;
-				if constexpr (Graphics) Valid = BuildGraphicsPipelineStateKey(Initializer, &Capabilities, NativeKey, Error);
-				else Valid = BuildComputePipelineStateKey(Initializer, &Capabilities, NativeKey, Error);
+				FRHIOperationResult Valid;
+				if constexpr (Graphics) Valid = BuildGraphicsPipelineStateKey(Initializer, &Capabilities, NativeKey);
+				else Valid = BuildComputePipelineStateKey(Initializer, &Capabilities, NativeKey);
 				if (!Valid) return Reject(ERHIPipelineRequestRejection::InvalidDescription);
 				FRHIPipelineCreationResult Ready;
 				if constexpr (Graphics) Ready.Graphics = Backend.FindGraphics(NativeKey);
@@ -386,11 +385,13 @@ namespace Durin
 						Result.Graphics = Backend.CreateGraphics(*std::get<0>(Entry->Inputs), std::get<0>(*Entry->Key));
 					else Result.Compute = Backend.CreateCompute(*std::get<1>(Entry->Inputs), std::get<1>(*Entry->Key));
 					Result.State = Result.Graphics || Result.Compute ? ERHIPipelineRequestState::Ready : ERHIPipelineRequestState::Failed;
+					if (Result.State == ERHIPipelineRequestState::Failed)
+						Result.Error = {ERHIResourceCreationFailure::Unknown, ERHICreationFailureSource::BackendReturnedNull};
 				}
 				catch (const FRHIRecoverableCreationError& Error)
 				{
 					Result.State = ERHIPipelineRequestState::Failed;
-					Result.Diagnostic = Error.what();
+					Result.Error = Error.Error;
 				}
 				CompleteEntry(Entry, std::make_shared<FPipelinePublication>(std::move(Result)));
 			}

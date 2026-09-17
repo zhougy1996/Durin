@@ -509,10 +509,10 @@ namespace Durin::VulkanRHI
 		const auto CreationResult = ExecuteFallibleRHICreationOperation(CreationOperation);
 		if (!CreationResult.IsSuccess())
 		{
-			OutFailure = CreationResult.Failure;
+			OutFailure = CreationResult.Error.Failure;
 			DURIN_ERROR("Failed to create Vulkan RHI buffer '{}': {}",
 				CreateDesc.DebugName ? CreateDesc.DebugName : "<unnamed>",
-				CreationResult.Diagnostic);
+				FormatRHICreationError(CreationResult.Error));
 			return nullptr;
 		}
 		auto* CreatedBuffer = static_cast<FVulkanBuffer*>(Result.GetReference());

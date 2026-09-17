@@ -198,8 +198,7 @@ namespace Durin
 		FRHIBuffer* Buffer,
 		const FRHIBufferViewDesc& Desc) -> TRefCountPtr<FRHIBufferView>
 	{
-		std::string Error;
-		if (!ValidateBufferViewDesc(Buffer, Desc, Error)) return nullptr;
+		if (!ValidateBufferViewDesc(Buffer, Desc)) return nullptr;
 		return new FRHIBufferView(Buffer, Desc);
 	}
 
@@ -207,8 +206,7 @@ namespace Durin
 		FRHITexture* Texture,
 		const FRHITextureViewDesc& Desc) -> TRefCountPtr<FRHITextureView>
 	{
-		std::string Error;
-		if (!ValidateTextureViewDesc(Texture, Desc, Error)) return nullptr;
+		if (!ValidateTextureViewDesc(Texture, Desc)) return nullptr;
 		return new FRHITextureView(Texture, Desc);
 	}
 

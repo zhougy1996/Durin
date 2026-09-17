@@ -771,7 +771,7 @@ namespace Durin::VulkanRHI
 			if (Victim == GraphicsPipelineMap.end())
 			{
 				++Stats.FailedCandidates;
-				throw FRHIRecoverableCreationError("Vulkan graphics pipeline cache is full and has no cache-only entry.");
+				throw FRHIRecoverableCreationError({ERHIResourceCreationFailure::ResourceExhausted, ERHICreationFailureSource::GraphicsPipelineCache});
 			}
 			// Extraction reserves the slot: concurrent hits cannot pin this victim
 			// after selection. Keep its node and resource alive for failure rollback.
@@ -842,7 +842,7 @@ namespace Durin::VulkanRHI
 			if (Victim == ComputePipelineMap.end())
 			{
 				++Stats.FailedCandidates;
-				throw FRHIRecoverableCreationError("Vulkan compute pipeline cache is full and has no cache-only entry.");
+				throw FRHIRecoverableCreationError({ERHIResourceCreationFailure::ResourceExhausted, ERHICreationFailureSource::ComputePipelineCache});
 			}
 			// Extraction reserves the slot: concurrent hits cannot pin this victim
 			// after selection. Keep its node and resource alive for failure rollback.
@@ -921,7 +921,7 @@ namespace Durin::VulkanRHI
 		}))
 		{
 			++Stats.FailedCandidates;
-			throw FRHIRecoverableCreationError("Vulkan structural layout cache is full and has no cache-only entry.");
+			throw FRHIRecoverableCreationError({ERHIResourceCreationFailure::ResourceExhausted, ERHICreationFailureSource::PipelineLayoutCache});
 		}
 
 		StatsAccess.unlock();
@@ -1200,10 +1200,10 @@ namespace Durin::VulkanRHI
 		FVulkanCreationTimingScope TimingScope(false);
 #endif
 		FGraphicsPipelineStateKey Key;
-		std::string Error;
-		if (!BuildGraphicsPipelineStateKey(Initializer, RHIGetCapabilities(), Key, Error))
+		const auto ValidationResult = BuildGraphicsPipelineStateKey(Initializer, RHIGetCapabilities(), Key);
+		if (!ValidationResult)
 		{
-			DURIN_ERROR("Invalid graphics pipeline '{}': {}", DebugName.ToString(), Error);
+			DURIN_ERROR("Invalid graphics pipeline '{}': {}", DebugName.ToString(), FormatRHIError(ValidationResult.Error));
 			return nullptr;
 		}
 		if (auto Ready = Device->GetPipelineManager().FindGraphicsPipelineState(Key))
@@ -1231,7 +1231,7 @@ namespace Durin::VulkanRHI
 			Result = Device->GetPipelineManager().GetOrCreateGraphicsPipelineState(
 				Initializer, std::move(Key), DebugName.ToString());
 		}));
-		if (!Outcome.IsSuccess()) DURIN_ERROR("Failed to create graphics pipeline: {}", Outcome.Diagnostic);
+		if (!Outcome.IsSuccess()) DURIN_ERROR("Failed to create graphics pipeline: {}", FormatRHICreationError(Outcome.Error));
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 		if (auto* Timing = TimingScope.Get()) Timing->bSucceeded = !!Result;
 #endif
@@ -1245,10 +1245,10 @@ namespace Durin::VulkanRHI
 		FVulkanCreationTimingScope TimingScope(true);
 #endif
 		FComputePipelineStateKey Key;
-		std::string Error;
-		if (!BuildComputePipelineStateKey(Initializer, RHIGetCapabilities(), Key, Error))
+		const auto ValidationResult = BuildComputePipelineStateKey(Initializer, RHIGetCapabilities(), Key);
+		if (!ValidationResult)
 		{
-			DURIN_ERROR("Invalid compute pipeline '{}': {}", DebugName.ToString(), Error);
+			DURIN_ERROR("Invalid compute pipeline '{}': {}", DebugName.ToString(), FormatRHIError(ValidationResult.Error));
 			return nullptr;
 		}
 		if (auto Ready = Device->GetPipelineManager().FindComputePipelineState(Key))
@@ -1276,7 +1276,7 @@ namespace Durin::VulkanRHI
 			Result = Device->GetPipelineManager().GetOrCreateComputePipelineState(
 				Initializer, std::move(Key), DebugName.ToString());
 		}));
-		if (!Outcome.IsSuccess()) DURIN_ERROR("Failed to create compute pipeline: {}", Outcome.Diagnostic);
+		if (!Outcome.IsSuccess()) DURIN_ERROR("Failed to create compute pipeline: {}", FormatRHICreationError(Outcome.Error));
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 		if (auto* Timing = TimingScope.Get()) Timing->bSucceeded = !!Result;
 #endif

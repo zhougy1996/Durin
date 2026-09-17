@@ -1,4 +1,5 @@
 #pragma once
+#include "VulkanResult.h"
 
 #include "VulkanRHIAPI.h"
 
@@ -44,8 +45,7 @@ namespace Durin::VulkanRHI
 
 	VULKANRHI_API auto SelectVulkanSwapchainConfiguration(
 		const FVulkanSwapchainSelectionInput& Input,
-		FVulkanSwapchainConfiguration& OutConfiguration,
-		std::string& OutError) -> bool;
+		FVulkanSwapchainConfiguration& OutConfiguration) -> FVulkanOperationResult;
 
 	// Reports whether presentation succeeded and whether the swapchain must be recreated.
 	struct FVulkanPresentOutcome

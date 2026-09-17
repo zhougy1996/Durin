@@ -26,27 +26,27 @@ namespace Durin
 		EXPECT_EQ(Desc.ArraySize, TextureCubeFaceCount);
 		EXPECT_EQ(Desc.Extent, FIntPoint(16, 16));
 
-		std::string Error;
-		EXPECT_TRUE(ValidateTextureCreateDesc(Desc, Error)) << Error;
+		FRHIOperationResult Error;
+		EXPECT_TRUE((Error = ValidateTextureCreateDesc(Desc))) << FormatRHIError(Error.Error);
 	}
 
 	TEST(FRHITextureTests, RejectsInvalidCubeDescriptions)
 	{
-		std::string Error;
+		FRHIOperationResult Error;
 
 		FRHITextureCreateDesc Desc = FRHITextureCreateDesc::CreateCube("TestCube")
 			.SetExtent(16, 8)
 			.SetFormat(EPixelFormat::RGBA8_UNORM);
-		EXPECT_FALSE(ValidateTextureCreateDesc(Desc, Error));
-		EXPECT_NE(Error.find("equal"), std::string::npos);
+		EXPECT_FALSE((Error = ValidateTextureCreateDesc(Desc)));
+		EXPECT_EQ(Error.Error.Code, FRHIError::FCode{ERHITextureCreateError::NonSquareCube});
 
 		Desc.SetExtent(16).SetArraySize(5);
-		EXPECT_FALSE(ValidateTextureCreateDesc(Desc, Error));
-		EXPECT_NE(Error.find("six"), std::string::npos);
+		EXPECT_FALSE((Error = ValidateTextureCreateDesc(Desc)));
+		EXPECT_EQ(Error.Error.Code, FRHIError::FCode{ERHITextureCreateError::InvalidCubeLayers});
 
 		Desc.SetArraySize(TextureCubeFaceCount).SetNumSamples(4);
-		EXPECT_FALSE(ValidateTextureCreateDesc(Desc, Error));
-		EXPECT_NE(Error.find("single-sampled"), std::string::npos);
+		EXPECT_FALSE((Error = ValidateTextureCreateDesc(Desc)));
+		EXPECT_EQ(Error.Error.Code, FRHIError::FCode{ERHITextureCreateError::MultisampledDimension});
 	}
 
 	TEST(FRHITextureTests, ValidatesEveryTextureDimensionBoundary)
@@ -55,37 +55,37 @@ namespace Durin
 		{
 			FRHITextureCreateDesc Desc;
 			bool bValid;
-			std::string_view Diagnostic;
+			ERHITextureCreateError Code;
 		};
 		const std::array Cases{
-			FCase{FRHITextureCreateDesc::Create2D("2D").SetFormat(EPixelFormat::RGBA8_UNORM), true, ""},
-			FCase{FRHITextureCreateDesc::Create2D("2DDepth").SetDepth(2).SetFormat(EPixelFormat::RGBA8_UNORM), false, "depth"},
-			FCase{FRHITextureCreateDesc::Create2DArray("Array").SetArraySize(4).SetFormat(EPixelFormat::RGBA8_UNORM), true, ""},
-			FCase{FRHITextureCreateDesc::Create3D("3D").SetDepth(8).SetExtent(8).SetNumMips(4).SetFormat(EPixelFormat::RGBA8_UNORM), true, ""},
-			FCase{FRHITextureCreateDesc::CreateCube("Cube").SetExtent(8).SetFormat(EPixelFormat::RGBA8_UNORM), true, ""},
-			FCase{FRHITextureCreateDesc::CreateCubeArray("CubeArray").SetArraySize(12).SetExtent(8).SetFormat(EPixelFormat::RGBA8_UNORM), true, ""},
-			FCase{FRHITextureCreateDesc::CreateCubeArray("BadCubeArray").SetArraySize(7).SetExtent(8).SetFormat(EPixelFormat::RGBA8_UNORM), false, "divisible"},
+			FCase{FRHITextureCreateDesc::Create2D("2D").SetFormat(EPixelFormat::RGBA8_UNORM), true, ERHITextureCreateError{}},
+			FCase{FRHITextureCreateDesc::Create2D("2DDepth").SetDepth(2).SetFormat(EPixelFormat::RGBA8_UNORM), false, ERHITextureCreateError::Invalid2DDepth},
+			FCase{FRHITextureCreateDesc::Create2DArray("Array").SetArraySize(4).SetFormat(EPixelFormat::RGBA8_UNORM), true, ERHITextureCreateError{}},
+			FCase{FRHITextureCreateDesc::Create3D("3D").SetDepth(8).SetExtent(8).SetNumMips(4).SetFormat(EPixelFormat::RGBA8_UNORM), true, ERHITextureCreateError{}},
+			FCase{FRHITextureCreateDesc::CreateCube("Cube").SetExtent(8).SetFormat(EPixelFormat::RGBA8_UNORM), true, ERHITextureCreateError{}},
+			FCase{FRHITextureCreateDesc::CreateCubeArray("CubeArray").SetArraySize(12).SetExtent(8).SetFormat(EPixelFormat::RGBA8_UNORM), true, ERHITextureCreateError{}},
+			FCase{FRHITextureCreateDesc::CreateCubeArray("BadCubeArray").SetArraySize(7).SetExtent(8).SetFormat(EPixelFormat::RGBA8_UNORM), false, ERHITextureCreateError::InvalidCubeArrayLayers},
 		};
 		for (const FCase& Case : Cases)
 		{
-			std::string Error;
-			EXPECT_EQ(ValidateTextureCreateDesc(Case.Desc, Error), Case.bValid);
-			if (!Case.bValid) EXPECT_NE(Error.find(Case.Diagnostic), std::string::npos) << Error;
+			FRHIOperationResult Error;
+			EXPECT_EQ((Error = ValidateTextureCreateDesc(Case.Desc)).IsSuccess(), Case.bValid);
+			if (!Case.bValid) EXPECT_EQ(Error.Error.Code, FRHIError::FCode{Case.Code}) << FormatRHIError(Error.Error);
 		}
 	}
 
 	TEST(FRHITextureTests, RejectsInvalidMipSampleAndUsageContracts)
 	{
-		auto ExpectRejected = [](const FRHITextureCreateDesc& Desc, std::string_view Expected) {
-			std::string Error;
-			EXPECT_FALSE(ValidateTextureCreateDesc(Desc, Error));
-			EXPECT_NE(Error.find(Expected), std::string::npos) << Error;
+		auto ExpectRejected = [](const FRHITextureCreateDesc& Desc, ERHITextureCreateError Expected) {
+			FRHIOperationResult Error;
+			EXPECT_FALSE((Error = ValidateTextureCreateDesc(Desc)));
+			EXPECT_EQ(Error.Error.Code, FRHIError::FCode{Expected}) << FormatRHIError(Error.Error);
 		};
-		ExpectRejected(FRHITextureCreateDesc::Create2D("Samples").SetNumSamples(3).SetFormat(EPixelFormat::RGBA8_UNORM), "sample count");
-		ExpectRejected(FRHITextureCreateDesc::Create2D("Mips").SetExtent(4).SetNumMips(4).SetFormat(EPixelFormat::RGBA8_UNORM), "mip count");
-		ExpectRejected(FRHITextureCreateDesc::Create2D("MSAAMips").SetExtent(4).SetNumMips(2).SetNumSamples(4).SetFormat(EPixelFormat::RGBA8_UNORM), "exactly one mip");
-		ExpectRejected(FRHITextureCreateDesc::Create2D("DepthColor").SetFlags(ETextureCreateFlags::DepthStencilTargetable | ETextureCreateFlags::RenderTargetable).SetFormat(EPixelFormat::D32), "mutually exclusive");
-		ExpectRejected(FRHITextureCreateDesc::Create2D("StorageMSAA").SetFlags(ETextureCreateFlags::Storage).SetNumSamples(4).SetFormat(EPixelFormat::RGBA8_UNORM), "single-sampled");
+		ExpectRejected(FRHITextureCreateDesc::Create2D("Samples").SetNumSamples(3).SetFormat(EPixelFormat::RGBA8_UNORM), ERHITextureCreateError::InvalidSampleCount);
+		ExpectRejected(FRHITextureCreateDesc::Create2D("Mips").SetExtent(4).SetNumMips(4).SetFormat(EPixelFormat::RGBA8_UNORM), ERHITextureCreateError::TooManyMips);
+		ExpectRejected(FRHITextureCreateDesc::Create2D("MSAAMips").SetExtent(4).SetNumMips(2).SetNumSamples(4).SetFormat(EPixelFormat::RGBA8_UNORM), ERHITextureCreateError::MultisampledMips);
+		ExpectRejected(FRHITextureCreateDesc::Create2D("DepthColor").SetFlags(ETextureCreateFlags::DepthStencilTargetable | ETextureCreateFlags::RenderTargetable).SetFormat(EPixelFormat::D32), ERHITextureCreateError::ConflictingDepthUsage);
+		ExpectRejected(FRHITextureCreateDesc::Create2D("StorageMSAA").SetFlags(ETextureCreateFlags::Storage).SetNumSamples(4).SetFormat(EPixelFormat::RGBA8_UNORM), ERHITextureCreateError::MultisampledUsage);
 	}
 
 	TEST(FRHITextureTests, ValidatesMipSliceRegionAndSourcePitch)
@@ -95,19 +95,19 @@ namespace Durin
 			.SetNumMips(4)
 			.SetFormat(EPixelFormat::RGBA8_UNORM);
 		const FUpdateTextureRegion2D FullMip(0, 0, 0, 0, 4, 4);
-		std::string Error;
+		FRHIOperationResult Error;
 
-		EXPECT_TRUE(ValidateTexture2DUpdate(Desc, 1, 5, FullMip, 16, Error)) << Error;
-		EXPECT_FALSE(ValidateTexture2DUpdate(Desc, 4, 0, FullMip, 16, Error));
-		EXPECT_NE(Error.find("mip"), std::string::npos);
-		EXPECT_FALSE(ValidateTexture2DUpdate(Desc, 0, 6, FullMip, 16, Error));
-		EXPECT_NE(Error.find("slice"), std::string::npos);
-		EXPECT_FALSE(ValidateTexture2DUpdate(Desc, 1, 0, FullMip, 15, Error));
-		EXPECT_NE(Error.find("pitch"), std::string::npos);
+		EXPECT_TRUE((Error = ValidateTexture2DUpdate(Desc, 1, 5, FullMip, 16))) << FormatRHIError(Error.Error);
+		EXPECT_FALSE((Error = ValidateTexture2DUpdate(Desc, 4, 0, FullMip, 16)));
+		EXPECT_EQ(Error.Error.Code, FRHIError::FCode{ERHITextureUploadError::MipOutOfBounds});
+		EXPECT_FALSE((Error = ValidateTexture2DUpdate(Desc, 0, 6, FullMip, 16)));
+		EXPECT_EQ(Error.Error.Code, FRHIError::FCode{ERHITextureUploadError::LayerOutOfBounds});
+		EXPECT_FALSE((Error = ValidateTexture2DUpdate(Desc, 1, 0, FullMip, 15)));
+		EXPECT_EQ(Error.Error.Code, FRHIError::FCode{ERHITextureUploadError::InsufficientPitch});
 
 		const FUpdateTextureRegion2D OutsideMip(1, 0, 0, 0, 4, 4);
-		EXPECT_FALSE(ValidateTexture2DUpdate(Desc, 1, 0, OutsideMip, 16, Error));
-		EXPECT_NE(Error.find("exceeds"), std::string::npos);
+		EXPECT_FALSE((Error = ValidateTexture2DUpdate(Desc, 1, 0, OutsideMip, 16)));
+		EXPECT_EQ(Error.Error.Code, FRHIError::FCode{ERHITextureUploadError::BoxOutOfBounds});
 	}
 
 	TEST(FRHITextureTests, ValidatesBlockCompressedUploadAlignment)
@@ -116,21 +116,21 @@ namespace Durin
 			.SetExtent(FIntPoint(10, 6))
 			.SetNumMips(2)
 			.SetFormat(EPixelFormat::BC1_UNORM);
-		std::string Error;
+		FRHIOperationResult Error;
 
 		const FUpdateTextureRegion2D FullMip(0, 0, 0, 0, 10, 6);
-		EXPECT_TRUE(ValidateTexture2DUpdate(Desc, 0, 0, FullMip, 24, Error)) << Error;
+		EXPECT_TRUE((Error = ValidateTexture2DUpdate(Desc, 0, 0, FullMip, 24))) << FormatRHIError(Error.Error);
 
 		const FUpdateTextureRegion2D TailMip(0, 0, 0, 0, 5, 3);
-		EXPECT_TRUE(ValidateTexture2DUpdate(Desc, 1, 0, TailMip, 16, Error)) << Error;
+		EXPECT_TRUE((Error = ValidateTexture2DUpdate(Desc, 1, 0, TailMip, 16))) << FormatRHIError(Error.Error);
 
 		const FUpdateTextureRegion2D MisalignedOffset(2, 0, 0, 0, 4, 4);
-		EXPECT_FALSE(ValidateTexture2DUpdate(Desc, 0, 0, MisalignedOffset, 8, Error));
-		EXPECT_NE(Error.find("block-aligned"), std::string::npos);
+		EXPECT_FALSE((Error = ValidateTexture2DUpdate(Desc, 0, 0, MisalignedOffset, 8)));
+		EXPECT_EQ(Error.Error.Code, FRHIError::FCode{ERHITextureUploadError::OffsetAlignment});
 
 		const FUpdateTextureRegion2D PartialBlock(0, 0, 0, 0, 5, 4);
-		EXPECT_FALSE(ValidateTexture2DUpdate(Desc, 0, 0, PartialBlock, 16, Error));
-		EXPECT_NE(Error.find("mip edge"), std::string::npos);
+		EXPECT_FALSE((Error = ValidateTexture2DUpdate(Desc, 0, 0, PartialBlock, 16)));
+		EXPECT_EQ(Error.Error.Code, FRHIError::FCode{ERHITextureUploadError::ExtentAlignment});
 	}
 
 	TEST(FRHITextureTests, ValidatesVolumeCreationViewsAndOddRegionPitches)
@@ -142,28 +142,28 @@ namespace Durin
 				| ETextureCreateFlags::Storage
 				| ETextureCreateFlags::SourceCopy
 				| ETextureCreateFlags::DestinationCopy);
-		std::string Error;
-		EXPECT_TRUE(ValidateTextureCreateDesc(Desc, Error)) << Error;
+		FRHIOperationResult Error;
+		EXPECT_TRUE((Error = ValidateTextureCreateDesc(Desc))) << FormatRHIError(Error.Error);
 		TRefCountPtr<FRHITexture> Texture = MakeRefCount<FRHITexture>(Desc);
 		EXPECT_EQ(Texture->GetSizeZ(), 3u);
 		const FRHITextureViewDesc Sampled = MakeDefaultTextureViewDesc(
 			*Texture, ERHITextureViewUsage::Sampled);
 		EXPECT_EQ(Sampled.Dimension, ERHITextureViewDimension::Texture3D);
-		EXPECT_TRUE(ValidateTextureViewDesc(Texture, Sampled, Error)) << Error;
+		EXPECT_TRUE((Error = ValidateTextureViewDesc(Texture, Sampled))) << FormatRHIError(Error.Error);
 		FRHITextureViewDesc Storage = MakeDefaultTextureViewDesc(
 			*Texture, ERHITextureViewUsage::Storage);
-		EXPECT_TRUE(ValidateTextureViewDesc(Texture, Storage, Error)) << Error;
+		EXPECT_TRUE((Error = ValidateTextureViewDesc(Texture, Storage))) << FormatRHIError(Error.Error);
 
 		const FUpdateTextureRegion3D Region(1, 1, 0, 2, 1, 1, 3, 3, 2);
-		EXPECT_TRUE(ValidateTexture3DUpdate(Desc, 0, Region, 24, 96, Error)) << Error;
-		EXPECT_FALSE(ValidateTexture3DUpdate(Desc, 0, Region, 19, 96, Error));
-		EXPECT_NE(Error.find("row pitch"), std::string::npos);
-		EXPECT_FALSE(ValidateTexture3DUpdate(Desc, 0, Region, 24, 80, Error));
-		EXPECT_NE(Error.find("depth pitch"), std::string::npos);
+		EXPECT_TRUE((Error = ValidateTexture3DUpdate(Desc, 0, Region, 24, 96))) << FormatRHIError(Error.Error);
+		EXPECT_FALSE((Error = ValidateTexture3DUpdate(Desc, 0, Region, 19, 96)));
+		EXPECT_EQ(Error.Error.Code, FRHIError::FCode{ERHIVolumeUploadError::InsufficientRowPitch});
+		EXPECT_FALSE((Error = ValidateTexture3DUpdate(Desc, 0, Region, 24, 80)));
+		EXPECT_EQ(Error.Error.Code, FRHIError::FCode{ERHIVolumeUploadError::InsufficientDepthPitch});
 
 		Desc.AddFlags(ETextureCreateFlags::RenderTargetable);
-		EXPECT_FALSE(ValidateTextureCreateDesc(Desc, Error));
-		EXPECT_NE(Error.find("only sampled"), std::string::npos);
+		EXPECT_FALSE((Error = ValidateTextureCreateDesc(Desc)));
+		EXPECT_EQ(Error.Error.Code, FRHIError::FCode{ERHITextureCreateError::UnsupportedVolumeUsage});
 	}
 
 	TEST(FRHITextureTests, ValidatesVolumeCopyDepthAndFootprint)
@@ -179,14 +179,14 @@ namespace Durin
 			.TextureNumArrayLayers = 1, .TextureOffset = {1, 0, 1},
 			.TextureExtent = {3, 3, 2}};
 		uint64 Footprint = 0;
-		std::string Error;
-		EXPECT_TRUE(GetBufferTextureCopyFootprint(*Texture, Region, Footprint, Error)) << Error;
+		FRHIOperationResult Error;
+		EXPECT_TRUE((Error = GetBufferTextureCopyFootprint(*Texture, Region, Footprint))) << FormatRHIError(Error.Error);
 		EXPECT_EQ(Footprint, 56u);
 		TRefCountPtr<FRHIBuffer> Buffer = MakeRefCount<FRHIBuffer>(
 			FRHIBufferCreateDesc::Create("VolumeBuffer", 56, 1,
 				EBufferUsageFlags::SourceCopy | EBufferUsageFlags::DestinationCopy));
-		EXPECT_TRUE(ValidateBufferToTextureCopies(Buffer, Texture,
-			std::span<const FRHIBufferTextureCopyRegion>(&Region, 1), Error)) << Error;
+		EXPECT_TRUE((Error = ValidateBufferToTextureCopies(Buffer, Texture,
+			std::span<const FRHIBufferTextureCopyRegion>(&Region, 1)))) << FormatRHIError(Error.Error);
 	}
 
 	TEST(FRHITextureTests, ResolvesDocumentedPrincipalAxesAndEdgeDirections)

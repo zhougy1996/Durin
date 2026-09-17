@@ -1,4 +1,5 @@
 #pragma once
+#include "RHICreationError.h"
 
 #include "RHIAPI.h"
 #include "DynamicRHI.h"
@@ -286,23 +287,19 @@ namespace Durin
 
 	// Only explicit creation failures may leave the executor usable. Device and
 	// invariant failures must not derive from this type.
-	class FRHIRecoverableCreationError : public std::runtime_error
+	class FRHIRecoverableCreationError : public std::exception
 	{
 	public:
-		using std::runtime_error::runtime_error;
-		FRHIRecoverableCreationError(const char* Diagnostic,
-			ERHIResourceCreationFailure InFailure)
-			: std::runtime_error(Diagnostic), Failure(InFailure) {}
-		ERHIResourceCreationFailure Failure = ERHIResourceCreationFailure::Unknown;
+		explicit FRHIRecoverableCreationError(FRHICreationError InError) : Error(InError)
+		{ check(Error.HasError()); }
+		auto what() const noexcept -> const char* override { return "Recoverable RHI creation failure"; }
+		FRHICreationError Error;
 	};
 
 	struct FRHIFallibleOperationResult
 	{
-		bool bSucceeded = true;
-		std::string Diagnostic;
-		ERHIResourceCreationFailure Failure = ERHIResourceCreationFailure::None;
-
-		auto IsSuccess() const -> bool { return bSucceeded; }
+		FRHICreationError Error;
+		auto IsSuccess() const -> bool { return !Error.HasError(); }
 	};
 
 	// Executes immediately on the caller; never schedules, acquires a context, or waits.

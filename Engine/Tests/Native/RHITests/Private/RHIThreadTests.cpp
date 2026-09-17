@@ -7,6 +7,18 @@
 
 namespace Durin
 {
+	TEST(FRHIThreadResultTests, SeparatesUnknownFailuresFromBoundedExternalDiagnostics)
+	{
+		const auto Unknown = FRHIThreadWorkResult::Failure(ERHIThreadFailure::UnknownException);
+		EXPECT_FALSE(Unknown.IsSuccess());
+		EXPECT_EQ(Unknown.Error.Code, ERHIThreadFailure::UnknownException);
+		EXPECT_TRUE(Unknown.Error.ExternalDiagnostic.empty());
+		const auto External = FRHIThreadWorkResult::FromExternalException(std::string(8192, 'x'));
+		EXPECT_EQ(External.Error.Code, ERHIThreadFailure::ExternalException);
+		EXPECT_EQ(External.Error.ExternalDiagnostic.size(), 4096u);
+		EXPECT_TRUE(FRHIThreadWorkResult::Success().IsSuccess());
+	}
+
 	namespace
 	{
 		class FRHIThreadTestGuard
@@ -342,7 +354,7 @@ namespace Durin
 		Failing.Execute = [&]() {
 			FailureStarted.Trigger();
 			ReleaseFailure.Wait();
-			return FRHIThreadWorkResult::Failure("fake executor failure");
+			return FRHIThreadWorkResult::FromExternalException("fake executor failure");
 		};
 		const FRHIThreadSubmission FailingSubmission = Thread.Enqueue(Failing);
 		ASSERT_TRUE(FailingSubmission.IsAccepted());
@@ -360,10 +372,31 @@ namespace Durin
 			Thread.WaitForSerial(QueuedSubmission.Serial));
 		const FRHIThreadStats Stats = Thread.GetStats();
 		EXPECT_EQ(FailingSubmission.Serial, Stats.FailedSerial);
-		EXPECT_EQ("fake executor failure", Stats.FailureDiagnostic);
+		EXPECT_EQ(ERHIThreadFailure::ExternalException, Stats.Error.Code);
+		EXPECT_EQ("fake executor failure", Stats.Error.ExternalDiagnostic);
 		EXPECT_EQ(1u, Stats.RejectedWorkCount);
 		EXPECT_EQ(0u, Stats.OutstandingEntryCount);
 		EXPECT_EQ(1u, DestroyedCount.load(std::memory_order::acquire));
+	}
+
+	TEST(FRHIThreadTests, SynchronousFailurePreservesErrorOnExecutionAndRejection)
+	{
+		FRHIThread Thread;
+		FRHIThreadTestGuard Guard(Thread);
+		ASSERT_TRUE(Thread.Start());
+		FRHIThreadWork Work;
+		Work.Execute = []() {
+			return FRHIThreadWorkResult::FromExternalException("original failure");
+		};
+		const auto Failed = Thread.EnqueueSynchronous(Work);
+		EXPECT_EQ(ERHIThreadWaitResult::Failed, Failed.WaitResult);
+		EXPECT_EQ(ERHIThreadFailure::ExternalException, Failed.Error.Code);
+		EXPECT_EQ("original failure", Failed.Error.ExternalDiagnostic);
+		Work.Execute = []() { return FRHIThreadWorkResult::Success(); };
+		const auto Rejected = Thread.EnqueueSynchronous(Work);
+		EXPECT_EQ(ERHIThreadEnqueueResult::Failed, Rejected.Submission.Result);
+		EXPECT_EQ(Failed.Error.Code, Rejected.Error.Code);
+		EXPECT_EQ(Failed.Error.ExternalDiagnostic, Rejected.Error.ExternalDiagnostic);
 	}
 
 	TEST(FRHIThreadTests, FailedLaunchRestoresStoppedState)

@@ -1,4 +1,5 @@
 #pragma once
+#include "VulkanResult.h"
 
 #include "VulkanRHIAPI.h"
 
@@ -42,9 +43,6 @@ namespace Durin::VulkanRHI
 	{
 		std::vector<std::string> RequiredExtensions;
 		bool bEnablePortabilityEnumeration = false;
-		std::string Diagnostic;
-
-		auto IsSuccess() const -> bool { return Diagnostic.empty(); }
 	};
 
 	struct FVulkanInstanceNegotiationResult
@@ -53,9 +51,9 @@ namespace Durin::VulkanRHI
 		std::vector<FVulkanRequirementState> Requirements;
 		std::vector<std::string> EnabledExtensions;
 		std::vector<std::string> EnabledLayers;
-		std::string Diagnostic;
+		std::vector<FVulkanError> Errors;
 
-		auto IsSuccess() const -> bool { return Diagnostic.empty(); }
+		auto IsSuccess() const -> bool { return Errors.empty(); }
 	};
 
 	struct FVulkanValidationPolicy

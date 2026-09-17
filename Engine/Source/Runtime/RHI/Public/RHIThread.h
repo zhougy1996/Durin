@@ -41,13 +41,21 @@ namespace Durin
 		uint32 ThreadStackSize = 0;
 	};
 
+	enum class ERHIThreadFailure : uint8 { None, ExternalException, UnknownException, PriorFailure };
+	struct FRHIThreadError
+	{
+		ERHIThreadFailure Code = ERHIThreadFailure::None;
+		// Opaque exception-boundary text only; bounded by FromExternalException.
+		std::string ExternalDiagnostic;
+	};
+	RHI_API auto FormatRHIThreadError(const FRHIThreadError& Error) -> std::string;
 	struct FRHIThreadWorkResult
 	{
-		bool bSucceeded = true;
-		std::string Diagnostic;
-
+		FRHIThreadError Error;
+		auto IsSuccess() const -> bool { return Error.Code == ERHIThreadFailure::None; }
 		RHI_API static auto Success() -> FRHIThreadWorkResult;
-		RHI_API static auto Failure(std::string InDiagnostic) -> FRHIThreadWorkResult;
+		RHI_API static auto FromExternalException(std::string_view Diagnostic) -> FRHIThreadWorkResult;
+		static auto Failure(ERHIThreadFailure Code) -> FRHIThreadWorkResult { return {{Code}}; }
 	};
 
 	struct FRHIThreadWork
@@ -83,6 +91,8 @@ namespace Durin
 	{
 		FRHIThreadSubmission Submission;
 		ERHIThreadWaitResult WaitResult = ERHIThreadWaitResult::Stopped;
+		// Populated when admission or execution fails because the thread failed.
+		FRHIThreadError Error;
 
 		auto IsCompleted() const -> bool
 		{
@@ -106,7 +116,7 @@ namespace Durin
 		uint64 BackpressureWaitCount = 0;
 		uint64 BackpressureWaitNanoseconds = 0;
 		uint64 RejectedWorkCount = 0;
-		std::string FailureDiagnostic;
+		FRHIThreadError Error;
 	};
 
 	// Owns the single FIFO consumer used by threaded RHI execution.

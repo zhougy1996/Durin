@@ -29,7 +29,7 @@ namespace Durin::VulkanRHI
 		if (!CreationResult.IsSuccess())
 		{
 			DURIN_ERROR("Failed to create Vulkan RHI vertex declaration: {}",
-				CreationResult.Diagnostic);
+				FormatRHICreationError(CreationResult.Error));
 			return nullptr;
 		}
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION

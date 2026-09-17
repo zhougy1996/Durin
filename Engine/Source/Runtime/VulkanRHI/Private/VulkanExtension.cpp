@@ -15,19 +15,6 @@ namespace Durin::VulkanRHI
 			if (!ContainsName(Names, Name)) Names.emplace_back(Name);
 		}
 
-		auto RequirementClassName(EVulkanRequirementClass Class) -> std::string_view
-		{
-			switch (Class)
-			{
-			case EVulkanRequirementClass::RequiredRuntime: return "required runtime";
-			case EVulkanRequirementClass::PlatformRequired: return "platform required";
-			case EVulkanRequirementClass::OptionalFeature: return "optional feature";
-			case EVulkanRequirementClass::OptionalDiagnostic: return "optional diagnostic";
-			case EVulkanRequirementClass::PromotedCore: return "promoted core";
-			default: return "unknown";
-			}
-		}
-
 	}
 
 	auto ResolveVulkanValidationPolicy(
@@ -78,11 +65,7 @@ namespace Durin::VulkanRHI
 		Result.ApiVersion = std::min(Input.LoaderApiVersion, MaximumApiVersion);
 		if (Input.LoaderApiVersion < MinimumApiVersion)
 		{
-			Result.Diagnostic = std::format(
-				"Vulkan loader API {}.{}.{} is below required runtime Vulkan 1.1.",
-				vk::apiVersionMajor(Input.LoaderApiVersion),
-				vk::apiVersionMinor(Input.LoaderApiVersion),
-				vk::apiVersionPatch(Input.LoaderApiVersion));
+			Result.Errors.push_back({EVulkanError::LoaderVersionTooOld, {}, Input.LoaderApiVersion, MinimumApiVersion});
 			return Result;
 		}
 
@@ -113,12 +96,10 @@ namespace Durin::VulkanRHI
 				Name, EVulkanRequirementClass::PlatformRequired, true, true);
 			if (!Requirement.bSupported)
 			{
-				if (!Result.Diagnostic.empty()) Result.Diagnostic += " ";
-				Result.Diagnostic += std::format("Missing {} Vulkan instance extension '{}'.",
-					RequirementClassName(Requirement.Class), Requirement.Name);
+				Result.Errors.push_back({EVulkanError::MissingInstanceExtension, Requirement.Name});
 			}
 		}
-		if (!Result.Diagnostic.empty()) return Result;
+		if (!Result.IsSuccess()) return Result;
 
 		const bool bHasSurfaceCapabilities2 = ContainsName(
 			Input.AvailableExtensions, VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME);

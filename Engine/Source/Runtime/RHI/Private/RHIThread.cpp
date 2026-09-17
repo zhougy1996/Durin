@@ -30,7 +30,7 @@ namespace Durin
 		uint64 BackpressureWaitCount = 0;
 		uint64 BackpressureWaitNanoseconds = 0;
 		uint64 RejectedWorkCount = 0;
-		std::string FailureDiagnostic;
+		FRHIThreadError Failure;
 		bool bConsumerReady = false;
 		mutable std::mutex Mutex;
 		mutable std::condition_variable WorkCV;
@@ -79,12 +79,11 @@ namespace Durin
 				}
 				catch (const std::exception& Exception)
 				{
-					Result = FRHIThreadWorkResult::Failure(Exception.what());
+					Result = FRHIThreadWorkResult::FromExternalException(Exception.what());
 				}
 				catch (...)
 				{
-					Result = FRHIThreadWorkResult::Failure(
-						"RHI thread work failed with an unknown exception.");
+					Result = FRHIThreadWorkResult::Failure(ERHIThreadFailure::UnknownException);
 				}
 
 				const uint32 CompletedBatchCount = Entry.Work.BatchCount;
@@ -96,9 +95,9 @@ namespace Durin
 					ReleaseCapacity(CompletedBatchCount, CompletedPayloadBytes);
 					if (State.FailedSerial != 0)
 					{
-						Result.bSucceeded = false;
+						Result.Error.Code = ERHIThreadFailure::PriorFailure;
 					}
-					if (Result.bSucceeded)
+					if (Result.IsSuccess())
 					{
 						State.CompletedSerial = Entry.Serial;
 					}
@@ -107,7 +106,7 @@ namespace Durin
 						if (State.FailedSerial == 0)
 						{
 							State.FailedSerial = Entry.Serial;
-							State.FailureDiagnostic = std::move(Result.Diagnostic);
+							State.Failure = std::move(Result.Error);
 						}
 						State.AdmissionState = ERHIThreadAdmissionState::Draining;
 						RejectedEntries = std::move(State.Queue);
@@ -123,7 +122,7 @@ namespace Durin
 				RejectedEntries.clear();
 				State.CompletionCV.notify_all();
 				State.WorkCV.notify_all();
-				if (!Result.bSucceeded)
+				if (!Result.IsSuccess())
 				{
 					break;
 				}
@@ -169,13 +168,22 @@ namespace Durin
 		return {};
 	}
 
-	auto FRHIThreadWorkResult::Failure(std::string InDiagnostic)
+	auto FRHIThreadWorkResult::FromExternalException(std::string_view Diagnostic)
 		-> FRHIThreadWorkResult
 	{
-		return {
-			.bSucceeded = false,
-			.Diagnostic = std::move(InDiagnostic)
-		};
+		return {{ERHIThreadFailure::ExternalException, std::string(Diagnostic.substr(0, 4096))}};
+	}
+
+	auto FormatRHIThreadError(const FRHIThreadError& Error) -> std::string
+	{
+		switch (Error.Code)
+		{
+		case ERHIThreadFailure::None: return {};
+		case ERHIThreadFailure::ExternalException: return Error.ExternalDiagnostic;
+		case ERHIThreadFailure::UnknownException: return "RHI thread work failed with an unknown exception.";
+		case ERHIThreadFailure::PriorFailure: return "RHI thread already failed.";
+		}
+		return {};
 	}
 
 	FRHIThread::FRHIThread()
@@ -214,7 +222,7 @@ namespace Durin
 			State->BackpressureWaitCount = 0;
 			State->BackpressureWaitNanoseconds = 0;
 			State->RejectedWorkCount = 0;
-			State->FailureDiagnostic.clear();
+			State->Failure = {};
 			State->bConsumerReady = false;
 		}
 
@@ -274,7 +282,7 @@ namespace Durin
 			if (State->FailedSerial != 0) return;
 			State->FailedSerial = State->CompletedSerial == std::numeric_limits<uint64>::max()
 				? State->CompletedSerial : State->CompletedSerial + 1;
-			State->FailureDiagnostic = std::move(Diagnostic);
+			State->Failure = FRHIThreadWorkResult::FromExternalException(Diagnostic).Error;
 			State->AdmissionState = ERHIThreadAdmissionState::Draining;
 			Rejected.swap(State->Queue);
 			for (const auto& Entry : Rejected)
@@ -469,6 +477,12 @@ namespace Durin
 		{
 			Result.WaitResult = WaitForSerial(Result.Submission.Serial);
 		}
+		if (Result.Submission.Result == ERHIThreadEnqueueResult::Failed
+			|| Result.WaitResult == ERHIThreadWaitResult::Failed)
+		{
+			std::lock_guard Lock(State->Mutex);
+			Result.Error = State->Failure;
+		}
 		return Result;
 	}
 
@@ -527,7 +541,7 @@ namespace Durin
 			.BackpressureWaitCount = State->BackpressureWaitCount,
 			.BackpressureWaitNanoseconds = State->BackpressureWaitNanoseconds,
 			.RejectedWorkCount = State->RejectedWorkCount,
-			.FailureDiagnostic = State->FailureDiagnostic,
+			.Error = State->Failure,
 		};
 	}
 } // namespace Durin

@@ -34,9 +34,9 @@ namespace Durin::VulkanRHI
 	{
 		auto Input = MakeInput();
 		FVulkanSwapchainConfiguration Configuration;
-		std::string Error;
-		ASSERT_TRUE(SelectVulkanSwapchainConfiguration(Input, Configuration, Error))
-			<< Error;
+		FVulkanOperationResult Result;
+		ASSERT_TRUE((Result = SelectVulkanSwapchainConfiguration(Input, Configuration)))
+			<< FormatVulkanError(Result.Error);
 		EXPECT_EQ(Configuration.SurfaceFormat.format, vk::Format::eR8G8B8A8Srgb);
 		EXPECT_EQ(Configuration.PresentMode, vk::PresentModeKHR::eFifo);
 		EXPECT_EQ(Configuration.Extent, (vk::Extent2D{1920, 64}));
@@ -55,9 +55,9 @@ namespace Durin::VulkanRHI
 		Input.PresentationPolicy = EViewportPresentationPolicy::BestEffort;
 		Input.PresentModes = {vk::PresentModeKHR::eMailbox};
 		FVulkanSwapchainConfiguration Configuration;
-		std::string Error;
-		ASSERT_TRUE(SelectVulkanSwapchainConfiguration(Input, Configuration, Error))
-			<< Error;
+		FVulkanOperationResult Result;
+		ASSERT_TRUE((Result = SelectVulkanSwapchainConfiguration(Input, Configuration)))
+			<< FormatVulkanError(Result.Error);
 		EXPECT_EQ(Configuration.Extent, (vk::Extent2D{800, 600}));
 		EXPECT_EQ(Configuration.ImageCount, 3u);
 		EXPECT_EQ(Configuration.PresentMode, vk::PresentModeKHR::eMailbox);
@@ -85,9 +85,9 @@ namespace Durin::VulkanRHI
 			auto Input = MakeInput();
 			Input.Capabilities.supportedCompositeAlpha = Expected;
 			FVulkanSwapchainConfiguration Configuration;
-			std::string Error;
-			ASSERT_TRUE(SelectVulkanSwapchainConfiguration(Input, Configuration, Error))
-				<< Error;
+			FVulkanOperationResult Result;
+			ASSERT_TRUE((Result = SelectVulkanSwapchainConfiguration(Input, Configuration)))
+				<< FormatVulkanError(Result.Error);
 			EXPECT_EQ(Configuration.CompositeAlpha, Expected);
 		}
 	}
@@ -101,9 +101,9 @@ namespace Durin::VulkanRHI
 		Input.PresentModes = {vk::PresentModeKHR::eImmediate,
 			vk::PresentModeKHR::eFifo};
 		FVulkanSwapchainConfiguration Configuration;
-		std::string Error;
-		ASSERT_TRUE(SelectVulkanSwapchainConfiguration(Input, Configuration, Error))
-			<< Error;
+		FVulkanOperationResult Result;
+		ASSERT_TRUE((Result = SelectVulkanSwapchainConfiguration(Input, Configuration)))
+			<< FormatVulkanError(Result.Error);
 		EXPECT_EQ(Configuration.SurfaceFormat.format, vk::Format::eR8G8B8A8Srgb);
 		EXPECT_EQ(Configuration.PresentMode, vk::PresentModeKHR::eImmediate);
 	}
@@ -117,9 +117,9 @@ namespace Durin::VulkanRHI
 			{vk::Format::eB8G8R8A8Srgb,
 				vk::ColorSpaceKHR::eSrgbNonlinear}};
 		FVulkanSwapchainConfiguration Configuration;
-		std::string Error;
-		ASSERT_TRUE(SelectVulkanSwapchainConfiguration(
-			Input, Configuration, Error)) << Error;
+		FVulkanOperationResult Result;
+		ASSERT_TRUE((Result = SelectVulkanSwapchainConfiguration(
+			Input, Configuration))) << FormatVulkanError(Result.Error);
 		EXPECT_EQ(Configuration.SurfaceFormat.format,
 			vk::Format::eB8G8R8A8Srgb);
 	}
@@ -135,9 +135,9 @@ namespace Durin::VulkanRHI
 				vk::ImageUsageFlagBits::eColorAttachment;
 			if (Case == 3) Input.Capabilities.supportedCompositeAlpha = {};
 			FVulkanSwapchainConfiguration Configuration;
-			std::string Error;
-			EXPECT_FALSE(SelectVulkanSwapchainConfiguration(Input, Configuration, Error));
-			EXPECT_FALSE(Error.empty());
+			FVulkanOperationResult Result;
+			EXPECT_FALSE((Result = SelectVulkanSwapchainConfiguration(Input, Configuration)));
+			EXPECT_EQ(Result.Error.Code, (std::array{EVulkanError::NoSurfaceFormats, EVulkanError::NoPresentModes, EVulkanError::UnsupportedImageUsage, EVulkanError::UnsupportedCompositeAlpha})[Case]);
 		}
 	}
 
@@ -154,9 +154,9 @@ namespace Durin::VulkanRHI
 			}
 			if (Case == 2) Input.Capabilities.currentExtent = vk::Extent2D{0, 0};
 			FVulkanSwapchainConfiguration Configuration;
-			std::string Error;
-			EXPECT_FALSE(SelectVulkanSwapchainConfiguration(Input, Configuration, Error));
-			EXPECT_FALSE(Error.empty());
+			FVulkanOperationResult Result;
+			EXPECT_FALSE((Result = SelectVulkanSwapchainConfiguration(Input, Configuration)));
+			EXPECT_EQ(Result.Error.Code, (std::array{EVulkanError::UnsupportedPresentPolicy, EVulkanError::InvalidImageCountRange, EVulkanError::EmptyExtent})[Case]);
 		}
 	}
 } // namespace Durin::VulkanRHI

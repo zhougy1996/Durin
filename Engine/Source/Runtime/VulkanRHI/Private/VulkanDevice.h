@@ -46,7 +46,7 @@ namespace Durin::VulkanRHI
 
 	struct FVulkanPhysicalDeviceCandidateEvaluation
 	{
-		std::vector<std::string> RejectionReasons;
+		std::vector<FVulkanError> RejectionReasons;
 		std::vector<std::string> EnabledExtensions;
 		int32 GraphicsPresentQueueFamilyIndex = -1;
 		int32 ComputeQueueFamilyIndex = -1;

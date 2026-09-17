@@ -261,8 +261,11 @@ namespace Durin::VulkanRHI
 		FVulkanCreationTimingScope TimingScope(EVulkanCreationKind::Texture);
 #endif
 		OutFailure = ERHIResourceCreationFailure::None;
-		std::string ValidationError;
-		checkf(ValidateTextureCreateDesc(CreateDesc, ValidationError), "Invalid RHI texture create description: {}", ValidationError);
+#if DO_CHECK
+		const auto ValidationResult = ValidateTextureCreateDesc(CreateDesc);
+		checkf(ValidationResult,
+			"Invalid RHI texture create description: {}", FormatRHIError(ValidationResult.Error));
+#endif
 		const FRHITextureCreateDesc NormalizedDesc = NormalizeTextureCreateDesc(CreateDesc);
 		if (!RHIIsTextureSupported(NormalizedDesc))
 		{
@@ -279,10 +282,10 @@ namespace Durin::VulkanRHI
 		const auto CreationResult = ExecuteFallibleRHICreationOperation(CreationOperation);
 		if (!CreationResult.IsSuccess())
 		{
-			OutFailure = CreationResult.Failure;
+			OutFailure = CreationResult.Error.Failure;
 			DURIN_ERROR("Failed to create Vulkan RHI texture '{}': {}",
 				CreateDesc.DebugName ? CreateDesc.DebugName : "<unnamed>",
-				CreationResult.Diagnostic);
+				FormatRHICreationError(CreationResult.Error));
 			return nullptr;
 		}
 		if (EnumHasAnyFlags(NormalizedDesc.Flags, ETextureCreateFlags::Storage))
@@ -313,9 +316,11 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanDynamicRHI::RHIIsTextureSupported(const FRHITextureCreateDesc& CreateDesc) const -> bool
 	{
-		std::string ValidationError;
-		checkf(ValidateTextureCreateDesc(CreateDesc, ValidationError),
-			"Invalid RHI texture create description: {}", ValidationError);
+#if DO_CHECK
+		const auto ValidationResult = ValidateTextureCreateDesc(CreateDesc);
+		checkf(ValidationResult,
+			"Invalid RHI texture create description: {}", FormatRHIError(ValidationResult.Error));
+#endif
 		const FRHICapabilities* Capabilities = RHIGetCapabilities();
 		if (Capabilities == nullptr) return false;
 		const bool bTexture2D = CreateDesc.Dimension == ETextureDimension::Texture2D;
@@ -401,7 +406,7 @@ namespace Durin::VulkanRHI
 		if (!CreationResult.IsSuccess())
 		{
 			DURIN_ERROR("Failed to create Vulkan RHI sampler: {}",
-				CreationResult.Diagnostic);
+				FormatRHICreationError(CreationResult.Error));
 			return nullptr;
 		}
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
@@ -417,10 +422,10 @@ namespace Durin::VulkanRHI
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 		FVulkanCreationTimingScope TimingScope(EVulkanCreationKind::BufferView);
 #endif
-		std::string Error;
-		if (!ValidateBufferViewDesc(Buffer, Desc, Error))
+		const auto ValidationResult = ValidateBufferViewDesc(Buffer, Desc);
+		if (!ValidationResult)
 		{
-			DURIN_ERROR("Failed to create Vulkan buffer view: {}", Error);
+			DURIN_ERROR("Failed to create Vulkan buffer view: {}", FormatRHIError(ValidationResult.Error));
 			return nullptr;
 		}
 		if (Desc.Type == ERHIBufferViewType::Formatted)
@@ -442,7 +447,7 @@ namespace Durin::VulkanRHI
 		const auto CreationResult = ExecuteFallibleRHICreationOperation(CreationOperation);
 		if (!CreationResult.IsSuccess())
 		{
-			DURIN_ERROR("Failed to create Vulkan buffer view: {}", CreationResult.Diagnostic);
+			DURIN_ERROR("Failed to create Vulkan buffer view: {}", FormatRHICreationError(CreationResult.Error));
 			return nullptr;
 		}
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
@@ -458,10 +463,10 @@ namespace Durin::VulkanRHI
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 		FVulkanCreationTimingScope TimingScope(EVulkanCreationKind::TextureView);
 #endif
-		std::string Error;
-		if (!ValidateTextureViewDesc(Texture, Desc, Error))
+		const auto ValidationResult = ValidateTextureViewDesc(Texture, Desc);
+		if (!ValidationResult)
 		{
-			DURIN_ERROR("Failed to create Vulkan texture view: {}", Error);
+			DURIN_ERROR("Failed to create Vulkan texture view: {}", FormatRHIError(ValidationResult.Error));
 			return nullptr;
 		}
 		FTextureViewRHIRef Result;
@@ -476,7 +481,7 @@ namespace Durin::VulkanRHI
 		else CreationResult = ExecuteFallibleRHICreationOperation(CreationOperation);
 		if (!CreationResult.IsSuccess())
 		{
-			DURIN_ERROR("Failed to create Vulkan texture view: {}", CreationResult.Diagnostic);
+			DURIN_ERROR("Failed to create Vulkan texture view: {}", FormatRHICreationError(CreationResult.Error));
 			return nullptr;
 		}
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
@@ -536,12 +541,12 @@ namespace Durin::VulkanRHI
 		TextureDesc.ArraySize = Texture->GetArraySize();
 		TextureDesc.NumMips = Texture->GetNumMips();
 		TextureDesc.NumSamples = Texture->GetNumSamples();
-		std::string ValidationError;
-		checkf(
-			ValidateTexture2DUpdate(TextureDesc, MipIndex, ArraySlice, UpdateRegion, SourcePitch, ValidationError),
+#if DO_CHECK
+		const auto ValidationResult = ValidateTexture2DUpdate(TextureDesc, MipIndex, ArraySlice, UpdateRegion, SourcePitch);
+		checkf(ValidationResult,
 			"Invalid RHI texture upload: {}",
-			ValidationError
-		);
+			FormatRHIError(ValidationResult.Error));
+#endif
 
 		auto* VulkanTexture = static_cast<FVulkanTexture*>(Texture);
 		const FPixelFormatInfo& FormatInfo = GetPixelFormatInfo(VulkanTexture->GetFormat());
@@ -624,10 +629,12 @@ namespace Durin::VulkanRHI
 		TextureDesc.ArraySize = Texture->GetArraySize();
 		TextureDesc.NumMips = Texture->GetNumMips();
 		TextureDesc.NumSamples = Texture->GetNumSamples();
-		std::string ValidationError;
-		checkf(ValidateTexture3DUpdate(TextureDesc, MipIndex, UpdateRegion,
-			SourceRowPitch, SourceDepthPitch, ValidationError),
-			"Invalid RHI volume texture upload: {}", ValidationError);
+#if DO_CHECK
+		const auto ValidationResult = ValidateTexture3DUpdate(TextureDesc, MipIndex, UpdateRegion,
+			SourceRowPitch, SourceDepthPitch);
+		checkf(ValidationResult,
+			"Invalid RHI volume texture upload: {}", FormatRHIError(ValidationResult.Error));
+#endif
 
 		auto* VulkanTexture = static_cast<FVulkanTexture*>(Texture);
 		const FPixelFormatInfo& FormatInfo = GetPixelFormatInfo(VulkanTexture->GetFormat());

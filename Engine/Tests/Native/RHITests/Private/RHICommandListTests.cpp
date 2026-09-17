@@ -1182,8 +1182,7 @@ namespace Durin
 		FRHISynchronousOperationTiming Timing;
 		const FRHIFallibleOperationResult Failure =
 			Executor.ExecuteFallibleSynchronousOperation(false, []() {
-				throw FRHIRecoverableCreationError("intentional creation failure",
-					ERHIResourceCreationFailure::OutOfMemory);
+				throw FRHIRecoverableCreationError({ERHIResourceCreationFailure::OutOfMemory, ERHICreationFailureSource::NativeBackend, -2});
 			}, 0, &Timing);
 
 		bool bLaterWorkExecuted = false;
@@ -1195,10 +1194,10 @@ namespace Durin
 		EXPECT_EQ(Timing.WaitBegin, 0u);
 		EXPECT_EQ(Timing.WaitEnd, 0u);
 		EXPECT_FALSE(Failure.IsSuccess());
-		EXPECT_EQ(Failure.Failure, ERHIResourceCreationFailure::OutOfMemory);
-		EXPECT_EQ(Failure.Diagnostic, "intentional creation failure");
+		EXPECT_EQ(Failure.Error.Failure, ERHIResourceCreationFailure::OutOfMemory);
+		EXPECT_EQ(Failure.Error.NativeCode, -2);
 		EXPECT_TRUE(Success.IsSuccess());
-		EXPECT_TRUE(Success.Diagnostic.empty());
+		EXPECT_FALSE(Success.Error.HasError());
 		EXPECT_TRUE(bLaterWorkExecuted);
 		EXPECT_EQ(Executor.GetStats().SynchronousOperationCount, 2u);
 	}
@@ -1214,8 +1213,7 @@ namespace Durin
 		FRHISynchronousOperationTiming Timing;
 		const FRHIFallibleOperationResult Failure =
 			Executor.ExecuteFallibleSynchronousOperation(false, []() {
-				throw FRHIRecoverableCreationError("intentional creation failure",
-					ERHIResourceCreationFailure::OutOfMemory);
+				throw FRHIRecoverableCreationError({ERHIResourceCreationFailure::OutOfMemory, ERHICreationFailureSource::NativeBackend, -2});
 			}, 0, &Timing);
 		bool bLaterWorkExecutedOnRHIThread = false;
 		const FRHIFallibleOperationResult Success =
@@ -1228,15 +1226,14 @@ namespace Durin
 		EXPECT_GE(Timing.WaitBegin, Timing.Admitted);
 		EXPECT_GE(Timing.WaitEnd, Timing.WaitBegin);
 		EXPECT_FALSE(Failure.IsSuccess());
-		EXPECT_EQ(Failure.Failure, ERHIResourceCreationFailure::OutOfMemory);
-		EXPECT_EQ(Failure.Diagnostic,
-			"intentional creation failure");
+		EXPECT_EQ(Failure.Error.Failure, ERHIResourceCreationFailure::OutOfMemory);
+		EXPECT_EQ(Failure.Error.NativeCode, -2);
 		EXPECT_TRUE(Success.IsSuccess());
 		EXPECT_TRUE(bLaterWorkExecutedOnRHIThread);
 		const FRHICommandListExecutorStats Stats = Executor.GetStats();
 		EXPECT_EQ(Stats.SynchronousOperationCount, 2u);
 		EXPECT_EQ(Stats.LastSubmittedSerial, Stats.CompletedSerial);
-		EXPECT_TRUE(RHIThread.GetStats().FailureDiagnostic.empty());
+		EXPECT_EQ(ERHIThreadFailure::None, RHIThread.GetStats().Error.Code);
 
 		Executor.SetInlineMode();
 		RHIThread.Stop();
@@ -1270,7 +1267,7 @@ namespace Durin
 			Backend.FindCompute = [](const auto&) -> FComputePipelineStateRHIRef { return {}; };
 			Backend.CreateCompute = [&](const auto&, const auto&) {
 				Entered.Trigger(); Release.Wait();
-				if (Outcome == 2) throw FRHIRecoverableCreationError("ordinary threaded candidate failure");
+				if (Outcome == 2) throw FRHIRecoverableCreationError({ERHIResourceCreationFailure::ResourceExhausted, ERHICreationFailureSource::MetadataBudget});
 				return MakeRefCount<FRHIComputePipelineState>();
 			};
 			Backend.PublishTerminalFailure = [](std::exception_ptr) { ADD_FAILURE(); };
@@ -1345,7 +1342,7 @@ namespace Durin
 		FRHIPipelineCreationService::FBackend Backend;
 		Backend.FindCompute = [](const auto&) -> FComputePipelineStateRHIRef { return {}; };
 		Backend.CreateCompute = [](const auto&, const auto&) -> FComputePipelineStateRHIRef {
-			throw FRHIRecoverableCreationError("ordinary candidate failure");
+			throw FRHIRecoverableCreationError({ERHIResourceCreationFailure::ResourceExhausted, ERHICreationFailureSource::MetadataBudget});
 		};
 		Backend.PublishTerminalFailure = [](std::exception_ptr) { ADD_FAILURE(); };
 		FRHIPipelineCreationService Service(Capabilities, std::move(Backend));
@@ -1401,7 +1398,7 @@ namespace Durin
 		FRHICommandListExecutor Executor(Context, RHIThread);
 		FRHIThreadWork FailingWork;
 		FailingWork.Execute = []() {
-			return FRHIThreadWorkResult::Failure("intentional consumer failure");
+			return FRHIThreadWorkResult::FromExternalException("intentional consumer failure");
 		};
 		const FRHIThreadSubmission FailureSubmission =
 			RHIThread.Enqueue(FailingWork);
@@ -1771,30 +1768,30 @@ namespace Durin
 			Second.PipelineLayout.BindingLayouts[0].BindingLayouts);
 		FComputePipelineStateKey FirstKey;
 		FComputePipelineStateKey SecondKey;
-		std::string Error;
-		ASSERT_TRUE(BuildComputePipelineStateKey(First, nullptr, FirstKey, Error))
-			<< Error;
-		ASSERT_TRUE(BuildComputePipelineStateKey(Second, nullptr, SecondKey, Error))
-			<< Error;
+		FRHIOperationResult Error;
+		ASSERT_TRUE((Error = BuildComputePipelineStateKey(First, nullptr, FirstKey)))
+			<< FormatRHIError(Error.Error);
+		ASSERT_TRUE((Error = BuildComputePipelineStateKey(Second, nullptr, SecondKey)))
+			<< FormatRHIError(Error.Error);
 		EXPECT_EQ(FirstKey, SecondKey);
 		EXPECT_EQ(FComputePipelineStateKeyHasher{}(FirstKey),
 			FComputePipelineStateKeyHasher{}(SecondKey));
 
 		FComputePipelineStateInitializer Invalid = First;
 		Invalid.ComputeShader = nullptr;
-		EXPECT_FALSE(BuildComputePipelineStateKey(
-			Invalid, nullptr, FirstKey, Error));
+		EXPECT_FALSE((Error = BuildComputePipelineStateKey(
+			Invalid, nullptr, FirstKey)));
 		Invalid = First;
 		Invalid.PipelineLayout.BindingLayouts[0].BindingLayouts[0].StageFlags =
 			EShaderStageFlags::Fragment;
-		EXPECT_FALSE(BuildComputePipelineStateKey(
-			Invalid, nullptr, FirstKey, Error));
+		EXPECT_FALSE((Error = BuildComputePipelineStateKey(
+			Invalid, nullptr, FirstKey)));
 		Invalid = First;
 		Invalid.PipelineLayout.PushConstantRanges = {
 			{EShaderStageFlags::Compute, 0, 8},
 			{EShaderStageFlags::Compute, 4, 8}};
-		EXPECT_FALSE(BuildComputePipelineStateKey(
-			Invalid, nullptr, FirstKey, Error));
+		EXPECT_FALSE((Error = BuildComputePipelineStateKey(
+			Invalid, nullptr, FirstKey)));
 	}
 
 	TEST(FRHICommandListTests, RejectsInvalidComputePipelineCombinations)
@@ -2310,15 +2307,15 @@ namespace Durin
 
 		FGraphicsPipelineStateKey FirstKey;
 		FGraphicsPipelineStateKey SecondKey;
-		std::string Error;
-		ASSERT_TRUE(BuildGraphicsPipelineStateKey(First, nullptr, FirstKey, Error)) << Error;
-		ASSERT_TRUE(BuildGraphicsPipelineStateKey(Second, nullptr, SecondKey, Error)) << Error;
+		FRHIOperationResult Error;
+		ASSERT_TRUE((Error = BuildGraphicsPipelineStateKey(First, nullptr, FirstKey))) << FormatRHIError(Error.Error);
+		ASSERT_TRUE((Error = BuildGraphicsPipelineStateKey(Second, nullptr, SecondKey))) << FormatRHIError(Error.Error);
 		EXPECT_EQ(FirstKey, SecondKey);
 		EXPECT_EQ(FGraphicsPipelineStateKeyHasher{}(FirstKey),
 			FGraphicsPipelineStateKeyHasher{}(SecondKey));
 
 		Second.ColorBlendStates[0].ColorWriteMask = ERHIColorWriteMask::Red;
-		ASSERT_TRUE(BuildGraphicsPipelineStateKey(Second, nullptr, SecondKey, Error)) << Error;
+		ASSERT_TRUE((Error = BuildGraphicsPipelineStateKey(Second, nullptr, SecondKey))) << FormatRHIError(Error.Error);
 		EXPECT_NE(FirstKey, SecondKey);
 	}
 
@@ -2346,15 +2343,15 @@ namespace Durin
 
 		FGraphicsPipelineStateKey PositiveKey;
 		FGraphicsPipelineStateKey NegativeKey;
-		std::string Error;
-		ASSERT_TRUE(BuildGraphicsPipelineStateKey(Positive, nullptr, PositiveKey, Error)) << Error;
-		ASSERT_TRUE(BuildGraphicsPipelineStateKey(Negative, nullptr, NegativeKey, Error)) << Error;
+		FRHIOperationResult Error;
+		ASSERT_TRUE((Error = BuildGraphicsPipelineStateKey(Positive, nullptr, PositiveKey))) << FormatRHIError(Error.Error);
+		ASSERT_TRUE((Error = BuildGraphicsPipelineStateKey(Negative, nullptr, NegativeKey))) << FormatRHIError(Error.Error);
 		EXPECT_EQ(PositiveKey, NegativeKey);
 		EXPECT_EQ(FGraphicsPipelineStateKeyHasher{}(PositiveKey),
 			FGraphicsPipelineStateKeyHasher{}(NegativeKey));
 
 		Negative.RasterizerState.DepthBiasSlopeFactor = -1.0f;
-		ASSERT_TRUE(BuildGraphicsPipelineStateKey(Negative, nullptr, NegativeKey, Error)) << Error;
+		ASSERT_TRUE((Error = BuildGraphicsPipelineStateKey(Negative, nullptr, NegativeKey))) << FormatRHIError(Error.Error);
 		EXPECT_EQ(PositiveKey, NegativeKey);
 		EXPECT_EQ(FGraphicsPipelineStateKeyHasher{}(PositiveKey),
 			FGraphicsPipelineStateKeyHasher{}(NegativeKey));
@@ -2379,10 +2376,9 @@ namespace Durin
 		Attachment.FinalLayout = ERHITextureLayout::ShaderReadOnly;
 		Attachment.FinalAccess = ERHIAccess::GraphicsShaderRead;
 		FGraphicsPipelineStateKey Key;
-		std::string Error;
-		EXPECT_FALSE(BuildGraphicsPipelineStateKey(Initializer, nullptr, Key, Error));
-		EXPECT_EQ(Error,
-			"Graphics pipeline vertex stream stride or input rate is inconsistent.");
+		FRHIOperationResult Error;
+		EXPECT_FALSE((Error = BuildGraphicsPipelineStateKey(Initializer, nullptr, Key)));
+		EXPECT_EQ(Error.Error.Code, FRHIError::FCode{ERHIGraphicsPipelineError::InconsistentVertexStream});
 	}
 
 	TEST(FRHICommandListTests, ReflectedBindingArraysValidateUpdateAndCompleteness)
@@ -2399,21 +2395,29 @@ namespace Durin
 				.Resource = reinterpret_cast<FRHIResource*>(uintptr_t{2}),
 				.SetIndex = 0, .BindingIndex = 3, .ArrayElement = 1,
 				.Type = ERHIBindingType::Sampler}};
-		std::string Error;
-		EXPECT_TRUE(ValidateShaderParameterUpdate(Layout,
-			EShaderStageFlags::Fragment, Resources, Error)) << Error;
-		EXPECT_TRUE(ValidateShaderBindingCompleteness(Layout, Resources, Error))
-			<< Error;
+		FRHIOperationResult Error;
+		EXPECT_TRUE((Error = ValidateShaderParameterUpdate(Layout,
+			EShaderStageFlags::Fragment, Resources))) << FormatRHIError(Error.Error);
+		EXPECT_TRUE((Error = ValidateShaderBindingCompleteness(Layout, Resources)))
+			<< FormatRHIError(Error.Error);
 
 		Resources[1].ArrayElement = 2;
-		EXPECT_FALSE(ValidateShaderParameterUpdate(Layout,
-			EShaderStageFlags::Fragment, Resources, Error));
+		EXPECT_FALSE((Error = ValidateShaderParameterUpdate(Layout,
+			EShaderStageFlags::Fragment, Resources)));
+		EXPECT_EQ(Error.Error.Code, FRHIError::FCode{ERHIShaderBindingError::ArrayElementOutOfRange});
+		EXPECT_EQ(Error.Error.Index, 1u);
+		EXPECT_EQ(Error.Error.SetIndex, 0u);
+		EXPECT_EQ(Error.Error.BindingIndex, 3u);
+		EXPECT_EQ(Error.Error.ArrayElement, 2u);
 		Resources[1].ArrayElement = 0;
-		EXPECT_FALSE(ValidateShaderBindingCompleteness(Layout, Resources, Error));
+		EXPECT_FALSE((Error = ValidateShaderBindingCompleteness(Layout, Resources)));
 		Resources[1].ArrayElement = 1;
 		Resources[1].Type = ERHIBindingType::Texture;
-		EXPECT_FALSE(ValidateShaderParameterUpdate(Layout,
-			EShaderStageFlags::Fragment, Resources, Error));
+		EXPECT_FALSE((Error = ValidateShaderParameterUpdate(Layout,
+			EShaderStageFlags::Fragment, Resources)));
+		EXPECT_EQ(Error.Error.Code, FRHIError::FCode{ERHIShaderBindingError::TypeMismatch});
+		EXPECT_EQ(Error.Error.ExpectedBindingType, ERHIBindingType::Sampler);
+		EXPECT_EQ(Error.Error.ActualBindingType, ERHIBindingType::Texture);
 	}
 
 	TEST(FRHICommandListTests, BindingCompletenessUsesOneOrderedLinearWalk)
@@ -2434,13 +2438,13 @@ namespace Durin
 
 		uint64 Visits = 0;
 		std::vector<uint32> VisitedElements;
-		std::string Error;
-		EXPECT_TRUE(RHIShaderParameterValidationInternal::VisitOrderedBindings(
+		FRHIOperationResult Error;
+		EXPECT_TRUE((Error = RHIShaderParameterValidationInternal::VisitOrderedBindings(
 			Layout, Resources,
 			[&](const RHIShaderParameterValidationInternal::FBindingElement& Element,
 				const FRHIShaderParameterResource&) {
 					VisitedElements.push_back(Element.ArrayElement);
-				}, Error, &Visits)) << Error;
+				}, &Visits))) << FormatRHIError(Error.Error);
 		EXPECT_EQ(Visits, 64u);
 		EXPECT_EQ(VisitedElements.size(), 64u);
 		EXPECT_EQ(VisitedElements.front(), 0u);
@@ -2448,18 +2452,18 @@ namespace Durin
 
 		Resources[31].Resource = nullptr;
 		Visits = 0;
-		EXPECT_FALSE(RHIShaderParameterValidationInternal::VisitOrderedBindings(
-			Layout, Resources, [](const auto&, const auto&) {}, Error, &Visits));
+		EXPECT_FALSE((Error = RHIShaderParameterValidationInternal::VisitOrderedBindings(
+			Layout, Resources, [](const auto&, const auto&) {}, &Visits)));
 		EXPECT_EQ(Visits, 32u);
-		EXPECT_EQ(Error, "Draw is missing a required shader binding element.");
+		EXPECT_EQ(Error.Error.Code, FRHIError::FCode{ERHIShaderBindingError::NullResource});
 
 		Resources[31].Resource = reinterpret_cast<FRHIResource*>(uintptr_t{32});
 		Resources.push_back(Resources.back());
 		Resources.back().ArrayElement = 64;
 		Visits = 0;
-		EXPECT_FALSE(RHIShaderParameterValidationInternal::VisitOrderedBindings(
-			Layout, Resources, [](const auto&, const auto&) {}, Error, &Visits));
+		EXPECT_FALSE((Error = RHIShaderParameterValidationInternal::VisitOrderedBindings(
+			Layout, Resources, [](const auto&, const auto&) {}, &Visits)));
 		EXPECT_EQ(Visits, 65u);
-		EXPECT_EQ(Error, "Draw contains an unexpected shader binding element.");
+		EXPECT_EQ(Error.Error.Code, FRHIError::FCode{ERHIShaderBindingError::UnexpectedBinding});
 	}
 } // namespace Durin

@@ -34,8 +34,7 @@ namespace Durin
 			const FRHIBufferViewDesc& Desc) -> FBufferViewRHIRef
 		{
 			if (GDynamicRHI) return GDynamicRHI->RHIGetOrCreateBufferView(Buffer, Desc);
-			std::string Error;
-			return ValidateBufferViewDesc(Buffer, Desc, Error)
+			return ValidateBufferViewDesc(Buffer, Desc)
 				? FBufferViewRHIRef(new FRHIBufferView(Buffer, Desc)) : nullptr;
 		}
 
@@ -44,8 +43,7 @@ namespace Durin
 			const FRHITextureViewDesc& Desc) -> FTextureViewRHIRef
 		{
 			if (GDynamicRHI) return GDynamicRHI->RHIGetOrCreateTextureView(Texture, Desc);
-			std::string Error;
-			return ValidateTextureViewDesc(Texture, Desc, Error)
+			return ValidateTextureViewDesc(Texture, Desc)
 				? FTextureViewRHIRef(new FRHITextureView(Texture, Desc)) : nullptr;
 		}
 
@@ -1203,10 +1201,12 @@ namespace Durin
 				Desc.ArraySize = Texture->GetArraySize();
 				Desc.NumMips = Texture->GetNumMips();
 				Desc.NumSamples = Texture->GetNumSamples();
-				std::string Error;
-				checkf(ValidateTexture2DUpdate(
-					Desc, MipIndex, ArraySlice, Region, InSourcePitch, Error),
-					"Invalid RHI texture upload: {}", Error);
+#if DO_CHECK
+				const auto ValidationResult = ValidateTexture2DUpdate(
+					Desc, MipIndex, ArraySlice, Region, InSourcePitch);
+				checkf(ValidationResult,
+					"Invalid RHI texture upload: {}", FormatRHIError(ValidationResult.Error));
+#endif
 
 				const FPixelFormatInfo& FormatInfo = GetPixelFormatInfo(Texture->GetFormat());
 				const FPixelFormatLayout Layout = GetPixelFormatLayout(
@@ -1281,10 +1281,12 @@ namespace Durin
 				Desc.ArraySize = Texture->GetArraySize();
 				Desc.NumMips = Texture->GetNumMips();
 				Desc.NumSamples = Texture->GetNumSamples();
-				std::string Error;
-				checkf(ValidateTexture3DUpdate(Desc, MipIndex, Region,
-					InSourceRowPitch, InSourceDepthPitch, Error),
-					"Invalid RHI volume texture upload: {}", Error);
+#if DO_CHECK
+				const auto ValidationResult = ValidateTexture3DUpdate(Desc, MipIndex, Region,
+					InSourceRowPitch, InSourceDepthPitch);
+				checkf(ValidationResult,
+					"Invalid RHI volume texture upload: {}", FormatRHIError(ValidationResult.Error));
+#endif
 
 				const FPixelFormatInfo& FormatInfo = GetPixelFormatInfo(Texture->GetFormat());
 				const FPixelFormatLayout SliceLayout = GetPixelFormatLayout(
@@ -1967,9 +1969,11 @@ namespace Durin
 		if (Transitions.empty()) return;
 		checkf(!bInsideRenderPass,
 			"Buffer transitions cannot be recorded inside a render pass.");
-		std::string Error;
-		checkf(ValidateBufferTransitions(Transitions, Error),
-			"Invalid RHI buffer transition batch: {}", Error);
+#if DO_CHECK
+		const auto ValidationResult = ValidateBufferTransitions(Transitions);
+		checkf(ValidationResult,
+			"Invalid RHI buffer transition batch: {}", FormatRHIError(ValidationResult.Error));
+#endif
 		RecordCommand<FBufferTransitionCommand>(Transitions);
 	}
 
@@ -1979,9 +1983,11 @@ namespace Durin
 		if (Transitions.empty()) return;
 		checkf(!bInsideRenderPass,
 			"Texture transitions cannot be recorded inside a render pass.");
-		std::string Error;
-		checkf(ValidateTextureTransitions(Transitions, Error),
-			"Invalid RHI texture transition batch: {}", Error);
+#if DO_CHECK
+		const auto ValidationResult = ValidateTextureTransitions(Transitions);
+		checkf(ValidationResult,
+			"Invalid RHI texture transition batch: {}", FormatRHIError(ValidationResult.Error));
+#endif
 		RecordCommand<FTextureTransitionCommand>(Transitions);
 	}
 
@@ -1990,9 +1996,11 @@ namespace Durin
 	{
 		if (Regions.empty()) return;
 		checkf(!bInsideRenderPass, "Buffer copies cannot be recorded inside a render pass.");
-		std::string Error;
-		checkf(ValidateBufferCopies(Source, Destination, Regions, Error),
-			"Invalid RHI buffer copy batch: {}", Error);
+#if DO_CHECK
+		const auto ValidationResult = ValidateBufferCopies(Source, Destination, Regions);
+		checkf(ValidationResult,
+			"Invalid RHI buffer copy batch: {}", FormatRHIError(ValidationResult.Error));
+#endif
 		RecordCommand<FCopyBufferCommand>(Source, Destination, Regions);
 	}
 
@@ -2001,9 +2009,11 @@ namespace Durin
 	{
 		if (Regions.empty()) return;
 		checkf(!bInsideRenderPass, "Buffer-to-texture copies cannot be recorded inside a render pass.");
-		std::string Error;
-		checkf(ValidateBufferToTextureCopies(Source, Destination, Regions, Error),
-			"Invalid RHI buffer-to-texture copy batch: {}", Error);
+#if DO_CHECK
+		const auto ValidationResult = ValidateBufferToTextureCopies(Source, Destination, Regions);
+		checkf(ValidationResult,
+			"Invalid RHI buffer-to-texture copy batch: {}", FormatRHIError(ValidationResult.Error));
+#endif
 		RecordCommand<FCopyBufferToTextureCommand>(Source, Destination, Regions);
 	}
 
@@ -2012,9 +2022,11 @@ namespace Durin
 	{
 		if (Regions.empty()) return;
 		checkf(!bInsideRenderPass, "Texture-to-buffer copies cannot be recorded inside a render pass.");
-		std::string Error;
-		checkf(ValidateTextureToBufferCopies(Source, Destination, Regions, Error),
-			"Invalid RHI texture-to-buffer copy batch: {}", Error);
+#if DO_CHECK
+		const auto ValidationResult = ValidateTextureToBufferCopies(Source, Destination, Regions);
+		checkf(ValidationResult,
+			"Invalid RHI texture-to-buffer copy batch: {}", FormatRHIError(ValidationResult.Error));
+#endif
 		RecordCommand<FCopyTextureToBufferCommand>(Source, Destination, Regions);
 	}
 
@@ -2023,9 +2035,11 @@ namespace Durin
 	{
 		if (Regions.empty()) return;
 		checkf(!bInsideRenderPass, "Texture copies cannot be recorded inside a render pass.");
-		std::string Error;
-		checkf(ValidateTextureCopies(Source, Destination, Regions, Error),
-			"Invalid RHI texture copy batch: {}", Error);
+#if DO_CHECK
+		const auto ValidationResult = ValidateTextureCopies(Source, Destination, Regions);
+		checkf(ValidationResult,
+			"Invalid RHI texture copy batch: {}", FormatRHIError(ValidationResult.Error));
+#endif
 		RecordCommand<FCopyTextureCommand>(Source, Destination, Regions);
 	}
 
@@ -2806,7 +2820,7 @@ namespace Durin
 				"RHI command-list submission rejected (result {}, state {}, failure '{}').",
 				static_cast<uint32>(Submission.Result),
 				static_cast<uint32>(ThreadStats.AdmissionState),
-				ThreadStats.FailureDiagnostic);
+				FormatRHIThreadError(ThreadStats.Error));
 			std::terminate();
 		}
 		return Submission.Serial;
@@ -2834,9 +2848,7 @@ namespace Durin
 		try { Operation(); }
 		catch (const FRHIRecoverableCreationError& Exception)
 		{
-			Result.bSucceeded = false;
-			Result.Diagnostic = Exception.what();
-			Result.Failure = Exception.Failure;
+			Result.Error = Exception.Error;
 		}
 		return Result;
 	}

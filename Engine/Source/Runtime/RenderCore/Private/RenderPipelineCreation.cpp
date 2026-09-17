@@ -37,10 +37,9 @@ namespace Durin
 			if (!IsPipelineCreationPayloadBounded(Initializer, Name.ToString()))
 				return FRHIPipelineCreationRequest::Rejected(ERHIPipelineRequestRejection::CapacityExceeded);
 			TKey Key;
-			std::string Error;
-			bool Valid;
-			if constexpr (Graphics) Valid = BuildGraphicsPipelineStateKey(Initializer, GDynamicRHI->RHIGetCapabilities(), Key, Error);
-			else Valid = BuildComputePipelineStateKey(Initializer, GDynamicRHI->RHIGetCapabilities(), Key, Error);
+			FRHIOperationResult Valid;
+			if constexpr (Graphics) Valid = BuildGraphicsPipelineStateKey(Initializer, GDynamicRHI->RHIGetCapabilities(), Key);
+			else Valid = BuildComputePipelineStateKey(Initializer, GDynamicRHI->RHIGetCapabilities(), Key);
 			if (!Valid) return FRHIPipelineCreationRequest::Rejected(ERHIPipelineRequestRejection::InvalidDescription);
 			for (const auto& Entry : Entries)
 				if (const auto* Existing = std::get_if<TKey>(&Entry.Key); Existing && *Existing == Key) return Entry.Request;

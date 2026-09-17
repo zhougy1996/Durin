@@ -31,20 +31,19 @@ namespace Durin
 			return DynamicRHIModule->CreateRHI();
 		}
 
-		auto RollbackBackendInitialization() -> std::string
+		auto RollbackBackendInitialization() -> void
 		{
 			try
 			{
 				GDynamicRHI->Shutdown();
-				return {};
 			}
 			catch (const std::exception& Exception)
 			{
-				return Exception.what();
+				DURIN_ERROR("Backend initialization rollback failed: {}", Exception.what());
 			}
 			catch (...)
 			{
-				return "unknown backend shutdown exception";
+				DURIN_ERROR("Backend initialization rollback failed with an unknown exception.");
 			}
 		}
 
@@ -58,28 +57,13 @@ namespace Durin
 			}
 			catch (const std::exception& Exception)
 			{
-				std::string Diagnostic = Exception.what();
-				const std::string RollbackDiagnostic =
-					RollbackBackendInitialization();
-				if (!RollbackDiagnostic.empty())
-				{
-					Diagnostic += "; backend rollback failed: ";
-					Diagnostic += RollbackDiagnostic;
-				}
-				return FRHIThreadWorkResult::Failure(std::move(Diagnostic));
+				RollbackBackendInitialization();
+				return FRHIThreadWorkResult::FromExternalException(Exception.what());
 			}
 			catch (...)
 			{
-				std::string Diagnostic =
-					"Dynamic RHI initialization failed with an unknown exception.";
-				const std::string RollbackDiagnostic =
-					RollbackBackendInitialization();
-				if (!RollbackDiagnostic.empty())
-				{
-					Diagnostic += " Backend rollback failed: ";
-					Diagnostic += RollbackDiagnostic;
-				}
-				return FRHIThreadWorkResult::Failure(std::move(Diagnostic));
+				RollbackBackendInitialization();
+				return FRHIThreadWorkResult::Failure(ERHIThreadFailure::UnknownException);
 			}
 		}
 
@@ -148,12 +132,10 @@ namespace Durin
 					RHIThreadOwner->EnqueueSynchronous(InitWork);
 				if (!InitResult.IsCompleted())
 				{
-					const std::string Diagnostic =
-						RHIThreadOwner->GetStats().FailureDiagnostic;
-					LastRHIInitializationDiagnostic = Diagnostic;
+					LastRHIInitializationDiagnostic = FormatRHIThreadError(InitResult.Error);
 					DURIN_ERROR(
 						"Failed to initialize dynamic RHI on RHI thread: {}",
-						Diagnostic);
+						LastRHIInitializationDiagnostic);
 					ReleaseFailedInitialization(bOwnsBackendModule);
 					return false;
 				}
@@ -164,12 +146,12 @@ namespace Durin
 			{
 				const FRHIThreadWorkResult InitResult =
 					InitializeBackendWithRollback(Context);
-				if (!InitResult.bSucceeded)
+				if (!InitResult.IsSuccess())
 				{
-					LastRHIInitializationDiagnostic = InitResult.Diagnostic;
+					LastRHIInitializationDiagnostic = FormatRHIThreadError(InitResult.Error);
 					DURIN_ERROR(
 						"Failed to initialize dynamic RHI inline: {}",
-						InitResult.Diagnostic);
+						LastRHIInitializationDiagnostic);
 					ReleaseFailedInitialization(bOwnsBackendModule);
 					return false;
 				}

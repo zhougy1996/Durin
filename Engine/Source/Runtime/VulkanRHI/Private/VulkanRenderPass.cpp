@@ -245,7 +245,7 @@ namespace Durin::VulkanRHI
 		}
 
 		if (RenderPasses.size() >= 1024)
-			throw FRHIRecoverableCreationError("Vulkan render-pass cache is full.");
+			throw FRHIRecoverableCreationError({ERHIResourceCreationFailure::ResourceExhausted, ERHICreationFailureSource::RenderPassCache});
 		auto Metadata = Device.ReserveCacheMetadata(512 + sizeof(FVulkanRenderPass) + sizeof(FVulkanRenderPassKey));
 		auto Candidate = std::make_unique<FVulkanRenderPass>(Device, Key);
 		Candidate->MetadataReservation = std::move(Metadata);

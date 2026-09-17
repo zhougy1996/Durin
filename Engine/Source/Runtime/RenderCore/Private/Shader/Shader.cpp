@@ -777,8 +777,7 @@ namespace Durin
 							View = GDynamicRHI->RHIGetOrCreateTextureView(Texture, Desc);
 						else
 						{
-							std::string Error;
-							if (ValidateTextureViewDesc(Texture, Desc, Error))
+							if (ValidateTextureViewDesc(Texture, Desc))
 								View = new FRHITextureView(Texture, Desc);
 						}
 						checkf(View,

@@ -28,8 +28,8 @@ namespace Durin::RHIShaderParameterValidationInternal
 	template <typename FVisitor>
 	auto VisitOrderedBindings(const FPipelineLayoutDesc& Layout,
 		std::span<const FRHIShaderParameterResource> Resources,
-		FVisitor&& Visitor, std::string& OutError,
-		uint64* ValidationVisits = nullptr) -> bool
+		FVisitor&& Visitor,
+		uint64* ValidationVisits = nullptr) -> FRHIOperationResult
 	{
 		size_t ResourceIndex = 0;
 		for (uint32 SetIndex = 0; SetIndex < Layout.BindingLayouts.size(); ++SetIndex)
@@ -47,8 +47,21 @@ namespace Durin::RHIShaderParameterValidationInternal
 						|| !Resources[ResourceIndex].Resource
 						|| Resources[ResourceIndex].Type != Binding.Type)
 					{
-						OutError = "Draw is missing a required shader binding element.";
-						return false;
+						const auto Code = ResourceIndex >= Resources.size()
+							|| CompareLocation(Resources[ResourceIndex], Expected) != 0
+							? ERHIShaderBindingError::MissingBinding
+							: !Resources[ResourceIndex].Resource ? ERHIShaderBindingError::NullResource
+							: ERHIShaderBindingError::TypeMismatch;
+						FRHIOperationResult Result{Code, static_cast<uint32>(ResourceIndex)};
+						Result.Error.SetIndex = SetIndex;
+						Result.Error.BindingIndex = Binding.Slot;
+						Result.Error.ArrayElement = ArrayElement;
+						if (Code == ERHIShaderBindingError::TypeMismatch)
+						{
+							Result.Error.ExpectedBindingType = Binding.Type;
+							Result.Error.ActualBindingType = Resources[ResourceIndex].Type;
+						}
+						return Result;
 					}
 					Visitor(Expected, Resources[ResourceIndex]);
 					++ResourceIndex;
@@ -58,10 +71,12 @@ namespace Durin::RHIShaderParameterValidationInternal
 		if (ResourceIndex != Resources.size())
 		{
 			if (ValidationVisits) ++*ValidationVisits;
-			OutError = "Draw contains an unexpected shader binding element.";
-			return false;
+			FRHIOperationResult Result{ERHIShaderBindingError::UnexpectedBinding, static_cast<uint32>(ResourceIndex)};
+			Result.Error.SetIndex = Resources[ResourceIndex].SetIndex;
+			Result.Error.BindingIndex = Resources[ResourceIndex].BindingIndex;
+			Result.Error.ArrayElement = Resources[ResourceIndex].ArrayElement;
+			return Result;
 		}
-		OutError.clear();
-		return true;
+		return {};
 	}
 } // namespace Durin::RHIShaderParameterValidationInternal

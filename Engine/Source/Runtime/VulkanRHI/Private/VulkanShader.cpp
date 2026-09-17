@@ -170,7 +170,7 @@ namespace Durin::VulkanRHI
 		{
 			DURIN_ERROR("Failed to create Vulkan RHI shader '{}': {}",
 				InCreateDesc.DebugName ? InCreateDesc.DebugName : "<unnamed>",
-				CreationResult.Diagnostic);
+				FormatRHICreationError(CreationResult.Error));
 			return nullptr;
 		}
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION

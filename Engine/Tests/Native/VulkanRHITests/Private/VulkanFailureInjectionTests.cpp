@@ -269,7 +269,6 @@ namespace Durin::VulkanRHI
 	{
 		FVulkanInstanceExtensionRequestInput Input;
 		const auto Headless = BuildVulkanInstanceExtensionRequest(Input);
-		ASSERT_TRUE(Headless.IsSuccess());
 		EXPECT_EQ(Headless.RequiredExtensions,
 			(std::vector<std::string>{VK_KHR_SURFACE_EXTENSION_NAME}));
 
@@ -280,7 +279,6 @@ namespace Durin::VulkanRHI
 		Input.bRequirePortabilityEnumeration = true;
 		const FVulkanInstanceExtensionRequest Result =
 			BuildVulkanInstanceExtensionRequest(Input);
-		ASSERT_TRUE(Result.IsSuccess()) << Result.Diagnostic;
 		EXPECT_EQ(Result.RequiredExtensions,
 			(std::vector<std::string>{
 				VK_KHR_SURFACE_EXTENSION_NAME,
@@ -295,14 +293,18 @@ namespace Durin::VulkanRHI
 		Input.LoaderApiVersion = VK_API_VERSION_1_0;
 		FVulkanInstanceNegotiationResult Result = NegotiateVulkanInstance(Input);
 		EXPECT_FALSE(Result.IsSuccess());
-		EXPECT_NE(Result.Diagnostic.find("Vulkan 1.1"), std::string::npos);
+		ASSERT_EQ(Result.Errors.size(), 1u);
+		EXPECT_EQ(Result.Errors[0].Code, EVulkanError::LoaderVersionTooOld);
+		EXPECT_EQ(Result.Errors[0].Actual, VK_API_VERSION_1_0);
+		EXPECT_EQ(Result.Errors[0].Required, VK_API_VERSION_1_1);
 
 		Input = MakeInstanceNegotiationInput();
 		Input.AvailableExtensions.pop_back();
 		Result = NegotiateVulkanInstance(Input);
 		EXPECT_FALSE(Result.IsSuccess());
-		EXPECT_NE(Result.Diagnostic.find(PlatformSurfaceExtension), std::string::npos);
-		EXPECT_NE(Result.Diagnostic.find("platform required"), std::string::npos);
+		ASSERT_EQ(Result.Errors.size(), 1u);
+		EXPECT_EQ(Result.Errors[0].Requirement, PlatformSurfaceExtension);
+		EXPECT_EQ(Result.Errors[0].Code, EVulkanError::MissingInstanceExtension);
 	}
 
 	TEST(FVulkanInstanceNegotiationTests, PromotedAndOptionalRequirementsAreDeduplicated)
@@ -314,7 +316,7 @@ namespace Durin::VulkanRHI
 			VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME,
 			VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME});
 		const FVulkanInstanceNegotiationResult Result = NegotiateVulkanInstance(Input);
-		ASSERT_TRUE(Result.IsSuccess()) << Result.Diagnostic;
+		ASSERT_TRUE(Result.IsSuccess()) << FormatVulkanErrors(Result.Errors);
 		EXPECT_EQ(std::ranges::count(Result.EnabledExtensions,
 			std::string(VK_KHR_SURFACE_EXTENSION_NAME)), 1);
 		EXPECT_EQ(std::ranges::count(Result.EnabledExtensions,
@@ -333,7 +335,7 @@ namespace Durin::VulkanRHI
 			VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME,
 			VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME});
 		const auto Result = NegotiateVulkanInstance(Input);
-		ASSERT_TRUE(Result.IsSuccess()) << Result.Diagnostic;
+		ASSERT_TRUE(Result.IsSuccess()) << FormatVulkanErrors(Result.Errors);
 		EXPECT_TRUE(Result.EnabledExtensions.empty());
 	}
 
@@ -342,7 +344,7 @@ namespace Durin::VulkanRHI
 		FVulkanInstanceNegotiationInput Input = MakeInstanceNegotiationInput();
 		Input.bRequestDiagnostics = true;
 		FVulkanInstanceNegotiationResult Result = NegotiateVulkanInstance(Input);
-		ASSERT_TRUE(Result.IsSuccess()) << Result.Diagnostic;
+		ASSERT_TRUE(Result.IsSuccess()) << FormatVulkanErrors(Result.Errors);
 		EXPECT_TRUE(Result.EnabledExtensions.empty()
 			|| std::ranges::find(Result.EnabledExtensions, VK_EXT_DEBUG_UTILS_EXTENSION_NAME)
 				== Result.EnabledExtensions.end());
@@ -368,7 +370,7 @@ namespace Durin::VulkanRHI
 		EXPECT_FALSE(NegotiateVulkanInstance(Input).IsSuccess());
 		Input = MakeInstanceNegotiationInput();
 		const FVulkanInstanceNegotiationResult Result = NegotiateVulkanInstance(Input);
-		EXPECT_TRUE(Result.IsSuccess()) << Result.Diagnostic;
+		EXPECT_TRUE(Result.IsSuccess()) << FormatVulkanErrors(Result.Errors);
 		EXPECT_EQ(Result.EnabledExtensions.size(), 2u);
 	}
 
@@ -376,22 +378,22 @@ namespace Durin::VulkanRHI
 	{
 		struct FCase
 		{
-			std::string_view ExpectedReason;
+			EVulkanError ExpectedReason;
 			std::function<void(FVulkanPhysicalDeviceCandidateInput&)> BreakRequirement;
 		};
 		const std::array Cases{
-			FCase{"Vulkan 1.1", [](auto& Input) { Input.ApiVersion = VK_API_VERSION_1_0; }},
-			FCase{"VK_KHR_swapchain", [](auto& Input) { Input.AvailableExtensions.clear(); }},
-			FCase{"fillModeNonSolid", [](auto& Input) { Input.bFillModeNonSolid = false; }},
-			FCase{"independentBlend", [](auto& Input) { Input.bIndependentBlend = false; }},
-			FCase{"shaderDrawParameters", [](auto& Input) { Input.bShaderDrawParameters = false; }},
-			FCase{"maxImageDimension2D", [](auto& Input) { Input.MaxImageDimension2D = 0; }},
-			FCase{"maxImageDimensionCube", [](auto& Input) { Input.MaxImageDimensionCube = 0; }},
-			FCase{"below six", [](auto& Input) { Input.MaxImageArrayLayers = 5; }},
-			FCase{"maxComputeWorkGroupCount", [](auto& Input) {
+			FCase{EVulkanError::DeviceVersionTooOld, [](auto& Input) { Input.ApiVersion = VK_API_VERSION_1_0; }},
+			FCase{EVulkanError::MissingSwapchainExtension, [](auto& Input) { Input.AvailableExtensions.clear(); }},
+			FCase{EVulkanError::MissingFillModeNonSolid, [](auto& Input) { Input.bFillModeNonSolid = false; }},
+			FCase{EVulkanError::MissingIndependentBlend, [](auto& Input) { Input.bIndependentBlend = false; }},
+			FCase{EVulkanError::MissingShaderDrawParameters, [](auto& Input) { Input.bShaderDrawParameters = false; }},
+			FCase{EVulkanError::InvalidImageDimension2D, [](auto& Input) { Input.MaxImageDimension2D = 0; }},
+			FCase{EVulkanError::InvalidImageDimensionCube, [](auto& Input) { Input.MaxImageDimensionCube = 0; }},
+			FCase{EVulkanError::InsufficientArrayLayers, [](auto& Input) { Input.MaxImageArrayLayers = 5; }},
+			FCase{EVulkanError::InvalidComputeWorkGroupCount, [](auto& Input) {
 				Input.MaxComputeWorkGroupCount[1] = 0;
 			}},
-			FCase{"graphics, compute, and presentation", [](auto& Input) {
+			FCase{EVulkanError::MissingPresentationQueue, [](auto& Input) {
 				Input.QueueFamilies[0].bSupportsPresentation = false;
 			}},
 		};
@@ -403,7 +405,7 @@ namespace Durin::VulkanRHI
 				EvaluateVulkanPhysicalDeviceCandidate(Input);
 			ASSERT_FALSE(Result.IsSuitable());
 			EXPECT_TRUE(std::ranges::any_of(Result.RejectionReasons,
-				[&Case](const std::string& Reason) { return Reason.find(Case.ExpectedReason) != std::string::npos; }));
+				[&Case](const FVulkanError& Reason) { return Reason.Code == Case.ExpectedReason; }));
 		}
 	}
 
@@ -493,8 +495,7 @@ namespace Durin::VulkanRHI
 		FVulkanPhysicalDeviceCandidateEvaluation Result =
 			EvaluateVulkanPhysicalDeviceCandidate(Input);
 		ASSERT_FALSE(Result.IsSuitable());
-		EXPECT_NE(Result.RejectionReasons.front().find(
-			"VK_KHR_portability_subset"), std::string::npos);
+		EXPECT_EQ(Result.RejectionReasons.front().Code, EVulkanError::MissingPortabilitySubset);
 
 		Input.AvailableExtensions.emplace_back(
 			"VK_KHR_portability_subset");
@@ -530,7 +531,7 @@ namespace Durin::VulkanRHI
 			Inputs[DeviceIndex].DeviceName = std::format("GPU {}", DeviceIndex);
 			for (size_t ReasonIndex = 0; ReasonIndex < 10; ++ReasonIndex)
 				Evaluations[DeviceIndex].RejectionReasons.push_back(
-					std::format("reason {} {}", ReasonIndex, std::string(300, 'x')));
+					{EVulkanError::MissingInstanceExtension, std::string(300, 'x')});
 		}
 		const std::string Diagnostic =
 			FormatVulkanPhysicalDeviceRejectionDiagnostic(Inputs, Evaluations);
@@ -1449,11 +1450,13 @@ namespace Durin::VulkanRHI
 					throw vk::OutOfDeviceMemoryError("expected allocation failure");
 				}));
 				EXPECT_FALSE(Recoverable.IsSuccess());
-				EXPECT_EQ(Recoverable.Failure, ERHIResourceCreationFailure::OutOfMemory);
+				EXPECT_EQ(Recoverable.Error.Failure, ERHIResourceCreationFailure::OutOfMemory);
+				EXPECT_EQ(Recoverable.Error.NativeCode, static_cast<int32>(vk::Result::eErrorOutOfDeviceMemory));
+				EXPECT_EQ(Recoverable.Error.Source, ERHICreationFailureSource::NativeBackend);
 				const auto Unsupported = ExecuteFallibleRHICreationOperation(MakeVulkanCreationOperation([] {
 					throw vk::FormatNotSupportedError("unsupported descriptor");
 				}));
-				EXPECT_EQ(Unsupported.Failure,
+				EXPECT_EQ(Unsupported.Error.Failure,
 					ERHIResourceCreationFailure::UnsupportedDescriptor);
 				EXPECT_THROW(ExecuteFallibleRHICreationOperation(MakeVulkanCreationOperation([] {
 					throw vk::DeviceLostError("terminal device loss");
@@ -1574,8 +1577,8 @@ namespace Durin::VulkanRHI
 
 		FRHITextureCreateDesc Oversized = Texture2D;
 		Oversized.SetExtent(static_cast<int32>(Capabilities->MaxTextureDimension2D + 1), 1);
-		std::string ValidationError;
-		ASSERT_TRUE(ValidateTextureCreateDesc(Oversized, ValidationError)) << ValidationError;
+		FRHIOperationResult ValidationError;
+		ASSERT_TRUE((ValidationError = ValidateTextureCreateDesc(Oversized))) << FormatRHIError(ValidationError.Error);
 		EXPECT_FALSE(GDynamicRHI->RHIIsTextureSupported(Oversized));
 
 		FTextureRHIRef Created2D = GDynamicRHI->RHICreateTexture(RHICmdList, Texture2D);
@@ -1772,21 +1775,21 @@ namespace Durin::VulkanRHI
 				Layout.BindingLayouts.emplace_back().BindingLayouts.emplace_back(
 					bCompute ? EShaderStageFlags::Compute : EShaderStageFlags::Vertex,
 					Variant, ERHIBindingType::UniformBuffer);
-				std::string Error;
+				FRHIOperationResult Error;
 				TRefCountPtr<FRHIResource> Result;
 				const auto Outcome = ExecuteFallibleRHICreationOperation(MakeVulkanCreationOperation([&] {
 					if (bCompute)
 					{
 						FComputePipelineStateKey Key;
-						if (!BuildComputePipelineStateKey(C, GDynamicRHI->RHIGetCapabilities(), Key, Error))
-							throw std::runtime_error(Error);
+						if (!(Error = BuildComputePipelineStateKey(C, GDynamicRHI->RHIGetCapabilities(), Key)))
+							throw std::runtime_error(FormatRHIError(Error.Error));
 						Result = Device->GetPipelineManager().GetOrCreateComputePipelineState(C, std::move(Key), "BackgroundCompute");
 					}
 					else
 					{
 						FGraphicsPipelineStateKey Key;
-						if (!BuildGraphicsPipelineStateKey(G, GDynamicRHI->RHIGetCapabilities(), Key, Error))
-							throw std::runtime_error(Error);
+						if (!(Error = BuildGraphicsPipelineStateKey(G, GDynamicRHI->RHIGetCapabilities(), Key)))
+							throw std::runtime_error(FormatRHIError(Error.Error));
 						Result = Device->GetPipelineManager().GetOrCreateGraphicsPipelineState(G, std::move(Key), "BackgroundGraphics");
 					}
 				}));

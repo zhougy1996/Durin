@@ -203,7 +203,7 @@ namespace Durin
 		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
 		std::atomic<bool> Fail = true;
 		FRHIPipelineCreationService Service(Capabilities(), Backend([&](const auto& Inputs, const auto&) {
-			if (Inputs.DebugName == "fail" && Fail.exchange(false)) throw FRHIRecoverableCreationError("candidate failed");
+			if (Inputs.DebugName == "fail" && Fail.exchange(false)) throw FRHIRecoverableCreationError({ERHIResourceCreationFailure::ResourceExhausted, ERHICreationFailureSource::MetadataBudget});
 			return MakeRefCount<FRHIComputePipelineState>();
 		}));
 		std::vector<FRHIComputePipelineBatchItem> Items(3);
@@ -219,7 +219,8 @@ namespace Durin
 		ASSERT_EQ(Batch.Items.size(), 3u);
 		EXPECT_TRUE(Batch.Items[0].Wait());
 		EXPECT_FALSE(Batch.Items[1].Wait());
-		EXPECT_EQ(Batch.Items[1].GetResult().Diagnostic, "candidate failed");
+		EXPECT_EQ(Batch.Items[1].GetResult().Error.Failure, ERHIResourceCreationFailure::ResourceExhausted);
+		EXPECT_EQ(Batch.Items[1].GetResult().Error.Source, ERHICreationFailureSource::MetadataBudget);
 		EXPECT_EQ(Batch.Items[2].GetRejection(), ERHIPipelineRequestRejection::InvalidDescription);
 		EXPECT_TRUE(Service.RequestCompute(Items[1].Initializer, "retry").Wait());
 		Items.resize(257);

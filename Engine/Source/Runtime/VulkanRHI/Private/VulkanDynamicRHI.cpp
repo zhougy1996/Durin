@@ -198,8 +198,8 @@ namespace Durin::VulkanRHI
 	{
 		if (!Device || Desc.Source == Desc.Destination || !Device->FindQueue(Desc.Source)
 			|| !Device->FindQueue(Desc.Destination) || (Desc.Buffers.empty() && Desc.Textures.empty())) return {};
-		std::string Error;
-		if (!ValidateBufferTransitions(Desc.Buffers, Error) || !ValidateTextureTransitions(Desc.Textures, Error)) return {};
+
+		if (!ValidateBufferTransitions(Desc.Buffers) || !ValidateTextureTransitions(Desc.Textures)) return {};
 		return std::make_shared<FVulkanQueueTransfer>(*Device, Desc.Source, Desc.Destination, Desc.Buffers, Desc.Textures);
 	}
 
@@ -509,8 +509,6 @@ namespace Durin::VulkanRHI
 #endif
 		const FVulkanInstanceExtensionRequest ExtensionRequest =
 			BuildVulkanInstanceExtensionRequest(ExtensionRequestInput);
-		if (!ExtensionRequest.IsSuccess())
-			throw std::runtime_error(ExtensionRequest.Diagnostic);
 		NegotiationInput.PlatformRequiredExtensions = ExtensionRequest.RequiredExtensions;
 		const FVulkanValidationPolicy ValidationPolicy = ResolveVulkanValidationPolicy(
 			std::getenv("DURIN_VULKAN_VALIDATION"), DURIN_BUILD_DEBUG != 0, DURIN_BUILD_SHIPPING != 0);
@@ -524,7 +522,7 @@ namespace Durin::VulkanRHI
 		}
 		NegotiationInput.bRequestDiagnostics = ValidationPolicy.bRequestDiagnostics;
 		FVulkanInstanceNegotiationResult Negotiation = NegotiateVulkanInstance(NegotiationInput);
-		if (!Negotiation.IsSuccess()) throw std::runtime_error(Negotiation.Diagnostic);
+		if (!Negotiation.IsSuccess()) throw std::runtime_error(FormatVulkanErrors(Negotiation.Errors));
 		for (const FVulkanRequirementState& Requirement : Negotiation.Requirements)
 		{
 			if (!Requirement.bRequested || Requirement.bActivated

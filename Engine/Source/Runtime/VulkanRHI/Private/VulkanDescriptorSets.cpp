@@ -57,7 +57,7 @@ namespace Durin::VulkanRHI
 			return FoundEntry.Handle;
 		}
 		if (DLayoutMap.size() >= 4096)
-			throw FRHIRecoverableCreationError("Vulkan descriptor-set layout cache is full.");
+			throw FRHIRecoverableCreationError({ERHIResourceCreationFailure::ResourceExhausted, ERHICreationFailureSource::DescriptorLayoutCache});
 		// Resident entries remain valid until all creation tasks have joined.
 		vk::DescriptorSetLayoutCreateInfo CreateInfo{};
 		CreateInfo.setBindings(Layout.LayoutBindings);

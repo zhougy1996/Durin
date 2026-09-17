@@ -16,6 +16,7 @@ namespace Durin
 			bool bInitOnRHIThread = false;
 			bool bShutdownOnRHIThread = false;
 			bool bCapabilitiesClearedAtShutdown = false;
+			bool bFailShutdown = false;
 			FRHIInitializationContext InitializationContext =
 				FRHIInitializationContext::Headless();
 		};
@@ -65,6 +66,7 @@ namespace Durin
 				Observation.bShutdownOnRHIThread = IsInRHIThread();
 				ClearCapabilities();
 				Observation.bCapabilitiesClearedAtShutdown = RHIGetCapabilities() == nullptr;
+				if (Observation.bFailShutdown) throw std::runtime_error("intentional rollback failure");
 			}
 
 			auto RHIBeginFrame(const FRHIBeginFrameArgs&) -> void override {}
@@ -136,6 +138,22 @@ namespace Durin
 		EXPECT_TRUE(Observation.bShutdownOnRHIThread);
 		EXPECT_EQ(GetLastRHIInitializationDiagnostic(),
 			"intentional backend init failure");
+	}
+
+	TEST(FRHIInitializationTests, RollbackFailurePreservesPrimaryError)
+	{
+		for (const bool bThreaded : {false, true})
+		{
+			FInitializationObservation Observation;
+			Observation.bFailShutdown = true;
+			EXPECT_FALSE(RHIInitWithBackendForTests(
+				new FFailingDynamicRHI(Observation), bThreaded, false,
+				FRHIInitializationContext::Headless()));
+			EXPECT_EQ(GetLastRHIInitializationDiagnostic(), "intentional backend init failure");
+			EXPECT_EQ(Observation.ShutdownCount, 1u);
+			EXPECT_EQ(Observation.DestructionCount, 1u);
+			EXPECT_EQ(GDynamicRHI, nullptr);
+		}
 	}
 
 	TEST(FRHIInitializationTests,
