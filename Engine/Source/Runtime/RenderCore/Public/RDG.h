@@ -8,7 +8,7 @@
 namespace Durin
 {
 	// Stable failure categories; diagnostic text is never a success indicator.
-	enum class ERDGError : uint8
+	enum class ERDGErrorCategory : uint8
 	{
 		None,
 		InvalidState,
@@ -22,9 +22,11 @@ namespace Durin
 		IncompatibleAllocation
 	};
 
-	enum class ERDGReason : uint8
+	enum class ERDGError : uint8
 	{
-		Unspecified,
+		None,
+		ParameterLayoutNotBuilt,
+		ExecutionNotStarted,
 		MetadataNull,
 		MetadataNameEmpty,
 		MetadataLayoutMismatch,
@@ -172,10 +174,10 @@ namespace Durin
 	struct [[nodiscard]] FRDGResult final
 	{
 		ERDGError Error = ERDGError::None;
-		ERDGReason Reason = ERDGReason::Unspecified;
 		FRDGErrorContext Context;
 		FRDGErrorCause Cause;
 		auto IsSuccess() const -> bool { return Error == ERDGError::None; }
+		RENDERCORE_API auto GetCategory() const -> ERDGErrorCategory;
 	};
 	RENDERCORE_API auto FormatRDGError(const FRDGResult& Result) -> std::string;
 
@@ -496,7 +498,7 @@ namespace Durin
 	struct FRDGParameterLayoutBuildResult final
 	{
 		std::unique_ptr<const FRDGParameterLayout> Layout;
-		FRDGResult Result{ERDGError::InvalidParameterMetadata, ERDGReason::Unspecified};
+		FRDGResult Result{ERDGError::ParameterLayoutNotBuilt};
 	};
 
 	RENDERCORE_API auto BuildRDGParameterLayout(
@@ -1469,7 +1471,7 @@ namespace Durin
 	struct FRDGExecutionResult final
 	{
 		ERDGExecutionStatus Status = ERDGExecutionStatus::InvalidState;
-		FRDGResult Result{ERDGError::InvalidState, ERDGReason::Unspecified};
+		FRDGResult Result{ERDGError::ExecutionNotStarted};
 		auto IsSuccess() const -> bool { return Status == ERDGExecutionStatus::Recorded; }
 	};
 

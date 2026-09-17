@@ -720,17 +720,16 @@ namespace Durin
 		{
 			if (Metadata == nullptr)
 			{
-				return {ERDGError::InvalidParameterMetadata, ERDGReason::MetadataNull};
+				return {ERDGError::MetadataNull};
 			}
 			if (Metadata->StructName == nullptr || Metadata->StructName[0] == '\0')
 			{
-				return {ERDGError::InvalidParameterMetadata, ERDGReason::MetadataNameEmpty};
+				return {ERDGError::MetadataNameEmpty};
 			}
 			if (Metadata->StructSize != ExpectedSize
 				|| Metadata->StructAlignment != ExpectedAlignment)
 			{
-				return {ERDGError::InvalidParameterMetadata,
-					ERDGReason::MetadataLayoutMismatch,
+				return {ERDGError::MetadataLayoutMismatch,
 					FRDGMetadataErrorContext{.StructName = Metadata->StructName,
 						.ExpectedSize = ExpectedSize,
 						.ActualSize = Metadata->StructSize,
@@ -739,8 +738,7 @@ namespace Durin
 			}
 			if (Depth >= 32)
 			{
-				return {ERDGError::InvalidParameterMetadata,
-					ERDGReason::MetadataNestingLimit,
+				return {ERDGError::MetadataNestingLimit,
 					FRDGMetadataErrorContext{.StructName = Metadata->StructName,
 						.ExpectedSize = 32,
 						.Depth = Depth}};
@@ -755,23 +753,23 @@ namespace Durin
 			{
 				if (Member.Name == nullptr || Member.Name[0] == '\0')
 				{
-					return {ERDGError::InvalidParameterMetadata, ERDGReason::MemberNameEmpty, MetadataContext(*Metadata, Member)};
+					return {ERDGError::MemberNameEmpty, MetadataContext(*Metadata, Member)};
 				}
 				if (std::ranges::find(MemberNames, Member.Name)
 					!= MemberNames.end())
 				{
-					return {ERDGError::InvalidParameterMetadata, ERDGReason::MemberNameDuplicate, MetadataContext(*Metadata, Member)};
+					return {ERDGError::MemberNameDuplicate, MetadataContext(*Metadata, Member)};
 				}
 				MemberNames.emplace_back(Member.Name);
 				if (Member.ElementSize == 0 || Member.ArraySize == 0)
 				{
-					return {ERDGError::InvalidParameterMetadata, ERDGReason::MemberLayoutEmpty, MetadataContext(*Metadata, Member)};
+					return {ERDGError::MemberLayoutEmpty, MetadataContext(*Metadata, Member)};
 				}
 				const uint64 End = static_cast<uint64>(Member.Offset)
 					+ static_cast<uint64>(Member.ElementSize) * Member.ArraySize;
 				if (Member.Offset < PreviousEnd || End > Metadata->StructSize)
 				{
-					return {ERDGError::InvalidParameterMetadata, ERDGReason::MemberOffsetInvalid, MetadataContext(*Metadata, Member)};
+					return {ERDGError::MemberOffsetInvalid, MetadataContext(*Metadata, Member)};
 				}
 				PreviousEnd = End;
 
@@ -780,7 +778,7 @@ namespace Durin
 					if (Member.bOptional || Member.NestedParameters == nullptr
 						|| Member.ElementSize != Member.NestedParameters->StructSize)
 					{
-						return {ERDGError::InvalidParameterMetadata, ERDGReason::NestedMetadataInvalid, MetadataContext(*Metadata, Member)};
+						return {ERDGError::NestedMetadataInvalid, MetadataContext(*Metadata, Member)};
 					}
 					if (auto Error = ValidateParameterMetadata(Member.NestedParameters,
 						Member.NestedParameters->StructSize,
@@ -790,7 +788,7 @@ namespace Durin
 				}
 				if (Member.NestedParameters != nullptr)
 				{
-					return {ERDGError::InvalidParameterMetadata, ERDGReason::UnexpectedNestedMetadata, MetadataContext(*Metadata, Member)};
+					return {ERDGError::UnexpectedNestedMetadata, MetadataContext(*Metadata, Member)};
 				}
 				uint32 ExpectedElementSize = 0;
 				switch (Member.Kind)
@@ -842,12 +840,12 @@ namespace Durin
 				}
 				if (Member.ElementSize != ExpectedElementSize)
 				{
-					return {ERDGError::InvalidParameterMetadata, ERDGReason::WrapperLayoutMismatch, MetadataContext(*Metadata, Member, ExpectedElementSize)};
+					return {ERDGError::WrapperLayoutMismatch, MetadataContext(*Metadata, Member, ExpectedElementSize)};
 				}
 				if (Member.bOptional
 					!= (Member.ReadOptionalValueAddress != nullptr))
 				{
-					return {ERDGError::InvalidParameterMetadata, ERDGReason::OptionalLayoutMismatch, MetadataContext(*Metadata, Member)};
+					return {ERDGError::OptionalLayoutMismatch, MetadataContext(*Metadata, Member)};
 				}
 
 				const bool bTextureKind = Member.ResourceKind
@@ -933,7 +931,7 @@ namespace Durin
 				}
 				if (!bShapeValid)
 				{
-					return {ERDGError::InvalidParameterMetadata, ERDGReason::DeclarationSemanticsInvalid, MetadataContext(*Metadata, Member)};
+					return {ERDGError::DeclarationSemanticsInvalid, MetadataContext(*Metadata, Member)};
 				}
 
 				if (Member.bShaderBinding)
@@ -941,12 +939,12 @@ namespace Durin
 					if (Member.ShaderBindingName == nullptr
 						|| Member.ShaderBindingName[0] == '\0')
 					{
-						return {ERDGError::InvalidParameterMetadata, ERDGReason::ShaderBindingNameEmpty, MetadataContext(*Metadata, Member)};
+						return {ERDGError::ShaderBindingNameEmpty, MetadataContext(*Metadata, Member)};
 					}
 					if (std::ranges::find(ShaderBindingNames,
 						Member.ShaderBindingName) != ShaderBindingNames.end())
 					{
-						return {ERDGError::InvalidParameterMetadata, ERDGReason::ShaderBindingDuplicate, MetadataContext(*Metadata, Member)};
+						return {ERDGError::ShaderBindingDuplicate, MetadataContext(*Metadata, Member)};
 					}
 					ShaderBindingNames.emplace_back(Member.ShaderBindingName);
 
@@ -977,12 +975,12 @@ namespace Durin
 					if ((!bTextureBinding && !bBufferBinding)
 						|| !bAccessCompatible)
 					{
-						return {ERDGError::InvalidParameterMetadata, ERDGReason::ShaderDeclarationIncompatible, MetadataContext(*Metadata, Member)};
+						return {ERDGError::ShaderDeclarationIncompatible, MetadataContext(*Metadata, Member)};
 					}
 				}
 				else if (Member.ShaderBindingName != nullptr)
 				{
-					return {ERDGError::InvalidParameterMetadata, ERDGReason::ShaderBindingAuthorityMissing, MetadataContext(*Metadata, Member)};
+					return {ERDGError::ShaderBindingAuthorityMissing, MetadataContext(*Metadata, Member)};
 				}
 			}
 			return {};
@@ -1030,8 +1028,7 @@ namespace Durin
 						});
 					if (Existing != Bindings.end())
 					{
-						return {ERDGError::InvalidParameterMetadata,
-							ERDGReason::NestedShaderBindingDuplicate,
+						return {ERDGError::NestedShaderBindingDuplicate,
 							FRDGMetadataErrorContext{.StructName = Metadata->StructName,
 								.MemberName = Path,
 								.OtherMemberName = Existing->second,
@@ -1057,23 +1054,23 @@ namespace Durin
 				if (Use.ResourceIndex >= Resources.size()
 					|| Resources[Use.ResourceIndex].Kind != Use.Kind)
 				{
-					return {ERDGError::InvalidDeclaration, ERDGReason::ResourceHandleInvalid, UseContext(Pass, Use, nullptr, UseIndex)};
+					return {ERDGError::ResourceHandleInvalid, UseContext(Pass, Use, nullptr, UseIndex)};
 				}
 				const auto& Resource = Resources[Use.ResourceIndex];
 				if (Pass.bExport && !IsExportAccessAllowed(Use.Kind, Use.Access))
 				{
-					return {ERDGError::InvalidDeclaration, ERDGReason::FinalAccessInvalid, UseContext(Pass, Use, &Resource, UseIndex)};
+					return {ERDGError::FinalAccessInvalid, UseContext(Pass, Use, &Resource, UseIndex)};
 				}
 				if (Use.Kind != ERDGResourceKind::Token
 					&& (Use.Access == ERHIAccess::None
 						|| EnumHasAnyFlags(Use.Access, ERHIAccess::Discard)))
 				{
-					return {ERDGError::InvalidDeclaration, ERDGReason::RequiredAccessInvalid, UseContext(Pass, Use, &Resource, UseIndex)};
+					return {ERDGError::RequiredAccessInvalid, UseContext(Pass, Use, &Resource, UseIndex)};
 				}
 				if (Use.Kind != ERDGResourceKind::Token
 					&& !Pass.bExport && !IsAccessAllowed(Pass.Type, Use.Access))
 				{
-					return {ERDGError::InvalidDeclaration, ERDGReason::PassAccessIncompatible, UseContext(Pass, Use, &Resource, UseIndex)};
+					return {ERDGError::PassAccessIncompatible, UseContext(Pass, Use, &Resource, UseIndex)};
 				}
 				if (Use.Kind != ERDGResourceKind::Token
 					&& !Pass.bExport && ((Use.Use == ERDGUse::Read
@@ -1081,17 +1078,17 @@ namespace Durin
 						|| (Use.Use == ERDGUse::Write
 							&& !AccessHasWrite(Use.Access))))
 				{
-					return {ERDGError::InvalidDeclaration, ERDGReason::UseAccessMismatch, UseContext(Pass, Use, &Resource, UseIndex)};
+					return {ERDGError::UseAccessMismatch, UseContext(Pass, Use, &Resource, UseIndex)};
 				}
 				if (Use.bDiscard && Use.Use == ERDGUse::Read)
 				{
-					return {ERDGError::InvalidDeclaration, ERDGReason::ReadDiscardInvalid, UseContext(Pass, Use, nullptr, UseIndex)};
+					return {ERDGError::ReadDiscardInvalid, UseContext(Pass, Use, nullptr, UseIndex)};
 				}
 				if (Use.bPassManagedTransition
 					&& (Use.ResultAccess == ERHIAccess::None
 						|| EnumHasAnyFlags(Use.ResultAccess, ERHIAccess::Discard)))
 				{
-					return {ERDGError::InvalidDeclaration, ERDGReason::ManagedResultAccessInvalid, UseContext(Pass, Use, &Resource, UseIndex)};
+					return {ERDGError::ManagedResultAccessInvalid, UseContext(Pass, Use, &Resource, UseIndex)};
 				}
 				if (Use.Kind == ERDGResourceKind::Buffer
 					&& (Use.BufferSize == 0
@@ -1099,7 +1096,7 @@ namespace Durin
 						|| Use.BufferSize > Resource.BufferDesc.Size
 							- Use.BufferOffset))
 				{
-					return {ERDGError::InvalidDeclaration, ERDGReason::BufferRangeInvalid, UseContext(Pass, Use, &Resource, UseIndex)};
+					return {ERDGError::BufferRangeInvalid, UseContext(Pass, Use, &Resource, UseIndex)};
 				}
 				if (Use.Kind == ERDGResourceKind::Texture
 					&& (Use.TextureRange.Aspects == ERHITextureAspect::None
@@ -1114,14 +1111,13 @@ namespace Durin
 							GetTextureAspects(Resource.TextureDesc.Format),
 							Use.TextureRange.Aspects)))
 				{
-					return {ERDGError::InvalidDeclaration, ERDGReason::TextureRangeInvalid, UseContext(Pass, Use, &Resource, UseIndex)};
+					return {ERDGError::TextureRangeInvalid, UseContext(Pass, Use, &Resource, UseIndex)};
 				}
 				auto& EarlierUses = ResourceUses[Use.ResourceIndex];
 				for (uint32 OtherUse : EarlierUses)
 					if (RangesOverlap(Use, Pass.Uses[OtherUse]))
 					{
-						return {ERDGError::InvalidDeclaration,
-							ERDGReason::UsesOverlap,
+						return {ERDGError::UsesOverlap,
 							UseContext(Pass, Use, &Resource, UseIndex, OtherUse, Pass.Uses[OtherUse].ParameterPath)};
 					}
 				EarlierUses.push_back(UseIndex);
@@ -1145,7 +1141,7 @@ namespace Durin
 		auto SafetyLimit(ERDGLimit Dimension, size_t Actual, size_t Limit)
 			-> FRDGResult
 		{
-			return {ERDGError::SafetyLimitExceeded, ERDGReason::StructuralLimit, FRDGLimitErrorContext{Dimension, Actual, Limit}};
+			return {ERDGError::StructuralLimit, FRDGLimitErrorContext{Dimension, Actual, Limit}};
 		}
 
 		struct FRangeWork final
@@ -1318,7 +1314,7 @@ namespace Durin
 		{
 			if (Before >= After)
 			{
-				return {ERDGError::InvalidDependency, ERDGReason::DependencyNotForward, FRDGDependencyErrorContext{Before, After}};
+				return {ERDGError::DependencyNotForward, FRDGDependencyErrorContext{Before, After}};
 			}
 			const uint64 Key = (static_cast<uint64>(Before) << 32) | After;
 			const auto Found = Graph.EdgeIndices.find(Key);
@@ -1353,32 +1349,27 @@ namespace Durin
 			{
 				const auto& Resource = Resources[ResourceIndex];
 				if (Resource.Name.empty())
-					return {ERDGError::InvalidDeclaration,
-						ERDGReason::ResourceNameEmpty,
+					return {ERDGError::ResourceNameEmpty,
 						FRDGIdentityErrorContext{.Name = Resource.Name,
 							.Index = ResourceIndex,
 							.Actual = static_cast<uint64>(Resource.FinalAccess)}};
 				if (Resource.bExternal && !Resource.Texture && !Resource.Buffer)
-					return {ERDGError::InvalidDeclaration,
-						ERDGReason::PhysicalResourceMissing,
+					return {ERDGError::PhysicalResourceMissing,
 						FRDGIdentityErrorContext{.Name = Resource.Name,
 							.Index = ResourceIndex,
 							.Actual = static_cast<uint64>(Resource.FinalAccess)}};
 				if (Resource.bExternal && Resource.FinalAccess == ERHIAccess::None)
-					return {ERDGError::InvalidDeclaration,
-						ERDGReason::ExternalFinalAccessMissing,
+					return {ERDGError::ExternalFinalAccessMissing,
 						FRDGIdentityErrorContext{.Name = Resource.Name,
 							.Index = ResourceIndex,
 							.Actual = static_cast<uint64>(Resource.FinalAccess)}};
 				if (EnumHasAnyFlags(Resource.FinalAccess, ERHIAccess::Discard))
-					return {ERDGError::InvalidDeclaration,
-						ERDGReason::FinalAccessInvalid,
+					return {ERDGError::FinalAccessInvalid,
 						FRDGIdentityErrorContext{.Name = Resource.Name,
 							.Index = ResourceIndex,
 							.Actual = static_cast<uint64>(Resource.FinalAccess)}};
 				if (!Names.insert(Resource.Name).second)
-					return {ERDGError::InvalidDeclaration,
-						ERDGReason::ResourceNameDuplicate,
+					return {ERDGError::ResourceNameDuplicate,
 						FRDGIdentityErrorContext{.Name = Resource.Name,
 							.Index = ResourceIndex,
 							.Actual = static_cast<uint64>(Resource.FinalAccess)}};
@@ -1396,13 +1387,13 @@ namespace Durin
 			{
 				const auto& Pass = Passes[PassIndex];
 				if (Pass.Name.empty())
-					return {ERDGError::InvalidDeclaration, ERDGReason::PassNameEmpty, FRDGIdentityErrorContext{.Name = Pass.Name, .Index = PassIndex}};
+					return {ERDGError::PassNameEmpty, FRDGIdentityErrorContext{.Name = Pass.Name, .Index = PassIndex}};
 				if (!Names.insert(Pass.Name).second)
-					return {ERDGError::InvalidDeclaration, ERDGReason::PassNameDuplicate, FRDGIdentityErrorContext{.Name = Pass.Name, .Index = PassIndex}};
+					return {ERDGError::PassNameDuplicate, FRDGIdentityErrorContext{.Name = Pass.Name, .Index = PassIndex}};
 				for (uint32 Prerequisite : Pass.Prerequisites)
 				{
 					if (Prerequisite >= Passes.size())
-						return {ERDGError::InvalidDeclaration, ERDGReason::ProducerHandleInvalid, FRDGDependencyErrorContext{Prerequisite, PassIndex}};
+						return {ERDGError::ProducerHandleInvalid, FRDGDependencyErrorContext{Prerequisite, PassIndex}};
 					if (auto Error = AddDependencyEdge(Graph, Prerequisite, PassIndex, "explicit",
 						ERDGDependencyKind::Explicit); !Error.IsSuccess()) return Error;
 				}
@@ -1448,8 +1439,7 @@ namespace Durin
 						return Use->Use == ERDGUse::Write;
 					});
 				if (Writers != 1)
-					return {ERDGError::InvalidDeclaration,
-						ERDGReason::ValueWriterCount,
+					return {ERDGError::ValueWriterCount,
 						FRDGIdentityErrorContext{.Name = Resource.Name,
 							.TypeName = Resource.ValueTypeName,
 							.Expected = 1,
@@ -1549,7 +1539,7 @@ namespace Durin
 						{
 							auto Context = UseContext(Pass, Use, &Resource);
 							Context.PassIndex = PassIndex;
-							return {ERDGError::MissingProducer, ERDGReason::BufferProducerMissing, std::move(Context)};
+							return {ERDGError::BufferProducerMissing, std::move(Context)};
 						}
 				}
 				for (const auto& Use : Pass.Uses)
@@ -1581,7 +1571,7 @@ namespace Durin
 							{
 								auto Context = UseContext(Passes[PassIndex], Use, &Resource);
 								Context.PassIndex = PassIndex;
-								return {ERDGError::MissingProducer, ERDGReason::ResourceProducerMissing, std::move(Context)};
+								return {ERDGError::ResourceProducerMissing, std::move(Context)};
 							}
 						if (Use.Use == ERDGUse::Read)
 						{
@@ -1861,7 +1851,7 @@ namespace Durin
 	auto FRDGBuilder::CompileForTesting() -> FRDGResult
 	{
 		if (State->Lifecycle != ERDGBuilderState::Building)
-			return {ERDGError::InvalidState, ERDGReason::BuilderConsumed};
+			return {ERDGError::BuilderConsumed};
 		State->Lifecycle = ERDGBuilderState::Compiling;
 		struct FFailureGuard
 		{
@@ -1881,7 +1871,7 @@ namespace Durin
 	{
 		if (State->Lifecycle != ERDGBuilderState::Building)
 			return {ERDGExecutionStatus::InvalidState,
-				{ERDGError::InvalidState, ERDGReason::BuilderConsumed}};
+				{ERDGError::BuilderConsumed}};
 		State->Lifecycle = ERDGBuilderState::Compiling;
 		// Preserve terminal state during supported unwinding without swallowing exceptions.
 		struct FFailureGuard
@@ -1893,13 +1883,13 @@ namespace Durin
 			}
 		} Guard{State->Lifecycle};
 		State->ExecutionResult = {ERDGExecutionStatus::CompileFailed,
-			{ERDGError::InvalidState, ERDGReason::CompilationIncomplete}};
+			{ERDGError::CompilationIncomplete}};
 		State->ExecutionResult.Result = Compile();
 		if (!State->ExecutionResult.Result.IsSuccess()) return State->ExecutionResult;
 		State->Lifecycle = ERDGBuilderState::Preparing;
 		State->ExecutionResult.Status = ERDGExecutionStatus::PreparationFailed;
 		State->ExecutionResult.Result =
-			{ERDGError::InvalidState, ERDGReason::PreparationIncomplete};
+			{ERDGError::PreparationIncomplete};
 		State->ExecutionResult.Result = Record(CommandList, Context);
 		if (!State->ExecutionResult.Result.IsSuccess()) return State->ExecutionResult;
 		State->Lifecycle = ERDGBuilderState::Recorded;
@@ -1923,8 +1913,7 @@ namespace Durin
 			|| Metadata->StructSize != Size
 			|| Metadata->StructAlignment != Alignment)
 		{
-			State->DeclarationErrors.push_back({ERDGError::InvalidParameterMetadata,
-				ERDGReason::ParameterLayoutMismatch,
+			State->DeclarationErrors.push_back({ERDGError::ParameterLayoutMismatch,
 				FRDGMetadataErrorContext{.ExpectedSize = Size,
 					.ActualSize = Metadata ? Metadata->StructSize : 0,
 					.ExpectedAlignment = Alignment,
@@ -1961,8 +1950,7 @@ namespace Durin
 		if (Name.empty() || StableTypeName.empty() || TypeIdentity == nullptr
 			|| Size == 0 || Alignment == 0 || Destroy == nullptr)
 		{
-			State->DeclarationErrors.push_back({ERDGError::InvalidDeclaration,
-				ERDGReason::ValueStorageInvalid,
+			State->DeclarationErrors.push_back({ERDGError::ValueStorageInvalid,
 				FRDGIdentityErrorContext{.Name = std::string(Name),
 					.TypeName = std::string(StableTypeName),
 					.Expected = Size,
@@ -1975,8 +1963,7 @@ namespace Durin
 			if (Existing.ValueTypeIdentity == TypeIdentity
 				&& Existing.ValueTypeName != StableTypeName)
 			{
-				State->DeclarationErrors.push_back({ERDGError::InvalidDeclaration,
-					ERDGReason::ValueTypeNameChanged,
+				State->DeclarationErrors.push_back({ERDGError::ValueTypeNameChanged,
 					FRDGIdentityErrorContext{.Name = std::string(Name),
 						.OtherName = Existing.ValueTypeName,
 						.TypeName = std::string(StableTypeName)}});
@@ -1985,8 +1972,7 @@ namespace Durin
 			if (Existing.ValueTypeIdentity != TypeIdentity
 				&& Existing.ValueTypeName == StableTypeName)
 			{
-				State->DeclarationErrors.push_back({ERDGError::InvalidDeclaration,
-					ERDGReason::ValueTypeNameReused,
+				State->DeclarationErrors.push_back({ERDGError::ValueTypeNameReused,
 					FRDGIdentityErrorContext{.Name = std::string(Name),
 						.TypeName = std::string(StableTypeName)}});
 				return nullptr;
@@ -2039,8 +2025,7 @@ namespace Durin
 				const uint32 ExistingIndex = Existing->second;
 				const auto& Canonical = State->Resources[ExistingIndex];
 				if (!ExternalContractsEqual(Canonical, Resource))
-					State->DeclarationErrors.push_back({ERDGError::InvalidDeclaration,
-						ERDGReason::ExternalContractConflict,
+					State->DeclarationErrors.push_back({ERDGError::ExternalContractConflict,
 						FRDGExternalConflictContext{ResourceContract(Canonical), ResourceContract(Resource)}});
 				return {State->Owner, ExistingIndex};
 			}
@@ -2088,8 +2073,7 @@ namespace Durin
 				const uint32 ExistingIndex = Existing->second;
 				const auto& Canonical = State->Resources[ExistingIndex];
 				if (!ExternalContractsEqual(Canonical, Resource))
-					State->DeclarationErrors.push_back({ERDGError::InvalidDeclaration,
-						ERDGReason::ExternalContractConflict,
+					State->DeclarationErrors.push_back({ERDGError::ExternalContractConflict,
 						FRDGExternalConflictContext{ResourceContract(Canonical), ResourceContract(Resource)}});
 				return {State->Owner, ExistingIndex};
 			}
@@ -2137,8 +2121,7 @@ namespace Durin
 			|| State->Resources[Texture.Index].Kind
 				!= ERDGResourceKind::Texture)
 		{
-			State->DeclarationErrors.push_back({ERDGError::InvalidDeclaration,
-				ERDGReason::TextureExtractionHandleInvalid,
+			State->DeclarationErrors.push_back({ERDGError::TextureExtractionHandleInvalid,
 				FRDGIdentityErrorContext{.Index = Texture.Index,
 					.Actual = static_cast<uint64>(FinalAccess)}});
 			return;
@@ -2146,8 +2129,7 @@ namespace Durin
 		if (Destination == nullptr || FinalAccess == ERHIAccess::None
 			|| EnumHasAnyFlags(FinalAccess, ERHIAccess::Discard))
 		{
-			State->DeclarationErrors.push_back({ERDGError::InvalidDeclaration,
-				ERDGReason::TextureExtractionInvalid,
+			State->DeclarationErrors.push_back({ERDGError::TextureExtractionInvalid,
 				FRDGIdentityErrorContext{.Index = Texture.Index,
 					.Actual = static_cast<uint64>(FinalAccess)}});
 			return;
@@ -2159,8 +2141,7 @@ namespace Durin
 					|| Existing.TextureDestination == Destination;
 			}))
 		{
-			State->DeclarationErrors.push_back({ERDGError::InvalidDeclaration,
-				ERDGReason::TextureExtractionDuplicate,
+			State->DeclarationErrors.push_back({ERDGError::TextureExtractionDuplicate,
 				FRDGIdentityErrorContext{.Index = Texture.Index,
 					.Actual = static_cast<uint64>(FinalAccess)}});
 			return;
@@ -2178,8 +2159,7 @@ namespace Durin
 			|| State->Resources[Buffer.Index].Kind
 				!= ERDGResourceKind::Buffer)
 		{
-			State->DeclarationErrors.push_back({ERDGError::InvalidDeclaration,
-				ERDGReason::BufferExtractionHandleInvalid,
+			State->DeclarationErrors.push_back({ERDGError::BufferExtractionHandleInvalid,
 				FRDGIdentityErrorContext{.Index = Buffer.Index,
 					.Actual = static_cast<uint64>(FinalAccess)}});
 			return;
@@ -2187,8 +2167,7 @@ namespace Durin
 		if (Destination == nullptr || FinalAccess == ERHIAccess::None
 			|| EnumHasAnyFlags(FinalAccess, ERHIAccess::Discard))
 		{
-			State->DeclarationErrors.push_back({ERDGError::InvalidDeclaration,
-				ERDGReason::BufferExtractionInvalid,
+			State->DeclarationErrors.push_back({ERDGError::BufferExtractionInvalid,
 				FRDGIdentityErrorContext{.Index = Buffer.Index,
 					.Actual = static_cast<uint64>(FinalAccess)}});
 			return;
@@ -2200,8 +2179,7 @@ namespace Durin
 					|| Existing.BufferDestination == Destination;
 			}))
 		{
-			State->DeclarationErrors.push_back({ERDGError::InvalidDeclaration,
-				ERDGReason::BufferExtractionDuplicate,
+			State->DeclarationErrors.push_back({ERDGError::BufferExtractionDuplicate,
 				FRDGIdentityErrorContext{.Index = Buffer.Index,
 					.Actual = static_cast<uint64>(FinalAccess)}});
 			return;
@@ -2246,8 +2224,7 @@ namespace Durin
 			|| Allocation->Data != Parameters || Allocation->Layout != Layout
 			|| !Allocation->bConstructed)
 		{
-			State->DeclarationErrors.push_back({ERDGError::InvalidDeclaration,
-				ERDGReason::ParameterAllocationInvalid,
+			State->DeclarationErrors.push_back({ERDGError::ParameterAllocationInvalid,
 				FRDGIdentityErrorContext{.Name = std::string(Name),
 					.TypeName = Metadata && Metadata->StructName ? Metadata->StructName : "FParameters",
 					.Index = AllocationIndex}});
@@ -2255,8 +2232,7 @@ namespace Durin
 		}
 		if (Allocation->bFrozen)
 		{
-			State->DeclarationErrors.push_back({ERDGError::InvalidDeclaration,
-				ERDGReason::ParameterAllocationSubmitted,
+			State->DeclarationErrors.push_back({ERDGError::ParameterAllocationSubmitted,
 				FRDGIdentityErrorContext{.Name = std::string(Name),
 					.TypeName = Metadata && Metadata->StructName ? Metadata->StructName : "FParameters",
 					.Index = AllocationIndex}});
@@ -2333,15 +2309,13 @@ namespace Durin
 		RequireBuilding();
 		if (Pass.Owner != State->Owner || Pass.Index >= State->Passes.size())
 		{
-			State->DeclarationErrors.push_back({ERDGError::InvalidDeclaration,
-				ERDGReason::PassHandleInvalid,
+			State->DeclarationErrors.push_back({ERDGError::PassHandleInvalid,
 				FRDGIdentityErrorContext{.Index = Pass.Index}});
 			return false;
 		}
 		if (State->Passes[Pass.Index].ParameterLayout != nullptr)
 		{
-			State->DeclarationErrors.push_back({ERDGError::InvalidDeclaration,
-				ERDGReason::ManualUseOnParameterizedPass,
+			State->DeclarationErrors.push_back({ERDGError::ManualUseOnParameterizedPass,
 				FRDGIdentityErrorContext{.Name = State->Passes[Pass.Index].Name,
 					.Index = Pass.Index}});
 			return false;
@@ -2355,8 +2329,7 @@ namespace Durin
 		RequireBuilding();
 		if (Pass.Owner != State->Owner || Pass.Index >= State->Passes.size())
 		{
-			State->DeclarationErrors.push_back({ERDGError::InvalidDeclaration,
-				ERDGReason::RootHandleInvalid,
+			State->DeclarationErrors.push_back({ERDGError::RootHandleInvalid,
 				FRDGIdentityErrorContext{.Index = Pass.Index}});
 			return;
 		}
@@ -2370,8 +2343,7 @@ namespace Durin
 		if (Pass.Owner != State->Owner || Pass.Index >= State->Passes.size()
 			|| (bEligible && State->Passes[Pass.Index].Type != ERDGPassType::Compute))
 		{
-			State->DeclarationErrors.push_back({ERDGError::InvalidDeclaration,
-				ERDGReason::AsyncPassInvalid,
+			State->DeclarationErrors.push_back({ERDGError::AsyncPassInvalid,
 				FRDGIdentityErrorContext{.Index = Pass.Index}});
 			return;
 		}
@@ -2402,8 +2374,7 @@ namespace Durin
 		RequireBuilding();
 		if (Consumer.Owner != State->Owner || Consumer.Index >= State->Passes.size())
 		{
-			State->DeclarationErrors.push_back({ERDGError::InvalidDependency,
-				ERDGReason::ConsumerHandleInvalid,
+			State->DeclarationErrors.push_back({ERDGError::ConsumerHandleInvalid,
 				FRDGDependencyErrorContext{Producer.Index, Consumer.Index}});
 			return;
 		}
@@ -2534,8 +2505,7 @@ namespace Durin
 		if (!CanDeclareManualUse(Pass)) return;
 		if (Use != ERDGUse::Read && Use != ERDGUse::Write)
 		{
-			State->DeclarationErrors.push_back({ERDGError::InvalidDeclaration,
-				ERDGReason::ValueDirectionInvalid,
+			State->DeclarationErrors.push_back({ERDGError::ValueDirectionInvalid,
 				FRDGIdentityErrorContext{.Name = State->Passes[Pass.Index].Name,
 					.Index = Pass.Index,
 					.OtherIndex = Index,
@@ -2546,8 +2516,7 @@ namespace Durin
 			|| State->Resources[Index].ValueTypeIdentity == nullptr
 			|| State->Resources[Index].ValueTypeIdentity != TypeIdentity)
 		{
-			State->DeclarationErrors.push_back({ERDGError::InvalidDeclaration,
-				ERDGReason::ValueHandleInvalid,
+			State->DeclarationErrors.push_back({ERDGError::ValueHandleInvalid,
 				FRDGIdentityErrorContext{.Name = State->Passes[Pass.Index].Name,
 					.Index = Pass.Index,
 					.OtherIndex = Index,
@@ -2567,7 +2536,7 @@ namespace Durin
 		FScopedMicrosecondTimer CompileTimer(State->CompileMicroseconds);
 		FScopedMicrosecondTimer ValidationTimer(State->Phases.ValidationMicroseconds);
 		if (State->PendingConstructions != 0)
-			return {ERDGError::InvalidState, ERDGReason::StorageIncomplete};
+			return {ERDGError::StorageIncomplete};
 		if (!State->DeclarationErrors.empty())
 			return State->DeclarationErrors.front();
 		if (State->Resources.size() > State->Budget.MaxResources)
@@ -3234,7 +3203,7 @@ namespace Durin
 					: static_cast<bool>(Candidate.Buffers[Request.ResourceId]);
 				if (!bReady)
 				{
-					return {ERDGError::MissingAllocation, ERDGReason::AllocationMissing, FRDGAllocationErrorContext{.ResourceId = Request.ResourceId}};
+					return {ERDGError::AllocationMissing, FRDGAllocationErrorContext{.ResourceId = Request.ResourceId}};
 				}
 				if (Request.Kind == ERDGResourceKind::Texture)
 				{
@@ -3242,8 +3211,7 @@ namespace Durin
 						*Candidate.Textures[Request.ResourceId]);
 					if (!TextureBackingIsCompatible(Actual, Request.TextureDesc))
 					{
-						return {ERDGError::IncompatibleAllocation,
-							ERDGReason::TextureAllocationIncompatible,
+						return {ERDGError::TextureAllocationIncompatible,
 							FRDGTextureAllocationErrorContext{.ResourceId = Request.ResourceId,
 								.Expected = Request.TextureDesc,
 								.Actual = Actual}};
@@ -3253,8 +3221,7 @@ namespace Durin
 					Candidate.Buffers[Request.ResourceId]->GetDesc(),
 					Request.BufferDesc))
 				{
-					return {ERDGError::IncompatibleAllocation,
-						ERDGReason::BufferAllocationIncompatible,
+					return {ERDGError::BufferAllocationIncompatible,
 						FRDGBufferAllocationErrorContext{.ResourceId = Request.ResourceId,
 							.Expected = Request.BufferDesc,
 							.Actual = Candidate.Buffers[Request.ResourceId]->GetDesc()}};
@@ -3285,7 +3252,7 @@ namespace Durin
 		}
 		else if (!Compiled->AllocationRequests.empty())
 		{
-			return {ERDGError::AllocationFailed, ERDGReason::AllocatorMissing};
+			return {ERDGError::AllocatorMissing};
 		}
 		FPreparedTransitions PreparedTransitions;
 		std::vector<FPreparedBarrierBatch> PreparedPassBarriers;
@@ -3328,7 +3295,7 @@ namespace Durin
 					PreparedTransitions.TransferredBuffers[Index] = true;
 				}
 				auto Transfer = GDynamicRHI->RHICreateQueueTransfer(Desc);
-				if (!Transfer) return {ERDGError::AllocationFailed, ERDGReason::QueueTransferFailed};
+				if (!Transfer) return {ERDGError::QueueTransferFailed};
 				Acquires[Consumer.Id.Index].push_back(Transfer);
 				const auto Producer = std::ranges::find_if(Handoff.Producers, [&](const auto Id) {
 					return Compiled->ExecutionPlan.Batches[Id.Index].Queue == Handoff.SourceQueue;
@@ -3359,7 +3326,7 @@ namespace Durin
 		State->Lifecycle = ERDGBuilderState::Recording;
 		State->ExecutionResult.Status = ERDGExecutionStatus::InvalidState;
 		State->ExecutionResult.Result =
-			{ERDGError::InvalidState, ERDGReason::RecordingIncomplete};
+			{ERDGError::RecordingIncomplete};
 		FRHIGPUSyncPointRef InitialSignal;
 		if (!InitialReleases.empty())
 		{

@@ -38,11 +38,11 @@ The thread-confined lifecycle is Building -> Compiling -> Preparing -> Recording
 execution attempt consumes Building, including compile and preparation failure.
 `FRDGExecutionResult` distinguishes CompileFailed, PreparationFailed, Recorded,
 and InvalidState. Its `Result` contains an `FRDGResult`: `ERDGError` identifies
-success (`None`) or the failure category, while `Message` supplies diagnostic
-context. Internal validation, compilation, dependency insertion, and recording
-propagate this same result; deferred declaration errors preserve their category.
-Success never depends on message emptiness. The allocator's existing boolean
-failure is adapted to `AllocationFailed` even when it supplies no diagnostic text.
+success (`None`) or one specific failure. `GetCategory()` derives the broader
+`ERDGErrorCategory` from that code; no independent category or reason is stored.
+Internal validation, compilation, dependency insertion, recording, and allocation
+propagate this same typed result and its owned context. Success never depends on
+diagnostic text.
 Recorded means CPU recording succeeded, not GPU completion.
 A second or reentrant Execute returns InvalidState before allocations, commands,
 callbacks, or extraction, without changing the original execution report or
@@ -379,8 +379,10 @@ path. Uncomposed and manual uses retain their previous capture form.
 
 ## Diagnostics and Budgets
 
-`FRDGResult::Error` remains the sole success/category discriminator. Failures add
-an `ERDGReason` and owned context alternatives for metadata, pass/resource uses,
+`FRDGResult::Error` is the single stored error code and success discriminator.
+`GetCategory()` derives classification; default layout/execution wrappers use
+`ParameterLayoutNotBuilt` and `ExecutionNotStarted` instead of unspecified reasons.
+Failures carry owned context alternatives for metadata, pass/resource uses,
 identities, dependencies, limits, external contracts, and allocations. Context
 retains names, indices, byte/subresource ranges, and expected/actual descriptions;
 no diagnostic borrows builder metadata or physical resource pointers.
@@ -388,7 +390,7 @@ no diagnostic borrows builder metadata or physical resource pointers.
 A retained result remains usable after graph reset or destruction.
 
 `FRDGAllocator::Allocate` returns an `FRDGResult` with typed resource or RHI
-causes. Preparation forwards it without formatting or replacing the reason.
+causes. Preparation forwards it without formatting or replacing the error code.
 Renderer allocation retains native status even when a later attempt is suppressed,
 and publishes a complete allocation batch only after all resources validate.
 The existing retry, rollback, resource-retirement and execution-state rules apply.

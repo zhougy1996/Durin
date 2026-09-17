@@ -2539,12 +2539,12 @@ namespace Durin::Tests
 			};
 			const auto First = Execute();
 			const auto Retry = Execute();
-			EXPECT_EQ(First.Reason, ERDGReason::PhysicalAllocationFailed);
-			EXPECT_EQ(Retry.Reason, ERDGReason::AllocationRetrySuppressed);
+			EXPECT_EQ(First.Error, ERDGError::PhysicalAllocationFailed);
+			EXPECT_EQ(Retry.Error, ERDGError::AllocationRetrySuppressed);
 			EXPECT_EQ(RHI.Creates, 1u);
 			for (const auto* Result : {&First, &Retry})
 			{
-				EXPECT_EQ(Result->Error, ERDGError::AllocationFailed);
+				EXPECT_EQ(Result->GetCategory(), ERDGErrorCategory::AllocationFailed);
 				const auto* Cause = std::get_if<FRHICreationError>(&Result->Cause);
 				ASSERT_NE(Cause, nullptr);
 				EXPECT_EQ(Cause->Failure, ERHIResourceCreationFailure::UnsupportedDescriptor);

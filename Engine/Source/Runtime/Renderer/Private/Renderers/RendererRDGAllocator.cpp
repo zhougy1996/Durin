@@ -340,7 +340,7 @@ namespace Durin
 		{
 			++State->Failures;
 			PublishStatistics(0, 0);
-			return {ERDGError::AllocationFailed, ERDGReason::AllocationBudgetExceeded,
+			return {ERDGError::AllocationBudgetExceeded,
 				FRDGLimitErrorContext{ERDGLimit::AllocationBytes, RequestedBytes, FRendererRDGAllocationPolicy::MaximumRetainedBytes}};
 		}
 
@@ -381,12 +381,12 @@ namespace Durin
 			RemoveNewEntries(State->Textures, PreserveSequence);
 			RemoveNewEntries(State->Buffers, PreserveSequence);
 		};
-		auto Fail = [&](ERDGReason Reason, FRDGErrorContext Context = {}, FRDGErrorCause Cause = {},
+		auto Fail = [&](ERDGError Reason, FRDGErrorContext Context = {}, FRDGErrorCause Cause = {},
 			uint64 PreserveSequence = std::numeric_limits<uint64>::max()) -> FRDGResult {
 			Rollback(PreserveSequence);
 			++State->Failures;
 			PublishStatistics(0, 0);
-			return {ERDGError::AllocationFailed, Reason, std::move(Context), std::move(Cause)};
+			return {Reason, std::move(Context), std::move(Cause)};
 		};
 
 		// Reserve the entire reusable set before eviction, including later requests
@@ -424,7 +424,7 @@ namespace Durin
 						*Failed.FailedGeneration, Generation, RetryDependencies)
 						&& (Failed.Failure.Failure == ERHIResourceCreationFailure::UnsupportedDescriptor
 							|| Now < Failed.NextRetryTime))
-						return Fail(ERDGReason::AllocationRetrySuppressed,
+						return Fail(ERDGError::AllocationRetrySuppressed,
 							FRDGAllocationErrorContext{.ResourceId = ResourceId}, Failed.Failure);
 				}
 			}
@@ -448,12 +448,12 @@ namespace Durin
 				PlanResult = PlanCandidate(State->Buffers,
 					FBufferDescriptorKey{Request.BufferDesc.Size, Request.BufferDesc.Stride,
 						Request.BufferDesc.Usage}, LogicalBytes, Request.ResourceId);
-			else return Fail(ERDGReason::AllocationKindInvalid,
+			else return Fail(ERDGError::AllocationKindInvalid,
 				FRDGAllocationErrorContext{.ResourceId = Request.ResourceId});
 			if (!PlanResult.IsSuccess()) return PlanResult;
 		}
 		if (MissingBytes != 0 && Now < State->NextRetryTime)
-			return Fail(ERDGReason::AllocationRetryDeferred);
+			return Fail(ERDGError::AllocationRetryDeferred);
 
 		auto EvictUntil = [&](uint64 Limit) {
 			if (State->RetainedBytes <= Limit) return;
@@ -501,7 +501,7 @@ namespace Durin
 		const auto PreviousEvictions = State->Evictions;
 		EvictUntil(FRendererRDGAllocationPolicy::MaximumRetainedBytes - MissingBytes);
 		if (State->RetainedBytes > FRendererRDGAllocationPolicy::MaximumRetainedBytes - MissingBytes)
-			return Fail(ERDGReason::AllocationRetirementPending);
+			return Fail(ERDGError::AllocationRetirementPending);
 		if (MissingBytes != 0
 			&& (State->Evictions != PreviousEvictions || State->bNeedsCollection))
 		{
@@ -546,7 +546,7 @@ namespace Durin
 						It->NextRetryTime = std::chrono::steady_clock::now() + Delay;
 						State->NextRetryTime = It->NextRetryTime;
 					}
-					return Fail(ERDGReason::PhysicalAllocationFailed,
+					return Fail(ERDGError::PhysicalAllocationFailed,
 						FRDGAllocationErrorContext{.ResourceId = Request.ResourceId}, Failure, It->Sequence);
 				}
 				CreatedAllocationIds.insert(It->Sequence + 1);
@@ -603,7 +603,7 @@ namespace Durin
 						OutCandidate.Buffer = Buffer;
 					}, Candidate);
 			}
-			else return Fail(ERDGReason::AllocationKindInvalid,
+			else return Fail(ERDGError::AllocationKindInvalid,
 				FRDGAllocationErrorContext{.ResourceId = Request.ResourceId});
 			if (!ReserveResult.IsSuccess())
 			{
@@ -628,7 +628,7 @@ namespace Durin
 					std::move(Candidate.Buffer), Candidate.AllocationId,
 					Candidate.bReuseHit ? "reuse-hit" : "reuse-miss");
 			if (!bPublished)
-				return Fail(ERDGReason::AllocationPublicationFailed,
+				return Fail(ERDGError::AllocationPublicationFailed,
 					FRDGAllocationErrorContext{.ResourceId = Candidate.ResourceId});
 		}
 
