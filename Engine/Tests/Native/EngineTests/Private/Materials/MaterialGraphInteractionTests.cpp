@@ -78,7 +78,83 @@ namespace Durin::Editor::Material
 			&& Canvas.CachedCreationMenuResults == FMaterialGraphOperations::SearchCatalogIndices(Canvas.Catalog, Canvas.CachedCreationMenuQuery); }
 		static auto Menu(const FMaterialGraphCanvas& Canvas) -> bool
 		{ return std::holds_alternative<FMaterialGraphCanvas::FNodeCreationMenuInteraction>(Canvas.Interaction); }
+		static auto OpenCreationAt(FMaterialGraphCanvas& Canvas, ImVec2 Position) -> void
+		{ Canvas.Interaction = FMaterialGraphCanvas::FNodeCreationMenuInteraction{.GraphPosition = Position}; }
 	};
+}
+
+TEST(FMaterialGraphInteractionTests, FunctionNodesCanBeCreatedFromSearchBeforeWiring)
+{
+	InitializeDObjectSystem();
+	const auto Root = Testing::CreateTestFixtureDirectory("FunctionMenu");
+	const std::array Mounts{FMountPoint{.VirtualRoot = "/FunctionMenu/", .Owner = EMountOwner::Test,
+		.Root = Root, .bAutoScan = true, .bContentWritable = true}};
+	Testing::FScopedMountRegistryFixture Registry(Mounts);
+	ASSERT_TRUE(Registry.IsValid());
+	ASSERT_TRUE(RefreshAssetRegistry());
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/FunctionMenu/RequiredFunction", Path));
+	DMaterialFunction* Callee = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Callee));
+	FMaterialFunctionPort Required;
+	Required.Id = FGuid::NewGuid(); Required.Type = EMaterialProgramValueType::Float; Required.Name = "Required Amount";
+	Required.bRequired = true;
+	ASSERT_TRUE(FMaterialGraphDocument(*Callee).AddPort(false, Required));
+	ASSERT_TRUE(SavePackage(Callee->GetPackage()));
+	auto* Function = NewObject<DMaterialFunction>(nullptr, "MenuFunctionOutput");
+	const auto Original = Function->GetFunctionSignature();
+	Durin::Tests::FTestTransactorOwner Transactions;
+	FMaterialGraphCanvas Canvas;
+	auto* Context = ImGui::CreateContext();
+	auto& IO = ImGui::GetIO();
+	IO.IniFilename = nullptr; IO.DisplaySize = {1200, 900}; IO.DeltaTime = 1.0f / 60.0f;
+	IO.Fonts->AddFontDefault(); IO.Fonts->Build();
+	std::vector<std::string> Errors;
+	const auto Frame = [&] {
+		ImGui::NewFrame();
+		ImGui::SetNextWindowPos({0, 0}); ImGui::SetNextWindowSize({1200, 900});
+		ImGui::Begin("Function creation", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize);
+		Canvas.DrawFunction(*Function, *Transactions.Get(), 820,
+			[&](std::string Error) { Errors.push_back(std::move(Error)); }, [](std::string_view) {});
+		ImGui::End(); ImGui::Render();
+	};
+	Frame(); Frame();
+	FMaterialGraphCanvasTestAccess::OpenCreationAt(Canvas, {321, 234});
+	Frame(); Frame();
+	IO.AddInputCharactersUTF8("Function Output"); Frame();
+	IO.AddKeyEvent(ImGuiKey_Enter, true); Frame();
+	IO.AddKeyEvent(ImGuiKey_Enter, false); Frame();
+	EXPECT_TRUE(Errors.empty());
+	EXPECT_EQ(Function->GetFunctionSignature().Outputs.size(), Original.Outputs.size() + 1);
+	EXPECT_FALSE(FMaterialGraphCanvasTestAccess::Menu(Canvas));
+	for (const auto& E : Function->GetExpressionCollection().Expressions)
+		if (const auto* Output = Cast<DMaterialExpressionFunctionOutput>(E.Get()); Output && Output->Port.Name == "Output 1")
+		{
+			EXPECT_FALSE(Output->Source.ExpressionId.IsValid());
+			const auto& Positions = Function->GetFunctionPresentation().Nodes;
+			const auto Position = std::ranges::find(Positions, E->Id, &FMaterialGraphNodePresentation::NodeId);
+			ASSERT_NE(Position, Positions.end());
+			EXPECT_EQ(Position->X, 321); EXPECT_EQ(Position->Y, 234);
+		}
+	EXPECT_TRUE(Transactions->Undo());
+	EXPECT_EQ(Function->GetFunctionSignature(), Original);
+	EXPECT_TRUE(Transactions->Redo());
+	FMaterialGraphCanvasTestAccess::OpenCreationAt(Canvas, {432, 345});
+	Frame(); Frame();
+	IO.AddInputCharactersUTF8("RequiredFunction"); Frame();
+	IO.AddKeyEvent(ImGuiKey_Enter, true); Frame();
+	IO.AddKeyEvent(ImGuiKey_Enter, false); Frame();
+	EXPECT_TRUE(Errors.empty());
+	EXPECT_FALSE(FMaterialGraphCanvasTestAccess::Menu(Canvas));
+	const auto Calls = std::ranges::count_if(Function->GetExpressionCollection().Expressions, [&](const auto& E) {
+		const auto* Call = Cast<DMaterialExpressionFunctionCall>(E.Get());
+		return Call && Call->Function == Callee && Call->Inputs.empty();
+	});
+	EXPECT_EQ(Calls, 1);
+	EXPECT_TRUE(Transactions->Undo());
+	EXPECT_TRUE(Transactions->Redo());
+	Canvas.CancelInteraction(); ImGui::DestroyContext(Context);
+	EXPECT_TRUE(Transactions->Reset()); MarkAsGarbage(Function); CollectGarbage();
 }
 
 TEST(FMaterialGraphInteractionTests, CanvasGeometryUsesStableMetricsAndZoomHysteresis)

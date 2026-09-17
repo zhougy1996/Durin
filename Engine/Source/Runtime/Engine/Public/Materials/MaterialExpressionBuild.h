@@ -46,11 +46,16 @@ namespace Durin
 		uint64 Revision = 0;
 	};
 
-	// Owning-thread admission of editable dependencies; publishes stamps only on success.
+	enum class EMaterialFunctionValidationMode : uint8 { Compilation, Editing };
+
+	// Editing permits unfinished wiring; both modes enforce dependency bounds and cycles.
+	// Publishes stamps only on success.
 	ENGINE_API auto ValidateMaterialFunctionDependencies(std::span<DMaterialFunctionInterface* const> Roots,
-		std::vector<FMaterialFunctionOwnerStamp>& OutOwners) -> FMaterialProgramValidationResult;
+		std::vector<FMaterialFunctionOwnerStamp>& OutOwners,
+		EMaterialFunctionValidationMode Mode = EMaterialFunctionValidationMode::Compilation) -> FMaterialProgramValidationResult;
 	ENGINE_API auto ValidateMaterialFunctionCallSignature(const DMaterialExpressionFunctionCall& Call,
-		const FMaterialFunctionSignature& Signature) -> FMaterialProgramValidationResult;
+		const FMaterialFunctionSignature& Signature,
+		EMaterialFunctionValidationMode Mode = EMaterialFunctionValidationMode::Compilation) -> FMaterialProgramValidationResult;
 
 	// Detached result. No expression, texture, or callee object is retained.
 	struct FMaterialExpressionBuildResult

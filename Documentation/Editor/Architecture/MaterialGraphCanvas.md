@@ -4,7 +4,7 @@ Summary: Define material editor panels, canvas geometry, semantic zoom, node cre
 
 Modules: MaterialEditor, Engine, DurinEd
 
-Last reviewed: 2026-09-16
+Last reviewed: 2026-09-17
 
 Commands, ownership, transactions, and clipboard semantics are defined in
 [Material Graph Operations](MaterialGraphOperations.md). Preview resources and
@@ -21,8 +21,12 @@ remaining width and height. Parameters shares the Details dock as a visible tab,
 and Diagnostics as an optional tab. Small initial layouts use dock tabs. Resizing
 does not rebuild a user's arrangement. Hidden document roots keep their dock spaces alive.
 
-Function insertion opens a bounded popup above the graph; its picker displays
-directly without a collapsible wrapper. Selected-call navigation
+Function assets appear in the shared canvas creation search. Selecting one or
+dropping it from the Content Browser creates a reference node at the graph position
+without requiring input bindings. Dragging an output into the menu can bind the
+first matching function input in the insertion transaction. Function documents
+also offer Function Input and Function Output in this menu; their port properties
+are edited in Details, and output wiring may be completed later. Selected-call navigation
 lives in Details alongside the shared input editor, so selection does not resize
 or displace the canvas. Details owns selected-node authoring and instance
 inheritance and rendering properties. Parameters owns shared parameter metadata

@@ -83,8 +83,11 @@ Clipboard copy duplicates selected expressions only.
 Function state cannot contain root parameters or material outputs. Call inputs
 retain numeric defaults while disconnected; connecting another callee output
 records its stable output binding in the same transaction.
-Call insertion validates required inputs and rejects recursive dependencies before
-publishing its concrete expression.
+Call insertion publishes a referenced function node before inputs are connected.
+Editing-mode dependency validation retains storage, recursion and closure bounds;
+compilation-mode validation additionally checks function bodies and required bindings.
+Insertion, nested edits and clipboard paste use editing mode, so unfinished
+dependencies remain editable. Compilation, preview and package validation stay strict.
 Generic input connection and node removal use the same live edit boundary.
 Fixed pins follow reflected connection-member declaration order; Surface override
 pins are keyed by attribute and call connections by their input bindings. Deletion
@@ -97,7 +100,7 @@ for Undo/Redo and provide positions for terminals without saved layout.
 Port editing, call insertion and call input connection commands
 use stable GUIDs; insertion rejects a dependency closure that would recurse into
 the current function. Adding an interface port creates its typed terminal in the
-same transaction; output creation requires a source link. Removing a port rejects
+same transaction; outputs may be created before a source is connected. Removing a port rejects
 if retained graph links still require its terminal. Interface type edits update
 terminal types atomically; incompatible retained wiring remains editable with compiler diagnostics. Shared node
 creation/replacement/removal and positional-input connection work for both graph
@@ -122,9 +125,10 @@ node creation supplies typed inline literal defaults; texture and Surface operat
 can be created by dragging a compatible output into the node menu. Movement commits
 presentation only on release and Escape cancels its transient positions.
 
-Material and function documents share a call picker that collects required input
-connections before insertion. Pin tooltips and selected-call controls display
-defaults; optional connected inputs can explicitly return to their defaults.
+Material and function documents create function calls through the canvas search
+menu or an asset drop. Nodes appear at the requested graph position and expose
+the live signature for subsequent wiring. Pin tooltips and selected-call controls
+display defaults; optional connected inputs can explicitly return to their defaults.
 Diagnostics open the originating function and frame its node by retained identity.
 
 `BuildMaterialFunctionPreview` constructs and publishes concrete expressions into

@@ -341,7 +341,6 @@ namespace Durin::Editor::Material
 		OpenMaterials.erase(Document.ResourceId);
 		MaterialPreviews.erase(Document.Id.Value);
 		MaterialGraphCanvases.erase(Document.Id.Value);
-		FunctionCallPickers.erase(Document.Id.Value);
 		ParameterSearchTexts.erase(Document.Id.Value);
 		EditingSessions.erase(Document.ResourceId);
 		PendingLayoutResets.erase(Document.Id.Value);
@@ -760,13 +759,6 @@ namespace Durin::Editor::Material
 			return;
 		}
 		FMaterialGraphCanvas& Canvas = GetOrCreateCanvas(Document);
-		if (ImGui::Button("Insert Function Call")) ImGui::OpenPopup("InsertFunctionCall");
-		ImGui::SetNextWindowSize(ImVec2(480.0f, 420.0f), ImGuiCond_Appearing);
-		if (ImGui::BeginPopup("InsertFunctionCall"))
-		{
-			FunctionCallPickers[Document.Id.Value].Draw(*Base, *GEditor->GetTransactor(), ErrorMessage);
-			ImGui::EndPopup();
-		}
 		Canvas.Draw(*Base, *GEditor->GetTransactor(), Height,
 			[this](std::string Message) { SetError(std::move(Message)); });
 		const auto [Zoom, Pan] = Canvas.GetViewport();

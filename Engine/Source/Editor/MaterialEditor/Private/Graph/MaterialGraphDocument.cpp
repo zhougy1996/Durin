@@ -582,7 +582,7 @@ namespace Durin::Editor::Material
 		FGraphEditSession State(*Owner.Get());
 		std::vector<FMaterialFunctionOwnerStamp> Closure;
 		const std::array<DMaterialFunctionInterface*, 1> Roots{&Function};
-		auto Validation = ValidateMaterialFunctionDependencies(Roots, Closure);
+		auto Validation = ValidateMaterialFunctionDependencies(Roots, Closure, EMaterialFunctionValidationMode::Editing);
 		if (!Validation) return MakeRejected("The selected function dependency is invalid.", std::move(Validation.Diagnostics));
 		if (std::ranges::any_of(Closure, [&](const auto& Dependency) { return Dependency.AssetPath == Owner.Get()->GetObjectPath(); }))
 			return MakeRejected("This call would introduce recursive function dependencies.");
@@ -603,8 +603,8 @@ namespace Durin::Editor::Material
 			}
 			Call->Inputs.push_back(std::move(Binding));
 		}
-		Validation = ValidateMaterialFunctionCallSignature(*Call.Get(), Function.GetFunctionSignature());
-		if (!Validation) return MakeRejected("Bind the function's required inputs before inserting the call.", std::move(Validation.Diagnostics));
+		Validation = ValidateMaterialFunctionCallSignature(*Call.Get(), Function.GetFunctionSignature(), EMaterialFunctionValidationMode::Editing);
+		if (!Validation) return MakeRejected("The function call bindings are invalid.", std::move(Validation.Diagnostics));
 		State.Expressions.emplace_back(Call.Get());
 		for (const auto& Input : Call->Inputs) IncludeCallOutput(State, Input.Input);
 		State.Presentation.Nodes.push_back({Id, X, Y});

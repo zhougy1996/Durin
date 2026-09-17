@@ -34,10 +34,9 @@ namespace Durin::Editor::Material
 		bool bLayout = false;
 		bool bOutputPort = false;
 		FGuid EditingPort;
+		FGuid SelectedPortNode;
 		FMaterialFunctionPort PortDraft;
 		std::array<char, 129> PortName{};
-		FMaterialProgramLink OutputSource;
-		FMaterialFunctionCallPicker CallPicker;
 		std::vector<FMaterialProgramDiagnostic> Diagnostics;
 		FGuid EditingNode;
 		TStrongObjectPtr<DMaterialExpression> NodeDraft;
@@ -138,7 +137,7 @@ namespace Durin::Editor::Material
 			if (auto* Function = Document->Function(); Function && Function->GetPackage() == Previous)
 			{
 				Document->Owner = Cast<DMaterialFunction>(Replacement->FindTopLevelAsset(Function->GetFName()));
-				Document->Canvas.CancelInteraction(); Document->PreviewInvalidation.RequestRefresh(); Document->EditingPort = {}; Document->EditingNode = {};
+				Document->Canvas.CancelInteraction(); Document->PreviewInvalidation.RequestRefresh(); Document->EditingPort = {}; Document->SelectedPortNode = {}; Document->EditingNode = {};
 			}
 	}
 	auto MMaterialFunctionEditor::OnAssetsRelocated(std::span<const FAssetRelocationMapping> Mappings) -> void
@@ -179,6 +178,25 @@ namespace Durin::Editor::Material
 		FMaterialGraphDocument Graph(Function);
 		const auto Apply = [&](FMaterialGraphCommandResult Result) { if (!Result) Error = Result.Message; };
 		ImGui::SeparatorText("Interface");
+		if (Document.Canvas.GetSelection().size() != 1) Document.SelectedPortNode = {};
+		for (const auto& Selection : Document.Canvas.GetSelection())
+			if (const auto* Id = std::get_if<FGuid>(&Selection); Id && Document.Canvas.GetSelection().size() == 1)
+				for (const auto& Expression : Function.GetExpressionCollection().Expressions)
+					if (Expression->Id == *Id)
+					{
+						const auto* Input = Cast<DMaterialExpressionFunctionInput>(Expression.Get());
+						const auto* Output = Cast<DMaterialExpressionFunctionOutput>(Expression.Get());
+						const auto* Port = Input ? &Input->Port : Output ? &Output->Port : nullptr;
+						if (!Port) Document.SelectedPortNode = {};
+						if (Port && Document.SelectedPortNode != *Id)
+						{
+							Document.SelectedPortNode = *Id;
+							Document.EditingPort = Port->Id;
+							Document.bOutputPort = Output != nullptr;
+							Document.PortDraft = *Port;
+							std::snprintf(Document.PortName.data(), Document.PortName.size(), "%s", Port->Name.c_str());
+						}
+					}
 		for (bool Output : {false, true})
 		{
 			ImGui::PushID(Output ? "Outputs" : "Inputs");
@@ -256,17 +274,6 @@ namespace Durin::Editor::Material
 			}
 			else Document.PortDraft.Default = {};
 		}
-		else if (!Document.EditingPort.IsValid())
-		{
-			if (ImGui::BeginCombo("Source", Document.OutputSource.SourceNodeId.IsValid() ? "Selected output" : "Choose output"))
-			{
-				for (const auto& Node : Graph.Inspect().Nodes)
-					for (const auto& Pin : Node.Outputs)
-						if (Pin.Type == Document.PortDraft.Type && ImGui::Selectable(std::format("{}: {}##{}{}", Node.PrimaryLabel, Pin.Name, Node.Node.Id.ToString(), Pin.PortId.ToString()).c_str()))
-							Document.OutputSource = {Node.Node.Id, Pin.OutputIndex, Pin.PortId};
-				ImGui::EndCombo();
-			}
-		}
 		if (ImGui::Button(Document.EditingPort.IsValid() ? "Apply Port" : "Add Port"))
 		{
 			Document.PortDraft.Name = Document.PortName.data();
@@ -275,15 +282,13 @@ namespace Durin::Editor::Material
 			{
 				Apply(Graph.SetPort(Document.bOutputPort, Document.PortDraft, GEditor->GetTransactor()));
 			}
-			else Apply(Graph.AddPort(Document.bOutputPort, Document.PortDraft, Document.OutputSource, 0, 240, GEditor->GetTransactor()));
+			else Apply(Graph.AddPort(Document.bOutputPort, Document.PortDraft, {}, 0, 240, GEditor->GetTransactor()));
 		}
 		if (Document.EditingPort.IsValid())
 		{
 			ImGui::SameLine();
 			if (ImGui::Button("Remove Port")) Apply(Graph.RemovePort(Document.bOutputPort, Document.EditingPort, GEditor->GetTransactor()));
 		}
-		ImGui::SeparatorText("Insert Function Call");
-		Document.CallPicker.Draw(Function, *GEditor->GetTransactor(), Error);
 		ImGui::Spacing();
 		for (const auto& Selection : Document.Canvas.GetSelection())
 			if (const auto* Id = std::get_if<FGuid>(&Selection))

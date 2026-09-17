@@ -1,6 +1,64 @@
 #include "FunctionPortTestFixture.h"
 #include "MaterialFunctionTestSupport.h"
 
+TEST(FMaterialFunctionEditingTests, UnfinishedCallsRemainEditableAndCompileAfterConnecting)
+{
+	using namespace Durin;
+	using namespace Durin::Editor::Material;
+	InitializeDObjectSystem();
+	FScopedOfflinePreparation Offline;
+	TStrongObjectPtr<DMaterialFunction> Function(NewObject<DMaterialFunction>(nullptr, "UnfinishedFunction"));
+	TStrongObjectPtr<DMaterialFunction> Wrapper(NewObject<DMaterialFunction>(nullptr, "UnfinishedWrapper"));
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, "UnfinishedCaller"));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	FMaterialGraphDocument Graph(*Function), Nested(*Wrapper), Root(*Material);
+	Tests::FTestTransactorOwner Transactions;
+	auto Input = FunctionPort(401, EMaterialProgramValueType::Float, "Amount");
+	Input.bRequired = true;
+	const auto InputNode = Graph.AddPort(false, Input);
+	ASSERT_TRUE(InputNode);
+	const auto Output = FunctionPort(402, EMaterialProgramValueType::Float, "Result");
+	const auto OutputNode = Graph.AddPort(true, Output, {}, 10, 20, Transactions.Get());
+	ASSERT_TRUE(OutputNode);
+	ASSERT_TRUE(Transactions.Get()->Undo());
+	ASSERT_TRUE(Transactions.Get()->Redo());
+	const auto Call = Nested.InsertFunctionCall(*Function, 30, 40, Transactions.Get());
+	ASSERT_TRUE(Call) << Call.Message;
+	ASSERT_TRUE(Transactions.Get()->Undo());
+	EXPECT_TRUE(GetFunctionCalls(*Wrapper).empty());
+	ASSERT_TRUE(Transactions.Get()->Redo());
+	EXPECT_EQ(GetFunctionCalls(*Wrapper)[0]->Id, Call.GeneratedNodeIds[0]);
+	// An unfinished dependency can be referenced and copied, but cannot recurse.
+	ASSERT_TRUE(Root.InsertFunctionCall(*Wrapper, 0, 0));
+	EXPECT_FALSE(Graph.InsertFunctionCall(*Wrapper, 0, 0));
+	FMaterialGraphClipboardPayload Clipboard;
+	ASSERT_TRUE(Nested.CopySelection(Call.GeneratedNodeIds, Clipboard));
+	const auto Pasted = Nested.Paste(Clipboard, 60, 80);
+	ASSERT_TRUE(Pasted) << Pasted.Message;
+	ASSERT_TRUE(Nested.RemoveNodes(Pasted.GeneratedNodeIds));
+	const std::array<DMaterialFunctionInterface*, 1> Roots{Wrapper.Get()};
+	std::vector<FMaterialFunctionOwnerStamp> Closure;
+	EXPECT_TRUE(ValidateMaterialFunctionDependencies(Roots, Closure, EMaterialFunctionValidationMode::Editing));
+	EXPECT_FALSE(ValidateMaterialFunctionDependencies(Roots, Closure));
+	ASSERT_TRUE(Graph.ConnectInput(OutputNode.GeneratedNodeIds[0], 0, {InputNode.GeneratedNodeIds[0]}));
+	const auto Constant = Testing::CreateGraphConstant(Nested, 0.6f);
+	ASSERT_TRUE(Constant);
+	ASSERT_TRUE(Nested.ConnectCallInput(Call.GeneratedNodeIds[0], Input.Id, {Constant.GeneratedNodeIds[0]}, false, Transactions.Get()));
+	EXPECT_TRUE(ValidateMaterialFunctionDependencies(Roots, Closure));
+	ASSERT_TRUE(Nested.DisconnectCallInput(Call.GeneratedNodeIds[0], Input.Id, Transactions.Get()));
+	EXPECT_FALSE(ValidateMaterialFunctionDependencies(Roots, Closure));
+	ASSERT_TRUE(Transactions.Get()->Undo());
+	EXPECT_TRUE(ValidateMaterialFunctionDependencies(Roots, Closure));
+	const auto RootCall = Root.InsertFunctionCall(*Function, 100, 200);
+	ASSERT_TRUE(RootCall);
+	ASSERT_TRUE(Root.AssignMaterialOutput(EMaterialSurfaceOutput::Roughness, {RootCall.GeneratedNodeIds[0], 0, Output.Id}));
+	EXPECT_FALSE(Material->CompileEdits());
+	const auto RootConstant = Testing::CreateGraphConstant(Root, 0.6f);
+	ASSERT_TRUE(RootConstant);
+	ASSERT_TRUE(Root.ConnectCallInput(RootCall.GeneratedNodeIds[0], Input.Id, {RootConstant.GeneratedNodeIds[0]}));
+	EXPECT_TRUE(Material->CompileEdits());
+}
+
 TEST(FMaterialFunctionEditingTests, CallInsertionBindsRequiredInputsAndAdmitsNewOutputPorts)
 {
 	using namespace Durin;
@@ -16,7 +74,9 @@ TEST(FMaterialFunctionEditingTests, CallInsertionBindsRequiredInputsAndAdmitsNew
 	ASSERT_TRUE(Input);
 	const auto Constant = Testing::CreateGraphConstant(Root, 0.6f);
 	ASSERT_TRUE(Constant);
-	EXPECT_FALSE(Root.InsertFunctionCall(*Function, 0, 0));
+	const auto Unbound = Root.InsertFunctionCall(*Function, 0, 0);
+	ASSERT_TRUE(Unbound);
+	ASSERT_TRUE(Root.RemoveNodes(Unbound.GeneratedNodeIds));
 	const std::array Inputs{FMaterialFunctionInputBinding{Port.Id, Port.Type, {Constant.GeneratedNodeIds[0]}}};
 	const auto Call = Root.InsertFunctionCall(*Function, 0, 0, Inputs);
 	ASSERT_TRUE(Call);

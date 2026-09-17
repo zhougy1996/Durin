@@ -8,6 +8,9 @@
 
 #include "Editor/Transaction.h"
 #include "MonaImGui.h"
+#include "Asset/Asset.h"
+#include "Editor/AssetDragDrop.h"
+#include "ThirdParty/ImGui/imgui_internal.h"
 
 namespace Durin::Editor::Material
 {
@@ -806,6 +809,32 @@ namespace Durin::Editor::Material
 		const FReportError& ReportError) -> void
 	{
 		const auto Hit = HitTest(VisualGraph, CanvasMinimum, CanvasMaximum, Mouse);
+		if (ImGui::BeginDragDropTargetCustom(ImRect(CanvasMinimum, CanvasMaximum), ImGui::GetID("MaterialFunctionDrop")))
+		{
+			if (const auto* Payload = ImGui::AcceptDragDropPayload(AssetDragDropPayloadType);
+				Payload && Payload->IsDelivery() && Payload->DataSize == sizeof(FAssetDragDropPayload))
+			{
+				const auto& Data = *static_cast<const FAssetDragDropPayload*>(Payload->Data);
+				FTopLevelAssetPath Path;
+				DMaterialFunctionInterface* Function = nullptr;
+				if (std::ranges::find(Data.AssetPath, '\0') != Data.AssetPath.end()
+					&& FTopLevelAssetPath::TryCreate(Data.AssetPath.data(), Path) && LoadObject(Path, Function))
+				{
+					const auto Position = Multiply(Subtract(Subtract(Mouse, CanvasMinimum), Pan), 1.0f / Zoom);
+					const auto Created = FMaterialGraphDocument(Owner).InsertFunctionCall(*Function,
+						static_cast<int32>(std::round(Position.x)), static_cast<int32>(std::round(Position.y)), &Transactions);
+					ReportCommand(Created, ReportError);
+					if (Created)
+					{
+						SelectedSurfaceOutput.reset();
+						SelectedNodes = {Created.GeneratedNodeIds.front()};
+						ResetInteraction();
+					}
+				}
+				else ReportError("Drag a material function asset into the graph.");
+			}
+			ImGui::EndDragDropTarget();
+		}
 		const auto* HoveredNode = Hit.Node;
 		const auto* HoveredInputNode = Hit.InputNode;
 		const auto* HoveredOutput = Hit.OutputNode;

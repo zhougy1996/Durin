@@ -1,5 +1,6 @@
 #include "Materials/MaterialExpressionBuild.h"
 #include "Materials/MaterialFunction.h"
+#include "Materials/MaterialExpressionEditing.h"
 #include "Threading/RunnableThread.h"
 
 #include <unordered_map>
@@ -8,7 +9,7 @@
 namespace Durin
 {
 	auto ValidateMaterialFunctionCallSignature(const DMaterialExpressionFunctionCall& Call,
-		const FMaterialFunctionSignature& Signature) -> FMaterialProgramValidationResult
+		const FMaterialFunctionSignature& Signature, EMaterialFunctionValidationMode Mode) -> FMaterialProgramValidationResult
 	{
 		auto Result = ValidateMaterialFunctionSignature(Signature);
 		if (!Result) return Result;
@@ -34,7 +35,7 @@ namespace Durin
 					Fail(Binding.OutputId, "Function output was removed, retyped or bound more than once.");
 			}
 			for (const auto& Port : Signature.Inputs)
-				if (Port.bRequired)
+				if (Port.bRequired && Mode == EMaterialFunctionValidationMode::Compilation)
 				{
 					const auto Binding = std::ranges::find(Call.Inputs, Port.Id, &FMaterialExpressionFunctionInputBinding::InputId);
 					if (Binding == Call.Inputs.end() || (!Binding->Input.ExpressionId.IsValid() && Binding->InputDefault.empty()))
@@ -46,7 +47,7 @@ namespace Durin
 	}
 
 	auto ValidateMaterialFunctionDependencies(std::span<DMaterialFunctionInterface* const> Roots,
-		std::vector<FMaterialFunctionOwnerStamp>& OutOwners) -> FMaterialProgramValidationResult
+		std::vector<FMaterialFunctionOwnerStamp>& OutOwners, EMaterialFunctionValidationMode Mode) -> FMaterialProgramValidationResult
 	{
 		check(IsInGameThread());
 		FMaterialProgramValidationResult Result;
@@ -84,7 +85,9 @@ namespace Durin
 			const auto* Concrete = Cast<DMaterialFunction>(Function);
 			if (!Concrete) return Fail("Function has no typed expression body.", Path);
 			const auto Body = Concrete->GetExpressionBody();
-			auto Validation = FMaterialExpressionBuildContext::ValidateFunction(Body.Expressions);
+			auto Validation = Mode == EMaterialFunctionValidationMode::Editing
+				? FMaterialExpressionEditing::ValidateStorage(*Function)
+				: FMaterialExpressionBuildContext::ValidateFunction(Body.Expressions);
 			if (!Validation) { Append(std::move(Validation), Path); return false; }
 			uint64 Bytes = Path.size() + Body.Expressions.size() * sizeof(DMaterialExpression*);
 			for (const auto& Port : Body.Signature.Inputs) Bytes += sizeof(Port) + Port.Name.size();
@@ -99,8 +102,11 @@ namespace Durin
 				{
 					auto* Dependency = Call->Function.Get();
 					if (!IsValid(Dependency)) return Fail("Function dependency is missing.", Path);
-					Validation = ValidateMaterialFunctionCallSignature(*Call, Dependency->GetFunctionSignature());
-					if (!Validation) { Append(std::move(Validation), Path); return false; }
+					if (Mode == EMaterialFunctionValidationMode::Compilation)
+					{
+						Validation = ValidateMaterialFunctionCallSignature(*Call, Dependency->GetFunctionSignature());
+						if (!Validation) { Append(std::move(Validation), Path); return false; }
+					}
 					CallPath.push_back(Call->Id);
 					if (!Self(Self, Dependency, Depth + 1)) return false;
 					CallPath.pop_back();

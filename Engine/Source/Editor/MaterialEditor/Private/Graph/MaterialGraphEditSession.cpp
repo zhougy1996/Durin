@@ -213,7 +213,7 @@ namespace Durin::Editor::Material::GraphEditInternals
 				std::vector<FMaterialFunctionOwnerStamp> Closure;
 				if (std::ranges::any_of(Roots, [&](auto* Root) { return Root == &Impl->Owner; }))
 					return MakeRejected("This edit would introduce recursive function dependencies.");
-				const auto Dependencies = ValidateMaterialFunctionDependencies(Roots, Closure);
+				const auto Dependencies = ValidateMaterialFunctionDependencies(Roots, Closure, EMaterialFunctionValidationMode::Editing);
 				if (!Dependencies) return MakeRejected("The function dependencies are invalid.", Dependencies.Diagnostics);
 				if (std::ranges::any_of(Closure, [&](const auto& D) { return D.AssetPath == Impl->Owner.GetObjectPath(); }))
 					return MakeRejected("This edit would introduce recursive function dependencies.");

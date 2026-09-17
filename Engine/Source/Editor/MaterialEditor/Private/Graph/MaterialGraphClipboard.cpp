@@ -197,7 +197,7 @@ namespace Durin::Editor::Material
 			for (const auto& Expression : State.Expressions)
 				if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression.Get())) Roots.push_back(Call->Function.Get());
 			std::vector<FMaterialFunctionOwnerStamp> Closure;
-			const auto Result = ValidateMaterialFunctionDependencies(Roots, Closure);
+			const auto Result = ValidateMaterialFunctionDependencies(Roots, Closure, EMaterialFunctionValidationMode::Editing);
 			if (!Result) return MakeRejected("The function dependencies are invalid.", Result.Diagnostics);
 			if (std::ranges::any_of(Closure, [&](const auto& Dependency) { return Dependency.AssetPath == Owner.Get()->GetObjectPath(); }))
 				return MakeRejected("This change would introduce recursive function dependencies.");

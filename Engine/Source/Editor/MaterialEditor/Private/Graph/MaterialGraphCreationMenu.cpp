@@ -4,6 +4,10 @@
 #include "Graph/MaterialGraphValueTypes.h"
 #include "Editor/Transaction.h"
 #include "Graph/MaterialGraphCreationShortcuts.h"
+#include "Asset/Asset.h"
+#include "DObject/Class.h"
+#include "Editor/AssetPicker.h"
+#include "Misc/StringHelper.h"
 
 namespace Durin::Editor::Material
 {
@@ -59,6 +63,13 @@ namespace Durin::Editor::Material
 		{
 			CreationMenu->Search.fill('\0');
 			CreationMenu->Selection = 0;
+			CreationMenu->FunctionPaths.clear();
+			for (const auto& [PackagePath, Data] : CaptureAssetCatalogSnapshot().Assets)
+				for (const auto& Asset : Data.TopLevelAssets)
+					if (!Asset.IsRedirector() && AssetPicker::MatchesClass(FindClassByQualifiedName(Asset.AssetClassName),
+						DMaterialFunctionInterface::StaticClass(), EAssetClassPolicy::Derived))
+						CreationMenu->FunctionPaths.push_back(Asset.AssetPath.ToString());
+			std::ranges::sort(CreationMenu->FunctionPaths);
 			ImGui::OpenPopup("MaterialNodeCreationMenu");
 			CreationMenu->bOpenRequested = false;
 		}
@@ -123,13 +134,26 @@ namespace Durin::Editor::Material
 			CachedCreationMenuSourceType = SourceType;
 		}
 		const std::vector<size_t>& Results = CachedCreationMenuResults;
+		struct FFunctionEntry { std::string Label; std::string Path; bool bOutput = false; };
+		std::vector<FFunctionEntry> Functions;
+		if (Cast<DMaterialFunction>(&Owner))
+			for (bool bOutput : {false, true})
+			{
+				const std::string Label = bOutput ? "Function Output" : "Function Input";
+				if ((!SourceType || bOutput) && StringUtils::ContainsInsensitive(Label, CreationMenu->Search.data()))
+					Functions.push_back({Label, {}, bOutput});
+			}
+		for (const auto& Path : CreationMenu->FunctionPaths)
+			if (StringUtils::ContainsInsensitive(Path, CreationMenu->Search.data()))
+				Functions.push_back({Path, Path});
+		const auto ResultCount = static_cast<int32>(Results.size() + Functions.size());
 		const int32 PreviousSelection = CreationMenu->Selection;
 		CreationMenu->Selection = std::clamp(CreationMenu->Selection, 0,
-			std::max(static_cast<int32>(Results.size()) - 1, 0));
-		if (ImGui::IsKeyPressed(ImGuiKey_DownArrow) && !Results.empty())
+			std::max(ResultCount - 1, 0));
+		if (ImGui::IsKeyPressed(ImGuiKey_DownArrow) && ResultCount > 0)
 			CreationMenu->Selection = std::min(CreationMenu->Selection + 1,
-				static_cast<int32>(Results.size()) - 1);
-		if (ImGui::IsKeyPressed(ImGuiKey_UpArrow) && !Results.empty())
+				ResultCount - 1);
+		if (ImGui::IsKeyPressed(ImGuiKey_UpArrow) && ResultCount > 0)
 			CreationMenu->Selection = std::max(CreationMenu->Selection - 1, 0);
 		if (SourceType)
 			ImGui::TextDisabled("Compatible with %s output", GetProgramTypeName(*SourceType));
@@ -140,7 +164,7 @@ namespace Durin::Editor::Material
 		if (ImGui::BeginChild("NodeCreationMenuResults",
 			{0.0f, -2.0f * ImGui::GetFrameHeightWithSpacing()}))
 		{
-			if (Results.empty()) ImGui::TextDisabled("No matching nodes.");
+			if (ResultCount == 0) ImGui::TextDisabled("No matching nodes.");
 			std::string PreviousGroup;
 			for (size_t EntryIndex = 0; EntryIndex < Results.size(); ++EntryIndex)
 			{
@@ -171,6 +195,18 @@ namespace Durin::Editor::Material
 					ImGui::SetScrollHereY();
 				ImGui::PopID();
 			}
+			if (!Functions.empty()) ImGui::SeparatorText("Material Functions");
+			for (size_t Index = 0; Index < Functions.size(); ++Index)
+			{
+				const auto Selection = static_cast<int32>(Results.size() + Index);
+				if (ImGui::Selectable(Functions[Index].Label.c_str(), CreationMenu->Selection == Selection,
+					ImGuiSelectableFlags_NoAutoClosePopups))
+				{
+					CreationMenu->Selection = Selection;
+					bActivateSelection = true;
+				}
+				if (CreationMenu->Selection == Selection && PreviousSelection != Selection) ImGui::SetScrollHereY();
+			}
 		}
 		ImGui::EndChild();
 
@@ -196,7 +232,59 @@ namespace Durin::Editor::Material
 				return;
 			}
 		}
-		if (bActivateSelection && !Results.empty())
+		if (bActivateSelection && ResultCount > 0 && CreationMenu->Selection >= static_cast<int32>(Results.size()))
+		{
+			const auto& Entry = Functions[CreationMenu->Selection - Results.size()];
+			FMaterialGraphDocument Document(Owner);
+			const auto X = static_cast<int32>(std::round(CreationMenu->GraphPosition.x));
+			const auto Y = static_cast<int32>(std::round(CreationMenu->GraphPosition.y));
+			FMaterialGraphCommandResult Created;
+			if (Entry.Path.empty())
+			{
+				const auto& Signature = Cast<DMaterialFunction>(&Owner)->GetFunctionSignature();
+				const auto& Ports = Entry.bOutput ? Signature.Outputs : Signature.Inputs;
+				FMaterialFunctionPort Port;
+				Port.Type = SourceType.value_or(EMaterialProgramValueType::Float);
+				for (uint32 Index = 1;; ++Index)
+				{
+					Port.Name = std::format("{} {}", Entry.bOutput ? "Output" : "Input", Index);
+					if (std::ranges::none_of(Ports, [&](const auto& Existing) { return Existing.Name == Port.Name; })) break;
+				}
+				if (!Entry.bOutput) Port.Default.Kind = EMaterialFunctionDefaultKind::Numeric;
+				Created = Document.AddPort(Entry.bOutput, Port,
+					{CreationMenu->SourceNode, CreationMenu->SourceOutputIndex, CreationMenu->SourceOutputId}, X, Y, &Transactions);
+			}
+			else
+			{
+				FTopLevelAssetPath Path;
+				DMaterialFunctionInterface* Function = nullptr;
+				if (FTopLevelAssetPath::TryCreate(Entry.Path, Path) && LoadObject(Path, Function))
+				{
+					std::vector<FMaterialFunctionInputBinding> Inputs;
+					if (SourceType)
+						for (const auto& Port : Function->GetFunctionSignature().Inputs)
+							if (Port.Type == *SourceType)
+							{
+								Inputs.push_back({Port.Id, Port.Type, {CreationMenu->SourceNode, CreationMenu->SourceOutputIndex, CreationMenu->SourceOutputId}});
+								break;
+							}
+					if (SourceType && Inputs.empty()) Created.Message = "This function has no compatible input.";
+					else Created = Document.InsertFunctionCall(*Function, X, Y, Inputs, &Transactions);
+				}
+				else Created.Message = "Unable to load the material function.";
+			}
+			ReportCommand(Created, ReportError);
+			if (Created)
+			{
+				SelectedSurfaceOutput.reset();
+				SelectedNodes = {Created.GeneratedNodeIds.front()};
+				ResetInteraction();
+				ImGui::CloseCurrentPopup();
+				ImGui::EndPopup();
+				return;
+			}
+		}
+		else if (bActivateSelection && !Results.empty())
 		{
 			const FMaterialGraphCatalogEntry& Entry = Catalog[
 				Results[static_cast<size_t>(CreationMenu->Selection)]];
