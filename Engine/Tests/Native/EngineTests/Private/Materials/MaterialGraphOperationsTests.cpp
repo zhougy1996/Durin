@@ -3008,3 +3008,73 @@ TEST(FMaterialGraphOperationsTests, OutputModeRetainsConnectionsAndUndoRestoresV
 	MarkAsGarbage(Material);
 	CollectGarbage();
 }
+
+TEST(FMaterialGraphOperationsTests, CreationRequestConnectsAndUndoesAsOneEdit)
+{
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	FMaterialGraphDocument Document(*Material);
+	const auto Scalar = Testing::CreateGraphConstant(Document, .25f);
+	ASSERT_TRUE(Scalar);
+	const auto Catalog = FMaterialGraphOperations::EnumerateCatalog();
+	const auto Entry = std::ranges::find_if(Catalog, [](const auto& E) {
+		return E.Opcode == EMaterialProgramOpcode::Add && E.ResultType == EMaterialProgramValueType::Float;
+	});
+	ASSERT_NE(Entry, Catalog.end());
+	Durin::Tests::FTestTransactorOwner Transactions;
+	const auto Before = CaptureExpressions(*Material);
+	const auto Revision = Material->GetMaterialCompileStatus().AuthoredRevision;
+	const auto Action = MakeCreationAction(*Entry);
+	EXPECT_TRUE(Document.CanCreate(Action, EMaterialProgramValueType::Float));
+	EXPECT_FALSE(Document.CanCreate(Action, EMaterialProgramValueType::Surface));
+	const auto Created = Document.Create({Action, 120, 240,
+		FMaterialGraphPinAddress::Output({Scalar.GeneratedNodeIds.front()})}, Transactions.Get());
+	ASSERT_TRUE(Created) << Created.Message;
+	const auto View = Document.Inspect();
+	const auto* Node = FindViewNode(View, Created.GeneratedNodeIds.front());
+	ASSERT_NE(Node, nullptr);
+	EXPECT_EQ(Node->Inputs.front().Link.SourceNodeId, Scalar.GeneratedNodeIds.front());
+	EXPECT_EQ(Node->Presentation.X, 120);
+	EXPECT_EQ(Material->GetMaterialCompileStatus().AuthoredRevision, Revision + 1);
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(CaptureExpressions(*Material), Before);
+	EXPECT_FALSE(Transactions->CanUndo());
+	ASSERT_TRUE(Transactions->Redo());
+	const auto After = CaptureExpressions(*Material);
+	ASSERT_TRUE(Transactions->Reset());
+	EXPECT_FALSE(Document.Create({Action, 0, 0, FMaterialGraphPinAddress::Output({FGuid::NewGuid()})}, Transactions.Get()));
+	EXPECT_EQ(CaptureExpressions(*Material), After);
+	EXPECT_FALSE(Transactions->CanUndo());
+}
+
+TEST(FMaterialGraphOperationsTests, PinAddressesPreserveDefaultsAndRejectReplacementWithoutHistory)
+{
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	FMaterialGraphDocument Document(*Material);
+	const auto A = Testing::CreateGraphConstant(Document, .2f);
+	const auto B = Testing::CreateGraphConstant(Document, .8f);
+	ASSERT_TRUE(A); ASSERT_TRUE(B);
+	const auto View = Document.Inspect();
+	const auto Output = std::ranges::find_if(View.Nodes, [](const auto& N) { return N.Node.bMaterialOutput; });
+	ASSERT_NE(Output, View.Nodes.end());
+	const FMaterialGraphPinAddress Target{Output->Node.Id, EMaterialGraphPinKind::MaterialAttribute,
+		static_cast<uint32>(EMaterialSurfaceOutput::Roughness)};
+	const auto Default = Material->GetExpressionOutputs().RoughnessDefault;
+	ASSERT_TRUE(Document.Connect(Target, FMaterialGraphPinAddress::Output({A.GeneratedNodeIds[0]})));
+	Durin::Tests::FTestTransactorOwner Transactions;
+	EXPECT_FALSE(Document.Connect(Target, FMaterialGraphPinAddress::Output({B.GeneratedNodeIds[0]}), false, Transactions.Get()));
+	EXPECT_EQ(Document.Connect(Target, FMaterialGraphPinAddress::Output({A.GeneratedNodeIds[0]}), false, Transactions.Get()).Status,
+		EMaterialGraphCommandStatus::NoChange);
+	EXPECT_FALSE(Transactions->CanUndo());
+	ASSERT_TRUE(Document.Connect(Target, FMaterialGraphPinAddress::Output({B.GeneratedNodeIds[0]}), true, Transactions.Get()));
+	EXPECT_EQ(Material->GetExpressionOutputs().RoughnessDefault, Default);
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(Material->GetExpressionOutputs().Roughness.ExpressionId, A.GeneratedNodeIds[0]);
+	ASSERT_TRUE(Document.Disconnect(Target, Transactions.Get()));
+	EXPECT_FALSE(Material->GetExpressionOutputs().Roughness.ExpressionId.IsValid());
+	EXPECT_EQ(Material->GetExpressionOutputs().RoughnessDefault, Default);
+	EXPECT_FALSE(Document.Connect(Target, {A.GeneratedNodeIds[0], EMaterialGraphPinKind::Input}, true));
+}

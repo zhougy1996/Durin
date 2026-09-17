@@ -232,9 +232,8 @@ namespace Durin::Editor::Material
 				if (!Changed && bConnected)
 				{
 					if (ImGui::MenuItem("Inline constant")) Submit(Document.InlineInputNode(Selected->Node.Id, Pin.InputIndex, Pin.PortId, &Transactions));
-					if (!Changed && ImGui::MenuItem("Disconnect")) Submit(Pin.PortId.IsValid()
-						? Document.DisconnectCallInput(Selected->Node.Id, Pin.PortId, &Transactions)
-						: Document.ConnectInput(Selected->Node.Id, Pin.InputIndex, {}, true, &Transactions));
+					if (!Changed && ImGui::MenuItem("Disconnect")) Submit(Document.Disconnect(
+						Selected->InputAddress(Pin), &Transactions));
 				}
 				else if (!Changed)
 				{

@@ -7,10 +7,98 @@
 #include "DObject/Package.h"
 #include "MaterialGraphValueTypes.h"
 #include <cmath>
+#include "Asset/Asset.h"
 
 namespace Durin::Editor::Material
 {
 	using namespace GraphEditInternals;
+	namespace
+	{
+		auto LoadCreationFunction(const std::string& Name) -> DMaterialFunctionInterface*
+		{
+			FTopLevelAssetPath Path;
+			DMaterialFunctionInterface* Function = nullptr;
+			return FTopLevelAssetPath::TryCreate(Name, Path) && LoadObject(Path, Function) ? Function : nullptr;
+		}
+		auto AcceptsPortType(EMaterialProgramValueType Type, EMaterialProgramValueType Source) -> bool
+		{
+			const std::array Types{Type, Type > EMaterialProgramValueType::Float && Type <= EMaterialProgramValueType::Float4
+				? EMaterialProgramValueType::Float : Type};
+			return IsGraphInputCompatible(Types, Source);
+		}
+	}
+	auto FMaterialGraphDocument::CanCreate(const FMaterialGraphCreationAction& Action,
+		std::optional<EMaterialProgramValueType> SourceType) const -> bool
+	{
+		if (!Owner.IsValid()) return false;
+		const bool bFunction = Cast<DMaterialFunction>(Owner.Get()) != nullptr;
+		if (bFunction ? !Action.bFunction : !Action.bMaterial) return false;
+		if (const auto* Entry = std::get_if<FMaterialGraphCatalogEntry>(&Action.Payload))
+			return !SourceType || (!Entry->AcceptedInputTypes.empty()
+				&& IsGraphInputCompatible(Entry->AcceptedInputTypes.front(), *SourceType));
+		if (const auto* Port = std::get_if<FMaterialGraphPortCreation>(&Action.Payload))
+			return bFunction && Port->Type <= EMaterialProgramValueType::Surface
+				&& (!SourceType || (Port->bOutput && AcceptsPortType(Port->Type, *SourceType)));
+		if (!SourceType) return true;
+		const auto* Function = LoadCreationFunction(std::get<std::string>(Action.Payload));
+		return Function && std::ranges::any_of(Function->GetFunctionSignature().Inputs,
+			[&](const auto& Port) { return AcceptsPortType(Port.Type, *SourceType); });
+	}
+	auto FMaterialGraphDocument::Create(const FMaterialGraphCreationRequest& Request,
+		DTransactor* Transactions) const -> FMaterialGraphCommandResult
+	{
+		if (!Owner.IsValid()) return {.Status = EMaterialGraphCommandStatus::StaleOwner};
+		FMaterialProgramLink Source;
+		std::optional<EMaterialProgramValueType> SourceType;
+		if (Request.Source)
+		{
+			const auto& Address = *Request.Source;
+			if ((Address.Kind != EMaterialGraphPinKind::Output && Address.Kind != EMaterialGraphPinKind::FunctionOutput)
+				|| (Address.Kind == EMaterialGraphPinKind::FunctionOutput) != Address.PortId.IsValid())
+				return MakeRejected("Creation requires an output pin.");
+			const auto View = Inspect();
+			for (const auto& Node : View.Nodes)
+				if (Node.Node.Id == Address.NodeId)
+					for (const auto& Pin : Node.Outputs)
+						if (Pin.OutputIndex == Address.Index && Pin.PortId == Address.PortId && !Pin.bMissing)
+							SourceType = Pin.Type;
+			if (!SourceType) return MakeRejected("The source output no longer exists.");
+			Source = {Address.NodeId, static_cast<uint8>(Address.Index), Address.PortId};
+		}
+		if (!CanCreate(Request.Action, SourceType)) return MakeRejected("This action is not compatible with the graph or source output.");
+		if (const auto* Entry = std::get_if<FMaterialGraphCatalogEntry>(&Request.Action.Payload))
+			return CreateCatalogNode(*Entry, Request.X, Request.Y,
+				{Source.SourceNodeId, Source.SourceOutputIndex, Source.SourceOutputId}, Transactions);
+		if (const auto* Spec = std::get_if<FMaterialGraphPortCreation>(&Request.Action.Payload))
+		{
+			const auto* Function = Cast<DMaterialFunction>(Owner.Get());
+			if (!Function) return MakeRejected("Only function graphs have ports.");
+			const auto& Signature = Function->GetFunctionSignature();
+			const auto& Ports = Spec->bOutput ? Signature.Outputs : Signature.Inputs;
+			FMaterialFunctionPort Port;
+			Port.Type = Spec->Type;
+			for (uint32 Index = 1;; ++Index)
+			{
+				Port.Name = std::format("{} {}", Spec->bOutput ? "Output" : "Input", Index);
+				if (std::ranges::none_of(Ports, [&](const auto& Existing) { return Existing.Name == Port.Name; })) break;
+			}
+			if (!Spec->bOutput)
+				Port.Default.Kind = Port.Type == EMaterialProgramValueType::Surface ? EMaterialFunctionDefaultKind::Surface
+					: Port.Type == EMaterialProgramValueType::Texture2D ? EMaterialFunctionDefaultKind::Texture
+					: EMaterialFunctionDefaultKind::Numeric;
+			return AddPort(Spec->bOutput, Port, Source, Request.X, Request.Y, Transactions);
+		}
+		auto* Function = LoadCreationFunction(std::get<std::string>(Request.Action.Payload));
+		if (!Function) return MakeRejected("Unable to load the material function.");
+		std::vector<FMaterialFunctionInputBinding> Inputs;
+		if (SourceType)
+		{
+			for (const auto& Port : Function->GetFunctionSignature().Inputs)
+				if (AcceptsPortType(Port.Type, *SourceType)) { Inputs.push_back({Port.Id, Port.Type, Source}); break; }
+			if (Inputs.empty()) return MakeRejected("This function has no compatible input.");
+		}
+		return InsertFunctionCall(*Function, Request.X, Request.Y, Inputs, Transactions);
+	}
 	namespace GraphEditInternals
 	{
 		// Update inferred widths on live objects, recording each participant before
@@ -506,31 +594,80 @@ namespace Durin::Editor::Material
 		return Result;
 	}
 
+	auto FMaterialGraphDocument::Connect(const FMaterialGraphPinAddress& TargetAddress,
+		const FMaterialGraphPinAddress& SourceAddress, bool bReplaceExisting, DTransactor* Transactions) const -> FMaterialGraphCommandResult
+	{
+		if (!Owner.IsValid()) return {.Status = EMaterialGraphCommandStatus::StaleOwner};
+		if ((SourceAddress.Kind != EMaterialGraphPinKind::Output && SourceAddress.Kind != EMaterialGraphPinKind::FunctionOutput)
+			|| SourceAddress.Index > 255
+			|| (!SourceAddress.NodeId.IsValid() && (SourceAddress.Index != 0 || SourceAddress.PortId.IsValid())))
+			return MakeRejected("The source must be an output pin.");
+		if ((SourceAddress.Kind == EMaterialGraphPinKind::FunctionOutput) != SourceAddress.PortId.IsValid())
+			return MakeRejected("The source pin key is invalid.");
+		FGraphEditSession State(*Owner.Get());
+		const auto Node = std::ranges::find(State.Expressions, TargetAddress.NodeId, [](const auto& E) { return E->Id; });
+		if (Node == State.Expressions.end()) return MakeRejected("The graph input no longer exists.");
+		FMaterialExpressionInput* Target = nullptr;
+		auto* Call = Cast<DMaterialExpressionFunctionCall>(Node->Get());
+		const FMaterialFunctionPort* Port = nullptr;
+		bool bRemoveBinding = false;
+		if (TargetAddress.Kind == EMaterialGraphPinKind::FunctionInput)
+		{
+			if (!Call || !TargetAddress.PortId.IsValid()) return MakeRejected("The function call is unavailable.");
+			if (IsValid(Call->Function.Get()))
+			{
+				const auto& Ports = Call->Function->GetFunctionSignature().Inputs;
+				const auto Found = std::ranges::find(Ports, TargetAddress.PortId, &FMaterialFunctionPort::Id);
+				if (Found != Ports.end()) Port = &*Found;
+			}
+			if (!Port && SourceAddress.NodeId.IsValid()) return MakeRejected("The function input port no longer exists.");
+			const auto Binding = std::ranges::find(Call->Inputs, TargetAddress.PortId, &FMaterialExpressionFunctionInputBinding::InputId);
+			if (Binding != Call->Inputs.end())
+			{
+				Target = &Binding->Input;
+				bRemoveBinding = !SourceAddress.NodeId.IsValid() && Binding->InputDefault.empty();
+			}
+		}
+		else
+		{
+			if (Call || TargetAddress.PortId.IsValid()) return MakeRejected("The input pin key is invalid.");
+			uint32 Index = TargetAddress.Index;
+			switch (TargetAddress.Kind)
+			{
+			case EMaterialGraphPinKind::Input: break;
+			case EMaterialGraphPinKind::MaterialAttribute:
+				if (!Cast<DMaterialExpressionMaterialOutput>(Node->Get()) || Index >= 8)
+					return MakeRejected("The material attribute pin is invalid.");
+				break;
+			case EMaterialGraphPinKind::MaterialSurface:
+				if (!Cast<DMaterialExpressionMaterialOutput>(Node->Get())) return MakeRejected("The material output is unavailable.");
+				Index = static_cast<uint32>(EMaterialOutputPin::Surface); break;
+			default: return MakeRejected("The target must be an input pin.");
+			}
+			VisitMaterialExpressionInputs(**Node, [&](uint32 Slot, FMaterialExpressionInput& Input) { if (Slot == Index) Target = &Input; });
+			if (!Target) return MakeRejected("The graph input no longer exists.");
+		}
+		const FMaterialExpressionInput Connection{SourceAddress.NodeId, static_cast<uint8>(SourceAddress.Index), SourceAddress.PortId};
+		if (!IsSourceAvailable(State, Connection)) return MakeRejected("The source output no longer exists.");
+		const auto Previous = Target ? *Target : FMaterialExpressionInput{};
+		if (Previous.ExpressionId.IsValid() && Previous != Connection && !bReplaceExisting)
+			return MakeRejected("The graph input is already connected.");
+		if (Previous == Connection && !bRemoveBinding) return {.Status = EMaterialGraphCommandStatus::NoChange};
+		State.Modify(**Node);
+		if (Target) *Target = Connection;
+		else Call->Inputs.push_back({Port->Id, Port->Type, Connection});
+		if (Call && !Connection.ExpressionId.IsValid())
+			std::erase_if(Call->Inputs, [&](const auto& Binding) {
+				return Binding.InputId == TargetAddress.PortId && Binding.InputDefault.empty();
+			});
+		IncludeCallOutput(State, Connection);
+		return CommitGraphEdit(*Owner.Get(), State, "Connect Graph Input", Transactions);
+	}
+
 	auto FMaterialGraphDocument::ConnectInput(const FGuid& NodeId, uint32 InputIndex,
 		FMaterialProgramLink Source, bool bReplaceExisting, DTransactor* Transactions) const -> FMaterialGraphCommandResult
 	{
-		if (!Owner.IsValid()) return {.Status = EMaterialGraphCommandStatus::StaleOwner};
-		FGraphEditSession State(*Owner.Get());
-		const auto Node = std::ranges::find(State.Expressions, NodeId, [](const auto& Expression) { return Expression->Id; });
-		if (Node == State.Expressions.end() || Cast<DMaterialExpressionFunctionCall>(Node->Get()))
-			return MakeRejected("The graph input no longer exists.");
-		FMaterialExpressionInput* Target = nullptr;
-		VisitMaterialExpressionInputs(**Node, [&](uint32 Index, FMaterialExpressionInput& Input) {
-			if (Index == InputIndex) Target = &Input;
-		});
-		if (!Target) return MakeRejected("The graph input no longer exists.");
-		const FMaterialExpressionInput Connection{Source.SourceNodeId, Source.SourceOutputIndex, Source.SourceOutputId};
-		if (!IsSourceAvailable(State, Connection)) return MakeRejected("The source output no longer exists.");
-		if (Target->ExpressionId.IsValid() && *Target != Connection && !bReplaceExisting)
-			return MakeRejected("The graph input is already connected.");
-		if (*Target == Connection) return {.Status = EMaterialGraphCommandStatus::NoChange};
-		if (Cast<DMaterialExpressionMaterialOutput>(Node->Get()))
-			return AssignMaterialOutput(InputIndex == static_cast<uint32>(EMaterialOutputPin::Surface)
-				? std::nullopt : std::optional(static_cast<EMaterialSurfaceOutput>(InputIndex)), Source, Transactions);
-		State.Modify(**Node);
-		*Target = Connection;
-		IncludeCallOutput(State, Connection);
-		return CommitGraphEdit(*Owner.Get(), State, "Connect Graph Input", Transactions);
+		return Connect(FMaterialGraphPinAddress::Input(NodeId, InputIndex), FMaterialGraphPinAddress::Output(Source), bReplaceExisting, Transactions);
 	}
 
 	auto FMaterialGraphDocument::SetUseMaterialAttributes(bool bEnabled, DTransactor* Transactions) const -> FMaterialGraphCommandResult
@@ -548,28 +685,13 @@ namespace Durin::Editor::Material
 		FMaterialProgramLink Source, DTransactor* Transactions) const -> FMaterialGraphCommandResult
 	{
 		if (!Owner.IsValid()) return {.Status = EMaterialGraphCommandStatus::StaleOwner};
-		auto* Material = Cast<DMaterial>(Owner.Get());
+		const auto* Material = Cast<DMaterial>(Owner.Get());
 		if (!Material) return MakeRejected("Function documents expose output ports instead of Surface.");
-		FGraphEditSession State(*Material);
-		const FMaterialExpressionInput Connection{Source.SourceNodeId, Source.SourceOutputIndex, Source.SourceOutputId};
-		if (!IsSourceAvailable(State, Connection)) return MakeRejected("The source output no longer exists.");
-		const auto Previous = State.GetOutputs();
-		const std::array Attributes{&State.GetOutputs().BaseColor, &State.GetOutputs().Normal, &State.GetOutputs().Metallic,
-			&State.GetOutputs().Roughness, &State.GetOutputs().AmbientOcclusion, &State.GetOutputs().Emissive,
-			&State.GetOutputs().Opacity, &State.GetOutputs().OpacityMask};
-		if (Attribute)
-		{
-			const auto Index = static_cast<uint32>(*Attribute);
-			if (Index >= Attributes.size()) return MakeRejected("The material output attribute is invalid.");
-			*Attributes[Index] = Connection;
-		}
-		else
-		{
-			State.GetOutputs().Surface = Connection;
-		}
-		if (State.GetOutputs() == Previous) return {.Status = EMaterialGraphCommandStatus::NoChange};
-		IncludeCallOutput(State, Connection);
-		return CommitGraphEdit(*Material, State, "Connect Surface", Transactions);
+		for (const auto& E : Material->GetExpressionCollection().Expressions)
+			if (Cast<DMaterialExpressionMaterialOutput>(E.Get()))
+				return Connect({E->Id, Attribute ? EMaterialGraphPinKind::MaterialAttribute : EMaterialGraphPinKind::MaterialSurface,
+					Attribute ? static_cast<uint32>(*Attribute) : 0}, FMaterialGraphPinAddress::Output(Source), true, Transactions);
+		return MakeRejected("The material output is unavailable.");
 	}
 
 	auto FMaterialGraphDocument::InsertFunctionCall(DMaterialFunctionInterface& Function,
@@ -620,43 +742,18 @@ namespace Durin::Editor::Material
 	auto FMaterialGraphDocument::ConnectCallInput(const FGuid& CallNodeId, const FGuid& InputId,
 		FMaterialProgramLink Source, bool bReplaceExisting, DTransactor* Transactions) const -> FMaterialGraphCommandResult
 	{
-		if (!Owner.IsValid()) return {.Status = EMaterialGraphCommandStatus::StaleOwner};
-		FGraphEditSession State(*Owner.Get());
-		auto* Call = FindCall(State, CallNodeId);
-		if (!Call || !IsValid(Call->Function.Get())) return MakeRejected("The function call is unavailable.");
-		const auto& Inputs = Call->Function->GetFunctionSignature().Inputs;
-		const auto Port = std::ranges::find(Inputs, InputId, &FMaterialFunctionPort::Id);
-		if (Port == Inputs.end()) return MakeRejected("The function input port no longer exists.");
-		const FMaterialExpressionInput Connection{Source.SourceNodeId, Source.SourceOutputIndex, Source.SourceOutputId};
-		if (!IsSourceAvailable(State, Connection)) return MakeRejected("The source output no longer exists.");
-		auto Binding = std::ranges::find(Call->Inputs, InputId, &FMaterialExpressionFunctionInputBinding::InputId);
-		if (Binding != Call->Inputs.end())
-		{
-			if (!bReplaceExisting && Binding->Input.ExpressionId.IsValid() && Binding->Input != Connection)
-				return MakeRejected("The function input is already connected.");
-			if (Binding->Input == Connection) return {.Status = EMaterialGraphCommandStatus::NoChange};
-			State.Modify(*Call);
-			Binding->Input = Connection;
-		}
-		else { State.Modify(*Call); Call->Inputs.push_back({InputId, Port->Type, Connection}); }
-		IncludeCallOutput(State, Connection);
-		return CommitGraphEdit(*Owner.Get(), State, "Connect Function Input", Transactions);
+		return Connect(FMaterialGraphPinAddress::Input(CallNodeId, 0, InputId), FMaterialGraphPinAddress::Output(Source), bReplaceExisting, Transactions);
+	}
+
+	auto FMaterialGraphDocument::Disconnect(const FMaterialGraphPinAddress& Target,
+		DTransactor* Transactions) const -> FMaterialGraphCommandResult
+	{
+		return Connect(Target, FMaterialGraphPinAddress::Output({}), true, Transactions);
 	}
 
 	auto FMaterialGraphDocument::DisconnectCallInput(const FGuid& CallNodeId, const FGuid& InputId,
 		DTransactor* Transactions) const -> FMaterialGraphCommandResult
 	{
-		if (!Owner.IsValid()) return {.Status = EMaterialGraphCommandStatus::StaleOwner};
-		FGraphEditSession State(*Owner.Get());
-		auto* Call = FindCall(State, CallNodeId);
-		if (!Call) return MakeRejected("The function call no longer exists.");
-		const auto Binding = std::ranges::find(Call->Inputs, InputId, &FMaterialExpressionFunctionInputBinding::InputId);
-		if (Binding == Call->Inputs.end()) return {.Status = EMaterialGraphCommandStatus::NoChange};
-		if (Binding->Input == FMaterialExpressionInput{} && !Binding->InputDefault.empty())
-			return {.Status = EMaterialGraphCommandStatus::NoChange};
-		State.Modify(*Call);
-		Binding->Input = {};
-		if (Binding->InputDefault.empty()) Call->Inputs.erase(Binding);
-		return CommitGraphEdit(*Owner.Get(), State, "Disconnect Function Input", Transactions);
+		return Disconnect(FMaterialGraphPinAddress::Input(CallNodeId, 0, InputId), Transactions);
 	}
 }

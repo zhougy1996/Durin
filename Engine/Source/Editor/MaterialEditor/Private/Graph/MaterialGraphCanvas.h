@@ -96,9 +96,7 @@ namespace Durin::Editor::Material
 		struct FLinkingInteraction { FGuid SourceNode; uint8 SourceOutputIndex = 0; FGuid SourceOutputId; };
 		struct FReconnectingInputInteraction
 		{
-			FGuid DestinationNode;
-			uint32 DestinationInputIndex = 0;
-			FGuid DestinationInputId;
+			FMaterialGraphPinAddress Destination;
 		};
 
 		struct FMarqueeInteraction { ImVec2 Start{}; };
@@ -160,7 +158,7 @@ namespace Durin::Editor::Material
 		auto DrawContextMenu(DObject& Owner,
 			::Durin::DTransactor& Transactions, const FMaterialGraphView& View,
 			const FReportError& ReportError) -> void;
-		auto RememberCreation(const FMaterialGraphCatalogEntry& Node) -> void;
+		auto RememberCreation(const FMaterialGraphCreationAction& Node) -> void;
 		auto HasClipboard() const -> bool;
 		auto DrawCreationMenu(DObject& Owner,
 			::Durin::DTransactor& Transactions, const FMaterialGraphView& View,
@@ -191,6 +189,7 @@ namespace Durin::Editor::Material
 		bool bCreationMenuResultsDirty = true;
 		std::string CachedCreationMenuQuery;
 		std::optional<EMaterialProgramValueType> CachedCreationMenuSourceType;
+		std::vector<FMaterialGraphCreationAction> CachedCreationActions;
 		std::vector<size_t> CachedCreationMenuResults;
 		size_t CachedCreationMenuRecentCount = 0;
 		std::vector<FMaterialGraphCatalogEntry> Catalog;

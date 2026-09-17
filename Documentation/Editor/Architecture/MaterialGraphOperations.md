@@ -253,8 +253,22 @@ link through drag, reconnection, Surface assignment and node creation.
 Callee interface notifications refresh the cached inspection, including interface-only
 renames. Surface attribute reconnection uses the same document command boundary.
 
-Commands use node GUIDs, explicit pin indices, parameter GUIDs, and
-`EMaterialSurfaceOutput`. They cover creation, complete node replacement,
+Creation entry points submit `FMaterialGraphCreationRequest` to the document.
+Its action has a stable ID, display/search metadata, graph applicability, and a
+catalog shape, function asset path, or typed terminal payload. `CanCreate` and
+`Create` share input compatibility; function insertion selects the first compatible
+signature input, including scalar broadcast. Creation and its optional source link
+publish once and occupy one undo entry. The document revalidates source identity
+and live function inputs before mutation.
+
+`FMaterialGraphPinAddress` identifies fixed inputs/outputs, function GUID ports,
+and material attributes or aggregate Surface inputs. `Connect` resolves these
+addresses and shares source validation, replacement policy, default preservation,
+and transaction publication. `Disconnect` also permits clearing retained bindings
+after a function port disappears. Legacy index/GUID connection methods delegate to
+this boundary. Type compatibility guides palette filtering, automatic connections,
+and manual-drag feedback; manual wiring still permits type errors for compiler
+diagnostics. Commands also use parameter GUIDs and `EMaterialSurfaceOutput`. They cover creation, complete node replacement,
 removal, connection, disconnection, surface assignment, movement, layout,
 surface-default edit/reset, parameter promotion, explicit texture-branch
 creation, copy, cut, paste, and duplication. Each result reports a stable status,

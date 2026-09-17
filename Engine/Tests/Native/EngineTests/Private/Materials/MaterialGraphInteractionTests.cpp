@@ -59,23 +59,34 @@ namespace Durin::Editor::Material
 				return Value.Opcode == Opcode && Value.ResultType == EMaterialProgramValueType::Float;
 			});
 			ASSERT_NE(Entry, Canvas.Catalog.end());
-			Canvas.RememberCreation(*Entry);
+			Canvas.RememberCreation(MakeCreationAction(*Entry));
 		}
 		static auto CheckRecentRows(const FMaterialGraphCanvas& Canvas) -> void
 		{
 			ASSERT_EQ(Canvas.CachedCreationMenuRecentCount, 2u);
 			const auto& Rows = Canvas.CachedCreationMenuResults;
 			const auto Base = FMaterialGraphOperations::SearchCatalogIndices(Canvas.Catalog, "");
-			ASSERT_EQ(Rows.size(), Base.size() + 2);
-			EXPECT_EQ(Canvas.Catalog[Rows[0]].Opcode, EMaterialProgramOpcode::Add);
-			EXPECT_EQ(Canvas.Catalog[Rows[1]].Opcode, EMaterialProgramOpcode::Multiply);
-			EXPECT_EQ(std::vector<size_t>(Rows.begin() + 2, Rows.end()), Base);
+			ASSERT_GE(Rows.size(), Base.size() + 2);
+			EXPECT_EQ(std::get<FMaterialGraphCatalogEntry>(Canvas.CachedCreationActions[Rows[0]].Payload).Opcode, EMaterialProgramOpcode::Add);
+			EXPECT_EQ(std::get<FMaterialGraphCatalogEntry>(Canvas.CachedCreationActions[Rows[1]].Payload).Opcode, EMaterialProgramOpcode::Multiply);
+			for (size_t I = 0; I < Base.size(); ++I)
+				EXPECT_EQ(Canvas.CachedCreationActions[Rows[I + 2]].Id, MakeCreationAction(Canvas.Catalog[Base[I]]).Id);
 			EXPECT_EQ(std::ranges::count(Rows, Rows[0]), 2);
 			EXPECT_EQ(std::ranges::count(Rows, Rows[1]), 2);
 		}
 		static auto SearchOrder(const FMaterialGraphCanvas& Canvas) -> bool
-		{ return Canvas.CachedCreationMenuQuery == "texture" && Canvas.CachedCreationMenuRecentCount == 0
-			&& Canvas.CachedCreationMenuResults == FMaterialGraphOperations::SearchCatalogIndices(Canvas.Catalog, Canvas.CachedCreationMenuQuery); }
+		{
+			if (Canvas.CachedCreationMenuQuery != "texture" || Canvas.CachedCreationMenuRecentCount != 0) return false;
+			std::vector<std::string> Actual, Expected;
+			for (auto I : Canvas.CachedCreationMenuResults) Actual.push_back(Canvas.CachedCreationActions[I].Id);
+			for (auto I : FMaterialGraphOperations::SearchCatalogIndices(Canvas.Catalog, "texture"))
+				Expected.push_back(MakeCreationAction(Canvas.Catalog[I]).Id);
+			return Actual == Expected;
+		}
+		static auto RecentAction(const FMaterialGraphCanvas& Canvas) -> std::string
+		{ return Canvas.RecentCreationMenuEntries.empty() ? std::string{} : Canvas.RecentCreationMenuEntries.front(); }
+		static auto FirstMenuAction(const FMaterialGraphCanvas& Canvas) -> std::string
+		{ return Canvas.CachedCreationMenuResults.empty() ? std::string{} : Canvas.CachedCreationActions[Canvas.CachedCreationMenuResults.front()].Id; }
 		static auto Menu(const FMaterialGraphCanvas& Canvas) -> bool
 		{ return std::holds_alternative<FMaterialGraphCanvas::FNodeCreationMenuInteraction>(Canvas.Interaction); }
 		static auto OpenCreationAt(FMaterialGraphCanvas& Canvas, ImVec2 Position) -> void
@@ -151,8 +162,12 @@ TEST(FMaterialGraphInteractionTests, FunctionNodesCanBeCreatedFromSearchBeforeWi
 		return Call && Call->Function == Callee && Call->Inputs.empty();
 	});
 	EXPECT_EQ(Calls, 1);
+	EXPECT_EQ(FMaterialGraphCanvasTestAccess::RecentAction(Canvas), MakeFunctionCreationAction(Callee->GetObjectPath()).Id);
 	EXPECT_TRUE(Transactions->Undo());
 	EXPECT_TRUE(Transactions->Redo());
+	FMaterialGraphCanvasTestAccess::OpenCreationAt(Canvas, {0, 0});
+	Frame(); Frame();
+	EXPECT_EQ(FMaterialGraphCanvasTestAccess::FirstMenuAction(Canvas), MakeFunctionCreationAction(Callee->GetObjectPath()).Id);
 	Canvas.CancelInteraction(); ImGui::DestroyContext(Context);
 	EXPECT_TRUE(Transactions->Reset()); MarkAsGarbage(Function); CollectGarbage();
 }
@@ -1456,3 +1471,86 @@ TEST_P(FMaterialGraphCanvasInteractionTests, SelectionReconnectionCreationAndKey
 
 INSTANTIATE_TEST_SUITE_P(MaterialAndFunction, FMaterialGraphCanvasInteractionTests,
 	::testing::Bool(), [](const auto& Info) { return Info.param ? "Function" : "Material"; });
+
+TEST(FMaterialGraphInteractionTests, FunctionCreationActionsShareCompatibilityAndPortIdentity)
+{
+	InitializeDObjectSystem();
+	const auto Root = Testing::CreateTestFixtureDirectory("CreationActions");
+	const std::array Mounts{FMountPoint{.VirtualRoot = "/CreationActions/", .Owner = EMountOwner::Test,
+		.Root = Root, .bAutoScan = true, .bContentWritable = true}};
+	Testing::FScopedMountRegistryFixture Registry(Mounts);
+	ASSERT_TRUE(Registry.IsValid());
+	ASSERT_TRUE(RefreshAssetRegistry());
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/CreationActions/Function", Path));
+	DMaterialFunction* Callee = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Callee));
+	FMaterialGraphDocument Function(*Callee);
+	FMaterialFunctionPort Port;
+	Port.Id = FGuid::NewGuid(); Port.Type = EMaterialProgramValueType::Float3; Port.Name = "Vector"; Port.bRequired = true;
+	ASSERT_TRUE(Function.AddPort(false, Port));
+	ASSERT_TRUE(SavePackage(Callee->GetPackage()));
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	FMaterialGraphDocument Document(*Material);
+	const auto Scalar = Testing::CreateGraphConstant(Document, .3f);
+	ASSERT_TRUE(Scalar);
+	const auto Action = MakeFunctionCreationAction(Callee->GetObjectPath());
+	EXPECT_TRUE(Document.CanCreate(Action, EMaterialProgramValueType::Float));
+	EXPECT_TRUE(Document.CanCreate(Action, EMaterialProgramValueType::Float3));
+	EXPECT_FALSE(Document.CanCreate(Action, EMaterialProgramValueType::Texture2D));
+	Durin::Tests::FTestTransactorOwner Transactions;
+	const auto Before = CaptureExpressions(*Material);
+	const auto Created = Document.Create({Action, 32, 64,
+		FMaterialGraphPinAddress::Output({Scalar.GeneratedNodeIds[0]})}, Transactions.Get());
+	ASSERT_TRUE(Created) << Created.Message;
+	const auto Id = Created.GeneratedNodeIds[0];
+	const auto View = Document.Inspect();
+	const auto* Node = FindViewNode(View, Id);
+	ASSERT_NE(Node, nullptr);
+	const auto Pin = std::ranges::find(Node->Inputs, Port.Id, &FMaterialGraphPinView::PortId);
+	ASSERT_NE(Pin, Node->Inputs.end());
+	EXPECT_TRUE(IsGraphInputCompatible(Pin->AcceptedTypes, EMaterialProgramValueType::Float));
+	EXPECT_EQ(Pin->Link.SourceNodeId, Scalar.GeneratedNodeIds[0]);
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(CaptureExpressions(*Material), Before);
+	EXPECT_FALSE(Transactions->CanUndo());
+	ASSERT_TRUE(Transactions->Redo());
+	Port.Name = "Renamed"; Port.DisplayOrder = -50;
+	ASSERT_TRUE(Function.SetPort(false, Port));
+	const auto Address = FMaterialGraphPinAddress::Input(Id, 999, Port.Id);
+	FMaterialInputDefault Default;
+	Default.Kind = EMaterialInputDefaultKind::Literal; Default.Type = EMaterialProgramValueType::Float3;
+	Default.Literal = {.1f, .2f, .3f, 0.f};
+	ASSERT_TRUE(Document.SetInputDefault(Id, 0, Default, Port.Id));
+	ASSERT_TRUE(Document.Disconnect(Address, Transactions.Get()));
+	const auto Disconnected = Document.Inspect();
+	const auto* Call = FindViewNode(Disconnected, Id);
+	ASSERT_NE(Call, nullptr);
+	const auto Retained = std::ranges::find(Call->Inputs, Port.Id, &FMaterialGraphPinView::PortId);
+	ASSERT_NE(Retained, Call->Inputs.end());
+	EXPECT_FALSE(Retained->Link.SourceNodeId.IsValid());
+	EXPECT_EQ(Retained->InlineDefault, Default);
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_TRUE(Document.Connect(Address, FMaterialGraphPinAddress::Output({Scalar.GeneratedNodeIds[0]})));
+	EXPECT_FALSE(Document.Connect(FMaterialGraphPinAddress::Input(Id, 0, FGuid::NewGuid()),
+		FMaterialGraphPinAddress::Output({Scalar.GeneratedNodeIds[0]})));
+	EXPECT_FALSE(Document.CanCreate(MakePortCreationAction(false, EMaterialProgramValueType::Float)));
+	const auto OutputAction = MakePortCreationAction(true, EMaterialProgramValueType::Float3);
+	EXPECT_TRUE(Function.CanCreate(OutputAction, EMaterialProgramValueType::Float));
+	const auto Input = Function.Create({MakePortCreationAction(false, EMaterialProgramValueType::Float)});
+	ASSERT_TRUE(Input);
+	ASSERT_TRUE(Transactions->Reset());
+	const auto Signature = Callee->GetFunctionSignature();
+	const auto Output = Function.Create({OutputAction, 10, 20,
+		FMaterialGraphPinAddress::Output({Input.GeneratedNodeIds[0]})}, Transactions.Get());
+	ASSERT_TRUE(Output) << Output.Message;
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(Callee->GetFunctionSignature(), Signature);
+	EXPECT_FALSE(Transactions->CanUndo());
+	for (const auto Type : {EMaterialProgramValueType::Texture2D, EMaterialProgramValueType::Surface})
+	{
+		const auto TypedInput = Function.Create({MakePortCreationAction(false, Type)});
+		ASSERT_TRUE(TypedInput) << TypedInput.Message;
+	}
+}

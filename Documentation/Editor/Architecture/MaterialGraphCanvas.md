@@ -21,7 +21,11 @@ remaining width and height. Parameters shares the Details dock as a visible tab,
 and Diagnostics as an optional tab. Small initial layouts use dock tabs. Resizing
 does not rebuild a user's arrangement. Hidden document roots keep their dock spaces alive.
 
-Function assets appear in the shared canvas creation search. Selecting one or
+The creation menu uses one action list for catalog expressions, function assets,
+and function terminals, with shared search, selection, drawing, and activation.
+Stable action IDs back recent history for all three families. Menu activation,
+keyboard creation shortcuts, and function asset drops submit the same document
+creation request. Function assets appear in the shared canvas creation search. Selecting one or
 dropping it from the Content Browser creates a reference node at the graph position
 without requiring input bindings. Dragging an output into the menu can bind the
 first matching function input in the insertion transaction. Function documents

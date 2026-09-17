@@ -87,6 +87,44 @@ namespace Durin::Editor::Material
 		std::array<std::string, 4> NormalizedSearchFields;
 	};
 
+	enum class EMaterialGraphPinKind : uint8 { Input, FunctionInput, MaterialAttribute, MaterialSurface, Output, FunctionOutput };
+	struct FMaterialGraphPinAddress
+	{
+		FGuid NodeId;
+		EMaterialGraphPinKind Kind = EMaterialGraphPinKind::Input;
+		uint32 Index = 0;
+		FGuid PortId;
+		auto operator==(const FMaterialGraphPinAddress&) const -> bool = default;
+		static auto Input(FGuid Node, uint32 Index, FGuid Port = {}) -> FMaterialGraphPinAddress
+		{ return {Node, Port.IsValid() ? EMaterialGraphPinKind::FunctionInput : EMaterialGraphPinKind::Input, Port.IsValid() ? 0u : Index, Port}; }
+		static auto Output(FMaterialProgramLink Link) -> FMaterialGraphPinAddress
+		{ return {Link.SourceNodeId, Link.SourceOutputId.IsValid() ? EMaterialGraphPinKind::FunctionOutput : EMaterialGraphPinKind::Output, Link.SourceOutputIndex, Link.SourceOutputId}; }
+	};
+
+	struct FMaterialGraphPortCreation
+	{
+		bool bOutput = false;
+		EMaterialProgramValueType Type = EMaterialProgramValueType::Float;
+	};
+	// Detached action metadata and payload shared by all creation entry points.
+	struct FMaterialGraphCreationAction
+	{
+		std::string Id, Name, Category, Keywords, Description;
+		bool bMaterial = true, bFunction = true;
+		std::variant<FMaterialGraphCatalogEntry, std::string, FMaterialGraphPortCreation> Payload;
+	};
+	struct FMaterialGraphCreationRequest
+	{
+		FMaterialGraphCreationAction Action;
+		int32 X = 0, Y = 0;
+		std::optional<FMaterialGraphPinAddress> Source;
+	};
+	MATERIALEDITOR_API auto MakeCreationAction(const FMaterialGraphCatalogEntry& Entry) -> FMaterialGraphCreationAction;
+	MATERIALEDITOR_API auto MakeFunctionCreationAction(std::string Path) -> FMaterialGraphCreationAction;
+	MATERIALEDITOR_API auto MakePortCreationAction(bool bOutput, EMaterialProgramValueType Type) -> FMaterialGraphCreationAction;
+	MATERIALEDITOR_API auto IsGraphInputCompatible(std::span<const EMaterialProgramValueType> Accepted,
+		EMaterialProgramValueType Source) -> bool;
+
 	struct FMaterialGraphParameterInfo { FGuid Id; };
 	struct FMaterialGraphSampleInfo { FGuid ParameterId; };
 
@@ -123,6 +161,13 @@ namespace Durin::Editor::Material
 		FMaterialGraphNodePresentation Presentation;
 		std::vector<FMaterialGraphOutputPinView> Outputs;
 		std::string FunctionPath;
+		auto InputAddress(const FMaterialGraphPinView& Pin) const -> FMaterialGraphPinAddress
+		{
+			if (Node.bMaterialOutput)
+				return {Node.Id, Pin.InputIndex == static_cast<uint32>(EMaterialOutputPin::Surface)
+					? EMaterialGraphPinKind::MaterialSurface : EMaterialGraphPinKind::MaterialAttribute, Pin.InputIndex};
+			return FMaterialGraphPinAddress::Input(Node.Id, Pin.InputIndex, Pin.PortId);
+		}
 	};
 
 	// Is a detached deterministic snapshot used by widgets, tests, and automation.

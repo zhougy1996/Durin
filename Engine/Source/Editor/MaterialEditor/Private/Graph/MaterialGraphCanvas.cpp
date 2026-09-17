@@ -267,10 +267,6 @@ namespace Durin::Editor::Material
 		if (Catalog.empty() || bFunctionGraph != bFunction)
 		{
 			Catalog = FMaterialGraphOperations::EnumerateCatalog();
-			if (bFunction) std::erase_if(Catalog, [](const auto& Entry) {
-				return Entry.Opcode == EMaterialProgramOpcode::Parameter || Entry.Opcode == EMaterialProgramOpcode::TextureParameter
-					|| Entry.Opcode == EMaterialProgramOpcode::TextureSampleParameter2D;
-			});
 			bCreationMenuResultsDirty = true;
 			bViewStale = true;
 		}
@@ -745,15 +741,15 @@ namespace Durin::Editor::Material
 				return Candidate.Opcode == Shortcut.Opcode && Candidate.ResultType == Shortcut.Type;
 			});
 			if (Entry == Catalog.end()) continue;
-			const auto Created = FMaterialGraphDocument(Owner).CreateCatalogNode(*Entry,
-				static_cast<int32>(std::round(Position.x)), static_cast<int32>(std::round(Position.y)), {}, &Transactions);
+			const auto Created = FMaterialGraphDocument(Owner).Create({MakeCreationAction(*Entry),
+				static_cast<int32>(std::round(Position.x)), static_cast<int32>(std::round(Position.y))}, &Transactions);
 			ReportCommand(Created, ReportError);
 			if (Created)
 			{
 				SelectedNodes.clear();
 				SelectedSurfaceOutput.reset();
 				SelectedNodes.insert(Created.GeneratedNodeIds.begin(), Created.GeneratedNodeIds.end());
-				RememberCreation(*Entry);
+				RememberCreation(MakeCreationAction(*Entry));
 			}
 			return true;
 		}
@@ -818,18 +814,18 @@ namespace Durin::Editor::Material
 			{
 				const auto& Data = *static_cast<const FAssetDragDropPayload*>(Payload->Data);
 				FTopLevelAssetPath Path;
-				DMaterialFunctionInterface* Function = nullptr;
 				if (std::ranges::find(Data.AssetPath, '\0') != Data.AssetPath.end()
-					&& FTopLevelAssetPath::TryCreate(Data.AssetPath.data(), Path) && LoadObject(Path, Function))
+					&& FTopLevelAssetPath::TryCreate(Data.AssetPath.data(), Path))
 				{
 					const auto Position = Multiply(Subtract(Subtract(Mouse, CanvasMinimum), Pan), 1.0f / Zoom);
-					const auto Created = FMaterialGraphDocument(Owner).InsertFunctionCall(*Function,
-						static_cast<int32>(std::round(Position.x)), static_cast<int32>(std::round(Position.y)), &Transactions);
+					const auto Created = FMaterialGraphDocument(Owner).Create({MakeFunctionCreationAction(Path.ToString()),
+						static_cast<int32>(std::round(Position.x)), static_cast<int32>(std::round(Position.y))}, &Transactions);
 					ReportCommand(Created, ReportError);
 					if (Created)
 					{
 						SelectedSurfaceOutput.reset();
 						SelectedNodes = {Created.GeneratedNodeIds.front()};
+						RememberCreation(MakeFunctionCreationAction(Path.ToString()));
 						ResetInteraction();
 					}
 				}
@@ -852,8 +848,8 @@ namespace Durin::Editor::Material
 				return FMaterialGraphCommandResult{.Message = "The graph input is unavailable."};
 			const auto& Pin = Node->Inputs[PinIndex];
 			FMaterialGraphDocument Document(Owner);
-			return Pin.PortId.IsValid() ? Document.ConnectCallInput(NodeId, Pin.PortId, Source, bReplace, &Transactions)
-				: Document.ConnectInput(NodeId, Pin.InputIndex, Source, bReplace, &Transactions);
+			return Document.Connect(Node->InputAddress(Pin),
+				FMaterialGraphPinAddress::Output(Source), bReplace, &Transactions);
 		};
 		const bool bCanvasPointerInteractionAvailable = bPointerAvailable;
 		const bool bCanvasKeyboardInteractionAvailable =
@@ -903,10 +899,7 @@ namespace Durin::Editor::Material
 		{
 			if (HoveredInputNode)
 			{
-				Interaction = FReconnectingInputInteraction{
-					.DestinationNode = HoveredInputNode->View->Node.Id,
-					.DestinationInputIndex = HoveredInputNode->View->Inputs[HoveredInputIndex].InputIndex,
-					.DestinationInputId = HoveredInputNode->View->Inputs[HoveredInputIndex].PortId};
+				Interaction = FReconnectingInputInteraction{HoveredInputNode->View->InputAddress(HoveredInputNode->View->Inputs[HoveredInputIndex])};
 			}
 			else if (HoveredOutput)
 			{
@@ -1050,16 +1043,13 @@ namespace Durin::Editor::Material
 		if (const auto* Reconnecting =
 			std::get_if<FReconnectingInputInteraction>(&Interaction))
 		{
-			const FGuid DestinationNode = Reconnecting->DestinationNode;
-			const uint32 DestinationInputIndex = Reconnecting->DestinationInputIndex;
-			const FGuid DestinationInputId = Reconnecting->DestinationInputId;
-			const auto DestinationIt = VisualIndices.find(DestinationNode);
+			const auto Address = Reconnecting->Destination;
+			const auto DestinationIt = VisualIndices.find(Address.NodeId);
 			if (DestinationIt != VisualIndices.end())
 			{
 				const auto& Destination = VisualNodes[DestinationIt->second];
 				const auto Pin = std::ranges::find_if(Destination.View->Inputs, [&](const auto& Input) {
-					return DestinationInputId.IsValid() ? Input.PortId == DestinationInputId
-						: Input.InputIndex == DestinationInputIndex && !Input.PortId.IsValid();
+					return Destination.View->InputAddress(Input) == Address;
 				});
 				if (Pin != Destination.View->Inputs.end())
 				{
@@ -1076,9 +1066,8 @@ namespace Durin::Editor::Material
 					const auto& Pin = HoveredOutput->View->Outputs[HoveredOutputIndex];
 					const FMaterialProgramLink Source{HoveredOutput->View->Node.Id, Pin.OutputIndex, Pin.PortId};
 					FMaterialGraphDocument Document(Owner);
-					ReportCommand(DestinationInputId.IsValid()
-						? Document.ConnectCallInput(DestinationNode, DestinationInputId, Source, true, &Transactions)
-						: Document.ConnectInput(DestinationNode, DestinationInputIndex, Source, true, &Transactions), ReportError);
+					ReportCommand(Document.Connect(Address,
+						FMaterialGraphPinAddress::Output(Source), true, &Transactions), ReportError);
 				}
 				ResetInteraction();
 			}
@@ -1392,10 +1381,8 @@ namespace Durin::Editor::Material
 									* ImGui::GetFontSize() / GraphBodyFontSize).c_str());
 					if (LinkSourceType)
 					{
-						const bool bAccepted = std::ranges::find(
-							Visual.View->Inputs[Index].AcceptedTypes,
-							*LinkSourceType)
-							!= Visual.View->Inputs[Index].AcceptedTypes.end();
+						const bool bAccepted = IsGraphInputCompatible(Visual.View->Inputs[Index].AcceptedTypes,
+							*LinkSourceType);
 						DrawList->AddCircle(Visual.InputPins[Index], 8.0f,
 							bAccepted ? IM_COL32(90, 220, 125, 230)
 								: IM_COL32(235, 90, 90, 230), 0, 1.5f);

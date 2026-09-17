@@ -11,6 +11,14 @@ namespace Durin::Editor::Material
 	{
 	public:
 		MATERIALEDITOR_API explicit FMaterialGraphDocument(DObject& Owner);
+		MATERIALEDITOR_API auto Create(const FMaterialGraphCreationRequest& Request,
+			DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API auto CanCreate(const FMaterialGraphCreationAction& Action,
+			std::optional<EMaterialProgramValueType> SourceType = {}) const -> bool;
+		MATERIALEDITOR_API auto Connect(const FMaterialGraphPinAddress& Target, const FMaterialGraphPinAddress& Source,
+			bool bReplaceExisting = false, DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API auto Disconnect(const FMaterialGraphPinAddress& Target,
+			DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto Inspect() const -> FMaterialGraphView;
 		MATERIALEDITOR_API auto Inspect(std::span<const FMaterialGraphCatalogEntry> Catalog) const -> FMaterialGraphView;
 		MATERIALEDITOR_API auto InspectNodes(std::span<const FGuid> Nodes,

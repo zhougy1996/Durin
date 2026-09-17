@@ -6,6 +6,34 @@
 
 namespace Durin::Editor::Material
 {
+	auto IsGraphInputCompatible(std::span<const EMaterialProgramValueType> Accepted,
+		EMaterialProgramValueType Source) -> bool
+	{
+		return std::ranges::find(Accepted, Source) != Accepted.end();
+	}
+
+	auto MakeCreationAction(const FMaterialGraphCatalogEntry& Entry) -> FMaterialGraphCreationAction
+	{
+		return {.Id = std::format("expression:{}:{}", static_cast<uint32>(Entry.Opcode),
+			IsMaterialAdaptiveNumeric(Entry.Opcode) ? 0u : static_cast<uint32>(Entry.ResultType)),
+			.Name = Entry.OperationName, .Category = Entry.Category,
+			.Keywords = std::string(GetProgramTypeName(Entry.ResultType)) + " " + Entry.Description,
+			.Description = Entry.Description,
+			.bFunction = Entry.Opcode != EMaterialProgramOpcode::Parameter
+				&& Entry.Opcode != EMaterialProgramOpcode::TextureParameter
+				&& Entry.Opcode != EMaterialProgramOpcode::TextureSampleParameter2D, .Payload = Entry};
+	}
+	auto MakeFunctionCreationAction(std::string Path) -> FMaterialGraphCreationAction
+	{
+		return {.Id = "function:" + Path, .Name = Path, .Category = "Material Functions",
+			.Keywords = "function call " + Path, .Payload = std::move(Path)};
+	}
+	auto MakePortCreationAction(bool bOutput, EMaterialProgramValueType Type) -> FMaterialGraphCreationAction
+	{
+		return {.Id = std::format("port:{}:{}", bOutput ? "output" : "input", static_cast<uint32>(Type)), .Name = bOutput ? "Function Output" : "Function Input",
+			.Category = "Material Functions", .Keywords = "function port", .bMaterial = false,
+			.Payload = FMaterialGraphPortCreation{bOutput, Type}};
+	}
 	namespace
 	{
 		auto GetInputNames(EMaterialProgramOpcode Opcode, size_t Count)
@@ -674,8 +702,7 @@ namespace Durin::Editor::Material
 			if (SourceType)
 			{
 				if (Entry.AcceptedInputTypes.empty()
-					|| std::ranges::find(Entry.AcceptedInputTypes.front(), *SourceType)
-						== Entry.AcceptedInputTypes.front().end()) continue;
+					|| !IsGraphInputCompatible(Entry.AcceptedInputTypes.front(), *SourceType)) continue;
 			}
 			uint8 Match = Needle.empty() ? 3 : 4;
 			std::array<std::string, 4> FallbackSearchFields;
