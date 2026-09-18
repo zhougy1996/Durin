@@ -11,7 +11,6 @@
 #include "Spline/SplineMeshDeformer.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
-#include "StaticMesh/StaticMeshMaterialBinding.h"
 #include "StaticMesh/StaticMeshResources.h"
 
 namespace Durin
@@ -105,7 +104,7 @@ namespace Durin
 		bRecreateRenderState |= !Previous || !Current || Previous->IsValid() != Current->IsValid();
 		if (bRecreateRenderState)
 		{
-			++MaterialComponentRevision;
+			AdvanceMaterialBindingRevision();
 			MarkRenderStateDirty();
 		}
 		else if (bRebuildDeformation)
@@ -304,53 +303,15 @@ namespace Durin
 			? State->CollisionInputIdentity : 0;
 	}
 
-	auto DSplineMeshComponent::SetMaterial(DMaterialInterface* InMaterial) -> bool
+	auto DSplineMeshComponent::GetMaterialIndex(FName SlotName) const -> std::optional<uint32>
 	{
-		return SetMaterial(0, InMaterial);
+		return StaticMesh ? StaticMesh->GetMaterialIndex(SlotName) : std::nullopt;
 	}
 
-	auto DSplineMeshComponent::SetMaterial(uint32 SlotIndex, DMaterialInterface* InMaterial) -> bool
+	auto DSplineMeshComponent::GetDefaultMaterial(uint32 SlotIndex) const -> DMaterialInterface*
 	{
-		const auto Result = ComponentMaterialOverride::Set(
-			OverrideMaterials, SlotIndex, StaticMesh && StaticMesh->GetMaterialSlot(SlotIndex),
-			InMaterial, MaterialComponentRevision, PendingMaterialSlotIndex);
-		if (Result == ComponentMaterialOverride::EMutationResult::InvalidSlot) return false;
-		if (Result == ComponentMaterialOverride::EMutationResult::Unchanged) return true;
-		MarkPackageDirty();
-		MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags::MaterialBinding);
-		return true;
-	}
-
-	auto DSplineMeshComponent::GetMaterial(uint32 SlotIndex) const -> DMaterialInterface*
-	{
-		const FMeshMaterialSlotDefinition* Slot = StaticMesh ? StaticMesh->GetMaterialSlot(SlotIndex) : nullptr;
-		if (!Slot) return nullptr;
-		return ComponentMaterialOverride::Resolve(OverrideMaterials, SlotIndex, Slot->DefaultMaterial.Get());
-	}
-
-	auto DSplineMeshComponent::ResetMaterial(uint32 SlotIndex) -> bool
-	{
-		const auto Result = ComponentMaterialOverride::Set(
-			OverrideMaterials, SlotIndex, StaticMesh && StaticMesh->GetMaterialSlot(SlotIndex),
-			nullptr, MaterialComponentRevision, PendingMaterialSlotIndex);
-		if (Result != ComponentMaterialOverride::EMutationResult::Changed) return false;
-		MarkPackageDirty();
-		MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags::MaterialBinding);
-		return true;
-	}
-
-	auto DSplineMeshComponent::ClearMaterialOverrides() -> bool
-	{
-		if (!ComponentMaterialOverride::Clear(
-			OverrideMaterials, MaterialComponentRevision, PendingMaterialSlotIndex)) return false;
-		MarkPackageDirty();
-		MarkRenderStateDirty();
-		return true;
-	}
-
-	auto DSplineMeshComponent::GetMaterialOverride(uint32 SlotIndex) const -> DMaterialInterface*
-	{
-		return ComponentMaterialOverride::Get(OverrideMaterials, SlotIndex);
+		const auto* Slot = StaticMesh ? StaticMesh->GetMaterialSlot(SlotIndex) : nullptr;
+		return Slot ? Slot->DefaultMaterial.Get() : nullptr;
 	}
 
 	auto DSplineMeshComponent::GetNumMaterials() const -> uint32
@@ -377,7 +338,7 @@ namespace Durin
 			MaterialProxies.push_back(ComponentMaterialOverride::ResolveRenderProxy(SlotMaterial));
 		}
 		return std::make_unique<FSplineMeshSceneProxy>(RenderData, std::move(MaterialProxies),
-			MaterialComponentRevision, FSplineMeshRenderDynamicData{
+			GetMaterialBindingRevision(), FSplineMeshRenderDynamicData{
 				.Params = State->Params,
 				.LocalBounds = State->ConservativeLocalBounds,
 				.Revision = State->DeformationRevision});
@@ -406,22 +367,11 @@ namespace Durin
 			.Revision = State->DeformationRevision});
 	}
 
-	auto DSplineMeshComponent::ValidateOverrideMaterials(
-		std::span<const TObjectPtr<DMaterialInterface>> Overrides, std::string& OutError) const -> bool
-	{
-		return ValidateStaticMeshMaterialOverrides(Overrides, "SplineMesh component", OutError);
-	}
-
 	auto DSplineMeshComponent::PostLoad() -> void
 	{
-		std::string Error;
+		if (WasDeprecatedPropertyLoaded(FName("OverrideMaterials_DEPRECATED")))
+			MigrateMaterialOverrides(OverrideMaterials_DEPRECATED);
 		Super::PostLoad();
-		if (!ValidateOverrideMaterials(OverrideMaterials, Error))
-		{
-			DURIN_ERROR("PostLoad '{}': {}; clearing material overrides.", GetObjectPath(), Error);
-			OverrideMaterials.clear();
-		}
-		ComponentMaterialOverride::TrimTrailingNulls(OverrideMaterials);
 		bSourceDirty = true;
 		UpdateMesh();
 	}
@@ -465,13 +415,6 @@ namespace Durin
 		Super::PostEditChangeProperty(Event);
 		if (!Event.MemberProperty || (Event.Phase == EPropertyChangePhase::Committed && Event.Origin == EPropertyChangeOrigin::Edit)) return;
 		const FName Name = Event.MemberProperty->NamePrivate;
-		if (Name == FName("OverrideMaterials"))
-		{
-			ComponentMaterialOverride::TrimTrailingNulls(OverrideMaterials);
-			++MaterialComponentRevision;
-			MarkRenderStateDirty();
-			return;
-		}
 		if (Name == FName("CollisionMode"))
 		{
 			bCollisionDirty = true;
@@ -505,12 +448,4 @@ namespace Durin
 		if (!bHadPendingEdits) UpdateMesh();
 	}
 
-	auto DSplineMeshComponent::BuildMaterialRenderProxyBindingUpdate(
-		FMaterialRenderProxyBindingUpdate& OutUpdate) -> bool
-	{
-		ComponentMaterialOverride::BuildRenderProxyBindingUpdate(
-			PendingMaterialSlotIndex, GetMaterial(PendingMaterialSlotIndex),
-			MaterialComponentRevision, OutUpdate);
-		return true;
-	}
 }

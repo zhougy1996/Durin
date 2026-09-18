@@ -104,7 +104,7 @@ Engine's declared public dependencies. Native application/window integration
 is an Engine implementation dependency; consumers needing `ApplicationCore`
 declare it directly. `DMeshComponent` is the reflected superclass for
 mesh-backed primitive components and exposes their common indexed material-slot
-contract without owning reflected material state. Render-state recreate
+contract, reflected positional overrides, and shared material-binding updates. Render-state recreate
 contexts are Engine-private implementation details and are not part of the
 public surface.
 

@@ -1,5 +1,6 @@
 #include "StaticMesh/StaticMeshTestEnvironment.h"
 #include "StaticMeshMaterialTestFixture.h"
+#include "Components/SplineMeshComponent.h"
 
 TEST(FStaticMeshMaterialTests, ImportedStaticMeshBuildsLODSectionsAndMaterialSlots)
 {
@@ -310,75 +311,134 @@ TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsByIndex)
 	Durin::CollectGarbage();
 }
 
+namespace
+{
+	template<typename TComponent>
+	auto VerifyComponentOverridesRoundTrip(std::string_view FixtureName, bool bHistoricalOwner) -> void
+	{
+		InitializeDObjectSystem();
+		const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / FixtureName;
+		Durin::Testing::RemoveTestWorkDirectory(Root);
+		Durin::Testing::RegisterMountPointForTests(std::format("/{}/", FixtureName), Root.generic_string() + "/");
+
+		Durin::FPackagePath MeshPath;
+		Durin::FPackagePath FirstMaterialPath;
+		Durin::FPackagePath SecondMaterialPath;
+		Durin::FPackagePath ComponentPath;
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate(std::format("/{}/Mesh", FixtureName), MeshPath));
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate(std::format("/{}/First", FixtureName), FirstMaterialPath));
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate(std::format("/{}/Second", FixtureName), SecondMaterialPath));
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate(std::format("/{}/Component", FixtureName), ComponentPath));
+
+		const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
+		Durin::Testing::TFactoryImportResult<Durin::DStaticMesh> MeshImport = Durin::AssetForge::Builtins::ImportStaticMeshForTest(Source.generic_string(), MeshPath.ToString());
+		ASSERT_TRUE(MeshImport) << MeshImport.Message;
+		Durin::DMaterial* First = nullptr;
+		Durin::DMaterial* Second = nullptr;
+		ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(FirstMaterialPath, First));
+		ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(SecondMaterialPath, Second));
+		ASSERT_TRUE(Durin::SavePackage(First->GetPackage()));
+		ASSERT_TRUE(Durin::SavePackage(Second->GetPackage()));
+
+		TComponent* Component = nullptr;
+		ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(ComponentPath, Component));
+		Component->SetStaticMesh(MeshImport.Asset);
+		Component->SetMaterial(0, First);
+		Component->SetMaterial(1, Second);
+		ASSERT_TRUE(Durin::SavePackage(Component->GetPackage()));
+
+		const auto ComponentData = Durin::FindAssetExact(ComponentPath);
+		ASSERT_NE(ComponentData, nullptr);
+		EXPECT_NE(std::ranges::find(ComponentData->Dependencies, MeshPath), ComponentData->Dependencies.end());
+		EXPECT_NE(std::ranges::find(ComponentData->Dependencies, FirstMaterialPath), ComponentData->Dependencies.end());
+		EXPECT_NE(std::ranges::find(ComponentData->Dependencies, SecondMaterialPath), ComponentData->Dependencies.end());
+
+		const std::filesystem::path FixturePath = Durin::Testing::GetTestWorkDirectory()
+			/ FixtureName / "Component.dasset";
+		Durin::FByteBuffer FixtureBytes;
+		ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(FixtureBytes, FixturePath));
+		Durin::ObjectPackage::FLinkerTables ComponentLinker;
+		ASSERT_TRUE(Durin::ObjectPackage::ReadPackage(FixtureBytes, {}, ComponentPath, ComponentLinker));
+		EXPECT_FALSE(ContainsSerializedField(ComponentLinker, "Materials"));
+		EXPECT_FALSE(ContainsSerializedField(ComponentLinker, "MaterialOverridesVersion"));
+		EXPECT_FALSE(ContainsSerializedField(ComponentLinker, "MaterialOverrides"));
+		EXPECT_TRUE(ContainsSerializedField(ComponentLinker, "OverrideMaterials"));
+		EXPECT_FALSE(ContainsSerializedField(ComponentLinker, "OverrideMaterials_DEPRECATED"));
+		for (const auto& Export : ComponentLinker.Exports)
+			for (const auto& Property : Export.Properties)
+				if (Property.FieldName == "OverrideMaterials")
+					EXPECT_EQ(Property.DeclaringType, "Durin::DMeshComponent");
+
+		if (bHistoricalOwner)
+		{
+			// Recreate the former wire schema, including the field's declaring class.
+			auto BaseSchema = std::ranges::find(ComponentLinker.Schemas,
+				"Durin::DMeshComponent", &Durin::ObjectPackage::FSerializedSchema::QualifiedName);
+			ASSERT_NE(BaseSchema, ComponentLinker.Schemas.end());
+			auto Field = std::ranges::find(BaseSchema->Fields, "OverrideMaterials",
+				&Durin::ObjectPackage::FSerializedField::Name);
+			ASSERT_NE(Field, BaseSchema->Fields.end());
+			const auto HistoricalField = *Field;
+			BaseSchema->Fields.erase(Field);
+			for (auto& Export : ComponentLinker.Exports)
+				for (auto& Property : Export.Properties)
+					if (Property.FieldName == "OverrideMaterials")
+					{
+						Property.DeclaringType = Export.ClassName;
+						auto Owner = std::ranges::find(ComponentLinker.Schemas,
+							Export.ClassName, &Durin::ObjectPackage::FSerializedSchema::QualifiedName);
+						ASSERT_NE(Owner, ComponentLinker.Schemas.end());
+						Owner->Fields.push_back(HistoricalField);
+					}
+			Durin::FByteBuffer Bulk;
+			ASSERT_TRUE(Durin::ObjectPackage::WritePackage(ComponentLinker, FixtureBytes, Bulk));
+			ASSERT_TRUE(Bulk.empty());
+			ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(FixtureBytes, FixturePath));
+		}
+
+		ASSERT_TRUE(Durin::UnloadPackage(ComponentPath));
+		ASSERT_TRUE(Durin::UnloadPackage(SecondMaterialPath));
+		ASSERT_TRUE(Durin::UnloadPackage(FirstMaterialPath));
+		ASSERT_TRUE(Durin::UnloadPackage(MeshPath));
+
+		TComponent* Loaded = nullptr;
+		ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(ComponentPath), Loaded));
+		ASSERT_NE(Loaded, nullptr);
+		ASSERT_NE(Loaded->GetStaticMesh(), nullptr);
+		Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Loaded->GetStaticMesh());
+		ASSERT_NE(Loaded->GetStaticMesh()->GetRenderData(), nullptr);
+		EXPECT_EQ(Loaded->GetNumMaterials(), 2u);
+		ASSERT_NE(Loaded->GetMaterial(0), nullptr);
+		ASSERT_NE(Loaded->GetMaterial(1), nullptr);
+		EXPECT_EQ(Loaded->GetMaterial(0)->GetPackage()->GetPackagePath(), FirstMaterialPath.ToString());
+		EXPECT_EQ(Loaded->GetMaterial(1)->GetPackage()->GetPackagePath(), SecondMaterialPath.ToString());
+		ASSERT_TRUE(Durin::SavePackage(Loaded->GetPackage()));
+		ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(FixtureBytes, FixturePath));
+		ASSERT_TRUE(Durin::ObjectPackage::ReadPackage(FixtureBytes, {}, ComponentPath, ComponentLinker));
+		EXPECT_FALSE(ContainsSerializedField(ComponentLinker, "OverrideMaterials_DEPRECATED"));
+		for (const auto& Export : ComponentLinker.Exports)
+			for (const auto& Property : Export.Properties)
+				if (Property.FieldName == "OverrideMaterials")
+					EXPECT_EQ(Property.DeclaringType, "Durin::DMeshComponent");
+
+		ASSERT_TRUE(Durin::UnloadPackage(ComponentPath));
+		ASSERT_TRUE(Durin::UnloadPackage(SecondMaterialPath));
+		ASSERT_TRUE(Durin::UnloadPackage(FirstMaterialPath));
+		ASSERT_TRUE(Durin::UnloadPackage(MeshPath));
+	}
+}
+
 TEST(FStaticMeshMaterialTests, StaticMeshComponentOverridesRoundTripAfterMeshDependenciesLoad)
 {
-	InitializeDObjectSystem();
-	const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "StaticMeshSlotOverrides";
-	Durin::Testing::RemoveTestWorkDirectory(Root);
-	Durin::Testing::RegisterMountPointForTests("/StaticMeshSlotOverrides/", Root.generic_string() + "/");
+	VerifyComponentOverridesRoundTrip<Durin::DStaticMeshComponent>("StaticMeshSlotOverrides", false);
+}
 
-	Durin::FPackagePath MeshPath;
-	Durin::FPackagePath FirstMaterialPath;
-	Durin::FPackagePath SecondMaterialPath;
-	Durin::FPackagePath ComponentPath;
-	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/StaticMeshSlotOverrides/Mesh", MeshPath));
-	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/StaticMeshSlotOverrides/First", FirstMaterialPath));
-	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/StaticMeshSlotOverrides/Second", SecondMaterialPath));
-	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/StaticMeshSlotOverrides/Component", ComponentPath));
+TEST(FStaticMeshMaterialTests, StaticMeshComponentMigratesSubclassMaterialOverrides)
+{
+	VerifyComponentOverridesRoundTrip<Durin::DStaticMeshComponent>("StaticMeshLegacyOverrides", true);
+}
 
-	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
-	Durin::Testing::TFactoryImportResult<Durin::DStaticMesh> MeshImport = Durin::AssetForge::Builtins::ImportStaticMeshForTest(Source.generic_string(), MeshPath.ToString());
-	ASSERT_TRUE(MeshImport) << MeshImport.Message;
-	Durin::DMaterial* First = nullptr;
-	Durin::DMaterial* Second = nullptr;
-	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(FirstMaterialPath, First));
-	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(SecondMaterialPath, Second));
-	ASSERT_TRUE(Durin::SavePackage(First->GetPackage()));
-	ASSERT_TRUE(Durin::SavePackage(Second->GetPackage()));
-
-	Durin::DStaticMeshComponent* Component = nullptr;
-	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(ComponentPath, Component));
-	Component->SetStaticMesh(MeshImport.Asset);
-	Component->SetMaterial(0, First);
-	Component->SetMaterial(1, Second);
-	ASSERT_TRUE(Durin::SavePackage(Component->GetPackage()));
-
-	const auto ComponentData = Durin::FindAssetExact(ComponentPath);
-	ASSERT_NE(ComponentData, nullptr);
-	EXPECT_NE(std::ranges::find(ComponentData->Dependencies, MeshPath), ComponentData->Dependencies.end());
-	EXPECT_NE(std::ranges::find(ComponentData->Dependencies, FirstMaterialPath), ComponentData->Dependencies.end());
-	EXPECT_NE(std::ranges::find(ComponentData->Dependencies, SecondMaterialPath), ComponentData->Dependencies.end());
-
-	const std::filesystem::path FixturePath = Durin::Testing::GetTestWorkDirectory()
-		/ "StaticMeshSlotOverrides" / "Component.dasset";
-	Durin::FByteBuffer FixtureBytes;
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(FixtureBytes, FixturePath));
-	Durin::ObjectPackage::FLinkerTables ComponentLinker;
-	ASSERT_TRUE(Durin::ObjectPackage::ReadPackage(FixtureBytes, {}, ComponentPath, ComponentLinker));
-	EXPECT_FALSE(ContainsSerializedField(ComponentLinker, "Materials"));
-	EXPECT_FALSE(ContainsSerializedField(ComponentLinker, "MaterialOverridesVersion"));
-	EXPECT_FALSE(ContainsSerializedField(ComponentLinker, "MaterialOverrides"));
-	EXPECT_TRUE(ContainsSerializedField(ComponentLinker, "OverrideMaterials"));
-
-	ASSERT_TRUE(Durin::UnloadPackage(ComponentPath));
-	ASSERT_TRUE(Durin::UnloadPackage(SecondMaterialPath));
-	ASSERT_TRUE(Durin::UnloadPackage(FirstMaterialPath));
-	ASSERT_TRUE(Durin::UnloadPackage(MeshPath));
-
-	Durin::DStaticMeshComponent* Loaded = nullptr;
-	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(ComponentPath), Loaded));
-	ASSERT_NE(Loaded, nullptr);
-	ASSERT_NE(Loaded->GetStaticMesh(), nullptr);
-	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Loaded->GetStaticMesh());
-	ASSERT_NE(Loaded->GetStaticMesh()->GetRenderData(), nullptr);
-	EXPECT_EQ(Loaded->GetNumMaterials(), 2u);
-	ASSERT_NE(Loaded->GetMaterial(0), nullptr);
-	ASSERT_NE(Loaded->GetMaterial(1), nullptr);
-	EXPECT_EQ(Loaded->GetMaterial(0)->GetPackage()->GetPackagePath(), FirstMaterialPath.ToString());
-	EXPECT_EQ(Loaded->GetMaterial(1)->GetPackage()->GetPackagePath(), SecondMaterialPath.ToString());
-
-	ASSERT_TRUE(Durin::UnloadPackage(ComponentPath));
-	ASSERT_TRUE(Durin::UnloadPackage(SecondMaterialPath));
-	ASSERT_TRUE(Durin::UnloadPackage(FirstMaterialPath));
-	ASSERT_TRUE(Durin::UnloadPackage(MeshPath));
+TEST(FStaticMeshMaterialTests, SplineMeshComponentMigratesSubclassMaterialOverrides)
+{
+	VerifyComponentOverridesRoundTrip<Durin::DSplineMeshComponent>("SplineMeshLegacyOverrides", true);
 }

@@ -397,6 +397,31 @@ TEST(FSplineMeshComponentTests, MaterialOverridesUseStaticMeshSlotRules)
 	EXPECT_TRUE(Component->ResetMaterial(0));
 	EXPECT_EQ(Component->GetMaterial(), nullptr);
 	EXPECT_TRUE(Component->GetOverrideMaterials().empty());
+
+	// All slot operations must work through the geometry-independent base API.
+	DMeshComponent* Base = Component;
+	Mesh->SetMaterialSlotDefaultMaterial(0, Material);
+	EXPECT_EQ(Base->GetDefaultMaterial(0), Material);
+	EXPECT_EQ(Base->GetMaterial(), Material);
+	ASSERT_EQ(Base->GetMaterialIndex(FName("Default")), std::optional<uint32>(0));
+	EXPECT_FALSE(Base->SetMaterialByName(FName("Missing"), Material));
+	ASSERT_TRUE(Base->SetMaterialByName(FName("Default"), Material));
+	EXPECT_TRUE(Base->HasMaterialOverride(0));
+	EXPECT_EQ(Base->GetMaterialByName(FName("Default")), Material);
+	auto* Duplicate = Cast<DSplineMeshComponent>(DuplicateObject(Component, nullptr, "MaterialOverrideDuplicate"));
+	ASSERT_NE(Duplicate, nullptr);
+	EXPECT_EQ(Duplicate->GetMaterialOverride(0), Material);
+	Component->SetStaticMesh(nullptr);
+	EXPECT_EQ(Base->GetNumMaterials(), 0u);
+	EXPECT_EQ(Base->GetMaterial(), nullptr);
+	EXPECT_EQ(Base->GetMaterialOverride(0), Material);
+	EXPECT_FALSE(Base->SetMaterial(Material));
+	Component->SetStaticMesh(Mesh);
+	EXPECT_EQ(Base->GetMaterial(), Material);
+	EXPECT_TRUE(Base->ClearMaterialOverrides());
+	EXPECT_FALSE(Base->ClearMaterialOverrides());
+	EXPECT_EQ(Base->GetMaterial(), Material);
+	EXPECT_TRUE(Duplicate->HasMaterialOverride(0));
 }
 
 TEST(FSplineMeshCollisionTests, UsesExactDerivedTriangleMeshAndRevisionsEveryInputMutation)

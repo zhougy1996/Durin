@@ -82,13 +82,9 @@ namespace Durin
 		ENGINE_API auto BuildCollisionGeometry(
 			FCollisionGeometryRef& OutGeometry, FTransform& OutWorldTransform) const -> bool override;
 
-		ENGINE_API auto SetMaterial(DMaterialInterface* InMaterial) -> bool;
-		ENGINE_API auto SetMaterial(uint32 SlotIndex, DMaterialInterface* InMaterial) -> bool override;
-		ENGINE_API auto GetMaterial(uint32 SlotIndex = 0) const -> DMaterialInterface* override;
-		ENGINE_API auto ResetMaterial(uint32 SlotIndex) -> bool;
-		ENGINE_API auto ClearMaterialOverrides() -> bool;
-		auto GetOverrideMaterials() const -> std::span<const TObjectPtr<DMaterialInterface>> { return OverrideMaterials; }
 		ENGINE_API auto GetNumMaterials() const -> uint32 override;
+		ENGINE_API auto GetMaterialIndex(FName SlotName) const -> std::optional<uint32> override;
+		ENGINE_API auto GetDefaultMaterial(uint32 SlotIndex) const -> DMaterialInterface* override;
 		ENGINE_API auto CreateSceneProxy() -> std::unique_ptr<FPrimitiveSceneProxy> override;
 		ENGINE_API auto OnRegister() -> void override;
 
@@ -101,33 +97,28 @@ namespace Durin
 
 	private:
 		friend class FStaticMeshRenderStateRecreateContext;
-		ENGINE_API auto BuildMaterialRenderProxyBindingUpdate(
-			FMaterialRenderProxyBindingUpdate& OutUpdate) -> bool override;
 		auto RebuildDerivedState(std::string* OutError = nullptr) -> bool;
 		auto BuildDerivedGeometry(FSplineMeshDerivedState& Candidate, std::string* OutError) const -> bool;
 		auto HandleStaticMeshRenderDataChanged(DStaticMesh* ChangedMesh) -> void;
 		auto PushDynamicDataToScene() -> void;
-		auto ValidateOverrideMaterials(std::span<const TObjectPtr<DMaterialInterface>> Overrides, std::string& OutError) const -> bool;
-		auto GetMaterialOverride(uint32 SlotIndex) const -> DMaterialInterface*;
 		auto GetCollisionStateRevision() const -> uint64 override;
 		auto RebuildCollisionGeometryForPublishedState() -> void;
 
 		DPROPERTY(Edit)
 		TObjectPtr<DStaticMesh> StaticMesh;
 
+		// Read-only compatibility route for authored packages predating base-owned overrides.
+		DPROPERTY(Deprecated)
+		std::vector<TObjectPtr<DMaterialInterface>> OverrideMaterials_DEPRECATED;
+
 		DPROPERTY(Edit)
 		FSplineMeshParams SplineMeshParams;
-
-		DPROPERTY()
-		std::vector<TObjectPtr<DMaterialInterface>> OverrideMaterials;
 
 		DPROPERTY(Edit)
 		ESplineMeshCollisionMode CollisionMode = ESplineMeshCollisionMode::Disabled;
 
 		std::shared_ptr<const FSplineMeshDerivedState> DerivedState;
 		uint64 DeformationRevision = 0;
-		uint64 MaterialComponentRevision = 1;
-		uint32 PendingMaterialSlotIndex = 0;
 		bool bSourceDirty = false;
 		bool bDeformationDirty = false;
 		bool bCollisionDirty = false;

@@ -543,7 +543,10 @@ result; neither operation reinterprets the authored program.
   default while source evidence is refreshed. Removed entries remain reserved,
   new entries append, and section construction consumes the explicit imported-
   to-stable map rather than searching historical source indices.
-- `DStaticMeshComponent` persists a positional `OverrideMaterials` array.
+- `DMeshComponent` persists a positional `OverrideMaterials` array shared by
+  StaticMesh and SplineMesh components. Geometry owners supply slot count,
+  name-to-index lookup, and default-material queries; the base owns indexed and
+  named mutation, reset, validation, property replay, and binding revisions.
   Resolution for each current index is non-null component override, mesh
   default, then the Engine-owned `/Engine/Materials/DefaultMaterial` proxy.
   Empty assignments remain null in serialized component and mesh state; the
@@ -745,8 +748,13 @@ v10 and its ordinary default-relative owned-object serialization remain unchange
 there is no material-specific serializer or old-asset conversion path. Old Cook
 outputs must be rebuilt. Unrelated property/package migrations remain intact.
 
-Static-mesh components persist only the positional `OverrideMaterials`
-collection, and StaticMesh slots persist no GUID or slot-schema version. The
+Mesh components persist the positional `DMeshComponent::OverrideMaterials`
+collection. Deprecated subclass fields migrate the former StaticMesh and
+SplineMesh declarations during authored PostLoad; subsequent saves emit only
+the base declaration. Old Cook outputs must be rebuilt. The migration preserves
+positional and dormant entries and uses the shared validation.
+
+StaticMesh slots persist no GUID or slot-schema version. The
 former GUID-keyed override records and slot fields have no loader alias,
 upgrade branch, or migration path. Authored packages using those schemas are
 incompatible; repository content was recreated directly under the current
