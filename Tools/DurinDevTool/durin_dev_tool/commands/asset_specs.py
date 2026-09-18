@@ -30,13 +30,13 @@ COMMAND_SPEC = CommandSpec(
     subcommands=(
         CommandSpec(
             "material-functions",
-            "initialize missing standard functions and DefaultMaterial",
+            "inspect shipped standard functions and initialize missing DefaultMaterial",
             HANDLER,
             required_modules=("rich",),
             arguments=CONTEXT_ARGUMENTS + (
                 PROJECT_ARGUMENT,
                 argument("--apply", action="store_true",
-                         help="save missing standard functions and DefaultMaterial"),
+                         help="validate shipped standard functions and save missing DefaultMaterial"),
             ),
         ),
         CommandSpec(

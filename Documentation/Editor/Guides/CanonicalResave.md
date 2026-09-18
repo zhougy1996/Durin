@@ -44,9 +44,10 @@ projects. Repeat with `--project` for each project descriptor; shared Engine
 content needs only one pass. Project modules are loaded before schema capture
 so project-defined asset classes participate in inspection and resave.
 
-The `asset material-functions --apply` command initializes missing reusable
-functions and DefaultMaterial. It preserves compatible function implementation
-edits and rejects incompatible provenance or interfaces. It does not upgrade
+The `asset material-functions --apply` command validates the shipped reusable
+functions and initializes missing DefaultMaterial. It preserves function implementation
+edits and rejects incompatible interfaces. Missing functions must be restored from
+the shipped Engine content; the command never generates replacements. It does not upgrade
 historical material graphs or recreate the retired ImportedSurface template.
 Each package save is atomic. Instances and meshes use canonical resave only
 when their existing logical schemas are already supported.
@@ -136,7 +137,7 @@ parent authoring entry point for that future workflow.
 
 ## Material recipe initialization and reconstruction
 
-Inspect material/function provenance, current schemas, parameter owners and
+Inspect material/function graphs, current schemas, parameter owners and
 instance overrides before changing shared material content:
 
 ```powershell
@@ -144,16 +145,16 @@ instance overrides before changing shared material content:
 .\DevTool.bat asset material-functions --project Sandbox/Sandbox.dproject --apply
 ```
 
-Apply repeats the inventory before writing. It initializes missing standard
-functions and DefaultMaterial from current graph-owned recipes.
-Existing functions retain compatible implementation edits; incompatible provenance
-or interfaces fail.
+Apply repeats the inventory before writing. It loads the shipped standard
+functions and initializes missing DefaultMaterial.
+Existing functions retain compatible implementation edits; missing assets
+or incompatible interfaces fail. Use canonical resave to save function packages.
 Modified or unsupported graphs require explicit reconstruction and are not converted.
 Repeated application to current assets is a no-op.
 
 For reconstruction, first inventory exact files and inbound references, preserve a
 byte backup or source-control checkpoint, then remove only the approved affected
-assets from mounted content and initialize replacements. Rebuild retained instance,
+assets from mounted content and restore or author replacements. Rebuild retained instance,
 mesh and scene references deliberately and audit every workspace project afterward.
 Material and function owners use the current reflected expression graph without a
 historical ownership marker. Canonical resave removes discarded fields; it does not
@@ -166,7 +167,7 @@ retired Engine ImportedSurface template. Reimport the source to regenerate its o
 and select current parent shapes. Reimport replaces edits to generated assets;
 keep independent customized copies outside the destination. Existing immutable
 parents and outputs removed from the source are retained for references. The
-material-functions command maintains the shipped reusable functions and
+material-functions command inspects the shipped reusable functions and initializes
 DefaultMaterial; it does not rebuild scene-specific parents. Already-current
 content needs no destructive reconstruction solely for a new structural recipe. See [Material System](../../Runtime/Rendering/MaterialSystem.md)
 for ownership and normal sampling contracts.

@@ -125,9 +125,15 @@ advance the owning domain and define their explicit migration policy.
 Graph version 2 removes the authored DecodeNormalRG class and retired normal
 sample output index 8. The two maintained materials and six retained standard
 functions were resaved offline; SampleNormal now consumes decoded RGB and the
-unreferenced DecodeImportedNormalRG asset was removed. Standard recipe provenance
-is version 3. Readers require the current graph version, with no legacy decoder,
+unreferenced DecodeImportedNormalRG asset was removed. Readers require the current
+graph version, with no legacy decoder,
 port alias, or migration branch retained in runtime code.
+
+Standard material functions are shipped Engine assets. Their former
+`AuthoringSource` and `AuthoringSourceVersion` fields are removed; normal authored
+field discard and canonical resave handle existing packages. Loading the library
+validates its interfaces without creating or saving assets. Package custom versions
+continue to govern data compatibility, independently of function revisions.
 
 ## Static Mesh Source Versions
 

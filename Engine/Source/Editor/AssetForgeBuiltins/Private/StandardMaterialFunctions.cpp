@@ -2,7 +2,6 @@
 
 #include "Asset/Asset.h"
 #include "Asset/PackageSerialization.h"
-#include "AssetTools/IAssetTools.h"
 #include "DObject/Package.h"
 #include "DObject/Class.h"
 #include "DObject/Property.h"
@@ -284,7 +283,7 @@ namespace Durin::AssetForge::Builtins
 		return true;
 	}
 
-	auto EnsureStandardMaterialFunctions(FStandardMaterialFunctions& OutFunctions, std::string& OutError) -> bool
+	auto LoadStandardMaterialFunctions(FStandardMaterialFunctions& OutFunctions, std::string& OutError) -> bool
 	{
 		FStandardMaterialFunctions Result;
 		const std::array Slots{&Result.UVTransform, &Result.SampleNormal, &Result.SampleORM,
@@ -292,7 +291,6 @@ namespace Durin::AssetForge::Builtins
 		for (uint32 I = 0; I < Slots.size(); ++I)
 		{
 			const auto EntryKind = static_cast<Entry>(I + 1);
-			const std::string Source = std::format("Durin.MaterialFunctions.{}", EntryNames[I]);
 			FPackagePath Path;
 			if (const auto PathValidation = FPackagePath::TryCreate(std::format("/Engine/Materials/Functions/{}", EntryNames[I]), Path); !PathValidation) { OutError = Durin::FormatObjectError(PathValidation.Error); return false; }
 			DMaterialFunction* Function = nullptr;
@@ -306,43 +304,16 @@ namespace Durin::AssetForge::Builtins
 				if (!Loaded) { OutError = Loaded.Message; return false; }
 				Package = Function->GetPackage();
 			}
-			const auto Expected = MakeStandardMaterialFunctionExpressions(EntryKind, Result);
-			if (Package)
+			if (!Package)
 			{
-				if (!Function || Function->GetAuthoringSource() != Source
-					|| Function->GetAuthoringSourceVersion() != StandardMaterialFunctionVersion
-					|| Function->GetFunctionSignature() != Expected.GetSignature())
-				{
-					OutError = std::format("Standard function {} has incompatible provenance or an edited interface; preserve it and resolve the conflict before importing.", Path.ToString());
-					return false;
-				}
+				OutError = std::format("Missing standard function {}; restore the shipped Engine content.", Path.ToString());
+				return false;
 			}
-			else
+			const auto Expected = MakeStandardMaterialFunctionExpressions(EntryKind, Result);
+			if (!Function || Function->GetFunctionSignature() != Expected.GetSignature())
 			{
-				FTopLevelAssetPath AssetPath;
-				if (!FTopLevelAssetPath::TryCreate(Path, Path.GetPackageName(), AssetPath)) return false;
-				const auto Created = IAssetTools::Get().CreateAsset(AssetPath, DMaterialFunction::StaticClass());
-				Function = Cast<DMaterialFunction>(Created.Asset);
-				if (!Created || !Function) { OutError = Created.Message; return false; }
-				const auto Applied = Expected.Apply(*Function);
-				if (!Applied)
-				{
-					OutError = Applied.Diagnostics.empty() ? "Standard function graph is invalid." : Durin::FormatMaterialError(Applied.Diagnostics.front().Error);
-					UnloadPackage(Function->GetPackage(), EAssetPackageUnloadPolicy::DiscardUnsaved);
-					return false;
-				}
-				Function->SetAuthoringSource(Source, StandardMaterialFunctionVersion);
-				FMaterialFunctionPresentation Presentation;
-				for (uint32 N = 0; N < Expected.Expressions.size(); ++N)
-					Presentation.Nodes.push_back({Expected.Expressions[N]->Id, static_cast<int32>(N % 6) * 320, static_cast<int32>(N / 6) * 240});
-				Function->SetFunctionPresentation(std::move(Presentation));
-				const auto Saved = SavePackage(Function->GetPackage());
-				if (!Saved)
-				{
-					OutError = Saved.Message;
-					UnloadPackage(Function->GetPackage(), EAssetPackageUnloadPolicy::DiscardUnsaved);
-					return false;
-				}
+				OutError = std::format("Standard function {} has an incompatible interface; preserve it and resolve the conflict before use.", Path.ToString());
+				return false;
 			}
 			*Slots[I] = Function;
 		}

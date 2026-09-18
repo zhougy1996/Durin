@@ -1125,7 +1125,13 @@ int main(int ArgC, char** ArgV)
 		{
 			Durin::FPackagePath PackagePath;
 			Durin::FPackagePath::TryCreate(std::format("/Engine/Materials/Functions/{}", FunctionNames[Index]), PackagePath);
-			if (!Durin::FindAssetExact(PackagePath)) continue;
+			if (!Durin::FindAssetExact(PackagePath))
+			{
+				std::cerr << "Missing standard function " << PackagePath.ToString()
+					<< "; restore the shipped Engine content.\n";
+				bInventoryValid = false;
+				continue;
+			}
 			Durin::FObjectPath Path;
 			Durin::FObjectPath::TryCreate(std::format("{}.{}", PackagePath.ToString(), FunctionNames[Index]), Path);
 			Durin::DMaterialFunction* Function = nullptr;
@@ -1189,8 +1195,6 @@ int main(int ArgC, char** ArgV)
 			else if (const auto* Function = Durin::Cast<Durin::DMaterialFunction>(Object))
 			{
 				Row.SetChildValue("expressions", static_cast<uint32>(Function->GetExpressionCollection().Expressions.size()));
-				Row.SetChildValue("source", Function->GetAuthoringSource());
-				Row.SetChildValue("version", Function->GetAuthoringSourceVersion());
 				Row.SetChildValue("status", "Preserved: existing function implementation");
 			}
 		}
@@ -1198,9 +1202,9 @@ int main(int ArgC, char** ArgV)
 		if (!bInventoryValid) return 1;
 		if (!Options.bApply) return 0;
 		std::string Error;
-		if (!Durin::AssetForge::Builtins::EnsureStandardMaterialFunctions(Functions, Error))
+		if (!Durin::AssetForge::Builtins::LoadStandardMaterialFunctions(Functions, Error))
 		{
-			std::cerr << "Material recipe initialization failed: " << Error << '\n';
+			std::cerr << "Standard material function loading failed: " << Error << '\n';
 			return 1;
 		}
 		Durin::FPackagePath DefaultPath;

@@ -85,15 +85,6 @@ namespace Durin
 		}
 	}
 
-	auto DMaterialFunction::SetAuthoringSource(std::string Source, uint32 Version) -> void
-	{
-		check(IsInGameThread());
-		if (AuthoringSource == Source && AuthoringSourceVersion == Version) return;
-		AuthoringSource = std::move(Source);
-		AuthoringSourceVersion = Version;
-		MarkPackageDirty();
-	}
-
 	namespace
 	{
 		auto AdvanceFunctionRevision(uint64& Revision) -> void

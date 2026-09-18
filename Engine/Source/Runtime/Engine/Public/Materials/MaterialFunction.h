@@ -27,10 +27,6 @@ namespace Durin
 		auto GetExpressionCollection() const -> const FMaterialExpressionCollection& { return ExpressionCollection; }
 		ENGINE_API auto GetExpressionBody() const -> MIR::FFunctionBody;
 		[[nodiscard]] ENGINE_API auto SetFunctionExpressions(std::span<DMaterialExpression* const> Expressions) -> FMaterialProgramValidationResult;
-		// Bootstrap provenance is editor metadata, never part of compiler semantics.
-		auto GetAuthoringSource() const -> const std::string& { return AuthoringSource; }
-		auto GetAuthoringSourceVersion() const -> uint32 { return AuthoringSourceVersion; }
-		ENGINE_API auto SetAuthoringSource(std::string Source, uint32 Version) -> void;
 		auto GetFunctionPresentation() const -> const FMaterialFunctionPresentation&
 			{ return Presentation; }
 		// Position-only edits never advance the semantic dependency revision.
@@ -55,11 +51,6 @@ namespace Durin
 		DPROPERTY(EditorOnly)
 		FMaterialFunctionPresentation Presentation;
 
-		DPROPERTY(EditorOnly)
-		std::string AuthoringSource;
-
-		DPROPERTY(EditorOnly)
-		uint32 AuthoringSourceVersion = 0;
 		uint64 Revision = 1;
 	};
 }

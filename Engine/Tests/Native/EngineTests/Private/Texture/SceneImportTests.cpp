@@ -7,6 +7,7 @@
 #include "Asset/PackageReload.h"
 #include "Asset/Mutation.h"
 #include "Asset/AssetCook.h"
+#include "AssetTools/IAssetTools.h"
 #include "Materials/MaterialInstance.h"
 #include "Modules/ModuleManager.h"
 #include "RenderingThread.h"
@@ -550,7 +551,29 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 	const auto Fixture = InitializeFixture("StandardLibrary");
 	std::string Error;
 	FStandardMaterialFunctions Functions;
-	ASSERT_TRUE(EnsureStandardMaterialFunctions(Functions, Error)) << Error;
+	// An empty Engine mount must fail without synthesizing any packages.
+	ASSERT_FALSE(LoadStandardMaterialFunctions(Functions, Error));
+	EXPECT_NE(Error.find("Missing standard function"), std::string::npos);
+	EXPECT_FALSE(FindAssetExact(MakeAssetPath("/Engine/Materials/Functions/UVTransform")));
+	EXPECT_EQ(FindResidentPackage(MakeAssetPath("/Engine/Materials/Functions/UVTransform")), nullptr);
+	const std::array Names{"UVTransform", "SampleNormal", "SampleORM", "StandardPBR", "StandardPBR_ORM", "ImportedSurfaceValues"};
+	const std::array Slots{&Functions.UVTransform, &Functions.SampleNormal, &Functions.SampleORM,
+		&Functions.StandardPBR, &Functions.StandardPBR_ORM, &Functions.ImportedSurfaceValues};
+	for (uint32 Index = 0; Index < Slots.size(); ++Index)
+	{
+		const auto Path = MakeAssetPath(std::format("/Engine/Materials/Functions/{}", Names[Index]));
+		FTopLevelAssetPath AssetPath;
+		ASSERT_TRUE(FTopLevelAssetPath::TryCreate(Path, Names[Index], AssetPath));
+		const auto Created = IAssetTools::Get().CreateAsset(AssetPath, DMaterialFunction::StaticClass());
+		ASSERT_TRUE(Created) << Created.Message;
+		auto* Function = Cast<DMaterialFunction>(Created.Asset);
+		ASSERT_NE(Function, nullptr);
+		ASSERT_TRUE(MakeStandardMaterialFunctionExpressions(
+			static_cast<EStandardMaterialFunction>(Index + 1), Functions).Apply(*Function));
+		ASSERT_TRUE(SavePackage(Function->GetPackage()));
+		*Slots[Index] = Function;
+	}
+	ASSERT_TRUE(LoadStandardMaterialFunctions(Functions, Error)) << Error;
 	TStrongObjectPtr<DMaterial> MaterialOwner(NewObject<DMaterial>(nullptr, "StandardLibraryFixture"));
 	auto* Material = MaterialOwner.Get();
 	ASSERT_NE(Material, nullptr);
@@ -658,7 +681,7 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 	Constant->Value = .08f;
 	ASSERT_TRUE(Apply(Edited, Signature));
 	ASSERT_TRUE(SavePackage(Functions.StandardPBR->GetPackage()));
-	ASSERT_TRUE(EnsureStandardMaterialFunctions(Functions, Error)) << Error;
+	ASSERT_TRUE(LoadStandardMaterialFunctions(Functions, Error)) << Error;
 	EXPECT_TRUE(Matches(Edited, Signature));
 	Signature.Inputs.front().Id = FGuid::NewGuid();
 	const auto OldId = OriginalSignature.Inputs.front().Id;
@@ -668,7 +691,7 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 	for (auto& Port : Signature.Inputs)
 		if (Port.Default.InputId == OldId) Port.Default.InputId = Signature.Inputs.front().Id;
 	ASSERT_TRUE(Apply(Edited, Signature));
-	EXPECT_FALSE(EnsureStandardMaterialFunctions(Functions, Error));
+	EXPECT_FALSE(LoadStandardMaterialFunctions(Functions, Error));
 	EXPECT_NE(Error.find("interface"), std::string::npos);
 	EXPECT_TRUE(Matches(Edited, Signature));
 	ASSERT_TRUE(Apply(Original, OriginalSignature));
@@ -676,9 +699,10 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 	auto Reload = ReloadPackages({.Packages = {Functions.StandardPBR->GetPackage()}});
 	const auto Reloaded = Reload.Wait();
 	ASSERT_TRUE(Reloaded) << (Reloaded.Diagnostics.empty() ? "no diagnostic" : FormatPackageReloadDiagnostic(Reloaded.Diagnostics.front()));
-	ASSERT_TRUE(EnsureStandardMaterialFunctions(Functions, Error)) << Error;
+	ASSERT_TRUE(LoadStandardMaterialFunctions(Functions, Error)) << Error;
 	EXPECT_TRUE(Matches(Original, OriginalSignature));
-	EXPECT_EQ(Functions.StandardPBR->GetAuthoringSourceVersion(), StandardMaterialFunctionVersion);
+	EXPECT_EQ(DMaterialFunction::StaticClass()->FindPropertyByName("AuthoringSource"), nullptr);
+	EXPECT_EQ(DMaterialFunction::StaticClass()->FindPropertyByName("AuthoringSourceVersion"), nullptr);
 	EXPECT_TRUE(std::ranges::any_of(Material->GetExpressionCollection().Expressions, [&](const auto& Expression) {
 		const auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression.Get());
 		return Call && Call->Function.Get() == Functions.SampleNormal.Get();
