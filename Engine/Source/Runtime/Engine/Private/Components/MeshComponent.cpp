@@ -2,7 +2,6 @@
 #include "Components/PropertyEditValidation.h"
 
 #include "Components/ComponentMaterialOverride.h"
-#include "Asset/Load.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "Logging/LogMacros.h"
 #include "Materials/MaterialInterface.h"
@@ -93,15 +92,6 @@ namespace Durin
 	auto DMeshComponent::HasMaterialOverride(uint32 SlotIndex) const -> bool
 	{
 		return GetMaterialOverride(SlotIndex) != nullptr;
-	}
-
-	auto DMeshComponent::MigrateMaterialOverrides(std::vector<TObjectPtr<DMaterialInterface>>& LegacyOverrides) -> void
-	{
-		if (OverrideMaterials.empty()) OverrideMaterials = std::move(LegacyOverrides);
-		LegacyOverrides.clear();
-		ReportAssetLoadMutation(this, "Engine.MeshComponent.MaterialOverrides",
-			"Component material overrides were moved to MeshComponent.", EAssetLoadMutationKind::Upgrade);
-		MarkPackageDirty();
 	}
 
 	auto DMeshComponent::PostLoad() -> void

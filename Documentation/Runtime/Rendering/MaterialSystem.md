@@ -749,10 +749,11 @@ there is no material-specific serializer or old-asset conversion path. Old Cook
 outputs must be rebuilt. Unrelated property/package migrations remain intact.
 
 Mesh components persist the positional `DMeshComponent::OverrideMaterials`
-collection. Deprecated subclass fields migrate the former StaticMesh and
-SplineMesh declarations during authored PostLoad; subsequent saves emit only
-the base declaration. Old Cook outputs must be rebuilt. The migration preserves
-positional and dormant entries and uses the shared validation.
+collection. StaticMesh and SplineMesh components serialize only the base
+declaration; the former subclass declarations have no compatibility fields or
+PostLoad migration. Authored packages must already use the base declaration,
+and old Cook outputs must be rebuilt. Shared PostLoad validation preserves
+positional and dormant entries without marking the package dirty.
 
 StaticMesh slots persist no GUID or slot-schema version. The
 former GUID-keyed override records and slot fields have no loader alias,

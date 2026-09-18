@@ -93,13 +93,6 @@ namespace Durin
 		return StaticMesh != nullptr ? StaticMesh->GetNumMaterialSlots() : 0;
 	}
 
-	auto DStaticMeshComponent::PostLoad() -> void
-	{
-		if (WasDeprecatedPropertyLoaded(FName("OverrideMaterials_DEPRECATED")))
-			MigrateMaterialOverrides(OverrideMaterials_DEPRECATED);
-		Super::PostLoad();
-	}
-
 	auto DStaticMeshComponent::PreEditChangeProperty(FPropertyEditProposal& Proposal) -> FObjectValidationResult
 	{
 		if (auto Result = Super::PreEditChangeProperty(Proposal); !Result) return Result;

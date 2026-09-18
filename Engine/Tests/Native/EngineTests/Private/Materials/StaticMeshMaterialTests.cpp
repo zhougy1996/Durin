@@ -335,7 +335,7 @@ TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsByIndex)
 namespace
 {
 	template<typename TComponent>
-	auto VerifyComponentOverridesRoundTrip(std::string_view FixtureName, bool bHistoricalOwner) -> void
+	auto VerifyComponentOverridesRoundTrip(std::string_view FixtureName) -> void
 	{
 		InitializeDObjectSystem();
 		const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / FixtureName;
@@ -390,33 +390,6 @@ namespace
 				if (Property.FieldName == "OverrideMaterials")
 					EXPECT_EQ(Property.DeclaringType, "Durin::DMeshComponent");
 
-		if (bHistoricalOwner)
-		{
-			// Recreate the former wire schema, including the field's declaring class.
-			auto BaseSchema = std::ranges::find(ComponentLinker.Schemas,
-				"Durin::DMeshComponent", &Durin::ObjectPackage::FSerializedSchema::QualifiedName);
-			ASSERT_NE(BaseSchema, ComponentLinker.Schemas.end());
-			auto Field = std::ranges::find(BaseSchema->Fields, "OverrideMaterials",
-				&Durin::ObjectPackage::FSerializedField::Name);
-			ASSERT_NE(Field, BaseSchema->Fields.end());
-			const auto HistoricalField = *Field;
-			BaseSchema->Fields.erase(Field);
-			for (auto& Export : ComponentLinker.Exports)
-				for (auto& Property : Export.Properties)
-					if (Property.FieldName == "OverrideMaterials")
-					{
-						Property.DeclaringType = Export.ClassName;
-						auto Owner = std::ranges::find(ComponentLinker.Schemas,
-							Export.ClassName, &Durin::ObjectPackage::FSerializedSchema::QualifiedName);
-						ASSERT_NE(Owner, ComponentLinker.Schemas.end());
-						Owner->Fields.push_back(HistoricalField);
-					}
-			Durin::FByteBuffer Bulk;
-			ASSERT_TRUE(Durin::ObjectPackage::WritePackage(ComponentLinker, FixtureBytes, Bulk));
-			ASSERT_TRUE(Bulk.empty());
-			ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(FixtureBytes, FixturePath));
-		}
-
 		ASSERT_TRUE(Durin::UnloadPackage(ComponentPath));
 		ASSERT_TRUE(Durin::UnloadPackage(SecondMaterialPath));
 		ASSERT_TRUE(Durin::UnloadPackage(FirstMaterialPath));
@@ -425,6 +398,7 @@ namespace
 		TComponent* Loaded = nullptr;
 		ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(ComponentPath), Loaded));
 		ASSERT_NE(Loaded, nullptr);
+		EXPECT_FALSE(Loaded->GetPackage()->IsDirty());
 		ASSERT_NE(Loaded->GetStaticMesh(), nullptr);
 		Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Loaded->GetStaticMesh());
 		ASSERT_NE(Loaded->GetStaticMesh()->GetRenderData(), nullptr);
@@ -451,17 +425,12 @@ namespace
 
 TEST(FStaticMeshMaterialTests, StaticMeshComponentOverridesRoundTripAfterMeshDependenciesLoad)
 {
-	VerifyComponentOverridesRoundTrip<Durin::DStaticMeshComponent>("StaticMeshSlotOverrides", false);
+	VerifyComponentOverridesRoundTrip<Durin::DStaticMeshComponent>("StaticMeshSlotOverrides");
 }
 
-TEST(FStaticMeshMaterialTests, StaticMeshComponentMigratesSubclassMaterialOverrides)
+TEST(FStaticMeshMaterialTests, SplineMeshComponentOverridesRoundTripAfterMeshDependenciesLoad)
 {
-	VerifyComponentOverridesRoundTrip<Durin::DStaticMeshComponent>("StaticMeshLegacyOverrides", true);
-}
-
-TEST(FStaticMeshMaterialTests, SplineMeshComponentMigratesSubclassMaterialOverrides)
-{
-	VerifyComponentOverridesRoundTrip<Durin::DSplineMeshComponent>("SplineMeshLegacyOverrides", true);
+	VerifyComponentOverridesRoundTrip<Durin::DSplineMeshComponent>("SplineMeshSlotOverrides");
 }
 
 TEST(FStaticMeshMaterialTests, OverrideValidationRetainsCountsAndIncompatibleObjectContext)

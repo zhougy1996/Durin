@@ -41,8 +41,6 @@ namespace Durin
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 
 	protected:
-		// Consumes old subclass-owned authored data before the shared PostLoad validation.
-		ENGINE_API auto MigrateMaterialOverrides(std::vector<TObjectPtr<DMaterialInterface>>& LegacyOverrides) -> void;
 		// Geometry owners advance this when replacing the slot layout or rebuilding their proxy.
 		auto AdvanceMaterialBindingRevision() -> void { ++MaterialComponentRevision; }
 		auto GetMaterialBindingRevision() const -> uint64 { return MaterialComponentRevision; }

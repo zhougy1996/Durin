@@ -107,10 +107,6 @@ namespace Durin
 		DPROPERTY(Edit)
 		TObjectPtr<DStaticMesh> StaticMesh;
 
-		// Read-only compatibility route for authored packages predating base-owned overrides.
-		DPROPERTY(Deprecated)
-		std::vector<TObjectPtr<DMaterialInterface>> OverrideMaterials_DEPRECATED;
-
 		DPROPERTY(Edit)
 		FSplineMeshParams SplineMeshParams;
 

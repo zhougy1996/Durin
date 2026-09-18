@@ -370,8 +370,6 @@ namespace Durin
 
 	auto DSplineMeshComponent::PostLoad() -> void
 	{
-		if (WasDeprecatedPropertyLoaded(FName("OverrideMaterials_DEPRECATED")))
-			MigrateMaterialOverrides(OverrideMaterials_DEPRECATED);
 		Super::PostLoad();
 		bSourceDirty = true;
 		UpdateMesh();

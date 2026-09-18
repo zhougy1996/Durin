@@ -30,7 +30,6 @@ namespace Durin
 		ENGINE_API auto GetDefaultMaterial(uint32 SlotIndex) const -> DMaterialInterface* override;
 		ENGINE_API auto CreateSceneProxy() -> std::unique_ptr<FPrimitiveSceneProxy> override;
 		ENGINE_API auto OnRegister() -> void override;
-		ENGINE_API auto PostLoad() -> void override;
 		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal) -> FObjectValidationResult override;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 #if DURIN_WITH_EDITOR
@@ -45,10 +44,6 @@ namespace Durin
 
 		DPROPERTY(Edit)
 		TObjectPtr<DStaticMesh> StaticMesh;
-
-		// Read-only compatibility route for authored packages predating base-owned overrides.
-		DPROPERTY(Deprecated)
-		std::vector<TObjectPtr<DMaterialInterface>> OverrideMaterials_DEPRECATED;
 
 		friend class DStaticMesh;
 	};
