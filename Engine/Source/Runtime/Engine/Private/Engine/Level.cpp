@@ -300,6 +300,32 @@ namespace Durin
 		}
 	}
 
+	auto DLevel::ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> FObjectValidationResult
+	{
+		if (auto Result = Super::ValidateLoadedObjectGraph(Context); !Result) return Result;
+		for (const auto& Actor : Actors)
+		{
+			if (!Actor || Actor->GetOuter() != this)
+				return RejectLoadedObjectGraph(GetObjectPath(), "Level contains an actor outside its owned graph.");
+			for (const auto& Component : Actor->GetComponents())
+			{
+				if (!Component || Component->GetOuter() != Actor.Get())
+					return RejectLoadedObjectGraph(GetObjectPath(), "Actor contains a component outside its owned graph.");
+				const auto* Scene = Cast<DSceneComponent>(Component.Get());
+				if (!Scene) continue;
+				std::unordered_set<const DSceneComponent*> Visited;
+				for (const DSceneComponent* Parent = Scene->AttachParent.Get(); Parent; Parent = Parent->AttachParent.Get())
+				{
+					if (Parent == Scene || !Visited.insert(Parent).second)
+						return RejectLoadedObjectGraph(GetObjectPath(), "Component attachment graph contains a cycle.");
+					if (!Parent->GetOwner() || Parent->GetOwner()->GetOuter() != this)
+						return RejectLoadedObjectGraph(GetObjectPath(), "Component attachment crosses level ownership.");
+				}
+			}
+		}
+		return {};
+	}
+
 	auto DLevel::PostLoad() -> void
 	{
 		Super::PostLoad();

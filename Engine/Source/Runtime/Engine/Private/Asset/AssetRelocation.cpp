@@ -228,7 +228,7 @@ namespace Durin
 			if (SourceData->EntryKind != EAssetRegistryEntryKind::Asset)
 				return Error(EAssetError::InvalidPackageType,
 					"Redirectors cannot be used as relocation sources.");
-			if (LoadingPackages.contains(Mapping.SourcePath))
+			if (Loader.IsPackageLoading(Mapping.SourcePath))
 				return Error(EAssetError::InUse,
 					"A relocation source is currently loading.");
 			if (DPackage* Loaded = FindResidentPackage(Mapping.SourcePath))

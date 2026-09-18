@@ -53,7 +53,7 @@ namespace Durin
 		for (const FAssetData& Entry : Entries)
 		{
 			const FPackagePath& Path = Entry.PackagePath;
-			if (LoadingPackages.contains(Path))
+			if (Loader.IsPackageLoading(Path))
 				return Error(EAssetError::InUse, std::format(
 					"Asset {} is currently loading.", Path.ToString()));
 			DPackage* Loaded = FindResidentPackage(Path);

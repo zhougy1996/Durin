@@ -304,6 +304,7 @@ namespace Durin
 	auto FormatObjectValidationError(const FObjectValidationError& Error) -> std::string
 	{
 		if (Error.Code == EObjectValidationError::None) return {};
+		if (!Error.Message.empty()) return Error.Message;
 		if (Error.Code == EObjectValidationError::StructRejected)
 			return Error.Cause ? "PostDeserializeRejected: " + Error.Cause->Format()
 				: std::format("PostDeserializeRejected: '{}' rejected the loaded value.", Error.StructName);

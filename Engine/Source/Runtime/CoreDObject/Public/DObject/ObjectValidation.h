@@ -28,6 +28,7 @@ namespace Durin
 		EPropertyEditRejection PropertyReason = EPropertyEditRejection::None;
 		std::string PropertyName;
 		std::shared_ptr<const IObjectValidationCause> Cause;
+		std::string Message;
 	};
 	struct FObjectValidationResult
 	{
@@ -35,6 +36,11 @@ namespace Durin
 		auto Succeeded() const -> bool { return Error.Code == EObjectValidationError::None; }
 		explicit operator bool() const { return Succeeded(); }
 	};
+	inline auto RejectLoadedObjectGraph(std::string ObjectPath, std::string Message) -> FObjectValidationResult
+	{
+		return {{.Code = EObjectValidationError::ModuleRejected,
+			.ObjectPath = std::move(ObjectPath), .Message = std::move(Message)}};
+	}
 	class DObject;
 	struct FPropertyEditProposal;
 	COREDOBJECT_API auto RejectPropertyEdit(const DObject& Object, const FPropertyEditProposal& Proposal,

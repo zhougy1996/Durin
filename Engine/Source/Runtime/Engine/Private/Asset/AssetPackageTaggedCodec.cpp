@@ -687,7 +687,8 @@ namespace Durin::AssetPrivate::TaggedPackage
 						: FArchiveTarget{},
 					.BulkResource = Context.BulkResource,
 					.DependencyLoadPolicy = Context.DependencyLoadPolicy,
-					.bPrivateGraph = Context.bPrivateGraph});
+					.bPrivateGraph = Context.bPrivateGraph,
+					.DeferCompletion = Context.DeferCompletion});
 		}
 
 		auto Write(DPackage* Package, FAssetPackageEncodedClosure& OutClosure,

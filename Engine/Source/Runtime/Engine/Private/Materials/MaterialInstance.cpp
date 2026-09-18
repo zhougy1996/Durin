@@ -450,6 +450,18 @@ namespace Durin
 			[](const FMaterialParameterValue& Value) { return Value.GetTexture().Texture.Get(); });
 	}
 
+	auto DMaterialInstance::ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> FObjectValidationResult
+	{
+		if (auto Result = Super::ValidateLoadedObjectGraph(Context); !Result) return Result;
+		if (WouldCreateParentCycle(this, Parent.Get()))
+			return RejectLoadedObjectGraph(GetObjectPath(), "Material instance parent chain contains a cycle.");
+		if (auto Validation = ValidateMaterialStaticProperties(PropertyOverrides.Values); !Validation)
+			return RejectMaterialObjectGraph(GetObjectPath(), Validation.Error);
+		if (Context.bCooked && CookedProgramData.GetMetadata().LogicalSize == 0)
+			return RejectMaterialObjectGraph(GetObjectPath(), EMaterialCookError::ProgramUnavailable);
+		return {};
+	}
+
 	auto DMaterialInstance::PostLoad() -> void
 	{
 		Super::PostLoad();

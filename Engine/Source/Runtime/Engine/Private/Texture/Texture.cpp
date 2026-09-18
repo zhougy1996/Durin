@@ -45,6 +45,16 @@ namespace Durin
 		check(RenderResource == nullptr);
 	}
 
+	auto DTexture::ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> FObjectValidationResult
+	{
+		if (auto Result = Super::ValidateLoadedObjectGraph(Context); !Result) return Result;
+		if (Context.bCooked)
+			return CookedPlatformData.GetMetadata().LogicalSize != 0 ? FObjectValidationResult{}
+				: RejectLoadedObjectGraph(GetObjectPath(), "Required cooked PlatformData field is missing.");
+		return Source.IsValid() ? FObjectValidationResult{}
+			: RejectLoadedObjectGraph(GetObjectPath(), "Invalid or unsupported texture source.");
+	}
+
 	auto DTexture::PostLoad() -> void
 	{
 		Source.BindOwner(this);

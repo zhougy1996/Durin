@@ -83,6 +83,7 @@ namespace Durin
 		ENGINE_API auto SetPrimaryCameraActor(ACameraActor* Actor) -> bool;
 		auto GetPrimaryCameraActor() const -> ACameraActor* { return PrimaryCameraActor.Get(); }
 		auto GetWorld() const -> DWorld* { return OwningWorld; }
+		ENGINE_API auto ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> FObjectValidationResult override;
 		ENGINE_API auto PostLoad() -> void override;
 
 #if DURIN_WITH_EDITOR

@@ -86,7 +86,14 @@ namespace Durin
 
 	auto DMaterial::ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> FObjectValidationResult
 	{
-		if (Context.bCooked) return {};
+		if (const auto Validation = ValidateMaterialStaticProperties(StaticProperties); !Validation)
+			return RejectMaterialObjectGraph(GetObjectPath(), Validation.Error);
+		if (Context.bCooked)
+			return CookedProgramData.GetMetadata().LogicalSize != 0 ? FObjectValidationResult{}
+				: RejectMaterialObjectGraph(GetObjectPath(), EMaterialCookError::ProgramUnavailable);
+		std::vector<FMaterialParameterDefinition> Schema;
+		if (const auto Validation = DeriveExpressionParameterSchema(ExpressionCollection, Schema); !Validation)
+			return RejectLoadedObjectGraph(GetObjectPath(), "Material graph has an invalid parameter schema.");
 		if (GetMaterialDomainOutputPins(Domain).empty())
 			return RejectMaterialObjectGraph(GetObjectPath(), EMaterialExpressionError::UnsupportedMaterialDomain);
 		const auto OwnershipError = Private::ValidateExpressionOwnership(*this, ExpressionCollection);

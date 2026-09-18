@@ -602,6 +602,9 @@ namespace
 		}
 	};
 
+	std::function<void(Durin::DObject&, Durin::FArchive&)> GAuthoredLoadProbe;
+	std::function<void(Durin::DObject&)> GAuthoredPostLoadProbe;
+
 	uint64 GPackageAssetPostLoadCount = 0;
 	bool GRejectPackageAssetDeserialize = false;
 	std::function<void()> GPackageConstructorLoadProbe;
@@ -626,6 +629,7 @@ namespace
 		{
 			DObject::Serialize(Ar);
 			if (GPackageVersionProbe) GPackageVersionProbe(Ar);
+			if (Ar.IsLoading() && GAuthoredLoadProbe) GAuthoredLoadProbe(*this, Ar);
 			if (Ar.IsLoading() && GRejectPackageAssetDeserialize)
 				Ar.Fail(Durin::EArchiveFailureCode::InvalidData, "Injected package deserialization rejection.");
 		}
@@ -634,6 +638,7 @@ namespace
 		{
 			++GPackageAssetPostLoadCount;
 			if (GPackagePostLoadProbe) GPackagePostLoadProbe();
+			if (GAuthoredPostLoadProbe) GAuthoredPostLoadProbe(*this);
 			DObject::PostLoad();
 		}
 
@@ -993,6 +998,7 @@ namespace
 			if (Ar.IsLoading() && Ar.GetPurpose() == Durin::EArchivePurpose::AuthoredPackage)
 			{
 				++GAuthoredLoadSerializeCount;
+				if (GAuthoredLoadProbe) GAuthoredLoadProbe(*this, Ar);
 				if (GRejectAuthoredLoad)
 				{
 					Ar.Fail(Durin::EArchiveFailureCode::InvalidData,
@@ -1073,6 +1079,7 @@ namespace
 		{
 			DObject::PostLoad();
 			GPostLoadCustomVersion = GetLoadedCustomVersion(ArchiveCustomVersionGuid).value_or(-1);
+			if (GAuthoredPostLoadProbe) GAuthoredPostLoadProbe(*this);
 		}
 
 		int32 NativeValue = 73;
@@ -2391,7 +2398,7 @@ TEST(FPackageAssetTests, ExplicitLoadScopeSavedDependencyExceptionDoesNotFollowR
 	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(DependencyPath));
 }
 
-TEST(FPackageAssetTests, ExplicitLoadScopeFailureRetiresSuccessfulNestedBulkResources)
+TEST(FPackageAssetTests, ExplicitLoadScopeRetainsIndependentDependenciesUntilRelease)
 {
 	using namespace Durin;
 	InitializeAssetTests();
@@ -2417,10 +2424,15 @@ TEST(FPackageAssetTests, ExplicitLoadScopeFailureRetiresSuccessfulNestedBulkReso
 	EXPECT_FALSE(Result);
 	EXPECT_EQ(Loaded, nullptr);
 	EXPECT_EQ(FindResidentPackage(RootPath), nullptr);
+	ASSERT_NE(FindResidentPackage(BulkPath), nullptr);
+	EXPECT_EQ(GetPackageResourceManager().GetRegisteredPackageCount(), Count + 1);
+	ASSERT_NE(GetPackageResourceManager().FindPackage(BulkPath.ToString()), nullptr);
+	DBulkPackageAssetForTest* Retained = nullptr;
+	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(BulkPath), Retained));
+	ASSERT_NE(Retained, nullptr);
+	EXPECT_TRUE(Scope.Release());
 	EXPECT_EQ(FindResidentPackage(BulkPath), nullptr);
 	EXPECT_EQ(GetPackageResourceManager().GetRegisteredPackageCount(), Count);
-	EXPECT_EQ(GetPackageResourceManager().FindPackage(BulkPath.ToString()), nullptr);
-	EXPECT_TRUE(Scope.Release());
 	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(RootPath));
 	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(BulkPath));
 }
@@ -3287,6 +3299,112 @@ TEST(FPackageAssetTests, PackageLoadFailureCleansUpAndAllowsRetry)
 	ASSERT_NE(Asset, nullptr);
 	EXPECT_EQ(FindResidentPackage(Path), Asset->GetPackage());
 	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(Path));
+}
+
+TEST(FPackageAssetTests, CyclicLoadsCompleteTogetherAndRejectPrematurePublicAccess)
+{
+	using namespace Durin;
+	InitializeAssetTests();
+	FPackagePath APath, BPath, IndependentPath, ReentrantPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/CompletionA", APath));
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/CompletionB", BPath));
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/CompletionIndependent", IndependentPath));
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/CompletionReentrant", ReentrantPath));
+	DPackageAssetForTest *A = nullptr, *B = nullptr, *Independent = nullptr, *Reentrant = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(APath, A));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(BPath, B));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(IndependentPath, Independent));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(ReentrantPath, Reentrant));
+	Reentrant->ExternalReference = A;
+	ASSERT_TRUE(SavePackage(Reentrant->GetPackage()));
+	ASSERT_TRUE(UnloadPackage(ReentrantPath));
+	A->Value = 101; B->Value = 202;
+	A->ExternalReference = B; B->ExternalReference = A;
+	ASSERT_TRUE(SavePackage(A->GetPackage()));
+	ASSERT_TRUE(SavePackage(B->GetPackage()));
+	ASSERT_TRUE(SavePackage(Independent->GetPackage()));
+	MarkObjectHierarchyAsGarbage(A->GetPackage());
+	MarkObjectHierarchyAsGarbage(B->GetPackage());
+	CollectGarbage();
+	ASSERT_TRUE(UnloadPackage(IndependentPath));
+	struct FReset { ~FReset() { GAuthoredLoadProbe = {}; GAuthoredPostLoadProbe = {}; } } Reset;
+	uint32 Notifications = 0;
+	GAuthoredPostLoadProbe = [&](DObject& Object) {
+		if (Object.GetPackage()->GetPackagePathIdentity() == IndependentPath) return;
+		++Notifications;
+		EXPECT_EQ(SavePackage(Object.GetPackage()).Error, EAssetError::InUse);
+		const auto& Current = static_cast<DPackageAssetForTest&>(Object);
+		const auto* Peer = static_cast<DPackageAssetForTest*>(Current.ExternalReference.Get());
+		ASSERT_NE(Peer, nullptr);
+		EXPECT_EQ(Peer->Value, Current.Value == 101 ? 202 : 101);
+		EXPECT_EQ(FindResidentPackage(APath), nullptr);
+		EXPECT_EQ(FindResidentPackage(BPath), nullptr);
+		DPackage* Premature = nullptr;
+		EXPECT_EQ(LoadPackage(APath, Premature).Error, EAssetError::InUse);
+		EXPECT_EQ(Premature, nullptr);
+		DPackage* Completed = nullptr;
+		ASSERT_TRUE(LoadPackage(IndependentPath, Completed));
+		EXPECT_EQ(FindResidentPackage(IndependentPath), Completed);
+		DPackage* Recursive = nullptr;
+		EXPECT_EQ(LoadPackage(ReentrantPath, Recursive).Error, EAssetError::InUse);
+		EXPECT_EQ(Recursive, nullptr);
+		EXPECT_EQ(FindResidentPackage(ReentrantPath), nullptr);
+	};
+	DPackage* Loaded = nullptr;
+	ASSERT_TRUE(LoadPackage(APath, Loaded));
+	EXPECT_EQ(Notifications, 2u);
+	EXPECT_EQ(FindResidentPackage(APath), Loaded);
+	ASSERT_NE(FindResidentPackage(BPath), nullptr);
+	GAuthoredPostLoadProbe = {};
+	MarkObjectHierarchyAsGarbage(FindResidentPackage(APath));
+	MarkObjectHierarchyAsGarbage(FindResidentPackage(BPath));
+	CollectGarbage();
+	// Failure in one restored member invalidates the entire incomplete cycle.
+	GAuthoredLoadProbe = [&](DObject& Object, FArchive& Ar) {
+		if (Object.GetPackage()->GetPackagePathIdentity() == APath)
+			Ar.Fail(EArchiveFailureCode::InvalidData, "Rejected cycle member");
+	};
+	EXPECT_EQ(LoadPackage(APath, Loaded).Error, EAssetError::CorruptFile);
+	EXPECT_EQ(Loaded, nullptr);
+	EXPECT_EQ(FindResidentPackage(APath), nullptr);
+	EXPECT_EQ(FindResidentPackage(BPath), nullptr);
+	EXPECT_NE(FindResidentPackage(IndependentPath), nullptr);
+	GAuthoredLoadProbe = {};
+	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(ReentrantPath));
+	FAssetPackageLoadScope Retry;
+	ASSERT_TRUE(Retry.LoadPackage(APath, Loaded));
+	EXPECT_TRUE(Retry.Release());
+	EXPECT_EQ(FindResidentPackage(APath), nullptr);
+	EXPECT_EQ(FindResidentPackage(BPath), nullptr);
+	ASSERT_TRUE(UnloadPackage(IndependentPath));
+}
+
+TEST(FPackageAssetTests, CallbackExceptionsCleanIncompleteLoadsAndAllowSamePathRetry)
+{
+	using namespace Durin;
+	InitializeAssetTests();
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/CompletionException", Path));
+	DAuthoredArchiveAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
+	ASSERT_TRUE(SavePackage(Asset->GetPackage()));
+	ASSERT_TRUE(UnloadPackage(Path));
+	struct FReset { ~FReset() { GAuthoredLoadProbe = {}; GAuthoredPostLoadProbe = {}; } } Reset;
+	for (bool bPostLoad : {false, true})
+	{
+		uint32 SideEffects = 0;
+		if (bPostLoad) GAuthoredPostLoadProbe = [&](DObject&) { ++SideEffects; throw std::runtime_error("notification exception"); };
+		else GAuthoredLoadProbe = [](DObject&, FArchive&) { throw std::runtime_error("serializer exception"); };
+		DPackage* Loaded = nullptr;
+		EXPECT_EQ(LoadPackage(Path, Loaded).Error, EAssetError::InvalidObjectGraph);
+		EXPECT_EQ(Loaded, nullptr);
+		EXPECT_EQ(FindResidentPackage(Path), nullptr);
+		EXPECT_FALSE(IsPackageLoading(Path));
+		EXPECT_EQ(SideEffects, bPostLoad ? 1u : 0u); // Notification effects are not compensated.
+		GAuthoredLoadProbe = {}; GAuthoredPostLoadProbe = {};
+		ASSERT_TRUE(LoadPackage(Path, Loaded));
+		ASSERT_TRUE(UnloadPackage(Path));
+	}
 }
 
 TEST(FPackageAssetTests, PackageLoadBindingsAttachSnapshotWithoutUsingLiveBulkResource)
@@ -4408,7 +4526,7 @@ TEST(FPackageAssetTests, GuardRejectsIgnoredConstructorAndPostLoadLiveReads)
 	ASSERT_TRUE(DeleteAssetClosureForTest({SourcePath, TargetPath}));
 }
 
-TEST(FPackageAssetTests, DirectLinkerRollbackReleasesOwnedDependenciesAndPreservesCallbackLoads)
+TEST(FPackageAssetTests, DirectLinkerFailurePreservesCompletedDependenciesAndCallbackLoads)
 {
 	InitializeAssetTests();
 	using namespace Durin;
@@ -4438,7 +4556,7 @@ TEST(FPackageAssetTests, DirectLinkerRollbackReleasesOwnedDependenciesAndPreserv
 	struct FResetProbe { ~FResetProbe() { GPackagePostLoadProbe = {}; } } Reset;
 	bool bRejected = false;
 	GPackagePostLoadProbe = [&] {
-		// Target PostLoad runs within its ordinary transaction. Fail only the direct root.
+		// Target PostLoad runs within its completion group. Fail only the direct root.
 		if (IsPackageLoading(TargetPath) || std::exchange(bRejected, true)) return;
 		DPackage* LoadedOther = nullptr;
 		ASSERT_TRUE(LoadPackage(OtherPath, LoadedOther));
@@ -4450,7 +4568,8 @@ TEST(FPackageAssetTests, DirectLinkerRollbackReleasesOwnedDependenciesAndPreserv
 	GPackagePostLoadProbe = {};
 	EXPECT_EQ(Loaded, nullptr);
 	EXPECT_EQ(FindResidentPackage(SourcePath), nullptr);
-	EXPECT_EQ(FindResidentPackage(TargetPath), nullptr);
+	EXPECT_NE(FindResidentPackage(TargetPath), nullptr);
+	EXPECT_TRUE(UnloadPackage(TargetPath));
 	EXPECT_NE(FindResidentPackage(OtherPath), nullptr);
 	EXPECT_TRUE(UnloadPackage(OtherPath));
 }

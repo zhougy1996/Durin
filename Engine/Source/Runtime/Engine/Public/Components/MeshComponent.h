@@ -36,6 +36,7 @@ namespace Durin
 		ENGINE_API auto GetMaterialOverride(uint32 SlotIndex) const -> DMaterialInterface*;
 		ENGINE_API auto HasMaterialOverride(uint32 SlotIndex) const -> bool;
 		auto GetOverrideMaterials() const -> std::span<const TObjectPtr<DMaterialInterface>> { return OverrideMaterials; }
+		ENGINE_API auto ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> FObjectValidationResult override;
 		ENGINE_API auto PostLoad() -> void override;
 		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal) -> FObjectValidationResult override;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;

@@ -94,6 +94,14 @@ namespace Durin
 		return GetMaterialOverride(SlotIndex) != nullptr;
 	}
 
+	auto DMeshComponent::ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> FObjectValidationResult
+	{
+		if (auto Result = Super::ValidateLoadedObjectGraph(Context); !Result) return Result;
+		if (const auto Validation = ValidateOverrideMaterials(OverrideMaterials); !Validation)
+			return RejectLoadedObjectGraph(GetObjectPath(), FormatStaticMeshMaterialOverrideError(Validation.Error, "mesh component"));
+		return {};
+	}
+
 	auto DMeshComponent::PostLoad() -> void
 	{
 		Super::PostLoad();

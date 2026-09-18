@@ -39,6 +39,7 @@ namespace Durin
 
 	public:
 		ENGINE_API ~DTexture() override;
+		ENGINE_API auto ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> FObjectValidationResult override;
 		ENGINE_API auto PostLoad() -> void override;
 		ENGINE_API auto BeginDestroy() -> void override;
 

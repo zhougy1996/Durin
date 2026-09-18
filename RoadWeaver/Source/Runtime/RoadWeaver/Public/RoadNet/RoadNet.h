@@ -81,6 +81,7 @@ namespace Durin::RoadNet
 			FDefinition InDefinition, std::string& OutError) -> bool;
 		// Explicit edit: publish final fitted geometry and reconciled stationing together.
 		ROADWEAVER_API auto FitToSurface(const FRoadSurface& Operation, std::string& OutError) -> bool;
+		ROADWEAVER_API auto ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> FObjectValidationResult override;
 		ROADWEAVER_API auto PostLoad() -> void override;
 		ROADWEAVER_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal) -> FObjectValidationResult override;
 		ROADWEAVER_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;

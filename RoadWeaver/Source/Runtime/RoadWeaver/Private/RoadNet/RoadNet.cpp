@@ -353,6 +353,16 @@ namespace Durin::RoadNet
 		return true;
 	}
 
+	auto DRoadNet::ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> FObjectValidationResult
+	{
+		if (auto Result = Super::ValidateLoadedObjectGraph(Context); !Result) return Result;
+		if (SchemaVersion != RoadNetSchemaVersion)
+			return RejectLoadedObjectGraph(GetObjectPath(), std::format("Road Net schema version {} is unsupported; expected {}.", SchemaVersion, RoadNetSchemaVersion));
+		if (const auto Validation = ValidateDefinition(Definition); !Validation)
+			return RejectLoadedObjectGraph(GetObjectPath(), FormatRoadDefinitionError(Validation.Error));
+		return {};
+	}
+
 	auto DRoadNet::PostLoad() -> void
 	{
 		std::string Error;

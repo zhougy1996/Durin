@@ -249,7 +249,7 @@ TEST(FMaterialPackageTests, MissingInstanceCustomVersionRejectsInstanceWithoutCh
 		Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(InstancePath), LoadedInstance);
 	EXPECT_FALSE(Load);
 	EXPECT_EQ(LoadedInstance, nullptr);
-	EXPECT_EQ(Durin::FindResidentPackage(BasePath), nullptr);
+	EXPECT_NE(Durin::FindResidentPackage(BasePath), nullptr);
 	EXPECT_EQ(Durin::FindResidentPackage(InstancePath), nullptr);
 	Durin::DMaterial* LoadedBase = nullptr;
 	const auto BaseLoad = Durin::LoadObject(

@@ -30,6 +30,8 @@ namespace Durin::AssetPrivate
 		std::optional<FAssetPackageDependencyLoadPolicy> DependencyLoadPolicy;
 		// Keep capture objects out of public package/object lookup. Requires a closed load policy.
 		bool bPrivateGraph = false;
+		// Ordinary loading transfers candidate completion to its component owner.
+		std::function<void(std::function<FAssetResult()>, std::function<void()>)> DeferCompletion;
 	};
 
 	struct FAssetPackageEncodedClosure

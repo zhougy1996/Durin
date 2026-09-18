@@ -249,7 +249,7 @@ namespace Durin
 			if (Data->EntryKind != EAssetRegistryEntryKind::Redirector)
 				return Error(EAssetError::InvalidPackageType, std::format(
 					"Fix Up selection {} is not a redirector.", Alias.ToString()));
-			if (LoadingPackages.contains(Alias))
+			if (Loader.IsPackageLoading(Alias))
 				return Error(EAssetError::InUse,
 					"A selected redirector is currently loading.");
 			if (Mode == EAssetRedirectorFixupMode::RewriteAndDelete
@@ -343,7 +343,7 @@ namespace Durin
 			if (!Data)
 				return Error(EAssetError::StaleData,
 					"A package referencer is no longer registered.");
-			if (LoadingPackages.contains(SourcePath))
+			if (Loader.IsPackageLoading(SourcePath))
 				return Error(EAssetError::InUse,
 					"A package referencer is currently loading.");
 			DPackage* Loaded = FindResidentPackage(SourcePath);
@@ -471,7 +471,7 @@ namespace Durin
 						|| Data->EntryKind == EAssetRegistryEntryKind::Redirector)
 						return Error(EAssetError::StaleData,
 							"An asset reference store returned an invalid package participant.");
-					if (LoadingPackages.contains(PackageRewrite.PackagePath))
+					if (Loader.IsPackageLoading(PackageRewrite.PackagePath))
 						return Error(EAssetError::InUse,
 							"An asset reference-store package is currently loading.");
 					DPackage* Loaded = FindResidentPackage(PackageRewrite.PackagePath);

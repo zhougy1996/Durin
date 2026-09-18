@@ -1379,7 +1379,7 @@ namespace Durin::AssetPrivate
 		FAssetLiveLoadGuard LiveLoadGuard(Options.DependencyLoadPolicy
 			&& Options.DependencyLoadPolicy->bRejectImplicitLiveLoads);
 		auto Finish = [&](FAssetResult Result) {
-			if (OutError) *OutError = Result ? std::string{} : Diagnostic.Message;
+			if (OutError) *OutError = Result.Message;
 			return Result;
 		};
 		if (!PackagePath.IsValid())
@@ -1397,7 +1397,7 @@ namespace Durin::AssetPrivate
 		if (Options.DependencyLoadPolicy
 			&& (!Options.DependencyLoadPolicy->ResolvePackage
 				|| !Options.DependencyLoadPolicy->ResolveObject
-				|| !Options.DependencyLoadPolicy->Rollback))
+				|| (!Options.DeferCompletion && !Options.DependencyLoadPolicy->Rollback)))
 		{
 			LinkerApplyFail(Diagnostic, EAssetError::InvalidObjectGraph,
 				"An explicit dependency load policy requires package, object, and rollback callbacks.");
@@ -1433,24 +1433,6 @@ namespace Durin::AssetPrivate
 			LinkerApplyFail(Diagnostic, EAssetError::InvalidObjectGraph, "Could not allocate the package skeleton.");
 			return Finish({EAssetError::InvalidObjectGraph, Diagnostic.Message});
 		}
-		if (Options.bPrivateGraph)
-		{
-			if (!Package->InitializePreparedAssetPackage(PackagePath))
-			{
-				MarkObjectHierarchyAsGarbage(Package); CollectGarbage();
-				LinkerApplyFail(Diagnostic, EAssetError::InvalidObjectGraph,
-					"Could not initialize a private capture package.");
-				return Finish({EAssetError::InvalidObjectGraph, Diagnostic.Message});
-			}
-		}
-		else Package->InitializeAssetPackage(PackagePath);
-		Application.Package = Package;
-		Objects.resize(Exports.size(), nullptr);
-		// Nested production loads belong to the enclosing load transaction. Direct
-		// linker applications own only the dependencies admitted by their explicit calls.
-		FAssetPackageLoadScope DependencyScope;
-		const bool bOwnDependencies = !Options.DependencyLoadPolicy
-			&& FAssetRuntimeState::Get().GetLoadService().IsIdle();
 		bool bSkeletonPublished = false;
 		bool bFinalized = false;
 		auto Rollback = [&]() {
@@ -1464,10 +1446,12 @@ namespace Durin::AssetPrivate
 				if (bSkeletonPublished && Options.OnSkeletonRollback)
 					Options.OnSkeletonRollback(Package);
 			});
-			Cleanup([&] { MarkObjectHierarchyAsGarbage(Package); CollectGarbage(); });
 			Cleanup([&] {
-				if (Options.DependencyLoadPolicy) Options.DependencyLoadPolicy->Rollback();
-				else if (bOwnDependencies) (void)DependencyScope.Release();
+				if (!bSkeletonPublished || !Options.DeferCompletion)
+				{ MarkObjectHierarchyAsGarbage(Package); CollectGarbage(); }
+			});
+			Cleanup([&] {
+				if (Options.DependencyLoadPolicy && Options.DependencyLoadPolicy->Rollback) Options.DependencyLoadPolicy->Rollback();
 			});
 			if (Failure) std::rethrow_exception(Failure);
 		};
@@ -1482,15 +1466,33 @@ namespace Durin::AssetPrivate
 			}
 		} Scope{Rollback};
 
-		if (FAssetResult Result = CreateLinkerSkeleton(Application, Options, Diagnostic); !Result)
+		if (Options.bPrivateGraph)
 		{
-			Rollback(); return Finish(Result);
+			if (!Package->InitializePreparedAssetPackage(PackagePath))
+			{
+				LinkerApplyFail(Diagnostic, EAssetError::InvalidObjectGraph,
+					"Could not initialize a private capture package.");
+				return Finish({EAssetError::InvalidObjectGraph, Diagnostic.Message});
+			}
+		}
+		else Package->InitializeAssetPackage(PackagePath);
+		Application.Package = Package;
+		Objects.resize(Exports.size(), nullptr);
+
+		auto Construct = [&]() -> FAssetResult {
+			FAssetLiveLoadGuard Guard(bool(Options.DeferCompletion));
+			if (auto Result = CreateLinkerSkeleton(Application, Options, Diagnostic); !Result) return Result;
+			return Guard.GetFailure();
+		};
+		if (FAssetResult Result = Construct(); !Result)
+		{
+			return Finish(Result);
 		}
 
 		if (!LiveLoadGuard.GetFailure())
 		{
 			const FAssetResult Result = LiveLoadGuard.GetFailure();
-			LinkerApplyFail(Diagnostic, Result.Error, Result.Message); Rollback();
+			LinkerApplyFail(Diagnostic, Result.Error, Result.Message);
 			return Finish(Result);
 		}
 		if (Options.OnSkeletonReady)
@@ -1507,26 +1509,29 @@ namespace Durin::AssetPrivate
 			bSkeletonPublished = true;
 		}
 
+		// Candidate children may not yet be reachable through restored properties.
+		std::vector<FStrongObjectPtr> Pins;
+		Pins.reserve(Objects.size());
+		for (DObject* Object : Objects) Pins.emplace_back(Object);
 		const auto& Dependencies = Options.bCooked ? Application.Linker.Summary.HardPackageDependencies : Application.LiveDependencies;
 		for (size_t Index = 0; Index < Dependencies.size(); ++Index)
 		{
 			if (ShouldFail(Options, ELinkerLoadPhase::ResolveDependency, Index))
 			{
-				LinkerApplyFail(Diagnostic, EAssetError::MissingDependency, "Injected dependency failure."); Rollback();
+				LinkerApplyFail(Diagnostic, EAssetError::MissingDependency, "Injected dependency failure.");
 				return Finish({EAssetError::MissingDependency, Diagnostic.Message});
 			}
 			const FPackagePath& Path = Dependencies[Index];
 			DPackage* Dependency = nullptr;
 			FAssetResult Result = Options.DependencyLoadPolicy
 				? Options.DependencyLoadPolicy->ResolvePackage(Path, Dependency)
-				: bOwnDependencies ? DependencyScope.LoadPackage(Path, Dependency)
-					: LoadPackage(Path, Dependency);
+				: LoadPackage(Path, Dependency);
 			if (Result && !Dependency)
 				Result = {EAssetError::MissingDependency, "Dependency resolver returned no package."};
 			if (!Result)
 			{
 				const EAssetError Error = Options.DependencyLoadPolicy ? Result.Error : EAssetError::MissingDependency;
-				LinkerApplyFail(Diagnostic, Error, Result.Message); Rollback();
+				LinkerApplyFail(Diagnostic, Error, Result.Message);
 				return Finish({Error, Diagnostic.Message});
 			}
 		}
@@ -1541,46 +1546,49 @@ namespace Durin::AssetPrivate
 		// Choose sources once for this package; object archives only consume them.
 		const FPackageLoadBindings Bindings{
 			.BulkResource = Options.BulkResource,
-			.ResolveExternalObject = [Policy = Options.DependencyLoadPolicy, bOwnDependencies, &DependencyScope](const FObjectPath& Path, DObject*& Object) {
+			.ResolveExternalObject = [Policy = Options.DependencyLoadPolicy](const FObjectPath& Path, DObject*& Object) {
 				return Policy ? Policy->ResolveObject(Path, Object)
-					: bOwnDependencies ? DependencyScope.LoadObject(Path, nullptr, Object)
-						: LoadObject(Path, nullptr, Object);
+					: LoadObject(Path, nullptr, Object);
 			}};
-		if (FAssetResult Result = ApplyLinkerValues(Application, Options, Diagnostic, Bindings); !Result)
+		auto RestoreValues = [&]() -> FAssetResult {
+			FAssetLiveLoadGuard Guard(bool(Options.DeferCompletion));
+			if (auto Result = ApplyLinkerValues(Application, Options, Diagnostic, Bindings); !Result) return Result;
+			return Guard.GetFailure();
+		};
+		if (FAssetResult Result = RestoreValues(); !Result)
 		{
-			Rollback(); return Finish(Result);
-		}
-
-		if (FAssetResult Result = ValidateLoadedGraphs(Objects,
-			{.bCooked = Options.bCooked, .bPrivateGraph = Options.bPrivateGraph}); !Result)
-		{
-			LinkerApplyFail(Diagnostic, Result.Error, Result.Message);
-			Rollback(); return Finish(Result);
-		}
-		Package->ClearDirty();
-		for (size_t Reverse = Objects.size(); Reverse > 0; --Reverse)
-		{
-			const size_t Index = Reverse - 1;
-			if (ShouldFail(Options, ELinkerLoadPhase::PostLoad, Index))
-			{
-				LinkerApplyFail(Diagnostic, EAssetError::InvalidObjectGraph, "Injected PostLoad failure."); Rollback();
-				return Finish({EAssetError::InvalidObjectGraph, Diagnostic.Message});
-			}
-			Objects[Index]->PostLoad();
-			Objects[Index]->ClearLoadedCustomVersions();
-			Objects[Index]->ClearLoadedDeprecatedProperties();
-		}
-		if (ShouldFail(Options, ELinkerLoadPhase::Publish, 0))
-		{
-			LinkerApplyFail(Diagnostic, EAssetError::InvalidObjectGraph, "Injected graph publication failure."); Rollback();
-			return Finish({EAssetError::InvalidObjectGraph, Diagnostic.Message});
-		}
-		if (!LiveLoadGuard.GetFailure())
-		{
-			const FAssetResult Result = LiveLoadGuard.GetFailure();
-			LinkerApplyFail(Diagnostic, Result.Error, Result.Message); Rollback();
 			return Finish(Result);
 		}
+
+		// Recoverable gates precede every initialization notification.
+		for (size_t Index = 0; Index < Objects.size(); ++Index)
+			if (ShouldFail(Options, ELinkerLoadPhase::PostLoad, Index))
+				return Finish({EAssetError::InvalidObjectGraph, "Injected pre-PostLoad failure."});
+		if (ShouldFail(Options, ELinkerLoadPhase::Publish, 0))
+			return Finish({EAssetError::InvalidObjectGraph, "Injected graph publication preparation failure."});
+		if (auto Result = LiveLoadGuard.GetFailure(); !Result) return Finish(Result);
+		auto Validate = [Objects, Pins = std::move(Pins), bCooked = Options.bCooked, bPrivate = Options.bPrivateGraph]() {
+			return ValidateLoadedGraphs(Objects, {.bCooked = bCooked, .bPrivateGraph = bPrivate});
+		};
+		auto Notify = [Objects, Package]() {
+			Package->ClearDirty();
+			for (size_t Reverse = Objects.size(); Reverse > 0; --Reverse)
+			{
+				DObject* Object = Objects[Reverse - 1];
+				Object->PostLoad();
+				Object->ClearLoadedCustomVersions();
+				Object->ClearLoadedDeprecatedProperties();
+			}
+		};
+		if (Options.DeferCompletion) Options.DeferCompletion(std::move(Validate), std::move(Notify));
+		else
+		{
+			if (auto Result = Validate(); !Result) return Finish(Result);
+			Notify();
+			// Closed private policies still reject forbidden live side effects.
+			if (auto Result = LiveLoadGuard.GetFailure(); !Result) return Finish(Result);
+		}
+
 		OutPackage = Package;
 		Package->SetCanonicalResaveRecommended(Package->IsCanonicalResaveRecommended()
 			|| !Report.CanonicalizationEvidence.empty()

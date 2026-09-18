@@ -13,8 +13,9 @@ This plan replaces `Documentation/Plans/AssetObjectTypedErrors.md` by explicit
 design choice. The former plan is superseded, not completed. Its remaining
 cause-retention and rollback-preservation gates are withdrawn. No runtime
 behavior has changed as part of this replacement. Stage 0's source audit and
-selected implementation model are recorded below. Stage 1 is complete; Stage 2
-is next. Ordinary load rollback and readiness have not changed yet.
+selected implementation model are recorded below. Stages 1 and 2 are complete; Stage 3
+is next. Ordinary loading now owns incomplete completion groups and retains
+independent successful dependencies.
 
 The former work remains in Git history: baseline `12beed739`, subsequent
 `6d317f0b5` and `d569de006`, and branch
@@ -37,6 +38,25 @@ message assertions per user direction, the four affected field-load/binding/retr
 cases rebuilt and passed. Changed-document validation passed. Field application
 now returns code/message directly, without the package-object wrapper or a
 retained resolver operation; all workspace source/test consumers were migrated.
+
+Stage 2 validation (2026-09-18, Win64-Debug-DurinEditor): final
+`AssetPackageTests` passed 180 tests, `AssetPackageReloadTests` 14,
+`CoreObjectTests` 96, and `CorePropertyValueSnapshotTests` 29. The 24-target
+asset-package/material/texture/static-mesh/world/road-graph contract+feature
+selection passed 23 targets; its sole failure asserted old dependency rollback.
+After migrating that assertion, `MaterialPackageTests` passed all 6 tests.
+`RoadSceneIntegrationTests` passed 5 and `SandboxGameplayTests` passed 13.
+The final `build --target all` passed. Changed-document validation passed.
+
+Acceptance coverage includes cyclic peer values and group readiness, rejected
+public load/save before completion, independent reentrant loads and rejected
+back-edges into PostLoad, failed cycle cleanup and same-path retry, serializer
+and PostLoad exceptions, retained bulk dependency resources and explicit release,
+plus existing private replacement/retirement coverage. Family validators now
+reject persisted data before notifications. Defensive checks in directly invoked
+family PostLoad methods remain; ordinary loading does not use them as a result
+or a rollback vote. GC remains in failed-candidate cleanup. No GPU qualification
+was requested or used as evidence for this object-lifetime change.
 
 ## Goal
 
@@ -154,7 +174,7 @@ RoadWeaver does own a `DRoadNet::PostLoad` data-validation callback.
 #### State and completion ownership selected for Stage 2
 
 - Keep a single load record per in-flight package in `FAssetLoadService`, with
-  phases Constructing, Skeleton, Restoring, Validated, PostLoading, Ready and
+  phases Constructing, Skeleton (including restoration), ValuesRestored, Validated, PostLoading, Ready and
   Failed. The record owns the candidate, resource registration, DFS index,
   low-link and pending completion work. Existing completed/created packages
   continue to use the Core package index; no second resident cache is needed.
@@ -279,18 +299,18 @@ diagnostics without recursively embedding operation results.
 Depends on Stage 0; integrate with Stage 1's diagnostics. Outcome: readiness and
 cleanup are correct without reverting successful independent dependencies.
 
-- [ ] Introduce authoritative load phases and internal skeleton resolution;
+- [x] Introduce authoritative load phases and internal skeleton resolution;
   prevent public success for an incomplete object or package.
-- [ ] Implement completion/failure propagation for supported cyclic groups.
-- [ ] Move recoverable gates before PostLoad and migrate side-effecting callbacks;
+- [x] Implement completion/failure propagation for supported cyclic groups.
+- [x] Move recoverable gates before PostLoad and migrate side-effecting callbacks;
   define and test reentrant requests and exception cleanup.
-- [ ] Replace root `TransactionPackages` rollback and redundant cleanup paths
+- [x] Replace root `TransactionPackages` rollback and redundant cleanup paths
   with explicit incomplete-group ownership; preserve existing resident packages.
-- [ ] Verify failure removes temporary discoverability/resources and allows retry;
+- [x] Verify failure removes temporary discoverability/resources and allows retry;
   keep independent successful dependencies usable and normally unloadable.
-- [ ] Preserve private replacement abort and old live graph validity; update
+- [x] Preserve private replacement abort and old live graph validity; update
   explicit dependency scopes without silently changing their operation contracts.
-- [ ] Pass affected tests and an all build; update load/lifetime contracts.
+- [x] Pass affected tests and an all build; update load/lifetime contracts.
 
 ### Stage 3: Consolidate asset and object result boundaries
 

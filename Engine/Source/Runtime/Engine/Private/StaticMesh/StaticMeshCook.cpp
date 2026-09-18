@@ -198,6 +198,23 @@ namespace Durin
 		}
 	}
 
+	auto DStaticMesh::ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> FObjectValidationResult
+	{
+		if (auto Result = Super::ValidateLoadedObjectGraph(Context); !Result) return Result;
+		if (Context.bCooked && CookedRenderData.GetMetadata().LogicalSize == 0)
+			return RejectLoadedObjectGraph(GetObjectPath(), "Required cooked RenderData field is missing.");
+		if (MaterialSlots.size() > MaximumMeshMaterialSlots)
+			return RejectLoadedObjectGraph(GetObjectPath(), "Material-slot count exceeds the supported limit.");
+		std::unordered_set<FName> Names;
+		for (const auto& Slot : MaterialSlots)
+			if (Slot.Name.IsNone() || !Names.insert(Slot.Name).second)
+				return RejectLoadedObjectGraph(GetObjectPath(), "Material-slot names must be non-None and unique.");
+		const auto* Import = GetAssetImportData();
+		if (!Context.bCooked && !GetSource().IsValid() && Import && Import->GetSourceData().FindByRole("source"))
+			return RejectLoadedObjectGraph(GetObjectPath(), "Canonical imported geometry is missing or invalid.");
+		return {};
+	}
+
 	auto DStaticMesh::PostLoad() -> void
 	{
 		std::string Error;

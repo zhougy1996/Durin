@@ -186,7 +186,7 @@ namespace Durin
 				DPackage* Package = Cast<DPackage>(Object);
 				if (!Package || Package->IsGarbage() || !Package->IsAssetPackage())
 					continue;
-				if (FindPackage(Package->GetPackagePath()) == Package)
+				if (Durin::FindResidentPackage(Package->GetPackagePathIdentity()) == Package)
 					Packages.push_back(Package);
 			}
 			return Packages;
@@ -316,6 +316,8 @@ namespace Durin
 				.PackagePath = Path, .Error = Result.Error, .ErrorMessage = Result.Message};
 			return Result;
 		}
+		if (IsPackageLoading(Path))
+			return Error(EAssetError::InUse, std::format("Package '{}' is not ready for public loading.", Path.ToString()));
 		if (DPackage* Resident = FindResidentPackage(Path))
 		{
 			OutPackage = Resident;
@@ -431,48 +433,161 @@ namespace Durin
 					.PackagePath = Path};
 			else OutReport->PackagePath = Path;
 		}
+		OutPackage = nullptr;
 		const bool bRootLoad = LoadDepth++ == 0;
 		if (bRootLoad) GActivePackageFileReadCount = 0;
-		FAssetLoadReport FailureReport;
-		if (bRootLoad)
-		{
-			if (OutReport) FailureReport = *OutReport;
-			TransactionPackages.clear();
-		}
 		FAssetLoadReport* PreviousLoadReport = GActiveAssetLoadReport;
 		if (bRootLoad) GActiveAssetLoadReport = OutReport;
-		DPackage* Package = nullptr;
-		FAssetResult Result = LoadPackageInternal(
-			Path, PhysicalPath, Package, OutReport);
-		if (bRootLoad) GActiveAssetLoadReport = PreviousLoadReport;
-		--LoadDepth;
-		if (bRootLoad)
+		struct FRestoreRequest
 		{
-			if (!Result)
+			uint32& Depth;
+			FAssetLoadReport* Previous;
+			~FRestoreRequest() { --Depth; GActiveAssetLoadReport = Previous; }
+		} RequestScope{LoadDepth, PreviousLoadReport};
+		auto Record = std::make_shared<FPendingLoad>();
+		Record->Path = Path;
+		Record->Index = Record->LowLink = NextLoadIndex++;
+		bool bCompleted = false;
+		struct FDiscardScope
+		{
+			std::function<void()> Cleanup;
+			~FDiscardScope() { Cleanup(); }
+		} CandidateScope{[&] { if (!bCompleted) { DiscardIncomplete(Record->Index); PendingLoads.erase(Path); } }};
+		FAssetResult Result;
+		try
+		{
+			PendingLoads.emplace(Path, Record);
+			CompletionStack.push_back(Record);
+			DPackage* Package = nullptr;
+			Result = LoadPackageInternal(Path, PhysicalPath, Package, OutReport);
+			if (Result && Record->LowLink == Record->Index) Result = CompleteComponent(*Record);
+			if (Result)
 			{
-				bool bDiscardedPackage = false;
-				for (auto It = TransactionPackages.rbegin(); It != TransactionPackages.rend(); ++It)
-				{
-					// Successful nested loads also published resources. The failed root
-					// owns their rollback even when the linker already collected objects.
-					GetPackageResourceManager().RetirePackage(It->ToString());
-					DPackage* TransactionPackage = FindResidentPackage(*It);
-					if (!TransactionPackage) continue;
-					LoadingPackages.erase(*It);
-					MarkObjectHierarchyAsGarbage(TransactionPackage);
-					bDiscardedPackage = true;
-				}
-				if (bDiscardedPackage) CollectGarbage();
-				if (OutReport) *OutReport = std::move(FailureReport);
+				bCompleted = true;
+				OutPackage = Package; // Only loader bindings can observe a pending component.
 			}
-			if (Result && GOwnedLoadPackages)
-				for (const FPackagePath& LoadedPath : TransactionPackages)
-					if (DPackage* Loaded = FindResidentPackage(LoadedPath))
-						GOwnedLoadPackages->emplace_back(Loaded);
-			TransactionPackages.clear();
 		}
-		OutPackage = Result ? Package : nullptr;
+		catch (const std::exception& Exception)
+		{
+			Result = Error(EAssetError::InvalidObjectGraph,
+				std::format("Package '{}': load callback failed: {}", Path.ToString(), Exception.what()));
+		}
+		catch (...)
+		{
+			Result = Error(EAssetError::InvalidObjectGraph,
+				std::format("Package '{}': load callback threw an exception.", Path.ToString()));
+		}
+		if (OutReport)
+		{
+			OutReport->Error = Result.Error;
+			OutReport->ErrorMessage = Result.Message;
+			OutReport->PackageFileReadCount = GActivePackageFileReadCount;
+		}
 		return Result;
+	}
+
+	auto FAssetLoadService::ResolveDependencyPackage(FPendingLoad& Owner,
+		const FPackagePath& Path, DPackage*& OutPackage) -> FAssetResult
+	{
+		OutPackage = nullptr;
+		if (IsAssetRegistryProjectionFenced(Path)) return ProjectionPendingError(Path);
+		if (const auto It = PendingLoads.find(Path); It != PendingLoads.end())
+		{
+			const auto& Target = *It->second;
+			if (!Target.Package || Target.Phase == ELoadPhase::PostLoading || Target.Phase == ELoadPhase::Failed)
+				return Error(EAssetError::InUse, std::format("Dependency '{}' cannot join this load component.", Path.ToString()));
+			Owner.LowLink = std::min(Owner.LowLink, Target.Index);
+			OutPackage = Target.Package.Get();
+			return {};
+		}
+		if (DPackage* Resident = FindResidentPackage(Path))
+		{
+			OutPackage = Resident;
+			return {};
+		}
+		const auto Entry = Durin::FindAssetExact(Path);
+		if (!Entry) return Error(EAssetError::MissingDependency,
+			std::format("Dependency '{}' is not present in the registry.", Path.ToString()));
+		auto Result = LoadPackageFromPhysicalPath(Path, Entry->PhysicalPath, OutPackage);
+		if (Result)
+			if (const auto It = PendingLoads.find(Path); It != PendingLoads.end())
+				Owner.LowLink = std::min(Owner.LowLink, It->second->LowLink);
+		return Result;
+	}
+
+	auto FAssetLoadService::ResolveDependencyObject(FPendingLoad& Owner,
+		const FObjectPath& Path, DObject*& OutObject) -> FAssetResult
+	{
+		OutObject = nullptr;
+		const auto Resolution = Durin::ResolveAssetObjectPathForOperation(Path);
+		if (!Resolution) return ObjectPathResolutionError(Resolution);
+		DPackage* Package = nullptr;
+		if (auto Result = ResolveDependencyPackage(Owner, Resolution.FinalPath.GetPackagePath(), Package); !Result)
+			return Result;
+		OutObject = FindPackageObject(Package, Resolution.FinalPath);
+		return OutObject ? FAssetResult{} : Error(EAssetError::MissingDependency,
+			std::format("Dependency object '{}' is absent from its package.", Resolution.FinalPath.ToString()));
+	}
+
+	auto FAssetLoadService::CompleteComponent(FPendingLoad& Root) -> FAssetResult
+	{
+		// Pending DFS suffix is exactly this strongly connected component. Copy it
+		// because PostLoad may synchronously complete an independent component.
+		std::vector<std::shared_ptr<FPendingLoad>> Group;
+		for (auto It = CompletionStack.rbegin(); It != CompletionStack.rend(); ++It)
+		{
+			Group.push_back(*It);
+			if (It->get() == &Root) break;
+		}
+		for (const auto& Member : Group)
+		{
+			if (Member->Phase != ELoadPhase::ValuesRestored || !Member->Validate || !Member->PostLoad)
+				return Error(EAssetError::InvalidObjectGraph, "Load component contains unrestored values.");
+			if (auto Result = Member->Validate(); !Result) return Result;
+			Member->Phase = ELoadPhase::Validated;
+		}
+		// Allocate the explicit operation's ownership entries before notifications.
+		if (GOwnedLoadPackages)
+		{
+			GOwnedLoadPackages->reserve(GOwnedLoadPackages->size() + Group.size());
+			for (const auto& Member : Group) GOwnedLoadPackages->emplace_back(Member->Package.Get());
+		}
+		for (const auto& Member : Group) Member->Phase = ELoadPhase::PostLoading;
+		for (const auto& Member : Group) Member->PostLoad();
+		for (const auto& Member : Group)
+		{
+			Member->Phase = ELoadPhase::Ready;
+			Member->bOwnResource = false;
+			PendingLoads.erase(Member->Path);
+			CompletionStack.pop_back();
+		}
+		return {};
+	}
+
+	auto FAssetLoadService::DiscardIncomplete(uint64 FirstIndex) noexcept -> void
+	{
+		// Hide every candidate first. Physical retirement can run object callbacks.
+		for (const auto& Record : CompletionStack)
+			if (Record->Index >= FirstIndex)
+			{
+				Record->Phase = ELoadPhase::Failed;
+				if (Record->Package) MarkObjectHierarchyAsGarbage(Record->Package.Get());
+			}
+		while (!CompletionStack.empty() && CompletionStack.back()->Index >= FirstIndex)
+		{
+			auto Record = std::move(CompletionStack.back());
+			CompletionStack.pop_back();
+			PendingLoads.erase(Record->Path);
+			if (Record->bOwnResource)
+			{
+				Record->bOwnResource = false;
+				try { GetPackageResourceManager().RetirePackage(Record->Path.ToString()); }
+				catch (...) { /* Do not mask the original load failure. */ }
+			}
+			Record->Package.Reset();
+		}
+		try { CollectGarbage(); }
+		catch (...) { /* Object retirement must not replace the original failure. */ }
 	}
 
 	auto FAssetLoadService::LoadPackageInternal(
@@ -535,7 +650,7 @@ namespace Durin
 				HeaderMetadata, Header.ObjectCount, &Path);
 			if (!Result) return Result;
 
-			bool bRegisteredBulkResource = false;
+			auto& Record = *PendingLoads.at(Path);
 			if (Header.BulkSegmentExtent != 0)
 			{
 				FAssetPackageInspection Inspection;
@@ -574,33 +689,35 @@ namespace Durin
 					return {.Error = Code, .Message = FormatPackageResourceRegistrationError(Registration.Error),
 						.ResourceRegistrationCause = std::move(Registration.Error)};
 				}
-				bRegisteredBulkResource = true;
+				Record.bOwnResource = true;
 				ReadContext.BulkResource = std::move(Registration.Resource);
 			}
+			ReadContext.DependencyLoadPolicy = AssetPrivate::FAssetPackageDependencyLoadPolicy{
+				.ResolvePackage = [this, &Record](const FPackagePath& Dependency, DPackage*& Out) {
+					return ResolveDependencyPackage(Record, Dependency, Out);
+				},
+				.ResolveObject = [this, &Record](const FObjectPath& Object, DObject*& Out) {
+					return ResolveDependencyObject(Record, Object, Out);
+				},
+			};
+			ReadContext.DeferCompletion = [&Record](std::function<FAssetResult()> Validate, std::function<void()> Notify) {
+				Record.Validate = std::move(Validate);
+				Record.PostLoad = std::move(Notify);
+				Record.Phase = ELoadPhase::ValuesRestored;
+			};
 			DPackage* Package = nullptr;
 			Result = Codec->Load(
 				ReadContext, Package, CodecReport,
 				[&](DPackage* LoadedPackage) -> FAssetResult {
-					if (!LoadedPackage
-						|| FindPackage(Path.GetView()) != LoadedPackage
-						|| LoadingPackages.contains(Path))
-						return Error(EAssetError::AlreadyExists,
-							"The package skeleton is already resident.");
-					LoadingPackages.insert(Path);
-					if (LoadDepth > 0) TransactionPackages.push_back(Path);
+					if (!LoadedPackage || FindPackage(Path.GetView()) != LoadedPackage || Record.Package)
+						return Error(EAssetError::AlreadyExists, "The package skeleton is already resident.");
+					Record.Package = LoadedPackage;
+					Record.Phase = ELoadPhase::Skeleton;
 					return {};
 				},
-				[&](DPackage* LoadedPackage) {
-					LoadingPackages.erase(Path);
-				});
+				{});
 			CodecReport->PackageFileReadCount = GActivePackageFileReadCount;
-			if (!Result)
-			{
-				if (bRegisteredBulkResource)
-					GetPackageResourceManager().RetirePackage(Path.ToString());
-				return Result;
-			}
-			LoadingPackages.erase(Path);
+			if (!Result) return Result;
 			OutPackage = Package;
 			return {};
 		}
@@ -608,6 +725,7 @@ namespace Durin
 
 	auto FAssetLoadService::FindResidentPackage(const FPackagePath& Path) const -> DPackage*
 	{
+		if (IsPackageLoading(Path)) return nullptr;
 		DPackage* Package = FindPackage(Path.GetView());
 		return Package && !Package->IsGarbage() && Package->IsAssetPackage()
 			? Package : nullptr;
@@ -643,7 +761,7 @@ namespace Durin
 		DPackage* Package = FindResidentPackage(Path);
 		if (!Package)
 			return Error(EAssetError::NotFound, "Package is not resident.");
-		if (LoadingPackages.contains(Path) || IsPackageReferenced(Package))
+		if (IsPackageLoading(Path) || IsPackageReferenced(Package))
 			return Error(EAssetError::InUse, "Package is still referenced.");
 		const bool bHasUnsavedState =
 			Package->IsNewlyCreated() || Package->IsDirty();
@@ -669,7 +787,7 @@ namespace Durin
 		std::span<const TWeakObjectPtr<DPackage>> IgnoreSavedDependencies) -> FAssetResult
 	{
 		if (auto Result = AssetPrivate::FAssetLiveLoadGuard::Check("ReleasePackages", ""); !Result) return Result;
-		if (LoadDepth != 0 || !LoadingPackages.empty())
+		if (LoadDepth != 0 || !PendingLoads.empty())
 			return Error(EAssetError::InUse, "A package load is still in progress.");
 		std::unordered_set<FPackagePath> Candidates;
 		bool bInUse = false;

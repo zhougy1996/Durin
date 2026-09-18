@@ -261,6 +261,7 @@ namespace Durin
 
 		auto ValidatePackageWriteAdmission(const FPackagePath& Path) -> FAssetResult
 		{
+			if (IsPackageLoading(Path)) return Error(EAssetError::InUse, "An incomplete package cannot be saved.");
 			const FMountLookupResult Mount =
 				FMountPaths::FindMountForVirtualPath(Path.GetView());
 			if (!Mount)

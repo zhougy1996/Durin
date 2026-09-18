@@ -133,7 +133,8 @@ namespace Durin
 	) -> void;
 
 	// Records only packages admitted by explicit top-level synchronous load calls, including
-	// their dependencies. Release is explicit and retryable; destruction transfers residency
+	// their completed dependencies, even when the requested root fails.
+	// Release is explicit and retryable; destruction transfers residency
 	// to the caller. Weak identities never claim a replacement loaded at the same path.
 	class FAssetPackageLoadScope
 	{

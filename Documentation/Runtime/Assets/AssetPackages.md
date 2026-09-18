@@ -123,15 +123,13 @@ follows asset-level redirects, loads the owning package, and selects the exact
 object. No load API derives an asset name from a package leaf, and a catalog
 miss never guesses a filename.
 
-The internal DAST codec accepts an optional dependency load policy containing
-package resolution, exact-object resolution, and failure cleanup together.
-An incomplete policy is rejected before skeleton creation. With a policy,
-linker dependencies and serialized external object fields use its retained
-callbacks exclusively; failures preserve their asset error codes. Once graph
-application starts, failure discards that graph and invokes policy cleanup
-instead of releasing packages selected by a global load snapshot. The caller
-owns dependency lifetimes and scopes cleanup to that invocation. Without a
-policy, ordinary loading keeps its existing behavior.
+The internal DAST codec accepts dependency bindings for package and exact-object
+resolution. Ordinary loading supplies loader-only bindings and transfers
+completion to a scoped owner of incomplete packages. Explicit private policies
+retain their own cleanup callback and operation guarantees; the codec requires
+that callback when completion is not owned by the ordinary loader. Both bindings
+use the supplied source exclusively. Direct ordinary linker application discards
+its candidate on failure but retains independently completed dependencies.
 
 A policy can enable `bRejectImplicitLiveLoads`. During synchronous graph
 application on the calling thread, live package/object loads and non-null soft
@@ -372,28 +370,47 @@ both options inside the operation's final persistence callback: successful disk
 and Registry publication is immediately followed by the non-failing memory
 commit. Other save callers retain the ordinary policy above.
 
-Load resolves the source-version policy, validates the complete main/bulk closure, and obtains
-one detached `FLinkerTables`. Engine then validates registered classes and
-fields, creates all package/export skeletons and Outer links unpublished,
-resolves hard dependencies, applies detached values through the authored
-Archive contract, restores only opt-in Forced replacement boundaries (ordinary
-Explicit fields create no override ledger), and invokes
-`PostDeserialize`/`PostLoad` only after their prerequisites succeed. The root
-transaction publishes residency, dependencies, load reports, and cache state
-only after the whole closure succeeds. Archive, dependency, and load-policy failures
-destroy the unpublished graph and release dependencies admitted by the attempt.
-`PostLoad()` is a void lifecycle notification: recoverable initialization failures
-are logged by the object and do not reject package publication or duplication.
-Callbacks must preserve safe state, repair invalid relationships, or leave derived
-resources unavailable; resource consumers and explicit Cook/build operations own
-their readiness checks. Per-object data that must reject a load belongs in archive
-validation. Invariants requiring populated child objects belong in
-`DObject::ValidateLoadedObjectGraph`: ordinary loads invoke this read-only hook
-after all package values and ledgers are restored, before PostLoad and final
-publication. The context identifies cooked and private graphs. A false result
-rejects the load and rolls back its objects/dependencies; the hook must not load
-or mutate assets. An implicit live asset operation is guarded and rejects the
-load even when the hook ignores that operation's failure.
+Load resolves the source-version policy, validates the main/bulk closure and
+obtains detached linker tables. It constructs package/export skeletons, follows
+hard dependencies, applies values through Archive and restores authored ledgers.
+A single in-flight record owns each candidate and its resource registration;
+strong pins retain objects even before restored fields reference them. The DFS
+completion stack supplies ordering, not a second residency map.
+
+Only internal dependency bindings can return skeletons. `FindResidentPackage`
+and ordinary residency enumeration exclude in-flight records; public package and
+object loads return `InUse` for incomplete packages. Raw Core object existence is
+not an asset readiness guarantee. Phases are Constructing, Skeleton (dependency
+and value restoration), ValuesRestored, Validated, PostLoading, then Ready or
+Failed. Terminal records are removed; completed packages remain Standalone.
+
+Hard-reference cycles form a strongly connected completion group. Every member
+restores values before any group graph validation, and every member validates
+before the first PostLoad. Dependencies complete before dependents; cyclic
+members use DFS completion order, with reverse object order within each package.
+All members become publicly ready together. Failure retires incomplete members
+and their resources; independent completed dependencies and pre-existing residents
+remain valid. Explicit load scopes also record successful dependencies of a
+failed root and can release those exact generations normally. Forced GC remains
+part of failed candidate retirement to support immediate same-path retry.
+
+Constructors, serializers and graph validators must not publish candidate
+references or perform external mutations requiring compensation. Serializers
+modify their target and use the supplied reference bindings. Ordinary construction
+and restoration guard public live operations; ignored guard failures still reject
+the load. `ValidateLoadedObjectGraph` is read-only and runs on fully restored group
+values, with cooked/private context. Family source, slot, material, ownership and
+RoadNet data rejection occurs at this boundary before initialization notifications.
+
+`PostLoad()` is a void, non-transactional initialization notification. Recoverable
+load and publication-preparation gates precede it. Resource compilation/readiness
+remains separate from object readiness. A cyclic peer's values are available, but
+its PostLoad may not have run. Reentrant public loads may consume ready packages or
+complete an independent component; a new component cannot refer back into one
+already running PostLoad. Requests for that incomplete component fail `InUse`.
+Callback exceptions produce a classified load failure, discard the incomplete
+component and restore loader/report state. This cleanup does not compensate
+notifications, compilation requests or other external effects already executed.
 
 Internal references use export indices. Cross-package hard imports target an
 exact top-level asset; cycles work because skeletons exist before values are
@@ -441,7 +458,7 @@ saves, unloads and mutation entry points reject the call; even an ignored reject
 invalidates the entire batch. Callback exceptions return InvalidClosure (allocation
 failures return BudgetExceeded) after candidate ownership unwinds.
 Graph owners retain exact strong references to their objects and external dependencies
-across GC. Active load transactions and projection fences return Busy; preparation
+across GC. Active load components and projection fences return Busy; preparation
 rechecks fences after disk validation and never clears a fence.
 
 The load scope records only exact package generations admitted by its calls,
@@ -452,8 +469,8 @@ exact weak target identities to ignore those targets' saved dependency edges, wh
 may differ from their edited live references. Real live references and dirty/new
 state still protect owned packages. Other packages' saved edges retain their normal
 protection, and neither scope ownership nor the exception follows a same-path
-replacement. Failed ordinary load transactions retire resources of successfully
-loaded nested dependencies along with their object rollback.
+replacement. Independent successful dependencies of a failed ordinary request
+remain resident with their resources until normal unload or explicit scope release.
 
 The caller must explicitly admit each export class's construction, serialization,
 and graph-validation callbacks and hold path admission/edit/save leases. The result is `ValuesPrepared`:
