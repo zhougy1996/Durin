@@ -1,3 +1,4 @@
+#include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "Threading/Task.h"
 #include "NativeAssetTestSupport.h"
 #include "Asset/Testing.h"
@@ -221,7 +222,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	ASSERT_TRUE(Durin::FindAssetExact(StandardPath));
 	Durin::DTexture2D* LiveTexture = nullptr;
 	ASSERT_TRUE(LiveMaterial->GetTextureParameterValue(
-		Durin::MaterialParameters::BaseColorTextureName(), LiveTexture));
+		Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), LiveTexture));
 	ASSERT_NE(LiveTexture, nullptr);
 	ASSERT_TRUE(Durin::UnloadPackage(MeshPath));
 	ASSERT_TRUE(Durin::UnloadPackage(MaterialPath));
@@ -505,12 +506,12 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	ASSERT_NE(ReloadedMaterial, nullptr);
 	Durin::DTexture2D* ReloadedTexture = nullptr;
 	ASSERT_TRUE(ReloadedMaterial->GetTextureParameterValue(
-		Durin::MaterialParameters::BaseColorTextureName(), ReloadedTexture));
+		Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), ReloadedTexture));
 	ASSERT_NE(ReloadedTexture, nullptr);
 	EXPECT_TRUE(ReloadedTexture->IsSRGB());
 	Durin::FVector3 ImportedFactor;
 	ASSERT_TRUE(ReloadedMaterial->GetVectorParameterValue(
-		Durin::MaterialParameters::BaseColorName(), ImportedFactor));
+		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), ImportedFactor));
 	EXPECT_EQ(ImportedFactor, Durin::FVector3(0.5, 0.75, 0.25));
 	auto* ReloadedParentMaterial =
 		Durin::Cast<Durin::DMaterial>(ReloadedMaterial->GetParent());
@@ -545,12 +546,12 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 			nullptr, "FailedResourceControl");
 	ASSERT_TRUE(TextureOnly->SetParent(ReloadedMaterial->GetParent()));
 	ASSERT_TRUE(TextureOnly->SetTextureParameterValue(
-		Durin::MaterialParameters::BaseColorTextureName(), ReloadedTexture));
+		Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), ReloadedTexture));
 	ASSERT_TRUE(TextureOnly->SetVectorParameterValue(
-		Durin::MaterialParameters::BaseColorName(), Durin::FVector3(1.0, 1.0, 1.0)));
+		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(1.0, 1.0, 1.0)));
 	ASSERT_TRUE(FactorOnly->SetParent(ReloadedMaterial->GetParent()));
 	ASSERT_TRUE(FactorOnly->SetVectorParameterValue(
-		Durin::MaterialParameters::BaseColorName(), ImportedFactor));
+		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), ImportedFactor));
 	ASSERT_TRUE(FailedResourceMaterial->SetParent(
 		ReloadedMaterial->GetParent()));
 	Durin::FMaterialSamplerState FailedSampler;
@@ -559,8 +560,8 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	FailedSampler.AddressV =
 		Durin::EMaterialSamplerAddressMode::ClampToEdge;
 	ASSERT_TRUE(FailedResourceMaterial->SetParameterValue(
-		Durin::MaterialParameters::GetBuiltinParameterIds(
-			Durin::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Texture,
+		Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(
+			Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Texture,
 		Durin::FMaterialParameterValue::MakeTexture(nullptr, FailedSampler)));
 	const std::array<Durin::DObject*, 3> Controls{TextureOnly, FactorOnly, FailedResourceMaterial};
 	Durin::FAssetCompilingManager::Get().FinishCompilationForObjects(Controls);

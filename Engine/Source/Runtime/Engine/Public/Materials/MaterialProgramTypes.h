@@ -17,10 +17,6 @@ namespace Durin
 {
 	struct FMaterialParameterDefinition;
 	struct FMaterialProgramValidationResult;
-	namespace MaterialParameters
-	{
-		enum class EMaterialBuiltinParameterKind : uint8;
-	}
 
 	inline constexpr uint32 MaterialProgramMaxNodeCount = 256;
 	inline constexpr uint32 MaterialProgramMaxLinkCount = 1024;
@@ -123,11 +119,6 @@ namespace Durin
 	ENGINE_API auto GetMaterialProgramNodeSignature(
 		EMaterialProgramOpcode Opcode, EMaterialProgramValueType ResultType)
 		-> std::optional<FMaterialProgramNodeSignature>;
-
-	// Resolves the persistent built-in parameter identity owned by one surface output.
-	ENGINE_API auto GetMaterialSurfaceParameterId(
-		EMaterialSurfaceOutput Output,
-		MaterialParameters::EMaterialBuiltinParameterKind Kind) -> FGuid;
 
 	DSTRUCT()
 	struct FMaterialProgramLink

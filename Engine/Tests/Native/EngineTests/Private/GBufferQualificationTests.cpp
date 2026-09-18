@@ -1,3 +1,4 @@
+#include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "Materials/StandardMaterialFunctionTestFixture.h"
 #include "CoreGlobals.h"
 #include "VulkanEngineTestSupport.h"
@@ -143,14 +144,14 @@ namespace
 		Overrides.Values.OpacityMaskThreshold = 0.333f;
 		EXPECT_TRUE(Material->SetParentAndPropertyOverrides(Root, Overrides));
 		EXPECT_TRUE(Material->SetVectorParameterValue(
-			Durin::MaterialParameters::BaseColorName(), BaseColor));
+			Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), BaseColor));
 		EXPECT_TRUE(Material->SetScalarParameterValue(
-			Durin::MaterialParameters::MetallicName(), Metallic));
+			Durin::AssetForge::Builtins::MaterialParameters::MetallicName(), Metallic));
 		EXPECT_TRUE(Material->SetScalarParameterValue(
-			Durin::MaterialParameters::RoughnessName(), Roughness));
+			Durin::AssetForge::Builtins::MaterialParameters::RoughnessName(), Roughness));
 		if (BlendMode == Durin::EMaterialBlendMode::Translucent)
 			EXPECT_TRUE(Material->SetScalarParameterValue(
-				Durin::MaterialParameters::OpacityName(), Opacity));
+				Durin::AssetForge::Builtins::MaterialParameters::OpacityName(), Opacity));
 		if (Material->GetMaterialCompileStatus().State
 			== Durin::EMaterialCompileState::NeverRequested)
 			EXPECT_TRUE(Durin::RequestMaterialRecompile(*Material));
@@ -1995,7 +1996,7 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 	DirectionalToken = PublishLightForTest<Durin::FDirectionalLightSceneProxy>(
 		Scene, Durin::FLightComponentId(100), Directional);
 	ASSERT_TRUE(MaterialObject->SetVectorParameterValue(
-		Durin::MaterialParameters::BaseColorName(), {0.2, 0.55, 0.8}));
+		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), {0.2, 0.55, 0.8}));
 	Durin::FlushRenderingCommands();
 	Durin::EnqueueRenderCommand<FGBufferQualificationCommand>(
 		[&Renderer, &Scene](Durin::FRHICommandListImmediate& CommandList) {

@@ -13,23 +13,16 @@ namespace Durin::AssetForge::Builtins
 	namespace
 	{
 		using Type = EMaterialProgramValueType;
-		using Kind = EMaterialFunctionDefaultKind;
 		using Entry = EStandardMaterialFunction;
 		using Link = FMaterialExpressionInput;
-		constexpr std::array RoleNames{"BaseColor", "Normal", "Metallic", "Roughness",
-			"AmbientOcclusion", "Emissive", "Opacity", "OpacityMask"};
 		constexpr std::array EntryNames{"UVTransform", "SampleNormal", "SampleORM", "StandardPBR", "StandardPBR_ORM", "ImportedSurfaceValues"};
 		constexpr auto Id(Entry Function, uint32 Slot) -> FGuid { return StandardMaterialPortId(Function, Slot); }
-		auto Numeric(float X, float Y = 0, float Z = 0) -> FMaterialFunctionDefault
-			{ return {.Kind = Kind::Numeric, .Numeric = {.X = X, .Y = Y, .Z = Z}}; }
-		auto Texture(EMaterialTextureFallback Fallback = EMaterialTextureFallback::White)
-			-> FMaterialFunctionDefault { return {.Kind = Kind::Texture, .TextureFallback = Fallback}; }
 
 		struct FBuilder
 		{
 			Entry Family;
 			FStandardMaterialFunctionExpressions Recipe;
-			int32 InputCount = 0, OutputCount = 0;
+			FMaterialFunctionSignature Interface = GetStandardMaterialFunctionInterface(Family);
 			template<typename T>
 			auto Add() -> T*
 			{
@@ -64,22 +57,21 @@ namespace Durin::AssetForge::Builtins
 				}
 				return {N->Id};
 			}
-			auto Input(uint32 Slot, std::string Name, Type ValueType,
-				FMaterialFunctionDefault Default, bool bAdvanced = false) -> Link
+			auto Input(uint32 Slot) -> Link
 			{
 				auto* N = Add<DMaterialExpressionFunctionInput>();
 				const auto Port = Id(Family == Entry::StandardPBR_ORM ? Entry::StandardPBR : Family, Slot);
-				N->Port = {.Id = Port, .Type = ValueType,
-					.Name = std::move(Name), .DisplayOrder = InputCount++,
-					.bAdvanced = bAdvanced, .Default = std::move(Default)};
+				const auto It = std::ranges::find(Interface.Inputs, Port, &FMaterialFunctionPort::Id);
+				check(It != Interface.Inputs.end());
+				N->Port = *It;
 				return {N->Id};
 			}
-			auto Output(uint32 Slot, std::string Name, Type ValueType, Link Source) -> void
+			auto Output(uint32 Slot, Link Source) -> void
 			{
 				auto* N = Add<DMaterialExpressionFunctionOutput>();
-				const auto Port = Id(Family, Slot);
-				N->Port = {.Id = Port, .Type = ValueType, .Name = std::move(Name),
-					.DisplayOrder = OutputCount++};
+				const auto It = std::ranges::find(Interface.Outputs, Id(Family, Slot), &FMaterialFunctionPort::Id);
+				check(It != Interface.Outputs.end());
+				N->Port = *It;
 				N->Source = Source;
 			}
 			auto Constant(Type ValueType, float X, float Y = 0, float Z = 0) -> Link
@@ -143,10 +135,10 @@ namespace Durin::AssetForge::Builtins
 		FBuilder B{Function};
 		if (Function == Entry::UVTransform)
 		{
-			const auto UV = B.Input(1, "UV", Type::Float2, {.Kind = Kind::UV0});
-			const auto Scale = B.Input(2, "Scale", Type::Float2, Numeric(1, 1));
-			const auto Offset = B.Input(3, "Offset", Type::Float2, Numeric(0, 0));
-			const auto Angle = B.Input(4, "Rotation", Type::Float, Numeric(0));
+			const auto UV = B.Input(1);
+			const auto Scale = B.Input(2);
+			const auto Offset = B.Input(3);
+			const auto Angle = B.Input(4);
 			const auto Scaled = B.Node<DMaterialExpressionMultiply>(Type::Float2, {UV, Scale});
 			const auto Sine = B.Node<DMaterialExpressionSine>(Type::Float, {Angle});
 			const auto Cosine = B.Node<DMaterialExpressionCosine>(Type::Float, {Angle});
@@ -158,63 +150,54 @@ namespace Durin::AssetForge::Builtins
 			const auto RX = B.Node<DMaterialExpressionSubtract>(Type::Float, {CX, SY});
 			const auto RY = B.Node<DMaterialExpressionAdd>(Type::Float, {SX, CY});
 			const auto Rotated = B.Node<DMaterialExpressionMakeVector2>(Type::Float2, {RX, RY});
-			B.Output(100, "UV", Type::Float2, B.Node<DMaterialExpressionAdd>(Type::Float2, {Rotated, Offset}));
+			B.Output(100, B.Node<DMaterialExpressionAdd>(Type::Float2, {Rotated, Offset}));
 		}
 		else if (Function == Entry::SampleNormal || Function == Entry::SampleORM)
 		{
 			const bool bNormal = Function == Entry::SampleNormal;
-			const auto Tex = B.Input(1, "Texture", Type::Texture2D,
-				Texture(bNormal ? EMaterialTextureFallback::FlatRGNormal : EMaterialTextureFallback::White));
-			const auto UV = B.Input(2, "UV", Type::Float2, {.Kind = Kind::UV0});
+			const auto Tex = B.Input(1);
+			const auto UV = B.Input(2);
 			const auto Sample = B.Node<DMaterialExpressionTextureSample2D>(Type::Float4, {Tex, UV});
 			if (bNormal)
 			{
-				const auto Strength = B.Input(3, "Strength", Type::Float, Numeric(1));
-				const auto Normal = B.Input(4, "Normal", Type::Float3, Numeric(0, 0, 1));
+				const auto Strength = B.Input(3);
+				const auto Normal = B.Input(4);
 				const Link Decoded{Sample.ExpressionId, 1};
 				const auto Flat = B.Constant(Type::Float3, 0, 0, 1);
 				// Strength acts on decoded normals; RNM safely normalizes the result.
 				const auto Detail = B.Node<DMaterialExpressionLerp>(Type::Float3, {Flat, Decoded, Strength});
-				B.Output(100, "Normal", Type::Float3, B.Node<DMaterialExpressionBlendNormalsRNM>(Type::Float3, {Normal, Detail}));
+				B.Output(100, B.Node<DMaterialExpressionBlendNormalsRNM>(Type::Float3, {Normal, Detail}));
 			}
 			else
 			{
-				B.Output(100, "Occlusion", Type::Float, B.Swizzle(Sample, Type::Float, 0));
-				B.Output(101, "Roughness", Type::Float, B.Swizzle(Sample, Type::Float, 1));
-				B.Output(102, "Metallic", Type::Float, B.Swizzle(Sample, Type::Float, 2));
+				B.Output(100, B.Swizzle(Sample, Type::Float, 0));
+				B.Output(101, B.Swizzle(Sample, Type::Float, 1));
+				B.Output(102, B.Swizzle(Sample, Type::Float, 2));
 			}
 		}
 		else
 		{
 			const bool bPacked = Function == Entry::StandardPBR_ORM;
 			const bool bValues = Function == Entry::ImportedSurfaceValues;
-			if (!bValues) B.Input(1, "UV", Type::Float2, {.Kind = Kind::UV0});
+			if (!bValues) B.Input(1);
 			std::array<Link, 8> Factors, Textures, UVs, Values;
 			for (uint32 I = 0; I < 8; ++I)
 			{
-				const auto ValueType = GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(I));
-				const auto Default = I == 0 ? Numeric(.5f, .5f, .5f) : I == 1 ? Numeric(0, 0, 1)
-					: I == 3 ? Numeric(.5f) : I == 4 || I >= 6 ? Numeric(1) : Numeric(0);
-				Factors[I] = B.Input(10 + I, RoleNames[I], ValueType, Default, I == 1 || I >= 4);
+				Factors[I] = B.Input(10 + I);
 				if (bValues)
 				{
-					Textures[I] = B.Input(20 + I, std::string(RoleNames[I]) + "Sample", ValueType,
-						I == 1 ? Numeric(0, 0, 1) : I == 5 ? Numeric(0, 0, 0) : Numeric(1, 1, 1));
+					Textures[I] = B.Input(20 + I);
 					continue;
 				}
 				if (bPacked && I >= 2 && I <= 4) continue;
-				Textures[I] = B.Input(20 + I, std::string(RoleNames[I]) + "Texture", Type::Texture2D,
-					Texture(I == 1 ? EMaterialTextureFallback::FlatRGNormal : I == 5
-						? EMaterialTextureFallback::Black : EMaterialTextureFallback::White), I >= 2);
-				UVs[I] = B.Input(30 + I, std::string(RoleNames[I]) + "UV", Type::Float2,
-					{.Kind = Kind::Input, .InputId = Id(Entry::StandardPBR, 1)}, true);
+				Textures[I] = B.Input(20 + I);
+				UVs[I] = B.Input(30 + I);
 			}
 			Link ORM;
 			if (bPacked)
 			{
-				const auto Tex = B.Input(40, "ORMTexture", Type::Texture2D, Texture());
-				const auto UV = B.Input(41, "ORMUV", Type::Float2,
-					{.Kind = Kind::Input, .InputId = Id(Entry::StandardPBR, 1)}, true);
+				const auto Tex = B.Input(40);
+				const auto UV = B.Input(41);
 				ORM = B.Call(Dependencies.SampleORM.Get(), {{Id(Entry::SampleORM, 1), Type::Texture2D, Tex},
 					{Id(Entry::SampleORM, 2), Type::Float2, UV}});
 			}
@@ -246,7 +229,7 @@ namespace Durin::AssetForge::Builtins
 				}
 				Values[I] = ComposeSurfaceValue(B, I, Factors[I], Channel);
 			}
-			B.Output(100, "Surface", Type::Surface, B.Node<DMaterialExpressionMakeSurface>(Type::Surface, {Values.begin(), Values.end()}));
+			B.Output(100, B.Node<DMaterialExpressionMakeSurface>(Type::Surface, {Values.begin(), Values.end()}));
 		}
 		return std::move(B.Recipe);
 	}
@@ -309,8 +292,8 @@ namespace Durin::AssetForge::Builtins
 				OutError = std::format("Missing standard function {}; restore the shipped Engine content.", Path.ToString());
 				return false;
 			}
-			const auto Expected = MakeStandardMaterialFunctionExpressions(EntryKind, Result);
-			if (!Function || Function->GetFunctionSignature() != Expected.GetSignature())
+			const auto Expected = GetStandardMaterialFunctionInterface(EntryKind);
+			if (!Function || Function->GetFunctionSignature() != Expected)
 			{
 				OutError = std::format("Standard function {} has an incompatible interface; preserve it and resolve the conflict before use.", Path.ToString());
 				return false;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "AssetForge/Builtins/StandardMaterialFunctions.h"
 #include "DObject/DObjectGlobals.h"
 #include "Materials/Material.h"
@@ -15,7 +16,7 @@ namespace Durin::Testing
 		using Entry = AssetForge::Builtins::EStandardMaterialFunction;
 		InitializeDObjectSystem();
 		FTestMaterialExpressionGraph Graph;
-		const auto Recipe = MakePBRMaterialParameterDefinitions();
+		const auto Recipe = Durin::AssetForge::Builtins::MakePBRMaterialParameterDefinitions();
 		auto& Presentation = Graph.Presentation;
 		Presentation = {};
 		const auto Node = [&](Op Opcode, Type ValueType, std::vector<FMaterialExpressionInput> Inputs = {}, FGuid ParameterId = {}) {
@@ -34,13 +35,13 @@ namespace Durin::Testing
 		};
 		const std::array OutputLinks{&Graph.Outputs.BaseColor, &Graph.Outputs.Normal, &Graph.Outputs.Metallic, &Graph.Outputs.Roughness,
 			&Graph.Outputs.AmbientOcclusion, &Graph.Outputs.Emissive, &Graph.Outputs.Opacity, &Graph.Outputs.OpacityMask};
-		using ParameterKind = MaterialParameters::EMaterialBuiltinParameterKind;
+		using ParameterKind = Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterKind;
 		constexpr std::array<uint8, 8> Channels{1, 1, 4, 3, 2, 1, 5, 2};
 		for (uint32 I = 0; I < 8; ++I)
 		{
 			const auto Role = static_cast<EMaterialSurfaceOutput>(I);
 			const auto Parameter = [&](ParameterKind Kind, Type ValueType, int32 Column, int32 Row) {
-				const auto Id = GetMaterialSurfaceParameterId(Role, Kind);
+				const auto Id = Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(Role, Kind);
 				const auto Definition = std::ranges::find(Recipe, Id, &FMaterialParameterDefinition::Id);
 				require(Definition != Recipe.end());
 				const auto Link = Node(ValueType == Type::Texture2D ? Op::TextureParameter : Op::Parameter, ValueType, {}, Id);
@@ -68,7 +69,7 @@ namespace Durin::Testing
 				Node(Op::Multiply, Type::Float, {Sine, U}), Node(Op::Multiply, Type::Float, {Cosine, V})});
 			const auto UV = Node(Op::Add, Type::Float2, {Node(Op::MakeFloat2, Type::Float2, {X, Y}), Offset});
 			Presentation.Nodes.push_back({UV.ExpressionId, -320, static_cast<int32>(I) * 600});
-			const auto TextureId = GetMaterialSurfaceParameterId(Role, ParameterKind::Texture);
+			const auto TextureId = Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(Role, ParameterKind::Texture);
 			auto Sample = Node(Op::TextureSampleParameter2D, Type::Float4, {UV}, TextureId);
 			Presentation.Nodes.push_back({Sample.ExpressionId, 0, static_cast<int32>(I) * 600});
 			Sample.OutputIndex = Channels[I];

@@ -1,3 +1,4 @@
+#include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "MaterialRenderRepresentationTestFixture.h"
 
 TEST(FMaterialRenderRepresentationTests, DefaultLayoutHasStableIdentityAndPacking)
@@ -68,7 +69,7 @@ TEST(FMaterialProgramIdentityTests,
 		Durin::EMaterialDepthWritePolicy::Automatic);
 
 	ASSERT_TRUE(Base->SetVectorParameterValue(
-		Durin::MaterialParameters::BaseColorName(),
+		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(),
 		Durin::FVector3(0.2, 0.4, 0.8)));
 	const Durin::FMaterialRenderData Dynamic = Base->GetRenderData();
 	EXPECT_FALSE(std::ranges::equal(
@@ -434,10 +435,10 @@ TEST(FMaterialRenderRepresentationTests, MaterialSnapshotsResolveThroughTheSelec
 		Durin::NewObject<Durin::DMaterialInstance>(nullptr, "RepresentationInstance");
 	ASSERT_TRUE(Instance->SetParent(Base));
 	ASSERT_TRUE(Base->SetVectorParameterValue(
-		Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.15, 0.25, 0.35)));
+		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(0.15, 0.25, 0.35)));
 	ASSERT_TRUE(Base->SetScalarParameterValue(
-		Durin::MaterialParameters::OpacityName(), 0.45f));
-	ASSERT_TRUE(Instance->SetScalarParameterValue(Durin::MaterialParameters::RoughnessName(), 0.25f));
+		Durin::AssetForge::Builtins::MaterialParameters::OpacityName(), 0.45f));
+	ASSERT_TRUE(Instance->SetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::RoughnessName(), 0.25f));
 
 	const Durin::FMaterialRenderData RenderData = Instance->GetRenderData();
 	const auto Binding = GetMaterialBinding(RenderData);
@@ -447,34 +448,34 @@ TEST(FMaterialRenderRepresentationTests, MaterialSnapshotsResolveThroughTheSelec
 	EXPECT_FLOAT_EQ(Binding.BaseColor.a, 0.45f);
 	EXPECT_FLOAT_EQ(Binding.Roughness, 0.25f);
 	EXPECT_FALSE(RenderData.Representation.IsError());
-	using Role = Durin::MaterialParameters::EMaterialBuiltinParameterRole;
-	using Kind = Durin::MaterialParameters::EMaterialBuiltinParameterKind;
-	const auto BaseId = Durin::MaterialParameters::GetBuiltinParameterId(
+	using Role = Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole;
+	using Kind = Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterKind;
+	const auto BaseId = Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterId(
 		Role::BaseColor, Kind::Value);
 	EXPECT_FLOAT_EQ(ReadParameterFloat(RenderData, BaseId, 0), 0.15f);
 	EXPECT_FLOAT_EQ(ReadParameterFloat(RenderData, BaseId, 1), 0.25f);
 	EXPECT_FLOAT_EQ(ReadParameterFloat(RenderData, BaseId, 2), 0.35f);
 	EXPECT_FLOAT_EQ(ReadParameterFloat(RenderData,
-		Durin::MaterialParameters::GetBuiltinParameterId(Role::Opacity, Kind::Value)), 0.45f);
+		Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterId(Role::Opacity, Kind::Value)), 0.45f);
 	EXPECT_FLOAT_EQ(ReadParameterFloat(RenderData,
-		Durin::MaterialParameters::GetBuiltinParameterId(Role::Roughness, Kind::Value)), 0.25f);
+		Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterId(Role::Roughness, Kind::Value)), 0.25f);
 }
 
 TEST(FMaterialRenderRepresentationTests, CompilationPreservesAuthoredInputsAndRejectsNonFinitePayloads)
 {
 	InitializeDObjectSystem();
 	Durin::DMaterial* Material = MakeExpandedMaterial("CanonicalPBRMaterial");
-	ASSERT_TRUE(Material->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(2.0, -1.0, 0.0)));
-	ASSERT_TRUE(Material->SetVectorParameterValue(Durin::MaterialParameters::NormalName(), Durin::FVector3(0.0)));
-	ASSERT_TRUE(Material->SetScalarParameterValue(Durin::MaterialParameters::MetallicName(), 2.0f));
-	ASSERT_TRUE(Material->SetScalarParameterValue(Durin::MaterialParameters::RoughnessName(), 2.5f));
-	ASSERT_TRUE(Material->SetScalarParameterValue(Durin::MaterialParameters::AmbientOcclusionName(), -1.0f));
-	ASSERT_TRUE(Material->SetVectorParameterValue(Durin::MaterialParameters::EmissiveName(), Durin::FVector3(100.0, -2.0, 4.0)));
+	ASSERT_TRUE(Material->SetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(2.0, -1.0, 0.0)));
+	ASSERT_TRUE(Material->SetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::NormalName(), Durin::FVector3(0.0)));
+	ASSERT_TRUE(Material->SetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::MetallicName(), 2.0f));
+	ASSERT_TRUE(Material->SetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::RoughnessName(), 2.5f));
+	ASSERT_TRUE(Material->SetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::AmbientOcclusionName(), -1.0f));
+	ASSERT_TRUE(Material->SetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::EmissiveName(), Durin::FVector3(100.0, -2.0, 4.0)));
 	ASSERT_TRUE(Material->SetScalarParameterValue(Durin::FName("BaseColorUVChannel"), 2.6f));
 	ASSERT_TRUE(Material->SetVector2ParameterValue(Durin::FName("BaseColorUVScale"), Durin::FVector2(2.0, -3.0)));
 	ASSERT_TRUE(Material->SetVector2ParameterValue(Durin::FName("BaseColorUVOffset"), Durin::FVector2(2048.0, -2048.0)));
 	Durin::DTexture2D* WrongUsageTexture = Durin::NewObject<Durin::DTexture2D>(nullptr, "WrongNormalUsage");
-	ASSERT_TRUE(Material->SetTextureParameterValue(Durin::MaterialParameters::NormalTextureName(), WrongUsageTexture));
+	ASSERT_TRUE(Material->SetTextureParameterValue(Durin::AssetForge::Builtins::MaterialParameters::NormalTextureName(), WrongUsageTexture));
 
 	const auto Binding = GetMaterialBinding(Material->GetRenderData());
 	EXPECT_EQ(Binding.BaseColor, Durin::FVector4f(2.0f, -1.0f, 0.0f, 1.0f));
@@ -488,7 +489,7 @@ TEST(FMaterialRenderRepresentationTests, CompilationPreservesAuthoredInputsAndRe
 	EXPECT_EQ(Binding.UVOffsets[0], Durin::FVector2f(2048.0f, -2048.0f));
 	EXPECT_EQ(Binding.Textures[1], WrongUsageTexture->GetTextureReferenceRHI());
 
-	EXPECT_FALSE(Material->SetScalarParameterValue(Durin::MaterialParameters::RoughnessName(),
+	EXPECT_FALSE(Material->SetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::RoughnessName(),
 		std::numeric_limits<float>::quiet_NaN()));
 	EXPECT_FLOAT_EQ(GetMaterialBinding(Material->GetRenderData()).Roughness, 2.5f);
 	EXPECT_FALSE(Material->GetRenderData().Representation.IsError());

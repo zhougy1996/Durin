@@ -1,3 +1,4 @@
+#include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "MaterialRenderRepresentationTestFixture.h"
 #include "Materials/MaterialCustomVersion.h"
 
@@ -135,12 +136,12 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 	auto Validation = Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*Source);
 	ASSERT_TRUE(Validation);
 	ASSERT_TRUE(Source->SetVectorParameterValue(
-		Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.2, 0.4, 0.7)));
+		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(0.2, 0.4, 0.7)));
 	auto* AuthoredInstance = Durin::NewObject<Durin::DMaterialInstance>(
 		Source->GetPackage(), "CookedOverrides");
 	ASSERT_TRUE(AuthoredInstance->SetParent(Source));
 	ASSERT_TRUE(AuthoredInstance->SetVectorParameterValue(
-		Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.8, 0.3, 0.1)));
+		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(0.8, 0.3, 0.1)));
 	Durin::FObjectPath InstancePath;
 	ASSERT_TRUE(Durin::FObjectPath::TryCreate(AuthoredInstance->GetObjectPath(), InstancePath));
 	const Durin::FMaterialProgramIdentity ExpectedIdentity =
@@ -244,14 +245,14 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 	ASSERT_TRUE(Texture->GetTextureReferenceRHI());
 	ASSERT_TRUE(Child->SetParent(Instance));
 	ASSERT_TRUE(Cooked->SetTextureParameterValue(
-		Durin::MaterialParameters::BaseColorTextureName(), Texture));
+		Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), Texture));
 	ASSERT_TRUE(Child->SetTextureParameterValue(
-		Durin::MaterialParameters::BaseColorTextureName(), Texture));
+		Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), Texture));
 	ASSERT_TRUE(Child->SetScalarParameterValue(
-		Durin::MaterialParameters::RoughnessName(), 0.23f));
+		Durin::AssetForge::Builtins::MaterialParameters::RoughnessName(), 0.23f));
 	EXPECT_FALSE(Instance->IsParameterValueOrphan(
-		Durin::MaterialParameters::GetBuiltinParameterIds(
-			Durin::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value));
+		Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(
+			Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value));
 	const bool bOwnsRenderingThread = Durin::GetRenderCommandAdmissionState()
 		== Durin::ERenderCommandAdmissionState::Stopped;
 	if (bOwnsRenderingThread) Durin::InitRenderingThread();

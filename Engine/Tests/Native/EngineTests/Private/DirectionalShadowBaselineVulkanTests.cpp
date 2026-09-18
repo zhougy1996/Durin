@@ -1,3 +1,4 @@
+#include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "Materials/StandardMaterialFunctionTestFixture.h"
 #include "CoreGlobals.h"
 #include "Components/ProceduralSkyComponent.h"
@@ -355,15 +356,15 @@ namespace
 		Overrides.Values.OpacityMaskThreshold = 0.4f;
 		EXPECT_TRUE(Material->SetParentAndPropertyOverrides(Root, Overrides));
 		EXPECT_TRUE(Material->SetVectorParameterValue(
-			Durin::MaterialParameters::EmissiveName(), Emissive));
+			Durin::AssetForge::Builtins::MaterialParameters::EmissiveName(), Emissive));
 		EXPECT_TRUE(Material->SetVectorParameterValue(
-			Durin::MaterialParameters::BaseColorName(), BaseColor));
+			Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), BaseColor));
 		if (BlendMode == Durin::EMaterialBlendMode::Translucent)
 			EXPECT_TRUE(Material->SetScalarParameterValue(
-				Durin::MaterialParameters::OpacityName(), Opacity));
+				Durin::AssetForge::Builtins::MaterialParameters::OpacityName(), Opacity));
 		if (BlendMode == Durin::EMaterialBlendMode::Masked)
 			EXPECT_TRUE(Material->SetScalarParameterValue(
-				Durin::MaterialParameters::OpacityMaskName(), 1.0f));
+				Durin::AssetForge::Builtins::MaterialParameters::OpacityMaskName(), 1.0f));
 		if (Material->GetMaterialCompileStatus().State
 			== Durin::EMaterialCompileState::NeverRequested)
 			EXPECT_TRUE(Durin::RequestMaterialRecompile(*Material));

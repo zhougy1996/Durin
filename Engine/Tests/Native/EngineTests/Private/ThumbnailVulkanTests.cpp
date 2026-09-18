@@ -1,3 +1,4 @@
+#include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "Materials/ExplicitMaterialProgramTestFixture.h"
 #include "Threading/Task.h"
 #include "NativeAssetTestSupport.h"
@@ -233,7 +234,7 @@ TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRender
 	Recipe.Outputs.Emissive = {Position->Id}; Recipe.Outputs.Roughness = {Time->Id};
 	ASSERT_TRUE(Recipe.Apply(*StaticMeshAssetMaterial));
 	ASSERT_TRUE(StaticMeshAssetMaterial->SetVectorParameterValue(
-		Durin::MaterialParameters::BaseColorName(),
+		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(),
 		Durin::FVector3(0.85, 0.12, 0.18)
 	));
 	ASSERT_TRUE(Durin::SavePackage(StaticMeshAssetMaterial->GetPackage()));
@@ -406,7 +407,7 @@ TEST_F(FThumbnailVulkanTests, MaterialSessionRejectsTextureRevisionAfterFailureA
 	auto Validation = Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*StaticMeshAssetMaterial);
 	ASSERT_TRUE(Validation);
 	ASSERT_TRUE(StaticMeshAssetMaterial->SetTextureParameterValue(
-		Durin::MaterialParameters::BaseColorTextureName(), Texture
+		Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), Texture
 	));
 	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*StaticMeshAssetMaterial);
 	ASSERT_TRUE(Durin::SavePackage(StaticMeshAssetMaterial->GetPackage()));
@@ -458,7 +459,7 @@ TEST_F(FThumbnailVulkanTests, MaterialSessionRejectsTextureRevisionAfterFailureA
 	EXPECT_FALSE(Session->ValidateRevisions(Loaded.AssetRevision, Ready.ResourceRevision, Error));
 	Session->ResetPreview();
 	ASSERT_TRUE(StaticMeshAssetMaterial->SetTextureParameterValue(
-		Durin::MaterialParameters::BaseColorTextureName(), nullptr
+		Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), nullptr
 	));
 	ASSERT_TRUE(Durin::SavePackage(StaticMeshAssetMaterial->GetPackage()));
 }

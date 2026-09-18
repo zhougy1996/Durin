@@ -1,3 +1,4 @@
+#include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "MaterialProgramTestFixture.h"
 
 TEST(FMaterialProgramPublicationTests,
@@ -16,7 +17,7 @@ TEST(FMaterialProgramPublicationTests,
 		Instance->GetRenderData().CompiledProgram);
 
 	ASSERT_TRUE(Base->SetScalarParameterValue(
-		Durin::MaterialParameters::MetallicName(), 0.73f));
+		Durin::AssetForge::Builtins::MaterialParameters::MetallicName(), 0.73f));
 	const auto Dynamic = Base->GetRenderData();
 	EXPECT_EQ(Dynamic.CompiledProgram, Initial.CompiledProgram);
 	EXPECT_EQ(Dynamic.PlanningPassIdentity.ShaderMap.ProgramIdentity,

@@ -1,3 +1,4 @@
+#include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "FunctionPortTestFixture.h"
 #include "ExplicitMaterialProgramTestFixture.h"
 #include "MaterialVariantTestFixture.h"
@@ -377,10 +378,10 @@ TEST(FMaterialCompileLifecycleTests,
 	ASSERT_TRUE(PendingInstance->SetParent(First));
 	EXPECT_TRUE(First->GetAcceptedCompiledProgram()->ActiveParameters.empty());
 	ASSERT_TRUE(PendingInstance->SetVectorParameterValue(
-		Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.7, 0.2, 0.4)));
+		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(0.7, 0.2, 0.4)));
 	ASSERT_TRUE(WaitForMaterialCompile(*First));
 	ASSERT_TRUE(First->SetVectorParameterValue(
-		Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.2, 0.6, 0.8)));
+		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(0.2, 0.6, 0.8)));
 	const auto LastKnownGood = First->GetAcceptedCompiledProgram();
 	Durin::FMaterialStaticProperties FailedProperties =
 		First->GetStaticProperties();
@@ -471,8 +472,8 @@ TEST(FMaterialCompileLifecycleTests,
 		auto* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "RetainedDeclarationInstance");
 		ASSERT_TRUE(Instance->SetParent(Root));
 		ASSERT_TRUE(WaitForMaterialCompile(*Instance));
-		ASSERT_TRUE(Root->SetScalarParameterValue(Durin::MaterialParameters::MetallicName(), 0.65f));
-		ASSERT_TRUE(Instance->SetScalarParameterValue(Durin::MaterialParameters::MetallicName(), 0.9f));
+		ASSERT_TRUE(Root->SetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::MetallicName(), 0.65f));
+		ASSERT_TRUE(Instance->SetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::MetallicName(), 0.9f));
 		Durin::FMaterialParameterDefinition Definition;
 		Definition.Id = Durin::FGuid::NewGuid();
 		Definition.Name = "IndependentAmount";
@@ -598,7 +599,7 @@ auto QualifyInstanceCompilationOwners() -> void
 	ASSERT_TRUE(WaitForMaterialCompile(*Grandchild));
 	EXPECT_NE(Grandchild->GetMaterialCompileStatus().CompiledIdentity, FirstMaskedIdentity);
 	const auto BeforeDynamic = Durin::GetMaterialCompilationDiagnostics().AcceptedRequests;
-	ASSERT_TRUE(Child->SetScalarParameterValue(Durin::MaterialParameters::MetallicName(), 0.42f));
+	ASSERT_TRUE(Child->SetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::MetallicName(), 0.42f));
 	Overrides.bOverrideTwoSided = true;
 	Overrides.Values.bTwoSided = true;
 	ASSERT_TRUE(Child->SetPropertyOverrides(Overrides));

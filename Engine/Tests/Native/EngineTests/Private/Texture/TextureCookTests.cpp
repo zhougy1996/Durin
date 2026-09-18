@@ -1,3 +1,4 @@
+#include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "../Materials/ExplicitMaterialProgramTestFixture.h"
 #include "Threading/Task.h"
 #include "NativeAssetTestSupport.h"
@@ -214,7 +215,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	auto* SourceMaterial = Durin::NewObject<Durin::DMaterial>(SourceMaterialPackage, "SampleMaterial");
 	ASSERT_TRUE(Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*SourceMaterial));
 	ASSERT_TRUE(SourceMaterial->SetVectorParameterValue(
-		Durin::MaterialParameters::BaseColorName(), Durin::FVector3(1.0)));
+		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(1.0)));
 	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*SourceMaterial);
 	ASSERT_TRUE(SourceMaterial->GetMaterialCompileStatus().IsCurrent());
 	const auto ExpectedMaterialIdentity = SourceMaterial->GetAcceptedCompiledProgram()->Identity;
@@ -392,7 +393,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	EXPECT_EQ(SampleMaterial->GetAcceptedCompiledProgram(), CookedMaterial->GetAcceptedCompiledProgram());
 	const auto MaterialGeneration = SampleMaterial->GetMaterialCompileStatus().RequestGeneration;
 	ASSERT_TRUE(SampleMaterial->SetTextureParameterValue(
-		Durin::MaterialParameters::BaseColorTextureName(), CookedTexture));
+		Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), CookedTexture));
 	EXPECT_EQ(SampleMaterial->GetMaterialCompileStatus().RequestGeneration, MaterialGeneration);
 	EXPECT_FALSE(Durin::RequestMaterialRecompile(*SampleMaterial));
 	EXPECT_FALSE(CookedMaterial->GetPackage()->IsDirty());

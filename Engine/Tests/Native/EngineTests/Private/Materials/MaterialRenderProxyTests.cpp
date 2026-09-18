@@ -1,3 +1,4 @@
+#include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "ExplicitMaterialProgramTestFixture.h"
 #include "MaterialTestSupport.h"
 
@@ -91,7 +92,7 @@ TEST(FMaterialRenderProxyTests, ParentProgramChangesReevaluateDormantOverrides)
 	auto* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "DormantOverride");
 	ASSERT_TRUE(Instance->SetParent(Base));
 	ASSERT_TRUE(Instance->SetVectorParameterValue(
-		Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.1, 0.3, 0.8)));
+		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(0.1, 0.3, 0.8)));
 	auto Proxy = Instance->GetMaterialRenderProxy();
 	const auto Initial = CaptureMaterialProxy(Proxy);
 	ExpectColorNear(GetMaterialBinding(Initial.RenderData).BaseColor,
@@ -103,10 +104,10 @@ TEST(FMaterialRenderProxyTests, ParentProgramChangesReevaluateDormantOverrides)
 	EXPECT_GT(Dormant.ResolvedVersion, Initial.ResolvedVersion);
 	ExpectRenderDataMatches(Dormant.RenderData, Instance->GetRenderData());
 	EXPECT_FALSE(Instance->SetVectorParameterValue(
-		Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.9)));
+		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(0.9)));
 	EXPECT_TRUE(Instance->IsParameterValueOrphan(
-		Durin::MaterialParameters::GetBuiltinParameterIds(
-			Durin::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value));
+		Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(
+			Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value));
 	ASSERT_TRUE((Validation = Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*Base)));
 	const auto Restored = CaptureMaterialProxy(Proxy);
 	EXPECT_GT(Restored.LocalVersion, Dormant.LocalVersion);
@@ -142,7 +143,7 @@ TEST(FMaterialRenderProxyTests, StableIdentityPublishesVersionsAndRejectsStaleSt
 	EXPECT_EQ(Cached.ResolvedVersion, Initial.ResolvedVersion);
 
 	ASSERT_TRUE(Material->SetVectorParameterValue(
-		Durin::MaterialParameters::BaseColorName(),
+		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(),
 		Durin::FVector3(0.2, 0.4, 0.7)));
 	const FMaterialProxySnapshot Updated =
 		CaptureMaterialProxy(Proxy);
@@ -173,7 +174,7 @@ TEST(FMaterialRenderProxyTests, StableIdentityPublishesVersionsAndRejectsStaleSt
 	Durin::FMaterialRenderProxyPublication StalePublication;
 	StalePublication.LocalVersion = Updated.LocalVersion;
 	StalePublication.LocalLayer.Parameters.push_back({
-		.Id = Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value,
+		.Id = Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value,
 		.Value = Durin::FVector3(0.0),
 	});
 	bool bStaleApplied = true;
@@ -235,24 +236,24 @@ TEST(FMaterialRenderProxyTests, AuthoredValuesMatchDirectCompilationForBasesAndI
 	};
 
 	ASSERT_TRUE(Base->SetVectorParameterValue(
-		Durin::MaterialParameters::BaseColorName(),
+		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(),
 		Durin::FVector3(0.15, 0.35, 0.55)));
 	ASSERT_TRUE(Base->SetVectorParameterValue(
-		Durin::MaterialParameters::NormalName(),
+		Durin::AssetForge::Builtins::MaterialParameters::NormalName(),
 		Durin::FVector3(0.0, 2.0, 0.0)));
 	ASSERT_TRUE(Base->SetScalarParameterValue(
-		Durin::MaterialParameters::MetallicName(), 0.81f));
+		Durin::AssetForge::Builtins::MaterialParameters::MetallicName(), 0.81f));
 	ASSERT_TRUE(Base->SetScalarParameterValue(
-		Durin::MaterialParameters::RoughnessName(), 0.23f));
+		Durin::AssetForge::Builtins::MaterialParameters::RoughnessName(), 0.23f));
 	ASSERT_TRUE(Base->SetScalarParameterValue(
-		Durin::MaterialParameters::AmbientOcclusionName(), 0.47f));
+		Durin::AssetForge::Builtins::MaterialParameters::AmbientOcclusionName(), 0.47f));
 	ASSERT_TRUE(Base->SetVectorParameterValue(
-		Durin::MaterialParameters::EmissiveName(),
+		Durin::AssetForge::Builtins::MaterialParameters::EmissiveName(),
 		Durin::FVector3(3.0, 5.0, 7.0)));
 	ASSERT_TRUE(Base->SetScalarParameterValue(
-		Durin::MaterialParameters::OpacityName(), 0.68f));
+		Durin::AssetForge::Builtins::MaterialParameters::OpacityName(), 0.68f));
 	ASSERT_TRUE(Base->SetScalarParameterValue(
-		Durin::MaterialParameters::OpacityMaskName(), 0.39f));
+		Durin::AssetForge::Builtins::MaterialParameters::OpacityMaskName(), 0.39f));
 
 	for (const Durin::FMaterialParameterDefinition& Definition
 		: Base->GetParameterDefinitions())
@@ -265,30 +266,30 @@ TEST(FMaterialRenderProxyTests, AuthoredValuesMatchDirectCompilationForBasesAndI
 				Durin::EMaterialSamplerAddressMode::ClampToEdge;
 			ASSERT_TRUE(Base->SetParameterValue(Definition.Id, Value));
 		}
-		else if (Durin::MaterialParameters::IsBuiltinParameter(
+		else if (Durin::AssetForge::Builtins::MaterialParameters::IsBuiltinParameter(
 			Definition.Id,
-			Durin::MaterialParameters::EMaterialBuiltinParameterKind::UVChannel))
+			Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterKind::UVChannel))
 		{
 			ASSERT_TRUE(Base->SetScalarParameterValue(
 				Definition.Name, 2.6f));
 		}
-		else if (Durin::MaterialParameters::IsBuiltinParameter(
+		else if (Durin::AssetForge::Builtins::MaterialParameters::IsBuiltinParameter(
 			Definition.Id,
-			Durin::MaterialParameters::EMaterialBuiltinParameterKind::UVScale))
+			Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterKind::UVScale))
 		{
 			ASSERT_TRUE(Base->SetVector2ParameterValue(
 				Definition.Name, Durin::FVector2(2.0, -3.0)));
 		}
-		else if (Durin::MaterialParameters::IsBuiltinParameter(
+		else if (Durin::AssetForge::Builtins::MaterialParameters::IsBuiltinParameter(
 			Definition.Id,
-			Durin::MaterialParameters::EMaterialBuiltinParameterKind::UVOffset))
+			Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterKind::UVOffset))
 		{
 			ASSERT_TRUE(Base->SetVector2ParameterValue(
 				Definition.Name, Durin::FVector2(7.0, -11.0)));
 		}
-		else if (Durin::MaterialParameters::IsBuiltinParameter(
+		else if (Durin::AssetForge::Builtins::MaterialParameters::IsBuiltinParameter(
 			Definition.Id,
-			Durin::MaterialParameters::EMaterialBuiltinParameterKind::UVRotation))
+			Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterKind::UVRotation))
 		{
 			ASSERT_TRUE(Base->SetScalarParameterValue(Definition.Name, 0.75f));
 		}
@@ -322,14 +323,14 @@ TEST(FMaterialRenderProxyTests, AuthoredValuesMatchDirectCompilationForBasesAndI
 	}
 
 	ASSERT_TRUE(Instance->SetScalarParameterValue(
-		Durin::MaterialParameters::MetallicName(), 0.17f));
+		Durin::AssetForge::Builtins::MaterialParameters::MetallicName(), 0.17f));
 	ASSERT_TRUE(Instance->SetScalarParameterValue(
-		Durin::MaterialParameters::RoughnessName(),
+		Durin::AssetForge::Builtins::MaterialParameters::RoughnessName(),
 		2.5f));
 	ASSERT_TRUE(Instance->SetVectorParameterValue(
-		Durin::MaterialParameters::NormalName(), Durin::FVector3(0.0)));
+		Durin::AssetForge::Builtins::MaterialParameters::NormalName(), Durin::FVector3(0.0)));
 	ASSERT_TRUE(Instance->SetVectorParameterValue(
-		Durin::MaterialParameters::EmissiveName(),
+		Durin::AssetForge::Builtins::MaterialParameters::EmissiveName(),
 		Durin::FVector3(100.0, -2.0, 4.0)));
 	ASSERT_TRUE(Instance->SetScalarParameterValue(
 		Durin::FName("RoughnessUVChannel"), 1.4f));
@@ -354,13 +355,13 @@ TEST(FMaterialRenderProxyTests, AuthoredValuesMatchDirectCompilationForBasesAndI
 		Durin::FVector2f(2048.0f, -2048.0f));
 
 	ASSERT_TRUE(Instance->ClearScalarParameterValue(
-		Durin::MaterialParameters::MetallicName()));
+		Durin::AssetForge::Builtins::MaterialParameters::MetallicName()));
 	ASSERT_TRUE(Instance->ClearScalarParameterValue(
-		Durin::MaterialParameters::RoughnessName()));
+		Durin::AssetForge::Builtins::MaterialParameters::RoughnessName()));
 	ASSERT_TRUE(Instance->ClearVectorParameterValue(
-		Durin::MaterialParameters::NormalName()));
+		Durin::AssetForge::Builtins::MaterialParameters::NormalName()));
 	ASSERT_TRUE(Instance->ClearVectorParameterValue(
-		Durin::MaterialParameters::EmissiveName()));
+		Durin::AssetForge::Builtins::MaterialParameters::EmissiveName()));
 	ASSERT_TRUE(Instance->ClearScalarParameterValue(
 		Durin::FName("RoughnessUVChannel")));
 	ASSERT_TRUE(Instance->ClearVector2ParameterValue(
@@ -416,8 +417,8 @@ TEST(FMaterialRenderProxyTests, AuthoredValuesMatchDirectCompilationForBasesAndI
 				OverrideTexture->GetTextureReferenceRHI();
 			size_t RoleIndex = 0;
 			for (; RoleIndex < 8; ++RoleIndex)
-				if (Durin::GetMaterialSurfaceParameterId(static_cast<Durin::EMaterialSurfaceOutput>(RoleIndex),
-					Durin::MaterialParameters::EMaterialBuiltinParameterKind::Texture) == Definition.Id) break;
+				if (Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(static_cast<Durin::EMaterialSurfaceOutput>(RoleIndex),
+					Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterKind::Texture) == Definition.Id) break;
 			ASSERT_LT(RoleIndex, size_t{8});
 			if (Durin::IsMaterialSurfaceOutputActive(static_cast<Durin::EMaterialSurfaceOutput>(RoleIndex), Instance->GetStaticProperties()))
 				EXPECT_EQ(GetMaterialBinding(Overridden.RenderData).Textures[RoleIndex], ExpectedTexture);
@@ -472,15 +473,15 @@ TEST(FMaterialRenderProxyTests, TemplateIdentitiesDoNotOverrideEditedDeclaration
 	FRenderSceneHarness Harness;
 	auto* Base = Durin::NewObject<Durin::DMaterial>(nullptr, "EditedTemplate");
 	auto* Texture = Durin::NewObject<Durin::DTexture2D>(nullptr, "EditedTemplateTexture");
-	auto Definitions = Durin::MakePBRMaterialParameterDefinitions();
+	auto Definitions = Durin::AssetForge::Builtins::MakePBRMaterialParameterDefinitions();
 	for (auto& Definition : Definitions)
 	{
-		if (Definition.Name == Durin::MaterialParameters::RoughnessName())
+		if (Definition.Name == Durin::AssetForge::Builtins::MaterialParameters::RoughnessName())
 		{
 			Definition.MaximumValue = 4.0f;
 			Definition.Value = Durin::FMaterialParameterValue::MakeScalar(2.5f);
 		}
-		if (Definition.Name == Durin::MaterialParameters::NormalTextureName())
+		if (Definition.Name == Durin::AssetForge::Builtins::MaterialParameters::NormalTextureName())
 		{
 			Definition.TextureUsage = Texture->GetUsage();
 			Definition.Value.GetTexture().Texture = Texture;
@@ -491,9 +492,9 @@ TEST(FMaterialRenderProxyTests, TemplateIdentitiesDoNotOverrideEditedDeclaration
 	for (auto& Expression : Graph.Expressions)
 	{
 		if (auto* Scalar = Durin::Cast<Durin::DMaterialExpressionScalarParameter>(Expression.Get());
-			Scalar && Scalar->Metadata.Name == Durin::MaterialParameters::RoughnessName()) Scalar->MaximumValue = 4.f;
+			Scalar && Scalar->Metadata.Name == Durin::AssetForge::Builtins::MaterialParameters::RoughnessName()) Scalar->MaximumValue = 4.f;
 		if (auto* Resource = Durin::Cast<Durin::DMaterialExpressionTextureParameter>(Expression.Get());
-			Resource && Resource->Metadata.Name == Durin::MaterialParameters::NormalTextureName()) Resource->TextureUsage = Texture->GetUsage();
+			Resource && Resource->Metadata.Name == Durin::AssetForge::Builtins::MaterialParameters::NormalTextureName()) Resource->TextureUsage = Texture->GetUsage();
 	}
 	ASSERT_TRUE(Graph.Apply(*Base));
 	ASSERT_TRUE(FinishMaterialCompileForTest(*Base));
@@ -519,7 +520,7 @@ TEST(FMaterialRenderProxyTests, NonFiniteTemplateOverrideUsesGenericValidation)
 	auto* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "NonFiniteOverride");
 	ASSERT_TRUE(Instance->SetParent(Base));
 	ASSERT_TRUE(Instance->SetScalarParameterValue(
-		Durin::MaterialParameters::RoughnessName(),
+		Durin::AssetForge::Builtins::MaterialParameters::RoughnessName(),
 		std::numeric_limits<float>::quiet_NaN()));
 	Durin::ResetMaterialRenderProxyCounters();
 	auto Proxy = Instance->GetMaterialRenderProxy();
@@ -543,7 +544,7 @@ TEST(FMaterialRenderProxyTests, OrdinarySetterPublishesCompleteDependentLayers)
 	Durin::ResetMaterialLoadedQueryDiagnostics();
 
 	ASSERT_TRUE(Material->SetVectorParameterValue(
-		Durin::MaterialParameters::BaseColorName(),
+		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(),
 		Durin::FVector3(0.25, 0.5, 0.75)));
 	const Durin::FMaterialLoadedQueryDiagnostics Diagnostics =
 		Durin::GetMaterialLoadedQueryDiagnostics();
@@ -592,11 +593,11 @@ TEST(FMaterialRenderProxyTests, CoalescesQueuedPublicationsPerProxy)
 	CommandStartedFuture.wait();
 
 	ASSERT_TRUE(Material->SetScalarParameterValue(
-		Durin::MaterialParameters::MetallicName(), 0.27f));
+		Durin::AssetForge::Builtins::MaterialParameters::MetallicName(), 0.27f));
 	ASSERT_TRUE(Material->SetScalarParameterValue(
-		Durin::MaterialParameters::RoughnessName(), 0.63f));
+		Durin::AssetForge::Builtins::MaterialParameters::RoughnessName(), 0.63f));
 	ASSERT_TRUE(Material->SetVectorParameterValue(
-		Durin::MaterialParameters::EmissiveName(),
+		Durin::AssetForge::Builtins::MaterialParameters::EmissiveName(),
 		Durin::FVector3(2.0, 3.0, 5.0)));
 	const Durin::FMaterialRenderProxyCounters Queued =
 		Durin::GetMaterialRenderProxyCounters();
@@ -635,10 +636,10 @@ TEST(FMaterialRenderProxyTests, DescendantsResolveParentChangesLazilyAcrossLongC
 		nullptr, "ProxyChainSecondBase");
 	ASSERT_TRUE(SecondBase->SetStaticProperties(OpacityProperties));
 	ASSERT_TRUE(FirstBase->SetVectorParameterValue(
-		Durin::MaterialParameters::BaseColorName(),
+		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(),
 		Durin::FVector3(0.1, 0.2, 0.3)));
 	ASSERT_TRUE(SecondBase->SetVectorParameterValue(
-		Durin::MaterialParameters::BaseColorName(),
+		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(),
 		Durin::FVector3(0.7, 0.6, 0.5)));
 
 	constexpr uint32 ChainLength = 32;
@@ -664,7 +665,7 @@ TEST(FMaterialRenderProxyTests, DescendantsResolveParentChangesLazilyAcrossLongC
 		Initial.RenderData, Leaf->GetRenderData());
 
 	ASSERT_TRUE(FirstBase->SetVectorParameterValue(
-		Durin::MaterialParameters::BaseColorName(),
+		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(),
 		Durin::FVector3(0.25, 0.45, 0.65)));
 	const FMaterialProxySnapshot BeforeLazyResolve =
 		CaptureMaterialProxy(LeafProxy, false);
@@ -690,7 +691,7 @@ TEST(FMaterialRenderProxyTests, DescendantsResolveParentChangesLazilyAcrossLongC
 		Reparented.RenderData, Leaf->GetRenderData());
 
 	ASSERT_TRUE(Chain[ChainLength / 2]->SetScalarParameterValue(
-		Durin::MaterialParameters::OpacityName(), 0.35f));
+		Durin::AssetForge::Builtins::MaterialParameters::OpacityName(), 0.35f));
 	const FMaterialProxySnapshot LocallyOverridden =
 		CaptureMaterialProxy(LeafProxy);
 	EXPECT_FLOAT_EQ(
@@ -721,11 +722,11 @@ TEST(FMaterialRenderProxyTests, PublishedStateOutlivesOwnersAndPostLoadDuplicati
 	auto* Source = Durin::NewObject<Durin::DMaterialInstance>(
 		nullptr, "ProxyLifetimeSource");
 	ASSERT_TRUE(Base->SetVectorParameterValue(
-		Durin::MaterialParameters::BaseColorName(),
+		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(),
 		Durin::FVector3(0.3, 0.5, 0.7)));
 	ASSERT_TRUE(Source->SetParent(Base));
 	ASSERT_TRUE(Source->SetScalarParameterValue(
-		Durin::MaterialParameters::OpacityName(), 0.45f));
+		Durin::AssetForge::Builtins::MaterialParameters::OpacityName(), 0.45f));
 
 	auto* Duplicate = Durin::Cast<Durin::DMaterialInstance>(
 		Durin::DuplicateObject(
@@ -793,10 +794,10 @@ TEST(FMaterialRenderProxyTests, SharedUsersAndSlotsPreserveInterleavedPublicatio
 	auto* AlternateBase = MakeExpandedMaterial(
 		nullptr, "ProxyInterleavedAlternateBase");
 	ASSERT_TRUE(Base->SetVectorParameterValue(
-		Durin::MaterialParameters::BaseColorName(),
+		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(),
 		Durin::FVector3(0.1, 0.2, 0.3)));
 	ASSERT_TRUE(AlternateBase->SetVectorParameterValue(
-		Durin::MaterialParameters::BaseColorName(),
+		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(),
 		Durin::FVector3(0.8, 0.7, 0.6)));
 
 	std::vector<Durin::DMaterialInstance*> Chain;
@@ -829,7 +830,7 @@ TEST(FMaterialRenderProxyTests, SharedUsersAndSlotsPreserveInterleavedPublicatio
 			nullptr,
 			Durin::FName(std::format("ProxyInterleavedSlotMaterial{}", SlotIndex)));
 		ASSERT_TRUE(Material->SetVectorParameterValue(
-			Durin::MaterialParameters::BaseColorName(),
+			Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(),
 			Durin::FVector3(
 				0.05 + 0.05 * SlotIndex,
 				0.15 + 0.04 * SlotIndex,
@@ -837,10 +838,10 @@ TEST(FMaterialRenderProxyTests, SharedUsersAndSlotsPreserveInterleavedPublicatio
 		SlotMaterials.push_back(Material);
 	}
 	ASSERT_TRUE(Shared->SetVectorParameterValue(
-		Durin::MaterialParameters::BaseColorName(),
+		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(),
 		Durin::FVector3(0.2, 0.4, 0.6)));
 	ASSERT_TRUE(Replacement->SetVectorParameterValue(
-		Durin::MaterialParameters::BaseColorName(),
+		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(),
 		Durin::FVector3(0.9, 0.1, 0.2)));
 
 	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
@@ -926,13 +927,13 @@ TEST(FMaterialRenderProxyTests, SharedUsersAndSlotsPreserveInterleavedPublicatio
 	for (uint32 UpdateIndex = 0; UpdateIndex < 6; ++UpdateIndex)
 	{
 		ASSERT_TRUE(Base->SetVectorParameterValue(
-			Durin::MaterialParameters::BaseColorName(),
+			Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(),
 			Durin::FVector3(
 				0.25 + 0.05 * UpdateIndex,
 				0.35 + 0.04 * UpdateIndex,
 				0.45 + 0.03 * UpdateIndex)));
 		ASSERT_TRUE(Shared->SetVectorParameterValue(
-			Durin::MaterialParameters::BaseColorName(),
+			Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(),
 			Durin::FVector3(
 				0.3 + 0.05 * UpdateIndex,
 				0.45 + 0.03 * UpdateIndex,

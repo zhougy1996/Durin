@@ -1,4 +1,5 @@
 #pragma once
+#include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "MaterialExpressionRecipeTestSupport.h"
 #include "EngineTestSupport.h"
 
@@ -8,15 +9,15 @@ namespace Durin::Testing
 	inline auto MakePBRMaterialExpressionsForTest() -> FTestMaterialExpressionGraph
 	{
 		InitializeDObjectSystem();
-		using Role = MaterialParameters::EMaterialBuiltinParameterRole;
-		const auto& BaseIds = MaterialParameters::GetBuiltinParameterIds(Role::BaseColor);
-		const auto& NormalIds = MaterialParameters::GetBuiltinParameterIds(Role::Normal);
-		const auto& MetallicIds = MaterialParameters::GetBuiltinParameterIds(Role::Metallic);
-		const auto& RoughnessIds = MaterialParameters::GetBuiltinParameterIds(Role::Roughness);
-		const auto& AmbientOcclusionIds = MaterialParameters::GetBuiltinParameterIds(Role::AmbientOcclusion);
-		const auto& EmissiveIds = MaterialParameters::GetBuiltinParameterIds(Role::Emissive);
-		const auto& OpacityIds = MaterialParameters::GetBuiltinParameterIds(Role::Opacity);
-		const auto& OpacityMaskIds = MaterialParameters::GetBuiltinParameterIds(Role::OpacityMask);
+		using Role = Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole;
+		const auto& BaseIds = Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Role::BaseColor);
+		const auto& NormalIds = Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Role::Normal);
+		const auto& MetallicIds = Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Role::Metallic);
+		const auto& RoughnessIds = Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Role::Roughness);
+		const auto& AmbientOcclusionIds = Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Role::AmbientOcclusion);
+		const auto& EmissiveIds = Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Role::Emissive);
+		const auto& OpacityIds = Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Role::Opacity);
+		const auto& OpacityMaskIds = Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Role::OpacityMask);
 		FTestMaterialExpressionGraph Graph;
 		std::vector<std::pair<FGuid, FGuid>> UVExpressions;
 		Graph.Expressions.reserve(MaterialProgramMaxNodeCount);
@@ -176,10 +177,10 @@ namespace Durin::Testing
 				continue;
 			}
 			const FGuid PreservedId = Node->Id;
-			const Role TextureRole = MaterialParameters::FindBuiltinParameterRole(
+			const Role TextureRole = Durin::AssetForge::Builtins::MaterialParameters::FindBuiltinParameterRole(
 				UVExpression->second,
-				MaterialParameters::EMaterialBuiltinParameterKind::Texture);
-			const auto Ids = MaterialParameters::GetBuiltinParameterIds(TextureRole);
+				Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterKind::Texture);
+			const auto Ids = Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(TextureRole);
 			const auto Channel = AppendNode(EMaterialProgramOpcode::Parameter,
 				EMaterialProgramValueType::Float, {}, Ids.UVChannel);
 			const auto UV = AppendNode(EMaterialProgramOpcode::UVChannel,

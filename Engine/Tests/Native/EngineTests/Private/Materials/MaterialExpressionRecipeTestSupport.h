@@ -1,4 +1,5 @@
 #pragma once
+#include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialExpressions.h"
 #include "DObject/Archive.h"
@@ -62,7 +63,7 @@ namespace Durin::Testing
 		}
 		auto Add(EMaterialProgramOpcode Opcode, EMaterialProgramValueType Type,
 			std::vector<FMaterialExpressionInput> Inputs, FGuid ParameterId, FMaterialProgramLiteral Literal,
-			std::span<const FMaterialParameterDefinition> Definitions = GetPBRMaterialParameterDefinitions()) -> DMaterialExpression&
+			std::span<const FMaterialParameterDefinition> Definitions = Durin::AssetForge::Builtins::GetPBRMaterialParameterDefinitions()) -> DMaterialExpression&
 		{
 			DMaterialExpression* Expression = nullptr;
 			if (Opcode == EMaterialProgramOpcode::Parameter || Opcode == EMaterialProgramOpcode::TextureParameter

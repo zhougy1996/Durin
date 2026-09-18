@@ -1,5 +1,6 @@
 #pragma once
 
+#include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "ExplicitMaterialProgramTestFixture.h"
 #include "MaterialTestSupport.h"
 #include "Materials/MaterialCookedProgram.h"
@@ -68,7 +69,7 @@ namespace Durin::Testing
 		ASSERT_TRUE(Instances[7]->SetParent(Instances[2]));
 		EXPECT_EQ(Instances[7]->GetStaticProperties().BlendMode, Durin::EMaterialBlendMode::Masked);
 		ASSERT_TRUE(Instances[7]->SetParent(Instances[6]));
-		ASSERT_TRUE(Instances[0]->SetScalarParameterValue(Durin::MaterialParameters::MetallicName(), 0.7f));
+		ASSERT_TRUE(Instances[0]->SetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::MetallicName(), 0.7f));
 		Durin::FAssetCompilingManager::Get().FinishAllCompilation();
 		const auto After = Durin::GetMaterialCompilationDiagnostics();
 		for (auto* Instance : Instances)

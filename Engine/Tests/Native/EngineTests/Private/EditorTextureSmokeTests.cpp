@@ -1,3 +1,4 @@
+#include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "Materials/ExplicitMaterialProgramTestFixture.h"
 #include "Asset/AssetCompilingManager.h"
 #include <gtest/gtest.h>
@@ -115,7 +116,7 @@ namespace Durin
 		DMaterial* Material = nullptr;
 		ASSERT_TRUE(CreatePackageLeafAssetForTesting(MaterialPath, Material));
 		Material->SetTextureParameterValue(
-			MaterialParameters::BaseColorTextureName(), TextureImport.Asset);
+			Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), TextureImport.Asset);
 		FinishMaterialCompilation(*Material);
 		ASSERT_TRUE(SavePackage(Material->GetPackage()));
 
@@ -279,7 +280,7 @@ namespace Durin
 		ASSERT_TRUE(CreatePackageLeafAssetForTesting(MaterialPath, Material));
 		const auto ProgramValidation = Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*Material);
 		ASSERT_TRUE(ProgramValidation);
-		Material->SetTextureParameterValue(MaterialParameters::BaseColorTextureName(), TextureImport.Asset);
+		Material->SetTextureParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), TextureImport.Asset);
 		FinishMaterialCompilation(*Material);
 
 		AStaticMeshActor* Actor = NewObject<AStaticMeshActor>(nullptr, "TextureSmokeMesh");

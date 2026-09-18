@@ -21,6 +21,10 @@ namespace Durin::AssetForge::Builtins
 		TObjectPtr<DMaterialFunction> UVTransform, SampleNormal, SampleORM, StandardPBR, StandardPBR_ORM;
 		TObjectPtr<DMaterialFunction> ImportedSurfaceValues;
 	};
+	// Explicit shipped-asset interface contract. Creates no expression objects and
+	// is shared by authoring recipes and asset admission.
+	ASSETFORGEBUILTINS_API auto GetStandardMaterialFunctionInterface(EStandardMaterialFunction Function)
+		-> FMaterialFunctionSignature;
 	// Owning-thread recipe; keeps concrete children alive until validated publication.
 	struct FStandardMaterialFunctionExpressions
 	{

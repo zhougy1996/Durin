@@ -1,4 +1,5 @@
 #pragma once
+#include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "MaterialExpressionRecipeTestSupport.h"
 
 #include "StaticMeshTestAccess.h"
@@ -252,10 +253,10 @@ namespace
 						+ Component * sizeof(float), sizeof(Value));
 				return Value;
 			};
-			using Role = Durin::MaterialParameters::EMaterialBuiltinParameterRole;
-			using Kind = Durin::MaterialParameters::EMaterialBuiltinParameterKind;
+			using Role = Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole;
+			using Kind = Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterKind;
 			const auto ValueId = [](Role R) {
-				return Durin::MaterialParameters::GetBuiltinParameterId(R, Kind::Value);
+				return Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterId(R, Kind::Value);
 			};
 			const auto& Fields = RenderData.Representation.GetLayout().Fields;
 			const auto Has = [&](const Durin::FGuid& Id) {
@@ -277,15 +278,15 @@ namespace
 			for (size_t RoleIndex = 0; RoleIndex < 8; ++RoleIndex)
 			{
 				const Role R = static_cast<Role>(RoleIndex);
-				const auto ChannelId = Durin::MaterialParameters::GetBuiltinParameterId(R, Kind::UVChannel);
-				const auto ScaleId = Durin::MaterialParameters::GetBuiltinParameterId(R, Kind::UVScale);
-				const auto OffsetId = Durin::MaterialParameters::GetBuiltinParameterId(R, Kind::UVOffset);
-				const auto RotationId = Durin::MaterialParameters::GetBuiltinParameterId(R, Kind::UVRotation);
+				const auto ChannelId = Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterId(R, Kind::UVChannel);
+				const auto ScaleId = Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterId(R, Kind::UVScale);
+				const auto OffsetId = Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterId(R, Kind::UVOffset);
+				const auto RotationId = Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterId(R, Kind::UVRotation);
 				if (Has(ChannelId)) Binding.UVChannels[RoleIndex] = Read(ChannelId);
 				if (Has(ScaleId)) Binding.UVScales[RoleIndex] = {Read(ScaleId, 0), Read(ScaleId, 1)};
 				if (Has(OffsetId)) Binding.UVOffsets[RoleIndex] = {Read(OffsetId, 0), Read(OffsetId, 1)};
 				if (Has(RotationId)) Binding.UVRotations[RoleIndex] = Read(RotationId);
-				const auto TextureId = Durin::MaterialParameters::GetBuiltinParameterId(R, Kind::Texture);
+				const auto TextureId = Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterId(R, Kind::Texture);
 				const auto Field = std::ranges::find(Fields, TextureId,
 					&Durin::FMaterialRenderField::ParameterId);
 				if (Field != Fields.end() && Field->CompactIndex < Resources.size())

@@ -1,3 +1,4 @@
+#include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "MaterialRenderingTestFixture.h"
 
 TEST(FMaterialRenderingTests, LocalLightAttenuationHasFiniteExactBoundaries)
@@ -203,7 +204,7 @@ TEST(FMaterialRenderingTests, StaticMeshProxyCapturesAssignedMaterialRenderData)
 {
 	FRenderSceneHarness Harness;
 	Durin::DMaterial* Material = MakeExpandedMaterial(nullptr, "ProxyMaterial");
-	Material->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.25, 0.5, 0.75));
+	Material->SetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(0.25, 0.5, 0.75));
 	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
 	Durin::DStaticMeshComponent* Component = Harness.CreateStaticMeshComponent("MeshComponent");
 	Component->SetStaticMesh(Mesh);
@@ -268,8 +269,8 @@ TEST(FMaterialRenderingTests, StaticMeshProxyCapturesPerSlotMaterials)
 	FRenderSceneHarness Harness;
 	Durin::DMaterial* First = MakeExpandedMaterial(nullptr, "FirstSlotMaterial");
 	Durin::DMaterial* Second = MakeExpandedMaterial(nullptr, "SecondSlotMaterial");
-	First->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.2, 0.3, 0.4));
-	Second->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.7, 0.6, 0.5));
+	First->SetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(0.2, 0.3, 0.4));
+	Second->SetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(0.7, 0.6, 0.5));
 	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
 	AddDebugMaterialSlot(Mesh, "Second");
 	Durin::DStaticMeshComponent* Component = Harness.CreateStaticMeshComponent("MultiMaterialMeshComponent");
@@ -343,8 +344,8 @@ TEST(FMaterialRenderingTests, StaticMeshProxyResolvesPrecedenceAndUpdatesEverySh
 	FRenderSceneHarness Harness;
 	auto* Shared = MakeExpandedMaterial(nullptr, "SharedSlotMaterial");
 	auto* Override = MakeExpandedMaterial(nullptr, "OverrideSlotMaterial");
-	Shared->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.1, 0.2, 0.3));
-	Override->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.8, 0.7, 0.6));
+	Shared->SetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(0.1, 0.2, 0.3));
+	Override->SetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(0.8, 0.7, 0.6));
 	auto* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
 	auto* Slots = static_cast<Durin::FArrayProperty*>(Mesh->GetClass()->FindPropertyByName("MaterialSlots"));
 	static_cast<Durin::FMeshMaterialSlotDefinition*>(Slots->GetMutableElementPtr(Mesh, 0))->DefaultMaterial = Shared;
@@ -368,7 +369,7 @@ TEST(FMaterialRenderingTests, StaticMeshProxyResolvesPrecedenceAndUpdatesEverySh
 		Durin::FVector4f(0.5f, 0.5f, 0.5f, 1.0f));
 	EXPECT_EQ(Component->GetMaterial(2), Shared);
 
-	Shared->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.4, 0.5, 0.6));
+	Shared->SetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(0.4, 0.5, 0.6));
 	const FMaterialSlotsSnapshot Updated = CaptureMaterialSlots(Harness.Scene);
 	EXPECT_EQ(Updated.Proxy, Initial.Proxy);
 	EXPECT_EQ(Updated.ComponentRevision, Initial.ComponentRevision);
@@ -425,8 +426,8 @@ TEST(FMaterialRenderingTests, StaticMeshProxyOrdersRapidBindingChangesAndRejects
 	Component->RegisterComponent();
 	const FMaterialSlotsSnapshot Initial = CaptureMaterialSlots(Harness.Scene);
 
-	First->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.2, 0.3, 0.4));
-	Second->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.7, 0.6, 0.5));
+	First->SetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(0.2, 0.3, 0.4));
+	Second->SetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(0.7, 0.6, 0.5));
 	const FMaterialSlotsSnapshot Rapid = CaptureMaterialSlots(Harness.Scene);
 	ASSERT_EQ(Rapid.Materials.size(), 2u);
 	ExpectColorNear(GetMaterialBinding(Rapid.Materials[0]).BaseColor, Durin::FVector4f(0.2f, 0.3f, 0.4f, 1.0f));
@@ -434,7 +435,7 @@ TEST(FMaterialRenderingTests, StaticMeshProxyOrdersRapidBindingChangesAndRejects
 	EXPECT_EQ(Rapid.ComponentRevision, Initial.ComponentRevision);
 
 	Replacement->SetVectorParameterValue(
-		Durin::MaterialParameters::BaseColorName(),
+		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(),
 		Durin::FVector3(0.9, 0.8, 0.7));
 	Component->SetMaterial(0, Replacement);
 	const FMaterialSlotsSnapshot Rebound = CaptureMaterialSlots(Harness.Scene);

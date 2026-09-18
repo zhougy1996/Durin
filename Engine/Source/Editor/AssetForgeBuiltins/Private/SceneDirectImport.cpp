@@ -1,3 +1,4 @@
+#include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "AssetForge/Builtins/SceneImport.h"
 #include "AssetForge/Builtins/SceneImportData.h"
 #include "Hash/XxHash.h"

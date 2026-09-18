@@ -1,5 +1,6 @@
 #pragma once
 
+#include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "ExplicitMaterialProgramTestFixture.h"
 #include "Misc/MountPathTestSupport.h"
 #include "NativeDObjectTestSupport.h"
@@ -27,12 +28,12 @@ namespace
 	auto SetBindingProgram(Durin::DMaterial& Material) -> bool
 	{
 		using namespace Durin;
-		using Role = MaterialParameters::EMaterialBuiltinParameterRole;
+		using Role = Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole;
 		Testing::FTestMaterialExpressionGraph Graph;
 		auto& Color = Graph.Add(EMaterialProgramOpcode::Parameter,
-			EMaterialProgramValueType::Float3, {}, MaterialParameters::GetBuiltinParameterIds(Role::BaseColor).Value, {});
+			EMaterialProgramValueType::Float3, {}, Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Role::BaseColor).Value, {});
 		auto& Opacity = Graph.Add(EMaterialProgramOpcode::Parameter,
-			EMaterialProgramValueType::Float, {}, MaterialParameters::GetBuiltinParameterIds(Role::Opacity).Value, {});
+			EMaterialProgramValueType::Float, {}, Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Role::Opacity).Value, {});
 		Graph.Outputs.BaseColor = Testing::MakeLink(Color);
 		Graph.Outputs.Opacity = Testing::MakeLink(Opacity);
 		return static_cast<bool>(Graph.Apply(Material));

@@ -1,3 +1,4 @@
+#include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "StaticMesh/StaticMeshMaterialBinding.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 #include "StaticMesh/StaticMeshTestEnvironment.h"
@@ -265,7 +266,7 @@ TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsByIndex)
 	Durin::DMaterial* Material = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(MaterialPath, Material));
 	ASSERT_TRUE(SetBindingProgram(*Material));
-	Material->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.85, 0.15, 0.1));
+	Material->SetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(0.85, 0.15, 0.1));
 	ASSERT_TRUE(Durin::SavePackage(Material->GetPackage()));
 	(void)Durin::FAssetCompilingManager::Get().FinishAllCompilation();
 	Durin::DStaticMeshComponent* Component = nullptr;

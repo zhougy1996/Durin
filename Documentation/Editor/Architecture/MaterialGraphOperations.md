@@ -162,7 +162,19 @@ and per-document controller state. None of those values are serialized.
 
 ## Standard function authoring
 
-`MakeStandardMaterialFunctionExpressions` constructs the seven built-in recipes as
+`AssetForgeBuiltins` owns the PBR parameter roles, UV parameter declarations,
+persistent GUIDs, surface-to-parameter mapping, and default parameter recipes in
+`PBRMaterialParameters.h`. Runtime material types expose only generic parameters,
+expressions, and surface properties; importing a built-in recipe is an explicit
+editor dependency. Existing parameter identities remain stable for saved instances.
+
+`GetStandardMaterialFunctionInterface` declares the six shipped function interfaces
+without constructing expression objects. Both the authoring recipes and
+`LoadStandardMaterialFunctions` use this contract. Loading compares the asset's
+signature directly, preserves implementation edits, and fails on missing assets
+or incompatible interfaces without synthesizing a reference graph.
+
+`MakeStandardMaterialFunctionExpressions` constructs the six built-in recipes as
 strongly retained concrete expressions whose terminal nodes own port definitions.
 Publication duplicates these children through `SetFunctionExpressions`; recipe
 objects and published functions never share mutable children. Recipe comparison

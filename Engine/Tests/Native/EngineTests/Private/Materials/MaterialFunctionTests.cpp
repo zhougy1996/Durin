@@ -1,3 +1,4 @@
+#include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "FunctionPortTestFixture.h"
 #include "MaterialFunctionTestSupport.h"
 
@@ -15,6 +16,9 @@ TEST(FMaterialFunctionTests, StandardRecipesOwnTypedExpressionsAndPublishIndepen
 	{
 		auto Recipe = MakeStandardMaterialFunctionExpressions(static_cast<EStandardMaterialFunction>(Index + 1), Functions);
 		ASSERT_FALSE(Recipe.Expressions.empty());
+		const auto Interface = GetStandardMaterialFunctionInterface(static_cast<EStandardMaterialFunction>(Index + 1));
+		EXPECT_TRUE(ValidateMaterialFunctionSignature(Interface));
+		EXPECT_EQ(Recipe.GetSignature(), Interface);
 		Owners.emplace_back(NewObject<DMaterialFunction>(nullptr, NAME_None));
 		auto& Function = *Owners.back();
 		const auto Result = Recipe.Apply(Function);
@@ -66,11 +70,11 @@ TEST(FMaterialFunctionTests, ExplicitMRTemplateRetainsIndependentInstanceParamet
 		EXPECT_NE(Recipe.Expressions[I].Get(), Material->GetExpressionCollection().Expressions[I].Get());
 		EXPECT_EQ(Material->GetExpressionCollection().Expressions[I]->GetOuter(), Material.Get());
 	}
-	using Kind = MaterialParameters::EMaterialBuiltinParameterKind;
+	using Kind = Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterKind;
 	for (uint32 Index = 0; Index < 8; ++Index)
 	{
 		const auto Role = static_cast<EMaterialSurfaceOutput>(Index);
-		const auto Id = GetMaterialSurfaceParameterId(Role, Kind::Texture);
+		const auto Id = Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(Role, Kind::Texture);
 		const auto Sample = std::ranges::find_if(Recipe.Expressions, [&](const auto& Expression) {
 			const auto* Parameter = Cast<DMaterialExpressionTextureSampleParameter2D>(Expression.Get());
 			return Parameter && Parameter->Metadata.Id == Id;
@@ -85,8 +89,8 @@ TEST(FMaterialFunctionTests, ExplicitMRTemplateRetainsIndependentInstanceParamet
 	EXPECT_EQ(Normalized.Layout.ResourceFieldCount, 6u);
 	TStrongObjectPtr<DMaterialInstance> Instance(NewObject<DMaterialInstance>(nullptr, "MRInstance"));
 	ASSERT_TRUE(Instance->SetParent(Material.Get()));
-	const auto MetallicId = GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::Metallic, Kind::Value);
-	const auto RoughnessId = GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::Roughness, Kind::Value);
+	const auto MetallicId = Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::Metallic, Kind::Value);
+	const auto RoughnessId = Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::Roughness, Kind::Value);
 	ASSERT_TRUE(Instance->SetParameterValue(MetallicId, FMaterialParameterValue::MakeScalar(.8f)));
 	ASSERT_TRUE(Instance->SetParameterValue(RoughnessId, FMaterialParameterValue::MakeScalar(.2f)));
 	FResolvedMaterialParameter Resolved;
@@ -211,13 +215,13 @@ TEST(FMaterialFunctionTests, ExpandedAndFunctionRecipesPreserveCompilationAndInd
 	auto* Child = NewObject<DMaterialInstance>(nullptr, "IndependentUVChild");
 	ASSERT_TRUE(Parent->SetParent(Frozen));
 	ASSERT_TRUE(Child->SetParent(Parent));
-	using Kind = MaterialParameters::EMaterialBuiltinParameterKind;
+	using Kind = Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterKind;
 	for (uint32 Index = 0; Index < 8; ++Index)
 	{
 		const auto Role = static_cast<EMaterialSurfaceOutput>(Index);
 		for (const auto ParameterKind : {Kind::UVChannel, Kind::UVScale, Kind::UVOffset, Kind::UVRotation})
 		{
-			const auto Id = GetMaterialSurfaceParameterId(Role, ParameterKind);
+			const auto Id = Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(Role, ParameterKind);
 			const auto* Definition = Frozen->FindParameterDefinition(Id);
 			ASSERT_NE(Definition, nullptr);
 			const auto Value = ParameterKind == Kind::UVScale || ParameterKind == Kind::UVOffset

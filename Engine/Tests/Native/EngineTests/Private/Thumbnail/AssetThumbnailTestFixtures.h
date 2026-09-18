@@ -1,3 +1,4 @@
+#include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "../Materials/ExplicitMaterialProgramTestFixture.h"
 #include "Asset/AssetCompilingManager.h"
 #pragma once
@@ -413,13 +414,13 @@ namespace Durin::Tests
 		if (!Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*OutFixtures.Material))
 			return Fail("Could not assign the expanded material fixture program.");
 		if (!OutFixtures.Material->SetVectorParameterValue(
-				MaterialParameters::BaseColorName(), FVector3(0.35, 0.55, 0.75))
+				Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), FVector3(0.35, 0.55, 0.75))
 			|| !OutFixtures.Material->SetScalarParameterValue(
-				MaterialParameters::MetallicName(), 0.4f)
+				Durin::AssetForge::Builtins::MaterialParameters::MetallicName(), 0.4f)
 			|| !OutFixtures.Material->SetScalarParameterValue(
-				MaterialParameters::RoughnessName(), 0.24f)
+				Durin::AssetForge::Builtins::MaterialParameters::RoughnessName(), 0.24f)
 			|| !OutFixtures.Material->SetTextureParameterValue(
-				MaterialParameters::BaseColorTextureName(), OutFixtures.ParentTexture))
+				Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), OutFixtures.ParentTexture))
 		{
 			return Fail("Could not assign the deterministic material fixture values.");
 		}
@@ -430,11 +431,11 @@ namespace Durin::Tests
 		if (!Created) return Fail(Created.Message);
 		if (!OutFixtures.MaterialInstance->SetParent(OutFixtures.Material)
 			|| !OutFixtures.MaterialInstance->SetVectorParameterValue(
-				MaterialParameters::BaseColorName(), FVector3(0.8, 0.28, 0.12))
+				Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), FVector3(0.8, 0.28, 0.12))
 			|| !OutFixtures.MaterialInstance->SetScalarParameterValue(
-				MaterialParameters::MetallicName(), 0.7f)
+				Durin::AssetForge::Builtins::MaterialParameters::MetallicName(), 0.7f)
 			|| !OutFixtures.MaterialInstance->SetTextureParameterValue(
-				MaterialParameters::BaseColorTextureName(), OutFixtures.OverrideTexture))
+				Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), OutFixtures.OverrideTexture))
 		{
 			return Fail("Could not assign the deterministic material-instance fixture values.");
 		}

@@ -20,36 +20,6 @@ namespace Durin
 	}
 
 
-	auto GetMaterialSurfaceParameterId(
-		EMaterialSurfaceOutput Output,
-		MaterialParameters::EMaterialBuiltinParameterKind Kind) -> FGuid
-	{
-		using MaterialParameters::EMaterialBuiltinParameterRole;
-		EMaterialBuiltinParameterRole Role;
-		switch (Output)
-		{
-		case EMaterialSurfaceOutput::BaseColor:
-			Role = EMaterialBuiltinParameterRole::BaseColor; break;
-		case EMaterialSurfaceOutput::Normal:
-			Role = EMaterialBuiltinParameterRole::Normal; break;
-		case EMaterialSurfaceOutput::Metallic:
-			Role = EMaterialBuiltinParameterRole::Metallic; break;
-		case EMaterialSurfaceOutput::Roughness:
-			Role = EMaterialBuiltinParameterRole::Roughness; break;
-		case EMaterialSurfaceOutput::AmbientOcclusion:
-			Role = EMaterialBuiltinParameterRole::AmbientOcclusion; break;
-		case EMaterialSurfaceOutput::Emissive:
-			Role = EMaterialBuiltinParameterRole::Emissive; break;
-		case EMaterialSurfaceOutput::Opacity:
-			Role = EMaterialBuiltinParameterRole::Opacity; break;
-		case EMaterialSurfaceOutput::OpacityMask:
-			Role = EMaterialBuiltinParameterRole::OpacityMask; break;
-		default:
-			return {};
-		}
-		return MaterialParameters::GetBuiltinParameterId(Role, Kind);
-	}
-
 	auto GetMaterialSurfaceOutputType(EMaterialSurfaceOutput Output)
 		-> EMaterialProgramValueType
 	{

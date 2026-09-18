@@ -1,3 +1,4 @@
+#include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "Thumbnail/AssetThumbnailTestFixtures.h"
 
 #include <gtest/gtest.h>
@@ -32,10 +33,10 @@ TEST(FAssetThumbnailFixtureTests, CreatesVersionedRenderedAssetFixtures)
 
 	Durin::FVector3 BaseColor;
 	ASSERT_TRUE(Fixtures.Material->GetVectorParameterValue(
-		Durin::MaterialParameters::BaseColorName(), BaseColor));
+		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), BaseColor));
 	EXPECT_EQ(BaseColor, Durin::FVector3(0.35, 0.55, 0.75));
 	ASSERT_TRUE(Fixtures.MaterialInstance->GetVectorParameterValue(
-		Durin::MaterialParameters::BaseColorName(), BaseColor));
+		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), BaseColor));
 	EXPECT_EQ(BaseColor, Durin::FVector3(0.8f, 0.28f, 0.12f));
 	EXPECT_EQ(Fixtures.MaterialInstance->GetParent(), Fixtures.Material);
 	EXPECT_EQ(Fixtures.InvalidMaterialInstance->GetParent(), nullptr);

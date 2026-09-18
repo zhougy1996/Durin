@@ -1,3 +1,4 @@
+#include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "MaterialProgramTestFixture.h"
 
 TEST(FMaterialDiagnosticTests, ExistingDomainSuccessAndExternalProviderFailuresRemainDistinct)
@@ -240,7 +241,7 @@ TEST(FMaterialProgramNormalizationTests,
 		*Material, Environment, Before);
 	ASSERT_TRUE(Validation);
 	ASSERT_TRUE(Material->SetScalarParameterValue(
-		Durin::MaterialParameters::MetallicName(), 0.87f));
+		Durin::AssetForge::Builtins::MaterialParameters::MetallicName(), 0.87f));
 	Durin::MIR::FCompilerInput After;
 	ASSERT_TRUE((Validation = Durin::SnapshotMaterialCompilerInput(
 		*Material, Environment, After)));

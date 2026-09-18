@@ -1,3 +1,4 @@
+#include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "../Materials/ExplicitMaterialProgramTestFixture.h"
 #include "Actors/ProceduralSkyActor.h"
 #include "Resources/RendererResourceCoordinator.h"
@@ -176,7 +177,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	Durin::FMaterialStaticProperties OcclusionProperties;
 	OcclusionProperties.bTwoSided = true;
 	ASSERT_TRUE(OcclusionMaterial->SetStaticProperties(OcclusionProperties));
-	OcclusionMaterial->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), {1.0, 0.0, 0.0});
+	OcclusionMaterial->SetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), {1.0, 0.0, 0.0});
 	Durin::DObject* OcclusionMaterialCompilationObject = OcclusionMaterial;
 	Durin::FAssetCompilingManager::Get().FinishCompilationForObjects(
 		std::span<Durin::DObject* const>(&OcclusionMaterialCompilationObject, 1));

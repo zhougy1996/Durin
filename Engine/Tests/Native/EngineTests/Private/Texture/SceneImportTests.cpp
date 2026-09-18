@@ -1,3 +1,4 @@
+#include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "../Materials/FunctionPortTestFixture.h"
 #include "Misc/MountPathTestSupport.h"
 #include "NativeDObjectTestSupport.h"
@@ -17,6 +18,7 @@
 #include "Hash/XxHash.h"
 #include "Materials/Material.h"
 #include "DObject/StrongObjectPtr.h"
+#include "DObject/DObjectArray.h"
 #include "Materials/MaterialProgramCompiler.h"
 #include "EditorReimportHandler.h"
 #include "StaticMesh/StaticMeshFactoryTestSupport.h"
@@ -220,8 +222,8 @@ TEST(FSceneImportTests, SceneReimportResetsEditsAndRollsBackSavedAndLiveOutputs)
 	}
 	ASSERT_NE(Previous, nullptr);
 	ASSERT_NE(PreviousMesh, nullptr);
-	using Kind = MaterialParameters::EMaterialBuiltinParameterKind;
-	const auto Color = GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::BaseColor, Kind::Value);
+	using Kind = Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterKind;
+	const auto Color = Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::BaseColor, Kind::Value);
 	ASSERT_TRUE(Previous->SetParameterValue(Color, FMaterialParameterValue::MakeVector4({0.2, 0.3, 0.4, 0})));
 	auto Properties = Previous->GetPropertyOverrides();
 	Properties.bOverrideShadingModel = true;
@@ -391,27 +393,27 @@ TEST(FSceneImportTests, SourceTransformsMaskFactorAndTexturelessEmissiveArePubli
 		if (Output.Role == "MaterialInstance")
 			ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath), Instance));
 	ASSERT_NE(Instance, nullptr);
-	using Kind = MaterialParameters::EMaterialBuiltinParameterKind;
+	using Kind = Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterKind;
 	FResolvedMaterialParameter Parameter;
-	ASSERT_TRUE(Instance->ResolveParameterValue(GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::BaseColor, Kind::Texture), Parameter));
+	ASSERT_TRUE(Instance->ResolveParameterValue(Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::BaseColor, Kind::Texture), Parameter));
 	EXPECT_EQ(Parameter.Value.GetTexture().SamplerState.MinFilter, EMaterialSamplerMinFilter::Nearest);
 	EXPECT_EQ(Parameter.Value.GetTexture().SamplerState.MagFilter, EMaterialSamplerMagFilter::Nearest);
 	EXPECT_EQ(Parameter.Value.GetTexture().SamplerState.AddressU, EMaterialSamplerAddressMode::ClampToEdge);
 	EXPECT_EQ(Parameter.Value.GetTexture().SamplerState.AddressV, EMaterialSamplerAddressMode::MirroredRepeat);
-	ASSERT_TRUE(Instance->ResolveParameterValue(GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::BaseColor, Kind::UVChannel), Parameter));
+	ASSERT_TRUE(Instance->ResolveParameterValue(Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::BaseColor, Kind::UVChannel), Parameter));
 	EXPECT_EQ(Parameter.Value.GetScalar(), 1);
-	ASSERT_TRUE(Instance->ResolveParameterValue(GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::BaseColor, Kind::UVScale), Parameter));
+	ASSERT_TRUE(Instance->ResolveParameterValue(Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::BaseColor, Kind::UVScale), Parameter));
 	EXPECT_EQ(FVector2(Parameter.Value.GetVector4()), FVector2(2, 3));
-	ASSERT_TRUE(Instance->ResolveParameterValue(GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::BaseColor, Kind::UVOffset), Parameter));
+	ASSERT_TRUE(Instance->ResolveParameterValue(Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::BaseColor, Kind::UVOffset), Parameter));
 	EXPECT_EQ(FVector2(Parameter.Value.GetVector4()), FVector2(.25, .5));
-	ASSERT_TRUE(Instance->ResolveParameterValue(GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::BaseColor, Kind::UVRotation), Parameter));
+	ASSERT_TRUE(Instance->ResolveParameterValue(Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::BaseColor, Kind::UVRotation), Parameter));
 	EXPECT_FLOAT_EQ(Parameter.Value.GetScalar(), .4f);
-	ASSERT_TRUE(Instance->ResolveParameterValue(GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::OpacityMask, Kind::Value), Parameter));
+	ASSERT_TRUE(Instance->ResolveParameterValue(Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::OpacityMask, Kind::Value), Parameter));
 	EXPECT_FLOAT_EQ(Parameter.Value.GetScalar(), .4f);
-	ASSERT_TRUE(Instance->ResolveParameterValue(GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::Emissive, Kind::Value), Parameter));
+	ASSERT_TRUE(Instance->ResolveParameterValue(Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::Emissive, Kind::Value), Parameter));
 	EXPECT_EQ(FVector3(Parameter.Value.GetVector4()), FVector3(2, 3, 4));
-	EXPECT_EQ(Instance->FindParameterDefinition(GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::Emissive, Kind::Texture)), nullptr);
-	EXPECT_EQ(Instance->FindParameterDefinition(GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::Opacity, Kind::Value)), nullptr);
+	EXPECT_EQ(Instance->FindParameterDefinition(Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::Emissive, Kind::Texture)), nullptr);
+	EXPECT_EQ(Instance->FindParameterDefinition(Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::Opacity, Kind::Value)), nullptr);
 }
 
 TEST(FSceneImportTests, PackedSourceChannelsPublishOneLinearSampleOwner)
@@ -457,7 +459,7 @@ TEST(FSceneImportTests, PackedSourceChannelsPublishOneLinearSampleOwner)
 	EXPECT_EQ(Instance->GetLocalParameterValueCount(), 2u);
 	EXPECT_FALSE(Instance->GetImportProvenance().OutputIdentity.empty());
 	DTexture2D* Texture = nullptr;
-	ASSERT_TRUE(Instance->GetTextureParameterValue(MaterialParameters::MetallicTextureName(), Texture));
+	ASSERT_TRUE(Instance->GetTextureParameterValue(Durin::AssetForge::Builtins::MaterialParameters::MetallicTextureName(), Texture));
 	ASSERT_NE(Texture, nullptr);
 	EXPECT_EQ(Texture->GetUsage(), ETextureUsage::DataMask);
 }
@@ -573,7 +575,10 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 		ASSERT_TRUE(SavePackage(Function->GetPackage()));
 		*Slots[Index] = Function;
 	}
+	const auto ObjectRevision = GDObjectArray.GetRevision();
 	ASSERT_TRUE(LoadStandardMaterialFunctions(Functions, Error)) << Error;
+	// Resident asset admission must not construct and discard a reference graph.
+	EXPECT_EQ(GDObjectArray.GetRevision(), ObjectRevision);
 	TStrongObjectPtr<DMaterial> MaterialOwner(NewObject<DMaterial>(nullptr, "StandardLibraryFixture"));
 	auto* Material = MaterialOwner.Get();
 	ASSERT_NE(Material, nullptr);
@@ -607,13 +612,13 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 	const auto PortId = [](uint32 Slot) { return StandardMaterialPortId(EStandardMaterialFunction::StandardPBR, Slot); };
 	for (uint32 Role = 0; Role < 8; ++Role)
 	{
-		const auto Owner = [&](MaterialParameters::EMaterialBuiltinParameterKind Kind) -> DMaterialExpressionParameter* {
-			const auto Id = GetMaterialSurfaceParameterId(static_cast<EMaterialSurfaceOutput>(Role), Kind);
+		const auto Owner = [&](Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterKind Kind) -> DMaterialExpressionParameter* {
+			const auto Id = Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(static_cast<EMaterialSurfaceOutput>(Role), Kind);
 			for (const auto& E : Packed.Expressions)
 				if (auto* P = Cast<DMaterialExpressionParameter>(E.Get()); P && P->Metadata.Id == Id) return P;
 			return nullptr;
 		};
-		const auto* Factor = Owner(MaterialParameters::EMaterialBuiltinParameterKind::Value);
+		const auto* Factor = Owner(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterKind::Value);
 		ASSERT_NE(Factor, nullptr);
 		const auto Type = Cast<DMaterialExpressionScalarParameter>(Factor) ? EMaterialProgramValueType::Float : EMaterialProgramValueType::Float3;
 		FMaterialExpressionInput FactorInput{Factor->Id};
@@ -625,7 +630,7 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 		}
 		PackedCall->Inputs.push_back({PortId(10 + Role), Type, FactorInput});
 		if (Role == 3 || Role == 4) continue;
-		const auto* Sample = Cast<DMaterialExpressionTextureSampleParameter2D>(Owner(MaterialParameters::EMaterialBuiltinParameterKind::Texture));
+		const auto* Sample = Cast<DMaterialExpressionTextureSampleParameter2D>(Owner(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterKind::Texture));
 		ASSERT_NE(Sample, nullptr);
 		PackedCall->Inputs.push_back({PortId(Role == 2 ? 40 : 20 + Role), EMaterialProgramValueType::Texture2D, {Sample->Id, 7}});
 		PackedCall->Inputs.push_back({PortId(Role == 2 ? 41 : 30 + Role), EMaterialProgramValueType::Float2, Sample->UV});

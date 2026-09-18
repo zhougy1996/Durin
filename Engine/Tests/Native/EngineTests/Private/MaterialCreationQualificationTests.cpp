@@ -1,3 +1,4 @@
+#include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "Materials/ExplicitMaterialProgramTestFixture.h"
 #include "EngineTestSupport.h"
 #include "Asset/AssetCompilingManager.h"
@@ -158,8 +159,8 @@ namespace Durin
 			ASSERT_TRUE((Validation = Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*Life.Material)));
 			ASSERT_TRUE(Life.Material->SetStaticProperties({.BlendMode=EMaterialBlendMode::Opaque,
 				.ShadingModel=EMaterialShadingModel::Unlit, .bTwoSided=true}));
-			ASSERT_TRUE(Life.Material->SetVectorParameterValue(MaterialParameters::BaseColorName(), SurfaceColor));
-			ASSERT_TRUE(Life.Material->SetVectorParameterValue(MaterialParameters::EmissiveName(), SurfaceColor));
+			ASSERT_TRUE(Life.Material->SetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), SurfaceColor));
+			ASSERT_TRUE(Life.Material->SetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::EmissiveName(), SurfaceColor));
 			if (Life.Material->GetMaterialCompileStatus().State == EMaterialCompileState::NeverRequested)
 				ASSERT_TRUE(RequestMaterialRecompile(*Life.Material));
 			DObject* Object = Life.Material;

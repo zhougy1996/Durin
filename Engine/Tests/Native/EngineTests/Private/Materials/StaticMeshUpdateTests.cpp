@@ -1,3 +1,4 @@
+#include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "ExplicitMaterialProgramTestFixture.h"
 #include "MaterialTestSupport.h"
 #include "DynamicRHI.h"
@@ -152,8 +153,8 @@ TEST(FStaticMeshUpdateTests, CurrentAssignmentsAndDefaultsDriveLoadedComponentSc
 	FRenderSceneHarness Harness;
 	auto* First = MakeExpandedMaterial("StaticMeshScanFirst");
 	auto* Second = MakeExpandedMaterial("StaticMeshScanSecond");
-	First->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.2, 0.3, 0.4));
-	Second->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.7, 0.6, 0.5));
+	First->SetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(0.2, 0.3, 0.4));
+	Second->SetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(0.7, 0.6, 0.5));
 	(void)Durin::FAssetCompilingManager::Get().FinishAllCompilation();
 	auto* FirstMesh = Durin::DStaticMesh::CreateDebugTriangle();
 	auto* SecondMesh = Durin::DStaticMesh::CreateDebugTriangle();

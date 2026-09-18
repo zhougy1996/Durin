@@ -51,15 +51,12 @@ namespace Durin::Editor::Material
 
 		auto GetTextureDependencies(DMaterialInterface& Material) -> std::vector<DTexture2D*>
 		{
-			const std::array Names{MaterialParameters::BaseColorTextureName(), MaterialParameters::NormalTextureName(),
-				MaterialParameters::MetallicTextureName(), MaterialParameters::RoughnessTextureName(),
-				MaterialParameters::AmbientOcclusionTextureName(), MaterialParameters::EmissiveTextureName(),
-				MaterialParameters::OpacityTextureName(), MaterialParameters::OpacityMaskTextureName()};
 			std::vector<DTexture2D*> Result;
-			for (const FName& Name : Names)
+			for (const auto& Definition : Material.GetParameterDefinitions())
 			{
+				if (Definition.Type != EMaterialParameterType::Texture) continue;
 				DTexture2D* Texture = nullptr;
-				if (Material.GetTextureParameterValue(Name, Texture) && Texture
+				if (Material.GetTextureParameterValue(Definition.Name, Texture) && Texture
 					&& std::ranges::find(Result, Texture) == Result.end()) Result.push_back(Texture);
 			}
 			return Result;
