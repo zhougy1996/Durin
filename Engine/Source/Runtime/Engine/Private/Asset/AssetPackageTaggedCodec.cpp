@@ -25,8 +25,19 @@ namespace Durin::AssetPrivate::TaggedPackage
 		auto ReaderError(const ObjectPackage::FPackageReaderResult& Diagnostic)
 			-> FAssetResult
 		{
-			return Error(EAssetError::CorruptFile,
+			auto Result = Error(EAssetError::CorruptFile,
 				std::format("DAST package validation failed: {}", Durin::ObjectPackage::FormatPackageError(Diagnostic)));
+			Result.PackageReaderCause = std::make_shared<ObjectPackage::FPackageReaderResult>(Diagnostic);
+			return Result;
+		}
+
+		auto WriterError(const ObjectPackage::FPackageWriterResult& Diagnostic,
+			std::string_view Operation) -> FAssetResult
+		{
+			auto Result = Error(EAssetError::CorruptFile,
+				std::format("DAST package {} failed: {}", Operation, ObjectPackage::FormatPackageError(Diagnostic)));
+			Result.PackageWriterCause = std::make_shared<ObjectPackage::FPackageWriterResult>(Diagnostic);
+			return Result;
 		}
 
 		auto ReadLinker(const FAssetPackageReadContext& Context,
@@ -684,15 +695,13 @@ namespace Durin::AssetPrivate::TaggedPackage
 			const FAssetPackageSerializationOptions& Options) -> FAssetResult
 		{
 			ObjectPackage::FLinkerTables Linker;
-			std::string ErrorMessage;
 			if (FAssetResult Result = CaptureLivePackageLinker(Package, DeltaMode,
-				Options, Linker, &ErrorMessage); !Result) return Result;
+				Options, Linker); !Result) return Result;
 			FAssetPackageEncodedClosure Closure;
 			ObjectPackage::FPackageWriterResult Diagnostic;
 			if (!(Diagnostic = ObjectPackage::WritePackage(Linker, Closure.PackageBytes,
 				Closure.BulkBytes)))
-				return Error(EAssetError::CorruptFile,
-					std::format("DAST package write failed: {}", Durin::ObjectPackage::FormatPackageError(Diagnostic)));
+				return WriterError(Diagnostic, "write");
 			ObjectPackage::FLinkerTables Verified;
 			ObjectPackage::FPackageReaderResult ReaderDiagnostic;
 			if (!(ReaderDiagnostic = ObjectPackage::ReadPackage(Closure.PackageBytes, Closure.BulkBytes,
@@ -710,8 +719,7 @@ namespace Durin::AssetPrivate::TaggedPackage
 			ObjectPackage::FPackageWriterResult Diagnostic;
 			if (!(Diagnostic = ObjectPackage::WritePackage(Linker, Closure.PackageBytes,
 				Closure.BulkBytes)))
-				return Error(EAssetError::CorruptFile,
-					std::format("DAST package mutation failed: {}", Durin::ObjectPackage::FormatPackageError(Diagnostic)));
+				return WriterError(Diagnostic, "mutation");
 			ObjectPackage::FLinkerTables Verified;
 			ObjectPackage::FPackageReaderResult ReaderDiagnostic;
 			if (!(ReaderDiagnostic = ObjectPackage::ReadPackage(Closure.PackageBytes, Closure.BulkBytes,

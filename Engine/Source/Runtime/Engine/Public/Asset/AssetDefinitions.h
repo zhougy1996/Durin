@@ -9,6 +9,12 @@
 
 namespace Durin
 {
+	struct FPackageCaptureError;
+	namespace ObjectPackage
+	{
+		struct FPackageReaderResult;
+		struct FPackageWriterResult;
+	}
 	struct FCookDependencyGraphResult;
 	struct FCookContributionResult;
 	struct FCookInputFailure;
@@ -62,6 +68,10 @@ namespace Durin
 		std::shared_ptr<const FCookDependencyGraphResult> CookDependencyCause;
 		std::shared_ptr<const FCookInputFailure> CookInputCause;
 		std::shared_ptr<const FCookContributionResult> CookContributionCause;
+		// Preserve codec-owned causes through the pending text-based asset adapter.
+		std::shared_ptr<const FPackageCaptureError> PackageCaptureCause;
+		std::shared_ptr<const ObjectPackage::FPackageReaderResult> PackageReaderCause;
+		std::shared_ptr<const ObjectPackage::FPackageWriterResult> PackageWriterCause;
 
 		auto Succeeded() const -> bool { return Error == EAssetError::None; }
 		explicit operator bool() const { return Succeeded(); }

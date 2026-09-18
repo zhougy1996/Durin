@@ -8,7 +8,7 @@ namespace Durin::AssetPrivate
 {
  auto CaptureLivePackageLinker(DPackage* Package, EDefaultDeltaMode DeltaMode,
   const FAssetPackageSerializationOptions& Options, ObjectPackage::FLinkerTables& OutLinker,
-  std::string* OutError, uint32 FormatVersion) -> FAssetResult
+  uint32 FormatVersion) -> FAssetResult
  {
   FSavePackageContext SaveContext;
   SaveContext.Options.Mode = DeltaMode == EDefaultDeltaMode::NoDelta ? EPackageSaveMode::Complete : EPackageSaveMode::Delta;
@@ -30,17 +30,20 @@ namespace Durin::AssetPrivate
      return {EAssetError::CorruptFile, "Redirector destination is invalid."};
     Capture.RedirectDestinations.emplace(Asset, std::move(Path));
    }
-  auto Result = SaveContext.Capture(Package, OutLinker, FormatVersion);
-  const auto Message = FormatPackageCaptureError(Result.Error);
-  if (OutError) *OutError = Message;
-  switch (GetPackageCaptureSaveError(Result.Error))
+  auto Captured = SaveContext.Capture(Package, OutLinker, FormatVersion);
+  if (Captured) return {};
+  // Explicit adapter to the still-unmigrated outer asset result contract.
+  FAssetResult Result;
+  Result.Message = FormatPackageCaptureError(Captured.Error);
+  switch (GetPackageCaptureSaveError(Captured.Error))
   {
-   case EPackageSaveError::None: return {};
-   case EPackageSaveError::InvalidPath: return {EAssetError::InvalidPath, Message};
-   case EPackageSaveError::InvalidPackageType: return {EAssetError::InvalidPackageType, Message};
-   case EPackageSaveError::InvalidObjectGraph: return {EAssetError::InvalidObjectGraph, Message};
-   case EPackageSaveError::UnsupportedVersion: return {EAssetError::UnsupportedVersion, Message};
-   default: return {EAssetError::UnsupportedProperty, Message};
+   case EPackageSaveError::InvalidPath: Result.Error = EAssetError::InvalidPath; break;
+   case EPackageSaveError::InvalidPackageType: Result.Error = EAssetError::InvalidPackageType; break;
+   case EPackageSaveError::InvalidObjectGraph: Result.Error = EAssetError::InvalidObjectGraph; break;
+   case EPackageSaveError::UnsupportedVersion: Result.Error = EAssetError::UnsupportedVersion; break;
+   default: Result.Error = EAssetError::UnsupportedProperty; break;
   }
+  Result.PackageCaptureCause = std::make_shared<FPackageCaptureError>(std::move(Captured.Error));
+  return Result;
  }
 }

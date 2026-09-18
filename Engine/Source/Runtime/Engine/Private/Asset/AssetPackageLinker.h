@@ -109,7 +109,6 @@ namespace Durin::AssetPrivate
 		EDefaultDeltaMode DeltaMode,
 		const FAssetPackageSerializationOptions& Options,
 		ObjectPackage::FLinkerTables& OutLinker,
-		std::string* OutError = nullptr,
 		uint32 FormatVersion = ObjectPackage::DastV10FormatVersion) -> FAssetResult;
 
 	auto ApplyLivePackageLinker(

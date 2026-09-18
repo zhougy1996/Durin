@@ -25,21 +25,28 @@ Original history remains on
 `codex/backup-asset-typed-errors-before-squash-20260918`. Use Git history for
 individual changes; this plan records current scope and acceptance only.
 
-Latest verified batch migrates the complete package graph preparation and reload result
-chain, including runtime-product preparation, object replacement, resource
-receipts, and editor presentation. The graph and reload APIs no longer store
-message strings. They preserve owned nested causes, material diagnostics,
-package/object/stage context, and budget data. The coordinator still owns cleanup
-and post-publication dependency retention; callers consume the final operation
-state. The outer `FAssetResult` and linker-application diagnostics remain explicit
-Stage 2 migration boundaries, including any text held inside those causes.
+The current batch preserves CoreDObject capture, reader and writer causes across
+Engine's DAST codec adapters, including ordinary writes and detached linker
+mutations. The sole Capture consumer no longer requests an unused text output.
+Codec consumers in package operations, relocation and reference rewriting
+already propagate complete results; Sandbox and RoadWeaver have no direct
+consumers of this private boundary. Callers keep their existing responsibility
+to consume success, propagate failure, or own rollback; retaining a cause does
+not require each caller to interpret it.
 
-All 14 focused reload cases passed (`20260918-134554-219295-1644-AssetPackageReloadTests.log`).
-All 46 affected native targets passed (`20260918-134813-300511-1834-ctest.log`),
-and the all build passed (`20260918-134838-479069-3106-cmake.log`). Stage 1
-callback/property-edit review confirms typed results at the owning APIs;
-remaining Engine load/save adapters are tracked with the outer asset result
-work. Neither stage is closed by this batch.
+Both focused codec regressions passed. The affected run passed 94 of 95 targets
+(`20260918-144928-588756-28636-ctest.log`); the remaining Factory diagnostic test
+held a vector element reference across append/reallocation. Retaining a value
+copy fixes that test, and all 60 EditorOperationTests cases passed on rerun
+(`20260918-145216-454607-17356-EditorOperationTests.log`). Windows validation also
+required missing Cook discovery/material transaction test-interface exports and
+`/bigobj` for the existing large AssetPackageTests translation unit. The all
+build passed (`20260918-145224-260017-35536-cmake.log`). The
+outer `FAssetResult`, Engine-owned codec admission errors and linker-application
+diagnostics remain explicit Stage 2 migration boundaries. The codec adapters
+still format for that pending outer contract while retaining their full typed
+causes. Stage 1 callback/property-edit review previously confirmed typed results
+at the owning APIs; neither stage is closed by this batch.
 
 Implemented contracts belong in [Serialization](../Runtime/Core/Serialization.md)
 and [Asset data lifecycle](../Runtime/Assets/AssetDataLifecycle.md), with their
@@ -114,6 +121,8 @@ change; neither a fixed commit count nor one commit per error is required.
 
 - [x] Type graph preparation and reload diagnostics, retaining resource,
   replacement, material and asset causes through asynchronous completion and UI.
+- [x] Preserve owned CoreDObject capture, reader and writer causes through the
+  Engine DAST codec adapters without expanding caller error-handling duties.
 
 - [ ] Migrate Registry, package resources, BulkData, load/save, Cook, reload,
   compilation, and import metadata validation results.

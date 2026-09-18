@@ -46,14 +46,14 @@ namespace Durin::Editor::Material::GraphEditInternals
 			? EMaterialGraphPresentationResult::Changed : EMaterialGraphPresentationResult::Rejected;
 	}
 
-	auto MakeMaterialGraphPresentationTransaction(
+	MATERIALEDITOR_API auto MakeMaterialGraphPresentationTransaction(
 		DObject& Material,
 		const FMaterialGraphPresentation& BeforePresentation,
 		const FMaterialGraphPresentation& AfterPresentation,
 		std::string Description)
 		-> std::unique_ptr<ITransactionCustomChange>;
 
-	auto MakeMaterialGraphParameterTransaction(
+	MATERIALEDITOR_API auto MakeMaterialGraphParameterTransaction(
 		DMaterial& Material,
 		FGuid ParameterId,
 		FMaterialParameterValue BeforeValue,

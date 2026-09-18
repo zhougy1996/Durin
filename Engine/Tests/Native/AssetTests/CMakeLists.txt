@@ -10,9 +10,13 @@ durin_add_native_test(AssetPackageTests
 	DOMAINS asset-package
 	MODULES ${_durin_asset_package_modules}
 	LIBRARIES Core CoreDObject Engine ${_durin_asset_package_libraries}
-	SOURCES Private/BulkDataTests.cpp Private/PackageTests.cpp
+	SOURCES Private/BulkDataTests.cpp Private/PackageTests.cpp Private/PackageCodecErrorTests.cpp
 	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
 )
+if(MSVC)
+	# PackageTests instantiates the shared asset result across many lifecycle fixtures.
+	target_compile_options(AssetPackageTests PRIVATE /bigobj)
+endif()
 durin_add_native_test(AssetCookTests
 	KIND feature
 	DOMAINS asset-cook

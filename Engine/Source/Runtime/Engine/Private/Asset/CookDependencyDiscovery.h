@@ -18,12 +18,12 @@ namespace Durin::AssetPrivate
 	{
 	public:
 		using FResolveContributor = std::function<FAssetResult(const FAssetData&, FCookContributorRegistration&)>;
-		FCookDependencyDiscovery(const FCookRequest& Request, FAssetRegistrySnapshot Registry,
+		ENGINE_API FCookDependencyDiscovery(const FCookRequest& Request, FAssetRegistrySnapshot Registry,
 			FResolveContributor ResolveContributor);
 		FCookDependencyDiscovery(const FCookDependencyDiscovery&) = delete;
 		auto operator=(const FCookDependencyDiscovery&) -> FCookDependencyDiscovery& = delete;
-		auto Acquire(std::span<const FPackagePath> Roots, const FAssetReferenceStoreCapture& ExternalRoots) -> FAssetResult;
-		auto CheckCancellation() -> FAssetResult;
+		ENGINE_API auto Acquire(std::span<const FPackagePath> Roots, const FAssetReferenceStoreCapture& ExternalRoots) -> FAssetResult;
+		ENGINE_API auto CheckCancellation() -> FAssetResult;
 		auto ReadInput(const FPackagePath& Path, ECookBuildDependencyKind Kind, std::string_view Name, FByteBuffer& Out) -> FAssetResult;
 		auto GetPackages() const -> const std::vector<FPackagePath>& { return RuntimePackages; }
 		auto GetRegistry() const -> const FAssetRegistrySnapshot& { return Registry; }

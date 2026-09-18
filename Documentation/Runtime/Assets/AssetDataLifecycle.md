@@ -65,6 +65,17 @@ implicitly recompress. GPU formats, DDC keys and Cook inputs remain unchanged.
 
 ## Serialization and production ownership
 
+Engine's DAST codec adapters retain complete CoreDObject capture, reader and
+writer causes in `FAssetResult::PackageCaptureCause`, `PackageReaderCause` and
+`PackageWriterCause`. These immutable owned causes include nested errors and
+context, survive copies and temporary input destruction, and are absent on
+success. Read validation, normal serialization and detached linker mutation use
+the same adapters. Failed encoding keeps the caller's output closure unchanged.
+Callers can propagate the result or consume its success state without handling
+individual causes. The pending outer asset result contract still receives
+formatted text explicitly at these adapters; Engine admission failures and live
+linker application have separate diagnostic contracts.
+
 Persistent values use the common archive protocol rather than paired
 direction-named codecs. Runtime `Engine` values own their bidirectional
 `Serialize(FArchive&)` field order and validation for DDC and cooked payloads;

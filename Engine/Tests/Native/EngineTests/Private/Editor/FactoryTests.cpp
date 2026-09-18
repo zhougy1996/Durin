@@ -832,7 +832,8 @@ TEST(DFactoryTests, TypedDiagnosticsRetainContextAndMixedReportOrder)
 	Diagnostics.Report("last");
 	ASSERT_EQ(Diagnostics.GetEntries().size(), 3u);
 	ASSERT_TRUE(Diagnostics.GetEntries()[1].Failure.has_value());
-	const auto& Error = *Diagnostics.GetEntries()[1].Failure;
+	// Appending diagnostics can reallocate Entries; retain an owned error value.
+	const auto Error = *Diagnostics.GetEntries()[1].Failure;
 	EXPECT_EQ(Error.Code, Durin::EFactoryError::ExactClass);
 	EXPECT_EQ(Error.RequestedClass, "Texture2D");
 	EXPECT_EQ(Error.Filename, "source.mesh");
