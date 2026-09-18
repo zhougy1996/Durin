@@ -25,28 +25,26 @@ Original history remains on
 `codex/backup-asset-typed-errors-before-squash-20260918`. Use Git history for
 individual changes; this plan records current scope and acceptance only.
 
-The current batch preserves CoreDObject capture, reader and writer causes across
-Engine's DAST codec adapters, including ordinary writes and detached linker
-mutations. The sole Capture consumer no longer requests an unused text output.
-Codec consumers in package operations, relocation and reference rewriting
-already propagate complete results; Sandbox and RoadWeaver have no direct
-consumers of this private boundary. Callers keep their existing responsibility
-to consume success, propagate failure, or own rollback; retaining a cause does
-not require each caller to interpret it.
+The current batch migrates the complete `LoadAuthoredObject` field-application
+boundary. It preserves Archive, decoded object-path and external resolver causes
+through live linker loading and private graph preparation. Both workspace test
+consumers and the single production linker adapter use the typed result;
+Sandbox and RoadWeaver have no direct consumers. Serializers still return void;
+load coordinators continue to own rollback and publication.
 
-Both focused codec regressions passed. The affected run passed 94 of 95 targets
-(`20260918-144928-588756-28636-ctest.log`); the remaining Factory diagnostic test
-held a vector element reference across append/reallocation. Retaining a value
-copy fixes that test, and all 60 EditorOperationTests cases passed on rerun
-(`20260918-145216-454607-17356-EditorOperationTests.log`). Windows validation also
-required missing Cook discovery/material transaction test-interface exports and
-`/bigobj` for the existing large AssetPackageTests translation unit. The all
-build passed (`20260918-145224-260017-35536-cmake.log`). The
-outer `FAssetResult`, Engine-owned codec admission errors and linker-application
-diagnostics remain explicit Stage 2 migration boundaries. The codec adapters
-still format for that pending outer contract while retaining their full typed
-causes. Stage 1 callback/property-edit review previously confirmed typed results
-at the owning APIs; neither stage is closed by this batch.
+To keep the design small, field loading reuses the existing `EAssetError` and
+`EArchiveFailureCode` domains instead of defining a reason per failure branch or
+a second classification map. Only owned context and underlying causes are added.
+The enclosing linker explicitly formats for its pending asset-result contract.
+Prior codec cause retention remains implemented. The outer `FAssetResult`,
+Engine-owned codec admission errors and remaining linker diagnostics are still
+Stage 2 migration boundaries; neither stage is closed by this batch.
+
+All three focused field-load regressions passed
+(`20260918-155528-480808-25676-AssetPackageTests.log`). All 48 affected native
+targets, including the added end-to-end rollback/cause-retention case, passed
+(`20260918-155908-851454-38324-ctest.log`). The all build passed
+(`20260918-160041-648911-9704-cmake.log`). Changed-document validation passed.
 
 Implemented contracts belong in [Serialization](../Runtime/Core/Serialization.md)
 and [Asset data lifecycle](../Runtime/Assets/AssetDataLifecycle.md), with their
@@ -123,6 +121,9 @@ change; neither a fixed commit count nor one commit per error is required.
   replacement, material and asset causes through asynchronous completion and UI.
 - [x] Preserve owned CoreDObject capture, reader and writer causes through the
   Engine DAST codec adapters without expanding caller error-handling duties.
+
+- [x] Return a typed field-load result and preserve Archive, path and resolver
+  causes through the live/private linker adapter without adding serializer duties.
 
 - [ ] Migrate Registry, package resources, BulkData, load/save, Cook, reload,
   compilation, and import metadata validation results.

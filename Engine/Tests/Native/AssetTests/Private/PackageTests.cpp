@@ -3181,15 +3181,24 @@ TEST(FPackageAssetTests, PackageLoadBindingsResolvePrivateObjectsWithoutLiveFall
 	EXPECT_EQ(ResolveCount, 1u);
 	Candidate->HardReference = nullptr;
 	Bindings.ResolveExternalObject = {};
-	EXPECT_EQ(Read().Error, EAssetError::MissingDependency);
+	EXPECT_EQ(Read().Error.Code, EAssetError::MissingDependency);
 	EXPECT_EQ(Candidate->HardReference.Get(), nullptr);
 	Bindings.ResolveExternalObject = [](const FObjectPath&, DObject*&) -> FAssetResult { return {}; };
-	EXPECT_EQ(Read().Error, EAssetError::MissingDependency);
+	const auto EmptyResolution = Read();
+	EXPECT_EQ(EmptyResolution.Error.Code, EAssetError::MissingDependency);
+	EXPECT_FALSE(EmptyResolution.Error.AssetCause);
 	Bindings.ResolveExternalObject = [](const FObjectPath&, DObject*& Out) -> FAssetResult {
 		Out = nullptr;
-		return {EAssetError::MissingDependency, "Rejected private dependency."};
+		return {.Error = EAssetError::MissingDependency, .Message = "Rejected private dependency.",
+			.Disposition = EAssetResultDisposition::RecoveryRequired, .OperationId = "resolver-operation"};
 	};
-	EXPECT_NE(Read().Message.find("Rejected private dependency."), std::string::npos);
+	const auto Rejected = Read();
+	EXPECT_EQ(Rejected.Error.Code, EAssetError::MissingDependency);
+	EXPECT_EQ(Rejected.Error.ArchiveCode, EArchiveFailureCode::InvalidObjectReference);
+	EXPECT_EQ(Rejected.Error.Subject, PathToResolve.ToString());
+	ASSERT_TRUE(Rejected.Error.AssetCause);
+	EXPECT_EQ(Rejected.Error.AssetCause->Disposition, EAssetResultDisposition::RecoveryRequired);
+	EXPECT_EQ(Rejected.Error.AssetCause->OperationId, "resolver-operation");
 	// Internal references use the supplied skeleton table even without a resolver.
 	Bindings = {};
 	Durin::PackagePrivate::FByteWriter Internal;
@@ -3201,6 +3210,8 @@ TEST(FPackageAssetTests, PackageLoadBindingsResolvePrivateObjectsWithoutLiveFall
 	Field.Payload = {std::byte{0}};
 	ASSERT_TRUE(Read());
 	EXPECT_EQ(Candidate->HardReference.Get(), nullptr);
+	EXPECT_EQ(Rejected.Error.AssetCause->OperationId, "resolver-operation");
+	EXPECT_FALSE(Read().Error.AssetCause);
 	EXPECT_EQ(FindPackage(Path.GetView()), Live->GetPackage());
 	EXPECT_EQ(Live->NativeValue, 73);
 	EXPECT_TRUE(Live->GetPackage()->IsDirty());
@@ -3210,6 +3221,95 @@ TEST(FPackageAssetTests, PackageLoadBindingsResolvePrivateObjectsWithoutLiveFall
 	MarkObjectHierarchyAsGarbage(Private);
 	CollectGarbage();
 	Live->GetPackage()->ClearDirty();
+	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(Path));
+}
+
+TEST(FPackageAssetTests, PackageFieldLoadRetainsPathAndPayloadCauses)
+{
+	using namespace Durin;
+	using namespace Durin::AssetPrivate;
+	InitializeAssetTests();
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/FieldErrors", Path));
+	DAuthoredArchiveAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
+	struct FCleanup
+	{
+		DPackage* Package;
+		~FCleanup() { MarkObjectHierarchyAsGarbage(Package); CollectGarbage(); }
+	} Cleanup{Asset->GetPackage()};
+	const auto Type = FArchiveLogicalTypeDescriptor::SoftObject(DObject::StaticClass()->GetQualifiedName());
+	FAuthoredPackageFieldRecord Field{"Tests::DAuthoredArchiveAssetForTest", "SoftReference",
+		PackagePrivate::GetNativeKind(Type), PackagePrivate::GetNativeTypeSignature(Type)};
+	const std::string InvalidPath = "/TestAssets//Broken.Asset";
+	PackagePrivate::FByteWriter Payload;
+	Payload.Write(uint8{1});
+	Payload.WriteString(InvalidPath);
+	Field.Payload = std::move(Payload.Bytes);
+	DObject* Objects[] = {Asset};
+	auto Read = [&] {
+		return LoadAuthoredObject(*Asset, std::span{&Field, 1}, Objects, {}, ObjectPackage::DastV10FormatVersion);
+	};
+	const auto Invalid = Read();
+	EXPECT_EQ(Invalid.Error.Code, EAssetError::InvalidPath);
+	EXPECT_EQ(Invalid.Error.ArchiveCode, EArchiveFailureCode::InvalidPath);
+	EXPECT_EQ(Invalid.Error.ObjectPath, Asset->GetObjectPath());
+	EXPECT_FALSE(Invalid.Error.ArchivePath.empty());
+	const auto* Cause = std::get_if<FObjectError>(&Invalid.Error.Cause);
+	ASSERT_NE(Cause, nullptr);
+	FObjectPath Unused;
+	const auto Expected = FObjectPath::TryCreate(InvalidPath, Unused);
+	EXPECT_EQ(Cause->Code, Expected.Error.Code);
+	EXPECT_EQ(Cause->Subject, Expected.Error.Subject);
+	Field.Payload.clear();
+	const auto Truncated = Read();
+	EXPECT_EQ(Truncated.Error.Code, EAssetError::CorruptFile);
+	EXPECT_EQ(Truncated.Error.ArchiveCode, EArchiveFailureCode::TruncatedPayload);
+	EXPECT_EQ(Truncated.Error.Actual, 1u);
+	EXPECT_EQ(Truncated.Error.Expected, 0u);
+	Field.Payload = {std::byte{0}};
+	EXPECT_TRUE(Read());
+	EXPECT_EQ(std::get<FObjectError>(Invalid.Error.Cause).Subject, Expected.Error.Subject);
+	Field.Payload.push_back(std::byte{7});
+	const auto Trailing = Read();
+	EXPECT_EQ(Trailing.Error.Code, EAssetError::CorruptFile);
+	EXPECT_EQ(Trailing.Error.ArchiveCode, EArchiveFailureCode::TrailingData);
+	EXPECT_EQ(Trailing.Error.Actual, 1u);
+}
+
+TEST(FPackageAssetTests, PackageLoadRetainsArchiveCauseAfterRollback)
+{
+	using namespace Durin;
+	InitializeAssetTests();
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/LoadCauseRollback", Path));
+	DAuthoredArchiveAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
+	ASSERT_TRUE(SavePackage(Asset->GetPackage()));
+	ASSERT_TRUE(UnloadPackage(Path));
+	Asset = nullptr;
+	FAssetResult Rejected;
+	{
+		struct FRejectScope
+		{
+			FRejectScope() { GRejectAuthoredLoad = true; }
+			~FRejectScope() { GRejectAuthoredLoad = false; }
+		} Reject;
+		Rejected = LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Asset);
+	}
+	EXPECT_EQ(Rejected.Error, EAssetError::CorruptFile);
+	EXPECT_EQ(Asset, nullptr);
+	EXPECT_EQ(FindResidentPackage(Path), nullptr);
+	ASSERT_TRUE(Rejected.PackageObjectLoadCause);
+	EXPECT_EQ(Rejected.PackageObjectLoadCause->Code, EAssetError::CorruptFile);
+	EXPECT_EQ(Rejected.PackageObjectLoadCause->ArchiveCode, EArchiveFailureCode::InvalidData);
+	EXPECT_EQ(Rejected.PackageObjectLoadCause->ObjectPath,
+		Testing::MakePackageLeafAssetObjectPathForTests(Path).ToString());
+	CollectGarbage();
+	const auto Loaded = LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Asset);
+	ASSERT_TRUE(Loaded) << Loaded.Message;
+	EXPECT_FALSE(Loaded.PackageObjectLoadCause);
+	EXPECT_EQ(Rejected.PackageObjectLoadCause->ArchiveCode, EArchiveFailureCode::InvalidData);
 	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(Path));
 }
 
@@ -3258,7 +3358,7 @@ TEST(FPackageAssetTests, PackageLoadBindingsAttachSnapshotWithoutUsingLiveBulkRe
 	DObject* Objects[] = {Candidate};
 	// A live resource exists at the same path, but cannot satisfy a missing binding.
 	EXPECT_EQ(LoadAuthoredObject(*Candidate, std::span{&Field, 1}, Objects,
-		{}, ObjectPackage::DastV10FormatVersion).Error, EAssetError::CorruptFile);
+		{}, ObjectPackage::DastV10FormatVersion).Error.Code, EAssetError::CorruptFile);
 	FPackageLoadBindings Bindings{.BulkResource = Prepared.GetBulkResource()};
 	ASSERT_TRUE(LoadAuthoredObject(*Candidate, std::span{&Field, 1}, Objects,
 		Bindings, ObjectPackage::DastV10FormatVersion));

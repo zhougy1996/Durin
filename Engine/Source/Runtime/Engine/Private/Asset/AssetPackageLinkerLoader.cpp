@@ -1042,10 +1042,14 @@ namespace Durin::AssetPrivate
 				LoadContext.bCooking = Options.bCooked;
 				LoadContext.bFilterEditorOnly = Options.bCooked;
 				LoadContext.Target = Options.Target;
-				FAssetResult Result = LoadAuthoredObject(*Objects[ObjectIndex], Fields, Objects,
+				auto Loaded = LoadAuthoredObject(*Objects[ObjectIndex], Fields, Objects,
 					Bindings, Linker.FormatVersion, CustomVersions, LoadContext);
-				if (!Result)
+				if (!Loaded)
 				{
+					// Explicit adapter until the enclosing linker/asset results migrate.
+					FAssetResult Result{Loaded.Error.Code,
+						FormatPackageObjectLoadError(Loaded.Error)};
+					Result.PackageObjectLoadCause = std::make_shared<FPackageObjectLoadError>(std::move(Loaded.Error));
 					LinkerApplyFail(Diagnostic, Result.Error, Result.Message, 0, Exports[ObjectIndex].Path);
 					return Result;
 				}

@@ -76,6 +76,16 @@ individual causes. The pending outer asset result contract still receives
 formatted text explicitly at these adapters; Engine admission failures and live
 linker application have separate diagnostic contracts.
 
+Field application through `LoadAuthoredObject` returns `FPackageObjectLoadResult`.
+It reuses `EAssetError` and `EArchiveFailureCode`, retaining owned object/field
+context, bounds, type identities, CoreDObject value/path causes, and the complete
+external resolver result. The archive keeps the first failure; success retains
+no cause. Serializers keep their existing void interface and in-place writes.
+The enclosing linker owns rollback and adapts the result to `FAssetResult`,
+retaining `PackageObjectLoadCause`; it formats only for that pending outer
+contract. Generic serializer failures retain their Archive code and path rather
+than copying diagnostic prose into the field-load result.
+
 Persistent values use the common archive protocol rather than paired
 direction-named codecs. Runtime `Engine` values own their bidirectional
 `Serialize(FArchive&)` field order and validation for DDC and cooked payloads;

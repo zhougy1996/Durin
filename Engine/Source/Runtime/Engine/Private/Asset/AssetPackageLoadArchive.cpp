@@ -101,27 +101,40 @@ namespace Durin::AssetPrivate
 			{
 				uint8 Baseline = 0;
 				if (!Read(Baseline) || Baseline > 2)
-					SetError("Invalid Struct baseline mode.");
+					FailLoad(EArchiveFailureCode::InvalidData,
+						{.Code = EAssetError::CorruptFile, .Actual = Baseline, .Expected = 2});
 				return static_cast<EArchiveStructBaseline>(Baseline);
 			}
 
-			auto GetAssetError() const -> EAssetError
+			auto GetResult() const -> FPackageObjectLoadResult
 			{
-				if (bAssetErrorSet) return AssetError;
-				const FArchiveFailure* Failure = GetFailure();
-				if (Failure && Failure->Code == EArchiveFailureCode::UnsupportedVersion)
-					return EAssetError::UnsupportedVersion;
-				if (Failure && (Failure->Code == EArchiveFailureCode::UnsupportedType
-					|| Failure->Code == EArchiveFailureCode::UnsupportedOperation
-					|| Failure->Code == EArchiveFailureCode::MalformedSerializer
-					|| Failure->Code == EArchiveFailureCode::MissingBaseReflectedFields))
-					return EAssetError::UnsupportedProperty;
-				return EAssetError::CorruptFile;
-			}
-
-			auto HasUnconsumedFields() const -> bool
-			{
-				return std::ranges::find(Consumed, uint8{0}) != Consumed.end();
+				if (const auto* Failure = GetFailure())
+				{
+					auto Error = LoadError;
+					if (Error.Code == EAssetError::None)
+					{
+						if (Failure->Code == EArchiveFailureCode::UnsupportedVersion)
+							Error.Code = EAssetError::UnsupportedVersion;
+						else if (Failure->Code == EArchiveFailureCode::UnsupportedType
+							|| Failure->Code == EArchiveFailureCode::UnsupportedOperation
+							|| Failure->Code == EArchiveFailureCode::MalformedSerializer
+							|| Failure->Code == EArchiveFailureCode::MissingBaseReflectedFields)
+							Error.Code = EAssetError::UnsupportedProperty;
+						else Error.Code = EAssetError::CorruptFile;
+					}
+					Error.ObjectPath = Object.GetObjectPath();
+					Error.ArchiveCode = Failure->Code;
+					Error.ArchivePath = Failure->Path;
+					if (std::holds_alternative<std::monostate>(Error.Cause))
+						Error.Cause = GetValueFailureCause();
+					return {std::move(Error)};
+				}
+				for (size_t Index = 0; Index < Fields.size(); ++Index)
+					if (!Consumed[Index]) return {{.Code = EAssetError::UnsupportedProperty,
+						.ObjectPath = Object.GetObjectPath(), .Subject = Fields[Index].Name,
+						.DeclaringType = Fields[Index].DeclaringClass,
+						.ActualType = Fields[Index].TypeSignature}};
+				return {};
 			}
 
 			auto GetLoadedDeprecatedProperties(FName DeclaringType) const
@@ -138,10 +151,10 @@ namespace Durin::AssetPrivate
 				FLoadScope& Scope = Stack.back();
 				if (Bytes.size() > Scope.Record->Payload.size() - Scope.Offset)
 				{
-					FailLoad(EAssetError::CorruptFile, EArchiveFailureCode::TruncatedPayload,
-						std::format("Truncated property payload (requested {}, remaining {}, total {}, offset {}).",
-							Bytes.size(), Scope.Record->Payload.size() - Scope.Offset,
-							Scope.Record->Payload.size(), Scope.Offset));
+					FailLoad(EArchiveFailureCode::TruncatedPayload,
+						{.Code = EAssetError::CorruptFile,
+							.Actual = Bytes.size(), .Expected = Scope.Record->Payload.size() - Scope.Offset,
+							.Offset = Scope.Offset, .Total = Scope.Record->Payload.size()});
 					return;
 				}
 				if (!Bytes.empty())
@@ -159,9 +172,9 @@ namespace Durin::AssetPrivate
 					GetVersionContext().FindFormat(FName("DAST"));
 				if (!DastVersion || !ObjectPackage::IsSupportedPackageReaderVersion(DastVersion->Version))
 				{
-					FailLoad(EAssetError::UnsupportedVersion,
-						EArchiveFailureCode::InvalidData,
-						"Authored bulk fields require a supported DAST package version.");
+					FailLoad(EArchiveFailureCode::InvalidData,
+						{.Code = EAssetError::UnsupportedVersion,
+							.Actual = DastVersion ? DastVersion->Version : 0});
 					return;
 				}
 				uint64 FieldIndex = 0;
@@ -184,8 +197,8 @@ namespace Durin::AssetPrivate
 					|| (Placement == 1 && (Alignment != EditorBulkDataExternalAlignment
 						|| SegmentOffset % Alignment != 0)))
 				{
-					FailLoad(EAssetError::CorruptFile, EArchiveFailureCode::InvalidData,
-						"DAST authored bulk field metadata is invalid.");
+					FailLoad(EArchiveFailureCode::InvalidData,
+						{.Code = EAssetError::CorruptFile});
 					return;
 				}
 				Value = {.PayloadId = InstanceId,
@@ -203,8 +216,8 @@ namespace Durin::AssetPrivate
 					if (HasError()) return;
 					if (FXxHash128::HashBuffer(Bytes) != Value.ContentHash)
 					{
-						FailLoad(EAssetError::CorruptFile, EArchiveFailureCode::InvalidData,
-							"DAST inline authored bulk content identity is invalid.");
+						FailLoad(EArchiveFailureCode::InvalidData,
+							{.Code = EAssetError::CorruptFile});
 						return;
 					}
 					Value.Buffer = FSharedByteBuffer::Take(std::move(Bytes));
@@ -213,8 +226,8 @@ namespace Durin::AssetPrivate
 				{
 					Value.PackageResource = Bindings.BulkResource;
 					if (!Value.PackageResource)
-						FailLoad(EAssetError::CorruptFile, EArchiveFailureCode::InvalidData,
-							"DAST external bulk field requires an explicit package resource binding.");
+						FailLoad(EArchiveFailureCode::InvalidData,
+							{.Code = EAssetError::CorruptFile});
 				}
 			}
 
@@ -230,9 +243,8 @@ namespace Durin::AssetPrivate
 					if (!Read(Id)) return;
 					if (Id == 0 || Id > Objects.size())
 					{
-						FailLoad(EAssetError::InvalidObjectGraph,
-							EArchiveFailureCode::InvalidObjectReference,
-							"Invalid internal object reference.");
+						FailLoad(EArchiveFailureCode::InvalidObjectReference,
+							{.Code = EAssetError::InvalidObjectGraph, .Actual = Id, .Expected = Objects.size()});
 						return;
 					}
 					Value = Objects[static_cast<size_t>(Id - 1)];
@@ -242,33 +254,33 @@ namespace Durin::AssetPrivate
 					std::string PathString;
 					if (!ReadString(PathString)) return;
 					FObjectPath Path;
-					if (!FObjectPath::TryCreate(PathString, Path))
+					if (const auto Validation = FObjectPath::TryCreate(PathString, Path); !Validation)
 					{
-						FailLoad(EAssetError::InvalidPath, EArchiveFailureCode::InvalidPath,
-							std::format("Invalid external object reference '{}'.", PathString));
+						FailLoad(EArchiveFailureCode::InvalidPath,
+							{.Code = EAssetError::InvalidPath,
+								.Subject = PathString, .Cause = Validation.Error});
 						return;
 					}
 					if (!Bindings.ResolveExternalObject)
 					{
-						FailLoad(EAssetError::MissingDependency,
-							EArchiveFailureCode::InvalidObjectReference,
-							"External object reference requires an explicit resolver binding.");
+						FailLoad(EArchiveFailureCode::InvalidObjectReference,
+							{.Code = EAssetError::MissingDependency, .Subject = PathString});
 						return;
 					}
 					FAssetResult Result = Bindings.ResolveExternalObject(Path, Value);
 					if (!Result || !Value)
 					{
-						FailLoad(Result ? EAssetError::MissingDependency : Result.Error,
-							EArchiveFailureCode::InvalidObjectReference,
-							Result.Message.empty() ? "External object resolver returned no object."
-								: Result.Message);
+						FailLoad(EArchiveFailureCode::InvalidObjectReference,
+							{.Code = Result ? EAssetError::MissingDependency : Result.Error,
+								.Subject = PathString,
+								.AssetCause = Result ? nullptr : std::make_shared<FAssetResult>(std::move(Result))});
 						return;
 					}
 				}
 				else if (Kind != 0)
 				{
-					FailLoad(EAssetError::CorruptFile, EArchiveFailureCode::InvalidData,
-						"Unknown object reference kind.");
+					FailLoad(EArchiveFailureCode::InvalidData,
+						{.Code = EAssetError::CorruptFile, .Actual = Kind, .Expected = 2});
 					return;
 				}
 
@@ -277,8 +289,10 @@ namespace Durin::AssetPrivate
 				{
 					DClass* Expected = FindClassByQualifiedName(Type.QualifiedType.ToString());
 					if (Expected && !Value->IsA(Expected))
-						FailLoad(EAssetError::TypeMismatch, EArchiveFailureCode::InvalidData,
-							"Object reference class mismatch.");
+						FailLoad(EArchiveFailureCode::InvalidData,
+							{.Code = EAssetError::TypeMismatch,
+								.Subject = Value->GetObjectPath(), .ExpectedType = Expected->GetQualifiedName().ToString(),
+								.ActualType = Value->GetClass()->GetQualifiedName().ToString()});
 				}
 			}
 
@@ -290,23 +304,24 @@ namespace Durin::AssetPrivate
 				if (Kind == 0) { Value = {}; return; }
 				if (Kind != 1)
 				{
-					FailLoad(EAssetError::CorruptFile, EArchiveFailureCode::InvalidData,
-						"Unknown soft object reference tag.");
+					FailLoad(EArchiveFailureCode::InvalidData,
+						{.Code = EAssetError::CorruptFile, .Actual = Kind, .Expected = 1});
 					return;
 				}
 				std::string PathString;
 				if (!ReadString(PathString)) return;
 				if (PathString.empty())
 				{
-					FailLoad(EAssetError::CorruptFile, EArchiveFailureCode::InvalidPath,
-						"Soft object path payload is empty.");
+					FailLoad(EArchiveFailureCode::InvalidPath,
+						{.Code = EAssetError::CorruptFile});
 					return;
 				}
 				FObjectPath Loaded;
 				if (const auto PathValidation = FObjectPath::TryCreate(PathString, Loaded); !PathValidation)
 				{
-					FailLoad(EAssetError::InvalidPath, EArchiveFailureCode::InvalidPath,
-						FormatObjectError(PathValidation.Error));
+					FailLoad(EArchiveFailureCode::InvalidPath,
+						{.Code = EAssetError::InvalidPath,
+							.Subject = PathString, .Cause = PathValidation.Error});
 					return;
 				}
 				Value = std::move(Loaded);
@@ -328,9 +343,8 @@ namespace Durin::AssetPrivate
 			auto OnEnterObject(DObject& EnteredObject) -> void override
 			{
 				if (&EnteredObject != &Object)
-					FailLoad(EAssetError::InvalidObjectGraph,
-						EArchiveFailureCode::InvalidObjectReference,
-						"Authored load entered an unexpected object.");
+					FailLoad(EArchiveFailureCode::InvalidObjectReference,
+						{.Code = EAssetError::InvalidObjectGraph, .Subject = EnteredObject.GetObjectPath()});
 			}
 
 			auto OnEnterField(const FArchiveFieldDescriptor& Descriptor) -> void override
@@ -403,12 +417,11 @@ namespace Durin::AssetPrivate
 				}
 				if (!bTopLevel && bFoundIdentity && !bReservedForDeprecatedRoute)
 				{
-					FailLoad(EAssetError::TypeMismatch, EArchiveFailureCode::InvalidData,
-						std::format("Serialized struct field {}::{} is incompatible with the current schema "
-							"(stored kind={}, signature='{}'; expected kind={}, signature='{}').",
-							DeclaringType, Name, static_cast<uint32>(FoundKind),
-							FoundSignature, static_cast<uint32>(ExpectedKind),
-							ExpectedSignature));
+					FailLoad(EArchiveFailureCode::InvalidData,
+						{.Code = EAssetError::TypeMismatch, .Subject = Name,
+							.DeclaringType = DeclaringType, .ExpectedType = ExpectedSignature,
+							.ActualType = FoundSignature, .Actual = static_cast<uint32>(FoundKind),
+							.Expected = static_cast<uint32>(ExpectedKind)});
 				}
 				Stack.emplace_back();
 			}
@@ -460,8 +473,10 @@ namespace Durin::AssetPrivate
 					if (Scope.Type.Kind == FArchiveLogicalTypeDescriptor::EKind::Struct)
 						PrepareStruct(Scope.Struct, Scope.Type);
 					if (!HasError() && Scope.Offset != Scope.Record->Payload.size())
-						FailLoad(EAssetError::CorruptFile, EArchiveFailureCode::InvalidData,
-							"Property payload has trailing bytes.");
+						FailLoad(EArchiveFailureCode::TrailingData,
+							{.Code = EAssetError::CorruptFile,
+								.Actual = Scope.Record->Payload.size() - Scope.Offset,
+								.Offset = Scope.Offset, .Total = Scope.Record->Payload.size()});
 				}
 				Stack.pop_back();
 			}
@@ -499,12 +514,11 @@ namespace Durin::AssetPrivate
 				FStructState Struct;
 			};
 
-			auto FailLoad(EAssetError Error, EArchiveFailureCode Code,
-				std::string_view Message) -> void
+			auto FailLoad(EArchiveFailureCode Code, FPackageObjectLoadError Error) -> void
 			{
-				if (!HasError()) AssetError = Error;
-				if (!HasError()) bAssetErrorSet = true;
-				Fail(Code, Message);
+				if (HasError()) return;
+				LoadError = std::move(Error);
+				Fail(Code, {});
 			}
 
 			auto GetCurrentLogicalType() const -> const FArchiveLogicalTypeDescriptor&
@@ -518,8 +532,8 @@ namespace Durin::AssetPrivate
 			{
 				if (!Type)
 				{
-					FailLoad(EAssetError::CorruptFile, EArchiveFailureCode::InvalidData,
-						"Authored container path has no logical element type.");
+					FailLoad(EArchiveFailureCode::InvalidData,
+						{.Code = EAssetError::CorruptFile});
 					return;
 				}
 				FPathType Path;
@@ -541,8 +555,10 @@ namespace Durin::AssetPrivate
 				FLoadScope& Scope = Stack.back();
 				if (sizeof(T) > Scope.Record->Payload.size() - Scope.Offset)
 				{
-					FailLoad(EAssetError::CorruptFile, EArchiveFailureCode::TruncatedPayload,
-						"Truncated property payload.");
+					FailLoad(EArchiveFailureCode::TruncatedPayload,
+						{.Code = EAssetError::CorruptFile, .Actual = sizeof(T),
+							.Expected = Scope.Record->Payload.size() - Scope.Offset,
+							.Offset = Scope.Offset, .Total = Scope.Record->Payload.size()});
 					return false;
 				}
 				std::memcpy(&Value, Scope.Record->Payload.data() + Scope.Offset, sizeof(T));
@@ -556,8 +572,9 @@ namespace Durin::AssetPrivate
 				if (!Read(Size)) return false;
 				if (Size > Durin::PackagePrivate::MaximumPackageStringBytes || Size > GetRemainingPayloadBytes())
 				{
-					FailLoad(EAssetError::CorruptFile, EArchiveFailureCode::TruncatedPayload,
-						"Truncated or overlong string payload.");
+					FailLoad(EArchiveFailureCode::TruncatedPayload,
+						{.Code = EAssetError::CorruptFile, .Actual = Size,
+							.Expected = std::min<uint64>(Durin::PackagePrivate::MaximumPackageStringBytes, GetRemainingPayloadBytes())});
 					return false;
 				}
 				FLoadScope& Scope = Stack.back();
@@ -575,8 +592,8 @@ namespace Durin::AssetPrivate
 				const auto& Type = Durin::PackagePrivate::UnwrapFixed(InputType);
 				if (Type.Kind != FArchiveLogicalTypeDescriptor::EKind::Struct)
 				{
-					FailLoad(EAssetError::CorruptFile, EArchiveFailureCode::InvalidData,
-						"A nested authored field was entered outside a struct value.");
+					FailLoad(EArchiveFailureCode::InvalidData,
+						{.Code = EAssetError::CorruptFile});
 					return false;
 				}
 
@@ -584,14 +601,15 @@ namespace Durin::AssetPrivate
 				uint64 FieldCount = 0;
 				if (!ReadString(StructName) || !Read(FieldCount) || FieldCount > 100000)
 				{
-					if (!HasError()) FailLoad(EAssetError::CorruptFile,
-						EArchiveFailureCode::InvalidData, "Invalid struct payload header.");
+					if (!HasError()) FailLoad(EArchiveFailureCode::InvalidData,
+						{.Code = EAssetError::CorruptFile, .Actual = FieldCount, .Expected = 100000});
 					return false;
 				}
 				if (!Type.QualifiedType.IsNone() && StructName != Type.QualifiedType.ToString())
 				{
-					FailLoad(EAssetError::CorruptFile, EArchiveFailureCode::InvalidData,
-						"Invalid struct payload type.");
+					FailLoad(EArchiveFailureCode::InvalidData,
+						{.Code = EAssetError::CorruptFile,
+							.ExpectedType = Type.QualifiedType.ToString(), .ActualType = StructName});
 					return false;
 				}
 				LoadedDeprecatedProperties[StructName].clear();
@@ -605,8 +623,9 @@ namespace Durin::AssetPrivate
 						|| !Read(Kind) || !ReadString(Field.TypeSignature)
 						|| !Read(PayloadSize) || PayloadSize > GetRemainingPayloadBytes())
 					{
-						if (!HasError()) FailLoad(EAssetError::CorruptFile,
-							EArchiveFailureCode::TruncatedPayload, "Invalid struct field record.");
+						if (!HasError()) FailLoad(EArchiveFailureCode::TruncatedPayload,
+							{.Code = EAssetError::CorruptFile, .Subject = Field.Name,
+								.Actual = PayloadSize, .Expected = GetRemainingPayloadBytes()});
 						return false;
 					}
 					Field.Kind = static_cast<DurinCodeGen::EPropertyGenFlags>(Kind);
@@ -630,8 +649,7 @@ namespace Durin::AssetPrivate
 			std::vector<FLoadScope> Stack;
 			std::vector<FPathType> PathTypes;
 			std::unordered_map<std::string, std::vector<FName>> LoadedDeprecatedProperties;
-			EAssetError AssetError = EAssetError::CorruptFile;
-			bool bAssetErrorSet = false;
+			FPackageObjectLoadError LoadError;
 		};
 
 	}
@@ -643,7 +661,7 @@ namespace Durin::AssetPrivate
 		const FPackageLoadBindings& Bindings,
 		uint32 SourceVersion,
 		std::span<const FArchiveCustomVersion> CustomVersions,
-		const FArchiveState& Context) -> FAssetResult
+		const FArchiveState& Context) -> FPackageObjectLoadResult
 	{
 		FAuthoredLoadArchive Archive(
 			Object, Fields, Objects, Bindings, SourceVersion, CustomVersions, Context);
@@ -652,11 +670,27 @@ namespace Durin::AssetPrivate
 			if (Context.bCooking) Object.SerializeCooked(Archive);
 			else Object.Serialize(Archive);
 		}
-		if (Archive.HasError())
-			return {Archive.GetAssetError(), std::string(Archive.GetError())};
-		if (Archive.HasUnconsumedFields())
-			return {EAssetError::UnsupportedProperty,
-				"Serialized fields are not present in the live schema."};
-		return {};
+		return Archive.GetResult();
+	}
+}
+
+namespace Durin
+{
+	auto FormatPackageObjectLoadError(const FPackageObjectLoadError& Error) -> std::string
+	{
+		const auto Cause = std::visit([](const auto& Value) -> std::string {
+			using T = std::decay_t<decltype(Value)>;
+			if constexpr (std::is_same_v<T, FObjectError>) return FormatObjectError(Value);
+			else if constexpr (std::is_same_v<T, FPropertyValueError>) return FormatPropertyValueError(Value);
+			else if constexpr (std::is_same_v<T, FReflectedMapKeyError>) return FormatReflectedMapKeyError(Value);
+			else if constexpr (std::is_same_v<T, FObjectValidationError>) return FormatObjectValidationError(Value);
+			else return {};
+		}, Error.Cause);
+		if (!Cause.empty()) return Cause;
+		if (Error.Code == EAssetError::None) return {};
+		if (Error.AssetCause && !Error.AssetCause->Message.empty()) return Error.AssetCause->Message;
+		return std::format("Package field load failed for '{}' at '{}' (asset code={}, archive code={}).",
+			Error.ObjectPath, Error.ArchivePath, static_cast<uint32>(Error.Code),
+			Error.ArchiveCode ? std::to_string(static_cast<uint32>(*Error.ArchiveCode)) : "none");
 	}
 }
