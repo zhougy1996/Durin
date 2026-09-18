@@ -4,7 +4,7 @@ Summary: Define material assets, parameters, render proxies, invalidation, passe
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-09-16
+Last reviewed: 2026-09-18
 
 Durin's material architecture keeps declaration ownership, instance resolution,
 editor presentation, and renderer consumption at explicit boundaries.
@@ -18,6 +18,39 @@ compiled-layout representation/builder, and diagnostics files. The production
 render boundary accepts only material-specific layout v4 data. Built-in role knowledge is confined to editor-owned standard function authoring and import binding.
 
 ## Parameter Domain
+
+### Persistent and dynamic instance lifetimes
+
+Ordinary `DMaterialInstance` construction creates an authored instance: parent,
+static property overrides and typed parameter values participate in asset saving
+and editor transactions. Existing instance packages retain their schema.
+
+`DMaterialInstance::CreateDynamic(Parent, Outer, Name)` creates a transient instance
+with a fixed, valid non-dynamic material parent. It returns null for invalid or
+over-depth chains. A parent without an accepted program is allowed; parameter
+updates require both a matching current declaration and the parent's accepted
+active parameter contract. `IsDynamicInstance()` exposes this immutable lifecycle.
+The existing typed setters and clear operations update only local runtime values
+and render state, without package dirtiness or compilation. Static overrides,
+reparenting, import metadata edits and reflected editor edits are rejected.
+
+Dynamic instances reuse the parent's complete accepted rendering generation and
+overlay compatible local numeric/texture values. Parent updates reach their stable
+render proxies through the ordinary dependency query. Pending compilation retains
+the parent's accepted generation; failure or a broken chain displays ErrorMaterial.
+Explicit and inherited compile scheduling never submits work for a dynamic owner.
+Editor and cooked runtime use the same path; no dynamic cooked payload is created.
+
+Callers retain instances in reflected strong references such as component material
+slots, or through the existing explicit GC roots. Outer provides naming context,
+not a lifetime root. Reflected parent and texture storage retains those objects
+while the instance lives. Package planning may inspect the normal field manifest,
+but transient instances are excluded from persisted graphs. Duplication and
+snapshot serialization are rejected, and authored instances cannot select a
+dynamic parent. Dynamic-parent chains are not supported. This API does not provide
+atomic multi-parameter batches or new allocation/upload optimizations.
+
+### Parameter values and declarations
 
 - `DMaterialInterface` is the common asset/component-facing contract. Persistent
   parameter identity is an `FGuid`; public human/API lookup uses

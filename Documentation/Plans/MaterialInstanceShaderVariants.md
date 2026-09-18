@@ -2,12 +2,19 @@
 
 Summary: Let one base material graph produce inherited instance render configurations with shared compiled variants, atomic publication, and cooked runtime support.
 
-Last reviewed: 2026-09-11
+Last reviewed: 2026-09-18
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-09-18
 
 ## Current Status
+
+Closed on 2026-09-18 at the user's explicit direction. All remaining
+qualification gates are closed as waived, not passed. Existing implementation and evidence
+are retained below; historical statements about pending qualification describe
+the earlier execution state. Scene reimport remains outside the supported import
+lifecycle and is not a prerequisite for runtime dynamic instances. M13 no longer
+blocks M8. No additional acceptance runs were performed for this closure.
 
 The 2026-09-11 prerequisite refactor changes current compilation failure and
 admission rejection to retire the owner's accepted renderable generation and
@@ -467,7 +474,7 @@ Depends on Stage 2.
   parent-layout assumptions and shader-identity mutation through local static layers.
 - [x] Implement last-known-good retention, compatible dynamic edits during compile,
   atomic pass configuration changes and correct error/resource retirement behavior.
-- [ ] Qualify StaticMesh/SplineMesh (and the current shared geometry submission
+- [x] Waived by user on 2026-09-18, not passed: qualify StaticMesh/SplineMesh (and the current shared geometry submission
   contract), forward/GBuffer/shadow, preview and thumbnail publication paths.
 
 Exit: successful variants render with matching state; failed/pending/reordered
@@ -482,7 +489,7 @@ Depends on Stage 3; follow the accepted shared archive/BulkData interfaces.
   payload and required parent dependencies without modifying shared root assets.
 - [x] Enforce current target/dependency/request freshness and strict version,
   checksum, effective configuration and parameter-contract checks.
-- [ ] Load nested instance fixtures in Win64 Game without authored graphs, shader
+- [x] Waived by user on 2026-09-18, not passed: load nested instance fixtures in Win64 Game without authored graphs, shader
   sources, editor DDC or a live compiler; test corrupted/missing/wrong payloads.
 - [x] Measure repeated payload storage and document the retained duplication tradeoff.
 
@@ -502,7 +509,7 @@ Depends on Stage 4, so the public workflow produces shippable assets.
 - [x] Check parameter application outcomes and compilation readiness explicitly;
   integrate variant failure into the existing import candidate/commit lifecycle.
   Finish shared work in batches where synchronous import publication requires it.
-- [ ] Verify save/reload, reimport reuse, texture alpha, masked threshold boundaries,
+- [x] Waived by user on 2026-09-18, not passed: verify save/reload, reimport reuse, texture alpha, masked threshold boundaries,
   double-sided imports, preview/thumbnail refresh and parent edits after import.
 
 Exit: the selected one-graph workflow works through editor and scene import, has
@@ -512,7 +519,7 @@ actionable failures, and does not create base material assets per configuration.
 
 Depends on Stage 5.
 
-- [ ] Run the bounded affected CPU/Cook suites and the explicit GPU matrix below;
+- [x] Waived by user on 2026-09-18, not passed: run the bounded affected CPU/Cook suites and the explicit GPU matrix below;
   record commands, results, unavailable lanes and resource counter receipts.
 - [x] Remove obsolete broad override APIs, parent-only compatibility branches and
   base-only compilation assumptions; retain only required legacy migration readers.

@@ -60,6 +60,29 @@ namespace Durin
 		if (!IsTemplateConstructionPurpose(ObjectInitializer.Purpose)) PublishMaterialRenderProxyState();
 	}
 
+	auto DMaterialInstance::CreateDynamic(DMaterialInterface* InParent, DObject* Outer, FName Name)
+		-> DMaterialInstance*
+	{
+		if (!IsValid(InParent) || InParent->IsDynamicInstance()) return nullptr;
+		FResolvedMaterialProperties Resolved;
+		if (!ResolveMaterialProperties(*InParent, Resolved)) return nullptr;
+		uint32 Depth = 1;
+		for (auto* Node = InParent; Node; Node = Node->GetParent())
+			if (++Depth > MaterialMaximumParentDepth) return nullptr;
+		auto* Instance = NewObject<DMaterialInstance>(Outer, Name, EObjectFlags::Transient);
+		Instance->bDynamicInstance = true;
+		Instance->Parent = InParent;
+		Instance->MarkRenderDataDirty(EMaterialRenderDirtyFlags::AllRenderState);
+		return Instance;
+	}
+
+	auto DMaterialInstance::GetRenderableStaticProperties() const -> FMaterialStaticProperties
+	{
+		if (bDynamicInstance) return IsValid(Parent.Get())
+			? Parent->GetRenderableStaticProperties() : FMaterialStaticProperties{};
+		return Super::GetRenderableStaticProperties();
+	}
+
 	auto DMaterialInstance::ValidateParameterStorage(const FPropertyEditProposal* Proposal) const -> FMaterialOperationResult
 	{
 		std::unordered_set<FGuid> Ids;
@@ -100,6 +123,18 @@ namespace Durin
 
 	auto DMaterialInstance::Serialize(FArchive& Ar) -> void
 	{
+		if (bDynamicInstance)
+		{
+			// Package planning needs the normal field manifest before excluding
+			// transient objects from the persisted graph. Other copies are forbidden.
+			if (!(Ar.IsSaving() && (Ar.GetPurpose() == EArchivePurpose::Discovery
+				|| Ar.GetPurpose() == EArchivePurpose::AuthoredPackage
+				|| Ar.GetPurpose() == EArchivePurpose::CookedPackage)))
+			{
+				Ar.Fail(EArchiveFailureCode::InvalidData, "Dynamic material instances cannot be serialized or duplicated.");
+				return;
+			}
+		}
 		if (!FMaterialInstanceVersion::Serialize(Ar)) return;
 		Super::Serialize(Ar);
 		if (Ar.HasError()) return;
@@ -121,6 +156,7 @@ namespace Durin
 	auto DMaterialInstance::SetParentAndPropertyOverrides(DMaterialInterface* InParent,
 		const FMaterialPropertyOverrides& Overrides) -> bool
 	{
+		if (bDynamicInstance || (InParent && InParent->IsDynamicInstance())) return false;
 		Durin::FMaterialOperationResult Error;
 		if (WouldCreateParentCycle(this, InParent)
 			|| !(Error = ValidateMaterialStaticProperties(Overrides.Values))) return false;
@@ -138,6 +174,7 @@ namespace Durin
 
 	auto DMaterialInstance::PreEditChangeProperty(FPropertyEditProposal& Proposal) -> FObjectValidationResult
 	{
+		if (bDynamicInstance) return RejectPropertyEdit(*this, Proposal, EPropertyEditRejection::ModuleRejected);
 		if (auto Result = Super::PreEditChangeProperty(Proposal); !Result) return Result;
 		if (const auto Validation = ValidateParameterStorage(&Proposal); !Validation)
 		{
@@ -161,6 +198,8 @@ namespace Durin
 		DObject* Value = static_cast<const FObjectProperty*>(Proposal.DraftRootProperty)->GetObjectPropertyValue(
 			Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex);
 		auto* CandidateParent = Value ? Cast<DMaterialInterface>(Value) : nullptr;
+		if (CandidateParent && CandidateParent->IsDynamicInstance())
+			return RejectPropertyEdit(*this, Proposal, EPropertyEditRejection::ModuleRejected);
 		if (Value && !CandidateParent)
 		{
 			return RejectPropertyEdit(*this, Proposal, EPropertyEditRejection::IncompatibleObject);
@@ -174,6 +213,7 @@ namespace Durin
 
 	auto DMaterialInstance::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
 	{
+		if (bDynamicInstance) return;
 		FObjectCacheContext Context;
 		Super::PostEditChangePropertyWithContext(Event, Context);
 		auto DirtyFlags = EMaterialRenderDirtyFlags::DynamicParameters;
@@ -210,6 +250,7 @@ namespace Durin
 	auto DMaterialInstance::GetAcceptedCompiledProgram() const
 		-> std::shared_ptr<const FMaterialCompilerResult>
 	{
+		if (bDynamicInstance) return IsValid(Parent.Get()) ? Parent->GetAcceptedCompiledProgram() : nullptr;
 		FResolvedMaterialProperties Resolved;
 		const auto Error = ResolveMaterialProperties(*this, Resolved);
 		if (!Error) return nullptr;
@@ -282,6 +323,14 @@ namespace Durin
 		};
 		if (!Definition) return Fail(EMaterialParameterError::NotFound);
 		if (Definition->Type != Type) return Fail(EMaterialParameterError::InvalidType, Definition->Type);
+		if (bDynamicInstance)
+		{
+			const auto Program = GetAcceptedCompiledProgram();
+			if (!Program) return Fail(EMaterialParameterError::Unreachable);
+			const auto Active = std::ranges::find(Program->ActiveParameters, Id, &FMaterialCompilerParameterDeclaration::Id);
+			if (Active == Program->ActiveParameters.end()) return Fail(EMaterialParameterError::Unreachable);
+			if (Active->Type != Type) return Fail(EMaterialParameterError::InvalidType, Active->Type);
+		}
 		if (!GetParameterReachability()->ParameterIds.contains(Id)) return Fail(EMaterialParameterError::Unreachable);
 		if (Type == EMaterialParameterType::Texture && !IsValidMaterialSampling(Value.GetTexture().SamplerState, Value.GetTexture().TextureFallback))
 			return Fail(EMaterialInstanceError::InvalidSamplingPolicy);
@@ -310,7 +359,7 @@ namespace Durin
 			}
 			It->SetValue(StoredValue);
 		});
-		MarkPackageDirty();
+		if (!bDynamicInstance) MarkPackageDirty();
 		MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters, true);
 		return {};
 	}
@@ -322,7 +371,7 @@ namespace Durin
 			bRemoved |= std::erase_if(Records, [&](const auto& Record) { return Record.ParameterId == Id; }) != 0;
 		});
 		if (!bRemoved) return false;
-		MarkPackageDirty();
+		if (!bDynamicInstance) MarkPackageDirty();
 		MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters, true);
 		return true;
 	}
@@ -452,6 +501,8 @@ namespace Durin
 
 	auto DMaterialInstance::ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> FObjectValidationResult
 	{
+		if (bDynamicInstance || (Parent && Parent->IsDynamicInstance()))
+			return RejectLoadedObjectGraph(GetObjectPath(), "Dynamic material instances cannot participate in persistent object graphs.");
 		if (auto Result = Super::ValidateLoadedObjectGraph(Context); !Result) return Result;
 		if (WouldCreateParentCycle(this, Parent.Get()))
 			return RejectLoadedObjectGraph(GetObjectPath(), "Material instance parent chain contains a cycle.");

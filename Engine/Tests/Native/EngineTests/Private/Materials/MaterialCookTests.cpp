@@ -164,6 +164,12 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 	}
 
 
+	// A transient instance inside the authored package must not need its own
+	// compiled payload or enter the cooked package graph.
+	auto* Preview = Durin::DMaterialInstance::CreateDynamic(AuthoredInstance, Source, "TransientCookPreview");
+	ASSERT_TRUE(Preview);
+	ASSERT_TRUE(Preview->SetScalarParameterValue(
+		Durin::AssetForge::Builtins::MaterialParameters::RoughnessName(), 0.91f));
 	const std::filesystem::path CookRoot = std::filesystem::absolute(
 		Durin::Testing::CreateTestFixtureDirectory("ActiveMaterialCook"));
 	Durin::FCookContext Cook(
@@ -240,16 +246,22 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 			Durin::FVector4f(0.8f, 0.3f, 0.1f, 1.0f));
 	}
 
-	auto* Child = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "CookedChild");
+	auto* Child = Durin::DMaterialInstance::CreateDynamic(Instance, nullptr, "CookedChild");
+	ASSERT_TRUE(Child);
+	EXPECT_TRUE(Child->IsDynamicInstance());
+	EXPECT_EQ(Child->GetAcceptedCompiledProgram(), Instance->GetAcceptedCompiledProgram());
+	EXPECT_FALSE(Durin::RequestMaterialRecompile(*Child));
 	auto* Texture = Durin::NewObject<Durin::DTexture2D>(nullptr, "CookedDynamicTexture");
 	ASSERT_TRUE(Texture->GetTextureReferenceRHI());
-	ASSERT_TRUE(Child->SetParent(Instance));
 	ASSERT_TRUE(Cooked->SetTextureParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), Texture));
+	Instance->GetPackage()->ClearDirty();
 	ASSERT_TRUE(Child->SetTextureParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), Texture));
 	ASSERT_TRUE(Child->SetScalarParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::RoughnessName(), 0.23f));
+	EXPECT_FALSE(Instance->GetPackage()->IsDirty());
+	EXPECT_EQ(Child->GetCookedProgramData().GetMetadata().LogicalSize, 0u);
 	EXPECT_FALSE(Instance->IsParameterValueOrphan(
 		Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(
 			Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value));

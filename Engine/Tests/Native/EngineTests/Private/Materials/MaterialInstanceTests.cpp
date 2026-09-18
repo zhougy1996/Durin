@@ -156,6 +156,142 @@ namespace
 	}
 }
 
+TEST(FMaterialInstanceTests, DynamicInstancesAreIndependentAndDoNotDirtyTheirOwningPackage)
+{
+	using namespace Durin;
+	using namespace Durin::AssetForge::Builtins;
+	InitializeDObjectSystem();
+	FScopedOfflinePreparation Offline;
+	const auto Root = Testing::CreateTestFixtureDirectory("DynamicInstances");
+	const std::array Mounts{FMountPoint{.VirtualRoot = "/DynamicInstances/", .Owner = EMountOwner::Test,
+		.Root = Root, .bAutoScan = true, .bContentWritable = true}};
+	Testing::FScopedMountRegistryFixture Registry(Mounts);
+	ASSERT_TRUE(Registry.IsValid());
+	ASSERT_TRUE(RefreshAssetRegistry());
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/DynamicInstances/Material", Path));
+	DMaterial* Base = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Base));
+	ASSERT_TRUE(Testing::MakePBRMaterialExpressionsForTest().Apply(*Base));
+	ASSERT_TRUE(FinishMaterialCompileForTest(*Base));
+	ASSERT_TRUE(SavePackage(Base->GetPackage()));
+	auto* First = DMaterialInstance::CreateDynamic(Base, Base, "First");
+	auto* Second = DMaterialInstance::CreateDynamic(Base, Base, "Second");
+	ASSERT_TRUE(First && Second);
+	EXPECT_TRUE(First->HasAnyObjectFlags(EObjectFlags::Transient));
+	EXPECT_FALSE(Base->GetPackage()->IsDirty());
+	const auto Program = Base->GetAcceptedCompiledProgram();
+	const auto ParentGeneration = Base->GetMaterialCompileStatus().RequestGeneration;
+	float Original = 0;
+	ASSERT_TRUE(Base->GetScalarParameterValue(MaterialParameters::RoughnessName(), Original));
+	ASSERT_TRUE(First->SetScalarParameterValue(MaterialParameters::RoughnessName(), 0.23f));
+	EXPECT_FLOAT_EQ(GetMaterialBinding(First->GetRenderData()).Roughness, 0.23f);
+	EXPECT_FLOAT_EQ(GetMaterialBinding(Second->GetRenderData()).Roughness, Original);
+	EXPECT_FLOAT_EQ(GetMaterialBinding(Base->GetRenderData()).Roughness, Original);
+	EXPECT_EQ(First->GetAcceptedCompiledProgram(), Program);
+	EXPECT_EQ(Base->GetMaterialCompileStatus().RequestGeneration, ParentGeneration);
+	EXPECT_EQ(First->GetMaterialCompileStatus().RequestGeneration, 0u);
+	EXPECT_FALSE(RequestMaterialRecompile(*First, true));
+	EXPECT_FALSE(First->SetParent(Base));
+	EXPECT_FALSE(First->SetPropertyOverrides({}));
+	EXPECT_FALSE(First->SetImportProvenance({}));
+	EXPECT_EQ(DMaterialInstance::CreateDynamic(First), nullptr);
+	EXPECT_EQ(DMaterialInstance::CreateDynamic(nullptr), nullptr);
+	auto* AssetInstance = NewObject<DMaterialInstance>(nullptr, "AssetParentBoundary");
+	EXPECT_FALSE(AssetInstance->SetParent(First));
+	FPropertyEditProposal Proposal;
+	EXPECT_FALSE(First->PreEditChangeProperty(Proposal));
+	EXPECT_EQ(DuplicateObject(First, nullptr, "ForbiddenDynamicCopy").Object, nullptr);
+	ASSERT_TRUE(First->ClearScalarParameterValue(MaterialParameters::RoughnessName()));
+	EXPECT_FLOAT_EQ(GetMaterialBinding(First->GetRenderData()).Roughness, Original);
+	EXPECT_FALSE(Base->GetPackage()->IsDirty());
+	// Transient children do not enter the saved asset's object graph.
+	const auto Saved = SavePackage(Base->GetPackage());
+	ASSERT_TRUE(Saved) << Saved.Message;
+	MarkAsGarbage(First);
+	MarkAsGarbage(Second);
+	MarkAsGarbage(AssetInstance);
+	ASSERT_TRUE(UnloadPackage(Path));
+	CollectGarbage();
+}
+
+TEST(FMaterialInstanceTests, DynamicInstancesFollowAcceptedParentGenerationAndProxyUpdates)
+{
+	using namespace Durin;
+	using namespace Durin::AssetForge::Builtins;
+	FRenderSceneHarness Harness;
+	auto* Base = MakeExpandedMaterial(nullptr, "DynamicGenerationBase");
+	ASSERT_TRUE(Base);
+	auto* Asset = NewObject<DMaterialInstance>(nullptr, "DynamicGenerationAsset");
+	ASSERT_TRUE(Asset->SetParent(Base));
+	auto* Dynamic = DMaterialInstance::CreateDynamic(Asset, nullptr, "DynamicGenerationChild");
+	ASSERT_TRUE(Dynamic);
+	auto* Mesh = DStaticMesh::CreateDebugTriangle();
+	auto* Component = Harness.CreateStaticMeshComponent("DynamicGenerationComponent");
+	Component->SetStaticMesh(Mesh);
+	Component->SetMaterial(Dynamic);
+	Component->RegisterComponent();
+	const auto Initial = CaptureScene(Harness.Scene);
+	Base->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	FMaterialPropertyOverrides Overrides;
+	Overrides.bOverrideBlendMode = true;
+	Overrides.Values.BlendMode = EMaterialBlendMode::Masked;
+	ASSERT_TRUE(Asset->SetPropertyOverrides(Overrides));
+	EXPECT_EQ(Dynamic->GetAcceptedCompiledProgram(), Initial.Material.CompiledProgram);
+	EXPECT_EQ(Dynamic->GetRenderData().PlanningPassIdentity, Initial.Material.PlanningPassIdentity);
+	ASSERT_TRUE(Dynamic->SetScalarParameterValue(MaterialParameters::RoughnessName(), 0.37f));
+	const auto Pending = CaptureScene(Harness.Scene);
+	EXPECT_EQ(Pending.Proxy, Initial.Proxy);
+	EXPECT_FLOAT_EQ(GetMaterialBinding(Pending.Material).Roughness, 0.37f);
+	ASSERT_TRUE(RequestMaterialRecompile(*Asset));
+	ASSERT_TRUE(FinishMaterialCompileForTest(*Asset));
+	const auto Accepted = CaptureScene(Harness.Scene);
+	EXPECT_EQ(Accepted.Proxy, Initial.Proxy);
+	EXPECT_EQ(Accepted.Material.CompiledProgram, Asset->GetAcceptedCompiledProgram());
+	EXPECT_NE(Accepted.Material.CompiledProgram, Initial.Material.CompiledProgram);
+	EXPECT_EQ(Accepted.Material.PlanningPassIdentity.ShaderMap.BlendMode, EMaterialBlendMode::Masked);
+	EXPECT_FLOAT_EQ(GetMaterialBinding(Accepted.Material).Roughness, 0.37f);
+	EXPECT_EQ(Dynamic->GetMaterialCompileStatus().RequestGeneration, 0u);
+	// A broken asset chain invalidates the dynamic child rather than retaining stale code.
+	ASSERT_TRUE(Asset->SetParent(nullptr));
+	EXPECT_FALSE(Dynamic->GetAcceptedCompiledProgram());
+	EXPECT_TRUE(CaptureScene(Harness.Scene).Material.Representation.IsError());
+	EXPECT_FALSE(Dynamic->SetScalarParameterValue(MaterialParameters::RoughnessName(), 0.5f));
+	Component->UnregisterComponent();
+	MarkAsGarbage(Component);
+	MarkAsGarbage(Mesh);
+	MarkAsGarbage(Dynamic);
+	MarkAsGarbage(Asset);
+	MarkAsGarbage(Base);
+	Harness.Shutdown();
+	CollectGarbage();
+}
+
+TEST(FMaterialInstanceTests, DynamicInstancesRetainParentAndTextureOnlyWhileReferenced)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	InitRenderingThread();
+	auto* Base = MakeExpandedMaterial(nullptr, "DynamicLifetimeBase");
+	ASSERT_TRUE(Base);
+	auto* Dynamic = DMaterialInstance::CreateDynamic(Base, nullptr, "DynamicLifetimeChild");
+	ASSERT_TRUE(Dynamic);
+	auto* Texture = NewObject<DTexture2D>(nullptr, "DynamicLifetimeTexture");
+	ASSERT_TRUE(Dynamic->SetTextureParameterValue(AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), Texture));
+	AddToRoot(Dynamic);
+	CollectGarbage();
+	EXPECT_TRUE(GDObjectArray.Contains(Dynamic));
+	EXPECT_TRUE(GDObjectArray.Contains(Base));
+	EXPECT_TRUE(GDObjectArray.Contains(Texture));
+	RemoveFromRoot(Dynamic);
+	CollectGarbage();
+	WaitForRenderingThread();
+	EXPECT_FALSE(GDObjectArray.Contains(Dynamic));
+	EXPECT_FALSE(GDObjectArray.Contains(Base));
+	EXPECT_FALSE(GDObjectArray.Contains(Texture));
+	ShutdownRenderingThread();
+}
+
 TEST(FMaterialInstanceTests, BoundMaterialAndParentChangesUpdateProxyInPlace)
 {
 	FRenderSceneHarness Harness;

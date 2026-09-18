@@ -23,6 +23,7 @@ namespace Durin
 {
 	auto DMaterialInterface::SetImportProvenance(FMaterialImportProvenance InProvenance) -> bool
 	{
+		if (IsDynamicInstance()) return false;
 		if (InProvenance.RecipeId.size() > 128 || InProvenance.StructuralKey.size() > 16384 ||
 			InProvenance.SourceIdentity.size() > 4096 || InProvenance.OutputIdentity.size() > 4096) return false;
 		if (ImportProvenance == InProvenance) return true;
@@ -195,6 +196,7 @@ namespace Durin
 		const FMaterialStaticProperties& CandidateProperties,
 		bool bForceRecompile, FObjectCacheContext* Context) -> bool
 	{
+		if (IsDynamicInstance()) return false;
 		Private::GetMaterialCompileRetryQueue().Remove(FWeakObjectPtr(this));
 		if (GetAssetRuntimeConfiguration().RequiresCookedPayload()) return false;
 		CompilationOwner.LastObservedShaderProperties = CanonicalizeMaterialShaderProperties(CandidateProperties);
@@ -258,7 +260,7 @@ namespace Durin
 		if (!Context) { LocalContext.emplace(); Context = &*LocalContext; }
 		for (auto* Owner : Context->GetMaterialsAffectedByMaterial(this))
 		{
-			if (!IsValid(Owner) || (!bIncludeSelf && Owner == this)) continue;
+			if (!IsValid(Owner) || Owner->IsDynamicInstance() || (!bIncludeSelf && Owner == this)) continue;
 			if (bOnlyIfShaderChanged
 				&& CanonicalizeMaterialShaderProperties(Owner->GetStaticProperties())
 					== Owner->CompilationOwner.LastObservedShaderProperties) continue;
@@ -518,6 +520,22 @@ namespace Durin
 	auto DMaterialInterface::BuildMaterialLocalRenderLayer() const
 		-> FMaterialLocalRenderLayer
 	{
+		if (IsDynamicInstance())
+		{
+			auto* Parent = GetParent();
+			if (!IsValid(Parent)) return {};
+			// Start from the parent's complete accepted generation, including retained
+			// values while authored declarations or shader configuration are pending.
+			auto Layer = Parent->BuildMaterialLocalRenderLayer();
+			const auto* Instance = Cast<DMaterialInstance>(this);
+			for (auto& Parameter : Layer.Parameters)
+			{
+				FMaterialParameterValue Value;
+				if (Instance->GetLocalParameterValue(Parameter.Id, Value) && Value.GetType() == Parameter.GetType())
+					Parameter = BuildMaterialLocalRenderParameter(Parameter.Id, Value);
+			}
+			return Layer;
+		}
 		FMaterialLocalRenderLayer Result;
 		Result.CompiledProgram = GetAcceptedCompiledProgram();
 		Result.StaticProperties = GetRenderableStaticProperties();

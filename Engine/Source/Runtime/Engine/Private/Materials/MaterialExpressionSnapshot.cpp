@@ -167,7 +167,7 @@ namespace Durin
 		-> std::shared_ptr<const FMaterialParameterReachability>
 	{
 		check(IsInGameThread());
-		if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
+		if (IsDynamicInstance() || GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
 			const auto Program = GetAcceptedCompiledProgram();
 			if (Program && ParameterReachability && ParameterReachabilityCookedProgram.lock() == Program)

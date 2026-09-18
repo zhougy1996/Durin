@@ -74,6 +74,7 @@ namespace Durin
 	auto DMaterialInterface::SerializeCooked(FArchive& Ar) -> void
 	{
 		Super::SerializeCooked(Ar);
+		if (Ar.HasError() || IsDynamicInstance()) return;
 		if (Ar.GetTarget().Platform != "Win64" || Ar.GetTarget().Profile != "Game")
 		{
 			Ar.Fail(EArchiveFailureCode::InvalidData,

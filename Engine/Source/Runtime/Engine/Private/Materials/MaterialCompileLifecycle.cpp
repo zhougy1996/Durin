@@ -783,6 +783,7 @@ namespace Durin
 		auto FMaterialCompilationLifecycle::ScheduleEdit(DMaterialInterface& Material, FObjectCacheContext* Context) -> void
 		{
 			CheckMaterialCompileGameThread();
+			if (Material.IsDynamicInstance()) return;
 			if (GetAssetRuntimeConfiguration().RequiresCookedPayload()) return;
 			DMaterialInterface* Root = &Material;
 			for (uint32 Depth = 0; Root && Root->GetParent() && Depth < MaterialMaximumParentDepth; ++Depth)
@@ -822,6 +823,7 @@ namespace Durin
 			bool bForceRecompile, std::vector<FMaterialFunctionOwnerStamp> FunctionOwners, FObjectCacheContext* Context) -> bool
 		{
 			CheckMaterialCompileGameThread();
+			if (Material.IsDynamicInstance()) return false;
 			Private::GetMaterialCompileRetryQueue().Remove(FWeakObjectPtr(&Material));
 			const auto Manager = GetMaterialCompilingManager();
 			FMaterialCompilationState* Compilation =
@@ -1096,6 +1098,7 @@ namespace Durin
 		auto FMaterialCompilationLifecycle::RequestCurrent(
 			DMaterialInterface& Material, bool bForceRecompile, FObjectCacheContext* Context) -> bool
 		{
+			if (Material.IsDynamicInstance()) return false;
 			GetMaterialCompileRetryQueue().Remove(FWeakObjectPtr(&Material));
 			if (GetAssetRuntimeConfiguration().RequiresCookedPayload()) return false;
 			FResolvedMaterialProperties Resolved;

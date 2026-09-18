@@ -48,7 +48,7 @@
 namespace
 {
 	auto FinishMaterialCompileForTest(
-		Durin::DMaterial& Material,
+		Durin::DMaterialInterface& Material,
 		std::chrono::milliseconds Timeout = std::chrono::seconds(10)) -> bool
 	{
 		const auto Deadline = std::chrono::steady_clock::now() + Timeout;

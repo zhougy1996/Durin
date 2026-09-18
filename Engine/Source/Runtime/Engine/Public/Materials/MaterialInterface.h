@@ -93,6 +93,7 @@ namespace Durin
 		friend ENGINE_API auto NotifyMaterialFunctionChanged(const DMaterialFunctionInterface& Function) -> void;
 	public:
 		ENGINE_API explicit DMaterialInterface(const FObjectInitializer& ObjectInitializer);
+		virtual auto IsDynamicInstance() const -> bool { return false; }
 		auto GetImportProvenance() const -> const FMaterialImportProvenance& { return ImportProvenance; }
 		// Changes only persisted editor metadata, without invalidating compiled material state.
 		ENGINE_API auto SetImportProvenance(FMaterialImportProvenance InProvenance) -> bool;

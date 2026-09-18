@@ -15,6 +15,12 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		ENGINE_API explicit DMaterialInstance(const FObjectInitializer& ObjectInitializer);
+		// GameThread only. Parent must be a valid non-dynamic material. Outer does
+		// not retain this object: callers must keep an ordinary strong reference.
+		ENGINE_API static auto CreateDynamic(DMaterialInterface* InParent,
+			DObject* Outer = nullptr, FName Name = {}) -> DMaterialInstance*;
+		auto IsDynamicInstance() const -> bool override { return bDynamicInstance; }
+		ENGINE_API auto GetRenderableStaticProperties() const -> FMaterialStaticProperties override;
 
 		ENGINE_API auto SetParent(DMaterialInterface* InParent) -> bool;
 		// Validates and applies a related parent/configuration edit with one request.
@@ -71,6 +77,9 @@ namespace Durin
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 
 	private:
+		// Factory-only lifecycle, never serialized or switched on a live asset.
+		bool bDynamicInstance = false;
+
 		DPROPERTY(Edit)
 		TObjectPtr<DMaterialInterface> Parent;
 
