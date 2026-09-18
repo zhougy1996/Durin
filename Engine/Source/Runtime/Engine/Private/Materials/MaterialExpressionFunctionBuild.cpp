@@ -3,29 +3,29 @@
 
 namespace Durin
 {
-	auto DMaterialExpressionFunctionInput::Build(FMaterialExpressionEmitter& Emitter) const -> void
+	auto DMaterialExpressionFunctionInput::Build(MIR::FEmitter& Emitter) const -> void
 	{
 		return Emitter.Output(0, Emitter.FunctionInput(Port.Id));
 	}
 
-	auto DMaterialExpressionFunctionOutput::Build(FMaterialExpressionEmitter& Emitter) const -> void
+	auto DMaterialExpressionFunctionOutput::Build(MIR::FEmitter& Emitter) const -> void
 	{
 		return Emitter.Output(0, Emitter.FunctionOutput(Port.Id, Source));
 	}
 
-	auto DMaterialExpressionFunctionCall::Build(FMaterialExpressionEmitter& Emitter) const -> void
+	auto DMaterialExpressionFunctionCall::Build(MIR::FEmitter& Emitter) const -> void
 	{
 		Emitter.FunctionCall(*this);
 	}
 
-	auto FMaterialExpressionGraphBuilderImpl::OpaqueAuthoringValue(EMaterialProgramOpcode Opcode,
+	auto MIR::FGraphBuilderImpl::OpaqueAuthoringValue(EMaterialProgramOpcode Opcode,
 		EMaterialProgramValueType Type, std::vector<uint32> Inputs) -> uint32
 	{
 		check(bValidateAuthoring);
-		if (!Result.Diagnostics.empty()) return InvalidMaterialExpressionIndex;
+		if (!Result.Diagnostics.empty()) return MIR::InvalidIndex;
 		if (Type == EMaterialProgramValueType::Surface)
 		{
-			FMaterialIRNode Surface{.Opcode = EMaterialProgramOpcode::MakeSurface, .ResultType = Type};
+			MIR::FNode Surface{.Opcode = EMaterialProgramOpcode::MakeSurface, .ResultType = Type};
 			for (uint8 Attribute = 0; Attribute < 8; ++Attribute)
 				Surface.Inputs.push_back(OpaqueAuthoringValue(Opcode,
 					GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(Attribute)), Inputs));
@@ -48,8 +48,8 @@ namespace Durin
 		return Index;
 	}
 
-	auto FMaterialExpressionGraphBuilderImpl::ValidateAuthoringCall(const DMaterialExpressionFunctionCall& Call,
-		FMaterialExpressionEmitter& Emitter) -> void
+	auto MIR::FGraphBuilderImpl::ValidateAuthoringCall(const DMaterialExpressionFunctionCall& Call,
+		MIR::FEmitter& Emitter) -> void
 	{
 		if (Call.Inputs.size() > MaterialFunctionMaxInputs || Call.Outputs.empty() || Call.Outputs.size() > MaterialFunctionMaxOutputs)
 			return Emitter.Fail(EMaterialFunctionError::CallPortBindingsExceedBounds);
@@ -92,19 +92,19 @@ namespace Durin
 				return Emitter.Fail(EMaterialFunctionError::CallOutputRequiresUniqueValidTypedPort, Output.OutputId);
 			AuthoringCodeHash.UpdateValue(Output.OutputId);
 			AuthoringCodeHash.UpdateValue(Output.ExpectedType);
-			auto [TypeValue, bInserted] = TypeValues.try_emplace(Output.ExpectedType, InvalidMaterialExpressionIndex);
+			auto [TypeValue, bInserted] = TypeValues.try_emplace(Output.ExpectedType, MIR::InvalidIndex);
 			if (bInserted) TypeValue->second = OpaqueAuthoringValue(EMaterialProgramOpcode::FunctionCall, Output.ExpectedType, Inputs);
 			Emitter.Output(Output.OutputId, TypeValue->second);
 		}
 		if (!Result.Diagnostics.empty()) return;
 	}
 
-	auto FMaterialExpressionGraphBuilderImpl::ValidateFunction(std::span<DMaterialExpression* const> Expressions) -> FMaterialProgramValidationResult
+	auto MIR::FGraphBuilderImpl::ValidateFunction(std::span<DMaterialExpression* const> Expressions) -> FMaterialProgramValidationResult
 	{
 		const auto Signature = DeriveMaterialFunctionSignature(Expressions);
 		auto Validation = ValidateMaterialFunctionSignature(Signature);
 		if (!Validation) return Validation;
-		FMaterialExpressionGraphBuilderImpl Context(Expressions);
+		MIR::FGraphBuilderImpl Context(Expressions);
 		Context.bValidateAuthoring = true;
 		Context.Signature = &Signature;
 		for (const auto& [Id, Expression] : Context.Expressions)
@@ -114,7 +114,7 @@ namespace Durin
 		return {.bSucceeded = static_cast<bool>(Built), .Diagnostics = std::move(Built.Diagnostics)};
 	}
 
-	auto FMaterialExpressionGraphBuilderImpl::FunctionInput(FGuid PortId) -> FMaterialExpressionBuildValue
+	auto MIR::FGraphBuilderImpl::FunctionInput(FGuid PortId) -> MIR::FValue
 	{
 		if (!Signature) return Fail(EMaterialFunctionError::InputTerminalNoOwningInvocation);
 		const auto Port = std::ranges::find(Signature->Inputs, PortId, &FMaterialFunctionPort::Id);
@@ -125,7 +125,7 @@ namespace Durin
 		if (PortStack.size() >= MaterialFunctionMaxInputs || std::ranges::find(PortStack, PortId) != PortStack.end())
 			return Fail(EMaterialFunctionError::InputDefaultsContainCycle);
 		PortStack.push_back(PortId);
-		FMaterialExpressionBuildValue Value;
+		MIR::FValue Value;
 		const auto& Default = Port->Default;
 		switch (Default.Kind)
 		{
@@ -137,7 +137,7 @@ namespace Durin
 			break;
 		}
 		case EMaterialFunctionDefaultKind::Texture:
-			Value = FMaterialExpressionTextureDefault{Default.Sampler, Default.TextureFallback};
+			Value = MIR::FTextureDefault{Default.Sampler, Default.TextureFallback};
 			break;
 		case EMaterialFunctionDefaultKind::Input:
 			Value = FunctionInput(Default.InputId);
@@ -152,7 +152,7 @@ namespace Durin
 		}
 		case EMaterialFunctionDefaultKind::Surface:
 		{
-			FMaterialIRNode Surface{.Opcode = EMaterialProgramOpcode::MakeSurface, .ResultType = EMaterialProgramValueType::Surface};
+			MIR::FNode Surface{.Opcode = EMaterialProgramOpcode::MakeSurface, .ResultType = EMaterialProgramValueType::Surface};
 			for (uint8 Index = 0; Index < 8; ++Index)
 			{
 				const auto Attribute = static_cast<EMaterialSurfaceOutput>(Index);
@@ -167,13 +167,13 @@ namespace Durin
 		}
 		if (!MatchesType(Value, Port->Type)) Fail(EMaterialFunctionError::DefaultTypeMismatch);
 		PortStack.pop_back();
-		if (!Result.Diagnostics.empty()) return InvalidMaterialExpressionIndex;
+		if (!Result.Diagnostics.empty()) return MIR::InvalidIndex;
 		BoundInputs.emplace(PortId, Value);
 		return Value;
 	}
 
-	auto FMaterialExpressionGraphBuilderImpl::FunctionOutput(FGuid PortId, const FMaterialExpressionInput& Source)
-		-> FMaterialExpressionBuildValue
+	auto MIR::FGraphBuilderImpl::FunctionOutput(FGuid PortId, const FMaterialExpressionInput& Source)
+		-> MIR::FValue
 	{
 		if (!Signature) return Fail(EMaterialFunctionError::OutputTerminalNoOwningInvocation);
 		const auto Port = std::ranges::find(Signature->Outputs, PortId, &FMaterialFunctionPort::Id);
@@ -183,7 +183,7 @@ namespace Durin
 		return Value;
 	}
 
-	auto FMaterialExpressionGraphBuilderImpl::FunctionCall(const DMaterialExpressionFunctionCall& Call, FMaterialExpressionEmitter& Emitter) -> void
+	auto MIR::FGraphBuilderImpl::FunctionCall(const DMaterialExpressionFunctionCall& Call, MIR::FEmitter& Emitter) -> void
 	{
 		if (!Result.Diagnostics.empty()) return;
 		if (bValidateAuthoring) return ValidateAuthoringCall(Call, Emitter);
@@ -232,7 +232,7 @@ namespace Durin
 			if (Port == Body.Signature.Outputs.end() || Port->Type != Output.ExpectedType || !OutputIds.insert(Output.OutputId).second)
 				return Emitter.Fail(EMaterialFunctionError::InvalidOutputBinding, Output.OutputId);
 		}
-		FMaterialExpressionGraphBuilderImpl Child(*this, Body, Call.Id);
+		MIR::FGraphBuilderImpl Child(*this, Body, Call.Id);
 		if (!Result.Diagnostics.empty()) return;
 		for (const auto& Binding : Call.Inputs)
 		{
@@ -249,7 +249,7 @@ namespace Durin
 			{
 				PortStack.push_back(Binding.InputId);
 				const auto Value = Binding.Input.ExpressionId.IsValid()
-					? BroadcastScalar(Resolve(Binding.Input), Port->Type) : FMaterialExpressionBuildValue(Literal(Default));
+					? BroadcastScalar(Resolve(Binding.Input), Port->Type) : MIR::FValue(Literal(Default));
 				PortStack.pop_back();
 				if (!MatchesType(Value, Port->Type)) return Emitter.Fail(EMaterialFunctionError::BindingTypeMismatch, Binding.InputId);
 				Child.BoundInputs.emplace(Binding.InputId, Value);

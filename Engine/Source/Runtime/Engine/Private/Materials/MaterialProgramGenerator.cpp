@@ -36,7 +36,7 @@ namespace Durin
 			return std::format("asfloat(0x{:08x}u)", Bits);
 		}
 
-		auto LiteralExpression(const FMaterialIRNode& Node) -> std::string
+		auto LiteralExpression(const MIR::FNode& Node) -> std::string
 		{
 			std::array Values{Node.GetLiteral().X, Node.GetLiteral().Y,
 				Node.GetLiteral().Z, Node.GetLiteral().W};
@@ -54,7 +54,7 @@ namespace Durin
 		auto LiteralExpression(EMaterialProgramValueType Type,
 			const FMaterialProgramLiteral& Literal) -> std::string
 		{
-			FMaterialIRNode Node;
+			MIR::FNode Node;
 			Node.ResultType = Type;
 			Node.Payload = Literal;
 			return LiteralExpression(Node);
@@ -67,11 +67,11 @@ namespace Durin
 		}
 	}
 
-	static auto GenerateMaterialProgramSlangImpl(const FMaterialIR& IR,
+	static auto GenerateMaterialProgramSlangImpl(const MIR::FModule& IR,
 		const FMaterialRenderLayout& Layout, std::string& OutSource) -> FMaterialOperationResult
 	{
 		OutSource.clear();
-		if (IR.Version != CurrentMaterialIRVersion
+		if (IR.Version != MIR::CurrentVersion
 			|| IR.Nodes.size() > MaterialFunctionMaxExpandedNodes)
 		{
 			return {EMaterialIRError::InvalidMaterialIRSlangGeneration};
@@ -143,7 +143,7 @@ FMaterialSurface EvaluateGeneratedMaterial(VSOutput input)
 		std::vector<std::string> Expressions(IR.Nodes.size());
 		for (uint32 Index = 0; Index < IR.Nodes.size(); ++Index)
 		{
-			const FMaterialIRNode& Node = IR.Nodes[Index];
+			const MIR::FNode& Node = IR.Nodes[Index];
 			auto Input = [&](size_t Slot) -> const std::string& {
 				return Expressions[Node.Inputs[Slot]];
 			};
@@ -414,7 +414,7 @@ float4 FragmentMain(
 		return {};
 	}
 
-	auto GenerateMaterialProgramSlang(const FMaterialIR& IR) -> FMaterialSourceGenerationResult
+	auto GenerateMaterialProgramSlang(const MIR::FModule& IR) -> FMaterialSourceGenerationResult
 	{
 		std::vector<FMaterialCompilerParameterDeclaration> Parameters;
 		for (const auto& Node : IR.Nodes)
@@ -439,7 +439,7 @@ float4 FragmentMain(
 		return GenerateMaterialProgramSlang(IR, Layout.Layout);
 	}
 
-	auto ValidateMaterialIR(const FMaterialIR& IR, const FMaterialRenderLayout& Layout) -> FMaterialProgramValidationResult
+	auto MIR::Validate(const MIR::FModule& IR, const FMaterialRenderLayout& Layout) -> FMaterialProgramValidationResult
 	{
 		const auto Valid = ValidateCompiledMaterialLayout(Layout);
 		if (!Valid)
@@ -463,10 +463,10 @@ float4 FragmentMain(
 			}
 			Parameters.push_back({Field.ParameterId, Type});
 		}
-		return ValidateMaterialIR(IR, Parameters);
+		return MIR::Validate(IR, Parameters);
 	}
 
-	auto ValidateMaterialIR(const FMaterialIR& IR, std::span<const FMaterialCompilerParameterDeclaration> Parameters)
+	auto MIR::Validate(const MIR::FModule& IR, std::span<const FMaterialCompilerParameterDeclaration> Parameters)
 		-> FMaterialProgramValidationResult
 	{
 		FMaterialProgramValidationResult Result;
@@ -486,7 +486,7 @@ float4 FragmentMain(
 				return Result;
 			}
 		FByteBuffer Canonical;
-		const auto Error = EncodeMaterialIRCanonical(IR, Canonical);
+		const auto Error = MIR::EncodeCanonical(IR, Canonical);
 		if (!Error)
 		{
 			Result.Diagnostics.push_back(MakeDiagnostic(EMaterialProgramDiagnosticCategory::Generation, std::move(Error.Error)));
@@ -498,7 +498,7 @@ float4 FragmentMain(
 		};
 		std::vector<uint32> Depth(IR.Nodes.size(), 1);
 		uint32 LinkCount = IR.SurfaceRoot.bAggregate ? 1u : static_cast<uint32>(
-			std::ranges::count(IR.SurfaceRoot.Inputs, true, &FMaterialIR::FSurfaceInput::bExpression));
+			std::ranges::count(IR.SurfaceRoot.Inputs, true, &MIR::FModule::FSurfaceInput::bExpression));
 		for (uint32 Index = 0; Index < IR.Nodes.size(); ++Index)
 		{
 			const auto& Node = IR.Nodes[Index];
@@ -597,11 +597,11 @@ float4 FragmentMain(
 		return Result;
 	}
 
-	auto GenerateMaterialProgramSlang(const FMaterialIR& IR, const FMaterialRenderLayout& Layout)
+	auto GenerateMaterialProgramSlang(const MIR::FModule& IR, const FMaterialRenderLayout& Layout)
 		-> FMaterialSourceGenerationResult
 	{
 		FMaterialSourceGenerationResult Result;
-		auto Validation = ValidateMaterialIR(IR, Layout);
+		auto Validation = MIR::Validate(IR, Layout);
 		if (!Validation) { Result.Diagnostics = std::move(Validation.Diagnostics); return Result; }
 		const auto Error = GenerateMaterialProgramSlangImpl(IR, Layout, Result.Source);
 		if (!Error)
@@ -660,11 +660,11 @@ float4 FragmentMain(
 		return {};
 	}
 
-	auto PrepareMaterialProgram(const FMaterialIRCompilerInput& Input) -> FMaterialPreparedProgram
+	auto PrepareMaterialProgram(const MIR::FCompilerInput& Input) -> FMaterialPreparedProgram
 	{
 		const auto Begin = std::chrono::steady_clock::now();
 		FMaterialPreparedProgram Prepared;
-		Prepared.Normalized = NormalizeMaterialIR(Input);
+		Prepared.Normalized = MIR::Normalize(Input);
 		Prepared.NormalizationMicroseconds = std::chrono::duration_cast<std::chrono::microseconds>(
 			std::chrono::steady_clock::now() - Begin).count();
 		Prepared.StaticProperties = Input.StaticProperties;
@@ -744,7 +744,7 @@ float4 FragmentMain(
 		Result.bSucceeded = true;
 		return Result;
 	}
-	auto CompileMaterialIR(const FMaterialIRCompilerInput& Input, bool bForceRecompile) -> FMaterialCompilerResult
+	auto MIR::Compile(const MIR::FCompilerInput& Input, bool bForceRecompile) -> FMaterialCompilerResult
 	{
 		return CompilePreparedMaterialProgram(PrepareMaterialProgram(Input), bForceRecompile);
 	}

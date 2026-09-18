@@ -273,7 +273,7 @@ TEST_F(FAssetPackageReloadTests, FunctionReloadRebindsNestedCallersAndPreservesA
 	EXPECT_EQ(Instance->GetAcceptedCompiledProgram(), Accepted);
 	ASSERT_TRUE(Material->CompileEdits());
 	EXPECT_EQ(Material->GetAcceptedCompiledProgram()->Identity, SavedIdentity);
-	FMaterialIRCompilerInput Input;
+	MIR::FCompilerInput Input;
 	std::vector<FMaterialFunctionOwnerStamp> Before, After;
 	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Material.Get(), {.CompilerIdentity = "ReloadFunctionOwners"}, Input, &Before));
 	auto Repeated = ReloadPackages({.Packages = {Function->GetPackage()}});

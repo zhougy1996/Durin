@@ -29,17 +29,17 @@ TEST(FMaterialExpressionTests, TypedSnapshotIsDetachedFromCopiedInputsAndLaterEd
 	FMaterialCompilerEnvironment Environment;
 	Durin::FMaterialOperationResult Error;
 	ASSERT_TRUE((Error = BuildDefaultMaterialCompilerEnvironment(Environment))) << Durin::FormatMaterialError(Error.Error);
-	FMaterialIRCompilerInput Initial;
+	MIR::FCompilerInput Initial;
 	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Material, Environment, Initial));
-	const auto Before = NormalizeMaterialIR(Initial);
+	const auto Before = MIR::Normalize(Initial);
 	ASSERT_TRUE(Before);
 	// Mutating a copied compiler input cannot affect either the owner or the original snapshot.
 	auto Detached = Initial;
 	Detached.IR.Nodes.clear();
 	EXPECT_FALSE(Detached.IR == Initial.IR);
-	FMaterialIRCompilerInput Snapshot;
+	MIR::FCompilerInput Snapshot;
 	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Material, Environment, Snapshot));
-	const auto Direct = NormalizeMaterialIR(Snapshot);
+	const auto Direct = MIR::Normalize(Snapshot);
 	ASSERT_TRUE(Direct);
 	EXPECT_EQ(Direct.CanonicalBytes, Before.CanonicalBytes);
 	EXPECT_EQ(Snapshot.IR, Initial.IR);
@@ -49,7 +49,7 @@ TEST(FMaterialExpressionTests, TypedSnapshotIsDetachedFromCopiedInputsAndLaterEd
 	auto* Owned = Cast<DMaterialExpressionScalarConstant>(Material->GetExpressionCollection().Expressions[1].Get());
 	Owned->Value = .125f;
 	EXPECT_EQ(Snapshot.IR, Captured);
-	FMaterialIRCompilerInput Changed;
+	MIR::FCompilerInput Changed;
 	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Material, Environment, Changed));
 	EXPECT_NE(Changed.IR, Captured);
 	const auto Retained = Changed.IR;
@@ -65,20 +65,20 @@ TEST(FMaterialExpressionTests, SurfaceSnapshotRejectsDisconnectedInvalidNodesAnd
 	TStrongObjectPtr<DMaterialExpressionScalarConstant> Constant(NewObject<DMaterialExpressionScalarConstant>(nullptr, "DeadConstant"));
 	Constant->Id = {1, 2, 3, 4}; Constant->Value = std::numeric_limits<float>::infinity();
 	const std::array<DMaterialExpression*, 1> Expressions{Constant.Get()};
-	FMaterialExpressionGraphBuilder Invalid(Expressions);
+	MIR::FGraphBuilder Invalid(Expressions);
 	const auto Rejected = Invalid.FinishSurface({});
 	EXPECT_FALSE(Rejected); EXPECT_TRUE(Rejected.IR.Nodes.empty()); EXPECT_TRUE(Rejected.Parameters.empty());
 	Constant->Value = .5f;
 	FMaterialExpressionSurfaceOutputs Wrong;
 	Wrong.BaseColor = {Constant->Id};
-	FMaterialExpressionGraphBuilder Broadcast(Expressions);
+	MIR::FGraphBuilder Broadcast(Expressions);
 	const auto BroadcastResult = Broadcast.FinishSurface(Wrong);
 	ASSERT_TRUE(BroadcastResult);
 	const auto& Color = BroadcastResult.IR.Nodes[BroadcastResult.IR.SurfaceRoot.Inputs[0].ExpressionIndex];
 	EXPECT_EQ(Color.Opcode, EMaterialProgramOpcode::Splat3);
 	EXPECT_EQ(Color.ResultType, EMaterialProgramValueType::Float3);
 	Wrong.BaseColor = {}; Wrong.RoughnessDefault = std::numeric_limits<float>::quiet_NaN();
-	FMaterialExpressionGraphBuilder BadDefault(Expressions);
+	MIR::FGraphBuilder BadDefault(Expressions);
 	EXPECT_FALSE(BadDefault.FinishSurface(Wrong));
 	std::vector<TStrongObjectPtr<DMaterialExpressionMakeSurface>> Owners;
 	std::vector<DMaterialExpression*> Dense;
@@ -87,7 +87,7 @@ TEST(FMaterialExpressionTests, SurfaceSnapshotRejectsDisconnectedInvalidNodesAnd
 		Owners.emplace_back(NewObject<DMaterialExpressionMakeSurface>(nullptr, FName(std::format("Dense{}", Index))));
 		Owners.back()->Id = {2, 3, 4, Index + 1}; Dense.push_back(Owners.back().Get());
 	}
-	FMaterialExpressionGraphBuilder TooManyLinks(Dense);
+	MIR::FGraphBuilder TooManyLinks(Dense);
 	EXPECT_FALSE(TooManyLinks.FinishSurface({}));
 }
 
@@ -249,8 +249,8 @@ TEST(FMaterialExpressionTests, FunctionPersistsOnlyOwnedExpressionsAndAppliesInd
 	Call->Id = {8, 9, 10, 11}; Call->Function = Function; Call->Outputs = {{OutputPortId, EMaterialProgramValueType::Float2}};
 	const std::array<DMaterialExpression*, 1> Calls{Call.Get()};
 	const std::array Roots{FMaterialExpressionInput{Call->Id, 0, OutputPortId}};
-	const auto Built = BuildMaterialExpressionGraph(Calls, Roots, {.FindFunction = [](const DMaterialFunctionInterface& Owner)
-		-> std::optional<FMaterialExpressionFunctionBody> {
+	const auto Built = MIR::BuildGraph(Calls, Roots, {.FindFunction = [](const DMaterialFunctionInterface& Owner)
+		-> std::optional<MIR::FFunctionBody> {
 		if (const auto* Concrete = Cast<DMaterialFunction>(&Owner)) return Concrete->GetExpressionBody();
 		return std::nullopt;
 	}});
@@ -304,7 +304,7 @@ TEST(FMaterialExpressionTests, BuildFunctionInvocationsBindGuidPortsAndRetainInd
 	Add->Id = {1, 0, 0, 2}; Add->A = {Input->Id}; Add->BDefault = {.125f};
 	OutputA->Id = {1, 0, 0, 3}; OutputA->Port.Id = {2, 0, 0, 2}; OutputA->Source = {Input->Id};
 	OutputB->Id = {1, 0, 0, 4}; OutputB->Port.Id = {2, 0, 0, 3}; OutputB->Source = {Add->Id};
-	FMaterialExpressionFunctionBody Body;
+	MIR::FFunctionBody Body;
 	Body.Signature.Inputs = {{.Id = Input->Port.Id, .Type = EMaterialProgramValueType::Float, .Name = "Value",
 		.Default = {.Kind = EMaterialFunctionDefaultKind::Numeric, .Numeric = {.75f}}}};
 	Body.Signature.Outputs = {{.Id = OutputA->Port.Id, .Type = EMaterialProgramValueType::Float, .Name = "A"},
@@ -322,9 +322,9 @@ TEST(FMaterialExpressionTests, BuildFunctionInvocationsBindGuidPortsAndRetainInd
 	const std::array Roots{FMaterialExpressionInput{CallA->Id, 0, OutputA->Port.Id},
 		FMaterialExpressionInput{CallA->Id, 0, OutputB->Port.Id}, FMaterialExpressionInput{CallB->Id, 0, OutputA->Port.Id}};
 	uint32 Captures = 0;
-	FMaterialExpressionBuildEnvironment Environment{.FindFunction = [&](const DMaterialFunctionInterface& Owner)
-		-> std::optional<FMaterialExpressionFunctionBody> { ++Captures; return &Owner == Function.Get() ? std::optional(Body) : std::nullopt; }};
-	const auto Built = BuildMaterialExpressionGraph(Graph, Roots, Environment);
+	MIR::FBuildEnvironment Environment{.FindFunction = [&](const DMaterialFunctionInterface& Owner)
+		-> std::optional<MIR::FFunctionBody> { ++Captures; return &Owner == Function.Get() ? std::optional(Body) : std::nullopt; }};
+	const auto Built = MIR::BuildGraph(Graph, Roots, Environment);
 	ASSERT_TRUE(Built);
 	EXPECT_EQ(Captures, 1u);
 	ASSERT_EQ(Built.Roots.size(), 3u);
@@ -332,11 +332,11 @@ TEST(FMaterialExpressionTests, BuildFunctionInvocationsBindGuidPortsAndRetainInd
 	EXPECT_EQ(Built.IR.Nodes[Built.Roots[1]].Opcode, EMaterialProgramOpcode::Add);
 	EXPECT_FLOAT_EQ(Built.IR.Nodes[Built.Roots[2]].GetLiteral().X, .75f);
 	// Shared function bodies still produce one independent computation per invocation.
-	EXPECT_EQ(std::ranges::count(Built.IR.Nodes, EMaterialProgramOpcode::Add, &FMaterialIRNode::Opcode), 2);
+	EXPECT_EQ(std::ranges::count(Built.IR.Nodes, EMaterialProgramOpcode::Add, &MIR::FNode::Opcode), 2);
 	const auto CallAOutput = Built.Roots[1];
 	EXPECT_EQ(Built.IR.Nodes[CallAOutput].Inputs.front(), Built.Roots[0]);
 	const std::array RepeatedRoots{Roots[1], Roots[2], Roots[1], Roots[0]};
-	const auto Repeated = BuildMaterialExpressionGraph(Graph, RepeatedRoots, Environment);
+	const auto Repeated = MIR::BuildGraph(Graph, RepeatedRoots, Environment);
 	ASSERT_TRUE(Repeated);
 	EXPECT_EQ(Repeated.Roots[0], Repeated.Roots[2]);
 	EXPECT_EQ(Repeated.IR, Built.IR);
@@ -347,25 +347,25 @@ TEST(FMaterialExpressionTests, BuildFunctionInvocationsBindGuidPortsAndRetainInd
 	auto* InvalidSink = NewObject<DMaterialExpressionMaterialOutput>(Function.Get(), "InvalidSink");
 	InvalidSink->Id = {1, 0, 0, 5};
 	Body.Expressions.push_back(InvalidSink);
-	const auto InvalidBody = BuildMaterialExpressionGraph(Graph, Roots, Environment);
+	const auto InvalidBody = MIR::BuildGraph(Graph, Roots, Environment);
 	ASSERT_FALSE(InvalidBody);
 	ASSERT_FALSE(InvalidBody.Diagnostics.empty());
 	EXPECT_EQ(InvalidBody.Diagnostics.front().Error, FMaterialError(EMaterialFunctionError::UnsupportedMaterialExpression));
 	Body.Expressions.pop_back();
 	CallA->Inputs[0].Input = {};
-	const auto Disconnected = BuildMaterialExpressionGraph(Graph, Roots, Environment);
+	const auto Disconnected = MIR::BuildGraph(Graph, Roots, Environment);
 	ASSERT_TRUE(Disconnected);
 	EXPECT_FLOAT_EQ(Disconnected.IR.Nodes[Disconnected.Roots[0]].GetLiteral().X, .25f);
 	EXPECT_FLOAT_EQ(Built.IR.Nodes[Built.Roots[0]].GetLiteral().X, .5f);
 	CallA->Inputs[0].InputDefault = {1, 2};
-	const auto Invalid = BuildMaterialExpressionGraph(Graph, Roots, Environment);
+	const auto Invalid = MIR::BuildGraph(Graph, Roots, Environment);
 	EXPECT_FALSE(Invalid); EXPECT_TRUE(Invalid.IR.Nodes.empty()); EXPECT_TRUE(Invalid.Dependencies.empty());
 	CallA->Inputs[0].InputDefault = {.25f};
 	Body.Signature.Inputs[0].bRequired = true; Body.Signature.Inputs[0].Default = {};
-	EXPECT_FALSE(BuildMaterialExpressionGraph(Graph, Roots, Environment));
+	EXPECT_FALSE(MIR::BuildGraph(Graph, Roots, Environment));
 	Body.Signature.Inputs[0].bRequired = false; Body.Signature.Inputs[0].Default = {.Kind = EMaterialFunctionDefaultKind::Numeric};
 	Body.Expressions.pop_back();
-	EXPECT_FALSE(BuildMaterialExpressionGraph(Graph, Roots, Environment));
+	EXPECT_FALSE(MIR::BuildGraph(Graph, Roots, Environment));
 }
 
 TEST(FMaterialExpressionTests, BuildNestedTextureDefaultsAreValuesAndRecursionIsRejected)
@@ -379,7 +379,7 @@ TEST(FMaterialExpressionTests, BuildNestedTextureDefaultsAreValuesAndRecursionIs
 	auto* Output = NewObject<DMaterialExpressionFunctionOutput>(Inner.Get(), "TextureOutput");
 	Input->Id = {1, 0, 0, 1}; Input->Port.Id = {2, 0, 0, 1};
 	Output->Id = {1, 0, 0, 2}; Output->Port.Id = {2, 0, 0, 2}; Output->Source = {Input->Id};
-	FMaterialExpressionFunctionBody InnerBody;
+	MIR::FFunctionBody InnerBody;
 	InnerBody.Expressions = {Input, Output}; InnerBody.AssetPath = "/Direct/Inner";
 	InnerBody.Signature.Inputs = {{.Id = Input->Port.Id, .Type = EMaterialProgramValueType::Texture2D, .Name = "Texture",
 		.Default = {.Kind = EMaterialFunctionDefaultKind::Texture, .TextureFallback = EMaterialTextureFallback::FlatRGNormal}}};
@@ -388,7 +388,7 @@ TEST(FMaterialExpressionTests, BuildNestedTextureDefaultsAreValuesAndRecursionIs
 	auto* OuterOutput = NewObject<DMaterialExpressionFunctionOutput>(Outer.Get(), "OuterOutput");
 	Nested->Id = {3, 0, 0, 1}; Nested->Function = Inner.Get(); Nested->Outputs = {{Output->Port.Id, EMaterialProgramValueType::Texture2D}};
 	OuterOutput->Id = {3, 0, 0, 2}; OuterOutput->Port.Id = {4, 0, 0, 1}; OuterOutput->Source = {Nested->Id, 0, Output->Port.Id};
-	FMaterialExpressionFunctionBody OuterBody;
+	MIR::FFunctionBody OuterBody;
 	OuterBody.Expressions = {Nested, OuterOutput}; OuterBody.AssetPath = "/Direct/Outer";
 	OuterBody.Signature.Outputs = {{.Id = OuterOutput->Port.Id, .Type = EMaterialProgramValueType::Texture2D, .Name = "Texture"}};
 	TStrongObjectPtr<DMaterialExpressionFunctionCall> Call(NewObject<DMaterialExpressionFunctionCall>(nullptr, "Call"));
@@ -397,30 +397,30 @@ TEST(FMaterialExpressionTests, BuildNestedTextureDefaultsAreValuesAndRecursionIs
 	Sample->Id = {5, 0, 0, 2}; Sample->Texture = {Call->Id, 0, OuterOutput->Port.Id};
 	const std::array<DMaterialExpression*, 2> Graph{Call.Get(), Sample.Get()};
 	const std::array Roots{FMaterialExpressionInput{Sample->Id}};
-	FMaterialExpressionBuildEnvironment Environment{.FindFunction = [&](const DMaterialFunctionInterface& Owner)
-		-> std::optional<FMaterialExpressionFunctionBody> {
+	MIR::FBuildEnvironment Environment{.FindFunction = [&](const DMaterialFunctionInterface& Owner)
+		-> std::optional<MIR::FFunctionBody> {
 		if (&Owner == Inner.Get()) return InnerBody;
 		if (&Owner == Outer.Get()) return OuterBody;
 		return std::nullopt;
 	}};
-	const auto Built = BuildMaterialExpressionGraph(Graph, Roots, Environment);
+	const auto Built = MIR::BuildGraph(Graph, Roots, Environment);
 	ASSERT_TRUE(Built);
 	EXPECT_EQ(Built.Dependencies.size(), 2u);
 	EXPECT_TRUE(Built.Parameters.empty());
-	EXPECT_EQ(std::ranges::count(Built.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &FMaterialIRNode::Opcode), 0);
+	EXPECT_EQ(std::ranges::count(Built.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &MIR::FNode::Opcode), 0);
 	EXPECT_EQ(Built.IR.Nodes[Built.Roots[0]].GetLiteral(), (FMaterialProgramLiteral{.5f, .5f, 1, 1}));
 	const std::array TextureRoots{Sample->Texture};
-	EXPECT_FALSE(BuildMaterialExpressionGraph(Graph, TextureRoots, Environment));
+	EXPECT_FALSE(MIR::BuildGraph(Graph, TextureRoots, Environment));
 	auto* Dead = NewObject<DMaterialExpressionScalarConstant>(Inner.Get(), "Dead");
 	Dead->Id = {1, 0, 0, 3}; Dead->Value = std::numeric_limits<float>::quiet_NaN();
 	InnerBody.Expressions.push_back(Dead);
-	EXPECT_FALSE(BuildMaterialExpressionGraph(Graph, Roots, Environment));
+	EXPECT_FALSE(MIR::BuildGraph(Graph, Roots, Environment));
 	InnerBody.Expressions.pop_back();
 	Sample->UV = {{9, 9, 9, 9}};
-	EXPECT_FALSE(BuildMaterialExpressionGraph(Graph, Roots, Environment));
+	EXPECT_FALSE(MIR::BuildGraph(Graph, Roots, Environment));
 	Sample->UV = {};
 	Nested->Function = Outer.Get(); Nested->Outputs = Call->Outputs; OuterOutput->Source.OutputId = OuterOutput->Port.Id;
-	const auto Recursive = BuildMaterialExpressionGraph(Graph, Roots, Environment);
+	const auto Recursive = MIR::BuildGraph(Graph, Roots, Environment);
 	EXPECT_FALSE(Recursive); EXPECT_TRUE(Recursive.IR.Nodes.empty());
 	ASSERT_FALSE(Recursive.Diagnostics.empty());
 	EXPECT_EQ(Recursive.Diagnostics[0].CallPath, std::vector<FGuid>{Call->Id});
@@ -439,7 +439,7 @@ TEST(FMaterialExpressionTests, NormalRGBSamplingInFunctionsFollowsResourceUsageA
 	Input->Id = FGuid::NewGuid(); Input->Port.Id = FGuid::NewGuid();
 	Sample->Id = FGuid::NewGuid(); Sample->Texture = {Input->Id};
 	Output->Id = FGuid::NewGuid(); Output->Port.Id = FGuid::NewGuid(); Output->Source = {Sample->Id, 1};
-	FMaterialExpressionFunctionBody Body;
+	MIR::FFunctionBody Body;
 	Body.Expressions = {Input, Sample, Output}; Body.AssetPath = "/Direct/SampleNormalRGB";
 	Body.Signature.Inputs = {{.Id = Input->Port.Id, .Type = Type::Texture2D, .Name = "Texture",
 		.Default = {.Kind = EMaterialFunctionDefaultKind::Texture, .TextureFallback = EMaterialTextureFallback::FlatRGNormal}}};
@@ -453,28 +453,28 @@ TEST(FMaterialExpressionTests, NormalRGBSamplingInFunctionsFollowsResourceUsageA
 	Call->Outputs = {{Output->Port.Id, Type::Float3}};
 	const std::array<DMaterialExpression*, 2> Graph{Texture.Get(), Call.Get()};
 	const std::array Roots{FMaterialExpressionInput{Call->Id, 0, Output->Port.Id}};
-	FMaterialExpressionBuildEnvironment Environment{.FindFunction = [&](const DMaterialFunctionInterface&) { return std::optional(Body); }};
+	MIR::FBuildEnvironment Environment{.FindFunction = [&](const DMaterialFunctionInterface&) { return std::optional(Body); }};
 	FXxHash128 ColorFingerprint, NormalFingerprint;
 	FMaterialExpressionSurfaceOutputs Surface; Surface.Normal = Roots[0];
-	ASSERT_TRUE(FMaterialExpressionGraphBuilder::ValidateSurface(Graph, Surface, &ColorFingerprint));
-	const auto Color = BuildMaterialExpressionGraph(Graph, Roots, Environment);
+	ASSERT_TRUE(MIR::FGraphBuilder::ValidateSurface(Graph, Surface, &ColorFingerprint));
+	const auto Color = MIR::BuildGraph(Graph, Roots, Environment);
 	ASSERT_TRUE(Color);
 	EXPECT_EQ(Color.IR.Nodes[Color.Roots[0]].Opcode, EMaterialProgramOpcode::Swizzle);
 	Texture->TextureUsage = ETextureUsage::Normal;
-	ASSERT_TRUE(FMaterialExpressionGraphBuilder::ValidateSurface(Graph, Surface, &NormalFingerprint));
+	ASSERT_TRUE(MIR::FGraphBuilder::ValidateSurface(Graph, Surface, &NormalFingerprint));
 	EXPECT_NE(ColorFingerprint, NormalFingerprint);
-	const auto Normal = BuildMaterialExpressionGraph(Graph, Roots, Environment);
+	const auto Normal = MIR::BuildGraph(Graph, Roots, Environment);
 	ASSERT_TRUE(Normal);
 	EXPECT_EQ(Normal.IR.Nodes[Normal.Roots[0]].Opcode, EMaterialProgramOpcode::DecodeNormalRG);
-	EXPECT_EQ(std::ranges::count(Normal.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &FMaterialIRNode::Opcode), 1);
+	EXPECT_EQ(std::ranges::count(Normal.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &MIR::FNode::Opcode), 1);
 	Call->Inputs.clear();
-	const auto Flat = BuildMaterialExpressionGraph(Graph, Roots, Environment);
+	const auto Flat = MIR::BuildGraph(Graph, Roots, Environment);
 	ASSERT_TRUE(Flat);
 	const auto& Decoded = Flat.IR.Nodes[Flat.Roots[0]];
 	ASSERT_EQ(Decoded.Opcode, EMaterialProgramOpcode::DecodeNormalRG);
 	const auto& RG = Flat.IR.Nodes[Decoded.Inputs[0]];
 	EXPECT_EQ(Flat.IR.Nodes[RG.Inputs[0]].GetLiteral(), (FMaterialProgramLiteral{.5f, .5f, 1, 1}));
-	EXPECT_EQ(std::ranges::count(Flat.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &FMaterialIRNode::Opcode), 0);
+	EXPECT_EQ(std::ranges::count(Flat.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &MIR::FNode::Opcode), 0);
 }
 
 TEST(FMaterialExpressionTests, FunctionPortsBroadcastScalarsToEveryVectorWidth)
@@ -491,7 +491,7 @@ TEST(FMaterialExpressionTests, FunctionPortsBroadcastScalarsToEveryVectorWidth)
 		auto* Output = NewObject<DMaterialExpressionFunctionOutput>(Function.Get(), NAME_None);
 		Input->Id = FGuid::NewGuid(); Input->Port.Id = FGuid::NewGuid();
 		Output->Id = FGuid::NewGuid(); Output->Port.Id = FGuid::NewGuid(); Output->Source = {Input->Id};
-		FMaterialExpressionFunctionBody Body;
+		MIR::FFunctionBody Body;
 		Body.Expressions = {Input, Output}; Body.AssetPath = "/Direct/Broadcast";
 		const auto InputType = AtInput ? Width : Type::Float;
 		Body.Signature.Inputs = {{.Id = Input->Port.Id, .Type = InputType, .Name = "Value", .bRequired = true}};
@@ -504,10 +504,10 @@ TEST(FMaterialExpressionTests, FunctionPortsBroadcastScalarsToEveryVectorWidth)
 		Call->Inputs = {{Input->Port.Id, InputType, {Scalar->Id}}};
 		Call->Outputs = {{Output->Port.Id, Width}};
 		const std::array<DMaterialExpression*, 2> Graph{Scalar.Get(), Call.Get()};
-		ASSERT_TRUE(FMaterialExpressionGraphBuilder::ValidateSurface(Graph, {}));
+		ASSERT_TRUE(MIR::FGraphBuilder::ValidateSurface(Graph, {}));
 		const std::array Roots{FMaterialExpressionInput{Call->Id, 0, Output->Port.Id}};
-		FMaterialExpressionBuildEnvironment Environment{.FindFunction = [&](const DMaterialFunctionInterface&) { return std::optional(Body); }};
-		const auto Built = BuildMaterialExpressionGraph(Graph, Roots, Environment);
+		MIR::FBuildEnvironment Environment{.FindFunction = [&](const DMaterialFunctionInterface&) { return std::optional(Body); }};
+		const auto Built = MIR::BuildGraph(Graph, Roots, Environment);
 		ASSERT_TRUE(Built);
 		const auto& Result = Built.IR.Nodes[Built.Roots[0]];
 		EXPECT_EQ(Result.ResultType, Width);
@@ -523,7 +523,7 @@ TEST(FMaterialExpressionTests, BuildFunctionDefaultsPreserveAliasUVAndSurfaceSem
 	InitializeDObjectSystem();
 	FScopedOfflinePreparation Offline;
 	TStrongObjectPtr<DMaterialFunction> Function(NewObject<DMaterialFunction>(nullptr, "DefaultKinds"));
-	FMaterialExpressionFunctionBody Body;
+	MIR::FFunctionBody Body;
 	Body.AssetPath = "/Direct/DefaultKinds";
 	const FGuid ScalarId{1, 0, 0, 1}, AliasId{1, 0, 0, 2}, UVId{1, 0, 0, 3}, SurfaceId{1, 0, 0, 4};
 	Body.Signature.Inputs = {
@@ -547,8 +547,8 @@ TEST(FMaterialExpressionTests, BuildFunctionDefaultsPreserveAliasUVAndSurfaceSem
 		Roots.push_back({Call->Id, 0, Output->Port.Id});
 	}
 	const std::array<DMaterialExpression*, 1> Graph{Call.Get()};
-	FMaterialExpressionBuildEnvironment Environment{.FindFunction = [&](const DMaterialFunctionInterface&) { return std::optional(Body); }};
-	const auto Built = BuildMaterialExpressionGraph(Graph, Roots, Environment);
+	MIR::FBuildEnvironment Environment{.FindFunction = [&](const DMaterialFunctionInterface&) { return std::optional(Body); }};
+	const auto Built = MIR::BuildGraph(Graph, Roots, Environment);
 	ASSERT_TRUE(Built);
 	EXPECT_FLOAT_EQ(Built.IR.Nodes[Built.Roots[0]].GetLiteral().X, .625f);
 	const auto& UV = Built.IR.Nodes[Built.Roots[1]];
@@ -558,7 +558,7 @@ TEST(FMaterialExpressionTests, BuildFunctionDefaultsPreserveAliasUVAndSurfaceSem
 	EXPECT_EQ(Surface.Opcode, EMaterialProgramOpcode::MakeSurface);
 	EXPECT_EQ(Built.IR.Nodes[Surface.Inputs[0]].GetLiteral(), (FMaterialProgramLiteral{.2f, .3f, .4f}));
 	Body.Signature.Inputs[0].Default = {.Kind = EMaterialFunctionDefaultKind::Input, .InputId = AliasId};
-	const auto Cyclic = BuildMaterialExpressionGraph(Graph, Roots, Environment);
+	const auto Cyclic = MIR::BuildGraph(Graph, Roots, Environment);
 	EXPECT_FALSE(Cyclic); EXPECT_TRUE(Cyclic.IR.Nodes.empty());
 	ASSERT_FALSE(Cyclic.Diagnostics.empty());
 	EXPECT_TRUE(Cyclic.Diagnostics[0].PortId.IsValid());
@@ -576,7 +576,7 @@ TEST(FMaterialExpressionTests, BuildEmitsDetachedNumericIRAndRejectsInvalidGraph
 	Add->Id = {1, 2, 3, 2}; Add->A = {Constant->Id}; Add->ADefault = {.75f}; Add->BDefault = {.5f};
 	const std::array<DMaterialExpression*, 2> Expressions{Constant.Get(), Add.Get()};
 	const std::array Roots{FMaterialExpressionInput{Add->Id}, FMaterialExpressionInput{Add->Id}};
-	const auto Built = BuildMaterialExpressionGraph(Expressions, Roots);
+	const auto Built = MIR::BuildGraph(Expressions, Roots);
 	ASSERT_TRUE(Built);
 	ASSERT_EQ(Built.IR.Nodes.size(), 3u);
 	EXPECT_EQ(Built.Roots[0], Built.Roots[1]);
@@ -587,11 +587,11 @@ TEST(FMaterialExpressionTests, BuildEmitsDetachedNumericIRAndRejectsInvalidGraph
 	Constant->Value = .125f;
 	EXPECT_FLOAT_EQ(Built.IR.Nodes[0].GetLiteral().X, .25f);
 	Add->A = {};
-	const auto Disconnected = BuildMaterialExpressionGraph(Expressions, Roots);
+	const auto Disconnected = MIR::BuildGraph(Expressions, Roots);
 	ASSERT_TRUE(Disconnected);
 	EXPECT_FLOAT_EQ(Disconnected.IR.Nodes[Disconnected.IR.Nodes[Disconnected.Roots[0]].Inputs[0]].GetLiteral().X, .75f);
 	const auto Reject = [&] {
-		const auto Failed = BuildMaterialExpressionGraph(Expressions, Roots);
+		const auto Failed = MIR::BuildGraph(Expressions, Roots);
 		EXPECT_FALSE(Failed);
 		EXPECT_TRUE(Failed.IR.Nodes.empty());
 		EXPECT_TRUE(Failed.Roots.empty());
@@ -622,7 +622,7 @@ TEST(FMaterialExpressionTests, SamplingOutputSelectorsPreserveChannelsAndRejectR
 		for (const uint8 Index : {0, 1, 2, 3, 4, 5, 6, 7, 8, 255})
 		{
 			SCOPED_TRACE(static_cast<int>(Index));
-			const auto Built = BuildMaterialExpressionGraph(Expressions, std::array{FMaterialExpressionInput{Expression->Id, Index}});
+			const auto Built = MIR::BuildGraph(Expressions, std::array{FMaterialExpressionInput{Expression->Id, Index}});
 			const bool Valid = Index <= 5 || (Expression == Parameter.Get() && Index == 7);
 			ASSERT_EQ(static_cast<bool>(Built), Valid) << (Built.Diagnostics.empty() ? "" : Durin::FormatMaterialError(Built.Diagnostics.front().Error));
 			if (!Valid) continue;
@@ -633,7 +633,7 @@ TEST(FMaterialExpressionTests, SamplingOutputSelectorsPreserveChannelsAndRejectR
 			if (Index >= 1 && Index <= 5)
 			{
 				EXPECT_EQ(Root.Opcode, EMaterialProgramOpcode::Swizzle);
-				EXPECT_EQ(std::get<FMaterialIRSwizzle>(Root.Payload).Components[0], Index == 1 ? 0 : Index - 2);
+				EXPECT_EQ(std::get<MIR::FSwizzle>(Root.Payload).Components[0], Index == 1 ? 0 : Index - 2);
 			}
 		}
 	}
@@ -651,12 +651,12 @@ TEST(FMaterialExpressionTests, MultiOutputEmissionSharesSampleAndResourceAcrossC
 	const std::array Roots{FMaterialExpressionInput{Sample->Id, 5}, FMaterialExpressionInput{Sample->Id, 7},
 		FMaterialExpressionInput{Sample->Id, 1}, FMaterialExpressionInput{Sample->Id, 0},
 		FMaterialExpressionInput{Sample->Id, 2}, FMaterialExpressionInput{Sample->Id, 1}};
-	const auto Built = BuildMaterialExpressionGraph(Expressions, Roots);
+	const auto Built = MIR::BuildGraph(Expressions, Roots);
 	ASSERT_TRUE(Built);
 	ASSERT_EQ(Built.Roots.size(), Roots.size());
 	EXPECT_EQ(Built.Roots[2], Built.Roots[5]);
-	EXPECT_EQ(std::ranges::count(Built.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &FMaterialIRNode::Opcode), 1);
-	EXPECT_EQ(std::ranges::count(Built.IR.Nodes, EMaterialProgramOpcode::TextureParameter, &FMaterialIRNode::Opcode), 1);
+	EXPECT_EQ(std::ranges::count(Built.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &MIR::FNode::Opcode), 1);
+	EXPECT_EQ(std::ranges::count(Built.IR.Nodes, EMaterialProgramOpcode::TextureParameter, &MIR::FNode::Opcode), 1);
 	const auto SampleIndex = Built.Roots[3];
 	EXPECT_EQ(Built.IR.Nodes[SampleIndex].Inputs.front(), Built.Roots[1]);
 	EXPECT_EQ(Built.IR.Nodes[Built.Roots[0]].Inputs.front(), SampleIndex);
@@ -668,7 +668,7 @@ TEST(FMaterialExpressionTests, MultiOutputEmissionSharesSampleAndResourceAcrossC
 
 	// A previously registered resource output must not hide a cycle through another output.
 	Sample->UV = {Sample->Id, 1};
-	const auto Cyclic = BuildMaterialExpressionGraph(Expressions, Roots);
+	const auto Cyclic = MIR::BuildGraph(Expressions, Roots);
 	ASSERT_FALSE(Cyclic);
 	ASSERT_FALSE(Cyclic.Diagnostics.empty());
 	EXPECT_EQ(Cyclic.Diagnostics.front().Error, FMaterialError(EMaterialExpressionError::InputsContainCycleExceedTraversalDepthBound));
@@ -689,7 +689,7 @@ TEST(FMaterialExpressionTests, MultiOutputSampleRejectsNonTextureInput)
 	Sample->Id = FGuid::NewGuid();
 	Sample->Texture = {Scalar->Id};
 	const std::array<DMaterialExpression*, 2> Expressions{Sample.Get(), Scalar.Get()};
-	const auto Built = BuildMaterialExpressionGraph(Expressions, std::array{FMaterialExpressionInput{Sample->Id, 1}});
+	const auto Built = MIR::BuildGraph(Expressions, std::array{FMaterialExpressionInput{Sample->Id, 1}});
 	ASSERT_FALSE(Built);
 	ASSERT_FALSE(Built.Diagnostics.empty());
 	EXPECT_EQ(Built.Diagnostics.front().Error, FMaterialError(EMaterialExpressionError::InputIncompatibleType));
@@ -712,9 +712,9 @@ TEST(FMaterialExpressionTests, BuildSamplesAndSurfaceAttributesWithoutProgramNod
 	Get->Id = {1, 2, 3, 3}; Get->Surface = {Surface->Id};
 	const std::array<DMaterialExpression*, 3> Expressions{Sample.Get(), Surface.Get(), Get.Get()};
 	const std::array Roots{FMaterialExpressionInput{Surface->Id}, FMaterialExpressionInput{Get->Id, 0}, FMaterialExpressionInput{Sample->Id, 7}};
-	auto Built = BuildMaterialExpressionGraph(Expressions, Roots);
+	auto Built = MIR::BuildGraph(Expressions, Roots);
 	ASSERT_TRUE(Built);
-	EXPECT_EQ(std::ranges::count(Built.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &FMaterialIRNode::Opcode), 1);
+	EXPECT_EQ(std::ranges::count(Built.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &MIR::FNode::Opcode), 1);
 	EXPECT_EQ(Built.IR.Nodes[Built.Roots[1]].ResultType, EMaterialProgramValueType::Float3);
 	EXPECT_EQ(Built.IR.Nodes[Built.Roots[2]].ResultType, EMaterialProgramValueType::Texture2D);
 	ASSERT_EQ(Built.Parameters.size(), 1u);
@@ -726,14 +726,14 @@ TEST(FMaterialExpressionTests, BuildSamplesAndSurfaceAttributesWithoutProgramNod
 	const auto Source = GenerateMaterialProgramSlang(Built.IR, Layout.Layout);
 	ASSERT_TRUE(Source);
 	EXPECT_NE(Source.Source.find("Sample("), std::string::npos);
-	FMaterialIRCompilerInput CompilerInput{.IR = Built.IR, .Parameters = Built.Parameters, .Sources = Built.Sources};
+	MIR::FCompilerInput CompilerInput{.IR = Built.IR, .Parameters = Built.Parameters, .Sources = Built.Sources};
 	Durin::FMaterialOperationResult Error;
 	ASSERT_TRUE((Error = BuildDefaultMaterialCompilerEnvironment(CompilerInput.Environment))) << Durin::FormatMaterialError(Error.Error);
-	const auto Compiled = CompileMaterialIR(CompilerInput);
+	const auto Compiled = MIR::Compile(CompilerInput);
 	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "Missing diagnostic" : Durin::FormatMaterialError(Compiled.Diagnostics.front().Error));
 	EXPECT_EQ(Compiled.CompiledShaders.size(), 3u);
 	Get->AttributeMask = 2;
-	EXPECT_FALSE(BuildMaterialExpressionGraph(Expressions, Roots));
+	EXPECT_FALSE(MIR::BuildGraph(Expressions, Roots));
 }
 
 TEST(FMaterialExpressionTests, TypedOwnersRoundTripAndDuplicateOnlyApplicableFields)
@@ -854,30 +854,30 @@ TEST(FMaterialExpressionTests, NumericDefaultsRemainConnectedAndBuildRejectsWidt
 	Lerp->AlphaDefault = {.25f};
 	const std::array<DMaterialExpression*, 2> Expressions{Source.Get(), Lerp.Get()};
 	const std::array Roots{FMaterialExpressionInput{Lerp->Id}};
-	ASSERT_TRUE(BuildMaterialExpressionGraph(Expressions, Roots));
+	ASSERT_TRUE(MIR::BuildGraph(Expressions, Roots));
 	Lerp->A = {};
-	const auto Disconnected = BuildMaterialExpressionGraph(Expressions, Roots);
+	const auto Disconnected = MIR::BuildGraph(Expressions, Roots);
 	ASSERT_TRUE(Disconnected);
 	const auto& LerpNode = Disconnected.IR.Nodes[Disconnected.Roots[0]];
 	EXPECT_EQ(Disconnected.IR.Nodes[LerpNode.Inputs[0]].GetLiteral(), (FMaterialProgramLiteral{.1f, .2f, .3f}));
 	Lerp->A = {Source->Id};
 	Lerp->AlphaDefault = {.2f, .3f};
-	EXPECT_FALSE(BuildMaterialExpressionGraph(Expressions, Roots));
+	EXPECT_FALSE(MIR::BuildGraph(Expressions, Roots));
 	Lerp->AlphaDefault = {std::numeric_limits<float>::infinity()};
-	EXPECT_FALSE(BuildMaterialExpressionGraph(Expressions, Roots));
+	EXPECT_FALSE(MIR::BuildGraph(Expressions, Roots));
 	TStrongObjectPtr<DMaterialExpressionSwizzle> Swizzle(NewObject<DMaterialExpressionSwizzle>(nullptr, "Swizzle"));
 	Swizzle->Id = {1, 2, 3, 5};
 	Swizzle->InputDefault = {1, 2, 3, 4};
 	Swizzle->Components = {2, 0};
 	const std::array<DMaterialExpression*, 1> Swizzles{Swizzle.Get()};
 	const std::array SwizzleRoots{FMaterialExpressionInput{Swizzle->Id}};
-	const auto Built = BuildMaterialExpressionGraph(Swizzles, SwizzleRoots);
+	const auto Built = MIR::BuildGraph(Swizzles, SwizzleRoots);
 	ASSERT_TRUE(Built);
 	EXPECT_EQ(Built.IR.Nodes[Built.Roots[0]].ResultType, EMaterialProgramValueType::Float2);
 	EXPECT_EQ(Built.IR.Nodes[Built.Roots[0]].GetSwizzle().Components[0], 2);
 	EXPECT_EQ(Built.IR.Nodes[Built.Roots[0]].GetSwizzle().Components[1], 0);
 	Swizzle->Components.push_back(4);
-	EXPECT_FALSE(BuildMaterialExpressionGraph(Swizzles, SwizzleRoots));
+	EXPECT_FALSE(MIR::BuildGraph(Swizzles, SwizzleRoots));
 }
 
 TEST(FMaterialExpressionTests, EveryMappedConcreteClassExposesApplicableInputs)
@@ -991,20 +991,20 @@ TEST(FMaterialExpressionTests, LocalAuthoringValidationPreservesMissingDependenc
 	const std::array<DMaterialExpression*, 2> Expressions{Value.Get(), Call.Get()};
 	FMaterialExpressionSurfaceOutputs Outputs;
 	Outputs.BaseColor = {Call->Id, 0, OutputId};
-	ASSERT_TRUE(FMaterialExpressionGraphBuilder::ValidateSurface(Expressions, Outputs));
+	ASSERT_TRUE(MIR::FGraphBuilder::ValidateSurface(Expressions, Outputs));
 	ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
-	FMaterialIRCompilerInput Snapshot;
+	MIR::FCompilerInput Snapshot;
 	EXPECT_FALSE(SnapshotMaterialCompilerInput(*Material, {}, Snapshot));
 	const auto Children = Material->GetExpressionCollection().Expressions;
 	const auto Revision = Material->GetMaterialProgramRevision();
 	Call->Inputs[0].Input = {Call->Id, 0, OutputId};
-	EXPECT_FALSE(FMaterialExpressionGraphBuilder::ValidateSurface(Expressions, Outputs));
+	EXPECT_FALSE(MIR::FGraphBuilder::ValidateSurface(Expressions, Outputs));
 	EXPECT_FALSE(Material->SetMaterialExpressions(Expressions, Outputs));
 	EXPECT_EQ(Material->GetExpressionCollection().Expressions, Children);
 	EXPECT_EQ(Material->GetMaterialProgramRevision(), Revision);
 	Call->Inputs[0].Input = {Value->Id};
 	Call->Inputs[0].InputId = OutputId;
-	EXPECT_FALSE(FMaterialExpressionGraphBuilder::ValidateSurface(Expressions, Outputs));
+	EXPECT_FALSE(MIR::FGraphBuilder::ValidateSurface(Expressions, Outputs));
 }
 
 TEST(FMaterialExpressionTests, LocalFunctionValidationUsesDeclaredPortsWithoutAnInvocation)
@@ -1021,16 +1021,16 @@ TEST(FMaterialExpressionTests, LocalFunctionValidationUsesDeclaredPortsWithoutAn
 	TStrongObjectPtr<DMaterialExpressionFunctionOutput> Output(NewObject<DMaterialExpressionFunctionOutput>(nullptr, "Output"));
 	Output->Id = FGuid::NewGuid(); Output->Port.Id = OutputId; Output->Source = {Input->Id};
 	const std::array<DMaterialExpression*, 2> Expressions{Input.Get(), Output.Get()};
-	ASSERT_TRUE(FMaterialExpressionGraphBuilder::ValidateFunction(Durin::Testing::WithFunctionPorts(Signature, Expressions)));
+	ASSERT_TRUE(MIR::FGraphBuilder::ValidateFunction(Durin::Testing::WithFunctionPorts(Signature, Expressions)));
 	TStrongObjectPtr<DMaterialFunction> Function(NewObject<DMaterialFunction>(nullptr, "LocalFunction"));
 	ASSERT_TRUE(Function->SetFunctionExpressions(Durin::Testing::WithFunctionPorts(Signature, Expressions)));
 	Input->Port.Id = {};
-	EXPECT_FALSE(FMaterialExpressionGraphBuilder::ValidateFunction(Durin::Testing::WithFunctionPorts(Signature, Expressions)));
+	EXPECT_FALSE(MIR::FGraphBuilder::ValidateFunction(Durin::Testing::WithFunctionPorts(Signature, Expressions)));
 	Input->Port.Id = InputId;
 	Signature.Outputs[0].Type = EMaterialProgramValueType::Float;
-	EXPECT_FALSE(FMaterialExpressionGraphBuilder::ValidateFunction(Durin::Testing::WithFunctionPorts(Signature, Expressions)));
+	EXPECT_FALSE(MIR::FGraphBuilder::ValidateFunction(Durin::Testing::WithFunctionPorts(Signature, Expressions)));
 	Signature.Outputs[0].Type = EMaterialProgramValueType::Float3;
-	EXPECT_FALSE(FMaterialExpressionGraphBuilder::ValidateFunction(Durin::Testing::WithFunctionPorts(Signature, std::span(Expressions).first(1))));
+	EXPECT_FALSE(MIR::FGraphBuilder::ValidateFunction(Durin::Testing::WithFunctionPorts(Signature, std::span(Expressions).first(1))));
 }
 
 TEST(FMaterialExpressionTests, ParameterAdmissionSharesDeclarationCountAndIdentityBounds)
@@ -1047,11 +1047,11 @@ TEST(FMaterialExpressionTests, ParameterAdmissionSharesDeclarationCountAndIdenti
 		Owners.emplace_back(Parameter);
 		Expressions.push_back(Parameter);
 	}
-	EXPECT_TRUE(FMaterialExpressionGraphBuilder::ValidateSurface(std::span(Expressions).first(MaterialMaxParameterDefinitionCount), {}));
-	EXPECT_FALSE(FMaterialExpressionGraphBuilder::ValidateSurface(Expressions, {}));
+	EXPECT_TRUE(MIR::FGraphBuilder::ValidateSurface(std::span(Expressions).first(MaterialMaxParameterDefinitionCount), {}));
+	EXPECT_FALSE(MIR::FGraphBuilder::ValidateSurface(Expressions, {}));
 	Expressions.pop_back();
 	Owners.front()->Metadata.Id = Owners[1]->Id;
-	EXPECT_FALSE(FMaterialExpressionGraphBuilder::ValidateSurface(Expressions, {}));
+	EXPECT_FALSE(MIR::FGraphBuilder::ValidateSurface(Expressions, {}));
 }
 
 TEST(FMaterialExpressionTests, LocalCallsAdmitAllPortTypesAtTheAuthoredNodeBound)
@@ -1069,7 +1069,7 @@ TEST(FMaterialExpressionTests, LocalCallsAdmitAllPortTypesAtTheAuthoredNodeBound
 		Owners.emplace_back(Call);
 		Expressions.push_back(Call);
 	}
-	const auto Validation = FMaterialExpressionGraphBuilder::ValidateSurface(Expressions, {});
+	const auto Validation = MIR::FGraphBuilder::ValidateSurface(Expressions, {});
 	ASSERT_TRUE(Validation) << (Validation.Diagnostics.empty() ? "" : Durin::FormatMaterialError(Validation.Diagnostics.front().Error));
 }
 
@@ -1088,26 +1088,26 @@ TEST(FMaterialExpressionTests, AuthoringFingerprintTracksCallPortsAndExcludesPar
 	FMaterialExpressionSurfaceOutputs Outputs;
 	Outputs.BaseColor = {Call->Id, 0, Call->Outputs[0].OutputId};
 	FXxHash128 Before, After;
-	ASSERT_TRUE(FMaterialExpressionGraphBuilder::ValidateSurface(Expressions, Outputs, &Before));
+	ASSERT_TRUE(MIR::FGraphBuilder::ValidateSurface(Expressions, Outputs, &Before));
 	Parameter->DefaultValue = {.2, .4, .6, 0}; Parameter->Metadata.DisplayName = "Display color";
-	ASSERT_TRUE(FMaterialExpressionGraphBuilder::ValidateSurface(Expressions, Outputs, &After));
+	ASSERT_TRUE(MIR::FGraphBuilder::ValidateSurface(Expressions, Outputs, &After));
 	EXPECT_EQ(After, Before);
 	Outputs.BaseColor.OutputId = Call->Outputs[1].OutputId;
-	ASSERT_TRUE(FMaterialExpressionGraphBuilder::ValidateSurface(Expressions, Outputs, &After));
+	ASSERT_TRUE(MIR::FGraphBuilder::ValidateSurface(Expressions, Outputs, &After));
 	EXPECT_NE(After, Before);
 	Outputs.BaseColor.OutputId = Call->Outputs[0].OutputId;
 	const auto InputId = Call->Inputs[0].InputId;
 	Call->Inputs[0].InputId = FGuid::NewGuid();
-	ASSERT_TRUE(FMaterialExpressionGraphBuilder::ValidateSurface(Expressions, Outputs, &After));
+	ASSERT_TRUE(MIR::FGraphBuilder::ValidateSurface(Expressions, Outputs, &After));
 	EXPECT_NE(After, Before);
 	Call->Inputs[0].InputId = InputId;
 	TStrongObjectPtr<DMaterialFunction> Callee(NewObject<DMaterialFunction>(nullptr, NAME_None));
 	Call->Function = Callee.Get();
-	ASSERT_TRUE(FMaterialExpressionGraphBuilder::ValidateSurface(Expressions, Outputs, &After));
+	ASSERT_TRUE(MIR::FGraphBuilder::ValidateSurface(Expressions, Outputs, &After));
 	EXPECT_NE(After, Before);
 	const auto Retained = After;
 	Parameter->DefaultValue.x = std::numeric_limits<float>::infinity();
-	EXPECT_FALSE(FMaterialExpressionGraphBuilder::ValidateSurface(Expressions, Outputs, &After));
+	EXPECT_FALSE(MIR::FGraphBuilder::ValidateSurface(Expressions, Outputs, &After));
 	EXPECT_EQ(After, Retained);
 }
 
@@ -1120,7 +1120,7 @@ TEST(FMaterialExpressionTests, AppendLowersInOrderAndInfersWidthWithoutCachedTyp
 	Append->ADefault = {1.f, 2.f}; Append->BDefault = {3.f, 4.f};
 	const std::array<DMaterialExpression*, 1> Expressions{Append.Get()};
 	const std::array Roots{FMaterialExpressionInput{Append->Id}};
-	FMaterialExpressionGraphBuilder Context(Expressions);
+	MIR::FGraphBuilder Context(Expressions);
 	const auto Built = Context.Finish(Roots);
 	ASSERT_TRUE(Built);
 	const auto& Result = Built.IR.Nodes[Built.Roots.front()];
@@ -1136,10 +1136,10 @@ TEST(FMaterialExpressionTests, AppendLowersInOrderAndInfersWidthWithoutCachedTyp
 		EXPECT_FLOAT_EQ(Source.GetLiteral().X, Channel < 2 ? 1.f : 3.f);
 	}
 	Append->BDefault = {3.f, 4.f, 5.f};
-	FMaterialExpressionGraphBuilder Overflow(Expressions);
+	MIR::FGraphBuilder Overflow(Expressions);
 	EXPECT_FALSE(Overflow.Finish(Roots));
 	Append->BDefault = {3.f};
-	FMaterialExpressionGraphBuilder Narrower(Expressions);
+	MIR::FGraphBuilder Narrower(Expressions);
 	const auto Three = Narrower.Finish(Roots);
 	ASSERT_TRUE(Three);
 	EXPECT_EQ(Three.IR.Nodes[Three.Roots.front()].ResultType, EMaterialProgramValueType::Float3);

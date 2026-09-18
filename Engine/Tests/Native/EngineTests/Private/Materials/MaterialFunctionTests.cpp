@@ -78,9 +78,9 @@ TEST(FMaterialFunctionTests, ExplicitMRTemplateRetainsIndependentInstanceParamet
 		ASSERT_NE(Sample, Recipe.Expressions.end());
 		EXPECT_TRUE(Cast<DMaterialExpressionTextureSampleParameter2D>(Sample->Get())->UV.ExpressionId.IsValid());
 	}
-	FMaterialIRCompilerInput Input;
+	MIR::FCompilerInput Input;
 	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Material, {.CompilerIdentity = "ExplicitMRTemplate"}, Input));
-	const auto Normalized = NormalizeMaterialIR(Input);
+	const auto Normalized = MIR::Normalize(Input);
 	ASSERT_TRUE(Normalized);
 	EXPECT_EQ(Normalized.Layout.ResourceFieldCount, 6u);
 	TStrongObjectPtr<DMaterialInstance> Instance(NewObject<DMaterialInstance>(nullptr, "MRInstance"));
@@ -181,12 +181,12 @@ TEST(FMaterialFunctionTests, ExpandedAndFunctionRecipesPreserveCompilationAndInd
 	for (const auto& Output : {Outputs.BaseColor, Outputs.Normal, Outputs.Metallic, Outputs.Roughness,
 		Outputs.AmbientOcclusion, Outputs.Emissive, Outputs.Opacity, Outputs.OpacityMask})
 		EXPECT_TRUE(Output.ExpressionId.IsValid());
-	FMaterialIRCompilerInput FrozenInput, CurrentInput;
+	MIR::FCompilerInput FrozenInput, CurrentInput;
 	const FMaterialCompilerEnvironment Environment{.CompilerIdentity = "FunctionFixtureParity"};
 	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Frozen, Environment, FrozenInput));
 	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Current, Environment, CurrentInput));
-	const auto Baseline = NormalizeMaterialIR(FrozenInput);
-	const auto Candidate = NormalizeMaterialIR(CurrentInput);
+	const auto Baseline = MIR::Normalize(FrozenInput);
+	const auto Candidate = MIR::Normalize(CurrentInput);
 	ASSERT_TRUE(Baseline);
 	ASSERT_TRUE(Candidate);
 	EXPECT_NE(Baseline.CanonicalBytes, Candidate.CanonicalBytes);
@@ -293,15 +293,15 @@ TEST(FMaterialFunctionTests, SamplingDefaultsToMeshUV0AndAcceptsSharedFloat2)
 	const FMaterialExpressionSurfaceOutputs Outputs{.BaseColor = {Owner->Id, 1}, .Emissive = {Sample->Id, 1}};
 	const auto Implicit = NormalizeTypedExpressions(Expressions, Outputs);
 	ASSERT_TRUE(Implicit);
-	EXPECT_EQ(std::ranges::count(Implicit.IR.Nodes, EMaterialProgramOpcode::UVChannel, &FMaterialIRNode::Opcode), 2);
-	EXPECT_EQ(std::ranges::count(Implicit.IR.Nodes, EMaterialProgramOpcode::Multiply, &FMaterialIRNode::Opcode), 0);
+	EXPECT_EQ(std::ranges::count(Implicit.IR.Nodes, EMaterialProgramOpcode::UVChannel, &MIR::FNode::Opcode), 2);
+	EXPECT_EQ(std::ranges::count(Implicit.IR.Nodes, EMaterialProgramOpcode::Multiply, &MIR::FNode::Opcode), 0);
 	const FMaterialExpressionSurfaceOutputs SingleOutput{.BaseColor = {Owner->Id, 1}};
 	const auto ImplicitSingle = NormalizeTypedExpressions(Expressions, SingleOutput);
 	ASSERT_TRUE(ImplicitSingle);
 	Owner->UV = Sample->UV = {UV->Id};
 	const auto Explicit = NormalizeTypedExpressions(Expressions, Outputs);
 	ASSERT_TRUE(Explicit);
-	EXPECT_EQ(std::ranges::count(Explicit.IR.Nodes, EMaterialProgramOpcode::UVChannel, &FMaterialIRNode::Opcode), 1);
+	EXPECT_EQ(std::ranges::count(Explicit.IR.Nodes, EMaterialProgramOpcode::UVChannel, &MIR::FNode::Opcode), 1);
 	const auto ExplicitSingle = NormalizeTypedExpressions(Expressions, SingleOutput);
 	ASSERT_TRUE(ExplicitSingle);
 	EXPECT_EQ(ImplicitSingle.CanonicalBytes, ExplicitSingle.CanonicalBytes);
@@ -312,7 +312,7 @@ TEST(FMaterialFunctionTests, SamplingDefaultsToMeshUV0AndAcceptsSharedFloat2)
 	Owner->UV = Sample->UV = {Constant->Id};
 	const auto Fixed = NormalizeTypedExpressions(Expressions, Outputs);
 	ASSERT_TRUE(Fixed);
-	EXPECT_EQ(std::ranges::count(Fixed.IR.Nodes, EMaterialProgramOpcode::UVChannel, &FMaterialIRNode::Opcode), 0);
+	EXPECT_EQ(std::ranges::count(Fixed.IR.Nodes, EMaterialProgramOpcode::UVChannel, &MIR::FNode::Opcode), 0);
 	Owner->UV = {WrongType->Id};
 	EXPECT_FALSE(NormalizeTypedExpressions(Expressions, Outputs));
 	Owner->UV = {Constant->Id}; Sample->UV = {WrongType->Id};
@@ -342,7 +342,7 @@ TEST(FMaterialFunctionTests, CompactSamplingSharesFetchAndPreservesUVParameterRe
 	Outputs.BaseColor = {Sample->Id, 1}; Outputs.Roughness = {Sample->Id, 3}; Outputs.Metallic = {Sample->Id, 4};
 	const auto Baseline = NormalizeTypedExpressions(Expressions, Outputs);
 	ASSERT_TRUE(Baseline);
-	EXPECT_EQ(std::ranges::count(Baseline.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &FMaterialIRNode::Opcode), 1);
+	EXPECT_EQ(std::ranges::count(Baseline.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &MIR::FNode::Opcode), 1);
 	EXPECT_EQ(Baseline.ActiveParameters.size(), 2u);
 	EXPECT_TRUE(GenerateMaterialProgramSlang(Baseline.IR, Baseline.Layout));
 	const std::array<DMaterialExpression*, 4> Explicit{Texture, ExplicitSample, Channel, UV};
@@ -376,9 +376,9 @@ TEST(FMaterialFunctionTests, NormalRGBDecodesOnceAndRejectsRetiredSelectors)
 	Outputs.Normal = {Sample->Id, 1}; Outputs.Roughness = {Sample->Id, 3};
 	const auto Normalized = NormalizeTypedExpressions(Expressions, Outputs);
 	ASSERT_TRUE(Normalized);
-	EXPECT_EQ(std::ranges::count(Normalized.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &FMaterialIRNode::Opcode), 1);
-	EXPECT_EQ(std::ranges::count(Normalized.IR.Nodes, EMaterialProgramOpcode::DecodeNormalRG, &FMaterialIRNode::Opcode), 1);
-	EXPECT_EQ(std::ranges::count(Normalized.IR.Nodes, EMaterialProgramOpcode::BlendNormalsRNM, &FMaterialIRNode::Opcode), 0);
+	EXPECT_EQ(std::ranges::count(Normalized.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &MIR::FNode::Opcode), 1);
+	EXPECT_EQ(std::ranges::count(Normalized.IR.Nodes, EMaterialProgramOpcode::DecodeNormalRG, &MIR::FNode::Opcode), 1);
+	EXPECT_EQ(std::ranges::count(Normalized.IR.Nodes, EMaterialProgramOpcode::BlendNormalsRNM, &MIR::FNode::Opcode), 0);
 	auto* Separate = NewObject<DMaterialExpressionTextureSample2D>(nullptr, NAME_None);
 	Separate->Id = FGuid::NewGuid(); Separate->Texture = {Sample->Id, 7};
 	Expressions.push_back(Separate); Outputs.Normal = {Separate->Id, 1};
@@ -396,7 +396,7 @@ TEST(FMaterialFunctionTests, NormalRGBDecodesOnceAndRejectsRetiredSelectors)
 	Sample->TextureUsage = ETextureUsage::Color; Outputs.Normal = {Sample->Id, 1};
 	const auto ColorRGB = NormalizeTypedExpressions(Expressions, Outputs);
 	ASSERT_TRUE(ColorRGB);
-	EXPECT_EQ(std::ranges::count(ColorRGB.IR.Nodes, EMaterialProgramOpcode::DecodeNormalRG, &FMaterialIRNode::Opcode), 0);
+	EXPECT_EQ(std::ranges::count(ColorRGB.IR.Nodes, EMaterialProgramOpcode::DecodeNormalRG, &MIR::FNode::Opcode), 0);
 	Sample->TextureUsage = ETextureUsage::Normal;
 	for (const uint8 Index : {6, 8, 9})
 	{
@@ -431,18 +431,18 @@ TEST(FMaterialFunctionTests, ResourceOutputSkipsOwnerUVAndPreservesIndependentSa
 	ASSERT_TRUE(Material->SetMaterialExpressions(std::array<DMaterialExpression*, 7>{Channel.Get(), Coordinates.Get(), Owner.Get(), UV1.Get(), UV2.Get(), Sample1.Get(), Sample2.Get()},
 		{.BaseColor = {Sample1->Id, 1}, .Emissive = {Sample2->Id, 1}}));
 	EXPECT_EQ(Material->GetParameterDefinitions().size(), 2u);
-	FMaterialIRCompilerInput Snapshot;
+	MIR::FCompilerInput Snapshot;
 	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Material, {.CompilerIdentity = "ResourceFanOut"}, Snapshot));
 	EXPECT_TRUE(std::ranges::any_of(Snapshot.Parameters, [&](const auto& Declaration) {
 		return Declaration.Id == Owner->Metadata.Id && Declaration.Type == EMaterialParameterType::Texture;
 	}));
 	for (const auto& Node : Snapshot.IR.Nodes) EXPECT_TRUE(Node.HasValidPayload());
-	const auto Normalized = NormalizeMaterialIR(Snapshot);
+	const auto Normalized = MIR::Normalize(Snapshot);
 	ASSERT_TRUE(Normalized) << (Normalized.Diagnostics.empty() ? "" : Durin::FormatMaterialError(Normalized.Diagnostics.front().Error));
 	ASSERT_EQ(Normalized.ActiveParameters.size(), 1u);
 	EXPECT_EQ(Normalized.ActiveParameters.front().Id, Owner->Metadata.Id);
-	EXPECT_EQ(std::ranges::count(Normalized.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &FMaterialIRNode::Opcode), 2);
-	EXPECT_EQ(std::ranges::count(Normalized.IR.Nodes, EMaterialProgramOpcode::UVChannel, &FMaterialIRNode::Opcode), 0);
+	EXPECT_EQ(std::ranges::count(Normalized.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &MIR::FNode::Opcode), 2);
+	EXPECT_EQ(std::ranges::count(Normalized.IR.Nodes, EMaterialProgramOpcode::UVChannel, &MIR::FNode::Opcode), 0);
 	EXPECT_EQ(Normalized.Layout.ResourceFieldCount, 1u);
 	MarkAsGarbage(Material); MarkAsGarbage(Texture); CollectGarbage();
 }
@@ -796,7 +796,7 @@ TEST(FMaterialFunctionTests, ExpansionPreservesIndependentInputsMultipleOutputsA
 	const auto& Rough = Normalized.IR.Nodes[Normalized.IR.SurfaceRoot.Inputs[3].ExpressionIndex];
 	ASSERT_EQ(Metal.Opcode, EMaterialProgramOpcode::Add);
 	ASSERT_EQ(Rough.Opcode, EMaterialProgramOpcode::Add);
-	const auto HasConstant = [&](const FMaterialIRNode& Node, float Value) {
+	const auto HasConstant = [&](const MIR::FNode& Node, float Value) {
 		return std::ranges::any_of(Node.Inputs, [&](uint32 Index) { return Normalized.IR.Nodes[Index].GetLiteral().X == Value; });
 	};
 	EXPECT_TRUE(HasConstant(Metal, 2));
@@ -886,7 +886,7 @@ TEST(FMaterialFunctionTests, NestedTextureDefaultsYieldToConnectedRootResource)
 	const auto Connected = NormalizeTypedExpressions(Expressions, Outputs);
 	ASSERT_TRUE(Connected) << (Connected.Diagnostics.empty() ? "" : Durin::FormatMaterialError(Connected.Diagnostics[0].Error));
 	EXPECT_EQ(Connected.Layout.ResourceFieldCount, 1u);
-	EXPECT_EQ(std::ranges::count(Connected.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &FMaterialIRNode::Opcode), 1);
+	EXPECT_EQ(std::ranges::count(Connected.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &MIR::FNode::Opcode), 1);
 	ASSERT_EQ(Connected.ActiveParameters.size(), 1u);
 	EXPECT_EQ(Connected.ActiveParameters[0].Id, ParameterId);
 	EXPECT_TRUE(GenerateMaterialProgramSlang(Connected.IR, Connected.Layout));
@@ -908,12 +908,12 @@ TEST(FMaterialFunctionTests, NestedTextureDefaultsYieldToConnectedRootResource)
 	Outputs = {}; Outputs.Surface = {.ExpressionId = RootCall, .OutputId = Graph.Signature.Outputs[0].Id}; Outputs.bUseMaterialAttributes = true;
 	auto Built = BuildTypedExpressions(Expressions, Outputs);
 	ASSERT_TRUE(Built);
-	FMaterialIRCompilerInput Input;
+	MIR::FCompilerInput Input;
 	Input.IR = std::move(Built.IR); Input.Parameters = std::move(Built.Parameters); Input.Sources = std::move(Built.Sources);
 	FModuleManager::Get().LoadModule("RenderCore");
 	Durin::FMaterialOperationResult Error;
 	ASSERT_TRUE((Error = BuildDefaultMaterialCompilerEnvironment(Input.Environment))) << Durin::FormatMaterialError(Error.Error);
-	const auto Compiled = CompileMaterialIR(Input, true);
+	const auto Compiled = MIR::Compile(Input, true);
 	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "" : Durin::FormatMaterialError(Compiled.Diagnostics[0].Error));
 	EXPECT_EQ(Compiled.Layout.ResourceFieldCount, 1u);
 	EXPECT_FALSE(Compiled.CompiledShaders.empty());
@@ -950,7 +950,7 @@ TEST(FMaterialFunctionTests, RootCallsCommitAtomicallyAndSnapshotThroughInstance
 	ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 	ASSERT_EQ(GetFunctionCalls(*Material).size(), 1u);
 	EXPECT_EQ(GetFunctionCalls(*Material)[0]->Function.Get(), Function);
-	FMaterialIRCompilerInput Input;
+	MIR::FCompilerInput Input;
 	std::vector<FMaterialFunctionOwnerStamp> Owners;
 	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Instance, {.CompilerIdentity = "RootFunctionTest"}, Input, &Owners));
 	ASSERT_EQ(Owners.size(), 1u);
@@ -958,7 +958,7 @@ TEST(FMaterialFunctionTests, RootCallsCommitAtomicallyAndSnapshotThroughInstance
 	EXPECT_TRUE(std::ranges::any_of(Input.Sources, [&](const auto& Source) {
 		return !Source.CallPath.empty() && Source.CallPath.front() == CallId;
 	}));
-	const auto Normalized = NormalizeMaterialIR(Input);
+	const auto Normalized = MIR::Normalize(Input);
 	ASSERT_TRUE(Normalized) << (Normalized.Diagnostics.empty() ? "" : Durin::FormatMaterialError(Normalized.Diagnostics[0].Error));
 	EXPECT_TRUE(GenerateMaterialProgramSlang(Normalized.IR, Normalized.Layout));
 	Call->Function = nullptr;
@@ -1150,9 +1150,9 @@ TEST(FMaterialFunctionTests, RejectsOldRootSchemaAndPreservesCurrentFunctionRefe
 	EXPECT_EQ(Material->GetExpressionOutputs(), Outputs);
 	ASSERT_EQ(GetFunctionCalls(*Material).size(), 1u);
 	EXPECT_EQ(GetFunctionCalls(*Material)[0]->Id, CallId);
-	FMaterialIRCompilerInput Input;
+	MIR::FCompilerInput Input;
 	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Material, {.CompilerIdentity = "RootRoundTrip"}, Input));
-	EXPECT_TRUE(NormalizeMaterialIR(Input));
+	EXPECT_TRUE(MIR::Normalize(Input));
 	ASSERT_TRUE(UnloadPackage(MaterialPath));
 	ASSERT_TRUE(UnloadPackage(FunctionPath));
 	CollectGarbage();

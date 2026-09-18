@@ -25,7 +25,7 @@ namespace Durin::Testing
 		ASSERT_TRUE(Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*Root));
 		Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Root);
 		ASSERT_TRUE(Root->GetMaterialCompileStatus().IsCurrent());
-		Durin::FMaterialIRCompilerInput Input;
+		Durin::MIR::FCompilerInput Input;
 		Durin::FMaterialCompilerEnvironment Environment;
 		Durin::FMaterialOperationResult Error;
 		ASSERT_TRUE((Error = Durin::BuildDefaultMaterialCompilerEnvironment(Environment))) << Durin::FormatMaterialError(Error.Error);
@@ -59,7 +59,7 @@ namespace Durin::Testing
 			if (Index != 0 && Index != 7)
 				ASSERT_TRUE(Instance->SetPropertyOverrides({true, true, true, true, true, Properties}));
 			Input.StaticProperties = Instance->GetStaticProperties();
-			const auto Normalized = Durin::NormalizeMaterialIR(Input);
+			const auto Normalized = Durin::MIR::Normalize(Input);
 			ASSERT_TRUE(Normalized);
 			if (std::ranges::find(Identities, Normalized.Identity) == Identities.end())
 				Identities.push_back(Normalized.Identity);

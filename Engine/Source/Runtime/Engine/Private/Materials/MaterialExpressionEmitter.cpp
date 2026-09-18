@@ -1,80 +1,80 @@
 #include "MaterialExpressionGraphBuilder.h"
 
-namespace Durin
+namespace Durin::MIR
 {
-	auto FMaterialExpressionEmitter::RegisterOutput(uint8 Index, FGuid Id, FMaterialExpressionBuildValue Value) -> void
+	auto FEmitter::RegisterOutput(uint8 Index, FGuid Id, FValue Value) -> void
 	{
 		if (!Builder.Result.Diagnostics.empty()) return;
 		if (const auto* Node = Value.GetIndex(); Node && *Node >= Builder.Result.IR.Nodes.size())
 			return Fail(EMaterialExpressionError::BuildReturnedInvalidIRIndex, Id);
-		if (!Builder.Values.emplace(FMaterialExpressionGraphBuilderImpl::FOutputKey{ExpressionId, Index, Id}, Value).second)
+		if (!Builder.Values.emplace(FGraphBuilderImpl::FOutputKey{ExpressionId, Index, Id}, Value).second)
 			Fail(EMaterialExpressionError::BuildOutputAlreadyRegistered, Id);
 	}
 
-	auto FMaterialExpressionEmitter::Output(uint8 Index, FMaterialExpressionBuildValue Value) -> void
+	auto FEmitter::Output(uint8 Index, FValue Value) -> void
 	{
 		RegisterOutput(Index, {}, Value);
 	}
 
-	auto FMaterialExpressionEmitter::Output(FGuid Id, FMaterialExpressionBuildValue Value) -> void
+	auto FEmitter::Output(FGuid Id, FValue Value) -> void
 	{
 		if (!Id.IsValid()) return Fail(EMaterialFunctionError::CallOutputRequiresUniqueValidTypedPort);
 		RegisterOutput(0, Id, Value);
 	}
 
-	auto FMaterialExpressionEmitter::Resolve(const FMaterialExpressionInput& Input) -> FMaterialExpressionBuildValue
+	auto FEmitter::Resolve(const FMaterialExpressionInput& Input) -> FValue
 	{
 		return Builder.Resolve(Input);
 	}
 
-	auto FMaterialExpressionEmitter::ResolveIndex(const FMaterialExpressionInput& Input) -> uint32
+	auto FEmitter::ResolveIndex(const FMaterialExpressionInput& Input) -> uint32
 	{
 		return Builder.ResolveIndex(Input);
 	}
 
-	auto FMaterialExpressionEmitter::FunctionInput(FGuid PortId) -> FMaterialExpressionBuildValue
+	auto FEmitter::FunctionInput(FGuid PortId) -> FValue
 	{
 		return Builder.FunctionInput(PortId);
 	}
 
-	auto FMaterialExpressionEmitter::FunctionOutput(FGuid PortId, const FMaterialExpressionInput& Source) -> FMaterialExpressionBuildValue
+	auto FEmitter::FunctionOutput(FGuid PortId, const FMaterialExpressionInput& Source) -> FValue
 	{
 		return Builder.FunctionOutput(PortId, Source);
 	}
 
-	auto FMaterialExpressionEmitter::FunctionCall(const DMaterialExpressionFunctionCall& Call) -> void
+	auto FEmitter::FunctionCall(const DMaterialExpressionFunctionCall& Call) -> void
 	{
 		Builder.FunctionCall(Call, *this);
 	}
 
-	auto FMaterialExpressionEmitter::Emit(FMaterialIRNode Node) -> uint32
+	auto FEmitter::Emit(FNode Node) -> uint32
 	{
 		return Builder.Emit(std::move(Node));
 	}
 
-	auto FMaterialExpressionEmitter::Literal(std::span<const float> Components) -> uint32
+	auto FEmitter::Literal(std::span<const float> Components) -> uint32
 	{
 		return Builder.Literal(Components);
 	}
 
-	auto FMaterialExpressionEmitter::Parameter(FGuid Id, EMaterialParameterType Type) -> uint32
+	auto FEmitter::Parameter(FGuid Id, EMaterialParameterType Type) -> uint32
 	{
 		return Builder.Parameter(Id, Type);
 	}
 
-	auto FMaterialExpressionEmitter::Numeric(EMaterialProgramOpcode Opcode, EMaterialProgramValueType Type,
+	auto FEmitter::Numeric(EMaterialProgramOpcode Opcode, EMaterialProgramValueType Type,
 		std::span<const FMaterialExpressionInput* const> Inputs,
 		std::span<const std::vector<float>* const> Defaults, std::span<const uint8> Swizzle) -> uint32
 	{
 		return Builder.Numeric(Opcode, Type, Inputs, Defaults, Swizzle);
 	}
 
-	auto FMaterialExpressionEmitter::Coordinates() -> uint32
+	auto FEmitter::Coordinates() -> uint32
 	{
 		return Builder.Coordinates();
 	}
 
-	auto FMaterialExpressionEmitter::IsNormalTexture(FMaterialExpressionBuildValue Value) const -> bool
+	auto FEmitter::IsNormalTexture(FValue Value) const -> bool
 	{
 		if (const auto* Default = Value.GetTexture()) return Default->Fallback == EMaterialTextureFallback::FlatRGNormal;
 		const auto Index = *Value.GetIndex();
@@ -85,12 +85,12 @@ namespace Durin
 		return Usage != Builder.Shared->TextureUsages.end() && Usage->second == ETextureUsage::Normal;
 	}
 
-	auto FMaterialExpressionEmitter::Fail(FMaterialError Error, FGuid PortId, EMaterialProgramDiagnosticCategory Category) -> void
+	auto FEmitter::Fail(FMaterialError Error, FGuid PortId, EMaterialProgramDiagnosticCategory Category) -> void
 	{
 		Builder.Fail(std::move(Error), PortId, Category);
 	}
 
-	auto FMaterialExpressionEmitter::GetNode(uint32 Index) const -> const FMaterialIRNode&
+	auto FEmitter::GetNode(uint32 Index) const -> const FNode&
 	{
 		return Builder.GetNode(Index);
 	}

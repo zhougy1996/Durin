@@ -84,7 +84,7 @@ namespace Durin
 		}
 	}
 
-	auto DMaterialExpressionMaterialOutput::Build(FMaterialExpressionEmitter& Emitter) const -> void
+	auto DMaterialExpressionMaterialOutput::Build(MIR::FEmitter& Emitter) const -> void
 	{
 		return Emitter.Fail(EMaterialExpressionError::MaterialOutputSinkUsedAsExpressionSource);
 	}

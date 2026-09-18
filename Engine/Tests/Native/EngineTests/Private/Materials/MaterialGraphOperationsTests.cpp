@@ -532,7 +532,7 @@ TEST(FMaterialGraphOperationsTests, MathWidthsPropagateBroadcastAndUndoAtomicall
 		std::vector<DMaterialExpression*> Expressions;
 		for (const auto& E : Material->GetExpressionCollection().Expressions) Expressions.push_back(E.Get());
 		const std::array Roots{FMaterialExpressionInput{A}};
-		const auto Built = BuildMaterialExpressionGraph(Expressions, Roots);
+		const auto Built = MIR::BuildGraph(Expressions, Roots);
 		ASSERT_TRUE(Built);
 		EXPECT_EQ(Built.IR.Nodes[Built.Roots.front()].ResultType, Width);
 		EXPECT_TRUE(std::ranges::any_of(Built.IR.Nodes, [&](const auto& N) {
@@ -598,7 +598,7 @@ TEST(FMaterialGraphOperationsTests, FixedInputsBroadcastScalarsAndUndoWithoutAut
 	EXPECT_EQ(Material->GetExpressionOutputs().BaseColor.ExpressionId, S);
 	std::vector<DMaterialExpression*> Expressions;
 	for (const auto& E : Material->GetExpressionCollection().Expressions) Expressions.push_back(E.Get());
-	const auto Built = FMaterialExpressionGraphBuilder(Expressions).FinishSurface(Material->GetExpressionOutputs());
+	const auto Built = MIR::FGraphBuilder(Expressions).FinishSurface(Material->GetExpressionOutputs());
 	ASSERT_TRUE(Built);
 	EXPECT_EQ(Built.IR.Nodes[Built.IR.SurfaceRoot.Inputs[0].ExpressionIndex].Opcode, EMaterialProgramOpcode::Splat3);
 	ASSERT_TRUE(Transactions->Undo()); EXPECT_FALSE(Material->GetExpressionOutputs().BaseColor.ExpressionId.IsValid());
@@ -805,12 +805,12 @@ TEST(FMaterialGraphOperationsTests, CatalogPinsAgreeWithRuntimeValidation)
 				Expressions.push_back(Target.Get());
 				const auto& Accepted = Entry.AcceptedInputTypes[Pin];
 				const bool bAccepted = std::ranges::find(Accepted, SourceType) != Accepted.end();
-				EXPECT_EQ(static_cast<bool>(FMaterialExpressionGraphBuilder::ValidateSurface(Expressions, {})), bAccepted);
+				EXPECT_EQ(static_cast<bool>(MIR::FGraphBuilder::ValidateSurface(Expressions, {})), bAccepted);
 				// Fixed concrete pins cannot disappear; a dangling source is rejected instead.
 				VisitMaterialExpressionInputs(*Target, [&](uint32 Index, FMaterialExpressionInput& Input) {
 					if (Index == Pin) Input.ExpressionId = FGuid::NewGuid();
 				});
-				EXPECT_FALSE(FMaterialExpressionGraphBuilder::ValidateSurface(Expressions, {}));
+				EXPECT_FALSE(MIR::FGraphBuilder::ValidateSurface(Expressions, {}));
 			}
 	}
 }
@@ -829,7 +829,7 @@ TEST(FMaterialGraphOperationsTests, SignaturesRejectInvalidResultsAndKeepSwizzle
 			ASSERT_NE(Property, nullptr);
 			*static_cast<Type*>(Property->GetValuePtr(Target.Get())) = ResultType;
 			VisitMaterialExpressionInputs(*Target, [&](uint32, FMaterialExpressionInput& Input) { Input = {Source->Id}; });
-			EXPECT_FALSE(FMaterialExpressionGraphBuilder::ValidateSurface(std::array<DMaterialExpression*, 2>{Source.Get(), Target.Get()}, {}));
+			EXPECT_FALSE(MIR::FGraphBuilder::ValidateSurface(std::array<DMaterialExpression*, 2>{Source.Get(), Target.Get()}, {}));
 		}
 	EXPECT_FALSE(GetMaterialProgramNodeSignature(static_cast<EMaterialProgramOpcode>(3), Type::Float));
 	EXPECT_FALSE(GetMaterialProgramNodeSignature(static_cast<EMaterialProgramOpcode>(255), Type::Float));
@@ -838,11 +838,11 @@ TEST(FMaterialGraphOperationsTests, SignaturesRejectInvalidResultsAndKeepSwizzle
 	auto Swizzle = Testing::MakeGraphExpression<DMaterialExpressionSwizzle>();
 	Swizzle->Input = {Source->Id}; Swizzle->Components = {0};
 	const std::array<DMaterialExpression*, 2> Expressions{Source.Get(), Swizzle.Get()};
-	ASSERT_TRUE(FMaterialExpressionGraphBuilder::ValidateSurface(Expressions, {}));
+	ASSERT_TRUE(MIR::FGraphBuilder::ValidateSurface(Expressions, {}));
 	Swizzle->Components = {1};
-	EXPECT_FALSE(FMaterialExpressionGraphBuilder::ValidateSurface(Expressions, {}));
+	EXPECT_FALSE(MIR::FGraphBuilder::ValidateSurface(Expressions, {}));
 	Swizzle->Components = {};
-	EXPECT_FALSE(FMaterialExpressionGraphBuilder::ValidateSurface(Expressions, {}));
+	EXPECT_FALSE(MIR::FGraphBuilder::ValidateSurface(Expressions, {}));
 }
 
 TEST(FMaterialGraphOperationsTests, PaletteCreationAddsVisibleDefaultsInOneTransaction)
@@ -1525,7 +1525,7 @@ TEST(FMaterialGraphOperationsTests,
 	const auto BeforeProgram = CaptureExpressions(*Material);
 	const FMaterialGraphPresentation BeforePresentation =
 		Material->GetMaterialGraphPresentation();
-	const FMaterialNormalizationResult BeforeIdentity = Normalize(*Material);
+	const MIR::FNormalizationResult BeforeIdentity = Normalize(*Material);
 	ASSERT_TRUE(BeforeIdentity);
 	Durin::Tests::FTestTransactorOwner Transactions;
 	const FMaterialGraphCommandResult Pasted = FMaterialGraphOperations::Paste(
@@ -1535,7 +1535,7 @@ TEST(FMaterialGraphOperationsTests,
 	std::unordered_set<FGuid> OriginalIds(AllNodes.begin(), AllNodes.end());
 	for (const FGuid& Id : Pasted.GeneratedNodeIds)
 		EXPECT_FALSE(OriginalIds.contains(Id));
-	const FMaterialNormalizationResult AfterIdentity = Normalize(*Material);
+	const MIR::FNormalizationResult AfterIdentity = Normalize(*Material);
 	ASSERT_TRUE(AfterIdentity);
 	EXPECT_EQ(AfterIdentity.Identity, BeforeIdentity.Identity);
 	ASSERT_TRUE(Transactions->Undo());
@@ -1906,10 +1906,10 @@ TEST(FMaterialGraphOperationsTests,
 	ASSERT_TRUE(Textured) << Textured.Message;
 	ASSERT_EQ(Textured.GeneratedNodeIds.size(), 1u);
 	EXPECT_EQ(Material->GetExpressionOutputs().Normal.OutputIndex, 1u);
-	const FMaterialNormalizationResult Normalized = Normalize(*Material);
+	const MIR::FNormalizationResult Normalized = Normalize(*Material);
 	ASSERT_TRUE(Normalized);
 	EXPECT_EQ(std::ranges::count(Normalized.IR.Nodes, EMaterialProgramOpcode::TextureSample2D,
-		&FMaterialIRNode::Opcode), 1);
+		&MIR::FNode::Opcode), 1);
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_FALSE(Material->GetExpressionOutputs().Normal.ExpressionId.IsValid());
 
@@ -2336,7 +2336,7 @@ TEST(FMaterialGraphOperationsTests, SharedParametersSynchronizeRebindAndUndo)
 	ASSERT_TRUE(Document.AssignMaterialOutput(EMaterialSurfaceOutput::Roughness, {B.GeneratedNodeIds.front()}));
 	std::vector<DMaterialExpression*> Expressions;
 	for (const auto& E : Material->GetExpressionCollection().Expressions) Expressions.push_back(E.Get());
-	const auto Built = FMaterialExpressionGraphBuilder(Expressions).FinishSurface(Material->GetExpressionOutputs());
+	const auto Built = MIR::FGraphBuilder(Expressions).FinishSurface(Material->GetExpressionOutputs());
 	ASSERT_TRUE(Built.Diagnostics.empty());
 	ASSERT_EQ(Built.Parameters.size(), 1u);
 	EXPECT_EQ(Built.Parameters.front().Id, Id);
@@ -2401,7 +2401,7 @@ TEST(FMaterialGraphOperationsTests, SharedParameterValidationAndForeignPasteAreA
 	const auto Before = CaptureExpressions(*Source);
 	B->DefaultValue = .7f;
 	EXPECT_FALSE(Source->SetMaterialExpressions(Nodes, {}));
-	EXPECT_FALSE(FMaterialExpressionGraphBuilder(Nodes).FinishSurface({}).Diagnostics.empty());
+	EXPECT_FALSE(MIR::FGraphBuilder(Nodes).FinishSurface({}).Diagnostics.empty());
 	EXPECT_EQ(CaptureExpressions(*Source), Before);
 	B->DefaultValue = .4f;
 	B->Metadata.Id = FGuid::NewGuid();
@@ -2943,7 +2943,7 @@ TEST(FMaterialGraphOperationsTests, ExtractOutputDefaultPreservesMaterialAttribu
 	EXPECT_EQ(Material->GetExpressionOutputs().Surface, Before.Surface);
 	std::vector<DMaterialExpression*> Expressions;
 	for (const auto& Expression : Material->GetExpressionCollection().Expressions) Expressions.push_back(Expression.Get());
-	const auto Built = FMaterialExpressionGraphBuilder(Expressions).FinishSurface(Material->GetExpressionOutputs());
+	const auto Built = MIR::FGraphBuilder(Expressions).FinishSurface(Material->GetExpressionOutputs());
 	ASSERT_TRUE(Built);
 	EXPECT_TRUE(Built.IR.SurfaceRoot.bAggregate);
 }
@@ -2991,7 +2991,7 @@ TEST(FMaterialGraphOperationsTests, OutputModeRetainsConnectionsAndUndoRestoresV
 	// An empty packed input uses standard defaults, independently of retained individual values.
 	std::vector<DMaterialExpression*> Expressions;
 	for (const auto& Expression : Material->GetExpressionCollection().Expressions) Expressions.push_back(Expression.Get());
-	const auto Built = FMaterialExpressionGraphBuilder(Expressions).FinishSurface(Material->GetExpressionOutputs());
+	const auto Built = MIR::FGraphBuilder(Expressions).FinishSurface(Material->GetExpressionOutputs());
 	ASSERT_TRUE(Built);
 	EXPECT_FALSE(Built.IR.SurfaceRoot.Inputs[0].bExpression);
 	EXPECT_EQ(Built.IR.SurfaceRoot.Inputs[0].Literal.X, 0.5f);

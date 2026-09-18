@@ -222,7 +222,7 @@ namespace Durin
 			RetireFailedMaterialGeneration(Context);
 			return false;
 		}
-		FMaterialIRCompilerInput Input;
+		MIR::FCompilerInput Input;
 		std::vector<FMaterialFunctionOwnerStamp> FunctionOwners;
 		const auto Snapshot = SnapshotMaterialCompilerInput(*this, std::move(Environment), Input, &FunctionOwners);
 		Input.StaticProperties = CandidateProperties;

@@ -15,16 +15,16 @@ namespace
 {
 	using namespace Durin;
 	using namespace Durin::Editor::Material;
-	auto MakeSyntheticMaterialCompilerInput() -> Durin::FMaterialIRCompilerInput
+	auto MakeSyntheticMaterialCompilerInput() -> Durin::MIR::FCompilerInput
 	{
 		InitializeDObjectSystem();
 		auto Recipe = Durin::Testing::MakePBRMaterialExpressionsForTest();
 		std::vector<Durin::DMaterialExpression*> Expressions;
 		for (const auto& Expression : Recipe.Expressions) Expressions.push_back(Expression.Get());
-		Durin::FMaterialExpressionGraphBuilder Context(Expressions);
+		Durin::MIR::FGraphBuilder Context(Expressions);
 		auto Built = Context.FinishSurface(Recipe.Outputs);
 		check(Built);
-		Durin::FMaterialIRCompilerInput Input{.IR = std::move(Built.IR), .Parameters = std::move(Built.Parameters),
+		Durin::MIR::FCompilerInput Input{.IR = std::move(Built.IR), .Parameters = std::move(Built.Parameters),
 			.Sources = std::move(Built.Sources)};
 		Input.Environment.CompilerIdentity = "slang-test-build;target=spirv;profile=spirv_1_5";
 		Input.Environment.Target = "vulkan-spirv-1.5";
@@ -155,7 +155,7 @@ TEST(FMaterialQualificationTests, ColdAndWarmCompilerBaseline)
 {
 	InitializeDObjectSystem();
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
-	Durin::FMaterialIRCompilerInput Input = MakeSyntheticMaterialCompilerInput();
+	Durin::MIR::FCompilerInput Input = MakeSyntheticMaterialCompilerInput();
 	Durin::FMaterialOperationResult EnvironmentError;
 	ASSERT_TRUE((EnvironmentError = Durin::BuildDefaultMaterialCompilerEnvironment(
 		Input.Environment))) << Durin::FormatMaterialError(EnvironmentError.Error);
@@ -163,7 +163,7 @@ TEST(FMaterialQualificationTests, ColdAndWarmCompilerBaseline)
 	EXPECT_EQ(Input.Environment.Dependencies.front().VirtualPath,
 		"/Engine/MaterialCompilerEnvironment");
 	EXPECT_FALSE(Input.Environment.Dependencies.front().ContentHash.IsZero());
-	const auto Normalized = Durin::NormalizeMaterialIR(Input);
+	const auto Normalized = Durin::MIR::Normalize(Input);
 	ASSERT_TRUE(Normalized);
 	std::string FirstSource;
 	std::string SecondSource;
@@ -182,7 +182,7 @@ TEST(FMaterialQualificationTests, ColdAndWarmCompilerBaseline)
 		std::string::npos);
 
 	const Durin::FMaterialCompilerResult Compiled =
-		Durin::CompileMaterialIR(Input, true);
+		Durin::MIR::Compile(Input, true);
 	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty()
 		? "missing diagnostic"
 		: Durin::FormatMaterialError(Compiled.Diagnostics.front().Error));
@@ -197,7 +197,7 @@ TEST(FMaterialQualificationTests, ColdAndWarmCompilerBaseline)
 	EXPECT_FALSE(Durin::ValidateMaterialCompiledStages(
 		CorruptedStages, Compiled.Layout));
 	const Durin::FMaterialCompilerResult Warm =
-		Durin::CompileMaterialIR(Input);
+		Durin::MIR::Compile(Input);
 	ASSERT_TRUE(Warm) << (Warm.Diagnostics.empty()
 		? "missing diagnostic" : Durin::FormatMaterialError(Warm.Diagnostics.front().Error));
 	ASSERT_EQ(Warm.CompiledShaders.size(), Compiled.CompiledShaders.size());
@@ -228,7 +228,7 @@ TEST(FMaterialQualificationTests, ColdAndWarmCompilerBaseline)
 		<< Input.IR.Nodes.size()
 		<< " ir_nodes=" << Normalized.IR.Nodes.size()
 		<< " texture_samples=" << std::ranges::count_if(
-			Normalized.IR.Nodes, [](const Durin::FMaterialIRNode& Node) {
+			Normalized.IR.Nodes, [](const Durin::MIR::FNode& Node) {
 				return Node.Opcode == Durin::EMaterialProgramOpcode::TextureSample2D;
 			})
 		<< " canonical_bytes=" << Normalized.CanonicalBytes.size()
@@ -244,14 +244,14 @@ TEST(FMaterialQualificationTests, ColdAndWarmCompilerBaseline)
 		<< " cold_compile_us=" << Compiled.Timings.CompilationMicroseconds
 		<< " warm_compile_us=" << Warm.Timings.CompilationMicroseconds << '\n';
 
-	Durin::FMaterialIR InvalidIR = Normalized.IR;
+	Durin::MIR::FModule InvalidIR = Normalized.IR;
 	InvalidIR.Version++;
 	std::string InvalidSource;
 	EXPECT_FALSE(Durin::GenerateMaterialProgramSlang(InvalidIR));
 	EXPECT_TRUE(InvalidSource.empty());
-	Durin::FMaterialIRCompilerInput InvalidInput = Input;
+	Durin::MIR::FCompilerInput InvalidInput = Input;
 	InvalidInput.Environment.Target.clear();
-	const auto Failed = Durin::CompileMaterialIR(InvalidInput);
+	const auto Failed = Durin::MIR::Compile(InvalidInput);
 	EXPECT_FALSE(Failed);
 	EXPECT_TRUE(Failed.CompiledShaders.empty());
 	EXPECT_FALSE(Failed.Diagnostics.empty());

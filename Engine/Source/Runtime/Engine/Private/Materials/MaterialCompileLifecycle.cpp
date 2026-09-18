@@ -52,7 +52,7 @@ namespace Durin
 				+ Request.AssetPath.size()
 				+ Request.Target.size()
 				+ Request.PreparedProgram->Environment.CompilerIdentity.size();
-			for (const FMaterialIRNode& Node : Request.PreparedProgram->Normalized.IR.Nodes)
+			for (const MIR::FNode& Node : Request.PreparedProgram->Normalized.IR.Nodes)
 				Bytes += sizeof(Node) + Node.Inputs.size() * sizeof(uint32);
 			for (const auto& Source : Request.PreparedProgram->Normalized.Sources)
 				Bytes += sizeof(Source) + Source.FunctionAssetPath.size() + Source.CallPath.size() * sizeof(FGuid);
@@ -68,11 +68,11 @@ namespace Durin
 		{
 			uint64 Bytes = sizeof(Result) + Result.GeneratedSource.size()
 				+ Result.CompilerIdentity.size() + Result.Target.size()
-				+ Result.IR.Nodes.size() * sizeof(FMaterialIRNode)
+				+ Result.IR.Nodes.size() * sizeof(MIR::FNode)
 				+ Result.ActiveParameters.size() * sizeof(FMaterialCompilerParameterDeclaration)
 				+ Result.Layout.Fields.size() * sizeof(FMaterialRenderField)
 				+ sizeof(Result.IR.SurfaceRoot);
-			for (const FMaterialIRNode& Node : Result.IR.Nodes)
+			for (const MIR::FNode& Node : Result.IR.Nodes)
 				Bytes += Node.Inputs.size() * sizeof(uint32);
 			for (const FMaterialCompilerDependency& Dependency : Result.Dependencies)
 				Bytes += sizeof(Dependency) + Dependency.VirtualPath.size();
@@ -824,7 +824,7 @@ namespace Durin
 
 		auto FMaterialCompilationLifecycle::Submit(
 			DMaterialInterface& Material,
-			FMaterialIRCompilerInput Input,
+			MIR::FCompilerInput Input,
 			bool bForceRecompile, std::vector<FMaterialFunctionOwnerStamp> FunctionOwners, FObjectCacheContext* Context) -> bool
 		{
 			CheckMaterialCompileGameThread();

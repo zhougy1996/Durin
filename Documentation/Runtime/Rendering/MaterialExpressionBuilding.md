@@ -5,7 +5,15 @@ Modules: Engine
 
 ## Expression emission
 
-`DMaterialExpression::Build(FMaterialExpressionEmitter&) const` builds a node,
+The material intermediate layer lives in `Durin::MIR`. `FModule`, `FNode`,
+`FPayload`, and `FSwizzle` describe detached IR; `FValue` represents an emitted
+index or a function texture default. `FEmitter` and `FGraphBuilder` construct it,
+and `FCompilerInput` carries the detached compiler contract. IR operations use
+`MIR::BuildGraph`, `MIR::Validate`, `MIR::Normalize`, `MIR::EncodeCanonical`, and
+`MIR::Compile`. Material assets, expression objects, and runtime material
+interfaces remain in `Durin`.
+
+`DMaterialExpression::Build(MIR::FEmitter&) const` builds a node,
 not a requested output. It registers indexed outputs with `Output(uint8, Value)`
 or stable function-port outputs with `Output(FGuid, Value)`. The virtual interface
 has no default arguments or output-selection state. An emitter belongs to one
@@ -20,7 +28,7 @@ all declared GUID outputs after validating their bindings and building the body.
 
 ## Traversal and invocation state
 
-`FMaterialExpressionGraphBuilder` exposes only build-session lifecycle and local
+`MIR::FGraphBuilder` exposes only build-session lifecycle and local
 validation. Its private implementation owns graph admission, bounded depth-first
 traversal, function resolution, diagnostics, and IR construction. The emitter
 exposes input resolution and emission operations to expression implementations,

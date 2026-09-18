@@ -77,8 +77,8 @@ namespace Durin
 		std::vector<FMaterialCompilerParameterDeclaration> LastObservedParameters;
 		// Request-local dependency versions; excluded from shared shader artifacts.
 		std::vector<FMaterialFunctionOwnerStamp> RequestedFunctionOwners;
-		std::vector<FMaterialExpressionSource> RequestedExpressionSources;
-		std::vector<FMaterialExpressionSource> AcceptedExpressionSources;
+		std::vector<MIR::FSource> RequestedExpressionSources;
+		std::vector<MIR::FSource> AcceptedExpressionSources;
 		FMaterialCompileStatus MaterialCompileStatus;
 		std::vector<FMaterialCompileDiagnostic> MaterialCompileDiagnostics;
 		bool bDeferredForceRecompile = false;
@@ -116,7 +116,7 @@ namespace Durin
 			-> FMaterialStaticProperties;
 		ENGINE_API virtual auto GetAcceptedCompiledProgram() const
 			-> std::shared_ptr<const FMaterialCompilerResult>;
-		auto GetAcceptedExpressionSources() const -> std::span<const FMaterialExpressionSource>
+		auto GetAcceptedExpressionSources() const -> std::span<const MIR::FSource>
 		{
 			return CompilationOwner.AcceptedExpressionSources;
 		}

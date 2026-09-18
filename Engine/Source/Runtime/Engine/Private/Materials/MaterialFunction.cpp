@@ -30,9 +30,9 @@ namespace Durin
 		GraphChanges.Publish(*this);
 	}
 
-	auto DMaterialFunction::GetExpressionBody() const -> FMaterialExpressionFunctionBody
+	auto DMaterialFunction::GetExpressionBody() const -> MIR::FFunctionBody
 	{
-		FMaterialExpressionFunctionBody Body{.Signature = GetFunctionSignature(), .AssetPath = GetObjectPath(), .Revision = Revision};
+		MIR::FFunctionBody Body{.Signature = GetFunctionSignature(), .AssetPath = GetObjectPath(), .Revision = Revision};
 		for (const auto& Expression : ExpressionCollection.Expressions) Body.Expressions.push_back(Expression.Get());
 		return Body;
 	}
@@ -45,7 +45,7 @@ namespace Durin
 		{ OutError = FormatMaterialError(OwnershipError.Error); return false; }
 		std::vector<DMaterialExpression*> Expressions;
 		for (const auto& Expression : ExpressionCollection.Expressions) Expressions.push_back(Expression.Get());
-		if (!FMaterialExpressionGraphBuilder::ValidateFunction(Expressions))
+		if (!MIR::FGraphBuilder::ValidateFunction(Expressions))
 		{
 			OutError = "Function expression collection or signature is invalid.";
 			return false;
@@ -56,7 +56,7 @@ namespace Durin
 	auto DMaterialFunction::SetFunctionExpressions(std::span<DMaterialExpression* const> Expressions) -> FMaterialProgramValidationResult
 	{
 		check(IsInGameThread());
-		auto Result = FMaterialExpressionGraphBuilder::ValidateFunction(Expressions);
+		auto Result = MIR::FGraphBuilder::ValidateFunction(Expressions);
 		if (!Result) return Result;
 		Result = Private::ReplaceOwnedExpressions(*this, ExpressionCollection, Expressions);
 		if (!Result) return Result;

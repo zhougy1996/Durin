@@ -47,7 +47,7 @@ namespace
 			return Result;
 		}
 		auto Validate() const -> Durin::FMaterialProgramValidationResult
-		{ return Durin::FMaterialExpressionGraphBuilder::ValidateFunction(Durin::Testing::WithFunctionPorts(Signature, Pointers())); }
+		{ return Durin::MIR::FGraphBuilder::ValidateFunction(Durin::Testing::WithFunctionPorts(Signature, Pointers())); }
 		auto Apply(Durin::DMaterialFunction& Function) const -> Durin::FMaterialProgramValidationResult
 		{ return Function.SetFunctionExpressions(Durin::Testing::WithFunctionPorts(Signature, Pointers())); }
 	};
@@ -74,30 +74,30 @@ namespace
 	}
 
 	auto BuildTypedExpressions(std::span<Durin::DMaterialExpression* const> Expressions,
-		const Durin::FMaterialExpressionSurfaceOutputs& Outputs) -> Durin::FMaterialExpressionBuildResult
+		const Durin::FMaterialExpressionSurfaceOutputs& Outputs) -> Durin::MIR::FBuildResult
 	{
-		Durin::FMaterialExpressionBuildEnvironment Environment;
+		Durin::MIR::FBuildEnvironment Environment;
 		Environment.FindFunction = [](const Durin::DMaterialFunctionInterface& Function)
-			-> std::optional<Durin::FMaterialExpressionFunctionBody> {
+			-> std::optional<Durin::MIR::FFunctionBody> {
 			if (const auto* Owner = Durin::Cast<Durin::DMaterialFunction>(&Function))
 				return Owner->GetExpressionBody();
 			return std::nullopt;
 		};
-		Durin::FMaterialExpressionGraphBuilder Context(Expressions, std::move(Environment));
+		Durin::MIR::FGraphBuilder Context(Expressions, std::move(Environment));
 		return Context.FinishSurface(Outputs);
 	}
 
 	auto NormalizeTypedExpressions(std::span<Durin::DMaterialExpression* const> Expressions,
-		const Durin::FMaterialExpressionSurfaceOutputs& Outputs) -> Durin::FMaterialNormalizationResult
+		const Durin::FMaterialExpressionSurfaceOutputs& Outputs) -> Durin::MIR::FNormalizationResult
 	{
 		auto Built = BuildTypedExpressions(Expressions, Outputs);
 		if (!Built) return {.Diagnostics = std::move(Built.Diagnostics)};
-		Durin::FMaterialIRCompilerInput Input;
+		Durin::MIR::FCompilerInput Input;
 		Input.IR = std::move(Built.IR);
 		Input.Parameters = std::move(Built.Parameters);
 		Input.Sources = std::move(Built.Sources);
 		Input.Environment.CompilerIdentity = "TypedFunctionExpressionTest";
-		return Durin::NormalizeMaterialIR(Input);
+		return Durin::MIR::Normalize(Input);
 	}
 }
 

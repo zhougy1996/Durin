@@ -8,7 +8,10 @@
 
 namespace Durin
 {
-	class FMaterialExpressionEmitter;
+	namespace MIR
+	{
+		class FEmitter;
+	}
 	// Nodes sharing a parameter ID must retain identical parameter definitions.
 	DSTRUCT()
 	struct FMaterialParameterMetadata
@@ -50,7 +53,7 @@ namespace Durin
 		FGuid Id;
 
 		// Emits this node once per graph invocation and registers all of its outputs.
-		ENGINE_API virtual auto Build(FMaterialExpressionEmitter& Emitter) const -> void = 0;
+		ENGINE_API virtual auto Build(MIR::FEmitter& Emitter) const -> void = 0;
 
 	};
 
@@ -95,7 +98,7 @@ namespace Durin
 		DPROPERTY()
 		float Value = 0.0f;
 
-		ENGINE_API auto Build(FMaterialExpressionEmitter& Emitter) const -> void override;
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
 	};
 
@@ -121,7 +124,7 @@ namespace Durin
 
 		ENGINE_API auto GetParameterDefinition() const -> FMaterialParameterDefinition override;
 
-		ENGINE_API auto Build(FMaterialExpressionEmitter& Emitter) const -> void override;
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
 	};
 
@@ -136,7 +139,7 @@ namespace Durin
 		DPROPERTY()
 		FVector2 Value{0.0};
 
-		ENGINE_API auto Build(FMaterialExpressionEmitter& Emitter) const -> void override;
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
 	};
 
@@ -151,7 +154,7 @@ namespace Durin
 		DPROPERTY()
 		FVector3 Value{0.0};
 
-		ENGINE_API auto Build(FMaterialExpressionEmitter& Emitter) const -> void override;
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
 	};
 
@@ -166,7 +169,7 @@ namespace Durin
 		DPROPERTY()
 		FVector4 Value{0.0};
 
-		ENGINE_API auto Build(FMaterialExpressionEmitter& Emitter) const -> void override;
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
 	};
 
@@ -183,7 +186,7 @@ namespace Durin
 
 		ENGINE_API auto GetParameterDefinition() const -> FMaterialParameterDefinition override;
 
-		ENGINE_API auto Build(FMaterialExpressionEmitter& Emitter) const -> void override;
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
 	};
 
@@ -203,7 +206,7 @@ namespace Durin
 
 		ENGINE_API auto GetParameterDefinition() const -> FMaterialParameterDefinition override;
 
-		ENGINE_API auto Build(FMaterialExpressionEmitter& Emitter) const -> void override;
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
 	};
 
@@ -321,7 +324,7 @@ namespace Durin
 		DPROPERTY()
 		FMaterialExpressionSurfaceOutputs Outputs;
 		auto GetAuthoredInputCount() const -> uint32 override { return 9; }
-		ENGINE_API auto Build(FMaterialExpressionEmitter& Emitter) const -> void override;
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 	};
 
 	// Groups numeric expressions; concrete families own their applicable pins and defaults.
@@ -358,7 +361,7 @@ namespace Durin
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 2; }
 
-		ENGINE_API auto Build(FMaterialExpressionEmitter& Emitter) const -> void override;
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
 	};
 
@@ -387,7 +390,7 @@ namespace Durin
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 2; }
 
-		ENGINE_API auto Build(FMaterialExpressionEmitter& Emitter) const -> void override;
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
 	};
 
@@ -416,7 +419,7 @@ namespace Durin
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 2; }
 
-		ENGINE_API auto Build(FMaterialExpressionEmitter& Emitter) const -> void override;
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
 	};
 
@@ -445,7 +448,7 @@ namespace Durin
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 2; }
 
-		ENGINE_API auto Build(FMaterialExpressionEmitter& Emitter) const -> void override;
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
 	};
 
@@ -474,7 +477,7 @@ namespace Durin
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 2; }
 
-		ENGINE_API auto Build(FMaterialExpressionEmitter& Emitter) const -> void override;
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
 	};
 
@@ -503,7 +506,7 @@ namespace Durin
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 2; }
 
-		ENGINE_API auto Build(FMaterialExpressionEmitter& Emitter) const -> void override;
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
 	};
 
@@ -526,7 +529,7 @@ namespace Durin
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
 
-		ENGINE_API auto Build(FMaterialExpressionEmitter& Emitter) const -> void override;
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
 	};
 
@@ -549,7 +552,7 @@ namespace Durin
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
 
-		ENGINE_API auto Build(FMaterialExpressionEmitter& Emitter) const -> void override;
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
 	};
 
@@ -572,7 +575,7 @@ namespace Durin
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
 
-		ENGINE_API auto Build(FMaterialExpressionEmitter& Emitter) const -> void override;
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
 	};
 
@@ -595,7 +598,7 @@ namespace Durin
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
 
-		ENGINE_API auto Build(FMaterialExpressionEmitter& Emitter) const -> void override;
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
 	};
 
@@ -618,7 +621,7 @@ namespace Durin
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
 
-		ENGINE_API auto Build(FMaterialExpressionEmitter& Emitter) const -> void override;
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
 	};
 
@@ -641,7 +644,7 @@ namespace Durin
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
 
-		ENGINE_API auto Build(FMaterialExpressionEmitter& Emitter) const -> void override;
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
 	};
 
@@ -664,7 +667,7 @@ namespace Durin
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
 
-		ENGINE_API auto Build(FMaterialExpressionEmitter& Emitter) const -> void override;
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
 	};
 
@@ -699,7 +702,7 @@ namespace Durin
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 3; }
 
-		ENGINE_API auto Build(FMaterialExpressionEmitter& Emitter) const -> void override;
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
 	};
 
@@ -734,7 +737,7 @@ namespace Durin
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 3; }
 
-		ENGINE_API auto Build(FMaterialExpressionEmitter& Emitter) const -> void override;
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
 	};
 
@@ -760,7 +763,7 @@ namespace Durin
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 2; }
 
-		ENGINE_API auto Build(FMaterialExpressionEmitter& Emitter) const -> void override;
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
 	};
 
@@ -792,7 +795,7 @@ namespace Durin
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 3; }
 
-		ENGINE_API auto Build(FMaterialExpressionEmitter& Emitter) const -> void override;
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
 	};
 
@@ -830,7 +833,7 @@ namespace Durin
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 4; }
 
-		ENGINE_API auto Build(FMaterialExpressionEmitter& Emitter) const -> void override;
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
 	};
 
@@ -850,7 +853,7 @@ namespace Durin
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
 
-		ENGINE_API auto Build(FMaterialExpressionEmitter& Emitter) const -> void override;
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
 	};
 
@@ -870,7 +873,7 @@ namespace Durin
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
 
-		ENGINE_API auto Build(FMaterialExpressionEmitter& Emitter) const -> void override;
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
 	};
 
@@ -890,7 +893,7 @@ namespace Durin
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
 
-		ENGINE_API auto Build(FMaterialExpressionEmitter& Emitter) const -> void override;
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
 	};
 
@@ -916,7 +919,7 @@ namespace Durin
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 2; }
 
-		ENGINE_API auto Build(FMaterialExpressionEmitter& Emitter) const -> void override;
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
 	};
 
@@ -936,7 +939,7 @@ namespace Durin
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
 
-		ENGINE_API auto Build(FMaterialExpressionEmitter& Emitter) const -> void override;
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
 	};
 
@@ -958,7 +961,7 @@ namespace Durin
 		DPROPERTY()
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float2;
 		auto GetAuthoredInputCount() const -> uint32 override { return 2; }
-		ENGINE_API auto Build(FMaterialExpressionEmitter& Emitter) const -> void override;
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 	};
 
 	// Component selection supplies the swizzle's output width.
@@ -980,7 +983,7 @@ namespace Durin
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
 
-		ENGINE_API auto Build(FMaterialExpressionEmitter& Emitter) const -> void override;
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
 	};
 
@@ -1019,7 +1022,7 @@ namespace Durin
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 2; }
 
-		ENGINE_API auto Build(FMaterialExpressionEmitter& Emitter) const -> void override;
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
 	};
 
@@ -1036,7 +1039,7 @@ namespace Durin
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
 
-		ENGINE_API auto Build(FMaterialExpressionEmitter& Emitter) const -> void override;
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
 	};
 
@@ -1046,7 +1049,7 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionWorldPosition(const FObjectInitializer& Initializer) : Super(Initializer) {}
-		ENGINE_API auto Build(FMaterialExpressionEmitter& Emitter) const -> void override;
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 	};
 
 	DCLASS()
@@ -1055,7 +1058,7 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionTime(const FObjectInitializer& Initializer) : Super(Initializer) {}
-		ENGINE_API auto Build(FMaterialExpressionEmitter& Emitter) const -> void override;
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 	};
 
 	// Reads one mesh UV channel as a Float2; transforms belong to upstream math nodes.
@@ -1074,7 +1077,7 @@ namespace Durin
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
 
-		ENGINE_API auto Build(FMaterialExpressionEmitter& Emitter) const -> void override;
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
 	};
 
@@ -1136,7 +1139,7 @@ namespace Durin
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 8; }
 
-		ENGINE_API auto Build(FMaterialExpressionEmitter& Emitter) const -> void override;
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
 	};
 
@@ -1156,7 +1159,7 @@ namespace Durin
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
 
-		ENGINE_API auto Build(FMaterialExpressionEmitter& Emitter) const -> void override;
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
 	};
 
@@ -1190,7 +1193,7 @@ namespace Durin
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 1 + static_cast<uint32>(Attributes.size()); }
 
-		ENGINE_API auto Build(FMaterialExpressionEmitter& Emitter) const -> void override;
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
 	};
 
@@ -1205,7 +1208,7 @@ namespace Durin
 		DPROPERTY()
 		FMaterialFunctionPort Port;
 
-		ENGINE_API auto Build(FMaterialExpressionEmitter& Emitter) const -> void override;
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
 	};
 
@@ -1225,7 +1228,7 @@ namespace Durin
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
 
-		ENGINE_API auto Build(FMaterialExpressionEmitter& Emitter) const -> void override;
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
 	};
 
@@ -1248,7 +1251,7 @@ namespace Durin
 
 		auto GetAuthoredInputCount() const -> uint32 override { return static_cast<uint32>(Inputs.size()); }
 
-		ENGINE_API auto Build(FMaterialExpressionEmitter& Emitter) const -> void override;
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
 	};
 

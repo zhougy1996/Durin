@@ -190,7 +190,7 @@ namespace Durin
 			ENGINE_API static auto ScheduleEdit(DMaterialInterface& Material, FObjectCacheContext* Context = nullptr) -> void;
 			ENGINE_API static auto Submit(
 				DMaterialInterface& Material,
-				FMaterialIRCompilerInput Input,
+				MIR::FCompilerInput Input,
 				bool bForceRecompile, std::vector<FMaterialFunctionOwnerStamp> FunctionOwners = {}, FObjectCacheContext* Context = nullptr) -> bool;
 			ENGINE_API static auto Admit(
 				DMaterialInterface& Material,

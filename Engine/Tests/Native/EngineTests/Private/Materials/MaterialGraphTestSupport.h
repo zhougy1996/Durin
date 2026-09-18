@@ -50,8 +50,8 @@ namespace
 		const auto& Collection = Material ? Material->GetExpressionCollection() : Cast<DMaterialFunction>(&Owner)->GetExpressionCollection();
 		std::vector<DMaterialExpression*> Nodes;
 		for (auto& E : Collection.Expressions) Nodes.push_back(E.Get());
-		const auto Result = Material ? FMaterialExpressionGraphBuilder::ValidateSurface(Nodes, Material->GetExpressionOutputs())
-			: FMaterialExpressionGraphBuilder::ValidateFunction(Nodes);
+		const auto Result = Material ? MIR::FGraphBuilder::ValidateSurface(Nodes, Material->GetExpressionOutputs())
+			: MIR::FGraphBuilder::ValidateFunction(Nodes);
 		return !Result && !Result.Diagnostics.empty();
 	}
 
@@ -119,14 +119,14 @@ namespace
 		return true;
 	}
 
-	auto Normalize(const DMaterial& Material) -> FMaterialNormalizationResult
+	auto Normalize(const DMaterial& Material) -> MIR::FNormalizationResult
 	{
-		FMaterialIRCompilerInput Input;
+		MIR::FCompilerInput Input;
 		FMaterialCompilerEnvironment Environment;
 		Environment.CompilerIdentity = "material-graph-operations-test";
 		Environment.Target = "vulkan-spirv-1.5";
 		if (!SnapshotMaterialCompilerInput(Material, Environment, Input)) return {};
-		return NormalizeMaterialIR(Input);
+		return MIR::Normalize(Input);
 	}
 
 	auto MakeExpandedGraphMaterial(const char* Name) -> DMaterial*

@@ -106,7 +106,7 @@ namespace Durin
 
 		auto AppendIRNode(
 			FByteBuffer& Bytes,
-			const FMaterialIRNode& Node) -> void
+			const MIR::FNode& Node) -> void
 		{
 			AppendLittleEndian(Bytes, Node.Opcode);
 			AppendLittleEndian(Bytes, Node.ResultType);
@@ -171,9 +171,9 @@ namespace Durin
 		return {};
 	}
 
-	static auto ValidateNormalizationEnvironment(const FMaterialIRCompilerInput& Input) -> FMaterialNormalizationResult
+	static auto ValidateNormalizationEnvironment(const MIR::FCompilerInput& Input) -> MIR::FNormalizationResult
 	{
-		FMaterialNormalizationResult Result;
+		MIR::FNormalizationResult Result;
 		const auto StaticPropertiesError = ValidateMaterialStaticProperties(
 			Input.StaticProperties);
 		if (!StaticPropertiesError)
@@ -229,12 +229,12 @@ namespace Durin
 		return Result;
 	}
 
-	auto NormalizeMaterialIR(const FMaterialIRCompilerInput& Input) -> FMaterialNormalizationResult
+	auto MIR::Normalize(const MIR::FCompilerInput& Input) -> MIR::FNormalizationResult
 	{
-		FMaterialNormalizationResult Result;
+		MIR::FNormalizationResult Result;
 		const auto EnvironmentValidation = ValidateNormalizationEnvironment(Input);
 		if (!EnvironmentValidation) return EnvironmentValidation;
-		auto Validation = ValidateMaterialIR(Input.IR, Input.Parameters);
+		auto Validation = MIR::Validate(Input.IR, Input.Parameters);
 		if (!Validation) { Result.Diagnostics = std::move(Validation.Diagnostics); return Result; }
 		if (Input.Sources.size() > MaterialFunctionMaxExpandedNodes)
 		{
@@ -310,7 +310,7 @@ namespace Durin
 		}
 		constexpr uint32 InvalidIndex = 0xffffffffu;
 		std::vector<uint32> Indices(Count, InvalidIndex);
-		FMaterialIR IR;
+		MIR::FModule IR;
 		IR.SurfaceRoot = Input.IR.SurfaceRoot;
 		std::function<uint32(uint32)> Emit = [&](uint32 Index) -> uint32 {
 			if (Indices[Index] != InvalidIndex) return Indices[Index];
@@ -364,7 +364,7 @@ namespace Durin
 				Remapped.ExpressionIndex = Indices[Source.ExpressionIndex];
 				Result.Sources.push_back(std::move(Remapped));
 			}
-		std::ranges::stable_sort(Result.Sources, {}, &FMaterialExpressionSource::ExpressionIndex);
+		std::ranges::stable_sort(Result.Sources, {}, &MIR::FSource::ExpressionIndex);
 		for (const auto& Node : IR.Nodes)
 			if (Node.Opcode == EMaterialProgramOpcode::Parameter || Node.Opcode == EMaterialProgramOpcode::TextureParameter)
 			{
@@ -379,7 +379,7 @@ namespace Durin
 			Result.Diagnostics.push_back(MakeNormalizationFailure(FMaterialError(Layout.Validation)));
 			return Result;
 		}
-		const auto Error = EncodeMaterialIRCanonical(IR, Result.CanonicalBytes);
+		const auto Error = MIR::EncodeCanonical(IR, Result.CanonicalBytes);
 		if (!Error)
 		{
 			Result.Diagnostics.push_back(MakeNormalizationFailure(std::move(Error.Error)));
@@ -393,12 +393,12 @@ namespace Durin
 		return Result;
 	}
 
-	auto EncodeMaterialIRCanonical(
-		const FMaterialIR& IR,
+	auto MIR::EncodeCanonical(
+		const MIR::FModule& IR,
 		FByteBuffer& OutBytes) -> FMaterialOperationResult
 	{
 		OutBytes.clear();
-		if (IR.Version != CurrentMaterialIRVersion
+		if (IR.Version != MIR::CurrentVersion
 			|| IR.Nodes.size() > MaterialFunctionMaxExpandedNodes)
 		{
 			return {EMaterialIRError::InvalidStructure};
@@ -410,7 +410,7 @@ namespace Durin
 		OutBytes.push_back(std::byte{0});
 		AppendLittleEndian(OutBytes, IR.Version);
 		AppendLittleEndian(OutBytes, static_cast<uint32>(IR.Nodes.size()));
-		for (const FMaterialIRNode& Node : IR.Nodes)
+		for (const MIR::FNode& Node : IR.Nodes)
 		{
 			if (!Node.HasValidPayload())
 			{
@@ -454,7 +454,7 @@ namespace Durin
 	}
 
 	static auto BuildInputIdentity(
-		const FMaterialIRCompilerInput& Input,
+		const MIR::FCompilerInput& Input,
 		FByteView CanonicalIR, const FMaterialRenderLayout& Layout)
 		-> FMaterialProgramIdentity
 	{
@@ -485,7 +485,7 @@ namespace Durin
 		AppendLittleEndian(Bytes, CanonicalFloatBits(
 			ShaderProperties.OpacityMaskThreshold));
 		AppendLittleEndian(Bytes, MaterialProgramIdentitySchemaVersion);
-		AppendLittleEndian(Bytes, CurrentMaterialIRVersion);
+		AppendLittleEndian(Bytes, MIR::CurrentVersion);
 		AppendLittleEndian(Bytes, CurrentMaterialGeneratorVersion);
 		AppendLittleEndian(Bytes, CurrentMaterialCompilerEnvelopeVersion);
 		AppendString(Bytes, Input.Environment.CompilerIdentity);
@@ -509,7 +509,7 @@ namespace Durin
 		return {.Digest = FXxHash128::HashBuffer(Bytes)};
 	}
 
-	auto BuildMaterialProgramIdentity(const FMaterialIRCompilerInput& Input,
+	auto BuildMaterialProgramIdentity(const MIR::FCompilerInput& Input,
 		FByteView CanonicalIR, const FMaterialRenderLayout& Layout) -> FMaterialProgramIdentity
 	{
 		return BuildInputIdentity(Input, CanonicalIR, Layout);

@@ -8,8 +8,8 @@
 
 namespace Durin
 {
-	auto FMaterialExpressionGraphBuilderImpl::FinishSurface(const FMaterialExpressionSurfaceOutputs& Outputs)
-		-> FMaterialExpressionBuildResult
+	auto MIR::FGraphBuilderImpl::FinishSurface(const FMaterialExpressionSurfaceOutputs& Outputs)
+		-> MIR::FBuildResult
 	{
 		const std::array Inputs{Outputs.BaseColor, Outputs.Normal, Outputs.Metallic, Outputs.Roughness,
 			Outputs.AmbientOcclusion, Outputs.Emissive, Outputs.Opacity, Outputs.OpacityMask};
@@ -70,10 +70,10 @@ namespace Durin
 		return Finish({});
 	}
 
-	auto FMaterialExpressionGraphBuilderImpl::ValidateSurface(std::span<DMaterialExpression* const> Expressions,
+	auto MIR::FGraphBuilderImpl::ValidateSurface(std::span<DMaterialExpression* const> Expressions,
 		const FMaterialExpressionSurfaceOutputs& Outputs, FXxHash128* OutCodeFingerprint) -> FMaterialProgramValidationResult
 	{
-		FMaterialExpressionGraphBuilderImpl Context(Expressions);
+		MIR::FGraphBuilderImpl Context(Expressions);
 		Context.bValidateAuthoring = true;
 		auto Built = Context.FinishSurface(Outputs);
 		if (Built && OutCodeFingerprint)
@@ -94,7 +94,7 @@ namespace Durin
 				Hash.UpdateValue(static_cast<uint32>(Node.Payload.index()));
 				if (const auto* Value = std::get_if<FMaterialProgramLiteral>(&Node.Payload)) Literal(*Value);
 				else if (const auto* Id = std::get_if<FGuid>(&Node.Payload)) Hash.UpdateValue(*Id);
-				else if (const auto* Swizzle = std::get_if<FMaterialIRSwizzle>(&Node.Payload))
+				else if (const auto* Swizzle = std::get_if<MIR::FSwizzle>(&Node.Payload))
 				{
 					Hash.UpdateValue(Swizzle->Length);
 					for (const auto Component : Swizzle->Components) Hash.UpdateValue(Component);
@@ -113,7 +113,7 @@ namespace Durin
 	}
 
 	auto SnapshotMaterialCompilerInput(const DMaterialInterface& Material, FMaterialCompilerEnvironment Environment,
-		FMaterialIRCompilerInput& OutInput, std::vector<FMaterialFunctionOwnerStamp>* OutOwners)
+		MIR::FCompilerInput& OutInput, std::vector<FMaterialFunctionOwnerStamp>* OutOwners)
 		-> FMaterialProgramValidationResult
 	{
 		check(IsInGameThread());
@@ -129,8 +129,8 @@ namespace Durin
 		std::vector<DMaterialExpression*> Expressions;
 		for (const auto& Expression : Owner->GetExpressionCollection().Expressions) Expressions.push_back(Expression.Get());
 		std::vector<FMaterialFunctionOwnerStamp> Owners;
-		FMaterialExpressionGraphBuilderImpl Context(Expressions, {.FindFunction = [&](const DMaterialFunctionInterface& Function)
-			-> std::optional<FMaterialExpressionFunctionBody> {
+		MIR::FGraphBuilderImpl Context(Expressions, {.FindFunction = [&](const DMaterialFunctionInterface& Function)
+			-> std::optional<MIR::FFunctionBody> {
 			const auto* Concrete = Cast<DMaterialFunction>(&Function);
 			if (!Concrete) return std::nullopt;
 			Owners.push_back({FObjectKey(const_cast<DMaterialFunction*>(Concrete)), Concrete->GetObjectPath(), Concrete->GetFunctionRevision()});
@@ -142,7 +142,7 @@ namespace Durin
 			Validation.Diagnostics = std::move(Built.Diagnostics);
 			return Validation;
 		}
-		FMaterialIRCompilerInput Snapshot{.IR = std::move(Built.IR), .Parameters = std::move(Built.Parameters),
+		MIR::FCompilerInput Snapshot{.IR = std::move(Built.IR), .Parameters = std::move(Built.Parameters),
 			.StaticProperties = Material.GetStaticProperties(), .Environment = std::move(Environment), .Sources = std::move(Built.Sources)};
 		std::ranges::sort(Snapshot.Environment.Dependencies, {}, &FMaterialCompilerDependency::VirtualPath);
 		std::ranges::sort(Owners, {}, &FMaterialFunctionOwnerStamp::AssetPath);
@@ -204,7 +204,7 @@ namespace Durin
 			&& AreMaterialFunctionOwnersCurrent(ParameterReachabilityFunctionOwners)) return ParameterReachability;
 
 		auto Result = std::make_shared<FMaterialParameterReachability>();
-		FMaterialIRCompilerInput Snapshot;
+		MIR::FCompilerInput Snapshot;
 		std::vector<FMaterialFunctionOwnerStamp> Owners;
 		Result->Validation = SnapshotMaterialCompilerInput(*this, {}, Snapshot, &Owners);
 		if (!Result->Validation) return Result;

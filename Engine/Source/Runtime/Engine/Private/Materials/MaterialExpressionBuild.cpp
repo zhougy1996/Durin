@@ -4,39 +4,39 @@
 #include "Threading/RunnableThread.h"
 #include "Materials/MaterialFunctionInterface.h"
 
-namespace Durin
+namespace Durin::MIR
 {
-	FMaterialExpressionGraphBuilder::FMaterialExpressionGraphBuilder(std::span<DMaterialExpression* const> Expressions,
-		FMaterialExpressionBuildEnvironment Environment)
-		: Impl(std::make_unique<FMaterialExpressionGraphBuilderImpl>(Expressions, std::move(Environment)))
+	FGraphBuilder::FGraphBuilder(std::span<DMaterialExpression* const> Expressions,
+		FBuildEnvironment Environment)
+		: Impl(std::make_unique<FGraphBuilderImpl>(Expressions, std::move(Environment)))
 	{
 	}
 
-	FMaterialExpressionGraphBuilder::~FMaterialExpressionGraphBuilder() = default;
+	FGraphBuilder::~FGraphBuilder() = default;
 
-	auto FMaterialExpressionGraphBuilder::Finish(std::span<const FMaterialExpressionInput> Roots) -> FMaterialExpressionBuildResult
+	auto FGraphBuilder::Finish(std::span<const FMaterialExpressionInput> Roots) -> FBuildResult
 	{
 		return Impl->Finish(Roots);
 	}
 
-	auto FMaterialExpressionGraphBuilder::FinishSurface(const FMaterialExpressionSurfaceOutputs& Outputs) -> FMaterialExpressionBuildResult
+	auto FGraphBuilder::FinishSurface(const FMaterialExpressionSurfaceOutputs& Outputs) -> FBuildResult
 	{
 		return Impl->FinishSurface(Outputs);
 	}
 
-	auto FMaterialExpressionGraphBuilder::ValidateSurface(std::span<DMaterialExpression* const> Expressions,
+	auto FGraphBuilder::ValidateSurface(std::span<DMaterialExpression* const> Expressions,
 		const FMaterialExpressionSurfaceOutputs& Outputs, FXxHash128* OutCodeFingerprint) -> FMaterialProgramValidationResult
 	{
-		return FMaterialExpressionGraphBuilderImpl::ValidateSurface(Expressions, Outputs, OutCodeFingerprint);
+		return FGraphBuilderImpl::ValidateSurface(Expressions, Outputs, OutCodeFingerprint);
 	}
 
-	auto FMaterialExpressionGraphBuilder::ValidateFunction(std::span<DMaterialExpression* const> Expressions) -> FMaterialProgramValidationResult
+	auto FGraphBuilder::ValidateFunction(std::span<DMaterialExpression* const> Expressions) -> FMaterialProgramValidationResult
 	{
-		return FMaterialExpressionGraphBuilderImpl::ValidateFunction(Expressions);
+		return FGraphBuilderImpl::ValidateFunction(Expressions);
 	}
 
-	FMaterialExpressionGraphBuilderImpl::FMaterialExpressionGraphBuilderImpl(std::span<DMaterialExpression* const> InExpressions,
-		FMaterialExpressionBuildEnvironment InEnvironment)
+	FGraphBuilderImpl::FGraphBuilderImpl(std::span<DMaterialExpression* const> InExpressions,
+		FBuildEnvironment InEnvironment)
 		: Shared(std::make_shared<FSharedState>()), Result(Shared->Result), Depths(Shared->Depths),
 		  LinkCount(Shared->LinkCount), Environment(std::move(InEnvironment))
 	{
@@ -45,8 +45,8 @@ namespace Durin
 			Result.IR.SurfaceRoot.Inputs[Index].Type = GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(Index));
 	}
 
-	FMaterialExpressionGraphBuilderImpl::FMaterialExpressionGraphBuilderImpl(FMaterialExpressionGraphBuilderImpl& Parent,
-		const FMaterialExpressionFunctionBody& Body, FGuid CallId)
+	FGraphBuilderImpl::FGraphBuilderImpl(FGraphBuilderImpl& Parent,
+		const FFunctionBody& Body, FGuid CallId)
 		: Shared(Parent.Shared), Result(Shared->Result), Depths(Shared->Depths), LinkCount(Shared->LinkCount),
 		  Environment(Parent.Environment), Signature(&Body.Signature), FunctionPath(Body.AssetPath), CallPath(Parent.CallPath)
 	{
@@ -54,7 +54,7 @@ namespace Durin
 		Admit(Body.Expressions);
 	}
 
-	auto FMaterialExpressionGraphBuilderImpl::Admit(std::span<DMaterialExpression* const> InExpressions) -> void
+	auto FGraphBuilderImpl::Admit(std::span<DMaterialExpression* const> InExpressions) -> void
 	{
 		check(IsInGameThread());
 		if (InExpressions.size() > MaterialProgramMaxNodeCount)
@@ -125,7 +125,7 @@ namespace Durin
 		}
 	}
 
-	auto FMaterialExpressionGraphBuilderImpl::Fail(FMaterialError Error, FGuid PortId,
+	auto FGraphBuilderImpl::Fail(FMaterialError Error, FGuid PortId,
 		EMaterialProgramDiagnosticCategory Category) -> uint32
 	{
 		if (Result.Diagnostics.empty())
@@ -135,10 +135,10 @@ namespace Durin
 				.NodeId = SourceStack.empty() ? FGuid{} : SourceStack.back(), .Error = std::move(Error),
 				.PortId = PortId.IsValid() ? PortId : PortStack.empty() ? FGuid{} : PortStack.back(), .FunctionAssetPath = FunctionPath, .CallPath = CallPath});
 		}
-		return InvalidMaterialExpressionIndex;
+		return InvalidIndex;
 	}
 
-	auto FMaterialExpressionGraphBuilderImpl::ReportMissingOutput(const DMaterialExpression& Expression,
+	auto FGraphBuilderImpl::ReportMissingOutput(const DMaterialExpression& Expression,
 		const FMaterialExpressionInput& Input) -> void
 	{
 		if (Cast<DMaterialExpressionMaterialOutput>(&Expression))
@@ -173,7 +173,7 @@ namespace Durin
 		if (Result.Diagnostics.empty()) Fail(EMaterialExpressionError::BuildOutputNotRegistered, Input.OutputId);
 	}
 
-	auto FMaterialExpressionGraphBuilderImpl::BuildExpression(const DMaterialExpression& Expression) -> void
+	auto FGraphBuilderImpl::BuildExpression(const DMaterialExpression& Expression) -> void
 	{
 		if (!Result.Diagnostics.empty() || Built.contains(Expression.Id)) return;
 		if (Active.size() >= MaterialProgramMaxDepth || !Active.insert(Expression.Id).second)
@@ -183,17 +183,17 @@ namespace Durin
 		}
 		SourceStack.push_back(Expression.Id);
 		// Each recursive invocation has its own emitter; upstream builds cannot change its output owner.
-		FMaterialExpressionEmitter Emitter(*this, Expression.Id);
+		FEmitter Emitter(*this, Expression.Id);
 		Expression.Build(Emitter);
 		SourceStack.pop_back();
 		Active.erase(Expression.Id);
 		if (Result.Diagnostics.empty()) Built.insert(Expression.Id);
 	}
 
-	auto FMaterialExpressionGraphBuilderImpl::Resolve(const FMaterialExpressionInput& Input) -> FMaterialExpressionBuildValue
+	auto FGraphBuilderImpl::Resolve(const FMaterialExpressionInput& Input) -> FValue
 	{
 		check(IsInGameThread());
-		if (!Result.Diagnostics.empty()) return InvalidMaterialExpressionIndex;
+		if (!Result.Diagnostics.empty()) return InvalidIndex;
 		if (bValidateAuthoring)
 		{
 			AuthoringCodeHash.UpdateValue(Input.ExpressionId);
@@ -204,29 +204,29 @@ namespace Durin
 		if (Found == Expressions.end()) return Fail(EMaterialExpressionError::InputDisconnectedRefersMissingExpression);
 		// Do not expose a partially registered output while its expression is still building.
 		BuildExpression(*Found->second);
-		if (!Result.Diagnostics.empty()) return InvalidMaterialExpressionIndex;
+		if (!Result.Diagnostics.empty()) return InvalidIndex;
 		const FOutputKey Key{Input.ExpressionId, Input.OutputIndex, Input.OutputId};
 		if (const auto Value = Values.find(Key); Value != Values.end()) return Value->second;
 		SourceStack.push_back(Input.ExpressionId);
 		ReportMissingOutput(*Found->second, Input);
 		SourceStack.pop_back();
-		return InvalidMaterialExpressionIndex;
+		return InvalidIndex;
 	}
 
-	auto FMaterialExpressionGraphBuilderImpl::ResolveIndex(const FMaterialExpressionInput& Input) -> uint32
+	auto FGraphBuilderImpl::ResolveIndex(const FMaterialExpressionInput& Input) -> uint32
 	{
 		const auto Value = Resolve(Input);
 		return Value.GetIndex() ? *Value.GetIndex() : Fail(EMaterialExpressionError::InvalidTextureDefaultConsumer);
 	}
 
-	auto FMaterialExpressionGraphBuilderImpl::MatchesType(const FMaterialExpressionBuildValue& Value, EMaterialProgramValueType Type) const -> bool
+	auto FGraphBuilderImpl::MatchesType(const FValue& Value, EMaterialProgramValueType Type) const -> bool
 	{
 		if (Value.GetTexture()) return Type == EMaterialProgramValueType::Texture2D;
 		return *Value.GetIndex() < Result.IR.Nodes.size() && Result.IR.Nodes[*Value.GetIndex()].ResultType == Type;
 	}
 
-	auto FMaterialExpressionGraphBuilderImpl::BroadcastScalar(FMaterialExpressionBuildValue Value,
-		EMaterialProgramValueType Type) -> FMaterialExpressionBuildValue
+	auto FGraphBuilderImpl::BroadcastScalar(FValue Value,
+		EMaterialProgramValueType Type) -> FValue
 	{
 		if (Type > EMaterialProgramValueType::Float && Type <= EMaterialProgramValueType::Float4
 			&& MatchesType(Value, EMaterialProgramValueType::Float))
@@ -235,9 +235,9 @@ namespace Durin
 		return Value;
 	}
 
-	auto FMaterialExpressionGraphBuilderImpl::Emit(FMaterialIRNode Node) -> uint32
+	auto FGraphBuilderImpl::Emit(FNode Node) -> uint32
 	{
-		if (!Result.Diagnostics.empty()) return InvalidMaterialExpressionIndex;
+		if (!Result.Diagnostics.empty()) return InvalidIndex;
 		const auto Signature = GetMaterialProgramNodeSignature(Node.Opcode, Node.ResultType);
 		if (!Node.HasValidPayload() || !Signature || Node.Inputs.size() != Signature->InputCount)
 			return Fail(EMaterialExpressionError::OpcodeResultWidthInputCountInvalid);
@@ -246,7 +246,7 @@ namespace Durin
 		for (size_t Slot = 0; Slot < Node.Inputs.size(); ++Slot)
 			if (Signature->Inputs[Slot].size() == 1 && Node.Opcode != EMaterialProgramOpcode::Normalize)
 				Node.Inputs[Slot] = *BroadcastScalar(Node.Inputs[Slot], Signature->Inputs[Slot].front()).GetIndex();
-		if (!Result.Diagnostics.empty()) return InvalidMaterialExpressionIndex;
+		if (!Result.Diagnostics.empty()) return InvalidIndex;
 		if (Result.IR.Nodes.size() >= MaterialFunctionMaxExpandedNodes
 			|| LinkCount + Node.Inputs.size() > MaterialFunctionMaxExpandedLinks)
 			return Fail(EMaterialExpressionError::BuildExceedsExpandedIRNodeLinkBound, {}, EMaterialProgramDiagnosticCategory::Bounds);
@@ -285,10 +285,10 @@ namespace Durin
 		return Index;
 	}
 
-	auto FMaterialExpressionGraphBuilderImpl::Literal(std::span<const float> Components) -> uint32
+	auto FGraphBuilderImpl::Literal(std::span<const float> Components) -> uint32
 	{
 		if (Components.empty() || Components.size() > 4) return Fail(EMaterialExpressionError::NumericInputRequiresDefaultOneFourComponents);
-		FMaterialIRNode Node{.Opcode = EMaterialProgramOpcode::Constant,
+		FNode Node{.Opcode = EMaterialProgramOpcode::Constant,
 			.ResultType = static_cast<EMaterialProgramValueType>(Components.size() - 1)};
 		FMaterialProgramLiteral Literal;
 		const std::array Targets{&Literal.X, &Literal.Y, &Literal.Z, &Literal.W};
@@ -297,7 +297,7 @@ namespace Durin
 		return Emit(std::move(Node));
 	}
 
-	auto FMaterialExpressionGraphBuilderImpl::Parameter(FGuid Id, EMaterialParameterType Type) -> uint32
+	auto FGraphBuilderImpl::Parameter(FGuid Id, EMaterialParameterType Type) -> uint32
 	{
 		if (!Id.IsValid()) return Fail(EMaterialExpressionError::ParameterExpressionRequiresValidParameterGUID);
 		EMaterialProgramValueType ValueType;
@@ -318,18 +318,18 @@ namespace Durin
 			.ResultType = ValueType, .Payload = Id});
 	}
 
-	auto FMaterialExpressionGraphBuilderImpl::Numeric(EMaterialProgramOpcode Opcode, EMaterialProgramValueType Type,
+	auto FGraphBuilderImpl::Numeric(EMaterialProgramOpcode Opcode, EMaterialProgramValueType Type,
 		std::span<const FMaterialExpressionInput* const> Inputs,
 		std::span<const std::vector<float>* const> Defaults, std::span<const uint8> Swizzle) -> uint32
 	{
 		const auto Signature = GetMaterialProgramNodeSignature(Opcode, Type);
 		if (!Signature || Inputs.size() != Signature->InputCount || Defaults.size() != Inputs.size())
 			return Fail(EMaterialExpressionError::NumericSignatureMismatch);
-		FMaterialIRNode Node{.Opcode = Opcode, .ResultType = Type};
+		FNode Node{.Opcode = Opcode, .ResultType = Type};
 		if (Opcode == EMaterialProgramOpcode::Swizzle)
 		{
 			if (Swizzle.empty() || Swizzle.size() > 4) return Fail(EMaterialExpressionError::SwizzleSelectOneFourComponents);
-			FMaterialIRSwizzle Payload{.Length = static_cast<uint8>(Swizzle.size())};
+			FSwizzle Payload{.Length = static_cast<uint8>(Swizzle.size())};
 			std::ranges::copy(Swizzle, Payload.Components.begin());
 			Node.Payload = Payload;
 		}
@@ -352,7 +352,7 @@ namespace Durin
 			if (!Input.ExpressionId.IsValid() && (Input.OutputIndex != 0 || Input.OutputId.IsValid()))
 				return Fail(EMaterialExpressionError::DisconnectedNumericInputOutputSelector);
 			auto Index = Input.ExpressionId.IsValid() ? ResolveIndex(Input) : Literal(Default);
-			if (bBroadcast && Index != InvalidMaterialExpressionIndex && GetNode(Index).ResultType == EMaterialProgramValueType::Float)
+			if (bBroadcast && Index != InvalidIndex && GetNode(Index).ResultType == EMaterialProgramValueType::Float)
 				Index = Emit({.Opcode = static_cast<EMaterialProgramOpcode>(static_cast<uint8>(EMaterialProgramOpcode::Splat2)
 					+ static_cast<uint8>(Type) - 1), .ResultType = Type, .Inputs = {Index}});
 			Node.Inputs.push_back(Index);
@@ -360,14 +360,14 @@ namespace Durin
 		return Emit(std::move(Node));
 	}
 
-	auto FMaterialExpressionGraphBuilderImpl::Coordinates() -> uint32
+	auto FGraphBuilderImpl::Coordinates() -> uint32
 	{
 		const std::array Channel{0.f};
 		return Emit({.Opcode = EMaterialProgramOpcode::UVChannel,
 			.ResultType = EMaterialProgramValueType::Float2, .Inputs = {Literal(Channel)}});
 	}
 
-	auto FMaterialExpressionGraphBuilderImpl::BuildAllExpressions() -> void
+	auto FGraphBuilderImpl::BuildAllExpressions() -> void
 	{
 		for (const auto& [Id, Expression] : Expressions)
 		{
@@ -377,7 +377,7 @@ namespace Durin
 		}
 	}
 
-	auto FMaterialExpressionGraphBuilderImpl::Finish(std::span<const FMaterialExpressionInput> Roots) -> FMaterialExpressionBuildResult
+	auto FGraphBuilderImpl::Finish(std::span<const FMaterialExpressionInput> Roots) -> FBuildResult
 	{
 		if (Roots.size() > MaterialFunctionMaxOutputs) Fail(EMaterialExpressionError::RootCountExceedsBound);
 		BuildAllExpressions();
@@ -393,15 +393,15 @@ namespace Durin
 		else
 		{
 			std::ranges::sort(Result.Parameters, {}, &FMaterialCompilerParameterDeclaration::Id);
-			std::ranges::sort(Result.Dependencies, {}, &FMaterialExpressionFunctionDependency::AssetPath);
+			std::ranges::sort(Result.Dependencies, {}, &FFunctionDependency::AssetPath);
 		}
 		return std::move(Result);
 	}
 
-	auto BuildMaterialExpressionGraph(std::span<DMaterialExpression* const> Expressions,
-		std::span<const FMaterialExpressionInput> Roots, FMaterialExpressionBuildEnvironment Environment) -> FMaterialExpressionBuildResult
+	auto BuildGraph(std::span<DMaterialExpression* const> Expressions,
+		std::span<const FMaterialExpressionInput> Roots, FBuildEnvironment Environment) -> FBuildResult
 	{
-		FMaterialExpressionGraphBuilderImpl Context(Expressions, std::move(Environment));
+		FGraphBuilderImpl Context(Expressions, std::move(Environment));
 		return Context.Finish(Roots);
 	}
 }

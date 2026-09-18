@@ -42,7 +42,7 @@ namespace Durin
 		}
 		std::vector<DMaterialExpression*> Expressions;
 		for (const auto& Expression : Collection.Expressions) Expressions.push_back(Expression.Get());
-		return FMaterialExpressionGraphBuilder::ValidateSurface(Expressions, Outputs, OutCodeFingerprint);
+		return MIR::FGraphBuilder::ValidateSurface(Expressions, Outputs, OutCodeFingerprint);
 	}
 
 	auto DMaterial::DeriveExpressionParameterSchema(const FMaterialExpressionCollection& Collection,

@@ -9,7 +9,10 @@
 
 namespace Durin
 {
-	struct FMaterialExpressionFunctionBody;
+	namespace MIR
+	{
+		struct FFunctionBody;
+	}
 	// Owns the editable function graph and presentation; rendering consumes detached expansion.
 	DCLASS()
 	class DMaterialFunction : public DMaterialFunctionInterface
@@ -22,7 +25,7 @@ namespace Durin
 			-> std::vector<TObjectPtr<DMaterialFunctionInterface>> override;
 		auto GetFunctionRevision() const -> uint64 override { return Revision; }
 		auto GetExpressionCollection() const -> const FMaterialExpressionCollection& { return ExpressionCollection; }
-		ENGINE_API auto GetExpressionBody() const -> FMaterialExpressionFunctionBody;
+		ENGINE_API auto GetExpressionBody() const -> MIR::FFunctionBody;
 		[[nodiscard]] ENGINE_API auto SetFunctionExpressions(std::span<DMaterialExpression* const> Expressions) -> FMaterialProgramValidationResult;
 		// Bootstrap provenance is editor metadata, never part of compiler semantics.
 		auto GetAuthoringSource() const -> const std::string& { return AuthoringSource; }

@@ -5,27 +5,27 @@
 #include <set>
 #include <tuple>
 
-namespace Durin
+namespace Durin::MIR
 {
 	// One graph invocation. Child invocations share IR storage, but own bindings and caches.
-	class FMaterialExpressionGraphBuilderImpl
+	class FGraphBuilderImpl
 	{
 	public:
-		explicit FMaterialExpressionGraphBuilderImpl(std::span<DMaterialExpression* const> Expressions,
-			FMaterialExpressionBuildEnvironment Environment = {});
-		FMaterialExpressionGraphBuilderImpl(const FMaterialExpressionGraphBuilderImpl&) = delete;
-		auto operator=(const FMaterialExpressionGraphBuilderImpl&) -> FMaterialExpressionGraphBuilderImpl& = delete;
+		explicit FGraphBuilderImpl(std::span<DMaterialExpression* const> Expressions,
+			FBuildEnvironment Environment = {});
+		FGraphBuilderImpl(const FGraphBuilderImpl&) = delete;
+		auto operator=(const FGraphBuilderImpl&) -> FGraphBuilderImpl& = delete;
 		// Local authoring validation checks typed links without requiring available callee bodies.
 		// Its opaque function values stay private and can never become compiler snapshots.
 		static auto ValidateSurface(std::span<DMaterialExpression* const> Expressions,
 			const FMaterialExpressionSurfaceOutputs& Outputs, FXxHash128* OutCodeFingerprint = nullptr) -> FMaterialProgramValidationResult;
 		static auto ValidateFunction(std::span<DMaterialExpression* const> Expressions) -> FMaterialProgramValidationResult;
-		auto Resolve(const FMaterialExpressionInput& Input) -> FMaterialExpressionBuildValue;
+		auto Resolve(const FMaterialExpressionInput& Input) -> FValue;
 		auto ResolveIndex(const FMaterialExpressionInput& Input) -> uint32;
-		auto FunctionInput(FGuid PortId) -> FMaterialExpressionBuildValue;
-		auto FunctionOutput(FGuid PortId, const FMaterialExpressionInput& Source) -> FMaterialExpressionBuildValue;
-		auto FunctionCall(const DMaterialExpressionFunctionCall& Call, FMaterialExpressionEmitter& Emitter) -> void;
-		auto Emit(FMaterialIRNode Node) -> uint32;
+		auto FunctionInput(FGuid PortId) -> FValue;
+		auto FunctionOutput(FGuid PortId, const FMaterialExpressionInput& Source) -> FValue;
+		auto FunctionCall(const DMaterialExpressionFunctionCall& Call, FEmitter& Emitter) -> void;
+		auto Emit(FNode Node) -> uint32;
 		auto Literal(std::span<const float> Components) -> uint32;
 		auto Parameter(FGuid Id, EMaterialParameterType Type) -> uint32;
 		auto Numeric(EMaterialProgramOpcode Opcode, EMaterialProgramValueType Type,
@@ -35,46 +35,46 @@ namespace Durin
 		auto Coordinates() -> uint32;
 		auto Fail(FMaterialError Error, FGuid PortId = {},
 			EMaterialProgramDiagnosticCategory Category = EMaterialProgramDiagnosticCategory::Graph) -> uint32;
-		auto GetNode(uint32 Index) const -> const FMaterialIRNode& { return Result.IR.Nodes.at(Index); }
-		auto Finish(std::span<const FMaterialExpressionInput> Roots) -> FMaterialExpressionBuildResult;
-		auto FinishSurface(const FMaterialExpressionSurfaceOutputs& Outputs) -> FMaterialExpressionBuildResult;
+		auto GetNode(uint32 Index) const -> const FNode& { return Result.IR.Nodes.at(Index); }
+		auto Finish(std::span<const FMaterialExpressionInput> Roots) -> FBuildResult;
+		auto FinishSurface(const FMaterialExpressionSurfaceOutputs& Outputs) -> FBuildResult;
 	private:
-		friend class FMaterialExpressionEmitter;
+		friend class FEmitter;
 		struct FSharedState
 		{
-			FMaterialExpressionBuildResult Result;
+			FBuildResult Result;
 			std::vector<uint32> Depths;
 			uint32 LinkCount = 0;
 			uint64 ClosureBytes = 0;
 			std::vector<const DMaterialFunctionInterface*> ActiveFunctions;
-			std::map<const DMaterialFunctionInterface*, FMaterialExpressionFunctionBody> Functions;
+			std::map<const DMaterialFunctionInterface*, FFunctionBody> Functions;
 			std::map<FGuid, ETextureUsage> TextureUsages;
 		};
-		FMaterialExpressionGraphBuilderImpl(FMaterialExpressionGraphBuilderImpl& Parent,
-			const FMaterialExpressionFunctionBody& Body, FGuid CallId);
+		FGraphBuilderImpl(FGraphBuilderImpl& Parent,
+			const FFunctionBody& Body, FGuid CallId);
 		auto Admit(std::span<DMaterialExpression* const> InExpressions) -> void;
 		bool bValidateAuthoring = false;
 		FXxHash128Builder AuthoringCodeHash;
 		auto OpaqueAuthoringValue(EMaterialProgramOpcode Opcode, EMaterialProgramValueType Type,
 			std::vector<uint32> Inputs = {}) -> uint32;
-		auto ValidateAuthoringCall(const DMaterialExpressionFunctionCall& Call, FMaterialExpressionEmitter& Emitter) -> void;
+		auto ValidateAuthoringCall(const DMaterialExpressionFunctionCall& Call, FEmitter& Emitter) -> void;
 		auto BuildAllExpressions() -> void;
 		uint64 AuthoredLinks = 0;
-		auto MatchesType(const FMaterialExpressionBuildValue& Value, EMaterialProgramValueType Type) const -> bool;
-		auto BroadcastScalar(FMaterialExpressionBuildValue Value, EMaterialProgramValueType Type) -> FMaterialExpressionBuildValue;
+		auto MatchesType(const FValue& Value, EMaterialProgramValueType Type) const -> bool;
+		auto BroadcastScalar(FValue Value, EMaterialProgramValueType Type) -> FValue;
 		std::shared_ptr<FSharedState> Shared;
-		FMaterialExpressionBuildResult& Result;
+		FBuildResult& Result;
 		std::vector<uint32>& Depths;
 		uint32& LinkCount;
-		FMaterialExpressionBuildEnvironment Environment;
+		FBuildEnvironment Environment;
 		const FMaterialFunctionSignature* Signature = nullptr;
 		std::string FunctionPath;
 		std::vector<FGuid> CallPath;
 		std::vector<FGuid> PortStack;
-		std::map<FGuid, FMaterialExpressionBuildValue> BoundInputs;
+		std::map<FGuid, FValue> BoundInputs;
 		using FOutputKey = std::tuple<FGuid, uint8, FGuid>;
 		std::map<FGuid, DMaterialExpression*> Expressions;
-		std::map<FOutputKey, FMaterialExpressionBuildValue> Values;
+		std::map<FOutputKey, FValue> Values;
 		std::set<FGuid> Active;
 		std::set<FGuid> Built;
 		auto BuildExpression(const DMaterialExpression& Expression) -> void;

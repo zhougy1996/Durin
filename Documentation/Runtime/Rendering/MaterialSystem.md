@@ -185,7 +185,7 @@ eight property links to be disconnected; per-property mode requires the
 aggregate source to be disconnected. Retained fallbacks survive either mode.
 Material and function owners serialize the current reflected graph directly, without
 a historical graph-version marker or UV compatibility branch.
-`FMaterialExpressionGraphBuilder::ValidateSurface` and `ValidateFunction` check
+`MIR::FGraphBuilder::ValidateSurface` and `ValidateFunction` check
 concrete expressions directly before publication: identifiers, typed links,
 cycles, bounds, defaults, parameter metadata and function terminals. Local validation
 uses declared call-port types without inspecting a callee body, so a missing

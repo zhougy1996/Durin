@@ -1051,7 +1051,7 @@ TEST(FMaterialRenderProxyTests, FailedCompilationPublishesErrorAndRecoveryForEac
 		EXPECT_GT(Recovered.LocalVersion, Error.LocalVersion);
 		ExpectRenderDataMatches(Recovered.RenderData, Before.RenderData);
 
-		Durin::FMaterialIRCompilerInput InvalidInput;
+		Durin::MIR::FCompilerInput InvalidInput;
 		InvalidInput.IR.Version = 0;
 		InvalidInput.StaticProperties = Owner->GetStaticProperties();
 		Durin::FMaterialOperationResult EnvironmentError;

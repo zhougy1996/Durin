@@ -29,22 +29,22 @@ namespace
 		return Graph;
 	}
 
-	auto MakeDefaultMaterialCompilerIR() -> Durin::FMaterialIR
+	auto MakeDefaultMaterialCompilerIR() -> Durin::MIR::FModule
 	{
-		Durin::FMaterialExpressionGraphBuilder Empty(std::span<Durin::DMaterialExpression* const>{});
+		Durin::MIR::FGraphBuilder Empty(std::span<Durin::DMaterialExpression* const>{});
 		return Empty.FinishSurface({}).IR;
 	}
 
-	auto MakeSyntheticMaterialCompilerInput() -> Durin::FMaterialIRCompilerInput
+	auto MakeSyntheticMaterialCompilerInput() -> Durin::MIR::FCompilerInput
 	{
 		InitializeDObjectSystem();
 		auto Recipe = Durin::Testing::MakePBRMaterialExpressionsForTest();
 		std::vector<Durin::DMaterialExpression*> Expressions;
 		for (const auto& Expression : Recipe.Expressions) Expressions.push_back(Expression.Get());
-		Durin::FMaterialExpressionGraphBuilder Context(Expressions);
+		Durin::MIR::FGraphBuilder Context(Expressions);
 		auto Built = Context.FinishSurface(Recipe.Outputs);
 		check(Built);
-		Durin::FMaterialIRCompilerInput Input{.IR = std::move(Built.IR), .Parameters = std::move(Built.Parameters),
+		Durin::MIR::FCompilerInput Input{.IR = std::move(Built.IR), .Parameters = std::move(Built.Parameters),
 			.Sources = std::move(Built.Sources)};
 		Input.Environment.CompilerIdentity = "slang-test-build;target=spirv;profile=spirv_1_5";
 		Input.Environment.Target = "vulkan-spirv-1.5";
@@ -54,7 +54,7 @@ namespace
 		return Input;
 	}
 
-	auto ReorderIndependentMaterialIRNodes(Durin::FMaterialIRCompilerInput& Input) -> void
+	auto ReorderIndependentMaterialIRNodes(Durin::MIR::FCompilerInput& Input) -> void
 	{
 		// Detached IR requires dependencies before consumers. Reverse ready-node
 		// priority to exercise equivalent orderings without violating that contract.
@@ -68,7 +68,7 @@ namespace
 			for (const auto Dependency : Input.IR.Nodes[Index].Inputs) Consumers.at(Dependency).push_back(Index);
 			if (Pending[Index] == 0) Ready.insert(Index);
 		}
-		std::vector<Durin::FMaterialIRNode> Nodes;
+		std::vector<Durin::MIR::FNode> Nodes;
 		while (!Ready.empty())
 		{
 			const auto Index = *Ready.rbegin(); Ready.erase(Index);

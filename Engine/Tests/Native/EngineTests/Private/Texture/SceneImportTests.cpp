@@ -561,15 +561,15 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 	const auto& Outputs = Material->GetExpressionOutputs();
 	for (const auto& Link : {Outputs.BaseColor, Outputs.Normal, Outputs.Metallic, Outputs.Roughness,
 		Outputs.AmbientOcclusion, Outputs.Emissive, Outputs.Opacity, Outputs.OpacityMask}) EXPECT_TRUE(Link.ExpressionId.IsValid());
-	FMaterialIRCompilerInput Input;
+	MIR::FCompilerInput Input;
 	FMaterialCompilerEnvironment Environment;
 	const auto EnvironmentResult = BuildDefaultMaterialCompilerEnvironment(Environment);
 	ASSERT_TRUE(EnvironmentResult) << FormatMaterialError(EnvironmentResult.Error);
 	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Material, Environment, Input));
-	const auto Normalized = NormalizeMaterialIR(Input);
+	const auto Normalized = MIR::Normalize(Input);
 	ASSERT_TRUE(Normalized) << (Normalized.Diagnostics.empty() ? "no diagnostic" : Durin::FormatMaterialError(Normalized.Diagnostics.front().Error));
 	EXPECT_EQ(Normalized.Layout.ResourceFieldCount, 6u);
-	EXPECT_EQ(std::ranges::count(Normalized.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &FMaterialIRNode::Opcode), 6);
+	EXPECT_EQ(std::ranges::count(Normalized.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &MIR::FNode::Opcode), 6);
 	const auto NormalizedSource = GenerateMaterialProgramSlang(Normalized.IR, Normalized.Layout);
 	ASSERT_TRUE(NormalizedSource);
 	size_t NormalizedSamples = 0;
@@ -611,10 +611,10 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 	Packed.Expressions.emplace_back(PackedCall.Get());
 	ASSERT_TRUE(Packed.Apply(*Material));
 	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Material, Environment, Input));
-	const auto PackedNormalized = NormalizeMaterialIR(Input);
+	const auto PackedNormalized = MIR::Normalize(Input);
 	ASSERT_TRUE(PackedNormalized) << (PackedNormalized.Diagnostics.empty() ? "no diagnostic" : Durin::FormatMaterialError(PackedNormalized.Diagnostics.front().Error));
 	EXPECT_EQ(PackedNormalized.Layout.ResourceFieldCount, 4u);
-	EXPECT_EQ(std::ranges::count(PackedNormalized.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &FMaterialIRNode::Opcode), 4);
+	EXPECT_EQ(std::ranges::count(PackedNormalized.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &MIR::FNode::Opcode), 4);
 	const auto PackedNormalizedSource = GenerateMaterialProgramSlang(PackedNormalized.IR, PackedNormalized.Layout);
 	ASSERT_TRUE(PackedNormalizedSource);
 	size_t PackedNormalizedSamples = 0;
