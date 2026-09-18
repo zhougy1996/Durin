@@ -92,59 +92,53 @@ namespace Durin
 	}
 
 	FEditorBulkData::FEditorBulkData(const FEditorBulkData& Other)
-		: State(std::atomic_load_explicit(&Other.State, std::memory_order_acquire))
+		: State(Other.State.Load())
 	{
 	}
 
 	auto FEditorBulkData::operator=(const FEditorBulkData& Other) -> FEditorBulkData&
 	{
 		if (this != &Other)
-			std::atomic_store_explicit(&State,
-				std::atomic_load_explicit(&Other.State, std::memory_order_acquire),
-				std::memory_order_release);
+			State.Store(Other.State.Load());
 		return *this;
 	}
 
 	FEditorBulkData::FEditorBulkData(FEditorBulkData&& Other) noexcept
-		: State(std::atomic_exchange_explicit(
-			&Other.State, MakeEmptyState(), std::memory_order_acq_rel))
+		: State(Other.State.Exchange(MakeEmptyState()))
 	{
 	}
 
 	auto FEditorBulkData::operator=(FEditorBulkData&& Other) noexcept -> FEditorBulkData&
 	{
 		if (this != &Other)
-			std::atomic_store_explicit(&State,
-				std::atomic_exchange_explicit(
-					&Other.State, MakeEmptyState(), std::memory_order_acq_rel),
-				std::memory_order_release);
+			State.Store(Other.State.Exchange(MakeEmptyState()));
 		return *this;
 	}
 
 	auto FEditorBulkData::GetInstanceId() const -> FGuid
 	{
-		return std::atomic_load_explicit(&State, std::memory_order_acquire)->InstanceId;
+		return State.Load()->InstanceId;
 	}
 
 	auto FEditorBulkData::GetPayloadId() const -> FXxHash128
 	{
-		return std::atomic_load_explicit(&State, std::memory_order_acquire)->ContentId;
+		return State.Load()->ContentId;
 	}
 
 	auto FEditorBulkData::GetPayloadSize() const -> uint64
 	{
-		return std::atomic_load_explicit(&State, std::memory_order_acquire)->LogicalSize;
+		return State.Load()->LogicalSize;
 	}
 
 	auto FEditorBulkData::IsMemoryResident() const -> bool
 	{
-		const auto Snapshot = std::atomic_load_explicit(&State, std::memory_order_acquire);
+		const auto Snapshot = State.Load();
 		return std::holds_alternative<FSharedByteBuffer>(Snapshot->Source);
 	}
 
 	auto FEditorBulkData::GetPayload() const -> FPackageResourceRequest
 	{
-		return RequestPayload(std::atomic_load_explicit(&State, std::memory_order_acquire));
+		return RequestPayload(State.Load());
 	}
 
 	auto FEditorBulkData::UpdatePayload(FByteView Bytes) -> FEditorBulkDataResult
@@ -158,14 +152,13 @@ namespace Durin
 			return {.Error = {.Code = EEditorBulkDataError::PayloadSizeLimit,
 				.Actual = Buffer.GetSize(), .Expected = MaximumAuthoredBulkBytes}};
 		const FXxHash128 CandidateId = FXxHash128::HashBuffer(Buffer.GetBytes());
-		auto Expected = std::atomic_load_explicit(&State, std::memory_order_acquire);
+		auto Expected = State.Load();
 		while (true)
 		{
 			FGuid InstanceId = Expected->InstanceId;
 			if (!InstanceId.IsValid()) InstanceId = FGuid::NewGuid();
 			const auto Candidate = MakeMemoryState(InstanceId, CandidateId, Buffer);
-			if (std::atomic_compare_exchange_weak_explicit(&State, &Expected, Candidate,
-				std::memory_order_release, std::memory_order_acquire)) return {};
+			if (State.CompareExchange(Expected, Candidate)) return {};
 		}
 	}
 
@@ -190,17 +183,17 @@ namespace Durin
 			Result.Error.RangeCause = Validation.Error;
 			return Result;
 		}
-		std::atomic_store_explicit(&OutValue.State, std::make_shared<const FState>(FState{
+		OutValue.State.Store(std::make_shared<const FState>(FState{
 			.InstanceId = InInstanceId,
 			.ContentId = InContentId,
 			.LogicalSize = InLogicalSize,
-			.Source = std::move(InSource)}), std::memory_order_release);
+			.Source = std::move(InSource)}));
 		return {};
 	}
 
 	auto FEditorBulkData::Serialize(FArchive& Ar) -> void
 	{
-		const auto Snapshot = std::atomic_load_explicit(&State, std::memory_order_acquire);
+		const auto Snapshot = State.Load();
 		FPackageResourceReadResult Payload;
 		if (Ar.IsSaving() && !Ar.IsDiscovering()
 			&& Ar.GetBulkDataPolicy() != EArchiveBulkDataPolicy::Skip)
@@ -216,8 +209,7 @@ namespace Durin
 			{
 				auto Expected = Snapshot;
 				const auto Resident = MakeMemoryState(Snapshot->InstanceId, Snapshot->ContentId, Payload.Buffer);
-				std::atomic_compare_exchange_strong_explicit(&State, &Expected, Resident,
-					std::memory_order_release, std::memory_order_acquire);
+				State.CompareExchange(Expected, Resident);
 			}
 		}
 		FArchiveBulkDataValue Value{
@@ -248,9 +240,7 @@ namespace Durin
 					FormatEditorBulkDataError(Created.Error));
 				return;
 			}
-			std::atomic_store_explicit(&State,
-				std::atomic_load_explicit(&Candidate.State, std::memory_order_acquire),
-				std::memory_order_release);
+			State.Store(Candidate.State.Load());
 			return;
 		}
 		if (!Value.PayloadId.IsValid() || Value.LogicalSize > MaximumAuthoredBulkBytes
@@ -262,14 +252,14 @@ namespace Durin
 				"Loaded authored bulk data identity, size, or content is invalid.");
 			return;
 		}
-		std::atomic_store_explicit(&State, MakeMemoryState(
-			Value.PayloadId, Value.ContentHash, std::move(Value.Buffer)), std::memory_order_release);
+		State.Store(MakeMemoryState(
+			Value.PayloadId, Value.ContentHash, std::move(Value.Buffer)));
 	}
 
 	auto FEditorBulkData::Identical(const FEditorBulkData& Other) const -> bool
 	{
-		const auto Left = std::atomic_load_explicit(&State, std::memory_order_acquire);
-		const auto Right = std::atomic_load_explicit(&Other.State, std::memory_order_acquire);
+		const auto Left = State.Load();
+		const auto Right = Other.State.Load();
 		return Left->LogicalSize == Right->LogicalSize && Left->ContentId == Right->ContentId;
 	}
 }

@@ -3,6 +3,7 @@
 #include "EngineAPI.h"
 #include "Asset/PackageResource.h"
 #include "Serialization/Archive.h"
+#include "Templates/AtomicSharedPtr.h"
 
 namespace Durin
 {
@@ -64,6 +65,6 @@ namespace Durin
 		ENGINE_API auto Identical(const FEditorBulkData& Other) const -> bool;
 
 	private:
-		std::shared_ptr<const AssetPrivate::FEditorBulkDataState> State;
+		TAtomicSharedPtr<const AssetPrivate::FEditorBulkDataState> State;
 	};
 }
