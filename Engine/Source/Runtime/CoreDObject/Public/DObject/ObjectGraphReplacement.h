@@ -114,7 +114,7 @@ namespace Durin
 		uint64 ActualRevision = 0;
 		uint64 ExpectedRevision = 0;
 		size_t ParticipantIndex = 0;
-		std::variant<std::monostate, FObjectReplacementMapError, FPropertyValueError, EContainerOpResult> Cause;
+		std::string Message;
 	};
 	struct FObjectReplacementResult
 	{

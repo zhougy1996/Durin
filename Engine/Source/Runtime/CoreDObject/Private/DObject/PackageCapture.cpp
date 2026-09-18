@@ -319,7 +319,7 @@ namespace Durin::PackagePrivate
 						if (!ExternalPackage || !PathResult)
 						{
 							CaptureFailure.ObjectPath = Value->GetObjectPath();
-							if (!PathResult) CaptureFailure.Cause = PathResult.Error;
+							if (!PathResult) CaptureFailure.Message = FormatObjectError(PathResult.Error);
 							FailCapture(EPackageCaptureReason::InvalidHardReference, EArchiveFailureCode::InvalidObjectReference);
 							return;
 						}
@@ -385,14 +385,14 @@ namespace Durin::PackagePrivate
 					const auto ValueResult = Value.Storage.DefaultConstruct(&Property, ArrayIndex);
 					if (!ValueResult)
 					{
-						CaptureFailure.Cause = ValueResult.Error;
+						CaptureFailure.Message = FormatPropertyValueError(ValueResult.Error);
 						FailCapture(EPackageCaptureReason::ReplacementValue, EArchiveFailureCode::InvalidData);
 						return EArchivePropertySaveDisposition::Omit;
 					}
 					const auto SnapshotResult = RestorePropertyValue(&Property, Value.Storage.GetContainer(), ArrayIndex, It->Replacement);
 					if (!SnapshotResult)
 					{
-						CaptureFailure.Cause = SnapshotResult.Error;
+						CaptureFailure.Message = FormatPropertySnapshotError(SnapshotResult.Error);
 						FailCapture(EPackageCaptureReason::ReplacementValue, EArchiveFailureCode::InvalidData);
 						return EArchivePropertySaveDisposition::Omit;
 					}
@@ -568,10 +568,10 @@ namespace Durin::PackagePrivate
 			if (Error.Reason == EPackageCaptureReason::None) Error.Reason = EPackageCaptureReason::ArchiveFailure;
 			Error.ArchiveCode = Failure->Code;
 			Error.ArchivePath = Failure->Path;
-			std::visit([&](const auto& Cause) {
-				using T = std::decay_t<decltype(Cause)>;
-				if constexpr (!std::is_same_v<T, std::monostate>) Error.Cause = Cause;
-			}, Archive.GetValueFailureCause());
+			// Capture the first Archive diagnostic while its callback context is alive.
+			if (Error.Message.empty()) Error.Message = Failure->Message;
+			Error.Message = std::format("{} (object '{}', archive '{}')",
+				Error.Message, Error.ObjectPath, Error.ArchivePath);
 			return {std::move(Error)};
 		}
 
@@ -1063,7 +1063,7 @@ namespace Durin::PackagePrivate
 					FObjectPath Path;
 					if (const auto PathResult = FObjectPath::TryCreate(Out.Text, Path); !PathResult)
 					{
-						Invalid(); OutError.Cause = PathResult.Error; return false;
+						Invalid(); OutError.Message = FormatObjectError(PathResult.Error); return false;
 					}
 					Linker.Names.push_back(Out.Text);
 					Linker.Summary.SoftPackageDependencies.push_back(Path.GetPackagePath());
@@ -1161,7 +1161,7 @@ namespace Durin::PackagePrivate
 						InternalReferenceIds[SourceIndex] - 1, Export) || !PathResult)
 				{
 					OutError = {.Reason = EPackageCaptureReason::AssetIdentity, .ObjectPath = Asset->GetObjectPath()};
-					if (!PathResult) OutError.Cause = PathResult.Error;
+					if (!PathResult) OutError.Message = FormatObjectError(PathResult.Error);
 					return false;
 				}
 				if (const auto It = Options.RedirectDestinations.find(Asset);
@@ -1233,9 +1233,40 @@ namespace Durin::PackagePrivate
 
 namespace Durin
 {
+	static auto FormatCaptureDeltaFailure(const FDefaultDeltaDiagnostic& DeltaDiagnostic) -> std::string
+	{
+		auto ReasonName = [](EDefaultDeltaFailureReason Reason) -> std::string_view {
+			switch (Reason)
+			{
+			case EDefaultDeltaFailureReason::InvalidInput: return "InvalidInput";
+			case EDefaultDeltaFailureReason::MissingClassDefault: return "MissingClassDefault";
+			case EDefaultDeltaFailureReason::DefaultObjectGraphFailure: return "DefaultObjectGraphFailure";
+			case EDefaultDeltaFailureReason::ArchiveFailure: return "ArchiveFailure";
+			case EDefaultDeltaFailureReason::ManifestMismatch: return "ManifestMismatch";
+			case EDefaultDeltaFailureReason::DuplicateField: return "DuplicateField";
+			case EDefaultDeltaFailureReason::UnsupportedLogicalType: return "UnsupportedLogicalType";
+			case EDefaultDeltaFailureReason::UnsupportedIdentity: return "UnsupportedIdentity";
+			case EDefaultDeltaFailureReason::MissingStructDefault: return "MissingStructDefault";
+			case EDefaultDeltaFailureReason::DepthLimit: return "DepthLimit";
+			case EDefaultDeltaFailureReason::FieldLimit: return "FieldLimit";
+			case EDefaultDeltaFailureReason::PathLimit: return "PathLimit";
+			case EDefaultDeltaFailureReason::AuthoredOverrideFailure: return "AuthoredOverrideFailure";
+			default: return "Unknown";
+			}
+		};
+		std::string Message = std::format(
+			"Default-relative logical planning failed: reason={}, path='{}'",
+			ReasonName(DeltaDiagnostic.Reason), DeltaDiagnostic.LogicalPath);
+		if (DeltaDiagnostic.ApplicableLimit != 0)
+			Message += std::format(", observed={}, limit={}",
+				DeltaDiagnostic.ObservedValue, DeltaDiagnostic.ApplicableLimit);
+		Message += ".";
+		return Message;
+	}
+
 	auto FormatPackageCaptureError(const FPackageCaptureError& Error) -> std::string
 	{
-		if (const auto* Cause = std::get_if<FObjectValidationError>(&Error.Cause)) return FormatObjectValidationError(*Cause);
+		if (!Error.Message.empty()) return Error.Message;
 		switch (Error.Reason)
 		{
 		case EPackageCaptureReason::None: return {};
@@ -1279,44 +1310,10 @@ namespace Durin
 		case EPackageCaptureReason::MissingDeltaObject: return std::format("Delta plan object graph differs at {}.", Error.ObjectPath);
 		case EPackageCaptureReason::MissingChildType: return "An Archive container type has no child descriptor.";
 		case EPackageCaptureReason::ReplacementValue:
-			if (const auto* Cause = std::get_if<FPropertyValueError>(&Error.Cause)) return FormatPropertyValueError(*Cause);
-			if (const auto* Cause = std::get_if<FPropertySnapshotError>(&Error.Cause)) return FormatPropertySnapshotError(*Cause);
 			return "The save override replacement could not be materialized.";
 		case EPackageCaptureReason::ArchiveFailure:
-			if (const auto* Cause = std::get_if<FPropertyValueError>(&Error.Cause)) return FormatPropertyValueError(*Cause);
-			if (const auto* Cause = std::get_if<FReflectedMapKeyError>(&Error.Cause)) return FormatReflectedMapKeyError(*Cause);
 			return std::format("Package Archive failed at '{}', code={}." , Error.ArchivePath, static_cast<uint32>(Error.ArchiveCode.value_or(EArchiveFailureCode::InvalidData)));
-		case EPackageCaptureReason::DefaultDelta:
-		{
-			const auto& DeltaDiagnostic = std::get<FDefaultDeltaDiagnostic>(Error.Cause);
-			auto ReasonName = [](EDefaultDeltaFailureReason Reason) -> std::string_view {
-				switch (Reason)
-				{
-				case EDefaultDeltaFailureReason::InvalidInput: return "InvalidInput";
-				case EDefaultDeltaFailureReason::MissingClassDefault: return "MissingClassDefault";
-				case EDefaultDeltaFailureReason::DefaultObjectGraphFailure: return "DefaultObjectGraphFailure";
-				case EDefaultDeltaFailureReason::ArchiveFailure: return "ArchiveFailure";
-				case EDefaultDeltaFailureReason::ManifestMismatch: return "ManifestMismatch";
-				case EDefaultDeltaFailureReason::DuplicateField: return "DuplicateField";
-				case EDefaultDeltaFailureReason::UnsupportedLogicalType: return "UnsupportedLogicalType";
-				case EDefaultDeltaFailureReason::UnsupportedIdentity: return "UnsupportedIdentity";
-				case EDefaultDeltaFailureReason::MissingStructDefault: return "MissingStructDefault";
-				case EDefaultDeltaFailureReason::DepthLimit: return "DepthLimit";
-				case EDefaultDeltaFailureReason::FieldLimit: return "FieldLimit";
-				case EDefaultDeltaFailureReason::PathLimit: return "PathLimit";
-				case EDefaultDeltaFailureReason::AuthoredOverrideFailure: return "AuthoredOverrideFailure";
-				default: return "Unknown";
-				}
-			};
-			std::string Message = std::format(
-				"Default-relative logical planning failed: reason={}, path='{}'",
-				ReasonName(DeltaDiagnostic.Reason), DeltaDiagnostic.LogicalPath);
-			if (DeltaDiagnostic.ApplicableLimit != 0)
-				Message += std::format(", observed={}, limit={}",
-					DeltaDiagnostic.ObservedValue, DeltaDiagnostic.ApplicableLimit);
-			Message += ".";
-			return Message;
-		}
+		case EPackageCaptureReason::DefaultDelta: return "Default-relative logical planning failed.";
 		}
 		return {};
 	}
@@ -1361,7 +1358,7 @@ namespace Durin
 		FPackagePath PackagePath;
 		if (const auto PathResult = FPackagePath::TryCreate(Package->GetPackagePath(), PackagePath); !PathResult)
 		{
-			return {{.Reason = EPackageCaptureReason::PackagePath, .ObjectPath = Package->GetPackagePath(), .Cause = PathResult.Error}};
+			return {{.Reason = EPackageCaptureReason::PackagePath, .ObjectPath = Package->GetPackagePath(), .Message = FormatObjectError(PathResult.Error)}};
 		}
 
 		std::vector<DObject*> FrozenObjects;
@@ -1481,7 +1478,7 @@ namespace Durin
 		}
 		if (!bDeltaBuilt)
 		{
-			return {{.Reason = EPackageCaptureReason::DefaultDelta, .Cause = std::move(DeltaDiagnostic)}};
+			return {{.Reason = EPackageCaptureReason::DefaultDelta, .Message = FormatCaptureDeltaFailure(DeltaDiagnostic)}};
 		}
 		std::erase_if(DeltaPlan.Objects, [&](const FDefaultDeltaObjectPlan& ObjectPlan) {
 			return std::ranges::find(Objects, ObjectPlan.Object) == Objects.end();

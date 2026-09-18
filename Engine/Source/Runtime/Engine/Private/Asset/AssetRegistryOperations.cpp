@@ -34,8 +34,8 @@ namespace Durin
 			if (Admission) return {};
 			return {EAssetError::StaleData,
 				std::format("Registry participant admission failed: {}", Admission.FailedParticipant.GetView()),
-				Admission.State == EAssetRegistryAdmissionState::ProjectionPending
-					? EAssetResultDisposition::ContentCommittedProjectionPending : EAssetResultDisposition::Default};
+				{Admission.State == EAssetRegistryAdmissionState::ProjectionPending
+					? EAssetResultDisposition::ContentCommittedProjectionPending : EAssetResultDisposition::Default}};
 		}
 	}
 
@@ -135,7 +135,7 @@ namespace Durin
 				return {EAssetError::StaleData,
 					std::format("Registry projection for package {} is pending synchronization.",
 						Resolution.FinalPath.ToString()),
-					EAssetResultDisposition::ContentCommittedProjectionPending};
+					{EAssetResultDisposition::ContentCommittedProjectionPending}};
 			case EAssetPathResolveState::NotFound:
 				return Error(EAssetError::NotFound, std::format("Asset {} is not present in the registry.", Resolution.RequestedPath.ToString()));
 			case EAssetPathResolveState::MissingRedirectTarget:

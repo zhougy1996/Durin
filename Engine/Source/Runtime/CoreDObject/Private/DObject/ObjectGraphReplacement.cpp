@@ -221,7 +221,7 @@ namespace Durin
 					return bool(C.Result);
 				}, &Context, Index);
 				if (!Context.Result) return Context.Result;
-				if (Result != EContainerOpResult::Success) return {{.Code = E::Unsupported, .Reason = R::ArrayTraversal, .Cause = Result}};
+				if (Result != EContainerOpResult::Success) return {{.Code = E::Unsupported, .Reason = R::ArrayTraversal, .Message = std::format("Container operation failed: {}", static_cast<uint32>(Result))}};
 			}
 			else if (P->GetKind() == K::Map)
 			{
@@ -232,7 +232,7 @@ namespace Durin
 					return Fail(E::Unsupported, R::MapTransactionalOperations);
 				void* Detached = nullptr;
 				if (const auto Created = Ops.CreateDetached(&Detached); Created != EContainerOpResult::Success)
-					return {{.Code = E::AllocationFailure, .Reason = R::MapAllocation, .Cause = Created}};
+					return {{.Code = E::AllocationFailure, .Reason = R::MapAllocation, .Message = std::format("Container allocation failed: {}", static_cast<uint32>(Created))}};
 				std::unique_ptr<void, decltype(Ops.DestroyDetached)> Storage(Detached, Ops.DestroyDetached);
 				struct FContext { FMapProperty* Property; const FObjectReplacementMap& Map; void* Storage; FObjectReplacementResult Result; }
 					Context{Property, Map, Detached, {}};
@@ -243,7 +243,7 @@ namespace Durin
 					if (Copied) Copied = VCopy.CopyConstruct(C.Property->GetValueProp(), C.Property->GetValueProp()->GetValuePtr(Value));
 					if (!Copied)
 					{
-						C.Result = {{.Code = E::Unsupported, .Reason = R::MapValueCopy, .Cause = Copied.Error}}; return false;
+						C.Result = {{.Code = E::Unsupported, .Reason = R::MapValueCopy, .Message = FormatPropertyValueError(Copied.Error)}}; return false;
 					}
 					C.Result = Rewrite(C.Property->GetKeyProp(), KCopy.GetContainer(), 0, C.Map);
 					if (C.Result) C.Result = Rewrite(C.Property->GetValueProp(), VCopy.GetContainer(), 0, C.Map);
@@ -251,11 +251,11 @@ namespace Durin
 					const auto Insert = C.Property->GetOps().InsertCopy(C.Storage, KCopy.GetValue(), VCopy.GetValue());
 					if (Insert != EContainerOpResult::Success)
 						C.Result = {{.Code = Insert == EContainerOpResult::DuplicateKey ? E::MapCollision : E::Unsupported,
-							.Reason = R::MapInsertion, .Cause = Insert}};
+							.Reason = R::MapInsertion, .Message = std::format("Container insertion failed: {}", static_cast<uint32>(Insert))}};
 					return bool(C.Result);
 				}, &Context, Index);
 				if (!Context.Result) return Context.Result;
-				if (Result != EContainerOpResult::Success) return {{.Code = E::Unsupported, .Reason = R::MapTraversal, .Cause = Result}};
+				if (Result != EContainerOpResult::Success) return {{.Code = E::Unsupported, .Reason = R::MapTraversal, .Message = std::format("Container operation failed: {}", static_cast<uint32>(Result))}};
 				const auto Commit = Ops.Commit(P->GetValuePtr(Container, Index), Detached);
 				require(Commit == EContainerOpResult::Success);
 			}
@@ -352,6 +352,7 @@ namespace Durin
 
 	auto FormatObjectReplacementError(const FObjectReplacementError& Error) -> std::string
 	{
+		if (!Error.Message.empty()) return Error.Message;
 		switch (Error.Reason)
 		{
 		case EObjectReplacementReason::None: return {};
@@ -399,7 +400,7 @@ namespace Durin
 		case EObjectReplacementReason::ValidateAllocation: return "Replacement validation allocation failed.";
 		case EObjectReplacementReason::ValidateException: return "Replacement validation callback threw.";
 		case EObjectReplacementReason::ReplacementMap:
-			if (const auto* Cause = std::get_if<FObjectReplacementMapError>(&Error.Cause)) return FormatObjectReplacementMapError(*Cause);
+			if (!Error.Message.empty()) return Error.Message;
 			return "Replacement map construction failed.";
 		case EObjectReplacementReason::ParticipantBusy: return "Replacement participant is busy.";
 		case EObjectReplacementReason::ParticipantUnmappedPackage: return "Replacement participant could not map a package.";
@@ -500,7 +501,7 @@ namespace Durin
 				}, &Context, Index);
 			}
 			if (!Context.Result) return Context.Result;
-			if (Traversal != EContainerOpResult::Success) return {{.Code = E::Unsupported, .Reason = R::ReferenceTraversal, .Cause = Traversal}};
+			if (Traversal != EContainerOpResult::Success) return {{.Code = E::Unsupported, .Reason = R::ReferenceTraversal, .Message = std::format("Reference traversal failed: {}", static_cast<uint32>(Traversal))}};
 			Changed |= LocalChanged;
 			if (!LocalChanged || bDetachedAncestor) return {};
 			const bool bCanCommit = P->GetKind() == K::Array
@@ -510,7 +511,7 @@ namespace Durin
 			FContainerWrite Write{P, Container, Index, {}, {}};
 			auto Copied = Write.Before.CopyConstruct(P, P->GetValuePtr(Container, Index), Index);
 			if (Copied) Copied = Write.After.CopyConstruct(P, P->GetValuePtr(Container, Index), Index);
-			if (!Copied) return {{.Code = E::Unsupported, .Reason = R::ContainerCopy, .Cause = Copied.Error}};
+			if (!Copied) return {{.Code = E::Unsupported, .Reason = R::ContainerCopy, .Message = FormatPropertyValueError(Copied.Error)}};
 			if (!Equal(P, Container, Index, Write.Before.GetContainer(), Index))
 				return Fail(E::Unsupported, R::ContainerComparison);
 			auto Result = RewriteValue(P, Write.After.GetContainer(), Index, Map);
@@ -634,7 +635,7 @@ namespace Durin
 		{
 			const auto MapResult = Impl->Map.Build(Packages, Budget);
 			if (!MapResult) return Reject({{.Code = MapResult.Error.Code,
-				.Reason = R::ReplacementMap, .Cause = MapResult.Error}});
+				.Reason = R::ReplacementMap, .Message = FormatObjectReplacementMapError(MapResult.Error)}});
 			FObjectReplacementResult Result;
 			Impl->Budget = Budget;
 			Impl->Packages.assign(Packages.begin(), Packages.end());

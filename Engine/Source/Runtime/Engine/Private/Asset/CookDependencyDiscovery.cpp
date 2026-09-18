@@ -63,7 +63,6 @@ namespace Durin
 			: Error == ECookInputError::PackageDeclaration || Error == ECookInputError::ExternalDeclaration ? EAssetError::InvalidPath
 			: Error == ECookInputError::UnknownPackage || Error == ECookInputError::UndeclaredInput || Error == ECookInputError::NoReader ? EAssetError::MissingDependency : EAssetError::CorruptFile;
 		FAssetResult Result{Classification, FormatCookInputError(*this)};
-		Result.CookInputCause = std::make_shared<FCookInputFailure>(*this);
 		return Result;
 	}
 }
@@ -103,6 +102,7 @@ namespace Durin::AssetPrivate
 				|| Cause.Error == ECookInputError::RootLimit || Cause.Error == ECookInputError::RuntimeEdgeLimit
 				|| Cause.Error == ECookInputError::DependencyStorage ? ECookInputStatus::LimitExceeded
 			: Cause.Error == ECookInputError::UndeclaredInput ? ECookInputStatus::UndeclaredInput : ECookInputStatus::InvalidDependency;
+		FailureInfo = std::move(Cause);
 		return Failure;
 	}
 
@@ -110,9 +110,8 @@ namespace Durin::AssetPrivate
 	{
 		if (!Failure) return Failure;
 		Status = Result.Error == EAssetError::IoError ? ECookInputStatus::IoError : ECookInputStatus::InvalidDependency;
-		if (Result.CookInputCause) (void)Fail(*Result.CookInputCause);
 		Failure = Result;
-		if (Result.Disposition == EAssetResultDisposition::ContentCommittedProjectionPending)
+		if (Result.WriteOutcome.Disposition == EAssetResultDisposition::ContentCommittedProjectionPending)
 			Status = ECookInputStatus::ProjectionPending;
 		return Failure;
 	}

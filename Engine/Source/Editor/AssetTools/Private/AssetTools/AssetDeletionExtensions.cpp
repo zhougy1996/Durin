@@ -57,8 +57,7 @@ namespace Durin
 			case EAssetRegistryError::UnsupportedVersion: Code = EAssetError::UnsupportedVersion; break;
 			default: break;
 			}
-			return {.Error = Code, .Message = FormatAssetRegistryError(HeaderResult),
-				.RegistryCause = HeaderResult};
+			return {.Error = Code, .Message = FormatAssetRegistryError(HeaderResult)};
 		}
 		if (Header.BulkSegmentExtent != 0)
 		{

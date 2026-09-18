@@ -121,7 +121,7 @@ namespace Durin
 		EAssetCompilerRegistrationError Code = EAssetCompilerRegistrationError::None;
 		std::string CompilerName;
 		std::string AssetClass;
-		std::optional<FAssetCompilerStartResult> StartCause;
+		std::string Message;
 	};
 	struct FAssetCompilerRegistrationResult
 	{

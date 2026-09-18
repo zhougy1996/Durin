@@ -579,7 +579,6 @@ namespace
 		EXPECT_EQ(FLifetimeTracked::DestroyCount, 2);
 	}
 
-
 TEST(FReflectedStructConsumerTests, UnavailableConstructionLeavesNestedArrayUnchanged)
 	{
 		Durin::FPropertyValueResult ValueResult;
@@ -649,7 +648,6 @@ TEST(FReflectedStructConsumerTests, UnavailableConstructionLeavesNestedArrayUnch
 		EXPECT_EQ(Insert.Error.Requirement, Durin::EPropertyContainerRequirement::CopyConstruct);
 		EXPECT_EQ(Insert.Error.ValuePropertyName, "Map_Value");
 	}
-
 
 TEST(FReflectedContainerOpsTests, ArchiveLoadingRollsBackFailureAndRejectsDuplicateKeys)
 	{
@@ -917,7 +915,6 @@ TEST(FReflectedContainerOpsTests, ArchiveLoadingRollsBackFailureAndRejectsDuplic
 		FElement::CopiesBeforeFailure = -1;
 		EXPECT_EQ(FElement::Live, 0);
 	}
-
 
 TEST(FReflectedContainerOpsTests, CopyCapabilitiesRejectNestedMoveOnlyElementsAndMalformedDescriptors)
 	{
@@ -1323,10 +1320,6 @@ TEST(FReflectedContainerOpsTests, CopyCapabilitiesRejectNestedMoveOnlyElementsAn
 		Durin::FObjectMemoryReader RejectionReader(Bytes);
 		Durin::SerializeReflectedPropertyValue(RejectionReader, Property, &Destination);
 		EXPECT_TRUE(RejectionReader.HasError());
-		const auto* Cause = std::get_if<Durin::FObjectValidationError>(&RejectionReader.GetValueFailureCause());
-		ASSERT_NE(Cause, nullptr);
-		EXPECT_EQ(Cause->Code, Durin::EObjectValidationError::StructRejected);
-		EXPECT_FALSE(Cause->StructName.empty());
 		EXPECT_EQ(Destination.Value, 7);
 		EXPECT_EQ(Destination.Derived, 14);
 	}
@@ -1408,7 +1401,7 @@ TEST(FPropertyValueSnapshotTests, TypedSnapshotValidationOwnsContextAndPreserves
 	EXPECT_EQ(Saved.Error.ArrayDim, 1u);
 }
 
-TEST(FPropertyValueSnapshotTests, TypedSnapshotPreservesStorageCauseThroughArchiveAndRollback)
+TEST(FPropertyValueSnapshotTests, SnapshotRestoreFailurePreservesDestination)
 {
 	using namespace Durin;
 	Testing::InitializeDObjectSystemForTests();
@@ -1438,17 +1431,11 @@ TEST(FPropertyValueSnapshotTests, TypedSnapshotPreservesStorageCauseThroughArchi
 	ASSERT_FALSE(Result);
 	EXPECT_EQ(Result.Error.Code, EPropertySnapshotError::ArchiveFailure);
 	EXPECT_EQ(Result.Error.ArchiveCode, EArchiveFailureCode::UnsupportedOperation);
-	const auto* Cause = std::get_if<FPropertyValueError>(&Result.Error.Cause);
-	ASSERT_NE(Cause, nullptr);
-	EXPECT_EQ(Cause->Code, EPropertyValueError::UnavailableOperation);
-	EXPECT_EQ(Cause->Operation, EPropertyValueOperation::DefaultConstruct);
-	EXPECT_EQ(Cause->PropertyName, "Element");
-	EXPECT_EQ(Cause->StructName, "Tests::SnapshotNoDefault");
 	ASSERT_EQ(Destination.size(), 1u);
 	EXPECT_EQ(Destination.at(5).Value, 71);
 }
 
-TEST(FPropertyValueSnapshotTests, TypedSnapshotRetainsCanonicalMapKeyCause)
+TEST(FPropertyValueSnapshotTests, SnapshotRejectsInvalidMapKey)
 {
 	using namespace Durin;
 	Testing::InitializeDObjectSystemForTests();
@@ -1467,14 +1454,10 @@ TEST(FPropertyValueSnapshotTests, TypedSnapshotRetainsCanonicalMapKeyCause)
 	ASSERT_FALSE(Result);
 	EXPECT_EQ(Result.Error.Code, EPropertySnapshotError::InvalidMapKey);
 	EXPECT_EQ(Result.Error.PropertyName, "UnsupportedKeyMap");
-	const auto* Cause = std::get_if<FReflectedMapKeyError>(&Result.Error.Cause);
-	ASSERT_NE(Cause, nullptr);
-	EXPECT_EQ(Cause->Code, EReflectedMapKeyError::UnknownEnumStorage);
-	EXPECT_EQ(Cause->PropertyName, "UnknownKeyEnum");
 	EXPECT_FALSE(Payload.IsValid());
 }
 
-TEST(FPropertyValueSnapshotTests, SaveOverrideRetainsCopyCauseWithoutPublishingEntry)
+TEST(FPropertyValueSnapshotTests, SaveOverrideCopyFailureDoesNotPublishEntry)
 {
 	using namespace Durin;
 	Testing::InitializeDObjectSystemForTests();
@@ -1490,10 +1473,6 @@ TEST(FPropertyValueSnapshotTests, SaveOverrideRetainsCopyCauseWithoutPublishingE
 	EXPECT_EQ(Result.Error.Code, ESaveOverrideError::ValueCopyFailed);
 	EXPECT_EQ(Result.Error.PropertyName, "Value");
 	EXPECT_EQ(Result.Error.ObjectPath, Object.GetObjectPath());
-	const auto* Cause = std::get_if<FPropertyValueError>(&Result.Error.Cause);
-	ASSERT_NE(Cause, nullptr);
-	EXPECT_EQ(Cause->Code, EPropertyValueError::UnavailableOperation);
-	EXPECT_EQ(Cause->Operation, EPropertyValueOperation::CopyConstruct);
 	EXPECT_TRUE(Overrides.IsEmpty());
 	EXPECT_EQ(Overrides.FindObject(Object), nullptr);
 	ASSERT_TRUE(Overrides.AddObjectOmission(Object));
@@ -1502,7 +1481,7 @@ TEST(FPropertyValueSnapshotTests, SaveOverrideRetainsCopyCauseWithoutPublishingE
 	EXPECT_EQ(Overrides.GetObjects().size(), 1u);
 }
 
-TEST(FPropertyValueSnapshotTests, SaveOverrideRetainsSnapshotCauseWithoutPublishingEntry)
+TEST(FPropertyValueSnapshotTests, SaveOverrideSnapshotFailureDoesNotPublishEntry)
 {
 	using namespace Durin;
 	Testing::InitializeDObjectSystemForTests();
@@ -1522,10 +1501,6 @@ TEST(FPropertyValueSnapshotTests, SaveOverrideRetainsSnapshotCauseWithoutPublish
 	const auto Result = Overrides.AddPropertyValue(Object, Property, FUnreflectedValue{17});
 	ASSERT_FALSE(Result);
 	EXPECT_EQ(Result.Error.Code, ESaveOverrideError::SnapshotFailed);
-	const auto* Cause = std::get_if<FPropertySnapshotError>(&Result.Error.Cause);
-	ASSERT_NE(Cause, nullptr);
-	EXPECT_EQ(Cause->Code, EPropertySnapshotError::UnsupportedKind);
-	EXPECT_EQ(Cause->PropertyName, "Opaque");
 	EXPECT_TRUE(Overrides.IsEmpty());
 	EXPECT_EQ(Overrides.FindObject(Object), nullptr);
 }
@@ -1555,7 +1530,7 @@ TEST(FPropertyValueSnapshotTests, ObjectCopyValidationOwnsTypeContext)
 	EXPECT_EQ(Missing.Error.Operation, EObjectPropertyCopyOperation::Defaults);
 }
 
-TEST(FPropertyValueSnapshotTests, DefaultCopyRetainsPropertyLifecycleCause)
+TEST(FPropertyValueSnapshotTests, DefaultCopyRejectsUnavailablePropertyLifecycle)
 {
 	using namespace Durin;
 	Testing::InitializeDObjectSystemForTests();
@@ -1568,14 +1543,9 @@ TEST(FPropertyValueSnapshotTests, DefaultCopyRetainsPropertyLifecycleCause)
 	const auto Result = InitializeObjectFromDefaults(&Source, &Destination, {});
 	EXPECT_EQ(Result.Error.Code, EObjectPropertyCopyError::ValueCopy);
 	EXPECT_EQ(Result.Error.PropertyName, "Unavailable");
-	const auto* Cause = std::get_if<FPropertyValueError>(&Result.Error.Cause);
-	ASSERT_NE(Cause, nullptr);
-	EXPECT_EQ(Cause->Code, EPropertyValueError::UnavailableOperation);
-	EXPECT_EQ(Cause->Operation, EPropertyValueOperation::CopyAssign);
-	EXPECT_EQ(Cause->PropertyName, "Unavailable");
 }
 
-TEST(FPropertyValueSnapshotTests, EditableCopyRetainsSnapshotCauseAndRollsBackEarlierFields)
+TEST(FPropertyValueSnapshotTests, EditableCopyFailureRollsBackEarlierFields)
 {
 	using namespace Durin;
 	Testing::InitializeDObjectSystemForTests();
@@ -1599,10 +1569,6 @@ TEST(FPropertyValueSnapshotTests, EditableCopyRetainsSnapshotCauseAndRollsBackEa
 	const auto Result = CopyEditableObjectProperties(&Source, &Destination, {});
 	EXPECT_EQ(Result.Error.Code, EObjectPropertyCopyError::Snapshot);
 	EXPECT_EQ(Result.Error.PropertyName, "Opaque");
-	const auto* Cause = std::get_if<FPropertySnapshotError>(&Result.Error.Cause);
-	ASSERT_NE(Cause, nullptr);
-	EXPECT_EQ(Cause->Code, EPropertySnapshotError::UnsupportedKind);
-	EXPECT_EQ(Cause->PropertyName, "Opaque");
 	EXPECT_FALSE(Result.Error.RollbackCause.has_value());
 	EXPECT_EQ(Destination.Value, 7);
 	EXPECT_EQ(Source.Value, 99);

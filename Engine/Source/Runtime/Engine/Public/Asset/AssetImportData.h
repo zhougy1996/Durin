@@ -22,13 +22,6 @@ namespace Durin
 		Absolute
 	};
 
-	class IAssetImportDataCause
-	{
-	public:
-		virtual ~IAssetImportDataCause() = default;
-		virtual auto Format() const -> std::string = 0;
-	};
-
 	enum class EAssetImportDataError : uint8
 	{
 		None, UnsupportedSchema, InvalidRole, InvalidLabel, InvalidHint, IncompleteHash,
@@ -48,7 +41,7 @@ namespace Durin
 		std::string DisplayLabel;
 		ESourceHintBase HintBase = ESourceHintBase::AssetRelative;
 		FXxHash128 ContentHash{};
-		std::shared_ptr<const IAssetImportDataCause> Cause;
+		std::string Message;
 	};
 	struct FAssetImportDataResult
 	{

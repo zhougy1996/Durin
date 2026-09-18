@@ -342,8 +342,7 @@ namespace Durin
 		uint32 ExpectedVersion = 0;
 		std::optional<EArchiveFailureCode> ArchiveCode;
 		std::string ArchivePath;
-		std::optional<FAuthoredOverrideDiagnostic> OverrideCause;
-		std::variant<std::monostate, FPropertyValueError, FReflectedMapKeyError, FObjectValidationError, FObjectError> Cause;
+		std::string Message;
 	};
 	template<class T>
 	struct TObjectGraphResult

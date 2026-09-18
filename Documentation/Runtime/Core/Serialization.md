@@ -471,20 +471,21 @@ value. Pending Archive and editor contracts format explicitly at their adapters.
 
 Property snapshot capture/restore APIs return `FPropertySnapshotResult`, with
 owned validation context, operation and array indices, exact reference-table
-failure reasons/counts, and Archive code/path context. Property storage and live
-Map-key causes remain typed through `FObjectArchive`; formatting uses
-`FormatPropertySnapshotError` at pending editor/transaction adapters. Capture
+failure reasons/counts, and Archive code/path context. The Archive retains its first local failure; snapshot and copy boundaries
+materialize its diagnostic text while the Archive is alive, without copying a
+nested cause tree. `FormatPropertySnapshotError` presents that owned text. Capture
 publishes its payload only on success; restore retains the existing detached
 Struct/container commit and hard-reference resolution rules. Shared property
 error records live in `DObject/PropertyDiagnostic.h`.
 
 `InitializeObjectFromDefaults` and `CopyEditableObjectProperties` return
 `FObjectPropertyCopyResult`, without string error outputs. They retain owned
-source/destination types and identities, nested reference routes, and typed
-property-value, snapshot, container and Archive causes. Default initialization
+source/destination types and identities, nested reference routes, and diagnostic
+text captured from property-value, snapshot, container and Archive failures. Default initialization
 still delegates graph rollback to its caller. Editable copying restores earlier
 fields on failure, retains the original failure plus the first rollback failure,
-and marks the destination dirty only on success. Pending Engine/editor callers
+and marks the destination dirty only on success. The first rollback failure
+remains a separate optional snapshot outcome. Engine/editor callers
 format explicitly with `FormatObjectPropertyCopyError`.
 
 Property snapshots and editable copies operate on selected values rather than

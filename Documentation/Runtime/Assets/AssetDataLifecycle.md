@@ -28,8 +28,8 @@ validation return `FAssetImportDataResult`, owning source index, role, hint, has
 bounds and schema context. `InspectAssetImportInfo` returns the same typed contract
 and publishes output only after validation. Object and family-specific validation
 return the same contract. StaticMesh and VolumeTexture validate the base schema
-first, then retain module-owned axis, source-role or atlas causes through
-`IAssetImportDataCause`; empty-state behavior is unchanged. Axis validation returns
+first, then format axis, source-role or atlas details into the owned diagnostic
+text; no polymorphic cause object is retained. Empty-state behavior is unchanged. Axis validation returns
 `FStaticMeshImportSettingsResult` with the rejected axis combination. Consumers
 format with `FormatAssetImportDataError` at pending presentation contracts.
 `DAssetImportData::SetState` and its family-specific setters require this validated
@@ -65,16 +65,14 @@ implicitly recompress. GPU formats, DDC keys and Cook inputs remain unchanged.
 
 ## Serialization and production ownership
 
-Engine's DAST codec adapters retain complete CoreDObject capture, reader and
-writer causes in `FAssetResult::PackageCaptureCause`, `PackageReaderCause` and
-`PackageWriterCause`. These immutable owned causes include nested errors and
-context, survive copies and temporary input destruction, and are absent on
-success. Read validation, normal serialization and detached linker mutation use
-the same adapters. Failed encoding keeps the caller's output closure unchanged.
-Callers can propagate the result or consume its success state without handling
-individual causes. The pending outer asset result contract still receives
-formatted text explicitly at these adapters; Engine admission failures and live
-linker application have separate diagnostic contracts.
+Engine's DAST adapters classify and format CoreDObject failures at the boundary.
+`FAssetResult` carries an error code and owned diagnostic text, without nested
+Capture, reader, writer, Registry, resource, or Cook causes. The owning Core
+operations keep their classification and context; failed encoding keeps the
+caller's output closure unchanged. Write progress is separate in
+`FAssetResult::WriteOutcome` (`FAssetWriteOutcome`): disposition, operation id,
+direction, failed participant, recovery location and affected files belong to
+save/import/mutation outcomes and are not propagated by field-load errors.
 
 Field application through `LoadAuthoredObject` returns `FAssetResult`, with
 success derived only from `EAssetError::None`. Failures own a complete diagnostic:
@@ -615,8 +613,9 @@ routes, retaining contributor name, qualified class name and version context.
 Engine family batch registration returns the first typed failure and removes only
 handles added by that batch. Existing caller-owned handles remain unchanged.
 
-Cook input read failures retain `FCookInputFailure` through
-`FAssetResult::CookInputCause`. Cancellation, input write conflicts, file IO,
+Cook discovery retains its first `FCookInputFailure` in its own failure channel;
+`FCookRunResult::InputDiagnostic` receives that owned record alongside the run
+input status. The generic asset adapter carries only classification and text. Cancellation, input write conflicts, file IO,
 file/aggregate byte and package-count limits, unknown packages, undeclared
 values and missing readers have typed codes with owned identities and limits.
 File failures retain the full IO operation, native error, path, offset and size.
@@ -629,14 +628,14 @@ publication, while an earlier retained cause remains valid across later runs.
 Dependency discovery has no string-based failure entrypoint. Root counts and
 classes, runtime edge limits, empty runtime selections, Bulk size/digest mismatch,
 schema availability, schema depth/field/type/encoding limits and retained schema
-or dependency storage all produce typed input causes. Schema failures retain
+or dependency storage all produce Cook-owned input failures. Schema failures retain
 class/member identities and limits; Bulk failures retain expected and actual
 sizes and digests. Reclassifying a missing reference as MissingDependency keeps
-the complete underlying asset cause. Projection disposition and the first input
+the underlying diagnostic text. Projection disposition and the first input
 failure remain independent of diagnostic formatting.
 
 
-The pending asset-result adapter formats explicitly and preserves the existing
+The asset-result adapter formats explicitly and preserves the existing
 classification; discovery retains its first failure and independent input status.
 File reads publish bytes only after every chunk succeeds; failed reads leave the
 output empty. A context with no reader also clears output before rejecting it.
@@ -652,9 +651,10 @@ Dependency graph initialization and expansion return `FCookDependencyGraphResult
 retaining package/dependency identities, conflicting record identities, aggregate
 counts and nested codec causes. Failed initialization clears previously prepared
 nodes; failed expansion clears output records. Discovery converts graph failures
-with `ToAssetResult`, retaining an owned `CookDependencyCause` including nested
-codec context. The adapter preserves the current CorruptFile classification and
-default disposition; success carries no cause. Pending asset adapters and run presentation format explicitly at their boundaries.
+with `ToAssetResult`, formatting codec context while the graph result is alive.
+The adapter preserves CorruptFile classification and carries no write outcome.
+Cook-owned codec/state/publication results retain their own protocol status;
+ordinary asset diagnostics do not embed those results.
 
 Cook state encoding and decoding return `FCookStateResult`. They retain typed
 header/entry/size failures and complete nested dependency codec results, with
@@ -693,8 +693,8 @@ Family contribution returns `FCookContributionResult`, retaining object/virtual
 paths, target settings, material revision and nested plan causes. Target, missing
 derived state, stale material revision/contract/dependencies and unsupported
 classes have distinct errors. The registration callback uses `ToAssetResult` to
-retain the complete owned `CookContributionCause`; only that pending framework
-text adapter formats the failure. Family interfaces expose no string overload.
+format the contribution diagnostic at the callback boundary; the asset result
+does not embed a second contribution result. Family interfaces expose no string overload.
 Engine registration callbacks also retain typed authoring-only, class mismatch,
 pending source mutation and missing recipe/shader-input failures. Class failures
 own expected/actual identities; dependency failures own provider and package

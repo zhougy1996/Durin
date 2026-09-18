@@ -373,9 +373,6 @@ TEST_F(FAssetPackageReloadTests, RejectsUnsavedCancelledAndOverBudgetRequestsWit
 	EXPECT_EQ(Budget.Failure, EPackageReloadFailure::BudgetExceeded);
 	ASSERT_EQ(Budget.Diagnostics.size(), 1u);
 	EXPECT_EQ(Budget.Diagnostics[0].Reason, EPackageReloadReason::ResourceRead);
-	ASSERT_TRUE(Budget.Diagnostics[0].ResourceCause.has_value());
-	EXPECT_EQ(Budget.Diagnostics[0].ResourceCause->Code, EPreparedPackageResourceError::BudgetExceeded);
-	EXPECT_EQ(Budget.Diagnostics[0].ResourceCause->MaximumBytes, 1u);
 	EXPECT_EQ(FindResidentPackage(Path), Package);
 	EXPECT_NE(Texture->GetSource().GetIdentity(), SavedIdentity);
 	EXPECT_TRUE(Package->IsDirty());
@@ -601,13 +598,7 @@ TEST_F(FAssetPackageReloadTests, EveryCoordinatorFailurePreservesTheEditedGraphA
 			|| Fault == EPackageReloadFaultPoint::ApplyValues || Fault == EPackageReloadFaultPoint::RestoreLedger)
 		{
 			EXPECT_EQ(Result.Diagnostics[0].Reason, EPackageReloadReason::GraphPreparation);
-			ASSERT_NE(Result.Diagnostics[0].GraphCause, nullptr);
-			const auto& Cause = *Result.Diagnostics[0].GraphCause;
-			EXPECT_EQ(Cause.PackagePath, Path);
-			EXPECT_EQ(Cause.Reason, Fault == EPackageReloadFaultPoint::CreateSkeleton
-				? EPackageGraphPrepareReason::Skeleton : EPackageGraphPrepareReason::ApplyValues);
-			ASSERT_NE(Cause.AssetCause, nullptr);
-			EXPECT_FALSE(*Cause.AssetCause);
+			EXPECT_EQ(Result.Diagnostics[0].PackagePath, Path);
 		}
 		CollectGarbage();
 		EXPECT_EQ(FindResidentPackage(Path), Texture->GetPackage());
@@ -694,10 +685,10 @@ TEST(FPackageReloadReceiptTests, RetainsOwnedFailureAndRejectsInvalidTransitions
 	FPackageReloadDiagnostic Error{.ObjectPath = "TemporaryObject",
 		.Stage = EPackageReloadStage::PrepareRuntimeProducts,
 		.Reason = EPackageReloadReason::Replacement,
-		.ReplacementCause = FObjectReplacementError{.Code = EObjectReplacementError::Busy}};
+		.Message = "Replacement participant is busy."};
 	ASSERT_TRUE(Receipt.SetFailed(Error));
 	Error.ObjectPath.clear();
-	Error.ReplacementCause.reset();
+	Error.Message.clear();
 	EXPECT_EQ(Receipt.GetState(), EPackageReloadReceiptState::Failed);
 	EXPECT_FALSE(Receipt.SetReady());
 	EXPECT_FALSE(Receipt.SetRetired());
@@ -705,8 +696,6 @@ TEST(FPackageReloadReceiptTests, RetainsOwnedFailureAndRejectsInvalidTransitions
 	const auto Saved = Receipt.GetFailure();
 	EXPECT_EQ(Saved.ObjectPath, "TemporaryObject");
 	EXPECT_EQ(Saved.Reason, EPackageReloadReason::Replacement);
-	ASSERT_TRUE(Saved.ReplacementCause.has_value());
-	EXPECT_EQ(Saved.ReplacementCause->Code, EObjectReplacementError::Busy);
 	FPackageReloadResourceReceipt Ready;
 	ASSERT_TRUE(Ready.SetReady());
 	EXPECT_FALSE(Ready.SetFailed(Saved));

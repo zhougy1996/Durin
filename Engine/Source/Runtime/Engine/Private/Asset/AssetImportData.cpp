@@ -70,7 +70,7 @@ namespace Durin
 
 	auto FormatAssetImportDataError(const FAssetImportDataError& Error) -> std::string
 	{
-		if (Error.Cause) return Error.Cause->Format();
+		if (!Error.Message.empty()) return Error.Message;
 		switch (Error.Code)
 		{
 		case EAssetImportDataError::None: return {};

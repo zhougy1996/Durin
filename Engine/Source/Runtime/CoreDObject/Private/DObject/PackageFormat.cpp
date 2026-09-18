@@ -1,3 +1,4 @@
+#include "PackageDiagnosticInternal.h"
 #include "DObject/PackageFormat.h"
 
 #include "DObject/CanonicalMapKey.h"
@@ -56,9 +57,9 @@ namespace Durin::ObjectPackage
 
 		auto Fail(FPackageWriterResult* Diagnostic, EPackageWriterFailure Failure,
 			EPackageWriterReason Reason, std::string Path = {},
-			decltype(FPackageWriterResult::Cause) Cause = {}, std::string Subject = {}) -> bool
+			std::string Message = {}, std::string Subject = {}) -> bool
 		{
-			if (Diagnostic) *Diagnostic = {Failure, std::move(Path), Reason, std::move(Cause), std::move(Subject)};
+			if (Diagnostic) *Diagnostic = {Failure, std::move(Path), Reason, std::move(Message), std::move(Subject)};
 			return false;
 		}
 
@@ -249,7 +250,7 @@ namespace Durin::ObjectPackage
 						PathResult.Error.Code == ELinkerError::OuterCycle
 							? EPackageWriterFailure::InvalidTopology : EPackageWriterFailure::InvalidIndex,
 						EPackageWriterReason::UnresolvedTablePath,
-						std::string(bImports ? "Imports[" : "Exports[") + std::to_string(Index) + "]", PathResult.Error);
+						std::string(bImports ? "Imports[" : "Exports[") + std::to_string(Index) + "]", FormatLinkerError(PathResult.Error));
 			}
 			return true;
 		}
@@ -417,7 +418,7 @@ namespace Durin::ObjectPackage
 					{
 						FByteBuffer Token;
 						if (const auto Result = BuildCanonicalMapKeyToken(Type.Children[0], Value.Elements[Index], Token); !Result)
-							return Fail(Diagnostic, EPackageWriterFailure::InvalidValue, EPackageWriterReason::CanonicalKeyRejected, Path, Result.Error);
+							return Fail(Diagnostic, EPackageWriterFailure::InvalidValue, EPackageWriterReason::CanonicalKeyRejected, Path, FormatCanonicalMapKeyError(Result.Error));
 						Entries.push_back({Index, std::move(Token)});
 					}
 					std::ranges::sort(Entries, [](const FEntry& A, const FEntry& B) { return A.Token < B.Token; });
@@ -802,7 +803,7 @@ namespace Durin::ObjectPackage
 				{
 					FByteBuffer Token;
 					if (const auto Result = BuildCanonicalMapKeyToken(Type.Children[0], Value.Elements[Index], Token); !Result)
-						return Fail(Diagnostic, EPackageWriterFailure::InvalidValue, EPackageWriterReason::CanonicalKeyRejected, std::string(Path), Result.Error);
+						return Fail(Diagnostic, EPackageWriterFailure::InvalidValue, EPackageWriterReason::CanonicalKeyRejected, std::string(Path), FormatCanonicalMapKeyError(Result.Error));
 					Entries.push_back({Index, std::move(Token)});
 				}
 				std::ranges::sort(Entries, [](const FEntry& A, const FEntry& B) { return A.Token < B.Token; });
@@ -1161,7 +1162,7 @@ namespace Durin::ObjectPackage
 			if (!EncodeBinaryEnvelopePreamble(Preamble,
 				std::span(Bytes).first(BinaryEnvelopePreambleBytes), &EnvelopeDiagnostic))
 				return Fail(Diagnostic, EPackageWriterFailure::EnvelopeFailure,
-					EPackageWriterReason::EnvelopeRejected, {}, EnvelopeDiagnostic.Error);
+					EPackageWriterReason::EnvelopeRejected, {}, FormatEnvelopeError(EnvelopeDiagnostic.Error));
 			WriteLittleEndianAt(Bytes, FormatHeaderOffset, uint32(bRedirect ? 1 : 0));
 			WriteLittleEndianAt(Bytes, FormatHeaderOffset + 4, uint32(0));
 			WriteLittleEndianAt(Bytes, FormatHeaderOffset + 8, uint64(DirectoryOffset));
@@ -1184,7 +1185,7 @@ namespace Durin::ObjectPackage
 			if (!FinalizeBinaryEnvelopeHeader(std::span(Bytes).first(static_cast<size_t>(HeaderBytes)), Cursor,
 				{DastMaximumHeaderBytes, DastMaximumPackageBytes}, &EnvelopeDiagnostic))
 				return Fail(Diagnostic, EPackageWriterFailure::EnvelopeFailure,
-					EPackageWriterReason::EnvelopeRejected, {}, EnvelopeDiagnostic.Error);
+					EPackageWriterReason::EnvelopeRejected, {}, FormatEnvelopeError(EnvelopeDiagnostic.Error));
 			Out = std::move(Bytes);
 			return true;
 		}

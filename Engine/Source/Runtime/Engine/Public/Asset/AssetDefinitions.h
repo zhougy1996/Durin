@@ -9,15 +9,6 @@
 
 namespace Durin
 {
-	struct FPackageCaptureError;
-	namespace ObjectPackage
-	{
-		struct FPackageReaderResult;
-		struct FPackageWriterResult;
-	}
-	struct FCookDependencyGraphResult;
-	struct FCookContributionResult;
-	struct FCookInputFailure;
 	// Describes mutation progress independently from the diagnostic error code.
 	enum class EAssetResultDisposition : uint8
 	{
@@ -51,27 +42,22 @@ namespace Durin
 		ShuttingDown
 	};
 
-	struct FAssetResult
+	// Mutation-owned progress and recovery data; never propagated by load diagnostics.
+	struct FAssetWriteOutcome
 	{
-		EAssetError Error = EAssetError::None;
-		std::string Message;
 		EAssetResultDisposition Disposition = EAssetResultDisposition::Default;
 		std::string OperationId;
 		std::string DesiredDirection;
 		std::string FailedParticipant;
 		std::filesystem::path RecoveryLocation;
 		std::vector<std::filesystem::path> AffectedFiles;
-		std::optional<FObjectValidationError> GraphValidationCause;
-		std::optional<FAssetRegistryResult> RegistryCause;
-		std::optional<FEditorBulkDataStorageError> BulkStorageCause;
-		std::optional<FPackageResourceRegistrationError> ResourceRegistrationCause;
-		std::shared_ptr<const FCookDependencyGraphResult> CookDependencyCause;
-		std::shared_ptr<const FCookInputFailure> CookInputCause;
-		std::shared_ptr<const FCookContributionResult> CookContributionCause;
-		// Preserve codec-owned causes through the pending text-based asset adapter.
-		std::shared_ptr<const FPackageCaptureError> PackageCaptureCause;
-		std::shared_ptr<const ObjectPackage::FPackageReaderResult> PackageReaderCause;
-		std::shared_ptr<const ObjectPackage::FPackageWriterResult> PackageWriterCause;
+	};
+
+	struct FAssetResult
+	{
+		EAssetError Error = EAssetError::None;
+		std::string Message;
+		FAssetWriteOutcome WriteOutcome;
 
 		auto Succeeded() const -> bool { return Error == EAssetError::None; }
 		explicit operator bool() const { return Succeeded(); }

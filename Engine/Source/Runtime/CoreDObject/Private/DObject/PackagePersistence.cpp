@@ -266,7 +266,6 @@ namespace Durin
 		if (!CaptureResult)
 		{
 			Admission = Fail(GetPackageCaptureSaveError(CaptureResult.Error), FormatPackageCaptureError(CaptureResult.Error));
-			Admission.CaptureCause = CaptureResult.Error;
 			return {};
 		}
 		ObjectPackage::FPackageWriterResult Diagnostic;

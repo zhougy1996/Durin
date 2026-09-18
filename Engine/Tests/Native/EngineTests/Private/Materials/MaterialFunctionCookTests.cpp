@@ -265,8 +265,6 @@ TEST_F(FMaterialFunctionCookTests, StandardMaterialFixtureCooksAndLoadsWithoutAu
 	EXPECT_FALSE(FCookCoordinator().Run(FunctionRootRequest, Result));
 	EXPECT_EQ(Result.Error, ECookRunError::ContributionFailed);
 	ASSERT_TRUE(Result.ContributionCause);
-	ASSERT_TRUE(Result.ContributionCause->CookContributionCause);
-	EXPECT_EQ(Result.ContributionCause->CookContributionCause->Error, ECookContributionError::AuthoringOnly);
 	EXPECT_FALSE(std::filesystem::exists(FunctionRootRequest.OutputRoot / "CookManifest.bin"));
 
 	ASSERT_TRUE(UnloadPackage(MaterialPath));

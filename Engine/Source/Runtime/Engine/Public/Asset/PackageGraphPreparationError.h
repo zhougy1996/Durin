@@ -37,10 +37,7 @@ namespace Durin
 		std::string Subject;
 		uint64 Actual = 0;
 		uint64 Maximum = 0;
-		std::optional<FObjectValidationError> GraphValidationCause;
-		std::optional<FPreparedPackageResourceError> ResourceCause;
-		std::shared_ptr<const FAssetResult> AssetCause;
-		std::optional<ObjectPackage::FPackageReaderResult> ReaderCause;
+		std::string Message;
 		explicit operator bool() const { return Status == EPackageGraphPrepareStatus::ValuesPrepared; }
 	};
 

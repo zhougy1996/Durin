@@ -4,17 +4,15 @@ Summary: Replace recursive asset error transport and closure-wide ordinary-load 
 
 Last reviewed: 2026-09-18
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-09-18
 
 ## Current Status
 
 This plan replaces `Documentation/Plans/AssetObjectTypedErrors.md` by explicit
 design choice. The former plan is superseded, not completed. Its remaining
-cause-retention and rollback-preservation gates are withdrawn. No runtime
-behavior has changed as part of this replacement. Stage 0's source audit and
-selected implementation model are recorded below. Stages 1 and 2 are complete; Stage 3
-is next. Ordinary loading now owns incomplete completion groups and retains
+cause-retention and rollback-preservation gates are withdrawn. Stage 0's baseline
+audit and the subsequent implementation evidence are recorded below. All four stages are complete. Ordinary loading now owns incomplete completion groups and retains
 independent successful dependencies.
 
 The former work remains in Git history: baseline `12beed739`, subsequent
@@ -57,6 +55,26 @@ reject persisted data before notifications. Defensive checks in directly invoked
 family PostLoad methods remain; ordinary loading does not use them as a result
 or a rollback vote. GC remains in failed-candidate cleanup. No GPU qualification
 was requested or used as evidence for this object-lifetime change.
+
+Stage 3 validation (2026-09-18, Win64-Debug-DurinEditor): final
+`test affected --report` passed all 99 selected native targets, including
+Core persistence/snapshots/replacement, asset load/save/reload, Cook, import,
+compilation and editor workflows, plus Sandbox and RoadWeaver. The default
+selection excludes characterization and qualification. The final
+`build --target all` passed. Report:
+`Build/NativeTestResults/Win64-Debug-DurinEditor/affected.xml`.
+
+The broad run exposed a missed resident-object fallback in the new internal
+dependency resolver: catalog refresh could make a completed resident parent
+unresolvable even though public `LoadObject` still accepted it. Internal resolution
+now preserves that fallback through the same phase/fence checks. The previously
+failing `SceneImportTests` suite passed all 10 cases before the final full run.
+
+Removed error-layout and prose assertions in the migrated tests; classification,
+outputs, first failure, cancellation, rollback receipts, object lifetime and retry
+coverage remain. Changed-document validation and all-plan validation accompany
+this completion. Lasting contracts are in AssetPackages, AssetDataLifecycle and
+Serialization, rather than relying on this plan as a second specification.
 
 ## Goal
 
@@ -218,7 +236,7 @@ RoadWeaver does own a `DRoadNet::PostLoad` data-validation callback.
   ordinary loading no longer owns residency-restoration callbacks; explicit
   replacement policies remain separate.
 
-Current code paths grounding this model: `LoadPackageFromPhysicalPath` owns
+Baseline code paths grounding the Stage 0 model: `LoadPackageFromPhysicalPath` owns
 `TransactionPackages` and active reports; `LoadPackageInternal` registers bulk
 resources and skeleton callbacks; `ApplyLivePackageLinker` owns local rollback and
 PostLoad; `PreparePackageGraphs` creates pinned private graphs; `PackageReload`
@@ -226,7 +244,8 @@ runs private runtime preparation and explicit dependency release. Public
 `FindResidentPackage` currently ignores `LoadingPackages`, enabling cyclic
 references but also premature public success. Current root rollback retires
 successful dependency resources, and load depth/report restoration lacks an
-exception scope. These are changes to implement, not guarantees already fixed.
+exception scope. This paragraph records the pre-implementation baseline; Stages 1 and 2
+replace those paths and establish the guarantees above.
 
 #### Callback migration and acceptance map
 
@@ -317,15 +336,33 @@ cleanup are correct without reverting successful independent dependencies.
 Depends on Stages 1 and 2. Outcome: obsolete typed-error architecture and
 compatibility adapters no longer dictate asset subsystem design.
 
-- [ ] Execute Stage 0's retain/flatten/remove inventory across codec, Capture,
+Implementation boundary decisions (2026-09-18): generic `FAssetResult` no longer
+embeds typed causes. Existing save/import APIs compose `FAssetWriteOutcome` as
+`WriteOutcome` so recovery metadata has one explicit owner without duplicating
+all async/public result APIs. Ordinary field-load adaptation never copies it.
+Cook discovery owns the first input failure and terminal status directly; the
+coordinator copies that Cook-owned record to `InputDiagnostic`.
+
+Codec, Capture, snapshots, editable copy, graph persistence/replacement, private
+preparation and reload keep their domain code/reason and context, but materialize
+display-only nested failures immediately. Editable-copy restoration failure
+remains a separate optional outcome. Material diagnostics, compilation receipts,
+Cook codec/publication protocols, source-provider statuses and editor job states
+remain owned by those operations: removing their protocols is not part of
+ordinary asset diagnostic consolidation. None is embedded back into a generic
+asset result. Compiler registration formats startup failures immediately; import
+validation no longer carries a module-owned polymorphic cause. Resource ownership,
+cancellation and commit/abort are unchanged.
+
+- [x] Execute Stage 0's retain/flatten/remove inventory across codec, Capture,
   property/graph operations, asset services, Cook, compilation, import, and UI.
-- [ ] Separate actionable write/recovery outcomes from ordinary diagnostics;
+- [x] Separate actionable write/recovery outcomes from ordinary diagnostics;
   preserve cancellation, async completion, and external provider semantics.
-- [ ] Remove obsolete cause members, headers, formatters, adapters, and old
+- [x] Remove obsolete cause members, headers, formatters, adapters, and old
   contract prose. Keep genuinely consumed typed status without a universal
   error registry, recursive result hierarchy, or mandatory formatting framework.
-- [ ] Migrate all workspace consumers and pass affected tests and an all build.
-- [ ] Document implemented contracts and close this plan only after all gates pass.
+- [x] Migrate all workspace consumers and pass affected tests and an all build.
+- [x] Document implemented contracts and close this plan only after all gates pass.
 
 ## Validation and Handoff
 

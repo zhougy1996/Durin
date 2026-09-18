@@ -13,23 +13,23 @@ namespace Durin::AssetToolsPrivate
 		EAssetOperationTerminalState State = Result
 			? EAssetOperationTerminalState::Completed
 			: EAssetOperationTerminalState::Rejected;
-		if (Result.Disposition ==
+		if (Result.WriteOutcome.Disposition ==
 			EAssetResultDisposition::ContentCommittedProjectionPending)
 			State = EAssetOperationTerminalState::ContentCommittedProjectionPending;
-		else if (Result.Disposition ==
+		else if (Result.WriteOutcome.Disposition ==
 			EAssetResultDisposition::RecoveryRequired)
 			State = EAssetOperationTerminalState::RecoveryRequired;
-		else if (Result.Disposition ==
+		else if (Result.WriteOutcome.Disposition ==
 			EAssetResultDisposition::ForwardPending)
 			State = EAssetOperationTerminalState::ForwardPending;
 		FAssetOperationResult Operation{
 			.Kind = Kind,
 			.State = State,
 			.Message = Result.Message,
-			.OperationId = Result.OperationId,
-			.DesiredDirection = Result.DesiredDirection,
-			.FailedParticipant = Result.FailedParticipant,
-			.RecoveryLocation = Result.RecoveryLocation};
+			.OperationId = Result.WriteOutcome.OperationId,
+			.DesiredDirection = Result.WriteOutcome.DesiredDirection,
+			.FailedParticipant = Result.WriteOutcome.FailedParticipant,
+			.RecoveryLocation = Result.WriteOutcome.RecoveryLocation};
 		Operation.AffectedAssets.assign(Affected.begin(), Affected.end());
 		return Operation;
 	}

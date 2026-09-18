@@ -1143,7 +1143,6 @@ namespace Durin::AssetPrivate
 				{
 					FAssetResult Result{EAssetError::InvalidObjectGraph, std::format("Loaded graph '{}': {}",
 						Object->GetObjectPath(), FormatObjectValidationError(Validation.Error))};
-					Result.GraphValidationCause = Validation.Error;
 					return Result;
 				}
 			}
@@ -1211,10 +1210,10 @@ namespace Durin::AssetPrivate
 				const auto& Bulk = Source.Storage.GetBulkResource();
 				if (!(ReaderDiagnostic = ObjectPackage::ReadPackageMetadata(Source.Storage.GetMainBytes(),
 					Bulk ? Bulk->GetSegmentExtent() : 0, CurrentPath, Application.Linker)))
-					return {.Status = S::InvalidClosure, .PackagePath = CurrentPath, .Reason = R::Reader, .ReaderCause = ReaderDiagnostic};
+					return {.Status = S::InvalidClosure, .PackagePath = CurrentPath, .Reason = R::Reader, .Message = ObjectPackage::FormatPackageError(ReaderDiagnostic)};
 				FLinkerApplyDiagnostic Diagnostic;
 				if (auto Result = ValidateLinker(Application, {}, Diagnostic); !Result)
-					return {.Status = S::InvalidClosure, .PackagePath = CurrentPath, .Reason = R::LinkerValidation, .GraphValidationCause = Result.GraphValidationCause, .AssetCause = std::make_shared<FAssetResult>(Result)};
+					return {.Status = S::InvalidClosure, .PackagePath = CurrentPath, .Reason = R::LinkerValidation, .Message = Result.Message};
 				if (ObjectCount >= Options.MaximumObjects
 					|| Application.Exports.size() > Options.MaximumObjects - ObjectCount - 1)
 					return {.Status = S::BudgetExceeded, .PackagePath = CurrentPath, .Reason = R::ObjectBudget, .Actual = Application.Exports.size() + 1, .Maximum = Options.MaximumObjects - ObjectCount};
@@ -1249,7 +1248,7 @@ namespace Durin::AssetPrivate
 					if (!Package && Options.DependencyLoadScope)
 					{
 						const auto Result = Options.DependencyLoadScope->LoadPackage(Path, Package);
-						if (!Result) return {.Status = Result.Error == EAssetError::InUse ? S::Busy : S::MissingDependency, .PackagePath = Path, .Reason = R::DependencyLoad, .AssetCause = std::make_shared<FAssetResult>(Result)};
+						if (!Result) return {.Status = Result.Error == EAssetError::InUse ? S::Busy : S::MissingDependency, .PackagePath = Path, .Reason = R::DependencyLoad, .Message = Result.Message};
 					}
 					if (!Package) return {.Status = S::MissingDependency, .PackagePath = Application.PackagePath, .Reason = R::DependencyNotResident, .Subject = Path.ToString()};
 					ExternalPackages.emplace_back(Path, Package);
@@ -1288,7 +1287,7 @@ namespace Durin::AssetPrivate
 				Application.Objects.resize(Application.Exports.size());
 				FLinkerApplyDiagnostic Diagnostic;
 				if (auto Result = CreateLinkerSkeleton(Application, LoadOptions(Index), Diagnostic, &State->Pins); !Result)
-					return {.Status = Cancelled() ? S::Cancelled : S::InvalidClosure, .PackagePath = CurrentPath, .Reason = R::Skeleton, .AssetCause = std::make_shared<FAssetResult>(Result)};
+					return {.Status = Cancelled() ? S::Cancelled : S::InvalidClosure, .PackagePath = CurrentPath, .Reason = R::Skeleton, .Message = Result.Message};
 				if (State->Pins.size() > Options.MaximumObjects - ObjectCount)
 					return {.Status = S::BudgetExceeded, .PackagePath = CurrentPath, .Reason = R::DefaultInnerBudget, .Actual = State->Pins.size(), .Maximum = Options.MaximumObjects - ObjectCount};
 				ObjectCount += State->Pins.size();
@@ -1322,7 +1321,7 @@ namespace Durin::AssetPrivate
 				const FPackageLoadBindings Bindings{Sources[Index].Storage.GetBulkResource(), Resolve};
 				FLinkerApplyDiagnostic Diagnostic;
 				if (auto Result = ApplyLinkerValues(Application, LoadOptions(Index), Diagnostic, Bindings); !Result)
-					return {.Status = Cancelled() ? S::Cancelled : S::InvalidClosure, .PackagePath = CurrentPath, .Reason = R::ApplyValues, .AssetCause = std::make_shared<FAssetResult>(Result)};
+					return {.Status = Cancelled() ? S::Cancelled : S::InvalidClosure, .PackagePath = CurrentPath, .Reason = R::ApplyValues, .Message = Result.Message};
 				Application.Package->ClearDirty();
 				Application.Package->SetCanonicalResaveRecommended(Application.Package->IsCanonicalResaveRecommended()
 					|| !Application.Report.CanonicalizationEvidence.empty()
@@ -1334,7 +1333,7 @@ namespace Durin::AssetPrivate
 			{
 				CurrentPath = Application.PackagePath;
 				if (auto Result = ValidateLoadedGraphs(Application.Objects, {.bPrivateGraph = true}); !Result)
-					return {.Status = S::InvalidClosure, .PackagePath = CurrentPath, .Reason = R::GraphValidation, .GraphValidationCause = Result.GraphValidationCause, .AssetCause = std::make_shared<FAssetResult>(Result)};
+					return {.Status = S::InvalidClosure, .PackagePath = CurrentPath, .Reason = R::GraphValidation, .Message = Result.Message};
 			}
 			for (const auto& Source : Sources)
 			{
@@ -1342,7 +1341,7 @@ namespace Durin::AssetPrivate
 				if (auto Result = Source.Storage.Revalidate(Cancelled); !Result)
 					return {.Status = Result.Error.Code == EPreparedPackageResourceError::Cancelled ? S::Cancelled : S::Stale,
 						.PackagePath = CurrentPath, .Reason = R::ResourceRevalidation,
-						.ResourceCause = Result.Error};
+						.Message = FormatPreparedPackageResourceError(Result.Error)};
 			}
 			for (const auto& Source : Sources)
 				if (IsAssetRegistryProjectionFenced(Source.PackagePath))
@@ -1355,7 +1354,7 @@ namespace Durin::AssetPrivate
 					return {.Status = S::Stale, .PackagePath = Path, .Reason = R::DependencyIdentityChanged};
 			}
 			if (auto Result = LiveLoadGuard.GetFailure(); !Result)
-				return {.Status = S::Unsupported, .PackagePath = CurrentPath, .Reason = R::LiveOperationRejected, .AssetCause = std::make_shared<FAssetResult>(Result)};
+				return {.Status = S::Unsupported, .PackagePath = CurrentPath, .Reason = R::LiveOperationRejected, .Message = Result.Message};
 			Out = std::move(Candidates);
 			return {};
 		}
@@ -1503,7 +1502,6 @@ namespace Durin::AssetPrivate
 				LinkerApplyFail(Diagnostic, EAssetError::InvalidObjectGraph,
 					PublishResult.Message.empty() ? "Could not publish the package skeleton."
 						: PublishResult.Message);
-				Rollback();
 				return Finish(PublishResult);
 			}
 			bSkeletonPublished = true;
@@ -1605,10 +1603,7 @@ namespace Durin
 	auto FormatPackageGraphPrepareError(const FPackageGraphPrepareResult& Result) -> std::string
 	{
 		if (Result) return {};
-		if (Result.GraphValidationCause) return FormatObjectValidationError(*Result.GraphValidationCause);
-		if (Result.ResourceCause) return FormatPreparedPackageResourceError(*Result.ResourceCause);
-		if (Result.ReaderCause) return ObjectPackage::FormatPackageError(*Result.ReaderCause);
-		if (Result.AssetCause) return Result.AssetCause->Message;
+		if (!Result.Message.empty()) return Result.Message;
 		using R = EPackageGraphPrepareReason;
 		switch (Result.Reason)
 		{

@@ -1,3 +1,4 @@
+#include "PackageDiagnosticInternal.h"
 #include "DObject/PackageFormat.h"
 
 #include "Serialization/BinaryEnvelope.h"
@@ -49,9 +50,9 @@ namespace Durin::ObjectPackage
 
 		auto Fail(FPackageReaderResult* Diagnostic, EPackageReaderFailure Failure,
 			EPackageReaderReason Reason, std::string Path = {},
-			decltype(FPackageReaderResult::Cause) Cause = {}, std::string Subject = {}) -> bool
+			std::string Message = {}, std::string Subject = {}) -> bool
 		{
-			if (Diagnostic) *Diagnostic = {Failure, std::move(Path), Reason, std::move(Cause), std::move(Subject)};
+			if (Diagnostic) *Diagnostic = {Failure, std::move(Path), Reason, std::move(Message), std::move(Subject)};
 			return false;
 		}
 
@@ -122,7 +123,7 @@ namespace Durin::ObjectPackage
 			if (!ParseBinaryEnvelopePrefix(Available.first(BinaryEnvelopePreambleBytes), PhysicalBytes,
 				{Limits.MaximumHeaderBytes, Limits.MaximumPackageBytes}, Preamble, &EnvelopeDiagnostic))
 				return Fail(Diagnostic, EPackageReaderFailure::InvalidEnvelope,
-					EPackageReaderReason::EnvelopeRejected, {}, EnvelopeDiagnostic.Error);
+					EPackageReaderReason::EnvelopeRejected, {}, FormatEnvelopeError(EnvelopeDiagnostic.Error));
 			if (Preamble.HeaderBytes > Available.size()
 				|| (!bComplete && Preamble.HeaderBytes != Available.size())
 				|| (bComplete && PhysicalBytes != Available.size()))
@@ -140,13 +141,13 @@ namespace Durin::ObjectPackage
 				.Limits = {Limits.MaximumHeaderBytes, Limits.MaximumPackageBytes}};
 			if (!FBinaryFormatRegistry::Create(std::span(&Descriptor, 1), Registry, &EnvelopeDiagnostic))
 				return Fail(Diagnostic, EPackageReaderFailure::InvalidEnvelope,
-					EPackageReaderReason::EnvelopeRejected, {}, EnvelopeDiagnostic.Error);
+					EPackageReaderReason::EnvelopeRejected, {}, FormatEnvelopeError(EnvelopeDiagnostic.Error));
 			FValidatedBinaryEnvelope Validated;
 			if (!ValidateBinaryEnvelopeHeader(Available.first(static_cast<size_t>(Preamble.HeaderBytes)),
 				PhysicalBytes, {Limits.MaximumHeaderBytes, Limits.MaximumPackageBytes}, Registry,
 				Validated, &EnvelopeDiagnostic))
 				return Fail(Diagnostic, EPackageReaderFailure::InvalidEnvelope,
-					EPackageReaderReason::EnvelopeRejected, {}, EnvelopeDiagnostic.Error);
+					EPackageReaderReason::EnvelopeRejected, {}, FormatEnvelopeError(EnvelopeDiagnostic.Error));
 
 			uint32 PackageKind = 0, Flags = 0, SectionCount = 0, EntryBytes = 0;
 			uint64 Directory = 0, Reserved = 0;
@@ -968,7 +969,7 @@ namespace Durin::ObjectPackage
 				FPackageIndex Index;
 				FPackageIndex::TryExport(ExportIndex, Index);
 				if (const auto Result = Linker.TryResolvePath(Index, ExportPath); !Result) return Fail(OutDiagnostic,
-					EPackageReaderFailure::InvalidTopology, EPackageReaderReason::ExportTopology, "Exports", Result.Error);
+					EPackageReaderFailure::InvalidTopology, EPackageReaderReason::ExportTopology, "Exports", FormatLinkerError(Result.Error));
 				for (FPropertyTag& Property : Export.Properties)
 				{
 					const auto SchemaIt = std::ranges::find(Linker.Schemas, Property.DeclaringType,
@@ -998,7 +999,7 @@ namespace Durin::ObjectPackage
 					Registry.ExternalBulkHash, CanonicalMain);
 			if (!WriterDiagnostic)
 				return Fail(OutDiagnostic, EPackageReaderFailure::NonCanonical,
-					EPackageReaderReason::CanonicalWriterRejected, WriterDiagnostic.LogicalPath, WriterDiagnostic);
+					EPackageReaderReason::CanonicalWriterRejected, WriterDiagnostic.LogicalPath, FormatPackageError(WriterDiagnostic));
 			if (!std::ranges::equal(CanonicalMain, PackageBytes)
 				|| (bExternalPayloadAvailable && !std::ranges::equal(CanonicalBulk, BulkBytes)))
 				return Fail(OutDiagnostic, EPackageReaderFailure::NonCanonical,

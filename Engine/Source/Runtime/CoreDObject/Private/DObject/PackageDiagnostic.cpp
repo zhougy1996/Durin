@@ -1,37 +1,37 @@
 #include "DObject/PackageFormat.h"
+#include "PackageDiagnosticInternal.h"
 
 namespace Durin::ObjectPackage
 {
-	namespace
+	auto FormatEnvelopeError(EBinaryEnvelopeError Error) -> std::string
 	{
-		auto FormatEnvelopeError(EBinaryEnvelopeError Error) -> std::string
+		switch (Error)
 		{
-			switch (Error)
-			{
-			case EBinaryEnvelopeError::None: return {};
-			case EBinaryEnvelopeError::InvalidLimits: return "BinaryEnvelopeInvalidLimits: limits must bound a complete preamble and file.";
-			case EBinaryEnvelopeError::InvalidFormatIdentity: return "BinaryEnvelopeInvalidFormatIdentity: FormatId must be nonzero.";
-			case EBinaryEnvelopeError::UnsupportedFormatVersion: return "BinaryEnvelopeUnsupportedFormatVersion: format version is not supported.";
-			case EBinaryEnvelopeError::InvalidExtent: return "BinaryEnvelopeInvalidExtent: declared extents are inconsistent.";
-			case EBinaryEnvelopeError::InvalidDescriptor: return "BinaryEnvelopeInvalidDescriptor: descriptor fields or limits are invalid.";
-			case EBinaryEnvelopeError::DuplicateFormatIdentity: return "BinaryEnvelopeDuplicateFormatIdentity: FormatId values must be unique.";
-			case EBinaryEnvelopeError::DuplicateFormatName: return "BinaryEnvelopeDuplicateFormatName: debug names must be unique.";
-			case EBinaryEnvelopeError::Truncated: return "BinaryEnvelopeTruncated: the 64-byte preamble is incomplete.";
-			case EBinaryEnvelopeError::InvalidMagic: return "BinaryEnvelopeInvalidMagic: expected DURF.";
-			case EBinaryEnvelopeError::UnsupportedHeaderVersion: return "BinaryEnvelopeUnsupportedHeaderVersion: HeaderVersion is not supported.";
-			case EBinaryEnvelopeError::InvalidPreambleSize: return "BinaryEnvelopeInvalidPreambleSize: PreambleBytes must equal 64.";
-			case EBinaryEnvelopeError::FileSizeMismatch: return "BinaryEnvelopeFileSizeMismatch: FileBytes must equal the physical file size.";
-			case EBinaryEnvelopeError::DestinationTooSmall: return "BinaryEnvelopeDestinationTooSmall: destination cannot hold the preamble.";
-			case EBinaryEnvelopeError::UnknownFormat: return "BinaryEnvelopeUnknownFormat: FormatId is not registered.";
-			case EBinaryEnvelopeError::UnsupportedRequiredFeatures: return "BinaryEnvelopeUnsupportedRequiredFeatures: required feature bits are not supported.";
-			case EBinaryEnvelopeError::HeaderHashMismatch: return "BinaryEnvelopeHeaderHashMismatch: front matter integrity check failed.";
-			}
-			return {};
+		case EBinaryEnvelopeError::None: return {};
+		case EBinaryEnvelopeError::InvalidLimits: return "BinaryEnvelopeInvalidLimits: limits must bound a complete preamble and file.";
+		case EBinaryEnvelopeError::InvalidFormatIdentity: return "BinaryEnvelopeInvalidFormatIdentity: FormatId must be nonzero.";
+		case EBinaryEnvelopeError::UnsupportedFormatVersion: return "BinaryEnvelopeUnsupportedFormatVersion: format version is not supported.";
+		case EBinaryEnvelopeError::InvalidExtent: return "BinaryEnvelopeInvalidExtent: declared extents are inconsistent.";
+		case EBinaryEnvelopeError::InvalidDescriptor: return "BinaryEnvelopeInvalidDescriptor: descriptor fields or limits are invalid.";
+		case EBinaryEnvelopeError::DuplicateFormatIdentity: return "BinaryEnvelopeDuplicateFormatIdentity: FormatId values must be unique.";
+		case EBinaryEnvelopeError::DuplicateFormatName: return "BinaryEnvelopeDuplicateFormatName: debug names must be unique.";
+		case EBinaryEnvelopeError::Truncated: return "BinaryEnvelopeTruncated: the 64-byte preamble is incomplete.";
+		case EBinaryEnvelopeError::InvalidMagic: return "BinaryEnvelopeInvalidMagic: expected DURF.";
+		case EBinaryEnvelopeError::UnsupportedHeaderVersion: return "BinaryEnvelopeUnsupportedHeaderVersion: HeaderVersion is not supported.";
+		case EBinaryEnvelopeError::InvalidPreambleSize: return "BinaryEnvelopeInvalidPreambleSize: PreambleBytes must equal 64.";
+		case EBinaryEnvelopeError::FileSizeMismatch: return "BinaryEnvelopeFileSizeMismatch: FileBytes must equal the physical file size.";
+		case EBinaryEnvelopeError::DestinationTooSmall: return "BinaryEnvelopeDestinationTooSmall: destination cannot hold the preamble.";
+		case EBinaryEnvelopeError::UnknownFormat: return "BinaryEnvelopeUnknownFormat: FormatId is not registered.";
+		case EBinaryEnvelopeError::UnsupportedRequiredFeatures: return "BinaryEnvelopeUnsupportedRequiredFeatures: required feature bits are not supported.";
+		case EBinaryEnvelopeError::HeaderHashMismatch: return "BinaryEnvelopeHeaderHashMismatch: front matter integrity check failed.";
 		}
+		return {};
 	}
 
 	auto FormatPackageError(const FPackageWriterResult& Error) -> std::string
 	{
+		if (!Error.Message.empty()) return Error.LogicalPath.empty() ? Error.Message
+			: std::format("{} at '{}'", Error.Message, Error.LogicalPath);
 		switch (Error.Reason)
 		{
 		case EPackageWriterReason::IncompleteEncoding: return "Package encoding did not complete.";
@@ -108,15 +108,17 @@ namespace Durin::ObjectPackage
 		case EPackageWriterReason::AliasedOutput: return "The main and bulk output buffers must not alias.";
 		case EPackageWriterReason::InvalidBulkBinding: return "External BulkData binding is invalid.";
 		case EPackageWriterReason::EnvelopeRejected:
-			return FormatEnvelopeError(std::get<EBinaryEnvelopeError>(Error.Cause));
+			return "Binary envelope validation failed.";
 		case EPackageWriterReason::CanonicalKeyRejected:
-			return FormatCanonicalMapKeyError(std::get<FCanonicalMapKeyError>(Error.Cause));
+			return "Canonical Map key validation failed.";
 		}
 		return {};
 	}
 
 	auto FormatPackageError(const FPackageReaderResult& Error) -> std::string
 	{
+		if (!Error.Message.empty()) return Error.LogicalPath.empty() ? Error.Message
+			: std::format("{} at '{}'", Error.Message, Error.LogicalPath);
 		switch (Error.Reason)
 		{
 		case EPackageReaderReason::None: return {};
@@ -181,10 +183,10 @@ namespace Durin::ObjectPackage
 		case EPackageReaderReason::ExternalBulkHash: return "The external DAST v10 bulk segment binding does not match.";
 		case EPackageReaderReason::ExportTopology: return "The DAST v10 export topology is invalid.";
 		case EPackageReaderReason::BulkCoverage: return "DAST v10 bulk entries do not consume their exact inline/external segments.";
-		case EPackageReaderReason::CanonicalWriterRejected: return "Decoded DAST v10 data violates the canonical linker contract: " + FormatPackageError(std::get<FPackageWriterResult>(Error.Cause));
+		case EPackageReaderReason::CanonicalWriterRejected: return "Decoded DAST v10 data violates the canonical linker contract.";
 		case EPackageReaderReason::NonCanonicalBytes: return "DAST v10 bytes are logically valid but not in canonical writer form.";
 		case EPackageReaderReason::EnvelopeRejected:
-			return FormatEnvelopeError(std::get<EBinaryEnvelopeError>(Error.Cause));
+			return "Binary envelope validation failed.";
 		}
 		return {};
 	}

@@ -157,11 +157,6 @@ TEST(FMaterialExpressionTests, MaterialPersistsTypedOutputsAndOwnedParameterDefa
 	ObjectPackage::FLinkerTables Linker;
 	const auto Captured = FSavePackageContext{}.Capture(Material->GetPackage(), Linker);
 	ASSERT_FALSE(Captured);
-	const auto* Validation = std::get_if<FObjectValidationError>(&Captured.Error.Cause);
-	ASSERT_NE(Validation, nullptr);
-	const auto CapturedCause = std::dynamic_pointer_cast<const FMaterialObjectValidationCause>(Validation->Cause);
-	ASSERT_TRUE(CapturedCause);
-	EXPECT_EQ(CapturedCause->Error, Cause->Error);
 	Orphan->SetOuterPrivate(nullptr);
 	ASSERT_TRUE(UnloadPackage(Path)); CollectGarbage();
 }

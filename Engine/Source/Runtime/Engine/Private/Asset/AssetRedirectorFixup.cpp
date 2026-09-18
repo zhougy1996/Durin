@@ -620,11 +620,11 @@ namespace Durin
 			return {
 				.Error = EAssetError::IoError,
 				.Message = "AssetMutationRecoveryRequired: the Fix Up journal requires recovery.",
-				.Disposition = EAssetResultDisposition::RecoveryRequired,
+				.WriteOutcome = {.Disposition = EAssetResultDisposition::RecoveryRequired,
 				.OperationId = State.Journal.OperationId,
 				.DesiredDirection = "Forward",
 				.FailedParticipant = "MutationJournal",
-				.RecoveryLocation = State.Journal.LocatorPath};
+				.RecoveryLocation = State.Journal.LocatorPath}};
 		if (State.Journal.State != EAssetMutationState::Prepared)
 			return Error(EAssetError::StaleData,
 				"The redirector Fix Up plan is no longer prepared.");
@@ -739,10 +739,10 @@ namespace Durin
 				.Message = std::format(
 					"AssetMutationForwardResumable: operation {} will resume remaining Fix Up participants. {}",
 					State.Journal.OperationId, Message),
-				.Disposition = EAssetResultDisposition::ForwardPending,
+				.WriteOutcome = {.Disposition = EAssetResultDisposition::ForwardPending,
 				.OperationId = State.Journal.OperationId,
 				.DesiredDirection = "Forward",
-				.RecoveryLocation = State.Journal.LocatorPath};
+				.RecoveryLocation = State.Journal.LocatorPath}};
 		};
 
 		uint64 PublicationOrder = 0;

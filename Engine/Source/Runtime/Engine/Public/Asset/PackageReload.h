@@ -93,11 +93,7 @@ namespace Durin
 		std::error_code SystemError;
 		uint64 Actual = 0;
 		uint64 Maximum = 0;
-		std::optional<FObjectError> PathCause;
-		std::optional<FPreparedPackageResourceError> ResourceCause;
-		std::optional<FObjectReplacementError> ReplacementCause;
-		std::shared_ptr<const FPackageGraphPrepareResult> GraphCause;
-		std::shared_ptr<const FAssetResult> AssetCause;
+		std::string Message;
 		std::vector<FMaterialProgramDiagnostic> MaterialCauses;
 		std::optional<FMaterialCompileStatus> MaterialCompileStatus;
 		std::vector<FMaterialCompileDiagnostic> MaterialCompileCauses;

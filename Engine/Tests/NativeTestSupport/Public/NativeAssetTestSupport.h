@@ -30,8 +30,7 @@ namespace Durin::Testing
 			if (!Inspected) return Inspected;
 			std::vector<std::filesystem::path> Companions;
 			if (const auto Storage = InspectEditorBulkDataCompanionPaths(Data->PhysicalPath, Inspection, Companions); !Storage)
-				return {.Error = EAssetError::CorruptFile, .Message = FormatEditorBulkDataStorageError(Storage.Error),
-					.BulkStorageCause = Storage.Error};
+				return {.Error = EAssetError::CorruptFile, .Message = FormatEditorBulkDataStorageError(Storage.Error)};
 			Packages.push_back(*Data);
 			Files.push_back(Data->PhysicalPath);
 			Files.insert(Files.end(), Companions.begin(), Companions.end());
@@ -78,7 +77,7 @@ namespace Durin::Testing
 			case EAssetPathResolveState::ProjectionPending:
 				return {EAssetError::StaleData,
 					"Registry projection for the redirector destination is pending synchronization.",
-					EAssetResultDisposition::ContentCommittedProjectionPending};
+					{EAssetResultDisposition::ContentCommittedProjectionPending}};
 			case EAssetPathResolveState::NotFound:
 			case EAssetPathResolveState::MissingRedirectTarget:
 				return {EAssetError::NotFound,

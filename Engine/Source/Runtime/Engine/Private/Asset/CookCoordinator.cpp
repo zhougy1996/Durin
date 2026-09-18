@@ -525,6 +525,7 @@ namespace Durin
 			};
 			auto InputFailure = [&](const FAssetResult& Result) -> bool {
 				OutResult.InputFailure = Result;
+				OutResult.InputDiagnostic = Inputs.GetFailureInfo();
 				OutResult.InputStatus = Inputs.GetStatus() == ECookInputStatus::None
 					? ECookInputStatus::InvalidDependency : Inputs.GetStatus();
 				return Finish(Inputs.GetStatus() == ECookInputStatus::Cancelled

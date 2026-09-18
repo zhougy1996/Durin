@@ -32,7 +32,7 @@ namespace Durin::AssetPrivate
    }
   auto Captured = SaveContext.Capture(Package, OutLinker, FormatVersion);
   if (Captured) return {};
-  // Explicit adapter to the still-unmigrated outer asset result contract.
+  // Classify and format at the Engine boundary; capture keeps its native status.
   FAssetResult Result;
   Result.Message = FormatPackageCaptureError(Captured.Error);
   switch (GetPackageCaptureSaveError(Captured.Error))
@@ -43,7 +43,6 @@ namespace Durin::AssetPrivate
    case EPackageSaveError::UnsupportedVersion: Result.Error = EAssetError::UnsupportedVersion; break;
    default: Result.Error = EAssetError::UnsupportedProperty; break;
   }
-  Result.PackageCaptureCause = std::make_shared<FPackageCaptureError>(std::move(Captured.Error));
   return Result;
  }
 }

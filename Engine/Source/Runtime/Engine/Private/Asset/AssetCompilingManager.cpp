@@ -226,7 +226,7 @@ namespace Durin
 		case EAssetCompilerRegistrationError::NotAccepting: return "Asset compiling manager is not accepting registrations.";
 		case EAssetCompilerRegistrationError::DuplicateName: return "Asset compiler name is already registered: " + Error.CompilerName;
 		case EAssetCompilerRegistrationError::DuplicateClass: return "Asset class already has an exact compiler route: " + Error.AssetClass;
-		case EAssetCompilerRegistrationError::Start: return Error.StartCause ? FormatAssetCompilerStartError(*Error.StartCause) : "Asset compiler startup failed.";
+		case EAssetCompilerRegistrationError::Start: return Error.Message.empty() ? "Asset compiler startup failed." : Error.Message;
 		}
 		return {};
 	}
@@ -271,7 +271,7 @@ namespace Durin
 			if (auto Error = ValidateRegistrationLocked(Registration); Error.Code != EAssetCompilerRegistrationError::None) return {.Error = std::move(Error)};
 		}
 		if (const auto Started = Registration.Manager->Start(); !Started)
-		{ return {.Error = {.Code = EAssetCompilerRegistrationError::Start, .CompilerName = Registration.Name.ToString(), .StartCause = Started}}; }
+		{ return {.Error = {.Code = EAssetCompilerRegistrationError::Start, .CompilerName = Registration.Name.ToString(), .Message = FormatAssetCompilerStartError(Started)}}; }
 		FAssetCompilerRegistrationResult Result;
 		{
 			std::lock_guard Lock(GAssetCompilingMutex);

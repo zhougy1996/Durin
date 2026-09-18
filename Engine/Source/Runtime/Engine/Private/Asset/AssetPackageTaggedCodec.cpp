@@ -27,7 +27,6 @@ namespace Durin::AssetPrivate::TaggedPackage
 		{
 			auto Result = Error(EAssetError::CorruptFile,
 				std::format("DAST package validation failed: {}", Durin::ObjectPackage::FormatPackageError(Diagnostic)));
-			Result.PackageReaderCause = std::make_shared<ObjectPackage::FPackageReaderResult>(Diagnostic);
 			return Result;
 		}
 
@@ -36,7 +35,6 @@ namespace Durin::AssetPrivate::TaggedPackage
 		{
 			auto Result = Error(EAssetError::CorruptFile,
 				std::format("DAST package {} failed: {}", Operation, ObjectPackage::FormatPackageError(Diagnostic)));
-			Result.PackageWriterCause = std::make_shared<ObjectPackage::FPackageWriterResult>(Diagnostic);
 			return Result;
 		}
 

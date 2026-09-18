@@ -501,11 +501,11 @@ namespace Durin::AssetPrivate
 					"AssetMutationRecoveryRequired: {}; additionally failed to persist recovery state: {}",
 					Message, JournalResult.Message)
 				: std::format("AssetMutationRecoveryRequired: {}", Message),
-			.Disposition = EAssetResultDisposition::RecoveryRequired,
+			.WriteOutcome = {.Disposition = EAssetResultDisposition::RecoveryRequired,
 			.OperationId = Journal.OperationId,
 			.DesiredDirection = "Forward",
 			.FailedParticipant = std::move(FailedParticipant),
-			.RecoveryLocation = Journal.LocatorPath};
+			.RecoveryLocation = Journal.LocatorPath}};
 	}
 
 	auto IsMutationJournalRecoveryRequired(
@@ -967,11 +967,11 @@ namespace Durin::AssetPrivate
 			return {
 				.Error = EAssetError::IoError,
 				.Message = std::move(Message),
-				.Disposition = EAssetResultDisposition::ForwardPending,
+				.WriteOutcome = {.Disposition = EAssetResultDisposition::ForwardPending,
 				.OperationId = Journal.OperationId,
 				.DesiredDirection = "Forward",
 				.RecoveryLocation = Journal.LocatorPath
-			};
+			}};
 		}
 
 		auto MakeRecoveryRequired(
@@ -991,12 +991,12 @@ namespace Durin::AssetPrivate
 			return {
 				.Error = EAssetError::IoError,
 				.Message = std::move(Message),
-				.Disposition = EAssetResultDisposition::RecoveryRequired,
+				.WriteOutcome = {.Disposition = EAssetResultDisposition::RecoveryRequired,
 				.OperationId = Journal.OperationId,
 				.DesiredDirection = "Forward",
 				.FailedParticipant = std::move(FailedParticipant),
 				.RecoveryLocation = Journal.LocatorPath
-			};
+			}};
 		}
 
 		auto PersistRecoveredProgress(FAssetMutationJournal& Journal)

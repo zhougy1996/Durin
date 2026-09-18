@@ -2138,7 +2138,6 @@ TEST(FEditorBulkDataTests, SharesImmutableBytesAndReplacesTransactionally)
 	EXPECT_TRUE(std::ranges::equal(Shared.GetPayload().Wait().Buffer.GetBytes(), Replacement));
 }
 
-
 TEST(FPackageAssetTests, PreparedGraphsLoadScopeRetainsOnlyAttemptDependenciesForExplicitAbort)
 {
 	using namespace Durin;
@@ -3201,12 +3200,12 @@ TEST(FPackageAssetTests, PackageLoadBindingsResolvePrivateObjectsWithoutLiveFall
 	Bindings.ResolveExternalObject = [](const FObjectPath&, DObject*& Out) -> FAssetResult {
 		Out = nullptr;
 		return {.Error = EAssetError::MissingDependency, .Message = "Rejected private dependency.",
-			.Disposition = EAssetResultDisposition::RecoveryRequired, .OperationId = "resolver-operation"};
+			.WriteOutcome = {.Disposition = EAssetResultDisposition::RecoveryRequired, .OperationId = "resolver-operation"}};
 	};
 	const auto Rejected = Read();
 	EXPECT_EQ(Rejected.Error, EAssetError::MissingDependency);
-	EXPECT_EQ(Rejected.Disposition, EAssetResultDisposition::Default);
-	EXPECT_TRUE(Rejected.OperationId.empty());
+	EXPECT_EQ(Rejected.WriteOutcome.Disposition, EAssetResultDisposition::Default);
+	EXPECT_TRUE(Rejected.WriteOutcome.OperationId.empty());
 	// Internal references use the supplied skeleton table even without a resolver.
 	Bindings = {};
 	Durin::PackagePrivate::FByteWriter Internal;
@@ -3596,7 +3595,7 @@ TEST(FPackageAssetTests, DirectSaveRetiresLazyResourcesButRetainsAuthoredBytesFo
 	EXPECT_TRUE(Asset->Payload.IsMemoryResident());
 	ASSERT_TRUE(DPackage::DrainAsyncSaves());
 	ASSERT_EQ(Results->size(), 1u);
-	EXPECT_EQ(Results->front().Disposition, EAssetResultDisposition::PartiallyWritten);
+	EXPECT_EQ(Results->front().WriteOutcome.Disposition, EAssetResultDisposition::PartiallyWritten);
 	const auto Resident = Asset->Payload.GetPayload().Wait();
 	ASSERT_TRUE(Resident);
 	EXPECT_TRUE(std::ranges::equal(Resident.Buffer.GetBytes(), Payload));
@@ -3754,7 +3753,7 @@ TEST(FPackageAssetTests, TransactionalRegistryFailureRestoresOldAndNewClosures)
 		.ShouldFail = [](EAssetBundleSavePhase Phase, size_t) { return Phase == EAssetBundleSavePhase::PublishRegistry; },
 		.bRollbackOnRegistryFailure = true});
 	EXPECT_FALSE(Failed);
-	EXPECT_NE(Failed.Disposition, EAssetResultDisposition::ContentCommittedProjectionPending);
+	EXPECT_NE(Failed.WriteOutcome.Disposition, EAssetResultDisposition::ContentCommittedProjectionPending);
 	FByteBuffer AfterMain, AfterBulk;
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(AfterMain, Root / "TransactionalExisting.dasset"));
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(AfterBulk, Root / "TransactionalExisting.dbulk"));
@@ -3791,7 +3790,7 @@ TEST(FPackageAssetTests, RegistryFailureKeepsCommittedStableClosure)
 				return Phase == Durin::EAssetBundleSavePhase::PublishRegistry;
 			}});
 	EXPECT_EQ(Result.Error, Durin::EAssetError::StaleData);
-	EXPECT_EQ(Result.Disposition,
+	EXPECT_EQ(Result.WriteOutcome.Disposition,
 		Durin::EAssetResultDisposition::ContentCommittedProjectionPending);
 	EXPECT_NE(Result.Message.find("ContentCommittedProjectionPending"),
 		std::string::npos);
@@ -3806,7 +3805,7 @@ TEST(FPackageAssetTests, RegistryFailureKeepsCommittedStableClosure)
 	Durin::FAssetLoadReport BlockedReport;
 	const auto PackageLoad = Durin::LoadPackage(Path, BlockedPackage, &BlockedReport);
 	EXPECT_EQ(PackageLoad.Error, Durin::EAssetError::StaleData);
-	EXPECT_EQ(PackageLoad.Disposition,
+	EXPECT_EQ(PackageLoad.WriteOutcome.Disposition,
 		Durin::EAssetResultDisposition::ContentCommittedProjectionPending);
 	EXPECT_EQ(BlockedPackage, nullptr);
 	EXPECT_EQ(BlockedReport.Error, PackageLoad.Error);
@@ -3815,7 +3814,7 @@ TEST(FPackageAssetTests, RegistryFailureKeepsCommittedStableClosure)
 	const auto ObjectLoad = Durin::LoadObject(
 		Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), BlockedObject, &BlockedReport);
 	EXPECT_EQ(ObjectLoad.Error, Durin::EAssetError::StaleData);
-	EXPECT_EQ(ObjectLoad.Disposition,
+	EXPECT_EQ(ObjectLoad.WriteOutcome.Disposition,
 		Durin::EAssetResultDisposition::ContentCommittedProjectionPending);
 	EXPECT_EQ(BlockedObject, nullptr);
 	EXPECT_EQ(BlockedReport.Error, ObjectLoad.Error);
@@ -3934,7 +3933,6 @@ TEST(FPackageAssetTests, OrdinaryV8PublishesLoadsAndRollsBackExternalClosure)
 	EXPECT_EQ(Durin::FindAssetExact(LivePath)->FormatVersion,
 		Durin::ObjectPackage::DastV10FormatVersion);
 }
-
 
 TEST(FPackageAssetTests, InlineSaveRemovesObsoleteCompanionAndRollbackRestoresIt)
 {
@@ -4278,7 +4276,6 @@ TEST(FPackageAssetTests, PackageCodecPolicyIsCompleteUniqueAndIndependentOfWireV
 	InvalidVersion[0].FormatVersion = 0;
 	EXPECT_FALSE(Durin::AssetPrivate::ValidateAssetPackageCodecTable(InvalidVersion, Error));
 }
-
 
 TEST(FPackageAssetTests, EnvelopeDispatchUsesPermanentIdentityAndFailsBeforeCodec)
 {
@@ -5780,10 +5777,7 @@ TEST(FPackageAssetTests, LoadedGraphValidationSeesChildValuesAndRejectsBeforePos
 	EXPECT_FALSE(InvalidCopy);
 	EXPECT_EQ(InvalidCopy.Object, nullptr);
 	EXPECT_EQ(InvalidCopy.Error.Code, EObjectGraphError::Validation);
-	const auto* CopyCause = std::get_if<FObjectValidationError>(&InvalidCopy.Error.Cause);
-	ASSERT_NE(CopyCause, nullptr);
-	EXPECT_EQ(CopyCause->Code, EObjectValidationError::InvalidOwnedGraph);
-	EXPECT_NE(CopyCause->Actual, CopyCause->Expected);
+
 	EXPECT_EQ(DImportMetadataOwnerForTest::GraphPostLoadCount, 0u);
 	FByteBuffer GraphBytes;
 	ASSERT_TRUE(SaveObjectGraphToMemory(Owner, GraphBytes));
@@ -5791,10 +5785,7 @@ TEST(FPackageAssetTests, LoadedGraphValidationSeesChildValuesAndRejectsBeforePos
 	EXPECT_FALSE(GraphLoad);
 	EXPECT_EQ(GraphLoad.Object, nullptr);
 	EXPECT_EQ(GraphLoad.Error.Code, EObjectGraphError::Validation);
-	const auto* GraphCause = std::get_if<FObjectValidationError>(&GraphLoad.Error.Cause);
-	ASSERT_NE(GraphCause, nullptr);
-	EXPECT_EQ(GraphCause->Code, EObjectValidationError::InvalidOwnedGraph);
-	EXPECT_NE(GraphCause->Actual, GraphCause->Expected);
+
 	EXPECT_EQ(DImportMetadataOwnerForTest::GraphPostLoadCount, 0u);
 	ASSERT_TRUE(SavePackage(Owner->GetPackage()));
 	ASSERT_TRUE(UnloadPackage(Path));
@@ -5803,9 +5794,7 @@ TEST(FPackageAssetTests, LoadedGraphValidationSeesChildValuesAndRejectsBeforePos
 	const auto Result = LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Owner);
 	EXPECT_FALSE(Result);
 	EXPECT_EQ(Result.Error, EAssetError::InvalidObjectGraph);
-	ASSERT_TRUE(Result.GraphValidationCause.has_value());
-	EXPECT_EQ(Result.GraphValidationCause->Code, EObjectValidationError::InvalidOwnedGraph);
-	EXPECT_NE(Result.GraphValidationCause->Actual, Result.GraphValidationCause->Expected);
+
 	EXPECT_EQ(Owner, nullptr);
 	EXPECT_EQ(FindResidentPackage(Path), nullptr);
 	EXPECT_EQ(DImportMetadataOwnerForTest::GraphPostLoadCount, 0u);
@@ -5862,10 +5851,7 @@ TEST(FPackageAssetTests, PreparedGraphValidationWaitsForBatchValuesAndPreservesO
 	const auto Result = PreparePackageGraphs(Sources, Options, Graphs);
 	EXPECT_EQ(Result.Status, EPackageGraphPrepareStatus::InvalidClosure);
 	EXPECT_EQ(Result.Reason, EPackageGraphPrepareReason::GraphValidation);
-	ASSERT_NE(Result.AssetCause, nullptr);
-	ASSERT_TRUE(Result.GraphValidationCause.has_value());
-	EXPECT_EQ(Result.GraphValidationCause->Code, EObjectValidationError::InvalidOwnedGraph);
-	EXPECT_NE(Result.GraphValidationCause->Actual, Result.GraphValidationCause->Expected);
+
 	ASSERT_EQ(Graphs.size(), 2u);
 	EXPECT_EQ(Graphs[0].GetPackage(), Previous);
 	EXPECT_EQ(Child->SchemaVersion, 99u);
@@ -7007,11 +6993,11 @@ TEST(FPackageAssetTests, RelocationPublicationFailureRestoresAuthoredState)
 	);
 	const Durin::FAssetResult Result = Job.ResumeForward();
 	EXPECT_EQ(Result.Error, Durin::EAssetError::IoError);
-	EXPECT_EQ(Result.Disposition,
+	EXPECT_EQ(Result.WriteOutcome.Disposition,
 		Durin::EAssetResultDisposition::ForwardPending);
-	EXPECT_FALSE(Result.OperationId.empty());
-	EXPECT_EQ(Result.DesiredDirection, "Forward");
-	EXPECT_FALSE(Result.RecoveryLocation.empty());
+	EXPECT_FALSE(Result.WriteOutcome.OperationId.empty());
+	EXPECT_EQ(Result.WriteOutcome.DesiredDirection, "Forward");
+	EXPECT_FALSE(Result.WriteOutcome.RecoveryLocation.empty());
 	EXPECT_EQ(ExternalSetting.GetPath().GetPackagePath(), OldPath);
 	ASSERT_NE(Durin::FindAssetExact(OldPath), nullptr);
 	EXPECT_EQ(Durin::FindAssetExact(OldPath)->EntryKind, Durin::EAssetRegistryEntryKind::Asset);
@@ -7107,13 +7093,13 @@ TEST(FPackageAssetTests, RelocationRecoveryReplaysAcrossRepeatedRestartInterrupt
 		Durin::EAssetRelocationFailurePoint::PublishRedirector
 	);
 	const Durin::FAssetResult Interrupted = Job.ResumeForward();
-	ASSERT_EQ(Interrupted.Disposition, Durin::EAssetResultDisposition::ForwardPending);
+	ASSERT_EQ(Interrupted.WriteOutcome.Disposition, Durin::EAssetResultDisposition::ForwardPending);
 	ASSERT_TRUE(std::filesystem::is_regular_file(
-		Interrupted.RecoveryLocation
+		Interrupted.WriteOutcome.RecoveryLocation
 	));
 	Job = {};
 	ASSERT_TRUE(std::filesystem::is_regular_file(
-		Interrupted.RecoveryLocation
+		Interrupted.WriteOutcome.RecoveryLocation
 	));
 
 	Durin::ShutdownAssetManager();
@@ -7122,14 +7108,14 @@ TEST(FPackageAssetTests, RelocationRecoveryReplaysAcrossRepeatedRestartInterrupt
 		Durin::EAssetMutationRecoveryFailurePoint::AfterParticipantPublication
 	);
 	const Durin::FAssetResult FirstRestart = Durin::InitializeAssetManager();
-	ASSERT_EQ(FirstRestart.Disposition, Durin::EAssetResultDisposition::ForwardPending)
+	ASSERT_EQ(FirstRestart.WriteOutcome.Disposition, Durin::EAssetResultDisposition::ForwardPending)
 		<< FirstRestart.Message;
 
 	Durin::SetAssetMutationRecoveryFailurePointForTesting(
 		Durin::EAssetMutationRecoveryFailurePoint::AfterProgressPersistence
 	);
 	const Durin::FAssetResult SecondRestart = Durin::InitializeAssetManager();
-	ASSERT_EQ(SecondRestart.Disposition, Durin::EAssetResultDisposition::ForwardPending);
+	ASSERT_EQ(SecondRestart.WriteOutcome.Disposition, Durin::EAssetResultDisposition::ForwardPending);
 
 	ASSERT_TRUE(Durin::InitializeAssetManager());
 	ASSERT_NE(Durin::FindAssetExact(SourcePath), nullptr);
@@ -7170,13 +7156,13 @@ TEST(FPackageAssetTests, FixupRecoveryReacquiresExternalProviderAcrossRepeatedIn
 		Durin::EAssetRedirectorFixupFailurePoint::ApplyStore
 	);
 	const Durin::FAssetResult Interrupted = Job.ResumeForward();
-	ASSERT_EQ(Interrupted.Disposition, Durin::EAssetResultDisposition::ForwardPending);
+	ASSERT_EQ(Interrupted.WriteOutcome.Disposition, Durin::EAssetResultDisposition::ForwardPending);
 	ASSERT_TRUE(std::filesystem::is_regular_file(
-		Interrupted.RecoveryLocation
+		Interrupted.WriteOutcome.RecoveryLocation
 	));
 	Job = {};
 	ASSERT_TRUE(std::filesystem::is_regular_file(
-		Interrupted.RecoveryLocation
+		Interrupted.WriteOutcome.RecoveryLocation
 	));
 
 	Durin::ShutdownAssetManager();
@@ -7185,7 +7171,7 @@ TEST(FPackageAssetTests, FixupRecoveryReacquiresExternalProviderAcrossRepeatedIn
 		Durin::EAssetMutationRecoveryFailurePoint::AfterParticipantPublication
 	);
 	const Durin::FAssetResult FirstRestart = Durin::InitializeAssetManager();
-	ASSERT_EQ(FirstRestart.Disposition, Durin::EAssetResultDisposition::ForwardPending)
+	ASSERT_EQ(FirstRestart.WriteOutcome.Disposition, Durin::EAssetResultDisposition::ForwardPending)
 		<< FirstRestart.Message;
 	EXPECT_EQ(Store.Path, DestinationPath);
 
@@ -7193,7 +7179,7 @@ TEST(FPackageAssetTests, FixupRecoveryReacquiresExternalProviderAcrossRepeatedIn
 		Durin::EAssetMutationRecoveryFailurePoint::AfterProgressPersistence
 	);
 	const Durin::FAssetResult SecondRestart = Durin::InitializeAssetManager();
-	ASSERT_EQ(SecondRestart.Disposition, Durin::EAssetResultDisposition::ForwardPending);
+	ASSERT_EQ(SecondRestart.WriteOutcome.Disposition, Durin::EAssetResultDisposition::ForwardPending);
 
 	ASSERT_TRUE(Durin::InitializeAssetManager());
 	EXPECT_EQ(Store.Path, DestinationPath);
@@ -8130,7 +8116,6 @@ TEST(FPackageAssetTests, PackageSavesRejectReadOnlyContentMounts)
 		Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
 
-
 TEST(FPackageAssetTests, ExplicitObjectLoadScopePreservesExistingResidency)
 {
 	InitializeAssetTests();
@@ -8411,7 +8396,7 @@ TEST(FPackageAssetTests, AtomicBundleRegistryFailureKeepsCommittedContent)
 		 }}
 	);
 	EXPECT_EQ(Result.Error, Durin::EAssetError::StaleData);
-	EXPECT_EQ(Result.Disposition,
+	EXPECT_EQ(Result.WriteOutcome.Disposition,
 		Durin::EAssetResultDisposition::ContentCommittedProjectionPending);
 	EXPECT_NE(Result.Message.find("ContentCommittedProjectionPending"),
 		std::string::npos);
@@ -8468,7 +8453,6 @@ TEST(FPackageAssetTests, OrdinaryV8SavesAreDeterministic)
 	EXPECT_EQ(RepeatedBytes, FirstBytes);
 
 }
-
 
 TEST(FPackageAssetTests, LoadsExternalDependenciesAndPreventsPrematureUnload)
 {
@@ -9555,11 +9539,11 @@ TEST(FPackageAssetTests, CookReusesDeclaredInputsAndLoadsOrdinaryPackages)
 	};
 	EXPECT_FALSE(FCookCoordinator().Run(Request, Result));
 	EXPECT_EQ(Result.InputStatus, ECookInputStatus::UndeclaredInput);
-	ASSERT_TRUE(Result.InputFailure.CookInputCause);
-	EXPECT_EQ(Result.InputFailure.CookInputCause->Error, ECookInputError::UndeclaredInput);
-	EXPECT_EQ(Result.InputFailure.CookInputCause->Package, Path);
-	EXPECT_EQ(Result.InputFailure.CookInputCause->Name, "not-declared");
-	EXPECT_EQ(Result.InputFailure.CookInputCause->Kind, ECookBuildDependencyKind::ExternalFile);
+	ASSERT_TRUE(Result.InputDiagnostic);
+	EXPECT_EQ(Result.InputDiagnostic->Error, ECookInputError::UndeclaredInput);
+	EXPECT_EQ(Result.InputDiagnostic->Package, Path);
+	EXPECT_EQ(Result.InputDiagnostic->Name, "not-declared");
+	EXPECT_EQ(Result.InputDiagnostic->Kind, ECookBuildDependencyKind::ExternalFile);
 	ExpectPriorManifest();
 
 	OnContribution = {};

@@ -1,5 +1,4 @@
 #include "Asset/AssetCompilingManager.h"
-#include "AssetForge/Builtins/ImportDataValidation.h"
 #include "AssetForge/Builtins/ImportedScene.h"
 #include "AssetForge/Builtins/TextureCubeImport.h"
 #include "Texture/TextureCubeFactoryTestSupport.h"
@@ -156,14 +155,9 @@ TEST(FSingleAssetImportTests, DerivedStateValidationChecksBaseBeforeEmptyStateSh
 	Volume.Depth = 1;
 	const auto Validation = Volume.Validate();
 	EXPECT_EQ(Validation.Error.Code, EAssetImportDataError::ModuleRejected);
-	const auto* Cause = dynamic_cast<const FImportDataValidationCause*>(Validation.Error.Cause.get());
-	ASSERT_NE(Cause, nullptr);
-	EXPECT_EQ(Cause->Code, EImportDataValidationError::InvalidSourceRole);
-	EXPECT_EQ(Cause->Family, EImportDataFamily::VolumeTexture);
-	EXPECT_EQ(Cause->SourceCount, 0u);
 }
 
-TEST(FSingleAssetImportTests, DerivedValidationRetainsAxisAtlasAndRoleContext)
+TEST(FSingleAssetImportTests, DerivedValidationRejectsInvalidAxisAtlasAndRole)
 {
 	InitializeSingleAssetImportTests();
 	using namespace Durin;
@@ -174,13 +168,7 @@ TEST(FSingleAssetImportTests, DerivedValidationRetainsAxisAtlasAndRoleContext)
 	Mesh.ImportSettings.RightAxis = EStaticMeshImportAxis::PositiveX;
 	const auto InvalidMesh = Mesh.Validate();
 	EXPECT_EQ(InvalidMesh.Error.Code, EAssetImportDataError::ModuleRejected);
-	const auto* MeshCause = dynamic_cast<const FImportDataValidationCause*>(InvalidMesh.Error.Cause.get());
-	ASSERT_NE(MeshCause, nullptr);
-	ASSERT_TRUE(MeshCause->SettingsCause);
 	Mesh.ImportSettings = {};
-	EXPECT_EQ(MeshCause->Code, EImportDataValidationError::InvalidAxisSettings);
-	EXPECT_EQ(MeshCause->SettingsCause->Code, EStaticMeshImportSettingsError::RepeatedAxis);
-	EXPECT_EQ(MeshCause->SettingsCause->RightAxis, EStaticMeshImportAxis::PositiveX);
 	ASSERT_TRUE(Mesh.Validate());
 	auto* MeshData = NewObject<DStaticMeshImportData>(nullptr, "TypedMeshImportData");
 	ASSERT_NE(MeshData, nullptr);
@@ -197,25 +185,12 @@ TEST(FSingleAssetImportTests, DerivedValidationRetainsAxisAtlasAndRoleContext)
 	Volume.TilesY = 2;
 	const auto InvalidAtlas = Volume.Validate();
 	EXPECT_EQ(InvalidAtlas.Error.Code, EAssetImportDataError::ModuleRejected);
-	const auto* AtlasCause = dynamic_cast<const FImportDataValidationCause*>(InvalidAtlas.Error.Cause.get());
-	ASSERT_NE(AtlasCause, nullptr);
 	Volume.Depth = 4;
 	ASSERT_TRUE(Volume.Validate());
-	EXPECT_EQ(AtlasCause->Code, EImportDataValidationError::InvalidAtlas);
-	EXPECT_EQ(AtlasCause->SliceWidth, 4u);
-	EXPECT_EQ(AtlasCause->SliceHeight, 8u);
-	EXPECT_EQ(AtlasCause->Depth, 5u);
-	EXPECT_EQ(AtlasCause->TilesX, 2u);
-	EXPECT_EQ(AtlasCause->TilesY, 2u);
 	Volume.SourceData.Sources[0].Role = "other";
 	const auto InvalidRole = Volume.Validate();
-	const auto* RoleCause = dynamic_cast<const FImportDataValidationCause*>(InvalidRole.Error.Cause.get());
-	ASSERT_NE(RoleCause, nullptr);
+	EXPECT_EQ(InvalidRole.Error.Code, EAssetImportDataError::ModuleRejected);
 	Volume.SourceData.Sources.clear();
-	EXPECT_EQ(RoleCause->Code, EImportDataValidationError::InvalidSourceRole);
-	EXPECT_EQ(RoleCause->SourceCount, 1u);
-	ASSERT_EQ(RoleCause->SourceRoles.size(), 1u);
-	EXPECT_EQ(RoleCause->SourceRoles[0], "other");
 }
 
 TEST(FSingleAssetImportTests, FactorySourceAdmissionRetainsTypedCauseAfterDiscard)

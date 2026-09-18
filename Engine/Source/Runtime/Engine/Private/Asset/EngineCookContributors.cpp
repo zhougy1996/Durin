@@ -129,7 +129,6 @@ namespace Durin
 			: Error == ECookContributionError::SourceMutation || Error == ECookContributionError::RecipeProvider
 				|| Error == ECookContributionError::ShaderInputs ? EAssetError::InUse : EAssetError::UnsupportedProperty;
 		FAssetResult Result{Classification, FormatCookContributionError(*this)};
-		Result.CookContributionCause = std::make_shared<FCookContributionResult>(*this);
 		return Result;
 	}
 

@@ -343,8 +343,7 @@ namespace Durin
 			for (const auto& Pair : {std::pair{&SourceFile, &SourceBulkFiles},
 				std::pair{&DestinationFile, &DestinationBulkFiles}})
 				if (const auto Storage = InspectEditorBulkDataCompanionPaths(*Pair.first, BulkInspection, *Pair.second); !Storage)
-					return {.Error = EAssetError::CorruptFile, .Message = FormatEditorBulkDataStorageError(Storage.Error),
-						.BulkStorageCause = Storage.Error};
+					return {.Error = EAssetError::CorruptFile, .Message = FormatEditorBulkDataStorageError(Storage.Error)};
 			if (SourceBulkFiles.size() != DestinationBulkFiles.size())
 				return Error(EAssetError::CorruptFile, "Authored bulk relocation inspection failed.");
 			for (size_t BulkIndex = 0; BulkIndex < SourceBulkFiles.size(); ++BulkIndex)
@@ -488,11 +487,11 @@ namespace Durin
 			return {
 				.Error = EAssetError::IoError,
 				.Message = "AssetMutationRecoveryRequired: the relocation journal requires recovery.",
-				.Disposition = EAssetResultDisposition::RecoveryRequired,
+				.WriteOutcome = {.Disposition = EAssetResultDisposition::RecoveryRequired,
 				.OperationId = State.Journal.OperationId,
 				.DesiredDirection = "Forward",
 				.FailedParticipant = "MutationJournal",
-				.RecoveryLocation = State.Journal.LocatorPath};
+				.RecoveryLocation = State.Journal.LocatorPath}};
 		if (State.Journal.State != EAssetMutationState::Prepared
 			&& State.Journal.State != EAssetMutationState::Committed
 			&& State.Journal.State != EAssetMutationState::Publishing)
@@ -638,10 +637,10 @@ namespace Durin
 				.Message = std::format(
 					"AssetMutationForwardResumable: operation {} will resume forward. {}",
 					State.Journal.OperationId, Message),
-				.Disposition = EAssetResultDisposition::ForwardPending,
+				.WriteOutcome = {.Disposition = EAssetResultDisposition::ForwardPending,
 				.OperationId = State.Journal.OperationId,
 				.DesiredDirection = "Forward",
-				.RecoveryLocation = State.Journal.LocatorPath};
+				.RecoveryLocation = State.Journal.LocatorPath}};
 		};
 
 		for (size_t Index : Order)

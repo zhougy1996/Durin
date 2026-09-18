@@ -70,8 +70,7 @@ namespace Durin
 		uint64 Actual = 0;
 		uint64 Expected = 0;
 		std::optional<EArchiveFailureCode> ArchiveCode;
-		std::variant<std::monostate, FObjectError, FDefaultDeltaDiagnostic,
-			FPropertyValueError, FPropertySnapshotError, FReflectedMapKeyError, FObjectValidationError> Cause;
+		std::string Message;
 	};
 	struct FPackageCaptureResult
 	{
@@ -89,7 +88,6 @@ namespace Durin
 		EPackageCommitState CommitState = EPackageCommitState::NotCommitted;
 		std::vector<std::filesystem::path> RecoveryFiles;
 		std::vector<std::filesystem::path> AffectedFiles;
-		std::optional<FPackageCaptureError> CaptureCause;
 		auto Succeeded() const -> bool { return Error == EPackageSaveError::None; }
 		explicit operator bool() const { return Succeeded(); }
 	};

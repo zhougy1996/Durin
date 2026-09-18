@@ -126,14 +126,14 @@ namespace Durin
 		if (const auto ValueResult = Storage.CopyConstruct(&Property, Replacement, 0); !ValueResult)
 		{
 			auto Result = FailSaveOverride(ESaveOverrideError::ValueCopyFailed, Object, &Property);
-			Result.Error.Cause = ValueResult.Error;
+			Result.Error.Message = FormatPropertyValueError(ValueResult.Error);
 			return Result;
 		}
 		FPropertyValueSnapshot Snapshot;
 		if (const auto SnapshotResult = CapturePropertyValue(&Property, Storage.GetContainer(), 0, Snapshot); !SnapshotResult)
 		{
 			auto Result = FailSaveOverride(ESaveOverrideError::SnapshotFailed, Object, &Property);
-			Result.Error.Cause = SnapshotResult.Error;
+			Result.Error.Message = FormatPropertySnapshotError(SnapshotResult.Error);
 			return Result;
 		}
 		if (!ObjectOverride)
@@ -150,8 +150,7 @@ namespace Durin
 
 	auto FormatSaveOverrideError(const FSaveOverrideError& Error) -> std::string
 	{
-		if (const auto* Cause = std::get_if<FPropertyValueError>(&Error.Cause)) return FormatPropertyValueError(*Cause);
-		if (const auto* Cause = std::get_if<FPropertySnapshotError>(&Error.Cause)) return FormatPropertySnapshotError(*Cause);
+		if (!Error.Message.empty()) return Error.Message;
 		switch (Error.Code)
 		{
 		case ESaveOverrideError::None: return {};

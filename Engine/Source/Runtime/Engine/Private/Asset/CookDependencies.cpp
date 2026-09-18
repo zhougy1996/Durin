@@ -141,7 +141,6 @@ namespace Durin
 		// The asset result's text contract remains a staged adapter; retain the
 		// complete cause independently for callers and later presentation migration.
 		FAssetResult Result{EAssetError::CorruptFile, FormatCookDependencyGraphError(*this)};
-		Result.CookDependencyCause = std::make_shared<FCookDependencyGraphResult>(*this);
 		return Result;
 	}
 

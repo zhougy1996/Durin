@@ -115,7 +115,7 @@ namespace Durin
 		uint32 ArrayDim = 0;
 		DurinCodeGen::EPropertyGenFlags ExpectedKind = DurinCodeGen::EPropertyGenFlags::None;
 		DurinCodeGen::EPropertyGenFlags ActualKind = DurinCodeGen::EPropertyGenFlags::None;
-		std::variant<std::monostate, FPropertyValueError, FPropertySnapshotError> Cause;
+		std::string Message;
 		auto HasError() const -> bool { return Code != ESaveOverrideError::None; }
 	};
 	struct FSaveOverrideResult

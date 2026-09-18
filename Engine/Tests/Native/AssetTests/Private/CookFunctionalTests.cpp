@@ -124,20 +124,20 @@ TEST_F(FCookFunctionalTests, DeclarationFailuresRetainIdentityAndPathCause)
 	Declarations = {{ECookBuildDependencyKind::ConfigurationValue, "quality"},
 		{ECookBuildDependencyKind::ConfigurationValue, "quality"}};
 	EXPECT_FALSE(FCookCoordinator().Run(Request, Result));
-	ASSERT_TRUE(Result.InputFailure.CookInputCause);
-	EXPECT_EQ(Result.InputFailure.CookInputCause->Error, ECookInputError::DuplicateDeclaration);
-	EXPECT_EQ(Result.InputFailure.CookInputCause->Package, Path);
-	EXPECT_EQ(Result.InputFailure.CookInputCause->Kind, ECookBuildDependencyKind::ConfigurationValue);
-	EXPECT_EQ(Result.InputFailure.CookInputCause->Name, "quality");
-	const auto Retained = Result.InputFailure.CookInputCause;
+	ASSERT_TRUE(Result.InputDiagnostic);
+	EXPECT_EQ(Result.InputDiagnostic->Error, ECookInputError::DuplicateDeclaration);
+	EXPECT_EQ(Result.InputDiagnostic->Package, Path);
+	EXPECT_EQ(Result.InputDiagnostic->Kind, ECookBuildDependencyKind::ConfigurationValue);
+	EXPECT_EQ(Result.InputDiagnostic->Name, "quality");
+	const auto Retained = Result.InputDiagnostic;
 	Declarations = {{ECookBuildDependencyKind::DirectPackage, "invalid-package"}};
 	EXPECT_FALSE(FCookCoordinator().Run(Request, Result));
-	ASSERT_TRUE(Result.InputFailure.CookInputCause);
+	ASSERT_TRUE(Result.InputDiagnostic);
 	EXPECT_EQ(Result.InputFailure.Error, EAssetError::InvalidPath);
-	EXPECT_EQ(Result.InputFailure.CookInputCause->Error, ECookInputError::PackageDeclaration);
-	ASSERT_TRUE(Result.InputFailure.CookInputCause->PathCause);
-	EXPECT_TRUE(Result.InputFailure.CookInputCause->PathCause->HasError());
-	EXPECT_EQ(Result.InputFailure.CookInputCause->Name, "invalid-package");
+	EXPECT_EQ(Result.InputDiagnostic->Error, ECookInputError::PackageDeclaration);
+	ASSERT_TRUE(Result.InputDiagnostic->PathCause);
+	EXPECT_TRUE(Result.InputDiagnostic->PathCause->HasError());
+	EXPECT_EQ(Result.InputDiagnostic->Name, "invalid-package");
 	EXPECT_EQ(Retained->Name, "quality");
 	EXPECT_EQ(Contributions, 0u);
 	EXPECT_FALSE(std::filesystem::exists(Request.OutputRoot / "CookManifest.bin"));
@@ -175,16 +175,14 @@ TEST_F(FCookFunctionalTests, RetainsContributionCauseAndClearsItForNextRun)
 	EXPECT_EQ(Result.ContributionCause->Error, EAssetError::InUse);
 	EXPECT_EQ(Result.ContributionPackage, Path);
 	EXPECT_EQ(Result.ContributionProvider, "rejecting-provider");
-	ASSERT_TRUE(Result.ContributionCause->CookContributionCause);
-	EXPECT_EQ(Result.ContributionCause->CookContributionCause->Error, ECookContributionError::SourceMutation);
-	EXPECT_EQ(Result.ContributionCause->CookContributionCause->VirtualPath, Path.ToString());
+
 	EXPECT_FALSE(std::filesystem::exists(Request.OutputRoot / "CookManifest.bin"));
 	const auto Retained = Result.ContributionCause;
 	Request.ExplicitRoots = {Missing};
 	EXPECT_FALSE(FCookCoordinator().Run(Request, Result));
 	EXPECT_FALSE(Result.ContributionCause);
 	EXPECT_TRUE(Result.ContributionProvider.empty());
-	EXPECT_EQ(Retained->CookContributionCause->VirtualPath, Path.ToString());
+	EXPECT_EQ(Retained->Error, EAssetError::InUse);
 }
 
 TEST_F(FCookFunctionalTests, CaptureFailuresRetainCountsAndFinalizationCauses)

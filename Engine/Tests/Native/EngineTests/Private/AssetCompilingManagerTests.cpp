@@ -151,8 +151,6 @@ TEST(FAssetCompilingManagerTests, RoutesClassesBatchesObjectsAndOwnsCompilerLife
 		.Manager = FailedManager});
 	EXPECT_FALSE(Failed);
 	EXPECT_EQ(Failed.Error.Code, EAssetCompilerRegistrationError::Start);
-	ASSERT_TRUE(Failed.Error.StartCause);
-	EXPECT_EQ(Failed.Error.StartCause->Error, StartFailure.Error);
 	EXPECT_EQ(Failed.Error.CompilerName, "Durin.Tests.Failed");
 	EXPECT_EQ(Aggregate.GetDiagnostics().CompilerCount, 2u);
 	EXPECT_TRUE(Aggregate.IsAcceptingRequests());

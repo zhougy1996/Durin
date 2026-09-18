@@ -6,9 +6,10 @@
 
 namespace Durin::AssetPrivate
 {
-	// One load invocation's dependency ownership. Supply all callbacks or none.
+	// One load invocation's dependency bindings. Supply both resolvers or neither.
 	// Callbacks and returned objects must outlive graph application. Rollback owns
-	// only dependencies admitted by this invocation, after its graph is discarded.
+	// only explicit private-policy dependencies after its graph is discarded.
+	// Deferred ordinary loading omits Rollback; the load service owns incomplete groups.
 	// The optional guard rejects synchronous live loads on the calling thread,
 	// including constructors, PostLoad, and policy callbacks; it does not pin code.
 	struct FAssetPackageDependencyLoadPolicy

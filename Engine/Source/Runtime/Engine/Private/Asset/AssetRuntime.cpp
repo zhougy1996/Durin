@@ -120,7 +120,7 @@ namespace Durin
 		{
 			return {EAssetError::StaleData,
 				std::format("Registry projection for package {} is pending synchronization.", Path.ToString()),
-				EAssetResultDisposition::ContentCommittedProjectionPending};
+				{EAssetResultDisposition::ContentCommittedProjectionPending}};
 		}
 
 		auto ObjectPathResolutionError(
@@ -520,7 +520,24 @@ namespace Durin
 	{
 		OutObject = nullptr;
 		const auto Resolution = Durin::ResolveAssetObjectPathForOperation(Path);
-		if (!Resolution) return ObjectPathResolutionError(Resolution);
+		if (!Resolution)
+		{
+			// Match public LoadObject's resident fallback without bypassing load phases
+			// or projection fences. A catalog refresh need not evict completed objects.
+			if (Resolution.State == EAssetPathResolveState::NotFound
+				&& (IsPackageLoading(Path.GetPackagePath()) || FindResidentPackage(Path.GetPackagePath())))
+			{
+				DPackage* Resident = nullptr;
+				if (auto Result = ResolveDependencyPackage(Owner, Path.GetPackagePath(), Resident); !Result)
+					return Result;
+				if (DObject* Object = FindPackageObject(Resident, Path))
+				{
+					OutObject = Object;
+					return {};
+				}
+			}
+			return ObjectPathResolutionError(Resolution);
+		}
 		DPackage* Package = nullptr;
 		if (auto Result = ResolveDependencyPackage(Owner, Resolution.FinalPath.GetPackagePath(), Package); !Result)
 			return Result;
@@ -658,8 +675,7 @@ namespace Durin
 				if (!Result) return Result;
 				std::vector<FPackageBulkStorageDescriptor> Descriptors;
 				if (const auto Storage = InspectEditorBulkDataStorageDescriptors(Inspection, Descriptors); !Storage)
-					return {.Error = EAssetError::CorruptFile, .Message = FormatEditorBulkDataStorageError(Storage.Error),
-						.BulkStorageCause = Storage.Error};
+					return {.Error = EAssetError::CorruptFile, .Message = FormatEditorBulkDataStorageError(Storage.Error)};
 				std::vector<FPackageBulkDataEntry> Entries;
 				Entries.reserve(Descriptors.size());
 				for (size_t Index = 0; Index < Descriptors.size(); ++Index)
@@ -686,8 +702,7 @@ namespace Durin
 				{
 					const EAssetError Code = Registration.Error.Code == EPackageResourceRegistrationError::ShuttingDown ? EAssetError::ShuttingDown : Registration.Error.PublicationError.Operation != FFileHelper::EAtomicFileOperation::None ? EAssetError::IoError :
 																																																										EAssetError::CorruptFile;
-					return {.Error = Code, .Message = FormatPackageResourceRegistrationError(Registration.Error),
-						.ResourceRegistrationCause = std::move(Registration.Error)};
+					return {.Error = Code, .Message = FormatPackageResourceRegistrationError(Registration.Error)};
 				}
 				Record.bOwnResource = true;
 				ReadContext.BulkResource = std::move(Registration.Resource);

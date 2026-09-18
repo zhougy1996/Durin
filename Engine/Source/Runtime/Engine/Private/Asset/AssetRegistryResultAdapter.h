@@ -20,7 +20,6 @@ namespace Durin::AssetPrivate
 		case EAssetRegistryError::MissingDependency: Error = EAssetError::MissingDependency; break;
 		case EAssetRegistryError::StaleData: Error = EAssetError::StaleData; break;
 		}
-		return {.Error = Error, .Message = FormatAssetRegistryError(Result),
-			.RegistryCause = std::move(Result)};
+		return {.Error = Error, .Message = FormatAssetRegistryError(Result)};
 	}
 }

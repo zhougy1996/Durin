@@ -437,13 +437,14 @@ TEST(FCookInputTests, DiscoveryLimitsAndRootClassRetainFirstCause)
 	std::vector<FPackagePath> Roots(MaximumCookDependencyRecords + 1);
 	const auto Rejected = Limited.Acquire(Roots, {});
 	EXPECT_FALSE(Rejected);
-	ASSERT_TRUE(Rejected.CookInputCause);
-	EXPECT_EQ(Rejected.CookInputCause->Error, ECookInputError::RootLimit);
-	EXPECT_EQ(Rejected.CookInputCause->Actual, Roots.size());
-	EXPECT_EQ(Rejected.CookInputCause->Maximum, MaximumCookDependencyRecords);
+	ASSERT_TRUE(Limited.GetFailureInfo());
+	EXPECT_EQ(Limited.GetFailureInfo()->Error, ECookInputError::RootLimit);
+	EXPECT_EQ(Limited.GetFailureInfo()->Actual, Roots.size());
+	EXPECT_EQ(Limited.GetFailureInfo()->Maximum, MaximumCookDependencyRecords);
 	EXPECT_EQ(Limited.GetStatus(), ECookInputStatus::LimitExceeded);
 	Request.IsCancelled = [] { return true; };
-	EXPECT_EQ(Limited.CheckCancellation().CookInputCause, Rejected.CookInputCause);
+	EXPECT_EQ(Limited.CheckCancellation().Error, Rejected.Error);
+	EXPECT_EQ(Limited.GetFailureInfo()->Error, ECookInputError::RootLimit);
 	EXPECT_EQ(Limited.GetStatus(), ECookInputStatus::LimitExceeded);
 	Request.IsCancelled = {};
 	FPackagePath Target;
@@ -455,18 +456,18 @@ TEST(FCookInputTests, DiscoveryLimitsAndRootClassRetainFirstCause)
 	const auto ClassFailure = UnknownClass.Acquire({}, External);
 	External = {};
 	EXPECT_EQ(ClassFailure.Error, EAssetError::UnknownClass);
-	ASSERT_TRUE(ClassFailure.CookInputCause);
-	EXPECT_EQ(ClassFailure.CookInputCause->Error, ECookInputError::RootClass);
-	EXPECT_EQ(ClassFailure.CookInputCause->Package, Target);
-	EXPECT_EQ(ClassFailure.CookInputCause->Name, "MissingCookRootClass");
+	ASSERT_TRUE(UnknownClass.GetFailureInfo());
+	EXPECT_EQ(UnknownClass.GetFailureInfo()->Error, ECookInputError::RootClass);
+	EXPECT_EQ(UnknownClass.GetFailureInfo()->Package, Target);
+	EXPECT_EQ(UnknownClass.GetFailureInfo()->Name, "MissingCookRootClass");
 	AssetPrivate::FCookDependencyDiscovery Empty(Request, CaptureAssetRegistrySnapshot(), Resolve);
 	const auto EmptyFailure = Empty.Acquire({}, {});
 	EXPECT_EQ(EmptyFailure.Error, EAssetError::NotFound);
-	ASSERT_TRUE(EmptyFailure.CookInputCause);
-	EXPECT_EQ(EmptyFailure.CookInputCause->Error, ECookInputError::NoRuntimePackages);
+	ASSERT_TRUE(Empty.GetFailureInfo());
+	EXPECT_EQ(Empty.GetFailureInfo()->Error, ECookInputError::NoRuntimePackages);
 }
 
-TEST(FCookInputTests, MissingReaderClearsOutputAndOwnsRequestedIdentity)
+TEST(FCookInputTests, MissingReaderClearsOutputAndClassifiesFailure)
 {
 	FCookContext Context(ECookTargetPlatform::Win64, ECookTargetProfile::Game);
 	FByteBuffer Bytes{std::byte{1}};
@@ -476,21 +477,14 @@ TEST(FCookInputTests, MissingReaderClearsOutputAndOwnsRequestedIdentity)
 	EXPECT_FALSE(Result);
 	EXPECT_TRUE(Bytes.empty());
 	EXPECT_EQ(Result.Error, EAssetError::MissingDependency);
-	ASSERT_TRUE(Result.CookInputCause);
-	EXPECT_EQ(Result.CookInputCause->Error, ECookInputError::NoReader);
-	EXPECT_EQ(Result.CookInputCause->Kind, ECookBuildDependencyKind::ConfigurationValue);
-	EXPECT_EQ(Result.CookInputCause->Name, "missing-value");
+
 	FCookInputFailure Io{.Error = ECookInputError::FileIo, .File = "input.bin",
 		.FileCause = FFileHelper::FFileIoError{.NativeError = std::make_error_code(std::errc::io_error),
 			.Path = "input.bin", .Offset = 42, .Size = 128}};
 	const auto Adapted = Io.ToAssetResult();
+	EXPECT_EQ(Adapted.Error, EAssetError::IoError);
 	Io = {};
-	ASSERT_TRUE(Adapted.CookInputCause);
-	ASSERT_TRUE(Adapted.CookInputCause->FileCause);
-	EXPECT_EQ(Adapted.CookInputCause->FileCause->Path, std::filesystem::path("input.bin"));
-	EXPECT_EQ(Adapted.CookInputCause->FileCause->Offset, 42u);
-	EXPECT_EQ(Adapted.CookInputCause->FileCause->Size, 128u);
-	EXPECT_EQ(Adapted.CookInputCause->FileCause->NativeError, std::make_error_code(std::errc::io_error));
+
 }
 
 TEST(FCookContributorTests, FamilyRejectionsOwnTargetAndNestedPlanContext)
@@ -514,13 +508,9 @@ TEST(FCookContributorTests, FamilyRejectionsOwnTargetAndNestedPlanContext)
 	const auto Adapted = Rejected.ToAssetResult();
 	Rejected = {};
 	EXPECT_FALSE(Adapted);
-	ASSERT_TRUE(Adapted.CookContributionCause);
-	EXPECT_EQ(Adapted.CookContributionCause->Error, ECookContributionError::Plan);
-	ASSERT_TRUE(Adapted.CookContributionCause->PlanCause);
-	EXPECT_EQ(Adapted.CookContributionCause->PlanCause->Code, ECookPlanError::DuplicatePath);
-	EXPECT_EQ(Adapted.CookContributionCause->PlanCause->VirtualPath, "/Game/Rejected");
+
 	EXPECT_TRUE(FCookContributionResult{}.ToAssetResult());
-	EXPECT_FALSE(FCookContributionResult{}.ToAssetResult().CookContributionCause);
+
 }
 
 TEST(FCookContributorTests, BatchFailureRetainsCauseAndRollsBackOnlyNewHandles)
@@ -641,7 +631,6 @@ TEST(FCookContributorTests, CallbackDestructionPrecedesOwnerReleaseEvenWhenRejec
 	UnregisterCookContributor(Handle);
 	EXPECT_EQ(DestroyedCallbacks, 2);
 }
-
 
 TEST(FCookContributorTests, FamilyCookHelpersAreNotPublicApi)
 {
@@ -1050,7 +1039,7 @@ TEST(FCookOutputStoreTests, CleansOnlyPreviousManifestOwnedStaleFiles)
 	EXPECT_TRUE(std::filesystem::exists(Root / "unowned.bin"));
 }
 
-TEST(FCookDependencyTests, AssetAdapterOwnsGraphAndNestedCodecCauses)
+TEST(FCookDependencyTests, AssetAdapterPreservesFailureClassification)
 {
 	FPackagePath Path;
 	ASSERT_TRUE(FPackagePath::TryCreateProjectContent("/Game/Cause", Path));
@@ -1065,16 +1054,11 @@ TEST(FCookDependencyTests, AssetAdapterOwnsGraphAndNestedCodecCauses)
 	Inputs.clear();
 	EXPECT_FALSE(AssetResult);
 	EXPECT_EQ(AssetResult.Error, EAssetError::CorruptFile);
-	EXPECT_EQ(AssetResult.Disposition, EAssetResultDisposition::Default);
-	ASSERT_TRUE(AssetResult.CookDependencyCause);
-	EXPECT_EQ(AssetResult.CookDependencyCause->Error, ECookDependencyGraphError::Codec);
-	EXPECT_EQ(AssetResult.CookDependencyCause->Package, Path);
-	ASSERT_TRUE(AssetResult.CookDependencyCause->CodecCause);
-	EXPECT_EQ(AssetResult.CookDependencyCause->CodecCause->Error, ECookDependencyCodecError::Duplicate);
-	EXPECT_EQ(AssetResult.CookDependencyCause->CodecCause->LogicalName, "source");
+	EXPECT_EQ(AssetResult.WriteOutcome.Disposition, EAssetResultDisposition::Default);
+
 	const auto Success = FCookDependencyGraphResult{}.ToAssetResult();
 	EXPECT_TRUE(Success);
-	EXPECT_FALSE(Success.CookDependencyCause);
+
 }
 
 TEST(FCookDependencyTests, CodecFailuresRetainIdentityAndClearOutputs)

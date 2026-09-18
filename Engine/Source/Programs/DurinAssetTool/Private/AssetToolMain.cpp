@@ -422,8 +422,7 @@ namespace
 						Package.Inspection, Descriptors); !Storage)
 				{
 					Package.DescriptorDiagnostic = FormatEditorBulkDataStorageError(Storage.Error);
-					Package.Result = {.Error = EAssetError::CorruptFile, .Message = Package.DescriptorDiagnostic,
-						.BulkStorageCause = Storage.Error};
+					Package.Result = {.Error = EAssetError::CorruptFile, .Message = Package.DescriptorDiagnostic};
 				}
 				else
 				{

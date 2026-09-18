@@ -899,7 +899,7 @@ namespace Durin
 				if (const auto Result = ValidateCanonicalMapKeyProperty(MapProperty->GetKeyProp()); !Result)
 				{
 					auto Failure = SnapshotFailure(EPropertySnapshotError::InvalidMapKey, Property);
-					Failure.Error.Cause = Result.Error;
+					Failure.Error.Message = FormatReflectedMapKeyError(Result.Error);
 					return Failure;
 				}
 				auto Result = ValidateSnapshotProperty(MapProperty->GetKeyProp());
@@ -1611,7 +1611,8 @@ namespace Durin
 			Result.Error.ArchiveCode = Failure->Code;
 			Result.Error.ArchivePath = Failure->Path;
 		}
-		Result.Error.Cause = Archive.GetValueFailureCause();
+		if (const auto* Failure = Archive.GetFailure())
+			Result.Error.Message = Failure->Message;
 		return Result;
 	}
 
@@ -1831,11 +1832,8 @@ namespace Durin
 
 	auto FormatPropertySnapshotError(const FPropertySnapshotError& Error) -> std::string
 	{
-		if (const auto* Cause = std::get_if<FObjectError>(&Error.Cause)) return FormatObjectError(*Cause);
-		if (const auto* Cause = std::get_if<FObjectValidationError>(&Error.Cause)) return FormatObjectValidationError(*Cause);
+		if (!Error.Message.empty()) return Error.Message;
 		if (!Error.HasError()) return {};
-		if (const auto* Cause = std::get_if<FPropertyValueError>(&Error.Cause)) return FormatPropertyValueError(*Cause);
-		if (const auto* Cause = std::get_if<FReflectedMapKeyError>(&Error.Cause)) return FormatReflectedMapKeyError(*Cause);
 		switch (Error.Code)
 		{
 		case EPropertySnapshotError::NullProperty: return "Cannot snapshot a null property.";
@@ -1925,7 +1923,7 @@ namespace Durin
 				Error.ArchiveCode = Failure->Code;
 				Error.ArchivePath = Failure->Path;
 			}
-			Error.Cause = Archive->GetValueFailureCause();
+			if (const auto* Failure = Archive->GetFailure()) Error.Message = Failure->Message;
 		}
 		return {.Error = std::move(Error)};
 	}
@@ -1957,8 +1955,7 @@ namespace Durin
 		}
 		std::string Message = std::format("{}: object={}, class={}, id={}, outer={}, archive path={}", Reason,
 			Error.ObjectName, Error.ClassName, Error.ObjectId, Error.OuterId, Error.ArchivePath);
-		if (const auto* Cause = std::get_if<FObjectError>(&Error.Cause))
-			Message += ": " + FormatObjectError(*Cause);
+		if (!Error.Message.empty()) Message += ": " + Error.Message;
 		return Message;
 	}
 
@@ -2162,7 +2159,7 @@ namespace Durin
 			{
 				DiscardLoadedObjects();
 				return ObjectGraphFailure({.Code = EObjectGraphError::Validation, .ObjectName = Record.ObjectName, .ClassName = Record.ClassName,
-					.ObjectId = Record.Id, .Cause = Validated.Error});
+					.ObjectId = Record.Id, .Message = FormatObjectValidationError(Validated.Error)});
 			}
 		}
 		DObject* LoadedRoot = Context.ResolveId(RootId);
@@ -2402,7 +2399,8 @@ namespace Durin
 			{
 				DiscardDuplicates();
 				return ObjectGraphFailure({.Code = EObjectGraphError::AuthoredOverrides, .ObjectName = Source->GetObjectPath(),
-					.OverrideCause = std::move(LedgerDiagnostic)});
+					.Message = std::format("Authored override failure {} at '{}'",
+						static_cast<uint32>(LedgerDiagnostic.Reason), LedgerDiagnostic.LogicalPath)});
 			}
 		}
 
@@ -2412,7 +2410,7 @@ namespace Durin
 			{
 				DiscardDuplicates();
 				return ObjectGraphFailure({.Code = EObjectGraphError::Validation, .ObjectName = Source->GetObjectPath(),
-					.Cause = Validated.Error});
+					.Message = FormatObjectValidationError(Validated.Error)});
 			}
 		}
 		for (auto It = Sources.rbegin(); It != Sources.rend(); ++It)
@@ -2443,24 +2441,20 @@ namespace Durin
 			if (Property) { Error.PropertyName = Property->NamePrivate.ToString(); Error.ArrayIndex = Index; }
 			return {std::move(Error)};
 		}
-		auto CopyArchiveCause(FObjectPropertyCopyError& Error, const FObjectArchive& Archive) -> void
+		auto CopyArchiveDiagnostic(FObjectPropertyCopyError& Error, const FObjectArchive& Archive) -> void
 		{
 			if (const auto* Failure = Archive.GetFailure())
 			{
 				Error.ArchiveCode = Failure->Code;
 				Error.ArchivePath = Failure->Path;
 			}
-			std::visit([&](const auto& Cause) {
-				using T = std::decay_t<decltype(Cause)>;
-				if constexpr (!std::is_same_v<T, std::monostate>) Error.Cause = Cause;
-			}, Archive.GetValueFailureCause());
+			if (const auto* Failure = Archive.GetFailure()) Error.Message = Failure->Message;
 		}
 	}
 
 	auto FormatObjectPropertyCopyError(const FObjectPropertyCopyError& Error) -> std::string
 	{
-		if (const auto* Cause = std::get_if<FObjectError>(&Error.Cause)) return FormatObjectError(*Cause);
-		if (const auto* Cause = std::get_if<FObjectValidationError>(&Error.Cause)) return FormatObjectValidationError(*Cause);
+		if (!Error.Message.empty()) return Error.Message;
 		switch (Error.Code)
 		{
 		case EObjectPropertyCopyError::None: return {};
@@ -2468,14 +2462,10 @@ namespace Durin
 		case EObjectPropertyCopyError::UnmappedDefaultReference: return "Unmapped default subobject reference.";
 		case EObjectPropertyCopyError::ContainerTraversal: return "Default reference container traversal failed.";
 		case EObjectPropertyCopyError::ValueCopy:
-			if (const auto* Cause = std::get_if<FPropertyValueError>(&Error.Cause)) return FormatPropertyValueError(*Cause);
 			return "Default property value copy failed.";
 		case EObjectPropertyCopyError::Snapshot:
-			if (const auto* Cause = std::get_if<FPropertySnapshotError>(&Error.Cause)) return FormatPropertySnapshotError(*Cause);
 			return "Editable property snapshot failed.";
 		case EObjectPropertyCopyError::ArchiveWrite: case EObjectPropertyCopyError::ArchiveRead:
-			if (const auto* Cause = std::get_if<FPropertyValueError>(&Error.Cause)) return FormatPropertyValueError(*Cause);
-			if (const auto* Cause = std::get_if<FReflectedMapKeyError>(&Error.Cause)) return FormatReflectedMapKeyError(*Cause);
 			return std::format("Property copy Archive failed at '{}', code={}." , Error.ArchivePath,
 				static_cast<uint32>(Error.ArchiveCode.value_or(EArchiveFailureCode::InvalidData)));
 		case EObjectPropertyCopyError::InvalidReferenceIndex: return "Editable-copy stream contains an invalid reference identifier.";
@@ -2553,7 +2543,7 @@ namespace Durin
 					if (Traversal != EContainerOpResult::Success)
 					{
 						auto Result = Fail(E::ContainerTraversal, Property, Index);
-						Result.Error.Cause = Traversal;
+						Result.Error.Message = std::format("Default reference traversal failed: {}", static_cast<uint32>(Traversal));
 						return Result;
 					}
 					return {};
@@ -2576,7 +2566,7 @@ namespace Durin
 				if (!Copied)
 				{
 					Result = Fail(E::ValueCopy, Property, Index);
-					Result.Error.Cause = Copied.Error;
+					Result.Error.Message = FormatPropertyValueError(Copied.Error);
 					return;
 				}
 				Result = Remap(Property, Destination, Index);
@@ -2679,7 +2669,7 @@ namespace Durin
 				if (!Captured)
 				{
 					Result = Fail(E::Snapshot, Property, Index);
-					Result.Error.Cause = Captured.Error;
+					Result.Error.Message = FormatPropertySnapshotError(Captured.Error);
 					return;
 				}
 				OriginalValues.push_back(std::move(Original));
@@ -2691,7 +2681,7 @@ namespace Durin
 				if (Writer.HasError())
 				{
 					Result = Fail(E::ArchiveWrite, Property, Index);
-					CopyArchiveCause(Result.Error, Writer);
+					CopyArchiveDiagnostic(Result.Error, Writer);
 					return;
 				}
 				FRemappingReader Reader(Bytes, References, ReferenceMap);
@@ -2699,7 +2689,7 @@ namespace Durin
 				if (Reader.HasError() || Reader.GetRemainingPayloadBytes() != 0)
 				{
 					Result = Fail(Reader.InvalidReference ? E::InvalidReferenceIndex : Reader.HasError() ? E::ArchiveRead : E::TrailingBytes, Property, Index);
-					CopyArchiveCause(Result.Error, Reader);
+					CopyArchiveDiagnostic(Result.Error, Reader);
 					Result.Error.ActualCount = Reader.InvalidReference.value_or(Reader.GetRemainingPayloadBytes());
 					Result.Error.ExpectedCount = Reader.InvalidReference ? References.size() : 0;
 					return;

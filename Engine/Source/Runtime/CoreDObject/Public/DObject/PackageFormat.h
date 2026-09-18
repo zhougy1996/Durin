@@ -153,7 +153,7 @@ namespace Durin::ObjectPackage
 		EPackageWriterFailure Failure = EPackageWriterFailure::None;
 		std::string LogicalPath;
 		EPackageWriterReason Reason = EPackageWriterReason::None;
-		std::variant<std::monostate, EBinaryEnvelopeError, FLinkerError, FCanonicalMapKeyError> Cause;
+		std::string Message;
 		std::string Subject;
 
 		auto Succeeded() const -> bool { return Failure == EPackageWriterFailure::None; }
@@ -303,7 +303,7 @@ namespace Durin::ObjectPackage
 		EPackageReaderFailure Failure = EPackageReaderFailure::None;
 		std::string LogicalPath;
 		EPackageReaderReason Reason = EPackageReaderReason::None;
-		std::variant<std::monostate, EBinaryEnvelopeError, FLinkerError, FPackageWriterResult> Cause;
+		std::string Message;
 		std::string Subject;
 
 		auto Succeeded() const -> bool { return Failure == EPackageReaderFailure::None; }

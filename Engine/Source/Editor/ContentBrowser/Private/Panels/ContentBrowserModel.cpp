@@ -203,8 +203,7 @@ namespace Durin::Editor::ContentBrowser::Private
 				EAssetError::IoError,
 				"Asset catalog refresh was incomplete."}
 			: FAssetResult{
-				.Error = EAssetError::IoError, .Message = FormatAssetRegistryError(Refresh.Errors.front()),
-				.RegistryCause = Refresh.Errors.front()};
+				.Error = EAssetError::IoError, .Message = FormatAssetRegistryError(Refresh.Errors.front())};
 	}
 
 	auto FContentBrowserModel::PhysicalToVirtualDirectory(

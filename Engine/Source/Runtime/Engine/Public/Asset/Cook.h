@@ -294,6 +294,7 @@ namespace Durin
 		uint64 RollbackTimeNanoseconds = 0;
 		ECookInputStatus InputStatus = ECookInputStatus::None;
 		FAssetResult InputFailure;
+		std::optional<FCookInputFailure> InputDiagnostic;
 		std::shared_ptr<const FCookPublishResult> PublicationCause;
 		std::shared_ptr<const FCookOutputRootResult> OutputRootCause;
 		std::shared_ptr<const FProjectGameSettingsResult> SettingsCause;

@@ -211,7 +211,8 @@ TEST(FSceneImportTests, SceneReimportResetsEditsAndRollsBackSavedAndLiveOutputs)
 	for (const auto& Output : Initial.Outputs)
 	{
 		DObject* Object = nullptr;
-		ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath), Object));
+		const auto Loaded = LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath), Object);
+		ASSERT_TRUE(Loaded) << Output.AssetPath.ToString() << ": " << Loaded.Message;
 		if (auto* Material = Cast<DMaterialInstance>(Object)) { Previous = Material; MaterialPath = Output.AssetPath; }
 		if (auto* Mesh = Cast<DStaticMesh>(Object)) PreviousMesh = Mesh;
 		SavedBytes.push_back({Output.AssetPath, Read(FindAssetExact(Output.AssetPath)->PhysicalPath)});

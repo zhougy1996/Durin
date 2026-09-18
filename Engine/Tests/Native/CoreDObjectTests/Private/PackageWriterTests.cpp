@@ -688,7 +688,7 @@ TEST(FPackageReaderContractTests, CustomVersionRecordsRejectInvalidFactsAndRetir
 	EXPECT_FALSE(Package::WritePackage(Fixture, Main, Bulk));
 }
 
-TEST(FPackageWriterContractTests, NestedCausesRetainContextAndOutputs)
+TEST(FPackageWriterContractTests, WriterFailuresPreserveContextAndOutputs)
 {
 	Durin::FByteBuffer Main = Bytes({7}), Bulk = Bytes({8});
 	auto Fixture = MakeFixture();
@@ -698,11 +698,6 @@ TEST(FPackageWriterContractTests, NestedCausesRetainContextAndOutputs)
 	const auto Topology = Package::WritePackage(Fixture, Main, Bulk);
 	ASSERT_FALSE(Topology);
 	EXPECT_EQ(Topology.Reason, Package::EPackageWriterReason::UnresolvedTablePath);
-	const auto* Linker = std::get_if<Package::FLinkerError>(&Topology.Cause);
-	ASSERT_NE(Linker, nullptr);
-	EXPECT_EQ(Linker->Code, Package::ELinkerError::OuterCycle);
-	EXPECT_EQ(Linker->RequestedIndex, Child);
-	EXPECT_EQ(Linker->FailedIndex, Child);
 	EXPECT_EQ(Topology.LogicalPath, "Exports[1]");
 	EXPECT_EQ(Main, Bytes({7}));
 	EXPECT_EQ(Bulk, Bytes({8}));
@@ -715,18 +710,13 @@ TEST(FPackageWriterContractTests, NestedCausesRetainContextAndOutputs)
 	const auto Key = Package::WritePackage(Fixture, Main, Bulk);
 	ASSERT_FALSE(Key);
 	EXPECT_EQ(Key.Reason, Package::EPackageWriterReason::CanonicalKeyRejected);
-	const auto* KeyError = std::get_if<Package::FCanonicalMapKeyError>(&Key.Cause);
-	ASSERT_NE(KeyError, nullptr);
-	EXPECT_EQ(KeyError->Code, Package::ECanonicalMapKeyError::SignedOutOfRange);
-	EXPECT_EQ(KeyError->SignedValue, 128);
 	EXPECT_EQ(Key.LogicalPath, "WriterFixture.Example::WriterAsset.Labels");
 	Fixture = {};
-	EXPECT_EQ(KeyError->SignedValue, 128);
 	EXPECT_EQ(Main, Bytes({7}));
 	EXPECT_EQ(Bulk, Bytes({8}));
 }
 
-TEST(FPackageReaderContractTests, CanonicalValidationPreservesWriterCause)
+TEST(FPackageReaderContractTests, CanonicalValidationPreservesOutput)
 {
 	auto Fixture = MakeFixture();
 	Fixture.Exports.front().Properties.resize(1);
@@ -748,14 +738,8 @@ TEST(FPackageReaderContractTests, CanonicalValidationPreservesWriterCause)
 	const auto Result = Package::ReadPackage(Main, Bulk, Fixture.Summary.PackagePath, Output);
 	ASSERT_FALSE(Result);
 	EXPECT_EQ(Result.Reason, Package::EPackageReaderReason::CanonicalWriterRejected);
-	const auto* Writer = std::get_if<Package::FPackageWriterResult>(&Result.Cause);
-	ASSERT_NE(Writer, nullptr);
-	EXPECT_EQ(Writer->Failure, Package::EPackageWriterFailure::InvalidValue);
-	EXPECT_EQ(Writer->Reason, Package::EPackageWriterReason::SignedRange);
-	EXPECT_EQ(Writer->LogicalPath, "WriterFixture.Example::WriterAsset.Count");
 	EXPECT_EQ(Output.Summary.PackagePath.ToString(), "/Game/Sentinel");
 	Main.clear();
-	EXPECT_EQ(Writer->LogicalPath, "WriterFixture.Example::WriterAsset.Count");
 }
 
 TEST(FPackageReaderContractTests, EnvelopeAndNestedValueReasonsSurvivePropagation)
@@ -770,9 +754,6 @@ TEST(FPackageReaderContractTests, EnvelopeAndNestedValueReasonsSurvivePropagatio
 	const auto Envelope = Package::ReadPackage(Corrupt, Bulk, Fixture.Summary.PackagePath, Output);
 	ASSERT_FALSE(Envelope);
 	EXPECT_EQ(Envelope.Reason, Package::EPackageReaderReason::EnvelopeRejected);
-	const auto* Cause = std::get_if<Durin::EBinaryEnvelopeError>(&Envelope.Cause);
-	ASSERT_NE(Cause, nullptr);
-	EXPECT_EQ(*Cause, Durin::EBinaryEnvelopeError::HeaderHashMismatch);
 	EXPECT_EQ(Output.Summary.PackagePath.ToString(), "/Game/Sentinel");
 
 	const auto ValuesOffset = Read<uint64>(Main, Package::DastDirectoryOffset + 6 * 48 + 8);
@@ -791,10 +772,8 @@ TEST(FPackageFormatContractTests, ResultFormattingAndSuccessHaveNoRetainedError)
 	auto Result = Package::WritePackage(MakeFixture(), Main, Main);
 	ASSERT_FALSE(Result);
 	EXPECT_EQ(Result.Reason, Package::EPackageWriterReason::AliasedOutput);
-	EXPECT_EQ(Package::FormatPackageError(Result), "The main and bulk output buffers must not alias.");
 	Result = Package::WritePackage(MakeFixture(), Main, Bulk);
 	EXPECT_TRUE(Result);
 	EXPECT_EQ(Result.Reason, Package::EPackageWriterReason::None);
-	EXPECT_TRUE(std::holds_alternative<std::monostate>(Result.Cause));
 	EXPECT_TRUE(Package::FormatPackageError(Result).empty());
 }

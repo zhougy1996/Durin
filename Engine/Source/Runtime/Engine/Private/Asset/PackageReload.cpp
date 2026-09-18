@@ -239,11 +239,7 @@ namespace Durin
 
 	auto FormatPackageReloadDiagnostic(const FPackageReloadDiagnostic& Diagnostic) -> std::string
 	{
-		if (Diagnostic.PathCause) return FormatObjectError(*Diagnostic.PathCause);
-		if (Diagnostic.ResourceCause) return FormatPreparedPackageResourceError(*Diagnostic.ResourceCause);
-		if (Diagnostic.ReplacementCause) return FormatObjectReplacementError(*Diagnostic.ReplacementCause);
-		if (Diagnostic.GraphCause) return FormatPackageGraphPrepareError(*Diagnostic.GraphCause);
-		if (Diagnostic.AssetCause) return Diagnostic.AssetCause->Message;
+		if (!Diagnostic.Message.empty()) return Diagnostic.Message;
 		if (!Diagnostic.MaterialCauses.empty()) return FormatMaterialError(Diagnostic.MaterialCauses.front().Error);
 		if (!Diagnostic.MaterialCompileCauses.empty()) return FormatMaterialError(Diagnostic.MaterialCompileCauses.front().Source.Error);
 		using Reason = EPackageReloadReason;
@@ -400,16 +396,16 @@ namespace Durin
 			FPackagePath Path;
 			if (const auto Validation = FPackagePath::TryCreate(Package->GetPackagePath(), Path); !Validation)
 				return Finish(MakeResult(Status::Failed, Failure::Unsupported, Stage::Preflight, {},
-					Reason::InvalidIdentity, {.PathCause = Validation.Error}));
+					Reason::InvalidIdentity, {.Message = FormatObjectError(Validation.Error)}));
 			if (Package->IsNewlyCreated())
 				return Finish(MakeResult(Status::Failed, Failure::Unsaved, Stage::Preflight, Path,
 					Reason::UnsavedPackage));
 			const auto Resolved = FMountPaths::ResolveAssetPath(Path.GetView(), EMountPathExistence::AllowMissing);
 			if (!Resolved)
 				return Finish(MakeResult(Status::Failed, Failure::IoError, Stage::Preflight, Path,
-					Reason::InvalidIdentity, {.PathCause = FObjectError{
+					Reason::InvalidIdentity, {.Message = FormatObjectError(FObjectError{
 						.Code = EObjectPathError::MountLookupFailed, .Part = EObjectPathPart::Package,
-						.Subject = Path.ToString(), .MountError = Resolved.Error}}));
+						.Subject = Path.ToString(), .MountError = Resolved.Error})}));
 			const std::filesystem::path File(Resolved.PhysicalPath.generic_string() + ".dasset");
 			std::error_code FileError;
 			const bool bExists = std::filesystem::exists(File, FileError);
@@ -460,7 +456,7 @@ namespace Durin
 						? Failure::InvalidClosure : Read.Error.Code == EPreparedPackageResourceError::Stale
 						? Failure::Stale : Failure::IoError;
 					return Finish(MakeResult(bCancelled ? Status::Cancelled : Status::Failed,
-						bCancelled ? Failure::None : Code, Stage::ReadAndPrepare, Paths[Index], Reason::ResourceRead, {.ResourceCause = Read.Error}));
+						bCancelled ? Failure::None : Code, Stage::ReadAndPrepare, Paths[Index], Reason::ResourceRead, {.Message = FormatPreparedPackageResourceError(Read.Error)}));
 				}
 				Sources[Index].PackagePath = Paths[Index];
 				RemainingBytes -= Sources[Index].Storage.GetRetainedBytes();
@@ -502,7 +498,7 @@ namespace Durin
 				const bool bCancelled = Prepared.Status == AssetPrivate::EPackageGraphPrepareStatus::Cancelled;
 				return Finish(MakeResult(bCancelled ? Status::Cancelled : Status::Failed,
 					bCancelled ? Failure::None : MapGraphFailure(Prepared.Status),
-					Stage::ReadAndPrepare, Prepared.PackagePath, Reason::GraphPreparation, {.GraphCause = std::make_shared<FPackageGraphPrepareResult>(Prepared)}));
+					Stage::ReadAndPrepare, Prepared.PackagePath, Reason::GraphPreparation, {.Message = FormatPackageGraphPrepareError(Prepared)}));
 			}
 
 			uint64 ClosureBytes = 0;
@@ -551,7 +547,7 @@ namespace Durin
 				for (DPackage* Package : Packages) Ignore.emplace_back(Package);
 				(void)DependencyScope.Release(Ignore);
 				return Finish(MakeResult(Status::Failed, MapReplacementFailure(ReplaceResult.Error.Code),
-					Stage::PrepareReferences, {}, Reason::Replacement, {.ReplacementCause = ReplaceResult.Error}));
+					Stage::PrepareReferences, {}, Reason::Replacement, {.Message = FormatObjectReplacementError(ReplaceResult.Error)}));
 			}
 			for (size_t SourceIndex = 0; SourceIndex < Sources.size(); ++SourceIndex)
 			{
@@ -573,7 +569,7 @@ namespace Durin
 					(void)DependencyScope.Release(Ignore);
 					const bool bCancelled = Revalidate.Error.Code == EPreparedPackageResourceError::Cancelled;
 					return Finish(MakeResult(bCancelled ? Status::Cancelled : Status::Failed,
-						bCancelled ? Failure::None : Failure::Stale, Stage::Revalidate, {}, Reason::ResourceRevalidation, {.ResourceCause = Revalidate.Error}));
+						bCancelled ? Failure::None : Failure::Stale, Stage::Revalidate, {}, Reason::ResourceRevalidation, {.Message = FormatPreparedPackageResourceError(Revalidate.Error)}));
 				}
 			}
 			if (Injected(Request, EPackageReloadFaultPoint::RevalidateReferencers)
@@ -594,7 +590,7 @@ namespace Durin
 				for (DPackage* Package : Packages) Ignore.emplace_back(Package);
 				(void)DependencyScope.Release(Ignore);
 				return Finish(MakeResult(Status::Failed, MapReplacementFailure(ReplaceResult.Error.Code),
-					Stage::Commit, {}, Reason::Replacement, {.ReplacementCause = ReplaceResult.Error}));
+					Stage::Commit, {}, Reason::Replacement, {.Message = FormatObjectReplacementError(ReplaceResult.Error)}));
 			}
 
 			State->Result = {.Status = Status::Pending};
@@ -611,7 +607,7 @@ namespace Durin
 					// Publication is already committed. Dependency retention is safe and
 					// cannot be represented as an ordinary rollback failure.
 					State->Result.Diagnostics.push_back({.Stage = Stage::Retire,
-						.Reason = Reason::DependencyRelease, .AssetCause = std::make_shared<FAssetResult>(ReleaseResult)});
+						.Reason = Reason::DependencyRelease, .Message = ReleaseResult.Message});
 				}
 				RefreshExternalBindings(ExternalRenderConsumers, bTextures, bMaterials);
 				RefreshMaterialGraphObservers();

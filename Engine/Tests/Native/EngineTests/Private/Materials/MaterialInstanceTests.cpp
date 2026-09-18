@@ -137,15 +137,7 @@ TEST(FMaterialInstanceTests, TypedOverrideArraysRoundTripOrphansAndRejectCrossTy
 	ObjectPackage::FLinkerTables Linker;
 	const auto Captured = FSavePackageContext{}.Capture(Instance->GetPackage(), Linker);
 	ASSERT_FALSE(Captured);
-	const auto* Validation = std::get_if<FObjectValidationError>(&Captured.Error.Cause);
-	ASSERT_NE(Validation, nullptr);
-	const auto Cause = std::dynamic_pointer_cast<const FMaterialObjectValidationCause>(Validation->Cause);
-	ASSERT_TRUE(Cause);
-	EXPECT_EQ(Cause->Error.Code, FMaterialError::FCode(EMaterialInstanceError::DuplicateParameterId));
-	EXPECT_EQ(Cause->Error.ParameterId, Before.front().first);
-	EXPECT_EQ(Cause->Error.Index, 0u);
 	Records->front().ParameterId = Id;
-	EXPECT_EQ(Cause->Error.ParameterId, Before.front().first);
 	ASSERT_TRUE(SavePackage(Instance->GetPackage()));
 	ASSERT_TRUE(UnloadPackage(Path));
 	CollectGarbage();

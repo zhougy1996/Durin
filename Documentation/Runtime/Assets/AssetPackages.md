@@ -308,9 +308,9 @@ writes files.
 All six public freeze/write/read entry points return `FPackageWriterResult` or
 `FPackageReaderResult`; no diagnostic output overload remains. Success derives
 from the typed failure category. Each failure retains a specific reason and an
-owned logical path or subject. Causes retain envelope error codes, Linker index
-context, canonical Map-key context, or the complete Writer result from reader
-canonical validation. A recorded inner value failure survives the outer
+owned logical path or subject. Nested envelope, Linker, canonical Map-key and
+writer failures are formatted where they are produced, preserving their details
+without retaining another operation result. A recorded inner value failure survives the outer
 property decoder. `FormatPackageError` owns codec prose; Engine and Registry
 adapters format explicitly while their outer result contracts remain separate.
 
@@ -487,11 +487,10 @@ responsibility. Graph ownership and destruction
 stay on GameThread. This is an internal deserialization boundary, not a public
 reload admission or success result.
 `FPackageGraphPrepareResult` owns a typed reason, the affected package identity,
-admission/budget context, and complete reader, resource, graph-validation, or
-asset-operation causes. Failed preparation does not replace the caller's prior
-candidate set. `FormatPackageGraphPrepareError` formats only when presenting a
-failure; the pending outer `FAssetResult` adapter remains its own migration
-boundary.
+admission/budget context, and diagnostic text materialized at reader, resource,
+graph-validation or asset boundaries. Failed preparation does not replace the
+caller's prior candidate set. `FormatPackageGraphPrepareError` presents the owned
+diagnostic without retaining candidate objects or complete asset operations.
 
 ## Saved Package Reload
 
@@ -517,8 +516,8 @@ weak handles retain generation safety, soft paths remain unchanged, and unrelate
 referencer packages are not dirtied. `FObjectReplacementMap::Build` returns
 `FObjectReplacementMapResult` with typed reasons, the failing package index,
 budget counts, and owned object/type identities. Failed construction preserves
-the previous mapping. The graph coordinator retains this typed `MapCause` and
-reload diagnostics retain the complete `FObjectReplacementError`.
+the previous mapping. The graph coordinator keeps its own failure code/reason
+and formats lower-level failures before their temporary state is destroyed.
 
 The returned operation remains `Pending` only while the committed old graph waits
 for participant retirement. Callers keep it alive and use `Poll` or `Wait`; only a
@@ -527,9 +526,8 @@ structured failures preserve the old graph. After commit, dependency-release
 diagnostics do not masquerade as rollback because the new graph is already the
 registered generation.
 
-Reload diagnostics own typed reasons and stage/package/object context, with
-nested graph preparation, storage, path, replacement, and asset-operation
-causes. Function preparation retains all material diagnostics; failed material
+Reload diagnostics own typed reasons, stage/package/object context and text
+captured at graph preparation, storage, path, replacement and asset boundaries. Function preparation retains all material diagnostics; failed material
 compilation retains its status and complete diagnostic set. No candidate object
 is retained merely to explain a failure. Editor consumers use
 `FormatPackageReloadDiagnostic` at display time. The coordinator handles

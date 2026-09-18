@@ -310,8 +310,6 @@ TEST_F(FObjectGraphReplacementTests, RejectsMapKeyCollisionWithoutChangingIndex)
 	const auto Result = Prepare();
 	EXPECT_EQ(Result.Error.Code, EObjectReplacementError::MapCollision);
 	EXPECT_EQ(Result.Error.Reason, EObjectReplacementReason::MapInsertion);
-	ASSERT_TRUE(std::holds_alternative<EContainerOpResult>(Result.Error.Cause));
-	EXPECT_EQ(std::get<EContainerOpResult>(Result.Error.Cause), EContainerOpResult::DuplicateKey);
 	EXPECT_EQ(Result.Error.ObjectPath, Owner->GetObjectPath());
 	EXPECT_EQ(Result.Error.PropertyName, "Map");
 	EXPECT_EQ(Owner->MapReferences.size(), 2u);
@@ -551,12 +549,6 @@ TEST_F(FObjectGraphReplacementTests, MapFailuresOwnTypeIdentitiesAndSurviveGraph
 	EXPECT_EQ(Result.Error.ActualType, ActualType);
 	const auto PreparedResult = Prepare();
 	ASSERT_FALSE(PreparedResult);
-	const auto* MapCause = std::get_if<FObjectReplacementMapError>(&PreparedResult.Error.Cause);
-	ASSERT_NE(MapCause, nullptr);
-	EXPECT_EQ(MapCause->Reason, Result.Error.Reason);
-	EXPECT_EQ(MapCause->ExpectedType, ExpectedType);
-	EXPECT_EQ(MapCause->ActualType, ActualType);
-	EXPECT_EQ(MapCause->ObjectPath, ExpectedPath);
 	EXPECT_EQ(Owner->Reference.Get(), Old);
 }
 

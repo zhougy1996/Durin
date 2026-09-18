@@ -1,36 +1,30 @@
 #include "StaticMesh/StaticMeshCompilation.h"
-#include "AssetForge/Builtins/ImportDataValidation.h"
 #include "AssetForge/Builtins/StaticMeshImportData.h"
 #include "AssetForge/Builtins/VolumeTextureImportData.h"
 
 namespace Durin::AssetForge::Builtins
 {
-	auto FImportDataValidationCause::Format() const -> std::string
-	{
-		if (SettingsCause) return FormatStaticMeshImportSettingsError(*SettingsCause);
-		if (Code == EImportDataValidationError::InvalidAtlas)
-			return "VolumeTexture import data requires a valid row-major atlas interpretation.";
-		return std::format("{} import data requires exactly one source role.",
-			Family == EImportDataFamily::StaticMesh ? "StaticMesh" : "VolumeTexture");
-	}
-
 	namespace
 	{
-		auto RejectImportData(FImportDataValidationCause Cause) -> FAssetImportDataResult
+		auto RejectImportData(std::string Message) -> FAssetImportDataResult
 		{
 			return {.Error = {.Code = EAssetImportDataError::ModuleRejected,
-				.Cause = std::make_shared<FImportDataValidationCause>(std::move(Cause))}};
+				.Message = std::move(Message)}};
 		}
-		auto ValidateSingleSource(const FAssetImportDataState& State, EImportDataFamily Family)
+		auto ValidateSingleSource(const FAssetImportDataState& State, std::string_view Family)
 			-> FAssetImportDataResult
 		{
 			const FSourceFile* Source = State.SourceData.FindByRole("source");
 			if (State.SourceData.Sources.size() == 1 && Source) return {};
-			FImportDataValidationCause Cause;
-			Cause.Family = Family;
-			Cause.SourceCount = State.SourceData.Sources.size();
-			for (const auto& Item : State.SourceData.Sources) Cause.SourceRoles.push_back(Item.Role.ToString());
-			return RejectImportData(std::move(Cause));
+			std::string Roles;
+			for (const auto& Item : State.SourceData.Sources)
+			{
+				if (!Roles.empty()) Roles += ", ";
+				Roles += Item.Role.ToString();
+			}
+			return RejectImportData(std::format(
+				"{} import data requires exactly one 'source' role; got {} sources [{}].",
+				Family, State.SourceData.Sources.size(), Roles));
 		}
 	}
 
@@ -38,13 +32,10 @@ namespace Durin::AssetForge::Builtins
 	{
 		if (auto Validation = FAssetImportDataState::Validate(); !Validation) return Validation;
 		if (SourceData.Sources.empty()) return {};
-		if (auto Validation = ValidateSingleSource(*this, EImportDataFamily::StaticMesh); !Validation) return Validation;
+		if (auto Validation = ValidateSingleSource(*this, "StaticMesh"); !Validation) return Validation;
 		if (const auto Validation = ImportSettings.Validate(); !Validation)
 		{
-			FImportDataValidationCause Cause;
-			Cause.Code = EImportDataValidationError::InvalidAxisSettings;
-			Cause.SettingsCause = Validation.Error;
-			return RejectImportData(std::move(Cause));
+			return RejectImportData(FormatStaticMeshImportSettingsError(Validation.Error));
 		}
 		return {};
 	}
@@ -54,19 +45,13 @@ namespace Durin::AssetForge::Builtins
 		if (auto Validation = FAssetImportDataState::Validate(); !Validation) return Validation;
 		if (SourceData.Sources.empty() && SliceWidth == 0 && SliceHeight == 0
 			&& Depth == 0 && TilesX == 0 && TilesY == 0) return {};
-		if (auto Validation = ValidateSingleSource(*this, EImportDataFamily::VolumeTexture); !Validation) return Validation;
+		if (auto Validation = ValidateSingleSource(*this, "VolumeTexture"); !Validation) return Validation;
 		const uint64 Capacity = static_cast<uint64>(TilesX) * TilesY;
 		if (SliceWidth == 0 || SliceHeight == 0 || Depth == 0 || TilesX == 0 || TilesY == 0 || Capacity < Depth)
 		{
-			FImportDataValidationCause Cause;
-			Cause.Code = EImportDataValidationError::InvalidAtlas;
-			Cause.Family = EImportDataFamily::VolumeTexture;
-			Cause.SliceWidth = SliceWidth;
-			Cause.SliceHeight = SliceHeight;
-			Cause.Depth = Depth;
-			Cause.TilesX = TilesX;
-			Cause.TilesY = TilesY;
-			return RejectImportData(std::move(Cause));
+			return RejectImportData(std::format(
+				"VolumeTexture atlas is invalid: slice={}x{}, depth={}, tiles={}x{}, capacity={}.",
+				SliceWidth, SliceHeight, Depth, TilesX, TilesY, Capacity));
 		}
 		return {};
 	}

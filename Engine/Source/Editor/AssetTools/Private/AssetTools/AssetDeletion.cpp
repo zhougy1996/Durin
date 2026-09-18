@@ -163,8 +163,8 @@ namespace Durin
 				.Message = std::format(
 					"AssetDeletionForwardPending: deletion is irreversible; retry the remaining paths. {}",
 					DeleteResult.Message),
-				.Disposition = EAssetResultDisposition::ForwardPending,
-				.DesiredDirection = "DeleteRemaining"};
+				.WriteOutcome = {.Disposition = EAssetResultDisposition::ForwardPending,
+				.DesiredDirection = "DeleteRemaining"}};
 		}
 		Result = PublishPackageRemoval(Packages, RegistryRevision);
 		if (!Result)
@@ -180,7 +180,7 @@ namespace Durin
 				.Message = std::format(
 					"ContentCommittedProjectionPending: destructive deletion committed; Registry reconcile is required. {}",
 					Result.Message),
-				.Disposition = EAssetResultDisposition::ContentCommittedProjectionPending};
+				.WriteOutcome = {.Disposition = EAssetResultDisposition::ContentCommittedProjectionPending}};
 		}
 		bDeleted = true;
 		bForwardPending = false;

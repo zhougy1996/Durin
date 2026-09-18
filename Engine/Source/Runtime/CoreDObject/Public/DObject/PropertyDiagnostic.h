@@ -89,7 +89,7 @@ namespace Durin
 		uint64 ActualCount = 0;
 		uint64 ExpectedCount = 0;
 		std::optional<EArchiveFailureCode> ArchiveCode;
-		std::variant<std::monostate, FPropertyValueError, FReflectedMapKeyError, FObjectValidationError, FObjectError> Cause;
+		std::string Message;
 		auto HasError() const -> bool { return Code != EPropertySnapshotError::None; }
 	};
 	struct FPropertySnapshotResult
@@ -121,8 +121,7 @@ namespace Durin
 		std::optional<EArchiveFailureCode> ArchiveCode;
 		uint64 ActualCount = 0;
 		uint64 ExpectedCount = 0;
-		std::variant<std::monostate, FPropertyValueError, FPropertySnapshotError,
-			FReflectedMapKeyError, EContainerOpResult, FObjectValidationError, FObjectError> Cause;
+		std::string Message;
 		std::optional<FPropertySnapshotError> RollbackCause;
 	};
 	struct FObjectPropertyCopyResult

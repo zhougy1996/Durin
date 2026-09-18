@@ -89,7 +89,7 @@ namespace Durin
 				return {EAssetError::StaleData,
 					std::format("Registry projection for package {} is pending synchronization.",
 						Resolution.FinalPath.ToString()),
-					EAssetResultDisposition::ContentCommittedProjectionPending};
+					{EAssetResultDisposition::ContentCommittedProjectionPending}};
 			case EAssetPathResolveState::NotFound:
 				return {EAssetError::NotFound, std::format(
 					"Asset {} is not present in the registry.",
@@ -495,7 +495,6 @@ namespace Durin
 						Validation.Error.StructName = Struct->GetQualifiedName().ToString();
 						Validation.Error.SourceVersion = SourceVersion;
 						auto Result = Error(EAssetError::CorruptFile, FormatObjectValidationError(Validation.Error));
-						Result.GraphValidationCause = std::move(Validation.Error);
 						return Result;
 					}
 				}
@@ -780,13 +779,13 @@ namespace Durin
 			if (!Result) Out.Error = Result.Error == EPackageWriteError::StaleData ? EAssetError::StaleData
 				: Result.Error == EPackageWriteError::CorruptFile ? EAssetError::CorruptFile : EAssetError::IoError;
 			Out.Message = std::move(Result.Message);
-			Out.AffectedFiles = std::move(Result.AffectedFiles);
+			Out.WriteOutcome.AffectedFiles = std::move(Result.AffectedFiles);
 			if (Result.State == EPackageWriteState::PartiallyWritten)
-				Out.Disposition = EAssetResultDisposition::PartiallyWritten;
+				Out.WriteOutcome.Disposition = EAssetResultDisposition::PartiallyWritten;
 			if (Result.State == EPackageWriteState::RecoveryRequired
 				|| (!Result && Result.State == EPackageWriteState::Committed))
-				Out.Disposition = EAssetResultDisposition::RecoveryRequired;
-			if (!Result.RecoveryFiles.empty()) Out.RecoveryLocation = Result.RecoveryFiles.front();
+				Out.WriteOutcome.Disposition = EAssetResultDisposition::RecoveryRequired;
+			if (!Result.RecoveryFiles.empty()) Out.WriteOutcome.RecoveryLocation = Result.RecoveryFiles.front();
 			return Out;
 		}
 		auto BeginAssetWrite(const std::filesystem::path& Destination, FByteBuffer Bytes, FByteBuffer Bulk,
@@ -880,9 +879,9 @@ namespace Durin
 			auto Rollback = ToAssetWriteResult(Restored);
 			if (Restored.State == EPackageWriteState::RecoveryRequired)
 			{
-				Failure.Disposition = Rollback.Disposition;
+				Failure.WriteOutcome.Disposition = Rollback.WriteOutcome.Disposition;
 				Failure.Message += "; rollback: " + Rollback.Message;
-				Failure.RecoveryLocation = Rollback.RecoveryLocation;
+				Failure.WriteOutcome.RecoveryLocation = Rollback.WriteOutcome.RecoveryLocation;
 			}
 			return Failure;
 		}
@@ -919,9 +918,9 @@ namespace Durin
 			if (!RegistryResult)
 			{
 				FenceAssetRegistryProjection(std::span(&Path, 1));
-				RegistryResult.Disposition = EAssetResultDisposition::ContentCommittedProjectionPending;
+				RegistryResult.WriteOutcome.Disposition = EAssetResultDisposition::ContentCommittedProjectionPending;
 				RegistryResult.Message = "ContentCommittedProjectionPending: " + RegistryResult.Message;
-				if (!Finalized) { RegistryResult.Message += "; " + Finalized.Message; RegistryResult.RecoveryLocation = Finalized.RecoveryLocation; }
+				if (!Finalized) { RegistryResult.Message += "; " + Finalized.Message; RegistryResult.WriteOutcome.RecoveryLocation = Finalized.WriteOutcome.RecoveryLocation; }
 				return RegistryResult;
 			}
 			return Finalized;
@@ -1095,9 +1094,9 @@ namespace Durin
 				if (!bSucceeded)
 				{
 					Result = Error(EAssetError::IoError, "Direct write task failed; the closure requires reconciliation.");
-					Result.Disposition = Data->bStarted ? EAssetResultDisposition::PartiallyWritten : EAssetResultDisposition::Default;
+					Result.WriteOutcome.Disposition = Data->bStarted ? EAssetResultDisposition::PartiallyWritten : EAssetResultDisposition::Default;
 					auto Bulk = Prepared.Destination; Bulk.replace_extension(".dbulk");
-					Result.AffectedFiles = {Bulk, Prepared.Destination};
+					Result.WriteOutcome.AffectedFiles = {Bulk, Prepared.Destination};
 				}
 				if (Result)
 				{
@@ -1111,14 +1110,14 @@ namespace Durin
 						Result = bFailPublication ? Error(EAssetError::StaleData, "Injected Registry publication failure.")
 							: AssetPrivate::ToAssetResult(AssetsSaved({BuildSavedAssetMetadata(Prepared.File,
 							Path, Prepared.Destination, Stamp.Size, Stamp.Time)}, CaptureAssetRegistryPublication()));
-					if (!Result) Result.Disposition = EAssetResultDisposition::ContentCommittedProjectionPending;
+					if (!Result) Result.WriteOutcome.Disposition = EAssetResultDisposition::ContentCommittedProjectionPending;
 					else
 					{
 						Data->Package->MarkAsPublished();
 						if (Data->Package->GetEditRevision() == Prepared.Revision) Data->Package->ClearDirty();
 					}
 				}
-				if (!Result && Result.Disposition != EAssetResultDisposition::Default)
+				if (!Result && Result.WriteOutcome.Disposition != EAssetResultDisposition::Default)
 				{
 					if (!Data->Package->IsDirty()) Data->Package->MarkDirty();
 					FenceAssetRegistryProjection(std::span(&Path, 1));
@@ -1127,7 +1126,7 @@ namespace Durin
 				if (!Result)
 				{
 					DURIN_ERROR("Async save {} failed: {}", Path.ToString(), Result.Message);
-					for (const auto& File : Result.AffectedFiles) DURIN_ERROR("Affected package file: {}", File.string());
+					for (const auto& File : Result.WriteOutcome.AffectedFiles) DURIN_ERROR("Affected package file: {}", File.string());
 				}
 				if (Sink) Sink(Path, Result);
 			});
@@ -1217,9 +1216,9 @@ namespace Durin
 		{
 			std::vector<FPackagePath> Fenced(Paths.begin(), Paths.end());
 			FenceAssetRegistryProjection(Fenced);
-			RegistryResult.Disposition = EAssetResultDisposition::ContentCommittedProjectionPending;
+			RegistryResult.WriteOutcome.Disposition = EAssetResultDisposition::ContentCommittedProjectionPending;
 			RegistryResult.Message = "ContentCommittedProjectionPending: " + RegistryResult.Message;
-			if (!Finalized) { RegistryResult.Message += "; " + Finalized.Message; RegistryResult.RecoveryLocation = Finalized.RecoveryLocation; }
+			if (!Finalized) { RegistryResult.Message += "; " + Finalized.Message; RegistryResult.WriteOutcome.RecoveryLocation = Finalized.WriteOutcome.RecoveryLocation; }
 			return RegistryResult;
 		}
 		return Finalized;

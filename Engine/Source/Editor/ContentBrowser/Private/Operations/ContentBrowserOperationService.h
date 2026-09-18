@@ -151,9 +151,9 @@ namespace Durin::Editor::ContentBrowser::Private
 			if (AssetResult->State != EAssetOperationTerminalState::Completed)
 				Status.Error = EAssetError::IoError;
 			if (AssetResult->State == EAssetOperationTerminalState::ForwardPending)
-				Status.Disposition = EAssetResultDisposition::ForwardPending;
+				Status.WriteOutcome.Disposition = EAssetResultDisposition::ForwardPending;
 			if (AssetResult->State == EAssetOperationTerminalState::ContentCommittedProjectionPending)
-				Status.Disposition = EAssetResultDisposition::ContentCommittedProjectionPending;
+				Status.WriteOutcome.Disposition = EAssetResultDisposition::ContentCommittedProjectionPending;
 		}
 		FAssetResult Status;
 		std::optional<FAssetOperationResult> AssetResult;
