@@ -128,7 +128,6 @@ namespace Durin
 		Result.CookedLoad = Mesh.GetRenderDataLoadStatus();
 		Result.Gpu = Mesh.GetRenderResourceStatus();
 		Result.Operation = GetStaticMeshCompilationDiagnostic(Mesh);
-		Result.Operation.Message.resize(std::min<size_t>(Result.Operation.Message.size(), 4096));
 		Result.bOperationSourceMatches = Result.Operation.RequestId != 0
 			&& Result.Operation.SourceIdentity == Source.GetIdentity();
 		Result.Collision = InspectStaticMeshCollision(Mesh);

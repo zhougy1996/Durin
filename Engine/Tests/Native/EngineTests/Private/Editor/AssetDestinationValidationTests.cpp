@@ -89,7 +89,7 @@ TEST_F(FAssetDestinationValidationTests, ResolvesCanonicalAndPhysicalDestination
 {
 	const FAssetDestinationValidation Result =
 		InspectAssetDestination("/project/Textures/Stone", EmptyOccupancy);
-	ASSERT_TRUE(Result) << Result.Message;
+	ASSERT_TRUE(Result) << FormatAssetDestinationValidation(Result);
 	EXPECT_EQ(Result.AssetPath.ToString(), "/project/Textures/Stone");
 	ASSERT_NE(Result.Mount, nullptr);
 	EXPECT_EQ(Result.Mount->VirtualRoot, "/Project/");
@@ -98,7 +98,7 @@ TEST_F(FAssetDestinationValidationTests, ResolvesCanonicalAndPhysicalDestination
 
 	const FAssetDestinationValidation NonNormalizedRoot =
 		InspectAssetDestination("/NonNormalized/Textures/Stone", EmptyOccupancy);
-	ASSERT_TRUE(NonNormalizedRoot) << NonNormalizedRoot.Message;
+	ASSERT_TRUE(NonNormalizedRoot) << FormatAssetDestinationValidation(NonNormalizedRoot);
 	EXPECT_EQ(NonNormalizedRoot.PhysicalPath.lexically_normal(),
 		(Root / "CanonicalContent/Textures/Stone.dasset").lexically_normal());
 }
@@ -108,19 +108,21 @@ TEST_F(FAssetDestinationValidationTests, RejectsInvalidUnknownAndLookalikePaths)
 	const FAssetDestinationValidation Trailing =
 		InspectAssetDestination("/Project/Textures/", EmptyOccupancy);
 	EXPECT_FALSE(Trailing.bAssetPathValid);
-	EXPECT_FALSE(Trailing.Message.empty());
+	EXPECT_EQ(Trailing.Error, EAssetDestinationError::Path);
 
 	const FAssetDestinationValidation Unknown =
 		InspectAssetDestination("/Unknown/Textures/Stone", EmptyOccupancy);
 	EXPECT_FALSE(Unknown.bAssetPathValid);
 	EXPECT_FALSE(Unknown.bMountedDestination);
-	EXPECT_EQ(Unknown.Message, "Virtual path does not use a registered mount.");
+	EXPECT_EQ(Unknown.Error, EAssetDestinationError::Path);
+	ASSERT_TRUE(Unknown.PathCause);
+	EXPECT_EQ(Unknown.RequestedPath, "/Unknown/Textures/Stone");
 
 	const FAssetDestinationValidation Lookalike =
 		InspectAssetDestination("/ProjectExtra/Textures/Stone", EmptyOccupancy);
 	EXPECT_FALSE(Lookalike.bAssetPathValid);
 	EXPECT_FALSE(Lookalike.bMountedDestination);
-	EXPECT_EQ(Lookalike.Message, "Virtual path does not use a registered mount.");
+	EXPECT_EQ(Lookalike.Error, EAssetDestinationError::Path);
 
 	const FAssetDestinationValidation ReadOnlySource =
 		InspectAssetDestination("/Sources/Textures/Stone", EmptyOccupancy);
@@ -128,8 +130,7 @@ TEST_F(FAssetDestinationValidationTests, RejectsInvalidUnknownAndLookalikePaths)
 	EXPECT_TRUE(ReadOnlySource.bMountedDestination);
 	EXPECT_FALSE(ReadOnlySource.bContentWritable);
 	EXPECT_FALSE(ReadOnlySource);
-	EXPECT_EQ(ReadOnlySource.Message,
-		"Choose a destination inside a content-writable mount.");
+	EXPECT_EQ(ReadOnlySource.Error, EAssetDestinationError::ReadOnly);
 
 	const FAssetDestinationValidation ReadOnlyEngine =
 		InspectAssetDestination("/Engine/Textures/Stone", EmptyOccupancy);
@@ -145,9 +146,7 @@ TEST_F(FAssetDestinationValidationTests, ReportsRegistryAndLoadedPackageCollisio
 	EXPECT_TRUE(RegistryResult.bRegistryAssetExists);
 	EXPECT_FALSE(RegistryResult.bResidentPackageExists);
 	EXPECT_FALSE(RegistryResult);
-	EXPECT_EQ(
-		RegistryResult.Message,
-		"An asset already exists at this path. Choose another destination or delete the existing asset first.");
+	EXPECT_EQ(RegistryResult.Error, EAssetDestinationError::RegistryAsset);
 
 	const FAssetDestinationValidation LoadedResult =
 		InspectAssetDestination("/Project/Textures/Loaded", PublishedPackageOccupancy);
@@ -155,9 +154,7 @@ TEST_F(FAssetDestinationValidationTests, ReportsRegistryAndLoadedPackageCollisio
 	EXPECT_TRUE(LoadedResult.bResidentPackageExists);
 	EXPECT_FALSE(LoadedResult.bResidentPackageNewlyCreated);
 	EXPECT_FALSE(LoadedResult);
-	EXPECT_EQ(
-		LoadedResult.Message,
-		"A resident package already uses this path. Close it or choose another destination.");
+	EXPECT_EQ(LoadedResult.Error, EAssetDestinationError::ResidentPackage);
 
 	const FAssetDestinationValidation DraftResult =
 		InspectAssetDestination(
@@ -166,65 +163,66 @@ TEST_F(FAssetDestinationValidationTests, ReportsRegistryAndLoadedPackageCollisio
 	EXPECT_TRUE(DraftResult.bResidentPackageExists);
 	EXPECT_TRUE(DraftResult.bResidentPackageNewlyCreated);
 	EXPECT_FALSE(DraftResult);
-	EXPECT_EQ(
-		DraftResult.Message,
-		"A newly created unsaved package already uses this path. Save or explicitly discard it before reusing the destination.");
+	EXPECT_EQ(DraftResult.Error, EAssetDestinationError::UnsavedPackage);
 
 	const FAssetDestinationValidation RedirectorResult =
 		InspectAssetDestination(
 			"/Project/Textures/Redirected", RedirectorOccupancy);
 	EXPECT_FALSE(RedirectorResult);
+	EXPECT_EQ(RedirectorResult.Error, EAssetDestinationError::Redirector);
+	EXPECT_EQ(RedirectorResult.RedirectDestination.ToString(), "/Project/Textures/Final");
+	ASSERT_TRUE(InspectAssetDestination(RedirectorResult.RequestedPath, EmptyOccupancy));
+	EXPECT_EQ(RedirectorResult.Error, EAssetDestinationError::Redirector);
 	EXPECT_EQ(
 		RedirectorResult.OccupantKind,
 		EAssetDestinationOccupantKind::Redirector);
-	EXPECT_NE(RedirectorResult.Message.find("/Project/Textures/Final"),
-		std::string::npos);
-	EXPECT_NE(RedirectorResult.Message.find("Fix Up Redirectors"),
-		std::string::npos);
+
+
 }
 
 TEST_F(FAssetDestinationValidationTests, ClassifiesNormalizedAndNonNormalizedPhysicalPaths)
 {
 	const FAssetDestinationValidation Normalized = ClassifyAssetDestination(
 		Root / "Project/Content/Textures/Stone.dasset", EmptyOccupancy);
-	ASSERT_TRUE(Normalized) << Normalized.Message;
+	ASSERT_TRUE(Normalized) << FormatAssetDestinationValidation(Normalized);
 	EXPECT_EQ(Normalized.AssetPath.ToString(), "/Project/Textures/Stone");
 
 	const FAssetDestinationValidation NonNormalized = ClassifyAssetDestination(
 		Root / "Project/Content/Textures/../Materials/Stone.dasset", EmptyOccupancy);
-	ASSERT_TRUE(NonNormalized) << NonNormalized.Message;
+	ASSERT_TRUE(NonNormalized) << FormatAssetDestinationValidation(NonNormalized);
 	EXPECT_EQ(NonNormalized.AssetPath.ToString(), "/Project/Materials/Stone");
 
 	const FAssetDestinationValidation Outside = ClassifyAssetDestination(
 		Root / "Project/ContentLookalike/Stone.dasset", EmptyOccupancy);
 	EXPECT_FALSE(Outside.bMountedDestination);
-	EXPECT_FALSE(Outside.Message.empty());
+	EXPECT_FALSE(FormatAssetDestinationValidation(Outside).empty());
 }
 
 TEST_F(FAssetDestinationValidationTests, ResolvesVirtualContentDirectories)
 {
 	const FContentDirectoryValidation Virtual =
 		InspectContentDirectory("/Project/Scenes/Robot");
-	ASSERT_TRUE(Virtual) << Virtual.Message;
+	ASSERT_TRUE(Virtual) << FormatContentDirectoryValidation(Virtual);
 	EXPECT_EQ(Virtual.DirectoryPath.ToString(), "/Project/Scenes/Robot");
 	EXPECT_EQ(Virtual.PhysicalPath.lexically_normal(),
 		(Root / "Project/Content/Scenes/Robot").lexically_normal());
 
 	const FContentDirectoryValidation Physical = ClassifyContentDirectory(
 		Root / "Project/Content/Scenes/Robot");
-	ASSERT_TRUE(Physical) << Physical.Message;
+	ASSERT_TRUE(Physical) << FormatContentDirectoryValidation(Physical);
 	EXPECT_EQ(Physical.DirectoryPath.ToString(), "/Project/Scenes/Robot");
 
 	const FContentDirectoryValidation Outside = ClassifyContentDirectory(
 		Root / "Project/ContentLookalike/Scenes/Robot");
 	EXPECT_FALSE(Outside);
-	EXPECT_FALSE(Outside.Message.empty());
+	EXPECT_EQ(Outside.Error, EContentDirectoryError::Mount);
+	EXPECT_NE(Outside.MountCause, EMountPathError::None);
 
 	const FContentDirectoryValidation ReadOnly =
 		InspectContentDirectory("/Sources/Scenes/Robot");
 	EXPECT_TRUE(ReadOnly.bMountedDestination);
 	EXPECT_FALSE(ReadOnly.bContentWritable);
 	EXPECT_FALSE(ReadOnly);
-	EXPECT_EQ(ReadOnly.Message,
-		"Choose a directory inside a content-writable mount.");
+	EXPECT_EQ(ReadOnly.Error, EContentDirectoryError::ReadOnly);
+	EXPECT_EQ(ReadOnly.RequestedPath, "/Sources/Scenes/Robot");
 }

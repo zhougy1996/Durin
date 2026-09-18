@@ -292,9 +292,43 @@ namespace Durin
 	{
 	}
 
-	auto DObject::ValidateLoadedObjectGraph(const FObjectGraphLoadContext&, std::string&) const -> bool
+	auto RejectPropertyEdit(const DObject& Object, const FPropertyEditProposal& Proposal,
+		EPropertyEditRejection Reason, std::shared_ptr<const IObjectValidationCause> Cause) -> FObjectValidationResult
 	{
-		return true;
+		return {{.Code = EObjectValidationError::PropertyRejected, .ObjectPath = Object.GetObjectPath(),
+			.PropertyReason = Reason,
+			.PropertyName = Proposal.MemberProperty ? Proposal.MemberProperty->NamePrivate.ToString() : std::string{},
+			.Cause = std::move(Cause)}};
+	}
+
+	auto FormatObjectValidationError(const FObjectValidationError& Error) -> std::string
+	{
+		if (Error.Code == EObjectValidationError::None) return {};
+		if (Error.Code == EObjectValidationError::StructRejected)
+			return Error.Cause ? "PostDeserializeRejected: " + Error.Cause->Format()
+				: std::format("PostDeserializeRejected: '{}' rejected the loaded value.", Error.StructName);
+		if (Error.Cause) return Error.Cause->Format();
+		if (Error.Code == EObjectValidationError::PropertyRejected)
+		{
+			switch (Error.PropertyReason)
+			{
+			case EPropertyEditRejection::InvalidMetadata: return "The reflected property metadata is unavailable.";
+			case EPropertyEditRejection::IncompatibleObject: return "Selected object has an incompatible type.";
+			case EPropertyEditRejection::NonFiniteValue: return "The proposed property value must be finite.";
+			case EPropertyEditRejection::DegenerateDirection: return "The proposed direction must be nonzero.";
+			case EPropertyEditRejection::ParentCycle: return "A material instance cannot create a parent cycle.";
+			case EPropertyEditRejection::ReentrantEdit: return "Reentrant property mutation is unsupported.";
+			case EPropertyEditRejection::IncompleteDraft: return "Property edits require a complete detached draft.";
+			default: return "The object rejected the reflected property proposal.";
+			}
+		}
+		if (Error.Code == EObjectValidationError::InvalidOwnedGraph) return "Owned graph child does not match its owner.";
+		return "Object graph validation failed.";
+	}
+
+	auto DObject::ValidateLoadedObjectGraph(const FObjectGraphLoadContext&) const -> FObjectValidationResult
+	{
+		return {};
 	}
 
 	auto DObject::GetLoadedCustomVersion(const FGuid& Key) const -> std::optional<int32>
@@ -330,11 +364,10 @@ namespace Durin
 		LoadedDeprecatedProperties.clear();
 	}
 
-	auto DObject::PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool
+	auto DObject::PreEditChangeProperty(FPropertyEditProposal& Proposal) -> FObjectValidationResult
 	{
 		(void)Proposal;
-		(void)OutError;
-		return true;
+		return {};
 	}
 
 	auto DObject::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void

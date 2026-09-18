@@ -179,7 +179,7 @@ namespace Durin::Editor::Material
 	{
 		auto& Function = *Document.Function();
 		FMaterialGraphDocument Graph(Function);
-		const auto Apply = [&](FMaterialGraphCommandResult Result) { if (!Result) Error = Result.Message; };
+		const auto Apply = [&](FMaterialGraphCommandResult Result) { if (!Result) Error = FormatMaterialGraphCommandResult(Result); };
 		ImGui::SeparatorText("Interface");
 		if (Document.Canvas.GetSelection().size() != 1) Document.SelectedPortNode = {};
 		for (const auto& Selection : Document.Canvas.GetSelection())
@@ -302,7 +302,7 @@ namespace Durin::Editor::Material
 				if (Document.EditingNode != *Id || !Document.NodeDraft.Get() || Document.NodeDraft->GetClass() != (*Node)->GetClass())
 				{
 					Document.EditingNode = *Id;
-					Document.NodeDraft = TStrongObjectPtr<DMaterialExpression>(DuplicateObject(Node->Get(), nullptr, NAME_None));
+					Document.NodeDraft = TStrongObjectPtr<DMaterialExpression>(DuplicateObject(Node->Get(), nullptr, NAME_None).Object);
 				}
 				if (!Document.NodeDraft.Get()) continue;
 				auto* Draft = Document.NodeDraft.Get();
@@ -390,7 +390,7 @@ namespace Durin::Editor::Material
 			auto Result = BuildMaterialFunctionPreview(Function, Document.Output, *Document.Material());
 			Document.Diagnostics = Result.Diagnostics;
 			Document.bPreviewValid = static_cast<bool>(Result);
-			if (!Result) Error = Result.Message;
+			if (!Result) Error = FormatMaterialGraphCommandResult(Result);
 			else Document.Material()->CompileEdits();
 		}
 		else if (Document.Material()->GetMaterialCompileStatus().State == EMaterialCompileState::NeedsCompile)

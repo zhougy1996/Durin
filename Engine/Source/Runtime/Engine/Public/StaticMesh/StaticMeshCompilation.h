@@ -9,6 +9,18 @@ namespace Durin
 	enum class EStaticMeshCompilationPriority : uint8 { Background, Interactive };
 	enum class EStaticMeshCompilationPhase : uint8 { Queued, Building, Mailbox, Terminal };
 
+	struct FAssetResult;
+	enum class EStaticMeshCompletionError : uint8 { None, Build, Application, PackageUnavailable, Save };
+	struct FStaticMeshCompletionError
+	{
+		EStaticMeshCompletionError Code = EStaticMeshCompletionError::None;
+		FObjectKey Owner;
+		std::optional<FStaticMeshAuthoredBuildError> BuildCause;
+		std::optional<FStaticMeshApplicationError> ApplicationCause;
+		std::shared_ptr<const FAssetResult> SaveCause;
+	};
+	ENGINE_API auto FormatStaticMeshCompletionError(const FStaticMeshCompletionError& Error) -> std::string;
+
 	struct FStaticMeshCompilationDiagnostic
 	{
 		uint64 RequestId = 0;
@@ -24,8 +36,12 @@ namespace Durin
 		uint64 CaptureNanoseconds = 0;
 		uint64 WorkerNanoseconds = 0;
 		uint64 PublicationNanoseconds = 0;
-		std::string Message;
+		FStaticMeshCompletionError Error;
+		FStaticMeshPersistenceDiagnostic PersistenceDiagnostic;
 	};
+	ENGINE_API auto FormatStaticMeshCompilationDiagnostic(const FStaticMeshCompilationDiagnostic& Diagnostic) -> std::string;
+	using FStaticMeshPublicationPreparation = std::function<FStaticMeshApplicationResult(DStaticMesh&, DAssetImportData*&)>;
+
 	struct FStaticMeshCompilationManagerDiagnostics
 	{
 		uint32 OutstandingRecords = 0;
@@ -42,12 +58,48 @@ namespace Durin
 		bool bMarkPackageDirty = true;
 		// Owner thread only. Prepare a private provenance inner without changing live state.
 		// Application validates it before mutation and installs its pointer within the refresh boundary.
-		std::function<bool(DStaticMesh&, DAssetImportData*&, std::string&)> PreparePublication;
+		FStaticMeshPublicationPreparation PreparePublication;
 	};
 	using FStaticMeshCompilationCompletion = std::function<void(const FStaticMeshCompilationDiagnostic&)>;
 
+	enum class EStaticMeshSubmissionError : uint8
+	{
+		None, Unavailable, Owner, Source, Settings, CollisionSettings, MaterialSlots,
+		ImportValidation, RequestBudget, AdmissionBudget, Provider
+	};
+	struct FStaticMeshSubmissionError
+	{
+		EStaticMeshSubmissionError Code = EStaticMeshSubmissionError::None;
+		FObjectKey Owner;
+		bool Accepting = false;
+		bool OwnerValid = false;
+		FXxHash128 SourceIdentity;
+		float NormalizedSize = 0;
+		uint64 SlotCount = 0;
+		uint64 SlotIndex = 0;
+		std::string SlotName;
+		std::string SourceName;
+		EBodySetupCollisionSourceMode CollisionMode = EBodySetupCollisionSourceMode::None;
+		EBodySetupCollisionQueryPolicy CollisionPolicy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
+		uint64 RecordCount = 0;
+		uint64 RecordLimit = 0;
+		uint64 ReservedBytes = 0;
+		uint64 RequestedBytes = 0;
+		uint64 ByteLimit = 0;
+		std::optional<FAssetImportDataError> ImportCause;
+		std::optional<FStaticMeshBuildMemoryEstimate> MemoryCause;
+		std::optional<EFeatureInvokeStatus> InvocationStatus;
+		std::optional<FStaticMeshBuildProviderDescriptor> Descriptor;
+	};
+	struct FStaticMeshSubmissionResult
+	{
+		FStaticMeshSubmissionError Error;
+		explicit operator bool() const { return Error.Code == EStaticMeshSubmissionError::None; }
+	};
+	ENGINE_API auto FormatStaticMeshSubmissionError(const FStaticMeshSubmissionError& Error) -> std::string;
+
 	ENGINE_API auto SubmitStaticMeshCompilation(DStaticMesh& Mesh, FStaticMeshCompilationRequest Request,
-		std::string& OutError, FStaticMeshCompilationCompletion Completion = {}) -> bool;
+		FStaticMeshCompilationCompletion Completion = {}) -> FStaticMeshSubmissionResult;
 	ENGINE_API auto CanJoinStaticMeshCompilation(const DStaticMesh& Mesh, const FStaticMeshSource& Source) -> bool;
 	ENGINE_API auto HasPendingStaticMeshSourceMutation(const DStaticMesh& Mesh) -> bool;
 	ENGINE_API auto HasPendingStaticMeshCompilation(const DStaticMesh& Mesh) -> bool;

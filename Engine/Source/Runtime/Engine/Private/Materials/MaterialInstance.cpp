@@ -1,5 +1,8 @@
+#include "MaterialParameterMutation.h"
+#include "Components/PropertyEditValidation.h"
 #include "ObjectCacheContext.h"
 #include "Materials/MaterialInstance.h"
+#include "Materials/MaterialObjectValidation.h"
 #include "Materials/MaterialCustomVersion.h"
 #include "Logging/LogMacros.h"
 
@@ -57,11 +60,12 @@ namespace Durin
 		if (!IsTemplateConstructionPurpose(ObjectInitializer.Purpose)) PublishMaterialRenderProxyState();
 	}
 
-	auto DMaterialInstance::ValidateParameterStorage(const FPropertyEditProposal* Proposal) const -> bool
+	auto DMaterialInstance::ValidateParameterStorage(const FPropertyEditProposal* Proposal) const -> FMaterialOperationResult
 	{
 		std::unordered_set<FGuid> Ids;
-		bool bValid = true;
+		FMaterialOperationResult Result;
 		VisitParameterValueArrays([&](const auto& Stored) {
+			if (!Result) return;
 			using TArray = std::decay_t<decltype(Stored)>;
 			using TRecord = typename TArray::value_type;
 			const TArray* Records = &Stored;
@@ -69,20 +73,29 @@ namespace Durin
 			{
 				if (Proposal->DraftRootProperty != Proposal->MemberProperty || !Proposal->DraftRootContainer)
 				{
-					bValid = false;
+					Result.Error = EMaterialInstanceError::IncompleteParameterDraft;
 					return;
 				}
 				Records = Proposal->DraftRootProperty->ContainerPtrToValuePtr<TArray>(
 					Proposal->DraftRootContainer, Proposal->DraftRootArrayIndex);
 			}
-			for (const auto& Record : *Records)
+			for (uint32 Index = 0; Index < Records->size(); ++Index)
 			{
-				if (!Record.ParameterId.IsValid() || !Ids.insert(Record.ParameterId).second) bValid = false;
-				if constexpr (std::is_same_v<TRecord, FMaterialTextureParameterValue>)
-					if (!IsValidMaterialSampling(Record.Value.SamplerState, Record.Value.TextureFallback)) bValid = false;
+				const auto& Record = (*Records)[Index];
+				if (!Record.ParameterId.IsValid()) Result.Error = EMaterialInstanceError::InvalidParameterId;
+				else if (!Ids.insert(Record.ParameterId).second) Result.Error = EMaterialInstanceError::DuplicateParameterId;
+				else if constexpr (std::is_same_v<TRecord, FMaterialTextureParameterValue>)
+					if (!IsValidMaterialSampling(Record.Value.SamplerState, Record.Value.TextureFallback))
+						Result.Error = EMaterialInstanceError::InvalidSamplingPolicy;
+				if (!Result)
+				{
+					Result.Error.ParameterId = Record.ParameterId;
+					Result.Error.Index = Index;
+					return;
+				}
 			}
 		});
-		return bValid;
+		return Result;
 	}
 
 	auto DMaterialInstance::Serialize(FArchive& Ar) -> void
@@ -90,8 +103,14 @@ namespace Durin
 		if (!FMaterialInstanceVersion::Serialize(Ar)) return;
 		Super::Serialize(Ar);
 		if (Ar.HasError()) return;
-		if (!ValidateParameterStorage())
-			Ar.Fail(EArchiveFailureCode::InvalidData, "Invalid or duplicate material parameter value.");
+		const auto Validation = ValidateParameterStorage();
+		if (!Validation)
+		{
+			auto Rejection = RejectMaterialObjectGraph(GetObjectPath(), Validation.Error);
+			if (auto* ObjectArchive = dynamic_cast<FObjectArchive*>(&Ar))
+				ObjectArchive->FailValidation(std::move(Rejection.Error));
+			else Ar.Fail(EArchiveFailureCode::InvalidData, FormatMaterialError(Validation.Error));
+		}
 	}
 
 	auto DMaterialInstance::SetParent(DMaterialInterface* InParent) -> bool
@@ -117,13 +136,12 @@ namespace Durin
 		return true;
 	}
 
-	auto DMaterialInstance::PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool
+	auto DMaterialInstance::PreEditChangeProperty(FPropertyEditProposal& Proposal) -> FObjectValidationResult
 	{
-		if (!Super::PreEditChangeProperty(Proposal, OutError)) return false;
-		if (!ValidateParameterStorage(&Proposal))
+		if (auto Result = Super::PreEditChangeProperty(Proposal); !Result) return Result;
+		if (const auto Validation = ValidateParameterStorage(&Proposal); !Validation)
 		{
-			OutError = "Invalid sampling policy or duplicate typed parameter identity.";
-			return false;
+			return RejectEnginePropertyEdit(*this, Proposal, Validation.Error);
 		}
 		if (Proposal.MemberProperty && Proposal.MemberProperty->NamePrivate == FName("PropertyOverrides")
 			&& Proposal.DraftRootProperty == Proposal.MemberProperty && Proposal.DraftRootContainer)
@@ -131,30 +149,27 @@ namespace Durin
 			const auto* Overrides = Proposal.DraftRootProperty->ContainerPtrToValuePtr<FMaterialPropertyOverrides>(
 				Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex);
 			const auto Validation = ValidateMaterialStaticProperties(Overrides->Values);
-			OutError = FormatMaterialError(Validation.Error);
-			return static_cast<bool>(Validation);
+			if (!Validation) return RejectEnginePropertyEdit(*this, Proposal, Validation.Error);
+			return {};
 		}
 		if (!Proposal.MemberProperty || Proposal.MemberProperty->NamePrivate != FName("Parent")
-			|| !Proposal.DraftRootProperty || !Proposal.DraftRootContainer) return true;
+			|| !Proposal.DraftRootProperty || !Proposal.DraftRootContainer) return {};
 		if (Proposal.DraftRootProperty->GetKind() != DurinCodeGen::EPropertyGenFlags::Object)
 		{
-			OutError = "The material parent metadata is unavailable.";
-			return false;
+			return RejectPropertyEdit(*this, Proposal, EPropertyEditRejection::InvalidMetadata);
 		}
 		DObject* Value = static_cast<const FObjectProperty*>(Proposal.DraftRootProperty)->GetObjectPropertyValue(
 			Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex);
 		auto* CandidateParent = Value ? Cast<DMaterialInterface>(Value) : nullptr;
 		if (Value && !CandidateParent)
 		{
-			OutError = "Selected asset is not a material.";
-			return false;
+			return RejectPropertyEdit(*this, Proposal, EPropertyEditRejection::IncompatibleObject);
 		}
 		if (WouldCreateParentCycle(this, CandidateParent))
 		{
-			OutError = "A material instance cannot create a parent cycle.";
-			return false;
+			return RejectPropertyEdit(*this, Proposal, EPropertyEditRejection::ParentCycle);
 		}
-		return true;
+		return {};
 	}
 
 	auto DMaterialInstance::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
@@ -254,13 +269,22 @@ namespace Durin
 	auto DMaterialInstance::SetParameterValue(
 		const FGuid& Id,
 		const FMaterialParameterValue& Value
-	) -> bool
+	) -> FMaterialOperationResult
 	{
 		const auto Type = Value.GetType();
 		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Id);
-		if (!Definition || Definition->Type != Type
-			|| !GetParameterReachability()->ParameterIds.contains(Id)) return false;
-		if (Type == EMaterialParameterType::Texture && !IsValidMaterialSampling(Value.GetTexture().SamplerState, Value.GetTexture().TextureFallback)) return false;
+		const auto Fail = [&](auto Code, std::optional<EMaterialParameterType> Expected = {}) -> FMaterialOperationResult
+		{
+			FMaterialError Error(Code, Id);
+			Error.ExpectedParameterType = Expected;
+			Error.ActualParameterType = Type;
+			return {std::move(Error)};
+		};
+		if (!Definition) return Fail(EMaterialParameterError::NotFound);
+		if (Definition->Type != Type) return Fail(EMaterialParameterError::InvalidType, Definition->Type);
+		if (!GetParameterReachability()->ParameterIds.contains(Id)) return Fail(EMaterialParameterError::Unreachable);
+		if (Type == EMaterialParameterType::Texture && !IsValidMaterialSampling(Value.GetTexture().SamplerState, Value.GetTexture().TextureFallback))
+			return Fail(EMaterialInstanceError::InvalidSamplingPolicy);
 		FMaterialParameterValue StoredValue = Value;
 		if (FMaterialVectorParameterValue::SupportsType(Type))
 		{
@@ -271,8 +295,8 @@ namespace Durin
 		FMaterialParameterValue Existing;
 		if (GetLocalParameterValue(Id, Existing))
 		{
-			if (Existing.GetType() != Type) return false;
-			if (Existing == StoredValue) return true;
+			if (Existing.GetType() != Type) return Fail(EMaterialParameterError::OverrideType, Existing.GetType());
+			if (Existing == StoredValue) return {};
 		}
 		VisitParameterValueArrays([&](auto& Records) {
 			using TRecord = typename std::decay_t<decltype(Records)>::value_type;
@@ -288,7 +312,7 @@ namespace Durin
 		});
 		MarkPackageDirty();
 		MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters, true);
-		return true;
+		return {};
 	}
 
 	auto DMaterialInstance::ClearParameterValue(const FGuid& Id) -> bool
@@ -318,38 +342,40 @@ namespace Durin
 			|| !GetParameterReachability()->ParameterIds.contains(Id);
 	}
 
-	auto DMaterialInstance::SetScalarParameterValue(FName Name, float Value) -> bool
+	auto DMaterialInstance::SetScalarParameterValue(FName Name, float Value) -> FMaterialOperationResult
 	{
-		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
-		if (!Definition || Definition->Type != EMaterialParameterType::Scalar) return false;
-		return SetParameterValue(
-			Definition->Id, FMaterialParameterValue::MakeScalar(Value));
+		const auto* Definition = FindParameterDefinition(Name);
+		const auto Validated = ValidateNamedMaterialParameter(Definition, Name, EMaterialParameterType::Scalar);
+		if (!Validated) return Validated;
+		return WithMaterialParameterName(SetParameterValue(Definition->Id, FMaterialParameterValue::MakeScalar(Value)), Name);
 	}
 
-	auto DMaterialInstance::SetVector2ParameterValue(FName Name, const FVector2& Value) -> bool
+	auto DMaterialInstance::SetVector2ParameterValue(FName Name, const FVector2& Value) -> FMaterialOperationResult
 	{
-		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
-		if (!Definition || Definition->Type != EMaterialParameterType::Vector4) return false;
-		return SetParameterValue(
-			Definition->Id, FMaterialParameterValue::MakeVector4(FVector4(Value, 0, 0)));
+		const auto* Definition = FindParameterDefinition(Name);
+		const auto Validated = ValidateNamedMaterialParameter(Definition, Name, EMaterialParameterType::Vector4);
+		if (!Validated) return Validated;
+		return WithMaterialParameterName(SetParameterValue(Definition->Id, FMaterialParameterValue::MakeVector4(FVector4(Value, 0, 0))), Name);
 	}
 
-	auto DMaterialInstance::SetVectorParameterValue(FName Name, const FVector3& Value) -> bool
+	auto DMaterialInstance::SetVectorParameterValue(FName Name, const FVector3& Value) -> FMaterialOperationResult
 	{
-		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
-		if (!Definition || Definition->Type != EMaterialParameterType::Vector4) return false;
-		return SetParameterValue(
-			Definition->Id, FMaterialParameterValue::MakeVector4(FVector4(Value, 0)));
+		const auto* Definition = FindParameterDefinition(Name);
+		const auto Validated = ValidateNamedMaterialParameter(Definition, Name, EMaterialParameterType::Vector4);
+		if (!Validated) return Validated;
+		return WithMaterialParameterName(SetParameterValue(Definition->Id, FMaterialParameterValue::MakeVector4(FVector4(Value, 0))), Name);
 	}
 
-	auto DMaterialInstance::SetTextureParameterValue(FName Name, DTexture2D* Value) -> bool
+	auto DMaterialInstance::SetTextureParameterValue(FName Name, DTexture2D* Value) -> FMaterialOperationResult
 	{
 		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
-		if (!Definition || Definition->Type != EMaterialParameterType::Texture) return false;
+		const auto Validated = ValidateNamedMaterialParameter(Definition, Name, EMaterialParameterType::Texture);
+		if (!Validated) return Validated;
 		FResolvedMaterialParameter Resolved;
-		if (!ResolveParameterValue(Definition->Id, Resolved)) return false;
+		if (!ResolveParameterValue(Definition->Id, Resolved))
+			return WithMaterialParameterName({FMaterialError(EMaterialParameterError::UnresolvedValue, Definition->Id)}, Name);
 		Resolved.Value.GetTexture().Texture = Value;
-		return SetParameterValue(Definition->Id, Resolved.Value);
+		return WithMaterialParameterName(SetParameterValue(Definition->Id, Resolved.Value), Name);
 	}
 
 	auto DMaterialInstance::ClearScalarParameterValue(FName Name) -> bool

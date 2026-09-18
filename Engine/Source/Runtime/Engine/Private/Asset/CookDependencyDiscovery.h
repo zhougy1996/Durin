@@ -49,7 +49,7 @@ namespace Durin::AssetPrivate
 		auto ReadFile(const std::filesystem::path& File, FByteBuffer& Out) -> FAssetResult;
 		auto Resolve(const FPackagePath& Requested, FPackagePath& Final) -> FAssetResult;
 		auto CaptureSchema(FInput& Input, FCookPackageBuildInputs& Node) -> FAssetResult;
-		auto Fail(EAssetError Error, std::string Message, ECookInputStatus Status = ECookInputStatus::InvalidDependency) -> FAssetResult;
+		auto Fail(FCookInputFailure Cause) -> FAssetResult;
 		auto Fail(const FAssetResult& Result) -> FAssetResult;
 		const FCookRequest& Request;
 		FAssetRegistrySnapshot Registry;

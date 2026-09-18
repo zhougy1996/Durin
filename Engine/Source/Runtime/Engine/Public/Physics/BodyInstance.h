@@ -43,16 +43,25 @@ namespace Durin
 		EPhysicsBodyMotionType MotionType = EPhysicsBodyMotionType::Kinematic;
 	};
 
+	class FBodyInstanceValidationCause final : public IObjectValidationCause
+	{
+	public:
+		std::string CollisionProfileName;
+		auto Format() const -> std::string override { return "Unknown collision profile."; }
+	};
+
 	// All archive consumers restore the same preset/custom semantics before publication.
 	template<>
 	struct TDStructOpsTraits<FBodyInstance> : TDStructOpsTraitsBase<FBodyInstance>
 	{
 		static constexpr bool bWithPostDeserialize = true;
 
-		static auto PostDeserialize(FBodyInstance& Value, FDStructPostDeserializeContext& Context) -> bool
+		static auto PostDeserialize(FBodyInstance& Value, FDStructPostDeserializeContext&) -> FObjectValidationResult
 		{
-			if (!Value.LoadProfileData()) return Context.Fail("Unknown collision profile.");
-			return true;
+			if (Value.LoadProfileData()) return {};
+			auto Cause = std::make_shared<FBodyInstanceValidationCause>();
+			Cause->CollisionProfileName = Value.CollisionProfileName.ToString();
+			return {{.Code = EObjectValidationError::StructRejected, .Cause = std::move(Cause)}};
 		}
 	};
 }

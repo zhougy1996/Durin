@@ -107,7 +107,7 @@ namespace Durin::Editor::Material
 						State.Presentation.Nodes.push_back({Id, static_cast<int32>((Mouse.x - CanvasMinimum.x - Pan.x) / Zoom),
 							static_cast<int32>((Mouse.y - CanvasMinimum.y - Pan.y) / Zoom)});
 						const auto Result = State.Commit("Add Texture Sample Parameter", &Transactions);
-						if (!Result) ReportError(Result.Message);
+						if (!Result) ReportError(FormatMaterialGraphCommandResult(Result));
 						else SelectedNodes = {Id};
 					}
 				}

@@ -115,25 +115,25 @@ namespace Durin
 		}
 
 		auto CanonicalizeCookVirtualPath(
-			std::string& VirtualPackagePath,
-			std::string* OutError
-		) -> bool
+			std::string& VirtualPackagePath
+		) -> FCookPlanResult
 		{
 			FPackagePath RequestedPath;
 			if (!FPackagePath::TryCreate(
 					VirtualPackagePath, RequestedPath
 				))
-				return true;
+				return {};
 
-			if (!Durin::FindAssetExact(RequestedPath)) return true;
+			if (!Durin::FindAssetExact(RequestedPath)) return {};
 			const FAssetPathResolveResult Resolution =
 				Durin::ResolveAssetPathForOperation(RequestedPath);
 			if (!Resolution || !Resolution.FinalAssetData
 				|| Resolution.FinalAssetData->EntryKind
 					   != EAssetRegistryEntryKind::Asset)
-				return Fail(std::format("Cook output path {} does not resolve to a final real asset.", RequestedPath.ToString()), OutError);
+				return {.Error = {.Code = ECookPlanError::Resolution, .VirtualPath = VirtualPackagePath,
+					.ResolutionCause = std::make_shared<FAssetPathResolveResult>(Resolution)}};
 			VirtualPackagePath = Resolution.FinalPath.ToString();
-			return true;
+			return {};
 		}
 
 		auto IsValidTarget(ECookTargetPlatform Platform, ECookTargetProfile Profile) -> bool
@@ -225,65 +225,104 @@ namespace Durin
 		return {};
 	}
 
+	auto FormatCookedPathError(const FCookedPathResult& Result) -> std::string
+	{
+		switch (Result.Error)
+		{
+		case ECookedPathError::None: return {};
+		case ECookedPathError::Root: return "Cook root must be a nonempty absolute path.";
+		case ECookedPathError::VirtualPath: return "Cooked package virtual path is invalid: " + Result.VirtualPath;
+		case ECookedPathError::Mount: return "Cooked package mount is invalid: " + Result.VirtualPath;
+		case ECookedPathError::NotNormalized: return "Cooked package path is not normalized: " + Result.VirtualPath;
+		case ECookedPathError::Escape: return "Cooked package path escapes the cook root: " + Result.PackagePath.generic_string();
+		case ECookedPathError::PackageExtension: return "Cooked companion requires a .dasset package: " + Result.PackagePath.generic_string();
+		}
+		return {};
+	}
+
 	auto ResolveCookedPackagePath(
 		const std::filesystem::path& CookRoot,
 		std::string_view VirtualPackagePath,
-		std::filesystem::path& OutPackagePath,
-		std::string* OutError
-	) -> bool
+		std::filesystem::path& OutPackagePath
+	) -> FCookedPathResult
 	{
 		OutPackagePath.clear();
-		if (CookRoot.empty() || !CookRoot.is_absolute() || VirtualPackagePath.empty()
-			|| VirtualPackagePath.front() != '/' || VirtualPackagePath.back() == '/'
-			|| VirtualPackagePath.find('\\') != std::string_view::npos)
-			return Fail("Cooked package path or root is invalid.", OutError);
+		auto Reject = [&](ECookedPathError Error) -> FCookedPathResult {
+			return {.Error = Error, .CookRoot = CookRoot, .VirtualPath = std::string(VirtualPackagePath)};
+		};
+		if (CookRoot.empty() || !CookRoot.is_absolute()) return Reject(ECookedPathError::Root);
+		if (VirtualPackagePath.empty() || VirtualPackagePath.front() != '/'
+			|| VirtualPackagePath.back() == '/' || VirtualPackagePath.find('\\') != std::string_view::npos)
+			return Reject(ECookedPathError::VirtualPath);
 		const size_t Slash = VirtualPackagePath.find('/', 1);
 		const std::string_view Mount = Slash == std::string_view::npos ? VirtualPackagePath.substr(1) : VirtualPackagePath.substr(1, Slash - 1);
-		if (Mount.empty() || Slash == std::string_view::npos)
-			return Fail("Cooked package mount is invalid.", OutError);
+		if (Mount.empty() || Slash == std::string_view::npos) return Reject(ECookedPathError::Mount);
 		const std::string Relative(VirtualPackagePath.substr(1));
-		if (!IsValidRelativeManifestPath(Relative)) return Fail("Cooked package path is not normalized.", OutError);
+		if (!IsValidRelativeManifestPath(Relative)) return Reject(ECookedPathError::NotNormalized);
 		const std::filesystem::path Root = CookRoot.lexically_normal();
 		std::filesystem::path Candidate = (Root / std::filesystem::path(Relative)).lexically_normal();
 		Candidate += ".dasset";
 		if (!FPaths::IsLexicalDescendantPath(Candidate, Root, true))
-			return Fail("Cooked package path escapes the cook root.", OutError);
+			return {.Error = ECookedPathError::Escape, .CookRoot = CookRoot,
+				.VirtualPath = std::string(VirtualPackagePath), .PackagePath = Candidate};
 		OutPackagePath = std::move(Candidate);
-		return true;
+		return {};
 	}
 
 	auto ResolveCookedCompanionPath(
 		const std::filesystem::path& CookRoot,
 		const std::filesystem::path& PackagePath,
-		std::filesystem::path& OutCompanionPath,
-		std::string* OutError
-	) -> bool
+		std::filesystem::path& OutCompanionPath
+	) -> FCookedPathResult
 	{
 		OutCompanionPath.clear();
+		auto Reject = [&](ECookedPathError Error) -> FCookedPathResult {
+			return {.Error = Error, .CookRoot = CookRoot, .PackagePath = PackagePath};
+		};
 		const std::filesystem::path Root = CookRoot.lexically_normal();
 		const std::filesystem::path Normalized = PackagePath.lexically_normal();
-		if (Root.empty() || !Root.is_absolute() || PackagePath.extension() != ".dasset"
-			|| !FPaths::IsLexicalDescendantPath(Normalized, Root, true))
-			return Fail("Cooked companion package path is invalid or outside the cook root.", OutError);
-		OutCompanionPath = Normalized;
-		OutCompanionPath.replace_extension(".dbulk");
-		if (!FPaths::IsLexicalDescendantPath(OutCompanionPath, Root, true))
-			return Fail("Cooked companion path escapes the cook root.", OutError);
-		return true;
+		if (Root.empty() || !Root.is_absolute()) return Reject(ECookedPathError::Root);
+		if (PackagePath.extension() != ".dasset") return Reject(ECookedPathError::PackageExtension);
+		if (!FPaths::IsLexicalDescendantPath(Normalized, Root, true)) return Reject(ECookedPathError::Escape);
+		auto Candidate = Normalized;
+		Candidate.replace_extension(".dbulk");
+		if (!FPaths::IsLexicalDescendantPath(Candidate, Root, true)) return Reject(ECookedPathError::Escape);
+		OutCompanionPath = std::move(Candidate);
+		return {};
 	}
 
-	auto EncodeCookManifest(const FCookManifest& Manifest, FByteBuffer& OutBytes, std::string* OutError) -> bool
+	auto FormatCookManifestError(const FCookManifestResult& Result) -> std::string
+	{
+		switch (Result.Error)
+		{
+		case ECookManifestError::None: return {};
+		case ECookManifestError::Target: return "Cook manifest target is invalid.";
+		case ECookManifestError::EntryCount: return "Cook manifest entry count exceeds its bound.";
+		case ECookManifestError::Entry: return "Cook manifest entry is invalid: " + Result.RelativePath;
+		case ECookManifestError::RecordLimit: return "Cook manifest records exceed their byte bound.";
+		case ECookManifestError::Encoding: return "Cook manifest encoding failed.";
+		case ECookManifestError::Truncated: return "Cook manifest is truncated.";
+		case ECookManifestError::Header: return "Cook manifest header is invalid.";
+		case ECookManifestError::Checksum: return "Cook manifest record checksum is invalid.";
+		case ECookManifestError::Record: return "Cook manifest record is invalid.";
+		case ECookManifestError::PathTruncated: return "Cook manifest path is truncated.";
+		case ECookManifestError::TrailingBytes: return "Cook manifest has trailing record bytes.";
+		}
+		return {};
+	}
+
+	auto EncodeCookManifest(const FCookManifest& Manifest, FByteBuffer& OutBytes) -> FCookManifestResult
 	{
 		OutBytes.clear();
 		if (!IsValidTarget(Manifest.TargetPlatform, Manifest.TargetProfile))
-			return Fail("Cook manifest target is invalid.", OutError);
+			return {.Error = ECookManifestError::Target, .TargetPlatform = Manifest.TargetPlatform, .TargetProfile = Manifest.TargetProfile};
 		if (Manifest.Entries.size() > MaximumManifestEntries)
-			return Fail("Cook manifest entry count exceeds its bound.", OutError);
+			return {.Error = ECookManifestError::EntryCount, .Actual = Manifest.Entries.size(), .Expected = MaximumManifestEntries};
 		std::vector<const FCookManifestEntry*> Entries;
 		if (!BulkContainer::TryMakeSortedProjection<FCookManifestEntry>(
 				Manifest.Entries, &FCookManifestEntry::RelativePath, Entries
 			))
-			return Fail("Cook manifest entry is invalid.", OutError);
+			return {.Error = ECookManifestError::Entry};
 		BulkContainer::FBoundedWriter Records(MaximumManifestRecordBytes);
 		for (const FCookManifestEntry* EntryPointer : Entries)
 		{
@@ -298,13 +337,13 @@ namespace Durin
 				|| (Entry.Kind != ECookManifestEntryKind::CookedPackage
 					&& (Entry.Flags & CookManifestEntryCookedFieldProjection) != 0)
 				|| Entry.FileSize == 0)
-				return Fail("Cook manifest entry is invalid.", OutError);
+				return {.Error = ECookManifestError::Entry, .RelativePath = Entry.RelativePath, .Offset = Records.Tell()};
 			if (!WriteManifestRecord(Records, Entry))
-				return Fail("Cook manifest records exceed their byte bound.", OutError);
+				return {.Error = ECookManifestError::RecordLimit, .Actual = Records.Tell(), .Expected = MaximumManifestRecordBytes};
 		}
 		uint64 MaximumManifestBytes = 0;
 		if (!BulkContainer::TryAdd(ManifestHeaderSize, MaximumManifestRecordBytes, std::numeric_limits<uint64>::max(), MaximumManifestBytes))
-			return Fail("Cook manifest records exceed their byte bound.", OutError);
+			return {.Error = ECookManifestError::RecordLimit, .Actual = Records.Tell(), .Expected = MaximumManifestRecordBytes};
 		BulkContainer::FBoundedWriter Writer(MaximumManifestBytes);
 		const uint64 RecordBytes = Records.Tell();
 		uint64 FileSize = 0;
@@ -312,7 +351,7 @@ namespace Durin
 		if (!BulkContainer::TryAdd(
 				ManifestHeaderSize, RecordBytes, MaximumManifestBytes, FileSize
 			))
-			return Fail("Cook manifest encoding failed.", OutError);
+			return {.Error = ECookManifestError::Encoding, .Actual = RecordBytes, .Expected = MaximumManifestBytes};
 		const FManifestHeader Header{
 			.Magic = ManifestMagic,
 			.Version = ManifestVersion,
@@ -326,23 +365,23 @@ namespace Durin
 		};
 		if (!WriteManifestHeader(Writer, Header)
 			|| !Writer.Write(Records.View()) || !Writer.TryTake(Candidate))
-			return Fail("Cook manifest encoding failed.", OutError);
+			return {.Error = ECookManifestError::Encoding, .Actual = RecordBytes, .Expected = MaximumManifestBytes};
 		FCookManifest Validation;
-		if (!DecodeCookManifest(Candidate, Validation, OutError)) return false;
+		if (const auto Validated = DecodeCookManifest(Candidate, Validation); !Validated) return Validated;
 		OutBytes = std::move(Candidate);
-		return true;
+		return {};
 	}
 
-	auto DecodeCookManifest(FByteView Bytes, FCookManifest& OutManifest, std::string* OutError) -> bool
+	auto DecodeCookManifest(FByteView Bytes, FCookManifest& OutManifest) -> FCookManifestResult
 	{
 		OutManifest = {};
-		if (Bytes.size() < ManifestHeaderSize) return Fail("Cook manifest is truncated.", OutError);
+		if (Bytes.size() < ManifestHeaderSize) return {.Error = ECookManifestError::Truncated, .Actual = Bytes.size(), .Expected = ManifestHeaderSize};
 		BulkContainer::FBoundedReader Reader(
 			Bytes, ManifestHeaderSize + MaximumManifestRecordBytes
 		);
 		FManifestHeader Header;
 		if (!ReadManifestHeader(Reader, Header))
-			return Fail("Cook manifest header is truncated.", OutError);
+			return {.Error = ECookManifestError::Truncated, .Offset = Reader.Tell(), .Actual = Bytes.size(), .Expected = ManifestHeaderSize};
 		if (Header.Magic != ManifestMagic || Header.Version != ManifestVersion
 			|| Header.HeaderSize != ManifestHeaderSize
 			|| Header.Count > MaximumManifestEntries
@@ -350,10 +389,12 @@ namespace Durin
 			|| Header.FileSize != Bytes.size()
 			|| Header.RecordBytes != Bytes.size() - ManifestHeaderSize
 			|| !IsValidTarget(static_cast<ECookTargetPlatform>(Header.Platform), static_cast<ECookTargetProfile>(Header.Profile)))
-			return Fail("Cook manifest header is invalid.", OutError);
+			return {.Error = ECookManifestError::Header, .Actual = Bytes.size(), .Expected = Header.FileSize,
+				.TargetPlatform = static_cast<ECookTargetPlatform>(Header.Platform), .TargetProfile = static_cast<ECookTargetProfile>(Header.Profile)};
 		const FByteView Records = Bytes.subspan(ManifestHeaderSize);
 		if (FXxHash64::HashBuffer(Records).HashValue != Header.RecordHash)
-			return Fail("Cook manifest record checksum is invalid.", OutError);
+			return {.Error = ECookManifestError::Checksum, .Offset = ManifestHeaderSize,
+				.Actual = FXxHash64::HashBuffer(Records).HashValue, .Expected = Header.RecordHash};
 		BulkContainer::FBoundedReader RecordReader(Records, MaximumManifestRecordBytes);
 		std::vector<FCookManifestEntry> Entries;
 		Entries.reserve(Header.Count);
@@ -364,10 +405,10 @@ namespace Durin
 			if (!ReadManifestRecordHeader(RecordReader, RecordHeader)
 				|| RecordHeader.Reserved != 0 || RecordHeader.PathBytes == 0
 				|| RecordHeader.PathBytes > 1024)
-				return Fail("Cook manifest record is invalid.", OutError);
+				return {.Error = ECookManifestError::Record, .Offset = RecordReader.Tell(), .Actual = RecordHeader.PathBytes, .Expected = 1024, .EntryIndex = Index};
 			FByteView Path;
 			if (!RecordReader.ReadBytes(RecordHeader.PathBytes, Path))
-				return Fail("Cook manifest path is truncated.", OutError);
+				return {.Error = ECookManifestError::PathTruncated, .Offset = RecordReader.Tell(), .Actual = Records.size() - RecordReader.Tell(), .Expected = RecordHeader.PathBytes, .EntryIndex = Index};
 			Entry.Kind = static_cast<ECookManifestEntryKind>(RecordHeader.Kind);
 			Entry.Flags = RecordHeader.Flags;
 			Entry.FileSize = RecordHeader.FileSize;
@@ -385,14 +426,14 @@ namespace Durin
 				|| (Entry.Kind != ECookManifestEntryKind::CookedPackage
 					&& (Entry.Flags & CookManifestEntryCookedFieldProjection) != 0)
 				|| Entry.FileSize == 0)
-				return Fail("Cook manifest entry is invalid.", OutError);
+				return {.Error = ECookManifestError::Entry, .RelativePath = Entry.RelativePath, .Offset = RecordReader.Tell(), .EntryIndex = Index};
 			Entries.push_back(std::move(Entry));
 		}
-		if (RecordReader.Tell() != Records.size()) return Fail("Cook manifest has trailing record bytes.", OutError);
+		if (RecordReader.Tell() != Records.size()) return {.Error = ECookManifestError::TrailingBytes, .Offset = RecordReader.Tell(), .Actual = Records.size(), .Expected = RecordReader.Tell()};
 		OutManifest.TargetPlatform = static_cast<ECookTargetPlatform>(Header.Platform);
 		OutManifest.TargetProfile = static_cast<ECookTargetProfile>(Header.Profile);
 		OutManifest.Entries = std::move(Entries);
-		return true;
+		return {};
 	}
 
 	FCookContext::FCookContext(
@@ -408,7 +449,7 @@ namespace Durin
 
 	namespace
 	{
-		auto ValidateCookPlanPath(std::string_view VirtualPackagePath, std::string* OutError) -> bool
+		auto ValidateCookPlanPath(std::string_view VirtualPackagePath) -> FCookPlanResult
 		{
 			if (VirtualPackagePath.empty()
 				|| VirtualPackagePath.front() != '/'
@@ -417,10 +458,31 @@ namespace Durin
 				|| VirtualPackagePath.find("\\") != std::string_view::npos
 				|| VirtualPackagePath.find("/../") != std::string_view::npos
 				|| VirtualPackagePath.find('/', 1) == std::string_view::npos)
-				return Fail("Cook package path is invalid or uses an unsupported mount.", OutError);
-			return true;
+				return {{.Code = ECookPlanError::Path, .VirtualPath = std::string(VirtualPackagePath)}};
+			return {};
 		}
 	} // namespace
+
+	auto FormatCookPlanError(const FCookPlanError& Error) -> std::string
+	{
+		switch (Error.Code)
+		{
+		case ECookPlanError::None: return {};
+		case ECookPlanError::Target: return "Cook save-plan target is invalid.";
+		case ECookPlanError::Canonicalization: return "Cook package " + Error.VirtualPath + " could not be canonicalized: " + (Error.CanonicalizationCause ? Error.CanonicalizationCause->Message : std::string{});
+		case ECookPlanError::Resolution: return "Cook output path " + Error.VirtualPath + " does not resolve to a final real asset.";
+		case ECookPlanError::CanonicalDuplicate: return "Cook package path " + Error.VirtualPath + " is duplicated after redirect canonicalization.";
+		case ECookPlanError::Path: return "Cook package path is invalid or uses an unsupported mount: " + Error.VirtualPath;
+		case ECookPlanError::SourceIdentity: return "Cook source package identity is invalid: " + Error.VirtualPath;
+		case ECookPlanError::EmptyRawPackage: return "Opaque raw Cook packages require package and segment bytes.";
+		case ECookPlanError::SegmentLimit: return std::format("Opaque raw Cook segment has {} bytes, exceeding the {} byte limit.", Error.SegmentBytes, Error.MaximumSegmentBytes);
+		case ECookPlanError::EmptyPackage: return "Cook package bytes must be nonempty.";
+		case ECookPlanError::DuplicatePath: return "Cook package path is duplicated: " + Error.VirtualPath;
+		case ECookPlanError::InvalidPackage: return "Cook package projection requires a valid asset package.";
+		case ECookPlanError::Projection: return Error.ProjectionCause ? "Cook package projection failed: " + Error.ProjectionCause->Message : "Cook package projection failed.";
+		}
+		return {};
+	}
 
 	auto FCookContext::MakePackageSerializationOptions() const
 		-> FAssetPackageSerializationOptions
@@ -435,58 +497,53 @@ namespace Durin
 
 	auto FCookContext::AddPackage(
 		std::string VirtualPackagePath,
-		FByteBuffer PackageBytes,
-		std::string* OutError
-	) -> bool
+		FByteBuffer PackageBytes
+	) -> FCookPlanResult
 	{
 		FPackagePath SourcePackagePath;
 		if (!FPackagePath::TryCreate(VirtualPackagePath, SourcePackagePath)
 			&& !FPackagePath::TryCreateProjectContent(
 				VirtualPackagePath, SourcePackagePath))
-			return Fail("Cook package path is not a canonical asset identity.", OutError);
+			return {{.Code = ECookPlanError::SourceIdentity, .VirtualPath = VirtualPackagePath}};
 		return AddPackage(std::move(VirtualPackagePath), SourcePackagePath,
-			std::move(PackageBytes), OutError);
+			std::move(PackageBytes));
 	}
 
 	auto FCookContext::AddPackage(
 		std::string VirtualPackagePath,
 		const FPackagePath& SourcePackagePath,
-		FByteBuffer PackageBytes,
-		std::string* OutError
-	) -> bool
+		FByteBuffer PackageBytes
+	) -> FCookPlanResult
 	{
-		if (!ValidateCookPlanPath(VirtualPackagePath, OutError))
-			return false;
+		if (const auto Validated = ValidateCookPlanPath(VirtualPackagePath); !Validated) return Validated;
 		if (!SourcePackagePath.IsValid())
-			return Fail("Cook source package identity is invalid.", OutError);
-		if (PackageBytes.empty()) return Fail("Cook package bytes must be nonempty.", OutError);
+			return {{.Code = ECookPlanError::SourceIdentity, .VirtualPath = VirtualPackagePath}};
+		if (PackageBytes.empty()) return {{.Code = ECookPlanError::EmptyPackage, .VirtualPath = VirtualPackagePath}};
 		if (std::ranges::any_of(Packages, [&](const FCookSavePlan& Existing) {
 				return Existing.VirtualPath == VirtualPackagePath;
-			})) return Fail("Cook package path is duplicated.", OutError);
+			})) return {{.Code = ECookPlanError::DuplicatePath, .VirtualPath = VirtualPackagePath}};
 		Packages.push_back({
 			.VirtualPath = std::move(VirtualPackagePath),
 			.SourcePackagePath = SourcePackagePath,
 			.PackageBytes = std::move(PackageBytes)});
-		if (OutError) OutError->clear();
-		return true;
+		return {};
 	}
 
 	auto FCookContext::AddPackage(
 		std::string VirtualPackagePath,
-		DPackage* Package,
-		std::string* OutError
-	) -> bool
+		DPackage* Package
+	) -> FCookPlanResult
 	{
-		if (!ValidateCookPlanPath(VirtualPackagePath, OutError)) return false;
+		if (const auto Validated = ValidateCookPlanPath(VirtualPackagePath); !Validated) return Validated;
 		if (!Package || !Package->IsAssetPackage()
 			|| Package->GetTopLevelAssets().empty())
-			return Fail("Cook package projection requires a valid asset package.", OutError);
+			return {{.Code = ECookPlanError::InvalidPackage, .VirtualPath = VirtualPackagePath}};
 		FPackagePath SourcePackagePath;
 		if (!FPackagePath::TryCreate(Package->GetPackagePath(), SourcePackagePath))
-			return Fail("Cook source package identity is invalid.", OutError);
+			return {{.Code = ECookPlanError::SourceIdentity, .VirtualPath = VirtualPackagePath}};
 		if (std::ranges::any_of(Packages, [&](const FCookSavePlan& Existing) {
 				return Existing.VirtualPath == VirtualPackagePath;
-			})) return Fail("Cook package path is duplicated.", OutError);
+			})) return {{.Code = ECookPlanError::DuplicatePath, .VirtualPath = VirtualPackagePath}};
 
 		FAssetPackageSerializationOptions Options = MakePackageSerializationOptions();
 		FByteBuffer PackageBytes;
@@ -494,7 +551,8 @@ namespace Durin
 		const FAssetResult Result = SerializeAssetPackageClosure(
 			Package, PackageBytes, Segment, Options);
 		if (!Result)
-			return Fail(std::format("Cook package projection failed: {}", Result.Message), OutError);
+			return {{.Code = ECookPlanError::Projection, .VirtualPath = VirtualPackagePath,
+				.SourcePath = SourcePackagePath.ToString(), .ProjectionCause = std::make_shared<FAssetResult>(Result)}};
 		FPackageBulkSegmentSummary Summary{
 			.Extent = Segment.size(),
 			.Digest = Segment.empty() ? FXxHash128{} : FXxHash128::HashBuffer(Segment)};
@@ -507,44 +565,43 @@ namespace Durin
 			.bRawBulkSegment = true
 		};
 		Packages.push_back(std::move(Pending));
-		if (OutError) OutError->clear();
-		return true;
+		return {};
 	}
 
 	auto FCookContext::AddRawPackage(
 		std::string VirtualPackagePath,
 		FByteBuffer PackageBytes,
-		FByteBuffer RawSegmentBytes,
-		std::string* OutError
-	) -> bool
+		FByteBuffer RawSegmentBytes
+	) -> FCookPlanResult
 	{
-		if (!ValidateCookPlanPath(VirtualPackagePath, OutError))
-			return false;
+		if (const auto Validated = ValidateCookPlanPath(VirtualPackagePath); !Validated)
+			return Validated;
 		if (PackageBytes.empty() || RawSegmentBytes.empty())
-			return Fail("Opaque raw Cook packages require package and segment bytes.", OutError);
+			return {.Error = {.Code = ECookPlanError::EmptyRawPackage, .VirtualPath = VirtualPackagePath,
+				.PackageBytes = PackageBytes.size(), .SegmentBytes = RawSegmentBytes.size()}};
 		if (RawSegmentBytes.size() > PackageBulkDataMaximumSegmentBytes)
-			return Fail("Opaque raw Cook segment exceeds the 1 GiB limit.", OutError);
+			return {.Error = {.Code = ECookPlanError::SegmentLimit, .VirtualPath = VirtualPackagePath,
+				.PackageBytes = PackageBytes.size(), .SegmentBytes = RawSegmentBytes.size(),
+				.MaximumSegmentBytes = PackageBulkDataMaximumSegmentBytes}};
 		if (std::ranges::any_of(Packages, [&](const FCookSavePlan& Existing) {
 				return Existing.VirtualPath == VirtualPackagePath;
-			})) return Fail("Cook package path is duplicated.", OutError);
+			})) return {.Error = {.Code = ECookPlanError::DuplicatePath, .VirtualPath = VirtualPackagePath}};
 		FPackageBulkSegmentSummary Summary{
 			.Extent = RawSegmentBytes.size(),
 			.Digest = FXxHash128::HashBuffer(RawSegmentBytes)
 		};
 		Packages.push_back({.VirtualPath = std::move(VirtualPackagePath), .PackageBytes = std::move(PackageBytes), .BulkBytes = std::move(RawSegmentBytes), .BulkSummary = Summary, .bOpaqueRawSegment = true});
-		if (OutError) OutError->clear();
-		return true;
+		return {};
 	}
 
 	auto FCookContext::TakeSavePlans(
-		std::vector<FCookSavePlan>& OutPlans,
-		std::string* OutError
-	) -> bool
+		std::vector<FCookSavePlan>& OutPlans
+	) -> FCookPlanResult
 	{
 		OutPlans.clear();
 		auto Plans = std::exchange(Packages, {});
 		if (!IsValidTarget(TargetPlatform, TargetProfile))
-			return Fail("Cook save-plan target is invalid.", OutError);
+			return {.Error = {.Code = ECookPlanError::Target, .TargetPlatform = TargetPlatform, .TargetProfile = TargetProfile}};
 		for (FCookSavePlan& Plan : Plans)
 		{
 			if (!Plan.bOpaqueRawSegment)
@@ -555,7 +612,7 @@ namespace Durin
 				if (!FPackagePath::TryCreate(Plan.VirtualPath, PackagePath)
 					&& !FPackagePath::TryCreateProjectContent(
 						Plan.VirtualPath, PackagePath))
-					return Fail("Cook package path is not a canonical asset identity.", OutError);
+					return {.Error = {.Code = ECookPlanError::SourceIdentity, .VirtualPath = Plan.VirtualPath}};
 				const FAssetResult CanonicalResult = CanonicalizeAssetPackageForCook(
 					Plan.PackageBytes, Plan.BulkBytes,
 					Plan.SourcePackagePath.IsValid()
@@ -564,12 +621,13 @@ namespace Durin
 					CanonicalBytes, CanonicalBulkBytes
 				);
 				if (!CanonicalResult)
-					return Fail(std::format("Cook package {} could not be canonicalized: {}", Plan.VirtualPath, CanonicalResult.Message), OutError);
+					return {.Error = {.Code = ECookPlanError::Canonicalization, .VirtualPath = Plan.VirtualPath,
+					.CanonicalizationCause = std::make_shared<FAssetResult>(CanonicalResult)}};
 				Plan.PackageBytes = std::move(CanonicalBytes);
 				Plan.BulkBytes = std::move(CanonicalBulkBytes);
 			}
-			if (!CanonicalizeCookVirtualPath(Plan.VirtualPath, OutError))
-				return false;
+			if (const auto Resolved = CanonicalizeCookVirtualPath(Plan.VirtualPath); !Resolved)
+				return Resolved;
 			Plan.PackageDigest = FXxHash128::HashBuffer(Plan.PackageBytes);
 			Plan.SegmentDigest = FXxHash128::HashBuffer(Plan.BulkBytes);
 			Plan.PackageFileSize = Plan.PackageBytes.size();
@@ -580,17 +638,30 @@ namespace Durin
 		std::ranges::sort(Plans, {}, &FCookSavePlan::VirtualPath);
 		for (size_t Index = 1; Index < Plans.size(); ++Index)
 			if (Plans[Index - 1].VirtualPath == Plans[Index].VirtualPath)
-				return Fail(std::format("Cook package path {} is duplicated after redirect canonicalization.", Plans[Index].VirtualPath), OutError);
+				return {.Error = {.Code = ECookPlanError::CanonicalDuplicate, .VirtualPath = Plans[Index].VirtualPath}};
 		OutPlans = std::move(Plans);
-		if (OutError) OutError->clear();
-		return true;
+		return {};
+	}
+
+	auto FormatCookContextPublishError(const FCookContextPublishResult& Result) -> std::string
+	{
+		switch (Result.Error)
+		{
+		case ECookContextPublishError::None: return {};
+		case ECookContextPublishError::Finalization:
+			return Result.PlanCause ? FormatCookPlanError(*Result.PlanCause) : "Cook plan finalization failed.";
+		case ECookContextPublishError::Publication:
+			return Result.PublicationCause ? FormatCookPublishError(*Result.PublicationCause) : "Cook publication failed.";
+		}
+		return {};
 	}
 
 	auto PublishCookContext(FCookContext& Context,
-		const std::filesystem::path& OutputRoot, std::string* OutError) -> bool
+		const std::filesystem::path& OutputRoot) -> FCookContextPublishResult
 	{
 		std::vector<FCookSavePlan> Plans;
-		if (!Context.TakeSavePlans(Plans, OutError)) return false;
+		if (const auto Taken = Context.TakeSavePlans(Plans); !Taken)
+			return {.Error = ECookContextPublishError::Finalization, .OutputRoot = OutputRoot, .PlanCause = Taken.Error};
 		FCookState State{Context.GetTargetPlatform(), Context.GetTargetProfile()};
 		for (FCookSavePlan& Plan : Plans)
 		{
@@ -604,10 +675,9 @@ namespace Durin
 		);
 		FCookPublishResult PublishResult = Store->Publish(
 			Plans, {}, State, Result, {}, {});
-		if (!PublishResult && OutError)
-			*OutError = std::move(PublishResult.Diagnostic);
-		else if (OutError)
-			OutError->clear();
-		return static_cast<bool>(PublishResult);
+		if (!PublishResult)
+			return {.Error = ECookContextPublishError::Publication, .OutputRoot = OutputRoot,
+				.PublicationCause = std::move(PublishResult)};
+		return {};
 	}
 } // namespace Durin

@@ -16,17 +16,16 @@ namespace Durin
 		constexpr FBinaryEnvelopeLimits EnvelopeLimits{
 			MaximumHeaderBytes, MaximumFileBytes};
 
-		auto Error(EAssetRegistryError Code, std::string Message) -> FAssetRegistryResult
+		auto Error(EAssetRegistryError Code, FAssetRegistryErrorContext Context) -> FAssetRegistryResult
 		{
-			return {Code, std::move(Message)};
+			return {Code, std::move(Context)};
 		}
 
 		auto ReaderError(const ObjectPackage::FPackageReaderResult& Diagnostic)
 			-> FAssetRegistryResult
 		{
 			return Error(EAssetRegistryError::CorruptFile,
-				std::format("DAST v10 Registry projection failed: {}",
-					Durin::ObjectPackage::FormatPackageError(Diagnostic)));
+				{.Reason = EAssetRegistryFailure::Reader, .ReaderCause = Diagnostic});
 		}
 	}
 
@@ -41,18 +40,18 @@ namespace Durin
 		if (!ParseBinaryEnvelopePrefix(FrontMatter, PhysicalFileBytes,
 			EnvelopeLimits, Preamble, &EnvelopeDiagnostic))
 			return Error(EAssetRegistryError::CorruptFile,
-				std::string(EnvelopeDiagnostic.Message));
+				{.Reason = EAssetRegistryFailure::Envelope, .Actual = FrontMatter.size(),
+					.Expected = PhysicalFileBytes, .EnvelopeCause = EnvelopeDiagnostic.Error});
 		if (Preamble.FormatId != ObjectPackage::DastFormatId
 			|| !ObjectPackage::IsSupportedPackageReaderVersion(Preamble.FormatVersion))
 			return Error(EAssetRegistryError::UnsupportedVersion,
-				std::format("Unsupported DAST package format version {}.",
-					Preamble.FormatVersion));
+				{.Reason = EAssetRegistryFailure::UnsupportedVersion, .Actual = Preamble.FormatVersion});
 		if (Preamble.HeaderBytes > FrontMatter.size())
 			return Error(EAssetRegistryError::CorruptFile,
-				"DAST v10 front matter is truncated.");
+				{.Reason = EAssetRegistryFailure::TruncatedFrontMatter, .Actual = FrontMatter.size(), .Expected = Preamble.HeaderBytes});
 		if (!PackagePath.IsValid())
 			return Error(EAssetRegistryError::InvalidPath,
-				"DAST v10 Registry projection requires the mounted package identity.");
+				{.Reason = EAssetRegistryFailure::InvalidPackageIdentity});
 
 		ObjectPackage::FPackageRegistryData Registry;
 		ObjectPackage::FPackageReaderResult ReaderDiagnostic;
@@ -89,7 +88,7 @@ namespace Durin
 		if (!ArePackageAssetsValid(Header.TopLevelAssets, PackagePath,
 			Header.ObjectCount, Header.Dependencies))
 			return Error(EAssetRegistryError::CorruptFile,
-				"DAST v10 Registry contains invalid exact asset metadata.");
+				{.Reason = EAssetRegistryFailure::InvalidHeaderAssets});
 		OutHeader = std::move(Header);
 		return {};
 	}
@@ -99,21 +98,21 @@ namespace Durin
 		-> FAssetRegistryResult
 	{
 		auto Access = FPackageFileAccess::TryReadPackage(std::filesystem::path(PhysicalPath));
-		if (!Access) return Error(EAssetRegistryError::IoError, "Package output is being written.");
+		if (!Access) return Error(EAssetRegistryError::IoError, {.Reason = EAssetRegistryFailure::WriteInProgress});
 		OutHeader = {};
 		std::ifstream Stream(
 			std::filesystem::path(PhysicalPath), std::ios::binary | std::ios::ate);
 		if (!Stream)
 			return Error(EAssetRegistryError::IoError,
-				std::format("Failed to open asset package {}.", PhysicalPath));
+				{.Reason = EAssetRegistryFailure::OpenFailed, .Path = std::string(PhysicalPath)});
 		const auto End = Stream.tellg();
 		if (End < 0)
 			return Error(EAssetRegistryError::IoError,
-				std::format("Failed to size asset package {}.", PhysicalPath));
+				{.Reason = EAssetRegistryFailure::SizeFailed, .Path = std::string(PhysicalPath)});
 		const uint64 FileSize = static_cast<uint64>(End);
 		if (FileSize > MaximumFileBytes)
 			return Error(EAssetRegistryError::CorruptFile,
-				"Asset package exceeds the supported byte bound.");
+				{.Reason = EAssetRegistryFailure::FileTooLarge, .Actual = FileSize, .Expected = MaximumFileBytes});
 		Stream.seekg(0);
 		const uint64 InitialSize = std::min<uint64>(
 			FileSize, BinaryEnvelopePreambleBytes);
@@ -124,7 +123,7 @@ namespace Durin
 				static_cast<std::streamsize>(InitialSize));
 			if (!Stream)
 				return Error(EAssetRegistryError::IoError,
-					std::format("Failed to read asset package {}.", PhysicalPath));
+					{.Reason = EAssetRegistryFailure::ReadFailed, .Path = std::string(PhysicalPath)});
 		}
 		uint32 Magic = 0;
 		if (Bytes.size() >= sizeof(Magic))
@@ -132,13 +131,12 @@ namespace Durin
 		if (Magic == ObjectPackage::DastPackageMagic)
 		{
 			if (Bytes.size() < sizeof(uint32) * 2)
-				return Error(EAssetRegistryError::CorruptFile, "Truncated asset header.");
+				return Error(EAssetRegistryError::CorruptFile, {.Reason = EAssetRegistryFailure::TruncatedLegacyHeader});
 			uint32 LegacyVersion = 0;
 			std::memcpy(&LegacyVersion,
 				Bytes.data() + sizeof(Magic), sizeof(LegacyVersion));
 			return Error(EAssetRegistryError::UnsupportedVersion,
-				std::format("Unsupported legacy DAST prefix version {}.",
-					LegacyVersion));
+				{.Reason = EAssetRegistryFailure::LegacyVersion, .Actual = LegacyVersion});
 		}
 
 		uint64 HeaderBytes = InitialSize;
@@ -149,7 +147,7 @@ namespace Durin
 				|| Declared < BinaryEnvelopePreambleBytes
 				|| Declared > MaximumHeaderBytes || Declared > FileSize)
 				return Error(EAssetRegistryError::CorruptFile,
-					"Asset package declares an invalid front-matter extent.");
+					{.Reason = EAssetRegistryFailure::InvalidFrontMatterExtent, .Actual = Declared, .Expected = FileSize});
 			HeaderBytes = Declared;
 			if (Declared > Bytes.size())
 			{
@@ -159,8 +157,7 @@ namespace Durin
 					static_cast<std::streamsize>(Declared - Previous));
 				if (!Stream)
 					return Error(EAssetRegistryError::IoError,
-						std::format("Failed to read asset package {}.",
-							PhysicalPath));
+						{.Reason = EAssetRegistryFailure::ReadFailed, .Path = std::string(PhysicalPath)});
 			}
 		}
 
@@ -173,12 +170,14 @@ namespace Durin
 			const uintmax_t Extent = std::filesystem::file_size(BulkPath, BulkEc);
 			if (BulkEc || Extent > ObjectPackage::DastMaximumBulkBytes)
 				return Error(EAssetRegistryError::CorruptFile,
-					"Asset package bulk segment exceeds the supported byte bound.");
+					{.Reason = EAssetRegistryFailure::BulkTooLarge, .Path = BulkPath.generic_string(),
+					.Actual = Extent, .Expected = ObjectPackage::DastMaximumBulkBytes, .SystemError = BulkEc});
 			BulkBytes = static_cast<uint64>(Extent);
 		}
 		FAssetRegistryResult Result = ReadAssetPackageHeaderBytes(
 			Bytes, FileSize, BulkBytes, PackagePath, OutHeader);
 		if (Result) OutHeader.FileBytesRead = HeaderBytes;
+		else if (Result.Context.Path.empty()) Result.Context.Path = PhysicalPath;
 		return Result;
 	}
 }

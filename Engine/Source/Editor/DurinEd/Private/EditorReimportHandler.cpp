@@ -81,7 +81,11 @@ namespace Durin
 						: FAssetResult{EAssetError::InvalidPath,
 							"Only packaged assets can be persisted after reimport."};
 					if (!Saved)
-						Result = {EReimportStatus::PersistenceFailure, Saved.Message};
+					{
+						Result.Status = EReimportStatus::PersistenceFailure;
+						Result.Message = Saved.Message;
+						Result.SaveCause = std::make_shared<FAssetResult>(Saved);
+					}
 				}
 				if (Completion) Completion(std::move(Result));
 			};

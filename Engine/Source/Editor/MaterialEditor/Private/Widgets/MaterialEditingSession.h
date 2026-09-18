@@ -1,6 +1,7 @@
 #pragma once
 
 #include "DObject/StrongObjectPtr.h"
+#include "DObject/Archive.h"
 #include "Materials/Material.h"
 
 namespace Durin { class DTransactor; }
@@ -36,7 +37,7 @@ namespace Durin::Editor::Material
 			FMaterialGraphPresentation Presentation;
 			auto Matches(const DMaterial& Material) const -> bool;
 		};
-		static auto Capture(const DMaterial& Material, FAuthoredState& OutState) -> bool;
+		static auto Capture(const DMaterial& Material, FAuthoredState& OutState) -> FObjectGraphResult;
 		auto ApplyCurrent(std::string& Error) -> bool;
 		auto CheckSource(std::string& Error) const -> bool;
 		TStrongObjectPtr<DMaterial> Source;

@@ -19,6 +19,29 @@ namespace Durin
 		auto operator==(const FTexture2DBuildSettings&) const -> bool = default;
 	};
 
+	enum class ETexture2DInputError : uint8
+	{
+		None, EmptyMips, InvalidImage, UnsupportedFormat, UnsupportedShape, ExcessiveResolution,
+		InvalidMipDimensions, GammaMismatch, SourceBudgetExceeded, MipAfterTerminal,
+		InvalidUsage, InvalidCompressionQuality, InvalidAlphaMipMode, InvalidAlphaCoverageThreshold,
+	};
+	struct FTexture2DInputError
+	{
+		ETexture2DInputError Code = ETexture2DInputError::None;
+		uint64 Index = 0;
+		uint64 Bytes = 0;
+		Image::FImageInfo Actual;
+		Image::FImageInfo Base;
+		FTexture2DBuildSettings Settings;
+	};
+	struct FTexture2DInputResult
+	{
+		FTexture2DInputError Error;
+		auto Succeeded() const -> bool { return Error.Code == ETexture2DInputError::None; }
+		explicit operator bool() const { return Succeeded(); }
+	};
+	ENGINE_API auto FormatTexture2DInputError(const FTexture2DInputError& Error) -> std::string;
+
 	struct FTexture2DBuildProviderDescriptor
 	{
 		std::string ProducerIdentity;
@@ -60,10 +83,28 @@ namespace Durin
 		Cancelled
 	};
 
+	enum class ETaskState : uint8;
+	enum class ETexture2DBuildError : uint8
+	{
+		None, InvalidInput, CompressionTaskFailed,
+		MissingSourceIdentity, AuthoredBuildUnavailable, InvalidProviderDescriptor, Cancelled,
+		InvalidProviderProduct, ProviderUnavailable, AmbiguousProvider, ProviderInvocationFailed,
+		ProviderFailed, UnsupportedTarget, CompressedLayoutOverflow, InvalidCompressionQuality,
+		InvalidUsage, InvalidAlphaMipMode, InvalidAlphaCoverageThreshold, UnsupportedPixelFormat,
+		InvalidMipLayout, InvalidPlatformData,
+	};
+	struct FTexture2DBuildError
+	{
+		ETexture2DBuildError Code = ETexture2DBuildError::None;
+		std::optional<FTexture2DInputError> InputCause;
+		std::optional<ETaskState> TaskState;
+	};
+	ENGINE_API auto FormatTexture2DBuildError(const FTexture2DBuildError& Error) -> std::string;
+
 	struct FTexture2DBuildResult
 	{
 		ETexture2DBuildStatus Status = ETexture2DBuildStatus::Failed;
-		std::string Diagnostic;
+		FTexture2DBuildError Error;
 
 		explicit operator bool() const
 		{
@@ -78,11 +119,10 @@ namespace Durin
 	};
 
 	ENGINE_API auto ValidateTexture2DSourceMips(
-		std::span<const Image::FImage> Mips, std::string& OutError) -> bool;
+		std::span<const Image::FImage> Mips) -> FTexture2DInputResult;
 
 	ENGINE_API auto ValidateTexture2DBuildSettings(
-		const FTexture2DBuildSettings& Settings,
-		std::string& OutError) -> bool;
+		const FTexture2DBuildSettings& Settings) -> FTexture2DInputResult;
 	ENGINE_API auto ResolveTexture2DSRGB(
 		const FTexture2DBuildSettings& Settings) -> bool;
 
@@ -91,7 +131,7 @@ namespace Durin
 	{
 	public:
 		static constexpr std::string_view FeatureName = "Engine.Texture2DBuildProvider";
-		static constexpr uint32 FeatureVersion = 4;
+		static constexpr uint32 FeatureVersion = 5;
 
 		virtual auto GetDescriptor() const -> FTexture2DBuildProviderDescriptor = 0;
 		virtual auto Build(

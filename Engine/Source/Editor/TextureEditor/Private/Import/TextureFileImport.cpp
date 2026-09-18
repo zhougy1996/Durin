@@ -43,7 +43,7 @@ namespace Durin::Editor::Texture
 			const std::string CandidateName = Suffix == 0 ? Name : std::format("{}_{}", Name, Suffix);
 			const auto Candidate = InspectAssetDestination(Prefix + CandidateName);
 			if (Candidate.AssetExists()) continue;
-			if (!Candidate) return Reject(Candidate.Message);
+			if (!Candidate) return Reject(FormatAssetDestinationValidation(Candidate));
 			std::error_code Error;
 			const bool bExists = std::filesystem::exists(Candidate.PhysicalPath, Error);
 			if (Error) return Reject("Could not inspect the destination: " + Error.message());
@@ -203,7 +203,7 @@ namespace Durin::Editor::Texture
 			}
 			else
 			{
-				Fail(Completion->value().Diagnostic);
+				Fail(FormatTexture2DCompilationError(Completion->value().Error));
 				Active.Reset();
 				UnloadPackage(Package, EAssetPackageUnloadPolicy::DiscardUnsaved);
 			}
@@ -225,7 +225,12 @@ namespace Durin::Editor::Texture
 			if (Preparation.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
 			auto Prepared = Preparation.get();
 			PreparationMilliseconds = Prepared.PreparationMilliseconds;
-			if (!Prepared.Data) { Fail(std::move(Prepared.Error)); return; }
+			if (!Prepared.Data)
+			{
+				Fail(Prepared.Cause ? AssetForge::Builtins::FormatTexture2DPreparationError(*Prepared.Cause)
+					: std::move(Prepared.ExceptionDiagnostic));
+				return;
+			}
 			Completion = std::make_shared<std::optional<FTexture2DCompilationResult>>();
 			CompilationStart = std::chrono::steady_clock::now();
 			const auto Result = AdmitFile(Files[Next], Directory, std::move(Prepared.Data),
@@ -243,10 +248,13 @@ namespace Durin::Editor::Texture
 				try
 				{
 					Result.Data = std::make_shared<AssetForge::Builtins::FPreparedTexture2DImport>();
-					if (!AssetForge::Builtins::PrepareTexture2DImport(Filename, *Result.Data, Result.Error))
+					if (const auto Prepared = AssetForge::Builtins::PrepareTexture2DImport(Filename, *Result.Data); !Prepared)
+					{
+						Result.Cause = Prepared.Error;
 						Result.Data.reset();
+					}
 				}
-				catch (const std::exception& Error) { Result.Data.reset(); Result.Error = Error.what(); }
+				catch (const std::exception& Error) { Result.Data.reset(); Result.ExceptionDiagnostic = Error.what(); }
 				Result.PreparationMilliseconds = std::chrono::duration<double, std::milli>(
 					std::chrono::steady_clock::now() - Start).count();
 				return Result;

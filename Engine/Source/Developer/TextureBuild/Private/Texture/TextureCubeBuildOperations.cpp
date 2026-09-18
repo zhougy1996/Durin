@@ -155,7 +155,7 @@ namespace Durin
 			if (!BuildResult)
 			{
 				OutError = std::format("{} face platform build failed: {}",
-					FaceNames[Index], BuildResult.Diagnostic);
+					FaceNames[Index], Durin::FormatTexture2DBuildError(BuildResult.Error));
 				return false;
 			}
 		}

@@ -9,10 +9,18 @@
 #include "DObject/DObjectFwd.h"
 #include "DObject/AssetPath.h"
 #include "Hash/XxHash.h"
+#include "Misc/FileHelper.h"
 
 namespace Durin
 {
 	struct FAssetPackageSerializationOptions;
+	struct FAssetPathResolveResult;
+	struct FCookOutputRootResult;
+	struct FCookPublishResult;
+	struct FCookCaptureResult;
+	struct FProjectGameSettingsResult;
+	struct FShaderError;
+	struct FObjectError;
 	enum class ECookManifestEntryKind : uint8
 	{
 		CookedPackage = 1,
@@ -45,16 +53,33 @@ namespace Durin
 		std::vector<FCookManifestEntry> Entries;
 	};
 
+	enum class ECookManifestError : uint8
+	{
+		None, Target, EntryCount, Entry, RecordLimit, Encoding, Truncated,
+		Header, Checksum, Record, PathTruncated, TrailingBytes
+	};
+	struct FCookManifestResult
+	{
+		ECookManifestError Error = ECookManifestError::None;
+		std::string RelativePath;
+		uint64 Offset = 0;
+		uint64 Actual = 0;
+		uint64 Expected = 0;
+		uint64 EntryIndex = 0;
+		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
+		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
+		explicit operator bool() const { return Error == ECookManifestError::None; }
+	};
+	ENGINE_API auto FormatCookManifestError(const FCookManifestResult& Result) -> std::string;
+
 	ENGINE_API auto EncodeCookManifest(
 		const FCookManifest& Manifest,
-		FByteBuffer& OutBytes,
-		std::string* OutError = nullptr
-	) -> bool;
+		FByteBuffer& OutBytes
+	) -> FCookManifestResult;
 	ENGINE_API auto DecodeCookManifest(
 		FByteView Bytes,
-		FCookManifest& OutManifest,
-		std::string* OutError = nullptr
-	) -> bool;
+		FCookManifest& OutManifest
+	) -> FCookManifestResult;
 
 	// Stable machine-readable terminal and per-package outcomes for project Cook.
 	enum class ECookPackageStatus : uint8
@@ -138,13 +163,13 @@ namespace Durin
 		FPackagePath RequestedRoot;
 		FPackagePath PackagePath;
 		std::string Contributor;
-		std::string Code;
-		std::string Diagnostic;
 		ECookPackageStatus Status = ECookPackageStatus::Failed;
 		ECookOperationStage Stage = ECookOperationStage::Discovery;
 		uint64 PackageBytes = 0;
 		uint64 SegmentBytes = 0;
 	};
+
+	ENGINE_API auto FormatCookPackageResult(const FCookPackageResult& Result) -> std::string;
 
 	struct FCookProgress
 	{
@@ -176,13 +201,88 @@ namespace Durin
 		UndeclaredInput, InvalidDependency, LimitExceeded, IoError, Cancelled
 	};
 
+	enum class ECookInputError : uint8
+	{
+		None, Cancelled, WriteConflict, FileIo, ByteLimit, PackageLimit, UnknownPackage,
+		UndeclaredInput, NoReader, DeclarationCount, DeclarationName, DuplicateDeclaration,
+		PackageDeclaration, ExternalDeclaration, ValueDeclaration, ValueStorage, ReservedKind,
+		BulkIdentity, SchemaClass, SchemaDepth, SchemaFields, SchemaField, SchemaType, SchemaEncoding,
+		SchemaStorage, RootLimit, RootClass, RuntimeEdgeLimit, ReferenceClass, NoRuntimePackages, DependencyStorage
+	};
+	struct FCookInputFailure
+	{
+		ECookInputError Error = ECookInputError::None;
+		FPackagePath Package;
+		ECookBuildDependencyKind Kind = ECookBuildDependencyKind::ExternalFile;
+		std::string Name;
+		std::filesystem::path File;
+		uint64 Actual = 0;
+		uint64 Maximum = 0;
+		uint64 Retained = 0;
+		uint64 MaximumRetained = 0;
+		std::optional<FFileHelper::FFileIoError> FileCause;
+		std::shared_ptr<const FObjectError> PathCause;
+		std::string Member;
+		uint64 Expected = 0;
+		FXxHash128 ExpectedDigest;
+		FXxHash128 ActualDigest;
+		ENGINE_API auto ToAssetResult() const -> FAssetResult;
+	};
+	ENGINE_API auto FormatCookInputError(const FCookInputFailure& Failure) -> std::string;
+
+	enum class ECookRunError : uint8
+	{
+		None, Unspecified,
+		InvalidRequest,
+		InvalidOutputRoot,
+		WrongThread,
+		CookInUse,
+		Cancelled,
+		ProjectSettingsFailed,
+		InvalidDefaultLevel,
+		InputFailed,
+		LoadInjectedFailure,
+		StaleRegistry,
+		MissingTopLevelAsset,
+		FingerprintFailed,
+		OutputLimit,
+		InvalidTopLevelAsset,
+		PrepareInjectedFailure,
+		MissingPackage,
+		ContributionFailed,
+		CaptureInjectedFailure,
+		CaptureFailed,
+		AuxiliaryInjectedFailure,
+		ShaderLibraryFailed,
+		PublicationFailed,
+	};
+
+	struct FCookRunInjectionCause
+	{
+		ECookOperationStage Stage = ECookOperationStage::Discovery;
+		size_t Index = 0;
+		// Failure-injection provider text, bounded to 2048 bytes when captured.
+		std::string ExternalDiagnostic;
+	};
+
 	struct FCookRunResult
 	{
 		ECookRunStatus Status = ECookRunStatus::Failed;
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
-		std::string Code;
-		std::string Diagnostic;
+		ECookRunError Error = ECookRunError::Unspecified;
+		bool bDryRun = false;
+		std::filesystem::path OutputRoot;
+		FPackagePath CurrentPackage;
+		std::string CurrentContributor;
+		std::string AssetIdentity;
+		ECookOperationStage Stage = ECookOperationStage::Discovery;
+		uint64 RetainedOutputBytes = 0;
+		uint64 RequestedPackageBytes = 0;
+		uint64 RequestedBulkBytes = 0;
+		uint64 MaximumOutputBytes = 0;
+		std::optional<FCookDependencyCodecResult> FingerprintCause;
+		std::optional<FCookRunInjectionCause> InjectionCause;
 		std::vector<FCookPackageResult> Packages;
 		uint64 ChangedBytes = 0;
 		uint64 ReusedBytes = 0;
@@ -194,7 +294,20 @@ namespace Durin
 		uint64 RollbackTimeNanoseconds = 0;
 		ECookInputStatus InputStatus = ECookInputStatus::None;
 		FAssetResult InputFailure;
+		std::shared_ptr<const FCookPublishResult> PublicationCause;
+		std::shared_ptr<const FCookOutputRootResult> OutputRootCause;
+		std::shared_ptr<const FProjectGameSettingsResult> SettingsCause;
+		std::shared_ptr<const FObjectError> DefaultLevelCause;
+		std::shared_ptr<const FShaderError> ShaderCause;
+		std::shared_ptr<const FCookCaptureResult> CaptureCause;
+		std::shared_ptr<const FAssetResult> ContributionCause;
+		FPackagePath ContributionPackage;
+		std::string ContributionProvider;
+		explicit operator bool() const { return Error == ECookRunError::None; }
 	};
+
+	ENGINE_API auto CookRunCodeName(const FCookRunResult& Result) -> std::string_view;
+	ENGINE_API auto FormatCookRunError(const FCookRunResult& Result) -> std::string;
 
 	struct FCookStateEntry
 	{
@@ -228,14 +341,30 @@ namespace Durin
 		FXxHash128 Digest;
 	};
 
-	ENGINE_API auto EncodeCookState(const FCookState& State, FByteBuffer& OutBytes, std::string* OutError = nullptr) -> bool;
-	ENGINE_API auto DecodeCookState(FByteView Bytes, FCookState& OutState, std::string* OutError = nullptr) -> bool;
+	enum class ECookStateError : uint8 { None, Header, DuplicatePath, String, ByteLimit, Entry, DependencyFrame, Dependency, TrailingBytes };
+	struct FCookStateResult
+	{
+		ECookStateError Error = ECookStateError::None;
+		std::string VirtualPath;
+		uint64 EntryIndex = 0;
+		uint64 Actual = 0;
+		uint64 Maximum = 0;
+		uint64 RemainingBytes = 0;
+		uint32 Version = 0;
+		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
+		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
+		std::optional<FCookDependencyCodecResult> DependencyCause;
+		explicit operator bool() const { return Error == ECookStateError::None; }
+	};
+	ENGINE_API auto FormatCookStateError(const FCookStateResult& Result) -> std::string;
+	ENGINE_API auto EncodeCookState(const FCookState& State, FByteBuffer& OutBytes) -> FCookStateResult;
+	ENGINE_API auto DecodeCookState(FByteView Bytes, FCookState& OutState) -> FCookStateResult;
 
 	using FCookFailureInjection = std::function<bool(
 		ECookOperationStage, size_t, std::string&
 	)>;
 
-	// Classifies publication independently from its human-readable diagnostic.
+	// Publication disposition remains separate from its typed error.
 	enum class ECookPublishStatus : uint8
 	{
 		Succeeded,
@@ -243,16 +372,64 @@ namespace Durin
 		Cancelled
 	};
 
+	enum class ECookPublishOperationError : uint8
+	{
+		CreateRoot, WriterLock, CreateTransaction, CancelledStaging, CancelledCommit,
+		StageWrite, StageValidation, CommitDirectory, CommitBackup, CommitReplace
+	};
+	struct FCookPublishOperationFailure
+	{
+		ECookPublishOperationError Error = ECookPublishOperationError::CreateRoot;
+		ECookOperationStage Stage = ECookOperationStage::Prepare;
+		std::filesystem::path Path;
+		std::error_code SystemError;
+	};
+	ENGINE_API auto FormatCookPublishOperationError(const FCookPublishOperationFailure& Failure) -> std::string;
+
+	enum class ECookPublishValidationError : uint8
+	{
+		Request, Plan, OpaqueSegment, PackageIdentity, RawBulkClosure, AuxiliaryOutput
+	};
+	struct FCookPublishValidationFailure
+	{
+		ECookPublishValidationError Error = ECookPublishValidationError::Request;
+		std::filesystem::path OutputRoot;
+		std::string Path;
+		uint64 Index = 0;
+		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
+		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
+	};
+	ENGINE_API auto FormatCookPublishValidationError(const FCookPublishValidationFailure& Failure) -> std::string;
+
+	enum class ECookPublishError : uint8 { None, Unspecified, Root, Path, Package, Manifest, State, Operation, Validation, Injected };
+	struct FCookPublishInjectedFailure
+	{
+		ECookOperationStage Stage = ECookOperationStage::Prepare;
+		uint64 Index = 0;
+		// Opaque caller-provided injection text, bounded to 2048 bytes by the store.
+		std::string ExternalDiagnostic;
+	};
 	struct FCookPublishResult
 	{
 		ECookPublishStatus Status = ECookPublishStatus::Failed;
-		std::string Diagnostic;
+		ECookPublishError Error = ECookPublishError::Unspecified;
+		std::string VirtualPath;
+		std::shared_ptr<const FCookOutputRootResult> RootCause;
+		std::optional<FCookedPathResult> PathCause;
+		std::shared_ptr<const FAssetResult> PackageCause;
+		std::optional<FCookManifestResult> ManifestCause;
+		std::optional<FCookStateResult> StateCause;
+		std::optional<FCookPublishOperationFailure> OperationCause;
+		std::optional<FCookPublishValidationFailure> ValidationCause;
+		std::optional<FCookPublishInjectedFailure> InjectionCause;
 
 		explicit operator bool() const
 		{
-			return Status == ECookPublishStatus::Succeeded;
+			return Error == ECookPublishError::None;
 		}
 	};
+
+	ENGINE_API auto FormatCookPublishError(const FCookPublishResult& Result) -> std::string;
 
 	// Store transaction boundary; contributors never receive a store or path.
 	class ICookOutputStore
@@ -281,6 +458,64 @@ namespace Durin
 		ECookTargetProfile TargetProfile
 	) -> std::unique_ptr<ICookOutputStore>;
 
+	enum class ECookPlanError : uint8 { None, Path, SourceIdentity, EmptyPackage, DuplicatePath, InvalidPackage, Projection, EmptyRawPackage, SegmentLimit, Target, Canonicalization, Resolution, CanonicalDuplicate };
+	struct FCookPlanError
+	{
+		ECookPlanError Code = ECookPlanError::None;
+		std::string VirtualPath;
+		std::string SourcePath;
+		std::shared_ptr<const FAssetResult> ProjectionCause;
+		uint64 PackageBytes = 0;
+		uint64 SegmentBytes = 0;
+		uint64 MaximumSegmentBytes = 0;
+		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
+		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
+		std::shared_ptr<const FAssetResult> CanonicalizationCause;
+		std::shared_ptr<const FAssetPathResolveResult> ResolutionCause;
+	};
+	struct FCookPlanResult
+	{
+		FCookPlanError Error;
+		explicit operator bool() const { return Error.Code == ECookPlanError::None; }
+	};
+	ENGINE_API auto FormatCookPlanError(const FCookPlanError& Error) -> std::string;
+
+	enum class ECookCaptureError : uint8 { None, Finalization, PlanCount };
+	struct FCookCaptureResult
+	{
+		ECookCaptureError Error = ECookCaptureError::None;
+		FPackagePath Package;
+		std::string Contributor;
+		uint64 ActualPlans = 0;
+		uint64 ExpectedPlans = 1;
+		std::optional<FCookPlanError> PlanCause;
+		explicit operator bool() const { return Error == ECookCaptureError::None; }
+	};
+	ENGINE_API auto FormatCookCaptureError(const FCookCaptureResult& Result) -> std::string;
+
+
+	enum class ECookContributionError : uint8
+	{
+		None, Target, PlatformData, RenderData, Revision, Contract, FunctionDependencies, UnsupportedClass, Plan,
+		AuthoringOnly, TypeMismatch, SourceMutation, RecipeProvider, ShaderInputs
+	};
+	struct FCookContributionResult
+	{
+		ECookContributionError Error = ECookContributionError::None;
+		std::string ObjectPath;
+		std::string VirtualPath;
+		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
+		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
+		uint64 AuthoredRevision = 0;
+		std::optional<FCookPlanError> PlanCause;
+		std::string ExpectedClass;
+		std::string ActualClass;
+		std::string Provider;
+		explicit operator bool() const { return Error == ECookContributionError::None; }
+		ENGINE_API auto ToAssetResult() const -> FAssetResult;
+	};
+	ENGINE_API auto FormatCookContributionError(const FCookContributionResult& Result) -> std::string;
+
 	// Builds detached package plans without owning a disk publication destination.
 	class FCookContext
 	{
@@ -292,36 +527,35 @@ namespace Durin
 		);
 		ENGINE_API auto AddPackage(
 			std::string VirtualPackagePath,
-			FByteBuffer PackageBytes,
-			std::string* OutError = nullptr
-		) -> bool;
+			FByteBuffer PackageBytes
+		) -> FCookPlanResult;
 		ENGINE_API auto AddPackage(
 			std::string VirtualPackagePath,
 			const FPackagePath& SourcePackagePath,
-			FByteBuffer PackageBytes,
-			std::string* OutError = nullptr
-		) -> bool;
+			FByteBuffer PackageBytes
+		) -> FCookPlanResult;
 		ENGINE_API auto AddPackage(
 			std::string VirtualPackagePath,
-			DPackage* Package,
-			std::string* OutError = nullptr
-		) -> bool;
+			DPackage* Package
+		) -> FCookPlanResult;
 		// Publishes an opaque headerless raw segment owned by a higher-level
 		// manifest rather than by reflected package fields.
 		ENGINE_API auto AddRawPackage(
 			std::string VirtualPackagePath,
 			FByteBuffer PackageBytes,
-			FByteBuffer RawSegmentBytes,
-			std::string* OutError = nullptr
-		) -> bool;
+			FByteBuffer RawSegmentBytes
+		) -> FCookPlanResult;
 		// Consumes pending packages, including on failure; rebuild the context to retry.
 		// OutPlans is empty on failure.
-		ENGINE_API auto TakeSavePlans(std::vector<FCookSavePlan>& OutPlans, std::string* OutError = nullptr) -> bool;
+		ENGINE_API auto TakeSavePlans(std::vector<FCookSavePlan>& OutPlans) -> FCookPlanResult;
 		using FReadInput = std::function<FAssetResult(ECookBuildDependencyKind, std::string_view, FByteBuffer&)>;
 		auto SetInputReader(FReadInput Reader) -> void { ReadInput = std::move(Reader); }
 		auto ReadDeclaredInput(ECookBuildDependencyKind Kind, std::string_view Name,
-			FByteBuffer& Out) const -> FAssetResult { return ReadInput ? ReadInput(Kind, Name, Out)
-				: FAssetResult{EAssetError::MissingDependency, "No declared Cook inputs."}; }
+			FByteBuffer& Out) const -> FAssetResult {
+			Out.clear();
+			return ReadInput ? ReadInput(Kind, Name, Out)
+				: FCookInputFailure{.Error = ECookInputError::NoReader, .Kind = Kind, .Name = std::string(Name)}.ToAssetResult();
+		}
 		auto GetSavePlans() const -> std::span<const FCookSavePlan> { return Packages; }
 		auto GetTargetPlatform() const -> ECookTargetPlatform { return TargetPlatform; }
 		auto GetTargetProfile() const -> ECookTargetProfile { return TargetProfile; }
@@ -337,10 +571,21 @@ namespace Durin
 		std::vector<FCookSavePlan> Packages;
 	};
 
+	enum class ECookContextPublishError : uint8 { None, Finalization, Publication };
+	struct FCookContextPublishResult
+	{
+		ECookContextPublishError Error = ECookContextPublishError::None;
+		std::filesystem::path OutputRoot;
+		std::optional<FCookPlanError> PlanCause;
+		std::optional<FCookPublishResult> PublicationCause;
+		explicit operator bool() const { return Error == ECookContextPublishError::None; }
+	};
+	ENGINE_API auto FormatCookContextPublishError(const FCookContextPublishResult& Result) -> std::string;
+
 	// Consumes a direct family context and publishes through the shared output store.
 	// Production uses the coordinator for reachability, reuse and shader outputs.
 	ENGINE_API auto PublishCookContext(FCookContext& Context,
-		const std::filesystem::path& OutputRoot, std::string* OutError = nullptr) -> bool;
+		const std::filesystem::path& OutputRoot) -> FCookContextPublishResult;
 
 	using FCookContributor = std::function<FAssetResult(
 		DObject&, std::string_view, FCookContext&
@@ -371,23 +616,50 @@ namespace Durin
 		}
 	};
 
-	ENGINE_API auto RegisterCookContributor(DClass* Class, FCookContributorRegistration Registration) -> FCookContributorHandle;
+	enum class ECookContributorRegistrationError : uint8 { None, InvalidClass, Name, Callback, Version, DuplicateClass };
+	struct FCookContributorRegistrationResult
+	{
+		ECookContributorRegistrationError Error = ECookContributorRegistrationError::None;
+		FCookContributorHandle Handle = 0;
+		std::string ContributorName;
+		std::string ClassName;
+		uint32 ContributorVersion = 0;
+		uint32 FamilyProducerVersion = 0;
+		explicit operator bool() const { return Error == ECookContributorRegistrationError::None; }
+	};
+	ENGINE_API auto FormatCookContributorRegistrationError(const FCookContributorRegistrationResult& Result) -> std::string;
+	ENGINE_API auto RegisterCookContributor(DClass* Class, FCookContributorRegistration Registration) -> FCookContributorRegistrationResult;
 	// Retires from future runs without waiting; active runs retain the registration.
 	// Callback destruction and owner release occur outside the registration mutex.
 	ENGINE_API auto UnregisterCookContributor(FCookContributorHandle Handle) -> void;
 	ENGINE_API auto RegisterEngineCookContributors(
-		std::vector<FCookContributorHandle>& OutHandles,
-		std::string& OutError) -> bool;
+		std::vector<FCookContributorHandle>& OutHandles) -> FCookContributorRegistrationResult;
 	ENGINE_API auto ContributeEngineCookAsset(
 		DObject& Object,
 		std::string_view VirtualPackagePath,
-		FCookContext& Context,
-		std::string& OutError) -> bool;
+		FCookContext& Context) -> FCookContributionResult;
+
+	enum class ECookOutputRootError : uint8
+	{
+		None, AbsolutePath, CanonicalizeOutput, CanonicalizeInput, AuthoredOverlap,
+		InspectTree, EnumerateTree, InspectEntry, ResolveAlias, EntryLimit, AliasEscape
+	};
+	struct FCookOutputRootResult
+	{
+		ECookOutputRootError Error = ECookOutputRootError::None;
+		std::filesystem::path OutputRoot;
+		std::filesystem::path RelatedPath;
+		std::filesystem::path ResolvedPath;
+		std::error_code SystemError;
+		uint64 Entries = 0;
+		uint64 MaximumEntries = 0;
+		explicit operator bool() const { return Error == ECookOutputRootError::None; }
+	};
+	ENGINE_API auto FormatCookOutputRootError(const FCookOutputRootResult& Result) -> std::string;
 
 	// Validates the write destination against mounted authored trees, resolving existing
 	// filesystem aliases. Performs no writes. Hosts call this before starting services.
-	ENGINE_API auto ValidateCookOutputRoot(const std::filesystem::path& OutputRoot,
-		std::string& OutError) -> bool;
+	ENGINE_API auto ValidateCookOutputRoot(const std::filesystem::path& OutputRoot) -> FCookOutputRootResult;
 
 	// Internal owner-thread orchestration. Production callers launch DurinAssetTool cook
 	// once against stable saved inputs; live-editor use is unsupported.

@@ -695,13 +695,15 @@ are also mirrored into raw metadata lookup for compatibility, while first-party
 consumers use `GetTypedMetadata()`.
 
 `ClampMin` and `ClampMax` constrain new editor-authored proposals through
-`ValidatePropertyEditValue()`. Validation happens on detached draft
-storage before an edit session or transaction mutates the object. Package
+`ValidatePropertyEditValue()`, which returns `FPropertyEditValueResult` with
+owned property routes, array bounds, and exact numeric channels. Formatting is
+explicit through `FormatPropertyEditValueError`. Validation happens on detached
+draft storage before an edit session or transaction mutates the object. Package
 loading deliberately does not call this property-edit validator and therefore does
 not clamp or repair historical data. `UIMin` and `UIMax` only configure editor
 presentation.
 
-`FProperty::ContainerPtrToValuePtr<T>(...)` and `GetValuePtr(...)` provide field address access from an owning object/container address. `FObjectProperty::GetObjectPropertyValue(...)` and `SetObjectPropertyValue(...)` provide direct hard-object-reference access for GC and serialization. `FSoftObjectProperty::GetSoftObjectPtr(...)` exposes the bounded untyped `FSoftObjectPtr` reflection boundary; authored identity is read and written through `GetPath()` and `SetPath(FObjectPath)`, while typed application code uses `TSoftObjectPtr<T>`. `FWeakObjectProperty::GetWeakObjectPtr(...)` exposes its exact wrapper and expected class. `FStringProperty` exposes a `std::string*` pointer helper. Array and Map properties expose the capability-checked container operations described below. Map operations expose mutable mapped values while keeping keys immutable in place; key edits use copy, uniqueness validation, and node-based rename operations so hashing and equality invariants remain intact.
+`FProperty::ContainerPtrToValuePtr<T>(...)` and `GetValuePtr(...)` provide field address access from an owning object/container address. `FObjectProperty::GetObjectPropertyValue(...)` and `SetObjectPropertyValue(...)` provide direct hard-object-reference access for GC and serialization. `FSoftObjectProperty::GetSoftObjectPtr(...)` exposes the bounded untyped `FSoftObjectPtr` reflection boundary; authored identity is read and written through `GetPath()` and `SetPath(FObjectPath)`, while typed application code uses `TSoftObjectPtr<T>`. `FWeakObjectProperty::GetWeakObjectPtr(...)` exposes its exact wrapper and expected class. `FStringProperty` exposes a `std::string*` pointer helper. Array and Map properties expose the capability-checked container operations described below. The `Resize`, `Insert`, and `RenameKey` convenience APIs return `FPropertyContainerResult`, preserving backend codes, unavailable lifecycle requirements, owned property/Struct identities, and array bounds or resize counts; they have no string error outputs. Map operations expose mutable mapped values while keeping keys immutable in place; key edits use copy, uniqueness validation, and node-based rename operations so hashing and equality invariants remain intact.
 
 DurinHeaderTool recognizes direct and fixed-array `TSoftObjectPtr<T>` fields and
 soft values nested through supported Array, Map-value, and reflected-struct

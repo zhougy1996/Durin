@@ -32,7 +32,7 @@ namespace
 	{
 		std::vector<Durin::TStrongObjectPtr<Durin::DMaterialExpression>> Result;
 		for (const auto& Expression : Function.GetExpressionCollection().Expressions)
-			Result.emplace_back(Durin::DuplicateObject(Expression.Get(), nullptr, Durin::NAME_None));
+			Result.emplace_back(Durin::DuplicateObject(Expression.Get(), nullptr, Durin::NAME_None).Object);
 		return Result;
 	}
 	auto PublishFunctionExpressions(Durin::DMaterialFunction& Function,
@@ -259,7 +259,7 @@ TEST_F(FAssetPackageReloadTests, FunctionReloadRebindsNestedCallersAndPreservesA
 	const auto OldHandle = FObjectKey(Function);
 	auto Operation = ReloadPackages({.Packages = {Function->GetPackage()}});
 	const auto Result = Operation.Wait();
-	ASSERT_TRUE(Result) << (Result.Diagnostics.empty() ? "" : Result.Diagnostics[0].Message);
+	ASSERT_TRUE(Result) << (Result.Diagnostics.empty() ? "" : FormatPackageReloadDiagnostic(Result.Diagnostics[0]));
 	Function = Cast<DMaterialFunction>(FindResidentPackage(Path)->FindTopLevelAsset(Name));
 	ASSERT_NE(Function, nullptr);
 	EXPECT_NE(FObjectKey(Function), OldHandle);
@@ -310,6 +310,12 @@ TEST_F(FAssetPackageReloadTests, InvalidSavedFunctionClosureCannotReplaceValidLi
 	const auto Result = Operation.Wait();
 	EXPECT_EQ(Result.Status, EPackageReloadStatus::Failed);
 	EXPECT_EQ(Result.Failure, EPackageReloadFailure::ResourcePreparationFailed);
+	ASSERT_EQ(Result.Diagnostics.size(), 1u);
+	EXPECT_EQ(Result.Diagnostics[0].Reason, EPackageReloadReason::FunctionPreparation);
+	EXPECT_EQ(Result.Diagnostics[0].Stage, EPackageReloadStage::PrepareRuntimeProducts);
+	EXPECT_EQ(Result.Diagnostics[0].ObjectPath, Function->GetObjectPath());
+	ASSERT_FALSE(Result.Diagnostics[0].MaterialCauses.empty());
+	EXPECT_TRUE(Result.Diagnostics[0].MaterialCauses[0].Error.HasError());
 	EXPECT_EQ(ResolveObjectKey(Handle), Function);
 	EXPECT_EQ(Function->GetFunctionSignature(), Signature);
 	const auto& Actual = Function->GetExpressionCollection().Expressions;
@@ -341,6 +347,9 @@ TEST_F(FAssetPackageReloadTests, RejectsUnsavedCancelledAndOverBudgetRequestsWit
 	auto Unsaved = ReloadPackages({.Packages = {Package}}).GetResult();
 	EXPECT_EQ(Unsaved.Status, EPackageReloadStatus::Failed);
 	EXPECT_EQ(Unsaved.Failure, EPackageReloadFailure::Unsaved);
+	ASSERT_EQ(Unsaved.Diagnostics.size(), 1u);
+	EXPECT_EQ(Unsaved.Diagnostics[0].Reason, EPackageReloadReason::UnsavedPackage);
+	EXPECT_EQ(Unsaved.Diagnostics[0].PackagePath, Path);
 	EXPECT_EQ(FindResidentPackage(Path), Package);
 	EXPECT_TRUE(Package->IsDirty());
 
@@ -351,6 +360,8 @@ TEST_F(FAssetPackageReloadTests, RejectsUnsavedCancelledAndOverBudgetRequestsWit
 	auto Cancelled = ReloadPackages({.Packages = {Package},
 		.IsCancelled = [] { return true; }}).GetResult();
 	EXPECT_EQ(Cancelled.Status, EPackageReloadStatus::Cancelled);
+	ASSERT_EQ(Cancelled.Diagnostics.size(), 1u);
+	EXPECT_EQ(Cancelled.Diagnostics[0].Reason, EPackageReloadReason::Cancelled);
 	EXPECT_EQ(FindResidentPackage(Path), Package);
 	EXPECT_NE(Texture->GetSource().GetIdentity(), SavedIdentity);
 	EXPECT_TRUE(Package->IsDirty());
@@ -360,6 +371,11 @@ TEST_F(FAssetPackageReloadTests, RejectsUnsavedCancelledAndOverBudgetRequestsWit
 	auto Budget = ReloadPackages(BudgetRequest).GetResult();
 	EXPECT_EQ(Budget.Status, EPackageReloadStatus::Failed);
 	EXPECT_EQ(Budget.Failure, EPackageReloadFailure::BudgetExceeded);
+	ASSERT_EQ(Budget.Diagnostics.size(), 1u);
+	EXPECT_EQ(Budget.Diagnostics[0].Reason, EPackageReloadReason::ResourceRead);
+	ASSERT_TRUE(Budget.Diagnostics[0].ResourceCause.has_value());
+	EXPECT_EQ(Budget.Diagnostics[0].ResourceCause->Code, EPreparedPackageResourceError::BudgetExceeded);
+	EXPECT_EQ(Budget.Diagnostics[0].ResourceCause->MaximumBytes, 1u);
 	EXPECT_EQ(FindResidentPackage(Path), Package);
 	EXPECT_NE(Texture->GetSource().GetIdentity(), SavedIdentity);
 	EXPECT_TRUE(Package->IsDirty());
@@ -579,7 +595,20 @@ TEST_F(FAssetPackageReloadTests, EveryCoordinatorFailurePreservesTheEditedGraphA
 		const auto Result = ReloadPackages(Request).GetResult();
 		ASSERT_TRUE(Reached);
 		ASSERT_EQ(Result.Status, EPackageReloadStatus::Failed);
-		EXPECT_FALSE(Result.Diagnostics.empty());
+		ASSERT_EQ(Result.Diagnostics.size(), 1u);
+		EXPECT_NE(Result.Diagnostics[0].Reason, EPackageReloadReason::None);
+		if (Fault == EPackageReloadFaultPoint::CreateSkeleton
+			|| Fault == EPackageReloadFaultPoint::ApplyValues || Fault == EPackageReloadFaultPoint::RestoreLedger)
+		{
+			EXPECT_EQ(Result.Diagnostics[0].Reason, EPackageReloadReason::GraphPreparation);
+			ASSERT_NE(Result.Diagnostics[0].GraphCause, nullptr);
+			const auto& Cause = *Result.Diagnostics[0].GraphCause;
+			EXPECT_EQ(Cause.PackagePath, Path);
+			EXPECT_EQ(Cause.Reason, Fault == EPackageReloadFaultPoint::CreateSkeleton
+				? EPackageGraphPrepareReason::Skeleton : EPackageGraphPrepareReason::ApplyValues);
+			ASSERT_NE(Cause.AssetCause, nullptr);
+			EXPECT_FALSE(*Cause.AssetCause);
+		}
 		CollectGarbage();
 		EXPECT_EQ(FindResidentPackage(Path), Texture->GetPackage());
 		EXPECT_EQ(Cloud->GetWeatherTexture(), Texture);
@@ -653,4 +682,35 @@ TEST_F(FAssetPackageReloadTests, SkyLightUndoRedoAndPackageReopenPreserveSourceA
     EXPECT_EQ(Reopened->GetSkyLightComponent()->GetSourceMode(),ESkyLightSourceMode::CapturedSky);
     EXPECT_EQ(Reopened->GetSkyLightComponent()->GetIntensity(),3);
     ASSERT_TRUE(UnloadPackage(Path));
+}
+
+TEST(FPackageReloadReceiptTests, RetainsOwnedFailureAndRejectsInvalidTransitions)
+{
+	using namespace Durin;
+	FPackageReloadResourceReceipt Receipt;
+	EXPECT_EQ(Receipt.GetState(), EPackageReloadReceiptState::Pending);
+	EXPECT_FALSE(Receipt.SetFailed({}));
+	EXPECT_FALSE(Receipt.SetRetired());
+	FPackageReloadDiagnostic Error{.ObjectPath = "TemporaryObject",
+		.Stage = EPackageReloadStage::PrepareRuntimeProducts,
+		.Reason = EPackageReloadReason::Replacement,
+		.ReplacementCause = FObjectReplacementError{.Code = EObjectReplacementError::Busy}};
+	ASSERT_TRUE(Receipt.SetFailed(Error));
+	Error.ObjectPath.clear();
+	Error.ReplacementCause.reset();
+	EXPECT_EQ(Receipt.GetState(), EPackageReloadReceiptState::Failed);
+	EXPECT_FALSE(Receipt.SetReady());
+	EXPECT_FALSE(Receipt.SetRetired());
+	EXPECT_FALSE(Receipt.SetFailed({.Reason = EPackageReloadReason::Allocation}));
+	const auto Saved = Receipt.GetFailure();
+	EXPECT_EQ(Saved.ObjectPath, "TemporaryObject");
+	EXPECT_EQ(Saved.Reason, EPackageReloadReason::Replacement);
+	ASSERT_TRUE(Saved.ReplacementCause.has_value());
+	EXPECT_EQ(Saved.ReplacementCause->Code, EObjectReplacementError::Busy);
+	FPackageReloadResourceReceipt Ready;
+	ASSERT_TRUE(Ready.SetReady());
+	EXPECT_FALSE(Ready.SetFailed(Saved));
+	ASSERT_TRUE(Ready.SetRetired());
+	EXPECT_EQ(Ready.GetState(), EPackageReloadReceiptState::Retired);
+	EXPECT_EQ(Ready.GetFailure().Reason, EPackageReloadReason::None);
 }

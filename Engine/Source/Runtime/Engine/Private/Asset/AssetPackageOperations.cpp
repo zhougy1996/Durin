@@ -440,7 +440,11 @@ namespace Durin
 					StorageProperty = &*DetachedProperty;
 				}
 				FReflectedValueStorage Storage;
-				if (!Storage.DefaultConstruct(StorageProperty, 0, &StorageError))
+				if (!([&] {
+					const auto ValueResult = Storage.DefaultConstruct(StorageProperty, 0);
+					StorageError = Durin::FormatPropertyValueError(ValueResult.Error);
+					return ValueResult.Succeeded();
+				}()))
 					return Error(EAssetError::UnsupportedProperty, std::move(StorageError));
 				std::string StructName;
 				uint64 FieldCount = 0;
@@ -481,23 +485,24 @@ namespace Durin
 				}
 				if (Struct->HasPostDeserialize())
 				{
-					std::string PostDeserializeError;
 					FDStructPostDeserializeContext Context{
 						.Source = EDStructDeserializeSource::AuthoredAsset,
-						.SourceVersion = SourceVersion,
-						.Error = &PostDeserializeError};
-					if (!Struct->GetOps().PostDeserialize(StructValue, Context))
-						return Error(
-							EAssetError::CorruptFile,
-							PostDeserializeError.empty()
-								? std::format(
-									"PostDeserializeRejected: '{}' rejected the authored value.",
-									Struct->GetQualifiedName())
-								: std::format(
-									"PostDeserializeRejected: {}", PostDeserializeError));
+						.SourceVersion = SourceVersion};
+					auto Validation = Struct->GetOps().PostDeserialize(StructValue, Context);
+					if (!Validation)
+					{
+						Validation.Error.StructName = Struct->GetQualifiedName().ToString();
+						Validation.Error.SourceVersion = SourceVersion;
+						auto Result = Error(EAssetError::CorruptFile, FormatObjectValidationError(Validation.Error));
+						Result.GraphValidationCause = std::move(Validation.Error);
+						return Result;
+					}
 				}
-				if (!Property->CopyAssignValue(
-					Property->GetValuePtr(Container, ArrayIndex), StructValue, &StorageError))
+				if (!([&] {
+					const auto ValueResult = Property->CopyAssignValue(Property->GetValuePtr(Container, ArrayIndex), StructValue);
+					StorageError = Durin::FormatPropertyValueError(ValueResult.Error);
+					return ValueResult.Succeeded();
+				}()))
 					return Error(EAssetError::UnsupportedProperty, std::move(StorageError));
 				return {};
 			}
@@ -563,8 +568,16 @@ namespace Durin
 				FReflectedValueStorage ValueStorage;
 				std::string StorageError;
 				if (Num > 0
-					&& (!KeyStorage.DefaultConstruct(Map->GetKeyProp(), 0, &StorageError)
-						|| !ValueStorage.DefaultConstruct(Map->GetValueProp(), 0, &StorageError)))
+					&& (!([&] {
+						const auto ValueResult = KeyStorage.DefaultConstruct(Map->GetKeyProp(), 0);
+						StorageError = Durin::FormatPropertyValueError(ValueResult.Error);
+						return ValueResult.Succeeded();
+					}())
+						|| !([&] {
+							const auto ValueResult = ValueStorage.DefaultConstruct(Map->GetValueProp(), 0);
+							StorageError = Durin::FormatPropertyValueError(ValueResult.Error);
+							return ValueResult.Succeeded();
+						}())))
 					return Error(EAssetError::UnsupportedProperty, std::move(StorageError));
 				for (uint64 Index = 0; Index < Num; ++Index)
 				{
@@ -572,8 +585,16 @@ namespace Durin
 					{
 						KeyStorage.Reset();
 						ValueStorage.Reset();
-						if (!KeyStorage.DefaultConstruct(Map->GetKeyProp(), 0, &StorageError)
-							|| !ValueStorage.DefaultConstruct(Map->GetValueProp(), 0, &StorageError))
+						if (!([&] {
+							const auto ValueResult = KeyStorage.DefaultConstruct(Map->GetKeyProp(), 0);
+							StorageError = Durin::FormatPropertyValueError(ValueResult.Error);
+							return ValueResult.Succeeded();
+						}())
+							|| !([&] {
+								const auto ValueResult = ValueStorage.DefaultConstruct(Map->GetValueProp(), 0);
+								StorageError = Durin::FormatPropertyValueError(ValueResult.Error);
+								return ValueResult.Succeeded();
+							}()))
 							return Error(EAssetError::UnsupportedProperty, std::move(StorageError));
 					}
 					FAssetResult Result = DecodeByteToolValue(

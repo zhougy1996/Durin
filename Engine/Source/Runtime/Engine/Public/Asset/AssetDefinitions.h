@@ -1,10 +1,17 @@
 #pragma once
 
 #include "EngineAPI.h"
+#include "Asset/PackageResourceError.h"
+#include "Asset/EditorBulkDataStorageError.h"
 #include "Diagnostics/Diagnostic.h"
+#include "DObject/ObjectValidation.h"
+#include "AssetRegistry/RegistryResult.h"
 
 namespace Durin
 {
+	struct FCookDependencyGraphResult;
+	struct FCookContributionResult;
+	struct FCookInputFailure;
 	// Describes mutation progress independently from the diagnostic error code.
 	enum class EAssetResultDisposition : uint8
 	{
@@ -48,6 +55,13 @@ namespace Durin
 		std::string FailedParticipant;
 		std::filesystem::path RecoveryLocation;
 		std::vector<std::filesystem::path> AffectedFiles;
+		std::optional<FObjectValidationError> GraphValidationCause;
+		std::optional<FAssetRegistryResult> RegistryCause;
+		std::optional<FEditorBulkDataStorageError> BulkStorageCause;
+		std::optional<FPackageResourceRegistrationError> ResourceRegistrationCause;
+		std::shared_ptr<const FCookDependencyGraphResult> CookDependencyCause;
+		std::shared_ptr<const FCookInputFailure> CookInputCause;
+		std::shared_ptr<const FCookContributionResult> CookContributionCause;
 
 		auto Succeeded() const -> bool { return Error == EAssetError::None; }
 		explicit operator bool() const { return Succeeded(); }

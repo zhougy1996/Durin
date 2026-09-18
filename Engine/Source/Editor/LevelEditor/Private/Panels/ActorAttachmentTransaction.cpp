@@ -7,20 +7,25 @@ namespace Durin::Editor::Level
 {
 	namespace
 	{
-		auto CanApplyEntry(const FActorAttachmentTransaction::FEntry& Entry, bool bAfter) -> bool
+		auto CanApplyEntry(const FActorAttachmentTransaction::FEntry& Entry, bool bAfter) -> FTransactionCustomResult
 		{
 			AActor* Actor = Entry.Actor.Get();
 			AActor* ExpectedParent = bAfter ? Entry.BeforeParent.Get() : Entry.AfterParent.Get();
 			AActor* DesiredParent = bAfter ? Entry.AfterParent.Get() : Entry.BeforeParent.Get();
-			if (!Actor || !Actor->GetRootComponent() || Actor->GetAttachParentActor() != ExpectedParent)
-				return false;
-			if (!DesiredParent) return true;
+			if (!Actor || !Actor->GetRootComponent()) return {{.Code = ETransactionCustomError::TargetUnavailable}};
+			if (Actor->GetAttachParentActor() != ExpectedParent)
+				return {{.Code = ETransactionCustomError::ParentMismatch, .TargetPath = Actor->GetObjectPath(),
+					.ExpectedParentPath = ExpectedParent ? ExpectedParent->GetObjectPath() : std::string{},
+					.ActualParentPath = Actor->GetAttachParentActor() ? Actor->GetAttachParentActor()->GetObjectPath() : std::string{}}};
+			if (!DesiredParent) return {};
 			if (DesiredParent == Actor || !DesiredParent->GetRootComponent()
 				|| DesiredParent->GetOuter() != Actor->GetOuter())
-				return false;
+				return {{.Code = ETransactionCustomError::ParentInvalid, .TargetPath = Actor->GetObjectPath(),
+					.ExpectedParentPath = DesiredParent->GetObjectPath()}};
 			for (AActor* Parent = DesiredParent; Parent; Parent = Parent->GetAttachParentActor())
-				if (Parent == Actor) return false;
-			return true;
+				if (Parent == Actor) return {{.Code = ETransactionCustomError::ParentCycle, .TargetPath = Actor->GetObjectPath(),
+					.ExpectedParentPath = DesiredParent->GetObjectPath()}};
+			return {};
 		}
 
 		auto SetParentAndTransform(AActor& Actor, AActor* Parent, const FTransform& Transform) -> bool
@@ -96,11 +101,16 @@ namespace Durin::Editor::Level
 				if (Object) Collector.AddReferencedObject(Object);
 	}
 
-	auto FActorAttachmentTransaction::Apply(bool bAfter) -> bool
+	auto FActorAttachmentTransaction::Apply(bool bAfter) -> FTransactionCustomResult
 	{
-		if (Entries.empty() || !std::ranges::all_of(Entries, [bAfter](const FEntry& Entry) {
-			return CanApplyEntry(Entry, bAfter);
-		})) return false;
+		if (Entries.empty()) return {{.Code = ETransactionCustomError::EmptySelection}};
+		for (size_t Index = 0; Index < Entries.size(); ++Index)
+			if (auto Validated = CanApplyEntry(Entries[Index], bAfter); !Validated)
+			{
+				Validated.Error.MemberIndex = Index;
+				Validated.Error.NodeCount = Entries.size();
+				return Validated;
+			}
 
 		size_t AppliedCount = 0;
 		for (const FEntry& Entry : Entries)
@@ -124,8 +134,10 @@ namespace Durin::Editor::Level
 					SetParentAndTransform(*AppliedActor, PreviousParent, PreviousTransform);
 				}
 			}
-			return false;
+			return {{.Code = ETransactionCustomError::AttachmentWrite, .TargetPath = Actor->GetObjectPath(),
+				.ExpectedParentPath = Parent ? Parent->GetObjectPath() : std::string{}, .NodeCount = Entries.size(),
+				.MemberIndex = static_cast<size_t>(&Entry - Entries.data())}};
 		}
-		return true;
+		return {};
 	}
 }

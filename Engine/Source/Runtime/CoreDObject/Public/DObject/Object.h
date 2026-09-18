@@ -4,6 +4,7 @@
 #include "DObject/ObjectMacros.h"
 #include "DObject/AuthoredOverrideLedger.h"
 #include "DObject/PropertyChange.h"
+#include "DObject/ObjectValidation.h"
 #include "DObjectGlobals.h"
 #include "Misc/Guid.h"
 
@@ -144,9 +145,9 @@ namespace Durin
 
 		// Read-only admission after graph values/links are restored, before PostLoad
 		// and final publication. May inspect owned objects; must not load or mutate assets.
-		// False rejects the load, duplicate, or prepared batch as a whole.
+		// A typed failure rejects the load, duplicate, or prepared batch as a whole.
 		COREDOBJECT_API virtual auto ValidateLoadedObjectGraph(
-			const FObjectGraphLoadContext& Context, std::string& OutError) const -> bool;
+			const FObjectGraphLoadContext& Context) const -> FObjectValidationResult;
 
 		// Exposes source-package versions only while authored PostLoad migration runs.
 		COREDOBJECT_API auto GetLoadedCustomVersion(const FGuid& Key) const -> std::optional<int32>;
@@ -157,7 +158,7 @@ namespace Durin
 		COREDOBJECT_API auto ClearLoadedDeprecatedProperties() -> void;
 
 		// Validates or normalizes detached reflected storage before a live write.
-		COREDOBJECT_API virtual auto PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool;
+		COREDOBJECT_API virtual auto PreEditChangeProperty(FPropertyEditProposal& Proposal) -> FObjectValidationResult;
 
 		// Editor mutation state stays outside DObject; this synchronous hook only
 		// lets the object refresh state derived from a successfully changed value.

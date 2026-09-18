@@ -107,9 +107,8 @@ namespace Durin::Editor::Texture
 			: "Six Faces";
 
 		FAssetImportInfo ImportInfo;
-		std::string ImportError;
 		if (InspectAssetImportInfo(
-			Inspection, ImportInfo, ImportError))
+			Inspection, ImportInfo))
 		{
 			if (Snapshot.bPanorama)
 			{

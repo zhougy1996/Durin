@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Asset/AssetCacheDiagnostic.h"
+
 #include "Asset/AssetCompilingManager.h"
 #include "Hash/XxHash.h"
 #include "Modules/ModularFeature.h"
@@ -28,9 +30,9 @@ namespace Durin
 		std::string AssetIdentity;
 		std::unique_ptr<FTexturePlatformData> PlatformData;
 		FCacheKeyProxy DerivedDataKey;
-		std::string PersistenceDiagnostic;
+		FAssetCacheDiagnostics PersistenceDiagnostic;
 		ETexture2DBuildProductOrigin Origin = ETexture2DBuildProductOrigin::Rebuilt;
-		std::string Error;
+		FTexture2DCompilationError Error;
 		FTexture2DCompilationMetrics Metrics;
 		FTexture2DBuildInputIdentity InputIdentity;
 		ETexture2DCompilationPhase FailurePhase = ETexture2DCompilationPhase::None;
@@ -62,7 +64,7 @@ namespace Durin
 		auto operator=(const FTextureCompilingManager&)
 			-> FTextureCompilingManager& = delete;
 
-		auto Start(std::string* OutError) -> bool override;
+		auto Start() -> FAssetCompilerStartResult override;
 		auto StopAdmission() -> void override;
 		auto GetNumRemainingAssets() const -> uint64 override;
 		auto ProcessAsyncTasks(const FAssetCompileProcessParams& Params)
@@ -76,8 +78,7 @@ namespace Durin
 		auto Submit(
 			DTexture2D& Texture,
 			FTexture2DCompilationRequest Request,
-			std::string& OutError,
-			FTexture2DCompilationCompletion Completion) -> bool;
+			FTexture2DCompilationCompletion Completion) -> FTexture2DCompilationOperationResult;
 		auto GetDiagnostic(const DTexture2D& Texture) const
 			-> FTexture2DCompilationDiagnostic;
 		auto GetManagerDiagnostics() const -> FTexture2DCompilationManagerDiagnostics;
@@ -100,7 +101,7 @@ namespace Durin
 		auto GetWorkManagerDiagnostics() const -> FTexture2DCompilationManagerDiagnostics;
 		auto PumpWorkCompletions(uint32 MaximumCount) -> uint32;
 		auto WaitForWork(uint64 RequestId, double TimeoutSeconds) -> bool;
-		auto StartWorkAdmission() -> bool;
+		auto StartWorkAdmission() -> FAssetCompilerStartResult;
 		auto StopWorkAdmission() -> void;
 		auto ShutdownWorkQueue() -> void;
 		auto ApplyCompletion(FTexture2DCompilationWorkResult&& Result) -> void;

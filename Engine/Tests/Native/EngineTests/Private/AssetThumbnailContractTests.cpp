@@ -1586,7 +1586,8 @@ namespace Durin
 		Durin::FByteBuffer Encoded;
 		ASSERT_EQ(Store.Load(CacheKey, Encoded), Editor::EThumbnailObjectLoadResult::Hit);
 		Image::FDecodedImage Decoded;
-		ASSERT_TRUE(Image::DecodeImageFromMemory(Encoded, Decoded, Error)) << Error;
+		const auto DecodeResult = Image::DecodeImageFromMemory(Encoded, Decoded);
+		ASSERT_TRUE(DecodeResult) << Durin::Image::FormatImageDecodeError(DecodeResult.Error);
 		EXPECT_EQ(Decoded.Width, 2u);
 		EXPECT_EQ(Decoded.Height, 1u);
 		const auto ExpectedPixels = std::as_bytes(std::span{Pixels});
@@ -1904,7 +1905,8 @@ namespace Durin
 		FByteBuffer Encoded;
 		ASSERT_EQ(Store.Load(Job.ScheduledJob.CacheKey, Encoded), Editor::EThumbnailObjectLoadResult::Hit);
 		Image::FDecodedImage Decoded;
-		ASSERT_TRUE(Image::DecodeImageFromMemory(Encoded, Decoded, Error)) << Error;
+		const auto DecodeResult = Image::DecodeImageFromMemory(Encoded, Decoded);
+		ASSERT_TRUE(DecodeResult) << Durin::Image::FormatImageDecodeError(DecodeResult.Error);
 		EXPECT_EQ(Decoded.Pixels, Pixels);
 	}
 

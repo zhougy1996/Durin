@@ -57,8 +57,17 @@ namespace
 		{
 			return Operation == Durin::Editor::ETransactionOperation::Undo ? "Counter changed backward" : "Counter changed forward";
 		}
-		auto Undo() -> bool override { Value -= Delta; return true; }
-		auto Redo() -> bool override { Value += Delta; return true; }
+		auto Replay(Durin::Editor::ETransactionOperation Operation) -> Durin::Editor::FTransactionCustomResult override
+		{
+			if (Operation == Durin::Editor::ETransactionOperation::Undo)
+			{
+				Value -= Delta; return {};
+			}
+			else
+			{
+				Value += Delta; return {};
+			}
+		}
 	private:
 		int& Value;
 		int Delta;
@@ -73,17 +82,20 @@ namespace
 	public:
 		FControlledTransaction(int& InValue, FTransactionControl& InControl) : Value(InValue), Control(InControl) {}
 		auto GetDescription() const -> std::string_view override { return "Controlled"; }
-		auto Undo() -> bool override
+		auto Replay(Durin::Editor::ETransactionOperation Operation) -> Durin::Editor::FTransactionCustomResult override
 		{
-			if (Control.bFailUndo) return false;
-			--Value;
-			return true;
-		}
-		auto Redo() -> bool override
-		{
-			if (Control.bFailRedo) return false;
-			++Value;
-			return true;
+			if (Operation == Durin::Editor::ETransactionOperation::Undo)
+			{
+				if (Control.bFailUndo) return {{.Code = Durin::Editor::ETransactionCustomError::InjectedMutation}};
+				--Value;
+				return {};
+			}
+			else
+			{
+				if (Control.bFailRedo) return {{.Code = Durin::Editor::ETransactionCustomError::InjectedMutation}};
+				++Value;
+				return {};
+			}
 		}
 	private:
 		int& Value;
@@ -108,17 +120,20 @@ namespace
 
 		auto GetDescription() const -> std::string_view override { return "Package Counting"; }
 		auto GetAffectedPackages() const -> std::span<Durin::DPackage* const> override { return Packages; }
-		auto Undo() -> bool override
+		auto Replay(Durin::Editor::ETransactionOperation Operation) -> Durin::Editor::FTransactionCustomResult override
 		{
-			if (Control && Control->bFailUndo) return false;
-			Value -= Delta;
-			return true;
-		}
-		auto Redo() -> bool override
-		{
-			if (Control && Control->bFailRedo) return false;
-			Value += Delta;
-			return true;
+			if (Operation == Durin::Editor::ETransactionOperation::Undo)
+			{
+				if (Control && Control->bFailUndo) return {{.Code = Durin::Editor::ETransactionCustomError::InjectedMutation}};
+				Value -= Delta;
+				return {};
+			}
+			else
+			{
+				if (Control && Control->bFailRedo) return {{.Code = Durin::Editor::ETransactionCustomError::InjectedMutation}};
+				Value += Delta;
+				return {};
+			}
 		}
 
 	private:

@@ -56,7 +56,9 @@ namespace Durin::Editor::ContentBrowser::Private
 		}
 
 		Image::FDecodedImage SourceImage;
-		if (!Image::DecodeImageFromFile(FilePath, SourceImage, OutError, ThumbnailDecodeLimits)) return false;
+		const auto DecodeResult = Image::DecodeImageFromFile(FilePath, SourceImage, ThumbnailDecodeLimits);
+		OutError = Image::FormatImageDecodeError(DecodeResult.Error);
+		if (!DecodeResult) return false;
 
 		const uint32 SourceWidth = SourceImage.Width;
 		const uint32 SourceHeight = SourceImage.Height;

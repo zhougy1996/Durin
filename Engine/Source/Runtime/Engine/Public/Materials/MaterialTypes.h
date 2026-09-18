@@ -514,6 +514,11 @@ namespace Durin
 		InvalidMetadata,
 		NotFound,
 		TypeConflict,
+		OwnerMissing,
+		OwnerMismatch,
+		Unreachable,
+		OverrideType,
+		UnresolvedValue,
 		UnsupportedProgramSchema,
 		InvalidProgram,
 	};

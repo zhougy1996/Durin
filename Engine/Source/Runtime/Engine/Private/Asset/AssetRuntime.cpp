@@ -542,10 +542,9 @@ namespace Durin
 				Result = Codec->Inspect(ReadContext, Inspection);
 				if (!Result) return Result;
 				std::vector<FPackageBulkStorageDescriptor> Descriptors;
-				std::string BulkDiagnostic;
-				if (!InspectEditorBulkDataStorageDescriptors(
-						Inspection, Descriptors, &BulkDiagnostic))
-					return Error(EAssetError::CorruptFile, std::move(BulkDiagnostic));
+				if (const auto Storage = InspectEditorBulkDataStorageDescriptors(Inspection, Descriptors); !Storage)
+					return {.Error = EAssetError::CorruptFile, .Message = FormatEditorBulkDataStorageError(Storage.Error),
+						.BulkStorageCause = Storage.Error};
 				std::vector<FPackageBulkDataEntry> Entries;
 				Entries.reserve(Descriptors.size());
 				for (size_t Index = 0; Index < Descriptors.size(); ++Index)
@@ -570,9 +569,10 @@ namespace Durin
 				);
 				if (!Registration)
 				{
-					const EAssetError Code = Registration.Status == EPackageResourceRegistrationStatus::ShuttingDown ? EAssetError::ShuttingDown : Registration.PublicationError.Operation != FFileHelper::EAtomicFileOperation::None ? EAssetError::IoError :
+					const EAssetError Code = Registration.Error.Code == EPackageResourceRegistrationError::ShuttingDown ? EAssetError::ShuttingDown : Registration.Error.PublicationError.Operation != FFileHelper::EAtomicFileOperation::None ? EAssetError::IoError :
 																																																										EAssetError::CorruptFile;
-					return Error(Code, std::move(Registration.Message));
+					return {.Error = Code, .Message = FormatPackageResourceRegistrationError(Registration.Error),
+						.ResourceRegistrationCause = std::move(Registration.Error)};
 				}
 				bRegisteredBulkResource = true;
 				ReadContext.BulkResource = std::move(Registration.Resource);

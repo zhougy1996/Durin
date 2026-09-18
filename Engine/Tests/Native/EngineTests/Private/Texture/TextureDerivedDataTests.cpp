@@ -1,3 +1,4 @@
+#include "Texture/Texture2DBuildProvider.h"
 #include "TextureTestSupport.h"
 
 #include "Texture/TextureDerivedData.h"
@@ -507,4 +508,41 @@ TEST(FTextureDerivedDataTests, ArchivesReplaceSequencesAndBoundAdjacentPayloads)
 		Check(MakePlatformData());
 		Check(MakeCubePlatformData());
 	}
+}
+
+TEST(FTextureDerivedDataTests, InputValidationRetainsSettingsAndMipContext)
+{
+	using namespace Durin;
+	FTexture2DBuildSettings Settings;
+	ASSERT_TRUE(ValidateTexture2DBuildSettings(Settings));
+	Settings.Usage = static_cast<ETextureUsage>(255);
+	const auto Usage = ValidateTexture2DBuildSettings(Settings);
+	EXPECT_EQ(Usage.Error.Code, ETexture2DInputError::InvalidUsage);
+	Settings = {};
+	EXPECT_EQ(static_cast<uint8>(Usage.Error.Settings.Usage), 255);
+	Settings.CompressionQuality = static_cast<ETextureCompressionQuality>(255);
+	EXPECT_EQ(ValidateTexture2DBuildSettings(Settings).Error.Code, ETexture2DInputError::InvalidCompressionQuality);
+	Settings = {};
+	Settings.AlphaMipMode = static_cast<ETextureAlphaMipMode>(255);
+	EXPECT_EQ(ValidateTexture2DBuildSettings(Settings).Error.Code, ETexture2DInputError::InvalidAlphaMipMode);
+	Settings = {};
+	Settings.AlphaCoverageThreshold = std::numeric_limits<float>::quiet_NaN();
+	const auto Threshold = ValidateTexture2DBuildSettings(Settings);
+	EXPECT_EQ(Threshold.Error.Code, ETexture2DInputError::InvalidAlphaCoverageThreshold);
+	EXPECT_TRUE(std::isnan(Threshold.Error.Settings.AlphaCoverageThreshold));
+	EXPECT_EQ(ValidateTexture2DSourceMips({}).Error.Code, ETexture2DInputError::EmptyMips);
+	std::vector<Image::FImage> Mips(1);
+	EXPECT_EQ(ValidateTexture2DSourceMips(Mips).Error.Code, ETexture2DInputError::InvalidImage);
+	Image::FImageInfo Info{.Width = 2, .Height = 2, .Format = Image::ERawImageFormat::RGBA8,
+		.GammaSpace = Image::EImageGammaSpace::Linear};
+	FByteBuffer Pixels(16);
+	ASSERT_TRUE(Image::FImage::TryCreate(Info, Pixels, Mips.front()));
+	Mips.push_back(Mips.front());
+	const auto Dimensions = ValidateTexture2DSourceMips(Mips);
+	EXPECT_EQ(Dimensions.Error.Code, ETexture2DInputError::InvalidMipDimensions);
+	Mips.clear();
+	EXPECT_EQ(Dimensions.Error.Index, 1u);
+	EXPECT_EQ(Dimensions.Error.Bytes, 32u);
+	EXPECT_EQ(Dimensions.Error.Base.Width, 2u);
+	EXPECT_EQ(Dimensions.Error.Actual.Width, 2u);
 }

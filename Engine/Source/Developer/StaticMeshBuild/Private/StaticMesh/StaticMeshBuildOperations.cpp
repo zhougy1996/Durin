@@ -144,32 +144,34 @@ namespace Durin
 			});
 		}
 
-		auto ValidateImportedMesh(const FStaticMeshImportedMesh& Mesh, std::string& OutError, FRecipeControl& Control) -> bool
+		auto ValidateImportedMesh(const FStaticMeshImportedMesh& Mesh, FStaticMeshRecipeError& OutError, FRecipeControl& Control) -> bool
 		{
 			if (Mesh.Positions.empty() || Mesh.Indices.empty()) return false;
 			if (Mesh.Positions.size() > std::numeric_limits<uint32>::max())
 			{
-				OutError = std::format("Mesh '{}' exceeds the uint32 vertex limit.", Mesh.Name);
+				OutError = {.Code = EStaticMeshRecipeError::VertexLimit, .MeshName = Mesh.Name, .Actual = Mesh.Positions.size(), .Expected = std::numeric_limits<uint32>::max()};
 				return false;
 			}
 			if (Mesh.Indices.size() % 3 != 0)
 			{
-				OutError = std::format("Mesh '{}' index count is not a triangle list.", Mesh.Name);
+				OutError = {.Code = EStaticMeshRecipeError::TriangleList, .MeshName = Mesh.Name, .IndexCount = Mesh.Indices.size()};
 				return false;
 			}
-			if (!std::ranges::all_of(Mesh.Positions, [&Control](const FVector3f& Position) { Control.Tick(); return Math::IsFinite(Position); }))
-			{
-				OutError = std::format("Mesh '{}' contains a non-finite position.", Mesh.Name);
-				return false;
-			}
-			for (uint32 Index : Mesh.Indices)
+			for (size_t Vertex = 0; Vertex < Mesh.Positions.size(); ++Vertex)
 			{
 				Control.Tick();
-				if (Index >= Mesh.Positions.size())
-				{
-					OutError = std::format("Mesh '{}' contains an out-of-range index {}.", Mesh.Name, Index);
-					return false;
-				}
+				if (Math::IsFinite(Mesh.Positions[Vertex])) continue;
+				OutError = {.Code = EStaticMeshRecipeError::NonFinitePosition, .MeshName = Mesh.Name,
+					.Index = Vertex, .Position = Mesh.Positions[Vertex]};
+				return false;
+			}
+			for (size_t Offset = 0; Offset < Mesh.Indices.size(); ++Offset)
+			{
+				Control.Tick();
+				if (Mesh.Indices[Offset] < Mesh.Positions.size()) continue;
+				OutError = {.Code = EStaticMeshRecipeError::IndexRange, .MeshName = Mesh.Name,
+					.Index = Offset, .Actual = Mesh.Indices[Offset], .Expected = Mesh.Positions.size()};
+				return false;
 			}
 			return true;
 		}
@@ -191,7 +193,7 @@ namespace Durin
 		FBox& OutBounds,
 		std::vector<FStaticMeshRecipeMaterialSlot>& OutMaterialSlots,
 		bool& bOutSlotMetadataChanged,
-		std::string& OutError, FRecipeControl& Control) -> bool
+		FStaticMeshRecipeError& OutError, FRecipeControl& Control) -> bool
 	{
 		FStaticMeshBuildMemoryEstimate Memory{Control.Execution.MaximumWorkingSetBytes};
 		bool bFits = Memory.Add(1, 1024 * 1024)
@@ -204,7 +206,7 @@ namespace Durin
 		}
 		if (!bFits)
 		{
-			OutError = "StaticMesh predicted render working set exceeds its reservation.";
+			OutError = {.Code = EStaticMeshRecipeError::WorkingSet, .Actual = Memory.Bytes, .Expected = Memory.Limit};
 			return false;
 		}
 		const std::vector<FStaticMeshRecipeMaterialSlot> PreviousSlots(
@@ -325,8 +327,7 @@ namespace Durin
 			const uint32 SourceIndex = ImportedData.MaterialSlots[ImportedIndex].SourceMaterialIndex;
 			if (!ImportedSourceToIndex.emplace(SourceIndex, ImportedIndex).second)
 			{
-				OutError = std::format(
-					"Static mesh has duplicate imported source material index {}.", SourceIndex);
+				OutError = {.Code = EStaticMeshRecipeError::DuplicateMaterial, .Index = ImportedIndex, .Actual = SourceIndex};
 				return false;
 			}
 		}
@@ -345,13 +346,14 @@ namespace Durin
 			Control.Tick();
 			if (!ValidateImportedMesh(ImportedMesh, OutError, Control))
 			{
-				if (!OutError.empty()) return false;
+				if (OutError.Code != EStaticMeshRecipeError::None) return false;
 				continue;
 			}
 			if (Positions.size() > std::numeric_limits<uint32>::max() - ImportedMesh.Positions.size()
 				|| Indices.size() > std::numeric_limits<uint32>::max() - ImportedMesh.Indices.size())
 			{
-				OutError = "Static mesh exceeds uint32 render-data limits.";
+				OutError = {.Code = EStaticMeshRecipeError::RenderLimits, .MeshName = ImportedMesh.Name,
+					.Expected = std::numeric_limits<uint32>::max(), .VertexCount = Positions.size() + ImportedMesh.Positions.size(), .IndexCount = Indices.size() + ImportedMesh.Indices.size()};
 				return false;
 			}
 
@@ -456,8 +458,7 @@ namespace Durin
 			const auto ImportedSlot = ImportedSourceToIndex.find(ImportedMesh.SourceMaterialIndex);
 			if (ImportedSlot == ImportedSourceToIndex.end())
 			{
-				OutError = std::format("Static mesh section '{}' references missing source material index {}.",
-					Section.Name, ImportedMesh.SourceMaterialIndex);
+				OutError = {.Code = EStaticMeshRecipeError::MissingMaterial, .MeshName = ImportedMesh.Name, .SectionName = Section.Name, .Actual = ImportedMesh.SourceMaterialIndex};
 				return false;
 			}
 			Section.MaterialSlotIndex = ImportedToStableSlot[ImportedSlot->second];
@@ -466,7 +467,7 @@ namespace Durin
 
 		if (Positions.empty() || Indices.empty() || LOD.Sections.empty())
 		{
-			OutError = "Static mesh source has no renderable geometry.";
+			OutError = {.Code = EStaticMeshRecipeError::EmptyGeometry, .VertexCount = Positions.size(), .IndexCount = Indices.size()};
 			return false;
 		}
 
@@ -484,7 +485,7 @@ namespace Durin
 		const float MaxDimension = std::max(BoundsExtent.x, std::max(BoundsExtent.y, BoundsExtent.z));
 		if (MaxDimension <= 0.0f)
 		{
-			OutError = "Static mesh source has invalid bounds.";
+			OutError = {.Code = EStaticMeshRecipeError::Bounds, .Bounds = SourceBounds};
 			return false;
 		}
 
@@ -514,7 +515,7 @@ namespace Durin
 		OutLODs = std::move(LODs);
 		OutMaterialSlots = std::move(ReconciledSlots);
 		bOutSlotMetadataChanged = bSlotMetadataChanged;
-		OutError.clear();
+		OutError = {};
 		return true;
 	}
 
@@ -523,13 +524,13 @@ namespace Durin
 	static auto BuildRenderRecipeInternal(
 		const FStaticMeshRecipeBuildRequest& Request,
 		FStaticMeshRecipeBuildProduct& OutProduct,
-		std::string& OutError, FRecipeControl& Control) -> bool
+		FStaticMeshRecipeError& OutError, FRecipeControl& Control) -> bool
 	{
 		OutProduct = {};
 		Control.Check();
 		if (!Request.Geometry)
 		{
-			OutError = "StaticMesh recipe requires decoded geometry.";
+			OutError = {.Code = EStaticMeshRecipeError::MissingGeometry};
 			return false;
 		}
 		return BuildRenderDataCandidate(
@@ -546,32 +547,32 @@ namespace Durin
 	static auto BuildCollisionRecipeInternal(
 		const FStaticMeshCollisionRecipeRequest& Request,
 		FStaticMeshCollisionRecipeProduct& OutProduct,
-		std::string& OutError, FRecipeControl& Control) -> bool
+		FStaticMeshRecipeError& OutError, FRecipeControl& Control) -> bool
 	{
 		OutProduct = {};
 		Control.Check();
 		if (Request.Mode == EBodySetupCollisionSourceMode::None)
 		{
-			OutError.clear();
+			OutError = {};
 			return true;
 		}
 		if (Request.Mode != EBodySetupCollisionSourceMode::ConvexHullFromLOD0
 			&& Request.Mode != EBodySetupCollisionSourceMode::TriangleMeshFromLOD0)
 		{
-			OutError = "StaticMesh collision source mode is invalid.";
+			OutError = {.Code = EStaticMeshRecipeError::CollisionMode, .Mode = Request.Mode};
 			return false;
 		}
 		if (Request.Positions.empty() || Request.Indices.empty()
 			|| Request.Indices.size() % 3 != 0)
 		{
-			OutError = "StaticMesh collision recipe input is empty or malformed.";
+			OutError = {.Code = EStaticMeshRecipeError::CollisionInput, .VertexCount = Request.Positions.size(), .IndexCount = Request.Indices.size(), .Mode = Request.Mode};
 			return false;
 		}
 		FStaticMeshBuildMemoryEstimate Memory{Control.Execution.MaximumWorkingSetBytes};
 		if (!Memory.Add(1, 1024 * 1024) || !Memory.Add(Request.Positions.size(), 512)
 			|| !Memory.Add(Request.Indices.size(), 192))
 		{
-			OutError = "StaticMesh predicted collision working set exceeds its reservation.";
+			OutError = {.Code = EStaticMeshRecipeError::WorkingSet, .Actual = Memory.Bytes, .Expected = Memory.Limit, .VertexCount = Request.Positions.size(), .IndexCount = Request.Indices.size(), .Mode = Request.Mode};
 			return false;
 		}
 		FCollisionGeometryBuildDiagnostics Diagnostics;
@@ -589,62 +590,66 @@ namespace Durin
 			? FCollisionGeometryRef::BuildConvexHull(CollisionPositions, &Diagnostics, ShouldCancel)
 			: FCollisionGeometryRef::BuildTriangleMesh(
 				CollisionPositions, Request.Indices, &Diagnostics, ShouldCancel);
-		if (Diagnostics.Status == ECollisionGeometryBuildStatus::Cancelled) throw FRecipeCancelled{};
-		if (!OutProduct.Geometry)
+		if (Diagnostics.Status == ECollisionGeometryBuildStatus::Cancelled)
 		{
-			OutError = std::format(
-				"StaticMesh collision build failed with status {}.",
-				static_cast<uint32>(Diagnostics.Status));
+			OutError = {.Code = EStaticMeshRecipeError::Cancelled, .Mode = Request.Mode, .CollisionCause = Diagnostics};
 			return false;
 		}
-		OutError.clear();
+		if (!OutProduct.Geometry)
+		{
+			OutError = {.Code = EStaticMeshRecipeError::CollisionBuild, .Mode = Request.Mode, .CollisionCause = Diagnostics};
+			return false;
+		}
+		OutError = {};
 		return true;
 	}
 
 
 	auto FStaticMeshBuildOperations::BuildRenderRecipe(const FStaticMeshRecipeBuildRequest& Request,
-		FStaticMeshRecipeBuildProduct& OutProduct, std::string& OutError,
-		const FStaticMeshBuildExecutionControl& Execution) -> FStaticMeshBuildOutcome
+		FStaticMeshRecipeBuildProduct& OutProduct,
+		const FStaticMeshBuildExecutionControl& Execution) -> FStaticMeshRecipeResult
 	{
 		OutProduct = {};
-		OutError.clear();
+		FStaticMeshRecipeError Error;
 		FRecipeControl Control{Execution};
 		try
 		{
-			const bool bSucceeded = BuildRenderRecipeInternal(Request, OutProduct, OutError, Control);
+			const bool bSucceeded = BuildRenderRecipeInternal(Request, OutProduct, Error, Control);
 			Control.Check();
 			if (!bSucceeded) OutProduct = {};
-			OutError.resize(std::min(OutError.size(), MaximumStaticMeshBuildDiagnosticBytes));
-			return {bSucceeded ? EStaticMeshBuildStatus::Succeeded : EStaticMeshBuildStatus::Failed, OutError};
+			Error.Kind = EStaticMeshRecipeKind::Render;
+			return {std::move(Error)};
 		}
 		catch (const FRecipeCancelled&)
 		{
 			OutProduct = {};
-			OutError = "StaticMesh render recipe was cancelled.";
-			return {EStaticMeshBuildStatus::Cancelled, OutError};
+			return {{.Code = EStaticMeshRecipeError::Cancelled, .Kind = EStaticMeshRecipeKind::Render}};
 		}
 	}
 
 	auto FStaticMeshBuildOperations::BuildCollisionRecipe(const FStaticMeshCollisionRecipeRequest& Request,
-		FStaticMeshCollisionRecipeProduct& OutProduct, std::string& OutError,
-		const FStaticMeshBuildExecutionControl& Execution) -> FStaticMeshBuildOutcome
+		FStaticMeshCollisionRecipeProduct& OutProduct,
+		const FStaticMeshBuildExecutionControl& Execution) -> FStaticMeshRecipeResult
 	{
 		OutProduct = {};
-		OutError.clear();
+		FStaticMeshRecipeError Error;
 		FRecipeControl Control{Execution};
 		try
 		{
-			const bool bSucceeded = BuildCollisionRecipeInternal(Request, OutProduct, OutError, Control);
+			const bool bSucceeded = BuildCollisionRecipeInternal(Request, OutProduct, Error, Control);
 			Control.Check();
 			if (!bSucceeded) OutProduct = {};
-			OutError.resize(std::min(OutError.size(), MaximumStaticMeshBuildDiagnosticBytes));
-			return {bSucceeded ? EStaticMeshBuildStatus::Succeeded : EStaticMeshBuildStatus::Failed, OutError};
+			Error.Kind = EStaticMeshRecipeKind::Collision;
+			return {std::move(Error)};
 		}
 		catch (const FRecipeCancelled&)
 		{
 			OutProduct = {};
-			OutError = "StaticMesh collision recipe was cancelled.";
-			return {EStaticMeshBuildStatus::Cancelled, OutError};
+			Error.Code = EStaticMeshRecipeError::Cancelled;
+			Error.Kind = EStaticMeshRecipeKind::Collision;
+			Error.Mode = Request.Mode;
+			return {std::move(Error)};
 		}
 	}
+
 }

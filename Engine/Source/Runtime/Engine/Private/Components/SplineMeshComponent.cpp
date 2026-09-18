@@ -1,3 +1,4 @@
+#include "Components/PropertyEditValidation.h"
 #include "Components/SplineMeshComponent.h"
 #include "Logging/LogMacros.h"
 
@@ -200,9 +201,9 @@ namespace Durin
 		const auto [Minimum, Maximum] = SourceForwardRange(SourceLOD.LocalBounds, Params.ForwardAxis);
 		Params.SourceForwardMin = Minimum;
 		Params.SourceForwardMax = Maximum;
-		std::string Error;
-		if (!FSplineMeshDeformer::Normalize(Params, Params, &Error))
-			return Fail(ESplineMeshDerivedStateStatus::InvalidDeformation, Error);
+		const auto Validation = FSplineMeshDeformer::Normalize(Params, Params);
+		if (!Validation)
+			return Fail(ESplineMeshDerivedStateStatus::InvalidDeformation, FormatSplineMeshValidationError(Validation.Error));
 
 		Candidate->Params = Params;
 		Candidate->ConservativeLocalBounds = FSplineMeshDeformer::ComputeConservativeBounds(Params, RenderData->LocalBounds);
@@ -376,10 +377,10 @@ namespace Durin
 		UpdateMesh();
 	}
 
-	auto DSplineMeshComponent::PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool
+	auto DSplineMeshComponent::PreEditChangeProperty(FPropertyEditProposal& Proposal) -> FObjectValidationResult
 	{
-		if (!Super::PreEditChangeProperty(Proposal, OutError)) return false;
-		if (!Proposal.MemberProperty || !Proposal.DraftRootProperty || !Proposal.DraftRootContainer) return true;
+		if (auto Result = Super::PreEditChangeProperty(Proposal); !Result) return Result;
+		if (!Proposal.MemberProperty || !Proposal.DraftRootProperty || !Proposal.DraftRootContainer) return {};
 		if (Proposal.MemberProperty->NamePrivate == FName("SplineMeshParams")
 			&& Proposal.DraftRootProperty == Proposal.MemberProperty)
 		{
@@ -393,21 +394,24 @@ namespace Durin
 				Candidate.SourceForwardMax = Maximum;
 			}
 			FSplineMeshParams Normalized;
-			if (!FSplineMeshDeformer::Normalize(Candidate, Normalized, &OutError)) return false;
+			const auto Validation = FSplineMeshDeformer::Normalize(Candidate, Normalized);
+			if (!Validation)
+			{
+				return RejectEnginePropertyEdit(*this, Proposal, Validation.Error);
+			}
 			*Params = Normalized;
-			return true;
+			return {};
 		}
 		if (Proposal.MemberProperty->NamePrivate == FName("StaticMesh"))
 		{
-			if (Proposal.DraftRootProperty->GetKind() != DurinCodeGen::EPropertyGenFlags::Object) return false;
+			if (Proposal.DraftRootProperty->GetKind() != DurinCodeGen::EPropertyGenFlags::Object) return RejectPropertyEdit(*this, Proposal, EPropertyEditRejection::InvalidMetadata);
 			DObject* Value = static_cast<const FObjectProperty*>(Proposal.DraftRootProperty)->GetObjectPropertyValue(Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex);
 			if (Value && !Cast<DStaticMesh>(Value))
 			{
-				OutError = "Selected asset is not a static mesh.";
-				return false;
+				return RejectPropertyEdit(*this, Proposal, EPropertyEditRejection::IncompatibleObject);
 			}
 		}
-		return true;
+		return {};
 	}
 
 	auto DSplineMeshComponent::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void

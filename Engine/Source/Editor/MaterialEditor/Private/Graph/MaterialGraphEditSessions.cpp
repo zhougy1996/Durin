@@ -34,26 +34,26 @@ namespace Durin::Editor::Material
 	auto FMaterialGraphMoveSession::Begin(DObject& Owner, std::span<const FGuid> NodeIds,
 		DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
-		if (Impl->bActive) return MakeRejected("A graph move is already active.");
-		if (!IsValid(&Owner)) return {.Status = EMaterialGraphCommandStatus::StaleOwner};
-		if (!Cast<DMaterial>(&Owner) && !Cast<DMaterialFunction>(&Owner)) return MakeRejected("Unsupported graph owner.");
+		if (Impl->bActive) return RejectSession({.Code = EMaterialGraphSessionError::MoveActive});
+		if (!IsValid(&Owner)) return RejectSession({.Code = EMaterialGraphSessionError::StaleOwner});
+		if (!Cast<DMaterial>(&Owner) && !Cast<DMaterialFunction>(&Owner)) return RejectSession({.Code = EMaterialGraphSessionError::OwnerType, .TargetClass = Owner.GetClass()->GetName()});
 		if (NodeIds.empty() || NodeIds.size() > MaterialProgramMaxNodeCount)
-			return MakeRejected("The graph move selection is empty or exceeds the node bound.");
-		if (Transactions && Transactions->HasPendingOperation()) return MakeRejected("The editor transactor is busy.");
+			return RejectSession({.Code = EMaterialGraphSessionError::SelectionBounds, .ActualCount = NodeIds.size(), .Limit = MaterialProgramMaxNodeCount});
+		if (Transactions && Transactions->HasPendingOperation()) return RejectSession({.Code = EMaterialGraphSessionError::Busy});
 		Impl->NodeIds.clear();
 		const auto& Expressions = FMaterialExpressionEditing::GetExpressions(Owner);
 		for (const auto& Id : NodeIds)
 		{
 			if (std::ranges::none_of(Expressions, [&](const auto& E) { return E->Id == Id; }))
-				return MakeRejected("A selected graph node does not exist.");
-			if (!Impl->NodeIds.insert(Id).second) return MakeRejected("The graph move selection contains a duplicate node GUID.");
+				return RejectSession({.Code = EMaterialGraphSessionError::SelectionNode, .TargetNodeId = Id});
+			if (!Impl->NodeIds.insert(Id).second) return RejectSession({.Code = EMaterialGraphSessionError::SelectionDuplicate, .TargetNodeId = Id});
 		}
 		Impl->Owner = &Owner;
 		Impl->Draft.clear();
 		Impl->Transactions = Transactions;
 		Impl->AuthoredRevision = GraphSemanticRevision(Owner);
 		Impl->bActive = true;
-		return {.Status = EMaterialGraphCommandStatus::Succeeded,
+		return {.Disposition = EMaterialGraphCommandDisposition::Applied,
 			.AffectedNodeIds = std::vector<FGuid>(NodeIds.begin(), NodeIds.end())};
 	}
 
@@ -65,18 +65,18 @@ namespace Durin::Editor::Material
 	auto FMaterialGraphMoveSession::Apply(std::span<const FMaterialGraphNodePresentation> Positions)
 		-> FMaterialGraphCommandResult
 	{
-		if (!Impl->bActive) return MakeRejected("No graph move is active.");
-		if (!Impl->Owner.IsValid()) { Cancel(); return {.Status = EMaterialGraphCommandStatus::StaleOwner}; }
-		if (!IsCurrent(*Impl->Owner.Get())) { Cancel(); return MakeRejected("The graph changed semantically during the move."); }
-		if (Positions.size() > MaterialProgramMaxNodeCount) return MakeRejected("The graph move preview exceeds the node bound.");
+		if (!Impl->bActive) return RejectSession({.Code = EMaterialGraphSessionError::MoveInactive});
+		if (!Impl->Owner.IsValid()) { Cancel(); return RejectSession({.Code = EMaterialGraphSessionError::StaleOwner}); }
+		if (!IsCurrent(*Impl->Owner.Get())) { Cancel(); return RejectSession({.Code = EMaterialGraphSessionError::MoveRevision, .ExpectedRevision = Impl->AuthoredRevision, .ActualRevision = GraphSemanticRevision(*Impl->Owner.Get())}); }
+		if (Positions.size() > MaterialProgramMaxNodeCount) return RejectSession({.Code = EMaterialGraphSessionError::PreviewBounds, .ActualCount = Positions.size(), .Limit = MaterialProgramMaxNodeCount});
 		std::unordered_set<FGuid> Requested;
 		for (const auto& Position : Positions)
 		{
-			if (!Impl->NodeIds.contains(Position.NodeId)) return MakeRejected("The graph move preview addresses a node outside the selection.");
-			if (!Requested.insert(Position.NodeId).second) return MakeRejected("The graph move preview contains a duplicate node GUID.");
+			if (!Impl->NodeIds.contains(Position.NodeId)) return RejectSession({.Code = EMaterialGraphSessionError::PreviewSelection, .TargetNodeId = Position.NodeId});
+			if (!Requested.insert(Position.NodeId).second) return RejectSession({.Code = EMaterialGraphSessionError::PreviewDuplicate, .TargetNodeId = Position.NodeId});
 			if (Position.X < -MaterialGraphPresentationCoordinateLimit || Position.X > MaterialGraphPresentationCoordinateLimit
 				|| Position.Y < -MaterialGraphPresentationCoordinateLimit || Position.Y > MaterialGraphPresentationCoordinateLimit)
-				return MakeRejected("The graph move preview is outside the supported coordinate range.");
+				return RejectSession({.Code = EMaterialGraphSessionError::PreviewCoordinate, .TargetNodeId = Position.NodeId, .X = Position.X, .Y = Position.Y, .CoordinateLimit = MaterialGraphPresentationCoordinateLimit});
 		}
 		bool bChanged = false;
 		for (const auto& Position : Positions)
@@ -85,7 +85,7 @@ namespace Durin::Editor::Material
 			if (It == Impl->Draft.end()) { Impl->Draft.push_back({Position.NodeId, Position.X, Position.Y}); bChanged = true; }
 			else { bChanged |= It->X != Position.X || It->Y != Position.Y; It->X = Position.X; It->Y = Position.Y; }
 		}
-		return {.Status = bChanged ? EMaterialGraphCommandStatus::Succeeded : EMaterialGraphCommandStatus::NoChange,
+		return {.Disposition = bChanged ? EMaterialGraphCommandDisposition::Applied : EMaterialGraphCommandDisposition::NoChange,
 			.AffectedNodeIds = std::vector<FGuid>(Requested.begin(), Requested.end())};
 	}
 
@@ -100,10 +100,10 @@ namespace Durin::Editor::Material
 
 	auto FMaterialGraphMoveSession::Cancel() -> FMaterialGraphCommandResult
 	{
-		if (!Impl->bActive) return MakeRejected("No graph move is active.");
+		if (!Impl->bActive) return RejectSession({.Code = EMaterialGraphSessionError::MoveInactive});
 		Impl->bActive = false;
 		Impl->Draft.clear();
-		return {.Status = EMaterialGraphCommandStatus::Succeeded};
+		return {.Disposition = EMaterialGraphCommandDisposition::Applied};
 	}
 
 	auto FMaterialGraphMoveSession::IsActive() const -> bool { return Impl->bActive; }
@@ -136,16 +136,15 @@ namespace Durin::Editor::Material
 		const FGuid& ParameterId,
 		DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
-		if (Impl->bActive) return MakeRejected("A material parameter edit is already active.");
+		if (Impl->bActive) return RejectSession({.Code = EMaterialGraphSessionError::ParameterActive, .ParameterId = ParameterId, .ActiveParameterId = Impl->ParameterId});
 		if (!IsValid(&Material))
-			return {.Status = EMaterialGraphCommandStatus::StaleOwner,
-				.Message = "The material graph owner is no longer available."};
+			return RejectSession({.Code = EMaterialGraphSessionError::StaleOwner, .ParameterId = ParameterId});
 		if (Transactions && Transactions->HasPendingOperation())
-			return MakeRejected("The editor transactor is busy.");
+			return RejectSession({.Code = EMaterialGraphSessionError::Busy, .ParameterId = ParameterId});
 		FResolvedMaterialParameter Resolved;
 		if (!Material.ResolveParameterValue(ParameterId, Resolved)
 			|| !Resolved.Definition)
-			return MakeRejected("The material parameter definition is unavailable.");
+			return RejectSession({.Code = EMaterialGraphSessionError::ParameterDefinition, .ParameterId = ParameterId});
 		Impl->Material = &Material;
 		Impl->ParameterId = ParameterId;
 		Impl->BeforeValue = Resolved.Value;
@@ -155,25 +154,25 @@ namespace Durin::Editor::Material
 		Impl->CurrentTexture = Impl->BeforeTexture;
 		Impl->Transactions = Transactions;
 		Impl->bActive = true;
-		return {.Status = EMaterialGraphCommandStatus::Succeeded};
+		return {.Disposition = EMaterialGraphCommandDisposition::Applied};
 	}
 
 	auto FMaterialGraphParameterEditSession::Apply(FMaterialParameterValue Value)
 		-> FMaterialGraphCommandResult
 	{
-		if (!Impl->bActive) return MakeRejected("No material parameter edit is active.");
+		if (!Impl->bActive) return RejectSession({.Code = EMaterialGraphSessionError::ParameterInactive, .ParameterId = Impl->ParameterId});
 		DMaterial* Material = Impl->Material.Get();
 		if (!Material)
 		{
 			Impl->bActive = false;
-			return {.Status = EMaterialGraphCommandStatus::StaleOwner,
-				.Message = "The material graph owner is no longer available."};
+			return RejectSession({.Code = EMaterialGraphSessionError::StaleOwner, .ParameterId = Impl->ParameterId});
 		}
 		if (Value == Impl->CurrentValue)
-			return {.Status = EMaterialGraphCommandStatus::NoChange};
+			return {.Disposition = EMaterialGraphCommandDisposition::NoChange};
 		FScopedPackageDirtySuppression SuppressPackageRevision;
-		if (!Material->SetParameterValue(Impl->ParameterId, Value))
-			return MakeRejected("The material rejected the parameter value.");
+		if (const auto Applied = Material->SetParameterValue(Impl->ParameterId, Value); !Applied)
+			return RejectSession({.Code = EMaterialGraphSessionError::ParameterValue, .MaterialCause = Applied.Error, .ParameterId = Impl->ParameterId,
+				.RequestedType = Value.GetType(), .ExistingType = Impl->CurrentValue.GetType()});
 		Impl->CurrentValue = std::move(Value);
 		Impl->CurrentTexture = Impl->CurrentValue.GetType() == EMaterialParameterType::Texture
 			? Impl->CurrentValue.GetTexture().Texture.Get() : nullptr;
@@ -181,23 +180,22 @@ namespace Durin::Editor::Material
 		for (const auto& Expression : Material->GetExpressionCollection().Expressions)
 			if (const auto* Parameter = Cast<DMaterialExpressionParameter>(Expression.Get()); Parameter && Parameter->Metadata.Id == Impl->ParameterId)
 				AffectedNodes.push_back(Expression->Id);
-		return {.Status = EMaterialGraphCommandStatus::Succeeded,
+		return {.Disposition = EMaterialGraphCommandDisposition::Applied,
 			.AffectedNodeIds = std::move(AffectedNodes)};
 	}
 
 	auto FMaterialGraphParameterEditSession::Commit()
 		-> FMaterialGraphCommandResult
 	{
-		if (!Impl->bActive) return MakeRejected("No material parameter edit is active.");
+		if (!Impl->bActive) return RejectSession({.Code = EMaterialGraphSessionError::ParameterInactive, .ParameterId = Impl->ParameterId});
 		DMaterial* Material = Impl->Material.Get();
 		if (!Material)
 		{
 			Impl->bActive = false;
-			return {.Status = EMaterialGraphCommandStatus::StaleOwner,
-				.Message = "The material graph owner is no longer available."};
+			return RejectSession({.Code = EMaterialGraphSessionError::StaleOwner, .ParameterId = Impl->ParameterId});
 		}
 		if (Impl->Transactions && Impl->Transactions->HasPendingOperation())
-			return MakeRejected("The editor transactor is busy.");
+			return RejectSession({.Code = EMaterialGraphSessionError::Busy, .ParameterId = Impl->ParameterId});
 		if (Impl->BeforeValue.GetType() == EMaterialParameterType::Texture)
 		{
 			Impl->BeforeValue.GetTexture().Texture = Impl->BeforeTexture.Get();
@@ -206,43 +204,44 @@ namespace Durin::Editor::Material
 		const bool bChanged = Impl->BeforeValue != Impl->CurrentValue;
 		if (bChanged && Impl->Transactions)
 		{
-			const auto bRecorded = Impl->Transactions->CommitApplied(
+			const auto Recorded = Impl->Transactions->CommitApplied(
 				MakeMaterialGraphParameterTransaction(
 					*Material, Impl->ParameterId,
 					Impl->BeforeValue, Impl->CurrentValue));
-			check(bRecorded);
+			if (!Recorded) return RejectSession({.Code = EMaterialGraphSessionError::History,
+				.TransactorCause = std::make_shared<FTransactorResult>(Recorded), .ParameterId = Impl->ParameterId});
 		}
 		if (bChanged) Material->MarkPackageDirty();
 		Impl->BeforeTexture.Reset();
 		Impl->CurrentTexture.Reset();
 		Impl->bActive = false;
-		return {.Status = bChanged ? EMaterialGraphCommandStatus::Succeeded
-			: EMaterialGraphCommandStatus::NoChange};
+		return {.Disposition = bChanged ? EMaterialGraphCommandDisposition::Applied
+			: EMaterialGraphCommandDisposition::NoChange};
 	}
 
 	auto FMaterialGraphParameterEditSession::Cancel()
 		-> FMaterialGraphCommandResult
 	{
-		if (!Impl->bActive) return MakeRejected("No material parameter edit is active.");
+		if (!Impl->bActive) return RejectSession({.Code = EMaterialGraphSessionError::ParameterInactive, .ParameterId = Impl->ParameterId});
 		DMaterial* Material = Impl->Material.Get();
 		Impl->bActive = false;
 		if (Impl->BeforeValue.GetType() == EMaterialParameterType::Texture)
 			Impl->BeforeValue.GetTexture().Texture = Impl->BeforeTexture.Get();
 		if (!Material)
-			return {.Status = EMaterialGraphCommandStatus::StaleOwner,
-				.Message = "The material graph owner is no longer available."};
+			return RejectSession({.Code = EMaterialGraphSessionError::StaleOwner, .ParameterId = Impl->ParameterId});
 		const bool bChanged = Impl->BeforeValue != Impl->CurrentValue;
 		if (bChanged)
 		{
 			FScopedPackageDirtySuppression SuppressPackageRevision;
-			if (!Material->SetParameterValue(
-				Impl->ParameterId, Impl->BeforeValue))
-				return MakeRejected("The material rejected the original parameter value.");
+			if (const auto Restored = Material->SetParameterValue(
+				Impl->ParameterId, Impl->BeforeValue); !Restored)
+				return RejectSession({.Code = EMaterialGraphSessionError::ParameterRestore, .MaterialCause = Restored.Error, .ParameterId = Impl->ParameterId,
+					.RequestedType = Impl->BeforeValue.GetType(), .ExistingType = Impl->CurrentValue.GetType()});
 		}
 		Impl->BeforeTexture.Reset();
 		Impl->CurrentTexture.Reset();
-		return {.Status = bChanged ? EMaterialGraphCommandStatus::Succeeded
-			: EMaterialGraphCommandStatus::NoChange};
+		return {.Disposition = bChanged ? EMaterialGraphCommandDisposition::Applied
+			: EMaterialGraphCommandDisposition::NoChange};
 	}
 
 	auto FMaterialGraphParameterEditSession::IsActive() const -> bool

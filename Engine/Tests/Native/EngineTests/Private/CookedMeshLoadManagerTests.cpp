@@ -34,7 +34,7 @@ namespace
 			Gate.acquire();
 			if (bCancelled.load(std::memory_order_acquire))
 				return {.Status = EPackageResourceReadStatus::Cancelled,
-					.Message = "controlled cancellation"};
+					.Error = {.Reason = EPackageResourceReadReason::Cancelled}};
 			return {.Status = EPackageResourceReadStatus::Success,
 				.Buffer = FSharedByteBuffer::Take(
 					Durin::FByteBuffer(static_cast<size_t>(Size), std::byte{0x2a}))};
@@ -54,11 +54,10 @@ namespace
 		-> FBulkData
 	{
 		FBulkData Result;
-		std::string Error;
-		if (!FBulkData::TryAttach({
+		if (const auto Attached = FBulkData::TryAttach({
 			.LogicalSize = 4,
 			.Range = {.Resource = Resource, .StoredSize = 4, .Alignment = 1}},
-			Result, &Error)) ADD_FAILURE() << Error;
+			Result); !Attached) ADD_FAILURE() << FormatBulkDataError(Attached.Error);
 		return Result;
 	}
 
@@ -70,7 +69,8 @@ namespace
 		uint32* PublishCount,
 		uint64 RetainedBytes = 4,
 		uint32* TerminalCount = nullptr,
-		ECookedMeshFamily Family = ECookedMeshFamily::StaticMesh)
+		ECookedMeshFamily Family = ECookedMeshFamily::StaticMesh,
+		FCookedMeshLoadError* CapturedError = nullptr)
 		-> FCookedMeshLoadRequest
 	{
 		return {
@@ -84,7 +84,7 @@ namespace
 			.Worker = [RetainedBytes](std::span<const FSharedByteBuffer> Buffers,
 				const FTaskCancellationToken&) -> FCookedMeshWorkerResult {
 				if (Buffers.size() != 1 || Buffers.front().GetSize() != 4)
-					return {.Message = "unexpected controlled payload"};
+					return {.Error = {.Code = ECookedMeshLoadError::FieldCount, .Actual = Buffers.size(), .Expected = 1}};
 				return {.Product = std::make_unique<FTestProduct>(
 					std::to_integer<uint8>(Buffers.front()[0])),
 					.RetainedBytes = RetainedBytes};
@@ -93,20 +93,19 @@ namespace
 				return *bCurrent;
 			},
 			.Publish = [PublishCount](DObject&, const FCookedMeshLoadIdentity&,
-				std::unique_ptr<ICookedMeshDetachedProduct> Product,
-				std::string& OutError) {
+				std::unique_ptr<ICookedMeshDetachedProduct> Product) -> FCookedMeshLoadResult {
 				auto* Typed = dynamic_cast<FTestProduct*>(Product.get());
 				if (!Typed || Typed->Value != 0x2a)
 				{
-					OutError = "unexpected controlled product";
-					return false;
+					return {.Error = {.Code = ECookedMeshLoadError::InvalidProduct}};
 				}
 				++*PublishCount;
-				return true;
+				return {};
 			},
-			.OnTerminal = [TerminalCount](DObject&,
+			.OnTerminal = [TerminalCount, CapturedError](DObject&,
 				const FCookedMeshLoadIdentity&, ECookedMeshTerminalState,
-				std::string_view) {
+				const FCookedMeshLoadError& Error) {
+				if (CapturedError) *CapturedError = Error;
 				if (TerminalCount) ++*TerminalCount;
 			},
 		};
@@ -297,8 +296,15 @@ TEST(FCookedMeshLoadManagerTests,
 	ASSERT_TRUE(Manager.Submit(MakeRequest(
 		*First, 1, MakeBulkData(CoalescedResource), &bCurrent, &PublishCount)));
 	auto RejectedResource = std::make_shared<FControlledPackageResource>();
-	EXPECT_FALSE(Manager.Submit(MakeRequest(
-		*Second, 1, MakeBulkData(RejectedResource), &bCurrent, &PublishCount)));
+	const auto Rejected = Manager.Submit(MakeRequest(
+		*Second, 1, MakeBulkData(RejectedResource), &bCurrent, &PublishCount));
+	EXPECT_EQ(Rejected.Error.Code, ECookedMeshAdmissionError::FlightBudget);
+	EXPECT_EQ(Rejected.Error.Identity.Owner, FObjectKey(Second));
+	EXPECT_EQ(Rejected.Error.RequestCount, 1u);
+	EXPECT_EQ(Rejected.Error.RequestLimit, 1u);
+	EXPECT_EQ(Rejected.Error.RequestedBytes, 4u);
+	EXPECT_EQ(Rejected.Error.ReservedBytes, 4u);
+	EXPECT_EQ(Rejected.Error.ByteLimit, 4u);
 	ASSERT_TRUE(PumpUntil(Manager, [&] { return FirstResource->HasStarted(); }));
 	FirstResource->Release();
 	ASSERT_TRUE(PumpUntil(Manager, [&] {
@@ -317,8 +323,29 @@ TEST(FCookedMeshLoadManagerTests,
 	ASSERT_TRUE(Manager.Submit(MakeRequest(
 		*First, 11, MakeBulkData(NewerResource), &bCurrent, &PublishCount)));
 	auto OlderResource = std::make_shared<FControlledPackageResource>();
-	EXPECT_FALSE(Manager.Submit(MakeRequest(
-		*First, 10, MakeBulkData(OlderResource), &bCurrent, &PublishCount)));
+	const auto Older = Manager.Submit(MakeRequest(
+		*First, 10, MakeBulkData(OlderResource), &bCurrent, &PublishCount));
+	EXPECT_EQ(Older.Error.Code, ECookedMeshAdmissionError::StaleGeneration);
+	EXPECT_EQ(Older.Error.Identity.LoadGeneration, 10u);
+	EXPECT_EQ(Older.Error.CurrentGeneration, 11u);
+	ASSERT_TRUE(Older.Error.ExistingIdentity.has_value());
+	EXPECT_EQ(Older.Error.ExistingIdentity->LoadGeneration, 11u);
+	auto Conflict = MakeRequest(*First, 11, MakeBulkData(OlderResource), &bCurrent, &PublishCount);
+	Conflict.Identity.MetadataIdentity = 99;
+	const auto Conflicted = Manager.Submit(std::move(Conflict));
+	EXPECT_EQ(Conflicted.Error.Code, ECookedMeshAdmissionError::IdentityConflict);
+	EXPECT_EQ(Conflicted.Error.Identity.MetadataIdentity, 99u);
+	ASSERT_TRUE(Conflicted.Error.ExistingIdentity.has_value());
+	EXPECT_EQ(Conflicted.Error.ExistingIdentity->MetadataIdentity, 7u);
+	auto Oversized = MakeRequest(*First, 12, MakeBulkData(OlderResource), &bCurrent, &PublishCount);
+	Oversized.Fields.push_back(MakeBulkData(OlderResource));
+	const auto PendingRejected = Manager.Submit(std::move(Oversized));
+	EXPECT_EQ(PendingRejected.Error.Code, ECookedMeshAdmissionError::PendingBudget);
+	EXPECT_EQ(PendingRejected.Error.RequestedBytes, 8u);
+	EXPECT_EQ(PendingRejected.Error.ReservedBytes, 0u);
+	EXPECT_EQ(PendingRejected.Error.ByteLimit, 4u);
+	EXPECT_EQ(PendingRejected.Error.RequestCount, 1u);
+	EXPECT_EQ(PendingRejected.Error.RequestLimit, 1u);
 	EXPECT_EQ(Manager.GetDiagnostics().PendingRequestCount, 1u);
 	EXPECT_EQ(NewerResource->GetReadStats().RequestCount, 0u);
 	EXPECT_EQ(OlderResource->GetReadStats().RequestCount, 0u);
@@ -347,10 +374,11 @@ TEST(FCookedMeshLoadManagerTests,
 
 	// A dynamically owned candidate must fit the bounded completion mailbox.
 	bCurrent = true;
+	FCookedMeshLoadError BudgetError;
 	auto OversizedResultResource = std::make_shared<FControlledPackageResource>();
 	ASSERT_TRUE(Manager.Submit(MakeRequest(
 		*First, 3, MakeBulkData(OversizedResultResource),
-		&bCurrent, &PublishCount, 5, &TerminalCount)));
+		&bCurrent, &PublishCount, 5, &TerminalCount, ECookedMeshFamily::StaticMesh, &BudgetError)));
 	ASSERT_TRUE(PumpUntil(Manager, [&] { return OversizedResultResource->HasStarted(); }));
 	OversizedResultResource->Release();
 	ASSERT_TRUE(PumpUntil(Manager, [&] {
@@ -359,6 +387,11 @@ TEST(FCookedMeshLoadManagerTests,
 	EXPECT_EQ(Manager.GetDiagnostics().FailedCount, 1u);
 	EXPECT_EQ(PublishCount, 2u);
 	EXPECT_EQ(TerminalCount, 1u);
+	EXPECT_EQ(BudgetError.Code, ECookedMeshLoadError::CompletionBudget);
+	EXPECT_EQ(BudgetError.Owner, FObjectKey(First));
+	EXPECT_EQ(BudgetError.Actual, 5u);
+	EXPECT_EQ(BudgetError.Expected, 4u);
+	EXPECT_EQ(BudgetError.Reserved, 0u);
 
 	// Cancellation reaches the package request and produces one terminal result.
 	auto CancelledResource = std::make_shared<FControlledPackageResource>();
@@ -424,7 +457,7 @@ TEST(FCookedMeshLoadManagerTests,
 	EXPECT_EQ(Final.AcceptedCount, 9u);
 	EXPECT_EQ(Final.CoalescedCount, 1u);
 	EXPECT_EQ(Final.SupersededCount, 1u);
-	EXPECT_EQ(Final.RejectedCount, 2u);
+	EXPECT_EQ(Final.RejectedCount, 4u);
 	EXPECT_EQ(Final.SucceededCount + Final.FailedCount + Final.CancelledCount
 		+ Final.StaleCount, Final.AcceptedCount);
 
@@ -435,4 +468,116 @@ TEST(FCookedMeshLoadManagerTests,
 	CollectGarbage();
 
 	if (bOwnsScheduler) ShutdownTaskScheduler(true);
+}
+
+TEST(FCookedMeshLoadManagerTests, TerminalRetainsWorkerAndPublisherCauses)
+{
+	InitializeDObjectSystem();
+	if (!GIsGameThreadIdInitialized)
+	{
+		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+		GIsGameThreadIdInitialized = true;
+	}
+	const bool bOwnsScheduler = !IsTaskSchedulerRunning();
+	if (bOwnsScheduler) ASSERT_TRUE(InitializeTaskScheduler(2));
+	FCookedMeshLoadManager Manager;
+	ASSERT_TRUE(Manager.Initialize());
+	auto* Owner = NewObject<DObject>(nullptr, "TypedTerminalOwner");
+	AddToRoot(Owner);
+	const FObjectKey OwnerKey(Owner);
+	bool bCurrent = true;
+	uint32 PublishCount = 0;
+	uint32 TerminalCount = 0;
+	FCookedMeshLoadError WorkerError, PublishError, ReadError;
+	for (uint64 Generation = 1; Generation <= 3; ++Generation)
+	{
+		auto Resource = std::make_shared<FControlledPackageResource>();
+		auto Request = MakeRequest(*Owner, Generation, MakeBulkData(Resource),
+			&bCurrent, &PublishCount, 4, &TerminalCount, ECookedMeshFamily::StaticMesh,
+			Generation == 1 ? &WorkerError : Generation == 2 ? &PublishError : &ReadError);
+		if (Generation == 1)
+			Request.Worker = [](std::span<const FSharedByteBuffer>, const FTaskCancellationToken&) -> FCookedMeshWorkerResult {
+				return {.Error = {.Code = ECookedMeshLoadError::Product,
+					.ProductCause = std::make_shared<FCookedMeshProductError>(FCookedMeshProductError{
+						.Code = ECookedMeshProductError::MaterialSlotCount, .Actual = 7, .Expected = 2})}};
+			};
+		else if (Generation == 2)
+			Request.Publish = [](DObject&, const FCookedMeshLoadIdentity&,
+				std::unique_ptr<ICookedMeshDetachedProduct>) -> FCookedMeshLoadResult {
+				return {.Error = {.Code = ECookedMeshLoadError::InvalidProduct, .Actual = 9}};
+			};
+		ASSERT_TRUE(Manager.Submit(std::move(Request)));
+		ASSERT_TRUE(PumpUntil(Manager, [&] { return Resource->HasStarted(); }));
+		if (Generation == 3) ASSERT_TRUE(Manager.Cancel(OwnerKey));
+		Resource->Release();
+		ASSERT_TRUE(PumpUntil(Manager, [&] { return Manager.GetDiagnostics().InFlightCount == 0; }));
+	}
+	EXPECT_EQ(PublishCount, 0u);
+	EXPECT_EQ(TerminalCount, 3u);
+	Manager.Shutdown();
+	RemoveFromRoot(Owner);
+	MarkObjectHierarchyAsGarbage(Owner);
+	CollectGarbage();
+	EXPECT_EQ(WorkerError.Owner, OwnerKey);
+	EXPECT_EQ(WorkerError.Code, ECookedMeshLoadError::Product);
+	ASSERT_NE(WorkerError.ProductCause, nullptr);
+	EXPECT_EQ(WorkerError.ProductCause->Code, ECookedMeshProductError::MaterialSlotCount);
+	EXPECT_EQ(WorkerError.ProductCause->Actual, 7u);
+	EXPECT_EQ(WorkerError.ProductCause->Expected, 2u);
+	EXPECT_EQ(PublishError.Owner, OwnerKey);
+	EXPECT_EQ(PublishError.Code, ECookedMeshLoadError::InvalidProduct);
+	EXPECT_EQ(PublishError.Actual, 9u);
+	EXPECT_EQ(ReadError.Owner, OwnerKey);
+	EXPECT_EQ(ReadError.Code, ECookedMeshLoadError::Read);
+	EXPECT_EQ(ReadError.Index, 0u);
+	ASSERT_NE(ReadError.ReadCause, nullptr);
+	EXPECT_EQ(ReadError.ReadCause->Status, EPackageResourceReadStatus::Cancelled);
+	const auto& Cause = ReadError.ReadCause->Error;
+	EXPECT_TRUE(Cause.Reason == EPackageResourceReadReason::Cancelled
+		|| Cause.Reason == EPackageResourceReadReason::TaskCancelled);
+	if (Cause.Reason == EPackageResourceReadReason::TaskCancelled)
+	{
+		ASSERT_TRUE(Cause.TaskState.has_value());
+		EXPECT_EQ(*Cause.TaskState, ETaskState::Canceled);
+	}
+	if (bOwnsScheduler) ShutdownTaskScheduler(true);
+}
+
+TEST(FCookedMeshLoadManagerTests, AdmissionOwnsInvalidRequestAndFieldContext)
+{
+	InitializeDObjectSystem();
+	if (!GIsGameThreadIdInitialized)
+	{
+		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+		GIsGameThreadIdInitialized = true;
+	}
+	FCookedMeshLoadManager Manager;
+	const auto Invalid = Manager.Submit({});
+	EXPECT_EQ(Invalid.Error.Code, ECookedMeshAdmissionError::InvalidRequest);
+	EXPECT_TRUE(IsObjectKeyNull(Invalid.Error.Identity.Owner));
+	EXPECT_EQ(Invalid.Error.FieldCount, 0u);
+	EXPECT_FALSE(Invalid.Error.HasWorker);
+	EXPECT_FALSE(Invalid.Error.HasPublisher);
+	auto* Owner = NewObject<DObject>(nullptr, "AdmissionErrorOwner");
+	const FObjectKey Key(Owner);
+	bool bCurrent = true;
+	uint32 PublishCount = 0;
+	auto Empty = MakeRequest(*Owner, 7, FBulkData{}, &bCurrent, &PublishCount);
+	const auto FieldError = Manager.Submit(std::move(Empty));
+	EXPECT_EQ(FieldError.Error.Code, ECookedMeshAdmissionError::FieldSize);
+	EXPECT_EQ(FieldError.Error.Identity.Owner, Key);
+	EXPECT_EQ(FieldError.Error.Identity.LoadGeneration, 7u);
+	EXPECT_EQ(FieldError.Error.Index, 0u);
+	EXPECT_EQ(FieldError.Error.FieldBytes, 0u);
+	EXPECT_EQ(FieldError.Error.RequestedBytes, 0u);
+	EXPECT_EQ(FieldError.Error.ByteLimit, MaximumBulkDataBytes);
+	auto Resource = std::make_shared<FControlledPackageResource>();
+	const auto Stopped = Manager.Submit(MakeRequest(*Owner, 8, MakeBulkData(Resource), &bCurrent, &PublishCount));
+	EXPECT_EQ(Stopped.Error.Code, ECookedMeshAdmissionError::NotAccepting);
+	EXPECT_EQ(Stopped.Error.State, ECookedMeshManagerState::Stopped);
+	EXPECT_EQ(Resource->GetReadStats().RequestCount, 0u);
+	MarkObjectHierarchyAsGarbage(Owner);
+	CollectGarbage();
+	EXPECT_EQ(Stopped.Error.Identity.Owner, Key);
+	EXPECT_EQ(FieldError.Error.Identity.LoadGeneration, 7u);
 }

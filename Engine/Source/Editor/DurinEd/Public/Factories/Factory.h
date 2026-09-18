@@ -7,6 +7,49 @@
 
 namespace Durin
 {
+	struct FStaticMeshImportSettingsError;
+	struct FSourceHintError;
+	struct FTexture2DCompilationError;
+
+	enum class EFactoryError : uint8
+	{
+		ExactClass, AssetPackageParent, ObjectCreation, SourceMissing,
+		SourceFormat, PreparedSourceMismatch, SourceLayout, SourceRoleMissing,
+		StaticMeshSettings, SourceHint, TextureCompilation
+	};
+
+	struct FFactoryError
+	{
+		EFactoryError Code = EFactoryError::ExactClass;
+		std::string ExpectedClass;
+		std::string RequestedClass;
+		std::string Filename;
+		std::string PreparedFilename;
+		std::string SourceRole;
+		uint32 SourceLayout = 0;
+		std::shared_ptr<const FStaticMeshImportSettingsError> StaticMeshSettingsCause;
+		std::shared_ptr<const FSourceHintError> SourceHintCause;
+		std::shared_ptr<const FTexture2DCompilationError> TextureCompilationCause;
+	};
+
+	DURINED_API auto FormatFactoryError(const FFactoryError& Error) -> std::string;
+
+	// Factory modules retain their own typed payload without reversing module dependencies.
+	class DURINED_API IFactoryErrorDetail
+	{
+	public:
+		virtual ~IFactoryErrorDetail() = default;
+		virtual auto Format() const -> std::string = 0;
+	};
+
+	struct FFactoryDiagnostic
+	{
+		// Transitional text from factory contracts that have not migrated yet.
+		std::string Message;
+		std::optional<FFactoryError> Failure;
+		std::shared_ptr<const IFactoryErrorDetail> DomainFailure;
+	};
+
 	// Collects bounded, per-operation diagnostics without shared mutable state.
 	class FFactoryDiagnostics
 	{
@@ -15,11 +58,13 @@ namespace Durin
 		static constexpr size_t MaximumMessageLength = 1024;
 
 		DURINED_API auto Report(std::string_view Message) -> void;
-		auto GetMessages() const -> const std::vector<std::string>& { return Messages; }
+		DURINED_API auto ReportFailure(FFactoryError Error) -> void;
+		DURINED_API auto ReportDomainFailure(std::shared_ptr<const IFactoryErrorDetail> Error) -> void;
+		auto GetEntries() const -> const std::vector<FFactoryDiagnostic>& { return Entries; }
 		DURINED_API auto ToString() const -> std::string;
 
 	private:
-		std::vector<std::string> Messages;
+		std::vector<FFactoryDiagnostic> Entries;
 	};
 
 	// Defines the editor extension point for constructing managed objects from new or file-backed inputs.

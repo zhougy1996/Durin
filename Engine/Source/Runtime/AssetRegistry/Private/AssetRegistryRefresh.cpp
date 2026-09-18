@@ -9,11 +9,6 @@ namespace Durin
 	{
 		constexpr size_t MaximumReferencesPerSnapshot = 1'000'000;
 
-		auto Error(EAssetRegistryError Code, std::string Message) -> FAssetRegistryResult
-		{
-			return {Code, std::move(Message)};
-		}
-
 		auto ReferenceLess(const FAssetPackageReferenceEdge& Left,
 			const FAssetPackageReferenceEdge& Right) -> bool
 		{

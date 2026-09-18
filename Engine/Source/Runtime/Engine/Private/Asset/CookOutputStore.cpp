@@ -4,6 +4,58 @@
 namespace Durin
 {
 	using namespace AssetPrivate;
+	auto FormatCookPublishError(const FCookPublishResult& Result) -> std::string
+	{
+		switch (Result.Error)
+		{
+		case ECookPublishError::None: return {};
+		case ECookPublishError::Root: if (Result.RootCause) return FormatCookOutputRootError(*Result.RootCause); break;
+		case ECookPublishError::Path: if (Result.PathCause) return FormatCookedPathError(*Result.PathCause); break;
+		case ECookPublishError::Package: if (Result.PackageCause) return "CookOutputStoreInvalidPackage: " + Result.VirtualPath + ": " + Result.PackageCause->Message; break;
+		case ECookPublishError::Manifest: if (Result.ManifestCause) return FormatCookManifestError(*Result.ManifestCause); break;
+		case ECookPublishError::State: if (Result.StateCause) return FormatCookStateError(*Result.StateCause); break;
+		case ECookPublishError::Operation: if (Result.OperationCause) return FormatCookPublishOperationError(*Result.OperationCause); break;
+		case ECookPublishError::Validation: if (Result.ValidationCause) return FormatCookPublishValidationError(*Result.ValidationCause); break;
+		case ECookPublishError::Injected: if (Result.InjectionCause) return Result.InjectionCause->ExternalDiagnostic; break;
+		case ECookPublishError::Unspecified: break;
+		}
+		return "Cook publication failed.";
+	}
+
+	auto FormatCookPublishValidationError(const FCookPublishValidationFailure& Failure) -> std::string
+	{
+		switch (Failure.Error)
+		{
+		case ECookPublishValidationError::Request: return "CookOutputStoreInvalidRequest: output root or target is invalid.";
+		case ECookPublishValidationError::Plan: return "CookOutputStoreInvalidPlan: save plans are invalid, duplicated, or unsorted: " + Failure.Path;
+		case ECookPublishValidationError::OpaqueSegment: return "CookOutputStoreInvalidOpaqueSegment: " + Failure.Path;
+		case ECookPublishValidationError::PackageIdentity: return "CookOutputStoreInvalidPackageIdentity: " + Failure.Path;
+		case ECookPublishValidationError::RawBulkClosure: return "CookOutputStoreInvalidRawBulkClosure: " + Failure.Path;
+		case ECookPublishValidationError::AuxiliaryOutput: return "CookOutputStoreInvalidAuxiliaryOutput: " + Failure.Path;
+		}
+		return {};
+	}
+
+	auto FormatCookPublishOperationError(const FCookPublishOperationFailure& Failure) -> std::string
+	{
+		std::string_view Code;
+		switch (Failure.Error)
+		{
+		case ECookPublishOperationError::CreateRoot: Code = "CookOutputStoreCreateRootFailed"; break;
+		case ECookPublishOperationError::WriterLock: Code = "CookCompetingWriter"; break;
+		case ECookPublishOperationError::CreateTransaction: Code = "CookTransactionCreateFailed"; break;
+		case ECookPublishOperationError::CancelledStaging: Code = "CookCancelledDuringStaging"; break;
+		case ECookPublishOperationError::CancelledCommit: Code = "CookCancelledDuringCommit"; break;
+		case ECookPublishOperationError::StageWrite: Code = "CookStageWriteFailed"; break;
+		case ECookPublishOperationError::StageValidation: Code = "CookStageValidationFailed"; break;
+		case ECookPublishOperationError::CommitDirectory: Code = "CookCommitCreateDirectoryFailed"; break;
+		case ECookPublishOperationError::CommitBackup: Code = "CookCommitBackupFailed"; break;
+		case ECookPublishOperationError::CommitReplace: Code = "CookCommitReplaceFailed"; break;
+		}
+		return std::format("{}: {}{}", Code, Failure.Path.generic_string(),
+			Failure.SystemError ? ": " + Failure.SystemError.message() : std::string{});
+	}
+
 	namespace
 	{
 		auto IsCancelled(const FCookCancellationCheck& Check) -> bool { return Check && Check(); }
@@ -48,13 +100,13 @@ namespace Durin
 				const FCookCancellationCheck& Cancellation,
 				const FCookFailureInjection& ShouldFail) -> FCookPublishResult override
 			{
-				std::string Error;
+				FCookPublishResult Failure;
 				bool bCancelled = false;
 				if (PublishInternal(Plans, AuxiliaryOutputs, State, InOutResult,
-					Cancellation, ShouldFail, Error, bCancelled))
-					return {ECookPublishStatus::Succeeded, {}};
-				return {bCancelled ? ECookPublishStatus::Cancelled
-					: ECookPublishStatus::Failed, std::move(Error)};
+					Cancellation, ShouldFail, bCancelled, Failure))
+					return {.Status = ECookPublishStatus::Succeeded, .Error = ECookPublishError::None};
+				Failure.Status = bCancelled ? ECookPublishStatus::Cancelled : ECookPublishStatus::Failed;
+				return Failure;
 			}
 
 		private:
@@ -64,51 +116,85 @@ namespace Durin
 				FCookRunResult& InOutResult,
 				const FCookCancellationCheck& Cancellation,
 				const FCookFailureInjection& ShouldFail,
-				std::string& OutError,
-				bool& bOutCancelled) -> bool
+				bool& bOutCancelled, FCookPublishResult& Failure) -> bool
 			{
 				bOutCancelled = false;
+				auto RejectOperation = [&](ECookPublishOperationError Error, ECookOperationStage Stage,
+					const std::filesystem::path& Path, std::error_code SystemError = {}) -> bool {
+					Failure.OperationCause = FCookPublishOperationFailure{Error, Stage, Path, SystemError};
+					Failure.Error = ECookPublishError::Operation;
+					return false;
+				};
+				auto RejectValidation = [&](ECookPublishValidationError Error, std::string_view Path = {}, uint64 Index = 0) -> bool {
+					Failure.ValidationCause = FCookPublishValidationFailure{Error, Root, std::string(Path), Index, State.TargetPlatform, State.TargetProfile};
+					Failure.Error = ECookPublishError::Validation;
+					return false;
+				};
+				auto Injected = [&](ECookOperationStage Stage, size_t Index) -> bool {
+					std::string External;
+					if (!ShouldFail || !ShouldFail(Stage, Index, External)) return false;
+					External.resize(std::min<size_t>(External.size(), 2048));
+					Failure.Error = ECookPublishError::Injected;
+					Failure.InjectionCause = FCookPublishInjectedFailure{Stage, Index, std::move(External)};
+					return true;
+				};
 				const auto CommitStart = std::chrono::steady_clock::now();
 				if (Root.empty() || !Root.is_absolute()
 					|| State.TargetPlatform != Platform || State.TargetProfile != Profile)
-					return CookFail("CookOutputStoreInvalidRequest: output root or target is invalid.", &OutError);
-				if (!ValidateCookOutputRoot(Root, OutError)) return false;
+					return RejectValidation(ECookPublishValidationError::Request);
+				if (const auto Validated = ValidateCookOutputRoot(Root); !Validated)
+				{
+					Failure.RootCause = std::make_shared<FCookOutputRootResult>(Validated);
+					Failure.Error = ECookPublishError::Root;
+					return false;
+				}
 				for (size_t Index = 0; Index < Plans.size(); ++Index)
 				{
 					const FCookSavePlan& Plan = Plans[Index];
 					std::filesystem::path PackagePath;
+					FCookedPathResult PathResult;
 					if (Plan.TargetPlatform != Platform || Plan.TargetProfile != Profile
 						|| Plan.PackageFileSize == 0
 						|| Plan.PackageBytes.size() != Plan.PackageFileSize
 						|| Plan.BulkBytes.size() != Plan.SegmentFileSize
 						|| FXxHash128::HashBuffer(Plan.PackageBytes) != Plan.PackageDigest
 						|| FXxHash128::HashBuffer(Plan.BulkBytes) != Plan.SegmentDigest
-						|| !ResolveCookedPackagePath(
-							Root, Plan.VirtualPath, PackagePath, &OutError
-						)
+						|| !(PathResult = ResolveCookedPackagePath(
+							Root, Plan.VirtualPath, PackagePath
+						))
 						|| (Index && !(Plans[Index - 1].VirtualPath < Plan.VirtualPath)))
-						return CookFail(OutError.empty() ? "CookOutputStoreInvalidPlan: save plans are invalid, duplicated, or unsorted." : OutError, &OutError);
+					{
+						Failure.VirtualPath = Plan.VirtualPath;
+						if (!PathResult) Failure.PathCause = PathResult;
+						if (!PathResult) { Failure.Error = ECookPublishError::Path; return false; }
+						return RejectValidation(ECookPublishValidationError::Plan, Plan.VirtualPath, Index);
+					}
 					if (Plan.bOpaqueRawSegment)
 					{
 						if (Plan.BulkSummary.Extent != Plan.SegmentFileSize
 							|| Plan.BulkSummary.Digest != Plan.SegmentDigest)
-							return CookFail("CookOutputStoreInvalidOpaqueSegment", &OutError);
+							return RejectValidation(ECookPublishValidationError::OpaqueSegment, Plan.VirtualPath, Index);
 						continue;
 					}
 					FPackagePath VirtualPath;
 					if (!FPackagePath::TryCreate(Plan.VirtualPath, VirtualPath)
 						&& !FPackagePath::TryCreateProjectContent(
 							Plan.VirtualPath, VirtualPath))
-						return CookFail("CookOutputStoreInvalidPackageIdentity", &OutError);
+						return RejectValidation(ECookPublishValidationError::PackageIdentity, Plan.VirtualPath, Index);
 					const FAssetResult PackageValidation = ValidateAssetPackageBytes(
 						Plan.PackageBytes, VirtualPath, Plan.BulkBytes);
 					if (!PackageValidation)
-						return CookFail(std::format("CookOutputStoreInvalidPackage: {}: {}", Plan.VirtualPath, PackageValidation.Message), &OutError);
+					{
+						Failure.VirtualPath = Plan.VirtualPath;
+						Failure.PackageCause = std::make_shared<FAssetResult>(PackageValidation);
+						Failure.Error = ECookPublishError::Package;
+						return false;
+					}
 					if (Plan.SegmentFileSize == 0) continue;
 					if (Plan.bRawBulkSegment
 						&& (Plan.BulkSummary.Extent != Plan.SegmentFileSize
 							|| Plan.BulkSummary.Digest != Plan.SegmentDigest))
-						return CookFail("CookOutputStoreInvalidRawBulkClosure", &OutError);
+						return RejectValidation(ECookPublishValidationError::RawBulkClosure, Plan.VirtualPath, Index);
 				}
 				for (size_t Index = 0; Index < AuxiliaryOutputs.size(); ++Index)
 				{
@@ -121,16 +207,16 @@ namespace Durin
 						|| Output.Bytes.empty()
 						|| FXxHash128::HashBuffer(Output.Bytes) != Output.Digest
 						|| (Index && !(AuxiliaryOutputs[Index - 1].RelativePath < Output.RelativePath)))
-						return CookFail("CookOutputStoreInvalidAuxiliaryOutput", &OutError);
+						return RejectValidation(ECookPublishValidationError::AuxiliaryOutput, Output.RelativePath, Index);
 				}
 				std::error_code ErrorCode;
 				std::filesystem::create_directories(Root, ErrorCode);
-				if (ErrorCode) return CookFail(std::format("CookOutputStoreCreateRootFailed: {}", ErrorCode.message()), &OutError);
+				if (ErrorCode) return RejectOperation(ECookPublishOperationError::CreateRoot, ECookOperationStage::Prepare, Root, ErrorCode);
 
 				const std::filesystem::path LockPath = Root / ".durin-cook-writer";
-				if ((ShouldFail && ShouldFail(ECookOperationStage::WriterLock, 0, OutError))
-					|| !std::filesystem::create_directory(LockPath, ErrorCode))
-					return CookFail(OutError.empty() ? "CookCompetingWriter: the output root already has a writer." : OutError, &OutError);
+				if (Injected(ECookOperationStage::WriterLock, 0)) return false;
+				if (!std::filesystem::create_directory(LockPath, ErrorCode))
+					return RejectOperation(ECookPublishOperationError::WriterLock, ECookOperationStage::WriterLock, LockPath, ErrorCode);
 				struct FLockCleanup
 				{
 					std::filesystem::path Path;
@@ -146,7 +232,7 @@ namespace Durin
 				const std::filesystem::path StagedRoot = TransactionRoot / "staged";
 				const std::filesystem::path BackupRoot = TransactionRoot / "backup";
 				std::filesystem::create_directories(StagedRoot, ErrorCode);
-				if (ErrorCode) return CookFail("CookTransactionCreateFailed: could not create staging root.", &OutError);
+				if (ErrorCode) return RejectOperation(ECookPublishOperationError::CreateTransaction, ECookOperationStage::Prepare, StagedRoot, ErrorCode);
 				struct FTransactionCleanup
 				{
 					std::filesystem::path Path;
@@ -189,8 +275,18 @@ namespace Durin
 				});
 				FByteBuffer ManifestBytes;
 				FByteBuffer StateBytes;
-				if (!EncodeCookManifest(Manifest, ManifestBytes, &OutError)
-					|| !EncodeCookState(State, StateBytes, &OutError)) return false;
+				if (const auto Encoded = EncodeCookManifest(Manifest, ManifestBytes); !Encoded)
+				{
+					Failure.ManifestCause = Encoded;
+					Failure.Error = ECookPublishError::Manifest;
+					return false;
+				}
+				if (const auto Encoded = EncodeCookState(State, StateBytes); !Encoded)
+				{
+					Failure.StateCause = Encoded;
+					Failure.Error = ECookPublishError::State;
+					return false;
+				}
 
 				auto StageBytes = [&](std::string_view Relative,
 									  FByteView Bytes, ECookOperationStage Stage,
@@ -198,17 +294,17 @@ namespace Durin
 					if (IsCancelled(Cancellation))
 					{
 						bOutCancelled = true;
-						return CookFail("CookCancelledDuringStaging", &OutError);
+						return RejectOperation(ECookPublishOperationError::CancelledStaging, Stage, Root / Relative);
 					}
-					if (ShouldFail && ShouldFail(Stage, Index, OutError)) return false;
+					if (Injected(Stage, Index)) return false;
 					const std::filesystem::path Staged = StagedRoot / Relative;
 					std::filesystem::create_directories(Staged.parent_path(), ErrorCode);
 					if (ErrorCode || !FFileHelper::SaveArrayToFile(Bytes, Staged))
-						return CookFail(std::format("CookStageWriteFailed: {}", Relative), &OutError);
+						return RejectOperation(ECookPublishOperationError::StageWrite, Stage, Staged, ErrorCode);
 					FByteBuffer Validation;
 					if (!FFileHelper::LoadFileToArray(Validation, Staged)
 						|| !std::ranges::equal(Validation, Bytes))
-						return CookFail(std::format("CookStageValidationFailed: {}", Relative), &OutError);
+						return RejectOperation(ECookPublishOperationError::StageValidation, Stage, Staged);
 					return true;
 				};
 
@@ -258,24 +354,24 @@ namespace Durin
 					if (IsCancelled(Cancellation))
 					{
 						bOutCancelled = true;
-						return CookFail("CookCancelledDuringCommit", &OutError);
+						return RejectOperation(ECookPublishOperationError::CancelledCommit, Stage, Root / Relative);
 					}
-					if (ShouldFail && ShouldFail(Stage, Index, OutError)) return false;
+					if (Injected(Stage, Index)) return false;
 					const std::filesystem::path Destination = Root / Relative;
 					const std::filesystem::path Staged = StagedRoot / Relative;
 					const std::filesystem::path Backup = BackupRoot / Relative;
 					std::filesystem::create_directories(Destination.parent_path(), ErrorCode);
-					if (ErrorCode) return CookFail("CookCommitCreateDirectoryFailed", &OutError);
+					if (ErrorCode) return RejectOperation(ECookPublishOperationError::CommitDirectory, Stage, Destination.parent_path(), ErrorCode);
 					const bool bExists = std::filesystem::exists(Destination, ErrorCode) && !ErrorCode;
 					if (bExists)
 					{
 						std::filesystem::create_directories(Backup.parent_path(), ErrorCode);
 						std::filesystem::rename(Destination, Backup, ErrorCode);
-						if (ErrorCode) return CookFail(std::format("CookCommitBackupFailed: {}", Relative), &OutError);
+						if (ErrorCode) return RejectOperation(ECookPublishOperationError::CommitBackup, Stage, Destination, ErrorCode);
 					}
 					Committed.push_back({Destination, Backup, bExists});
 					std::filesystem::rename(Staged, Destination, ErrorCode);
-					if (ErrorCode) return CookFail(std::format("CookCommitReplaceFailed: {}", Relative), &OutError);
+					if (ErrorCode) return RejectOperation(ECookPublishOperationError::CommitReplace, Stage, Destination, ErrorCode);
 					return true;
 				};
 
@@ -305,7 +401,8 @@ namespace Durin
 					{
 						const FCookManifestEntry& Entry = PreviousManifest.Entries[Index];
 						if (Current.contains(Entry.RelativePath)) continue;
-						if (ShouldFail && ShouldFail(ECookOperationStage::StaleCleanup, Index, OutError)) break;
+						std::string Ignored;
+						if (ShouldFail && ShouldFail(ECookOperationStage::StaleCleanup, Index, Ignored)) break;
 						const std::filesystem::path Candidate = (Root / Entry.RelativePath).lexically_normal();
 						const std::filesystem::path Relative = Candidate.lexically_relative(Root);
 						if (Relative.empty() || Relative.native().starts_with(std::filesystem::path("..").native())) continue;
@@ -315,7 +412,6 @@ namespace Durin
 				InOutResult.CommitTimeNanoseconds += std::chrono::duration_cast<
 														 std::chrono::nanoseconds>(std::chrono::steady_clock::now() - CommitStart)
 														 .count();
-				OutError.clear();
 				return true;
 			}
 

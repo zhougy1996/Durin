@@ -35,11 +35,11 @@ namespace Durin
 		COREDOBJECT_API auto SaveAsync(DPackage* Package, FPackageSaveResult& Admission) const
 			-> Tasks::TTask<FPackageSaveResult>;
 		auto Capture(DPackage* Package, ObjectPackage::FLinkerTables& OutLinker,
-			std::string* OutError = nullptr, uint32 FormatVersion = ObjectPackage::DastV10FormatVersion) const
-			-> FPackageSaveResult
+			uint32 FormatVersion = ObjectPackage::DastV10FormatVersion) const
+			-> FPackageCaptureResult
 		{
 			return CapturePackageLinker(Package, Options.Mode == EPackageSaveMode::Complete
-				? EDefaultDeltaMode::NoDelta : EDefaultDeltaMode::Enabled, Options.Capture, OutLinker, OutError, FormatVersion);
+				? EDefaultDeltaMode::NoDelta : EDefaultDeltaMode::Enabled, Options.Capture, OutLinker, FormatVersion);
 		}
 		// Detached callers supply file order and recovery paths; ownership transfers.
 		auto BeginWrite(std::vector<FPackageWriteFile> Files) const

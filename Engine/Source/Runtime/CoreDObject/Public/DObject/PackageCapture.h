@@ -13,6 +13,74 @@ namespace Durin
 		None, InvalidPath, InvalidPackageType, InvalidObjectGraph, UnsupportedProperty,
 		UnsupportedVersion, CorruptFile, IoError, StaleData, Cancelled, Busy, ShuttingDown
 	};
+	enum class EPackageCaptureReason : uint8
+	{
+		None,
+		RawOutsideField,
+		BulkVersion,
+		BulkMetadata,
+		BulkAlignment,
+		BulkLimit,
+		BulkOutsideValue,
+		ReferenceOutsideObject,
+		InvalidHardReference,
+		SoftPathLimit,
+		ObjectOutsideGraph,
+		OuterOutsideGraph,
+		FieldOutsideObject,
+		ValueOutsideField,
+		WeakObject,
+		FieldEventKind,
+		TypeDepth,
+		ValueManifest,
+		ObjectTopology,
+		DeltaGraph,
+		DeltaObject,
+		OuterTopology,
+		AssetIdentity,
+		MissingDeltaField,
+		MissingSchemaField,
+		PackageType,
+		MissingAssets,
+		CookTarget,
+		PackagePath,
+		ClassDefaults,
+		OverrideOutsideGraph,
+		OmittedAsset,
+		DiscoveryMutation,
+		CookGraph,
+		BulkIdentity,
+		EmissionMutation,
+		FieldTypeChanged,
+		MissingAsset,
+		MissingDeltaObject,
+		MissingChildType,
+		ReplacementValue,
+		ArchiveFailure,
+		DefaultDelta,
+	};
+	struct FPackageCaptureError
+	{
+		EPackageCaptureReason Reason = EPackageCaptureReason::None;
+		std::string ObjectPath;
+		std::string SchemaName;
+		std::string FieldName;
+		std::string ArchivePath;
+		std::vector<std::string> Route;
+		uint64 Actual = 0;
+		uint64 Expected = 0;
+		std::optional<EArchiveFailureCode> ArchiveCode;
+		std::variant<std::monostate, FObjectError, FDefaultDeltaDiagnostic,
+			FPropertyValueError, FPropertySnapshotError, FReflectedMapKeyError, FObjectValidationError> Cause;
+	};
+	struct FPackageCaptureResult
+	{
+		FPackageCaptureError Error;
+		auto Succeeded() const -> bool { return Error.Reason == EPackageCaptureReason::None; }
+		explicit operator bool() const { return Succeeded(); }
+	};
+	COREDOBJECT_API auto FormatPackageCaptureError(const FPackageCaptureError& Error) -> std::string;
+	COREDOBJECT_API auto GetPackageCaptureSaveError(const FPackageCaptureError& Error) -> EPackageSaveError;
 	enum class EPackageCommitState : uint8 { NotCommitted, Committed, RecoveryRequired, PartiallyWritten };
 	struct FPackageSaveResult
 	{
@@ -21,6 +89,7 @@ namespace Durin
 		EPackageCommitState CommitState = EPackageCommitState::NotCommitted;
 		std::vector<std::filesystem::path> RecoveryFiles;
 		std::vector<std::filesystem::path> AffectedFiles;
+		std::optional<FPackageCaptureError> CaptureCause;
 		auto Succeeded() const -> bool { return Error == EPackageSaveError::None; }
 		explicit operator bool() const { return Succeeded(); }
 	};
@@ -36,6 +105,5 @@ namespace Durin
 	// GameThread capture. Does not validate catalog dependencies or publish assets.
 	COREDOBJECT_API auto CapturePackageLinker(DPackage* Package, EDefaultDeltaMode DeltaMode,
 		const FPackageCaptureOptions& Options, ObjectPackage::FLinkerTables& OutLinker,
-		std::string* OutError = nullptr,
-		uint32 FormatVersion = ObjectPackage::DastV10FormatVersion) -> FPackageSaveResult;
+		uint32 FormatVersion = ObjectPackage::DastV10FormatVersion) -> FPackageCaptureResult;
 }

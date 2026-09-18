@@ -321,16 +321,17 @@ namespace Durin
 			return false;
 		}
 		EditorToPlayObjects.clear();
-		DLevel* PlayLevel = DuplicateObject(
+		const auto Duplicated = DuplicateObject(
 			SourceLevel, NewPlayWorld,
 			FName(std::format("{}_PIE", SourceLevel->GetName())),
 			&EditorToPlayObjects);
+		DLevel* PlayLevel = Duplicated.Object;
 		if (!PlayLevel)
 		{
 			NewPlayWorld->Shutdown();
 			MarkObjectHierarchyAsGarbage(NewPlayWorld);
 			PlayState = Editor::EPlayState::Stopped;
-			if (OutError) *OutError = "Could not duplicate the level for Play.";
+			if (OutError) *OutError = FormatObjectGraphError(Duplicated.Error);
 			return false;
 		}
 		DClass* GameModeClass = GameModeOverride.value_or(nullptr);
@@ -652,8 +653,7 @@ namespace Durin
 		for (const auto& [PlayObject, EditorObject] : PlayToEditorObjects)
 		{
 			if (!IsUnderSelectedActor(PlayObject)) continue;
-			std::string CopyError;
-			if (!CopyEditableObjectProperties(PlayObject, EditorObject, PlayToEditorObjects, &CopyError))
+			if (const auto CopyResult = CopyEditableObjectProperties(PlayObject, EditorObject, PlayToEditorObjects); !CopyResult)
 			{
 				if (bCopiedAny)
 				{
@@ -661,7 +661,7 @@ namespace Durin
 					if (DPackage* Package = EditorLevel->GetPackage())
 						Trans->InvalidateSavedState(*Package);
 				}
-				if (OutError) *OutError = std::move(CopyError);
+				if (OutError) *OutError = FormatObjectPropertyCopyError(CopyResult.Error);
 				return false;
 			}
 			bCopiedAny = true;

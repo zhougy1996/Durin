@@ -1,3 +1,4 @@
+#include "Materials/MaterialObjectValidation.h"
 #include "Materials/MaterialFunction.h"
 #include "Materials/MaterialCustomVersion.h"
 #include "MaterialExpressionOwnership.h"
@@ -37,20 +38,21 @@ namespace Durin
 		return Body;
 	}
 
-	auto DMaterialFunction::ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context, std::string& OutError) const -> bool
+	auto DMaterialFunction::ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> FObjectValidationResult
 	{
-		if (Context.bCooked) return true;
+		if (Context.bCooked) return {};
 		const auto OwnershipError = Private::ValidateExpressionOwnership(*this, ExpressionCollection);
-		if (!OwnershipError)
-		{ OutError = FormatMaterialError(OwnershipError.Error); return false; }
+		if (!OwnershipError) return RejectMaterialObjectGraph(GetObjectPath(), OwnershipError.Error);
 		std::vector<DMaterialExpression*> Expressions;
 		for (const auto& Expression : ExpressionCollection.Expressions) Expressions.push_back(Expression.Get());
-		if (!MIR::FGraphBuilder::ValidateFunction(Expressions))
+		auto Validation = MIR::FGraphBuilder::ValidateFunction(Expressions);
+		if (!Validation)
 		{
-			OutError = "Function expression collection or signature is invalid.";
-			return false;
+			const auto Error = Validation.Diagnostics.empty()
+				? FMaterialError(EMaterialExpressionError::InvalidMaterialExpressionGraph) : Validation.Diagnostics.front().Error;
+			return RejectMaterialObjectGraph(GetObjectPath(), Error, std::move(Validation.Diagnostics));
 		}
-		return true;
+		return {};
 	}
 
 	auto DMaterialFunction::SetFunctionExpressions(std::span<DMaterialExpression* const> Expressions) -> FMaterialProgramValidationResult
@@ -74,8 +76,12 @@ namespace Durin
 		Super::Serialize(Ar);
 		if (!Ar.HasError() && !IsTemplateObject() && Ar.IsSaving() && Ar.GetPurpose() == EArchivePurpose::AuthoredPackage)
 		{
-			std::string Error;
-			if (!ValidateLoadedObjectGraph({}, Error)) Ar.Fail(EArchiveFailureCode::InvalidData, Error);
+			const auto Validation = ValidateLoadedObjectGraph({});
+			if (!Validation)
+			{
+				if (auto* ObjectArchive = dynamic_cast<FObjectArchive*>(&Ar)) ObjectArchive->FailValidation(Validation.Error);
+				else Ar.Fail(EArchiveFailureCode::InvalidData, FormatObjectValidationError(Validation.Error));
+			}
 		}
 	}
 

@@ -67,21 +67,24 @@ namespace Durin
 	}
 
 	auto DTexture::ContributeToCook(FCookContext& Context,
-		std::string_view VirtualPackagePath, std::string& OutError) -> bool
+		std::string_view VirtualPackagePath) -> FCookContributionResult
 	{
+		auto Reject = [&](ECookContributionError Error) -> FCookContributionResult {
+			return {.Error = Error, .ObjectPath = GetObjectPath(), .VirtualPath = std::string(VirtualPackagePath),
+				.TargetPlatform = Context.GetTargetPlatform(), .TargetProfile = Context.GetTargetProfile()};
+		};
 		if (Context.GetTargetPlatform() != ECookTargetPlatform::Win64
-			|| Context.GetTargetProfile() != ECookTargetProfile::Game)
-		{
-			OutError = std::format("Texture '{}' supports only the Win64 game cook target.", GetObjectPath());
-			return false;
-		}
+			|| Context.GetTargetProfile() != ECookTargetProfile::Game) return Reject(ECookContributionError::Target);
 		if (!HasPlatformData()) PostLoad();
-		if (!HasPlatformData())
+		if (!HasPlatformData()) return Reject(ECookContributionError::PlatformData);
+		const auto Added = Context.AddPackage(std::string(VirtualPackagePath), GetPackage());
+		if (!Added)
 		{
-			OutError = std::format("Failed to cook texture '{}': platform data is unavailable.", GetObjectPath());
-			return false;
+			auto Result = Reject(ECookContributionError::Plan);
+			Result.PlanCause = Added.Error;
+			return Result;
 		}
-		return Context.AddPackage(std::string(VirtualPackagePath), GetPackage(), &OutError);
+		return {};
 	}
 
 	auto DTexture::BeginDestroy() -> void

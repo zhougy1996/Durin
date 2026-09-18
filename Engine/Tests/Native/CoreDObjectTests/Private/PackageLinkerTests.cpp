@@ -1,4 +1,5 @@
 #include "DObject/CanonicalMapKey.h"
+#include "DObject/Class.h"
 #include "DObject/AssetPath.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/PackageLinker.h"
@@ -485,9 +486,8 @@ TEST(FPackageLinkerContractTests, LiveReflectedAndDetachedValuesShareCanonicalBy
 		Durin::DurinCodeGen::EPropertyGenFlags::Int32, nullptr);
 	Durin::FByteBuffer Live;
 	Durin::FByteBuffer Detached;
-	std::string Error;
 	ASSERT_TRUE(Durin::BuildCanonicalMapKeyToken(
-		&IntegerProperty, &Integer, 0, Live, &Error)) << Error;
+		&IntegerProperty, &Integer, 0, Live));
 	ASSERT_TRUE(Package::BuildCanonicalMapKeyToken(
 		{.Kind = Package::EValueKind::I32}, {.Signed = Integer}, Detached));
 	EXPECT_EQ(Live, Detached);
@@ -498,8 +498,109 @@ TEST(FPackageLinkerContractTests, LiveReflectedAndDetachedValuesShareCanonicalBy
 		Durin::EPropertyFlags::None, 1, 0, sizeof(Text),
 		Durin::DurinCodeGen::EPropertyGenFlags::String, nullptr);
 	ASSERT_TRUE(Durin::BuildCanonicalMapKeyToken(
-		&StringProperty, &Text, 0, Live, &Error)) << Error;
+		&StringProperty, &Text, 0, Live));
 	ASSERT_TRUE(Package::BuildCanonicalMapKeyToken(
 		{.Kind = Package::EValueKind::String}, {.Text = Text}, Detached));
 	EXPECT_EQ(Live, Detached);
+}
+
+TEST(FPackageLinkerContractTests, LiveMapKeyErrorsOwnContextAndPreserveOutput)
+{
+	Durin::Testing::InitializeDObjectSystemForTests();
+	using namespace Durin;
+	FByteBuffer Output = Bytes({0xaa});
+	const auto Original = Output;
+	int32 Value = 7;
+	FReflectedMapKeyResult Saved;
+	{
+		FNumericProperty Property(FFieldVariant(), FName("TemporaryKey"), EObjectFlags::NoFlags,
+			EPropertyFlags::None, 1, 0, sizeof(Value), DurinCodeGen::EPropertyGenFlags::Int32, nullptr);
+		Saved = BuildCanonicalMapKeyToken(&Property, &Value, 3, Output);
+		ASSERT_FALSE(Saved);
+		EXPECT_EQ(Saved.Error.Code, EReflectedMapKeyError::InvalidArrayIndex);
+		EXPECT_EQ(Saved.Error.Kind, DurinCodeGen::EPropertyGenFlags::Int32);
+		EXPECT_EQ(Saved.Error.ArrayIndex, 3u);
+		EXPECT_EQ(Saved.Error.ArrayDim, 1u);
+		EXPECT_EQ(Output, Original);
+		const auto MissingValue = BuildCanonicalMapKeyToken(&Property, nullptr, 0, Output);
+		EXPECT_EQ(MissingValue.Error.Code, EReflectedMapKeyError::NullContainer);
+		EXPECT_EQ(Output, Original);
+		ASSERT_TRUE(BuildCanonicalMapKeyToken(&Property, &Value, 0, Output));
+		EXPECT_NE(Output, Original);
+	}
+	EXPECT_EQ(Saved.Error.PropertyName, "TemporaryKey");
+	ASSERT_EQ(Saved.Error.Route.size(), 1u);
+	EXPECT_EQ(Saved.Error.Route.front().PropertyName, "TemporaryKey");
+	EXPECT_EQ(Saved.Error.Route.front().ArrayIndex, 3u);
+	EXPECT_EQ(ValidateCanonicalMapKeyProperty(nullptr).Error.Code, EReflectedMapKeyError::NullProperty);
+	const auto Published = Output;
+	EXPECT_EQ(BuildCanonicalMapKeyToken(nullptr, &Value, 0, Output).Error.Code,
+		EReflectedMapKeyError::NullProperty);
+	EXPECT_EQ(Output, Published);
+}
+
+TEST(FPackageLinkerContractTests, LiveMapKeyErrorsClassifyUnsupportedDescriptors)
+{
+	Durin::Testing::InitializeDObjectSystemForTests();
+	using namespace Durin;
+	FByteBuffer Output = Bytes({0xbb});
+	const auto Original = Output;
+	uint64 Value = 0;
+	FEnumProperty Enum(FFieldVariant(), FName("UnknownEnum"), EObjectFlags::NoFlags,
+		EPropertyFlags::None, 1, 0, sizeof(Value), DurinCodeGen::EPropertyGenFlags::Enum, nullptr, nullptr);
+	EXPECT_EQ(ValidateCanonicalMapKeyProperty(&Enum).Error.Code, EReflectedMapKeyError::UnknownEnumStorage);
+	EXPECT_EQ(BuildCanonicalMapKeyToken(&Enum, &Value, 0, Output).Error.Code,
+		EReflectedMapKeyError::UnknownEnumStorage);
+	EXPECT_EQ(Output, Original);
+	DStruct Incomplete(EC_StaticConstructor, FName("Tests::IncompleteMapKey"), FName("IncompleteMapKey"),
+		sizeof(Value), alignof(uint64), EObjectFlags::Transient);
+	FStructProperty Struct(FFieldVariant(), FName("IncompleteStruct"), EObjectFlags::NoFlags,
+		EPropertyFlags::None, 1, 0, &Incomplete);
+	EXPECT_EQ(ValidateCanonicalMapKeyProperty(&Struct).Error.Code, EReflectedMapKeyError::IncompleteStructEquality);
+	EXPECT_EQ(BuildCanonicalMapKeyToken(&Struct, &Value, 0, Output).Error.Code,
+		EReflectedMapKeyError::IncompleteStructEquality);
+	EXPECT_EQ(Output, Original);
+	FNumericProperty Unsupported(FFieldVariant(), FName("Unsupported"), EObjectFlags::NoFlags,
+		EPropertyFlags::None, 1, 0, sizeof(Value), DurinCodeGen::EPropertyGenFlags::None, nullptr);
+	EXPECT_EQ(ValidateCanonicalMapKeyProperty(&Unsupported).Error.Code, EReflectedMapKeyError::UnsupportedKind);
+	EXPECT_EQ(BuildCanonicalMapKeyToken(&Unsupported, &Value, 0, Output).Error.Code,
+		EReflectedMapKeyError::UnsupportedKind);
+	EXPECT_EQ(Output, Original);
+}
+
+TEST(FPackageLinkerContractTests, LiveMapKeyErrorsRetainNestedRoutes)
+{
+	Durin::Testing::InitializeDObjectSystemForTests();
+	using namespace Durin;
+	FReflectedMapKeyResult Built;
+	FReflectedMapKeyResult Validated;
+	{
+		FDStructOps Ops;
+		Ops.Flags = EDStructOpsFlags::AuthoredFieldsComplete;
+		DStruct Descriptor(EC_StaticConstructor, FName("Tests::NestedMapKey"), FName("NestedMapKey"),
+			sizeof(uint64), alignof(uint64), EObjectFlags::Transient);
+		Descriptor.InitializeOps(&Ops);
+		FEnumProperty Field(FFieldVariant(&Descriptor), FName("UnknownEnum"), EObjectFlags::NoFlags,
+			EPropertyFlags::None, 1, 0, sizeof(uint64), DurinCodeGen::EPropertyGenFlags::Enum, nullptr, nullptr);
+		Descriptor.ChildProperties = &Field;
+		FStructProperty Root(FFieldVariant(), FName("Root"), EObjectFlags::NoFlags,
+			EPropertyFlags::None, 2, 0, &Descriptor);
+		std::array<uint64, 2> Values{};
+		FByteBuffer Output = Bytes({0xcc});
+		Built = BuildCanonicalMapKeyToken(&Root, Values.data(), 1, Output);
+		Validated = ValidateCanonicalMapKeyProperty(&Root);
+		EXPECT_EQ(Output, Bytes({0xcc}));
+	}
+	for (const auto* Result : {&Built, &Validated})
+	{
+		ASSERT_FALSE(*Result);
+		EXPECT_EQ(Result->Error.Code, EReflectedMapKeyError::UnknownEnumStorage);
+		EXPECT_EQ(Result->Error.PropertyName, "UnknownEnum");
+		ASSERT_EQ(Result->Error.Route.size(), 2u);
+		EXPECT_EQ(Result->Error.Route[0].PropertyName, "Root");
+		EXPECT_EQ(Result->Error.Route[1].PropertyName, "UnknownEnum");
+		EXPECT_EQ(Result->Error.Route[1].ArrayIndex, 0u);
+	}
+	EXPECT_EQ(Built.Error.Route[0].ArrayIndex, 1u);
+	EXPECT_EQ(Validated.Error.Route[0].ArrayIndex, 0u);
 }

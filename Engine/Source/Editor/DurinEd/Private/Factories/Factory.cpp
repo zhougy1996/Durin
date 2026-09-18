@@ -1,6 +1,9 @@
 #include "Factories/Factory.h"
 
 #include "DObject/Class.h"
+#include "Asset/SourceHint.h"
+#include "StaticMesh/StaticMesh.h"
+#include "Texture/Texture2DCompilationTypes.h"
 #include "Threading/RunnableThread.h"
 
 namespace Durin
@@ -85,19 +88,65 @@ namespace Durin
 		}
 	}
 
+	auto FormatFactoryError(const FFactoryError& Error) -> std::string
+	{
+		switch (Error.Code)
+		{
+		case EFactoryError::ExactClass:
+			return Error.ExpectedClass + " factory requires the exact supported class.";
+		case EFactoryError::AssetPackageParent:
+			return Error.ExpectedClass + " factory requires an asset package parent.";
+		case EFactoryError::StaticMeshSettings:
+			return Error.StaticMeshSettingsCause ? FormatStaticMeshImportSettingsError(*Error.StaticMeshSettingsCause)
+				: "Static mesh import settings are invalid.";
+		case EFactoryError::SourceHint:
+			return Error.SourceHintCause ? FormatSourceHintError(*Error.SourceHintCause)
+				: "Factory source hint could not be created.";
+		case EFactoryError::TextureCompilation:
+			return Error.TextureCompilationCause ? FormatTexture2DCompilationError(*Error.TextureCompilationCause)
+				: "Texture compilation failed.";
+		case EFactoryError::SourceMissing:
+			return Error.ExpectedClass + " source file does not exist: " + Error.Filename;
+		case EFactoryError::SourceFormat:
+			return Error.ExpectedClass + " source format is unsupported: " + Error.Filename;
+		case EFactoryError::PreparedSourceMismatch:
+			return "Prepared texture source does not match the requested file: " + Error.Filename;
+		case EFactoryError::SourceLayout:
+			return Error.ExpectedClass + " factory source layout is unsupported.";
+		case EFactoryError::SourceRoleMissing:
+			return Error.SourceRole + " " + Error.ExpectedClass + " source is required.";
+		case EFactoryError::ObjectCreation:
+			return Error.ExpectedClass + " object could not be created.";
+		}
+		return {};
+	}
+
+	auto FFactoryDiagnostics::ReportFailure(FFactoryError Error) -> void
+	{
+		if (Entries.size() >= MaximumMessageCount) return;
+		Entries.push_back({.Failure = std::move(Error)});
+	}
+
+	auto FFactoryDiagnostics::ReportDomainFailure(std::shared_ptr<const IFactoryErrorDetail> Error) -> void
+	{
+		if (!Error || Entries.size() >= MaximumMessageCount) return;
+		Entries.push_back({.DomainFailure = std::move(Error)});
+	}
+
 	auto FFactoryDiagnostics::Report(std::string_view Message) -> void
 	{
-		if (Message.empty() || Messages.size() >= MaximumMessageCount) return;
-		Messages.emplace_back(Message.substr(0, MaximumMessageLength));
+		if (Message.empty() || Entries.size() >= MaximumMessageCount) return;
+		Entries.push_back({.Message = std::string(Message.substr(0, MaximumMessageLength))});
 	}
 
 	auto FFactoryDiagnostics::ToString() const -> std::string
 	{
 		std::string Result;
-		for (const std::string& Message : Messages)
+		for (const auto& Entry : Entries)
 		{
 			if (!Result.empty()) Result += '\n';
-			Result += Message;
+			if (Entry.DomainFailure) Result += Entry.DomainFailure->Format();
+			else Result += Entry.Failure ? FormatFactoryError(*Entry.Failure) : Entry.Message;
 		}
 		return Result;
 	}

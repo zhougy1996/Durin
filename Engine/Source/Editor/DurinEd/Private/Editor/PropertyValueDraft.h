@@ -14,87 +14,118 @@ namespace Durin::Editor
 	};
 
 	auto ResolveReflectedPropertyValue(const FPropertyEditTarget& Target,
-		FResolvedPropertyValue& OutValue, std::string* OutError = nullptr) -> bool;
+		FResolvedPropertyValue& OutValue) -> FPropertyEditPathResult;
 
-	// Owns one detached, fully constructed snapshot-root value. Leaf addresses
-	// resolved from this draft never point into the live edited object.
+	// Owns detached snapshot-root storage and retains typed initialization failures.
 	class FPropertyValueDraft
 	{
 	public:
-		explicit FPropertyValueDraft(const FPropertyEditTarget& Target, std::string* OutError)
-			: Property(Target.SnapshotProperty)
-			, ArrayIndex(Target.SnapshotArrayIndex)
+		explicit FPropertyValueDraft(const FPropertyEditTarget& Target)
+			: Property(Target.SnapshotProperty), ArrayIndex(Target.SnapshotArrayIndex)
 		{
+			Context.Root = Property ? Property->NamePrivate.ToString() : std::string{};
+			Context.ArrayIndex = ArrayIndex;
+			Context.HasContainer = Target.SnapshotContainer != nullptr;
+			Context.HasLifecycle = Property && Property->HasValueLifecycle();
+			Context.ValueSize = Property ? Property->GetValueSize() : 0;
+			Context.ValueAlignment = Property ? Property->GetValueAlignment() : 0;
 			if (!Property || !Target.SnapshotContainer)
-			{
-				Fail("The reflected property draft root is unavailable.", OutError);
-				return;
-			}
-			if (Property->HasValueAccessors())
-			{
-				Fail("Properties with custom value accessors cannot be used as draft roots.", OutError);
-				return;
-			}
-			if (!Property->HasValueLifecycle() || Property->GetValueSize() == 0 || Property->GetValueAlignment() == 0)
-			{
-				Fail("The reflected property lacks generated draft-value lifecycle metadata.", OutError);
-				return;
-			}
+				InitializationError = Reject(EPropertyValueDraftError::MissingRoot).Error;
+			else if (Property->HasValueAccessors())
+				InitializationError = Reject(EPropertyValueDraftError::Accessors).Error;
+			else if (!Context.HasLifecycle || !Context.ValueSize || !Context.ValueAlignment)
+				InitializationError = Reject(EPropertyValueDraftError::Lifecycle).Error;
+			if (!IsValid()) return;
 
 			FPropertyValueSnapshotPayload Current;
-			if (!CapturePropertyValuePayload(
-				Property, Target.SnapshotContainer, ArrayIndex, Current, OutError)) return;
-			if (!Storage.DefaultConstruct(Property, ArrayIndex, OutError)) return;
+			if (const auto Result = CapturePropertyValuePayload(Property, Target.SnapshotContainer, ArrayIndex, Current); !Result)
+			{
+				InitializationError = SnapshotFailure(EPropertyValueDraftError::Capture, Result.Error).Error;
+				return;
+			}
+			if (const auto Result = Storage.DefaultConstruct(Property, ArrayIndex); !Result)
+			{
+				InitializationError = Reject(EPropertyValueDraftError::Storage).Error;
+				InitializationError.ValueCause = Result.Error;
+				return;
+			}
 			Memory = Storage.GetContainer();
-			if (!RestorePropertyValuePayload(Property, Memory, ArrayIndex, Current, OutError)) return;
-			bValid = true;
+			InitializationError = Restore(Current).Error;
 		}
 
 		FPropertyValueDraft(const FPropertyValueDraft&) = delete;
 		auto operator=(const FPropertyValueDraft&) -> FPropertyValueDraft& = delete;
-
-		auto IsValid() const -> bool { return bValid; }
+		auto IsValid() const -> bool { return InitializationError.Code == EPropertyValueDraftError::None; }
+		auto GetError() const -> const FPropertyValueDraftError& { return InitializationError; }
 		auto GetRootProperty() const -> const FProperty* { return Property; }
 		auto GetRootContainer() const -> void* { return Memory; }
 		auto GetRootArrayIndex() const -> uint32 { return ArrayIndex; }
 
-		auto Restore(const FPropertyValueSnapshotPayload& Snapshot, std::string* OutError) -> bool
+		auto Restore(const FPropertyValueSnapshotPayload& Snapshot) -> FPropertyValueDraftResult
 		{
-			return bValid
-				&& RestorePropertyValuePayload(Property, Memory, ArrayIndex, Snapshot, OutError);
+			if (!IsValid()) return {InitializationError};
+			const auto Result = RestorePropertyValuePayload(Property, Memory, ArrayIndex, Snapshot);
+			return Result ? FPropertyValueDraftResult{} : SnapshotFailure(EPropertyValueDraftError::Restore, Result.Error);
 		}
 
 		auto Resolve(const FPropertyEditTarget& Source, const FProperty*& OutProperty,
-			void*& OutContainer, uint32& OutArrayIndex, std::string* OutError) const -> bool
+			void*& OutContainer, uint32& OutArrayIndex) const -> FPropertyValueDraftResult
 		{
-			if (!bValid || Source.SnapshotProperty != Property || Source.SnapshotArrayIndex != ArrayIndex)
-				return Fail("The edit target does not match its reflected property draft root.", OutError);
+			if (!IsValid()) return {InitializationError};
+			if (Source.SnapshotProperty != Property || Source.SnapshotArrayIndex != ArrayIndex)
+			{
+				auto Result = Reject(EPropertyValueDraftError::RootMismatch);
+				Result.Error.RequestedRoot = Source.SnapshotProperty ? Source.SnapshotProperty->NamePrivate.ToString() : std::string{};
+				Result.Error.RequestedArrayIndex = Source.SnapshotArrayIndex;
+				return Result;
+			}
 			FPropertyEditTarget DraftTarget = Source;
 			DraftTarget.SnapshotContainer = Memory;
 			FResolvedPropertyValue Resolved;
-			if (!ResolveReflectedPropertyValue(DraftTarget, Resolved, OutError)) return false;
+			if (const auto Path = ResolveReflectedPropertyValue(DraftTarget, Resolved); !Path)
+			{
+				auto Result = Reject(EPropertyValueDraftError::Path);
+				Result.Error.PathCause = Path.Error;
+				return Result;
+			}
 			OutProperty = Resolved.Property;
 			OutContainer = Resolved.Container;
 			OutArrayIndex = Resolved.ArrayIndex;
-			return true;
+			return {};
 		}
 
-		auto Capture(FPropertyValueSnapshotPayload& OutSnapshot, std::string* OutError) const -> bool
+		auto Capture(FPropertyValueSnapshotPayload& OutSnapshot) const -> FPropertyValueDraftResult
 		{
-			return bValid
-				&& CapturePropertyValuePayload(Property, Memory, ArrayIndex, OutSnapshot, OutError);
+			if (!IsValid()) return {InitializationError};
+			const auto Result = CapturePropertyValuePayload(Property, Memory, ArrayIndex, OutSnapshot);
+			return Result ? FPropertyValueDraftResult{} : SnapshotFailure(EPropertyValueDraftError::Capture, Result.Error);
 		}
 
-		auto Capture(FPropertyValueSnapshot& OutSnapshot, std::string* OutError) const -> bool
+		auto Capture(FPropertyValueSnapshot& OutSnapshot) const -> FPropertyValueDraftResult
 		{
-			return bValid && CapturePropertyValue(Property, Memory, ArrayIndex, OutSnapshot, OutError);
+			if (!IsValid()) return {InitializationError};
+			const auto Result = CapturePropertyValue(Property, Memory, ArrayIndex, OutSnapshot);
+			return Result ? FPropertyValueDraftResult{} : SnapshotFailure(EPropertyValueDraftError::Capture, Result.Error);
 		}
 
 	private:
+		auto Reject(EPropertyValueDraftError Code) const -> FPropertyValueDraftResult
+		{
+			auto Error = Context;
+			Error.Code = Code;
+			return {std::move(Error)};
+		}
+		auto SnapshotFailure(EPropertyValueDraftError Code, const FPropertySnapshotError& Cause) const -> FPropertyValueDraftResult
+		{
+			auto Result = Reject(Code);
+			Result.Error.SnapshotCause = Cause;
+			return Result;
+		}
 		const FProperty* Property = nullptr;
 		uint32 ArrayIndex = 0;
 		FReflectedValueStorage Storage;
 		void* Memory = nullptr;
-		bool bValid = false;
+		FPropertyValueDraftError Context;
+		FPropertyValueDraftError InitializationError;
 	};
 }

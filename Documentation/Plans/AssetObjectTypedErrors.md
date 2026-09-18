@@ -2,64 +2,49 @@
 
 Summary: Replace text-based asset and object failure propagation with module-owned typed errors and presentation-boundary formatting.
 
-Last reviewed: 2026-09-17
+Last reviewed: 2026-09-18
 
 Status: Active
 Completed:
 
 ## Current Status
 
-Stage 0 is complete and validated. Path factories
-and soft-reference setters return `FObjectOperationResult`, retain typed causes
-and owned context, and have no legacy error-output overloads. Consumers across
-all three workspace projects have been inspected and migrated where needed.
-Stage 1 is in progress: Linker path resolution and detached canonical Map key
-construction now return typed results, including requested/failed indices,
-scalar and layout context, and owned nested field/array routes. Their consumers
-are migrated without legacy overloads. Reader/Writer public APIs now return
-`FPackageReaderResult` and `FPackageWriterResult` directly, with typed reasons,
-owned context, and underlying envelope, Linker, Map-key, or Writer causes.
-`DecodeValues` preserves a previously recorded inner value error. Engine and
-Registry adapters still format explicitly into their pending contracts. The
-live reflected Map key API is also pending; it is distinct from the detached
-package API.
-The remaining Stage 1 boundaries and Stage 2 are not complete.
+Stage 0 is complete. Stage 1 has typed package codecs, Capture, property
+snapshot/copy, save overrides, graph replacement, validation callbacks, and
+memory graph save/load and duplication. Decoded soft-reference path causes now
+survive Archive, snapshot, property-copy, and graph boundaries. Stage 1 remains
+open for a final audit of framework adapters and consumers. Stage 2 has substantial implementation across
+asset and Cook subsystems but remains open for end-to-end cause propagation and
+removal of pending text adapters, including the outer asset result contract.
+Unchecked items below are completion gates, not instructions to redo migrated
+APIs. Audit current code before selecting the next batch.
 
-Validation on `Win64-Debug-DurinEditor`: the final `all` build passed. The affected
-selection ran 99 targets: 98 passed; `EditorAssetWorkflowTests` exposed the
-unknown-mount presentation contract. Restoring its existing text in the formatter
-made the failing case pass alone and the complete target pass (37 cases). The
-other passing results are retained; no semantic producer changed in that fix.
-The three added/updated path, formatting, and soft-reference regression cases
-also passed independently with serial isolation. The original batch log is
-`Build/.agent-state/logs/20260917-201524-328270-36276-ctest.log` (records the initial
-presentation failure); successful follow-up logs are
-`Build/.agent-state/logs/20260917-201825-108406-35536-EditorAssetWorkflowTests.log`
-and `Build/.agent-state/logs/20260917-201827-879341-34228-ctest.log`.
+The implementation baseline is `12beed739` (169 consolidated commits), followed
+by `6d317f0b5` (Cook dependency discovery) and `d569de006` (memory graph save/load).
+Original history remains on
+`codex/backup-asset-typed-errors-before-squash-20260918`. Use Git history for
+individual changes; this plan records current scope and acceptance only.
 
-Broad test compilation also exposed a pre-existing RHI migration omission in
-`SceneViewportResourceTests`: the fixture now uses `IsSuccess()` instead of the
-removed `bSucceeded` field. `ViewportTests` passed in the affected run.
+Latest verified batch migrates the complete package graph preparation and reload result
+chain, including runtime-product preparation, object replacement, resource
+receipts, and editor presentation. The graph and reload APIs no longer store
+message strings. They preserve owned nested causes, material diagnostics,
+package/object/stage context, and budget data. The coordinator still owns cleanup
+and post-publication dependency retention; callers consume the final operation
+state. The outer `FAssetResult` and linker-application diagnostics remain explicit
+Stage 2 migration boundaries, including any text held inside those causes.
 
+All 14 focused reload cases passed (`20260918-134554-219295-1644-AssetPackageReloadTests.log`).
+All 46 affected native targets passed (`20260918-134813-300511-1834-ctest.log`),
+and the all build passed (`20260918-134838-479069-3106-cmake.log`). Stage 1
+callback/property-edit review confirms typed results at the owning APIs;
+remaining Engine load/save adapters are tracked with the outer asset result
+work. Neither stage is closed by this batch.
 
-Stage 1 Linker/Map-key validation: `PackageLinkerContractTests` passed all
-17 cases; the affected selection passed all 56 targets. Five added/updated
-error contract cases also passed in serial per-case isolation. Evidence:
-`Build/.agent-state/logs/20260917-203718-063159-30180-ctest.log`,
-`Build/.agent-state/logs/20260917-203851-479601-35360-ctest.log`.
-The final `all` build passed; log:
-`Build/.agent-state/logs/20260917-203903-451430-21904-cmake.log`.
-
-
-Stage 1 Reader/Writer validation: all 20 `PackageWriterContractTests` cases,
-57 affected targets, and four new cases in serial per-case isolation passed.
-The final `all` build passed. Evidence:
-`Build/.agent-state/logs/20260917-205512-417344-36600-ctest.log`,
-`Build/.agent-state/logs/20260917-205704-224245-6736-ctest.log`, and
-`Build/.agent-state/logs/20260917-205707-016812-5532-cmake.log`.
-The current affected report is
-`Build/NativeTestResults/Win64-Debug-DurinEditor/affected.xml`.
-
+Implemented contracts belong in [Serialization](../Runtime/Core/Serialization.md)
+and [Asset data lifecycle](../Runtime/Assets/AssetDataLifecycle.md), with their
+linked module contracts. Prior validation covers those batches; it does not
+establish completion of the remaining stages.
 
 ## Goal
 
@@ -77,6 +62,26 @@ migration, adapters to unmigrated framework contracts format explicitly at those
 boundaries; no string overload remains on a migrated API. External provider text
 requires an explicit bounded external-diagnostic contract.
 
+## Execution Policy
+
+1. Audit one remaining stage boundary and list its producers, adapters,
+   consumers, and semantic tests across the workspace. Distinguish completed
+   migration from unresolved work before editing.
+2. Migrate a complete interface or cohesive module boundary in one batch,
+   including all failure branches and consumers. Split only for an independent
+   rollback boundary, a distinct risk, or a failure requiring focused diagnosis.
+3. Run focused checks while developing when needed. Once the batch is ready,
+   run affected tests, then the required all build, as its acceptance gate;
+   reuse passing evidence while relevant inputs remain unchanged.
+4. Review and commit the validated batch with the existing Plan and Stage
+   trailers. Before starting another batch, update the stage checklist and
+   replace the current status/evidence summary rather than appending a journal.
+
+Temporary adapters must retain an explicit remaining-work boundary. Do not
+expand the plan into a list of individual error branches or treat a small
+commit as completion of a stage. Commit size follows the complete reviewable
+change; neither a fixed commit count nor one commit per error is required.
+
 ## Implementation Stages
 
 ### Stage 0: Type path and soft-reference failures
@@ -92,15 +97,23 @@ requires an explicit bounded external-diagnostic contract.
 
 - [x] Return typed Linker path and detached canonical Map key results; retain
   owned failure context and unchanged output on failure.
+- [x] Return typed live reflected Map key validation/token results, migrate
+  workspace consumers, and cover owned nested context and failed-output behavior.
 - [x] Return typed Package Reader/Writer results, remove diagnostic outputs and
   Message fields, and preserve nested causes through canonical validation.
-- [ ] Replace Capture, property snapshot/copy,
+- [x] Replace Capture, property snapshot/copy,
   save overrides, and graph replacement text with typed causes and context.
-- [ ] Migrate graph-load and property-edit framework callbacks, including material
-  adapters, while preserving publication and rollback contracts.
+- [x] Preserve decoded soft-reference path causes through Archive, snapshot/copy,
+  and graph results without expanding serializer caller responsibilities.
+- [ ] Close remaining object-graph and property-edit boundaries, beginning with
+  an audit of migrated callbacks and material adapters for lost causes while
+  preserving publication and rollback contracts.
 - [ ] Migrate all consumers and semantic tests; pass affected tests and all build.
 
 ### Stage 2: Preserve asset operation causes
+
+- [x] Type graph preparation and reload diagnostics, retaining resource,
+  replacement, material and asset causes through asynchronous completion and UI.
 
 - [ ] Migrate Registry, package resources, BulkData, load/save, Cook, reload,
   compilation, and import metadata validation results.
@@ -114,4 +127,12 @@ requires an explicit bounded external-diagnostic contract.
 ## Validation
 
 Follow [testing](../Agents/Testing.md) and [build](../Agents/BuildAndRun.md)
-guidance. Every stage requires isolated review and commit with its own evidence.
+guidance. At each completed boundary, verify typed codes and owned context,
+underlying cause retention, and applicable publication, rollback, recovery, and
+asynchronous completion behavior. Audit shared API consumers across Engine,
+Sandbox, and RoadWeaver; shared Engine API changes require an all build.
+
+Close a stage only after its remaining adapters and consumers have been audited
+and its acceptance gates pass. Close the plan only after all stages pass and
+implemented contracts are documented. Documentation-only maintenance uses
+changed-document validation and does not repeat native builds or tests.

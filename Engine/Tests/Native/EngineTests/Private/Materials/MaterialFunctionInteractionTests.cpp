@@ -25,7 +25,7 @@ TEST(FMaterialFunctionInteractionTests, PreviewWrappersCompileEveryOutputTypeWit
 		const auto SourceExpressions = Function->GetExpressionCollection().Expressions;
 		const auto Revision = Function->GetFunctionRevision();
 		const auto Built = BuildMaterialFunctionPreview(*Function, Output.Id, *Preview);
-		ASSERT_TRUE(Built) << Built.Message;
+		ASSERT_TRUE(Built) << ::Durin::Editor::Material::FormatMaterialGraphCommandResult(Built);
 		const auto& Expressions = Preview->GetExpressionCollection().Expressions;
 		ASSERT_FALSE(Expressions.empty());
 		const auto* Call = Cast<DMaterialExpressionFunctionCall>(Expressions.front().Get());
@@ -40,10 +40,19 @@ TEST(FMaterialFunctionInteractionTests, PreviewWrappersCompileEveryOutputTypeWit
 		const auto Before = Preview->GetExpressionCollection().Expressions;
 		const auto BeforeOutputs = Preview->GetExpressionOutputs();
 		const auto BeforeRevision = Preview->GetMaterialCompileStatus().AuthoredRevision;
-		EXPECT_FALSE(BuildMaterialFunctionPreview(*Function, FGuid::NewGuid(), *Preview));
+		const auto MissingId = FGuid::NewGuid();
+		const auto Missing = BuildMaterialFunctionPreview(*Function, MissingId, *Preview);
+		ASSERT_FALSE(Missing);
+		ASSERT_TRUE(Missing.DocumentCause);
+		EXPECT_EQ(Missing.DocumentCause->Code, EMaterialGraphDocumentError::PreviewOutput);
+		EXPECT_EQ(Missing.DocumentCause->PortId, MissingId);
+		EXPECT_TRUE(Missing.DocumentCause->bOutput);
+		EXPECT_EQ(Missing.DocumentCause->FunctionPath, Function->GetObjectPath());
 		EXPECT_EQ(Preview->GetExpressionCollection().Expressions, Before);
 		EXPECT_EQ(Preview->GetExpressionOutputs(), BeforeOutputs);
 		EXPECT_EQ(Preview->GetMaterialCompileStatus().AuthoredRevision, BeforeRevision);
+		ASSERT_TRUE(BuildMaterialFunctionPreview(*Function, Output.Id, *Preview));
+		EXPECT_EQ(Missing.DocumentCause->PortId, MissingId);
 	}
 	MarkAsGarbage(Preview); MarkAsGarbage(Function); CollectGarbage();
 }

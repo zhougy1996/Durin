@@ -386,8 +386,23 @@ namespace Durin
 		ENGINE_API auto RecalculateBounds(const std::function<bool()>& ShouldCancel) -> bool;
 	};
 
+	enum class EStaticMeshLODPolicyError : uint8 { None, Empty, InvalidScreenSize, NotDescending, MissingFinalZero };
+	struct FStaticMeshLODPolicyError
+	{
+		EStaticMeshLODPolicyError Code = EStaticMeshLODPolicyError::None;
+		uint64 LODIndex = 0;
+		uint64 LODCount = 0;
+		float ScreenSize = 0.0f;
+		float PreviousScreenSize = 0.0f;
+	};
+	struct FStaticMeshLODPolicyResult
+	{
+		FStaticMeshLODPolicyError Error;
+		explicit operator bool() const { return Error.Code == EStaticMeshLODPolicyError::None; }
+	};
+	ENGINE_API auto FormatStaticMeshLODPolicyError(const FStaticMeshLODPolicyError& Error) -> std::string;
+
 	// Validates the published policy: finite, [0, 1], strictly descending, and final zero.
 	ENGINE_API auto ValidateStaticMeshLODScreenSizes(
-		std::span<const FStaticMeshLODResources> LODResources,
-		std::string& OutError) -> bool;
+		std::span<const FStaticMeshLODResources> LODResources) -> FStaticMeshLODPolicyResult;
 }

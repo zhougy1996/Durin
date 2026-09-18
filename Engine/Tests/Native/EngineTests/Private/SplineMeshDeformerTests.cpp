@@ -86,14 +86,13 @@ TEST(FSplineMeshDeformerTests, DegenerateUpAndDerivativeUseDeterministicFiniteFa
 	Params.StartTangent = Params.EndTangent = FVectorConstants::Zero;
 	Params.SplineUpDirection = FVectorConstants::Zero;
 	FSplineMeshParams Normalized;
-	std::string Error;
-	ASSERT_TRUE(FSplineMeshDeformer::Normalize(Params, Normalized, &Error)) << Error;
+	ASSERT_TRUE(FSplineMeshDeformer::Normalize(Params, Normalized));
 	const FSplineMeshSample Sample = FSplineMeshDeformer::Evaluate(Normalized, 0.5);
 	EXPECT_TRUE(Math::IsFinite(Sample.Frame.Forward));
 	EXPECT_NEAR(Math::Length(Sample.Frame.Forward), 1.0, 1.e-8);
 	EXPECT_NEAR(Math::Length(Sample.Frame.Up), 1.0, 1.e-8);
 	Params.SplineUpDirection = Params.StartTangent = Params.EndTangent = {100.0, 0.0, 0.0};
-	EXPECT_TRUE(FSplineMeshDeformer::Normalize(Params, Normalized, &Error));
+	EXPECT_TRUE(FSplineMeshDeformer::Normalize(Params, Normalized));
 	EXPECT_TRUE(Math::IsFinite(FSplineMeshDeformer::Evaluate(Normalized, 0.5).Frame.Up));
 }
 
@@ -118,11 +117,27 @@ TEST(FSplineMeshDeformerTests, NormalizationRejectsNonFiniteAndDegenerateForward
 	Output.EndPosition = {7.0, 8.0, 9.0};
 	const FSplineMeshParams Original = Output;
 	Params.StartRollRadians = std::numeric_limits<double>::infinity();
-	EXPECT_FALSE(FSplineMeshDeformer::Normalize(Params, Output));
+	const auto NonFinite = FSplineMeshDeformer::Normalize(Params, Output);
+	EXPECT_EQ(NonFinite.Error.Code, ESplineMeshValidationError::NonFiniteParameters);
 	EXPECT_EQ(Output, Original);
 	Params.StartRollRadians = 0.0;
+	EXPECT_TRUE(std::isinf(NonFinite.Error.Params.StartRollRadians));
 	Params.SourceForwardMax = Params.SourceForwardMin;
-	EXPECT_FALSE(FSplineMeshDeformer::Normalize(Params, Output));
+	const auto Extent = FSplineMeshDeformer::Normalize(Params, Output);
+	EXPECT_EQ(Extent.Error.Code, ESplineMeshValidationError::DegenerateForwardExtent);
+	EXPECT_DOUBLE_EQ(Extent.Error.Params.SourceForwardMin, Params.SourceForwardMin);
+	EXPECT_DOUBLE_EQ(Extent.Error.Params.SourceForwardMax, Params.SourceForwardMax);
+	EXPECT_EQ(Output, Original);
+	Params.ForwardAxis = static_cast<ESplineMeshAxis>(255);
+	const auto Axis = FSplineMeshDeformer::Normalize(Params, Output);
+	EXPECT_EQ(Axis.Error.Code, ESplineMeshValidationError::InvalidForwardAxis);
+	EXPECT_EQ(static_cast<uint8>(Axis.Error.Params.ForwardAxis), 255);
+	EXPECT_EQ(Output, Original);
+	Params.ForwardAxis = ESplineMeshAxis::X;
+	Params.Interpolation = static_cast<ESplineMeshInterpolation>(255);
+	const auto Interpolation = FSplineMeshDeformer::Normalize(Params, Output);
+	EXPECT_EQ(Interpolation.Error.Code, ESplineMeshValidationError::InvalidInterpolation);
+	EXPECT_EQ(static_cast<uint8>(Interpolation.Error.Params.Interpolation), 255);
 	EXPECT_EQ(Output, Original);
 }
 

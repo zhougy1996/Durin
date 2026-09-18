@@ -51,17 +51,28 @@ namespace Durin
 		}
 
 		template<typename T>
-		auto BuildKeyBytes(
-			const T& Input,
-			std::string& OutError) -> FByteBuffer
+		auto BuildKeyBytes(const T& Input) -> FStaticMeshBuildKeyBytesResult
 		{
+			if (Input.TargetPlatform != EStaticMeshTargetPlatform::Win64)
+				return {.Error = {.Code = EStaticMeshBuildKeyError::UnsupportedTarget, .TargetPlatform = Input.TargetPlatform}};
 			FByteBuffer Bytes;
 			FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataKey);
 			const_cast<T&>(Input).Serialize(Ar);
-			OutError = Ar.HasError() ? Ar.GetFailure()->Message : std::string{};
-			if (Ar.HasError()) Bytes.clear();
-			return Bytes;
+			if (Ar.HasError())
+				return {.Error = {.Code = EStaticMeshBuildKeyError::Archive, .TargetPlatform = Input.TargetPlatform,
+					.ArchiveCode = Ar.GetFailure()->Code, .ArchivePath = Ar.GetFailure()->Path}};
+			return {.Bytes = std::move(Bytes)};
 		}
+
+		template<typename T>
+		auto BuildKey(const T& Input, std::string_view Bucket) -> FStaticMeshBuildKeyResult
+		{
+			auto Encoded = BuildKeyBytes(Input);
+			if (!Encoded) return {.Error = std::move(Encoded.Error)};
+			return {.Key = FCacheKeyProxy(DerivedData::FCacheKey::FromHash(
+				DerivedData::FCacheBucket::FromString(Bucket), FXxHash128::HashBuffer(Encoded.Bytes)))};
+		}
+
 	}
 
 	auto FStaticMeshBuildKeyInput::Serialize(FArchive& Ar) -> void
@@ -86,41 +97,35 @@ namespace Durin
 			<< WeldToleranceBits << BuilderVersion << PayloadSchemaVersion << Platform;
 	}
 
-	auto BuildStaticMeshDerivedDataKeyBytes(
-		const FStaticMeshBuildKeyInput& Input,
-		std::string& OutError) -> FByteBuffer
+	auto FormatStaticMeshBuildKeyError(const FStaticMeshBuildKeyError& Error) -> std::string
 	{
-		return BuildKeyBytes(Input, OutError);
+		switch (Error.Code)
+		{
+		case EStaticMeshBuildKeyError::None: return {};
+		case EStaticMeshBuildKeyError::UnsupportedTarget:
+			return std::format("StaticMesh derived-data target {} is unsupported.", static_cast<uint32>(Error.TargetPlatform));
+		case EStaticMeshBuildKeyError::Archive:
+			return std::format("StaticMesh derived-data key encoding failed (Archive code {}, path '{}').",
+				Error.ArchiveCode ? static_cast<int>(*Error.ArchiveCode) : -1, Error.ArchivePath);
+		}
+		return {};
 	}
 
-	auto BuildStaticMeshDerivedDataKey(
-		const FStaticMeshBuildKeyInput& Input,
-		std::string& OutError) -> FCacheKeyProxy
+	auto BuildStaticMeshDerivedDataKeyBytes(const FStaticMeshBuildKeyInput& Input) -> FStaticMeshBuildKeyBytesResult
 	{
-		const FByteBuffer Bytes = BuildKeyBytes(Input, OutError);
-		return Bytes.empty() ? FCacheKeyProxy{}
-			: FCacheKeyProxy(DerivedData::FCacheKey::FromHash(
-				DerivedData::FCacheBucket::FromString(StaticMeshCacheBucket),
-				FXxHash128::HashBuffer(Bytes)));
+		return BuildKeyBytes(Input);
 	}
-
-	auto BuildStaticMeshCollisionDerivedDataKeyBytes(
-		const FStaticMeshCollisionBuildKeyInput& Input,
-		std::string& OutError) -> FByteBuffer
+	auto BuildStaticMeshDerivedDataKey(const FStaticMeshBuildKeyInput& Input) -> FStaticMeshBuildKeyResult
 	{
-		return BuildKeyBytes(Input, OutError);
+		return BuildKey(Input, StaticMeshCacheBucket);
 	}
-
-	auto BuildStaticMeshCollisionDerivedDataKey(
-		const FStaticMeshCollisionBuildKeyInput& Input,
-		std::string& OutError) -> FCacheKeyProxy
+	auto BuildStaticMeshCollisionDerivedDataKeyBytes(const FStaticMeshCollisionBuildKeyInput& Input) -> FStaticMeshBuildKeyBytesResult
 	{
-		const FByteBuffer Bytes = BuildKeyBytes(Input, OutError);
-		return Bytes.empty() ? FCacheKeyProxy{}
-			: FCacheKeyProxy(DerivedData::FCacheKey::FromHash(
-				DerivedData::FCacheBucket::FromString(
-					StaticMeshCollisionCacheBucket),
-				FXxHash128::HashBuffer(Bytes)));
+		return BuildKeyBytes(Input);
+	}
+	auto BuildStaticMeshCollisionDerivedDataKey(const FStaticMeshCollisionBuildKeyInput& Input) -> FStaticMeshBuildKeyResult
+	{
+		return BuildKey(Input, StaticMeshCollisionCacheBucket);
 	}
 }
 

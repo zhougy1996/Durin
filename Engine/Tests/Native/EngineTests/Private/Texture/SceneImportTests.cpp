@@ -625,7 +625,7 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 	ASSERT_TRUE(Compact.Apply(*Material));
 	const auto Clone = [](const auto& Expressions) {
 		std::vector<TStrongObjectPtr<DMaterialExpression>> Result;
-		for (const auto& Expression : Expressions) Result.emplace_back(DuplicateObject(Expression.Get(), nullptr, NAME_None));
+		for (const auto& Expression : Expressions) Result.emplace_back(DuplicateObject(Expression.Get(), nullptr, NAME_None).Object);
 		return Result;
 	};
 	const auto Original = Clone(Functions.StandardPBR->GetExpressionCollection().Expressions);
@@ -674,7 +674,7 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 	ASSERT_TRUE(SavePackage(Functions.StandardPBR->GetPackage()));
 	auto Reload = ReloadPackages({.Packages = {Functions.StandardPBR->GetPackage()}});
 	const auto Reloaded = Reload.Wait();
-	ASSERT_TRUE(Reloaded) << (Reloaded.Diagnostics.empty() ? "no diagnostic" : Reloaded.Diagnostics.front().Message);
+	ASSERT_TRUE(Reloaded) << (Reloaded.Diagnostics.empty() ? "no diagnostic" : FormatPackageReloadDiagnostic(Reloaded.Diagnostics.front()));
 	ASSERT_TRUE(EnsureStandardMaterialFunctions(Functions, Error)) << Error;
 	EXPECT_TRUE(Matches(Original, OriginalSignature));
 	EXPECT_EQ(Functions.StandardPBR->GetAuthoringSourceVersion(), StandardMaterialFunctionVersion);

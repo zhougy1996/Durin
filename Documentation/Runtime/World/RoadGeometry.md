@@ -37,6 +37,13 @@ from the planet center; fixed up uses the stored reference normal. Radius never
 enters position evaluation. Singular tangent/up configurations fail preview
 construction with a diagnostic.
 
+`ValidateDefinition` returns `FRoadDefinitionResult` without diagnostic outputs.
+Typed reasons distinguish identity, curve, section, topology and planet failures;
+errors own entity IDs, section/lane indices, required curve length, and rejected
+curve-point or planet values where applicable. Candidate validation also retains
+both planet bindings when a fixed binding changes. Pending fitting, publication
+and edit adapters format explicitly with `FormatRoadDefinitionError`.
+
 ## Explicit fitting and publication
 
 `FitRoadDefinition` operates on a complete detached candidate. `DRoadNet::FitToSurface`
@@ -70,6 +77,11 @@ zero, and final station coverage within max(1e-4 m, 1e-6 times curve length).
 Regular curve edits submit reconciled nodes/stations explicitly; they do not
 silently invoke fitting. Failed candidates leave asset data, notifications and
 Dirty state unchanged.
+
+`ValidateRoadPlacement` returns `FRoadPlacementResult` with distinct scale,
+translation, rotation-finiteness, and unit-rotation failures. Errors own the
+rejected transform; `FormatRoadPlacementError` supplies presentation text at
+pending actor/query adapters. Rejected world sampling leaves its output unchanged.
 
 ## Derived preview and queries
 

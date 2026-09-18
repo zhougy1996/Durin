@@ -159,16 +159,16 @@ namespace Durin
 	auto DSkyLightComponent::Recapture() -> void { ++RequestSerial; Publish(); }
 	auto DSkyLightComponent::RefreshReloadedAssetBindings() -> void { ++SourceEpoch; Publish(); }
 
-	auto DSkyLightComponent::PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool
+	auto DSkyLightComponent::PreEditChangeProperty(FPropertyEditProposal& Proposal) -> FObjectValidationResult
 	{
-		if (!Super::PreEditChangeProperty(Proposal, OutError)) return false;
+		if (auto Result = Super::PreEditChangeProperty(Proposal); !Result) return Result;
 		if (!Proposal.MemberProperty || Proposal.DraftRootProperty != Proposal.MemberProperty
-			|| !Proposal.DraftRootContainer) return true;
+			|| !Proposal.DraftRootContainer) return {};
 		const auto Name = Proposal.MemberProperty->NamePrivate;
 		if (Name == FName("Intensity") || Name == FName("RefreshInterval"))
 		{
 			auto* Value = Proposal.DraftRootProperty->ContainerPtrToValuePtr<float>(Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex);
-			if (!std::isfinite(*Value)) { OutError = "Sky Light values must be finite."; return false; }
+			if (!std::isfinite(*Value)) { return RejectPropertyEdit(*this, Proposal, EPropertyEditRejection::NonFiniteValue); }
 			*Value = Name == FName("Intensity") ? std::clamp(*Value, 0.0f, 16.0f) : std::clamp(*Value, 0.25f, 60.0f);
 		}
 		if (Name == FName("Priority"))
@@ -176,7 +176,7 @@ namespace Durin
 			auto* Value = Proposal.DraftRootProperty->ContainerPtrToValuePtr<int32>(Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex);
 			*Value = std::clamp(*Value, -1000, 1000);
 		}
-		return true;
+		return {};
 	}
 
 	auto DSkyLightComponent::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void

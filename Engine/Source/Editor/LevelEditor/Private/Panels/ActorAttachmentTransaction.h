@@ -31,12 +31,12 @@ namespace Durin::Editor::Level
 		auto GetOwningModule() const -> std::string_view override { return "LevelEditor"; }
 		auto GetDetails(::Durin::Editor::ETransactionOperation Operation) const -> std::string override;
 		auto GetAffectedPackages() const -> std::span<DPackage* const> override { return AffectedPackages; }
-		auto Undo() -> bool override { return Apply(false); }
-		auto Redo() -> bool override { return Apply(true); }
+		auto Replay(ETransactionOperation Operation) -> FTransactionCustomResult override
+		{ return Apply(Operation != ETransactionOperation::Undo); }
 		auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override;
 
 	private:
-		auto Apply(bool bAfter) -> bool;
+		auto Apply(bool bAfter) -> FTransactionCustomResult;
 
 		std::vector<FEntry> Entries;
 		std::vector<DPackage*> AffectedPackages;

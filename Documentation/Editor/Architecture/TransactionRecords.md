@@ -4,7 +4,7 @@ Summary: Define exact editor transaction object identity, collector-enumerated r
 
 Modules: CoreDObject, DurinEd
 
-Last reviewed: 2026-09-16
+Last reviewed: 2026-09-18
 
 ## Scope
 
@@ -18,6 +18,53 @@ remain explicit custom changes rather than persistent-reference resurrection.
 
 All capture, resolution, collector traversal, and detached restore operations
 run on the game thread under CoreDObject's synchronous collection contract.
+
+## Custom Replay Results
+
+`FTransactionRecord::Apply` calls `ITransactionCustomChange::Replay` and preserves
+its `FTransactionCustomError` in `CustomCause`. Material parameter replay reports
+an unavailable target or a material write error with owned parameter identity and
+nested `FMaterialError`; record formatting renders that cause at presentation time.
+Material presentation replay distinguishes expired targets from rejected writes,
+owning the captured target path and changed/candidate node count. Captured path
+storage participates in transaction memory accounting.
+Material graph object replay distinguishes expired owners/members from externally
+changed membership. Member restoration retains locator or property-snapshot causes
+and the failed member index; successful earlier restores are compensated in the
+existing reverse order before returning the original typed failure.
+Transform gizmo replay retains the first unavailable/rejecting target's label,
+index and total target count while preserving its existing all-target application
+policy. A later repaired replay does not mutate the earlier failure evidence.
+Actor attachment replay distinguishes empty selection, unavailable participants,
+parent mismatch, invalid parents, cycles and write rejection. Validation errors
+retain participant index/count and expected/actual parent paths where available;
+validation finishes before writes and existing compensation ordering is preserved.
+Sky box creation and texture replay distinguish unavailable resources/targets,
+actor membership, name collision and spawn/destroy rejection. Creation failures
+retain the level path and requested actor name; collision rejection leaves the
+existing actor and redo history available for a repaired retry.
+Sky box placement retains typed read-only, resource and candidate-count validation
+errors with owned level/name context. Transaction admission and direct replay
+failures retain their complete typed causes; viewport formatting occurs only when
+presenting the error. Placement change status remains separate from success.
+Static mesh level replay carries typed state-validation and mutation causes rather
+than cached error text. Errors own level/name/index context, injected mutation phase
+and a nested incomplete-rollback cause. History details describe the operation;
+error formatting renders failure evidence separately. Internal state validation and
+application return typed results directly, with no error-output parameter.
+The outer static mesh batch execution diagnostic retains the complete transaction
+result or direct replay cause, including mutation phase and cleanup evidence.
+Static mesh actor support checks return a typed result without a reason-output
+parameter. Unsupported class, component graph, attached parent/children and play
+transitions have distinct constraint values. Planning retains the owned actor
+identity and constraint as `SupportCause`; replay preserves the same constraint.
+Static mesh plan/execution diagnostics store error codes, specific request/staleness
+reasons, mutation indices, owned actor names and nested causes without error text.
+`FormatStaticMeshLevelMutationDiagnostic` renders these at the viewport/outliner
+boundary; success remains derived from the diagnostic code.
+`Replay` is the required typed entry point for every custom change. The interface
+has no boolean Undo/Redo methods or legacy rejection adapter. Record errors retain
+`CustomCause`; operation details are presentation metadata, not failure storage.
 
 ## Exact Participant Identity
 
@@ -68,10 +115,25 @@ time it resolves the exact target, finds the current member, verifies its
 declaring type and snapshot compatibility, allocates
 `FReflectedValueStorage`, and decodes into that detached storage.
 
+Member capture/resolution and focused capture/restore return typed transaction
+snapshot errors. They retain owned member and declaring-type names, array
+bounds, expected/actual property kinds and exact target keys; a stale detached
+restore preserves the snapshot's original key. Storage and payload failures
+retain their CoreDObject causes. Failed capture leaves its output unchanged,
+and failed detached restore preserves the caller's existing storage. Errors
+remain valid across successful retries. `FormatTransactionSnapshotError` is
+used only by presentation or pending outer result adapters.
+
 Detached restore does not mutate a live `DObject`, emit editor notifications,
 or bypass `PreEditChangeProperty` and `PostEditChangeProperty`. Executable
 `FTransactionObjectRecord` values own both before and after payloads and feed
-them through the validated editor mutation pipeline.
+them through the validated editor mutation pipeline. Their capture, validation
+and application APIs return `FTransactionObjectRecordResult` without string
+outputs. Rejections preserve exact owner identity, member/snapshot/leaf facts,
+payload validity and kinds, selected history side, and typed member, path,
+draft or mutation causes. Capturing an invalid replacement leaves the previous
+record intact; successful history retries do not alter prior error values.
+Transactor/session results preserve the causes; presentation adapters format them.
 
 `FFocusedTransactionObjectSnapshot::AddReferencedObjects(...)` reports the target
 and every distinct hard payload reference exactly once. It never reports weak

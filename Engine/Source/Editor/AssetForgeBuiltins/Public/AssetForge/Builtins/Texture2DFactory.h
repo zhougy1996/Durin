@@ -4,11 +4,22 @@
 #include "EditorReimportHandler.h"
 #include "Factories/Factory.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
+#include <variant>
 
 #include "Texture2DFactory.gen.h"
 
 namespace Durin::AssetForge::Builtins
 {
+	class ASSETFORGEBUILTINS_API FTexture2DFactoryError final : public IFactoryErrorDetail
+	{
+	public:
+		explicit FTexture2DFactoryError(FTexture2DPreparationError Error) : Cause(std::move(Error)) {}
+		explicit FTexture2DFactoryError(FTexture2DSubmissionError Error) : Cause(std::move(Error)) {}
+		explicit FTexture2DFactoryError(FTexture2DCompilationError Error) : Cause(std::move(Error)) {}
+		auto Format() const -> std::string override;
+		std::variant<FTexture2DPreparationError, FTexture2DSubmissionError, FTexture2DCompilationError> Cause;
+	};
+
 	DCLASS()
 	class DTexture2DFactory final : public DFactory, public FReimportHandler
 	{

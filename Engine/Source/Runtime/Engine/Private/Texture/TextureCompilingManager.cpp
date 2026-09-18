@@ -188,7 +188,7 @@ namespace Durin
 				}
 			}
 			for (const std::shared_ptr<FRequestState>& RequestState : Cancelled)
-				CompleteWithoutWorker(RequestState, ETexture2DCompilationPhase::Cancelled, "Texture build was cancelled before admission.");
+				CompleteWithoutWorker(RequestState, ETexture2DCompilationPhase::Cancelled, {.Code = ETexture2DCompilationError::CancelledBeforeAdmission});
 			for (const std::shared_ptr<FRequestState>& RequestState : Admitted) Launch(RequestState);
 		}
 
@@ -214,7 +214,7 @@ namespace Durin
 		static auto MakeFailureResult(
 			const FRequestState& RequestState,
 			ETexture2DCompilationPhase Phase,
-			std::string Error) -> FTexture2DCompilationWorkResult
+			FTexture2DCompilationError Error) -> FTexture2DCompilationWorkResult
 		{
 			return {
 				.RequestId = RequestState.Diagnostic.RequestId,
@@ -270,7 +270,7 @@ namespace Durin
 			if (Cancel())
 			{
 				Result.Phase = ETexture2DCompilationPhase::Cancelled;
-				Result.Error = "Texture build was cancelled.";
+				Result.Error = {.Code = ETexture2DCompilationError::Cancelled};
 				return Result;
 			}
 
@@ -278,7 +278,7 @@ namespace Durin
 			if (Cancel())
 			{
 				Result.Phase = ETexture2DCompilationPhase::Cancelled;
-				Result.Error = "Texture build was cancelled.";
+				Result.Error = {.Code = ETexture2DCompilationError::Cancelled};
 				return Result;
 			}
 			const uint64 PreparationStart = NowNanoseconds();
@@ -300,7 +300,7 @@ namespace Durin
 				BuildRequest, Product, Result.InputIdentity, &Control);
 			if (!BuildResult)
 			{
-				Result.Error = BuildResult.Diagnostic;
+				Result.Error = {.Code = ETexture2DCompilationError::BuildFailed, .BuildCause = BuildResult.Error};
 				Result.Metrics.MipGenerationNanoseconds = RecipeMetrics.MipGenerationNanoseconds;
 				Result.Metrics.CompressionNanoseconds = RecipeMetrics.CompressionNanoseconds;
 				Result.Metrics.PersistenceNanoseconds = RecipeMetrics.PersistenceNanoseconds;
@@ -325,7 +325,7 @@ namespace Durin
 			if (Product.Origin == ETexture2DBuildProductOrigin::Rebuilt)
 				Result.Metrics.DecodedBytes = SourceBytes(BuildRequest.SourceMips);
 			Result.PlatformData = std::make_unique<FTexturePlatformData>(std::move(Product.PlatformData));
-			Result.Error.clear();
+			Result.Error = {};
 			Result.Phase = Cancel() ? ETexture2DCompilationPhase::Cancelled : ETexture2DCompilationPhase::UploadPending;
 			Result.Metrics.WorkerNanoseconds = NowNanoseconds() - WorkerStart;
 			return Result;
@@ -334,7 +334,7 @@ namespace Durin
 		auto CompleteWithoutWorker(
 			const std::shared_ptr<FRequestState>& RequestState,
 			ETexture2DCompilationPhase Phase,
-			std::string Error) -> void
+			FTexture2DCompilationError Error) -> void
 		{
 			auto Result = MakeFailureResult(*RequestState, Phase, std::move(Error));
 			UpdateDiagnostic(RequestState, Result);
@@ -349,7 +349,7 @@ namespace Durin
 			{
 				std::lock_guard RequestStateLock(RequestState->Mutex);
 				RequestState->Diagnostic.Phase = Result.Phase;
-				RequestState->Diagnostic.Message = Result.Error;
+				RequestState->Diagnostic.Error = Result.Error;
 				RequestState->Diagnostic.DerivedDataKey = Result.DerivedDataKey.ToString();
 				RequestState->Diagnostic.Metrics = Result.Metrics;
 				RequestState->Diagnostic.FailurePhase = Result.FailurePhase;
@@ -398,12 +398,13 @@ namespace Durin
 					const bool bCanceled = Ready->Task.GetState() == ETaskState::Canceled
 						|| Ready->bCancellationRequested.load();
 					return MakeFailureResult(*Ready, bCanceled ? ETexture2DCompilationPhase::Cancelled : ETexture2DCompilationPhase::Failed,
-						bCanceled ? "Texture build was cancelled." : "Texture build task failed.");
+						{.Code = bCanceled ? ETexture2DCompilationError::Cancelled : ETexture2DCompilationError::WorkerFailed,
+						 .TaskState = Ready->Task.GetState()});
 				}();
 				if (Ready->bCancellationRequested.load())
 				{
 					Result.Phase = ETexture2DCompilationPhase::Cancelled;
-					Result.Error = "Texture build was cancelled.";
+					Result.Error = {.Code = ETexture2DCompilationError::Cancelled};
 				}
 				UpdateDiagnostic(Ready, Result);
 				const uint64 CompletionStart = NowNanoseconds();
@@ -452,23 +453,23 @@ namespace Durin
 			}
 		}
 
-		auto Start() -> bool
+		auto Start() -> FAssetCompilerStartResult
 		{
 			std::lock_guard Lock(Mutex);
-			if (bAcceptingRequests) return true;
-			if (!IsTaskSchedulerRunning()) return false;
+			if (bAcceptingRequests) return {};
+			if (!IsTaskSchedulerRunning()) return {EAssetCompilerStartError::SchedulerUnavailable};
 			if (RunningCount != 0 || !InteractiveQueue.empty()
 				|| !BackgroundQueue.empty() || PendingRequestCount != 0)
 			{
-				return false;
+				return {EAssetCompilerStartError::Undrained, PendingRequestCount};
 			}
 			bShutdown = false;
 			Scope = CreateTaskScope();
-			if (!Scope.IsValid()) return false;
+			if (!Scope.IsValid()) return {EAssetCompilerStartError::TaskScopeUnavailable};
 			Attribution = RegisterTaskAttribution("Engine", "Texture2DCompile");
 			bAcceptingRequests = true;
 			ConsecutiveInteractive = 0;
-			return true;
+			return {};
 		}
 
 		auto StopAdmission() -> void
@@ -490,7 +491,7 @@ namespace Durin
 				while (!BackgroundQueue.empty()) { Queued.push_back(std::move(BackgroundQueue.front())); BackgroundQueue.pop_front(); }
 			}
 			for (const auto& RequestState : Queued)
-				CompleteWithoutWorker(RequestState, ETexture2DCompilationPhase::Cancelled, "Texture build was cancelled during shutdown.");
+				CompleteWithoutWorker(RequestState, ETexture2DCompilationPhase::Cancelled, {.Code = ETexture2DCompilationError::CancelledDuringShutdown});
 			Scope.Close(ETaskScopeCloseMode::Cancel);
 			// Even tasks canceled before their body runs are consumed by the owner pump.
 			for (;;)
@@ -615,9 +616,9 @@ namespace Durin
 		return QueueState ? QueueState->Pump(MaximumCount) : 0;
 	}
 
-	auto FTextureCompilingManager::StartWorkAdmission() -> bool
+	auto FTextureCompilingManager::StartWorkAdmission() -> FAssetCompilerStartResult
 	{
-		return QueueState && QueueState->Start();
+		return QueueState ? QueueState->Start() : FAssetCompilerStartResult{EAssetCompilerStartError::StateUnavailable};
 	}
 
 	auto FTextureCompilingManager::StopWorkAdmission() -> void

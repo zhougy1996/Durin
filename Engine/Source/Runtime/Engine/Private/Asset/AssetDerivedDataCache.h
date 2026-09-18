@@ -4,18 +4,10 @@
 
 #include "DerivedDataCache/DerivedDataCache.h"
 #include "DerivedDataCacheKeyProxy.h"
+#include "Asset/AssetCacheDiagnostic.h"
 
 namespace Durin::AssetDerivedDataCache
 {
-	inline constexpr size_t MaximumDiagnosticBytes = 2048;
-
-	inline auto BoundDiagnostic(std::string Message) -> std::string
-	{
-		if (Message.size() > MaximumDiagnosticBytes)
-			Message.resize(MaximumDiagnosticBytes);
-		return Message;
-	}
-
 	// Family decoders may reject a byte hit and rebuild it as a miss.
 	enum class ELoadResult : uint8
 	{
@@ -23,23 +15,7 @@ namespace Durin::AssetDerivedDataCache
 		Miss
 	};
 
-	// Measures only the cache Get/Put call, excluding payload codecs and copies.
-	struct FOperationDiagnostic
-	{
-		uint64 DurationNanoseconds = 0;
-		std::string Message;
-	};
-
-	// Preserve both recovery and persistence failures within one bounded result.
-	inline auto CombineDiagnostics(const FOperationDiagnostic& Read,
-		const FOperationDiagnostic& Write) -> std::string
-	{
-		if (Read.Message.empty()) return BoundDiagnostic(Write.Message);
-		if (Write.Message.empty()) return BoundDiagnostic(Read.Message);
-		constexpr size_t MessageBudget = (MaximumDiagnosticBytes - 13) / 2;
-		return "Read: " + Read.Message.substr(0, MessageBudget)
-			+ "; Put: " + Write.Message.substr(0, MessageBudget);
-	}
+	using FOperationDiagnostic = FAssetCacheDiagnostic;
 
 	inline auto Load(
 		const FCacheKeyProxy& Key,
@@ -50,6 +26,8 @@ namespace Durin::AssetDerivedDataCache
 		using namespace DerivedData;
 		OutBytes = {};
 		OutDiagnostic = {};
+		OutDiagnostic.Key = Key;
+		OutDiagnostic.MaximumValueBytes = MaximumValueBytes;
 		const auto Start = std::chrono::steady_clock::now();
 		FCacheGetResult Result = GetCache().Get({
 			.Key = *Key.AsCacheKey(),
@@ -59,7 +37,8 @@ namespace Durin::AssetDerivedDataCache
 				std::chrono::steady_clock::now() - Start).count());
 		if (Result.Status != ECacheGetStatus::Hit)
 		{
-			OutDiagnostic.Message = BoundDiagnostic(Result.Diagnostic);
+			OutDiagnostic.Code = Result.Status == ECacheGetStatus::Miss ? EAssetCacheError::None : EAssetCacheError::Read;
+			OutDiagnostic.ReadCause = std::make_shared<FCacheGetResult>(std::move(Result));
 			return ELoadResult::Miss;
 		}
 		OutBytes = std::move(Result.Value);
@@ -87,6 +66,8 @@ namespace Durin::AssetDerivedDataCache
 	{
 		using namespace DerivedData;
 		OutDiagnostic = {};
+		OutDiagnostic.Key = Key;
+		OutDiagnostic.MaximumValueBytes = MaximumValueBytes;
 		const auto Start = std::chrono::steady_clock::now();
 		const FCachePutResult Result = GetCache().Put({
 			.Key = *Key.AsCacheKey(),
@@ -97,7 +78,8 @@ namespace Durin::AssetDerivedDataCache
 				std::chrono::steady_clock::now() - Start).count());
 		if (!Result)
 		{
-			OutDiagnostic.Message = BoundDiagnostic(Result.Diagnostic);
+			OutDiagnostic.Code = EAssetCacheError::Write;
+			OutDiagnostic.WriteCause = std::make_shared<FCachePutResult>(Result);
 			return false;
 		}
 		return true;

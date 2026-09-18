@@ -153,6 +153,16 @@ namespace Durin::PackagePrivate
 					| EArchiveCapability::SoftObjectReferences | EArchiveCapability::MultiPassDiscovery);
 			}
 
+			FPackageCaptureError CaptureFailure;
+			auto FailCapture(EPackageCaptureReason Reason, EArchiveFailureCode Code) -> void
+			{
+				if (HasError()) return;
+				CaptureFailure.Reason = Reason;
+				CaptureFailure.ArchiveCode = Code;
+				if (CurrentDObject && CaptureFailure.ObjectPath.empty()) CaptureFailure.ObjectPath = CurrentDObject->GetObjectPath();
+				Fail(Code, FormatPackageCaptureError(CaptureFailure));
+			}
+
 			auto TakePackage() -> FCapturedPackage
 			{
 				Package.Dependencies.assign(Dependencies.begin(), Dependencies.end());
@@ -170,8 +180,7 @@ namespace Durin::PackagePrivate
 				if (NodeStack.empty() || !NodeStack.back())
 				{
 					if (SuppressedDepth == 0)
-						Fail(EArchiveFailureCode::MalformedSerializer,
-							"Authored raw bytes require an active named field.");
+						FailCapture(EPackageCaptureReason::RawOutsideField, EArchiveFailureCode::MalformedSerializer);
 					return;
 				}
 				if (!bCapturePayload) return;
@@ -188,8 +197,8 @@ namespace Durin::PackagePrivate
 					GetVersionContext().FindFormat(FName("DAST"));
 				if (!DastVersion || !ObjectPackage::IsSupportedPackageReaderVersion(DastVersion->Version))
 				{
-					Fail(EArchiveFailureCode::InvalidData,
-						"Package bulk fields require a supported DAST package version.");
+					CaptureFailure.Actual = DastVersion ? DastVersion->Version : 0;
+					FailCapture(EPackageCaptureReason::BulkVersion, EArchiveFailureCode::InvalidData);
 					return;
 				}
 				const bool bCooked = IsCooking();
@@ -204,8 +213,9 @@ namespace Durin::PackagePrivate
 					|| (bCapturePayload && (Value.Buffer.GetSize() != Value.LogicalSize
 						|| FXxHash128::HashBuffer(Value.Buffer.GetBytes()) != Value.ContentHash)))
 				{
-					Fail(EArchiveFailureCode::InvalidData,
-						"Package bulk capture requires valid metadata and verified resident bytes.");
+					CaptureFailure.Actual = Value.Buffer.GetSize();
+					CaptureFailure.Expected = Value.LogicalSize;
+					FailCapture(EPackageCaptureReason::BulkMetadata, EArchiveFailureCode::InvalidData);
 					return;
 				}
 				const bool bExternal = Value.LogicalSize > PackageBulkExternalThreshold
@@ -216,8 +226,9 @@ namespace Durin::PackagePrivate
 				if (bExternal && (Alignment == 0 || Alignment > 4096
 					|| (Alignment & (Alignment - 1)) != 0))
 				{
-					Fail(EArchiveFailureCode::InvalidAlignment,
-						"Package bulk field alignment is invalid.");
+					CaptureFailure.Actual = Alignment;
+					CaptureFailure.Expected = 4096;
+					FailCapture(EPackageCaptureReason::BulkAlignment, EArchiveFailureCode::InvalidAlignment);
 					return;
 				}
 				const uint64 SegmentOffset = bExternal
@@ -228,8 +239,9 @@ namespace Durin::PackagePrivate
 					if (SegmentOffset > PackageBulkDataMaximumSegmentBytes
 						|| Value.StoredSize > PackageBulkDataMaximumSegmentBytes - SegmentOffset)
 					{
-						Fail(EArchiveFailureCode::LimitExceeded,
-							"Package bulk segment exceeds the 1 GiB limit.");
+						CaptureFailure.Actual = Value.StoredSize;
+						CaptureFailure.Expected = PackageBulkDataMaximumSegmentBytes;
+						FailCapture(EPackageCaptureReason::BulkLimit, EArchiveFailureCode::LimitExceeded);
 						return;
 					}
 					NextExternalOffset = SegmentOffset + Value.StoredSize;
@@ -251,8 +263,7 @@ namespace Durin::PackagePrivate
 				Package.BulkPayloads.push_back({Descriptor, Value.Buffer});
 				if (NodeStack.empty() || !NodeStack.back())
 				{
-					Fail(EArchiveFailureCode::MalformedSerializer,
-						"Package bulk capture requires an active value node.");
+					FailCapture(EPackageCaptureReason::BulkOutsideValue, EArchiveFailureCode::MalformedSerializer);
 					return;
 				}
 				FCapturedNode& Node = *NodeStack.back();
@@ -295,8 +306,7 @@ namespace Durin::PackagePrivate
 						Id = It->second;
 						if (!CurrentObject)
 						{
-							Fail(EArchiveFailureCode::MalformedSerializer,
-								"An internal reference was serialized outside an object scope.");
+							FailCapture(EPackageCaptureReason::ReferenceOutsideObject, EArchiveFailureCode::MalformedSerializer);
 							return;
 						}
 						Package.InternalReferences.emplace_back(CurrentObject->Id, Id);
@@ -305,11 +315,12 @@ namespace Durin::PackagePrivate
 					{
 						DPackage* ExternalPackage = Value->GetPackage();
 						FObjectPath TargetPath;
-						if (!ExternalPackage
-							|| !FObjectPath::TryCreate(Value->GetObjectPath(), TargetPath))
+						const auto PathResult = FObjectPath::TryCreate(Value->GetObjectPath(), TargetPath);
+						if (!ExternalPackage || !PathResult)
 						{
-							Fail(EArchiveFailureCode::InvalidObjectReference,
-								"Cross-package hard references must target an exact persistent object.");
+							CaptureFailure.ObjectPath = Value->GetObjectPath();
+							if (!PathResult) CaptureFailure.Cause = PathResult.Error;
+							FailCapture(EPackageCaptureReason::InvalidHardReference, EArchiveFailureCode::InvalidObjectReference);
 							return;
 						}
 						Kind = 2;
@@ -333,8 +344,10 @@ namespace Durin::PackagePrivate
 				const std::string Path = Value.ToString();
 				if (Path.empty() || Path.size() > MaximumPackageStringBytes)
 				{
-					Fail(EArchiveFailureCode::InvalidPath,
-						"Soft object path exceeds the authored package bound.");
+					CaptureFailure.ObjectPath = Path;
+					CaptureFailure.Actual = Path.size();
+					CaptureFailure.Expected = MaximumPackageStringBytes;
+					FailCapture(EPackageCaptureReason::SoftPathLimit, EArchiveFailureCode::InvalidPath);
 					return;
 				}
 				AppendString(Path);
@@ -369,13 +382,18 @@ namespace Durin::PackagePrivate
 					FResolvedReplacement& Value = ReplacementValues.emplace_back();
 					Value.Object = CurrentDObject;
 					Value.Property = &Property;
-					std::string Error;
-					if (!Value.Storage.DefaultConstruct(&Property, ArrayIndex, &Error)
-						|| !RestorePropertyValue(
-							&Property, Value.Storage.GetContainer(), ArrayIndex,
-							It->Replacement, &Error))
+					const auto ValueResult = Value.Storage.DefaultConstruct(&Property, ArrayIndex);
+					if (!ValueResult)
 					{
-						SetError(Error.empty() ? "The save override replacement could not be materialized." : Error);
+						CaptureFailure.Cause = ValueResult.Error;
+						FailCapture(EPackageCaptureReason::ReplacementValue, EArchiveFailureCode::InvalidData);
+						return EArchivePropertySaveDisposition::Omit;
+					}
+					const auto SnapshotResult = RestorePropertyValue(&Property, Value.Storage.GetContainer(), ArrayIndex, It->Replacement);
+					if (!SnapshotResult)
+					{
+						CaptureFailure.Cause = SnapshotResult.Error;
+						FailCapture(EPackageCaptureReason::ReplacementValue, EArchiveFailureCode::InvalidData);
 						return EArchivePropertySaveDisposition::Omit;
 					}
 					StorageIt = std::prev(ReplacementValues.end());
@@ -389,8 +407,7 @@ namespace Durin::PackagePrivate
 				auto It = ObjectIds.find(&Object);
 				if (It == ObjectIds.end())
 				{
-					Fail(EArchiveFailureCode::InvalidObjectReference,
-						"The serializer entered an object outside the frozen package graph.");
+					FailCapture(EPackageCaptureReason::ObjectOutsideGraph, EArchiveFailureCode::InvalidObjectReference);
 					return;
 				}
 				FCapturedObject& Record = Package.Objects.emplace_back();
@@ -402,8 +419,7 @@ namespace Durin::PackagePrivate
 					auto OuterIt = ObjectIds.find(Object.GetOuter());
 					if (OuterIt == ObjectIds.end())
 					{
-						Fail(EArchiveFailureCode::InvalidObjectReference,
-							"Package inner object has an outer outside the frozen graph.");
+						FailCapture(EPackageCaptureReason::OuterOutsideGraph, EArchiveFailureCode::InvalidObjectReference);
 						return;
 					}
 					Record.OuterId = OuterIt->second;
@@ -433,8 +449,7 @@ namespace Durin::PackagePrivate
 				}
 				if (!CurrentObject)
 				{
-					Fail(EArchiveFailureCode::MalformedSerializer,
-						"An authored field was entered outside an object scope.");
+					FailCapture(EPackageCaptureReason::FieldOutsideObject, EArchiveFailureCode::MalformedSerializer);
 					NodeStack.push_back(nullptr);
 					return;
 				}
@@ -492,8 +507,7 @@ namespace Durin::PackagePrivate
 				if (!bCapturePayload || SuppressedDepth != 0) return;
 				if (NodeStack.empty() || !NodeStack.back())
 				{
-					Fail(EArchiveFailureCode::MalformedSerializer,
-						"Authored values require an active named field.");
+					FailCapture(EPackageCaptureReason::ValueOutsideField, EArchiveFailureCode::MalformedSerializer);
 					return;
 				}
 				const auto Bytes = std::as_bytes(std::span{&Value, 1});
@@ -539,22 +553,26 @@ namespace Durin::PackagePrivate
 			uint64 NextExternalOffset = 0;
 
 		public:
-			auto SetCurrentObject(DObject* Object) -> void { CurrentDObject = Object; }
+			auto SetCurrentObject(DObject* Object) -> void
+			{
+				CurrentDObject = Object;
+				CaptureFailure.ObjectPath = Object ? Object->GetObjectPath() : std::string{};
+			}
 		};
 
-		auto TranslateArchiveFailure(const FArchive& Archive) -> FPackageSaveResult
+		auto TranslateArchiveFailure(const FAuthoredCaptureArchive& Archive) -> FPackageCaptureResult
 		{
 			const FArchiveFailure* Failure = Archive.GetFailure();
 			if (!Failure) return {};
-			EPackageSaveError Error = EPackageSaveError::UnsupportedProperty;
-			switch (Failure->Code)
-			{
-			case EArchiveFailureCode::UnsupportedVersion: Error = EPackageSaveError::UnsupportedVersion; break;
-			case EArchiveFailureCode::InvalidObjectReference: Error = EPackageSaveError::InvalidObjectGraph; break;
-			case EArchiveFailureCode::InvalidPath: Error = EPackageSaveError::InvalidPath; break;
-			default: break;
-			}
-			return {Error, std::string(Archive.GetError())};
+			FPackageCaptureError Error = Archive.CaptureFailure;
+			if (Error.Reason == EPackageCaptureReason::None) Error.Reason = EPackageCaptureReason::ArchiveFailure;
+			Error.ArchiveCode = Failure->Code;
+			Error.ArchivePath = Failure->Path;
+			std::visit([&](const auto& Cause) {
+				using T = std::decay_t<decltype(Cause)>;
+				if constexpr (!std::is_same_v<T, std::monostate>) Error.Cause = Cause;
+			}, Archive.GetValueFailureCause());
+			return {std::move(Error)};
 		}
 
 		auto GatherObjects(DObject* Object, std::vector<DObject*>& OutObjects) -> void
@@ -633,7 +651,7 @@ namespace Durin::PackagePrivate
 			bool bCapturePayload,
 			uint32 TargetFormatVersion,
 			FXxHash128 ContainerHash,
-			FCapturedPackage& OutPackage) -> FPackageSaveResult
+			FCapturedPackage& OutPackage) -> FPackageCaptureResult
 		{
 			FAuthoredCaptureArchive Archive(
 				ObjectIds, Options, bCapturePayload, TargetFormatVersion, ContainerHash);
@@ -692,7 +710,7 @@ namespace Durin::PackagePrivate
 		}
 
 		auto AdaptLinkerType(const FArchiveLogicalTypeDescriptor& Input,
-			ObjectPackage::FSerializedType& OutType, std::string& OutError) -> bool
+			ObjectPackage::FSerializedType& OutType, FPackageCaptureError& OutError) -> bool
 		{
 			using K = FArchiveLogicalTypeDescriptor::EKind;
 			using O = ObjectPackage::EValueKind;
@@ -722,7 +740,7 @@ namespace Durin::PackagePrivate
 			case K::SoftObject:
 				Type.Kind = O::SoftReference; Type.QualifiedName = Input.QualifiedType.ToString(); break;
 			case K::WeakObject:
-				OutError = "Archive weak-object values cannot be represented by the package linker.";
+				OutError = {.Reason = EPackageCaptureReason::WeakObject};
 				return false;
 			case K::Struct:
 				Type.Kind = O::Struct;
@@ -731,7 +749,8 @@ namespace Durin::PackagePrivate
 			case K::Array: case K::FixedArray:
 			{
 				ObjectPackage::FSerializedType Element;
-				if (!Input.ElementType || !AdaptLinkerType(*Input.ElementType, Element, OutError)) break;
+				if (!Input.ElementType) { OutError = {.Reason = EPackageCaptureReason::MissingChildType}; return false; }
+				if (!AdaptLinkerType(*Input.ElementType, Element, OutError)) return false;
 				Type.Kind = Input.Kind == K::Array ? O::Array : O::FixedArray;
 				Type.Parameter = Input.Kind == K::FixedArray ? Input.FixedArrayDimension : 0;
 				Type.Children.push_back(std::move(Element));
@@ -741,9 +760,9 @@ namespace Durin::PackagePrivate
 			case K::Map:
 			{
 				ObjectPackage::FSerializedType Key, Value;
-				if (!Input.KeyType || !Input.ValueType
-					|| !AdaptLinkerType(*Input.KeyType, Key, OutError)
-					|| !AdaptLinkerType(*Input.ValueType, Value, OutError)) break;
+				if (!Input.KeyType || !Input.ValueType) { OutError = {.Reason = EPackageCaptureReason::MissingChildType}; return false; }
+				if (!AdaptLinkerType(*Input.KeyType, Key, OutError)
+					|| !AdaptLinkerType(*Input.ValueType, Value, OutError)) return false;
 				Type.Kind = O::Map;
 				Type.Children = {std::move(Key), std::move(Value)};
 				OutType = std::move(Type);
@@ -755,11 +774,11 @@ namespace Durin::PackagePrivate
 		}
 
 		auto DiscoverLinkerField(const FCapturedNode& Node,
-			ObjectPackage::FLinkerTables& Linker, std::string& OutError) -> bool
+			ObjectPackage::FLinkerTables& Linker, FPackageCaptureError& OutError) -> bool
 		{
 			if (Node.Kind != ENodeKind::Field)
 			{
-				OutError = "A discovered field node has the wrong event kind.";
+				OutError = {.Reason = EPackageCaptureReason::FieldEventKind};
 				return false;
 			}
 			std::function<bool(const FCapturedNode&)> DiscoverChildren = [&](const FCapturedNode& Child) {
@@ -772,7 +791,12 @@ namespace Durin::PackagePrivate
 				if (!DiscoverChildren(Child)) return false;
 
 			ObjectPackage::FSerializedType Type;
-			if (!AdaptLinkerType(Node.Field.LogicalType, Type, OutError)) return false;
+			if (!AdaptLinkerType(Node.Field.LogicalType, Type, OutError))
+			{
+				OutError.SchemaName = Node.Field.DeclaringType.ToString();
+				OutError.FieldName = Node.Field.Name.ToString();
+				return false;
+			}
 			if (Node.ReflectedProperty
 				&& Node.ReflectedProperty->GetKind() == DurinCodeGen::EPropertyGenFlags::Bool)
 				Type = {.Kind = ObjectPackage::EValueKind::Bool};
@@ -790,8 +814,7 @@ namespace Durin::PackagePrivate
 			if (Existing == Schema->Fields.end()) Schema->Fields.push_back({FieldName, Type, 0});
 			else if (Existing->Type != Type)
 			{
-				OutError = std::format("Repeated field discovery changed the logical type of {}::{}.",
-					SchemaName, FieldName);
+				OutError = {.Reason = EPackageCaptureReason::FieldTypeChanged, .SchemaName = SchemaName, .FieldName = FieldName};
 				return false;
 			}
 			Linker.Types.push_back(std::move(Type));
@@ -800,12 +823,12 @@ namespace Durin::PackagePrivate
 
 		auto ExpandLinkerType(const ObjectPackage::FSerializedType& Input,
 			std::span<const ObjectPackage::FSerializedSchema> Schemas,
-			ObjectPackage::FSerializedType& OutType, std::string& OutError,
+			ObjectPackage::FSerializedType& OutType, FPackageCaptureError& OutError,
 			uint32 Depth = 0) -> bool
 		{
 			if (Depth > ObjectPackage::DastMaximumValueDepth)
 			{
-				OutError = "Live reflected type exceeds the package nesting limit.";
+				OutError = {.Reason = EPackageCaptureReason::TypeDepth, .SchemaName = Input.QualifiedName, .Actual = Depth, .Expected = ObjectPackage::DastMaximumValueDepth};
 				return false;
 			}
 			ObjectPackage::FSerializedType Type{
@@ -835,7 +858,7 @@ namespace Durin::PackagePrivate
 		}
 
 		auto FinalizeLinkerTypes(ObjectPackage::FLinkerTables& Linker,
-			std::string& OutError) -> bool
+			FPackageCaptureError& OutError) -> bool
 		{
 			const std::vector<ObjectPackage::FSerializedSchema> ShallowSchemas = Linker.Schemas;
 			std::vector<ObjectPackage::FSerializedSchema> Schemas;
@@ -893,11 +916,11 @@ namespace Durin::PackagePrivate
 		auto MaterializeLinkerValue(const FCapturedNode& Node, const FArchiveLogicalTypeDescriptor& Type,
 			const FCapturedPackage& Package, std::span<const uint64> InternalReferenceIds,
 			ObjectPackage::FLinkerTables& Linker, ObjectPackage::FSerializedValue& Out,
-			std::string& OutError, const FDefaultDeltaNode* DeltaNode = nullptr) -> bool
+			FPackageCaptureError& OutError, const FDefaultDeltaNode* DeltaNode = nullptr) -> bool
 		{
 			using K = FArchiveLogicalTypeDescriptor::EKind;
 			auto Invalid = [&]() {
-				OutError = "Captured Archive events do not match their frozen logical type."; return false;
+				OutError = {.Reason = EPackageCaptureReason::ValueManifest, .SchemaName = Type.QualifiedType.ToString(), .FieldName = Node.Field.Name.ToString(), .Actual = Node.Raw.size()}; return false;
 			};
 			if (Type.Kind == K::FixedArray || Type.Kind == K::Array || Type.Kind == K::Map)
 			{
@@ -907,7 +930,10 @@ namespace Durin::PackagePrivate
 					size_t Offset = 0; if (!ReadCaptured(std::span(Node.Raw), Offset, Count) || Offset != Node.Raw.size()) return Invalid();
 				}
 				const uint64 ExpectedChildren = Type.Kind == K::Map ? Count * 2 : Count;
-				if (Node.Children.size() != ExpectedChildren) return Invalid();
+				if (Node.Children.size() != ExpectedChildren)
+				{
+					Invalid(); OutError.Actual = Node.Children.size(); OutError.Expected = ExpectedChildren; return false;
+				}
 				for (size_t Index = 0; Index < Node.Children.size(); ++Index)
 				{
 					const auto* ChildType = Type.Kind == K::Map ? (Index % 2 == 0 ? Type.KeyType.get() : Type.ValueType.get()) : Type.ElementType.get();
@@ -915,7 +941,10 @@ namespace Durin::PackagePrivate
 					ObjectPackage::FSerializedValue Child;
 					const FDefaultDeltaNode* ChildDelta = DeltaNode && Index < DeltaNode->Elements.size() ? DeltaNode->Elements[Index].get() : nullptr;
 					if (!MaterializeLinkerValue(Node.Children[Index], *ChildType, Package, InternalReferenceIds,
-						Linker, Child, OutError, ChildDelta)) return false;
+						Linker, Child, OutError, ChildDelta))
+					{
+						OutError.Route.insert(OutError.Route.begin(), std::to_string(Index)); return false;
+					}
 					Out.Elements.push_back(std::move(Child));
 				}
 				return true;
@@ -941,7 +970,10 @@ namespace Durin::PackagePrivate
 					ObjectPackage::FSerializedValue Child;
 					if (!MaterializeLinkerValue(ChildNode, ChildNode.Field.LogicalType, Package, InternalReferenceIds,
 						Linker, Child, OutError,
-						DeltaField && DeltaField->Value ? DeltaField->Value.get() : nullptr)) return false;
+						DeltaField && DeltaField->Value ? DeltaField->Value.get() : nullptr))
+					{
+						OutError.Route.insert(OutError.Route.begin(), ChildNode.Field.Name.ToString()); return false;
+					}
 					Out.FieldNames.push_back(ChildNode.Field.Name.ToString());
 					Out.Provenances.push_back(DeltaField && DeltaField->Provenance == EDefaultDeltaProvenance::Forced
 						? ObjectPackage::EPropertyProvenance::Forced
@@ -1029,7 +1061,10 @@ namespace Durin::PackagePrivate
 				{
 					if (!ReadCapturedString(Node.Raw, Offset, Out.Text)) return Invalid();
 					FObjectPath Path;
-					if (!FObjectPath::TryCreate(Out.Text, Path)) return Invalid();
+					if (const auto PathResult = FObjectPath::TryCreate(Out.Text, Path); !PathResult)
+					{
+						Invalid(); OutError.Cause = PathResult.Error; return false;
+					}
 					Linker.Names.push_back(Out.Text);
 					Linker.Summary.SoftPackageDependencies.push_back(Path.GetPackagePath());
 				}
@@ -1045,7 +1080,7 @@ namespace Durin::PackagePrivate
 			std::span<DObject* const> Objects, const FDefaultDeltaPlan& DeltaPlan,
 			std::span<const ObjectPackage::FCustomVersion> CustomVersions,
 			std::span<DObject* const> TopLevelAssets,
-			ObjectPackage::FLinkerTables& Out, std::string& OutError, uint32 FormatVersion) -> bool
+			ObjectPackage::FLinkerTables& Out, FPackageCaptureError& OutError, uint32 FormatVersion) -> bool
 		{
 			ObjectPackage::FLinkerTables Linker;
 			Linker.FormatVersion = FormatVersion;
@@ -1059,7 +1094,7 @@ namespace Durin::PackagePrivate
 			{
 				if (Object.Id == 0 || Object.Id > Captured.Objects.size() || Object.OuterId >= Object.Id)
 				{
-					OutError = "Captured object ids are not topological."; return false;
+					OutError = {.Reason = EPackageCaptureReason::ObjectTopology, .ObjectPath = Object.ObjectName, .Actual = Object.Id, .Expected = Captured.Objects.size()}; return false;
 				}
 				const std::string OuterPath = Object.OuterId == 0 ? std::string{} : Paths[Object.OuterId - 1];
 				const std::string Path = OuterPath.empty() ? Object.ObjectName : OuterPath + "/" + Object.ObjectName;
@@ -1070,14 +1105,14 @@ namespace Durin::PackagePrivate
 			if (!FinalizeLinkerTypes(Linker, OutError)) return false;
 			if (Objects.size() != Captured.Objects.size() || DeltaPlan.Objects.size() != Captured.Objects.size())
 			{
-				OutError = "Delta plan object graph differs from Archive discovery."; return false;
+				OutError = {.Reason = EPackageCaptureReason::DeltaGraph, .Actual = DeltaPlan.Objects.size(), .Expected = Captured.Objects.size()}; return false;
 			}
 			std::unordered_map<const DObject*, const FDefaultDeltaObjectPlan*> DeltaObjects;
 			for (const FDefaultDeltaObjectPlan& DeltaObject : DeltaPlan.Objects)
 			{
 				if (!DeltaObject.Object || !DeltaObjects.emplace(DeltaObject.Object, &DeltaObject).second)
 				{
-					OutError = "Delta plan contains an invalid or duplicate object."; return false;
+					OutError = {.Reason = EPackageCaptureReason::DeltaObject}; return false;
 				}
 			}
 			std::vector<size_t> CanonicalOrder(Captured.Objects.size());
@@ -1103,7 +1138,7 @@ namespace Durin::PackagePrivate
 				if (Object.OuterId != 0 && !ObjectPackage::FPackageIndex::TryExport(
 					InternalReferenceIds[Object.OuterId - 1] - 1, Outer))
 				{
-					OutError = "Captured object has invalid Outer topology."; return false;
+					OutError = {.Reason = EPackageCaptureReason::OuterTopology, .ObjectPath = Object.ObjectName, .Actual = Object.OuterId}; return false;
 				}
 				Linker.Exports.push_back({.ObjectName = Object.ObjectName,
 					.ClassName = Object.ClassName, .Outer = Outer});
@@ -1114,18 +1149,20 @@ namespace Durin::PackagePrivate
 				const auto Source = std::ranges::find(Objects, Asset);
 				if (!Asset || Source == Objects.end())
 				{
-					OutError = std::format("A top-level asset is absent from the captured export topology: {}.", Asset ? Asset->GetObjectPath() : "<null>");
+					OutError = {.Reason = EPackageCaptureReason::MissingAsset, .ObjectPath = Asset ? Asset->GetObjectPath() : "<null>"};
 					return false;
 				}
 				const size_t SourceIndex = static_cast<size_t>(std::distance(Objects.begin(), Source));
 				ObjectPackage::FPackageIndex Export;
 				FTopLevelAssetPath AssetPath;
 				FObjectPath RedirectDestination;
+				const auto PathResult = FTopLevelAssetPath::TryCreate(PackagePath, Asset->GetName(), AssetPath);
 				if (!ObjectPackage::FPackageIndex::TryExport(
-						InternalReferenceIds[SourceIndex] - 1, Export)
-					|| !FTopLevelAssetPath::TryCreate(PackagePath, Asset->GetName(), AssetPath))
+						InternalReferenceIds[SourceIndex] - 1, Export) || !PathResult)
 				{
-					OutError = "A top-level asset has invalid linker identity."; return false;
+					OutError = {.Reason = EPackageCaptureReason::AssetIdentity, .ObjectPath = Asset->GetObjectPath()};
+					if (!PathResult) OutError.Cause = PathResult.Error;
+					return false;
 				}
 				if (const auto It = Options.RedirectDestinations.find(Asset);
 					It != Options.RedirectDestinations.end()) RedirectDestination = It->second;
@@ -1144,7 +1181,7 @@ namespace Durin::PackagePrivate
 				const auto DeltaIt = DeltaObjects.find(Objects[SourceIndex]);
 				if (DeltaIt == DeltaObjects.end())
 				{
-					OutError = std::format("Delta plan object graph differs at {}.", Paths[Object.Id - 1]);
+					OutError = {.Reason = EPackageCaptureReason::MissingDeltaObject, .ObjectPath = Paths[Object.Id - 1]};
 					return false;
 				}
 				const FDefaultDeltaObjectPlan& DeltaObject = *DeltaIt->second;
@@ -1152,7 +1189,7 @@ namespace Durin::PackagePrivate
 				for (const auto& Field : Object.Fields)
 				{
 					const FDefaultDeltaFieldPlan* DeltaField = FindDeltaField(&DeltaObject.Fields, Field.Field);
-					if (!DeltaField) { OutError = "Delta plan is missing an Archive field."; return false; }
+					if (!DeltaField) { OutError = {.Reason = EPackageCaptureReason::MissingDeltaField, .ObjectPath = Paths[Object.Id - 1], .SchemaName = Field.Field.DeclaringType.ToString(), .FieldName = Field.Field.Name.ToString()}; return false; }
 					if (DeltaField->Disposition == EDefaultDeltaDisposition::Omitted) continue;
 					const std::string SchemaName = Field.Field.DeclaringType.ToString();
 					const std::string FieldName = Field.Field.Name.ToString();
@@ -1162,12 +1199,17 @@ namespace Durin::PackagePrivate
 						: std::vector<ObjectPackage::FSerializedField>::const_iterator{};
 					if (!Schema || SchemaField == Schema->Fields.end())
 					{
-						OutError = "A captured field is absent from its linker schema."; return false;
+						OutError = {.Reason = EPackageCaptureReason::MissingSchemaField, .ObjectPath = Paths[Object.Id - 1], .SchemaName = SchemaName, .FieldName = FieldName}; return false;
 					}
 					ObjectPackage::FSerializedValue Value;
 					if (!MaterializeLinkerValue(Field, Field.Field.LogicalType, Captured, InternalReferenceIds,
 						Linker, Value, OutError,
-						DeltaField->Value ? DeltaField->Value.get() : nullptr)) return false;
+						DeltaField->Value ? DeltaField->Value.get() : nullptr))
+					{
+						OutError.ObjectPath = Paths[Object.Id - 1];
+						OutError.Route.insert(OutError.Route.begin(), FieldName);
+						return false;
+					}
 					Linker.Exports[CanonicalIndex].Properties.push_back({
 						.DeclaringType = SchemaName,
 						.FieldName = FieldName,
@@ -1191,45 +1233,135 @@ namespace Durin::PackagePrivate
 
 namespace Durin
 {
+	auto FormatPackageCaptureError(const FPackageCaptureError& Error) -> std::string
+	{
+		if (const auto* Cause = std::get_if<FObjectValidationError>(&Error.Cause)) return FormatObjectValidationError(*Cause);
+		switch (Error.Reason)
+		{
+		case EPackageCaptureReason::None: return {};
+		case EPackageCaptureReason::RawOutsideField: return "Authored raw bytes require an active named field.";
+		case EPackageCaptureReason::BulkVersion: return "Package bulk fields require a supported DAST package version.";
+		case EPackageCaptureReason::BulkMetadata: return "Package bulk capture requires valid metadata and verified resident bytes.";
+		case EPackageCaptureReason::BulkAlignment: return "Package bulk field alignment is invalid.";
+		case EPackageCaptureReason::BulkLimit: return "Package bulk segment exceeds the 1 GiB limit.";
+		case EPackageCaptureReason::BulkOutsideValue: return "Package bulk capture requires an active value node.";
+		case EPackageCaptureReason::ReferenceOutsideObject: return "An internal reference was serialized outside an object scope.";
+		case EPackageCaptureReason::InvalidHardReference: return "Cross-package hard references must target an exact persistent object.";
+		case EPackageCaptureReason::SoftPathLimit: return "Soft object path exceeds the authored package bound.";
+		case EPackageCaptureReason::ObjectOutsideGraph: return "The serializer entered an object outside the frozen package graph.";
+		case EPackageCaptureReason::OuterOutsideGraph: return "Package inner object has an outer outside the frozen graph.";
+		case EPackageCaptureReason::FieldOutsideObject: return "An authored field was entered outside an object scope.";
+		case EPackageCaptureReason::ValueOutsideField: return "Authored values require an active named field.";
+		case EPackageCaptureReason::WeakObject: return "Archive weak-object values cannot be represented by the package linker.";
+		case EPackageCaptureReason::FieldEventKind: return "A discovered field node has the wrong event kind.";
+		case EPackageCaptureReason::TypeDepth: return "Live reflected type exceeds the package nesting limit.";
+		case EPackageCaptureReason::ValueManifest: return "Captured Archive events do not match their frozen logical type.";
+		case EPackageCaptureReason::ObjectTopology: return "Captured object ids are not topological.";
+		case EPackageCaptureReason::DeltaGraph: return "Delta plan object graph differs from Archive discovery.";
+		case EPackageCaptureReason::DeltaObject: return "Delta plan contains an invalid or duplicate object.";
+		case EPackageCaptureReason::OuterTopology: return "Captured object has invalid Outer topology.";
+		case EPackageCaptureReason::AssetIdentity: return "A top-level asset has invalid linker identity.";
+		case EPackageCaptureReason::MissingDeltaField: return "Delta plan is missing an Archive field.";
+		case EPackageCaptureReason::MissingSchemaField: return "A captured field is absent from its linker schema.";
+		case EPackageCaptureReason::PackageType: return "Only asset packages can be serialized.";
+		case EPackageCaptureReason::MissingAssets: return "Package has no top-level assets.";
+		case EPackageCaptureReason::CookTarget: return "Cooked package serialization requires an explicit target platform and profile.";
+		case EPackageCaptureReason::PackagePath: return "Package has an invalid asset path.";
+		case EPackageCaptureReason::ClassDefaults: return "Class default construction failed before delta capture.";
+		case EPackageCaptureReason::OverrideOutsideGraph: return "A save override targets an object outside the frozen package graph.";
+		case EPackageCaptureReason::OmittedAsset: return "A top-level asset cannot be omitted from its own package save.";
+		case EPackageCaptureReason::DiscoveryMutation: return "Archive discovery mutated the frozen package object graph.";
+		case EPackageCaptureReason::CookGraph: return "Cooked object reachability discovery produced an invalid graph.";
+		case EPackageCaptureReason::BulkIdentity: return "Authored bulk container identity could not be computed.";
+		case EPackageCaptureReason::EmissionMutation: return "Archive emission changed the frozen object, field, type, dependency, or version manifest.";
+		case EPackageCaptureReason::FieldTypeChanged: return std::format("Repeated field discovery changed the logical type of {}::{}.", Error.SchemaName, Error.FieldName);
+		case EPackageCaptureReason::MissingAsset: return std::format("A top-level asset is absent from the captured export topology: {}.", Error.ObjectPath);
+		case EPackageCaptureReason::MissingDeltaObject: return std::format("Delta plan object graph differs at {}.", Error.ObjectPath);
+		case EPackageCaptureReason::MissingChildType: return "An Archive container type has no child descriptor.";
+		case EPackageCaptureReason::ReplacementValue:
+			if (const auto* Cause = std::get_if<FPropertyValueError>(&Error.Cause)) return FormatPropertyValueError(*Cause);
+			if (const auto* Cause = std::get_if<FPropertySnapshotError>(&Error.Cause)) return FormatPropertySnapshotError(*Cause);
+			return "The save override replacement could not be materialized.";
+		case EPackageCaptureReason::ArchiveFailure:
+			if (const auto* Cause = std::get_if<FPropertyValueError>(&Error.Cause)) return FormatPropertyValueError(*Cause);
+			if (const auto* Cause = std::get_if<FReflectedMapKeyError>(&Error.Cause)) return FormatReflectedMapKeyError(*Cause);
+			return std::format("Package Archive failed at '{}', code={}." , Error.ArchivePath, static_cast<uint32>(Error.ArchiveCode.value_or(EArchiveFailureCode::InvalidData)));
+		case EPackageCaptureReason::DefaultDelta:
+		{
+			const auto& DeltaDiagnostic = std::get<FDefaultDeltaDiagnostic>(Error.Cause);
+			auto ReasonName = [](EDefaultDeltaFailureReason Reason) -> std::string_view {
+				switch (Reason)
+				{
+				case EDefaultDeltaFailureReason::InvalidInput: return "InvalidInput";
+				case EDefaultDeltaFailureReason::MissingClassDefault: return "MissingClassDefault";
+				case EDefaultDeltaFailureReason::DefaultObjectGraphFailure: return "DefaultObjectGraphFailure";
+				case EDefaultDeltaFailureReason::ArchiveFailure: return "ArchiveFailure";
+				case EDefaultDeltaFailureReason::ManifestMismatch: return "ManifestMismatch";
+				case EDefaultDeltaFailureReason::DuplicateField: return "DuplicateField";
+				case EDefaultDeltaFailureReason::UnsupportedLogicalType: return "UnsupportedLogicalType";
+				case EDefaultDeltaFailureReason::UnsupportedIdentity: return "UnsupportedIdentity";
+				case EDefaultDeltaFailureReason::MissingStructDefault: return "MissingStructDefault";
+				case EDefaultDeltaFailureReason::DepthLimit: return "DepthLimit";
+				case EDefaultDeltaFailureReason::FieldLimit: return "FieldLimit";
+				case EDefaultDeltaFailureReason::PathLimit: return "PathLimit";
+				case EDefaultDeltaFailureReason::AuthoredOverrideFailure: return "AuthoredOverrideFailure";
+				default: return "Unknown";
+				}
+			};
+			std::string Message = std::format(
+				"Default-relative logical planning failed: reason={}, path='{}'",
+				ReasonName(DeltaDiagnostic.Reason), DeltaDiagnostic.LogicalPath);
+			if (DeltaDiagnostic.ApplicableLimit != 0)
+				Message += std::format(", observed={}, limit={}",
+					DeltaDiagnostic.ObservedValue, DeltaDiagnostic.ApplicableLimit);
+			Message += ".";
+			return Message;
+		}
+		}
+		return {};
+	}
+
+	auto GetPackageCaptureSaveError(const FPackageCaptureError& Error) -> EPackageSaveError
+	{
+		switch (Error.Reason)
+		{
+		case EPackageCaptureReason::None: return EPackageSaveError::None;
+		case EPackageCaptureReason::PackageType: return EPackageSaveError::InvalidPackageType;
+		case EPackageCaptureReason::PackagePath: case EPackageCaptureReason::SoftPathLimit: return EPackageSaveError::InvalidPath;
+		case EPackageCaptureReason::MissingAssets: case EPackageCaptureReason::ClassDefaults:
+		case EPackageCaptureReason::OverrideOutsideGraph: case EPackageCaptureReason::OmittedAsset:
+		case EPackageCaptureReason::CookGraph: return EPackageSaveError::InvalidObjectGraph;
+		default: break;
+		}
+		if (Error.ArchiveCode == EArchiveFailureCode::UnsupportedVersion) return EPackageSaveError::UnsupportedVersion;
+		if (Error.ArchiveCode == EArchiveFailureCode::InvalidObjectReference) return EPackageSaveError::InvalidObjectGraph;
+		if (Error.ArchiveCode == EArchiveFailureCode::InvalidPath) return EPackageSaveError::InvalidPath;
+		return EPackageSaveError::UnsupportedProperty;
+	}
+
 	auto CapturePackageLinker(DPackage* Package, EDefaultDeltaMode DeltaMode,
 		const FPackageCaptureOptions& InputOptions,
-		ObjectPackage::FLinkerTables& OutLinker, std::string* OutError, uint32 FormatVersion) -> FPackageSaveResult
+		ObjectPackage::FLinkerTables& OutLinker, uint32 FormatVersion) -> FPackageCaptureResult
 	{
 		check(IsInGameThread());
 		const auto& Options = InputOptions;
-		struct FCaptureDiagnostic
-		{
-			std::string LogicalPath;
-			std::string Message;
-			auto Reset() -> void { *this = {}; }
-		} Diagnostic;
-		auto Finish = [&](FPackageSaveResult Result) {
-			if (OutError)
-				*OutError = Result ? std::string{} : Diagnostic.Message;
-			return Result;
-		};
 		if (Package && !Package->IsAssetPackage())
 		{
-			Diagnostic = {{}, "Only asset packages can be serialized."};
-			return Finish({EPackageSaveError::InvalidPackageType, Diagnostic.Message});
+			return {{.Reason = EPackageCaptureReason::PackageType}};
 		}
 		if (!Package || Package->GetTopLevelAssets().empty())
 		{
-			Diagnostic = {{}, "Package has no top-level assets."};
-			return Finish({EPackageSaveError::InvalidObjectGraph, Diagnostic.Message});
+			return {{.Reason = EPackageCaptureReason::MissingAssets}};
 		}
 		if (Options.bCooking
 			&& (Options.Target.Platform.empty() || Options.Target.Profile.empty()))
 		{
-			Diagnostic = {{},
-				"Cooked package serialization requires an explicit target platform and profile."};
-			return Finish({EPackageSaveError::UnsupportedProperty, Diagnostic.Message});
+			return {{.Reason = EPackageCaptureReason::CookTarget}};
 		}
 		FPackagePath PackagePath;
-		if (!FPackagePath::TryCreate(Package->GetPackagePath(), PackagePath))
+		if (const auto PathResult = FPackagePath::TryCreate(Package->GetPackagePath(), PackagePath); !PathResult)
 		{
-			Diagnostic = {{}, "Package has an invalid asset path."};
-			return Finish({EPackageSaveError::InvalidPath, Diagnostic.Message});
+			return {{.Reason = EPackageCaptureReason::PackagePath, .ObjectPath = Package->GetPackagePath(), .Cause = PathResult.Error}};
 		}
 
 		std::vector<DObject*> FrozenObjects;
@@ -1241,7 +1373,7 @@ namespace Durin
 			std::vector<DClass*> Classes;
 			for (DObject* Object : FrozenObjects) Classes.push_back(Object->GetClass());
 			if (!Private::CreateClassDefaultObjectsForBatch(Classes))
-				return Finish({EPackageSaveError::InvalidObjectGraph, "Class default construction failed before delta capture."});
+				return {{.Reason = EPackageCaptureReason::ClassDefaults}};
 		}
 		if (Options.SaveOverrides)
 		{
@@ -1250,9 +1382,7 @@ namespace Durin
 				if (!Override.Object
 					|| std::ranges::find(FrozenObjects, Override.Object) == FrozenObjects.end())
 				{
-					Diagnostic = {{},
-						"A save override targets an object outside the frozen package graph."};
-					return Finish({EPackageSaveError::InvalidObjectGraph, Diagnostic.Message});
+					return {{.Reason = EPackageCaptureReason::OverrideOutsideGraph, .ObjectPath = Override.Object ? Override.Object->GetObjectPath() : std::string{}}};
 				}
 			}
 			for (DObject* Asset : Package->GetTopLevelAssets())
@@ -1260,9 +1390,7 @@ namespace Durin
 					Options.SaveOverrides->FindObject(*Asset);
 					RootOverride && RootOverride->bOmitObject)
 				{
-					Diagnostic = {{},
-						"A top-level asset cannot be omitted from its own package save."};
-					return Finish({EPackageSaveError::InvalidObjectGraph, Diagnostic.Message});
+					return {{.Reason = EPackageCaptureReason::OmittedAsset, .ObjectPath = Asset->GetObjectPath()}};
 				}
 		}
 		std::vector<DObject*> Objects;
@@ -1272,26 +1400,23 @@ namespace Durin
 		std::unordered_map<DObject*, uint64> ObjectIds;
 		for (size_t Index = 0; Index < Objects.size(); ++Index) ObjectIds.emplace(Objects[Index], Index + 1);
 		PackagePrivate::FCapturedPackage Discovery;
-		FPackageSaveResult Result = PackagePrivate::CapturePackage(
+		FPackageCaptureResult Result = PackagePrivate::CapturePackage(
 			Objects, ObjectIds, Options, false,
 			FormatVersion, {}, Discovery);
 		if (!Result)
 		{
-			Diagnostic = {{}, Result.Message}; return Finish(Result);
+			return Result;
 		}
 		if (!PackagePrivate::HasFrozenPackageGraph(Package, FrozenObjects))
 		{
-			Diagnostic = {{}, "Archive discovery mutated the frozen package object graph."};
-			return Finish({EPackageSaveError::UnsupportedProperty, Diagnostic.Message});
+			return {{.Reason = EPackageCaptureReason::DiscoveryMutation}};
 		}
 		if (Options.bCooking
 			&& !Options.bRetainEditorOnlyData)
 		{
 			if (!PackagePrivate::PruneUnreachableCookedObjects(Discovery, Objects))
 			{
-				Diagnostic = {{},
-					"Cooked object reachability discovery produced an invalid graph."};
-				return Finish({EPackageSaveError::InvalidObjectGraph, Diagnostic.Message});
+				return {{.Reason = EPackageCaptureReason::CookGraph}};
 			}
 			ObjectIds.clear();
 			for (size_t Index = 0; Index < Objects.size(); ++Index)
@@ -1301,8 +1426,7 @@ namespace Durin
 				FormatVersion, {}, Discovery);
 			if (!Result)
 			{
-				Diagnostic = {{}, Result.Message};
-				return Finish(Result);
+				return Result;
 			}
 		}
 		const FXxHash128 ContainerHash = PackagePrivate::ComputeContainerHash(Discovery.BulkPayloads);
@@ -1311,9 +1435,7 @@ namespace Durin
 				return Payload.Descriptor.LogicalByteCount > PackagePrivate::PackageBulkExternalThreshold;
 			}) && ContainerHash.IsZero())
 		{
-			Diagnostic = {{},
-				"Authored bulk container identity could not be computed."};
-			return Finish({EPackageSaveError::UnsupportedProperty, Diagnostic.Message});
+			return {{.Reason = EPackageCaptureReason::BulkIdentity}};
 		}
 		PackagePrivate::FCapturedPackage Captured;
 		Result = PackagePrivate::CapturePackage(
@@ -1321,13 +1443,12 @@ namespace Durin
 			FormatVersion, ContainerHash, Captured);
 		if (!Result)
 		{
-			Diagnostic = {{}, Result.Message}; return Finish(Result);
+			return Result;
 		}
 		if (!PackagePrivate::HasFrozenPackageGraph(Package, FrozenObjects)
 			|| !PackagePrivate::EqualManifest(Discovery, Captured))
 		{
-			Diagnostic = {{}, "Archive emission changed the frozen object, field, type, dependency, or version manifest."};
-			return Finish({EPackageSaveError::UnsupportedProperty, Diagnostic.Message});
+			return {{.Reason = EPackageCaptureReason::EmissionMutation}};
 		}
 
 		FDefaultDeltaPlan DeltaPlan;
@@ -1360,49 +1481,19 @@ namespace Durin
 		}
 		if (!bDeltaBuilt)
 		{
-			auto ReasonName = [](EDefaultDeltaFailureReason Reason) -> std::string_view {
-				switch (Reason)
-				{
-				case EDefaultDeltaFailureReason::InvalidInput: return "InvalidInput";
-				case EDefaultDeltaFailureReason::MissingClassDefault: return "MissingClassDefault";
-				case EDefaultDeltaFailureReason::DefaultObjectGraphFailure: return "DefaultObjectGraphFailure";
-				case EDefaultDeltaFailureReason::ArchiveFailure: return "ArchiveFailure";
-				case EDefaultDeltaFailureReason::ManifestMismatch: return "ManifestMismatch";
-				case EDefaultDeltaFailureReason::DuplicateField: return "DuplicateField";
-				case EDefaultDeltaFailureReason::UnsupportedLogicalType: return "UnsupportedLogicalType";
-				case EDefaultDeltaFailureReason::UnsupportedIdentity: return "UnsupportedIdentity";
-				case EDefaultDeltaFailureReason::MissingStructDefault: return "MissingStructDefault";
-				case EDefaultDeltaFailureReason::DepthLimit: return "DepthLimit";
-				case EDefaultDeltaFailureReason::FieldLimit: return "FieldLimit";
-				case EDefaultDeltaFailureReason::PathLimit: return "PathLimit";
-				case EDefaultDeltaFailureReason::AuthoredOverrideFailure: return "AuthoredOverrideFailure";
-				default: return "Unknown";
-				}
-			};
-			std::string Message = std::format(
-				"Default-relative logical planning failed: reason={}, path='{}'",
-				ReasonName(DeltaDiagnostic.Reason), DeltaDiagnostic.LogicalPath);
-			if (DeltaDiagnostic.ApplicableLimit != 0)
-				Message += std::format(", observed={}, limit={}",
-					DeltaDiagnostic.ObservedValue, DeltaDiagnostic.ApplicableLimit);
-			Message += ".";
-			Diagnostic = {DeltaDiagnostic.LogicalPath,
-				std::move(Message)};
-			return Finish({EPackageSaveError::UnsupportedProperty, Diagnostic.Message});
+			return {{.Reason = EPackageCaptureReason::DefaultDelta, .Cause = std::move(DeltaDiagnostic)}};
 		}
 		std::erase_if(DeltaPlan.Objects, [&](const FDefaultDeltaObjectPlan& ObjectPlan) {
 			return std::ranges::find(Objects, ObjectPlan.Object) == Objects.end();
 		});
 		const auto& CustomVersions = Captured.CustomVersions;
-		std::string LinkerError;
+		FPackageCaptureError LinkerError;
 		if (!PackagePrivate::BuildLinkerTables(Captured, Options, PackagePath, Objects,
 				DeltaPlan, CustomVersions, Package->GetTopLevelAssets(), OutLinker, LinkerError, FormatVersion))
 		{
-			Diagnostic.Message = std::move(LinkerError);
-			return Finish({EPackageSaveError::UnsupportedProperty, Diagnostic.Message});
+			return {std::move(LinkerError)};
 		}
-		Diagnostic.Reset();
-		return Finish({});
+		return {};
 	}
 
 }

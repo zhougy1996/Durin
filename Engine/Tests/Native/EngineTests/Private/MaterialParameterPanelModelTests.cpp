@@ -334,7 +334,10 @@ TEST(FMaterialParameterPanelModelTests, BaseAndTexturePickerValuesUseSharedUndoH
 	EXPECT_EQ(Resolved.Value.GetTexture().SamplerState, TextureValue.GetTexture().SamplerState);
 	EXPECT_EQ(Resolved.Value.GetTexture().TextureFallback, Durin::EMaterialTextureFallback::Black);
 	TextureValue.GetTexture().SamplerState.AddressU = static_cast<Durin::EMaterialSamplerAddressMode>(255);
-	EXPECT_FALSE(Instance->SetParameterValue(TextureEntry->ParameterId, TextureValue));
+	const auto InvalidSampling = Instance->SetParameterValue(TextureEntry->ParameterId, TextureValue);
+	EXPECT_FALSE(InvalidSampling);
+	EXPECT_EQ(std::get<Durin::EMaterialInstanceError>(InvalidSampling.Error.Code), Durin::EMaterialInstanceError::InvalidSamplingPolicy);
+	EXPECT_EQ(InvalidSampling.Error.ParameterId, TextureEntry->ParameterId);
 	EXPECT_FALSE(TextureModel.SubmitValueEdit(PropertyView, Context, *TextureEntry, TextureValue, false));
 	EXPECT_TRUE(Error.empty());
 
@@ -589,7 +592,10 @@ TEST(FMaterialParameterPanelModelTests, ReachabilitySharesFunctionOutputAnalysis
 	EXPECT_NE(FindEntry(Model, ParameterA->Metadata.Id), nullptr);
 	EXPECT_EQ(FindEntry(Model, ParameterB->Metadata.Id), nullptr);
 	ASSERT_TRUE(Instance->SetParameterValue(ParameterA->Metadata.Id, FMaterialParameterValue::MakeScalar(0.4f)));
-	EXPECT_FALSE(Instance->SetParameterValue(ParameterB->Metadata.Id, FMaterialParameterValue::MakeScalar(0.4f)));
+	const auto Unreachable = Instance->SetParameterValue(ParameterB->Metadata.Id, FMaterialParameterValue::MakeScalar(0.4f));
+	EXPECT_FALSE(Unreachable);
+	EXPECT_EQ(std::get<EMaterialParameterError>(Unreachable.Error.Code), EMaterialParameterError::Unreachable);
+	EXPECT_EQ(Unreachable.Error.ParameterId, ParameterB->Metadata.Id);
 	EXPECT_EQ(Initial, Instance->GetParameterReachability());
 	EXPECT_FALSE(Model.Refresh());
 

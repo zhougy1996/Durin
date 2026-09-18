@@ -27,6 +27,8 @@ namespace Durin::Editor
 
 	using FAssetDestinationOccupancyQuery = FAssetDestinationOccupancy (*)(const FPackagePath&);
 
+	enum class EAssetDestinationError : uint8 { None, Path, Mount, ReadOnly, RegistryAsset, Redirector, UnsavedPackage, ResidentPackage };
+
 	// Carries the complete side-effect-free decision for one editor asset destination.
 	struct FAssetDestinationValidation
 	{
@@ -42,7 +44,10 @@ namespace Durin::Editor
 		EAssetDestinationOccupantKind OccupantKind =
 			EAssetDestinationOccupantKind::None;
 		FPackagePath RedirectDestination;
-		std::string Message;
+		EAssetDestinationError Error = EAssetDestinationError::None;
+		std::string RequestedPath;
+		EMountPathError MountCause = EMountPathError::None;
+		std::optional<FObjectError> PathCause;
 
 		auto AssetExists() const -> bool
 		{
@@ -50,11 +55,13 @@ namespace Durin::Editor
 		}
 		explicit operator bool() const
 		{
-			return bAssetPathValid && bMountedDestination && bContentWritable
-				&& !AssetExists() && Message.empty();
+			return Error == EAssetDestinationError::None;
 		}
 	};
 
+	DURINED_API auto FormatAssetDestinationValidation(const FAssetDestinationValidation& Result) -> std::string;
+
+	enum class EContentDirectoryError : uint8 { None, Path, Mount, ReadOnly };
 	// Carries the side-effect-free resolution of one virtual asset directory.
 	struct FContentDirectoryValidation
 	{
@@ -64,14 +71,18 @@ namespace Durin::Editor
 		bool bDirectoryPathValid = false;
 		bool bMountedDestination = false;
 		bool bContentWritable = false;
-		std::string Message;
+		EContentDirectoryError Error = EContentDirectoryError::None;
+		std::string RequestedPath;
+		EMountPathError MountCause = EMountPathError::None;
+		std::optional<FObjectError> PathCause;
 
 		explicit operator bool() const
 		{
-			return bDirectoryPathValid && bMountedDestination
-				&& bContentWritable && Message.empty();
+			return Error == EContentDirectoryError::None;
 		}
 	};
+
+	DURINED_API auto FormatContentDirectoryValidation(const FContentDirectoryValidation& Result) -> std::string;
 
 	// Validates a virtual asset path and queries occupancy only after Content resolution succeeds.
 	DURINED_API auto InspectAssetDestination(

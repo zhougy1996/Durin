@@ -48,10 +48,9 @@ namespace
 		Request.ResultApplication.SourceReplacement = Source;
 		Request.Build.bPersistDerivedData = false;
 		uint32 LargeCompleted = 0;
-		std::string Error;
-		ASSERT_TRUE(SubmitTexture2DCompilation(*Texture, std::move(Request), Error, [&](FTexture2DCompilationResult Result) {
+		ASSERT_TRUE(SubmitTexture2DCompilation(*Texture, std::move(Request), [&](FTexture2DCompilationResult Result) {
 			EXPECT_TRUE(Result.Succeeded()); ++LargeCompleted;
-		})) << Error;
+		}));
 		ASSERT_TRUE(WaitForTexture2DCompilation(*Texture, 10.0));
 		EXPECT_EQ(1u, LargeCompleted);
 		EXPECT_GT(GetTexture2DCompilationDiagnostic(*Texture).Metrics.ResultBytes, 64u);
@@ -97,11 +96,11 @@ namespace
 		FTexture2DCompilationRequest SaturatedRequest;
 		SaturatedRequest.Build = Durin::MakeTexture2DBuildRequest(SaturatedSource);
 		SaturatedRequest.ResultApplication.SourceReplacement = SaturatedSource;
-		ASSERT_TRUE(SubmitTexture2DCompilation(*Texture, std::move(SaturatedRequest), Error,
+		ASSERT_TRUE(SubmitTexture2DCompilation(*Texture, std::move(SaturatedRequest),
 			[&](FTexture2DCompilationResult Result) {
 				EXPECT_EQ(ETexture2DCompilationStatus::Canceled, Result.Status);
 				++SaturatedCompleted;
-			})) << Error;
+			}));
 		FAssetCompilingManager::Get().ProcessAsyncTasks({});
 		EXPECT_EQ(0u, SaturatedCompleted);
 		for (uint32 Index = 2; Index < Blockers.size(); ++Index)
@@ -125,8 +124,7 @@ namespace
 			Request.Build = Durin::MakeTexture2DBuildRequest(Source);
 			Request.ResultApplication.SourceReplacement = Source;
 			Request.Build.bPersistDerivedData = false;
-			std::string Error;
-			ASSERT_TRUE(SubmitTexture2DCompilation(*Texture, std::move(Request), Error, [&, Index](FTexture2DCompilationResult Result) { EXPECT_EQ(ETexture2DCompilationStatus::Canceled, Result.Status); ++Completed[Index]; })) << Error;
+			ASSERT_TRUE(SubmitTexture2DCompilation(*Texture, std::move(Request), [&, Index](FTexture2DCompilationResult Result) { EXPECT_EQ(ETexture2DCompilationStatus::Canceled, Result.Status); ++Completed[Index]; }));
 		}
 		// Scheduler thresholds do not reject queued owner work.
 		for (uint32 Index = 2; Index < 6; ++Index)

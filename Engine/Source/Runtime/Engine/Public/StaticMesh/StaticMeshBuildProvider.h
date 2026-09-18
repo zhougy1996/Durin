@@ -1,6 +1,7 @@
 #pragma once
 
 #include "EngineAPI.h"
+#include "Collision/CollisionGeometry.h"
 #include "Modules/ModularFeature.h"
 #include "Physics/BodySetupTypes.h"
 #include "Physics/PhysicsTypes.h"
@@ -17,19 +18,42 @@ namespace Durin
 		Cancelled
 	};
 
-	inline constexpr size_t MaximumStaticMeshBuildDiagnosticBytes = 4096;
-
-	// Bounded operation diagnostic; products remain separately owned by the caller.
-	struct FStaticMeshBuildOutcome
+	enum class EStaticMeshRecipeError : uint8
 	{
-		EStaticMeshBuildStatus Status = EStaticMeshBuildStatus::Failed;
-		std::string Diagnostic;
-
-		FStaticMeshBuildOutcome(EStaticMeshBuildStatus InStatus, std::string_view InDiagnostic = {})
-			: Status(InStatus), Diagnostic(InDiagnostic.substr(0, MaximumStaticMeshBuildDiagnosticBytes)) {}
-
-		explicit operator bool() const { return Status == EStaticMeshBuildStatus::Succeeded; }
+		None, MissingGeometry, VertexLimit, TriangleList, NonFinitePosition, IndexRange,
+		WorkingSet, DuplicateMaterial, RenderLimits, MissingMaterial, EmptyGeometry,
+		Bounds, CollisionMode, CollisionInput, CollisionBuild, Cancelled
 	};
+	enum class EStaticMeshRecipeKind : uint8 { Render, Collision };
+	struct FStaticMeshRecipeError
+	{
+		EStaticMeshRecipeError Code = EStaticMeshRecipeError::None;
+		EStaticMeshRecipeKind Kind = EStaticMeshRecipeKind::Render;
+		std::string MeshName;
+		std::string SectionName;
+		uint64 Index = 0;
+		uint64 Actual = 0;
+		uint64 Expected = 0;
+		uint64 VertexCount = 0;
+		uint64 IndexCount = 0;
+		FVector3f Position = FVector3f(0);
+		FBox Bounds;
+		EBodySetupCollisionSourceMode Mode = EBodySetupCollisionSourceMode::None;
+		std::optional<FCollisionGeometryBuildDiagnostics> CollisionCause;
+	};
+	struct FStaticMeshRecipeResult
+	{
+		FStaticMeshRecipeError Error;
+		explicit operator bool() const { return Error.Code == EStaticMeshRecipeError::None; }
+		auto GetStatus() const -> EStaticMeshBuildStatus
+		{
+			return Error.Code == EStaticMeshRecipeError::None ? EStaticMeshBuildStatus::Succeeded
+				: Error.Code == EStaticMeshRecipeError::Cancelled ? EStaticMeshBuildStatus::Cancelled : EStaticMeshBuildStatus::Failed;
+		}
+	};
+	ENGINE_API auto FormatStaticMeshRecipeError(const FStaticMeshRecipeError& Error) -> std::string;
+
+	inline constexpr size_t MaximumStaticMeshBuildDiagnosticBytes = 4096;
 
 	// Worker-local observations; no concurrent access is permitted during an invocation.
 	struct FStaticMeshBuildExecutionMetrics
@@ -58,9 +82,16 @@ namespace Durin
 	{
 		uint64 Limit;
 		uint64 Bytes = 0;
+		uint64 RejectedCount = 0;
+		uint64 RejectedWidth = 0;
 		auto Add(uint64 Count, uint64 Width) -> bool
 		{
-			if (Width == 0 || Count > (Limit - Bytes) / Width) return false;
+			if (Width == 0 || Count > (Limit - Bytes) / Width)
+			{
+				RejectedCount = Count;
+				RejectedWidth = Width;
+				return false;
+			}
 			Bytes += Count * Width;
 			return true;
 		}
@@ -124,19 +155,17 @@ namespace Durin
 	public:
 		static constexpr std::string_view FeatureName =
 			"Engine.StaticMeshBuildProvider";
-		static constexpr uint32 FeatureVersion = 3;
+		static constexpr uint32 FeatureVersion = 4;
 
 		virtual auto GetDescriptor() const -> FStaticMeshBuildProviderDescriptor = 0;
 		virtual auto BuildRender(
 			const FStaticMeshRecipeBuildRequest& Request,
 			FStaticMeshRecipeBuildProduct& OutProduct,
-			std::string& OutError,
-			const FStaticMeshBuildExecutionControl& Control = {}) -> FStaticMeshBuildOutcome = 0;
+			const FStaticMeshBuildExecutionControl& Control = {}) -> FStaticMeshRecipeResult = 0;
 		virtual auto BuildCollision(
 			const FStaticMeshCollisionRecipeRequest& Request,
 			FStaticMeshCollisionRecipeProduct& OutProduct,
-			std::string& OutError,
-			const FStaticMeshBuildExecutionControl& Control = {}) -> FStaticMeshBuildOutcome = 0;
+			const FStaticMeshBuildExecutionControl& Control = {}) -> FStaticMeshRecipeResult = 0;
 	};
 
 }

@@ -121,7 +121,7 @@ namespace Durin
 						Key,
 						Request.TargetPlatform, Request.TargetProfile,
 						*RecipeProduct.PlatformData, StoreDiagnostic);
-				Product = {.PlatformData = std::move(RecipeProduct.PlatformData), .DerivedDataKey = Key, .PersistenceDiagnostic = AssetDerivedDataCache::CombineDiagnostics(CacheDiagnostic, StoreDiagnostic), .Provider = Descriptor, .Origin = ETextureCubeBuildProductOrigin::Rebuilt};
+				Product = {.PlatformData = std::move(RecipeProduct.PlatformData), .DerivedDataKey = Key, .PersistenceDiagnostic = {std::move(CacheDiagnostic), std::move(StoreDiagnostic)}, .Provider = Descriptor, .Origin = ETextureCubeBuildProductOrigin::Rebuilt};
 				return true;
 			});
 		if (Invocation.Status == EFeatureInvokeStatus::Invoked

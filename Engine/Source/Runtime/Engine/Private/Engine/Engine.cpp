@@ -200,7 +200,7 @@ namespace Durin
 					Refresh.ResultingRevision, Refresh.Errors.size());
 				for (const FAssetRegistryResult& Error : Refresh.Errors)
 				{
-					DURIN_ERROR("Asset catalog refresh error: {}", Error.Message);
+					DURIN_ERROR("Asset catalog refresh error: {}", FormatAssetRegistryError(Error));
 				}
 			}
 		}

@@ -43,19 +43,23 @@ namespace Durin
 		ENGINE_API auto Serialize(FArchive& Ar) -> void;
 	};
 
-	ENGINE_API auto BuildStaticMeshDerivedDataKeyBytes(
-		const FStaticMeshBuildKeyInput& Input,
-		std::string& OutError) -> FByteBuffer;
-	ENGINE_API auto BuildStaticMeshDerivedDataKey(
-		const FStaticMeshBuildKeyInput& Input,
-		std::string& OutError) -> FCacheKeyProxy;
-	ENGINE_API auto BuildStaticMeshCollisionDerivedDataKeyBytes(
-		const FStaticMeshCollisionBuildKeyInput& Input,
-		std::string& OutError) -> FByteBuffer;
-	ENGINE_API auto BuildStaticMeshCollisionDerivedDataKey(
-		const FStaticMeshCollisionBuildKeyInput& Input,
-		std::string& OutError) -> FCacheKeyProxy;
-
+	struct FStaticMeshBuildKeyBytesResult
+	{
+		FByteBuffer Bytes;
+		FStaticMeshBuildKeyError Error;
+		explicit operator bool() const { return Error.Code == EStaticMeshBuildKeyError::None; }
+	};
+	struct FStaticMeshBuildKeyResult
+	{
+		FCacheKeyProxy Key;
+		FStaticMeshBuildKeyError Error;
+		explicit operator bool() const { return Error.Code == EStaticMeshBuildKeyError::None; }
+	};
+	ENGINE_API auto FormatStaticMeshBuildKeyError(const FStaticMeshBuildKeyError& Error) -> std::string;
+	ENGINE_API auto BuildStaticMeshDerivedDataKeyBytes(const FStaticMeshBuildKeyInput& Input) -> FStaticMeshBuildKeyBytesResult;
+	ENGINE_API auto BuildStaticMeshDerivedDataKey(const FStaticMeshBuildKeyInput& Input) -> FStaticMeshBuildKeyResult;
+	ENGINE_API auto BuildStaticMeshCollisionDerivedDataKeyBytes(const FStaticMeshCollisionBuildKeyInput& Input) -> FStaticMeshBuildKeyBytesResult;
+	ENGINE_API auto BuildStaticMeshCollisionDerivedDataKey(const FStaticMeshCollisionBuildKeyInput& Input) -> FStaticMeshBuildKeyResult;
 }
 
 #endif

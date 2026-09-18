@@ -21,11 +21,9 @@ TEST(FReflectedPropertyEditSessionTests,
 	ASSERT_TRUE(Durin::CapturePropertyValue(Priority, Proposal, 0, Proposed));
 	FTestTransactorOwner Transactions;
 	Durin::Editor::FPropertyEditSession Session;
-	ASSERT_TRUE(Session.Begin(
-		Durin::Editor::FPropertyEditTarget::ForMember(Component, Priority),
-		"Edit Volumetric Cloud Priority", nullptr, Transactions.Get()));
-	EXPECT_EQ(Session.Apply(Proposed), Durin::Editor::EPropertyEditResult::Changed);
-	EXPECT_EQ(Session.Commit(), Durin::Editor::EPropertyEditResult::Changed);
+	ASSERT_TRUE(Session.Begin(Durin::Editor::FPropertyEditTarget::ForMember(Component, Priority), "Edit Volumetric Cloud Priority", Transactions.Get()));
+	EXPECT_EQ(Session.Apply(Proposed).GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
+	EXPECT_EQ(Session.Commit().GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
 	EXPECT_EQ(Component->GetPriority(), 75);
 	ASSERT_TRUE(Transactions.Get()->Undo());
 	EXPECT_EQ(Component->GetPriority(), 0);
@@ -46,13 +44,11 @@ TEST(FReflectedPropertyEditSessionTests,
 	ASSERT_TRUE(Durin::CapturePropertyValue(
 		BaseFrequency, Proposal, 0, ProposedFrequency));
 	Durin::Editor::FPropertyEditSession FrequencySession;
-	ASSERT_TRUE(FrequencySession.Begin(
-		Durin::Editor::FPropertyEditTarget::ForMember(Component, BaseFrequency)
-			.ForStructMember(BaseFrequencyX),
-		"Edit Volumetric Cloud Base Frequency", nullptr, Transactions.Get()));
-	EXPECT_EQ(FrequencySession.Apply(ProposedFrequency),
+	ASSERT_TRUE(FrequencySession.Begin(Durin::Editor::FPropertyEditTarget::ForMember(Component, BaseFrequency)
+			.ForStructMember(BaseFrequencyX), "Edit Volumetric Cloud Base Frequency", Transactions.Get()));
+	EXPECT_EQ(FrequencySession.Apply(ProposedFrequency).GetStatus(),
 		Durin::Editor::EPropertyEditResult::Changed);
-	EXPECT_EQ(FrequencySession.Commit(),
+	EXPECT_EQ(FrequencySession.Commit().GetStatus(),
 		Durin::Editor::EPropertyEditResult::Changed);
 	EXPECT_EQ(Component->GetBaseFrequency(),
 		Durin::FVector3f(1.0f, 0.25f, 0.5f));
@@ -85,9 +81,9 @@ TEST(FReflectedPropertyEditSessionTests, GenericHookPipelineAppliesNestedStructF
 		.ForStructMember(NearClip);
 	Durin::Editor::FPropertyEditSession Session;
 	ASSERT_TRUE(Session.Begin(Target, "Generic Nested Edit"));
-	EXPECT_EQ(Session.Apply(Proposed), Durin::Editor::EPropertyEditResult::Changed);
+	EXPECT_EQ(Session.Apply(Proposed).GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
 	EXPECT_FLOAT_EQ(Camera->GetNearClip(), 4.0f);
-	EXPECT_EQ(Session.Cancel(), Durin::Editor::EPropertyEditResult::Changed);
+	EXPECT_EQ(Session.Cancel().GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
 	EXPECT_FLOAT_EQ(Camera->GetNearClip(), 0.1f);
 
 	Durin::MarkAsGarbage(Camera);
@@ -116,10 +112,10 @@ TEST(FReflectedPropertyEditSessionTests, RelativeTransformHookNormalizesAndRefre
 
 	Durin::Editor::FPropertyEditSession Session;
 	ASSERT_TRUE(Session.Begin(Durin::Editor::FPropertyEditTarget::ForMember(Child, Property), "Edit Transform"));
-	ASSERT_EQ(Session.Apply(Proposed), Durin::Editor::EPropertyEditResult::Changed);
+	ASSERT_EQ(Session.Apply(Proposed).GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
 	EXPECT_NEAR(Durin::Math::Length(Child->GetRelativeRotation()), 1.0, 1.e-8);
 	EXPECT_DOUBLE_EQ(Child->GetWorldLocation().x, 13.0);
-	ASSERT_EQ(Session.Cancel(), Durin::Editor::EPropertyEditResult::Changed);
+	ASSERT_EQ(Session.Cancel().GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
 	EXPECT_DOUBLE_EQ(Child->GetWorldLocation().x, 10.0);
 
 	Child->DetachFromComponent(Durin::EDetachmentTransformRule::KeepWorld);
@@ -144,7 +140,7 @@ TEST(FReflectedPropertyEditSessionTests, ArrayElementUsesStableContainerSnapshot
 	FArrayValueContainer FirstProposal{{3, 19, 11}};
 	Durin::FPropertyValueSnapshot FirstSnapshot;
 	ASSERT_TRUE(Durin::CapturePropertyValue(Array.get(), &FirstProposal, 0, FirstSnapshot));
-	ASSERT_EQ(Session.Apply(FirstSnapshot), Durin::Editor::EPropertyEditResult::Changed);
+	ASSERT_EQ(Session.Apply(FirstSnapshot).GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
 	// Whole-container restore is allowed to move storage, but path identity must
 	// keep the same continuous widget in one edit session.
 	ElementTarget = ArrayTarget.ForArrayElement(Inner.get(), 1);
@@ -152,8 +148,8 @@ TEST(FReflectedPropertyEditSessionTests, ArrayElementUsesStableContainerSnapshot
 	FArrayValueContainer SecondProposal{{3, 23, 11}};
 	Durin::FPropertyValueSnapshot SecondSnapshot;
 	ASSERT_TRUE(Durin::CapturePropertyValue(Array.get(), &SecondProposal, 0, SecondSnapshot));
-	ASSERT_EQ(Session.Apply(SecondSnapshot), Durin::Editor::EPropertyEditResult::Changed);
-	ASSERT_EQ(Session.Commit(), Durin::Editor::EPropertyEditResult::Changed);
+	ASSERT_EQ(Session.Apply(SecondSnapshot).GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
+	ASSERT_EQ(Session.Commit().GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
 	ASSERT_EQ(Container.Values, (std::vector<int32>{3, 23, 11}));
 
 	ASSERT_EQ(Object.Changes.size(), 3u);
@@ -181,8 +177,8 @@ TEST(FReflectedPropertyEditSessionTests, ArrayStructuralKindsPublishCommittedEle
 		EXPECT_TRUE(Durin::CapturePropertyValue(Array.get(), &Proposed, 0, Snapshot));
 		Durin::Editor::FPropertyEditSession Session;
 		ASSERT_TRUE(Session.Begin(Target, "Edit Array Structure"));
-		EXPECT_EQ(Session.Apply(Snapshot), Durin::Editor::EPropertyEditResult::Changed);
-		EXPECT_EQ(Session.Commit(), Durin::Editor::EPropertyEditResult::Changed);
+		EXPECT_EQ(Session.Apply(Snapshot).GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
+		EXPECT_EQ(Session.Commit().GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
 		EXPECT_EQ(Object.Changes.back().Kind, Kind);
 	};
 
@@ -217,8 +213,8 @@ TEST(FReflectedPropertyEditSessionTests, MapEditsPreserveStableKeyPathsAndStruct
 	FMapValueContainer ValueProposal{{{"Alpha", 9}, {"Beta", 2}}};
 	Durin::FPropertyValueSnapshot ValueSnapshot;
 	ASSERT_TRUE(Durin::CapturePropertyValue(MapProperty.get(), &ValueProposal, 0, ValueSnapshot));
-	ASSERT_EQ(ValueSession.Apply(ValueSnapshot), Durin::Editor::EPropertyEditResult::Changed);
-	ASSERT_EQ(ValueSession.Commit(), Durin::Editor::EPropertyEditResult::Changed);
+	ASSERT_EQ(ValueSession.Apply(ValueSnapshot).GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
+	ASSERT_EQ(ValueSession.Commit().GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
 	ASSERT_EQ(Object.Changes.back().Selectors.size(), 2u);
 	EXPECT_EQ(Object.Changes.back().Selectors[0], Durin::EPropertyPathSelector::MapKey);
 	EXPECT_EQ(Object.Changes.back().MapKeyData, KeySnapshot.GetBytes());
@@ -236,8 +232,8 @@ TEST(FReflectedPropertyEditSessionTests, MapEditsPreserveStableKeyPathsAndStruct
 		ASSERT_TRUE(Durin::CapturePropertyValue(MapProperty.get(), &Proposed, 0, Snapshot));
 		Durin::Editor::FPropertyEditSession Session;
 		ASSERT_TRUE(Session.Begin(Target, "Edit Map Structure"));
-		ASSERT_EQ(Session.Apply(Snapshot), Durin::Editor::EPropertyEditResult::Changed);
-		ASSERT_EQ(Session.Commit(), Durin::Editor::EPropertyEditResult::Changed);
+		ASSERT_EQ(Session.Apply(Snapshot).GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
+		ASSERT_EQ(Session.Commit().GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
 		EXPECT_EQ(Object.Changes.back().Kind, Kind);
 		EXPECT_EQ(Object.Changes.back().MapKeyData, StableKey.GetBytes());
 	};
@@ -258,7 +254,9 @@ TEST(FReflectedPropertyEditSessionTests, MapEditsPreserveStableKeyPathsAndStruct
 	Durin::FPropertyValueSnapshot FirstRenameSnapshot;
 	ASSERT_TRUE(Durin::CapturePropertyValue(MapProperty.get(), &FirstRename, 0, FirstRenameSnapshot));
 	std::string RenameError;
-	ASSERT_EQ(RenameSession.Apply(FirstRenameSnapshot, &RenameError), Durin::Editor::EPropertyEditResult::Changed) << RenameError;
+	const auto EditResult1 = RenameSession.Apply(FirstRenameSnapshot);
+	RenameError = Durin::Editor::FormatPropertyEditSessionError(EditResult1.Error);
+	ASSERT_EQ(EditResult1.GetStatus(), Durin::Editor::EPropertyEditResult::Changed) << RenameError;
 	const std::string Renamed = "Renamed";
 	Durin::FPropertyValueSnapshot RenamedKeySnapshot;
 	ASSERT_TRUE(Durin::CapturePropertyValue(&KeyProperty, &Renamed, 0, RenamedKeySnapshot));
@@ -269,8 +267,8 @@ TEST(FReflectedPropertyEditSessionTests, MapEditsPreserveStableKeyPathsAndStruct
 	FMapValueContainer FinalRename{{{"Final", 1}, {"Beta", 2}}};
 	Durin::FPropertyValueSnapshot FinalRenameSnapshot;
 	ASSERT_TRUE(Durin::CapturePropertyValue(MapProperty.get(), &FinalRename, 0, FinalRenameSnapshot));
-	ASSERT_EQ(RenameSession.Apply(FinalRenameSnapshot), Durin::Editor::EPropertyEditResult::Changed);
-	ASSERT_EQ(RenameSession.Commit(), Durin::Editor::EPropertyEditResult::Changed);
+	ASSERT_EQ(RenameSession.Apply(FinalRenameSnapshot).GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
+	ASSERT_EQ(RenameSession.Commit().GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
 	EXPECT_TRUE(Container.Values.contains("Final"));
 	EXPECT_FALSE(Container.Values.contains("Renamed"));
 }

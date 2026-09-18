@@ -4,7 +4,7 @@ Summary: Define the reflected editor transactor service, executable property rec
 
 Modules: DurinEd
 
-Last reviewed: 2026-09-08
+Last reviewed: 2026-09-18
 
 ## Service Ownership
 
@@ -86,14 +86,33 @@ never reused by Reset.
 
 The buffer has Idle, Recording, Executing, Undoing, Redoing, RecoveryRequired,
 and Destroying states. Begin
-is rejected during transitions and destruction. Undo, Redo, Reset, and limit
+is rejected during transitions and destruction. Public buffer rejection gates
+classify the reason with `ETransactorRejectionReason` and retain an owned
+`RejectionCause`: current state, requested identifier, active transaction/scope,
+Undo/Redo heads, history count, owned bytes, configured/requested limits and
+module name. `FTransactorResult` stores structured causes and notice kinds/counts
+without a message field. `FormatTransactorResult` generates presentation text at
+UI, event and log boundaries; decisions never depend on that text. `FailureCause` separately
+classifies scoped capture/preparation, expired objects, byte accounting and
+budget failures, retaining snapshot/record causes and relevant owner/member,
+array index, byte bounds or module facts. Scope cleanup results are retained
+as `CleanupCause`; when cleanup rejection takes precedence, `PreparationCause`
+preserves the original preparation failure. Undo, Redo, Reset, and limit
 changes are rejected while recording. Undo validates all records before
 writing, then applies property records in reverse order; Redo applies them
 forward. Partial failure rolls back records already applied and leaves the
 cursor unchanged. `FTransaction::Apply` returns a value distinguishing validation
-failure, restored execution failure, and failed compensation. Each failed rollback
-retains its record index and diagnostic. Record implementations must leave their
-own state unchanged or compensate internally when returning failure.
+failure, restored execution failure, and failed compensation. Record validation
+and application return typed errors without string outputs. Transaction errors
+retain the transaction ID, failed record index, direction, origin and record
+cause. Each failed rollback retains its own index and typed record error.
+Success derives from the error code; compensation status describes storage
+recovery independently. Property records preserve their complete typed causes.
+The pending custom-change boolean contract maps to a custom rejection code and
+retains its description/details for presentation until that contract migrates.
+`FTransactorResult::ApplyCause` preserves the entire execution result through the
+outer transactor result. Record implementations must
+leave their own state unchanged or compensate internally when returning failure.
 
 Failed compensation puts the buffer in RecoveryRequired, invalidates affected
 package checkpoints, emits one error log and a failed event, and returns every
@@ -107,7 +126,13 @@ eviction, package forgetting, Reset, and shutdown release records directly.
 Before invoking a custom change, the buffer installs its deferred completion
 hook and transition identity. A pending change holds the non-reentrant state
 until completion; success alone moves the cursor and publishes success.
-Failure leaves the cursor unchanged. Module shutdown drains every retained
+Failure leaves the cursor unchanged. Completion callbacks receive
+`FTransactionCompletionResult`, whose success derives from its typed error.
+Operation failures retain the record cause and the buffer stamps the exact
+transaction ID and operation before forwarding the result. Execute finalization
+failures retain the complete transactor result as a separate cause. Formatting
+occurs only when publishing a failed history event. A successful retry does not
+alter a previously returned error. Module shutdown drains every retained
 change tagged with that module and rejects retirement while one is active.
 
 Consumers pull immutable committed, undone, redone, failed, discarded, and

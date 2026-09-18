@@ -347,11 +347,12 @@ namespace Durin::AssetForge::Builtins
 		};
 		if (CheckCanceled()) return false;
 		std::string Error;
-		if (!DestinationDirectory.IsValid() || !Settings.IsValid(&Error))
+		const auto SettingsValidation = Settings.Validate();
+		if (!DestinationDirectory.IsValid() || !SettingsValidation)
 		{
 			AddDiagnostic(OutDiagnostics, EImportDiagnosticCategory::InvalidPlan,
-				"scene-plan", Error.empty()
-					? "Scene import plan settings are invalid." : Error);
+				"scene-plan", !DestinationDirectory.IsValid()
+					? "Scene import plan settings are invalid." : FormatStaticMeshImportSettingsError(SettingsValidation.Error));
 			return false;
 		}
 		OutPlan = {};
@@ -601,7 +602,9 @@ namespace Durin::AssetForge::Builtins
 			std::string& OutError) -> bool
 		{
 			Image::FDecodedImage Image;
-			if (!Image::DecodeImageFromMemory(EncodedBytes, Image, OutError)) return false;
+			const auto DecodeResult = Image::DecodeImageFromMemory(EncodedBytes, Image);
+			OutError = Image::FormatImageDecodeError(DecodeResult.Error);
+			if (!DecodeResult) return false;
 			if (Image.Width > std::numeric_limits<uint16>::max()
 				|| Image.Height > std::numeric_limits<uint16>::max())
 			{
@@ -768,7 +771,8 @@ namespace Durin::AssetForge::Builtins
 			.bSRGB = Descriptor.TextureUsage == ETextureUsage::Color};
 		const FTexture2DBuildExecutionControl Control{
 			.ShouldCancel = IsCancellationRequested};
-		if (!TranslateTexture2DSource(Bytes, SourceData, OutError)) return false;
+		if (const auto Translated = TranslateTexture2DSource(Bytes, SourceData); !Translated)
+		{ OutError = FormatTexture2DTranslationError(Translated.Error); return false; }
 		FTexture2DBuildRequest Request = MakeTexture2DBuildRequest(
 			SourceData, OutProduct.Settings);
 		FTexture2DBuildInputIdentity Identity;
@@ -776,7 +780,7 @@ namespace Durin::AssetForge::Builtins
 			Request, OutProduct.Product, Identity, &Control);
 		if (!BuildResult)
 		{
-			OutError = BuildResult.Diagnostic;
+			OutError = Durin::FormatTexture2DBuildError(BuildResult.Error);
 			return false;
 		}
 		OutProduct.SourceData = std::move(SourceData);

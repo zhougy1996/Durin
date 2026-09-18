@@ -40,8 +40,17 @@ namespace
 		{
 			return Package;
 		}
-		auto Undo() -> bool override { return true; }
-		auto Redo() -> bool override { return true; }
+		auto Replay(Durin::Editor::ETransactionOperation Operation) -> Durin::Editor::FTransactionCustomResult override
+		{
+			if (Operation == Durin::Editor::ETransactionOperation::Undo)
+			{
+				return {};
+			}
+			else
+			{
+				return {};
+			}
+		}
 
 	private:
 		std::array<Durin::DPackage*, 1> Package{};
@@ -148,6 +157,7 @@ namespace
 
 TEST(FEditorTransactorOwnershipTests, OwnsTransientBufferAndClearsOpenHistoryOnShutdown)
 {
+	Durin::FPropertySnapshotResult SnapshotResult;
 	Durin::Testing::InitializeDObjectSystemForTests();
 	auto* Editor = Durin::NewObject<Durin::DEditorEngine>(nullptr, "TransactorOwnerEditor");
 	ASSERT_NE(Editor, nullptr);
@@ -172,11 +182,10 @@ TEST(FEditorTransactorOwnershipTests, OwnsTransientBufferAndClearsOpenHistoryOnS
 		Durin::Editor::FPropertyEditTarget::ForMember(Editor, TransProperty);
 	Durin::FPropertyValueSnapshotPayload Snapshot;
 	std::string Error;
-	ASSERT_TRUE(Durin::CapturePropertyValuePayload(
-		TransProperty, Editor, 0, Snapshot, &Error)) << Error;
+	ASSERT_TRUE((SnapshotResult = Durin::CapturePropertyValuePayload(TransProperty, Editor, 0, Snapshot))) << Durin::FormatPropertySnapshotError(SnapshotResult.Error);
 	Durin::Editor::FTransactionObjectRecord Record;
-	ASSERT_TRUE(Durin::Editor::FTransactionObjectRecord::Capture(
-		Target, Snapshot, Snapshot, Record, &Error)) << Error;
+	const auto Capture = Durin::Editor::FTransactionObjectRecord::Capture(Target, Snapshot, Snapshot, Record);
+	ASSERT_TRUE(Capture) << Durin::Editor::FormatTransactionObjectRecordError(Capture.Error);
 	ASSERT_TRUE(Buffer->Record(Scope.ScopeId, std::move(Record)));
 	Editor->BeginDestroy();
 	EXPECT_EQ(Editor->GetTransactor(), nullptr);

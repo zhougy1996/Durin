@@ -29,9 +29,9 @@ namespace Durin::Testing
 			const FAssetResult Inspected = InspectAssetPackage(Data->PhysicalPath, Path, Inspection);
 			if (!Inspected) return Inspected;
 			std::vector<std::filesystem::path> Companions;
-			std::string Error;
-			if (!InspectEditorBulkDataCompanionPaths(Data->PhysicalPath, Inspection, Companions, &Error))
-				return {EAssetError::CorruptFile, std::move(Error)};
+			if (const auto Storage = InspectEditorBulkDataCompanionPaths(Data->PhysicalPath, Inspection, Companions); !Storage)
+				return {.Error = EAssetError::CorruptFile, .Message = FormatEditorBulkDataStorageError(Storage.Error),
+					.BulkStorageCause = Storage.Error};
 			Packages.push_back(*Data);
 			Files.push_back(Data->PhysicalPath);
 			Files.insert(Files.end(), Companions.begin(), Companions.end());

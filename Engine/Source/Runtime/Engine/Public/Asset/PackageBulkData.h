@@ -42,15 +42,40 @@ namespace Durin
 		auto operator==(const FPackageBulkDataEntry&) const -> bool = default;
 	};
 
+	enum class EPackageBulkDataError : uint8
+	{
+		None, UnsupportedFlags, SegmentLimit, DigestPresence, FieldLimit,
+		NonCanonicalIndex, UnsupportedStorage, MissingContentIdentity,
+		InvalidInlineMetadata, InvalidPlacement, InvalidExternalMetadata,
+		RangeOutsideSegment, InvalidFinalExtent, ExtentMismatch, SegmentDigestMismatch,
+		NonzeroPadding, FieldDigestMismatch,
+	};
+	struct FPackageBulkDataError
+	{
+		EPackageBulkDataError Code = EPackageBulkDataError::None;
+		uint64 Index = 0;
+		FPackageBulkSegmentSummary Summary;
+		std::optional<FPackageBulkDataEntry> Entry;
+		uint64 Actual = 0;
+		uint64 Expected = 0;
+		uint64 Offset = 0;
+		FXxHash128 ActualDigest{};
+	};
+	struct FPackageBulkDataResult
+	{
+		FPackageBulkDataError Error;
+		auto Succeeded() const -> bool { return Error.Code == EPackageBulkDataError::None; }
+		explicit operator bool() const { return Succeeded(); }
+	};
+	ENGINE_API auto FormatPackageBulkDataError(const FPackageBulkDataError& Error) -> std::string;
+
 	ENGINE_API auto ValidatePackageBulkDataMetadata(
 		const FPackageBulkSegmentSummary& Summary,
-		std::span<const FPackageBulkDataEntry> Entries,
-		std::string* OutError = nullptr) -> bool;
+		std::span<const FPackageBulkDataEntry> Entries) -> FPackageBulkDataResult;
 
 	// Validates exact extent, digest, declared payload ranges, and zero padding.
 	ENGINE_API auto ValidatePackageBulkDataSegment(
 		const FPackageBulkSegmentSummary& Summary,
 		std::span<const FPackageBulkDataEntry> Entries,
-		FByteView Segment,
-		std::string* OutError = nullptr) -> bool;
+		FByteView Segment) -> FPackageBulkDataResult;
 }

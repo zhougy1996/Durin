@@ -115,7 +115,7 @@ namespace
 		{
 			Before = Owner->NativeReference;
 			const auto* Entry = Mapping.Find(Before);
-			if (bReject || !Entry || !Entry->Replacement) return {EObjectReplacementError::ParticipantRejected, "test rejection"};
+			if (bReject || !Entry || !Entry->Replacement) return {{.Code = EObjectReplacementError::ParticipantRejected, .Reason = EObjectReplacementReason::ParticipantRejected}};
 			After = Entry->Replacement;
 			if (Strong) PreparedStrong = FStrongObjectPtr(After);
 			return {};
@@ -184,7 +184,7 @@ TEST_F(FObjectGraphReplacementTests, PersistenceFailureKeepsNewAndReplacementGra
 	AddedAsset->Reference = New;
 	const FObjectReplacementPackagePair Pairs[]{Pair, {nullptr, Added}};
 	const auto PreparedResult = Operation->Prepare(Pairs);
-	ASSERT_TRUE(PreparedResult) << PreparedResult.Message;
+	ASSERT_TRUE(PreparedResult) << FormatObjectReplacementError(PreparedResult.Error);
 	EXPECT_EQ(FindPackage(AddedPath.GetView()), nullptr);
 	EXPECT_EQ(CreatePackage(AddedPath), nullptr);
 	bool bCalled = false;
@@ -193,10 +193,11 @@ TEST_F(FObjectGraphReplacementTests, PersistenceFailureKeepsNewAndReplacementGra
 		EXPECT_EQ(FindPackage(Path.GetView()), Current);
 		EXPECT_EQ(FindPackage(AddedPath.GetView()), nullptr);
 		EXPECT_EQ(Owner->Reference.Get(), Old);
-		return {EObjectReplacementError::ParticipantRejected, "persistence failed"};
+		return {{.Code = EObjectReplacementError::ParticipantRejected, .Reason = EObjectReplacementReason::PersistenceRejected}};
 	});
 	EXPECT_TRUE(bCalled);
 	EXPECT_FALSE(Failed);
+	EXPECT_EQ(Failed.Error.Reason, EObjectReplacementReason::PersistenceRejected);
 	EXPECT_EQ(FindPackage(Path.GetView()), Current);
 	EXPECT_EQ(FindPackage(AddedPath.GetView()), nullptr);
 	EXPECT_EQ(Owner->Reference.Get(), Old);
@@ -241,7 +242,7 @@ TEST_F(FObjectGraphReplacementTests, IsolatesCandidateAndAtomicallyRebindsRefere
 	const auto Visible = GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates);
 	EXPECT_EQ(std::ranges::find(Visible, New), Visible.end());
 	const auto Result = Prepare();
-	ASSERT_TRUE(Result) << Result.Message;
+	ASSERT_TRUE(Result) << FormatObjectReplacementError(Result.Error);
 	CollectGarbage();
 	EXPECT_TRUE(IsValid(New));
 	// GC with no membership changes preserves a prepared graph.
@@ -279,7 +280,12 @@ TEST_F(FObjectGraphReplacementTests, RejectsUnmappedExternalStrongReference)
 {
 	auto* Removed = NewObject<DObject>(Old, "Removed");
 	Owner->Reference = Removed;
-	EXPECT_EQ(Prepare().Error, EObjectReplacementError::UnmappedReference);
+	const auto Result = Prepare();
+	EXPECT_EQ(Result.Error.Code, EObjectReplacementError::UnmappedReference);
+	EXPECT_EQ(Result.Error.Reason, EObjectReplacementReason::ExternalUnmappedReference);
+	EXPECT_EQ(Result.Error.ObjectPath, Owner->GetObjectPath());
+	EXPECT_EQ(Result.Error.PropertyName, "Reference");
+	EXPECT_EQ(Result.Error.Route, (std::vector<std::string>{"Reference[0]"}));
 	EXPECT_EQ(Owner->Reference.Get(), Removed);
 	EXPECT_EQ(FindPackage(Path.GetView()), Current);
 }
@@ -301,7 +307,13 @@ TEST_F(FObjectGraphReplacementTests, RejectsMapKeyCollisionWithoutChangingIndex)
 {
 	Owner->MapReferences.emplace(Old, List{Old});
 	Owner->MapReferences.emplace(New, List{New});
-	EXPECT_EQ(Prepare().Error, EObjectReplacementError::MapCollision);
+	const auto Result = Prepare();
+	EXPECT_EQ(Result.Error.Code, EObjectReplacementError::MapCollision);
+	EXPECT_EQ(Result.Error.Reason, EObjectReplacementReason::MapInsertion);
+	ASSERT_TRUE(std::holds_alternative<EContainerOpResult>(Result.Error.Cause));
+	EXPECT_EQ(std::get<EContainerOpResult>(Result.Error.Cause), EContainerOpResult::DuplicateKey);
+	EXPECT_EQ(Result.Error.ObjectPath, Owner->GetObjectPath());
+	EXPECT_EQ(Result.Error.PropertyName, "Map");
 	EXPECT_EQ(Owner->MapReferences.size(), 2u);
 	EXPECT_EQ(Owner->MapReferences.at(Old)[0].Get(), Old);
 }
@@ -311,7 +323,7 @@ TEST_F(FObjectGraphReplacementTests, RejectsNewReferenceAndContainerChangesAfter
 	Owner->NestedReferences = {{Old}};
 	ASSERT_TRUE(Prepare());
 	Owner->NestedReferences[0].push_back(Old);
-	EXPECT_EQ(Operation->TryCommit().Error, EObjectReplacementError::Stale);
+	EXPECT_EQ(Operation->TryCommit().Error.Code, EObjectReplacementError::Stale);
 	EXPECT_EQ(FindPackage(Path.GetView()), Current);
 	EXPECT_EQ(Owner->Reference.Get(), Old);
 }
@@ -321,18 +333,22 @@ TEST_F(FObjectGraphReplacementTests, RejectsNewOwnerAfterPreparation)
 	ASSERT_TRUE(Prepare());
 	auto* Late = NewObject<DReplacementOwner>(nullptr, "LateOwner");
 	Late->Reference = Old;
-	EXPECT_EQ(Operation->TryCommit().Error, EObjectReplacementError::Stale);
+	EXPECT_EQ(Operation->TryCommit().Error.Code, EObjectReplacementError::Stale);
 	EXPECT_EQ(Late->Reference.Get(), Old);
 }
 
 TEST_F(FObjectGraphReplacementTests, RejectsUnsupportedNativeAndStrongOwners)
 {
 	Owner->NativeReference = Old;
-	EXPECT_EQ(Prepare().Error, EObjectReplacementError::Unsupported);
+	EXPECT_EQ(Prepare().Error.Code, EObjectReplacementError::Unsupported);
 	Operation = std::make_unique<FObjectGraphReplacement>();
 	Owner->NativeReference = nullptr;
 	FStrongObjectPtr Unknown(Old);
-	EXPECT_EQ(Prepare().Error, EObjectReplacementError::Unsupported);
+	const auto Result = Prepare();
+	EXPECT_EQ(Result.Error.Code, EObjectReplacementError::Unsupported);
+	EXPECT_EQ(Result.Error.Reason, EObjectReplacementReason::StrongOwnerClaim);
+	EXPECT_EQ(Result.Error.ObjectPath, Old->GetObjectPath());
+	EXPECT_EQ(Result.Error.ActualCount, Result.Error.ExpectedCount + 1);
 }
 
 TEST_F(FObjectGraphReplacementTests, NativeParticipantRebindsAndDefersRetirement)
@@ -358,7 +374,10 @@ TEST_F(FObjectGraphReplacementTests, ParticipantFailureAbortsBeforePublishing)
 	Participant->Owner = Owner.Get();
 	Participant->bReject = true;
 	const std::array<std::shared_ptr<IObjectReplacementParticipant>, 1> Participants{Participant};
-	EXPECT_EQ(Operation->Prepare(std::span(&Pair, 1), Participants).Error, EObjectReplacementError::ParticipantRejected);
+	const auto Result = Operation->Prepare(std::span(&Pair, 1), Participants);
+	EXPECT_EQ(Result.Error.Code, EObjectReplacementError::ParticipantRejected);
+	EXPECT_EQ(Result.Error.Reason, EObjectReplacementReason::ParticipantRejected);
+	EXPECT_EQ(Result.Error.ParticipantIndex, 0u);
 	EXPECT_TRUE(Participant->bAborted);
 	EXPECT_EQ(Owner->NativeReference, Old);
 	EXPECT_EQ(FindPackage(Path.GetView()), Current);
@@ -366,7 +385,7 @@ TEST_F(FObjectGraphReplacementTests, ParticipantFailureAbortsBeforePublishing)
 
 TEST_F(FObjectGraphReplacementTests, RejectsBudgetBeforePublication)
 {
-	EXPECT_EQ(Operation->Prepare(std::span(&Pair, 1), {}, {.MaximumObjects = 1}).Error,
+	EXPECT_EQ(Operation->Prepare(std::span(&Pair, 1), {}, {.MaximumObjects = 1}).Error.Code,
 		EObjectReplacementError::BudgetExceeded);
 	EXPECT_EQ(FindPackage(Path.GetView()), Current);
 }
@@ -375,7 +394,7 @@ TEST_F(FObjectGraphReplacementTests, RejectsIncompatibleChildTypeBeforeAnyWrite)
 {
 	NewObject<DReplacementOwner>(Old, "Child");
 	NewObject<DObject>(New, "Child");
-	EXPECT_EQ(Prepare().Error, EObjectReplacementError::IncompatibleType);
+	EXPECT_EQ(Prepare().Error.Code, EObjectReplacementError::IncompatibleType);
 	EXPECT_EQ(FindPackage(Path.GetView()), Current);
 	EXPECT_EQ(Owner->Reference.Get(), Old);
 }
@@ -384,10 +403,10 @@ TEST_F(FObjectGraphReplacementTests, RejectsChangedExistingOwnerAndDirtyRevision
 {
 	ASSERT_TRUE(Prepare());
 	Owner->Reference = nullptr;
-	EXPECT_EQ(Operation->TryCommit().Error, EObjectReplacementError::Stale);
+	EXPECT_EQ(Operation->TryCommit().Error.Code, EObjectReplacementError::Stale);
 	Owner->Reference = Old;
 	Current->MarkDirty();
-	EXPECT_EQ(Operation->TryCommit().Error, EObjectReplacementError::Stale);
+	EXPECT_EQ(Operation->TryCommit().Error.Code, EObjectReplacementError::Stale);
 	EXPECT_EQ(FindPackage(Path.GetView()), Current);
 }
 
@@ -408,7 +427,7 @@ TEST_F(FObjectGraphReplacementTests, LateManualRootPreventsCommitAndRetirement)
 {
 	ASSERT_TRUE(Prepare());
 	AddToRoot(Old);
-	EXPECT_EQ(Operation->TryCommit().Error, EObjectReplacementError::Stale);
+	EXPECT_EQ(Operation->TryCommit().Error.Code, EObjectReplacementError::Stale);
 	RemoveFromRoot(Old);
 	ASSERT_TRUE(Operation->TryCommit());
 	AddToRoot(Old);
@@ -466,7 +485,7 @@ TEST_F(FObjectGraphReplacementTests, CrossPackageCyclesPublishTogetherAndRejectS
 	const std::array Pairs{Pair, FObjectReplacementPackagePair{OtherCurrent, OtherPrepared}};
 	ASSERT_TRUE(Operation->Prepare(Pairs));
 	OtherCurrent->MarkDirty();
-	EXPECT_EQ(Operation->TryCommit().Error, EObjectReplacementError::Stale);
+	EXPECT_EQ(Operation->TryCommit().Error.Code, EObjectReplacementError::Stale);
 	EXPECT_EQ(FindPackage(Path.GetView()), Current);
 	EXPECT_EQ(FindPackage(OtherPath.GetView()), OtherCurrent);
 	Operation->Abort();
@@ -488,4 +507,97 @@ TEST_F(FObjectGraphReplacementTests, CrossPackageCyclesPublishTogetherAndRejectS
 	EXPECT_EQ(FindPackage(OtherPath.GetView()), OtherPrepared);
 	EXPECT_TRUE(Operation->Retire());
 	MarkObjectHierarchyAsGarbage(OtherPrepared);
+}
+
+TEST_F(FObjectGraphReplacementTests, MapFailuresPreservePublishedMappingAndBudgetContext)
+{
+	FObjectReplacementMap Map;
+	ASSERT_TRUE(Map.Build(std::span(&Pair, 1)));
+	ASSERT_NE(Map.Find(Old), nullptr);
+	const auto OriginalSize = Map.GetEntries().size();
+	const auto Empty = Map.Build({});
+	ASSERT_FALSE(Empty);
+	EXPECT_EQ(Empty.Error.Code, EObjectReplacementError::BudgetExceeded);
+	EXPECT_EQ(Empty.Error.Reason, EObjectReplacementMapReason::PackageBudget);
+	EXPECT_EQ(Empty.Error.ActualCount, 0u);
+	EXPECT_EQ(Empty.Error.MaximumCount, 16u);
+	const auto Limited = Map.Build(std::span(&Pair, 1), {.MaximumObjects = 1});
+	ASSERT_FALSE(Limited);
+	EXPECT_EQ(Limited.Error.Reason, EObjectReplacementMapReason::ObjectBudget);
+	EXPECT_GT(Limited.Error.ActualCount, Limited.Error.MaximumCount);
+	EXPECT_EQ(Limited.Error.MaximumCount, 1u);
+	EXPECT_FALSE(Limited.Error.ObjectPath.empty());
+	EXPECT_EQ(Map.GetEntries().size(), OriginalSize);
+	ASSERT_NE(Map.Find(Old), nullptr);
+	EXPECT_EQ(Map.Find(Old)->Replacement, New);
+	EXPECT_EQ(FindPackage(Path.GetView()), Current);
+}
+
+TEST_F(FObjectGraphReplacementTests, MapFailuresOwnTypeIdentitiesAndSurviveGraphAdapter)
+{
+	auto* OldChild = NewObject<DReplacementOwner>(Old, "Child");
+	auto* NewChild = NewObject<DObject>(New, "Child");
+	const auto ExpectedPath = OldChild->GetObjectPath();
+	const auto ExpectedType = OldChild->GetClass()->GetQualifiedName().ToString();
+	const auto ActualType = NewChild->GetClass()->GetQualifiedName().ToString();
+	FObjectReplacementMap Map;
+	const auto Result = Map.Build(std::span(&Pair, 1));
+	ASSERT_FALSE(Result);
+	EXPECT_EQ(Result.Error.Code, EObjectReplacementError::IncompatibleType);
+	EXPECT_EQ(Result.Error.Reason, EObjectReplacementMapReason::IncompatibleType);
+	EXPECT_EQ(Result.Error.PackageIndex, 0u);
+	EXPECT_EQ(Result.Error.ObjectPath, ExpectedPath);
+	EXPECT_EQ(Result.Error.ExpectedType, ExpectedType);
+	EXPECT_EQ(Result.Error.ActualType, ActualType);
+	const auto PreparedResult = Prepare();
+	ASSERT_FALSE(PreparedResult);
+	const auto* MapCause = std::get_if<FObjectReplacementMapError>(&PreparedResult.Error.Cause);
+	ASSERT_NE(MapCause, nullptr);
+	EXPECT_EQ(MapCause->Reason, Result.Error.Reason);
+	EXPECT_EQ(MapCause->ExpectedType, ExpectedType);
+	EXPECT_EQ(MapCause->ActualType, ActualType);
+	EXPECT_EQ(MapCause->ObjectPath, ExpectedPath);
+	EXPECT_EQ(Owner->Reference.Get(), Old);
+}
+
+TEST_F(FObjectGraphReplacementTests, MapFailuresIdentifyInvalidPairIndex)
+{
+	FObjectReplacementMap Map;
+	const std::array Pairs{Pair, FObjectReplacementPackagePair{Current, Current}};
+	const auto Result = Map.Build(Pairs);
+	ASSERT_FALSE(Result);
+	EXPECT_EQ(Result.Error.Code, EObjectReplacementError::InvalidGraph);
+	EXPECT_EQ(Result.Error.Reason, EObjectReplacementMapReason::InvalidPackagePair);
+	EXPECT_EQ(Result.Error.PackageIndex, 1u);
+	EXPECT_TRUE(Map.GetEntries().empty());
+	EXPECT_TRUE(Map.GetPreparedObjects().empty());
+	EXPECT_EQ(FindPackage(Path.GetView()), Current);
+}
+
+TEST_F(FObjectGraphReplacementTests, ReferenceBudgetRetainsBoundsAndOwnerContext)
+{
+	const auto Result = Operation->Prepare(std::span(&Pair, 1), {}, {.MaximumReferenceSlots = 0});
+	EXPECT_EQ(Result.Error.Code, EObjectReplacementError::BudgetExceeded);
+	EXPECT_EQ(Result.Error.Reason, EObjectReplacementReason::ReferenceBudget);
+	EXPECT_EQ(Result.Error.ActualCount, 1u);
+	EXPECT_EQ(Result.Error.MaximumCount, 0u);
+	EXPECT_FALSE(Result.Error.ObjectPath.empty());
+	EXPECT_FALSE(Result.Error.PropertyName.empty());
+	EXPECT_EQ(Owner->Reference.Get(), Old);
+	EXPECT_EQ(FindPackage(Path.GetView()), Current);
+}
+
+TEST_F(FObjectGraphReplacementTests, NestedUnmappedReferenceRetainsOwnedRoute)
+{
+	auto* Removed = NewObject<DObject>(Old, "RemovedNested");
+	Owner->Reference = nullptr;
+	Owner->NestedReferences = {{nullptr, Removed}};
+	const auto Result = Prepare();
+	EXPECT_EQ(Result.Error.Reason, EObjectReplacementReason::ExternalUnmappedReference);
+	EXPECT_EQ(Result.Error.ObjectPath, Owner->GetObjectPath());
+	EXPECT_GE(Result.Error.Route.size(), 5u);
+	EXPECT_NE(std::ranges::find(Result.Error.Route, "1"), Result.Error.Route.end());
+	Owner->NestedReferences.clear();
+	EXPECT_NE(std::ranges::find(Result.Error.Route, "1"), Result.Error.Route.end());
+	EXPECT_EQ(FindPackage(Path.GetView()), Current);
 }

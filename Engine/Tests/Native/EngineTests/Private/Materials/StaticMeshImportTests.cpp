@@ -53,11 +53,16 @@ TEST(FStaticMeshImportTests, StaticMeshSourceProvenanceLivesOutsideContentAndSur
 TEST(FStaticMeshImportTests, StaticMeshImportSettingsValidateDistinctAxes)
 {
 	Durin::FStaticMeshImportSettings Settings = Durin::FStaticMeshImportSettings::MakeYUpNegativeZForward();
-	EXPECT_TRUE(Settings.IsValid());
+	EXPECT_TRUE(Settings.Validate());
 	Settings.RightAxis = Durin::EStaticMeshImportAxis::PositiveZ;
-	std::string Error;
-	EXPECT_FALSE(Settings.IsValid(&Error));
-	EXPECT_FALSE(Error.empty());
+	const auto Validation = Settings.Validate();
+	EXPECT_FALSE(Validation);
+	EXPECT_EQ(Validation.Error.Code, Durin::EStaticMeshImportSettingsError::RepeatedAxis);
+	EXPECT_EQ(Validation.Error.RightAxis, Durin::EStaticMeshImportAxis::PositiveZ);
+	Settings.UpAxis = static_cast<Durin::EStaticMeshImportAxis>(255);
+	const auto Unknown = Settings.Validate();
+	EXPECT_EQ(Unknown.Error.Code, Durin::EStaticMeshImportSettingsError::UnknownAxis);
+	EXPECT_EQ(Unknown.Error.UpAxis, static_cast<Durin::EStaticMeshImportAxis>(255));
 }
 
 TEST(FStaticMeshImportTests, StaticMeshImportSettingsPersistAcrossSourceRebuild)

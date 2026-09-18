@@ -111,7 +111,7 @@ TEST(FImportDialogDestinationModelTests, DelegatesValidationToAssetDestination)
 	const FAssetDestinationValidation Validation =
 		Destination.Inspect(EmptyOccupancy);
 
-	ASSERT_TRUE(Validation) << Validation.Message;
+	ASSERT_TRUE(Validation) << FormatAssetDestinationValidation(Validation);
 	EXPECT_EQ(Validation.AssetPath.ToString(), "/Project/Textures/Stone");
 	EXPECT_EQ(Validation.PhysicalPath.lexically_normal(),
 		(Root / "Project/Content/Textures/Stone.dasset").lexically_normal());

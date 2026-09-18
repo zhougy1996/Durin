@@ -1,3 +1,4 @@
+#include "RoadNet/RoadPropertyEditValidation.h"
 #include "RoadNet/RoadNetActor.h"
 #include "RoadNet/RoadNetBuilder.h"
 #include "Components/SplineMeshComponent.h"
@@ -63,9 +64,9 @@ TEST(RoadSceneIntegration, LoadedPreviewMeshFinishesCompilationBeforeConstructio
 	Section.SourceMaterialIndex = 0;
 	std::string Error;
 	FStaticMeshSource Source;
-	ASSERT_TRUE(Source.Initialize(std::move(Geometry), Error)) << Error;
+	ASSERT_TRUE(Source.Initialize(std::move(Geometry)));
 	ASSERT_TRUE(SubmitStaticMeshCompilation(*Mesh,
-		{.Source = std::move(Source), .bPersistDerivedData = false, .bMarkPackageDirty = false}, Error)) << Error;
+		{.Source = std::move(Source), .bPersistDerivedData = false, .bMarkPackageDirty = false})) << Error;
 	EXPECT_EQ(Mesh->GetRenderData(), nullptr);
 	auto* Asset = NewObject<DRoadNet>(nullptr, "LoadedSceneRoad");
 	ASSERT_TRUE(Asset->SetDefinition(Definition(), Error)) << Error;
@@ -162,6 +163,7 @@ TEST(RoadSceneIntegration, AssetRoundTripPreservesIdsAndRejectedMutationDirtySta
 
 TEST(RoadSceneIntegration, ReflectedDraftRejectsBeforeApplyAndReplayNotifies)
 {
+	Testing::InitializeDObjectSystemForTests();
 	auto* Asset = NewObject<DRoadNet>(nullptr, "ReflectedRoad");
 	auto* Draft = NewObject<DRoadNet>(nullptr, "RoadDraft");
 	std::string Error;
@@ -175,16 +177,24 @@ TEST(RoadSceneIntegration, ReflectedDraftRejectsBeforeApplyAndReplayNotifies)
 		.DraftRootProperty = Property, .DraftRootContainer = Draft, .DraftLeafContainer = Draft};
 	int Notifications = 0;
 	const auto Listener = Asset->AddMutationListener([&] { ++Notifications; });
-	EXPECT_FALSE(Asset->PreEditChangeProperty(Proposal, Error));
+	const auto Validation = Asset->PreEditChangeProperty(Proposal);
+	EXPECT_EQ(Validation.Error.Code, EObjectValidationError::PropertyRejected);
+	EXPECT_EQ(Validation.Error.PropertyName, "Definition");
+	const auto Cause = std::dynamic_pointer_cast<const FRoadPropertyEditCause>(Validation.Error.Cause);
+	ASSERT_TRUE(Cause);
+	const auto* DefinitionError = std::get_if<FRoadDefinitionError>(&Cause->Error);
+	ASSERT_NE(DefinitionError, nullptr);
+	EXPECT_EQ(DefinitionError->Code, ERoadDefinitionError::InvalidSection);
+	EXPECT_EQ(DefinitionError->SectionIndex, 0u);
 	EXPECT_EQ(Notifications, 0);
 	EXPECT_EQ(Asset->GetRoads()[0].LaneSections[0].StartDistanceMeters, 0);
 	for (auto Origin : {EPropertyChangeOrigin::Undo, EPropertyChangeOrigin::Redo})
 	{
 		Proposal.Origin = Origin;
-		EXPECT_FALSE(Asset->PreEditChangeProperty(Proposal, Error));
+		EXPECT_FALSE(Asset->PreEditChangeProperty(Proposal));
 	}
 	*Candidate = Asset->GetDefinition();
-	ASSERT_TRUE(Asset->PreEditChangeProperty(Proposal, Error));
+	ASSERT_TRUE(Asset->PreEditChangeProperty(Proposal));
 	Asset->PostEditChangeProperty({.MemberProperty = Property, .Origin = EPropertyChangeOrigin::Undo});
 	EXPECT_EQ(Notifications, 1);
 	Asset->PostEditChangeProperty({.MemberProperty = Property, .Origin = EPropertyChangeOrigin::Redo});
@@ -229,7 +239,7 @@ TEST(RoadSceneIntegration, CheckedInRoadLevelLoadsAndSurvivesGC)
 			++RoadCount;
 			EXPECT_EQ(Actor->GetGenerationState(), "Ready") << Actor->GetDiagnostic();
 			ASSERT_NE(Actor->GetRoadNet(), nullptr);
-			EXPECT_TRUE(ValidateDefinition(Actor->GetRoadNet()->GetDefinition(), Error)) << Error;
+			EXPECT_TRUE(ValidateDefinition(Actor->GetRoadNet()->GetDefinition())) << Error;
 		}
 	EXPECT_GT(RoadCount, 0);
 	EXPECT_FALSE(Level->GetPackage()->IsDirty());

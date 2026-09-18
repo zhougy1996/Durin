@@ -2,6 +2,7 @@
 
 #include "Components/PrimitiveComponent.h"
 #include "DObject/ObjectPtr.h"
+#include "StaticMesh/StaticMeshMaterialBinding.h"
 
 #include <optional>
 #include <span>
@@ -36,7 +37,7 @@ namespace Durin
 		ENGINE_API auto HasMaterialOverride(uint32 SlotIndex) const -> bool;
 		auto GetOverrideMaterials() const -> std::span<const TObjectPtr<DMaterialInterface>> { return OverrideMaterials; }
 		ENGINE_API auto PostLoad() -> void override;
-		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool override;
+		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal) -> FObjectValidationResult override;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 
 	protected:
@@ -49,7 +50,7 @@ namespace Durin
 	private:
 		ENGINE_API auto BuildMaterialRenderProxyBindingUpdate(
 			FMaterialRenderProxyBindingUpdate& OutUpdate) -> bool override;
-		auto ValidateOverrideMaterials(std::span<const TObjectPtr<DMaterialInterface>> Overrides, std::string& OutError) const -> bool;
+		auto ValidateOverrideMaterials(std::span<const TObjectPtr<DMaterialInterface>> Overrides) const -> FStaticMeshMaterialOverrideResult;
 
 		// Keep dormant indices across mesh replacement; only non-null overrides are authored.
 		DPROPERTY()

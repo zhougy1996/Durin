@@ -63,20 +63,96 @@ namespace Durin::Editor
 		RecoveryRequired
 	};
 
+	enum class ETransactionRecordError : uint8 { None, Object, MissingCustom, CustomRejected };
+	struct FTransactionRecordError
+	{
+		ETransactionRecordError Code = ETransactionRecordError::None;
+		bool Before = false;
+		EPropertyChangeOrigin Origin = EPropertyChangeOrigin::Edit;
+		std::optional<FTransactionObjectRecordError> ObjectCause;
+		std::string CustomDescription;
+		// Presentation details retained from the pending custom-change contract.
+		std::optional<FTransactionCustomError> CustomCause;
+	};
+	struct FTransactionRecordResult
+	{
+		FTransactionRecordError Error;
+		explicit operator bool() const { return Error.Code == ETransactionRecordError::None; }
+	};
+	DURINED_API auto FormatTransactionRecordError(const FTransactionRecordError& Error) -> std::string;
+
+	enum class ETransactionApplyError : uint8 { None, Validation, Execution };
+	struct FTransactionApplyError
+	{
+		ETransactionApplyError Code = ETransactionApplyError::None;
+		FTransactionId TransactionId = 0;
+		size_t RecordIndex = 0;
+		bool Undo = false;
+		EPropertyChangeOrigin Origin = EPropertyChangeOrigin::Edit;
+		FTransactionRecordError RecordCause;
+	};
 	struct FTransactionRollbackFailure
 	{
 		size_t RecordIndex = 0;
-		std::string Message;
+		FTransactionRecordError Error;
 	};
 
-	// Separates an unchanged/restored transaction from an incomplete compensation.
+	// Separates restored storage from incomplete compensation without flattening causes.
 	struct [[nodiscard]] FTransactionApplyResult
 	{
-		ETransactionApplyStatus Status = ETransactionApplyStatus::ValidationFailed;
-		std::string Message;
+		ETransactionApplyStatus Status = ETransactionApplyStatus::Succeeded;
+		FTransactionApplyError Error;
 		std::vector<FTransactionRollbackFailure> RollbackFailures;
-		explicit operator bool() const { return Status == ETransactionApplyStatus::Succeeded; }
+		explicit operator bool() const { return Error.Code == ETransactionApplyError::None; }
 	};
+	DURINED_API auto FormatTransactionApplyError(const FTransactionApplyError& Error) -> std::string;
+
+	enum class ETransactorRejectionReason : uint8
+	{
+		BeginState, RecordScope, RecordOrder, ExecuteState, MissingCustom,
+		UpdateScope, UpdateOrder, MissingRecord, CloseScope, CloseOrder, UndoState,
+		UndoHead, RedoState, RedoHead, ResetState, RemoveState, CompletionIdentity,
+		ModuleName, ModulePending, ModuleRecording, LimitsState, ZeroLimits, RedoLimits
+	};
+	struct FTransactorRejection
+	{
+		ETransactorRejectionReason Reason = ETransactorRejectionReason::BeginState;
+		ETransactorState State = ETransactorState::Idle;
+		uint64 RequestedId = 0;
+		FTransactionId PendingId = 0;
+		FTransactionScopeId ScopeId = 0;
+		FTransactionId UndoHead = 0;
+		FTransactionId RedoHead = 0;
+		size_t HistoryCount = 0;
+		size_t OwnedBytes = 0;
+		FTransactionBufferLimits Limits;
+		std::optional<FTransactionBufferLimits> RequestedLimits;
+		std::string ModuleName;
+	};
+	DURINED_API auto FormatTransactorRejection(const FTransactorRejection& Rejection) -> std::string;
+
+	enum class ETransactorFailure : uint8
+	{
+		Unsupported, InactiveModify, InvalidObject, InactiveRecord, InactiveUpdate,
+		CaptureBefore, PrepareRecord, ExpiredObject, CaptureAfter, FinalizeRecord,
+		EntryAccounting, RetainedAccounting, ByteLimit, RemovalAccounting,
+		ModuleAccounting, InconsistentAccounting
+	};
+	struct FTransactorFailure
+	{
+		ETransactorFailure Code = ETransactorFailure::Unsupported;
+		FObjectKey Owner;
+		std::string Member;
+		std::string Module;
+		uint32 ArrayIndex = 0;
+		size_t Actual = 0;
+		size_t Limit = 0;
+		size_t Index = 0;
+		std::optional<FPropertySnapshotError> SnapshotCause;
+		std::optional<FTransactionObjectRecordError> RecordCause;
+	};
+
+	enum class ETransactorNotice : uint8 { None, NoMembers, InactiveScope, NothingUndo, NothingRedo, ModuleDrain };
 
 	struct [[nodiscard]] FTransactorResult
 	{
@@ -84,12 +160,20 @@ namespace Durin::Editor
 		FTransactionId TransactionId = 0;
 		FTransactionScopeId ScopeId = 0;
 		uint64 RecordId = 0;
-		std::string Message;
+		ETransactorNotice Notice = ETransactorNotice::None;
+		size_t NoticeCount = 0;
 		std::vector<FTransactionRollbackFailure> RollbackFailures;
+		std::shared_ptr<const FTransactionApplyResult> ApplyCause;
+		std::optional<FTransactorRejection> RejectionCause;
+		std::optional<FTransactorFailure> FailureCause;
+		std::shared_ptr<const FTransactorResult> CleanupCause;
+		std::shared_ptr<const FTransactorResult> PreparationCause;
 
 		auto IsSuccess() const -> bool { return Code == ETransactorResultCode::Succeeded; }
 		explicit operator bool() const { return IsSuccess(); }
 	};
+
+	DURINED_API auto FormatTransactorResult(const FTransactorResult& Result) -> std::string;
 
 	struct FTransactionPackageRevisionTransition
 	{
@@ -109,12 +193,11 @@ namespace Durin::Editor
 		explicit FTransactionRecord(std::unique_ptr<ITransactionCustomChange> Change)
 			: Data(std::move(Change)) {}
 
-		DURINED_API auto Validate(std::string* OutError = nullptr) const -> bool;
+		DURINED_API auto Validate() const -> FTransactionRecordResult;
 		auto IsNoOp() const -> bool;
 		DURINED_API auto Apply(
 			bool bBefore,
-			EPropertyChangeOrigin Origin,
-			std::string* OutError = nullptr) -> bool;
+			EPropertyChangeOrigin Origin) -> FTransactionRecordResult;
 		DURINED_API auto AddReferencedObjects(FReferenceCollector& Collector) const -> void;
 		DURINED_API auto TryGetAllocatedSize(size_t& OutBytes) const -> bool;
 		DURINED_API auto IsDeferredOperationPending() const -> bool;
@@ -149,7 +232,7 @@ namespace Durin::Editor
 		DURINED_API auto UpdateRecord(uint64 RecordId, FTransactionObjectRecord Record) -> bool;
 		DURINED_API auto TruncateRecords(size_t Count) -> void;
 		DURINED_API auto RemoveNoOpRecords() -> void;
-		DURINED_API auto Validate(std::string* OutError = nullptr) const -> bool;
+		DURINED_API auto Validate() const -> FTransactionApplyResult;
 		DURINED_API auto Apply(
 			bool bUndo,
 			EPropertyChangeOrigin Origin
@@ -350,14 +433,16 @@ namespace Durin
 
 		auto HandleApplyFailure(const Editor::FTransaction& Transaction, Editor::FTransactionApplyResult Result) -> Editor::FTransactorResult;
 		auto CheckThread() const -> void;
-		auto Reject(std::string Message) const -> Editor::FTransactorResult;
+		auto Reject(Editor::ETransactorRejectionReason Reason, uint64 RequestedId = 0,
+			std::string_view ModuleName = {},
+			std::optional<Editor::FTransactionBufferLimits> RequestedLimits = {}) const -> Editor::FTransactorResult;
 		auto CloseScope(Editor::FTransactionScopeId ScopeId, bool bCancel)
 			-> Editor::FTransactorResult;
 		auto FinalizePending() -> Editor::FTransactorResult;
 		auto CompleteDeferredOperation(
 			Editor::ETransactionOperation Operation,
 			Editor::FTransactionId TransactionId,
-			bool bSucceeded) -> void;
+			Editor::FTransactionCompletionResult Result) -> void;
 		auto FindTransaction(Editor::FTransactionId TransactionId)
 			-> Editor::FTransaction*;
 		auto FindTransaction(Editor::FTransactionId TransactionId) const

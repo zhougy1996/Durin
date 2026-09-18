@@ -49,78 +49,102 @@ namespace Durin
 		}
 
 		template<typename T>
-		auto ValidateScalarMetadata(const FPropertyMetadata& Metadata, const void* Value, std::string* OutError) -> bool
+		auto ValidateScalarMetadata(const FPropertyMetadata& Metadata, const void* Value) -> FPropertyEditValueResult
 		{
 			const T Current = *static_cast<const T*>(Value);
+			FPropertyEditValueError Error{.Minimum = Metadata.ClampMin, .Maximum = Metadata.ClampMax};
+			if constexpr (std::is_integral_v<T> && std::is_signed_v<T>) Error.Current = FPropertyMetadataNumber::FromSigned(Current);
+			else if constexpr (std::is_integral_v<T>) Error.Current = FPropertyMetadataNumber::FromUnsigned(Current);
+			else if constexpr (std::is_same_v<T, float>) Error.Current = FPropertyMetadataNumber::FromFloat(Current);
+			else Error.Current = FPropertyMetadataNumber::FromDouble(Current);
 			if constexpr (std::is_floating_point_v<T>)
 			{
 				if ((Metadata.ClampMin.Kind != EPropertyMetadataNumericKind::None
 					|| Metadata.ClampMax.Kind != EPropertyMetadataNumericKind::None) && !std::isfinite(Current))
-				{
-					if (OutError) *OutError = "The proposed value is non-finite and violates its property-edit bounds.";
-					return false;
-				}
+					Error.Code = EPropertyEditValueError::NonFinite;
 			}
-			if (Metadata.ClampMin.Kind != EPropertyMetadataNumericKind::None
-				&& Current < MetadataNumberAs<T>(Metadata.ClampMin))
-			{
-				if (OutError) *OutError = "The proposed value is below ClampMin.";
-				return false;
-			}
-			if (Metadata.ClampMax.Kind != EPropertyMetadataNumericKind::None
-				&& Current > MetadataNumberAs<T>(Metadata.ClampMax))
-			{
-				if (OutError) *OutError = "The proposed value exceeds ClampMax.";
-				return false;
-			}
-			return true;
+			if (Error.Code == EPropertyEditValueError::None && Metadata.ClampMin.Kind != EPropertyMetadataNumericKind::None
+				&& Current < MetadataNumberAs<T>(Metadata.ClampMin)) Error.Code = EPropertyEditValueError::BelowMinimum;
+			if (Error.Code == EPropertyEditValueError::None && Metadata.ClampMax.Kind != EPropertyMetadataNumericKind::None
+				&& Current > MetadataNumberAs<T>(Metadata.ClampMax)) Error.Code = EPropertyEditValueError::AboveMaximum;
+			return {std::move(Error)};
 		}
 
 		auto ValidateMetadataValue(const FProperty* Property, const FPropertyMetadata& Metadata,
-			const void* Value, std::string* OutError) -> bool
+			const void* Value) -> FPropertyEditValueResult
 		{
-			switch (Property->GetKind())
+			auto Result = [&]() -> FPropertyEditValueResult {
+				switch (Property->GetKind())
+				{
+				case DurinCodeGen::EPropertyGenFlags::Int8: return ValidateScalarMetadata<int8>(Metadata, Value);
+				case DurinCodeGen::EPropertyGenFlags::Int16: return ValidateScalarMetadata<int16>(Metadata, Value);
+				case DurinCodeGen::EPropertyGenFlags::Int32: return ValidateScalarMetadata<int32>(Metadata, Value);
+				case DurinCodeGen::EPropertyGenFlags::Int64: return ValidateScalarMetadata<int64>(Metadata, Value);
+				case DurinCodeGen::EPropertyGenFlags::UInt8: return ValidateScalarMetadata<uint8>(Metadata, Value);
+				case DurinCodeGen::EPropertyGenFlags::UInt16: return ValidateScalarMetadata<uint16>(Metadata, Value);
+				case DurinCodeGen::EPropertyGenFlags::UInt32: return ValidateScalarMetadata<uint32>(Metadata, Value);
+				case DurinCodeGen::EPropertyGenFlags::UInt64: return ValidateScalarMetadata<uint64>(Metadata, Value);
+				case DurinCodeGen::EPropertyGenFlags::Float: return ValidateScalarMetadata<float>(Metadata, Value);
+				case DurinCodeGen::EPropertyGenFlags::Double: return ValidateScalarMetadata<double>(Metadata, Value);
+				case DurinCodeGen::EPropertyGenFlags::Struct:
+				{
+					auto* Struct = static_cast<const FStructProperty*>(Property)->GetStruct();
+					if (!Struct) return {{.Code = EPropertyEditValueError::MissingStruct}};
+					FPropertyEditValueResult Nested;
+					Struct->ForEachProperty([&](FProperty* Field) {
+						if (Nested && Field) Nested = ValidateMetadataValue(Field, Metadata, Field->GetValuePtr(Value));
+					}, false);
+					return Nested;
+				}
+				default: return {};
+				}
+			}();
+			if (!Result)
 			{
-			case DurinCodeGen::EPropertyGenFlags::Int8: return ValidateScalarMetadata<int8>(Metadata, Value, OutError);
-			case DurinCodeGen::EPropertyGenFlags::Int16: return ValidateScalarMetadata<int16>(Metadata, Value, OutError);
-			case DurinCodeGen::EPropertyGenFlags::Int32: return ValidateScalarMetadata<int32>(Metadata, Value, OutError);
-			case DurinCodeGen::EPropertyGenFlags::Int64: return ValidateScalarMetadata<int64>(Metadata, Value, OutError);
-			case DurinCodeGen::EPropertyGenFlags::UInt8: return ValidateScalarMetadata<uint8>(Metadata, Value, OutError);
-			case DurinCodeGen::EPropertyGenFlags::UInt16: return ValidateScalarMetadata<uint16>(Metadata, Value, OutError);
-			case DurinCodeGen::EPropertyGenFlags::UInt32: return ValidateScalarMetadata<uint32>(Metadata, Value, OutError);
-			case DurinCodeGen::EPropertyGenFlags::UInt64: return ValidateScalarMetadata<uint64>(Metadata, Value, OutError);
-			case DurinCodeGen::EPropertyGenFlags::Float: return ValidateScalarMetadata<float>(Metadata, Value, OutError);
-			case DurinCodeGen::EPropertyGenFlags::Double: return ValidateScalarMetadata<double>(Metadata, Value, OutError);
-			case DurinCodeGen::EPropertyGenFlags::Struct:
-			{
-				auto* StructProperty = static_cast<const FStructProperty*>(Property);
-				DStruct* Struct = StructProperty->GetStruct();
-				if (!Struct) return false;
-				bool bValid = true;
-				Struct->ForEachProperty([&](FProperty* Field) {
-					if (!bValid || !Field) return;
-					bValid = ValidateMetadataValue(Field, Metadata, Field->GetValuePtr(Value), OutError);
-				}, false);
-				return bValid;
+				if (Result.Error.PropertyName.empty()) Result.Error.PropertyName = Property->NamePrivate.ToString();
+				Result.Error.Route.insert(Result.Error.Route.begin(), Property->NamePrivate.ToString());
 			}
-			default: return true;
-			}
+			return Result;
+		}
+	}
+
+	auto FormatPropertyEditValueError(const FPropertyEditValueError& Error) -> std::string
+	{
+		switch (Error.Code)
+		{
+		case EPropertyEditValueError::None: return {};
+		case EPropertyEditValueError::NonFinite: return "The proposed value is non-finite and violates its property-edit bounds.";
+		case EPropertyEditValueError::BelowMinimum: return "The proposed value is below ClampMin.";
+		case EPropertyEditValueError::AboveMaximum: return "The proposed value exceeds ClampMax.";
+		case EPropertyEditValueError::MissingStruct: return "The reflected Struct metadata is unavailable.";
+		default: return "The reflected property value is unavailable.";
 		}
 	}
 
 	auto ValidatePropertyEditValue(const FProperty* Property, const void* Container,
-		uint32 ArrayIndex, std::string* OutError) -> bool
+		uint32 ArrayIndex) -> FPropertyEditValueResult
 	{
-		if (OutError) OutError->clear();
-		if (!Property || !Container || ArrayIndex >= Property->GetArrayDim())
+		FPropertyEditValueResult Result;
+		if (!Property) Result.Error.Code = EPropertyEditValueError::NullProperty;
+		else if (!Container) Result.Error.Code = EPropertyEditValueError::NullContainer;
+		else if (ArrayIndex >= Property->GetArrayDim()) Result.Error.Code = EPropertyEditValueError::InvalidArrayIndex;
+		else
 		{
-			if (OutError) *OutError = "The reflected property value is unavailable.";
-			return false;
+			const auto& Metadata = Property->GetTypedMetadata();
+			if (Metadata.ClampMin.Kind == EPropertyMetadataNumericKind::None
+				&& Metadata.ClampMax.Kind == EPropertyMetadataNumericKind::None) return {};
+			Result = ValidateMetadataValue(Property, Metadata, Property->GetValuePtr(Container, ArrayIndex));
 		}
-		const FPropertyMetadata& Metadata = Property->GetTypedMetadata();
-		if (Metadata.ClampMin.Kind == EPropertyMetadataNumericKind::None
-			&& Metadata.ClampMax.Kind == EPropertyMetadataNumericKind::None) return true;
-		return ValidateMetadataValue(Property, Metadata, Property->GetValuePtr(Container, ArrayIndex), OutError);
+		if (!Result)
+		{
+			Result.Error.ArrayIndex = ArrayIndex;
+			if (Property)
+			{
+				Result.Error.ArrayDim = Property->GetArrayDim();
+				if (Result.Error.PropertyName.empty()) Result.Error.PropertyName = Property->NamePrivate.ToString();
+			}
+		}
+		return Result;
 	}
 
 	namespace
@@ -177,30 +201,37 @@ namespace Durin
 			}
 		}
 
-		auto ReportUnavailablePropertyOperation(
-			const FProperty* Property,
-			std::string_view Operation,
-			std::string* OutError
-		) -> bool
+		auto PropertyValueFailure(const FProperty* Property, EPropertyValueError Code,
+			EPropertyValueOperation Operation, uint32 ArrayIndex = 0) -> FPropertyValueResult
 		{
-			if (!OutError) return false;
-			if (DStruct* Struct = GetPropertyStruct(Property))
+			FPropertyValueError Error;
+			Error.Code = Code;
+			Error.Operation = Operation;
+			Error.ArrayIndex = ArrayIndex;
+			if (Property)
 			{
-				*OutError = std::format(
-					"DStructOperationUnavailable: {} is unavailable for '{}'.",
-					Operation,
-					Struct->GetQualifiedName()
-				);
+				Error.PropertyName = Property->NamePrivate.ToString();
+				Error.ArrayDim = Property->GetArrayDim();
+				Error.ValueSize = Property->GetValueSize();
+				Error.ValueAlignment = Property->GetValueAlignment();
+				if (const auto* Struct = GetPropertyStruct(Property))
+					Error.StructName = Struct->GetQualifiedName().ToString();
 			}
-			else
+			return {std::move(Error)};
+		}
+
+		auto ContainerFailure(const FProperty* Property, EPropertyContainerOperation Operation,
+			uint32 Index, EContainerOpResult Code, const FProperty* ValueProperty = nullptr,
+			EPropertyContainerRequirement Requirement = EPropertyContainerRequirement::None) -> FPropertyContainerResult
+		{
+			FPropertyContainerError Error{.Code = Code, .Operation = Operation, .Requirement = Requirement,
+				.PropertyName = Property->NamePrivate.ToString(), .ArrayIndex = Index, .ArrayDim = Property->GetArrayDim()};
+			if (ValueProperty)
 			{
-				*OutError = std::format(
-					"ReflectedValueOperationUnavailable: {} is unavailable for property '{}'.",
-					Operation,
-					Property ? Property->NamePrivate.ToString() : std::string("<null>")
-				);
+				Error.ValuePropertyName = ValueProperty->NamePrivate.ToString();
+				if (auto* Struct = GetPropertyStruct(ValueProperty)) Error.StructName = Struct->GetQualifiedName().ToString();
 			}
-			return false;
+			return {std::move(Error)};
 		}
 
 		struct FPropertyIdentityContext
@@ -275,7 +306,7 @@ namespace Durin
 		{
 			const FProperty* KeyProperty = nullptr;
 			std::vector<FIdentityMapEntry>* Entries = nullptr;
-			std::string Error;
+			FReflectedMapKeyError Error;
 			bool bSucceeded = true;
 		};
 
@@ -283,8 +314,9 @@ namespace Durin
 		{
 			auto& Context = *static_cast<FIdentityMapCollectContext*>(RawContext);
 			FIdentityMapEntry Entry{Key, Value, {}};
-			if (!BuildCanonicalMapKeyToken(Context.KeyProperty, Key, 0, Entry.KeyToken, &Context.Error))
+			if (const auto Result = BuildCanonicalMapKeyToken(Context.KeyProperty, Key, 0, Entry.KeyToken); !Result)
 			{
+				Context.Error = Result.Error;
 				Context.bSucceeded = false;
 				return false;
 			}
@@ -786,11 +818,11 @@ namespace Durin
 		return CopyAssignValueFunction != nullptr;
 	}
 
-	auto FProperty::InitializeValue(void* Memory, std::string* OutError) const -> bool
+	auto FProperty::InitializeValue(void* Memory) const -> FPropertyValueResult
 	{
-		if (OutError) OutError->clear();
-		if (!Memory || !CanDefaultConstructValue() || !CanDestroyValue())
-			return ReportUnavailablePropertyOperation(this, "DefaultConstruct", OutError);
+		if (!Memory) return PropertyValueFailure(this, EPropertyValueError::NullValue, EPropertyValueOperation::DefaultConstruct);
+		if (!CanDefaultConstructValue() || !CanDestroyValue())
+			return PropertyValueFailure(this, EPropertyValueError::UnavailableOperation, EPropertyValueOperation::DefaultConstruct);
 		if (DStruct* Struct = GetPropertyStruct(this))
 		{
 			Struct->GetOps().DefaultConstruct(Memory);
@@ -815,7 +847,7 @@ namespace Durin
 			default: std::memset(Memory, 0, GetValueSize()); break;
 			}
 		}
-		return true;
+		return {};
 	}
 
 	auto FProperty::DestroyValue(void* Memory) const -> void
@@ -847,11 +879,11 @@ namespace Durin
 		}
 	}
 
-	auto FProperty::CopyConstructValue(void* Destination, const void* Source, std::string* OutError) const -> bool
+	auto FProperty::CopyConstructValue(void* Destination, const void* Source) const -> FPropertyValueResult
 	{
-		if (OutError) OutError->clear();
-		if (!Destination || !Source || !CanCopyConstructValue() || !CanDestroyValue())
-			return ReportUnavailablePropertyOperation(this, "CopyConstruct", OutError);
+		if (!Destination || !Source) return PropertyValueFailure(this, EPropertyValueError::NullValue, EPropertyValueOperation::CopyConstruct);
+		if (!CanCopyConstructValue() || !CanDestroyValue())
+			return PropertyValueFailure(this, EPropertyValueError::UnavailableOperation, EPropertyValueOperation::CopyConstruct);
 		try
 		{
 			if (DStruct* Struct = GetPropertyStruct(this))
@@ -861,17 +893,16 @@ namespace Durin
 		}
 		catch (...)
 		{
-			if (OutError) *OutError = "ReflectedValueCopyFailed: copy construction failed.";
-			return false;
+			return PropertyValueFailure(this, EPropertyValueError::CopyFailed, EPropertyValueOperation::CopyConstruct);
 		}
-		return true;
+		return {};
 	}
 
-	auto FProperty::CopyAssignValue(void* Destination, const void* Source, std::string* OutError) const -> bool
+	auto FProperty::CopyAssignValue(void* Destination, const void* Source) const -> FPropertyValueResult
 	{
-		if (OutError) OutError->clear();
-		if (!Destination || !Source || !CanCopyAssignValue())
-			return ReportUnavailablePropertyOperation(this, "CopyAssign", OutError);
+		if (!Destination || !Source) return PropertyValueFailure(this, EPropertyValueError::NullValue, EPropertyValueOperation::CopyAssign);
+		if (!CanCopyAssignValue())
+			return PropertyValueFailure(this, EPropertyValueError::UnavailableOperation, EPropertyValueOperation::CopyAssign);
 		try
 		{
 			if (DStruct* Struct = GetPropertyStruct(this))
@@ -881,10 +912,9 @@ namespace Durin
 		}
 		catch (...)
 		{
-			if (OutError) *OutError = "ReflectedValueCopyFailed: copy assignment failed.";
-			return false;
+			return PropertyValueFailure(this, EPropertyValueError::CopyFailed, EPropertyValueOperation::CopyAssign);
 		}
-		return true;
+		return {};
 	}
 
 	FReflectedValueStorage::~FReflectedValueStorage()
@@ -923,86 +953,76 @@ namespace Durin
 		return *this;
 	}
 
-	auto FReflectedValueStorage::Allocate(
-		const FProperty* InProperty,
-		uint32 InArrayIndex,
-		std::string* OutError
-	) -> bool
+	auto FReflectedValueStorage::Allocate(const FProperty* InProperty, uint32 InArrayIndex) -> FPropertyValueResult
 	{
-		if (!InProperty || InProperty->HasValueAccessors()
-			|| InArrayIndex >= InProperty->GetArrayDim()
-			|| InProperty->GetValueSize() == 0
-			|| InProperty->GetValueAlignment() == 0)
-		{
-			Property = InProperty;
-			return Fail(OutError, "Storage");
-		}
-
 		Property = InProperty;
+		using C = EPropertyValueError;
+		constexpr auto Op = EPropertyValueOperation::Storage;
+		if (!Property) return Fail(C::NullProperty, Op, InArrayIndex);
+		if (Property->HasValueAccessors()) return Fail(C::CustomAccessorStorage, Op, InArrayIndex);
+		if (InArrayIndex >= Property->GetArrayDim()) return Fail(C::InvalidArrayIndex, Op, InArrayIndex);
+		if (Property->GetValueSize() == 0 || Property->GetValueAlignment() == 0)
+			return Fail(C::InvalidLayout, Op, InArrayIndex);
 		ArrayIndex = InArrayIndex;
 		Alignment = std::max<size_t>(InProperty->GetValueAlignment(), __STDCPP_DEFAULT_NEW_ALIGNMENT__);
 		const size_t Size = std::max<size_t>(1, static_cast<size_t>(InProperty->GetOffset()) + static_cast<size_t>(InProperty->GetElementSize()) * static_cast<size_t>(InArrayIndex) + static_cast<size_t>(InProperty->GetValueSize()));
 		Memory = ::operator new(Size, std::align_val_t(Alignment));
 		Value = InProperty->GetValuePtr(Memory, InArrayIndex);
-		return true;
+		return {};
 	}
 
-	auto FReflectedValueStorage::DefaultConstruct(
-		const FProperty* InProperty,
-		uint32 InArrayIndex,
-		std::string* OutError
-	) -> bool
+	auto FReflectedValueStorage::DefaultConstruct(const FProperty* InProperty, uint32 InArrayIndex) -> FPropertyValueResult
 	{
-		if (OutError) OutError->clear();
-		if (Memory || bLive)
+		using C = EPropertyValueError;
+		constexpr auto Op = EPropertyValueOperation::DefaultConstruct;
+		if (Memory || bLive) return Fail(C::StorageAlreadyLive, Op, InArrayIndex);
+		Property = InProperty;
+		if (!Property) return Fail(C::NullProperty, Op, InArrayIndex);
+		if (!Property->CanDefaultConstructValue() || !Property->CanDestroyValue())
+			return Fail(C::UnavailableOperation, Op, InArrayIndex);
+		if (auto Result = Allocate(InProperty, InArrayIndex); !Result) return Result;
+		if (auto Result = Property->InitializeValue(Value); !Result)
 		{
-			return Fail(OutError, "DefaultConstruct");
-		}
-		if (!InProperty || !InProperty->CanDefaultConstructValue() || !InProperty->CanDestroyValue())
-		{
-			Property = InProperty;
-			return Fail(OutError, "DefaultConstruct");
-		}
-		if (!Allocate(InProperty, InArrayIndex, OutError)) return false;
-		if (!Property->InitializeValue(Value, OutError))
-		{
+			Result.Error.ArrayIndex = InArrayIndex;
 			Reset();
-			return false;
+			return Result;
 		}
 		bLive = true;
-		return true;
+		return {};
 	}
 
-	auto FReflectedValueStorage::CopyConstruct(
-		const FProperty* InProperty,
-		const void* SourceValue,
-		uint32 InArrayIndex,
-		std::string* OutError
-	) -> bool
+	auto FReflectedValueStorage::CopyConstruct(const FProperty* InProperty, const void* SourceValue,
+		uint32 InArrayIndex) -> FPropertyValueResult
 	{
-		if (OutError) OutError->clear();
-		if (Memory || bLive || !InProperty || !SourceValue
-			|| !InProperty->CanCopyConstructValue() || !InProperty->CanDestroyValue())
+		using C = EPropertyValueError;
+		constexpr auto Op = EPropertyValueOperation::CopyConstruct;
+		if (Memory || bLive) return Fail(C::StorageAlreadyLive, Op, InArrayIndex);
+		Property = InProperty;
+		if (!Property) return Fail(C::NullProperty, Op, InArrayIndex);
+		if (!SourceValue) return Fail(C::NullValue, Op, InArrayIndex);
+		if (!Property->CanCopyConstructValue() || !Property->CanDestroyValue())
+			return Fail(C::UnavailableOperation, Op, InArrayIndex);
+		if (auto Result = Allocate(InProperty, InArrayIndex); !Result) return Result;
+		if (auto Result = Property->CopyConstructValue(Value, SourceValue); !Result)
 		{
-			if (!Property) Property = InProperty;
-			return Fail(OutError, "CopyConstruct");
-		}
-		if (!Allocate(InProperty, InArrayIndex, OutError)) return false;
-		if (!Property->CopyConstructValue(Value, SourceValue, OutError))
-		{
+			Result.Error.ArrayIndex = InArrayIndex;
 			Reset();
-			return false;
+			return Result;
 		}
 		bLive = true;
-		return true;
+		return {};
 	}
 
-	auto FReflectedValueStorage::CopyAssign(const void* SourceValue, std::string* OutError) -> bool
+	auto FReflectedValueStorage::CopyAssign(const void* SourceValue) -> FPropertyValueResult
 	{
-		if (OutError) OutError->clear();
-		if (!bLive || !Property || !SourceValue || !Property->CanCopyAssignValue())
-			return Fail(OutError, "CopyAssign");
-		return Property->CopyAssignValue(Value, SourceValue, OutError);
+		using C = EPropertyValueError;
+		constexpr auto Op = EPropertyValueOperation::CopyAssign;
+		if (!bLive || !Property) return Fail(C::StorageNotLive, Op, ArrayIndex);
+		if (!SourceValue) return Fail(C::NullValue, Op, ArrayIndex);
+		if (!Property->CanCopyAssignValue()) return Fail(C::UnavailableOperation, Op, ArrayIndex);
+		auto Result = Property->CopyAssignValue(Value, SourceValue);
+		if (!Result) Result.Error.ArrayIndex = ArrayIndex;
+		return Result;
 	}
 
 	auto FReflectedValueStorage::Reset() -> void
@@ -1017,9 +1037,31 @@ namespace Durin
 		bLive = false;
 	}
 
-	auto FReflectedValueStorage::Fail(std::string* OutError, std::string_view Operation) const -> bool
+	auto FReflectedValueStorage::Fail(EPropertyValueError Code, EPropertyValueOperation Operation,
+		uint32 RequestedIndex) const -> FPropertyValueResult
 	{
-		return ReportUnavailablePropertyOperation(Property, Operation, OutError);
+		return PropertyValueFailure(Property, Code, Operation, RequestedIndex);
+	}
+
+	auto FormatPropertyValueError(const FPropertyValueError& Error) -> std::string
+	{
+		if (!Error.HasError()) return {};
+		if (Error.Code == EPropertyValueError::CopyFailed)
+			return Error.Operation == EPropertyValueOperation::CopyConstruct
+				? "ReflectedValueCopyFailed: copy construction failed."
+				: "ReflectedValueCopyFailed: copy assignment failed.";
+		std::string_view Operation;
+		switch (Error.Operation)
+		{
+		case EPropertyValueOperation::Storage: Operation = "Storage"; break;
+		case EPropertyValueOperation::DefaultConstruct: Operation = "DefaultConstruct"; break;
+		case EPropertyValueOperation::CopyConstruct: Operation = "CopyConstruct"; break;
+		case EPropertyValueOperation::CopyAssign: Operation = "CopyAssign"; break;
+		}
+		if (!Error.StructName.empty())
+			return std::format("DStructOperationUnavailable: {} is unavailable for '{}'.", Operation, Error.StructName);
+		return std::format("ReflectedValueOperationUnavailable: {} is unavailable for property '{}'.",
+			Operation, Error.PropertyName.empty() ? "<null>" : Error.PropertyName);
 	}
 
 	auto ComparePropertyValues(
@@ -1588,23 +1630,45 @@ namespace Durin
 		return Result;
 	}
 
-	auto FArrayProperty::Resize(void* Container, uint64 Num, uint32 ArrayIndex, std::string* OutError) const -> bool
+	auto FormatPropertyContainerError(const FPropertyContainerError& Error) -> std::string
 	{
-		if (OutError) OutError->clear();
-		if (!Container || !Inner)
+		if (Error.Code == EContainerOpResult::Success) return {};
+		std::string_view Requirement;
+		switch (Error.Requirement)
 		{
-			return ReportUnavailablePropertyOperation(Inner, "DefaultConstruct", OutError);
+		case EPropertyContainerRequirement::DefaultConstruct: Requirement = "DefaultConstruct"; break;
+		case EPropertyContainerRequirement::Destroy: Requirement = "Destroy"; break;
+		case EPropertyContainerRequirement::CopyConstruct: Requirement = "CopyConstruct"; break;
+		case EPropertyContainerRequirement::CopyAssign: Requirement = "CopyAssign"; break;
+		default: break;
 		}
-		const uint64 CurrentNum = this->Num(Container, ArrayIndex);
-		if (Num < CurrentNum && !Inner->CanDestroyValue())
-			return ReportUnavailablePropertyOperation(Inner, "Destroy", OutError);
-		if (Num > CurrentNum && (!Inner->CanDefaultConstructValue() || !Inner->CanDestroyValue()))
-			return ReportUnavailablePropertyOperation(Inner, "DefaultConstruct", OutError);
-		if (ResizeChecked(Container, Num, ArrayIndex) != EContainerOpResult::Success)
-			return ReportUnavailablePropertyOperation(Inner, "DefaultConstruct", OutError);
-		return true;
+		if (!Requirement.empty())
+			return Error.StructName.empty()
+				? std::format("ReflectedValueOperationUnavailable: {} is unavailable for property '{}'.", Requirement, Error.ValuePropertyName)
+				: std::format("DStructOperationUnavailable: {} is unavailable for '{}'.", Requirement, Error.StructName);
+		return std::format("Reflected container '{}' operation failed, code={}.", Error.PropertyName, static_cast<uint32>(Error.Code));
 	}
 
+	auto FArrayProperty::Resize(void* Container, uint64 Num, uint32 ArrayIndex) const -> FPropertyContainerResult
+	{
+		using R = EPropertyContainerRequirement;
+		auto Fail = [&](EContainerOpResult Code, R Requirement = R::None) {
+			auto Result = ContainerFailure(this, EPropertyContainerOperation::Resize, ArrayIndex, Code, Inner, Requirement);
+			Result.Error.RequestedCount = Num;
+			return Result;
+		};
+		if (!Container || !Inner) return Fail(EContainerOpResult::InvalidInput);
+		if (ArrayIndex >= GetArrayDim()) return Fail(EContainerOpResult::OutOfRange);
+		if (!HasArrayOps()) return Fail(EContainerOpResult::Unsupported);
+		uint64 CurrentNum = 0;
+		if (auto Code = GetNum(Container, CurrentNum, ArrayIndex); Code != EContainerOpResult::Success) return Fail(Code);
+		FPropertyContainerResult Result;
+		if (Num != CurrentNum && !Inner->CanDestroyValue()) Result = Fail(EContainerOpResult::Unsupported, R::Destroy);
+		else if (Num > CurrentNum && !Inner->CanDefaultConstructValue()) Result = Fail(EContainerOpResult::Unsupported, R::DefaultConstruct);
+		else if (auto Code = ResizeChecked(Container, Num, ArrayIndex); Code != EContainerOpResult::Success) Result = Fail(Code);
+		if (!Result) Result.Error.CurrentCount = CurrentNum;
+		return Result;
+	}
 	FMapProperty::FMapProperty(FFieldVariant InOwner, FName InName, EObjectFlags InObjectFlags)
 		: FProperty(InOwner, InName, InObjectFlags)
 	{
@@ -1700,53 +1764,65 @@ namespace Durin
 		requiref(ClearChecked(Container, ArrayIndex) == EContainerOpResult::Success,
 			"Map Clear capability is unavailable.");
 	}
-	auto FMapProperty::Insert(
-		void* Container,
-		const void* Key,
-		const void* Value,
-		uint32 ArrayIndex,
-		std::string* OutError
-	) const -> bool
+	auto FMapProperty::Insert(void* Container, const void* Key, const void* Value, uint32 ArrayIndex) const -> FPropertyContainerResult
 	{
-		if (OutError) OutError->clear();
-		if (!Container || !Key || !Value || !KeyProp || !ValueProp) return false;
+		using R = EPropertyContainerRequirement;
+		auto Fail = [&](EContainerOpResult Code, const FProperty* ValueProperty = nullptr, R Requirement = R::None) {
+			return ContainerFailure(this, EPropertyContainerOperation::Insert, ArrayIndex, Code, ValueProperty, Requirement);
+		};
+		if (!Container || !Key || !Value || !KeyProp || !ValueProp) return Fail(EContainerOpResult::InvalidInput);
+		if (ArrayIndex >= GetArrayDim()) return Fail(EContainerOpResult::OutOfRange);
+		if (!HasMapOps()) return Fail(EContainerOpResult::Unsupported);
 		if (GetPropertyStruct(KeyProp) && !KeyProp->CanCopyConstructValue())
-			return ReportUnavailablePropertyOperation(KeyProp, "CopyConstruct", OutError);
-		if (GetPropertyStruct(ValueProp)
-			&& (!ValueProp->CanCopyConstructValue() || !ValueProp->CanCopyAssignValue()))
-			return ReportUnavailablePropertyOperation(ValueProp, "CopyConstruct/CopyAssign", OutError);
-		if (InsertChecked(Container, Key, Value, ArrayIndex) != EContainerOpResult::Success)
-			return ReportUnavailablePropertyOperation(ValueProp, "CopyConstruct/CopyAssign", OutError);
-		return true;
+			return Fail(EContainerOpResult::Unsupported, KeyProp, R::CopyConstruct);
+		if (GetPropertyStruct(ValueProp) && !ValueProp->CanCopyConstructValue())
+			return Fail(EContainerOpResult::Unsupported, ValueProp, R::CopyConstruct);
+		if (GetPropertyStruct(ValueProp) && !ValueProp->CanCopyAssignValue())
+			return Fail(EContainerOpResult::Unsupported, ValueProp, R::CopyAssign);
+		const auto Code = InsertChecked(Container, Key, Value, ArrayIndex);
+		return Code == EContainerOpResult::Success ? FPropertyContainerResult{} : Fail(Code);
 	}
+
 	auto FMapProperty::Contains(const void* Container, const void* Key, uint32 ArrayIndex) const -> bool
 	{
 		const void* Value = nullptr;
 		return FindValue(Container, Key, &Value, ArrayIndex) == EContainerOpResult::Success;
 	}
-	auto FMapProperty::RenameKey(
-		void* Container,
-		const void* OldKey,
-		const void* NewKey,
-		uint32 ArrayIndex,
-		std::string* OutError
-	) const -> bool
+	auto FMapProperty::RenameKey(void* Container, const void* OldKey, const void* NewKey, uint32 ArrayIndex) const -> FPropertyContainerResult
 	{
-		if (OutError) OutError->clear();
-		if (!Container || !OldKey || !NewKey || !KeyProp) return false;
-		if (GetPropertyStruct(KeyProp)
-			&& (!KeyProp->CanCopyConstructValue() || !KeyProp->CanCopyAssignValue()))
-			return ReportUnavailablePropertyOperation(KeyProp, "CopyConstruct/CopyAssign", OutError);
-		return RenameKeyChecked(Container, OldKey, NewKey, ArrayIndex) == EContainerOpResult::Success;
+		using R = EPropertyContainerRequirement;
+		auto Fail = [&](EContainerOpResult Code, const FProperty* ValueProperty = nullptr, R Requirement = R::None) {
+			return ContainerFailure(this, EPropertyContainerOperation::RenameKey, ArrayIndex, Code, ValueProperty, Requirement);
+		};
+		if (!Container || !OldKey || !NewKey || !KeyProp) return Fail(EContainerOpResult::InvalidInput);
+		if (ArrayIndex >= GetArrayDim()) return Fail(EContainerOpResult::OutOfRange);
+		if (!HasMapOps()) return Fail(EContainerOpResult::Unsupported);
+		if (GetPropertyStruct(KeyProp) && !KeyProp->CanCopyConstructValue())
+			return Fail(EContainerOpResult::Unsupported, KeyProp, R::CopyConstruct);
+		if (GetPropertyStruct(KeyProp) && !KeyProp->CanCopyAssignValue())
+			return Fail(EContainerOpResult::Unsupported, KeyProp, R::CopyAssign);
+		const auto Code = RenameKeyChecked(Container, OldKey, NewKey, ArrayIndex);
+		return Code == EContainerOpResult::Success ? FPropertyContainerResult{} : Fail(Code);
 	}
+
 	auto FMapProperty::Remove(void* Container, const void* Key, uint32 ArrayIndex) const -> bool { return RemoveChecked(Container, Key, ArrayIndex) == EContainerOpResult::Success; }
 
 	namespace
 	{
-		auto FailCanonicalToken(std::string_view Message, std::string* OutError) -> bool
+		auto FailCanonicalToken(EReflectedMapKeyError Code, const FProperty* Property,
+			uint32 ArrayIndex = 0) -> FReflectedMapKeyResult
 		{
-			if (OutError) *OutError = Message;
-			return false;
+			FReflectedMapKeyError Error;
+			Error.Code = Code;
+			Error.ArrayIndex = ArrayIndex;
+			if (Property)
+			{
+				Error.Kind = Property->GetKind();
+				Error.PropertyName = Property->NamePrivate.ToString();
+				Error.ArrayDim = Property->GetArrayDim();
+				Error.Route.push_back({Error.PropertyName, ArrayIndex});
+			}
+			return {std::move(Error)};
 		}
 
 		auto CanonicalKind(DurinCodeGen::EPropertyGenFlags Kind)
@@ -1778,57 +1854,58 @@ namespace Durin
 		}
 
 		auto AppendCanonicalProperty(const FProperty* Property, const void* Container,
-			uint32 ArrayIndex, ObjectPackage::FCanonicalMapKeyWriter& Writer,
-			std::string* OutError) -> bool
+			uint32 ArrayIndex, ObjectPackage::FCanonicalMapKeyWriter& Writer) -> FReflectedMapKeyResult
 		{
 			using EWidth = ObjectPackage::ECanonicalIntegerWidth;
-			if (!Property || !Container || ArrayIndex >= Property->GetArrayDim())
-				return FailCanonicalToken("CanonicalMapKeyInvalidInput: property, value, or array index is invalid.", OutError);
+			if (!Property) return FailCanonicalToken(EReflectedMapKeyError::NullProperty, Property, ArrayIndex);
+			if (!Container) return FailCanonicalToken(EReflectedMapKeyError::NullContainer, Property, ArrayIndex);
+			if (ArrayIndex >= Property->GetArrayDim())
+				return FailCanonicalToken(EReflectedMapKeyError::InvalidArrayIndex, Property, ArrayIndex);
 			const auto Tag = CanonicalKind(Property->GetKind());
 			if (!Tag)
-				return FailCanonicalToken("CanonicalMapKeyUnsupported: object and container keys are not canonicalizable.", OutError);
+				return FailCanonicalToken(EReflectedMapKeyError::UnsupportedKind, Property, ArrayIndex);
 			Writer.WriteType(*Tag);
 			const void* Value = Property->GetValuePtr(Container, ArrayIndex);
 			switch (Property->GetKind())
 			{
-			case DurinCodeGen::EPropertyGenFlags::Bool: Writer.WriteBool(*static_cast<const bool*>(Value)); return true;
-			case DurinCodeGen::EPropertyGenFlags::Int8: Writer.WriteSigned(*static_cast<const int8*>(Value), EWidth::One); return true;
-			case DurinCodeGen::EPropertyGenFlags::Int16: Writer.WriteSigned(*static_cast<const int16*>(Value), EWidth::Two); return true;
-			case DurinCodeGen::EPropertyGenFlags::Int32: Writer.WriteSigned(*static_cast<const int32*>(Value), EWidth::Four); return true;
-			case DurinCodeGen::EPropertyGenFlags::Int64: Writer.WriteSigned(*static_cast<const int64*>(Value), EWidth::Eight); return true;
-			case DurinCodeGen::EPropertyGenFlags::UInt8: Writer.WriteUnsigned(*static_cast<const uint8*>(Value), EWidth::One); return true;
-			case DurinCodeGen::EPropertyGenFlags::UInt16: Writer.WriteUnsigned(*static_cast<const uint16*>(Value), EWidth::Two); return true;
-			case DurinCodeGen::EPropertyGenFlags::UInt32: Writer.WriteUnsigned(*static_cast<const uint32*>(Value), EWidth::Four); return true;
-			case DurinCodeGen::EPropertyGenFlags::UInt64: Writer.WriteUnsigned(*static_cast<const uint64*>(Value), EWidth::Eight); return true;
-			case DurinCodeGen::EPropertyGenFlags::Float: Writer.WriteFloat32Bits(std::bit_cast<uint32>(*static_cast<const float*>(Value))); return true;
-			case DurinCodeGen::EPropertyGenFlags::Double: Writer.WriteFloat64Bits(std::bit_cast<uint64>(*static_cast<const double*>(Value))); return true;
+			case DurinCodeGen::EPropertyGenFlags::Bool: Writer.WriteBool(*static_cast<const bool*>(Value)); return {};
+			case DurinCodeGen::EPropertyGenFlags::Int8: Writer.WriteSigned(*static_cast<const int8*>(Value), EWidth::One); return {};
+			case DurinCodeGen::EPropertyGenFlags::Int16: Writer.WriteSigned(*static_cast<const int16*>(Value), EWidth::Two); return {};
+			case DurinCodeGen::EPropertyGenFlags::Int32: Writer.WriteSigned(*static_cast<const int32*>(Value), EWidth::Four); return {};
+			case DurinCodeGen::EPropertyGenFlags::Int64: Writer.WriteSigned(*static_cast<const int64*>(Value), EWidth::Eight); return {};
+			case DurinCodeGen::EPropertyGenFlags::UInt8: Writer.WriteUnsigned(*static_cast<const uint8*>(Value), EWidth::One); return {};
+			case DurinCodeGen::EPropertyGenFlags::UInt16: Writer.WriteUnsigned(*static_cast<const uint16*>(Value), EWidth::Two); return {};
+			case DurinCodeGen::EPropertyGenFlags::UInt32: Writer.WriteUnsigned(*static_cast<const uint32*>(Value), EWidth::Four); return {};
+			case DurinCodeGen::EPropertyGenFlags::UInt64: Writer.WriteUnsigned(*static_cast<const uint64*>(Value), EWidth::Eight); return {};
+			case DurinCodeGen::EPropertyGenFlags::Float: Writer.WriteFloat32Bits(std::bit_cast<uint32>(*static_cast<const float*>(Value))); return {};
+			case DurinCodeGen::EPropertyGenFlags::Double: Writer.WriteFloat64Bits(std::bit_cast<uint64>(*static_cast<const double*>(Value))); return {};
 			case DurinCodeGen::EPropertyGenFlags::String:
-				Writer.WriteString(*static_cast<const FStringProperty*>(Property)->GetStringValuePtr(Container, ArrayIndex)); return true;
+				Writer.WriteString(*static_cast<const FStringProperty*>(Property)->GetStringValuePtr(Container, ArrayIndex)); return {};
 			case DurinCodeGen::EPropertyGenFlags::Name:
 			{
 				const FName& Name = *static_cast<const FNameProperty*>(Property)->GetNameValuePtr(Container, ArrayIndex);
 				Writer.WriteName(Name.GetComparisonNameEntry()->GetPlainNameString(), Name.GetNumber());
-				return true;
+				return {};
 			}
 			case DurinCodeGen::EPropertyGenFlags::Guid:
-				Writer.WriteGuid(*static_cast<const FGuidProperty*>(Property)->GetGuidValuePtr(Container, ArrayIndex)); return true;
+				Writer.WriteGuid(*static_cast<const FGuidProperty*>(Property)->GetGuidValuePtr(Container, ArrayIndex)); return {};
 			case DurinCodeGen::EPropertyGenFlags::Byte:
-				Writer.WriteUnsigned(std::to_integer<uint8>(*static_cast<const std::byte*>(Value)), EWidth::One); return true;
+				Writer.WriteUnsigned(std::to_integer<uint8>(*static_cast<const std::byte*>(Value)), EWidth::One); return {};
 			case DurinCodeGen::EPropertyGenFlags::Enum:
 			{
 				const auto* Enum = static_cast<const FEnumProperty*>(Property);
 				const uint64 Raw = Enum->GetValueAsUInt64(Container, ArrayIndex);
 				switch (Enum->GetUnderlyingType())
 				{
-				case DurinCodeGen::EEnumUnderlyingType::Int8: Writer.WriteSigned(static_cast<int8>(Raw), EWidth::One); return true;
-				case DurinCodeGen::EEnumUnderlyingType::Int16: Writer.WriteSigned(static_cast<int16>(Raw), EWidth::Two); return true;
-				case DurinCodeGen::EEnumUnderlyingType::Int32: Writer.WriteSigned(static_cast<int32>(Raw), EWidth::Four); return true;
-				case DurinCodeGen::EEnumUnderlyingType::Int64: Writer.WriteSigned(std::bit_cast<int64>(Raw), EWidth::Eight); return true;
-				case DurinCodeGen::EEnumUnderlyingType::UInt8: Writer.WriteUnsigned(static_cast<uint8>(Raw), EWidth::One); return true;
-				case DurinCodeGen::EEnumUnderlyingType::UInt16: Writer.WriteUnsigned(static_cast<uint16>(Raw), EWidth::Two); return true;
-				case DurinCodeGen::EEnumUnderlyingType::UInt32: Writer.WriteUnsigned(static_cast<uint32>(Raw), EWidth::Four); return true;
-				case DurinCodeGen::EEnumUnderlyingType::UInt64: Writer.WriteUnsigned(Raw, EWidth::Eight); return true;
-				default: return FailCanonicalToken("CanonicalMapKeyUnsupported: enum underlying type is unknown.", OutError);
+				case DurinCodeGen::EEnumUnderlyingType::Int8: Writer.WriteSigned(static_cast<int8>(Raw), EWidth::One); return {};
+				case DurinCodeGen::EEnumUnderlyingType::Int16: Writer.WriteSigned(static_cast<int16>(Raw), EWidth::Two); return {};
+				case DurinCodeGen::EEnumUnderlyingType::Int32: Writer.WriteSigned(static_cast<int32>(Raw), EWidth::Four); return {};
+				case DurinCodeGen::EEnumUnderlyingType::Int64: Writer.WriteSigned(std::bit_cast<int64>(Raw), EWidth::Eight); return {};
+				case DurinCodeGen::EEnumUnderlyingType::UInt8: Writer.WriteUnsigned(static_cast<uint8>(Raw), EWidth::One); return {};
+				case DurinCodeGen::EEnumUnderlyingType::UInt16: Writer.WriteUnsigned(static_cast<uint16>(Raw), EWidth::Two); return {};
+				case DurinCodeGen::EEnumUnderlyingType::UInt32: Writer.WriteUnsigned(static_cast<uint32>(Raw), EWidth::Four); return {};
+				case DurinCodeGen::EEnumUnderlyingType::UInt64: Writer.WriteUnsigned(Raw, EWidth::Eight); return {};
+				default: return FailCanonicalToken(EReflectedMapKeyError::UnknownEnumStorage, Property, ArrayIndex);
 				}
 			}
 			case DurinCodeGen::EPropertyGenFlags::Struct:
@@ -1836,21 +1913,23 @@ namespace Durin
 				const auto* StructProperty = static_cast<const FStructProperty*>(Property);
 				DStruct* Struct = StructProperty->GetStruct();
 				if (!Struct || !Struct->HasCompleteAuthoredFields() || Struct->HasIdentical() || Struct->HasSerializer())
-					return FailCanonicalToken("CanonicalMapKeyUnsupported: struct key lacks complete reflected equality semantics.", OutError);
+					return FailCanonicalToken(EReflectedMapKeyError::IncompleteStructEquality, Property, ArrayIndex);
 				uint32 Ordinal = 0;
-				bool bSuccess = true;
+				FReflectedMapKeyResult Result;
 				Struct->ForEachProperty([&](FProperty* Field) {
 					const uint32 FieldOrdinal = Ordinal++;
-					if (!bSuccess || !Field || Field->HasAnyPropertyFlags(EPropertyFlags::Transient)) return;
-					for (uint32 FieldIndex = 0; FieldIndex < Field->GetArrayDim() && bSuccess; ++FieldIndex)
+					if (!Result || !Field || Field->HasAnyPropertyFlags(EPropertyFlags::Transient)) return;
+					for (uint32 FieldIndex = 0; FieldIndex < Field->GetArrayDim() && Result; ++FieldIndex)
 					{
 						Writer.WriteStructField(FieldOrdinal, FieldIndex);
-						bSuccess = AppendCanonicalProperty(Field, Value, FieldIndex, Writer, OutError);
+						Result = AppendCanonicalProperty(Field, Value, FieldIndex, Writer);
+						if (!Result) Result.Error.Route.insert(Result.Error.Route.begin(),
+							{Property->NamePrivate.ToString(), ArrayIndex});
 					}
 				}, false);
-				return bSuccess;
+				return Result;
 			}
-			default: return FailCanonicalToken("CanonicalMapKeyUnsupported: object and container keys are not canonicalizable.", OutError);
+			default: return FailCanonicalToken(EReflectedMapKeyError::UnsupportedKind, Property, ArrayIndex);
 			}
 		}
 	} // namespace
@@ -1859,21 +1938,18 @@ namespace Durin
 		const FProperty* Property,
 		const void* Container,
 		uint32 ArrayIndex,
-		FByteBuffer& OutToken,
-		std::string* OutError
-	) -> bool
+		FByteBuffer& OutToken
+	) -> FReflectedMapKeyResult
 	{
-		if (OutError) OutError->clear();
 		ObjectPackage::FCanonicalMapKeyWriter Writer;
-		if (!AppendCanonicalProperty(Property, Container, ArrayIndex, Writer, OutError)) return false;
+		if (auto Result = AppendCanonicalProperty(Property, Container, ArrayIndex, Writer); !Result) return Result;
 		OutToken = Writer.TakeBytes();
-		return true;
+		return {};
 	}
 
-	auto ValidateCanonicalMapKeyProperty(const FProperty* Property, std::string* OutError) -> bool
+	auto ValidateCanonicalMapKeyProperty(const FProperty* Property) -> FReflectedMapKeyResult
 	{
-		if (OutError) OutError->clear();
-		if (!Property) return FailCanonicalToken("CanonicalMapKeyInvalidInput: key property is null.", OutError);
+		if (!Property) return FailCanonicalToken(EReflectedMapKeyError::NullProperty, Property);
 		switch (Property->GetKind())
 		{
 		case DurinCodeGen::EPropertyGenFlags::Bool:
@@ -1891,27 +1967,50 @@ namespace Durin
 		case DurinCodeGen::EPropertyGenFlags::Name:
 		case DurinCodeGen::EPropertyGenFlags::Guid:
 		case DurinCodeGen::EPropertyGenFlags::Byte:
-			return true;
+			return {};
 		case DurinCodeGen::EPropertyGenFlags::Enum:
-			return static_cast<const FEnumProperty*>(Property)->GetUnderlyingType()
-					   != DurinCodeGen::EEnumUnderlyingType::Unknown
-				   || FailCanonicalToken("CanonicalMapKeyUnsupported: enum underlying type is unknown.", OutError);
+			if (static_cast<const FEnumProperty*>(Property)->GetUnderlyingType()
+				== DurinCodeGen::EEnumUnderlyingType::Unknown)
+				return FailCanonicalToken(EReflectedMapKeyError::UnknownEnumStorage, Property);
+			return {};
 		case DurinCodeGen::EPropertyGenFlags::Struct:
 			{
 				DStruct* Struct = static_cast<const FStructProperty*>(Property)->GetStruct();
 				if (!Struct || !Struct->HasCompleteAuthoredFields() || Struct->HasIdentical() || Struct->HasSerializer())
-					return FailCanonicalToken("CanonicalMapKeyUnsupported: struct key lacks complete reflected equality semantics.", OutError);
-				bool bSupported = true;
+					return FailCanonicalToken(EReflectedMapKeyError::IncompleteStructEquality, Property);
+				FReflectedMapKeyResult Result;
 				Struct->ForEachProperty([&](FProperty* Field) {
-					if (bSupported && Field && !Field->HasAnyPropertyFlags(EPropertyFlags::Transient))
-						bSupported = ValidateCanonicalMapKeyProperty(Field, OutError);
-				},
-										false);
-				return bSupported;
+					if (Result && Field && !Field->HasAnyPropertyFlags(EPropertyFlags::Transient))
+					{
+						Result = ValidateCanonicalMapKeyProperty(Field);
+						if (!Result) Result.Error.Route.insert(Result.Error.Route.begin(),
+							{Property->NamePrivate.ToString(), 0});
+					}
+				}, false);
+				return Result;
 			}
 		default:
-			return FailCanonicalToken("CanonicalMapKeyUnsupported: object and container keys are not canonicalizable.", OutError);
+			return FailCanonicalToken(EReflectedMapKeyError::UnsupportedKind, Property);
 		}
+	}
+
+	auto FormatReflectedMapKeyError(const FReflectedMapKeyError& Error) -> std::string
+	{
+		switch (Error.Code)
+		{
+		case EReflectedMapKeyError::None: return {};
+		case EReflectedMapKeyError::NullProperty: return "CanonicalMapKeyInvalidInput: key property is null.";
+		case EReflectedMapKeyError::NullContainer:
+		case EReflectedMapKeyError::InvalidArrayIndex:
+			return "CanonicalMapKeyInvalidInput: property, value, or array index is invalid.";
+		case EReflectedMapKeyError::UnsupportedKind:
+			return "CanonicalMapKeyUnsupported: object and container keys are not canonicalizable.";
+		case EReflectedMapKeyError::UnknownEnumStorage:
+			return "CanonicalMapKeyUnsupported: enum underlying type is unknown.";
+		case EReflectedMapKeyError::IncompleteStructEquality:
+			return "CanonicalMapKeyUnsupported: struct key lacks complete reflected equality semantics.";
+		}
+		return {};
 	}
 
 	auto ForEachNestedProperty(FProperty* Property, const std::function<void(FProperty*)>& Visitor) -> void

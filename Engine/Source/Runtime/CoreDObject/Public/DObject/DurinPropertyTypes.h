@@ -329,8 +329,8 @@ namespace Durin
 		COREDOBJECT_API auto GetElementPtr(const void* Container, uint64 Index, uint32 ArrayIndex = 0) const -> const void*;
 		COREDOBJECT_API auto GetMutableElementPtr(void* Container, uint64 Index, uint32 ArrayIndex = 0) const -> void*;
 		COREDOBJECT_API auto Resize(
-			void* Container, uint64 Num, uint32 ArrayIndex = 0, std::string* OutError = nullptr
-		) const -> bool;
+			void* Container, uint64 Num, uint32 ArrayIndex = 0
+		) const -> FPropertyContainerResult;
 
 	private:
 		FProperty* Inner = nullptr;
@@ -378,12 +378,12 @@ namespace Durin
 		COREDOBJECT_API auto Num(const void* Container, uint32 ArrayIndex = 0) const -> uint64;
 		COREDOBJECT_API auto Clear(void* Container, uint32 ArrayIndex = 0) const -> void;
 		COREDOBJECT_API auto Insert(
-			void* Container, const void* Key, const void* Value, uint32 ArrayIndex = 0, std::string* OutError = nullptr
-		) const -> bool;
+			void* Container, const void* Key, const void* Value, uint32 ArrayIndex = 0
+		) const -> FPropertyContainerResult;
 		COREDOBJECT_API auto Contains(const void* Container, const void* Key, uint32 ArrayIndex = 0) const -> bool;
 		COREDOBJECT_API auto RenameKey(
-			void* Container, const void* OldKey, const void* NewKey, uint32 ArrayIndex = 0, std::string* OutError = nullptr
-		) const -> bool;
+			void* Container, const void* OldKey, const void* NewKey, uint32 ArrayIndex = 0
+		) const -> FPropertyContainerResult;
 		COREDOBJECT_API auto Remove(void* Container, const void* Key, uint32 ArrayIndex = 0) const -> bool;
 
 	private:
@@ -394,16 +394,14 @@ namespace Durin
 
 	COREDOBJECT_API auto ForEachNestedProperty(FProperty* Property, const std::function<void(FProperty*)>& Visitor) -> void;
 
-	// Builds the version-1 logical token used to order supported reflected Map keys.
+	// Builds the version-1 logical token; output is unchanged on failure.
 	COREDOBJECT_API auto BuildCanonicalMapKeyToken(
 		const FProperty* Property,
 		const void* Container,
 		uint32 ArrayIndex,
-		FByteBuffer& OutToken,
-		std::string* OutError = nullptr
-	) -> bool;
+		FByteBuffer& OutToken
+	) -> FReflectedMapKeyResult;
 	COREDOBJECT_API auto ValidateCanonicalMapKeyProperty(
-		const FProperty* Property,
-		std::string* OutError = nullptr
-	) -> bool;
+		const FProperty* Property
+	) -> FReflectedMapKeyResult;
 } // namespace Durin

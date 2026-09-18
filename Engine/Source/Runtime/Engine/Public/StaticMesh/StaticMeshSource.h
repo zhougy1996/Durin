@@ -12,6 +12,46 @@ namespace Durin
 	inline constexpr uint64 MaximumStaticMeshSourceBytes =
 		1024ull * 1024ull * 1024ull;
 
+	enum class EArchiveFailureCode : uint8;
+	enum class EStaticMeshSourceError : uint8
+	{
+		None, Counts, Limit, DuplicateMaterial, MissingMaterial, EmptyMesh, TriangleList,
+		NonFinitePosition, ChannelLength, IndexRange, InvalidHeader, Read, PayloadSize,
+		Archive, MetadataCounts, Cancelled, EncodeArchive, EncodedSize, BulkUpdate
+	};
+	struct FStaticMeshSourceError
+	{
+		EStaticMeshSourceError Code = EStaticMeshSourceError::None;
+		std::string MeshName;
+		std::string Field;
+		uint64 Index = 0;
+		uint64 Actual = 0;
+		uint64 Expected = 0;
+		uint64 Width = 0;
+		uint64 WireBytes = 0;
+		uint64 SlotCount = 0;
+		uint64 MeshCount = 0;
+		uint64 ExpectedSlotCount = 0;
+		uint64 ExpectedMeshCount = 0;
+		FVector3f Position = FVector3f(0);
+		std::optional<EArchiveFailureCode> ArchiveCode;
+		std::string ArchivePath;
+		std::optional<FPackageResourceReadResult> ReadCause;
+		std::optional<FEditorBulkDataError> BulkCause;
+	};
+	struct FStaticMeshSourceResult
+	{
+		FStaticMeshSourceError Error;
+		explicit operator bool() const { return Error.Code == EStaticMeshSourceError::None; }
+	};
+	struct FStaticMeshSourceReadResult
+	{
+		FStaticMeshGeometryReadHandle Geometry;
+		FStaticMeshSourceError Error;
+		explicit operator bool() const { return Error.Code == EStaticMeshSourceError::None; }
+	};
+	ENGINE_API auto FormatStaticMeshSourceError(const FStaticMeshSourceError& Error) -> std::string;
+
 	// Canonical authored value. Mutation/reflection loading requires exclusive owner access.
 	// Stable values support concurrent acquire, release and copy; handles are always immutable.
 	DSTRUCT()
@@ -25,11 +65,11 @@ namespace Durin
 		ENGINE_API auto operator=(const FStaticMeshSource& Other) -> FStaticMeshSource&;
 
 		// Validates the complete candidate before replacement and seeds residency without decoding.
-		ENGINE_API auto Initialize(FStaticMeshDecodedGeometry Value, std::string& OutError) -> bool;
+		ENGINE_API auto Initialize(FStaticMeshDecodedGeometry Value) -> FStaticMeshSourceResult;
 		// May read bulk and block. Concurrent callers share one successful decode; failures are not cached.
 		// Cancellation is borrowed under the residency lock and must not reenter this source.
-		ENGINE_API auto AcquireGeometry(std::string& OutError,
-			const std::function<bool()>& ShouldCancel = {}) const -> FStaticMeshGeometryReadHandle;
+		ENGINE_API auto AcquireGeometry(
+			const std::function<bool()>& ShouldCancel = {}) const -> FStaticMeshSourceReadResult;
 		// Drops only this value's decoded ownership, never canonical bulk or outstanding readers.
 		ENGINE_API auto ReleaseGeometry() const -> void;
 		ENGINE_API auto IsGeometryResident() const -> bool;

@@ -30,16 +30,16 @@ namespace Durin
 		MarkRenderStateDirty();
 	}
 
-	auto DSkyBoxComponent::PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool
+	auto DSkyBoxComponent::PreEditChangeProperty(FPropertyEditProposal& Proposal) -> FObjectValidationResult
 	{
-		if (!Super::PreEditChangeProperty(Proposal, OutError)) return false;
+		if (auto Result = Super::PreEditChangeProperty(Proposal); !Result) return Result;
 		if (!Proposal.MemberProperty || Proposal.MemberProperty->NamePrivate != FName("Intensity")
-			|| Proposal.DraftRootProperty != Proposal.MemberProperty || !Proposal.DraftRootContainer) return true;
+			|| Proposal.DraftRootProperty != Proposal.MemberProperty || !Proposal.DraftRootContainer) return {};
 		float* DraftIntensity = Proposal.DraftRootProperty->ContainerPtrToValuePtr<float>(
 			Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex
 		);
 		*DraftIntensity = FMath::Max(0.0f, *DraftIntensity);
-		return true;
+		return {};
 	}
 
 	auto DSkyBoxComponent::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void

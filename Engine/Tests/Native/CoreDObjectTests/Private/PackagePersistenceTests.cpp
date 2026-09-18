@@ -53,6 +53,7 @@ namespace
 		auto Serialize(FArchive& Ar) -> void override
 		{
 			DObject::Serialize(Ar);
+			if (CaptureHook) CaptureHook(Ar);
 			if (!Payload.IsEmpty())
 			{
 				auto* ObjectArchive = RequireObjectArchive(Ar);
@@ -64,6 +65,7 @@ namespace
 				Ar.SerializeBulkData(Bulk, {.ElementSize = 1, .Alignment = 16});
 			}
 		}
+		std::function<void(FArchive&)> CaptureHook;
 		int32 Value = 7;
 		TObjectPtr<DObject> Reference;
 		FSharedByteBuffer Payload;
@@ -651,4 +653,114 @@ TEST_F(FPackagePersistenceTests, FinalizeFailureRetainsCommittedResultAndRecover
 	EXPECT_TRUE(std::filesystem::exists(Options.Destination));
 	EXPECT_FALSE(Package->IsDirty());
 	EXPECT_EQ(Save->Complete().CommitState, EPackageCommitState::Committed);
+}
+
+TEST_F(FPackagePersistenceTests, CaptureValidationPreservesOutputAndOverrideIdentity)
+{
+	FSavePackageContext Context;
+	ObjectPackage::FLinkerTables Linker;
+	Linker.Names.push_back("sentinel");
+	const auto Missing = Context.Capture(nullptr, Linker);
+	EXPECT_EQ(Missing.Error.Reason, EPackageCaptureReason::MissingAssets);
+	Context.Options.Capture.bCooking = true;
+	const auto Target = Context.Capture(Package, Linker);
+	EXPECT_EQ(Target.Error.Reason, EPackageCaptureReason::CookTarget);
+	Context.Options.Capture.bCooking = false;
+	auto Overrides = std::make_shared<FObjectSaveOverrides>();
+	ASSERT_TRUE(Overrides->AddObjectOmission(*Asset));
+	Context.Options.Capture.SaveOverrides = Overrides;
+	const auto Omitted = Context.Capture(Package, Linker);
+	EXPECT_EQ(Omitted.Error.Reason, EPackageCaptureReason::OmittedAsset);
+	EXPECT_EQ(Omitted.Error.ObjectPath, Asset->GetObjectPath());
+	Overrides.reset();
+	Context.Options.Capture.SaveOverrides.reset();
+	EXPECT_EQ(Omitted.Error.ObjectPath, Asset->GetObjectPath());
+	EXPECT_EQ(Linker.Names, (std::vector<std::string>{"sentinel"}));
+}
+
+TEST_F(FPackagePersistenceTests, CaptureRetainsArchiveContextAndSaveAdmissionCause)
+{
+	Asset->CaptureHook = [](FArchive& Ar) {
+		uint32 Value = 12;
+		Ar.SerializeRawBytes(std::as_writable_bytes(std::span{&Value, 1}));
+	};
+	FSavePackageContext Context{Options};
+	ObjectPackage::FLinkerTables Linker;
+	Linker.Names.push_back("sentinel");
+	const auto Result = Context.Capture(Package, Linker);
+	EXPECT_EQ(Result.Error.Reason, EPackageCaptureReason::RawOutsideField);
+	EXPECT_EQ(Result.Error.ArchiveCode, EArchiveFailureCode::MalformedSerializer);
+	EXPECT_EQ(Result.Error.ObjectPath, Asset->GetObjectPath());
+	EXPECT_FALSE(Result.Error.ArchivePath.empty());
+	EXPECT_EQ(Linker.Names, (std::vector<std::string>{"sentinel"}));
+	FPackageSaveResult Admission;
+	EXPECT_FALSE(Package->SaveAsync(Admission, Context).IsValid());
+	ASSERT_TRUE(Admission.CaptureCause.has_value());
+	EXPECT_EQ(Admission.CaptureCause->Reason, Result.Error.Reason);
+	EXPECT_EQ(Admission.CaptureCause->ArchivePath, Result.Error.ArchivePath);
+	EXPECT_EQ(Admission.CommitState, EPackageCommitState::NotCommitted);
+}
+
+TEST_F(FPackagePersistenceTests, CaptureRetainsNestedPropertyCause)
+{
+	Asset->CaptureHook = [](FArchive& Ar) {
+		auto* ObjectArchive = RequireObjectArchive(Ar);
+		ASSERT_NE(ObjectArchive, nullptr);
+		ObjectArchive->FailPropertyValue({.Code = EPropertyValueError::UnavailableOperation,
+			.Operation = EPropertyValueOperation::CopyConstruct, .PropertyName = "OwnedProperty"});
+	};
+	ObjectPackage::FLinkerTables Linker;
+	const auto Result = FSavePackageContext{Options}.Capture(Package, Linker);
+	EXPECT_EQ(Result.Error.Reason, EPackageCaptureReason::ArchiveFailure);
+	const auto* Cause = std::get_if<FPropertyValueError>(&Result.Error.Cause);
+	ASSERT_NE(Cause, nullptr);
+	EXPECT_EQ(Cause->Code, EPropertyValueError::UnavailableOperation);
+	EXPECT_EQ(Cause->Operation, EPropertyValueOperation::CopyConstruct);
+	EXPECT_EQ(Cause->PropertyName, "OwnedProperty");
+}
+
+TEST_F(FPackagePersistenceTests, CaptureRetainsBulkBoundsAndFrozenManifestFailure)
+{
+	Asset->CaptureHook = [](FArchive& Ar) {
+		auto* ObjectArchive = RequireObjectArchive(Ar);
+		ASSERT_NE(ObjectArchive, nullptr);
+		auto Scope = ObjectArchive->EnterField({.DeclaringType = FName("DPersistedObject"),
+			.Name = FName("BrokenBulk"), .LogicalType = FArchiveLogicalTypeDescriptor::BulkData()});
+		FArchiveBulkDataValue Bulk{.PayloadId = {1, 2, 3, 4}, .LogicalSize = 9, .StoredSize = 8};
+		Ar.SerializeBulkData(Bulk, {.ElementSize = 1, .Alignment = 16});
+	};
+	ObjectPackage::FLinkerTables Linker;
+	const auto Bulk = FSavePackageContext{Options}.Capture(Package, Linker);
+	EXPECT_EQ(Bulk.Error.Reason, EPackageCaptureReason::BulkMetadata);
+	EXPECT_EQ(Bulk.Error.Actual, 0u);
+	EXPECT_EQ(Bulk.Error.Expected, 9u);
+	Asset->CaptureHook = [](FArchive& Ar) {
+		if (Ar.GetPurpose() != EArchivePurpose::AuthoredPackage) return;
+		auto* ObjectArchive = RequireObjectArchive(Ar);
+		ASSERT_NE(ObjectArchive, nullptr);
+		auto Scope = ObjectArchive->EnterField({.DeclaringType = FName("DPersistedObject"),
+			.Name = FName("LateField"), .LogicalType = FArchiveLogicalTypeDescriptor::Scalar(true, 32, false)});
+		int32 Value = 2; Ar << Value;
+	};
+	const auto Manifest = FSavePackageContext{Options}.Capture(Package, Linker);
+	EXPECT_EQ(Manifest.Error.Reason, EPackageCaptureReason::EmissionMutation);
+}
+
+TEST_F(FPackagePersistenceTests, CaptureRetainsDefaultDeltaDiagnostic)
+{
+	uint32 Pass = 0;
+	Asset->CaptureHook = [&](FArchive& Ar) {
+		if (++Pass == 3) Ar.Fail(EArchiveFailureCode::InvalidData, "test-only planner failure");
+	};
+	FSavePackageContext Context{Options};
+	Context.Options.Mode = EPackageSaveMode::Complete;
+	ObjectPackage::FLinkerTables Linker;
+	Linker.Names.push_back("sentinel");
+	const auto Result = Context.Capture(Package, Linker);
+	EXPECT_EQ(Result.Error.Reason, EPackageCaptureReason::DefaultDelta);
+	const auto* Cause = std::get_if<FDefaultDeltaDiagnostic>(&Result.Error.Cause);
+	ASSERT_NE(Cause, nullptr);
+	EXPECT_EQ(Cause->Reason, EDefaultDeltaFailureReason::ArchiveFailure);
+	EXPECT_EQ(Cause->ArchiveReason, EArchiveFailureCode::InvalidData);
+	EXPECT_EQ(Linker.Names, (std::vector<std::string>{"sentinel"}));
 }

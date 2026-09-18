@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Asset/AssetCacheDiagnostic.h"
+
 #include "DerivedDataCacheKeyProxy.h"
 #include "EngineAPI.h"
 #include "Texture/TextureBuildOutcome.h"
@@ -42,7 +44,7 @@ namespace Durin
 	{
 		std::unique_ptr<FVolumeTexturePlatformData> PlatformData;
 		FCacheKeyProxy DerivedDataKey;
-		std::string PersistenceDiagnostic;
+		FAssetCacheDiagnostics PersistenceDiagnostic;
 		FVolumeTextureBuildProviderDescriptor Provider;
 		EVolumeTextureBuildProductOrigin Origin = EVolumeTextureBuildProductOrigin::Rebuilt;
 	};

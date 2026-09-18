@@ -7,6 +7,43 @@ namespace Durin::Editor
 {
 	struct FPropertyEditTarget;
 
+	struct FPropertyEditPathError;
+	struct FPropertyValueDraftError;
+	struct FPropertyMutationError;
+	enum class ETransactionObjectRecordError : uint8
+	{
+		None, Target, SnapshotRoot, Payload, Member, Path, Draft, Mutation, Deferred
+	};
+	struct FTransactionObjectRecordError
+	{
+		ETransactionObjectRecordError Code = ETransactionObjectRecordError::None;
+		FObjectKey Owner;
+		std::string Member;
+		std::string Snapshot;
+		std::string Leaf;
+		uint32 ArrayIndex = 0;
+		uint64 PathLength = 0;
+		std::string PathFirst;
+		std::string PathLast;
+		bool ObjectOwnedStorage = false;
+		bool Before = false;
+		bool BeforeValid = false;
+		bool AfterValid = false;
+		DurinCodeGen::EPropertyGenFlags ExpectedKind = DurinCodeGen::EPropertyGenFlags::None;
+		DurinCodeGen::EPropertyGenFlags BeforeKind = DurinCodeGen::EPropertyGenFlags::None;
+		DurinCodeGen::EPropertyGenFlags AfterKind = DurinCodeGen::EPropertyGenFlags::None;
+		std::optional<FTransactionSnapshotError> MemberCause;
+		std::shared_ptr<const FPropertyEditPathError> PathCause;
+		std::shared_ptr<const FPropertyValueDraftError> DraftCause;
+		std::shared_ptr<const FPropertyMutationError> MutationCause;
+	};
+	struct FTransactionObjectRecordResult
+	{
+		FTransactionObjectRecordError Error;
+		explicit operator bool() const { return Error.Code == ETransactionObjectRecordError::None; }
+	};
+	DURINED_API auto FormatTransactionObjectRecordError(const FTransactionObjectRecordError& Error) -> std::string;
+
 	// Owns one stable member-to-leaf traversal step without retaining live storage.
 	struct FTransactionPropertyPathSegment
 	{
@@ -27,15 +64,13 @@ namespace Durin::Editor
 			const FPropertyEditTarget& Target,
 			FPropertyValueSnapshotPayload Before,
 			FPropertyValueSnapshotPayload After,
-			FTransactionObjectRecord& OutRecord,
-			std::string* OutError = nullptr) -> bool;
+			FTransactionObjectRecord& OutRecord) -> FTransactionObjectRecordResult;
 
 		auto IsNoOp() const -> bool { return Before == After; }
-		DURINED_API auto Validate(std::string* OutError = nullptr) const -> bool;
+		DURINED_API auto Validate() const -> FTransactionObjectRecordResult;
 		DURINED_API auto Apply(
 			bool bBefore,
-			EPropertyChangeOrigin Origin,
-			std::string* OutError = nullptr) const -> bool;
+			EPropertyChangeOrigin Origin) const -> FTransactionObjectRecordResult;
 		DURINED_API auto AddReferencedObjects(FReferenceCollector& Collector) const -> void;
 		DURINED_API auto TryGetAllocatedSize(size_t& OutBytes) const -> bool;
 
@@ -44,7 +79,8 @@ namespace Durin::Editor
 		auto GetAfter() const -> const FPropertyValueSnapshotPayload& { return After; }
 
 	private:
-		auto BuildTarget(FPropertyEditTarget& OutTarget, std::string* OutError) const -> bool;
+		auto BuildTarget(FPropertyEditTarget& OutTarget) const -> FTransactionObjectRecordResult;
+		auto Reject(ETransactionObjectRecordError Code) const -> FTransactionObjectRecordResult;
 
 		FPersistentObjectRef Target;
 		FTransactionMemberLocator SnapshotMember;

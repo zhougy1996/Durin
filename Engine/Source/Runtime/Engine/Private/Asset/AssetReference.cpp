@@ -365,7 +365,11 @@ namespace Durin
 			{
 				FReflectedValueStorage KeyStorage;
 				std::string StorageError;
-				if (!KeyStorage.DefaultConstruct(Map->GetKeyProp(), 0, &StorageError))
+				if (!([&] {
+					const auto ValueResult = KeyStorage.DefaultConstruct(Map->GetKeyProp(), 0);
+					StorageError = Durin::FormatPropertyValueError(ValueResult.Error);
+					return ValueResult.Succeeded();
+				}()))
 					return Error(EAssetError::UnsupportedProperty, std::move(StorageError));
 				FAssetResult KeyResult = DecodeReferenceByteToolValue(
 					Map->GetKeyProp(),
@@ -380,9 +384,9 @@ namespace Durin
 					return KeyResult;
 				}
 				FByteBuffer KeyToken;
-				if (!BuildCanonicalMapKeyToken(
-					Map->GetKeyProp(), KeyStorage.GetContainer(), 0, KeyToken, &StorageError))
-					return Error(EAssetError::TypeMismatch, std::move(StorageError));
+				if (const auto Result = BuildCanonicalMapKeyToken(
+					Map->GetKeyProp(), KeyStorage.GetContainer(), 0, KeyToken); !Result)
+					return Error(EAssetError::TypeMismatch, FormatReflectedMapKeyError(Result.Error));
 				if (KeyToken.size() > MaximumReferenceRouteTokenBytes)
 					return Error(EAssetError::CorruptFile,
 						"AssetReferenceIndexRouteTokenExceeded: Map key token exceeds 1 MiB.");
@@ -774,7 +778,11 @@ namespace Durin
 				const size_t KeyOffset = Reader.Offset;
 				FReflectedValueStorage KeyStorage;
 				std::string StorageError;
-				if (!KeyStorage.DefaultConstruct(Map->GetKeyProp(), 0, &StorageError))
+				if (!([&] {
+					const auto ValueResult = KeyStorage.DefaultConstruct(Map->GetKeyProp(), 0);
+					StorageError = Durin::FormatPropertyValueError(ValueResult.Error);
+					return ValueResult.Succeeded();
+				}()))
 					return Error(EAssetError::UnsupportedProperty, std::move(StorageError));
 				FAssetResult Result = DecodeReferenceByteToolValue(
 					Map->GetKeyProp(),

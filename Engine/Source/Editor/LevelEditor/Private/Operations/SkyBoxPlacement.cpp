@@ -66,22 +66,28 @@ namespace Durin::Editor::Level
 					: std::format("Create sky box '{}'", ActorName);
 			}
 			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return AffectedPackages; }
-			auto Undo() -> bool override
+			auto Replay(::Durin::Editor::ETransactionOperation Operation) -> ::Durin::Editor::FTransactionCustomResult override
 			{
-				ASkyBoxActor* Existing = Actor.Get();
-				if (!Level || !Existing || !Level->ContainsActor(Existing)) return false;
-				if (!Level->DestroyActor(Existing)) return false;
-				Actor = nullptr;
-				return true;
-			}
-			auto Redo() -> bool override
-			{
-				if (!Level || !IsValid(TextureCube.Get()) || Level->FindActorByName(ActorName)) return false;
+				using Code = ::Durin::Editor::ETransactionCustomError;
+				const auto Reject = [&](Code Error) -> ::Durin::Editor::FTransactionCustomResult {
+					return {{.Code = Error, .TargetPath = Level ? Level->GetObjectPath() : std::string{}, .TargetLabel = ActorName.ToString()}};
+				};
+				if (!Level) return Reject(Code::TargetUnavailable);
+				if (Operation == ::Durin::Editor::ETransactionOperation::Undo)
+				{
+					ASkyBoxActor* Existing = Actor.Get();
+					if (!Existing || !Level->ContainsActor(Existing)) return Reject(Code::ActorMembership);
+					if (!Level->DestroyActor(Existing)) return Reject(Code::ActorDestroy);
+					Actor = nullptr;
+					return {};
+				}
+				if (!IsValid(TextureCube.Get())) return Reject(Code::ResourceUnavailable);
+				if (Level->FindActorByName(ActorName)) return Reject(Code::ActorNameCollision);
 				auto* Created = Level->SpawnActor<ASkyBoxActor>(ActorName);
-				if (!Created) return false;
+				if (!Created) return Reject(Code::ActorSpawn);
 				Created->GetSkyBoxComponent()->SetTextureCube(TextureCube.Get());
 				Actor = Created;
-				return true;
+				return {};
 			}
 			auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override
 			{
@@ -112,8 +118,8 @@ namespace Durin::Editor::Level
 			auto GetDescription() const -> std::string_view override { return "Set sky box texture"; }
 			auto GetOwningModule() const -> std::string_view override { return "LevelEditor"; }
 			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return AffectedPackages; }
-			auto Undo() -> bool override { return Apply(Before.Get()); }
-			auto Redo() -> bool override { return Apply(After.Get()); }
+			auto Replay(::Durin::Editor::ETransactionOperation Operation) -> ::Durin::Editor::FTransactionCustomResult override
+			{ return Apply(Operation == ::Durin::Editor::ETransactionOperation::Undo ? Before.Get() : After.Get()); }
 			auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override
 			{
 				for (DObject* Object : {static_cast<DObject*>(Component.Get()),
@@ -123,11 +129,13 @@ namespace Durin::Editor::Level
 			}
 
 		private:
-			auto Apply(DTextureCube* TextureCube) -> bool
+			auto Apply(DTextureCube* TextureCube) -> ::Durin::Editor::FTransactionCustomResult
 			{
-				if (!Component || (TextureCube && !IsValid(TextureCube))) return false;
+				if (!Component) return {{.Code = ::Durin::Editor::ETransactionCustomError::TargetUnavailable}};
+				if (TextureCube && !IsValid(TextureCube)) return {{.Code = ::Durin::Editor::ETransactionCustomError::ResourceUnavailable,
+					.TargetPath = Component->GetObjectPath()}};
 				Component->SetTextureCube(TextureCube);
-				return true;
+				return {};
 			}
 
 			TObjectPtr<DSkyBoxComponent> Component;
@@ -137,6 +145,21 @@ namespace Durin::Editor::Level
 		};
 	}
 
+	auto FormatSkyBoxPlacementError(const FSkyBoxPlacementError& Error) -> std::string
+	{
+		switch (Error.Code)
+		{
+		case ESkyBoxPlacementError::None: return {};
+		case ESkyBoxPlacementError::ReadOnly: return "The level is read-only.";
+		case ESkyBoxPlacementError::TextureUnavailable: return "The dropped TextureCube is unavailable.";
+		case ESkyBoxPlacementError::MultipleSkyBoxes: return "Multiple visible sky boxes exist. Resolve the conflict before replacing the active sky box.";
+		case ESkyBoxPlacementError::SkyBoxUnavailable: return "The active sky box is unavailable.";
+		case ESkyBoxPlacementError::Transaction: return Error.TransactionCause ? FormatTransactorResult(*Error.TransactionCause) : "Sky box transaction failed.";
+		case ESkyBoxPlacementError::Replay: return Error.ReplayCause ? FormatTransactionCustomError(*Error.ReplayCause) : "Sky box replay failed.";
+		}
+		return {};
+	}
+
 	auto FSkyBoxPlacement::PlaceTextureCube(
 		DLevel& Level,
 		DTextureCube* TextureCube,
@@ -144,36 +167,50 @@ namespace Durin::Editor::Level
 		::Durin::DTransactor* Transactions,
 		bool bReadOnly) -> FSkyBoxPlacementResult
 	{
-		if (bReadOnly) return {.Message = "The level is read-only."};
-		if (!IsValid(TextureCube)) return {.Message = "The dropped TextureCube is unavailable."};
+		auto Reject = [&](ESkyBoxPlacementError Code, size_t Count = 0) -> FSkyBoxPlacementResult
+		{
+			return {.Error = {.Code = Code, .LevelPath = Level.GetObjectPath(), .RequestedName = RequestedName.ToString(), .CandidateCount = Count}};
+		};
+		auto Apply = [&](std::unique_ptr<ITransactionCustomChange> Transaction) -> FSkyBoxPlacementResult
+		{
+			if (Transactions)
+			{
+				auto Applied = Transactions->Execute(std::move(Transaction));
+				if (Applied) return {};
+				auto Result = Reject(ESkyBoxPlacementError::Transaction);
+				Result.Error.TransactionCause = std::make_shared<FTransactorResult>(std::move(Applied));
+				return Result;
+			}
+			auto Applied = Transaction->Replay(ETransactionOperation::Redo);
+			if (Applied) return {};
+			auto Result = Reject(ESkyBoxPlacementError::Replay);
+			Result.Error.ReplayCause = std::make_shared<FTransactionCustomError>(std::move(Applied.Error));
+			return Result;
+		};
+		if (bReadOnly) return Reject(ESkyBoxPlacementError::ReadOnly);
+		if (!IsValid(TextureCube)) return Reject(ESkyBoxPlacementError::TextureUnavailable);
 
 		const std::vector<FSkyBoxCandidate> Candidates = FindVisibleSkyBoxes(Level);
 		if (Candidates.size() > 1)
-			return {.Message = "Multiple visible sky boxes exist. Resolve the conflict before replacing the active sky box."};
+			return Reject(ESkyBoxPlacementError::MultipleSkyBoxes, Candidates.size());
 
 		if (!Candidates.empty())
 		{
 			DSkyBoxComponent* Component = Candidates.front().Component;
 			AActor* Actor = Candidates.front().Actor;
-			if (!Component || !Actor) return {.Message = "The active sky box is unavailable."};
+			if (!Component || !Actor) return Reject(ESkyBoxPlacementError::SkyBoxUnavailable);
 			if (Component->GetTextureCube() == TextureCube) return {.Actor = Actor};
 
 			auto Transaction = std::make_unique<FSetSkyBoxTextureTransaction>(
 				Component, Component->GetTextureCube(), TextureCube);
-			const bool bApplied = Transactions
-				? static_cast<bool>(Transactions->Execute(std::move(Transaction)))
-				: Transaction->Redo();
-			if (!bApplied) return {.Message = "Failed to replace the active sky box texture."};
+			if (auto Applied = Apply(std::move(Transaction)); !Applied) return Applied;
 			if (!Transactions && Level.GetPackage()) Level.GetPackage()->MarkDirty();
 			return {.Actor = Actor, .bChanged = true};
 		}
 
 		const FName ActorName = MakeUniqueActorName(Level, RequestedName);
 		auto Transaction = std::make_unique<FCreateSkyBoxTransaction>(&Level, TextureCube, ActorName);
-		const bool bApplied = Transactions
-			? static_cast<bool>(Transactions->Execute(std::move(Transaction)))
-			: Transaction->Redo();
-		if (!bApplied) return {.Message = "Failed to create a sky box actor."};
+		if (auto Applied = Apply(std::move(Transaction)); !Applied) return Applied;
 		if (!Transactions && Level.GetPackage()) Level.GetPackage()->MarkDirty();
 		return {
 			.Actor = Level.FindActorByName(ActorName),

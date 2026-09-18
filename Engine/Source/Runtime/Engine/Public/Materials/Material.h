@@ -37,7 +37,7 @@ namespace Durin
 		[[nodiscard]] ENGINE_API auto SetMaterialExpressions(std::span<DMaterialExpression* const> Expressions) -> FMaterialProgramValidationResult;
 		[[nodiscard]] ENGINE_API auto SetMaterialExpressions(std::span<DMaterialExpression* const> Expressions,
 			FMaterialExpressionSurfaceOutputs Outputs) -> FMaterialProgramValidationResult;
-		ENGINE_API auto ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context, std::string& OutError) const -> bool override;
+		ENGINE_API auto ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> FObjectValidationResult override;
 		auto GetMaterialGraphPresentation() const
 			-> const FMaterialGraphPresentation&
 		{
@@ -63,14 +63,14 @@ namespace Durin
 			uint64 ExpectedAuthoredRevision) -> EMaterialGraphPresentationResult;
 		ENGINE_API auto ResolveParameterValue(const FGuid& Id, FResolvedMaterialParameter& OutParameter) const -> bool override;
 		auto GetStaticProperties() const -> const FMaterialStaticProperties& override { return StaticProperties; }
-		ENGINE_API auto SetStaticProperties(const FMaterialStaticProperties& InProperties) -> bool;
+		ENGINE_API auto SetStaticProperties(const FMaterialStaticProperties& InProperties) -> FMaterialOperationResult;
 
-		ENGINE_API auto SetScalarParameterValue(FName Name, float Value) -> bool;
-		ENGINE_API auto SetVector2ParameterValue(FName Name, const FVector2& Value) -> bool;
-		ENGINE_API auto SetVectorParameterValue(FName Name, const FVector3& Value) -> bool;
-		ENGINE_API auto SetTextureParameterValue(FName Name, DTexture2D* Value) -> bool;
+		ENGINE_API auto SetScalarParameterValue(FName Name, float Value) -> FMaterialOperationResult;
+		ENGINE_API auto SetVector2ParameterValue(FName Name, const FVector2& Value) -> FMaterialOperationResult;
+		ENGINE_API auto SetVectorParameterValue(FName Name, const FVector3& Value) -> FMaterialOperationResult;
+		ENGINE_API auto SetTextureParameterValue(FName Name, DTexture2D* Value) -> FMaterialOperationResult;
 		ENGINE_API auto SetParameterValue(
-			const FGuid& Id, const FMaterialParameterValue& Value) -> bool;
+			const FGuid& Id, const FMaterialParameterValue& Value) -> FMaterialOperationResult;
 		ENGINE_API auto GetScalarParameterValue(FName Name, float& OutValue) const -> bool override;
 		ENGINE_API auto GetVector2ParameterValue(FName Name, FVector2& OutValue) const -> bool override;
 		ENGINE_API auto GetVectorParameterValue(FName Name, FVector3& OutValue) const -> bool override;

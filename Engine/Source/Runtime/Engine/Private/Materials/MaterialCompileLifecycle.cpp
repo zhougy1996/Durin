@@ -675,15 +675,9 @@ namespace Durin
 		public:
 			auto GetState() -> FMaterialCompilationState& { return State; }
 			auto GetState() const -> const FMaterialCompilationState& { return State; }
-			auto Start(std::string* OutError) -> bool override
+			auto Start() -> FAssetCompilerStartResult override
 			{
-				if (State.Initialize())
-				{
-					if (OutError) OutError->clear();
-					return true;
-				}
-				if (OutError) *OutError = "Material compile task scope could not start.";
-				return false;
+				return {State.Initialize() ? EAssetCompilerStartError::None : EAssetCompilerStartError::TaskScopeUnavailable};
 			}
 			auto StopAdmission() -> void override
 			{

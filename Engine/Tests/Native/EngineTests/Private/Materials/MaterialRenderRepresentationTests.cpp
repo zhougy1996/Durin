@@ -180,7 +180,7 @@ TEST(FDefaultMaterialServiceTests, LoadsAndRetainsOneNeutralAuthoredProxy)
 			Durin::EAssetRegistryScanMode::FullValidation);
 	ASSERT_TRUE(Refresh) << (Refresh.Errors.empty()
 		? "Asset catalog refresh failed without a diagnostic."
-		: Refresh.Errors.front().Message);
+		: Durin::FormatAssetRegistryError(Refresh.Errors.front()));
 	const bool bOwnsRenderingThread =
 		Durin::GetRenderCommandAdmissionState()
 			== Durin::ERenderCommandAdmissionState::Stopped;

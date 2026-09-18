@@ -372,9 +372,8 @@ namespace Durin
 			ReleaseResources();
 			return false;
 		}
-		std::string LODPolicyError;
 		if (!ValidateStaticMeshLODScreenSizes(
-			LODResources, LODPolicyError))
+			LODResources))
 		{
 			ReleaseResources();
 			return false;
@@ -595,40 +594,45 @@ namespace Durin
 		return Result;
 	}
 
-	auto ValidateStaticMeshLODScreenSizes(
-		std::span<const FStaticMeshLODResources> LODResources,
-		std::string& OutError) -> bool
+	auto FormatStaticMeshLODPolicyError(const FStaticMeshLODPolicyError& Error) -> std::string
 	{
-		if (LODResources.empty())
+		switch (Error.Code)
 		{
-			OutError = "Static-mesh LOD policy requires at least one LOD.";
-			return false;
+		case EStaticMeshLODPolicyError::None: return {};
+		case EStaticMeshLODPolicyError::Empty: return "Static-mesh LOD policy requires at least one LOD.";
+		case EStaticMeshLODPolicyError::InvalidScreenSize:
+			return std::format("Static-mesh LOD {} screen size must be finite and in [0, 1].", Error.LODIndex);
+		case EStaticMeshLODPolicyError::NotDescending: return "Static-mesh LOD screen sizes must be strictly descending.";
+		case EStaticMeshLODPolicyError::MissingFinalZero: return "Static-mesh lowest-detail LOD screen size must be exactly zero.";
 		}
+		return {};
+	}
+
+	auto ValidateStaticMeshLODScreenSizes(
+		std::span<const FStaticMeshLODResources> LODResources) -> FStaticMeshLODPolicyResult
+	{
+		if (LODResources.empty()) return {{.Code = EStaticMeshLODPolicyError::Empty}};
 		for (size_t LODIndex = 0; LODIndex < LODResources.size(); ++LODIndex)
 		{
 			const float ScreenSize = LODResources[LODIndex].ScreenSize;
-			if (!std::isfinite(ScreenSize)
-				|| ScreenSize < 0.0f || ScreenSize > 1.0f
+			FStaticMeshLODPolicyError Error{.LODIndex = LODIndex, .LODCount = LODResources.size(),
+				.ScreenSize = ScreenSize, .PreviousScreenSize = LODIndex ? LODResources[LODIndex - 1].ScreenSize : 0.0f};
+			if (!std::isfinite(ScreenSize) || ScreenSize < 0.0f || ScreenSize > 1.0f
 				|| (ScreenSize == 0.0f && std::signbit(ScreenSize)))
 			{
-				OutError = std::format(
-					"Static-mesh LOD {} screen size must be finite and in [0, 1].",
-					LODIndex);
-				return false;
+				Error.Code = EStaticMeshLODPolicyError::InvalidScreenSize;
+				return {Error};
 			}
-			if (LODIndex > 0
-				&& ScreenSize >= LODResources[LODIndex - 1].ScreenSize)
+			if (LODIndex > 0 && ScreenSize >= LODResources[LODIndex - 1].ScreenSize)
 			{
-				OutError = "Static-mesh LOD screen sizes must be strictly descending.";
-				return false;
+				Error.Code = EStaticMeshLODPolicyError::NotDescending;
+				return {Error};
 			}
 		}
 		if (LODResources.back().ScreenSize != 0.0f)
-		{
-			OutError = "Static-mesh lowest-detail LOD screen size must be exactly zero.";
-			return false;
-		}
-		OutError.clear();
-		return true;
+			return {{.Code = EStaticMeshLODPolicyError::MissingFinalZero,
+				.LODIndex = LODResources.size() - 1, .LODCount = LODResources.size(),
+				.ScreenSize = LODResources.back().ScreenSize}};
+		return {};
 	}
 }

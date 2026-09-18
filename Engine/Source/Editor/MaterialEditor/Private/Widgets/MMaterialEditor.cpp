@@ -910,7 +910,7 @@ namespace Durin::Editor::Material
 		bool bSubmitted = false;
 		const auto Submit = [&](const FMaterialGraphCommandResult& Result) {
 			bSubmitted = true;
-			if (!Result) SetError(Result.Message);
+			if (!Result) SetError(FormatMaterialGraphCommandResult(Result));
 		};
 		const auto EditText = [](const char* Label, std::string& Value) {
 			std::array<char, MaterialProgramMaxDisplayNameBytes + 1> Buffer{};
@@ -940,10 +940,16 @@ namespace Durin::Editor::Material
 					if (It == Expressions.end()) return;
 					// Copy the concrete owner so texture-sample inputs and node identity survive metadata edits.
 					TStrongObjectPtr<DMaterialExpressionParameter> Candidate(
-						Cast<DMaterialExpressionParameter>(DuplicateObject(It->Get(), nullptr, NAME_None)));
-					if (!Candidate || !Candidate->SetParameterDefinition(Parameter))
+						Cast<DMaterialExpressionParameter>(DuplicateObject(It->Get(), nullptr, NAME_None).Object));
+					if (!Candidate)
 					{
 						SetError("The parameter definition is invalid.");
+						bSubmitted = true;
+						return;
+					}
+					if (const auto Applied = Candidate->SetParameterDefinition(Parameter); !Applied)
+					{
+						SetError(FormatMaterialError(Applied.Error));
 						bSubmitted = true;
 						return;
 					}
@@ -1055,7 +1061,7 @@ namespace Durin::Editor::Material
 				{
 					const auto Result = FMaterialGraphDocument(*BaseMaterial).SetUseMaterialAttributes(
 						bAttributes, GEditor ? GEditor->GetTransactor() : nullptr);
-					if (!Result) SetError(Result.Message);
+					if (!Result) SetError(FormatMaterialGraphCommandResult(Result));
 				}
 				if (ImGui::IsItemHovered()) ImGui::SetTooltip("Switch output inputs. Both modes retain their connections. Only the selected mode is used.");
 				auto Properties = BaseMaterial->GetStaticProperties();

@@ -2,6 +2,8 @@
 
 #include "CoreDObjectAPI.h"
 #include "DObject/ObjectHandle.h"
+#include "DObject/PropertyDiagnostic.h"
+#include "DObject/ContainerOps.h"
 #include <functional>
 
 namespace Durin
@@ -17,12 +19,110 @@ namespace Durin
 		MapCollision, BudgetExceeded, Stale, Busy, ParticipantRejected, AllocationFailure
 	};
 
+	enum class EObjectReplacementMapReason : uint8
+	{
+		None, PackageBudget, InvalidPackagePair, InvalidObject, DuplicateIdentity,
+		ObjectBudget, IncompatibleType,
+	};
+
+	struct FObjectReplacementMapError
+	{
+		EObjectReplacementError Code = EObjectReplacementError::None;
+		EObjectReplacementMapReason Reason = EObjectReplacementMapReason::None;
+		size_t PackageIndex = 0;
+		uint64 ActualCount = 0;
+		uint64 MaximumCount = 0;
+		std::string ObjectPath;
+		std::string ExpectedType;
+		std::string ActualType;
+		auto HasError() const -> bool { return Code != EObjectReplacementError::None; }
+	};
+
+	struct FObjectReplacementMapResult
+	{
+		FObjectReplacementMapError Error;
+		auto Succeeded() const -> bool { return !Error.HasError(); }
+		explicit operator bool() const { return Succeeded(); }
+	};
+	COREDOBJECT_API auto FormatObjectReplacementMapError(const FObjectReplacementMapError& Error) -> std::string;
+
+	enum class EObjectReplacementReason : uint8
+	{
+		None,
+		DetachedUnmappedReference,
+		ArrayMutableTraversal,
+		ArrayTraversal,
+		MapOperations,
+		MapTransactionalOperations,
+		MapAllocation,
+		MapValueCopy,
+		MapInsertion,
+		MapTraversal,
+		ReferenceMetadata,
+		ReferenceBudget,
+		ReferenceWriter,
+		TemplateReference,
+		ExternalUnmappedReference,
+		ReferenceType,
+		StructMetadata,
+		NativeStructAdapter,
+		ArrayReferenceMetadata,
+		MapReferenceMetadata,
+		ReferenceTraversal,
+		ContainerCommit,
+		ContainerCopy,
+		ContainerComparison,
+		NativeOwnerParticipant,
+		AlreadyActive,
+		PackageReservation,
+		InvalidParticipant,
+		RootedObject,
+		StrongOwnerClaim,
+		PrepareAllocation,
+		PrepareException,
+		NotPrepared,
+		ObjectMembershipChanged,
+		ObjectIdentityChanged,
+		ObjectRootChanged,
+		PackageChanged,
+		ParticipantChanged,
+		StrongOwnerChanged,
+		ReferenceSlotsChanged,
+		ContainerChanged,
+		ValidationMutation,
+		ValidateAllocation,
+		ValidateException,
+		ReplacementMap,
+		ParticipantBusy,
+		ParticipantUnmappedPackage,
+		ParticipantRejected,
+		PersistenceRejected,
+	};
+	struct FObjectReplacementError
+	{
+		EObjectReplacementError Code = EObjectReplacementError::None;
+		EObjectReplacementReason Reason = EObjectReplacementReason::None;
+		std::string ObjectPath;
+		std::string PropertyName;
+		std::string ExpectedType;
+		std::string ActualType;
+		std::vector<std::string> Route;
+		uint32 ArrayIndex = 0;
+		uint64 ActualCount = 0;
+		uint64 MaximumCount = 0;
+		uint64 ExpectedCount = 0;
+		uint64 ActualRevision = 0;
+		uint64 ExpectedRevision = 0;
+		size_t ParticipantIndex = 0;
+		std::variant<std::monostate, FObjectReplacementMapError, FPropertyValueError, EContainerOpResult> Cause;
+	};
 	struct FObjectReplacementResult
 	{
-		EObjectReplacementError Error = EObjectReplacementError::None;
-		std::string Message;
-		explicit operator bool() const { return Error == EObjectReplacementError::None; }
+		FObjectReplacementError Error;
+		auto Succeeded() const -> bool { return Error.Code == EObjectReplacementError::None; }
+		explicit operator bool() const { return Succeeded(); }
 	};
+	COREDOBJECT_API auto FormatObjectReplacementError(const FObjectReplacementError& Error) -> std::string;
 
 	// Current stays registered until Prepared and every reference plan can commit together.
 	// A null Current denotes a new package; its reserved path remains invisible until commit.
@@ -49,7 +149,7 @@ namespace Durin
 			DObject* Replacement = nullptr;
 		};
 		COREDOBJECT_API auto Build(std::span<const FObjectReplacementPackagePair> Packages,
-			const FObjectReplacementBudget& Budget = {}) -> FObjectReplacementResult;
+			const FObjectReplacementBudget& Budget = {}) -> FObjectReplacementMapResult;
 		COREDOBJECT_API auto Find(DObject* Previous) const -> const FEntry*;
 		auto GetEntries() const -> std::span<const FEntry> { return Entries; }
 		auto GetPreparedObjects() const -> std::span<DObject* const> { return PreparedObjects; }

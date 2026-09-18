@@ -541,7 +541,7 @@ namespace Durin::Editor::MainFrame
 		{
 			WindowMessage = Result.Errors.empty()
 				? "Asset catalog refresh did not publish a complete result."
-				: Result.Errors.front().Message;
+				: FormatAssetRegistryError(Result.Errors.front());
 			return;
 		}
 		const FAssetCatalogSnapshot Snapshot = CaptureAssetCatalogSnapshot();

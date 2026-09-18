@@ -17,7 +17,8 @@ namespace Durin
 	struct FTexture2DCompilationResult
 	{
 		ETexture2DCompilationStatus Status = ETexture2DCompilationStatus::Failed;
-		std::string Diagnostic;
+		FTexture2DCompilationError Error;
+		FAssetCacheDiagnostics PersistenceDiagnostic;
 
 		auto Succeeded() const -> bool
 		{
@@ -49,8 +50,7 @@ namespace Durin
 	ENGINE_API auto SubmitTexture2DCompilation(
 		DTexture2D& Texture,
 		FTexture2DCompilationRequest Request,
-		std::string& OutError,
-		FTexture2DCompilationCompletion Completion = {}) -> bool;
+		FTexture2DCompilationCompletion Completion = {}) -> FTexture2DCompilationOperationResult;
 	ENGINE_API auto GetTexture2DCompilationDiagnostic(const DTexture2D& Texture)
 		-> FTexture2DCompilationDiagnostic;
 	ENGINE_API auto GetTexture2DCompilationManagerDiagnostics()
@@ -62,8 +62,7 @@ namespace Durin
 	ENGINE_API auto BuildTexture2DSynchronously(
 		DTexture2D& Texture,
 		FTexture2DBuildRequest Request,
-		const FTexture2DResultApplicationContext& Context,
-		std::string& OutError) -> bool;
+		const FTexture2DResultApplicationContext& Context) -> FTexture2DCompilationOperationResult;
 }
 
 namespace Durin::AssetPrivate

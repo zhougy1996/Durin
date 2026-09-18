@@ -173,7 +173,10 @@ is linear; smoothstep is available explicitly.
 `FSplineMeshDeformer` is the finite CPU authority for position, derivative,
 orthonormal frame, direction/normal transformation, and conservative bounds.
 It rejects non-finite parameters and a non-positive canonical LOD 0 forward
-extent atomically. A singular up projection uses the least-aligned cardinal
+extent atomically. `Normalize` returns `FSplineMeshValidationResult` without
+string error outputs; invalid axis, interpolation, finiteness, and extent have
+distinct codes. The error owns the rejected parameter values, and callers format
+explicitly with `FormatSplineMeshValidationError`. A singular up projection uses the least-aligned cardinal
 axis; a zero derivative falls back to the endpoint chord and then the selected
 source axis. Frames are right-handed with `Forward 脳 Side = Up`.
 

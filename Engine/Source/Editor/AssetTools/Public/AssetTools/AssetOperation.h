@@ -6,6 +6,8 @@
 namespace Durin
 {
 	class DObject;
+	class FFactoryDiagnostics;
+	struct FAssetImportValidation;
 	class DPackage;
 
 	// Identifies the reusable editor command represented by an AssetTools result.
@@ -46,6 +48,15 @@ namespace Durin
 	};
 
 	// Carries structured command state; diagnostics are presentation data only.
+	enum class EAssetCreationError : uint8 { None, Path, Class, Occupied, Filename, PackageCreation, ProductType, ProductOuter, ProductName, ProductRegistration, FactoryRejected };
+	struct FAssetCreationError
+	{
+		EAssetCreationError Code = EAssetCreationError::None;
+		std::string RequestedPath, RequestedClass, Filename;
+		std::string ActualPath, ActualClass;
+	};
+	ASSETTOOLS_API auto FormatAssetCreationError(const FAssetCreationError& Error) -> std::string;
+
 	struct FAssetOperationResult
 	{
 		EAssetOperationKind Kind = EAssetOperationKind::Create;
@@ -63,6 +74,9 @@ namespace Durin
 		std::string FailedParticipant;
 		std::filesystem::path RecoveryLocation;
 		bool bPublished = false;
+		std::shared_ptr<const FAssetImportValidation> ImportCause;
+		std::optional<FAssetCreationError> CreationCause;
+		std::shared_ptr<const FFactoryDiagnostics> FactoryCause;
 
 		auto Succeeded() const -> bool
 		{

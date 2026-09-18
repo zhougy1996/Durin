@@ -31,8 +31,7 @@ namespace
 TEST(RoadGraphContract, TerminalOwnershipUsesTrafficAndSection)
 {
 	auto Definition = MakeRoad();
-	std::string Error;
-	ASSERT_TRUE(ValidateDefinition(Definition, Error)) << Error;
+	ASSERT_TRUE(ValidateDefinition(Definition));
 	const auto& Road = Definition.Roads.front();
 	const auto Along = FindLaneOwnership(Definition, Road.LaneSections[0].Lanes[0].Id);
 	const auto Against = FindLaneOwnership(Definition, Road.LaneSections[0].Lanes[1].Id);
@@ -59,9 +58,20 @@ TEST(RoadGraphContract, RejectsMalformedGeometryBeforeSplineSanitization)
 		if (Case == 5) Points[1].Position.x += 1;
 		Road.ReferenceLine.SetPoints(Points);
 		if (Case == 6) Road.ReferenceLine.SetClosedLoop(true);
-		std::string Error;
-		EXPECT_FALSE(ValidateDefinition(Definition, Error)) << Case;
-		EXPECT_FALSE(Error.empty());
+			const auto Result = ValidateDefinition(Definition);
+		const ERoadDefinitionError Expected[] = {
+			ERoadDefinitionError::InvalidCurveCoordinates, ERoadDefinitionError::InvalidCurveCoordinates,
+			ERoadDefinitionError::InvalidCurveMode, ERoadDefinitionError::InvalidCurveMode,
+			ERoadDefinitionError::DegenerateCurve, ERoadDefinitionError::EndpointMismatch,
+			ERoadDefinitionError::InvalidCurveShape};
+		EXPECT_EQ(Result.Error.Code, Expected[Case]) << Case;
+		EXPECT_EQ(Result.Error.Id, Road.Id);
+		EXPECT_EQ(Result.Error.Entity, ERoadValidationEntity::Road);
+		if (Case < 4)
+		{
+			ASSERT_TRUE(Result.Error.Point);
+			EXPECT_EQ(Result.Error.Point->Id, Points[Case == 1 ? 1 : 0].Id);
+		}
 	}
 }
 
@@ -75,15 +85,14 @@ TEST(RoadGraphContract, SectionContinuityIsExplicitAndDirected)
 	Second.EndDistanceMeters = 100;
 	for (auto& Lane : Second.Lanes) Lane.Id = FGuid::NewGuid();
 	Road.LaneSections.push_back(Second);
-	std::string Error;
-	EXPECT_FALSE(ValidateDefinition(Definition, Error));
+	EXPECT_EQ(ValidateDefinition(Definition).Error.Code, ERoadDefinitionError::MissingContinuity);
 	Road.SectionTransitions = {
 		{Road.LaneSections[0].Lanes[0].Id, Second.Lanes[0].Id},
 		{Second.Lanes[1].Id, Road.LaneSections[0].Lanes[1].Id}};
-	ASSERT_TRUE(ValidateDefinition(Definition, Error)) << Error;
+	ASSERT_TRUE(ValidateDefinition(Definition));
 	EXPECT_FALSE(IsTerminalLane(*FindLaneOwnership(Definition, Road.LaneSections[0].Lanes[0].Id), Road.EndNodeId, true));
 	Road.LaneSections[1].StartDistanceMeters += 1;
-	EXPECT_FALSE(ValidateDefinition(Definition, Error));
+	EXPECT_EQ(ValidateDefinition(Definition).Error.Code, ERoadDefinitionError::InvalidSection);
 }
 
 TEST(RoadGraphContract, JunctionRejectsReversedAndDisconnectedLanes)
@@ -97,13 +106,12 @@ TEST(RoadGraphContract, JunctionRejectsReversedAndDisconnectedLanes)
 		.IncomingLaneId = Road.LaneSections[0].Lanes[0].Id,
 		.OutgoingLaneId = Road.LaneSections[0].Lanes[1].Id});
 	Definition.Junctions.push_back(Junction);
-	std::string Error;
-	ASSERT_TRUE(ValidateDefinition(Definition, Error)) << Error;
+	ASSERT_TRUE(ValidateDefinition(Definition));
 	Definition.Junctions[0].NodeId = Road.StartNodeId;
-	EXPECT_FALSE(ValidateDefinition(Definition, Error));
+	EXPECT_EQ(ValidateDefinition(Definition).Error.Code, ERoadDefinitionError::InvalidTerminalFlow);
 	Definition.Nodes.push_back({.Id = FGuid::NewGuid(), .Position = {200, 0, 0}});
 	Definition.Junctions[0].NodeId = Definition.Nodes.back().Id;
-	EXPECT_FALSE(ValidateDefinition(Definition, Error));
+	EXPECT_EQ(ValidateDefinition(Definition).Error.Code, ERoadDefinitionError::InvalidTerminalFlow);
 }
 
 TEST(RoadGraphContract, RejectedCandidatePreservesPublishedValueAndDoesNotNotify)
@@ -150,7 +158,9 @@ TEST(RoadSurfaceContract, PlaneProjectionUsesFinalLengthAndRigidCoordinates)
 	ASSERT_TRUE(Snapshot->SampleWorld(50, Transform, World, Error)) << Error;
 	EXPECT_LT(Math::Length(World.Position - (Transform.Rotation * Sample.Position + Transform.Translation)), 1.e-8);
 	Transform.Scale3D.x = 2;
+	const auto OriginalPosition = World.Position;
 	EXPECT_FALSE(Snapshot->SampleWorld(50, Transform, World, Error));
+	EXPECT_EQ(World.Position, OriginalPosition);
 	EXPECT_FALSE(Snapshot->Sample(101, Sample, Error));
 }
 
@@ -344,4 +354,50 @@ TEST(RoadGraphContract, ExplicitAssetFitRemapsMultipleSectionsAndKeepsPlanetFixe
 	EXPECT_EQ(Asset->GetRoads()[0].ReferenceLine.GetPoints(), Points);
 	EXPECT_EQ(Asset->GetDefinition().Planet.RadiusMeters, 1000);
 	Asset->RemoveMutationListener(Listener);
+}
+
+TEST(RoadSurfaceContract, PlacementValidationRetainsTypedRejectedTransform)
+{
+	FTransform Placement;
+	ASSERT_TRUE(ValidateRoadPlacement(Placement));
+	Placement.Scale3D.x = 2;
+	const auto Scale = ValidateRoadPlacement(Placement);
+	EXPECT_EQ(Scale.Error.Code, ERoadPlacementError::NonIdentityScale);
+	Placement.Scale3D.x = 1;
+	EXPECT_DOUBLE_EQ(Scale.Error.Placement.Scale3D.x, 2);
+	Placement.Translation.y = std::numeric_limits<double>::infinity();
+	const auto Translation = ValidateRoadPlacement(Placement);
+	EXPECT_EQ(Translation.Error.Code, ERoadPlacementError::NonFiniteTranslation);
+	Placement.Translation.y = 0;
+	EXPECT_TRUE(std::isinf(Translation.Error.Placement.Translation.y));
+	Placement.Rotation.x = std::numeric_limits<double>::quiet_NaN();
+	const auto Rotation = ValidateRoadPlacement(Placement);
+	EXPECT_EQ(Rotation.Error.Code, ERoadPlacementError::NonFiniteRotation);
+	Placement.Rotation.x = 0;
+	EXPECT_TRUE(std::isnan(Rotation.Error.Placement.Rotation.x));
+	Placement.Rotation.w = 2;
+	const auto Unit = ValidateRoadPlacement(Placement);
+	EXPECT_EQ(Unit.Error.Code, ERoadPlacementError::NonUnitRotation);
+	EXPECT_DOUBLE_EQ(Unit.Error.Placement.Rotation.w, 2);
+	EXPECT_DOUBLE_EQ(Placement.Rotation.w, 2);
+}
+
+TEST(RoadGraphContract, DefinitionErrorsRetainOwnedIdentityAndNumericContext)
+{
+	auto Definition = MakeRoad();
+	const auto NodeId = Definition.Nodes.front().Id;
+	Definition.Nodes.push_back(Definition.Nodes.front());
+	const auto Duplicate = ValidateDefinition(Definition);
+	EXPECT_EQ(Duplicate.Error.Code, ERoadDefinitionError::DuplicateId);
+	Definition.Nodes.pop_back();
+	EXPECT_EQ(Duplicate.Error.Entity, ERoadValidationEntity::Node);
+	EXPECT_EQ(Duplicate.Error.Id, NodeId);
+	Definition.Roads[0].LaneSections.back().EndDistanceMeters = 90;
+	const auto Stations = ValidateDefinition(Definition);
+	EXPECT_EQ(Stations.Error.Code, ERoadDefinitionError::StationCoverage);
+	EXPECT_DOUBLE_EQ(Stations.Error.Length, 100);
+	const auto RoadId = Definition.Roads[0].Id;
+	Definition = {};
+	EXPECT_EQ(Stations.Error.Id, RoadId);
+	EXPECT_DOUBLE_EQ(Stations.Error.Length, 100);
 }

@@ -22,6 +22,42 @@ namespace Durin
 		Absolute
 	};
 
+	class IAssetImportDataCause
+	{
+	public:
+		virtual ~IAssetImportDataCause() = default;
+		virtual auto Format() const -> std::string = 0;
+	};
+
+	enum class EAssetImportDataError : uint8
+	{
+		None, UnsupportedSchema, InvalidRole, InvalidLabel, InvalidHint, IncompleteHash,
+		EmptyPayload, TooManySources, EmptySource, NonCanonicalRoles,
+		MissingImportReference, MissingSourceData, ModuleRejected,
+	};
+	struct FAssetImportDataError
+	{
+		EAssetImportDataError Code = EAssetImportDataError::None;
+		uint64 Index = 0;
+		uint64 Actual = 0;
+		uint64 Expected = 0;
+		uint64 ObjectId = 0;
+		std::string Role;
+		std::string PreviousRole;
+		std::string Hint;
+		std::string DisplayLabel;
+		ESourceHintBase HintBase = ESourceHintBase::AssetRelative;
+		FXxHash128 ContentHash{};
+		std::shared_ptr<const IAssetImportDataCause> Cause;
+	};
+	struct FAssetImportDataResult
+	{
+		FAssetImportDataError Error;
+		auto Succeeded() const -> bool { return Error.Code == EAssetImportDataError::None; }
+		explicit operator bool() const { return Succeeded(); }
+	};
+	ENGINE_API auto FormatAssetImportDataError(const FAssetImportDataError& Error) -> std::string;
+
 	DSTRUCT()
 	struct FSourceFile
 	{
@@ -53,7 +89,7 @@ namespace Durin
 		{
 			return {ContentHashLow, ContentHashHigh};
 		}
-		ENGINE_API auto Validate(std::string& OutError) const -> bool;
+		ENGINE_API auto Validate() const -> FAssetImportDataResult;
 		auto operator==(const FSourceFile&) const -> bool = default;
 	};
 
@@ -66,7 +102,7 @@ namespace Durin
 		std::vector<FSourceFile> Sources;
 
 		ENGINE_API auto Normalize() -> void;
-		ENGINE_API auto Validate(std::string& OutError) const -> bool;
+		ENGINE_API auto Validate() const -> FAssetImportDataResult;
 		ENGINE_API auto FindByRole(FName Role) const
 			-> const FSourceFile*;
 		ENGINE_API auto GetFingerprint() const -> FXxHash128;
@@ -78,7 +114,7 @@ namespace Durin
 		uint32 SchemaVersion = AssetImportDataSchemaVersion;
 		FAssetImportInfo SourceData;
 
-		ENGINE_API auto Validate(std::string& OutError) const -> bool;
+		ENGINE_API auto Validate() const -> FAssetImportDataResult;
 		auto operator==(const FAssetImportDataState&) const -> bool = default;
 	};
 
@@ -96,7 +132,7 @@ namespace Durin
 		auto GetSourceData() const -> const FAssetImportInfo& { return SourceData; }
 
 		ENGINE_API virtual auto GetCompilationIdentity() const -> FXxHash128;
-		ENGINE_API virtual auto Validate(std::string& OutError) const -> bool;
+		ENGINE_API virtual auto Validate() const -> FAssetImportDataResult;
 		// Requires normalized source data and a state that passed Validate.
 		ENGINE_API auto SetState(FAssetImportDataState State) -> void;
 		auto GetState() const -> FAssetImportDataState
@@ -114,6 +150,5 @@ namespace Durin
 
 	ENGINE_API auto InspectAssetImportInfo(
 		const FAssetPackageInspection& Inspection,
-		FAssetImportInfo& OutInfo,
-		std::string& OutError) -> bool;
+		FAssetImportInfo& OutInfo) -> FAssetImportDataResult;
 }

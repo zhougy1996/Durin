@@ -31,13 +31,34 @@ namespace Durin
 		double Handedness = 1.0;
 	};
 
+	enum class ESplineMeshValidationError : uint8
+	{
+		None, InvalidForwardAxis, InvalidInterpolation, NonFiniteParameters, DegenerateForwardExtent,
+	};
+
+	struct FSplineMeshValidationError
+	{
+		ESplineMeshValidationError Code = ESplineMeshValidationError::None;
+		// Own the rejected values so diagnostics survive draft repair or destruction.
+		FSplineMeshParams Params;
+	};
+
+	struct FSplineMeshValidationResult
+	{
+		FSplineMeshValidationError Error;
+		auto Succeeded() const -> bool { return Error.Code == ESplineMeshValidationError::None; }
+		explicit operator bool() const { return Succeeded(); }
+	};
+
+	ENGINE_API auto FormatSplineMeshValidationError(const FSplineMeshValidationError& Error) -> std::string;
+
 	// Implements the CPU authority shared by bounds, picking, collision, and shader parity tests.
 	class FSplineMeshDeformer final
 	{
 	public:
 		// Rejects non-finite inputs and a degenerate canonical forward extent without modifying OutParams.
 		ENGINE_API static auto Normalize(const FSplineMeshParams& Params,
-			FSplineMeshParams& OutParams, std::string* OutError = nullptr) -> bool;
+			FSplineMeshParams& OutParams) -> FSplineMeshValidationResult;
 		ENGINE_API static auto Evaluate(const FSplineMeshParams& Params, double T) -> FSplineMeshSample;
 		ENGINE_API static auto DeformPosition(const FSplineMeshParams& Params,
 			const FVector3& SourcePosition) -> FVector3;

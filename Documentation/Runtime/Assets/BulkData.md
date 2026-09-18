@@ -4,7 +4,7 @@ Summary: Define reflected BulkData values, canonical DAST v10 placement, package
 
 Modules: Engine, CoreDObject, AssetRegistry
 
-Last reviewed: 2026-09-14
+Last reviewed: 2026-09-18
 
 BulkData is a reflected field contract. The field owns bounded logical storage
 facts and optional memory; the package owns physical placement and integrity;
@@ -63,8 +63,18 @@ offset, alignment, and a package-resource handle. Current storage supports
 flags zero, equal logical/stored sizes, power-of-two alignment from 1 through
 4096, and an exact inline or external package range. Physical content identity
 belongs to the package descriptor, not mutable runtime state.
+`TryCreateDetached` and `TryAttach` return `FBulkDataResult`, with typed size
+failures and a retained range-validation cause. Failed creation or attachment
+leaves the destination state and payload unchanged; formatting is explicit at
+pending Archive and Cook boundaries.
 
 ## Editor Field State And Identity
+
+`UpdatePayload` and `TryCreatePackageBacked` return `FEditorBulkDataResult`.
+Failures distinguish payload limits, invalid instance/content identity, logical
+size mismatch and invalid package ranges. Errors own identity and size context
+and retain the typed range cause. Failed creation preserves the destination's
+identity and immutable source; successful updates keep the existing instance GUID.
 
 `FEditorBulkData` is independent of `FBulkData` and has no lock API. It owns an
 instance GUID, XXH3-128 content ID, logical size, and either immutable memory or
@@ -92,12 +102,25 @@ bytes. The persistent source retains its original reflected type and four wire
 fields; moving their C++ declarations does not rename package declaring identity.
 See [StaticMesh source ownership](../Rendering/StaticMeshRendering.md#source-and-payload-compatibility).
 
+The three Editor Bulk storage-inspection APIs return
+`FEditorBulkDataStorageResult` without diagnostic-output overloads. Their errors
+own object identity, nested field names, depth/version and count/size bounds,
+Archive code/path and filesystem path/error as applicable. Descriptor inspection
+still clears its output first and may retain descriptors collected before a later
+failure; companion-path inspection clears output before validation. Pending asset
+and prepared-resource results retain `BulkStorageCause`; UI and command adapters
+format explicitly.
+
 ## Package-Resource Ownership
 
 `FPackageResourceRange` stores a ref-counted logical resource handle, offset,
 stored size, flags, and alignment. Its validator checks flags, alignment,
-overflow, caller limits, and the resource's validated segment extent. It owns
-no hash, GUID, DDC key, schema, target, asset path, or physical path.
+overflow, caller limits, and the resource's validated segment extent. It returns
+`FPackageResourceRangeResult`, distinguishing missing resources, unsupported
+flags, size limits, invalid alignment, misaligned offsets, and bounds failures.
+The error owns the rejected offset, size, flags, alignment, limit and extent;
+it does not retain the resource. The range owns no hash, GUID, DDC key, schema,
+target, asset path, or physical path.
 
 Only the loose backend stores the mounted `.dasset` path and derives the stable
 `.dbulk` sibling. At package admission it validates the complete external
@@ -113,7 +136,11 @@ copy against the package summary, field digests, ranges, and padding before
 returning a handle. The caller must keep the supplied view stable during the
 call. Subsequent lazy reads share bounded views of that owned allocation and
 never open a file or consult the global resource manager. Creation failure
-clears the output handle. The owner must retire the resource before task-service
+clears the output handle. Metadata and segment validators and owned creation
+return `FPackageBulkDataResult` without diagnostic outputs, retaining typed
+reasons, owned summary/entry snapshots, bounds, padding offsets and actual
+digests. Pending preparation and registration results retain `BulkCause` and
+format explicitly with `FormatPackageBulkDataError`. The owner must retire the resource before task-service
 shutdown; completed buffers retain their bytes independently of retirement.
 This entry point supports detached input capture but is not yet wired into the
 Cook package loader, whose current loose resources still read live files.
@@ -136,8 +163,12 @@ withdrawing object publication; Engine shutdown retires all resources before
 filesystem and task services stop.
 
 `RegisterLoosePackage` returns an owned resource or a registration failure with
-its validation/recovery/shutdown stage and diagnostic. Atomic recovery failures
-also retain the structured publication error. Empty logical package identity is
+its validation/recovery/shutdown stage and typed error, without a Message field.
+Generation errors own their physical path and file-I/O or Bulk validation cause,
+including extent, digest, field and exact padding-offset facts. Registration keeps
+primary, backup and recovered-generation failures separately; atomic recovery
+also retains its structured publication error. Asset results retain this context
+as `ResourceRegistrationCause`, with explicit formatting at pending boundaries. Empty logical package identity is
 an internal contract violation; invalid disk metadata remains a normal failure.
 The registration and read mechanisms do not log each propagated error; asset
 operation boundaries decide presentation and recovery.
@@ -145,7 +176,11 @@ operation boundaries decide presentation and recovery.
 The backend reports InvalidRange, MissingSegment, TruncatedSegment,
 SegmentDigestMismatch, Cancelled, Retired, and IoError distinctly. A range read
 checks before/after physical size and rejects a changed segment rather than
-returning a mixed generation.
+returning a mixed generation. Read results retain typed reasons and owned range,
+size, digest, filesystem/stream and task/wait context without a Message field.
+Rejected waits remain caller-local errors and preserve the live request outcome.
+Runtime/editor Bulk adapters retain read causes; pending serialization, mesh
+loading and source-validation contracts format explicitly.
 
 Package range roots use `Tasks::LaunchTask` on the blocking-I/O executor, with bounded active
 threads and accepted pending work.
@@ -172,7 +207,13 @@ validates the captured external bytes against the directory and segment digest.
 `Prepare` accepts main bytes and directory facts already validated by that codec;
 it is a storage primitive and does not validate the main schema itself.
 Neither entry point constructs objects, registers resources, recovers backups,
-or writes files. Failure leaves the caller's previous output intact.
+or writes files. Failure leaves the caller's previous output intact. Preparation
+results derive success from their typed error code and own budget, extent,
+digest, physical path and file-I/O/filesystem context. They retain Bulk storage,
+Bulk validation and underlying asset-codec results as causes. Pending graph
+preparation and reload results keep `ResourceCause`; their diagnostic adapters
+format explicitly. The asset-codec cause still follows the pending `FAssetResult`
+contract and is retained whole rather than flattened during preparation.
 
 The prepared resource serves shared immutable ranges from retained memory, so
 deleting or replacing a disk file cannot change a later lazy payload read.
@@ -180,7 +221,7 @@ Payload owners keep this storage alive after the preparation owner is released.
 `Revalidate` rehashes main and bulk with 64 KiB scratch and checks main again after
 bulk; equal sizes or timestamps alone never establish freshness. A caller still
 owns save/edit admission and the final check-to-publication boundary. Storage
-`Ready` does not imply reload admission or graph/runtime readiness. The retained
+success does not imply reload admission or graph/runtime readiness. The retained
 budget counts main and bulk bytes only; parser scratch, decoded object values,
 reference plans, and runtime products require separate coordinator accounting.
 

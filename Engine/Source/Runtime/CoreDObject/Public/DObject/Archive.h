@@ -1,6 +1,8 @@
 #pragma once
 
 #include "CoreDObjectAPI.h"
+#include "DObject/PropertyDiagnostic.h"
+#include "DObject/AuthoredOverrideLedger.h"
 #include "DObjectFwd.h"
 #include "DObject/ObjectMacros.h"
 #include "DObject/ObjectKey.h"
@@ -132,6 +134,14 @@ namespace Durin
 	{
 	public:
 		COREDOBJECT_API explicit FObjectArchive(FArchiveState State, FArchiveVersionContext Versions = {});
+		COREDOBJECT_API auto FailPropertyValue(const FPropertyValueError& Error) -> void;
+		COREDOBJECT_API auto FailMapKey(const FReflectedMapKeyError& Error) -> void;
+		COREDOBJECT_API auto FailValidation(const FObjectValidationError& Error) -> void;
+		auto GetValueFailureCause() const -> const auto& { return ValueFailureCause; }
+
+	private:
+		std::variant<std::monostate, FPropertyValueError, FReflectedMapKeyError, FObjectValidationError, FObjectError> ValueFailureCause;
+	public:
 
 		COREDOBJECT_API auto EnterObject(DObject& Object) -> FArchiveObjectScope;
 		COREDOBJECT_API auto EnterField(const FArchiveFieldDescriptor& Field) -> FArchiveFieldScope;
@@ -271,9 +281,9 @@ namespace Durin
 		FByteBuffer Bytes;
 		std::vector<FObjectKey> ReferencedObjectKeys;
 		friend COREDOBJECT_API auto CapturePropertyValuePayload(
-			const FProperty*, const void*, uint32, FPropertyValueSnapshotPayload&, std::string*) -> bool;
+			const FProperty*, const void*, uint32, FPropertyValueSnapshotPayload&) -> FPropertySnapshotResult;
 		friend COREDOBJECT_API auto RestorePropertyValuePayload(
-			const FProperty*, void*, uint32, const FPropertyValueSnapshotPayload&, std::string*) -> bool;
+			const FProperty*, void*, uint32, const FPropertyValueSnapshotPayload&) -> FPropertySnapshotResult;
 	};
 
 	// Legacy retaining adapter over the shared retention-neutral property snapshot payload.
@@ -298,38 +308,74 @@ namespace Durin
 		std::vector<TStrongObjectPtr<DObject>> StrongReferences;
 		auto AddStrongReferences() -> void;
 		auto ReleaseStrongReferences() -> void;
-		friend COREDOBJECT_API auto CapturePropertyValue(const FProperty*, const void*, uint32, FPropertyValueSnapshot&, std::string*) -> bool;
-		friend COREDOBJECT_API auto RestorePropertyValue(const FProperty*, void*, uint32, const FPropertyValueSnapshot&, std::string*) -> bool;
+		friend COREDOBJECT_API auto CapturePropertyValue(const FProperty*, const void*, uint32, FPropertyValueSnapshot&) -> FPropertySnapshotResult;
+		friend COREDOBJECT_API auto RestorePropertyValue(const FProperty*, void*, uint32, const FPropertyValueSnapshot&) -> FPropertySnapshotResult;
 	};
 
-	COREDOBJECT_API auto CapturePropertyValuePayload(const FProperty* Property, const void* Container, uint32 ArrayIndex, FPropertyValueSnapshotPayload& OutPayload, std::string* OutError = nullptr) -> bool;
-	COREDOBJECT_API auto RestorePropertyValuePayload(const FProperty* Property, void* Container, uint32 ArrayIndex, const FPropertyValueSnapshotPayload& Payload, std::string* OutError = nullptr) -> bool;
+	COREDOBJECT_API auto CapturePropertyValuePayload(const FProperty* Property, const void* Container, uint32 ArrayIndex, FPropertyValueSnapshotPayload& OutPayload) -> FPropertySnapshotResult;
+	COREDOBJECT_API auto RestorePropertyValuePayload(const FProperty* Property, void* Container, uint32 ArrayIndex, const FPropertyValueSnapshotPayload& Payload) -> FPropertySnapshotResult;
 	COREDOBJECT_API auto ArePropertySnapshotTypesCompatible(
 		const FProperty* CapturedProperty, const FProperty* CandidateProperty) -> bool;
-	COREDOBJECT_API auto CapturePropertyValue(const FProperty* Property, const void* Container, uint32 ArrayIndex, FPropertyValueSnapshot& OutSnapshot, std::string* OutError = nullptr) -> bool;
-	COREDOBJECT_API auto RestorePropertyValue(const FProperty* Property, void* Container, uint32 ArrayIndex, const FPropertyValueSnapshot& Snapshot, std::string* OutError = nullptr) -> bool;
+	COREDOBJECT_API auto CapturePropertyValue(const FProperty* Property, const void* Container, uint32 ArrayIndex, FPropertyValueSnapshot& OutSnapshot) -> FPropertySnapshotResult;
+	COREDOBJECT_API auto RestorePropertyValue(const FProperty* Property, void* Container, uint32 ArrayIndex, const FPropertyValueSnapshot& Snapshot) -> FPropertySnapshotResult;
 	COREDOBJECT_API auto SerializeReflectedPropertyValue(FArchive& Ar, FProperty& Property, void* Container, uint32 ArrayIndex = 0, bool bIncludeRawObjectReferences = false) -> void;
 	COREDOBJECT_API auto SerializeDObjectProperties(FArchive& Ar, DObject& Object) -> void;
-	COREDOBJECT_API auto SaveObjectGraphToMemory(DObject* RootObject, FByteBuffer& OutBytes) -> bool;
-	COREDOBJECT_API auto LoadObjectGraphFromMemory(const FByteBuffer& Bytes) -> DObject*;
-	// Duplicates the source Outer tree and optionally returns its object mapping.
+	enum class EObjectGraphError : uint8
+	{
+		None, InvalidRoot, TemplateRoot, Discovery, PropertyWrite, HeaderWrite,
+		Header, RecordPayload, RecordIdentity, Construction, TrailingBytes,
+		OuterCycle, OuterIdentity, PropertyRead, Validation, RootIdentity, MissingClass, AuthoredOverrides
+	};
+	struct FObjectGraphError
+	{
+		EObjectGraphError Code = EObjectGraphError::None;
+		std::string ObjectName;
+		std::string ClassName;
+		uint64 ObjectId = 0;
+		uint64 OuterId = 0;
+		uint64 ObjectCount = 0;
+		uint64 ActualBytes = 0;
+		uint64 RemainingBytes = 0;
+		uint32 Magic = 0;
+		uint32 ExpectedMagic = 0;
+		uint32 Version = 0;
+		uint32 ExpectedVersion = 0;
+		std::optional<EArchiveFailureCode> ArchiveCode;
+		std::string ArchivePath;
+		std::optional<FAuthoredOverrideDiagnostic> OverrideCause;
+		std::variant<std::monostate, FPropertyValueError, FReflectedMapKeyError, FObjectValidationError, FObjectError> Cause;
+	};
+	template<class T>
+	struct TObjectGraphResult
+	{
+		FObjectGraphError Error;
+		T* Object = nullptr;
+		explicit operator bool() const { return Error.Code == EObjectGraphError::None; }
+	};
+	using FObjectGraphResult = TObjectGraphResult<DObject>;
+	COREDOBJECT_API auto FormatObjectGraphError(const FObjectGraphError& Error) -> std::string;
+	// Failed save preserves OutBytes; failed load returns no object and discards its candidates.
+	COREDOBJECT_API auto SaveObjectGraphToMemory(DObject* RootObject, FByteBuffer& OutBytes) -> FObjectGraphResult;
+	COREDOBJECT_API auto LoadObjectGraphFromMemory(const FByteBuffer& Bytes) -> FObjectGraphResult;
+	// Duplicates the source Outer tree; failure retires candidates and clears OutDuplicates.
 	COREDOBJECT_API auto DuplicateObject(
 		const DObject* SourceObject,
 		DObject* NewOuter,
 		FName NewName = FName(),
-		std::unordered_map<DObject*, DObject*>* OutDuplicates = nullptr) -> DObject*;
+		std::unordered_map<DObject*, DObject*>* OutDuplicates = nullptr) -> FObjectGraphResult;
 
 	template<class T>
 	auto DuplicateObject(
 		T const* SourceObject,
 		DObject* Outer,
 		const FName Name = NAME_None,
-		std::unordered_map<DObject*, DObject*>* OutDuplicates = nullptr) -> T*
+		std::unordered_map<DObject*, DObject*>* OutDuplicates = nullptr) -> TObjectGraphResult<T>
 	{
 		static_assert(std::is_base_of_v<DObject, T>,
 			"T must be derived from DObject");
-		return static_cast<T*>(DuplicateObject(
-			static_cast<const DObject*>(SourceObject), Outer, Name, OutDuplicates));
+		auto Result = DuplicateObject(
+			static_cast<const DObject*>(SourceObject), Outer, Name, OutDuplicates);
+		return {.Error = std::move(Result.Error), .Object = static_cast<T*>(Result.Object)};
 	}
 
 	// Initializes a fresh, unpublished destination from a paired default object.
@@ -337,7 +383,7 @@ namespace Durin
 	// Copies reflected values only; native fields must be emitted completely.
 	// Does not copy override intent or call Serialize/PostLoad.
 	COREDOBJECT_API auto InitializeObjectFromDefaults(const DObject* Defaults, DObject* Destination,
-		const std::unordered_map<DObject*, DObject*>& ReferenceMap, std::string* OutError = nullptr) -> bool;
+		const std::unordered_map<DObject*, DObject*>& ReferenceMap) -> FObjectPropertyCopyResult;
 
-	COREDOBJECT_API auto CopyEditableObjectProperties(DObject* Source, DObject* Destination, const std::unordered_map<DObject*, DObject*>& ReferenceMap, std::string* OutError = nullptr) -> bool;
+	COREDOBJECT_API auto CopyEditableObjectProperties(DObject* Source, DObject* Destination, const std::unordered_map<DObject*, DObject*>& ReferenceMap) -> FObjectPropertyCopyResult;
 }

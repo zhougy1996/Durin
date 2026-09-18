@@ -95,28 +95,57 @@ namespace Durin
 		std::vector<FPropertySaveOverride> Properties;
 	};
 
+	enum class ESaveOverrideError : uint8
+	{
+		None, ObjectConflict, PropertyConflict, ForeignOmissionProperty,
+		ForeignReplacementProperty, StorageMismatch, StructMismatch, ObjectWrapperMismatch,
+		ValueCopyFailed, SnapshotFailed,
+	};
+	struct FSaveOverrideError
+	{
+		ESaveOverrideError Code = ESaveOverrideError::None;
+		std::string ObjectPath;
+		std::string PropertyName;
+		std::string ExpectedType;
+		std::string ActualType;
+		size_t ExpectedSize = 0;
+		size_t ActualSize = 0;
+		size_t ExpectedAlignment = 0;
+		size_t ActualAlignment = 0;
+		uint32 ArrayDim = 0;
+		DurinCodeGen::EPropertyGenFlags ExpectedKind = DurinCodeGen::EPropertyGenFlags::None;
+		DurinCodeGen::EPropertyGenFlags ActualKind = DurinCodeGen::EPropertyGenFlags::None;
+		std::variant<std::monostate, FPropertyValueError, FPropertySnapshotError> Cause;
+		auto HasError() const -> bool { return Code != ESaveOverrideError::None; }
+	};
+	struct FSaveOverrideResult
+	{
+		FSaveOverrideError Error;
+		auto Succeeded() const -> bool { return !Error.HasError(); }
+		explicit operator bool() const { return Succeeded(); }
+	};
+	COREDOBJECT_API auto FormatSaveOverrideError(const FSaveOverrideError& Error) -> std::string;
+
 	// Validates and owns all non-mutating object/property changes for one package save.
 	class FObjectSaveOverrides
 	{
 	public:
 		COREDOBJECT_API auto AddObjectOmission(
-			const DObject& Object, std::string* OutError = nullptr) -> bool;
+			const DObject& Object) -> FSaveOverrideResult;
 		COREDOBJECT_API auto AddPropertyOmission(
-			const DObject& Object, const FProperty& Property,
-			std::string* OutError = nullptr) -> bool;
+			const DObject& Object, const FProperty& Property) -> FSaveOverrideResult;
 
 		template<typename T>
 		auto AddPropertyValue(
 			const DObject& Object,
 			const FProperty& Property,
-			const T& Replacement,
-			std::string* OutError = nullptr) -> bool
+			const T& Replacement) -> FSaveOverrideResult
 		{
 			return AddPropertyValueRaw(
 				Object, Property, &Replacement, sizeof(T), alignof(T),
 				SaveOverridePrivate::ReflectedKind<T>(),
 				SaveOverridePrivate::ReflectedStruct<T>(),
-				SaveOverridePrivate::ReferencedClass<T>(), OutError);
+				SaveOverridePrivate::ReferencedClass<T>());
 		}
 
 		COREDOBJECT_API auto FindObject(const DObject& Object) const -> const FObjectSaveOverride*;
@@ -132,8 +161,7 @@ namespace Durin
 			size_t ReplacementAlignment,
 			DurinCodeGen::EPropertyGenFlags ReplacementKind,
 			const DStruct* ReplacementStruct,
-			const DClass* ReplacementClass,
-			std::string* OutError) -> bool;
+			const DClass* ReplacementClass) -> FSaveOverrideResult;
 		auto FindMutableObject(const DObject& Object) -> FObjectSaveOverride*;
 
 		std::vector<FObjectSaveOverride> Objects;

@@ -12,6 +12,62 @@
 #include "Serialization/BinaryFormat.h"
 #include "Serialization/CustomVersion.h"
 
+namespace Durin
+{
+	auto FormatCookInputError(const FCookInputFailure& Failure) -> std::string
+	{
+		switch (Failure.Error)
+		{
+		case ECookInputError::None: return {};
+		case ECookInputError::Cancelled: return "Cook cancelled.";
+		case ECookInputError::WriteConflict: return std::format("Cook input is being written: {}", Failure.File.string());
+		case ECookInputError::FileIo: return Failure.FileCause ? Failure.FileCause->ToString() : "Cook input IO failed.";
+		case ECookInputError::ByteLimit: return std::format("Cook input byte limit exceeded: file={}, size={}, maximum={}, retained={}, maximum retained={}", Failure.File.string(), Failure.Actual, Failure.Maximum, Failure.Retained, Failure.MaximumRetained);
+		case ECookInputError::PackageLimit: return std::format("Cook input package limit exceeded: count={}, maximum={}", Failure.Actual, Failure.Maximum);
+		case ECookInputError::UnknownPackage: return std::format("Cook input not found: {}", Failure.Package.ToString());
+		case ECookInputError::UndeclaredInput: return std::format("UndeclaredInput: {}", Failure.Name);
+		case ECookInputError::NoReader: return "No declared Cook inputs.";
+		case ECookInputError::DeclarationCount: return std::format("Cook declaration limit exceeded: package={}, count={}, maximum={}", Failure.Package.ToString(), Failure.Actual, Failure.Maximum);
+		case ECookInputError::DeclarationName: return std::format("Invalid Cook declaration name: package={}, name={}, bytes={}, maximum={}", Failure.Package.ToString(), Failure.Name, Failure.Actual, Failure.Maximum);
+		case ECookInputError::DuplicateDeclaration: return std::format("Duplicate Cook declaration: package={}, kind={}, name={}", Failure.Package.ToString(), static_cast<uint32>(Failure.Kind), Failure.Name);
+		case ECookInputError::PackageDeclaration: return std::format("Invalid declared build package '{}': {}", Failure.Name, Failure.PathCause ? FormatObjectError(*Failure.PathCause) : "Unexpected file or value payload");
+		case ECookInputError::ExternalDeclaration: return std::format("Invalid external file declaration '{}': file={}, value bytes={}", Failure.Name, Failure.File.string(), Failure.Actual);
+		case ECookInputError::ValueDeclaration: return std::format("Invalid Cook value declaration '{}': file={}, value bytes={}, maximum={}", Failure.Name, Failure.File.string(), Failure.Actual, Failure.Maximum);
+		case ECookInputError::ValueStorage: return std::format("Cook declared value storage limit exceeded: name={}, requested={}, retained={}, maximum={}", Failure.Name, Failure.Actual, Failure.Retained, Failure.MaximumRetained);
+		case ECookInputError::ReservedKind: return std::format("Contributor declared reserved Cook dependency kind {}: {}", static_cast<uint32>(Failure.Kind), Failure.Name);
+		case ECookInputError::BulkIdentity: return std::format("Cook bulk segment identity is invalid: package={}, expected bytes={}, actual bytes={}", Failure.Package.ToString(), Failure.Expected, Failure.Actual);
+		case ECookInputError::SchemaClass: return std::format("Cook schema unavailable: {}", Failure.Name);
+		case ECookInputError::SchemaDepth: return std::format("Cook schema depth limit exceeded: class={}, member={}, depth={}, maximum={}", Failure.Name, Failure.Member, Failure.Actual, Failure.Maximum);
+		case ECookInputError::SchemaFields: return std::format("Cook schema field limit exceeded: class={}, fields={}, maximum={}", Failure.Name, Failure.Actual, Failure.Maximum);
+		case ECookInputError::SchemaField: return std::format("Cook schema contains a missing field: {}", Failure.Name);
+		case ECookInputError::SchemaType: return std::format("Cook schema field type unavailable: class={}, member={}", Failure.Name, Failure.Member);
+		case ECookInputError::SchemaEncoding: return std::format("Cook schema encoding limit exceeded: class={}, bytes={}, maximum={}", Failure.Name, Failure.Actual, Failure.Maximum);
+		case ECookInputError::SchemaStorage: return std::format("Cook schema storage limit exceeded: class={}, requested={}, retained={}, maximum={}", Failure.Name, Failure.Actual, Failure.Retained, Failure.MaximumRetained);
+		case ECookInputError::RootLimit: return std::format("Cook root limit exceeded: count={}, maximum={}", Failure.Actual, Failure.Maximum);
+		case ECookInputError::RootClass: return std::format("Cook root class unavailable: package={}, class={}", Failure.Package.ToString(), Failure.Name);
+		case ECookInputError::RuntimeEdgeLimit: return std::format("Cook runtime edge limit exceeded: package={}, edges={}, maximum={}", Failure.Package.ToString(), Failure.Actual, Failure.Maximum);
+		case ECookInputError::ReferenceClass: return std::format("Cook reference class unavailable: package={}, class={}, member={}", Failure.Package.ToString(), Failure.Name, Failure.Member);
+		case ECookInputError::NoRuntimePackages: return "Cook selected no runtime packages.";
+		case ECookInputError::DependencyStorage: return std::format("Cook retained dependency limit exceeded: package={}, name={}, requested={}, retained={}, maximum={}", Failure.Package.ToString(), Failure.Name, Failure.Actual, Failure.Retained, Failure.MaximumRetained);
+		}
+		return "Unknown Cook input error.";
+	}
+
+	auto FCookInputFailure::ToAssetResult() const -> FAssetResult
+	{
+		if (Error == ECookInputError::None) return {};
+		const auto Classification = Error == ECookInputError::SchemaClass || Error == ECookInputError::RootClass || Error == ECookInputError::ReferenceClass ? EAssetError::UnknownClass
+			: Error == ECookInputError::NoRuntimePackages ? EAssetError::NotFound
+			: Error == ECookInputError::Cancelled || Error == ECookInputError::WriteConflict ? EAssetError::InUse
+			: Error == ECookInputError::FileIo ? EAssetError::IoError
+			: Error == ECookInputError::PackageDeclaration || Error == ECookInputError::ExternalDeclaration ? EAssetError::InvalidPath
+			: Error == ECookInputError::UnknownPackage || Error == ECookInputError::UndeclaredInput || Error == ECookInputError::NoReader ? EAssetError::MissingDependency : EAssetError::CorruptFile;
+		FAssetResult Result{Classification, FormatCookInputError(*this)};
+		Result.CookInputCause = std::make_shared<FCookInputFailure>(*this);
+		return Result;
+	}
+}
+
 namespace Durin::AssetPrivate
 {
 
@@ -34,21 +90,27 @@ namespace Durin::AssetPrivate
 	{
 	}
 
-	auto FCookDependencyDiscovery::Fail(EAssetError Error, std::string Message, ECookInputStatus InputStatus) -> FAssetResult
+	auto FCookDependencyDiscovery::Fail(FCookInputFailure Cause) -> FAssetResult
 	{
-		if (Failure)
-		{
-			Failure = {Error, std::move(Message)};
-			Status = Error == EAssetError::IoError ? ECookInputStatus::IoError
-				: InputStatus;
-		}
+		if (!Failure) return Failure;
+		Failure = Cause.ToAssetResult();
+		Status = Cause.Error == ECookInputError::Cancelled ? ECookInputStatus::Cancelled
+			: Cause.Error == ECookInputError::FileIo ? ECookInputStatus::IoError
+			: Cause.Error == ECookInputError::ByteLimit || Cause.Error == ECookInputError::PackageLimit || Cause.Error == ECookInputError::ValueStorage
+				|| Cause.Error == ECookInputError::SchemaDepth || Cause.Error == ECookInputError::SchemaFields
+				|| Cause.Error == ECookInputError::SchemaField || Cause.Error == ECookInputError::SchemaType
+				|| Cause.Error == ECookInputError::SchemaEncoding || Cause.Error == ECookInputError::SchemaStorage
+				|| Cause.Error == ECookInputError::RootLimit || Cause.Error == ECookInputError::RuntimeEdgeLimit
+				|| Cause.Error == ECookInputError::DependencyStorage ? ECookInputStatus::LimitExceeded
+			: Cause.Error == ECookInputError::UndeclaredInput ? ECookInputStatus::UndeclaredInput : ECookInputStatus::InvalidDependency;
 		return Failure;
 	}
 
 	auto FCookDependencyDiscovery::Fail(const FAssetResult& Result) -> FAssetResult
 	{
 		if (!Failure) return Failure;
-		(void)Fail(Result.Error, Result.Message);
+		Status = Result.Error == EAssetError::IoError ? ECookInputStatus::IoError : ECookInputStatus::InvalidDependency;
+		if (Result.CookInputCause) (void)Fail(*Result.CookInputCause);
 		Failure = Result;
 		if (Result.Disposition == EAssetResultDisposition::ContentCommittedProjectionPending)
 			Status = ECookInputStatus::ProjectionPending;
@@ -59,29 +121,31 @@ namespace Durin::AssetPrivate
 	{
 		if (!Failure) return Failure;
 		if (Request.IsCancelled && Request.IsCancelled())
-			return Fail(EAssetError::InUse, "Cook cancelled.", ECookInputStatus::Cancelled);
+			return Fail(FCookInputFailure{.Error = ECookInputError::Cancelled});
 		return {};
 	}
 
 	auto FCookDependencyDiscovery::ReadFile(const std::filesystem::path& Path, FByteBuffer& Out) -> FAssetResult
 	{
+		Out.clear();
 		const std::array Paths{Path};
 		auto Access = FPackageFileAccess::TryAcquire(Paths, false);
-		if (!Access) return Fail(EAssetError::InUse, "Cook input is being written.");
+		if (!Access) return Fail(FCookInputFailure{.Error = ECookInputError::WriteConflict, .File = Path});
 		FFileHelper::FFileIoError Error;
 		auto File = FFileHelper::OpenRead(Path, &Error);
-		if (!File) return Fail(EAssetError::IoError, Error.ToString());
+		if (!File) return Fail(FCookInputFailure{.Error = ECookInputError::FileIo, .File = Path, .FileCause = Error});
 		const uint64 Size = File->GetSize();
 		if (Size > MaximumDiscoveryFileBytes || Size > MaximumDiscoveryBytes - RetainedBytes)
-			return Fail(EAssetError::CorruptFile, "Cook input byte limit exceeded.", ECookInputStatus::LimitExceeded);
-		Out.resize(static_cast<size_t>(Size));
+			return Fail(FCookInputFailure{.Error = ECookInputError::ByteLimit, .File = Path, .Actual = Size, .Maximum = MaximumDiscoveryFileBytes, .Retained = RetainedBytes, .MaximumRetained = MaximumDiscoveryBytes});
+		FByteBuffer Candidate(static_cast<size_t>(Size));
 		constexpr size_t Chunk = 4 * 1024 * 1024;
-		for (size_t Offset = 0; Offset < Out.size(); Offset += Chunk)
+		for (size_t Offset = 0; Offset < Candidate.size(); Offset += Chunk)
 		{
 			if (auto Result = CheckCancellation(); !Result) return Result;
-			if (!File->ReadAt(Offset, std::span(Out).subspan(Offset, std::min(Chunk, Out.size() - Offset)), &Error))
-				return Fail(EAssetError::IoError, Error.ToString());
+			if (!File->ReadAt(Offset, std::span(Candidate).subspan(Offset, std::min(Chunk, Candidate.size() - Offset)), &Error))
+				return Fail(FCookInputFailure{.Error = ECookInputError::FileIo, .File = Path, .FileCause = Error});
 		}
+		Out = std::move(Candidate);
 		return {};
 	}
 
@@ -89,11 +153,11 @@ namespace Durin::AssetPrivate
 	{
 		if (Inputs.contains(Path)) return {};
 		if (Inputs.size() >= MaximumCookDependencyRecords)
-			return Fail(EAssetError::CorruptFile, "Cook input package limit exceeded.", ECookInputStatus::LimitExceeded);
+			return Fail(FCookInputFailure{.Error = ECookInputError::PackageLimit, .Package = Path, .Actual = Inputs.size(), .Maximum = MaximumCookDependencyRecords});
 		if (Request.ReportProgress) Request.ReportProgress({ECookOperationStage::Discovery, Path, Inputs.size(), 0});
 		if (auto Result = CheckCancellation(); !Result) return Result;
 		const auto* Data = Registry.Catalog.FindExact(Path);
-		if (!Data) return Fail(EAssetError::MissingDependency, std::format("Cook input not found: {}", Path.GetView()));
+		if (!Data) return Fail(FCookInputFailure{.Error = ECookInputError::UnknownPackage, .Package = Path});
 		FInput Input;
 		FByteBuffer PackageBytes, BulkBytes;
 		if (auto Result = ReadFile(Data->PhysicalPath, PackageBytes); !Result) return Result;
@@ -118,7 +182,9 @@ namespace Durin::AssetPrivate
 		const auto& Header = Input.Inspection.Header;
 		if (Header.BulkSegmentExtent != BulkBytes.size()
 			|| (!BulkBytes.empty() && Header.BulkSegmentDigest != FXxHash128::HashBuffer(BulkBytes)))
-			return Fail(EAssetError::CorruptFile, "Cook bulk segment identity is invalid.");
+			return Fail(FCookInputFailure{.Error = ECookInputError::BulkIdentity, .Package = Path,
+				.Actual = BulkBytes.size(), .Expected = Header.BulkSegmentExtent,
+				.ExpectedDigest = Header.BulkSegmentDigest, .ActualDigest = FXxHash128::HashBuffer(BulkBytes)});
 		Inputs.emplace(Path, std::move(Input));
 		return {};
 	}
@@ -146,7 +212,7 @@ namespace Durin::AssetPrivate
 			}
 			const auto* Class = Schema.FindClass(Name);
 			DClass* LiveClass = FindClassByQualifiedName(FName(Name));
-			if (!Class || !LiveClass) return Fail(EAssetError::UnknownClass, std::format("Cook schema unavailable: {}", Name));
+			if (!Class || !LiveClass) return Fail(FCookInputFailure{.Error = ECookInputError::SchemaClass, .Package = Node.Package, .Name = Name});
 			FBinaryWriter Writer({MaximumCookDependencyValueBytes, 4096});
 			Writer.WriteString(Class->QualifiedName);
 			Writer.WriteU64(static_cast<uint64>(LiveClass->GetClassFlags()));
@@ -154,7 +220,12 @@ namespace Durin::AssetPrivate
 			Writer.WriteU32(static_cast<uint32>(Class->Ancestry.size()));
 			std::unordered_set<std::string> SeenTypes{Name};
 			for (const auto& Parent : Class->Ancestry) { Writer.WriteString(Parent); SeenTypes.insert(Parent); }
-			bool Valid = true;
+			FCookInputFailure SchemaFailure;
+			auto RejectSchema = [&](ECookInputError Code, uint64 Actual, uint64 Maximum, const FProperty* Field = nullptr) {
+				if (SchemaFailure.Error != ECookInputError::None) return;
+				SchemaFailure = {.Error = Code, .Package = Node.Package, .Name = Name, .Actual = Actual, .Maximum = Maximum,
+					.Member = Field ? Field->NamePrivate.ToString() : std::string{}};
+			};
 			uint64 Fields = 0;
 			auto DeclaringType = [](const FProperty* Field) -> std::string {
 				auto Owner = Field->Owner;
@@ -165,7 +236,7 @@ namespace Durin::AssetPrivate
 			std::function<void(FProperty*, uint32)> Property;
 			std::function<void(DStructBase*, uint32)> Struct;
 			Struct = [&](DStructBase* Type, uint32 Depth) {
-				if (Depth > 64) { Valid = false; return; }
+				if (Depth > 64) { RejectSchema(ECookInputError::SchemaDepth, Depth, 64); return; }
 				std::vector<FProperty*> Properties;
 				Type->ForEachProperty([&](FProperty* Field) { Properties.push_back(Field); });
 				std::ranges::sort(Properties, [&](const auto* A, const auto* B) {
@@ -175,7 +246,9 @@ namespace Durin::AssetPrivate
 				for (auto* Field : Properties) Property(Field, Depth + 1);
 			};
 			Property = [&](FProperty* Field, uint32 Depth) {
-				if (!Field || Depth > 64 || ++Fields > MaximumCookDependencyRecords) { Valid = false; return; }
+				if (!Field) { RejectSchema(ECookInputError::SchemaField, 0, 0); return; }
+				if (Depth > 64) { RejectSchema(ECookInputError::SchemaDepth, Depth, 64, Field); return; }
+				if (++Fields > MaximumCookDependencyRecords) { RejectSchema(ECookInputError::SchemaFields, Fields, MaximumCookDependencyRecords, Field); return; }
 				using K = DurinCodeGen::EPropertyGenFlags;
 				Writer.WriteString(DeclaringType(Field));
 				Writer.WriteString(Field->NamePrivate.ToString());
@@ -185,7 +258,7 @@ namespace Durin::AssetPrivate
 				if (Field->GetKind() == K::Struct)
 				{
 					auto* Type = static_cast<FStructProperty*>(Field)->GetStruct();
-					if (!Type) { Valid = false; return; }
+					if (!Type) { RejectSchema(ECookInputError::SchemaType, 0, 0, Field); return; }
 					const auto TypeName = Type->GetQualifiedName().ToString();
 					Writer.WriteString(TypeName);
 					Writer.WriteU32(Type->GetOps().Version);
@@ -203,7 +276,7 @@ namespace Durin::AssetPrivate
 				else if (Field->GetKind() == K::Enum)
 				{
 					const auto* Enum = static_cast<FEnumProperty*>(Field)->GetEnum();
-					if (!Enum) { Valid = false; return; }
+					if (!Enum) { RejectSchema(ECookInputError::SchemaType, 0, 0, Field); return; }
 					Writer.WriteString(Enum->GetQualifiedName().ToString());
 					Writer.WriteU32(static_cast<uint32>(Enum->GetUnderlyingType()));
 					Writer.WriteU32(static_cast<uint32>(Enum->GetValues().size()));
@@ -230,10 +303,12 @@ namespace Durin::AssetPrivate
 			for (const auto& Route : Schema.GetDeprecatedPropertyRoutes()) if (SeenTypes.contains(Route.DeclaringType)) Routes.push_back(&Route);
 			Writer.WriteU32(static_cast<uint32>(Routes.size()));
 			for (const auto* Route : Routes) { Writer.WriteString(Route->DeclaringType); Writer.WriteString(Route->StoredName); Writer.WriteString(Route->DeprecatedPropertyName); Writer.WriteU32(static_cast<uint32>(Route->Kind)); Writer.WriteString(Route->TypeSignature); }
-			if (!Valid || Writer.HasError()) return Fail(EAssetError::CorruptFile, "Cook schema limit exceeded.", ECookInputStatus::LimitExceeded);
+			if (SchemaFailure.Error != ECookInputError::None) return Fail(std::move(SchemaFailure));
+			if (Writer.HasError()) return Fail(FCookInputFailure{.Error = ECookInputError::SchemaEncoding,
+				.Package = Node.Package, .Name = Name, .Actual = Writer.Tell(), .Maximum = MaximumCookDependencyValueBytes, .Expected = 4096});
 			auto Bytes = Writer.TakeBytes();
 			if (!TryRetainCookBytes(Bytes.size(), RetainedBytes, MaximumDiscoveryBytes))
-				return Fail(EAssetError::CorruptFile, "Cook schema storage limit exceeded.", ECookInputStatus::LimitExceeded);
+				return Fail(FCookInputFailure{.Error = ECookInputError::SchemaStorage, .Package = Node.Package, .Name = Name, .Actual = Bytes.size(), .Retained = RetainedBytes, .MaximumRetained = MaximumDiscoveryBytes});
 			SchemaValues.emplace(Name, Bytes);
 			Node.Inputs.push_back({ECookBuildDependencyKind::SchemaProducerVersion, "schema/" + Name, std::move(Bytes)});
 		}
@@ -246,18 +321,18 @@ namespace Durin::AssetPrivate
 		FShaderOperationResult ShaderError;
 		(void)(ShaderError = GetShaderCookInputIdentity(ShaderBuildIdentity, Request.IsCancelled));
 		if (Roots.size() > MaximumCookDependencyRecords)
-			return Fail(EAssetError::CorruptFile, "Cook root limit exceeded.", ECookInputStatus::LimitExceeded);
+			return Fail(FCookInputFailure{.Error = ECookInputError::RootLimit, .Actual = Roots.size(), .Maximum = MaximumCookDependencyRecords});
 		std::vector<FPackagePath> Pending(Roots.begin(), Roots.end());
 		for (const auto& Store : ExternalRoots.Stores)
 			for (const auto& Root : Store.Occurrences)
 				if (Root.bCookRoot)
 				{
 					const DClass* Expected = Root.ExpectedClass.empty() ? nullptr : FindClassByQualifiedName(FName(Root.ExpectedClass));
-					if (!Root.ExpectedClass.empty() && !Expected) return Fail(EAssetError::UnknownClass, "Cook root class unavailable.");
+					if (!Root.ExpectedClass.empty() && !Expected) return Fail(FCookInputFailure{.Error = ECookInputError::RootClass, .Package = Root.TargetPath, .Name = Root.ExpectedClass});
 					if (auto Result = ValidateResolvedAssetForOperation(Registry, Registry.ResolveAssetPath(Root.TargetPath), Expected); !Result)
 						return Fail(Result);
 					if (Pending.size() >= MaximumCookDependencyRecords)
-						return Fail(EAssetError::CorruptFile, "Cook root limit exceeded.", ECookInputStatus::LimitExceeded);
+						return Fail(FCookInputFailure{.Error = ECookInputError::RootLimit, .Package = Root.TargetPath, .Actual = Pending.size() + 1, .Maximum = MaximumCookDependencyRecords});
 					Pending.push_back(Root.TargetPath);
 				}
 		std::unordered_set<FPackagePath> Runtime;
@@ -278,7 +353,7 @@ namespace Durin::AssetPrivate
 			const auto& Input = Inputs.at(Path);
 			RuntimeEdges += Input.Inspection.Header.Dependencies.size() + Input.References.size();
 			if (RuntimeEdges > MaximumCookDependencyRecords)
-				return Fail(EAssetError::CorruptFile, "Cook runtime edge limit exceeded.", ECookInputStatus::LimitExceeded);
+				return Fail(FCookInputFailure{.Error = ECookInputError::RuntimeEdgeLimit, .Package = Path, .Actual = RuntimeEdges, .Maximum = MaximumCookDependencyRecords});
 			std::unordered_map<FPackagePath, bool> ReferencedPackages;
 			for (const auto& Reference : Input.References)
 				ReferencedPackages[Reference.TargetPath.GetPackagePath()] |= IsRuntimeReference(Reference);
@@ -292,9 +367,12 @@ namespace Durin::AssetPrivate
 				if (Reference.Kind == EAssetReferenceKind::Redirect) continue;
 				const auto Resolution = Registry.ResolveAssetObjectPath(Reference.TargetPath);
 				const DClass* Expected = Reference.ExpectedClass.empty() ? nullptr : FindClassByQualifiedName(FName(Reference.ExpectedClass));
-				if (!Reference.ExpectedClass.empty() && !Expected) return Fail(EAssetError::UnknownClass, "Cook reference class unavailable.");
+				if (!Reference.ExpectedClass.empty() && !Expected) return Fail(FCookInputFailure{.Error = ECookInputError::ReferenceClass, .Package = Path, .Name = Reference.ExpectedClass, .Member = Reference.FieldName});
 				if (auto Result = ValidateResolvedAssetForOperation(Registry, Resolution, Expected); !Result)
-					return Fail(Result.Error == EAssetError::NotFound ? EAssetError::MissingDependency : Result.Error, Result.Message);
+					{
+					if (Result.Error == EAssetError::NotFound) Result.Error = EAssetError::MissingDependency;
+					return Fail(Result);
+				}
 				for (const auto& Alias : Resolution.RedirectChain)
 					if (auto Result = AcquirePackage(Alias.GetPackagePath()); !Result) return Result;
 				if (auto Result = AcquirePackage(Resolution.FinalPath.GetPackagePath()); !Result) return Result;
@@ -303,7 +381,7 @@ namespace Durin::AssetPrivate
 		}
 		RuntimePackages.assign(Runtime.begin(), Runtime.end());
 		std::ranges::sort(RuntimePackages, [](const auto& A, const auto& B) { return A.GetView() < B.GetView(); });
-		if (RuntimePackages.empty()) return Fail(EAssetError::NotFound, "Cook selected no runtime packages.");
+		if (RuntimePackages.empty()) return Fail(FCookInputFailure{.Error = ECookInputError::NoRuntimePackages});
 
 		const auto CustomVersionDefinitions = FCustomVersionRegistry::GetAll();
 		std::vector<FCookPackageBuildInputs> Graph;
@@ -340,7 +418,7 @@ namespace Durin::AssetPrivate
 				if (auto Result = CaptureSchema(Input, Node); !Result) return Result;
 				const auto* Data = Registry.Catalog.FindExact(Path);
 				const auto ContributorResult = ResolveContributor(*Data, Input.Contributor);
-				if (!ContributorResult && Runtime.contains(Path)) return Fail(ContributorResult.Error, ContributorResult.Message);
+				if (!ContributorResult && Runtime.contains(Path)) return Fail(ContributorResult);
 				if (ContributorResult)
 				{
 					FBinaryWriter Versions;
@@ -355,21 +433,37 @@ namespace Durin::AssetPrivate
 							{Path, Request.TargetPlatform, Request.TargetProfile, Request.bRetainEditorOnlyData, ShaderBuildIdentity}, Declarations);
 						if (auto Admission = CheckCancellation(); !Admission) return Admission;
 						if (!Result) return Fail(Result);
-						if (Declarations.size() > MaximumCookDependencyRecords) return Fail(EAssetError::CorruptFile, "Cook declaration limit exceeded.");
+						if (Declarations.size() > MaximumCookDependencyRecords) return Fail(FCookInputFailure{.Error = ECookInputError::DeclarationCount, .Package = Path, .Actual = Declarations.size(), .Maximum = MaximumCookDependencyRecords});
 						std::set<std::pair<ECookBuildDependencyKind, std::string>> Unique;
 						for (const auto& Declaration : Declarations)
 						{
+							auto Reject = [&](ECookInputError Error) -> FCookInputFailure {
+								return {.Error = Error, .Package = Path, .Kind = Declaration.Kind, .Name = Declaration.LogicalName,
+									.File = Declaration.FilePath, .Actual = Declaration.Value.size(), .Maximum = MaximumCookDependencyValueBytes,
+									.Retained = RetainedBytes, .MaximumRetained = MaximumDiscoveryBytes};
+							};
 							if (Declaration.LogicalName.empty() || Declaration.LogicalName.size() > 4096
-								|| Declaration.LogicalName.find('\0') != std::string::npos
-								|| !Unique.emplace(Declaration.Kind, Declaration.LogicalName).second)
-								return Fail(EAssetError::CorruptFile, "Invalid or duplicate Cook declaration.");
+								|| Declaration.LogicalName.find('\0') != std::string::npos)
+							{
+								auto Cause = Reject(ECookInputError::DeclarationName);
+								Cause.Actual = Declaration.LogicalName.size();
+								Cause.Maximum = 4096;
+								return Fail(std::move(Cause));
+							}
+							if (!Unique.emplace(Declaration.Kind, Declaration.LogicalName).second)
+								return Fail(Reject(ECookInputError::DuplicateDeclaration));
 							if (Declaration.Kind == ECookBuildDependencyKind::DirectPackage
 								|| Declaration.Kind == ECookBuildDependencyKind::TransitivePackage)
 							{
 								FPackagePath Dependency, Final;
-								if (!Declaration.FilePath.empty() || !Declaration.Value.empty()
-									|| !FPackagePath::TryCreate(Declaration.LogicalName, Dependency))
-									return Fail(EAssetError::InvalidPath, "Invalid declared build package.");
+								if (!Declaration.FilePath.empty() || !Declaration.Value.empty())
+									return Fail(Reject(ECookInputError::PackageDeclaration));
+								if (const auto Validated = FPackagePath::TryCreate(Declaration.LogicalName, Dependency); !Validated)
+								{
+									auto Cause = Reject(ECookInputError::PackageDeclaration);
+									Cause.PathCause = std::make_shared<FObjectError>(Validated.Error);
+									return Fail(std::move(Cause));
+								}
 								if (auto Result = Resolve(Dependency, Final); !Result) return Result;
 								if (Declaration.Kind == ECookBuildDependencyKind::TransitivePackage)
 									Node.Packages.push_back({Dependency, true});
@@ -384,7 +478,7 @@ namespace Durin::AssetPrivate
 							FByteBuffer Value;
 							if (Declaration.Kind == ECookBuildDependencyKind::ExternalFile)
 							{
-								if (!Declaration.Value.empty() || Declaration.FilePath.empty()) return Fail(EAssetError::InvalidPath, "Invalid external file declaration.");
+								if (!Declaration.Value.empty() || Declaration.FilePath.empty()) return Fail(Reject(ECookInputError::ExternalDeclaration));
 								if (auto Result = ReadFile(Declaration.FilePath, Value); !Result) return Result;
 								Node.Inputs.push_back({Declaration.Kind, Declaration.LogicalName, DigestValue(Value)});
 								Input.DeclaredFiles.emplace(Declaration.LogicalName, Declaration.FilePath);
@@ -394,14 +488,18 @@ namespace Durin::AssetPrivate
 								|| Declaration.Kind == ECookBuildDependencyKind::SchemaProducerVersion)
 							{
 								if (!Declaration.FilePath.empty() || Declaration.Value.size() > MaximumCookDependencyValueBytes)
-									return Fail(EAssetError::CorruptFile, "Invalid Cook value declaration.");
+									return Fail(Reject(ECookInputError::ValueDeclaration));
 								const uint64 RetainedValueBytes = Declaration.Value.size() * 2;
 								if (!TryRetainCookBytes(RetainedValueBytes, RetainedBytes, MaximumDiscoveryBytes))
-									return Fail(EAssetError::CorruptFile, "Cook declared value limit exceeded.", ECookInputStatus::LimitExceeded);
+								{
+									auto Cause = Reject(ECookInputError::ValueStorage);
+									Cause.Actual = RetainedValueBytes;
+									return Fail(std::move(Cause));
+								}
 								Value = Declaration.Value;
 								Node.Inputs.push_back({Declaration.Kind, Declaration.LogicalName, Value});
 							}
-							else return Fail(EAssetError::CorruptFile, "Contributor declared a reserved Cook dependency kind.");
+							else return Fail(Reject(ECookInputError::ReservedKind));
 							Input.DeclaredValues.emplace(std::pair(Declaration.Kind, Declaration.LogicalName), std::move(Value));
 						}
 						Input.bDeclared = true;
@@ -425,17 +523,17 @@ namespace Durin::AssetPrivate
 		for (const auto& [Path, Input] : Inputs)
 			if (!Input.Contributor.Name.empty() && !Input.bDeclared) UnversionedPackages.insert(Path.ToString());
 		FCookBuildDependencyGraph Dependencies;
-		std::string Error;
-		if (!Dependencies.Initialize(Graph, &Error)) return Fail(EAssetError::CorruptFile, std::move(Error));
+		if (const auto Initialized = Dependencies.Initialize(Graph); !Initialized)
+			return Fail(Initialized.ToAssetResult());
 		for (const auto& Path : RuntimePackages)
 		{
 			if (auto Result = CheckCancellation(); !Result) return Result;
-			if (!Dependencies.Expand(Path, Inputs.at(Path).Dependencies, &Error)) return Fail(EAssetError::CorruptFile, std::move(Error));
+			if (const auto Expanded = Dependencies.Expand(Path, Inputs.at(Path).Dependencies); !Expanded)
+				return Fail(Expanded.ToAssetResult());
 			for (const auto& Record : Inputs.at(Path).Dependencies)
 			{
 				const uint64 Size = Record.LogicalName.size() + Record.Value.size() + 9;
-				if (!TryRetainCookBytes(Size, RetainedBytes, MaximumDiscoveryBytes)) return Fail(EAssetError::CorruptFile,
-					"Cook retained dependency limit exceeded.", ECookInputStatus::LimitExceeded);
+				if (!TryRetainCookBytes(Size, RetainedBytes, MaximumDiscoveryBytes)) return Fail(FCookInputFailure{.Error = ECookInputError::DependencyStorage, .Package = Path, .Kind = Record.Kind, .Name = Record.LogicalName, .Actual = Size, .Retained = RetainedBytes, .MaximumRetained = MaximumDiscoveryBytes});
 			}
 		}
 		if (auto Result = CheckCancellation(); !Result) return Result;
@@ -456,15 +554,14 @@ namespace Durin::AssetPrivate
 	{
 		Out.clear();
 		const auto Found = Inputs.find(Path);
-		if (Found == Inputs.end()) return Fail(EAssetError::MissingDependency, "Unknown Cook dependency package.");
+		if (Found == Inputs.end()) return Fail(FCookInputFailure{.Error = ECookInputError::UnknownPackage, .Package = Path, .Kind = Kind, .Name = std::string(Name)});
 		if (Kind == ECookBuildDependencyKind::ExternalFile)
 		{
 			const auto File = Found->second.DeclaredFiles.find(std::string(Name));
 			if (File != Found->second.DeclaredFiles.end()) return ReadFile(File->second, Out);
 		}
 		const auto Value = Found->second.DeclaredValues.find({Kind, std::string(Name)});
-		if (Value == Found->second.DeclaredValues.end()) return Fail(EAssetError::MissingDependency,
-			std::format("UndeclaredInput: {}", Name), ECookInputStatus::UndeclaredInput);
+		if (Value == Found->second.DeclaredValues.end()) return Fail(FCookInputFailure{.Error = ECookInputError::UndeclaredInput, .Package = Path, .Kind = Kind, .Name = std::string(Name)});
 		Out = Value->second;
 		return {};
 	}

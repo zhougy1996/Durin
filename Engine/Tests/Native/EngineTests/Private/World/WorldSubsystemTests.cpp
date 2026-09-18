@@ -208,7 +208,7 @@ TEST_F(FWorldSubsystemTests, CollisionStateIsIsolatedAndClearedAcrossDetachShutd
 	EXPECT_FALSE(Editor->CaptureCollisionDebugSnapshot().LastBlockingHit.has_value());
 	EXPECT_TRUE(Editor->IsCollisionDebugDrawEnabled());
 	std::unordered_map<DObject*, DObject*> Copies;
-	auto* Copy = DuplicateObject(Editor, nullptr, "Copy", &Copies);
+	auto* Copy = DuplicateObject(Editor, nullptr, "Copy", &Copies).Object;
 	ASSERT_NE(Copy, nullptr); Worlds.emplace_back(Copy);
 	EXPECT_EQ(Copy->GetSubsystem<DCollisionDebugSubsystem>(), nullptr);
 	EXPECT_EQ(Copies.size(), 1u);

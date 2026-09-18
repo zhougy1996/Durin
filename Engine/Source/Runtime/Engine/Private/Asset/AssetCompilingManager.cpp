@@ -43,7 +43,6 @@ namespace Durin
 		std::unordered_map<FName, FRegisteredAssetCompiler> GCompilers;
 		std::unordered_map<DClass*, FName> GClassRoutes;
 		std::vector<FName> GOrderedCompilers;
-		std::vector<std::string> GMessages;
 		uint64 GNextGeneration = 1;
 		uint64 GProcessedCompletions = 0;
 		uint64 GRoundRobinCursor = 0;
@@ -51,11 +50,6 @@ namespace Durin
 		bool GShutdown = false;
 		FAssetPostCompileEvent GPostCompileEvent;
 
-		auto SetError(std::string* OutError, std::string Message) -> bool
-		{
-			if (OutError) *OutError = std::move(Message);
-			return false;
-		}
 
 		auto IsCanonicalCompilerName(const FName& Name) -> bool
 		{
@@ -181,19 +175,15 @@ namespace Durin
 				std::move(Coalesced.SuccessfullyCompiledAssets)});
 		}
 
-		auto ValidateRegistrationLocked(
-			const FAssetCompilingManagerRegistration& Registration,
-			std::string* OutError) -> bool
+		auto ValidateRegistrationLocked(const FAssetCompilingManagerRegistration& Registration)
+			-> FAssetCompilerRegistrationError
 		{
-			if (!GRunning || GShutdown)
-				return SetError(OutError,
-					"Asset compiling manager is not accepting registrations.");
-			if (GCompilers.contains(Registration.Name))
-				return SetError(OutError, "Asset compiler name is already registered.");
+			if (!GRunning || GShutdown) return {.Code = EAssetCompilerRegistrationError::NotAccepting, .CompilerName = Registration.Name.ToString()};
+			if (GCompilers.contains(Registration.Name)) return {.Code = EAssetCompilerRegistrationError::DuplicateName, .CompilerName = Registration.Name.ToString()};
 			for (DClass* Class : Registration.AssetClasses)
-				if (GClassRoutes.contains(Class))
-					return SetError(OutError, "Asset class already has an exact compiler route.");
-			return true;
+				if (GClassRoutes.contains(Class)) return {.Code = EAssetCompilerRegistrationError::DuplicateClass,
+					.CompilerName = Registration.Name.ToString(), .AssetClass = Class->GetQualifiedName().ToString()};
+			return {};
 		}
 	}
 
@@ -226,6 +216,34 @@ namespace Durin
 		return Instance;
 	}
 
+	auto FormatAssetCompilerRegistrationError(const FAssetCompilerRegistrationError& Error) -> std::string
+	{
+		switch (Error.Code)
+		{
+		case EAssetCompilerRegistrationError::None: return {};
+		case EAssetCompilerRegistrationError::InvalidRegistration: return "Asset compiler registration is invalid: " + Error.CompilerName;
+		case EAssetCompilerRegistrationError::WrongThread: return "Asset compiler registration requires GameThread.";
+		case EAssetCompilerRegistrationError::NotAccepting: return "Asset compiling manager is not accepting registrations.";
+		case EAssetCompilerRegistrationError::DuplicateName: return "Asset compiler name is already registered: " + Error.CompilerName;
+		case EAssetCompilerRegistrationError::DuplicateClass: return "Asset class already has an exact compiler route: " + Error.AssetClass;
+		case EAssetCompilerRegistrationError::Start: return Error.StartCause ? FormatAssetCompilerStartError(*Error.StartCause) : "Asset compiler startup failed.";
+		}
+		return {};
+	}
+
+	auto FormatAssetCompilerStartError(const FAssetCompilerStartResult& Result) -> std::string
+	{
+		switch (Result.Error)
+		{
+		case EAssetCompilerStartError::None: return {};
+		case EAssetCompilerStartError::SchedulerUnavailable: return "Asset compilation requires a running task scheduler.";
+		case EAssetCompilerStartError::Undrained: return std::format("Asset compiler still owns {} pending requests.", Result.PendingRequests);
+		case EAssetCompilerStartError::TaskScopeUnavailable: return "Asset compiler task scope could not start.";
+		case EAssetCompilerStartError::StateUnavailable: return "Asset compiler state is unavailable.";
+		}
+		return {};
+	}
+
 	auto FAssetCompilingManager::Start() -> void
 	{
 		requiref(IsSupportedThread(), "Asset compiling manager must start on GameThread.");
@@ -235,33 +253,30 @@ namespace Durin
 	}
 
 	auto FAssetCompilingManager::RegisterCompiler(
-		FAssetCompilingManagerRegistration Registration,
-		std::string* OutError)
-		-> FAssetCompilerRegistrationHandle
+		FAssetCompilingManagerRegistration Registration)
+		-> FAssetCompilerRegistrationResult
 	{
 		if (!Registration.Manager || !IsCanonicalCompilerName(Registration.Name)
 			|| !HasValidUniqueClasses(Registration.AssetClasses))
 		{
-			SetError(OutError, "Asset compiler registration is invalid.");
-			return {};
+			return {.Error = {.Code = EAssetCompilerRegistrationError::InvalidRegistration, .CompilerName = Registration.Name.ToString()}};
 		}
 		if (!IsSupportedThread())
 		{
-			SetError(OutError, "Asset compiler registration requires GameThread.");
-			return {};
+			return {.Error = {.Code = EAssetCompilerRegistrationError::WrongThread, .CompilerName = Registration.Name.ToString()}};
 		}
 
 		{
 			std::lock_guard Lock(GAssetCompilingMutex);
-			if (!ValidateRegistrationLocked(Registration, OutError)) return {};
+			if (auto Error = ValidateRegistrationLocked(Registration); Error.Code != EAssetCompilerRegistrationError::None) return {.Error = std::move(Error)};
 		}
-		if (!Registration.Manager->Start(OutError)) return {};
-		FAssetCompilerRegistrationHandle Result;
-		bool bRollback = false;
+		if (const auto Started = Registration.Manager->Start(); !Started)
+		{ return {.Error = {.Code = EAssetCompilerRegistrationError::Start, .CompilerName = Registration.Name.ToString(), .StartCause = Started}}; }
+		FAssetCompilerRegistrationResult Result;
 		{
 			std::lock_guard Lock(GAssetCompilingMutex);
-			if (!ValidateRegistrationLocked(Registration, OutError)) bRollback = true;
-			else
+			Result.Error = ValidateRegistrationLocked(Registration);
+			if (Result.Error.Code == EAssetCompilerRegistrationError::None)
 			{
 				const uint64 Generation = GNextGeneration++;
 				for (DClass* Class : Registration.AssetClasses)
@@ -270,17 +285,16 @@ namespace Durin
 					std::move(Registration.AssetClasses),
 					Registration.Manager, Generation});
 				RebuildCompilerOrder();
-				Result.CompilerName = Registration.Name;
-				Result.Generation = Generation;
+				Result.Handle.CompilerName = Registration.Name;
+				Result.Handle.Generation = Generation;
 			}
 		}
-		if (bRollback)
+		if (!Result)
 		{
 			Registration.Manager->StopAdmission();
 			Registration.Manager->Shutdown();
-			return {};
+			return Result;
 		}
-		if (OutError) OutError->clear();
 		return Result;
 	}
 
@@ -421,7 +435,6 @@ namespace Durin
 			Result.ProcessedCompletionCount = GProcessedCompletions;
 			Result.bAcceptingRequests = GRunning && !GShutdown;
 			Result.bShutdown = GShutdown;
-			Result.Messages = GMessages;
 		}
 		for (auto& Entry : MakeSnapshot())
 		{
@@ -470,45 +483,44 @@ namespace Durin
 	extern auto CreateMaterialCompilingManager()
 		-> std::shared_ptr<IAssetCompilingManager>;
 
-	auto InitializeAssetCompilingManager() -> bool
+	auto InitializeAssetCompilingManager() -> FAssetCompilingManagerInitializationResult
 	{
 		auto& Aggregate = FAssetCompilingManager::Get();
-		std::string Error;
 		Aggregate.Start();
 		auto MaterialRegistration = Aggregate.RegisterCompiler({
 			.Name = FName("Durin.Material"),
 			.AssetClasses = {DMaterial::StaticClass(), DMaterialInstance::StaticClass()},
-			.Manager = CreateMaterialCompilingManager()}, &Error);
-		if (!MaterialRegistration.IsValid())
+			.Manager = CreateMaterialCompilingManager()});
+		if (!MaterialRegistration)
 		{
-			DURIN_ERROR("Material compiling manager failed to register: {}", Error);
+			DURIN_ERROR("Material compiling manager failed to register: {}", FormatAssetCompilerRegistrationError(MaterialRegistration.Error));
 			Aggregate.Shutdown();
-			return false;
+			return {std::move(MaterialRegistration.Error)};
 		}
 		auto TextureRegistration = Aggregate.RegisterCompiler({
 			.Name = FName("Durin.Texture"),
 			.AssetClasses = {DTexture2D::StaticClass()},
-			.Manager = AssetPrivate::CreateTextureCompilingManager()}, &Error);
-		if (!TextureRegistration.IsValid())
+			.Manager = AssetPrivate::CreateTextureCompilingManager()});
+		if (!TextureRegistration)
 		{
-			DURIN_ERROR("Texture compiling manager failed to register: {}", Error);
+			DURIN_ERROR("Texture compiling manager failed to register: {}", FormatAssetCompilerRegistrationError(TextureRegistration.Error));
 			Aggregate.Shutdown();
-			return false;
+			return {std::move(TextureRegistration.Error)};
 		}
 		auto StaticMeshRegistration = Aggregate.RegisterCompiler({
 			.Name = FName("Durin.StaticMesh"),
 			.AssetClasses = {DStaticMesh::StaticClass()},
-			.Manager = AssetPrivate::CreateStaticMeshCompilingManager()}, &Error);
-		if (!StaticMeshRegistration.IsValid())
+			.Manager = AssetPrivate::CreateStaticMeshCompilingManager()});
+		if (!StaticMeshRegistration)
 		{
-			DURIN_ERROR("StaticMesh compiling manager failed to register: {}", Error);
+			DURIN_ERROR("StaticMesh compiling manager failed to register: {}", FormatAssetCompilerRegistrationError(StaticMeshRegistration.Error));
 			Aggregate.Shutdown();
-			return false;
+			return {std::move(StaticMeshRegistration.Error)};
 		}
-		StaticMeshRegistration.Generation = 0;
-		MaterialRegistration.Generation = 0;
-		TextureRegistration.Generation = 0;
-		return true;
+		StaticMeshRegistration.Handle.Generation = 0;
+		MaterialRegistration.Handle.Generation = 0;
+		TextureRegistration.Handle.Generation = 0;
+		return {};
 	}
 
 	auto ShutdownAssetCompilingManager() -> void

@@ -125,8 +125,9 @@ namespace Durin::Editor::StaticMesh
 			"/Project/StaticMeshes/AssetName", "Choose...", BrowseButtonWidth))
 			BrowseDestination();
 		const FAssetDestinationValidation DestinationValidation = Destination.Inspect();
-		std::string ImportSettingsError;
-		const bool bImportSettingsValid = Coordinates.GetSettings().IsValid(&ImportSettingsError);
+		const auto SettingsValidation = Coordinates.GetSettings().Validate();
+		const bool bImportSettingsValid = SettingsValidation.Succeeded();
+		const std::string ImportSettingsError = FormatStaticMeshImportSettingsError(SettingsValidation.Error);
 
 		if (DestinationValidation.bAssetPathValid
 			&& DestinationValidation.bMountedDestination && bSourceExists
@@ -147,7 +148,7 @@ namespace Durin::Editor::StaticMesh
 		else if (!bSupportedSource)
 			ValidationMessage = "Supported model formats are OBJ, FBX, glTF, COLLADA, 3DS, PLY, and STL.";
 		else if (!bImportSettingsValid) ValidationMessage = ImportSettingsError;
-		else if (!DestinationValidation) ValidationMessage = DestinationValidation.Message;
+		else if (!DestinationValidation) ValidationMessage = ::Durin::Editor::FormatAssetDestinationValidation(DestinationValidation);
 
 		DrawImportDialogWarning(ValidationMessage);
 		if (!bAllowAssetMutation)
@@ -233,7 +234,7 @@ namespace Durin::Editor::StaticMesh
 			Destination.Inspect();
 		if (!DestinationValidation)
 		{
-			SetError(DestinationValidation.Message);
+			SetError(::Durin::Editor::FormatAssetDestinationValidation(DestinationValidation));
 			return false;
 		}
 		const FPackagePath& AssetPath = DestinationValidation.AssetPath;
@@ -271,7 +272,8 @@ namespace Durin::Editor::StaticMesh
 		if (!Operation || !Operation->Result) return false;
 		if (Operation->Result->Status != EStaticMeshCompilationStatus::Succeeded)
 		{
-			SetError(Operation->Result->Message.empty() ? "StaticMesh import did not complete." : Operation->Result->Message);
+			const auto Message = FormatStaticMeshCompilationDiagnostic(*Operation->Result);
+			SetError(Message.empty() ? "StaticMesh import did not complete." : Message);
 			const auto Package = Operation->Package;
 			Operation.reset();
 			UnloadPackage(Package, EAssetPackageUnloadPolicy::DiscardUnsaved);

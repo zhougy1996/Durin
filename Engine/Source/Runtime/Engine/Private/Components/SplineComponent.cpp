@@ -173,9 +173,9 @@ namespace Durin
 		UpdateSpline(ESplineChangeFlags::Topology | ESplineChangeFlags::Geometry | ESplineChangeFlags::Build);
 	}
 
-	auto DSplineComponent::PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool
+	auto DSplineComponent::PreEditChangeProperty(FPropertyEditProposal& Proposal) -> FObjectValidationResult
 	{
-		return Super::PreEditChangeProperty(Proposal, OutError);
+		return Super::PreEditChangeProperty(Proposal);
 	}
 
 	auto DSplineComponent::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void

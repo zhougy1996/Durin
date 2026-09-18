@@ -20,6 +20,22 @@ namespace Durin
 		FPackageResourceRange Range;
 	};
 
+	enum class EBulkDataError : uint8 { None, DetachedSizeLimit, LogicalSizeMismatch, LogicalSizeLimit, InvalidRange };
+	struct FBulkDataError
+	{
+		EBulkDataError Code = EBulkDataError::None;
+		uint64 Actual = 0;
+		uint64 Expected = 0;
+		std::optional<FPackageResourceRangeError> RangeCause;
+	};
+	struct FBulkDataResult
+	{
+		FBulkDataError Error;
+		auto Succeeded() const -> bool { return Error.Code == EBulkDataError::None; }
+		explicit operator bool() const { return Succeeded(); }
+	};
+	ENGINE_API auto FormatBulkDataError(const FBulkDataError& Error) -> std::string;
+
 	namespace AssetPrivate { struct FBulkDataState; }
 
 	// Move-only read lease; retains storage even if the owning value is replaced.
@@ -105,11 +121,9 @@ namespace Durin
 		ENGINE_API auto operator=(FBulkData&& Other) noexcept -> FBulkData&;
 
 		ENGINE_API static auto TryCreateDetached(
-			FByteView Bytes, FBulkData& OutValue,
-			std::string* OutError = nullptr) -> bool;
+			FByteView Bytes, FBulkData& OutValue) -> FBulkDataResult;
 		ENGINE_API static auto TryAttach(
-			FBulkDataMetadata Metadata, FBulkData& OutValue,
-			std::string* OutError = nullptr) -> bool;
+			FBulkDataMetadata Metadata, FBulkData& OutValue) -> FBulkDataResult;
 
 		ENGINE_API auto GetState() const -> EBulkDataState;
 		ENGINE_API auto GetMetadata() const -> FBulkDataMetadata;

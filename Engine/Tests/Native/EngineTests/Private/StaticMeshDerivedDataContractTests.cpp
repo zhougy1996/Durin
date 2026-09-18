@@ -33,12 +33,11 @@ namespace
 TEST(FStaticMeshDerivedDataContractTests, KeyEncodingIsCanonicalAndDeterministic)
 {
 	const Durin::FStaticMeshBuildKeyInput Input = MakeKeyInput();
-	std::string Error;
 	const Durin::FByteBuffer First =
-		Durin::BuildStaticMeshDerivedDataKeyBytes(Input, Error);
-	ASSERT_TRUE(Error.empty()) << Error;
+		Durin::BuildStaticMeshDerivedDataKeyBytes(Input).Bytes;
+	ASSERT_FALSE(First.empty());
 	const Durin::FByteBuffer Second =
-		Durin::BuildStaticMeshDerivedDataKeyBytes(Input, Error);
+		Durin::BuildStaticMeshDerivedDataKeyBytes(Input).Bytes;
 	const Durin::FByteBuffer Expected = [] {
 		const uint8 Values[]{
 		0x04, 0x00, 0x00, 0x00,
@@ -55,22 +54,21 @@ TEST(FStaticMeshDerivedDataContractTests, KeyEncodingIsCanonicalAndDeterministic
 
 	EXPECT_EQ(First, Second);
 	EXPECT_EQ(First, Expected);
-	EXPECT_EQ(Durin::BuildStaticMeshDerivedDataKey(Input, Error).ToString(),
+	EXPECT_EQ(Durin::BuildStaticMeshDerivedDataKey(Input).Key.ToString(),
 		"373d527e05a47be00505fd636fd724a2");
 }
 
 TEST(FStaticMeshDerivedDataContractTests, EverySemanticInputChangesTheKey)
 {
 	const Durin::FStaticMeshBuildKeyInput Baseline = MakeKeyInput();
-	std::string Error;
 	const Durin::FCacheKeyProxy BaselineKey =
-		Durin::BuildStaticMeshDerivedDataKey(Baseline, Error);
+		Durin::BuildStaticMeshDerivedDataKey(Baseline).Key;
 
 	auto ExpectChanged = [&](auto Mutate)
 	{
 		Durin::FStaticMeshBuildKeyInput Changed = Baseline;
 		Mutate(Changed);
-		EXPECT_NE(Durin::BuildStaticMeshDerivedDataKey(Changed, Error), BaselineKey);
+		EXPECT_NE(Durin::BuildStaticMeshDerivedDataKey(Changed).Key, BaselineKey);
 	};
 
 	ExpectChanged([](auto& Value) { ++Value.SourceHash.HashLow; });
@@ -84,10 +82,9 @@ TEST(FStaticMeshDerivedDataContractTests, CollisionKeyCoversCanonicalGeometryAnd
 {
 	const Durin::FStaticMeshCollisionBuildKeyInput Baseline =
 		MakeCollisionKeyInput();
-	std::string Error;
 	const Durin::FByteBuffer Bytes =
-		Durin::BuildStaticMeshCollisionDerivedDataKeyBytes(Baseline, Error);
-	ASSERT_TRUE(Error.empty()) << Error;
+		Durin::BuildStaticMeshCollisionDerivedDataKeyBytes(Baseline).Bytes;
+	ASSERT_FALSE(Bytes.empty());
 	const Durin::FByteBuffer Expected = [] {
 		const uint8 Values[]{
 			0x03, 0x00, 0x00, 0x00,
@@ -103,14 +100,14 @@ TEST(FStaticMeshDerivedDataContractTests, CollisionKeyCoversCanonicalGeometryAnd
 	}();
 	EXPECT_EQ(Bytes, Expected);
 	const Durin::FCacheKeyProxy BaselineKey =
-		Durin::BuildStaticMeshCollisionDerivedDataKey(Baseline, Error);
+		Durin::BuildStaticMeshCollisionDerivedDataKey(Baseline).Key;
 	EXPECT_EQ(BaselineKey.ToString(), "2f83321f2ed9af9cbd52d38467d40155");
 
 	auto ExpectChanged = [&](auto Mutate)
 	{
 		Durin::FStaticMeshCollisionBuildKeyInput Changed = Baseline;
 		Mutate(Changed);
-		EXPECT_NE(Durin::BuildStaticMeshCollisionDerivedDataKey(Changed, Error),
+		EXPECT_NE(Durin::BuildStaticMeshCollisionDerivedDataKey(Changed).Key,
 			BaselineKey);
 	};
 	ExpectChanged([](auto& Value) { ++Value.GeometryHash.HashLow; });
@@ -135,4 +132,37 @@ TEST(FStaticMeshDerivedDataContractTests, FormatConstantsRemainWithinReaderLimit
 	EXPECT_EQ(Durin::StaticMeshPayloadAlignment, 16u);
 	EXPECT_GE(Durin::MaximumStaticMeshPayloadChunks, 6u);
 	EXPECT_GE(Durin::MaxStaticMeshUVChannels, 4u);
+}
+
+TEST(FStaticMeshDerivedDataContractTests, KeyRejectionOwnsTargetAndHasNoPartialOutput)
+{
+	using namespace Durin;
+	auto Render = MakeKeyInput();
+	Render.TargetPlatform = static_cast<EStaticMeshTargetPlatform>(99);
+	const auto RenderBytes = BuildStaticMeshDerivedDataKeyBytes(Render);
+	const auto RenderKey = BuildStaticMeshDerivedDataKey(Render);
+	Render = {};
+	EXPECT_FALSE(RenderBytes);
+	EXPECT_FALSE(RenderKey);
+	EXPECT_EQ(RenderBytes.Error.Code, EStaticMeshBuildKeyError::UnsupportedTarget);
+	EXPECT_EQ(RenderKey.Error.Code, EStaticMeshBuildKeyError::UnsupportedTarget);
+	EXPECT_EQ(RenderBytes.Error.TargetPlatform, static_cast<EStaticMeshTargetPlatform>(99));
+	EXPECT_EQ(RenderKey.Error.TargetPlatform, static_cast<EStaticMeshTargetPlatform>(99));
+	EXPECT_TRUE(RenderBytes.Bytes.empty());
+	EXPECT_FALSE(RenderKey.Key.IsValid());
+	auto Collision = MakeCollisionKeyInput();
+	Collision.TargetPlatform = EStaticMeshTargetPlatform::Unknown;
+	const auto CollisionBytes = BuildStaticMeshCollisionDerivedDataKeyBytes(Collision);
+	const auto CollisionKey = BuildStaticMeshCollisionDerivedDataKey(Collision);
+	Collision = MakeCollisionKeyInput();
+	EXPECT_FALSE(CollisionBytes);
+	EXPECT_FALSE(CollisionKey);
+	EXPECT_EQ(CollisionBytes.Error.Code, EStaticMeshBuildKeyError::UnsupportedTarget);
+	EXPECT_EQ(CollisionKey.Error.TargetPlatform, EStaticMeshTargetPlatform::Unknown);
+	EXPECT_TRUE(CollisionBytes.Bytes.empty());
+	EXPECT_FALSE(CollisionKey.Key.IsValid());
+	const auto Valid = BuildStaticMeshCollisionDerivedDataKey(Collision);
+	EXPECT_TRUE(Valid);
+	EXPECT_TRUE(Valid.Key.IsValid());
+	EXPECT_TRUE(FormatStaticMeshBuildKeyError(Valid.Error).empty());
 }

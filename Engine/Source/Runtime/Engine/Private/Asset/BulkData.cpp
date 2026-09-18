@@ -16,25 +16,22 @@ namespace Durin
 
 	namespace
 	{
-		auto BulkDataFail(std::string Message, std::string* OutError) -> bool
-		{
-			if (OutError) *OutError = std::move(Message);
-			return false;
-		}
-
 		auto NewEmptyState() -> std::shared_ptr<AssetPrivate::FBulkDataState>
 		{
 			return std::make_shared<AssetPrivate::FBulkDataState>();
 		}
 
-		auto ValidateMetadata(const FBulkDataMetadata& Metadata, std::string* OutError) -> bool
+		auto ValidateMetadata(const FBulkDataMetadata& Metadata) -> FBulkDataResult
 		{
-			if (Metadata.LogicalSize != Metadata.Range.StoredSize
-				|| Metadata.LogicalSize > MaximumBulkDataBytes)
-				return BulkDataFail("Bulk data package metadata is invalid or unsupported.", OutError);
-			if (!ValidatePackageResourceRange(Metadata.Range, MaximumBulkDataBytes, OutError)) return false;
-			if (OutError) OutError->clear();
-			return true;
+			if (Metadata.LogicalSize != Metadata.Range.StoredSize)
+				return {.Error = {.Code = EBulkDataError::LogicalSizeMismatch,
+					.Actual = Metadata.LogicalSize, .Expected = Metadata.Range.StoredSize}};
+			if (Metadata.LogicalSize > MaximumBulkDataBytes)
+				return {.Error = {.Code = EBulkDataError::LogicalSizeLimit,
+					.Actual = Metadata.LogicalSize, .Expected = MaximumBulkDataBytes}};
+			if (const auto Validation = ValidatePackageResourceRange(Metadata.Range, MaximumBulkDataBytes); !Validation)
+				return {.Error = {.Code = EBulkDataError::InvalidRange, .RangeCause = Validation.Error}};
+			return {};
 		}
 
 		auto Snapshot(const std::shared_ptr<AssetPrivate::FBulkDataState>& Source)
@@ -53,6 +50,14 @@ namespace Durin
 			else Result->State = EBulkDataState::Attached;
 			return Result;
 		}
+	}
+
+	auto FormatBulkDataError(const FBulkDataError& Error) -> std::string
+	{
+		if (Error.RangeCause) return FormatPackageResourceRangeError(*Error.RangeCause);
+		if (Error.Code == EBulkDataError::None) return {};
+		if (Error.Code == EBulkDataError::DetachedSizeLimit) return "Detached bulk data exceeds the 1 GiB limit.";
+		return "Bulk data package metadata is invalid or unsupported.";
 	}
 
 	FBulkData::FBulkData() : State(NewEmptyState()) {}
@@ -81,31 +86,29 @@ namespace Durin
 	}
 
 	auto FBulkData::TryCreateDetached(
-		FByteView Bytes, FBulkData& OutValue, std::string* OutError) -> bool
+		FByteView Bytes, FBulkData& OutValue) -> FBulkDataResult
 	{
 		if (Bytes.size() > MaximumBulkDataBytes)
-			return BulkDataFail("Detached bulk data exceeds the 1 GiB limit.", OutError);
+			return {.Error = {.Code = EBulkDataError::DetachedSizeLimit, .Actual = Bytes.size(), .Expected = MaximumBulkDataBytes}};
 		auto Candidate = NewEmptyState();
 		Candidate->Metadata.LogicalSize = Bytes.size();
 		Candidate->Metadata.Range.StoredSize = Bytes.size();
 		Candidate->Allocation = std::make_shared<FByteBuffer>(Bytes.begin(), Bytes.end());
 		Candidate->State = EBulkDataState::Detached;
 		OutValue = FBulkData(std::move(Candidate));
-		if (OutError) OutError->clear();
-		return true;
+		return {};
 	}
 
 	auto FBulkData::TryAttach(
-		FBulkDataMetadata Metadata, FBulkData& OutValue, std::string* OutError) -> bool
+		FBulkDataMetadata Metadata, FBulkData& OutValue) -> FBulkDataResult
 	{
-		if (!ValidateMetadata(Metadata, OutError)) return false;
+		if (auto Validation = ValidateMetadata(Metadata); !Validation) return Validation;
 		auto Candidate = NewEmptyState();
 		Candidate->Metadata = std::move(Metadata);
 		Candidate->State = Candidate->Metadata.Range.Resource->IsRetired()
 			? EBulkDataState::Retired : EBulkDataState::Attached;
 		OutValue = FBulkData(std::move(Candidate));
-		if (OutError) OutError->clear();
-		return true;
+		return {};
 	}
 
 	auto FBulkData::GetState() const -> EBulkDataState
@@ -210,7 +213,7 @@ namespace Durin
 			auto Result = Metadata.Range.Resource->ReadRange(Metadata.Range.SegmentOffset, Metadata.Range.StoredSize);
 			Guard.lock();
 			if (Result && Result.Buffer.GetSize() != Metadata.LogicalSize)
-				Result = {.Status = EPackageResourceReadStatus::TruncatedSegment, .Message = "Bulk data logical size does not match the read."};
+				Result = {.Status = EPackageResourceReadStatus::TruncatedSegment, .Error = {.Reason = EPackageResourceReadReason::LogicalSizeMismatch, .Actual = Result.Buffer.GetSize(), .Expected = Metadata.LogicalSize}};
 			if (!Result)
 			{
 				State->State = Result.Status == EPackageResourceReadStatus::Retired ? EBulkDataState::Retired : EBulkDataState::Failed;
@@ -220,9 +223,9 @@ namespace Durin
 			State->State = EBulkDataState::Resident;
 		}
 		if (State->State == EBulkDataState::Retired)
-			return {.Status = EBulkReadStatus::Retired, .Error = {.Status = EPackageResourceReadStatus::Retired, .Message = "Bulk data resource is retired."}};
+			return {.Status = EBulkReadStatus::Retired, .Error = {.Status = EPackageResourceReadStatus::Retired, .Error = {.Reason = EPackageResourceReadReason::Retired}}};
 		if (State->State != EBulkDataState::Resident && State->State != EBulkDataState::ReadLocked && State->State != EBulkDataState::Detached)
-			return {.Status = State->State == EBulkDataState::Empty ? EBulkReadStatus::Empty : EBulkReadStatus::Busy, .Error = {.Message = "Bulk data is empty, loading, or write locked."}};
+			return {.Status = State->State == EBulkDataState::Empty ? EBulkReadStatus::Empty : EBulkReadStatus::Busy, .Error = {.Error = {.Reason = EPackageResourceReadReason::BulkUnavailable, .BulkState = State->State}}};
 		++State->ReadLocks;
 		State->State = EBulkDataState::ReadLocked;
 		return {.Status = EBulkReadStatus::Acquired, .Lock = FBulkDataReadScope(State)};
@@ -268,7 +271,7 @@ namespace Durin
 				|| !State->Metadata.Range.Resource)
 				return FPackageResourceRequest::Completed({
 					.Status = EPackageResourceReadStatus::InvalidRange,
-					.Message = "Bulk data cannot reload in its current state."});
+					.Error = {.Reason = EPackageResourceReadReason::ReloadUnavailable, .BulkState = State->State}});
 			Metadata = State->Metadata;
 			State->State = EBulkDataState::Loading;
 		}
@@ -313,8 +316,7 @@ namespace Durin
 				if (!Result)
 				{
 					Ar.Fail(EArchiveFailureCode::InvalidData,
-						Result.Message.empty() ? "Bulk data cannot be read for serialization."
-							: Result.Message);
+						FormatPackageResourceReadError(Result));
 					return;
 				}
 				Buffer = Result.Buffer;
@@ -335,21 +337,21 @@ namespace Durin
 		if (!Ar.IsLoading() || Ar.HasError()) return;
 
 		FBulkData Candidate;
-		std::string Error;
+		FBulkDataResult Loaded;
 		const bool bLoaded = Value.StorageKind == EArchiveBulkDataStorageKind::External
-			? Value.PackageResource && TryAttach({
+			? Value.PackageResource && (Loaded = TryAttach({
 				.LogicalSize = Value.LogicalSize,
 				.Range = {
 					.Resource = std::static_pointer_cast<FPackageResource>(Value.PackageResource),
 					.SegmentOffset = Value.SegmentOffset,
 					.StoredSize = Value.StoredSize,
-					.Alignment = Value.Alignment}}, Candidate, &Error)
+					.Alignment = Value.Alignment}}, Candidate))
 			: Value.Buffer.GetSize() == Value.LogicalSize
-				&& TryCreateDetached(Value.Buffer.GetBytes(), Candidate, &Error);
+				&& (Loaded = TryCreateDetached(Value.Buffer.GetBytes(), Candidate));
 		if (!bLoaded)
 		{
 			Ar.Fail(EArchiveFailureCode::InvalidData,
-				Error.empty() ? "Loaded runtime bulk data is invalid." : Error);
+				Loaded ? "Loaded runtime bulk data is invalid." : FormatBulkDataError(Loaded.Error));
 			return;
 		}
 		*this = std::move(Candidate);

@@ -464,8 +464,8 @@ namespace Durin::Editor::Texture
 			StringUtils::FormatByteSize(Diagnostic.Metrics.DecodedBytes).c_str(),
 			StringUtils::FormatByteSize(Diagnostic.Metrics.PeakIntermediateBytes).c_str(),
 			StringUtils::FormatByteSize(Diagnostic.Metrics.ResultBytes).c_str());
-		if (!Diagnostic.Message.empty())
-			ImGui::TextWrapped("%s", Diagnostic.Message.c_str());
+		if (Diagnostic.Error.HasError())
+			ImGui::TextWrapped("%s", FormatTexture2DCompilationError(Diagnostic.Error).c_str());
 		if (Diagnostic.Phase == ETexture2DCompilationPhase::Failed
 			&& Diagnostic.FailurePhase != ETexture2DCompilationPhase::None)
 			ImGui::TextDisabled(
@@ -481,8 +481,8 @@ namespace Durin::Editor::Texture
 				{
 					const FTexture2DCompilationDiagnostic Completed =
 						GetTexture2DCompilationDiagnostic(*Texture);
-					SetError(Completed.Message.empty()
-						? "The texture build did not complete." : Completed.Message);
+					SetError(!Completed.Error.HasError()
+						? "The texture build did not complete." : FormatTexture2DCompilationError(Completed.Error));
 				}
 			}
 		}
@@ -516,7 +516,7 @@ namespace Durin::Editor::Texture
 			&& !bResourceFailed) return;
 		const char* Title = "Build Error";
 		ImVec4 TitleColor(1.0f, 0.5f, 0.3f, 1.0f); // Amber default
-		std::string Message = Diagnostic.Message;
+		std::string Message = FormatTexture2DCompilationError(Diagnostic.Error);
 		if (bResourceFailed)
 		{
 			Title = "GPU Texture Update Failed";

@@ -203,7 +203,7 @@ TEST(FMaterialGraphInteractionTests, DuplicateMixedOutputSelectionPreservesCopie
 		else
 		{
 			const auto Result = FMaterialGraphOperations::DuplicateNodes(*Material, Selection, 40, 40, Transactions.Get());
-			ASSERT_TRUE(Result) << Result.Message;
+			ASSERT_TRUE(Result) << ::Durin::Editor::Material::FormatMaterialGraphCommandResult(Result);
 			Generated = Result.GeneratedNodeIds;
 		}
 		ASSERT_EQ(Generated.size(), 2u);
@@ -1254,7 +1254,7 @@ TEST(FMaterialGraphInteractionTests, SurfaceTexturesUseCompactSamplesAndPreserve
 		const bool bNormal = Role == EMaterialSurfaceOutput::Normal;
 		const auto Result = FMaterialGraphOperations::AddTextureToSurfaceOutput(*Material,
 			{.Output = Role, .X = 400, .Y = 200}, Transactions.Get());
-		ASSERT_TRUE(Result) << Result.Message;
+		ASSERT_TRUE(Result) << ::Durin::Editor::Material::FormatMaterialGraphCommandResult(Result);
 		ASSERT_EQ(Material->GetExpressionCollection().Expressions.size(), 2u);
 		ASSERT_EQ(Material->GetParameterDefinitions().size(), 1u);
 		const auto* Sample = Cast<DMaterialExpressionTextureSampleParameter2D>(Material->GetExpressionCollection().Expressions.front().Get());
@@ -1637,7 +1637,7 @@ TEST(FMaterialGraphInteractionTests, FunctionCreationActionsShareCompatibilityAn
 	const auto Before = CaptureExpressions(*Material);
 	const auto Created = Document.Create({Action, 32, 64,
 		FMaterialGraphPinAddress::Output({Scalar.GeneratedNodeIds[0]})}, Transactions.Get());
-	ASSERT_TRUE(Created) << Created.Message;
+	ASSERT_TRUE(Created) << ::Durin::Editor::Material::FormatMaterialGraphCommandResult(Created);
 	const auto Id = Created.GeneratedNodeIds[0];
 	const auto View = Document.Inspect();
 	const auto* Node = FindViewNode(View, Id);
@@ -1678,13 +1678,13 @@ TEST(FMaterialGraphInteractionTests, FunctionCreationActionsShareCompatibilityAn
 	const auto Signature = Callee->GetFunctionSignature();
 	const auto Output = Function.Create({OutputAction, 10, 20,
 		FMaterialGraphPinAddress::Output({Input.GeneratedNodeIds[0]})}, Transactions.Get());
-	ASSERT_TRUE(Output) << Output.Message;
+	ASSERT_TRUE(Output) << ::Durin::Editor::Material::FormatMaterialGraphCommandResult(Output);
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Callee->GetFunctionSignature(), Signature);
 	EXPECT_FALSE(Transactions->CanUndo());
 	for (const auto Type : {EMaterialProgramValueType::Texture2D, EMaterialProgramValueType::Surface})
 	{
 		const auto TypedInput = Function.Create({MakePortCreationAction(false, Type)});
-		ASSERT_TRUE(TypedInput) << TypedInput.Message;
+		ASSERT_TRUE(TypedInput) << ::Durin::Editor::Material::FormatMaterialGraphCommandResult(TypedInput);
 	}
 }

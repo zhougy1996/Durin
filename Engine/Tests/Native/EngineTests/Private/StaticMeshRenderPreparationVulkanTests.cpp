@@ -280,7 +280,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 		{.Name = Durin::FName("Section1"), .SourceMaterialIndex = 1},
 		{.Name = Durin::FName("Section2"), .SourceMaterialIndex = 2},
 		{.Name = Durin::FName("Section3"), .SourceMaterialIndex = 3}});
-	ASSERT_TRUE(StaticMesh->GetRenderDataUpdateError().empty()) << StaticMesh->GetRenderDataUpdateError();
+	ASSERT_EQ(StaticMesh->GetRenderDataUpdateError().Code, Durin::EStaticMeshReplacementError::None) << Durin::FormatStaticMeshReplacementError(StaticMesh->GetRenderDataUpdateError());
 	ASSERT_EQ(Durin::GDynamicRHI, nullptr);
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
 	Durin::RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
@@ -289,12 +289,12 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 	auto CheckCpuOnlyAndGpuRetry = [](auto* Mesh) {
 		const auto Before = Mesh->GetRenderResourceStatus();
 		const auto Loaded = Mesh->EnsureRenderDataLoadedBlocking();
-		ASSERT_TRUE(Loaded.Succeeded()) << Loaded.Message;
+		ASSERT_TRUE(Loaded.Succeeded()) << Durin::FormatCookedMeshLoadError(Loaded.Error);
 		EXPECT_EQ(Loaded.Status.GpuPhase, Durin::ECookedMeshGpuPhase::Unavailable);
 		EXPECT_FALSE(Mesh->HasPendingRenderResourceInitialization());
 		EXPECT_EQ(Mesh->GetRenderResourceStatus().Revision, Before.Revision);
 		const auto Repeated = Mesh->EnsureRenderDataLoadedBlocking();
-		ASSERT_TRUE(Repeated.Succeeded()) << Repeated.Message;
+		ASSERT_TRUE(Repeated.Succeeded()) << Durin::FormatCookedMeshLoadError(Repeated.Error);
 		EXPECT_EQ(Repeated.Status.Generation, Loaded.Status.Generation);
 		EXPECT_EQ(Mesh->GetRenderResourceStatus().Revision, Before.Revision);
 		{
@@ -380,14 +380,14 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 			{.Name = Durin::FName("Section1"), .SourceMaterialIndex = 1},
 			{.Name = Durin::FName("Section2"), .SourceMaterialIndex = 2},
 			{.Name = Durin::FName("Section3"), .SourceMaterialIndex = 3}});
-	ASSERT_TRUE(AuthoredMesh->GetRenderDataUpdateError().empty()) << AuthoredMesh->GetRenderDataUpdateError();
+	ASSERT_EQ(AuthoredMesh->GetRenderDataUpdateError().Code, Durin::EStaticMeshReplacementError::None) << Durin::FormatStaticMeshReplacementError(AuthoredMesh->GetRenderDataUpdateError());
 
 	Durin::FCookContext CookContext(
 		Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game);
 	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
-		*AuthoredMesh, "/Game/CookedMesh", CookContext, Error)) << Error;
-	ASSERT_TRUE(Durin::PublishCookContext(CookContext, CookRoot, &Error)) << Error;
+		*AuthoredMesh, "/Game/CookedMesh", CookContext)) << Error;
+	ASSERT_TRUE(Durin::PublishCookContext(CookContext, CookRoot)) << Error;
 	ASSERT_TRUE(Durin::UnloadPackage(
 		AuthoredPath,
 		Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
@@ -431,7 +431,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 	{
 		if (!bUseManager) Durin::ShutdownCookedMeshLoadManager();
 		const auto CpuOnly = CookedMesh->EnsureRenderDataLoadedBlocking();
-		ASSERT_TRUE(CpuOnly.Succeeded()) << CpuOnly.Message;
+		ASSERT_TRUE(CpuOnly.Succeeded()) << Durin::FormatCookedMeshLoadError(CpuOnly.Error);
 		EXPECT_EQ(CpuOnly.Status.GpuPhase, Durin::ECookedMeshGpuPhase::Unavailable);
 		EXPECT_EQ(CookedMesh->GetRenderData()->GetNumInitializedResources(), 0u);
 		ASSERT_TRUE(Durin::UnloadPackage(CookedPath));
@@ -1595,7 +1595,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ReplacementRetiresOldResourcesAndG
 			{.Name = FName("Section3"), .SourceMaterialIndex = 3}});
 	};
 	Replace();
-	ASSERT_TRUE(Mesh->GetRenderDataUpdateError().empty());
+	ASSERT_EQ(Mesh->GetRenderDataUpdateError().Code, Durin::EStaticMeshReplacementError::None);
 	FModuleManager::Get().LoadModule("RenderCore");
 	RHIInit(Tests::GetVulkanEngineTestInitializationContext());
 	ASSERT_NE(GDynamicRHI, nullptr);
@@ -1607,7 +1607,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ReplacementRetiresOldResourcesAndG
 	VulkanRHI::ArmVulkanCreateFailure(VulkanRHI::EVulkanCreateFailurePoint::Buffer);
 	Replace();
 	FlushRenderingCommands();
-	EXPECT_TRUE(Mesh->GetRenderDataUpdateError().empty());
+	EXPECT_EQ(Mesh->GetRenderDataUpdateError().Code, Durin::EStaticMeshReplacementError::None);
 	ASSERT_NE(Mesh->GetRenderData(), nullptr);
 	EXPECT_EQ(Mesh->GetRenderResourceStatus().Readiness, EStaticMeshRenderResourceReadiness::Failed);
 	EXPECT_GT(Mesh->GetRenderResourceStatus().Revision, Revision);
@@ -1617,7 +1617,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ReplacementRetiresOldResourcesAndG
 	EXPECT_TRUE(Mesh->GetRenderResourceStatus().IsReady());
 	Mesh->ReplaceRenderData(nullptr, {});
 	EXPECT_EQ(Mesh->GetRenderData(), nullptr);
-	EXPECT_FALSE(Mesh->GetRenderDataUpdateError().empty());
+	EXPECT_NE(Mesh->GetRenderDataUpdateError().Code, Durin::EStaticMeshReplacementError::None);
 	EXPECT_EQ(Mesh->RequestRenderDataAndResources().CpuPhase, ECookedMeshCpuPhase::Failed);
 	EXPECT_FALSE(Mesh->GetRenderResourceStatus().IsReady());
 	MarkAsGarbage(Mesh);

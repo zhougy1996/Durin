@@ -259,10 +259,10 @@ namespace Durin
 	struct TDStructOpsTraits<FTextureSource> : TDStructOpsTraitsBase<FTextureSource>
 	{
 		static constexpr bool bWithPostDeserialize = true;
-		static auto PostDeserialize(FTextureSource& Value, FDStructPostDeserializeContext&) -> bool
+		static auto PostDeserialize(FTextureSource& Value, FDStructPostDeserializeContext&) -> FObjectValidationResult
 		{
 			Value.MipDataState = std::make_shared<FTextureSource::FMipDataState>();
-			return true;
+			return {};
 		}
 	};
 } // namespace Durin

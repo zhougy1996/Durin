@@ -18,7 +18,7 @@ namespace Durin
 		ENGINE_API auto OnRegister() -> void override;
 		ENGINE_API auto OnUnregister() -> void override;
 		ENGINE_API auto OnOwnerVisibilityChanged() -> void override;
-		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool override;
+		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal) -> FObjectValidationResult override;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 		// Local to-sun direction, normalized before publication; zero and nonfinite inputs are rejected.
 		ENGINE_API auto SetSunDirection(const FVector3f& Direction) -> void;

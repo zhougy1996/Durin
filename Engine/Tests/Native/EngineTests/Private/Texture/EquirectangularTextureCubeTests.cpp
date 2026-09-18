@@ -30,7 +30,8 @@ namespace Durin::TextureCubeBuilder
 	{
 		Image::FDecodedImage Decoded;
 		std::string Error;
-		ASSERT_TRUE(Image::DecodeImageFromFile(FixturePath("AnalyticalLDR.tga"), Decoded, Error)) << Error;
+		const auto DecodeResult = Image::DecodeImageFromFile(FixturePath("AnalyticalLDR.tga"), Decoded);
+		ASSERT_TRUE(DecodeResult) << Durin::Image::FormatImageDecodeError(DecodeResult.Error);
 		FTexturePanoramaImage Panorama{.Pixels = std::move(Decoded.Pixels),
 			.Width = Decoded.Width, .Height = Decoded.Height,
 			.SourceChannelCount = Decoded.SourceChannelCount,

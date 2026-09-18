@@ -38,7 +38,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	auto FAssetCreationDialog::Validate(FTopLevelAssetPath& OutPath, std::string& OutError) const -> bool
 	{
 		const auto Destination = InspectAssetDestination(Directory + Name.data());
-		OutError = Destination.Message;
+		OutError = ::Durin::Editor::FormatAssetDestinationValidation(Destination);
 		if (!Destination) return false;
 		const auto PathValidation = FTopLevelAssetPath::TryCreate(Destination.AssetPath, Name.data(), OutPath);
 		if (!PathValidation) OutError = FormatObjectError(PathValidation.Error);

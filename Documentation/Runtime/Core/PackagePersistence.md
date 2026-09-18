@@ -32,8 +32,21 @@ the effective mode and generic archive target once; `BeginWrite` transfers detac
 file descriptors and buffers without recapturing objects.
 
 `CapturePackageLinker` captures reflected and native archive fields into the
-existing canonical DAST v10 linker representation. `FObjectSaveOverrides` owns
-non-mutating omissions/replacements. `FPackageCaptureOptions` supplies generic
+existing canonical DAST v10 linker representation. It and `FSavePackageContext::Capture`
+return `FPackageCaptureResult` without diagnostic output parameters. Errors own
+object/field identities, routes and numeric bounds, retain path, default-delta,
+property-value and snapshot causes, and preserve Archive code/path. Capture
+publishes the Linker only on success. Internal container adaptation rejects missing
+child descriptors and propagates recursive failures. `FormatPackageCaptureError`
+owns prose; pending save admission retains `CaptureCause`, while the pending Engine
+asset adapter formats explicitly.
+
+`FObjectSaveOverrides` owns
+non-mutating omissions/replacements. Its mutation APIs return `FSaveOverrideResult`
+with owned object/property identities, exact layout/type mismatch facts, and
+typed property-value or snapshot causes. Failed replacement preparation publishes
+no new object entry or property override. `FormatSaveOverrideError` owns prose.
+`FPackageCaptureOptions` supplies generic
 archive targets, property filters and per-export redirect metadata. Engine adapts
 its cook enums and concrete redirector objects at this boundary. Bulk capture
 consumes immutable archive buffers and generic descriptors; family compilation,

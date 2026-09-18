@@ -1,3 +1,4 @@
+#include "Components/PropertyEditValidation.h"
 #include "Components/StaticMeshComponent.h"
 
 #include "Components/ComponentMaterialOverride.h"
@@ -99,28 +100,26 @@ namespace Durin
 		Super::PostLoad();
 	}
 
-	auto DStaticMeshComponent::PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool
+	auto DStaticMeshComponent::PreEditChangeProperty(FPropertyEditProposal& Proposal) -> FObjectValidationResult
 	{
-		if (!Super::PreEditChangeProperty(Proposal, OutError)) return false;
-		if (!Proposal.MemberProperty || !Proposal.DraftRootProperty || !Proposal.DraftRootContainer) return true;
+		if (auto Result = Super::PreEditChangeProperty(Proposal); !Result) return Result;
+		if (!Proposal.MemberProperty || !Proposal.DraftRootProperty || !Proposal.DraftRootContainer) return {};
 		const FName Name = Proposal.MemberProperty->NamePrivate;
 		if (Name == FName("StaticMesh"))
 		{
 			if (Proposal.DraftRootProperty->GetKind() != DurinCodeGen::EPropertyGenFlags::Object)
 			{
-				OutError = "The static-mesh object property metadata is unavailable.";
-				return false;
+				return RejectPropertyEdit(*this, Proposal, EPropertyEditRejection::InvalidMetadata);
 			}
 			DObject* Value = static_cast<const FObjectProperty*>(Proposal.DraftRootProperty)->GetObjectPropertyValue(
 				Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex);
 			if (Value && !Cast<DStaticMesh>(Value))
 			{
-				OutError = "Selected asset is not a static mesh.";
-				return false;
+				return RejectPropertyEdit(*this, Proposal, EPropertyEditRejection::IncompatibleObject);
 			}
-			return true;
+			return {};
 		}
-		return true;
+		return {};
 	}
 
 	auto DStaticMeshComponent::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void

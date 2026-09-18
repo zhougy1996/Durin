@@ -44,14 +44,14 @@ namespace Durin
 		ENGINE_API auto SetParameterValue(
 			const FGuid& Id,
 			const FMaterialParameterValue& Value
-		) -> bool;
+		) -> FMaterialOperationResult;
 		ENGINE_API auto ClearParameterValue(const FGuid& Id) -> bool;
 		ENGINE_API auto HasLocalParameterValue(const FGuid& Id) const -> bool;
 		ENGINE_API auto IsParameterValueOrphan(const FGuid& Id) const -> bool;
-		ENGINE_API auto SetScalarParameterValue(FName Name, float Value) -> bool;
-		ENGINE_API auto SetVector2ParameterValue(FName Name, const FVector2& Value) -> bool;
-		ENGINE_API auto SetVectorParameterValue(FName Name, const FVector3& Value) -> bool;
-		ENGINE_API auto SetTextureParameterValue(FName Name, DTexture2D* Value) -> bool;
+		ENGINE_API auto SetScalarParameterValue(FName Name, float Value) -> FMaterialOperationResult;
+		ENGINE_API auto SetVector2ParameterValue(FName Name, const FVector2& Value) -> FMaterialOperationResult;
+		ENGINE_API auto SetVectorParameterValue(FName Name, const FVector3& Value) -> FMaterialOperationResult;
+		ENGINE_API auto SetTextureParameterValue(FName Name, DTexture2D* Value) -> FMaterialOperationResult;
 		ENGINE_API auto ClearScalarParameterValue(FName Name) -> bool;
 		ENGINE_API auto ClearVector2ParameterValue(FName Name) -> bool;
 		ENGINE_API auto ClearVectorParameterValue(FName Name) -> bool;
@@ -66,7 +66,7 @@ namespace Durin
 		ENGINE_API auto GetTextureParameterValue(FName Name, DTexture2D*& OutValue) const -> bool override;
 		ENGINE_API auto Serialize(FArchive& Ar) -> void override;
 		ENGINE_API auto PostLoad() -> void override;
-		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool override;
+		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal) -> FObjectValidationResult override;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 
 	private:
@@ -82,7 +82,7 @@ namespace Durin
 		DPROPERTY(Edit)
 		std::vector<FMaterialTextureParameterValue> TextureParameterValues;
 
-		auto ValidateParameterStorage(const FPropertyEditProposal* Proposal = nullptr) const -> bool;
+		auto ValidateParameterStorage(const FPropertyEditProposal* Proposal = nullptr) const -> FMaterialOperationResult;
 		template<typename TVisitor> auto VisitParameterValueArrays(TVisitor&& Visitor) -> void
 		{
 			Visitor(ScalarParameterValues);

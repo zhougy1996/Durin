@@ -71,18 +71,31 @@ namespace Durin
 		std::filesystem::path CookRoot;
 	};
 
+	enum class ECookedPathError : uint8
+	{
+		None, Root, VirtualPath, Mount, NotNormalized, Escape, PackageExtension
+	};
+	struct FCookedPathResult
+	{
+		ECookedPathError Error = ECookedPathError::None;
+		std::filesystem::path CookRoot;
+		std::string VirtualPath;
+		std::filesystem::path PackagePath;
+		explicit operator bool() const { return Error == ECookedPathError::None; }
+	};
+	ENGINE_API auto FormatCookedPathError(const FCookedPathResult& Result) -> std::string;
+
+	// Failed resolution clears the output path.
 	ENGINE_API auto ResolveCookedPackagePath(
 		const std::filesystem::path& CookRoot,
 		std::string_view VirtualPackagePath,
-		std::filesystem::path& OutPackagePath,
-		std::string* OutError = nullptr
-	) -> bool;
+		std::filesystem::path& OutPackagePath
+	) -> FCookedPathResult;
 
 	ENGINE_API auto ResolveCookedCompanionPath(
 		const std::filesystem::path& CookRoot,
 		const std::filesystem::path& PackagePath,
-		std::filesystem::path& OutCompanionPath,
-		std::string* OutError = nullptr
-	) -> bool;
+		std::filesystem::path& OutCompanionPath
+	) -> FCookedPathResult;
 
 } // namespace Durin

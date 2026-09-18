@@ -467,6 +467,12 @@ load budgets and decoded/scratch/runtime byte accounting remain the caller's
 responsibility. Graph ownership and destruction
 stay on GameThread. This is an internal deserialization boundary, not a public
 reload admission or success result.
+`FPackageGraphPrepareResult` owns a typed reason, the affected package identity,
+admission/budget context, and complete reader, resource, graph-validation, or
+asset-operation causes. Failed preparation does not replace the caller's prior
+candidate set. `FormatPackageGraphPrepareError` formats only when presenting a
+failure; the pending outer `FAssetResult` adapter remains its own migration
+boundary.
 
 ## Saved Package Reload
 
@@ -489,7 +495,11 @@ revalidates the complete disk digests. It then prepares one
 registration/reference commit occur in one GameThread call, so a failure in a
 later package cannot publish an earlier package. Strong references are rewritten,
 weak handles retain generation safety, soft paths remain unchanged, and unrelated
-referencer packages are not dirtied.
+referencer packages are not dirtied. `FObjectReplacementMap::Build` returns
+`FObjectReplacementMapResult` with typed reasons, the failing package index,
+budget counts, and owned object/type identities. Failed construction preserves
+the previous mapping. The graph coordinator retains this typed `MapCause` and
+reload diagnostics retain the complete `FObjectReplacementError`.
 
 The returned operation remains `Pending` only while the committed old graph waits
 for participant retirement. Callers keep it alive and use `Poll` or `Wait`; only a
@@ -497,6 +507,17 @@ successful retirement reports `Succeeded`. Prior to commit, cancellation and all
 structured failures preserve the old graph. After commit, dependency-release
 diagnostics do not masquerade as rollback because the new graph is already the
 registered generation.
+
+Reload diagnostics own typed reasons and stage/package/object context, with
+nested graph preparation, storage, path, replacement, and asset-operation
+causes. Function preparation retains all material diagnostics; failed material
+compilation retains its status and complete diagnostic set. No candidate object
+is retained merely to explain a failure. Editor consumers use
+`FormatPackageReloadDiagnostic` at display time. The coordinator handles
+candidate cleanup and post-commit dependency retention internally; callers do
+not replay recovery based on diagnostic text. Resource receipts accept an owned
+diagnostic only while pending, reject an empty failure, preserve the first
+terminal transition, and return a locked copy through `GetFailure`.
 
 ## Construct-Free Inspection And Mutation
 

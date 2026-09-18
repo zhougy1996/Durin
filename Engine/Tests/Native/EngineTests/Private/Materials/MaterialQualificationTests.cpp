@@ -141,7 +141,7 @@ TEST(FMaterialQualificationTests, LargeGraphLoadBaseline)
 		ASSERT_NE(Material, nullptr);
 		EXPECT_FALSE(Material->HasAllocatedAuthoredOverrideLedger());
 		EXPECT_EQ(Material->GetExpressionCollection().Expressions.size(), 65u);
-		auto* Copy = Cast<DMaterial>(DuplicateObject(Material, nullptr, "GraphWithoutLedgerCopy"));
+		auto* Copy = Cast<DMaterial>(DuplicateObject(Material, nullptr, "GraphWithoutLedgerCopy").Object);
 		ASSERT_NE(Copy, nullptr);
 		EXPECT_FALSE(Copy->HasAllocatedAuthoredOverrideLedger());
 		EXPECT_EQ(Copy->GetExpressionCollection().Expressions.size(), 65u);

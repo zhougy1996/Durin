@@ -991,9 +991,9 @@ namespace Durin::AssetPrivate
 						if (const DObject* Template = Graph.FindTemplate(Object))
 						{
 							if (!NeedsDefaults.contains(Object)) continue;
-							std::string Error;
-							if (!InitializeObjectFromDefaults(Template, Object, References, &Error))
-								return {EAssetError::InvalidObjectGraph, "Cannot initialize loaded defaults: " + Error};
+							const auto CopyResult = InitializeObjectFromDefaults(Template, Object, References);
+							if (!CopyResult)
+								return {EAssetError::InvalidObjectGraph, "Cannot initialize loaded defaults: " + FormatObjectPropertyCopyError(CopyResult.Error)};
 							Initialized.insert(Object);
 						}
 				}
@@ -1138,10 +1138,14 @@ namespace Durin::AssetPrivate
 			FAssetLiveLoadGuard Guard(true);
 			for (const DObject* Object : Objects)
 			{
-				std::string Error;
-				if (!Object->ValidateLoadedObjectGraph(Context, Error))
-					return {EAssetError::InvalidObjectGraph, std::format("Loaded graph '{}': {}",
-						Object->GetObjectPath(), Error.empty() ? "object graph validation failed" : Error)};
+				const auto Validation = Object->ValidateLoadedObjectGraph(Context);
+				if (!Validation)
+				{
+					FAssetResult Result{EAssetError::InvalidObjectGraph, std::format("Loaded graph '{}': {}",
+						Object->GetObjectPath(), FormatObjectValidationError(Validation.Error))};
+					Result.GraphValidationCause = Validation.Error;
+					return Result;
+				}
 			}
 			return Guard.GetFailure();
 		}
@@ -1153,10 +1157,11 @@ namespace Durin::AssetPrivate
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 		using S = EPackageGraphPrepareStatus;
+		using R = EPackageGraphPrepareReason;
 		static bool bPreparing = false;
-		if (bPreparing) return {S::Busy, {}, "Package graph preparation cannot be reentered."};
+		if (bPreparing) return {.Status = S::Busy, .Reason = R::Reentrant};
 		if (!FAssetRuntimeState::Get().GetLoadService().IsIdle())
-			return {S::Busy, {}, "Package graph preparation requires an idle load service."};
+			return {.Status = S::Busy, .Reason = R::LoadServiceBusy};
 		struct FExecutionScope
 		{
 			bool& Active;
@@ -1164,7 +1169,7 @@ namespace Durin::AssetPrivate
 			~FExecutionScope() { Active = false; }
 		} Execution(bPreparing);
 		if (Sources.empty() || Sources.size() > Options.MaximumPackages)
-			return {S::BudgetExceeded, {}, "Package count is outside the preparation budget."};
+			return {.Status = S::BudgetExceeded, .Reason = R::PackageBudget, .Actual = Sources.size(), .Maximum = Options.MaximumPackages};
 		bool bCancelled = false;
 		auto Cancelled = [&]() {
 			bCancelled = bCancelled || (Options.IsCancelled && Options.IsCancelled());
@@ -1177,7 +1182,7 @@ namespace Durin::AssetPrivate
 			for (const auto& Source : Sources)
 			{
 				if (Source.Storage.GetRetainedBytes() > Options.MaximumRetainedBytes - RetainedBytes)
-					return {S::BudgetExceeded, Source.PackagePath, "Saved batch closures exceed the retained byte budget."};
+					return {.Status = S::BudgetExceeded, .PackagePath = Source.PackagePath, .Reason = R::RetainedByteBudget, .Actual = Source.Storage.GetRetainedBytes(), .Maximum = Options.MaximumRetainedBytes - RetainedBytes};
 				RetainedBytes += Source.Storage.GetRetainedBytes();
 			}
 			std::vector<FLinkerApplication> Applications(Sources.size());
@@ -1188,38 +1193,37 @@ namespace Durin::AssetPrivate
 			{
 				const auto& Source = Sources[Index];
 				CurrentPath = Source.PackagePath;
-				if (Cancelled()) return {S::Cancelled, CurrentPath, "Package graph preparation cancelled."};
+				if (Cancelled()) return {.Status = S::Cancelled, .PackagePath = CurrentPath, .Reason = R::Cancelled};
 				if (!CurrentPath.IsValid() || Source.Storage.GetMainBytes().IsEmpty())
-					return {S::InvalidClosure, CurrentPath, "A validated saved package closure is required."};
+					return {.Status = S::InvalidClosure, .PackagePath = CurrentPath, .Reason = R::InvalidSource};
 				if (IsAssetRegistryProjectionFenced(CurrentPath))
-					return {S::Busy, CurrentPath, "Package projection is fenced; existing recovery must complete first."};
+					return {.Status = S::Busy, .PackagePath = CurrentPath, .Reason = R::ProjectionFenced};
 				// An ordinary external load may recurse into the replacement set.
 				// Require its live skeletons so that recursion cannot publish a target.
 				if (Options.DependencyLoadScope && !FindResidentPackage(CurrentPath))
-					return {S::Unsupported, CurrentPath, "Scoped dependency loading requires resident replacement targets."};
+					return {.Status = S::Unsupported, .PackagePath = CurrentPath, .Reason = R::ResidentTargetRequired};
 				for (size_t Previous = 0; Previous < Index; ++Previous)
 					if (Sources[Previous].PackagePath == CurrentPath)
-						return {S::InvalidClosure, CurrentPath, "Duplicate package identity in preparation batch."};
+						return {.Status = S::InvalidClosure, .PackagePath = CurrentPath, .Reason = R::DuplicatePackage};
 				auto& Application = Applications[Index];
 				Application.PackagePath = CurrentPath;
 				ObjectPackage::FPackageReaderResult ReaderDiagnostic;
 				const auto& Bulk = Source.Storage.GetBulkResource();
 				if (!(ReaderDiagnostic = ObjectPackage::ReadPackageMetadata(Source.Storage.GetMainBytes(),
 					Bulk ? Bulk->GetSegmentExtent() : 0, CurrentPath, Application.Linker)))
-					return {S::InvalidClosure, CurrentPath, ObjectPackage::FormatPackageError(ReaderDiagnostic)};
+					return {.Status = S::InvalidClosure, .PackagePath = CurrentPath, .Reason = R::Reader, .ReaderCause = ReaderDiagnostic};
 				FLinkerApplyDiagnostic Diagnostic;
 				if (auto Result = ValidateLinker(Application, {}, Diagnostic); !Result)
-					return {S::InvalidClosure, CurrentPath, Result.Message};
+					return {.Status = S::InvalidClosure, .PackagePath = CurrentPath, .Reason = R::LinkerValidation, .GraphValidationCause = Result.GraphValidationCause, .AssetCause = std::make_shared<FAssetResult>(Result)};
 				if (ObjectCount >= Options.MaximumObjects
 					|| Application.Exports.size() > Options.MaximumObjects - ObjectCount - 1)
-					return {S::BudgetExceeded, CurrentPath, "Package skeletons exceed the object budget."};
+					return {.Status = S::BudgetExceeded, .PackagePath = CurrentPath, .Reason = R::ObjectBudget, .Actual = Application.Exports.size() + 1, .Maximum = Options.MaximumObjects - ObjectCount};
 				ObjectCount += Application.Exports.size() + 1;
 				for (const auto& Export : Application.Exports)
 				{
 					DClass* Class = FindClassByQualifiedName(FName(Export.Export->ClassName));
 					if (std::ranges::find(Options.AdmittedClasses, Class) == Options.AdmittedClasses.end())
-						return {S::Unsupported, CurrentPath,
-							std::format("Class {} has no isolated deserialization admission.", Export.Export->ClassName)};
+						return {.Status = S::Unsupported, .PackagePath = CurrentPath, .Reason = R::ClassNotAdmitted, .Subject = Export.Export->ClassName};
 				}
 			}
 			// Admit external residency before constructing any candidate. Only the
@@ -1233,11 +1237,11 @@ namespace Durin::AssetPrivate
 				{
 					const auto& Path = Application.LiveDependencies[DependencyIndex];
 					CurrentPath = Application.PackagePath;
-					if (Cancelled()) return {S::Cancelled, Application.PackagePath, "Package graph preparation cancelled."};
+					if (Cancelled()) return {.Status = S::Cancelled, .PackagePath = Application.PackagePath, .Reason = R::Cancelled};
 					if (Options.ShouldFail && Options.ShouldFail(PackageIndex, ELinkerLoadPhase::ResolveDependency, DependencyIndex))
-						return {S::MissingDependency, Application.PackagePath, "Injected dependency binding failure."};
+						return {.Status = S::MissingDependency, .PackagePath = Application.PackagePath, .Reason = R::InjectedDependencyFailure};
 					if (IsAssetRegistryProjectionFenced(Path))
-						return {S::Busy, Path, "Dependency projection is fenced; existing recovery must complete first."};
+						return {.Status = S::Busy, .PackagePath = Path, .Reason = R::DependencyProjectionFenced};
 					if (std::ranges::find(Sources, Path, &FPackageGraphSource::PackagePath) != Sources.end()) continue;
 					if (std::ranges::find(ExternalPackages, Path, &std::pair<FPackagePath, DPackage*>::first)
 						!= ExternalPackages.end()) continue;
@@ -1245,11 +1249,9 @@ namespace Durin::AssetPrivate
 					if (!Package && Options.DependencyLoadScope)
 					{
 						const auto Result = Options.DependencyLoadScope->LoadPackage(Path, Package);
-						if (!Result) return {Result.Error == EAssetError::InUse ? S::Busy : S::MissingDependency,
-							Path, Result.Message};
+						if (!Result) return {.Status = Result.Error == EAssetError::InUse ? S::Busy : S::MissingDependency, .PackagePath = Path, .Reason = R::DependencyLoad, .AssetCause = std::make_shared<FAssetResult>(Result)};
 					}
-					if (!Package) return {S::MissingDependency, Application.PackagePath,
-						std::format("External dependency {} must be admitted and resident before graph preparation.", Path.ToString())};
+					if (!Package) return {.Status = S::MissingDependency, .PackagePath = Application.PackagePath, .Reason = R::DependencyNotResident, .Subject = Path.ToString()};
 					ExternalPackages.emplace_back(Path, Package);
 					const size_t Begin = ExternalPins.size();
 					ExternalPins.emplace_back(Package);
@@ -1274,21 +1276,21 @@ namespace Durin::AssetPrivate
 			{
 				auto& Application = Applications[Index];
 				CurrentPath = Application.PackagePath;
-				if (Cancelled()) return {S::Cancelled, CurrentPath, "Package graph preparation cancelled."};
+				if (Cancelled()) return {.Status = S::Cancelled, .PackagePath = CurrentPath, .Reason = R::Cancelled};
 				auto& State = Candidates[Index].State;
 				State = std::make_unique<FPreparedPackageGraph::FState>();
 				State->Storage = Sources[Index].Storage;
 				State->Package = NewObject<DPackage>(nullptr, FName(CurrentPath.GetAssetName()));
 				if (!State->Package || !State->Package->InitializePreparedAssetPackage(CurrentPath))
-					return {S::InvalidClosure, CurrentPath, "Could not create private package skeleton."};
+					return {.Status = S::InvalidClosure, .PackagePath = CurrentPath, .Reason = R::PackageConstruction};
 				State->Pins.emplace_back(State->Package);
 				Application.Package = State->Package;
 				Application.Objects.resize(Application.Exports.size());
 				FLinkerApplyDiagnostic Diagnostic;
 				if (auto Result = CreateLinkerSkeleton(Application, LoadOptions(Index), Diagnostic, &State->Pins); !Result)
-					return {Cancelled() ? S::Cancelled : S::InvalidClosure, CurrentPath, Result.Message};
+					return {.Status = Cancelled() ? S::Cancelled : S::InvalidClosure, .PackagePath = CurrentPath, .Reason = R::Skeleton, .AssetCause = std::make_shared<FAssetResult>(Result)};
 				if (State->Pins.size() > Options.MaximumObjects - ObjectCount)
-					return {S::BudgetExceeded, CurrentPath, "Default inners exceed the object budget."};
+					return {.Status = S::BudgetExceeded, .PackagePath = CurrentPath, .Reason = R::DefaultInnerBudget, .Actual = State->Pins.size(), .Maximum = Options.MaximumObjects - ObjectCount};
 				ObjectCount += State->Pins.size();
 				State->Pins.insert(State->Pins.end(), ExternalPins.begin(), ExternalPins.end());
 			}
@@ -1320,7 +1322,7 @@ namespace Durin::AssetPrivate
 				const FPackageLoadBindings Bindings{Sources[Index].Storage.GetBulkResource(), Resolve};
 				FLinkerApplyDiagnostic Diagnostic;
 				if (auto Result = ApplyLinkerValues(Application, LoadOptions(Index), Diagnostic, Bindings); !Result)
-					return {Cancelled() ? S::Cancelled : S::InvalidClosure, CurrentPath, Result.Message};
+					return {.Status = Cancelled() ? S::Cancelled : S::InvalidClosure, .PackagePath = CurrentPath, .Reason = R::ApplyValues, .AssetCause = std::make_shared<FAssetResult>(Result)};
 				Application.Package->ClearDirty();
 				Application.Package->SetCanonicalResaveRecommended(Application.Package->IsCanonicalResaveRecommended()
 					|| !Application.Report.CanonicalizationEvidence.empty()
@@ -1332,37 +1334,38 @@ namespace Durin::AssetPrivate
 			{
 				CurrentPath = Application.PackagePath;
 				if (auto Result = ValidateLoadedGraphs(Application.Objects, {.bPrivateGraph = true}); !Result)
-					return {S::InvalidClosure, CurrentPath, Result.Message};
+					return {.Status = S::InvalidClosure, .PackagePath = CurrentPath, .Reason = R::GraphValidation, .GraphValidationCause = Result.GraphValidationCause, .AssetCause = std::make_shared<FAssetResult>(Result)};
 			}
 			for (const auto& Source : Sources)
 			{
 				CurrentPath = Source.PackagePath;
 				if (auto Result = Source.Storage.Revalidate(Cancelled); !Result)
-					return {Result.Status == EPreparedPackageResourceStatus::Cancelled ? S::Cancelled : S::Stale,
-						CurrentPath, Result.Message};
+					return {.Status = Result.Error.Code == EPreparedPackageResourceError::Cancelled ? S::Cancelled : S::Stale,
+						.PackagePath = CurrentPath, .Reason = R::ResourceRevalidation,
+						.ResourceCause = Result.Error};
 			}
 			for (const auto& Source : Sources)
 				if (IsAssetRegistryProjectionFenced(Source.PackagePath))
-					return {S::Busy, Source.PackagePath, "Package projection became fenced during preparation."};
+					return {.Status = S::Busy, .PackagePath = Source.PackagePath, .Reason = R::ProjectionFenced};
 			for (const auto& [Path, Package] : ExternalPackages)
 			{
 				if (IsAssetRegistryProjectionFenced(Path))
-					return {S::Busy, Path, "Dependency projection became fenced during preparation."};
+					return {.Status = S::Busy, .PackagePath = Path, .Reason = R::DependencyProjectionFenced};
 				if (FindPackage(Path.GetView()) != Package)
-					return {S::Stale, Path, "Admitted dependency identity changed during preparation."};
+					return {.Status = S::Stale, .PackagePath = Path, .Reason = R::DependencyIdentityChanged};
 			}
 			if (auto Result = LiveLoadGuard.GetFailure(); !Result)
-				return {S::Unsupported, CurrentPath, Result.Message};
+				return {.Status = S::Unsupported, .PackagePath = CurrentPath, .Reason = R::LiveOperationRejected, .AssetCause = std::make_shared<FAssetResult>(Result)};
 			Out = std::move(Candidates);
 			return {};
 		}
 		catch (const std::bad_alloc&)
 		{
-			return {S::BudgetExceeded, CurrentPath, "Allocation failed during package graph preparation."};
+			return {.Status = S::BudgetExceeded, .PackagePath = CurrentPath, .Reason = R::Allocation};
 		}
 		catch (...)
 		{
-			return {S::InvalidClosure, CurrentPath, "A callback threw during package graph preparation."};
+			return {.Status = S::InvalidClosure, .PackagePath = CurrentPath, .Reason = R::CallbackException};
 		}
 	}
 
@@ -1587,4 +1590,40 @@ namespace Durin::AssetPrivate
 		Diagnostic.Reset(); return Finish({});
 	}
 
+}
+
+namespace Durin
+{
+	auto FormatPackageGraphPrepareError(const FPackageGraphPrepareResult& Result) -> std::string
+	{
+		if (Result) return {};
+		if (Result.GraphValidationCause) return FormatObjectValidationError(*Result.GraphValidationCause);
+		if (Result.ResourceCause) return FormatPreparedPackageResourceError(*Result.ResourceCause);
+		if (Result.ReaderCause) return ObjectPackage::FormatPackageError(*Result.ReaderCause);
+		if (Result.AssetCause) return Result.AssetCause->Message;
+		using R = EPackageGraphPrepareReason;
+		switch (Result.Reason)
+		{
+		case R::Reentrant: return "Package graph preparation cannot be reentered.";
+		case R::LoadServiceBusy: return "Package graph preparation requires an idle load service.";
+		case R::PackageBudget: return "Package count is outside the preparation budget.";
+		case R::RetainedByteBudget: return "Saved batch closures exceed the retained byte budget.";
+		case R::Cancelled: return "Package graph preparation cancelled.";
+		case R::InvalidSource: return "A validated saved package closure is required.";
+		case R::ProjectionFenced: return "Package projection became fenced during preparation.";
+		case R::ResidentTargetRequired: return "Scoped dependency loading requires resident replacement targets.";
+		case R::DuplicatePackage: return "Duplicate package identity in preparation batch.";
+		case R::ObjectBudget: return "Package skeletons exceed the object budget.";
+		case R::InjectedDependencyFailure: return "Injected dependency binding failure.";
+		case R::DependencyProjectionFenced: return "Dependency projection became fenced during preparation.";
+		case R::PackageConstruction: return "Could not create private package skeleton.";
+		case R::DefaultInnerBudget: return "Default inners exceed the object budget.";
+		case R::DependencyIdentityChanged: return "Admitted dependency identity changed during preparation.";
+		case R::Allocation: return "Allocation failed during package graph preparation.";
+		case R::CallbackException: return "A callback threw during package graph preparation.";
+		case R::ClassNotAdmitted: return std::format("Class {} has no isolated deserialization admission.", Result.Subject);
+		case R::DependencyNotResident: return std::format("External dependency {} must be admitted and resident before graph preparation.", Result.Subject);
+		default: return "Package graph preparation failed.";
+		}
+	}
 }

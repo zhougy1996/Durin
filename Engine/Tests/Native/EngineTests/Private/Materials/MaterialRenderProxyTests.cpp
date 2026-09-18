@@ -729,7 +729,7 @@ TEST(FMaterialRenderProxyTests, PublishedStateOutlivesOwnersAndPostLoadDuplicati
 
 	auto* Duplicate = Durin::Cast<Durin::DMaterialInstance>(
 		Durin::DuplicateObject(
-			Source, nullptr, "ProxyLifetimeDuplicate"));
+			Source, nullptr, "ProxyLifetimeDuplicate").Object);
 	ASSERT_NE(Duplicate, nullptr);
 	Durin::FMaterialRenderProxyRef DuplicateProxy =
 		Duplicate->GetMaterialRenderProxy();

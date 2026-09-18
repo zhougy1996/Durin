@@ -1,3 +1,5 @@
+#include "StaticMesh/StaticMeshMaterialBinding.h"
+#include "StaticMesh/StaticMeshDerivedData.h"
 #include "StaticMesh/StaticMeshTestEnvironment.h"
 #include "StaticMeshMaterialTestFixture.h"
 #include "Components/SplineMeshComponent.h"
@@ -74,11 +76,33 @@ TEST(FStaticMeshMaterialTests, StaticMeshMaterialSlotDefinitionsRoundTripWithDef
 	EXPECT_EQ(Import.Asset->FindMaterialSlot(Durin::FName("Blue")), Import.Asset->GetMaterialSlot(1));
 	EXPECT_EQ(Import.Asset->GetMaterialIndex(Durin::FName("Blue")), 1u);
 	EXPECT_EQ(Import.Asset->GetMaterialSlot(2), nullptr);
-	std::string RenameError;
-	EXPECT_FALSE(Import.Asset->RenameMaterialSlot(0, Durin::FName(), RenameError));
-	EXPECT_FALSE(Import.Asset->RenameMaterialSlot(0, Durin::FName("Blue"), RenameError));
-	ASSERT_TRUE(Import.Asset->RenameMaterialSlot(0, Durin::FName("Body"), RenameError)) << RenameError;
+	Import.Asset->GetPackage()->ClearDirty();
+	const auto OriginalName = Import.Asset->GetMaterialSlot(0)->Name;
+	const auto Empty = Import.Asset->RenameMaterialSlot(0, Durin::FName());
+	EXPECT_EQ(Empty.Error.Code, Durin::EStaticMeshSlotRenameError::EmptyName);
+	EXPECT_EQ(Empty.Error.Owner, Durin::FObjectKey(Import.Asset));
+	EXPECT_EQ(Empty.Error.Index, 0u);
+	EXPECT_EQ(Empty.Error.SlotCount, 2u);
+	const auto Duplicate = Import.Asset->RenameMaterialSlot(0, Durin::FName("Blue"));
+	EXPECT_EQ(Duplicate.Error.Code, Durin::EStaticMeshSlotRenameError::DuplicateName);
+	EXPECT_EQ(Duplicate.Error.Name, "Blue");
+	EXPECT_EQ(Duplicate.Error.ConflictingIndex, 1u);
+	const auto OutOfRange = Import.Asset->RenameMaterialSlot(2, Durin::FName("Rejected"));
+	EXPECT_EQ(OutOfRange.Error.Code, Durin::EStaticMeshSlotRenameError::Index);
+	EXPECT_EQ(OutOfRange.Error.Index, 2u);
+	EXPECT_EQ(OutOfRange.Error.SlotCount, 2u);
+	EXPECT_EQ(OutOfRange.Error.Name, "Rejected");
+	EXPECT_EQ(Import.Asset->GetMaterialSlot(0)->Name, OriginalName);
+	EXPECT_FALSE(Import.Asset->GetPackage()->IsDirty());
+	ASSERT_TRUE(Import.Asset->RenameMaterialSlot(0, Durin::FName("Body")));
 	EXPECT_EQ(Import.Asset->GetMaterialIndex(Durin::FName("Body")), 0u);
+	EXPECT_EQ(Duplicate.Error.Name, "Blue");
+	EXPECT_EQ(Duplicate.Error.ConflictingIndex, 1u);
+	EXPECT_EQ(OutOfRange.Error.Name, "Rejected");
+	EXPECT_TRUE(Import.Asset->GetPackage()->IsDirty());
+	Import.Asset->GetPackage()->ClearDirty();
+	EXPECT_TRUE(Import.Asset->RenameMaterialSlot(0, Durin::FName("Body")));
+	EXPECT_FALSE(Import.Asset->GetPackage()->IsDirty());
 
 	Durin::DMaterial* DefaultMaterial = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(MaterialPath, DefaultMaterial));
@@ -130,9 +154,8 @@ TEST(FStaticMeshMaterialTests, StaticMeshMaterialSlotReconciliationPreservesStab
 		std::optional<uint32> AppendedMaterialIndex = std::nullopt) {
 		const std::filesystem::path SourcePath = Root / "Models" / (std::string(Name) + ".gltf");
 		WriteStaticMeshSlotVariant(SourcePath, Materials, Replacement, LastOnly, AppendedMaterialIndex);
-		std::string Error;
 		ASSERT_TRUE(Durin::AssetForge::Builtins::ReimportStaticMesh(
-			*Mesh, Error)) << Error;
+			*Mesh));
 	};
 
 	Durin::DStaticMesh* Reordered = ImportBase("Reordered");
@@ -159,7 +182,6 @@ TEST(FStaticMeshMaterialTests, StaticMeshMaterialSlotReconciliationPreservesStab
 
 	Durin::DStaticMesh* Renamed = ImportBase("Renamed");
 	ASSERT_NE(Renamed, nullptr);
-	std::string RenameError;
 	Durin::FPackagePath PreservedDefaultPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/StaticMeshSlotReimport/PreservedSlotDefault", PreservedDefaultPath));
@@ -172,7 +194,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshMaterialSlotReconciliationPreservesStab
 	EXPECT_EQ(Reordered->GetMaterialSlot(0)->DefaultMaterial.Get(), PreservedDefault);
 	EXPECT_EQ(Reordered->GetMaterialSlot(1)->DefaultMaterial, OtherDefault);
 	Renamed->SetMaterialSlotDefaultMaterial(0, PreservedDefault);
-	ASSERT_TRUE(Renamed->RenameMaterialSlot(0, Durin::FName("Body"), RenameError)) << RenameError;
+	ASSERT_TRUE(Renamed->RenameMaterialSlot(0, Durin::FName("Body")));
 	Rebuild(Renamed, "Renamed", R"({ "name": "Crimson" }, { "name": "Blue" })");
 	ASSERT_EQ(Renamed->GetNumMaterialSlots(), 2u);
 	EXPECT_EQ(Renamed->GetMaterialSlot(0)->Name, Durin::FName("Body"));
@@ -278,9 +300,8 @@ TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsByIndex)
 	ASSERT_EQ(Component->GetMaterial(RedIndex)->GetPackage()->GetPackagePath(), MaterialPath.ToString());
 	WriteStaticMeshSlotVariant(
 		MutableSource, R"({ "name": "Blue" }, { "name": "Red" })");
-	std::string ReimportError;
 	ASSERT_TRUE(Durin::AssetForge::Builtins::ReimportStaticMesh(
-		*Component->GetStaticMesh(), ReimportError)) << ReimportError;
+		*Component->GetStaticMesh()));
 	ASSERT_EQ(Component->GetStaticMesh()->GetMaterialIndex(Durin::FName("Red")), RedIndex);
 	EXPECT_EQ(Component->GetStaticMesh()->GetMaterialSlot(RedIndex)->SourceMaterialIndex, 1u);
 	const auto& ReimportedSections =
@@ -441,4 +462,30 @@ TEST(FStaticMeshMaterialTests, StaticMeshComponentMigratesSubclassMaterialOverri
 TEST(FStaticMeshMaterialTests, SplineMeshComponentMigratesSubclassMaterialOverrides)
 {
 	VerifyComponentOverridesRoundTrip<Durin::DSplineMeshComponent>("SplineMeshLegacyOverrides", true);
+}
+
+TEST(FStaticMeshMaterialTests, OverrideValidationRetainsCountsAndIncompatibleObjectContext)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	std::vector<TObjectPtr<DMaterialInterface>> Overrides(MaximumMeshMaterialSlots + 1);
+	const auto Count = ValidateStaticMeshMaterialOverrides(Overrides);
+	EXPECT_EQ(Count.Error.Code, EStaticMeshMaterialOverrideError::TooManySlots);
+	Overrides.clear();
+	EXPECT_EQ(Count.Error.ActualCount, MaximumMeshMaterialSlots + 1);
+	EXPECT_EQ(Count.Error.MaximumCount, MaximumMeshMaterialSlots);
+	ASSERT_TRUE(ValidateStaticMeshMaterialOverrides(Overrides));
+	auto* Object = NewObject<DObject>(nullptr, "IncompatibleMaterialOverride");
+	const auto Path = Object->GetObjectPath();
+	const auto Type = Object->GetClass()->GetQualifiedName().ToString();
+	Overrides.emplace_back(reinterpret_cast<DMaterialInterface*>(Object));
+	const auto Rejected = ValidateStaticMeshMaterialOverrides(Overrides);
+	EXPECT_EQ(Rejected.Error.Code, EStaticMeshMaterialOverrideError::IncompatibleObject);
+	EXPECT_EQ(Rejected.Error.Index, 0u);
+	EXPECT_EQ(Overrides.size(), 1u);
+	Overrides.clear();
+	MarkAsGarbage(Object);
+	CollectGarbage();
+	EXPECT_EQ(Rejected.Error.ObjectPath, Path);
+	EXPECT_EQ(Rejected.Error.ActualType, Type);
 }

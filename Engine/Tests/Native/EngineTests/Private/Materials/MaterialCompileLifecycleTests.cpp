@@ -677,7 +677,7 @@ auto QualifyMaterialFunctionCompilationAsync() -> void
 	const auto LeafOutput = Leaf->GetFunctionSignature().Outputs[0];
 	std::vector<TStrongObjectPtr<DMaterialExpression>> Body;
 	for (const auto& Expression : Wrapper->GetExpressionCollection().Expressions)
-		Body.emplace_back(DuplicateObject(Expression.Get(), nullptr, NAME_None));
+		Body.emplace_back(DuplicateObject(Expression.Get(), nullptr, NAME_None).Object);
 	const FGuid NestedCall{71, 2, 3, 1};
 	TStrongObjectPtr<DMaterialExpressionFunctionCall> Nested(NewObject<DMaterialExpressionFunctionCall>(nullptr, NAME_None));
 	Nested->Id = NestedCall; Nested->Function = Leaf; Nested->Outputs = {{LeafOutput.Id, LeafOutput.Type}};

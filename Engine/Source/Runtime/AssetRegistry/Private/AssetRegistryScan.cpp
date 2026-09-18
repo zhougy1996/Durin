@@ -9,9 +9,9 @@ namespace Durin::AssetPrivate
 	namespace
 	{
 
-		auto Error(EAssetRegistryError Code, std::string Message) -> FAssetRegistryResult
+		auto Error(EAssetRegistryError Code, FAssetRegistryErrorContext Context) -> FAssetRegistryResult
 		{
-			return {Code, std::move(Message)};
+			return {Code, std::move(Context)};
 		}
 
 		auto ValidateRedirectorHeader(
@@ -21,7 +21,7 @@ namespace Durin::AssetPrivate
 			if (!ArePackageAssetsValid(Header.TopLevelAssets, Source,
 				Header.ObjectCount, Header.Dependencies))
 				return Error(EAssetRegistryError::CorruptFile,
-					"CorruptRedirector: invalid exact asset metadata.");
+					{.Reason = EAssetRegistryFailure::InvalidRedirector});
 			return {};
 		}
 	}
@@ -60,7 +60,7 @@ namespace Durin::AssetPrivate
 						Mount.VirtualRoot + PackageRelative.generic_string(), DiskPath))
 				{
 					Result.Errors.push_back(Error(EAssetRegistryError::InvalidPath,
-						std::format("Failed to map asset path {}.", It->path().generic_string())));
+						{.Reason = EAssetRegistryFailure::MapPathFailed, .Path = It->path().generic_string(), .SystemError = FileEc}));
 					++Result.Stats.Failed;
 					continue;
 				}
@@ -72,7 +72,7 @@ namespace Durin::AssetPrivate
 				if (FileEc)
 				{
 					Result.Errors.push_back(Error(EAssetRegistryError::IoError,
-						std::format("Failed to fingerprint asset {}.", It->path().generic_string())));
+						{.Reason = EAssetRegistryFailure::FingerprintFailed, .Path = It->path().generic_string(), .SystemError = FileEc}));
 					++Result.Stats.Failed;
 					continue;
 				}
@@ -114,8 +114,7 @@ namespace Durin::AssetPrivate
 					Result.Stats.HeaderFileBytesRead += Header.FileBytesRead;
 					if (!ReadResult)
 					{
-						ReadResult.Message = std::format("{} ({})", ReadResult.Message,
-							It->path().generic_string());
+						ReadResult.Context.Path = It->path().generic_string();
 						Result.Errors.push_back(std::move(ReadResult));
 						++Result.Stats.Failed;
 						continue;
@@ -125,8 +124,7 @@ namespace Durin::AssetPrivate
 				if (FAssetRegistryResult Validation = ValidateRedirectorHeader(Header, DiskPath);
 					!Validation)
 				{
-					Validation.Message = std::format("{} ({})", Validation.Message,
-						It->path().generic_string());
+					Validation.Context.Path = It->path().generic_string();
 					Result.Errors.push_back(std::move(Validation));
 					++Result.Stats.Failed;
 					continue;
@@ -136,7 +134,7 @@ namespace Durin::AssetPrivate
 				if (Result.Assets.contains(DiskPath))
 				{
 					Result.Errors.push_back(Error(EAssetRegistryError::AlreadyExists,
-						std::format("Duplicate asset path {}.", DiskPath.ToString())));
+						{.Reason = EAssetRegistryFailure::DuplicatePath, .Path = DiskPath.ToString()}));
 					++Result.Stats.Failed;
 					continue;
 				}
@@ -187,7 +185,7 @@ namespace Durin::AssetPrivate
 			if (Ec)
 			{
 				Result.Errors.push_back(Error(EAssetRegistryError::IoError,
-					std::format("Failed to enumerate mount {}.", Mount.VirtualRoot)));
+					{.Reason = EAssetRegistryFailure::EnumerationFailed, .Path = Mount.VirtualRoot, .SystemError = Ec}));
 				++Result.Stats.Failed;
 			}
 		}

@@ -139,8 +139,7 @@ TEST(FMaterialPackageTests, TypedExpressionsRoundTripDuplicateAndRejectMalformed
 				EXPECT_TRUE(ArePropertyValuesIdentical(Property, Actual, 0, Expected, 0));
 			});
 		}
-		std::string Error;
-		EXPECT_TRUE(Candidate->ValidateLoadedObjectGraph({}, Error)) << Error;
+		EXPECT_TRUE(Candidate->ValidateLoadedObjectGraph({}));
 	};
 	FByteBuffer FirstSerialization, SecondSerialization;
 	ASSERT_TRUE(SerializeAssetPackageBytes(Material->GetPackage(), FirstSerialization));
@@ -156,7 +155,7 @@ TEST(FMaterialPackageTests, TypedExpressionsRoundTripDuplicateAndRejectMalformed
 	EXPECT_FALSE(ContainsSerializedField(Linker, "ExpressionOutputs"));
 	EXPECT_FALSE(ContainsSerializedField(Linker, "Program"));
 	EXPECT_FALSE(ContainsSerializedField(Linker, "FunctionCalls"));
-	auto* Duplicate = Cast<DMaterial>(DuplicateObject(Material, nullptr, "DuplicatedExpressions"));
+	auto* Duplicate = Cast<DMaterial>(DuplicateObject(Material, nullptr, "DuplicatedExpressions").Object);
 	ASSERT_NO_FATAL_FAILURE(CheckGraph(Duplicate));
 	EXPECT_NE(Duplicate->GetExpressionCollection().Expressions.front().Get(), Material->GetExpressionCollection().Expressions.front().Get());
 	MarkObjectHierarchyAsGarbage(Duplicate);
@@ -278,7 +277,7 @@ TEST(FMaterialPackageTests, MixedPackageRequiresAllVersionDomainsAndPreservesIns
 	auto* Instance = NewObject<DMaterialInstance>(Base->GetPackage(), "Overrides");
 	ASSERT_TRUE(Instance->SetParent(Base));
 	ASSERT_TRUE(Instance->SetScalarParameterValue(MaterialParameters::OpacityName(), .25f));
-	auto* Copy = Cast<DMaterialInstance>(DuplicateObject(Instance, nullptr, "CopiedOverrides"));
+	auto* Copy = Cast<DMaterialInstance>(DuplicateObject(Instance, nullptr, "CopiedOverrides").Object);
 	ASSERT_NE(Copy, nullptr);
 	float Opacity = 0;
 	ASSERT_TRUE(Copy->GetScalarParameterValue(MaterialParameters::OpacityName(), Opacity));
@@ -367,7 +366,7 @@ TEST(FMaterialPackageTests, AuthoredGraphVersionsLoadAfterRestartAndFunctionsDup
 		{
 			EXPECT_EQ(Function->GetFunctionSignature(), ExpectedSignature);
 			EXPECT_EQ(Function->GetExpressionCollection().Expressions.size(), ExpectedExpressionCount);
-			auto* Copy = Cast<DMaterialFunction>(DuplicateObject(Function, nullptr, NAME_None));
+			auto* Copy = Cast<DMaterialFunction>(DuplicateObject(Function, nullptr, NAME_None).Object);
 			ASSERT_NE(Copy, nullptr);
 			EXPECT_EQ(Copy->GetExpressionCollection().Expressions.size(), Function->GetExpressionCollection().Expressions.size());
 			EXPECT_EQ(Copy->GetFunctionSignature(), ExpectedSignature);

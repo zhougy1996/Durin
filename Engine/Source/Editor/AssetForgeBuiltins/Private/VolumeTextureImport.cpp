@@ -19,23 +19,52 @@
 namespace Durin::AssetForge::Builtins
 {
 	using namespace Durin;
+	auto FVolumeTextureFactoryError::Format() const -> std::string
+	{
+		if (const auto* Settings = std::get_if<FVolumeTextureImportSettingsError>(&Cause))
+			return FormatVolumeTextureImportSettingsError(*Settings);
+		return FormatVolumeTextureRebuildError(std::get<FVolumeTextureRebuildError>(Cause));
+	}
+
+	auto FormatVolumeTextureRebuildError(const FVolumeTextureRebuildError& Error) -> std::string
+	{
+		switch (Error.Code)
+		{
+		case EVolumeTextureRebuildError::None: return {};
+		case EVolumeTextureRebuildError::Package: return "VolumeTexture source capture requires an owning package.";
+		case EVolumeTextureRebuildError::Mount: return "VolumeTexture owning package path could not be resolved: " + Error.ObjectPath;
+		case EVolumeTextureRebuildError::SourceHint:
+			return Error.SourceHintCause ? FormatSourceHintError(*Error.SourceHintCause) : "VolumeTexture source hint is invalid.";
+		case EVolumeTextureRebuildError::SourceFile: return "VolumeTexture source must be an existing PNG file: " + Error.Filename;
+		case EVolumeTextureRebuildError::Capture:
+			return Error.CaptureCause ? FormatEncodedSourceError(*Error.CaptureCause) : "VolumeTexture source capture failed.";
+		case EVolumeTextureRebuildError::Translation:
+			return Error.TranslationCause ? FormatVolumeTextureTranslationError(*Error.TranslationCause) : "VolumeTexture source translation failed.";
+		case EVolumeTextureRebuildError::Build:
+			return Error.BuildCause ? Error.BuildCause->Diagnostic : "VolumeTexture build failed.";
+		case EVolumeTextureRebuildError::ImportValidation:
+			return Error.ImportCause ? FormatAssetImportDataError(*Error.ImportCause) : "VolumeTexture import data is invalid.";
+		case EVolumeTextureRebuildError::ImportAllocation: return "Could not allocate asset import data.";
+		case EVolumeTextureRebuildError::Save: return Error.SaveCause ? Error.SaveCause->Message : "VolumeTexture save failed.";
+		case EVolumeTextureRebuildError::ImportData: return "VolumeTexture has no current family import data.";
+		case EVolumeTextureRebuildError::MissingSource: return "VolumeTexture has no source filename to reimport.";
+		}
+		return {};
+	}
+
 	namespace
 	{
 		auto ResolveOwningPackagePhysicalPath(const DVolumeTexture& Texture,
-			std::filesystem::path& OutPath, std::string& OutError) -> bool
+			std::filesystem::path& OutPath) -> FVolumeTextureRebuildResult
 		{
-			if (!Texture.GetPackage())
-			{
-				OutError = "VolumeTexture source capture requires an owning package.";
-				return false;
-			}
-			const FAssetPathResult Resolved =
-				FMountPaths::ResolveAssetPath(Texture.GetPackage()->GetPackagePath(),
-					EMountPathExistence::AllowMissing);
-			if (!Resolved) { OutError = Resolved.Message; return false; }
+			if (!Texture.GetPackage()) return {.Error = {.Code = EVolumeTextureRebuildError::Package,
+				.ObjectPath = Texture.GetObjectPath()}};
+			const auto Resolved = FMountPaths::ResolveAssetPath(Texture.GetPackage()->GetPackagePath(), EMountPathExistence::AllowMissing);
+			if (!Resolved) return {.Error = {.Code = EVolumeTextureRebuildError::Mount,
+				.ObjectPath = Texture.GetObjectPath(), .MountCause = Resolved.Error}};
 			OutPath = Resolved.PhysicalPath;
 			OutPath += ".dasset";
-			return true;
+			return {};
 		}
 
 		auto AppendPixel(const Image::FDecodedImage& Image, size_t Pixel,
@@ -124,7 +153,7 @@ namespace Durin::AssetForge::Builtins
 					.Depth = Slice,
 					.TilesX = TilesX,
 					.TilesY = TilesY};
-				if (!Settings.IsValid()) continue;
+				if (!Settings.Validate()) continue;
 				const double Utilization =
 					static_cast<double>(Slice) / static_cast<double>(CellCount);
 				const bool bPowerOfTwo = IsPowerOfTwo(Slice);
@@ -144,15 +173,15 @@ namespace Durin::AssetForge::Builtins
 		auto CaptureVolumeSource(std::string Filename,
 			const std::filesystem::path& PhysicalPath,
 			FEncodedSourceSnapshot& OutSnapshot,
-			FVolumeTextureCapturedSource& Out,
-			std::string& OutError) -> bool
+			FVolumeTextureCapturedSource& Out) -> FEncodedSourceResult
 		{
-			if (!CaptureEncodedSource(Filename, PhysicalPath,
-				OutSnapshot, OutError, MaximumTexturePayloadBytes)) return false;
+			if (const auto Captured = CaptureEncodedSource(Filename, PhysicalPath,
+				OutSnapshot, MaximumTexturePayloadBytes); !Captured)
+				return Captured;
 			Out = {.Filename = std::move(Filename),
 				.ContentHash = OutSnapshot.ContentHash,
 				.Bytes = OutSnapshot.GetBytes()};
-			return true;
+			return {};
 		}
 
 		auto MakeImportSettings(const FVolumeTextureImportDataState& State)
@@ -165,61 +194,82 @@ namespace Durin::AssetForge::Builtins
 		}
 	}
 
-	auto FVolumeTextureImportSettings::IsValid(std::string* OutError) const -> bool
+	auto FormatVolumeTextureImportSettingsError(const FVolumeTextureImportSettingsError& Error) -> std::string
 	{
-		auto Fail = [&](std::string Message) {
-			if (OutError) *OutError = std::move(Message);
-			return false;
+		switch (Error.Code)
+		{
+		case EVolumeTextureImportSettingsError::None: return {};
+		case EVolumeTextureImportSettingsError::ImportFormat:
+			return "Only PNG row-major atlas volume import is supported.";
+		case EVolumeTextureImportSettingsError::Dimensions:
+			return std::format("Slice dimensions and depth must be between 1 and {}.", MaximumVolumeTextureDimension);
+		case EVolumeTextureImportSettingsError::CellCount:
+			return "Atlas tiles do not provide enough row-major cells for depth.";
+		case EVolumeTextureImportSettingsError::AtlasBudget:
+			return "Decoded RGBA atlas exceeds the 2 GiB image budget.";
+		case EVolumeTextureImportSettingsError::VolumeBudget:
+			return "Decoded volume texture exceeds the 2 GiB source payload limit.";
+		}
+		return {};
+	}
+
+	auto FVolumeTextureImportSettings::Validate() const -> FVolumeTextureImportSettingsResult
+	{
+		auto Fail = [&](EVolumeTextureImportSettingsError Code) -> FVolumeTextureImportSettingsResult {
+			return {.Error = {.Code = Code, .Settings = *this}};
 		};
 		if (ImportFormat != EVolumeTextureImportFormat::PngRowMajorAtlas)
-			return Fail("Only PNG row-major atlas volume import is supported.");
+			return Fail(EVolumeTextureImportSettingsError::ImportFormat);
 		if (SliceWidth == 0 || SliceHeight == 0 || Depth == 0
 			|| TilesX == 0 || TilesY == 0
 			|| SliceWidth > MaximumVolumeTextureDimension
 			|| SliceHeight > MaximumVolumeTextureDimension
 			|| Depth > MaximumVolumeTextureDimension)
-			return Fail(std::format("Slice dimensions and depth must be between 1 and {}.",
-				MaximumVolumeTextureDimension));
+			return Fail(EVolumeTextureImportSettingsError::Dimensions);
 		const uint64 CellCount = static_cast<uint64>(TilesX) * TilesY;
 		if (CellCount < Depth)
-			return Fail("Atlas tiles do not provide enough row-major cells for depth.");
+			return Fail(EVolumeTextureImportSettingsError::CellCount);
 		const uint64 AtlasWidth = static_cast<uint64>(SliceWidth) * TilesX;
 		const uint64 AtlasHeight = static_cast<uint64>(SliceHeight) * TilesY;
 		if (AtlasWidth > std::numeric_limits<uint32>::max()
 			|| AtlasHeight > std::numeric_limits<uint32>::max()
 			|| AtlasWidth > std::numeric_limits<uint64>::max() / AtlasHeight
 			|| AtlasWidth * AtlasHeight > MaximumTexturePayloadBytes / 4u)
-			return Fail("Decoded RGBA atlas exceeds the 2 GiB image budget.");
+			return Fail(EVolumeTextureImportSettingsError::AtlasBudget);
 		const uint64 BytesPerVoxel = GetOutputFormat() == EVolumeTextureFormat::RGBA8_UNORM ? 4u : 1u;
 		const uint64 VoxelCount = static_cast<uint64>(SliceWidth) * SliceHeight * Depth;
 		if (VoxelCount > MaximumTexturePayloadBytes / BytesPerVoxel)
-			return Fail("Decoded volume texture exceeds the 2 GiB source payload limit.");
-		if (OutError) OutError->clear();
-		return true;
+			return Fail(EVolumeTextureImportSettingsError::VolumeBudget);
+		return {};
+	}
+
+	auto FormatVolumeTextureAtlasInspection(const FVolumeTextureAtlasInspection& Inspection) -> std::string
+	{
+		if (!Inspection)
+			return std::format("Failed to inspect the volume atlas: {}", Image::FormatImageDecodeError(Inspection.Error));
+		if (Inspection.SuggestedLayouts.empty())
+			return "No cubic atlas layout could be inferred from the PNG dimensions.";
+		return Inspection.bHasConfidentLayout
+			? "A high-confidence cubic layout was inferred from the PNG dimensions."
+			: "Several cubic layouts fit the PNG dimensions; review the suggested layouts.";
 	}
 
 	auto InspectVolumeTextureAtlasSource(
 		std::string_view FilePath) -> FVolumeTextureAtlasInspection
 	{
 		Image::FDecodedImage Image;
-		std::string Error;
-		if (!Image::DecodeImageFromFile(FilePath, Image, Error))
-			return {.Message = std::format(
-				"Failed to inspect the volume atlas: {}", Error)};
+		const auto DecodeResult = Image::DecodeImageFromFile(FilePath, Image);
+		if (!DecodeResult)
+			return {.Error = DecodeResult.Error};
 
 		FVolumeTextureAtlasInspection Result;
-		Result.bSucceeded = true;
 		Result.AtlasWidth = Image.Width;
 		Result.AtlasHeight = Image.Height;
 		Result.SourceChannelCount = Image.SourceChannelCount;
 		Result.SuggestedChannels = SuggestAtlasChannels(Image);
 		Result.SuggestedLayouts = SuggestCubicAtlasLayouts(
 			Image, Result.SuggestedChannels);
-		if (Result.SuggestedLayouts.empty())
-		{
-			Result.Message = "No cubic atlas layout could be inferred from the PNG dimensions.";
-			return Result;
-		}
+		if (Result.SuggestedLayouts.empty()) return Result;
 
 		const FVolumeTextureImportSettings& Best = Result.SuggestedLayouts.front();
 		const double BestUtilization = static_cast<double>(Best.Depth)
@@ -234,42 +284,62 @@ namespace Durin::AssetForge::Builtins
 		}
 		Result.bHasConfidentLayout = IsPowerOfTwo(Best.SliceWidth)
 			&& BestUtilization >= 0.75 && bClearlyBetter;
-		Result.Message = Result.bHasConfidentLayout
-			? "A high-confidence cubic layout was inferred from the PNG dimensions."
-			: "Several cubic layouts fit the PNG dimensions; review the suggested layouts.";
 		return Result;
+	}
+
+	auto FormatVolumeTextureTranslationError(const FVolumeTextureTranslationError& Error) -> std::string
+	{
+		switch (Error.Code)
+		{
+		case EVolumeTextureTranslationError::None: return {};
+		case EVolumeTextureTranslationError::Settings:
+			return Error.SettingsCause ? FormatVolumeTextureImportSettingsError(*Error.SettingsCause) : "Invalid volume import settings.";
+		case EVolumeTextureTranslationError::Signature: return "Volume texture atlas is not PNG data.";
+		case EVolumeTextureTranslationError::Decode:
+			return std::format("Failed to decode volume atlas '{}': {}", Error.Filename,
+				Error.DecodeCause ? Image::FormatImageDecodeError(*Error.DecodeCause) : "Image decode failed.");
+		case EVolumeTextureTranslationError::Dimensions:
+			return std::format("Volume atlas is {}x{}; expected {}x{} from slice size and tiles.",
+				Error.ActualWidth, Error.ActualHeight, Error.ExpectedWidth, Error.ExpectedHeight);
+		case EVolumeTextureTranslationError::Publication:
+			return "Volume source payload could not be published as authored bulk data.";
+		case EVolumeTextureTranslationError::Layout:
+			return "Decoded volume texture source failed normalized layout validation.";
+		}
+		return {};
 	}
 
 	auto TranslateVolumeTextureAtlasSource(const FVolumeTextureCapturedSource& Source,
 		const FVolumeTextureImportSettings& Settings,
-		FVolumeTextureSourceData& OutSourceData, std::string& OutError) -> bool
+		FVolumeTextureSourceData& OutSourceData) -> FVolumeTextureTranslationResult
 	{
 		OutSourceData = {};
-		if (!Settings.IsValid(&OutError)) return false;
+		if (const auto Validation = Settings.Validate(); !Validation)
+			return {.Error = {.Code = EVolumeTextureTranslationError::Settings,
+				.Filename = Source.Filename, .SettingsCause = Validation.Error}};
 		constexpr std::array<std::byte, 8> PngSignature = {
 			std::byte{137}, std::byte{80}, std::byte{78}, std::byte{71},
 			std::byte{13}, std::byte{10}, std::byte{26}, std::byte{10}};
 		if (Source.Bytes.size() < PngSignature.size()
 			|| !std::ranges::equal(PngSignature, Source.Bytes.first(PngSignature.size())))
 		{
-			OutError = "Volume texture atlas is not PNG data.";
-			return false;
+			return {.Error = {.Code = EVolumeTextureTranslationError::Signature, .Filename = Source.Filename}};
 		}
 		const uint64 ExpectedWidth = static_cast<uint64>(Settings.SliceWidth) * Settings.TilesX;
 		const uint64 ExpectedHeight = static_cast<uint64>(Settings.SliceHeight) * Settings.TilesY;
 		Image::FDecodedImage Image;
-		if (!Image::DecodeImageFromMemory(Source.Bytes, Image, OutError,
-			{.MaximumDecodedPixels = ExpectedWidth * ExpectedHeight}))
+		const auto DecodeResult = Image::DecodeImageFromMemory(Source.Bytes, Image,
+			{.MaximumDecodedPixels = ExpectedWidth * ExpectedHeight});
+		if (!DecodeResult)
 		{
-			OutError = std::format("Failed to decode volume atlas '{}': {}",
-				Source.Filename, OutError);
-			return false;
+			return {.Error = {.Code = EVolumeTextureTranslationError::Decode, .Filename = Source.Filename,
+				.ExpectedWidth = ExpectedWidth, .ExpectedHeight = ExpectedHeight, .DecodeCause = DecodeResult.Error}};
 		}
 		if (Image.Width != ExpectedWidth || Image.Height != ExpectedHeight)
 		{
-			OutError = std::format("Volume atlas is {}x{}; expected {}x{} from slice size and tiles.",
-				Image.Width, Image.Height, ExpectedWidth, ExpectedHeight);
-			return false;
+			return {.Error = {.Code = EVolumeTextureTranslationError::Dimensions, .Filename = Source.Filename,
+				.ExpectedWidth = ExpectedWidth, .ExpectedHeight = ExpectedHeight,
+				.ActualWidth = Image.Width, .ActualHeight = Image.Height}};
 		}
 		const uint32 BytesPerVoxel = Settings.GetOutputFormat()
 			== EVolumeTextureFormat::RGBA8_UNORM ? 4u : 1u;
@@ -294,17 +364,14 @@ namespace Durin::AssetForge::Builtins
 			.Depth = Settings.Depth, .Format = Settings.GetOutputFormat()};
 		if (!Candidate.SetVoxelBytes(Voxels))
 		{
-			OutError = "Volume source payload could not be published as authored bulk data.";
-			return false;
+			return {.Error = {.Code = EVolumeTextureTranslationError::Publication, .Filename = Source.Filename}};
 		}
 		if (!Candidate.IsValid())
 		{
-			OutError = "Decoded volume texture source failed normalized layout validation.";
-			return false;
+			return {.Error = {.Code = EVolumeTextureTranslationError::Layout, .Filename = Source.Filename}};
 		}
 		OutSourceData = std::move(Candidate);
-		OutError.clear();
-		return true;
+		return {};
 	}
 
 	namespace
@@ -313,8 +380,7 @@ namespace Durin::AssetForge::Builtins
 			std::string Filename, ESourceHintBase HintBase,
 			const std::filesystem::path& PhysicalPath,
 			const FEncodedSourceSnapshot& Snapshot,
-			const FVolumeTextureImportSettings& Settings,
-			std::string& OutError) -> bool
+			const FVolumeTextureImportSettings& Settings) -> FVolumeTextureRebuildResult
 		{
 			FVolumeTextureImportDataState State;
 			State.SourceData.Sources.push_back({
@@ -336,60 +402,70 @@ namespace Durin::AssetForge::Builtins
 			if (!Data) Data = NewObject<DVolumeTextureImportData>(
 				&Texture, "AssetImportData");
 			State.SourceData.Normalize();
-			if (!State.Validate(OutError)) return false;
-			if (!Data) { OutError = "Could not allocate asset import data."; return false; }
+			if (const auto Validation = State.Validate(); !Validation)
+				return {.Error = {.Code = EVolumeTextureRebuildError::ImportValidation, .ObjectPath = Texture.GetObjectPath(),
+					.ImportCause = std::make_shared<FAssetImportDataError>(Validation.Error)}};
+			if (!Data) return {.Error = {.Code = EVolumeTextureRebuildError::ImportAllocation, .ObjectPath = Texture.GetObjectPath()}};
 			Data->SetState(std::move(State));
 			Texture.SetAssetImportData(*Data);
 			Texture.MarkPackageDirty();
-			return true;
+			return {};
 		}
 
 		auto RebuildVolumeFromFilename(DVolumeTexture& Texture,
 			std::string Filename, ESourceHintBase HintBase,
 			const FVolumeTextureImportSettings& Settings,
-			std::string& OutError,
 			const FAssetBundleSaveOptions* SaveOptions,
-			std::optional<std::filesystem::path> SelectedPhysicalPath = {}) -> bool
+			std::optional<std::filesystem::path> SelectedPhysicalPath = {}) -> FVolumeTextureRebuildResult
 		{
 			std::filesystem::path OwningPackagePath;
-			if (!ResolveOwningPackagePhysicalPath(Texture, OwningPackagePath, OutError))
-				return false;
+			if (const auto Resolved = ResolveOwningPackagePhysicalPath(Texture, OwningPackagePath); !Resolved) return Resolved;
 			std::filesystem::path PhysicalPath;
 			if (SelectedPhysicalPath) PhysicalPath = std::move(*SelectedPhysicalPath);
 			else
 			{
 				std::string PhysicalPathText;
-				if (!ResolveSourceHint(HintBase, Filename,
-					OwningPackagePath.generic_string(), PhysicalPathText, OutError)) return false;
+				if (const auto Resolved = ResolveSourceHint(HintBase, Filename,
+					OwningPackagePath.generic_string(), PhysicalPathText); !Resolved)
+					return {.Error = {.Code = EVolumeTextureRebuildError::SourceHint, .ObjectPath = Texture.GetObjectPath(),
+					.Filename = Filename, .SourceHintCause = Resolved.Error}};
 				PhysicalPath = PhysicalPathText;
 			}
 			if (!std::filesystem::is_regular_file(PhysicalPath)
 				|| StringUtils::FoldAscii(PhysicalPath.extension().generic_string()) != ".png")
 			{
-				OutError = "VolumeTexture source must be an existing PNG file.";
-				return false;
+				return {.Error = {.Code = EVolumeTextureRebuildError::SourceFile, .ObjectPath = Texture.GetObjectPath(),
+					.Filename = PhysicalPath.generic_string()}};
 			}
-			if (SelectedPhysicalPath && !MakeSourceHint(
-				PhysicalPath.generic_string(), OwningPackagePath.generic_string(),
-				HintBase, Filename, OutError)) return false;
+			if (SelectedPhysicalPath)
+			{
+				if (const auto Hint = MakeSourceHint(
+					PhysicalPath.generic_string(), OwningPackagePath.generic_string(),
+					HintBase, Filename); !Hint)
+					return {.Error = {.Code = EVolumeTextureRebuildError::SourceHint, .ObjectPath = Texture.GetObjectPath(),
+					.Filename = Filename, .SourceHintCause = Hint.Error}};
+			}
 			FEncodedSourceSnapshot Snapshot;
 			FVolumeTextureCapturedSource Captured;
-			if (!CaptureVolumeSource(Filename, PhysicalPath, Snapshot, Captured, OutError))
-				return false;
+			if (const auto Capture = CaptureVolumeSource(Filename, PhysicalPath, Snapshot, Captured); !Capture)
+				return {.Error = {.Code = EVolumeTextureRebuildError::Capture, .ObjectPath = Texture.GetObjectPath(),
+					.Filename = Filename, .CaptureCause = std::make_shared<FEncodedSourceError>(Capture.Error)}};
 			FVolumeTextureSourceData SourceData;
-			if (!TranslateVolumeTextureAtlasSource(
-				Captured, Settings, SourceData, OutError)) return false;
+			if (const auto Translated = TranslateVolumeTextureAtlasSource(
+				Captured, Settings, SourceData); !Translated)
+				return {.Error = {.Code = EVolumeTextureRebuildError::Translation, .ObjectPath = Texture.GetObjectPath(),
+					.Filename = Filename, .TranslationCause = Translated.Error}};
 			auto BuildResult = BuildVolumeTextureSynchronously(Texture, {.SourceData = SourceData, .Settings = {.OutputFormat = Settings.GetOutputFormat()}}, {});
-			OutError = BuildResult.Diagnostic;
-			if (!BuildResult
-				|| !PublishDirectVolumeImportData(Texture, std::move(Filename), HintBase, PhysicalPath, Snapshot, Settings, OutError)) return false;
-			if (!SaveOptions) return true;
+			if (!BuildResult) return {.Error = {.Code = EVolumeTextureRebuildError::Build,
+				.ObjectPath = Texture.GetObjectPath(), .Filename = Filename, .BuildCause = std::move(BuildResult)}};
+			if (const auto Published = PublishDirectVolumeImportData(Texture, std::move(Filename), HintBase, PhysicalPath, Snapshot, Settings); !Published) return Published;
+			if (!SaveOptions) return {};
 			DPackage* Package = Texture.GetPackage();
 			const FAssetResult Saved = SavePackagesAtomically(
 				std::span<DPackage* const>(&Package, 1), *SaveOptions);
-			if (Saved) return true;
-			OutError = Saved.Message;
-			return false;
+			if (Saved) return {};
+			return {.Error = {.Code = EVolumeTextureRebuildError::Save, .ObjectPath = Texture.GetObjectPath(),
+				.SaveCause = std::make_shared<FAssetResult>(Saved)}};
 		}
 	}
 
@@ -410,30 +486,38 @@ namespace Durin::AssetForge::Builtins
 		DObject*,
 		FFactoryDiagnostics* Diagnostics) const -> DObject*
 	{
-		auto Failed = [&](std::string Message) -> DObject* {
-			if (Diagnostics) Diagnostics->Report(Message);
+		auto Failed = [&](auto Error) -> DObject* {
+			if (Diagnostics) Diagnostics->ReportDomainFailure(std::make_shared<FVolumeTextureFactoryError>(std::move(Error)));
+			return nullptr;
+		};
+		auto Reject = [&](EFactoryError Code) -> DObject* {
+			if (Diagnostics) Diagnostics->ReportFailure({
+				.Code = Code,
+				.ExpectedClass = DVolumeTexture::StaticClass()->GetName(),
+				.RequestedClass = InClass ? InClass->GetName() : std::string{},
+				.Filename = std::string(Filename)});
 			return nullptr;
 		};
 		if (InClass != DVolumeTexture::StaticClass())
-			return Failed("Volume texture factory requires the exact VolumeTexture class.");
+			return Reject(EFactoryError::ExactClass);
 		auto* Package = Cast<DPackage>(InParent);
 		if (!Package || !Package->IsAssetPackage())
-			return Failed("Volume texture factory requires an asset package parent.");
+			return Reject(EFactoryError::AssetPackageParent);
 		const std::filesystem::path Input =
 			std::filesystem::absolute(Filename).lexically_normal();
 		if (!std::filesystem::is_regular_file(Input))
-			return Failed("Volume texture source image does not exist.");
+			return Reject(EFactoryError::SourceMissing);
 		if (StringUtils::FoldAscii(Input.extension().generic_string()) != ".png")
-			return Failed("Volume texture atlas source must use PNG encoding.");
-		std::string Error;
-		if (!Settings.IsValid(&Error)) return Failed(std::move(Error));
+			return Reject(EFactoryError::SourceFormat);
+		if (const auto Validation = Settings.Validate(); !Validation)
+			return Failed(Validation.Error);
 		auto* Texture = NewObject<DVolumeTexture>(
 			InClass, Package, InName, Flags);
 		if (!Texture)
-			return Failed("Volume texture object could not be created.");
-		if (!RebuildVolumeFromFilename(
+			return Reject(EFactoryError::ObjectCreation);
+		if (const auto Rebuilt = RebuildVolumeFromFilename(
 			*Texture, Input.generic_string(), ESourceHintBase::AssetRelative,
-			Settings, Error, nullptr, Input)) return Failed(std::move(Error));
+			Settings, nullptr, Input); !Rebuilt) return Failed(Rebuilt.Error);
 		return Texture;
 	}
 
@@ -483,12 +567,12 @@ namespace Durin::AssetForge::Builtins
 				"VolumeTexture has no source hint to reimport."});
 			return;
 		}
-		std::string Error;
-		const bool bSucceeded = RebuildVolumeFromFilename(*Texture,
-			Source->Hint, Source->HintBase, MakeImportSettings(State), Error, nullptr);
-		if (Completion) Completion(bSucceeded
+		const auto Rebuilt = RebuildVolumeFromFilename(*Texture,
+			Source->Hint, Source->HintBase, MakeImportSettings(State), nullptr);
+		if (Completion) Completion(Rebuilt
 			? FReimportResult{EReimportStatus::Succeeded, {}}
-			: FReimportResult{EReimportStatus::SourceOrBuildFailure, std::move(Error)});
+			: FReimportResult{EReimportStatus::SourceOrBuildFailure, FormatVolumeTextureRebuildError(Rebuilt.Error),
+				std::make_shared<FVolumeTextureFactoryError>(Rebuilt.Error)});
 	}
 
 	auto DVolumeTextureFactory::ReimportFromFiles(DObject& Object,
@@ -506,24 +590,23 @@ namespace Durin::AssetForge::Builtins
 		}
 		const std::filesystem::path Requested =
 			std::filesystem::absolute(Filenames.front()).lexically_normal();
-		std::string Error;
-		const bool bSucceeded = RebuildVolumeFromFilename(*Texture, {},
+		const auto Rebuilt = RebuildVolumeFromFilename(*Texture, {},
 			ESourceHintBase::AssetRelative,
-			MakeImportSettings(Data->GetVolumeTextureState()), Error, nullptr, Requested);
-		if (Completion) Completion(bSucceeded
+			MakeImportSettings(Data->GetVolumeTextureState()), nullptr, Requested);
+		if (Completion) Completion(Rebuilt
 			? FReimportResult{EReimportStatus::Succeeded, {}}
-			: FReimportResult{EReimportStatus::SourceOrBuildFailure, std::move(Error)});
+			: FReimportResult{EReimportStatus::SourceOrBuildFailure, FormatVolumeTextureRebuildError(Rebuilt.Error),
+				std::make_shared<FVolumeTextureFactoryError>(Rebuilt.Error)});
 	}
 
-	auto ReimportVolumeTexture(DVolumeTexture& Texture, std::string& OutError,
-		const FAssetBundleSaveOptions& SaveOptions) -> bool
+	auto ReimportVolumeTexture(DVolumeTexture& Texture,
+		const FAssetBundleSaveOptions& SaveOptions) -> FVolumeTextureRebuildResult
 	{
 		const auto* ImportData = dynamic_cast<const DVolumeTextureImportData*>(
 			Texture.GetAssetImportData());
 		if (!ImportData)
 		{
-			OutError = "VolumeTexture has no current family import data.";
-			return false;
+			return {.Error = {.Code = EVolumeTextureRebuildError::ImportData, .ObjectPath = Texture.GetObjectPath()}};
 		}
 		const FVolumeTextureImportDataState State =
 			ImportData->GetVolumeTextureState();
@@ -531,34 +614,31 @@ namespace Durin::AssetForge::Builtins
 			State.SourceData.FindByRole("source");
 		if (!Source)
 		{
-			OutError = "VolumeTexture has no source filename to reimport.";
-			return false;
+			return {.Error = {.Code = EVolumeTextureRebuildError::MissingSource, .ObjectPath = Texture.GetObjectPath()}};
 		}
 		return RebuildVolumeFromFilename(Texture, Source->Hint, Source->HintBase,
-			MakeImportSettings(State), OutError, &SaveOptions);
+			MakeImportSettings(State), &SaveOptions);
 	}
 
 	auto ReimportVolumeTextureFromFile(DVolumeTexture& Texture,
-		std::string_view FilePath, std::string& OutError,
-		const FAssetBundleSaveOptions& SaveOptions) -> bool
+		std::string_view FilePath,
+		const FAssetBundleSaveOptions& SaveOptions) -> FVolumeTextureRebuildResult
 	{
 		const auto* ImportData = dynamic_cast<const DVolumeTextureImportData*>(
 			Texture.GetAssetImportData());
 		if (!ImportData)
 		{
-			OutError = "VolumeTexture has no current family import parameters.";
-			return false;
+			return {.Error = {.Code = EVolumeTextureRebuildError::ImportData, .ObjectPath = Texture.GetObjectPath()}};
 		}
 		const std::filesystem::path Requested =
 			std::filesystem::absolute(FilePath).lexically_normal();
 		if (!std::filesystem::is_regular_file(Requested))
 		{
-			OutError = "The selected VolumeTexture source file does not exist.";
-			return false;
+			return {.Error = {.Code = EVolumeTextureRebuildError::SourceFile, .ObjectPath = Texture.GetObjectPath(), .Filename = std::string(FilePath)}};
 		}
 		return RebuildVolumeFromFilename(Texture, {},
 			ESourceHintBase::AssetRelative,
-			MakeImportSettings(ImportData->GetVolumeTextureState()), OutError,
+			MakeImportSettings(ImportData->GetVolumeTextureState()),
 			&SaveOptions, Requested);
 	}
 }

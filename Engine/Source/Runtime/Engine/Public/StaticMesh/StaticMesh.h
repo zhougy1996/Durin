@@ -10,6 +10,7 @@
 #include "Hash/XxHash.h"
 #include "DObject/ObjectPtr.h"
 #include "Materials/MeshMaterialSlot.h"
+#include "Physics/BodySetupTypes.h"
 #include "RenderingThread.h"
 
 #include "StaticMesh.gen.h"
@@ -21,11 +22,63 @@ namespace Durin
 	class FStaticMeshAuthoredCandidate;
 	struct FStaticMeshReconciliationSnapshot;
 	struct FStaticMeshBuildExecutionControl;
-	struct FStaticMeshBuildOutcome;
+	struct FStaticMeshApplicationResult;
+	struct FStaticMeshPublicationResult;
+	struct FStaticMeshDerivedDataResult;
 	class FCollisionGeometryRef;
 	enum class EBodySetupCollisionSourceMode : uint8;
 	enum class EBodySetupCollisionQueryPolicy : uint8;
 	enum class ECollisionGeometryKind : uint8;
+
+	struct FStaticMeshPayloadError;
+	struct FStaticMeshPublicationError;
+	struct FStaticMeshDerivedDataError;
+	enum class EStaticMeshReplacementError : uint8 { None, Source, MaterialSlots, SlotName, UVChannels, Payload, Publication };
+	struct FStaticMeshReplacementError
+	{
+		EStaticMeshReplacementError Code = EStaticMeshReplacementError::None;
+		bool SourceValid = false;
+		float NormalizedSize = 0;
+		bool RenderDataPresent = false;
+		uint64 Actual = 0;
+		uint64 Expected = 0;
+		uint64 Index = 0;
+		std::string SlotName;
+		std::shared_ptr<const FStaticMeshPayloadError> PayloadCause;
+		std::shared_ptr<const FStaticMeshPublicationError> PublicationCause;
+	};
+	struct FStaticMeshReplacementResult
+	{
+		FStaticMeshReplacementError Error;
+		explicit operator bool() const { return Error.Code == EStaticMeshReplacementError::None; }
+	};
+	enum class EStaticMeshCollisionError : uint8 { None, MissingRenderData, DerivedData, Publication };
+	struct FStaticMeshCollisionError
+	{
+		EStaticMeshCollisionError Code = EStaticMeshCollisionError::None;
+		EBodySetupCollisionSourceMode Mode = EBodySetupCollisionSourceMode::None;
+		EBodySetupCollisionQueryPolicy Policy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
+		std::shared_ptr<const FStaticMeshDerivedDataError> DerivedDataCause;
+	};
+	ENGINE_API auto FormatStaticMeshReplacementError(const FStaticMeshReplacementError& Error) -> std::string;
+	ENGINE_API auto FormatStaticMeshCollisionError(const FStaticMeshCollisionError& Error) -> std::string;
+
+	enum class EStaticMeshSlotRenameError : uint8 { None, Index, EmptyName, DuplicateName };
+	struct FStaticMeshSlotRenameError
+	{
+		EStaticMeshSlotRenameError Code = EStaticMeshSlotRenameError::None;
+		FObjectKey Owner;
+		uint64 Index = 0;
+		uint64 SlotCount = 0;
+		uint64 ConflictingIndex = 0;
+		std::string Name;
+	};
+	struct FStaticMeshSlotRenameResult
+	{
+		FStaticMeshSlotRenameError Error;
+		explicit operator bool() const { return Error.Code == EStaticMeshSlotRenameError::None; }
+	};
+	ENGINE_API auto FormatStaticMeshSlotRenameError(const FStaticMeshSlotRenameError& Error) -> std::string;
 
 	// Reports only the semantic render-resource states required by nonblocking consumers.
 	enum class EStaticMeshRenderResourceReadiness : uint8
@@ -65,6 +118,22 @@ namespace Durin
 		NegativeZ
 	};
 
+	enum class EStaticMeshImportSettingsError : uint8 { None, UnknownAxis, RepeatedAxis };
+	struct FStaticMeshImportSettingsError
+	{
+		EStaticMeshImportSettingsError Code = EStaticMeshImportSettingsError::None;
+		EStaticMeshImportAxis ForwardAxis = EStaticMeshImportAxis::PositiveX;
+		EStaticMeshImportAxis RightAxis = EStaticMeshImportAxis::PositiveY;
+		EStaticMeshImportAxis UpAxis = EStaticMeshImportAxis::PositiveZ;
+	};
+	struct FStaticMeshImportSettingsResult
+	{
+		FStaticMeshImportSettingsError Error;
+		auto Succeeded() const -> bool { return Error.Code == EStaticMeshImportSettingsError::None; }
+		explicit operator bool() const { return Succeeded(); }
+	};
+	ENGINE_API auto FormatStaticMeshImportSettingsError(const FStaticMeshImportSettingsError& Error) -> std::string;
+
 	// Defines the orthogonal source basis used during static-mesh import.
 	DSTRUCT()
 	struct FStaticMeshImportSettings
@@ -80,7 +149,7 @@ namespace Durin
 		DPROPERTY()
 		EStaticMeshImportAxis UpAxis = EStaticMeshImportAxis::PositiveZ;
 
-		ENGINE_API auto IsValid(std::string* OutError = nullptr) const -> bool;
+		ENGINE_API auto Validate() const -> FStaticMeshImportSettingsResult;
 
 		ENGINE_API static auto MakeDurin() -> FStaticMeshImportSettings;
 		ENGINE_API static auto MakeYUpNegativeZForward() -> FStaticMeshImportSettings;
@@ -137,7 +206,7 @@ namespace Durin
 		ENGINE_API auto RebuildCollision() -> void;
 		ENGINE_API auto GetCollisionBuildStatus() const -> EStaticMeshCollisionBuildStatus;
 		// Last direct collision build error; async compilation has separate diagnostics.
-		auto GetCollisionBuildError() const -> const std::string& { return CollisionBuildError; }
+		auto GetCollisionBuildError() const -> const FStaticMeshCollisionError& { return CollisionBuildError; }
 		// Creates the qualified built-in Box setup from verified CPU bounds; arbitrary meshes remain collision-free.
 		ENGINE_API auto EnsureQualifiedBoxBodySetup() -> DBodySetup*;
 		// Queues GPU initialization for resident CPU data; query GetRenderResourceStatus()
@@ -156,7 +225,7 @@ namespace Durin
 		ENGINE_API auto GetMaterialSlot(uint32 SlotIndex) const -> const FMeshMaterialSlotDefinition*;
 		ENGINE_API auto FindMaterialSlot(FName Name) const -> const FMeshMaterialSlotDefinition*;
 		ENGINE_API auto GetMaterialIndex(FName Name) const -> std::optional<uint32>;
-		ENGINE_API auto RenameMaterialSlot(uint32 SlotIndex, FName Name, std::string& OutError) -> bool;
+		ENGINE_API auto RenameMaterialSlot(uint32 SlotIndex, FName Name) -> FStaticMeshSlotRenameResult;
 
 		// Owner-thread observation only; never submits or retries loading.
 		ENGINE_API auto GetRenderDataLoadStatus() const -> FCookedMeshLoadStatus;
@@ -167,11 +236,10 @@ namespace Durin
 		ENGINE_API auto PostLoad() -> void override;
 	private:
 		friend auto ::Durin::ContributeEngineCookAsset(
-			DObject&, std::string_view, FCookContext&, std::string&) -> bool;
+			DObject&, std::string_view, FCookContext&) -> FCookContributionResult;
 		ENGINE_API auto ContributeToCook(
 			FCookContext& Context,
-			std::string_view VirtualPackagePath,
-			std::string& OutError) -> bool;
+			std::string_view VirtualPackagePath) -> FCookContributionResult;
 	public:
 
 		ENGINE_API static auto CreateDebugTriangle(DObject* Outer = nullptr) -> DStaticMesh*;
@@ -181,17 +249,17 @@ namespace Durin
 		// Does not change source metadata or dirty the package. GPU readiness is separate.
 		ENGINE_API auto ReplaceRenderData(
 			std::unique_ptr<FStaticMeshRenderData> InRenderData,
-			std::vector<FMeshMaterialSlotDefinition> InMaterialSlots) -> void;
+			std::vector<FMeshMaterialSlotDefinition> InMaterialSlots) -> FStaticMeshReplacementResult;
 		// Also installs valid source settings before rebuilding, retaining them on failure.
 		// Package dirtying remains the operation owner's responsibility.
 		ENGINE_API auto ReplaceSourceRenderData(
 			FStaticMeshSource InSource,
 			std::unique_ptr<FStaticMeshRenderData> InRenderData,
 			std::vector<FMeshMaterialSlotDefinition> InMaterialSlots,
-			float InNormalizedSize) -> void;
+			float InNormalizedSize) -> FStaticMeshReplacementResult;
 		// Last direct CPU replacement error, cleared by successful CPU publication.
 		// Async compilation and GPU initialization expose their own status/diagnostics.
-		auto GetRenderDataUpdateError() const -> const std::string& { return RenderDataUpdateError; }
+		auto GetRenderDataUpdateError() const -> const FStaticMeshReplacementError& { return RenderDataUpdateError; }
 		// Requires an existing slot index on the owner thread. Null clears its default.
 		ENGINE_API auto SetMaterialSlotDefaultMaterial(
 			uint32 SlotIndex, DMaterialInterface* Material) -> void;
@@ -242,20 +310,19 @@ namespace Durin
 		auto ReleaseResources() -> void;
 		auto InvalidateRenderData() -> void;
 		auto ValidateAndReplaceRenderData(std::unique_ptr<FStaticMeshRenderData> InRenderData,
-			std::vector<FMeshMaterialSlotDefinition> InMaterialSlots, std::string& OutError) -> bool;
+			std::vector<FMeshMaterialSlotDefinition> InMaterialSlots) -> FStaticMeshReplacementResult;
 		auto RebuildCollisionData(bool bAllowUnavailable) -> void;
 		auto CommitRenderDataCandidate(
 			std::unique_ptr<FStaticMeshRenderData> InRenderData,
 			std::vector<FMeshMaterialSlotDefinition>*
 				InMaterialSlots,
-			std::string& OutError,
 			bool bBuildAuthoredCollision = true,
 			FStaticMeshAuthoredCandidate* AuthoredCandidate = nullptr,
-			DAssetImportData* PreparedImportData = nullptr) -> bool;
+			DAssetImportData* PreparedImportData = nullptr) -> FStaticMeshPublicationResult;
 		friend ENGINE_API auto ApplyStaticMeshAuthoredCandidate(DStaticMesh&,
 			std::unique_ptr<FStaticMeshAuthoredCandidate>, const FStaticMeshReconciliationSnapshot&,
-			std::string&, bool, const FStaticMeshBuildExecutionControl&, DAssetImportData*) -> FStaticMeshBuildOutcome;
-		auto LoadCookedRenderData(std::string& OutError) -> bool;
+			bool, const FStaticMeshBuildExecutionControl&, DAssetImportData*) -> FStaticMeshApplicationResult;
+		auto LoadCookedRenderData() -> FCookedMeshLoadResult;
 		auto SubmitCookedRenderDataRequest(bool bInitializeResources) -> bool;
 		auto RefreshQualifiedBoxBodySetup() -> void;
 		auto BuildCollisionCandidate(
@@ -263,8 +330,7 @@ namespace Durin
 			EBodySetupCollisionSourceMode Mode,
 			EBodySetupCollisionQueryPolicy Policy,
 			FCollisionGeometryRef& OutSimple,
-			FCollisionGeometryRef& OutComplex,
-			std::string& OutError) const -> bool;
+			FCollisionGeometryRef& OutComplex) const -> FStaticMeshDerivedDataResult;
 
 		DPROPERTY(EditorOnly)
 		TObjectPtr<DAssetImportData> AssetImportData;
@@ -282,8 +348,9 @@ namespace Durin
 		TObjectPtr<DBodySetup> BodySetup;
 
 		std::unique_ptr<FStaticMeshRenderData> RenderData;
-		std::string RenderDataUpdateError;
-		std::string CollisionBuildError;
+		FStaticMeshReplacementError RenderDataUpdateError;
+		FStaticMeshCollisionError CollisionBuildError;
+		FCookedMeshLoadError CookedLoadError;
 		FBulkData CookedRenderData;
 		FBulkData CookedCollisionData;
 		FRenderCommandFence ReleaseResourcesFence;

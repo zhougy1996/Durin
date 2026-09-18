@@ -41,7 +41,7 @@ TEST_F(FMaterialFunctionCookTests, CookFingerprintsNestedFunctionsWithoutProduci
 	ASSERT_TRUE(RefreshAssetRegistry());
 	std::vector<FCookContributorHandle> Handles;
 	std::string Error;
-	ASSERT_TRUE(RegisterEngineCookContributors(Handles, Error)) << Error;
+	ASSERT_TRUE(RegisterEngineCookContributors(Handles)) << Error;
 	struct FRetire { std::vector<FCookContributorHandle>& Handles; ~FRetire() { for (auto Handle : Handles) UnregisterCookContributor(Handle); } } Retire{Handles};
 	FPackagePath MaterialPath, WrapperPath, LeafPath;
 	ASSERT_TRUE(FPackagePath::TryCreate("/CookFunctionTests/Material", MaterialPath));
@@ -65,9 +65,9 @@ TEST_F(FMaterialFunctionCookTests, CookFingerprintsNestedFunctionsWithoutProduci
 	FCookRequest Request{.OutputRoot = Root / "Cooked", .TargetPlatform = ECookTargetPlatform::Win64,
 		.TargetProfile = ECookTargetProfile::Game, .ExplicitRoots = {MaterialPath}};
 	FCookRunResult Result;
-	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Result.Code << ": " << Result.Diagnostic;
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Durin::CookRunCodeName(Result) << ": " << Durin::FormatCookRunError(Result);
 	ASSERT_EQ(Result.Packages.size(), 1u);
-	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Result.Diagnostic;
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Durin::FormatCookRunError(Result);
 	ASSERT_EQ(Result.Packages.size(), 1u);
 	EXPECT_EQ(Result.Packages[0].Status, ECookPackageStatus::CookHit);
 	auto Edited = CaptureFunctionExpressions(*Leaf);
@@ -75,10 +75,10 @@ TEST_F(FMaterialFunctionCookTests, CookFingerprintsNestedFunctionsWithoutProduci
 	ASSERT_TRUE(Edited.Apply(*Leaf));
 	ASSERT_TRUE(SavePackage(Leaf->GetPackage()));
 	ASSERT_TRUE(Material->CompileEdits());
-	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Result.Diagnostic;
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Durin::FormatCookRunError(Result);
 	ASSERT_EQ(Result.Packages.size(), 1u);
 	EXPECT_NE(Result.Packages[0].Status, ECookPackageStatus::CookHit);
-	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Result.Diagnostic;
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Durin::FormatCookRunError(Result);
 	EXPECT_EQ(Result.Packages[0].Status, ECookPackageStatus::CookHit);
 	Edited.Expressions.clear();
 	const auto ExpectedIdentity = Material->GetAcceptedCompiledProgram()->Identity;
@@ -135,7 +135,7 @@ TEST_F(FMaterialFunctionCookTests, StructuralNormalParentRoundTripsDuplicatesAnd
 	ASSERT_TRUE(RefreshAssetRegistry());
 	std::vector<FCookContributorHandle> Handles;
 	std::string Error;
-	ASSERT_TRUE(RegisterEngineCookContributors(Handles, Error)) << Error;
+	ASSERT_TRUE(RegisterEngineCookContributors(Handles)) << Error;
 	struct FRetire { std::vector<FCookContributorHandle>& Handles; ~FRetire() { for (auto Handle : Handles) UnregisterCookContributor(Handle); } } Retire{Handles};
 	FPackagePath MaterialPath;
 	ASSERT_TRUE(FPackagePath::TryCreate("/CookNormal/Parent", MaterialPath));
@@ -153,7 +153,7 @@ TEST_F(FMaterialFunctionCookTests, StructuralNormalParentRoundTripsDuplicatesAnd
 	ASSERT_TRUE(Recipe.Graph.Apply(*Material));
 	ASSERT_TRUE(Material->CompileEdits());
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));
-	auto* Duplicate = Cast<DMaterial>(DuplicateObject(Material, nullptr, "CopiedNormalParent"));
+	auto* Duplicate = Cast<DMaterial>(DuplicateObject(Material, nullptr, "CopiedNormalParent").Object);
 	ASSERT_NE(Duplicate, nullptr);
 	EXPECT_TRUE(Recipe.Graph.MatchesGraph(*Duplicate));
 	MarkAsGarbage(Duplicate);
@@ -167,9 +167,9 @@ TEST_F(FMaterialFunctionCookTests, StructuralNormalParentRoundTripsDuplicatesAnd
 	FCookRequest Request{.OutputRoot = Root / "Cooked", .TargetPlatform = ECookTargetPlatform::Win64,
 		.TargetProfile = ECookTargetProfile::Game, .ExplicitRoots = {MaterialPath}};
 	FCookRunResult Result;
-	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Result.Code << ": " << Result.Diagnostic;
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Durin::CookRunCodeName(Result) << ": " << Durin::FormatCookRunError(Result);
 	ASSERT_EQ(Result.Packages.size(), 1u);
-	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Result.Diagnostic;
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Durin::FormatCookRunError(Result);
 	EXPECT_EQ(Result.Packages.front().Status, ECookPackageStatus::CookHit);
 	ASSERT_TRUE(UnloadPackage(MaterialPath));
 	ShutdownAssetManager();
@@ -214,17 +214,17 @@ TEST_F(FMaterialFunctionCookTests, StandardMaterialFixtureCooksAndLoadsWithoutAu
 	ASSERT_TRUE(RefreshAssetRegistry());
 	std::vector<FCookContributorHandle> Handles;
 	std::string Error;
-	ASSERT_TRUE(RegisterEngineCookContributors(Handles, Error)) << Error;
+	ASSERT_TRUE(RegisterEngineCookContributors(Handles)) << Error;
 	struct FRetire { std::vector<FCookContributorHandle>& Handles; ~FRetire() { for (auto Handle : Handles) UnregisterCookContributor(Handle); } } Retire{Handles};
 	// The standalone host registers this unversioned fallback for generic assets.
 	// It must not make transitive function dependencies permanently uncacheable.
 	const auto Generic = RegisterCookContributor(DObject::StaticClass(), {"generic-package", 1, 1,
 		[](DObject& Object, std::string_view Path, FCookContext& Context) -> FAssetResult {
 			std::string Error;
-			if (!Context.AddPackage(std::string(Path), Object.GetPackage(), &Error))
-				return {EAssetError::InvalidPackageType, Error};
+			if (const auto Added = Context.AddPackage(std::string(Path), Object.GetPackage()); !Added)
+				return {EAssetError::InvalidPackageType, FormatCookPlanError(Added.Error)};
 			return {};
-		}});
+		}}).Handle;
 	ASSERT_NE(Generic, 0u);
 	Handles.push_back(Generic);
 
@@ -253,9 +253,9 @@ TEST_F(FMaterialFunctionCookTests, StandardMaterialFixtureCooksAndLoadsWithoutAu
 	FCookRequest Request{.OutputRoot = Root / "Cooked", .TargetPlatform = ECookTargetPlatform::Win64,
 		.TargetProfile = ECookTargetProfile::Game, .ExplicitRoots = {MaterialPath}};
 	FCookRunResult Result;
-	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Result.Code << ": " << Result.Diagnostic;
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Durin::CookRunCodeName(Result) << ": " << Durin::FormatCookRunError(Result);
 	ASSERT_EQ(Result.Packages.size(), 1u);
-	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Result.Diagnostic;
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Durin::FormatCookRunError(Result);
 	ASSERT_EQ(Result.Packages.size(), 1u);
 	EXPECT_EQ(Result.Packages.front().Status, ECookPackageStatus::CookHit);
 	EXPECT_FALSE(std::filesystem::exists(Request.OutputRoot / "Engine/Materials/Functions"));
@@ -263,7 +263,10 @@ TEST_F(FMaterialFunctionCookTests, StandardMaterialFixtureCooksAndLoadsWithoutAu
 	FunctionRootRequest.OutputRoot = Root / "RejectedFunctionRoot";
 	FunctionRootRequest.ExplicitRoots = {FunctionPath};
 	EXPECT_FALSE(FCookCoordinator().Run(FunctionRootRequest, Result));
-	EXPECT_NE(Result.Diagnostic.find("authoring-only"), std::string::npos);
+	EXPECT_EQ(Result.Error, ECookRunError::ContributionFailed);
+	ASSERT_TRUE(Result.ContributionCause);
+	ASSERT_TRUE(Result.ContributionCause->CookContributionCause);
+	EXPECT_EQ(Result.ContributionCause->CookContributionCause->Error, ECookContributionError::AuthoringOnly);
 	EXPECT_FALSE(std::filesystem::exists(FunctionRootRequest.OutputRoot / "CookManifest.bin"));
 
 	ASSERT_TRUE(UnloadPackage(MaterialPath));

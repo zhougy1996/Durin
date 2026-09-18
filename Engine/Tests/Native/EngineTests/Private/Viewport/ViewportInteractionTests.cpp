@@ -147,11 +147,26 @@ TEST(FTransformGizmoTests, ManipulatesGenericTargetsAndCommitsWithoutActorKnowle
 		Transactions->GetMountedContentMutationRevision(),
 		MountedContentRevision);
 	EXPECT_EQ(Transactions->GetUndoDescription(), "Translate 'Probe'");
+	const auto BeforeRejectedUndo = Target->Transform;
+	Target->bValid = false;
+	const auto Rejected = Transactions->Undo();
+	ASSERT_FALSE(Rejected);
+	ASSERT_TRUE(Rejected.ApplyCause);
+	ASSERT_TRUE(Rejected.ApplyCause->Error.RecordCause.CustomCause);
+	const auto& Cause = *Rejected.ApplyCause->Error.RecordCause.CustomCause;
+	EXPECT_EQ(Cause.Code, Durin::Editor::ETransactionCustomError::TargetUnavailable);
+	EXPECT_EQ(Cause.TargetLabel, "Probe");
+	EXPECT_EQ(Cause.MemberIndex, 0u);
+	EXPECT_EQ(Cause.NodeCount, 1u);
+	ExpectVectorNear(Target->Transform.Translation, BeforeRejectedUndo.Translation);
+	EXPECT_TRUE(Transactions->CanUndo());
+	Target->bValid = true;
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(
 		Transactions->GetMountedContentMutationRevision(),
 		MountedContentRevision);
 	ExpectVectorNear(Target->Transform.Translation, InitialLocation);
+	EXPECT_EQ(Cause.TargetLabel, "Probe");
 	Target->Capabilities = Durin::Editor::Level::ETransformGizmoCapability::Translate;
 	Gizmo.SetMode(Durin::Editor::Level::ETransformGizmoMode::Rotate);
 	Gizmo.Update(Targets, View, {}, nullptr);

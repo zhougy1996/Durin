@@ -20,7 +20,7 @@ namespace Durin::Editor::Material
 			if (Pin.Link.SourceNodeId.IsValid() && !Pin.bRequired && ImGui::SmallButton("Use Default"))
 			{
 				const auto Result = Document.Disconnect(FMaterialGraphPinAddress::Input(CallId, Pin.InputIndex, Pin.PortId), &Transactions);
-				if (!Result) Error = Result.Message;
+				if (!Result) Error = FormatMaterialGraphCommandResult(Result);
 			}
 			ImGui::PopID();
 		}

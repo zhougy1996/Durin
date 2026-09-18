@@ -98,20 +98,25 @@ namespace Durin
 		}
 
 		auto ValidateStaticMeshDecodedGeometry(
-			const FStaticMeshDecodedGeometry& Value, std::string& OutError,
+			const FStaticMeshDecodedGeometry& Value, FStaticMeshSourceError& OutError,
 			uint64* OutWireBytes = nullptr, FSourceReadControl* Control = nullptr) -> bool
 		{
 			if (Value.MaterialSlots.empty() || Value.MaterialSlots.size() > MaximumMeshMaterialSlots
 				|| Value.Meshes.empty() || Value.Meshes.size() > 65536)
 			{
-				OutError = "StaticMesh canonical geometry has invalid slot or mesh counts.";
+				OutError = {.Code = EStaticMeshSourceError::Counts, .SlotCount = Value.MaterialSlots.size(), .MeshCount = Value.Meshes.size(), .ExpectedSlotCount = MaximumMeshMaterialSlots, .ExpectedMeshCount = 65536};
 				return false;
 			}
 			uint64 WireBytes = 20;
-			const auto AddBytes = [&](uint64 Count, uint64 Width, uint64 MaximumCount) {
+			const auto AddBytes = [&](std::string_view Field, uint64 Count, uint64 Width, uint64 MaximumCount) {
 				if (Count > MaximumCount || Count > (MaximumStaticMeshSourceBytes - WireBytes) / Width)
 				{
-					OutError = "StaticMesh canonical geometry exceeds its authored count or 1 GiB byte limit.";
+					OutError.Code = EStaticMeshSourceError::Limit;
+					OutError.Field = Field;
+					OutError.Actual = Count;
+					OutError.Expected = MaximumCount;
+					OutError.Width = Width;
+					OutError.WireBytes = WireBytes;
 					return false;
 				}
 				WireBytes += Count * Width;
@@ -120,55 +125,82 @@ namespace Durin
 			std::unordered_set<uint32> SourceMaterials;
 			for (const FStaticMeshImportedMaterialSlot& Slot : Value.MaterialSlots)
 			{
-				if (!AddBytes(20, 1, 20) || !AddBytes(Slot.Name.size(), 1, 4096)
-					|| !AddBytes(Slot.SourceName.size(), 1, 4096)) return false;
+				if (!AddBytes("SlotMetadata", 20, 1, 20) || !AddBytes("SlotName", Slot.Name.size(), 1, 4096)
+					|| !AddBytes("SlotSourceName", Slot.SourceName.size(), 1, 4096)) return false;
 				if (!SourceMaterials.insert(Slot.SourceMaterialIndex).second)
 				{
-					OutError = "StaticMesh canonical material source indices must be unique.";
+					OutError.Code = EStaticMeshSourceError::DuplicateMaterial;
+					OutError.Actual = Slot.SourceMaterialIndex;
 					return false;
 				}
 			}
 			for (const FStaticMeshImportedMesh& Mesh : Value.Meshes)
 			{
-				if (!AddBytes(84, 1, 84) || !AddBytes(Mesh.Name.size(), 1, 4096)
-					|| !AddBytes(Mesh.Positions.size(), 12, 50'000'000)
-					|| !AddBytes(Mesh.Normals.size(), 12, 50'000'000)
-					|| !AddBytes(Mesh.Tangents.size(), 16, 50'000'000)
-					|| !AddBytes(Mesh.Colors.size(), 16, 50'000'000)
-					|| !AddBytes(Mesh.Indices.size(), 4, 150'000'000)) return false;
-				for (const auto& UVs : Mesh.UVChannels)
-					if (!AddBytes(UVs.size(), 8, 50'000'000)) return false;
-				if (!SourceMaterials.contains(Mesh.SourceMaterialIndex)
-					|| Mesh.Positions.empty() || Mesh.Indices.empty()
-					|| Mesh.Indices.size() % 3 != 0
-					|| !std::ranges::all_of(Mesh.Positions,
-						[Control](const FVector3f& Position) { if (Control) Control->Tick(); return Math::IsFinite(Position); }))
+				OutError.MeshName = Mesh.Name;
+				if (!AddBytes("MeshMetadata", 84, 1, 84) || !AddBytes("MeshName", Mesh.Name.size(), 1, 4096)
+					|| !AddBytes("Positions", Mesh.Positions.size(), 12, 50'000'000)
+					|| !AddBytes("Normals", Mesh.Normals.size(), 12, 50'000'000)
+					|| !AddBytes("Tangents", Mesh.Tangents.size(), 16, 50'000'000)
+					|| !AddBytes("Colors", Mesh.Colors.size(), 16, 50'000'000)
+					|| !AddBytes("Indices", Mesh.Indices.size(), 4, 150'000'000)) return false;
+				for (size_t Channel = 0; Channel < Mesh.UVChannels.size(); ++Channel)
 				{
-					OutError = "StaticMesh canonical geometry is malformed.";
+					if (AddBytes("UVs", Mesh.UVChannels[Channel].size(), 8, 50'000'000)) continue;
+					OutError.Index = Channel;
 					return false;
 				}
-				const auto ValidChannel = [&](const auto& Channel) {
-					return Channel.empty() || Channel.size() == Mesh.Positions.size();
-				};
-				if (!ValidChannel(Mesh.Normals) || !ValidChannel(Mesh.Tangents)
-					|| !ValidChannel(Mesh.Colors)
-					|| !std::ranges::all_of(Mesh.UVChannels, ValidChannel))
+				if (!SourceMaterials.contains(Mesh.SourceMaterialIndex))
 				{
-					OutError = "StaticMesh canonical vertex channel lengths must match positions.";
+					OutError.Code = EStaticMeshSourceError::MissingMaterial;
+					OutError.Actual = Mesh.SourceMaterialIndex;
 					return false;
 				}
-				for (uint32 Index : Mesh.Indices)
+				if (Mesh.Positions.empty() || Mesh.Indices.empty() || Mesh.Indices.size() % 3 != 0)
+				{
+					OutError.Code = Mesh.Positions.empty() || Mesh.Indices.empty() ? EStaticMeshSourceError::EmptyMesh : EStaticMeshSourceError::TriangleList;
+					OutError.Field = Mesh.Positions.empty() ? "Positions" : "Indices";
+					OutError.Actual = Mesh.Positions.empty() ? 0 : Mesh.Indices.size();
+					OutError.Expected = OutError.Code == EStaticMeshSourceError::EmptyMesh ? 1 : 3;
+					return false;
+				}
+				for (size_t Index = 0; Index < Mesh.Positions.size(); ++Index)
 				{
 					if (Control) Control->Tick();
-					if (Index >= Mesh.Positions.size())
-					{
-						OutError = "StaticMesh canonical geometry contains an out-of-range index.";
-						return false;
-					}
+					if (Math::IsFinite(Mesh.Positions[Index])) continue;
+					OutError.Code = EStaticMeshSourceError::NonFinitePosition;
+					OutError.Index = Index;
+					OutError.Position = Mesh.Positions[Index];
+					return false;
+				}
+				const auto ValidChannel = [&](std::string_view Field, const auto& Channel) {
+					if (Channel.empty() || Channel.size() == Mesh.Positions.size()) return true;
+					OutError.Code = EStaticMeshSourceError::ChannelLength;
+					OutError.Field = Field;
+					OutError.Actual = Channel.size();
+					OutError.Expected = Mesh.Positions.size();
+					return false;
+				};
+				if (!ValidChannel("Normals", Mesh.Normals) || !ValidChannel("Tangents", Mesh.Tangents)
+					|| !ValidChannel("Colors", Mesh.Colors)) return false;
+				for (size_t Channel = 0; Channel < Mesh.UVChannels.size(); ++Channel)
+				{
+					if (ValidChannel("UVs", Mesh.UVChannels[Channel])) continue;
+					OutError.Index = Channel;
+					return false;
+				}
+				for (size_t Offset = 0; Offset < Mesh.Indices.size(); ++Offset)
+				{
+					if (Control) Control->Tick();
+					if (Mesh.Indices[Offset] < Mesh.Positions.size()) continue;
+					OutError.Code = EStaticMeshSourceError::IndexRange;
+					OutError.Index = Offset;
+					OutError.Actual = Mesh.Indices[Offset];
+					OutError.Expected = Mesh.Positions.size();
+					return false;
 				}
 			}
 			if (OutWireBytes) *OutWireBytes = WireBytes;
-			OutError.clear();
+			OutError = {};
 			return true;
 		}
 
@@ -192,91 +224,116 @@ namespace Durin
 		return *this;
 	}
 
-	auto FStaticMeshSource::Initialize(
-		FStaticMeshDecodedGeometry Value, std::string& OutError) -> bool
+	auto FormatStaticMeshSourceError(const FStaticMeshSourceError& Error) -> std::string
 	{
-		OutError.clear();
+		std::string_view Reason;
+		switch (Error.Code)
+		{
+		case EStaticMeshSourceError::None: return {};
+		case EStaticMeshSourceError::Read: return Error.ReadCause ? FormatPackageResourceReadError(*Error.ReadCause) : "StaticMesh source read failed.";
+		case EStaticMeshSourceError::Counts: Reason = "has invalid slot or mesh counts."; break;
+		case EStaticMeshSourceError::Limit: Reason = "exceeds its authored count or 1 GiB byte limit."; break;
+		case EStaticMeshSourceError::DuplicateMaterial: Reason = "material source indices must be unique."; break;
+		case EStaticMeshSourceError::MissingMaterial: Reason = "references a missing source material."; break;
+		case EStaticMeshSourceError::EmptyMesh: Reason = "contains an empty mesh."; break;
+		case EStaticMeshSourceError::TriangleList: Reason = "index count is not a triangle list."; break;
+		case EStaticMeshSourceError::NonFinitePosition: Reason = "contains a non-finite position."; break;
+		case EStaticMeshSourceError::ChannelLength: Reason = "vertex channel lengths must match positions."; break;
+		case EStaticMeshSourceError::IndexRange: Reason = "contains an out-of-range index."; break;
+		case EStaticMeshSourceError::InvalidHeader: Reason = "source header is missing or invalid."; break;
+		case EStaticMeshSourceError::PayloadSize: Reason = "payload size does not match metadata."; break;
+		case EStaticMeshSourceError::Archive: Reason = "Archive decoding failed."; break;
+		case EStaticMeshSourceError::EncodeArchive: Reason = "Archive encoding failed."; break;
+		case EStaticMeshSourceError::EncodedSize: Reason = "exceeds the 1 GiB authored limit."; break;
+		case EStaticMeshSourceError::BulkUpdate:
+			return Error.BulkCause ? FormatEditorBulkDataError(*Error.BulkCause) : "StaticMesh source Bulk update failed.";
+		case EStaticMeshSourceError::MetadataCounts: Reason = "source counts do not match metadata."; break;
+		case EStaticMeshSourceError::Cancelled: Reason = "read was cancelled."; break;
+		}
+		return std::format("StaticMesh canonical geometry {}", Reason);
+	}
+
+	auto FStaticMeshSource::Initialize(
+		FStaticMeshDecodedGeometry Value) -> FStaticMeshSourceResult
+	{
 		uint64 WireBytes = 0;
-		if (!ValidateStaticMeshDecodedGeometry(Value, OutError, &WireBytes)) return false;
+		FStaticMeshSourceError Validation;
+		if (!ValidateStaticMeshDecodedGeometry(Value, Validation, &WireBytes))
+		{
+			return {std::move(Validation)};
+		}
 		FByteBuffer Bytes;
 		Bytes.reserve(static_cast<size_t>(WireBytes));
 		FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::BulkData);
 		SerializeStaticMeshSourceGeometry(Ar, Value);
-		if (Ar.HasError() || Bytes.size() > MaximumStaticMeshSourceBytes)
-		{
-			OutError = Ar.HasError() ? Ar.GetFailure()->Message
-				: "StaticMesh canonical geometry exceeds the 1 GiB authored limit.";
-			return false;
-		}
+		if (Ar.HasError())
+			return {{.Code = EStaticMeshSourceError::EncodeArchive,
+				.ArchiveCode = Ar.GetFailure()->Code, .ArchivePath = Ar.GetFailure()->Path}};
+		if (Bytes.size() > MaximumStaticMeshSourceBytes)
+			return {{.Code = EStaticMeshSourceError::EncodedSize, .Actual = Bytes.size(), .Expected = MaximumStaticMeshSourceBytes}};
 		FStaticMeshSource Candidate;
 		Candidate.Geometry = Geometry;
-		if (!Candidate.Geometry.UpdatePayload(FSharedByteBuffer::Take(std::move(Bytes))))
+		if (const auto Updated = Candidate.Geometry.UpdatePayload(FSharedByteBuffer::Take(std::move(Bytes))); !Updated)
 		{
-			OutError = "StaticMesh canonical geometry could not be retained as authored bulk.";
-			return false;
+			return {{.Code = EStaticMeshSourceError::BulkUpdate, .BulkCause = Updated.Error}};
 		}
 		Candidate.MaterialSlotCount = static_cast<uint32>(Value.MaterialSlots.size());
 		Candidate.MeshCount = static_cast<uint32>(Value.Meshes.size());
 		Candidate.ResidentGeometry = std::make_shared<const FStaticMeshDecodedGeometry>(std::move(Value));
 		Candidate.ResidentIdentity = Candidate.GetIdentity();
 		*this = Candidate;
-		return true;
+		return {};
 	}
 
-	auto FStaticMeshSource::AcquireGeometry(std::string& OutError,
-		const std::function<bool()>& ShouldCancel) const
-		-> FStaticMeshGeometryReadHandle
+	auto FStaticMeshSource::AcquireGeometry(const std::function<bool()>& ShouldCancel) const
+		-> FStaticMeshSourceReadResult
 	{
 		std::lock_guard Lock(ResidencyMutex);
-		OutError.clear();
 		FSourceReadControl Control{ShouldCancel};
 		try
 		{
 			Control.Check();
 			const FXxHash128 Identity = GetIdentity();
-			if (ResidentGeometry && ResidentIdentity == Identity) return ResidentGeometry;
+			if (ResidentGeometry && ResidentIdentity == Identity) return {.Geometry = ResidentGeometry};
 			ResidentGeometry.reset();
 			if (!IsValid())
 			{
-				OutError = "StaticMesh canonical source header is missing or invalid.";
-				return {};
+				return {.Error = {.Code = EStaticMeshSourceError::InvalidHeader, .SlotCount = MaterialSlotCount, .MeshCount = MeshCount}};
 			}
 			const FPackageResourceReadResult Payload = Geometry.GetPayload().Wait();
 			Control.Check();
 			if (!Payload)
 			{
-				OutError = Payload.Message.empty() ? "StaticMesh canonical geometry read failed." : Payload.Message;
-				return {};
+				return {.Error = {.Code = EStaticMeshSourceError::Read, .ReadCause = Payload}};
 			}
 			const FByteView Bytes = Payload.Buffer.GetBytes();
 			if (Bytes.size() != Geometry.GetPayloadSize() || Bytes.size() > MaximumStaticMeshSourceBytes)
 			{
-				OutError = "StaticMesh canonical geometry payload size does not match metadata.";
-				return {};
+				return {.Error = {.Code = EStaticMeshSourceError::PayloadSize, .Actual = Bytes.size(), .Expected = Geometry.GetPayloadSize()}};
 			}
 			auto Decoded = std::make_shared<FStaticMeshDecodedGeometry>();
 			FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::BulkData);
 			SerializeStaticMeshSourceGeometry(Ar, *Decoded, &Control);
 			if (Ar.HasError() || !RequireArchiveEnd(Ar))
 			{
-				OutError = Ar.GetFailure()->Message;
-				return {};
+				return {.Error = {.Code = EStaticMeshSourceError::Archive, .Actual = Ar.Tell(), .Expected = Bytes.size(),
+					.ArchiveCode = Ar.GetFailure()->Code, .ArchivePath = Ar.GetFailure()->Path}};
 			}
 			if (Decoded->MaterialSlots.size() != MaterialSlotCount || Decoded->Meshes.size() != MeshCount)
 			{
-				OutError = "StaticMesh canonical source counts are invalid.";
-				return {};
+				return {.Error = {.Code = EStaticMeshSourceError::MetadataCounts, .SlotCount = Decoded->MaterialSlots.size(), .MeshCount = Decoded->Meshes.size(),
+					.ExpectedSlotCount = MaterialSlotCount, .ExpectedMeshCount = MeshCount}};
 			}
-			if (!ValidateStaticMeshDecodedGeometry(*Decoded, OutError, nullptr, &Control)) return {};
+			FStaticMeshSourceError Validation;
+			if (!ValidateStaticMeshDecodedGeometry(*Decoded, Validation, nullptr, &Control)) return {.Error = std::move(Validation)};
 			Control.Check();
 			ResidentIdentity = Identity;
 			ResidentGeometry = std::move(Decoded);
-			return ResidentGeometry;
+			return {.Geometry = ResidentGeometry};
 		}
 		catch (const FSourceReadCancelled&)
 		{
-			OutError = "StaticMesh canonical geometry read was cancelled.";
-			return {};
+			return {.Error = {.Code = EStaticMeshSourceError::Cancelled}};
 		}
 	}
 

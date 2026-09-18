@@ -134,8 +134,8 @@ namespace Durin::Editor::Level
 			auto GetOwningModule() const -> std::string_view override { return "LevelEditor"; }
 			auto GetDetails(::Durin::Editor::ETransactionOperation Operation) const -> std::string override { return BuildDetails(Operation != ::Durin::Editor::ETransactionOperation::Undo); }
 			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return AffectedPackages; }
-			auto Undo() -> bool override { return Apply(false); }
-			auto Redo() -> bool override { return Apply(true); }
+			auto Replay(::Durin::Editor::ETransactionOperation Operation) -> ::Durin::Editor::FTransactionCustomResult override
+			{ return Apply(Operation != ::Durin::Editor::ETransactionOperation::Undo); }
 			auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override
 			{
 				for (const FEntry& Entry : Entries)
@@ -191,14 +191,21 @@ namespace Durin::Editor::Level
 				return Result;
 			}
 
-			auto Apply(bool bAfter) -> bool
+			auto Apply(bool bAfter) -> ::Durin::Editor::FTransactionCustomResult
 			{
-				bool bSuccess = true;
-				for (FEntry& Entry : Entries)
+				::Durin::Editor::FTransactionCustomResult Result;
+				for (size_t Index = 0; Index < Entries.size(); ++Index)
 				{
-					if (!Entry.Target || !Entry.Target->IsValid() || !Entry.Target->SetTransform(bAfter ? Entry.After : Entry.Before)) bSuccess = false;
+					FEntry& Entry = Entries[Index];
+					auto Code = ::Durin::Editor::ETransactionCustomError::None;
+					if (!Entry.Target || !Entry.Target->IsValid()) Code = ::Durin::Editor::ETransactionCustomError::TargetUnavailable;
+					else if (!Entry.Target->SetTransform(bAfter ? Entry.After : Entry.Before)) Code = ::Durin::Editor::ETransactionCustomError::TransformWrite;
+					// Preserve the first cause while retaining the existing all-target replay policy.
+					if (Result && Code != ::Durin::Editor::ETransactionCustomError::None)
+						Result.Error = {.Code = Code, .TargetLabel = Entry.Target ? Entry.Target->GetLabel() : std::string{},
+							.NodeCount = Entries.size(), .MemberIndex = Index};
 				}
-				return bSuccess;
+				return Result;
 			}
 			std::string Description;
 			std::vector<FEntry> Entries;

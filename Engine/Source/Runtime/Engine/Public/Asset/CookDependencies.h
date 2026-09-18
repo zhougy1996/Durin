@@ -26,13 +26,31 @@ namespace Durin
 	inline constexpr uint64 MaximumCookDependencyBytes = 64ull * 1024 * 1024;
 	inline constexpr uint64 MaximumCookDependencyValueBytes = 1024 * 1024;
 
+	enum class ECookDependencyCodecError : uint8
+	{
+		None, RecordLimit, InvalidRecord, Duplicate, ByteLimit, Header, TruncatedRecord, Noncanonical, TrailingBytes
+	};
+	struct FCookDependencyCodecResult
+	{
+		ECookDependencyCodecError Error = ECookDependencyCodecError::None;
+		ECookBuildDependencyKind Kind = ECookBuildDependencyKind::SourcePackage;
+		std::string LogicalName;
+		uint64 RecordIndex = 0;
+		uint64 Actual = 0;
+		uint64 Maximum = 0;
+		uint64 RemainingBytes = 0;
+		uint32 Version = 0;
+		explicit operator bool() const { return Error == ECookDependencyCodecError::None; }
+	};
+	ENGINE_API auto FormatCookDependencyCodecError(const FCookDependencyCodecResult& Result) -> std::string;
+
 	// Kind/name identities must be unique. Encoding sorts; decoding requires canonical order.
 	ENGINE_API auto EncodeCookBuildDependencies(std::span<const FCookBuildDependency> Records,
-		FByteBuffer& OutBytes, std::string* OutError = nullptr) -> bool;
+		FByteBuffer& OutBytes) -> FCookDependencyCodecResult;
 	ENGINE_API auto DecodeCookBuildDependencies(FByteView Bytes,
-		std::vector<FCookBuildDependency>& OutRecords, std::string* OutError = nullptr) -> bool;
+		std::vector<FCookBuildDependency>& OutRecords) -> FCookDependencyCodecResult;
 	ENGINE_API auto FingerprintCookBuildDependencies(std::span<const FCookBuildDependency> Records,
-		FXxHash128& OutFingerprint, std::string* OutError = nullptr) -> bool;
+		FXxHash128& OutFingerprint) -> FCookDependencyCodecResult;
 
 	struct FCookPackageBuildDependency
 	{
@@ -48,14 +66,33 @@ namespace Durin
 		std::vector<FCookPackageBuildDependency> Packages;
 	};
 
+	enum class ECookDependencyGraphError : uint8
+	{
+		None, GraphLimit, Package, Codec, GraphBound, Declaration, SourceIdentity,
+		Conflict, ExpansionBound, MissingPackage, MissingSource
+	};
+	struct FCookDependencyGraphResult
+	{
+		ECookDependencyGraphError Error = ECookDependencyGraphError::None;
+		FPackagePath Package;
+		FPackagePath Dependency;
+		ECookBuildDependencyKind Kind = ECookBuildDependencyKind::SourcePackage;
+		std::string LogicalName;
+		uint64 Bytes = 0;
+		uint64 Records = 0;
+		std::optional<FCookDependencyCodecResult> CodecCause;
+		explicit operator bool() const { return Error == ECookDependencyGraphError::None; }
+		ENGINE_API auto ToAssetResult() const -> FAssetResult;
+	};
+	ENGINE_API auto FormatCookDependencyGraphError(const FCookDependencyGraphResult& Result) -> std::string;
+
 	// Prepare once per run: source identities and validated nodes are reused by every root.
 	class FCookBuildDependencyGraph
 	{
 	public:
-		ENGINE_API auto Initialize(std::span<const FCookPackageBuildInputs> Graph,
-			std::string* OutError = nullptr) -> bool;
+		ENGINE_API auto Initialize(std::span<const FCookPackageBuildInputs> Graph) -> FCookDependencyGraphResult;
 		ENGINE_API auto Expand(const FPackagePath& Root,
-			std::vector<FCookBuildDependency>& OutRecords, std::string* OutError = nullptr) const -> bool;
+			std::vector<FCookBuildDependency>& OutRecords) const -> FCookDependencyGraphResult;
 	private:
 		std::unordered_map<FPackagePath, FCookPackageBuildInputs> Nodes;
 		std::unordered_map<FPackagePath, FByteBuffer> SourceIdentities;
@@ -63,7 +100,7 @@ namespace Durin
 
 	ENGINE_API auto ExpandCookBuildDependencies(const FPackagePath& Root,
 		std::span<const FCookPackageBuildInputs> Graph,
-		std::vector<FCookBuildDependency>& OutRecords, std::string* OutError = nullptr) -> bool;
+		std::vector<FCookBuildDependency>& OutRecords) -> FCookDependencyGraphResult;
 
 	struct FCookDependencyDeclaration
 	{

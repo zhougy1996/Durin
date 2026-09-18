@@ -16,6 +16,24 @@ namespace Durin::Image
 		uint64 MaximumDecodedPixels = 256ull * 1024ull * 1024ull;
 	};
 
+	enum class EImageDecodeError : uint8 { None, Empty, EncodedLimit, InvalidImage, PixelLimit, FileStat, FileSize, FileRead };
+	struct FImageDecodeError
+	{
+		EImageDecodeError Code = EImageDecodeError::None;
+		uint64 EncodedBytes = 0;
+		int32 Width = 0;
+		int32 Height = 0;
+		FImageDecodeLimits Limits;
+		std::string Filename;
+		std::error_code SystemError;
+	};
+	struct FImageDecodeResult
+	{
+		FImageDecodeError Error;
+		explicit operator bool() const { return Error.Code == EImageDecodeError::None; }
+	};
+	CORE_API auto FormatImageDecodeError(const FImageDecodeError& Error) -> std::string;
+
 	// Bounds Radiance HDR input and its decoded linear RGB working set.
 	struct FRadianceHDRDecodeLimits
 	{
@@ -26,10 +44,10 @@ namespace Durin::Image
 
 	CORE_API auto IsSupportedImageExtension(std::string_view Extension) -> bool;
 	CORE_API auto IsRadianceHDRExtension(std::string_view Extension) -> bool;
-	CORE_API auto DecodeImageFromMemory(FByteView EncodedBytes, FDecodedImage& OutImage, std::string& OutError,
-		const FImageDecodeLimits& Limits = {}) -> bool;
-	CORE_API auto DecodeImageFromFile(std::string_view FilePath, FDecodedImage& OutImage, std::string& OutError,
-		const FImageDecodeLimits& Limits = {}) -> bool;
+	CORE_API auto DecodeImageFromMemory(FByteView EncodedBytes, FDecodedImage& OutImage,
+		const FImageDecodeLimits& Limits = {}) -> FImageDecodeResult;
+	CORE_API auto DecodeImageFromFile(std::string_view FilePath, FDecodedImage& OutImage,
+		const FImageDecodeLimits& Limits = {}) -> FImageDecodeResult;
 	CORE_API auto DecodeGrayscale16PngFromMemory(
 		FByteView EncodedBytes,
 		FDecodedGrayscale16Image& OutImage,

@@ -2,6 +2,7 @@
 
 #include "DObject/ObjectPtr.h"
 #include "LevelEditorAPI.h"
+#include "Editor/Transaction.h"
 #include "Math/Transform.h"
 #include "Misc/Name.h"
 
@@ -16,6 +17,12 @@ namespace Durin
 	class DLevel;
 	class DPackage;
 	class DStaticMesh;
+}
+
+namespace Durin::Editor
+{
+	struct FTransactorResult;
+	struct FTransactionCustomError;
 }
 
 namespace Durin::Editor::Level
@@ -68,14 +75,21 @@ namespace Durin::Editor::Level
 		std::vector<FStaticMeshLevelMutation> Mutations;
 	};
 
+	enum class EStaticMeshLevelMutationReason : uint8 { None, TargetRequired, TargetName, RenameName, MeshUnavailable, DuplicateName, CapturedRequest, PlannedState };
 	struct FStaticMeshLevelMutationDiagnostic
 	{
 		EStaticMeshLevelMutationError Error = EStaticMeshLevelMutationError::None;
 		size_t MutationIndex = std::numeric_limits<size_t>::max();
-		std::string Message;
+		EStaticMeshLevelMutationReason Reason = EStaticMeshLevelMutationReason::None;
+		std::string ActorName;
+		std::shared_ptr<const FTransactorResult> TransactionCause;
+		std::shared_ptr<const FTransactionCustomError> ReplayCause;
+		std::shared_ptr<const FTransactionCustomError> SupportCause;
 
 		explicit operator bool() const { return Error == EStaticMeshLevelMutationError::None; }
 	};
+
+	LEVELEDITOR_API auto FormatStaticMeshLevelMutationDiagnostic(const FStaticMeshLevelMutationDiagnostic& Diagnostic) -> std::string;
 
 	struct FStaticMeshActorMutationDelta
 	{
@@ -124,6 +138,6 @@ namespace Durin::Editor::Level
 		static auto Execute(
 			const FStaticMeshLevelMutationPlan& Plan,
 			const FStaticMeshLevelExecutionContext& Context) -> FStaticMeshLevelMutationResult;
-		static auto IsSupportedActor(const AStaticMeshActor& Actor, std::string* OutReason = nullptr) -> bool;
+		static auto IsSupportedActor(const AStaticMeshActor& Actor) -> FTransactionCustomResult;
 	};
 }

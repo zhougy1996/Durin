@@ -13,7 +13,7 @@ TEST(FMaterialPropertyEditingTests, OwnedParametersShareIdentityAndRejectConflic
 	ASSERT_TRUE(Material->SetMaterialExpressions(Original, {}));
 	ASSERT_EQ(Material->GetParameterDefinitions().size(), 1u);
 	const auto Definition = Material->GetParameterDefinitions().front();
-	TStrongObjectPtr<DMaterialExpressionScalarParameter> Duplicate(Cast<DMaterialExpressionScalarParameter>(DuplicateObject(Owner.Get(), nullptr, NAME_None)));
+	TStrongObjectPtr<DMaterialExpressionScalarParameter> Duplicate(Cast<DMaterialExpressionScalarParameter>(DuplicateObject(Owner.Get(), nullptr, NAME_None).Object));
 	Duplicate->Id = FGuid::NewGuid();
 	const std::array<DMaterialExpression*, 2> Duplicated{Owner.Get(), Duplicate.Get()};
 	ASSERT_TRUE(Material->SetMaterialExpressions(Duplicated, {}));
@@ -186,9 +186,14 @@ TEST(FMaterialPropertyEditingTests, StaticPropertiesHaveStableDefaultsAndInstanc
 	Durin::FMaterialStaticProperties Invalid = Properties;
 	Invalid.OpacityMaskThreshold = 1.1f;
 	const uint64 InitialVersion = Base->GetRenderStateVersion();
-	EXPECT_FALSE(Base->SetStaticProperties(Invalid));
+	const auto RejectedProperties = Base->SetStaticProperties(Invalid);
+	EXPECT_FALSE(RejectedProperties);
+	EXPECT_EQ(RejectedProperties.Error.Code, Durin::ValidateMaterialStaticProperties(Invalid).Error.Code);
 	EXPECT_EQ(Base->GetStaticProperties(), Properties);
 	EXPECT_EQ(Base->GetRenderStateVersion(), InitialVersion);
+	ASSERT_TRUE(Base->SetStaticProperties(Properties));
+	EXPECT_EQ(Base->GetRenderStateVersion(), InitialVersion);
+	EXPECT_TRUE(RejectedProperties.Error.HasError());
 
 	Durin::FMaterialOperationResult Error;
 	EXPECT_FALSE((Error = Durin::ValidateMaterialStaticProperties(Invalid)));
@@ -333,14 +338,9 @@ TEST(FMaterialPropertyEditingTests, ReflectedPositionalMaterialOverrideUsesShare
 	ASSERT_TRUE(Durin::RestorePropertyValue(OverridesProperty, Component, 0, Original));
 	Durin::Tests::FTestTransactorOwner Transactions;
 	Durin::Editor::FPropertyEditSession EditSession;
-	ASSERT_TRUE(EditSession.Begin(
-		Durin::Editor::FPropertyEditTarget::ForMember(Component, OverridesProperty),
-		"Edit Material Override",
-		nullptr,
-		Transactions.Get()
-	));
-	EXPECT_EQ(EditSession.Apply(Proposed), Durin::Editor::EPropertyEditResult::Changed);
-	EXPECT_EQ(EditSession.Commit(), Durin::Editor::EPropertyEditResult::Changed);
+	ASSERT_TRUE(EditSession.Begin(Durin::Editor::FPropertyEditTarget::ForMember(Component, OverridesProperty), "Edit Material Override", Transactions.Get()));
+	EXPECT_EQ(EditSession.Apply(Proposed).GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
+	EXPECT_EQ(EditSession.Commit().GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
 	const FSceneSnapshot After = CaptureScene(Harness.Scene);
 
 	EXPECT_GT(After.ComponentRevision, Before.ComponentRevision);
@@ -415,7 +415,7 @@ TEST(FMaterialPropertyEditingTests, PositionalMaterialOverridesResolveDefaultsAn
 	Component->SetStaticMesh(Mesh);
 	EXPECT_EQ(Component->GetMaterial(1), Second);
 	auto* Duplicate = Durin::Cast<Durin::DStaticMeshComponent>(
-		Durin::DuplicateObject(Component, nullptr, "SparseOverrideDuplicate"));
+		Durin::DuplicateObject(Component, nullptr, "SparseOverrideDuplicate").Object);
 	ASSERT_NE(Duplicate, nullptr);
 	EXPECT_EQ(Duplicate->GetStaticMesh(), Mesh);
 	EXPECT_EQ(Duplicate->GetMaterial(1), Second);
@@ -455,10 +455,12 @@ TEST(FMaterialPropertyEditingTests, StaticMeshComponentValidatesPositionalOverri
 	ASSERT_TRUE(Durin::RestorePropertyValue(Overrides, Component, 0, Original));
 	Durin::Editor::FPropertyEditSession Session;
 	ASSERT_TRUE(Session.Begin(Durin::Editor::FPropertyEditTarget::ForMember(Component, Overrides), "Corrupt Override"));
-	EXPECT_EQ(Session.Apply(InvalidProposal, &Error), Durin::Editor::EPropertyEditResult::Failed);
+	const auto EditResult1 = Session.Apply(InvalidProposal);
+	Error = Durin::Editor::FormatPropertyEditSessionError(EditResult1.Error);
+	EXPECT_EQ(EditResult1.GetStatus(), Durin::Editor::EPropertyEditResult::Failed);
 	EXPECT_NE(Error.find("incompatible object at material index 0"), std::string::npos);
 	EXPECT_EQ(Component->GetMaterialOverride(0), Material);
-	EXPECT_EQ(Session.Cancel(), Durin::Editor::EPropertyEditResult::NoChange);
+	EXPECT_EQ(Session.Cancel().GetStatus(), Durin::Editor::EPropertyEditResult::NoChange);
 
 	Inner->SetObjectPropertyValue(Overrides->GetMutableElementPtr(Component, 0), Mesh);
 	Component->PostLoad();
@@ -572,11 +574,11 @@ TEST(FMaterialPropertyEditingTests, ReflectedPropertyViewTracksMaterialOverrideS
 	Durin::Tests::FTestTransactorOwner Transactions;
 	std::string Error;
 	Durin::Editor::FPropertyEditSession Session;
-	ASSERT_TRUE(Session.Begin(
-		Durin::Editor::FPropertyEditTarget::ForMember(Instance, Property),
-		"Edit Parameter Override", nullptr, Transactions.Get()));
-	EXPECT_EQ(Session.Apply(Proposed, &Error), Durin::Editor::EPropertyEditResult::Changed);
-	EXPECT_EQ(Session.Commit(), Durin::Editor::EPropertyEditResult::Changed);
+	ASSERT_TRUE(Session.Begin(Durin::Editor::FPropertyEditTarget::ForMember(Instance, Property), "Edit Parameter Override", Transactions.Get()));
+	const auto EditResult2 = Session.Apply(Proposed);
+	Error = Durin::Editor::FormatPropertyEditSessionError(EditResult2.Error);
+	EXPECT_EQ(EditResult2.GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
+	EXPECT_EQ(Session.Commit().GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
 	EXPECT_TRUE(Instance->HasLocalScalarParameterValue(Durin::MaterialParameters::OpacityName()));
 	EXPECT_TRUE(Error.empty());
 	ASSERT_TRUE(Transactions->Undo());
@@ -609,12 +611,13 @@ TEST(FMaterialPropertyEditingTests, ReflectedPropertyOverridesValidateAndRestore
 	ASSERT_TRUE(Instance->SetPropertyOverrides({}));
 	Tests::FTestTransactorOwner Transactions;
 	Editor::FPropertyEditSession Session;
-	ASSERT_TRUE(Session.Begin(Editor::FPropertyEditTarget::ForMember(Instance, Property),
-		"Edit Rendering Overrides", nullptr, Transactions.Get()));
+	ASSERT_TRUE(Session.Begin(Editor::FPropertyEditTarget::ForMember(Instance, Property), "Edit Rendering Overrides", Transactions.Get()));
 	const auto Before = Instance->GetRenderStateVersion();
 	std::string Error;
-	EXPECT_EQ(Session.Apply(Proposed, &Error), Editor::EPropertyEditResult::Changed) << Error;
-	EXPECT_EQ(Session.Commit(), Editor::EPropertyEditResult::Changed);
+	const auto EditResult3 = Session.Apply(Proposed);
+	Error = Durin::Editor::FormatPropertyEditSessionError(EditResult3.Error);
+	EXPECT_EQ(EditResult3.GetStatus(), Editor::EPropertyEditResult::Changed) << Error;
+	EXPECT_EQ(Session.Commit().GetStatus(), Editor::EPropertyEditResult::Changed);
 	EXPECT_GT(Instance->GetRenderStateVersion(), Before);
 	EXPECT_EQ(Instance->GetPropertyOverrides(), Overrides);
 	ASSERT_TRUE(Transactions->Undo());
@@ -628,11 +631,12 @@ TEST(FMaterialPropertyEditingTests, ReflectedPropertyOverridesValidateAndRestore
 	ASSERT_TRUE(CapturePropertyValue(Property, Instance, 0, Invalid));
 	ASSERT_TRUE(Instance->SetPropertyOverrides(Overrides));
 	Editor::FPropertyEditSession Rejected;
-	ASSERT_TRUE(Rejected.Begin(Editor::FPropertyEditTarget::ForMember(Instance, Property),
-		"Invalid Rendering Overrides", nullptr, Transactions.Get()));
-	EXPECT_NE(Rejected.Apply(Invalid, &Error), Editor::EPropertyEditResult::Changed);
+	ASSERT_TRUE(Rejected.Begin(Editor::FPropertyEditTarget::ForMember(Instance, Property), "Invalid Rendering Overrides", Transactions.Get()));
+	const auto EditResult4 = Rejected.Apply(Invalid);
+	Error = Durin::Editor::FormatPropertyEditSessionError(EditResult4.Error);
+	EXPECT_NE(EditResult4.GetStatus(), Editor::EPropertyEditResult::Changed);
 	EXPECT_FALSE(Error.empty());
-	Rejected.Cancel();
+	Rejected.Cancel().GetStatus();
 	EXPECT_EQ(Instance->GetPropertyOverrides(), Overrides);
 	EXPECT_FALSE(Transactions->CanUndo());
 	EXPECT_TRUE(Transactions->Reset());
@@ -671,13 +675,14 @@ TEST(FMaterialPropertyEditingTests, ParentHookRejectsCyclesWithoutCreatingHistor
 
 	Durin::Tests::FTestTransactorOwner Transactions;
 	Durin::Editor::FPropertyEditSession Session;
-	ASSERT_TRUE(Session.Begin(Durin::Editor::FPropertyEditTarget::ForMember(Second, ParentProperty),
-		"Edit Parent", nullptr, Transactions.Get()));
+	ASSERT_TRUE(Session.Begin(Durin::Editor::FPropertyEditTarget::ForMember(Second, ParentProperty), "Edit Parent", Transactions.Get()));
 	std::string Error;
-	EXPECT_EQ(Session.Apply(Proposed, &Error), Durin::Editor::EPropertyEditResult::Failed);
+	const auto EditResult5 = Session.Apply(Proposed);
+	Error = Durin::Editor::FormatPropertyEditSessionError(EditResult5.Error);
+	EXPECT_EQ(EditResult5.GetStatus(), Durin::Editor::EPropertyEditResult::Failed);
 	EXPECT_EQ(Error, "A material instance cannot create a parent cycle.");
 	EXPECT_EQ(Second->GetParent(), nullptr);
-	EXPECT_EQ(Session.Commit(), Durin::Editor::EPropertyEditResult::NoChange);
+	EXPECT_EQ(Session.Commit().GetStatus(), Durin::Editor::EPropertyEditResult::NoChange);
 	EXPECT_FALSE(Transactions->CanUndo());
 
 	First->SetParent(nullptr);
@@ -717,24 +722,20 @@ TEST(FMaterialPropertyEditingTests, ParentTransactionsRenderFromCurrentCanonical
 
 	Durin::Tests::FTestTransactorOwner Transactions;
 	Durin::Editor::FPropertyEditSession CancelledSession;
-	ASSERT_TRUE(CancelledSession.Begin(
-		Durin::Editor::FPropertyEditTarget::ForMember(Instance, ParentProperty),
-		"Edit Parent", nullptr, Transactions.Get()));
-	ASSERT_EQ(CancelledSession.Apply(Proposed), Durin::Editor::EPropertyEditResult::Changed);
+	ASSERT_TRUE(CancelledSession.Begin(Durin::Editor::FPropertyEditTarget::ForMember(Instance, ParentProperty), "Edit Parent", Transactions.Get()));
+	ASSERT_EQ(CancelledSession.Apply(Proposed).GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
 	EXPECT_EQ(Instance->GetParent(), SecondParent);
 	const FSceneSnapshot Interactive = CaptureScene(Harness.Scene);
 	ExpectColorNear(GetMaterialBinding(Interactive.Material).BaseColor, Durin::FVector4f(0.7f, 0.6f, 0.5f, 1.0f));
-	ASSERT_EQ(CancelledSession.Cancel(), Durin::Editor::EPropertyEditResult::Changed);
+	ASSERT_EQ(CancelledSession.Cancel().GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
 	EXPECT_EQ(Instance->GetParent(), FirstParent);
 	const FSceneSnapshot Cancelled = CaptureScene(Harness.Scene);
 	ExpectColorNear(GetMaterialBinding(Cancelled.Material).BaseColor, Durin::FVector4f(0.1f, 0.2f, 0.3f, 1.0f));
 
 	Durin::Editor::FPropertyEditSession CommittedSession;
-	ASSERT_TRUE(CommittedSession.Begin(
-		Durin::Editor::FPropertyEditTarget::ForMember(Instance, ParentProperty),
-		"Edit Parent", nullptr, Transactions.Get()));
-	ASSERT_EQ(CommittedSession.Apply(Proposed), Durin::Editor::EPropertyEditResult::Changed);
-	ASSERT_EQ(CommittedSession.Commit(), Durin::Editor::EPropertyEditResult::Changed);
+	ASSERT_TRUE(CommittedSession.Begin(Durin::Editor::FPropertyEditTarget::ForMember(Instance, ParentProperty), "Edit Parent", Transactions.Get()));
+	ASSERT_EQ(CommittedSession.Apply(Proposed).GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
+	ASSERT_EQ(CommittedSession.Commit().GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
 	EXPECT_EQ(Instance->GetParent(), SecondParent);
 	const FSceneSnapshot Committed = CaptureScene(Harness.Scene);
 	ExpectColorNear(GetMaterialBinding(Committed.Material).BaseColor, Durin::FVector4f(0.7f, 0.6f, 0.5f, 1.0f));

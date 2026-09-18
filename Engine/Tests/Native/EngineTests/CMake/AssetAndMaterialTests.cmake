@@ -49,6 +49,7 @@ durin_add_native_test(EditorPropertyTests
 	PRIVATE_SOURCES ${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
 	LIBRARIES Core CoreDObject Engine DurinEd
 	INCLUDE_DIRECTORIES
+		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/DurinEd/Private
 		${CMAKE_CURRENT_SOURCE_DIR}/Private
 		${_durin_level_editor_private}
 		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Public

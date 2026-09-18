@@ -123,9 +123,8 @@ namespace
 		}
 		auto* Result = Durin::NewObject<Durin::DStaticMesh>(Level,
 			std::format("PickingGrid{}", TriangleCount));
-		std::string Error;
-		if (!Durin::BuildStaticMeshSynchronously(
-			*Result, std::move(Imported), Error)) throw std::runtime_error(Error);
+		if (const auto Built = Durin::BuildStaticMeshSynchronously(
+			*Result, std::move(Imported)); !Built) throw std::runtime_error(Durin::FormatStaticMeshSynchronousError(Built.Error));
 		return Result;
 	}
 }

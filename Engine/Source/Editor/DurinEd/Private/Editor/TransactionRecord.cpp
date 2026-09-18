@@ -7,12 +7,21 @@
 
 namespace Durin::Editor
 {
-	namespace
+	auto FormatTransactionSnapshotError(const FTransactionSnapshotError& Error) -> std::string
 	{
-		auto Fail(std::string* OutError, std::string_view Error) -> bool
+		if (Error.SnapshotCause) return FormatPropertySnapshotError(*Error.SnapshotCause);
+		if (Error.ValueCause) return FormatPropertyValueError(*Error.ValueCause);
+		switch (Error.Code)
 		{
-			if (OutError) *OutError = Error;
-			return false;
+		case ETransactionSnapshotError::None: return {};
+		case ETransactionSnapshotError::NullMember: return "Cannot locate a null transaction member.";
+		case ETransactionSnapshotError::MemberOwner: return "Focused transaction members must be top-level class properties.";
+		case ETransactionSnapshotError::ArrayIndex: return "Focused transaction member array index is out of range.";
+		case ETransactionSnapshotError::InvalidTarget: return "Focused transaction target no longer resolves.";
+		case ETransactionSnapshotError::MissingMember: return "Focused transaction member no longer exists on the target class.";
+		case ETransactionSnapshotError::IncompatibleMember: return "Focused transaction member is incompatible with the captured payload.";
+		case ETransactionSnapshotError::MemberIdentity: return "Focused transaction member does not belong to the target class.";
+		default: return "Focused transaction snapshot operation failed.";
 		}
 	}
 
@@ -71,17 +80,19 @@ namespace Durin::Editor
 	auto FTransactionMemberLocator::Capture(
 		const FProperty* Property,
 		uint32 InArrayIndex,
-		FTransactionMemberLocator& OutLocator,
-		std::string* OutError
-	) -> bool
+		FTransactionMemberLocator& OutLocator
+	) -> FTransactionSnapshotResult
 	{
-		if (OutError) OutError->clear();
-		if (!Property) return Fail(OutError, "Cannot locate a null transaction member.");
+		FTransactionSnapshotError Error{.ArrayIndex = InArrayIndex};
+		if (!Property) { Error.Code = ETransactionSnapshotError::NullMember; return {Error}; }
+		Error.Member = Property->NamePrivate.ToString();
+		Error.ArrayDim = Property->GetArrayDim();
+		Error.ExpectedKind = Property->GetKind();
 		const DClass* DeclaringClass = Cast<DClass>(Property->Owner.ToDObject());
-		if (!DeclaringClass)
-			return Fail(OutError, "Focused transaction members must be top-level class properties.");
+		if (!DeclaringClass) { Error.Code = ETransactionSnapshotError::MemberOwner; return {Error}; }
+		Error.DeclaringType = DeclaringClass->GetQualifiedName().ToString();
 		if (InArrayIndex >= Property->GetArrayDim())
-			return Fail(OutError, "Focused transaction member array index is out of range.");
+		{ Error.Code = ETransactionSnapshotError::ArrayIndex; return {Error}; }
 
 		FTransactionMemberLocator Locator;
 		Locator.DeclaringType = DeclaringClass->GetQualifiedName();
@@ -89,68 +100,65 @@ namespace Durin::Editor
 		Locator.ArrayIndex = InArrayIndex;
 		Locator.CapturedProperty = Property;
 		OutLocator = Locator;
-		return true;
+		return {};
 	}
 
-	auto FTransactionMemberLocator::Resolve(
-		const DObject* Target,
-		std::string* OutError
-	) const -> FProperty*
+	auto FTransactionMemberLocator::Resolve(const DObject* Target) const -> FTransactionMemberResolveResult
 	{
-		if (OutError) OutError->clear();
+		FTransactionSnapshotError Error{
+			.Owner = FObjectKey(Target), .Member = MemberName.ToString(),
+			.DeclaringType = DeclaringType.ToString(), .ArrayIndex = ArrayIndex,
+			.ExpectedKind = CapturedProperty ? CapturedProperty->GetKind() : DurinCodeGen::EPropertyGenFlags::None};
 		if (!Target || !IsValid(Target))
-		{
-			Fail(OutError, "Focused transaction target no longer resolves.");
-			return nullptr;
-		}
+		{ Error.Code = ETransactionSnapshotError::InvalidTarget; return {nullptr, Error}; }
 		DClass* TargetClass = Target->GetClass();
-		FProperty* Property = TargetClass
-			? TargetClass->FindPropertyByName(MemberName) : nullptr;
-		const DClass* DeclaringClass = Property
-			? Cast<DClass>(Property->Owner.ToDObject()) : nullptr;
-		if (!Property || !DeclaringClass
-			|| DeclaringClass->GetQualifiedName() != DeclaringType)
-		{
-			Fail(OutError, "Focused transaction member no longer exists on the target class.");
-			return nullptr;
-		}
-		if (ArrayIndex >= Property->GetArrayDim()
-			|| !ArePropertySnapshotTypesCompatible(CapturedProperty, Property))
-		{
-			Fail(OutError, "Focused transaction member is incompatible with the captured payload.");
-			return nullptr;
-		}
-		return Property;
+		FProperty* Property = TargetClass ? TargetClass->FindPropertyByName(MemberName) : nullptr;
+		const DClass* DeclaringClass = Property ? Cast<DClass>(Property->Owner.ToDObject()) : nullptr;
+		if (Property) { Error.ArrayDim = Property->GetArrayDim(); Error.ActualKind = Property->GetKind(); }
+		if (DeclaringClass) Error.ActualDeclaringType = DeclaringClass->GetQualifiedName().ToString();
+		if (!Property || !DeclaringClass || DeclaringClass->GetQualifiedName() != DeclaringType)
+		{ Error.Code = ETransactionSnapshotError::MissingMember; return {nullptr, Error}; }
+		if (ArrayIndex >= Property->GetArrayDim())
+		{ Error.Code = ETransactionSnapshotError::ArrayIndex; return {nullptr, Error}; }
+		if (!ArePropertySnapshotTypesCompatible(CapturedProperty, Property))
+		{ Error.Code = ETransactionSnapshotError::IncompatibleMember; return {nullptr, Error}; }
+		return {Property, {}};
 	}
 
 	auto FFocusedTransactionObjectSnapshot::Capture(
 		DObject* InTarget,
 		const FProperty* MemberProperty,
 		uint32 ArrayIndex,
-		FFocusedTransactionObjectSnapshot& OutSnapshot,
-		std::string* OutError
-	) -> bool
+		FFocusedTransactionObjectSnapshot& OutSnapshot
+	) -> FTransactionSnapshotResult
 	{
-		if (OutError) OutError->clear();
+		FTransactionSnapshotError Error{
+			.Owner = FObjectKey(InTarget),
+			.Member = MemberProperty ? MemberProperty->NamePrivate.ToString() : std::string{},
+			.ArrayIndex = ArrayIndex};
 		if (!IsValid(InTarget))
-			return Fail(OutError, "Cannot capture a focused record for an invalid target.");
-
+		{ Error.Code = ETransactionSnapshotError::InvalidTarget; return {Error}; }
 		FFocusedTransactionObjectSnapshot Snapshot;
 		Snapshot.Target = FPersistentObjectRef(InTarget);
-		if (!FTransactionMemberLocator::Capture(
-			MemberProperty, ArrayIndex, Snapshot.Member, OutError)) return false;
-		if (Snapshot.Member.Resolve(InTarget, OutError) != MemberProperty)
-			return Fail(OutError, "Focused transaction member does not belong to the target class.");
-		if (!CapturePropertyValuePayload(
-			MemberProperty, InTarget, ArrayIndex, Snapshot.Payload, OutError)) return false;
-
+		if (auto Result = FTransactionMemberLocator::Capture(MemberProperty, ArrayIndex, Snapshot.Member); !Result)
+		{ Result.Error.Owner = Error.Owner; return Result; }
+		const auto Resolved = Snapshot.Member.Resolve(InTarget);
+		if (!Resolved) return {Resolved.Error};
+		if (Resolved.Property != MemberProperty)
+		{ Error.Code = ETransactionSnapshotError::MemberIdentity; return {Error}; }
+		if (const auto Result = CapturePropertyValuePayload(MemberProperty, InTarget, ArrayIndex, Snapshot.Payload); !Result)
+		{
+			Error.Code = ETransactionSnapshotError::Capture;
+			Error.SnapshotCause = Result.Error;
+			return {Error};
+		}
 		for (FObjectKey Handle : Snapshot.Payload.GetReferencedObjectKeys())
 		{
 			const FPersistentObjectRef Reference = FPersistentObjectRef::FromKey(Handle);
 			if (Reference != Snapshot.Target) Snapshot.HardReferences.Add(Reference);
 		}
 		OutSnapshot = std::move(Snapshot);
-		return true;
+		return {};
 	}
 
 	auto FFocusedTransactionObjectSnapshot::AddReferencedObjects(
@@ -161,24 +169,29 @@ namespace Durin::Editor
 	}
 
 	auto FFocusedTransactionObjectSnapshot::RestoreDetached(
-		FReflectedValueStorage& OutStorage,
-		std::string* OutError
-	) const -> bool
+		FReflectedValueStorage& OutStorage
+	) const -> FTransactionSnapshotResult
 	{
-		if (OutError) OutError->clear();
-		DObject* ResolvedTarget = Target.Resolve();
-		FProperty* Property = Member.Resolve(ResolvedTarget, OutError);
-		if (!Property) return false;
-
-		FReflectedValueStorage Storage;
-		if (!Storage.DefaultConstruct(Property, Member.GetArrayIndex(), OutError)) return false;
-		if (!RestorePropertyValuePayload(
-			Property, Storage.GetContainer(), Member.GetArrayIndex(), Payload, OutError))
+		const auto Resolved = Member.Resolve(Target.Resolve());
+		if (!Resolved)
 		{
-			return false;
+			auto Error = Resolved.Error;
+			Error.Owner = Target.GetKey();
+			return {Error};
 		}
+		FProperty* Property = Resolved.Property;
+		FTransactionSnapshotError Error{
+			.Owner = Target.GetKey(), .Member = Member.GetMemberName().ToString(),
+			.DeclaringType = Member.GetDeclaringType().ToString(),
+			.ArrayIndex = Member.GetArrayIndex(), .ArrayDim = Property->GetArrayDim(),
+			.ExpectedKind = Property->GetKind(), .ActualKind = Property->GetKind()};
+		FReflectedValueStorage Storage;
+		if (const auto Result = Storage.DefaultConstruct(Property, Member.GetArrayIndex()); !Result)
+		{ Error.Code = ETransactionSnapshotError::Storage; Error.ValueCause = Result.Error; return {Error}; }
+		if (const auto Result = RestorePropertyValuePayload(Property, Storage.GetContainer(), Member.GetArrayIndex(), Payload); !Result)
+		{ Error.Code = ETransactionSnapshotError::Restore; Error.SnapshotCause = Result.Error; return {Error}; }
 		OutStorage = std::move(Storage);
-		return true;
+		return {};
 	}
 
 	auto FFocusedTransactionObjectSnapshot::TryGetAllocatedSize(size_t& OutBytes) const -> bool

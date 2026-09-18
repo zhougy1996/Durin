@@ -1,6 +1,7 @@
 #pragma once
 
 #include "EngineAPI.h"
+#include "Texture/Texture2DBuildProvider.h"
 
 namespace Durin
 {
@@ -46,6 +47,39 @@ namespace Durin
 		uint64 ResultBytes = 0;
 	};
 
+	enum class ETexture2DCompilationError : uint8
+	{
+		None, BuildFailed, WorkerFailed, Cancelled, CancelledBeforeAdmission, CancelledDuringShutdown,
+		InvalidSource, MissingSourceIdentity, ManagerUnavailable, ManagerNotStarted, InvalidOwner,
+		AdmissionRejected, MissingPackage, InvalidProduct, SourceMismatch, InvalidSettings,
+		InputMismatch, Superseded, ImportValidation, ImportAllocation, Save,
+	};
+	struct FTexture2DBuildInputIdentity;
+	struct FAssetImportDataError;
+	struct FAssetResult;
+	struct FTexture2DCompilationError
+	{
+		ETexture2DCompilationError Code = ETexture2DCompilationError::None;
+		std::optional<FTexture2DBuildError> BuildCause;
+		std::optional<ETaskState> TaskState;
+		std::optional<FTexture2DInputError> InputCause;
+		std::string ObjectPath;
+		FXxHash128 ExpectedSourceIdentity{};
+		FXxHash128 ActualSourceIdentity{};
+		std::shared_ptr<const FTexture2DBuildInputIdentity> ExpectedInput;
+		std::shared_ptr<const FTexture2DBuildInputIdentity> ActualInput;
+		std::shared_ptr<const FAssetImportDataError> ImportCause;
+		std::shared_ptr<const FAssetResult> SaveCause;
+		auto HasError() const -> bool { return Code != ETexture2DCompilationError::None; }
+	};
+	struct FTexture2DCompilationOperationResult
+	{
+		FTexture2DCompilationError Error;
+		auto Succeeded() const -> bool { return !Error.HasError(); }
+		explicit operator bool() const { return Succeeded(); }
+	};
+	ENGINE_API auto FormatTexture2DCompilationError(const FTexture2DCompilationError& Error) -> std::string;
+
 	// Provides a thread-safe snapshot suitable for editor diagnostics.
 	struct FTexture2DCompilationDiagnostic
 	{
@@ -54,7 +88,7 @@ namespace Durin
 		uint64 RequestSerial = 0;
 		std::string AssetIdentity;
 		std::string DerivedDataKey;
-		std::string Message;
+		FTexture2DCompilationError Error;
 		FTexture2DCompilationMetrics Metrics;
 		uint64 QueuedNanoseconds = 0;
 		uint64 WorkerNanoseconds = 0;

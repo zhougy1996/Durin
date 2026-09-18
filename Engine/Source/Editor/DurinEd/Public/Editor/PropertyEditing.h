@@ -2,6 +2,8 @@
 
 #include "DObject/Archive.h"
 #include "DObject/PropertyChange.h"
+#include "DObject/ObjectValidation.h"
+#include "DObject/ContainerOps.h"
 #include "DObject/StrongObjectPtr.h"
 #include "DurinEdAPI.h"
 #include "Editor/Transaction.h"
@@ -18,7 +20,7 @@ namespace Durin::Editor
 {
 	struct FPropertyEditExtension
 	{
-		std::function<bool(DObject&, FPropertyEditProposal&, std::string&)> PreEdit;
+		std::function<FObjectValidationResult(DObject&, FPropertyEditProposal&)> PreEdit;
 		std::function<void(DObject&, const FPropertyChangedEvent&)> PostEdit;
 	};
 
@@ -38,6 +40,99 @@ namespace Durin::Editor
 		FPropertyValueSnapshotPayload MapKey;
 	};
 
+	enum class EPropertyEditPathError : uint8
+	{
+		None, MissingOwner, IncompleteTarget, SnapshotIndex, Endpoints, EmptySegment,
+		UnexpectedKeyData, SnapshotRoot, ArrayProperty, ArrayCount, ArrayIndex,
+		ArrayAccess, MapSnapshot, MapTraversal, MapCapture, MapMissing, MapSelection,
+		Selector, Unresolved, Empty
+	};
+	struct FPropertyEditPathContext
+	{
+		std::string Property;
+		EPropertyPathSelector Selector = EPropertyPathSelector::None;
+		uint64 Index = 0;
+		FByteBuffer KeyData;
+		FPropertyValueSnapshotPayload MapKey;
+	};
+	struct FPropertyEditPathError
+	{
+		EPropertyEditPathError Code = EPropertyEditPathError::None;
+		FObjectKey Owner;
+		std::string Member;
+		std::string Leaf;
+		std::string Snapshot;
+		bool HasSnapshotContainer = false;
+		uint64 SnapshotArrayIndex = 0;
+		std::vector<FPropertyEditPathContext> Path;
+		uint64 PathIndex = 0;
+		uint64 Actual = 0;
+		uint64 Expected = 0;
+		std::optional<EContainerOpResult> ContainerCause;
+		std::optional<FPropertySnapshotError> SnapshotCause;
+	};
+	struct FPropertyEditPathResult
+	{
+		FPropertyEditPathError Error;
+		explicit operator bool() const { return Error.Code == EPropertyEditPathError::None; }
+	};
+	DURINED_API auto FormatPropertyEditPathError(const FPropertyEditPathError& Error) -> std::string;
+
+	enum class EPropertyValueDraftError : uint8
+	{
+		None, MissingRoot, Accessors, Lifecycle, Capture, Storage, Restore, RootMismatch, Path
+	};
+
+	struct FPropertyValueDraftError
+	{
+		EPropertyValueDraftError Code = EPropertyValueDraftError::None;
+		std::string Root;
+		uint32 ArrayIndex = 0;
+		bool HasContainer = false;
+		bool HasLifecycle = false;
+		uint64 ValueSize = 0;
+		uint64 ValueAlignment = 0;
+		std::string RequestedRoot;
+		uint32 RequestedArrayIndex = 0;
+		std::optional<FPropertySnapshotError> SnapshotCause;
+		std::optional<FPropertyValueError> ValueCause;
+		std::optional<FPropertyEditPathError> PathCause;
+	};
+
+	struct FPropertyValueDraftResult
+	{
+		FPropertyValueDraftError Error;
+		explicit operator bool() const { return Error.Code == EPropertyValueDraftError::None; }
+	};
+
+	DURINED_API auto FormatPropertyValueDraftError(const FPropertyValueDraftError& Error) -> std::string;
+
+	enum class EPropertyMutationError : uint8
+	{
+		None, RecursiveEdit, MissingValue, CaptureBefore, Draft, ExtensionValidation,
+		ObjectValidation, DeferredUnavailable, Publication, CaptureAfter
+	};
+	struct FPropertyMutationError
+	{
+		EPropertyMutationError Code = EPropertyMutationError::None;
+		FObjectKey Owner;
+		std::string Member;
+		EPropertyChangePhase Phase = EPropertyChangePhase::Interactive;
+		EPropertyChangeOrigin Origin = EPropertyChangeOrigin::Edit;
+		EPropertyChangeKind Kind = EPropertyChangeKind::ValueSet;
+		std::optional<FPropertyValueDraftError> DraftCause;
+		std::optional<FPropertySnapshotError> SnapshotCause;
+		std::optional<FObjectValidationError> ValidationCause;
+		std::optional<FPropertySnapshotError> RollbackCause;
+		std::optional<FPropertySnapshotError> RecoveryCaptureCause;
+	};
+	struct FPropertyMutationResult
+	{
+		FPropertyMutationError Error;
+		explicit operator bool() const { return Error.Code == EPropertyMutationError::None; }
+	};
+	DURINED_API auto FormatPropertyMutationError(const FPropertyMutationError& Error) -> std::string;
+
 	// Describes a reflected edit using a stable snapshot root and logical path.
 	struct FPropertyEditTarget
 	{
@@ -55,6 +150,7 @@ namespace Durin::Editor
 		FByteBuffer LogicalIdentity;
 		EPropertyChangeKind Kind = EPropertyChangeKind::ValueSet;
 
+		DURINED_API auto Validate() const -> FPropertyEditPathResult;
 		DURINED_API static auto ForMember(DObject* Object, const FProperty* Property, uint32 ArrayIndex = 0) -> FPropertyEditTarget;
 		DURINED_API auto ForStructMember(const FProperty* Property, uint32 ArrayIndex = 0) const -> FPropertyEditTarget;
 		DURINED_API auto ForArrayElement(const FProperty* ElementProperty, uint64 ElementIndex) const -> FPropertyEditTarget;
@@ -83,6 +179,37 @@ namespace Durin::Editor
 		Pending,
 	};
 
+	enum class EPropertyEditSessionError : uint8
+	{
+		None, AlreadyActive, Inactive, Target, UnavailableOwner, Capture,
+		Scope, Record, RecordAdmission, RecordUpdate, Mutation, Commit, Cancel
+	};
+	struct FPropertyEditSessionError
+	{
+		EPropertyEditSessionError Code = EPropertyEditSessionError::None;
+		FObjectKey Owner;
+		std::string Member;
+		std::string Description;
+		uint64 RecordId = 0;
+		std::optional<FPropertyEditPathError> PathCause;
+		std::optional<FPropertySnapshotError> SnapshotCause;
+		std::optional<FTransactionObjectRecordError> RecordCause;
+		std::optional<FPropertyMutationError> MutationCause;
+		std::optional<FPropertyMutationError> RollbackCause;
+		bool RollbackDeferred = false;
+		std::optional<FTransactorResult> TransactorCause;
+		std::optional<FTransactorResult> CleanupCause;
+	};
+	struct FPropertyEditOperationResult
+	{
+		EPropertyEditResult Disposition = EPropertyEditResult::NoChange;
+		FPropertyEditSessionError Error;
+		explicit operator bool() const { return Error.Code == EPropertyEditSessionError::None; }
+		auto GetStatus() const -> EPropertyEditResult
+		{ return Error.Code == EPropertyEditSessionError::None ? Disposition : EPropertyEditResult::Failed; }
+	};
+	DURINED_API auto FormatPropertyEditSessionError(const FPropertyEditSessionError& Error) -> std::string;
+
 	// Coalesces continuous widget changes into one reflected-property transaction.
 	class FPropertyEditSession
 	{
@@ -96,14 +223,12 @@ namespace Durin::Editor
 			const FPropertyEditTarget& InTarget,
 			// An empty description uses "Edit <MemberProperty>" after target validation.
 			std::string_view InDescription,
-			std::string* OutError = nullptr,
 			DTransactor* InTransactor = nullptr
-		) -> bool;
-		DURINED_API auto Apply(const FPropertyValueSnapshot& ProposedValue, std::string* OutError = nullptr) -> EPropertyEditResult;
-		DURINED_API auto Apply(const FPropertyValueSnapshotPayload& ProposedValue,
-			std::string* OutError = nullptr) -> EPropertyEditResult;
-		DURINED_API auto Commit(std::string* OutError = nullptr) -> EPropertyEditResult;
-		DURINED_API auto Cancel(std::string* OutError = nullptr) -> EPropertyEditResult;
+		) -> FPropertyEditOperationResult;
+		DURINED_API auto Apply(const FPropertyValueSnapshot& ProposedValue) -> FPropertyEditOperationResult;
+		DURINED_API auto Apply(const FPropertyValueSnapshotPayload& ProposedValue) -> FPropertyEditOperationResult;
+		DURINED_API auto Commit() -> FPropertyEditOperationResult;
+		DURINED_API auto Cancel() -> FPropertyEditOperationResult;
 
 		auto IsActive() const -> bool { return bActive; }
 		DURINED_API auto MatchesTarget(const FPropertyEditTarget& Other) const -> bool;
@@ -116,10 +241,10 @@ namespace Durin::Editor
 	private:
 		struct FDeferredOwnerState;
 		auto CompleteDeferredEdit(
-			bool bSucceeded,
-			std::string Error,
+			FObjectValidationResult Validation,
 			FPropertyValueSnapshotPayload ProposedValue) -> void;
-		auto UpdateTransactorRecord(std::string* OutError) -> bool;
+		auto UpdateTransactorRecord() -> FPropertyEditOperationResult;
+		auto Reject(EPropertyEditSessionError Code) const -> FPropertyEditOperationResult;
 		auto Reset() -> void;
 
 		FPropertyEditTarget Target;

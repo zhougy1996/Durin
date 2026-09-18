@@ -73,12 +73,15 @@ namespace Durin::AssetForge::Builtins
 			if (!ResolveOwningPackagePhysicalPath(Texture, OwningPackagePath, OutError))
 				return false;
 			OutSource.PhysicalPath = std::filesystem::absolute(FilePath).lexically_normal();
-			if (!std::filesystem::is_regular_file(OutSource.PhysicalPath)
-				|| !MakeSourceHint(
-					OutSource.PhysicalPath.generic_string(), OwningPackagePath.generic_string(),
-					OutSource.HintBase, OutSource.Filename, OutError)) return false;
-			return CaptureEncodedSource(OutSource.Filename, OutSource.PhysicalPath,
-				OutSource.Snapshot, OutError, MaximumTextureCubeEncodedBytes);
+			if (!std::filesystem::is_regular_file(OutSource.PhysicalPath)) return false;
+			if (const auto Hint = MakeSourceHint(
+				OutSource.PhysicalPath.generic_string(), OwningPackagePath.generic_string(),
+				OutSource.HintBase, OutSource.Filename); !Hint)
+			{ OutError = FormatSourceHintError(Hint.Error); return false; }
+			const auto Captured = CaptureEncodedSource(OutSource.Filename, OutSource.PhysicalPath,
+				OutSource.Snapshot, MaximumTextureCubeEncodedBytes);
+			OutError = FormatEncodedSourceError(Captured.Error);
+			return static_cast<bool>(Captured);
 		}
 
 		auto PublishCubeImportData(DTextureCube& Texture,
@@ -102,7 +105,8 @@ namespace Durin::AssetForge::Builtins
 			auto* Data = Texture.GetAssetImportData();
 			if (!Data) Data = NewObject<DAssetImportData>(&Texture, "AssetImportData");
 			State.SourceData.Normalize();
-			if (!State.Validate(OutError)) return false;
+			if (const auto Validation = State.Validate(); !Validation)
+			{ OutError = FormatAssetImportDataError(Validation.Error); return false; }
 			if (!Data) { OutError = "Could not allocate asset import data."; return false; }
 			Data->SetState(std::move(State));
 			Texture.SetAssetImportData(*Data);
@@ -211,33 +215,42 @@ namespace Durin::AssetForge::Builtins
 			if (Diagnostics) Diagnostics->Report(Message);
 			return nullptr;
 		};
+		auto Reject = [&](EFactoryError Code, std::string_view SourceRole = {}) -> DObject* {
+			if (Diagnostics) Diagnostics->ReportFailure({
+				.Code = Code,
+				.ExpectedClass = DTextureCube::StaticClass()->GetName(),
+				.RequestedClass = InClass ? InClass->GetName() : std::string{},
+				.Filename = std::string(Filename), .SourceRole = std::string(SourceRole),
+				.SourceLayout = static_cast<uint32>(SourceLayout)});
+			return nullptr;
+		};
 		if (InClass != DTextureCube::StaticClass())
-			return Failed("TextureCube factory requires the exact TextureCube class.");
+			return Reject(EFactoryError::ExactClass);
 		auto* Package = Cast<DPackage>(InParent);
 		if (!Package || !Package->IsAssetPackage())
-			return Failed("TextureCube factory requires an asset package parent.");
+			return Reject(EFactoryError::AssetPackageParent);
 		auto* Texture = NewObject<DTextureCube>(InClass, Package, InName, Flags);
-		if (!Texture) return Failed("TextureCube object could not be created.");
+		if (!Texture) return Reject(EFactoryError::ObjectCreation);
 
 		std::string Error;
 		if (SourceLayout == ETextureCubeSourceLayout::SixFaces)
 		{
 			for (size_t Index = 0; Index < FaceFiles.size(); ++Index)
 				if (FaceFiles[Index].empty())
-					return Failed(std::format(
-						"{} TextureCube face source is required.", FaceNames[Index]));
+					return Reject(EFactoryError::SourceRoleMissing, FaceNames[Index]);
 			if (!RebuildFaces(*Texture, FaceFiles, FaceSettings, Error, nullptr))
 				return Failed(std::move(Error));
 			return Texture;
 		}
 		if (SourceLayout != ETextureCubeSourceLayout::EquirectangularPanorama)
-			return Failed("TextureCube factory source layout is unsupported.");
+			return Reject(EFactoryError::SourceLayout);
 		const std::filesystem::path Input =
 			std::filesystem::absolute(Filename).lexically_normal();
-		if (!std::filesystem::is_regular_file(Input)
-			|| !IsTextureCubePanoramaSourceExtension(
+		if (!std::filesystem::is_regular_file(Input))
+			return Reject(EFactoryError::SourceMissing);
+		if (!IsTextureCubePanoramaSourceExtension(
 				Input.extension().generic_string()))
-			return Failed("TextureCube panorama source is missing or unsupported.");
+			return Reject(EFactoryError::SourceFormat);
 		if (!RebuildPanorama(
 			*Texture, Input.generic_string(), PanoramaSettings, Error, nullptr))
 			return Failed(std::move(Error));
@@ -307,13 +320,15 @@ namespace Durin::AssetForge::Builtins
 			const FSourceFile* Source = Data
 				? Data->GetSourceData().FindByRole("panorama") : nullptr;
 			std::string SourcePath;
-			if (Source && ResolveOwningPackagePhysicalPath(
-				*Texture, OwningPackagePath, Error)
-				&& ResolveSourceHint(Source->HintBase, Source->Hint,
-					OwningPackagePath.generic_string(), SourcePath, Error))
-				bSucceeded = RebuildPanorama(*Texture, SourcePath,
+			if (Source && ResolveOwningPackagePhysicalPath(*Texture, OwningPackagePath, Error))
+			{
+				const auto Resolved = ResolveSourceHint(Source->HintBase, Source->Hint,
+					OwningPackagePath.generic_string(), SourcePath);
+				if (!Resolved) Error = FormatSourceHintError(Resolved.Error);
+				else bSucceeded = RebuildPanorama(*Texture, SourcePath,
 					{.FaceDimension = Texture->GetPanoramaFaceDimension(),
 						.ExposureEV = Texture->GetPanoramaExposureEV(), .Output = Texture->GetOutput()}, Error, nullptr);
+			}
 		}
 		else if (Texture && Texture->GetSourceLayout() == ETextureCubeSourceLayout::SixFaces)
 		{
@@ -325,8 +340,14 @@ namespace Durin::AssetForge::Builtins
 			{
 				const FSourceFile* Source = Data
 					? Data->GetSourceData().FindByRole(FaceRoles[Index]) : nullptr;
-				bSucceeded = Source && ResolveSourceHint(Source->HintBase, Source->Hint,
-					OwningPackagePath.generic_string(), Sources[Index], Error);
+				bSucceeded = Source != nullptr;
+				if (Source)
+				{
+					const auto Resolved = ResolveSourceHint(Source->HintBase, Source->Hint,
+						OwningPackagePath.generic_string(), Sources[Index]);
+					bSucceeded = Resolved.Succeeded();
+					Error = FormatSourceHintError(Resolved.Error);
+				}
 			}
 			if (bSucceeded) bSucceeded = RebuildFaces(
 				*Texture, Sources, {.bSRGB = Texture->IsSRGB()}, Error, nullptr);
@@ -402,8 +423,10 @@ namespace Durin::AssetForge::Builtins
 			return true;
 		}
 		Image::FDecodedImage Panorama;
-		if (!Image::DecodeImageFromMemory(EncodedBytes, Panorama, OutError,
-			{.MaximumDecodedPixels = MaximumTextureCubePanoramaPixels}))
+		const auto DecodeResult = Image::DecodeImageFromMemory(EncodedBytes, Panorama,
+			{.MaximumDecodedPixels = MaximumTextureCubePanoramaPixels});
+		OutError = Image::FormatImageDecodeError(DecodeResult.Error);
+		if (!DecodeResult)
 			return false;
 		OutSource = NormalizePanorama(std::move(Panorama));
 		return true;
@@ -418,8 +441,10 @@ namespace Durin::AssetForge::Builtins
 		for (uint32 Index = 0; Index < TextureCubeFaceCount; ++Index)
 		{
 			Image::FDecodedImage Decoded;
-			if (!Image::DecodeImageFromMemory(EncodedFaces[Index], Decoded, OutError,
-				{.MaximumDecodedPixels = 16384ull * 16384ull})
+			const auto DecodeResult = Image::DecodeImageFromMemory(EncodedFaces[Index], Decoded,
+				{.MaximumDecodedPixels = 16384ull * 16384ull});
+			OutError = Image::FormatImageDecodeError(DecodeResult.Error);
+			if (!DecodeResult
 				|| !Image::FImage::TryCreate({.Width = Decoded.Width, .Height = Decoded.Height,
 					.Format = Image::ERawImageFormat::RGBA8}, std::move(Decoded.Pixels),
 					OutSource.Faces[Index], &OutError))
@@ -514,8 +539,10 @@ namespace Durin::AssetForge::Builtins
 		const FSourceFile* Source = Data
 			? Data->GetSourceData().FindByRole("panorama") : nullptr;
 		std::string SourcePath;
-		if (!Source || !ResolveSourceHint(Source->HintBase, Source->Hint,
-			OwningPackagePath.generic_string(), SourcePath, OutError)) return false;
+		if (!Source) return false;
+		if (const auto Resolved = ResolveSourceHint(Source->HintBase, Source->Hint,
+			OwningPackagePath.generic_string(), SourcePath); !Resolved)
+		{ OutError = FormatSourceHintError(Resolved.Error); return false; }
 		const FAssetBundleSaveOptions SaveOptions;
 		return RebuildPanorama(Texture, SourcePath, Settings, OutError, &SaveOptions);
 	}
@@ -552,12 +579,14 @@ namespace Durin::AssetForge::Builtins
 		{
 			const FSourceFile* Source = Data
 				? Data->GetSourceData().FindByRole(FaceRoles[Index]) : nullptr;
-			if (!Source || !ResolveSourceHint(Source->HintBase, Source->Hint,
-				OwningPackagePath.generic_string(), Sources[Index], OutError))
+			if (!Source)
 			{
 				if (OutError.empty()) OutError = "TextureCube face import data is incomplete.";
 				return false;
 			}
+			if (const auto Resolved = ResolveSourceHint(Source->HintBase, Source->Hint,
+				OwningPackagePath.generic_string(), Sources[Index]); !Resolved)
+			{ OutError = FormatSourceHintError(Resolved.Error); return false; }
 		}
 		const FAssetBundleSaveOptions SaveOptions;
 		return RebuildFaces(Texture, Sources, Settings, OutError, &SaveOptions);

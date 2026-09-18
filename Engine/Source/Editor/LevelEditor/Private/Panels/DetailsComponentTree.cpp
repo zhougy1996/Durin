@@ -83,12 +83,11 @@ namespace Durin::Editor::Level
 				return;
 			}
 			Duplicate->UnregisterComponent();
-			std::string CopyError;
 			const std::unordered_map<DObject*, DObject*> ReferenceMap{{Source, Duplicate}};
-			if (!CopyEditableObjectProperties(Source, Duplicate, ReferenceMap, &CopyError))
+			if (const auto CopyResult = CopyEditableObjectProperties(Source, Duplicate, ReferenceMap); !CopyResult)
 			{
 				Actor->DestroyInstanceComponent(Duplicate);
-				Context.SetError(std::format("Failed to duplicate component '{}': {}", Source->GetName(), CopyError));
+				Context.SetError(std::format("Failed to duplicate component '{}': {}", Source->GetName(), FormatObjectPropertyCopyError(CopyResult.Error)));
 				return;
 			}
 			if (auto* SourceScene = Cast<DSceneComponent>(Source); SourceScene)

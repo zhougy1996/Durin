@@ -76,7 +76,7 @@ TEST(FPackageRegistryContractTests, FrontMatterProjectsPackageAndTopLevelAssetMe
 	const FAssetRegistryResult Result = ReadAssetPackageHeaderBytes(
 		std::span(Main).first(static_cast<size_t>(HeaderBytes)), Main.size(), Bulk.size(),
 		PackagePath, Header);
-	ASSERT_TRUE(Result) << Result.Message;
+	ASSERT_TRUE(Result) << FormatAssetRegistryError(Result);
 	EXPECT_EQ(Header.FormatVersion, Durin::ObjectPackage::DastV10FormatVersion);
 	ASSERT_EQ(Header.TopLevelAssets.size(), 1u);
 	EXPECT_EQ(Header.TopLevelAssets.front().AssetPath.ToString(),
@@ -111,8 +111,17 @@ TEST(FPackageRegistryContractTests, ProjectionRequiresIdentityAndExactBulkExtent
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/RegistryFixture", Correct));
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/Wrong", Wrong));
 	FAssetPackageHeader Header;
-	EXPECT_FALSE(ReadAssetPackageHeaderBytes(
-		std::span(Main).first(static_cast<size_t>(HeaderBytes)), Main.size(), 1, Correct, Header));
+	const auto BulkFailure = ReadAssetPackageHeaderBytes(
+		std::span(Main).first(static_cast<size_t>(HeaderBytes)), Main.size(), 1, Correct, Header);
+	EXPECT_FALSE(BulkFailure);
+	EXPECT_EQ(BulkFailure.Context.Reason, EAssetRegistryFailure::Reader);
+	ASSERT_TRUE(BulkFailure.Context.ReaderCause);
+	EXPECT_EQ(BulkFailure.Context.ReaderCause->Reason, Package::EPackageReaderReason::RegistryBulk);
+	EXPECT_EQ(BulkFailure.Context.ReaderCause->LogicalPath, "Registry.Bulk");
+	const auto EnvelopeFailure = ReadAssetPackageHeaderBytes({}, 0, 0, Correct, Header);
+	EXPECT_FALSE(EnvelopeFailure);
+	EXPECT_EQ(EnvelopeFailure.Context.Reason, EAssetRegistryFailure::Envelope);
+	EXPECT_EQ(EnvelopeFailure.Context.EnvelopeCause, Durin::EBinaryEnvelopeError::Truncated);
 	EXPECT_FALSE(ReadAssetPackageHeaderBytes(
 		std::span(Main).first(static_cast<size_t>(HeaderBytes)), Main.size(), 0, Wrong, Header));
 }
@@ -135,6 +144,8 @@ TEST(FPackageRegistryContractTests, ProductionProjectionRejectsRetiredV7)
 	const FAssetRegistryResult Result = ReadAssetPackageHeaderBytes(
 		Retired, Retired.size(), 0, Path("/Game/Retired"), Header);
 	EXPECT_EQ(Result.Error, EAssetRegistryError::UnsupportedVersion);
+	EXPECT_EQ(Result.Context.Reason, EAssetRegistryFailure::UnsupportedVersion);
+	EXPECT_EQ(Result.Context.Actual, 7u);
 	EXPECT_EQ(Header.FormatVersion, 0u);
 }
 
@@ -179,7 +190,7 @@ TEST(FPackageRegistryContractTests, RefreshUsesOnlyFrontMatterAndOnePackageMetad
 	Durin::FPaths::SetDerivedDataCacheDirForTests(CacheRoot.generic_string());
 	const FAssetCatalogRefreshResult Cold = RefreshAssetRegistry(
 		EAssetRegistryScanMode::FullValidation);
-	ASSERT_TRUE(Cold) << (Cold.Errors.empty() ? "" : Cold.Errors.front().Message);
+	ASSERT_TRUE(Cold) << (Cold.Errors.empty() ? "" : FormatAssetRegistryError(Cold.Errors.front()));
 	EXPECT_EQ(Cold.CatalogStats.Enumerated, 1u);
 	EXPECT_EQ(Cold.CatalogStats.Reparsed, 1u);
 	EXPECT_EQ(Cold.CatalogStats.HeaderFileBytesRead, HeaderBytes);
@@ -311,7 +322,7 @@ TEST(FPackageRegistryContractTests, MultiAssetRedirectsAreExactAcrossScansAndPub
 		Save(Linker, Name);
 	}
 	const auto Cold = RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation);
-	ASSERT_TRUE(Cold) << (Cold.Errors.empty() ? "" : Cold.Errors.front().Message);
+	ASSERT_TRUE(Cold) << (Cold.Errors.empty() ? "" : FormatAssetRegistryError(Cold.Errors.front()));
 	EXPECT_EQ(Cold.CatalogStats.Redirectors, 6u);
 	const auto ColdPublication = CaptureAssetRegistryPublication();
 	for (const std::string Name : {"Aliases", "MixedFirst", "MixedLast"})
@@ -352,7 +363,7 @@ TEST(FPackageRegistryContractTests, MultiAssetRedirectsAreExactAcrossScansAndPub
 	std::ranges::reverse(Reordered.TopLevelAssets);
 	FAssetRegistryDelta Delta{.ExpectedRevision = GetAssetCatalogRevision(), .Replaces = {Reordered}};
 	const auto Published = PublishAssetRegistryDelta(std::move(Delta));
-	ASSERT_TRUE(Published) << Published.Message;
+	ASSERT_TRUE(Published) << FormatAssetRegistryError(Published);
 	EXPECT_EQ(CaptureAssetRegistryPublication().ReferenceEdges, ColdPublication.ReferenceEdges);
 	const uint64 Revision = GetAssetCatalogRevision();
 	Reordered.TopLevelAssets.back().AssetClassName = "Durin::DAssetRedirector";
@@ -561,7 +572,11 @@ TEST(FPackageRegistryContractTests, AssetsSavedPreservesAdmissionAndUnrelatedRef
 	EXPECT_EQ(After.bReferenceIndexComplete, Expected.bReferenceIndexComplete);
 	ASSERT_EQ(After.ReferenceErrors.size(), Expected.ReferenceErrors.size());
 	for (size_t Index = 0; Index < After.ReferenceErrors.size(); ++Index)
-		EXPECT_EQ(After.ReferenceErrors[Index].Message, Expected.ReferenceErrors[Index].Message);
+		{
+		EXPECT_EQ(After.ReferenceErrors[Index].Error, Expected.ReferenceErrors[Index].Error);
+		EXPECT_EQ(After.ReferenceErrors[Index].Context.Reason, Expected.ReferenceErrors[Index].Context.Reason);
+		EXPECT_EQ(After.ReferenceErrors[Index].Context.Path, Expected.ReferenceErrors[Index].Context.Path);
+	}
 	EXPECT_EQ(CaptureAssetReferenceIndex().FindTargets(Changed.PackagePath), Changed.SoftDependencies);
 	auto Added = Changed; Added.PackagePath = Path("/Saved/Added");
 	FTopLevelAssetPath AssetPath;

@@ -4,11 +4,21 @@
 #include "AssetForge/Builtins/VolumeTextureImport.h"
 #include "EditorReimportHandler.h"
 #include "Factories/Factory.h"
+#include <variant>
 
 #include "VolumeTextureFactory.gen.h"
 
 namespace Durin::AssetForge::Builtins
 {
+	class ASSETFORGEBUILTINS_API FVolumeTextureFactoryError final : public IFactoryErrorDetail
+	{
+	public:
+		explicit FVolumeTextureFactoryError(FVolumeTextureImportSettingsError Error) : Cause(std::move(Error)) {}
+		explicit FVolumeTextureFactoryError(FVolumeTextureRebuildError Error) : Cause(std::move(Error)) {}
+		auto Format() const -> std::string override;
+		std::variant<FVolumeTextureImportSettingsError, FVolumeTextureRebuildError> Cause;
+	};
+
 	DCLASS()
 	class DVolumeTextureFactory final : public DFactory, public FReimportHandler
 	{

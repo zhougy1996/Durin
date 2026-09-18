@@ -37,6 +37,7 @@ namespace Durin::Editor::Material
 				std::string InDescription)
 				: Material(&InMaterial)
 				, Description(std::move(InDescription))
+				, TargetPath(InMaterial.GetObjectPath())
 			{
 				for (const FMaterialGraphNodePresentation& Before
 					: BeforePresentation.Nodes)
@@ -86,20 +87,20 @@ namespace Durin::Editor::Material
 			{
 				return AffectedPackages;
 			}
-			auto Undo() -> bool override { return Apply(true); }
-			auto Redo() -> bool override { return Apply(false); }
+			auto Replay(ETransactionOperation Operation) -> FTransactionCustomResult override
+			{ return Apply(Operation == ETransactionOperation::Undo); }
 			auto GetAllocatedSize() const -> size_t override
 			{
-				return Description.capacity()
+				return Description.capacity() + TargetPath.capacity()
 					+ NodeChanges.capacity()
 						* sizeof(FMaterialGraphNodePresentationChange);
 			}
 
 		private:
-			auto Apply(bool bBefore) -> bool
+			auto Apply(bool bBefore) -> FTransactionCustomResult
 			{
 				DObject* Target = Material.Get();
-				if (!Target) return false;
+				if (!Target) return {{.Code = ETransactionCustomError::TargetUnavailable, .TargetPath = TargetPath, .NodeCount = NodeChanges.size()}};
 				FMaterialGraphPresentation Candidate =
 					ReadGraphPresentation(*Target);
 				for (const FMaterialGraphNodePresentationChange& Change : NodeChanges)
@@ -126,13 +127,16 @@ namespace Durin::Editor::Material
 						Current->Y = Desired->Y;
 					}
 				}
-				return WriteGraphPresentation(*Target, std::move(Candidate))
-					!= EMaterialGraphPresentationResult::Rejected;
+				const auto Count = Candidate.Nodes.size();
+				if (WriteGraphPresentation(*Target, std::move(Candidate)) == EMaterialGraphPresentationResult::Rejected)
+					return {{.Code = ETransactionCustomError::PresentationWrite, .TargetPath = TargetPath, .NodeCount = Count}};
+				return {};
 			}
 
 			TWeakObjectPtr<DObject> Material;
 			std::vector<FMaterialGraphNodePresentationChange> NodeChanges;
 			std::string Description;
+			std::string TargetPath;
 			std::array<DPackage*, 1> AffectedPackages{};
 		};
 
@@ -165,8 +169,8 @@ namespace Durin::Editor::Material
 			{
 				return AffectedPackages;
 			}
-			auto Undo() -> bool override { return Apply(BeforeValue); }
-			auto Redo() -> bool override { return Apply(AfterValue); }
+			auto Replay(ETransactionOperation Operation) -> FTransactionCustomResult override
+			{ return Apply(Operation == ETransactionOperation::Undo ? BeforeValue : AfterValue); }
 			auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override
 			{
 				BeforeValue.AddReferencedObjects(Collector);
@@ -174,10 +178,14 @@ namespace Durin::Editor::Material
 			}
 
 		private:
-			auto Apply(const FMaterialParameterValue& Value) -> bool
+			auto Apply(const FMaterialParameterValue& Value) -> FTransactionCustomResult
 			{
 				DMaterial* Target = Material.Get();
-				return Target && Target->SetParameterValue(ParameterId, Value);
+				if (!Target) return {{.Code = ETransactionCustomError::TargetUnavailable, .ParameterId = ParameterId}};
+				const auto Applied = Target->SetParameterValue(ParameterId, Value);
+				if (!Applied) return {{.Code = ETransactionCustomError::MaterialWrite, .ParameterId = ParameterId,
+					.MaterialCause = std::make_shared<FMaterialError>(Applied.Error)}};
+				return {};
 			}
 
 			TWeakObjectPtr<DMaterial> Material;
@@ -221,26 +229,29 @@ namespace Durin::Editor::Material
 			DTransactor* Transactions) -> FMaterialGraphCommandResult
 		{
 			if (!IsValid(&Material))
-				return {.Status = EMaterialGraphCommandStatus::StaleOwner,
-					.Message = "The material graph owner is no longer available."};
+				return RejectSession({.Code = EMaterialGraphSessionError::StaleOwner});
 			if (Transactions && Transactions->HasPendingOperation())
-				return MakeRejected("The editor transactor is busy.");
+				return RejectSession({.Code = EMaterialGraphSessionError::Busy});
 
 			std::vector<FGuid> Ids;
 			for (const auto& Expression : FMaterialExpressionEditing::GetExpressions(Material)) Ids.push_back(Expression->Id);
 			CandidatePresentation = SanitizeMaterialGraphPresentation(CandidatePresentation, Ids);
 			const auto BeforePresentation = ReadGraphPresentation(Material);
-			if (BeforePresentation == CandidatePresentation) return {.Status = EMaterialGraphCommandStatus::NoChange};
-			if (Transactions && !Transactions->CommitApplied(
-				MakeMaterialGraphPresentationTransaction(Material, BeforePresentation, CandidatePresentation, std::move(Description))))
-				return MakeRejected("Unable to record the graph move.");
+			if (BeforePresentation == CandidatePresentation) return {.Disposition = EMaterialGraphCommandDisposition::NoChange};
+			if (Transactions)
+			{
+				const auto Recorded = Transactions->CommitApplied(
+					MakeMaterialGraphPresentationTransaction(Material, BeforePresentation, CandidatePresentation, std::move(Description)));
+				if (!Recorded) return RejectSession({.Code = EMaterialGraphSessionError::History,
+					.TransactorCause = std::make_shared<FTransactorResult>(Recorded)});
+			}
 			// The validated candidate is published only after history accepts the edit.
 			const auto Result = WriteGraphPresentation(Material, std::move(CandidatePresentation));
 			check(Result != EMaterialGraphPresentationResult::Rejected);
 			std::ranges::sort(Affected);
 			Affected.erase(std::unique(Affected.begin(), Affected.end()), Affected.end());
 			return {
-				.Status = EMaterialGraphCommandStatus::Succeeded,
+				.Disposition = EMaterialGraphCommandDisposition::Applied,
 				.AffectedNodeIds = std::move(Affected),
 			};
 		}

@@ -174,9 +174,8 @@ namespace Durin
 			}
 			std::string SourcePath;
 			FAssetImportInfo CommonInfo;
-			std::string CommonError;
 			bool bHasSource = false;
-			if (InspectAssetImportInfo(Package, CommonInfo, CommonError))
+			if (InspectAssetImportInfo(Package, CommonInfo))
 			{
 				if (const FSourceFile* Source = CommonInfo.FindByRole("source"))
 				{
@@ -244,26 +243,26 @@ namespace Durin
 				Placement = "EditorPackageCompanion";
 				std::filesystem::path CompanionPath;
 				FByteBuffer CompanionBytes;
-				std::string StorageError;
+				FEditorBulkDataStorageResult Storage;
 				std::vector<std::filesystem::path> CompanionPaths;
 				if (Package.PhysicalPath.empty()
-					|| !InspectEditorBulkDataCompanionPaths(
-						Package.PhysicalPath, Package, CompanionPaths, &StorageError)
+					|| !(Storage = InspectEditorBulkDataCompanionPaths(
+						Package.PhysicalPath, Package, CompanionPaths))
 					|| CompanionPaths.empty()
 					|| (CompanionPath = CompanionPaths.front()).empty()
 					|| !FFileHelper::LoadFileToArray(CompanionBytes, CompanionPath))
 				{
 					SourceState = ETexturePayloadState::Missing;
 					SourceRepair = ETexturePayloadRepairAction::RestoreEditorCompanion;
-					SourceDiagnostic = StorageError.empty()
-						? "Editor source companion is missing or unreadable." : StorageError;
+					SourceDiagnostic = Storage
+						? "Editor source companion is missing or unreadable." : FormatEditorBulkDataStorageError(Storage.Error);
 				}
 				else if (CompanionBytes.size() != Package.Header.BulkSegmentExtent
 					|| FXxHash128::HashBuffer(CompanionBytes) != Package.Header.BulkSegmentDigest)
 				{
 					SourceState = ETexturePayloadState::Corrupt;
 					SourceRepair = ETexturePayloadRepairAction::RestoreEditorCompanion;
-					SourceDiagnostic = StorageError;
+					SourceDiagnostic = "Editor source companion extent or digest does not match the package.";
 				}
 				else
 					SourceDiagnostic = "Editor source companion and integrity are valid.";
@@ -285,10 +284,9 @@ namespace Durin
 				.Placement = std::move(Placement),
 				.Diagnostic = std::move(SourceDiagnostic)});
 			std::vector<std::filesystem::path> Orphans;
-			std::string OrphanError;
 			if (!Package.PhysicalPath.empty()
 				&& InspectOrphanedEditorBulkDataCompanionPaths(
-					Package.PhysicalPath, Package, Orphans, &OrphanError)
+					Package.PhysicalPath, Package, Orphans)
 				&& !Orphans.empty())
 				OutInspection.Entries.push_back({
 					.Domain = Domain, .Stage = ETexturePayloadStage::Source,
@@ -358,7 +356,7 @@ namespace Durin
 			.LogicalByteCount = MipBytes(PlatformData),
 			.Placement = "DerivedDataCache",
 			.Provenance = Compilation.DerivedDataKey,
-			.Diagnostic = Compilation.Message});
+			.Diagnostic = FormatTexture2DCompilationError(Compilation.Error)});
 		FTexturePayloadInspectionEntry Cooked = MakeCookedFieldEntry(
 			"Texture2D", Texture.GetCookedPlatformData());
 		if (Cooked.State == ETexturePayloadState::NotPresent

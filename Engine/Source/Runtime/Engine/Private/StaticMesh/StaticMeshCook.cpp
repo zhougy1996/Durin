@@ -107,9 +107,9 @@ namespace Durin
 			{
 				auto Request = MakeStaticMeshAuthoredBuildRequest(Source, CaptureStaticMeshReconciliation(*this));
 				Request.bPersistDerivedData = false;
-				if (!BuildStaticMeshAuthoredCandidate(std::move(Request), Candidate, Error))
+				if (const auto Built = BuildStaticMeshAuthoredCandidate(std::move(Request), Candidate); !Built)
 				{
-					Ar.Fail(EArchiveFailureCode::InvalidData, std::move(Error));
+					Ar.Fail(EArchiveFailureCode::InvalidData, FormatStaticMeshAuthoredBuildError(Built.Error));
 					return;
 				}
 				Projection = Candidate->GetRenderData();
@@ -122,19 +122,24 @@ namespace Durin
 			}
 			FStaticMeshPayloadData Payload;
 			FByteBuffer RenderBytes;
-			if (!MakeStaticMeshPayloadData(*Projection, Payload, Error)
-				|| !ValidateStaticMeshMaterialSlotMapping(Payload, MaterialSlots, Error))
+			if (const auto Result = MakeStaticMeshPayloadData(*Projection, Payload); !Result)
+			{
+				Ar.Fail(EArchiveFailureCode::InvalidData, FormatStaticMeshPayloadError(Result.Error));
+				return;
+			}
+			if (!ValidateStaticMeshMaterialSlotMapping(Payload, MaterialSlots, Error))
 			{
 				Ar.Fail(EArchiveFailureCode::InvalidData, std::move(Error));
 				return;
 			}
 			FCanonicalMemoryWriter RenderWriter(RenderBytes, EArchivePurpose::CookedPayload, {.Target = {"Win64", "Game"}});
 			Payload.Serialize(RenderWriter);
-			if (RenderWriter.HasError()
-				|| !FBulkData::TryCreateDetached(RenderBytes, RenderProjection, &Error))
+			const auto RenderBulk = RenderWriter.HasError() ? FBulkDataResult{}
+				: FBulkData::TryCreateDetached(RenderBytes, RenderProjection);
+			if (RenderWriter.HasError() || !RenderBulk)
 			{
-				Ar.Fail(EArchiveFailureCode::InvalidData, Error.empty()
-					? RenderWriter.GetFailure()->Message : std::move(Error));
+				Ar.Fail(EArchiveFailureCode::InvalidData, RenderWriter.HasError()
+					? RenderWriter.GetFailure()->Message : FormatBulkDataError(RenderBulk.Error));
 				return;
 			}
 			RenderField = &RenderProjection;
@@ -148,10 +153,10 @@ namespace Durin
 					Simple = Candidate->GetCollision().Simple;
 					Complex = Candidate->GetCollision().Complex;
 				}
-				else if (!BuildCollisionCandidate(*Projection, BodySetup->GetCollisionSourceMode(),
-					BodySetup->GetCollisionQueryPolicy(), Simple, Complex, Error))
+				else if (const auto Built = BuildCollisionCandidate(*Projection, BodySetup->GetCollisionSourceMode(),
+					BodySetup->GetCollisionQueryPolicy(), Simple, Complex); !Built)
 				{
-					Ar.Fail(EArchiveFailureCode::InvalidData, std::move(Error));
+					Ar.Fail(EArchiveFailureCode::InvalidData, FormatStaticMeshDerivedDataError(Built.Error));
 					return;
 				}
 				const FCollisionGeometryRef& Geometry =
@@ -159,21 +164,21 @@ namespace Durin
 						== EBodySetupCollisionSourceMode::ConvexHullFromLOD0 ? Simple : Complex;
 				FStaticMeshCollisionPayloadData CollisionPayload;
 				FByteBuffer CollisionBytes;
-				if (!Geometry || !MakeStaticMeshCollisionPayloadData(
-					Geometry, BodySetup->GetCollisionQueryPolicy(), CollisionPayload, Error))
+				if (const auto Built = MakeStaticMeshCollisionPayloadData(
+					Geometry, BodySetup->GetCollisionQueryPolicy(), CollisionPayload); !Built)
 				{
-					Ar.Fail(EArchiveFailureCode::InvalidData, Error.empty()
-						? "StaticMesh cooked collision data is unavailable." : std::move(Error));
+					Ar.Fail(EArchiveFailureCode::InvalidData, FormatStaticMeshCollisionPayloadError(Built.Error));
 					return;
 				}
 				FCanonicalMemoryWriter CollisionWriter(
 					CollisionBytes, EArchivePurpose::CookedPayload, {.Target = {"Win64", "Game"}});
 				CollisionPayload.Serialize(CollisionWriter);
-				if (CollisionWriter.HasError() || !FBulkData::TryCreateDetached(
-					CollisionBytes, CollisionProjection, &Error))
+				const auto CollisionBulk = CollisionWriter.HasError() ? FBulkDataResult{}
+					: FBulkData::TryCreateDetached(CollisionBytes, CollisionProjection);
+				if (CollisionWriter.HasError() || !CollisionBulk)
 				{
-					Ar.Fail(EArchiveFailureCode::InvalidData, Error.empty()
-						? CollisionWriter.GetFailure()->Message : std::move(Error));
+					Ar.Fail(EArchiveFailureCode::InvalidData, CollisionWriter.HasError()
+						? CollisionWriter.GetFailure()->Message : FormatBulkDataError(CollisionBulk.Error));
 					return;
 				}
 				CollisionField = &CollisionProjection;
@@ -245,54 +250,81 @@ namespace Durin
 			return;
 		}
 		if (CanJoinStaticMeshCompilation(*this, Source)) return;
-		if (!SubmitStaticMeshCompilation(*this, {.Source = Source, .bMarkPackageDirty = false}, Error))
+		if (const auto Submitted = SubmitStaticMeshCompilation(*this, {.Source = Source, .bMarkPackageDirty = false}); !Submitted)
 		{
-			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
+			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), FormatStaticMeshSubmissionError(Submitted.Error));
 			return;
 		}
 	}
-	auto DStaticMesh::LoadCookedRenderData(std::string& OutError) -> bool
+	auto FormatCookedMeshLoadError(const FCookedMeshLoadError& Error) -> std::string
 	{
-		auto FailCooked = [&](std::string Message) {
-			OutError = std::format(
-				"Cooked static mesh '{}': {}", GetObjectPath(), Message);
-			return false;
-		};
+		switch (Error.Code)
+		{
+		case ECookedMeshLoadError::None: return {};
+		case ECookedMeshLoadError::Admission:
+			return Error.AdmissionCause ? FormatCookedMeshAdmissionError(*Error.AdmissionCause)
+				: "Cooked mesh request admission failed.";
+		case ECookedMeshLoadError::Cancelled: return "Cooked mesh loading was cancelled.";
+		case ECookedMeshLoadError::Task: return "Cooked mesh decode task did not complete successfully.";
+		case ECookedMeshLoadError::FieldCount: return std::format("Cooked mesh field count {} does not match {}.", Error.Actual, Error.Expected);
+		case ECookedMeshLoadError::InvalidProduct: return "Cooked mesh publication product is invalid.";
+		case ECookedMeshLoadError::CollisionPublication: return "Cooked mesh collision publication failed.";
+		case ECookedMeshLoadError::CompletionBudget: return std::format("Cooked mesh result needs {} bytes with {} reserved against a {} byte mailbox limit.", Error.Actual, Error.Reserved, Error.Expected);
+		case ECookedMeshLoadError::Unavailable: return "StaticMesh CPU render data is unavailable.";
+		case ECookedMeshLoadError::Read:
+		case ECookedMeshLoadError::RenderRead:
+		case ECookedMeshLoadError::CollisionRead:
+			return Error.ReadCause ? FormatPackageResourceReadError(*Error.ReadCause)
+				: "Cooked mesh payload read failed.";
+		case ECookedMeshLoadError::Product:
+			return Error.ProductCause ? FormatCookedMeshProductError(*Error.ProductCause)
+				: "Cooked mesh product decoding failed.";
+		case ECookedMeshLoadError::Publication:
+			return Error.PublicationCause ? FormatStaticMeshPublicationError(*Error.PublicationCause)
+				: "Cooked mesh publication failed.";
+		}
+		return "Unknown cooked mesh load failure.";
+	}
 
+	auto DStaticMesh::LoadCookedRenderData() -> FCookedMeshLoadResult
+	{
 		const bool bRequiresCollision = BodySetup
 			&& BodySetup->GetCollisionSourceMode() != EBodySetupCollisionSourceMode::None;
 		auto Read = CookedRenderData.AcquireRead();
-		if (!Read) return FailCooked(Read.Error.Message);
+		if (!Read) return {.Error = {.Code = ECookedMeshLoadError::RenderRead, .Owner = FObjectKey(this),
+			.ReadCause = std::make_shared<FPackageResourceReadResult>(std::move(Read.Error))}};
 		const FByteView Bytes = Read.Lock.GetBytes();
 		FBulkDataReadResult CollisionRead;
 		FByteView CollisionBytes;
 		if (bRequiresCollision)
 		{
 			CollisionRead = CookedCollisionData.AcquireRead();
-			if (!CollisionRead) return FailCooked(CollisionRead.Error.Message);
+			if (!CollisionRead) return {.Error = {.Code = ECookedMeshLoadError::CollisionRead, .Owner = FObjectKey(this),
+				.ReadCause = std::make_shared<FPackageResourceReadResult>(std::move(CollisionRead.Error))}};
 			CollisionBytes = CollisionRead.Lock.GetBytes();
 		}
 
 		FStaticMeshCookedProduct Product;
-		FCookedMeshProductError ProductError;
 		const EBodySetupCollisionSourceMode CollisionMode = bRequiresCollision
 			? BodySetup->GetCollisionSourceMode()
 			: EBodySetupCollisionSourceMode::None;
 		const EBodySetupCollisionQueryPolicy CollisionPolicy = BodySetup
 			? BodySetup->GetCollisionQueryPolicy()
 			: EBodySetupCollisionQueryPolicy::SimpleAndComplex;
-		if (!DecodeStaticMeshCookedProduct(Bytes, CollisionBytes, MaterialSlots,
-			CollisionMode, CollisionPolicy, Product, ProductError))
+		if (const auto Result = DecodeStaticMeshCookedProduct(Bytes, CollisionBytes, MaterialSlots,
+			CollisionMode, CollisionPolicy, Product); !Result)
 		{
-			return FailCooked(std::move(ProductError.Message));
+			return {.Error = {.Code = ECookedMeshLoadError::Product, .Owner = FObjectKey(this),
+				.ProductCause = std::make_shared<FCookedMeshProductError>(Result.Error)}};
 		}
 		CollisionRead.Lock.Reset();
 		Read.Lock.Reset();
 
-		if (!CommitRenderDataCandidate(
-			std::move(Product.RenderData), nullptr, OutError, false))
+		if (const auto Published = CommitRenderDataCandidate(
+			std::move(Product.RenderData), nullptr, false); !Published)
 		{
-			return FailCooked(OutError);
+			return {.Error = {.Code = ECookedMeshLoadError::Publication, .Owner = FObjectKey(this),
+				.PublicationCause = std::make_shared<FStaticMeshPublicationError>(Published.Error)}};
 		}
 		if (bRequiresCollision)
 		{
@@ -300,8 +332,7 @@ namespace Durin
 				Product.SimpleCollision, Product.ComplexCollision);
 			check(bPublished);
 		}
-		OutError.clear();
-		return true;
+		return {};
 	}
 
 	auto DStaticMesh::SubmitCookedRenderDataRequest(bool bInitializeResources) -> bool
@@ -343,18 +374,19 @@ namespace Durin
 				std::span<const FSharedByteBuffer> Buffers,
 				const FTaskCancellationToken& Cancellation)
 				-> FCookedMeshWorkerResult {
-				if (Cancellation.IsCancellationRequested()) return {};
+				if (Cancellation.IsCancellationRequested()) return {.Error = {.Code = ECookedMeshLoadError::Cancelled}};
 				if (Buffers.size() != (bRequiresCollision ? 2u : 1u))
-					return {.Message = "StaticMesh cooked field count is invalid."};
+					return {.Error = {.Code = ECookedMeshLoadError::FieldCount,
+						.Actual = Buffers.size(), .Expected = bRequiresCollision ? 2u : 1u}};
 				auto Result = std::make_unique<FStaticMeshManagerProduct>();
-				FCookedMeshProductError Error;
 				const FByteView CollisionBytes = bRequiresCollision
 					? Buffers[1].GetBytes() : FByteView{};
-				if (!DecodeStaticMeshCookedProduct(Buffers[0].GetBytes(),
+				if (const auto Decoded = DecodeStaticMeshCookedProduct(Buffers[0].GetBytes(),
 					CollisionBytes, SlotSnapshot, CollisionMode, CollisionPolicy,
-					Result->Product, Error))
+					Result->Product); !Decoded)
 				{
-					return {.Message = std::move(Error.Message)};
+					return {.Error = {.Code = ECookedMeshLoadError::Product,
+						.ProductCause = std::make_shared<FCookedMeshProductError>(Decoded.Error)}};
 				}
 				uint64 RetainedBytes = Buffers[0].GetSize();
 				if (bRequiresCollision)
@@ -379,22 +411,21 @@ namespace Durin
 			},
 			.Publish = [bInitializeResources](DObject& Owner,
 				const FCookedMeshLoadIdentity&,
-				std::unique_ptr<ICookedMeshDetachedProduct> BaseProduct,
-				std::string& OutError) {
+				std::unique_ptr<ICookedMeshDetachedProduct> BaseProduct) -> FCookedMeshLoadResult {
 				auto* Mesh = Cast<DStaticMesh>(&Owner);
 				auto* Typed = dynamic_cast<FStaticMeshManagerProduct*>(
 					BaseProduct.get());
 				if (!Mesh || !Typed)
 				{
-					OutError = "StaticMesh cooked publication product is invalid.";
-					return false;
+					return {.Error = {.Code = ECookedMeshLoadError::InvalidProduct}};
 				}
 				FStaticMeshRenderStateRecreateContext RecreateContext(Mesh);
 				FStaticMeshCookedProduct Product = std::move(Typed->Product);
-				if (!Mesh->CommitRenderDataCandidate(
-					std::move(Product.RenderData), nullptr, OutError, false))
+				if (const auto Published = Mesh->CommitRenderDataCandidate(
+					std::move(Product.RenderData), nullptr, false); !Published)
 				{
-					return false;
+					return {.Error = {.Code = ECookedMeshLoadError::Publication,
+						.PublicationCause = std::make_shared<FStaticMeshPublicationError>(Published.Error)}};
 				}
 				if (Product.bHasCollision)
 				{
@@ -402,22 +433,22 @@ namespace Durin
 						|| !Mesh->BodySetup->SetCollisionGeometry(
 							Product.SimpleCollision, Product.ComplexCollision))
 					{
-						OutError = "StaticMesh cooked collision publication failed.";
-						return false;
+						return {.Error = {.Code = ECookedMeshLoadError::CollisionPublication}};
 					}
 				}
 				Mesh->CookedLoadPhase.store(
 					ECookedMeshCpuPhase::CpuReady, std::memory_order_release);
 				if (bInitializeResources) Mesh->InitResources();
-				OutError.clear();
-				return true;
+				Mesh->CookedLoadError = {};
+				return {};
 			},
 			.OnTerminal = [](DObject& Owner,
 				const FCookedMeshLoadIdentity&,
 				ECookedMeshTerminalState Terminal,
-				std::string_view) {
+				const FCookedMeshLoadError& Error) {
 				auto* Mesh = Cast<DStaticMesh>(&Owner);
 				if (!Mesh) return;
+				Mesh->CookedLoadError = Error;
 				const bool bFailed = Terminal == ECookedMeshTerminalState::Failed
 					|| Terminal == ECookedMeshTerminalState::Rejected;
 				Mesh->CookedLoadPhase.store(bFailed
@@ -427,32 +458,37 @@ namespace Durin
 		};
 		if (bRequiresCollision)
 			Request.Fields.push_back(CookedCollisionData);
-		if (!Manager->Submit(std::move(Request))) return false;
+		if (const auto Submitted = Manager->Submit(std::move(Request)); !Submitted)
+		{
+			CookedLoadError = {.Code = ECookedMeshLoadError::Admission, .Owner = FObjectKey(this),
+				.AdmissionCause = std::make_shared<FCookedMeshAdmissionError>(Submitted.Error)};
+			return false;
+		}
+		CookedLoadError = {};
 		CookedLoadPhase.store(
 			ECookedMeshCpuPhase::IoQueued, std::memory_order_release);
 		return true;
 	}
 
-	auto DStaticMesh::ContributeToCook(
-		FCookContext& Context,
-		std::string_view VirtualPackagePath,
-		std::string& OutError) -> bool
+	auto DStaticMesh::ContributeToCook(FCookContext& Context,
+		std::string_view VirtualPackagePath) -> FCookContributionResult
 	{
+		auto Reject = [&](ECookContributionError Error) -> FCookContributionResult {
+			return {.Error = Error, .ObjectPath = GetObjectPath(), .VirtualPath = std::string(VirtualPackagePath),
+				.TargetPlatform = Context.GetTargetPlatform(), .TargetProfile = Context.GetTargetProfile()};
+		};
 		if (Context.GetTargetPlatform() != ECookTargetPlatform::Win64
-			|| Context.GetTargetProfile() != ECookTargetProfile::Game)
+			|| Context.GetTargetProfile() != ECookTargetProfile::Game) return Reject(ECookContributionError::Target);
+		if (!RenderData && !Source.IsValid()) return Reject(ECookContributionError::RenderData);
+		const auto Added = Context.AddPackage(std::string(VirtualPackagePath), GetPackage());
+		if (!Added)
 		{
-			OutError = std::format(
-				"Static mesh '{}' supports only the Win64 game cook target.", GetObjectPath());
-			return false;
+			auto Result = Reject(ECookContributionError::Plan);
+			Result.PlanCause = Added.Error;
+			return Result;
 		}
-		if (!RenderData && !Source.IsValid())
-		{
-			OutError = std::format("Static mesh '{}' has no render data to cook.", GetObjectPath());
-			return false;
-		}
-
-		return Context.AddPackage(
-			std::string(VirtualPackagePath), GetPackage(), &OutError);
+		return {};
 	}
+
 
 }

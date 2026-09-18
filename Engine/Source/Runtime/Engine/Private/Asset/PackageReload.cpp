@@ -29,13 +29,17 @@ namespace Durin
 		using Status = EPackageReloadStatus;
 		using Failure = EPackageReloadFailure;
 		using Stage = EPackageReloadStage;
+		using Reason = EPackageReloadReason;
 		bool GPackageReloadActive = false;
 
 		auto MakeResult(Status InStatus, Failure InFailure, Stage InStage,
-			const FPackagePath& Path, std::string Message) -> FPackageReloadResult
+			const FPackagePath& Path, Reason Code, FPackageReloadDiagnostic Diagnostic = {}) -> FPackageReloadResult
 		{
 			FPackageReloadResult Result{.Status = InStatus, .Failure = InFailure};
-			if (!Message.empty()) Result.Diagnostics.push_back({Path, {}, InStage, std::move(Message)});
+			Diagnostic.PackagePath = Path;
+			Diagnostic.Stage = InStage;
+			Diagnostic.Reason = Code;
+			Result.Diagnostics.push_back(std::move(Diagnostic));
 			return Result;
 		}
 
@@ -50,13 +54,6 @@ namespace Durin
 			return Request.ShouldFail && Request.ShouldFail(Point, Package, Object);
 		}
 
-		auto ResolveAuthoredPath(const FPackagePath& Path) -> std::filesystem::path
-		{
-			const FAssetPathResult Resolved = FMountPaths::ResolveAssetPath(
-				Path.GetView(), EMountPathExistence::AllowMissing);
-			return Resolved ? std::filesystem::path(Resolved.PhysicalPath.generic_string() + ".dasset")
-				: std::filesystem::path{};
-		}
 
 		auto GatherHierarchy(DObject* Root, EObjectQueryScope Scope,
 			std::vector<DObject*>& Out) -> void
@@ -161,8 +158,7 @@ namespace Durin
 						if (!Validation)
 						{
 							OutResult = MakeResult(Status::Failed, Failure::ResourcePreparationFailed,
-								Stage::PrepareRuntimeProducts, {}, std::format("Function preparation failed for {}: {}",
-									Object->GetObjectPath(), Validation.Diagnostics.empty() ? "Invalid closure." : Durin::FormatMaterialError(Validation.Diagnostics[0].Error)));
+								Stage::PrepareRuntimeProducts, {}, Reason::FunctionPreparation, {.ObjectPath = Object->GetObjectPath(), .MaterialCauses = Validation.Diagnostics});
 							return false;
 						}
 					}
@@ -172,7 +168,7 @@ namespace Durin
 					{
 						OutResult = MakeResult(Status::Failed, Failure::ResourcePreparationFailed,
 							Stage::PrepareRuntimeProducts, {},
-							std::format("Runtime product preparation failed for {}.", Object->GetObjectPath()));
+							Reason::TexturePreparation, {.ObjectPath = Object->GetObjectPath()});
 						return false;
 					}
 					if (auto* Material = Cast<DMaterialInterface>(Object);
@@ -181,7 +177,9 @@ namespace Durin
 					{
 						OutResult = MakeResult(Status::Failed, Failure::ResourcePreparationFailed,
 							Stage::PrepareRuntimeProducts, {},
-							std::format("Material preparation failed for {}.", Object->GetObjectPath()));
+							Reason::MaterialPreparation, {.ObjectPath = Object->GetObjectPath(),
+							.MaterialCompileStatus = Material->GetMaterialCompileStatus(),
+							.MaterialCompileCauses = std::vector<FMaterialCompileDiagnostic>(Material->GetMaterialCompileDiagnostics().begin(), Material->GetMaterialCompileDiagnostics().end())});
 						return false;
 					}
 					if (auto* Texture2D = Cast<DTexture2D>(Object))
@@ -192,7 +190,7 @@ namespace Durin
 							{
 								OutResult = MakeResult(Status::Failed, Failure::BudgetExceeded,
 									Stage::PrepareRuntimeProducts, {},
-									"Texture runtime products exceed the reload memory budget.");
+									Reason::TextureBudget);
 								return false;
 							}
 					}
@@ -204,7 +202,7 @@ namespace Durin
 							{
 								OutResult = MakeResult(Status::Failed, Failure::BudgetExceeded,
 									Stage::PrepareRuntimeProducts, {},
-									"Volume runtime products exceed the reload memory budget.");
+									Reason::VolumeBudget);
 								return false;
 							}
 					}
@@ -239,6 +237,50 @@ namespace Durin
 		}
 	}
 
+	auto FormatPackageReloadDiagnostic(const FPackageReloadDiagnostic& Diagnostic) -> std::string
+	{
+		if (Diagnostic.PathCause) return FormatObjectError(*Diagnostic.PathCause);
+		if (Diagnostic.ResourceCause) return FormatPreparedPackageResourceError(*Diagnostic.ResourceCause);
+		if (Diagnostic.ReplacementCause) return FormatObjectReplacementError(*Diagnostic.ReplacementCause);
+		if (Diagnostic.GraphCause) return FormatPackageGraphPrepareError(*Diagnostic.GraphCause);
+		if (Diagnostic.AssetCause) return Diagnostic.AssetCause->Message;
+		if (!Diagnostic.MaterialCauses.empty()) return FormatMaterialError(Diagnostic.MaterialCauses.front().Error);
+		if (!Diagnostic.MaterialCompileCauses.empty()) return FormatMaterialError(Diagnostic.MaterialCompileCauses.front().Source.Error);
+		using Reason = EPackageReloadReason;
+		switch (Diagnostic.Reason)
+		{
+		case Reason::None: return {};
+		case Reason::MissingOperation: return "Reload operation has no state.";
+		case Reason::AlreadyActive: return "Another package reload is active.";
+		case Reason::Cancelled: return "Package reload was cancelled.";
+		case Reason::CookedRuntime: return "Authored package reload is unavailable in a cooked runtime.";
+		case Reason::EmptyRequest: return "Package reload requires at least one package.";
+		case Reason::InvalidPackage: return "Reload accepts only resident authored asset packages.";
+		case Reason::PackageBudget: return "Package reload count exceeds the request budget.";
+		case Reason::InvalidIdentity: return "Resident package identity is invalid.";
+		case Reason::UnsavedPackage: return "A never-saved package has no disk baseline.";
+		case Reason::FileInspection: return std::format("Could not inspect package file {}: {}", Diagnostic.File.generic_string(), Diagnostic.SystemError.message());
+		case Reason::MissingFile: return "The saved package file is missing.";
+		case Reason::InjectedQuiesceFailure: return "Injected selected-compilation quiesce failure.";
+		case Reason::InjectedMainReadFailure: return "Injected main package read failure.";
+		case Reason::InjectedBulkReadFailure: return "Injected bulk closure read failure.";
+		case Reason::InjectedRuntimeFailure: return "Injected runtime product failure.";
+		case Reason::InjectedReferenceFailure: return "Injected reference preparation failure.";
+		case Reason::InjectedDiskRevalidationFailure: return "Injected disk revalidation failure.";
+		case Reason::InjectedFinalValidationFailure: return "Injected final reload validation failure.";
+		case Reason::ObserverException: return "A post-publication refresh threw; the replacement remains committed.";
+		case Reason::Allocation: return "Allocation failed while preparing package reload.";
+		case Reason::CallbackException: return "A package reload callback threw.";
+		case Reason::TextureBudget: return "Texture runtime products exceed the reload memory budget.";
+		case Reason::VolumeBudget: return "Volume runtime products exceed the reload memory budget.";
+		case Reason::UnsupportedClass: return std::format("Asset class {} has no reload participant.", Diagnostic.ClassName);
+		case Reason::FunctionPreparation: return std::format("Function preparation failed for {}.", Diagnostic.ObjectPath);
+		case Reason::TexturePreparation: return std::format("Runtime product preparation failed for {}.", Diagnostic.ObjectPath);
+		case Reason::MaterialPreparation: return std::format("Material preparation failed for {}.", Diagnostic.ObjectPath);
+		default: return "Package reload failed.";
+		}
+	}
+
 	struct FPackageReloadOperation::FState
 	{
 		FPackageReloadResult Result;
@@ -256,11 +298,11 @@ namespace Durin
 		if (State != EPackageReloadReceiptState::Pending) return false;
 		State = EPackageReloadReceiptState::Ready; return true;
 	}
-	auto FPackageReloadResourceReceipt::SetFailed(std::string InMessage) -> bool
+	auto FPackageReloadResourceReceipt::SetFailed(FPackageReloadDiagnostic InError) -> bool
 	{
 		std::lock_guard Lock(Mutex);
-		if (State != EPackageReloadReceiptState::Pending) return false;
-		State = EPackageReloadReceiptState::Failed; Message = std::move(InMessage); return true;
+		if (State != EPackageReloadReceiptState::Pending || InError.Reason == EPackageReloadReason::None) return false;
+		State = EPackageReloadReceiptState::Failed; Error = std::move(InError); return true;
 	}
 	auto FPackageReloadResourceReceipt::SetRetired() -> bool
 	{
@@ -268,9 +310,9 @@ namespace Durin
 		if (State != EPackageReloadReceiptState::Ready) return false;
 		State = EPackageReloadReceiptState::Retired; return true;
 	}
-	auto FPackageReloadResourceReceipt::GetMessage() const -> std::string
+	auto FPackageReloadResourceReceipt::GetFailure() const -> FPackageReloadDiagnostic
 	{
-		std::lock_guard Lock(Mutex); return Message;
+		std::lock_guard Lock(Mutex); return Error;
 	}
 
 	FPackageReloadOperation::FPackageReloadOperation()
@@ -281,7 +323,7 @@ namespace Durin
 		-> FPackageReloadOperation& = default;
 	auto FPackageReloadOperation::Poll() -> FPackageReloadResult
 	{
-		if (!State) return MakeResult(Status::Failed, Failure::Busy, Stage::Retire, {}, "Reload operation has no state.");
+		if (!State) return MakeResult(Status::Failed, Failure::Busy, Stage::Retire, {}, Reason::MissingOperation);
 		if (State->Result.Status == Status::Pending && State->Replacement
 			&& State->Replacement->Retire())
 		{
@@ -304,7 +346,7 @@ namespace Durin
 	auto FPackageReloadOperation::GetResult() const -> FPackageReloadResult
 	{
 		return State ? State->Result
-			: MakeResult(Status::Failed, Failure::Busy, Stage::Retire, {}, "Reload operation has no state.");
+			: MakeResult(Status::Failed, Failure::Busy, Stage::Retire, {}, Reason::MissingOperation);
 	}
 
 	auto ReloadPackages(const FPackageReloadRequest& Request) -> FPackageReloadOperation
@@ -315,7 +357,7 @@ namespace Durin
 		if (GPackageReloadActive)
 		{
 			State->Result = MakeResult(Status::Failed, Failure::Busy, Stage::Preflight, {},
-				"Another package reload is active.");
+				Reason::AlreadyActive);
 			return Operation;
 		}
 		GPackageReloadActive = true;
@@ -326,12 +368,12 @@ namespace Durin
 		};
 		auto Cancelled = [&] { return State->bCancelRequested || IsCancelled(Request); };
 		if (Cancelled()) return Finish(MakeResult(Status::Cancelled, Failure::None,
-			Stage::Preflight, {}, "Package reload was cancelled."));
+			Stage::Preflight, {}, Reason::Cancelled));
 		if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
 			return Finish(MakeResult(Status::Failed, Failure::Unsupported, Stage::Preflight, {},
-				"Authored package reload is unavailable in a cooked runtime."));
+				Reason::CookedRuntime));
 		if (Request.Packages.empty()) return Finish(MakeResult(Status::Failed,
-			Failure::Unsupported, Stage::Preflight, {}, "Package reload requires at least one package."));
+			Failure::Unsupported, Stage::Preflight, {}, Reason::EmptyRequest));
 
 		std::vector<DPackage*> Packages;
 		Packages.reserve(Request.Packages.size());
@@ -339,13 +381,13 @@ namespace Durin
 		{
 			if (!IsValid(Package) || !Package->IsAssetPackage() || Package->IsGraphPrivate())
 				return Finish(MakeResult(Status::Failed, Failure::Unsupported, Stage::Preflight, {},
-					"Reload accepts only resident authored asset packages."));
+					Reason::InvalidPackage));
 			if (std::ranges::find(Packages, Package) == Packages.end()) Packages.push_back(Package);
 		}
 		if (Injected(Request, EPackageReloadFaultPoint::PreflightBudget)
 			|| Packages.size() > Request.Budget.MaximumPackages)
 			return Finish(MakeResult(Status::Failed, Failure::BudgetExceeded, Stage::Preflight, {},
-				"Package reload count exceeds the request budget."));
+				Reason::PackageBudget, {.Actual = Packages.size(), .Maximum = Request.Budget.MaximumPackages}));
 
 		std::vector<FPackagePath> Paths;
 		std::vector<std::filesystem::path> Files;
@@ -356,23 +398,31 @@ namespace Durin
 		for (DPackage* Package : Packages)
 		{
 			FPackagePath Path;
-			if (!FPackagePath::TryCreate(Package->GetPackagePath(), Path))
+			if (const auto Validation = FPackagePath::TryCreate(Package->GetPackagePath(), Path); !Validation)
 				return Finish(MakeResult(Status::Failed, Failure::Unsupported, Stage::Preflight, {},
-					"Resident package identity is invalid."));
+					Reason::InvalidIdentity, {.PathCause = Validation.Error}));
 			if (Package->IsNewlyCreated())
 				return Finish(MakeResult(Status::Failed, Failure::Unsaved, Stage::Preflight, Path,
-					"A never-saved package has no disk baseline."));
-			const std::filesystem::path File = ResolveAuthoredPath(Path);
-			if (File.empty() || !std::filesystem::exists(File))
+					Reason::UnsavedPackage));
+			const auto Resolved = FMountPaths::ResolveAssetPath(Path.GetView(), EMountPathExistence::AllowMissing);
+			if (!Resolved)
 				return Finish(MakeResult(Status::Failed, Failure::IoError, Stage::Preflight, Path,
-					"The saved package file is missing."));
+					Reason::InvalidIdentity, {.PathCause = FObjectError{
+						.Code = EObjectPathError::MountLookupFailed, .Part = EObjectPathPart::Package,
+						.Subject = Path.ToString(), .MountError = Resolved.Error}}));
+			const std::filesystem::path File(Resolved.PhysicalPath.generic_string() + ".dasset");
+			std::error_code FileError;
+			const bool bExists = std::filesystem::exists(File, FileError);
+			if (FileError || !bExists)
+				return Finish(MakeResult(Status::Failed, Failure::IoError, Stage::Preflight, Path,
+					FileError ? Reason::FileInspection : Reason::MissingFile, {.File = File, .SystemError = FileError}));
 			std::vector<DObject*> Objects;
 			GatherHierarchy(Package, EObjectQueryScope::LiveOnly, Objects);
 			for (DObject* Object : Objects)
 			{
 				if (Object->GetOuter() == Package && !IsSupportedTopLevel(*Object))
 					return Finish(MakeResult(Status::Failed, Failure::Unsupported, Stage::Preflight, Path,
-						std::format("Asset class {} has no reload participant.", Object->GetClass()->GetName())));
+						Reason::UnsupportedClass, {.ObjectPath = Object->GetObjectPath(), .ClassName = Object->GetClass()->GetQualifiedName().ToString()}));
 				bTextures |= Object->IsA(DTexture::StaticClass());
 				bMaterials |= Object->IsA(DMaterialInterface::StaticClass());
 			}
@@ -385,11 +435,11 @@ namespace Durin
 
 		if (Injected(Request, EPackageReloadFaultPoint::QuiesceSelected))
 			return Finish(MakeResult(Status::Failed, Failure::Busy, Stage::Quiesce, {},
-				"Injected selected-compilation quiesce failure."));
+				Reason::InjectedQuiesceFailure));
 		FAssetCompilingManager::Get().MarkCompilationAsCanceled(OldObjects);
 		FAssetCompilingManager::Get().FinishCompilationForObjects(OldObjects);
 		if (Cancelled()) return Finish(MakeResult(Status::Cancelled, Failure::None,
-			Stage::Quiesce, {}, "Package reload was cancelled."));
+			Stage::Quiesce, {}, Reason::Cancelled));
 
 		try
 		{
@@ -399,24 +449,24 @@ namespace Durin
 			{
 				if (Injected(Request, EPackageReloadFaultPoint::ReadMain, Index))
 					return Finish(MakeResult(Status::Failed, Failure::IoError,
-						Stage::ReadAndPrepare, Paths[Index], "Injected main package read failure."));
+						Stage::ReadAndPrepare, Paths[Index], Reason::InjectedMainReadFailure));
 				auto Read = FPreparedPackageResource::Read(
 					Paths[Index], Files[Index], RemainingBytes, Sources[Index].Storage, Cancelled);
 				if (!Read)
 				{
-					const bool bCancelled = Read.Status == EPreparedPackageResourceStatus::Cancelled;
-					const Failure Code = Read.Status == EPreparedPackageResourceStatus::BudgetExceeded
-						? Failure::BudgetExceeded : Read.Status == EPreparedPackageResourceStatus::InvalidClosure
-						? Failure::InvalidClosure : Read.Status == EPreparedPackageResourceStatus::Stale
+					const bool bCancelled = Read.Error.Code == EPreparedPackageResourceError::Cancelled;
+					const Failure Code = Read.Error.Code == EPreparedPackageResourceError::BudgetExceeded
+						? Failure::BudgetExceeded : Read.Error.Code == EPreparedPackageResourceError::InvalidClosure
+						? Failure::InvalidClosure : Read.Error.Code == EPreparedPackageResourceError::Stale
 						? Failure::Stale : Failure::IoError;
 					return Finish(MakeResult(bCancelled ? Status::Cancelled : Status::Failed,
-						bCancelled ? Failure::None : Code, Stage::ReadAndPrepare, Paths[Index], Read.Message));
+						bCancelled ? Failure::None : Code, Stage::ReadAndPrepare, Paths[Index], Reason::ResourceRead, {.ResourceCause = Read.Error}));
 				}
 				Sources[Index].PackagePath = Paths[Index];
 				RemainingBytes -= Sources[Index].Storage.GetRetainedBytes();
 				if (Injected(Request, EPackageReloadFaultPoint::ReadBulk, Index))
 					return Finish(MakeResult(Status::Failed, Failure::IoError,
-						Stage::ReadAndPrepare, Paths[Index], "Injected bulk closure read failure."));
+						Stage::ReadAndPrepare, Paths[Index], Reason::InjectedBulkReadFailure));
 			}
 
 			FAssetPackageLoadScope DependencyScope;
@@ -452,7 +502,7 @@ namespace Durin
 				const bool bCancelled = Prepared.Status == AssetPrivate::EPackageGraphPrepareStatus::Cancelled;
 				return Finish(MakeResult(bCancelled ? Status::Cancelled : Status::Failed,
 					bCancelled ? Failure::None : MapGraphFailure(Prepared.Status),
-					Stage::ReadAndPrepare, Prepared.PackagePath, Prepared.Message));
+					Stage::ReadAndPrepare, Prepared.PackagePath, Reason::GraphPreparation, {.GraphCause = std::make_shared<FPackageGraphPrepareResult>(Prepared)}));
 			}
 
 			uint64 ClosureBytes = 0;
@@ -468,7 +518,7 @@ namespace Durin
 				(void)DependencyScope.Release(Ignore);
 				if (RuntimeResult.Status == Status::Pending)
 					RuntimeResult = MakeResult(Status::Failed, Failure::ResourcePreparationFailed,
-						Stage::PrepareRuntimeProducts, {}, "Injected runtime product failure.");
+						Stage::PrepareRuntimeProducts, {}, Reason::InjectedRuntimeFailure);
 				return Finish(std::move(RuntimeResult));
 			}
 
@@ -487,7 +537,7 @@ namespace Durin
 				for (DPackage* Package : Packages) Ignore.emplace_back(Package);
 				(void)DependencyScope.Release(Ignore);
 				return Finish(MakeResult(Status::Failed, Failure::ParticipantRejected,
-					Stage::PrepareReferences, {}, "Injected reference preparation failure."));
+					Stage::PrepareReferences, {}, Reason::InjectedReferenceFailure));
 			}
 			auto Replacement = std::make_unique<FObjectGraphReplacement>();
 			const FObjectReplacementBudget ReplacementBudget{
@@ -500,8 +550,8 @@ namespace Durin
 				std::vector<TWeakObjectPtr<DPackage>> Ignore;
 				for (DPackage* Package : Packages) Ignore.emplace_back(Package);
 				(void)DependencyScope.Release(Ignore);
-				return Finish(MakeResult(Status::Failed, MapReplacementFailure(ReplaceResult.Error),
-					Stage::PrepareReferences, {}, ReplaceResult.Message));
+				return Finish(MakeResult(Status::Failed, MapReplacementFailure(ReplaceResult.Error.Code),
+					Stage::PrepareReferences, {}, Reason::Replacement, {.ReplacementCause = ReplaceResult.Error}));
 			}
 			for (size_t SourceIndex = 0; SourceIndex < Sources.size(); ++SourceIndex)
 			{
@@ -513,7 +563,7 @@ namespace Durin
 					for (DPackage* Package : Packages) Ignore.emplace_back(Package);
 					(void)DependencyScope.Release(Ignore);
 					return Finish(MakeResult(Status::Failed, Failure::Stale,
-						Stage::Revalidate, Paths[SourceIndex], "Injected disk revalidation failure."));
+						Stage::Revalidate, Paths[SourceIndex], Reason::InjectedDiskRevalidationFailure));
 				}
 				if (auto Revalidate = Source.Storage.Revalidate(Cancelled); !Revalidate)
 				{
@@ -521,9 +571,9 @@ namespace Durin
 					std::vector<TWeakObjectPtr<DPackage>> Ignore;
 					for (DPackage* Package : Packages) Ignore.emplace_back(Package);
 					(void)DependencyScope.Release(Ignore);
-					const bool bCancelled = Revalidate.Status == EPreparedPackageResourceStatus::Cancelled;
+					const bool bCancelled = Revalidate.Error.Code == EPreparedPackageResourceError::Cancelled;
 					return Finish(MakeResult(bCancelled ? Status::Cancelled : Status::Failed,
-						bCancelled ? Failure::None : Failure::Stale, Stage::Revalidate, {}, Revalidate.Message));
+						bCancelled ? Failure::None : Failure::Stale, Stage::Revalidate, {}, Reason::ResourceRevalidation, {.ResourceCause = Revalidate.Error}));
 				}
 			}
 			if (Injected(Request, EPackageReloadFaultPoint::RevalidateReferencers)
@@ -534,7 +584,7 @@ namespace Durin
 				for (DPackage* Package : Packages) Ignore.emplace_back(Package);
 				(void)DependencyScope.Release(Ignore);
 				return Finish(MakeResult(Status::Failed, Failure::Stale,
-					Stage::Revalidate, {}, "Injected final reload validation failure."));
+					Stage::Revalidate, {}, Reason::InjectedFinalValidationFailure));
 			}
 			ReplaceResult = Replacement->TryCommit();
 			if (!ReplaceResult)
@@ -543,8 +593,8 @@ namespace Durin
 				std::vector<TWeakObjectPtr<DPackage>> Ignore;
 				for (DPackage* Package : Packages) Ignore.emplace_back(Package);
 				(void)DependencyScope.Release(Ignore);
-				return Finish(MakeResult(Status::Failed, MapReplacementFailure(ReplaceResult.Error),
-					Stage::Commit, {}, ReplaceResult.Message));
+				return Finish(MakeResult(Status::Failed, MapReplacementFailure(ReplaceResult.Error.Code),
+					Stage::Commit, {}, Reason::Replacement, {.ReplacementCause = ReplaceResult.Error}));
 			}
 
 			State->Result = {.Status = Status::Pending};
@@ -560,7 +610,8 @@ namespace Durin
 				{
 					// Publication is already committed. Dependency retention is safe and
 					// cannot be represented as an ordinary rollback failure.
-					State->Result.Diagnostics.push_back({{}, {}, Stage::Retire, ReleaseResult.Message});
+					State->Result.Diagnostics.push_back({.Stage = Stage::Retire,
+						.Reason = Reason::DependencyRelease, .AssetCause = std::make_shared<FAssetResult>(ReleaseResult)});
 				}
 				RefreshExternalBindings(ExternalRenderConsumers, bTextures, bMaterials);
 				RefreshMaterialGraphObservers();
@@ -574,19 +625,19 @@ namespace Durin
 				// Commit cannot be rolled back. Keep the operation successful/pending
 				// and retain dependencies if a best-effort observer refresh throws.
 				State->Result.Diagnostics.push_back({{}, {}, Stage::Publish,
-					"A post-publication refresh threw; the replacement remains committed."});
+					Reason::ObserverException});
 			}
 			return Operation;
 		}
 		catch (const std::bad_alloc&)
 		{
 			return Finish(MakeResult(Status::Failed, Failure::BudgetExceeded,
-				Stage::ReadAndPrepare, {}, "Allocation failed while preparing package reload."));
+				Stage::ReadAndPrepare, {}, Reason::Allocation));
 		}
 		catch (...)
 		{
 			return Finish(MakeResult(Status::Failed, Failure::InvalidClosure,
-				Stage::ReadAndPrepare, {}, "A package reload callback threw."));
+				Stage::ReadAndPrepare, {}, Reason::CallbackException));
 		}
 	}
 }

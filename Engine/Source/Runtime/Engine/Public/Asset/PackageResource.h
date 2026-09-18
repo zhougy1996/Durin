@@ -1,6 +1,8 @@
 #pragma once
 
 #include "EngineAPI.h"
+#include "Asset/PackageResourceError.h"
+#include "Asset/EditorBulkDataStorageError.h"
 #include "Asset/PackageBulkData.h"
 #include "Serialization/SharedByteBuffer.h"
 #include "Misc/FileHelper.h"
@@ -26,11 +28,13 @@ namespace Durin
 	{
 		EPackageResourceReadStatus Status = EPackageResourceReadStatus::Pending;
 		FSharedByteBuffer Buffer;
-		std::string Message;
+		FPackageResourceReadError Error;
 
 		auto Succeeded() const -> bool { return Status == EPackageResourceReadStatus::Success; }
 		explicit operator bool() const { return Succeeded(); }
 	};
+
+	ENGINE_API auto FormatPackageResourceReadError(const FPackageResourceReadResult& Result) -> std::string;
 
 	struct FPackageResourceReadStats
 	{
@@ -107,23 +111,11 @@ namespace Durin
 
 	using FPackageResourceHandle = std::shared_ptr<FPackageResource>;
 
-	// Storage preparation outcome; Ready does not imply graph/runtime readiness.
-	enum class EPreparedPackageResourceStatus : uint8
-	{
-		Ready,
-		InvalidClosure,
-		BudgetExceeded,
-		IoError,
-		Stale,
-		Cancelled,
-	};
-
 	// Reports a preparation/revalidation failure without changing the output owner.
 	struct FPreparedPackageResourceResult
 	{
-		EPreparedPackageResourceStatus Status = EPreparedPackageResourceStatus::Ready;
-		std::string Message;
-		explicit operator bool() const { return Status == EPreparedPackageResourceStatus::Ready; }
+		FPreparedPackageResourceError Error;
+		explicit operator bool() const { return Error.Code == EPreparedPackageResourceError::None; }
 	};
 
 	// Owns an unpublished immutable main/bulk closure. Main schema validation
@@ -177,8 +169,7 @@ namespace Durin
 		const FPackageBulkSegmentSummary& Summary,
 		std::span<const FPackageBulkDataEntry> Entries,
 		FByteView Segment,
-		FPackageResourceHandle& OutHandle,
-		std::string* OutError = nullptr) -> bool;
+		FPackageResourceHandle& OutHandle) -> FPackageBulkDataResult;
 
 	// Identifies one bounded stored range in a validated logical package segment.
 	struct FPackageResourceRange
@@ -190,29 +181,39 @@ namespace Durin
 		uint32 Alignment = 1;
 	};
 
+	enum class EPackageResourceRangeError : uint8
+	{
+		None, MissingResource, UnsupportedFlags, SizeLimit, InvalidAlignment, MisalignedOffset, OutsideSegment,
+	};
+	struct FPackageResourceRangeError
+	{
+		EPackageResourceRangeError Code = EPackageResourceRangeError::None;
+		uint64 SegmentOffset = 0;
+		uint64 StoredSize = 0;
+		uint64 SegmentExtent = 0;
+		uint64 MaximumStoredSize = 0;
+		uint32 StorageFlags = 0;
+		uint32 Alignment = 0;
+	};
+	struct FPackageResourceRangeResult
+	{
+		FPackageResourceRangeError Error;
+		auto Succeeded() const -> bool { return Error.Code == EPackageResourceRangeError::None; }
+		explicit operator bool() const { return Succeeded(); }
+	};
+	ENGINE_API auto FormatPackageResourceRangeError(const FPackageResourceRangeError& Error) -> std::string;
+
 	// Validates storage facts only; the caller retains logical-size and domain limits.
 	ENGINE_API auto ValidatePackageResourceRange(
 		const FPackageResourceRange& Range,
-		uint64 MaximumStoredSize,
-		std::string* OutError = nullptr) -> bool;
-
-	enum class EPackageResourceRegistrationStatus : uint8
-	{
-		Success,
-		InvalidMetadata,
-		InvalidGeneration,
-		RecoveryFailed,
-		ShuttingDown,
-	};
+		uint64 MaximumStoredSize) -> FPackageResourceRangeResult;
 
 	// Owns a published resource or the stage and causes of failed registration.
 	struct [[nodiscard]] FPackageResourceRegistrationResult
 	{
-		EPackageResourceRegistrationStatus Status = EPackageResourceRegistrationStatus::InvalidMetadata;
 		FPackageResourceHandle Resource;
-		std::string Message;
-		FFileHelper::FAtomicFileError PublicationError;
-		explicit operator bool() const { return Status == EPackageResourceRegistrationStatus::Success; }
+		FPackageResourceRegistrationError Error{.Code = EPackageResourceRegistrationError::InvalidMetadata};
+		explicit operator bool() const { return Error.Code == EPackageResourceRegistrationError::None; }
 	};
 
 	// Owns loose package resources and retires them before package I/O shutdown.

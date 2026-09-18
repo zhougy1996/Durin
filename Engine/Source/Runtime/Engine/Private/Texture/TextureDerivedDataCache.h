@@ -31,12 +31,10 @@ namespace Durin::TextureDerivedDataCache
 		OutPlatformData.Serialize(Ar);
 		if (Ar.HasError() || !RequireArchiveEnd(Ar) || !OutPlatformData.IsValid())
 		{
-			OutDiagnostic.Message = AssetDerivedDataCache::BoundDiagnostic(
-				Ar.GetFailure() ? Ar.GetFailure()->Message
-					: "Texture DDC payload is invalid or has trailing bytes.");
+			OutDiagnostic.Code = EAssetCacheError::Decode;
+			if (Ar.GetFailure()) OutDiagnostic.ArchiveCause = *Ar.GetFailure();
 			return ELoadResult::Miss;
 		}
-		OutDiagnostic.Message.clear();
 		return ELoadResult::Hit;
 	}
 
@@ -47,6 +45,8 @@ namespace Durin::TextureDerivedDataCache
 		FOperationDiagnostic& OutDiagnostic) -> bool
 	{
 		OutDiagnostic = {};
+		OutDiagnostic.Key = Key;
+		OutDiagnostic.MaximumValueBytes = MaximumTexturePayloadBytes;
 		FByteBuffer Bytes;
 		FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataPayload,
 			{.Target = {TargetPlatform == ECookTargetPlatform::Win64 ? "Win64" : "",
@@ -55,9 +55,8 @@ namespace Durin::TextureDerivedDataCache
 		PlatformData.Serialize(Ar);
 		if (Ar.HasError())
 		{
-			OutDiagnostic.Message = AssetDerivedDataCache::BoundDiagnostic(
-				Ar.GetFailure() ? Ar.GetFailure()->Message
-					: "Texture DDC payload serialization failed.");
+			OutDiagnostic.Code = EAssetCacheError::Encode;
+			if (Ar.GetFailure()) OutDiagnostic.ArchiveCause = *Ar.GetFailure();
 			return false;
 		}
 

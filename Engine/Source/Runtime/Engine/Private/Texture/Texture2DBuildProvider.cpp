@@ -6,35 +6,68 @@
 
 namespace Durin
 {
-	auto ValidateTexture2DSourceMips(std::span<const Image::FImage> Mips,
-		std::string& OutError) -> bool
+	auto FormatTexture2DBuildError(const FTexture2DBuildError& Error) -> std::string
 	{
-		if (Mips.empty())
+		if (Error.InputCause) return FormatTexture2DInputError(*Error.InputCause);
+		switch (Error.Code)
 		{
-			OutError = "Texture2D source mip chain is empty.";
-			return false;
+		case ETexture2DBuildError::None: return {};
+		case ETexture2DBuildError::InvalidInput: return "Texture build input is invalid.";
+		case ETexture2DBuildError::CompressionTaskFailed: return "Texture compression task failed.";
+		case ETexture2DBuildError::MissingSourceIdentity: return "Texture2D source identity is missing.";
+		case ETexture2DBuildError::AuthoredBuildUnavailable: return "Texture2D authored build orchestration is unavailable outside editor builds.";
+		case ETexture2DBuildError::InvalidProviderDescriptor: return "The Texture2D build provider descriptor is invalid.";
+		case ETexture2DBuildError::Cancelled: return "Texture2D build was cancelled.";
+		case ETexture2DBuildError::InvalidProviderProduct: return "Texture2D provider returned invalid platform data.";
+		case ETexture2DBuildError::ProviderUnavailable: return "The Texture2D build provider is unavailable.";
+		case ETexture2DBuildError::AmbiguousProvider: return "Multiple Texture2D build providers are registered.";
+		case ETexture2DBuildError::ProviderInvocationFailed: return "The Texture2D build provider invocation failed.";
+		case ETexture2DBuildError::ProviderFailed: return "The Texture2D build provider failed without a diagnostic.";
+		case ETexture2DBuildError::UnsupportedTarget: return "Texture2D build target is unsupported.";
+		case ETexture2DBuildError::CompressedLayoutOverflow: return "Compressed texture mip layout exceeds supported limits.";
+		case ETexture2DBuildError::InvalidCompressionQuality: return "Texture compression quality is invalid.";
+		case ETexture2DBuildError::InvalidUsage: return "Texture usage preset is invalid.";
+		case ETexture2DBuildError::InvalidAlphaMipMode: return "Texture alpha mip mode is invalid.";
+		case ETexture2DBuildError::InvalidAlphaCoverageThreshold: return "Texture alpha coverage threshold must be greater than zero and less than one.";
+		case ETexture2DBuildError::UnsupportedPixelFormat: return "Selected pixel format is not supported by the current RHI backend.";
+		case ETexture2DBuildError::InvalidMipLayout: return "Generated texture mip layout is invalid.";
+		case ETexture2DBuildError::InvalidPlatformData: return "Failed to build texture platform data.";
 		}
+		return {};
+	}
+
+	auto FormatTexture2DInputError(const FTexture2DInputError& Error) -> std::string
+	{
+		if (Error.Code == ETexture2DInputError::None) return {};
+		if (Error.Code == ETexture2DInputError::EmptyMips) return "Texture2D source mip chain is empty.";
+		if (Error.Code >= ETexture2DInputError::InvalidUsage) return "Texture2D build settings are invalid.";
+		return "Texture2D source mip chain is invalid.";
+	}
+
+	auto ValidateTexture2DSourceMips(std::span<const Image::FImage> Mips) -> FTexture2DInputResult
+	{
+		if (Mips.empty()) return {{.Code = ETexture2DInputError::EmptyMips}};
 		const auto& Base = Mips.front().GetInfo();
 		uint64 Bytes = 0;
 		for (size_t Index = 0; Index < Mips.size(); ++Index)
 		{
 			const auto& Info = Mips[Index].GetInfo();
 			Bytes += Mips[Index].GetPixels().size();
-			if (!Mips[Index].IsValid() || Info.Format != Image::ERawImageFormat::RGBA8
-				|| Info.Depth != 1 || Info.SliceCount != 1
-				|| Base.Width > 16384 || Base.Height > 16384
-				|| Info.Width != std::max(1u, Base.Width >> std::min<size_t>(Index, 31))
-				|| Info.Height != std::max(1u, Base.Height >> std::min<size_t>(Index, 31))
-				|| Info.GammaSpace != Base.GammaSpace || Bytes > MaximumTextureSourceBytes
-				|| (Index > 0 && Mips[Index - 1].GetInfo().Width == 1
-					&& Mips[Index - 1].GetInfo().Height == 1))
-			{
-				OutError = "Texture2D source mip chain is invalid.";
-				return false;
-			}
+			ETexture2DInputError Code = ETexture2DInputError::None;
+			if (!Mips[Index].IsValid()) Code = ETexture2DInputError::InvalidImage;
+			else if (Info.Format != Image::ERawImageFormat::RGBA8) Code = ETexture2DInputError::UnsupportedFormat;
+			else if (Info.Depth != 1 || Info.SliceCount != 1) Code = ETexture2DInputError::UnsupportedShape;
+			else if (Base.Width > 16384 || Base.Height > 16384) Code = ETexture2DInputError::ExcessiveResolution;
+			else if (Info.Width != std::max(1u, Base.Width >> std::min<size_t>(Index, 31))
+				|| Info.Height != std::max(1u, Base.Height >> std::min<size_t>(Index, 31))) Code = ETexture2DInputError::InvalidMipDimensions;
+			else if (Info.GammaSpace != Base.GammaSpace) Code = ETexture2DInputError::GammaMismatch;
+			else if (Bytes > MaximumTextureSourceBytes) Code = ETexture2DInputError::SourceBudgetExceeded;
+			else if (Index > 0 && Mips[Index - 1].GetInfo().Width == 1
+				&& Mips[Index - 1].GetInfo().Height == 1) Code = ETexture2DInputError::MipAfterTerminal;
+			if (Code != ETexture2DInputError::None)
+				return {{.Code = Code, .Index = Index, .Bytes = Bytes, .Actual = Info, .Base = Base}};
 		}
-		OutError.clear();
-		return true;
+		return {};
 	}
 
 	auto MakeTexture2DBuildRequest(const FTextureSource& Source,
@@ -53,26 +86,19 @@ namespace Durin
 				Mips.GetMipData(0, 0, Index), Image)) return {.Settings = Settings};
 			Result.SourceMips.push_back(std::move(Image));
 		}
-		std::string Error;
-		if (!ValidateTexture2DSourceMips(Result.SourceMips, Error)) return {.Settings = Settings};
+		if (!ValidateTexture2DSourceMips(Result.SourceMips)) return {.Settings = Settings};
 		Result.SourceIdentity = Source.GetIdentity();
 		return Result;
 	}
 
-	auto ValidateTexture2DBuildSettings(
-		const FTexture2DBuildSettings& Settings,
-		std::string& OutError) -> bool
+	auto ValidateTexture2DBuildSettings(const FTexture2DBuildSettings& Settings) -> FTexture2DInputResult
 	{
-		if (!IsValidTextureUsage(Settings.Usage)
-			|| !IsValidTextureCompressionQuality(Settings.CompressionQuality)
-			|| !IsValidTextureAlphaMipMode(Settings.AlphaMipMode)
-			|| !IsValidTextureAlphaCoverageThreshold(Settings.AlphaCoverageThreshold))
-		{
-			OutError = "Texture2D build settings are invalid.";
-			return false;
-		}
-		OutError.clear();
-		return true;
+		ETexture2DInputError Code = ETexture2DInputError::None;
+		if (!IsValidTextureUsage(Settings.Usage)) Code = ETexture2DInputError::InvalidUsage;
+		else if (!IsValidTextureCompressionQuality(Settings.CompressionQuality)) Code = ETexture2DInputError::InvalidCompressionQuality;
+		else if (!IsValidTextureAlphaMipMode(Settings.AlphaMipMode)) Code = ETexture2DInputError::InvalidAlphaMipMode;
+		else if (!IsValidTextureAlphaCoverageThreshold(Settings.AlphaCoverageThreshold)) Code = ETexture2DInputError::InvalidAlphaCoverageThreshold;
+		return Code == ETexture2DInputError::None ? FTexture2DInputResult{} : FTexture2DInputResult{{.Code = Code, .Settings = Settings}};
 	}
 
 	auto ResolveTexture2DSRGB(const FTexture2DBuildSettings& Settings) -> bool
@@ -88,12 +114,12 @@ namespace Durin
 	{
 		OutProduct = {};
 		OutIdentity = {};
-		std::string Error;
-		if (!ValidateTexture2DSourceMips(Request.SourceMips, Error)
-			|| !ValidateTexture2DBuildSettings(Request.Settings, Error))
-			return {ETexture2DBuildStatus::Failed, std::move(Error)};
+		if (const auto Validation = ValidateTexture2DSourceMips(Request.SourceMips); !Validation)
+			return {ETexture2DBuildStatus::Failed, {.Code = ETexture2DBuildError::InvalidInput, .InputCause = Validation.Error}};
+		if (const auto Validation = ValidateTexture2DBuildSettings(Request.Settings); !Validation)
+			return {ETexture2DBuildStatus::Failed, {.Code = ETexture2DBuildError::InvalidInput, .InputCause = Validation.Error}};
 		if (Request.SourceIdentity.IsZero())
-			return {ETexture2DBuildStatus::Failed, "Texture2D source identity is missing."};
+			return {ETexture2DBuildStatus::Failed, {.Code = ETexture2DBuildError::MissingSourceIdentity}};
 		OutIdentity = {
 			.SourceIdentity = Request.SourceIdentity,
 			.Settings = Request.Settings,
@@ -102,7 +128,7 @@ namespace Durin
 		OutIdentity.Settings.bSRGB = ResolveTexture2DSRGB(Request.Settings);
 #if !DURIN_WITH_EDITOR
 		return {ETexture2DBuildStatus::Failed,
-			"Texture2D authored build orchestration is unavailable outside editor builds."};
+			{.Code = ETexture2DBuildError::AuthoredBuildUnavailable}};
 #else
 		const auto Invocation = FModularFeatureRegistry::Get().InvokeSingle<
 			ITexture2DBuildProvider>([&](ITexture2DBuildProvider& Provider) {
@@ -110,7 +136,7 @@ namespace Durin
 				if (!OutIdentity.Provider.IsValid())
 				{
 					return FTexture2DBuildResult{ETexture2DBuildStatus::Failed,
-						"The Texture2D build provider descriptor is invalid."};
+						{.Code = ETexture2DBuildError::InvalidProviderDescriptor}};
 				}
 				const FTexture2DBuildKeyInput KeyInput{
 					.SourceIdentity = OutIdentity.SourceIdentity,
@@ -141,7 +167,7 @@ namespace Durin
 					&& ExecutionControl->ShouldCancel())
 				{
 					return FTexture2DBuildResult{ETexture2DBuildStatus::Cancelled,
-						"Texture2D build was cancelled."};
+						{.Code = ETexture2DBuildError::Cancelled}};
 				}
 				FTexture2DRecipeBuildProduct RecipeProduct;
 				FTexture2DBuildMetrics RecipeMetrics;
@@ -159,13 +185,13 @@ namespace Durin
 				if (!RecipeProduct.PlatformData.IsValid())
 				{
 					return FTexture2DBuildResult{ETexture2DBuildStatus::Failed,
-						"Texture2D provider returned invalid platform data."};
+						{.Code = ETexture2DBuildError::InvalidProviderProduct}};
 				}
 				if (ExecutionControl && ExecutionControl->ShouldCancel
 					&& ExecutionControl->ShouldCancel())
 				{
 					return FTexture2DBuildResult{ETexture2DBuildStatus::Cancelled,
-						"Texture2D build was cancelled."};
+						{.Code = ETexture2DBuildError::Cancelled}};
 				}
 
 				TextureDerivedDataCache::FOperationDiagnostic StoreDiagnostic;
@@ -184,8 +210,7 @@ namespace Durin
 					*ExecutionControl->Metrics = RecipeMetrics;
 				OutProduct = {.PlatformData = std::move(RecipeProduct.PlatformData),
 					.DerivedDataKey = Key,
-					.PersistenceDiagnostic = AssetDerivedDataCache::CombineDiagnostics(
-						CacheDiagnostic, StoreDiagnostic),
+					.PersistenceDiagnostic = {std::move(CacheDiagnostic), std::move(StoreDiagnostic)},
 					.Provider = OutIdentity.Provider,
 					.Metrics = RecipeMetrics,
 					.Origin = ETexture2DBuildProductOrigin::Rebuilt};
@@ -200,15 +225,15 @@ namespace Durin
 		OutProduct = {};
 		if (Invocation.Status == EFeatureInvokeStatus::Unavailable)
 			return {ETexture2DBuildStatus::Failed,
-				"The Texture2D build provider is unavailable."};
+				{.Code = ETexture2DBuildError::ProviderUnavailable}};
 		else if (Invocation.Status == EFeatureInvokeStatus::Ambiguous)
 			return {ETexture2DBuildStatus::Failed,
-				"Multiple Texture2D build providers are registered."};
+				{.Code = ETexture2DBuildError::AmbiguousProvider}};
 		else if (Invocation.Status == EFeatureInvokeStatus::VisitorFailed)
 			return {ETexture2DBuildStatus::Failed,
-				"The Texture2D build provider invocation failed."};
+				{.Code = ETexture2DBuildError::ProviderInvocationFailed}};
 		return {ETexture2DBuildStatus::Failed,
-			"The Texture2D build provider failed without a diagnostic."};
+			{.Code = ETexture2DBuildError::ProviderFailed}};
 #endif
 	}
 }

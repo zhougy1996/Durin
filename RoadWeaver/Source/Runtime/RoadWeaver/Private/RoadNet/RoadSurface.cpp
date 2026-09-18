@@ -67,19 +67,25 @@ namespace Durin::RoadNet
 		}
 	}
 
-	auto ValidateRoadPlacement(const FTransform& Placement, std::string& OutError) -> bool
+	auto FormatRoadPlacementError(const FRoadPlacementError& Error) -> std::string
 	{
-		if (Placement.Scale3D != FVector3(1.0) || !Math::IsFinite(Placement.Translation)
-			|| !std::isfinite(Placement.Rotation.w) || !std::isfinite(Placement.Rotation.x)
-			|| !std::isfinite(Placement.Rotation.y) || !std::isfinite(Placement.Rotation.z)
-			|| std::abs(Placement.Rotation.w * Placement.Rotation.w + Placement.Rotation.x * Placement.Rotation.x
-				+ Placement.Rotation.y * Placement.Rotation.y + Placement.Rotation.z * Placement.Rotation.z - 1.0) > 1.e-8)
-		{
-			OutError = "Road placement requires finite translation, a unit rotation and identity scale.";
-			return false;
-		}
-		OutError.clear();
-		return true;
+		return Error.Code == ERoadPlacementError::None ? std::string{}
+			: "Road placement requires finite translation, a unit rotation and identity scale.";
+	}
+
+	auto ValidateRoadPlacement(const FTransform& Placement) -> FRoadPlacementResult
+	{
+		if (Placement.Scale3D != FVector3(1.0))
+			return {{ERoadPlacementError::NonIdentityScale, Placement}};
+		if (!Math::IsFinite(Placement.Translation))
+			return {{ERoadPlacementError::NonFiniteTranslation, Placement}};
+		if (!std::isfinite(Placement.Rotation.w) || !std::isfinite(Placement.Rotation.x)
+			|| !std::isfinite(Placement.Rotation.y) || !std::isfinite(Placement.Rotation.z))
+			return {{ERoadPlacementError::NonFiniteRotation, Placement}};
+		if (std::abs(Placement.Rotation.w * Placement.Rotation.w + Placement.Rotation.x * Placement.Rotation.x
+			+ Placement.Rotation.y * Placement.Rotation.y + Placement.Rotation.z * Placement.Rotation.z - 1.0) > 1.e-8)
+			return {{ERoadPlacementError::NonUnitRotation, Placement}};
+		return {};
 	}
 
 	namespace
@@ -205,7 +211,9 @@ namespace Durin::RoadNet
 
 	auto FitRoadDefinition(FDefinition& Definition, const FRoadSurface& Operation, std::string& OutError) -> bool
 	{
-		if (!ValidateDefinition(Definition, OutError) || !ValidateSurface(Operation, OutError)) return false;
+		if (const auto Validation = ValidateDefinition(Definition); !Validation)
+		{ OutError = FormatRoadDefinitionError(Validation.Error); return false; }
+		if (!ValidateSurface(Operation, OutError)) return false;
 		auto Candidate = Definition;
 		for (auto& Road : Candidate.Roads)
 		{
@@ -252,7 +260,8 @@ namespace Durin::RoadNet
 			Candidate.Planet.Center = Operation.Origin;
 			Candidate.Planet.RadiusMeters = Operation.RadiusMeters;
 		}
-		if (!ValidateDefinition(Candidate, OutError)) return false;
+		if (const auto Validation = ValidateDefinition(Candidate); !Validation)
+		{ OutError = FormatRoadDefinitionError(Validation.Error); return false; }
 		Definition = std::move(Candidate);
 		return true;
 	}
@@ -267,7 +276,8 @@ namespace Durin::RoadNet
 		Definition.Nodes.push_back({.Id = Road.StartNodeId, .Position = Road.ReferenceLine.GetPoints().front().Position});
 		if (Road.EndNodeId != Road.StartNodeId)
 			Definition.Nodes.push_back({.Id = Road.EndNodeId, .Position = Road.ReferenceLine.GetPoints().back().Position});
-		if (!ValidateDefinition(Definition, OutError)) return false;
+		if (const auto Validation = ValidateDefinition(Definition); !Validation)
+		{ OutError = FormatRoadDefinitionError(Validation.Error); return false; }
 		auto Result = std::make_shared<FRoadAlignment>();
 		Result->Planet = Planet;
 		Result->Sections = Road.LaneSections;
@@ -332,7 +342,12 @@ namespace Durin::RoadNet
 	auto FRoadAlignment::SampleWorld(double DistanceMeters, const FTransform& Placement,
 		FRoadSample& OutSample, std::string& OutError) const -> bool
 	{
-		if (!ValidateRoadPlacement(Placement, OutError)) return false;
+		const auto Validation = ValidateRoadPlacement(Placement);
+		if (!Validation)
+		{
+			OutError = FormatRoadPlacementError(Validation.Error);
+			return false;
+		}
 		FRoadSample Result;
 		if (!Sample(DistanceMeters, Result, OutError)) return false;
 		Result.Position = Placement.Rotation * Result.Position + Placement.Translation;

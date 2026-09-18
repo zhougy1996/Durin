@@ -343,16 +343,15 @@ TEST(FStaticMeshCookedProductTests, DetachedCodecMatchesBaselineAndClassifiesTru
 		{.Name = Durin::FName("Body"), .SourceMaterialIndex = 4},
 		{.Name = Durin::FName("Trim"), .SourceMaterialIndex = 9}};
 	std::unique_ptr<Durin::FStaticMeshRenderData> Baseline;
-	std::string Error;
-	ASSERT_TRUE(Durin::MakeStaticMeshRenderData(Payload, Baseline, Error)) << Error;
+	ASSERT_TRUE(Durin::MakeStaticMeshRenderData(Payload, Baseline));
 
 	Durin::FStaticMeshCookedProduct Product;
-	Durin::FCookedMeshProductError ProductError;
-	ASSERT_TRUE(Durin::DecodeStaticMeshCookedProduct(
+	Durin::FCookedMeshProductResult Result;
+	ASSERT_TRUE(Result = Durin::DecodeStaticMeshCookedProduct(
 		Bytes, {}, Slots,
 		Durin::EBodySetupCollisionSourceMode::None,
 		Durin::EBodySetupCollisionQueryPolicy::SimpleAndComplex,
-		Product, ProductError)) << ProductError.Message;
+		Product)) << Durin::FormatCookedMeshProductError(Result.Error);
 	ASSERT_NE(Product.RenderData, nullptr);
 	ASSERT_EQ(Product.RenderData->LODResources.size(), Baseline->LODResources.size());
 	EXPECT_EQ(Product.RenderData->LODResources[0].IndexBuffer.GetIndices(),
@@ -367,34 +366,34 @@ TEST(FStaticMeshCookedProductTests, DetachedCodecMatchesBaselineAndClassifiesTru
 
 	Durin::FStaticMeshCookedProduct Rejected;
 	Durin::FByteBuffer Truncated(Bytes.begin(), Bytes.end() - 1);
-	EXPECT_FALSE(Durin::DecodeStaticMeshCookedProduct(
+	EXPECT_FALSE(Result = Durin::DecodeStaticMeshCookedProduct(
 		Truncated, {}, Slots,
 		Durin::EBodySetupCollisionSourceMode::None,
 		Durin::EBodySetupCollisionQueryPolicy::SimpleAndComplex,
-		Rejected, ProductError));
-	EXPECT_EQ(ProductError.Category, Durin::ECookedMeshProductFailure::Schema);
+		Rejected));
+	EXPECT_EQ(Result.Error.Code, Durin::ECookedMeshProductError::RenderArchive);
 
 	Durin::FByteBuffer Incompatible = Bytes;
 	WriteU32(Incompatible, 4, StaticMeshPayloadSchemaVersion + 1);
 	Rehash(Incompatible);
-	EXPECT_FALSE(Durin::DecodeStaticMeshCookedProduct(
+	EXPECT_FALSE(Result = Durin::DecodeStaticMeshCookedProduct(
 		Incompatible, {}, Slots,
 		Durin::EBodySetupCollisionSourceMode::None,
 		Durin::EBodySetupCollisionQueryPolicy::SimpleAndComplex,
-		Rejected, ProductError));
-	EXPECT_EQ(ProductError.Category, Durin::ECookedMeshProductFailure::Schema);
+		Rejected));
+	EXPECT_EQ(Result.Error.Code, Durin::ECookedMeshProductError::RenderArchive);
 
 	Durin::FByteBuffer Oversized = Bytes;
 	const uint64 LODChunkOffset = ReadU64(Oversized, 64 + 2 * 32 + 8);
 	WriteU32(Oversized, static_cast<size_t>(LODChunkOffset + 4),
 		MaximumStaticMeshVerticesPerLOD + 1);
 	Rehash(Oversized);
-	EXPECT_FALSE(Durin::DecodeStaticMeshCookedProduct(
+	EXPECT_FALSE(Result = Durin::DecodeStaticMeshCookedProduct(
 		Oversized, {}, Slots,
 		Durin::EBodySetupCollisionSourceMode::None,
 		Durin::EBodySetupCollisionQueryPolicy::SimpleAndComplex,
-		Rejected, ProductError));
-	EXPECT_EQ(ProductError.Category, Durin::ECookedMeshProductFailure::Schema);
+		Rejected));
+	EXPECT_EQ(Result.Error.Code, Durin::ECookedMeshProductError::RenderArchive);
 
 	Durin::FByteBuffer Compressed = Bytes;
 	WriteU32(Compressed, 16, 1);
@@ -402,12 +401,12 @@ TEST(FStaticMeshCookedProductTests, DetachedCodecMatchesBaselineAndClassifiesTru
 	WriteU64(Compressed, 64 + 16, 1);
 	WriteU64(Compressed, 64 + 24, 65);
 	Rehash(Compressed);
-	EXPECT_FALSE(Durin::DecodeStaticMeshCookedProduct(
+	EXPECT_FALSE(Result = Durin::DecodeStaticMeshCookedProduct(
 		Compressed, {}, Slots,
 		Durin::EBodySetupCollisionSourceMode::None,
 		Durin::EBodySetupCollisionQueryPolicy::SimpleAndComplex,
-		Rejected, ProductError));
-	EXPECT_EQ(ProductError.Category, Durin::ECookedMeshProductFailure::Schema);
+		Rejected));
+	EXPECT_EQ(Result.Error.Code, Durin::ECookedMeshProductError::RenderArchive);
 
 }
 
@@ -430,16 +429,15 @@ TEST(FStaticMeshPayloadCodecTests, CanonicalFixturesRoundTripDeterministically)
 		EXPECT_EQ(ReadU64(First, 48), First.size());
 
 		FStaticMeshPayloadData Decoded;
-		std::string Error;
 		const FDecodeResult DecodeResult =
 			DecodePayload(First, EStaticMeshTargetPlatform::Win64, Decoded);
 		ASSERT_TRUE(DecodeResult) << DecodeResult.Message;
 		ExpectEquivalent(Decoded, Fixture);
 
 		std::unique_ptr<FStaticMeshRenderData> RenderData;
-		ASSERT_TRUE(MakeStaticMeshRenderData(Decoded, RenderData, Error)) << Error;
+		ASSERT_TRUE(MakeStaticMeshRenderData(Decoded, RenderData));
 		FStaticMeshPayloadData ConvertedBack;
-		ASSERT_TRUE(MakeStaticMeshPayloadData(*RenderData, ConvertedBack, Error)) << Error;
+		ASSERT_TRUE(MakeStaticMeshPayloadData(*RenderData, ConvertedBack));
 		ExpectEquivalent(ConvertedBack, Fixture);
 	}
 }
@@ -480,16 +478,38 @@ TEST(FStaticMeshPayloadCodecTests,
 		GenerateDefaultStaticMeshLODScreenSizes(3);
 	for (size_t Index = 0; Index < LODs.size(); ++Index)
 		LODs[Index].ScreenSize = Defaults[Index];
-	std::string Error;
-	EXPECT_TRUE(ValidateStaticMeshLODScreenSizes(LODs, Error)) << Error;
+	EXPECT_TRUE(ValidateStaticMeshLODScreenSizes(LODs));
 	LODs[1].ScreenSize = std::numeric_limits<float>::quiet_NaN();
-	EXPECT_FALSE(ValidateStaticMeshLODScreenSizes(LODs, Error));
-	EXPECT_FALSE(Error.empty());
+	const auto NonFinite = ValidateStaticMeshLODScreenSizes(LODs);
+	EXPECT_FALSE(NonFinite);
+	EXPECT_EQ(NonFinite.Error.Code, EStaticMeshLODPolicyError::InvalidScreenSize);
+	EXPECT_EQ(NonFinite.Error.LODIndex, 1u);
+	EXPECT_EQ(NonFinite.Error.LODCount, 3u);
 	LODs = std::vector<FStaticMeshLODResources>(1);
+	EXPECT_TRUE(std::isnan(NonFinite.Error.ScreenSize));
 	LODs.front().ScreenSize = -0.0f;
-	EXPECT_FALSE(ValidateStaticMeshLODScreenSizes(LODs, Error));
+	const auto SignedZero = ValidateStaticMeshLODScreenSizes(LODs);
+	EXPECT_FALSE(SignedZero);
+	EXPECT_EQ(SignedZero.Error.Code, EStaticMeshLODPolicyError::InvalidScreenSize);
 	LODs.clear();
-	EXPECT_FALSE(ValidateStaticMeshLODScreenSizes(LODs, Error));
+	EXPECT_TRUE(std::signbit(SignedZero.Error.ScreenSize));
+	EXPECT_EQ(ValidateStaticMeshLODScreenSizes(LODs).Error.Code, EStaticMeshLODPolicyError::Empty);
+	LODs.resize(2);
+	LODs[0].ScreenSize = 0.5f;
+	LODs[1].ScreenSize = 0.5f;
+	const auto Order = ValidateStaticMeshLODScreenSizes(LODs);
+	EXPECT_FALSE(Order);
+	LODs[1].ScreenSize = 0.25f;
+	const auto Final = ValidateStaticMeshLODScreenSizes(LODs);
+	EXPECT_FALSE(Final);
+	LODs.clear();
+	EXPECT_EQ(Order.Error.Code, EStaticMeshLODPolicyError::NotDescending);
+	EXPECT_EQ(Order.Error.LODIndex, 1u);
+	EXPECT_EQ(Order.Error.ScreenSize, 0.5f);
+	EXPECT_EQ(Order.Error.PreviousScreenSize, 0.5f);
+	EXPECT_EQ(Final.Error.Code, EStaticMeshLODPolicyError::MissingFinalZero);
+	EXPECT_EQ(Final.Error.LODIndex, 1u);
+	EXPECT_EQ(Final.Error.ScreenSize, 0.25f);
 }
 
 TEST(FStaticMeshPayloadCodecTests, SupportsMeshWithoutUVChannels)
@@ -498,14 +518,13 @@ TEST(FStaticMeshPayloadCodecTests, SupportsMeshWithoutUVChannels)
 	const Durin::FByteBuffer Bytes = Encode(Fixture);
 
 	FStaticMeshPayloadData Decoded;
-	std::string Error;
 	const FDecodeResult DecodeResult =
 		DecodePayload(Bytes, EStaticMeshTargetPlatform::Win64, Decoded);
 	ASSERT_TRUE(DecodeResult) << DecodeResult.Message;
 	ExpectEquivalent(Decoded, Fixture);
 
 	std::unique_ptr<FStaticMeshRenderData> RenderData;
-	ASSERT_TRUE(MakeStaticMeshRenderData(Decoded, RenderData, Error)) << Error;
+	ASSERT_TRUE(MakeStaticMeshRenderData(Decoded, RenderData));
 	ASSERT_EQ(RenderData->LODResources.size(), 1u);
 	const FStaticMeshLODResources& LOD = RenderData->LODResources[0];
 	EXPECT_EQ(LOD.NumTexCoords, 0u);
@@ -526,17 +545,16 @@ TEST(FStaticMeshPayloadCodecTests, SupportsMeshWithoutUVChannels)
 		ExpectVector(Color, FVector4f(1.0f));
 
 	FStaticMeshPayloadData ConvertedBack;
-	ASSERT_TRUE(MakeStaticMeshPayloadData(*RenderData, ConvertedBack, Error)) << Error;
+	ASSERT_TRUE(MakeStaticMeshPayloadData(*RenderData, ConvertedBack));
 	ExpectEquivalent(ConvertedBack, Fixture);
 }
 
 TEST(FStaticMeshPayloadCodecTests,
 	CurrentVertexInputAndSectionDrawContractIsPinned)
 {
-	std::string Error;
 	std::unique_ptr<FStaticMeshRenderData> RenderData;
 	ASSERT_TRUE(MakeStaticMeshRenderData(
-		MakeMultiMaterialFixture(), RenderData, Error)) << Error;
+		MakeMultiMaterialFixture(), RenderData));
 	ASSERT_NE(RenderData, nullptr);
 	ASSERT_EQ(RenderData->LODResources.size(), 1u);
 	RenderData->LODVertexFactories.resize(1);
@@ -685,10 +703,9 @@ TEST(FStaticMeshPayloadCodecTests,
 	FStaticMeshRenderData Empty;
 	EXPECT_FALSE(Empty.IsReadyForRendering());
 
-	std::string Error;
 	std::unique_ptr<FStaticMeshRenderData> RenderData;
 	ASSERT_TRUE(MakeStaticMeshRenderData(
-		MakeMultiMaterialFixture(), RenderData, Error)) << Error;
+		MakeMultiMaterialFixture(), RenderData));
 	ASSERT_NE(RenderData, nullptr);
 	ASSERT_EQ(RenderData->LODResources.size(), 1u);
 	FStaticMeshLODResources& LOD = RenderData->LODResources[0];
@@ -1015,4 +1032,212 @@ TEST(FStaticMeshPayloadCodecTests, ArchiveTargetIsRequiredBeforePayloadTransfer)
 	};
 	Check(FStaticMeshPayloadData{});
 	Check(FStaticMeshCollisionPayloadData{});
+}
+
+TEST(FStaticMeshCollisionPayloadTests, RejectionOwnsOrdinalContextAndPreservesGeometry)
+{
+	using namespace Durin;
+	const std::array Vertices{FVector3(0, 0, 0), FVector3(1, 0, 0), FVector3(1, 1, 0), FVector3(0, 1, 0)};
+	const std::array<uint32, 6> Indices{0, 1, 2, 0, 2, 3};
+	const std::array<uint32, 2> Ordinals{3, 8};
+	const auto Geometry = FCollisionGeometryRef::MakeTriangleMesh(Vertices, Indices, Ordinals);
+	ASSERT_TRUE(Geometry);
+	FStaticMeshCollisionPayloadData Payload;
+	ASSERT_TRUE(MakeStaticMeshCollisionPayloadData(Geometry,
+		EBodySetupCollisionQueryPolicy::SimpleAndComplex, Payload));
+	FCollisionGeometryRef Output = Geometry;
+	uint32 Checks = 0;
+	const auto Cancelled = MakeStaticMeshCollisionGeometry(Payload, Output, [&] { return ++Checks == 2; });
+	EXPECT_EQ(Cancelled.Error.Code, EStaticMeshCollisionPayloadError::Cancelled);
+	EXPECT_EQ(Output.GetIdentity(), Geometry.GetIdentity());
+	Payload.SourceOrdinals[1] = 3;
+	const auto Duplicate = MakeStaticMeshCollisionGeometry(Payload, Output);
+	EXPECT_EQ(Duplicate.Error.Code, EStaticMeshCollisionPayloadError::DuplicateOrdinal);
+	EXPECT_EQ(Duplicate.Error.Index, 1u);
+	EXPECT_EQ(Duplicate.Error.Ordinal, 3u);
+	EXPECT_EQ(Duplicate.Error.VertexCount, 4u);
+	EXPECT_EQ(Duplicate.Error.IndexCount, 6u);
+	Payload.SourceOrdinals[1] = 8;
+	Payload.LeafTriangles = {99};
+	const auto Unknown = MakeStaticMeshCollisionGeometry(Payload, Output);
+	EXPECT_EQ(Unknown.Error.Code, EStaticMeshCollisionPayloadError::UnknownOrdinal);
+	EXPECT_EQ(Unknown.Error.Index, 0u);
+	EXPECT_EQ(Unknown.Error.Ordinal, 99u);
+	Payload = {};
+	EXPECT_EQ(Unknown.Error.SourceMode, EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
+	EXPECT_EQ(Unknown.Error.OrdinalCount, 2u);
+	EXPECT_EQ(Output.GetIdentity(), Geometry.GetIdentity());
+}
+
+TEST(FStaticMeshCollisionPayloadTests, InvalidExtractionAndCancellationPreserveOutput)
+{
+	using namespace Durin;
+	FStaticMeshCollisionPayloadData Output;
+	Output.Positions.push_back(FVector3f(7, 8, 9));
+	const auto Invalid = MakeStaticMeshCollisionPayloadData({},
+		EBodySetupCollisionQueryPolicy::SimpleAndComplex, Output);
+	EXPECT_EQ(Invalid.Error.Code, EStaticMeshCollisionPayloadError::InvalidGeometry);
+	EXPECT_EQ(Invalid.Error.Operation, EStaticMeshCollisionPayloadOperation::Extract);
+	EXPECT_EQ(Output.Positions, (std::vector<FVector3f>{FVector3f(7, 8, 9)}));
+	const auto Cancelled = MakeStaticMeshCollisionPayloadData({},
+		EBodySetupCollisionQueryPolicy::SimpleAndComplex, Output, [] { return true; });
+	EXPECT_EQ(Cancelled.Error.Code, EStaticMeshCollisionPayloadError::Cancelled);
+	EXPECT_EQ(Output.Positions.size(), 1u);
+	FCollisionGeometryRef Geometry;
+	const auto Construct = MakeStaticMeshCollisionGeometry(Output, Geometry, [] { return true; });
+	EXPECT_EQ(Construct.Error.Code, EStaticMeshCollisionPayloadError::Cancelled);
+	EXPECT_EQ(Construct.Error.Operation, EStaticMeshCollisionPayloadOperation::Construct);
+}
+
+TEST(FStaticMeshPayloadConversionTests, RejectionOwnsStreamAndSectionContext)
+{
+	FStaticMeshPayloadData Payload = MakeSingleSectionFixture();
+	std::unique_ptr<FStaticMeshRenderData> Output;
+	ASSERT_TRUE(MakeStaticMeshRenderData(Payload, Output));
+	const auto* Original = Output.get();
+	Payload.LODs[0].TexCoords[0].pop_back();
+	const auto Stream = MakeStaticMeshRenderData(Payload, Output);
+	EXPECT_FALSE(Stream);
+	EXPECT_EQ(Stream.Error.Code, EStaticMeshPayloadError::UVStreamCount);
+	EXPECT_EQ(Stream.Error.LODIndex, 0u);
+	EXPECT_EQ(Stream.Error.Channel, 0u);
+	EXPECT_EQ(Stream.Error.Actual, 2u);
+	EXPECT_EQ(Stream.Error.Expected, 3u);
+	EXPECT_EQ(Output.get(), Original);
+
+	Payload = MakeSingleSectionFixture();
+	Payload.LODs[0].Sections[0].MinVertexIndex = 1;
+	const auto Section = MakeStaticMeshRenderData(Payload, Output);
+	EXPECT_FALSE(Section);
+	Payload = {};
+	EXPECT_EQ(Section.Error.Code, EStaticMeshPayloadError::SectionVertexMismatch);
+	EXPECT_EQ(Section.Error.LODIndex, 0u);
+	EXPECT_EQ(Section.Error.SectionIndex, 0u);
+	ASSERT_TRUE(Section.Error.Section);
+	EXPECT_EQ(Section.Error.Section->MinVertexIndex, 1u);
+	EXPECT_EQ(Section.Error.Actual, 0u);
+	EXPECT_EQ(Section.Error.Expected, 1u);
+	EXPECT_EQ(Section.Error.AdditionalActual, 2u);
+	EXPECT_EQ(Section.Error.AdditionalExpected, 2u);
+	EXPECT_EQ(Output.get(), Original);
+	EXPECT_FALSE(FormatStaticMeshPayloadError(Section.Error).empty());
+}
+
+TEST(FStaticMeshPayloadConversionTests, RejectionOwnsAttributeAndIndexValues)
+{
+	FStaticMeshPayloadData Payload = MakeSingleSectionFixture();
+	std::unique_ptr<FStaticMeshRenderData> Output;
+	Payload.LODs[0].Tangents[1].w = std::numeric_limits<float>::infinity();
+	const auto Attribute = MakeStaticMeshRenderData(Payload, Output);
+	EXPECT_FALSE(Attribute);
+	Payload = MakeSingleSectionFixture();
+	EXPECT_EQ(Attribute.Error.Code, EStaticMeshPayloadError::NonFiniteAttribute);
+	EXPECT_EQ(Attribute.Error.Stream, EStaticMeshPayloadStream::Tangent);
+	EXPECT_EQ(Attribute.Error.ElementIndex, 1u);
+	EXPECT_TRUE(std::isinf(Attribute.Error.Value.w));
+	Payload.LODs[0].Indices[2] = 99;
+	const auto Index = MakeStaticMeshRenderData(Payload, Output);
+	EXPECT_FALSE(Index);
+	Payload = {};
+	EXPECT_EQ(Index.Error.Code, EStaticMeshPayloadError::IndexRange);
+	EXPECT_EQ(Index.Error.ElementIndex, 2u);
+	EXPECT_EQ(Index.Error.Actual, 99u);
+	EXPECT_EQ(Index.Error.Expected, 3u);
+	EXPECT_EQ(Output, nullptr);
+}
+
+TEST(FStaticMeshPayloadConversionTests, InvalidExtractionAndCancellationPreserveOutputs)
+{
+	const FStaticMeshPayloadData Payload = MakeSingleSectionFixture();
+	std::unique_ptr<FStaticMeshRenderData> RenderData;
+	ASSERT_TRUE(MakeStaticMeshRenderData(Payload, RenderData));
+	const auto* Original = RenderData.get();
+	uint32 Checks = 0;
+	const auto Construction = MakeStaticMeshRenderData(Payload, RenderData, [&] { return ++Checks == 3; });
+	EXPECT_FALSE(Construction);
+	EXPECT_EQ(Construction.Error.Code, EStaticMeshPayloadError::Cancelled);
+	EXPECT_EQ(RenderData.get(), Original);
+	FStaticMeshPayloadData Output;
+	Output.MaterialSlotCount = 123;
+	Checks = 0;
+	const auto Extraction = MakeStaticMeshPayloadData(*RenderData, Output, [&] { return ++Checks == 3; });
+	EXPECT_FALSE(Extraction);
+	EXPECT_EQ(Extraction.Error.Code, EStaticMeshPayloadError::Cancelled);
+	EXPECT_EQ(Output.MaterialSlotCount, 123u);
+	EXPECT_TRUE(Output.LODs.empty());
+	RenderData->LODResources[0].NumTexCoords = MaxStaticMeshUVChannels + 1;
+	const auto Invalid = MakeStaticMeshPayloadData(*RenderData, Output);
+	EXPECT_FALSE(Invalid);
+	EXPECT_EQ(Invalid.Error.Code, EStaticMeshPayloadError::UVChannelCount);
+	EXPECT_EQ(Invalid.Error.LODIndex, 0u);
+	EXPECT_EQ(Invalid.Error.Actual, MaxStaticMeshUVChannels + 1u);
+	EXPECT_EQ(Invalid.Error.Expected, MaxStaticMeshUVChannels);
+	EXPECT_EQ(Output.MaterialSlotCount, 123u);
+	EXPECT_TRUE(Output.LODs.empty());
+}
+
+TEST(FStaticMeshCookedProductTests, TypedArchiveAndMetadataFailuresPreserveProduct)
+{
+	FByteBuffer Bytes = Encode(MakeMultiMaterialFixture());
+	std::vector<FMeshMaterialSlotDefinition> Slots{
+		{.Name = FName("Body")}, {.Name = FName("Trim")}};
+	FStaticMeshCookedProduct Product;
+	ASSERT_TRUE(DecodeStaticMeshCookedProduct(Bytes, {}, Slots,
+		EBodySetupCollisionSourceMode::None, EBodySetupCollisionQueryPolicy::SimpleAndComplex, Product));
+	const auto* Original = Product.RenderData.get();
+	Slots.pop_back();
+	const auto Metadata = DecodeStaticMeshCookedProduct(Bytes, {}, Slots,
+		EBodySetupCollisionSourceMode::None, EBodySetupCollisionQueryPolicy::SimpleAndComplex, Product);
+	EXPECT_FALSE(Metadata);
+	Slots.clear();
+	EXPECT_EQ(Metadata.Error.Code, ECookedMeshProductError::MaterialSlotCount);
+	EXPECT_EQ(Metadata.Error.Actual, 2u);
+	EXPECT_EQ(Metadata.Error.Expected, 1u);
+	EXPECT_EQ(Product.RenderData.get(), Original);
+
+	WriteU32(Bytes, 4, StaticMeshPayloadSchemaVersion + 1);
+	Rehash(Bytes);
+	const auto Schema = DecodeStaticMeshCookedProduct(Bytes, {}, Slots,
+		EBodySetupCollisionSourceMode::None, EBodySetupCollisionQueryPolicy::SimpleAndComplex, Product);
+	EXPECT_FALSE(Schema);
+	const auto ByteCount = Bytes.size();
+	Bytes.clear();
+	EXPECT_EQ(Schema.Error.Code, ECookedMeshProductError::RenderArchive);
+	EXPECT_EQ(Schema.Error.ArchiveCode, EArchiveFailureCode::UnsupportedVersion);
+	EXPECT_EQ(Schema.Error.ByteCount, ByteCount);
+	EXPECT_LE(Schema.Error.ByteOffset, Schema.Error.ByteCount);
+	EXPECT_EQ(Product.RenderData.get(), Original);
+	const auto Missing = DecodeStaticMeshCookedProduct({}, {}, Slots,
+		EBodySetupCollisionSourceMode::ConvexHullFromLOD0, EBodySetupCollisionQueryPolicy::SimpleAndComplex, Product);
+	EXPECT_FALSE(Missing);
+	EXPECT_EQ(Missing.Error.Code, ECookedMeshProductError::MissingCollision);
+	EXPECT_EQ(Missing.Error.ExpectedMode, EBodySetupCollisionSourceMode::ConvexHullFromLOD0);
+	EXPECT_EQ(Product.RenderData.get(), Original);
+}
+
+TEST(FStaticMeshCookedProductTests, CollisionMismatchOwnsModeAndPolicy)
+{
+	const std::array Vertices{FVector3(0, 0, 0), FVector3(1, 0, 0), FVector3(0, 1, 0), FVector3(0, 0, 1)};
+	const std::array<uint32, 12> Indices{0, 2, 1, 0, 1, 3, 0, 3, 2, 1, 2, 3};
+	const auto Geometry = FCollisionGeometryRef::MakeConvexHull(Vertices, Indices);
+	ASSERT_TRUE(Geometry);
+	FStaticMeshCollisionPayloadData Payload;
+	ASSERT_TRUE(MakeStaticMeshCollisionPayloadData(Geometry, EBodySetupCollisionQueryPolicy::SimpleAndComplex, Payload));
+	FByteBuffer Bytes;
+	FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::CookedPayload, {.Target = {"Win64", "Game"}});
+	Payload.Serialize(Ar);
+	ASSERT_FALSE(Ar.HasError()) << Ar.GetError();
+	FStaticMeshCookedProduct Product;
+	const auto Result = DecodeStaticMeshCookedProduct({}, Bytes, {},
+		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0, EBodySetupCollisionQueryPolicy::SimpleAndComplex, Product);
+	EXPECT_FALSE(Result);
+	Payload = {};
+	Bytes.clear();
+	EXPECT_EQ(Result.Error.Code, ECookedMeshProductError::CollisionMetadata);
+	EXPECT_EQ(Result.Error.ActualMode, EBodySetupCollisionSourceMode::ConvexHullFromLOD0);
+	EXPECT_EQ(Result.Error.ExpectedMode, EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
+	EXPECT_EQ(Result.Error.ActualPolicy, EBodySetupCollisionQueryPolicy::SimpleAndComplex);
+	EXPECT_EQ(Result.Error.ExpectedPolicy, EBodySetupCollisionQueryPolicy::SimpleAndComplex);
+	EXPECT_EQ(Product.RenderData, nullptr);
+	EXPECT_FALSE(FormatCookedMeshProductError(Result.Error).empty());
 }

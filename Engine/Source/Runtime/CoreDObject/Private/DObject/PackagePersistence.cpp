@@ -262,8 +262,13 @@ namespace Durin
 			|| !FFilePublicationStamp::Inspect(BulkFile.Destination, BulkStamp))
 		{ Admission = Fail(EPackageSaveError::IoError, "Cannot inspect package destination."); return {}; }
 		ObjectPackage::FLinkerTables Linker;
-		Admission = Data.Context.Capture(Package, Linker);
-		if (!Admission) return {};
+		const auto CaptureResult = Data.Context.Capture(Package, Linker);
+		if (!CaptureResult)
+		{
+			Admission = Fail(GetPackageCaptureSaveError(CaptureResult.Error), FormatPackageCaptureError(CaptureResult.Error));
+			Admission.CaptureCause = CaptureResult.Error;
+			return {};
+		}
 		ObjectPackage::FPackageWriterResult Diagnostic;
 		if (!(Diagnostic = ObjectPackage::WritePackage(Linker, Bytes, Bulk)))
 		{ Admission = Fail(EPackageSaveError::UnsupportedProperty, Durin::ObjectPackage::FormatPackageError(Diagnostic)); return {}; }

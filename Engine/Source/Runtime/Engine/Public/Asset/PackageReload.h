@@ -1,6 +1,8 @@
 #pragma once
 
 #include "Asset/AssetDefinitions.h"
+#include "Asset/PackageGraphPreparationError.h"
+#include "Materials/MaterialCompileLifecycle.h"
 #include "DObject/AssetPath.h"
 #include "DObject/ObjectGraphReplacement.h"
 #include "EngineAPI.h"
@@ -69,13 +71,39 @@ namespace Durin
 		BeforeCommit,
 	};
 
+	enum class EPackageReloadReason : uint8
+	{
+		None, FileInspection, MissingOperation, AlreadyActive, Cancelled, CookedRuntime, EmptyRequest,
+		InvalidPackage, PackageBudget, InvalidIdentity, UnsavedPackage, MissingFile, InjectedQuiesceFailure,
+		InjectedMainReadFailure, InjectedBulkReadFailure, InjectedRuntimeFailure, InjectedReferenceFailure,
+		InjectedDiskRevalidationFailure, InjectedFinalValidationFailure, ObserverException, Allocation,
+		CallbackException, TextureBudget, VolumeBudget, FunctionPreparation, TexturePreparation,
+		MaterialPreparation, UnsupportedClass, ResourceRead, GraphPreparation, Replacement,
+		ResourceRevalidation, DependencyRelease,
+	};
+
 	struct FPackageReloadDiagnostic
 	{
 		FPackagePath PackagePath;
 		std::string ObjectPath;
 		EPackageReloadStage Stage = EPackageReloadStage::Preflight;
-		std::string Message;
+		EPackageReloadReason Reason = EPackageReloadReason::None;
+		std::string ClassName;
+		std::filesystem::path File;
+		std::error_code SystemError;
+		uint64 Actual = 0;
+		uint64 Maximum = 0;
+		std::optional<FObjectError> PathCause;
+		std::optional<FPreparedPackageResourceError> ResourceCause;
+		std::optional<FObjectReplacementError> ReplacementCause;
+		std::shared_ptr<const FPackageGraphPrepareResult> GraphCause;
+		std::shared_ptr<const FAssetResult> AssetCause;
+		std::vector<FMaterialProgramDiagnostic> MaterialCauses;
+		std::optional<FMaterialCompileStatus> MaterialCompileStatus;
+		std::vector<FMaterialCompileDiagnostic> MaterialCompileCauses;
 	};
+
+	ENGINE_API auto FormatPackageReloadDiagnostic(const FPackageReloadDiagnostic& Diagnostic) -> std::string;
 
 	struct FPackageReloadBudget
 	{
@@ -110,14 +138,14 @@ namespace Durin
 	public:
 		ENGINE_API auto GetState() const -> EPackageReloadReceiptState;
 		ENGINE_API auto SetReady() -> bool;
-		ENGINE_API auto SetFailed(std::string Message) -> bool;
+		ENGINE_API auto SetFailed(FPackageReloadDiagnostic Error) -> bool;
 		ENGINE_API auto SetRetired() -> bool;
-		ENGINE_API auto GetMessage() const -> std::string;
+		ENGINE_API auto GetFailure() const -> FPackageReloadDiagnostic;
 
 	private:
 		mutable std::mutex Mutex;
 		EPackageReloadReceiptState State = EPackageReloadReceiptState::Pending;
-		std::string Message;
+		FPackageReloadDiagnostic Error;
 	};
 
 	struct FPackageReloadRequest

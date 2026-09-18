@@ -77,98 +77,129 @@ namespace Durin
 				&& static_cast<double>(static_cast<float>(Bounds.Max.z)) == Bounds.Max.z;
 		}
 
-		auto ValidatePayload(const FStaticMeshPayloadData& Payload, std::string& OutError, FPayloadBuildControl& Control) -> bool
+		auto ValidatePayload(const FStaticMeshPayloadData& Payload, FPayloadBuildControl& Control) -> FStaticMeshPayloadResult
 		{
-			if (!IsValidBounds(Payload.LocalBounds)) return Fail("Static-mesh payload bounds are invalid or not exactly representable as float32.", &OutError);
+			FStaticMeshPayloadError Error;
+			const auto Reject = [&](EStaticMeshPayloadError Code, uint64 Actual = 0, uint64 Expected = 0) {
+				Error.Code = Code;
+				Error.Actual = Actual;
+				Error.Expected = Expected;
+				return FStaticMeshPayloadResult{Error};
+			};
+			Error.Bounds = Payload.LocalBounds;
+			if (!IsValidBounds(Payload.LocalBounds)) return Reject(EStaticMeshPayloadError::Bounds);
 			if (Payload.MaterialSlotCount == 0 || Payload.MaterialSlotCount > MaximumMeshMaterialSlots)
-				return Fail("Static-mesh payload material-slot count is outside the supported range.", &OutError);
+				return Reject(EStaticMeshPayloadError::MaterialSlotCount, Payload.MaterialSlotCount, MaximumMeshMaterialSlots);
 			if (Payload.LODs.empty() || Payload.LODs.size() > MaximumStaticMeshLODs)
-				return Fail("Static-mesh payload LOD count is outside the supported range.", &OutError);
+				return Reject(EStaticMeshPayloadError::LODCount, Payload.LODs.size(), MaximumStaticMeshLODs);
 
 			uint64 EncodedSizeUpperBound = StaticMeshPayloadHeaderSize
 				+ StaticMeshPayloadRequiredChunkCount * StaticMeshPayloadChunkEntrySize
 				+ StaticMeshPayloadRequiredChunkCount * (StaticMeshPayloadAlignment - 1)
-				+ 24ull
-				+ 4ull
-				+ 4ull + static_cast<uint64>(Payload.LODs.size()) * 44ull;
+				+ 24ull + 4ull + 4ull + static_cast<uint64>(Payload.LODs.size()) * 44ull;
 			for (size_t LODIndex = 0; LODIndex < Payload.LODs.size(); ++LODIndex)
 			{
 				Control.Tick();
 				const FStaticMeshPayloadLOD& LOD = Payload.LODs[LODIndex];
-				if (!std::isfinite(LOD.ScreenSize)
-					|| LOD.ScreenSize < 0.0f || LOD.ScreenSize > 1.0f
-					|| (LOD.ScreenSize == 0.0f
-						&& std::signbit(LOD.ScreenSize)))
-				{
-					return Fail(std::format(
-						"Static-mesh payload LOD {} screen size must be finite and in [0, 1].",
-						LODIndex), &OutError);
-				}
-				if (LODIndex > 0
-					&& LOD.ScreenSize >= Payload.LODs[LODIndex - 1].ScreenSize)
-				{
-					return Fail("Static-mesh payload LOD screen sizes must be strictly descending.", &OutError);
-				}
+				Error = {.LODIndex = LODIndex, .ScreenSize = LOD.ScreenSize,
+					.PreviousScreenSize = LODIndex ? Payload.LODs[LODIndex - 1].ScreenSize : 0.0f,
+					.Bounds = LOD.LocalBounds};
+				if (!std::isfinite(LOD.ScreenSize) || LOD.ScreenSize < 0.0f || LOD.ScreenSize > 1.0f
+					|| (LOD.ScreenSize == 0.0f && std::signbit(LOD.ScreenSize)))
+					return Reject(EStaticMeshPayloadError::ScreenSize);
+				if (LODIndex > 0 && LOD.ScreenSize >= Payload.LODs[LODIndex - 1].ScreenSize)
+					return Reject(EStaticMeshPayloadError::ScreenSizeOrder);
 				const size_t VertexCount = LOD.Positions.size();
 				const size_t IndexCount = LOD.Indices.size();
 				if (VertexCount == 0 || VertexCount > MaximumStaticMeshVerticesPerLOD)
-					return Fail(std::format("Static-mesh payload LOD {} has an invalid vertex count.", LODIndex), &OutError);
+					return Reject(EStaticMeshPayloadError::VertexCount, VertexCount, MaximumStaticMeshVerticesPerLOD);
 				if (IndexCount == 0 || IndexCount > MaximumStaticMeshIndicesPerLOD)
-					return Fail(std::format("Static-mesh payload LOD {} has an invalid index count.", LODIndex), &OutError);
+					return Reject(EStaticMeshPayloadError::IndexCount, IndexCount, MaximumStaticMeshIndicesPerLOD);
 				if (LOD.Sections.empty() || LOD.Sections.size() > MaximumStaticMeshSectionsPerLOD)
-					return Fail(std::format("Static-mesh payload LOD {} has an invalid section count.", LODIndex), &OutError);
+					return Reject(EStaticMeshPayloadError::SectionCount, LOD.Sections.size(), MaximumStaticMeshSectionsPerLOD);
 				if (LOD.NumTexCoords > MaxStaticMeshUVChannels)
-					return Fail(std::format("Static-mesh payload LOD {} has an invalid UV-channel count.", LODIndex), &OutError);
+					return Reject(EStaticMeshPayloadError::UVChannelCount, LOD.NumTexCoords, MaxStaticMeshUVChannels);
 				const uint64 LODPayloadBytes = 4ull + static_cast<uint64>(LOD.Sections.size()) * 44ull
 					+ static_cast<uint64>(VertexCount) * (40ull + static_cast<uint64>(LOD.NumTexCoords) * 8ull
-						+ (LOD.bHasVertexColors ? 16ull : 0ull))
-					+ static_cast<uint64>(IndexCount) * 4ull;
+						+ (LOD.bHasVertexColors ? 16ull : 0ull)) + static_cast<uint64>(IndexCount) * 4ull;
 				if (LODPayloadBytes > MaximumStaticMeshPayloadBytes - EncodedSizeUpperBound)
-					return Fail("Static-mesh payload exceeds the stored-object size limit.", &OutError);
+					return Reject(EStaticMeshPayloadError::StoredSize, EncodedSizeUpperBound + LODPayloadBytes, MaximumStaticMeshPayloadBytes);
 				EncodedSizeUpperBound += LODPayloadBytes;
-				if (!IsValidBounds(LOD.LocalBounds))
-					return Fail(std::format("Static-mesh payload LOD {} bounds are invalid.", LODIndex), &OutError);
+				if (!IsValidBounds(LOD.LocalBounds)) return Reject(EStaticMeshPayloadError::Bounds);
 				if (LOD.Normals.size() != VertexCount || LOD.Tangents.size() != VertexCount)
-					return Fail(std::format("Static-mesh payload LOD {} vertex-stream counts do not match.", LODIndex), &OutError);
+				{
+					Error.Stream = LOD.Normals.size() != VertexCount ? EStaticMeshPayloadStream::Normal : EStaticMeshPayloadStream::Tangent;
+					return Reject(EStaticMeshPayloadError::VertexStreamCount,
+						LOD.Normals.size() != VertexCount ? LOD.Normals.size() : LOD.Tangents.size(), VertexCount);
+				}
 				for (uint32 Channel = 0; Channel < MaxStaticMeshUVChannels; ++Channel)
 				{
 					Control.Tick();
 					const size_t ExpectedCount = Channel < LOD.NumTexCoords ? VertexCount : 0;
 					if (LOD.TexCoords[Channel].size() != ExpectedCount)
-						return Fail(std::format(
-							"Static-mesh payload LOD {} UV stream {} has {} values; expected {}.",
-							LODIndex, Channel, LOD.TexCoords[Channel].size(), ExpectedCount), &OutError);
+					{
+						Error.Channel = Channel;
+						return Reject(EStaticMeshPayloadError::UVStreamCount, LOD.TexCoords[Channel].size(), ExpectedCount);
+					}
 				}
 				if (LOD.Colors.size() != (LOD.bHasVertexColors ? VertexCount : 0))
-					return Fail(std::format("Static-mesh payload LOD {} color-stream count does not match its flags.", LODIndex), &OutError);
-				if (std::ranges::any_of(LOD.Positions, [&Control](const FVector3f& Value) { Control.Tick(); return !IsFinite(Value); })
-					|| std::ranges::any_of(LOD.Normals, [&Control](const FVector3f& Value) { Control.Tick(); return !IsFinite(Value); })
-					|| std::ranges::any_of(LOD.Tangents, [&Control](const FVector4f& Value) { Control.Tick(); return !IsFinite(Value); })
-					|| std::ranges::any_of(LOD.Colors, [&Control](const FVector4f& Value) { Control.Tick(); return !IsFinite(Value); }))
-					return Fail(std::format("Static-mesh payload LOD {} contains a non-finite vertex attribute.", LODIndex), &OutError);
+					return Reject(EStaticMeshPayloadError::ColorStreamCount, LOD.Colors.size(), LOD.bHasVertexColors ? VertexCount : 0);
+				const auto CheckStream = [&](const auto& Values, EStaticMeshPayloadStream Stream) {
+					for (size_t Index = 0; Index < Values.size(); ++Index)
+					{
+						Control.Tick();
+						if (IsFinite(Values[Index])) continue;
+						Error.Stream = Stream;
+						Error.ElementIndex = Index;
+						const auto& Value = Values[Index];
+						Error.Value = FVector4(Value.x, Value.y, 0, 0);
+						if constexpr (requires { Value.z; }) Error.Value.z = Value.z;
+						if constexpr (requires { Value.w; }) Error.Value.w = Value.w;
+						return false;
+					}
+					return true;
+				};
+				if (!CheckStream(LOD.Positions, EStaticMeshPayloadStream::Position)
+					|| !CheckStream(LOD.Normals, EStaticMeshPayloadStream::Normal)
+					|| !CheckStream(LOD.Tangents, EStaticMeshPayloadStream::Tangent)
+					|| !CheckStream(LOD.Colors, EStaticMeshPayloadStream::Color))
+					return Reject(EStaticMeshPayloadError::NonFiniteAttribute);
 				for (uint32 Channel = 0; Channel < LOD.NumTexCoords; ++Channel)
 				{
 					Control.Tick();
-					if (std::ranges::any_of(LOD.TexCoords[Channel], [&Control](const FVector2f& Value) { Control.Tick(); return !IsFinite(Value); }))
-						return Fail(std::format("Static-mesh payload LOD {} contains a non-finite UV.", LODIndex), &OutError);
+					if (!CheckStream(LOD.TexCoords[Channel], EStaticMeshPayloadStream::UV))
+					{
+						Error.Channel = Channel;
+						return Reject(EStaticMeshPayloadError::NonFiniteUV);
+					}
 				}
-				if (std::ranges::any_of(LOD.Indices, [VertexCount, &Control](uint32 Index) { Control.Tick(); return Index >= VertexCount; }))
-					return Fail(std::format("Static-mesh payload LOD {} contains an out-of-range index.", LODIndex), &OutError);
-
-				uint64 CoveredIndices = 0;
-				for (const FStaticMeshPayloadSection& Section : LOD.Sections)
+				for (size_t Index = 0; Index < IndexCount; ++Index)
 				{
 					Control.Tick();
+					if (LOD.Indices[Index] < VertexCount) continue;
+					Error.ElementIndex = Index;
+					Error.Stream = EStaticMeshPayloadStream::Index;
+					return Reject(EStaticMeshPayloadError::IndexRange, LOD.Indices[Index], VertexCount);
+				}
+				uint64 CoveredIndices = 0;
+				for (size_t SectionIndex = 0; SectionIndex < LOD.Sections.size(); ++SectionIndex)
+				{
+					Control.Tick();
+					const FStaticMeshPayloadSection& Section = LOD.Sections[SectionIndex];
+					Error.SectionIndex = SectionIndex;
+					Error.Section = Section;
 					const uint64 SectionEnd = static_cast<uint64>(Section.FirstIndex) + Section.IndexCount;
 					if (Section.IndexCount == 0 || Section.FirstIndex != CoveredIndices || SectionEnd > IndexCount)
-						return Fail(std::format("Static-mesh payload LOD {} sections do not exactly cover its index buffer.", LODIndex), &OutError);
+					{
+						Error.AdditionalActual = SectionEnd;
+						Error.AdditionalExpected = IndexCount;
+						return Reject(EStaticMeshPayloadError::SectionCoverage, Section.FirstIndex, CoveredIndices);
+					}
 					if (Section.MinVertexIndex > Section.MaxVertexIndex || Section.MaxVertexIndex >= VertexCount)
-						return Fail(std::format("Static-mesh payload LOD {} section has an invalid vertex range.", LODIndex), &OutError);
+						return Reject(EStaticMeshPayloadError::SectionVertexRange, Section.MaxVertexIndex, VertexCount);
 					if (Section.MaterialSlotIndex >= Payload.MaterialSlotCount)
-						return Fail(std::format("Static-mesh payload LOD {} section has an invalid material slot.", LODIndex), &OutError);
-					if (!IsValidBounds(Section.LocalBounds))
-						return Fail(std::format("Static-mesh payload LOD {} section bounds are invalid.", LODIndex), &OutError);
-
+						return Reject(EStaticMeshPayloadError::SectionMaterialSlot, Section.MaterialSlotIndex, Payload.MaterialSlotCount);
+					if (!IsValidBounds(Section.LocalBounds)) return Reject(EStaticMeshPayloadError::SectionBounds);
 					uint32 ActualMinimum = std::numeric_limits<uint32>::max();
 					uint32 ActualMaximum = 0;
 					for (uint64 IndexOffset = Section.FirstIndex; IndexOffset < SectionEnd; ++IndexOffset)
@@ -178,15 +209,20 @@ namespace Durin
 						ActualMaximum = std::max(ActualMaximum, LOD.Indices[static_cast<size_t>(IndexOffset)]);
 					}
 					if (ActualMinimum != Section.MinVertexIndex || ActualMaximum != Section.MaxVertexIndex)
-						return Fail(std::format("Static-mesh payload LOD {} section vertex range does not match its indices.", LODIndex), &OutError);
+					{
+						Error.AdditionalActual = ActualMaximum;
+						Error.AdditionalExpected = Section.MaxVertexIndex;
+						return Reject(EStaticMeshPayloadError::SectionVertexMismatch, ActualMinimum, Section.MinVertexIndex);
+					}
 					CoveredIndices = SectionEnd;
 				}
+				Error.SectionIndex.reset();
+				Error.Section.reset();
 				if (CoveredIndices != IndexCount)
-					return Fail(std::format("Static-mesh payload LOD {} sections do not cover its complete index buffer.", LODIndex), &OutError);
+					return Reject(EStaticMeshPayloadError::IncompleteCoverage, CoveredIndices, IndexCount);
 			}
-			if (Payload.LODs.back().ScreenSize != 0.0f)
-				return Fail("Static-mesh payload lowest-detail LOD screen size must be exactly zero.", &OutError);
-			return true;
+			if (Payload.LODs.back().ScreenSize != 0.0f) return Reject(EStaticMeshPayloadError::FinalScreenSize);
+			return {};
 		}
 
 		auto SerializeBounds(FArchive& Ar, FBox& Bounds) -> void
@@ -396,11 +432,47 @@ namespace Durin
 
 	}
 
+	auto FormatStaticMeshPayloadError(const FStaticMeshPayloadError& Error) -> std::string
+	{
+		std::string_view Reason;
+		switch (Error.Code)
+		{
+		case EStaticMeshPayloadError::None: return {};
+		case EStaticMeshPayloadError::Bounds: Reason = "bounds are invalid or not exactly representable as float32."; break;
+		case EStaticMeshPayloadError::MaterialSlotCount: Reason = "material-slot count is outside the supported range."; break;
+		case EStaticMeshPayloadError::LODCount: Reason = "LOD count is outside the supported range."; break;
+		case EStaticMeshPayloadError::ScreenSize: Reason = "screen size must be finite and in [0, 1]."; break;
+		case EStaticMeshPayloadError::ScreenSizeOrder: Reason = "LOD screen sizes must be strictly descending."; break;
+		case EStaticMeshPayloadError::VertexCount: Reason = "has an invalid vertex count."; break;
+		case EStaticMeshPayloadError::IndexCount: Reason = "has an invalid index count."; break;
+		case EStaticMeshPayloadError::SectionCount: Reason = "has an invalid section count."; break;
+		case EStaticMeshPayloadError::UVChannelCount: Reason = "has an invalid UV-channel count."; break;
+		case EStaticMeshPayloadError::StoredSize: Reason = "exceeds the stored-object size limit."; break;
+		case EStaticMeshPayloadError::VertexStreamCount: Reason = "vertex-stream counts do not match."; break;
+		case EStaticMeshPayloadError::UVStreamCount:
+			return std::format("Static-mesh payload LOD {} UV stream {} has {} values; expected {}.",
+				Error.LODIndex.value_or(0), Error.Channel.value_or(0), Error.Actual, Error.Expected);
+		case EStaticMeshPayloadError::ColorStreamCount: Reason = "color-stream count does not match its flags."; break;
+		case EStaticMeshPayloadError::NonFiniteAttribute: Reason = "contains a non-finite vertex attribute."; break;
+		case EStaticMeshPayloadError::NonFiniteUV: Reason = "contains a non-finite UV."; break;
+		case EStaticMeshPayloadError::IndexRange: Reason = "contains an out-of-range index."; break;
+		case EStaticMeshPayloadError::SectionCoverage: Reason = "sections do not exactly cover its index buffer."; break;
+		case EStaticMeshPayloadError::SectionVertexRange: Reason = "section has an invalid vertex range."; break;
+		case EStaticMeshPayloadError::SectionMaterialSlot: Reason = "section has an invalid material slot."; break;
+		case EStaticMeshPayloadError::SectionBounds: Reason = "section bounds are invalid."; break;
+		case EStaticMeshPayloadError::SectionVertexMismatch: Reason = "section vertex range does not match its indices."; break;
+		case EStaticMeshPayloadError::IncompleteCoverage: Reason = "sections do not cover its complete index buffer."; break;
+		case EStaticMeshPayloadError::FinalScreenSize: Reason = "lowest-detail LOD screen size must be exactly zero."; break;
+		case EStaticMeshPayloadError::Cancelled: Reason = "operation was cancelled."; break;
+		}
+		return Error.LODIndex ? std::format("Static-mesh payload LOD {} {}", *Error.LODIndex, Reason)
+			: std::format("Static-mesh payload {}", Reason);
+	}
+
 	auto MakeStaticMeshPayloadData(
 		const FStaticMeshRenderData& RenderData,
 		FStaticMeshPayloadData& OutPayload,
-		std::string& OutError,
-		const std::function<bool()>& ShouldCancel) -> bool
+		const std::function<bool()>& ShouldCancel) -> FStaticMeshPayloadResult
 	try
 	{
 		FPayloadBuildControl Control{ShouldCancel};
@@ -431,7 +503,8 @@ namespace Durin
 			LOD.ScreenSize = SourceLOD.ScreenSize;
 			LOD.NumTexCoords = SourceLOD.NumTexCoords;
 			if (LOD.NumTexCoords > MaxStaticMeshUVChannels)
-				return Fail("Static-mesh runtime UV-channel count is invalid.", &OutError);
+				return {{.Code = EStaticMeshPayloadError::UVChannelCount, .LODIndex = Payload.LODs.size() - 1,
+					.Actual = LOD.NumTexCoords, .Expected = MaxStaticMeshUVChannels}};
 			LOD.bHasVertexColors =
 				SourceLOD.bHasColorVertexData;
 			const auto& SourceTexCoords =
@@ -461,26 +534,25 @@ namespace Durin
 					.LocalBounds = SourceSection.LocalBounds});
 			}
 		}
-		if (!ValidatePayload(Payload, OutError, Control)) return false;
+		if (const auto Result = ValidatePayload(Payload, Control); !Result) return Result;
 		Control.Check();
 		OutPayload = std::move(Payload);
-		return true;
+		return {};
 	}
 	catch (const FPayloadBuildCancelled&)
 	{
-		return Fail("StaticMesh payload operation was cancelled.", &OutError);
+		return {{.Code = EStaticMeshPayloadError::Cancelled}};
 	}
 
 	auto MakeStaticMeshRenderData(
 		const FStaticMeshPayloadData& Payload,
 		std::unique_ptr<FStaticMeshRenderData>& OutRenderData,
-		std::string& OutError,
-		const std::function<bool()>& ShouldCancel) -> bool
+		const std::function<bool()>& ShouldCancel) -> FStaticMeshPayloadResult
 	try
 	{
 		FPayloadBuildControl Control{ShouldCancel};
 		Control.Check();
-		if (!ValidatePayload(Payload, OutError, Control)) return false;
+		if (const auto Result = ValidatePayload(Payload, Control); !Result) return Result;
 		auto RenderData = std::make_unique<FStaticMeshRenderData>();
 		RenderData->LocalBounds = Payload.LocalBounds;
 		RenderData->MaterialSlots.resize(Payload.MaterialSlotCount);
@@ -533,11 +605,11 @@ namespace Durin
 		}
 		Control.Check();
 		OutRenderData = std::move(RenderData);
-		return true;
+		return {};
 	}
 	catch (const FPayloadBuildCancelled&)
 	{
-		return Fail("StaticMesh payload operation was cancelled.", &OutError);
+		return {{.Code = EStaticMeshPayloadError::Cancelled}};
 	}
 
 	namespace
@@ -551,19 +623,52 @@ namespace Durin
 
 	}
 
+	auto FormatStaticMeshCollisionPayloadError(const FStaticMeshCollisionPayloadError& Error) -> std::string
+	{
+		switch (Error.Code)
+		{
+		case EStaticMeshCollisionPayloadError::None: return {};
+		case EStaticMeshCollisionPayloadError::InvalidGeometry: return "Collision payload requires one valid hull or triangle mesh.";
+		case EStaticMeshCollisionPayloadError::InvalidVertex: return "Collision geometry contains an invalid vertex.";
+		case EStaticMeshCollisionPayloadError::FloatStorage: return "Collision vertex is outside finite float32 storage.";
+		case EStaticMeshCollisionPayloadError::InvalidTriangle: return "Collision geometry has an invalid triangle.";
+		case EStaticMeshCollisionPayloadError::InvalidNode: return "Collision geometry has an invalid BVH node.";
+		case EStaticMeshCollisionPayloadError::InvalidMembership: return "Collision geometry has an invalid BVH membership.";
+		case EStaticMeshCollisionPayloadError::InconsistentCounts: return "Collision payload counts are inconsistent.";
+		case EStaticMeshCollisionPayloadError::NonFinitePosition: return "Collision payload contains a non-finite position.";
+		case EStaticMeshCollisionPayloadError::UnexpectedBvh: return "Convex collision payload must not contain a BVH.";
+		case EStaticMeshCollisionPayloadError::DuplicateOrdinal: return "Collision payload source ordinals are not unique.";
+		case EStaticMeshCollisionPayloadError::UnknownOrdinal: return "Collision BVH references an unknown source ordinal.";
+		case EStaticMeshCollisionPayloadError::InvalidSourceMode: return "Collision payload source mode is invalid.";
+		case EStaticMeshCollisionPayloadError::InvalidTopology: return "Collision payload topology or BVH is invalid.";
+		case EStaticMeshCollisionPayloadError::Cancelled: return "StaticMesh payload operation was cancelled.";
+		}
+		return "StaticMesh collision payload is invalid.";
+	}
+
 	auto MakeStaticMeshCollisionPayloadData(
 		const FCollisionGeometryRef& Geometry,
 		EBodySetupCollisionQueryPolicy QueryPolicy,
 		FStaticMeshCollisionPayloadData& OutPayload,
-		std::string& OutError,
-		const std::function<bool()>& ShouldCancel) -> bool
+		const std::function<bool()>& ShouldCancel) -> FStaticMeshCollisionPayloadResult
 	try
 	{
+		auto Reject = [&](EStaticMeshCollisionPayloadError Code, uint64 Index = 0, FVector3 Position = FVector3(0)) {
+			FStaticMeshCollisionPayloadResult Result{.Error = {.Code = Code,
+				.Operation = EStaticMeshCollisionPayloadOperation::Extract,
+				.VertexCount = Geometry ? Geometry.GetVertexCount() : 0,
+				.IndexCount = Geometry ? uint64(Geometry.GetTriangleCount()) * 3 : 0,
+				.NodeCount = Geometry ? Geometry.GetNodeCount() : 0,
+				.LeafCount = Geometry ? Geometry.GetLeafTriangleCount() : 0,
+				.Index = Index, .Position = Position}};
+			if (Geometry) Result.Error.GeometryKind = Geometry.GetKind();
+			return Result;
+		};
 		FPayloadBuildControl Control{ShouldCancel};
 		Control.Check();
 		if (!Geometry || (Geometry.GetKind() != ECollisionGeometryKind::ConvexHull
 			&& Geometry.GetKind() != ECollisionGeometryKind::TriangleMesh))
-			return Fail("Collision payload requires one valid hull or triangle mesh.", &OutError);
+			return Reject(EStaticMeshCollisionPayloadError::InvalidGeometry);
 		FStaticMeshCollisionPayloadData Candidate;
 		Candidate.SourceMode = Geometry.GetKind() == ECollisionGeometryKind::ConvexHull
 			? EBodySetupCollisionSourceMode::ConvexHullFromLOD0
@@ -575,10 +680,10 @@ namespace Durin
 			Control.Tick();
 			const FVector3* Vertex = Geometry.GetVertex(Index);
 			if (!Vertex || !Math::IsFinite(*Vertex))
-				return Fail("Collision geometry contains an invalid vertex.", &OutError);
+				return Reject(EStaticMeshCollisionPayloadError::InvalidVertex, Index, Vertex ? *Vertex : FVector3(0));
 			const FVector3f Stored(*Vertex);
 			if (!Math::IsFinite(Stored))
-				return Fail("Collision vertex is outside finite float32 storage.", &OutError);
+				return Reject(EStaticMeshCollisionPayloadError::FloatStorage, Index, *Vertex);
 			Candidate.Positions.push_back(Stored);
 		}
 		Candidate.Indices.reserve(Geometry.GetTriangleCount() * 3);
@@ -587,7 +692,7 @@ namespace Durin
 		{
 			Control.Tick();
 			const FCollisionGeometryTriangle* Triangle = Geometry.GetTriangle(Index);
-			if (!Triangle) return Fail("Collision geometry has an invalid triangle.", &OutError);
+			if (!Triangle) return Reject(EStaticMeshCollisionPayloadError::InvalidTriangle, Index);
 			Candidate.Indices.insert(Candidate.Indices.end(),
 				{Triangle->First, Triangle->Second, Triangle->Third});
 			Candidate.SourceOrdinals.push_back(Triangle->SourceOrdinal);
@@ -597,7 +702,7 @@ namespace Durin
 		{
 			Control.Tick();
 			const FCollisionGeometryNode* Node = Geometry.GetNode(Index);
-			if (!Node) return Fail("Collision geometry has an invalid BVH node.", &OutError);
+			if (!Node) return Reject(EStaticMeshCollisionPayloadError::InvalidNode, Index);
 			Candidate.Nodes.push_back(*Node);
 		}
 		Candidate.LeafTriangles.reserve(Geometry.GetLeafTriangleCount());
@@ -606,46 +711,57 @@ namespace Durin
 			Control.Tick();
 			const uint32 TriangleIndex = Geometry.GetLeafTriangle(Index);
 			const FCollisionGeometryTriangle* Triangle = Geometry.GetTriangle(TriangleIndex);
-			if (!Triangle) return Fail("Collision geometry has an invalid BVH membership.", &OutError);
+			if (!Triangle) return Reject(EStaticMeshCollisionPayloadError::InvalidMembership, Index);
 			Candidate.LeafTriangles.push_back(Triangle->SourceOrdinal);
 		}
 		Control.Check();
 		OutPayload = std::move(Candidate);
-		OutError.clear();
-		return true;
+		return {};
 	}
 	catch (const FPayloadBuildCancelled&)
 	{
-		return Fail("StaticMesh payload operation was cancelled.", &OutError);
+		return {.Error = {.Code = EStaticMeshCollisionPayloadError::Cancelled, .Operation = EStaticMeshCollisionPayloadOperation::Extract}};
 	}
 
 	auto MakeStaticMeshCollisionGeometry(
 		const FStaticMeshCollisionPayloadData& Payload,
 		FCollisionGeometryRef& OutGeometry,
-		std::string& OutError,
-		const std::function<bool()>& ShouldCancel) -> bool
+		const std::function<bool()>& ShouldCancel) -> FStaticMeshCollisionPayloadResult
 	try
 	{
-		FPayloadBuildControl Control{ShouldCancel};
+		auto Reject = [&](EStaticMeshCollisionPayloadError Code, uint64 Index = 0, uint32 Ordinal = 0,
+			FVector3 Position = FVector3(0)) {
+			return FStaticMeshCollisionPayloadResult{.Error = {.Code = Code,
+				.Operation = EStaticMeshCollisionPayloadOperation::Construct, .SourceMode = Payload.SourceMode,
+				.VertexCount = Payload.Positions.size(), .IndexCount = Payload.Indices.size(),
+				.OrdinalCount = Payload.SourceOrdinals.size(), .NodeCount = Payload.Nodes.size(),
+				.LeafCount = Payload.LeafTriangles.size(), .Index = Index, .Ordinal = Ordinal, .Position = Position}};
+		};
+		bool bCancelled = false;
+		const std::function<bool()> Cancelled = [&] {
+			bCancelled = bCancelled || (ShouldCancel && ShouldCancel());
+			return bCancelled;
+		};
+		FPayloadBuildControl Control{Cancelled};
 		Control.Check();
 		if (Payload.Positions.empty() || Payload.Indices.empty()
 			|| Payload.Indices.size() % 3 != 0
 			|| Payload.SourceOrdinals.size() != Payload.Indices.size() / 3)
-			return Fail("Collision payload counts are inconsistent.", &OutError);
+			return Reject(EStaticMeshCollisionPayloadError::InconsistentCounts);
 		std::vector<FVector3> Vertices;
 		Vertices.reserve(Payload.Positions.size());
 		for (const FVector3f& Position : Payload.Positions)
 		{
 			Control.Tick();
-			if (!Math::IsFinite(Position)) return Fail("Collision payload contains a non-finite position.", &OutError);
+			if (!Math::IsFinite(Position)) return Reject(EStaticMeshCollisionPayloadError::NonFinitePosition, static_cast<uint64>(&Position - Payload.Positions.data()), 0, FVector3(Position));
 			Vertices.emplace_back(Position);
 		}
 		FCollisionGeometryRef Candidate;
 		if (Payload.SourceMode == EBodySetupCollisionSourceMode::ConvexHullFromLOD0)
 		{
 			if (!Payload.Nodes.empty() || !Payload.LeafTriangles.empty())
-				return Fail("Convex collision payload must not contain a BVH.", &OutError);
-			Candidate = FCollisionGeometryRef::MakeConvexHull(Vertices, Payload.Indices, ShouldCancel);
+				return Reject(EStaticMeshCollisionPayloadError::UnexpectedBvh);
+			Candidate = FCollisionGeometryRef::MakeConvexHull(Vertices, Payload.Indices, Cancelled);
 		}
 		else if (Payload.SourceMode == EBodySetupCollisionSourceMode::TriangleMeshFromLOD0)
 		{
@@ -654,31 +770,32 @@ namespace Durin
 			{
 				Control.Tick();
 				if (!OrdinalToTriangle.emplace(Payload.SourceOrdinals[Triangle], Triangle).second)
-					return Fail("Collision payload source ordinals are not unique.", &OutError);
+					return Reject(EStaticMeshCollisionPayloadError::DuplicateOrdinal, Triangle, Payload.SourceOrdinals[Triangle]);
 			}
 			std::vector<uint32> LeafTriangles;
 			LeafTriangles.reserve(Payload.LeafTriangles.size());
-			for (uint32 Ordinal : Payload.LeafTriangles)
+			for (size_t LeafIndex = 0; LeafIndex < Payload.LeafTriangles.size(); ++LeafIndex)
 			{
+				const uint32 Ordinal = Payload.LeafTriangles[LeafIndex];
 				Control.Tick();
 				const auto Found = OrdinalToTriangle.find(Ordinal);
 				if (Found == OrdinalToTriangle.end())
-					return Fail("Collision BVH references an unknown source ordinal.", &OutError);
+					return Reject(EStaticMeshCollisionPayloadError::UnknownOrdinal, LeafIndex, Ordinal);
 				LeafTriangles.push_back(Found->second);
 			}
 			Candidate = FCollisionGeometryRef::MakeCookedTriangleMesh(
-				Vertices, Payload.Indices, Payload.SourceOrdinals, Payload.Nodes, LeafTriangles, ShouldCancel);
+				Vertices, Payload.Indices, Payload.SourceOrdinals, Payload.Nodes, LeafTriangles, Cancelled);
 		}
-		else return Fail("Collision payload source mode is invalid.", &OutError);
-		if (!Candidate) return Fail("Collision payload topology or BVH is invalid.", &OutError);
+		else return Reject(EStaticMeshCollisionPayloadError::InvalidSourceMode);
+		if (!Candidate) return Reject(bCancelled ? EStaticMeshCollisionPayloadError::Cancelled
+			: EStaticMeshCollisionPayloadError::InvalidTopology);
 		Control.Check();
 		OutGeometry = Candidate;
-		OutError.clear();
-		return true;
+		return {};
 	}
 	catch (const FPayloadBuildCancelled&)
 	{
-		return Fail("StaticMesh payload operation was cancelled.", &OutError);
+		return {.Error = {.Code = EStaticMeshCollisionPayloadError::Cancelled, .Operation = EStaticMeshCollisionPayloadOperation::Construct}};
 	}
 
 	auto FStaticMeshPayloadData::Serialize(FArchive& Ar,
@@ -690,16 +807,15 @@ namespace Durin
 		Control.Check();
 		EStaticMeshTargetPlatform TargetPlatform;
 		if (!ResolveMeshTarget(Ar, TargetPlatform)) return;
-		std::string Error;
 		std::array<FByteBuffer, 6> Buffers;
 		std::array<std::unique_ptr<FArchive>, 6> Owners;
 		std::array<FArchive*, 6> Chunks;
 		FDecodedChunkedPayload Container;
 		if (Ar.IsSaving())
 		{
-			if (!ValidatePayload(*this, Error, Control))
+			if (const auto Result = ValidatePayload(*this, Control); !Result)
 			{
-				Ar.Fail(EArchiveFailureCode::InvalidData, Error);
+				Ar.Fail(EArchiveFailureCode::InvalidData, FormatStaticMeshPayloadError(Result.Error));
 				return;
 			}
 			for (uint32 Index = 0; Index < 6; ++Index)
@@ -746,7 +862,7 @@ namespace Durin
 			}
 		if (Ar.IsLoading())
 		{
-			if (!ValidatePayload(*this, Error, Control)) Ar.Fail(EArchiveFailureCode::InvalidData, Error);
+			if (const auto Result = ValidatePayload(*this, Control); !Result) Ar.Fail(EArchiveFailureCode::InvalidData, FormatStaticMeshPayloadError(Result.Error));
 			return;
 		}
 		std::array<FChunkedPayloadInput, 6> Inputs;
@@ -834,8 +950,8 @@ namespace Durin
 				LogicalBytes += Sizes[Chunk];
 			}
 			FCollisionGeometryRef Validation;
-			if (!MakeStaticMeshCollisionGeometry(*this, Validation, Error, ShouldCancel))
-				return Reject(EArchiveFailureCode::InvalidData, Error);
+			if (const auto Built = MakeStaticMeshCollisionGeometry(*this, Validation, ShouldCancel); !Built)
+				return Reject(EArchiveFailureCode::InvalidData, FormatStaticMeshCollisionPayloadError(Built.Error));
 			if (SourceMode == EBodySetupCollisionSourceMode::TriangleMeshFromLOD0)
 			{
 				std::map<uint32, uint32> OrdinalToTriangle;
@@ -941,8 +1057,8 @@ namespace Durin
 			if (!RequireArchiveEnd(*Stream)) return Reject(Stream->GetFailure()->Code, Stream->GetError());
 		if (!Nodes.empty()) LeafTriangles = SourceOrdinals;
 		FCollisionGeometryRef Validation;
-		if (!MakeStaticMeshCollisionGeometry(*this, Validation, Error, ShouldCancel))
-			return Reject(EArchiveFailureCode::InvalidData, Error);
+		if (const auto Built = MakeStaticMeshCollisionGeometry(*this, Validation, ShouldCancel); !Built)
+			return Reject(EArchiveFailureCode::InvalidData, FormatStaticMeshCollisionPayloadError(Built.Error));
 	}
 	catch (const FPayloadBuildCancelled&)
 	{

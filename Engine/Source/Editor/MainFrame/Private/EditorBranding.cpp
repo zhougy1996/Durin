@@ -102,11 +102,12 @@ namespace Durin::Editor::MainFrame
 	{
 		Image::FDecodedImage Image;
 		const std::string SourcePath = FPaths::EngineContentDir() + "Editor/Branding/DurinEditorLogoUI.png";
-		if (!Image::DecodeImageFromFile(
+		const auto DecodeResult = Image::DecodeImageFromFile(
 				SourcePath,
 				Image,
-				OutError,
-				{256ull * 1024ull, 256ull * 256ull}))
+				{256ull * 1024ull, 256ull * 256ull});
+		OutError = Image::FormatImageDecodeError(DecodeResult.Error);
+		if (!DecodeResult)
 			return false;
 		if (Image.Width == 0 || Image.Height == 0)
 		{

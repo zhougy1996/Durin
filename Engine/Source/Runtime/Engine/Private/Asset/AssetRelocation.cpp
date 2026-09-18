@@ -340,14 +340,13 @@ namespace Durin
 			if (!Result) return Result;
 			std::vector<std::filesystem::path> SourceBulkFiles;
 			std::vector<std::filesystem::path> DestinationBulkFiles;
-			std::string BulkError;
-			if (!InspectEditorBulkDataCompanionPaths(
-					SourceFile, BulkInspection, SourceBulkFiles, &BulkError)
-				|| !InspectEditorBulkDataCompanionPaths(
-					DestinationFile, BulkInspection, DestinationBulkFiles, &BulkError)
-				|| SourceBulkFiles.size() != DestinationBulkFiles.size())
-				return Error(EAssetError::CorruptFile,
-					BulkError.empty() ? "Authored bulk relocation inspection failed." : BulkError);
+			for (const auto& Pair : {std::pair{&SourceFile, &SourceBulkFiles},
+				std::pair{&DestinationFile, &DestinationBulkFiles}})
+				if (const auto Storage = InspectEditorBulkDataCompanionPaths(*Pair.first, BulkInspection, *Pair.second); !Storage)
+					return {.Error = EAssetError::CorruptFile, .Message = FormatEditorBulkDataStorageError(Storage.Error),
+						.BulkStorageCause = Storage.Error};
+			if (SourceBulkFiles.size() != DestinationBulkFiles.size())
+				return Error(EAssetError::CorruptFile, "Authored bulk relocation inspection failed.");
 			for (size_t BulkIndex = 0; BulkIndex < SourceBulkFiles.size(); ++BulkIndex)
 			{
 				FByteBuffer PayloadBytes;

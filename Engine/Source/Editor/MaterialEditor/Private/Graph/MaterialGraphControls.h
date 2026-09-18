@@ -52,13 +52,6 @@ namespace Durin::Editor::Material
 		const std::function<void(std::string)>& ReportError) -> void
 	{
 		if (Result || !ReportError) return;
-		std::string Message = Result.Message;
-		if (!Result.Diagnostics.empty())
-		{
-			if (!Message.empty()) Message += " ";
-			Message += Durin::FormatMaterialError(Result.Diagnostics.front().Error);
-		}
-		ReportError(Message.empty()
-			? "The material graph command failed." : std::move(Message));
+		ReportError(FormatMaterialGraphCommandResult(Result));
 	}
 }

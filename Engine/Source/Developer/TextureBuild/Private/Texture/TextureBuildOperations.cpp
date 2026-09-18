@@ -10,14 +10,13 @@ namespace Durin
 		const FTexture2DRecipeExecutionControl* ExecutionControl) -> FTexture2DBuildResult
 	{
 		OutProduct = {};
-		std::string ValidationError;
-		if (!ValidateTexture2DBuildSettings(Request.Settings, ValidationError))
-			return {ETexture2DBuildStatus::Failed, std::move(ValidationError)};
+		if (const auto Validation = ValidateTexture2DBuildSettings(Request.Settings); !Validation)
+			return {ETexture2DBuildStatus::Failed, {.Code = ETexture2DBuildError::InvalidInput, .InputCause = Validation.Error}};
 		if (Request.TargetPlatform != ECookTargetPlatform::Win64
 			|| Request.TargetProfile != ECookTargetProfile::Game)
 		{
 			return {ETexture2DBuildStatus::Failed,
-				"Texture2D build target is unsupported."};
+				{.Code = ETexture2DBuildError::UnsupportedTarget}};
 		}
 
 		TextureBuilder::FBuildMipChainMetrics RecipeMetrics;

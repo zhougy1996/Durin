@@ -1,4 +1,5 @@
 #include "Editor/PropertyView.h"
+#include "Editor/PropertyValueDraft.h"
 
 #include "Asset/PackageSerialization.h"
 #include "Asset/Mutation.h"
@@ -118,14 +119,13 @@ namespace
 
 		static auto StaticClass() -> Durin::DClass*;
 
-		auto PreEditChangeProperty(Durin::FPropertyEditProposal& Proposal, std::string& OutError) -> bool override
+		auto PreEditChangeProperty(Durin::FPropertyEditProposal& Proposal) -> Durin::FObjectValidationResult override
 		{
 			if (Proposal.Phase == Durin::EPropertyChangePhase::Cancelled && !bAllowRestore)
 			{
-				OutError = "Host transition restore rejected for testing.";
-				return false;
+				return Durin::RejectPropertyEdit(*this, Proposal, Durin::EPropertyEditRejection::Rejected);
 			}
-			return true;
+			return {};
 		}
 
 		int32 Value = 5;
@@ -525,7 +525,7 @@ TEST(FReflectedPropertyViewTests, ObjectReplacementWaitsForFailedPreviewRestorat
 	EXPECT_FALSE(View.HandleOwnerContext(Context, &Second));
 	EXPECT_TRUE(View.IsEditingObject(&First));
 	EXPECT_EQ(First.Value, 8);
-	EXPECT_EQ(Error, "Host transition restore rejected for testing.");
+	EXPECT_EQ(Error, "The object rejected the reflected property proposal.");
 
 	First.bAllowRestore = true;
 	EXPECT_TRUE(View.HandleOwnerContext(Context, &Second));
@@ -555,7 +555,7 @@ TEST(FReflectedPropertyViewTests, ReadOnlyTransitionWaitsForFailedPreviewRestora
 	EXPECT_FALSE(View.HandleOwnerContext(ReadOnlyContext, &Object));
 	EXPECT_TRUE(View.IsEditingObject(&Object));
 	EXPECT_EQ(Object.Value, 8);
-	EXPECT_EQ(Error, "Host transition restore rejected for testing.");
+	EXPECT_EQ(Error, "The object rejected the reflected property proposal.");
 
 	Object.bAllowRestore = true;
 	EXPECT_TRUE(View.HandleOwnerContext(ReadOnlyContext, &Object));
@@ -577,14 +577,21 @@ TEST(FReflectedPropertyViewTests, SoftObjectStateInspectionDoesNotLoadUntilReque
 	Object.SoftValues[0].SetPath(MissingPath);
 	State = Durin::Editor::InspectSoftObject(Reflection.SoftProperty, &Object, 0);
 	EXPECT_EQ(State.State, Durin::Editor::ESoftObjectViewState::Missing);
-	EXPECT_FALSE(State.Message.empty());
+	const auto MissingState = State;
+	EXPECT_EQ(MissingState.PropertyName, Reflection.SoftProperty->NamePrivate.ToString());
+	EXPECT_EQ(MissingState.ArrayIndex, 0u);
+	ASSERT_TRUE(State.AssetCause);
+	EXPECT_EQ(State.Error, Durin::Editor::ESoftObjectViewError::Asset);
 	EXPECT_FALSE(Object.SoftValues[0].IsLoaded());
 	Durin::DObject* LoadedObject = nullptr;
-	std::string Error;
-	EXPECT_FALSE(Durin::Editor::LoadSoftObject(
-		Reflection.SoftProperty, &Object, 0, LoadedObject, &Error));
+	const auto Missing = Durin::Editor::LoadSoftObject(Reflection.SoftProperty, &Object, 0, LoadedObject);
+	EXPECT_FALSE(Missing);
+	EXPECT_EQ(Missing.Error, Durin::Editor::EPropertySoftLoadError::Asset);
+	ASSERT_TRUE(Missing.AssetCause);
+	EXPECT_NE(Missing.AssetCause->Error, Durin::EAssetError::None);
+	EXPECT_EQ(Missing.Path, MissingPath);
 	EXPECT_EQ(LoadedObject, nullptr);
-	EXPECT_FALSE(Error.empty());
+
 	EXPECT_EQ(Object.SoftValues[0].GetPath(), MissingPath);
 
 	const Durin::FObjectPath AssetSoftPath = MakeSoftObjectPropertyViewPath("Loadable");
@@ -596,6 +603,9 @@ TEST(FReflectedPropertyViewTests, SoftObjectStateInspectionDoesNotLoadUntilReque
 	Object.SoftValues[0].SetPath(AssetSoftPath);
 	State = Durin::Editor::InspectSoftObject(Reflection.SoftProperty, &Object, 0);
 	EXPECT_EQ(State.State, Durin::Editor::ESoftObjectViewState::Loaded);
+	EXPECT_EQ(MissingState.Path, MissingPath);
+	ASSERT_TRUE(MissingState.AssetCause);
+	EXPECT_EQ(MissingState.Error, Durin::Editor::ESoftObjectViewError::Asset);
 	EXPECT_EQ(State.LoadedObject, Asset);
 
 	Durin::FSoftObjectProperty MismatchedProperty(
@@ -605,7 +615,8 @@ TEST(FReflectedPropertyViewTests, SoftObjectStateInspectionDoesNotLoadUntilReque
 		&GetMutableSoftObjectViewValue, &GetConstSoftObjectViewValue);
 	State = Durin::Editor::InspectSoftObject(&MismatchedProperty, &Object, 0);
 	EXPECT_EQ(State.State, Durin::Editor::ESoftObjectViewState::TypeMismatch);
-	EXPECT_FALSE(State.Message.empty());
+	ASSERT_TRUE(State.AssetCause);
+	EXPECT_EQ(State.Error, Durin::Editor::ESoftObjectViewError::Asset);
 
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 	EXPECT_FALSE(Object.SoftValues[0].IsLoaded());
@@ -614,10 +625,10 @@ TEST(FReflectedPropertyViewTests, SoftObjectStateInspectionDoesNotLoadUntilReque
 	EXPECT_EQ(State.LoadedObject, nullptr);
 	EXPECT_FALSE(Object.SoftValues[0].IsLoaded());
 
-	Error.clear();
 	ASSERT_TRUE(Durin::Editor::LoadSoftObject(
-		Reflection.SoftProperty, &Object, 0, LoadedObject, &Error)) << Error;
+		Reflection.SoftProperty, &Object, 0, LoadedObject));
 	ASSERT_NE(LoadedObject, nullptr);
+	EXPECT_EQ(Missing.Path, MissingPath);
 	EXPECT_TRUE(Object.SoftValues[0].IsLoaded());
 	State = Durin::Editor::InspectSoftObject(Reflection.SoftProperty, &Object, 0);
 	EXPECT_EQ(State.State, Durin::Editor::ESoftObjectViewState::Loaded);
@@ -634,7 +645,8 @@ TEST(FReflectedPropertyViewTests, SoftObjectStateInspectionDoesNotLoadUntilReque
 	EXPECT_EQ(State.Path, AliasSoftPath);
 	EXPECT_EQ(State.ResolvedPath, AssetSoftPath);
 	EXPECT_EQ(State.LoadedObject, LoadedObject);
-	EXPECT_FALSE(State.Message.empty());
+	EXPECT_EQ(State.Error, Durin::Editor::ESoftObjectViewError::None);
+	EXPECT_FALSE(State.AssetCause);
 	EXPECT_EQ(Durin::Editor::GetSoftObjectStateLabel(State.State), "Redirected");
 
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
@@ -642,9 +654,8 @@ TEST(FReflectedPropertyViewTests, SoftObjectStateInspectionDoesNotLoadUntilReque
 	EXPECT_EQ(State.State, Durin::Editor::ESoftObjectViewState::Redirected);
 	EXPECT_EQ(State.LoadedObject, nullptr);
 	EXPECT_EQ(Durin::FindResidentPackage(AliasPath), nullptr);
-	Error.clear();
 	ASSERT_TRUE(Durin::Editor::LoadSoftObject(
-		Reflection.SoftProperty, &Object, 0, LoadedObject, &Error)) << Error;
+		Reflection.SoftProperty, &Object, 0, LoadedObject));
 	EXPECT_EQ(LoadedObject->GetPackage()->GetPackagePath(), AssetPath.ToString());
 	EXPECT_EQ(Object.SoftValues[0].GetPath(), AliasSoftPath);
 	EXPECT_EQ(Durin::FindResidentPackage(AliasPath), nullptr);
@@ -764,4 +775,313 @@ TEST(FReflectedPropertyViewTests, InvalidBoundedEditDoesNotMutateOrCreateTransac
 	EXPECT_EQ(Object.Value, 5);
 	EXPECT_NE(Error.find("ClampMax"), std::string::npos);
 	EXPECT_FALSE(Transactions.Get()->Undo());
+}
+
+TEST(FReflectedPropertyViewTests, TypedExtensionRejectionPreservesLiveStateAndAllowsRetry)
+{
+	using namespace Durin;
+	using namespace Durin::Editor;
+	auto& Reflection = GetPropertyViewHostTestReflection();
+	auto* Object = NewObject<DPropertyViewHostTestObject>(nullptr, "TypedExtensionEdit");
+	TStrongObjectPtr<DObject> Root(Object);
+	FPropertyViewTestTransactorOwner Transactions;
+	FPropertyView View;
+	std::string Message;
+	const FPropertyViewContext Context{
+		.Transactor = Transactions.Get(),
+		.ReportError = [&](std::string Text) { Message = std::move(Text); }};
+	bool Reject = true;
+	uint32 PostCount = 0;
+	uint32 CancelCount = 0;
+	FObjectValidationError Retained;
+	struct FExtensionScope
+	{
+		FPropertyEditExtensionHandle Handle = 0;
+		~FExtensionScope() { UnregisterPropertyEditExtension(Handle); }
+	} Extension;
+	Extension.Handle = RegisterPropertyEditExtension({
+		.PreEdit = [&](DObject& Target, FPropertyEditProposal& Proposal) -> FObjectValidationResult {
+			if (&Target != Object || !Reject) return {};
+			auto Result = RejectPropertyEdit(Target, Proposal, EPropertyEditRejection::IncompleteDraft);
+			Retained = Result.Error;
+			return Result;
+		},
+		.PostEdit = [&](DObject& Target, const FPropertyChangedEvent& Event) {
+			if (&Target != Object) return;
+			if (Event.Phase == EPropertyChangePhase::Cancelled) ++CancelCount;
+			else ++PostCount;
+		}});
+	ASSERT_NE(Extension.Handle, 0u);
+	auto Edit = [&] {
+		return View.SubmitPropertyValueEdit(Context,
+			FPropertyEditTarget::ForMember(Object, Reflection.Property),
+			[](FProperty* Property, void* Container, uint32 Index) {
+				*Property->ContainerPtrToValuePtr<int32>(Container, Index) = 6;
+			}, false);
+	};
+	EXPECT_FALSE(Edit());
+	EXPECT_EQ(Object->Value, 5);
+	EXPECT_EQ(PostCount, 0u);
+	EXPECT_EQ(CancelCount, 1u);
+	EXPECT_FALSE(Transactions.Get()->Undo());
+	EXPECT_EQ(Retained.Code, EObjectValidationError::PropertyRejected);
+	EXPECT_EQ(Retained.PropertyReason, EPropertyEditRejection::IncompleteDraft);
+	EXPECT_EQ(Retained.PropertyName, Reflection.Property->NamePrivate.ToString());
+	EXPECT_EQ(Retained.ObjectPath, Object->GetObjectPath());
+	EXPECT_FALSE(Message.empty());
+	Reject = false;
+	EXPECT_TRUE(Edit());
+	EXPECT_EQ(Object->Value, 6);
+	EXPECT_GT(PostCount, 0u);
+	EXPECT_EQ(Retained.PropertyReason, EPropertyEditRejection::IncompleteDraft);
+	ASSERT_TRUE(Transactions.Get()->Undo());
+	EXPECT_EQ(Object->Value, 5);
+}
+
+TEST(FReflectedPropertyViewTests, TypedDeferredCompletionRejectsAndIgnoresLatePublication)
+{
+	using namespace Durin;
+	using namespace Durin::Editor;
+	auto& Reflection = GetPropertyViewHostTestReflection();
+	auto* Object = NewObject<DPropertyViewHostTestObject>(nullptr, "TypedDeferredEdit");
+	TStrongObjectPtr<DObject> Root(Object);
+	Object->Value = 6;
+	FPropertyValueSnapshot Proposed;
+	ASSERT_TRUE(CapturePropertyValue(Reflection.Property, Object, 0, Proposed));
+	Object->Value = 5;
+	FPropertyViewTestTransactorOwner Transactions;
+	FPropertyEditDeferredCompletion Completion;
+	uint32 CancelCount = 0;
+	struct FExtensionScope
+	{
+		FPropertyEditExtensionHandle Handle = 0;
+		~FExtensionScope() { UnregisterPropertyEditExtension(Handle); }
+	} Extension;
+	Extension.Handle = RegisterPropertyEditExtension({
+		.PreEdit = [&](DObject& Target, FPropertyEditProposal& Proposal) -> FObjectValidationResult {
+			if (&Target != Object || Proposal.Origin != EPropertyChangeOrigin::Edit
+				|| Proposal.Phase != EPropertyChangePhase::Interactive) return {};
+			EXPECT_TRUE(Proposal.Defer([&](FPropertyEditDeferredCompletion Done) {
+				Completion = std::move(Done);
+				return FPropertyEditDeferredCancel([&] { ++CancelCount; });
+			}));
+			return {};
+		}});
+	ASSERT_NE(Extension.Handle, 0u);
+	FPropertyEditSession Session;
+	auto Start = [&] {
+		EXPECT_TRUE(Session.Begin(FPropertyEditTarget::ForMember(Object, Reflection.Property), "Deferred Test", Transactions.Get()));
+		EXPECT_EQ(Session.Apply(Proposed).GetStatus(), EPropertyEditResult::Pending);
+		EXPECT_TRUE(Session.HasPendingDeferredEdit());
+		EXPECT_EQ(Object->Value, 5);
+	};
+	Start();
+	ASSERT_TRUE(Completion);
+	Completion({.Error = {.Code = EObjectValidationError::PropertyRejected,
+		.ObjectPath = Object->GetObjectPath(), .PropertyReason = EPropertyEditRejection::Rejected,
+		.PropertyName = Reflection.Property->NamePrivate.ToString()}});
+	EXPECT_FALSE(Session.IsActive());
+	EXPECT_EQ(Object->Value, 5);
+	EXPECT_FALSE(Transactions.Get()->Undo());
+	Start();
+	auto LateCompletion = Completion;
+	EXPECT_EQ(Session.Cancel().GetStatus(), EPropertyEditResult::NoChange);
+	EXPECT_EQ(CancelCount, 1u);
+	LateCompletion({});
+	EXPECT_EQ(Object->Value, 5);
+	EXPECT_FALSE(Transactions.Get()->Undo());
+	Start();
+	Completion({});
+	EXPECT_FALSE(Session.IsActive());
+	EXPECT_EQ(Object->Value, 6);
+	EXPECT_EQ(CancelCount, 1u);
+	ASSERT_TRUE(Transactions.Get()->Undo());
+	EXPECT_EQ(Object->Value, 5);
+}
+
+TEST(FReflectedPropertyViewTests, TargetValidationOwnsRejectedPathAndBounds)
+{
+	using namespace Durin;
+	using namespace Durin::Editor;
+	auto& Reflection = GetPropertyViewHostTestReflection();
+	auto* Object = NewObject<DPropertyViewHostTestObject>(nullptr, "TypedPathTarget");
+	TStrongObjectPtr<DObject> Root(Object);
+	EXPECT_EQ(FPropertyEditTarget{}.Validate().Error.Code, EPropertyEditPathError::MissingOwner);
+	auto Target = FPropertyEditTarget::ForMember(Object, Reflection.Property);
+	ASSERT_TRUE(Target.Validate());
+	Target.SnapshotArrayIndex = Reflection.Property->GetArrayDim();
+	const auto Bounds = Target.Validate();
+	EXPECT_EQ(Bounds.Error.Code, EPropertyEditPathError::SnapshotIndex);
+	EXPECT_EQ(Bounds.Error.Actual, Reflection.Property->GetArrayDim());
+	EXPECT_EQ(Bounds.Error.Expected, Reflection.Property->GetArrayDim());
+	EXPECT_EQ(Bounds.Error.Owner, FObjectKey(Object));
+	EXPECT_EQ(Bounds.Error.Snapshot, Reflection.Property->NamePrivate.ToString());
+	Target.SnapshotArrayIndex = 0;
+	Target.SnapshotContainer = nullptr;
+	const auto MissingStorage = Target.Validate();
+	EXPECT_EQ(MissingStorage.Error.Code, EPropertyEditPathError::IncompleteTarget);
+	EXPECT_FALSE(MissingStorage.Error.HasSnapshotContainer);
+	Target.SnapshotContainer = Object;
+	Target.Path.clear();
+	EXPECT_EQ(Target.Validate().Error.Code, EPropertyEditPathError::Endpoints);
+	Target = FPropertyEditTarget::ForMember(Object, Reflection.Property);
+	Target.Path.push_back({});
+	Target.Path.push_back(Target.Path.front());
+	const auto EmptySegment = Target.Validate();
+	EXPECT_EQ(EmptySegment.Error.Code, EPropertyEditPathError::EmptySegment);
+	EXPECT_EQ(EmptySegment.Error.PathIndex, 1u);
+	Target = FPropertyEditTarget::ForMember(Object, Reflection.Property);
+	Target.Path.front().MapKeyData = {std::byte{0x2a}};
+	const auto RejectedKey = Target.Validate();
+	EXPECT_EQ(RejectedKey.Error.Code, EPropertyEditPathError::UnexpectedKeyData);
+	EXPECT_EQ(RejectedKey.Error.PathIndex, 0u);
+	EXPECT_EQ(RejectedKey.Error.Actual, 1u);
+	Target = {};
+	ASSERT_EQ(RejectedKey.Error.Path.size(), 1u);
+	EXPECT_EQ(RejectedKey.Error.Path.front().Property, Reflection.Property->NamePrivate.ToString());
+	ASSERT_EQ(RejectedKey.Error.Path.front().KeyData.size(), 1u);
+	EXPECT_EQ(RejectedKey.Error.Path.front().KeyData.front(), std::byte{0x2a});
+	EXPECT_TRUE(Bounds.Error.HasSnapshotContainer);
+	EXPECT_EQ(Object->Value, 5);
+}
+
+TEST(FReflectedPropertyViewTests, DraftRetainsInitializationAndRestoreCausesAcrossRetry)
+{
+	using namespace Durin;
+	using namespace Durin::Editor;
+	auto& Reflection = GetPropertyViewHostTestReflection();
+	auto* Object = NewObject<DPropertyViewHostTestObject>(nullptr, "TypedDraftTarget");
+	TStrongObjectPtr<DObject> Root(Object);
+	auto Target = FPropertyEditTarget::ForMember(Object, Reflection.Property);
+	Target.SnapshotContainer = nullptr;
+	FPropertyValueDraft Missing(Target);
+	ASSERT_FALSE(Missing.IsValid());
+	FPropertyValueSnapshotPayload Payload;
+	const auto MissingCapture = Missing.Capture(Payload);
+	EXPECT_EQ(MissingCapture.Error.Code, EPropertyValueDraftError::MissingRoot);
+	EXPECT_EQ(MissingCapture.Error.Root, Reflection.Property->NamePrivate.ToString());
+	EXPECT_FALSE(MissingCapture.Error.HasContainer);
+	Target.SnapshotContainer = Object;
+	FPropertyValueDraft Draft(Target);
+	ASSERT_TRUE(Draft.IsValid());
+	ASSERT_TRUE(Draft.Capture(Payload));
+	const auto Rejected = Draft.Restore(FPropertyValueSnapshotPayload{});
+	ASSERT_FALSE(Rejected);
+	EXPECT_EQ(Rejected.Error.Code, EPropertyValueDraftError::Restore);
+	ASSERT_TRUE(Rejected.Error.SnapshotCause.has_value());
+	EXPECT_EQ(Rejected.Error.SnapshotCause->Code, EPropertySnapshotError::IncompatibleType);
+	EXPECT_EQ(Rejected.Error.SnapshotCause->Operation, EPropertySnapshotOperation::Restore);
+	EXPECT_TRUE(Draft.IsValid());
+	ASSERT_TRUE(Draft.Restore(Payload));
+	FPropertyValueSnapshot Snapshot;
+	EXPECT_TRUE(Draft.Capture(Snapshot));
+	EXPECT_EQ(Rejected.Error.SnapshotCause->Code, EPropertySnapshotError::IncompatibleType);
+	EXPECT_EQ(Rejected.Error.Root, Reflection.Property->NamePrivate.ToString());
+	EXPECT_EQ(Object->Value, 5);
+}
+
+TEST(FReflectedPropertyViewTests, TransactionRecordRetainsMutationCausesAcrossRetry)
+{
+	using namespace Durin;
+	using namespace Durin::Editor;
+	auto& Reflection = GetPropertyViewHostTestReflection();
+	auto* Object = NewObject<DPropertyViewHostTestObject>(nullptr, "TypedObjectRecord");
+	TStrongObjectPtr<DObject> Root(Object);
+	const auto Target = FPropertyEditTarget::ForMember(Object, Reflection.Property);
+	FPropertyValueSnapshotPayload Before, After;
+	ASSERT_TRUE(CapturePropertyValuePayload(Reflection.Property, Object, 0, Before));
+	Object->Value = 6;
+	ASSERT_TRUE(CapturePropertyValuePayload(Reflection.Property, Object, 0, After));
+	Object->Value = 5;
+	FTransactionObjectRecord Record;
+	ASSERT_TRUE(FTransactionObjectRecord::Capture(Target, Before, After, Record));
+	ASSERT_TRUE(Record.Validate());
+	const auto Invalid = FTransactionObjectRecord::Capture(Target, {}, After, Record);
+	EXPECT_EQ(Invalid.Error.Code, ETransactionObjectRecordError::Payload);
+	EXPECT_EQ(Invalid.Error.Owner, FObjectKey(Object));
+	EXPECT_FALSE(Invalid.Error.BeforeValid);
+	EXPECT_TRUE(Invalid.Error.AfterValid);
+	EXPECT_EQ(Record.GetBefore(), Before);
+	bool Reject = true;
+	struct FExtensionScope
+	{
+		FPropertyEditExtensionHandle Handle = 0;
+		~FExtensionScope() { UnregisterPropertyEditExtension(Handle); }
+	} Extension;
+	Extension.Handle = RegisterPropertyEditExtension({
+		.PreEdit = [&](DObject& Owner, FPropertyEditProposal& Proposal) -> FObjectValidationResult {
+			if (&Owner != Object || !Reject) return {};
+			return RejectPropertyEdit(Owner, Proposal, EPropertyEditRejection::IncompleteDraft);
+		}});
+	const auto Rejected = Record.Apply(false, EPropertyChangeOrigin::Redo);
+	EXPECT_EQ(Rejected.Error.Code, ETransactionObjectRecordError::Mutation);
+	ASSERT_TRUE(Rejected.Error.MutationCause);
+	EXPECT_EQ(Rejected.Error.MutationCause->Code, EPropertyMutationError::ExtensionValidation);
+	EXPECT_EQ(Rejected.Error.MutationCause->Origin, EPropertyChangeOrigin::Redo);
+	ASSERT_TRUE(Rejected.Error.MutationCause->ValidationCause);
+	EXPECT_EQ(Rejected.Error.MutationCause->ValidationCause->PropertyReason, EPropertyEditRejection::IncompleteDraft);
+	EXPECT_EQ(Object->Value, 5);
+	FTransaction History(42, {.Description = "Typed property history"});
+	History.AddRecord(Record);
+	const auto HistoryFailure = History.Apply(false, EPropertyChangeOrigin::Redo);
+	EXPECT_EQ(HistoryFailure.Error.Code, ETransactionApplyError::Execution);
+	EXPECT_EQ(HistoryFailure.Error.RecordIndex, 0u);
+	EXPECT_EQ(HistoryFailure.Error.RecordCause.Code, ETransactionRecordError::Object);
+	ASSERT_TRUE(HistoryFailure.Error.RecordCause.ObjectCause);
+	ASSERT_TRUE(HistoryFailure.Error.RecordCause.ObjectCause->MutationCause);
+	EXPECT_EQ(HistoryFailure.Error.RecordCause.ObjectCause->MutationCause->Code, EPropertyMutationError::ExtensionValidation);
+	EXPECT_EQ(Object->Value, 5);
+	Reject = false;
+	ASSERT_TRUE(Record.Apply(false, EPropertyChangeOrigin::Redo));
+	EXPECT_EQ(Object->Value, 6);
+	ASSERT_TRUE(Record.Apply(true, EPropertyChangeOrigin::Undo));
+	EXPECT_EQ(Object->Value, 5);
+	EXPECT_EQ(Rejected.Error.MutationCause->ValidationCause->PropertyReason, EPropertyEditRejection::IncompleteDraft);
+	EXPECT_EQ(Invalid.Error.Code, ETransactionObjectRecordError::Payload);
+}
+
+TEST(FReflectedPropertyViewTests, SessionErrorsOwnCausesAcrossResetAndRetry)
+{
+	using namespace Durin;
+	using namespace Durin::Editor;
+	FPropertyEditSession Session;
+	EXPECT_EQ(Session.Commit().Error.Code, EPropertyEditSessionError::Inactive);
+	const auto Missing = Session.Begin({}, "Missing target");
+	EXPECT_EQ(Missing.Error.Code, EPropertyEditSessionError::Target);
+	ASSERT_TRUE(Missing.Error.PathCause);
+	EXPECT_EQ(Missing.Error.PathCause->Code, EPropertyEditPathError::MissingOwner);
+	auto& Reflection = GetPropertyViewHostTestReflection();
+	auto* Object = NewObject<DPropertyViewHostTestObject>(nullptr, "TypedSessionErrors");
+	TStrongObjectPtr<DObject> Root(Object);
+	const auto Target = FPropertyEditTarget::ForMember(Object, Reflection.Property);
+	ASSERT_TRUE(Session.Begin(Target, "Owned session description"));
+	const auto Active = Session.Begin(Target, "Replacement description");
+	EXPECT_EQ(Active.Error.Code, EPropertyEditSessionError::AlreadyActive);
+	EXPECT_EQ(Active.Error.Owner, FObjectKey(Object));
+	EXPECT_EQ(Active.Error.Description, "Owned session description");
+	const auto Invalid = Session.Apply(FPropertyValueSnapshotPayload{});
+	EXPECT_EQ(Invalid.Error.Code, EPropertyEditSessionError::Mutation);
+	ASSERT_TRUE(Invalid.Error.MutationCause);
+	EXPECT_EQ(Invalid.Error.MutationCause->Code, EPropertyMutationError::Draft);
+	ASSERT_TRUE(Invalid.Error.MutationCause->DraftCause);
+	EXPECT_EQ(Invalid.Error.MutationCause->DraftCause->Code, EPropertyValueDraftError::Restore);
+	ASSERT_TRUE(Invalid.Error.MutationCause->DraftCause->SnapshotCause);
+	EXPECT_EQ(Invalid.Error.MutationCause->DraftCause->SnapshotCause->Code, EPropertySnapshotError::IncompatibleType);
+	EXPECT_EQ(Object->Value, 5);
+	EXPECT_TRUE(Session.IsActive());
+	Object->Value = 6;
+	FPropertyValueSnapshotPayload Proposed;
+	ASSERT_TRUE(CapturePropertyValuePayload(Reflection.Property, Object, 0, Proposed));
+	Object->Value = 5;
+	const auto Applied = Session.Apply(Proposed);
+	ASSERT_TRUE(Applied);
+	EXPECT_EQ(Applied.GetStatus(), EPropertyEditResult::Changed);
+	EXPECT_EQ(Applied.Error.Code, EPropertyEditSessionError::None);
+	ASSERT_TRUE(Session.Commit());
+	EXPECT_FALSE(Session.IsActive());
+	EXPECT_EQ(Object->Value, 6);
+	EXPECT_EQ(Active.Error.Description, "Owned session description");
+	EXPECT_EQ(Invalid.Error.Member, Reflection.Property->NamePrivate.ToString());
+	EXPECT_EQ(Invalid.Error.MutationCause->DraftCause->SnapshotCause->Code, EPropertySnapshotError::IncompatibleType);
+	EXPECT_EQ(Missing.Error.PathCause->Code, EPropertyEditPathError::MissingOwner);
 }

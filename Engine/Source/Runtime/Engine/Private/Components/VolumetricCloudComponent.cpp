@@ -110,18 +110,13 @@ namespace Durin
 		MarkRenderStateDirty();
 	}
 
-	auto DVolumetricCloudComponent::PreEditChangeProperty(
-		FPropertyEditProposal& Proposal, std::string& OutError
-	) -> bool
+	auto DVolumetricCloudComponent::PreEditChangeProperty(FPropertyEditProposal& Proposal) -> FObjectValidationResult
 	{
-		if (!Super::PreEditChangeProperty(Proposal, OutError)) return false;
+		if (auto Result = Super::PreEditChangeProperty(Proposal); !Result) return Result;
 		if (!Proposal.MemberProperty || Proposal.DraftRootProperty != Proposal.MemberProperty
-			|| !Proposal.DraftRootContainer) return true;
+			|| !Proposal.DraftRootContainer) return {};
 		const FName Name = Proposal.MemberProperty->NamePrivate;
-		auto Reject = [&OutError] {
-			OutError = "Volumetric cloud properties must be finite.";
-			return false;
-		};
+		auto Reject = [&] { return RejectPropertyEdit(*this, Proposal, EPropertyEditRejection::NonFiniteValue); };
 		if (Name == FName("Priority"))
 		{
 			auto* Value = Proposal.DraftRootProperty->ContainerPtrToValuePtr<int32>(
@@ -172,7 +167,7 @@ namespace Durin
 			if (!ClampVector(*Value, bFrequency ? 0.00000001f : -1'000'000.0f, bFrequency ? 1.0f : 1'000'000.0f, Clamped)) return Reject();
 			*Value = Clamped;
 		}
-		return true;
+		return {};
 	}
 
 	auto DVolumetricCloudComponent::PostEditChangeProperty(

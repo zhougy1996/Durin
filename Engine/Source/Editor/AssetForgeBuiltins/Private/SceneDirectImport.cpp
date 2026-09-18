@@ -292,11 +292,11 @@ namespace Durin::AssetForge::Builtins
 		OutResult = {};
 		::Durin::AssetForge::Builtins::Private::FScopedSceneImportCancellation CancellationScope(
 			IsCancellationRequested);
-		if (SourceFile.empty() || !DestinationDirectory.IsValid()
-			|| !Settings.IsValid(&OutResult.Message))
+		const auto SettingsValidation = Settings.Validate();
+		if (SourceFile.empty() || !DestinationDirectory.IsValid() || !SettingsValidation)
 			return AddError(OutResult, EImportDiagnosticCategory::InvalidRequest,
-				"scene-request", OutResult.Message.empty()
-					? "Scene import request is invalid." : OutResult.Message);
+				"scene-request", SourceFile.empty() || !DestinationDirectory.IsValid()
+					? "Scene import request is invalid." : FormatStaticMeshImportSettingsError(SettingsValidation.Error));
 		if (IsCanceled(IsCancellationRequested))
 			return AddError(OutResult, EImportDiagnosticCategory::Canceled,
 				"scene-capture", "Scene import was canceled before source capture.");
@@ -365,16 +365,16 @@ namespace Durin::AssetForge::Builtins
 			}
 			else if (Descriptor.Kind == ESceneOutputKind::StaticMesh)
 			{
-				if (!Output.StaticMeshSource.Initialize(MakeStaticMeshDecodedGeometry(Data.Scene), Error))
+				if (const auto Initialized = Output.StaticMeshSource.Initialize(MakeStaticMeshDecodedGeometry(Data.Scene)); !Initialized)
 					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
-						"scene-build", std::move(Error), Descriptor.StableIdentity);
-				const FStaticMeshBuildOutcome Outcome = BuildStaticMeshAuthoredCandidate({
-					.Source = Output.StaticMeshSource}, Output.StaticMesh, Error,
+						"scene-build", FormatStaticMeshSourceError(Initialized.Error), Descriptor.StableIdentity);
+				const auto Outcome = BuildStaticMeshAuthoredCandidate({
+					.Source = Output.StaticMeshSource}, Output.StaticMesh,
 					{.ShouldCancel = IsCancellationRequested});
 				if (!Outcome)
-					return AddError(OutResult, Outcome.Status == EStaticMeshBuildStatus::Cancelled
+					return AddError(OutResult, Outcome.GetStatus() == EStaticMeshBuildStatus::Cancelled
 						? EImportDiagnosticCategory::Canceled : EImportDiagnosticCategory::CandidateFailure,
-						"scene-build", Outcome.Diagnostic, Descriptor.StableIdentity);
+						"scene-build", FormatStaticMeshAuthoredBuildError(Outcome.Error), Descriptor.StableIdentity);
 			}
 		}
 
@@ -466,13 +466,13 @@ namespace Durin::AssetForge::Builtins
 				PackagePath += ".dasset";
 				std::string SourceHint;
 				ESourceHintBase HintBase;
-				if (!MakeSourceHint(
+				if (const auto Hint = MakeSourceHint(
 					SourcePhysicalPath, PackagePath.generic_string(), HintBase,
-					SourceHint, Error))
+					SourceHint); !Hint)
 				{
 					Abandon(Prepared);
 					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
-						"scene-materialization", std::move(Error), Descriptor.StableIdentity);
+						"scene-materialization", FormatSourceHintError(Hint.Error), Descriptor.StableIdentity);
 				}
 				auto* Texture = Cast<DTexture2D>(Output.Candidate);
 				FTexture2DBuildProduct& Product = Output.Texture.Product;
@@ -485,11 +485,11 @@ namespace Durin::AssetForge::Builtins
 					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
 						"scene-materialization", "Texture platform data is invalid.", Descriptor.StableIdentity);
 				}
-				if (!ValidateTexture2DBuildSettings(Settings, Error))
+				if (const auto Validation = ValidateTexture2DBuildSettings(Settings); !Validation)
 				{
 					Abandon(Prepared);
 					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
-						"scene-materialization", std::move(Error), Descriptor.StableIdentity);
+						"scene-materialization", FormatTexture2DInputError(Validation.Error), Descriptor.StableIdentity);
 				}
 				Texture->SetSource(Output.Texture.SourceData);
 				Texture->SetBuildSettings(Settings.Usage, ResolveTexture2DSRGB(Settings),
@@ -510,12 +510,13 @@ namespace Durin::AssetForge::Builtins
 				auto* ImportData = NewObject<DSceneImportData>(
 					Output.Candidate, "AssetImportData");
 				ImportState.SourceData.Normalize();
-				if (!ImportData || !ImportState.Validate(Error))
+				const auto Validation = ImportState.Validate();
+				if (!ImportData || !Validation)
 				{
 					Abandon(Prepared);
 					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
-						"scene-materialization", Error.empty()
-							? "Scene texture import data could not be published." : std::move(Error),
+						"scene-materialization", !ImportData
+							? "Scene texture import data could not be published." : FormatAssetImportDataError(Validation.Error),
 						Descriptor.StableIdentity);
 				}
 				ImportData->SourceIdentity = RootFilename;
@@ -536,12 +537,12 @@ namespace Durin::AssetForge::Builtins
 				}
 				ImportData->SourceIdentity = RootFilename;
 				ImportData->OutputIdentity = Descriptor.StableIdentity;
-				if (!ApplyStaticMeshAuthoredCandidate(*Mesh, std::move(Output.StaticMesh),
-					CaptureStaticMeshReconciliation(*Mesh), Error, true, {}, ImportData))
+				if (const auto Applied = ApplyStaticMeshAuthoredCandidate(*Mesh, std::move(Output.StaticMesh),
+					CaptureStaticMeshReconciliation(*Mesh), true, {}, ImportData); !Applied)
 				{
 					Abandon(Prepared);
 					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
-						"scene-materialization", std::move(Error), Descriptor.StableIdentity);
+						"scene-materialization", FormatStaticMeshApplicationError(Applied.Error), Descriptor.StableIdentity);
 				}
 			}
 		}
@@ -676,11 +677,11 @@ namespace Durin::AssetForge::Builtins
 						Value = Definition->Type == EMaterialParameterType::Vector4 ? FMaterialParameterValue::MakeVector4({Literal.X, Literal.Y, Literal.Z, Literal.W}) :
 							FMaterialParameterValue::MakeScalar(Literal.X);
 					}
-					if (!Material->SetParameterValue(Owner.ParameterId, Value))
+					if (const auto Applied = Material->SetParameterValue(Owner.ParameterId, Value); !Applied)
 					{
 						Abandon(Prepared);
 						return AddError(OutResult, EImportDiagnosticCategory::ValidationFailure,
-							"scene-material-parameters", "Scene material parameter application failed.", Descriptor.StableIdentity);
+							"scene-material-parameters", FormatMaterialError(Applied.Error), Descriptor.StableIdentity);
 					}
 				}
 				if (!Material->SetImportProvenance(std::move(Receipt)))
@@ -803,13 +804,15 @@ namespace Durin::AssetForge::Builtins
 		auto PreviousCompilations = DependentMaterials;
 		for (const auto& Output : Prepared) if (Output.Previous) PreviousCompilations.push_back(Output.Previous);
 		FAssetCompilingManager::Get().FinishCompilationForObjects(PreviousCompilations);
+		FAssetResult PersistenceResult;
 		auto Published = Publication.Prepare(Pairs, {}, {.MaximumPackages = 4096});
 		if (Published)
 		{
 			SaveOptions.PreparedPublication = &Publication;
 			Published = Publication.TryCommit([&]() -> FObjectReplacementResult {
-				const auto Saved = SavePackagesAtomically(Packages, SaveOptions);
-				if (!Saved) return {EObjectReplacementError::ParticipantRejected, Saved.Message};
+				PersistenceResult = SavePackagesAtomically(Packages, SaveOptions);
+				if (!PersistenceResult) return {{.Code = EObjectReplacementError::ParticipantRejected,
+					.Reason = EObjectReplacementReason::PersistenceRejected}};
 				return {};
 			});
 		}
@@ -818,7 +821,7 @@ namespace Durin::AssetForge::Builtins
 			Publication.Abort();
 			Abandon(Prepared);
 			return AddError(OutResult, EImportDiagnosticCategory::PersistenceFailure,
-				"scene-persistence", Published.Message);
+				"scene-persistence", !PersistenceResult ? PersistenceResult.Message : FormatObjectReplacementError(Published.Error));
 		}
 		for (auto* Package : Packages) Package->MarkAsPublished();
 		if (std::ranges::any_of(Prepared, [](const auto& Output) { return Output.Previous != nullptr; }))

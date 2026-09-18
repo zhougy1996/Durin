@@ -38,7 +38,8 @@ namespace Durin::Testing
 	{
 		const auto Catalog = Editor::Material::FMaterialGraphOperations::EnumerateCatalog();
 		const auto Entry = std::ranges::find_if(Catalog, [&](const auto& Value) { return Value.Opcode == Opcode && Value.ResultType == Type; });
-		if (Entry == Catalog.end()) return {.Message = "Unknown test catalog shape."};
+		if (Entry == Catalog.end()) return {.DocumentCause = Editor::Material::FMaterialGraphDocumentError{
+			.Code = Editor::Material::EMaterialGraphDocumentError::CatalogShape, .Opcode = Opcode, .ResultType = Type}};
 		return Document.CreateCatalogNode(*Entry, X, Y, Input, Transactions);
 	}
 }

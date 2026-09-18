@@ -11,6 +11,18 @@
 
 namespace Durin
 {
+	auto FormatStaticMeshCollisionError(const FStaticMeshCollisionError& Error) -> std::string
+	{
+		switch (Error.Code)
+		{
+		case EStaticMeshCollisionError::None: return {};
+		case EStaticMeshCollisionError::MissingRenderData: return "Static-mesh collision build requires published CPU render data.";
+		case EStaticMeshCollisionError::DerivedData: return Error.DerivedDataCause ? FormatStaticMeshDerivedDataError(*Error.DerivedDataCause) : "StaticMesh collision build failed.";
+		case EStaticMeshCollisionError::Publication: return "Static mesh could not publish collision geometry.";
+		}
+		return {};
+	}
+
 	auto DStaticMesh::GetBodySetup() const -> DBodySetup*
 	{
 		return BodySetup.Get();
@@ -22,7 +34,7 @@ namespace Durin
 		if (BodySetup == InBodySetup) return true;
 		FStaticMeshRenderStateRecreateContext RecreateContext(this);
 		BodySetup = InBodySetup;
-		CollisionBuildError.clear();
+		CollisionBuildError = {};
 		NotifyStaticMeshCompilationMutation(*this);
 		MarkPackageDirty();
 		return true;
@@ -33,16 +45,14 @@ namespace Durin
 		EBodySetupCollisionSourceMode Mode,
 		EBodySetupCollisionQueryPolicy Policy,
 		FCollisionGeometryRef& OutSimple,
-		FCollisionGeometryRef& OutComplex,
-		std::string& OutError) const -> bool
+		FCollisionGeometryRef& OutComplex) const -> FStaticMeshDerivedDataResult
 	{
 		FStaticMeshCollisionBuildResult Product;
-		if (!BuildStaticMeshCollisionDerivedData(
-			SourceRenderData, Mode, Policy, Product, OutError))
-			return false;
+		const auto Built = BuildStaticMeshCollisionDerivedData(SourceRenderData, Mode, Policy, Product);
+		if (!Built) return Built;
 		OutSimple = std::move(Product.Simple);
 		OutComplex = std::move(Product.Complex);
-		return true;
+		return {};
 	}
 	auto DStaticMesh::SetCollisionSourceMode(EBodySetupCollisionSourceMode Mode) -> void
 	{
@@ -90,7 +100,7 @@ namespace Durin
 
 	auto DStaticMesh::RebuildCollisionData(bool bAllowUnavailable) -> void
 	{
-		CollisionBuildError.clear();
+		CollisionBuildError = {};
 		if (!BodySetup) return;
 		BodySetup->ClearCollisionGeometry();
 		const auto Mode = BodySetup->GetCollisionSourceMode();
@@ -98,20 +108,22 @@ namespace Durin
 		if (!RenderData)
 		{
 			if (bAllowUnavailable || HasPendingStaticMeshCompilation(*this)) return;
-			CollisionBuildError = "Static-mesh collision build requires published CPU render data.";
+			CollisionBuildError = {.Code = EStaticMeshCollisionError::MissingRenderData, .Mode = Mode, .Policy = BodySetup->GetCollisionQueryPolicy()};
 		}
 		else
 		{
 			FCollisionGeometryRef Simple;
 			FCollisionGeometryRef Complex;
-			if (BuildCollisionCandidate(*RenderData, Mode, BodySetup->GetCollisionQueryPolicy(),
-				Simple, Complex, CollisionBuildError))
+			if (const auto Built = BuildCollisionCandidate(*RenderData, Mode, BodySetup->GetCollisionQueryPolicy(),
+				Simple, Complex); Built)
 			{
 				if (BodySetup->SetCollisionGeometry(Simple, Complex)) return;
-				CollisionBuildError = "Static mesh could not publish collision geometry.";
+				CollisionBuildError = {.Code = EStaticMeshCollisionError::Publication, .Mode = Mode, .Policy = BodySetup->GetCollisionQueryPolicy()};
 			}
+			else CollisionBuildError = {.Code = EStaticMeshCollisionError::DerivedData, .Mode = Mode,
+				.Policy = BodySetup->GetCollisionQueryPolicy(), .DerivedDataCause = std::make_shared<FStaticMeshDerivedDataError>(Built.Error)};
 		}
-		DURIN_ERROR("Static mesh '{}' collision build failed: {}", GetObjectPath(), CollisionBuildError);
+		DURIN_ERROR("Static mesh '{}' collision build failed: {}", GetObjectPath(), FormatStaticMeshCollisionError(CollisionBuildError));
 	}
 
 	auto DStaticMesh::GetCollisionBuildStatus() const -> EStaticMeshCollisionBuildStatus
@@ -123,7 +135,7 @@ namespace Durin
 		if (BodySetup->GetResidentSimpleGeometry() || BodySetup->GetResidentComplexGeometry())
 			return EStaticMeshCollisionBuildStatus::Ready;
 		if (HasPendingStaticMeshCompilation(*this)) return EStaticMeshCollisionBuildStatus::Pending;
-		if (!CollisionBuildError.empty()) return EStaticMeshCollisionBuildStatus::Failed;
+		if (CollisionBuildError.Code != EStaticMeshCollisionError::None) return EStaticMeshCollisionBuildStatus::Failed;
 		return EStaticMeshCollisionBuildStatus::Unavailable;
 	}
 

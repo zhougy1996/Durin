@@ -21,7 +21,7 @@ TEST(FMaterialGraphPersistenceTests, CustomDeclarationsPersistAndDuplicateTheirI
 	Parameter->DefaultValue = Definition.Value.GetVector4();
 	ASSERT_TRUE(Material->SetMaterialExpressions(std::array<DMaterialExpression*, 1>{Parameter.Get()}, {}));
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));
-	auto* Duplicate = Cast<DMaterial>(DuplicateObject(Material, nullptr, "CopiedCustomDeclarations"));
+	auto* Duplicate = Cast<DMaterial>(DuplicateObject(Material, nullptr, "CopiedCustomDeclarations").Object);
 	ASSERT_NE(Duplicate, nullptr);
 	ASSERT_EQ(Duplicate->GetParameterDefinitions().size(), 1u);
 	EXPECT_EQ(Duplicate->GetParameterDefinitions().front(), Definition);
@@ -76,7 +76,7 @@ TEST(FMaterialGraphPersistenceTests, LargeGraphRoundTripsWithoutLoadedOverrideLe
 		ASSERT_NE(Material, nullptr);
 		EXPECT_FALSE(Material->HasAllocatedAuthoredOverrideLedger());
 		EXPECT_EQ(CaptureExpressions(*Material), Expected);
-		auto* Copy = Cast<DMaterial>(DuplicateObject(Material, nullptr, "GraphWithoutLedgerCopy"));
+		auto* Copy = Cast<DMaterial>(DuplicateObject(Material, nullptr, "GraphWithoutLedgerCopy").Object);
 		ASSERT_NE(Copy, nullptr);
 		EXPECT_FALSE(Copy->HasAllocatedAuthoredOverrideLedger());
 		EXPECT_EQ(CaptureExpressions(*Copy), Expected);
@@ -94,7 +94,7 @@ TEST(FMaterialAssetCreationPersistenceTests, BuiltInMaterialsHaveCompletePersist
 		RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation);
 	ASSERT_TRUE(Refresh) << (Refresh.Errors.empty()
 		? "Asset catalog refresh failed without a diagnostic."
-		: Refresh.Errors.front().Message);
+		: Durin::FormatAssetRegistryError(Refresh.Errors.front()));
 
 	for (const std::string_view PathString : {
 		"/Engine/Materials/DefaultMaterial"})

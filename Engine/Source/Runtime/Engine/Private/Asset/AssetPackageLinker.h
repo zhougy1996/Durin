@@ -6,6 +6,7 @@
 #include "Asset/PackageSerialization.h"
 #include "Asset/PackageResource.h"
 #include "Asset/Load.h"
+#include "Asset/PackageGraphPreparationError.h"
 #include "DObject/DefaultDeltaPlan.h"
 #include "DObject/PackageFormat.h"
 
@@ -62,26 +63,8 @@ namespace Durin::AssetPrivate
 		std::function<bool(uint64, ELinkerLoadPhase, uint64)> ShouldFail;
 	};
 
-	// ValuesPrepared does not mean runtime products or reference publication are ready.
-	enum class EPackageGraphPrepareStatus : uint8
-	{
-		ValuesPrepared,
-		Unsupported,
-		InvalidClosure,
-		MissingDependency,
-		BudgetExceeded,
-		Stale,
-		Cancelled,
-		Busy,
-	};
-
-	struct FPackageGraphPrepareResult
-	{
-		EPackageGraphPrepareStatus Status = EPackageGraphPrepareStatus::ValuesPrepared;
-		FPackagePath PackagePath;
-		std::string Message;
-		explicit operator bool() const { return Status == EPackageGraphPrepareStatus::ValuesPrepared; }
-	};
+	using Durin::EPackageGraphPrepareStatus;
+	using Durin::FPackageGraphPrepareResult;
 
 	class FPreparedPackageGraph;
 

@@ -161,6 +161,12 @@ namespace Durin
 		return "failed";
 	}
 
+	auto FormatCookPackageResult(const FCookPackageResult& Result) -> std::string
+	{
+		return Result.Status == ECookPackageStatus::CookHit
+			? "Validated unchanged Cook outputs." : "Captured deterministic package save plan.";
+	}
+
 	auto CookRunStatusName(ECookRunStatus Status) -> std::string_view
 	{
 		switch (Status)
@@ -195,21 +201,35 @@ namespace Durin
 		return "discovery";
 	}
 
-	auto RegisterCookContributor(DClass* Class, FCookContributorRegistration Registration) -> FCookContributorHandle
+	auto FormatCookContributorRegistrationError(const FCookContributorRegistrationResult& Result) -> std::string
 	{
-		if (!Class || Registration.Name.empty() || !Registration.Contribute
-			|| Registration.ContributorVersion == 0
-			|| Registration.FamilyProducerVersion == 0) return 0;
+		if (Result) return {};
+		return std::format("Cook contributor registration failed ({}): contributor={}, class={}",
+			static_cast<uint8>(Result.Error), Result.ContributorName, Result.ClassName);
+	}
+
+	auto RegisterCookContributor(DClass* Class, FCookContributorRegistration Registration) -> FCookContributorRegistrationResult
+	{
+		auto Reject = [&](ECookContributorRegistrationError Error) -> FCookContributorRegistrationResult {
+			return {.Error = Error, .ContributorName = Registration.Name,
+				.ClassName = Class ? Class->GetQualifiedName().ToString() : std::string{},
+				.ContributorVersion = Registration.ContributorVersion, .FamilyProducerVersion = Registration.FamilyProducerVersion};
+		};
+		if (!Class) return Reject(ECookContributorRegistrationError::InvalidClass);
+		if (Registration.Name.empty()) return Reject(ECookContributorRegistrationError::Name);
+		if (!Registration.Contribute) return Reject(ECookContributorRegistrationError::Callback);
+		if (Registration.ContributorVersion == 0 || Registration.FamilyProducerVersion == 0)
+			return Reject(ECookContributorRegistrationError::Version);
 		auto Entry = std::make_shared<FRegisteredCookContributor>();
 		Entry->Registration = Registration;
 		std::scoped_lock Lock(GetCookContributorMutex());
 		auto& Contributors = GetCookContributors();
-		if (Contributors.contains(Class)) return 0;
+		if (Contributors.contains(Class)) return Reject(ECookContributorRegistrationError::DuplicateClass);
 
 		const FCookContributorHandle Handle = GetNextCookContributorHandle()++;
 		Entry->Handle = Handle;
 		Contributors.emplace(Class, std::move(Entry));
-		return Handle;
+		return {.Handle = Handle};
 	}
 
 	auto UnregisterCookContributor(FCookContributorHandle Handle) -> void
@@ -228,14 +248,26 @@ namespace Durin
 		}
 	}
 
-	auto ValidateCookOutputRoot(const std::filesystem::path& OutputRoot,
-		std::string& OutError) -> bool
+	auto FormatCookOutputRootError(const FCookOutputRootResult& Result) -> std::string
+	{
+		switch (Result.Error)
+		{
+		case ECookOutputRootError::None: return {};
+		case ECookOutputRootError::AbsolutePath: return "Cook output must be an absolute path.";
+		case ECookOutputRootError::AuthoredOverlap: return "Cook output overlaps an authored input tree: " + Result.RelatedPath.generic_string();
+		case ECookOutputRootError::EntryLimit: return std::format("Cook output tree exceeds its {} entry bound.", Result.MaximumEntries);
+		case ECookOutputRootError::AliasEscape: return "Cook output contains an alias outside its writable tree: " + Result.RelatedPath.generic_string();
+		default: return Result.SystemError.message();
+		}
+	}
+
+	auto ValidateCookOutputRoot(const std::filesystem::path& OutputRoot) -> FCookOutputRootResult
 	{
 		if (OutputRoot.empty() || !OutputRoot.is_absolute())
-			return CookFail("Cook output must be an absolute path.", &OutError);
+			return {.Error = ECookOutputRootError::AbsolutePath, .OutputRoot = OutputRoot};
 		std::error_code Error;
 		const auto Output = std::filesystem::weakly_canonical(OutputRoot, Error);
-		if (Error) return CookFail(Error.message(), &OutError);
+		if (Error) return {.Error = ECookOutputRootError::CanonicalizeOutput, .OutputRoot = OutputRoot, .SystemError = Error};
 		std::vector<std::filesystem::path> Inputs;
 		for (const auto& Mount : FMountPaths::GetRegisteredMountPoints())
 		{
@@ -246,11 +278,11 @@ namespace Durin
 		for (const auto& Input : Inputs)
 		{
 			const auto Source = std::filesystem::weakly_canonical(Input, Error);
-			if (Error) return CookFail(Error.message(), &OutError);
+			if (Error) return {.Error = ECookOutputRootError::CanonicalizeInput, .OutputRoot = OutputRoot, .RelatedPath = Input, .SystemError = Error};
 			std::filesystem::path Relative;
 			if (FPaths::TryMakeLexicalRelativePath(Output, Source, Relative)
 				|| FPaths::TryMakeLexicalRelativePath(Source, Output, Relative))
-				return CookFail(std::format("Cook output overlaps an authored input tree: {}", Source.generic_string()), &OutError);
+				return {.Error = ECookOutputRootError::AuthoredOverlap, .OutputRoot = OutputRoot, .RelatedPath = Source};
 		}
 		// Existing aliases anywhere in the writable tree must not redirect writes
 		// outside that tree, including cache/log paths created before package work.
@@ -258,59 +290,151 @@ namespace Durin
 		{
 			uint64 Entries = 0;
 			std::filesystem::recursive_directory_iterator It(Output, Error), End;
-			if (Error) return CookFail(Error.message(), &OutError);
+			if (Error) return {.Error = ECookOutputRootError::EnumerateTree, .OutputRoot = OutputRoot, .RelatedPath = Output, .SystemError = Error};
 			for (; It != End; It.increment(Error))
 			{
-				if (Error || ++Entries > MaximumCookStateEntries)
-					return CookFail("Cook output tree is unreadable or exceeds its entry bound.", &OutError);
+				if (Error)
+					return {.Error = ECookOutputRootError::EnumerateTree, .OutputRoot = OutputRoot, .SystemError = Error, .Entries = Entries};
+				if (++Entries > MaximumCookStateEntries)
+					return {.Error = ECookOutputRootError::EntryLimit, .OutputRoot = OutputRoot, .Entries = Entries, .MaximumEntries = MaximumCookStateEntries};
 				if (!It->is_symlink(Error))
 				{
-					if (Error) return CookFail(Error.message(), &OutError);
+					if (Error) return {.Error = ECookOutputRootError::InspectEntry, .OutputRoot = OutputRoot, .RelatedPath = It->path(), .SystemError = Error};
 					continue;
 				}
 				const auto Resolved = std::filesystem::weakly_canonical(It->path(), Error);
 				std::filesystem::path Relative;
-				if (Error || !FPaths::TryMakeLexicalRelativePath(Resolved, Output, Relative))
-					return CookFail("Cook output contains an alias outside its writable tree.", &OutError);
+				if (Error)
+					return {.Error = ECookOutputRootError::ResolveAlias, .OutputRoot = OutputRoot, .RelatedPath = It->path(), .SystemError = Error};
+				if (!FPaths::TryMakeLexicalRelativePath(Resolved, Output, Relative))
+					return {.Error = ECookOutputRootError::AliasEscape, .OutputRoot = OutputRoot, .RelatedPath = It->path(), .ResolvedPath = Resolved};
 			}
+			if (Error) return {.Error = ECookOutputRootError::EnumerateTree, .OutputRoot = OutputRoot, .SystemError = Error, .Entries = Entries};
 		}
-		if (Error) return CookFail(Error.message(), &OutError);
-		OutError.clear();
-		return true;
+		if (Error) return {.Error = ECookOutputRootError::InspectTree, .OutputRoot = OutputRoot, .SystemError = Error};
+		return {};
+	}
+
+	auto CookRunCodeName(const FCookRunResult& Result) -> std::string_view
+	{
+		switch (Result.Error)
+		{
+		case ECookRunError::None: return Result.bDryRun ? "dry-run" : "succeeded";
+		case ECookRunError::Unspecified: return "unspecified";
+		case ECookRunError::InvalidRequest: return "invalid-request";
+		case ECookRunError::InvalidOutputRoot: return "invalid-output-root";
+		case ECookRunError::WrongThread: return "wrong-thread";
+		case ECookRunError::CookInUse: return "cook-in-use";
+		case ECookRunError::Cancelled: return "cancelled";
+		case ECookRunError::ProjectSettingsFailed: return "project-settings-failed";
+		case ECookRunError::InvalidDefaultLevel: return "invalid-default-level";
+		case ECookRunError::InputFailed: return "input-failed";
+		case ECookRunError::LoadInjectedFailure: return "load-injected-failure";
+		case ECookRunError::StaleRegistry: return "stale-registry";
+		case ECookRunError::MissingTopLevelAsset: return "missing-top-level-asset";
+		case ECookRunError::FingerprintFailed: return "fingerprint-failed";
+		case ECookRunError::OutputLimit: return "output-limit";
+		case ECookRunError::InvalidTopLevelAsset: return "invalid-top-level-asset";
+		case ECookRunError::PrepareInjectedFailure: return "prepare-injected-failure";
+		case ECookRunError::MissingPackage: return "missing-package";
+		case ECookRunError::ContributionFailed: return "contribution-failed";
+		case ECookRunError::CaptureInjectedFailure: return "capture-injected-failure";
+		case ECookRunError::CaptureFailed: return "capture-failed";
+		case ECookRunError::AuxiliaryInjectedFailure: return "auxiliary-injected-failure";
+		case ECookRunError::ShaderLibraryFailed: return "shader-library-failed";
+		case ECookRunError::PublicationFailed: return "publication-failed";
+		}
+		return "unknown";
+	}
+
+	auto FormatCookCaptureError(const FCookCaptureResult& Result) -> std::string
+	{
+		if (Result) return {};
+		const auto Detail = Result.Error == ECookCaptureError::PlanCount
+			? std::format("Expected {} Cook save plan, got {}.", Result.ExpectedPlans, Result.ActualPlans)
+			: Result.PlanCause ? FormatCookPlanError(*Result.PlanCause) : "Cook plan finalization failed.";
+		return std::format("CookCaptureFailed: package={}, contributor={}: {}",
+			Result.Package.ToString(), Result.Contributor, Detail);
+	}
+
+	auto FormatCookRunError(const FCookRunResult& Result) -> std::string
+	{
+		switch (Result.Error)
+		{
+		case ECookRunError::None: return Result.bDryRun ? "Cook dry-run captured package and auxiliary outputs." : "Cook published a validated manifest-last output generation.";
+		case ECookRunError::Unspecified: return "Cook run has no terminal result.";
+		case ECookRunError::InvalidRequest: return "CookInvalidRequest: target/profile or output root is invalid.";
+		case ECookRunError::InvalidOutputRoot: return Result.OutputRootCause ? FormatCookOutputRootError(*Result.OutputRootCause) : "Cook output root is invalid.";
+		case ECookRunError::WrongThread: return "Cook requires the object owner thread.";
+		case ECookRunError::CookInUse: return "A Cook run is already active.";
+		case ECookRunError::Cancelled:
+			if (Result.PublicationCause) return FormatCookPublishError(*Result.PublicationCause);
+			if (Result.ShaderCause) return FormatShaderError(*Result.ShaderCause);
+			return Result.Stage == ECookOperationStage::Discovery ? "CookCancelledBeforeDiscovery" : "CookCancelledBeforePackagePreparation";
+		case ECookRunError::ProjectSettingsFailed: return Result.SettingsCause ? std::format("CookProjectSettingsFailed: {}", Result.SettingsCause->Message) : "Cook project settings failed.";
+		case ECookRunError::InvalidDefaultLevel: return std::format("CookInvalidDefaultLevel: {}: {}", Result.AssetIdentity, Result.DefaultLevelCause ? FormatObjectError(*Result.DefaultLevelCause) : "Invalid path");
+		case ECookRunError::InputFailed: return Result.InputFailure.Message;
+		case ECookRunError::LoadInjectedFailure:
+		case ECookRunError::PrepareInjectedFailure:
+		case ECookRunError::CaptureInjectedFailure:
+		case ECookRunError::AuxiliaryInjectedFailure: return Result.InjectionCause ? Result.InjectionCause->ExternalDiagnostic : "Cook injected failure.";
+		case ECookRunError::StaleRegistry: return std::format("CookStaleRegistry: {} disappeared from the captured catalog.", Result.CurrentPackage.ToString());
+		case ECookRunError::MissingTopLevelAsset: return std::format("CookMissingTopLevelAsset: {} has no independently addressable asset.", Result.CurrentPackage.ToString());
+		case ECookRunError::FingerprintFailed: return Result.FingerprintCause ? FormatCookDependencyCodecError(*Result.FingerprintCause) : "Cook fingerprint failed.";
+		case ECookRunError::OutputLimit: return std::format("Cook detached output byte limit exceeded: retained={}, package={}, bulk={}, maximum={}.", Result.RetainedOutputBytes, Result.RequestedPackageBytes, Result.RequestedBulkBytes, Result.MaximumOutputBytes);
+		case ECookRunError::InvalidTopLevelAsset: return std::format("CookInvalidTopLevelAsset: {}.", Result.AssetIdentity);
+		case ECookRunError::MissingPackage: return std::format("CookMissingPackage: package={}, contributor={}", Result.CurrentPackage.ToString(), Result.CurrentContributor);
+		case ECookRunError::ContributionFailed: return std::format("CookContributionFailed: package={}, contributor={}, stage=prepare: {}", Result.ContributionPackage.ToString(), Result.ContributionProvider, Result.ContributionCause ? Result.ContributionCause->Message : "Contribution failed");
+		case ECookRunError::CaptureFailed: return Result.CaptureCause ? FormatCookCaptureError(*Result.CaptureCause) : "Cook capture failed.";
+		case ECookRunError::ShaderLibraryFailed: return Result.ShaderCause ? FormatShaderError(*Result.ShaderCause) : "Cook shader library failed.";
+		case ECookRunError::PublicationFailed: return Result.PublicationCause ? FormatCookPublishError(*Result.PublicationCause) : "Cook publication failed.";
+		}
+		return "Unknown Cook failure.";
 	}
 
 	auto FCookCoordinator::Run(const FCookRequest& Request, FCookRunResult& OutResult, ICookOutputStore* OutputStore, FCookFailureInjection ShouldFail) -> bool
 	{
 		const auto Start = std::chrono::steady_clock::now();
 		OutResult = {};
+		OutResult.bDryRun = Request.bDryRun;
+		OutResult.OutputRoot = Request.OutputRoot;
 		OutResult.TargetPlatform = Request.TargetPlatform;
 		OutResult.TargetProfile = Request.TargetProfile;
-		auto Finish = [&](ECookRunStatus Status, std::string Code,
-						  std::string Diagnostic) -> bool {
+		auto Finish = [&](ECookRunStatus Status, ECookRunError Error) -> bool {
 			OutResult.Status = Status;
 			if (Status == ECookRunStatus::Cancelled) OutResult.InputStatus = ECookInputStatus::Cancelled;
-			OutResult.Code = std::move(Code);
-			OutResult.Diagnostic = std::move(Diagnostic);
+			OutResult.Error = Error;
 			OutResult.WallTimeNanoseconds = std::chrono::duration_cast<
 												std::chrono::nanoseconds>(std::chrono::steady_clock::now() - Start)
 												.count();
-			return Status == ECookRunStatus::Succeeded;
+			return static_cast<bool>(OutResult);
+		};
+		auto Injected = [&](ECookOperationStage Stage, size_t Index) -> bool {
+			OutResult.Stage = Stage;
+			std::string ExternalDiagnostic;
+			if (!ShouldFail || !ShouldFail(Stage, Index, ExternalDiagnostic)) return false;
+			if (ExternalDiagnostic.size() > 2048) ExternalDiagnostic.resize(2048);
+			OutResult.InjectionCause = FCookRunInjectionCause{Stage, Index, std::move(ExternalDiagnostic)};
+			return true;
 		};
 		if (Request.TargetPlatform != ECookTargetPlatform::Win64
 			|| Request.TargetProfile != ECookTargetProfile::Game
 			|| (!Request.bDryRun && (Request.OutputRoot.empty() || !Request.OutputRoot.is_absolute())))
-			return Finish(ECookRunStatus::Failed, "invalid-request", "CookInvalidRequest: target/profile or output root is invalid.");
-		std::string OutputError;
-		if (!Request.OutputRoot.empty() && !ValidateCookOutputRoot(Request.OutputRoot, OutputError))
-			return Finish(ECookRunStatus::Failed, "invalid-output-root", OutputError);
+			return Finish(ECookRunStatus::Failed, ECookRunError::InvalidRequest);
+		if (!Request.OutputRoot.empty())
+			if (const auto Validated = ValidateCookOutputRoot(Request.OutputRoot); !Validated)
+			{
+				OutResult.OutputRootCause = std::make_shared<FCookOutputRootResult>(Validated);
+				return Finish(ECookRunStatus::Failed, ECookRunError::InvalidOutputRoot);
+			}
 		if (GIsGameThreadIdInitialized ? !IsInGameThread() : std::this_thread::get_id() != CookBootstrapOwner)
-			return Finish(ECookRunStatus::Failed, "wrong-thread", "Cook requires the object owner thread.");
+			return Finish(ECookRunStatus::Failed, ECookRunError::WrongThread);
 		static std::atomic_flag Running = ATOMIC_FLAG_INIT;
-		if (Running.test_and_set()) return Finish(ECookRunStatus::Failed, "cook-in-use", "A Cook run is already active.");
+		if (Running.test_and_set()) return Finish(ECookRunStatus::Failed, ECookRunError::CookInUse);
 		struct FRunGuard { std::atomic_flag& Flag; ~FRunGuard() { Flag.clear(); } } RunGuard{Running};
 		auto Contributors = CaptureCookContributors();
 		if (IsCancelled(Request.IsCancelled))
-			return Finish(ECookRunStatus::Cancelled, "cancelled", "CookCancelledBeforeDiscovery");
+			return Finish(ECookRunStatus::Cancelled, ECookRunError::Cancelled);
 
 		std::vector<FPackagePath> Roots = Request.ExplicitRoots;
 		if (const FProjectInfo* Project = GetCurrentProject())
@@ -319,15 +443,18 @@ namespace Durin
 			const FProjectGameSettingsResult SettingsResult =
 				FProjectGameSettingsStore::ForProject(*Project).Load(Settings);
 			if (!SettingsResult)
-				return Finish(ECookRunStatus::Failed, "project-settings-failed", std::format("CookProjectSettingsFailed: {}", SettingsResult.Message));
+			{
+				OutResult.SettingsCause = std::make_shared<FProjectGameSettingsResult>(SettingsResult);
+				return Finish(ECookRunStatus::Failed, ECookRunError::ProjectSettingsFailed);
+			}
 			if (!Settings.DefaultLevel.empty())
 			{
 				FPackagePath DefaultLevel;
-				std::string PathError;
 				if (const auto PathValidation = FPackagePath::TryCreate(Settings.DefaultLevel, DefaultLevel); !PathValidation)
 				{
-					PathError = Durin::FormatObjectError(PathValidation.Error);
-					return Finish(ECookRunStatus::Failed, "invalid-default-level", std::format("CookInvalidDefaultLevel: {}: {}", Settings.DefaultLevel, PathError));
+					OutResult.AssetIdentity = Settings.DefaultLevel;
+					OutResult.DefaultLevelCause = std::make_shared<FObjectError>(PathValidation.Error);
+					return Finish(ECookRunStatus::Failed, ECookRunError::InvalidDefaultLevel);
 				}
 				Roots.push_back(std::move(DefaultLevel));
 			}
@@ -385,7 +512,11 @@ namespace Durin
 					|| BulkBytes > MaximumOutputBytes - RetainedOutputBytes - PackageBytes)
 				{
 					OutResult.InputStatus = ECookInputStatus::LimitExceeded;
-					OutResult.InputFailure = {EAssetError::CorruptFile, "Cook detached output byte limit exceeded."};
+					OutResult.InputFailure = {EAssetError::CorruptFile};
+					OutResult.RetainedOutputBytes = RetainedOutputBytes;
+					OutResult.RequestedPackageBytes = PackageBytes;
+					OutResult.RequestedBulkBytes = BulkBytes;
+					OutResult.MaximumOutputBytes = MaximumOutputBytes;
 					return false;
 				}
 				RetainedOutputBytes += PackageBytes + BulkBytes;
@@ -397,7 +528,7 @@ namespace Durin
 				OutResult.InputStatus = Inputs.GetStatus() == ECookInputStatus::None
 					? ECookInputStatus::InvalidDependency : Inputs.GetStatus();
 				return Finish(Inputs.GetStatus() == ECookInputStatus::Cancelled
-					? ECookRunStatus::Cancelled : ECookRunStatus::Failed, "input-failed", Result.Message);
+					? ECookRunStatus::Cancelled : ECookRunStatus::Failed, ECookRunError::InputFailed);
 			};
 			bool bPrepared = false;
 			try
@@ -410,26 +541,31 @@ namespace Durin
 					const auto& Catalog = Inputs.GetRegistry().Catalog;
 					for (size_t Index = 0; Index < Packages.size(); ++Index)
 					{
+						OutResult.Stage = ECookOperationStage::Prepare;
 						if (IsCancelled(Request.IsCancelled))
-							return Finish(ECookRunStatus::Cancelled, "cancelled", "CookCancelledBeforePackagePreparation");
+							return Finish(ECookRunStatus::Cancelled, ECookRunError::Cancelled);
 						const FPackagePath& Path = Packages[Index];
+						OutResult.CurrentPackage = Path;
+						OutResult.Stage = ECookOperationStage::Load;
 						if (Request.ReportProgress) Request.ReportProgress({ECookOperationStage::Load, Path, Index, Packages.size()});
-						if (ShouldFail && ShouldFail(ECookOperationStage::Load, Index, OutResult.Diagnostic))
-							return Finish(ECookRunStatus::Failed, "load-injected-failure", OutResult.Diagnostic);
+						if (Injected(ECookOperationStage::Load, Index))
+							return Finish(ECookRunStatus::Failed, ECookRunError::LoadInjectedFailure);
 						if (auto Result = CheckInputs(); !Result) return InputFailure(Result);
 						const FAssetData* Data = Catalog.FindExact(Path);
-						if (!Data) return Finish(ECookRunStatus::Failed, "stale-registry", std::format("CookStaleRegistry: {} disappeared from the captured catalog.", Path.ToString()));
+						if (!Data) return Finish(ECookRunStatus::Failed, ECookRunError::StaleRegistry);
 						if (Data->TopLevelAssets.empty())
-							return Finish(ECookRunStatus::Failed, "missing-top-level-asset",
-								std::format("CookMissingTopLevelAsset: {} has no independently addressable asset.",
-									Path.ToString()));
+							return Finish(ECookRunStatus::Failed, ECookRunError::MissingTopLevelAsset);
 						const FTopLevelAssetData& CookRoot = Data->TopLevelAssets.front();
 						const auto& Contributor = Inputs.GetContributor(Path);
+						OutResult.CurrentContributor = Contributor.Name;
+						OutResult.AssetIdentity = CookRoot.AssetPath.ToString();
 						const auto& Dependencies = Inputs.GetDependencies(Path);
 						FXxHash128 Fingerprint;
-						std::string Error;
-						if (!FingerprintCookBuildDependencies(Dependencies, Fingerprint, &Error))
-							return Finish(ECookRunStatus::Failed, "fingerprint-failed", Error);
+						if (const auto Fingerprinted = FingerprintCookBuildDependencies(Dependencies, Fingerprint); !Fingerprinted)
+						{
+							OutResult.FingerprintCause = Fingerprinted;
+							return Finish(ECookRunStatus::Failed, ECookRunError::FingerprintFailed);
+						}
 						const auto Prior = PriorEntries.find(Path.ToString());
 						bool bCookHit = Inputs.IsReusable(Path)
 										&& Prior != PriorEntries.end()
@@ -447,19 +583,17 @@ namespace Durin
 						if (bCookHit)
 						{
 							const FCookStateEntry& Hit = *Prior->second;
-							if (!RetainOutput(Hit.PackageSize, Hit.SegmentSize)) return Finish(ECookRunStatus::Failed, "output-limit", OutResult.InputFailure.Message);
+							if (!RetainOutput(Hit.PackageSize, Hit.SegmentSize)) return Finish(ECookRunStatus::Failed, ECookRunError::OutputLimit);
 							Plans.push_back(std::move(CachedPlan));
 							NewState.Entries.push_back(Hit);
 							OutResult.ReusedBytes += Hit.PackageSize + Hit.SegmentSize;
-							OutResult.Packages.push_back({{}, Path, Hit.Contributor, "cook-hit", "Validated unchanged Cook outputs.", ECookPackageStatus::CookHit, ECookOperationStage::Capture, Hit.PackageSize, Hit.SegmentSize});
+							OutResult.Packages.push_back({{}, Path, Hit.Contributor, ECookPackageStatus::CookHit, ECookOperationStage::Capture, Hit.PackageSize, Hit.SegmentSize});
 							continue;
 						}
 
 						FObjectPath CookRootPath;
 						if (!MakeTopLevelObjectPath(CookRoot.AssetPath, CookRootPath))
-							return Finish(ECookRunStatus::Failed, "invalid-top-level-asset",
-								std::format("CookInvalidTopLevelAsset: {}.",
-									CookRoot.AssetPath.ToString()));
+							return Finish(ECookRunStatus::Failed, ECookRunError::InvalidTopLevelAsset);
 						DObject* Asset = nullptr;
 						const FAssetResult LoadResult = LoadScope.LoadObject(CookRootPath, Asset);
 						if (!LoadResult || !Asset) return InputFailure(LoadResult);
@@ -468,22 +602,34 @@ namespace Durin
 							return Inputs.ReadInput(Path, Kind, Name, Bytes);
 						});
 
-						if (ShouldFail && ShouldFail(ECookOperationStage::Prepare, Index, Error))
-							return Finish(ECookRunStatus::Failed, "prepare-injected-failure", Error);
+						if (Injected(ECookOperationStage::Prepare, Index))
+							return Finish(ECookRunStatus::Failed, ECookRunError::PrepareInjectedFailure);
 						DPackage* AuthoredPackage = Asset->GetPackage();
 						if (!AuthoredPackage)
-							return Finish(ECookRunStatus::Failed, "missing-package", std::format("CookMissingPackage: package={}, contributor={}", Path.ToString(), Contributor.Name));
+							return Finish(ECookRunStatus::Failed, ECookRunError::MissingPackage);
 						const FAssetResult Contribution = Contributor.Contribute(
 							*Asset, Path.GetView(), Context
 						);
 						if (auto Result = CheckInputs(); !Result) return InputFailure(Result);
 						if (!Contribution)
-							return Finish(ECookRunStatus::Failed, "contribution-failed", std::format("CookContributionFailed: package={}, contributor={}, stage=prepare: {}", Path.ToString(), Contributor.Name, Contribution.Message));
-						if (ShouldFail && ShouldFail(ECookOperationStage::Capture, Index, Error))
-							return Finish(ECookRunStatus::Failed, "capture-injected-failure", Error);
+						{
+							OutResult.ContributionCause = std::make_shared<FAssetResult>(Contribution);
+							OutResult.ContributionPackage = Path;
+							OutResult.ContributionProvider = Contributor.Name;
+							return Finish(ECookRunStatus::Failed, ECookRunError::ContributionFailed);
+						}
+						if (Injected(ECookOperationStage::Capture, Index))
+							return Finish(ECookRunStatus::Failed, ECookRunError::CaptureInjectedFailure);
 						std::vector<FCookSavePlan> PackagePlans;
-						if (!Context.TakeSavePlans(PackagePlans, &Error) || PackagePlans.size() != 1)
-							return Finish(ECookRunStatus::Failed, "capture-failed", std::format("CookCaptureFailed: package={}, contributor={}: {}", Path.ToString(), Contributor.Name, Error));
+						const auto Captured = Context.TakeSavePlans(PackagePlans);
+						if (!Captured || PackagePlans.size() != 1)
+						{
+							FCookCaptureResult Failure{.Error = Captured ? ECookCaptureError::PlanCount : ECookCaptureError::Finalization,
+								.Package = Path, .Contributor = Contributor.Name, .ActualPlans = PackagePlans.size()};
+							if (!Captured) Failure.PlanCause = Captured.Error;
+							OutResult.CaptureCause = std::make_shared<FCookCaptureResult>(std::move(Failure));
+							return Finish(ECookRunStatus::Failed, ECookRunError::CaptureFailed);
+						}
 						FCookSavePlan Plan = std::move(PackagePlans.front());
 						Plan.InputFingerprint = Fingerprint;
 						Plan.Contributor = Contributor.Name;
@@ -492,24 +638,26 @@ namespace Durin
 						const ECookPackageStatus PreparationStatus =
 							Contributor.ClassifyPreparation ? Contributor.ClassifyPreparation(*Asset) : ECookPackageStatus::Captured;
 						Plan.BuildProvenance = CookPackageStatusName(PreparationStatus);
-						if (!RetainOutput(Plan.PackageFileSize, Plan.SegmentFileSize)) return Finish(ECookRunStatus::Failed, "output-limit", OutResult.InputFailure.Message);
+						if (!RetainOutput(Plan.PackageFileSize, Plan.SegmentFileSize)) return Finish(ECookRunStatus::Failed, ECookRunError::OutputLimit);
 						OutResult.ChangedBytes += Plan.PackageFileSize + Plan.SegmentFileSize;
 						NewState.Entries.push_back(MakeCookStateEntry(Plan));
-						OutResult.Packages.push_back({{}, Path, Plan.Contributor, std::string(CookPackageStatusName(PreparationStatus)), "Captured deterministic package save plan.", PreparationStatus, ECookOperationStage::Capture, Plan.PackageFileSize, Plan.SegmentFileSize});
+						OutResult.Packages.push_back({{}, Path, Plan.Contributor, PreparationStatus, ECookOperationStage::Capture, Plan.PackageFileSize, Plan.SegmentFileSize});
 						NewState.Entries.back().BuildDependencies = Dependencies;
 						if (auto Result = CheckInputs(); !Result) return InputFailure(Result);
 						Plans.push_back(std::move(Plan));
 					}
 					if (Request.ReportProgress) Request.ReportProgress({ECookOperationStage::StageAuxiliary, {}, Packages.size(), Packages.size()});
-					std::string Error;
-					if (ShouldFail && ShouldFail(ECookOperationStage::StageAuxiliary, 0, Error))
-						return Finish(ECookRunStatus::Failed, "auxiliary-injected-failure", Error);
+					if (Injected(ECookOperationStage::StageAuxiliary, 0))
+						return Finish(ECookRunStatus::Failed, ECookRunError::AuxiliaryInjectedFailure);
 					FByteBuffer ShaderBytes;
 					if (const auto ShaderResult = BuildCookedShaderLibrary(EShaderTargetPlatform::Win64, EShaderTargetProfile::Game, ShaderBytes, Request.IsCancelled); !ShaderResult)
+					{
+						OutResult.ShaderCause = std::make_shared<FShaderError>(ShaderResult.Error);
 						return IsCancelled(Request.IsCancelled)
-							? Finish(ECookRunStatus::Cancelled, "cancelled", FormatShaderError(ShaderResult.Error))
-							: Finish(ECookRunStatus::Failed, "shader-library-failed", FormatShaderError(ShaderResult.Error));
-					if (!RetainOutput(ShaderBytes.size(), 0)) return Finish(ECookRunStatus::Failed, "output-limit", OutResult.InputFailure.Message);
+							? Finish(ECookRunStatus::Cancelled, ECookRunError::Cancelled)
+							: Finish(ECookRunStatus::Failed, ECookRunError::ShaderLibraryFailed);
+					}
+					if (!RetainOutput(ShaderBytes.size(), 0)) return Finish(ECookRunStatus::Failed, ECookRunError::OutputLimit);
 					AuxiliaryOutputs.push_back({ECookManifestEntryKind::ShaderLibrary,
 						std::string(ShaderCookedLibraryRelativePath), std::move(ShaderBytes)});
 					AuxiliaryOutputs.back().Digest = FXxHash128::HashBuffer(AuxiliaryOutputs.back().Bytes);
@@ -528,7 +676,7 @@ namespace Durin
 		Contributors.clear();
 		std::ranges::sort(Plans, {}, &FCookSavePlan::VirtualPath);
 		std::ranges::sort(NewState.Entries, {}, &FCookStateEntry::VirtualPackagePath);
-		if (Request.bDryRun) return Finish(ECookRunStatus::Succeeded, "dry-run", "Cook dry-run captured package and auxiliary outputs.");
+		if (Request.bDryRun) return Finish(ECookRunStatus::Succeeded, ECookRunError::None);
 		std::unique_ptr<ICookOutputStore> OwnedStore;
 		if (!OutputStore)
 		{
@@ -539,12 +687,11 @@ namespace Durin
 			Plans, AuxiliaryOutputs, NewState, OutResult, Request.IsCancelled, ShouldFail);
 		if (!PublishResult)
 		{
+			OutResult.PublicationCause = std::make_shared<FCookPublishResult>(PublishResult);
 			if (PublishResult.Status == ECookPublishStatus::Cancelled)
-				return Finish(ECookRunStatus::Cancelled, "cancelled",
-					std::move(PublishResult.Diagnostic));
-			return Finish(ECookRunStatus::Failed, "publication-failed",
-				std::move(PublishResult.Diagnostic));
+				return Finish(ECookRunStatus::Cancelled, ECookRunError::Cancelled);
+			return Finish(ECookRunStatus::Failed, ECookRunError::PublicationFailed);
 		}
-		return Finish(ECookRunStatus::Succeeded, "succeeded", "Cook published a validated manifest-last output generation.");
+		return Finish(ECookRunStatus::Succeeded, ECookRunError::None);
 	}
 } // namespace Durin

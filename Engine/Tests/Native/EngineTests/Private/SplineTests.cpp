@@ -325,7 +325,7 @@ TEST(FSplineComponentTests, DuplicateObjectPreservesIdsAndPublishesSnapshot)
 	Source->SetSplinePoints({First, Second});
 	Source->SetClosedLoop(true);
 
-	auto* Duplicate = Durin::DuplicateObject(Source, nullptr, "DuplicateSpline");
+	auto* Duplicate = Durin::DuplicateObject(Source, nullptr, "DuplicateSpline").Object;
 	ASSERT_NE(Duplicate, nullptr);
 	EXPECT_EQ(Duplicate->GetSplinePoints(), Source->GetSplinePoints());
 	EXPECT_TRUE(Duplicate->IsClosedLoop());

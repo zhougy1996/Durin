@@ -132,7 +132,23 @@ TEST(WorldOutlinerActorAttachmentTests, SelectedTransformRulesProduceReversibleR
 	FTransform CombinedTransform = FTransform::Combine(ParentTransform, ChildTransform);
 	ExpectTransformNear(Child->GetActorTransform(), CombinedTransform);
 
+	ASSERT_TRUE(Child->DetachFromActor(EDetachmentTransformRule::KeepWorld));
+	const auto Rejected = Transactions->Undo();
+	ASSERT_FALSE(Rejected);
+	ASSERT_TRUE(Rejected.ApplyCause);
+	ASSERT_TRUE(Rejected.ApplyCause->Error.RecordCause.CustomCause);
+	const auto& Cause = *Rejected.ApplyCause->Error.RecordCause.CustomCause;
+	EXPECT_EQ(Cause.Code, ETransactionCustomError::ParentMismatch);
+	EXPECT_EQ(Cause.TargetPath, Child->GetObjectPath());
+	EXPECT_EQ(Cause.ExpectedParentPath, Parent->GetObjectPath());
+	EXPECT_TRUE(Cause.ActualParentPath.empty());
+	EXPECT_EQ(Cause.MemberIndex, 0u);
+	EXPECT_EQ(Child->GetAttachParentActor(), nullptr);
+	ExpectTransformNear(Child->GetActorTransform(), CombinedTransform);
+	EXPECT_TRUE(Transactions->CanUndo());
+	ASSERT_TRUE(Child->AttachToActor(Parent, EAttachmentTransformRule::KeepWorld));
 	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(Cause.ExpectedParentPath, Parent->GetObjectPath());
 	EXPECT_EQ(Child->GetAttachParentActor(), nullptr);
 	ExpectTransformNear(Child->GetActorTransform(), ChildTransform);
 

@@ -44,7 +44,7 @@ namespace
 			Registration = Aggregate.RegisterCompiler({
 				.Name = Durin::FName("Durin.StaticMesh"),
 				.AssetClasses = {Durin::DStaticMesh::StaticClass()},
-				.Manager = Durin::AssetPrivate::CreateStaticMeshCompilingManager()});
+				.Manager = Durin::AssetPrivate::CreateStaticMeshCompilingManager()}).Handle;
 		}
 	private:
 		Durin::FAssetCompilerRegistrationHandle Registration;

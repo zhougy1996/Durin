@@ -364,6 +364,55 @@ and optimistic editing-session revisions retain their separate existing roles.
 
 ## Compact input and texture authoring
 
+Constant and swizzle value commands preserve `DocumentCause`, including the node,
+requested value type, component count and first invalid component index/value.
+Non-finite constants also retain their expression diagnostic. Rejected writes
+leave authored state and history unchanged; the presentation formatter renders
+these typed causes.
+Connection commands also retain typed `DocumentCause` for invalid source/target
+kinds and keys, missing nodes/ports/outputs and occupied inputs. These causes own
+both complete pin addresses; occupied-input rejection additionally retains the
+previous binding. Rejected connections preserve authored state and history.
+Expression insertion/replacement/removal and function-interface commands preserve
+`DocumentCause` for local validation failures. Context includes expression or port
+identity, selection count/limit, function path and invalid default width as applicable.
+Function dependency and binding failures retain the original typed diagnostics;
+stale document owners use `SessionCause` consistently.
+Catalog creation errors own the requested opcode, result type, expression class
+name and accepted-input shape, plus the source address and count/limit where
+applicable. Missing numeric defaults retain the first failed input index.
+Mutating the detached catalog request after rejection cannot change this evidence.
+Creation dispatch retains action identity, source address/type and function path.
+Function loading preserves either the owned path parsing cause or the complete
+asset result. With a connected source, loading failures reach the same boundary
+instead of being reduced to compatibility failure by the availability predicate.
+`CanCreate` remains a UI availability predicate; command execution retains causes.
+The material operations facade preserves typed parameter-owner and numeric
+promotion failures. Surface and connection rejections retain their requested
+surface output, endpoint addresses or occupied binding through `DocumentCause`.
+Both document and facade commands preserve typed causes in the outer result.
+Function preview rejections retain output/input port identity, function path and
+unsupported input type through `DocumentCause`; dependency failures also preserve
+the original diagnostics. Input types are bounded before indexing preview caches.
+Missing output rejection precedes any preview edits. Static-property application
+returns `FMaterialOperationResult`, preserving validation before mutation. Preview
+retains this cause in `DocumentCause.MaterialCause`; editing-session setup formats
+the cause at its UI boundary. Preview still applies properties after graph commit.
+Canvas input availability and presentation admission failures now retain typed
+causes. `FormatMaterialGraphCommandResult` formats the owned cause, first material
+diagnostic and failed cleanup result at presentation time; `ReportCommand` uses
+this boundary instead of stored command text. `FMaterialGraphCommandResult` has
+no `Message` field; UI and test diagnostics format only at their display boundary.
+
+Inline input-default editing, extraction and inlining preserve `InputCause` for
+address resolution, unsupported defaults, numeric kind/width, unavailable constants
+and missing authored positions. Address resolution distinguishes missing nodes,
+invalid output/function addresses and missing/non-numeric ports. Causes own node,
+port, input index, source, type and width context where applicable. Failed edits
+retain unfinished-session rollback and history behavior; formatting belongs to the
+presentation boundary.
+
+
 Advanced pins are hidden initially. For inputs, the toggle hides only optional
 unconnected inputs with no retained binding. Connected or explicitly bound inputs remain visible; row filtering never
 changes stable input indices or function port GUIDs. Material instances retain their
@@ -432,6 +481,68 @@ independent GUIDs, positions and connections; the derived instance list has one
 entry per parameter. Default and metadata edits synchronize all references in one
 transaction. Texture references retain their local sampling inputs.
 
+Parameter expression resolution returns `FMaterialGraphParameterResult`, deriving
+success from its error code. Rejections own the requested node/parameter IDs,
+name, peer node ID and both types; invalid definitions retain the Engine parameter
+validation result. Shared/name type conflicts also retain the Engine definition
+write result in `MaterialCause`. The outer command preserves this as `ParameterCause` across
+rollback and retry.
+`FormatMaterialGraphParameterError` supplies presentation text when requested. Parameter-expression creation also returns a typed result with a separate owned
+expression output. It distinguishes input definition validation, normalized
+conversion validation and unsupported types, retaining original identity/name/type
+and the underlying validation result. Commands preserve the cause and widgets
+format explicitly. Graph command success derives from typed causes, including a
+failed cleanup result. `Disposition` retains only applied/no-change information;
+`GetStatus()` computes rejected/stale-owner or the successful disposition without
+storing a separate success flag. Synchronous custom history results remain pending
+migration.
+
+Edit-session commit failures retain `SessionCause`: storage/dependency validation
+stays classified alongside its existing typed diagnostics, snapshot capture owns
+the first `FTransactionSnapshotError`, and history admission owns the complete
+`FTransactorResult`. After-capture preserves member-resolution failures and the
+original target identity. Failed history admission still restores the session's
+original graph without publishing revisions; a subsequent valid commit can be
+undone while the earlier failure remains inspectable. Formatting occurs in the
+presentation boundary through `FormatMaterialGraphSessionError`.
+
+Same-class assignment returns `FMaterialGraphSessionResult` with success derived
+from its error. Class mismatches own both node IDs and class names; property copy
+failures retain the first Core value-copy cause with member and array index.
+Replacement commands preserve this error in `SessionCause`. Assignment retains
+its existing traversal and scope rollback behavior, including a valid retry after
+an incompatible source was rejected.
+
+Parameter gestures and position commits also preserve rejected history admission
+as `SessionCause.TransactorCause`. A failed parameter gesture commit keeps its
+preview and session active, so cancellation can restore the original value or a
+later commit can retry; it does not assert or mark the package dirty. A failed
+move commit keeps its draft without publishing positions. Both retain the original
+history error independently of subsequent retries.
+
+Direct parameter commands use the same parameter session. Unlike an interactive
+gesture, a direct command cancels a rejected preview immediately and retains its
+cleanup result separately in `CleanupCause`, preserving the primary admission
+failure. Success still reports affected node IDs and produces one undo entry.
+The failed preview and its restoration use package-dirty suppression; graph
+observers can see the preview and restoration publications.
+
+Parameter session lifecycle failures use `SessionCause` codes for active/inactive
+sessions, expired owners, missing definitions, rejected values and failed restores.
+They retain the requested and active parameter IDs and requested/existing value
+types where relevant. A failed Apply leaves the session available for retry;
+Cancel retains its previous terminal-state behavior even if restoration fails.
+Base-material parameter mutation now supplies its underlying `FMaterialError` as
+`MaterialCause`, including definition validation and missing/mismatched owners.
+Instance mutation and name-based setters also return typed Engine errors.
+Synchronous custom transactions remain an unmigrated boundary.
+
+Move-session failures also use `SessionCause`, retaining selection/preview counts
+and bounds, conflicting node identity, requested coordinates and limits, or the
+expected/actual semantic revisions. Rejected previews preserve the previous draft;
+semantic revision changes still cancel the gesture. Expired-owner results retain
+the existing `StaleOwner` disposition and now include an explicit error code.
+
 The selected node's Parameter name field rebinds only that node, creating a fresh
 parameter GUID if the name is unused. Rename shared parameter changes all references
 without changing the parameter GUID or instance overrides; occupied names reject.
@@ -475,6 +586,22 @@ recent-entry ordering changes. Search text and source output type remain explici
 query keys. Each canvas owns its results and clears invalidation after rebuilding.
 
 ## Clipboard and layout
+
+Clipboard failures retain `ClipboardCause` for copy selection, schema/bounds,
+node/port identity, relative/absolute coordinates, shared definitions and external
+references. Parameter validation remains nested and external-link failures retain
+the first missing source plus its original clipboard node identity. Formatting
+occurs in the presentation boundary. Copy retains its prior output-clear
+and partial-duplication behavior; paste failures restore the unfinished edit scope,
+add no history entry, and preserve causes across a repaired retry.
+
+
+Direct move and layout validation retain `LayoutCause` with typed failure codes,
+node identity, requested/unique counts, bounds, coordinates or collision attempt
+counts. `FormatMaterialGraphLayoutError` renders causes at presentation time. Failed moves do not publish positions; failed layout calculations retain
+the existing output contract (the current authored presentation after valid-owner
+resolution). Successful calculation remains detached from live authored positions.
+
 
 The shared graph clipboard releases its retained expression objects before editor
 module shutdown.

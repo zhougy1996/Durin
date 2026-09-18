@@ -5,6 +5,7 @@
 #include "Graph/MaterialGraphCanvas.h"
 #include "MaterialGraphDocument.h"
 #include "MaterialGraphEditSession.h"
+#include "MaterialGraphEditInternals.h"
 
 #include "Editor/Transaction.h"
 #include "MonaImGui.h"
@@ -841,7 +842,8 @@ namespace Durin::Editor::Material
 		const auto ConnectPin = [&](const FGuid& NodeId, uint32 PinIndex, FMaterialProgramLink Source, bool bReplace) {
 			const auto Node = std::ranges::find(View.Nodes, NodeId, [](const auto& Item) { return Item.Node.Id; });
 			if (Node == View.Nodes.end() || PinIndex >= Node->Inputs.size())
-				return FMaterialGraphCommandResult{.Message = "The graph input is unavailable."};
+				return GraphEditInternals::RejectDocument({.Code = EMaterialGraphDocumentError::CanvasInput,
+					.NodeId = NodeId, .Count = PinIndex, .Limit = Node == View.Nodes.end() ? 0 : Node->Inputs.size()});
 			const auto& Pin = Node->Inputs[PinIndex];
 			FMaterialGraphDocument Document(Owner);
 			return Document.Connect(Node->InputAddress(Pin),

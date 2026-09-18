@@ -283,7 +283,7 @@ namespace Durin::Editor::Material
 							.State = ::Durin::Editor::EThumbnailRendererSessionState::Failed,
 							.AssetRevision = AssetRevision,
 							.ResourceRevision = SphereStatus.Revision,
-							.Diagnostic = LoadResult.Message};
+							.Diagnostic = FormatCookedMeshLoadError(LoadResult.Error)};
 					Sphere->InitResources();
 					SphereStatus = Sphere->GetRenderResourceStatus();
 				}
@@ -464,10 +464,10 @@ namespace Durin::Editor::Material
 			CaptureAssetDependencyClosure(Request.Asset.PackagePath);
 		if (!Closure)
 		{
-			OutError = Closure.Result.Message.empty()
+			OutError = FormatAssetRegistryError(Closure.Result).empty()
 				? std::format("Material thumbnail registry data is missing for {}.",
 					Request.Asset.AssetPath.ToString())
-				: Closure.Result.Message;
+				: FormatAssetRegistryError(Closure.Result);
 			return false;
 		}
 		const auto RootIt = std::ranges::find_if(

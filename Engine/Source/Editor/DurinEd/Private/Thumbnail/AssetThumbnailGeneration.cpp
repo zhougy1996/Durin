@@ -116,7 +116,7 @@ namespace Durin::Editor
 							Image::FDecodedImage Decoded;
 							std::string Error;
 							const uint64 PixelCount = static_cast<uint64>(Output.Width) * Output.Height;
-							if (Image::DecodeImageFromMemory(Encoded, Decoded, Error,
+							if (Image::DecodeImageFromMemory(Encoded, Decoded,
 									{.MaximumEncodedBytes = Encoded.size(), .MaximumDecodedPixels = PixelCount})
 								&& Decoded.Width == Output.Width && Decoded.Height == Output.Height
 								&& Decoded.Pixels.size() == PixelCount * 4)

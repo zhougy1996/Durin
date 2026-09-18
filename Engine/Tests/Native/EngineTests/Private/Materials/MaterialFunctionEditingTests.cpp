@@ -13,7 +13,7 @@ TEST(FMaterialFunctionEditingTests, DuplicateUsesDocumentOffsetsAndRejectsOutOfR
 	ASSERT_TRUE(Created);
 	const auto Before = Function->GetFunctionPresentation();
 	const auto Duplicated = Graph.DuplicateNodes(Created.GeneratedNodeIds, -40, 60, Transactions.Get());
-	ASSERT_TRUE(Duplicated) << Duplicated.Message;
+	ASSERT_TRUE(Duplicated) << ::Durin::Editor::Material::FormatMaterialGraphCommandResult(Duplicated);
 	ASSERT_EQ(Duplicated.GeneratedNodeIds.size(), 1u);
 	const auto After = Function->GetFunctionPresentation();
 	const auto Position = std::ranges::find(After.Nodes, Duplicated.GeneratedNodeIds.front(), &FMaterialGraphNodePresentation::NodeId);
@@ -66,7 +66,7 @@ TEST(FMaterialFunctionEditingTests, PasteRejectsRecursiveDependenciesWithoutPubl
 	for (const auto* Payload : {&DirectPayload, &IndirectPayload})
 	{
 		const auto Rejected = Graph.Paste(*Payload, 100, 200, Transactions.Get());
-		EXPECT_EQ(Rejected.Status, EMaterialGraphCommandStatus::Rejected);
+		EXPECT_EQ(Rejected.GetStatus(), EMaterialGraphCommandStatus::Rejected);
 		EXPECT_EQ(Function->GetExpressionCollection().Expressions, Expressions);
 		EXPECT_EQ(Function->GetFunctionPresentation(), Presentation);
 		EXPECT_EQ(Function->GetFunctionSignature(), Signature);
@@ -98,7 +98,7 @@ TEST(FMaterialFunctionEditingTests, UnfinishedCallsRemainEditableAndCompileAfter
 	ASSERT_TRUE(Transactions.Get()->Undo());
 	ASSERT_TRUE(Transactions.Get()->Redo());
 	const auto Call = Nested.InsertFunctionCall(*Function, 30, 40, Transactions.Get());
-	ASSERT_TRUE(Call) << Call.Message;
+	ASSERT_TRUE(Call) << ::Durin::Editor::Material::FormatMaterialGraphCommandResult(Call);
 	ASSERT_TRUE(Transactions.Get()->Undo());
 	EXPECT_TRUE(GetFunctionCalls(*Wrapper).empty());
 	ASSERT_TRUE(Transactions.Get()->Redo());
@@ -109,7 +109,7 @@ TEST(FMaterialFunctionEditingTests, UnfinishedCallsRemainEditableAndCompileAfter
 	FMaterialGraphClipboardPayload Clipboard;
 	ASSERT_TRUE(Nested.CopySelection(Call.GeneratedNodeIds, Clipboard));
 	const auto Pasted = Nested.Paste(Clipboard, 60, 80);
-	ASSERT_TRUE(Pasted) << Pasted.Message;
+	ASSERT_TRUE(Pasted) << ::Durin::Editor::Material::FormatMaterialGraphCommandResult(Pasted);
 	ASSERT_TRUE(Nested.RemoveNodes(Pasted.GeneratedNodeIds));
 	const std::array<DMaterialFunctionInterface*, 1> Roots{Wrapper.Get()};
 	std::vector<FMaterialFunctionOwnerStamp> Closure;
@@ -297,7 +297,7 @@ TEST(FMaterialFunctionEditingTests, TerminalPortIsTheOnlyAuthoredInterfaceAndUnd
 	});
 	const auto Result = Document.SetPort(false, Edited, Transactions.Get());
 	Function->GetGraphChanges().Unsubscribe(Handle);
-	ASSERT_TRUE(Result) << Result.Message;
+	ASSERT_TRUE(Result) << ::Durin::Editor::Material::FormatMaterialGraphCommandResult(Result);
 	ASSERT_EQ(Events.size(), 1u);
 	ASSERT_EQ(Events[0].Nodes.size(), 1u);
 	EXPECT_EQ(Events[0].Flags, EMaterialGraphChange::None);

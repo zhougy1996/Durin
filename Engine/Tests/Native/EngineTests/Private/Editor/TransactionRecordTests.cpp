@@ -266,22 +266,24 @@ namespace
 		{
 			return Details;
 		}
-		auto Undo() -> bool override
+		auto Replay(Durin::Editor::ETransactionOperation Operation) -> Durin::Editor::FTransactionCustomResult override
 		{
-			if (bFailUndo) { Details = "Injected custom Undo failure."; return false; }
-			if (bDeferUndo) { bPending = true; return true; }
-			Value = Before;
-			return true;
-		}
-		auto Redo() -> bool override
-		{
-			if (bFailRedo)
+			if (Operation == Durin::Editor::ETransactionOperation::Undo)
 			{
-				Details = "Injected custom Redo failure.";
-				return false;
+				if (bFailUndo) { return {{.Code = Durin::Editor::ETransactionCustomError::InjectedMutation}}; }
+				if (bDeferUndo) { bPending = true; return {}; }
+				Value = Before;
+				return {};
 			}
-			Value = After;
-			return true;
+			else
+			{
+				if (bFailRedo)
+				{
+					return {{.Code = Durin::Editor::ETransactionCustomError::InjectedMutation}};
+				}
+				Value = After;
+				return {};
+			}
 		}
 		auto IsDeferredOperationPending() const -> bool override { return bPending; }
 		auto SetDeferredOperationCompletion(
@@ -300,13 +302,13 @@ namespace
 		}
 		auto GetOwningModule() const -> std::string_view override { return Module; }
 
-		auto CompleteUndo(bool bSucceeded) -> void
+		auto CompleteUndo(Durin::Editor::FTransactionCompletionResult Result) -> void
 		{
 			if (!bPending) return;
 			bPending = false;
-			if (bSucceeded) Value = Before;
+			if (Result) Value = Before;
 			auto Callback = Completion;
-			if (Callback) Callback(bSucceeded);
+			if (Callback) Callback(std::move(Result));
 		}
 
 		int& Value;
@@ -331,17 +333,20 @@ namespace
 			: Owner(InOwner), Child(InChild), HistoryOuter(InHistoryOuter) {}
 
 		auto GetDescription() const -> std::string_view override { return "Detach owned child"; }
-		auto Undo() -> bool override
+		auto Replay(Durin::Editor::ETransactionOperation Operation) -> Durin::Editor::FTransactionCustomResult override
 		{
-			Child->SetOuterPrivate(Owner);
-			Owner->Hard = Child;
-			return true;
-		}
-		auto Redo() -> bool override
-		{
-			Owner->Hard = nullptr;
-			Child->SetOuterPrivate(HistoryOuter);
-			return true;
+			if (Operation == Durin::Editor::ETransactionOperation::Undo)
+			{
+				Child->SetOuterPrivate(Owner);
+				Owner->Hard = Child;
+				return {};
+			}
+			else
+			{
+				Owner->Hard = nullptr;
+				Child->SetOuterPrivate(HistoryOuter);
+				return {};
+			}
 		}
 		auto AddReferencedObjects(Durin::FReferenceCollector& Collector) const -> void override
 		{
@@ -388,9 +393,9 @@ namespace
 		std::string_view Name) -> Durin::Editor::FFocusedTransactionObjectSnapshot
 	{
 		Durin::Editor::FFocusedTransactionObjectSnapshot Snapshot;
-		std::string Error;
-		EXPECT_TRUE(Durin::Editor::FFocusedTransactionObjectSnapshot::Capture(
-			Target, Property(Name), 0, Snapshot, &Error)) << Error;
+		const auto Result = Durin::Editor::FFocusedTransactionObjectSnapshot::Capture(
+			Target, Property(Name), 0, Snapshot);
+		EXPECT_TRUE(Result) << Durin::Editor::FormatTransactionSnapshotError(Result.Error);
 		return Snapshot;
 	}
 }
@@ -503,8 +508,8 @@ TEST(FFocusedTransactionObjectSnapshotTests, RestoresSupportedValuesIntoDetached
 		std::array{std::pair{&BeforeRecord, 47}, std::pair{&AfterRecord, 91}})
 	{
 		Durin::FReflectedValueStorage Storage;
-		std::string Error;
-		ASSERT_TRUE(SnapshotRecord->RestoreDetached(Storage, &Error)) << Error;
+		const auto Result = SnapshotRecord->RestoreDetached(Storage);
+		ASSERT_TRUE(Result) << Durin::Editor::FormatTransactionSnapshotError(Result.Error);
 		EXPECT_EQ(*static_cast<int32*>(Storage.GetValue()), Expected);
 	}
 	Target->Value = 47;
@@ -513,8 +518,8 @@ TEST(FFocusedTransactionObjectSnapshotTests, RestoresSupportedValuesIntoDetached
 	{
 		const auto Record = CaptureSnapshot(Target, Name);
 		Durin::FReflectedValueStorage Storage;
-		std::string Error;
-		ASSERT_TRUE(Record.RestoreDetached(Storage, &Error)) << Name << ": " << Error;
+		const auto Result = Record.RestoreDetached(Storage);
+		ASSERT_TRUE(Result) << Name << ": " << Durin::Editor::FormatTransactionSnapshotError(Result.Error);
 		ASSERT_EQ(Storage.GetProperty(), Property(Name));
 		if (Name == "Value") EXPECT_EQ(*static_cast<int32*>(Storage.GetValue()), 47);
 		if (Name == "Hard")
@@ -537,9 +542,45 @@ TEST(FFocusedTransactionObjectSnapshotTests, RestoresSupportedValuesIntoDetached
 	Durin::MarkAsGarbage(Target);
 	Durin::CollectGarbage();
 	Durin::FReflectedValueStorage Storage;
-	std::string Error;
-	EXPECT_FALSE(StaleRecord.RestoreDetached(Storage, &Error));
-	EXPECT_FALSE(Error.empty());
+	const auto Stale = StaleRecord.RestoreDetached(Storage);
+	EXPECT_FALSE(Stale);
+	EXPECT_EQ(Stale.Error.Code, Durin::Editor::ETransactionSnapshotError::InvalidTarget);
+	EXPECT_EQ(Stale.Error.Owner, StaleRecord.GetTarget().GetKey());
+	EXPECT_EQ(Stale.Error.Member, "Value");
+}
+
+TEST(FFocusedTransactionObjectSnapshotTests, TypedCaptureFailuresPreserveOutputsAndAllowRetry)
+{
+	using namespace Durin;
+	using namespace Durin::Editor;
+	InitializeDObjectSystem();
+	auto* Target = NewObject<DTransactionRecordParticipant>(nullptr, "TypedSnapshotTarget");
+	TStrongObjectPtr<DObject> Root(Target);
+	Target->Value = 37;
+	auto Snapshot = CaptureSnapshot(Target, "Value");
+	const auto Before = Snapshot.GetPayload();
+	FTransactionMemberLocator Locator;
+	ASSERT_TRUE(FTransactionMemberLocator::Capture(Property("Value"), 0, Locator));
+	const auto Null = FTransactionMemberLocator::Capture(nullptr, 0, Locator);
+	EXPECT_EQ(Null.Error.Code, ETransactionSnapshotError::NullMember);
+	EXPECT_EQ(Locator.GetMemberName(), FName("Value"));
+	const auto Bounds = FFocusedTransactionObjectSnapshot::Capture(
+		Target, Property("Value"), Property("Value")->GetArrayDim(), Snapshot);
+	EXPECT_EQ(Bounds.Error.Code, ETransactionSnapshotError::ArrayIndex);
+	EXPECT_EQ(Bounds.Error.ArrayIndex, Property("Value")->GetArrayDim());
+	EXPECT_EQ(Bounds.Error.ArrayDim, Property("Value")->GetArrayDim());
+	EXPECT_EQ(Bounds.Error.Owner, FObjectKey(Target));
+	EXPECT_EQ(Bounds.Error.Member, "Value");
+	EXPECT_EQ(Snapshot.GetPayload(), Before);
+	EXPECT_TRUE(Locator.Resolve(Target));
+	EXPECT_EQ(Locator.Resolve(nullptr).Error.Code, ETransactionSnapshotError::InvalidTarget);
+	Target->Value = 41;
+	ASSERT_TRUE(FFocusedTransactionObjectSnapshot::Capture(Target, Property("Value"), 0, Snapshot));
+	EXPECT_EQ(Bounds.Error.Member, "Value");
+	EXPECT_EQ(Bounds.Error.Code, ETransactionSnapshotError::ArrayIndex);
+	FReflectedValueStorage Storage;
+	ASSERT_TRUE(Snapshot.RestoreDetached(Storage));
+	EXPECT_EQ(*static_cast<int32*>(Storage.GetValue()), 41);
 }
 
 TEST(FFocusedTransactionObjectSnapshotTests, RejectsIncompatibleResolvedMember)
@@ -549,6 +590,9 @@ TEST(FFocusedTransactionObjectSnapshotTests, RejectsIncompatibleResolvedMember)
 		nullptr, Durin::FName("IncompatibleRecordTarget"));
 	Durin::TStrongObjectPtr<Durin::DObject> TargetRoot(Target);
 	auto Record = CaptureSnapshot(Target, "Value");
+	Durin::FReflectedValueStorage Storage;
+	ASSERT_TRUE(Record.RestoreDetached(Storage));
+	const void* PreviousStorage = Storage.GetContainer();
 	Durin::DClass* Class = DTransactionRecordParticipant::StaticClass();
 	Durin::FField* OriginalProperties = Class->ChildProperties;
 	Durin::FNumericProperty Incompatible(
@@ -559,11 +603,17 @@ TEST(FFocusedTransactionObjectSnapshotTests, RejectsIncompatibleResolvedMember)
 	Incompatible.Next = OriginalProperties->Next;
 	Class->ChildProperties = &Incompatible;
 
-	Durin::FReflectedValueStorage Storage;
-	std::string Error;
-	EXPECT_FALSE(Record.RestoreDetached(Storage, &Error));
-	EXPECT_EQ(Error, "Focused transaction member is incompatible with the captured payload.");
+	const auto Rejected = Record.RestoreDetached(Storage);
+	EXPECT_EQ(Storage.GetContainer(), PreviousStorage);
+	EXPECT_FALSE(Rejected);
+	EXPECT_EQ(Rejected.Error.Code, Durin::Editor::ETransactionSnapshotError::IncompatibleMember);
+	EXPECT_EQ(Rejected.Error.ExpectedKind, Durin::DurinCodeGen::EPropertyGenFlags::Int32);
+	EXPECT_EQ(Rejected.Error.ActualKind, Durin::DurinCodeGen::EPropertyGenFlags::Int64);
+	EXPECT_EQ(Rejected.Error.Owner, Durin::FObjectKey(Target));
 	Class->ChildProperties = OriginalProperties;
+	ASSERT_TRUE(Record.RestoreDetached(Storage));
+	EXPECT_EQ(Rejected.Error.ActualKind, Durin::DurinCodeGen::EPropertyGenFlags::Int64);
+	EXPECT_EQ(Rejected.Error.Member, "Value");
 }
 
 static_assert(!std::is_copy_constructible_v<Durin::Editor::FTransaction>);
@@ -773,7 +823,12 @@ TEST(FTransBufferTests, DiscardsOversizedEntryAndPreservesFailedUndoCursor)
 	Durin::Editor::FScopedTransaction Oversized(Buffer, {"test", "Oversized"});
 	Oversized.Modify(Target);
 	Target->Numbers.push_back(1);
-	EXPECT_EQ(Oversized.End().Code, Durin::Editor::ETransactorResultCode::Discarded);
+	const auto Rejected = Oversized.End();
+	EXPECT_EQ(Rejected.Code, Durin::Editor::ETransactorResultCode::Discarded);
+	ASSERT_TRUE(Rejected.FailureCause);
+	EXPECT_EQ(Rejected.FailureCause->Code, Durin::Editor::ETransactorFailure::ByteLimit);
+	EXPECT_EQ(Rejected.FailureCause->Limit, 1u);
+	EXPECT_GT(Rejected.FailureCause->Actual, Rejected.FailureCause->Limit);
 	EXPECT_EQ(Buffer->GetHistoryCount(), 0u);
 	EXPECT_EQ(Buffer->GetOwnedBytes(), 0u);
 
@@ -1078,8 +1133,8 @@ TEST(FTransBufferTests, DeferredCustomChangeBlocksAndCompletesExactlyOnce)
 
 	bool bCompletionCalled = false;
 	ASSERT_TRUE(Buffer->SetTransactionCompletion(Commit.TransactionId,
-		[&](bool bSucceeded) { bCompletionCalled = bSucceeded; }));
-	ChangePtr->CompleteUndo(true);
+		[&](Durin::Editor::FTransactionCompletionResult Result) { bCompletionCalled = static_cast<bool>(Result); }));
+	ChangePtr->CompleteUndo({});
 	EXPECT_TRUE(bCompletionCalled);
 	EXPECT_FALSE(Buffer->IsTransactionPending(Commit.TransactionId));
 	EXPECT_EQ(Buffer->GetState(), Durin::Editor::ETransactorState::Idle);
@@ -1138,7 +1193,27 @@ TEST(FTransBufferTests, FailedCompensationPreservesEveryCauseAndDisablesHistory)
 	ASSERT_EQ(Result.RollbackFailures.size(), 2u);
 	EXPECT_EQ(Result.RollbackFailures[0].RecordIndex, 1u);
 	EXPECT_EQ(Result.RollbackFailures[1].RecordIndex, 2u);
-	EXPECT_NE(Result.Message.find("Undo failure"), std::string::npos);
+	ASSERT_TRUE(Result.ApplyCause);
+	EXPECT_EQ(Result.ApplyCause->Error.Code, ETransactionApplyError::Execution);
+	EXPECT_EQ(Result.ApplyCause->Error.TransactionId, 1u);
+	EXPECT_EQ(Result.ApplyCause->Error.RecordIndex, 0u);
+	EXPECT_TRUE(Result.ApplyCause->Error.Undo);
+	EXPECT_EQ(Result.ApplyCause->Error.RecordCause.Code, ETransactionRecordError::CustomRejected);
+	EXPECT_TRUE(Result.ApplyCause->Error.RecordCause.Before);
+	for (const auto& Failure : Result.RollbackFailures)
+	{
+		EXPECT_EQ(Failure.Error.Code, ETransactionRecordError::CustomRejected);
+		EXPECT_FALSE(Failure.Error.Before);
+		EXPECT_EQ(Failure.Error.Origin, EPropertyChangeOrigin::Undo);
+		ASSERT_TRUE(Failure.Error.CustomCause);
+		EXPECT_EQ(Failure.Error.CustomCause->Code, ETransactionCustomError::InjectedMutation);
+	}
+	ASSERT_EQ(Result.ApplyCause->RollbackFailures.size(), 2u);
+	const auto Message = FormatTransactorResult(Result);
+	ASSERT_TRUE(Result.ApplyCause->Error.RecordCause.CustomCause);
+	EXPECT_EQ(Result.ApplyCause->Error.RecordCause.CustomCause->Code, ETransactionCustomError::InjectedMutation);
+	EXPECT_NE(Message.find("Rollback record 1 failed"), std::string::npos);
+	EXPECT_NE(Message.find("Rollback record 2 failed"), std::string::npos);
 	EXPECT_EQ(Buffer->GetState(), ETransactorState::RecoveryRequired);
 	ASSERT_TRUE(Buffer->GetPackageRevisionState(*Package));
 	EXPECT_FALSE(Buffer->GetPackageRevisionState(*Package)->bCheckpointValid);
@@ -1153,4 +1228,169 @@ TEST(FTransBufferTests, FailedCompensationPreservesEveryCauseAndDisablesHistory)
 	EXPECT_EQ(First, 1);
 	EXPECT_EQ(Second, 0);
 	EXPECT_EQ(Third, 0);
+}
+
+TEST(FTransBufferTests, TypedValidationRejectsUnavailableCustomRecordBeforeExecution)
+{
+	using namespace Durin::Editor;
+	int Value = 1;
+	FTransaction Transaction(42, {.Description = "Typed validation"});
+	Transaction.AddRecord(std::make_unique<FTestCustomChange>(Value, 1, 2));
+	Transaction.AddRecord(std::unique_ptr<ITransactionCustomChange>{});
+	const auto Rejected = Transaction.Apply(false, Durin::EPropertyChangeOrigin::Redo);
+	EXPECT_FALSE(Rejected);
+	EXPECT_EQ(Rejected.Status, ETransactionApplyStatus::ValidationFailed);
+	EXPECT_EQ(Rejected.Error.Code, ETransactionApplyError::Validation);
+	EXPECT_EQ(Rejected.Error.TransactionId, 42u);
+	EXPECT_EQ(Rejected.Error.RecordIndex, 1u);
+	EXPECT_EQ(Rejected.Error.RecordCause.Code, ETransactionRecordError::MissingCustom);
+	EXPECT_EQ(Value, 1);
+	Transaction.TruncateRecords(1);
+	ASSERT_TRUE(Transaction.Apply(false, Durin::EPropertyChangeOrigin::Redo));
+	EXPECT_EQ(Value, 2);
+	EXPECT_EQ(Rejected.Error.RecordCause.Code, ETransactionRecordError::MissingCustom);
+}
+
+TEST(FTransBufferTests, DeferredFailureRetainsTypedCauseAndAllowsRetry)
+{
+	using namespace Durin;
+	using namespace Durin::Editor;
+	InitializeDObjectSystem();
+	auto* Buffer = NewObject<DTransBuffer>(nullptr, "TypedDeferredTransBuffer");
+	TStrongObjectPtr<DObject> Root(Buffer);
+	int Value = 5;
+	auto Change = std::make_unique<FTestCustomChange>(Value, 3, 5);
+	auto* ChangePtr = Change.get();
+	ChangePtr->bDeferUndo = true;
+	const auto Commit = Buffer->Execute(std::move(Change), true);
+	ASSERT_TRUE(Commit);
+	ASSERT_TRUE(Buffer->Undo());
+	std::optional<FTransactionCompletionResult> Retained;
+	ASSERT_TRUE(Buffer->SetTransactionCompletion(Commit.TransactionId,
+		[&](FTransactionCompletionResult Result) { Retained = std::move(Result); }));
+	auto Cause = std::make_shared<FTransactionRecordError>();
+	Cause->Code = ETransactionRecordError::CustomRejected;
+	Cause->Before = true;
+	Cause->CustomDescription = "Owned deferred failure";
+	ChangePtr->CompleteUndo({{.Code = ETransactionCompletionError::Operation, .RecordCause = Cause}});
+	Cause.reset();
+	ASSERT_TRUE(Retained);
+	EXPECT_FALSE(*Retained);
+	EXPECT_EQ(Retained->Error.Code, ETransactionCompletionError::Operation);
+	EXPECT_EQ(Retained->Error.TransactionId, Commit.TransactionId);
+	EXPECT_EQ(Retained->Error.Operation, ETransactionOperation::Undo);
+	ASSERT_TRUE(Retained->Error.RecordCause);
+	EXPECT_EQ(Retained->Error.RecordCause->Code, ETransactionRecordError::CustomRejected);
+	EXPECT_EQ(Buffer->GetState(), ETransactorState::Idle);
+	EXPECT_EQ(Buffer->GetUndoCount(), 1u);
+	EXPECT_EQ(Value, 5);
+	ASSERT_TRUE(Buffer->Undo());
+	bool Completed = false;
+	ASSERT_TRUE(Buffer->SetTransactionCompletion(Commit.TransactionId,
+		[&](FTransactionCompletionResult Result) { Completed = static_cast<bool>(Result); }));
+	ChangePtr->CompleteUndo({});
+	EXPECT_TRUE(Completed);
+	EXPECT_EQ(Value, 3);
+	EXPECT_EQ(Buffer->GetRedoCount(), 1u);
+	EXPECT_EQ(Retained->Error.RecordCause->CustomDescription, "Owned deferred failure");
+}
+
+TEST(FTransBufferTests, TypedRejectionsRetainStateAndRequestedBoundsAcrossRetry)
+{
+	using namespace Durin;
+	using namespace Durin::Editor;
+	InitializeDObjectSystem();
+	auto* Buffer = NewObject<DTransBuffer>(nullptr, "TypedRejectionTransBuffer");
+	TStrongObjectPtr<DObject> Root(Buffer);
+	const auto Outer = Buffer->Begin({.Description = "Outer"});
+	ASSERT_TRUE(Outer);
+	const auto Inner = Buffer->Begin({.Description = "Inner"});
+	ASSERT_TRUE(Inner);
+	const auto Order = Buffer->End(Outer.ScopeId);
+	ASSERT_TRUE(Order.RejectionCause);
+	EXPECT_EQ(Order.RejectionCause->Reason, ETransactorRejectionReason::CloseOrder);
+	EXPECT_EQ(Order.RejectionCause->RequestedId, Outer.ScopeId);
+	EXPECT_EQ(Order.RejectionCause->ScopeId, Inner.ScopeId);
+	EXPECT_EQ(Order.RejectionCause->PendingId, Outer.TransactionId);
+	EXPECT_EQ(Order.RejectionCause->State, ETransactorState::Recording);
+	ASSERT_EQ(Buffer->Cancel(Inner.ScopeId).Code, ETransactorResultCode::Discarded);
+	ASSERT_EQ(Buffer->Cancel(Outer.ScopeId).Code, ETransactorResultCode::Discarded);
+	EXPECT_EQ(Buffer->GetState(), ETransactorState::Idle);
+	const auto Limits = Buffer->SetLimits({.MaximumEntries = 0, .MaximumOwnedBytes = 128});
+	ASSERT_TRUE(Limits.RejectionCause);
+	EXPECT_EQ(Limits.RejectionCause->Reason, ETransactorRejectionReason::ZeroLimits);
+	ASSERT_TRUE(Limits.RejectionCause->RequestedLimits);
+	EXPECT_EQ(Limits.RejectionCause->RequestedLimits->MaximumEntries, 0u);
+	EXPECT_EQ(Limits.RejectionCause->RequestedLimits->MaximumOwnedBytes, 128u);
+	int Value = 1;
+	const auto Commit = Buffer->Execute(std::make_unique<FTestCustomChange>(Value, 1, 2));
+	ASSERT_TRUE(Commit);
+	const auto Head = Buffer->Undo(Commit.TransactionId + 1);
+	ASSERT_TRUE(Head.RejectionCause);
+	EXPECT_EQ(Head.RejectionCause->Reason, ETransactorRejectionReason::UndoHead);
+	EXPECT_EQ(Head.RejectionCause->RequestedId, Commit.TransactionId + 1);
+	EXPECT_EQ(Head.RejectionCause->UndoHead, Commit.TransactionId);
+	EXPECT_EQ(Value, 2);
+	ASSERT_TRUE(Buffer->Undo(Commit.TransactionId));
+	EXPECT_EQ(Value, 1);
+	EXPECT_EQ(Head.RejectionCause->UndoHead, Commit.TransactionId);
+	EXPECT_EQ(Order.RejectionCause->ScopeId, Inner.ScopeId);
+}
+
+TEST(FTransBufferTests, TypedFailuresRetainAccountingAndExpiredParticipantContext)
+{
+	using namespace Durin;
+	using namespace Durin::Editor;
+	InitializeDObjectSystem();
+	auto* Buffer = NewObject<DTransBuffer>(nullptr, "TypedFailureTransBuffer");
+	TStrongObjectPtr<DObject> BufferRoot(Buffer);
+	class FOverflowChange final : public ITransactionCustomChange
+	{
+	public:
+		auto GetDescription() const -> std::string_view override { return "Overflow test"; }
+		auto Replay(Durin::Editor::ETransactionOperation Operation) -> Durin::Editor::FTransactionCustomResult override
+		{
+			if (Operation == Durin::Editor::ETransactionOperation::Undo)
+			{
+				return {};
+			}
+			else
+			{
+				return {};
+			}
+		}
+		auto GetAllocatedSize() const -> size_t override { return std::numeric_limits<size_t>::max(); }
+	};
+	const auto Overflow = Buffer->Execute(std::make_unique<FOverflowChange>(), true);
+	EXPECT_EQ(Overflow.Code, ETransactorResultCode::Failed);
+	ASSERT_TRUE(Overflow.FailureCause);
+	EXPECT_EQ(Overflow.FailureCause->Code, ETransactorFailure::EntryAccounting);
+	EXPECT_EQ(Buffer->GetHistoryCount(), 0u);
+	EXPECT_EQ(Buffer->GetState(), ETransactorState::Idle);
+	auto* Target = NewObject<DTransactionRecordParticipant>(nullptr, "ExpiredModifiedParticipant");
+	TStrongObjectPtr<DObject> TargetRoot(Target);
+	const FObjectKey Key(Target);
+	FScopedTransaction Scope(Buffer, {.Description = "Expired target"});
+	Scope.Modify(Target);
+	MarkAsGarbage(Target);
+	const auto Inner = Buffer->Begin({.Description = "Blocks cleanup"});
+	ASSERT_TRUE(Inner);
+	const auto BlockedCleanup = Scope.End();
+	EXPECT_EQ(BlockedCleanup.Code, ETransactorResultCode::Rejected);
+	ASSERT_TRUE(BlockedCleanup.RejectionCause);
+	EXPECT_EQ(BlockedCleanup.RejectionCause->Reason, ETransactorRejectionReason::CloseOrder);
+	ASSERT_TRUE(BlockedCleanup.PreparationCause);
+	ASSERT_TRUE(BlockedCleanup.PreparationCause->FailureCause);
+	EXPECT_EQ(BlockedCleanup.PreparationCause->FailureCause->Code, ETransactorFailure::ExpiredObject);
+	EXPECT_EQ(Buffer->Cancel(Inner.ScopeId).Code, ETransactorResultCode::Discarded);
+	const auto Expired = Scope.End();
+	EXPECT_EQ(Expired.Code, ETransactorResultCode::Failed);
+	ASSERT_TRUE(Expired.FailureCause);
+	EXPECT_EQ(Expired.FailureCause->Code, ETransactorFailure::ExpiredObject);
+	EXPECT_EQ(Expired.FailureCause->Owner, Key);
+	ASSERT_TRUE(Expired.CleanupCause);
+	EXPECT_EQ(Expired.CleanupCause->Code, ETransactorResultCode::Discarded);
+	EXPECT_EQ(Scope.Cancel().Code, ETransactorResultCode::NoOp);
+	EXPECT_EQ(Buffer->GetState(), ETransactorState::Idle);
+	EXPECT_EQ(Overflow.FailureCause->Code, ETransactorFailure::EntryAccounting);
 }

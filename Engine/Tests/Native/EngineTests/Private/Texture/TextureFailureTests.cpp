@@ -1,3 +1,4 @@
+#include "AssetForge/Builtins/Texture2DFactory.h"
 #include "Threading/Task.h"
 #include "NativeAssetTestSupport.h"
 #include "Misc/MountPathTestSupport.h"
@@ -226,7 +227,7 @@ TEST(FTexture2DTests, ScheduledReimportPublishesOnce)
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/TextureImportTests/AsyncUnload", AssetPath));
 	ASSERT_TRUE(Durin::AssetForge::Builtins::ReimportTexture2D(
-		*Texture, Error)) << Error;
+		*Texture));
 	ASSERT_TRUE(Durin::WaitForTexture2DCompilation(*Texture, 10.0));
 	EXPECT_TRUE(Texture->HasPlatformData());
 	EXPECT_NE(Texture->GetPlatformDataShared(), LastGoodPlatformDataIdentity);
@@ -294,6 +295,14 @@ TEST(FTexture2DTests, DirectReimportPublishesAndSaves)
 	Durin::FReimportManager::ReimportFromFiles(*Texture, Files, {.bSave = false},
 		[&](Durin::FReimportResult Result) { Reimported = std::move(Result); });
 	EXPECT_EQ(Reimported.Status, Durin::EReimportStatus::SourceOrBuildFailure);
+	const auto* Detail = dynamic_cast<const Durin::AssetForge::Builtins::FTexture2DFactoryError*>(Reimported.FactoryCause.get());
+	ASSERT_NE(Detail, nullptr);
+	const auto* Submission = std::get_if<Durin::AssetForge::Builtins::FTexture2DSubmissionError>(&Detail->Cause);
+	ASSERT_NE(Submission, nullptr);
+	EXPECT_EQ(Submission->Code, Durin::AssetForge::Builtins::ETexture2DSubmissionError::Translation);
+	ASSERT_TRUE(Submission->TranslationCause);
+	ASSERT_TRUE(Submission->TranslationCause->DecodeCause);
+	EXPECT_EQ(Submission->TranslationCause->DecodeCause->Code, Durin::Image::EImageDecodeError::InvalidImage);
 	EXPECT_EQ(Texture->GetPlatformDataShared(), LastGoodPlatformDataIdentity);
 	ExpectPlatformDataEqual(*Texture->GetPlatformData(), LastGood);
 	EXPECT_FALSE(Texture->GetPackage()->IsDirty());

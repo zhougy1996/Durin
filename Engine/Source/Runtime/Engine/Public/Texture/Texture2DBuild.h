@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Asset/AssetCacheDiagnostic.h"
+
 #include "DerivedDataCacheKeyProxy.h"
 #include "Texture/Texture2D.h"
 #include "Texture/Texture2DBuildProvider.h"
@@ -63,7 +65,7 @@ namespace Durin
 	{
 		FTexturePlatformData PlatformData;
 		FCacheKeyProxy DerivedDataKey;
-		std::string PersistenceDiagnostic;
+		FAssetCacheDiagnostics PersistenceDiagnostic;
 		FTexture2DBuildProviderDescriptor Provider;
 		FTexture2DBuildMetrics Metrics;
 		ETexture2DBuildProductOrigin Origin = ETexture2DBuildProductOrigin::Rebuilt;

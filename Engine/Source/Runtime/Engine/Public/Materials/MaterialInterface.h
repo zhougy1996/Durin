@@ -182,11 +182,10 @@ namespace Durin
 	private:
 		auto BroadcastParameterChanges(const TObjectCacheIterator<DMaterialInterface>& Dependents) -> void;
 		friend auto ::Durin::ContributeEngineCookAsset(
-			DObject&, std::string_view, FCookContext&, std::string&) -> bool;
+			DObject&, std::string_view, FCookContext&) -> FCookContributionResult;
 		ENGINE_API auto ContributeToCook(
 			FCookContext& Context,
-			std::string_view VirtualPackagePath,
-			std::string& OutError) -> bool;
+			std::string_view VirtualPackagePath) -> FCookContributionResult;
 	private:
 		friend struct Private::FMaterialCompilationLifecycle;
 		DPROPERTY(EditorOnly)

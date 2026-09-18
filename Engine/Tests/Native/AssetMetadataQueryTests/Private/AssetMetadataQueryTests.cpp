@@ -70,12 +70,12 @@ namespace
 	TEST(FAssetMetadataQueryTests, RegistryErrorsExposeStructuredDiagnostics)
 	{
 		const FAssetRegistryResult Result{
-			EAssetRegistryError::StaleData, "The expected revision is stale."};
+			EAssetRegistryError::StaleData, {.Reason = EAssetRegistryFailure::PublicationRevision, .Actual = 2, .Expected = 1}};
 		const Durin::FDiagnostic Diagnostic = Result.GetDiagnostic();
 		EXPECT_EQ(Diagnostic.Domain, "AssetRegistry");
 		EXPECT_EQ(Diagnostic.Code, "StaleData");
 		EXPECT_TRUE(Diagnostic.IsError());
-		EXPECT_EQ(Diagnostic.Message, Result.Message);
+		EXPECT_EQ(Diagnostic.Message, FormatAssetRegistryError(Result));
 	}
 
 	TEST(FAssetMetadataQueryTests, SnapshotOwnsExactMetadataWithoutEngine)
@@ -138,14 +138,19 @@ namespace
 
 		FAssetRegistryPublication Stale = CaptureAssetRegistryPublication();
 		Stale.ExpectedRevision = Revision;
-		EXPECT_EQ(PublishAssetRegistryPublication(std::move(Stale)).Error,
-			EAssetRegistryError::StaleData);
+		const auto Rejected = PublishAssetRegistryPublication(std::move(Stale));
+		EXPECT_EQ(Rejected.Error, EAssetRegistryError::StaleData);
+		EXPECT_EQ(Rejected.Context.Reason, EAssetRegistryFailure::PublicationRevision);
+		EXPECT_EQ(Rejected.Context.Actual, Revision + 1);
+		EXPECT_EQ(Rejected.Context.Expected, Revision);
 		EXPECT_TRUE(FindAssetExact(Path));
 
 		FAssetRegistryPublication Incomplete = CaptureAssetRegistryPublication();
 		Incomplete.bReferenceIndexComplete = false;
-		EXPECT_EQ(PublishAssetRegistryPublication(std::move(Incomplete)).Error,
-			EAssetRegistryError::StaleData);
+		const auto IncompleteResult = PublishAssetRegistryPublication(std::move(Incomplete));
+		EXPECT_EQ(IncompleteResult.Error, EAssetRegistryError::StaleData);
+		EXPECT_EQ(IncompleteResult.Context.Reason, EAssetRegistryFailure::IncompleteProjection);
+		EXPECT_EQ(GetAssetCatalogRevision(), Revision + 1);
 	}
 
 	TEST(FAssetMetadataQueryTests, ConcurrentExpectedRevisionPublishesAtMostOnce)
@@ -174,8 +179,11 @@ namespace
 		EXPECT_EQ(GetAssetCatalogRevision(), Revision + 1);
 		FAssetRegistryPublication Stale = CaptureAssetRegistryPublication();
 		Stale.ExpectedRevision = Revision;
-		EXPECT_EQ(PublishAssetRegistryPublication(std::move(Stale)).Error,
-			EAssetRegistryError::StaleData);
+		const auto Rejected = PublishAssetRegistryPublication(std::move(Stale));
+		EXPECT_EQ(Rejected.Error, EAssetRegistryError::StaleData);
+		EXPECT_EQ(Rejected.Context.Reason, EAssetRegistryFailure::PublicationRevision);
+		EXPECT_EQ(Rejected.Context.Actual, Revision + 1);
+		EXPECT_EQ(Rejected.Context.Expected, Revision);
 
 		const FAssetRegistrySnapshot Snapshot = CaptureAssetRegistrySnapshot();
 		EXPECT_EQ(Snapshot.Revision, Snapshot.Catalog.Revision);
@@ -206,7 +214,7 @@ namespace
 
 		const FAssetDependencyClosureSnapshot Closure =
 			CaptureAssetDependencyClosure(Root);
-		ASSERT_TRUE(Closure) << Closure.Result.Message;
+		ASSERT_TRUE(Closure) << FormatAssetRegistryError(Closure.Result);
 		EXPECT_EQ(Closure.Revision, GetAssetCatalogRevision());
 		ASSERT_EQ(Closure.Assets.size(), 2u);
 		EXPECT_EQ(std::ranges::count(Closure.Assets, Root,

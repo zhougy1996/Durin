@@ -25,7 +25,7 @@ namespace
 		Durin::Testing::FTestMaterialExpressionGraph Graph;
 		Graph.Outputs = Material.GetExpressionOutputs();
 		for (const auto& Expression : Material.GetExpressionCollection().Expressions)
-			Graph.Expressions.emplace_back(Durin::DuplicateObject(Expression.Get(), nullptr, Durin::NAME_None));
+			Graph.Expressions.emplace_back(Durin::DuplicateObject(Expression.Get(), nullptr, Durin::NAME_None).Object);
 		return Graph;
 	}
 

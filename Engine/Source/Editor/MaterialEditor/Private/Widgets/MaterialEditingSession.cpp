@@ -31,7 +31,7 @@ namespace Durin::Editor::Material
 		return true;
 	}
 
-	auto FMaterialEditingSession::Capture(const DMaterial& Material, FAuthoredState& OutState) -> bool
+	auto FMaterialEditingSession::Capture(const DMaterial& Material, FAuthoredState& OutState) -> FObjectGraphResult
 	{
 		FAuthoredState Candidate;
 		Candidate.Outputs = Material.GetExpressionOutputs();
@@ -39,12 +39,13 @@ namespace Durin::Editor::Material
 		Candidate.Presentation = Material.GetMaterialGraphPresentation();
 		for (const auto& Expression : Material.GetExpressionCollection().Expressions)
 		{
-			auto* Copy = DuplicateObject(Expression.Get(), nullptr, NAME_None);
-			if (!Copy) return false;
+			const auto Duplicated = DuplicateObject(Expression.Get(), nullptr, NAME_None);
+			if (!Duplicated) return {.Error = Duplicated.Error};
+			auto* Copy = Duplicated.Object;
 			Candidate.Expressions.emplace_back(Copy);
 		}
 		OutState = std::move(Candidate);
-		return true;
+		return {};
 	}
 
 	namespace
@@ -77,9 +78,9 @@ namespace Durin::Editor::Material
 		Source = &InSource;
 		Transactor = InTransactor;
 		SourceRevision = Source->GetPackage()->GetEditRevision();
-		if (!Capture(InSource, Applied))
+		if (const auto Captured = Capture(InSource, Applied); !Captured)
 		{
-			Error = "Unable to snapshot the source material expressions.";
+			Error = FormatObjectGraphError(Captured.Error);
 			return false;
 		}
 		FPackagePath Path;
@@ -98,10 +99,14 @@ namespace Durin::Editor::Material
 		Working = NewObject<DMaterial>(DMaterial::StaticClass(), WorkingPackage.Get(),
 			InSource.GetFName(), EObjectFlags::Transient);
 		Working->SetEditCompileMode(EMaterialEditCompileMode::Manual);
-		if (!CopyExpressions(*Working, InSource)
-			|| !Working->SetStaticProperties(Applied.Properties))
+		if (!CopyExpressions(*Working, InSource))
 		{
 			Error = "The source material's authored state is invalid.";
+			return false;
+		}
+		if (const auto Properties = Working->SetStaticProperties(Applied.Properties); !Properties)
+		{
+			Error = FormatMaterialError(Properties.Error);
 			return false;
 		}
 		Working->SetMaterialGraphPresentation(Applied.Presentation);
@@ -191,9 +196,9 @@ namespace Durin::Editor::Material
 			return false;
 		}
 		FAuthoredState Candidate;
-		if (!Capture(*Working, Candidate))
+		if (const auto Captured = Capture(*Working, Candidate); !Captured)
 		{
-			Error = "Unable to snapshot the working material expressions.";
+			Error = FormatObjectGraphError(Captured.Error);
 			return false;
 		}
 		if (const auto Validation = ValidateMaterialStaticProperties(Candidate.Properties); !Validation)

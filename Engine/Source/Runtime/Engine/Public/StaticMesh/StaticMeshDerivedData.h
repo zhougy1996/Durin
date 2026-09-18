@@ -109,29 +109,129 @@ namespace Durin
 	};
 
 
+	enum class EStaticMeshCollisionPayloadOperation : uint8 { Extract, Construct };
+	enum class EStaticMeshCollisionPayloadError : uint8
+	{
+		None, InvalidGeometry, InvalidVertex, FloatStorage, InvalidTriangle, InvalidNode,
+		InvalidMembership, InconsistentCounts, NonFinitePosition, UnexpectedBvh,
+		DuplicateOrdinal, UnknownOrdinal, InvalidSourceMode, InvalidTopology, Cancelled,
+	};
+	struct FStaticMeshCollisionPayloadError
+	{
+		EStaticMeshCollisionPayloadError Code = EStaticMeshCollisionPayloadError::None;
+		EStaticMeshCollisionPayloadOperation Operation = EStaticMeshCollisionPayloadOperation::Construct;
+		EBodySetupCollisionSourceMode SourceMode = EBodySetupCollisionSourceMode::None;
+		std::optional<ECollisionGeometryKind> GeometryKind;
+		uint64 VertexCount = 0;
+		uint64 IndexCount = 0;
+		uint64 OrdinalCount = 0;
+		uint64 NodeCount = 0;
+		uint64 LeafCount = 0;
+		uint64 Index = 0;
+		uint32 Ordinal = 0;
+		FVector3 Position = FVector3(0);
+	};
+	struct FStaticMeshCollisionPayloadResult
+	{
+		FStaticMeshCollisionPayloadError Error;
+		explicit operator bool() const { return Error.Code == EStaticMeshCollisionPayloadError::None; }
+	};
+	ENGINE_API auto FormatStaticMeshCollisionPayloadError(const FStaticMeshCollisionPayloadError& Error) -> std::string;
+
 	ENGINE_API auto MakeStaticMeshCollisionPayloadData(
 		const FCollisionGeometryRef& Geometry,
 		EBodySetupCollisionQueryPolicy QueryPolicy,
 		FStaticMeshCollisionPayloadData& OutPayload,
-		std::string& OutError,
-		const std::function<bool()>& ShouldCancel = {}) -> bool;
+		const std::function<bool()>& ShouldCancel = {}) -> FStaticMeshCollisionPayloadResult;
 	ENGINE_API auto MakeStaticMeshCollisionGeometry(
 		const FStaticMeshCollisionPayloadData& Payload,
 		FCollisionGeometryRef& OutGeometry,
-		std::string& OutError,
-		const std::function<bool()>& ShouldCancel = {}) -> bool;
+		const std::function<bool()>& ShouldCancel = {}) -> FStaticMeshCollisionPayloadResult;
+
+	enum class EStaticMeshPayloadError : uint8
+	{
+		None, Bounds, MaterialSlotCount, LODCount, ScreenSize, ScreenSizeOrder,
+		VertexCount, IndexCount, SectionCount, UVChannelCount, StoredSize,
+		VertexStreamCount, UVStreamCount, ColorStreamCount, NonFiniteAttribute,
+		NonFiniteUV, IndexRange, SectionCoverage, SectionVertexRange,
+		SectionMaterialSlot, SectionBounds, SectionVertexMismatch,
+		IncompleteCoverage, FinalScreenSize, Cancelled
+	};
+
+	enum class EStaticMeshPayloadStream : uint8 { None, Position, Normal, Tangent, Color, UV, Index };
+
+	// Owns rejected values; no references into a caller's mutable payload survive.
+	struct FStaticMeshPayloadError
+	{
+		EStaticMeshPayloadError Code = EStaticMeshPayloadError::None;
+		EStaticMeshPayloadStream Stream = EStaticMeshPayloadStream::None;
+		std::optional<uint64> LODIndex;
+		std::optional<uint64> SectionIndex;
+		std::optional<uint64> ElementIndex;
+		std::optional<uint32> Channel;
+		uint64 Actual = 0;
+		uint64 Expected = 0;
+		uint64 AdditionalActual = 0;
+		uint64 AdditionalExpected = 0;
+		float ScreenSize = 0.0f;
+		float PreviousScreenSize = 0.0f;
+		FBox Bounds;
+		FVector4 Value = FVector4(0);
+		std::optional<FStaticMeshPayloadSection> Section;
+	};
+
+	struct FStaticMeshPayloadResult
+	{
+		FStaticMeshPayloadError Error;
+		explicit operator bool() const { return Error.Code == EStaticMeshPayloadError::None; }
+	};
+
+	ENGINE_API auto FormatStaticMeshPayloadError(const FStaticMeshPayloadError& Error) -> std::string;
+
+	enum class EArchiveFailureCode : uint8;
+	enum class EStaticMeshCacheCodecError : uint8 { None, RenderPayload, CollisionPayload, Archive, MaterialSlots, CollisionMetadata };
+	enum class EStaticMeshCacheCodecOperation : uint8 { EncodeRender, DecodeRender, EncodeCollision, DecodeCollision };
+	struct FStaticMeshCacheCodecError
+	{
+		EStaticMeshCacheCodecError Code = EStaticMeshCacheCodecError::None;
+		EStaticMeshCacheCodecOperation Operation = EStaticMeshCacheCodecOperation::EncodeRender;
+		uint64 Actual = 0;
+		uint64 Expected = 0;
+		std::optional<EArchiveFailureCode> ArchiveCode;
+		std::string ArchivePath;
+		EBodySetupCollisionSourceMode ActualMode = EBodySetupCollisionSourceMode::None;
+		EBodySetupCollisionSourceMode ExpectedMode = EBodySetupCollisionSourceMode::None;
+		EBodySetupCollisionQueryPolicy ActualPolicy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
+		EBodySetupCollisionQueryPolicy ExpectedPolicy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
+		std::optional<FStaticMeshPayloadError> RenderCause;
+		std::optional<FStaticMeshCollisionPayloadError> CollisionCause;
+	};
+	struct FStaticMeshCacheCodecResult
+	{
+		FStaticMeshCacheCodecError Error;
+		explicit operator bool() const { return Error.Code == EStaticMeshCacheCodecError::None; }
+	};
+	ENGINE_API auto FormatStaticMeshCacheCodecError(const FStaticMeshCacheCodecError& Error) -> std::string;
+
+	enum class EArchiveFailureCode : uint8;
+	enum class EStaticMeshBuildKeyError : uint8 { None, UnsupportedTarget, Archive };
+	struct FStaticMeshBuildKeyError
+	{
+		EStaticMeshBuildKeyError Code = EStaticMeshBuildKeyError::None;
+		EStaticMeshTargetPlatform TargetPlatform = EStaticMeshTargetPlatform::Unknown;
+		std::optional<EArchiveFailureCode> ArchiveCode;
+		std::string ArchivePath;
+	};
 
 	// Copies serializable CPU data from runtime render data into the explicit payload model.
 	ENGINE_API auto MakeStaticMeshPayloadData(
 		const FStaticMeshRenderData& RenderData,
 		FStaticMeshPayloadData& OutPayload,
-		std::string& OutError,
-		const std::function<bool()>& ShouldCancel = {}) -> bool;
+		const std::function<bool()>& ShouldCancel = {}) -> FStaticMeshPayloadResult;
 
 	// Reconstructs CPU render data; runtime-only names and source material indices remain empty.
 	ENGINE_API auto MakeStaticMeshRenderData(
 		const FStaticMeshPayloadData& Payload,
 		std::unique_ptr<FStaticMeshRenderData>& OutRenderData,
-		std::string& OutError,
-		const std::function<bool()>& ShouldCancel = {}) -> bool;
+		const std::function<bool()>& ShouldCancel = {}) -> FStaticMeshPayloadResult;
 }

@@ -30,15 +30,17 @@ namespace Durin::AssetPrivate
      return {EAssetError::CorruptFile, "Redirector destination is invalid."};
     Capture.RedirectDestinations.emplace(Asset, std::move(Path));
    }
-  auto Result = SaveContext.Capture(Package, OutLinker, OutError, FormatVersion);
-  switch (Result.Error)
+  auto Result = SaveContext.Capture(Package, OutLinker, FormatVersion);
+  const auto Message = FormatPackageCaptureError(Result.Error);
+  if (OutError) *OutError = Message;
+  switch (GetPackageCaptureSaveError(Result.Error))
   {
    case EPackageSaveError::None: return {};
-   case EPackageSaveError::InvalidPath: return {EAssetError::InvalidPath, Result.Message};
-   case EPackageSaveError::InvalidPackageType: return {EAssetError::InvalidPackageType, Result.Message};
-   case EPackageSaveError::InvalidObjectGraph: return {EAssetError::InvalidObjectGraph, Result.Message};
-   case EPackageSaveError::UnsupportedVersion: return {EAssetError::UnsupportedVersion, Result.Message};
-   default: return {EAssetError::UnsupportedProperty, Result.Message};
+   case EPackageSaveError::InvalidPath: return {EAssetError::InvalidPath, Message};
+   case EPackageSaveError::InvalidPackageType: return {EAssetError::InvalidPackageType, Message};
+   case EPackageSaveError::InvalidObjectGraph: return {EAssetError::InvalidObjectGraph, Message};
+   case EPackageSaveError::UnsupportedVersion: return {EAssetError::UnsupportedVersion, Message};
+   default: return {EAssetError::UnsupportedProperty, Message};
   }
  }
 }

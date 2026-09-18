@@ -15,7 +15,7 @@ namespace Durin::RoadNet
 	{
 		GENERATED_BODY()
 	public:
-		ROADWEAVER_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool override;
+		ROADWEAVER_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal) -> FObjectValidationResult override;
 	protected:
 		ROADWEAVER_API auto OnUpdateTransform() -> void override;
 	};

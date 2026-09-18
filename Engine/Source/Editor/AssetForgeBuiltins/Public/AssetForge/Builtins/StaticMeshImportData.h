@@ -12,7 +12,7 @@ namespace Durin::AssetForge::Builtins
 	{
 		FStaticMeshImportSettings ImportSettings;
 
-		ASSETFORGEBUILTINS_API auto Validate(std::string& OutError) const -> bool;
+		ASSETFORGEBUILTINS_API auto Validate() const -> FAssetImportDataResult;
 		auto operator==(const FStaticMeshImportDataState&) const -> bool = default;
 	};
 
@@ -34,8 +34,8 @@ namespace Durin::AssetForge::Builtins
 		ASSETFORGEBUILTINS_API auto GetStaticMeshState() const
 			-> FStaticMeshImportDataState;
 		ASSETFORGEBUILTINS_API auto GetCompilationIdentity() const -> FXxHash128 override;
-		ASSETFORGEBUILTINS_API auto Validate(std::string& OutError) const
-			-> bool override;
+		ASSETFORGEBUILTINS_API auto Validate() const
+			-> FAssetImportDataResult override;
 
 	private:
 		DPROPERTY()

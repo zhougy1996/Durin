@@ -25,8 +25,17 @@ namespace
 		{
 			return bMutatesMountedContent;
 		}
-		auto Undo() -> bool override { return true; }
-		auto Redo() -> bool override { return true; }
+		auto Replay(Durin::Editor::ETransactionOperation Operation) -> Durin::Editor::FTransactionCustomResult override
+		{
+			if (Operation == Durin::Editor::ETransactionOperation::Undo)
+			{
+				return {};
+			}
+			else
+			{
+				return {};
+			}
+		}
 
 	private:
 		bool bMutatesMountedContent = false;

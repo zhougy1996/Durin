@@ -4,7 +4,7 @@ Summary: Define mounted package discovery, rebuildable catalog/reference project
 
 Modules: Core, AssetRegistry, Engine, AssetTools, ContentBrowser, DurinEd, LevelEditor
 
-Last reviewed: 2026-09-17
+Last reviewed: 2026-09-18
 
 Package identity, serialization, loading, and residency are defined by
 [Asset Packages](AssetPackages.md). Authored, derived, and cooked storage
@@ -95,10 +95,15 @@ AssetRegistry or Engine control-flow semantics. Typed domain errors remain the
 authoritative values used by program logic.
 
 AssetRegistry exports `EAssetRegistryError` and `FAssetRegistryResult` for
-discovery, bounded header projection, cache, snapshot, and publication failures.
+discovery, bounded header projection, snapshot, and publication failures. Results
+contain `FAssetRegistryErrorContext` rather than prose: precise reason, owned path,
+actual/expected bounds or revisions, filesystem code, envelope code and complete
+package Reader cause. `FormatAssetRegistryError` is the presentation boundary.
+Nonfatal cache-warning contracts remain separate.
 Engine exports `EAssetError` and `FAssetResult` for loading, storage, Cook, and
 mutation operations. Engine translates Registry results explicitly at its
-publication and package-header boundaries; AssetRegistry never includes or
+publication and package-header boundaries and retains `RegistryCause`;
+AssetRegistry never includes or
 returns the Engine result contract. Both result values can produce an
 `FDiagnostic` for common presentation without erasing their typed error.
 

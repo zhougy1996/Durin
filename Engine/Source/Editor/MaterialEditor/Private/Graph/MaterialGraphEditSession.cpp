@@ -5,6 +5,51 @@
 #include "MaterialExpressionInputs.h"
 #include "Materials/MaterialExpressionBuild.h"
 
+namespace Durin::Editor::Material
+{
+	auto FormatMaterialGraphSessionError(const FMaterialGraphSessionError& Error) -> std::string
+	{
+		std::string Message;
+		switch (Error.Code)
+		{
+		case EMaterialGraphSessionError::None: return {};
+		case EMaterialGraphSessionError::MoveActive: Message = "A graph move is already active."; break;
+		case EMaterialGraphSessionError::MoveInactive: Message = "No graph move is active."; break;
+		case EMaterialGraphSessionError::OwnerType: Message = "Unsupported graph owner."; break;
+		case EMaterialGraphSessionError::SelectionBounds: Message = "The graph move selection is empty or exceeds the node bound."; break;
+		case EMaterialGraphSessionError::SelectionNode: Message = "A selected graph node does not exist."; break;
+		case EMaterialGraphSessionError::SelectionDuplicate: Message = "The graph move selection contains a duplicate node GUID."; break;
+		case EMaterialGraphSessionError::MoveRevision: Message = "The graph changed semantically during the move."; break;
+		case EMaterialGraphSessionError::PreviewBounds: Message = "The graph move preview exceeds the node bound."; break;
+		case EMaterialGraphSessionError::PreviewSelection: Message = "The graph move preview addresses a node outside the selection."; break;
+		case EMaterialGraphSessionError::PreviewDuplicate: Message = "The graph move preview contains a duplicate node GUID."; break;
+		case EMaterialGraphSessionError::PreviewCoordinate: Message = "The graph move preview is outside the supported coordinate range."; break;
+		case EMaterialGraphSessionError::ParameterActive: Message = "A material parameter edit is already active."; break;
+		case EMaterialGraphSessionError::ParameterInactive: Message = "No material parameter edit is active."; break;
+		case EMaterialGraphSessionError::StaleOwner: Message = "The material graph owner is no longer available."; break;
+		case EMaterialGraphSessionError::ParameterDefinition: Message = "The material parameter definition is unavailable."; break;
+		case EMaterialGraphSessionError::ParameterValue: Message = "The material rejected the parameter value."; break;
+		case EMaterialGraphSessionError::ParameterRestore: Message = "The material rejected the original parameter value."; break;
+		case EMaterialGraphSessionError::Busy: Message = "The editor transactor is busy."; break;
+		case EMaterialGraphSessionError::Storage: Message = "The expression storage is invalid."; break;
+		case EMaterialGraphSessionError::MissingInput: Message = "A connection refers to a missing expression."; break;
+		case EMaterialGraphSessionError::RecursiveFunction: Message = "This edit would introduce recursive function dependencies."; break;
+		case EMaterialGraphSessionError::FunctionDependencies: Message = "The function dependencies are invalid."; break;
+		case EMaterialGraphSessionError::Inspect: Message = "Unable to inspect the edited expression."; break;
+		case EMaterialGraphSessionError::Capture: Message = "Unable to record the edited expression."; break;
+		case EMaterialGraphSessionError::StructuralCapture: Message = "Unable to record the structural edit."; break;
+		case EMaterialGraphSessionError::AssignmentClass: Message = "Expression assignment requires matching classes."; break;
+		case EMaterialGraphSessionError::AssignmentValue: Message = "Unable to update the expression properties."; break;
+		case EMaterialGraphSessionError::History: Message = "Unable to record the graph edit."; break;
+		}
+		if (Error.SnapshotCause) Message += " " + FormatTransactionSnapshotError(*Error.SnapshotCause);
+		if (Error.TransactorCause) Message += " " + FormatTransactorResult(*Error.TransactorCause);
+		if (Error.ValueCause) Message += " " + FormatPropertyValueError(*Error.ValueCause);
+		if (Error.MaterialCause) Message += " " + FormatMaterialError(*Error.MaterialCause);
+		return Message;
+	}
+}
+
 namespace Durin::Editor::Material::GraphEditInternals
 {
 	namespace
@@ -13,17 +58,34 @@ namespace Durin::Editor::Material::GraphEditInternals
 		{
 			FFocusedTransactionObjectSnapshot Before, After;
 			auto Object() const -> DObject* { return Before.GetTarget().Resolve(); }
-			auto Property() const -> FProperty* { return Before.GetMember().Resolve(Object()); }
+			auto Property() const -> FProperty* { return Before.GetMember().Resolve(Object()).Property; }
 			auto Index() const -> uint32 { return Before.GetMember().GetArrayIndex(); }
-			auto Capture(DObject& Object, FProperty* Property, uint32 Index) -> bool
+			auto Capture(DObject& Object, FProperty* Property, uint32 Index) -> FTransactionSnapshotResult
 			{ return FFocusedTransactionObjectSnapshot::Capture(&Object, Property, Index, Before); }
-			auto CaptureAfter() -> bool
-			{ return FFocusedTransactionObjectSnapshot::Capture(Object(), Property(), Index(), After); }
-			auto IsNoOp() const -> bool { return Before.GetPayload() == After.GetPayload(); }
-			auto Restore(bool bBefore) const -> bool
+			auto CaptureAfter() -> FTransactionSnapshotResult
 			{
-				const auto* P = Property();
-				return P && RestorePropertyValuePayload(P, Object(), Index(), (bBefore ? Before : After).GetPayload());
+				auto Resolved = Before.GetMember().Resolve(Object());
+				if (!Resolved)
+				{
+					Resolved.Error.Owner = Before.GetTarget().GetKey();
+					return {std::move(Resolved.Error)};
+				}
+				return FFocusedTransactionObjectSnapshot::Capture(Object(), Resolved.Property, Index(), After);
+			}
+			auto IsNoOp() const -> bool { return Before.GetPayload() == After.GetPayload(); }
+			auto Restore(bool bBefore) const -> FTransactionCustomResult
+			{
+				auto Resolved = Before.GetMember().Resolve(Object());
+				if (!Resolved)
+				{
+					Resolved.Error.Owner = Before.GetTarget().GetKey();
+					return {{.Code = ETransactionCustomError::MemberUnavailable,
+						.MemberCause = std::make_shared<FTransactionSnapshotError>(std::move(Resolved.Error))}};
+				}
+				const auto Restored = RestorePropertyValuePayload(Resolved.Property, Object(), Index(), (bBefore ? Before : After).GetPayload());
+				if (!Restored) return {{.Code = ETransactionCustomError::PropertyRestore,
+					.PropertyCause = std::make_shared<FPropertySnapshotError>(Restored.Error)}};
+				return {};
 			}
 		};
 		using FNodes = std::vector<TStrongObjectPtr<DMaterialExpression>>;
@@ -62,37 +124,39 @@ namespace Durin::Editor::Material::GraphEditInternals
 			auto GetDescription() const -> std::string_view override { return Description; }
 			auto GetOwningModule() const -> std::string_view override { return "MaterialEditor"; }
 			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return Packages; }
-			auto Undo() -> bool override { return Apply(true); }
-			auto Redo() -> bool override { return Apply(false); }
-			auto Apply(bool bBefore) -> bool
+			auto Replay(ETransactionOperation Operation) -> FTransactionCustomResult override
+			{ return Apply(Operation == ETransactionOperation::Undo); }
+			auto Apply(bool bBefore) -> FTransactionCustomResult
 			{
-				if (!Owner.IsValid()) return false;
-				for (const auto& M : Members) if (!M.Object()) return false;
+				if (!Owner.IsValid()) return {{.Code = ETransactionCustomError::TargetUnavailable}};
+				for (size_t Index = 0; Index < Members.size(); ++Index)
+					if (!Members[Index].Object()) return {{.Code = ETransactionCustomError::MemberUnavailable, .MemberIndex = Index}};
 				const auto& Current = FMaterialExpressionEditing::GetExpressions(*Owner.Get());
 				if (bStructural)
 				{
-					if (Current != (bBefore ? AfterNodes : BeforeNodes)) return false;
+					if (Current != (bBefore ? AfterNodes : BeforeNodes)) return {{.Code = ETransactionCustomError::MembershipChanged, .NodeCount = Current.size()}};
 				}
 				else
 				{
 					// An external bulk replacement must not turn an old object record
 					// into a successful edit of detached, no-longer-visible expressions.
 					for (const auto& M : Members)
-						if (std::ranges::none_of(Current, [&](auto& E) { return E.Get() == M.Object(); })) return false;
+						if (std::ranges::none_of(Current, [&](auto& E) { return E.Get() == M.Object(); })) return {{.Code = ETransactionCustomError::MembershipChanged, .NodeCount = Current.size()}};
 				}
 				// Restore all fields before deriving owner state or notifying observers.
 				size_t Applied = 0;
 				for (const auto& M : Members)
 				{
-					if (!M.Restore(bBefore))
+					if (auto Restored = M.Restore(bBefore); !Restored)
 					{
 						while (Applied)
 						{
 							const auto& R = Members[--Applied];
-							const bool bRestored = R.Restore(!bBefore);
+							const auto bRestored = R.Restore(!bBefore);
 							if (!bRestored) std::terminate();
 						}
-						return false;
+						Restored.Error.MemberIndex = static_cast<size_t>(&M - Members.data());
+						return Restored;
 					}
 					++Applied;
 				}
@@ -100,7 +164,7 @@ namespace Durin::Editor::Material::GraphEditInternals
 				if (bStructural) SetNodes(*Owner.Get(), bBefore ? BeforeNodes : AfterNodes);
 				if (bPresentation) WritePresentation(*Owner.Get(), bBefore ? BeforePresentation : AfterPresentation);
 				if (bStructural || !Members.empty()) FMaterialExpressionEditing::Publish(*Owner.Get());
-				return true;
+				return {};
 			}
 			auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override
 			{
@@ -137,7 +201,7 @@ namespace Durin::Editor::Material::GraphEditInternals
 		std::vector<FMemberChange> Members;
 		std::unordered_set<DMaterialExpression*> Modified;
 		bool bFinished = false;
-		bool bCaptured = true;
+		std::shared_ptr<const FTransactionSnapshotError> CaptureError;
 	};
 	FGraphEditSession::FGraphEditSession(DObject& Owner)
 		: bFunction(Cast<DMaterialFunction>(&Owner) != nullptr),
@@ -164,25 +228,36 @@ namespace Durin::Editor::Material::GraphEditInternals
 			for (uint32 Index = 0; Index < P->GetArrayDim(); ++Index)
 			{
 				FMemberChange M;
-				if (M.Capture(Expression, P, Index)) Impl->Members.push_back(std::move(M));
-				else Impl->bCaptured = false;
+				const auto Captured = M.Capture(Expression, P, Index);
+				if (Captured) Impl->Members.push_back(std::move(M));
+				else if (!Impl->CaptureError) Impl->CaptureError = std::make_shared<FTransactionSnapshotError>(Captured.Error);
 			}
 		});
 	}
-	auto FGraphEditSession::Assign(DMaterialExpression& Target, const DMaterialExpression& Source) -> bool
+	auto FGraphEditSession::Assign(DMaterialExpression& Target, const DMaterialExpression& Source) -> FMaterialGraphSessionResult
 	{
-		if (Target.GetClass() != Source.GetClass()) return false;
-		bool bAssigned = true;
+		const auto Fail = [&](EMaterialGraphSessionError Code, FProperty* Property = nullptr,
+			uint32 Index = 0, std::shared_ptr<const FPropertyValueError> Cause = {}) -> FMaterialGraphSessionResult
+		{
+			return {{.Code = Code, .ValueCause = std::move(Cause),
+				.SourceNodeId = Source.Id, .TargetNodeId = Target.Id,
+				.SourceClass = Source.GetClass()->GetName(), .TargetClass = Target.GetClass()->GetName(),
+				.Member = Property ? Property->NamePrivate.ToString() : std::string{}, .ArrayIndex = Index}};
+		};
+		if (Target.GetClass() != Source.GetClass()) return Fail(EMaterialGraphSessionError::AssignmentClass);
+		FMaterialGraphSessionResult Result;
 		Target.GetClass()->ForEachProperty([&](FProperty* P) {
 			if (P->HasAnyPropertyFlags(EPropertyFlags::Transient)) return;
 			for (uint32 Index = 0; Index < P->GetArrayDim(); ++Index)
 			{
 				if (ComparePropertyValues(P, &Source, Index, &Target, Index) == EPropertyIdentityResult::Identical) continue;
 				Modify(Target);
-				bAssigned &= P->CopyAssignValue(P->GetValuePtr(&Target, Index), P->GetValuePtr(&Source, Index));
+				const auto Copied = P->CopyAssignValue(P->GetValuePtr(&Target, Index), P->GetValuePtr(&Source, Index));
+				if (!Copied && Result) Result = Fail(EMaterialGraphSessionError::AssignmentValue, P, Index,
+					std::make_shared<FPropertyValueError>(Copied.Error));
 			}
 		});
-		return bAssigned;
+		return Result;
 	}
 	auto FGraphEditSession::GetOutputs() -> FMaterialExpressionSurfaceOutputs&
 	{
@@ -192,37 +267,39 @@ namespace Durin::Editor::Material::GraphEditInternals
 	}
 	auto FGraphEditSession::Commit(std::string Description, DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
-		if (Transactions && Transactions->HasPendingOperation()) return MakeRejected("The editor transactor is busy.");
+		if (Transactions && Transactions->HasPendingOperation()) return RejectSession({.Code = EMaterialGraphSessionError::Busy});
 		const bool bGraphWritten = !Impl->Members.empty() || !std::ranges::equal(Expressions, Impl->Original,
 			{}, [](auto& E) { return E.Get(); }, [](auto& E) { return E.Get(); });
 		if (bGraphWritten)
 		{
 			const auto Validation = FMaterialExpressionEditing::ValidateStorage(Impl->Owner);
-			if (!Validation) return MakeRejected("The expression storage is invalid.", Validation.Diagnostics);
+			if (!Validation) return RejectSession({.Code = EMaterialGraphSessionError::Storage}, Validation.Diagnostics);
 			std::unordered_set<FGuid> Ids;
 			for (auto& E : Expressions) Ids.insert(E->Id);
 			bool bMissingSource = false;
 			for (auto& E : Expressions) VisitMaterialExpressionInputs(*E, [&](uint32, const FMaterialExpressionInput& Input) {
 				bMissingSource |= Input.ExpressionId.IsValid() && !Ids.contains(Input.ExpressionId);
 			});
-			if (bMissingSource) return MakeRejected("A connection refers to a missing expression.", {{.Error = EMaterialExpressionError::InputDisconnectedRefersMissingExpression}});
+			if (bMissingSource) return RejectSession({.Code = EMaterialGraphSessionError::MissingInput}, {{.Error = EMaterialExpressionError::InputDisconnectedRefersMissingExpression}});
 			if (bFunction)
 			{
 				std::vector<DMaterialFunctionInterface*> Roots;
 				for (auto& E : Expressions) if (auto* Call = Cast<DMaterialExpressionFunctionCall>(E.Get())) Roots.push_back(Call->Function.Get());
 				std::vector<FMaterialFunctionOwnerStamp> Closure;
 				if (std::ranges::any_of(Roots, [&](auto* Root) { return Root == &Impl->Owner; }))
-					return MakeRejected("This edit would introduce recursive function dependencies.");
+					return RejectSession({.Code = EMaterialGraphSessionError::RecursiveFunction});
 				const auto Dependencies = ValidateMaterialFunctionDependencies(Roots, Closure, EMaterialFunctionValidationMode::Editing);
-				if (!Dependencies) return MakeRejected("The function dependencies are invalid.", Dependencies.Diagnostics);
+				if (!Dependencies) return RejectSession({.Code = EMaterialGraphSessionError::FunctionDependencies}, Dependencies.Diagnostics);
 				if (std::ranges::any_of(Closure, [&](const auto& D) { return D.AssetPath == Impl->Owner.GetObjectPath(); }))
-					return MakeRejected("This edit would introduce recursive function dependencies.");
+					return RejectSession({.Code = EMaterialGraphSessionError::RecursiveFunction});
 			}
 			// Type inference is best effort. Incompatible widths remain compiler diagnostics.
 			std::unordered_set<FGuid> TypeChanges, ChangedOutputs;
 			for (auto& M : Impl->Members)
 			{
-				if (!M.CaptureAfter()) return MakeRejected("Unable to inspect the edited expression.");
+				if (const auto Captured = M.CaptureAfter(); !Captured)
+					return RejectSession({.Code = EMaterialGraphSessionError::Inspect,
+						.SnapshotCause = std::make_shared<FTransactionSnapshotError>(Captured.Error)});
 				if (M.IsNoOp()) continue;
 				auto* E = Cast<DMaterialExpression>(M.Object());
 				// Constant values never change their class-defined output width.
@@ -241,7 +318,7 @@ namespace Durin::Editor::Material::GraphEditInternals
 				const std::vector<FGuid> Outputs(ChangedOutputs.begin(), ChangedOutputs.end());
 				AdaptNumericTypes(*this, Seeds, Outputs);
 			}
-			if (!Impl->bCaptured) return MakeRejected("Unable to record the edited expression.");
+			if (Impl->CaptureError) return RejectSession({.Code = EMaterialGraphSessionError::Capture, .SnapshotCause = Impl->CaptureError});
 			if (!bFunction) std::stable_partition(Expressions.begin(), Expressions.end(), [](auto& E) { return !Cast<DMaterialExpressionMaterialOutput>(E.Get()); });
 		}
 		std::vector<FGuid> PresentationIds;
@@ -251,7 +328,9 @@ namespace Durin::Editor::Material::GraphEditInternals
 		Change->Owner = &Impl->Owner; Change->Description = std::move(Description); Change->Packages = {Impl->Owner.GetPackage()};
 		for (auto& M : Impl->Members)
 		{
-			if (!M.CaptureAfter()) return MakeRejected("Unable to record the edited expression.");
+			if (const auto Captured = M.CaptureAfter(); !Captured)
+				return RejectSession({.Code = EMaterialGraphSessionError::Capture,
+					.SnapshotCause = std::make_shared<FTransactionSnapshotError>(Captured.Error)});
 			if (!M.IsNoOp()) Change->Members.push_back(M);
 		}
 		Change->bStructural = !std::ranges::equal(Expressions, Impl->Original, {}, [](auto& E) { return E.Get(); }, [](auto& E) { return E.Get(); });
@@ -273,7 +352,11 @@ namespace Durin::Editor::Material::GraphEditInternals
 						{
 							if (std::ranges::any_of(Change->Members, [&](const auto& M) { return M.Object() == E.Get() && M.Property() == P && M.Index() == Index; })) continue;
 							FMemberChange M;
-							if (!M.Capture(*E, P, Index)) { Impl->bCaptured = false; continue; }
+							if (const auto Captured = M.Capture(*E, P, Index); !Captured)
+							{
+								if (!Impl->CaptureError) Impl->CaptureError = std::make_shared<FTransactionSnapshotError>(Captured.Error);
+								continue;
+							}
 							M.After = M.Before;
 							Change->Members.push_back(std::move(M));
 						}
@@ -281,9 +364,9 @@ namespace Durin::Editor::Material::GraphEditInternals
 				}
 			}
 		}
-		if (!Impl->bCaptured) return MakeRejected("Unable to record the structural edit.");
+		if (Impl->CaptureError) return RejectSession({.Code = EMaterialGraphSessionError::StructuralCapture, .SnapshotCause = Impl->CaptureError});
 		if (!Change->bStructural && Change->Members.empty() && Presentation == Impl->OriginalPresentation)
-			return {.Status = EMaterialGraphCommandStatus::NoChange};
+			return {.Disposition = EMaterialGraphCommandDisposition::NoChange};
 		Change->bPresentation = Presentation != Impl->OriginalPresentation;
 		if (Change->bPresentation)
 		{
@@ -293,7 +376,12 @@ namespace Durin::Editor::Material::GraphEditInternals
 		const bool bSemantic = Change->bStructural || !Change->Members.empty();
 		// Record before publishing dirty/revision/compile effects. A rejected history
 		// commit leaves the scope responsible for restoring the original live fields.
-		if (Transactions && !Transactions->CommitApplied(std::move(Change))) return MakeRejected("Unable to record the graph edit.");
+		if (Transactions)
+		{
+			const auto Recorded = Transactions->CommitApplied(std::move(Change));
+			if (!Recorded) return RejectSession({.Code = EMaterialGraphSessionError::History,
+				.TransactorCause = std::make_shared<FTransactorResult>(Recorded)});
+		}
 		std::vector<DMaterialExpression*> Previous;
 		for (auto& E : Impl->Original) Previous.push_back(E.Get());
 		FMaterialExpressionEditing::ReconcileOwnership(Impl->Owner, Previous);
@@ -301,6 +389,6 @@ namespace Durin::Editor::Material::GraphEditInternals
 		FScopedMaterialGraphChange Batch(Impl->Owner);
 		WritePresentation(Impl->Owner, Presentation);
 		if (bSemantic) FMaterialExpressionEditing::Publish(Impl->Owner);
-		return {.Status = EMaterialGraphCommandStatus::Succeeded};
+		return {.Disposition = EMaterialGraphCommandDisposition::Applied};
 	}
 }

@@ -4,7 +4,7 @@ Summary: Define static-mesh render data, scene proxies, materials, draw preparat
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-09-15
+Last reviewed: 2026-09-18
 
 SplineMesh is a distinct primitive/deformation domain that borrows these
 StaticMesh LOD resources and uses the same material/pass/LOD/lighting policy.
@@ -50,6 +50,13 @@ and the final LOD is exactly zero. The first threshold satisfying
 Builders without authored values generate `2^-(LODIndex + 1)` and force the
 final value to zero; a single-LOD mesh therefore uses `[0]`. Invalid policies
 are rejected before render-data publication rather than clamped per view.
+Engine validation returns `FStaticMeshLODPolicyResult`, owning the failed LOD
+index/count and current/previous thresholds, including NaN or signed zero. It has
+no diagnostic-output overload. Candidate publication returns
+`FStaticMeshPublicationResult`, retaining LOD-policy or collision-build causes and
+distinguishing missing render data from resource initialization failure. Failed
+preparation leaves the live product unchanged. Authored application retains
+PublicationCause; pending cooked-load contracts format explicitly.
 
 The UE-named buffer resources have these responsibilities:
 
@@ -107,6 +114,35 @@ builders own unpublished candidates, and synchronous replacement temporarily
 owns the displaced render data in a local `std::unique_ptr`. No scene proxy,
 vertex factory, render command, or material/thumbnail consumer owns concrete
 render data.
+
+Direct `ReplaceRenderData`/`ReplaceSourceRenderData` return typed CPU replacement
+results and retain `FStaticMeshReplacementError` on the object. They invalidate
+old derived data first; failed replacement preserves the existing no-rollback
+contract. Errors own rejected source/slot/UV facts and payload/publication causes.
+Collision errors are stored separately as `FStaticMeshCollisionError`, retaining
+mode/policy and derived-data causes; collision failure can leave CPU data usable.
+`ApplyStaticMeshBuildResult` returns typed render/collision causes and preserves
+its existing dirtying behavior. Status checks never depend on diagnostic text.
+`RenameMaterialSlot` returns `FStaticMeshSlotRenameResult`, owning the rejected
+name, index/count, conflicting slot index and object key. Failure changes no slot
+or dirty state; same-name success is a no-op. Successful changes still update the
+live render slot, notify compilation and dirty the package.
+
+Blocking cooked CPU loading returns `FCookedMeshBlockingResult` with typed
+`FCookedMeshLoadError`, independent of CPU/GPU lifecycle status. Synchronous
+failures retain the object key and complete resource-read, product-decoding or
+candidate-publication cause. Unavailable residency has its own reason. Causes
+remain valid after retry and object retirement; preview/thumbnail adapters format
+them at presentation. Async workers and publisher callbacks return typed errors;
+terminal callbacks retain field indices, resource/product/publication causes,
+task state and completion-mailbox byte limits. A current object keeps the terminal
+error for blocking observers. Cancellation can preserve an underlying failure;
+terminal lifecycle status remains separate. Cancelled and stale results do not
+publish, and accepted retries clear the previous observation. Manager `Submit`
+returns `FCookedMeshAdmissionResult`, preserving requested and conflicting accepted
+identities, field/callback facts and flight/pending byte/count limits. Rejected
+replacement admission leaves accepted work intact and starts no resource read;
+the StaticMesh adapter retains AdmissionCause and preserves synchronous fallback.
 
 Replacement follows one ordered protocol:
 
@@ -321,6 +357,12 @@ does not provide per-triangle ordering for intersecting geometry.
 
 ## Material Binding Contract
 
+`ValidateStaticMeshMaterialOverrides` returns `FStaticMeshMaterialOverrideResult`.
+Slot-limit errors retain actual/maximum counts; incompatible-object errors own
+the failing index, object path and type. Validation does not mutate overrides.
+`FormatStaticMeshMaterialOverrideError` accepts the consumer name only at the
+presentation boundary; both StaticMesh and SplineMesh components use this contract.
+
 Each StaticMesh section carries one stable positional material-slot index and
 resolves that slot's material proxy snapshot. Asset import preserves matched
 indices, retains removed positions, appends new slots, and maps imported
@@ -407,7 +449,15 @@ in identity prevents reuse of the previous cache. Existing cooked-load, GPU and
 collision revisions continue to qualify runtime state independently.
 
 Fresh standalone/Scene import initializes source once before Engine DDC lookup.
-Recipes receive only an owning decoded handle and recipe settings. A warm hit
+Initialization returns `FStaticMeshSourceResult`, retaining owned validation,
+Archive encoding and Bulk-update errors without a diagnostic-output parameter.
+Rejection preserves the source identity, canonical bytes and existing readers.
+Recipes receive only an owning decoded handle and recipe settings. Provider feature
+version 4 returns `FStaticMeshRecipeResult` without diagnostic-output parameters.
+Errors own mesh/section identity, rejected indices/values, budget facts and complete
+physics-build diagnostics, including cancellation. Failed or canceled recipes clear
+the product. Derived-data orchestration retains `RecipeCause` in its typed error.
+A warm hit
 uses source identity even with unreadable canonical bulk; a miss acquires geometry.
 `BuildStaticMeshAuthoredCandidate` accepts value-only source, normalization,
 slot metadata and collision settings and constructs a sealed combined render,
@@ -415,6 +465,10 @@ ray and collision product. `ApplyStaticMeshAuthoredCandidate` consumes it on the
 owner thread after checking the captured source/material/body facts and final
 cancellation state. It restores material object bindings from the owner-thread
 snapshot and performs no CPU collision, ray-tree or bounds construction.
+Its `FStaticMeshApplicationResult` has no diagnostic-output parameter or stored
+success flag. Rejection owns object keys, expected/current/input facts and slot
+names, with nested import-validation or publication causes. Completion diagnostics
+retain ApplicationCause; pending outer completion/import adapters format explicitly.
 Source, normalization, slots, render and collision become current before one
 registered-consumer refresh, including initial authored publication. Resource
 initialization and its targeted fence remain separate from detached CPU recipes.
@@ -442,14 +496,28 @@ source readers may cache until `ReleaseGeometry`. Neither release nor successful
 publication removes unsaved authoritative bulk bytes. Cooked projection strips
 source, and cooked loading uses neither source acquisition nor a build provider.
 
-Source acquisition supports a borrowed cancellation predicate under its residency
-lock; the predicate must not reenter that source. A canceled decode never publishes
+Source acquisition returns `FStaticMeshSourceReadResult` without a diagnostic
+output, retaining resource-read causes, Archive code/path and owned validation
+counts, mesh/field identity and rejected values. It supports a borrowed cancellation
+predicate under its residency lock; the predicate must not reenter that source. A canceled decode never publishes
 partial residency. Ray construction supports borrowed cancellation through its
 triangle/bounds loops and sort/partition work. Null optional ray acceleration
 retains exact reference traversal. Render/collision payload conversion, encoding,
 decoding and validation also accept borrowed predicates and check at most every
-256 scalar/record work units. Conversion and reconstruction preserve their
-output on failure. Ordinary payload Archive loading instead fills an unpublished
+256 scalar/record work units. Collision payload extraction and reconstruction
+return `FStaticMeshCollisionPayloadResult`, owning geometry/mode, counts, rejected
+indices/ordinals and vertex context. Construction latches cancellation across
+the physics builder so it cannot become a topology rejection. Both APIs
+preserve output on failure and have no diagnostic-output overloads. Pending
+Archive/provider adapters format explicitly; CookedMesh product errors retain
+`CollisionCause`. Render conversion returns `FStaticMeshPayloadResult` with owned
+LOD/stream/section indices, rejected attribute values, bounds and actual/expected
+counts or ranges. It preserves outputs on rejection/cancellation and exposes no
+diagnostic-output overloads; CookedMesh product errors retain `RenderCause`.
+Cooked product decoding returns `FCookedMeshProductResult`, preserving Archive
+code/path/byte position, metadata differences and both construction causes; it
+publishes only a complete candidate. Pending async workers retain `ProductCause`.
+Ordinary payload Archive loading instead fills an unpublished
 destination in place: cancellation reports an error and the caller discards the
 incomplete value. Successful loading clears obsolete optional UV/color streams
 and collision leaf data. The authored wrapper latches cancellation, so an interrupted cache decode
@@ -466,7 +534,20 @@ import axes. Source organization is independent of the StaticMesh package
 path. Reimport reads the persisted file without copying, replacing, relocating,
 or deleting it. Legacy package-relative source fields are rejected. The
 canonical DDC key also includes builder version 4, render-payload schema 5, and target
-platform. A valid warm DDC object can load from persisted identity while source
+platform. Render/collision key factories return typed key or byte results,
+retaining rejected target and Archive code/path without diagnostic-output
+overloads. Failed results contain no key or partial bytes; pending provider
+adapters format explicitly. Cache codecs retain typed payload/Archive and metadata
+failures. Public derived-data builds return `FStaticMeshDerivedDataResult` without
+an error-output parameter; success/cancellation derives from its typed code.
+Errors retain provider, key, source, recipe and payload causes. Successful rebuilds
+retain `CacheDecodeCause`. Authored candidate construction returns
+`FStaticMeshAuthoredBuildResult` without text outputs, retaining derived-data,
+payload and LOD causes, provider descriptors, rejected input facts and budget
+estimates. Budget failures own the limit, accumulated bytes and rejected count/
+width; cancellation owns its phase and nested cause when available. Pending
+compilation diagnostics retain BuildCause while formatting their outer message.
+These observations do not change cache fallback or publication. A valid warm DDC object can load from persisted identity while source
 and Assimp are unavailable.
 
 The schema-5 payload is little-endian and checksummed, with bounded chunks for
@@ -489,8 +570,8 @@ the schema-3 bounded material-slot count rather than slot GUIDs.
 Every decoded section index is validated against that count; package metadata
 then restores editor/runtime slot names and imported source indices by stable
 position. Schema 4 and older payloads are incompatible, and builder version 4
-invalidates prior derived data while the derived-data key schema remains 1
-because it already encodes both version values. Source-backed assets and stale
+invalidates prior derived data. Current render key schema 4 and collision key
+schema 3 encode the applicable builder and payload version values. Source-backed assets and stale
 DDC entries rebuild; cooked/runtime-only schema-4-or-older content must be recooked and
 is never silently reinterpreted. Encode reads semantic data back from the named buffer resources;
 decode constructs them from the payload's position, normal, tangent, UV,

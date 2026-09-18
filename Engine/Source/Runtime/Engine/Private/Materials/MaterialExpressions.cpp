@@ -101,10 +101,19 @@ namespace Durin
 		}
 	}
 
-	auto DMaterialExpressionParameter::SetParameterDefinition(const FMaterialParameterDefinition& Definition) -> bool
+	auto DMaterialExpressionParameter::SetParameterDefinition(const FMaterialParameterDefinition& Definition) -> FMaterialOperationResult
 	{
-		if (GetParameterDefinition().Type != Definition.Type
-			|| !ValidateMaterialParameterDefinitions(std::span(&Definition, 1))) return false;
+		const auto ExpectedType = GetParameterDefinition().Type;
+		if (ExpectedType != Definition.Type)
+		{
+			FMaterialError Error(EMaterialParameterError::InvalidType, Definition.Id);
+			Error.ParameterName = Definition.Name.ToString();
+			Error.ExpectedParameterType = ExpectedType;
+			Error.ActualParameterType = Definition.Type;
+			return {std::move(Error)};
+		}
+		const auto Validation = ValidateMaterialParameterDefinitions(std::span(&Definition, 1));
+		if (!Validation) return {FMaterialError(Validation)};
 		if (auto* Parameter = Cast<DMaterialExpressionScalarParameter>(this))
 		{
 			Parameter->DefaultValue = Definition.Value.GetScalar();
@@ -119,10 +128,10 @@ namespace Durin
 			Parameter->DefaultValue = {Texture.Texture, Texture.SamplerState, Texture.TextureFallback};
 			Parameter->TextureUsage = Definition.TextureUsage;
 		}
-		else return false;
+		else return {FMaterialError(EMaterialExpressionError::ParameterExpressionUnsupportedType, Definition.Id)};
 		Metadata = {Definition.Id, Definition.Name, Definition.DisplayName, Definition.GroupName,
 			Definition.SortOrder, Definition.Presentation};
-		return true;
+		return {};
 	}
 
 	auto DMaterialExpressionParameter::MakeDefinition(EMaterialParameterType Type, FMaterialParameterValue Value) const

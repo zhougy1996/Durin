@@ -4,6 +4,7 @@
 #include "Misc/Guid.h"
 #include <cstdint>
 #include <optional>
+#include <memory>
 #include <string>
 #include <variant>
 #include <type_traits>
@@ -13,9 +14,13 @@ namespace Durin
 	struct FMaterialLayoutValidationResult;
 	struct FMaterialParameterValidationResult;
 	struct FArchiveFailure;
+	struct FObjectGraphError;
+	struct FPackageResourceReadResult;
+	struct FPackageResourceReadError;
 	enum class EMaterialLayoutError : uint8;
 	enum class EMaterialProgramValueType : uint8;
 	enum class EMaterialParameterError : uint8;
+	enum class EMaterialParameterType : uint8;
 	enum class EArchiveFailureCode : uint8;
 	enum class EBulkReadStatus : uint8;
 	enum class EPackageResourceReadStatus : uint8;
@@ -232,28 +237,38 @@ namespace Durin
 		UnsupportedLayoutVersion,
 	};
 
+	enum class EMaterialInstanceError : uint8
+	{
+		IncompleteParameterDraft, InvalidParameterId, DuplicateParameterId, InvalidSamplingPolicy,
+	};
+
 	// Engine-owned errors carry codes and context, never presentation strings.
 	struct FMaterialError
 	{
 		using FCode = std::variant<std::monostate, EMaterialExpressionError,
 			EMaterialFunctionError, EMaterialIRError, EMaterialPropertyError,
 			EMaterialCookError, EMaterialCompileError, EMaterialRenderError,
-			EMaterialLayoutError, EMaterialParameterError>;
+			EMaterialLayoutError, EMaterialParameterError, EMaterialInstanceError>;
 		FCode Code;
 		std::optional<uint32> Index;
 		FGuid ParameterId;
+		std::string ParameterName;
+		std::optional<EMaterialParameterType> ExpectedParameterType, ActualParameterType;
 		std::optional<EMaterialProgramValueType> ExpectedType;
 		std::optional<EMaterialProgramValueType> ActualType;
 		std::optional<EArchiveFailureCode> ArchiveCode;
 		std::string ArchivePath;
 		std::optional<EBulkReadStatus> BulkStatus;
 		std::optional<EPackageResourceReadStatus> ResourceStatus;
+		std::shared_ptr<const FPackageResourceReadError> ResourceCause;
+		std::shared_ptr<const FObjectGraphError> DuplicationCause;
 		// Only an external compiler/provider diagnostic may contain opaque text.
 		std::string ExternalDiagnostic;
 
 		FMaterialError() = default;
 		ENGINE_API FMaterialError(const FMaterialLayoutValidationResult& Validation);
 		ENGINE_API FMaterialError(const FMaterialParameterValidationResult& Validation);
+		ENGINE_API static auto FromBulkRead(EBulkReadStatus Status, const FPackageResourceReadResult& Resource) -> FMaterialError;
 		ENGINE_API static auto FromArchive(const FArchiveFailure& Failure) -> FMaterialError;
 		template<typename T> requires std::is_constructible_v<FCode, T>
 		FMaterialError(T InCode, std::optional<uint32> InIndex = {}) : Code(InCode), Index(InIndex) {}

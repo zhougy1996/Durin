@@ -3,6 +3,8 @@
 #include "AssetTools/AssetOperation.h"
 #include "DObject/Object.h"
 
+namespace Durin::Editor { struct FAssetDestinationValidation; }
+
 namespace Durin
 {
 	class DClass;
@@ -19,12 +21,19 @@ namespace Durin
 		EObjectFlags Flags = EObjectFlags::Public;
 	};
 
+	enum class EAssetImportError : uint8 { None, Path, Class, Filename, Destination, FileInspection, FileExists, AmbiguousFactory, MissingFactory, UnsupportedFactory, DuplicatePackage };
 	struct FAssetImportValidation
 	{
 		const DFactory* Factory = nullptr;
-		std::string Message;
-		explicit operator bool() const { return Factory != nullptr && Message.empty(); }
+		EAssetImportError Error = EAssetImportError::None;
+		std::string AssetPath, Filename, ClassName, Extension;
+		size_t Count = 0;
+		std::error_code FileCause;
+		std::shared_ptr<const Editor::FAssetDestinationValidation> DestinationCause;
+		explicit operator bool() const { return Error == EAssetImportError::None; }
 	};
+
+	ASSETTOOLS_API auto FormatAssetImportValidation(const FAssetImportValidation& Result) -> std::string;
 
 	enum class EAssetImportItemState : uint8
 	{

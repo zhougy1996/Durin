@@ -4,7 +4,7 @@ Summary: Define canonical byte archives, object-aware logical serialization, obj
 
 Modules: Core, CoreDObject
 
-Last reviewed: 2026-09-16
+Last reviewed: 2026-09-18
 
 ## Archive And Object Serialization
 
@@ -137,7 +137,12 @@ type tags, sortable signed and unsigned integers, zero-normalized IEEE floating
 values, strings, names, GUIDs, enum storage, and Struct field framing. Both the
 live reflected-property entry and construct-free decoded values use this
 writer. Token construction is transactional: an unsupported type or invalid
-shape leaves the caller's prior output unchanged.
+shape leaves the caller's prior output unchanged. The live reflected APIs return
+`FReflectedMapKeyResult`, with typed failure reasons, owned property identities,
+array bounds, and an outer-to-inner property/index route. The detached package
+API returns `FCanonicalMapKeyResult`. Neither API accepts diagnostic string
+outputs; legacy Archive, snapshot, and Engine adapters format explicitly until
+their own result contracts are migrated.
 
 `DObject/PackageFormat.h` owns the construct-free DAST v10 save boundary.
 `FreezePackage(...)` validates and canonicalizes names, structural types,
@@ -243,6 +248,13 @@ The semantic reflected-value layer is shared by object graphs, duplication,
 property snapshots, editable copying, and authored-package Archives. Hard
 references are delegated to the selected Archive and are never persisted as
 process addresses. Soft references transfer only their bounded logical path.
+Invalid decoded soft-reference paths retain an owned `FObjectError` in
+`FObjectArchive` and through snapshot, property-copy, and graph results, alongside
+the Archive code and field path. The destination path remains unchanged.
+Serializers keep their `void` contract: the Archive records the first failure
+internally, and the owning operation checks it before publication. Individual
+field callers do not need to propagate a second result. Formatting occurs in
+result formatters and the pending generic Archive diagnostic adapter.
 Map writers that advertise canonical ordering use stable logical key tokens, so
 supported Maps do not depend on bucket or insertion history.
 
@@ -389,7 +401,10 @@ Structs use the shared reflected save-selected field walk by default. A declared
 for every Archive purpose and is invoked exactly once per value. Loading decodes into managed storage initialized according to the explicit
 Struct baseline described above. After the complete field walk
 or custom serializer succeeds, an optional `PostDeserialize` callback receives
-the Archive purpose and source format version. Only successful repair is
+the Archive purpose and source format version and returns `FObjectValidationResult`.
+The context has no error-text slot or text rejection helper. `FDStructOps` version 2
+requires this typed callback signature. Failures retain the Struct identity,
+source version and module-owned cause through Archive/snapshot results. Only successful repair is
 copy-assigned into the live destination, so truncation, missing capabilities,
 or `PostDeserializeRejected` leaves the prior value unchanged. Hidden GC
 references remain the separate responsibility of `CollectReferences`. A custom
@@ -399,6 +414,14 @@ until the serializer honors `IsFilterEditorOnly()` itself or the Struct returns
 to complete reflected traversal.
 
 ### Transient Object Graphs and Duplication
+
+`SaveObjectGraphToMemory` and `LoadObjectGraphFromMemory` return
+`FObjectGraphResult`; success derives from `FObjectGraphError::Code`. Load
+publishes its root through `Object` only on success. Failures retain owned object
+and class identities, record ids, byte counts, header versions, and underlying
+Archive/property/map/graph-validation causes. Failed saves preserve the caller
+byte buffer; failed loads retire all candidates. `FormatObjectGraphError` is an
+explicit presentation boundary.
 
 Object-graph v2 saving first runs a Discovery Archive over the same virtual
 `DObject::Serialize` entries used for emission. Scope includes the root,
@@ -414,13 +437,23 @@ Loading validates the v2 header and all record bounds, creates every object
 skeleton before resolving reference ids, then invokes each object's virtual
 serializer exactly once. Once all values and Outer links are restored, each
 object's read-only `ValidateLoadedObjectGraph` hook may reject invariants requiring
-populated children. A failure retires the entire constructed graph. The
+populated children. The hook returns `FObjectValidationResult`, with owned object
+identity and an optional module-owned typed `IObjectValidationCause`. Material
+adapters preserve their typed error and complete program diagnostics; the Core
+framework has no Engine dependency. Formatting is explicit at presentation or
+pending Archive adapters. A failure retires the entire constructed graph. The
 format is process-local engine plumbing and has no v1 reader or migration path;
 long-lived content uses the independently versioned, field-tagged `.dasset`
 contract documented in [Asset Packages](../Assets/AssetPackages.md).
 
-`DuplicateObject(...)` is the public typed duplication entry and uses
-purpose-specific save and load Archives internally over
+`DuplicateObject(...)` returns `TObjectGraphResult<T>` (or `FObjectGraphResult`
+for the untyped overload), with success derived from its error code and the
+duplicate in `Object`. Failures retain Archive/property causes, authored override
+reason/path, or the complete graph-validation cause. The optional source-to-copy
+map is cleared on entry and published only after success. Material graph command
+and program errors retain an owned duplication cause; pending asset-operation
+and Play error adapters format explicitly. Duplication uses purpose-specific
+save and load Archives internally over
 the same virtual entry. Hard references inside the duplicated Outer tree remap
 to their duplicate, external hard references remain shared, and constructor-created
 inners may be reused. Weak references remap only when their targets are already
@@ -428,6 +461,32 @@ duplicated for structural or hard-reference reasons; a weak-only external target
 becomes null. After all values and authored ledgers are copied, graph-validation
 hooks run before any duplicate PostLoad notification. A rejection retires the
 whole duplicate graph. Any failure retires the incomplete duplicate graph.
+`FProperty` value construction/copy and `FReflectedValueStorage` operations return
+`FPropertyValueResult`. Errors own property and Struct names, the requested array
+index and dimension, layout facts, and the failed operation. Missing inputs,
+unavailable operations, invalid storage, and copy exceptions are distinct codes.
+No diagnostic-output overload remains. Copy failure context survives detached
+storage cleanup; failed attempts to construct into live storage preserve its
+value. Pending Archive and editor contracts format explicitly at their adapters.
+
+Property snapshot capture/restore APIs return `FPropertySnapshotResult`, with
+owned validation context, operation and array indices, exact reference-table
+failure reasons/counts, and Archive code/path context. Property storage and live
+Map-key causes remain typed through `FObjectArchive`; formatting uses
+`FormatPropertySnapshotError` at pending editor/transaction adapters. Capture
+publishes its payload only on success; restore retains the existing detached
+Struct/container commit and hard-reference resolution rules. Shared property
+error records live in `DObject/PropertyDiagnostic.h`.
+
+`InitializeObjectFromDefaults` and `CopyEditableObjectProperties` return
+`FObjectPropertyCopyResult`, without string error outputs. They retain owned
+source/destination types and identities, nested reference routes, and typed
+property-value, snapshot, container and Archive causes. Default initialization
+still delegates graph rollback to its caller. Editable copying restores earlier
+fields on failure, retains the original failure plus the first rollback failure,
+and marks the destination dirty only on success. Pending Engine/editor callers
+format explicitly with `FormatObjectPropertyCopyError`.
+
 Property snapshots and editable copies operate on selected values rather than
 pretending to serialize a complete object; snapshots root their captured hard
 references and remain process-local and unversioned.

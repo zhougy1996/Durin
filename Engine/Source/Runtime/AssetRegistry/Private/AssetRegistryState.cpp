@@ -166,7 +166,7 @@ namespace Durin
 				|| !Publication.ReferenceErrors.empty()
 				|| Publication.ReferenceFingerprints.size() != Publication.Assets.size())
 				return {EAssetRegistryError::StaleData,
-					"Asset registry publication requires a complete catalog/reference projection."};
+					{.Reason = EAssetRegistryFailure::IncompleteProjection}};
 			const auto PathsCanonical = [](const std::vector<FPackagePath>& Paths) {
 				return std::ranges::is_sorted(Paths,
 					[](const FPackagePath& Left, const FPackagePath& Right) {
@@ -186,18 +186,18 @@ namespace Durin
 					|| ((Data.BulkSegmentExtent == 0)
 						!= Data.BulkSegmentDigest.IsZero()))
 					return {EAssetRegistryError::CorruptFile,
-						"Asset registry publication contains inconsistent package metadata."};
+						{.Reason = EAssetRegistryFailure::InconsistentMetadata, .Path = Path.ToString()}};
 				if (!ArePackageAssetsValid(Data.TopLevelAssets, Path,
 					Data.ObjectCount, Data.Dependencies))
 					return {EAssetRegistryError::CorruptFile,
-						"Asset registry publication contains invalid exact asset metadata."};
+						{.Reason = EAssetRegistryFailure::InvalidPublicationAssets, .Path = Path.ToString()}};
 				const FAssetPackageFingerprint ExpectedFingerprint{
 					.FileSize = Data.FileSize,
 					.LastWriteTimeTicks = Data.LastWriteTimeTicks,
 					.ReaderVersion = Data.FormatVersion};
 				if (Publication.ReferenceFingerprints.at(Path) != ExpectedFingerprint)
 					return {EAssetRegistryError::CorruptFile,
-						"Asset registry publication fingerprint drifted from catalog metadata."};
+						{.Reason = EAssetRegistryFailure::FingerprintMismatch, .Path = Path.ToString()}};
 				auto Add = [&](EAssetReferenceKind Kind, const FPackagePath& Target) {
 					ExpectedEdges.push_back({.SourcePackage = Path,
 						.SourceFingerprint = ExpectedFingerprint, .Kind = Kind,
@@ -221,7 +221,7 @@ namespace Durin
 				}), ExpectedEdges.end());
 			if (Publication.ReferenceEdges != ExpectedEdges)
 				return {EAssetRegistryError::CorruptFile,
-					"Asset registry publication package edges drifted from catalog metadata."};
+					{.Reason = EAssetRegistryFailure::EdgeMismatch}};
 			return {};
 		}
 	}
@@ -353,8 +353,7 @@ namespace Durin
 		if (RootIt == Assets.end())
 		{
 			Result.Result = {EAssetRegistryError::NotFound,
-				std::format("The Asset Registry has no entry for dependency root '{}'.",
-					Root.GetView())};
+				{.Reason = EAssetRegistryFailure::MissingRoot, .Path = Root.ToString()}};
 			return Result;
 		}
 
@@ -374,8 +373,7 @@ namespace Durin
 				{
 					Result.Assets.clear();
 					Result.Result = {EAssetRegistryError::MissingDependency,
-						std::format("The Asset Registry has no entry for dependency '{}'.",
-							Dependency.GetView())};
+						{.Reason = EAssetRegistryFailure::MissingDependency, .Path = Dependency.ToString()}};
 					return Result;
 				}
 				Pending.push_back(&DependencyIt->second);
@@ -449,9 +447,8 @@ namespace Durin
 	{
 		std::unique_lock Lock(Mutex);
 		if (Publication.ExpectedRevision != Revision)
-			return {EAssetRegistryError::StaleData, std::format(
-				"Asset registry publication expected revision {} but current revision is {}.",
-				Publication.ExpectedRevision, Revision)};
+			return {EAssetRegistryError::StaleData, {.Reason = EAssetRegistryFailure::PublicationRevision,
+				.Actual = Revision, .Expected = Publication.ExpectedRevision}};
 		if (FAssetRegistryResult Validation = ValidatePublication(Publication); !Validation)
 			return Validation;
 		if (Assets == Publication.Assets
@@ -491,9 +488,8 @@ namespace Durin
 	{
 		std::unique_lock Lock(Mutex);
 		if (Delta.ExpectedRevision != Revision)
-			return {EAssetRegistryError::StaleData, std::format(
-				"Asset registry delta expected revision {} but current revision is {}.",
-				Delta.ExpectedRevision, Revision)};
+			return {EAssetRegistryError::StaleData, {.Reason = EAssetRegistryFailure::DeltaRevision,
+				.Actual = Revision, .Expected = Delta.ExpectedRevision}};
 		// Validate the changed packages as a self-contained projection before mutating state.
 		FAssetRegistryPublication Publication;
 		std::unordered_set<FPackagePath> Touched;
@@ -504,26 +500,26 @@ namespace Durin
 		{
 			if (!Touch(Data.PackagePath) || Assets.contains(Data.PackagePath))
 				return {EAssetRegistryError::StaleData,
-					"Asset registry delta Add path is invalid, duplicated, or occupied."};
+					{.Reason = EAssetRegistryFailure::InvalidAdd, .Path = Data.PackagePath.ToString()}};
 			Publication.Assets.emplace(Data.PackagePath, std::move(Data));
 		}
 		for (FAssetData& Data : Delta.Replaces)
 		{
 			if (!Touch(Data.PackagePath) || !Assets.contains(Data.PackagePath))
 				return {EAssetRegistryError::StaleData,
-					"Asset registry delta Replace path is invalid, duplicated, or missing."};
+					{.Reason = EAssetRegistryFailure::InvalidReplace, .Path = Data.PackagePath.ToString()}};
 			Publication.Assets.insert_or_assign(Data.PackagePath, std::move(Data));
 		}
 		for (const FPackagePath& Path : Delta.Removes)
 		{
 			if (!Touch(Path) || !Assets.contains(Path))
 				return {EAssetRegistryError::StaleData,
-					"Asset registry delta Remove path is invalid, duplicated, or missing."};
+					{.Reason = EAssetRegistryFailure::InvalidRemove, .Path = Path.ToString()}};
 		}
 		for (const FPackagePath& Path : Delta.ReferenceInvalidations)
 			if (!Path.IsValid())
 				return {EAssetRegistryError::CorruptFile,
-					"Asset registry delta contains an invalid reference-invalidation path."};
+					{.Reason = EAssetRegistryFailure::InvalidInvalidation, .Path = Path.ToString()}};
 
 		for (const auto& [Path, Data] : Publication.Assets)
 		{
@@ -710,7 +706,7 @@ namespace Durin
 		{
 			if (!Data.PackagePath.IsValid()
 				|| !SeenPaths.insert(Data.PackagePath).second)
-				return {EAssetRegistryError::InvalidPath, "Asset metadata batch contains an invalid or duplicate package path."};
+				return {EAssetRegistryError::InvalidPath, {.Reason = EAssetRegistryFailure::InvalidBatch, .Path = Data.PackagePath.ToString()}};
 		}
 		FAssetRegistryDelta Delta{.ExpectedRevision = Expected.ExpectedRevision};
 		for (FAssetData& Data : Assets)

@@ -160,8 +160,8 @@ TEST(FTextureCookTests, ColdCookRebuildsFromAuthoredPixelsWithoutSourceOrDdc)
 		Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game);
 	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
-		*Loaded, "/Game/ColdTexture", Cook, Error)) << Error;
-	ASSERT_TRUE(Durin::PublishCookContext(Cook, CookRoot, &Error)) << Error;
+		*Loaded, "/Game/ColdTexture", Cook)) << Error;
+	ASSERT_TRUE(Durin::PublishCookContext(Cook, CookRoot)) << Error;
 	EXPECT_TRUE(std::filesystem::is_regular_file(
 		CookRoot / "Game/ColdTexture.dasset"));
 	EXPECT_TRUE(std::filesystem::is_regular_file(
@@ -223,30 +223,30 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 		Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game);
 	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
-		*Import.Asset, "/Game/CookedTexture", First, Error)) << Error;
+		*Import.Asset, "/Game/CookedTexture", First)) << Error;
 	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
-		*SourceMaterial, "/Game/SampleMaterial", First, Error)) << Error;
-	ASSERT_TRUE(Durin::PublishCookContext(First, CookRoot, &Error)) << Error;
+		*SourceMaterial, "/Game/SampleMaterial", First)) << Error;
+	ASSERT_TRUE(Durin::PublishCookContext(First, CookRoot)) << Error;
 	EXPECT_EQ(Import.Asset->GetSource().GetIdentity(), SourceIdentityBeforeCook);
 
 	Durin::FCookContext Second(
 		Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game);
 	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
-		*Import.Asset, "/Game/CookedTexture", Second, Error)) << Error;
+		*Import.Asset, "/Game/CookedTexture", Second)) << Error;
 	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
-		*SourceMaterial, "/Game/SampleMaterial", Second, Error)) << Error;
-	ASSERT_TRUE(Durin::PublishCookContext(Second, SecondCookRoot, &Error)) << Error;
+		*SourceMaterial, "/Game/SampleMaterial", Second)) << Error;
+	ASSERT_TRUE(Durin::PublishCookContext(Second, SecondCookRoot)) << Error;
 
 	Durin::FCookContext Diagnostic(
 		Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game,
 		true);
 	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
-		*Import.Asset, "/Game/CookedTexture", Diagnostic, Error)) << Error;
+		*Import.Asset, "/Game/CookedTexture", Diagnostic)) << Error;
 	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
-		*SourceMaterial, "/Game/SampleMaterial", Diagnostic, Error)) << Error;
-	ASSERT_TRUE(Durin::PublishCookContext(Diagnostic, DiagnosticCookRoot, &Error)) << Error;
+		*SourceMaterial, "/Game/SampleMaterial", Diagnostic)) << Error;
+	ASSERT_TRUE(Durin::PublishCookContext(Diagnostic, DiagnosticCookRoot)) << Error;
 	ASSERT_NE(Import.Asset->GetAssetImportData(), nullptr);
 	ImportedSource = Import.Asset->GetAssetImportData()->GetSourceData().FindByRole("source");
 	ASSERT_NE(ImportedSource, nullptr);
@@ -530,7 +530,8 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	EXPECT_TRUE(std::ranges::any_of(
 		MissingBulkRefresh.Errors,
 		[](const Durin::FAssetRegistryResult& Result) {
-			return Result.Message.find("bulk binding") != std::string::npos;
+			return Result.Context.ReaderCause
+				&& Result.Context.ReaderCause->Reason == Durin::ObjectPackage::EPackageReaderReason::RegistryBulk;
 		}));
 
 	ASSERT_TRUE(AssetRuntime.RestartCooked(CorruptRoot));

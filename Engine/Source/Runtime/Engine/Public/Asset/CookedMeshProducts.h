@@ -7,21 +7,37 @@
 
 namespace Durin
 {
-	enum class ECookedMeshProductFailure : uint8
+	enum class EArchiveFailureCode : uint8;
+	enum class ECookedMeshProductError : uint8
 	{
-		None,
-		Schema,
-		Metadata,
-		Construction,
+		None, MissingCollision, CollisionArchive, CollisionMetadata,
+		CollisionConstruction, RenderArchive, MaterialSlotCount,
+		RenderConstruction, RuntimeMaterialSlotCount
 	};
 
 	struct FCookedMeshProductError
 	{
-		ECookedMeshProductFailure Category = ECookedMeshProductFailure::None;
-		std::string Message;
-
-		explicit operator bool() const { return Category != ECookedMeshProductFailure::None; }
+		ECookedMeshProductError Code = ECookedMeshProductError::None;
+		std::optional<EArchiveFailureCode> ArchiveCode;
+		std::string ArchivePath;
+		uint64 ByteOffset = 0;
+		uint64 ByteCount = 0;
+		uint64 Actual = 0;
+		uint64 Expected = 0;
+		EBodySetupCollisionSourceMode ActualMode = EBodySetupCollisionSourceMode::None;
+		EBodySetupCollisionSourceMode ExpectedMode = EBodySetupCollisionSourceMode::None;
+		EBodySetupCollisionQueryPolicy ActualPolicy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
+		EBodySetupCollisionQueryPolicy ExpectedPolicy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
+		std::optional<FStaticMeshCollisionPayloadError> CollisionCause;
+		std::optional<FStaticMeshPayloadError> RenderCause;
 	};
+
+	struct FCookedMeshProductResult
+	{
+		FCookedMeshProductError Error;
+		explicit operator bool() const { return Error.Code == ECookedMeshProductError::None; }
+	};
+	ENGINE_API auto FormatCookedMeshProductError(const FCookedMeshProductError& Error) -> std::string;
 
 	struct FStaticMeshCookedProduct
 	{
@@ -40,6 +56,5 @@ namespace Durin
 		std::span<const FMeshMaterialSlotDefinition> MaterialSlots,
 		EBodySetupCollisionSourceMode CollisionMode,
 		EBodySetupCollisionQueryPolicy CollisionPolicy,
-		FStaticMeshCookedProduct& OutProduct,
-		FCookedMeshProductError& OutError) -> bool;
+		FStaticMeshCookedProduct& OutProduct) -> FCookedMeshProductResult;
 }

@@ -1,3 +1,4 @@
+#include "RoadNet/RoadPropertyEditValidation.h"
 #include "RoadNet/RoadNetActor.h"
 
 #include "Components/SplineMeshComponent.h"
@@ -8,14 +9,20 @@
 
 namespace Durin::RoadNet
 {
-	auto DRoadSceneRoot::PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool
+	auto DRoadSceneRoot::PreEditChangeProperty(FPropertyEditProposal& Proposal) -> FObjectValidationResult
 	{
-		if (!Super::PreEditChangeProperty(Proposal, OutError)) return false;
+		if (auto Result = Super::PreEditChangeProperty(Proposal); !Result) return Result;
 		if (Proposal.MemberProperty && Proposal.MemberProperty->NamePrivate == FName("RelativeTransform")
 			&& Proposal.DraftRootProperty == Proposal.MemberProperty && Proposal.DraftRootContainer)
-			return ValidateRoadPlacement(*Proposal.DraftRootProperty->ContainerPtrToValuePtr<FTransform>(
-				Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex), OutError);
-		return true;
+		{
+			const auto Validation = ValidateRoadPlacement(*Proposal.DraftRootProperty->ContainerPtrToValuePtr<FTransform>(
+				Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex));
+			if (!Validation)
+			{
+				return RejectRoadPropertyEdit(*this, Proposal, Validation.Error);
+			}
+		}
+		return {};
 	}
 
 	auto DRoadSceneRoot::OnUpdateTransform() -> void
@@ -95,12 +102,13 @@ namespace Durin::RoadNet
 			return true;
 		}
 		if (RoadNet->GetSchemaVersion() != RoadNetSchemaVersion) return Fail("Road asset has an unsupported schema.");
-		if (!ValidateRoadPlacement(GetActorTransform(), OutError)) return Fail(OutError);
+		const auto PlacementValidation = ValidateRoadPlacement(GetActorTransform());
+		if (!PlacementValidation) return Fail(FormatRoadPlacementError(PlacementValidation.Error));
 		if (!PreviewMesh) return Fail("Assign a preview StaticMesh with nonzero X and Y extent.");
 		// Package loading submits mesh compilation asynchronously; construction needs its published CPU geometry.
 		FAssetCompilingManager::Get().FinishCompilationForObject(*PreviewMesh);
 		const auto Loaded = PreviewMesh->EnsureRenderDataLoadedBlocking();
-		if (!Loaded.Status.HasCpuData()) return Fail(Loaded.Message);
+		if (!Loaded.Status.HasCpuData()) return Fail(FormatCookedMeshLoadError(Loaded.Error));
 		const auto Bounds = PreviewMesh->GetLOD0LocalBounds();
 		if (!Bounds || Bounds->Max.x - Bounds->Min.x <= 1.e-6 || Bounds->Max.y - Bounds->Min.y <= 1.e-6)
 			return Fail("Preview mesh CPU data is unavailable or its X/Y extent is degenerate.");
@@ -136,7 +144,8 @@ namespace Durin::RoadNet
 				Params.StartOffset.x = Params.EndOffset.x = (Right + Left) * 0.5
 					- (Bounds->Max.y + Bounds->Min.y) * 0.5 * Params.StartScale.x;
 				FSplineMeshParams Normalized;
-				if (!FSplineMeshDeformer::Normalize(Params, Normalized, &OutError)) return Fail(OutError);
+				const auto Validation = FSplineMeshDeformer::Normalize(Params, Normalized);
+				if (!Validation) return Fail(FormatSplineMeshValidationError(Validation.Error));
 				Specs.push_back({{FName(std::format("Road-{}-{}", Road.Id.ToString(), Interval.SubdivisionKey)),
 					Interval.SourcePointId}, Normalized});
 			}

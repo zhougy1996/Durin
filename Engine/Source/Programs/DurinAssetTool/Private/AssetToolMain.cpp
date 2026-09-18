@@ -418,11 +418,12 @@ namespace
 			if (Package.Result)
 			{
 				std::vector<FPackageBulkStorageDescriptor> Descriptors;
-				if (!InspectEditorBulkDataStorageDescriptors(
-						Package.Inspection, Descriptors, &Package.DescriptorDiagnostic
-					))
+				if (const auto Storage = InspectEditorBulkDataStorageDescriptors(
+						Package.Inspection, Descriptors); !Storage)
 				{
-					Package.Result = {EAssetError::CorruptFile, Package.DescriptorDiagnostic};
+					Package.DescriptorDiagnostic = FormatEditorBulkDataStorageError(Storage.Error);
+					Package.Result = {.Error = EAssetError::CorruptFile, .Message = Package.DescriptorDiagnostic,
+						.BulkStorageCause = Storage.Error};
 				}
 				else
 				{
@@ -458,11 +459,9 @@ namespace
 						}
 						Package.Descriptors.push_back(std::move(Item));
 					}
-					std::string OrphanError;
-					if (!InspectOrphanedEditorBulkDataCompanionPaths(
-							Input.PhysicalPath, Package.Inspection, Package.Orphans, &OrphanError
-						))
-						Package.DescriptorDiagnostic = OrphanError;
+					if (const auto Orphans = InspectOrphanedEditorBulkDataCompanionPaths(
+							Input.PhysicalPath, Package.Inspection, Package.Orphans); !Orphans)
+						Package.DescriptorDiagnostic = FormatEditorBulkDataStorageError(Orphans.Error);
 				}
 			}
 			Packages.push_back(std::move(Package));
@@ -770,19 +769,19 @@ namespace
 		using namespace Durin;
 		using namespace Durin;
 		OutHandles.clear();
-		const FCookContributorHandle Generic = RegisterCookContributor(
+		const auto Generic = RegisterCookContributor(
 			DObject::StaticClass(), {"generic-package", 1, 1,
 									 [](DObject& Object, std::string_view VirtualPath,
 										FCookContext& Context) -> FAssetResult {
 										 std::string Error;
-										 if (!Context.AddPackage(std::string(VirtualPath), Object.GetPackage(), &Error))
-											 return {EAssetError::InvalidPackageType, std::move(Error)};
+										 if (const auto Added = Context.AddPackage(std::string(VirtualPath), Object.GetPackage()); !Added)
+											 return {EAssetError::InvalidPackageType, FormatCookPlanError(Added.Error)};
 										 return {};
 									 }}
 		);
-		if (Generic != 0) OutHandles.push_back(Generic);
-		const bool bRegistered = Generic != 0
-			&& RegisterEngineCookContributors(OutHandles, OutError);
+		if (Generic) OutHandles.push_back(Generic.Handle);
+		const auto Registered = Generic ? RegisterEngineCookContributors(OutHandles) : Generic;
+		const bool bRegistered = static_cast<bool>(Registered);
 		if (bRegistered)
 		{
 			OutError.clear();
@@ -791,7 +790,7 @@ namespace
 		for (const FCookContributorHandle Handle : OutHandles)
 			UnregisterCookContributor(Handle);
 		OutHandles.clear();
-		OutError = "CookContributorRegistrationFailed: a class has a duplicate or invalid contributor.";
+		OutError = FormatCookContributorRegistrationError(Registered);
 		return false;
 	}
 
@@ -805,8 +804,8 @@ namespace
 		Root.EnsureObject();
 		Root.SetChildValue("schemaVersion", 1);
 		Root.SetChildValue("status", CookRunStatusName(Result.Status));
-		Root.SetChildValue("code", Result.Code);
-		Root.SetChildValue("diagnostic", Result.Diagnostic);
+		Root.SetChildValue("code", Durin::CookRunCodeName(Result));
+		Root.SetChildValue("diagnostic", Durin::FormatCookRunError(Result));
 		Root.SetChildValue("target", "win64");
 		Root.SetChildValue("profile", "game");
 		Root.SetChildValue("changedBytes", Result.ChangedBytes);
@@ -825,8 +824,8 @@ namespace
 			PackageNode.SetChildValue("contributor", Package.Contributor);
 			PackageNode.SetChildValue("status", CookPackageStatusName(Package.Status));
 			PackageNode.SetChildValue("stage", CookOperationStageName(Package.Stage));
-			PackageNode.SetChildValue("code", Package.Code);
-			PackageNode.SetChildValue("diagnostic", Package.Diagnostic);
+			PackageNode.SetChildValue("code", CookPackageStatusName(Package.Status));
+			PackageNode.SetChildValue("diagnostic", FormatCookPackageResult(Package));
 			PackageNode.SetChildValue("packageBytes", Package.PackageBytes);
 			PackageNode.SetChildValue("segmentBytes", Package.SegmentBytes);
 		}
@@ -908,8 +907,8 @@ namespace
 					  << Result.Packages.size() << " package(s), " << Hits
 					  << " Cook hit(s), " << Result.ChangedBytes << " changed byte(s), "
 					  << Result.ReusedBytes << " reused byte(s).\n";
-			if (!Result.Diagnostic.empty())
-				std::cout << "  " << Result.Code << ": " << Result.Diagnostic << '\n';
+			if (!Durin::FormatCookRunError(Result).empty())
+				std::cout << "  " << Durin::CookRunCodeName(Result) << ": " << Durin::FormatCookRunError(Result) << '\n';
 		}
 		if (Result.Status == ECookRunStatus::Cancelled) return 130;
 		return Result.Status == ECookRunStatus::Succeeded ? 0 : 1;
@@ -963,12 +962,13 @@ int main(int ArgC, char** ArgV)
 		// Validate all host-owned writable roots before starting the logger or caches.
 		for (const auto& Destination : {Options.OutputRoot,
 			Options.OutputRoot / "DerivedDataCache", Options.OutputRoot / "Logs"})
-			if (!Durin::ValidateCookOutputRoot(Destination, Error))
+			if (const auto Validated = Durin::ValidateCookOutputRoot(Destination); !Validated)
 			{
+				Error = Durin::FormatCookOutputRootError(Validated);
 				Durin::FCookRunResult Result;
 				Result.Status = Durin::ECookRunStatus::Failed;
-				Result.Code = "invalid-output-root";
-				Result.Diagnostic = Error;
+				Result.Error = Durin::ECookRunError::InvalidOutputRoot;
+				Result.OutputRootCause = std::make_shared<Durin::FCookOutputRootResult>(Validated);
 				if (Options.Format == EOutputFormat::Json)
 					std::cout << SerializeCookRunResult(Result) << '\n';
 				else std::cerr << "Error: " << Error << '\n';

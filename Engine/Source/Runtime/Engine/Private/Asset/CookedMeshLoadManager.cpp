@@ -66,8 +66,9 @@ namespace Durin
 				{
 					Completion.Result.Product.reset();
 					Completion.Result.RetainedBytes = 0;
-					Completion.Result.Message =
-						"Cooked mesh result exceeds the bounded completion mailbox.";
+					Completion.Result.Error = {.Code = ECookedMeshLoadError::CompletionBudget,
+						.Actual = Bytes, .Expected = Config.MaxPendingCompletionBytes,
+						.Reserved = PendingCompletionBytes};
 					Completion.State = ECookedMeshTerminalState::Failed;
 				}
 				else PendingCompletionBytes += Bytes;
@@ -211,7 +212,27 @@ namespace Durin
 		return true;
 	}
 
-	auto FCookedMeshLoadManager::Submit(FCookedMeshLoadRequest Request) -> bool
+	auto FormatCookedMeshAdmissionError(const FCookedMeshAdmissionError& Error) -> std::string
+	{
+		switch (Error.Code)
+		{
+		case ECookedMeshAdmissionError::None: return {};
+		case ECookedMeshAdmissionError::InvalidRequest: return "Cooked mesh request identity, fields or callbacks are invalid.";
+		case ECookedMeshAdmissionError::FieldSize:
+			return std::format("Cooked mesh field {} has invalid size {} with {} bytes accumulated against limit {}.",
+				Error.Index, Error.FieldBytes, Error.RequestedBytes, Error.ByteLimit);
+		case ECookedMeshAdmissionError::NotAccepting: return "Cooked mesh manager is not accepting requests.";
+		case ECookedMeshAdmissionError::StaleGeneration: return "Cooked mesh request generation is older than accepted work.";
+		case ECookedMeshAdmissionError::IdentityConflict: return "Cooked mesh request identity conflicts with its accepted generation.";
+		case ECookedMeshAdmissionError::PendingBudget:
+		case ECookedMeshAdmissionError::FlightBudget:
+			return std::format("Cooked mesh admission exceeds count/byte limits: {} requests of {}, {} requested bytes, {} reserved of {}.",
+				Error.RequestCount, Error.RequestLimit, Error.RequestedBytes, Error.ReservedBytes, Error.ByteLimit);
+		}
+		return "Unknown cooked mesh admission failure.";
+	}
+
+	auto FCookedMeshLoadManager::Submit(FCookedMeshLoadRequest Request) -> FCookedMeshAdmissionResult
 	{
 		CheckGameThread();
 		if (IsObjectKeyNull(Request.Identity.Owner)
@@ -221,17 +242,20 @@ namespace Durin
 		{
 			std::scoped_lock Lock(State->Mutex);
 			++State->Diagnostics.RejectedCount;
-			return false;
+			return {.Error = {.Code = ECookedMeshAdmissionError::InvalidRequest, .Identity = Request.Identity,
+				.FieldCount = Request.Fields.size(), .HasWorker = bool(Request.Worker), .HasPublisher = bool(Request.Publish)}};
 		}
 		uint64 EstimatedBytes = 0;
-		for (const FBulkData& Field : Request.Fields)
+		for (size_t FieldIndex = 0; FieldIndex < Request.Fields.size(); ++FieldIndex)
 		{
-			const uint64 Bytes = Field.GetMetadata().LogicalSize;
-			if (Bytes == 0 || EstimatedBytes > MaximumBulkDataBytes - Bytes)
+			const uint64 Bytes = Request.Fields[FieldIndex].GetMetadata().LogicalSize;
+			if (Bytes == 0 || Bytes > MaximumBulkDataBytes
+				|| EstimatedBytes > MaximumBulkDataBytes - Bytes)
 			{
 				std::scoped_lock Lock(State->Mutex);
 				++State->Diagnostics.RejectedCount;
-				return false;
+				return {.Error = {.Code = ECookedMeshAdmissionError::FieldSize, .Identity = Request.Identity,
+					.Index = FieldIndex, .FieldBytes = Bytes, .RequestedBytes = EstimatedBytes, .ByteLimit = MaximumBulkDataBytes}};
 			}
 			EstimatedBytes += Bytes;
 		}
@@ -241,7 +265,7 @@ namespace Durin
 			if (State->ManagerState != ECookedMeshManagerState::Accepting)
 			{
 				++State->Diagnostics.RejectedCount;
-				return false;
+				return {.Error = {.Code = ECookedMeshAdmissionError::NotAccepting, .Identity = Request.Identity, .State = State->ManagerState}};
 			}
 
 			const auto SameAsset = [&](const FCookedMeshLoadIdentity& Existing) {
@@ -249,19 +273,24 @@ namespace Durin
 					&& Existing.Family == Request.Identity.Family;
 			};
 			uint64 CurrentGeneration = 0;
+			std::optional<FCookedMeshLoadIdentity> ExistingIdentity;
+			auto ObserveIdentity = [&](const FCookedMeshLoadIdentity& Identity) {
+				if (SameAsset(Identity) && Identity.LoadGeneration >= CurrentGeneration)
+				{
+					CurrentGeneration = Identity.LoadGeneration;
+					ExistingIdentity = Identity;
+				}
+			};
 			for (const std::shared_ptr<FFlight>& Existing : State->Flights)
-				if (SameAsset(Existing->Identity))
-					CurrentGeneration = std::max(
-						CurrentGeneration, Existing->Identity.LoadGeneration);
+				ObserveIdentity(Existing->Identity);
 			for (const FPendingRequest& Existing : State->PendingRequests)
-				if (SameAsset(Existing.Request.Identity))
-					CurrentGeneration = std::max(CurrentGeneration,
-						Existing.Request.Identity.LoadGeneration);
+				ObserveIdentity(Existing.Request.Identity);
 			if (CurrentGeneration != 0
 				&& Request.Identity.LoadGeneration < CurrentGeneration)
 			{
 				++State->Diagnostics.RejectedCount;
-				return false;
+				return {.Error = {.Code = ECookedMeshAdmissionError::StaleGeneration, .Identity = Request.Identity,
+					.CurrentGeneration = CurrentGeneration, .ExistingIdentity = ExistingIdentity}};
 			}
 			if (CurrentGeneration == Request.Identity.LoadGeneration)
 			{
@@ -269,10 +298,11 @@ namespace Durin
 					|| State->FindPending(Request.Identity) != State->PendingRequests.end())
 				{
 					++State->Diagnostics.CoalescedCount;
-					return true;
+					return {};
 				}
 				++State->Diagnostics.RejectedCount;
-				return false;
+				return {.Error = {.Code = ECookedMeshAdmissionError::IdentityConflict, .Identity = Request.Identity,
+					.CurrentGeneration = CurrentGeneration, .ExistingIdentity = ExistingIdentity}};
 			}
 			const bool bSupersedesFlight = std::ranges::any_of(State->Flights,
 				[&](const std::shared_ptr<FFlight>& Existing) {
@@ -296,7 +326,10 @@ namespace Durin
 						> State->Config.MaxPendingEstimatedBytes - EstimatedBytes)
 				{
 					++State->Diagnostics.RejectedCount;
-					return false;
+					return {.Error = {.Code = ECookedMeshAdmissionError::PendingBudget, .Identity = Request.Identity,
+						.RequestedBytes = EstimatedBytes, .ReservedBytes = ProspectivePendingBytes,
+						.ByteLimit = State->Config.MaxPendingEstimatedBytes, .RequestCount = State->PendingRequests.size(),
+						.RequestLimit = State->Config.MaxPendingRequests}};
 				}
 				for (const std::shared_ptr<FFlight>& Existing : State->Flights)
 					if (SameAsset(Existing->Identity))
@@ -322,18 +355,21 @@ namespace Durin
 					State->PendingRequestEstimatedBytes);
 				++State->Diagnostics.SupersededCount;
 				++State->Diagnostics.AcceptedCount;
-				return true;
+				return {};
 			}
 
 			if (!State->CanStart(EstimatedBytes))
 			{
 				++State->Diagnostics.RejectedCount;
-				return false;
+				return {.Error = {.Code = ECookedMeshAdmissionError::FlightBudget, .Identity = Request.Identity,
+					.RequestedBytes = EstimatedBytes, .ReservedBytes = State->InFlightEstimatedBytes,
+					.ByteLimit = State->Config.MaxEstimatedBytes, .RequestCount = State->Flights.size(),
+					.RequestLimit = State->Config.MaxConcurrentRequests}};
 			}
 			State->StartFlight(std::move(Request), EstimatedBytes);
 			++State->Diagnostics.AcceptedCount;
 		}
-		return true;
+		return {};
 	}
 
 	auto FCookedMeshLoadManager::Pump() -> uint32
@@ -363,7 +399,7 @@ namespace Durin
 				}
 				std::vector<FSharedByteBuffer> Buffers;
 				Buffers.reserve(Flight->Reads.size());
-				std::string ReadError;
+				FCookedMeshLoadError ReadError;
 				ECookedMeshTerminalState Terminal = ECookedMeshTerminalState::Succeeded;
 				for (const FPackageResourceRequest& Read : Flight->Reads)
 				{
@@ -373,7 +409,8 @@ namespace Durin
 						Terminal = Result.Status == EPackageResourceReadStatus::Cancelled
 							? ECookedMeshTerminalState::Cancelled
 							: ECookedMeshTerminalState::Failed;
-						ReadError = std::move(Result.Message);
+						ReadError = {.Code = ECookedMeshLoadError::Read, .Index = Buffers.size(),
+							.ReadCause = std::make_shared<FPackageResourceReadResult>(std::move(Result))};
 						break;
 					}
 					Buffers.push_back(std::move(Result.Buffer));
@@ -382,7 +419,7 @@ namespace Durin
 				if (Terminal != ECookedMeshTerminalState::Succeeded)
 				{
 					State->QueueCompletion({Flight,
-						{.Message = std::move(ReadError)}, Terminal});
+						{.Error = std::move(ReadError)}, Terminal});
 					continue;
 				}
 				{
@@ -395,7 +432,7 @@ namespace Durin
 				if (Terminal == ECookedMeshTerminalState::Cancelled)
 				{
 					State->QueueCompletion({Flight,
-						{.Message = "Cooked mesh manager shutdown cancelled decode admission."},
+						{.Error = {.Code = ECookedMeshLoadError::Cancelled}},
 						Terminal});
 					continue;
 				}
@@ -420,6 +457,8 @@ namespace Durin
 							std::scoped_lock Lock(SharedState->Mutex);
 							SharedState->Diagnostics.WorkerMicroseconds += WorkerElapsed;
 						}
+						if (Result && !Result.Product)
+							Result.Error.Code = ECookedMeshLoadError::InvalidProduct;
 						const bool bCancelled = Token.IsCancellationRequested();
 						const ECookedMeshTerminalState Terminal = bCancelled
 							? ECookedMeshTerminalState::Cancelled
@@ -435,7 +474,7 @@ namespace Durin
 			else if (Phase == EFlightPhase::Working && Flight->Task.IsComplete())
 			{
 				State->QueueCompletion({Flight,
-					{.Message = Flight->Task.GetDiagnostics().Diagnostic},
+					{.Error = {.Code = ECookedMeshLoadError::Task, .TaskState = Flight->Task.GetState()}},
 					Flight->Task.GetState() == ETaskState::Failed
 						? ECookedMeshTerminalState::Failed
 						: ECookedMeshTerminalState::Cancelled});
@@ -456,7 +495,7 @@ namespace Durin
 				State->PendingCompletionBytes -= Completion.Result.RetainedBytes;
 			}
 			ECookedMeshTerminalState Terminal = Completion.State;
-			std::string TerminalMessage = std::move(Completion.Result.Message);
+			FCookedMeshLoadError TerminalError = std::move(Completion.Result.Error);
 			bool bAccepting = false;
 			if (Terminal == ECookedMeshTerminalState::Succeeded)
 			{
@@ -485,12 +524,11 @@ namespace Durin
 				}
 				else
 				{
-					std::string Error;
-					if (!Completion.Flight->Publish(*Owner,
-						Completion.Flight->Identity, std::move(Completion.Result.Product), Error))
+					if (const auto Published = Completion.Flight->Publish(*Owner,
+						Completion.Flight->Identity, std::move(Completion.Result.Product)); !Published)
 					{
 						Terminal = ECookedMeshTerminalState::Failed;
-						TerminalMessage = std::move(Error);
+						TerminalError = Published.Error;
 					}
 				}
 			}
@@ -502,8 +540,12 @@ namespace Durin
 				if (Owner && (!Completion.Flight->IsCurrent
 					|| Completion.Flight->IsCurrent(*Owner, Completion.Flight->Identity)))
 				{
+					TerminalError.Owner = Completion.Flight->Identity.Owner;
+					if (Terminal == ECookedMeshTerminalState::Cancelled
+						&& TerminalError.Code == ECookedMeshLoadError::None)
+						TerminalError.Code = ECookedMeshLoadError::Cancelled;
 					Completion.Flight->OnTerminal(*Owner, Completion.Flight->Identity,
-						Terminal, TerminalMessage);
+						Terminal, TerminalError);
 				}
 			}
 			{

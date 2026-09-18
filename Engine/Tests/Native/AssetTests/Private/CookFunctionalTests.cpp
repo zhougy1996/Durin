@@ -74,16 +74,16 @@ namespace
 		auto SetUp() -> void override
 		{
 			std::string Error;
-			ASSERT_TRUE(RegisterEngineCookContributors(Handles, Error)) << Error;
+			ASSERT_TRUE(RegisterEngineCookContributors(Handles)) << Error;
 			const auto Generic = RegisterCookContributor(DObject::StaticClass(), {
 				.Name = "generic-package",
 				.Contribute = [](DObject& Object, std::string_view Path, FCookContext& Context) -> FAssetResult {
 					std::string Error;
-					if (!Context.AddPackage(std::string(Path), Object.GetPackage(), &Error))
-						return {EAssetError::InvalidPackageType, std::move(Error)};
+					if (const auto Added = Context.AddPackage(std::string(Path), Object.GetPackage()); !Added)
+						return {EAssetError::InvalidPackageType, FormatCookPlanError(Added.Error)};
 					return {};
 				},
-				.DeclareDependencies = [](const FCookDependencyRequest&, std::vector<FCookDependencyDeclaration>&) -> FAssetResult { return {}; }});
+				.DeclareDependencies = [](const FCookDependencyRequest&, std::vector<FCookDependencyDeclaration>&) -> FAssetResult { return {}; }}).Handle;
 			ASSERT_NE(Generic, 0u);
 			Handles.push_back(Generic);
 		}
@@ -94,6 +94,150 @@ namespace
 		FScopedOfflinePreparation Offline;
 		std::vector<FCookContributorHandle> Handles;
 	};
+}
+
+TEST_F(FCookFunctionalTests, DeclarationFailuresRetainIdentityAndPathCause)
+{
+	const auto Fixture = Testing::CreateTestFixtureDirectory("CookDeclarationCause");
+	Testing::FScopedMountRegistryFixture Mounts;
+	Testing::RegisterMountPointForTests("/CookTests/", (Fixture / "Content").generic_string());
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/CookTests/Declarations", Path));
+	auto* Package = CreatePackage(Path);
+	ASSERT_NE(NewObject<DObject>(Package, "Declarations"), nullptr);
+	ASSERT_TRUE(SavePackage(Package));
+	ASSERT_TRUE(UnloadPackage(Package));
+	ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
+	UnregisterCookContributor(Handles.back());
+	Handles.pop_back();
+	std::vector<FCookDependencyDeclaration> Declarations;
+	uint32 Contributions = 0;
+	const auto Registered = RegisterCookContributor(DObject::StaticClass(), {
+		.Name = "declaration-provider",
+		.Contribute = [&](DObject&, std::string_view, FCookContext&) -> FAssetResult { ++Contributions; return {}; },
+		.DeclareDependencies = [&](const FCookDependencyRequest&, std::vector<FCookDependencyDeclaration>& Out) -> FAssetResult { Out = Declarations; return {}; }});
+	ASSERT_TRUE(Registered);
+	Handles.push_back(Registered.Handle);
+	FCookRequest Request{.OutputRoot = Fixture / "Output", .TargetPlatform = ECookTargetPlatform::Win64,
+		.TargetProfile = ECookTargetProfile::Game, .ExplicitRoots = {Path}};
+	FCookRunResult Result;
+	Declarations = {{ECookBuildDependencyKind::ConfigurationValue, "quality"},
+		{ECookBuildDependencyKind::ConfigurationValue, "quality"}};
+	EXPECT_FALSE(FCookCoordinator().Run(Request, Result));
+	ASSERT_TRUE(Result.InputFailure.CookInputCause);
+	EXPECT_EQ(Result.InputFailure.CookInputCause->Error, ECookInputError::DuplicateDeclaration);
+	EXPECT_EQ(Result.InputFailure.CookInputCause->Package, Path);
+	EXPECT_EQ(Result.InputFailure.CookInputCause->Kind, ECookBuildDependencyKind::ConfigurationValue);
+	EXPECT_EQ(Result.InputFailure.CookInputCause->Name, "quality");
+	const auto Retained = Result.InputFailure.CookInputCause;
+	Declarations = {{ECookBuildDependencyKind::DirectPackage, "invalid-package"}};
+	EXPECT_FALSE(FCookCoordinator().Run(Request, Result));
+	ASSERT_TRUE(Result.InputFailure.CookInputCause);
+	EXPECT_EQ(Result.InputFailure.Error, EAssetError::InvalidPath);
+	EXPECT_EQ(Result.InputFailure.CookInputCause->Error, ECookInputError::PackageDeclaration);
+	ASSERT_TRUE(Result.InputFailure.CookInputCause->PathCause);
+	EXPECT_TRUE(Result.InputFailure.CookInputCause->PathCause->HasError());
+	EXPECT_EQ(Result.InputFailure.CookInputCause->Name, "invalid-package");
+	EXPECT_EQ(Retained->Name, "quality");
+	EXPECT_EQ(Contributions, 0u);
+	EXPECT_FALSE(std::filesystem::exists(Request.OutputRoot / "CookManifest.bin"));
+}
+
+TEST_F(FCookFunctionalTests, RetainsContributionCauseAndClearsItForNextRun)
+{
+	const auto Fixture = Testing::CreateTestFixtureDirectory("CookContributionCause");
+	Testing::FScopedMountRegistryFixture Mounts;
+	Testing::RegisterMountPointForTests("/CookTests/", (Fixture / "Content").generic_string());
+	FPackagePath Path, Missing;
+	ASSERT_TRUE(FPackagePath::TryCreate("/CookTests/Rejected", Path));
+	ASSERT_TRUE(FPackagePath::TryCreate("/CookTests/Missing", Missing));
+	auto* Package = CreatePackage(Path);
+	ASSERT_NE(NewObject<DObject>(Package, "Rejected"), nullptr);
+	ASSERT_TRUE(SavePackage(Package));
+	ASSERT_TRUE(UnloadPackage(Package));
+	ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
+	UnregisterCookContributor(Handles.back());
+	Handles.pop_back();
+	const auto Registered = RegisterCookContributor(DObject::StaticClass(), {
+		.Name = "rejecting-provider",
+		.Contribute = [](DObject& Object, std::string_view VirtualPath, FCookContext&) -> FAssetResult {
+			return FCookContributionResult{.Error = ECookContributionError::SourceMutation,
+				.ObjectPath = Object.GetObjectPath(), .VirtualPath = std::string(VirtualPath)}.ToAssetResult();
+		},
+		.DeclareDependencies = [](const FCookDependencyRequest&, std::vector<FCookDependencyDeclaration>&) -> FAssetResult { return {}; }});
+	ASSERT_TRUE(Registered);
+	Handles.push_back(Registered.Handle);
+	FCookRequest Request{.OutputRoot = Fixture / "Output", .TargetPlatform = ECookTargetPlatform::Win64,
+		.TargetProfile = ECookTargetProfile::Game, .ExplicitRoots = {Path}};
+	FCookRunResult Result;
+	EXPECT_FALSE(FCookCoordinator().Run(Request, Result));
+	ASSERT_TRUE(Result.ContributionCause);
+	EXPECT_EQ(Result.ContributionCause->Error, EAssetError::InUse);
+	EXPECT_EQ(Result.ContributionPackage, Path);
+	EXPECT_EQ(Result.ContributionProvider, "rejecting-provider");
+	ASSERT_TRUE(Result.ContributionCause->CookContributionCause);
+	EXPECT_EQ(Result.ContributionCause->CookContributionCause->Error, ECookContributionError::SourceMutation);
+	EXPECT_EQ(Result.ContributionCause->CookContributionCause->VirtualPath, Path.ToString());
+	EXPECT_FALSE(std::filesystem::exists(Request.OutputRoot / "CookManifest.bin"));
+	const auto Retained = Result.ContributionCause;
+	Request.ExplicitRoots = {Missing};
+	EXPECT_FALSE(FCookCoordinator().Run(Request, Result));
+	EXPECT_FALSE(Result.ContributionCause);
+	EXPECT_TRUE(Result.ContributionProvider.empty());
+	EXPECT_EQ(Retained->CookContributionCause->VirtualPath, Path.ToString());
+}
+
+TEST_F(FCookFunctionalTests, CaptureFailuresRetainCountsAndFinalizationCauses)
+{
+	const auto Fixture = Testing::CreateTestFixtureDirectory("CookCaptureCause");
+	Testing::FScopedMountRegistryFixture Mounts;
+	Testing::RegisterMountPointForTests("/CookTests/", (Fixture / "Content").generic_string());
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/CookTests/Capture", Path));
+	auto* Package = CreatePackage(Path);
+	ASSERT_NE(NewObject<DObject>(Package, "Capture"), nullptr);
+	ASSERT_TRUE(SavePackage(Package));
+	ASSERT_TRUE(UnloadPackage(Package));
+	ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
+	UnregisterCookContributor(Handles.back());
+	Handles.pop_back();
+	bool bInvalidBytes = false;
+	const auto Registered = RegisterCookContributor(DObject::StaticClass(), {
+		.Name = "capture-provider",
+		.Contribute = [&](DObject&, std::string_view, FCookContext& Context) -> FAssetResult {
+			if (bInvalidBytes)
+			{
+				const auto Added = Context.AddPackage(Path.ToString(), FByteBuffer{std::byte{1}});
+				EXPECT_TRUE(Added);
+			}
+			return {};
+		},
+		.DeclareDependencies = [](const FCookDependencyRequest&, std::vector<FCookDependencyDeclaration>&) -> FAssetResult { return {}; }});
+	ASSERT_TRUE(Registered);
+	Handles.push_back(Registered.Handle);
+	FCookRequest Request{.OutputRoot = Fixture / "Output", .TargetPlatform = ECookTargetPlatform::Win64,
+		.TargetProfile = ECookTargetProfile::Game, .ExplicitRoots = {Path}};
+	FCookRunResult Result;
+	EXPECT_FALSE(FCookCoordinator().Run(Request, Result));
+	ASSERT_TRUE(Result.CaptureCause);
+	EXPECT_EQ(Result.CaptureCause->Error, ECookCaptureError::PlanCount);
+	EXPECT_EQ(Result.CaptureCause->ActualPlans, 0u);
+	EXPECT_EQ(Result.CaptureCause->ExpectedPlans, 1u);
+	EXPECT_EQ(Result.CaptureCause->Package, Path);
+	EXPECT_EQ(Result.CaptureCause->Contributor, "capture-provider");
+	EXPECT_FALSE(Result.CaptureCause->PlanCause);
+	const auto CountFailure = Result.CaptureCause;
+	bInvalidBytes = true;
+	EXPECT_FALSE(FCookCoordinator().Run(Request, Result));
+	ASSERT_TRUE(Result.CaptureCause);
+	EXPECT_EQ(Result.CaptureCause->Error, ECookCaptureError::Finalization);
+	ASSERT_TRUE(Result.CaptureCause->PlanCause);
+	EXPECT_EQ(Result.CaptureCause->PlanCause->Code, ECookPlanError::Canonicalization);
+	EXPECT_EQ(Result.CaptureCause->PlanCause->VirtualPath, Path.ToString());
+	ASSERT_TRUE(Result.CaptureCause->PlanCause->CanonicalizationCause);
+	EXPECT_FALSE(*Result.CaptureCause->PlanCause->CanonicalizationCause);
+	EXPECT_EQ(CountFailure->Error, ECookCaptureError::PlanCount);
+	EXPECT_FALSE(std::filesystem::exists(Request.OutputRoot / "CookManifest.bin"));
 }
 
 TEST_F(FCookFunctionalTests, PreservesSourcesAndPriorOutputsOnFailure)
@@ -114,7 +258,11 @@ TEST_F(FCookFunctionalTests, PreservesSourcesAndPriorOutputsOnFailure)
 	FCookRequest Request{.OutputRoot = Fixture / "Output", .TargetPlatform = ECookTargetPlatform::Win64,
 		.TargetProfile = ECookTargetProfile::Game, .ExplicitRoots = {Path}};
 	FCookRunResult Result;
-	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Result.Diagnostic;
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Durin::FormatCookRunError(Result);
+	EXPECT_TRUE(Result);
+	EXPECT_EQ(Result.Error, ECookRunError::None);
+	EXPECT_FALSE(Result.bDryRun);
+	EXPECT_EQ(CookRunCodeName(Result), "succeeded");
 	const auto Published = Inventory(Request.OutputRoot);
 	EXPECT_EQ(Inventory(Content), Before);
 	ASSERT_TRUE(LoadPackage(Path, Package));
@@ -132,19 +280,46 @@ TEST_F(FCookFunctionalTests, PreservesSourcesAndPriorOutputsOnFailure)
 			return true;
 		}));
 	EXPECT_TRUE(bReached);
+	ASSERT_TRUE(Result.PublicationCause);
+	EXPECT_EQ(Result.PublicationCause->Status, ECookPublishStatus::Failed);
+	EXPECT_EQ(Result.PublicationCause->Error, ECookPublishError::Injected);
+	ASSERT_TRUE(Result.PublicationCause->InjectionCause);
+	EXPECT_EQ(Result.PublicationCause->InjectionCause->Stage, ECookOperationStage::CommitManifest);
+	EXPECT_EQ(Result.PublicationCause->InjectionCause->ExternalDiagnostic, "Injected manifest publication failure");
 	EXPECT_EQ(Inventory(Request.OutputRoot), Published);
 	Request.ExplicitRoots = {Missing};
 	EXPECT_FALSE(FCookCoordinator().Run(Request, Result));
+	EXPECT_FALSE(Result.PublicationCause);
 	EXPECT_EQ(Inventory(Request.OutputRoot), Published);
 	Request.ExplicitRoots = {Path};
 	Request.IsCancelled = [] { return true; };
 	EXPECT_FALSE(FCookCoordinator().Run(Request, Result));
 	EXPECT_EQ(Result.Status, ECookRunStatus::Cancelled);
+	EXPECT_FALSE(Result);
+	EXPECT_EQ(Result.Error, ECookRunError::Cancelled);
 	EXPECT_EQ(Inventory(Request.OutputRoot), Published);
 	Request.IsCancelled = {};
+	EXPECT_FALSE(FCookCoordinator().Run(Request, Result, nullptr,
+		[](ECookOperationStage Stage, size_t, std::string& Text) {
+			if (Stage != ECookOperationStage::Load) return false;
+			Text.assign(4096, 'x');
+			return true;
+		}));
+	EXPECT_EQ(Result.Error, ECookRunError::LoadInjectedFailure);
+	ASSERT_TRUE(Result.InjectionCause);
+	EXPECT_EQ(Result.InjectionCause->Stage, ECookOperationStage::Load);
+	EXPECT_EQ(Result.InjectionCause->Index, 0u);
+	EXPECT_EQ(Result.InjectionCause->ExternalDiagnostic.size(), 2048u);
+	EXPECT_EQ(FormatCookRunError(Result), std::string(2048, 'x'));
+	EXPECT_EQ(Inventory(Request.OutputRoot), Published);
 	Request.OutputRoot = Fixture / "DryRun";
 	Request.bDryRun = true;
-	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Result.Diagnostic;
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Durin::FormatCookRunError(Result);
+	EXPECT_TRUE(Result);
+	EXPECT_EQ(Result.Error, ECookRunError::None);
+	EXPECT_TRUE(Result.bDryRun);
+	EXPECT_FALSE(Result.InjectionCause);
+	EXPECT_EQ(CookRunCodeName(Result), "dry-run");
 	EXPECT_FALSE(std::filesystem::exists(Request.OutputRoot / "CookManifest.bin"));
 	EXPECT_EQ(Inventory(Content), Before);
 }
@@ -215,7 +390,7 @@ TEST_F(FCookFunctionalTests, CooksSavedFamiliesAndReusesValidatedOutputs)
 	Triangle.Positions = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}};
 	Triangle.Indices = {0, 1, 2};
 	FStaticMeshSource MeshInput;
-	ASSERT_TRUE(MeshInput.Initialize(std::move(Geometry), Error)) << Error;
+	ASSERT_TRUE(MeshInput.Initialize(std::move(Geometry)));
 	*DStaticMesh::StaticClass()->FindPropertyByName("Source")
 		->ContainerPtrToValuePtr<FStaticMeshSource>(Mesh) = std::move(MeshInput);
 	*DStaticMesh::StaticClass()->FindPropertyByName("MaterialSlots")
@@ -256,10 +431,10 @@ TEST_F(FCookFunctionalTests, CooksSavedFamiliesAndReusesValidatedOutputs)
 		Request.ExplicitRoots.push_back(Root);
 	}
 	FCookRunResult Result;
-	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Result.Diagnostic;
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Durin::FormatCookRunError(Result);
 	EXPECT_EQ(Inventory(Source), Before);
 	const auto First = Inventory(Output / "Game");
-	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Result.Diagnostic;
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Durin::FormatCookRunError(Result);
 	ASSERT_EQ(Result.Packages.size(), Paths.size());
 	for (const auto& Package : Result.Packages) EXPECT_EQ(Package.Status, ECookPackageStatus::CookHit);
 	EXPECT_EQ(Inventory(Source), Before);
@@ -274,7 +449,7 @@ TEST_F(FCookFunctionalTests, CooksSavedFamiliesAndReusesValidatedOutputs)
 	for (const auto& Entry : State.Entries)
 		if (Entry.Contributor != "generic-package") EXPECT_FALSE(Entry.BuildDependencies.empty());
 	Request.IncrementalPolicy = ECookIncrementalPolicy::Disabled;
-	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Result.Diagnostic;
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Durin::FormatCookRunError(Result);
 	EXPECT_EQ(Inventory(Output / "Game"), First);
 	EXPECT_EQ(Inventory(Source), Before);
 	ASSERT_TRUE(InitializeTaskScheduler(2));

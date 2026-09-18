@@ -15,6 +15,7 @@ namespace Durin
 	{
 		using K = DurinCodeGen::EPropertyGenFlags;
 		using E = EObjectReplacementError;
+		using R = EObjectReplacementReason;
 		bool GReplacementActive = false;
 		bool GReplacementExecuting = false;
 
@@ -30,9 +31,27 @@ namespace Durin
 			if (GIsGameThreadIdInitialized) CheckGameThread();
 		}
 
-		auto Fail(E Error, std::string Message) -> FObjectReplacementResult
+		auto Fail(E Code, R Reason) -> FObjectReplacementResult
 		{
-			return {Error, std::move(Message)};
+			return {{.Code = Code, .Reason = Reason}};
+		}
+
+		auto PropertyContext(FObjectReplacementResult Result, FProperty* P, uint32 Index,
+			DObject* Owner = nullptr) -> FObjectReplacementResult
+		{
+			if (Result) return Result;
+			if (Owner) Result.Error.ObjectPath = Owner->GetObjectPath();
+			if (P)
+			{
+				const auto Name = P->NamePrivate.ToString();
+				if (Result.Error.PropertyName.empty())
+				{
+					Result.Error.PropertyName = Name;
+					Result.Error.ArrayIndex = Index;
+				}
+				Result.Error.Route.insert(Result.Error.Route.begin(), std::format("{}[{}]", Name, Index));
+			}
+			return Result;
 		}
 
 		auto RelativeNames(const DObject* Object, const DPackage* Package) -> std::vector<FName>
@@ -158,7 +177,14 @@ namespace Durin
 
 		// Mutates detached storage only. Map keys are copied before modification and
 		// inserted into a separate index; no const key is ever modified in place.
+		auto RewriteValue(FProperty* P, void* Container, uint32 Index,
+			const FObjectReplacementMap& Map) -> FObjectReplacementResult;
 		auto Rewrite(FProperty* P, void* Container, uint32 Index,
+			const FObjectReplacementMap& Map) -> FObjectReplacementResult
+		{
+			return PropertyContext(RewriteValue(P, Container, Index, Map), P, Index);
+		}
+		auto RewriteValue(FProperty* P, void* Container, uint32 Index,
 			const FObjectReplacementMap& Map) -> FObjectReplacementResult
 		{
 			if (!HasReferenceMetadata(P)) return {};
@@ -167,7 +193,7 @@ namespace Durin
 				auto* ObjectProperty = static_cast<FObjectProperty*>(P);
 				if (const auto* Entry = Map.Find(ObjectProperty->GetObjectPropertyValue(Container, Index)))
 				{
-					if (!Entry->Replacement) return Fail(E::UnmappedReference, "Detached value has an unmapped reference.");
+					if (!Entry->Replacement) return Fail(E::UnmappedReference, R::DetachedUnmappedReference);
 					ObjectProperty->SetObjectPropertyValue(Container, Entry->Replacement, Index);
 				}
 			}
@@ -185,49 +211,51 @@ namespace Durin
 			{
 				auto* Array = static_cast<FArrayProperty*>(P);
 				if (!Array->HasArrayOps() || !Array->GetOps().VisitMutable)
-					return Fail(E::Unsupported, "Array lacks mutable detached traversal.");
+					return Fail(E::Unsupported, R::ArrayMutableTraversal);
 				struct FContext { FProperty* Inner; const FObjectReplacementMap& Map; FObjectReplacementResult Result; }
 					Context{Array->GetInner(), Map, {}};
-				const auto Result = Array->VisitMutableElements(Container, [](void* Raw, uint64, void* Value) {
+				const auto Result = Array->VisitMutableElements(Container, [](void* Raw, uint64 ElementIndex, void* Value) {
 					auto& C = *static_cast<FContext*>(Raw);
 					C.Result = Rewrite(C.Inner, Value, 0, C.Map);
+					if (!C.Result) C.Result.Error.Route.insert(C.Result.Error.Route.begin(), std::to_string(ElementIndex));
 					return bool(C.Result);
 				}, &Context, Index);
 				if (!Context.Result) return Context.Result;
-				if (Result != EContainerOpResult::Success) return Fail(E::Unsupported, "Array traversal failed.");
+				if (Result != EContainerOpResult::Success) return {{.Code = E::Unsupported, .Reason = R::ArrayTraversal, .Cause = Result}};
 			}
 			else if (P->GetKind() == K::Map)
 			{
 				auto* Property = static_cast<FMapProperty*>(P);
-				if (!Property->HasMapOps()) return Fail(E::Unsupported, "Map has no operations.");
+				if (!Property->HasMapOps()) return Fail(E::Unsupported, R::MapOperations);
 				const auto& Ops = Property->GetOps();
 				if (!Ops.CreateDetached || !Ops.DestroyDetached || !Ops.Commit || !Ops.InsertCopy || !Ops.VisitConst)
-					return Fail(E::Unsupported, "Map lacks transactional detached operations.");
+					return Fail(E::Unsupported, R::MapTransactionalOperations);
 				void* Detached = nullptr;
-				if (Ops.CreateDetached(&Detached) != EContainerOpResult::Success)
-					return Fail(E::AllocationFailure, "Could not allocate detached Map.");
+				if (const auto Created = Ops.CreateDetached(&Detached); Created != EContainerOpResult::Success)
+					return {{.Code = E::AllocationFailure, .Reason = R::MapAllocation, .Cause = Created}};
 				std::unique_ptr<void, decltype(Ops.DestroyDetached)> Storage(Detached, Ops.DestroyDetached);
 				struct FContext { FMapProperty* Property; const FObjectReplacementMap& Map; void* Storage; FObjectReplacementResult Result; }
 					Context{Property, Map, Detached, {}};
 				const auto Result = Property->VisitEntries(Container, [](void* Raw, const void* Key, const void* Value) {
 					auto& C = *static_cast<FContext*>(Raw);
 					FReflectedValueStorage KCopy, VCopy;
-					if (!KCopy.CopyConstruct(C.Property->GetKeyProp(), C.Property->GetKeyProp()->GetValuePtr(Key))
-						|| !VCopy.CopyConstruct(C.Property->GetValueProp(), C.Property->GetValueProp()->GetValuePtr(Value)))
+					auto Copied = KCopy.CopyConstruct(C.Property->GetKeyProp(), C.Property->GetKeyProp()->GetValuePtr(Key));
+					if (Copied) Copied = VCopy.CopyConstruct(C.Property->GetValueProp(), C.Property->GetValueProp()->GetValuePtr(Value));
+					if (!Copied)
 					{
-						C.Result = Fail(E::Unsupported, "Map key/value cannot be copied."); return false;
+						C.Result = {{.Code = E::Unsupported, .Reason = R::MapValueCopy, .Cause = Copied.Error}}; return false;
 					}
 					C.Result = Rewrite(C.Property->GetKeyProp(), KCopy.GetContainer(), 0, C.Map);
 					if (C.Result) C.Result = Rewrite(C.Property->GetValueProp(), VCopy.GetContainer(), 0, C.Map);
 					if (!C.Result) return false;
 					const auto Insert = C.Property->GetOps().InsertCopy(C.Storage, KCopy.GetValue(), VCopy.GetValue());
 					if (Insert != EContainerOpResult::Success)
-						C.Result = Fail(Insert == EContainerOpResult::DuplicateKey ? E::MapCollision : E::Unsupported,
-							"Replacement Map key collides or insertion failed.");
+						C.Result = {{.Code = Insert == EContainerOpResult::DuplicateKey ? E::MapCollision : E::Unsupported,
+							.Reason = R::MapInsertion, .Cause = Insert}};
 					return bool(C.Result);
 				}, &Context, Index);
 				if (!Context.Result) return Context.Result;
-				if (Result != EContainerOpResult::Success) return Fail(E::Unsupported, "Map traversal failed.");
+				if (Result != EContainerOpResult::Success) return {{.Code = E::Unsupported, .Reason = R::MapTraversal, .Cause = Result}};
 				const auto Commit = Ops.Commit(P->GetValuePtr(Container, Index), Detached);
 				require(Commit == EContainerOpResult::Success);
 			}
@@ -242,12 +270,25 @@ namespace Durin
 	}
 
 	auto FObjectReplacementMap::Build(std::span<const FObjectReplacementPackagePair> Packages,
-		const FObjectReplacementBudget& Budget) -> FObjectReplacementResult
+		const FObjectReplacementBudget& Budget) -> FObjectReplacementMapResult
 	{
 		CheckThread();
+		using R = EObjectReplacementMapReason;
+		size_t PackageIndex = 0;
+		auto Failure = [&](E Code, R Reason, const DObject* Object = nullptr,
+			uint64 ActualCount = 0, uint64 MaximumCount = 0) -> FObjectReplacementMapResult {
+			FObjectReplacementMapError Error;
+			Error.Code = Code;
+			Error.Reason = Reason;
+			Error.PackageIndex = PackageIndex;
+			Error.ActualCount = ActualCount;
+			Error.MaximumCount = MaximumCount;
+			if (Object) Error.ObjectPath = Object->GetObjectPath();
+			return {std::move(Error)};
+		};
 		FObjectReplacementMap Candidate;
 		if (Packages.empty() || Packages.size() > Budget.MaximumPackages)
-			return Fail(E::BudgetExceeded, "Replacement package count is empty or exceeds its budget.");
+			return Failure(E::BudgetExceeded, R::PackageBudget, nullptr, Packages.size(), Budget.MaximumPackages);
 		const auto All = GDObjectArray.GetAll(EObjectQueryScope::IncludeUnpublished);
 		std::unordered_set<DPackage*> Seen;
 		std::unordered_set<std::string> Paths;
@@ -259,31 +300,112 @@ namespace Durin
 				|| FindPackage(Pair.Prepared->GetPackagePath()) != Pair.Current
 				|| (Pair.Current && !Seen.insert(Pair.Current).second) || !Seen.insert(Pair.Prepared).second
 				|| !Paths.insert(Pair.Prepared->GetPackagePath()).second)
-				return Fail(E::InvalidGraph, "Expected unique live/prepared package pairs at the same path.");
+				return Failure(E::InvalidGraph, R::InvalidPackagePair);
 			std::unordered_map<std::vector<FName>, DObject*, FRelativeNamesHash> Old, New;
 			for (DObject* Object : All)
 			{
 				if (Object->GetPackage() != Pair.Prepared && (!Pair.Current || Object->GetPackage() != Pair.Current)) continue;
-				if (!IsValid(Object) || Object->IsTemplateObject()) return Fail(E::InvalidGraph, "Graph contains a dead/template object.");
+				if (!IsValid(Object) || Object->IsTemplateObject()) return Failure(E::InvalidGraph, R::InvalidObject, Object);
 				auto& Graph = Object->GetPackage() == Pair.Current ? Old : New;
 				auto Names = RelativeNames(Object, Object->GetPackage());
 				if (!Graph.emplace(std::move(Names), Object).second)
-					return Fail(E::InvalidGraph, "Graph contains duplicate relative Outer paths.");
+					return Failure(E::InvalidGraph, R::DuplicateIdentity, Object);
 				if (Old.size() + New.size() + Candidate.Entries.size() + Candidate.PreparedObjects.size() > Budget.MaximumObjects)
-					return Fail(E::BudgetExceeded, "Replacement graph object budget exceeded.");
+					return Failure(E::BudgetExceeded, R::ObjectBudget, Object,
+						Old.size() + New.size() + Candidate.Entries.size() + Candidate.PreparedObjects.size(), Budget.MaximumObjects);
 			}
 			for (const auto& [Names, Object] : Old)
 			{
 				const auto It = New.find(Names);
 				DObject* Replacement = It == New.end() ? nullptr : It->second;
 				if (Replacement && !Replacement->IsA(Object->GetClass()))
-					return Fail(E::IncompatibleType, "Replacement type is not assignable to the previous type.");
+				{
+					auto Result = Failure(E::IncompatibleType, R::IncompatibleType, Object);
+					Result.Error.ExpectedType = Object->GetClass()->GetQualifiedName().ToString();
+					Result.Error.ActualType = Replacement->GetClass()->GetQualifiedName().ToString();
+					return Result;
+				}
 				Candidate.Indices.emplace(Object, Candidate.Entries.size());
 				Candidate.Entries.push_back({Object, Replacement});
 			}
 			for (const auto& Item : New) Candidate.PreparedObjects.push_back(Item.second);
+			++PackageIndex;
 		}
 		*this = std::move(Candidate);
+		return {};
+	}
+
+	auto FormatObjectReplacementMapError(const FObjectReplacementMapError& Error) -> std::string
+	{
+		switch (Error.Reason)
+		{
+		case EObjectReplacementMapReason::None: return {};
+		case EObjectReplacementMapReason::PackageBudget: return "Replacement package count is empty or exceeds its budget.";
+		case EObjectReplacementMapReason::InvalidPackagePair: return "Expected unique live/prepared package pairs at the same path.";
+		case EObjectReplacementMapReason::InvalidObject: return "Graph contains a dead/template object.";
+		case EObjectReplacementMapReason::DuplicateIdentity: return "Graph contains duplicate relative Outer paths.";
+		case EObjectReplacementMapReason::ObjectBudget: return "Replacement graph object budget exceeded.";
+		case EObjectReplacementMapReason::IncompatibleType: return "Replacement type is not assignable to the previous type.";
+		}
+		return {};
+	}
+
+	auto FormatObjectReplacementError(const FObjectReplacementError& Error) -> std::string
+	{
+		switch (Error.Reason)
+		{
+		case EObjectReplacementReason::None: return {};
+		case EObjectReplacementReason::DetachedUnmappedReference: return "Detached value has an unmapped reference.";
+		case EObjectReplacementReason::ArrayMutableTraversal: return "Array lacks mutable detached traversal.";
+		case EObjectReplacementReason::ArrayTraversal: return "Array traversal failed.";
+		case EObjectReplacementReason::MapOperations: return "Map has no operations.";
+		case EObjectReplacementReason::MapTransactionalOperations: return "Map lacks transactional detached operations.";
+		case EObjectReplacementReason::MapAllocation: return "Could not allocate detached Map.";
+		case EObjectReplacementReason::MapValueCopy: return "Map key/value cannot be copied.";
+		case EObjectReplacementReason::MapInsertion: return "Replacement Map key collides or insertion failed.";
+		case EObjectReplacementReason::MapTraversal: return "Map traversal failed.";
+		case EObjectReplacementReason::ReferenceMetadata: return "Reference metadata is missing or exceeds the traversal depth limit.";
+		case EObjectReplacementReason::ReferenceBudget: return "Reference slot budget exceeded.";
+		case EObjectReplacementReason::ReferenceWriter: return "Reference property has no writer.";
+		case EObjectReplacementReason::TemplateReference: return "Templates cannot reference a replaced live graph.";
+		case EObjectReplacementReason::ExternalUnmappedReference: return "A graph-external reference has no replacement.";
+		case EObjectReplacementReason::ReferenceType: return "Replacement is incompatible with a reference property.";
+		case EObjectReplacementReason::StructMetadata: return "Struct metadata is missing.";
+		case EObjectReplacementReason::NativeStructAdapter: return "A reference-bearing native struct needs a dedicated replacement adapter.";
+		case EObjectReplacementReason::ArrayReferenceMetadata: return "Array lacks reference traversal metadata.";
+		case EObjectReplacementReason::MapReferenceMetadata: return "Map lacks reference traversal metadata.";
+		case EObjectReplacementReason::ReferenceTraversal: return "Reference traversal failed.";
+		case EObjectReplacementReason::ContainerCommit: return "Container has no nonthrowing commit adapter.";
+		case EObjectReplacementReason::ContainerCopy: return "Reference container cannot be copied for atomic publication.";
+		case EObjectReplacementReason::ContainerComparison: return "Reference container cannot be compared for stale validation.";
+		case EObjectReplacementReason::NativeOwnerParticipant: return "An enumerated native owner has no replacement participant.";
+		case EObjectReplacementReason::AlreadyActive: return "A replacement is already active.";
+		case EObjectReplacementReason::PackageReservation: return "New package path is already reserved.";
+		case EObjectReplacementReason::InvalidParticipant: return "Duplicate/null participant.";
+		case EObjectReplacementReason::RootedObject: return "An explicitly rooted old object cannot be retired.";
+		case EObjectReplacementReason::StrongOwnerClaim: return "An external strong owner has no exact replacement claim.";
+		case EObjectReplacementReason::PrepareAllocation: return "Replacement preparation allocation failed.";
+		case EObjectReplacementReason::PrepareException: return "Replacement preparation callback threw.";
+		case EObjectReplacementReason::NotPrepared: return "Replacement is not prepared or is executing.";
+		case EObjectReplacementReason::ObjectMembershipChanged: return "Object membership changed during preparation.";
+		case EObjectReplacementReason::ObjectIdentityChanged: return "Graph identity changed.";
+		case EObjectReplacementReason::ObjectRootChanged: return "An old object acquired a manual root during preparation.";
+		case EObjectReplacementReason::PackageChanged: return "Package registration or edit revision changed.";
+		case EObjectReplacementReason::ParticipantChanged: return "Native participant changed.";
+		case EObjectReplacementReason::StrongOwnerChanged: return "Strong ownership changed.";
+		case EObjectReplacementReason::ReferenceSlotsChanged: return "Reference owners or slots changed.";
+		case EObjectReplacementReason::ContainerChanged: return "Reference container contents changed.";
+		case EObjectReplacementReason::ValidationMutation: return "Validation changed object membership or ownership.";
+		case EObjectReplacementReason::ValidateAllocation: return "Replacement validation allocation failed.";
+		case EObjectReplacementReason::ValidateException: return "Replacement validation callback threw.";
+		case EObjectReplacementReason::ReplacementMap:
+			if (const auto* Cause = std::get_if<FObjectReplacementMapError>(&Error.Cause)) return FormatObjectReplacementMapError(*Cause);
+			return "Replacement map construction failed.";
+		case EObjectReplacementReason::ParticipantBusy: return "Replacement participant is busy.";
+		case EObjectReplacementReason::ParticipantUnmappedPackage: return "Replacement participant could not map a package.";
+		case EObjectReplacementReason::ParticipantRejected: return "Replacement participant rejected preparation.";
+		case EObjectReplacementReason::PersistenceRejected: return "Replacement persistence failed.";
+		}
 		return {};
 	}
 
@@ -297,21 +419,31 @@ namespace Durin
 		auto ScanProperty(DObject* Owner, FProperty* P, void* Container, uint32 Index,
 			const FObjectReplacementMap& Map, bool bDetachedAncestor, bool& Changed, uint32 Depth = 0) -> FObjectReplacementResult
 		{
-			if (!P || Depth > 64) return Fail(E::Unsupported, "Reference metadata is missing or exceeds the traversal depth limit.");
+			return PropertyContext(ScanPropertyValue(Owner, P, Container, Index, Map,
+				bDetachedAncestor, Changed, Depth), P, Index, Owner);
+		}
+		auto ScanPropertyValue(DObject* Owner, FProperty* P, void* Container, uint32 Index,
+			const FObjectReplacementMap& Map, bool bDetachedAncestor, bool& Changed, uint32 Depth) -> FObjectReplacementResult
+		{
+			if (!P || Depth > 64) return {{.Code = E::Unsupported, .Reason = R::ReferenceMetadata,
+				.ActualCount = Depth, .MaximumCount = 64}};
 			if (!HasReferenceMetadata(P)) return {};
 			if (P->GetKind() == K::Object)
 			{
 				auto* Property = static_cast<FObjectProperty*>(P);
 				DObject* Value = Property->GetObjectPropertyValue(Container, Index);
-				if (Edges.size() >= MaximumSlots) return Fail(E::BudgetExceeded, "Reference slot budget exceeded.");
+				if (Edges.size() >= MaximumSlots) return {{.Code = E::BudgetExceeded, .Reason = R::ReferenceBudget,
+					.ActualCount = Edges.size() + 1, .MaximumCount = MaximumSlots}};
 				Edges.push_back({Owner, P, P->GetValuePtr(Container, Index), Value});
 				if (const auto* Entry = Map.Find(Value))
 				{
-					if (!Property->HasObjectValueWriter()) return Fail(E::Unsupported, "Reference property has no writer.");
-					if (Owner->IsTemplateObject()) return Fail(E::Unsupported, "Templates cannot reference a replaced live graph.");
-					if (!Entry->Replacement) return Fail(E::UnmappedReference, "A graph-external reference has no replacement.");
+					if (!Property->HasObjectValueWriter()) return Fail(E::Unsupported, R::ReferenceWriter);
+					if (Owner->IsTemplateObject()) return Fail(E::Unsupported, R::TemplateReference);
+					if (!Entry->Replacement) return Fail(E::UnmappedReference, R::ExternalUnmappedReference);
 					if (P->GetReferencedClass() && !Entry->Replacement->IsA(P->GetReferencedClass()))
-						return Fail(E::IncompatibleType, "Replacement is incompatible with a reference property.");
+						return {{.Code = E::IncompatibleType, .Reason = R::ReferenceType,
+							.ExpectedType = P->GetReferencedClass()->GetQualifiedName().ToString(),
+							.ActualType = Entry->Replacement->GetClass()->GetQualifiedName().ToString()}};
 					Changed = true;
 					if (!bDetachedAncestor) Slots.push_back({Property, Container, Index, Entry->Replacement});
 				}
@@ -320,7 +452,7 @@ namespace Durin
 			if (P->GetKind() == K::Struct)
 			{
 				auto* Type = static_cast<FStructProperty*>(P)->GetStruct();
-				if (!Type) return Fail(E::Unsupported, "Struct metadata is missing.");
+				if (!Type) return Fail(E::Unsupported, R::StructMetadata);
 				FObjectReplacementResult Result;
 				bool StructChanged = false;
 				Type->ForEachProperty([&](FProperty* Field) {
@@ -328,8 +460,9 @@ namespace Durin
 						Result = ScanProperty(Owner, Field, P->GetValuePtr(Container, Index), I, Map, bDetachedAncestor, StructChanged, Depth + 1);
 				});
 				Changed |= StructChanged;
+				if (!Result) return Result;
 				if (StructChanged && Type->HasReferenceCollector())
-					return Fail(E::Unsupported, "A reference-bearing native struct needs a dedicated replacement adapter.");
+					return Fail(E::Unsupported, R::NativeStructAdapter);
 				return Result;
 			}
 			if (P->GetKind() != K::Array && P->GetKind() != K::Map) return {};
@@ -344,11 +477,12 @@ namespace Durin
 			{
 				auto* Array = static_cast<FArrayProperty*>(P);
 				if (!Array->HasArrayOps() || !Array->GetInner() || !Array->GetOps().VisitConst)
-					return Fail(E::Unsupported, "Array lacks reference traversal metadata.");
-				Traversal = Array->VisitElements(Container, [](void* Raw, uint64, const void* Value) {
+					return Fail(E::Unsupported, R::ArrayReferenceMetadata);
+				Traversal = Array->VisitElements(Container, [](void* Raw, uint64 ElementIndex, const void* Value) {
 					auto& C = *static_cast<FContext*>(Raw);
 					C.Result = C.Plan.ScanProperty(C.Owner, static_cast<FArrayProperty*>(C.P)->GetInner(),
 						const_cast<void*>(Value), 0, C.Map, true, C.Changed, C.Depth + 1);
+					if (!C.Result) C.Result.Error.Route.insert(C.Result.Error.Route.begin(), std::to_string(ElementIndex));
 					return bool(C.Result);
 				}, &Context, Index);
 			}
@@ -356,7 +490,7 @@ namespace Durin
 			{
 				auto* Property = static_cast<FMapProperty*>(P);
 				if (!Property->HasMapOps() || !Property->GetKeyProp() || !Property->GetValueProp() || !Property->GetOps().VisitConst)
-					return Fail(E::Unsupported, "Map lacks reference traversal metadata.");
+					return Fail(E::Unsupported, R::MapReferenceMetadata);
 				Traversal = Property->VisitEntries(Container, [](void* Raw, const void* Key, const void* Value) {
 					auto& C = *static_cast<FContext*>(Raw);
 					auto* M = static_cast<FMapProperty*>(C.P);
@@ -366,20 +500,20 @@ namespace Durin
 				}, &Context, Index);
 			}
 			if (!Context.Result) return Context.Result;
-			if (Traversal != EContainerOpResult::Success) return Fail(E::Unsupported, "Reference traversal failed.");
+			if (Traversal != EContainerOpResult::Success) return {{.Code = E::Unsupported, .Reason = R::ReferenceTraversal, .Cause = Traversal}};
 			Changed |= LocalChanged;
 			if (!LocalChanged || bDetachedAncestor) return {};
 			const bool bCanCommit = P->GetKind() == K::Array
 				? static_cast<FArrayProperty*>(P)->HasCapability(EArrayOpsFlags::TransactionalCommit)
 				: static_cast<FMapProperty*>(P)->HasCapability(EMapOpsFlags::TransactionalCommit);
-			if (!bCanCommit) return Fail(E::Unsupported, "Container has no nonthrowing commit adapter.");
+			if (!bCanCommit) return Fail(E::Unsupported, R::ContainerCommit);
 			FContainerWrite Write{P, Container, Index, {}, {}};
-			if (!Write.Before.CopyConstruct(P, P->GetValuePtr(Container, Index), Index)
-				|| !Write.After.CopyConstruct(P, P->GetValuePtr(Container, Index), Index))
-				return Fail(E::Unsupported, "Reference container cannot be copied for atomic publication.");
+			auto Copied = Write.Before.CopyConstruct(P, P->GetValuePtr(Container, Index), Index);
+			if (Copied) Copied = Write.After.CopyConstruct(P, P->GetValuePtr(Container, Index), Index);
+			if (!Copied) return {{.Code = E::Unsupported, .Reason = R::ContainerCopy, .Cause = Copied.Error}};
 			if (!Equal(P, Container, Index, Write.Before.GetContainer(), Index))
-				return Fail(E::Unsupported, "Reference container cannot be compared for stale validation.");
-			auto Result = Rewrite(P, Write.After.GetContainer(), Index, Map);
+				return Fail(E::Unsupported, R::ContainerComparison);
+			auto Result = RewriteValue(P, Write.After.GetContainer(), Index, Map);
 			if (!Result) return Result;
 			Containers.push_back(std::move(Write));
 			return {};
@@ -415,7 +549,7 @@ namespace Durin
 					return Pair.second > Reflected[Pair.first];
 				});
 				if (Native && !std::ranges::any_of(Participants, [&](const auto& P) { return P->CoversNativeReferences(*Owner); }))
-					return Fail(E::Unsupported, "An enumerated native owner has no replacement participant.");
+					return FObjectReplacementResult{{.Code = E::Unsupported, .Reason = R::NativeOwnerParticipant, .ObjectPath = Owner->GetObjectPath()}};
 			}
 			return {};
 		}
@@ -450,15 +584,17 @@ namespace Durin
 		std::vector<uint64> PackageRevisions;
 		uint64 ArrayRevision = 0;
 
-		auto CheckStrongOwners() const -> bool
+		auto CheckStrongOwners(E Code, R Reason) const -> FObjectReplacementResult
 		{
 			for (const auto& Entry : Map.GetEntries())
 			{
 				uint64 Claimed = 1; // This operation pins every live object once.
 				for (const auto& P : Participants) Claimed += P->GetStrongReferenceCount(*Entry.Previous);
-				if (Private::GetStrongObjectReferenceCount(FObjectKey(Entry.Previous)) != Claimed) return false;
+				const uint64 Actual = Private::GetStrongObjectReferenceCount(FObjectKey(Entry.Previous));
+				if (Actual != Claimed) return {{.Code = Code, .Reason = Reason,
+					.ObjectPath = Entry.Previous->GetObjectPath(), .ActualCount = Actual, .ExpectedCount = Claimed}};
 			}
-			return true;
+			return {};
 		}
 	};
 
@@ -481,7 +617,7 @@ namespace Durin
 		const FObjectReplacementBudget& Budget) -> FObjectReplacementResult
 	{
 		CheckThread();
-		if (GReplacementActive || Impl->State != FImpl::EState::Empty) return Fail(E::Busy, "A replacement is already active.");
+		if (GReplacementActive || Impl->State != FImpl::EState::Empty) return Fail(E::Busy, R::AlreadyActive);
 		FExecutionScope Execution;
 		GReplacementActive = true;
 		size_t PreparedParticipants = 0;
@@ -496,20 +632,22 @@ namespace Durin
 		};
 		try
 		{
-			auto Result = Impl->Map.Build(Packages, Budget);
-			if (!Result) return Reject(std::move(Result));
+			const auto MapResult = Impl->Map.Build(Packages, Budget);
+			if (!MapResult) return Reject({{.Code = MapResult.Error.Code,
+				.Reason = R::ReplacementMap, .Cause = MapResult.Error}});
+			FObjectReplacementResult Result;
 			Impl->Budget = Budget;
 			Impl->Packages.assign(Packages.begin(), Packages.end());
 			for (const auto& Pair : Packages)
 				if (!Pair.Current && !Pair.Prepared->ReservePreparedPackageRegistration())
-					return Reject(Fail(E::InvalidGraph, "New package path is already reserved."));
+					return Reject(FObjectReplacementResult{{.Code = E::InvalidGraph, .Reason = R::PackageReservation, .ObjectPath = Pair.Prepared->GetPackagePath()}});
 			Impl->Participants.assign(Participants.begin(), Participants.end());
 			std::unordered_set<const IObjectReplacementParticipant*> Unique;
 			for (const auto& P : Impl->Participants)
-				if (!P || !Unique.insert(P.get()).second) return Reject(Fail(E::InvalidGraph, "Duplicate/null participant."));
+				if (!P || !Unique.insert(P.get()).second) return Reject(Fail(E::InvalidGraph, R::InvalidParticipant));
 			for (const auto& Entry : Impl->Map.GetEntries())
 				if (Entry.Previous->HasAnyInternalFlags(EObjectInternalFlags::RootSet))
-					return Reject(Fail(E::Unsupported, "An explicitly rooted old object cannot be retired."));
+					return Reject(FObjectReplacementResult{{.Code = E::Unsupported, .Reason = R::RootedObject, .ObjectPath = Entry.Previous->GetObjectPath()}});
 			const auto PreparedObjects = Impl->Map.GetPreparedObjects();
 			const std::unordered_set<DObject*> PreparedSet(PreparedObjects.begin(), PreparedObjects.end());
 			for (DObject* Object : GDObjectArray.GetAll(EObjectQueryScope::IncludeUnpublished))
@@ -528,9 +666,13 @@ namespace Durin
 			{
 				++PreparedParticipants;
 				Result = P->Prepare(Impl->Map);
-				if (!Result) return Reject(std::move(Result));
+				if (!Result)
+				{
+					Result.Error.ParticipantIndex = PreparedParticipants - 1;
+					return Reject(std::move(Result));
+				}
 			}
-			if (!Impl->CheckStrongOwners()) return Reject(Fail(E::Unsupported, "An external strong owner has no exact replacement claim."));
+			if (auto Owners = Impl->CheckStrongOwners(E::Unsupported, R::StrongOwnerClaim); !Owners) return Reject(std::move(Owners));
 			Impl->References.Impl->MaximumSlots = Budget.MaximumReferenceSlots;
 			Result = Impl->References.Impl->Scan(Impl->Map, Impl->Participants);
 			if (!Result) return Reject(std::move(Result));
@@ -538,26 +680,27 @@ namespace Durin
 			Impl->State = FImpl::EState::Prepared;
 			return {};
 		}
-		catch (const std::bad_alloc&) { return Reject(Fail(E::AllocationFailure, "Replacement preparation allocation failed.")); }
-		catch (...) { return Reject(Fail(E::ParticipantRejected, "Replacement preparation callback threw.")); }
+		catch (const std::bad_alloc&) { return Reject(Fail(E::AllocationFailure, R::PrepareAllocation)); }
+		catch (...) { return Reject(Fail(E::ParticipantRejected, R::PrepareException)); }
 	}
 
 	auto FObjectGraphReplacement::TryCommit(const std::function<FObjectReplacementResult()>& Persist) -> FObjectReplacementResult
 	{
 		CheckThread();
-		if (GReplacementExecuting || Impl->State != FImpl::EState::Prepared) return Fail(E::Busy, "Replacement is not prepared or is executing.");
+		if (GReplacementExecuting || Impl->State != FImpl::EState::Prepared) return Fail(E::Busy, R::NotPrepared);
 		FExecutionScope Execution;
 		try
 		{
-			if (GDObjectArray.GetRevision() != Impl->ArrayRevision) return Fail(E::Stale, "Object membership changed during preparation.");
+			if (GDObjectArray.GetRevision() != Impl->ArrayRevision) return {{.Code = E::Stale, .Reason = R::ObjectMembershipChanged,
+				.ActualRevision = GDObjectArray.GetRevision(), .ExpectedRevision = Impl->ArrayRevision}};
 			for (const auto& [Handle, Path] : Impl->Identities)
 			{
 				DObject* Object = ResolveObjectKey(Handle);
-				if (!IsValid(Object) || Object->GetObjectPath() != Path) return Fail(E::Stale, "Graph identity changed.");
+				if (!IsValid(Object) || Object->GetObjectPath() != Path) return FObjectReplacementResult{{.Code = E::Stale, .Reason = R::ObjectIdentityChanged, .ObjectPath = Path}};
 			}
 			for (const auto& Entry : Impl->Map.GetEntries())
 				if (Entry.Previous->HasAnyInternalFlags(EObjectInternalFlags::RootSet))
-					return Fail(E::Stale, "An old object acquired a manual root during preparation.");
+					return FObjectReplacementResult{{.Code = E::Stale, .Reason = R::ObjectRootChanged, .ObjectPath = Entry.Previous->GetObjectPath()}};
 			for (size_t I = 0; I < Impl->Packages.size(); ++I)
 			{
 				const auto& Pair = Impl->Packages[I];
@@ -565,20 +708,24 @@ namespace Durin
 					|| !Pair.Prepared->IsPreparedAssetPackage()
 					|| (Pair.Current && Pair.Current->GetEditRevision() != Impl->PackageRevisions[I * 2])
 					|| Pair.Prepared->GetEditRevision() != Impl->PackageRevisions[I * 2 + 1])
-					return Fail(E::Stale, "Package registration or edit revision changed.");
+					return FObjectReplacementResult{{.Code = E::Stale, .Reason = R::PackageChanged, .ObjectPath = Pair.Prepared->GetPackagePath()}};
 			}
-			for (const auto& P : Impl->Participants) if (!P->Validate()) return Fail(E::Stale, "Native participant changed.");
-			if (!Impl->CheckStrongOwners()) return Fail(E::Stale, "Strong ownership changed.");
+			for (size_t I = 0; I < Impl->Participants.size(); ++I)
+				if (!Impl->Participants[I]->Validate()) return {{.Code = E::Stale,
+					.Reason = R::ParticipantChanged, .ParticipantIndex = I}};
+			if (auto Owners = Impl->CheckStrongOwners(E::Stale, R::StrongOwnerChanged); !Owners) return Owners;
 			FObjectReferenceReplacementPlan Fresh;
 			Fresh.Impl->MaximumSlots = Impl->Budget.MaximumReferenceSlots;
 			auto Result = Fresh.Impl->Scan(Impl->Map, Impl->Participants);
 			if (!Result) return Result;
-			if (Fresh.Impl->Edges != Impl->References.Impl->Edges) return Fail(E::Stale, "Reference owners or slots changed.");
+			if (Fresh.Impl->Edges != Impl->References.Impl->Edges) return Fail(E::Stale, R::ReferenceSlotsChanged);
 			for (const auto& Write : Impl->References.Impl->Containers)
 				if (!Equal(Write.Property, Write.Container, Write.Index, Write.Before.GetContainer(), Write.Index))
-					return Fail(E::Stale, "Reference container contents changed.");
-			if (GDObjectArray.GetRevision() != Impl->ArrayRevision || !Impl->CheckStrongOwners())
-				return Fail(E::Stale, "Validation changed object membership or ownership.");
+					return PropertyContext(Fail(E::Stale, R::ContainerChanged), Write.Property, Write.Index);
+			if (GDObjectArray.GetRevision() != Impl->ArrayRevision)
+				return {{.Code = E::Stale, .Reason = R::ValidationMutation,
+					.ActualRevision = GDObjectArray.GetRevision(), .ExpectedRevision = Impl->ArrayRevision}};
+			if (auto Owners = Impl->CheckStrongOwners(E::Stale, R::ValidationMutation); !Owners) return Owners;
 			// All fallible traversal, copies, collision checks and participant validation precede this call.
 			if (Persist)
 			{
@@ -588,8 +735,8 @@ namespace Durin
 			CommitPrepared();
 			return {};
 		}
-		catch (const std::bad_alloc&) { return Fail(E::AllocationFailure, "Replacement validation allocation failed."); }
-		catch (...) { return Fail(E::ParticipantRejected, "Replacement validation callback threw."); }
+		catch (const std::bad_alloc&) { return Fail(E::AllocationFailure, R::ValidateAllocation); }
+		catch (...) { return Fail(E::ParticipantRejected, R::ValidateException); }
 	}
 
 	auto FObjectGraphReplacement::CommitPrepared() noexcept -> void

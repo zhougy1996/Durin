@@ -129,11 +129,18 @@ does not silently clamp an older stored value.
 
 ## Object Notification Contract
 
-`DObject::PreEditChangeProperty(FPropertyEditProposal&, std::string&)` is the
-generic path's synchronous validation and normalization hook. The proposal
+`DObject::PreEditChangeProperty(FPropertyEditProposal&)` returns
+`FObjectValidationResult` from synchronous validation and normalization. Rejections
+own the object/property identity and reason; Engine and RoadWeaver retain their
+module-owned typed causes. Pending editor result adapters format explicitly. The proposal
 contains the complete mutable detached snapshot root, a resolved draft leaf,
 and the same member, leaf, path, phase, kind, and origin dimensions used by the
-post event. Returning false rejects the candidate before live storage changes.
+post event. A failed result rejects the candidate before live storage changes.
+`FPropertyEditExtension::PreEdit` uses this same typed result with no diagnostic
+output. Texture2D retains module-owned metadata kind, package/source readiness,
+input validation and synchronous compilation causes. The edit session retains
+rejection causes through its public result; the view formats them for reporting.
+Extension admission does not inspect prose.
 Map removal and key rename may have no leaf in the candidate; in that case the
 leaf container is null and the full draft root remains available.
 
@@ -201,6 +208,20 @@ contain no resolved leaf address. Draft construction resolves temporary draft
 storage internally, while sessions and transactions retain only the stable
 snapshot root and owned path.
 
+`FPropertyEditTarget::Validate` and internal path resolution return typed
+`FPropertyEditPathResult`. Rejections retain owned member/leaf/snapshot names,
+path selectors and indices, Map key bytes/snapshots, snapshot storage presence,
+array bounds, container return codes and nested key-capture errors. Failed
+resolution leaves its output unchanged. Detached drafts retain path errors as
+causes; transaction and session results preserve these causes for presentation.
+
+`FPropertyValueDraft` derives initialization validity and operation success from
+typed errors. It owns root names, indices and lifecycle/layout facts and retains
+nested snapshot, value-storage and path failures without formatting. Invalid
+drafts return their initialization cause from subsequent operations. A failed
+restore leaves an initialized draft available for retry; successful operations
+do not overwrite previously returned errors or publish into the live object.
+
 ## Generic Mutation
 
 The generic path reads and writes the stable reflected snapshot root. It
@@ -208,6 +229,15 @@ captures live state, restores the candidate into an internal detached draft,
 invokes the pre hook, captures the normalized draft, writes live storage once,
 and recaptures the actual value. A failed write or recapture attempts rollback
 and emits no post event. Same-target nested edits from a hook are rejected.
+
+The internal generic and deferred execution results derive success from
+`FPropertyMutationError`; changed/deferred flags describe successful disposition.
+Errors retain owner/member identity, phase, origin and mutation kind, with typed
+draft, snapshot or object-validation causes. Failed publication and recapture
+retain the primary cause separately from rollback and recovery-capture errors.
+Execution does not format diagnostics. Session/history results retain these
+errors; final presentation and logs use `FormatPropertyMutationError`. Draft error types share the public
+editing contract so later outer results can retain their causes.
 
 All current built-in semantic properties use this generic path. Transform
 quaternion normalization, camera cross-field clamping, spline authoring repair,
@@ -227,6 +257,11 @@ must first demonstrate that this split is impossible before a new policy
 contract is introduced.
 
 Interactive validation may defer publication while domain work completes.
+Deferred completion carries `FObjectValidationResult`; the session logs its
+formatted cause on rejection and never branches on text. Texture2D owns the
+object/property identity and nested compilation cause before scheduling work,
+so deferred failure context does not borrow proposal storage. Cancellation
+retires the session owner before a late completion can publish.
 Committed property records remain callback-free and execute synchronously; a
 domain extension must therefore supply a synchronous history path. Texture2D
 keeps asynchronous preview compilation, but Undo/Redo builds and publishes the
@@ -234,7 +269,18 @@ same detached settings synchronously before the reflected write completes.
 
 ## Edit Session Lifecycle
 
-`Editor::FPropertyEditSession` implements one logical edit:
+`Editor::FPropertyEditSession` implements one logical edit. Begin, Apply,
+Commit and Cancel return `FPropertyEditOperationResult` without string outputs.
+Success derives from `EPropertyEditSessionError`; `GetStatus()` reports failure
+or the successful no-change/changed/pending disposition. Errors own target,
+member, description and record identity and retain path, snapshot, record and
+mutation causes. Record-update rollback failures and deferred rollback are
+preserved separately. Transactor results, including cleanup results and recovery
+facts, are retained whole without formatting. Returned errors
+survive session reset and retry. The view and final logs format only when
+reporting the result.
+
+The lifecycle is:
 
 ```text
 Begin(target)
@@ -338,6 +384,16 @@ inserting and then renaming a live entry.
 
 ## Reflected Property View
 
+The property-view `LoadSoftObject` adapter returns `FPropertySoftLoadResult`
+without a diagnostic-output parameter. It distinguishes unavailable storage,
+missing typed accessors, asset loading failure and an absent returned object.
+Results own the property name, array bounds, original reference path and complete
+asset result cause. Failed calls still clear the output object. The picker action
+formats this result only when reporting an error to its presentation callback.
+`InspectSoftObject` remains non-loading and stores typed storage/accessor/asset
+errors with owned property location and asset cause. Its state and original/resolved
+paths describe redirection independently of errors; it stores no diagnostic text.
+
 `Editor::FPropertyView` is an embeddable immediate-mode view, not a dockable
 panel or standalone asset editor. A host stores one instance and supplies a
 context containing:
@@ -357,6 +413,15 @@ one top-level reflected property and recursively handles supported structs,
 arrays, and maps.
 `EditPropertyValue()` and the container-recursion helpers are private so callers
 cannot construct unsafe container addresses or edit paths.
+
+Proposed-value capture retains draft initialization/resolution/capture and value
+validation causes in a typed local result; it has no diagnostic-output parameter.
+Submission callers format only when reporting the rejected proposal to the host.
+Map mutation callbacks return typed container results and operation kinds, or a
+draft-resolution cause. A rejected mutation stops before validation and snapshot
+capture so subsequent work cannot replace its original cause. Array add/remove
+callbacks retain `FPropertyContainerError` from resize, including counts and
+lifecycle requirements, and reject the proposal before capture or submission.
 
 Leaf widgets are separated from submission. A widget reads the displayed value
 into ordinary temporary state and returns a detached assignment proposal that

@@ -1,67 +1,74 @@
 #include "StaticMesh/StaticMeshCompilation.h"
+#include "AssetForge/Builtins/ImportDataValidation.h"
 #include "AssetForge/Builtins/StaticMeshImportData.h"
 #include "AssetForge/Builtins/VolumeTextureImportData.h"
 
 namespace Durin::AssetForge::Builtins
 {
+	auto FImportDataValidationCause::Format() const -> std::string
+	{
+		if (SettingsCause) return FormatStaticMeshImportSettingsError(*SettingsCause);
+		if (Code == EImportDataValidationError::InvalidAtlas)
+			return "VolumeTexture import data requires a valid row-major atlas interpretation.";
+		return std::format("{} import data requires exactly one source role.",
+			Family == EImportDataFamily::StaticMesh ? "StaticMesh" : "VolumeTexture");
+	}
+
 	namespace
 	{
-		auto ValidateSingleSource(
-			const FAssetImportDataState& State,
-			std::string_view Family,
-			std::string& OutError) -> bool
+		auto RejectImportData(FImportDataValidationCause Cause) -> FAssetImportDataResult
+		{
+			return {.Error = {.Code = EAssetImportDataError::ModuleRejected,
+				.Cause = std::make_shared<FImportDataValidationCause>(std::move(Cause))}};
+		}
+		auto ValidateSingleSource(const FAssetImportDataState& State, EImportDataFamily Family)
+			-> FAssetImportDataResult
 		{
 			const FSourceFile* Source = State.SourceData.FindByRole("source");
-			if (State.SourceData.Sources.size() != 1 || !Source)
-			{
-				OutError = std::format(
-					"{} import data requires exactly one source role.", Family);
-				return false;
-			}
-			return true;
+			if (State.SourceData.Sources.size() == 1 && Source) return {};
+			FImportDataValidationCause Cause;
+			Cause.Family = Family;
+			Cause.SourceCount = State.SourceData.Sources.size();
+			for (const auto& Item : State.SourceData.Sources) Cause.SourceRoles.push_back(Item.Role.ToString());
+			return RejectImportData(std::move(Cause));
 		}
 	}
 
-	auto FStaticMeshImportDataState::Validate(std::string& OutError) const -> bool
+	auto FStaticMeshImportDataState::Validate() const -> FAssetImportDataResult
 	{
-		if (!FAssetImportDataState::Validate(OutError)) return false;
-		if (SourceData.Sources.empty())
+		if (auto Validation = FAssetImportDataState::Validate(); !Validation) return Validation;
+		if (SourceData.Sources.empty()) return {};
+		if (auto Validation = ValidateSingleSource(*this, EImportDataFamily::StaticMesh); !Validation) return Validation;
+		if (const auto Validation = ImportSettings.Validate(); !Validation)
 		{
-			OutError.clear();
-			return true;
+			FImportDataValidationCause Cause;
+			Cause.Code = EImportDataValidationError::InvalidAxisSettings;
+			Cause.SettingsCause = Validation.Error;
+			return RejectImportData(std::move(Cause));
 		}
-		if (!ValidateSingleSource(*this, "StaticMesh", OutError)) return false;
-		if (!ImportSettings.IsValid(&OutError))
-		{
-			if (OutError.empty())
-				OutError = "StaticMesh import data requires valid axis settings.";
-			return false;
-		}
-		OutError.clear();
-		return true;
+		return {};
 	}
 
-	auto FVolumeTextureImportDataState::Validate(std::string& OutError) const -> bool
+	auto FVolumeTextureImportDataState::Validate() const -> FAssetImportDataResult
 	{
-		if (!FAssetImportDataState::Validate(OutError)) return false;
-		if (SourceData.Sources.empty() && SliceWidth == 0
-			&& SliceHeight == 0 && Depth == 0
-			&& TilesX == 0 && TilesY == 0)
-		{
-			OutError.clear();
-			return true;
-		}
-		if (!ValidateSingleSource(*this, "VolumeTexture", OutError)) return false;
+		if (auto Validation = FAssetImportDataState::Validate(); !Validation) return Validation;
+		if (SourceData.Sources.empty() && SliceWidth == 0 && SliceHeight == 0
+			&& Depth == 0 && TilesX == 0 && TilesY == 0) return {};
+		if (auto Validation = ValidateSingleSource(*this, EImportDataFamily::VolumeTexture); !Validation) return Validation;
 		const uint64 Capacity = static_cast<uint64>(TilesX) * TilesY;
-		if (SliceWidth == 0 || SliceHeight == 0
-			|| Depth == 0 || TilesX == 0 || TilesY == 0
-			|| Capacity < Depth)
+		if (SliceWidth == 0 || SliceHeight == 0 || Depth == 0 || TilesX == 0 || TilesY == 0 || Capacity < Depth)
 		{
-			OutError = "VolumeTexture import data requires a valid row-major atlas interpretation.";
-			return false;
+			FImportDataValidationCause Cause;
+			Cause.Code = EImportDataValidationError::InvalidAtlas;
+			Cause.Family = EImportDataFamily::VolumeTexture;
+			Cause.SliceWidth = SliceWidth;
+			Cause.SliceHeight = SliceHeight;
+			Cause.Depth = Depth;
+			Cause.TilesX = TilesX;
+			Cause.TilesY = TilesY;
+			return RejectImportData(std::move(Cause));
 		}
-		OutError.clear();
-		return true;
+		return {};
 	}
 
 	DStaticMeshImportData::DStaticMeshImportData(
@@ -97,9 +104,9 @@ namespace Durin::AssetForge::Builtins
 		return Builder.Finalize();
 	}
 
-	auto DStaticMeshImportData::Validate(std::string& OutError) const -> bool
+	auto DStaticMeshImportData::Validate() const -> FAssetImportDataResult
 	{
-		return GetStaticMeshState().Validate(OutError);
+		return GetStaticMeshState().Validate();
 	}
 
 	DVolumeTextureImportData::DVolumeTextureImportData(
@@ -132,8 +139,8 @@ namespace Durin::AssetForge::Builtins
 		return State;
 	}
 
-	auto DVolumeTextureImportData::Validate(std::string& OutError) const -> bool
+	auto DVolumeTextureImportData::Validate() const -> FAssetImportDataResult
 	{
-		return GetVolumeTextureState().Validate(OutError);
+		return GetVolumeTextureState().Validate();
 	}
 }

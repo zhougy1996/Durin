@@ -6,6 +6,7 @@
 namespace Durin
 {
 	class DObject;
+	struct FAssetResult;
 	class FArrayProperty;
 	class FMapProperty;
 	class FProperty;
@@ -25,6 +26,8 @@ namespace Durin::Editor
 		TypeMismatch,
 	};
 
+	enum class ESoftObjectViewError : uint8 { None, Storage, Accessor, Asset };
+
 	// Describes a soft reference without loading its target.
 	struct FSoftObjectViewState
 	{
@@ -32,7 +35,11 @@ namespace Durin::Editor
 		FObjectPath Path;
 		FObjectPath ResolvedPath;
 		DObject* LoadedObject = nullptr;
-		std::string Message;
+		ESoftObjectViewError Error = ESoftObjectViewError::None;
+		std::string PropertyName;
+		uint32 ArrayIndex = 0;
+		int32 ArrayDim = 0;
+		std::shared_ptr<const FAssetResult> AssetCause;
 	};
 
 	enum class EWeakObjectViewState : uint8 { Null, Live, Expired, TypeMismatch };
@@ -188,13 +195,24 @@ namespace Durin::Editor
 	DURINED_API auto InspectSoftObject(
 		FSoftObjectProperty* Property, void* Container, uint32 ArrayIndex = 0
 	) -> FSoftObjectViewState;
+	enum class EPropertySoftLoadError : uint8 { None, Storage, Accessor, Asset, MissingObject };
+	struct FPropertySoftLoadResult
+	{
+		EPropertySoftLoadError Error = EPropertySoftLoadError::None;
+		std::string PropertyName;
+		uint32 ArrayIndex = 0;
+		int32 ArrayDim = 0;
+		FObjectPath Path;
+		std::shared_ptr<const FAssetResult> AssetCause;
+		explicit operator bool() const { return Error == EPropertySoftLoadError::None; }
+	};
+	DURINED_API auto FormatPropertySoftLoadResult(const FPropertySoftLoadResult& Result) -> std::string;
 	DURINED_API auto LoadSoftObject(
 		FSoftObjectProperty* Property,
 		void* Container,
 		uint32 ArrayIndex,
-		DObject*& OutObject,
-		std::string* OutError = nullptr
-	) -> bool;
+		DObject*& OutObject
+	) -> FPropertySoftLoadResult;
 	DURINED_API auto GetSoftObjectStateLabel(ESoftObjectViewState State) -> std::string_view;
 	DURINED_API auto InspectWeakObject(
 		FWeakObjectProperty* Property, void* Container, uint32 ArrayIndex = 0

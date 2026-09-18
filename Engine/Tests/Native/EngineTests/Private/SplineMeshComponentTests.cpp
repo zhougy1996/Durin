@@ -1,3 +1,4 @@
+#include "Components/PropertyEditValidation.h"
 #include "Asset/AssetCompilingManager.h"
 #include "Components/SplineMeshComponent.h"
 #include "Components/SplineComponent.h"
@@ -52,11 +53,10 @@ namespace
 			FVector3f(0.0f, 0.5f, 0.0f)};
 		Section.Indices = {0, 1, 2};
 		Section.SourceMaterialIndex = 0;
-		std::string Error;
-		if (!BuildStaticMeshSynchronously(
-			*Mesh, std::move(Imported), Error))
+		if (const auto Built = BuildStaticMeshSynchronously(
+			*Mesh, std::move(Imported)); !Built)
 		{
-			ADD_FAILURE() << Error;
+			ADD_FAILURE() << FormatStaticMeshSynchronousError(Built.Error);
 			return nullptr;
 		}
 		return Mesh;
@@ -334,7 +334,8 @@ TEST(FSplineMeshComponentTests, SourcePublicationRecoversUnavailableState)
 	Section.Indices = {0, 1, 2};
 	Section.SourceMaterialIndex = 0;
 	std::string Error;
-	ASSERT_TRUE(BuildStaticMeshSynchronously(*Pending, std::move(Imported), Error)) << Error;
+	const auto SynchronousBuild1 = BuildStaticMeshSynchronously(*Pending, std::move(Imported));
+	ASSERT_TRUE(SynchronousBuild1) << Durin::FormatStaticMeshSynchronousError(SynchronousBuild1.Error);
 	EXPECT_TRUE(Component->GetDerivedState()->IsValid());
 	EXPECT_FALSE(Component->IsMeshDirty());
 	MarkObjectHierarchyAsGarbage(World);
@@ -343,6 +344,7 @@ TEST(FSplineMeshComponentTests, SourcePublicationRecoversUnavailableState)
 
 TEST(FSplineMeshComponentTests, ReflectedInvalidDraftIsRejectedBeforeMutation)
 {
+	InitializeDObjectSystem();
 	auto [Component, Mesh] = MakeComponentWithMesh();
 	auto* Draft = NewObject<DSplineMeshComponent>(nullptr, "SplineMeshInvalidDraft");
 	DClass* Class = DSplineMeshComponent::StaticClass();
@@ -357,9 +359,16 @@ TEST(FSplineMeshComponentTests, ReflectedInvalidDraftIsRejectedBeforeMutation)
 		.DraftRootProperty = ParamsProperty,
 		.DraftRootContainer = Draft,
 		.DraftLeafContainer = Draft};
-	std::string Error;
-	EXPECT_FALSE(Component->PreEditChangeProperty(Proposal, Error));
-	EXPECT_FALSE(Error.empty());
+	const auto Validation = Component->PreEditChangeProperty(Proposal);
+	EXPECT_EQ(Validation.Error.Code, EObjectValidationError::PropertyRejected);
+	EXPECT_EQ(Validation.Error.PropertyName, "SplineMeshParams");
+	const auto Cause = std::dynamic_pointer_cast<const FEnginePropertyEditCause>(Validation.Error.Cause);
+	ASSERT_TRUE(Cause);
+	const auto* SplineError = std::get_if<FSplineMeshValidationError>(&Cause->Error);
+	ASSERT_NE(SplineError, nullptr);
+	EXPECT_EQ(SplineError->Code, ESplineMeshValidationError::NonFiniteParameters);
+	DraftParams->EndRollRadians = 0;
+	EXPECT_TRUE(std::isinf(SplineError->Params.EndRollRadians));
 	EXPECT_TRUE(Component->GetMeshUpdateError().empty());
 	EXPECT_TRUE(Math::IsFinite(Component->GetSplineMeshParams().EndPosition));
 	EXPECT_TRUE(std::isfinite(Component->GetSplineMeshParams().EndRollRadians));
@@ -372,7 +381,7 @@ TEST(FSplineMeshComponentTests, DuplicateRebuildsIndependentEquivalentSnapshot)
 	Params.EndPosition = {75.0, 25.0, 10.0};
 	Source->SetSplineMeshParams(Params);
 	auto* Duplicate = Cast<DSplineMeshComponent>(
-		DuplicateObject(Source, nullptr, "SplineMeshDuplicate"));
+		DuplicateObject(Source, nullptr, "SplineMeshDuplicate").Object);
 	ASSERT_NE(Duplicate, nullptr);
 	EXPECT_EQ(Duplicate->GetStaticMesh(), Mesh);
 	EXPECT_EQ(Duplicate->GetSplineMeshParams(), Source->GetSplineMeshParams());
@@ -408,7 +417,7 @@ TEST(FSplineMeshComponentTests, MaterialOverridesUseStaticMeshSlotRules)
 	ASSERT_TRUE(Base->SetMaterialByName(FName("Default"), Material));
 	EXPECT_TRUE(Base->HasMaterialOverride(0));
 	EXPECT_EQ(Base->GetMaterialByName(FName("Default")), Material);
-	auto* Duplicate = Cast<DSplineMeshComponent>(DuplicateObject(Component, nullptr, "MaterialOverrideDuplicate"));
+	auto* Duplicate = Cast<DSplineMeshComponent>(DuplicateObject(Component, nullptr, "MaterialOverrideDuplicate").Object);
 	ASSERT_NE(Duplicate, nullptr);
 	EXPECT_EQ(Duplicate->GetMaterialOverride(0), Material);
 	Component->SetStaticMesh(nullptr);
@@ -694,7 +703,7 @@ TEST(FSplineMeshActorTests, ReconcilesStableGuidSegmentsFromSplineMutations)
 	EXPECT_EQ(Actor->FindComponentsByClass<DSplineMeshComponent>().size(), 2u);
 	std::unordered_map<DObject*, DObject*> Duplicates;
 	auto* Duplicate = Cast<ASplineMeshActor>(DuplicateObject(
-		Actor, Level, "SplineMeshActorDuplicate", &Duplicates));
+		Actor, Level, "SplineMeshActorDuplicate", &Duplicates).Object);
 	ASSERT_NE(Duplicate, nullptr);
 	EXPECT_EQ(Duplicate->GetSplineComponent()->GetSplinePoints(),
 		Actor->GetSplineComponent()->GetSplinePoints());

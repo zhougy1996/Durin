@@ -43,9 +43,9 @@ namespace Durin
 		RenderScene = nullptr;
 	}
 
-	auto DSceneComponent::PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool
+	auto DSceneComponent::PreEditChangeProperty(FPropertyEditProposal& Proposal) -> FObjectValidationResult
 	{
-		if (!Super::PreEditChangeProperty(Proposal, OutError)) return false;
+		if (auto Result = Super::PreEditChangeProperty(Proposal); !Result) return Result;
 		if (Proposal.MemberProperty && Proposal.MemberProperty->NamePrivate == FName("RelativeTransform")
 			&& Proposal.DraftRootProperty == Proposal.MemberProperty && Proposal.DraftRootContainer)
 		{
@@ -53,7 +53,7 @@ namespace Durin
 				Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex);
 			Transform->Rotation = Math::Normalize(Transform->Rotation);
 		}
-		return true;
+		return {};
 	}
 
 	auto DSceneComponent::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void

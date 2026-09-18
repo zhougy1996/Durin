@@ -332,7 +332,8 @@ namespace Durin::Editor::StaticMesh
 							static_cast<unsigned long long>((*Observation)->CacheWriteNanoseconds));
 					}
 				}
-				if (!Operation.Message.empty()) ImGui::TextWrapped("%s", Operation.Message.c_str());
+				const auto Message = FormatStaticMeshCompilationDiagnostic(Operation);
+				if (!Message.empty()) ImGui::TextWrapped("%s", Message.c_str());
 				ImGui::TextWrapped("Persistence is reported only by the operation diagnostic; a successful product does not prove a cache write. For build failure, restore/reimport source or explicitly rebuild disposable derived output. Cancelled or superseded work is not retried by inspection.");
 			}
 		}

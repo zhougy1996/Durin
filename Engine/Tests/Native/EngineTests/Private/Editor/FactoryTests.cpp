@@ -67,7 +67,7 @@ namespace
 	class DAssetToolsFactoryForTest : public Durin::DFactory
 	{
 	public:
-		enum class EMode { Success, Fail, WrongClass, WrongOuter, WrongName };
+		enum class EMode { Success, Fail, TypedFail, WrongClass, WrongOuter, WrongName };
 
 		explicit DAssetToolsFactoryForTest(
 			const Durin::FObjectInitializer& Initializer = Durin::FObjectInitializer::Get())
@@ -118,6 +118,13 @@ namespace
 			Durin::DObject*,
 			Durin::FFactoryDiagnostics* Diagnostics) const -> Durin::DObject* override
 		{
+			if (Mode == EMode::TypedFail)
+			{
+				if (Diagnostics) Diagnostics->ReportFailure({
+					.Code = Durin::EFactoryError::ObjectCreation,
+					.ExpectedClass = InClass->GetName(), .RequestedClass = InClass->GetName()});
+				return nullptr;
+			}
 			if (Mode == EMode::Fail)
 			{
 				if (Diagnostics) Diagnostics->Report("test factory failure");
@@ -279,10 +286,23 @@ TEST(DFactoryTests, BatchPreflightRejectsEveryDuplicateWithoutCreatingPackages)
 	ASSERT_EQ(Validation.size(), 2u);
 	EXPECT_FALSE(Validation[0]);
 	EXPECT_FALSE(Validation[1]);
+	EXPECT_EQ(Validation[0].Error, Durin::EAssetImportError::DuplicatePackage);
+	EXPECT_EQ(Validation[1].Error, Durin::EAssetImportError::DuplicatePackage);
+	EXPECT_EQ(Validation[0].Count, 2u);
+	EXPECT_EQ(Validation[0].AssetPath, First.AssetPath.ToString());
+	const std::array Single{First};
+	ASSERT_TRUE(Durin::IAssetTools::Get().InspectImports(Single)[0]);
+	EXPECT_EQ(Validation[0].Count, 2u);
 	const auto Result = Durin::IAssetTools::Get().ImportAssets({.Items = {First, Second}});
 	ASSERT_EQ(Result.Items.size(), 2u);
 	EXPECT_EQ(Result.Items[0].State, Durin::EAssetImportItemState::Rejected);
 	EXPECT_EQ(Result.Items[1].State, Durin::EAssetImportItemState::Rejected);
+	for (const auto& Rejected : Result.Items)
+	{
+		ASSERT_TRUE(Rejected.Operation.ImportCause);
+		EXPECT_EQ(Rejected.Operation.ImportCause->Error, Durin::EAssetImportError::DuplicatePackage);
+		EXPECT_EQ(Rejected.Operation.ImportCause->Count, 2u);
+	}
 	EXPECT_EQ(Durin::FindPackage(First.AssetPath.GetPackagePath().GetView()), nullptr);
 }
 
@@ -299,7 +319,11 @@ TEST(DFactoryTests, BatchContinuesAfterFactoryFailureAndKeepsSuccessfulPeersDirt
 	ASSERT_EQ(Result.Items.size(), 3u);
 	EXPECT_EQ(Result.Items[0].State, Durin::EAssetImportItemState::Accepted);
 	EXPECT_EQ(Result.Items[1].State, Durin::EAssetImportItemState::Rejected);
-	EXPECT_EQ(Result.Items[1].Operation.Message, "test factory failure");
+	ASSERT_TRUE(Result.Items[1].Operation.CreationCause);
+	EXPECT_EQ(Result.Items[1].Operation.CreationCause->Code, Durin::EAssetCreationError::FactoryRejected);
+	ASSERT_TRUE(Result.Items[1].Operation.FactoryCause);
+	ASSERT_EQ(Result.Items[1].Operation.FactoryCause->GetEntries().size(), 1u);
+	EXPECT_EQ(Result.Items[1].Operation.FactoryCause->GetEntries()[0].Message, "test factory failure");
 	EXPECT_EQ(Result.Items[2].State, Durin::EAssetImportItemState::Accepted);
 	EXPECT_EQ(Durin::FindPackage(Batch.Items[1].AssetPath.GetPackagePath().GetView()), nullptr);
 	for (const size_t Index : {0u, 2u})
@@ -348,6 +372,10 @@ TEST(DFactoryTests, ImportRejectsUncatalogedDestinationFileAndWrongAssetName)
 		EXPECT_EQ(Item.State, Durin::EAssetImportItemState::Rejected);
 	EXPECT_EQ(Result.Items[0].Operation.Message, "A package file already occupies the destination.");
 	EXPECT_EQ(Durin::FindPackage(WrongName.AssetPath.GetPackagePath().GetView()), nullptr);
+	ASSERT_TRUE(Result.Items[1].Operation.CreationCause);
+	EXPECT_EQ(Result.Items[1].Operation.CreationCause->Code, Durin::EAssetCreationError::ProductName);
+	EXPECT_EQ(Result.Items[1].Operation.CreationCause->RequestedPath, WrongName.AssetPath.ToString());
+	EXPECT_NE(Result.Items[1].Operation.CreationCause->ActualPath.find("UnexpectedName"), std::string::npos);
 	EXPECT_EQ(std::filesystem::file_size(File), 1u);
 	std::filesystem::remove(File);
 }
@@ -361,7 +389,7 @@ TEST(DFactoryTests, BatchRevalidatesDestinationAfterPreflight)
 	const std::array Items{Item};
 	const auto Validation = Durin::IAssetTools::Get().InspectImports(Items);
 	ASSERT_EQ(Validation.size(), 1u);
-	ASSERT_TRUE(Validation[0]) << Validation[0].Message;
+	ASSERT_TRUE(Validation[0]) << Durin::FormatAssetImportValidation(Validation[0]);
 	EXPECT_EQ(Durin::FindPackage(Item.AssetPath.GetPackagePath().GetView()), nullptr);
 	Durin::DPackage* Occupant = nullptr;
 	const auto Result = Durin::IAssetTools::Get().ImportAssets({
@@ -372,6 +400,9 @@ TEST(DFactoryTests, BatchRevalidatesDestinationAfterPreflight)
 	ASSERT_NE(Occupant, nullptr);
 	ASSERT_EQ(Result.Items.size(), 1u);
 	EXPECT_EQ(Result.Items[0].State, Durin::EAssetImportItemState::Rejected);
+	ASSERT_TRUE(Result.Items[0].Operation.ImportCause);
+	EXPECT_EQ(Result.Items[0].Operation.ImportCause->Error, Durin::EAssetImportError::Destination);
+	ASSERT_TRUE(Result.Items[0].Operation.ImportCause->DestinationCause);
 	EXPECT_EQ(Durin::FindPackage(Item.AssetPath.GetPackagePath().GetView()), Occupant);
 	EXPECT_TRUE(Durin::IAssetTools::Get().DiscardPackage(Occupant));
 }
@@ -541,7 +572,10 @@ TEST(DFactoryTests, FactoryFailureReportsDiagnosticAndDiscardsPackage)
 	const Durin::FAssetToolsResult Result = Durin::IAssetTools::Get().CreatePackageLeafAssetForTesting(
 		Path, DFactoryAssetForTest::StaticClass(), Factory);
 	EXPECT_FALSE(Result);
-	EXPECT_EQ(Result.Message, "test factory failure");
+	ASSERT_TRUE(Result.CreationCause);
+	EXPECT_EQ(Result.CreationCause->Code, Durin::EAssetCreationError::FactoryRejected);
+	ASSERT_TRUE(Result.FactoryCause);
+	EXPECT_EQ(Result.FactoryCause->ToString(), "test factory failure");
 	EXPECT_EQ(Durin::FindPackage(Path.GetView()), nullptr);
 	EXPECT_EQ(Durin::FindResidentPackage(Path), nullptr);
 }
@@ -785,4 +819,65 @@ TEST(DFactoryTests, DuplicateSaveFailureDiscardsOnlyDisposableDestination)
 	EXPECT_EQ(Durin::FindResidentPackage(DestinationPath), nullptr);
 	EXPECT_EQ(Durin::FindResidentPackage(SourcePath), Created.Package);
 	EXPECT_TRUE(Durin::UnloadPackage(SourcePath));
+}
+
+TEST(DFactoryTests, TypedDiagnosticsRetainContextAndMixedReportOrder)
+{
+	Durin::FFactoryDiagnostics Diagnostics;
+	Diagnostics.Report("first");
+	std::string Filename = "source.mesh";
+	Diagnostics.ReportFailure({.Code = Durin::EFactoryError::ExactClass,
+		.ExpectedClass = "StaticMesh", .RequestedClass = "Texture2D", .Filename = Filename});
+	Filename.clear();
+	Diagnostics.Report("last");
+	ASSERT_EQ(Diagnostics.GetEntries().size(), 3u);
+	ASSERT_TRUE(Diagnostics.GetEntries()[1].Failure.has_value());
+	const auto& Error = *Diagnostics.GetEntries()[1].Failure;
+	EXPECT_EQ(Error.Code, Durin::EFactoryError::ExactClass);
+	EXPECT_EQ(Error.RequestedClass, "Texture2D");
+	EXPECT_EQ(Error.Filename, "source.mesh");
+	EXPECT_EQ(Diagnostics.ToString(), "first\n" + Durin::FormatFactoryError(Error) + "\nlast");
+	for (size_t Index = 0; Index < 20; ++Index) Diagnostics.ReportFailure(Error);
+	EXPECT_EQ(Diagnostics.GetEntries().size(), Durin::FFactoryDiagnostics::MaximumMessageCount);
+}
+
+TEST(DFactoryTests, TypedFactoryFailureSurvivesPackageDiscard)
+{
+	InitializeFactoryTestGameThread();
+	EnsureAssetToolsTestMount();
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/AssetToolsTests/TypedFactoryFailure", Path));
+	auto* Factory = MakeFactory(DAssetToolsFactoryForTest::EMode::TypedFail);
+	const auto Result = Durin::IAssetTools::Get().CreatePackageLeafAssetForTesting(
+		Path, DFactoryAssetForTest::StaticClass(), Factory);
+	EXPECT_FALSE(Result);
+	EXPECT_EQ(Durin::FindPackage(Path.GetView()), nullptr);
+	ASSERT_TRUE(Result.FactoryCause);
+	ASSERT_EQ(Result.FactoryCause->GetEntries().size(), 1u);
+	const auto& Entry = Result.FactoryCause->GetEntries().front();
+	ASSERT_TRUE(Entry.Failure);
+	EXPECT_EQ(Entry.Failure->Code, Durin::EFactoryError::ObjectCreation);
+	EXPECT_EQ(Entry.Failure->RequestedClass, DFactoryAssetForTest::StaticClass()->GetName());
+	EXPECT_TRUE(Entry.Message.empty());
+	EXPECT_EQ(Result.Message, Durin::FormatFactoryError(*Entry.Failure));
+}
+
+TEST(DFactoryTests, ReimportPersistenceFailureRetainsAssetCauseAndCompletesOnce)
+{
+	InitializeFactoryTestGameThread();
+	FStandaloneReimportHandlerForTest Handler(100);
+	auto* Object = Durin::NewObject<DFactoryAssetForTest>(
+		nullptr, Durin::FName("UnpackagedReimportObject"), Durin::EObjectFlags::Transient);
+	Durin::FReimportResult Result;
+	int CompletionCount = 0;
+	Durin::FReimportManager::Reimport(*Object, {.bSave = true},
+		[&](Durin::FReimportResult Completed) {
+			++CompletionCount;
+			Result = std::move(Completed);
+		});
+	EXPECT_EQ(CompletionCount, 1);
+	EXPECT_FALSE(Result);
+	EXPECT_EQ(Result.Status, Durin::EReimportStatus::PersistenceFailure);
+	ASSERT_TRUE(Result.SaveCause);
+	EXPECT_EQ(Result.SaveCause->Error, Durin::EAssetError::InvalidPath);
 }

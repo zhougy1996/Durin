@@ -192,7 +192,7 @@ namespace Durin
 					0.5f, nullptr, bHasTransparency);
 				if (!BuildResult)
 				{
-					ADD_FAILURE() << BuildResult.Diagnostic;
+					ADD_FAILURE() << Durin::FormatTexture2DBuildError(BuildResult.Error);
 					return {};
 				}
 				if (MipIndex == 0)

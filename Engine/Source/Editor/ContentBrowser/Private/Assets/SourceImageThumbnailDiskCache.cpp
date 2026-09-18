@@ -55,8 +55,10 @@ namespace Durin::Editor::ContentBrowser::Private
 			FDecodedSourceImageThumbnail& OutThumbnail, std::string& OutError) -> bool
 		{
 			Image::FDecodedImage Image;
-			if (!Image::DecodeImageFromMemory(Bytes, Image, OutError,
-				{MaximumEncodedObjectBytes, static_cast<uint64>(MaximumDimension) * MaximumDimension * 4}))
+			const auto DecodeResult = Image::DecodeImageFromMemory(Bytes, Image,
+				{MaximumEncodedObjectBytes, static_cast<uint64>(MaximumDimension) * MaximumDimension * 4});
+			OutError = Image::FormatImageDecodeError(DecodeResult.Error);
+			if (!DecodeResult)
 				return false;
 			if (Image.Width == 0 || Image.Height == 0 || Image.Width > MaximumDimension || Image.Height > MaximumDimension)
 			{

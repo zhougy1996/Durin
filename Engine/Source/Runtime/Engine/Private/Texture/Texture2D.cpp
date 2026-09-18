@@ -112,8 +112,7 @@ namespace Durin
 			DURIN_ERROR("PostLoad '{}': Texture2D source data is missing or invalid.", GetObjectPath());
 			return;
 		}
-		std::string Error;
-		if (!BuildTexture2DSynchronously(*this, CreateBuildRequest({
+		if (const auto Built = BuildTexture2DSynchronously(*this, CreateBuildRequest({
 				.Usage = Usage,
 				.CompressionQuality = CompressionQuality,
 				.AlphaMipMode = AlphaMipMode,
@@ -122,8 +121,8 @@ namespace Durin
 				.bSRGB = bSRGB}), {
 			.bMarkPackageDirty = false,
 			.bReportLoadMutation = false,
-			.bSourceDecoderInvoked = false}, Error))
-			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
+			.bSourceDecoderInvoked = false}); !Built)
+			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), FormatTexture2DCompilationError(Built.Error));
 	}
 
 	auto DTexture2D::LoadCookedPlatformData() -> bool

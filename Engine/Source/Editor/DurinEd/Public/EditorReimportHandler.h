@@ -5,6 +5,8 @@
 namespace Durin
 {
 	class DObject;
+	class IFactoryErrorDetail;
+	struct FAssetResult;
 
 	// Describes which mutation requests one handler can service for a loaded object.
 	struct FReimportCapabilities
@@ -43,6 +45,8 @@ namespace Durin
 	{
 		EReimportStatus Status = EReimportStatus::Unsupported;
 		std::string Message;
+		std::shared_ptr<const IFactoryErrorDetail> FactoryCause;
+		std::shared_ptr<const FAssetResult> SaveCause;
 
 		auto Succeeded() const -> bool
 		{

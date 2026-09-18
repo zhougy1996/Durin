@@ -39,11 +39,11 @@ namespace Durin
 				.Source = std::move(Buffer)});
 		}
 
-		auto ErrorResult(EPackageResourceReadStatus Status, std::string Message)
+		auto ErrorResult(EPackageResourceReadStatus Status, EPackageResourceReadReason Reason)
 			-> FPackageResourceRequest
 		{
 			return FPackageResourceRequest::Completed({
-				.Status = Status, .Message = std::move(Message)});
+				.Status = Status, .Error = {.Reason = Reason}});
 		}
 
 		auto RequestPayload(const std::shared_ptr<const FState>& Snapshot)
@@ -55,19 +55,32 @@ namespace Durin
 			const FPackageResourceRange& Range = std::get<FPackageResourceRange>(Snapshot->Source);
 			if (!Range.Resource)
 				return ErrorResult(EPackageResourceReadStatus::MissingSegment,
-					"Editor bulk payload has no memory or package source.");
+					EPackageResourceReadReason::MissingSource);
 			return FPackageResourceRequest::Transform(
 				Range.Resource->ReadRangeAsync(Range.SegmentOffset, Range.StoredSize),
 				[ExpectedSize = Snapshot->LogicalSize, ExpectedId = Snapshot->ContentId](
 					FPackageResourceReadResult Result) {
-					if (Result && (Result.Buffer.GetSize() != ExpectedSize
-						|| FXxHash128::HashBuffer(Result.Buffer.GetBytes()) != ExpectedId))
-						return FPackageResourceReadResult{
-							.Status = EPackageResourceReadStatus::SegmentDigestMismatch,
-							.Message = "Editor bulk package range does not match its content identity."};
+					if (Result)
+					{
+						const auto Digest = FXxHash128::HashBuffer(Result.Buffer.GetBytes());
+						if (Result.Buffer.GetSize() != ExpectedSize || Digest != ExpectedId)
+							return FPackageResourceReadResult{.Status = EPackageResourceReadStatus::SegmentDigestMismatch,
+								.Error = {.Reason = EPackageResourceReadReason::ContentMismatch,
+									.Actual = Result.Buffer.GetSize(), .Expected = ExpectedSize,
+									.ActualDigest = Digest, .ExpectedDigest = ExpectedId}};
+					}
 					return Result;
 				});
 		}
+	}
+
+	auto FormatEditorBulkDataError(const FEditorBulkDataError& Error) -> std::string
+	{
+		if (Error.RangeCause) return FormatPackageResourceRangeError(*Error.RangeCause);
+		if (Error.Code == EEditorBulkDataError::None) return {};
+		if (Error.Code == EEditorBulkDataError::PayloadSizeLimit)
+			return "Editor bulk payload exceeds the 1 GiB authored limit.";
+		return "Editor bulk package source identity or logical size is invalid.";
 	}
 
 	FEditorBulkData::FEditorBulkData() : State(MakeEmptyState()) {}
@@ -134,14 +147,16 @@ namespace Durin
 		return RequestPayload(std::atomic_load_explicit(&State, std::memory_order_acquire));
 	}
 
-	auto FEditorBulkData::UpdatePayload(FByteView Bytes) -> bool
+	auto FEditorBulkData::UpdatePayload(FByteView Bytes) -> FEditorBulkDataResult
 	{
 		return UpdatePayload(FSharedByteBuffer::Copy(Bytes));
 	}
 
-	auto FEditorBulkData::UpdatePayload(FSharedByteBuffer Buffer) -> bool
+	auto FEditorBulkData::UpdatePayload(FSharedByteBuffer Buffer) -> FEditorBulkDataResult
 	{
-		if (Buffer.GetSize() > MaximumAuthoredBulkBytes) return false;
+		if (Buffer.GetSize() > MaximumAuthoredBulkBytes)
+			return {.Error = {.Code = EEditorBulkDataError::PayloadSizeLimit,
+				.Actual = Buffer.GetSize(), .Expected = MaximumAuthoredBulkBytes}};
 		const FXxHash128 CandidateId = FXxHash128::HashBuffer(Buffer.GetBytes());
 		auto Expected = std::atomic_load_explicit(&State, std::memory_order_acquire);
 		while (true)
@@ -150,7 +165,7 @@ namespace Durin
 			if (!InstanceId.IsValid()) InstanceId = FGuid::NewGuid();
 			const auto Candidate = MakeMemoryState(InstanceId, CandidateId, Buffer);
 			if (std::atomic_compare_exchange_weak_explicit(&State, &Expected, Candidate,
-				std::memory_order_release, std::memory_order_acquire)) return true;
+				std::memory_order_release, std::memory_order_acquire)) return {};
 		}
 	}
 
@@ -159,24 +174,28 @@ namespace Durin
 		FXxHash128 InContentId,
 		uint64 InLogicalSize,
 		FEditorBulkDataSource InSource,
-		FEditorBulkData& OutValue,
-		std::string* OutError) -> bool
+		FEditorBulkData& OutValue) -> FEditorBulkDataResult
 	{
-		if (!InInstanceId.IsValid() || InContentId.IsZero()
-			|| InLogicalSize != InSource.StoredSize
-			|| !ValidatePackageResourceRange(InSource, MaximumAuthoredBulkBytes, OutError))
+		auto Reject = [&](EEditorBulkDataError Code) {
+			return FEditorBulkDataResult{.Error = {.Code = Code,
+				.InstanceId = InInstanceId, .ContentId = InContentId,
+				.Actual = InLogicalSize, .Expected = InSource.StoredSize}};
+		};
+		if (!InInstanceId.IsValid()) return Reject(EEditorBulkDataError::InvalidInstanceIdentity);
+		if (InContentId.IsZero()) return Reject(EEditorBulkDataError::MissingContentIdentity);
+		if (InLogicalSize != InSource.StoredSize) return Reject(EEditorBulkDataError::LogicalSizeMismatch);
+		if (const auto Validation = ValidatePackageResourceRange(InSource, MaximumAuthoredBulkBytes); !Validation)
 		{
-			if (OutError && OutError->empty())
-				*OutError = "Editor bulk package source identity or logical size is invalid.";
-			return false;
+			auto Result = Reject(EEditorBulkDataError::InvalidRange);
+			Result.Error.RangeCause = Validation.Error;
+			return Result;
 		}
 		std::atomic_store_explicit(&OutValue.State, std::make_shared<const FState>(FState{
 			.InstanceId = InInstanceId,
 			.ContentId = InContentId,
 			.LogicalSize = InLogicalSize,
 			.Source = std::move(InSource)}), std::memory_order_release);
-		if (OutError) OutError->clear();
-		return true;
+		return {};
 	}
 
 	auto FEditorBulkData::Serialize(FArchive& Ar) -> void
@@ -190,8 +209,7 @@ namespace Durin
 			if (!Payload)
 			{
 				Ar.Fail(EArchiveFailureCode::InvalidData,
-					Payload.Message.empty() ? "Authored bulk payload cannot be read for serialization."
-						: Payload.Message);
+					FormatPackageResourceReadError(Payload));
 				return;
 			}
 			if (AssetPrivate::FScopedBulkSaveRetention::IsEnabled())
@@ -218,16 +236,16 @@ namespace Durin
 		if (Value.StorageKind == EArchiveBulkDataStorageKind::External)
 		{
 			FEditorBulkData Candidate;
-			std::string Error;
-			if (!Value.PackageResource || !TryCreatePackageBacked(
+			const auto Created = TryCreatePackageBacked(
 				Value.PayloadId, Value.ContentHash, Value.LogicalSize,
 				{.Resource = std::static_pointer_cast<FPackageResource>(Value.PackageResource),
 					.SegmentOffset = Value.SegmentOffset,
 					.StoredSize = Value.StoredSize,
-					.Alignment = Value.Alignment}, Candidate, &Error))
+					.Alignment = Value.Alignment}, Candidate);
+			if (!Created)
 			{
 				Ar.Fail(EArchiveFailureCode::InvalidData,
-					Error.empty() ? "Loaded external authored bulk source is invalid." : Error);
+					FormatEditorBulkDataError(Created.Error));
 				return;
 			}
 			std::atomic_store_explicit(&State,

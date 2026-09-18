@@ -500,7 +500,7 @@ namespace Durin::Editor::MainFrame
 					? Transactions.Redo(Id) : Transactions.Undo(Id);
 				if (!Result)
 					DURIN_ERROR("Unable to apply notification history action: {}",
-						Result.Message);
+						FormatTransactorResult(Result));
 			};
 			Desc.Action = std::move(Action);
 			Notifications.Post(std::move(Desc));

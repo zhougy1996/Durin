@@ -6,10 +6,14 @@ namespace Durin
 {
 	namespace
 	{
-		auto FailSaveOverride(std::string_view Message, std::string* OutError) -> bool
+		auto FailSaveOverride(ESaveOverrideError Code, const DObject& Object,
+			const FProperty* Property = nullptr) -> FSaveOverrideResult
 		{
-			if (OutError) *OutError = Message;
-			return false;
+			FSaveOverrideError Error;
+			Error.Code = Code;
+			Error.ObjectPath = Object.GetObjectPath();
+			if (Property) Error.PropertyName = Property->NamePrivate.ToString();
+			return {std::move(Error)};
 		}
 
 		auto ObjectOwnsProperty(const DObject& Object, const FProperty& Property) -> bool
@@ -36,26 +40,24 @@ namespace Durin
 	}
 
 	auto FObjectSaveOverrides::AddObjectOmission(
-		const DObject& Object, std::string* OutError) -> bool
+		const DObject& Object) -> FSaveOverrideResult
 	{
-		if (OutError) OutError->clear();
 		if (FObjectSaveOverride* Existing = FindMutableObject(Object))
 		{
 			if (Existing->bOmitObject || !Existing->Properties.empty())
-				return FailSaveOverride("A conflicting save override already exists for the object.", OutError);
+				return FailSaveOverride(ESaveOverrideError::ObjectConflict, Object);
 			Existing->bOmitObject = true;
-			return true;
+			return {};
 		}
 		Objects.push_back({.Object = &Object, .bOmitObject = true});
-		return true;
+		return {};
 	}
 
 	auto FObjectSaveOverrides::AddPropertyOmission(
-		const DObject& Object, const FProperty& Property, std::string* OutError) -> bool
+		const DObject& Object, const FProperty& Property) -> FSaveOverrideResult
 	{
-		if (OutError) OutError->clear();
 		if (!ObjectOwnsProperty(Object, Property))
-			return FailSaveOverride("The omitted property does not belong to the target object's reflected schema.", OutError);
+			return FailSaveOverride(ESaveOverrideError::ForeignOmissionProperty, Object, &Property);
 		FObjectSaveOverride* ObjectOverride = FindMutableObject(Object);
 		if (!ObjectOverride)
 		{
@@ -65,58 +67,105 @@ namespace Durin
 		if (ObjectOverride->bOmitObject
 			|| std::ranges::find(ObjectOverride->Properties, &Property,
 				&FPropertySaveOverride::Property) != ObjectOverride->Properties.end())
-			return FailSaveOverride("A conflicting save override already exists for the property.", OutError);
+			return FailSaveOverride(ESaveOverrideError::PropertyConflict, Object, &Property);
 		ObjectOverride->Properties.push_back({.Property = &Property});
-		return true;
+		return {};
 	}
 
 	auto FObjectSaveOverrides::AddPropertyValueRaw(
 		const DObject& Object, const FProperty& Property, const void* Replacement,
 		size_t ReplacementSize, size_t ReplacementAlignment,
 		DurinCodeGen::EPropertyGenFlags ReplacementKind,
-		const DStruct* ReplacementStruct, const DClass* ReplacementClass,
-		std::string* OutError) -> bool
+		const DStruct* ReplacementStruct, const DClass* ReplacementClass) -> FSaveOverrideResult
 	{
-		if (OutError) OutError->clear();
 		if (!ObjectOwnsProperty(Object, Property))
-			return FailSaveOverride("The replacement property does not belong to the target object's reflected schema.", OutError);
+			return FailSaveOverride(ESaveOverrideError::ForeignReplacementProperty, Object, &Property);
 		if (!Replacement || Property.GetArrayDim() != 1
 			|| Property.GetValueSize() != ReplacementSize
 			|| Property.GetValueAlignment() != ReplacementAlignment
 			|| Property.GetKind() != ReplacementKind)
-			return FailSaveOverride("The replacement value does not exactly match the reflected property storage type.", OutError);
+		{
+			auto Result = FailSaveOverride(ESaveOverrideError::StorageMismatch, Object, &Property);
+			Result.Error.ExpectedSize = Property.GetValueSize();
+			Result.Error.ActualSize = ReplacementSize;
+			Result.Error.ExpectedAlignment = Property.GetValueAlignment();
+			Result.Error.ActualAlignment = ReplacementAlignment;
+			Result.Error.ArrayDim = Property.GetArrayDim();
+			Result.Error.ExpectedKind = Property.GetKind();
+			Result.Error.ActualKind = ReplacementKind;
+			return Result;
+		}
 		if (ReplacementKind == DurinCodeGen::EPropertyGenFlags::Struct
 			&& static_cast<const FStructProperty&>(Property).GetStruct() != ReplacementStruct)
-			return FailSaveOverride("The replacement Struct type does not match the reflected property type.", OutError);
+		{
+			auto Result = FailSaveOverride(ESaveOverrideError::StructMismatch, Object, &Property);
+			if (const auto* Expected = static_cast<const FStructProperty&>(Property).GetStruct())
+				Result.Error.ExpectedType = Expected->GetQualifiedName().ToString();
+			if (ReplacementStruct) Result.Error.ActualType = ReplacementStruct->GetQualifiedName().ToString();
+			return Result;
+		}
 		if ((ReplacementKind == DurinCodeGen::EPropertyGenFlags::Object
 				|| ReplacementKind == DurinCodeGen::EPropertyGenFlags::SoftObject)
 			&& (Property.GetReferencedClass() != ReplacementClass
 				|| (ReplacementKind == DurinCodeGen::EPropertyGenFlags::Object
 					&& !Property.IsObjectPtrWrapper())))
-			return FailSaveOverride("The replacement object wrapper type does not match the reflected property type.", OutError);
+		{
+			auto Result = FailSaveOverride(ESaveOverrideError::ObjectWrapperMismatch, Object, &Property);
+			if (const auto* Expected = Property.GetReferencedClass())
+				Result.Error.ExpectedType = Expected->GetQualifiedName().ToString();
+			if (ReplacementClass) Result.Error.ActualType = ReplacementClass->GetQualifiedName().ToString();
+			return Result;
+		}
 		FObjectSaveOverride* ObjectOverride = FindMutableObject(Object);
+		if (ObjectOverride && (ObjectOverride->bOmitObject
+			|| std::ranges::find(ObjectOverride->Properties, &Property,
+				&FPropertySaveOverride::Property) != ObjectOverride->Properties.end()))
+			return FailSaveOverride(ESaveOverrideError::PropertyConflict, Object, &Property);
+
+		FReflectedValueStorage Storage;
+		if (const auto ValueResult = Storage.CopyConstruct(&Property, Replacement, 0); !ValueResult)
+		{
+			auto Result = FailSaveOverride(ESaveOverrideError::ValueCopyFailed, Object, &Property);
+			Result.Error.Cause = ValueResult.Error;
+			return Result;
+		}
+		FPropertyValueSnapshot Snapshot;
+		if (const auto SnapshotResult = CapturePropertyValue(&Property, Storage.GetContainer(), 0, Snapshot); !SnapshotResult)
+		{
+			auto Result = FailSaveOverride(ESaveOverrideError::SnapshotFailed, Object, &Property);
+			Result.Error.Cause = SnapshotResult.Error;
+			return Result;
+		}
 		if (!ObjectOverride)
 		{
 			Objects.push_back({.Object = &Object});
 			ObjectOverride = &Objects.back();
 		}
-		if (ObjectOverride->bOmitObject
-			|| std::ranges::find(ObjectOverride->Properties, &Property,
-				&FPropertySaveOverride::Property) != ObjectOverride->Properties.end())
-			return FailSaveOverride("A conflicting save override already exists for the property.", OutError);
-
-		FReflectedValueStorage Storage;
-		std::string CaptureError;
-		if (!Storage.CopyConstruct(&Property, Replacement, 0, &CaptureError))
-			return FailSaveOverride(CaptureError, OutError);
-		FPropertyValueSnapshot Snapshot;
-		if (!CapturePropertyValue(&Property, Storage.GetContainer(), 0, Snapshot, &CaptureError))
-			return FailSaveOverride(CaptureError, OutError);
 		ObjectOverride->Properties.push_back({
 			.Property = &Property,
 			.Kind = EPropertySaveOverrideKind::Replace,
 			.Replacement = std::move(Snapshot)});
-		return true;
+		return {};
+	}
+
+	auto FormatSaveOverrideError(const FSaveOverrideError& Error) -> std::string
+	{
+		if (const auto* Cause = std::get_if<FPropertyValueError>(&Error.Cause)) return FormatPropertyValueError(*Cause);
+		if (const auto* Cause = std::get_if<FPropertySnapshotError>(&Error.Cause)) return FormatPropertySnapshotError(*Cause);
+		switch (Error.Code)
+		{
+		case ESaveOverrideError::None: return {};
+		case ESaveOverrideError::ObjectConflict: return "A conflicting save override already exists for the object.";
+		case ESaveOverrideError::ForeignOmissionProperty: return "The omitted property does not belong to the target object's reflected schema.";
+		case ESaveOverrideError::PropertyConflict: return "A conflicting save override already exists for the property.";
+		case ESaveOverrideError::ForeignReplacementProperty: return "The replacement property does not belong to the target object's reflected schema.";
+		case ESaveOverrideError::StorageMismatch: return "The replacement value does not exactly match the reflected property storage type.";
+		case ESaveOverrideError::StructMismatch: return "The replacement Struct type does not match the reflected property type.";
+		case ESaveOverrideError::ObjectWrapperMismatch: return "The replacement object wrapper type does not match the reflected property type.";
+		case ESaveOverrideError::ValueCopyFailed: return "The save override value could not be copied.";
+		case ESaveOverrideError::SnapshotFailed: return "The save override value could not be captured.";
+		}
+		return {};
 	}
 
 }

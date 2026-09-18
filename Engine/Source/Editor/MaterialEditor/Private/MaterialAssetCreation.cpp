@@ -25,9 +25,9 @@ namespace Durin
 		if (!Layout || Material.SetMaterialGraphPresentation(
 				std::move(Presentation)) == EMaterialGraphPresentationResult::Rejected)
 		{
-			OutError = Layout.Message.empty()
+			OutError = static_cast<bool>(Layout)
 				? "The new material graph presentation could not be initialized."
-				: Layout.Message;
+				: ::Durin::Editor::Material::FormatMaterialGraphCommandResult(Layout);
 			return false;
 		}
 		if (RequestMaterialRecompile(Material))

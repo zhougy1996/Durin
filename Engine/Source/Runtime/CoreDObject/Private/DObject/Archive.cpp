@@ -10,6 +10,25 @@
 
 namespace Durin
 {
+	auto FObjectArchive::FailValidation(const FObjectValidationError& Error) -> void
+	{
+		if (HasError()) return;
+		ValueFailureCause = Error;
+		Fail(EArchiveFailureCode::InvalidData, FormatObjectValidationError(Error));
+	}
+	auto FObjectArchive::FailPropertyValue(const FPropertyValueError& Error) -> void
+	{
+		if (HasError() || !Error.HasError()) return;
+		ValueFailureCause = Error;
+		Fail(EArchiveFailureCode::UnsupportedOperation, FormatPropertyValueError(Error));
+	}
+	auto FObjectArchive::FailMapKey(const FReflectedMapKeyError& Error) -> void
+	{
+		if (HasError() || !Error.HasError()) return;
+		ValueFailureCause = Error;
+		Fail(EArchiveFailureCode::UnsupportedType, FormatReflectedMapKeyError(Error));
+	}
+
 	auto FObjectKey::SerializeForSnapshot(FArchive& Archive) -> void
 	{
 		Archive << ObjectIndex << ObjectSerialNumber;
@@ -35,11 +54,10 @@ namespace Durin
 
 		FReflectedValueStorage Left;
 		FReflectedValueStorage Right;
-		std::string Error;
-		if (Left.DefaultConstruct(Property, 0, &Error)
-			&& Right.DefaultConstruct(Property, 0, &Error)
-			&& RestorePropertyValuePayload(Property, Left.GetContainer(), 0, *this, &Error)
-			&& RestorePropertyValuePayload(Property, Right.GetContainer(), 0, Other, &Error))
+		if (Left.DefaultConstruct(Property, 0)
+			&& Right.DefaultConstruct(Property, 0)
+			&& RestorePropertyValuePayload(Property, Left.GetContainer(), 0, *this)
+			&& RestorePropertyValuePayload(Property, Right.GetContainer(), 0, Other))
 		{
 			return ArePropertyValuesIdentical(
 				Property, Left.GetContainer(), 0, Right.GetContainer(), 0);
@@ -232,6 +250,15 @@ namespace Durin
 			return Class;
 		}
 
+		auto CheckPropertyValueResult(FArchive& Ar, const FPropertyValueResult& Result) -> bool
+		{
+			if (Result) return true;
+			if (auto* ObjectArchive = dynamic_cast<FObjectArchive*>(&Ar))
+				ObjectArchive->FailPropertyValue(Result.Error);
+			else Ar.Fail(EArchiveFailureCode::UnsupportedOperation, FormatPropertyValueError(Result.Error));
+			return false;
+		}
+
 		auto SerializePropertyValue(FArchive& Ar, FProperty* Property, void* Container, uint32 ArrayIndex, bool bIncludeRawObjectReferences = false) -> void;
 
 		struct FArchiveArrayVisitContext
@@ -273,10 +300,12 @@ namespace Durin
 			if (Context.bCanonical)
 			{
 				FArchiveMapEntry Entry;
-				std::string Error;
-				if (!BuildCanonicalMapKeyToken(Context.Property->GetKeyProp(), Key, 0, Entry.Token, &Error))
+				const auto Result = BuildCanonicalMapKeyToken(Context.Property->GetKeyProp(), Key, 0, Entry.Token);
+				if (!Result)
 				{
-					Context.Archive.SetError(Error);
+					if (auto* ObjectArchive = dynamic_cast<FObjectArchive*>(&Context.Archive))
+						ObjectArchive->FailMapKey(Result.Error);
+					else Context.Archive.SetError(FormatReflectedMapKeyError(Result.Error));
 					return false;
 				}
 				Entry.Key = Key;
@@ -503,7 +532,6 @@ namespace Durin
 					break;
 				}
 
-				std::string OperationError;
 				if (!Struct->CanDefaultConstruct() || !Struct->CanDestroy()
 					|| !Struct->CanCopyAssign())
 				{
@@ -525,9 +553,8 @@ namespace Durin
 				const EArchiveStructBaseline Baseline = Ar.GetStructBaseline();
 				if (Ar.HasError()) break;
 				FReflectedValueStorage Storage;
-				if (!Storage.DefaultConstruct(StorageProperty, 0, &OperationError))
+				if (!CheckPropertyValueResult(Ar, Storage.DefaultConstruct(StorageProperty, 0)))
 				{
-					Ar.Fail(EArchiveFailureCode::UnsupportedOperation, OperationError);
 					break;
 				}
 				const void* BaselineValue = Baseline == EArchiveStructBaseline::Parent
@@ -541,17 +568,14 @@ namespace Durin
 						break;
 					}
 				}
-				if (BaselineValue && !StorageProperty->CopyAssignValue(Storage.GetValue(),
-					BaselineValue, &OperationError))
+				if (BaselineValue && !CheckPropertyValueResult(Ar, StorageProperty->CopyAssignValue(Storage.GetValue(), BaselineValue)))
 				{
-					Ar.Fail(EArchiveFailureCode::UnsupportedOperation, OperationError);
 					break;
 				}
 				SerializeStructValue(Storage.GetValue());
 				if (Ar.HasError()) break;
 				if (Struct->HasPostDeserialize())
 				{
-					std::string PostDeserializeError;
 					const FArchiveFormatVersion* DastVersion =
 						Ar.GetVersionContext().FindFormat(FName("DAST"));
 					FDStructPostDeserializeContext Context{
@@ -561,20 +585,18 @@ namespace Durin
 						.SourceVersion = DastVersion ? DastVersion->Version : 0,
 						.VersionContext = &Ar.GetVersionContext(),
 						.LoadedDeprecatedProperties = Ar.GetLoadedDeprecatedProperties(
-							Struct->GetQualifiedName()),
-						.Error = &PostDeserializeError};
-					if (!Struct->GetOps().PostDeserialize(Storage.GetValue(), Context))
+							Struct->GetQualifiedName())};
+					auto Validation = Struct->GetOps().PostDeserialize(Storage.GetValue(), Context);
+					if (!Validation)
 					{
-						Ar.SetError(PostDeserializeError.empty()
-							? std::format("PostDeserializeRejected: '{}' rejected the loaded value.",
-								Struct->GetQualifiedName())
-							: std::format("PostDeserializeRejected: {}", PostDeserializeError));
+						Validation.Error.StructName = Struct->GetQualifiedName().ToString();
+						Validation.Error.SourceVersion = Context.SourceVersion;
+						if (auto* ObjectArchive = dynamic_cast<FObjectArchive*>(&Ar)) ObjectArchive->FailValidation(Validation.Error);
+						else Ar.Fail(EArchiveFailureCode::InvalidData, FormatObjectValidationError(Validation.Error));
 						break;
 					}
 				}
-				if (!Property->CopyAssignValue(
-					Property->GetValuePtr(Container, ArrayIndex), Storage.GetValue(), &OperationError))
-					Ar.Fail(EArchiveFailureCode::UnsupportedOperation, OperationError);
+				(void)CheckPropertyValueResult(Ar, Property->CopyAssignValue(Property->GetValuePtr(Container, ArrayIndex), Storage.GetValue()));
 				break;
 			}
 			case DurinCodeGen::EPropertyGenFlags::Array:
@@ -732,12 +754,11 @@ namespace Durin
 					}
 					FReflectedValueStorage KeyStorage;
 					FReflectedValueStorage ValueStorage;
-					std::string Error;
+
 					if (Num > 0
-						&& (!KeyStorage.DefaultConstruct(MapProperty->GetKeyProp(), 0, &Error)
-							|| !ValueStorage.DefaultConstruct(MapProperty->GetValueProp(), 0, &Error)))
+						&& (!CheckPropertyValueResult(Ar, KeyStorage.DefaultConstruct(MapProperty->GetKeyProp(), 0))
+							|| !CheckPropertyValueResult(Ar, ValueStorage.DefaultConstruct(MapProperty->GetValueProp(), 0))))
 					{
-						Ar.Fail(EArchiveFailureCode::UnsupportedOperation, Error);
 						return;
 					}
 					for (uint64 Index = 0; Index < Num && !Ar.HasError(); ++Index)
@@ -746,10 +767,9 @@ namespace Durin
 						{
 							KeyStorage.Reset();
 							ValueStorage.Reset();
-							if (!KeyStorage.DefaultConstruct(MapProperty->GetKeyProp(), 0, &Error)
-								|| !ValueStorage.DefaultConstruct(MapProperty->GetValueProp(), 0, &Error))
+							if (!CheckPropertyValueResult(Ar, KeyStorage.DefaultConstruct(MapProperty->GetKeyProp(), 0))
+								|| !CheckPropertyValueResult(Ar, ValueStorage.DefaultConstruct(MapProperty->GetValueProp(), 0)))
 							{
-								Ar.Fail(EArchiveFailureCode::UnsupportedOperation, Error);
 								return;
 							}
 						}
@@ -786,12 +806,30 @@ namespace Durin
 			}
 		}
 
-		auto ValidateSnapshotProperty(const FProperty* Property, std::string* OutError) -> bool
+
+		auto SnapshotFailure(EPropertySnapshotError Code, const FProperty* Property,
+			uint32 ArrayIndex = 0, EPropertySnapshotOperation Operation = EPropertySnapshotOperation::Capture)
+			-> FPropertySnapshotResult
+		{
+			FPropertySnapshotError Error;
+			Error.Code = Code;
+			Error.Operation = Operation;
+			Error.ArrayIndex = ArrayIndex;
+			if (Property)
+			{
+				Error.PropertyName = Property->NamePrivate.ToString();
+				Error.ActualKind = Property->GetKind();
+				Error.ArrayDim = Property->GetArrayDim();
+				Error.PropertyRoute.push_back(Error.PropertyName);
+			}
+			return {std::move(Error)};
+		}
+
+		auto ValidateSnapshotProperty(const FProperty* Property) -> FPropertySnapshotResult
 		{
 			if (!Property)
 			{
-				if (OutError) *OutError = "Cannot snapshot a null property.";
-				return false;
+				return SnapshotFailure(EPropertySnapshotError::NullProperty, Property);
 			}
 
 			switch (Property->GetKind())
@@ -817,23 +855,23 @@ namespace Durin
 			case DurinCodeGen::EPropertyGenFlags::Object:
 			case DurinCodeGen::EPropertyGenFlags::SoftObject:
 			case DurinCodeGen::EPropertyGenFlags::WeakObject:
-				return true;
+				return {};
 			case DurinCodeGen::EPropertyGenFlags::Struct:
 			{
 				const auto* StructProperty = static_cast<const FStructProperty*>(Property);
 				if (!StructProperty->GetStruct())
 				{
-					if (OutError) *OutError = "Cannot snapshot a struct property without reflected fields.";
-					return false;
+					return SnapshotFailure(EPropertySnapshotError::MissingStruct, Property);
 				}
-				bool bValid = true;
+				FPropertySnapshotResult Result;
 				StructProperty->GetStruct()->ForEachProperty([&](FProperty* Field) {
-					if (bValid && Field && !Field->HasAnyPropertyFlags(EPropertyFlags::Transient))
+					if (Result && Field && !Field->HasAnyPropertyFlags(EPropertyFlags::Transient))
 					{
-						bValid = ValidateSnapshotProperty(Field, OutError);
+						Result = ValidateSnapshotProperty(Field);
+						if (!Result) Result.Error.PropertyRoute.insert(Result.Error.PropertyRoute.begin(), Property->NamePrivate.ToString());
 					}
 				}, false);
-				return bValid;
+				return Result;
 			}
 			case DurinCodeGen::EPropertyGenFlags::Array:
 			{
@@ -843,10 +881,11 @@ namespace Durin
 						| EArrayOpsFlags::RandomAccess | EArrayOpsFlags::DefaultGrow
 						| EArrayOpsFlags::DetachedStorage | EArrayOpsFlags::TransactionalCommit))
 				{
-					if (OutError) *OutError = "Cannot snapshot an array without Count, ConstTraversal, RandomAccess, DefaultGrow, DetachedStorage, and TransactionalCommit.";
-					return false;
+					return SnapshotFailure(EPropertySnapshotError::MissingArrayOperations, Property);
 				}
-				return ValidateSnapshotProperty(ArrayProperty->GetInner(), OutError);
+				auto Result = ValidateSnapshotProperty(ArrayProperty->GetInner());
+				if (!Result) Result.Error.PropertyRoute.insert(Result.Error.PropertyRoute.begin(), Property->NamePrivate.ToString());
+				return Result;
 			}
 			case DurinCodeGen::EPropertyGenFlags::Map:
 			{
@@ -855,16 +894,21 @@ namespace Durin
 					|| !MapProperty->HasCapability(EMapOpsFlags::Count | EMapOpsFlags::ConstTraversal
 						| EMapOpsFlags::Insert | EMapOpsFlags::DetachedStorage | EMapOpsFlags::TransactionalCommit))
 				{
-					if (OutError) *OutError = "Cannot snapshot a map without Count, ConstTraversal, Insert, DetachedStorage, and TransactionalCommit.";
-					return false;
+					return SnapshotFailure(EPropertySnapshotError::MissingMapOperations, Property);
 				}
-				return ValidateCanonicalMapKeyProperty(MapProperty->GetKeyProp(), OutError)
-					&& ValidateSnapshotProperty(MapProperty->GetKeyProp(), OutError)
-					&& ValidateSnapshotProperty(MapProperty->GetValueProp(), OutError);
+				if (const auto Result = ValidateCanonicalMapKeyProperty(MapProperty->GetKeyProp()); !Result)
+				{
+					auto Failure = SnapshotFailure(EPropertySnapshotError::InvalidMapKey, Property);
+					Failure.Error.Cause = Result.Error;
+					return Failure;
+				}
+				auto Result = ValidateSnapshotProperty(MapProperty->GetKeyProp());
+				if (Result) Result = ValidateSnapshotProperty(MapProperty->GetValueProp());
+				if (!Result) Result.Error.PropertyRoute.insert(Result.Error.PropertyRoute.begin(), Property->NamePrivate.ToString());
+				return Result;
 			}
 			default:
-				if (OutError) *OutError = "The reflected property kind does not support value snapshots.";
-				return false;
+				return SnapshotFailure(EPropertySnapshotError::UnsupportedKind, Property);
 			}
 		}
 
@@ -1288,6 +1332,7 @@ namespace Durin
 			FObjectPath Loaded;
 			if (const auto PathValidation = FObjectPath::TryCreate(Path, Loaded); !PathValidation)
 			{
+				ValueFailureCause = PathValidation.Error;
 				Fail(EArchiveFailureCode::InvalidPath, FormatObjectError(PathValidation.Error));
 			}
 			else Value = std::move(Loaded);
@@ -1472,11 +1517,10 @@ namespace Durin
 
 		FReflectedValueStorage Left;
 		FReflectedValueStorage Right;
-		std::string Error;
-		if (Left.DefaultConstruct(Property, 0, &Error)
-			&& Right.DefaultConstruct(Property, 0, &Error)
-			&& RestorePropertyValue(Property, Left.GetContainer(), 0, *this, &Error)
-			&& RestorePropertyValue(Property, Right.GetContainer(), 0, Other, &Error))
+		if (Left.DefaultConstruct(Property, 0)
+			&& Right.DefaultConstruct(Property, 0)
+			&& RestorePropertyValue(Property, Left.GetContainer(), 0, *this)
+			&& RestorePropertyValue(Property, Right.GetContainer(), 0, Other))
 		{
 			return ArePropertyValuesIdentical(
 				Property, Left.GetContainer(), 0, Right.GetContainer(), 0);
@@ -1558,25 +1602,39 @@ namespace Durin
 		}
 	}
 
+	static auto SnapshotArchiveFailure(const FObjectArchive& Archive, const FProperty* Property,
+		uint32 ArrayIndex, EPropertySnapshotOperation Operation) -> FPropertySnapshotResult
+	{
+		auto Result = SnapshotFailure(EPropertySnapshotError::ArchiveFailure, Property, ArrayIndex, Operation);
+		if (const auto* Failure = Archive.GetFailure())
+		{
+			Result.Error.ArchiveCode = Failure->Code;
+			Result.Error.ArchivePath = Failure->Path;
+		}
+		Result.Error.Cause = Archive.GetValueFailureCause();
+		return Result;
+	}
+
 	auto CapturePropertyValuePayload(
 		const FProperty* Property,
 		const void* Container,
 		uint32 ArrayIndex,
-		FPropertyValueSnapshotPayload& OutPayload,
-		std::string* OutError
-	) -> bool
+		FPropertyValueSnapshotPayload& OutPayload
+	) -> FPropertySnapshotResult
 	{
-		if (OutError) OutError->clear();
+		constexpr auto Operation = EPropertySnapshotOperation::Capture;
 		if (!Container)
 		{
-			if (OutError) *OutError = "Cannot snapshot a property from a null container.";
-			return false;
+			return SnapshotFailure(EPropertySnapshotError::NullContainer, Property, ArrayIndex, Operation);
 		}
-		if (!ValidateSnapshotProperty(Property, OutError)) return false;
+		if (auto Result = ValidateSnapshotProperty(Property); !Result)
+		{
+			Result.Error.Operation = Operation;
+			return Result;
+		}
 		if (ArrayIndex >= Property->GetArrayDim())
 		{
-			if (OutError) *OutError = "Property snapshot array index is out of range.";
-			return false;
+			return SnapshotFailure(EPropertySnapshotError::InvalidArrayIndex, Property, ArrayIndex, Operation);
 		}
 
 		class FSnapshotWriter final : public FObjectMemoryWriter
@@ -1621,8 +1679,7 @@ namespace Durin
 		SerializePropertyValue(Writer, const_cast<FProperty*>(Property), const_cast<void*>(Container), ArrayIndex, true);
 		if (Writer.HasError())
 		{
-			if (OutError) *OutError = Writer.GetError();
-			return false;
+			return SnapshotArchiveFailure(Writer, Property, ArrayIndex, Operation);
 		}
 		class FSnapshotReferenceCollector final : public FReferenceCollector
 		{
@@ -1645,36 +1702,42 @@ namespace Durin
 		Private::FGCReferenceSchemaRegistry::VisitProperty(
 			const_cast<FProperty*>(Property), const_cast<void*>(Container), ArrayIndex, ReferenceCollector);
 		OutPayload = std::move(Payload);
-		return true;
+		return {};
 	}
 
 	auto RestorePropertyValuePayload(
 		const FProperty* Property,
 		void* Container,
 		uint32 ArrayIndex,
-		const FPropertyValueSnapshotPayload& Payload,
-		std::string* OutError
-	) -> bool
+		const FPropertyValueSnapshotPayload& Payload
+	) -> FPropertySnapshotResult
 	{
-		if (OutError) OutError->clear();
+		constexpr auto Operation = EPropertySnapshotOperation::Restore;
 		if (!Container)
 		{
-			if (OutError) *OutError = "Cannot restore a property into a null container.";
-			return false;
+			return SnapshotFailure(EPropertySnapshotError::NullContainer, Property, ArrayIndex, Operation);
 		}
-		if (!ValidateSnapshotProperty(Property, OutError)) return false;
+		if (auto Result = ValidateSnapshotProperty(Property); !Result)
+		{
+			Result.Error.Operation = Operation;
+			return Result;
+		}
 		if (!ArePropertySnapshotTypesCompatible(Payload.Property, Property))
 		{
-			if (OutError) *OutError = "Property snapshot is incompatible with the requested reflected property.";
-			return false;
+			auto Result = SnapshotFailure(EPropertySnapshotError::IncompatibleType, Property, ArrayIndex, Operation);
+			if (Payload.Property)
+			{
+				Result.Error.ExpectedPropertyName = Payload.Property->NamePrivate.ToString();
+				Result.Error.ExpectedKind = Payload.Property->GetKind();
+			}
+			return Result;
 		}
 		if (ArrayIndex >= Property->GetArrayDim())
 		{
-			if (OutError) *OutError = "Property restore array index is out of range.";
-			return false;
+			return SnapshotFailure(EPropertySnapshotError::InvalidArrayIndex, Property, ArrayIndex, Operation);
 		}
 
-			class FSnapshotReader final : public FObjectMemoryReader
+		class FSnapshotReader final : public FObjectMemoryReader
 		{
 		public:
 			FSnapshotReader(const FByteBuffer& InBytes, const std::vector<FObjectKey>& InReferences)
@@ -1689,14 +1752,20 @@ namespace Durin
 				if (HasError()) return;
 				if (Id > References.size())
 				{
-					SetError("Invalid property snapshot reference identifier.");
+					SnapshotCode = EPropertySnapshotError::InvalidReferenceIndex;
+					ReferenceIndex = Id;
+					Fail(EArchiveFailureCode::InvalidObjectReference, "Invalid property snapshot reference identifier.");
 					return;
 				}
 				Object = Id == 0 ? nullptr
 					: ResolveObjectKey(References[static_cast<size_t>(Id - 1)]);
 				if (Object && Object->IsPendingKill()) Object = nullptr;
 				if (Id != 0 && !Object)
-					SetError("Property snapshot hard reference no longer resolves.");
+				{
+					SnapshotCode = EPropertySnapshotError::UnresolvedReference;
+					ReferenceIndex = Id;
+					Fail(EArchiveFailureCode::InvalidObjectReference, "Property snapshot hard reference no longer resolves.");
+				}
 			}
 			auto SerializeWeakObjectReference(FWeakObjectPtr& Value) -> void override
 			{
@@ -1704,6 +1773,8 @@ namespace Durin
 				Handle.SerializeForSnapshot(*this);
 				if (!HasError()) Value.SetKey(Handle);
 			}
+			EPropertySnapshotError SnapshotCode = EPropertySnapshotError::ArchiveFailure;
+			uint64 ReferenceIndex = 0;
 		private:
 			const std::vector<FObjectKey>& References;
 		};
@@ -1712,23 +1783,31 @@ namespace Durin
 		SerializeReflectedPropertyValue(
 			Reader, *const_cast<FProperty*>(Property), Container, ArrayIndex, true);
 		if (!Reader.HasError() && Reader.GetRemainingPayloadBytes() != 0)
-			Reader.Fail(EArchiveFailureCode::InvalidData, "Property snapshot has trailing bytes.");
-		if (!Reader.HasError()) return true;
-		if (OutError) *OutError = Reader.GetError();
-		return false;
+		{
+			Reader.SnapshotCode = EPropertySnapshotError::TrailingBytes;
+			Reader.Fail(EArchiveFailureCode::TrailingData, "Property snapshot has trailing bytes.");
+		}
+		if (!Reader.HasError()) return {};
+		auto Result = SnapshotArchiveFailure(Reader, Property, ArrayIndex, Operation);
+		Result.Error.Code = Reader.SnapshotCode;
+		Result.Error.ActualCount = Reader.SnapshotCode == EPropertySnapshotError::TrailingBytes
+			? Reader.GetRemainingPayloadBytes() : Reader.ReferenceIndex;
+		Result.Error.ExpectedCount = (Reader.SnapshotCode == EPropertySnapshotError::InvalidReferenceIndex
+			|| Reader.SnapshotCode == EPropertySnapshotError::UnresolvedReference)
+			? Payload.ReferencedObjectKeys.size() : 0;
+		return Result;
 	}
 
 	auto CapturePropertyValue(
 		const FProperty* Property,
 		const void* Container,
 		uint32 ArrayIndex,
-		FPropertyValueSnapshot& OutSnapshot,
-		std::string* OutError
-	) -> bool
+		FPropertyValueSnapshot& OutSnapshot
+	) -> FPropertySnapshotResult
 	{
 		FPropertyValueSnapshot Snapshot;
-		if (!CapturePropertyValuePayload(
-			Property, Container, ArrayIndex, Snapshot.Payload, OutError)) return false;
+		if (auto Result = CapturePropertyValuePayload(
+			Property, Container, ArrayIndex, Snapshot.Payload); !Result) return Result;
 		for (FObjectKey Handle : Snapshot.Payload.GetReferencedObjectKeys())
 		{
 			if (DObject* Object = ResolveObjectKey(Handle))
@@ -1736,19 +1815,49 @@ namespace Durin
 		}
 		Snapshot.AddStrongReferences();
 		OutSnapshot = std::move(Snapshot);
-		return true;
+		return {};
 	}
 
 	auto RestorePropertyValue(
 		const FProperty* Property,
 		void* Container,
 		uint32 ArrayIndex,
-		const FPropertyValueSnapshot& Snapshot,
-		std::string* OutError
-	) -> bool
+		const FPropertyValueSnapshot& Snapshot
+	) -> FPropertySnapshotResult
 	{
 		return RestorePropertyValuePayload(
-			Property, Container, ArrayIndex, Snapshot.Payload, OutError);
+			Property, Container, ArrayIndex, Snapshot.Payload);
+	}
+
+	auto FormatPropertySnapshotError(const FPropertySnapshotError& Error) -> std::string
+	{
+		if (const auto* Cause = std::get_if<FObjectError>(&Error.Cause)) return FormatObjectError(*Cause);
+		if (const auto* Cause = std::get_if<FObjectValidationError>(&Error.Cause)) return FormatObjectValidationError(*Cause);
+		if (!Error.HasError()) return {};
+		if (const auto* Cause = std::get_if<FPropertyValueError>(&Error.Cause)) return FormatPropertyValueError(*Cause);
+		if (const auto* Cause = std::get_if<FReflectedMapKeyError>(&Error.Cause)) return FormatReflectedMapKeyError(*Cause);
+		switch (Error.Code)
+		{
+		case EPropertySnapshotError::NullProperty: return "Cannot snapshot a null property.";
+		case EPropertySnapshotError::MissingStruct: return "Cannot snapshot a struct property without reflected fields.";
+		case EPropertySnapshotError::MissingArrayOperations: return "Cannot snapshot an array without Count, ConstTraversal, RandomAccess, DefaultGrow, DetachedStorage, and TransactionalCommit.";
+		case EPropertySnapshotError::MissingMapOperations: return "Cannot snapshot a map without Count, ConstTraversal, Insert, DetachedStorage, and TransactionalCommit.";
+		case EPropertySnapshotError::UnsupportedKind: return "The reflected property kind does not support value snapshots.";
+		case EPropertySnapshotError::None: return {};
+		case EPropertySnapshotError::NullContainer: return Error.Operation == EPropertySnapshotOperation::Capture
+			? "Cannot snapshot a property from a null container." : "Cannot restore a property into a null container.";
+		case EPropertySnapshotError::InvalidArrayIndex: return Error.Operation == EPropertySnapshotOperation::Capture
+			? "Property snapshot array index is out of range." : "Property restore array index is out of range.";
+		case EPropertySnapshotError::IncompatibleType: return "Property snapshot is incompatible with the requested reflected property.";
+		case EPropertySnapshotError::InvalidReferenceIndex: return "Invalid property snapshot reference identifier.";
+		case EPropertySnapshotError::UnresolvedReference: return "Property snapshot hard reference no longer resolves.";
+		case EPropertySnapshotError::TrailingBytes: return "Property snapshot has trailing bytes.";
+		case EPropertySnapshotError::InvalidMapKey: return "Property snapshot Map key is unsupported.";
+		case EPropertySnapshotError::ArchiveFailure:
+			return std::format("Property snapshot Archive failure {} at '{}'.",
+				Error.ArchiveCode ? static_cast<uint32>(*Error.ArchiveCode) : 0, Error.ArchivePath);
+		}
+		return {};
 	}
 
 	auto SerializeReflectedPropertyValue(
@@ -1807,12 +1916,57 @@ namespace Durin
 		);
 	}
 
-	auto SaveObjectGraphToMemory(DObject* RootObject, FByteBuffer& OutBytes) -> bool
+	static auto ObjectGraphFailure(FObjectGraphError Error, const FObjectArchive* Archive = nullptr) -> FObjectGraphResult
 	{
-		if (!RootObject || RootObject->IsTemplateObject())
+		if (Archive)
 		{
-			return false;
+			if (const auto* Failure = Archive->GetFailure())
+			{
+				Error.ArchiveCode = Failure->Code;
+				Error.ArchivePath = Failure->Path;
+			}
+			Error.Cause = Archive->GetValueFailureCause();
 		}
+		return {.Error = std::move(Error)};
+	}
+
+	auto FormatObjectGraphError(const FObjectGraphError& Error) -> std::string
+	{
+		if (Error.Code == EObjectGraphError::None) return {};
+		std::string_view Reason;
+		switch (Error.Code)
+		{
+		case EObjectGraphError::None: break;
+		case EObjectGraphError::InvalidRoot: Reason = "Missing graph root"; break;
+		case EObjectGraphError::TemplateRoot: Reason = "Template root cannot be serialized"; break;
+		case EObjectGraphError::Discovery: Reason = "Graph discovery failed"; break;
+		case EObjectGraphError::PropertyWrite: Reason = "Graph property serialization failed"; break;
+		case EObjectGraphError::HeaderWrite: Reason = "Graph record serialization failed"; break;
+		case EObjectGraphError::Header: Reason = "Invalid graph header"; break;
+		case EObjectGraphError::RecordPayload: Reason = "Invalid graph record payload"; break;
+		case EObjectGraphError::RecordIdentity: Reason = "Invalid or duplicate graph record identity"; break;
+		case EObjectGraphError::Construction: Reason = "Graph object construction failed"; break;
+		case EObjectGraphError::TrailingBytes: Reason = "Graph contains trailing bytes"; break;
+		case EObjectGraphError::OuterCycle: Reason = "Graph outer chain is cyclic or unresolved"; break;
+		case EObjectGraphError::OuterIdentity: Reason = "Graph outer identity is unresolved"; break;
+		case EObjectGraphError::PropertyRead: Reason = "Graph property deserialization failed"; break;
+		case EObjectGraphError::Validation: Reason = "Loaded graph validation rejected the object"; break;
+		case EObjectGraphError::RootIdentity: Reason = "Graph root identity is unresolved"; break;
+		case EObjectGraphError::MissingClass: Reason = "Graph class has no constructor"; break;
+		case EObjectGraphError::AuthoredOverrides: Reason = "Graph authored override copy failed"; break;
+		}
+		std::string Message = std::format("{}: object={}, class={}, id={}, outer={}, archive path={}", Reason,
+			Error.ObjectName, Error.ClassName, Error.ObjectId, Error.OuterId, Error.ArchivePath);
+		if (const auto* Cause = std::get_if<FObjectError>(&Error.Cause))
+			Message += ": " + FormatObjectError(*Cause);
+		return Message;
+	}
+
+	auto SaveObjectGraphToMemory(DObject* RootObject, FByteBuffer& OutBytes) -> FObjectGraphResult
+	{
+		if (!RootObject) return ObjectGraphFailure({.Code = EObjectGraphError::InvalidRoot});
+		if (RootObject->IsTemplateObject()) return ObjectGraphFailure({.Code = EObjectGraphError::TemplateRoot,
+			.ObjectName = RootObject->GetObjectPath()});
 
 		FObjectGraphContext Context;
 		Context.Discover(RootObject);
@@ -1823,7 +1977,8 @@ namespace Durin
 			auto ObjectScope = DiscoveryArchive.EnterObject(*Object);
 			Object->Serialize(DiscoveryArchive);
 		}
-		if (DiscoveryArchive.HasError()) return false;
+		if (DiscoveryArchive.HasError()) return ObjectGraphFailure({.Code = EObjectGraphError::Discovery,
+			.ObjectName = RootObject->GetObjectPath()}, &DiscoveryArchive);
 		Context.Freeze();
 
 		FByteBuffer Bytes;
@@ -1852,7 +2007,8 @@ namespace Durin
 				auto ObjectScope = PropertyWriter.EnterObject(*Object);
 				Object->Serialize(PropertyWriter);
 			}
-			if (PropertyWriter.HasError()) return false;
+			if (PropertyWriter.HasError()) return ObjectGraphFailure({.Code = EObjectGraphError::PropertyWrite,
+				.ObjectName = ObjectName, .ClassName = ClassName, .ObjectId = Id}, &PropertyWriter);
 			uint64 PropertySize = static_cast<uint64>(PropertyBytes.size());
 
 			HeaderWriter << Id << OuterId;
@@ -1866,12 +2022,13 @@ namespace Durin
 			}
 		}
 
-		if (HeaderWriter.HasError()) return false;
+		if (HeaderWriter.HasError()) return ObjectGraphFailure({.Code = EObjectGraphError::HeaderWrite,
+			.ObjectId = RootId, .ObjectCount = ObjectCount}, &HeaderWriter);
 		OutBytes = std::move(Bytes);
-		return true;
+		return {};
 	}
 
-	auto LoadObjectGraphFromMemory(const FByteBuffer& Bytes) -> DObject*
+	auto LoadObjectGraphFromMemory(const FByteBuffer& Bytes) -> FObjectGraphResult
 	{
 		FObjectMemoryReader Reader(Bytes);
 		uint32 Magic = 0;
@@ -1882,7 +2039,8 @@ namespace Durin
 		if (Reader.HasError() || Magic != ObjectGraphMagic || Version != ObjectGraphVersion || ObjectCount == 0
 			|| ObjectCount > 1000000 || RootId == 0 || RootId > ObjectCount)
 		{
-			return nullptr;
+			return ObjectGraphFailure({.Code = EObjectGraphError::Header, .ObjectId = RootId, .ObjectCount = ObjectCount,
+				.Magic = Magic, .ExpectedMagic = ObjectGraphMagic, .Version = Version, .ExpectedVersion = ObjectGraphVersion}, &Reader);
 		}
 
 		struct FLoadedObjectRecord
@@ -1914,7 +2072,9 @@ namespace Durin
 				|| PropertySize > FByteBuffer().max_size())
 			{
 				DiscardLoadedObjects();
-				return nullptr;
+				return ObjectGraphFailure({.Code = EObjectGraphError::RecordPayload, .ObjectName = Record.ObjectName, .ClassName = Record.ClassName,
+					.ObjectId = Record.Id, .OuterId = Record.OuterId, .ObjectCount = ObjectCount,
+					.ActualBytes = PropertySize, .RemainingBytes = Reader.GetRemainingPayloadBytes()}, &Reader);
 			}
 			Record.PropertyBytes.resize(static_cast<size_t>(PropertySize));
 			if (PropertySize > 0)
@@ -1926,7 +2086,8 @@ namespace Durin
 				|| Record.OuterId > ObjectCount)
 			{
 				DiscardLoadedObjects();
-				return nullptr;
+				return ObjectGraphFailure({.Code = EObjectGraphError::RecordIdentity, .ObjectName = Record.ObjectName, .ClassName = Record.ClassName,
+					.ObjectId = Record.Id, .OuterId = Record.OuterId, .ObjectCount = ObjectCount}, &Reader);
 			}
 			OuterIds[static_cast<size_t>(Record.Id - 1)] = Record.OuterId;
 
@@ -1942,13 +2103,19 @@ namespace Durin
 			Params.Size = Class->PropertiesSize;
 			Params.Purpose = EObjectConstructionPurpose::AssetLoad;
 			DObject* Object = StaticConstructObject(Params);
+			if (!Object)
+			{
+				DiscardLoadedObjects();
+				return ObjectGraphFailure({.Code = EObjectGraphError::Construction, .ObjectName = Record.ObjectName,
+					.ClassName = Record.ClassName, .ObjectId = Record.Id});
+			}
 			DObjectForceRegistration(Object);
 			Context.IdToObject[static_cast<size_t>(Record.Id - 1)] = Object;
 		}
 		if (Reader.HasError() || Reader.GetRemainingPayloadBytes() != 0)
 		{
 			DiscardLoadedObjects();
-			return nullptr;
+			return ObjectGraphFailure({.Code = EObjectGraphError::TrailingBytes, .RemainingBytes = Reader.GetRemainingPayloadBytes()}, &Reader);
 		}
 
 		for (uint64 Id = 1; Id <= ObjectCount; ++Id)
@@ -1960,7 +2127,7 @@ namespace Durin
 				if (!Context.ResolveId(OuterId) || !VisitedOuterIds.insert(OuterId).second)
 				{
 					DiscardLoadedObjects();
-					return nullptr;
+					return ObjectGraphFailure({.Code = EObjectGraphError::OuterCycle, .ObjectId = Id, .OuterId = OuterId, .ObjectCount = ObjectCount});
 				}
 			}
 		}
@@ -1972,7 +2139,8 @@ namespace Durin
 			if (!Object || (Record.OuterId != 0 && !Outer))
 			{
 				DiscardLoadedObjects();
-				return nullptr;
+				return ObjectGraphFailure({.Code = EObjectGraphError::OuterIdentity, .ObjectName = Record.ObjectName, .ClassName = Record.ClassName,
+					.ObjectId = Record.Id, .OuterId = Record.OuterId, .ObjectCount = ObjectCount});
 			}
 			Object->SetOuterPrivate(Outer);
 			FObjectGraphReader PropertyReader(Record.PropertyBytes, Context);
@@ -1983,36 +2151,41 @@ namespace Durin
 			if (PropertyReader.HasError() || PropertyReader.GetRemainingPayloadBytes() != 0)
 			{
 				DiscardLoadedObjects();
-				return nullptr;
+				return ObjectGraphFailure({.Code = EObjectGraphError::PropertyRead, .ObjectName = Record.ObjectName, .ClassName = Record.ClassName,
+					.ObjectId = Record.Id, .ActualBytes = Record.PropertyBytes.size(), .RemainingBytes = PropertyReader.GetRemainingPayloadBytes()}, &PropertyReader);
 			}
 		}
 
 		for (const FLoadedObjectRecord& Record : Records)
 		{
-			std::string Error;
-			if (!Context.ResolveId(Record.Id)->ValidateLoadedObjectGraph({}, Error))
+			if (const auto Validated = Context.ResolveId(Record.Id)->ValidateLoadedObjectGraph({}); !Validated)
 			{
 				DiscardLoadedObjects();
-				return nullptr;
+				return ObjectGraphFailure({.Code = EObjectGraphError::Validation, .ObjectName = Record.ObjectName, .ClassName = Record.ClassName,
+					.ObjectId = Record.Id, .Cause = Validated.Error});
 			}
 		}
 		DObject* LoadedRoot = Context.ResolveId(RootId);
-		if (!LoadedRoot) DiscardLoadedObjects();
-		return LoadedRoot;
+		if (!LoadedRoot)
+		{
+			DiscardLoadedObjects();
+			return ObjectGraphFailure({.Code = EObjectGraphError::RootIdentity, .ObjectId = RootId, .ObjectCount = ObjectCount});
+		}
+		return {.Object = LoadedRoot};
 	}
 
 	static auto DuplicateObjectInternal(DObject* RootObject, DObject* NewOuter,
 		FName NewName,
-		std::unordered_map<DObject*, DObject*>* OutDuplicates) -> DObject*
+		std::unordered_map<DObject*, DObject*>* OutDuplicates) -> FObjectGraphResult
 	{
 		if (OutDuplicates) OutDuplicates->clear();
 		if (!RootObject)
 		{
-			return nullptr;
+			return ObjectGraphFailure({.Code = EObjectGraphError::InvalidRoot});
 		}
 		if (RootObject->IsTemplateObject())
 		{
-			return nullptr;
+			return ObjectGraphFailure({.Code = EObjectGraphError::TemplateRoot, .ObjectName = RootObject->GetObjectPath()});
 		}
 
 		std::vector<DObject*> Sources;
@@ -2035,7 +2208,7 @@ namespace Durin
 			if (Source != RootObject && !DuplicateOuter)
 			{
 				DiscardDuplicates();
-				return nullptr;
+				return ObjectGraphFailure({.Code = EObjectGraphError::OuterIdentity, .ObjectName = Source->GetObjectPath()});
 			}
 
 			DObject* Duplicate = nullptr;
@@ -2060,7 +2233,7 @@ namespace Durin
 				if (!Class || !Class->ClassConstructor)
 				{
 					DiscardDuplicates();
-					return nullptr;
+					return ObjectGraphFailure({.Code = EObjectGraphError::MissingClass, .ObjectName = Source->GetObjectPath()});
 				}
 				FStaticConstructObjectParameters Params;
 				Params.Class = Class;
@@ -2069,6 +2242,11 @@ namespace Durin
 				Params.Size = Class->PropertiesSize;
 				Params.Purpose = EObjectConstructionPurpose::Duplication;
 				Duplicate = StaticConstructObject(Params);
+				if (!Duplicate)
+				{
+					DiscardDuplicates();
+					return ObjectGraphFailure({.Code = EObjectGraphError::Construction, .ObjectName = Source->GetObjectPath()});
+				}
 				DObjectForceRegistration(Duplicate);
 			}
 			Duplicates.emplace(Source, Duplicate);
@@ -2202,7 +2380,7 @@ namespace Durin
 			if (Writer.HasError())
 			{
 				DiscardDuplicates();
-				return nullptr;
+				return ObjectGraphFailure({.Code = EObjectGraphError::PropertyWrite, .ObjectName = Source->GetObjectPath()}, &Writer);
 			}
 			FDuplicateReader Reader(Bytes, DuplicateById, ExternalReferences);
 			{
@@ -2212,7 +2390,8 @@ namespace Durin
 			if (Reader.HasError() || Reader.GetRemainingPayloadBytes() != 0)
 			{
 				DiscardDuplicates();
-				return nullptr;
+				return ObjectGraphFailure({.Code = EObjectGraphError::PropertyRead, .ObjectName = Source->GetObjectPath(),
+					.ActualBytes = Bytes.size(), .RemainingBytes = Reader.GetRemainingPayloadBytes()}, &Reader);
 			}
 		}
 
@@ -2222,17 +2401,18 @@ namespace Durin
 			if (!Duplicates[Source]->CopyAuthoredOverridesFrom(*Source, &LedgerDiagnostic))
 			{
 				DiscardDuplicates();
-				return nullptr;
+				return ObjectGraphFailure({.Code = EObjectGraphError::AuthoredOverrides, .ObjectName = Source->GetObjectPath(),
+					.OverrideCause = std::move(LedgerDiagnostic)});
 			}
 		}
 
 		for (DObject* Source : Sources)
 		{
-			std::string Error;
-			if (!Duplicates[Source]->ValidateLoadedObjectGraph({}, Error))
+			if (const auto Validated = Duplicates[Source]->ValidateLoadedObjectGraph({}); !Validated)
 			{
 				DiscardDuplicates();
-				return nullptr;
+				return ObjectGraphFailure({.Code = EObjectGraphError::Validation, .ObjectName = Source->GetObjectPath(),
+					.Cause = Validated.Error});
 			}
 		}
 		for (auto It = Sources.rbegin(); It != Sources.rend(); ++It)
@@ -2240,96 +2420,179 @@ namespace Durin
 			Duplicates[*It]->PostLoad();
 		}
 		if (OutDuplicates) *OutDuplicates = Duplicates;
-		return DuplicateRoot;
+		return {.Object = DuplicateRoot};
 	}
 
 	auto DuplicateObject(const DObject* SourceObject, DObject* NewOuter,
 		FName NewName,
-		std::unordered_map<DObject*, DObject*>* OutDuplicates) -> DObject*
+		std::unordered_map<DObject*, DObject*>* OutDuplicates) -> FObjectGraphResult
 	{
 		return DuplicateObjectInternal(
 			const_cast<DObject*>(SourceObject), NewOuter, NewName, OutDuplicates);
 	}
 
-	auto InitializeObjectFromDefaults(const DObject* Defaults, DObject* Destination,
-		const std::unordered_map<DObject*, DObject*>& ReferenceMap, std::string* OutError) -> bool
+	namespace
 	{
-		if (OutError) OutError->clear();
-		if (!Defaults || !Destination || Defaults->GetClass() != Destination->GetClass()) return false;
-		using FRemap = std::function<bool(FProperty*, void*, uint32)>;
-		struct FRemapContext { FRemap* Function; FProperty* Property; bool bSucceeded = true; };
-		FRemap Remap;
-		Remap = [&](FProperty* Property, void* Container, uint32 Index) -> bool {
-			switch (Property->GetKind())
+		auto MakeCopyError(EObjectPropertyCopyError Code, EObjectPropertyCopyOperation Operation,
+			const DObject* Source, const DObject* Destination, const FProperty* Property = nullptr,
+			uint32 Index = 0) -> FObjectPropertyCopyResult
+		{
+			FObjectPropertyCopyError Error{.Code = Code, .Operation = Operation};
+			if (Source) { Error.SourcePath = Source->GetObjectPath(); Error.SourceType = Source->GetClass()->GetQualifiedName().ToString(); }
+			if (Destination) { Error.DestinationPath = Destination->GetObjectPath(); Error.DestinationType = Destination->GetClass()->GetQualifiedName().ToString(); }
+			if (Property) { Error.PropertyName = Property->NamePrivate.ToString(); Error.ArrayIndex = Index; }
+			return {std::move(Error)};
+		}
+		auto CopyArchiveCause(FObjectPropertyCopyError& Error, const FObjectArchive& Archive) -> void
+		{
+			if (const auto* Failure = Archive.GetFailure())
 			{
-			case DurinCodeGen::EPropertyGenFlags::Object:
-			{
-				auto* ObjectProperty = static_cast<FObjectProperty*>(Property);
-				DObject* Object = ObjectProperty->GetObjectPropertyValue(Container, Index);
-				if (const auto It = ReferenceMap.find(Object); It != ReferenceMap.end()) Object = It->second;
-				if (Object && Object->IsTemplateObject())
-				{ if (OutError) *OutError = "Unmapped default subobject reference."; return false; }
-				ObjectProperty->SetObjectPropertyValue(Container, Object, Index);
-				return true;
+				Error.ArchiveCode = Failure->Code;
+				Error.ArchivePath = Failure->Path;
 			}
-			case DurinCodeGen::EPropertyGenFlags::Struct:
-			{
-				auto* Struct = static_cast<FStructProperty*>(Property);
-				bool bSuccess = true;
-				Struct->GetStruct()->ForEachProperty([&](FProperty* Field) {
-					for (uint32 Element = 0; bSuccess && Element < Field->GetArrayDim(); ++Element)
-						bSuccess = Remap(Field, Struct->GetValuePtr(Container, Index), Element);
-				});
-				return bSuccess;
-			}
-			case DurinCodeGen::EPropertyGenFlags::Array:
-			{
-				auto* Array = static_cast<FArrayProperty*>(Property);
-				FRemapContext Context{&Remap, Array->GetInner()};
-				auto Visit = [](void* Raw, uint64, void* Value) -> bool {
-					auto& Context = *static_cast<FRemapContext*>(Raw);
-					Context.bSucceeded = (*Context.Function)(Context.Property, Value, 0);
-					return Context.bSucceeded;
-				};
-				return Array->VisitMutableElements(Container, Visit, &Context, Index) == EContainerOpResult::Success && Context.bSucceeded;
-			}
-			case DurinCodeGen::EPropertyGenFlags::Map:
-			{
-				auto* Map = static_cast<FMapProperty*>(Property);
-				FRemapContext Context{&Remap, Map->GetValueProp()};
-				auto Visit = [](void* Raw, const void*, void* Value) -> bool {
-					auto& Context = *static_cast<FRemapContext*>(Raw);
-					Context.bSucceeded = (*Context.Function)(Context.Property, Value, 0);
-					return Context.bSucceeded;
-				};
-				return Map->VisitMutableEntries(Container, Visit, &Context, Index) == EContainerOpResult::Success && Context.bSucceeded;
-			}
-			default: return true;
-			}
+			std::visit([&](const auto& Cause) {
+				using T = std::decay_t<decltype(Cause)>;
+				if constexpr (!std::is_same_v<T, std::monostate>) Error.Cause = Cause;
+			}, Archive.GetValueFailureCause());
+		}
+	}
+
+	auto FormatObjectPropertyCopyError(const FObjectPropertyCopyError& Error) -> std::string
+	{
+		if (const auto* Cause = std::get_if<FObjectError>(&Error.Cause)) return FormatObjectError(*Cause);
+		if (const auto* Cause = std::get_if<FObjectValidationError>(&Error.Cause)) return FormatObjectValidationError(*Cause);
+		switch (Error.Code)
+		{
+		case EObjectPropertyCopyError::None: return {};
+		case EObjectPropertyCopyError::InvalidObjects: return "Property copying requires matching source and destination classes.";
+		case EObjectPropertyCopyError::UnmappedDefaultReference: return "Unmapped default subobject reference.";
+		case EObjectPropertyCopyError::ContainerTraversal: return "Default reference container traversal failed.";
+		case EObjectPropertyCopyError::ValueCopy:
+			if (const auto* Cause = std::get_if<FPropertyValueError>(&Error.Cause)) return FormatPropertyValueError(*Cause);
+			return "Default property value copy failed.";
+		case EObjectPropertyCopyError::Snapshot:
+			if (const auto* Cause = std::get_if<FPropertySnapshotError>(&Error.Cause)) return FormatPropertySnapshotError(*Cause);
+			return "Editable property snapshot failed.";
+		case EObjectPropertyCopyError::ArchiveWrite: case EObjectPropertyCopyError::ArchiveRead:
+			if (const auto* Cause = std::get_if<FPropertyValueError>(&Error.Cause)) return FormatPropertyValueError(*Cause);
+			if (const auto* Cause = std::get_if<FReflectedMapKeyError>(&Error.Cause)) return FormatReflectedMapKeyError(*Cause);
+			return std::format("Property copy Archive failed at '{}', code={}." , Error.ArchivePath,
+				static_cast<uint32>(Error.ArchiveCode.value_or(EArchiveFailureCode::InvalidData)));
+		case EObjectPropertyCopyError::InvalidReferenceIndex: return "Editable-copy stream contains an invalid reference identifier.";
+		case EObjectPropertyCopyError::TrailingBytes: return "Editable-copy stream contains trailing bytes.";
+		}
+		return {};
+	}
+
+	auto InitializeObjectFromDefaults(const DObject* Defaults, DObject* Destination,
+		const std::unordered_map<DObject*, DObject*>& ReferenceMap) -> FObjectPropertyCopyResult
+	{
+		using E = EObjectPropertyCopyError;
+		auto Fail = [&](E Code, FProperty* Property = nullptr, uint32 Index = 0) {
+			return MakeCopyError(Code, EObjectPropertyCopyOperation::Defaults, Defaults, Destination, Property, Index);
 		};
-		bool bSucceeded = true;
+		if (!Defaults || !Destination || Defaults->GetClass() != Destination->GetClass()) return Fail(E::InvalidObjects);
+		using FRemap = std::function<FObjectPropertyCopyResult(FProperty*, void*, uint32)>;
+		struct FRemapContext { FRemap* Function; FProperty* Property; FObjectPropertyCopyResult Result; };
+		FRemap Remap;
+		Remap = [&](FProperty* Property, void* Container, uint32 Index) -> FObjectPropertyCopyResult {
+			auto Value = [&]() -> FObjectPropertyCopyResult {
+				switch (Property->GetKind())
+				{
+				case DurinCodeGen::EPropertyGenFlags::Object:
+				{
+					auto* ObjectProperty = static_cast<FObjectProperty*>(Property);
+					DObject* Object = ObjectProperty->GetObjectPropertyValue(Container, Index);
+					if (const auto It = ReferenceMap.find(Object); It != ReferenceMap.end()) Object = It->second;
+					if (Object && Object->IsTemplateObject())
+					{
+						auto Result = Fail(E::UnmappedDefaultReference, Property, Index);
+						Result.Error.ReferencePath = Object->GetObjectPath();
+						return Result;
+					}
+					ObjectProperty->SetObjectPropertyValue(Container, Object, Index);
+					return {};
+				}
+				case DurinCodeGen::EPropertyGenFlags::Struct:
+				{
+					auto* Struct = static_cast<FStructProperty*>(Property);
+					FObjectPropertyCopyResult Result;
+					Struct->GetStruct()->ForEachProperty([&](FProperty* Field) {
+						for (uint32 Element = 0; Result && Element < Field->GetArrayDim(); ++Element)
+							Result = Remap(Field, Struct->GetValuePtr(Container, Index), Element);
+					});
+					return Result;
+				}
+				case DurinCodeGen::EPropertyGenFlags::Array:
+				case DurinCodeGen::EPropertyGenFlags::Map:
+				{
+					FRemapContext Context{&Remap, nullptr, {}};
+					EContainerOpResult Traversal;
+					if (Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Array)
+					{
+						auto* Array = static_cast<FArrayProperty*>(Property);
+						Context.Property = Array->GetInner();
+						Traversal = Array->VisitMutableElements(Container, [](void* Raw, uint64 ElementIndex, void* Value) {
+							auto& C = *static_cast<FRemapContext*>(Raw);
+							C.Result = (*C.Function)(C.Property, Value, 0);
+							if (!C.Result) C.Result.Error.PropertyRoute.insert(C.Result.Error.PropertyRoute.begin(), std::to_string(ElementIndex));
+							return C.Result.Succeeded();
+						}, &Context, Index);
+					}
+					else
+					{
+						auto* Map = static_cast<FMapProperty*>(Property);
+						Context.Property = Map->GetValueProp();
+						Traversal = Map->VisitMutableEntries(Container, [](void* Raw, const void*, void* Value) {
+							auto& C = *static_cast<FRemapContext*>(Raw);
+							C.Result = (*C.Function)(C.Property, Value, 0);
+							return C.Result.Succeeded();
+						}, &Context, Index);
+					}
+					if (!Context.Result) return Context.Result;
+					if (Traversal != EContainerOpResult::Success)
+					{
+						auto Result = Fail(E::ContainerTraversal, Property, Index);
+						Result.Error.Cause = Traversal;
+						return Result;
+					}
+					return {};
+				}
+				default: return {};
+				}
+			}();
+			if (!Value) Value.Error.PropertyRoute.insert(Value.Error.PropertyRoute.begin(),
+				std::format("{}[{}]", Property->NamePrivate.ToString(), Index));
+			return Value;
+		};
+		FObjectPropertyCopyResult Result;
 		Defaults->GetClass()->ForEachProperty([&](FProperty* Property) {
-			if (!bSucceeded || !Property || Property->IsDeprecated()
+			if (!Result || !Property || Property->IsDeprecated()
 				|| Property->HasAnyPropertyFlags(EPropertyFlags::Transient)) return;
 			for (uint32 Index = 0; Index < Property->GetArrayDim(); ++Index)
 			{
-				if (!Property->CopyAssignValue(Property->ContainerPtrToValuePtr<void>(Destination, Index),
-					Property->ContainerPtrToValuePtr<void>(Defaults, Index), OutError))
-				{ bSucceeded = false; return; }
-				if (!Remap(Property, Destination, Index)) { bSucceeded = false; return; }
+				const auto Copied = Property->CopyAssignValue(Property->ContainerPtrToValuePtr<void>(Destination, Index),
+					Property->ContainerPtrToValuePtr<void>(Defaults, Index));
+				if (!Copied)
+				{
+					Result = Fail(E::ValueCopy, Property, Index);
+					Result.Error.Cause = Copied.Error;
+					return;
+				}
+				Result = Remap(Property, Destination, Index);
+				if (!Result) return;
 			}
 		});
-		return bSucceeded;
+		return Result;
 	}
 
-	auto CopyEditableObjectProperties(DObject* Source, DObject* Destination, const std::unordered_map<DObject*, DObject*>& ReferenceMap, std::string* OutError) -> bool
+	auto CopyEditableObjectProperties(DObject* Source, DObject* Destination, const std::unordered_map<DObject*, DObject*>& ReferenceMap) -> FObjectPropertyCopyResult
 	{
-		if (OutError) OutError->clear();
-		if (!Source || !Destination || Source->GetClass() != Destination->GetClass())
-		{
-			if (OutError) *OutError = "Editable properties require matching source and destination classes.";
-			return false;
-		}
+		using E = EObjectPropertyCopyError;
+		auto Fail = [&](E Code, FProperty* Property = nullptr, uint32 Index = 0) {
+			return MakeCopyError(Code, EObjectPropertyCopyOperation::Editable, Source, Destination, Property, Index);
+		};
+		if (!Source || !Destination || Source->GetClass() != Destination->GetClass()) return Fail(E::InvalidObjects);
 
 		class FEditableCopyWriter final : public FObjectMemoryWriter
 		{
@@ -2361,6 +2624,7 @@ namespace Durin
 		class FRemappingReader final : public FObjectMemoryReader
 		{
 		public:
+			std::optional<uint64> InvalidReference;
 			FRemappingReader(const FByteBuffer& Bytes,
 				const std::vector<DObject*>& InReferences,
 				const std::unordered_map<DObject*, DObject*>& InReferenceMap)
@@ -2377,8 +2641,8 @@ namespace Durin
 				if (HasError()) return;
 				if (Id > References.size())
 				{
-					Fail(EArchiveFailureCode::InvalidObjectReference,
-						"Editable-copy stream contains an invalid reference identifier.");
+					InvalidReference = Id;
+					Fail(EArchiveFailureCode::InvalidObjectReference, FormatObjectPropertyCopyError({.Code = EObjectPropertyCopyError::InvalidReferenceIndex}));
 					return;
 				}
 				DObject* SourceReference = Id == 0 ? nullptr : References[static_cast<size_t>(Id - 1)];
@@ -2397,23 +2661,25 @@ namespace Durin
 			FPropertyValueSnapshot Snapshot;
 		};
 		std::vector<FOriginalValue> OriginalValues;
+		FObjectPropertyCopyResult Result;
 		auto RollBack = [&]() {
 			for (auto It = OriginalValues.rbegin(); It != OriginalValues.rend(); ++It)
 			{
-				std::string IgnoredError;
-				RestorePropertyValue(It->Property, Destination, It->Index, It->Snapshot, &IgnoredError);
+				const auto Restored = RestorePropertyValue(It->Property, Destination, It->Index, It->Snapshot);
+				if (!Restored && !Result.Error.RollbackCause) Result.Error.RollbackCause = Restored.Error;
 			}
 		};
 
-		bool bSucceeded = true;
 		Source->GetClass()->ForEachProperty([&](FProperty* Property) {
-			if (!bSucceeded || !Property || !Property->HasAnyPropertyFlags(EPropertyFlags::Edit) || Property->HasAnyPropertyFlags(EPropertyFlags::Transient)) return;
+			if (!Result || !Property || !Property->HasAnyPropertyFlags(EPropertyFlags::Edit) || Property->HasAnyPropertyFlags(EPropertyFlags::Transient)) return;
 			for (uint32 Index = 0; Index < Property->GetArrayDim(); ++Index)
 			{
 				FOriginalValue Original{Property, Index, {}};
-				if (!CapturePropertyValue(Property, Destination, Index, Original.Snapshot, OutError))
+				const auto Captured = CapturePropertyValue(Property, Destination, Index, Original.Snapshot);
+				if (!Captured)
 				{
-					bSucceeded = false;
+					Result = Fail(E::Snapshot, Property, Index);
+					Result.Error.Cause = Captured.Error;
 					return;
 				}
 				OriginalValues.push_back(std::move(Original));
@@ -2424,27 +2690,28 @@ namespace Durin
 				SerializeReflectedPropertyValue(Writer, *Property, Source, Index);
 				if (Writer.HasError())
 				{
-					if (OutError) *OutError = Writer.GetError();
-					bSucceeded = false;
+					Result = Fail(E::ArchiveWrite, Property, Index);
+					CopyArchiveCause(Result.Error, Writer);
 					return;
 				}
 				FRemappingReader Reader(Bytes, References, ReferenceMap);
 				SerializeReflectedPropertyValue(Reader, *Property, Destination, Index);
 				if (Reader.HasError() || Reader.GetRemainingPayloadBytes() != 0)
 				{
-					if (OutError && OutError->empty()) *OutError = Reader.HasError()
-						? std::string(Reader.GetError()) : "Editable-copy stream contains trailing bytes.";
-					bSucceeded = false;
+					Result = Fail(Reader.InvalidReference ? E::InvalidReferenceIndex : Reader.HasError() ? E::ArchiveRead : E::TrailingBytes, Property, Index);
+					CopyArchiveCause(Result.Error, Reader);
+					Result.Error.ActualCount = Reader.InvalidReference.value_or(Reader.GetRemainingPayloadBytes());
+					Result.Error.ExpectedCount = Reader.InvalidReference ? References.size() : 0;
 					return;
 				}
 			}
 		}, true);
-		if (!bSucceeded)
+		if (!Result)
 		{
 			RollBack();
-			return false;
+			return Result;
 		}
 		Destination->MarkPackageDirty();
-		return true;
+		return {};
 	}
 }

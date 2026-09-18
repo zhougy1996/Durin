@@ -232,7 +232,7 @@ namespace Durin
 		const FPackageResourceReadResult Read = Value.Voxels.GetPayload().Wait();
 		if (!Read)
 		{
-			DURIN_WARN("VolumeTexture source payload could not be read: {}", Read.Message);
+			DURIN_WARN("VolumeTexture source payload could not be read: {}", FormatPackageResourceReadError(Read));
 			return std::nullopt;
 		}
 		FTextureSource NewSource;

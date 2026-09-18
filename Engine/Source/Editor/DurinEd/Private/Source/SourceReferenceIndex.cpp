@@ -69,9 +69,8 @@ namespace Durin::Editor
 			FAssetPackageInspection Inspection;
 			if (!InspectAssetPackage(Data.PhysicalPath, Inspection)) return false;
 			FAssetImportInfo ImportInfo;
-			std::string ImportInfoError;
 			if (InspectAssetImportInfo(
-				Inspection, ImportInfo, ImportInfoError))
+				Inspection, ImportInfo))
 			{
 				for (const FSourceFile& Source : ImportInfo.Sources)
 					AddReference(References, Data, Source.Hint);

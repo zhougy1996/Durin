@@ -119,8 +119,9 @@ namespace
 			return false;
 		}
 		std::string PhysicalPath;
-		if (!Durin::ResolveSourceHint(Source->HintBase, Filename,
-			PackagePath.generic_string(), PhysicalPath, OutError)) return false;
+		if (const auto Resolved = Durin::ResolveSourceHint(Source->HintBase, Filename,
+			PackagePath.generic_string(), PhysicalPath); !Resolved)
+		{ OutError = Durin::FormatSourceHintError(Resolved.Error); return false; }
 		OutPath = std::filesystem::absolute(PhysicalPath).lexically_normal();
 		return true;
 	}
@@ -782,13 +783,13 @@ TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 	Durin::FCookContext First(Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game);
 	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
-		*Import.Asset, "/Game/CookedCube", First, Error)) << Error;
-	ASSERT_TRUE(Durin::PublishCookContext(First, FirstRoot, &Error)) << Error;
+		*Import.Asset, "/Game/CookedCube", First)) << Error;
+	ASSERT_TRUE(Durin::PublishCookContext(First, FirstRoot)) << Error;
 	Durin::FCookContext Second(Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game);
 	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
-		*Import.Asset, "/Game/CookedCube", Second, Error)) << Error;
-	ASSERT_TRUE(Durin::PublishCookContext(Second, SecondRoot, &Error)) << Error;
+		*Import.Asset, "/Game/CookedCube", Second)) << Error;
+	ASSERT_TRUE(Durin::PublishCookContext(Second, SecondRoot)) << Error;
 
 	Durin::FByteBuffer FirstPackage;
 	Durin::FByteBuffer SecondPackage;
@@ -831,7 +832,7 @@ TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 			Durin::EAssetRegistryScanMode::FullValidation);
 	ASSERT_TRUE(Refresh) << (Refresh.Errors.empty()
 		? "asset catalog refresh failed without a diagnostic"
-		: Refresh.Errors.front().Message);
+		: Durin::FormatAssetRegistryError(Refresh.Errors.front()));
 	Durin::FPackagePath CookedPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/CookedCube", CookedPath));
 	Durin::DTextureCube* Cooked = nullptr;

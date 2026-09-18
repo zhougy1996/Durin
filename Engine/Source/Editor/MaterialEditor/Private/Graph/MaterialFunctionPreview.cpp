@@ -61,11 +61,11 @@ namespace Durin::Editor::Material
 		using Type = EMaterialProgramValueType;
 		const auto& Signature = Function.GetFunctionSignature();
 		const auto Output = std::ranges::find(Signature.Outputs, OutputId, &FMaterialFunctionPort::Id);
-		if (Output == Signature.Outputs.end()) return MakeRejected("The preview output no longer exists.");
+		if (Output == Signature.Outputs.end()) return RejectDocument({.Code = EMaterialGraphDocumentError::PreviewOutput, .PortId = OutputId, .bOutput = true, .FunctionPath = Function.GetObjectPath()});
 		std::vector<FMaterialFunctionOwnerStamp> Closure;
 		const std::array<DMaterialFunctionInterface*, 1> Roots{&Function};
 		auto Validation = ValidateMaterialFunctionDependencies(Roots, Closure);
-		if (!Validation) return MakeRejected("The function cannot be previewed.", std::move(Validation.Diagnostics));
+		if (!Validation) return RejectDocument({.Code = EMaterialGraphDocumentError::PreviewFunction, .PortId = OutputId, .bOutput = true, .FunctionPath = Function.GetObjectPath()}, std::move(Validation.Diagnostics));
 		FGraphEditSession State(Preview);
 		State.Expressions.clear();
 		State.Presentation = {};
@@ -83,6 +83,9 @@ namespace Durin::Editor::Material
 		for (const auto& Port : Signature.Inputs)
 			if (Port.bRequired)
 			{
+				if (static_cast<size_t>(Port.Type) >= RequiredValues.size())
+					return RejectDocument({.Code = EMaterialGraphDocumentError::PreviewInput, .PortId = Port.Id,
+						.FunctionPath = Function.GetObjectPath(), .ResultType = Port.Type});
 				auto& Source = RequiredValues[static_cast<size_t>(Port.Type)];
 				if (!Source.ExpressionId.IsValid())
 				{
@@ -108,7 +111,7 @@ namespace Durin::Editor::Material
 						Surface->OpacityDefault = {1}; Surface->OpacityMaskDefault = {1};
 						Source = {Surface->Id}; break;
 					}
-					default: return MakeRejected("The preview input type is unsupported.");
+					default: return RejectDocument({.Code = EMaterialGraphDocumentError::PreviewInput, .PortId = Port.Id, .FunctionPath = Function.GetObjectPath(), .ResultType = Port.Type});
 					}
 				}
 				Call->Inputs.push_back({Port.Id, Port.Type, Source});
@@ -149,7 +152,10 @@ namespace Durin::Editor::Material
 		for (auto& Position : State.Presentation.Nodes)
 			if (Position.NodeId == Terminal->Id) Position.X = 1280;
 		auto Result = State.Commit("Build Function Preview", nullptr);
-		if (Result && !Preview.SetStaticProperties(Properties)) return MakeRejected("The preview properties are invalid.");
+		if (Result)
+			if (const auto Applied = Preview.SetStaticProperties(Properties); !Applied)
+				return RejectDocument({.Code = EMaterialGraphDocumentError::PreviewProperties, .PortId = OutputId,
+					.bOutput = true, .FunctionPath = Function.GetObjectPath(), .MaterialCause = Applied.Error});
 		return Result;
 	}
 }

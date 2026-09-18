@@ -1,3 +1,5 @@
+#include "DObject/PackagePersistence.h"
+#include "Materials/MaterialObjectValidation.h"
 #include "FunctionPortTestFixture.h"
 #include "Graph/MaterialExpressionInputs.h"
 #include "MaterialTestSupport.h"
@@ -139,16 +141,27 @@ TEST(FMaterialExpressionTests, MaterialPersistsTypedOutputsAndOwnedParameterDefa
 	ASSERT_NE(Owned, nullptr); EXPECT_EQ(Owned->DefaultValue, FVector4(.6, .7, .8, 0));
 	ASSERT_NE(Material->FindParameterDefinition(ParameterId), nullptr);
 	EXPECT_EQ(Material->FindParameterDefinition(ParameterId)->Value.GetVector4(), Owned->DefaultValue);
-	TStrongObjectPtr<DMaterial> Duplicate(Cast<DMaterial>(DuplicateObject(Material, nullptr, "IndependentMaterial")));
+	TStrongObjectPtr<DMaterial> Duplicate(Cast<DMaterial>(DuplicateObject(Material, nullptr, "IndependentMaterial").Object));
 	ASSERT_TRUE(Duplicate);
 	EXPECT_EQ(Duplicate->GetExpressionOutputs(), Outputs);
 	ASSERT_EQ(Duplicate->GetExpressionCollection().Expressions.size(), 3u);
 	EXPECT_NE(Duplicate->GetExpressionCollection().Expressions[0].Get(), Owned);
 	EXPECT_EQ(Duplicate->GetExpressionCollection().Expressions[0]->GetOuter(), Duplicate.Get());
-	std::string Error;
-	ASSERT_TRUE(Material->ValidateLoadedObjectGraph({}, Error)) << Error;
+	ASSERT_TRUE(Material->ValidateLoadedObjectGraph({}));
 	TStrongObjectPtr<DMaterialExpressionScalarConstant> Orphan(NewObject<DMaterialExpressionScalarConstant>(Material, "Orphan"));
-	EXPECT_FALSE(Material->ValidateLoadedObjectGraph({}, Error));
+	const auto Rejected = Material->ValidateLoadedObjectGraph({});
+	EXPECT_EQ(Rejected.Error.Code, EObjectValidationError::ModuleRejected);
+	const auto Cause = std::dynamic_pointer_cast<const FMaterialObjectValidationCause>(Rejected.Error.Cause);
+	ASSERT_TRUE(Cause);
+	EXPECT_EQ(Cause->Error.Code, FMaterialError::FCode(EMaterialExpressionError::OwnerContainsAbandonedExpressionChildOutsideCollection));
+	ObjectPackage::FLinkerTables Linker;
+	const auto Captured = FSavePackageContext{}.Capture(Material->GetPackage(), Linker);
+	ASSERT_FALSE(Captured);
+	const auto* Validation = std::get_if<FObjectValidationError>(&Captured.Error.Cause);
+	ASSERT_NE(Validation, nullptr);
+	const auto CapturedCause = std::dynamic_pointer_cast<const FMaterialObjectValidationCause>(Validation->Cause);
+	ASSERT_TRUE(CapturedCause);
+	EXPECT_EQ(CapturedCause->Error, Cause->Error);
 	Orphan->SetOuterPrivate(nullptr);
 	ASSERT_TRUE(UnloadPackage(Path)); CollectGarbage();
 }
@@ -175,13 +188,12 @@ TEST(FMaterialExpressionTests, MaterialCanReplaceItsOwnExpressionsAndClearOwnedC
 	EXPECT_EQ(Current->GetOuter(), Material.Get());
 	EXPECT_NE(Previous->GetOuter(), Material.Get());
 	EXPECT_EQ(Cast<DMaterialExpressionScalarConstant>(Current.Get())->Value, .75f);
-	std::string Error;
-	ASSERT_TRUE(Material->ValidateLoadedObjectGraph({}, Error)) << Error;
+	ASSERT_TRUE(Material->ValidateLoadedObjectGraph({}));
 	ASSERT_TRUE(Material->SetMaterialExpressions({}, {}));
 	EXPECT_EQ(Material->GetExpressionCollection().Expressions.size(), 1u);
 	EXPECT_NE(Current->GetOuter(), Material.Get());
 	EXPECT_EQ(GDObjectArray.GetObjectsWithOuter(Material.Get(), EObjectQueryScope::LiveOnly).size(), 1u);
-	ASSERT_TRUE(Material->ValidateLoadedObjectGraph({}, Error)) << Error;
+	ASSERT_TRUE(Material->ValidateLoadedObjectGraph({}));
 }
 
 TEST(FMaterialExpressionTests, FunctionPersistsOnlyOwnedExpressionsAndAppliesIndependentCopies)
@@ -230,7 +242,7 @@ TEST(FMaterialExpressionTests, FunctionPersistsOnlyOwnedExpressionsAndAppliesInd
 	ASSERT_EQ(GDObjectArray.GetObjectsWithOuter(Function, EObjectQueryScope::LiveOnly).size(), 2u);
 	Owned = Cast<DMaterialExpressionVector2Constant>(Function->GetExpressionCollection().Expressions[0].Get());
 	ASSERT_NE(Owned, nullptr); EXPECT_EQ(Owned->Value, PersistedValue);
-	TStrongObjectPtr<DMaterialFunction> Duplicate(Cast<DMaterialFunction>(DuplicateObject(Function, nullptr, "IndependentFunction")));
+	TStrongObjectPtr<DMaterialFunction> Duplicate(Cast<DMaterialFunction>(DuplicateObject(Function, nullptr, "IndependentFunction").Object));
 	ASSERT_TRUE(Duplicate);
 	EXPECT_NE(Duplicate->GetExpressionCollection().Expressions[0].Get(), Function->GetExpressionCollection().Expressions[0].Get());
 	EXPECT_EQ(Duplicate->GetFunctionSignature(), Function->GetFunctionSignature());
@@ -277,17 +289,20 @@ TEST(FMaterialExpressionTests, FunctionRejectsInvalidCandidatesAndUncollectedChi
 	EXPECT_EQ(Function->GetFunctionSignature(), Before);
 	EXPECT_EQ(Function->GetExpressionCollection().Expressions, BeforeChildren);
 	EXPECT_EQ(Function->GetFunctionRevision(), Revision);
-	std::string Error;
-	ASSERT_TRUE(Function->ValidateLoadedObjectGraph({}, Error)) << Error;
+	ASSERT_TRUE(Function->ValidateLoadedObjectGraph({}));
 	TStrongObjectPtr<DMaterialExpressionScalarConstant> Orphan(NewObject<DMaterialExpressionScalarConstant>(Function.Get(), "Uncollected"));
 	Orphan->Id = {5, 6, 7, 8};
-	EXPECT_FALSE(Function->ValidateLoadedObjectGraph({}, Error));
+	const auto Rejected = Function->ValidateLoadedObjectGraph({});
+	EXPECT_EQ(Rejected.Error.Code, EObjectValidationError::ModuleRejected);
+	const auto Cause = std::dynamic_pointer_cast<const FMaterialObjectValidationCause>(Rejected.Error.Cause);
+	ASSERT_TRUE(Cause);
+	EXPECT_EQ(Cause->Error.Code, FMaterialError::FCode(EMaterialExpressionError::OwnerContainsAbandonedExpressionChildOutsideCollection));
 	Orphan->SetOuterPrivate(nullptr);
-	ASSERT_TRUE(Function->ValidateLoadedObjectGraph({}, Error)) << Error;
+	ASSERT_TRUE(Function->ValidateLoadedObjectGraph({}));
 	BeforeChildren[0]->SetOuterPrivate(Orphan.Get());
-	EXPECT_FALSE(Function->ValidateLoadedObjectGraph({}, Error));
+	EXPECT_FALSE(Function->ValidateLoadedObjectGraph({}));
 	BeforeChildren[0]->SetOuterPrivate(Function.Get());
-	ASSERT_TRUE(Function->ValidateLoadedObjectGraph({}, Error)) << Error;
+	ASSERT_TRUE(Function->ValidateLoadedObjectGraph({}));
 }
 
 TEST(FMaterialExpressionTests, BuildFunctionInvocationsBindGuidPortsAndRetainIndependentDefaults)
@@ -775,7 +790,7 @@ TEST(FMaterialExpressionTests, TypedOwnersRoundTripAndDuplicateOnlyApplicableFie
 	const auto Before = Vector->GetParameterDefinition();
 	EXPECT_EQ(Before.Type, EMaterialParameterType::Vector4);
 	EXPECT_EQ(Before.Value.GetVector4(), Vector->DefaultValue);
-	auto* Copy = Cast<DMaterialExpressionVector4Parameter>(DuplicateObject(Vector, Working.Get(), "Copy"));
+	auto* Copy = Cast<DMaterialExpressionVector4Parameter>(DuplicateObject(Vector, Working.Get(), "Copy").Object);
 	ASSERT_NE(Copy, nullptr);
 	EXPECT_EQ(Copy->Metadata, Vector->Metadata);
 	Copy->Id = {1, 2, 3, 5}; Copy->Metadata.Id = {4, 5, 6, 5}; Copy->Metadata.Name = "Copy";
@@ -1143,4 +1158,30 @@ TEST(FMaterialExpressionTests, AppendLowersInOrderAndInfersWidthWithoutCachedTyp
 	const auto Three = Narrower.Finish(Roots);
 	ASSERT_TRUE(Three);
 	EXPECT_EQ(Three.IR.Nodes[Three.Roots.front()].ResultType, EMaterialProgramValueType::Float3);
+}
+
+TEST(FMaterialExpressionTests, GraphLoadValidationOwnsCompleteFunctionDiagnostics)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	FScopedOfflinePreparation Offline;
+	TStrongObjectPtr<DMaterialFunction> Function(NewObject<DMaterialFunction>(nullptr, "InvalidFunctionGraph"));
+	DMaterialExpressionFunctionOutput* Output = nullptr;
+	for (const auto& Expression : Function->GetExpressionCollection().Expressions)
+		if (auto* Candidate = Cast<DMaterialExpressionFunctionOutput>(Expression.Get())) { Output = Candidate; break; }
+	ASSERT_NE(Output, nullptr);
+	const auto Before = Output->Source;
+	Output->Source = {Output->Id};
+	const auto Result = Function->ValidateLoadedObjectGraph({});
+	ASSERT_FALSE(Result);
+	EXPECT_EQ(Result.Error.ObjectPath, Function->GetObjectPath());
+	const auto Cause = std::dynamic_pointer_cast<const FMaterialObjectValidationCause>(Result.Error.Cause);
+	ASSERT_TRUE(Cause);
+	ASSERT_FALSE(Cause->Diagnostics.empty());
+	EXPECT_EQ(Cause->Error, Cause->Diagnostics.front().Error);
+	EXPECT_TRUE(Cause->Error.HasError());
+	const auto Diagnostics = Cause->Diagnostics;
+	Output->Source = Before;
+	ASSERT_TRUE(Function->ValidateLoadedObjectGraph({}));
+	EXPECT_EQ(Cause->Diagnostics, Diagnostics);
 }

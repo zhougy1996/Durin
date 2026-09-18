@@ -1,4 +1,5 @@
 #include "Components/MeshComponent.h"
+#include "Components/PropertyEditValidation.h"
 
 #include "Components/ComponentMaterialOverride.h"
 #include "Asset/Load.h"
@@ -105,11 +106,10 @@ namespace Durin
 
 	auto DMeshComponent::PostLoad() -> void
 	{
-		std::string Error;
 		Super::PostLoad();
-		if (!ValidateOverrideMaterials(OverrideMaterials, Error))
+		if (const auto Validation = ValidateOverrideMaterials(OverrideMaterials); !Validation)
 		{
-			DURIN_ERROR("PostLoad '{}': {}; clearing material overrides.", GetObjectPath(), Error);
+			DURIN_ERROR("PostLoad '{}': {}; clearing material overrides.", GetObjectPath(), FormatStaticMeshMaterialOverrideError(Validation.Error, "mesh component"));
 			OverrideMaterials.clear();
 		}
 		ComponentMaterialOverride::TrimTrailingNulls(OverrideMaterials);
@@ -124,22 +124,20 @@ namespace Durin
 		return true;
 	}
 
-	auto DMeshComponent::PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool
+	auto DMeshComponent::PreEditChangeProperty(FPropertyEditProposal& Proposal) -> FObjectValidationResult
 	{
-		if (!Super::PreEditChangeProperty(Proposal, OutError)) return false;
-		if (!Proposal.MemberProperty || !Proposal.DraftRootProperty || !Proposal.DraftRootContainer) return true;
+		if (auto Result = Super::PreEditChangeProperty(Proposal); !Result) return Result;
+		if (!Proposal.MemberProperty || !Proposal.DraftRootProperty || !Proposal.DraftRootContainer) return {};
 		const FName Name = Proposal.MemberProperty->NamePrivate;
-		if (Name != FName("OverrideMaterials")) return true;
+		if (Name != FName("OverrideMaterials")) return {};
 		if (Proposal.DraftRootProperty->GetKind() != DurinCodeGen::EPropertyGenFlags::Array)
 		{
-			OutError = "The mesh material array metadata is unavailable.";
-			return false;
+			return RejectPropertyEdit(*this, Proposal, EPropertyEditRejection::InvalidMetadata);
 		}
 		auto* ArrayProperty = static_cast<const FArrayProperty*>(Proposal.DraftRootProperty);
 		if (!ArrayProperty->GetInner() || ArrayProperty->GetInner()->GetKind() != DurinCodeGen::EPropertyGenFlags::Object)
 		{
-			OutError = "The mesh material override metadata is unavailable.";
-			return false;
+			return RejectPropertyEdit(*this, Proposal, EPropertyEditRejection::InvalidMetadata);
 		}
 		std::vector<TObjectPtr<DMaterialInterface>> Overrides;
 		Overrides.reserve(static_cast<size_t>(ArrayProperty->Num(Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex)));
@@ -150,13 +148,15 @@ namespace Durin
 			DMaterialInterface* Material = Cast<DMaterialInterface>(Element);
 			if (Element != nullptr && Material == nullptr)
 			{
-				OutError = std::format(
-					"A mesh component contains an incompatible object at material index {}.", Index);
-				return false;
+				return RejectEnginePropertyEdit(*this, Proposal, FStaticMeshMaterialOverrideError{
+					.Code = EStaticMeshMaterialOverrideError::IncompatibleObject, .Index = Index,
+					.ObjectPath = Element->GetObjectPath(), .ActualType = Element->GetClass()->GetQualifiedName().ToString()});
 			}
 			Overrides.push_back(Material);
 		}
-		return ValidateOverrideMaterials(Overrides, OutError);
+		const auto Validation = ValidateOverrideMaterials(Overrides);
+		if (!Validation) return RejectEnginePropertyEdit(*this, Proposal, Validation.Error);
+		return {};
 	}
 
 	auto DMeshComponent::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
@@ -172,24 +172,8 @@ namespace Durin
 	}
 
 	auto DMeshComponent::ValidateOverrideMaterials(
-		std::span<const TObjectPtr<DMaterialInterface>> Overrides,
-		std::string& OutError) const -> bool
+		std::span<const TObjectPtr<DMaterialInterface>> Overrides) const -> FStaticMeshMaterialOverrideResult
 	{
-		if (Overrides.size() > MaximumMeshMaterialSlots)
-		{
-			OutError = std::format("A mesh component contains {} positional material entries, exceeding the limit of {}.",
-				Overrides.size(), MaximumMeshMaterialSlots);
-			return false;
-		}
-		for (size_t Index = 0; Index < Overrides.size(); ++Index)
-		{
-			if (Overrides[Index]
-				&& !Cast<DMaterialInterface>(reinterpret_cast<DObject*>(Overrides[Index].Get())))
-			{
-				OutError = std::format("A mesh component contains an incompatible object at material index {}.", Index);
-				return false;
-			}
-		}
-		return true;
+		return ValidateStaticMeshMaterialOverrides(Overrides);
 	}
 }

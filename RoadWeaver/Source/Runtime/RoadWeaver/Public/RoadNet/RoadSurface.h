@@ -91,5 +91,21 @@ namespace Durin::RoadNet
 	ROADWEAVER_API auto FitRoadDefinition(FDefinition& Definition, const FRoadSurface& Operation,
 		std::string& OutError) -> bool;
 
-	ROADWEAVER_API auto ValidateRoadPlacement(const FTransform& Placement, std::string& OutError) -> bool;
+	enum class ERoadPlacementError : uint8
+	{
+		None, NonIdentityScale, NonFiniteTranslation, NonFiniteRotation, NonUnitRotation,
+	};
+	struct FRoadPlacementError
+	{
+		ERoadPlacementError Code = ERoadPlacementError::None;
+		FTransform Placement;
+	};
+	struct FRoadPlacementResult
+	{
+		FRoadPlacementError Error;
+		auto Succeeded() const -> bool { return Error.Code == ERoadPlacementError::None; }
+		explicit operator bool() const { return Succeeded(); }
+	};
+	ROADWEAVER_API auto FormatRoadPlacementError(const FRoadPlacementError& Error) -> std::string;
+	ROADWEAVER_API auto ValidateRoadPlacement(const FTransform& Placement) -> FRoadPlacementResult;
 }

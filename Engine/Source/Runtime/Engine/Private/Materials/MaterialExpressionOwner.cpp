@@ -1,3 +1,4 @@
+#include "Materials/MaterialObjectValidation.h"
 #include "ObjectCacheContext.h"
 #include "Materials/Material.h"
 #include "MaterialExpressionOwnership.h"
@@ -83,20 +84,21 @@ namespace Durin
 	}
 
 
-	auto DMaterial::ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context, std::string& OutError) const -> bool
+	auto DMaterial::ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> FObjectValidationResult
 	{
-		if (Context.bCooked) return true;
-		if (GetMaterialDomainOutputPins(Domain).empty()) { OutError = FormatMaterialError(EMaterialExpressionError::UnsupportedMaterialDomain); return false; }
+		if (Context.bCooked) return {};
+		if (GetMaterialDomainOutputPins(Domain).empty())
+			return RejectMaterialObjectGraph(GetObjectPath(), EMaterialExpressionError::UnsupportedMaterialDomain);
 		const auto OwnershipError = Private::ValidateExpressionOwnership(*this, ExpressionCollection);
-		if (!OwnershipError)
-		{ OutError = FormatMaterialError(OwnershipError.Error); return false; }
-		const auto Validation = ValidateExpressionGraph(ExpressionCollection, GetExpressionOutputs());
+		if (!OwnershipError) return RejectMaterialObjectGraph(GetObjectPath(), OwnershipError.Error);
+		auto Validation = ValidateExpressionGraph(ExpressionCollection, GetExpressionOutputs());
 		if (!Validation)
 		{
-			OutError = FormatMaterialError(Validation.Diagnostics.empty() ? FMaterialError(EMaterialExpressionError::InvalidMaterialExpressionGraph) : Validation.Diagnostics.front().Error);
-			return false;
+			const auto Error = Validation.Diagnostics.empty()
+				? FMaterialError(EMaterialExpressionError::InvalidMaterialExpressionGraph) : Validation.Diagnostics.front().Error;
+			return RejectMaterialObjectGraph(GetObjectPath(), Error, std::move(Validation.Diagnostics));
 		}
-		return true;
+		return {};
 	}
 
 	auto DMaterial::SetMaterialExpressions(std::span<DMaterialExpression* const> Expressions,

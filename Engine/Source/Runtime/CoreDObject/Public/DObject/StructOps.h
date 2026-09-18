@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreDObjectAPI.h"
+#include "DObject/ObjectValidation.h"
 #include "Misc/EnumClassFlags.h"
 #include "Misc/Name.h"
 
@@ -18,7 +19,7 @@ namespace Durin
 	struct FArchiveVersionContext;
 	class FReferenceCollector;
 
-	inline constexpr uint32 DStructOpsVersion = 1;
+	inline constexpr uint32 DStructOpsVersion = 2;
 
 	enum class EDStructOpsFlags : uint16
 	{
@@ -49,7 +50,6 @@ namespace Durin
 		uint32 SourceVersion = 0;
 		const FArchiveVersionContext* VersionContext = nullptr;
 		std::span<const FName> LoadedDeprecatedProperties;
-		std::string* Error = nullptr;
 
 		auto WasDeprecatedPropertyLoaded(FName PropertyName) const -> bool
 		{
@@ -57,11 +57,6 @@ namespace Durin
 				!= LoadedDeprecatedProperties.end();
 		}
 
-		auto Fail(std::string_view Message) const -> bool
-		{
-			if (Error) *Error = Message;
-			return false;
-		}
 	};
 
 	struct FDStructOps
@@ -73,7 +68,7 @@ namespace Durin
 		using FZeroConstruct = void (*)(void* Destination);
 		using FIdentical = bool (*)(const void* Left, const void* Right);
 		using FSerialize = void (*)(FArchive& Archive, void* Value);
-		using FPostDeserialize = bool (*)(void* Value, FDStructPostDeserializeContext& Context);
+		using FPostDeserialize = FObjectValidationResult (*)(void* Value, FDStructPostDeserializeContext& Context);
 		using FCollectReferences = void (*)(void* Value, FReferenceCollector& Collector);
 
 		uint32 Version = DStructOpsVersion;
@@ -181,7 +176,7 @@ namespace Durin
 		template<typename T, typename Traits>
 		concept CValidDStructPostDeserializeTrait = requires
 		{
-			static_cast<bool (*)(T&, FDStructPostDeserializeContext&)>(&Traits::PostDeserialize);
+			static_cast<FObjectValidationResult (*)(T&, FDStructPostDeserializeContext&)>(&Traits::PostDeserialize);
 		};
 
 		template<typename T, typename Traits>
@@ -233,7 +228,7 @@ namespace Durin
 		}
 
 		template<typename T>
-		auto PostDeserializeDStruct(void* Value, FDStructPostDeserializeContext& Context) -> bool
+		auto PostDeserializeDStruct(void* Value, FDStructPostDeserializeContext& Context) -> FObjectValidationResult
 		{
 			return TDStructOpsTraits<T>::PostDeserialize(*static_cast<T*>(Value), Context);
 		}
@@ -339,7 +334,7 @@ namespace Durin
 			if constexpr (Traits::bWithPostDeserialize)
 			{
 				constexpr bool bValid = CValidDStructPostDeserializeTrait<T, Traits>;
-				static_assert(bValid, "TDStructOpsTraits<T>::PostDeserialize must have signature bool(T&, FDStructPostDeserializeContext&).");
+				static_assert(bValid, "TDStructOpsTraits<T>::PostDeserialize must have signature FObjectValidationResult(T&, FDStructPostDeserializeContext&).");
 				if constexpr (bValid)
 				{
 					Ops.Flags |= EDStructOpsFlags::PostDeserialize;

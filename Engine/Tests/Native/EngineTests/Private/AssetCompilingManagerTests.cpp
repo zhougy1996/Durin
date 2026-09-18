@@ -34,12 +34,11 @@ namespace
 		FSyntheticManager(std::string InName, std::shared_ptr<FSyntheticState> InState)
 			: Name(std::move(InName)), State(std::move(InState)) {}
 
-		auto Start(std::string* OutError) -> bool override
+		auto Start() -> FAssetCompilerStartResult override
 		{
 			++State->StartCount;
 			Record("start");
-			if (!State->bStartSucceeds && OutError) *OutError = "Synthetic provider startup failed.";
-			return State->bStartSucceeds;
+			return {State->bStartSucceeds ? EAssetCompilerStartError::None : EAssetCompilerStartError::TaskScopeUnavailable};
 		}
 		auto StopAdmission() -> void override { Record("stop"); }
 		auto GetNumRemainingAssets() const -> uint64 override { return State->Remaining; }
@@ -100,7 +99,6 @@ TEST(FAssetCompilingManagerTests, RoutesClassesBatchesObjectsAndOwnsCompilerLife
 {
 	InitializeDObjectSystem();
 	auto& Aggregate = FAssetCompilingManager::Get();
-	std::string Error;
 	Aggregate.Start();
 	EXPECT_TRUE(Aggregate.IsAcceptingRequests());
 	FModuleTestOwner Owner("AssetCompilingManagerTests.Provider");
@@ -127,13 +125,13 @@ TEST(FAssetCompilingManagerTests, RoutesClassesBatchesObjectsAndOwnsCompilerLife
 	auto Base = Aggregate.RegisterCompiler({
 		.Name = FName("Durin.Tests.Base"),
 		.AssetClasses = {DMaterial::StaticClass(), DTexture::StaticClass()},
-		.Manager = BaseManager}, &Error);
-	ASSERT_TRUE(Base.IsValid()) << Error;
+		.Manager = BaseManager});
+	ASSERT_TRUE(Base);
 	auto Derived = Aggregate.RegisterCompiler({
 		.Name = FName("Durin.Tests.Derived"),
 		.AssetClasses = {DTexture2D::StaticClass()},
-		.Manager = DerivedManager}, &Error);
-	ASSERT_TRUE(Derived.IsValid()) << Error;
+		.Manager = DerivedManager});
+	ASSERT_TRUE(Derived);
 	EXPECT_EQ(BaseState->StartCount, 1u);
 	EXPECT_EQ(Aggregate.GetDiagnostics().CompilerCount, 2u);
 	Aggregate.Start();
@@ -143,27 +141,38 @@ TEST(FAssetCompilingManagerTests, RoutesClassesBatchesObjectsAndOwnsCompilerLife
 
 	auto FailedState = std::make_shared<FSyntheticState>();
 	FailedState->bStartSucceeds = false;
+	auto FailedManager = std::make_shared<FSyntheticManager>("failed", FailedState);
+	const auto StartFailure = FailedManager->Start();
+	EXPECT_FALSE(StartFailure);
+	EXPECT_EQ(StartFailure.Error, EAssetCompilerStartError::TaskScopeUnavailable);
 	auto Failed = Aggregate.RegisterCompiler({
 		.Name = FName("Durin.Tests.Failed"),
 		.AssetClasses = {DMaterialInstance::StaticClass()},
-		.Manager = std::make_shared<FSyntheticManager>("failed", FailedState)}, &Error);
-	EXPECT_FALSE(Failed.IsValid());
-	EXPECT_EQ(Error, "Synthetic provider startup failed.");
+		.Manager = FailedManager});
+	EXPECT_FALSE(Failed);
+	EXPECT_EQ(Failed.Error.Code, EAssetCompilerRegistrationError::Start);
+	ASSERT_TRUE(Failed.Error.StartCause);
+	EXPECT_EQ(Failed.Error.StartCause->Error, StartFailure.Error);
+	EXPECT_EQ(Failed.Error.CompilerName, "Durin.Tests.Failed");
 	EXPECT_EQ(Aggregate.GetDiagnostics().CompilerCount, 2u);
 	EXPECT_TRUE(Aggregate.IsAcceptingRequests());
 
-	EXPECT_FALSE(Aggregate.RegisterCompiler({
+	const auto DuplicateName = Aggregate.RegisterCompiler({
 		.Name = FName("Durin.Tests.Base"),
 		.AssetClasses = {DTexture2D::StaticClass()},
 		.Manager = std::make_shared<FSyntheticManager>(
-			"duplicate-name", std::make_shared<FSyntheticState>())},
-		&Error).IsValid());
-	EXPECT_FALSE(Aggregate.RegisterCompiler({
+			"duplicate-name", std::make_shared<FSyntheticState>())});
+	EXPECT_FALSE(DuplicateName);
+	EXPECT_EQ(DuplicateName.Error.Code, EAssetCompilerRegistrationError::DuplicateName);
+	EXPECT_EQ(DuplicateName.Error.CompilerName, "Durin.Tests.Base");
+	const auto DuplicateClass = Aggregate.RegisterCompiler({
 		.Name = FName("Durin.Tests.Conflict"),
 		.AssetClasses = {DMaterial::StaticClass()},
 		.Manager = std::make_shared<FSyntheticManager>(
-			"duplicate-class", std::make_shared<FSyntheticState>())},
-		&Error).IsValid());
+			"duplicate-class", std::make_shared<FSyntheticState>())});
+	EXPECT_FALSE(DuplicateClass);
+	EXPECT_EQ(DuplicateClass.Error.Code, EAssetCompilerRegistrationError::DuplicateClass);
+	EXPECT_EQ(DuplicateClass.Error.AssetClass, DMaterial::StaticClass()->GetQualifiedName().ToString());
 
 	uint32 EventCount = 0;
 	const FDelegateHandle EventHandle = Aggregate.OnAssetPostCompile().AddLambda(
@@ -193,8 +202,8 @@ TEST(FAssetCompilingManagerTests, RoutesClassesBatchesObjectsAndOwnsCompilerLife
 	EXPECT_GE(DerivedState->ProcessCount, 1u);
 	Aggregate.OnAssetPostCompile().Remove(EventHandle);
 
-	Derived.Reset();
-	Base.Reset();
+	Derived.Handle.Reset();
+	Base.Handle.Reset();
 	EXPECT_EQ(BaseState->FinishAllCount, 1u);
 	EXPECT_EQ(BaseState->ShutdownCount, 1u);
 	EXPECT_EQ(DerivedState->FinishAllCount, 1u);
@@ -204,15 +213,25 @@ TEST(FAssetCompilingManagerTests, RoutesClassesBatchesObjectsAndOwnsCompilerLife
 	auto Retired = Aggregate.RegisterCompiler({
 		.Name = FName("Durin.Tests.Retired"),
 		.AssetClasses = {DMaterial::StaticClass()},
-		.Manager = std::make_shared<FSyntheticManager>("retired", RetiredState)},
-		&Error);
-	ASSERT_TRUE(Retired.IsValid()) << Error;
+		.Manager = std::make_shared<FSyntheticManager>("retired", RetiredState)});
+	ASSERT_TRUE(Retired);
 	EXPECT_TRUE(Owner.BeginRetirement().Succeeded());
 	EXPECT_EQ(Aggregate.ProcessAsyncTasks().ProcessedCompletionCount, 0u);
 	EXPECT_GT(RetiredState->ProcessCount, 0u);
-	Retired.Reset();
+	Retired.Handle.Reset();
 	EXPECT_EQ(RetiredState->FinishAllCount, 1u);
 	EXPECT_EQ(RetiredState->ShutdownCount, 1u);
-	Aggregate.Shutdown();
+	auto ConflictingState = std::make_shared<FSyntheticState>();
+	auto Conflicting = Aggregate.RegisterCompiler({
+		.Name = FName("Durin.Material"),
+		.AssetClasses = {DMaterial::StaticClass()},
+		.Manager = std::make_shared<FSyntheticManager>("conflicting-builtin", ConflictingState)});
+	ASSERT_TRUE(Conflicting);
+	const auto Initialized = InitializeAssetCompilingManager();
+	EXPECT_FALSE(Initialized);
+	EXPECT_EQ(Initialized.Error.Code, EAssetCompilerRegistrationError::DuplicateName);
+	EXPECT_EQ(Initialized.Error.CompilerName, "Durin.Material");
+	EXPECT_EQ(ConflictingState->ShutdownCount, 1u);
+	EXPECT_EQ(Aggregate.GetDiagnostics().CompilerCount, 0u);
 	EXPECT_FALSE(Aggregate.IsAcceptingRequests());
 }

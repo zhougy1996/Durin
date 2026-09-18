@@ -1,4 +1,5 @@
 #include "NativeAssetTestSupport.h"
+#include "EncodedSourceSnapshot.h"
 #include "TextureTestSupport.h"
 #include "NativeDObjectTestSupport.h"
 #include "Texture/VolumeTextureFactoryTestSupport.h"
@@ -23,6 +24,7 @@ namespace
 	{
 		bool bSucceeded = false;
 		std::string Diagnostic;
+		std::shared_ptr<const IFactoryErrorDetail> FactoryCause;
 	};
 
 	auto ReimportVolumeTexture(DVolumeTexture& Texture,
@@ -34,7 +36,7 @@ namespace
 		Durin::FReimportManager::Reimport(Texture, {},
 			[&](Durin::FReimportResult Result) { ManagerResult = std::move(Result); });
 		return {.bSucceeded = ManagerResult.Succeeded(),
-			.Diagnostic = std::move(ManagerResult.Message)};
+			.Diagnostic = std::move(ManagerResult.Message), .FactoryCause = std::move(ManagerResult.FactoryCause)};
 	}
 
 	void AppendBigEndian32(Durin::FByteBuffer& Bytes, uint32 Value)
@@ -209,11 +211,11 @@ TEST(FVolumeTextureSourceImportTests, InfersCubicLayoutAndScalarChannelFromPngCo
 
 	const FVolumeTextureAtlasInspection Inspection =
 		InspectVolumeTextureAtlasSource(AtlasPath.generic_string());
-	ASSERT_TRUE(Inspection) << Inspection.Message;
+	ASSERT_TRUE(Inspection) << FormatVolumeTextureAtlasInspection(Inspection);
 	EXPECT_EQ(Inspection.AtlasWidth, 512u);
 	EXPECT_EQ(Inspection.AtlasHeight, 512u);
 	EXPECT_EQ(Inspection.SuggestedChannels, EVolumeTextureSourceChannels::Red);
-	ASSERT_TRUE(Inspection.bHasConfidentLayout) << Inspection.Message;
+	ASSERT_TRUE(Inspection.bHasConfidentLayout) << FormatVolumeTextureAtlasInspection(Inspection);
 	ASSERT_FALSE(Inspection.SuggestedLayouts.empty());
 	const FVolumeTextureImportSettings& Suggested =
 		Inspection.SuggestedLayouts.front();
@@ -226,24 +228,30 @@ TEST(FVolumeTextureSourceImportTests, InfersCubicLayoutAndScalarChannelFromPngCo
 
 TEST(FVolumeTextureSourceImportTests, ValidatesDirectPngAtlasSettings)
 {
-	std::string Error;
-	FVolumeTextureImportSettings Settings{
-		.Channels = EVolumeTextureSourceChannels::Red,
-		.SliceWidth = 128, .SliceHeight = 128,
-		.Depth = 128, .TilesX = 12, .TilesY = 12};
-	EXPECT_TRUE(Settings.IsValid(&Error)) << Error;
+	FVolumeTextureImportSettings Settings;
+	EXPECT_TRUE(Settings.Validate());
 	EXPECT_EQ(Settings.GetOutputFormat(), EVolumeTextureFormat::R8_UNORM);
 	Settings.Channels = EVolumeTextureSourceChannels::RGBA;
 	EXPECT_EQ(Settings.GetOutputFormat(), EVolumeTextureFormat::RGBA8_UNORM);
-
-	for (const FVolumeTextureImportSettings Invalid : {
-		FVolumeTextureImportSettings{.SliceWidth = 0},
-		FVolumeTextureImportSettings{.SliceWidth = 1, .SliceHeight = 1,
-			.Depth = 3, .TilesX = 1, .TilesY = 2},
-		FVolumeTextureImportSettings{.SliceWidth = MaximumVolumeTextureDimension + 1}})
+	const std::array Cases{
+		std::pair{FVolumeTextureImportSettings{.SliceWidth = 0}, EVolumeTextureImportSettingsError::Dimensions},
+		std::pair{FVolumeTextureImportSettings{.SliceWidth = 1, .SliceHeight = 1,
+			.Depth = 3, .TilesX = 1, .TilesY = 2}, EVolumeTextureImportSettingsError::CellCount},
+		std::pair{FVolumeTextureImportSettings{.SliceWidth = MaximumVolumeTextureDimension + 1}, EVolumeTextureImportSettingsError::Dimensions},
+		std::pair{FVolumeTextureImportSettings{.ImportFormat = static_cast<EVolumeTextureImportFormat>(255)}, EVolumeTextureImportSettingsError::ImportFormat},
+		std::pair{FVolumeTextureImportSettings{.TilesX = std::numeric_limits<uint32>::max()}, EVolumeTextureImportSettingsError::AtlasBudget}};
+	for (const auto& [Invalid, Expected] : Cases)
 	{
-		EXPECT_FALSE(Invalid.IsValid(&Error));
-		EXPECT_FALSE(Error.empty());
+		auto Input = Invalid;
+		const auto Result = Input.Validate();
+		Input = {};
+		EXPECT_FALSE(Result);
+		EXPECT_EQ(Result.Error.Code, Expected);
+		EXPECT_EQ(Result.Error.Settings.ImportFormat, Invalid.ImportFormat);
+		EXPECT_EQ(Result.Error.Settings.SliceWidth, Invalid.SliceWidth);
+		EXPECT_EQ(Result.Error.Settings.Depth, Invalid.Depth);
+		EXPECT_EQ(Result.Error.Settings.TilesX, Invalid.TilesX);
+		EXPECT_EQ(Result.Error.Settings.TilesY, Invalid.TilesY);
 	}
 }
 
@@ -260,7 +268,7 @@ TEST(FVolumeTextureSourceImportTests, UnpacksRowMajorAtlasAndChannels)
 		.SliceWidth = 1, .SliceHeight = 1, .Depth = 2, .TilesX = 2, .TilesY = 1};
 	FVolumeTextureSourceData Source;
 	std::string Error;
-	ASSERT_TRUE(TranslateVolumeTextureAtlasSource(Atlas, Settings, Source, Error)) << Error;
+	ASSERT_TRUE(TranslateVolumeTextureAtlasSource(Atlas, Settings, Source));
 	EXPECT_EQ(Source.Width, 1u);
 	EXPECT_EQ(Source.Height, 1u);
 	EXPECT_EQ(Source.Depth, 2u);
@@ -270,7 +278,7 @@ TEST(FVolumeTextureSourceImportTests, UnpacksRowMajorAtlasAndChannels)
 	EXPECT_EQ(Source.GetVoxelBytes()[1], std::byte{0});
 
 	Settings.Channels = EVolumeTextureSourceChannels::RGBA;
-	ASSERT_TRUE(TranslateVolumeTextureAtlasSource(Atlas, Settings, Source, Error)) << Error;
+	ASSERT_TRUE(TranslateVolumeTextureAtlasSource(Atlas, Settings, Source));
 	EXPECT_EQ(Source.Format, EVolumeTextureFormat::RGBA8_UNORM);
 	ASSERT_EQ(Source.GetVoxelBytes().size(), 8u);
 	EXPECT_EQ(Source.GetVoxelBytes()[0], std::byte{255});
@@ -282,15 +290,38 @@ TEST(FVolumeTextureSourceImportTests, RejectsCorruptAndMismatchedAtlas)
 	FVolumeTextureImportSettings Settings{
 		.SliceWidth = 1, .SliceHeight = 1, .Depth = 2, .TilesX = 1, .TilesY = 2};
 	FVolumeTextureSourceData Source;
-	std::string Error;
+	Source.Width = 99;
 	const std::array<uint8, 4> Corrupt = {1, 2, 3, 4};
-	EXPECT_FALSE(TranslateVolumeTextureAtlasSource(
-		{.Bytes = std::as_bytes(std::span{Corrupt})}, Settings, Source, Error));
-	EXPECT_FALSE(Error.empty());
-	EXPECT_FALSE(TranslateVolumeTextureAtlasSource(
-		{.Bytes = std::as_bytes(std::span{TransparentPngBytes})},
-		Settings, Source, Error));
-	EXPECT_NE(Error.find("expected 1x2"), std::string::npos);
+	const auto Invalid = TranslateVolumeTextureAtlasSource(
+		{.Bytes = std::as_bytes(std::span{Corrupt})}, Settings, Source);
+	EXPECT_FALSE(Invalid);
+	EXPECT_EQ(Invalid.Error.Code, EVolumeTextureTranslationError::Signature);
+	EXPECT_EQ(Source.Width, 0u);
+	const auto Mismatch = TranslateVolumeTextureAtlasSource(
+		{.Filename = "Atlas.png", .Bytes = std::as_bytes(std::span{TransparentPngBytes})}, Settings, Source);
+	EXPECT_FALSE(Mismatch);
+	EXPECT_EQ(Mismatch.Error.Code, EVolumeTextureTranslationError::Dimensions);
+	EXPECT_EQ(Mismatch.Error.ExpectedWidth, 1u);
+	EXPECT_EQ(Mismatch.Error.ExpectedHeight, 2u);
+	EXPECT_EQ(Mismatch.Error.ActualWidth, 2u);
+	EXPECT_EQ(Mismatch.Error.ActualHeight, 1u);
+	EXPECT_EQ(Mismatch.Error.Filename, "Atlas.png");
+	EXPECT_FALSE(Source.IsValid());
+	const auto Truncated = TranslateVolumeTextureAtlasSource(
+		{.Bytes = std::as_bytes(std::span{TransparentPngBytes}).first(8)}, Settings, Source);
+	EXPECT_FALSE(Truncated);
+	EXPECT_EQ(Truncated.Error.Code, EVolumeTextureTranslationError::Decode);
+	ASSERT_TRUE(Truncated.Error.DecodeCause);
+	EXPECT_EQ(Truncated.Error.DecodeCause->Code, Image::EImageDecodeError::InvalidImage);
+	EXPECT_EQ(Truncated.Error.DecodeCause->EncodedBytes, 8u);
+	Settings.SliceWidth = 0;
+	const auto BadSettings = TranslateVolumeTextureAtlasSource({}, Settings, Source);
+	Settings.SliceWidth = 1;
+	EXPECT_FALSE(BadSettings);
+	EXPECT_EQ(BadSettings.Error.Code, EVolumeTextureTranslationError::Settings);
+	ASSERT_TRUE(BadSettings.Error.SettingsCause);
+	EXPECT_EQ(BadSettings.Error.SettingsCause->Code, EVolumeTextureImportSettingsError::Dimensions);
+	EXPECT_EQ(BadSettings.Error.SettingsCause->Settings.SliceWidth, 0u);
 }
 
 TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSource)
@@ -341,6 +372,20 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 	}
 	Executed = ReimportVolumeTexture(*Imported.Asset, Settings);
 	EXPECT_FALSE(Executed.bSucceeded);
+	const auto* FactoryFailure = dynamic_cast<const FVolumeTextureFactoryError*>(Executed.FactoryCause.get());
+	ASSERT_NE(FactoryFailure, nullptr);
+	const auto* RebuildCause = std::get_if<FVolumeTextureRebuildError>(&FactoryFailure->Cause);
+	ASSERT_NE(RebuildCause, nullptr);
+	EXPECT_EQ(RebuildCause->Code, EVolumeTextureRebuildError::Translation);
+	ASSERT_TRUE(RebuildCause->TranslationCause);
+	EXPECT_EQ(RebuildCause->TranslationCause->Code, EVolumeTextureTranslationError::Signature);
+	const auto TypedFailure = Durin::AssetForge::Builtins::ReimportVolumeTexture(*Imported.Asset);
+	EXPECT_FALSE(TypedFailure);
+	EXPECT_EQ(TypedFailure.Error.Code, EVolumeTextureRebuildError::Translation);
+	EXPECT_EQ(TypedFailure.Error.ObjectPath, Imported.Asset->GetObjectPath());
+	ASSERT_TRUE(TypedFailure.Error.TranslationCause);
+	EXPECT_EQ(TypedFailure.Error.TranslationCause->Code, EVolumeTextureTranslationError::Signature);
+	EXPECT_TRUE(TypedFailure.Error.TranslationCause->Filename.ends_with("VolumeSource/Noise.png"));
 	EXPECT_EQ(Imported.Asset->GetSource().GetBulkData().GetPayloadId(), LastKnownGoodSourceId);
 	EXPECT_TRUE(Imported.Asset->HasPlatformData());
 
@@ -351,9 +396,8 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 	const std::filesystem::path MovedAtlas = MovedDirectory / "Noise.png";
 	std::filesystem::copy_file(AtlasPath, MovedAtlas,
 		std::filesystem::copy_options::overwrite_existing);
-	std::string RepairError;
-	ASSERT_TRUE(ReimportVolumeTextureFromFile(*Imported.Asset,
-		MovedAtlas.generic_string(), RepairError)) << RepairError;
+	const auto Repair = ReimportVolumeTextureFromFile(*Imported.Asset, MovedAtlas.generic_string());
+	ASSERT_TRUE(Repair) << FormatVolumeTextureRebuildError(Repair.Error);
 	ASSERT_NE(Imported.Asset->GetAssetImportData(), nullptr);
 	ImportedSource = Imported.Asset->GetAssetImportData()->GetSourceData().FindByRole("source");
 	ASSERT_NE(ImportedSource, nullptr);
@@ -377,7 +421,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 	ASSERT_TRUE(InspectAssetPackage(InlineEntry->PhysicalPath, InlineInspection));
 	std::vector<FPackageBulkStorageDescriptor> InlineDescriptors;
 	ASSERT_TRUE(InspectEditorBulkDataStorageDescriptors(
-		InlineInspection, InlineDescriptors, &RepairError)) << RepairError;
+		InlineInspection, InlineDescriptors));
 	ASSERT_EQ(InlineDescriptors.size(), 1u);
 	EXPECT_EQ(InlineDescriptors.front().StorageKind,
 		EPackageBulkStorageKind::Inline);
@@ -454,13 +498,13 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 	ASSERT_TRUE(InspectAssetPackage(PackageEntry->PhysicalPath, V6Inspection));
 	std::vector<FPackageBulkStorageDescriptor> V6Descriptors;
 	ASSERT_TRUE(InspectEditorBulkDataStorageDescriptors(
-		V6Inspection, V6Descriptors, &Error)) << Error;
+		V6Inspection, V6Descriptors));
 	ASSERT_EQ(V6Descriptors.size(), 1u);
 	EXPECT_EQ(V6Descriptors.front().StorageKind,
 		EPackageBulkStorageKind::Inline);
 	std::vector<std::filesystem::path> V6Companions;
 	ASSERT_TRUE(InspectEditorBulkDataCompanionPaths(
-		PackageEntry->PhysicalPath, V6Inspection, V6Companions, &Error)) << Error;
+		PackageEntry->PhysicalPath, V6Inspection, V6Companions));
 	ASSERT_TRUE(V6Companions.empty());
 	const std::filesystem::path SourceStoragePath = PackageEntry->PhysicalPath;
 
@@ -474,8 +518,8 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 	FCookContext Cook(ECookTargetPlatform::Win64,
 		ECookTargetProfile::Game);
 	ASSERT_TRUE(ContributeEngineCookAsset(
-		*Imported.Asset, "/Game/ProductionVolume", Cook, Error)) << Error;
-	ASSERT_TRUE(Durin::PublishCookContext(Cook, CookRoot, &Error)) << Error;
+		*Imported.Asset, "/Game/ProductionVolume", Cook)) << Error;
+	ASSERT_TRUE(Durin::PublishCookContext(Cook, CookRoot)) << Error;
 	EXPECT_TRUE(std::filesystem::exists(CookRoot / "Game/ProductionVolume.dasset"));
 	EXPECT_TRUE(std::filesystem::exists(CookRoot / "Game/ProductionVolume.dbulk"));
 	Durin::FByteBuffer V6CookedPackage;
@@ -516,8 +560,8 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 	FCookContext RollbackCook(
 		ECookTargetPlatform::Win64, ECookTargetProfile::Game);
 	ASSERT_TRUE(ContributeEngineCookAsset(
-		*Reloaded, "/Game/ProductionVolume", RollbackCook, Error)) << Error;
-	ASSERT_TRUE(Durin::PublishCookContext(RollbackCook, RollbackCookRoot, &Error)) << Error;
+		*Reloaded, "/Game/ProductionVolume", RollbackCook)) << Error;
+	ASSERT_TRUE(Durin::PublishCookContext(RollbackCook, RollbackCookRoot)) << Error;
 	Durin::FByteBuffer RepeatedCookedPackage;
 	Durin::FByteBuffer RepeatedCookedBulk;
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(
@@ -529,4 +573,48 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 	ASSERT_TRUE(UnloadPackage(AssetPath));
 	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(AssetPath));
 	EXPECT_FALSE(std::filesystem::exists(SourceStoragePath));
+}
+
+TEST(FVolumeTextureSourceImportTests, InspectionRetainsDecodeCauseAndFilename)
+{
+	std::string Filename = (Testing::GetTestWorkDirectory() / "MissingVolumeAtlas.png").generic_string();
+	const std::string ExpectedFilename = Filename;
+	const auto Inspection = InspectVolumeTextureAtlasSource(Filename);
+	Filename.clear();
+	EXPECT_FALSE(Inspection);
+	EXPECT_EQ(Inspection.Error.Code, Image::EImageDecodeError::FileStat);
+	EXPECT_EQ(Inspection.Error.Filename, ExpectedFilename);
+	EXPECT_TRUE(Inspection.Error.SystemError);
+	EXPECT_TRUE(Inspection.SuggestedLayouts.empty());
+	EXPECT_FALSE(Inspection.bHasConfidentLayout);
+	EXPECT_EQ(Inspection.AtlasWidth, 0u);
+	EXPECT_EQ(Inspection.AtlasHeight, 0u);
+}
+
+TEST(FVolumeTextureSourceImportTests, SourceCaptureRetainsTypedFailuresAndClearsOutput)
+{
+	const auto Path = Testing::GetTestWorkDirectory() / "CaptureSource.bin";
+	const std::array<std::byte, 3> Bytes{std::byte{1}, std::byte{2}, std::byte{3}};
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Bytes, Path));
+	FEncodedSourceSnapshot Snapshot;
+	ASSERT_TRUE(CaptureEncodedSource("source.bin", Path, Snapshot));
+	EXPECT_EQ(Snapshot.FileSize, Bytes.size());
+	EXPECT_EQ(Snapshot.ContentHash, FXxHash128::HashBuffer(Bytes));
+	std::string Filename = "source.bin";
+	const auto TooLarge = CaptureEncodedSource(Filename, Path, Snapshot, 2);
+	Filename.clear();
+	EXPECT_FALSE(TooLarge);
+	EXPECT_EQ(TooLarge.Error.Code, EEncodedSourceError::Limit);
+	EXPECT_EQ(TooLarge.Error.Filename, "source.bin");
+	EXPECT_EQ(TooLarge.Error.PhysicalPath, Path);
+	EXPECT_EQ(TooLarge.Error.SizeBefore, 3u);
+	EXPECT_EQ(TooLarge.Error.MaximumEncodedBytes, 2u);
+	EXPECT_FALSE(Snapshot.Bytes);
+	EXPECT_TRUE(Snapshot.Filename.empty());
+	const auto Missing = CaptureEncodedSource("missing.bin", Path.string() + ".missing", Snapshot);
+	EXPECT_FALSE(Missing);
+	EXPECT_EQ(Missing.Error.Code, EEncodedSourceError::FileSize);
+	EXPECT_TRUE(Missing.Error.SystemError);
+	EXPECT_EQ(Missing.Error.Filename, "missing.bin");
+	EXPECT_FALSE(Snapshot.Bytes);
 }

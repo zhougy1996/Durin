@@ -57,7 +57,7 @@ namespace Durin::Editor
 				const FCookedMeshBlockingResult Result = Mesh->EnsureRenderDataLoadedBlocking();
 				if (!Result)
 				{
-					Report(Index, Result.Message);
+					Report(Index, FormatCookedMeshLoadError(Result.Error));
 					continue;
 				}
 			}

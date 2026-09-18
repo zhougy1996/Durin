@@ -69,7 +69,7 @@ TEST(FMaterialFunctionPersistenceTests, WorkspaceSavesAndReloadsFunctionsAcrossO
 	EXPECT_EQ(GetFunctionCalls(*Second)[0]->Function.Get(), Reloaded);
 	EXPECT_TRUE(PreviewInvalidation.ConsumeRefreshRequest());
 	const auto Pasted = FMaterialGraphDocument(*Second).Paste(Clipboard, 300, 300);
-	EXPECT_TRUE(Pasted) << Pasted.Message;
+	EXPECT_TRUE(Pasted) << ::Durin::Editor::Material::FormatMaterialGraphCommandResult(Pasted);
 	EXPECT_EQ(GetFunctionCalls(*Second).back()->Function.Get(), Reloaded);
 	EXPECT_FALSE(Workspace->IsDocumentDirty(FirstTab));
 	Module.UnregisterMaterialEditor();

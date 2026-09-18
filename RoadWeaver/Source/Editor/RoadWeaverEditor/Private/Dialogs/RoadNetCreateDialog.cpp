@@ -71,8 +71,8 @@ namespace Durin::RoadNet::Editor
 			&& SpeedLimitKilometersPerHour > 0.0
 			&& std::isfinite(PlanetRadiusMeters) && PlanetRadiusMeters >= 1.0 && PlanetRadiusMeters <= RoadCoordinateLimit
 			&& (!bSpherical || RoadLengthMeters < Math::Pi<double>() * PlanetRadiusMeters);
-		if (!DestinationValidation.Message.empty())
-			::Durin::Editor::DrawImportDialogWarning(DestinationValidation.Message);
+		if (!::Durin::Editor::FormatAssetDestinationValidation(DestinationValidation).empty())
+			::Durin::Editor::DrawImportDialogWarning(::Durin::Editor::FormatAssetDestinationValidation(DestinationValidation));
 		else if (!bParametersValid)
 			::Durin::Editor::DrawImportDialogWarning(
 				"Use positive road dimensions and speed, 1 to 16 lanes, radius 1 to 10000000 m, and a spherical arc shorter than half a circumference.");
@@ -102,7 +102,7 @@ namespace Durin::RoadNet::Editor
 			Destination.Inspect();
 		if (!DestinationValidation)
 		{
-			SetError(DestinationValidation.Message);
+			SetError(::Durin::Editor::FormatAssetDestinationValidation(DestinationValidation));
 			return false;
 		}
 		const FPackagePath& PackagePath = DestinationValidation.AssetPath;

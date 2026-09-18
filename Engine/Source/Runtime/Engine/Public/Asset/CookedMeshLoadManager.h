@@ -1,6 +1,8 @@
 #pragma once
 
 #include "Asset/BulkData.h"
+#include "Asset/CookedMeshLoading.h"
+#include "Asset/CookedMeshProducts.h"
 #include "DObject/ObjectKey.h"
 #include "EngineAPI.h"
 #include "Templates/MoveOnlyFunction.h"
@@ -49,6 +51,36 @@ namespace Durin
 		}
 	};
 
+	enum class ECookedMeshAdmissionError : uint8
+	{
+		None, InvalidRequest, FieldSize, NotAccepting, StaleGeneration,
+		IdentityConflict, PendingBudget, FlightBudget
+	};
+	struct FCookedMeshAdmissionError
+	{
+		ECookedMeshAdmissionError Code = ECookedMeshAdmissionError::None;
+		FCookedMeshLoadIdentity Identity;
+		ECookedMeshManagerState State = ECookedMeshManagerState::Stopped;
+		uint64 FieldCount = 0;
+		bool HasWorker = false;
+		bool HasPublisher = false;
+		uint64 Index = 0;
+		uint64 FieldBytes = 0;
+		uint64 RequestedBytes = 0;
+		uint64 ReservedBytes = 0;
+		uint64 ByteLimit = 0;
+		uint64 RequestCount = 0;
+		uint64 RequestLimit = 0;
+		uint64 CurrentGeneration = 0;
+		std::optional<FCookedMeshLoadIdentity> ExistingIdentity;
+	};
+	struct FCookedMeshAdmissionResult
+	{
+		FCookedMeshAdmissionError Error;
+		explicit operator bool() const { return Error.Code == ECookedMeshAdmissionError::None; }
+	};
+	ENGINE_API auto FormatCookedMeshAdmissionError(const FCookedMeshAdmissionError& Error) -> std::string;
+
 	class ENGINE_API ICookedMeshDetachedProduct
 	{
 	public:
@@ -58,22 +90,22 @@ namespace Durin
 	struct FCookedMeshWorkerResult
 	{
 		std::unique_ptr<ICookedMeshDetachedProduct> Product;
-		std::string Message;
+		FCookedMeshLoadError Error;
 		uint64 RetainedBytes = 0;
 
-		explicit operator bool() const { return Product != nullptr; }
+		explicit operator bool() const { return Error.Code == ECookedMeshLoadError::None; }
 	};
 
 	using FCookedMeshWorker = Durin::Private::TMoveOnlyFunction<FCookedMeshWorkerResult(
 		std::span<const FSharedByteBuffer>, const FTaskCancellationToken&)>;
 	using FCookedMeshCurrentPredicate = std::function<bool(
 		const DObject&, const FCookedMeshLoadIdentity&)>;
-	using FCookedMeshPublisher = Durin::Private::TMoveOnlyFunction<bool(
+	using FCookedMeshPublisher = Durin::Private::TMoveOnlyFunction<FCookedMeshLoadResult(
 		DObject&, const FCookedMeshLoadIdentity&,
-		std::unique_ptr<ICookedMeshDetachedProduct>, std::string&)>;
+		std::unique_ptr<ICookedMeshDetachedProduct>)>;
 	using FCookedMeshTerminalCallback = Durin::Private::TMoveOnlyFunction<void(
 		DObject&, const FCookedMeshLoadIdentity&, ECookedMeshTerminalState,
-		std::string_view)>;
+		const FCookedMeshLoadError&)>;
 
 	struct FCookedMeshLoadRequest
 	{
@@ -138,7 +170,7 @@ namespace Durin
 		// All lifecycle and request mutations are GameThread-only. Submit starts
 		// asynchronous reads only after count and byte admission succeeds.
 		auto Initialize() -> bool;
-		auto Submit(FCookedMeshLoadRequest Request) -> bool;
+		auto Submit(FCookedMeshLoadRequest Request) -> FCookedMeshAdmissionResult;
 		// Polls ready I/O, launches worker work, and publishes a bounded number
 		// of current results without waiting for unfinished package requests.
 		auto Pump() -> uint32;

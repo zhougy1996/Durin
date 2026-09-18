@@ -3,6 +3,8 @@
 #include "Materials/MaterialTypes.h"
 #include "Materials/MaterialProgramTypes.h"
 #include "Serialization/Archive.h"
+#include "DObject/Archive.h"
+#include "Asset/PackageResource.h"
 
 namespace Durin
 {
@@ -12,6 +14,15 @@ namespace Durin
 
 	FMaterialError::FMaterialError(const FMaterialParameterValidationResult& Validation)
 		: Code(Validation.Error), ParameterId(Validation.ParameterId) {}
+
+	auto FMaterialError::FromBulkRead(EBulkReadStatus Status, const FPackageResourceReadResult& Resource) -> FMaterialError
+	{
+		FMaterialError Error(EMaterialCookError::PayloadReadFailed);
+		Error.BulkStatus = Status;
+		Error.ResourceStatus = Resource.Status;
+		Error.ResourceCause = std::make_shared<FPackageResourceReadError>(Resource.Error);
+		return Error;
+	}
 
 	auto FMaterialError::FromArchive(const FArchiveFailure& Failure) -> FMaterialError
 	{
@@ -42,6 +53,7 @@ namespace Durin
 
 	auto FormatMaterialError(const FMaterialError& Error) -> std::string
 	{
+		if (Error.DuplicationCause) return FormatObjectGraphError(*Error.DuplicationCause);
 		auto Text = std::visit([](auto Code) -> std::string {
 			using T = decltype(Code);
 			if constexpr (std::is_same_v<T, std::monostate>) return {};
@@ -259,6 +271,16 @@ namespace Durin
 				case EMaterialCompileError::ShaderEnvironmentUnavailable: return "Material compiler environment is unavailable.";
 				}
 			}
+			else if constexpr (std::is_same_v<T, EMaterialInstanceError>)
+			{
+				switch (Code)
+				{
+				case EMaterialInstanceError::IncompleteParameterDraft: return "Material parameter edits require complete detached storage.";
+				case EMaterialInstanceError::InvalidParameterId: return "Material parameter value has an invalid identity.";
+				case EMaterialInstanceError::DuplicateParameterId: return "Material parameter value identity is duplicated.";
+				case EMaterialInstanceError::InvalidSamplingPolicy: return "Material parameter value has an invalid sampling policy.";
+				}
+			}
 			else if constexpr (std::is_same_v<T, EMaterialRenderError>)
 			{
 				switch (Code)
@@ -303,6 +325,11 @@ namespace Durin
 		case EMaterialParameterError::InvalidDefault: return "Material declaration default must be finite.";
 		case EMaterialParameterError::InvalidMetadata: return "Material declaration metadata is invalid.";
 		case EMaterialParameterError::NotFound: return "Material declaration does not exist.";
+		case EMaterialParameterError::UnresolvedValue: return "The parameter value could not be resolved.";
+		case EMaterialParameterError::Unreachable: return "The parameter is not reachable from the material outputs.";
+		case EMaterialParameterError::OverrideType: return "The existing parameter override has a different type.";
+		case EMaterialParameterError::OwnerMissing: return "The parameter has no authored expression owner.";
+		case EMaterialParameterError::OwnerMismatch: return "The parameter expression disagrees with its declaration.";
 		case EMaterialParameterError::TypeConflict: return "Changing a declaration type requires a new GUID and an unoccupied name.";
 		case EMaterialParameterError::UnsupportedProgramSchema: return "Unsupported material program schema.";
 		case EMaterialParameterError::InvalidProgram: return "Material declaration change would produce an invalid program.";

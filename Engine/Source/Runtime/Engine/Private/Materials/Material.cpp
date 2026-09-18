@@ -1,3 +1,4 @@
+#include "MaterialParameterMutation.h"
 #include "ObjectCacheContext.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialCustomVersion.h"
@@ -169,11 +170,11 @@ namespace Durin
 		return true;
 	}
 
-	auto DMaterial::SetStaticProperties(const FMaterialStaticProperties& InProperties) -> bool
+	auto DMaterial::SetStaticProperties(const FMaterialStaticProperties& InProperties) -> FMaterialOperationResult
 	{
 		const auto Error = ValidateMaterialStaticProperties(InProperties);
-		if (!Error) return false;
-		if (StaticProperties == InProperties) return true;
+		if (!Error) return Error;
+		if (StaticProperties == InProperties) return {};
 		const bool bShaderIdentityChanged =
 			CanonicalizeMaterialShaderProperties(StaticProperties)
 				!= CanonicalizeMaterialShaderProperties(InProperties);
@@ -191,63 +192,68 @@ namespace Durin
 				| EMaterialRenderDirtyFlags::PipelineState, false, &Context);
 		Context.EndDiscovery();
 		GraphChanges.Publish(*this);
-		return true;
+		return {};
 	}
 
-	auto DMaterial::SetScalarParameterValue(FName Name, float Value) -> bool
+	auto DMaterial::SetScalarParameterValue(FName Name, float Value) -> FMaterialOperationResult
 	{
 		const auto* Definition = FindParameterDefinition(Name);
-		return Definition && Definition->Type == EMaterialParameterType::Scalar
-			&& SetParameterValue(Definition->Id, FMaterialParameterValue::MakeScalar(Value));
+		const auto Validated = ValidateNamedMaterialParameter(Definition, Name, EMaterialParameterType::Scalar);
+		if (!Validated) return Validated;
+		return WithMaterialParameterName(SetParameterValue(Definition->Id, FMaterialParameterValue::MakeScalar(Value)), Name);
 	}
 
-	auto DMaterial::SetVector2ParameterValue(FName Name, const FVector2& Value) -> bool
+	auto DMaterial::SetVector2ParameterValue(FName Name, const FVector2& Value) -> FMaterialOperationResult
 	{
 		const auto* Definition = FindParameterDefinition(Name);
-		return Definition && Definition->Type == EMaterialParameterType::Vector4
-			&& SetParameterValue(Definition->Id, FMaterialParameterValue::MakeVector4(FVector4(Value, 0, 0)));
+		const auto Validated = ValidateNamedMaterialParameter(Definition, Name, EMaterialParameterType::Vector4);
+		if (!Validated) return Validated;
+		return WithMaterialParameterName(SetParameterValue(Definition->Id, FMaterialParameterValue::MakeVector4(FVector4(Value, 0, 0))), Name);
 	}
 
-	auto DMaterial::SetVectorParameterValue(FName Name, const FVector3& Value) -> bool
+	auto DMaterial::SetVectorParameterValue(FName Name, const FVector3& Value) -> FMaterialOperationResult
 	{
 		const auto* Definition = FindParameterDefinition(Name);
-		return Definition && Definition->Type == EMaterialParameterType::Vector4
-			&& SetParameterValue(Definition->Id, FMaterialParameterValue::MakeVector4(FVector4(Value, 0)));
+		const auto Validated = ValidateNamedMaterialParameter(Definition, Name, EMaterialParameterType::Vector4);
+		if (!Validated) return Validated;
+		return WithMaterialParameterName(SetParameterValue(Definition->Id, FMaterialParameterValue::MakeVector4(FVector4(Value, 0))), Name);
 	}
 
-	auto DMaterial::SetTextureParameterValue(FName Name, DTexture2D* Value) -> bool
+	auto DMaterial::SetTextureParameterValue(FName Name, DTexture2D* Value) -> FMaterialOperationResult
 	{
 		const auto* Definition = FindParameterDefinition(Name);
-		if (!Definition || Definition->Type != EMaterialParameterType::Texture) return false;
+		const auto Validated = ValidateNamedMaterialParameter(Definition, Name, EMaterialParameterType::Texture);
+		if (!Validated) return Validated;
 		auto Candidate = Definition->Value;
 		Candidate.GetTexture().Texture = Value;
-		return SetParameterValue(Definition->Id, Candidate);
+		return WithMaterialParameterName(SetParameterValue(Definition->Id, Candidate), Name);
 	}
 
-	auto DMaterial::SetParameterValue(const FGuid& Id, const FMaterialParameterValue& Value) -> bool
+	auto DMaterial::SetParameterValue(const FGuid& Id, const FMaterialParameterValue& Value) -> FMaterialOperationResult
 	{
-		if (!Id.IsValid()) return false;
+		if (!Id.IsValid()) return {FMaterialError(EMaterialParameterError::InvalidId, Id)};
 		auto Entry = std::ranges::find(ParameterSchema, Id, &FMaterialParameterDefinition::Id);
-		if (Entry == ParameterSchema.end()) return false;
+		if (Entry == ParameterSchema.end()) return {FMaterialError(EMaterialParameterError::NotFound, Id)};
 		const bool bCooked = GetAssetRuntimeConfiguration().RequiresCookedPayload();
 		auto Definition = *Entry;
 		Definition.Value = Value;
-		if (!ValidateMaterialParameterDefinitions(std::span(&Definition, 1))) return false;
-		if (*Entry == Definition) return true;
+		const auto Validation = ValidateMaterialParameterDefinitions(std::span(&Definition, 1));
+		if (!Validation) return {FMaterialError(Validation)};
+		if (*Entry == Definition) return {};
 		if (!bCooked)
 		{
 			std::vector<DMaterialExpressionParameter*> Owners;
 			for (const auto& Expression : ExpressionCollection.Expressions)
 				if (auto* Parameter = Cast<DMaterialExpressionParameter>(Expression.Get()); Parameter && Parameter->Metadata.Id == Id)
 				{
-					if (Parameter->GetParameterDefinition() != *Entry) return false;
+					if (Parameter->GetParameterDefinition() != *Entry) return {FMaterialError(EMaterialParameterError::OwnerMismatch, Id)};
 					Owners.push_back(Parameter);
 				}
-			if (Owners.empty()) return false;
+			if (Owners.empty()) return {FMaterialError(EMaterialParameterError::OwnerMissing, Id)};
 			for (auto* Parameter : Owners)
 			{
-				const bool bApplied = Parameter->SetParameterDefinition(Definition);
-				require(bApplied);
+				const auto Applied = Parameter->SetParameterDefinition(Definition);
+				require(Applied);
 			}
 		}
 
@@ -255,7 +261,7 @@ namespace Durin
 		MarkPackageDirty();
 		MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters, true);
 		GraphChanges.Publish(*this);
-		return true;
+		return {};
 	}
 
 	auto DMaterial::GetScalarParameterValue(FName Name, float& OutValue) const -> bool
@@ -288,8 +294,12 @@ namespace Durin
 		Super::Serialize(Ar);
 		if (!Ar.HasError() && !IsTemplateObject() && Ar.IsSaving() && Ar.GetPurpose() == EArchivePurpose::AuthoredPackage)
 		{
-			std::string Error;
-			if (!ValidateLoadedObjectGraph({}, Error)) Ar.Fail(EArchiveFailureCode::InvalidData, Error);
+			const auto Validation = ValidateLoadedObjectGraph({});
+			if (!Validation)
+			{
+				if (auto* ObjectArchive = dynamic_cast<FObjectArchive*>(&Ar)) ObjectArchive->FailValidation(Validation.Error);
+				else Ar.Fail(EArchiveFailureCode::InvalidData, FormatObjectValidationError(Validation.Error));
+			}
 		}
 	}
 

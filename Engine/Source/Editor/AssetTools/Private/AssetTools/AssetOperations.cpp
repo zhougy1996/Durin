@@ -164,9 +164,10 @@ namespace Durin
 		if (!DestinationPackage)
 			return MakeRejectedAssetOperation(EAssetOperationKind::Duplicate,
 				"The destination package could not be created.");
-		DObject* DuplicatedAsset = DuplicateObject(
+		const auto Duplicated = DuplicateObject(
 			SourceAsset, DestinationPackage,
 			FName(DestinationAssetPath.GetAssetName()));
+		DObject* DuplicatedAsset = Duplicated.Object;
 		if (!DuplicatedAsset
 			|| DestinationPackage->FindTopLevelAsset(
 				DuplicatedAsset->GetFName()) != DuplicatedAsset)
@@ -174,7 +175,8 @@ namespace Durin
 			MarkObjectHierarchyAsGarbage(DestinationPackage);
 			CollectGarbage();
 			return MakeRejectedAssetOperation(EAssetOperationKind::Duplicate,
-				"The source object graph could not be duplicated as an asset.");
+				!Duplicated ? FormatObjectGraphError(Duplicated.Error)
+					: "The source object graph could not be duplicated as an asset.");
 		}
 		DestinationPackage->MarkDirty();
 		DestinationPackage->MarkAsNewlyCreated();

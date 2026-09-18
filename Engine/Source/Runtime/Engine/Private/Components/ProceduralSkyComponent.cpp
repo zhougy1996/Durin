@@ -103,12 +103,12 @@ namespace Durin
 		return Proxy;
 	}
 
-	auto DProceduralSkyComponent::PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool
+	auto DProceduralSkyComponent::PreEditChangeProperty(FPropertyEditProposal& Proposal) -> FObjectValidationResult
 	{
-		if (!Super::PreEditChangeProperty(Proposal, OutError)) return false;
-		if (!Proposal.MemberProperty || Proposal.DraftRootProperty != Proposal.MemberProperty || !Proposal.DraftRootContainer) return true;
+		if (auto Result = Super::PreEditChangeProperty(Proposal); !Result) return Result;
+		if (!Proposal.MemberProperty || Proposal.DraftRootProperty != Proposal.MemberProperty || !Proposal.DraftRootContainer) return {};
 		const auto Name = Proposal.MemberProperty->NamePrivate;
-		auto Reject = [&] { OutError = "Sky parameters must be finite, with a nonzero sun direction."; return false; };
+		auto Reject = [&] { return RejectPropertyEdit(*this, Proposal, EPropertyEditRejection::NonFiniteValue); };
 		if (Name == FName("SunDirection") || Name == FName("ZenithColor") || Name == FName("HorizonColor")
 			|| Name == FName("GroundColor") || Name == FName("HaloColor") || Name == FName("Tint"))
 		{
@@ -116,7 +116,7 @@ namespace Durin
 			if (!Finite(*V)) return Reject();
 			if (Name == FName("SunDirection"))
 			{
-				if (Math::Dot(*V, *V) < 1.0e-12f) return Reject();
+				if (Math::Dot(*V, *V) < 1.0e-12f) return RejectPropertyEdit(*this, Proposal, EPropertyEditRejection::DegenerateDirection);
 				*V = Math::Normalize(*V);
 			}
 			else *V = Color(*V);
@@ -128,7 +128,7 @@ namespace Durin
 			*V = Name == FName("ExposureEV") ? std::clamp(*V, -8.0f, 8.0f)
 				: Name == FName("HorizonExponent") ? std::clamp(*V, 0.25f, 8.0f) : std::clamp(*V, 1.0f, 64.0f);
 		}
-		return true;
+		return {};
 	}
 
 	auto DProceduralSkyComponent::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void

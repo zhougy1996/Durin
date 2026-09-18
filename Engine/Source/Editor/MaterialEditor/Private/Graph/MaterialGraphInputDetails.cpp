@@ -47,7 +47,7 @@ namespace Durin::Editor::Material
 		const bool Active = ImGui::IsItemActive();
 		const bool Deactivated = ImGui::IsItemDeactivatedAfterEdit();
 		const auto Report = [&](const FMaterialGraphCommandResult& Result) {
-			if (!Result && ReportError) ReportError(Result.Message);
+			if (!Result && ReportError) ReportError(FormatMaterialGraphCommandResult(Result));
 			return static_cast<bool>(Result);
 		};
 		if (Edited)
@@ -127,8 +127,8 @@ namespace Durin::Editor::Material
 		}
 		bool Changed = false;
 		const auto Submit = [&](FMaterialGraphCommandResult Result) {
-			if (!Result) ReportError(Result.Message);
-			Changed = Result.Status == EMaterialGraphCommandStatus::Succeeded;
+			if (!Result) ReportError(FormatMaterialGraphCommandResult(Result));
+			Changed = Result.GetStatus() == EMaterialGraphCommandStatus::Succeeded;
 		};
 		const auto EditText = [](const char* Label, std::string& Value) {
 			std::array<char, MaterialProgramMaxDisplayNameBytes + 1> Buffer{};
@@ -153,13 +153,15 @@ namespace Durin::Editor::Material
 		{
 			auto Parameter = ParameterExpression->GetParameterDefinition();
 			const auto CommitParameter = [&]() {
-				auto Replacement = GraphEditInternals::MakeParameterExpression(Parameter);
-				if (!Replacement) { ReportError("The parameter definition is invalid."); return; }
+				auto Created = GraphEditInternals::MakeParameterExpression(Parameter);
+				if (!Created) { ReportError(FormatMaterialGraphParameterError(Created.Error)); return; }
+				auto Replacement = std::move(Created.Expression);
 				Replacement->Id = Expression->Id;
 				if (const auto* Sample = Cast<DMaterialExpressionTextureSampleParameter2D>(Expression.Get()); Sample && Parameter.Type == EMaterialParameterType::Texture)
 				{
-					TStrongObjectPtr<DMaterialExpressionTextureSampleParameter2D> Copy(DuplicateObject(Sample, nullptr, NAME_None));
-					if (!Copy || !Copy->SetParameterDefinition(Parameter)) { ReportError("The parameter definition is invalid."); return; }
+					TStrongObjectPtr<DMaterialExpressionTextureSampleParameter2D> Copy(DuplicateObject(Sample, nullptr, NAME_None).Object);
+					if (!Copy) { ReportError("Unable to copy the parameter expression."); return; }
+					if (const auto Applied = Copy->SetParameterDefinition(Parameter); !Applied) { ReportError(FormatMaterialError(Applied.Error)); return; }
 					Submit(Document.ReplaceExpression(*Copy.Get(), &Transactions));
 				}
 				else Submit(Document.ReplaceExpression(*Replacement.Get(), &Transactions));
@@ -182,7 +184,7 @@ namespace Durin::Editor::Material
 						auto Value = Parameter.Value;
 						Value.GetTexture().Texture = Cast<DTexture2D>(Object);
 						const auto Result = FMaterialGraphOperations::SetParameterValue(*Material, Parameter.Id, Value, &Transactions);
-						Error = Result.Message; Changed = Result.Status == EMaterialGraphCommandStatus::Succeeded;
+						Error = FormatMaterialGraphCommandResult(Result); Changed = Result.GetStatus() == EMaterialGraphCommandStatus::Succeeded;
 						return static_cast<bool>(Result);
 					}});
 				MonaImGui::PropertyEdit::EndRow();
@@ -300,8 +302,10 @@ namespace Durin::Editor::Material
 						for (uint32 Suffix = 1; Material->FindParameterDefinition(Definition.Name); ++Suffix)
 							Definition.Name = FName(std::format("Parameter{}", Suffix));
 						Definition.DisplayName = Definition.Name.ToString();
-						auto Parameter = GraphEditInternals::MakeParameterExpression(Definition);
-						if (Parameter)
+						auto Created = GraphEditInternals::MakeParameterExpression(Definition);
+						if (!Created) ReportError(FormatMaterialGraphParameterError(Created.Error));
+						auto Parameter = std::move(Created.Expression);
+						if (Created)
 						if (const auto SelectedExpression = BeginSelectedEdit(); SelectedExpression != Session->Expressions.end())
 						{
 							auto* Destination = SelectedExpression->Get();

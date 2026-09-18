@@ -34,6 +34,14 @@ top-left-origin row-major unsigned samples and requires color type 0, 16-bit
 samples, standard compression/filtering, and non-interlaced rows. Every failure
 clears the output value before returning a diagnostic.
 
+The LDR `DecodeImageFromMemory` and `DecodeImageFromFile` APIs return
+`FImageDecodeResult`, deriving success from `EImageDecodeError::None`.
+Failures retain encoded size, decoded header dimensions, caller limits, and an
+owned filename for file calls; file inspection also preserves `std::error_code`.
+`FormatImageDecodeError` is the presentation adapter. Import and thumbnail
+contracts that still expose strings call this adapter explicitly. Radiance and
+grayscale16 diagnostics remain separate pending migrations.
+
 Raw image formats cover G8, G16, RG8, RGBA8, RGBA16, R16F, RGBA16F, R32F,
 and RGBA32F. Byte-size computation rejects zero or overflowing extents and
 values above 512 MiB. Conversion performs explicit normalized/float channel

@@ -16,7 +16,7 @@ namespace Durin::AssetForge::Builtins
 		uint32 Depth = 0;
 		uint32 TilesX = 0;
 		uint32 TilesY = 0;
-		ASSETFORGEBUILTINS_API auto Validate(std::string& OutError) const -> bool;
+		ASSETFORGEBUILTINS_API auto Validate() const -> FAssetImportDataResult;
 		auto operator==(const FVolumeTextureImportDataState&) const -> bool = default;
 	};
 
@@ -33,8 +33,8 @@ namespace Durin::AssetForge::Builtins
 		ASSETFORGEBUILTINS_API auto SetState(FVolumeTextureImportDataState State) -> void;
 		ASSETFORGEBUILTINS_API auto GetVolumeTextureState() const
 			-> FVolumeTextureImportDataState;
-		ASSETFORGEBUILTINS_API auto Validate(std::string& OutError) const
-			-> bool override;
+		ASSETFORGEBUILTINS_API auto Validate() const
+			-> FAssetImportDataResult override;
 
 	private:
 		DPROPERTY()

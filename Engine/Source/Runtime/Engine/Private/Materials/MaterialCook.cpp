@@ -19,10 +19,7 @@ namespace Durin
 		auto Read = CookedProgramData.AcquireRead();
 		if (!Read)
 		{
-			FMaterialError Error(EMaterialCookError::PayloadReadFailed);
-			Error.BulkStatus = Read.Status;
-			Error.ResourceStatus = Read.Error.Status;
-			return FailCooked(std::move(Error));
+			return FailCooked(FMaterialError::FromBulkRead(Read.Status, Read.Error));
 		}
 		const FByteView Bytes = Read.Lock.GetBytes();
 
@@ -107,10 +104,9 @@ namespace Durin
 				Ar.Fail(EArchiveFailureCode::InvalidData, FormatMaterialError(Encoded.Error));
 				return;
 			}
-			std::string BulkError;
-			if (!FBulkData::TryCreateDetached(Bytes, Projection, &BulkError))
+			if (const auto Bulk = FBulkData::TryCreateDetached(Bytes, Projection); !Bulk)
 			{
-				Ar.Fail(EArchiveFailureCode::InvalidData, BulkError);
+				Ar.Fail(EArchiveFailureCode::InvalidData, FormatBulkDataError(Bulk.Error));
 				return;
 			}
 			FieldValue = &Projection;
@@ -121,35 +117,38 @@ namespace Durin
 			.StoragePolicy = EArchiveBulkDataStoragePolicy::AllowExternal});
 	}
 
-	auto DMaterialInterface::ContributeToCook(
-		FCookContext& Context,
-		std::string_view VirtualPackagePath,
-		std::string& OutError) -> bool
+	auto DMaterialInterface::ContributeToCook(FCookContext& Context,
+		std::string_view VirtualPackagePath) -> FCookContributionResult
 	{
+		auto Reject = [&](ECookContributionError Error) -> FCookContributionResult {
+			return {.Error = Error, .ObjectPath = GetObjectPath(), .VirtualPath = std::string(VirtualPackagePath),
+				.TargetPlatform = Context.GetTargetPlatform(), .TargetProfile = Context.GetTargetProfile()};
+		};
 		if (Context.GetTargetPlatform() != ECookTargetPlatform::Win64
-			|| Context.GetTargetProfile() != ECookTargetProfile::Game)
-			return Fail(std::format(
-				"Material '{}' supports only the Win64 game cook target.",
-				GetObjectPath()), &OutError);
+			|| Context.GetTargetProfile() != ECookTargetProfile::Game) return Reject(ECookContributionError::Target);
 		if (!CompilationOwner.MaterialCompileStatus.IsCurrent() || !CompilationOwner.RenderLayer.CompiledProgram
 			|| CompilationOwner.MaterialCompileStatus.DependencyRevision != GetShaderReloadGeneration()
 			|| !CompilationOwner.RenderLayer.StaticProperties
 			|| CanonicalizeMaterialShaderProperties(GetStaticProperties())
 				!= CanonicalizeMaterialShaderProperties(*CompilationOwner.RenderLayer.StaticProperties))
-			return Fail(std::format(
-				"Material '{}' cannot cook because authored revision {} does not have a complete latest target result.",
-				GetObjectPath(), CompilationOwner.MaterialCompileStatus.AuthoredRevision), &OutError);
-		if (CompilationOwner.RenderLayer.CompiledProgram->Target
-			!= CompilationOwner.MaterialCompileStatus.Target
-			|| CompilationOwner.RenderLayer.CompiledProgram->PassContractVersion
-				!= CurrentMaterialPassContractVersion)
-			return Fail(std::format(
-				"Material '{}' compiled target or pass contract is incompatible with Cook.",
-				GetObjectPath()), &OutError);
+		{
+			auto Result = Reject(ECookContributionError::Revision);
+			Result.AuthoredRevision = CompilationOwner.MaterialCompileStatus.AuthoredRevision;
+			return Result;
+		}
+		if (CompilationOwner.RenderLayer.CompiledProgram->Target != CompilationOwner.MaterialCompileStatus.Target
+			|| CompilationOwner.RenderLayer.CompiledProgram->PassContractVersion != CurrentMaterialPassContractVersion)
+			return Reject(ECookContributionError::Contract);
 		if (!AreMaterialFunctionOwnersCurrent(CompilationOwner.RequestedFunctionOwners))
-			return Fail(std::format("Material '{}' has stale function dependencies at Cook capture.", GetObjectPath()), &OutError);
-
-		return Context.AddPackage(
-			std::string(VirtualPackagePath), GetPackage(), &OutError);
+			return Reject(ECookContributionError::FunctionDependencies);
+		const auto Added = Context.AddPackage(std::string(VirtualPackagePath), GetPackage());
+		if (!Added)
+		{
+			auto Result = Reject(ECookContributionError::Plan);
+			Result.PlanCause = Added.Error;
+			return Result;
+		}
+		return {};
 	}
+
 }

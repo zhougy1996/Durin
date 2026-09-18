@@ -75,6 +75,12 @@ One import attempt captures its complete required source closure into immutable
 owned bytes. Recognition, hashing, dependency discovery, decoding, and build
 preparation consume that capture. A later phase must not reopen the physical
 file and accidentally combine bytes from different source revisions.
+The shared encoded-source capture returns a typed result with owned logical and
+physical file identity, size/limit context and file-system causes. Size inspection,
+limit rejection, timestamp inspection, read failure and capture-time mutation are
+distinct cases. A failed capture clears the snapshot; success publishes one byte
+buffer and its matching hash. Pending family string contracts explicitly format
+this result until their surrounding rebuild contracts migrate.
 
 Relative Scene dependencies resolve from the root source directory. Containment
 escapes, missing files, duplicate identities, unsupported encodings, and
@@ -132,6 +138,96 @@ workflows. Missing or corrupt disposable data uses the owning family build or
 PostLoad policy rather than import `Recover` semantics.
 
 ## Standalone Batch Admission
+
+`FAssetImportValidation` derives success from `EAssetImportError` without stored
+messages. It owns request identity, filename/class context, factory ambiguity or
+batch collision counts, filesystem errors and a nested destination validation
+cause. Factory compatibility validation returns an error code directly. Pending
+asset-operation adapters use `FormatAssetImportValidation` explicitly and retain
+the original result in `FAssetOperationResult::ImportCause`. Single-item admission,
+batch preflight and factory compatibility rejection preserve this cause chain.
+Creation admission and invalid factory-product rejection retain `CreationCause`,
+including requested path/class/source and the actual product path/class captured
+before package cleanup. Wrong type, outer, name and top-level registration are
+distinct failures. A null factory product reports `FactoryRejected` and retains
+the bounded per-invocation `FFactoryDiagnostics` collection in `FactoryCause`
+before cleanup; an empty diagnostic collection still has a typed failure.
+The collection preserves report order and shares one entry-count limit across
+transitional text, typed `FFactoryError` entries and module-owned
+`IFactoryErrorDetail` payloads. The latter retain concrete typed causes behind an
+owning pointer and format only when the collection is presented; DurinEd does not
+depend on factory implementation modules. The four built-in file
+factories report exact-class, asset-package-parent and object-creation failures
+with owned expected/requested class and source context. Source admission also
+classifies missing files, unsupported formats/layouts, missing cube-face roles,
+and prepared-source mismatches; filename, role, layout and prepared filename
+remain available without parsing presentation text. `ToString` formats these
+entries for presentation. StaticMesh settings rejection and Texture2D source-hint
+or compilation rejection retain their Engine-owned typed causes, including nested
+settings, build, import and save context. Remaining internal string producers still require
+migration; the text entry is an explicit transitional contract.
+Texture2D source translation returns a typed result retaining the Core decode
+cause or dimensions/channel context for size, image-construction and authored-source
+publication rejection. It clears its output on entry and failure. Pending Scene,
+rebuild string contracts explicitly format at their adapters. Texture2D preparation
+returns typed path/format/capture/translation failures with owned filename and
+nested causes, clearing its prepared output on failure. Its factory retains
+`FTexture2DFactoryError`; asynchronous file import transports the typed preparation
+cause to the game-thread presentation boundary before formatting it. Worker
+exception diagnostics remain a separate pending contract. Texture2D source-file
+submission and public reimport APIs now retain typed package/mount/source-hint,
+capture, translation and compilation causes. Factory reimport results retain
+submission or terminal compilation details through the manager callback. Admission
+failure still invokes no compilation completion; accepted requests retain the
+existing asynchronous publication and completion contract.
+Texture2D property-setting helpers return `FTexture2DCompilationOperationResult`
+directly. Invalid usage, quality, alpha mode or threshold retains the requested
+settings in the Engine input cause; unchanged values remain successful no-ops,
+and rebuild rejection preserves its original compilation error.
+
+Volume import settings expose `Validate()` with an AssetForgeBuiltins-owned error
+code and a copy of the rejected settings. Import format, dimensions, tile-cell
+capacity and atlas/volume budgets are distinct cases. The remaining string-based
+adapters format only at pending contracts. The VolumeTexture factory retains its
+settings or rebuild error as `FVolumeTextureFactoryError`, so AssetTools consumers
+can inspect the nested cause after package cleanup.
+`TranslateVolumeTextureAtlasSource` returns a typed result with nested settings
+and Core image-decode causes, owned filename, and expected/actual atlas dimensions.
+Signature, decode, dimensions, bulk publication and normalized-layout failures
+are distinct. The source output is cleared on entry and published only on success;
+the rebuild result retains the translation cause directly.
+Volume rebuild and public reimport results derive success from their own error
+code and retain object/source identity, mount classification, source-hint,
+capture, translation, import-data and save causes. Build failures retain the
+complete current build outcome; its diagnostic contract and the reimport
+framework string adapters remain pending migrations. `FReimportResult` retains
+module-owned factory details in `FactoryCause`; persistence failures retain the
+complete asset result in `SaveCause` without replacing other retained context.
+VolumeTexture reimport propagates its concrete rebuild error to the final callback.
+StaticMesh reimport retains the complete compilation diagnostic through
+`FStaticMeshFactoryError`, including request identity, terminal disposition, phase
+and nested completion causes. Cancellation does not publish new provenance.
+StaticMesh rebuild and public reimport return `FStaticMeshRebuildResult`, deriving
+success from the error code and preserving settings, mount, source-hint, capture,
+source initialization, import validation, submission and terminal completion
+causes. Synchronous saves retain their asset result within the completion cause.
+Factory import and reimport admission retain this same error through
+`FStaticMeshFactoryError`. Reimport entry checks distinguish object type, missing
+import data/source and source count, retaining object identity and actual count.
+Reimport path resolution and file inspection retain system errors instead of throwing
+past the result boundary. Geometry decoding retains the existing scene diagnostic
+collection; that diagnostic contract remains pending migration. Failed decoding
+leaves resident data and provenance unchanged. Transient creation returns the same
+typed result with a separate mesh output, cleared on entry and published only
+after successful rebuilding. Rejection retains the requested object name and
+source filename, nested rebuild cause and any path/file system error; the failed
+private object is marked as garbage before returning.
+The outer status/message contract remains transitional. Existing publication order
+and save disposition are preserved; save causes retain the full asset result.
+Atlas inspection derives success from its Core decode error and retains the
+file/system cause directly. Dimensions, channel suggestions and layout confidence
+remain independent inspection facts; `FormatVolumeTextureAtlasInspection` renders
+failure or advisory text without storing prose or a separate success flag.
 
 `FAssetImportRequest` carries an explicit top-level destination, source filename,
 asset class, optional configured factory, context, and object flags.
@@ -213,6 +309,16 @@ reverses triangle winding. Skeleton bones are parent-before-child; multiple
 roots receive a stable `$DurinRoot`.
 
 ## Editor Dispatch
+
+Content-directory validation derives success from `EContentDirectoryError` and
+retains the requested virtual/physical path, typed path cause or mount error.
+Resolution and writability facts remain available independently. The result stores
+no message; scene import formats failures through `FormatContentDirectoryValidation`
+at its presentation boundary. Asset destination validation likewise derives success
+from `EAssetDestinationError`, retaining request/path/mount context and separating
+registry assets, redirectors, unsaved packages and other resident packages.
+Occupancy facts and redirect targets remain independently inspectable.
+`FormatAssetDestinationValidation` is used by creation/import presentation adapters.
 
 Content Browser Import workflows are feature-owned scoped extensions.
 TextureEditor registers From File, LevelEditor registers Scene, and StaticMeshEditor

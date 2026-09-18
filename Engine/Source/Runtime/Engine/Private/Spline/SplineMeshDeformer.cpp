@@ -88,15 +88,29 @@ namespace Durin
 		}
 	}
 
+	auto FormatSplineMeshValidationError(const FSplineMeshValidationError& Error) -> std::string
+	{
+		switch (Error.Code)
+		{
+		case ESplineMeshValidationError::None: return {};
+		case ESplineMeshValidationError::InvalidForwardAxis: return "SplineMesh forward axis is invalid.";
+		case ESplineMeshValidationError::InvalidInterpolation: return "SplineMesh interpolation policy is invalid.";
+		case ESplineMeshValidationError::NonFiniteParameters: return "SplineMesh parameters must be finite.";
+		case ESplineMeshValidationError::DegenerateForwardExtent:
+			return "SplineMesh canonical forward extent must be positive and non-degenerate.";
+		}
+		return {};
+	}
+
 	auto FSplineMeshDeformer::Normalize(const FSplineMeshParams& Params,
-		FSplineMeshParams& OutParams, std::string* OutError) -> bool
+		FSplineMeshParams& OutParams) -> FSplineMeshValidationResult
 	{
 		if (Params.ForwardAxis != ESplineMeshAxis::X && Params.ForwardAxis != ESplineMeshAxis::Y
 			&& Params.ForwardAxis != ESplineMeshAxis::Z)
-			return Fail("SplineMesh forward axis is invalid.", OutError);
+			return {{ESplineMeshValidationError::InvalidForwardAxis, Params}};
 		if (Params.Interpolation != ESplineMeshInterpolation::Linear
 			&& Params.Interpolation != ESplineMeshInterpolation::SmoothStep)
-			return Fail("SplineMesh interpolation policy is invalid.", OutError);
+			return {{ESplineMeshValidationError::InvalidInterpolation, Params}};
 		if (!Math::IsFinite(Params.StartPosition) || !Math::IsFinite(Params.StartTangent)
 			|| !Math::IsFinite(Params.EndPosition) || !Math::IsFinite(Params.EndTangent)
 			|| !Math::IsFinite(Params.StartScale) || !Math::IsFinite(Params.EndScale)
@@ -104,14 +118,13 @@ namespace Durin
 			|| !Math::IsFinite(Params.SplineUpDirection) || !std::isfinite(Params.StartRollRadians)
 			|| !std::isfinite(Params.EndRollRadians) || !std::isfinite(Params.SourceForwardMin)
 			|| !std::isfinite(Params.SourceForwardMax))
-			return Fail("SplineMesh parameters must be finite.", OutError);
+			return {{ESplineMeshValidationError::NonFiniteParameters, Params}};
 		if (Params.SourceForwardMax - Params.SourceForwardMin <= FrameEpsilon)
-			return Fail("SplineMesh canonical forward extent must be positive and non-degenerate.", OutError);
+			return {{ESplineMeshValidationError::DegenerateForwardExtent, Params}};
 		FSplineMeshParams Candidate = Params;
 		Candidate.SplineUpDirection = SafeDirection(Params.SplineUpDirection, FVectorConstants::Up);
 		OutParams = Candidate;
-		if (OutError) OutError->clear();
-		return true;
+		return {};
 	}
 
 	auto FSplineMeshDeformer::Evaluate(const FSplineMeshParams& Params, double T) -> FSplineMeshSample

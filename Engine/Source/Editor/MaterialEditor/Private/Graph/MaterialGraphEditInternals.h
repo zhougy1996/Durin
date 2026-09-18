@@ -8,16 +8,26 @@
 // Private helpers shared by material graph commands, layout, and edit sessions.
 namespace Durin::Editor::Material::GraphEditInternals
 {
-	inline auto MakeRejected(
-		std::string Message,
-		std::vector<FMaterialProgramDiagnostic> Diagnostics = {})
-		-> FMaterialGraphCommandResult
+	inline auto RejectDocument(FMaterialGraphDocumentError Error, std::vector<FMaterialProgramDiagnostic> Diagnostics = {}) -> FMaterialGraphCommandResult
 	{
-		return {
-			.Status = EMaterialGraphCommandStatus::Rejected,
-			.Diagnostics = std::move(Diagnostics),
-			.Message = std::move(Message),
-		};
+		FMaterialGraphCommandResult Result{.Diagnostics = std::move(Diagnostics)};
+		Result.DocumentCause = std::move(Error);
+		return Result;
+	}
+
+	inline auto MakeParameterRejected(FMaterialGraphParameterError Error) -> FMaterialGraphCommandResult
+	{
+		FMaterialGraphCommandResult Result;
+		Result.ParameterCause = std::move(Error);
+		return Result;
+	}
+
+	inline auto RejectSession(FMaterialGraphSessionError Error,
+		std::vector<FMaterialProgramDiagnostic> Diagnostics = {}) -> FMaterialGraphCommandResult
+	{
+		FMaterialGraphCommandResult Result{.Diagnostics = std::move(Diagnostics)};
+		Result.SessionCause = std::move(Error);
+		return Result;
 	}
 
 	inline auto ReadGraphPresentation(const DObject& Owner) -> FMaterialGraphPresentation

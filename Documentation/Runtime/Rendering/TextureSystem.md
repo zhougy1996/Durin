@@ -171,6 +171,21 @@ fallback.
 
 ## Asynchronous Editor Build Coordination
 
+`ValidateTexture2DBuildSettings` and `ValidateTexture2DSourceMips` return
+`FTexture2DInputResult` without diagnostic outputs. Errors own rejected settings,
+mip index, image descriptors and accumulated bytes with distinct failure reasons.
+`FTexture2DBuildResult` separates terminal status from `FTexture2DBuildError`,
+retains input causes and compression task state, and has no diagnostic string.
+Provider feature version 5 requires this contract. Cube and import adapters
+use `FormatTexture2DBuildError` explicitly. Compilation submission and synchronous
+build return `FTexture2DCompilationOperationResult`, retaining input/build causes,
+object identity and expected/actual source identities. Rejected submission has no
+completion callback; result application validates before publishing source,
+settings or platform data. Completion results also retain typed Error separately
+from lifecycle status, including full expected/actual build identities and import
+validation/save causes. Import metadata publication has no diagnostic output.
+Pending edit/import contracts format with `FormatTexture2DCompilationError`.
+
 Engine registers `DTexture2D` to the `Durin.Texture` typed manager in its
 [asset-compilation aggregate](../Assets/AssetCompilation.md). Editor-enabled
 Engine computes Texture keys, validates DDC Get results, invokes TextureBuild's
@@ -190,7 +205,10 @@ and a manager-owned monotonic request serial. Key computation and a warm DDC
 lookup use source metadata and content identity only. Input assembly captures the decoded images before queue admission. On a miss,
 workers consume those images to generate mips, compress,
 validate, and atomically persist DDC data before placing a move-only result in
-the manager mailbox. The Texture compiling manager commits on the GameThread
+the manager mailbox. Worker results and diagnostic snapshots retain
+`FTexture2DCompilationError`, including nested build/input causes and task state;
+UI and pending edit/import adapters call `FormatTexture2DCompilationError`.
+The Texture compiling manager commits on the GameThread
 only when request id, serial, weak object identity, and complete captured input
 identity match the manager-owned candidate. Accepted external source or settings
 edits explicitly cancel outstanding work; cancellation plus serial validation is

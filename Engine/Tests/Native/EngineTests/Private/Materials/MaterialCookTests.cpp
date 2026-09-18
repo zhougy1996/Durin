@@ -1,6 +1,33 @@
 #include "MaterialRenderRepresentationTestFixture.h"
 #include "Materials/MaterialCustomVersion.h"
 
+TEST(FDefaultMaterialCookTests, ReadFailureRetainsOwnedResourceContext)
+{
+	using namespace Durin;
+	FPackageResourceReadResult Read;
+	Read.Status = EPackageResourceReadStatus::IoError;
+	Read.Error.Reason = EPackageResourceReadReason::ShortRead;
+	Read.Error.Path = "MaterialProgram.dbulk";
+	Read.Error.Offset = 128;
+	Read.Error.Size = 1024;
+	Read.Error.Actual = 16;
+	Read.Error.SystemError = std::make_error_code(std::errc::io_error);
+	const auto Error = FMaterialError::FromBulkRead(EBulkReadStatus::ReadFailed, Read);
+	Read = {};
+	EXPECT_TRUE(Error.HasError());
+	ASSERT_TRUE(std::holds_alternative<EMaterialCookError>(Error.Code));
+	EXPECT_EQ(std::get<EMaterialCookError>(Error.Code), EMaterialCookError::PayloadReadFailed);
+	EXPECT_EQ(Error.BulkStatus, EBulkReadStatus::ReadFailed);
+	EXPECT_EQ(Error.ResourceStatus, EPackageResourceReadStatus::IoError);
+	ASSERT_NE(Error.ResourceCause, nullptr);
+	EXPECT_EQ(Error.ResourceCause->Reason, EPackageResourceReadReason::ShortRead);
+	EXPECT_EQ(Error.ResourceCause->Path, "MaterialProgram.dbulk");
+	EXPECT_EQ(Error.ResourceCause->Offset, 128u);
+	EXPECT_EQ(Error.ResourceCause->Size, 1024u);
+	EXPECT_EQ(Error.ResourceCause->Actual, 16u);
+	EXPECT_EQ(Error.ResourceCause->SystemError, std::make_error_code(std::errc::io_error));
+}
+
 TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 {
 	InitializeDObjectSystem();
@@ -24,8 +51,8 @@ TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 		Durin::ECookTargetProfile::Game);
 	std::string Error;
 	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
-		*Source, Durin::DefaultMaterialPackagePath, Cook, Error)) << Error;
-	ASSERT_TRUE(Durin::PublishCookContext(Cook, CookRoot, &Error)) << Error;
+		*Source, Durin::DefaultMaterialPackagePath, Cook)) << Error;
+	ASSERT_TRUE(Durin::PublishCookContext(Cook, CookRoot)) << Error;
 	EXPECT_TRUE(std::filesystem::is_regular_file(
 		CookRoot / "Engine/Materials/DefaultMaterial.dasset"));
 	EXPECT_FALSE(std::filesystem::is_regular_file(
@@ -143,8 +170,8 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 		Durin::ECookTargetProfile::Game);
 	std::string Error;
 	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
-		*Source, Durin::DefaultMaterialPackagePath, Cook, Error)) << Error;
-	ASSERT_TRUE(Durin::PublishCookContext(Cook, CookRoot, &Error)) << Error;
+		*Source, Durin::DefaultMaterialPackagePath, Cook)) << Error;
+	ASSERT_TRUE(Durin::PublishCookContext(Cook, CookRoot)) << Error;
 	EXPECT_TRUE(std::filesystem::is_regular_file(
 		CookRoot / "Engine/Materials/DefaultMaterial.dasset"));
 	EXPECT_FALSE(std::filesystem::is_regular_file(
@@ -314,8 +341,8 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 	const auto CookRoot = std::filesystem::absolute(Testing::CreateTestFixtureDirectory("CustomLayoutMaterialCook"));
 	FCookContext Cook(ECookTargetPlatform::Win64, ECookTargetProfile::Game);
 	std::string Error;
-	ASSERT_TRUE(ContributeEngineCookAsset(*Source, DefaultMaterialPackagePath, Cook, Error)) << Error;
-	ASSERT_TRUE(PublishCookContext(Cook, CookRoot, &Error)) << Error;
+	ASSERT_TRUE(ContributeEngineCookAsset(*Source, DefaultMaterialPackagePath, Cook)) << Error;
+	ASSERT_TRUE(PublishCookContext(Cook, CookRoot)) << Error;
 	ShutdownAssetManager(); CollectGarbage();
 	auto Configuration = FAssetRuntimeConfiguration::Authored();
 	ASSERT_TRUE(FAssetRuntimeConfiguration::Cooked(CookRoot, Configuration));

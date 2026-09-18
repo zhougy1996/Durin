@@ -4,7 +4,7 @@ Summary: Define the Engine-owned object-aware compilation aggregate, class routi
 
 Modules: Engine, Launch, TextureBuild, StaticMeshBuild
 
-Last reviewed: 2026-09-16
+Last reviewed: 2026-09-18
 
 `FAssetCompilingManager` is the one process authority for asynchronous asset
 compilation. Launch starts it after Core task scheduling and pumps it once per
@@ -17,7 +17,21 @@ each Engine-owned typed manager retains its values and invariants.
 Aggregate `Start` returns void and is idempotent while running. It requires the
 GameThread once thread identity is established and cannot run after terminal
 shutdown. Those violations are process contracts; individual compiler `Start`
-operations may still fail and return diagnostics through compiler registration.
+operations return `FAssetCompilerStartResult`, deriving success from an error
+code. Scheduler unavailability, undrained requests, missing state and task-scope
+creation failures are distinct; undrained results retain pending-request count.
+Registration retains this result as its nested startup cause. No string-output
+Start overload remains. `RegisterCompiler` returns a typed result containing the
+move-only registration handle and an error code; invalid inputs, wrong thread,
+stopped admission, duplicate name/class and startup rejection remain distinct.
+Errors own compiler/class identity. A rejection after startup stops and shuts
+down the private manager before returning its cause, without publishing routes.
+Logging formats the error after it leaves the registration boundary.
+`InitializeAssetCompilingManager` returns a typed initialization result retaining
+the complete failed registration cause after aggregate shutdown. Successful
+initialization still transfers built-in handle ownership to the aggregate.
+Aggregate diagnostic snapshots contain counters, lifecycle state and compiler
+observations; they have no unused message collection.
 
 The built-in compilers are `Durin.Material`, routed from `DMaterial` and `DMaterialInstance`, and
 `Durin.Texture`, routed from `DTexture2D`, and `Durin.StaticMesh`, routed from
@@ -214,8 +228,18 @@ are known.
 
 `SubmitStaticMeshCompilation` accepts canonical source values and returns before
 recipe work. Rejection does not supersede earlier work or call completion.
+Its `FStaticMeshSubmissionResult` derives success from a typed error without a
+diagnostic-output parameter. Errors own rejected owner/settings/slot facts,
+provider invocation/descriptor context, import-validation causes and request or
+global admission budget counts. Pending synchronous/import adapters format
+explicitly at their outer contracts.
 Accepted requests deliver one `Succeeded`, `Failed`, `Cancelled`, or `Superseded`
 terminal result on GameThread. Worker captures contain no object bindings.
+`FStaticMeshCompilationDiagnostic::Error` retains typed build, application,
+missing-save-package or save failures. Terminal status remains the lifecycle
+outcome. Publication preparation returns `FStaticMeshApplicationResult`; rejected
+preparation retains its cause and never enters live application. Import save
+failures retain the complete asset result through SaveCause.
 Owner records use generation-safe handles and recheck source, normalization,
 ordered material bindings, body parameters/revision, provenance identity and
 provider registration before applying the sealed candidate. Provider replacement
@@ -229,7 +253,8 @@ before expansion; cache reads are bounded by the reservation and complete
 candidate capacities are checked before mailbox publication. Recipe providers
 must honor the borrowed working-set limit before allocating their products.
 Cancellation delivery does not release a still-running task's record or bytes.
-History retains at most 128 value-only diagnostics with 4096-byte messages.
+History retains at most 128 value-only diagnostics; presentation messages are
+bounded to 4096 bytes.
 
 Background and interactive queues are FIFO, with at most four interactive
 dispatches before an eligible background request. Each aggregate pump admits
@@ -249,7 +274,10 @@ contract is unchanged. Cooked residency remains a separate manager.
 Authored `PostLoad` validates metadata and schedules background work without
 acquiring canonical geometry. Repeated identical current requests join;
 `BuildStaticMeshSynchronously` submits or joins through the same manager and
-finishes only that mesh. Missing admission/provider capacity is an explicit
+finishes only that mesh. Its `FStaticMeshSynchronousResult` owns source,
+submission or complete terminal-observation causes without a text output;
+missing observations have a distinct error code. Successful cache warnings remain
+in PersistenceDiagnostic. Missing admission/provider capacity is an explicit
 failure, with no inline recipe fallback. Interactive reimport prepares physical
 input synchronously, then submits at interactive priority. Source, render,
 collision, material bindings and prevalidated provenance become current within
@@ -266,7 +294,14 @@ registration, not proof that the live asset still matches it. Match these facts
 before presenting it as current. `Render` and `Collision` are optional completed
 product observations with opaque DDC key, hit/rebuilt origin, payload bytes and
 cache read/write durations; absent values mean unavailable, never a cache miss.
-Persistence diagnostics survive successful publication. The retained text budget
+Nonfatal cache warnings remain in typed `FStaticMeshPersistenceDiagnostic` and
+survive successful publication. Render and collision each retain separate cache
+read/write diagnostics and an optional family codec cause; no persistence text
+is stored. Underlying cache causes retain their classifications and request
+identity without retaining payload data. Error.BuildCause and Error.ApplicationCause retain typed failures
+and their owned nested context. `FormatStaticMeshCompilationDiagnostic` formats
+at presentation or pending outer adapters; there is no failure Message field.
+The presentation text budget
 is 4096 bytes per record including a producer identity capped at 256 bytes.
 `CaptureNanoseconds`, `WorkerNanoseconds` and `PublicationNanoseconds` separate
 owner capture, detached construction and owner application. Zero denotes an

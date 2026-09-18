@@ -6,13 +6,15 @@ namespace Durin
 {
 	class DPackage;
 	class FReferenceCollector;
+	struct FMaterialError;
+	struct FPropertySnapshotError;
 }
 
 namespace Durin::Editor
 {
+	struct FTransactionSnapshotError;
 	using FTransactionId = uint64;
 	using FRevisionId = uint64;
-	using FTransactionDeferredCompletion = std::function<void(bool)>;
 
 	// Identifies the history transition reported by a transaction event.
 	enum class ETransactionEventType : uint8
@@ -33,6 +35,25 @@ namespace Durin::Editor
 		Redo,
 	};
 
+	struct FTransactionRecordError;
+	struct FTransactorResult;
+	enum class ETransactionCompletionError : uint8 { None, Operation, Finalization };
+	struct FTransactionCompletionError
+	{
+		ETransactionCompletionError Code = ETransactionCompletionError::None;
+		FTransactionId TransactionId = 0;
+		ETransactionOperation Operation = ETransactionOperation::Execute;
+		std::shared_ptr<const FTransactionRecordError> RecordCause;
+		std::shared_ptr<const FTransactorResult> FinalizationCause;
+	};
+	struct FTransactionCompletionResult
+	{
+		FTransactionCompletionError Error;
+		explicit operator bool() const { return Error.Code == ETransactionCompletionError::None; }
+	};
+	using FTransactionDeferredCompletion = std::function<void(FTransactionCompletionResult)>;
+	DURINED_API auto FormatTransactionCompletionError(const FTransactionCompletionError& Error) -> std::string;
+
 	// Carries one user-visible transaction history event.
 	struct FTransactionEvent
 	{
@@ -42,6 +63,32 @@ namespace Durin::Editor
 		std::string Description;
 		std::string Details;
 	};
+
+	enum class ETransactionCustomError : uint8 { None, TargetUnavailable, MaterialWrite, PresentationWrite, MemberUnavailable, MembershipChanged, PropertyRestore, TransformWrite, EmptySelection, ParentMismatch, ParentInvalid, ParentCycle, AttachmentWrite, ResourceUnavailable, ActorMembership, ActorNameCollision, ActorSpawn, ActorDestroy, WorldEnding, ActorType, ActorUnsupported, ActorChanged, ActorRename, InjectedMutation, RollbackIncomplete };
+	enum class ETransactionMutationPhase : uint8 { None, TemporaryRename, Remove, Create, FinalRename, Update };
+	enum class ETransactionActorConstraint : uint8 { None, Class, ComponentGraph, Parent, Children, BeginningPlay, EndingPlay };
+	struct FTransactionCustomError
+	{
+		ETransactionCustomError Code = ETransactionCustomError::None;
+		FGuid ParameterId;
+		std::string TargetPath;
+		std::string TargetLabel;
+		std::string ExpectedParentPath, ActualParentPath;
+		size_t NodeCount = 0;
+		size_t MemberIndex = 0;
+		ETransactionMutationPhase MutationPhase = ETransactionMutationPhase::None;
+		ETransactionActorConstraint ActorConstraint = ETransactionActorConstraint::None;
+		std::shared_ptr<const FTransactionCustomError> CleanupCause;
+		std::shared_ptr<const FTransactionSnapshotError> MemberCause;
+		std::shared_ptr<const FPropertySnapshotError> PropertyCause;
+		std::shared_ptr<const FMaterialError> MaterialCause;
+	};
+	struct FTransactionCustomResult
+	{
+		FTransactionCustomError Error;
+		explicit operator bool() const { return Error.Code == ETransactionCustomError::None; }
+	};
+	DURINED_API auto FormatTransactionCustomError(const FTransactionCustomError& Error) -> std::string;
 
 	// Defines a reversible editor operation stored in transaction history.
 	class ITransactionCustomChange
@@ -54,8 +101,7 @@ namespace Durin::Editor
 		// True only when a successful transition changes files or discovery
 		// identities beneath automatically scanned mounted content.
 		virtual auto MutatesMountedContent() const -> bool { return false; }
-		DURINED_API virtual auto Undo() -> bool = 0;
-		DURINED_API virtual auto Redo() -> bool = 0;
+		virtual auto Replay(ETransactionOperation Operation) -> FTransactionCustomResult = 0;
 		virtual auto IsDeferredOperationPending() const -> bool { return false; }
 		virtual auto SetDeferredOperationCompletion(
 			FTransactionDeferredCompletion Completion) -> void { (void)Completion; }

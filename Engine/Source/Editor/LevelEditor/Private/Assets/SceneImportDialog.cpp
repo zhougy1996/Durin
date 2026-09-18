@@ -62,8 +62,9 @@ namespace Durin::Editor::Level
 			"/Project/Imported/SceneName", "Choose...", BrowseButtonWidth))
 			BrowseDestinationDirectory();
 		const FContentDirectoryValidation DestinationValidation = DestinationDirectory.Inspect();
-		std::string ImportSettingsError;
-		const bool bImportSettingsValid = Coordinates.GetSettings().IsValid(&ImportSettingsError);
+		const auto SettingsValidation = Coordinates.GetSettings().Validate();
+		const bool bImportSettingsValid = SettingsValidation.Succeeded();
+		const std::string ImportSettingsError = FormatStaticMeshImportSettingsError(SettingsValidation.Error);
 
 		if (DestinationValidation.bDirectoryPathValid
 			&& DestinationValidation.bMountedDestination && bSourceExists && bSupportedSource)
@@ -82,7 +83,7 @@ namespace Durin::Editor::Level
 		else if (!bSourceExists) ValidationMessage = "The selected source file no longer exists.";
 		else if (!bSupportedSource) ValidationMessage = "Scene import supports FBX, glTF, and GLB files.";
 		else if (!bImportSettingsValid) ValidationMessage = ImportSettingsError;
-		else if (!DestinationValidation) ValidationMessage = DestinationValidation.Message;
+		else if (!DestinationValidation) ValidationMessage = FormatContentDirectoryValidation(DestinationValidation);
 		DrawImportDialogWarning(ValidationMessage);
 		ImGui::TextWrapped("Importing the same source again replaces edits to its generated meshes, textures, and material instances. "
 			"Keep custom assets outside the import output directory.");
@@ -143,7 +144,7 @@ namespace Durin::Editor::Level
 			DestinationDirectory.Inspect();
 		if (!DestinationValidation)
 		{
-			SetError(DestinationValidation.Message);
+			SetError(FormatContentDirectoryValidation(DestinationValidation));
 			return false;
 		}
 		const FPackagePath& OutputDirectory = DestinationValidation.DirectoryPath;

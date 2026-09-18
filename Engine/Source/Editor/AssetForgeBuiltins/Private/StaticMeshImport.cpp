@@ -22,18 +22,6 @@ namespace Durin::AssetForge::Builtins
 	{
 		constexpr uint64 MaximumStaticMeshEncodedBytes = 512ull * 1024ull * 1024ull;
 
-		auto ResolveOwningPackagePhysicalPath(const DStaticMesh& Mesh,
-			std::filesystem::path& OutPath, std::string& OutError) -> bool
-		{
-			if (!Mesh.GetPackage()) return false;
-			const FAssetPathResult Resolved =
-				FMountPaths::ResolveAssetPath(Mesh.GetPackage()->GetPackagePath(),
-					EMountPathExistence::AllowMissing);
-			if (!Resolved) { OutError = Resolved.Message; return false; }
-			OutPath = Resolved.PhysicalPath;
-			OutPath += ".dasset";
-			return true;
-		}
 
 		auto IsSupportedExtension(std::string_view Extension) -> bool
 		{
@@ -95,38 +83,50 @@ namespace Durin::AssetForge::Builtins
 
 		auto RebuildFromFilename(DStaticMesh& Mesh, std::string Filename,
 			ESourceHintBase HintBase,
-			const FStaticMeshImportSettings& Settings, std::string& OutError,
+			const FStaticMeshImportSettings& Settings,
 			const FAssetBundleSaveOptions* SaveOptions,
 			std::optional<std::filesystem::path> SelectedPhysicalPath = {},
-			FStaticMeshCompilationCompletion Completion = {}, bool bAsync = false) -> bool
+			FStaticMeshCompilationCompletion Completion = {}, bool bAsync = false) -> FStaticMeshRebuildResult
 		{
-			if (!Settings.IsValid(&OutError)) return false;
+			FStaticMeshRebuildError Error{.ObjectPath = Mesh.GetObjectPath(), .Filename = Filename};
+			auto Reject = [&](EStaticMeshRebuildError Code) -> FStaticMeshRebuildResult {
+				Error.Code = Code;
+				return {std::move(Error)};
+			};
+			if (const auto Validation = Settings.Validate(); !Validation)
+			{ Error.SettingsCause = Validation.Error; return Reject(EStaticMeshRebuildError::Settings); }
 			std::filesystem::path OwningPackagePath;
-			const bool bPackaged = ResolveOwningPackagePhysicalPath(
-				Mesh, OwningPackagePath, OutError);
-			if (!SelectedPhysicalPath && !bPackaged) return false;
+			bool bPackaged = false;
+			if (const auto* Package = Mesh.GetPackage())
+			{
+				const auto Resolved = FMountPaths::ResolveAssetPath(Package->GetPackagePath(), EMountPathExistence::AllowMissing);
+				if (Resolved) { OwningPackagePath = Resolved.PhysicalPath; OwningPackagePath += ".dasset"; bPackaged = true; }
+				else if (!SelectedPhysicalPath) { Error.MountCause = Resolved.Error; return Reject(EStaticMeshRebuildError::Mount); }
+			}
+			if (!SelectedPhysicalPath && !bPackaged) return Reject(EStaticMeshRebuildError::Package);
 			std::filesystem::path PhysicalPath;
 			if (SelectedPhysicalPath) PhysicalPath = std::move(*SelectedPhysicalPath);
 			else
 			{
 				std::string PhysicalPathText;
-				if (!ResolveSourceHint(HintBase, Filename,
-					OwningPackagePath.generic_string(), PhysicalPathText, OutError)) return false;
+				if (const auto Resolved = ResolveSourceHint(HintBase, Filename,
+					OwningPackagePath.generic_string(), PhysicalPathText); !Resolved)
+				{ Error.SourceHintCause = Resolved.Error; return Reject(EStaticMeshRebuildError::SourceHint); }
 				PhysicalPath = PhysicalPathText;
 			}
-			if (!std::filesystem::is_regular_file(PhysicalPath)
+			if (!std::filesystem::is_regular_file(PhysicalPath, Error.SystemError)
 				|| !IsSupportedExtension(PhysicalPath.extension().generic_string()))
 			{
-				OutError = "StaticMesh source is missing or uses an unsupported format.";
-				return false;
+				Error.Filename = PhysicalPath.generic_string();
+				return Reject(EStaticMeshRebuildError::SourceFile);
 			}
 			if (SelectedPhysicalPath)
 			{
 				if (bPackaged)
 				{
-					if (!MakeSourceHint(PhysicalPath.generic_string(),
-						OwningPackagePath.generic_string(), HintBase, Filename, OutError))
-						return false;
+					if (const auto Hint = MakeSourceHint(PhysicalPath.generic_string(),
+						OwningPackagePath.generic_string(), HintBase, Filename); !Hint)
+					{ Error.SourceHintCause = Hint.Error; return Reject(EStaticMeshRebuildError::SourceHint); }
 				}
 				else
 				{
@@ -135,34 +135,41 @@ namespace Durin::AssetForge::Builtins
 				}
 			}
 			FEncodedSourceSnapshot Snapshot;
-			if (!CaptureEncodedSource(Filename, PhysicalPath, Snapshot,
-				OutError, MaximumStaticMeshEncodedBytes)) return false;
+			if (const auto Captured = CaptureEncodedSource(Filename, PhysicalPath, Snapshot,
+				MaximumStaticMeshEncodedBytes); !Captured)
+			{ Error.CaptureCause = std::make_shared<FEncodedSourceError>(Captured.Error); return Reject(EStaticMeshRebuildError::Capture); }
 			FImportedSceneData Scene;
 			if (!ImportGeometryFromMemory(Snapshot.GetBytes(),
 				PhysicalPath.extension().generic_string(), Scene,
 				MakeOptions(Settings, {})))
 			{
-				OutError = std::format("Failed to decode StaticMesh source {}.", Filename);
-				return false;
+				Error.Filename = Filename;
+				Error.DecodeCauses = std::move(Scene.Diagnostics);
+				return Reject(EStaticMeshRebuildError::Decode);
 			}
 			FStaticMeshSource Source;
-			if (!Source.Initialize(MakeStaticMeshDecodedGeometry(Scene), OutError)) return false;
+			if (const auto Initialized = Source.Initialize(MakeStaticMeshDecodedGeometry(Scene)); !Initialized)
+			{
+				Error.SourceCause = Initialized.Error;
+				return Reject(EStaticMeshRebuildError::Source);
+			}
 			auto State = MakeImportDataState(Filename, HintBase, PhysicalPath, Snapshot, Settings);
 			const auto Owner = FObjectKey(&Mesh);
 			State.SourceData.Normalize();
-			if (!State.Validate(OutError)) return false;
+			if (const auto Validation = State.Validate(); !Validation)
+			{ Error.ImportCause = std::make_shared<FAssetImportDataError>(Validation.Error); return Reject(EStaticMeshRebuildError::ImportValidation); }
 			const auto Save = SaveOptions ? std::optional<FAssetBundleSaveOptions>(*SaveOptions) : std::nullopt;
 			auto Result = std::make_shared<FStaticMeshCompilationDiagnostic>();
-			if (!SubmitStaticMeshCompilation(Mesh, {
+			if (const auto Submitted = SubmitStaticMeshCompilation(Mesh, {
 				.Source = Source, .Priority = EStaticMeshCompilationPriority::Interactive,
-				.PreparePublication = [State](DStaticMesh& Target, DAssetImportData*& PreparedImportData, std::string& Error) {
+				.PreparePublication = [State](DStaticMesh& Target, DAssetImportData*& PreparedImportData) -> FStaticMeshApplicationResult {
 					// The new inner is private until the mesh application boundary. Existing provenance is untouched on failure.
 					auto* Data = NewObject<DStaticMeshImportData>(&Target, FName("AssetImportData_" + FGuid::NewGuid().ToString()));
-					if (!Data) { Error = "Could not allocate static-mesh import data."; return false; }
+					if (!Data) return {{.Code = EStaticMeshApplicationError::ImportAllocation, .Owner = FObjectKey(&Target), .ImportClass = "DStaticMeshImportData"}};
 					Data->SetState(State);
 					PreparedImportData = Data;
-					return true;
-				}}, OutError, [Owner, Save, Result, Completion = std::move(Completion)](const FStaticMeshCompilationDiagnostic& Value) {
+					return {};
+				}}, [Owner, Save, Result, Completion = std::move(Completion)](const FStaticMeshCompilationDiagnostic& Value) {
 				*Result = Value;
 				if (Value.Status == EStaticMeshCompilationStatus::Succeeded && Save)
 				{
@@ -171,21 +178,58 @@ namespace Durin::AssetForge::Builtins
 					if (!Package)
 					{
 						Result->Status = EStaticMeshCompilationStatus::Failed;
-						Result->Message = "StaticMesh package is unavailable for save.";
+						Result->Error = {.Code = EStaticMeshCompletionError::PackageUnavailable, .Owner = Owner};
 					}
 					else if (const auto Saved = SavePackagesAtomically(std::span<DPackage* const>(&Package, 1), *Save); !Saved)
 					{
 						Result->Status = EStaticMeshCompilationStatus::Failed;
-						Result->Message = Saved.Message;
+						Result->Error = {.Code = EStaticMeshCompletionError::Save, .Owner = Owner, .SaveCause = std::make_shared<FAssetResult>(Saved)};
 					}
 				}
 				if (Completion) Completion(*Result);
-			})) return false;
-			if (bAsync) return true;
+			}); !Submitted)
+			{
+				Error.SubmissionCause = Submitted.Error;
+				return Reject(EStaticMeshRebuildError::Submission);
+			}
+			if (bAsync) return {};
 			FAssetCompilingManager::Get().FinishCompilationForObject(Mesh);
-			OutError = Result->Message;
-			return Result->Status == EStaticMeshCompilationStatus::Succeeded;
+			if (Result->Status == EStaticMeshCompilationStatus::Succeeded) return {};
+			Error.CompletionCause = *Result;
+			return Reject(EStaticMeshRebuildError::Completion);
 		}
+	}
+
+	auto FormatStaticMeshRebuildError(const FStaticMeshRebuildError& Error) -> std::string
+	{
+		switch (Error.Code)
+		{
+		case EStaticMeshRebuildError::None: return {};
+		case EStaticMeshRebuildError::ObjectType: return "Reimport requires a StaticMesh object.";
+		case EStaticMeshRebuildError::SourceCount: return std::format("StaticMesh reimport requires one source file; received {}.", Error.SourceCount);
+		case EStaticMeshRebuildError::Path: return "Cannot resolve StaticMesh source path: " + Error.Filename + ": " + Error.SystemError.message();
+		case EStaticMeshRebuildError::ObjectCreation: return "Cannot create StaticMesh object: " + Error.ObjectName;
+		case EStaticMeshRebuildError::Settings: return Error.SettingsCause ? FormatStaticMeshImportSettingsError(*Error.SettingsCause) : "Invalid StaticMesh settings.";
+		case EStaticMeshRebuildError::Package: return "StaticMesh has no owning package.";
+		case EStaticMeshRebuildError::Mount: return "Cannot resolve StaticMesh package mount.";
+		case EStaticMeshRebuildError::SourceHint: return Error.SourceHintCause ? FormatSourceHintError(*Error.SourceHintCause) : "Invalid StaticMesh source hint.";
+		case EStaticMeshRebuildError::SourceFile: return "StaticMesh source is missing or uses an unsupported format: " + Error.Filename;
+		case EStaticMeshRebuildError::Capture: return Error.CaptureCause ? FormatEncodedSourceError(*Error.CaptureCause) : "Cannot capture StaticMesh source.";
+		case EStaticMeshRebuildError::Decode: return "Failed to decode StaticMesh source " + Error.Filename;
+		case EStaticMeshRebuildError::Source: return Error.SourceCause ? FormatStaticMeshSourceError(*Error.SourceCause) : "Invalid StaticMesh source.";
+		case EStaticMeshRebuildError::ImportValidation: return Error.ImportCause ? FormatAssetImportDataError(*Error.ImportCause) : "Invalid StaticMesh import data.";
+		case EStaticMeshRebuildError::Submission: return Error.SubmissionCause ? FormatStaticMeshSubmissionError(*Error.SubmissionCause) : "StaticMesh compilation submission failed.";
+		case EStaticMeshRebuildError::Completion: return Error.CompletionCause ? FormatStaticMeshCompilationDiagnostic(*Error.CompletionCause) : "StaticMesh compilation failed.";
+		case EStaticMeshRebuildError::ImportData: return "StaticMesh has no current family import data.";
+		case EStaticMeshRebuildError::MissingSource: return "StaticMesh has no source filename to reimport.";
+		}
+		return {};
+	}
+
+	auto FStaticMeshFactoryError::Format() const -> std::string
+	{
+		if (const auto* Rebuild = std::get_if<FStaticMeshRebuildError>(&Cause)) return FormatStaticMeshRebuildError(*Rebuild);
+		return FormatStaticMeshCompilationDiagnostic(std::get<FStaticMeshCompilationDiagnostic>(Cause));
 	}
 
 	DStaticMeshFactory::DStaticMeshFactory(
@@ -205,28 +249,41 @@ namespace Durin::AssetForge::Builtins
 		DObject*,
 		FFactoryDiagnostics* Diagnostics) const -> DObject*
 	{
-		auto Failed = [&](std::string Message) -> DObject* {
-			if (Diagnostics) Diagnostics->Report(Message);
+		auto Reject = [&](EFactoryError Code) -> DObject* {
+			if (Diagnostics) Diagnostics->ReportFailure({
+				.Code = Code,
+				.ExpectedClass = DStaticMesh::StaticClass()->GetName(),
+				.RequestedClass = InClass ? InClass->GetName() : std::string{},
+				.Filename = std::string(Filename)});
 			return nullptr;
 		};
 		if (InClass != DStaticMesh::StaticClass())
-			return Failed("Static mesh factory requires the exact StaticMesh class.");
+			return Reject(EFactoryError::ExactClass);
 		auto* Package = Cast<DPackage>(InParent);
 		if (!Package || !Package->IsAssetPackage())
-			return Failed("Static mesh factory requires an asset package parent.");
+			return Reject(EFactoryError::AssetPackageParent);
 		const std::filesystem::path Input =
 			std::filesystem::absolute(Filename).lexically_normal();
 		if (!std::filesystem::is_regular_file(Input))
-			return Failed("Static mesh source file does not exist.");
+			return Reject(EFactoryError::SourceMissing);
 		if (!IsSupportedExtension(Input.extension().generic_string()))
-			return Failed("Static mesh source uses an unsupported format.");
-		std::string Error;
-		if (!Settings.IsValid(&Error)) return Failed(std::move(Error));
+			return Reject(EFactoryError::SourceFormat);
+		if (const auto Validation = Settings.Validate(); !Validation)
+		{
+			if (Diagnostics) Diagnostics->ReportFailure({
+				.Code = EFactoryError::StaticMeshSettings, .Filename = std::string(Filename),
+				.StaticMeshSettingsCause = std::make_shared<FStaticMeshImportSettingsError>(Validation.Error)});
+			return nullptr;
+		}
 		auto* Mesh = NewObject<DStaticMesh>(InClass, Package, InName, Flags);
-		if (!Mesh) return Failed("Static mesh object could not be created.");
-		if (!RebuildFromFilename(
+		if (!Mesh) return Reject(EFactoryError::ObjectCreation);
+		if (const auto Rebuilt = RebuildFromFilename(
 			*Mesh, Input.generic_string(), ESourceHintBase::AssetRelative,
-			Settings, Error, nullptr, Input, AsyncImportCompletion, bAsyncImport)) return Failed(std::move(Error));
+			Settings, nullptr, Input, AsyncImportCompletion, bAsyncImport); !Rebuilt)
+		{
+			if (Diagnostics) Diagnostics->ReportDomainFailure(std::make_shared<FStaticMeshFactoryError>(Rebuilt.Error));
+			return nullptr;
+		}
 		return Mesh;
 	}
 
@@ -272,19 +329,23 @@ namespace Durin::AssetForge::Builtins
 		const FSourceFile* Source = Data ? State.SourceData.FindByRole("source") : nullptr;
 		if (!Mesh || !Data || !Source || Source->Hint.empty())
 		{
+			const FStaticMeshRebuildError Error{
+				.Code = !Mesh ? EStaticMeshRebuildError::ObjectType : !Data ? EStaticMeshRebuildError::ImportData : EStaticMeshRebuildError::MissingSource,
+				.ObjectPath = Object.GetObjectPath()};
 			if (Completion) Completion({EReimportStatus::MissingSource,
-				"StaticMesh has no source hint to reimport."});
+				FormatStaticMeshRebuildError(Error), std::make_shared<FStaticMeshFactoryError>(Error)});
 			return;
 		}
-		std::string Error;
-		const bool bSubmitted = RebuildFromFilename(*Mesh, Source->Hint,
-			Source->HintBase, State.ImportSettings, Error, nullptr, {},
+		const auto Submitted = RebuildFromFilename(*Mesh, Source->Hint,
+			Source->HintBase, State.ImportSettings, nullptr, {},
 			[Completion](const FStaticMeshCompilationDiagnostic& Result) {
 				if (Completion) Completion(Result.Status == EStaticMeshCompilationStatus::Succeeded
 					? FReimportResult{EReimportStatus::Succeeded, {}}
-					: FReimportResult{EReimportStatus::SourceOrBuildFailure, Result.Message});
+					: FReimportResult{EReimportStatus::SourceOrBuildFailure, FormatStaticMeshCompilationDiagnostic(Result),
+						std::make_shared<FStaticMeshFactoryError>(Result)});
 			}, true);
-		if (!bSubmitted && Completion) Completion({EReimportStatus::SourceOrBuildFailure, std::move(Error)});
+		if (!Submitted && Completion) Completion({EReimportStatus::SourceOrBuildFailure, FormatStaticMeshRebuildError(Submitted.Error),
+			std::make_shared<FStaticMeshFactoryError>(Submitted.Error)});
 	}
 
 	auto DStaticMeshFactory::ReimportFromFiles(DObject& Object,
@@ -296,80 +357,105 @@ namespace Durin::AssetForge::Builtins
 			Mesh->GetAssetImportData()) : nullptr;
 		if (!Mesh || !Data || Filenames.size() != 1 || Filenames.front().empty())
 		{
+			const FStaticMeshRebuildError Error{
+				.Code = !Mesh ? EStaticMeshRebuildError::ObjectType : !Data ? EStaticMeshRebuildError::ImportData
+					: Filenames.size() != 1 ? EStaticMeshRebuildError::SourceCount : EStaticMeshRebuildError::MissingSource,
+				.ObjectPath = Object.GetObjectPath(), .SourceCount = Filenames.size()};
 			if (Completion) Completion({EReimportStatus::SourceOrBuildFailure,
-				"StaticMesh reimport requires one source file and current import data."});
+				FormatStaticMeshRebuildError(Error), std::make_shared<FStaticMeshFactoryError>(Error)});
 			return;
 		}
+		std::error_code SystemError;
 		const std::filesystem::path Requested =
-			std::filesystem::absolute(Filenames.front()).lexically_normal();
-		std::string Error;
-		const bool bSubmitted = RebuildFromFilename(*Mesh, {}, ESourceHintBase::Absolute,
-			Data->GetStaticMeshState().ImportSettings, Error, nullptr, Requested,
+			std::filesystem::absolute(Filenames.front(), SystemError).lexically_normal();
+		if (SystemError)
+		{
+			const FStaticMeshRebuildError Error{.Code = EStaticMeshRebuildError::Path,
+				.ObjectPath = Object.GetObjectPath(), .Filename = Filenames.front(), .SystemError = SystemError};
+			if (Completion) Completion({EReimportStatus::SourceOrBuildFailure,
+				FormatStaticMeshRebuildError(Error), std::make_shared<FStaticMeshFactoryError>(Error)});
+			return;
+		}
+		const auto Submitted = RebuildFromFilename(*Mesh, {}, ESourceHintBase::Absolute,
+			Data->GetStaticMeshState().ImportSettings, nullptr, Requested,
 			[Completion](const FStaticMeshCompilationDiagnostic& Result) {
 				if (Completion) Completion(Result.Status == EStaticMeshCompilationStatus::Succeeded
 					? FReimportResult{EReimportStatus::Succeeded, {}}
-					: FReimportResult{EReimportStatus::SourceOrBuildFailure, Result.Message});
+					: FReimportResult{EReimportStatus::SourceOrBuildFailure, FormatStaticMeshCompilationDiagnostic(Result),
+						std::make_shared<FStaticMeshFactoryError>(Result)});
 			}, true);
-		if (!bSubmitted && Completion) Completion({EReimportStatus::SourceOrBuildFailure, std::move(Error)});
+		if (!Submitted && Completion) Completion({EReimportStatus::SourceOrBuildFailure, FormatStaticMeshRebuildError(Submitted.Error),
+			std::make_shared<FStaticMeshFactoryError>(Submitted.Error)});
 	}
 
-	auto ReimportStaticMesh(DStaticMesh& Mesh, std::string& OutError,
-		const FAssetBundleSaveOptions& SaveOptions) -> bool
+	auto ReimportStaticMesh(DStaticMesh& Mesh,
+		const FAssetBundleSaveOptions& SaveOptions) -> FStaticMeshRebuildResult
 	{
 		const auto* Data = dynamic_cast<const DStaticMeshImportData*>(
 			Mesh.GetAssetImportData());
 		if (!Data)
 		{
-			OutError = "StaticMesh has no current family import data.";
-			return false;
+			return {{.Code = EStaticMeshRebuildError::ImportData, .ObjectPath = Mesh.GetObjectPath()}};
 		}
 		const FStaticMeshImportDataState State = Data->GetStaticMeshState();
 		const FSourceFile* Source = State.SourceData.FindByRole("source");
 		if (!Source)
 		{
-			OutError = "StaticMesh has no source filename to reimport.";
-			return false;
+			return {{.Code = EStaticMeshRebuildError::MissingSource, .ObjectPath = Mesh.GetObjectPath()}};
 		}
 		return RebuildFromFilename(
 			Mesh, Source->Hint, Source->HintBase,
-			State.ImportSettings, OutError, &SaveOptions);
+			State.ImportSettings, &SaveOptions);
 	}
 
 	auto ReimportStaticMeshFromFile(DStaticMesh& Mesh, std::string_view FilePath,
-		std::string& OutError,
-		const FAssetBundleSaveOptions& SaveOptions) -> bool
+		const FAssetBundleSaveOptions& SaveOptions) -> FStaticMeshRebuildResult
 	{
 		const auto* Data = dynamic_cast<const DStaticMeshImportData*>(
 			Mesh.GetAssetImportData());
 		if (!Data)
 		{
-			OutError = "StaticMesh has no current family import parameters.";
-			return false;
+			return {{.Code = EStaticMeshRebuildError::ImportData, .ObjectPath = Mesh.GetObjectPath()}};
 		}
+		std::error_code SystemError;
 		const std::filesystem::path Requested =
-			std::filesystem::absolute(FilePath).lexically_normal();
-		if (!std::filesystem::is_regular_file(Requested))
+			std::filesystem::absolute(FilePath, SystemError).lexically_normal();
+		if (SystemError) return {{.Code = EStaticMeshRebuildError::Path,
+			.ObjectPath = Mesh.GetObjectPath(), .Filename = std::string(FilePath), .SystemError = SystemError}};
+		if (!std::filesystem::is_regular_file(Requested, SystemError))
 		{
-			OutError = "The selected StaticMesh source file does not exist.";
-			return false;
+			return {{.Code = EStaticMeshRebuildError::SourceFile, .ObjectPath = Mesh.GetObjectPath(), .Filename = Requested.generic_string(), .SystemError = SystemError}};
 		}
 		return RebuildFromFilename(Mesh, {}, ESourceHintBase::Absolute,
-			Data->GetStaticMeshState().ImportSettings, OutError, &SaveOptions, Requested);
+			Data->GetStaticMeshState().ImportSettings, &SaveOptions, Requested);
 	}
 
 	auto CreateTransientStaticMeshFromFile(std::string_view FilePath,
-		DObject* Outer, std::string_view ObjectName, std::string& OutError,
-		const FStaticMeshImportSettings& ImportSettings) -> DStaticMesh*
+		DObject* Outer, std::string_view ObjectName, DStaticMesh*& OutMesh,
+		const FStaticMeshImportSettings& ImportSettings) -> FStaticMeshRebuildResult
 	{
+		OutMesh = nullptr;
+		std::error_code SystemError;
 		const std::filesystem::path Input =
-			std::filesystem::absolute(FilePath).lexically_normal();
-		if (!std::filesystem::is_regular_file(Input)) return nullptr;
+			std::filesystem::absolute(FilePath, SystemError).lexically_normal();
+		if (SystemError) return {{.Code = EStaticMeshRebuildError::Path,
+			.Filename = std::string(FilePath), .ObjectName = std::string(ObjectName), .SystemError = SystemError}};
+		if (!std::filesystem::is_regular_file(Input, SystemError))
+			return {{.Code = EStaticMeshRebuildError::SourceFile, .Filename = Input.generic_string(),
+				.ObjectName = std::string(ObjectName), .SystemError = SystemError}};
 		auto* Mesh = NewObject<DStaticMesh>(Outer, ObjectName);
-		if (Mesh && RebuildFromFilename(
-			*Mesh, {}, ESourceHintBase::Absolute,
-			ImportSettings, OutError, nullptr, Input)) return Mesh;
-		if (Mesh) MarkAsGarbage(Mesh);
-		return nullptr;
+		if (!Mesh) return {{.Code = EStaticMeshRebuildError::ObjectCreation,
+			.Filename = Input.generic_string(), .ObjectName = std::string(ObjectName)}};
+		auto Rebuilt = RebuildFromFilename(*Mesh, {}, ESourceHintBase::Absolute, ImportSettings, nullptr, Input);
+		if (!Rebuilt)
+		{
+			Rebuilt.Error.Filename = Input.generic_string();
+			Rebuilt.Error.ObjectName = std::string(ObjectName);
+			MarkAsGarbage(Mesh);
+			return Rebuilt;
+		}
+		OutMesh = Mesh;
+		return {};
 	}
 
 }

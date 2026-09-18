@@ -200,7 +200,7 @@ namespace Durin::Editor
 			|| Result.Status == EPackageReloadStatus::Cancelled)
 		{
 			if (ReportError && !Result.Diagnostics.empty())
-				ReportError(Result.Diagnostics.front().Message);
+				ReportError(FormatPackageReloadDiagnostic(Result.Diagnostics.front()));
 			return false;
 		}
 		DPackage* ReplacementPackage = FindPackage(PackagePath.GetView());
@@ -215,7 +215,7 @@ namespace Durin::Editor
 		{
 			if (ReportError) ReportError(Result.Diagnostics.empty()
 				? "Discard is waiting for old resource retirement."
-				: Result.Diagnostics.front().Message);
+				: FormatPackageReloadDiagnostic(Result.Diagnostics.front()));
 			return false;
 		}
 		if (GEditor) GEditor->GetTransactor()->EstablishSavedState(*ReplacementPackage);

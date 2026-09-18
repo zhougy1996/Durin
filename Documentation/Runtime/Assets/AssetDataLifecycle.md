@@ -4,7 +4,7 @@ Summary: Define authored, derived, cooked, and runtime asset-data ownership and 
 
 Modules: Engine, RenderCore, DerivedDataCache, StaticMeshBuild, TextureBuild, AssetForgeBuiltins
 
-Last reviewed: 2026-09-15
+Last reviewed: 2026-09-18
 
 Durin separates asset identity, authoring input, rebuildable derived data, and
 deployable runtime data. File suffixes describe those lifecycle contracts, not
@@ -23,8 +23,15 @@ Old Cook outputs are disposable and must be regenerated from current content.
 ## Import metadata publication
 
 Importers normalize detached `FAssetImportDataState::SourceData` and call the
-state's `Validate` before publication. StaticMesh and VolumeTexture state
-validation includes the base schema and their family-specific constraints.
+state's `Validate` before publication. Common source, source-list and base-state
+validation return `FAssetImportDataResult`, owning source index, role, hint, hash,
+bounds and schema context. `InspectAssetImportInfo` returns the same typed contract
+and publishes output only after validation. Object and family-specific validation
+return the same contract. StaticMesh and VolumeTexture validate the base schema
+first, then retain module-owned axis, source-role or atlas causes through
+`IAssetImportDataCause`; empty-state behavior is unchanged. Axis validation returns
+`FStaticMeshImportSettingsResult` with the rejected axis combination. Consumers
+format with `FormatAssetImportDataError` at pending presentation contracts.
 `DAssetImportData::SetState` and its family-specific setters require this validated
 state, return void, and only install fields and notify compilation changes.
 Invalid external input is reported before calling the setter; object `Validate`
@@ -120,6 +127,12 @@ hint is instead an optional explicitly based asset-relative,
 project-relative, or absolute physical path used only by explicit Reimport.
 Neither kind identifies a DDC key, `.bin` object, `.dbulk` file, or
 byte offset, and asset paths and source hints are not interchangeable.
+`MakeSourceHint` and `ResolveSourceHint` return `FSourceHintResult` with owned
+input/package/project paths, base, operation and filesystem error context. Failed
+calls clear the string output as before; classification publishes its selected
+base before validating the candidate. Filesystem conversion stops at its first
+failure, retaining the failing path category. Presentation uses
+`FormatSourceHintError`.
 
 ## Runtime Data Domain
 
@@ -245,7 +258,7 @@ changing authored bytes, source residency, render revision or dirty state. Only
 pending source mutations require a selected wait before cook capture. See
 [Asset Compilation](AssetCompilation.md#staticmesh-completion) for bounds,
 publication and observational diagnostics. StaticMesh keys are editor-only Engine-private values; operation
-results carry key, origin, descriptor, timings, payload bytes, and bounded
+results carry key, origin, descriptor, timings, payload bytes, and structured
 persistence diagnostics without copying them onto `DStaticMesh` or `DBodySetup`.
 Metadata-only warm loads do not read authored geometry; a miss acquires an
 immutable decoded geometry handle before calling the recipe. Fresh source
@@ -306,6 +319,21 @@ supported beyond the traditional Windows `MAX_PATH` boundary under the
 Owners validate reserved fields, versions, declared sizes, allocation limits,
 structural invariants, and checksums before publishing data. A cache write failure does not
 invalidate a complete in-memory build result.
+Engine's shared cache adapter retains unsuccessful read and write results,
+including the cache status, alongside the logical key and requested value bound.
+Each operation resets the previous cause and measures cache-call duration
+separately. It stores no additional message field. Texture payload rejection
+retains decode/encode classification and the complete Archive failure; static-mesh
+codecs retain their family-owned cause. `FAssetCacheDiagnostic` exposes Engine-owned
+classification and opaque cache identity while retaining underlying cache outcomes.
+StaticMesh products transport render/collision read/write and codec causes through
+compilation and synchronous results. Texture2D, TextureCube and VolumeTexture
+products retain read/write causes in `FAssetCacheDiagnostics`; Texture2D worker
+results transport those values without flattening them. Texture2D terminal
+callbacks also retain available cache diagnostics for success and application
+rejection; cache failure remains independent of compilation disposition. Formatting occurs at
+presentation using bounded formatters. Underlying cache and Archive diagnostic
+contracts remain pending migrations.
 
 For Texture2D/TextureCube/VolumeTexture, Engine validates cached PlatformData
 through the canonical serializer; other build families validate through their
@@ -559,13 +587,160 @@ and detached outputs; it excludes temporary codec/compiler buffers and ordinary
 loader/resource allocations. Shader identity evaluation separately caps total source bytes at 512 MiB and checks
 cancellation between directory entries, read chunks, and library requests.
 
+Cook contributor registration returns `FCookContributorRegistrationResult`,
+with success derived from its error code and the new handle exposed separately.
+Failures distinguish class/name/callback/version requirements and duplicate class
+routes, retaining contributor name, qualified class name and version context.
+Engine family batch registration returns the first typed failure and removes only
+handles added by that batch. Existing caller-owned handles remain unchanged.
+
+Cook input read failures retain `FCookInputFailure` through
+`FAssetResult::CookInputCause`. Cancellation, input write conflicts, file IO,
+file/aggregate byte and package-count limits, unknown packages, undeclared
+values and missing readers have typed codes with owned identities and limits.
+File failures retain the full IO operation, native error, path, offset and size.
+Declaration validation uses distinct count, name, duplicate, package, external
+file, value, retained-storage and reserved-kind errors. These own the declaring
+package, kind/name, file and applicable byte/count bounds. Invalid package paths
+retain their complete `FObjectError`; payload-shape rejection remains separate
+from path parsing. Declaration failure prevents contributor execution and output
+publication, while an earlier retained cause remains valid across later runs.
+Dependency discovery has no string-based failure entrypoint. Root counts and
+classes, runtime edge limits, empty runtime selections, Bulk size/digest mismatch,
+schema availability, schema depth/field/type/encoding limits and retained schema
+or dependency storage all produce typed input causes. Schema failures retain
+class/member identities and limits; Bulk failures retain expected and actual
+sizes and digests. Reclassifying a missing reference as MissingDependency keeps
+the complete underlying asset cause. Projection disposition and the first input
+failure remain independent of diagnostic formatting.
+
+
+The pending asset-result adapter formats explicitly and preserves the existing
+classification; discovery retains its first failure and independent input status.
+File reads publish bytes only after every chunk succeeds; failed reads leave the
+output empty. A context with no reader also clears output before rejecting it.
+
+Cook dependency record encoding and decoding return `FCookDependencyCodecResult`.
+Failures retain typed categories, owned kind/name identities, record indices,
+limits and remaining-byte context where applicable. Both APIs clear outputs on
+failure and preserve canonical ordering and byte framing. Fingerprinting directly
+returns the codec result and clears the fingerprint on failure. No string overload
+remains on these APIs.
+
+Dependency graph initialization and expansion return `FCookDependencyGraphResult`,
+retaining package/dependency identities, conflicting record identities, aggregate
+counts and nested codec causes. Failed initialization clears previously prepared
+nodes; failed expansion clears output records. Discovery converts graph failures
+with `ToAssetResult`, retaining an owned `CookDependencyCause` including nested
+codec context. The adapter preserves the current CorruptFile classification and
+default disposition; success carries no cause. Pending asset adapters and run presentation format explicitly at their boundaries.
+
+Cook state encoding and decoding return `FCookStateResult`. They retain typed
+header/entry/size failures and complete nested dependency codec results, with
+package path and entry index on decode. Dependency framing failures remain
+separate from payload decoding failures. Rejections clear byte/state outputs;
+success publishes only the completed candidate. Output-store publication retains
+the complete state cause.
+
+Cook manifest encoding and decoding return `FCookManifestResult` with typed
+failure categories and owned entry paths, record offsets/indices, size/checksum
+values and target context where applicable. Failed encoding clears the byte
+output; failed decoding resets the manifest and never publishes partial entries.
+Encoding still validates its candidate through decoding before publication.
+Wire bytes remain unchanged. Store publication retains the complete manifest cause.
+
+`ResolveCookedPackagePath` and `ResolveCookedCompanionPath` return
+`FCookedPathResult`, distinguishing root, virtual path, mount, normalization,
+extension and containment failures. Results own their root and path context;
+failed resolution clears the output path. The migrated APIs expose no string
+error outputs. Output-store validation retains the typed path cause.
+
+`ValidateCookOutputRoot` returns `FCookOutputRootResult` and performs no writes.
+Its error distinguishes absolute-path requirements, filesystem inspection and
+canonicalization, authored-tree overlap, entry bounds, and alias escape. Results
+own output/related/resolved paths, system error codes, and applicable counts.
+The store retains the typed root cause; the pending coordinator contract formats
+explicitly at its boundary; the
+command host formats only when reporting validation failure.
+
 `FCookContext` owns pending package buffers and target settings, without a disk
-output root. `TakeSavePlans` consumes those buffers and returns canonical detached
-plans; failure consumes the pending work and leaves the result empty. Direct
+output root. Its `AddPackage` overloads return `FCookPlanResult`, distinguishing
+invalid path/source identity, empty bytes, duplicate path, invalid package and
+projection failure. Errors retain the virtual path and complete serialization
+result for projection failures; admission failure publishes no plan.
+Family contribution returns `FCookContributionResult`, retaining object/virtual
+paths, target settings, material revision and nested plan causes. Target, missing
+derived state, stale material revision/contract/dependencies and unsupported
+classes have distinct errors. The registration callback uses `ToAssetResult` to
+retain the complete owned `CookContributionCause`; only that pending framework
+text adapter formats the failure. Family interfaces expose no string overload.
+Engine registration callbacks also retain typed authoring-only, class mismatch,
+pending source mutation and missing recipe/shader-input failures. Class failures
+own expected/actual identities; dependency failures own provider and package
+identities. Their asset adapters retain the existing UnsupportedProperty,
+TypeMismatch or InUse classification. The coordinator retains the complete
+`ContributionCause`, package and contributor identity before formatting the
+run presentation. Starting another run clears this prior failure state.
+Coordinator capture failures retain `FCookCaptureResult` in `CaptureCause`.
+Finalization errors own the complete `FCookPlanError`, including nested asset or
+path-resolution causes; successful finalization with an unexpected plan count
+retains actual and expected counts instead. Both carry package and contributor
+identity. Failed capture never reaches output publication; later runs reset the
+cause without invalidating copies retained by callers. Formatting remains at the
+run presentation boundary.
+`FCookRunResult::Error` uses `ECookRunError`; its boolean success depends only
+on `None`. Run disposition remains in `Status`, while `bDryRun` records request
+mode separately. The coordinator writes typed codes for every terminal path.
+`CookRunCodeName` preserves command/JSON code names, including successful
+`dry-run` versus `succeeded`; no string code remains in the run result. Per-package
+results also store no code or diagnostic text: command/JSON uses
+`CookPackageStatusName` and `FormatCookPackageResult` with the structured status,
+while package identity, contributor, stage and byte counts remain independent.
+`FCookRunResult` stores no
+diagnostic text; `FormatCookRunError` formats codes, owned identities, counts and
+nested causes at command and test presentation boundaries. Fingerprint failures
+retain their codec cause; output-budget failures retain requested package/bulk
+bytes, retained bytes and the maximum. Failure injection captures stage/index
+and at most 2048 bytes of external provider text.
+
+Run preflight retains complete output-root, project-settings and default-level
+path failures in `OutputRootCause`, `SettingsCause` and `DefaultLevelCause`.
+Shader library failures retain `ShaderCause` for both failure and cancellation
+outcomes. These owned causes survive formatting at the run presentation boundary and
+are reset with the rest of the result at the start of each run. Project settings
+still expose their existing typed-code/text result while their owner is pending
+migration; Cook does not reconstruct or classify that text.
+
+
+
+`AddRawPackage` uses the same typed result, retaining package/segment byte counts
+for empty payloads and the segment size/limit for oversized segments; raw
+admission failures also leave pending plans unchanged. `TakeSavePlans` consumes
+those buffers and returns canonical detached plans with `FCookPlanResult`. Invalid targets retain platform/profile, package
+canonicalization retains the complete asset cause, and path resolution retains
+the owned registry resolution result. Duplicates after canonicalization have a
+distinct code. Failure consumes pending work and leaves the output empty. Direct
 family callers use `PublishCookContext(Context, OutputRoot)`; production uses the
-coordinator. Both publish through the same output store. The C++ retained-byte
+coordinator. Direct publication returns `FCookContextPublishResult`, distinguishing
+finalization from publication failure while retaining the output root and complete
+nested plan or store result. It has no string output parameter; the formatter
+renders nested causes only at presentation. Both publish
+through the same output store. The C++ retained-byte
 metric is `PeakRetainedBytes`; JSON schema v1 keeps `peakCapturedBytes` and the
 retired `rangeReadCount` field (always zero) for compatibility.
+
+`FCookPublishResult` retains typed root/path/package/manifest/state causes when
+those boundaries reject publication. `ValidationCause` retains request/plan,
+opaque-segment, package-identity, raw-bulk-closure and auxiliary-output categories
+with owned root/path, index and request target context. Rejection precedes output
+creation. `OperationCause` separately retains
+filesystem/cancellation operation classification, stage, owned path and available
+system error code. `FCookPublishResult` has no engine-owned diagnostic text;
+success derives from `ECookPublishError::None`. Caller-injected text is held only
+in `InjectionCause`, bounded to 2048 bytes with stage/index context. The coordinator
+preserves the complete failed result in `FCookRunResult::PublicationCause` before
+presentation formatting. Status and transaction timing remain independent
+from the cause; existing cleanup and manifest-last publication order are unchanged.
 
 All save plans are detached before `ICookOutputStore` opens its transaction.
 The local loose store enforces one writer per output root, stages and validates

@@ -114,16 +114,17 @@ namespace StaticMeshBuildTestSupport
 			}
 			std::string Error;
 			FStaticMeshSource Source;
-			ASSERT_TRUE(Source.Initialize(std::move(Input), Error)) << Error;
-			auto Decoded = Source.AcquireGeometry(Error);
-			ASSERT_TRUE(Error.empty()) << Error;
+			ASSERT_TRUE(Source.Initialize(std::move(Input)));
+			const auto Read = Source.AcquireGeometry();
+			ASSERT_TRUE(Read);
+			auto Decoded = Read.Geometry;
 			EXPECT_EQ(Decoded->Meshes.front().Positions.size(), Triangles * 3);
-			EXPECT_EQ(Source.AcquireGeometry(Error), Decoded);
+			EXPECT_EQ(Source.AcquireGeometry().Geometry, Decoded);
 			EXPECT_EQ(Source.GetGeometryBulk().GetPayloadSize(), Triangles == 1 ? 195u : 4800147u);
 			EXPECT_EQ(Source.GetIdentity().HashLow, Triangles == 1 ? 4982799754724307949ull : 17565407108445809865ull);
 			EXPECT_EQ(Source.GetIdentity().HashHigh, Triangles == 1 ? 10298414200299834774ull : 892654471079648671ull);
 			FStaticMeshBuildResult Product;
-			ASSERT_TRUE(BuildStaticMeshDerivedData({.Source = Source, .bPersistDerivedData = false}, Product, Error)) << Error;
+			ASSERT_TRUE(BuildStaticMeshDerivedData({.Source = Source, .bPersistDerivedData = false}, Product)) << Error;
 			const uint64 Retained = Mesh.Positions.capacity() * sizeof(FVector3f)
 				+ Mesh.Indices.capacity() * sizeof(uint32);
 			if (bMeasure) std::cout << "residency_fixture triangles=" << Triangles << " retained_array_capacity_bytes=" << Retained
@@ -163,12 +164,12 @@ namespace StaticMeshBuildTestSupport
 			}
 			std::string Error;
 			FStaticMeshSource Source;
-			ASSERT_TRUE(Source.Initialize(std::move(Geometry), Error)) << Error;
+			ASSERT_TRUE(Source.Initialize(std::move(Geometry)));
 			Source.ReleaseGeometry();
 			const auto Start = std::chrono::steady_clock::now();
 			FStaticMeshBuildResult Render;
 			ASSERT_TRUE(BuildStaticMeshDerivedData(
-				{.Source = Source, .bPersistDerivedData = false}, Render, Error)) << Error;
+				{.Source = Source, .bPersistDerivedData = false}, Render)) << Error;
 			ASSERT_EQ(Render.Origin, EStaticMeshBuildOrigin::Rebuilt);
 			const auto RenderEnd = std::chrono::steady_clock::now();
 			ASSERT_NE(Render.RenderData, nullptr);
@@ -180,7 +181,7 @@ namespace StaticMeshBuildTestSupport
 			ASSERT_TRUE(BuildStaticMeshCollisionDerivedData(*Render.RenderData,
 				EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
 				EBodySetupCollisionQueryPolicy::SimpleAndComplex,
-				Collision, Error, false)) << Error;
+				Collision, false)) << Error;
 			ASSERT_TRUE(Collision.Complex);
 			const auto CollisionEnd = std::chrono::steady_clock::now();
 			const auto Nanoseconds = [](auto Duration) {
@@ -219,7 +220,7 @@ namespace StaticMeshBuildTestSupport
 		}
 		std::string Error;
 		FStaticMeshSource Source;
-		ASSERT_TRUE(Source.Initialize(std::move(Geometry), Error));
+		ASSERT_TRUE(Source.Initialize(std::move(Geometry)));
 		Source.ReleaseGeometry();
 		auto* Mesh = NewObject<DStaticMesh>(nullptr, FName("CompleteCandidateTiming"));
 		auto* Body = NewObject<DBodySetup>(Mesh, FName("BodySetup"));
@@ -233,7 +234,7 @@ namespace StaticMeshBuildTestSupport
 		const auto Start = std::chrono::steady_clock::now();
 		auto LastCheckpoint = Start;
 		uint64 MaximumGapNanoseconds = 0;
-		const auto Outcome = BuildStaticMeshAuthoredCandidate(std::move(Request), Candidate, Error,
+		const auto Outcome = BuildStaticMeshAuthoredCandidate(std::move(Request), Candidate,
 			{.ShouldCancel = [&] {
 				const auto Now = std::chrono::steady_clock::now();
 				MaximumGapNanoseconds = std::max(MaximumGapNanoseconds, static_cast<uint64>(
@@ -242,10 +243,10 @@ namespace StaticMeshBuildTestSupport
 				return false;
 			}, .Metrics = &Metrics});
 		const auto Built = std::chrono::steady_clock::now();
-		ASSERT_TRUE(Outcome) << Error;
+		ASSERT_TRUE(Outcome) << FormatStaticMeshAuthoredBuildError(Outcome.Error);
 		ASSERT_NE(Candidate, nullptr);
 		const auto Ray = Candidate->GetRenderData()->LODResources.front().RayQueryAcceleration;
-		ASSERT_TRUE(ApplyStaticMeshAuthoredCandidate(*Mesh, std::move(Candidate), Snapshot, Error)) << Error;
+		ASSERT_TRUE(ApplyStaticMeshAuthoredCandidate(*Mesh, std::move(Candidate), Snapshot)) << Error;
 		const auto Published = std::chrono::steady_clock::now();
 		EXPECT_EQ(Mesh->GetRenderData()->LODResources.front().RayQueryAcceleration, Ray);
 		EXPECT_FALSE(Source.IsGeometryResident());
@@ -266,7 +267,7 @@ namespace StaticMeshBuildTestSupport
 			std::chrono::steady_clock::time_point RequestedAt;
 			std::unique_ptr<FStaticMeshAuthoredCandidate> CancelledCandidate;
 			const auto Cancelled = BuildStaticMeshAuthoredCandidate(std::move(CancelRequest),
-				CancelledCandidate, Error, {.ShouldCancel = [&] {
+				CancelledCandidate, {.ShouldCancel = [&] {
 					if (bRequested) return true;
 					if (++Checks == StopAfter)
 					{
@@ -276,7 +277,7 @@ namespace StaticMeshBuildTestSupport
 					return false;
 				}});
 			ASSERT_TRUE(bRequested);
-			EXPECT_EQ(Cancelled.Status, EStaticMeshBuildStatus::Cancelled);
+			EXPECT_EQ(Cancelled.GetStatus(), EStaticMeshBuildStatus::Cancelled);
 			EXPECT_FALSE(CancelledCandidate);
 			MaximumCancellationNanoseconds = std::max(MaximumCancellationNanoseconds,
 				static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -306,7 +307,7 @@ namespace StaticMeshBuildTestSupport
 		}
 		FStaticMeshSource Source;
 		std::string Error;
-		ASSERT_TRUE(Source.Initialize(std::move(Geometry), Error));
+		ASSERT_TRUE(Source.Initialize(std::move(Geometry)));
 		Source.ReleaseGeometry();
 #if defined(__APPLE__)
 		std::atomic<size_t> SampledAllocationPeak = 0;
@@ -329,7 +330,7 @@ namespace StaticMeshBuildTestSupport
 			auto* Body = NewObject<DBodySetup>(Meshes[Index], FName("BodySetup"));
 			Body->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
 			ASSERT_TRUE(Meshes[Index]->SetBodySetup(Body));
-			ASSERT_TRUE(SubmitStaticMeshCompilation(*Meshes[Index], {.Source = Source, .bPersistDerivedData = false}, Error,
+			ASSERT_TRUE(SubmitStaticMeshCompilation(*Meshes[Index], {.Source = Source, .bPersistDerivedData = false},
 				[&, Index](const auto& Result) { EXPECT_TRUE(IsInGameThread()); Results[Index] = Result; })) << Error;
 		}
 		ASSERT_TRUE(Barrier.Wait(2, std::chrono::seconds(bMeasure ? 30 : 5)));

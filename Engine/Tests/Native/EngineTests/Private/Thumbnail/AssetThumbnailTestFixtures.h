@@ -461,10 +461,10 @@ namespace Durin::Tests
 			1, 2, 3,
 			2, 0, 3};
 		Mesh.SourceMaterialIndex = 0;
-		if (!BuildStaticMeshSynchronously(
-				*OutFixtures.StaticMesh, std::move(ImportedMesh),
-				OutError))
+		if (const auto Built = BuildStaticMeshSynchronously(
+				*OutFixtures.StaticMesh, std::move(ImportedMesh)); !Built)
 		{
+			OutError = FormatStaticMeshSynchronousError(Built.Error);
 			return false;
 		}
 		OutFixtures.StaticMesh->SetMaterialSlotDefaultMaterial(0, OutFixtures.Material);

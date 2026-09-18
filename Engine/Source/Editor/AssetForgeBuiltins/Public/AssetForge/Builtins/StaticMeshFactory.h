@@ -5,11 +5,22 @@
 #include "Factories/Factory.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshCompilation.h"
+#include "AssetForge/Builtins/StaticMeshImport.h"
+#include <variant>
 
 #include "StaticMeshFactory.gen.h"
 
 namespace Durin::AssetForge::Builtins
 {
+	class ASSETFORGEBUILTINS_API FStaticMeshFactoryError final : public IFactoryErrorDetail
+	{
+	public:
+		explicit FStaticMeshFactoryError(FStaticMeshCompilationDiagnostic Diagnostic) : Cause(std::move(Diagnostic)) {}
+		auto Format() const -> std::string override;
+		explicit FStaticMeshFactoryError(FStaticMeshRebuildError Error) : Cause(std::move(Error)) {}
+		std::variant<FStaticMeshRebuildError, FStaticMeshCompilationDiagnostic> Cause;
+	};
+
 	DCLASS()
 	class DStaticMeshFactory final : public DFactory, public FReimportHandler
 	{

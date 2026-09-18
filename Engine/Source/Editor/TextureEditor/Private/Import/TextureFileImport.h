@@ -49,7 +49,8 @@ namespace Durin::Editor::Texture
 		struct FPreparation
 		{
 			std::shared_ptr<AssetForge::Builtins::FPreparedTexture2DImport> Data;
-			std::string Error;
+			std::optional<AssetForge::Builtins::FTexture2DPreparationError> Cause;
+			std::string ExceptionDiagnostic;
 			double PreparationMilliseconds = 0;
 		};
 		std::future<FPreparation> Preparation;

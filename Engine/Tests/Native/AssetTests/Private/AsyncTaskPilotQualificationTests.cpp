@@ -307,13 +307,12 @@ namespace
 			}
 			uint32 Completions = 0;
 			bool Success = true;
-			std::string Error;
 			FTextureBatchDrain Drain;
 			const uint64 Start = StartMeasurement();
 			for (uint32 Index = 0; Index < BatchSize; ++Index)
 			{
-				ASSERT_TRUE(SubmitTexture2DCompilation(*Textures[Index], std::move(Requests[Index]), Error,
-					[&](FTexture2DCompilationResult Result) { ++Completions; Success &= Result.Succeeded(); })) << Error;
+				ASSERT_TRUE(SubmitTexture2DCompilation(*Textures[Index], std::move(Requests[Index]),
+					[&](FTexture2DCompilationResult Result) { ++Completions; Success &= Result.Succeeded(); }));
 			}
 			Texture.PeakDeclaredInFlightBytes = std::max(Texture.PeakDeclaredInFlightBytes,
 				GetTexture2DCompilationManagerDiagnostics().InFlightEstimatedBytes);

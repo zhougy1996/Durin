@@ -14,6 +14,38 @@ namespace Durin::RoadNet
 	inline constexpr double RoadEndpointTolerance = 1.e-4;
 	inline constexpr double RoadCoordinateLimit = 1.e7;
 
+	enum class ERoadValidationEntity : uint8 { None, Node, Road, Lane, Junction, Connection, CurvePoint };
+	enum class ERoadDefinitionError : uint8
+	{
+		None, InvalidId, DuplicateId, InvalidCurveShape, InvalidCurveCoordinates,
+		InvalidCurveMode, DegenerateCurve, InvalidPlanet, InvalidNodePosition,
+		MissingEndpoint, EndpointMismatch, InvalidRoadSpeed, MissingSections,
+		StationCoverage, InvalidSection, DuplicateLaneIndex, InvalidLane,
+		InvalidTransition, MissingContinuity, MissingJunctionNode, MissingConnectionLane,
+		InvalidTerminalFlow, ConnectorEndpointMismatch, PlanetChanged,
+	};
+	struct FRoadDefinitionError
+	{
+		ERoadDefinitionError Code = ERoadDefinitionError::None;
+		ERoadValidationEntity Entity = ERoadValidationEntity::None;
+		FGuid Id;
+		FGuid FromId;
+		FGuid ToId;
+		size_t SectionIndex = 0;
+		int32 LaneIndex = 0;
+		double Length = 0;
+		std::optional<FSplinePoint> Point;
+		std::optional<FRoadPlanet> Planet;
+		std::optional<FRoadPlanet> ExpectedPlanet;
+	};
+	struct FRoadDefinitionResult
+	{
+		FRoadDefinitionError Error;
+		auto Succeeded() const -> bool { return Error.Code == ERoadDefinitionError::None; }
+		explicit operator bool() const { return Succeeded(); }
+	};
+	ROADWEAVER_API auto FormatRoadDefinitionError(const FRoadDefinitionError& Error) -> std::string;
+
 	// Borrows lane ownership from a definition; invalidated when that value changes.
 	struct FLaneOwnership
 	{
@@ -50,15 +82,14 @@ namespace Durin::RoadNet
 		// Explicit edit: publish final fitted geometry and reconciled stationing together.
 		ROADWEAVER_API auto FitToSurface(const FRoadSurface& Operation, std::string& OutError) -> bool;
 		ROADWEAVER_API auto PostLoad() -> void override;
-		ROADWEAVER_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal,
-			std::string& OutError) -> bool override;
+		ROADWEAVER_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal) -> FObjectValidationResult override;
 		ROADWEAVER_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 		// Owning-thread observers run after publication; reentrant mutations are rejected.
 		ROADWEAVER_API auto AddMutationListener(std::function<void()> Listener) -> uint64;
 		ROADWEAVER_API auto RemoveMutationListener(uint64 Id) -> void;
 
 	private:
-		auto ValidateCandidate(const FDefinition& Candidate, std::string& OutError) const -> bool;
+		auto ValidateCandidate(const FDefinition& Candidate) const -> FRoadDefinitionResult;
 		auto NotifyMutation() -> void;
 		std::map<uint64, std::function<void()>> Listeners;
 		uint64 NextListenerId = 1;
@@ -73,5 +104,5 @@ namespace Durin::RoadNet
 
 	// Validates stable identities, topology references, and finite authored dimensions.
 	ROADWEAVER_API auto ValidateDefinition(
-		const FDefinition& Definition, std::string& OutError) -> bool;
+		const FDefinition& Definition) -> FRoadDefinitionResult;
 } // namespace Durin::RoadNet

@@ -6,7 +6,7 @@ Modules: Engine, MaterialEditor, Renderer
 ## Error ownership
 
 `FMaterialError` carries a discriminated error code. Expression, function, IR,
-property, cooked payload, compilation, and render validation failures have separate
+property, instance storage, cooked payload, compilation, and render validation failures have separate
 error domains. Existing layout and parameter validation codes are reused.
 An absent code, or an existing domain's `None`, means success.
 
@@ -24,7 +24,10 @@ overload returns the full source-generation result.
 
 Engine-owned failures must not carry user-facing prose. Preserve parameter identities, expected/actual value types, numeric indices,
 archive field paths, and underlying archive, bulk-read, and package-resource status
-as typed context.
+as typed context. Cooked-program bulk-read rejection additionally owns the complete
+`FPackageResourceReadError` in `ResourceCause`, preserving path, range, digest,
+stream/task and system-error context without retaining the read buffer.
+`FromBulkRead` copies that cause before the temporary read result is released.
 Do not classify or branch on formatted text.
 
 `FormatMaterialError` is the presentation entry point for editor UI, logging,
@@ -36,9 +39,33 @@ Shader compiler and shader-environment providers can return opaque external
 diagnostics. `FMaterialError::FromExternal` preserves a bounded copy alongside a
 provider-specific error code. This is not a general string-error constructor.
 
-Object graph loading, property editing, archive serialization, and Cook framework
-callbacks retain their existing signatures. Their material-side adapters format
-structured errors at the boundary; they do not require a framework-wide API change.
+Object graph admission and object-aware archive serialization retain
+`FMaterialObjectValidationCause` through `FObjectValidationResult`. Material instance
+storage distinguishes incomplete drafts, invalid or duplicate parameter IDs, and
+invalid sampling policies; failures retain the parameter ID and array index.
+Package capture preserves the same cause after source repair. Object property-edit
+hooks retain `FMaterialError` in `FEnginePropertyEditCause`; pending editor results,
+plain Archive and Cook interfaces format explicitly at their string boundaries.
+
+Base-material `SetParameterValue` returns `FMaterialOperationResult`. Invalid or
+missing parameter IDs, definition validation, missing authored owners and owner
+mismatches preserve parameter identity and fail before publishing values. Editor
+parameter sessions retain this error through apply and cancellation results.
+Instance parameter mutation also returns `FMaterialOperationResult`, separating
+missing definitions, declaration/override type conflicts, unreachable parameters
+and invalid sampling policies. Type failures retain expected/actual parameter
+types and all failures retain the requested parameter ID. Name-based setters return the same typed result and retain the requested name,
+lookup/type failures and underlying mutation cause. Texture resolution failures
+retain the parameter ID. Synchronous custom transactions still adapt to boolean
+contracts.
+Scene import formats the instance failure explicitly at its import diagnostic
+boundary.
+
+Parameter-expression definition writes return the same typed result. They report
+expected/actual definition types, retain parameter-validation errors and reject
+unsupported expression owners before updating metadata or values. Shared graph
+parameter resolution owns this underlying cause; widgets format only at their
+error presentation boundaries.
 
 ## Validation
 

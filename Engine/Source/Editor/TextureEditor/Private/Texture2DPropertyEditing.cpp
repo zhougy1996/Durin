@@ -28,12 +28,23 @@ namespace Durin::Editor::Texture
 
 		auto PrepareTexture2DPropertyEdit(
 			DObject& Object,
-			FPropertyEditProposal& Proposal,
-			std::string& OutError) -> bool
+			FPropertyEditProposal& Proposal) -> FObjectValidationResult
 		{
 			DTexture2D* Texture = Cast<DTexture2D>(&Object);
 			if (!Texture || !Proposal.MemberProperty
-				|| !Proposal.DraftRootProperty || !Proposal.DraftRootContainer) return true;
+				|| !Proposal.DraftRootProperty || !Proposal.DraftRootContainer) return {};
+
+			auto Reject = [&](FTexture2DPropertyEditCause Cause) {
+				return RejectPropertyEdit(Object, Proposal, EPropertyEditRejection::ModuleRejected,
+					std::make_shared<FTexture2DPropertyEditCause>(std::move(Cause)));
+			};
+			auto RejectMetadata = [&](DurinCodeGen::EPropertyGenFlags Expected) {
+				FTexture2DPropertyEditCause Cause;
+				Cause.Code = ETexture2DPropertyEditError::Metadata;
+				Cause.ActualKind = static_cast<uint64>(Proposal.DraftRootProperty->GetKind());
+				Cause.ExpectedKind = static_cast<uint64>(Expected);
+				return Reject(std::move(Cause));
+			};
 
 			FTexture2DBuildSettings Settings =
 				MakeTexture2DBuildSettings(*Texture);
@@ -42,8 +53,7 @@ namespace Durin::Editor::Texture
 			{
 				if (Proposal.DraftRootProperty->GetKind() != DurinCodeGen::EPropertyGenFlags::Enum)
 				{
-					OutError = "The texture usage metadata is unavailable.";
-					return false;
+					return RejectMetadata(DurinCodeGen::EPropertyGenFlags::Enum);
 				}
 				Settings.Usage = static_cast<ETextureUsage>(
 					static_cast<const FEnumProperty*>(Proposal.DraftRootProperty)->GetValueAsUInt64(
@@ -54,8 +64,7 @@ namespace Durin::Editor::Texture
 			{
 				if (Proposal.DraftRootProperty->GetKind() != DurinCodeGen::EPropertyGenFlags::Bool)
 				{
-					OutError = "The texture color-space metadata is unavailable.";
-					return false;
+					return RejectMetadata(DurinCodeGen::EPropertyGenFlags::Bool);
 				}
 				Settings.bSRGB = *Proposal.DraftRootProperty->ContainerPtrToValuePtr<bool>(
 					Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex);
@@ -64,8 +73,7 @@ namespace Durin::Editor::Texture
 			{
 				if (Proposal.DraftRootProperty->GetKind() != DurinCodeGen::EPropertyGenFlags::UInt32)
 				{
-					OutError = "The texture maximum-resolution metadata is unavailable.";
-					return false;
+					return RejectMetadata(DurinCodeGen::EPropertyGenFlags::UInt32);
 				}
 				Settings.MaxResolution = *Proposal.DraftRootProperty->ContainerPtrToValuePtr<uint32>(
 					Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex);
@@ -74,8 +82,7 @@ namespace Durin::Editor::Texture
 			{
 				if (Proposal.DraftRootProperty->GetKind() != DurinCodeGen::EPropertyGenFlags::Enum)
 				{
-					OutError = "The texture compression-quality metadata is unavailable.";
-					return false;
+					return RejectMetadata(DurinCodeGen::EPropertyGenFlags::Enum);
 				}
 				Settings.CompressionQuality = static_cast<ETextureCompressionQuality>(
 					static_cast<const FEnumProperty*>(Proposal.DraftRootProperty)->GetValueAsUInt64(
@@ -85,8 +92,7 @@ namespace Durin::Editor::Texture
 			{
 				if (Proposal.DraftRootProperty->GetKind() != DurinCodeGen::EPropertyGenFlags::Enum)
 				{
-					OutError = "The texture alpha-mip-mode metadata is unavailable.";
-					return false;
+					return RejectMetadata(DurinCodeGen::EPropertyGenFlags::Enum);
 				}
 				Settings.AlphaMipMode = static_cast<ETextureAlphaMipMode>(
 					static_cast<const FEnumProperty*>(Proposal.DraftRootProperty)->GetValueAsUInt64(
@@ -96,58 +102,72 @@ namespace Durin::Editor::Texture
 			{
 				if (Proposal.DraftRootProperty->GetKind() != DurinCodeGen::EPropertyGenFlags::Float)
 				{
-					OutError = "The texture alpha-coverage-threshold metadata is unavailable.";
-					return false;
+					return RejectMetadata(DurinCodeGen::EPropertyGenFlags::Float);
 				}
 				Settings.AlphaCoverageThreshold =
 					*Proposal.DraftRootProperty->ContainerPtrToValuePtr<float>(
 						Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex);
 			}
-			else return true;
+			else return {};
 
-			if (!ValidateTexture2DBuildSettings(Settings, OutError))
+			if (const auto Validation = ValidateTexture2DBuildSettings(Settings); !Validation)
 			{
-				OutError = "Texture2D property proposal contains invalid build settings: "
-					+ OutError;
-				return false;
+				FTexture2DPropertyEditCause Cause;
+				Cause.Code = ETexture2DPropertyEditError::Settings;
+				Cause.InputCause = Validation.Error;
+				return Reject(std::move(Cause));
 			}
 			if (Proposal.Origin != EPropertyChangeOrigin::Edit)
 			{
 				if (!Texture->GetPackage() || !Texture->GetSource().IsValid())
 				{
-					OutError = "Only packaged Texture2D assets with canonical imported pixels can rebuild.";
-					return false;
+					FTexture2DPropertyEditCause Cause;
+					Cause.Code = ETexture2DPropertyEditError::Source;
+					Cause.HasPackage = Texture->GetPackage() != nullptr;
+					Cause.HasSource = Texture->GetSource().IsValid();
+					return Reject(std::move(Cause));
 				}
-				return BuildTexture2DSynchronously(*Texture, Texture->CreateBuildRequest(Settings), {
+				const auto Built = BuildTexture2DSynchronously(*Texture, Texture->CreateBuildRequest(Settings), {
 					.bMarkPackageDirty = true,
 					.bReportLoadMutation = false,
 					.bSourceDecoderInvoked = false,
-				}, OutError);
+				});
+				if (Built) return {};
+				FTexture2DPropertyEditCause Cause;
+				Cause.Code = ETexture2DPropertyEditError::Compilation;
+				Cause.CompilationCause = Built.Error;
+				return Reject(std::move(Cause));
 			}
 
 			const TWeakObjectPtr<DTexture2D> WeakTexture(Texture);
+			auto MakeDeferredResult = [ObjectPath = Object.GetObjectPath(),
+				PropertyName = Proposal.MemberProperty->NamePrivate.ToString()](
+				FTexture2DCompilationError Error) -> FObjectValidationResult {
+				if (!Error.HasError()) return {};
+				auto Cause = std::make_shared<FTexture2DPropertyEditCause>();
+				Cause->Code = ETexture2DPropertyEditError::Compilation;
+				Cause->CompilationCause = std::move(Error);
+				return {.Error = {.Code = EObjectValidationError::PropertyRejected,
+					.ObjectPath = ObjectPath, .PropertyReason = EPropertyEditRejection::ModuleRejected,
+					.PropertyName = PropertyName, .Cause = std::move(Cause)}};
+			};
 			if (!Proposal.Defer(
-				[WeakTexture, Settings](FPropertyEditDeferredCompletion Completion) {
+				[WeakTexture, Settings, MakeDeferredResult](FPropertyEditDeferredCompletion Completion) {
 					DTexture2D* LiveTexture = WeakTexture.Get();
 					if (!LiveTexture)
 					{
-						Completion(false, "The Texture2D property proposal target is unavailable.");
+						Completion(MakeDeferredResult({.Code = ETexture2DCompilationError::InvalidOwner}));
 						return FPropertyEditDeferredCancel{};
 					}
-					std::string Error;
 					const auto DeferredCompletion =
 						std::make_shared<FPropertyEditDeferredCompletion>(std::move(Completion));
-					if (!AssetForge::Builtins::RebuildTexture2DFromSource(
-						*LiveTexture,
-						Settings,
-						Error,
-						ETexture2DCompilationPriority::Interactive,
-						[DeferredCompletion](FTexture2DCompilationResult Result) {
-							(*DeferredCompletion)(
-								Result.Succeeded(), std::move(Result.Diagnostic));
-						}))
+					if (const auto Submitted = AssetForge::Builtins::RebuildTexture2DFromSource(
+						*LiveTexture, Settings, ETexture2DCompilationPriority::Interactive,
+						[DeferredCompletion, MakeDeferredResult](FTexture2DCompilationResult Result) {
+							(*DeferredCompletion)(MakeDeferredResult(std::move(Result.Error)));
+						}); !Submitted)
 					{
-						(*DeferredCompletion)(false, std::move(Error));
+						(*DeferredCompletion)(MakeDeferredResult(Submitted.Error));
 						return FPropertyEditDeferredCancel{};
 					}
 					return FPropertyEditDeferredCancel([WeakTexture] {
@@ -157,11 +177,30 @@ namespace Durin::Editor::Texture
 					});
 				}))
 			{
-				OutError = "Texture2D property proposal could not retain asynchronous validation.";
-				return false;
+				FTexture2DPropertyEditCause Cause;
+				Cause.Code = ETexture2DPropertyEditError::DeferredValidation;
+				return Reject(std::move(Cause));
 			}
-			return true;
+			return {};
 		}
+	}
+
+	auto FTexture2DPropertyEditCause::Format() const -> std::string
+	{
+		switch (Code)
+		{
+		case ETexture2DPropertyEditError::Metadata:
+			return std::format("Texture2D property metadata kind {} does not match {}.", ActualKind, ExpectedKind);
+		case ETexture2DPropertyEditError::Settings:
+			return InputCause ? FormatTexture2DInputError(*InputCause) : "Texture2D build settings are invalid.";
+		case ETexture2DPropertyEditError::Source:
+			return "Only packaged Texture2D assets with canonical imported pixels can rebuild.";
+		case ETexture2DPropertyEditError::Compilation:
+			return CompilationCause ? FormatTexture2DCompilationError(*CompilationCause) : "Texture2D compilation failed.";
+		case ETexture2DPropertyEditError::DeferredValidation:
+			return "Texture2D property proposal could not retain asynchronous validation.";
+		}
+		return "Unknown Texture2D property edit failure.";
 	}
 
 	auto RegisterTexture2DPropertyEditing() -> bool

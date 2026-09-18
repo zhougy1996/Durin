@@ -15,6 +15,7 @@ namespace Durin
 {
 	class DClass;
 	class DObject;
+	struct FAssetCompilingManagerInitializationResult;
 
 	struct FAssetCompileProcessParams
 	{
@@ -44,7 +45,6 @@ namespace Durin
 		bool bAcceptingRequests = false;
 		bool bShutdown = false;
 		std::vector<FAssetCompilerDiagnostics> Compilers;
-		std::vector<std::string> Messages;
 	};
 
 	struct FAssetPostCompileData
@@ -55,12 +55,21 @@ namespace Durin
 
 	DECLARE_MULTICAST_DELEGATE_OneParam(FAssetPostCompileEvent, const FAssetPostCompileData&)
 
+	enum class EAssetCompilerStartError : uint8 { None, SchedulerUnavailable, Undrained, TaskScopeUnavailable, StateUnavailable };
+	struct FAssetCompilerStartResult
+	{
+		EAssetCompilerStartError Error = EAssetCompilerStartError::None;
+		uint64 PendingRequests = 0;
+		explicit operator bool() const { return Error == EAssetCompilerStartError::None; }
+	};
+	ENGINE_API auto FormatAssetCompilerStartError(const FAssetCompilerStartResult& Result) -> std::string;
+
 	// Defines the lifecycle and dispatch contract for one typed asset compiler.
 	class IAssetCompilingManager
 	{
 	public:
 		virtual ~IAssetCompilingManager() = default;
-		virtual auto Start(std::string* OutError) -> bool = 0;
+		virtual auto Start() -> FAssetCompilerStartResult = 0;
 		virtual auto StopAdmission() -> void = 0;
 		virtual auto GetNumRemainingAssets() const -> uint64 = 0;
 		virtual auto ProcessAsyncTasks(const FAssetCompileProcessParams& Params)
@@ -102,10 +111,32 @@ namespace Durin
 		uint64 Generation = 0;
 
 		friend class FAssetCompilingManager;
-		friend ENGINE_API auto InitializeAssetCompilingManager() -> bool;
+		friend ENGINE_API auto InitializeAssetCompilingManager() -> FAssetCompilingManagerInitializationResult;
 	};
 
 	// Aggregates typed asset compilers and routes object operations by reflected class.
+	enum class EAssetCompilerRegistrationError : uint8 { None, InvalidRegistration, WrongThread, NotAccepting, DuplicateName, DuplicateClass, Start };
+	struct FAssetCompilerRegistrationError
+	{
+		EAssetCompilerRegistrationError Code = EAssetCompilerRegistrationError::None;
+		std::string CompilerName;
+		std::string AssetClass;
+		std::optional<FAssetCompilerStartResult> StartCause;
+	};
+	struct FAssetCompilerRegistrationResult
+	{
+		FAssetCompilerRegistrationHandle Handle;
+		FAssetCompilerRegistrationError Error;
+		explicit operator bool() const { return Error.Code == EAssetCompilerRegistrationError::None; }
+	};
+	ENGINE_API auto FormatAssetCompilerRegistrationError(const FAssetCompilerRegistrationError& Error) -> std::string;
+
+	struct FAssetCompilingManagerInitializationResult
+	{
+		FAssetCompilerRegistrationError Error;
+		explicit operator bool() const { return Error.Code == EAssetCompilerRegistrationError::None; }
+	};
+
 	class FAssetCompilingManager final
 	{
 	public:
@@ -116,8 +147,7 @@ namespace Durin
 		// GameThread only. Reset the handle outside compiler callbacks before module
 		// unload; reset stops admission, finishes compilation, and shuts down the provider.
 		ENGINE_API auto RegisterCompiler(
-			FAssetCompilingManagerRegistration Registration,
-			std::string* OutError = nullptr) -> FAssetCompilerRegistrationHandle;
+			FAssetCompilingManagerRegistration Registration) -> FAssetCompilerRegistrationResult;
 		ENGINE_API auto ProcessAsyncTasks(const FAssetCompileProcessParams& Params = {})
 			-> FAssetCompileProcessResult;
 		ENGINE_API auto GetNumRemainingAssets() const -> uint64;
@@ -139,9 +169,9 @@ namespace Durin
 		auto Unregister(FName CompilerName, uint64 Generation) -> void;
 
 		friend class FAssetCompilerRegistrationHandle;
-		friend ENGINE_API auto InitializeAssetCompilingManager() -> bool;
+		friend ENGINE_API auto InitializeAssetCompilingManager() -> FAssetCompilingManagerInitializationResult;
 	};
 
-	ENGINE_API auto InitializeAssetCompilingManager() -> bool;
+	ENGINE_API auto InitializeAssetCompilingManager() -> FAssetCompilingManagerInitializationResult;
 	ENGINE_API auto ShutdownAssetCompilingManager() -> void;
 }

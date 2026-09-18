@@ -243,19 +243,45 @@ namespace Durin::Editor
 			}
 		}
 
+		struct FProposedPropertyValueResult
+		{
+			std::optional<FPropertyValueDraftError> DraftCause;
+			std::optional<FPropertyEditValueError> ValidationCause;
+			std::optional<FPropertyContainerError> ArrayCause;
+			EContainerOpResult ContainerCause = EContainerOpResult::Success;
+			EPropertyChangeKind Operation{};
+			explicit operator bool() const { return !DraftCause && !ValidationCause && !ArrayCause && ContainerCause == EContainerOpResult::Success; }
+		};
+
+		auto FormatProposedPropertyValueResult(const FProposedPropertyValueResult& Result) -> std::string
+		{
+			if (Result.DraftCause) return FormatPropertyValueDraftError(*Result.DraftCause);
+			if (Result.ValidationCause) return FormatPropertyEditValueError(*Result.ValidationCause);
+			if (Result.ArrayCause) return FormatPropertyContainerError(*Result.ArrayCause);
+			if (Result.ContainerCause != EContainerOpResult::Success)
+				return std::format("Reflected map {} failed (result {}).",
+					Result.Operation == EPropertyChangeKind::MapInsert ? "insertion"
+					: Result.Operation == EPropertyChangeKind::MapRemove ? "removal" : "key rename",
+					static_cast<uint32>(Result.ContainerCause));
+			return {};
+		}
+
 		template<typename TWriteProposed>
 		auto CaptureProposedPropertyValue(const FPropertyEditTarget& Target,
-			TWriteProposed&& WriteProposed, FPropertyValueSnapshot& OutSnapshot, std::string* OutError) -> bool
+			TWriteProposed&& WriteProposed, FPropertyValueSnapshot& OutSnapshot) -> FProposedPropertyValueResult
 		{
-			FPropertyValueDraft Draft(Target, OutError);
-			if (!Draft.IsValid()) return false;
+			FPropertyValueDraft Draft(Target);
+			if (!Draft.IsValid()) return {.DraftCause = Draft.GetError()};
 			FResolvedPropertyValue DraftValue;
-			if (!Draft.Resolve(Target, DraftValue.Property, DraftValue.Container, DraftValue.ArrayIndex, OutError)) return false;
-			WriteProposed(DraftValue, &Draft);
-			if (!ValidatePropertyEditValue(
-				Draft.GetRootProperty(), Draft.GetRootContainer(), Draft.GetRootArrayIndex(), OutError)) return false;
-			const bool bCaptured = Draft.Capture(OutSnapshot, OutError);
-			return bCaptured;
+			if (auto Result = Draft.Resolve(Target, DraftValue.Property, DraftValue.Container, DraftValue.ArrayIndex); !Result)
+				return {.DraftCause = std::move(Result.Error)};
+			if (auto Written = WriteProposed(DraftValue, &Draft); !Written) return Written;
+			auto Validation = ValidatePropertyEditValue(
+				Draft.GetRootProperty(), Draft.GetRootContainer(), Draft.GetRootArrayIndex());
+			if (!Validation) return {.ValidationCause = std::move(Validation.Error)};
+			auto Result = Draft.Capture(OutSnapshot);
+			if (!Result) return {.DraftCause = std::move(Result.Error)};
+			return {};
 		}
 
 		auto CaptureMapPathKey(const FProperty* KeyProperty, const void* Key) -> FByteBuffer
@@ -333,18 +359,19 @@ namespace Durin::Editor
 		uint32 ArrayIndex
 	) -> FSoftObjectViewState
 	{
-		FSoftObjectViewState ViewState;
+		FSoftObjectViewState ViewState{.PropertyName = Property ? Property->NamePrivate.ToString() : std::string{},
+			.ArrayIndex = ArrayIndex, .ArrayDim = Property ? Property->GetArrayDim() : 0};
 		if (!Property || !Container || ArrayIndex >= Property->GetArrayDim())
 		{
 			ViewState.State = ESoftObjectViewState::TypeMismatch;
-			ViewState.Message = "Soft object property metadata or storage is unavailable.";
+			ViewState.Error = ESoftObjectViewError::Storage;
 			return ViewState;
 		}
 		FSoftObjectPtr* Reference = Property->GetSoftObjectPtr(Container, ArrayIndex);
 		if (!Reference)
 		{
 			ViewState.State = ESoftObjectViewState::TypeMismatch;
-			ViewState.Message = "Soft object property has no typed value accessor.";
+			ViewState.Error = ESoftObjectViewError::Accessor;
 			return ViewState;
 		}
 		if (Reference->IsNull()) return ViewState;
@@ -358,7 +385,8 @@ namespace Durin::Editor
 				|| Resolve.Result.Error == EAssetError::UnknownClass
 				? ESoftObjectViewState::TypeMismatch
 				: ESoftObjectViewState::Missing;
-			ViewState.Message = Resolve.Result.Message;
+			ViewState.Error = ESoftObjectViewError::Asset;
+			ViewState.AssetCause = std::make_shared<FAssetResult>(Resolve.Result);
 			return ViewState;
 		}
 		ViewState.ResolvedPath = Resolve.ResolvedPath;
@@ -366,9 +394,6 @@ namespace Durin::Editor
 		if (Resolve.bRedirected)
 		{
 			ViewState.State = ESoftObjectViewState::Redirected;
-			ViewState.Message = std::format(
-				"Asset {} resolves to {}.",
-				ViewState.Path.ToString(), ViewState.ResolvedPath.ToString());
 			return ViewState;
 		}
 		if (Resolve.State == ESoftObjectResolveState::Loaded)
@@ -381,35 +406,46 @@ namespace Durin::Editor
 		return ViewState;
 	}
 
-	auto LoadSoftObject(
-		FSoftObjectProperty* Property,
-		void* Container,
-		uint32 ArrayIndex,
-		DObject*& OutObject,
-		std::string* OutError
-	) -> bool
+	auto FormatPropertySoftLoadResult(const FPropertySoftLoadResult& Result) -> std::string
 	{
-		if (OutError) OutError->clear();
+		switch (Result.Error)
+		{
+		case EPropertySoftLoadError::None: return {};
+		case EPropertySoftLoadError::Storage: return "Soft object property metadata or storage is unavailable.";
+		case EPropertySoftLoadError::Accessor: return "Soft object property has no typed value accessor.";
+		case EPropertySoftLoadError::Asset: return Result.AssetCause ? Result.AssetCause->Message : "Soft object asset loading failed.";
+		case EPropertySoftLoadError::MissingObject: return "Soft object loading returned no object.";
+		}
+		return {};
+	}
+
+	auto LoadSoftObject(FSoftObjectProperty* Property, void* Container, uint32 ArrayIndex,
+		DObject*& OutObject) -> FPropertySoftLoadResult
+	{
 		OutObject = nullptr;
+		FPropertySoftLoadResult Result{.PropertyName = Property ? Property->NamePrivate.ToString() : std::string{},
+			.ArrayIndex = ArrayIndex, .ArrayDim = Property ? Property->GetArrayDim() : 0};
 		if (!Property || !Container || ArrayIndex >= Property->GetArrayDim())
 		{
-			if (OutError) *OutError = "Soft object property metadata or storage is unavailable.";
-			return false;
+			Result.Error = EPropertySoftLoadError::Storage;
+			return Result;
 		}
 		FSoftObjectPtr* Reference = Property->GetSoftObjectPtr(Container, ArrayIndex);
 		if (!Reference)
 		{
-			if (OutError) *OutError = "Soft object property has no typed value accessor.";
-			return false;
+			Result.Error = EPropertySoftLoadError::Accessor;
+			return Result;
 		}
-		const FAssetResult Result = LoadSoftObject(
-			*Reference, Property->GetExpectedClass(), OutObject, ESoftObjectNullPolicy::Reject);
-		if (!Result)
+		Result.Path = Reference->GetPath();
+		auto Loaded = LoadSoftObject(*Reference, Property->GetExpectedClass(), OutObject, ESoftObjectNullPolicy::Reject);
+		if (!Loaded)
 		{
-			if (OutError) *OutError = Result.Message;
-			return false;
+			Result.Error = EPropertySoftLoadError::Asset;
+			Result.AssetCause = std::make_shared<FAssetResult>(std::move(Loaded));
+			return Result;
 		}
-		return OutObject != nullptr;
+		if (!OutObject) Result.Error = EPropertySoftLoadError::MissingObject;
+		return Result;
 	}
 
 	auto FPropertyView::EditObject(
@@ -939,7 +975,11 @@ namespace Durin::Editor
 				.bEnabled = bCanLoad,
 				.Execute = [SoftProperty, Container, ArrayIndex](std::string& Error) {
 					DObject* LoadedObject = nullptr;
-					if (!LoadSoftObject(SoftProperty, Container, ArrayIndex, LoadedObject, &Error)) return false;
+					if (auto Loaded = LoadSoftObject(SoftProperty, Container, ArrayIndex, LoadedObject); !Loaded)
+					{
+						Error = FormatPropertySoftLoadResult(Loaded);
+						return false;
+					}
 					return LoadedObject != nullptr;
 				},
 			};
@@ -1030,14 +1070,14 @@ namespace Durin::Editor
 		if (Edit.bChanged && Edit.AssignValue)
 		{
 			FPropertyValueSnapshot Proposed;
-			std::string Error;
-			if (!CaptureProposedPropertyValue(EditTarget,
+			if (const auto Captured = CaptureProposedPropertyValue(EditTarget,
 				[&](const FResolvedPropertyValue& DraftValue, FPropertyValueDraft*) {
 					Edit.AssignValue(const_cast<FProperty*>(DraftValue.Property),
 						DraftValue.Container, DraftValue.ArrayIndex);
-				}, Proposed, &Error))
+					return FProposedPropertyValueResult{};
+				}, Proposed); !Captured)
 			{
-				ReportError(Context, std::move(Error));
+				ReportError(Context, FormatProposedPropertyValueResult(Captured));
 			}
 			else
 			{
@@ -1089,13 +1129,14 @@ namespace Durin::Editor
 			FPropertyEditTarget StructuralTarget = EditTarget;
 			StructuralTarget.Kind = Kind;
 			FPropertyValueSnapshot Proposed;
-			std::string Error;
-			if (!CaptureProposedPropertyValue(StructuralTarget,
-				[&](const FResolvedPropertyValue& DraftValue, FPropertyValueDraft*) {
-					Mutation(*static_cast<const FArrayProperty*>(DraftValue.Property), DraftValue.Container, DraftValue.ArrayIndex);
-				}, Proposed, &Error))
+			if (const auto Captured = CaptureProposedPropertyValue(StructuralTarget,
+				[&](const FResolvedPropertyValue& DraftValue, FPropertyValueDraft*) -> FProposedPropertyValueResult {
+					auto Mutated = Mutation(*static_cast<const FArrayProperty*>(DraftValue.Property), DraftValue.Container, DraftValue.ArrayIndex);
+					if (!Mutated) return {.ArrayCause = std::move(Mutated.Error)};
+					return {};
+				}, Proposed); !Captured)
 			{
-				ReportError(Context, std::move(Error));
+				ReportError(Context, FormatProposedPropertyValueResult(Captured));
 				return false;
 			}
 			return SubmitPropertyEdit(Context, StructuralTarget, Proposed, false);
@@ -1104,7 +1145,7 @@ namespace Durin::Editor
 		{
 			bChanged = SubmitStructure(EPropertyChangeKind::ArrayAdd,
 				[&](const FArrayProperty& DraftProperty, void* DraftContainer, uint32 DraftArrayIndex) {
-					DraftProperty.Resize(DraftContainer, Num + 1, DraftArrayIndex);
+					return DraftProperty.Resize(DraftContainer, Num + 1, DraftArrayIndex);
 				});
 			if (bChanged) ++Num;
 		}
@@ -1114,7 +1155,7 @@ namespace Durin::Editor
 		{
 			bChanged = SubmitStructure(EPropertyChangeKind::ArrayRemove,
 				[&](const FArrayProperty& DraftProperty, void* DraftContainer, uint32 DraftArrayIndex) {
-					DraftProperty.Resize(DraftContainer, Num - 1, DraftArrayIndex);
+					return DraftProperty.Resize(DraftContainer, Num - 1, DraftArrayIndex);
 				});
 			if (bChanged) --Num;
 		}
@@ -1185,21 +1226,15 @@ namespace Durin::Editor
 		auto SubmitStructure = [&](FPropertyEditTarget StructuralTarget, EPropertyChangeKind Kind, auto&& Mutation, bool bContinuous = false) -> bool {
 			StructuralTarget.Kind = Kind;
 			FPropertyValueSnapshot Proposed;
-			std::string Error;
-			std::string MutationError;
-			if (!CaptureProposedPropertyValue(StructuralTarget,
+			if (const auto Captured = CaptureProposedPropertyValue(StructuralTarget,
 				[&](const FResolvedPropertyValue& DraftValue, FPropertyValueDraft* Draft) {
-					Mutation(DraftValue, *Draft, MutationError);
-				}, Proposed, &Error))
+					return Mutation(DraftValue, *Draft);
+				}, Proposed); !Captured)
 			{
-				ReportError(Context, std::move(Error));
+				ReportError(Context, FormatProposedPropertyValueResult(Captured));
 				return false;
 			}
-			if (!MutationError.empty())
-			{
-				ReportError(Context, std::move(MutationError));
-				return false;
-			}
+
 			return SubmitPropertyEdit(Context, StructuralTarget, Proposed, bContinuous);
 		};
 		if (ImGui::SmallButton("+ Add"))
@@ -1209,10 +1244,26 @@ namespace Durin::Editor
 			FPropertyValueSnapshot KeySnapshot;
 			FPropertyValueSnapshot ValueSnapshot;
 			std::string Error;
-			if (!KeyStorage.DefaultConstruct(Property->GetKeyProp(), 0, &Error)
-				|| !ValueStorage.DefaultConstruct(Property->GetValueProp(), 0, &Error)
-				|| !CapturePropertyValue(Property->GetKeyProp(), KeyStorage.GetContainer(), 0, KeySnapshot, &Error)
-				|| !CapturePropertyValue(Property->GetValueProp(), ValueStorage.GetContainer(), 0, ValueSnapshot, &Error))
+			if (!([&] {
+				const auto ValueResult = KeyStorage.DefaultConstruct(Property->GetKeyProp(), 0);
+				Error = Durin::FormatPropertyValueError(ValueResult.Error);
+				return ValueResult.Succeeded();
+			}())
+				|| !([&] {
+					const auto ValueResult = ValueStorage.DefaultConstruct(Property->GetValueProp(), 0);
+					Error = Durin::FormatPropertyValueError(ValueResult.Error);
+					return ValueResult.Succeeded();
+				}())
+				|| !([&] {
+					const auto SnapshotResult = CapturePropertyValue(Property->GetKeyProp(), KeyStorage.GetContainer(), 0, KeySnapshot);
+					Error = Durin::FormatPropertySnapshotError(SnapshotResult.Error);
+					return SnapshotResult.Succeeded();
+				}())
+				|| !([&] {
+					const auto SnapshotResult = CapturePropertyValue(Property->GetValueProp(), ValueStorage.GetContainer(), 0, ValueSnapshot);
+					Error = Durin::FormatPropertySnapshotError(SnapshotResult.Error);
+					return SnapshotResult.Succeeded();
+				}()))
 			{
 				ReportError(Context, Error.empty() ? "Unable to create a map-entry draft." : std::move(Error));
 			}
@@ -1241,10 +1292,26 @@ namespace Durin::Editor
 				FReflectedValueStorage DraftKeyStorage;
 				FReflectedValueStorage DraftValueStorage;
 				std::string Error;
-				if (!DraftKeyStorage.DefaultConstruct(Property->GetKeyProp(), 0, &Error)
-					|| !DraftValueStorage.DefaultConstruct(Property->GetValueProp(), 0, &Error)
-					|| !RestorePropertyValue(Property->GetKeyProp(), DraftKeyStorage.GetContainer(), 0, MapInsertDraft.Key, &Error)
-					|| !RestorePropertyValue(Property->GetValueProp(), DraftValueStorage.GetContainer(), 0, MapInsertDraft.Value, &Error))
+				if (!([&] {
+					const auto ValueResult = DraftKeyStorage.DefaultConstruct(Property->GetKeyProp(), 0);
+					Error = Durin::FormatPropertyValueError(ValueResult.Error);
+					return ValueResult.Succeeded();
+				}())
+					|| !([&] {
+						const auto ValueResult = DraftValueStorage.DefaultConstruct(Property->GetValueProp(), 0);
+						Error = Durin::FormatPropertyValueError(ValueResult.Error);
+						return ValueResult.Succeeded();
+					}())
+					|| !([&] {
+						const auto SnapshotResult = RestorePropertyValue(Property->GetKeyProp(), DraftKeyStorage.GetContainer(), 0, MapInsertDraft.Key);
+						Error = Durin::FormatPropertySnapshotError(SnapshotResult.Error);
+						return SnapshotResult.Succeeded();
+					}())
+					|| !([&] {
+						const auto SnapshotResult = RestorePropertyValue(Property->GetValueProp(), DraftValueStorage.GetContainer(), 0, MapInsertDraft.Value);
+						Error = Durin::FormatPropertySnapshotError(SnapshotResult.Error);
+						return SnapshotResult.Succeeded();
+					}()))
 				{
 					ReportError(Context, Error.empty() ? "Unable to restore the map-entry draft." : std::move(Error));
 					MapInsertDraft = {};
@@ -1258,7 +1325,11 @@ namespace Durin::Editor
 					if (KeyEdit.bChanged && KeyEdit.AssignValue)
 					{
 						KeyEdit.AssignValue(Property->GetKeyProp(), DraftKey, 0);
-						if (!CapturePropertyValue(Property->GetKeyProp(), DraftKey, 0, MapInsertDraft.Key, &Error))
+						if (!([&] {
+							const auto SnapshotResult = CapturePropertyValue(Property->GetKeyProp(), DraftKey, 0, MapInsertDraft.Key);
+							Error = Durin::FormatPropertySnapshotError(SnapshotResult.Error);
+							return SnapshotResult.Succeeded();
+						}()))
 							ReportError(Context, std::move(Error));
 					}
 					const FPropertyWidgetEditResult ValueEdit = EditPropertyWidget(
@@ -1266,7 +1337,11 @@ namespace Durin::Editor
 					if (ValueEdit.bChanged && ValueEdit.AssignValue)
 					{
 						ValueEdit.AssignValue(Property->GetValueProp(), DraftValue, 0);
-						if (!CapturePropertyValue(Property->GetValueProp(), DraftValue, 0, MapInsertDraft.Value, &Error))
+						if (!([&] {
+							const auto SnapshotResult = CapturePropertyValue(Property->GetValueProp(), DraftValue, 0, MapInsertDraft.Value);
+							Error = Durin::FormatPropertySnapshotError(SnapshotResult.Error);
+							return SnapshotResult.Succeeded();
+						}()))
 							ReportError(Context, std::move(Error));
 					}
 
@@ -1295,12 +1370,11 @@ namespace Durin::Editor
 							InsertTarget.Path.back().MapKeyData = CaptureMapPathKey(Property->GetKeyProp(), DraftKey);
 							InsertTarget.Path.back().MapKey = MapInsertDraft.Key.GetPayload();
 							bChanged = SubmitStructure(std::move(InsertTarget), EPropertyChangeKind::MapInsert,
-								[&](const FResolvedPropertyValue& DraftMap, FPropertyValueDraft&, std::string& MutationError) {
+								[&](const FResolvedPropertyValue& DraftMap, FPropertyValueDraft&) -> FProposedPropertyValueResult {
 									auto* DraftProperty = static_cast<const FMapProperty*>(DraftMap.Property);
 									const EContainerOpResult Result = DraftProperty->InsertChecked(
 										DraftMap.Container, DraftKey, DraftValue, DraftMap.ArrayIndex);
-									if (Result != EContainerOpResult::Success)
-										MutationError = std::format("Unable to insert reflected map entry (result {}).", static_cast<uint32>(Result));
+									return {.ContainerCause = Result, .Operation = EPropertyChangeKind::MapInsert};
 								});
 							if (bChanged) MapInsertDraft = {};
 						}
@@ -1362,19 +1436,22 @@ namespace Durin::Editor
 					RemoveTarget.Path.back().MapKeyData = SerializedKey;
 					RemoveTarget.Path.back().MapKey = KeySnapshot.GetPayload();
 					bChanged |= SubmitStructure(std::move(RemoveTarget), EPropertyChangeKind::MapRemove,
-						[&](const FResolvedPropertyValue& DraftMap, FPropertyValueDraft&, std::string& MutationError) {
+						[&](const FResolvedPropertyValue& DraftMap, FPropertyValueDraft&) -> FProposedPropertyValueResult {
 							auto* DraftProperty = static_cast<const FMapProperty*>(DraftMap.Property);
 							const EContainerOpResult Result = DraftProperty->RemoveChecked(
 								DraftMap.Container, Key, DraftMap.ArrayIndex);
-							if (Result != EContainerOpResult::Success)
-								MutationError = std::format("Unable to remove reflected map entry (result {}).", static_cast<uint32>(Result));
+							return {.ContainerCause = Result, .Operation = EPropertyChangeKind::MapRemove};
 						});
 				}
 				else if (bKeyChanged)
 				{
 					FReflectedValueStorage ProposedKeyStorage;
 					std::string ProposedKeyError;
-					if (!ProposedKeyStorage.DefaultConstruct(Property->GetKeyProp(), 0, &ProposedKeyError)
+					if (!([&] {
+						const auto ValueResult = ProposedKeyStorage.DefaultConstruct(Property->GetKeyProp(), 0);
+						ProposedKeyError = Durin::FormatPropertyValueError(ValueResult.Error);
+						return ValueResult.Succeeded();
+					}())
 						|| !KeyEdit.AssignValue)
 					{
 						ReportError(Context, ProposedKeyError.empty()
@@ -1388,7 +1465,11 @@ namespace Durin::Editor
 						FPropertyValueSnapshot ProposedKeySnapshot;
 						std::string CaptureError;
 						const void* ExistingValue = nullptr;
-						if (!CapturePropertyValue(Property->GetKeyProp(), ProposedKey, 0, ProposedKeySnapshot, &CaptureError))
+						if (!([&] {
+							const auto SnapshotResult = CapturePropertyValue(Property->GetKeyProp(), ProposedKey, 0, ProposedKeySnapshot);
+							CaptureError = Durin::FormatPropertySnapshotError(SnapshotResult.Error);
+							return SnapshotResult.Succeeded();
+						}()))
 						{
 							ReportError(Context, std::move(CaptureError));
 						}
@@ -1401,16 +1482,18 @@ namespace Durin::Editor
 						else
 						{
 							bChanged |= SubmitStructure(KeyTarget, EPropertyChangeKind::MapKeyRename,
-								[&](const FResolvedPropertyValue&, FPropertyValueDraft& Draft, std::string& MutationError) {
+								[&](const FResolvedPropertyValue&, FPropertyValueDraft& Draft) -> FProposedPropertyValueResult {
 									const FProperty* DraftProperty = nullptr;
 									void* DraftContainer = nullptr;
 									uint32 DraftArrayIndex = 0;
-									if (!Draft.Resolve(EditTarget, DraftProperty, DraftContainer, DraftArrayIndex, &MutationError)) return;
+									if (const auto Result = Draft.Resolve(EditTarget, DraftProperty, DraftContainer, DraftArrayIndex); !Result)
+									{
+										return {.DraftCause = Result.Error};
+									}
 									auto* DraftMap = static_cast<const FMapProperty*>(DraftProperty);
 									const EContainerOpResult Result = DraftMap->RenameKeyChecked(
 										DraftContainer, Key, ProposedKey, DraftArrayIndex);
-									if (Result != EContainerOpResult::Success)
-										MutationError = std::format("Unable to rename the reflected map key (result {}).", static_cast<uint32>(Result));
+									return {.ContainerCause = Result, .Operation = EPropertyChangeKind::MapKeyRename};
 								}, true);
 						}
 					}
@@ -1436,28 +1519,27 @@ namespace Durin::Editor
 		if (EditSession.IsActive() && !IsEditingTarget(Target))
 			FinishActiveEdit(&Context, false);
 
-		std::string Error;
 		if (!EditSession.IsActive())
 		{
-			if (!EditSession.Begin(Target, {}, &Error, Context.Transactor))
+			if (const auto Begin = EditSession.Begin(Target, {}, Context.Transactor); !Begin)
 			{
-				ReportError(Context, std::move(Error));
+				ReportError(Context, FormatPropertyEditSessionError(Begin.Error));
 				return false;
 			}
 			ActiveEditObject = Target.Object;
 			ActiveEditOwnerObject = OwnerContextObject ? OwnerContextObject : Target.Object;
 		}
 
-		const EPropertyEditResult Result = EditSession.Apply(ProposedValue, &Error);
-		if (Result == EPropertyEditResult::Failed)
+		const auto Result = EditSession.Apply(ProposedValue);
+		if (!Result)
 		{
-			ReportError(Context, std::move(Error));
+			ReportError(Context, FormatPropertyEditSessionError(Result.Error));
 			FinishActiveEdit(&Context, true);
 			return false;
 		}
-		if (Result == EPropertyEditResult::Pending) return true;
+		if (Result.GetStatus() == EPropertyEditResult::Pending) return true;
 		if (!bContinuous) FinishActiveEdit(&Context, false);
-		return Result == EPropertyEditResult::Changed;
+		return Result.GetStatus() == EPropertyEditResult::Changed;
 	}
 
 	auto FPropertyView::SubmitPropertyValueEdit(
@@ -1473,13 +1555,13 @@ namespace Durin::Editor
 			return false;
 		}
 		FPropertyValueSnapshot Proposed;
-		std::string Error;
-		if (!CaptureProposedPropertyValue(Target,
+		if (const auto Captured = CaptureProposedPropertyValue(Target,
 			[&](const FResolvedPropertyValue& DraftValue, FPropertyValueDraft*) {
 				AssignValue(const_cast<FProperty*>(DraftValue.Property), DraftValue.Container, DraftValue.ArrayIndex);
-			}, Proposed, &Error))
+				return FProposedPropertyValueResult{};
+			}, Proposed); !Captured)
 		{
-			ReportError(Context, std::move(Error));
+			ReportError(Context, FormatProposedPropertyValueResult(Captured));
 			return false;
 		}
 		const bool bSubmitted = SubmitPropertyEdit(Context, Target, Proposed, bContinuous);
@@ -1489,15 +1571,14 @@ namespace Durin::Editor
 	auto FPropertyView::FinishActiveEdit(const FPropertyViewContext* Context, bool bCancel) -> bool
 	{
 		if (!EditSession.IsActive()) return true;
-		std::string Error;
-		const EPropertyEditResult Result = bCancel ? EditSession.Cancel(&Error) : EditSession.Commit(&Error);
-		if (Result == EPropertyEditResult::Failed && Context) ReportError(*Context, std::move(Error));
+		const auto Result = bCancel ? EditSession.Cancel() : EditSession.Commit();
+		if (!Result && Context) ReportError(*Context, FormatPropertyEditSessionError(Result.Error));
 		if (!EditSession.IsActive())
 		{
 			ActiveEditObject = nullptr;
 			ActiveEditOwnerObject = nullptr;
 		}
-		return Result != EPropertyEditResult::Failed;
+		return static_cast<bool>(Result);
 	}
 
 

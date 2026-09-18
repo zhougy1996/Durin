@@ -180,17 +180,17 @@ namespace Durin
 		MarkPackageDirty();
 	}
 
-	auto DCameraComponent::PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool
+	auto DCameraComponent::PreEditChangeProperty(FPropertyEditProposal& Proposal) -> FObjectValidationResult
 	{
-		if (!Super::PreEditChangeProperty(Proposal, OutError)) return false;
-		if (!Proposal.MemberProperty || Proposal.DraftRootProperty != Proposal.MemberProperty || !Proposal.DraftRootContainer) return true;
+		if (auto Result = Super::PreEditChangeProperty(Proposal); !Result) return Result;
+		if (!Proposal.MemberProperty || Proposal.DraftRootProperty != Proposal.MemberProperty || !Proposal.DraftRootContainer) return {};
 
 		if (Proposal.MemberProperty->NamePrivate == FName("ProjectionSettings"))
 		{
 			auto* Settings = Proposal.DraftRootProperty->ContainerPtrToValuePtr<FCameraProjectionSettings>(
 				Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex);
 			*Settings = NormalizeProjectionSettings(*Settings);
-			return true;
+			return {};
 		}
 
 		if (Proposal.MemberProperty->NamePrivate == FName("ViewDistance"))
@@ -198,10 +198,10 @@ namespace Durin
 			auto* Settings = Proposal.DraftRootProperty->ContainerPtrToValuePtr<FViewDistanceSettings>(
 				Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex);
 			*Settings = NormalizeViewDistanceSettings(ProjectionSettings.FarClip, *Settings);
-			return true;
+			return {};
 		}
 
-		return true;
+		return {};
 	}
 
 	auto DCameraComponent::ResolveAspectRatio(float ViewportAspectRatio) const -> float

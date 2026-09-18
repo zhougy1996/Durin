@@ -111,11 +111,14 @@ namespace Durin::Private
 		Copies.Expressions.reserve(Expressions.size());
 		for (auto* Expression : Expressions)
 		{
-			auto* Copy = DuplicateObject(Expression, Staging.Get(), FName(std::string("Expression_") + Expression->Id.ToString()));
+			const auto Duplicated = DuplicateObject(Expression, Staging.Get(), FName(std::string("Expression_") + Expression->Id.ToString()));
+			auto* Copy = Duplicated.Object;
 			if (!Copy)
 			{
 				FMaterialProgramValidationResult Result;
-				Result.Diagnostics.push_back({.Error = EMaterialExpressionError::UnableDuplicateExpressionCandidate});
+				FMaterialError Error(EMaterialExpressionError::UnableDuplicateExpressionCandidate);
+				Error.DuplicationCause = std::make_shared<FObjectGraphError>(Duplicated.Error);
+				Result.Diagnostics.push_back({.Error = std::move(Error)});
 				return Result;
 			}
 			Copies.Expressions.emplace_back(Copy);

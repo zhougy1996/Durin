@@ -26,7 +26,7 @@ TEST(FSkyLightTests, SerializesSourceIdentityAndRejectsNonfiniteIntensity)
 	EXPECT_TRUE(Id.IsValid());
 	Durin::FByteBuffer Bytes;
 	ASSERT_TRUE(Durin::SaveObjectGraphToMemory(Actor, Bytes));
-	auto* Loaded = Durin::Cast<Durin::ASkyLightActor>(Durin::LoadObjectGraphFromMemory(Bytes));
+	auto* Loaded = Durin::Cast<Durin::ASkyLightActor>(Durin::LoadObjectGraphFromMemory(Bytes).Object);
 	ASSERT_NE(Loaded, nullptr);
 	EXPECT_EQ(Loaded->GetSkyLightComponent()->GetPersistentId(), Id);
 	EXPECT_EQ(Loaded->GetSkyLightComponent()->GetSourceMode(), Durin::ESkyLightSourceMode::CapturedSky);
@@ -149,7 +149,7 @@ TEST(FSkyBoxTests, ActorDefaultsSerializeAndRetainCubeReference)
 
 	Durin::FByteBuffer Bytes;
 	ASSERT_TRUE(Durin::SaveObjectGraphToMemory(Actor, Bytes));
-	auto* LoadedActor = Durin::Cast<Durin::ASkyBoxActor>(Durin::LoadObjectGraphFromMemory(Bytes));
+	auto* LoadedActor = Durin::Cast<Durin::ASkyBoxActor>(Durin::LoadObjectGraphFromMemory(Bytes).Object);
 	ASSERT_NE(LoadedActor, nullptr);
 	Durin::DSkyBoxComponent* LoadedComponent = LoadedActor->GetSkyBoxComponent();
 	ASSERT_NE(LoadedComponent, nullptr);

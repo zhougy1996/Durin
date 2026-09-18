@@ -116,10 +116,10 @@ namespace Durin
 
 	private:
 		friend auto ::Durin::ContributeEngineCookAsset(
-			DObject&, std::string_view, FCookContext&, std::string&) -> bool;
+			DObject&, std::string_view, FCookContext&) -> FCookContributionResult;
 
 		auto ContributeToCook(FCookContext& Context,
-			std::string_view VirtualPackagePath, std::string& OutError) -> bool;
+			std::string_view VirtualPackagePath) -> FCookContributionResult;
 
 		auto ReleaseRenderResources() -> void;
 		auto StartResourceUpdate(std::unique_ptr<FTextureResource> Candidate) -> void;
