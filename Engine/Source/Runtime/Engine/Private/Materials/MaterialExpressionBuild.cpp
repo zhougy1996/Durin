@@ -1,4 +1,4 @@
-#include "Materials/MaterialExpressionBuild.h"
+#include "MaterialExpressionGraphBuilder.h"
 #include <unordered_set>
 
 #include "Threading/RunnableThread.h"
@@ -6,7 +6,36 @@
 
 namespace Durin
 {
-	FMaterialExpressionBuildContext::FMaterialExpressionBuildContext(std::span<DMaterialExpression* const> InExpressions,
+	FMaterialExpressionGraphBuilder::FMaterialExpressionGraphBuilder(std::span<DMaterialExpression* const> Expressions,
+		FMaterialExpressionBuildEnvironment Environment)
+		: Impl(std::make_unique<FMaterialExpressionGraphBuilderImpl>(Expressions, std::move(Environment)))
+	{
+	}
+
+	FMaterialExpressionGraphBuilder::~FMaterialExpressionGraphBuilder() = default;
+
+	auto FMaterialExpressionGraphBuilder::Finish(std::span<const FMaterialExpressionInput> Roots) -> FMaterialExpressionBuildResult
+	{
+		return Impl->Finish(Roots);
+	}
+
+	auto FMaterialExpressionGraphBuilder::FinishSurface(const FMaterialExpressionSurfaceOutputs& Outputs) -> FMaterialExpressionBuildResult
+	{
+		return Impl->FinishSurface(Outputs);
+	}
+
+	auto FMaterialExpressionGraphBuilder::ValidateSurface(std::span<DMaterialExpression* const> Expressions,
+		const FMaterialExpressionSurfaceOutputs& Outputs, FXxHash128* OutCodeFingerprint) -> FMaterialProgramValidationResult
+	{
+		return FMaterialExpressionGraphBuilderImpl::ValidateSurface(Expressions, Outputs, OutCodeFingerprint);
+	}
+
+	auto FMaterialExpressionGraphBuilder::ValidateFunction(std::span<DMaterialExpression* const> Expressions) -> FMaterialProgramValidationResult
+	{
+		return FMaterialExpressionGraphBuilderImpl::ValidateFunction(Expressions);
+	}
+
+	FMaterialExpressionGraphBuilderImpl::FMaterialExpressionGraphBuilderImpl(std::span<DMaterialExpression* const> InExpressions,
 		FMaterialExpressionBuildEnvironment InEnvironment)
 		: Shared(std::make_shared<FSharedState>()), Result(Shared->Result), Depths(Shared->Depths),
 		  LinkCount(Shared->LinkCount), Environment(std::move(InEnvironment))
@@ -16,7 +45,7 @@ namespace Durin
 			Result.IR.SurfaceRoot.Inputs[Index].Type = GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(Index));
 	}
 
-	FMaterialExpressionBuildContext::FMaterialExpressionBuildContext(FMaterialExpressionBuildContext& Parent,
+	FMaterialExpressionGraphBuilderImpl::FMaterialExpressionGraphBuilderImpl(FMaterialExpressionGraphBuilderImpl& Parent,
 		const FMaterialExpressionFunctionBody& Body, FGuid CallId)
 		: Shared(Parent.Shared), Result(Shared->Result), Depths(Shared->Depths), LinkCount(Shared->LinkCount),
 		  Environment(Parent.Environment), Signature(&Body.Signature), FunctionPath(Body.AssetPath), CallPath(Parent.CallPath)
@@ -25,7 +54,7 @@ namespace Durin
 		Admit(Body.Expressions);
 	}
 
-	auto FMaterialExpressionBuildContext::Admit(std::span<DMaterialExpression* const> InExpressions) -> void
+	auto FMaterialExpressionGraphBuilderImpl::Admit(std::span<DMaterialExpression* const> InExpressions) -> void
 	{
 		check(IsInGameThread());
 		if (InExpressions.size() > MaterialProgramMaxNodeCount)
@@ -47,6 +76,11 @@ namespace Durin
 				Parameter && (Signature || !Parameter->Metadata.Id.IsValid()))
 			{
 				Fail(EMaterialExpressionError::ParameterExpressionsRequireValidParameterGUIDsMaterialOwner);
+				return;
+			}
+			if (Signature && Cast<DMaterialExpressionMaterialOutput>(Expression))
+			{
+				Fail(EMaterialFunctionError::UnsupportedMaterialExpression);
 				return;
 			}
 			if (!Cast<DMaterialExpressionMaterialOutput>(Expression)) AuthoredLinks += Expression->GetAuthoredInputCount();
@@ -91,7 +125,7 @@ namespace Durin
 		}
 	}
 
-	auto FMaterialExpressionBuildContext::Fail(FMaterialError Error, FGuid PortId,
+	auto FMaterialExpressionGraphBuilderImpl::Fail(FMaterialError Error, FGuid PortId,
 		EMaterialProgramDiagnosticCategory Category) -> uint32
 	{
 		if (Result.Diagnostics.empty())
@@ -104,7 +138,59 @@ namespace Durin
 		return InvalidMaterialExpressionIndex;
 	}
 
-	auto FMaterialExpressionBuildContext::Resolve(const FMaterialExpressionInput& Input) -> FMaterialExpressionBuildValue
+	auto FMaterialExpressionGraphBuilderImpl::ReportMissingOutput(const DMaterialExpression& Expression,
+		const FMaterialExpressionInput& Input) -> void
+	{
+		if (Cast<DMaterialExpressionMaterialOutput>(&Expression))
+			Fail(EMaterialExpressionError::MaterialOutputSinkUsedAsExpressionSource);
+		else if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(&Expression))
+		{
+			if (Input.OutputIndex != 0 || !Input.OutputId.IsValid())
+				Fail(EMaterialFunctionError::CallConnectionsRequireOutputGUIDZeroOutputIndex);
+			else if (std::ranges::find(Call->Outputs, Input.OutputId, &FMaterialFunctionOutputBinding::OutputId) == Call->Outputs.end())
+				Fail(EMaterialFunctionError::CallOutputGUIDBound, Input.OutputId);
+		}
+		else if (Cast<DMaterialExpressionTextureSample2D>(&Expression) || Cast<DMaterialExpressionTextureSampleParameter2D>(&Expression))
+		{
+			const auto Opcode = Cast<DMaterialExpressionTextureSampleParameter2D>(&Expression)
+				? EMaterialProgramOpcode::TextureSampleParameter2D : EMaterialProgramOpcode::TextureSample2D;
+			if (Input.OutputId.IsValid()) Fail(EMaterialExpressionError::SampleOutputRequiresIndexOutputGUID);
+			else if (!FindMaterialSampleOutput(Opcode, Input.OutputIndex)) Fail(EMaterialExpressionError::SampleExpressionOutputSelectorInvalid);
+		}
+		else if (const auto* Attributes = Cast<DMaterialExpressionGetSurfaceAttributes>(&Expression))
+		{
+			if (Input.OutputId.IsValid() || Input.OutputIndex >= 8 || !(Attributes->AttributeMask & (1u << Input.OutputIndex)))
+				Fail(EMaterialExpressionError::SurfaceAttributeOutputSelected);
+		}
+		else if (Input.OutputIndex != 0 || Input.OutputId.IsValid())
+		{
+			if (Cast<DMaterialExpressionFunctionInput>(&Expression)) Fail(EMaterialFunctionError::InputTerminalPrimaryOutput);
+			else if (Cast<DMaterialExpressionFunctionOutput>(&Expression)) Fail(EMaterialFunctionError::OutputTerminalPrimaryOutput);
+			else Fail(EMaterialExpressionError::PrimaryOutput);
+		}
+		// Keep existing selector diagnostics for known nodes. Registered outputs, including
+		// those of new expression classes, are accepted without a central node-type schema.
+		if (Result.Diagnostics.empty()) Fail(EMaterialExpressionError::BuildOutputNotRegistered, Input.OutputId);
+	}
+
+	auto FMaterialExpressionGraphBuilderImpl::BuildExpression(const DMaterialExpression& Expression) -> void
+	{
+		if (!Result.Diagnostics.empty() || Built.contains(Expression.Id)) return;
+		if (Active.size() >= MaterialProgramMaxDepth || !Active.insert(Expression.Id).second)
+		{
+			Fail(EMaterialExpressionError::InputsContainCycleExceedTraversalDepthBound);
+			return;
+		}
+		SourceStack.push_back(Expression.Id);
+		// Each recursive invocation has its own emitter; upstream builds cannot change its output owner.
+		FMaterialExpressionEmitter Emitter(*this, Expression.Id);
+		Expression.Build(Emitter);
+		SourceStack.pop_back();
+		Active.erase(Expression.Id);
+		if (Result.Diagnostics.empty()) Built.insert(Expression.Id);
+	}
+
+	auto FMaterialExpressionGraphBuilderImpl::Resolve(const FMaterialExpressionInput& Input) -> FMaterialExpressionBuildValue
 	{
 		check(IsInGameThread());
 		if (!Result.Diagnostics.empty()) return InvalidMaterialExpressionIndex;
@@ -114,35 +200,32 @@ namespace Durin
 			AuthoringCodeHash.UpdateValue(Input.OutputIndex);
 			AuthoringCodeHash.UpdateValue(Input.OutputId);
 		}
-		const FOutputKey Key{Input.ExpressionId, Input.OutputIndex, Input.OutputId};
-		if (const auto Found = Values.find(Key); Found != Values.end()) return Found->second;
 		const auto Found = Expressions.find(Input.ExpressionId);
 		if (Found == Expressions.end()) return Fail(EMaterialExpressionError::InputDisconnectedRefersMissingExpression);
-		if (Active.size() >= MaterialProgramMaxDepth || !Active.insert(Key).second)
-			return Fail(EMaterialExpressionError::InputsContainCycleExceedTraversalDepthBound);
-		SourceStack.push_back(Input.ExpressionId);
-		const auto Index = Found->second->Build(*this, Input.OutputIndex, Input.OutputId);
-		if (Index.GetIndex() && *Index.GetIndex() >= Result.IR.Nodes.size() && Result.Diagnostics.empty()) Fail(EMaterialExpressionError::BuildReturnedInvalidIRIndex);
-		SourceStack.pop_back();
-		Active.erase(Key);
+		// Do not expose a partially registered output while its expression is still building.
+		BuildExpression(*Found->second);
 		if (!Result.Diagnostics.empty()) return InvalidMaterialExpressionIndex;
-		Values.emplace(Key, Index);
-		return Index;
+		const FOutputKey Key{Input.ExpressionId, Input.OutputIndex, Input.OutputId};
+		if (const auto Value = Values.find(Key); Value != Values.end()) return Value->second;
+		SourceStack.push_back(Input.ExpressionId);
+		ReportMissingOutput(*Found->second, Input);
+		SourceStack.pop_back();
+		return InvalidMaterialExpressionIndex;
 	}
 
-	auto FMaterialExpressionBuildContext::ResolveIndex(const FMaterialExpressionInput& Input) -> uint32
+	auto FMaterialExpressionGraphBuilderImpl::ResolveIndex(const FMaterialExpressionInput& Input) -> uint32
 	{
 		const auto Value = Resolve(Input);
 		return Value.GetIndex() ? *Value.GetIndex() : Fail(EMaterialExpressionError::InvalidTextureDefaultConsumer);
 	}
 
-	auto FMaterialExpressionBuildContext::MatchesType(const FMaterialExpressionBuildValue& Value, EMaterialProgramValueType Type) const -> bool
+	auto FMaterialExpressionGraphBuilderImpl::MatchesType(const FMaterialExpressionBuildValue& Value, EMaterialProgramValueType Type) const -> bool
 	{
 		if (Value.GetTexture()) return Type == EMaterialProgramValueType::Texture2D;
 		return *Value.GetIndex() < Result.IR.Nodes.size() && Result.IR.Nodes[*Value.GetIndex()].ResultType == Type;
 	}
 
-	auto FMaterialExpressionBuildContext::BroadcastScalar(FMaterialExpressionBuildValue Value,
+	auto FMaterialExpressionGraphBuilderImpl::BroadcastScalar(FMaterialExpressionBuildValue Value,
 		EMaterialProgramValueType Type) -> FMaterialExpressionBuildValue
 	{
 		if (Type > EMaterialProgramValueType::Float && Type <= EMaterialProgramValueType::Float4
@@ -152,7 +235,7 @@ namespace Durin
 		return Value;
 	}
 
-	auto FMaterialExpressionBuildContext::Emit(FMaterialIRNode Node) -> uint32
+	auto FMaterialExpressionGraphBuilderImpl::Emit(FMaterialIRNode Node) -> uint32
 	{
 		if (!Result.Diagnostics.empty()) return InvalidMaterialExpressionIndex;
 		const auto Signature = GetMaterialProgramNodeSignature(Node.Opcode, Node.ResultType);
@@ -202,7 +285,7 @@ namespace Durin
 		return Index;
 	}
 
-	auto FMaterialExpressionBuildContext::Literal(std::span<const float> Components) -> uint32
+	auto FMaterialExpressionGraphBuilderImpl::Literal(std::span<const float> Components) -> uint32
 	{
 		if (Components.empty() || Components.size() > 4) return Fail(EMaterialExpressionError::NumericInputRequiresDefaultOneFourComponents);
 		FMaterialIRNode Node{.Opcode = EMaterialProgramOpcode::Constant,
@@ -214,7 +297,7 @@ namespace Durin
 		return Emit(std::move(Node));
 	}
 
-	auto FMaterialExpressionBuildContext::Parameter(FGuid Id, EMaterialParameterType Type) -> uint32
+	auto FMaterialExpressionGraphBuilderImpl::Parameter(FGuid Id, EMaterialParameterType Type) -> uint32
 	{
 		if (!Id.IsValid()) return Fail(EMaterialExpressionError::ParameterExpressionRequiresValidParameterGUID);
 		EMaterialProgramValueType ValueType;
@@ -235,7 +318,7 @@ namespace Durin
 			.ResultType = ValueType, .Payload = Id});
 	}
 
-	auto FMaterialExpressionBuildContext::Numeric(EMaterialProgramOpcode Opcode, EMaterialProgramValueType Type,
+	auto FMaterialExpressionGraphBuilderImpl::Numeric(EMaterialProgramOpcode Opcode, EMaterialProgramValueType Type,
 		std::span<const FMaterialExpressionInput* const> Inputs,
 		std::span<const std::vector<float>* const> Defaults, std::span<const uint8> Swizzle) -> uint32
 	{
@@ -277,64 +360,24 @@ namespace Durin
 		return Emit(std::move(Node));
 	}
 
-	auto FMaterialExpressionBuildContext::Coordinates() -> uint32
+	auto FMaterialExpressionGraphBuilderImpl::Coordinates() -> uint32
 	{
 		const std::array Channel{0.f};
 		return Emit({.Opcode = EMaterialProgramOpcode::UVChannel,
 			.ResultType = EMaterialProgramValueType::Float2, .Inputs = {Literal(Channel)}});
 	}
 
-	auto FMaterialExpressionBuildContext::SampleOutput(const DMaterialExpression& Expression, uint8 OutputIndex) -> uint32
-	{
-		const auto* Output = FindMaterialSampleOutput(EMaterialProgramOpcode::TextureSample2D, OutputIndex);
-		if (!Output) return Fail(EMaterialExpressionError::SampleExpressionOutputSelectorInvalid);
-		const auto Sample = ResolveIndex({Expression.Id});
-		if (Sample == InvalidMaterialExpressionIndex) return Sample;
-		if (Output->Id == EMaterialSampleOutput::RGBA) return Sample;
-		bool bDecodeNormal = false;
-		if (Output->Id == EMaterialSampleOutput::RGB)
-		{
-			if (const auto* Parameter = Cast<DMaterialExpressionTextureParameter>(&Expression))
-				bDecodeNormal = Parameter->TextureUsage == ETextureUsage::Normal;
-			else if (const auto* TextureSample = Cast<DMaterialExpressionTextureSample2D>(&Expression))
-			{
-				const auto Resource = Resolve(TextureSample->Texture);
-				if (const auto* Default = Resource.GetTexture())
-					bDecodeNormal = Default->Fallback == EMaterialTextureFallback::FlatRGNormal;
-				else if (const auto* Index = Resource.GetIndex(); Index && *Index != InvalidMaterialExpressionIndex)
-				{
-					const auto Usage = Shared->TextureUsages.find(GetNode(*Index).GetParameterId());
-					bDecodeNormal = Usage != Shared->TextureUsages.end() && Usage->second == ETextureUsage::Normal;
-				}
-			}
-		}
-		// RGB is the ready-to-use normal; raw RGBA and scalar channels retain
-		// their encoded values for channel processing.
-		const uint8 Width = bDecodeNormal ? 2 : static_cast<uint8>(Output->Type) + 1;
-		const auto Selected = Emit({.Opcode = EMaterialProgramOpcode::Swizzle,
-			.ResultType = static_cast<EMaterialProgramValueType>(Width - 1), .Inputs = {Sample},
-			.Payload = FMaterialIRSwizzle{Width, {Output->FirstComponent,
-				static_cast<uint8>(Width > 1 ? 1 : 0), static_cast<uint8>(Width > 2 ? 2 : 0)}}});
-		return bDecodeNormal ? Emit({.Opcode = EMaterialProgramOpcode::DecodeNormalRG,
-			.ResultType = EMaterialProgramValueType::Float3, .Inputs = {Selected}}) : Selected;
-	}
-
-	auto FMaterialExpressionBuildContext::BuildAllExpressions() -> void
+	auto FMaterialExpressionGraphBuilderImpl::BuildAllExpressions() -> void
 	{
 		for (const auto& [Id, Expression] : Expressions)
 		{
 			if (!Result.Diagnostics.empty()) return;
 			if (Cast<DMaterialExpressionMaterialOutput>(Expression)) continue;
-			FMaterialExpressionInput Probe{Id};
-			if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression); Call && !Call->Outputs.empty())
-				Probe.OutputId = Call->Outputs.front().OutputId;
-			if (const auto* Attributes = Cast<DMaterialExpressionGetSurfaceAttributes>(Expression))
-				while (Probe.OutputIndex < 8 && !(Attributes->AttributeMask & (1u << Probe.OutputIndex))) ++Probe.OutputIndex;
-			Resolve(Probe);
+			BuildExpression(*Expression);
 		}
 	}
 
-	auto FMaterialExpressionBuildContext::Finish(std::span<const FMaterialExpressionInput> Roots) -> FMaterialExpressionBuildResult
+	auto FMaterialExpressionGraphBuilderImpl::Finish(std::span<const FMaterialExpressionInput> Roots) -> FMaterialExpressionBuildResult
 	{
 		if (Roots.size() > MaterialFunctionMaxOutputs) Fail(EMaterialExpressionError::RootCountExceedsBound);
 		BuildAllExpressions();
@@ -358,7 +401,7 @@ namespace Durin
 	auto BuildMaterialExpressionGraph(std::span<DMaterialExpression* const> Expressions,
 		std::span<const FMaterialExpressionInput> Roots, FMaterialExpressionBuildEnvironment Environment) -> FMaterialExpressionBuildResult
 	{
-		FMaterialExpressionBuildContext Context(Expressions, std::move(Environment));
+		FMaterialExpressionGraphBuilderImpl Context(Expressions, std::move(Environment));
 		return Context.Finish(Roots);
 	}
 }

@@ -163,9 +163,10 @@ Signature InputId aliases remain supported. Retired opcode values 3 and 30 rejec
 
 TextureParameter owns a resource and exposes Texture2D output 0.
 TextureSampleParameter2D owns a resource and optionally samples it. Both sampling
-forms expose slots 0 RGBA, 1 RGB, 2 R, 3 G, 4 B, 5 A and 6 RG. Only the combined
-owner also exposes slot 7 Texture2D: consuming that slot lowers the resource without
-executing its sample or UV transform. Multiple consumers retain independent samples
+forms expose slots 0 RGBA, 1 RGB, 2 R, 3 G, 4 B, and 5 A; slot 6 is retired. Only the combined
+owner also exposes slot 7 Texture2D. Node building registers all sample outputs;
+normalization removes unreachable sampling and UV work when only the resource is
+consumed. Multiple consumers retain independent samples
 and UVs. Both sample forms accept a Float2 UV expression; a missing UV link reads
 mesh UV0 directly, without local transform settings. TextureCoordinates selects
 one channel through its scalar Channel input/default and outputs Float2.
@@ -184,13 +185,16 @@ eight property links to be disconnected; per-property mode requires the
 aggregate source to be disconnected. Retained fallbacks survive either mode.
 Material and function owners serialize the current reflected graph directly, without
 a historical graph-version marker or UV compatibility branch.
-`FMaterialExpressionBuildContext::ValidateSurface` and `ValidateFunction` check
+`FMaterialExpressionGraphBuilder::ValidateSurface` and `ValidateFunction` check
 concrete expressions directly before publication: identifiers, typed links,
 cycles, bounds, defaults, parameter metadata and function terminals. Local validation
 uses declared call-port types without inspecting a callee body, so a missing
 dependency remains editable. Those private validation values cannot escape as a
 compiler snapshot. Snapshot construction separately validates and expands the loaded
-function closure. Unconnected outputs use finite typed fallbacks. Duplication
+function closure. Expressions register all outputs through a call-local emitter;
+the builder owns traversal and caches values separately for each function invocation.
+See [Material expression building](MaterialExpressionBuilding.md) for the emission,
+invocation, and result-publication contracts. Unconnected outputs use finite typed fallbacks. Duplication
 creates independently owned expression children while preserving their GUIDs;
 presentation names round trip without affecting rendering semantics.
 

@@ -87,7 +87,7 @@ namespace Durin
 			const auto Body = Concrete->GetExpressionBody();
 			auto Validation = Mode == EMaterialFunctionValidationMode::Editing
 				? FMaterialExpressionEditing::ValidateStorage(*Function)
-				: FMaterialExpressionBuildContext::ValidateFunction(Body.Expressions);
+				: FMaterialExpressionGraphBuilder::ValidateFunction(Body.Expressions);
 			if (!Validation) { Append(std::move(Validation), Path); return false; }
 			uint64 Bytes = Path.size() + Body.Expressions.size() * sizeof(DMaterialExpression*);
 			for (const auto& Port : Body.Signature.Inputs) Bytes += sizeof(Port) + Port.Name.size();

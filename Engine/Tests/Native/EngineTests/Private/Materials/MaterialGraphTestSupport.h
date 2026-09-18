@@ -50,8 +50,8 @@ namespace
 		const auto& Collection = Material ? Material->GetExpressionCollection() : Cast<DMaterialFunction>(&Owner)->GetExpressionCollection();
 		std::vector<DMaterialExpression*> Nodes;
 		for (auto& E : Collection.Expressions) Nodes.push_back(E.Get());
-		const auto Result = Material ? FMaterialExpressionBuildContext::ValidateSurface(Nodes, Material->GetExpressionOutputs())
-			: FMaterialExpressionBuildContext::ValidateFunction(Nodes);
+		const auto Result = Material ? FMaterialExpressionGraphBuilder::ValidateSurface(Nodes, Material->GetExpressionOutputs())
+			: FMaterialExpressionGraphBuilder::ValidateFunction(Nodes);
 		return !Result && !Result.Diagnostics.empty();
 	}
 

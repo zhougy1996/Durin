@@ -45,7 +45,7 @@ namespace Durin
 		{ OutError = FormatMaterialError(OwnershipError.Error); return false; }
 		std::vector<DMaterialExpression*> Expressions;
 		for (const auto& Expression : ExpressionCollection.Expressions) Expressions.push_back(Expression.Get());
-		if (!FMaterialExpressionBuildContext::ValidateFunction(Expressions))
+		if (!FMaterialExpressionGraphBuilder::ValidateFunction(Expressions))
 		{
 			OutError = "Function expression collection or signature is invalid.";
 			return false;
@@ -56,7 +56,7 @@ namespace Durin
 	auto DMaterialFunction::SetFunctionExpressions(std::span<DMaterialExpression* const> Expressions) -> FMaterialProgramValidationResult
 	{
 		check(IsInGameThread());
-		auto Result = FMaterialExpressionBuildContext::ValidateFunction(Expressions);
+		auto Result = FMaterialExpressionGraphBuilder::ValidateFunction(Expressions);
 		if (!Result) return Result;
 		Result = Private::ReplaceOwnedExpressions(*this, ExpressionCollection, Expressions);
 		if (!Result) return Result;

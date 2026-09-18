@@ -84,10 +84,9 @@ namespace Durin
 		}
 	}
 
-	auto DMaterialExpressionMaterialOutput::Build(FMaterialExpressionBuildContext& Context,
-		uint8, FGuid) const -> FMaterialExpressionBuildValue
+	auto DMaterialExpressionMaterialOutput::Build(FMaterialExpressionEmitter& Emitter) const -> void
 	{
-		return Context.Fail(EMaterialExpressionError::MaterialOutputSinkUsedAsExpressionSource);
+		return Emitter.Fail(EMaterialExpressionError::MaterialOutputSinkUsedAsExpressionSource);
 	}
 
 	auto DMaterialExpression::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void

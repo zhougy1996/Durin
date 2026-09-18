@@ -86,6 +86,8 @@ namespace Durin
 		AggregateMaterialOutputRequiresSurfaceExpression,
 		NoTypedExpressionOwner,
 		NoAcceptedCompiledProgram,
+		BuildOutputNotRegistered,
+		BuildOutputAlreadyRegistered,
 	};
 
 	enum class EMaterialFunctionError : uint16

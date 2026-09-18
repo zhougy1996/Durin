@@ -60,7 +60,9 @@ namespace Durin
 				case EMaterialExpressionError::ParameterIdentityDistinctExpressionIdentity: return "Parameter identity must be distinct from expression identity.";
 				case EMaterialExpressionError::InputDisconnectedRefersMissingExpression: return "Expression input is disconnected or refers to a missing expression.";
 				case EMaterialExpressionError::InputsContainCycleExceedTraversalDepthBound: return "Expression inputs contain a cycle or exceed the traversal depth bound.";
-				case EMaterialExpressionError::BuildReturnedInvalidIRIndex: return "Expression Build returned an invalid IR index.";
+				case EMaterialExpressionError::BuildOutputNotRegistered: return "Expression Build did not register the requested output.";
+				case EMaterialExpressionError::BuildOutputAlreadyRegistered: return "Expression Build registered an output more than once.";
+				case EMaterialExpressionError::BuildReturnedInvalidIRIndex: return "Expression Build registered an invalid IR index.";
 				case EMaterialExpressionError::InvalidTextureDefaultConsumer: return "A texture default may only be consumed by sampling or a function texture port.";
 				case EMaterialExpressionError::OpcodeResultWidthInputCountInvalid: return "Expression opcode, result width, or input count is invalid.";
 				case EMaterialExpressionError::BuildExceedsExpandedIRNodeLinkBound: return "Expression Build exceeds the expanded IR node or link bound.";

@@ -3,247 +3,215 @@
 namespace Durin
 {
 
-	auto DMaterialExpressionScalarConstant::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
+	auto DMaterialExpressionScalarConstant::Build(FMaterialExpressionEmitter& Emitter) const -> void
 	{
-		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail(EMaterialExpressionError::PrimaryOutput);
 		const std::array Components{Value};
-		return Context.Literal(Components);
+		return Emitter.Output(0, Emitter.Literal(Components));
 	}
 
-	auto DMaterialExpressionScalarParameter::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
+	auto DMaterialExpressionScalarParameter::Build(FMaterialExpressionEmitter& Emitter) const -> void
 	{
-		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail(EMaterialExpressionError::PrimaryOutput);
-		return Context.Parameter(Metadata.Id, EMaterialParameterType::Scalar);
+		return Emitter.Output(0, Emitter.Parameter(Metadata.Id, EMaterialParameterType::Scalar));
 	}
 
-	auto DMaterialExpressionVector2Constant::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
+	auto DMaterialExpressionVector2Constant::Build(FMaterialExpressionEmitter& Emitter) const -> void
 	{
-		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail(EMaterialExpressionError::PrimaryOutput);
 		const std::array Components{static_cast<float>(Value[0]), static_cast<float>(Value[1])};
-		return Context.Literal(Components);
+		return Emitter.Output(0, Emitter.Literal(Components));
 	}
 
-	auto DMaterialExpressionVector3Constant::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
+	auto DMaterialExpressionVector3Constant::Build(FMaterialExpressionEmitter& Emitter) const -> void
 	{
-		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail(EMaterialExpressionError::PrimaryOutput);
 		const std::array Components{static_cast<float>(Value[0]), static_cast<float>(Value[1]), static_cast<float>(Value[2])};
-		return Context.Literal(Components);
+		return Emitter.Output(0, Emitter.Literal(Components));
 	}
 
-	auto DMaterialExpressionVector4Constant::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
+	auto DMaterialExpressionVector4Constant::Build(FMaterialExpressionEmitter& Emitter) const -> void
 	{
-		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail(EMaterialExpressionError::PrimaryOutput);
 		const std::array Components{static_cast<float>(Value[0]), static_cast<float>(Value[1]), static_cast<float>(Value[2]), static_cast<float>(Value[3])};
-		return Context.Literal(Components);
+		return Emitter.Output(0, Emitter.Literal(Components));
 	}
 
-	auto DMaterialExpressionVector4Parameter::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
+	auto DMaterialExpressionVector4Parameter::Build(FMaterialExpressionEmitter& Emitter) const -> void
 	{
-		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail(EMaterialExpressionError::PrimaryOutput);
-		return Context.Parameter(Metadata.Id, EMaterialParameterType::Vector4);
+		return Emitter.Output(0, Emitter.Parameter(Metadata.Id, EMaterialParameterType::Vector4));
 	}
 
-	auto DMaterialExpressionTextureParameter::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
+	auto DMaterialExpressionTextureParameter::Build(FMaterialExpressionEmitter& Emitter) const -> void
 	{
-		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail(EMaterialExpressionError::PrimaryOutput);
-		return Context.Parameter(Metadata.Id, EMaterialParameterType::Texture);
+		return Emitter.Output(0, Emitter.Parameter(Metadata.Id, EMaterialParameterType::Texture));
 	}
 
-	auto DMaterialExpressionAdd::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
+	auto DMaterialExpressionAdd::Build(FMaterialExpressionEmitter& Emitter) const -> void
 	{
-		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail(EMaterialExpressionError::PrimaryOutput);
 		const std::array Inputs{&A, &B};
 		const std::array Defaults{&ADefault, &BDefault};
-		return Context.Numeric(EMaterialProgramOpcode::Add, ResultType, Inputs, Defaults);
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Add, ResultType, Inputs, Defaults));
 	}
 
-	auto DMaterialExpressionSubtract::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
+	auto DMaterialExpressionSubtract::Build(FMaterialExpressionEmitter& Emitter) const -> void
 	{
-		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail(EMaterialExpressionError::PrimaryOutput);
 		const std::array Inputs{&A, &B};
 		const std::array Defaults{&ADefault, &BDefault};
-		return Context.Numeric(EMaterialProgramOpcode::Subtract, ResultType, Inputs, Defaults);
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Subtract, ResultType, Inputs, Defaults));
 	}
 
-	auto DMaterialExpressionMultiply::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
+	auto DMaterialExpressionMultiply::Build(FMaterialExpressionEmitter& Emitter) const -> void
 	{
-		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail(EMaterialExpressionError::PrimaryOutput);
 		const std::array Inputs{&A, &B};
 		const std::array Defaults{&ADefault, &BDefault};
-		return Context.Numeric(EMaterialProgramOpcode::Multiply, ResultType, Inputs, Defaults);
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Multiply, ResultType, Inputs, Defaults));
 	}
 
-	auto DMaterialExpressionDivide::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
+	auto DMaterialExpressionDivide::Build(FMaterialExpressionEmitter& Emitter) const -> void
 	{
-		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail(EMaterialExpressionError::PrimaryOutput);
 		const std::array Inputs{&A, &B};
 		const std::array Defaults{&ADefault, &BDefault};
-		return Context.Numeric(EMaterialProgramOpcode::Divide, ResultType, Inputs, Defaults);
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Divide, ResultType, Inputs, Defaults));
 	}
 
-	auto DMaterialExpressionMinimum::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
+	auto DMaterialExpressionMinimum::Build(FMaterialExpressionEmitter& Emitter) const -> void
 	{
-		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail(EMaterialExpressionError::PrimaryOutput);
 		const std::array Inputs{&A, &B};
 		const std::array Defaults{&ADefault, &BDefault};
-		return Context.Numeric(EMaterialProgramOpcode::Minimum, ResultType, Inputs, Defaults);
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Minimum, ResultType, Inputs, Defaults));
 	}
 
-	auto DMaterialExpressionMaximum::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
+	auto DMaterialExpressionMaximum::Build(FMaterialExpressionEmitter& Emitter) const -> void
 	{
-		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail(EMaterialExpressionError::PrimaryOutput);
 		const std::array Inputs{&A, &B};
 		const std::array Defaults{&ADefault, &BDefault};
-		return Context.Numeric(EMaterialProgramOpcode::Maximum, ResultType, Inputs, Defaults);
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Maximum, ResultType, Inputs, Defaults));
 	}
 
-	auto DMaterialExpressionNegate::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
+	auto DMaterialExpressionNegate::Build(FMaterialExpressionEmitter& Emitter) const -> void
 	{
-		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail(EMaterialExpressionError::PrimaryOutput);
 		const std::array Inputs{&Input};
 		const std::array Defaults{&InputDefault};
-		return Context.Numeric(EMaterialProgramOpcode::Negate, ResultType, Inputs, Defaults);
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Negate, ResultType, Inputs, Defaults));
 	}
 
-	auto DMaterialExpressionOneMinus::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
+	auto DMaterialExpressionOneMinus::Build(FMaterialExpressionEmitter& Emitter) const -> void
 	{
-		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail(EMaterialExpressionError::PrimaryOutput);
 		const std::array Inputs{&Input};
 		const std::array Defaults{&InputDefault};
-		return Context.Numeric(EMaterialProgramOpcode::OneMinus, ResultType, Inputs, Defaults);
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::OneMinus, ResultType, Inputs, Defaults));
 	}
 
-	auto DMaterialExpressionAbsolute::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
+	auto DMaterialExpressionAbsolute::Build(FMaterialExpressionEmitter& Emitter) const -> void
 	{
-		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail(EMaterialExpressionError::PrimaryOutput);
 		const std::array Inputs{&Input};
 		const std::array Defaults{&InputDefault};
-		return Context.Numeric(EMaterialProgramOpcode::Absolute, ResultType, Inputs, Defaults);
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Absolute, ResultType, Inputs, Defaults));
 	}
 
-	auto DMaterialExpressionSaturate::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
+	auto DMaterialExpressionSaturate::Build(FMaterialExpressionEmitter& Emitter) const -> void
 	{
-		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail(EMaterialExpressionError::PrimaryOutput);
 		const std::array Inputs{&Input};
 		const std::array Defaults{&InputDefault};
-		return Context.Numeric(EMaterialProgramOpcode::Saturate, ResultType, Inputs, Defaults);
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Saturate, ResultType, Inputs, Defaults));
 	}
 
-	auto DMaterialExpressionNormalize::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
+	auto DMaterialExpressionNormalize::Build(FMaterialExpressionEmitter& Emitter) const -> void
 	{
-		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail(EMaterialExpressionError::PrimaryOutput);
 		const std::array Inputs{&Input};
 		const std::array Defaults{&InputDefault};
-		return Context.Numeric(EMaterialProgramOpcode::Normalize, ResultType, Inputs, Defaults);
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Normalize, ResultType, Inputs, Defaults));
 	}
 
-	auto DMaterialExpressionSine::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
+	auto DMaterialExpressionSine::Build(FMaterialExpressionEmitter& Emitter) const -> void
 	{
-		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail(EMaterialExpressionError::PrimaryOutput);
 		const std::array Inputs{&Input};
 		const std::array Defaults{&InputDefault};
-		return Context.Numeric(EMaterialProgramOpcode::Sine, ResultType, Inputs, Defaults);
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Sine, ResultType, Inputs, Defaults));
 	}
 
-	auto DMaterialExpressionCosine::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
+	auto DMaterialExpressionCosine::Build(FMaterialExpressionEmitter& Emitter) const -> void
 	{
-		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail(EMaterialExpressionError::PrimaryOutput);
 		const std::array Inputs{&Input};
 		const std::array Defaults{&InputDefault};
-		return Context.Numeric(EMaterialProgramOpcode::Cosine, ResultType, Inputs, Defaults);
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Cosine, ResultType, Inputs, Defaults));
 	}
 
-	auto DMaterialExpressionClamp::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
+	auto DMaterialExpressionClamp::Build(FMaterialExpressionEmitter& Emitter) const -> void
 	{
-		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail(EMaterialExpressionError::PrimaryOutput);
 		const std::array Inputs{&Input, &Minimum, &Maximum};
 		const std::array Defaults{&InputDefault, &MinimumDefault, &MaximumDefault};
-		return Context.Numeric(EMaterialProgramOpcode::Clamp, ResultType, Inputs, Defaults);
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Clamp, ResultType, Inputs, Defaults));
 	}
 
-	auto DMaterialExpressionLerp::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
+	auto DMaterialExpressionLerp::Build(FMaterialExpressionEmitter& Emitter) const -> void
 	{
-		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail(EMaterialExpressionError::PrimaryOutput);
 		const std::array Inputs{&A, &B, &Alpha};
 		const std::array Defaults{&ADefault, &BDefault, &AlphaDefault};
-		return Context.Numeric(EMaterialProgramOpcode::Lerp, ResultType, Inputs, Defaults);
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Lerp, ResultType, Inputs, Defaults));
 	}
 
-	auto DMaterialExpressionMakeVector2::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
+	auto DMaterialExpressionMakeVector2::Build(FMaterialExpressionEmitter& Emitter) const -> void
 	{
-		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail(EMaterialExpressionError::PrimaryOutput);
 		const std::array Inputs{&X, &Y};
 		const std::array Defaults{&XDefault, &YDefault};
-		return Context.Numeric(EMaterialProgramOpcode::MakeFloat2, EMaterialProgramValueType::Float2, Inputs, Defaults);
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::MakeFloat2, EMaterialProgramValueType::Float2, Inputs, Defaults));
 	}
 
-	auto DMaterialExpressionMakeVector3::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
+	auto DMaterialExpressionMakeVector3::Build(FMaterialExpressionEmitter& Emitter) const -> void
 	{
-		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail(EMaterialExpressionError::PrimaryOutput);
 		const std::array Inputs{&X, &Y, &Z};
 		const std::array Defaults{&XDefault, &YDefault, &ZDefault};
-		return Context.Numeric(EMaterialProgramOpcode::MakeFloat3, EMaterialProgramValueType::Float3, Inputs, Defaults);
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::MakeFloat3, EMaterialProgramValueType::Float3, Inputs, Defaults));
 	}
 
-	auto DMaterialExpressionMakeVector4::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
+	auto DMaterialExpressionMakeVector4::Build(FMaterialExpressionEmitter& Emitter) const -> void
 	{
-		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail(EMaterialExpressionError::PrimaryOutput);
 		const std::array Inputs{&X, &Y, &Z, &W};
 		const std::array Defaults{&XDefault, &YDefault, &ZDefault, &WDefault};
-		return Context.Numeric(EMaterialProgramOpcode::MakeFloat4, EMaterialProgramValueType::Float4, Inputs, Defaults);
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::MakeFloat4, EMaterialProgramValueType::Float4, Inputs, Defaults));
 	}
 
-	auto DMaterialExpressionSplat2::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
+	auto DMaterialExpressionSplat2::Build(FMaterialExpressionEmitter& Emitter) const -> void
 	{
-		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail(EMaterialExpressionError::PrimaryOutput);
 		const std::array Inputs{&Input};
 		const std::array Defaults{&InputDefault};
-		return Context.Numeric(EMaterialProgramOpcode::Splat2, EMaterialProgramValueType::Float2, Inputs, Defaults);
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Splat2, EMaterialProgramValueType::Float2, Inputs, Defaults));
 	}
 
-	auto DMaterialExpressionSplat3::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
+	auto DMaterialExpressionSplat3::Build(FMaterialExpressionEmitter& Emitter) const -> void
 	{
-		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail(EMaterialExpressionError::PrimaryOutput);
 		const std::array Inputs{&Input};
 		const std::array Defaults{&InputDefault};
-		return Context.Numeric(EMaterialProgramOpcode::Splat3, EMaterialProgramValueType::Float3, Inputs, Defaults);
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Splat3, EMaterialProgramValueType::Float3, Inputs, Defaults));
 	}
 
-	auto DMaterialExpressionSplat4::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
+	auto DMaterialExpressionSplat4::Build(FMaterialExpressionEmitter& Emitter) const -> void
 	{
-		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail(EMaterialExpressionError::PrimaryOutput);
 		const std::array Inputs{&Input};
 		const std::array Defaults{&InputDefault};
-		return Context.Numeric(EMaterialProgramOpcode::Splat4, EMaterialProgramValueType::Float4, Inputs, Defaults);
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Splat4, EMaterialProgramValueType::Float4, Inputs, Defaults));
 	}
 
-	auto DMaterialExpressionBlendNormalsRNM::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
+	auto DMaterialExpressionBlendNormalsRNM::Build(FMaterialExpressionEmitter& Emitter) const -> void
 	{
-		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail(EMaterialExpressionError::PrimaryOutput);
 		const std::array Inputs{&Base, &Detail};
 		const std::array Defaults{&BaseDefault, &DetailDefault};
-		return Context.Numeric(EMaterialProgramOpcode::BlendNormalsRNM, EMaterialProgramValueType::Float3, Inputs, Defaults);
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::BlendNormalsRNM, EMaterialProgramValueType::Float3, Inputs, Defaults));
 	}
 
-	auto DMaterialExpressionUVChannel::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
+	auto DMaterialExpressionUVChannel::Build(FMaterialExpressionEmitter& Emitter) const -> void
 	{
-		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail(EMaterialExpressionError::PrimaryOutput);
 		const std::array Inputs{&Channel};
 		const std::array Defaults{&ChannelDefault};
-		return Context.Numeric(EMaterialProgramOpcode::UVChannel, EMaterialProgramValueType::Float2, Inputs, Defaults);
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::UVChannel, EMaterialProgramValueType::Float2, Inputs, Defaults));
 	}
 
-	auto DMaterialExpressionMakeSurface::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
+	auto DMaterialExpressionMakeSurface::Build(FMaterialExpressionEmitter& Emitter) const -> void
 	{
-		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail(EMaterialExpressionError::PrimaryOutput);
 		const std::array Inputs{&BaseColor, &Normal, &Metallic, &Roughness, &AmbientOcclusion, &Emissive, &Opacity, &OpacityMask};
 		const std::array Defaults{&BaseColorDefault, &NormalDefault, &MetallicDefault, &RoughnessDefault, &AmbientOcclusionDefault, &EmissiveDefault, &OpacityDefault, &OpacityMaskDefault};
-		return Context.Numeric(EMaterialProgramOpcode::MakeSurface, EMaterialProgramValueType::Surface, Inputs, Defaults);
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::MakeSurface, EMaterialProgramValueType::Surface, Inputs, Defaults));
 	}
 
-	auto DMaterialExpressionAppendVector::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
+	auto DMaterialExpressionAppendVector::Build(FMaterialExpressionEmitter& Emitter) const -> void
 	{
-		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail(EMaterialExpressionError::PrimaryOutput);
 		std::vector<uint32> Scalars;
 		const std::array Inputs{&A, &B};
 		const std::array Defaults{&ADefault, &BDefault};
@@ -251,122 +219,135 @@ namespace Durin
 		{
 			const auto& Input = *Inputs[Slot];
 			if (!Input.ExpressionId.IsValid() && (Input.OutputIndex != 0 || Input.OutputId.IsValid()))
-				return Context.Fail(EMaterialExpressionError::DisconnectedAppendInputOutputSelector);
+				return Emitter.Fail(EMaterialExpressionError::DisconnectedAppendInputOutputSelector);
 			if (!Defaults[Slot]->empty() && (Defaults[Slot]->size() > 3
 				|| !std::ranges::all_of(*Defaults[Slot], [](float Value) { return std::isfinite(Value); })))
-				return Context.Fail(EMaterialExpressionError::AppendVectorDefaultContainOneThreeFiniteComponents);
-			const auto Index = Input.ExpressionId.IsValid() ? Context.ResolveIndex(Input) : Context.Literal(*Defaults[Slot]);
-			if (Index == InvalidMaterialExpressionIndex) return Index;
-			const auto Type = Context.GetNode(Index).ResultType;
-			if (Type > EMaterialProgramValueType::Float3) return Context.Fail(EMaterialExpressionError::AppendVectorRequiresNumericInputsTotalingAtMostFourComponents);
+				return Emitter.Fail(EMaterialExpressionError::AppendVectorDefaultContainOneThreeFiniteComponents);
+			const auto Index = Input.ExpressionId.IsValid() ? Emitter.ResolveIndex(Input) : Emitter.Literal(*Defaults[Slot]);
+			if (Index == InvalidMaterialExpressionIndex) return;
+			const auto Type = Emitter.GetNode(Index).ResultType;
+			if (Type > EMaterialProgramValueType::Float3) return Emitter.Fail(EMaterialExpressionError::AppendVectorRequiresNumericInputsTotalingAtMostFourComponents);
 			const auto Width = static_cast<uint8>(Type) + 1;
-			if (Scalars.size() + Width > 4) return Context.Fail(EMaterialExpressionError::AppendVectorExceedsFourComponents);
+			if (Scalars.size() + Width > 4) return Emitter.Fail(EMaterialExpressionError::AppendVectorExceedsFourComponents);
 			for (uint8 Channel = 0; Channel < Width; ++Channel)
-				Scalars.push_back(Width == 1 ? Index : Context.Emit({.Opcode = EMaterialProgramOpcode::Swizzle,
+				Scalars.push_back(Width == 1 ? Index : Emitter.Emit({.Opcode = EMaterialProgramOpcode::Swizzle,
 					.ResultType = EMaterialProgramValueType::Float, .Inputs = {Index},
 					.Payload = FMaterialIRSwizzle{1, {Channel, 0, 0, 0}}}));
 		}
-		return Context.Emit({.Opcode = static_cast<EMaterialProgramOpcode>(
+		return Emitter.Output(0, Emitter.Emit({.Opcode = static_cast<EMaterialProgramOpcode>(
 			static_cast<uint8>(EMaterialProgramOpcode::MakeFloat2) + Scalars.size() - 2),
-			.ResultType = static_cast<EMaterialProgramValueType>(Scalars.size() - 1), .Inputs = std::move(Scalars)});
+			.ResultType = static_cast<EMaterialProgramValueType>(Scalars.size() - 1), .Inputs = std::move(Scalars)}));
 	}
 
-	auto DMaterialExpressionSwizzle::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
+	auto DMaterialExpressionSwizzle::Build(FMaterialExpressionEmitter& Emitter) const -> void
 	{
-		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail(EMaterialExpressionError::PrimaryOutput);
-		if (Components.empty() || Components.size() > 4) return Context.Fail(EMaterialExpressionError::SwizzleSelectOneFourComponents);
+		if (Components.empty() || Components.size() > 4) return Emitter.Fail(EMaterialExpressionError::SwizzleSelectOneFourComponents);
 		const std::array Inputs{&Input};
 		const std::array Defaults{&InputDefault};
-		return Context.Numeric(EMaterialProgramOpcode::Swizzle,
-			static_cast<EMaterialProgramValueType>(Components.size() - 1), Inputs, Defaults, Components);
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Swizzle,
+			static_cast<EMaterialProgramValueType>(Components.size() - 1), Inputs, Defaults, Components));
 	}
 
-	auto DMaterialExpressionWorldPosition::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
+	auto DMaterialExpressionWorldPosition::Build(FMaterialExpressionEmitter& Emitter) const -> void
 	{
-		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail(EMaterialExpressionError::PrimaryOutput);
-		return Context.Emit({.Opcode = EMaterialProgramOpcode::WorldPosition, .ResultType = EMaterialProgramValueType::Float3});
+		return Emitter.Output(0, Emitter.Emit({.Opcode = EMaterialProgramOpcode::WorldPosition, .ResultType = EMaterialProgramValueType::Float3}));
 	}
 
-	auto DMaterialExpressionTime::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
+	auto DMaterialExpressionTime::Build(FMaterialExpressionEmitter& Emitter) const -> void
 	{
-		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail(EMaterialExpressionError::PrimaryOutput);
-		return Context.Emit({.Opcode = EMaterialProgramOpcode::Time, .ResultType = EMaterialProgramValueType::Float});
+		return Emitter.Output(0, Emitter.Emit({.Opcode = EMaterialProgramOpcode::Time, .ResultType = EMaterialProgramValueType::Float}));
 	}
 
-	auto DMaterialExpressionTextureCoordinates::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
+	auto DMaterialExpressionTextureCoordinates::Build(FMaterialExpressionEmitter& Emitter) const -> void
 	{
-		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail(EMaterialExpressionError::PrimaryOutput);
 		const std::array Inputs{&Channel};
 		const std::array Defaults{&ChannelDefault};
-		return Context.Numeric(EMaterialProgramOpcode::UVChannel, EMaterialProgramValueType::Float2, Inputs, Defaults);
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::UVChannel, EMaterialProgramValueType::Float2, Inputs, Defaults));
 	}
 
-	auto DMaterialExpressionTextureSample2D::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
+	namespace
 	{
-		if (OutputId.IsValid()) return Context.Fail(EMaterialExpressionError::SampleOutputRequiresIndexOutputGUID);
-		const auto* Output = FindMaterialSampleOutput(EMaterialProgramOpcode::TextureSample2D, OutputIndex);
-		if (!Output) return Context.Fail(EMaterialExpressionError::SampleExpressionOutputSelectorInvalid);
-		if (Output->Id != EMaterialSampleOutput::RGBA) return Context.SampleOutput(*this, OutputIndex);
-		if (!UV.ExpressionId.IsValid() && (UV.OutputIndex != 0 || UV.OutputId.IsValid())) return Context.Fail(EMaterialExpressionError::DisconnectedUVInputOutputSelector);
-		const auto Coordinates = UV.ExpressionId.IsValid() ? Context.ResolveIndex(UV) : Context.Coordinates();
-		const auto ResourceValue = Context.Resolve(Texture);
+		// Node-specific lowering: publish all sampled channels from one sample instruction.
+		auto EmitSampleOutputs(FMaterialExpressionEmitter& Emitter, uint32 Sample, bool bDecodeNormal) -> void
+		{
+			if (Sample == InvalidMaterialExpressionIndex) return;
+			Emitter.Output(static_cast<uint8>(EMaterialSampleOutput::RGBA), Sample);
+			for (const auto& Output : GetMaterialSampleOutputs(EMaterialProgramOpcode::TextureSample2D))
+			{
+				if (Output.Id == EMaterialSampleOutput::RGBA) continue;
+				const bool bDecode = bDecodeNormal && Output.Id == EMaterialSampleOutput::RGB;
+				const uint8 Width = bDecode ? 2 : static_cast<uint8>(Output.Type) + 1;
+				const auto Selected = Emitter.Emit({.Opcode = EMaterialProgramOpcode::Swizzle,
+					.ResultType = static_cast<EMaterialProgramValueType>(Width - 1), .Inputs = {Sample},
+					.Payload = FMaterialIRSwizzle{Width, {Output.FirstComponent,
+						static_cast<uint8>(Width > 1 ? 1 : 0), static_cast<uint8>(Width > 2 ? 2 : 0)}}});
+				Emitter.Output(static_cast<uint8>(Output.Id), bDecode
+					? Emitter.Emit({.Opcode = EMaterialProgramOpcode::DecodeNormalRG,
+						.ResultType = EMaterialProgramValueType::Float3, .Inputs = {Selected}}) : Selected);
+			}
+		}
+	}
+
+	auto DMaterialExpressionTextureSample2D::Build(FMaterialExpressionEmitter& Emitter) const -> void
+	{
+		if (!UV.ExpressionId.IsValid() && (UV.OutputIndex != 0 || UV.OutputId.IsValid())) return Emitter.Fail(EMaterialExpressionError::DisconnectedUVInputOutputSelector);
+		const auto Coordinates = UV.ExpressionId.IsValid() ? Emitter.ResolveIndex(UV) : Emitter.Coordinates();
+		const auto ResourceValue = Emitter.Resolve(Texture);
+		uint32 Sample;
 		if (const auto* Default = ResourceValue.GetTexture())
 		{
 			const std::array White{1.f, 1.f, 1.f, 1.f};
 			const std::array Black{0.f, 0.f, 0.f, 1.f};
 			const std::array Normal{.5f, .5f, 1.f, 1.f};
-			return Context.Literal(Default->Fallback == EMaterialTextureFallback::White ? White
+			Sample = Emitter.Literal(Default->Fallback == EMaterialTextureFallback::White ? White
 				: Default->Fallback == EMaterialTextureFallback::FlatRGNormal ? Normal : Black);
 		}
-		const auto Resource = *ResourceValue.GetIndex();
-		return Context.Emit({.Opcode = EMaterialProgramOpcode::TextureSample2D,
+		else
+			Sample = Emitter.Emit({.Opcode = EMaterialProgramOpcode::TextureSample2D,
+				.ResultType = EMaterialProgramValueType::Float4, .Inputs = {*ResourceValue.GetIndex(), Coordinates}});
+		EmitSampleOutputs(Emitter, Sample, Emitter.IsNormalTexture(ResourceValue));
+	}
+
+	auto DMaterialExpressionTextureSampleParameter2D::Build(FMaterialExpressionEmitter& Emitter) const -> void
+	{
+		if (!UV.ExpressionId.IsValid() && (UV.OutputIndex != 0 || UV.OutputId.IsValid())) return Emitter.Fail(EMaterialExpressionError::DisconnectedUVInputOutputSelector);
+		const auto Resource = Emitter.Parameter(Metadata.Id, EMaterialParameterType::Texture);
+		Emitter.Output(static_cast<uint8>(EMaterialSampleOutput::Texture), Resource);
+		const auto Coordinates = UV.ExpressionId.IsValid() ? Emitter.ResolveIndex(UV) : Emitter.Coordinates();
+		const auto Sample = Emitter.Emit({.Opcode = EMaterialProgramOpcode::TextureSample2D,
 			.ResultType = EMaterialProgramValueType::Float4, .Inputs = {Resource, Coordinates}});
+		EmitSampleOutputs(Emitter, Sample, TextureUsage == ETextureUsage::Normal);
 	}
 
-	auto DMaterialExpressionTextureSampleParameter2D::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
+	auto DMaterialExpressionGetSurfaceAttributes::Build(FMaterialExpressionEmitter& Emitter) const -> void
 	{
-		if (OutputId.IsValid()) return Context.Fail(EMaterialExpressionError::SampleOutputRequiresIndexOutputGUID);
-		const auto* Output = FindMaterialSampleOutput(EMaterialProgramOpcode::TextureSampleParameter2D, OutputIndex);
-		if (!Output) return Context.Fail(EMaterialExpressionError::SampleExpressionOutputSelectorInvalid);
-		if (Output->Id == EMaterialSampleOutput::Texture) return Context.Parameter(Metadata.Id, EMaterialParameterType::Texture);
-		if (Output->Id != EMaterialSampleOutput::RGBA) return Context.SampleOutput(*this, OutputIndex);
-		if (!UV.ExpressionId.IsValid() && (UV.OutputIndex != 0 || UV.OutputId.IsValid())) return Context.Fail(EMaterialExpressionError::DisconnectedUVInputOutputSelector);
-		const auto Resource = Context.Parameter(Metadata.Id, EMaterialParameterType::Texture);
-		const auto Coordinates = UV.ExpressionId.IsValid() ? Context.ResolveIndex(UV) : Context.Coordinates();
-		return Context.Emit({.Opcode = EMaterialProgramOpcode::TextureSample2D,
-			.ResultType = EMaterialProgramValueType::Float4, .Inputs = {Resource, Coordinates}});
-	}
-
-	auto DMaterialExpressionGetSurfaceAttributes::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
-	{
-		if (OutputId.IsValid() || OutputIndex >= 8 || !(AttributeMask & (1u << OutputIndex)))
-			return Context.Fail(EMaterialExpressionError::SurfaceAttributeOutputSelected);
-		const auto Index = Context.ResolveIndex(Surface);
-		if (Index == InvalidMaterialExpressionIndex) return Index;
-		const auto& Base = Context.GetNode(Index);
+		if (AttributeMask == 0) return Emitter.Fail(EMaterialExpressionError::SurfaceAttributeOutputSelected);
+		const auto Index = Emitter.ResolveIndex(Surface);
+		if (Index == InvalidMaterialExpressionIndex) return;
+		const auto& Base = Emitter.GetNode(Index);
 		if (Base.Opcode != EMaterialProgramOpcode::MakeSurface || Base.Inputs.size() != 8)
-			return Context.Fail(EMaterialExpressionError::SurfaceAttributeInputResolveConstructedSurface);
-		return Base.Inputs[OutputIndex];
+			return Emitter.Fail(EMaterialExpressionError::SurfaceAttributeInputResolveConstructedSurface);
+		for (uint8 Index = 0; Index < 8; ++Index)
+			if (AttributeMask & (1u << Index)) Emitter.Output(Index, Base.Inputs[Index]);
 	}
 
-	auto DMaterialExpressionSetSurfaceAttributes::Build(FMaterialExpressionBuildContext& Context, uint8 OutputIndex, FGuid OutputId) const -> FMaterialExpressionBuildValue
+	auto DMaterialExpressionSetSurfaceAttributes::Build(FMaterialExpressionEmitter& Emitter) const -> void
 	{
-		if (OutputIndex != 0 || OutputId.IsValid()) return Context.Fail(EMaterialExpressionError::PrimaryOutput);
-		const auto Index = Context.ResolveIndex(Surface);
-		if (Index == InvalidMaterialExpressionIndex) return Index;
-		const auto& Base = Context.GetNode(Index);
+		const auto Index = Emitter.ResolveIndex(Surface);
+		if (Index == InvalidMaterialExpressionIndex) return;
+		const auto& Base = Emitter.GetNode(Index);
 		if (Base.Opcode != EMaterialProgramOpcode::MakeSurface || Base.Inputs.size() != 8)
-			return Context.Fail(EMaterialExpressionError::SurfaceOverrideInputResolveConstructedSurface);
+			return Emitter.Fail(EMaterialExpressionError::SurfaceOverrideInputResolveConstructedSurface);
 		FMaterialIRNode Node{.Opcode = EMaterialProgramOpcode::MakeSurface,
 			.ResultType = EMaterialProgramValueType::Surface, .Inputs = Base.Inputs};
 		uint8 Seen = 0;
 		for (const auto& Attribute : Attributes)
 		{
 			const auto Slot = static_cast<uint8>(Attribute.Attribute);
-			if (Slot >= 8 || (Seen & (1u << Slot))) return Context.Fail(EMaterialExpressionError::SurfaceOverrideContainsInvalidDuplicateAttribute);
+			if (Slot >= 8 || (Seen & (1u << Slot))) return Emitter.Fail(EMaterialExpressionError::SurfaceOverrideContainsInvalidDuplicateAttribute);
 			Seen |= static_cast<uint8>(1u << Slot);
-			Node.Inputs[Slot] = Context.ResolveIndex(Attribute.Source);
+			Node.Inputs[Slot] = Emitter.ResolveIndex(Attribute.Source);
 		}
-		return Context.Emit(std::move(Node));
+		return Emitter.Output(0, Emitter.Emit(std::move(Node)));
 	}
 }

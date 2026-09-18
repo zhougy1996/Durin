@@ -67,6 +67,7 @@ requires; do not read unrelated topics or scan an entire directory.
 | Shadow quality, bias, PCF, cascades, or contact shadows | [Directional shadows](Runtime/Rendering/DirectionalShadows.md) |
 | Loaded material dependency queries, batch caches, or notification reentrancy | [Scoped material queries](Runtime/Rendering/MaterialQueries.md) |
 | Material error codes, diagnostic context, result contracts, or error text formatting | [Material diagnostics](Runtime/Rendering/MaterialDiagnostics.md) |
+| Material expression emission, output registration, graph traversal, or function invocation caches | [Material expression building](Runtime/Rendering/MaterialExpressionBuilding.md) |
 | RHI or Vulkan validation results, creation error codes, or diagnostic formatting | [RHI diagnostics](Runtime/Rendering/RHIDiagnostics.md) |
 | Shader validation, compilation, cooked-library errors, or diagnostic formatting | [Shader diagnostics](Runtime/Rendering/ShaderDiagnostics.md) |
 | Material graph commands, function authoring, UV inputs, transactions, or clipboard | [Material graph operations](Editor/Architecture/MaterialGraphOperations.md) |

@@ -84,7 +84,7 @@ TEST(FMaterialProgramSchemaTests,
 		Expressions.push_back(Node.Get());
 	}
 	EXPECT_LE(LinkCount, MaterialProgramMaxLinkCount);
-	const auto Validation = FMaterialExpressionBuildContext::ValidateSurface(Expressions, First.Outputs);
+	const auto Validation = FMaterialExpressionGraphBuilder::ValidateSurface(Expressions, First.Outputs);
 	EXPECT_TRUE(Validation); EXPECT_TRUE(Validation.Diagnostics.empty());
 	EXPECT_NE(FMaterialExpressionCollection::StaticStruct()->FindPropertyByName("Expressions"), nullptr);
 	EXPECT_NE(FMaterialExpressionSurfaceOutputs::StaticStruct()->FindPropertyByName("BaseColor"), nullptr);
@@ -107,7 +107,7 @@ TEST(FMaterialProgramSchemaTests,
 	const auto ExpectFailure = [&](const Testing::FTestMaterialExpressionGraph& Graph, EMaterialExpressionError Code) {
 		std::vector<DMaterialExpression*> Expressions;
 		for (const auto& Expression : Graph.Expressions) Expressions.push_back(Expression.Get());
-		auto Validation = FMaterialExpressionBuildContext::ValidateSurface(Expressions, Graph.Outputs);
+		auto Validation = FMaterialExpressionGraphBuilder::ValidateSurface(Expressions, Graph.Outputs);
 		EXPECT_FALSE(Validation);
 		EXPECT_FALSE(Validation.Diagnostics.empty());
 		if (!Validation.Diagnostics.empty()) EXPECT_EQ(Validation.Diagnostics.front().Error.Code, FMaterialError::FCode(Code))
@@ -261,7 +261,7 @@ TEST(FMaterialProgramNormalizationTests,
 {
 	InitializeDObjectSystem();
 	Durin::FMaterialIRCompilerInput Input = MakeSyntheticMaterialCompilerInput();
-	Durin::FMaterialExpressionBuildContext Empty(std::span<Durin::DMaterialExpression* const>{});
+	Durin::FMaterialExpressionGraphBuilder Empty(std::span<Durin::DMaterialExpression* const>{});
 	Input.IR = Empty.FinishSurface({}).IR;
 	Input.Parameters.clear();
 	Input.Sources.clear();
@@ -308,7 +308,7 @@ TEST(FMaterialProgramSchemaTests, AggregateInputRequiresMaterialAttributesType)
 	Graph.Outputs.Surface = Graph.Outputs.BaseColor; Graph.Outputs.bUseMaterialAttributes = true;
 	std::vector<Durin::DMaterialExpression*> Expressions;
 	for (const auto& Expression : Graph.Expressions) Expressions.push_back(Expression.Get());
-	auto Validation = Durin::FMaterialExpressionBuildContext::ValidateSurface(Expressions, Graph.Outputs);
+	auto Validation = Durin::FMaterialExpressionGraphBuilder::ValidateSurface(Expressions, Graph.Outputs);
 	EXPECT_FALSE(Validation);
 	ASSERT_FALSE(Validation.Diagnostics.empty());
 	EXPECT_EQ(Validation.Diagnostics.front().Error.Code, Durin::FMaterialError::FCode(Durin::EMaterialExpressionError::AggregateMaterialOutputRequiresSurfaceExpression));
@@ -429,7 +429,7 @@ TEST(FMaterialProgramNormalizationTests, SharedDagKeysRemainBoundedAtMaximumDept
 {
 	using namespace Durin;
 	auto Input = MakeSyntheticMaterialCompilerInput();
-	FMaterialExpressionBuildContext Empty(std::span<DMaterialExpression* const>{});
+	FMaterialExpressionGraphBuilder Empty(std::span<DMaterialExpression* const>{});
 	Input.IR = Empty.FinishSurface({}).IR;
 	Input.Parameters.clear(); Input.Sources.clear();
 	// Independent equal DAGs force structural comparisons at the depth boundary.

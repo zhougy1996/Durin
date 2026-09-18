@@ -1,4 +1,4 @@
-#include "Materials/MaterialExpressionBuild.h"
+#include "MaterialExpressionGraphBuilder.h"
 #include "Asset/Asset.h"
 
 #include "Materials/Material.h"
@@ -8,7 +8,7 @@
 
 namespace Durin
 {
-	auto FMaterialExpressionBuildContext::FinishSurface(const FMaterialExpressionSurfaceOutputs& Outputs)
+	auto FMaterialExpressionGraphBuilderImpl::FinishSurface(const FMaterialExpressionSurfaceOutputs& Outputs)
 		-> FMaterialExpressionBuildResult
 	{
 		const std::array Inputs{Outputs.BaseColor, Outputs.Normal, Outputs.Metallic, Outputs.Roughness,
@@ -70,10 +70,10 @@ namespace Durin
 		return Finish({});
 	}
 
-	auto FMaterialExpressionBuildContext::ValidateSurface(std::span<DMaterialExpression* const> Expressions,
+	auto FMaterialExpressionGraphBuilderImpl::ValidateSurface(std::span<DMaterialExpression* const> Expressions,
 		const FMaterialExpressionSurfaceOutputs& Outputs, FXxHash128* OutCodeFingerprint) -> FMaterialProgramValidationResult
 	{
-		FMaterialExpressionBuildContext Context(Expressions);
+		FMaterialExpressionGraphBuilderImpl Context(Expressions);
 		Context.bValidateAuthoring = true;
 		auto Built = Context.FinishSurface(Outputs);
 		if (Built && OutCodeFingerprint)
@@ -129,7 +129,7 @@ namespace Durin
 		std::vector<DMaterialExpression*> Expressions;
 		for (const auto& Expression : Owner->GetExpressionCollection().Expressions) Expressions.push_back(Expression.Get());
 		std::vector<FMaterialFunctionOwnerStamp> Owners;
-		FMaterialExpressionBuildContext Context(Expressions, {.FindFunction = [&](const DMaterialFunctionInterface& Function)
+		FMaterialExpressionGraphBuilderImpl Context(Expressions, {.FindFunction = [&](const DMaterialFunctionInterface& Function)
 			-> std::optional<FMaterialExpressionFunctionBody> {
 			const auto* Concrete = Cast<DMaterialFunction>(&Function);
 			if (!Concrete) return std::nullopt;

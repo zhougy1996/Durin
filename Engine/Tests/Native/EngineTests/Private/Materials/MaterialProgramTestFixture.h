@@ -31,7 +31,7 @@ namespace
 
 	auto MakeDefaultMaterialCompilerIR() -> Durin::FMaterialIR
 	{
-		Durin::FMaterialExpressionBuildContext Empty(std::span<Durin::DMaterialExpression* const>{});
+		Durin::FMaterialExpressionGraphBuilder Empty(std::span<Durin::DMaterialExpression* const>{});
 		return Empty.FinishSurface({}).IR;
 	}
 
@@ -41,7 +41,7 @@ namespace
 		auto Recipe = Durin::Testing::MakePBRMaterialExpressionsForTest();
 		std::vector<Durin::DMaterialExpression*> Expressions;
 		for (const auto& Expression : Recipe.Expressions) Expressions.push_back(Expression.Get());
-		Durin::FMaterialExpressionBuildContext Context(Expressions);
+		Durin::FMaterialExpressionGraphBuilder Context(Expressions);
 		auto Built = Context.FinishSurface(Recipe.Outputs);
 		check(Built);
 		Durin::FMaterialIRCompilerInput Input{.IR = std::move(Built.IR), .Parameters = std::move(Built.Parameters),

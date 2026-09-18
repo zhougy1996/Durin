@@ -47,7 +47,7 @@ namespace
 			return Result;
 		}
 		auto Validate() const -> Durin::FMaterialProgramValidationResult
-		{ return Durin::FMaterialExpressionBuildContext::ValidateFunction(Durin::Testing::WithFunctionPorts(Signature, Pointers())); }
+		{ return Durin::FMaterialExpressionGraphBuilder::ValidateFunction(Durin::Testing::WithFunctionPorts(Signature, Pointers())); }
 		auto Apply(Durin::DMaterialFunction& Function) const -> Durin::FMaterialProgramValidationResult
 		{ return Function.SetFunctionExpressions(Durin::Testing::WithFunctionPorts(Signature, Pointers())); }
 	};
@@ -83,7 +83,7 @@ namespace
 				return Owner->GetExpressionBody();
 			return std::nullopt;
 		};
-		Durin::FMaterialExpressionBuildContext Context(Expressions, std::move(Environment));
+		Durin::FMaterialExpressionGraphBuilder Context(Expressions, std::move(Environment));
 		return Context.FinishSurface(Outputs);
 	}
 
