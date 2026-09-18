@@ -417,7 +417,9 @@ supplies its registered resource and normal load resolver. A private caller can
 supply an immutable resource snapshot and private object resolver without
 temporarily publishing either. `LoadAuthoredObject` applies serializer fields
 only; the caller owns graph construction, dependency lifetime, rollback and
-PostLoad policy. Serializer and struct migration callbacks still execute and
+PostLoad policy. It returns a classified, owned diagnostic in `FAssetResult`;
+resolver operation results are not retained inside load failures. Serializer
+and struct migration callbacks still execute and
 require their own admission before use in isolated preparation.
 
 `PreparePackageGraphs` consumes saved immutable closures on GameThread and uses

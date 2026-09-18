@@ -2,7 +2,6 @@
 
 #include "AssetRegistry/Catalog.h"
 #include "Asset/AssetDefinitions.h"
-#include "Asset/PackageObjectLoadError.h"
 #include "Asset/PackageResource.h"
 #include "DObject/Archive.h"
 #include "DObject/DObjectGlobals.h"
@@ -44,5 +43,5 @@ namespace Durin::AssetPrivate
 		const FPackageLoadBindings& Bindings,
 		uint32 SourceVersion,
 		std::span<const FArchiveCustomVersion> CustomVersions = {},
-		const FArchiveState& Context = {}) -> FPackageObjectLoadResult;
+		const FArchiveState& Context = {}) -> FAssetResult;
 }

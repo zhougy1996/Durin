@@ -13,7 +13,8 @@ This plan replaces `Documentation/Plans/AssetObjectTypedErrors.md` by explicit
 design choice. The former plan is superseded, not completed. Its remaining
 cause-retention and rollback-preservation gates are withdrawn. No runtime
 behavior has changed as part of this replacement. Stage 0's source audit and
-selected implementation model are recorded below; implementation gates remain open.
+selected implementation model are recorded below. Stage 1 is complete; Stage 2
+is next. Ordinary load rollback and readiness have not changed yet.
 
 The former work remains in Git history: baseline `12beed739`, subsequent
 `6d317f0b5` and `d569de006`, and branch
@@ -28,6 +29,14 @@ failure retires all `TransactionPackages`, including successful nested loads.
 `FindResidentPackage` does not exclude loading skeletons, and ordinary packages
 are Standalone: neither a resident lookup nor loss of the requesting scope is
 proof of readiness or eligibility for GC.
+
+Stage 1 validation (2026-09-18, Win64-Debug-DurinEditor):
+`AssetPackageTests` passed 178 tests; `AssetPackageReloadTests` passed 14 tests;
+`build --target all` passed, including Sandbox and RoadWeaver. After removing
+message assertions per user direction, the four affected field-load/binding/retry
+cases rebuilt and passed. Changed-document validation passed. Field application
+now returns code/message directly, without the package-object wrapper or a
+retained resolver operation; all workspace source/test consumers were migrated.
 
 ## Goal
 
@@ -191,7 +200,7 @@ RoadWeaver does own a `DRoadNet::PostLoad` data-validation callback.
 
 Current code paths grounding this model: `LoadPackageFromPhysicalPath` owns
 `TransactionPackages` and active reports; `LoadPackageInternal` registers bulk
-resources and skeleton callbacks; `ApplyPackageLinker` owns local rollback and
+resources and skeleton callbacks; `ApplyLivePackageLinker` owns local rollback and
 PostLoad; `PreparePackageGraphs` creates pinned private graphs; `PackageReload`
 runs private runtime preparation and explicit dependency release. Public
 `FindResidentPackage` currently ignores `LoadingPackages`, enabling cyclic
@@ -257,13 +266,13 @@ acceptance cases; no unresolved ownership decision blocks Stages 1 or 2.
 Depends on Stage 0. Outcome: the full live/private field-load path uses compact
 diagnostics without recursively embedding operation results.
 
-- [ ] Replace the package object error/result wrappers and recursive asset cause
+- [x] Replace the package object error/result wrappers and recursive asset cause
   adapter across producers, private preparation, live loading, and callers.
-- [ ] Preserve first failure, codes, object/field/dependency context and original
+- [x] Preserve first failure, codes, object/field/dependency context and original
   Archive messages; include useful expected/actual details at failure creation.
-- [ ] Remove obsolete formatter and retention-only tests. Test actionable errors
+- [x] Remove obsolete formatter and retention-only tests. Test actionable errors
   after cleanup, retry, and independent requests without asserting full prose.
-- [ ] Pass affected tests and an all build; update authoritative contracts.
+- [x] Pass affected tests and an all build; update authoritative contracts.
 
 ### Stage 2: Replace ordinary load transactions with scoped completion
 
@@ -299,6 +308,11 @@ compatibility adapters no longer dictate asset subsystem design.
 - [ ] Document implemented contracts and close this plan only after all gates pass.
 
 ## Validation and Handoff
+
+User clarification (2026-09-18): PostLoad is intrinsically non-transactional.
+Cleanup must not imply compensation of its external effects. Tests should assert
+classification, output/lifetime state and retry behavior, not diagnostic wording;
+review diagnostic completeness at the implementation boundary instead.
 
 Follow [native testing](../Agents/Testing.md) and
 [build guidance](../Agents/BuildAndRun.md). Shared Engine API changes require an

@@ -491,6 +491,11 @@ Property snapshots and editable copies operate on selected values rather than
 pretending to serialize a complete object; snapshots root their captured hard
 references and remain process-local and unversioned.
 
+Engine package field application formats the first Archive failure and any value
+cause into an owned load diagnostic before candidate cleanup. The diagnostic
+includes object and field identity and preserves the original Archive message;
+it does not retain a resolver operation or require a recursive result hierarchy.
+
 ## Related Documentation
 
 - [Package persistence](PackagePersistence.md): reflected capture, save operations and staged commit.

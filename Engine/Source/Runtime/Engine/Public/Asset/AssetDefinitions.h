@@ -10,7 +10,6 @@
 namespace Durin
 {
 	struct FPackageCaptureError;
-	struct FPackageObjectLoadError;
 	namespace ObjectPackage
 	{
 		struct FPackageReaderResult;
@@ -73,7 +72,6 @@ namespace Durin
 		std::shared_ptr<const FPackageCaptureError> PackageCaptureCause;
 		std::shared_ptr<const ObjectPackage::FPackageReaderResult> PackageReaderCause;
 		std::shared_ptr<const ObjectPackage::FPackageWriterResult> PackageWriterCause;
-		std::shared_ptr<const FPackageObjectLoadError> PackageObjectLoadCause;
 
 		auto Succeeded() const -> bool { return Error == EAssetError::None; }
 		explicit operator bool() const { return Succeeded(); }

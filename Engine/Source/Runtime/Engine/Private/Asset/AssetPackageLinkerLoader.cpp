@@ -1046,12 +1046,8 @@ namespace Durin::AssetPrivate
 					Bindings, Linker.FormatVersion, CustomVersions, LoadContext);
 				if (!Loaded)
 				{
-					// Explicit adapter until the enclosing linker/asset results migrate.
-					FAssetResult Result{Loaded.Error.Code,
-						FormatPackageObjectLoadError(Loaded.Error)};
-					Result.PackageObjectLoadCause = std::make_shared<FPackageObjectLoadError>(std::move(Loaded.Error));
-					LinkerApplyFail(Diagnostic, Result.Error, Result.Message, 0, Exports[ObjectIndex].Path);
-					return Result;
+					LinkerApplyFail(Diagnostic, Loaded.Error, Loaded.Message, 0, Exports[ObjectIndex].Path);
+					return Loaded;
 				}
 				if (Options.bCooked) continue;
 				std::vector<FAuthoredOverrideEntry> LedgerEntries;
