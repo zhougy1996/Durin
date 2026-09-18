@@ -12,7 +12,8 @@ Completed:
 This plan replaces `Documentation/Plans/AssetObjectTypedErrors.md` by explicit
 design choice. The former plan is superseded, not completed. Its remaining
 cause-retention and rollback-preservation gates are withdrawn. No runtime
-behavior has changed as part of this replacement; Stage 0 is the next work.
+behavior has changed as part of this replacement. Stage 0's source audit and
+selected implementation model are recorded below; implementation gates remain open.
 
 The former work remains in Git history: baseline `12beed739`, subsequent
 `6d317f0b5` and `d569de006`, and branch
@@ -132,20 +133,120 @@ UE loader path is transaction-free or that Durin should copy UE internals.
 
 ## Implementation Stages
 
+### Stage 0 audit record (2026-09-18)
+
+The workspace inventory covers Engine, Sandbox and RoadWeaver source and native
+test roots declared in `Durin.dworkspace`. The package-object wrapper has one
+producer (`AssetPackageLoadArchive.cpp`), one production consumer
+(`ApplyLinkerValues`, shared by live and private preparation), and assertions in
+`AssetPackageTests`. Sandbox and RoadWeaver do not consume those wrapper fields.
+RoadWeaver does own a `DRoadNet::PostLoad` data-validation callback.
+
+#### State and completion ownership selected for Stage 2
+
+- Keep a single load record per in-flight package in `FAssetLoadService`, with
+  phases Constructing, Skeleton, Restoring, Validated, PostLoading, Ready and
+  Failed. The record owns the candidate, resource registration, DFS index,
+  low-link and pending completion work. Existing completed/created packages
+  continue to use the Core package index; no second resident cache is needed.
+- Separate loader-only dependency resolution from public `LoadPackage`,
+  `LoadObject`, soft resolution and resident enumeration. Only loader bindings
+  may return an in-flight skeleton. Public requests for an incomplete package
+  return `InUse` with a null output; completed dependencies remain accessible.
+  Constructors, serializers and validation must not invoke public live loading.
+- Use synchronous DFS strongly connected components. Register the skeleton
+  before following hard edges; record every edge admitted by package dependency
+  traversal or object resolution. An edge to an active ancestor lowers low-link.
+  A component closes at its DFS root after every member has restored values.
+  Validate all member graphs at that point, then run completion work. Acyclic
+  children close immediately, so a later parent failure does not discard them.
+  Never validate a cyclic member against a peer with unrestored values.
+- Finish fallible load/publication preparation for every member before the first
+  PostLoad. Run dependencies before dependents; within a component use stable
+  DFS completion order and preserve reverse object order within each package.
+  Mark the whole component Ready only after all notifications return. No member
+  is an independent success before that transition.
+- During PostLoad, public access to Ready packages is allowed; access to the
+  current incomplete component is `InUse`. An independent synchronous load may
+  complete, but a new load that points back to a PostLoading component is rejected
+  rather than joining a component whose notifications have started. Internal
+  references already bound within the component remain usable; PostLoad must
+  not assume a cyclic peer has already received its notification.
+- One scoped owner discards each failed incomplete component: hide/mark all
+  candidates first, retire its registered resources, release pins and temporary
+  records once. Restore load depth, active report and traversal state on every
+  exit, including exceptions. Convert callback exceptions at the public load
+  boundary to an owned diagnostic; cleanup must not replace the original error.
+  Propagate failure to unfinished dependents, never sweep completed components.
+- Keep forced GC initially: `MarkObjectHierarchyAsGarbage` changes flags but does
+  not remove the Outer index, and immediate same-path retry must be proven before
+  changing physical retirement. Completed ordinary packages remain Standalone;
+  `UnloadPackage` and `ReleasePackages` retain their saved/live-reference checks.
+- Explicit `FAssetPackageLoadScope` records newly completed packages even if a
+  later requested root fails. Its explicit release remains operation-owned.
+  `PreparePackageGraphs`, `FPreparedPackageGraph::FState`, replacement resource
+  receipts and reload commit/abort keep their private ownership. Direct linker
+  ordinary loading no longer owns residency-restoration callbacks; explicit
+  replacement policies remain separate.
+
+Current code paths grounding this model: `LoadPackageFromPhysicalPath` owns
+`TransactionPackages` and active reports; `LoadPackageInternal` registers bulk
+resources and skeleton callbacks; `ApplyPackageLinker` owns local rollback and
+PostLoad; `PreparePackageGraphs` creates pinned private graphs; `PackageReload`
+runs private runtime preparation and explicit dependency release. Public
+`FindResidentPackage` currently ignores `LoadingPackages`, enabling cyclic
+references but also premature public success. Current root rollback retires
+successful dependency resources, and load depth/report restoration lacks an
+exception scope. These are changes to implement, not guarantees already fixed.
+
+#### Callback migration and acceptance map
+
+| Boundary | Required implementation and acceptance |
+| --- | --- |
+| Custom `Serialize` / `SerializeCooked`, native constructors, struct repair | Restrict writes to the candidate and resolve references through supplied bindings. Guard public loading; test ignored rejected calls and thrown callbacks. Material serializers already use graph validation; keep first Archive failure and its original message. |
+| Texture and StaticMesh PostLoad | Move authored-source/slot and required cooked-field rejection into graph validation before notifications. Keep compilation/resource readiness separate; test invalid data never schedules work and retirement remains safe. |
+| Material / MaterialFunction / MaterialInstance | Preserve existing material graph validation; move remaining static-property, parent-cycle and cooked-payload data rejection before notifications. Schema/cache initialization, compilation and graph notifications happen only after group validation. Test peer values and cyclic parent rejection. |
+| Actor / Level / MeshComponent | Audit reconstruction and ownership/material-override repair against pre-notification validation. Reject malformed persisted ownership/overrides before callbacks; keep native reconstruction as initialization. Test child values and no notification after recoverable rejection. |
+| Spline / SplineMesh / RoadNet | Spline updates and mesh requests stay initialization; RoadNet schema/definition rejection moves to graph validation. Validate RoadWeaver targets as well as Engine. |
+| Linker injected publication / PostLoad failures | Move recoverable injected gates before notifications. Add explicit throwing-callback cases; test no partial public readiness and no promise to undo external callback effects. |
+| Ordinary dependency graph | Test independent child retention and normal unload, failed cyclic group cleanup, pre-existing resident preservation, public reentry rejection, same-path retry and resource retirement. |
+| Private preparation / reload | Keep candidate abort and old graph/resource validity tests; do not infer ordinary residency rollback from replacement ownership. |
+
+#### Error boundary inventory
+
+| Boundary | Decision and consumer-based reason |
+| --- | --- |
+| Package object load wrapper and `FAssetResult::PackageObjectLoadCause` | Remove. Reuse `FAssetResult` code/message for field application. The linker only adapts the wrapper; remaining field consumers assert representation in tests. Format object, Archive route, dependency, expected/actual and original reason before cleanup. |
+| Resolver operation embedded in field load | Flatten immediately to code/message. Resolver operation id/disposition is not a field-load recovery protocol; update retention tests to assert durable context and independent requests. |
+| Asset codec reader/writer and Capture cause adapters | Remove cause links from asset results; adapters already format them. Keep codec reason/offset and Capture reason-to-save-code mapping at their owning boundaries; flatten nested formatting-only causes there in Stage 3. |
+| Asset graph validation, Registry, bulk storage and registration causes | Flatten at asset adaptation; source inspection found assignment/formatting propagation, not asset-level recovery branches. Preserve native validation/registration status needed by their owning APIs. |
+| Private graph preparation and reload diagnostics | Keep status, stage, package/object identity, commit/abort and resource receipts. Replace embedded complete asset operations with diagnostic code/text; retain replacement-map and resource state actually used by coordinator control flow. |
+| Core property snapshots, editable copy and graph operations | Keep error classification and first restoration failure as distinct outcomes. Editor property recovery and material graph edit sessions consume restoration success; flatten formatting-only nested diagnostic transport without weakening restore/abort behavior. |
+| Cook input/dependency/contribution adapters | `FCookDependencyDiscovery::Fail(FAssetResult)` reads `CookInputCause` to recover cancellation/limit status: migrate to an explicit Cook-owned failure channel before removing this link. Dependency/contribution links are adapters; retain typed contributor/cancellation/provider outcomes, flatten display-only causes. |
+| Save/import/editor operation adapters | Keep write disposition, operation identity, recovery location and affected files in the owning write outcome. `AssetOperationResultInternal.h` branches on disposition and copies recovery metadata; generic load failures must not become this channel. Preserve async terminal completion and cancellation. |
+| Compilation and external source providers | Keep typed submission/task/provider states consumed by schedulers and completion handlers. Flatten nested causes used only by formatters; do not replace provider protocols with generic strings. |
+
+Stage 1 acceptance targets are `AssetPackageTests` (field errors, external
+resolution, cleanup/retry and private bindings), `AssetPackageReloadTests`
+(private application) and an all build. Stage 2 additionally requires family
+validation tests and RoadWeaver coverage. Stage 3 must search all declared source
+and test roots again for each changed API and use affected-test selection plus
+an all build. Audit-only documentation validation is not runtime validation.
+
 ### Stage 0: Audit consumers and fix the loading contract
 
 Outcome: an implementation-ready ownership and state model grounded in current
 code. This stage precedes removal of any rollback guarantees.
 
-- [ ] Trace ordinary load, cyclic references, reentrancy, custom serializers,
+- [x] Trace ordinary load, cyclic references, reentrancy, custom serializers,
   PostLoad, resource registration, unload, private preparation, and reload.
-- [ ] Inventory error producers and real code/context consumers across all
+- [x] Inventory error producers and real code/context consumers across all
   projects in `Durin.dworkspace`; distinguish behavior from tests of old layout.
-- [ ] Record the state transitions, completion-group algorithm, public/internal
+- [x] Record the state transitions, completion-group algorithm, public/internal
   lookup rules, owner of each cleanup action, and callback restrictions here.
-- [ ] Resolve PostLoad reentrant-load ordering and exceptional-failure behavior;
+- [x] Resolve PostLoad reentrant-load ordering and exceptional-failure behavior;
   identify existing callbacks that must change before the boundary moves.
-- [ ] Map each former error boundary to retain, flatten, or remove, with a
+- [x] Map each former error boundary to retain, flatten, or remove, with a
   consumer-based reason; identify recovery metadata that needs a separate result.
 
 Completion: every selected semantic change has affected consumers and concrete
