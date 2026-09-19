@@ -18,6 +18,7 @@
 #include "TextureEditorModule.h"
 #include "StaticMeshEditorModule.h"
 #include "Thumbnail/ThumbnailManager.h"
+#include "Thumbnail/AssetThumbnailPool.h"
 #include "Icons/FontAwesomeIcons.h"
 #include "MonaImGui.h"
 #include "Misc/Paths.h"
@@ -1381,6 +1382,8 @@ namespace Durin
 			}
 			if (bReadyWorkspace && !Context->bProjectBrowserOpen)
 			{
+				auto& ThumbnailPool = Editor::GetDefaultThumbnailManager().GetSharedPool();
+				ThumbnailPool.BeginFrame();
 				DrawWorkspaceHost(
 					*Context->WorkspaceManager,
 					*Context->HostSettings,
@@ -1391,6 +1394,7 @@ namespace Durin
 					*Context->ContentBrowserTool,
 					*Context->Console,
 					*Context->Activity);
+				ThumbnailPool.EndFrame();
 				DrawExitConfirmation(*Context);
 				return;
 			}

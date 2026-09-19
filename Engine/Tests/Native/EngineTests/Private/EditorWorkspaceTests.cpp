@@ -1,4 +1,7 @@
 #include "Asset/Asset.h"
+#include "AssetRegistry/Publication.h"
+#include "Thumbnail/AssetThumbnailPool.h"
+#include "ThirdParty/ImGui/imgui_internal.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Class.h"
 #include "DObject/Package.h"
@@ -884,6 +887,57 @@ TEST(FAssetPickerTests, KeepsLoadedAssetsInTheSamePackageDistinct)
 	EXPECT_EQ(Editor::AssetPicker::GetAssetPathOrNone(nullptr), "None");
 	MarkObjectHierarchyAsGarbage(Package);
 	CollectGarbage();
+}
+
+TEST(FAssetPickerTests, OpeningMaterialCandidatesCompletesPopupLayout)
+{
+	using namespace Durin;
+	Testing::InitializeDObjectSystemForTests();
+	Testing::FScopedMountRegistryFixture MountFixture;
+	Testing::RegisterMountPointForTests(
+		"/AssetPickerLayoutTests/", Testing::GetTestWorkDirectory().generic_string() + "/");
+	FPackagePath PackagePath;
+	FTopLevelAssetPath AssetPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/AssetPickerLayoutTests/Materials", PackagePath));
+	ASSERT_TRUE(FTopLevelAssetPath::TryCreate(PackagePath, "Material", AssetPath));
+	auto Original = CaptureAssetRegistryPublication();
+	auto Publication = Original;
+	Publication.Assets.emplace(PackagePath, FAssetData{
+		.PackagePath = PackagePath,
+		.TopLevelAssets = {{.AssetPath = AssetPath, .AssetClassName = "Durin::DMaterial"}},
+		.FormatVersion = 10, .ObjectCount = 1});
+	Publication.ReferenceFingerprints.emplace(PackagePath, FAssetPackageFingerprint{.ReaderVersion = 10});
+	ASSERT_TRUE(PublishAssetRegistryPublication(std::move(Publication)));
+	ImGuiContext* Context = ImGui::CreateContext();
+	ImGuiIO& IO = ImGui::GetIO();
+	IO.IniFilename = nullptr;
+	IO.DisplaySize = ImVec2(800.0f, 600.0f);
+	IO.DeltaTime = 1.0f / 60.0f;
+	IO.Fonts->Build();
+	IO.ConfigErrorRecoveryEnableAssert = false;
+	std::array<char, 64> Search{};
+	for (int Frame = 0; Frame < 3; ++Frame)
+	{
+		ImGui::NewFrame();
+		ImGui::SetNextWindowSize(ImVec2(400.0f, 300.0f));
+		ImGui::Begin("AssetPickerLayoutTest");
+		ImGui::OpenPopupEx(ImHashStr("##ComboPopup", 0, ImGui::GetID("##MaterialPicker")), 0);
+		const auto Result = Editor::AssetPicker::Draw({
+			.ComboId = "##MaterialPicker", .RequiredClass = DMaterial::StaticClass(),
+			.SearchText = Search,
+			.AssignSelection = [](DObject*, std::string&) { return true; },
+			.PathPrefixFilter = "/AssetPickerLayoutTests/"});
+		EXPECT_TRUE(Result.Error.empty());
+		EXPECT_FALSE(Result.bSelectionChanged);
+		ImGui::End();
+		ImGui::Render();
+		EXPECT_EQ(Context->ErrorCountCurrentFrame, 0);
+	}
+	EXPECT_EQ(Editor::GetDefaultThumbnailManager().GetSharedPool().GetStats().RetainedEntries, 1u);
+	ImGui::DestroyContext(Context);
+	Editor::GetDefaultThumbnailManager().ResetSharedPool();
+	Original.ExpectedRevision = GetAssetCatalogRevision();
+	EXPECT_TRUE(PublishAssetRegistryPublication(std::move(Original)));
 }
 
 TEST(FAssetPickerTests, FiltersCandidatesByPathPrefix)

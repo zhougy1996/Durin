@@ -1,11 +1,15 @@
 #include "Editor/AssetPicker.h"
 
 #include "Asset/Asset.h"
+#include "AssetThumbnail.h"
 #include "DObject/Class.h"
 #include "DObject/Package.h"
 #include "Editor/AssetDragDrop.h"
 #include "Misc/StringHelper.h"
 #include "MonaImGui.h"
+#include "MonaCoreGlobals.h"
+#include "MonaUIBackend.h"
+#include "Icons/FontAwesomeIcons.h"
 #include "ThirdParty/ImGui/imgui_internal.h"
 
 namespace Durin::Editor::AssetPicker
@@ -13,6 +17,63 @@ namespace Durin::Editor::AssetPicker
 	namespace
 	{
 		constexpr size_t MaxCachedSearches = 128;
+
+		auto RequestThumbnail(const FTopLevelAssetCatalogEntry& Entry) -> FAssetThumbnailView
+		{
+			if (!Entry) return {};
+			FAssetThumbnail Thumbnail({
+				.AssetPath = Entry.Asset->AssetPath,
+				.PackagePath = Entry.Package->PackagePath,
+				.AssetClassName = Entry.Asset->AssetClassName,
+				.PackageFormatVersion = Entry.Package->FormatVersion,
+				.FileSize = static_cast<uint64>(Entry.Package->FileSize),
+				.LastWriteTimeTicks = Entry.Package->LastWriteTimeTicks});
+			Thumbnail.Request(EAssetThumbnailPriority::Visible);
+			// The shared pool pins visible requests until the next host frame.
+			return Thumbnail.GetView();
+		}
+
+		auto DrawThumbnail(const FAssetThumbnailView& View, ImVec2 Position, float Size) -> void
+		{
+			bool bDrawn = false;
+			if (View.State == EAssetThumbnailState::Ready && View.Texture && View.Width && View.Height
+				&& Mona::GetActiveUIBackend())
+			{
+				const float Scale = Size / static_cast<float>(std::max(View.Width, View.Height));
+				const FVector2f Extent(View.Width * Scale, View.Height * Scale);
+				ImGui::SetCursorScreenPos(ImVec2(Position.x + (Size - Extent.x) * 0.5f,
+					Position.y + (Size - Extent.y) * 0.5f));
+				bDrawn = Mona::GetActiveUIBackend()->DrawImage(View.Texture, Extent);
+			}
+			if (!bDrawn)
+			{
+				ImDrawList* DrawList = ImGui::GetWindowDrawList();
+				DrawList->AddRectFilled(Position, ImVec2(Position.x + Size, Position.y + Size),
+					ImGui::GetColorU32(ImGuiCol_FrameBg), ImGui::GetStyle().FrameRounding);
+				const ImVec2 IconSize = ImGui::CalcTextSize(Icons::File);
+				DrawList->AddText(ImVec2(Position.x + (Size - IconSize.x) * 0.5f,
+					Position.y + (Size - IconSize.y) * 0.5f),
+					ImGui::GetColorU32(ImGuiCol_TextDisabled), Icons::File);
+			}
+			// Submit the full preview footprint, including for placeholders. Restoring
+			// a cursor after the final selectable without an item violates ImGui's
+			// window-boundary contract when the popup ends.
+			ImGui::SetCursorScreenPos(Position);
+			ImGui::Dummy(ImVec2(Size, Size));
+		}
+
+		auto DrawAssetTooltip(std::string_view PathString,
+			const FTopLevelAssetCatalogEntry& Entry, const FAssetThumbnailView& View) -> void
+		{
+			if (!ImGui::BeginTooltip()) return;
+			const float Size = MonaImGui::ScaleUI(192.0f);
+			DrawThumbnail(View, ImGui::GetCursorScreenPos(), Size);
+			ImGui::TextUnformatted(PathString.data(), PathString.data() + PathString.size());
+			if (Entry) ImGui::TextDisabled("%s", Entry.Asset->AssetClassName.c_str());
+			if (View.State == EAssetThumbnailState::Failed && !View.Diagnostic.empty())
+				ImGui::TextWrapped("%s", View.Diagnostic.c_str());
+			ImGui::EndTooltip();
+		}
 
 		// Identifies a reusable asset candidate set by class and path policy.
 		struct FCandidateCacheKey
@@ -264,13 +325,18 @@ namespace Durin::Editor::AssetPicker
 			}
 			PickerResult.bSelectionChanged = SelectionPath != CurrentPath;
 		};
-		const bool bComboOpen = ImGui::BeginCombo(Config.ComboId, Preview.c_str());
+		const bool bComboOpen = ImGui::BeginCombo(Config.ComboId, Preview.c_str(), ImGuiComboFlags_HeightLarge);
 		const bool bPickerDisabled = (ImGui::GetItemFlags() & ImGuiItemFlags_Disabled) != 0;
 		const ImVec2 PickerRectMin = ImGui::GetItemRectMin();
 		const ImVec2 PickerRectMax = ImGui::GetItemRectMax();
 		if (!CurrentPath.empty() && ImGui::IsItemHovered(
 			ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled))
-			ImGui::SetTooltip("%s", CurrentPath.c_str());
+		{
+			FTopLevelAssetPath Path;
+			const FTopLevelAssetCatalogEntry Entry = FTopLevelAssetPath::TryCreate(CurrentPath, Path)
+				? FindTopLevelAssetExact(Path) : FTopLevelAssetCatalogEntry{};
+			DrawAssetTooltip(CurrentPath, Entry, RequestThumbnail(Entry));
+		}
 		if (bComboOpen)
 		{
 			ImGui::SetNextItemWidth(-FLT_MIN);
@@ -300,7 +366,8 @@ namespace Durin::Editor::AssetPicker
 				Config.MaxSearchResults
 			);
 			ImGuiListClipper Clipper;
-			Clipper.Begin(static_cast<int>(Search.MatchingPaths.size()));
+			const float ThumbnailSize = std::max(MonaImGui::ScaleUI(40.0f), ImGui::GetTextLineHeight() * 2.0f);
+			Clipper.Begin(static_cast<int>(Search.MatchingPaths.size()), ThumbnailSize + ImGui::GetStyle().ItemSpacing.y);
 			while (Clipper.Step())
 			{
 				for (int Index = Clipper.DisplayStart; Index < Clipper.DisplayEnd; ++Index)
@@ -309,12 +376,26 @@ namespace Durin::Editor::AssetPicker
 					const std::string PathString = Path.ToString();
 					const bool bSelected = CurrentPath == PathString;
 					const std::string DisplayPath = GetAssetPathDisplayName(PathString, Config.PathDisplayMode);
-					const std::string Label = DisplayPath == PathString
-						? PathString
-						: std::format("{}##{}", DisplayPath, PathString);
-					const bool bChosen = ImGui::Selectable(Label.c_str(), bSelected);
-					if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
-						ImGui::SetTooltip("%s", PathString.c_str());
+					const ImVec2 RowMin = ImGui::GetCursorScreenPos();
+					const float RowWidth = ImGui::GetContentRegionAvail().x;
+					const bool bChosen = ImGui::Selectable(std::format("##{}", PathString).c_str(),
+						bSelected, 0, ImVec2(0.0f, ThumbnailSize));
+					const bool bHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal);
+					if (ImGui::IsItemVisible())
+					{
+						const auto Entry = FindTopLevelAssetExact(Path);
+						const auto Thumbnail = RequestThumbnail(Entry);
+						ImDrawList* DrawList = ImGui::GetWindowDrawList();
+						DrawList->PushClipRect(RowMin, ImVec2(RowMin.x + RowWidth, RowMin.y + ThumbnailSize), true);
+						DrawThumbnail(Thumbnail, RowMin, ThumbnailSize);
+						const float TextX = RowMin.x + ThumbnailSize + ImGui::GetStyle().ItemSpacing.x;
+						DrawList->AddText(ImVec2(TextX, RowMin.y), ImGui::GetColorU32(ImGuiCol_Text), DisplayPath.c_str());
+						const std::string PackagePath = Path.GetPackagePath().ToString();
+						DrawList->AddText(ImVec2(TextX, RowMin.y + ImGui::GetTextLineHeight()),
+							ImGui::GetColorU32(ImGuiCol_TextDisabled), PackagePath.c_str());
+						DrawList->PopClipRect();
+						if (bHovered) DrawAssetTooltip(PathString, Entry, Thumbnail);
+					}
 					if (!bChosen) continue;
 					if (bPathAssignment)
 					{

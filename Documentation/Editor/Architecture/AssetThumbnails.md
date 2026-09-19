@@ -199,6 +199,15 @@ observations and do not alter scheduling or cache identity.
 
 ## Content Browser And Ordinary Files
 
+MainFrame advances the shared asset pool once around workspace drawing, even
+when Content Browser is closed. Individual consumers do not advance that pool.
+AssetPicker requests only visible candidate rows and the hovered selection;
+rows show a small preview with the asset name and package path, while tooltips
+show a larger preview, exact identity, and class. These requests use the same
+fixed-size cached output as Content Browser and stay pinned by visible priority
+for the host frame. Pending, failed, and unsupported picker entries show a file
+icon without changing selection or synchronously loading candidates.
+
 Content Browser asset cards hold `FAssetThumbnail` references and submit only
 identity, visible/prefetch priority, refresh, and presentation requests. They do
 not choose a renderer or generation path. Navigation, filtering, replacement,

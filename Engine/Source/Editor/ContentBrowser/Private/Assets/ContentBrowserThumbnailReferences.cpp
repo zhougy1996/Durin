@@ -26,7 +26,6 @@ namespace Durin::Editor::ContentBrowser::Private
 	auto FContentBrowserThumbnailReferences::BeginFrame() -> void
 	{
 		SourceImages->BeginFrame();
-		::Durin::Editor::GetDefaultThumbnailManager().GetSharedPool().BeginFrame();
 	}
 
 	auto FContentBrowserThumbnailReferences::Request(
@@ -68,7 +67,6 @@ namespace Durin::Editor::ContentBrowser::Private
 	auto FContentBrowserThumbnailReferences::EndFrame() -> void
 	{
 		SourceImages->EndFrame();
-		::Durin::Editor::GetDefaultThumbnailManager().GetSharedPool().EndFrame();
 	}
 
 	auto FContentBrowserThumbnailReferences::CancelPendingRequests() -> void
