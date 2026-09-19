@@ -203,6 +203,12 @@ TEST(FStaticMeshMaterialSlotDetailsTests, CustomizationHidesCollectionsAndTransa
 	ASSERT_TRUE(Model.AssignMaterial(PropertyView, Context, Model.GetCurrentEntries()[0], Material));
 	EXPECT_TRUE(Component->GetPackage()->IsDirty());
 	EXPECT_TRUE(Error.empty());
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(Component->GetMaterialOverride(0), nullptr);
+	EXPECT_FALSE(Component->GetPackage()->IsDirty());
+	ASSERT_TRUE(Transactions->Redo());
+	EXPECT_EQ(Component->GetMaterialOverride(0), Material);
+	EXPECT_TRUE(Component->GetPackage()->IsDirty());
 
 	EXPECT_TRUE(Transactions->Reset());
 	Durin::MarkAsGarbage(Material);

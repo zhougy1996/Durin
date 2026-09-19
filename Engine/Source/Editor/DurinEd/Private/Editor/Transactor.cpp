@@ -870,6 +870,11 @@ namespace Durin
 			return Reject(ETransactorRejectionReason::RecordScope, ScopeId);
 		if (Savepoints.back().ScopeId != ScopeId)
 			return Reject(ETransactorRejectionReason::RecordOrder, ScopeId);
+		// Capture the initial checkpoint before the caller applies the property edit.
+		// Finalization runs after mutation and may already see a dirty package.
+		if (DObject* Object = Record.GetTarget().Resolve())
+			if (DPackage* Package = Object->GetPackage(); Package && Package->IsAssetPackage())
+				EnsurePackageState(*Package);
 		const uint64 RecordId = Pending->AddRecord(std::move(Record));
 		return {.Code = ETransactorResultCode::Succeeded,
 			.TransactionId = Pending->GetId(), .ScopeId = Savepoints.back().ScopeId,
