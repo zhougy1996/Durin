@@ -8,8 +8,8 @@ namespace Durin::Editor::Material::GraphEditInternals
 	struct FParameterExpressionResult
 	{
 		TStrongObjectPtr<DMaterialExpressionParameter> Expression;
-		FMaterialGraphParameterError Error;
-		explicit operator bool() const { return Error.Code == EMaterialGraphParameterError::None; }
+		std::string Message;
+		explicit operator bool() const { return Expression.Get() != nullptr; }
 	};
 	MATERIALEDITOR_API auto MakeParameterExpression(const FMaterialParameterDefinition& Definition)
 		-> FParameterExpressionResult;
@@ -17,7 +17,7 @@ namespace Durin::Editor::Material::GraphEditInternals
 	// Live edits register synchronized peers before writing their shared definition.
 	class FGraphEditSession;
 	auto ResolveParameterExpression(FGraphEditSession& State, DMaterialExpressionParameter& Parameter,
-		const DMaterialExpressionParameter* Previous = nullptr) -> FMaterialGraphParameterResult;
+		const DMaterialExpressionParameter* Previous = nullptr) -> FMaterialGraphCommandResult;
 }
 
 namespace Durin::Editor::Material::GraphEditInternals

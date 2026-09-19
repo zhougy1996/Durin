@@ -154,7 +154,7 @@ namespace Durin::Editor::Material
 			auto Parameter = ParameterExpression->GetParameterDefinition();
 			const auto CommitParameter = [&]() {
 				auto Created = GraphEditInternals::MakeParameterExpression(Parameter);
-				if (!Created) { ReportError(FormatMaterialGraphParameterError(Created.Error)); return; }
+				if (!Created) { ReportError(Created.Message); return; }
 				auto Replacement = std::move(Created.Expression);
 				Replacement->Id = Expression->Id;
 				if (const auto* Sample = Cast<DMaterialExpressionTextureSampleParameter2D>(Expression.Get()); Sample && Parameter.Type == EMaterialParameterType::Texture)
@@ -303,7 +303,7 @@ namespace Durin::Editor::Material
 							Definition.Name = FName(std::format("Parameter{}", Suffix));
 						Definition.DisplayName = Definition.Name.ToString();
 						auto Created = GraphEditInternals::MakeParameterExpression(Definition);
-						if (!Created) ReportError(FormatMaterialGraphParameterError(Created.Error));
+						if (!Created) ReportError(Created.Message);
 						auto Parameter = std::move(Created.Expression);
 						if (Created)
 						if (const auto SelectedExpression = BeginSelectedEdit(); SelectedExpression != Session->Expressions.end())

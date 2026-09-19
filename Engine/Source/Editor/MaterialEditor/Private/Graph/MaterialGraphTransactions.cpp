@@ -229,21 +229,20 @@ namespace Durin::Editor::Material
 			DTransactor* Transactions) -> FMaterialGraphCommandResult
 		{
 			if (!IsValid(&Material))
-				return RejectSession({.Code = EMaterialGraphSessionError::StaleOwner});
+				return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
 			if (Transactions && Transactions->HasPendingOperation())
-				return RejectSession({.Code = EMaterialGraphSessionError::Busy});
+				return RejectCommand("The editor transactor is busy.");
 
 			std::vector<FGuid> Ids;
 			for (const auto& Expression : FMaterialExpressionEditing::GetExpressions(Material)) Ids.push_back(Expression->Id);
 			CandidatePresentation = SanitizeMaterialGraphPresentation(CandidatePresentation, Ids);
 			const auto BeforePresentation = ReadGraphPresentation(Material);
-			if (BeforePresentation == CandidatePresentation) return {.Disposition = EMaterialGraphCommandDisposition::NoChange};
+			if (BeforePresentation == CandidatePresentation) return {.Status = EMaterialGraphCommandStatus::NoChange};
 			if (Transactions)
 			{
 				const auto Recorded = Transactions->CommitApplied(
 					MakeMaterialGraphPresentationTransaction(Material, BeforePresentation, CandidatePresentation, std::move(Description)));
-				if (!Recorded) return RejectSession({.Code = EMaterialGraphSessionError::History,
-					.TransactorCause = std::make_shared<FTransactorResult>(Recorded)});
+				if (!Recorded) return RejectCommand("Unable to record the graph edit. " + FormatTransactorResult(Recorded));
 			}
 			// The validated candidate is published only after history accepts the edit.
 			const auto Result = WriteGraphPresentation(Material, std::move(CandidatePresentation));
@@ -251,7 +250,7 @@ namespace Durin::Editor::Material
 			std::ranges::sort(Affected);
 			Affected.erase(std::unique(Affected.begin(), Affected.end()), Affected.end());
 			return {
-				.Disposition = EMaterialGraphCommandDisposition::Applied,
+				.Status = EMaterialGraphCommandStatus::Succeeded,
 				.AffectedNodeIds = std::move(Affected),
 			};
 		}

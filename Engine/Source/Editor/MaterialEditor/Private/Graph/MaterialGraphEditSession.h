@@ -17,7 +17,7 @@ namespace Durin::Editor::Material::GraphEditInternals
 		FGraphEditSession(const FGraphEditSession&) = delete;
 		FGraphEditSession(FGraphEditSession&&) = delete;
 		auto Modify(DMaterialExpression& Expression) -> void;
-		auto Assign(DMaterialExpression& Target, const DMaterialExpression& Source) -> FMaterialGraphSessionResult;
+		auto Assign(DMaterialExpression& Target, const DMaterialExpression& Source) -> FMaterialGraphCommandResult;
 		auto GetOutputs() -> FMaterialExpressionSurfaceOutputs&;
 		auto Commit(std::string Description, DTransactor* Transactions) -> FMaterialGraphCommandResult;
 		// Work counter for profiling and bounded-inference regression checks.

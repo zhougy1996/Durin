@@ -61,11 +61,11 @@ namespace Durin::Editor::Material
 		using Type = EMaterialProgramValueType;
 		const auto& Signature = Function.GetFunctionSignature();
 		const auto Output = std::ranges::find(Signature.Outputs, OutputId, &FMaterialFunctionPort::Id);
-		if (Output == Signature.Outputs.end()) return RejectDocument({.Code = EMaterialGraphDocumentError::PreviewOutput, .PortId = OutputId, .bOutput = true, .FunctionPath = Function.GetObjectPath()});
+		if (Output == Signature.Outputs.end()) return RejectCommand("The preview output no longer exists.");
 		std::vector<FMaterialFunctionOwnerStamp> Closure;
 		const std::array<DMaterialFunctionInterface*, 1> Roots{&Function};
 		auto Validation = ValidateMaterialFunctionDependencies(Roots, Closure);
-		if (!Validation) return RejectDocument({.Code = EMaterialGraphDocumentError::PreviewFunction, .PortId = OutputId, .bOutput = true, .FunctionPath = Function.GetObjectPath()}, std::move(Validation.Diagnostics));
+		if (!Validation) return RejectCommand("The function cannot be previewed.", std::move(Validation.Diagnostics));
 		FGraphEditSession State(Preview);
 		State.Expressions.clear();
 		State.Presentation = {};
@@ -84,8 +84,7 @@ namespace Durin::Editor::Material
 			if (Port.bRequired)
 			{
 				if (static_cast<size_t>(Port.Type) >= RequiredValues.size())
-					return RejectDocument({.Code = EMaterialGraphDocumentError::PreviewInput, .PortId = Port.Id,
-						.FunctionPath = Function.GetObjectPath(), .ResultType = Port.Type});
+					return RejectCommand("The preview input type is unsupported.");
 				auto& Source = RequiredValues[static_cast<size_t>(Port.Type)];
 				if (!Source.ExpressionId.IsValid())
 				{
@@ -111,7 +110,7 @@ namespace Durin::Editor::Material
 						Surface->OpacityDefault = {1}; Surface->OpacityMaskDefault = {1};
 						Source = {Surface->Id}; break;
 					}
-					default: return RejectDocument({.Code = EMaterialGraphDocumentError::PreviewInput, .PortId = Port.Id, .FunctionPath = Function.GetObjectPath(), .ResultType = Port.Type});
+					default: return RejectCommand("The preview input type is unsupported.");
 					}
 				}
 				Call->Inputs.push_back({Port.Id, Port.Type, Source});
@@ -154,8 +153,7 @@ namespace Durin::Editor::Material
 		auto Result = State.Commit("Build Function Preview", nullptr);
 		if (Result)
 			if (const auto Applied = Preview.SetStaticProperties(Properties); !Applied)
-				return RejectDocument({.Code = EMaterialGraphDocumentError::PreviewProperties, .PortId = OutputId,
-					.bOutput = true, .FunctionPath = Function.GetObjectPath(), .MaterialCause = Applied.Error});
+				return RejectCommand("The preview properties are invalid. " + FormatMaterialError(Applied.Error));
 		return Result;
 	}
 }

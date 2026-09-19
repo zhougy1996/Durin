@@ -14,16 +14,6 @@
 namespace Durin
 {
 	class DTransactor;
-	struct FPropertyValueError;
-	struct FAssetResult;
-	struct FObjectError;
-	struct FObjectGraphError;
-}
-
-namespace Durin::Editor
-{
-	struct FTransactionSnapshotError;
-	struct FTransactorResult;
 }
 
 namespace Durin::Editor::Material
@@ -39,100 +29,6 @@ namespace Durin::Editor::Material
 		StaleOwner,
 	};
 
-	enum class EMaterialGraphCommandDisposition : uint8 { Applied, NoChange };
-
-	enum class EMaterialGraphParameterError : uint8 { None, FunctionOwner, Definition, Conversion, Unsupported, SharedType, NameType, OwnerMissing, NumericConstant };
-	struct FMaterialGraphParameterError
-	{
-		EMaterialGraphParameterError Code = EMaterialGraphParameterError::None;
-		FGuid NodeId, ParameterId, PeerNodeId;
-		std::string Name;
-		EMaterialParameterType RequestedType = EMaterialParameterType::Scalar;
-		EMaterialParameterType ExistingType = EMaterialParameterType::Scalar;
-		std::optional<FMaterialParameterValidationResult> ValidationCause;
-		std::optional<FMaterialError> MaterialCause;
-	};
-	struct FMaterialGraphParameterResult
-	{
-		FMaterialGraphParameterError Error;
-		explicit operator bool() const { return Error.Code == EMaterialGraphParameterError::None; }
-	};
-	MATERIALEDITOR_API auto FormatMaterialGraphParameterError(const FMaterialGraphParameterError& Error) -> std::string;
-
-	enum class EMaterialGraphSessionError : uint8
-	{
-		None, Busy, Storage, MissingInput, RecursiveFunction, FunctionDependencies,
-		Inspect, Capture, StructuralCapture, History, AssignmentClass, AssignmentValue, ParameterActive, ParameterInactive,
-		StaleOwner, ParameterDefinition, ParameterValue, ParameterRestore,
-		MoveActive, MoveInactive, OwnerType, SelectionBounds, SelectionNode, SelectionDuplicate, MoveRevision, PreviewBounds, PreviewSelection, PreviewDuplicate, PreviewCoordinate
-	};
-	struct FMaterialGraphSessionError
-	{
-		EMaterialGraphSessionError Code = EMaterialGraphSessionError::None;
-		std::shared_ptr<const FTransactionSnapshotError> SnapshotCause;
-		std::shared_ptr<const FTransactorResult> TransactorCause;
-		std::shared_ptr<const FPropertyValueError> ValueCause;
-		std::optional<FMaterialError> MaterialCause;
-		FGuid SourceNodeId, TargetNodeId;
-		std::string SourceClass, TargetClass, Member;
-		uint32 ArrayIndex = 0;
-		FGuid ParameterId, ActiveParameterId;
-		EMaterialParameterType RequestedType = EMaterialParameterType::Scalar;
-		EMaterialParameterType ExistingType = EMaterialParameterType::Scalar;
-		size_t ActualCount = 0, Limit = 0;
-		uint64 ExpectedRevision = 0, ActualRevision = 0;
-		int32 X = 0, Y = 0, CoordinateLimit = 0;
-	};
-	struct FMaterialGraphSessionResult
-	{
-		FMaterialGraphSessionError Error;
-		explicit operator bool() const { return Error.Code == EMaterialGraphSessionError::None; }
-	};
-	MATERIALEDITOR_API auto FormatMaterialGraphSessionError(const FMaterialGraphSessionError& Error) -> std::string;
-
-	enum class EMaterialGraphLayoutError : uint8
-	{
-		None, MoveBounds, MoveNode, MoveDuplicate, Coordinate, OutputMissing, LayoutBounds, LayoutDuplicate, LayoutNode, Collision
-	};
-	struct FMaterialGraphLayoutError
-	{
-		EMaterialGraphLayoutError Code = EMaterialGraphLayoutError::None;
-		FGuid NodeId;
-		size_t Count = 0, Limit = 0, UniqueCount = 0;
-		int32 X = 0, Y = 0, CoordinateLimit = 0;
-	};
-	MATERIALEDITOR_API auto FormatMaterialGraphLayoutError(const FMaterialGraphLayoutError& Error) -> std::string;
-
-	enum class EMaterialGraphClipboardError : uint8
-	{
-		None, Definition, CopyBounds, CopyDuplicate, CopyTerminal, CopyMissing, CopyPosition, CopyObject, Schema, PasteBounds, FunctionTerminal, NodeIdentity, RelativePosition, SharedDefinition, FunctionParameter, AggregateSource, PortIdentity, PortDefault, PasteObject, ExternalInput, PastePosition, DuplicatePosition
-	};
-	struct FMaterialGraphClipboardError
-	{
-		EMaterialGraphClipboardError Code = EMaterialGraphClipboardError::None;
-		FGuid NodeId, ParameterId, PortId, SourceId;
-		size_t Count = 0, ExistingCount = 0, Limit = 0;
-		int64 X = 0, Y = 0, CoordinateLimit = 0;
-		std::optional<FMaterialParameterValidationResult> ValidationCause;
-		std::shared_ptr<const FObjectGraphError> DuplicationCause;
-	};
-	MATERIALEDITOR_API auto FormatMaterialGraphClipboardError(const FMaterialGraphClipboardError& Error) -> std::string;
-
-	enum class EMaterialGraphInputError : uint8
-	{
-		None, MissingNode, OutputAddress, FunctionUnavailable, PortMissing, PortType, InputMissing, FunctionAddress, UnsupportedDefault, NonNumeric, DefaultWidth, ExtractBinding, ConstantWidth, PositionMissing, InlineSource, NonConstant, InlineWidth
-	};
-	struct FMaterialGraphInputError
-	{
-		EMaterialGraphInputError Code = EMaterialGraphInputError::None;
-		FGuid NodeId, PortId, SourceId;
-		uint32 InputIndex = 0;
-		size_t Width = 0;
-		EMaterialInputDefaultKind Kind = EMaterialInputDefaultKind::None;
-		EMaterialProgramValueType Type = EMaterialProgramValueType::Float;
-	};
-	MATERIALEDITOR_API auto FormatMaterialGraphInputError(const FMaterialGraphInputError& Error) -> std::string;
-
 	enum class EMaterialGraphPinKind : uint8 { Input, FunctionInput, MaterialAttribute, MaterialSurface, Output, FunctionOutput };
 	struct FMaterialGraphPinAddress
 	{
@@ -147,75 +43,25 @@ namespace Durin::Editor::Material
 		{ return {Link.SourceNodeId, Link.SourceOutputId.IsValid() ? EMaterialGraphPinKind::FunctionOutput : EMaterialGraphPinKind::Output, Link.SourceOutputIndex, Link.SourceOutputId}; }
 	};
 
-	enum class EMaterialGraphDocumentError : uint8
-	{
-		None, ConstantRequired, NonFiniteConstant, NumericRequired, SwizzleComponents, SwizzleRequired, MissingExpression, SourceKind, SourceKey, TargetMissing, FunctionCall, FunctionPort, TargetKey, AttributePin, OutputMissing, TargetKind, SourceMissing, AlreadyConnected, FunctionOwner, PortMissing, DuplicateExpression, CopyExpression, CopyReplacement, RemovalBounds, RemoveOutput, MaterialOwner, SurfaceOwner, FunctionDependency, RecursiveDependency, FunctionDefaultWidth, FunctionBindings, CatalogShape, CatalogNoInput, CatalogClass, CatalogWidth, CatalogParameterOwner, CatalogInputs, CatalogDefault, CreationSource, CreationCompatibility, CreationPortOwner, CreationPath, CreationLoad, CreationInput, OperationSource, AggregateSource, SurfaceOutput, SurfaceConnected, PreviewOutput, PreviewFunction, PreviewInput, PreviewProperties, CanvasInput
-	};
-	struct FMaterialGraphDocumentError
-	{
-		EMaterialGraphDocumentError Code = EMaterialGraphDocumentError::None;
-		FGuid NodeId;
-		EMaterialParameterType ValueType = EMaterialParameterType::Scalar;
-		size_t Count = 0;
-		std::optional<size_t> InvalidComponentIndex;
-		uint8 InvalidComponent = 0;
-		FMaterialGraphPinAddress Source, Target;
-		FMaterialExpressionInput Previous;
-		FGuid PortId;
-		bool bOutput = false;
-		size_t Limit = 0;
-		std::string FunctionPath;
-		std::optional<EMaterialProgramOpcode> Opcode;
-		std::optional<EMaterialProgramValueType> ResultType;
-		std::optional<uint32> InputIndex;
-		std::string ExpressionClass;
-		std::vector<std::vector<EMaterialProgramValueType>> AcceptedInputTypes;
-		std::string ActionId;
-		std::optional<EMaterialProgramValueType> SourceType;
-		std::shared_ptr<const FObjectError> PathCause;
-		std::shared_ptr<const FAssetResult> LoadCause;
-		std::optional<EMaterialSurfaceOutput> SurfaceOutput;
-		std::optional<FMaterialError> MaterialCause;
-		std::shared_ptr<const FObjectGraphError> DuplicationCause;
-	};
-	MATERIALEDITOR_API auto FormatMaterialGraphDocumentError(const FMaterialGraphDocumentError& Error) -> std::string;
-
-	struct FMaterialGraphCommandResult;
-	// Carries bounded validation evidence and stable IDs produced by one command.
+	// Status controls flow; editor-owned text explains rejection. Material diagnostics
+	// retain node/port locations for graph navigation, independently of command status.
 	struct FMaterialGraphCommandResult
 	{
-		EMaterialGraphCommandDisposition Disposition = EMaterialGraphCommandDisposition::Applied;
+		EMaterialGraphCommandStatus Status = EMaterialGraphCommandStatus::Succeeded;
 		std::vector<FGuid> AffectedNodeIds;
 		std::vector<FGuid> GeneratedNodeIds;
 		std::vector<FGuid> AffectedParameterIds;
 		std::vector<FMaterialProgramDiagnostic> Diagnostics;
-		std::optional<FMaterialGraphParameterError> ParameterCause;
-		std::optional<FMaterialGraphSessionError> SessionCause;
-		std::optional<FMaterialGraphLayoutError> LayoutCause;
-		std::optional<FMaterialGraphClipboardError> ClipboardCause;
-		std::optional<FMaterialGraphInputError> InputCause;
-		std::optional<FMaterialGraphDocumentError> DocumentCause;
-		std::shared_ptr<const FMaterialGraphCommandResult> CleanupCause;
+		std::string Message;
+		std::string CleanupMessage;
 
 		auto HasError() const -> bool
 		{
-			return (ParameterCause && ParameterCause->Code != EMaterialGraphParameterError::None)
-				|| (SessionCause && SessionCause->Code != EMaterialGraphSessionError::None)
-				|| (LayoutCause && LayoutCause->Code != EMaterialGraphLayoutError::None)
-				|| (ClipboardCause && ClipboardCause->Code != EMaterialGraphClipboardError::None)
-				|| (InputCause && InputCause->Code != EMaterialGraphInputError::None)
-				|| (DocumentCause && DocumentCause->Code != EMaterialGraphDocumentError::None)
-				|| (CleanupCause && CleanupCause->HasError());
+			return Status == EMaterialGraphCommandStatus::Rejected
+				|| Status == EMaterialGraphCommandStatus::StaleOwner;
 		}
 		explicit operator bool() const { return !HasError(); }
-		auto GetStatus() const -> EMaterialGraphCommandStatus
-		{
-			if (SessionCause && SessionCause->Code == EMaterialGraphSessionError::StaleOwner)
-				return EMaterialGraphCommandStatus::StaleOwner;
-			if (HasError()) return EMaterialGraphCommandStatus::Rejected;
-			return Disposition == EMaterialGraphCommandDisposition::NoChange
-				? EMaterialGraphCommandStatus::NoChange : EMaterialGraphCommandStatus::Succeeded;
-		}
+		auto GetStatus() const -> EMaterialGraphCommandStatus { return Status; }
 	};
 
 	MATERIALEDITOR_API auto FormatMaterialGraphCommandResult(const FMaterialGraphCommandResult& Result) -> std::string;
@@ -337,7 +183,6 @@ namespace Durin::Editor::Material
 		FMaterialSurfaceOutputs Outputs;
 		bool bFunction = false;
 	};
-
 
 	struct FMaterialGraphConnectRequest
 	{

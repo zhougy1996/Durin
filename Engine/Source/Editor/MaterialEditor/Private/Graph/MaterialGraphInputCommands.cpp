@@ -6,46 +6,17 @@
 namespace Durin::Editor::Material
 {
 	using namespace GraphEditInternals;
-	auto FormatMaterialGraphInputError(const FMaterialGraphInputError& Error) -> std::string
-	{
-		switch (Error.Code)
-		{
-		case EMaterialGraphInputError::None: return {};
-		case EMaterialGraphInputError::MissingNode: return "The input owner is unavailable.";
-		case EMaterialGraphInputError::OutputAddress: return "The material output input address is invalid.";
-		case EMaterialGraphInputError::FunctionUnavailable: return "The function input owner is unavailable.";
-		case EMaterialGraphInputError::PortMissing: return "The function input port is unavailable.";
-		case EMaterialGraphInputError::PortType: return "The function input port is not numeric.";
-		case EMaterialGraphInputError::InputMissing: return "The expression input is unavailable.";
-		case EMaterialGraphInputError::FunctionAddress: return "A function input requires a port identity.";
-		case EMaterialGraphInputError::UnsupportedDefault: return "This input does not support an inline numeric value.";
-		case EMaterialGraphInputError::NonNumeric: return "The input default is not numeric.";
-		case EMaterialGraphInputError::DefaultWidth: return "The input default has an incompatible width.";
-		case EMaterialGraphInputError::ExtractBinding: return "Only an unconnected explicit numeric binding can be extracted.";
-		case EMaterialGraphInputError::ConstantWidth: return "The input default has an unsupported width.";
-		case EMaterialGraphInputError::PositionMissing: return "The input owner has no authored position.";
-		case EMaterialGraphInputError::InlineSource: return "This source cannot be represented by an inline binding.";
-		case EMaterialGraphInputError::NonConstant: return "Only numeric constants can be inlined; parameter exposure remains an explicit node.";
-		case EMaterialGraphInputError::InlineWidth: return "The constant has an incompatible width.";
-		}
-		return {};
-	}
 
 	namespace
 	{
-		auto RejectInput(FMaterialGraphInputError Error) -> FMaterialGraphCommandResult
-		{
-			FMaterialGraphCommandResult Result;
-			Result.InputCause = std::move(Error);
-			return Result;
-		}
+
 		struct FEditableInput
 		{
 			FMaterialExpressionInput* Source = nullptr;
 			std::vector<float>* Default = nullptr;
 			FMaterialExpressionSurfaceOutputs* MaterialOutputs = nullptr;
 			EMaterialOutputPin OutputPin = EMaterialOutputPin::Surface;
-			FMaterialGraphInputError Error;
+			std::string Message;
 
 			auto SupportsDefault() const -> bool { return Default != nullptr || (MaterialOutputs && OutputPin != EMaterialOutputPin::Surface); }
 			auto Read() const -> std::vector<float> { return MaterialOutputs ? ReadMaterialOutputDefault(*MaterialOutputs, OutputPin) : Default ? *Default : std::vector<float>{}; }
@@ -66,30 +37,25 @@ namespace Durin::Editor::Material
 
 		auto FindInput(FGraphEditSession& State, FGuid NodeId, uint32 Index, FGuid PortId) -> FEditableInput
 		{
-			const auto Fail = [&](EMaterialGraphInputError Code) -> FEditableInput {
-				return {.Error = {.Code = Code, .NodeId = NodeId, .PortId = PortId, .InputIndex = Index}};
-			};
 			auto* Expression = FindExpression(State, NodeId);
-			if (!Expression) return Fail(EMaterialGraphInputError::MissingNode);
+			if (!Expression) return {.Message = "The input owner is unavailable."};
 			State.Modify(*Expression);
 			if (auto* Output = Cast<DMaterialExpressionMaterialOutput>(Expression))
 			{
-				if (PortId.IsValid() || Index > static_cast<uint32>(EMaterialOutputPin::Surface)) return Fail(EMaterialGraphInputError::OutputAddress);
+				if (PortId.IsValid() || Index > static_cast<uint32>(EMaterialOutputPin::Surface)) return {.Message = "The material output input address is invalid."};
 				return {.Source = GetMaterialOutputInput(Output->Outputs, static_cast<EMaterialOutputPin>(Index)),
 					.MaterialOutputs = &Output->Outputs, .OutputPin = static_cast<EMaterialOutputPin>(Index)};
 			}
 			if (PortId.IsValid())
 			{
 				auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression);
-				if (!Call || !Call->Function.IsValid()) return Fail(EMaterialGraphInputError::FunctionUnavailable);
+				if (!Call || !Call->Function.IsValid()) return {.Message = "The function input owner is unavailable."};
 				const auto& Ports = Call->Function->GetFunctionSignature().Inputs;
 				const auto Port = std::ranges::find(Ports, PortId, &FMaterialFunctionPort::Id);
-				if (Port == Ports.end()) return Fail(EMaterialGraphInputError::PortMissing);
+				if (Port == Ports.end()) return {.Message = "The function input port is unavailable."};
 				if (Port->Type > EMaterialProgramValueType::Float4)
 				{
-					auto Result = Fail(EMaterialGraphInputError::PortType);
-					Result.Error.Type = Port->Type;
-					return Result;
+					return {.Message = "The function input port is not numeric."};
 				}
 				auto Input = std::ranges::find(Call->Inputs, PortId, &FMaterialExpressionFunctionInputBinding::InputId);
 				if (Input == Call->Inputs.end())
@@ -103,8 +69,8 @@ namespace Durin::Editor::Material
 			VisitMaterialExpressionInputs(*Expression, [&](uint32 Pin, FMaterialExpressionInput& Input) {
 				if (Pin == Index) Result.Source = &Input;
 			});
-			if (!Result.Source) return Fail(EMaterialGraphInputError::InputMissing);
-			if (Cast<DMaterialExpressionFunctionCall>(Expression)) return Fail(EMaterialGraphInputError::FunctionAddress);
+			if (!Result.Source) return {.Message = "The expression input is unavailable."};
+			if (Cast<DMaterialExpressionFunctionCall>(Expression)) return {.Message = "A function input requires a port identity."};
 			Result.Default = FindMaterialExpressionInputDefault(*Expression, *Result.Source);
 			return Result;
 		}
@@ -141,37 +107,37 @@ namespace Durin::Editor::Material
 	auto FMaterialGraphDocument::SetInputDefault(const FGuid& NodeId, uint32 InputIndex,
 		FMaterialInputDefault Value, FGuid PortId, DTransactor* Transactions) const -> FMaterialGraphCommandResult
 	{
-		if (!Owner.IsValid()) return RejectSession({.Code = EMaterialGraphSessionError::StaleOwner});
+		if (!Owner.IsValid()) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
 		FGraphEditSession State(*Owner.Get());
 		const auto Input = FindInput(State, NodeId, InputIndex, PortId);
-		if (Input.Error.Code != EMaterialGraphInputError::None) return RejectInput(Input.Error);
-		if (!Input.SupportsDefault()) return RejectInput({.Code = EMaterialGraphInputError::UnsupportedDefault, .NodeId = NodeId, .PortId = PortId, .InputIndex = InputIndex});
+		if (!Input.Message.empty()) return RejectCommand(Input.Message);
+		if (!Input.SupportsDefault()) return RejectCommand("This input does not support an inline numeric value.");
 		std::vector<float> Components;
 		if (Value.Kind == EMaterialInputDefaultKind::Literal && Value.Type <= EMaterialProgramValueType::Float4)
 		{
 			const std::array Values{Value.Literal.X, Value.Literal.Y, Value.Literal.Z, Value.Literal.W};
 			Components.assign(Values.begin(), Values.begin() + static_cast<uint32>(Value.Type) + 1);
 		}
-		else if (Value.Kind != EMaterialInputDefaultKind::None) return RejectInput({.Code = EMaterialGraphInputError::NonNumeric, .NodeId = NodeId, .PortId = PortId, .InputIndex = InputIndex, .Kind = Value.Kind, .Type = Value.Type});
-		if (Input.Read() == Components) return {.Disposition = EMaterialGraphCommandDisposition::NoChange};
-		if (!Input.Write(Components)) return RejectInput({.Code = EMaterialGraphInputError::DefaultWidth, .NodeId = NodeId, .PortId = PortId, .InputIndex = InputIndex, .Width = Components.size()});
+		else if (Value.Kind != EMaterialInputDefaultKind::None) return RejectCommand("The input default is not numeric.");
+		if (Input.Read() == Components) return {.Status = EMaterialGraphCommandStatus::NoChange};
+		if (!Input.Write(Components)) return RejectCommand("The input default has an incompatible width.");
 		return State.Commit("Edit Input Default", Transactions);
 	}
 
 	auto FMaterialGraphDocument::ExtractInputDefault(const FGuid& NodeId, uint32 InputIndex,
 		FGuid PortId, DTransactor* Transactions) const -> FMaterialGraphCommandResult
 	{
-		if (!Owner.IsValid()) return RejectSession({.Code = EMaterialGraphSessionError::StaleOwner});
+		if (!Owner.IsValid()) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
 		FGraphEditSession State(*Owner.Get());
 		const auto Input = FindInput(State, NodeId, InputIndex, PortId);
-		if (Input.Error.Code != EMaterialGraphInputError::None) return RejectInput(Input.Error);
+		if (!Input.Message.empty()) return RejectCommand(Input.Message);
 		if (!Input.SupportsDefault() || Input.Source->ExpressionId.IsValid() || Input.Read().empty())
-			return RejectInput({.Code = EMaterialGraphInputError::ExtractBinding, .NodeId = NodeId, .PortId = PortId, .InputIndex = InputIndex});
+			return RejectCommand("Only an unconnected explicit numeric binding can be extracted.");
 		auto Constant = MakeConstant(Input.Read());
-		if (!Constant) return RejectInput({.Code = EMaterialGraphInputError::ConstantWidth, .NodeId = NodeId, .PortId = PortId, .InputIndex = InputIndex, .Width = Input.Read().size()});
+		if (!Constant) return RejectCommand("The input default has an unsupported width.");
 		*Input.Source = {Constant->Id};
 		const auto Position = std::ranges::find(State.Presentation.Nodes, NodeId, &FMaterialGraphNodePresentation::NodeId);
-		if (Position == State.Presentation.Nodes.end()) return RejectInput({.Code = EMaterialGraphInputError::PositionMissing, .NodeId = NodeId, .PortId = PortId, .InputIndex = InputIndex});
+		if (Position == State.Presentation.Nodes.end()) return RejectCommand("The input owner has no authored position.");
 		State.Presentation.Nodes.push_back({Constant->Id, Position->X - 320, Position->Y});
 		const auto Id = Constant->Id;
 		State.Expressions.emplace_back(Constant.Get());
@@ -183,16 +149,16 @@ namespace Durin::Editor::Material
 	auto FMaterialGraphDocument::InlineInputNode(const FGuid& NodeId, uint32 InputIndex,
 		FGuid PortId, DTransactor* Transactions) const -> FMaterialGraphCommandResult
 	{
-		if (!Owner.IsValid()) return RejectSession({.Code = EMaterialGraphSessionError::StaleOwner});
+		if (!Owner.IsValid()) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
 		FGraphEditSession State(*Owner.Get());
 		const auto Input = FindInput(State, NodeId, InputIndex, PortId);
-		if (Input.Error.Code != EMaterialGraphInputError::None) return RejectInput(Input.Error);
+		if (!Input.Message.empty()) return RejectCommand(Input.Message);
 		if (!Input.SupportsDefault() || Input.Source->OutputIndex != 0 || Input.Source->OutputId.IsValid())
-			return RejectInput({.Code = EMaterialGraphInputError::InlineSource, .NodeId = NodeId, .PortId = PortId, .InputIndex = InputIndex});
+			return RejectCommand("This source cannot be represented by an inline binding.");
 		const auto Value = ReadConstant(FindExpression(State, Input.Source->ExpressionId));
-		if (Value.empty()) return RejectInput({.Code = EMaterialGraphInputError::NonConstant, .NodeId = NodeId, .PortId = PortId, .SourceId = Input.Source->ExpressionId, .InputIndex = InputIndex});
+		if (Value.empty()) return RejectCommand("Only numeric constants can be inlined; parameter exposure remains an explicit node.");
 		const auto SourceId = Input.Source->ExpressionId;
-		if (!Input.Write(Value)) return RejectInput({.Code = EMaterialGraphInputError::InlineWidth, .NodeId = NodeId, .PortId = PortId, .SourceId = SourceId, .InputIndex = InputIndex, .Width = Value.size()});
+		if (!Input.Write(Value)) return RejectCommand("The constant has an incompatible width.");
 		*Input.Source = {};
 		if (!HasConsumer(State, SourceId))
 		{

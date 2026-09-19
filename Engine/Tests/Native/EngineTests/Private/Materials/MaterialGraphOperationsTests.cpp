@@ -318,7 +318,6 @@ TEST(FMaterialGraphOperationsTests, MaterialOutputMovementIsPresentationOnlyAndT
 	EXPECT_EQ(*PreservedNode, UnrelatedPosition);
 	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_EQ(Testing::OutputPosition(*Material, Material->GetMaterialGraphPresentation()).X, 520);
-
 	EXPECT_TRUE(Transactions->Reset());
 	FMaterialGraphMoveSession Move;
 	ASSERT_TRUE(Move.Begin(*Material, std::array{Material->GetOutputNode()->Id}, Transactions.Get()));
@@ -331,7 +330,6 @@ TEST(FMaterialGraphOperationsTests, MaterialOutputMovementIsPresentationOnlyAndT
 	ASSERT_TRUE(Move.Commit());
 	EXPECT_EQ(Testing::OutputPosition(*Material, Material->GetMaterialGraphPresentation()).X, 600);
 	EXPECT_TRUE(Transactions->CanUndo());
-
 	EXPECT_TRUE(Transactions->Reset());
 	MarkAsGarbage(Material);
 	CollectGarbage();
@@ -404,7 +402,6 @@ TEST(FMaterialGraphOperationsTests, CatalogAndSearchCoverTheClosedOpcodeDomain)
 			EMaterialProgramValueType::Texture2D),
 			Entry.AcceptedInputTypes.front().end());
 	}
-
 }
 
 TEST(FMaterialGraphOperationsTests, ParameterAndChannelPaletteGroupsWidths)
@@ -1603,7 +1600,6 @@ TEST(FMaterialGraphOperationsTests,
 	ASSERT_TRUE(Transactions->Undo());
 	const FMaterialGraphView RestoredCut = FMaterialGraphOperations::Inspect(*Material);
 	EXPECT_NE(FindViewNode(RestoredCut, StandaloneId), nullptr);
-
 	EXPECT_TRUE(Transactions->Reset());
 	MarkAsGarbage(Material);
 	CollectGarbage();
@@ -1780,7 +1776,6 @@ TEST(FMaterialGraphOperationsTests, CommandsAreAtomicAndTransactionsRestoreSeman
 		CoalescedUndoGraph, CreatedId);
 	ASSERT_NE(CoalescedUndo, nullptr);
 	EXPECT_EQ(CoalescedUndo->Presentation.X, 320);
-
 	EXPECT_TRUE(Transactions->Reset());
 	MarkAsGarbage(Material);
 	CollectGarbage();
@@ -1914,7 +1909,6 @@ TEST(FMaterialGraphOperationsTests,
 		&MIR::FNode::Opcode), 1);
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_FALSE(Material->GetExpressionOutputs().Normal.ExpressionId.IsValid());
-
 	EXPECT_TRUE(Transactions->Reset());
 	MarkAsGarbage(Material);
 	CollectGarbage();
@@ -2003,7 +1997,6 @@ TEST(FMaterialGraphOperationsTests,
 	EXPECT_EQ(BaseColor, FVector4(0.7, 0.8, 0.9, 0));
 	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestGeneration,
 		CompileGeneration);
-
 	EXPECT_TRUE(Transactions->Reset());
 	MarkAsGarbage(Material);
 	CollectGarbage();
@@ -2047,7 +2040,6 @@ TEST(FMaterialGraphOperationsTests, MoveAndDefaultHistoryDoNotGrowWithUnrelatedN
 		EXPECT_FLOAT_EQ(Material->GetExpressionOutputs().RoughnessDefault, .41f);
 	}
 }
-
 
 TEST(FMaterialGraphOperationsTests, ForeignClipboardOwnsLocalDeclarationsAndRejectsConflictsAtomically)
 {
@@ -2133,7 +2125,6 @@ TEST(FMaterialGraphOperationsTests, SameRootClipboardCreatesIndependentSnapshotO
 	MarkAsGarbage(Material);
 	CollectGarbage();
 }
-
 
 TEST(FMaterialGraphOperationsTests, DeclarationCommandsAndConstantPromotionShareAtomicHistory)
 {
@@ -2426,21 +2417,11 @@ TEST(FMaterialGraphOperationsTests, SharedParameterValidationAndForeignPasteAreA
 	const auto TargetBefore = CaptureExpressions(*Target);
 	const auto Rejected = FMaterialGraphOperations::CreateParameter(*Target, Conflict);
 	EXPECT_FALSE(Rejected);
-	ASSERT_TRUE(Rejected.ParameterCause);
-	EXPECT_EQ(Rejected.ParameterCause->Code, EMaterialGraphParameterError::NameType);
-	EXPECT_EQ(Rejected.ParameterCause->Name, "Amount");
-	EXPECT_EQ(Rejected.ParameterCause->RequestedType, EMaterialParameterType::Vector4);
-	EXPECT_EQ(Rejected.ParameterCause->ExistingType, EMaterialParameterType::Scalar);
-	ASSERT_TRUE(Rejected.ParameterCause->MaterialCause);
-	EXPECT_EQ(std::get<EMaterialParameterError>(Rejected.ParameterCause->MaterialCause->Code), EMaterialParameterError::InvalidType);
-	EXPECT_EQ(Rejected.ParameterCause->MaterialCause->ExpectedParameterType, EMaterialParameterType::Vector4);
-	EXPECT_EQ(Rejected.ParameterCause->MaterialCause->ActualParameterType, EMaterialParameterType::Scalar);
-	EXPECT_TRUE(Rejected.ParameterCause->PeerNodeId.IsValid());
+	EXPECT_EQ(Rejected.Message.find("A parameter with this name already exists with a different type."), 0u);
 	EXPECT_EQ(CaptureExpressions(*Target), TargetBefore);
 	Conflict.Name = "IndependentAmount";
 	ASSERT_TRUE(FMaterialGraphOperations::CreateParameter(*Target, Conflict));
-	EXPECT_EQ(Rejected.ParameterCause->Name, "Amount");
-	EXPECT_EQ(Rejected.ParameterCause->Code, EMaterialGraphParameterError::NameType);
+	EXPECT_EQ(Rejected.Message.find("A parameter with this name already exists with a different type."), 0u);
 
 	const auto* Existing = Cast<DMaterialExpressionParameter>(Target->GetExpressionCollection().Expressions.front().Get());
 	ASSERT_NE(Existing, nullptr);
@@ -2449,15 +2430,10 @@ TEST(FMaterialGraphOperationsTests, SharedParameterValidationAndForeignPasteAreA
 	const auto BeforeInvalid = CaptureExpressions(*Target);
 	const auto InvalidResult = FMaterialGraphDocument(*Target).ReplaceExpression(*Invalid.Get());
 	EXPECT_FALSE(InvalidResult);
-	ASSERT_TRUE(InvalidResult.ParameterCause);
-	EXPECT_EQ(InvalidResult.ParameterCause->Code, EMaterialGraphParameterError::Definition);
-	EXPECT_EQ(InvalidResult.ParameterCause->NodeId, Existing->Id);
-	ASSERT_TRUE(InvalidResult.ParameterCause->ValidationCause);
-	EXPECT_EQ(InvalidResult.ParameterCause->ValidationCause->Error, EMaterialParameterError::InvalidName);
+	EXPECT_EQ(InvalidResult.Message.find("The parameter definition is invalid."), 0u);
 	EXPECT_EQ(CaptureExpressions(*Target), BeforeInvalid);
 	Invalid->Metadata.Name = "ValidRetry";
 	ASSERT_TRUE(FMaterialGraphDocument(*Target).ReplaceExpression(*Invalid.Get()));
-	EXPECT_EQ(InvalidResult.ParameterCause->ValidationCause->Error, EMaterialParameterError::InvalidName);
 	MarkAsGarbage(Source); MarkAsGarbage(Target); CollectGarbage();
 }
 
@@ -2496,7 +2472,6 @@ TEST(FMaterialGraphOperationsTests, NarrowPromotionUsesAndReusesFourComponentOwn
 	ASSERT_NE(UVMask, nullptr);
 	EXPECT_EQ(UVMask->Components, (std::vector<uint8>{0, 1}));
 }
-
 
 TEST(FMaterialGraphOperationsTests, ChangeSetCoalescesNodeLifetimeAndReset)
 {
@@ -2658,7 +2633,6 @@ TEST(FMaterialGraphOperationsTests, ReadModelPositionUpdatesAndReentrantPublicat
 	Material->GetGraphChanges().Unsubscribe(Handle);
 }
 
-
 TEST(FMaterialGraphOperationsTests, ChangeObserversCanDetachDuringDispatchAndSuppressNetNoOps)
 {
 	InitializeDObjectSystem();
@@ -2758,7 +2732,6 @@ TEST(FMaterialGraphOperationsTests, MaterialOutputUsesStablePinsAndOrdinaryNodeC
 	EXPECT_TRUE(Transactions->Reset());
 }
 
-
 TEST(FMaterialGraphOperationsTests, ConnectionsAndReplayPreserveObjectsWithoutGraphCopies)
 {
 	InitializeDObjectSystem();
@@ -2853,7 +2826,6 @@ TEST(FMaterialGraphOperationsTests, BusyTransactorLeavesLiveObjectsAndNotificati
 	(void)Transactions->Cancel(Pending.ScopeId);
 	Material->GetGraphChanges().Unsubscribe(Observer);
 }
-
 
 TEST(FMaterialGraphOperationsTests, ReplayRejectsParticipantsReplacedOutsideHistory)
 {
@@ -3197,30 +3169,20 @@ TEST(FMaterialGraphOperationsTests, SharedMoveRejectsInvalidDraftsAndStaleOwners
 		ASSERT_TRUE(Move.Apply(std::array{Position}));
 		const auto Duplicate = Move.Apply(std::array{Position, Position});
 		EXPECT_FALSE(Duplicate);
-		ASSERT_TRUE(Duplicate.SessionCause);
-		EXPECT_EQ(Duplicate.SessionCause->Code, EMaterialGraphSessionError::PreviewDuplicate);
-		EXPECT_EQ(Duplicate.SessionCause->TargetNodeId, Id);
+		EXPECT_EQ(Duplicate.Message.find("The graph move preview contains a duplicate node GUID."), 0u);
 		const auto OutsideId = FGuid::NewGuid();
 		const auto Outside = Move.Apply(std::array{FMaterialGraphNodePresentation{OutsideId, 0, 0}});
 		EXPECT_FALSE(Outside);
-		ASSERT_TRUE(Outside.SessionCause);
-		EXPECT_EQ(Outside.SessionCause->Code, EMaterialGraphSessionError::PreviewSelection);
-		EXPECT_EQ(Outside.SessionCause->TargetNodeId, OutsideId);
+		EXPECT_EQ(Outside.Message.find("The graph move preview addresses a node outside the selection."), 0u);
 		const auto Coordinate = Move.Apply(std::array{FMaterialGraphNodePresentation{Id, MaterialGraphPresentationCoordinateLimit + 1, 0}});
 		EXPECT_FALSE(Coordinate);
-		ASSERT_TRUE(Coordinate.SessionCause);
-		EXPECT_EQ(Coordinate.SessionCause->Code, EMaterialGraphSessionError::PreviewCoordinate);
-		EXPECT_EQ(Coordinate.SessionCause->X, MaterialGraphPresentationCoordinateLimit + 1);
-		EXPECT_EQ(Coordinate.SessionCause->CoordinateLimit, MaterialGraphPresentationCoordinateLimit);
+		EXPECT_EQ(Coordinate.Message.find("The graph move preview is outside the supported coordinate range."), 0u);
 		ASSERT_EQ(Move.GetPositions().size(), 1u);
 		EXPECT_EQ(Move.GetPositions().front().X, 400);
 		ASSERT_TRUE(Document.SetConstantValue(Id, FMaterialParameterValue::MakeScalar(.8f)));
 		const auto Stale = Move.Commit();
 		EXPECT_FALSE(Stale);
-		ASSERT_TRUE(Stale.SessionCause);
-		EXPECT_EQ(Stale.SessionCause->Code, EMaterialGraphSessionError::MoveRevision);
-		EXPECT_GT(Stale.SessionCause->ActualRevision, Stale.SessionCause->ExpectedRevision);
-		EXPECT_EQ(Coordinate.SessionCause->X, MaterialGraphPresentationCoordinateLimit + 1);
+		EXPECT_EQ(Stale.Message.find("The graph changed semantically during the move."), 0u);
 		EXPECT_FALSE(Move.IsActive());
 		EXPECT_EQ(Transactions->GetUndoCount(), 0u);
 		EXPECT_EQ(FindViewNode(Document.Inspect(), Id)->Presentation.X, 40);
@@ -3312,14 +3274,9 @@ TEST(FMaterialGraphOperationsTests, GraphSessionRetainsHistoryFailureAcrossRollb
 	ASSERT_TRUE(Transactions->SetLimits({.MaximumEntries = 256, .MaximumOwnedBytes = 1}));
 	const auto Rejected = Document.SetConstantValue(NodeId, FMaterialParameterValue::MakeScalar(.75f), Transactions.Get());
 	EXPECT_FALSE(Rejected);
-	ASSERT_TRUE(Rejected.SessionCause);
-	EXPECT_EQ(Rejected.SessionCause->Code, EMaterialGraphSessionError::History);
-	ASSERT_TRUE(Rejected.SessionCause->TransactorCause);
-	ASSERT_TRUE(Rejected.SessionCause->TransactorCause->FailureCause);
-	const auto& Cause = *Rejected.SessionCause->TransactorCause->FailureCause;
-	EXPECT_EQ(Cause.Code, ETransactorFailure::ByteLimit);
-	EXPECT_EQ(Cause.Limit, 1u);
-	EXPECT_GT(Cause.Actual, Cause.Limit);
+	EXPECT_EQ(Rejected.GetStatus(), EMaterialGraphCommandStatus::Rejected);
+	EXPECT_NE(Rejected.Message.find("The transaction exceeded the owned-byte limit."), std::string::npos);
+	EXPECT_EQ(Rejected.Message.find("Unable to record the graph edit."), 0u);
 	EXPECT_EQ(CaptureExpressions(*Material.Get()), Before);
 	EXPECT_EQ(Material->GetMaterialCompileStatus().AuthoredRevision, Revision);
 	EXPECT_FALSE(Transactions->CanUndo());
@@ -3327,11 +3284,11 @@ TEST(FMaterialGraphOperationsTests, GraphSessionRetainsHistoryFailureAcrossRollb
 	ASSERT_TRUE(Document.SetConstantValue(NodeId, FMaterialParameterValue::MakeScalar(.75f), Transactions.Get()));
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(CaptureExpressions(*Material.Get()), Before);
-	EXPECT_EQ(Cause.Code, ETransactorFailure::ByteLimit);
-	EXPECT_EQ(Cause.Limit, 1u);
+
+	EXPECT_NE(Rejected.Message.find("The transaction exceeded the owned-byte limit."), std::string::npos);
 }
 
-TEST(FMaterialGraphOperationsTests, GraphAssignmentRetainsClassContextAndAllowsRetry)
+TEST(FMaterialGraphOperationsTests, GraphAssignmentReportsClassMismatchAndAllowsRetry)
 {
 	InitializeDObjectSystem();
 	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
@@ -3344,16 +3301,12 @@ TEST(FMaterialGraphOperationsTests, GraphAssignmentRetainsClassContextAndAllowsR
 		Setup.Expressions.emplace_back(Scalar.Get());
 		ASSERT_TRUE(Setup.Commit("Create scalar", nullptr));
 	}
-	FMaterialGraphSessionResult Rejected;
+	FMaterialGraphCommandResult Rejected;
 	{
 		GraphEditInternals::FGraphEditSession Edit(*Material);
 		Rejected = Edit.Assign(*Scalar, *Vector);
 		EXPECT_FALSE(Rejected);
-		EXPECT_EQ(Rejected.Error.Code, EMaterialGraphSessionError::AssignmentClass);
-		EXPECT_EQ(Rejected.Error.SourceNodeId, Vector->Id);
-		EXPECT_EQ(Rejected.Error.TargetNodeId, Scalar->Id);
-		EXPECT_EQ(Rejected.Error.SourceClass, Vector->GetClass()->GetName());
-		EXPECT_EQ(Rejected.Error.TargetClass, Scalar->GetClass()->GetName());
+		EXPECT_EQ(Rejected.Message, "Expression assignment requires matching classes.");
 		EXPECT_FLOAT_EQ(Scalar->Value, .25f);
 		auto Draft = Testing::MakeGraphExpression<DMaterialExpressionScalarConstant>();
 		Draft->Id = Scalar->Id;
@@ -3363,8 +3316,7 @@ TEST(FMaterialGraphOperationsTests, GraphAssignmentRetainsClassContextAndAllowsR
 		// An unfinished session still restores all successful writes after the retry.
 	}
 	EXPECT_FLOAT_EQ(Scalar->Value, .25f);
-	EXPECT_EQ(Rejected.Error.Code, EMaterialGraphSessionError::AssignmentClass);
-	EXPECT_EQ(Rejected.Error.SourceNodeId, Vector->Id);
+	EXPECT_EQ(Rejected.Message, "Expression assignment requires matching classes.");
 }
 
 TEST(FMaterialGraphOperationsTests, GestureHistoryFailuresRemainRetryableAndCancellable)
@@ -3386,10 +3338,8 @@ TEST(FMaterialGraphOperationsTests, GestureHistoryFailuresRemainRetryableAndCanc
 	ASSERT_TRUE(Edit.Apply(FMaterialParameterValue::MakeScalar(.75f)));
 	const auto Failed = Edit.Commit();
 	EXPECT_FALSE(Failed);
-	ASSERT_TRUE(Failed.SessionCause);
-	ASSERT_TRUE(Failed.SessionCause->TransactorCause);
-	ASSERT_TRUE(Failed.SessionCause->TransactorCause->FailureCause);
-	EXPECT_EQ(Failed.SessionCause->TransactorCause->FailureCause->Code, ETransactorFailure::ByteLimit);
+	EXPECT_EQ(Failed.GetStatus(), EMaterialGraphCommandStatus::Rejected);
+	EXPECT_NE(Failed.Message.find("The transaction exceeded the owned-byte limit."), std::string::npos);
 	EXPECT_TRUE(Edit.IsActive());
 	EXPECT_FALSE(Transactions->CanUndo());
 	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(ParameterId)->Value.GetScalar(), .75f);
@@ -3402,7 +3352,6 @@ TEST(FMaterialGraphOperationsTests, GestureHistoryFailuresRemainRetryableAndCanc
 	ASSERT_TRUE(Edit.Commit());
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(ParameterId)->Value.GetScalar(), .25f);
-	EXPECT_EQ(Failed.SessionCause->TransactorCause->FailureCause->Limit, 1u);
 
 	ASSERT_TRUE(Transactions->Reset());
 	ASSERT_TRUE(Transactions->SetLimits({.MaximumOwnedBytes = 1}));
@@ -3413,20 +3362,19 @@ TEST(FMaterialGraphOperationsTests, GestureHistoryFailuresRemainRetryableAndCanc
 	ASSERT_TRUE(Move.Apply(std::array{FMaterialGraphNodePresentation{NodeId, 777, 222}}));
 	const auto MoveFailure = Move.Commit();
 	EXPECT_FALSE(MoveFailure);
-	ASSERT_TRUE(MoveFailure.SessionCause);
-	ASSERT_TRUE(MoveFailure.SessionCause->TransactorCause);
-	ASSERT_TRUE(MoveFailure.SessionCause->TransactorCause->FailureCause);
-	EXPECT_EQ(MoveFailure.SessionCause->TransactorCause->FailureCause->Code, ETransactorFailure::ByteLimit);
+	EXPECT_EQ(MoveFailure.GetStatus(), EMaterialGraphCommandStatus::Rejected);
+	EXPECT_NE(MoveFailure.Message.find("The transaction exceeded the owned-byte limit."), std::string::npos);
 	EXPECT_TRUE(Move.IsActive());
 	EXPECT_EQ(Material->GetMaterialGraphPresentation(), Before);
 	ASSERT_TRUE(Transactions->SetLimits({}));
 	ASSERT_TRUE(Move.Commit());
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Material->GetMaterialGraphPresentation(), Before);
-	EXPECT_EQ(MoveFailure.SessionCause->TransactorCause->FailureCause->Limit, 1u);
+	EXPECT_NE(Failed.Message.find("The transaction exceeded the owned-byte limit."), std::string::npos);
+	EXPECT_NE(MoveFailure.Message.find("The transaction exceeded the owned-byte limit."), std::string::npos);
 }
 
-TEST(FMaterialGraphOperationsTests, DirectParameterHistoryFailureRestoresValueAndRetainsCause)
+TEST(FMaterialGraphOperationsTests, DirectParameterHistoryFailureRestoresValueAndReportsFailure)
 {
 	InitializeDObjectSystem();
 	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
@@ -3443,12 +3391,9 @@ TEST(FMaterialGraphOperationsTests, DirectParameterHistoryFailureRestoresValueAn
 	const auto Failed = FMaterialGraphOperations::SetParameterValue(*Material, ParameterId,
 		FMaterialParameterValue::MakeScalar(.75f), Transactions.Get());
 	EXPECT_FALSE(Failed);
-	ASSERT_TRUE(Failed.SessionCause);
-	ASSERT_TRUE(Failed.SessionCause->TransactorCause);
-	ASSERT_TRUE(Failed.SessionCause->TransactorCause->FailureCause);
-	EXPECT_EQ(Failed.SessionCause->TransactorCause->FailureCause->Code, ETransactorFailure::ByteLimit);
-	ASSERT_TRUE(Failed.CleanupCause);
-	EXPECT_TRUE(*Failed.CleanupCause);
+	EXPECT_EQ(Failed.GetStatus(), EMaterialGraphCommandStatus::Rejected);
+	EXPECT_NE(Failed.Message.find("The transaction exceeded the owned-byte limit."), std::string::npos);
+	EXPECT_TRUE(Failed.CleanupMessage.empty());
 	EXPECT_FALSE(Transactions->CanUndo());
 	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(ParameterId)->Value.GetScalar(), .25f);
 	ASSERT_TRUE(Transactions->SetLimits({}));
@@ -3458,23 +3403,20 @@ TEST(FMaterialGraphOperationsTests, DirectParameterHistoryFailureRestoresValueAn
 	EXPECT_EQ(Retried.AffectedNodeIds, Created.GeneratedNodeIds);
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(ParameterId)->Value.GetScalar(), .25f);
-	EXPECT_EQ(Failed.SessionCause->TransactorCause->FailureCause->Limit, 1u);
+	EXPECT_NE(Failed.Message.find("The transaction exceeded the owned-byte limit."), std::string::npos);
 }
 
-TEST(FMaterialGraphOperationsTests, ParameterSessionErrorsRetainIdentityAndValueTypes)
+TEST(FMaterialGraphOperationsTests, ParameterSessionRejectionsReportFailureAndAllowRetry)
 {
 	InitializeDObjectSystem();
 	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
 	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	FMaterialGraphParameterEditSession Edit;
 	const auto Inactive = Edit.Commit();
-	ASSERT_TRUE(Inactive.SessionCause);
-	EXPECT_EQ(Inactive.SessionCause->Code, EMaterialGraphSessionError::ParameterInactive);
+	EXPECT_EQ(Inactive.Message.find("No material parameter edit is active."), 0u);
 	const auto MissingId = FGuid::NewGuid();
 	const auto Missing = Edit.Begin(*Material, MissingId);
-	ASSERT_TRUE(Missing.SessionCause);
-	EXPECT_EQ(Missing.SessionCause->Code, EMaterialGraphSessionError::ParameterDefinition);
-	EXPECT_EQ(Missing.SessionCause->ParameterId, MissingId);
+	EXPECT_EQ(Missing.Message.find("The material parameter definition is unavailable."), 0u);
 	FMaterialParameterDefinition Definition;
 	Definition.Name = "TypedSession";
 	Definition.Type = EMaterialParameterType::Scalar;
@@ -3484,32 +3426,17 @@ TEST(FMaterialGraphOperationsTests, ParameterSessionErrorsRetainIdentityAndValue
 	const auto Id = Created.AffectedParameterIds.front();
 	ASSERT_TRUE(Edit.Begin(*Material, Id));
 	const auto Active = Edit.Begin(*Material, MissingId);
-	ASSERT_TRUE(Active.SessionCause);
-	EXPECT_EQ(Active.SessionCause->Code, EMaterialGraphSessionError::ParameterActive);
-	EXPECT_EQ(Active.SessionCause->ParameterId, MissingId);
-	EXPECT_EQ(Active.SessionCause->ActiveParameterId, Id);
+	EXPECT_EQ(Active.Message.find("A material parameter edit is already active."), 0u);
 	const auto Invalid = Edit.Apply(FMaterialParameterValue::MakeVector4({1, 2, 3, 4}));
-	ASSERT_TRUE(Invalid.SessionCause);
-	EXPECT_EQ(Invalid.SessionCause->Code, EMaterialGraphSessionError::ParameterValue);
-	EXPECT_EQ(Invalid.SessionCause->ParameterId, Id);
-	EXPECT_EQ(Invalid.SessionCause->RequestedType, EMaterialParameterType::Vector4);
-	EXPECT_EQ(Invalid.SessionCause->ExistingType, EMaterialParameterType::Scalar);
-	ASSERT_TRUE(Invalid.SessionCause->MaterialCause);
-	EXPECT_EQ(std::get<EMaterialParameterError>(Invalid.SessionCause->MaterialCause->Code), EMaterialParameterError::InvalidType);
-	EXPECT_EQ(Invalid.SessionCause->MaterialCause->ParameterId, Id);
+	EXPECT_EQ(Invalid.Message.find("The material rejected the parameter value."), 0u);
 	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(Id)->Value.GetScalar(), .25f);
 	ASSERT_TRUE(Edit.Apply(FMaterialParameterValue::MakeScalar(.75f)));
 	ASSERT_TRUE(Edit.Commit());
-	EXPECT_EQ(Invalid.SessionCause->RequestedType, EMaterialParameterType::Vector4);
 	ASSERT_TRUE(Edit.Begin(*Material, Id));
 	ASSERT_TRUE(Edit.Apply(FMaterialParameterValue::MakeScalar(.5f)));
 	ASSERT_TRUE(FMaterialGraphOperations::DeleteParameter(*Material, Id));
 	const auto Restore = Edit.Cancel();
-	ASSERT_TRUE(Restore.SessionCause);
-	EXPECT_EQ(Restore.SessionCause->Code, EMaterialGraphSessionError::ParameterRestore);
-	EXPECT_EQ(Restore.SessionCause->ParameterId, Id);
-	ASSERT_TRUE(Restore.SessionCause->MaterialCause);
-	EXPECT_EQ(std::get<EMaterialParameterError>(Restore.SessionCause->MaterialCause->Code), EMaterialParameterError::NotFound);
+	EXPECT_EQ(Restore.Message.find("The material rejected the original parameter value."), 0u);
 	EXPECT_FALSE(Edit.IsActive());
 }
 
@@ -3569,7 +3496,7 @@ TEST(FMaterialGraphOperationsTests, ParameterDefinitionFailurePreservesExpressio
 	EXPECT_EQ(std::get<EMaterialParameterError>(Rejected.Error.Code), EMaterialParameterError::InvalidDefault);
 }
 
-TEST(FMaterialGraphOperationsTests, ParameterFactoryRetainsValidationAndNormalizesValidRetry)
+TEST(FMaterialGraphOperationsTests, ParameterFactoryReportsValidationAndNormalizesValidRetry)
 {
 	InitializeDObjectSystem();
 	FMaterialParameterDefinition Definition;
@@ -3579,22 +3506,17 @@ TEST(FMaterialGraphOperationsTests, ParameterFactoryRetainsValidationAndNormaliz
 	const auto Rejected = GraphEditInternals::MakeParameterExpression(Definition);
 	EXPECT_FALSE(Rejected);
 	EXPECT_FALSE(Rejected.Expression);
-	EXPECT_EQ(Rejected.Error.Code, EMaterialGraphParameterError::Definition);
-	EXPECT_EQ(Rejected.Error.ParameterId, Definition.Id);
-	EXPECT_EQ(Rejected.Error.RequestedType, EMaterialParameterType::Vector);
-	ASSERT_TRUE(Rejected.Error.ValidationCause);
-	EXPECT_EQ(Rejected.Error.ValidationCause->Error, EMaterialParameterError::InvalidName);
+	EXPECT_EQ(Rejected.Message.find("The parameter definition is invalid."), 0u);
+
 	Definition.Name = "ValidFactory";
 	const auto Retried = GraphEditInternals::MakeParameterExpression(Definition);
 	ASSERT_TRUE(Retried);
 	ASSERT_TRUE(Retried.Expression);
 	EXPECT_EQ(Retried.Expression->GetParameterDefinition().Type, EMaterialParameterType::Vector4);
 	EXPECT_EQ(Retried.Expression->Metadata.Id, Definition.Id);
-	EXPECT_EQ(Rejected.Error.ValidationCause->Error, EMaterialParameterError::InvalidName);
-	EXPECT_EQ(Rejected.Error.Name, NAME_None.ToString());
 }
 
-TEST(FMaterialGraphOperationsTests, LayoutErrorsRetainBoundsAndLeaveAuthoredPositionsUnchanged)
+TEST(FMaterialGraphOperationsTests, LayoutRejectionsLeaveAuthoredPositionsUnchanged)
 {
 	InitializeDObjectSystem();
 	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
@@ -3607,38 +3529,26 @@ TEST(FMaterialGraphOperationsTests, LayoutErrorsRetainBoundsAndLeaveAuthoredPosi
 	FMaterialGraphPresentation Candidate;
 	const auto Duplicate = Document.CalculateLayout(std::array{Id, Id}, Candidate);
 	EXPECT_FALSE(Duplicate);
-	ASSERT_TRUE(Duplicate.LayoutCause);
-	EXPECT_EQ(Duplicate.LayoutCause->Code, EMaterialGraphLayoutError::LayoutDuplicate);
-	EXPECT_EQ(Duplicate.LayoutCause->Count, 2u);
-	EXPECT_EQ(Duplicate.LayoutCause->UniqueCount, 1u);
+	EXPECT_EQ(Duplicate.Message.find("The material graph layout request contains duplicate node GUIDs."), 0u);
 	EXPECT_EQ(Candidate, Before);
 	const auto MissingId = FGuid::NewGuid();
 	const auto Missing = Document.CalculateLayout(std::array{MissingId}, Candidate);
 	EXPECT_FALSE(Missing);
-	ASSERT_TRUE(Missing.LayoutCause);
-	EXPECT_EQ(Missing.LayoutCause->Code, EMaterialGraphLayoutError::LayoutNode);
-	EXPECT_EQ(Missing.LayoutCause->NodeId, MissingId);
+	EXPECT_EQ(Missing.Message.find("A material graph layout node does not exist."), 0u);
 	const std::vector<FGuid> Oversized(MaterialProgramMaxNodeCount + 1u, Id);
 	const auto Bounds = Document.CalculateLayout(Oversized, Candidate);
 	EXPECT_FALSE(Bounds);
-	ASSERT_TRUE(Bounds.LayoutCause);
-	EXPECT_EQ(Bounds.LayoutCause->Code, EMaterialGraphLayoutError::LayoutBounds);
-	EXPECT_EQ(Bounds.LayoutCause->Count, Oversized.size());
-	EXPECT_EQ(Bounds.LayoutCause->Limit, MaterialProgramMaxNodeCount);
+	EXPECT_EQ(Bounds.Message.find("The material graph layout request exceeds the node bound."), 0u);
 	const auto Coordinate = Document.MoveNodes(std::array{FMaterialGraphNodePresentation{Id, MaterialGraphPresentationCoordinateLimit + 1, 0}});
 	EXPECT_FALSE(Coordinate);
-	ASSERT_TRUE(Coordinate.LayoutCause);
-	EXPECT_EQ(Coordinate.LayoutCause->Code, EMaterialGraphLayoutError::Coordinate);
-	EXPECT_EQ(Coordinate.LayoutCause->NodeId, Id);
-	EXPECT_EQ(Coordinate.LayoutCause->X, MaterialGraphPresentationCoordinateLimit + 1);
+	EXPECT_EQ(Coordinate.Message.find("A material graph position is outside the supported coordinate range."), 0u);
 	EXPECT_EQ(Material->GetMaterialGraphPresentation(), Before);
 	ASSERT_TRUE(Document.CalculateLayout(std::array{Id}, Candidate));
 	EXPECT_EQ(Material->GetMaterialGraphPresentation(), Before);
 	ASSERT_TRUE(Document.MoveNodes(std::array{FMaterialGraphNodePresentation{Id, 100, 200}}));
-	EXPECT_EQ(Coordinate.LayoutCause->X, MaterialGraphPresentationCoordinateLimit + 1);
 }
 
-TEST(FMaterialGraphOperationsTests, ClipboardErrorsRetainContextAndAllowRetry)
+TEST(FMaterialGraphOperationsTests, ClipboardRejectionsReportFailureAndAllowRetry)
 {
 	InitializeDObjectSystem();
 	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
@@ -3651,9 +3561,7 @@ TEST(FMaterialGraphOperationsTests, ClipboardErrorsRetainContextAndAllowRetry)
 	ASSERT_TRUE(Document.CopySelection(std::array{Id}, Payload));
 	const auto Empty = Document.CopySelection({}, Payload);
 	EXPECT_FALSE(Empty);
-	ASSERT_TRUE(Empty.ClipboardCause);
-	EXPECT_EQ(Empty.ClipboardCause->Code, EMaterialGraphClipboardError::CopyBounds);
-	EXPECT_EQ(Empty.ClipboardCause->Count, 0u);
+	EXPECT_EQ(Empty.Message.find("The material graph copy selection is empty or exceeds the node bound."), 0u);
 	EXPECT_TRUE(Payload.Nodes.empty());
 	ASSERT_TRUE(Document.CopySelection(std::array{Id}, Payload));
 	const auto Before = CaptureExpressions(*Material);
@@ -3662,18 +3570,12 @@ TEST(FMaterialGraphOperationsTests, ClipboardErrorsRetainContextAndAllowRetry)
 	++Payload.SchemaVersion;
 	const auto Schema = Document.Paste(Payload, 0, 0, Transactions.Get());
 	EXPECT_FALSE(Schema);
-	ASSERT_TRUE(Schema.ClipboardCause);
-	EXPECT_EQ(Schema.ClipboardCause->Code, EMaterialGraphClipboardError::Schema);
-	EXPECT_EQ(Schema.ClipboardCause->Count, Payload.SchemaVersion);
-	EXPECT_EQ(Schema.ClipboardCause->Limit, CurrentMaterialGraphClipboardSchemaVersion);
+	EXPECT_EQ(Schema.Message.find("The material graph clipboard schema version is unsupported."), 0u);
 	Payload.SchemaVersion = CurrentMaterialGraphClipboardSchemaVersion;
 	Payload.Nodes.front().RelativeX = -1;
 	const auto Position = Document.Paste(Payload, 0, 0, Transactions.Get());
 	EXPECT_FALSE(Position);
-	ASSERT_TRUE(Position.ClipboardCause);
-	EXPECT_EQ(Position.ClipboardCause->Code, EMaterialGraphClipboardError::RelativePosition);
-	EXPECT_EQ(Position.ClipboardCause->NodeId, Id);
-	EXPECT_EQ(Position.ClipboardCause->X, -1);
+	EXPECT_EQ(Position.Message.find("The material graph clipboard contains an invalid relative position."), 0u);
 	EXPECT_EQ(CaptureExpressions(*Material), Before);
 	EXPECT_EQ(Material->GetMaterialGraphPresentation(), Presentation);
 	EXPECT_FALSE(Transactions->CanUndo());
@@ -3681,11 +3583,9 @@ TEST(FMaterialGraphOperationsTests, ClipboardErrorsRetainContextAndAllowRetry)
 	ASSERT_TRUE(Document.Paste(Payload, 100, 200, Transactions.Get()));
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(CaptureExpressions(*Material), Before);
-	EXPECT_EQ(Position.ClipboardCause->X, -1);
-	EXPECT_EQ(Schema.ClipboardCause->Count, CurrentMaterialGraphClipboardSchemaVersion + 1u);
 }
 
-TEST(FMaterialGraphOperationsTests, InputDefaultErrorsRetainAddressAndWidthWithoutPublishing)
+TEST(FMaterialGraphOperationsTests, InputDefaultRejectionsDoNotPublish)
 {
 	InitializeDObjectSystem();
 	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
@@ -3699,34 +3599,24 @@ TEST(FMaterialGraphOperationsTests, InputDefaultErrorsRetainAddressAndWidthWitho
 	const auto MissingId = FGuid::NewGuid();
 	const auto Missing = Document.SetInputDefault(MissingId, 3, {}, {}, Transactions.Get());
 	EXPECT_FALSE(Missing);
-	ASSERT_TRUE(Missing.InputCause);
-	EXPECT_EQ(Missing.InputCause->Code, EMaterialGraphInputError::MissingNode);
-	EXPECT_EQ(Missing.InputCause->NodeId, MissingId);
-	EXPECT_EQ(Missing.InputCause->InputIndex, 3u);
+	EXPECT_EQ(Missing.Message.find("The input owner is unavailable."), 0u);
 	const auto NonNumeric = Document.SetInputDefault(OutputId, Pin,
 		{.Kind = EMaterialInputDefaultKind::Literal, .Type = EMaterialProgramValueType::Texture2D}, {}, Transactions.Get());
 	EXPECT_FALSE(NonNumeric);
-	ASSERT_TRUE(NonNumeric.InputCause);
-	EXPECT_EQ(NonNumeric.InputCause->Code, EMaterialGraphInputError::NonNumeric);
-	EXPECT_EQ(NonNumeric.InputCause->Type, EMaterialProgramValueType::Texture2D);
+	EXPECT_EQ(NonNumeric.Message.find("The input default is not numeric."), 0u);
 	const auto Width = Document.SetInputDefault(OutputId, Pin,
 		{.Kind = EMaterialInputDefaultKind::Literal, .Type = EMaterialProgramValueType::Float3, .Literal = {1, 2, 3}}, {}, Transactions.Get());
 	EXPECT_FALSE(Width);
-	ASSERT_TRUE(Width.InputCause);
-	EXPECT_EQ(Width.InputCause->Code, EMaterialGraphInputError::DefaultWidth);
-	EXPECT_EQ(Width.InputCause->Width, 3u);
-	EXPECT_EQ(Width.InputCause->NodeId, OutputId);
-	EXPECT_EQ(Width.InputCause->InputIndex, Pin);
+	EXPECT_EQ(Width.Message.find("The input default has an incompatible width."), 0u);
 	EXPECT_EQ(CaptureExpressions(*Material), Before);
 	EXPECT_FALSE(Transactions->CanUndo());
 	ASSERT_TRUE(Document.SetInputDefault(OutputId, Pin,
 		{.Kind = EMaterialInputDefaultKind::Literal, .Type = EMaterialProgramValueType::Float, .Literal = {.X = .7f}}, {}, Transactions.Get()));
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(CaptureExpressions(*Material), Before);
-	EXPECT_EQ(Width.InputCause->Width, 3u);
 }
 
-TEST(FMaterialGraphOperationsTests, DocumentValueErrorsRetainContextAndAllowRetry)
+TEST(FMaterialGraphOperationsTests, DocumentValueRejectionsReportFailureAndAllowRetry)
 {
 	InitializeDObjectSystem();
 	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
@@ -3740,33 +3630,23 @@ TEST(FMaterialGraphOperationsTests, DocumentValueErrorsRetainContextAndAllowRetr
 	const auto BadValue = Document.SetConstantValue(Id,
 		FMaterialParameterValue::MakeScalar(std::numeric_limits<float>::infinity()), Transactions.Get());
 	ASSERT_FALSE(BadValue);
-	ASSERT_TRUE(BadValue.DocumentCause);
-	EXPECT_EQ(BadValue.DocumentCause->Code, EMaterialGraphDocumentError::NonFiniteConstant);
-	EXPECT_EQ(BadValue.DocumentCause->NodeId, Id);
-	EXPECT_EQ(BadValue.DocumentCause->ValueType, EMaterialParameterType::Scalar);
+	EXPECT_EQ(BadValue.Message.find("Constant values must be finite."), 0u);
 	ASSERT_EQ(BadValue.Diagnostics.size(), 1u);
 	EXPECT_EQ(BadValue.Diagnostics.front().Error, EMaterialExpressionError::NonFiniteConstant);
 	const auto BadComponents = Document.SetSwizzleComponents(Id, std::array<uint8, 2>{0, 7}, Transactions.Get());
 	ASSERT_FALSE(BadComponents);
-	ASSERT_TRUE(BadComponents.DocumentCause);
-	EXPECT_EQ(BadComponents.DocumentCause->Code, EMaterialGraphDocumentError::SwizzleComponents);
-	EXPECT_EQ(BadComponents.DocumentCause->NodeId, Id);
-	EXPECT_EQ(BadComponents.DocumentCause->Count, 2u);
-	EXPECT_EQ(BadComponents.DocumentCause->InvalidComponentIndex, 1u);
-	EXPECT_EQ(BadComponents.DocumentCause->InvalidComponent, 7u);
+	EXPECT_EQ(BadComponents.Message.find("Swizzles require one to four valid components."), 0u);
 	const auto WrongNode = Document.SetSwizzleComponents(Id, std::array<uint8, 1>{0}, Transactions.Get());
-	ASSERT_TRUE(WrongNode.DocumentCause);
-	EXPECT_EQ(WrongNode.DocumentCause->Code, EMaterialGraphDocumentError::SwizzleRequired);
+	EXPECT_EQ(WrongNode.Message.find("The selected expression is not a swizzle."), 0u);
 	EXPECT_EQ(CaptureExpressions(*Material), Before);
 	EXPECT_FALSE(Transactions.Get()->CanUndo());
 	ASSERT_TRUE(Document.SetConstantValue(Id, FMaterialParameterValue::MakeScalar(.75f), Transactions.Get()));
 	ASSERT_TRUE(Transactions.Get()->Undo());
 	EXPECT_EQ(CaptureExpressions(*Material), Before);
-	EXPECT_EQ(BadComponents.DocumentCause->InvalidComponent, 7u);
-	EXPECT_EQ(BadValue.DocumentCause->Code, EMaterialGraphDocumentError::NonFiniteConstant);
+	EXPECT_EQ(BadValue.Message.find("Constant values must be finite."), 0u);
 }
 
-TEST(FMaterialGraphOperationsTests, ConnectionErrorsRetainBothAddressesAndPreviousBinding)
+TEST(FMaterialGraphOperationsTests, ConnectionRejectionsPreserveExistingBindings)
 {
 	InitializeDObjectSystem();
 	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
@@ -3784,32 +3664,23 @@ TEST(FMaterialGraphOperationsTests, ConnectionErrorsRetainBothAddressesAndPrevio
 	Tests::FTestTransactorOwner Transactions;
 	const auto Occupied = Document.Connect(Target, Source, false, Transactions.Get());
 	ASSERT_FALSE(Occupied);
-	ASSERT_TRUE(Occupied.DocumentCause);
-	EXPECT_EQ(Occupied.DocumentCause->Code, EMaterialGraphDocumentError::AlreadyConnected);
-	EXPECT_EQ(Occupied.DocumentCause->Source, Source);
-	EXPECT_EQ(Occupied.DocumentCause->Target, Target);
-	EXPECT_EQ(Occupied.DocumentCause->Previous.ExpressionId, First.GeneratedNodeIds.front());
+	EXPECT_EQ(Occupied.Message.find("The graph input is already connected."), 0u);
 	auto BadSource = Source;
 	BadSource.Index = 256;
 	const auto BadIndex = Document.Connect(Target, BadSource, true, Transactions.Get());
-	ASSERT_TRUE(BadIndex.DocumentCause);
-	EXPECT_EQ(BadIndex.DocumentCause->Code, EMaterialGraphDocumentError::SourceKind);
-	EXPECT_EQ(BadIndex.DocumentCause->Source.Index, 256u);
+	EXPECT_EQ(BadIndex.Message.find("The source must be an output pin."), 0u);
 	auto MissingTarget = Target;
 	MissingTarget.NodeId = FGuid::NewGuid();
 	const auto Missing = Document.Connect(MissingTarget, Source, true, Transactions.Get());
-	ASSERT_TRUE(Missing.DocumentCause);
-	EXPECT_EQ(Missing.DocumentCause->Code, EMaterialGraphDocumentError::TargetMissing);
-	EXPECT_EQ(Missing.DocumentCause->Target, MissingTarget);
+	EXPECT_EQ(Missing.Message.find("The graph input no longer exists."), 0u);
 	EXPECT_EQ(CaptureExpressions(*Material), Before);
 	EXPECT_FALSE(Transactions->CanUndo());
 	ASSERT_TRUE(Document.Connect(Target, Source, true, Transactions.Get()));
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(CaptureExpressions(*Material), Before);
-	EXPECT_EQ(Occupied.DocumentCause->Previous.ExpressionId, First.GeneratedNodeIds.front());
 }
 
-TEST(FMaterialGraphOperationsTests, DocumentStructureErrorsRetainIdentityAndPreserveState)
+TEST(FMaterialGraphOperationsTests, DocumentStructureRejectionsPreserveState)
 {
 	InitializeDObjectSystem();
 	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
@@ -3821,20 +3692,13 @@ TEST(FMaterialGraphOperationsTests, DocumentStructureErrorsRetainIdentityAndPres
 	const auto Before = CaptureExpressions(*Material);
 	const auto OutputId = Material->GetOutputNode()->Id;
 	const auto Output = Document.RemoveNodes(std::array{OutputId}, Transactions.Get());
-	ASSERT_TRUE(Output.DocumentCause);
-	EXPECT_EQ(Output.DocumentCause->Code, EMaterialGraphDocumentError::RemoveOutput);
-	EXPECT_EQ(Output.DocumentCause->NodeId, OutputId);
+	EXPECT_EQ(Output.Message.find("The material output node cannot be removed."), 0u);
 	const std::vector<FGuid> Oversized(MaterialProgramMaxNodeCount + 1);
 	const auto Bounds = Document.RemoveNodes(Oversized, Transactions.Get());
-	ASSERT_TRUE(Bounds.DocumentCause);
-	EXPECT_EQ(Bounds.DocumentCause->Code, EMaterialGraphDocumentError::RemovalBounds);
-	EXPECT_EQ(Bounds.DocumentCause->Count, Oversized.size());
-	EXPECT_EQ(Bounds.DocumentCause->Limit, MaterialProgramMaxNodeCount);
+	EXPECT_EQ(Bounds.Message.find("The removal selection exceeds the graph bound."), 0u);
 	auto Replacement = Testing::MakeGraphExpression<DMaterialExpressionScalarConstant>();
 	const auto Missing = Document.ReplaceExpression(*Replacement, Transactions.Get());
-	ASSERT_TRUE(Missing.DocumentCause);
-	EXPECT_EQ(Missing.DocumentCause->Code, EMaterialGraphDocumentError::MissingExpression);
-	EXPECT_EQ(Missing.DocumentCause->NodeId, Replacement->Id);
+	EXPECT_EQ(Missing.Message.find("The expression no longer exists."), 0u);
 	EXPECT_EQ(CaptureExpressions(*Material), Before);
 	EXPECT_FALSE(Transactions->CanUndo());
 	Replacement->Id = Created.GeneratedNodeIds.front();
@@ -3842,10 +3706,9 @@ TEST(FMaterialGraphOperationsTests, DocumentStructureErrorsRetainIdentityAndPres
 	ASSERT_TRUE(Document.ReplaceExpression(*Replacement, Transactions.Get()));
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(CaptureExpressions(*Material), Before);
-	EXPECT_NE(Missing.DocumentCause->NodeId, Replacement->Id);
 }
 
-TEST(FMaterialGraphOperationsTests, CatalogErrorsOwnShapeAndAllowValidRetry)
+TEST(FMaterialGraphOperationsTests, CatalogRejectionsReportStaleShapeAndAllowRetry)
 {
 	InitializeDObjectSystem();
 	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
@@ -3862,14 +3725,8 @@ TEST(FMaterialGraphOperationsTests, CatalogErrorsOwnShapeAndAllowValidRetry)
 	const auto Before = CaptureExpressions(*Material);
 	const auto Failure = Document.CreateCatalogNode(Invalid, 40, 80, {}, Transactions.Get());
 	ASSERT_FALSE(Failure);
-	ASSERT_TRUE(Failure.DocumentCause);
-	EXPECT_EQ(Failure.DocumentCause->Code, EMaterialGraphDocumentError::CatalogShape);
-	EXPECT_EQ(Failure.DocumentCause->Opcode, Invalid.Opcode);
-	EXPECT_EQ(Failure.DocumentCause->ResultType, Invalid.ResultType);
-	EXPECT_EQ(Failure.DocumentCause->ExpressionClass, Invalid.ExpressionClass->GetName());
-	EXPECT_EQ(Failure.DocumentCause->AcceptedInputTypes, Invalid.AcceptedInputTypes);
+	EXPECT_EQ(Failure.Message.find("The catalog expression shape is stale."), 0u);
 	Invalid.AcceptedInputTypes.clear();
-	EXPECT_EQ(Failure.DocumentCause->AcceptedInputTypes, Found->AcceptedInputTypes);
 	EXPECT_EQ(CaptureExpressions(*Material), Before);
 	EXPECT_FALSE(Transactions->CanUndo());
 	ASSERT_TRUE(Document.CreateCatalogNode(*Found, 40, 80, {}, Transactions.Get()));
@@ -3877,7 +3734,7 @@ TEST(FMaterialGraphOperationsTests, CatalogErrorsOwnShapeAndAllowValidRetry)
 	EXPECT_EQ(CaptureExpressions(*Material), Before);
 }
 
-TEST(FMaterialGraphOperationsTests, CreationErrorsRetainNestedPathFailureWithSource)
+TEST(FMaterialGraphOperationsTests, CreationErrorsReportPathFailureAndAllowRetry)
 {
 	InitializeDObjectSystem();
 	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
@@ -3891,18 +3748,11 @@ TEST(FMaterialGraphOperationsTests, CreationErrorsRetainNestedPathFailureWithSou
 	auto Action = MakeFunctionCreationAction("invalid-relative-function");
 	const auto Failed = Document.Create({Action, 0, 0, Source}, Transactions.Get());
 	ASSERT_FALSE(Failed);
-	ASSERT_TRUE(Failed.DocumentCause);
-	EXPECT_EQ(Failed.DocumentCause->Code, EMaterialGraphDocumentError::CreationPath);
-	EXPECT_EQ(Failed.DocumentCause->Source, Source);
-	EXPECT_EQ(Failed.DocumentCause->SourceType, EMaterialProgramValueType::Float);
-	EXPECT_EQ(Failed.DocumentCause->ActionId, Action.Id);
-	EXPECT_EQ(Failed.DocumentCause->FunctionPath, "invalid-relative-function");
-	ASSERT_TRUE(Failed.DocumentCause->PathCause);
+	EXPECT_FALSE(Failed.Message.empty());
 	FTopLevelAssetPath Path;
 	const auto Expected = FTopLevelAssetPath::TryCreate("invalid-relative-function", Path);
-	EXPECT_EQ(Failed.DocumentCause->PathCause->Code, Expected.Error.Code);
+	EXPECT_NE(Failed.Message.find(FormatObjectError(Expected.Error)), std::string::npos);
 	Action.Payload = std::string("changed-request");
-	EXPECT_EQ(Failed.DocumentCause->FunctionPath, "invalid-relative-function");
 	EXPECT_EQ(CaptureExpressions(*Material), Before);
 	EXPECT_FALSE(Transactions->CanUndo());
 	const auto Catalog = FMaterialGraphOperations::EnumerateCatalog();
@@ -3915,7 +3765,7 @@ TEST(FMaterialGraphOperationsTests, CreationErrorsRetainNestedPathFailureWithSou
 	EXPECT_EQ(CaptureExpressions(*Material), Before);
 }
 
-TEST(FMaterialGraphOperationsTests, OperationErrorsRetainParameterSurfaceAndConnectionContext)
+TEST(FMaterialGraphOperationsTests, OperationRejectionsReportParameterSurfaceAndConnectionFailures)
 {
 	InitializeDObjectSystem();
 	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
@@ -3927,51 +3777,44 @@ TEST(FMaterialGraphOperationsTests, OperationErrorsRetainParameterSurfaceAndConn
 	const auto Before = CaptureExpressions(*Material);
 	const auto ParameterId = FGuid::NewGuid();
 	const auto Missing = FMaterialGraphOperations::RenameParameter(*Material, ParameterId, "NewName", Transactions.Get());
-	ASSERT_TRUE(Missing.ParameterCause);
-	EXPECT_EQ(Missing.ParameterCause->Code, EMaterialGraphParameterError::OwnerMissing);
-	EXPECT_EQ(Missing.ParameterCause->ParameterId, ParameterId);
+	EXPECT_EQ(Missing.Message.find("Parameter owner is unavailable."), 0u);
 	const auto InvalidOutput = static_cast<EMaterialSurfaceOutput>(255);
 	const auto Surface = FMaterialGraphOperations::DisconnectSurfaceOutput(*Material, InvalidOutput, Transactions.Get());
-	ASSERT_TRUE(Surface.DocumentCause);
-	EXPECT_EQ(Surface.DocumentCause->Code, EMaterialGraphDocumentError::SurfaceOutput);
-	EXPECT_EQ(Surface.DocumentCause->SurfaceOutput, InvalidOutput);
+	EXPECT_EQ(Surface.Message.find("The material surface output is invalid."), 0u);
 	FMaterialGraphConnectRequest Request{.DestinationNodeId = Material->GetOutputNode()->Id,
 		.DestinationInputIndex = static_cast<uint32>(EMaterialOutputPin::Metallic), .bReplaceExisting = true};
 	const auto MissingSource = FMaterialGraphOperations::Connect(*Material, Request, Transactions.Get());
-	ASSERT_TRUE(MissingSource.DocumentCause);
-	EXPECT_EQ(MissingSource.DocumentCause->Code, EMaterialGraphDocumentError::OperationSource);
-	EXPECT_EQ(MissingSource.DocumentCause->Target.NodeId, Request.DestinationNodeId);
-	EXPECT_EQ(MissingSource.DocumentCause->Target.Index, Request.DestinationInputIndex);
+	EXPECT_EQ(MissingSource.Message.find("The material graph source node does not exist."), 0u);
 	EXPECT_EQ(CaptureExpressions(*Material), Before);
 	EXPECT_FALSE(Transactions->CanUndo());
 	Request.SourceNodeId = Constant.GeneratedNodeIds.front();
 	ASSERT_TRUE(FMaterialGraphOperations::Connect(*Material, Request, Transactions.Get()));
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(CaptureExpressions(*Material), Before);
-	EXPECT_FALSE(MissingSource.DocumentCause->Source.NodeId.IsValid());
 }
 
-TEST(FMaterialGraphOperationsTests, TypedFailureControlsSuccessIndependentlyOfDisposition)
+TEST(FMaterialGraphOperationsTests, CommandStatusAndFailurePresentationAreIndependent)
 {
 	InitializeDObjectSystem();
 	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
 	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	FMaterialGraphDocument Document(*Material);
 	auto Rejected = Document.SetSwizzleComponents(FGuid::NewGuid(), {});
-	ASSERT_TRUE(Rejected.DocumentCause);
-	EXPECT_FALSE(Rejected);
-	Rejected.Disposition = EMaterialGraphCommandDisposition::NoChange;
 	EXPECT_FALSE(Rejected);
 	EXPECT_EQ(Rejected.GetStatus(), EMaterialGraphCommandStatus::Rejected);
+	Rejected.Message.clear();
+	EXPECT_FALSE(Rejected);
+	EXPECT_FALSE(FormatMaterialGraphCommandResult(Rejected).empty());
 	const auto NoChange = Document.RemoveNodes({});
 	EXPECT_TRUE(NoChange);
 	EXPECT_FALSE(NoChange.HasError());
 	EXPECT_EQ(NoChange.GetStatus(), EMaterialGraphCommandStatus::NoChange);
-	FMaterialGraphCommandResult CleanupFailed;
-	CleanupFailed.CleanupCause = std::make_shared<FMaterialGraphCommandResult>(Rejected);
+	EXPECT_TRUE(FormatMaterialGraphCommandResult(NoChange).empty());
+	FMaterialGraphCommandResult CleanupFailed{
+		.Status = EMaterialGraphCommandStatus::Rejected,
+		.Message = "Commit failed.", .CleanupMessage = "Restore failed."};
 	EXPECT_FALSE(CleanupFailed);
-	EXPECT_EQ(CleanupFailed.GetStatus(), EMaterialGraphCommandStatus::Rejected);
-	EXPECT_FALSE(FormatMaterialGraphCommandResult(CleanupFailed).empty());
+	EXPECT_EQ(FormatMaterialGraphCommandResult(CleanupFailed), "Commit failed. Cleanup: Restore failed.");
 }
 
 TEST(FMaterialGraphOperationsTests, ParameterReplayRetainsMaterialCauseAndAllowsRepair)

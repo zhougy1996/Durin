@@ -50,7 +50,8 @@ plain Archive and Cook interfaces format explicitly at their string boundaries.
 Base-material `SetParameterValue` returns `FMaterialOperationResult`. Invalid or
 missing parameter IDs, definition validation, missing authored owners and owner
 mismatches preserve parameter identity and fail before publishing values. Editor
-parameter sessions retain this error through apply and cancellation results.
+parameter sessions format this error into their command message for apply and
+cancellation failures.
 Instance parameter mutation also returns `FMaterialOperationResult`, separating
 missing definitions, declaration/override type conflicts, unreachable parameters
 and invalid sampling policies. Type failures retain expected/actual parameter
@@ -64,8 +65,10 @@ boundary.
 Parameter-expression definition writes return the same typed result. They report
 expected/actual definition types, retain parameter-validation errors and reject
 unsupported expression owners before updating metadata or values. Shared graph
-parameter resolution owns this underlying cause; widgets format only at their
-error presentation boundaries.
+parameter resolution formats this cause at the MaterialEditor command boundary;
+widgets consume the resulting message. Engine validation continues to return
+typed errors. See [material graph commands](../../Editor/Architecture/MaterialGraphOperations.md#compact-input-and-texture-authoring)
+for the simpler editor status/message contract.
 
 ## Validation
 

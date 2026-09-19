@@ -8,33 +8,6 @@ namespace Durin::Editor::Material
 {
 	using namespace GraphEditInternals;
 
-	auto FormatMaterialGraphLayoutError(const FMaterialGraphLayoutError& Error) -> std::string
-	{
-		switch (Error.Code)
-		{
-		case EMaterialGraphLayoutError::None: return {};
-		case EMaterialGraphLayoutError::MoveBounds: return "The material graph move request exceeds the node bound.";
-		case EMaterialGraphLayoutError::MoveNode: return "A moved material graph node does not exist.";
-		case EMaterialGraphLayoutError::MoveDuplicate: return "A material graph move request contains a duplicate node GUID.";
-		case EMaterialGraphLayoutError::Coordinate: return "A material graph position is outside the supported coordinate range.";
-		case EMaterialGraphLayoutError::OutputMissing: return "The material output node is unavailable.";
-		case EMaterialGraphLayoutError::LayoutBounds: return "The material graph layout request exceeds the node bound.";
-		case EMaterialGraphLayoutError::LayoutDuplicate: return "The material graph layout request contains duplicate node GUIDs.";
-		case EMaterialGraphLayoutError::LayoutNode: return "A material graph layout node does not exist.";
-		case EMaterialGraphLayoutError::Collision: return "The selected material graph layout has no collision-free placement.";
-		}
-		return {};
-	}
-	namespace
-	{
-		auto RejectLayout(FMaterialGraphLayoutError Error) -> FMaterialGraphCommandResult
-		{
-			FMaterialGraphCommandResult Result;
-			Result.LayoutCause = std::move(Error);
-			return Result;
-		}
-	}
-
 	auto FMaterialGraphGeometry::GetMetrics()
 		-> const FMaterialGraphCanvasMetrics&
 	{
@@ -74,11 +47,11 @@ namespace Durin::Editor::Material
 		std::span<const FMaterialGraphNodePresentation> Positions,
 		DTransactor* Transactions) const -> FMaterialGraphCommandResult
 	{
-		if (!Owner.IsValid()) return RejectSession({.Code = EMaterialGraphSessionError::StaleOwner});
+		if (!Owner.IsValid()) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
 		auto& Expressions = FMaterialExpressionEditing::GetExpressions(*Owner.Get());
-		if (Positions.empty()) return {.Disposition = EMaterialGraphCommandDisposition::NoChange};
+		if (Positions.empty()) return {.Status = EMaterialGraphCommandStatus::NoChange};
 		if (Positions.size() > MaterialProgramMaxNodeCount)
-			return RejectLayout({.Code = EMaterialGraphLayoutError::MoveBounds, .Count = Positions.size(), .Limit = MaterialProgramMaxNodeCount});
+			return RejectCommand("The material graph move request exceeds the node bound.");
 		FMaterialGraphPresentation Presentation = ReadGraphPresentation(*Owner.Get());
 		std::vector<FGuid> Affected;
 		std::unordered_set<FGuid> RequestedNodes;
@@ -86,14 +59,14 @@ namespace Durin::Editor::Material
 		{
 			if (std::ranges::none_of(Expressions,
 				[&](const auto& Expression) { return Expression->Id == Position.NodeId; }))
-				return RejectLayout({.Code = EMaterialGraphLayoutError::MoveNode, .NodeId = Position.NodeId});
+				return RejectCommand("A moved material graph node does not exist.");
 			if (!RequestedNodes.insert(Position.NodeId).second)
-				return RejectLayout({.Code = EMaterialGraphLayoutError::MoveDuplicate, .NodeId = Position.NodeId});
+				return RejectCommand("A material graph move request contains a duplicate node GUID.");
 			if (Position.X < -MaterialGraphPresentationCoordinateLimit
 				|| Position.X > MaterialGraphPresentationCoordinateLimit
 				|| Position.Y < -MaterialGraphPresentationCoordinateLimit
 				|| Position.Y > MaterialGraphPresentationCoordinateLimit)
-				return RejectLayout({.Code = EMaterialGraphLayoutError::Coordinate, .NodeId = Position.NodeId, .X = Position.X, .Y = Position.Y, .CoordinateLimit = MaterialGraphPresentationCoordinateLimit});
+				return RejectCommand("A material graph position is outside the supported coordinate range.");
 			auto It = std::ranges::find(Presentation.Nodes, Position.NodeId,
 				&FMaterialGraphNodePresentation::NodeId);
 			if (It == Presentation.Nodes.end()) Presentation.Nodes.push_back({Position.NodeId, Position.X, Position.Y});
@@ -111,7 +84,7 @@ namespace Durin::Editor::Material
 		DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
 		const auto* Output = Material.GetOutputNode();
-		if (!Output) return RejectLayout({.Code = EMaterialGraphLayoutError::OutputMissing});
+		if (!Output) return RejectCommand("The material output node is unavailable.");
 		const FMaterialGraphNodePresentation Position{Output->Id, X, Y};
 		return MoveNodes(Material, std::span(&Position, 1), Transactions);
 	}
@@ -120,7 +93,7 @@ namespace Durin::Editor::Material
 		std::span<const FGuid> NodeIds,
 		FMaterialGraphPresentation& OutPresentation) const -> FMaterialGraphCommandResult
 	{
-		if (!Owner.IsValid()) return RejectSession({.Code = EMaterialGraphSessionError::StaleOwner});
+		if (!Owner.IsValid()) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
 		OutPresentation = ReadGraphPresentation(*Owner.Get());
 		struct FLayoutNode { FGuid Id; std::vector<FGuid> Inputs; float Width = 224.0f; float Height = 94.0f; };
 		std::vector<FLayoutNode> Nodes;
@@ -141,16 +114,16 @@ namespace Durin::Editor::Material
 			return It == Nodes.end() ? nullptr : &*It;
 		};
 		if (NodeIds.size() > MaterialProgramMaxNodeCount)
-			return RejectLayout({.Code = EMaterialGraphLayoutError::LayoutBounds, .Count = NodeIds.size(), .Limit = MaterialProgramMaxNodeCount});
+			return RejectCommand("The material graph layout request exceeds the node bound.");
 		std::unordered_set<FGuid> Requested(NodeIds.begin(), NodeIds.end());
 		if (NodeIds.empty())
 			for (const FLayoutNode& Node : Nodes)
 				Requested.insert(Node.Id);
 		if (Requested.size() != (NodeIds.empty() ? Nodes.size() : NodeIds.size()))
-			return RejectLayout({.Code = EMaterialGraphLayoutError::LayoutDuplicate, .Count = NodeIds.empty() ? Nodes.size() : NodeIds.size(), .UniqueCount = Requested.size()});
+			return RejectCommand("The material graph layout request contains duplicate node GUIDs.");
 		for (const FGuid& Id : Requested)
 			if (!FindLayoutNode(Id))
-				return RejectLayout({.Code = EMaterialGraphLayoutError::LayoutNode, .NodeId = Id});
+				return RejectCommand("A material graph layout node does not exist.");
 
 		std::unordered_map<FGuid, std::vector<FGuid>> Consumers;
 		for (const FLayoutNode& Node : Nodes)
@@ -275,7 +248,7 @@ namespace Durin::Editor::Material
 					if (Collision == Occupied.end()) break;
 					Y = Collision->MaxY + Metrics.RowGap;
 					if (Attempt == MaterialProgramMaxNodeCount)
-						return RejectLayout({.Code = EMaterialGraphLayoutError::Collision, .NodeId = Id, .Count = Attempt + 1u, .Limit = MaterialProgramMaxNodeCount + 1u});
+						return RejectCommand("The selected material graph layout has no collision-free placement.");
 				}
 				Positions.push_back({Id, static_cast<int32>(std::round(X)),
 					static_cast<int32>(std::round(Y))});
@@ -294,7 +267,7 @@ namespace Durin::Editor::Material
 		OutPresentation = std::move(Presentation);
 		std::ranges::sort(Affected);
 		return {
-			.Disposition = EMaterialGraphCommandDisposition::Applied,
+			.Status = EMaterialGraphCommandStatus::Succeeded,
 			.AffectedNodeIds = std::move(Affected),
 		};
 	}

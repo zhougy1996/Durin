@@ -8,26 +8,13 @@
 // Private helpers shared by material graph commands, layout, and edit sessions.
 namespace Durin::Editor::Material::GraphEditInternals
 {
-	inline auto RejectDocument(FMaterialGraphDocumentError Error, std::vector<FMaterialProgramDiagnostic> Diagnostics = {}) -> FMaterialGraphCommandResult
+	// MaterialEditor is the presentation boundary for command failures. Recovery
+	// depends on status, never on message text or an implementation-specific cause.
+	inline auto RejectCommand(std::string Message,
+		std::vector<FMaterialProgramDiagnostic> Diagnostics = {},
+		EMaterialGraphCommandStatus Status = EMaterialGraphCommandStatus::Rejected) -> FMaterialGraphCommandResult
 	{
-		FMaterialGraphCommandResult Result{.Diagnostics = std::move(Diagnostics)};
-		Result.DocumentCause = std::move(Error);
-		return Result;
-	}
-
-	inline auto MakeParameterRejected(FMaterialGraphParameterError Error) -> FMaterialGraphCommandResult
-	{
-		FMaterialGraphCommandResult Result;
-		Result.ParameterCause = std::move(Error);
-		return Result;
-	}
-
-	inline auto RejectSession(FMaterialGraphSessionError Error,
-		std::vector<FMaterialProgramDiagnostic> Diagnostics = {}) -> FMaterialGraphCommandResult
-	{
-		FMaterialGraphCommandResult Result{.Diagnostics = std::move(Diagnostics)};
-		Result.SessionCause = std::move(Error);
-		return Result;
+		return {.Status = Status, .Diagnostics = std::move(Diagnostics), .Message = std::move(Message)};
 	}
 
 	inline auto ReadGraphPresentation(const DObject& Owner) -> FMaterialGraphPresentation

@@ -43,16 +43,11 @@ TEST(FMaterialFunctionInteractionTests, PreviewWrappersCompileEveryOutputTypeWit
 		const auto MissingId = FGuid::NewGuid();
 		const auto Missing = BuildMaterialFunctionPreview(*Function, MissingId, *Preview);
 		ASSERT_FALSE(Missing);
-		ASSERT_TRUE(Missing.DocumentCause);
-		EXPECT_EQ(Missing.DocumentCause->Code, EMaterialGraphDocumentError::PreviewOutput);
-		EXPECT_EQ(Missing.DocumentCause->PortId, MissingId);
-		EXPECT_TRUE(Missing.DocumentCause->bOutput);
-		EXPECT_EQ(Missing.DocumentCause->FunctionPath, Function->GetObjectPath());
+		EXPECT_EQ(Missing.Message.find("The preview output no longer exists."), 0u);
 		EXPECT_EQ(Preview->GetExpressionCollection().Expressions, Before);
 		EXPECT_EQ(Preview->GetExpressionOutputs(), BeforeOutputs);
 		EXPECT_EQ(Preview->GetMaterialCompileStatus().AuthoredRevision, BeforeRevision);
 		ASSERT_TRUE(BuildMaterialFunctionPreview(*Function, Output.Id, *Preview));
-		EXPECT_EQ(Missing.DocumentCause->PortId, MissingId);
 	}
 	MarkAsGarbage(Preview); MarkAsGarbage(Function); CollectGarbage();
 }

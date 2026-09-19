@@ -842,8 +842,7 @@ namespace Durin::Editor::Material
 		const auto ConnectPin = [&](const FGuid& NodeId, uint32 PinIndex, FMaterialProgramLink Source, bool bReplace) {
 			const auto Node = std::ranges::find(View.Nodes, NodeId, [](const auto& Item) { return Item.Node.Id; });
 			if (Node == View.Nodes.end() || PinIndex >= Node->Inputs.size())
-				return GraphEditInternals::RejectDocument({.Code = EMaterialGraphDocumentError::CanvasInput,
-					.NodeId = NodeId, .Count = PinIndex, .Limit = Node == View.Nodes.end() ? 0 : Node->Inputs.size()});
+				return GraphEditInternals::RejectCommand("The graph input is unavailable.");
 			const auto& Pin = Node->Inputs[PinIndex];
 			FMaterialGraphDocument Document(Owner);
 			return Document.Connect(Node->InputAddress(Pin),
@@ -904,7 +903,6 @@ namespace Durin::Editor::Material
 				const auto& Pin = HoveredOutput->View->Outputs[HoveredOutputIndex];
 				Interaction = FLinkingInteraction{HoveredOutput->View->Node.Id, Pin.OutputIndex, Pin.PortId};
 			}
-
 
 			else if (HoveredNode)
 			{
@@ -1056,7 +1054,6 @@ namespace Durin::Editor::Material
 				ResetInteraction();
 			}
 		}
-
 
 		HandleKeyboardInput(Owner, Transactions, View, CanvasMinimum,
 			CanvasSize, Mouse, bCanvasKeyboardInteractionAvailable, ReportError);
