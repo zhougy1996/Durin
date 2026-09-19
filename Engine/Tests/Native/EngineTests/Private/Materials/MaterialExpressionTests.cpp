@@ -10,6 +10,29 @@
 #include "Misc/MountPathTestSupport.h"
 #include "NativeAssetTestSupport.h"
 
+TEST(FMaterialExpressionTests, SnapshotFailureHasNoPayloadAndCanBeRetried)
+{
+	using namespace Durin;
+	static_assert(!std::is_convertible_v<FMaterialCompilerSnapshotResult, bool>);
+	EXPECT_FALSE(FMaterialCompilerSnapshotResult{});
+	InitializeDObjectSystem();
+	FScopedOfflinePreparation Offline;
+	TStrongObjectPtr<DMaterialInstance> Instance(NewObject<DMaterialInstance>(nullptr, "SnapshotInstance"));
+	auto Capture = SnapshotMaterialCompilerInput(*Instance, {});
+	ASSERT_FALSE(Capture);
+	EXPECT_FALSE(Capture.Snapshot.has_value());
+	ASSERT_FALSE(Capture.Diagnostics.empty());
+	EXPECT_EQ(Capture.Diagnostics.front().Error.Code, FMaterialError::FCode(EMaterialExpressionError::NoTypedExpressionOwner));
+	TStrongObjectPtr<DMaterial> Root(NewObject<DMaterial>(nullptr, "SnapshotRoot"));
+	Root->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	ASSERT_TRUE(Instance->SetParent(Root.Get()));
+	Capture = SnapshotMaterialCompilerInput(*Instance, {});
+	ASSERT_TRUE(Capture);
+	EXPECT_TRUE(Capture.Diagnostics.empty());
+	EXPECT_TRUE(Capture.Snapshot->FunctionOwners.empty());
+	EXPECT_EQ(Capture.Snapshot->Input.StaticProperties, Instance->GetStaticProperties());
+}
+
 TEST(FMaterialExpressionTests, TypedSnapshotIsDetachedFromCopiedInputsAndLaterEdits)
 {
 	using namespace Durin;
@@ -31,16 +54,18 @@ TEST(FMaterialExpressionTests, TypedSnapshotIsDetachedFromCopiedInputsAndLaterEd
 	FMaterialCompilerEnvironment Environment;
 	Durin::FMaterialOperationResult Error;
 	ASSERT_TRUE((Error = BuildDefaultMaterialCompilerEnvironment(Environment))) << Durin::FormatMaterialError(Error.Error);
-	MIR::FCompilerInput Initial;
-	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Material, Environment, Initial));
+	auto InitialCapture = SnapshotMaterialCompilerInput(*Material, Environment);
+	ASSERT_TRUE(InitialCapture);
+	auto& Initial = InitialCapture.Snapshot->Input;
 	const auto Before = MIR::Normalize(Initial);
 	ASSERT_TRUE(Before);
 	// Mutating a copied compiler input cannot affect either the owner or the original snapshot.
 	auto Detached = Initial;
 	Detached.IR.Nodes.clear();
 	EXPECT_FALSE(Detached.IR == Initial.IR);
-	MIR::FCompilerInput Snapshot;
-	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Material, Environment, Snapshot));
+	auto SnapshotCapture = SnapshotMaterialCompilerInput(*Material, Environment);
+	ASSERT_TRUE(SnapshotCapture);
+	auto& Snapshot = SnapshotCapture.Snapshot->Input;
 	const auto Direct = MIR::Normalize(Snapshot);
 	ASSERT_TRUE(Direct);
 	EXPECT_EQ(Direct.CanonicalBytes, Before.CanonicalBytes);
@@ -51,12 +76,18 @@ TEST(FMaterialExpressionTests, TypedSnapshotIsDetachedFromCopiedInputsAndLaterEd
 	auto* Owned = Cast<DMaterialExpressionScalarConstant>(Material->GetExpressionCollection().Expressions[1].Get());
 	Owned->Value = .125f;
 	EXPECT_EQ(Snapshot.IR, Captured);
-	MIR::FCompilerInput Changed;
-	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Material, Environment, Changed));
+	auto ChangedCapture = SnapshotMaterialCompilerInput(*Material, Environment);
+	ASSERT_TRUE(ChangedCapture);
+	auto& Changed = ChangedCapture.Snapshot->Input;
 	EXPECT_NE(Changed.IR, Captured);
 	const auto Retained = Changed.IR;
 	Owned->Value = std::numeric_limits<float>::infinity();
-	EXPECT_FALSE(SnapshotMaterialCompilerInput(*Material, Environment, Changed));
+	auto FailedCapture = SnapshotMaterialCompilerInput(*Material, Environment);
+	EXPECT_FALSE(FailedCapture);
+	EXPECT_FALSE(FailedCapture.Snapshot.has_value());
+	ASSERT_FALSE(FailedCapture.Diagnostics.empty());
+	FailedCapture.Diagnostics.clear();
+	EXPECT_FALSE(FailedCapture);
 	EXPECT_EQ(Changed.IR, Retained);
 }
 
@@ -1003,8 +1034,9 @@ TEST(FMaterialExpressionTests, LocalAuthoringValidationPreservesMissingDependenc
 	Outputs.BaseColor = {Call->Id, 0, OutputId};
 	ASSERT_TRUE(MIR::FGraphBuilder::ValidateSurface(Expressions, Outputs));
 	ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
-	MIR::FCompilerInput Snapshot;
-	EXPECT_FALSE(SnapshotMaterialCompilerInput(*Material, {}, Snapshot));
+	const auto Snapshot = SnapshotMaterialCompilerInput(*Material, {});
+	EXPECT_FALSE(Snapshot);
+	EXPECT_FALSE(Snapshot.Snapshot.has_value());
 	const auto Children = Material->GetExpressionCollection().Expressions;
 	const auto Revision = Material->GetMaterialProgramRevision();
 	Call->Inputs[0].Input = {Call->Id, 0, OutputId};

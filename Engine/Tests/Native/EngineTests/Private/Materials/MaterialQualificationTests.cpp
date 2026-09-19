@@ -1,3 +1,4 @@
+#include "MaterialGraphDocument.h"
 #include "ExplicitMaterialProgramTestFixture.h"
 #include "MaterialVariantTestFixture.h"
 #include "MaterialTestSupport.h"
@@ -50,7 +51,7 @@ TEST(FMaterialQualificationTests, MaximumGraphLayoutLatency)
 
 	const auto Begin = std::chrono::steady_clock::now();
 	const FMaterialGraphCommandResult First =
-		FMaterialGraphOperations::Layout(*Material);
+		FMaterialGraphDocument(*Material).Layout();
 	const auto Duration = std::chrono::steady_clock::now() - Begin;
 	ASSERT_TRUE(First) << First.Message;
 	EXPECT_LT(Duration, std::chrono::seconds(1));
@@ -60,7 +61,7 @@ TEST(FMaterialQualificationTests, MaximumGraphLayoutLatency)
 		SemanticRevision);
 	const FMaterialGraphPresentation FirstLayout =
 		Material->GetMaterialGraphPresentation();
-	const FMaterialGraphView LayoutView = FMaterialGraphOperations::Inspect(*Material);
+	const FMaterialGraphView LayoutView = FMaterialGraphDocument(*Material).Inspect();
 	for (size_t A = 0; A < LayoutView.Nodes.size(); ++A)
 		for (size_t B = A + 1; B < LayoutView.Nodes.size(); ++B)
 		{
@@ -76,7 +77,7 @@ TEST(FMaterialQualificationTests, MaximumGraphLayoutLatency)
 				&& PositionA.Y + HeightA > PositionB.Y);
 		}
 	const FMaterialGraphCommandResult Second =
-		FMaterialGraphOperations::Layout(*Material);
+		FMaterialGraphDocument(*Material).Layout();
 	EXPECT_EQ(Second.Status, EMaterialGraphCommandStatus::NoChange);
 	EXPECT_EQ(Material->GetMaterialGraphPresentation(), FirstLayout);
 	std::vector<std::chrono::microseconds> Samples;
@@ -84,7 +85,7 @@ TEST(FMaterialQualificationTests, MaximumGraphLayoutLatency)
 	for (uint32 Sample = 0; Sample < 100; ++Sample)
 	{
 		const auto SampleBegin = std::chrono::steady_clock::now();
-		EXPECT_TRUE(FMaterialGraphOperations::Layout(*Material));
+		EXPECT_TRUE(FMaterialGraphDocument(*Material).Layout());
 		Samples.push_back(std::chrono::duration_cast<std::chrono::microseconds>(
 			std::chrono::steady_clock::now() - SampleBegin));
 	}

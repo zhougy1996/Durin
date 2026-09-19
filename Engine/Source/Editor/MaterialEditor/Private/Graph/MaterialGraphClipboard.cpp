@@ -9,15 +9,6 @@ namespace Durin::Editor::Material
 {
 	using namespace GraphEditInternals;
 
-	auto FMaterialGraphOperations::CopySelection(
-		const DMaterial& Material,
-		std::span<const FGuid> NodeIds,
-		FMaterialGraphClipboardPayload& OutPayload)
-		-> FMaterialGraphCommandResult
-	{
-		return FMaterialGraphDocument(const_cast<DMaterial&>(Material)).CopySelection(NodeIds, OutPayload);
-	}
-
 	auto FMaterialGraphDocument::CopySelection(std::span<const FGuid> NodeIds,
 		FMaterialGraphClipboardPayload& OutPayload) const -> FMaterialGraphCommandResult
 	{
@@ -68,16 +59,6 @@ namespace Durin::Editor::Material
 			.Status = EMaterialGraphCommandStatus::Succeeded,
 			.AffectedNodeIds = std::move(Ordered),
 		};
-	}
-
-	auto FMaterialGraphOperations::Paste(
-		DMaterial& Material,
-		const FMaterialGraphClipboardPayload& Payload,
-		int32 X,
-		int32 Y,
-		DTransactor* Transactions) -> FMaterialGraphCommandResult
-	{
-		return FMaterialGraphDocument(Material).Paste(Payload, X, Y, Transactions);
 	}
 
 	auto FMaterialGraphDocument::Paste(const FMaterialGraphClipboardPayload& Payload,
@@ -209,16 +190,6 @@ namespace Durin::Editor::Material
 		return Result;
 	}
 
-	auto FMaterialGraphOperations::DuplicateNodes(
-		DMaterial& Material,
-		std::span<const FGuid> NodeIds,
-		int32 OffsetX,
-		int32 OffsetY,
-		DTransactor* Transactions) -> FMaterialGraphCommandResult
-	{
-		return FMaterialGraphDocument(Material).DuplicateNodes(NodeIds, OffsetX, OffsetY, Transactions);
-	}
-
 	auto FMaterialGraphDocument::DuplicateNodes(std::span<const FGuid> NodeIds,
 		int32 OffsetX, int32 OffsetY, DTransactor* Transactions) const -> FMaterialGraphCommandResult
 	{
@@ -246,15 +217,6 @@ namespace Durin::Editor::Material
 			return RejectCommand("Duplicating would place a material graph node outside the supported coordinate range.");
 		return Paste(Payload, static_cast<int32>(AnchorX),
 			static_cast<int32>(AnchorY), Transactions);
-	}
-
-	auto FMaterialGraphOperations::CutSelection(
-		DMaterial& Material,
-		std::span<const FGuid> NodeIds,
-		FMaterialGraphClipboardPayload& OutPayload,
-		DTransactor* Transactions) -> FMaterialGraphCommandResult
-	{
-		return FMaterialGraphDocument(Material).CutSelection(NodeIds, OutPayload, Transactions);
 	}
 
 	auto FMaterialGraphDocument::CutSelection(std::span<const FGuid> NodeIds,

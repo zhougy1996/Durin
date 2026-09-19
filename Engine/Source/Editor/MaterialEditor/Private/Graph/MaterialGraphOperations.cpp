@@ -188,7 +188,7 @@ namespace Durin::Editor::Material
 			if (const auto* Parameter = Cast<DMaterialExpressionParameter>(Expression.Get()); Parameter && Parameter->Metadata.Id == ParameterId)
 				Nodes.push_back(Parameter->Id);
 		if (Nodes.empty()) return RejectCommand("Parameter owner is unavailable.");
-		return RemoveNodes(Material, Nodes, Transactions);
+		return FMaterialGraphDocument(Material).RemoveNodes(Nodes, Transactions);
 	}
 
 	auto FMaterialGraphOperations::PromoteConstantToParameter(
@@ -233,76 +233,6 @@ namespace Durin::Editor::Material
 			Result.AffectedNodeIds = {NodeId};
 			Result.AffectedParameterIds = {Definition.Id};
 		}
-		return Result;
-	}
-
-	auto FMaterialGraphOperations::RemoveNodes(
-		DMaterial& Material,
-		std::span<const FGuid> NodeIds,
-		DTransactor* Transactions) -> FMaterialGraphCommandResult
-	{
-		return FMaterialGraphDocument(Material).RemoveNodes(NodeIds, Transactions);
-	}
-
-	auto FMaterialGraphOperations::Connect(DMaterial& Material,
-		const FMaterialGraphConnectRequest& Request, DTransactor* Transactions) -> FMaterialGraphCommandResult
-	{
-		if (!Request.SourceNodeId.IsValid()) return RejectCommand("The material graph source node does not exist.");
-		auto Result = FMaterialGraphDocument(Material).ConnectInput(Request.DestinationNodeId, Request.DestinationInputIndex,
-			{Request.SourceNodeId, Request.SourceOutputIndex}, Request.bReplaceExisting, Transactions);
-		if (Result.GetStatus() == EMaterialGraphCommandStatus::Succeeded)
-		{
-			Result.AffectedNodeIds = {Request.SourceNodeId, Request.DestinationNodeId};
-			std::ranges::sort(Result.AffectedNodeIds);
-		}
-		return Result;
-	}
-
-	auto FMaterialGraphOperations::DisconnectInput(DMaterial& Material, const FGuid& DestinationNodeId,
-		uint32 DestinationInputIndex, DTransactor* Transactions) -> FMaterialGraphCommandResult
-	{
-		auto Result = FMaterialGraphDocument(Material).ConnectInput(DestinationNodeId, DestinationInputIndex, {}, true, Transactions);
-		if (Result.GetStatus() == EMaterialGraphCommandStatus::Succeeded) Result.AffectedNodeIds = {DestinationNodeId};
-		return Result;
-	}
-
-	auto FMaterialGraphOperations::AssignSurfaceOutput(DMaterial& Material,
-		const FMaterialGraphSurfaceOutputRequest& Request, DTransactor* Transactions) -> FMaterialGraphCommandResult
-	{
-		if (!Request.SourceNodeId.IsValid()) return RejectCommand("The material graph source node does not exist.");
-		auto Result = FMaterialGraphDocument(Material).AssignMaterialOutput(Request.Output,
-			{Request.SourceNodeId, Request.SourceOutputIndex}, Transactions);
-		if (Result.GetStatus() == EMaterialGraphCommandStatus::Succeeded) Result.AffectedNodeIds = {Request.SourceNodeId};
-		return Result;
-	}
-
-	auto FMaterialGraphOperations::AssignAggregateSurface(DMaterial& Material, const FGuid& SourceNodeId,
-		DTransactor* Transactions) -> FMaterialGraphCommandResult
-	{
-		if (!SourceNodeId.IsValid()) return RejectCommand("Aggregate Surface requires a Surface node.");
-		auto Result = FMaterialGraphDocument(Material).AssignMaterialOutput({}, {SourceNodeId}, Transactions);
-		if (Result.GetStatus() == EMaterialGraphCommandStatus::Succeeded) Result.AffectedNodeIds = {SourceNodeId};
-		return Result;
-	}
-
-	auto FMaterialGraphOperations::DisconnectAggregateSurface(DMaterial& Material,
-		DTransactor* Transactions) -> FMaterialGraphCommandResult
-	{
-		const auto SourceId = Material.GetExpressionOutputs().Surface.ExpressionId;
-		auto Result = FMaterialGraphDocument(Material).AssignMaterialOutput({}, {}, Transactions);
-		if (Result.GetStatus() == EMaterialGraphCommandStatus::Succeeded) Result.AffectedNodeIds = {SourceId};
-		return Result;
-	}
-
-	auto FMaterialGraphOperations::DisconnectSurfaceOutput(DMaterial& Material,
-		EMaterialSurfaceOutput Output, DTransactor* Transactions) -> FMaterialGraphCommandResult
-	{
-		auto Outputs = Material.GetExpressionOutputs();
-		const auto* Link = GetSurfaceLink(Outputs, Output);
-		if (!Link) return RejectCommand("The material surface output is invalid.");
-		const auto SourceId = Link->ExpressionId;
-		auto Result = FMaterialGraphDocument(Material).AssignMaterialOutput(Output, {}, Transactions);
-		if (Result.GetStatus() == EMaterialGraphCommandStatus::Succeeded) Result.AffectedNodeIds = {SourceId};
 		return Result;
 	}
 

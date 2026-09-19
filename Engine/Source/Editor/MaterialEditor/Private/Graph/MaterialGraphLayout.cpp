@@ -36,13 +36,6 @@ namespace Durin::Editor::Material
 		return EMaterialGraphDetailLevel::Readable;
 	}
 
-	auto FMaterialGraphOperations::MoveNodes(DMaterial& Material,
-		std::span<const FMaterialGraphNodePresentation> Positions,
-		DTransactor* Transactions) -> FMaterialGraphCommandResult
-	{
-		return FMaterialGraphDocument(Material).MoveNodes(Positions, Transactions);
-	}
-
 	auto FMaterialGraphDocument::MoveNodes(
 		std::span<const FMaterialGraphNodePresentation> Positions,
 		DTransactor* Transactions) const -> FMaterialGraphCommandResult
@@ -77,16 +70,17 @@ namespace Durin::Editor::Material
 			"Move Material Nodes", std::move(Affected), Transactions);
 	}
 
-	auto FMaterialGraphOperations::MoveMaterialOutput(
-		DMaterial& Material,
+	auto FMaterialGraphDocument::MoveMaterialOutput(
 		int32 X,
 		int32 Y,
-		DTransactor* Transactions) -> FMaterialGraphCommandResult
+		DTransactor* Transactions) const -> FMaterialGraphCommandResult
 	{
-		const auto* Output = Material.GetOutputNode();
+		if (!Owner.IsValid()) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
+		const auto* Material = Cast<DMaterial>(Owner.Get());
+		const auto* Output = Material ? Material->GetOutputNode() : nullptr;
 		if (!Output) return RejectCommand("The material output node is unavailable.");
 		const FMaterialGraphNodePresentation Position{Output->Id, X, Y};
-		return MoveNodes(Material, std::span(&Position, 1), Transactions);
+		return MoveNodes(std::span(&Position, 1), Transactions);
 	}
 
 	auto FMaterialGraphDocument::CalculateLayout(
@@ -270,18 +264,6 @@ namespace Durin::Editor::Material
 			.Status = EMaterialGraphCommandStatus::Succeeded,
 			.AffectedNodeIds = std::move(Affected),
 		};
-	}
-
-	auto FMaterialGraphOperations::CalculateLayout(const DMaterial& Material,
-		std::span<const FGuid> NodeIds, FMaterialGraphPresentation& OutPresentation) -> FMaterialGraphCommandResult
-	{
-		return FMaterialGraphDocument(const_cast<DMaterial&>(Material)).CalculateLayout(NodeIds, OutPresentation);
-	}
-
-	auto FMaterialGraphOperations::Layout(DMaterial& Material, std::span<const FGuid> NodeIds,
-		DTransactor* Transactions) -> FMaterialGraphCommandResult
-	{
-		return FMaterialGraphDocument(Material).Layout(NodeIds, Transactions);
 	}
 
 	auto FMaterialGraphDocument::Layout(std::span<const FGuid> NodeIds,

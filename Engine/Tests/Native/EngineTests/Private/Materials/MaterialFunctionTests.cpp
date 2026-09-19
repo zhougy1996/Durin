@@ -82,8 +82,9 @@ TEST(FMaterialFunctionTests, ExplicitMRTemplateRetainsIndependentInstanceParamet
 		ASSERT_NE(Sample, Recipe.Expressions.end());
 		EXPECT_TRUE(Cast<DMaterialExpressionTextureSampleParameter2D>(Sample->Get())->UV.ExpressionId.IsValid());
 	}
-	MIR::FCompilerInput Input;
-	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Material, {.CompilerIdentity = "ExplicitMRTemplate"}, Input));
+	auto InputCapture = SnapshotMaterialCompilerInput(*Material, {.CompilerIdentity = "ExplicitMRTemplate"});
+	ASSERT_TRUE(InputCapture);
+	auto& Input = InputCapture.Snapshot->Input;
 	const auto Normalized = MIR::Normalize(Input);
 	ASSERT_TRUE(Normalized);
 	EXPECT_EQ(Normalized.Layout.ResourceFieldCount, 6u);
@@ -185,10 +186,13 @@ TEST(FMaterialFunctionTests, ExpandedAndFunctionRecipesPreserveCompilationAndInd
 	for (const auto& Output : {Outputs.BaseColor, Outputs.Normal, Outputs.Metallic, Outputs.Roughness,
 		Outputs.AmbientOcclusion, Outputs.Emissive, Outputs.Opacity, Outputs.OpacityMask})
 		EXPECT_TRUE(Output.ExpressionId.IsValid());
-	MIR::FCompilerInput FrozenInput, CurrentInput;
 	const FMaterialCompilerEnvironment Environment{.CompilerIdentity = "FunctionFixtureParity"};
-	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Frozen, Environment, FrozenInput));
-	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Current, Environment, CurrentInput));
+	auto FrozenInputCapture = SnapshotMaterialCompilerInput(*Frozen, Environment);
+	ASSERT_TRUE(FrozenInputCapture);
+	auto& FrozenInput = FrozenInputCapture.Snapshot->Input;
+	auto CurrentInputCapture = SnapshotMaterialCompilerInput(*Current, Environment);
+	ASSERT_TRUE(CurrentInputCapture);
+	auto& CurrentInput = CurrentInputCapture.Snapshot->Input;
 	const auto Baseline = MIR::Normalize(FrozenInput);
 	const auto Candidate = MIR::Normalize(CurrentInput);
 	ASSERT_TRUE(Baseline);
@@ -435,8 +439,9 @@ TEST(FMaterialFunctionTests, ResourceOutputSkipsOwnerUVAndPreservesIndependentSa
 	ASSERT_TRUE(Material->SetMaterialExpressions(std::array<DMaterialExpression*, 7>{Channel.Get(), Coordinates.Get(), Owner.Get(), UV1.Get(), UV2.Get(), Sample1.Get(), Sample2.Get()},
 		{.BaseColor = {Sample1->Id, 1}, .Emissive = {Sample2->Id, 1}}));
 	EXPECT_EQ(Material->GetParameterDefinitions().size(), 2u);
-	MIR::FCompilerInput Snapshot;
-	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Material, {.CompilerIdentity = "ResourceFanOut"}, Snapshot));
+	auto SnapshotCapture = SnapshotMaterialCompilerInput(*Material, {.CompilerIdentity = "ResourceFanOut"});
+	ASSERT_TRUE(SnapshotCapture);
+	auto& Snapshot = SnapshotCapture.Snapshot->Input;
 	EXPECT_TRUE(std::ranges::any_of(Snapshot.Parameters, [&](const auto& Declaration) {
 		return Declaration.Id == Owner->Metadata.Id && Declaration.Type == EMaterialParameterType::Texture;
 	}));
@@ -954,9 +959,10 @@ TEST(FMaterialFunctionTests, RootCallsCommitAtomicallyAndSnapshotThroughInstance
 	ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 	ASSERT_EQ(GetFunctionCalls(*Material).size(), 1u);
 	EXPECT_EQ(GetFunctionCalls(*Material)[0]->Function.Get(), Function);
-	MIR::FCompilerInput Input;
-	std::vector<FMaterialFunctionOwnerStamp> Owners;
-	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Instance, {.CompilerIdentity = "RootFunctionTest"}, Input, &Owners));
+	auto InputCapture = SnapshotMaterialCompilerInput(*Instance, {.CompilerIdentity = "RootFunctionTest"});
+	ASSERT_TRUE(InputCapture);
+	auto& Input = InputCapture.Snapshot->Input;
+	const auto& Owners = InputCapture.Snapshot->FunctionOwners;
 	ASSERT_EQ(Owners.size(), 1u);
 	EXPECT_EQ(Owners[0].Owner, FObjectKey(Function));
 	EXPECT_TRUE(std::ranges::any_of(Input.Sources, [&](const auto& Source) {
@@ -969,7 +975,8 @@ TEST(FMaterialFunctionTests, RootCallsCommitAtomicallyAndSnapshotThroughInstance
 	ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 	const auto OldIR = Input.IR;
 	const auto OldOwners = Owners;
-	const auto Missing = SnapshotMaterialCompilerInput(*Material, {}, Input, &Owners);
+	const auto Missing = SnapshotMaterialCompilerInput(*Material, {});
+	EXPECT_FALSE(Missing.Snapshot.has_value());
 	EXPECT_FALSE(Missing);
 	ASSERT_FALSE(Missing.Diagnostics.empty());
 	EXPECT_EQ(Missing.Diagnostics[0].NodeId, CallId);
@@ -1061,7 +1068,7 @@ TEST(FMaterialFunctionTests, TypedFieldsRoundtripAndRejectInvalidCoordinateDefau
 	ASSERT_TRUE(Testing::CreateGraphCatalogNode(FunctionDocument, EMaterialProgramOpcode::Multiply));
 	const auto Call = Document.InsertFunctionCall(*Function, 300, 0);
 	ASSERT_TRUE(Call);
-	ASSERT_TRUE(Document.AssignMaterialOutput(std::nullopt, {Call.GeneratedNodeIds[0], 0, Function->GetFunctionSignature().Outputs[0].Id}));
+	ASSERT_TRUE(Document.Connect(FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, std::nullopt), FMaterialGraphPinAddress::Output({Call.GeneratedNodeIds[0], 0, Function->GetFunctionSignature().Outputs[0].Id}), true));
 	const auto CaptureFields = [](const auto& Owner) {
 		std::vector<FPropertyValueSnapshotPayload> Fields;
 		for (const auto& Expression : Owner.GetExpressionCollection().Expressions)
@@ -1154,8 +1161,9 @@ TEST(FMaterialFunctionTests, RejectsOldRootSchemaAndPreservesCurrentFunctionRefe
 	EXPECT_EQ(Material->GetExpressionOutputs(), Outputs);
 	ASSERT_EQ(GetFunctionCalls(*Material).size(), 1u);
 	EXPECT_EQ(GetFunctionCalls(*Material)[0]->Id, CallId);
-	MIR::FCompilerInput Input;
-	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Material, {.CompilerIdentity = "RootRoundTrip"}, Input));
+	auto InputCapture = SnapshotMaterialCompilerInput(*Material, {.CompilerIdentity = "RootRoundTrip"});
+	ASSERT_TRUE(InputCapture);
+	auto& Input = InputCapture.Snapshot->Input;
 	EXPECT_TRUE(MIR::Normalize(Input));
 	ASSERT_TRUE(UnloadPackage(MaterialPath));
 	ASSERT_TRUE(UnloadPackage(FunctionPath));

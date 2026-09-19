@@ -394,6 +394,7 @@ namespace Durin::MIR
 		{
 			std::ranges::sort(Result.Parameters, {}, &FMaterialCompilerParameterDeclaration::Id);
 			std::ranges::sort(Result.Dependencies, {}, &FFunctionDependency::AssetPath);
+			Result.bSucceeded = true;
 		}
 		return std::move(Result);
 	}

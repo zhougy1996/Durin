@@ -112,19 +112,18 @@ namespace Durin
 		return {.bSucceeded = static_cast<bool>(Built), .Diagnostics = std::move(Built.Diagnostics)};
 	}
 
-	auto SnapshotMaterialCompilerInput(const DMaterialInterface& Material, FMaterialCompilerEnvironment Environment,
-		MIR::FCompilerInput& OutInput, std::vector<FMaterialFunctionOwnerStamp>* OutOwners)
-		-> FMaterialProgramValidationResult
+	auto SnapshotMaterialCompilerInput(const DMaterialInterface& Material, FMaterialCompilerEnvironment Environment)
+		-> FMaterialCompilerSnapshotResult
 	{
 		check(IsInGameThread());
-		FMaterialProgramValidationResult Validation;
+		FMaterialCompilerSnapshotResult Result;
 		const DMaterialInterface* Root = &Material;
 		for (uint32 Depth = 0; Root && Root->GetParent() && Depth < MaterialMaximumParentDepth; ++Depth) Root = Root->GetParent();
 		const auto* Owner = Cast<DMaterial>(Root);
 		if (!Owner)
 		{
-			Validation.Diagnostics.push_back({.Error = EMaterialExpressionError::NoTypedExpressionOwner});
-			return Validation;
+			Result.Diagnostics.push_back({.Error = EMaterialExpressionError::NoTypedExpressionOwner});
+			return Result;
 		}
 		std::vector<DMaterialExpression*> Expressions;
 		for (const auto& Expression : Owner->GetExpressionCollection().Expressions) Expressions.push_back(Expression.Get());
@@ -139,17 +138,15 @@ namespace Durin
 		auto Built = Context.FinishSurface(Owner->GetExpressionOutputs());
 		if (!Built)
 		{
-			Validation.Diagnostics = std::move(Built.Diagnostics);
-			return Validation;
+			Result.Diagnostics = std::move(Built.Diagnostics);
+			return Result;
 		}
 		MIR::FCompilerInput Snapshot{.IR = std::move(Built.IR), .Parameters = std::move(Built.Parameters),
 			.StaticProperties = Material.GetStaticProperties(), .Environment = std::move(Environment), .Sources = std::move(Built.Sources)};
 		std::ranges::sort(Snapshot.Environment.Dependencies, {}, &FMaterialCompilerDependency::VirtualPath);
 		std::ranges::sort(Owners, {}, &FMaterialFunctionOwnerStamp::AssetPath);
-		OutInput = std::move(Snapshot);
-		if (OutOwners) *OutOwners = std::move(Owners);
-		Validation.bSucceeded = true;
-		return Validation;
+		Result.Snapshot.emplace(FMaterialCompilerSnapshot{std::move(Snapshot), std::move(Owners)});
+		return Result;
 	}
 
 	auto AreMaterialFunctionOwnersCurrent(std::span<const FMaterialFunctionOwnerStamp> Owners) -> bool
@@ -204,10 +201,10 @@ namespace Durin
 			&& AreMaterialFunctionOwnersCurrent(ParameterReachabilityFunctionOwners)) return ParameterReachability;
 
 		auto Result = std::make_shared<FMaterialParameterReachability>();
-		MIR::FCompilerInput Snapshot;
-		std::vector<FMaterialFunctionOwnerStamp> Owners;
-		Result->Validation = SnapshotMaterialCompilerInput(*this, {}, Snapshot, &Owners);
-		if (!Result->Validation) return Result;
+		auto Capture = SnapshotMaterialCompilerInput(*this, {});
+		Result->Validation = {.bSucceeded = static_cast<bool>(Capture), .Diagnostics = std::move(Capture.Diagnostics)};
+		if (!Capture) return Result;
+		const auto& Snapshot = Capture.Snapshot->Input;
 		std::vector<uint32> Pending;
 		if (Snapshot.IR.SurfaceRoot.bAggregate) Pending.push_back(Snapshot.IR.SurfaceRoot.AggregateExpressionIndex);
 		else for (const auto& Input : Snapshot.IR.SurfaceRoot.Inputs)
@@ -225,7 +222,7 @@ namespace Durin
 		}
 		ParameterReachabilityCookedProgram.reset();
 		ParameterReachabilityProgramRevision = Revision;
-		ParameterReachabilityFunctionOwners = std::move(Owners);
+		ParameterReachabilityFunctionOwners = std::move(Capture.Snapshot->FunctionOwners);
 		ParameterReachability = Result;
 		return Result;
 	}

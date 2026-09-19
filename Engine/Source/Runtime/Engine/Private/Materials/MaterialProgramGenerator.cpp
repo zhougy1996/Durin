@@ -604,6 +604,7 @@ float4 FragmentMain(
 		auto Validation = MIR::Validate(IR, Layout);
 		if (!Validation) { Result.Diagnostics = std::move(Validation.Diagnostics); return Result; }
 		const auto Error = GenerateMaterialProgramSlangImpl(IR, Layout, Result.Source);
+		Result.bSucceeded = static_cast<bool>(Error);
 		if (!Error)
 			Result.Diagnostics.push_back(MakeDiagnostic(EMaterialProgramDiagnosticCategory::Generation, std::move(Error.Error)));
 		return Result;

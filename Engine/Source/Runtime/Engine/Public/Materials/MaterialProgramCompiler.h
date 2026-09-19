@@ -9,6 +9,7 @@
 #include "Shader/MaterialShaderIdentity.h"
 #include "Shader/ShaderCompilerCore.h"
 
+#include <optional>
 #include <span>
 #include <array>
 #include <string>
@@ -145,7 +146,7 @@ namespace Durin
 			std::vector<FMaterialProgramDiagnostic> Diagnostics;
 			std::vector<FSource> Sources;
 
-			operator bool() const { return bSucceeded; }
+			explicit operator bool() const { return bSucceeded; }
 		};
 
 		// Final compiler input: detached typed IR and its binding/environment contract.
@@ -185,13 +186,26 @@ namespace Durin
 		FMaterialCompileTimings Timings;
 		std::vector<FMaterialProgramDiagnostic> Diagnostics;
 
-		operator bool() const { return bSucceeded; }
+		explicit operator bool() const { return bSucceeded; }
+	};
+
+	struct FMaterialCompilerSnapshot
+	{
+		MIR::FCompilerInput Input;
+		std::vector<FMaterialFunctionOwnerStamp> FunctionOwners;
+	};
+
+	// Captured on the owning thread. A failed capture never publishes a payload.
+	struct FMaterialCompilerSnapshotResult
+	{
+		std::optional<FMaterialCompilerSnapshot> Snapshot;
+		std::vector<FMaterialProgramDiagnostic> Diagnostics;
+		explicit operator bool() const { return Snapshot.has_value(); }
 	};
 
 	[[nodiscard]] ENGINE_API auto SnapshotMaterialCompilerInput(
-		const DMaterialInterface& Material, FMaterialCompilerEnvironment Environment,
-		MIR::FCompilerInput& OutInput, std::vector<FMaterialFunctionOwnerStamp>* OutOwners = nullptr)
-		-> FMaterialProgramValidationResult;
+		const DMaterialInterface& Material, FMaterialCompilerEnvironment Environment)
+		-> FMaterialCompilerSnapshotResult;
 	ENGINE_API auto AreMaterialFunctionOwnersCurrent(std::span<const FMaterialFunctionOwnerStamp> Owners) -> bool;
 
 	[[nodiscard]] ENGINE_API auto BuildDefaultMaterialCompilerEnvironment(
@@ -214,9 +228,10 @@ namespace Durin
 		FByteView CanonicalIR, const FMaterialRenderLayout& Layout) -> FMaterialProgramIdentity;
 	struct FMaterialSourceGenerationResult
 	{
+		bool bSucceeded = false;
 		std::string Source;
 		std::vector<FMaterialProgramDiagnostic> Diagnostics;
-		explicit operator bool() const { return Diagnostics.empty() && !Source.empty(); }
+		explicit operator bool() const { return bSucceeded; }
 	};
 
 	[[nodiscard]] ENGINE_API auto ValidateMaterialCompilerResult(

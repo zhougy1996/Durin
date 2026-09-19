@@ -26,11 +26,12 @@ namespace Durin::Testing
 		ASSERT_TRUE(Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*Root));
 		Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Root);
 		ASSERT_TRUE(Root->GetMaterialCompileStatus().IsCurrent());
-		Durin::MIR::FCompilerInput Input;
 		Durin::FMaterialCompilerEnvironment Environment;
 		Durin::FMaterialOperationResult Error;
 		ASSERT_TRUE((Error = Durin::BuildDefaultMaterialCompilerEnvironment(Environment))) << Durin::FormatMaterialError(Error.Error);
-		ASSERT_TRUE(Durin::SnapshotMaterialCompilerInput(*Root, Environment, Input));
+		auto InputCapture = Durin::SnapshotMaterialCompilerInput(*Root, Environment);
+		ASSERT_TRUE(InputCapture);
+		auto& Input = InputCapture.Snapshot->Input;
 
 		const auto Before = Durin::GetMaterialCompilationDiagnostics();
 		std::array<Durin::DMaterialInstance*, 8> Instances{};

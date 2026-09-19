@@ -1,3 +1,4 @@
+#include "MaterialGraphDocument.h"
 #include "MaterialGraphTestSupport.h"
 
 TEST(FMaterialGraphPersistenceTests, CustomDeclarationsPersistAndDuplicateTheirIdentity)
@@ -110,7 +111,7 @@ TEST(FMaterialAssetCreationPersistenceTests, BuiltInMaterialsHaveCompletePersist
 		EXPECT_EQ(Presentation.Nodes.size(),
 			Material->GetExpressionCollection().Expressions.size());
 		EXPECT_NE(Material->GetOutputNode(), nullptr);
-		const FMaterialGraphView View = FMaterialGraphOperations::Inspect(*Material);
+		const FMaterialGraphView View = FMaterialGraphDocument(*Material).Inspect();
 		EXPECT_EQ(View.Nodes.size(), Material->GetExpressionCollection().Expressions.size());
 		ASSERT_TRUE(UnloadPackage(Path));
 	}

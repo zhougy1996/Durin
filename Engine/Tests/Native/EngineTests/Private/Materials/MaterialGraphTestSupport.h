@@ -121,19 +121,19 @@ namespace
 
 	auto Normalize(const DMaterial& Material) -> MIR::FNormalizationResult
 	{
-		MIR::FCompilerInput Input;
 		FMaterialCompilerEnvironment Environment;
 		Environment.CompilerIdentity = "material-graph-operations-test";
 		Environment.Target = "vulkan-spirv-1.5";
-		if (!SnapshotMaterialCompilerInput(Material, Environment, Input)) return {};
-		return MIR::Normalize(Input);
+		auto Capture = SnapshotMaterialCompilerInput(Material, Environment);
+		if (!Capture) return {.Diagnostics = std::move(Capture.Diagnostics)};
+		return MIR::Normalize(Capture.Snapshot->Input);
 	}
 
 	auto MakeExpandedGraphMaterial(const char* Name) -> DMaterial*
 	{
 		DMaterial* Material = NewObject<DMaterial>(nullptr, Name);
 		if (!Material || !Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*Material)
-			|| !FMaterialGraphOperations::Layout(*Material)) return nullptr;
+			|| !FMaterialGraphDocument(*Material).Layout()) return nullptr;
 		return Material;
 	}
 }

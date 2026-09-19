@@ -115,22 +115,22 @@ TEST(FMaterialFunctionEditingTests, UnfinishedCallsRemainEditableAndCompileAfter
 	std::vector<FMaterialFunctionOwnerStamp> Closure;
 	EXPECT_TRUE(ValidateMaterialFunctionDependencies(Roots, Closure, EMaterialFunctionValidationMode::Editing));
 	EXPECT_FALSE(ValidateMaterialFunctionDependencies(Roots, Closure));
-	ASSERT_TRUE(Graph.ConnectInput(OutputNode.GeneratedNodeIds[0], 0, {InputNode.GeneratedNodeIds[0]}));
+	ASSERT_TRUE(Graph.Connect(FMaterialGraphPinAddress::Input(OutputNode.GeneratedNodeIds[0], 0), FMaterialGraphPinAddress::Output({InputNode.GeneratedNodeIds[0]})));
 	const auto Constant = Testing::CreateGraphConstant(Nested, 0.6f);
 	ASSERT_TRUE(Constant);
-	ASSERT_TRUE(Nested.ConnectCallInput(Call.GeneratedNodeIds[0], Input.Id, {Constant.GeneratedNodeIds[0]}, false, Transactions.Get()));
+	ASSERT_TRUE(Nested.Connect(FMaterialGraphPinAddress::Input(Call.GeneratedNodeIds[0], 0, Input.Id), FMaterialGraphPinAddress::Output({Constant.GeneratedNodeIds[0]}), false, Transactions.Get()));
 	EXPECT_TRUE(ValidateMaterialFunctionDependencies(Roots, Closure));
-	ASSERT_TRUE(Nested.DisconnectCallInput(Call.GeneratedNodeIds[0], Input.Id, Transactions.Get()));
+	ASSERT_TRUE(Nested.Disconnect(FMaterialGraphPinAddress::Input(Call.GeneratedNodeIds[0], 0, Input.Id), Transactions.Get()));
 	EXPECT_FALSE(ValidateMaterialFunctionDependencies(Roots, Closure));
 	ASSERT_TRUE(Transactions.Get()->Undo());
 	EXPECT_TRUE(ValidateMaterialFunctionDependencies(Roots, Closure));
 	const auto RootCall = Root.InsertFunctionCall(*Function, 100, 200);
 	ASSERT_TRUE(RootCall);
-	ASSERT_TRUE(Root.AssignMaterialOutput(EMaterialSurfaceOutput::Roughness, {RootCall.GeneratedNodeIds[0], 0, Output.Id}));
+	ASSERT_TRUE(Root.Connect(FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialSurfaceOutput::Roughness), FMaterialGraphPinAddress::Output({RootCall.GeneratedNodeIds[0], 0, Output.Id}), true));
 	EXPECT_FALSE(Material->CompileEdits());
 	const auto RootConstant = Testing::CreateGraphConstant(Root, 0.6f);
 	ASSERT_TRUE(RootConstant);
-	ASSERT_TRUE(Root.ConnectCallInput(RootCall.GeneratedNodeIds[0], Input.Id, {RootConstant.GeneratedNodeIds[0]}));
+	ASSERT_TRUE(Root.Connect(FMaterialGraphPinAddress::Input(RootCall.GeneratedNodeIds[0], 0, Input.Id), FMaterialGraphPinAddress::Output({RootConstant.GeneratedNodeIds[0]})));
 	EXPECT_TRUE(Material->CompileEdits());
 }
 
@@ -158,7 +158,7 @@ TEST(FMaterialFunctionEditingTests, CallInsertionBindsRequiredInputsAndAdmitsNew
 	const auto Output = FunctionPort(51, EMaterialProgramValueType::Float, "New Amount");
 	ASSERT_TRUE(Graph.AddPort(true, Output, {Input.GeneratedNodeIds[0]}));
 	ASSERT_EQ(GetFunctionCalls(*Material)[0]->Outputs.size(), 1u);
-	ASSERT_TRUE(Root.AssignMaterialOutput(EMaterialSurfaceOutput::Roughness, {Call.GeneratedNodeIds[0], 0, Output.Id}));
+	ASSERT_TRUE(Root.Connect(FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialSurfaceOutput::Roughness), FMaterialGraphPinAddress::Output({Call.GeneratedNodeIds[0], 0, Output.Id}), true));
 	ASSERT_EQ(GetFunctionCalls(*Material)[0]->Outputs.size(), 2u);
 	EXPECT_EQ(Material->GetExpressionOutputs().Roughness.OutputId, Output.Id);
 	MarkAsGarbage(Material); MarkAsGarbage(Function); CollectGarbage();
@@ -194,16 +194,15 @@ TEST(FMaterialFunctionEditingTests, SharedDocumentsEditStableCallsAndInterfacesW
 	EXPECT_EQ(GetFunctionCalls(*Material)[0]->Id, Inserted.GeneratedNodeIds[0]);
 	const auto InputNode = Wrapper->GetExpressionCollection().Expressions[0]->Id;
 	const auto InputPort = Function->GetFunctionSignature().Inputs[0].Id;
-	ASSERT_TRUE(WrapperDocument.ConnectCallInput(Nested.GeneratedNodeIds[0], InputPort, {InputNode}, false, Transactions.Get()));
+	ASSERT_TRUE(WrapperDocument.Connect(FMaterialGraphPinAddress::Input(Nested.GeneratedNodeIds[0], 0, InputPort), FMaterialGraphPinAddress::Output({InputNode}), false, Transactions.Get()));
 	EXPECT_EQ(GetFunctionCalls(*Wrapper)[0]->Inputs[0].InputId, InputPort);
-	ASSERT_TRUE(WrapperDocument.DisconnectCallInput(Nested.GeneratedNodeIds[0], InputPort, Transactions.Get()));
+	ASSERT_TRUE(WrapperDocument.Disconnect(FMaterialGraphPinAddress::Input(Nested.GeneratedNodeIds[0], 0, InputPort), Transactions.Get()));
 	EXPECT_TRUE(GetFunctionCalls(*Wrapper)[0]->Inputs.empty());
 	ASSERT_TRUE(Transactions.Get()->Undo());
 	EXPECT_EQ(GetFunctionCalls(*Wrapper)[0]->Inputs[0].Input.ExpressionId, InputNode);
 	auto Constant = Testing::MakeGraphExpression<DMaterialExpressionScalarConstant>({73, 1, 2, 3});
 	ASSERT_TRUE(MaterialDocument.CreateExpression(*Constant));
-	ASSERT_TRUE(MaterialDocument.ConnectCallInput(Inserted.GeneratedNodeIds[0],
-		Wrapper->GetFunctionSignature().Inputs[0].Id, {{73, 1, 2, 3}}));
+	ASSERT_TRUE(MaterialDocument.Connect(FMaterialGraphPinAddress::Input(Inserted.GeneratedNodeIds[0], 0, Wrapper->GetFunctionSignature().Inputs[0].Id), FMaterialGraphPinAddress::Output({{73, 1, 2, 3}})));
 	EXPECT_EQ(GetFunctionCalls(*Material)[0]->Inputs[0].Input.ExpressionId, (FGuid{73, 1, 2, 3}));
 	ASSERT_TRUE(MaterialDocument.RemoveNodes(std::span(&Constant->Id, 1)));
 	MarkAsGarbage(Material);
@@ -244,8 +243,7 @@ TEST(FMaterialFunctionEditingTests, CommandsAuthorFunctionPortsAndCompileASelect
 	EXPECT_FALSE(Document.RemovePort(false, Input.Id));
 	const auto Inserted = Caller.InsertFunctionCall(*Function, 0, 0, Transactions.Get());
 	ASSERT_TRUE(Inserted);
-	ASSERT_TRUE(Caller.AssignMaterialOutput(EMaterialSurfaceOutput::Roughness,
-		{.SourceNodeId = Inserted.GeneratedNodeIds[0], .SourceOutputId = Output.Id}, Transactions.Get()));
+	ASSERT_TRUE(Caller.Connect(FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialSurfaceOutput::Roughness), FMaterialGraphPinAddress::Output({.SourceNodeId = Inserted.GeneratedNodeIds[0], .SourceOutputId = Output.Id}), true, Transactions.Get()));
 	ASSERT_TRUE(Material->CompileEdits());
 	ASSERT_TRUE(Material->GetAcceptedCompiledProgram());
 	const auto Identity = Material->GetAcceptedCompiledProgram()->Identity;

@@ -273,12 +273,17 @@ TEST_F(FAssetPackageReloadTests, FunctionReloadRebindsNestedCallersAndPreservesA
 	EXPECT_EQ(Instance->GetAcceptedCompiledProgram(), Accepted);
 	ASSERT_TRUE(Material->CompileEdits());
 	EXPECT_EQ(Material->GetAcceptedCompiledProgram()->Identity, SavedIdentity);
-	MIR::FCompilerInput Input;
-	std::vector<FMaterialFunctionOwnerStamp> Before, After;
-	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Material.Get(), {.CompilerIdentity = "ReloadFunctionOwners"}, Input, &Before));
+	const auto BeforeCapture = SnapshotMaterialCompilerInput(*Material.Get(), {.CompilerIdentity = "ReloadFunctionOwners"});
+	ASSERT_TRUE(BeforeCapture);
+	const auto& Before = BeforeCapture.Snapshot->FunctionOwners;
+	EXPECT_TRUE(AreMaterialFunctionOwnersCurrent(Before));
 	auto Repeated = ReloadPackages({.Packages = {Function->GetPackage()}});
 	ASSERT_TRUE(Repeated.Wait());
-	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Material.Get(), {.CompilerIdentity = "ReloadFunctionOwners"}, Input, &After));
+	const auto AfterCapture = SnapshotMaterialCompilerInput(*Material.Get(), {.CompilerIdentity = "ReloadFunctionOwners"});
+	ASSERT_TRUE(AfterCapture);
+	const auto& After = AfterCapture.Snapshot->FunctionOwners;
+	EXPECT_FALSE(AreMaterialFunctionOwnersCurrent(Before));
+	EXPECT_TRUE(AreMaterialFunctionOwnersCurrent(After));
 	ASSERT_EQ(Before.size(), After.size());
 	EXPECT_NE(Before, After);
 	for (size_t Index = 0; Index < Before.size(); ++Index)

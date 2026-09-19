@@ -224,10 +224,7 @@ namespace Durin
 			RetireFailedMaterialGeneration(Context);
 			return false;
 		}
-		MIR::FCompilerInput Input;
-		std::vector<FMaterialFunctionOwnerStamp> FunctionOwners;
-		const auto Snapshot = SnapshotMaterialCompilerInput(*this, std::move(Environment), Input, &FunctionOwners);
-		Input.StaticProperties = CandidateProperties;
+		auto Snapshot = SnapshotMaterialCompilerInput(*this, std::move(Environment));
 		if (!Snapshot)
 		{
 			auto& Status = CompilationOwner.MaterialCompileStatus;
@@ -247,9 +244,11 @@ namespace Durin
 			RetireFailedMaterialGeneration(Context);
 			return false;
 		}
+		auto& Input = Snapshot.Snapshot->Input;
+		Input.StaticProperties = CandidateProperties;
 		CompilationOwner.LastObservedParameters = Input.Parameters;
 		return Private::FMaterialCompilationLifecycle::Submit(
-			*this, std::move(Input), bForceRecompile, std::move(FunctionOwners), Context);
+			*this, std::move(Input), bForceRecompile, std::move(Snapshot.Snapshot->FunctionOwners), Context);
 	}
 
 	auto DMaterialInterface::InvalidateMaterialCompilation(bool bIncludeSelf, bool bOnlyIfShaderChanged, FObjectCacheContext* Context) -> void

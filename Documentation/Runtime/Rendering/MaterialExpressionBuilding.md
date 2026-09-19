@@ -58,6 +58,7 @@ authoring. Those values cannot become compiler snapshots. Authoring fingerprints
 are transient edit checkpoints, not persisted shader identities.
 
 `Finish` and `FinishSurface` publish detached results and consume the build session.
+They set an explicit completed success flag, including for a valid empty build.
 On failure they clear IR, roots, parameters, source mappings, and dependencies,
 while retaining typed diagnostics. Duplicate output registration, missing output
 registration, invalid IR references, and invalid connection selectors are errors.
@@ -66,3 +67,22 @@ See [Material diagnostics](MaterialDiagnostics.md) for error and location contra
 The expression tests in `MaterialCompilerTests` cover multi-output sharing,
 function invocation isolation, stable output selectors, normal texture handling,
 cycle detection, and failed-result publication.
+
+## Compiler input capture
+
+`SnapshotMaterialCompilerInput(Material, Environment)` returns one
+`FMaterialCompilerSnapshotResult`. Its optional `Snapshot` owns the detached
+`MIR::FCompilerInput` and the function-owner stamps used to capture it. Payload
+presence is the sole success condition; default and failed results have no
+payload and failures retain typed diagnostics. A failed retry cannot publish a
+partial input or a mismatched dependency list. A previously captured result
+remains independent of later capture attempts or owner edits.
+
+Capture runs on the owning thread, resolves instances to the material root, and
+uses the requested material's effective static properties. Input data contains no
+object references. Function stamps retain object keys, paths and revisions rather
+than object ownership; freshness checks remain on the owning thread. Compilation
+moves the captured input and stamps into its lifecycle request; reachability
+uses the same capture and validates stamps before reusing its cached result.
+Cooking continues through this compilation boundary. Shader identities, cache
+keys and cooked encodings are unchanged.

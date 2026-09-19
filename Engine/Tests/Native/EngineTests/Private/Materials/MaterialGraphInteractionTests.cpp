@@ -1,3 +1,4 @@
+#include "MaterialGraphDocument.h"
 #include "MaterialGraphTestSupport.h"
 #include "Widgets/MaterialDetailsStyle.h"
 
@@ -189,8 +190,7 @@ TEST(FMaterialGraphInteractionTests, DuplicateMixedOutputSelectionPreservesCopie
 		ASSERT_TRUE(Second);
 		const FGuid OutputId = Material->GetOutputNode()->Id;
 		const FMaterialGraphNodePresentation OutputPosition{OutputId, 0, 0};
-		ASSERT_TRUE(FMaterialGraphOperations::MoveNodes(*Material,
-			std::span(&OutputPosition, 1)));
+		ASSERT_TRUE(FMaterialGraphDocument(*Material).MoveNodes(std::span(&OutputPosition, 1)));
 		const auto Before = Material->GetMaterialGraphPresentation();
 		const std::array Selection{OutputId, First.GeneratedNodeIds.front(), Second.GeneratedNodeIds.front()};
 		std::vector<FGuid> Generated;
@@ -202,7 +202,7 @@ TEST(FMaterialGraphInteractionTests, DuplicateMixedOutputSelectionPreservesCopie
 		}
 		else
 		{
-			const auto Result = FMaterialGraphOperations::DuplicateNodes(*Material, Selection, 40, 40, Transactions.Get());
+			const auto Result = FMaterialGraphDocument(*Material).DuplicateNodes(Selection, 40, 40, Transactions.Get());
 			ASSERT_TRUE(Result) << ::Durin::Editor::Material::FormatMaterialGraphCommandResult(Result);
 			Generated = Result.GeneratedNodeIds;
 		}
@@ -442,11 +442,11 @@ TEST(FMaterialGraphInteractionTests, TextureOutputsHideUnusedAdvancedPinsWithout
 	ASSERT_EQ(Sample->Outputs.size(), 7u);
 	EXPECT_EQ(Sample->Outputs[6].OutputIndex, 7u);
 	const auto BeforeInvalid = Material->GetExpressionOutputs();
-	EXPECT_FALSE(Document.AssignMaterialOutput(EMaterialSurfaceOutput::Normal, {SampleId, 8}));
+	EXPECT_FALSE(Document.Connect(FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialSurfaceOutput::Normal), FMaterialGraphPinAddress::Output({SampleId, 8}), true));
 	EXPECT_EQ(Material->GetExpressionOutputs(), BeforeInvalid);
-	ASSERT_TRUE(Document.AssignMaterialOutput(EMaterialSurfaceOutput::Normal, {}));
+	ASSERT_TRUE(Document.Disconnect(FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialSurfaceOutput::Normal)));
 	const std::array Consumers{SecondSample.GeneratedNodeIds.front(), RG.GeneratedNodeIds.front()};
-	ASSERT_TRUE(FMaterialGraphOperations::RemoveNodes(*Material, Consumers));
+	ASSERT_TRUE(FMaterialGraphDocument(*Material).RemoveNodes(Consumers));
 	Sample = FindViewNode(FMaterialGraphCanvasTestAccess::Prepare(Canvas, *Material), SampleId);
 	EXPECT_EQ(Sample->Outputs.size(), 6u);
 	EXPECT_EQ(Material->GetExpressionOutputs().BaseColor.OutputIndex, 1u);
@@ -557,7 +557,7 @@ TEST(FMaterialGraphInteractionTests, CanvasPositionRefreshPreservesTopologyStora
 	auto Saturate = Testing::MakeGraphExpression<DMaterialExpressionSaturate>();
 	Saturate->Input = {ParameterId};
 	ASSERT_TRUE(Material->SetMaterialExpressions(std::array<DMaterialExpression*, 2>{Parameter.Get(), Saturate.Get()}, {}));
-	ASSERT_TRUE(FMaterialGraphOperations::Layout(*Material));
+	ASSERT_TRUE(FMaterialGraphDocument(*Material).Layout());
 	FMaterialGraphCanvas Canvas;
 	const auto& View = FMaterialGraphCanvasTestAccess::Prepare(Canvas, *Material);
 	ASSERT_FALSE(View.Nodes.empty());
@@ -720,8 +720,8 @@ TEST(FMaterialGraphInteractionTests, CanvasConnectsASecondFunctionOutputAndRefre
 	ASSERT_TRUE(Surface);
 	const uint32 MetallicInput = static_cast<uint32>(EMaterialSurfaceOutput::Metallic) + 1;
 	const FMaterialProgramLink AmountSource{Call.GeneratedNodeIds[0], 0, Output.Id};
-	EXPECT_FALSE(Document.ConnectInput(Surface.GeneratedNodeIds[0], MetallicInput, AmountSource));
-	ASSERT_TRUE(Document.ConnectInput(Surface.GeneratedNodeIds[0], MetallicInput, AmountSource, true));
+	EXPECT_FALSE(Document.Connect(FMaterialGraphPinAddress::Input(Surface.GeneratedNodeIds[0], MetallicInput), FMaterialGraphPinAddress::Output(AmountSource)));
+	ASSERT_TRUE(Document.Connect(FMaterialGraphPinAddress::Input(Surface.GeneratedNodeIds[0], MetallicInput), FMaterialGraphPinAddress::Output(AmountSource), true));
 	const auto SurfaceInspection = Document.Inspect();
 	const auto* SurfaceView = FindViewNode(SurfaceInspection, Surface.GeneratedNodeIds[0]);
 	ASSERT_NE(SurfaceView, nullptr);
@@ -758,13 +758,13 @@ TEST(FMaterialGraphInteractionTests, CanvasConnectsASecondFunctionOutputAndRefre
 	const auto& Metrics = FMaterialGraphGeometry::GetMetrics();
 	const float PinY = Metrics.HeaderHeight + Metrics.SecondaryHeight + Metrics.BodyPadding;
 	const ImVec2 SecondOutput{Origin.x + Metrics.NodeWidth, Origin.y + PinY + Metrics.PinRowHeight};
-	const ImVec2 Target{Origin.x + 350, Origin.y + GraphNodePinOffset(*FindViewNode(FMaterialGraphOperations::Inspect(*Material), Destination.GeneratedNodeIds[0]))};
+	const ImVec2 Target{Origin.x + 350, Origin.y + GraphNodePinOffset(*FindViewNode(FMaterialGraphDocument(*Material).Inspect(), Destination.GeneratedNodeIds[0]))};
 	IO.AddKeyEvent(ImGuiMod_Shift, true);
 	Frame(SecondOutput, false); Frame(SecondOutput, true);
 	EXPECT_TRUE(FMaterialGraphCanvasTestAccess::Linking(Canvas));
 	Frame(Target, true); Frame(Target, false);
 	EXPECT_EQ(Errors, 0);
-	const auto Link = FindViewNode(FMaterialGraphOperations::Inspect(*Material), Destination.GeneratedNodeIds[0])->Inputs[0].Link;
+	const auto Link = FindViewNode(FMaterialGraphDocument(*Material).Inspect(), Destination.GeneratedNodeIds[0])->Inputs[0].Link;
 	EXPECT_EQ(Link.SourceNodeId, Call.GeneratedNodeIds[0]);
 	EXPECT_EQ(Link.SourceOutputId, Output.Id);
 	auto Signature = Function->GetFunctionSignature();
@@ -900,7 +900,7 @@ TEST(FMaterialGraphInteractionTests, CanvasLinkReleaseEndsGestureAcrossFrames)
 	Frame({1100, 600}, false);
 	Frame({1100, 600}, false);
 	const auto& Metrics = FMaterialGraphGeometry::GetMetrics();
-	const auto View = FMaterialGraphOperations::Inspect(*Material);
+	const auto View = FMaterialGraphDocument(*Material).Inspect();
 	const float PinY = GraphNodePinOffset(*FindViewNode(View, Destination));
 	const auto* SourceView = FindViewNode(View, Source);
 	const ImVec2 Output{Origin.x + GraphNodeWidth(*SourceView), Origin.y + GraphNodePinOffset(*SourceView)};
@@ -919,7 +919,7 @@ TEST(FMaterialGraphInteractionTests, CanvasLinkReleaseEndsGestureAcrossFrames)
 	EXPECT_EQ(Errors, 1);
 	Drop({Origin.x + 350, Origin.y + PinY}, true);
 	EXPECT_EQ(Errors, 1);
-	EXPECT_EQ(FindViewNode(FMaterialGraphOperations::Inspect(*Material), Destination)
+	EXPECT_EQ(FindViewNode(FMaterialGraphDocument(*Material).Inspect(), Destination)
 		->Inputs.front().Link.SourceNodeId, Source);
 	Drop({Origin.x + 700, Origin.y + (GraphNodePinOffset(*FindViewNode(View, Material->GetOutputNode()->Id)) + Metrics.PinRowHeight * 3)}, false);
 	EXPECT_EQ(Material->GetExpressionOutputs().Roughness.ExpressionId, Source);
@@ -1034,7 +1034,7 @@ TEST(FMaterialGraphInteractionTests, CanvasCreationShortcutsRespectGesturesAndUn
 		SCOPED_TRACE(static_cast<int>(Case.Key));
 		IO.AddKeyEvent(Case.Key, true);
 		Frame(Point, false); Frame(Point, true);
-		const auto View = FMaterialGraphOperations::Inspect(*Material);
+		const auto View = FMaterialGraphDocument(*Material).Inspect();
 		ASSERT_EQ(View.Nodes.size(), 2u);
 		const auto& CreatedNode = *std::ranges::find_if(View.Nodes, [](const auto& N) { return !N.Node.bMaterialOutput; });
 		EXPECT_EQ(CreatedNode.Node.Opcode, Case.Opcode);
@@ -1220,14 +1220,14 @@ TEST(FMaterialGraphInteractionTests, CanvasProducesValidDrawDataAcrossZoomAndGra
 	}
 	Graph.Presentation.Nodes = {{DenseSources[0], 0, 0, "Ambient Occlusion Texture With A Deliberately Long Authored Name"}};
 	ASSERT_TRUE(Graph.Apply(*Material));
-	ASSERT_TRUE(FMaterialGraphOperations::Layout(*Material));
+	ASSERT_TRUE(FMaterialGraphDocument(*Material).Layout());
 	DrawAtZoom(0.55f);
 
 	uint32 MaximumIndex = 1000;
 	while (Graph.Expressions.size() < MaterialProgramMaxNodeCount - 1)
 		Graph.Expressions.emplace_back(Testing::MakeGraphExpression<DMaterialExpressionScalarConstant>(FGuid(MaximumIndex++, 0, 0, 1)).Get());
 	ASSERT_TRUE(Graph.Apply(*Material));
-	ASSERT_TRUE(FMaterialGraphOperations::Layout(*Material));
+	ASSERT_TRUE(FMaterialGraphDocument(*Material).Layout());
 	DrawAtZoom(0.30f);
 
 	EXPECT_TRUE(Transactions->Reset());
@@ -1560,7 +1560,7 @@ TEST_P(FMaterialGraphCanvasInteractionTests, SelectionReconnectionCreationAndKey
 	const auto Call = Document.InsertFunctionCall(*Dependency, 700, 0);
 	ASSERT_TRUE(Call);
 	const auto CallId = Call.GeneratedNodeIds.front();
-	ASSERT_TRUE(Document.ConnectCallInput(CallId, PortId, {Previous->Id}));
+	ASSERT_TRUE(Document.Connect(FMaterialGraphPinAddress::Input(CallId, 0, PortId), FMaterialGraphPinAddress::Output({Previous->Id})));
 	const auto CallView = Document.Inspect();
 	const auto* CallNode = FindViewNode(CallView, CallId);
 	const auto Port = std::ranges::find(CallNode->Inputs, PortId, &FMaterialGraphPinView::PortId);

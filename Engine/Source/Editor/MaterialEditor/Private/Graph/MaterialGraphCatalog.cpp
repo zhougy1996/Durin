@@ -293,21 +293,6 @@ namespace Durin::Editor::Material
 		return Value ? ReadParameterLiteral(ResultType, *Value) : FMaterialProgramLiteral{};
 	}
 
-	auto FMaterialGraphOperations::Inspect(const DMaterial& Material)
-		-> FMaterialGraphView
-	{
-		const std::vector Catalog = EnumerateCatalog();
-		return Inspect(Material, Catalog);
-	}
-
-	auto FMaterialGraphOperations::Inspect(
-		const DMaterial& Material,
-		std::span<const FMaterialGraphCatalogEntry> Catalog)
-		-> FMaterialGraphView
-	{
-		return FMaterialGraphDocument(const_cast<DMaterial&>(Material)).Inspect(Catalog);
-	}
-
 	auto FMaterialGraphDocument::Inspect() const -> FMaterialGraphView
 	{
 		return Inspect(FMaterialGraphOperations::EnumerateCatalog());

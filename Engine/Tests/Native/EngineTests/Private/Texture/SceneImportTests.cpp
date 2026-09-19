@@ -590,11 +590,12 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 	const auto& Outputs = Material->GetExpressionOutputs();
 	for (const auto& Link : {Outputs.BaseColor, Outputs.Normal, Outputs.Metallic, Outputs.Roughness,
 		Outputs.AmbientOcclusion, Outputs.Emissive, Outputs.Opacity, Outputs.OpacityMask}) EXPECT_TRUE(Link.ExpressionId.IsValid());
-	MIR::FCompilerInput Input;
 	FMaterialCompilerEnvironment Environment;
 	const auto EnvironmentResult = BuildDefaultMaterialCompilerEnvironment(Environment);
 	ASSERT_TRUE(EnvironmentResult) << FormatMaterialError(EnvironmentResult.Error);
-	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Material, Environment, Input));
+	auto InputCapture = SnapshotMaterialCompilerInput(*Material, Environment);
+	ASSERT_TRUE(InputCapture);
+	auto& Input = InputCapture.Snapshot->Input;
 	const auto Normalized = MIR::Normalize(Input);
 	ASSERT_TRUE(Normalized) << (Normalized.Diagnostics.empty() ? "no diagnostic" : Durin::FormatMaterialError(Normalized.Diagnostics.front().Error));
 	EXPECT_EQ(Normalized.Layout.ResourceFieldCount, 6u);
@@ -639,8 +640,9 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 	Packed.Outputs = {}; Packed.Outputs.Surface = {.ExpressionId = PackedCall->Id, .OutputId = PackedCall->Outputs[0].OutputId}; Packed.Outputs.bUseMaterialAttributes = true;
 	Packed.Expressions.emplace_back(PackedCall.Get());
 	ASSERT_TRUE(Packed.Apply(*Material));
-	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Material, Environment, Input));
-	const auto PackedNormalized = MIR::Normalize(Input);
+	const auto PackedCapture = SnapshotMaterialCompilerInput(*Material, Environment);
+	ASSERT_TRUE(PackedCapture);
+	const auto PackedNormalized = MIR::Normalize(PackedCapture.Snapshot->Input);
 	ASSERT_TRUE(PackedNormalized) << (PackedNormalized.Diagnostics.empty() ? "no diagnostic" : Durin::FormatMaterialError(PackedNormalized.Diagnostics.front().Error));
 	EXPECT_EQ(PackedNormalized.Layout.ResourceFieldCount, 4u);
 	EXPECT_EQ(std::ranges::count(PackedNormalized.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &MIR::FNode::Opcode), 4);

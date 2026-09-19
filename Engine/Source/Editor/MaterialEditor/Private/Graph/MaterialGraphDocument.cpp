@@ -675,13 +675,17 @@ namespace Durin::Editor::Material
 				return Binding.InputId == TargetAddress.PortId && Binding.InputDefault.empty();
 			});
 		IncludeCallOutput(State, Connection);
-		return State.Commit("Connect Graph Input", Transactions);
-	}
-
-	auto FMaterialGraphDocument::ConnectInput(const FGuid& NodeId, uint32 InputIndex,
-		FMaterialProgramLink Source, bool bReplaceExisting, DTransactor* Transactions) const -> FMaterialGraphCommandResult
-	{
-		return Connect(FMaterialGraphPinAddress::Input(NodeId, InputIndex), FMaterialGraphPinAddress::Output(Source), bReplaceExisting, Transactions);
+		auto Result = State.Commit("Connect Graph Input", Transactions);
+		if (Result.GetStatus() == EMaterialGraphCommandStatus::Succeeded)
+		{
+			Result.AffectedNodeIds.push_back(TargetAddress.NodeId);
+			if (Previous.ExpressionId.IsValid()) Result.AffectedNodeIds.push_back(Previous.ExpressionId);
+			if (Connection.ExpressionId.IsValid()) Result.AffectedNodeIds.push_back(Connection.ExpressionId);
+			std::ranges::sort(Result.AffectedNodeIds);
+			const auto Duplicates = std::ranges::unique(Result.AffectedNodeIds);
+			Result.AffectedNodeIds.erase(Duplicates.begin(), Duplicates.end());
+		}
+		return Result;
 	}
 
 	auto FMaterialGraphDocument::SetUseMaterialAttributes(bool bEnabled, DTransactor* Transactions) const -> FMaterialGraphCommandResult
@@ -693,19 +697,6 @@ namespace Durin::Editor::Material
 		FGraphEditSession State(*Material);
 		State.GetOutputs().bUseMaterialAttributes = bEnabled;
 		return State.Commit("Change Material Output Mode", Transactions);
-	}
-
-	auto FMaterialGraphDocument::AssignMaterialOutput(std::optional<EMaterialSurfaceOutput> Attribute,
-		FMaterialProgramLink Source, DTransactor* Transactions) const -> FMaterialGraphCommandResult
-	{
-		if (!Owner.IsValid()) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
-		const auto* Material = Cast<DMaterial>(Owner.Get());
-		if (!Material) return RejectCommand("Function documents expose output ports instead of Surface.");
-		for (const auto& E : Material->GetExpressionCollection().Expressions)
-			if (Cast<DMaterialExpressionMaterialOutput>(E.Get()))
-				return Connect({E->Id, Attribute ? EMaterialGraphPinKind::MaterialAttribute : EMaterialGraphPinKind::MaterialSurface,
-					Attribute ? static_cast<uint32>(*Attribute) : 0}, FMaterialGraphPinAddress::Output(Source), true, Transactions);
-		return RejectCommand("The material output is unavailable.");
 	}
 
 	auto FMaterialGraphDocument::InsertFunctionCall(DMaterialFunctionInterface& Function,
@@ -753,21 +744,9 @@ namespace Durin::Editor::Material
 		return Result;
 	}
 
-	auto FMaterialGraphDocument::ConnectCallInput(const FGuid& CallNodeId, const FGuid& InputId,
-		FMaterialProgramLink Source, bool bReplaceExisting, DTransactor* Transactions) const -> FMaterialGraphCommandResult
-	{
-		return Connect(FMaterialGraphPinAddress::Input(CallNodeId, 0, InputId), FMaterialGraphPinAddress::Output(Source), bReplaceExisting, Transactions);
-	}
-
 	auto FMaterialGraphDocument::Disconnect(const FMaterialGraphPinAddress& Target,
 		DTransactor* Transactions) const -> FMaterialGraphCommandResult
 	{
 		return Connect(Target, FMaterialGraphPinAddress::Output({}), true, Transactions);
-	}
-
-	auto FMaterialGraphDocument::DisconnectCallInput(const FGuid& CallNodeId, const FGuid& InputId,
-		DTransactor* Transactions) const -> FMaterialGraphCommandResult
-	{
-		return Disconnect(FMaterialGraphPinAddress::Input(CallNodeId, 0, InputId), Transactions);
 	}
 }

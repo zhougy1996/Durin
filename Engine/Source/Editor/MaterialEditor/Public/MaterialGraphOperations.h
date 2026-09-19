@@ -39,6 +39,9 @@ namespace Durin::Editor::Material
 		auto operator==(const FMaterialGraphPinAddress&) const -> bool = default;
 		static auto Input(FGuid Node, uint32 Index, FGuid Port = {}) -> FMaterialGraphPinAddress
 		{ return {Node, Port.IsValid() ? EMaterialGraphPinKind::FunctionInput : EMaterialGraphPinKind::Input, Port.IsValid() ? 0u : Index, Port}; }
+		static auto MaterialOutput(FGuid Node, std::optional<EMaterialSurfaceOutput> Attribute = {}) -> FMaterialGraphPinAddress
+		{ return {Node, Attribute ? EMaterialGraphPinKind::MaterialAttribute : EMaterialGraphPinKind::MaterialSurface,
+			Attribute ? static_cast<uint32>(*Attribute) : static_cast<uint32>(EMaterialOutputPin::Surface)}; }
 		static auto Output(FMaterialProgramLink Link) -> FMaterialGraphPinAddress
 		{ return {Link.SourceNodeId, Link.SourceOutputId.IsValid() ? EMaterialGraphPinKind::FunctionOutput : EMaterialGraphPinKind::Output, Link.SourceOutputIndex, Link.SourceOutputId}; }
 	};
@@ -184,22 +187,6 @@ namespace Durin::Editor::Material
 		bool bFunction = false;
 	};
 
-	struct FMaterialGraphConnectRequest
-	{
-		FGuid SourceNodeId;
-		uint8 SourceOutputIndex = 0;
-		FGuid DestinationNodeId;
-		uint32 DestinationInputIndex = 0;
-		bool bReplaceExisting = false;
-	};
-
-	struct FMaterialGraphSurfaceOutputRequest
-	{
-		EMaterialSurfaceOutput Output = EMaterialSurfaceOutput::BaseColor;
-		FGuid SourceNodeId;
-		uint8 SourceOutputIndex = 0;
-	};
-
 	struct FMaterialGraphSurfaceDefaultRequest
 	{
 		EMaterialSurfaceOutput Output = EMaterialSurfaceOutput::BaseColor;
@@ -273,12 +260,6 @@ namespace Durin::Editor::Material
 	class FMaterialGraphOperations
 	{
 	public:
-		MATERIALEDITOR_API static auto Inspect(const DMaterial& Material)
-			-> FMaterialGraphView;
-		MATERIALEDITOR_API static auto Inspect(
-			const DMaterial& Material,
-			std::span<const FMaterialGraphCatalogEntry> Catalog)
-			-> FMaterialGraphView;
 		MATERIALEDITOR_API static auto EnumerateCatalog()
 			-> std::vector<FMaterialGraphCatalogEntry>;
 		MATERIALEDITOR_API static auto SearchCatalog(
@@ -310,41 +291,6 @@ namespace Durin::Editor::Material
 		MATERIALEDITOR_API static auto PromoteConstantToParameter(
 			DMaterial& Material, const FGuid& NodeId, FName Name,
 			DTransactor* Transactions = nullptr) -> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API static auto RemoveNodes(
-			DMaterial& Material,
-			std::span<const FGuid> NodeIds,
-			DTransactor* Transactions = nullptr)
-			-> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API static auto Connect(
-			DMaterial& Material,
-			const FMaterialGraphConnectRequest& Request,
-			DTransactor* Transactions = nullptr)
-			-> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API static auto DisconnectInput(
-			DMaterial& Material,
-			const FGuid& DestinationNodeId,
-			uint32 DestinationInputIndex,
-			DTransactor* Transactions = nullptr)
-			-> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API static auto AssignSurfaceOutput(
-			DMaterial& Material,
-			const FMaterialGraphSurfaceOutputRequest& Request,
-			DTransactor* Transactions = nullptr)
-			-> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API static auto AssignAggregateSurface(
-			DMaterial& Material,
-			const FGuid& SourceNodeId,
-			DTransactor* Transactions = nullptr)
-			-> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API static auto DisconnectAggregateSurface(
-			DMaterial& Material,
-			DTransactor* Transactions = nullptr)
-			-> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API static auto DisconnectSurfaceOutput(
-			DMaterial& Material,
-			EMaterialSurfaceOutput Output,
-			DTransactor* Transactions = nullptr)
-			-> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API static auto SetSurfaceDefault(
 			DMaterial& Material,
 			const FMaterialGraphSurfaceDefaultRequest& Request,
@@ -369,53 +315,6 @@ namespace Durin::Editor::Material
 		MATERIALEDITOR_API static auto AddTextureToSurfaceOutput(
 			DMaterial& Material,
 			const FMaterialGraphSurfaceNodeRequest& Request,
-			DTransactor* Transactions = nullptr)
-			-> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API static auto MoveNodes(
-			DMaterial& Material,
-			std::span<const FMaterialGraphNodePresentation> Positions,
-			DTransactor* Transactions = nullptr)
-			-> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API static auto MoveMaterialOutput(
-			DMaterial& Material,
-			int32 X,
-			int32 Y,
-			DTransactor* Transactions = nullptr)
-			-> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API static auto Layout(
-			DMaterial& Material,
-			std::span<const FGuid> NodeIds = {},
-			DTransactor* Transactions = nullptr)
-			-> FMaterialGraphCommandResult;
-		// Calculates the same deterministic layout without mutating the material.
-		MATERIALEDITOR_API static auto CalculateLayout(
-			const DMaterial& Material,
-			std::span<const FGuid> NodeIds,
-			FMaterialGraphPresentation& OutPresentation)
-			-> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API static auto CopySelection(
-			const DMaterial& Material,
-			std::span<const FGuid> NodeIds,
-			FMaterialGraphClipboardPayload& OutPayload)
-			-> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API static auto Paste(
-			DMaterial& Material,
-			const FMaterialGraphClipboardPayload& Payload,
-			int32 X,
-			int32 Y,
-			DTransactor* Transactions = nullptr)
-			-> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API static auto DuplicateNodes(
-			DMaterial& Material,
-			std::span<const FGuid> NodeIds,
-			int32 OffsetX = 40,
-			int32 OffsetY = 40,
-			DTransactor* Transactions = nullptr)
-			-> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API static auto CutSelection(
-			DMaterial& Material,
-			std::span<const FGuid> NodeIds,
-			FMaterialGraphClipboardPayload& OutPayload,
 			DTransactor* Transactions = nullptr)
 			-> FMaterialGraphCommandResult;
 	};

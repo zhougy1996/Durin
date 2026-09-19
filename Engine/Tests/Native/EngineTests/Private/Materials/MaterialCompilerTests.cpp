@@ -1,6 +1,39 @@
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "MaterialProgramTestFixture.h"
 
+TEST(FMaterialDiagnosticTests, SynchronousResultsRequireExplicitCompletedSuccess)
+{
+	using namespace Durin;
+	static_assert(!std::is_convertible_v<MIR::FBuildResult, bool>);
+	static_assert(!std::is_convertible_v<FMaterialProgramValidationResult, bool>);
+	static_assert(!std::is_convertible_v<MIR::FNormalizationResult, bool>);
+	static_assert(!std::is_convertible_v<FMaterialSourceGenerationResult, bool>);
+	static_assert(!std::is_convertible_v<FMaterialCompilerResult, bool>);
+	EXPECT_FALSE(MIR::FBuildResult{});
+	EXPECT_FALSE(FMaterialProgramValidationResult{});
+	EXPECT_FALSE(MIR::FNormalizationResult{});
+	EXPECT_FALSE(FMaterialSourceGenerationResult{});
+	EXPECT_FALSE(FMaterialCompilerResult{});
+
+	// An empty detached graph is valid, unlike a result with no completed stage.
+	const auto Built = MIR::BuildGraph({}, {});
+	ASSERT_TRUE(Built);
+	EXPECT_TRUE(Built.IR.Nodes.empty());
+	EXPECT_TRUE(Built.Roots.empty());
+	MIR::FModule Invalid;
+	Invalid.Version = 0;
+	auto Failed = GenerateMaterialProgramSlang(Invalid);
+	ASSERT_FALSE(Failed);
+	ASSERT_FALSE(Failed.Diagnostics.empty());
+	Failed.Diagnostics.clear();
+	Failed.Source = "retained diagnostic context";
+	EXPECT_FALSE(Failed);
+	FMaterialCompilerResult Unusable;
+	Unusable.GeneratedSource = "retained diagnostic context";
+	EXPECT_FALSE(Unusable);
+	EXPECT_FALSE(ValidateMaterialCompilerResult(Unusable));
+}
+
 TEST(FMaterialDiagnosticTests, ExistingDomainSuccessAndExternalProviderFailuresRemainDistinct)
 {
 	using namespace Durin;
@@ -236,15 +269,14 @@ TEST(FMaterialProgramNormalizationTests,
 	auto* Material = MakeExpandedMaterial("CompilerSnapshotMaterial");
 	Durin::FMaterialCompilerEnvironment Environment =
 		MakeSyntheticMaterialCompilerInput().Environment;
-	Durin::MIR::FCompilerInput Before;
-	auto Validation = Durin::SnapshotMaterialCompilerInput(
-		*Material, Environment, Before);
-	ASSERT_TRUE(Validation);
+	auto BeforeCapture = Durin::SnapshotMaterialCompilerInput(*Material, Environment);
+	ASSERT_TRUE(BeforeCapture);
+	const auto& Before = BeforeCapture.Snapshot->Input;
 	ASSERT_TRUE(Material->SetScalarParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::MetallicName(), 0.87f));
-	Durin::MIR::FCompilerInput After;
-	ASSERT_TRUE((Validation = Durin::SnapshotMaterialCompilerInput(
-		*Material, Environment, After)));
+	auto AfterCapture = Durin::SnapshotMaterialCompilerInput(*Material, Environment);
+	ASSERT_TRUE(AfterCapture);
+	const auto& After = AfterCapture.Snapshot->Input;
 	EXPECT_EQ(Before.IR, After.IR);
 	EXPECT_EQ(Before.Parameters, After.Parameters);
 	EXPECT_EQ(Before.StaticProperties, After.StaticProperties);
@@ -971,8 +1003,9 @@ TEST(FMaterialProgramSchemaTests, EnvironmentInputsCompileWithoutMaterialParamet
 	FMaterialCompilerEnvironment Environment;
 	Durin::FMaterialOperationResult Error;
 	ASSERT_TRUE((Error = BuildDefaultMaterialCompilerEnvironment(Environment))) << Durin::FormatMaterialError(Error.Error);
-	MIR::FCompilerInput Input;
-	ASSERT_TRUE(SnapshotMaterialCompilerInput(*Material, Environment, Input));
+	auto InputCapture = SnapshotMaterialCompilerInput(*Material, Environment);
+	ASSERT_TRUE(InputCapture);
+	auto& Input = InputCapture.Snapshot->Input;
 	const auto Normalized = MIR::Normalize(Input);
 	ASSERT_TRUE(Normalized);
 	const auto Source = GenerateMaterialProgramSlang(Normalized.IR, Normalized.Layout);

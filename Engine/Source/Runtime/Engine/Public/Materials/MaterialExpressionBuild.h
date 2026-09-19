@@ -63,13 +63,15 @@ namespace Durin
 		// Detached result. No expression, texture, or callee object is retained.
 		struct FBuildResult
 		{
+			// Completed outcome; diagnostics and payload emptiness do not define success.
+			bool bSucceeded = false;
 			FModule IR;
 			std::vector<uint32> Roots;
 			std::vector<FMaterialCompilerParameterDeclaration> Parameters;
 			std::vector<FSource> Sources;
 			std::vector<FFunctionDependency> Dependencies;
 			std::vector<FMaterialProgramDiagnostic> Diagnostics;
-			explicit operator bool() const { return Diagnostics.empty(); }
+			explicit operator bool() const { return bSucceeded; }
 		};
 
 		class FGraphBuilderImpl;

@@ -213,7 +213,7 @@ continues to use the document lifecycle above.
 
 ## Inspection and commands
 
-`MaterialGraphOperations.h` is the UI-independent boundary shared by the canvas,
+`FMaterialGraphDocument` is the UI-independent command owner shared by the canvas,
 tests, and structured callers. Inspection returns detached deterministic node,
 pin, surface-output, presentation, and closed-domain catalog values by reading
 the typed expression collection directly. A node descriptor retains identity and
@@ -277,8 +277,11 @@ and live function inputs before mutation.
 and material attributes or aggregate Surface inputs. `Connect` resolves these
 addresses and shares source validation, replacement policy, default preservation,
 and transaction publication. `Disconnect` also permits clearing retained bindings
-after a function port disappears. Legacy index/GUID connection methods delegate to
-this boundary. Type compatibility guides palette filtering, automatic connections,
+after a function port disappears. Callers use `Input`, `Output` and `MaterialOutput`
+address constructors; no index/GUID or surface-assignment command facade remains.
+Successful connection edits report the target and valid previous/new source IDs
+alongside any downstream changed nodes, sorted and deduplicated. No-change and
+rejected edits publish no changed IDs. Type compatibility guides palette filtering, automatic connections,
 and manual-drag feedback; manual wiring still permits type errors for compiler
 diagnostics. Commands also use parameter GUIDs and `EMaterialSurfaceOutput`. They cover creation, complete node replacement,
 removal, connection, disconnection, surface assignment, movement, layout,
@@ -541,6 +544,14 @@ recent-entry ordering changes. Search text and source output type remain explici
 query keys. Each canvas owns its results and clears invalidation after rebuilding.
 
 ## Clipboard and layout
+
+Document owns inspection, remove, move, layout, copy, paste, cut and duplicate
+commands for both material and function owners. `FMaterialGraphOperations` retains
+parameter operations and catalog queries. `MoveMaterialOutput` on Document resolves
+the output terminal before using `MoveNodes`; it rejects function graphs. Command
+status and affected/generated IDs are produced by the owning command, with no
+facade rewriting. Paste and duplicate report their newly selected generated IDs;
+no-change position commands produce no changed IDs or undo entry.
 
 Clipboard and layout failures use the same status/message contract as other
 commands. Copy retains its output-clear and partial-duplication behavior; rejected

@@ -20,6 +20,22 @@ function path, and call path to the error. Normalization, source generation, and
 compilation retain their diagnostic collections. The source-generation convenience
 overload returns the full source-generation result.
 
+## Synchronous stage outcomes
+
+`MIR::FBuildResult`, `FMaterialProgramValidationResult`, `MIR::FNormalizationResult`,
+`FMaterialSourceGenerationResult` and `FMaterialCompilerResult` use `bSucceeded`
+as their sole completed outcome and provide explicit bool conversion. Default
+construction is unsuccessful. Producers mark success only after finishing their
+stage; consumers must check the outcome before consuming its payload. Empty
+payloads can be valid (for example an empty expression build), and diagnostics or
+retained generated source never independently define success.
+
+Failed expression builds clear emitted data. Normalization and compiler failures
+may retain intermediate data, source or identity for diagnostics; none is an
+accepted program. Runtime admission and cooked decoding still validate required
+identity, layout and shader stages before publication. Cancellation, supersession
+and admission remain lifecycle outcomes, separate from synchronous stage success.
+
 ## Context and formatting
 
 Engine-owned failures must not carry user-facing prose. Preserve parameter identities, expected/actual value types, numeric indices,

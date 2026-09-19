@@ -42,22 +42,11 @@ namespace Durin::Editor::Material
 			DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto RemoveNodes(std::span<const FGuid> NodeIds,
 			DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API auto ConnectInput(const FGuid& NodeId, uint32 InputIndex,
-			FMaterialProgramLink Source, bool bReplaceExisting = false,
-			DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto SetUseMaterialAttributes(bool bEnabled, DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
-		// No attribute selects the aggregate input; assignment never switches the output mode.
-		MATERIALEDITOR_API auto AssignMaterialOutput(std::optional<EMaterialSurfaceOutput> Attribute,
-			FMaterialProgramLink Source, DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto InsertFunctionCall(DMaterialFunctionInterface& Function,
 			int32 X, int32 Y, DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto InsertFunctionCall(DMaterialFunctionInterface& Function,
 			int32 X, int32 Y, std::span<const FMaterialFunctionInputBinding> Inputs,
-			DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API auto ConnectCallInput(const FGuid& CallNodeId, const FGuid& InputId,
-			FMaterialProgramLink Source, bool bReplaceExisting = false,
-			DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API auto DisconnectCallInput(const FGuid& CallNodeId, const FGuid& InputId,
 			DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto SetInputDefault(const FGuid& NodeId, uint32 InputIndex,
 			FMaterialInputDefault Value, FGuid PortId = {}, DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
@@ -70,9 +59,12 @@ namespace Durin::Editor::Material
 		MATERIALEDITOR_API auto Paste(const FMaterialGraphClipboardPayload& Payload,
 			int32 X, int32 Y, DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto DuplicateNodes(std::span<const FGuid> NodeIds,
-			int32 OffsetX, int32 OffsetY, DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
+			int32 OffsetX = 40, int32 OffsetY = 40, DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto CutSelection(std::span<const FGuid> NodeIds,
 			FMaterialGraphClipboardPayload& OutPayload, DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
+		// Resolves the material terminal and moves it using the common position command.
+		MATERIALEDITOR_API auto MoveMaterialOutput(int32 X, int32 Y,
+			DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
 		// Position commands ignore labels and preserve unrelated presentation fields.
 		MATERIALEDITOR_API auto MoveNodes(std::span<const FMaterialGraphNodePresentation> Positions,
 			DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;

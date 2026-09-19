@@ -639,8 +639,7 @@ namespace Durin::Editor::Material
 			if (static_cast<size_t>(*ContextSurfaceOutput) == 8)
 			{
 				if (ImGui::MenuItem("Disconnect Surface"))
-					ReportCommand(FMaterialGraphOperations::DisconnectAggregateSurface(
-						*SurfaceMaterial, &Transactions), ReportError);
+					ReportCommand(FMaterialGraphDocument(*SurfaceMaterial).Disconnect(FMaterialGraphPinAddress::MaterialOutput((*SurfaceMaterial).GetOutputNode()->Id), &Transactions), ReportError);
 			}
 			else
 			{
@@ -655,8 +654,7 @@ namespace Durin::Editor::Material
 				};
 				if (Link.SourceNodeId.IsValid()
 					&& ImGui::MenuItem("Disconnect to Default"))
-					ReportCommand(FMaterialGraphOperations::DisconnectSurfaceOutput(
-						*SurfaceMaterial, *ContextSurfaceOutput, &Transactions), ReportError);
+					ReportCommand(FMaterialGraphDocument(*SurfaceMaterial).Disconnect(FMaterialGraphPinAddress::MaterialOutput((*SurfaceMaterial).GetOutputNode()->Id, *ContextSurfaceOutput), &Transactions), ReportError);
 				if (ImGui::MenuItem("Reset Default"))
 					ReportCommand(FMaterialGraphOperations::ResetSurfaceDefault(
 						*SurfaceMaterial, *ContextSurfaceOutput, &Transactions), ReportError);
@@ -1220,8 +1218,7 @@ namespace Durin::Editor::Material
 			ImGui::SameLine();
 			if (ImGui::Button("Auto Layout"))
 			{
-				const FMaterialGraphCommandResult Layout = FMaterialGraphOperations::Layout(
-					Material, {}, &Transactions);
+				const FMaterialGraphCommandResult Layout = FMaterialGraphDocument(Material).Layout({}, &Transactions);
 				ReportCommand(Layout, ReportError);
 			}
 			ImGui::SameLine();

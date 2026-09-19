@@ -1,3 +1,4 @@
+#include "MaterialGraphDocument.h"
 #include "MaterialAssetCreation.h"
 
 #include "Asset/AssetCompilingManager.h"
@@ -20,8 +21,7 @@ namespace Durin
 		}
 		FMaterialGraphPresentation Presentation;
 		const auto Layout =
-			Editor::Material::FMaterialGraphOperations::CalculateLayout(
-				Material, {}, Presentation);
+			Editor::Material::FMaterialGraphDocument(Material).CalculateLayout({}, Presentation);
 		if (!Layout || Material.SetMaterialGraphPresentation(
 				std::move(Presentation)) == EMaterialGraphPresentationResult::Rejected)
 		{

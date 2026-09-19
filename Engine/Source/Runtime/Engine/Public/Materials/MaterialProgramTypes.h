@@ -351,7 +351,7 @@ namespace Durin
 		bool bSucceeded = false;
 		std::vector<FMaterialProgramDiagnostic> Diagnostics;
 
-		operator bool() const { return bSucceeded; }
+		explicit operator bool() const { return bSucceeded; }
 	};
 
 	ENGINE_API auto IsMaterialSurfaceOutputActive(EMaterialSurfaceOutput Output,
