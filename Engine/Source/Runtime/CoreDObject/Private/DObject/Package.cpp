@@ -190,7 +190,7 @@ namespace Durin
 		if (!Path.IsValid() || GetPackageRegistry().contains(Path.ToString())) return nullptr;
 
 		DPackage* Package = NewObject<DPackage>(
-			nullptr, FName(Path.GetAssetName()), EObjectFlags::Standalone);
+			nullptr, FName(Path.GetPackageName()), EObjectFlags::Standalone);
 		Package->InitializeAssetPackage(Path);
 		return Package;
 	}

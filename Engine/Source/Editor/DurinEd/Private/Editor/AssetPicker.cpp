@@ -184,7 +184,7 @@ namespace Durin::Editor::AssetPicker
 
 	auto GetAssetPathOrNone(const DObject* Object, std::string_view NoneLabel) -> std::string
 	{
-		return Object && Object->GetPackage() ? Object->GetPackage()->GetPackagePath() : std::string(NoneLabel);
+		return Object && Object->GetPackage() ? Object->GetObjectPath() : std::string(NoneLabel);
 	}
 
 	auto GetAssetPathOrNone(const DObject* Object, std::string_view ObjectPath, std::string_view NoneLabel) -> std::string
@@ -196,9 +196,16 @@ namespace Durin::Editor::AssetPicker
 		std::string_view ObjectPath,
 		EAssetPathDisplayMode DisplayMode) -> std::string
 	{
+		const size_t AssetSeparator = ObjectPath.find('.');
+		if (DisplayMode == EAssetPathDisplayMode::AssetName)
+		{
+			const size_t NameStart = AssetSeparator == std::string_view::npos
+				? ObjectPath.find_last_of('/') : AssetSeparator;
+			return std::string(NameStart == std::string_view::npos
+				? ObjectPath : ObjectPath.substr(NameStart + 1));
+		}
 		if (DisplayMode == EAssetPathDisplayMode::PackagePath)
 		{
-			const size_t AssetSeparator = ObjectPath.find('.');
 			if (AssetSeparator != std::string_view::npos)
 				return std::string(ObjectPath.substr(0, AssetSeparator));
 		}
@@ -261,6 +268,9 @@ namespace Durin::Editor::AssetPicker
 		const bool bPickerDisabled = (ImGui::GetItemFlags() & ImGuiItemFlags_Disabled) != 0;
 		const ImVec2 PickerRectMin = ImGui::GetItemRectMin();
 		const ImVec2 PickerRectMax = ImGui::GetItemRectMax();
+		if (!CurrentPath.empty() && ImGui::IsItemHovered(
+			ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled))
+			ImGui::SetTooltip("%s", CurrentPath.c_str());
 		if (bComboOpen)
 		{
 			ImGui::SetNextItemWidth(-FLT_MIN);
@@ -298,14 +308,14 @@ namespace Durin::Editor::AssetPicker
 					const FTopLevelAssetPath& Path = *Search.MatchingPaths[Index];
 					const std::string PathString = Path.ToString();
 					const bool bSelected = CurrentPath == PathString;
-					const std::string DisplayPath = Config.PathDisplayMode
-						== EAssetPathDisplayMode::PackagePath
-						? Path.GetPackagePath().ToString()
-						: PathString;
+					const std::string DisplayPath = GetAssetPathDisplayName(PathString, Config.PathDisplayMode);
 					const std::string Label = DisplayPath == PathString
 						? PathString
 						: std::format("{}##{}", DisplayPath, PathString);
-					if (!ImGui::Selectable(Label.c_str(), bSelected)) continue;
+					const bool bChosen = ImGui::Selectable(Label.c_str(), bSelected);
+					if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+						ImGui::SetTooltip("%s", PathString.c_str());
+					if (!bChosen) continue;
 					if (bPathAssignment)
 					{
 						AssignPath(PathString);

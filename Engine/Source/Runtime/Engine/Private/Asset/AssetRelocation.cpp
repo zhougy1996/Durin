@@ -677,7 +677,7 @@ namespace Durin
 					Loaded.Mapping.DestinationPath))
 				return ForwardPending("A loaded relocation destination became occupied.");
 			Loaded.Package->Rename(FName(
-				Loaded.Mapping.DestinationPath.GetAssetName()));
+				Loaded.Mapping.DestinationPath.GetPackageName()));
 			Loaded.Package->ClearDirty();
 		}
 		for (; State.FinalizedPayloadCount < State.OwnedPayloads.size();

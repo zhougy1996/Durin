@@ -29,6 +29,7 @@ namespace Durin::Editor
 	{
 		ExactAssetPath,
 		PackagePath,
+		AssetName,
 	};
 
 	// Defines an optional trailing action rendered beside the asset picker.
@@ -50,7 +51,7 @@ namespace Durin::Editor
 		const DClass* RequiredClass = nullptr;
 		EAssetClassPolicy ClassPolicy = EAssetClassPolicy::Derived;
 		EAssetAssignmentMode AssignmentMode = EAssetAssignmentMode::LoadedObject;
-		EAssetPathDisplayMode PathDisplayMode = EAssetPathDisplayMode::ExactAssetPath;
+		EAssetPathDisplayMode PathDisplayMode = EAssetPathDisplayMode::AssetName;
 		DObject* CurrentSelection = nullptr;
 		// Supplies the current asset identity when the owner stores a soft path
 		// instead of keeping the asset loaded.

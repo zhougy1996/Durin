@@ -26,7 +26,7 @@ namespace
 		Durin::FPackagePath AssetPath = MakePath(Path);
 		return {
 			.PackagePath = AssetPath,
-			.PhysicalPath = std::format("C:/fixtures/{}.dasset", AssetPath.GetAssetName()),
+			.PhysicalPath = std::format("C:/fixtures/{}.dasset", AssetPath.GetPackageName()),
 			.FileSize = Size,
 			.LastWriteTimeTicks = Ticks,
 		};

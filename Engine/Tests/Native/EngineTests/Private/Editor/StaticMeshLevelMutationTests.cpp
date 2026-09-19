@@ -40,9 +40,9 @@ namespace
 				std::format("/LevelMutationTests/Level_{}", NextId++), Path).Succeeded();
 			EXPECT_TRUE(bValidPath);
 			if (!bValidPath) return;
-			Package = Durin::NewObject<Durin::DPackage>(nullptr, Path.GetAssetName());
+			Package = Durin::NewObject<Durin::DPackage>(nullptr, Path.GetPackageName());
 			Package->InitializeAssetPackage(Path);
-			Level = Durin::NewObject<Durin::DLevel>(Package, Path.GetAssetName());
+			Level = Durin::NewObject<Durin::DLevel>(Package, Path.GetPackageName());
 			EXPECT_EQ(Package->FindTopLevelAsset(Level->GetFName()), Level);
 			Package->ClearDirty();
 		}

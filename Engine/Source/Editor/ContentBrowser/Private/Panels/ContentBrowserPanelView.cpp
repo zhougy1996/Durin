@@ -1158,7 +1158,7 @@ namespace Durin::Editor::ContentBrowser::Private
 				}
 				if (!Destination.ends_with('/')) Destination += '/';
 				FPackagePath NewPath;
-				if (FPackagePath::TryCreate(Destination + std::string(OldPath.GetAssetName()), NewPath) && NewPath != OldPath)
+				if (FPackagePath::TryCreate(Destination + std::string(OldPath.GetPackageName()), NewPath) && NewPath != OldPath)
 				{
 					const FEditorAssetMove Move{OldPath, NewPath};
 					QueueContentAction([this, Move] {

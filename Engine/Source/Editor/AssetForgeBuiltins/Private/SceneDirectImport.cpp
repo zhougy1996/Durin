@@ -205,7 +205,7 @@ namespace Durin::AssetForge::Builtins
 			std::string& OutError) -> bool
 		{
 			OutAsset = nullptr;
-			DPackage* Package = NewObject<DPackage>(nullptr, FName(AssetPath.GetAssetName()), EObjectFlags::Standalone);
+			DPackage* Package = NewObject<DPackage>(nullptr, FName(AssetPath.GetPackagePath().GetPackageName()), EObjectFlags::Standalone);
 			if (!Package || !Package->InitializePreparedAssetPackage(AssetPath.GetPackagePath()))
 			{
 				OutError = "The scene candidate package could not be created.";

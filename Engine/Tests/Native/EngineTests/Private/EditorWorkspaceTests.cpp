@@ -827,8 +827,8 @@ TEST(FAssetPickerTests, AppliesExactAndDerivedClassPolicies)
 TEST(FAssetPickerTests, UsesSoftPathForUnloadedCurrentSelection)
 {
 	EXPECT_EQ(
-		Durin::Editor::AssetPicker::GetAssetPathOrNone(nullptr, "/Game/Levels/Default", "None"),
-		"/Game/Levels/Default"
+		Durin::Editor::AssetPicker::GetAssetPathOrNone(nullptr, "/Game/Levels/Default.MainLevel", "None"),
+		"/Game/Levels/Default.MainLevel"
 	);
 	EXPECT_EQ(Durin::Editor::AssetPicker::GetAssetPathOrNone(nullptr, {}, "None"), "None");
 }
@@ -845,6 +845,45 @@ TEST(FAssetPickerTests, CanPresentExactSelectionsAsPackagePaths)
 			"/Game/Levels/GrayboxStage15.GrayboxStage15",
 			Durin::Editor::EAssetPathDisplayMode::ExactAssetPath),
 		"/Game/Levels/GrayboxStage15.GrayboxStage15");
+}
+
+TEST(FAssetPickerTests, DisplaysAssetNamesIndependentlyOfPackageNames)
+{
+	using namespace Durin::Editor;
+	EXPECT_EQ(FAssetPickerConfig{}.PathDisplayMode, EAssetPathDisplayMode::AssetName);
+	EXPECT_EQ(AssetPicker::GetAssetPathDisplayName(
+		"/Game/Props/Furniture.Chair", EAssetPathDisplayMode::AssetName), "Chair");
+	EXPECT_EQ(AssetPicker::GetAssetPathDisplayName(
+		"/Game/Props/Furniture.Table", EAssetPathDisplayMode::AssetName), "Table");
+	EXPECT_EQ(AssetPicker::GetAssetPathDisplayName(
+		"/Game/Props/Furniture.Chair", EAssetPathDisplayMode::PackagePath), "/Game/Props/Furniture");
+	EXPECT_EQ(AssetPicker::GetAssetPathDisplayName(
+		"/Game/Props/Furniture.Chair", EAssetPathDisplayMode::ExactAssetPath), "/Game/Props/Furniture.Chair");
+	EXPECT_TRUE(AssetPicker::GetAssetPathDisplayName({}, EAssetPathDisplayMode::AssetName).empty());
+}
+
+TEST(FAssetPickerTests, KeepsLoadedAssetsInTheSamePackageDistinct)
+{
+	using namespace Durin;
+	Testing::InitializeDObjectSystemForTests();
+	Testing::FScopedMountRegistryFixture MountFixture;
+	Testing::RegisterMountPointForTests(
+		"/AssetPickerTests/", Testing::GetTestWorkDirectory().generic_string() + "/");
+	FPackagePath PackagePath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/AssetPickerTests/Furniture", PackagePath));
+	DPackage* Package = NewObject<DPackage>(nullptr, "Furniture");
+	ASSERT_NE(Package, nullptr);
+	Package->InitializeAssetPackage(PackagePath);
+	DObject* Chair = NewObject<DObject>(Package, "Chair");
+	DObject* Table = NewObject<DObject>(Package, "Table");
+	ASSERT_NE(Chair, nullptr);
+	ASSERT_NE(Table, nullptr);
+	EXPECT_EQ(Editor::AssetPicker::GetAssetPathOrNone(Chair), "/AssetPickerTests/Furniture.Chair");
+	EXPECT_EQ(Editor::AssetPicker::GetAssetPathOrNone(Table), "/AssetPickerTests/Furniture.Table");
+	EXPECT_EQ(Editor::AssetPicker::GetAssetPathOrNone(Chair, {}, "None"), Chair->GetObjectPath());
+	EXPECT_EQ(Editor::AssetPicker::GetAssetPathOrNone(nullptr), "None");
+	MarkObjectHierarchyAsGarbage(Package);
+	CollectGarbage();
 }
 
 TEST(FAssetPickerTests, FiltersCandidatesByPathPrefix)

@@ -1279,7 +1279,7 @@ namespace Durin::AssetPrivate
 				auto& State = Candidates[Index].State;
 				State = std::make_unique<FPreparedPackageGraph::FState>();
 				State->Storage = Sources[Index].Storage;
-				State->Package = NewObject<DPackage>(nullptr, FName(CurrentPath.GetAssetName()));
+				State->Package = NewObject<DPackage>(nullptr, FName(CurrentPath.GetPackageName()));
 				if (!State->Package || !State->Package->InitializePreparedAssetPackage(CurrentPath))
 					return {.Status = S::InvalidClosure, .PackagePath = CurrentPath, .Reason = R::PackageConstruction};
 				State->Pins.emplace_back(State->Package);
@@ -1425,7 +1425,7 @@ namespace Durin::AssetPrivate
 
 		DPackage* Package = NewObject<DPackage>(
 			nullptr,
-			FName(PackagePath.GetAssetName()),
+			FName(PackagePath.GetPackageName()),
 			EObjectFlags::Standalone);
 		if (!Package)
 		{

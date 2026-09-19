@@ -9,6 +9,7 @@ namespace Durin
 	inline constexpr size_t MaximumObjectPathComponentBytes = 1024;
 	inline constexpr size_t MaximumObjectPathBytes = 1024 * 1024;
 
+	// Identifies a package, including its leaf name (for example /Game/Props/Furniture).
 	class FPackagePath
 	{
 	public:
@@ -20,7 +21,6 @@ namespace Durin
 		COREDOBJECT_API auto ToString() const -> std::string;
 		COREDOBJECT_API auto GetView() const -> std::string_view;
 		auto GetPackageName() const -> std::string_view { const auto View = GetView(); const size_t Slash = View.find_last_of('/'); return Slash == std::string_view::npos ? View : View.substr(Slash + 1); }
-		auto GetAssetName() const -> std::string_view { return GetPackageName(); }
 		auto operator==(const FPackagePath&) const -> bool = default;
 		COREDOBJECT_API auto operator<=>(const FPackagePath& Other) const -> std::strong_ordering;
 	private:
@@ -29,6 +29,7 @@ namespace Durin
 		friend struct std::hash<FPackagePath>;
 	};
 
+	// Identifies one asset within a package (for example /Game/Props/Furniture.Chair).
 	class FTopLevelAssetPath
 	{
 	public:

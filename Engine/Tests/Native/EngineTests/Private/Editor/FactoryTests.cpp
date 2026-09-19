@@ -710,7 +710,7 @@ TEST(DFactoryTests, AssetToolsSaveAndDuplicatePublishStructuredCompletionOnce)
 				SourcePath),
 			.DestinationDirectory = "/AssetToolsTests/",
 			.ResolvePhysicalPackagePath = [&Root](const Durin::FPackagePath& Path) {
-				return (Root / (std::string(Path.GetAssetName()) + ".dasset"))
+				return (Root / (std::string(Path.GetPackageName()) + ".dasset"))
 					.generic_string();
 			},
 			.Publish = [&DuplicateNotifications](
@@ -805,7 +805,7 @@ TEST(DFactoryTests, DuplicateSaveFailureDiscardsOnlyDisposableDestination)
 				SourcePath),
 			.DestinationDirectory = "/AssetToolsDuplicateSaveFailure/",
 			.ResolvePhysicalPackagePath = [&InvalidRoot](const Durin::FPackagePath& Path) {
-				return (InvalidRoot / (std::string(Path.GetAssetName()) + ".dasset"))
+				return (InvalidRoot / (std::string(Path.GetPackageName()) + ".dasset"))
 					.generic_string();
 			},
 			.Publish = [&Notifications](const Durin::FAssetOperationNotification&) {

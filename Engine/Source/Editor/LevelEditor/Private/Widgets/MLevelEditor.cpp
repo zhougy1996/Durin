@@ -629,7 +629,6 @@ namespace Durin::Editor::Level
 					.RequiredClass = DLevel::StaticClass(),
 					.ClassPolicy = ::Durin::Editor::EAssetClassPolicy::Exact,
 					.AssignmentMode = ::Durin::Editor::EAssetAssignmentMode::AssetPath,
-					.PathDisplayMode = ::Durin::Editor::EAssetPathDisplayMode::PackagePath,
 					.CurrentSelectionPath =
 						PendingDefaultLevel.GetPath().ToString(),
 					.SearchText = LevelSearchText,

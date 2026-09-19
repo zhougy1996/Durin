@@ -1877,7 +1877,7 @@ TEST(FPackageAssetTests, RemovedAuthoredFieldsDoNotLoadDependenciesOrRewriteSour
 	FAssetLoadReport Report;
 	const auto Result = LoadPackage(Path, Loaded, &Report);
 	ASSERT_TRUE(Result) << Result.Message;
-	auto* Asset = Cast<DPackageAssetForTest>(Loaded->FindTopLevelAsset(FName(Path.GetAssetName())));
+	auto* Asset = Cast<DPackageAssetForTest>(Loaded->FindTopLevelAsset(FName(Path.GetPackageName())));
 	ASSERT_NE(Asset, nullptr);
 	EXPECT_EQ(Asset->Value, 0);
 	EXPECT_EQ(Asset->Label, "preserved");
@@ -1924,7 +1924,7 @@ TEST(FPackageAssetTests, RemovedNestedFieldsInStructArraysAreOmittedFromAuthored
 	FAssetLoadReport Report;
 	const auto Result = LoadPackage(Path, Loaded, &Report);
 	ASSERT_TRUE(Result) << Result.Message;
-	auto* Asset = Cast<DContainerMigrationAssetForTest>(Loaded->FindTopLevelAsset(FName(Path.GetAssetName())));
+	auto* Asset = Cast<DContainerMigrationAssetForTest>(Loaded->FindTopLevelAsset(FName(Path.GetPackageName())));
 	ASSERT_NE(Asset, nullptr);
 	ASSERT_EQ(Asset->Values.size(), 2u);
 	EXPECT_EQ(Asset->Values[0].Value, 0.0f);
@@ -2003,7 +2003,7 @@ TEST(FPackageAssetTests, HistoricalRoutesStillConvertAndRejectIncompatibleStored
 			continue;
 		}
 		ASSERT_TRUE(Result) << Result.Message;
-		auto* Asset = Cast<DSchemaMigrationAssetForTest>(Loaded->FindTopLevelAsset(FName(Path.GetAssetName())));
+		auto* Asset = Cast<DSchemaMigrationAssetForTest>(Loaded->FindTopLevelAsset(FName(Path.GetPackageName())));
 		ASSERT_NE(Asset, nullptr);
 		EXPECT_EQ(Asset->Anchor, 19);
 		EXPECT_EQ(Asset->Merged, 7);
@@ -2342,7 +2342,7 @@ TEST(FPackageAssetTests, ExplicitLoadScopeNeverClaimsPublishedReplacementWhileOl
 	DPackage* Previous = nullptr;
 	ASSERT_TRUE(Scope.LoadPackage(Path, Previous));
 	const TWeakObjectPtr<DPackage> WeakPrevious(Previous);
-	DPackage* Candidate = NewObject<DPackage>(nullptr, FName(Path.GetAssetName()));
+	DPackage* Candidate = NewObject<DPackage>(nullptr, FName(Path.GetPackageName()));
 	ASSERT_TRUE(Candidate->InitializePreparedAssetPackage(Path));
 	ASSERT_NE(NewObject<DObject>(Candidate, Previous->GetTopLevelAssets()[0]->GetFName(), EObjectFlags::Public), nullptr);
 	FObjectGraphReplacement Replacement;
@@ -3163,7 +3163,7 @@ TEST(FPackageAssetTests, PackageLoadBindingsResolvePrivateObjectsWithoutLiveFall
 	ASSERT_TRUE(SavePackage(Live->GetPackage()));
 	Live->GetPackage()->MarkDirty();
 	const auto Revision = Live->GetPackage()->GetEditRevision();
-	DPackage* Private = NewObject<DPackage>(nullptr, FName(Path.GetAssetName()));
+	DPackage* Private = NewObject<DPackage>(nullptr, FName(Path.GetPackageName()));
 	ASSERT_TRUE(Private->InitializePreparedAssetPackage(Path));
 	auto* Candidate = NewObject<DAuthoredArchiveAssetForTest>(Private, Live->GetFName());
 	const auto PathToResolve = Testing::MakePackageLeafAssetObjectPathForTests(Path);
@@ -3445,7 +3445,7 @@ TEST(FPackageAssetTests, PackageLoadBindingsAttachSnapshotWithoutUsingLiveBulkRe
 	Payload.Write(Storage.SegmentOffset);
 	FAuthoredPackageFieldRecord Field{StoredField->DeclaringClass, StoredField->Name,
 		StoredField->Kind, StoredField->TypeSignature, std::move(Payload.Bytes)};
-	DPackage* Private = NewObject<DPackage>(nullptr, FName(Path.GetAssetName()));
+	DPackage* Private = NewObject<DPackage>(nullptr, FName(Path.GetPackageName()));
 	ASSERT_TRUE(Private->InitializePreparedAssetPackage(Path));
 	auto* Candidate = NewObject<DBulkPackageAssetForTest>(Private, Live->GetFName());
 	DObject* Objects[] = {Candidate};
