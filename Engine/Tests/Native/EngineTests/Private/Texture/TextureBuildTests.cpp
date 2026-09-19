@@ -2317,9 +2317,11 @@ TEST(FTexture2DTests, AsyncBuildSettingCancellationAndSupersessionPreserveTransa
 	EXPECT_FALSE(Transactions->CanUndo());
 	EXPECT_TRUE(Transactions->CanRedo());
 	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::Color);
-	EXPECT_TRUE(Texture->GetPackage()->IsDirty());
+	// Undo returns to the saved revision; Redo reapplies the authored change.
+	EXPECT_FALSE(Texture->GetPackage()->IsDirty());
 	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::DataMask);
+	EXPECT_TRUE(Texture->GetPackage()->IsDirty());
 
 	Transactions->Reset();
 	Durin::FPackagePath AssetPath;

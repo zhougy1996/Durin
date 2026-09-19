@@ -584,6 +584,13 @@ TEST(FStaticMeshThumbnailRendererTests,
 	Cache.EndFrame();
 	EXPECT_EQ(
 		Cache.Find("/ThumbnailFixtures/Meshes/SM_NewIdentity").State,
+		Durin::Editor::EAssetThumbnailState::Queued);
+	// The editor advances the shared asset pool, independently of panel frames.
+	auto& SharedPool = Durin::Editor::GetDefaultThumbnailManager().GetSharedPool();
+	SharedPool.BeginFrame();
+	SharedPool.EndFrame();
+	EXPECT_EQ(
+		Cache.Find("/ThumbnailFixtures/Meshes/SM_NewIdentity").State,
 		Durin::Editor::EAssetThumbnailState::Invalid);
 	Cache.BeginFrame();
 	Cache.Request({
