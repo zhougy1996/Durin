@@ -63,7 +63,13 @@ Ordinary `FPackagePath::TryCreate` remains mount-bound. Cook staging may use the
 explicit `TryCreateProjectContent` factory for a canonical `/Game/...` target
 before the fixed output mount exists; that exception admits no other namespace.
 
-Path factories and soft-reference assignment return `FObjectOperationResult`.
+Path factories `TryCreate` and `TryCreateProjectContent` return `bool`.
+Use `TryCreateWithDiagnostic` at input boundaries that need to report failure
+details. Deferred project-content and subobject-composition factories expose only
+success; they have no diagnostic consumer. `FPackagePath::IsValid(text)` is a
+boolean predicate. Both factory forms share validation and preserve
+the output on failure. Diagnostic factories and soft-reference
+assignment return `FObjectOperationResult`.
 Its `FObjectError` discriminates path and soft-object error codes; success is an
 absent code. Failures own their subject and expected/actual identities, retain
 component indices and byte limits where relevant, and preserve `EMountPathError`

@@ -274,7 +274,7 @@ namespace Durin
 					Relative.replace_extension();
 					FPackagePath PackagePath;
 					std::string PathError;
-					if (const auto PathValidation = FPackagePath::TryCreate(Mount.VirtualRoot + Relative.generic_string(),
+					if (const auto PathValidation = FPackagePath::TryCreateWithDiagnostic(Mount.VirtualRoot + Relative.generic_string(),
 						PackagePath); !PathValidation)
 					{
 						PathError = FormatObjectError(PathValidation.Error);

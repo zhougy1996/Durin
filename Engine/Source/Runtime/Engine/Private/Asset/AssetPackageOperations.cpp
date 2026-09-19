@@ -25,7 +25,6 @@
 
 #include "CoreGlobals.h"
 #include "DObject/Class.h"
-#include "DObject/DObjectArray.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/ObjectLifecycle.h"
@@ -124,57 +123,6 @@ namespace Durin
 		}
 		constexpr uint32 MaximumRedirectDepth = 32;
 		constexpr std::string_view RedirectorClassName = "Durin::DAssetRedirector";
-
-		struct FFileByteReader
-		{
-			std::ifstream Stream;
-			uint64 FileSize = 0;
-			uint64 Offset = 0;
-
-			explicit FFileByteReader(std::string_view Path)
-				: Stream(std::string(Path), std::ios::binary)
-			{
-				if (!Stream) return;
-				Stream.seekg(0, std::ios::end);
-				const std::streamoff Size = Stream.tellg();
-				if (Size < 0) { Stream.setstate(std::ios::failbit); return; }
-				FileSize = static_cast<uint64>(Size);
-				Stream.seekg(0, std::ios::beg);
-			}
-
-			auto IsOpen() const -> bool { return Stream.is_open() && !Stream.fail(); }
-
-			auto Reset() -> bool
-			{
-				Stream.clear();
-				Stream.seekg(0, std::ios::beg);
-				Offset = 0;
-				return !Stream.fail();
-			}
-
-			template<typename T> auto Read(T& Value) -> bool
-			{
-				if (sizeof(T) > FileSize - std::min(Offset, FileSize)) return false;
-				Stream.read(reinterpret_cast<char*>(&Value), sizeof(T));
-				if (!Stream) return false;
-				Offset += sizeof(T);
-				return true;
-			}
-
-			auto ReadString(std::string& Value, uint64 MaximumSize = Durin::PackagePrivate::MaximumPackageStringBytes) -> bool
-			{
-				uint64 Size = 0;
-				if (!Read(Size) || Size > MaximumSize || Size > FileSize - std::min(Offset, FileSize)) return false;
-				Value.resize(static_cast<size_t>(Size));
-				if (Size != 0)
-				{
-					Stream.read(Value.data(), static_cast<std::streamsize>(Size));
-					if (!Stream) return false;
-				}
-				Offset += Size;
-				return true;
-			}
-		};
 
 		struct FPackageFile
 		{
@@ -313,13 +261,6 @@ namespace Durin
 			return Resolved ? Resolved.PhysicalPath.generic_string() + ".dasset" : std::string{};
 		}
 
-		auto GatherObjects(DObject* Object, std::vector<DObject*>& OutObjects) -> void
-		{
-			if (!Object) return;
-			OutObjects.push_back(Object);
-			for (DObject* Inner : GDObjectArray.GetObjectsWithOuter(Object, EObjectQueryScope::LiveOnly)) GatherObjects(Inner, OutObjects);
-		}
-
 		auto DecodeByteToolValue(
 			FProperty* Property,
 			void* Container,
@@ -402,7 +343,7 @@ namespace Durin
 				if (!Reader.ReadString(PathString, Durin::PackagePrivate::MaximumPackageStringBytes) || PathString.empty())
 					return Error(EAssetError::CorruptFile, "Truncated or overlong soft object path.");
 				FObjectPath Path;
-				if (const auto PathValidation = FObjectPath::TryCreate(PathString, Path); !PathValidation)
+				if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(PathString, Path); !PathValidation)
 				{
 					return Error(EAssetError::InvalidPath, FormatObjectError(PathValidation.Error));
 				}
@@ -628,18 +569,6 @@ namespace Durin
 			default:
 				return Error(EAssetError::UnsupportedProperty, "Unsupported property kind.");
 			}
-		}
-
-		auto FindExistingInner(DObject* Outer, std::string_view Name, DClass* Class, bool& bTypeMismatch) -> DObject*
-		{
-			for (DObject* Inner : GDObjectArray.GetObjectsWithOuter(Outer, EObjectQueryScope::LiveOnly))
-			{
-				if (Inner->GetName() != Name) continue;
-				if (Inner->GetClass() == Class) return Inner;
-				bTypeMismatch = true;
-				return nullptr;
-			}
-			return nullptr;
 		}
 
 		auto BuildPackageBytes(

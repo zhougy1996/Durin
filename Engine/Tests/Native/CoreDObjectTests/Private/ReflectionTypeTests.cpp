@@ -4780,6 +4780,47 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_EQ(ReturnedWeak.Get(), nullptr);
 	}
 
+	TEST(FCoreDObjectReflectionTests, BooleanPathFactoriesPreserveOutputOnFailure)
+	{
+		using namespace Durin;
+		EnsureDObjectInitialized();
+		EnsurePackageTestMount();
+		FPackagePath Package;
+		static_assert(std::is_same_v<decltype(FPackagePath::TryCreate("", Package)), bool>);
+		static_assert(std::is_same_v<decltype(FPackagePath::IsValid("")), bool>);
+		ASSERT_TRUE(FPackagePath::TryCreate("/CoreTests/BooleanPath", Package));
+		const auto OriginalPackage = Package;
+		EXPECT_TRUE(FPackagePath::IsValid(Package.GetView()));
+		EXPECT_FALSE(FPackagePath::IsValid("relative"));
+		EXPECT_FALSE(FPackagePath::IsValid("/__UnregisteredDiagnosticMount/Asset"));
+		EXPECT_FALSE(FPackagePath::TryCreate("relative", Package));
+		EXPECT_EQ(Package, OriginalPackage);
+		EXPECT_FALSE(FPackagePath::TryCreateProjectContent("/CoreTests/Asset", Package));
+		EXPECT_EQ(Package, OriginalPackage);
+		EXPECT_TRUE(FPackagePath::TryCreateProjectContent("/Game/DeferredBooleanPath", Package));
+
+		FTopLevelAssetPath Asset;
+		static_assert(std::is_same_v<decltype(FTopLevelAssetPath::TryCreate("", Asset)), bool>);
+		ASSERT_TRUE(FTopLevelAssetPath::TryCreate(OriginalPackage, "Asset", Asset));
+		const auto OriginalAsset = Asset;
+		EXPECT_FALSE(FTopLevelAssetPath::TryCreate(OriginalPackage, "Bad.Name", Asset));
+		EXPECT_FALSE(FTopLevelAssetPath::TryCreate("/CoreTests/BooleanPath", Asset));
+		EXPECT_EQ(Asset, OriginalAsset);
+
+		FObjectPath Object;
+		static_assert(std::is_same_v<decltype(FObjectPath::TryCreate("", Object)), bool>);
+		ASSERT_TRUE(FObjectPath::TryCreate("/CoreTests/BooleanPath.Asset:Child", Object));
+		const auto OriginalObject = Object;
+		EXPECT_FALSE(FObjectPath::TryCreate("/CoreTests/BooleanPath.Asset:Child..Leaf", Object));
+		EXPECT_EQ(Object, OriginalObject);
+		const std::vector<std::string> InvalidNames{"Bad.Name"};
+		EXPECT_FALSE(FObjectPath::TryCreate(Asset, InvalidNames, Object));
+		EXPECT_EQ(Object, OriginalObject);
+		FObjectPath FromView;
+		ASSERT_TRUE(FObjectPath::TryCreate(Asset, OriginalObject.GetSubobjectNames(), FromView));
+		EXPECT_EQ(FromView, OriginalObject);
+	}
+
 	TEST(FCoreDObjectReflectionTests, PathErrorsPreserveCodesContextAndOutput)
 	{
 		using namespace Durin;
@@ -4788,18 +4829,15 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		FPackagePath Package;
 		ASSERT_TRUE(FPackagePath::TryCreate("/CoreTests/PathDiagnostic", Package));
 		const auto OriginalPackage = Package;
-		const auto Relative = FPackagePath::TryCreate("relative", Package);
+		const auto Relative = FPackagePath::TryCreateWithDiagnostic("relative", Package);
 		EXPECT_EQ(std::get<EObjectPathError>(Relative.Error.Code), EObjectPathError::NotAbsolute);
 		EXPECT_EQ(Relative.Error.Subject, "relative");
 		EXPECT_EQ(Package, OriginalPackage);
-		const auto UnknownMount = FPackagePath::TryCreate("/__UnregisteredDiagnosticMount/Asset", Package);
+		const auto UnknownMount = FPackagePath::TryCreateWithDiagnostic("/__UnregisteredDiagnosticMount/Asset", Package);
 		EXPECT_EQ(std::get<EObjectPathError>(UnknownMount.Error.Code), EObjectPathError::MountLookupFailed);
 		EXPECT_EQ(UnknownMount.Error.MountError, EMountPathError::UnknownMount);
 		EXPECT_EQ(Package, OriginalPackage);
-		const auto Deferred = FPackagePath::TryCreateProjectContent("/CoreTests/Asset", Package);
-		EXPECT_EQ(std::get<EObjectPathError>(Deferred.Error.Code), EObjectPathError::WrongDeferredMount);
-		EXPECT_EQ(Package, OriginalPackage);
-		const auto EmptySegment = FPackagePath::TryCreate("/CoreTests//Asset", Package);
+		const auto EmptySegment = FPackagePath::TryCreateWithDiagnostic("/CoreTests//Asset", Package);
 		EXPECT_EQ(std::get<EObjectPathError>(EmptySegment.Error.Code), EObjectPathError::EmptyComponent);
 		EXPECT_EQ(EmptySegment.Error.Part, EObjectPathPart::PackageSegment);
 		EXPECT_EQ(EmptySegment.Error.ComponentIndex, 1u);
@@ -4808,7 +4846,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		ASSERT_TRUE(FTopLevelAssetPath::TryCreate(Package, "PathDiagnostic", Asset));
 		const auto OriginalAsset = Asset;
 		const std::string LongName(FName::MaxSize, 'x');
-		const auto TooLong = FTopLevelAssetPath::TryCreate(Package, LongName, Asset);
+		const auto TooLong = FTopLevelAssetPath::TryCreateWithDiagnostic(Package, LongName, Asset);
 		EXPECT_EQ(std::get<EObjectPathError>(TooLong.Error.Code), EObjectPathError::ComponentTooLong);
 		EXPECT_EQ(TooLong.Error.Part, EObjectPathPart::AssetName);
 		EXPECT_EQ(TooLong.Error.ActualBytes, LongName.size());
@@ -4818,18 +4856,18 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		FObjectPath Object;
 		ASSERT_TRUE(FObjectPath::TryCreate("/CoreTests/PathDiagnostic.PathDiagnostic:Child", Object));
 		const auto OriginalObject = Object;
-		const auto EmptyChild = FObjectPath::TryCreate("/CoreTests/PathDiagnostic.PathDiagnostic:Child..Leaf", Object);
+		const auto EmptyChild = FObjectPath::TryCreateWithDiagnostic("/CoreTests/PathDiagnostic.PathDiagnostic:Child..Leaf", Object);
 		EXPECT_EQ(std::get<EObjectPathError>(EmptyChild.Error.Code), EObjectPathError::EmptySubobject);
 		EXPECT_EQ(Object, OriginalObject);
-		std::vector<std::string> Names{"Child", "Bad/Leaf"};
-		const auto InvalidChild = FObjectPath::TryCreate(Asset, std::span<const std::string>(Names), Object);
+		std::string InvalidPath = Asset.ToString() + ":Child.Bad/Leaf";
+		const auto InvalidChild = FObjectPath::TryCreateWithDiagnostic(InvalidPath, Object);
 		EXPECT_EQ(std::get<EObjectPathError>(InvalidChild.Error.Code), EObjectPathError::ReservedSeparator);
 		EXPECT_EQ(InvalidChild.Error.ComponentIndex, 1u);
 		EXPECT_EQ(InvalidChild.Error.Subject, "Bad/Leaf");
-		Names[1] = "Changed";
+		InvalidPath = "Changed";
 		EXPECT_EQ(InvalidChild.Error.Subject, "Bad/Leaf");
 		EXPECT_EQ(Object, OriginalObject);
-		const auto InvalidUtf8 = FTopLevelAssetPath::TryCreate(Package, std::string(1, char(0xff)), Asset);
+		const auto InvalidUtf8 = FTopLevelAssetPath::TryCreateWithDiagnostic(Package, std::string(1, char(0xff)), Asset);
 		EXPECT_EQ(std::get<EObjectPathError>(InvalidUtf8.Error.Code), EObjectPathError::InvalidUtf8);
 		EXPECT_EQ(Asset, OriginalAsset);
 		ASSERT_TRUE(FObjectPath::TryCreate(Asset, OriginalObject.GetSubobjectNames(), Object));
@@ -4841,7 +4879,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		using namespace Durin;
 		EXPECT_TRUE(FormatObjectError({}).empty());
 		FPackagePath Package;
-		const auto Result = FPackagePath::TryCreate("relative", Package);
+		const auto Result = FPackagePath::TryCreateWithDiagnostic("relative", Package);
 		EXPECT_EQ(FormatObjectError(Result.Error), "Package path must be absolute.");
 	}
 

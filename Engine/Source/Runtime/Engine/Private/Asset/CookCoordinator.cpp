@@ -140,7 +140,7 @@ namespace Durin
 			const FTopLevelAssetPath& AssetPath, FObjectPath& OutPath) -> bool
 		{
 			return FObjectPath::TryCreate(
-				AssetPath, std::span<const std::string>{}, OutPath).Succeeded();
+				AssetPath, std::span<const std::string>{}, OutPath);
 		}
 
 	} // namespace
@@ -450,7 +450,7 @@ namespace Durin
 			if (!Settings.DefaultLevel.empty())
 			{
 				FPackagePath DefaultLevel;
-				if (const auto PathValidation = FPackagePath::TryCreate(Settings.DefaultLevel, DefaultLevel); !PathValidation)
+				if (const auto PathValidation = FPackagePath::TryCreateWithDiagnostic(Settings.DefaultLevel, DefaultLevel); !PathValidation)
 				{
 					OutResult.AssetIdentity = Settings.DefaultLevel;
 					OutResult.DefaultLevelCause = std::make_shared<FObjectError>(PathValidation.Error);

@@ -250,7 +250,7 @@ namespace Durin::Editor::Level
 		{
 			FPackagePath PackagePath;
 			std::string PathError;
-			if (const auto PathValidation = FPackagePath::TryCreate(
+			if (const auto PathValidation = FPackagePath::TryCreateWithDiagnostic(
 					Settings.DefaultLevel, PackagePath); !PathValidation)
 			{
 				PathError = FormatObjectError(PathValidation.Error);
@@ -642,7 +642,7 @@ namespace Durin::Editor::Level
 							return true;
 						}
 						FTopLevelAssetPath AssetPath;
-						if (const auto PathValidation = FTopLevelAssetPath::TryCreate(
+						if (const auto PathValidation = FTopLevelAssetPath::TryCreateWithDiagnostic(
 								SelectionPath, AssetPath); !PathValidation)
 						{
 							OutError = FormatObjectError(PathValidation.Error);

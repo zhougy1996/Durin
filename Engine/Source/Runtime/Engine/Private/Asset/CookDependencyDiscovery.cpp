@@ -457,7 +457,7 @@ namespace Durin::AssetPrivate
 								FPackagePath Dependency, Final;
 								if (!Declaration.FilePath.empty() || !Declaration.Value.empty())
 									return Fail(Reject(ECookInputError::PackageDeclaration));
-								if (const auto Validated = FPackagePath::TryCreate(Declaration.LogicalName, Dependency); !Validated)
+								if (const auto Validated = FPackagePath::TryCreateWithDiagnostic(Declaration.LogicalName, Dependency); !Validated)
 								{
 									auto Cause = Reject(ECookInputError::PackageDeclaration);
 									Cause.PathCause = std::make_shared<FObjectError>(Validated.Error);

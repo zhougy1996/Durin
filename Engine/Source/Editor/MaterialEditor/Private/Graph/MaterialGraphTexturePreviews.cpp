@@ -80,11 +80,8 @@ namespace Durin::Editor::Material
 			{
 				const auto& Asset = *static_cast<const FAssetDragDropPayload*>(Payload->Data);
 				FObjectPath Path;
-				std::string Error;
 				DTexture2D* Texture = nullptr;
-				const auto PathValidation = FObjectPath::TryCreate(Asset.AssetPath.data(), Path);
-				if (!PathValidation) Error = FormatObjectError(PathValidation.Error);
-				if (PathValidation && LoadObject(Path, Texture) && Texture)
+				if (FObjectPath::TryCreate(Asset.AssetPath.data(), Path) && LoadObject(Path, Texture) && Texture)
 				{
 					GraphEditInternals::FGraphEditSession State(Material);
 					{
@@ -111,7 +108,7 @@ namespace Durin::Editor::Material
 						else SelectedNodes = {Id};
 					}
 				}
-				else ReportError(Error.empty() ? "Drop a Texture2D asset to create a sample parameter." : Error);
+				else ReportError("Drop a Texture2D asset to create a sample parameter.");
 			}
 		ImGui::EndDragDropTarget();
 	}

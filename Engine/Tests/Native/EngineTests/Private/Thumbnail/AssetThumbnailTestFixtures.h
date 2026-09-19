@@ -293,7 +293,7 @@ namespace Durin::Tests
 
 	inline auto MakeThumbnailFixturePath(std::string_view Value, FPackagePath& OutPath) -> bool
 	{
-		return FPackagePath::TryCreate(Value, OutPath).Succeeded();
+		return FPackagePath::TryCreate(Value, OutPath);
 	}
 
 	inline auto GetAssetThumbnailFixtureRoot() -> std::filesystem::path

@@ -94,7 +94,7 @@ namespace Durin::Editor::StaticMesh
 
 		FObjectPath AssetPath;
 		std::string PathError;
-		if (const auto PathValidation = FObjectPath::TryCreate(Document.ResourceId, AssetPath); !PathValidation)
+		if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(Document.ResourceId, AssetPath); !PathValidation)
 		{
 			PathError = Durin::FormatObjectError(PathValidation.Error);
 			ErrorMessage = std::move(PathError);

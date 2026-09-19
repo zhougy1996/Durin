@@ -394,7 +394,7 @@ namespace Durin
 		for (DPackage* Package : Packages)
 		{
 			FPackagePath Path;
-			if (const auto Validation = FPackagePath::TryCreate(Package->GetPackagePath(), Path); !Validation)
+			if (const auto Validation = FPackagePath::TryCreateWithDiagnostic(Package->GetPackagePath(), Path); !Validation)
 				return Finish(MakeResult(Status::Failed, Failure::Unsupported, Stage::Preflight, {},
 					Reason::InvalidIdentity, {.Message = FormatObjectError(Validation.Error)}));
 			if (Package->IsNewlyCreated())

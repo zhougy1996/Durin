@@ -23,8 +23,7 @@ namespace Durin::Editor::Material
 			bool bIdentical = true;
 			Before->GetClass()->ForEachProperty([&](FProperty* Property) {
 				for (uint32 Element = 0; bIdentical && Element < Property->GetArrayDim(); ++Element)
-					bIdentical = ComparePropertyValues(Property, Before, Element, After, Element)
-						== EPropertyIdentityResult::Identical;
+					bIdentical = ArePropertyValuesIdentical(Property, Before, Element, After, Element);
 			});
 			if (!bIdentical) return false;
 		}
@@ -90,7 +89,7 @@ namespace Durin::Editor::Material
 			Error = Mount.Message;
 			return false;
 		}
-		if (const auto PathValidation = FPackagePath::TryCreate(std::format("{}__MaterialEditorPreview/{}",
+		if (const auto PathValidation = FPackagePath::TryCreateWithDiagnostic(std::format("{}__MaterialEditorPreview/{}",
 			Mount.Mount->VirtualRoot, FGuid::NewGuid().ToString()), Path); !PathValidation) { Error = FormatObjectError(PathValidation.Error); return false; }
 		WorkingPackage = NewObject<DPackage>(DPackage::StaticClass(), nullptr,
 			NAME_None, EObjectFlags::Transient);

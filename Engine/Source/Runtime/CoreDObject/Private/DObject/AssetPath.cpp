@@ -72,21 +72,21 @@ namespace Durin
 		}
 	}
 
-	auto FPackagePath::TryCreate(std::string_view InPath, FPackagePath& OutPath) -> FObjectOperationResult
+	auto FPackagePath::TryCreateWithDiagnostic(std::string_view InPath, FPackagePath& OutPath) -> FObjectOperationResult
 	{
-		if (auto Result = IsValid(InPath); !Result) return Result;
+		if (auto Result = Validate(InPath); !Result) return Result;
 		OutPath = FPackagePath(FName(InPath, -1));
 		return {};
 	}
-	auto FPackagePath::TryCreateProjectContent(std::string_view InPath, FPackagePath& OutPath) -> FObjectOperationResult
+	auto FPackagePath::TryCreateProjectContent(std::string_view InPath, FPackagePath& OutPath) -> bool
 	{
-		if (auto Result = ValidatePackageSyntax(InPath); !Result) return Result;
+		if (auto Result = ValidatePackageSyntax(InPath); !Result) return false;
 		if (!InPath.starts_with(FMountPaths::ProjectContentMountRoot))
-			return FailPath(EObjectPathError::WrongDeferredMount, EObjectPathPart::Package, InPath);
+			return false;
 		OutPath = FPackagePath(FName(InPath, -1));
-		return {};
+		return true;
 	}
-	auto FPackagePath::IsValid(std::string_view InPath) -> FObjectOperationResult
+	auto FPackagePath::Validate(std::string_view InPath) -> FObjectOperationResult
 	{
 		if (auto Result = ValidatePackageSyntax(InPath); !Result) return Result;
 		const FMountLookupResult Lookup = FMountPaths::FindMountForVirtualPath(InPath);
@@ -99,15 +99,15 @@ namespace Durin
 	auto FPackagePath::GetView() const -> std::string_view { return Path.IsNone() ? std::string_view{} : Path.GetComparisonNameEntry()->MakeView(); }
 	auto FPackagePath::operator<=>(const FPackagePath& Other) const -> std::strong_ordering { return CompareFolded(GetView(), Other.GetView()); }
 
-	auto FTopLevelAssetPath::TryCreate(std::string_view InPath, FTopLevelAssetPath& OutPath) -> FObjectOperationResult
+	auto FTopLevelAssetPath::TryCreateWithDiagnostic(std::string_view InPath, FTopLevelAssetPath& OutPath) -> FObjectOperationResult
 	{
 		if (InPath.size() > MaximumObjectPathBytes) return FailPath(EObjectPathError::PathTooLong, EObjectPathPart::Asset, InPath, MaximumObjectPathBytes);
 		if (InPath.find(':') != std::string_view::npos) return FailPath(EObjectPathError::SubobjectSuffix, EObjectPathPart::Asset, InPath);
 		const size_t Slash = InPath.find_last_of('/'); const size_t Dot = InPath.find('.', Slash == std::string_view::npos ? 0 : Slash + 1);
 		if (Dot == std::string_view::npos || InPath.find('.', Dot + 1) != std::string_view::npos) return FailPath(EObjectPathError::AssetSeparator, EObjectPathPart::Asset, InPath);
-		FPackagePath Package; if (auto Result = FPackagePath::TryCreate(InPath.substr(0, Dot), Package); !Result) return Result; return TryCreate(Package, InPath.substr(Dot + 1), OutPath);
+		FPackagePath Package; if (auto Result = FPackagePath::TryCreateWithDiagnostic(InPath.substr(0, Dot), Package); !Result) return Result; return TryCreateWithDiagnostic(Package, InPath.substr(Dot + 1), OutPath);
 	}
-	auto FTopLevelAssetPath::TryCreate(const FPackagePath& InPackagePath, std::string_view InAssetName, FTopLevelAssetPath& OutPath) -> FObjectOperationResult
+	auto FTopLevelAssetPath::TryCreateWithDiagnostic(const FPackagePath& InPackagePath, std::string_view InAssetName, FTopLevelAssetPath& OutPath) -> FObjectOperationResult
 	{
 		if (!InPackagePath.IsValid()) return FailPath(EObjectPathError::MissingPackagePath, EObjectPathPart::Asset, InAssetName);
 		if (auto Result = ValidateComponent(InAssetName, EObjectPathPart::AssetName, FName::MaxSize - 1); !Result) return Result;
@@ -124,11 +124,11 @@ namespace Durin
 	auto FSubobjectPathView::size() const -> size_t { return Path.empty() ? 0 : 1 + std::ranges::count(Path, '.'); }
 	auto FSubobjectPathView::operator[](size_t Index) const -> std::string_view { auto It = begin(); while (Index-- > 0 && It != end()) ++It; return It == end() ? std::string_view{} : *It; }
 
-	auto FObjectPath::TryCreate(std::string_view InPath, FObjectPath& OutPath) -> FObjectOperationResult
+	auto FObjectPath::TryCreateWithDiagnostic(std::string_view InPath, FObjectPath& OutPath) -> FObjectOperationResult
 	{
 		if (InPath.size() > MaximumObjectPathBytes) return FailPath(EObjectPathError::PathTooLong, EObjectPathPart::Object, InPath, MaximumObjectPathBytes);
 		const size_t Colon = InPath.find(':'); if (Colon != std::string_view::npos && InPath.find(':', Colon + 1) != std::string_view::npos) return FailPath(EObjectPathError::MultipleSubobjectSeparators, EObjectPathPart::Object, InPath);
-		FTopLevelAssetPath Asset; if (auto Result = FTopLevelAssetPath::TryCreate(InPath.substr(0, Colon), Asset); !Result) return Result;
+		FTopLevelAssetPath Asset; if (auto Result = FTopLevelAssetPath::TryCreateWithDiagnostic(InPath.substr(0, Colon), Asset); !Result) return Result;
 		std::string Suffix; size_t Index = 0;
 		if (Colon != std::string_view::npos)
 		{
@@ -138,32 +138,32 @@ namespace Durin
 		}
 		FObjectPath Candidate; Candidate.AssetPath = std::move(Asset); Candidate.SubobjectPath = std::move(Suffix); OutPath = std::move(Candidate); return {};
 	}
-	auto FObjectPath::TryCreate(const FTopLevelAssetPath& InAssetPath, std::span<const std::string> Names, FObjectPath& OutPath) -> FObjectOperationResult
+	auto FObjectPath::TryCreate(const FTopLevelAssetPath& InAssetPath, std::span<const std::string> Names, FObjectPath& OutPath) -> bool
 	{
-		if (!InAssetPath.IsValid()) return FailPath(EObjectPathError::MissingAssetPath, EObjectPathPart::Object, {}); std::string Suffix; size_t Index = 0;
-		for (const std::string& Name : Names) { if (auto Result = ValidateComponent(Name, EObjectPathPart::Subobject, MaximumObjectPathComponentBytes, Index++); !Result) return Result; if (!Suffix.empty()) Suffix.push_back('.'); Suffix += Name; }
-		if (InAssetPath.ToString().size() + (Suffix.empty() ? 0 : 1 + Suffix.size()) > MaximumObjectPathBytes) return FailPath(EObjectPathError::PathTooLong, EObjectPathPart::Object, InAssetPath.ToString() + ":" + Suffix, MaximumObjectPathBytes);
-		FObjectPath Candidate; Candidate.AssetPath = InAssetPath; Candidate.SubobjectPath = std::move(Suffix); OutPath = std::move(Candidate); return {};
+		if (!InAssetPath.IsValid()) return false; std::string Suffix; size_t Index = 0;
+		for (const std::string& Name : Names) { if (auto Result = ValidateComponent(Name, EObjectPathPart::Subobject, MaximumObjectPathComponentBytes, Index++); !Result) return false; if (!Suffix.empty()) Suffix.push_back('.'); Suffix += Name; }
+		if (InAssetPath.ToString().size() + (Suffix.empty() ? 0 : 1 + Suffix.size()) > MaximumObjectPathBytes) return false;
+		FObjectPath Candidate; Candidate.AssetPath = InAssetPath; Candidate.SubobjectPath = std::move(Suffix); OutPath = std::move(Candidate); return true;
 	}
-	auto FObjectPath::TryCreate(const FTopLevelAssetPath& InAssetPath, FSubobjectPathView Names, FObjectPath& OutPath) -> FObjectOperationResult
+	auto FObjectPath::TryCreate(const FTopLevelAssetPath& InAssetPath, FSubobjectPathView Names, FObjectPath& OutPath) -> bool
 	{
-		if (!InAssetPath.IsValid()) return FailPath(EObjectPathError::MissingAssetPath, EObjectPathPart::Object, {});
+		if (!InAssetPath.IsValid()) return false;
 		std::string Suffix; size_t Index = 0;
 		for (const std::string_view Name : Names)
 		{
-			if (auto Result = ValidateComponent(Name, EObjectPathPart::Subobject, MaximumObjectPathComponentBytes, Index++); !Result) return Result;
+			if (auto Result = ValidateComponent(Name, EObjectPathPart::Subobject, MaximumObjectPathComponentBytes, Index++); !Result) return false;
 			if (!Suffix.empty()) Suffix.push_back('.');
 			Suffix.append(Name);
 		}
 		const size_t AssetPathBytes = InAssetPath.GetPackagePath().GetView().size()
 			+ 1 + InAssetPath.GetAssetName().size();
 		if (AssetPathBytes + (Suffix.empty() ? 0 : 1 + Suffix.size()) > MaximumObjectPathBytes)
-			return FailPath(EObjectPathError::PathTooLong, EObjectPathPart::Object, InAssetPath.ToString() + ":" + Suffix, MaximumObjectPathBytes);
+			return false;
 		FObjectPath Candidate;
 		Candidate.AssetPath = InAssetPath;
 		Candidate.SubobjectPath = std::move(Suffix);
 		OutPath = std::move(Candidate);
-		return {};
+		return true;
 	}
 	auto FObjectPath::AppendTo(std::string& Out) const -> void { if (!IsValid()) return; AssetPath.AppendTo(Out); if (!SubobjectPath.empty()) { Out.push_back(':'); Out += SubobjectPath; } }
 	auto FObjectPath::ToString() const -> std::string

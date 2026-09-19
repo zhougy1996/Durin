@@ -27,7 +27,7 @@ namespace Durin::Editor
 		{
 			FObjectPath Path;
 			std::string Error;
-			if (const auto PathValidation = FObjectPath::TryCreate(Paths[Index], Path); !PathValidation)
+			if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(Paths[Index], Path); !PathValidation)
 			{
 				Report(Index, FormatObjectError(PathValidation.Error));
 				continue;

@@ -749,7 +749,7 @@ namespace Durin::AssetPrivate::TaggedPackage
 				if (!FTopLevelAssetPath::TryCreate(*Destination,
 					DestinationAssetName, AssetPath)) return false;
 				return FObjectPath::TryCreate(
-					AssetPath, Source.GetSubobjectNames(), Out).Succeeded();
+					AssetPath, Source.GetSubobjectNames(), Out);
 			};
 			uint64 RewriteCount = 0;
 			std::function<bool(const ObjectPackage::FSerializedType&,

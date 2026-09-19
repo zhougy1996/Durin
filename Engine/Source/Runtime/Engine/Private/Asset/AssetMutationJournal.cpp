@@ -693,7 +693,7 @@ namespace Durin::AssetPrivate
 				OutPath = {};
 				return true;
 			}
-			return FPackagePath::TryCreate(Text, OutPath).Succeeded();
+			return FPackagePath::TryCreate(Text, OutPath);
 		}
 
 		auto ParseMutationJournal(

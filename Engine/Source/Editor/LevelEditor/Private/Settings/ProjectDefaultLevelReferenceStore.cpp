@@ -89,7 +89,7 @@ namespace Durin::Editor::Level
 			if (!Settings.DefaultLevel.empty())
 			{
 				std::string PathError;
-				if (const auto PathValidation = FPackagePath::TryCreate(Settings.DefaultLevel, OutState.Path); !PathValidation)
+				if (const auto PathValidation = FPackagePath::TryCreateWithDiagnostic(Settings.DefaultLevel, OutState.Path); !PathValidation)
 				{
 					PathError = Durin::FormatObjectError(PathValidation.Error);
 					return StoreError(

@@ -90,7 +90,7 @@ auto main(int Count, char** Args) -> int
 	if (!RefreshAssetRegistry()) return 1;
 
 	FObjectPath CubeObjectPath;
-	const bool ValidPath = FObjectPath::TryCreate("/Engine/Renderer/DefaultStudioCube.DefaultStudioCube", CubeObjectPath).Succeeded();
+	const bool ValidPath = FObjectPath::TryCreate("/Engine/Renderer/DefaultStudioCube.DefaultStudioCube", CubeObjectPath);
 	require(ValidPath);
 	auto* Package = CreatePackage(CubeObjectPath.GetPackagePath());
 	if (!Package) return 1;

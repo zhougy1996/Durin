@@ -37,7 +37,7 @@ namespace
 			(void)bRegistered;
 			Durin::FPackagePath Path;
 			const bool bValidPath = Durin::FPackagePath::TryCreate(
-				std::format("/LevelMutationTests/Level_{}", NextId++), Path).Succeeded();
+				std::format("/LevelMutationTests/Level_{}", NextId++), Path);
 			EXPECT_TRUE(bValidPath);
 			if (!bValidPath) return;
 			Package = Durin::NewObject<Durin::DPackage>(nullptr, Path.GetPackageName());

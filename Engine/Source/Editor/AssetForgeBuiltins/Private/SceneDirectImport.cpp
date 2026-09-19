@@ -570,7 +570,7 @@ namespace Durin::AssetForge::Builtins
 			const auto MountEnd = Destination.find('/', 1);
 			const auto Name = "Surface_v1_" + FXxHash128::HashBuffer(std::as_bytes(std::span(Recipe.CanonicalKey))).ToString();
 			FPackagePath Path;
-			if (const auto PathValidation = FPackagePath::TryCreate(std::string(Destination.substr(0, MountEnd)) +
+			if (const auto PathValidation = FPackagePath::TryCreateWithDiagnostic(std::string(Destination.substr(0, MountEnd)) +
 				"/Materials/ImportedParents/" + Name, Path); !PathValidation) { Error = FormatObjectError(PathValidation.Error); return nullptr; }
 			DMaterial* Parent = nullptr;
 			const auto Local = std::ranges::find_if(GeneratedParents.Packages, [&](const DPackage* Package) {
@@ -582,7 +582,7 @@ namespace Durin::AssetForge::Builtins
 			else if (FindAssetExact(Path))
 			{
 				FObjectPath ObjectPath;
-				if (const auto PathValidation = FObjectPath::TryCreate(Path.ToString() + "." + Name, ObjectPath); !PathValidation)
+				if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(Path.ToString() + "." + Name, ObjectPath); !PathValidation)
 				{
 					Error = FormatObjectError(PathValidation.Error);
 					return nullptr;

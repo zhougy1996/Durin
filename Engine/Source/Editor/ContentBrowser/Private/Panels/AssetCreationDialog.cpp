@@ -40,7 +40,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		const auto Destination = InspectAssetDestination(Directory + Name.data());
 		OutError = ::Durin::Editor::FormatAssetDestinationValidation(Destination);
 		if (!Destination) return false;
-		const auto PathValidation = FTopLevelAssetPath::TryCreate(Destination.AssetPath, Name.data(), OutPath);
+		const auto PathValidation = FTopLevelAssetPath::TryCreateWithDiagnostic(Destination.AssetPath, Name.data(), OutPath);
 		if (!PathValidation) OutError = FormatObjectError(PathValidation.Error);
 		return PathValidation.Succeeded();
 	}

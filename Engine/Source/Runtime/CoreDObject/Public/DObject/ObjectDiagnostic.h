@@ -10,9 +10,9 @@ namespace Durin
 	{
 		EmptyComponent, ComponentTooLong, InvalidUtf8, ReservedSeparator,
 		NotAbsolute, InternedNameTooLong, PathTooLong, MissingPackageName,
-		PackageSuffix, WrongDeferredMount, MountLookupFailed, SubobjectSuffix,
+		PackageSuffix, MountLookupFailed, SubobjectSuffix,
 		AssetSeparator, MissingPackagePath, MultipleSubobjectSeparators,
-		EmptySubobject, MissingAssetPath,
+		EmptySubobject,
 	};
 
 	enum class ESoftObjectError : uint8

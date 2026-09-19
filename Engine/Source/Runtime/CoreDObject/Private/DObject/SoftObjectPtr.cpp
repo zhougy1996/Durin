@@ -26,7 +26,7 @@ namespace Durin
 			if (ExpectedClass && !Object->IsA(ExpectedClass)) return FailSoftObject(ESoftObjectError::ClassMismatch, Object->GetObjectPath(), ExpectedClass->GetQualifiedName().ToString(), Object->GetClass()->GetQualifiedName().ToString());
 			DPackage* Package = Object->GetPackage();
 			if (!Package || !Package->IsAssetPackage()) return FailSoftObject(ESoftObjectError::UnpackagedObject, Object->GetObjectPath());
-			return FObjectPath::TryCreate(Object->GetObjectPath(), OutPath);
+			return FObjectPath::TryCreateWithDiagnostic(Object->GetObjectPath(), OutPath);
 		}
 	}
 

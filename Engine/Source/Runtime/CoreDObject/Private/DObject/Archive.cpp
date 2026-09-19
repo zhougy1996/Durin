@@ -1330,7 +1330,7 @@ namespace Durin
 		if (IsLoading())
 		{
 			FObjectPath Loaded;
-			if (const auto PathValidation = FObjectPath::TryCreate(Path, Loaded); !PathValidation)
+			if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(Path, Loaded); !PathValidation)
 			{
 				ValueFailureCause = PathValidation.Error;
 				Fail(EArchiveFailureCode::InvalidPath, FormatObjectError(PathValidation.Error));

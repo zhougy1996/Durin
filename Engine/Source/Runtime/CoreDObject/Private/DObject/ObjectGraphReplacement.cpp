@@ -172,7 +172,7 @@ namespace Durin
 				auto* Type = static_cast<FStructProperty*>(P)->GetStruct();
 				if (!Type->HasIdentical()) return EqualStruct(Type, P->GetValuePtr(A, AI), P->GetValuePtr(B, BI));
 			}
-			return ComparePropertyValues(P, A, AI, B, BI) == EPropertyIdentityResult::Identical;
+			return ArePropertyValuesIdentical(P, A, AI, B, BI);
 		}
 
 		// Mutates detached storage only. Map keys are copied before modification and

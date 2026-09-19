@@ -315,7 +315,7 @@ namespace Durin::PackagePrivate
 					{
 						DPackage* ExternalPackage = Value->GetPackage();
 						FObjectPath TargetPath;
-						const auto PathResult = FObjectPath::TryCreate(Value->GetObjectPath(), TargetPath);
+						const auto PathResult = FObjectPath::TryCreateWithDiagnostic(Value->GetObjectPath(), TargetPath);
 						if (!ExternalPackage || !PathResult)
 						{
 							CaptureFailure.ObjectPath = Value->GetObjectPath();
@@ -1061,7 +1061,7 @@ namespace Durin::PackagePrivate
 				{
 					if (!ReadCapturedString(Node.Raw, Offset, Out.Text)) return Invalid();
 					FObjectPath Path;
-					if (const auto PathResult = FObjectPath::TryCreate(Out.Text, Path); !PathResult)
+					if (const auto PathResult = FObjectPath::TryCreateWithDiagnostic(Out.Text, Path); !PathResult)
 					{
 						Invalid(); OutError.Message = FormatObjectError(PathResult.Error); return false;
 					}
@@ -1156,7 +1156,7 @@ namespace Durin::PackagePrivate
 				ObjectPackage::FPackageIndex Export;
 				FTopLevelAssetPath AssetPath;
 				FObjectPath RedirectDestination;
-				const auto PathResult = FTopLevelAssetPath::TryCreate(PackagePath, Asset->GetName(), AssetPath);
+				const auto PathResult = FTopLevelAssetPath::TryCreateWithDiagnostic(PackagePath, Asset->GetName(), AssetPath);
 				if (!ObjectPackage::FPackageIndex::TryExport(
 						InternalReferenceIds[SourceIndex] - 1, Export) || !PathResult)
 				{
@@ -1356,7 +1356,7 @@ namespace Durin
 			return {{.Reason = EPackageCaptureReason::CookTarget}};
 		}
 		FPackagePath PackagePath;
-		if (const auto PathResult = FPackagePath::TryCreate(Package->GetPackagePath(), PackagePath); !PathResult)
+		if (const auto PathResult = FPackagePath::TryCreateWithDiagnostic(Package->GetPackagePath(), PackagePath); !PathResult)
 		{
 			return {{.Reason = EPackageCaptureReason::PackagePath, .ObjectPath = Package->GetPackagePath(), .Message = FormatObjectError(PathResult.Error)}};
 		}

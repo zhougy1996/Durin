@@ -3751,7 +3751,7 @@ TEST(FMaterialGraphOperationsTests, CreationErrorsReportPathFailureAndAllowRetry
 	ASSERT_FALSE(Failed);
 	EXPECT_FALSE(Failed.Message.empty());
 	FTopLevelAssetPath Path;
-	const auto Expected = FTopLevelAssetPath::TryCreate("invalid-relative-function", Path);
+	const auto Expected = FTopLevelAssetPath::TryCreateWithDiagnostic("invalid-relative-function", Path);
 	EXPECT_NE(Failed.Message.find(FormatObjectError(Expected.Error)), std::string::npos);
 	Action.Payload = std::string("changed-request");
 	EXPECT_EQ(CaptureExpressions(*Material), Before);

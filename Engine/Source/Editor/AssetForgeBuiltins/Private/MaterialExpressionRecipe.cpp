@@ -17,7 +17,7 @@ namespace Durin::AssetForge::Builtins
 				bool bSame = true;
 				L->GetClass()->ForEachProperty([&](FProperty* Property) {
 					for (uint32 Element = 0; bSame && Element < Property->GetArrayDim(); ++Element)
-						bSame = ComparePropertyValues(Property, L, Element, R, Element) == EPropertyIdentityResult::Identical;
+						bSame = ArePropertyValuesIdentical(Property, L, Element, R, Element);
 				});
 				if (!bSame) return false;
 			}

@@ -24,6 +24,20 @@ namespace Durin::Editor
 	{
 		using StringUtils::ContainsInsensitive;
 
+		auto AcceptPropertyResult(const FPropertyValueResult& Result, std::string& OutError) -> bool
+		{
+			if (Result) return true;
+			OutError = FormatPropertyValueError(Result.Error);
+			return false;
+		}
+
+		auto AcceptPropertyResult(const FPropertySnapshotResult& Result, std::string& OutError) -> bool
+		{
+			if (Result) return true;
+			OutError = FormatPropertySnapshotError(Result.Error);
+			return false;
+		}
+
 		// ArrayIndexEnum maps numeric enum values to storage indices; unknown metadata
 		// falls back to ordinary array editing so a typo cannot hide authored data.
 		auto GetArrayIndexEnum(const FProperty& Property) -> DEnum*
@@ -1013,7 +1027,7 @@ namespace Durin::Editor
 						SelectedPath = {};
 						return true;
 					}
-					const auto PathValidation = FObjectPath::TryCreate(Path, SelectedPath);
+					const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(Path, SelectedPath);
 					if (!PathValidation) Error = FormatObjectError(PathValidation.Error);
 					return PathValidation.Succeeded();
 				},
@@ -1244,26 +1258,10 @@ namespace Durin::Editor
 			FPropertyValueSnapshot KeySnapshot;
 			FPropertyValueSnapshot ValueSnapshot;
 			std::string Error;
-			if (!([&] {
-				const auto ValueResult = KeyStorage.DefaultConstruct(Property->GetKeyProp(), 0);
-				Error = Durin::FormatPropertyValueError(ValueResult.Error);
-				return ValueResult.Succeeded();
-			}())
-				|| !([&] {
-					const auto ValueResult = ValueStorage.DefaultConstruct(Property->GetValueProp(), 0);
-					Error = Durin::FormatPropertyValueError(ValueResult.Error);
-					return ValueResult.Succeeded();
-				}())
-				|| !([&] {
-					const auto SnapshotResult = CapturePropertyValue(Property->GetKeyProp(), KeyStorage.GetContainer(), 0, KeySnapshot);
-					Error = Durin::FormatPropertySnapshotError(SnapshotResult.Error);
-					return SnapshotResult.Succeeded();
-				}())
-				|| !([&] {
-					const auto SnapshotResult = CapturePropertyValue(Property->GetValueProp(), ValueStorage.GetContainer(), 0, ValueSnapshot);
-					Error = Durin::FormatPropertySnapshotError(SnapshotResult.Error);
-					return SnapshotResult.Succeeded();
-				}()))
+			if (!AcceptPropertyResult(KeyStorage.DefaultConstruct(Property->GetKeyProp(), 0), Error)
+				|| !AcceptPropertyResult(ValueStorage.DefaultConstruct(Property->GetValueProp(), 0), Error)
+				|| !AcceptPropertyResult(CapturePropertyValue(Property->GetKeyProp(), KeyStorage.GetContainer(), 0, KeySnapshot), Error)
+				|| !AcceptPropertyResult(CapturePropertyValue(Property->GetValueProp(), ValueStorage.GetContainer(), 0, ValueSnapshot), Error))
 			{
 				ReportError(Context, Error.empty() ? "Unable to create a map-entry draft." : std::move(Error));
 			}
@@ -1292,26 +1290,10 @@ namespace Durin::Editor
 				FReflectedValueStorage DraftKeyStorage;
 				FReflectedValueStorage DraftValueStorage;
 				std::string Error;
-				if (!([&] {
-					const auto ValueResult = DraftKeyStorage.DefaultConstruct(Property->GetKeyProp(), 0);
-					Error = Durin::FormatPropertyValueError(ValueResult.Error);
-					return ValueResult.Succeeded();
-				}())
-					|| !([&] {
-						const auto ValueResult = DraftValueStorage.DefaultConstruct(Property->GetValueProp(), 0);
-						Error = Durin::FormatPropertyValueError(ValueResult.Error);
-						return ValueResult.Succeeded();
-					}())
-					|| !([&] {
-						const auto SnapshotResult = RestorePropertyValue(Property->GetKeyProp(), DraftKeyStorage.GetContainer(), 0, MapInsertDraft.Key);
-						Error = Durin::FormatPropertySnapshotError(SnapshotResult.Error);
-						return SnapshotResult.Succeeded();
-					}())
-					|| !([&] {
-						const auto SnapshotResult = RestorePropertyValue(Property->GetValueProp(), DraftValueStorage.GetContainer(), 0, MapInsertDraft.Value);
-						Error = Durin::FormatPropertySnapshotError(SnapshotResult.Error);
-						return SnapshotResult.Succeeded();
-					}()))
+				if (!AcceptPropertyResult(DraftKeyStorage.DefaultConstruct(Property->GetKeyProp(), 0), Error)
+					|| !AcceptPropertyResult(DraftValueStorage.DefaultConstruct(Property->GetValueProp(), 0), Error)
+					|| !AcceptPropertyResult(RestorePropertyValue(Property->GetKeyProp(), DraftKeyStorage.GetContainer(), 0, MapInsertDraft.Key), Error)
+					|| !AcceptPropertyResult(RestorePropertyValue(Property->GetValueProp(), DraftValueStorage.GetContainer(), 0, MapInsertDraft.Value), Error))
 				{
 					ReportError(Context, Error.empty() ? "Unable to restore the map-entry draft." : std::move(Error));
 					MapInsertDraft = {};
@@ -1325,11 +1307,7 @@ namespace Durin::Editor
 					if (KeyEdit.bChanged && KeyEdit.AssignValue)
 					{
 						KeyEdit.AssignValue(Property->GetKeyProp(), DraftKey, 0);
-						if (!([&] {
-							const auto SnapshotResult = CapturePropertyValue(Property->GetKeyProp(), DraftKey, 0, MapInsertDraft.Key);
-							Error = Durin::FormatPropertySnapshotError(SnapshotResult.Error);
-							return SnapshotResult.Succeeded();
-						}()))
+						if (!AcceptPropertyResult(CapturePropertyValue(Property->GetKeyProp(), DraftKey, 0, MapInsertDraft.Key), Error))
 							ReportError(Context, std::move(Error));
 					}
 					const FPropertyWidgetEditResult ValueEdit = EditPropertyWidget(
@@ -1337,11 +1315,7 @@ namespace Durin::Editor
 					if (ValueEdit.bChanged && ValueEdit.AssignValue)
 					{
 						ValueEdit.AssignValue(Property->GetValueProp(), DraftValue, 0);
-						if (!([&] {
-							const auto SnapshotResult = CapturePropertyValue(Property->GetValueProp(), DraftValue, 0, MapInsertDraft.Value);
-							Error = Durin::FormatPropertySnapshotError(SnapshotResult.Error);
-							return SnapshotResult.Succeeded();
-						}()))
+						if (!AcceptPropertyResult(CapturePropertyValue(Property->GetValueProp(), DraftValue, 0, MapInsertDraft.Value), Error))
 							ReportError(Context, std::move(Error));
 					}
 
@@ -1447,11 +1421,7 @@ namespace Durin::Editor
 				{
 					FReflectedValueStorage ProposedKeyStorage;
 					std::string ProposedKeyError;
-					if (!([&] {
-						const auto ValueResult = ProposedKeyStorage.DefaultConstruct(Property->GetKeyProp(), 0);
-						ProposedKeyError = Durin::FormatPropertyValueError(ValueResult.Error);
-						return ValueResult.Succeeded();
-					}())
+					if (!AcceptPropertyResult(ProposedKeyStorage.DefaultConstruct(Property->GetKeyProp(), 0), ProposedKeyError)
 						|| !KeyEdit.AssignValue)
 					{
 						ReportError(Context, ProposedKeyError.empty()
@@ -1465,11 +1435,7 @@ namespace Durin::Editor
 						FPropertyValueSnapshot ProposedKeySnapshot;
 						std::string CaptureError;
 						const void* ExistingValue = nullptr;
-						if (!([&] {
-							const auto SnapshotResult = CapturePropertyValue(Property->GetKeyProp(), ProposedKey, 0, ProposedKeySnapshot);
-							CaptureError = Durin::FormatPropertySnapshotError(SnapshotResult.Error);
-							return SnapshotResult.Succeeded();
-						}()))
+						if (!AcceptPropertyResult(CapturePropertyValue(Property->GetKeyProp(), ProposedKey, 0, ProposedKeySnapshot), CaptureError))
 						{
 							ReportError(Context, std::move(CaptureError));
 						}

@@ -52,7 +52,7 @@ namespace Durin::Editor
 	) -> FAssetDestinationValidation
 	{
 		FAssetDestinationValidation Result{.RequestedPath = std::string(VirtualPath)};
-		const auto PathValidation = FPackagePath::TryCreate(VirtualPath, Result.AssetPath);
+		const auto PathValidation = FPackagePath::TryCreateWithDiagnostic(VirtualPath, Result.AssetPath);
 		Result.bAssetPathValid = PathValidation.Succeeded();
 		if (!PathValidation)
 		{
@@ -136,7 +136,7 @@ namespace Durin::Editor
 		-> FContentDirectoryValidation
 	{
 		FContentDirectoryValidation Result{.RequestedPath = std::string(VirtualPath)};
-		const auto PathValidation = FPackagePath::TryCreate(VirtualPath, Result.DirectoryPath);
+		const auto PathValidation = FPackagePath::TryCreateWithDiagnostic(VirtualPath, Result.DirectoryPath);
 		Result.bDirectoryPathValid = PathValidation.Succeeded();
 		if (!PathValidation)
 		{

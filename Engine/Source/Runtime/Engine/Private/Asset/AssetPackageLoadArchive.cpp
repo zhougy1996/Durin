@@ -257,7 +257,7 @@ namespace Durin::AssetPrivate
 					std::string PathString;
 					if (!ReadString(PathString)) return;
 					FObjectPath Path;
-					if (const auto Validation = FObjectPath::TryCreate(PathString, Path); !Validation)
+					if (const auto Validation = FObjectPath::TryCreateWithDiagnostic(PathString, Path); !Validation)
 					{
 						FailLoad(EArchiveFailureCode::InvalidPath,
 							{EAssetError::InvalidPath, std::format("Invalid dependency path '{}': {}", PathString, FormatObjectError(Validation.Error))});
@@ -315,7 +315,7 @@ namespace Durin::AssetPrivate
 					return;
 				}
 				FObjectPath Loaded;
-				if (const auto PathValidation = FObjectPath::TryCreate(PathString, Loaded); !PathValidation)
+				if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(PathString, Loaded); !PathValidation)
 				{
 					FailLoad(EArchiveFailureCode::InvalidPath,
 						{EAssetError::InvalidPath, std::format("Invalid soft reference '{}': {}", PathString, FormatObjectError(PathValidation.Error))});

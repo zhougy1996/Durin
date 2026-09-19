@@ -197,7 +197,7 @@ namespace Durin::Editor::Material::GraphEditInternals
 			if (P->HasAnyPropertyFlags(EPropertyFlags::Transient)) return;
 			for (uint32 Index = 0; Index < P->GetArrayDim(); ++Index)
 			{
-				if (ComparePropertyValues(P, &Source, Index, &Target, Index) == EPropertyIdentityResult::Identical) continue;
+				if (ArePropertyValuesIdentical(P, &Source, Index, &Target, Index)) continue;
 				Modify(Target);
 				const auto Copied = P->CopyAssignValue(P->GetValuePtr(&Target, Index), P->GetValuePtr(&Source, Index));
 				if (!Copied && Result) Result = RejectCommand("Unable to update the expression properties. " + FormatPropertyValueError(Copied.Error));

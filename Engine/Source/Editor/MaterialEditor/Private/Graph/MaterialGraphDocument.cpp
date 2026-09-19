@@ -24,7 +24,7 @@ namespace Durin::Editor::Material
 		auto LoadCreationFunction(const std::string& Name) -> FCreationFunctionResult
 		{
 			FTopLevelAssetPath Path;
-			if (const auto Parsed = FTopLevelAssetPath::TryCreate(Name, Path); !Parsed)
+			if (const auto Parsed = FTopLevelAssetPath::TryCreateWithDiagnostic(Name, Path); !Parsed)
 				return {.Message = "The material function path is invalid. " + FormatObjectError(Parsed.Error)};
 			DMaterialFunctionInterface* Function = nullptr;
 			if (auto Loaded = LoadObject(Path, Function); !Loaded)

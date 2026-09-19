@@ -293,7 +293,7 @@ namespace Durin
 					std::format("SoftReferencePayloadPath: {} is truncated or overlong.", PropertyPath));
 			FObjectPath SoftPath;
 			std::string PathError;
-			if (const auto PathValidation = FObjectPath::TryCreate(PathString, SoftPath); !PathValidation)
+			if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(PathString, SoftPath); !PathValidation)
 			{
 				PathError = Durin::FormatObjectError(PathValidation.Error);
 				return Error(EAssetError::InvalidPath, std::format(
@@ -364,13 +364,8 @@ namespace Durin
 			for (uint64 Index = 0; Index < Count; ++Index)
 			{
 				FReflectedValueStorage KeyStorage;
-				std::string StorageError;
-				if (!([&] {
-					const auto ValueResult = KeyStorage.DefaultConstruct(Map->GetKeyProp(), 0);
-					StorageError = Durin::FormatPropertyValueError(ValueResult.Error);
-					return ValueResult.Succeeded();
-				}()))
-					return Error(EAssetError::UnsupportedProperty, std::move(StorageError));
+				if (const auto Result = KeyStorage.DefaultConstruct(Map->GetKeyProp(), 0); !Result)
+					return Error(EAssetError::UnsupportedProperty, FormatPropertyValueError(Result.Error));
 				FAssetResult KeyResult = DecodeReferenceByteToolValue(
 					Map->GetKeyProp(),
 					KeyStorage.GetContainer(),
@@ -732,7 +727,7 @@ namespace Durin
 				|| PathString.empty())
 				return Error(EAssetError::CorruptFile,
 					"AssetReferenceFixupPath: soft path is truncated or overlong.");
-			if (const auto PathValidation = FObjectPath::TryCreate(PathString, Path); !PathValidation)
+			if (const auto PathValidation = FObjectPath::TryCreateWithDiagnostic(PathString, Path); !PathValidation)
 			{
 				PathError = Durin::FormatObjectError(PathValidation.Error);
 				return Error(EAssetError::InvalidPath, std::move(PathError));
@@ -777,13 +772,8 @@ namespace Durin
 			{
 				const size_t KeyOffset = Reader.Offset;
 				FReflectedValueStorage KeyStorage;
-				std::string StorageError;
-				if (!([&] {
-					const auto ValueResult = KeyStorage.DefaultConstruct(Map->GetKeyProp(), 0);
-					StorageError = Durin::FormatPropertyValueError(ValueResult.Error);
-					return ValueResult.Succeeded();
-				}()))
-					return Error(EAssetError::UnsupportedProperty, std::move(StorageError));
+				if (const auto Result = KeyStorage.DefaultConstruct(Map->GetKeyProp(), 0); !Result)
+					return Error(EAssetError::UnsupportedProperty, FormatPropertyValueError(Result.Error));
 				FAssetResult Result = DecodeReferenceByteToolValue(
 					Map->GetKeyProp(),
 					KeyStorage.GetContainer(),

@@ -310,6 +310,7 @@ namespace Durin
 		const FProperty* Property,
 		FPropertyIdentityDiagnostic* OutDiagnostic = nullptr) -> bool;
 
+	// True only when comparison confirms equality; different or unsupported values return false.
 	COREDOBJECT_API auto ArePropertyValuesIdentical(
 		const FProperty* Property,
 		const void* LeftContainer,

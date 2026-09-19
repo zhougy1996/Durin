@@ -41,7 +41,7 @@ namespace Durin::Sandbox
 	auto APlayerPawn::BeginPlay() -> void
 	{
 		FObjectPath MeshPath;
-		const bool bValidMeshPath = FObjectPath::TryCreate(GameplayTuning::GrayboxMeshPath, MeshPath).Succeeded();
+		const bool bValidMeshPath = FObjectPath::TryCreate(GameplayTuning::GrayboxMeshPath, MeshPath);
 		DStaticMesh* Mesh = nullptr;
 		const FAssetResult LoadResult = bValidMeshPath
 			? LoadObject(MeshPath, Mesh)

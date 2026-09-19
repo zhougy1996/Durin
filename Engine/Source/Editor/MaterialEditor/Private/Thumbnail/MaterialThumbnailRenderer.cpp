@@ -216,10 +216,8 @@ namespace Durin::Editor::Material
 						.Diagnostic = "The material instance has no valid parent."};
 				}
 				FObjectPath SpherePath;
-				const auto PathValidation = FObjectPath::TryCreate(
-					::Durin::Editor::FThumbnailVisualContract::SphereAssetPath, SpherePath);
-				if (!PathValidation) SphereError = FormatObjectError(PathValidation.Error);
-				if (!PathValidation
+				if (!FObjectPath::TryCreate(
+					::Durin::Editor::FThumbnailVisualContract::SphereAssetPath, SpherePath)
 					|| !::Durin::Editor::FAssetRetentionService::Acquire(
 						SpherePath, SphereAsset, SphereError)
 					|| (Sphere = Cast<DStaticMesh>(SphereAsset.Get())) == nullptr)

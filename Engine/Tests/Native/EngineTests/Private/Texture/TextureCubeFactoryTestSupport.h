@@ -27,7 +27,7 @@ namespace Durin::AssetForge::Builtins
 	{
 		FPackagePath ParsedPath;
 		std::string Error;
-		if (const auto PathValidation = FPackagePath::TryCreate(AssetPath, ParsedPath); !PathValidation)
+		if (const auto PathValidation = FPackagePath::TryCreateWithDiagnostic(AssetPath, ParsedPath); !PathValidation)
 		{
 			Error = Durin::FormatObjectError(PathValidation.Error);
 			return {false, std::move(Error), nullptr};
@@ -47,7 +47,7 @@ namespace Durin::AssetForge::Builtins
 	{
 		FPackagePath ParsedPath;
 		std::string Error;
-		if (const auto PathValidation = FPackagePath::TryCreate(AssetPath, ParsedPath); !PathValidation)
+		if (const auto PathValidation = FPackagePath::TryCreateWithDiagnostic(AssetPath, ParsedPath); !PathValidation)
 		{
 			Error = Durin::FormatObjectError(PathValidation.Error);
 			return {false, std::move(Error), nullptr};

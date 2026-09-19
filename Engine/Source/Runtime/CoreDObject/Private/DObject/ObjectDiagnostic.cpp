@@ -28,7 +28,6 @@ namespace Durin
 			case EObjectPathError::PathTooLong: return std::format("{} exceeds the {} byte path limit.", Part, Error.MaximumBytes);
 			case EObjectPathError::MissingPackageName: return "Package path must name a package.";
 			case EObjectPathError::PackageSuffix: return "Package path cannot contain an object or file suffix.";
-			case EObjectPathError::WrongDeferredMount: return "Deferred package path must use the /Game mount.";
 			case EObjectPathError::MountLookupFailed:
 				if (Error.MountError == EMountPathError::UnknownMount)
 					return "Virtual path does not use a registered mount.";
@@ -38,7 +37,6 @@ namespace Durin
 			case EObjectPathError::MissingPackagePath: return "Top-level asset path requires a package path.";
 			case EObjectPathError::MultipleSubobjectSeparators: return "Object path can contain at most one subobject separator.";
 			case EObjectPathError::EmptySubobject: return "Object path contains an empty subobject name.";
-			case EObjectPathError::MissingAssetPath: return "Object path requires a top-level asset path.";
 			}
 		}
 		if (const auto* Code = std::get_if<ESoftObjectError>(&Error.Code))

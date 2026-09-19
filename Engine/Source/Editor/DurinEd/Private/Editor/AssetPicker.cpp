@@ -441,7 +441,7 @@ namespace Durin::Editor::AssetPicker
 						? FindClassByQualifiedName(*ClassName) : nullptr;
 					if (!Path || !ClassName)
 						DropError = "The dragged asset payload is not terminated.";
-					else if (const auto PathValidation = FTopLevelAssetPath::TryCreate(*Path, DroppedPath); !PathValidation)
+					else if (const auto PathValidation = FTopLevelAssetPath::TryCreateWithDiagnostic(*Path, DroppedPath); !PathValidation)
 					{
 						DropError = Durin::FormatObjectError(PathValidation.Error);
 					}

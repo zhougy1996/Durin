@@ -75,7 +75,7 @@ namespace Durin
 				FPackagePath PackagePath;
 				FObjectPath LevelPath;
 				DLevel* Level = nullptr;
-				const auto PathValidation = FPackagePath::TryCreate(Settings.DefaultLevel, PackagePath);
+				const auto PathValidation = FPackagePath::TryCreateWithDiagnostic(Settings.DefaultLevel, PackagePath);
 				if (PathValidation)
 				{
 					FAssetResult Result =
