@@ -192,7 +192,7 @@ linked worktrees:
 ```
 
 `worktree open` opens all registered worktrees in a maximized Windows Terminal
-window, with up to four equal panes arranged as a stable 2 x 2 grid per tab. `add`
+window, with one tab per worktree, titled with its directory name. `add`
 creates and prepares a worktree. `prepare` is idempotent and can initialize
 manually created worktrees or repair their shared links; omit its path to target
 the current checkout, pass `--source` for a non-default prepared worktree, or

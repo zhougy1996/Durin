@@ -55,18 +55,14 @@ def environment_arguments(
     return [str(setup_path), *config.environment_setup.arguments]
 
 
-def add_terminal_pane_arguments(
+def add_terminal_tab_arguments(
     arguments: list[str],
     *,
-    action: str,
     worktree: Path,
     environment: Sequence[str],
-    split_direction: str | None = None,
 ) -> None:
-    arguments.append(action)
-    if split_direction:
-        arguments.extend([split_direction, "--size", "0.5"])
     arguments.extend([
+        "new-tab",
         "--startingDirectory", str(worktree), "--title", worktree.name,
         "cmd.exe", "/k", *environment,
     ])
@@ -83,18 +79,11 @@ def terminal_arguments(
         for worktree in worktrees
     }
     for index, worktree in enumerate(worktrees):
-        position = index % 4
         if index:
             arguments.append(";")
-        if position == 0:
-            add_terminal_pane_arguments(arguments, action="new-tab", worktree=worktree.path, environment=environments[worktree.path])
-        elif position == 1:
-            add_terminal_pane_arguments(arguments, action="split-pane", split_direction="-V", worktree=worktree.path, environment=environments[worktree.path])
-        elif position == 2:
-            add_terminal_pane_arguments(arguments, action="split-pane", split_direction="-H", worktree=worktree.path, environment=environments[worktree.path])
-        else:
-            arguments.extend(["move-focus", "first", ";"])
-            add_terminal_pane_arguments(arguments, action="split-pane", split_direction="-H", worktree=worktree.path, environment=environments[worktree.path])
+        add_terminal_tab_arguments(
+            arguments, worktree=worktree.path, environment=environments[worktree.path],
+        )
     return arguments
 
 
@@ -107,7 +96,7 @@ def open_worktree_terminals(
     worktrees = ordered_worktrees(get_worktrees(repository, command_io))
     display_worktrees(worktrees, command_io=command_io)
     arguments = terminal_arguments(worktrees, repository, command_io)
-    command_io.out("Layout: maximized window with up to four equal panes per tab (2 x 2).")
+    command_io.out("Layout: maximized window with one tab per worktree.")
     if dry_run:
         command_io.out("Dry run complete; Windows Terminal was not opened.")
         return

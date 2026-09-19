@@ -11,7 +11,7 @@ COMMAND_SPEC = CommandSpec(
     subcommands=(
         CommandSpec(
             "open",
-            "open terminals for every worktree",
+            "open a terminal tab for every worktree",
             HANDLER,
             arguments=(argument("--dry-run", action="store_true"),),
             defaults=(("worktree_action", "open"),),
