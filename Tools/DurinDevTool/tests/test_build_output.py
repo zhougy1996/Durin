@@ -4,6 +4,7 @@ import io
 import os
 from pathlib import Path
 from unittest import mock
+from rich.cells import cell_len
 from durin_dev_tool.build import build_context, errors, models, requests
 from durin_dev_tool.build.output import BuildOutput
 
@@ -87,6 +88,55 @@ class TestOutput:
         assert '\r[2/2] Linking result.dll' in text
         assert '[1/2] Building first.cpp\n' not in text
         assert '[2/2] Linking result.dll\ncompiler diagnostic\n' in text
+
+    @pytest.mark.parametrize('columns', [1, 20, 40])
+    def test_progress_fits_actual_terminal_despite_inherited_columns(self, columns: int) -> None:
+        stdout = io.StringIO()
+        with mock.patch.dict(os.environ, {'COLUMNS': '160'}):
+            output = BuildOutput(plain=True, stdout=stdout, force_terminal=True)
+            with mock.patch.object(stdout, 'fileno', return_value=77), mock.patch(
+                'os.get_terminal_size', return_value=os.terminal_size((columns, 30)),
+            ):
+                output.child_output('[1/2] Building\t' + '材质路径/' * 20 + 'first.cpp\n')
+        visible = stdout.getvalue().rsplit('\r', 1)[-1]
+        assert cell_len(visible) <= columns - 1
+        assert '\n' not in visible
+        assert '\t' not in visible
+        assert visible.endswith('…') if columns > 1 else visible == ''
+
+    def test_plain_progress_padding_fits_after_terminal_shrinks(self) -> None:
+        stdout = io.StringIO()
+        output = BuildOutput(plain=True, stdout=stdout, force_terminal=True)
+        with mock.patch.object(stdout, 'fileno', return_value=77), mock.patch(
+            'os.get_terminal_size', return_value=os.terminal_size((160, 30)),
+        ) as terminal_size:
+            output.child_output('[1/2] Building ' + 'long-path/' * 20 + '\n')
+            stdout.seek(0)
+            stdout.truncate()
+            terminal_size.return_value = os.terminal_size((40, 30))
+            output.child_output('[2/2] Linking result.dll\n')
+        assert all(cell_len(part) < 40 for part in stdout.getvalue().split('\r'))
+        assert '\n' not in stdout.getvalue()
+        assert '\x1b' not in stdout.getvalue()
+
+    def test_progress_clears_rows_reflowed_by_terminal_resize(self) -> None:
+        stdout = io.StringIO()
+        with mock.patch.dict(os.environ, {}, clear=True):
+            output = BuildOutput(stdout=stdout, force_terminal=True)
+        output.console.legacy_windows = False
+        with mock.patch.dict(os.environ, {}, clear=True), mock.patch.object(stdout, 'fileno', return_value=77), mock.patch(
+            'os.get_terminal_size', return_value=os.terminal_size((100, 30)),
+        ) as terminal_size:
+            output.child_output('[1/2] Building ' + 'x' * 150 + '\n')
+            stdout.seek(0)
+            stdout.truncate()
+            terminal_size.return_value = os.terminal_size((40, 30))
+            output.child_output('[2/2] Linking result.dll\n')
+        text = stdout.getvalue()
+        assert text.count('\x1b[1A') == 2
+        assert text.count('\x1b[2K') == 3
+        assert text.endswith('[2/2] Linking result.dll')
+        assert '\n' not in text
 
     def test_progress_mode_hides_routine_dht_logs_but_preserves_diagnostics(self) -> None:
         stdout = io.StringIO()

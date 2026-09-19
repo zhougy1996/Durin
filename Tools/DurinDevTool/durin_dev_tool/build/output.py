@@ -8,7 +8,10 @@ from contextlib import contextmanager
 from time import perf_counter
 from typing import Iterator, Mapping, Sequence, TextIO
 
+from rich.cells import cell_len, set_cell_size
 from rich.console import Console
+from rich.control import Control
+from rich.segment import ControlType
 from rich.text import Text
 
 from .build_context import BuildContext
@@ -121,6 +124,47 @@ class BuildOutput:
         with self._output_lock:
             self._finish_progress()
 
+    def _progress_columns(self) -> int:
+        # Rich honors COLUMNS, which may have been inherited from another window.
+        # Query this stream on every update so resizing cannot leave a stale width.
+        try:
+            columns = os.get_terminal_size(self.console.file.fileno()).columns
+        except (AttributeError, OSError, ValueError):
+            columns = 0
+        return max(1, columns or self.console.width)
+
+    def _write_progress(self, text: str) -> None:
+        columns = self._progress_columns()
+        # Keep the cursor off the final column, including for wide Unicode text.
+        maximum_width = columns - 1
+        visible = text.expandtabs(4)
+        if cell_len(visible) > maximum_width:
+            visible = (
+                set_cell_size(visible, maximum_width - 1) + "…"
+                if maximum_width else ""
+            )
+        if self.plain or self.console.is_dumb_terminal:
+            # Old padding must also fit after the terminal has been narrowed.
+            erase_width = min(self._progress_width, maximum_width)
+            self.console.file.write("\r" + (" " * erase_width) + "\r" + visible)
+        else:
+            # Windows Terminal reflows the previous status when the window shrinks.
+            # Clear those rows too; Rich handles both ANSI and legacy Win32 consoles.
+            wrapped_rows = max(0, self._progress_width - 1) // columns
+            controls = [
+                (ControlType.CURSOR_MOVE_TO_COLUMN, 0),
+                (ControlType.ERASE_IN_LINE, 2),
+            ]
+            for _ in range(wrapped_rows):
+                controls.extend([
+                    (ControlType.CURSOR_UP, 1),
+                    (ControlType.ERASE_IN_LINE, 2),
+                ])
+            self.console.control(Control(*controls))
+            self.console.print(Text(visible), end="", soft_wrap=True)
+        self.console.file.flush()
+        self._progress_width = cell_len(visible)
+
     def info(self, message: str) -> None:
         with self._output_lock:
             self._finish_progress()
@@ -218,17 +262,7 @@ class BuildOutput:
             if self.progress and self._progress_width and not clean:
                 return
             if self.progress and NINJA_PROGRESS_PATTERN.match(clean):
-                maximum_width = max(1, self.console.width - 1)
-                visible = clean
-                if len(visible) > maximum_width:
-                    visible = visible[: max(0, maximum_width - 1)] + "…"
-                if self.plain:
-                    erase = "\r" + (" " * self._progress_width) + "\r"
-                else:
-                    erase = "\r\x1b[2K"
-                self.console.file.write(erase + visible)
-                self.console.file.flush()
-                self._progress_width = len(visible)
+                self._write_progress(clean)
                 return
             self._finish_progress()
             if colorize_log_levels and not self.plain and "\x1b[" not in text:
