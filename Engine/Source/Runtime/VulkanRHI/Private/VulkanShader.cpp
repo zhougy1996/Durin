@@ -1,3 +1,4 @@
+#include "VulkanCreation.h"
 #include "VulkanCreationTiming.h"
 #include "VulkanShader.h"
 
@@ -160,19 +161,9 @@ namespace Durin::VulkanRHI
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 		FVulkanCreationTimingScope TimingScope(EVulkanCreationKind::Shader);
 #endif
-		FShaderRHIRef Result;
-		auto CreationOperation = MakeVulkanCreationOperation(
-			[this, InCreateDesc, &Result]() {
-				Result = new FVulkanShader(*Device, InCreateDesc);
-			});
-		const auto CreationResult = ExecuteFallibleRHICreationOperation(CreationOperation);
-		if (!CreationResult.IsSuccess())
-		{
-			DURIN_ERROR("Failed to create Vulkan RHI shader '{}': {}",
-				InCreateDesc.DebugName ? InCreateDesc.DebugName : "<unnamed>",
-				FormatRHICreationError(CreationResult.Error));
-			return nullptr;
-		}
+		auto Result = CreateVulkanResource([&]() -> FShaderRHIRef {
+			return new FVulkanShader(*Device, InCreateDesc);
+		}, "shader", InCreateDesc.DebugName ? InCreateDesc.DebugName : "");
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 		if (auto* Timing = TimingScope.Get()) Timing->bSucceeded = !!Result;
 #endif

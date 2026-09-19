@@ -94,12 +94,12 @@ namespace Durin
 		auto Request = Current->Requests.State->Request(Initializer, Name, RetryAdmission);
 		if (RetryAdmission) Current->MarkPending();
 		if (!Request.IsAccepted()) return nullptr;
-		if (Request.GetState() == ERHIPipelineRequestState::Pending)
+		auto Result = Request.GetResult();
+		if (Result.State == ERHIPipelineRequestState::Pending)
 		{
 			Current->MarkPending();
 			if (Current->bRequiresFirstUse) FRenderPipelinePreparationBatch::Add(Request);
 		}
-		auto Result = Request.GetResult();
 		if (Result.Error.HasError() && !Current->Failure.HasError()) Current->Failure = Result.Error;
 		return Result.Graphics;
 	}
@@ -116,12 +116,12 @@ namespace Durin
 		auto Request = Current->Requests.State->Request(Initializer, Name, RetryAdmission);
 		if (RetryAdmission) Current->MarkPending();
 		if (!Request.IsAccepted()) return nullptr;
-		if (Request.GetState() == ERHIPipelineRequestState::Pending)
+		auto Result = Request.GetResult();
+		if (Result.State == ERHIPipelineRequestState::Pending)
 		{
 			Current->MarkPending();
 			if (Current->bRequiresFirstUse) FRenderPipelinePreparationBatch::Add(Request);
 		}
-		auto Result = Request.GetResult();
 		if (Result.Error.HasError() && !Current->Failure.HasError()) Current->Failure = Result.Error;
 		return Result.Compute;
 	}

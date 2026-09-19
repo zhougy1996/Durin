@@ -582,8 +582,8 @@ namespace Durin
 				ReserveResult = ReserveCandidate(State->Textures,
 					MakeDescriptorKey(Desc), LogicalBytes,
 					Request, [&](FRHICreationError& Failure) {
-						return GDynamicRHI->RHITryCreateTexture(
-							FRHICommandListImmediate::Get(), Desc, Failure);
+						return GDynamicRHI->RHICreateTexture(
+							FRHICommandListImmediate::Get(), Desc, &Failure);
 					},
 					[](FCandidate& OutCandidate, const FTextureRHIRef& Texture) {
 						OutCandidate.Texture = Texture;
@@ -596,8 +596,8 @@ namespace Durin
 				ReserveResult = ReserveCandidate(State->Buffers, Key,
 					LogicalBytes, Request,
 					[&](FRHICreationError& Failure) {
-						return GDynamicRHI->RHITryCreateBuffer(FRHICommandListImmediate::Get(),
-							FRHIBufferCreateDesc::Create("RDGBuffer", Request.BufferDesc), Failure);
+						return GDynamicRHI->RHICreateBuffer(FRHICommandListImmediate::Get(),
+							FRHIBufferCreateDesc::Create("RDGBuffer", Request.BufferDesc), &Failure);
 					},
 					[](FCandidate& OutCandidate, const FBufferRHIRef& Buffer) {
 						OutCandidate.Buffer = Buffer;

@@ -7,11 +7,6 @@
 #include "Threading/RunnableThread.h"
 #include "VulkanRHIAPI.h"
 
-namespace Durin
-{
-	struct FRHIFallibleOperationResult;
-}
-
 namespace Durin::VulkanRHI
 {
 	// Unknown results, device loss, and validation failures are never recoverable.

@@ -284,8 +284,9 @@ excludes diagnostic names, observation tags, and feature identity. Texture and
 buffer requests share whole-batch reservation, retry admission, pre-allocation
 eviction, rollback, publication, and error reporting; only typed RHI creation
 differs. Nullable texture and buffer factories also expose typed candidate
-failures through `RHITryCreateTexture` and `RHITryCreateBuffer`. Vulkan preserves
-memory exhaustion, resource exhaustion, and unsupported-description categories
+failures through the optional error output of `RHICreateTexture` and
+`RHICreateBuffer`. Ordinary callers only inspect the nullable resource. Vulkan
+preserves memory exhaustion, resource exhaustion, and unsupported-description categories
 across both inline and threaded creation boundaries. Device loss and invariant
 failures remain terminal; no retry policy catches them.
 

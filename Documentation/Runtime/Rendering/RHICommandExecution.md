@@ -187,9 +187,10 @@ destruction continues through ordinary ordered and GPU-safe retirement.
 ### Fallible Resource Creation
 
 `ExecuteFallibleSynchronousOperation` is the narrow exception for expected
-runtime resource-creation failure. Its `FRHIFallibleOperationResult` owns a
-success flag and diagnostic text. In threaded mode, the queued wrapper catches
-the creation exception, records operation failure, and completes the queue entry
+runtime resource-creation failure. It returns `FRHICreationError` directly;
+an empty error indicates success, without a separate result wrapper. In threaded
+mode, the queued wrapper catches the creation exception, records operation
+failure, and completes the queue entry
 successfully so its serial and later admitted work remain valid. Inline mode
 returns the same result directly. A Vulkan factory already executing on the RHI
 thread catches at the same boundary without enqueueing and waiting on itself.

@@ -2407,12 +2407,8 @@ namespace Durin::Tests
 			auto RHIIsTextureSupported(const FRHITextureCreateDesc&) const -> bool override { return true; }
 			auto RHICreateSampler(const FRHISamplerDesc&) -> TRefCountPtr<FRHISampler> override { return {}; }
 			auto RHICreateShader(const FRHIShaderCreateDesc&) -> FShaderRHIRef override { return {}; }
-			auto RHICreateTexture(FRHICommandListBase&, const FRHITextureCreateDesc&)
-				-> FTextureRHIRef override { return {}; }
-			auto RHICreateBuffer(FRHICommandListImmediate&, const FRHIBufferCreateDesc&)
-				-> FBufferRHIRef override { return {}; }
-			auto RHITryCreateTexture(FRHICommandListBase&, const FRHITextureCreateDesc& Desc,
-				FRHICreationError& OutFailure) -> FTextureRHIRef override
+			auto RHICreateTexture(FRHICommandListBase&, const FRHITextureCreateDesc& Desc,
+				FRHICreationError* OutFailure = nullptr) -> FTextureRHIRef override
 			{
 				if (ShouldFail(OutFailure)) return {};
 				auto Resource = MakeRefCount<TAccountedRDGResource<FRHITexture>>(
@@ -2420,8 +2416,8 @@ namespace Durin::Tests
 				PeakBytes = std::max(PeakBytes, LiveBytes);
 				return Resource;
 			}
-			auto RHITryCreateBuffer(FRHICommandListImmediate&, const FRHIBufferCreateDesc& Desc,
-				FRHICreationError& OutFailure) -> FBufferRHIRef override
+			auto RHICreateBuffer(FRHICommandListImmediate&, const FRHIBufferCreateDesc& Desc,
+				FRHICreationError* OutFailure = nullptr) -> FBufferRHIRef override
 			{
 				if (ShouldFail(OutFailure)) return {};
 				auto Resource = MakeRefCount<TAccountedRDGResource<FRHIBuffer>>(
@@ -2435,12 +2431,13 @@ namespace Durin::Tests
 				RHIFlushDeferredResources();
 			}
 		private:
-			auto ShouldFail(FRHICreationError& OutFailure) -> bool
+			auto ShouldFail(FRHICreationError* OutFailure) -> bool
 			{
 				++Creates;
-				OutFailure = Creates == FailOnCreate ? FRHICreationError{.Failure = Failure,
+				const auto Error = Creates == FailOnCreate ? FRHICreationError{.Failure = Failure,
 					.Source = ERHICreationFailureSource::NativeBackend, .NativeCode = -7} : FRHICreationError{};
-				return OutFailure.HasError();
+				if (OutFailure) *OutFailure = Error;
+				return Error.HasError();
 			}
 			FDynamicRHI* Previous;
 		};

@@ -296,16 +296,10 @@ namespace Durin
 		FRHICreationError Error;
 	};
 
-	struct FRHIFallibleOperationResult
-	{
-		FRHICreationError Error;
-		auto IsSuccess() const -> bool { return !Error.HasError(); }
-	};
-
 	// Executes immediately on the caller; never schedules, acquires a context, or waits.
 	// Only explicitly recoverable creation errors become failed results.
 	RHI_API auto ExecuteFallibleRHICreationOperation(const std::function<void()>& Operation)
-		-> FRHIFallibleOperationResult;
+		-> FRHICreationError;
 
 	// Owns the primary timeline and immediate-only coordination operations.
 	class FRHICommandListImmediate final : public FRHICommandList
@@ -431,7 +425,7 @@ namespace Durin
 			bool bFlushRecordedCommands,
 			std::function<void()> Operation,
 			size_t OwnedPayloadBytes = 0,
-			FRHISynchronousOperationTiming* Timing = nullptr) -> FRHIFallibleOperationResult;
+			FRHISynchronousOperationTiming* Timing = nullptr) -> FRHICreationError;
 
 	private:
 		class FState;

@@ -13,6 +13,7 @@
 #include "SlangShaderCompiler.h"
 #include "VulkanRHIPrivate.h"
 #include "VulkanCreationTiming.h"
+#include "VulkanCreation.h"
 #include "VulkanDynamicRHI.h"
 #include "VulkanExtensions.h"
 #include "VulkanDevice.h"
@@ -164,6 +165,40 @@ namespace Durin::VulkanRHI
 		: public FVulkanCreateFailureInjectionTests
 	{
 	};
+
+	TEST_F(FVulkanCreateFailureInjectionTests, NullableFactoryKeepsRecoveryDetailsOptional)
+	{
+		// Exercise the factory boundary without a device or replay thread.
+		auto Fail = []() -> std::shared_ptr<int> {
+			throw vk::OutOfDeviceMemoryError("expected allocation failure");
+		};
+		EXPECT_FALSE(CreateVulkanResource(Fail, "test resource"));
+		FRHICreationError Error;
+		EXPECT_FALSE(CreateVulkanResource(Fail, "test resource", {}, &Error));
+		EXPECT_EQ(Error.Failure, ERHIResourceCreationFailure::OutOfMemory);
+		EXPECT_EQ(Error.Source, ERHICreationFailureSource::NativeBackend);
+		EXPECT_EQ(Error.NativeCode, static_cast<int32>(vk::Result::eErrorOutOfDeviceMemory));
+		auto Resource = CreateVulkanResource([] { return std::make_shared<int>(42); },
+			"test resource", {}, &Error);
+		ASSERT_TRUE(Resource);
+		EXPECT_EQ(*Resource, 42);
+		EXPECT_FALSE(Error.HasError());
+		EXPECT_EQ(Error.Source, ERHICreationFailureSource::None);
+		EXPECT_FALSE(Error.NativeCode.has_value());
+		EXPECT_FALSE(CreateVulkanResource([] { return std::shared_ptr<int>{}; },
+			"test resource", {}, &Error));
+		EXPECT_EQ(Error.Source, ERHICreationFailureSource::BackendReturnedNull);
+	}
+
+	TEST_F(FVulkanCreateFailureInjectionTests, NullableFactoryPreservesTerminalExceptions)
+	{
+		EXPECT_THROW(CreateVulkanResource([]() -> std::shared_ptr<int> {
+			throw vk::DeviceLostError("terminal device loss");
+		}, "test resource"), vk::DeviceLostError);
+		EXPECT_THROW(CreateVulkanResource([]() -> std::shared_ptr<int> {
+			throw std::logic_error("internal invariant failure");
+		}, "test resource"), std::logic_error);
+	}
 
 	TEST(FVulkanDebugUtilsTests, UnavailableNamingIsCountedAndNonFatal)
 	{
@@ -1449,14 +1484,14 @@ namespace Durin::VulkanRHI
 				const auto Recoverable = ExecuteFallibleRHICreationOperation(MakeVulkanCreationOperation([] {
 					throw vk::OutOfDeviceMemoryError("expected allocation failure");
 				}));
-				EXPECT_FALSE(Recoverable.IsSuccess());
-				EXPECT_EQ(Recoverable.Error.Failure, ERHIResourceCreationFailure::OutOfMemory);
-				EXPECT_EQ(Recoverable.Error.NativeCode, static_cast<int32>(vk::Result::eErrorOutOfDeviceMemory));
-				EXPECT_EQ(Recoverable.Error.Source, ERHICreationFailureSource::NativeBackend);
+				EXPECT_TRUE(Recoverable.HasError());
+				EXPECT_EQ(Recoverable.Failure, ERHIResourceCreationFailure::OutOfMemory);
+				EXPECT_EQ(Recoverable.NativeCode, static_cast<int32>(vk::Result::eErrorOutOfDeviceMemory));
+				EXPECT_EQ(Recoverable.Source, ERHICreationFailureSource::NativeBackend);
 				const auto Unsupported = ExecuteFallibleRHICreationOperation(MakeVulkanCreationOperation([] {
 					throw vk::FormatNotSupportedError("unsupported descriptor");
 				}));
-				EXPECT_EQ(Unsupported.Error.Failure,
+				EXPECT_EQ(Unsupported.Failure,
 					ERHIResourceCreationFailure::UnsupportedDescriptor);
 				EXPECT_THROW(ExecuteFallibleRHICreationOperation(MakeVulkanCreationOperation([] {
 					throw vk::DeviceLostError("terminal device loss");
@@ -1793,7 +1828,7 @@ namespace Durin::VulkanRHI
 						Result = Device->GetPipelineManager().GetOrCreateGraphicsPipelineState(G, std::move(Key), "BackgroundGraphics");
 					}
 				}));
-				return Outcome.IsSuccess() ? Result : nullptr;
+				return !Outcome.HasError() ? Result : nullptr;
 			};
 			auto Warm = std::async(std::launch::async, [&] { return Create(0); }).get();
 			ASSERT_TRUE(Warm);

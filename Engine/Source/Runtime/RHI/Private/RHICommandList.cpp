@@ -2841,14 +2841,14 @@ namespace Durin
 	}
 
 	auto ExecuteFallibleRHICreationOperation(const std::function<void()>& Operation)
-		-> FRHIFallibleOperationResult
+		-> FRHICreationError
 	{
 		check(Operation);
-		FRHIFallibleOperationResult Result;
+		FRHICreationError Result;
 		try { Operation(); }
 		catch (const FRHIRecoverableCreationError& Exception)
 		{
-			Result.Error = Exception.Error;
+			Result = Exception.Error;
 		}
 		return Result;
 	}
@@ -2856,7 +2856,7 @@ namespace Durin
 	auto FRHICommandListExecutor::ExecuteFallibleSynchronousOperation(
 		bool bFlushRecordedCommands,
 		std::function<void()> Operation,
-		size_t OwnedPayloadBytes, FRHISynchronousOperationTiming* Timing) -> FRHIFallibleOperationResult
+		size_t OwnedPayloadBytes, FRHISynchronousOperationTiming* Timing) -> FRHICreationError
 	{
 		if (Timing) *Timing = {};
 		checkf(!CommandListImmediate.HasOpenBufferLocks(),
@@ -2868,7 +2868,7 @@ namespace Durin
 			Submit({}, ERHISubmitFlags::None);
 		}
 
-		auto Result = std::make_shared<FRHIFallibleOperationResult>();
+		auto Result = std::make_shared<FRHICreationError>();
 		auto ExecuteOperation =
 			[Operation = std::move(Operation), Result]() mutable {
 				*Result = ExecuteFallibleRHICreationOperation(Operation);

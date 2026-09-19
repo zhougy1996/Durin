@@ -1,3 +1,4 @@
+#include "VulkanCreation.h"
 #include "VulkanCreationTiming.h"
 #include "VulkanPipeline.h"
 
@@ -1226,12 +1227,10 @@ namespace Durin::VulkanRHI
 			return Result;
 		}
 		// Explicit startup compatibility: async admission still requires Core startup.
-		FGraphicsPipelineStateRHIRef Result;
-		const auto Outcome = ExecuteFallibleRHICreationOperation(MakeVulkanCreationOperation([&] {
-			Result = Device->GetPipelineManager().GetOrCreateGraphicsPipelineState(
+		auto Result = CreateVulkanResource([&] {
+			return Device->GetPipelineManager().GetOrCreateGraphicsPipelineState(
 				Initializer, std::move(Key), DebugName.ToString());
-		}));
-		if (!Outcome.IsSuccess()) DURIN_ERROR("Failed to create graphics pipeline: {}", FormatRHICreationError(Outcome.Error));
+		}, "graphics pipeline", DebugName.ToString());
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 		if (auto* Timing = TimingScope.Get()) Timing->bSucceeded = !!Result;
 #endif
@@ -1271,12 +1270,10 @@ namespace Durin::VulkanRHI
 			return Result;
 		}
 		// Explicit startup compatibility: async admission still requires Core startup.
-		FComputePipelineStateRHIRef Result;
-		const auto Outcome = ExecuteFallibleRHICreationOperation(MakeVulkanCreationOperation([&] {
-			Result = Device->GetPipelineManager().GetOrCreateComputePipelineState(
+		auto Result = CreateVulkanResource([&] {
+			return Device->GetPipelineManager().GetOrCreateComputePipelineState(
 				Initializer, std::move(Key), DebugName.ToString());
-		}));
-		if (!Outcome.IsSuccess()) DURIN_ERROR("Failed to create compute pipeline: {}", FormatRHICreationError(Outcome.Error));
+		}, "compute pipeline", DebugName.ToString());
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 		if (auto* Timing = TimingScope.Get()) Timing->bSucceeded = !!Result;
 #endif

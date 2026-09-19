@@ -1180,24 +1180,23 @@ namespace Durin
 		FRecordingCommandContext Context;
 		FRHICommandListExecutor Executor(Context);
 		FRHISynchronousOperationTiming Timing;
-		const FRHIFallibleOperationResult Failure =
+		const FRHICreationError Failure =
 			Executor.ExecuteFallibleSynchronousOperation(false, []() {
 				throw FRHIRecoverableCreationError({ERHIResourceCreationFailure::OutOfMemory, ERHICreationFailureSource::NativeBackend, -2});
 			}, 0, &Timing);
 
 		bool bLaterWorkExecuted = false;
-		const FRHIFallibleOperationResult Success =
+		const FRHICreationError Success =
 			Executor.ExecuteFallibleSynchronousOperation(false,
 				[&bLaterWorkExecuted]() { bLaterWorkExecuted = true; });
 
 		EXPECT_EQ(Timing.Admitted, 0u);
 		EXPECT_EQ(Timing.WaitBegin, 0u);
 		EXPECT_EQ(Timing.WaitEnd, 0u);
-		EXPECT_FALSE(Failure.IsSuccess());
-		EXPECT_EQ(Failure.Error.Failure, ERHIResourceCreationFailure::OutOfMemory);
-		EXPECT_EQ(Failure.Error.NativeCode, -2);
-		EXPECT_TRUE(Success.IsSuccess());
-		EXPECT_FALSE(Success.Error.HasError());
+		EXPECT_TRUE(Failure.HasError());
+		EXPECT_EQ(Failure.Failure, ERHIResourceCreationFailure::OutOfMemory);
+		EXPECT_EQ(Failure.NativeCode, -2);
+		EXPECT_FALSE(Success.HasError());
 		EXPECT_TRUE(bLaterWorkExecuted);
 		EXPECT_EQ(Executor.GetStats().SynchronousOperationCount, 2u);
 	}
@@ -1211,12 +1210,12 @@ namespace Durin
 		FRHICommandListExecutor Executor(Context, RHIThread);
 
 		FRHISynchronousOperationTiming Timing;
-		const FRHIFallibleOperationResult Failure =
+		const FRHICreationError Failure =
 			Executor.ExecuteFallibleSynchronousOperation(false, []() {
 				throw FRHIRecoverableCreationError({ERHIResourceCreationFailure::OutOfMemory, ERHICreationFailureSource::NativeBackend, -2});
 			}, 0, &Timing);
 		bool bLaterWorkExecutedOnRHIThread = false;
-		const FRHIFallibleOperationResult Success =
+		const FRHICreationError Success =
 			Executor.ExecuteFallibleSynchronousOperation(false,
 				[&bLaterWorkExecutedOnRHIThread]() {
 					bLaterWorkExecutedOnRHIThread = IsInRHIThread();
@@ -1225,10 +1224,10 @@ namespace Durin
 		EXPECT_GT(Timing.Admitted, 0u);
 		EXPECT_GE(Timing.WaitBegin, Timing.Admitted);
 		EXPECT_GE(Timing.WaitEnd, Timing.WaitBegin);
-		EXPECT_FALSE(Failure.IsSuccess());
-		EXPECT_EQ(Failure.Error.Failure, ERHIResourceCreationFailure::OutOfMemory);
-		EXPECT_EQ(Failure.Error.NativeCode, -2);
-		EXPECT_TRUE(Success.IsSuccess());
+		EXPECT_TRUE(Failure.HasError());
+		EXPECT_EQ(Failure.Failure, ERHIResourceCreationFailure::OutOfMemory);
+		EXPECT_EQ(Failure.NativeCode, -2);
+		EXPECT_FALSE(Success.HasError());
 		EXPECT_TRUE(bLaterWorkExecutedOnRHIThread);
 		const FRHICommandListExecutorStats Stats = Executor.GetStats();
 		EXPECT_EQ(Stats.SynchronousOperationCount, 2u);

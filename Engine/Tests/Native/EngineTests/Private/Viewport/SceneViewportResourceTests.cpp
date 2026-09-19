@@ -40,18 +40,25 @@ namespace Durin
 			auto RHICreateVertexDeclaration(const FVertexDeclarationElementList&)
 				-> FVertexDeclarationRHIRef override { return {}; }
 			auto RHIIsTextureSupported(const FRHITextureCreateDesc&) const -> bool override { return true; }
-			auto RHICreateTexture(FRHICommandListBase&, const FRHITextureCreateDesc& Desc) -> FTextureRHIRef override
+			auto RHICreateTexture(FRHICommandListBase&, const FRHITextureCreateDesc& Desc, FRHICreationError* OutFailure = nullptr) -> FTextureRHIRef override
 			{
 				++CreationCount;
 				bCreatedOnRenderThread &= IsInRenderingThread();
 				// Exercise the same immediate-list lock guard as Vulkan creation.
 				const auto Result = GCommandListExecutor.ExecuteFallibleSynchronousOperation(false, [] {});
-				return Result.IsSuccess() && !bFailCreation ? FTextureRHIRef(new FViewportTestTexture(Desc)) : FTextureRHIRef{};
+				if (OutFailure) *OutFailure = Result.HasError() ? Result : bFailCreation
+					? FRHICreationError{ERHIResourceCreationFailure::Unknown, ERHICreationFailureSource::BackendReturnedNull}
+					: FRHICreationError{};
+				return !Result.HasError() && !bFailCreation ? FTextureRHIRef(new FViewportTestTexture(Desc)) : FTextureRHIRef{};
 			}
 			auto RHICreateSampler(const FRHISamplerDesc&) -> FSamplerRHIRef override { return {}; }
 			auto RHICreateShader(const FRHIShaderCreateDesc&) -> FShaderRHIRef override { return {}; }
-			auto RHICreateBuffer(FRHICommandListImmediate&, const FRHIBufferCreateDesc&)
-				-> FBufferRHIRef override { return {}; }
+			auto RHICreateBuffer(FRHICommandListImmediate&, const FRHIBufferCreateDesc&, FRHICreationError* OutFailure = nullptr)
+				-> FBufferRHIRef override
+			{
+				if (OutFailure) *OutFailure = {ERHIResourceCreationFailure::Unknown, ERHICreationFailureSource::BackendReturnedNull};
+				return {};
+			}
 			auto RHIBeginDiagnosticRegion(std::string_view) -> void override {}
 			auto RHIEndDiagnosticRegion() -> void override {}
 			auto RHIBeginRenderPass(const FRHIRenderPassInfo&, FName) -> void override {}

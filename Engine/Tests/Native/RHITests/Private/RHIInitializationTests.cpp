@@ -90,15 +90,23 @@ namespace Durin
 			auto RHIIsTextureSupported(
 				const FRHITextureCreateDesc&) const -> bool override { return false; }
 			auto RHICreateTexture(
-				FRHICommandListBase&, const FRHITextureCreateDesc&)
-				-> TRefCountPtr<FRHITexture> override { return {}; }
+				FRHICommandListBase&, const FRHITextureCreateDesc&, FRHICreationError* OutFailure = nullptr)
+				-> TRefCountPtr<FRHITexture> override
+			{
+				if (OutFailure) *OutFailure = {ERHIResourceCreationFailure::Unknown, ERHICreationFailureSource::BackendReturnedNull};
+				return {};
+			}
 			auto RHICreateSampler(const FRHISamplerDesc&)
 				-> TRefCountPtr<FRHISampler> override { return {}; }
 			auto RHICreateShader(const FRHIShaderCreateDesc&)
 				-> TRefCountPtr<FRHIShader> override { return {}; }
 			auto RHICreateBuffer(
-				FRHICommandListImmediate&, const FRHIBufferCreateDesc&)
-				-> TRefCountPtr<FRHIBuffer> override { return {}; }
+				FRHICommandListImmediate&, const FRHIBufferCreateDesc&, FRHICreationError* OutFailure = nullptr)
+				-> TRefCountPtr<FRHIBuffer> override
+			{
+				if (OutFailure) *OutFailure = {ERHIResourceCreationFailure::Unknown, ERHICreationFailureSource::BackendReturnedNull};
+				return {};
+			}
 
 		private:
 			FInitializationObservation& Observation;

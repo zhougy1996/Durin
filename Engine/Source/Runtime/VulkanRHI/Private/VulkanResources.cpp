@@ -1,3 +1,4 @@
+#include "VulkanCreation.h"
 #include "VulkanCreationTiming.h"
 #include "VulkanResources.h"
 
@@ -21,17 +22,9 @@ namespace Durin::VulkanRHI
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 		FVulkanCreationTimingScope TimingScope(EVulkanCreationKind::VertexDeclaration);
 #endif
-		TRefCountPtr<FRHIVertexDeclaration> Result;
-		const auto CreationResult = ExecuteFallibleRHICreationOperation(
-			MakeVulkanCreationOperation([Elements, &Result]() {
-				Result = new FVulkanVertexDeclaration(Elements);
-			}));
-		if (!CreationResult.IsSuccess())
-		{
-			DURIN_ERROR("Failed to create Vulkan RHI vertex declaration: {}",
-				FormatRHICreationError(CreationResult.Error));
-			return nullptr;
-		}
+		auto Result = CreateVulkanResource([&]() -> TRefCountPtr<FRHIVertexDeclaration> {
+			return new FVulkanVertexDeclaration(Elements);
+		}, "vertex declaration");
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 		if (auto* Timing = TimingScope.Get()) Timing->bSucceeded = !!Result;
 #endif

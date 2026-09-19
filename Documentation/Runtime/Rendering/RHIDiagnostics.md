@@ -24,9 +24,11 @@ Do not add a general message constructor or use formatted text for branching.
 
 `FRHICreationError` retains the recovery classification, failure source, and
 optional native status. Both synchronous operation results and asynchronous
-pipeline publications preserve it. `RHITryCreateTexture` and `RHITryCreateBuffer`
-write the complete creation error, including native status, so RDG allocation
-can retain it through rollback and retry suppression. Cache exhaustion is classified explicitly;
+pipeline publications preserve it. `RHICreateTexture` and `RHICreateBuffer`
+return nullable resources and accept an optional error output pointer. Ordinary
+callers only inspect the resource; Vulkan factories log recoverable failures
+locally. Recovery callers retain the complete error, including native status,
+through RDG rollback and retry suppression. Cache exhaustion is classified explicitly;
 Vulkan candidate failures retain their native result code. Device and invariant
 failures remain terminal exceptions, outside the recoverable creation contract.
 

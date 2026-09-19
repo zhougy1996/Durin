@@ -45,10 +45,18 @@ namespace Durin
 			auto RHIGetViewportBackBuffer(FRHIViewport*) -> FTextureRHIRef override { return {}; }
 			auto RHICreateVertexDeclaration(const FVertexDeclarationElementList&) -> FVertexDeclarationRHIRef override { return {}; }
 			auto RHIIsTextureSupported(const FRHITextureCreateDesc&) const -> bool override { return false; }
-			auto RHICreateTexture(FRHICommandListBase&, const FRHITextureCreateDesc&) -> FTextureRHIRef override { return {}; }
+			auto RHICreateTexture(FRHICommandListBase&, const FRHITextureCreateDesc&, FRHICreationError* OutFailure = nullptr) -> FTextureRHIRef override
+			{
+				if (OutFailure) *OutFailure = {ERHIResourceCreationFailure::Unknown, ERHICreationFailureSource::BackendReturnedNull};
+				return {};
+			}
 			auto RHICreateSampler(const FRHISamplerDesc&) -> FSamplerRHIRef override { return {}; }
 			auto RHICreateShader(const FRHIShaderCreateDesc&) -> FShaderRHIRef override { return {}; }
-			auto RHICreateBuffer(FRHICommandListImmediate&, const FRHIBufferCreateDesc&) -> FBufferRHIRef override { return {}; }
+			auto RHICreateBuffer(FRHICommandListImmediate&, const FRHIBufferCreateDesc&, FRHICreationError* OutFailure = nullptr) -> FBufferRHIRef override
+			{
+				if (OutFailure) *OutFailure = {ERHIResourceCreationFailure::Unknown, ERHICreationFailureSource::BackendReturnedNull};
+				return {};
+			}
 		protected:
 			auto CreatePipelineCreationBackend() -> FRHIPipelineCreationService::FBackend override
 			{

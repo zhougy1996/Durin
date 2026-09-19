@@ -1,3 +1,4 @@
+#include "VulkanCreation.h"
 #include "VulkanCreationTiming.h"
 #include "Backend/RHICompletionBackend.h"
 #include "VulkanBuffer.h"
@@ -481,40 +482,24 @@ namespace Durin::VulkanRHI
 		return (Value + Alignment - 1) / Alignment * Alignment;
 	}
 
-	auto FVulkanDynamicRHI::RHICreateBuffer(FRHICommandListImmediate& RHICmdList, const FRHIBufferCreateDesc& CreateDesc) -> TRefCountPtr<FRHIBuffer>
-	{
-		FRHICreationError Failure;
-		return RHITryCreateBuffer(RHICmdList, CreateDesc, Failure);
-	}
-
-	auto FVulkanDynamicRHI::RHITryCreateBuffer(FRHICommandListImmediate& RHICmdList,
-		const FRHIBufferCreateDesc& CreateDesc, FRHICreationError& OutFailure)
+	auto FVulkanDynamicRHI::RHICreateBuffer(FRHICommandListImmediate& RHICmdList,
+		const FRHIBufferCreateDesc& CreateDesc, FRHICreationError* OutFailure)
 		-> FBufferRHIRef
 	{
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 		FVulkanCreationTimingScope TimingScope(EVulkanCreationKind::Buffer);
 #endif
-		OutFailure = {};
+		if (OutFailure) *OutFailure = {};
 		FRHIBufferCreateDesc NormalizedDesc = CreateDesc;
 		if (EnumHasAnyFlags(NormalizedDesc.Usage, EBufferUsageFlags::Static)
 			|| NormalizedDesc.InitialData.Data != nullptr)
 		{
 			NormalizedDesc.Usage |= EBufferUsageFlags::DestinationCopy;
 		}
-		TRefCountPtr<FRHIBuffer> Result;
-		auto CreationOperation = MakeVulkanCreationOperation(
-			[this, NormalizedDesc, &Result]() {
-				Result = new FVulkanBuffer(*Device, NormalizedDesc);
-			});
-		const auto CreationResult = ExecuteFallibleRHICreationOperation(CreationOperation);
-		if (!CreationResult.IsSuccess())
-		{
-			OutFailure = CreationResult.Error;
-			DURIN_ERROR("Failed to create Vulkan RHI buffer '{}': {}",
-				CreateDesc.DebugName ? CreateDesc.DebugName : "<unnamed>",
-				FormatRHICreationError(CreationResult.Error));
-			return nullptr;
-		}
+		auto Result = CreateVulkanResource([&]() -> FBufferRHIRef {
+			return new FVulkanBuffer(*Device, NormalizedDesc);
+		}, "buffer", CreateDesc.DebugName ? CreateDesc.DebugName : "", OutFailure);
+		if (!Result) return nullptr;
 		auto* CreatedBuffer = static_cast<FVulkanBuffer*>(Result.GetReference());
 		auto& InitialData = CreateDesc.InitialData;
 		if (InitialData.Data)

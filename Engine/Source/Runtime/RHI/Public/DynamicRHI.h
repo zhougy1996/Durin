@@ -264,14 +264,10 @@ namespace Durin
 		virtual auto RHICreateVertexDeclaration(const FVertexDeclarationElementList& Elements) -> TRefCountPtr<FRHIVertexDeclaration> = 0;
 		// Checks the exact format and usage contract without allocating a resource.
 		virtual auto RHIIsTextureSupported(const FRHITextureCreateDesc& CreateDesc) const -> bool = 0;
-		virtual auto RHICreateTexture(FRHICommandListBase& RHICmdList, const FRHITextureCreateDesc& CreateDesc) -> TRefCountPtr<FRHITexture> = 0;
-		// Preserve candidate failure categories for demand-driven retry policies.
-		RHI_API virtual auto RHITryCreateTexture(FRHICommandListBase& RHICmdList,
-			const FRHITextureCreateDesc& CreateDesc, FRHICreationError& OutFailure)
-			-> TRefCountPtr<FRHITexture>;
-		RHI_API virtual auto RHITryCreateBuffer(FRHICommandListImmediate& RHICmdList,
-			const FRHIBufferCreateDesc& CreateDesc, FRHICreationError& OutFailure)
-			-> TRefCountPtr<FRHIBuffer>;
+		// Null means recoverable creation failure. Optional details support retry policies.
+		// When supplied, OutFailure is cleared on success and populated on failure.
+		virtual auto RHICreateTexture(FRHICommandListBase& RHICmdList, const FRHITextureCreateDesc& CreateDesc,
+			FRHICreationError* OutFailure = nullptr) -> TRefCountPtr<FRHITexture> = 0;
 		// Process CPU retirement and completed GPU deletions without waiting for GPU idle.
 		// Called on the rendering thread before allocating under memory pressure.
 		RHI_API virtual auto RHICollectCompletedResources() -> void;
@@ -282,7 +278,8 @@ namespace Durin
 			FRHITexture* NewTexture) -> void;
 		virtual auto RHICreateSampler(const FRHISamplerDesc& CreateDesc) -> TRefCountPtr<FRHISampler> = 0;
 		virtual auto RHICreateShader(const FRHIShaderCreateDesc& CreateDesc) -> TRefCountPtr<FRHIShader> = 0;
-		virtual auto RHICreateBuffer(FRHICommandListImmediate& RHICmdList, const FRHIBufferCreateDesc& CreateDesc) -> TRefCountPtr<FRHIBuffer> = 0;
+		virtual auto RHICreateBuffer(FRHICommandListImmediate& RHICmdList, const FRHIBufferCreateDesc& CreateDesc,
+			FRHICreationError* OutFailure = nullptr) -> TRefCountPtr<FRHIBuffer> = 0;
 		// Creates one complete immutable view or returns null after a recoverable diagnostic.
 		RHI_API virtual auto RHICreateBufferView(
 			FRHIBuffer* Buffer,
