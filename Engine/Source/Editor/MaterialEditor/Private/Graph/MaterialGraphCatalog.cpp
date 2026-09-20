@@ -495,7 +495,8 @@ namespace Durin::Editor::Material
 					if (IsValid(Call->Function.Get()))
 					{
 						View.FunctionPath = Call->Function->GetObjectPath();
-						View.SecondaryLabel = Call->Function->GetName();
+						View.SecondaryLabel = View.PrimaryLabel;
+						View.PrimaryLabel = Call->Function->GetName();
 						auto Inputs = Call->Function->GetFunctionSignature().Inputs;
 						auto Outputs = Call->Function->GetFunctionSignature().Outputs;
 						const auto Order = [](const auto& A, const auto& B) { return A.DisplayOrder != B.DisplayOrder ? A.DisplayOrder < B.DisplayOrder : A.Id < B.Id; };
@@ -541,7 +542,8 @@ namespace Durin::Editor::Material
 			{
 				const auto& Port = Node.Opcode == EMaterialProgramOpcode::FunctionInput
 					? Cast<DMaterialExpressionFunctionInput>(Expression)->Port : Cast<DMaterialExpressionFunctionOutput>(Expression)->Port;
-				View.SecondaryLabel = Port.Name;
+				View.SecondaryLabel = std::format("{} ({})", View.PrimaryLabel, GetProgramTypeName(Port.Type));
+				if (!Port.Name.empty()) View.PrimaryLabel = Port.Name;
 				if (!View.Outputs.empty()) View.Outputs[0].Name = Port.Name;
 				if (!View.Inputs.empty()) { View.Inputs[0].Name = Port.Name; View.Inputs[0].AcceptedTypes = {Port.Type}; }
 			}

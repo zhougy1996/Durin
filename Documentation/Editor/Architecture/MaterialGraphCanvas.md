@@ -138,6 +138,11 @@ small RGB swatch; its channels are clamped for display while numeric values
 remain unchanged. Hover tooltips expose labels without width truncation and numeric
 values with nine significant digits. Material and function canvases share this
 heading renderer, including zoom, clipping, and overview visibility.
+Function input and output titles use their declared port names, with the terminal
+kind and value type in the subtitle. Function calls use the referenced function
+asset name as the title. Missing references retain the generic function-call title.
+Header-only nodes round all four corners; other nodes round only the top corners
+of their title fill. Borders are drawn after title fills to preserve their outline.
 Node bodies use approximately 90% opacity (94% when selected), including function
 nodes and the material output, so occluded wires remain faintly visible. Headers,
 text and pins remain opaque. Selection continues to emphasize adjacent wires.

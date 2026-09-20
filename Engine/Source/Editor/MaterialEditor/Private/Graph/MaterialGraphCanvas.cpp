@@ -1230,12 +1230,13 @@ namespace Durin::Editor::Material
 					bSelected ? IM_COL32(55, 72, 94, GraphSelectedNodeBodyAlpha)
 						: IM_COL32(42, 46, 54, GraphNodeBodyAlpha),
 					6.0f);
+				DrawList->AddRectFilled(Visual.Minimum,
+					{Visual.Maximum.x, Visual.Minimum.y + NodeHeaderHeight * Zoom},
+					NodeTitleColor(Visual.View->Node.Opcode), 6.0f,
+					IsHeaderOnlyGraphNode(*Visual.View) ? ImDrawFlags_RoundCornersAll : ImDrawFlags_RoundCornersTop);
 				DrawList->AddRect(Visual.Minimum, Visual.Maximum,
 					bSelected ? IM_COL32(90, 170, 245, 255) : IM_COL32(78, 84, 96, 255),
 					6.0f, 0, bSelected ? 2.5f : 1.0f);
-				DrawList->AddRectFilled(Visual.Minimum,
-					{Visual.Maximum.x, Visual.Minimum.y + NodeHeaderHeight * Zoom},
-					NodeTitleColor(Visual.View->Node.Opcode), 6.0f, ImDrawFlags_RoundCornersTop);
 				DrawNodeHeading(Visual, *DrawList, Material);
 				const float PinRadius = std::max(2.0f, 5.0f * Zoom);
 				if (DetailLevel != EMaterialGraphDetailLevel::Overview
