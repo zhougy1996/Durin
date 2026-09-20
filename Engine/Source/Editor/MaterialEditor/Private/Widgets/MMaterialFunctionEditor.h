@@ -40,6 +40,7 @@ namespace Durin::Editor::Material
 		auto Find(std::string_view Resource) const -> FDocument*;
 		auto DrawDocument(const FDocumentTab& Tab, FDocument& Document) -> void;
 		auto DrawInterface(FDocument& Document) -> void;
+		auto DrawInputs(FDocument& Document) -> void;
 		auto OnAssetsRelocated(std::span<const FAssetRelocationMapping> Mappings) -> void override;
 		std::unique_ptr<FMaterialEditorSessionSettings> SessionSettings;
 		FWorkspaceManager& Manager;

@@ -4,7 +4,7 @@ Summary: Define material editor panels, canvas geometry, semantic zoom, node cre
 
 Modules: MaterialEditor, Engine, DurinEd
 
-Last reviewed: 2026-09-17
+Last reviewed: 2026-09-20
 
 Commands, ownership, transactions, and clipboard semantics are defined in
 [Material Graph Operations](MaterialGraphOperations.md). Preview resources and
@@ -20,6 +20,15 @@ layouts reserve the left 30% for Preview above Details; the graph fills the
 remaining width and height. Parameters shares the Details dock as a visible tab,
 and Diagnostics as an optional tab. Small initial layouts use dock tabs. Resizing
 does not rebuild a user's arrangement. Hidden document roots keep their dock spaces alive.
+
+Function documents use the same initial geometry, with Inputs in place of
+Parameters and no separate Diagnostics window. Inputs lists function input ports
+and creates new inputs; selecting an entry selects and frames its graph node.
+Details edits only the selected node, including input/output port properties,
+without a global interface list or port creation form. Output ports are created
+from the graph menu. Preview displays compilation diagnostics with node navigation.
+The Window menu reopens Preview, Details and Inputs and resets the layout.
+Function layouts persist across document reopening and use a separate layout version.
 
 The creation menu uses one action list for catalog expressions, function assets,
 and function terminals, with shared search, selection, drawing, and activation.

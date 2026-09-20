@@ -9,6 +9,7 @@ namespace Durin::Editor::Material::Workspace
 	inline const ::Durin::Editor::FWorkspaceTypeId Type("MaterialEditor");
 	inline constexpr std::string_view RootKey = "MaterialEditor";
 	inline constexpr uint32 LayoutVersion = 4;
+	inline constexpr uint32 FunctionLayoutVersion = 5;
 
 	// Isolates panel docking and persisted layouts for each material document.
 	inline auto MakeDocumentDockType(const ::Durin::Editor::FDocumentTab& Document)
@@ -18,10 +19,10 @@ namespace Durin::Editor::Material::Workspace
 	}
 
 	inline auto BuildDefaultLayout(
-		const ::Durin::Editor::FDocumentTab& Document, const ImVec2& Size) -> void
+		const ::Durin::Editor::FDocumentTab& Document, const ImVec2& Size, bool bFunction = false) -> void
 	{
 		const auto DockType = MakeDocumentDockType(Document);
-		const ImGuiID DockSpaceId = ::Durin::Editor::WorkspaceUI::MakeDockSpaceId(DockType, LayoutVersion);
+		const ImGuiID DockSpaceId = ::Durin::Editor::WorkspaceUI::MakeDockSpaceId(DockType, bFunction ? FunctionLayoutVersion : LayoutVersion);
 		ImGui::DockBuilderRemoveNode(DockSpaceId);
 		ImGui::DockBuilderAddNode(DockSpaceId, ImGuiDockNodeFlags_DockSpace);
 		ImGui::DockBuilderSetNodeSize(DockSpaceId, Size);
@@ -46,8 +47,12 @@ namespace Durin::Editor::Material::Workspace
 		DockPanel("Material Graph", "Graph", GraphId);
 		DockPanel("Preview", "Preview", PreviewId);
 		DockPanel("Details", "Details", DetailsId);
-		DockPanel("Parameters", "Parameters", DetailsId);
-		DockPanel("Diagnostics", "Diagnostics", DiagnosticsId);
+		if (bFunction) DockPanel("Inputs", "Inputs", DetailsId);
+		else
+		{
+			DockPanel("Parameters", "Parameters", DetailsId);
+			DockPanel("Diagnostics", "Diagnostics", DiagnosticsId);
+		}
 		ImGui::DockBuilderFinish(DockSpaceId);
 	}
 

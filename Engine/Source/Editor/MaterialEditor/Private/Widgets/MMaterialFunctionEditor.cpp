@@ -31,7 +31,7 @@ namespace Durin::Editor::Material
 		FGuid Output;
 		FMaterialFunctionPreviewInvalidation PreviewInvalidation;
 		bool bPreviewValid = false;
-		bool bLayout = false;
+		bool bResetLayout = false;
 		bool bOutputPort = false;
 		FGuid EditingPort;
 		FGuid SelectedPortNode;
@@ -170,7 +170,13 @@ namespace Durin::Editor::Material
 				Manager.RemapResourceId(Mapping.SourcePath.ToString(), Mapping.DestinationPath.ToString());
 			}
 	}
-	auto MMaterialFunctionEditor::ResetLayout() -> void { for (auto& [Resource, Document] : Open) Document->bLayout = false; }
+	auto MMaterialFunctionEditor::ResetLayout() -> void
+	{
+		SessionSettings->bPreviewVisible = true;
+		SessionSettings->bDetailsVisible = true;
+		SessionSettings->bParametersVisible = true;
+		for (auto& [Resource, Document] : Open) Document->bResetLayout = true;
+	}
 	auto MMaterialFunctionEditor::NavigateToNode(std::string_view Resource, const FGuid& NodeId) -> bool
 	{
 		if (!Manager.OpenAsset(std::string(Resource), DMaterialFunction::StaticClass()->GetQualifiedName().ToString())) return false;
@@ -190,7 +196,51 @@ namespace Durin::Editor::Material
 		return Documents.GetDocumentHost().DrawDocuments(Manager, MaterialFunctionWorkspaceType, "MaterialFunctionEditor",
 			[this](const FDocumentTab& Tab) { const auto* Document = Find(Tab.ResourceId); return Document && Document->Function(); },
 			[this](const FDocumentTab& Tab) { DrawDocument(Tab, *Find(Tab.ResourceId)); },
-			[this](const FDocumentTab& Tab, bool Visible) { if (auto* Document = Find(Tab.ResourceId)) Document->Preview->SetVisible(Visible); });
+			[this](const FDocumentTab& Tab, bool Visible) {
+				if (auto* Document = Find(Tab.ResourceId)) Document->Preview->SetVisible(Visible);
+				if (!Visible)
+				{
+					const auto DockType = Workspace::MakeDocumentDockType(Tab);
+					if (ImGui::DockBuilderGetNode(WorkspaceUI::MakeDockSpaceId(DockType, Workspace::FunctionLayoutVersion)))
+						WorkspaceUI::SubmitDockSpace(DockType, Workspace::FunctionLayoutVersion,
+							{0.0f, 0.0f}, ImGuiDockNodeFlags_KeepAliveOnly);
+				}
+			});
+	}
+
+	auto MMaterialFunctionEditor::DrawInputs(FDocument& Document) -> void
+	{
+		auto& Function = *Document.Function();
+		auto Signature = Function.GetFunctionSignature();
+		std::ranges::stable_sort(Signature.Inputs, {}, &FMaterialFunctionPort::DisplayOrder);
+		if (ImGui::Button("New Input"))
+		{
+			FMaterialFunctionPort Port;
+			Port.Name = "Input";
+			for (uint32 Suffix = 1; std::ranges::any_of(Signature.Inputs,
+				[&](const auto& Input) { return Input.Name == Port.Name; }); ++Suffix)
+				Port.Name = std::format("Input{}", Suffix);
+			Port.Default.Kind = EMaterialFunctionDefaultKind::Numeric;
+			FMaterialGraphDocument Graph(Function);
+			const auto Result = Graph.AddPort(false, Port, {}, 0,
+				static_cast<int32>(Signature.Inputs.size()) * 120, GEditor->GetTransactor());
+			if (!Result) Error = FormatMaterialGraphCommandResult(Result);
+			else if (!Result.GeneratedNodeIds.empty()) Document.Canvas.SelectAndFrame(Result.GeneratedNodeIds.front());
+		}
+		if (Signature.Inputs.empty()) ImGui::TextDisabled("No function inputs.");
+		for (const auto& Port : Signature.Inputs)
+		{
+			const auto Label = std::format("{} ({})##{}", Port.Name, GetProgramTypeName(Port.Type), Port.Id.ToString());
+			for (const auto& Expression : Function.GetExpressionCollection().Expressions)
+				if (const auto* Input = Cast<DMaterialExpressionFunctionInput>(Expression.Get()); Input && Input->Port.Id == Port.Id)
+				{
+					if (ImGui::Selectable(Label.c_str(), Document.Canvas.GetSelection().contains(Input->Id)))
+						Document.Canvas.SelectAndFrame(Input->Id);
+					if (ImGui::IsItemHovered())
+						ImGui::SetTooltip("%s", Port.bRequired ? "Required input" : DescribeFunctionDefault(Port.Default).c_str());
+					break;
+				}
+		}
 	}
 
 	auto MMaterialFunctionEditor::DrawInterface(FDocument& Document) -> void
@@ -198,62 +248,33 @@ namespace Durin::Editor::Material
 		auto& Function = *Document.Function();
 		FMaterialGraphDocument Graph(Function);
 		const auto Apply = [&](FMaterialGraphCommandResult Result) { if (!Result) Error = FormatMaterialGraphCommandResult(Result); };
-		if (!Document.Canvas.GetSelection().empty())
+		if (Document.Canvas.GetSelection().size() != 1)
 		{
-			if (Document.Canvas.GetSelection().size() != 1) return;
-			const auto Id = std::get<FGuid>(*Document.Canvas.GetSelection().begin());
-			const auto& Expressions = Function.GetExpressionCollection().Expressions;
-			const auto Selected = std::ranges::find(Expressions, Id, [](const auto& Node) { return Node->Id; });
-			if (Selected == Expressions.end()) return;
-			if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(Selected->Get()); Call && Call->Function.IsValid())
-			{
-				if (ImGui::Button("Open Function")) Manager.OpenAsset(Call->Function->GetObjectPath(),
-					Call->Function->GetClass()->GetQualifiedName().ToString());
-				DrawMaterialFunctionCallInputs(Function, Id, *GEditor->GetTransactor(), Error);
-			}
-			if (!Cast<DMaterialExpressionFunctionInput>(Selected->Get())
-				&& !Cast<DMaterialExpressionFunctionOutput>(Selected->Get())) return;
+			Document.SelectedPortNode = {};
+			return;
 		}
-		ImGui::SeparatorText("Interface");
-		if (Document.Canvas.GetSelection().size() != 1) Document.SelectedPortNode = {};
-		for (const auto& Selection : Document.Canvas.GetSelection())
-			if (const auto* Id = std::get_if<FGuid>(&Selection); Id && Document.Canvas.GetSelection().size() == 1)
-				for (const auto& Expression : Function.GetExpressionCollection().Expressions)
-					if (Expression->Id == *Id)
-					{
-						const auto* Input = Cast<DMaterialExpressionFunctionInput>(Expression.Get());
-						const auto* Output = Cast<DMaterialExpressionFunctionOutput>(Expression.Get());
-						const auto* Port = Input ? &Input->Port : Output ? &Output->Port : nullptr;
-						if (!Port) Document.SelectedPortNode = {};
-						if (Port && Document.SelectedPortNode != *Id)
-						{
-							Document.SelectedPortNode = *Id;
-							Document.EditingPort = Port->Id;
-							Document.bOutputPort = Output != nullptr;
-							Document.PortDraft = *Port;
-							std::snprintf(Document.PortName.data(), Document.PortName.size(), "%s", Port->Name.c_str());
-						}
-					}
-		for (bool Output : {false, true})
+		const auto* Id = std::get_if<FGuid>(&*Document.Canvas.GetSelection().begin());
+		if (!Id) return;
+		const auto& Expressions = Function.GetExpressionCollection().Expressions;
+		const auto Selected = std::ranges::find(Expressions, *Id, [](const auto& Node) { return Node->Id; });
+		if (Selected == Expressions.end()) return;
+		if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(Selected->Get()); Call && Call->Function.IsValid())
 		{
-			ImGui::PushID(Output ? "Outputs" : "Inputs");
-			for (const auto& Port : Output ? Function.GetFunctionSignature().Outputs : Function.GetFunctionSignature().Inputs)
-				if (ImGui::Selectable(std::format("{} ({})##{}", Port.Name, GetProgramTypeName(Port.Type), Port.Id.ToString()).c_str(), Document.EditingPort == Port.Id))
-				{
-					Document.EditingPort = Port.Id; Document.bOutputPort = Output; Document.PortDraft = Port;
-					std::snprintf(Document.PortName.data(), Document.PortName.size(), "%s", Port.Name.c_str());
-				}
-			ImGui::PopID();
+			if (ImGui::Button("Open Function")) Manager.OpenAsset(Call->Function->GetObjectPath(),
+				Call->Function->GetClass()->GetQualifiedName().ToString());
+			DrawMaterialFunctionCallInputs(Function, *Id, *GEditor->GetTransactor(), Error);
 		}
-		const bool NewInput = ImGui::Button("New Input");
-		ImGui::SameLine();
-		const bool NewOutput = ImGui::Button("New Output");
-		if (NewInput || NewOutput)
+		const auto* Input = Cast<DMaterialExpressionFunctionInput>(Selected->Get());
+		const auto* Output = Cast<DMaterialExpressionFunctionOutput>(Selected->Get());
+		const auto* Port = Input ? &Input->Port : Output ? &Output->Port : nullptr;
+		if (!Port) { Document.SelectedPortNode = {}; return; }
+		if (Document.SelectedPortNode != *Id)
 		{
-			Document.bOutputPort = NewOutput;
-			Document.EditingPort = {}; Document.PortDraft = {};
-			Document.PortDraft.Default.Kind = NewOutput ? EMaterialFunctionDefaultKind::None : EMaterialFunctionDefaultKind::Numeric;
-			Document.PortName.fill(0);
+			Document.SelectedPortNode = *Id;
+			Document.EditingPort = Port->Id;
+			Document.bOutputPort = Output != nullptr;
+			Document.PortDraft = *Port;
+			std::snprintf(Document.PortName.data(), Document.PortName.size(), "%s", Port->Name.c_str());
 		}
 		ImGui::InputText("Name", Document.PortName.data(), Document.PortName.size());
 		int Type = static_cast<int>(Document.PortDraft.Type);
@@ -311,15 +332,11 @@ namespace Durin::Editor::Material
 			}
 			else Document.PortDraft.Default = {};
 		}
-		if (ImGui::Button(Document.EditingPort.IsValid() ? "Apply Port" : "Add Port"))
+		if (ImGui::Button("Apply Port"))
 		{
 			Document.PortDraft.Name = Document.PortName.data();
 			if (Document.bOutputPort) { Document.PortDraft.bRequired = false; Document.PortDraft.Default = {}; }
-			if (Document.EditingPort.IsValid())
-			{
-				Apply(Graph.SetPort(Document.bOutputPort, Document.PortDraft, GEditor->GetTransactor()));
-			}
-			else Apply(Graph.AddPort(Document.bOutputPort, Document.PortDraft, {}, 0, 240, GEditor->GetTransactor()));
+			Apply(Graph.SetPort(Document.bOutputPort, Document.PortDraft, GEditor->GetTransactor()));
 		}
 		if (Document.EditingPort.IsValid())
 		{
@@ -342,6 +359,16 @@ namespace Durin::Editor::Material
 				if (ImGui::Selectable(Port.Name.c_str(), Port.Id == Document.Output)) { Document.Output = Port.Id; Document.PreviewInvalidation.RequestRefresh(); }
 			ImGui::EndCombo();
 		}
+		ImGui::SameLine();
+		if (ImGui::Button("Window")) ImGui::OpenPopup("FunctionWindows");
+		if (ImGui::BeginPopup("FunctionWindows"))
+		{
+			ImGui::MenuItem("Preview", nullptr, &SessionSettings->bPreviewVisible);
+			ImGui::MenuItem("Details", nullptr, &SessionSettings->bDetailsVisible);
+			ImGui::MenuItem("Inputs", nullptr, &SessionSettings->bParametersVisible);
+			if (ImGui::MenuItem("Reset Layout")) ResetLayout();
+			ImGui::EndPopup();
+		}
 		if (!Error.empty()) ImGui::TextWrapped("%s", Error.c_str());
 		Document.PreviewInvalidation.SetFunction(&Function);
 		if (Document.PreviewInvalidation.ConsumeRefreshRequest())
@@ -356,29 +383,46 @@ namespace Durin::Editor::Material
 			Document.Material()->CompileEdits();
 		const auto DockType = Workspace::MakeDocumentDockType(Tab);
 		const auto Size = ImGui::GetContentRegionAvail();
-		if (!Document.bLayout) { Workspace::BuildDefaultLayout(Tab, Size); Document.bLayout = true; }
-		WorkspaceUI::SubmitDockSpace(DockType, Workspace::LayoutVersion, Size);
-		if (WorkspaceUI::BeginDockablePanel(DockType, "Material Graph", "Graph"))
+		if (Size.x <= 0.0f || Size.y <= 0.0f) return;
+		if (Document.bResetLayout || !ImGui::DockBuilderGetNode(WorkspaceUI::MakeDockSpaceId(DockType, Workspace::FunctionLayoutVersion)))
+		{
+			Workspace::BuildDefaultLayout(Tab, Size, true);
+			Document.bResetLayout = false;
+		}
+		WorkspaceUI::SubmitDockSpace(DockType, Workspace::FunctionLayoutVersion, Size);
+		const auto BeginPanel = [&](const char* Label, const char* Key, bool* Open = nullptr) {
+			const bool Visible = WorkspaceUI::BeginDockablePanel(DockType, Label, Key, Open, ImGuiWindowFlags_NoCollapse);
+			if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
+			{
+				const auto* Active = Manager.GetActiveDocument();
+				if (!Active || Active->Id != Tab.Id) Manager.ActivateDocument(Tab.Id);
+			}
+			return Visible;
+		};
+		if (BeginPanel("Material Graph", "Graph"))
 			Document.Canvas.DrawFunction(Function, *GEditor->GetTransactor(), 0, [this](std::string Message) { Error = std::move(Message); },
 				[this](std::string_view Path) { Manager.OpenAsset(std::string(Path), DMaterialFunction::StaticClass()->GetQualifiedName().ToString()); });
 		ImGui::End();
-		if (WorkspaceUI::BeginDockablePanel(DockType, "Details", "Details"))
+		if (SessionSettings->bDetailsVisible)
 		{
-			Document.Canvas.DrawSelectionDetails(Function, *GEditor->GetTransactor(),
-				[this](std::string Message) { Error = std::move(Message); });
-			DrawInterface(Document);
+			if (BeginPanel("Details", "Details", &SessionSettings->bDetailsVisible))
+			{
+				Document.Canvas.DrawSelectionDetails(Function, *GEditor->GetTransactor(),
+					[this](std::string Message) { Error = std::move(Message); });
+				DrawInterface(Document);
+			}
+			ImGui::End();
 		}
-		ImGui::End();
-		const bool PreviewVisible = WorkspaceUI::BeginDockablePanel(DockType, "Preview", "Preview");
+		if (SessionSettings->bParametersVisible)
+		{
+			if (BeginPanel("Inputs", "Inputs", &SessionSettings->bParametersVisible)) DrawInputs(Document);
+			ImGui::End();
+		}
+		const bool bPreviewPanel = SessionSettings->bPreviewVisible;
+		const bool PreviewVisible = bPreviewPanel
+			&& BeginPanel("Preview", "Preview", &SessionSettings->bPreviewVisible);
 		Document.Preview->SetVisible(PreviewVisible);
 		if (PreviewVisible)
-		{
-			ImGui::TextDisabled("Required inputs use neutral preview values; optional inputs use their defaults.");
-			if (Document.bPreviewValid) Document.Preview->Draw(Document.Material());
-			else ImGui::TextDisabled("The selected output is unavailable. See diagnostics.");
-		}
-		ImGui::End();
-		if (WorkspaceUI::BeginDockablePanel(DockType, "Diagnostics", "Diagnostics"))
 		{
 			const auto DrawDiagnostic = [&](const FMaterialProgramDiagnostic& Diagnostic) {
 				if (ImGui::Selectable(FormatMaterialError(Diagnostic.Error).c_str()))
@@ -390,7 +434,9 @@ namespace Durin::Editor::Material
 			};
 			for (const auto& Diagnostic : Document.Diagnostics) DrawDiagnostic(Diagnostic);
 			for (const auto& Diagnostic : Document.Material()->GetMaterialCompileDiagnostics()) DrawDiagnostic(Diagnostic.Source);
+			if (Document.bPreviewValid) Document.Preview->Draw(Document.Material());
+			else ImGui::TextDisabled("The selected output is unavailable.");
 		}
-		ImGui::End();
+		if (bPreviewPanel) ImGui::End();
 	}
 }
