@@ -74,19 +74,6 @@ namespace Durin::AssetForge::Builtins
 				N->Port = *It;
 				N->Source = Source;
 			}
-			auto Constant(Type ValueType, float X, float Y = 0, float Z = 0) -> Link
-			{
-				if (ValueType == Type::Float)
-				{
-					auto* N = Add<DMaterialExpressionScalarConstant>(); N->Value = X; return {N->Id};
-				}
-				if (ValueType == Type::Float2)
-				{
-					auto* N = Add<DMaterialExpressionVector2Constant>(); N->Value = {X, Y}; return {N->Id};
-				}
-				check(ValueType == Type::Float3);
-				auto* N = Add<DMaterialExpressionVector3Constant>(); N->Value = {X, Y, Z}; return {N->Id};
-			}
 			auto Swizzle(Link Source, Type ValueType, uint8 X, uint8 Y = 0, uint8 Z = 0) -> Link
 			{
 				auto* N = Add<DMaterialExpressionSwizzle>();
@@ -112,9 +99,11 @@ namespace Durin::AssetForge::Builtins
 			if (Role == 1) return B.Node<DMaterialExpressionBlendNormalsRNM>(Type::Float3, {Factor, Sample});
 			if (Role == 5)
 			{
-				const auto Zero = B.Constant(Type::Float3, 0, 0, 0);
-				Factor = B.Node<DMaterialExpressionMaximum>(Type::Float3, {Factor, Zero});
-				Sample = B.Node<DMaterialExpressionMaximum>(Type::Float3, {Sample, Zero});
+				// Share the zero between both bounds instead of emitting duplicate inline constants.
+				auto* Zero = B.Add<DMaterialExpressionVector3Constant>();
+				Zero->Value = {0, 0, 0};
+				Factor = B.Node<DMaterialExpressionMaximum>(Type::Float3, {Factor, {Zero->Id}});
+				Sample = B.Node<DMaterialExpressionMaximum>(Type::Float3, {Sample, {Zero->Id}});
 				return B.Node<DMaterialExpressionAdd>(Type::Float3, {Factor, Sample});
 			}
 			Factor = B.Node<DMaterialExpressionSaturate>(ValueType, {Factor});
@@ -122,8 +111,11 @@ namespace Durin::AssetForge::Builtins
 			auto Value = B.Node<DMaterialExpressionMultiply>(ValueType, {Factor, Sample});
 			if (Role == 3)
 			{
-				const auto Min = B.Constant(Type::Float, .045f), Max = B.Constant(Type::Float, 1);
-				Value = B.Node<DMaterialExpressionClamp>(Type::Float, {Value, Min, Max});
+				auto* N = B.Add<DMaterialExpressionClamp>();
+				N->Input = Value;
+				N->MinimumDefault = {.045f};
+				N->MaximumDefault = {1};
+				Value = {N->Id};
 			}
 			return Value;
 		}
@@ -163,16 +155,19 @@ namespace Durin::AssetForge::Builtins
 				const auto Strength = B.Input(3);
 				const auto Normal = B.Input(4);
 				const Link Decoded{Sample.ExpressionId, 1};
-				const auto Flat = B.Constant(Type::Float3, 0, 0, 1);
 				// Strength acts on decoded normals; RNM safely normalizes the result.
-				const auto Detail = B.Node<DMaterialExpressionLerp>(Type::Float3, {Flat, Decoded, Strength});
-				B.Output(100, B.Node<DMaterialExpressionBlendNormalsRNM>(Type::Float3, {Normal, Detail}));
+				auto* Detail = B.Add<DMaterialExpressionLerp>();
+				Detail->ResultType = Type::Float3;
+				Detail->ADefault = {0, 0, 1};
+				Detail->B = Decoded;
+				Detail->Alpha = Strength;
+				B.Output(100, B.Node<DMaterialExpressionBlendNormalsRNM>(Type::Float3, {Normal, {Detail->Id}}));
 			}
 			else
 			{
-				B.Output(100, B.Swizzle(Sample, Type::Float, 0));
-				B.Output(101, B.Swizzle(Sample, Type::Float, 1));
-				B.Output(102, B.Swizzle(Sample, Type::Float, 2));
+				B.Output(100, {Sample.ExpressionId, 2});
+				B.Output(101, {Sample.ExpressionId, 3});
+				B.Output(102, {Sample.ExpressionId, 4});
 			}
 		}
 		else
@@ -225,7 +220,10 @@ namespace Durin::AssetForge::Builtins
 				else
 				{
 					const auto Sample = B.Node<DMaterialExpressionTextureSample2D>(Type::Float4, {Textures[I], UVs[I]});
-					Channel = B.Swizzle(Sample, ValueType, Channels[I], 1, 2);
+					// Color roles read raw RGB even if a caller supplies a Normal-usage texture.
+					// The sampler's RGB output decodes normals, so only scalar masks are redundant here.
+					Channel = ValueType == Type::Float3 ? B.Swizzle(Sample, ValueType, Channels[I], 1, 2)
+						: Link{Sample.ExpressionId, static_cast<uint8>(Channels[I] + 2)};
 				}
 				Values[I] = ComposeSurfaceValue(B, I, Factors[I], Channel);
 			}

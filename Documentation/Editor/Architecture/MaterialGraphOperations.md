@@ -194,6 +194,12 @@ strongly retained concrete expressions whose terminal nodes own port definitions
 Publication duplicates these children through `SetFunctionExpressions`; recipe
 objects and published functions never share mutable children. Recipe comparison
 uses reflected expression fields and stable port identities, excluding presentation.
+Recipes use the sampler's scalar channel outputs directly and inline single-use
+roughness bounds and the flat-normal blend value. The emissive zero remains shared.
+Color branches retain raw RGBA-to-RGB masks: the sampler's RGB output can decode
+Normal-usage resources and is not equivalent for arbitrary caller textures.
+The shipped six function graphs have automatic layout applied; function port GUIDs
+and numeric policies remain unchanged.
 
 The shipped library lives in `/Engine/Materials/Functions` and uses the same
 function workspace, typed calls and transactions as user assets. New scene imports
