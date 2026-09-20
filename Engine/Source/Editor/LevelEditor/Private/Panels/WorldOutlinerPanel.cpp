@@ -420,7 +420,7 @@ namespace Durin::Editor::Level
 							const FStaticMeshLevelMutationResult Result = ExecuteStaticMeshRequest(Context, std::move(Request));
 							if (!Result)
 							{
-								Context.SetError(Durin::Editor::Level::FormatStaticMeshLevelMutationDiagnostic(Result.Diagnostic));
+								Context.SetError(Result.Message);
 								continue;
 							}
 							else if (!Result.ResultActorNames.empty()) Actor = Context.Level->FindActorByName(Result.ResultActorNames.front());
@@ -500,7 +500,7 @@ namespace Durin::Editor::Level
 						.Desired = {.Name = MakeUniqueActorName(*Context.Level, FName(NewName), StaticMeshActor)},
 					});
 					const FStaticMeshLevelMutationResult Result = ExecuteStaticMeshRequest(Context, std::move(Request));
-					if (!Result) return Durin::Editor::Level::FormatStaticMeshLevelMutationDiagnostic(Result.Diagnostic);
+					if (!Result) return Result.Message;
 					if (!Result.ResultActorNames.empty()) Context.SelectActor(Context.Level->FindActorByName(Result.ResultActorNames.front()));
 				}
 				else
@@ -544,7 +544,7 @@ namespace Durin::Editor::Level
 					for (const TObjectPtr<AActor>& Actor : PendingDeleteActors)
 						Request.Mutations.push_back({.Kind = EStaticMeshLevelMutationKind::Remove, .TargetName = Actor->GetFName()});
 					const FStaticMeshLevelMutationResult Result = ExecuteStaticMeshRequest(Context, std::move(Request));
-					if (!Result) Context.SetError(Durin::Editor::Level::FormatStaticMeshLevelMutationDiagnostic(Result.Diagnostic));
+					if (!Result) Context.SetError(Result.Message);
 					else bDestroyedAny = Result.bChanged;
 				}
 				else

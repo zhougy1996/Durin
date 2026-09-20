@@ -66,7 +66,7 @@ TEST(FReflectedPropertyEditSessionTests, GenericHookRejectsAndNormalizesDetached
 	ASSERT_TRUE(Durin::CapturePropertyValue(Property, Object, 0, ProposedSnapshot));
 	Object->Value = 7;
 	const auto EditResult1 = Session.Apply(ProposedSnapshot);
-	Error = Durin::Editor::FormatPropertyEditSessionError(EditResult1.Error);
+	Error = EditResult1.Message;
 	EXPECT_EQ(EditResult1.GetStatus(), Durin::Editor::EPropertyEditResult::Failed);
 	EXPECT_EQ(Error, "The object rejected the reflected property proposal.");
 	EXPECT_EQ(Object->Value, 7);
@@ -104,7 +104,7 @@ TEST(FReflectedPropertyEditSessionTests, GenericHookRejectsNestedEditOfSameTarge
 	std::string NestedError;
 	Object.PreChange = [&](Durin::FPropertyEditProposal&) -> Durin::FObjectValidationResult {
 		const auto EditResult2 = Session.Apply(NestedProposal);
-		NestedError = Durin::Editor::FormatPropertyEditSessionError(EditResult2.Error);
+		NestedError = EditResult2.Message;
 		NestedResult = EditResult2.GetStatus();
 		return {};
 	};
@@ -121,7 +121,7 @@ TEST(FReflectedPropertyEditSessionTests, GeneratesDefaultDescriptionOnlyForValid
 	Durin::Editor::FPropertyEditSession Session;
 	std::string Error;
 	const auto EditResult3 = Session.Begin({}, {});
-	Error = Durin::Editor::FormatPropertyEditSessionError(EditResult3.Error);
+	Error = EditResult3.Message;
 	EXPECT_FALSE(static_cast<bool>(EditResult3));
 	EXPECT_EQ(Error, "The edit target has no owning object.");
 	EXPECT_FALSE(Session.IsActive());
@@ -133,13 +133,13 @@ TEST(FReflectedPropertyEditSessionTests, GeneratesDefaultDescriptionOnlyForValid
 	Incomplete.SnapshotProperty = nullptr;
 	Incomplete.SnapshotContainer = nullptr;
 	const auto EditResult4 = Session.Begin(Incomplete, {});
-	Error = Durin::Editor::FormatPropertyEditSessionError(EditResult4.Error);
+	Error = EditResult4.Message;
 	EXPECT_FALSE(static_cast<bool>(EditResult4));
 	EXPECT_EQ(Error, "The edit target is incomplete.");
 	EXPECT_FALSE(Session.IsActive());
 
 	const auto EditResult5 = Session.Begin(MakeTarget(Object, Property.get(), Container), {});
-	Error = Durin::Editor::FormatPropertyEditSessionError(EditResult5.Error);
+	Error = EditResult5.Message;
 	ASSERT_TRUE(static_cast<bool>(EditResult5)) << Error;
 	EXPECT_EQ(Session.GetDescription(), "Edit Value");
 	EXPECT_EQ(Session.Cancel().GetStatus(), Durin::Editor::EPropertyEditResult::NoChange);
@@ -178,11 +178,11 @@ TEST(FReflectedPropertyEditSessionTests, RejectsMutationWithoutChangingOrNotifyi
 	Durin::Editor::FPropertyEditSession Session;
 	std::string Error;
 	const auto EditResult6 = Session.Begin(MakeTarget(Object, Property.get(), Container), "Edit Value");
-	Error = Durin::Editor::FormatPropertyEditSessionError(EditResult6.Error);
+	Error = EditResult6.Message;
 	ASSERT_TRUE(static_cast<bool>(EditResult6)) << Error;
 
 	const auto EditResult7 = Session.Apply(CaptureValue(Property.get(), Container, 8));
-	Error = Durin::Editor::FormatPropertyEditSessionError(EditResult7.Error);
+	Error = EditResult7.Message;
 	EXPECT_EQ(EditResult7.GetStatus(), Durin::Editor::EPropertyEditResult::Failed);
 	EXPECT_EQ(Container.Value, 5);
 	EXPECT_TRUE(Object.Changes.empty());
@@ -207,19 +207,19 @@ TEST(FReflectedPropertyEditSessionTests, FailedCancelKeepsSessionRecoverableForR
 	Durin::Editor::FPropertyEditSession Session;
 	std::string Error;
 	const auto EditResult8 = Session.Begin(MakeTarget(Object, Property.get(), Container), "Edit Value");
-	Error = Durin::Editor::FormatPropertyEditSessionError(EditResult8.Error);
+	Error = EditResult8.Message;
 	ASSERT_TRUE(static_cast<bool>(EditResult8)) << Error;
 	ASSERT_EQ(Session.Apply(CaptureValue(Property.get(), Container, 8)).GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
 
 	const auto EditResult9 = Session.Cancel();
-	Error = Durin::Editor::FormatPropertyEditSessionError(EditResult9.Error);
+	Error = EditResult9.Message;
 	EXPECT_EQ(EditResult9.GetStatus(), Durin::Editor::EPropertyEditResult::Failed);
 	EXPECT_EQ(Error, "The object rejected the reflected property proposal.");
 	EXPECT_TRUE(Session.IsActive());
 	EXPECT_EQ(Container.Value, 8);
 	bAllowRestore = true;
 	const auto EditResult10 = Session.Cancel();
-	Error = Durin::Editor::FormatPropertyEditSessionError(EditResult10.Error);
+	Error = EditResult10.Message;
 	EXPECT_EQ(EditResult10.GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
 	EXPECT_FALSE(Session.IsActive());
 	EXPECT_EQ(Container.Value, 5);

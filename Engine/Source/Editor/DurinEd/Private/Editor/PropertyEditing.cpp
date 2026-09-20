@@ -886,35 +886,9 @@ namespace Durin::Editor
 		return true;
 	}
 
-	auto FormatPropertyEditSessionError(const FPropertyEditSessionError& Error) -> std::string
+	auto FPropertyEditSession::Reject(std::string Message) -> FPropertyEditOperationResult
 	{
-		std::string Message;
-		if (Error.PathCause) Message = FormatPropertyEditPathError(*Error.PathCause);
-		else if (Error.SnapshotCause) Message = FormatPropertySnapshotError(*Error.SnapshotCause);
-		else if (Error.RecordCause) Message = FormatTransactionObjectRecordError(*Error.RecordCause);
-		else if (Error.MutationCause) Message = FormatPropertyMutationError(*Error.MutationCause);
-		else if (Error.TransactorCause) Message = FormatTransactorResult(*Error.TransactorCause);
-		else switch (Error.Code)
-		{
-		case EPropertyEditSessionError::None: break;
-		case EPropertyEditSessionError::AlreadyActive: Message = "A reflected-property edit session is already active."; break;
-		case EPropertyEditSessionError::Inactive: Message = "No reflected-property edit session is active."; break;
-		case EPropertyEditSessionError::UnavailableOwner: Message = "The reflected-property edit target is no longer live."; break;
-		case EPropertyEditSessionError::Scope: Message = "The reflected-property transactor rejected the edit scope."; break;
-		case EPropertyEditSessionError::RecordAdmission: Message = "The reflected-property transactor rejected the initial record."; break;
-		case EPropertyEditSessionError::RecordUpdate: Message = "The reflected-property transactor rejected the record update."; break;
-		default: Message = "The reflected-property edit session failed."; break;
-		}
-		if (Error.RollbackCause) Message += std::format(" Rollback also failed: {}", FormatPropertyMutationError(*Error.RollbackCause));
-		if (Error.RollbackDeferred) Message += " Rollback requires deferred validation.";
-		return Message;
-	}
-
-	auto FPropertyEditSession::Reject(EPropertyEditSessionError Code) const -> FPropertyEditOperationResult
-	{
-		return {.Error = {.Code = Code, .Owner = FObjectKey(Target.Object),
-			.Member = Target.MemberProperty ? Target.MemberProperty->NamePrivate.ToString() : std::string{},
-			.Description = Description, .RecordId = TransactionRecordId}};
+		return {.Status = EPropertyEditResult::Failed, .Message = std::move(Message)};
 	}
 
 	FPropertyEditSession::~FPropertyEditSession()
@@ -925,7 +899,7 @@ namespace Durin::Editor
 		{
 			if (const auto Result = Cancel(); !Result)
 			{
-				DURIN_FATAL("Unable to restore an unfinished reflected-property preview: {}", FormatPropertyEditSessionError(Result.Error));
+				DURIN_FATAL("Unable to restore an unfinished reflected-property preview: {}", Result.Message);
 				check(false);
 			}
 		}
@@ -938,19 +912,18 @@ namespace Durin::Editor
 		DTransactor* InTransactor
 	) -> FPropertyEditOperationResult
 	{
-		if (bActive) return Reject(EPropertyEditSessionError::AlreadyActive);
+		if (bActive) return Reject("A reflected-property edit session is already active.");
 		Target = InTarget;
 		if (const auto Validation = ValidateTarget(Target); !Validation)
 		{
-			auto Result = Reject(EPropertyEditSessionError::Target);
-			Result.Error.PathCause = Validation.Error;
+			auto Result = Reject(FormatPropertyEditPathError(Validation.Error));
 			Reset();
 			return Result;
 		}
 		TargetObject = TStrongObjectPtr<DObject>(FObjectKey(InTarget.Object));
 		if (!TargetObject)
 		{
-			auto Result = Reject(EPropertyEditSessionError::UnavailableOwner);
+			auto Result = Reject("The reflected-property edit target is no longer live.");
 			Reset();
 			return Result;
 		}
@@ -961,8 +934,7 @@ namespace Durin::Editor
 			: InDescription;
 		if (const auto Capture = CaptureTargetValue(Target, OriginalValue); !Capture)
 		{
-			auto Result = Reject(EPropertyEditSessionError::Capture);
-			Result.Error.SnapshotCause = Capture.Error;
+			auto Result = Reject(FormatPropertySnapshotError(Capture.Error));
 			Reset();
 			return Result;
 		}
@@ -976,7 +948,7 @@ namespace Durin::Editor
 			});
 			if (!TransactionScope->IsActive())
 			{
-				auto Result = Reject(EPropertyEditSessionError::Scope);
+				auto Result = Reject("The reflected-property transactor rejected the edit scope.");
 				Reset();
 				return Result;
 			}
@@ -984,18 +956,24 @@ namespace Durin::Editor
 			if (const auto Capture = FTransactionObjectRecord::Capture(
 				Target, OriginalValue, CurrentValue, Record); !Capture)
 			{
-				auto Result = Reject(EPropertyEditSessionError::Record);
-				Result.Error.RecordCause = Capture.Error;
-				Result.Error.CleanupCause = TransactionScope->Cancel();
+				auto Result = Reject(FormatTransactionObjectRecordError(Capture.Error));
+				const auto Cleanup = TransactionScope->Cancel();
+				if (Cleanup.Code == ETransactorResultCode::Rejected
+					|| Cleanup.Code == ETransactorResultCode::Failed
+					|| Cleanup.Code == ETransactorResultCode::RecoveryRequired)
+					Result.Message += " Cleanup also failed: " + FormatTransactorResult(Cleanup);
 				Reset();
 				return Result;
 			}
 			const FTransactorResult RecordResult = TransactionScope->Record(std::move(Record));
 			if (!RecordResult)
 			{
-				auto Result = Reject(EPropertyEditSessionError::RecordAdmission);
-				Result.Error.TransactorCause = RecordResult;
-				Result.Error.CleanupCause = TransactionScope->Cancel();
+				auto Result = Reject(FormatTransactorResult(RecordResult));
+				const auto Cleanup = TransactionScope->Cancel();
+				if (Cleanup.Code == ETransactorResultCode::Rejected
+					|| Cleanup.Code == ETransactorResultCode::Failed
+					|| Cleanup.Code == ETransactorResultCode::RecoveryRequired)
+					Result.Message += " Cleanup also failed: " + FormatTransactorResult(Cleanup);
 				Reset();
 				return Result;
 			}
@@ -1013,7 +991,7 @@ namespace Durin::Editor
 
 	auto FPropertyEditSession::Apply(const FPropertyValueSnapshotPayload& ProposedValue) -> FPropertyEditOperationResult
 	{
-		if (!bActive) return Reject(EPropertyEditSessionError::Inactive);
+		if (!bActive) return Reject("No reflected-property edit session is active.");
 		if (bDeferredPending)
 		{
 			if (DeferredOwnerState)
@@ -1032,8 +1010,7 @@ namespace Durin::Editor
 			EPropertyChangePhase::Interactive, EPropertyChangeOrigin::Edit);
 		if (!Result)
 		{
-			auto Failure = Reject(EPropertyEditSessionError::Mutation);
-			Failure.Error.MutationCause = Result.Error;
+			auto Failure = Reject(FormatPropertyMutationError(Result.Error));
 			if (Result.AppliedValue.IsValid()) CurrentValue = std::move(Result.AppliedValue);
 			return Failure;
 		}
@@ -1058,7 +1035,7 @@ namespace Durin::Editor
 				});
 			if (bDeferredPending && DeferredOwnerState == OwnerState)
 				CancelDeferredEdit = std::move(Cancel);
-			return {.Disposition = EPropertyEditResult::Pending};
+			return {.Status = EPropertyEditResult::Pending};
 		}
 		const FPropertyValueSnapshotPayload PreviousValue = CurrentValue;
 		CurrentValue = std::move(Result.AppliedValue);
@@ -1069,11 +1046,11 @@ namespace Durin::Editor
 				EPropertyChangePhase::Interactive, EPropertyChangeOrigin::Edit);
 			if (Rollback && !Rollback.bDeferred)
 				CurrentValue = std::move(Rollback.AppliedValue);
-			if (!Rollback) Update.Error.RollbackCause = Rollback.Error;
-			Update.Error.RollbackDeferred = Rollback.bDeferred;
+			if (!Rollback) Update.Message += " Rollback also failed: " + FormatPropertyMutationError(Rollback.Error);
+			if (Rollback.bDeferred) Update.Message += " Rollback requires deferred validation.";
 			return Update;
 		}
-		return {.Disposition = Result.bChanged ? EPropertyEditResult::Changed : EPropertyEditResult::NoChange};
+		return {.Status = Result.bChanged ? EPropertyEditResult::Changed : EPropertyEditResult::NoChange};
 	}
 
 	auto FPropertyEditSession::CompleteDeferredEdit(
@@ -1109,12 +1086,12 @@ namespace Durin::Editor
 		CurrentValue = std::move(Result.AppliedValue);
 		if (const auto Update = UpdateTransactorRecord(); !Update)
 		{
-			DURIN_ERROR("Deferred reflected-property record update failed: {}", FormatPropertyEditSessionError(Update.Error));
+			DURIN_ERROR("Deferred reflected-property record update failed: {}", Update.Message);
 			Reset();
 			return;
 		}
 		if (const auto CommitResult = Commit(); !CommitResult)
-			DURIN_ERROR("Deferred reflected-property transaction failed: {}", FormatPropertyEditSessionError(CommitResult.Error));
+			DURIN_ERROR("Deferred reflected-property transaction failed: {}", CommitResult.Message);
 	}
 
 	auto FPropertyEditSession::MatchesTarget(const FPropertyEditTarget& Other) const -> bool
@@ -1129,27 +1106,24 @@ namespace Durin::Editor
 		if (const auto Capture = FTransactionObjectRecord::Capture(
 			Target, OriginalValue, CurrentValue, Record); !Capture)
 		{
-			auto Result = Reject(EPropertyEditSessionError::Record);
-			Result.Error.RecordCause = Capture.Error;
+			auto Result = Reject(FormatTransactionObjectRecordError(Capture.Error));
 			return Result;
 		}
 		const FTransactorResult Result =
 			TransactionScope->UpdateRecord(TransactionRecordId, std::move(Record));
 		if (Result) return {};
-		auto Failure = Reject(EPropertyEditSessionError::RecordUpdate);
-		Failure.Error.TransactorCause = Result;
+		auto Failure = Reject(FormatTransactorResult(Result));
 		return Failure;
 	}
 
 	auto FPropertyEditSession::Commit() -> FPropertyEditOperationResult
 	{
-		if (!bActive) return Reject(EPropertyEditSessionError::Inactive);
+		if (!bActive) return Reject("No reflected-property edit session is active.");
 		const bool bChanged = HasChanges();
 		if (const auto Mutation = ExecuteMutation(Target, nullptr, nullptr, EMutationOperation::NotifyOnly,
 			EPropertyChangePhase::Committed, EPropertyChangeOrigin::Edit); !Mutation)
 		{
-			auto Result = Reject(EPropertyEditSessionError::Mutation);
-			Result.Error.MutationCause = Mutation.Error;
+			auto Result = Reject(FormatPropertyMutationError(Mutation.Error));
 			return Result;
 		}
 		if (bChanged)
@@ -1165,8 +1139,7 @@ namespace Durin::Editor
 					|| TransactorResult.Code == ETransactorResultCode::Failed
 					|| TransactorResult.Code == ETransactorResultCode::RecoveryRequired)
 				{
-					auto Failure = Reject(EPropertyEditSessionError::Commit);
-					Failure.Error.TransactorCause = TransactorResult;
+					auto Failure = Reject(FormatTransactorResult(TransactorResult));
 					return Failure;
 				}
 			}
@@ -1178,18 +1151,17 @@ namespace Durin::Editor
 				|| Result.Code == ETransactorResultCode::Failed
 				|| Result.Code == ETransactorResultCode::RecoveryRequired)
 			{
-				auto Failure = Reject(EPropertyEditSessionError::Cancel);
-				Failure.Error.TransactorCause = Result;
+				auto Failure = Reject(FormatTransactorResult(Result));
 				return Failure;
 			}
 		}
 		Reset();
-		return {.Disposition = bChanged ? EPropertyEditResult::Changed : EPropertyEditResult::NoChange};
+		return {.Status = bChanged ? EPropertyEditResult::Changed : EPropertyEditResult::NoChange};
 	}
 
 	auto FPropertyEditSession::Cancel() -> FPropertyEditOperationResult
 	{
-		if (!bActive) return Reject(EPropertyEditSessionError::Inactive);
+		if (!bActive) return Reject("No reflected-property edit session is active.");
 		const bool bChanged = HasChanges();
 		FMutationExecutionResult Result = ExecuteMutation(
 			Target, bChanged ? &OriginalValue : nullptr, nullptr,
@@ -1197,8 +1169,7 @@ namespace Durin::Editor
 			EPropertyChangePhase::Cancelled, EPropertyChangeOrigin::Edit);
 		if (!Result)
 		{
-			auto Failure = Reject(EPropertyEditSessionError::Mutation);
-			Failure.Error.MutationCause = Result.Error;
+			auto Failure = Reject(FormatPropertyMutationError(Result.Error));
 			if (Result.AppliedValue.IsValid()) CurrentValue = std::move(Result.AppliedValue);
 			return Failure;
 		}
@@ -1209,13 +1180,12 @@ namespace Durin::Editor
 				|| CancelResult.Code == ETransactorResultCode::Failed
 				|| CancelResult.Code == ETransactorResultCode::RecoveryRequired)
 			{
-				auto Failure = Reject(EPropertyEditSessionError::Cancel);
-				Failure.Error.TransactorCause = CancelResult;
+				auto Failure = Reject(FormatTransactorResult(CancelResult));
 				return Failure;
 			}
 		}
 		Reset();
-		return {.Disposition = bChanged ? EPropertyEditResult::Changed : EPropertyEditResult::NoChange};
+		return {.Status = bChanged ? EPropertyEditResult::Changed : EPropertyEditResult::NoChange};
 	}
 
 	auto FPropertyEditSession::Reset() -> void

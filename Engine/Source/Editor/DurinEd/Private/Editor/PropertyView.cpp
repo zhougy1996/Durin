@@ -1489,7 +1489,7 @@ namespace Durin::Editor
 		{
 			if (const auto Begin = EditSession.Begin(Target, {}, Context.Transactor); !Begin)
 			{
-				ReportError(Context, FormatPropertyEditSessionError(Begin.Error));
+				ReportError(Context, Begin.Message);
 				return false;
 			}
 			ActiveEditObject = Target.Object;
@@ -1499,7 +1499,7 @@ namespace Durin::Editor
 		const auto Result = EditSession.Apply(ProposedValue);
 		if (!Result)
 		{
-			ReportError(Context, FormatPropertyEditSessionError(Result.Error));
+			ReportError(Context, Result.Message);
 			FinishActiveEdit(&Context, true);
 			return false;
 		}
@@ -1538,7 +1538,7 @@ namespace Durin::Editor
 	{
 		if (!EditSession.IsActive()) return true;
 		const auto Result = bCancel ? EditSession.Cancel() : EditSession.Commit();
-		if (!Result && Context) ReportError(*Context, FormatPropertyEditSessionError(Result.Error));
+		if (!Result && Context) ReportError(*Context, Result.Message);
 		if (!EditSession.IsActive())
 		{
 			ActiveEditObject = nullptr;

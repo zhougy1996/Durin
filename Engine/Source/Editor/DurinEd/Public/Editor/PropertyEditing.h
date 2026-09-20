@@ -179,36 +179,14 @@ namespace Durin::Editor
 		Pending,
 	};
 
-	enum class EPropertyEditSessionError : uint8
-	{
-		None, AlreadyActive, Inactive, Target, UnavailableOwner, Capture,
-		Scope, Record, RecordAdmission, RecordUpdate, Mutation, Commit, Cancel
-	};
-	struct FPropertyEditSessionError
-	{
-		EPropertyEditSessionError Code = EPropertyEditSessionError::None;
-		FObjectKey Owner;
-		std::string Member;
-		std::string Description;
-		uint64 RecordId = 0;
-		std::optional<FPropertyEditPathError> PathCause;
-		std::optional<FPropertySnapshotError> SnapshotCause;
-		std::optional<FTransactionObjectRecordError> RecordCause;
-		std::optional<FPropertyMutationError> MutationCause;
-		std::optional<FPropertyMutationError> RollbackCause;
-		bool RollbackDeferred = false;
-		std::optional<FTransactorResult> TransactorCause;
-		std::optional<FTransactorResult> CleanupCause;
-	};
+	// Status controls flow; command-owned text includes primary and cleanup failures.
 	struct FPropertyEditOperationResult
 	{
-		EPropertyEditResult Disposition = EPropertyEditResult::NoChange;
-		FPropertyEditSessionError Error;
-		explicit operator bool() const { return Error.Code == EPropertyEditSessionError::None; }
-		auto GetStatus() const -> EPropertyEditResult
-		{ return Error.Code == EPropertyEditSessionError::None ? Disposition : EPropertyEditResult::Failed; }
+		EPropertyEditResult Status = EPropertyEditResult::NoChange;
+		std::string Message;
+		explicit operator bool() const { return Status != EPropertyEditResult::Failed; }
+		auto GetStatus() const -> EPropertyEditResult { return Status; }
 	};
-	DURINED_API auto FormatPropertyEditSessionError(const FPropertyEditSessionError& Error) -> std::string;
 
 	// Coalesces continuous widget changes into one reflected-property transaction.
 	class FPropertyEditSession
@@ -244,7 +222,7 @@ namespace Durin::Editor
 			FObjectValidationResult Validation,
 			FPropertyValueSnapshotPayload ProposedValue) -> void;
 		auto UpdateTransactorRecord() -> FPropertyEditOperationResult;
-		auto Reject(EPropertyEditSessionError Code) const -> FPropertyEditOperationResult;
+		static auto Reject(std::string Message) -> FPropertyEditOperationResult;
 		auto Reset() -> void;
 
 		FPropertyEditTarget Target;

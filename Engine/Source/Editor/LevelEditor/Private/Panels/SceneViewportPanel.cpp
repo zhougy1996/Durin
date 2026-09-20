@@ -341,7 +341,7 @@ namespace Durin::Editor::Level
 								.bReadOnly = Context.bReadOnly,
 							});
 							if (!ApplyResult)
-								Context.SetError(Durin::Editor::Level::FormatStaticMeshLevelMutationDiagnostic(ApplyResult.Diagnostic));
+								Context.SetError(ApplyResult.Message);
 							else if (!ApplyResult.ResultActorNames.empty())
 								Actor = Context.Level->FindActorByName(ApplyResult.ResultActorNames.front());
 						}
@@ -354,7 +354,7 @@ namespace Durin::Editor::Level
 								GEditor ? GEditor->GetTransactor() : nullptr,
 								Context.bReadOnly);
 							if (!Result)
-								Context.SetError(FormatSkyBoxPlacementError(Result.Error));
+								Context.SetError(Result.Message);
 							else
 								Actor = Result.Actor;
 						}

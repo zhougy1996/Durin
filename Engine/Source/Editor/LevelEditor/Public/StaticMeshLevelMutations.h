@@ -2,7 +2,6 @@
 
 #include "DObject/ObjectPtr.h"
 #include "LevelEditorAPI.h"
-#include "Editor/Transaction.h"
 #include "Math/Transform.h"
 #include "Misc/Name.h"
 
@@ -17,12 +16,6 @@ namespace Durin
 	class DLevel;
 	class DPackage;
 	class DStaticMesh;
-}
-
-namespace Durin::Editor
-{
-	struct FTransactorResult;
-	struct FTransactionCustomError;
 }
 
 namespace Durin::Editor::Level
@@ -75,28 +68,13 @@ namespace Durin::Editor::Level
 		std::vector<FStaticMeshLevelMutation> Mutations;
 	};
 
-	enum class EStaticMeshLevelMutationReason : uint8 { None, TargetRequired, TargetName, RenameName, MeshUnavailable, DuplicateName, CapturedRequest, PlannedState };
-	struct FStaticMeshLevelMutationDiagnostic
-	{
-		EStaticMeshLevelMutationError Error = EStaticMeshLevelMutationError::None;
-		size_t MutationIndex = std::numeric_limits<size_t>::max();
-		EStaticMeshLevelMutationReason Reason = EStaticMeshLevelMutationReason::None;
-		std::string ActorName;
-		std::shared_ptr<const FTransactorResult> TransactionCause;
-		std::shared_ptr<const FTransactionCustomError> ReplayCause;
-		std::shared_ptr<const FTransactionCustomError> SupportCause;
-
-		explicit operator bool() const { return Error == EStaticMeshLevelMutationError::None; }
-	};
-
-	LEVELEDITOR_API auto FormatStaticMeshLevelMutationDiagnostic(const FStaticMeshLevelMutationDiagnostic& Diagnostic) -> std::string;
-
 	struct FStaticMeshActorMutationDelta
 	{
 		std::optional<FStaticMeshActorMutationState> Before;
 		std::optional<FStaticMeshActorMutationState> After;
 	};
 
+	// Error controls flow; Message is ready for UI, and MutationIndex identifies a failed item.
 	struct FStaticMeshLevelMutationPlan
 	{
 		TObjectPtr<DLevel> Level;
@@ -106,19 +84,25 @@ namespace Durin::Editor::Level
 		uint64 ActorHierarchyRevision = 0;
 		std::string Description;
 		std::vector<FStaticMeshActorMutationDelta> Deltas;
-		FStaticMeshLevelMutationDiagnostic Diagnostic;
+		EStaticMeshLevelMutationError Error = EStaticMeshLevelMutationError::None;
+		std::string Message;
+		// max() means the failure does not identify a request item.
+		size_t MutationIndex = std::numeric_limits<size_t>::max();
 		bool bHasChanges = false;
 
-		explicit operator bool() const { return static_cast<bool>(Diagnostic); }
+		explicit operator bool() const { return Error == EStaticMeshLevelMutationError::None; }
 	};
 
 	struct FStaticMeshLevelMutationResult
 	{
-		FStaticMeshLevelMutationDiagnostic Diagnostic;
+		EStaticMeshLevelMutationError Error = EStaticMeshLevelMutationError::None;
+		std::string Message;
+		// max() means the failure does not identify a request item.
+		size_t MutationIndex = std::numeric_limits<size_t>::max();
 		std::vector<FName> ResultActorNames;
 		bool bChanged = false;
 
-		explicit operator bool() const { return static_cast<bool>(Diagnostic); }
+		explicit operator bool() const { return Error == EStaticMeshLevelMutationError::None; }
 	};
 
 	struct FStaticMeshLevelExecutionContext
@@ -138,6 +122,6 @@ namespace Durin::Editor::Level
 		static auto Execute(
 			const FStaticMeshLevelMutationPlan& Plan,
 			const FStaticMeshLevelExecutionContext& Context) -> FStaticMeshLevelMutationResult;
-		static auto IsSupportedActor(const AStaticMeshActor& Actor) -> FTransactionCustomResult;
+		static auto IsSupportedActor(const AStaticMeshActor& Actor) -> bool;
 	};
 }

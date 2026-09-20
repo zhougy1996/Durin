@@ -15,34 +15,19 @@ namespace Durin
 	class DTextureCube;
 }
 
-namespace Durin::Editor
-{
-	struct FTransactorResult;
-	struct FTransactionCustomError;
-}
-
 namespace Durin::Editor::Level
 {
 
 	enum class ESkyBoxPlacementError : uint8 { None, ReadOnly, TextureUnavailable, MultipleSkyBoxes, SkyBoxUnavailable, Transaction, Replay };
-	struct FSkyBoxPlacementError
-	{
-		ESkyBoxPlacementError Code = ESkyBoxPlacementError::None;
-		std::string LevelPath;
-		std::string RequestedName;
-		size_t CandidateCount = 0;
-		std::shared_ptr<const FTransactorResult> TransactionCause;
-		std::shared_ptr<const FTransactionCustomError> ReplayCause;
-	};
-	// Reports placement outcome separately from typed failure evidence.
+	// Command status and presentation text hide transaction implementation details.
 	struct FSkyBoxPlacementResult
 	{
 		AActor* Actor = nullptr;
-		FSkyBoxPlacementError Error;
+		ESkyBoxPlacementError Error = ESkyBoxPlacementError::None;
+		std::string Message;
 		bool bChanged = false;
-		explicit operator bool() const { return Error.Code == ESkyBoxPlacementError::None; }
+		explicit operator bool() const { return Error == ESkyBoxPlacementError::None; }
 	};
-	LEVELEDITOR_API auto FormatSkyBoxPlacementError(const FSkyBoxPlacementError& Error) -> std::string;
 
 	// Applies the viewport TextureCube placement policy through reversible level mutations.
 	class FSkyBoxPlacement

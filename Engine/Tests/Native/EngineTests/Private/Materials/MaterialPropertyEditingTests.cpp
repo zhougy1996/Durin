@@ -457,7 +457,7 @@ TEST(FMaterialPropertyEditingTests, StaticMeshComponentValidatesPositionalOverri
 	Durin::Editor::FPropertyEditSession Session;
 	ASSERT_TRUE(Session.Begin(Durin::Editor::FPropertyEditTarget::ForMember(Component, Overrides), "Corrupt Override"));
 	const auto EditResult1 = Session.Apply(InvalidProposal);
-	Error = Durin::Editor::FormatPropertyEditSessionError(EditResult1.Error);
+	Error = EditResult1.Message;
 	EXPECT_EQ(EditResult1.GetStatus(), Durin::Editor::EPropertyEditResult::Failed);
 	EXPECT_NE(Error.find("incompatible object at material index 0"), std::string::npos);
 	EXPECT_EQ(Component->GetMaterialOverride(0), Material);
@@ -577,7 +577,7 @@ TEST(FMaterialPropertyEditingTests, ReflectedPropertyViewTracksMaterialOverrideS
 	Durin::Editor::FPropertyEditSession Session;
 	ASSERT_TRUE(Session.Begin(Durin::Editor::FPropertyEditTarget::ForMember(Instance, Property), "Edit Parameter Override", Transactions.Get()));
 	const auto EditResult2 = Session.Apply(Proposed);
-	Error = Durin::Editor::FormatPropertyEditSessionError(EditResult2.Error);
+	Error = EditResult2.Message;
 	EXPECT_EQ(EditResult2.GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
 	EXPECT_EQ(Session.Commit().GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
 	EXPECT_TRUE(Instance->HasLocalScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::OpacityName()));
@@ -616,7 +616,7 @@ TEST(FMaterialPropertyEditingTests, ReflectedPropertyOverridesValidateAndRestore
 	const auto Before = Instance->GetRenderStateVersion();
 	std::string Error;
 	const auto EditResult3 = Session.Apply(Proposed);
-	Error = Durin::Editor::FormatPropertyEditSessionError(EditResult3.Error);
+	Error = EditResult3.Message;
 	EXPECT_EQ(EditResult3.GetStatus(), Editor::EPropertyEditResult::Changed) << Error;
 	EXPECT_EQ(Session.Commit().GetStatus(), Editor::EPropertyEditResult::Changed);
 	EXPECT_GT(Instance->GetRenderStateVersion(), Before);
@@ -634,7 +634,7 @@ TEST(FMaterialPropertyEditingTests, ReflectedPropertyOverridesValidateAndRestore
 	Editor::FPropertyEditSession Rejected;
 	ASSERT_TRUE(Rejected.Begin(Editor::FPropertyEditTarget::ForMember(Instance, Property), "Invalid Rendering Overrides", Transactions.Get()));
 	const auto EditResult4 = Rejected.Apply(Invalid);
-	Error = Durin::Editor::FormatPropertyEditSessionError(EditResult4.Error);
+	Error = EditResult4.Message;
 	EXPECT_NE(EditResult4.GetStatus(), Editor::EPropertyEditResult::Changed);
 	EXPECT_FALSE(Error.empty());
 	Rejected.Cancel().GetStatus();
@@ -679,7 +679,7 @@ TEST(FMaterialPropertyEditingTests, ParentHookRejectsCyclesWithoutCreatingHistor
 	ASSERT_TRUE(Session.Begin(Durin::Editor::FPropertyEditTarget::ForMember(Second, ParentProperty), "Edit Parent", Transactions.Get()));
 	std::string Error;
 	const auto EditResult5 = Session.Apply(Proposed);
-	Error = Durin::Editor::FormatPropertyEditSessionError(EditResult5.Error);
+	Error = EditResult5.Message;
 	EXPECT_EQ(EditResult5.GetStatus(), Durin::Editor::EPropertyEditResult::Failed);
 	EXPECT_EQ(Error, "A material instance cannot create a parent cycle.");
 	EXPECT_EQ(Second->GetParent(), nullptr);

@@ -145,17 +145,17 @@ namespace Durin::Editor::Level
 		};
 	}
 
-	auto FormatSkyBoxPlacementError(const FSkyBoxPlacementError& Error) -> std::string
+	static auto FormatSkyBoxPlacementError(ESkyBoxPlacementError Error) -> std::string
 	{
-		switch (Error.Code)
+		switch (Error)
 		{
 		case ESkyBoxPlacementError::None: return {};
 		case ESkyBoxPlacementError::ReadOnly: return "The level is read-only.";
 		case ESkyBoxPlacementError::TextureUnavailable: return "The dropped TextureCube is unavailable.";
 		case ESkyBoxPlacementError::MultipleSkyBoxes: return "Multiple visible sky boxes exist. Resolve the conflict before replacing the active sky box.";
 		case ESkyBoxPlacementError::SkyBoxUnavailable: return "The active sky box is unavailable.";
-		case ESkyBoxPlacementError::Transaction: return Error.TransactionCause ? FormatTransactorResult(*Error.TransactionCause) : "Sky box transaction failed.";
-		case ESkyBoxPlacementError::Replay: return Error.ReplayCause ? FormatTransactionCustomError(*Error.ReplayCause) : "Sky box replay failed.";
+		case ESkyBoxPlacementError::Transaction: return "Sky box transaction failed.";
+		case ESkyBoxPlacementError::Replay: return "Sky box replay failed.";
 		}
 		return {};
 	}
@@ -167,9 +167,9 @@ namespace Durin::Editor::Level
 		::Durin::DTransactor* Transactions,
 		bool bReadOnly) -> FSkyBoxPlacementResult
 	{
-		auto Reject = [&](ESkyBoxPlacementError Code, size_t Count = 0) -> FSkyBoxPlacementResult
+		auto Reject = [](ESkyBoxPlacementError Code) -> FSkyBoxPlacementResult
 		{
-			return {.Error = {.Code = Code, .LevelPath = Level.GetObjectPath(), .RequestedName = RequestedName.ToString(), .CandidateCount = Count}};
+			return {.Error = Code, .Message = FormatSkyBoxPlacementError(Code)};
 		};
 		auto Apply = [&](std::unique_ptr<ITransactionCustomChange> Transaction) -> FSkyBoxPlacementResult
 		{
@@ -178,13 +178,13 @@ namespace Durin::Editor::Level
 				auto Applied = Transactions->Execute(std::move(Transaction));
 				if (Applied) return {};
 				auto Result = Reject(ESkyBoxPlacementError::Transaction);
-				Result.Error.TransactionCause = std::make_shared<FTransactorResult>(std::move(Applied));
+				Result.Message = FormatTransactorResult(Applied);
 				return Result;
 			}
 			auto Applied = Transaction->Replay(ETransactionOperation::Redo);
 			if (Applied) return {};
 			auto Result = Reject(ESkyBoxPlacementError::Replay);
-			Result.Error.ReplayCause = std::make_shared<FTransactionCustomError>(std::move(Applied.Error));
+			Result.Message = FormatTransactionCustomError(Applied.Error);
 			return Result;
 		};
 		if (bReadOnly) return Reject(ESkyBoxPlacementError::ReadOnly);
@@ -192,7 +192,7 @@ namespace Durin::Editor::Level
 
 		const std::vector<FSkyBoxCandidate> Candidates = FindVisibleSkyBoxes(Level);
 		if (Candidates.size() > 1)
-			return Reject(ESkyBoxPlacementError::MultipleSkyBoxes, Candidates.size());
+			return Reject(ESkyBoxPlacementError::MultipleSkyBoxes);
 
 		if (!Candidates.empty())
 		{

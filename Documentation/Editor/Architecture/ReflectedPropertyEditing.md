@@ -235,9 +235,9 @@ The internal generic and deferred execution results derive success from
 Errors retain owner/member identity, phase, origin and mutation kind, with typed
 draft, snapshot or object-validation causes. Failed publication and recapture
 retain the primary cause separately from rollback and recovery-capture errors.
-Execution does not format diagnostics. Session/history results retain these
-errors; final presentation and logs use `FormatPropertyMutationError`. Draft error types share the public
-editing contract so later outer results can retain their causes.
+Execution does not format diagnostics. History results retain these errors;
+the edit-session command boundary formats them with `FormatPropertyMutationError`.
+Draft error types remain available to the lower-level history contracts.
 
 All current built-in semantic properties use this generic path. Transform
 quaternion normalization, camera cross-field clamping, spline authoring repair,
@@ -271,14 +271,13 @@ same detached settings synchronously before the reflected write completes.
 
 `Editor::FPropertyEditSession` implements one logical edit. Begin, Apply,
 Commit and Cancel return `FPropertyEditOperationResult` without string outputs.
-Success derives from `EPropertyEditSessionError`; `GetStatus()` reports failure
-or the successful no-change/changed/pending disposition. Errors own target,
-member, description and record identity and retain path, snapshot, record and
-mutation causes. Record-update rollback failures and deferred rollback are
-preserved separately. Transactor results, including cleanup results and recovery
-facts, are retained whole without formatting. Returned errors
-survive session reset and retry. The view and final logs format only when
-reporting the result.
+`Status` is the sole outcome: failed, no-change, changed or pending.
+`GetStatus()` and boolean conversion use that status, never message contents.
+`Message` owns presentation text produced inside the session from lower-level
+path, snapshot, record, mutation and transactor failures. Additional cleanup,
+rollback and deferred-rollback failures are appended without replacing the
+primary error. Messages survive session reset and retry. Views and logs consume
+the message directly; callers do not inspect nested diagnostic causes.
 
 The lifecycle is:
 

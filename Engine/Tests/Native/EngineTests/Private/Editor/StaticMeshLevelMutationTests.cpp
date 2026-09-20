@@ -79,10 +79,10 @@ TEST(FStaticMeshLevelMutationTests, AppliesOneAtomicBatchAndRestoresSavedRevisio
 	Request.Mutations = {MakeCreate("Floor"), MakeCreate("Wall", SecondTransform)};
 
 	const auto Plan = Durin::Editor::Level::FStaticMeshLevelMutations::Plan(Request);
-	ASSERT_TRUE(Plan) << Durin::Editor::Level::FormatStaticMeshLevelMutationDiagnostic(Plan.Diagnostic);
+	ASSERT_TRUE(Plan) << Plan.Message;
 	ASSERT_TRUE(Plan.bHasChanges);
 	const auto Result = Durin::Editor::Level::FStaticMeshLevelMutations::Execute(Plan, {Fixture.Level, Transactions.Get()});
-	ASSERT_TRUE(Result) << Durin::Editor::Level::FormatStaticMeshLevelMutationDiagnostic(Result.Diagnostic);
+	ASSERT_TRUE(Result) << Result.Message;
 	EXPECT_TRUE(Result.bChanged);
 	EXPECT_NE(Fixture.Level->FindActorByName("Floor"), nullptr);
 	EXPECT_NE(Fixture.Level->FindActorByName("Wall"), nullptr);
@@ -121,7 +121,7 @@ TEST(FStaticMeshLevelMutationTests, UpdatesRenamesAndRemovesSupportedActors)
 		{.Kind = Durin::Editor::Level::EStaticMeshLevelMutationKind::Remove, .TargetName = "RemoveMe"},
 	};
 	const auto Plan = Durin::Editor::Level::FStaticMeshLevelMutations::Plan(Request);
-	ASSERT_TRUE(Plan) << Durin::Editor::Level::FormatStaticMeshLevelMutationDiagnostic(Plan.Diagnostic);
+	ASSERT_TRUE(Plan) << Plan.Message;
 	ASSERT_TRUE(Durin::Editor::Level::FStaticMeshLevelMutations::Execute(Plan, {Fixture.Level, Transactions.Get()}));
 	EXPECT_DOUBLE_EQ(UpdateActor->GetActorTransform().Translation.x, 8.0);
 	EXPECT_EQ(Fixture.Level->FindActorByName("RenameMe"), nullptr);
@@ -148,7 +148,7 @@ TEST(FStaticMeshLevelMutationTests, RejectsStalePlansWithoutMutation)
 	Durin::Tests::FTestTransactorOwner Transactions;
 	const auto Result = Durin::Editor::Level::FStaticMeshLevelMutations::Execute(Plan, {Fixture.Level, Transactions.Get()});
 	EXPECT_FALSE(Result);
-	EXPECT_EQ(Result.Diagnostic.Error, Durin::Editor::Level::EStaticMeshLevelMutationError::StaleTarget);
+	EXPECT_EQ(Result.Error, Durin::Editor::Level::EStaticMeshLevelMutationError::StaleTarget);
 	EXPECT_EQ(Fixture.Level->FindActorByName("Planned"), nullptr);
 	EXPECT_FALSE(Transactions->CanUndo());
 }
@@ -178,11 +178,8 @@ TEST(FStaticMeshLevelMutationTests, SuppressesNoOpAndRejectsUnsupportedGraphs)
 	Remove.Mutations.push_back({.Kind = Durin::Editor::Level::EStaticMeshLevelMutationKind::Remove, .TargetName = "Stable"});
 	const auto UnsupportedPlan = Durin::Editor::Level::FStaticMeshLevelMutations::Plan(Remove);
 	EXPECT_FALSE(UnsupportedPlan);
-	EXPECT_EQ(UnsupportedPlan.Diagnostic.Error, Durin::Editor::Level::EStaticMeshLevelMutationError::UnsupportedActor);
-	ASSERT_TRUE(UnsupportedPlan.Diagnostic.SupportCause);
-	EXPECT_EQ(UnsupportedPlan.Diagnostic.SupportCause->ActorConstraint, Durin::Editor::ETransactionActorConstraint::ComponentGraph);
-	EXPECT_EQ(UnsupportedPlan.Diagnostic.SupportCause->TargetPath, Actor->GetObjectPath());
-	EXPECT_EQ(UnsupportedPlan.Diagnostic.SupportCause->TargetLabel, "Stable");
+	EXPECT_EQ(UnsupportedPlan.Error, Durin::Editor::Level::EStaticMeshLevelMutationError::UnsupportedActor);
+	EXPECT_FALSE(UnsupportedPlan.Message.empty());
 }
 
 TEST(FStaticMeshLevelMutationTests, RejectsReadOnlyAndReplacedDocumentExecution)
@@ -197,12 +194,12 @@ TEST(FStaticMeshLevelMutationTests, RejectsReadOnlyAndReplacedDocumentExecution)
 	const auto ReadOnly = Durin::Editor::Level::FStaticMeshLevelMutations::Execute(
 		Plan, {.OpenLevel = Fixture.Level, .Transactions = Transactions.Get(), .bReadOnly = true});
 	EXPECT_FALSE(ReadOnly);
-	EXPECT_EQ(ReadOnly.Diagnostic.Error, Durin::Editor::Level::EStaticMeshLevelMutationError::ReadOnly);
+	EXPECT_EQ(ReadOnly.Error, Durin::Editor::Level::EStaticMeshLevelMutationError::ReadOnly);
 	FLevelFixture Replacement;
 	const auto Replaced = Durin::Editor::Level::FStaticMeshLevelMutations::Execute(
 		Plan, {.OpenLevel = Replacement.Level, .Transactions = Transactions.Get()});
 	EXPECT_FALSE(Replaced);
-	EXPECT_EQ(Replaced.Diagnostic.Error, Durin::Editor::Level::EStaticMeshLevelMutationError::StaleTarget);
+	EXPECT_EQ(Replaced.Error, Durin::Editor::Level::EStaticMeshLevelMutationError::StaleTarget);
 	EXPECT_EQ(Fixture.Level->FindActorByName("Deferred"), nullptr);
 }
 
@@ -251,18 +248,24 @@ TEST(FStaticMeshLevelMutationTests, RejectsUnavailableAssetBeforeMutation)
 
 	const auto Plan = Durin::Editor::Level::FStaticMeshLevelMutations::Plan(Request);
 	EXPECT_FALSE(Plan);
-	EXPECT_EQ(Plan.Diagnostic.Error, Durin::Editor::Level::EStaticMeshLevelMutationError::InvalidRequest);
+	EXPECT_EQ(Plan.Error, Durin::Editor::Level::EStaticMeshLevelMutationError::InvalidRequest);
 	EXPECT_EQ(Fixture.Level->FindActorByName("UnavailableMesh"), nullptr);
-	EXPECT_EQ(Plan.Diagnostic.Reason, Durin::Editor::Level::EStaticMeshLevelMutationReason::MeshUnavailable);
-	EXPECT_EQ(Plan.Diagnostic.MutationIndex, 0u);
-	EXPECT_EQ(Plan.Diagnostic.ActorName, "UnavailableMesh");
+	EXPECT_EQ(Plan.MutationIndex, 0u);
+	const auto Rejected = Durin::Editor::Level::FStaticMeshLevelMutations::Execute(Plan, {Fixture.Level, nullptr});
+	EXPECT_FALSE(Rejected);
+	EXPECT_EQ(Rejected.Error, Plan.Error);
+	EXPECT_EQ(Rejected.Message, Plan.Message);
+	EXPECT_EQ(Rejected.MutationIndex, Plan.MutationIndex);
+	EXPECT_FALSE(Rejected.bChanged);
+	EXPECT_TRUE(Rejected.ResultActorNames.empty());
+	EXPECT_NE(Plan.Message.find("UnavailableMesh"), std::string::npos);
 	Request.Mutations.front().Desired.StaticMesh = nullptr;
 	Request.Mutations.front().TargetName = "RepairedMesh";
 	const auto Repaired = Durin::Editor::Level::FStaticMeshLevelMutations::Plan(Request);
 	ASSERT_TRUE(Repaired);
 	ASSERT_TRUE(Durin::Editor::Level::FStaticMeshLevelMutations::Execute(Repaired, {Fixture.Level, nullptr}));
 	EXPECT_NE(Fixture.Level->FindActorByName("RepairedMesh"), nullptr);
-	EXPECT_EQ(Plan.Diagnostic.ActorName, "UnavailableMesh");
+	EXPECT_NE(Plan.Message.find("UnavailableMesh"), std::string::npos);
 }
 
 TEST(FStaticMeshLevelMutationTests, RollsBackEveryInjectedLiveMutationFailure)
@@ -296,20 +299,14 @@ TEST(FStaticMeshLevelMutationTests, RollsBackEveryInjectedLiveMutationFailure)
 			{.Kind = Durin::Editor::Level::EStaticMeshLevelMutationKind::Update, .TargetName = "UpdateSource", .Desired = {.Transform = ChangedTransform}},
 		};
 		const auto Plan = Durin::Editor::Level::FStaticMeshLevelMutations::Plan(Request);
-		ASSERT_TRUE(Plan) << Durin::Editor::Level::FormatStaticMeshLevelMutationDiagnostic(Plan.Diagnostic);
+		ASSERT_TRUE(Plan) << Plan.Message;
 		Durin::Editor::Level::Testing::SetStaticMeshLevelMutationFailurePoint(FailurePoint);
 
 		const auto Result = Durin::Editor::Level::FStaticMeshLevelMutations::Execute(
 			Plan, {Fixture.Level, Transactions.Get()});
 		EXPECT_FALSE(Result);
-		ASSERT_TRUE(Result.Diagnostic.TransactionCause);
-		ASSERT_TRUE(Result.Diagnostic.TransactionCause->ApplyCause);
-		const auto& RecordCause = Result.Diagnostic.TransactionCause->ApplyCause->Error.RecordCause;
-		ASSERT_TRUE(RecordCause.CustomCause);
-		EXPECT_EQ(RecordCause.CustomCause->Code, Durin::Editor::ETransactionCustomError::InjectedMutation);
-		EXPECT_NE(RecordCause.CustomCause->MutationPhase, Durin::Editor::ETransactionMutationPhase::None);
-		EXPECT_EQ(RecordCause.CustomCause->TargetPath, Fixture.Level->GetObjectPath());
-		EXPECT_FALSE(RecordCause.CustomCause->CleanupCause);
+		EXPECT_EQ(Result.Error, Durin::Editor::Level::EStaticMeshLevelMutationError::ExecutionFailed);
+		EXPECT_NE(Result.Message.find("Injected mutation failure"), std::string::npos);
 		EXPECT_FALSE(Transactions->CanUndo());
 		EXPECT_NE(Fixture.Level->FindActorByName("RenameSource"), nullptr);
 		EXPECT_EQ(Fixture.Level->FindActorByName("RenameDestination"), nullptr);

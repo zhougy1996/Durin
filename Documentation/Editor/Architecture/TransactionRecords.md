@@ -43,25 +43,22 @@ Sky box creation and texture replay distinguish unavailable resources/targets,
 actor membership, name collision and spawn/destroy rejection. Creation failures
 retain the level path and requested actor name; collision rejection leaves the
 existing actor and redo history available for a repaired retry.
-Sky box placement retains typed read-only, resource and candidate-count validation
-errors with owned level/name context. Transaction admission and direct replay
-failures retain their complete typed causes; viewport formatting occurs only when
-presenting the error. Placement change status remains separate from success.
-Static mesh level replay carries typed state-validation and mutation causes rather
-than cached error text. Errors own level/name/index context, injected mutation phase
-and a nested incomplete-rollback cause. History details describe the operation;
-error formatting renders failure evidence separately. Internal state validation and
-application return typed results directly, with no error-output parameter.
-The outer static mesh batch execution diagnostic retains the complete transaction
-result or direct replay cause, including mutation phase and cleanup evidence.
-Static mesh actor support checks return a typed result without a reason-output
-parameter. Unsupported class, component graph, attached parent/children and play
-transitions have distinct constraint values. Planning retains the owned actor
-identity and constraint as `SupportCause`; replay preserves the same constraint.
-Static mesh plan/execution diagnostics store error codes, specific request/staleness
-reasons, mutation indices, owned actor names and nested causes without error text.
-`FormatStaticMeshLevelMutationDiagnostic` renders these at the viewport/outliner
-boundary; success remains derived from the diagnostic code.
+Sky box placement exposes a compact error classification, owned `Message`,
+result actor and changed flag. It formats transaction and direct-replay failures
+inside the command boundary.
+
+The static mesh batch change carries typed state-validation and mutation causes.
+Errors own level/name/index context, injected mutation phase and a nested
+incomplete-rollback cause. Internal state validation and application return typed
+results directly, with no error-output parameter. Replay preserves distinct actor
+constraints for unsupported class, component graph, attached parent/children and
+play transitions.
+
+The outer static mesh plan/execution boundary exposes `Error`, `Message` and an
+optional-by-sentinel mutation index alongside business data. It formats the
+complete transaction or direct-replay failure before returning. Viewport and
+outliner callers consume the message directly; they do not traverse history
+causes. The public actor-support query returns a boolean.
 `Replay` is the required typed entry point for every custom change. The interface
 has no boolean Undo/Redo methods or legacy rejection adapter. Record errors retain
 `CustomCause`; operation details are presentation metadata, not failure storage.

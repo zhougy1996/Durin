@@ -1,5 +1,6 @@
 # Static Mesh Level Mutations
 
+Summary: Plan and execute reversible StaticMesh actor commands with compact outcomes.
 Modules: LevelEditor, DurinEd, Engine
 
 `FStaticMeshLevelMutations` is the reusable structural-editing boundary
@@ -18,7 +19,11 @@ presented as transaction-backed structural editing.
 Each detached Actor state contains the exact name, StaticMesh reference,
 transform, and visibility. A request contains one or more create, update,
 rename, or remove mutations against one Level package. Planning is
-mutation-free and returns typed diagnostics plus before/after deltas.
+mutation-free and returns before/after deltas with an error classification,
+owned presentation message and failing mutation index when available.
+Plan and execution success derive only from `Error`; UI callers display `Message`
+directly. Actor-support queries return a boolean. Detailed transaction validation,
+replay and rollback causes stay inside the implementation and history contracts.
 
 ## Optimistic planning and execution
 

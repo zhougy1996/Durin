@@ -38,22 +38,18 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsAndPersistsAcrossReload)
 	const auto Blocked = Durin::Editor::Level::FSkyBoxPlacement::PlaceTextureCube(
 		*Level, CubeResult.Asset, "Sky", Transactions.Get());
 	ASSERT_FALSE(Blocked);
-	EXPECT_EQ(Blocked.Error.Code, Durin::Editor::Level::ESkyBoxPlacementError::Transaction);
-	EXPECT_EQ(Blocked.Error.LevelPath, Level->GetObjectPath());
-	EXPECT_EQ(Blocked.Error.RequestedName, "Sky");
-	ASSERT_TRUE(Blocked.Error.TransactionCause);
-	ASSERT_TRUE(Blocked.Error.TransactionCause->RejectionCause);
-	EXPECT_EQ(Blocked.Error.TransactionCause->RejectionCause->Reason,
-		Durin::Editor::ETransactorRejectionReason::ExecuteState);
+	EXPECT_EQ(Blocked.Error, Durin::Editor::Level::ESkyBoxPlacementError::Transaction);
+	EXPECT_FALSE(Blocked.Message.empty());
+	const auto RejectionMessage = Blocked.Message;
 	EXPECT_EQ(Level->FindActorByName("Sky"), nullptr);
 	(void)Transactions->Cancel(Scope.ScopeId);
 
 	const Durin::Editor::Level::FSkyBoxPlacementResult Placement =
 		Durin::Editor::Level::FSkyBoxPlacement::PlaceTextureCube(
 			*Level, CubeResult.Asset, "Sky", Transactions.Get());
-	ASSERT_TRUE(Placement) << Durin::Editor::Level::FormatSkyBoxPlacementError(Placement.Error);
+	ASSERT_TRUE(Placement) << Placement.Message;
 	EXPECT_TRUE(Placement.bChanged);
-	EXPECT_EQ(Blocked.Error.RequestedName, "Sky");
+	EXPECT_EQ(Blocked.Message, RejectionMessage);
 	auto* Actor = Durin::Cast<Durin::ASkyBoxActor>(Placement.Actor);
 	ASSERT_NE(Actor, nullptr);
 	ASSERT_TRUE(Transactions->Undo());
@@ -172,7 +168,7 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsPanoramaAssignsSkyAndPersistsSettingsAcr
 	const Durin::Editor::Level::FSkyBoxPlacementResult Placement =
 		Durin::Editor::Level::FSkyBoxPlacement::PlaceTextureCube(
 			*Level, CubeResult.Asset, "UnusedName", Transactions.Get());
-	ASSERT_TRUE(Placement) << Durin::Editor::Level::FormatSkyBoxPlacementError(Placement.Error);
+	ASSERT_TRUE(Placement) << Placement.Message;
 	EXPECT_EQ(Placement.Actor, Actor);
 	EXPECT_TRUE(Placement.bChanged);
 	EXPECT_EQ(Actor->GetSkyBoxComponent()->GetTextureCube(), CubeResult.Asset);

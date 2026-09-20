@@ -255,7 +255,7 @@ TEST(FReflectedPropertyEditSessionTests, MapEditsPreserveStableKeyPathsAndStruct
 	ASSERT_TRUE(Durin::CapturePropertyValue(MapProperty.get(), &FirstRename, 0, FirstRenameSnapshot));
 	std::string RenameError;
 	const auto EditResult1 = RenameSession.Apply(FirstRenameSnapshot);
-	RenameError = Durin::Editor::FormatPropertyEditSessionError(EditResult1.Error);
+	RenameError = EditResult1.Message;
 	ASSERT_EQ(EditResult1.GetStatus(), Durin::Editor::EPropertyEditResult::Changed) << RenameError;
 	const std::string Renamed = "Renamed";
 	Durin::FPropertyValueSnapshot RenamedKeySnapshot;

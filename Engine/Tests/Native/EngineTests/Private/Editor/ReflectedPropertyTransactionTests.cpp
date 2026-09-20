@@ -35,7 +35,7 @@ TEST(FReflectedPropertyEditSessionTests, RejectsACollectedTargetBeforeReadingIts
 	Durin::Editor::FPropertyEditSession Session;
 	std::string Error;
 	const auto EditResult1 = Session.Begin(Target, "Stale Edit");
-	Error = Durin::Editor::FormatPropertyEditSessionError(EditResult1.Error);
+	Error = EditResult1.Message;
 	EXPECT_FALSE(static_cast<bool>(EditResult1));
 	EXPECT_EQ(Error, "The reflected-property edit target is no longer live.");
 }

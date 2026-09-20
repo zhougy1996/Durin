@@ -1040,33 +1040,29 @@ TEST(FReflectedPropertyViewTests, TransactionRecordRetainsMutationCausesAcrossRe
 	EXPECT_EQ(Invalid.Error.Code, ETransactionObjectRecordError::Payload);
 }
 
-TEST(FReflectedPropertyViewTests, SessionErrorsOwnCausesAcrossResetAndRetry)
+TEST(FReflectedPropertyViewTests, SessionMessagesSurviveResetAndRetry)
 {
 	using namespace Durin;
 	using namespace Durin::Editor;
 	FPropertyEditSession Session;
-	EXPECT_EQ(Session.Commit().Error.Code, EPropertyEditSessionError::Inactive);
+	EXPECT_EQ(Session.Commit().GetStatus(), EPropertyEditResult::Failed);
 	const auto Missing = Session.Begin({}, "Missing target");
-	EXPECT_EQ(Missing.Error.Code, EPropertyEditSessionError::Target);
-	ASSERT_TRUE(Missing.Error.PathCause);
-	EXPECT_EQ(Missing.Error.PathCause->Code, EPropertyEditPathError::MissingOwner);
+	EXPECT_FALSE(Missing);
+	EXPECT_EQ(Missing.GetStatus(), EPropertyEditResult::Failed);
+	EXPECT_EQ(Missing.Message, "The edit target has no owning object.");
 	auto& Reflection = GetPropertyViewHostTestReflection();
 	auto* Object = NewObject<DPropertyViewHostTestObject>(nullptr, "TypedSessionErrors");
 	TStrongObjectPtr<DObject> Root(Object);
 	const auto Target = FPropertyEditTarget::ForMember(Object, Reflection.Property);
 	ASSERT_TRUE(Session.Begin(Target, "Owned session description"));
 	const auto Active = Session.Begin(Target, "Replacement description");
-	EXPECT_EQ(Active.Error.Code, EPropertyEditSessionError::AlreadyActive);
-	EXPECT_EQ(Active.Error.Owner, FObjectKey(Object));
-	EXPECT_EQ(Active.Error.Description, "Owned session description");
+	EXPECT_FALSE(Active);
+	EXPECT_EQ(Active.Message, "A reflected-property edit session is already active.");
 	const auto Invalid = Session.Apply(FPropertyValueSnapshotPayload{});
-	EXPECT_EQ(Invalid.Error.Code, EPropertyEditSessionError::Mutation);
-	ASSERT_TRUE(Invalid.Error.MutationCause);
-	EXPECT_EQ(Invalid.Error.MutationCause->Code, EPropertyMutationError::Draft);
-	ASSERT_TRUE(Invalid.Error.MutationCause->DraftCause);
-	EXPECT_EQ(Invalid.Error.MutationCause->DraftCause->Code, EPropertyValueDraftError::Restore);
-	ASSERT_TRUE(Invalid.Error.MutationCause->DraftCause->SnapshotCause);
-	EXPECT_EQ(Invalid.Error.MutationCause->DraftCause->SnapshotCause->Code, EPropertySnapshotError::IncompatibleType);
+	EXPECT_FALSE(Invalid);
+	EXPECT_EQ(Invalid.GetStatus(), EPropertyEditResult::Failed);
+	EXPECT_FALSE(Invalid.Message.empty());
+	const auto InvalidMessage = Invalid.Message;
 	EXPECT_EQ(Object->Value, 5);
 	EXPECT_TRUE(Session.IsActive());
 	Object->Value = 6;
@@ -1076,12 +1072,16 @@ TEST(FReflectedPropertyViewTests, SessionErrorsOwnCausesAcrossResetAndRetry)
 	const auto Applied = Session.Apply(Proposed);
 	ASSERT_TRUE(Applied);
 	EXPECT_EQ(Applied.GetStatus(), EPropertyEditResult::Changed);
-	EXPECT_EQ(Applied.Error.Code, EPropertyEditSessionError::None);
+	EXPECT_TRUE(Applied.Message.empty());
 	ASSERT_TRUE(Session.Commit());
 	EXPECT_FALSE(Session.IsActive());
 	EXPECT_EQ(Object->Value, 6);
-	EXPECT_EQ(Active.Error.Description, "Owned session description");
-	EXPECT_EQ(Invalid.Error.Member, Reflection.Property->NamePrivate.ToString());
-	EXPECT_EQ(Invalid.Error.MutationCause->DraftCause->SnapshotCause->Code, EPropertySnapshotError::IncompatibleType);
-	EXPECT_EQ(Missing.Error.PathCause->Code, EPropertyEditPathError::MissingOwner);
+	EXPECT_EQ(Active.Message, "A reflected-property edit session is already active.");
+	EXPECT_EQ(Invalid.Message, InvalidMessage);
+	EXPECT_EQ(Missing.Message, "The edit target has no owning object.");
+	// Presentation text does not determine the command outcome.
+	auto WithoutMessage = Invalid;
+	WithoutMessage.Message.clear();
+	EXPECT_FALSE(WithoutMessage);
+	EXPECT_EQ(WithoutMessage.GetStatus(), EPropertyEditResult::Failed);
 }
