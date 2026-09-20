@@ -13,13 +13,12 @@ namespace Durin
 	{
 		const std::array Inputs{Outputs.BaseColor, Outputs.Normal, Outputs.Metallic, Outputs.Roughness,
 			Outputs.AmbientOcclusion, Outputs.Emissive, Outputs.Opacity, Outputs.OpacityMask};
-		const auto Vector = [](const FVector3& Value) {
-			return FMaterialProgramLiteral{static_cast<float>(Value.x), static_cast<float>(Value.y), static_cast<float>(Value.z)};
-		};
-		const std::array Defaults{Vector(Outputs.BaseColorDefault), Vector(Outputs.NormalDefault),
-			FMaterialProgramLiteral{Outputs.MetallicDefault}, FMaterialProgramLiteral{Outputs.RoughnessDefault},
-			FMaterialProgramLiteral{Outputs.AmbientOcclusionDefault}, Vector(Outputs.EmissiveDefault),
-			FMaterialProgramLiteral{Outputs.OpacityDefault}, FMaterialProgramLiteral{Outputs.OpacityMaskDefault}};
+		std::array<FMaterialProgramLiteral, 8> Defaults;
+		for (uint32 Index = 0; Index < Defaults.size(); ++Index)
+		{
+			const auto Values = ReadMaterialOutputDefault(Outputs, static_cast<EMaterialOutputPin>(Index));
+			Defaults[Index] = {Values.empty() ? 0.f : Values[0], Values.size() > 1 ? Values[1] : 0.f, Values.size() > 2 ? Values[2] : 0.f};
+		}
 		auto OutputError = [&](uint32 Index, FMaterialError Error) {
 			if (Result.Diagnostics.empty())
 				Result.Diagnostics.push_back({.Category = EMaterialProgramDiagnosticCategory::Type,
@@ -32,15 +31,20 @@ namespace Durin
 		BuildAllExpressions();
 		const bool bAggregate = Outputs.bUseMaterialAttributes;
 		const FMaterialSurfaceOutputs StandardDefaults;
-		const auto OutputLinks = std::ranges::count_if(Inputs, [](const auto& Input) { return Input.ExpressionId.IsValid(); })
+		const auto OutputLinks = std::ranges::count_if(Inputs, [](const auto& Input) { return Input.Connection.ExpressionId.IsValid(); })
 			+ (Outputs.Surface.ExpressionId.IsValid() ? 1 : 0);
 		if (AuthoredLinks + OutputLinks > MaterialProgramMaxLinkCount) OutputError(0, EMaterialExpressionError::OutputConnectionsExceedAuthoredLinkBound);
 		if (!ValidSelector(Outputs.Surface)) OutputError(0, EMaterialExpressionError::DisconnectedSurfaceOutputOutputSelector);
 		for (uint32 Index = 0; Index < Inputs.size() && Result.Diagnostics.empty(); ++Index)
 		{
-			const auto& Input = Inputs[Index];
+			const auto& Input = Inputs[Index].Connection;
+			const auto& Retained = Inputs[Index].Constant;
+			AuthoringCodeHash.UpdateValue(Inputs[Index].UseConstant);
+			AuthoringCodeHash.UpdateValue(static_cast<uint32>(Retained.size()));
+			for (const auto V : Retained) AuthoringCodeHash.UpdateValue(V);
 			const auto& Default = Defaults[Index];
-			if (!ValidSelector(Input) || !std::isfinite(Default.X) || !std::isfinite(Default.Y) || !std::isfinite(Default.Z))
+			if (Retained.size() != static_cast<uint32>(GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(Index))) + 1
+				|| !std::ranges::all_of(Retained, [](float V) { return std::isfinite(V); }) || !ValidSelector(Input) || !std::isfinite(Default.X) || !std::isfinite(Default.Y) || !std::isfinite(Default.Z))
 			{
 				OutputError(Index, EMaterialExpressionError::OutputInvalidSelectorRetainedDefault);
 				break;

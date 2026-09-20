@@ -25,6 +25,9 @@ namespace Durin::Testing
 	{
 		Expression.GetClass()->ForEachProperty([&](FProperty* Property) {
 			if (Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Struct
+				&& static_cast<FStructProperty*>(Property)->GetStruct() == FMaterialNumericInput::StaticStruct())
+				Visit(static_cast<FMaterialNumericInput*>(Property->GetValuePtr(&Expression))->Connection);
+			if (Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Struct
 				&& static_cast<FStructProperty*>(Property)->GetStruct() == FMaterialExpressionInput::StaticStruct())
 				Visit(*static_cast<FMaterialExpressionInput*>(Property->GetValuePtr(&Expression)));
 		});

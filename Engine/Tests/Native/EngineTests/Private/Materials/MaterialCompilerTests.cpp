@@ -160,12 +160,12 @@ TEST(FMaterialProgramSchemaTests,
 	}
 	{
 		auto Graph = Testing::MakePBRMaterialExpressionsForTest();
-		Graph.Outputs.Metallic.ExpressionId = {1, 2, 3, 4};
+		Graph.Outputs.Metallic.Connection.ExpressionId = {1, 2, 3, 4};
 		ExpectFailure(Graph, EMaterialExpressionError::InputDisconnectedRefersMissingExpression);
 	}
 	{
 		auto Graph = Testing::MakePBRMaterialExpressionsForTest();
-		Graph.Outputs.Metallic = Graph.Outputs.BaseColor;
+		Graph.Outputs.Metallic.Connection = Graph.Outputs.BaseColor.Connection;
 		const auto Validation = ExpectFailure(Graph, EMaterialExpressionError::OutputSourceIncompatibleType);
 		ASSERT_FALSE(Validation.Diagnostics.empty());
 		EXPECT_EQ(Validation.Diagnostics.front().Category, EMaterialProgramDiagnosticCategory::Type);
@@ -203,7 +203,7 @@ TEST(FMaterialProgramSchemaTests,
 		{
 			TStrongObjectPtr<DMaterialExpressionNegate> Node(NewObject<DMaterialExpressionNegate>(nullptr, NAME_None));
 			Node->Id = {0xde770001, 0, 0, Index + 1}; Node->Input = {Previous};
-			Node->InputDefault = {0}; Previous = Node->Id;
+			Node->Input.SetConstant({0}); Previous = Node->Id;
 			Graph.Expressions.emplace_back(Node.Get());
 		}
 		ExpectFailure(Graph, EMaterialExpressionError::BuildExceedsIRDepthBound);
@@ -256,7 +256,7 @@ TEST(FMaterialProgramSchemaTests,
 	EXPECT_TRUE(GDObjectArray.GetObjectsWithOuter(Instance.Get(), EObjectQueryScope::LiveOnly).empty());
 	const auto BeforeChildren = Owned;
 	const auto BeforeOutputs = Base->GetExpressionOutputs();
-	Graph.Outputs.BaseColorDefault.x = std::numeric_limits<float>::quiet_NaN();
+	Graph.Outputs.BaseColor.Constant[0] = std::numeric_limits<float>::quiet_NaN();
 	EXPECT_FALSE(Graph.Apply(*Base));
 	EXPECT_EQ(Base->GetExpressionCollection().Expressions, BeforeChildren);
 	EXPECT_EQ(Base->GetExpressionOutputs(), BeforeOutputs);
@@ -338,7 +338,7 @@ TEST(FMaterialProgramSchemaTests, AggregateInputRequiresMaterialAttributesType)
 {
 	InitializeDObjectSystem();
 	auto Graph = Durin::Testing::MakePBRMaterialExpressionsForTest();
-	Graph.Outputs.Surface = Graph.Outputs.BaseColor; Graph.Outputs.bUseMaterialAttributes = true;
+	Graph.Outputs.Surface = Graph.Outputs.BaseColor.Connection; Graph.Outputs.bUseMaterialAttributes = true;
 	std::vector<Durin::DMaterialExpression*> Expressions;
 	for (const auto& Expression : Graph.Expressions) Expressions.push_back(Expression.Get());
 	auto Validation = Durin::MIR::FGraphBuilder::ValidateSurface(Expressions, Graph.Outputs);

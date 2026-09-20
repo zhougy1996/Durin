@@ -52,6 +52,8 @@ namespace Durin::Editor::Material
 		MATERIALEDITOR_API auto InsertFunctionCall(DMaterialFunctionInterface& Function,
 			int32 X, int32 Y, std::span<const FMaterialFunctionInputBinding> Inputs,
 			DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API auto SetInputConstantEnabled(const FGuid& NodeId, uint32 InputIndex,
+			bool Enabled, DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto SetInputDefault(const FGuid& NodeId, uint32 InputIndex,
 			FMaterialInputDefault Value, FGuid PortId = {}, DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto ExtractInputDefault(const FGuid& NodeId, uint32 InputIndex,

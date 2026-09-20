@@ -160,7 +160,7 @@ TEST(FMaterialFunctionEditingTests, CallInsertionBindsRequiredInputsAndAdmitsNew
 	ASSERT_EQ(GetFunctionCalls(*Material)[0]->Outputs.size(), 1u);
 	ASSERT_TRUE(Root.Connect(FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialSurfaceOutput::Roughness), FMaterialGraphPinAddress::Output({Call.GeneratedNodeIds[0], 0, Output.Id}), true));
 	ASSERT_EQ(GetFunctionCalls(*Material)[0]->Outputs.size(), 2u);
-	EXPECT_EQ(Material->GetExpressionOutputs().Roughness.OutputId, Output.Id);
+	EXPECT_EQ(Material->GetExpressionOutputs().Roughness.Connection.OutputId, Output.Id);
 	MarkAsGarbage(Material); MarkAsGarbage(Function); CollectGarbage();
 }
 
@@ -257,10 +257,10 @@ TEST(FMaterialFunctionEditingTests, CommandsAuthorFunctionPortsAndCompileASelect
 	const auto CallId = Inserted.GeneratedNodeIds[0];
 	ASSERT_TRUE(Caller.RemoveNodes(std::span(&CallId, 1), Transactions.Get()));
 	EXPECT_TRUE(GetFunctionCalls(*Material).empty());
-	EXPECT_FALSE(Material->GetExpressionOutputs().Roughness.ExpressionId.IsValid());
+	EXPECT_FALSE(Material->GetExpressionOutputs().Roughness.Connection.ExpressionId.IsValid());
 	ASSERT_TRUE(Transactions.Get()->Undo());
 	ASSERT_EQ(GetFunctionCalls(*Material).size(), 1u);
-	EXPECT_EQ(Material->GetExpressionOutputs().Roughness.OutputId, Output.Id);
+	EXPECT_EQ(Material->GetExpressionOutputs().Roughness.Connection.OutputId, Output.Id);
 	ASSERT_TRUE(Document.RemovePort(true, Output.Id));
 	const auto NodeId = AddedNode.GeneratedNodeIds[0];
 	ASSERT_TRUE(Document.RemoveNodes(std::span(&NodeId, 1)));

@@ -47,7 +47,7 @@ TEST(FMaterialPropertyEditingTests, CustomDeclarationOverridesRetainOrphansAndRe
 	Parameter->Id = Durin::FGuid::NewGuid(); Parameter->Metadata.Id = Definition.Id;
 	Parameter->Metadata.Name = Definition.Name; Parameter->DefaultValue = .25f;
 	const std::array<Durin::DMaterialExpression*, 1> Original{Parameter.Get()};
-	const Durin::FMaterialExpressionSurfaceOutputs Outputs{.Roughness = {Parameter->Id}};
+	const Durin::FMaterialExpressionSurfaceOutputs Outputs{.Roughness = Durin::FMaterialNumericInput(Durin::FMaterialExpressionInput{Parameter->Id}, 1)};
 	ASSERT_TRUE(Root->SetMaterialExpressions(Original, Outputs));
 	ASSERT_TRUE(Parent->SetParent(Root));
 	ASSERT_TRUE(Child->SetParent(Parent));

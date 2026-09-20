@@ -110,7 +110,7 @@ TEST(FMaterialExpressionTests, SurfaceSnapshotRejectsDisconnectedInvalidNodesAnd
 	const auto& Color = BroadcastResult.IR.Nodes[BroadcastResult.IR.SurfaceRoot.Inputs[0].ExpressionIndex];
 	EXPECT_EQ(Color.Opcode, EMaterialProgramOpcode::Splat3);
 	EXPECT_EQ(Color.ResultType, EMaterialProgramValueType::Float3);
-	Wrong.BaseColor = {}; Wrong.RoughnessDefault = std::numeric_limits<float>::quiet_NaN();
+	Wrong.BaseColor.Connection = {}; Wrong.Roughness.SetConstant({std::numeric_limits<float>::quiet_NaN()});
 	MIR::FGraphBuilder BadDefault(Expressions);
 	EXPECT_FALSE(BadDefault.FinishSurface(Wrong));
 	std::vector<TStrongObjectPtr<DMaterialExpressionMakeSurface>> Owners;
@@ -145,7 +145,7 @@ TEST(FMaterialExpressionTests, MaterialPersistsTypedOutputsAndOwnedParameterDefa
 	Mask->Id = FGuid::NewGuid(); Mask->Input = {Parameter->Id}; Mask->Components = {0, 1, 2};
 	const std::array<DMaterialExpression*, 2> Expressions{Parameter.Get(), Mask.Get()};
 	FMaterialExpressionSurfaceOutputs Outputs;
-	Outputs.BaseColor = {Mask->Id}; Outputs.RoughnessDefault = .375f;
+	Outputs.BaseColor = {Mask->Id}; Outputs.Roughness.SetConstant({.375f});
 	ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 	EXPECT_EQ(DMaterial::StaticClass()->FindPropertyByName("Program"), nullptr);
 	EXPECT_EQ(DMaterial::StaticClass()->FindPropertyByName("FunctionCalls"), nullptr);
@@ -342,7 +342,7 @@ TEST(FMaterialExpressionTests, BuildFunctionInvocationsBindGuidPortsAndRetainInd
 	auto* OutputA = NewObject<DMaterialExpressionFunctionOutput>(Function.Get(), "OutputA");
 	auto* OutputB = NewObject<DMaterialExpressionFunctionOutput>(Function.Get(), "OutputB");
 	Input->Id = {1, 0, 0, 1}; Input->Port.Id = {2, 0, 0, 1};
-	Add->Id = {1, 0, 0, 2}; Add->A = {Input->Id}; Add->BDefault = {.125f};
+	Add->Id = {1, 0, 0, 2}; Add->A = {Input->Id}; Add->B.SetConstant({.125f});
 	OutputA->Id = {1, 0, 0, 3}; OutputA->Port.Id = {2, 0, 0, 2}; OutputA->Source = {Input->Id};
 	OutputB->Id = {1, 0, 0, 4}; OutputB->Port.Id = {2, 0, 0, 3}; OutputB->Source = {Add->Id};
 	MIR::FFunctionBody Body;
@@ -459,7 +459,7 @@ TEST(FMaterialExpressionTests, BuildNestedTextureDefaultsAreValuesAndRecursionIs
 	InnerBody.Expressions.pop_back();
 	Sample->UV = {{9, 9, 9, 9}};
 	EXPECT_FALSE(MIR::BuildGraph(Graph, Roots, Environment));
-	Sample->UV = {};
+	Sample->UV.Connection = {};
 	Nested->Function = Outer.Get(); Nested->Outputs = Call->Outputs; OuterOutput->Source.OutputId = OuterOutput->Port.Id;
 	const auto Recursive = MIR::BuildGraph(Graph, Roots, Environment);
 	EXPECT_FALSE(Recursive); EXPECT_TRUE(Recursive.IR.Nodes.empty());
@@ -614,7 +614,7 @@ TEST(FMaterialExpressionTests, BuildEmitsDetachedNumericIRAndRejectsInvalidGraph
 	TStrongObjectPtr<DMaterialExpressionScalarConstant> Constant(NewObject<DMaterialExpressionScalarConstant>(nullptr, "BuildConstant"));
 	TStrongObjectPtr<DMaterialExpressionAdd> Add(NewObject<DMaterialExpressionAdd>(nullptr, "BuildAdd"));
 	Constant->Id = {1, 2, 3, 1}; Constant->Value = .25f;
-	Add->Id = {1, 2, 3, 2}; Add->A = {Constant->Id}; Add->ADefault = {.75f}; Add->BDefault = {.5f};
+	Add->Id = {1, 2, 3, 2}; Add->A = {Constant->Id}; Add->A.SetConstant({.75f}); Add->B.SetConstant({.5f});
 	const std::array<DMaterialExpression*, 2> Expressions{Constant.Get(), Add.Get()};
 	const std::array Roots{FMaterialExpressionInput{Add->Id}, FMaterialExpressionInput{Add->Id}};
 	const auto Built = MIR::BuildGraph(Expressions, Roots);
@@ -627,7 +627,7 @@ TEST(FMaterialExpressionTests, BuildEmitsDetachedNumericIRAndRejectsInvalidGraph
 	EXPECT_EQ(Built.Sources.back().NodeId, Add->Id);
 	Constant->Value = .125f;
 	EXPECT_FLOAT_EQ(Built.IR.Nodes[0].GetLiteral().X, .25f);
-	Add->A = {};
+	Add->A.Connection = {};
 	const auto Disconnected = MIR::BuildGraph(Expressions, Roots);
 	ASSERT_TRUE(Disconnected);
 	EXPECT_FLOAT_EQ(Disconnected.IR.Nodes[Disconnected.IR.Nodes[Disconnected.Roots[0]].Inputs[0]].GetLiteral().X, .75f);
@@ -642,8 +642,8 @@ TEST(FMaterialExpressionTests, BuildEmitsDetachedNumericIRAndRejectsInvalidGraph
 	Add->A = {Add->Id}; Reject();
 	Add->A = {{9, 9, 9, 9}}; Reject();
 	Add->A = {Constant->Id, 1}; Reject();
-	Add->A = {Constant->Id}; Add->ADefault = {1, 2}; Reject();
-	Add->ADefault = {std::numeric_limits<float>::infinity()}; Reject();
+	Add->A = {Constant->Id}; Add->A.SetConstant({1, 2}); Reject();
+	Add->A.SetConstant({std::numeric_limits<float>::infinity()}); Reject();
 }
 
 TEST(FMaterialExpressionTests, SamplingOutputSelectorsPreserveChannelsAndRejectRetiredIndex)
@@ -747,9 +747,9 @@ TEST(FMaterialExpressionTests, BuildSamplesAndSurfaceAttributesWithoutProgramNod
 	Sample->Id = {1, 2, 3, 1}; Sample->Metadata.Id = {4, 5, 6, 7}; Sample->Metadata.Name = "Sample";
 	Surface->Id = {1, 2, 3, 2};
 	Surface->BaseColor = {Sample->Id, 1}; Surface->Normal = {Sample->Id, 1};
-	Surface->MetallicDefault = {0}; Surface->RoughnessDefault = {.5f};
-	Surface->AmbientOcclusionDefault = {1}; Surface->EmissiveDefault = {0, 0, 0};
-	Surface->OpacityDefault = {1}; Surface->OpacityMaskDefault = {1};
+	Surface->Metallic.SetConstant({0}); Surface->Roughness.SetConstant({.5f});
+	Surface->AmbientOcclusion.SetConstant({1}); Surface->Emissive.SetConstant({0, 0, 0});
+	Surface->Opacity.SetConstant({1}); Surface->OpacityMask.SetConstant({1});
 	Get->Id = {1, 2, 3, 3}; Get->Surface = {Surface->Id};
 	const std::array<DMaterialExpression*, 3> Expressions{Sample.Get(), Surface.Get(), Get.Get()};
 	const std::array Roots{FMaterialExpressionInput{Surface->Id}, FMaterialExpressionInput{Get->Id, 0}, FMaterialExpressionInput{Sample->Id, 7}};
@@ -825,11 +825,11 @@ TEST(FMaterialExpressionTests, TypedOwnersRoundTripAndDuplicateOnlyApplicableFie
 	auto* Add = NewObject<DMaterialExpressionAdd>(Working.Get(), "Add");
 	Add->Id = {1, 2, 3, 4};
 	Add->A = {Scalar->Id};
-	Add->ADefault = {.125f};
-	Add->BDefault = {.75f};
+	Add->A.SetConstant({.125f});
+	Add->B.SetConstant({.75f});
 	const auto SavedInput = Add->A;
 	auto* Append = NewObject<DMaterialExpressionAppendVector>(Working.Get(), "Append");
-	Append->Id = {1, 2, 3, 6}; Append->A = {Scalar->Id}; Append->BDefault = {.5f, .75f};
+	Append->Id = {1, 2, 3, 6}; Append->A = {Scalar->Id}; Append->B.SetConstant({.5f, .75f});
 	const std::array<DMaterialExpression*, 6> Expressions{Scalar, Vector, Texture, Copy, Add, Append};
 	ASSERT_TRUE(Owner->SetMaterialExpressions(Expressions, {}));
 	ASSERT_TRUE(SavePackage(Owner->GetPackage()));
@@ -845,15 +845,16 @@ TEST(FMaterialExpressionTests, TypedOwnersRoundTripAndDuplicateOnlyApplicableFie
 	{
 		if (auto* Value = Cast<DMaterialExpressionAppendVector>(Child))
 		{
-			EXPECT_EQ(Value->A, SavedInput);
-			EXPECT_EQ(Value->BDefault, (std::vector<float>{.5f, .75f}));
+			EXPECT_EQ(Value->A.Connection, SavedInput.Connection);
+			EXPECT_FALSE(Value->A.UseConstant);
+			EXPECT_EQ(Value->B.Constant, (std::vector<float>{.5f, .75f}));
 			bFoundAppend = true;
 		}
 		if (auto* Value = Cast<DMaterialExpressionAdd>(Child))
 		{
 			EXPECT_EQ(Value->A, SavedInput);
-			EXPECT_EQ(Value->ADefault, (std::vector<float>{.125f}));
-			EXPECT_EQ(Value->BDefault, (std::vector<float>{.75f}));
+			EXPECT_EQ(Value->A.Constant, (std::vector<float>{.125f}));
+			EXPECT_EQ(Value->B.Constant, (std::vector<float>{.75f}));
 			bFoundAdd = true;
 		}
 		if (auto* Value = Cast<DMaterialExpressionVector4Parameter>(Child); Value && Value->Metadata.Name == "Vector")
@@ -890,25 +891,25 @@ TEST(FMaterialExpressionTests, NumericDefaultsRemainConnectedAndBuildRejectsWidt
 	Lerp->Id = {1, 2, 3, 4};
 	Lerp->ResultType = EMaterialProgramValueType::Float3;
 	Lerp->A = {Source->Id};
-	Lerp->ADefault = {.1f, .2f, .3f};
-	Lerp->BDefault = {.4f, .5f, .6f};
-	Lerp->AlphaDefault = {.25f};
+	Lerp->A.SetConstant({.1f, .2f, .3f});
+	Lerp->B.SetConstant({.4f, .5f, .6f});
+	Lerp->Alpha.SetConstant({.25f});
 	const std::array<DMaterialExpression*, 2> Expressions{Source.Get(), Lerp.Get()};
 	const std::array Roots{FMaterialExpressionInput{Lerp->Id}};
 	ASSERT_TRUE(MIR::BuildGraph(Expressions, Roots));
-	Lerp->A = {};
+	Lerp->A.Connection = {};
 	const auto Disconnected = MIR::BuildGraph(Expressions, Roots);
 	ASSERT_TRUE(Disconnected);
 	const auto& LerpNode = Disconnected.IR.Nodes[Disconnected.Roots[0]];
 	EXPECT_EQ(Disconnected.IR.Nodes[LerpNode.Inputs[0]].GetLiteral(), (FMaterialProgramLiteral{.1f, .2f, .3f}));
 	Lerp->A = {Source->Id};
-	Lerp->AlphaDefault = {.2f, .3f};
+	Lerp->Alpha.SetConstant({.2f, .3f});
 	EXPECT_FALSE(MIR::BuildGraph(Expressions, Roots));
-	Lerp->AlphaDefault = {std::numeric_limits<float>::infinity()};
+	Lerp->Alpha.SetConstant({std::numeric_limits<float>::infinity()});
 	EXPECT_FALSE(MIR::BuildGraph(Expressions, Roots));
 	TStrongObjectPtr<DMaterialExpressionSwizzle> Swizzle(NewObject<DMaterialExpressionSwizzle>(nullptr, "Swizzle"));
 	Swizzle->Id = {1, 2, 3, 5};
-	Swizzle->InputDefault = {1, 2, 3, 4};
+	Swizzle->Input.SetConstant({1, 2, 3, 4});
 	Swizzle->Components = {2, 0};
 	const std::array<DMaterialExpression*, 1> Swizzles{Swizzle.Get()};
 	const std::array SwizzleRoots{FMaterialExpressionInput{Swizzle->Id}};
@@ -1134,10 +1135,10 @@ TEST(FMaterialExpressionTests, AuthoringFingerprintTracksCallPortsAndExcludesPar
 	Parameter->DefaultValue = {.2, .4, .6, 0}; Parameter->Metadata.DisplayName = "Display color";
 	ASSERT_TRUE(MIR::FGraphBuilder::ValidateSurface(Expressions, Outputs, &After));
 	EXPECT_EQ(After, Before);
-	Outputs.BaseColor.OutputId = Call->Outputs[1].OutputId;
+	Outputs.BaseColor.Connection.OutputId = Call->Outputs[1].OutputId;
 	ASSERT_TRUE(MIR::FGraphBuilder::ValidateSurface(Expressions, Outputs, &After));
 	EXPECT_NE(After, Before);
-	Outputs.BaseColor.OutputId = Call->Outputs[0].OutputId;
+	Outputs.BaseColor.Connection.OutputId = Call->Outputs[0].OutputId;
 	const auto InputId = Call->Inputs[0].InputId;
 	Call->Inputs[0].InputId = FGuid::NewGuid();
 	ASSERT_TRUE(MIR::FGraphBuilder::ValidateSurface(Expressions, Outputs, &After));
@@ -1159,7 +1160,7 @@ TEST(FMaterialExpressionTests, AppendLowersInOrderAndInfersWidthWithoutCachedTyp
 	InitializeDObjectSystem();
 	TStrongObjectPtr<DMaterialExpressionAppendVector> Append(NewObject<DMaterialExpressionAppendVector>(nullptr, NAME_None));
 	Append->Id = FGuid::NewGuid();
-	Append->ADefault = {1.f, 2.f}; Append->BDefault = {3.f, 4.f};
+	Append->A.SetConstant({1.f, 2.f}); Append->B.SetConstant({3.f, 4.f});
 	const std::array<DMaterialExpression*, 1> Expressions{Append.Get()};
 	const std::array Roots{FMaterialExpressionInput{Append->Id}};
 	MIR::FGraphBuilder Context(Expressions);
@@ -1177,10 +1178,10 @@ TEST(FMaterialExpressionTests, AppendLowersInOrderAndInfersWidthWithoutCachedTyp
 		const auto& Source = Built.IR.Nodes[Selection.Inputs.front()];
 		EXPECT_FLOAT_EQ(Source.GetLiteral().X, Channel < 2 ? 1.f : 3.f);
 	}
-	Append->BDefault = {3.f, 4.f, 5.f};
+	Append->B.SetConstant({3.f, 4.f, 5.f});
 	MIR::FGraphBuilder Overflow(Expressions);
 	EXPECT_FALSE(Overflow.Finish(Roots));
-	Append->BDefault = {3.f};
+	Append->B.SetConstant({3.f});
 	MIR::FGraphBuilder Narrower(Expressions);
 	const auto Three = Narrower.Finish(Roots);
 	ASSERT_TRUE(Three);
@@ -1211,4 +1212,42 @@ TEST(FMaterialExpressionTests, GraphLoadValidationOwnsCompleteFunctionDiagnostic
 	Output->Source = Before;
 	ASSERT_TRUE(Function->ValidateLoadedObjectGraph({}));
 	EXPECT_EQ(Cause->Diagnostics, Diagnostics);
+}
+
+TEST(FMaterialExpressionTests, GroupedConstantsPreserveConnectionPrecedenceAndRetainedState)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterialExpressionScalarConstant> Source(NewObject<DMaterialExpressionScalarConstant>(nullptr, NAME_None));
+	TStrongObjectPtr<DMaterialExpressionMultiply> Product(NewObject<DMaterialExpressionMultiply>(nullptr, NAME_None));
+	Source->Id = FGuid::NewGuid(); Source->Value = 7.f;
+	Product->Id = FGuid::NewGuid(); Product->A.SetConstant({2.f}); Product->B.SetConstant({0.f});
+	Product->B.Connection = {Source->Id};
+	const std::array<DMaterialExpression*, 2> Nodes{Source.Get(), Product.Get()};
+	const auto Build = [&] { return MIR::BuildGraph(Nodes, std::array{FMaterialExpressionInput{Product->Id}}); };
+	for (bool Enabled : {false, true})
+	{
+		Product->B.UseConstant = Enabled;
+		const auto Result = Build();
+		ASSERT_TRUE(Result);
+		const auto& Multiply = Result.IR.Nodes[Result.Roots[0]];
+		EXPECT_FLOAT_EQ(Result.IR.Nodes[Multiply.Inputs[1]].GetLiteral().X, 7.f);
+	}
+	Product->B.Connection = {};
+	for (bool Enabled : {false, true})
+	{
+		Product->B.UseConstant = Enabled;
+		const auto Result = Build();
+		ASSERT_TRUE(Result);
+		const auto& Multiply = Result.IR.Nodes[Result.Roots[0]];
+		EXPECT_FLOAT_EQ(Result.IR.Nodes[Multiply.Inputs[1]].GetLiteral().X, Enabled ? 0.f : 1.f);
+		EXPECT_EQ(Product->B.Constant, (std::vector<float>{0.f}));
+	}
+	Product->B.Connection = {FGuid::NewGuid()};
+	EXPECT_FALSE(Build());
+	Product->B.Connection = {Source->Id}; Product->B.UseConstant = false;
+	Product->B.Constant = {std::numeric_limits<float>::infinity()};
+	EXPECT_FALSE(Build());
+	Product->B.Constant.clear();
+	EXPECT_FALSE(Build());
 }

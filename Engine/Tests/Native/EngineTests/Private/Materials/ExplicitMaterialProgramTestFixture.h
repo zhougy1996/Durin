@@ -142,15 +142,15 @@ namespace Durin::Testing
 		auto& OpacityMask = MakeScalarProduct(
 			OpacityMaskIds.Value, OpacityMaskIds.Texture, 0);
 
-		Graph.Outputs = {
-			.BaseColor = MakeLink(BaseColor),
-			.Normal = MakeLink(Normal),
-			.Metallic = MakeLink(Metallic),
-			.Roughness = MakeLink(Roughness),
-			.AmbientOcclusion = MakeLink(AmbientOcclusion),
-			.Emissive = MakeLink(Emissive),
-			.Opacity = MakeLink(Opacity),
-			.OpacityMask = MakeLink(OpacityMask)};
+		Graph.Outputs.BaseColor.Connection = MakeLink(BaseColor);
+		Graph.Outputs.Normal.Connection = MakeLink(Normal);
+		Graph.Outputs.Metallic.Connection = MakeLink(Metallic);
+		Graph.Outputs.Roughness.Connection = MakeLink(Roughness);
+		Graph.Outputs.AmbientOcclusion.Connection = MakeLink(AmbientOcclusion);
+		Graph.Outputs.Emissive.Connection = MakeLink(Emissive);
+		Graph.Outputs.Opacity.Connection = MakeLink(Opacity);
+		Graph.Outputs.OpacityMask.Connection = MakeLink(OpacityMask);
+
 		auto AppendNode = [&](EMaterialProgramOpcode Opcode, EMaterialProgramValueType Type,
 			std::vector<FMaterialExpressionInput> Inputs = {}, FGuid ParameterId = {}, FMaterialProgramLiteral Literal = {}) -> FMaterialExpressionInput {
 			return MakeLink(AddNode(Opcode, Type, std::move(Inputs), ParameterId, Literal));

@@ -576,7 +576,7 @@ TEST(FMaterialGraphInteractionTests, TextureOutputsHideUnusedAdvancedPinsWithout
 	ASSERT_TRUE(FMaterialGraphDocument(*Material).RemoveNodes(Consumers));
 	Sample = FindViewNode(FMaterialGraphCanvasTestAccess::Prepare(Canvas, *Material), SampleId);
 	EXPECT_EQ(Sample->Outputs.size(), 6u);
-	EXPECT_EQ(Material->GetExpressionOutputs().BaseColor.OutputIndex, 1u);
+	EXPECT_EQ(Material->GetExpressionOutputs().BaseColor.Connection.OutputIndex, 1u);
 	MarkAsGarbage(Material);
 	CollectGarbage();
 }
@@ -1057,10 +1057,10 @@ TEST(FMaterialGraphInteractionTests, CanvasLinkReleaseEndsGestureAcrossFrames)
 	EXPECT_EQ(FindViewNode(FMaterialGraphDocument(*Material).Inspect(), Destination)
 		->Inputs.front().Link.SourceNodeId, Source);
 	Drop({Origin.x + 700, Origin.y + (GraphNodePinOffset(*FindViewNode(View, Material->GetOutputNode()->Id)) + Metrics.PinRowHeight * 3)}, false);
-	EXPECT_EQ(Material->GetExpressionOutputs().Roughness.ExpressionId, Source);
+	EXPECT_EQ(Material->GetExpressionOutputs().Roughness.Connection.ExpressionId, Source);
 	Drop({Origin.x + 700, Origin.y + (GraphNodePinOffset(*FindViewNode(View, Material->GetOutputNode()->Id)))}, false);
 	EXPECT_EQ(Errors, 1);
-	EXPECT_EQ(Material->GetExpressionOutputs().BaseColor.ExpressionId, Source);
+	EXPECT_EQ(Material->GetExpressionOutputs().BaseColor.Connection.ExpressionId, Source);
 	Drop({Origin.x + 380, Origin.y + 10}, false);
 	Frame(Output, false);
 	Frame(Output, true);
@@ -1395,15 +1395,15 @@ TEST(FMaterialGraphInteractionTests, SurfaceTexturesUseCompactSamplesAndPreserve
 		ASSERT_EQ(Material->GetParameterDefinitions().size(), 1u);
 		const auto* Sample = Cast<DMaterialExpressionTextureSampleParameter2D>(Material->GetExpressionCollection().Expressions.front().Get());
 		ASSERT_NE(Sample, nullptr);
-		EXPECT_FALSE(Sample->UV.ExpressionId.IsValid());
+		EXPECT_FALSE(Sample->UV.Connection.ExpressionId.IsValid());
 		const FGuid SampleId = Sample->Id;
 		const FGuid ParameterId = Sample->Metadata.Id;
 		const auto ReadOutput = [&]() {
 			const auto& O = Material->GetExpressionOutputs();
 			return (std::array{O.BaseColor, O.Normal, O.Metallic, O.Roughness, O.AmbientOcclusion, O.Emissive, O.Opacity, O.OpacityMask})[Index];
 		};
-		EXPECT_EQ(ReadOutput().ExpressionId, SampleId);
-		EXPECT_EQ(ReadOutput().OutputIndex, Channels[Index]);
+		EXPECT_EQ(ReadOutput().Connection.ExpressionId, SampleId);
+		EXPECT_EQ(ReadOutput().Connection.OutputIndex, Channels[Index]);
 		if (bNormal)
 		{
 			EXPECT_EQ(Sample->TextureUsage, ETextureUsage::Normal);
@@ -1413,7 +1413,7 @@ TEST(FMaterialGraphInteractionTests, SurfaceTexturesUseCompactSamplesAndPreserve
 		ASSERT_TRUE(Transactions->Undo());
 		EXPECT_EQ(Material->GetExpressionCollection().Expressions.size(), 1u);
 		EXPECT_TRUE(Material->GetParameterDefinitions().empty());
-		EXPECT_FALSE(ReadOutput().ExpressionId.IsValid());
+		EXPECT_FALSE(ReadOutput().Connection.ExpressionId.IsValid());
 		ASSERT_TRUE(Transactions->Redo());
 		EXPECT_EQ(Material->GetExpressionCollection().Expressions.front()->Id, SampleId);
 		EXPECT_EQ(Material->GetParameterDefinitions().front().Id, ParameterId);
@@ -1560,7 +1560,7 @@ TEST(FMaterialGraphInteractionTests, SharedTextureParametersPreserveLocalSamplin
 	auto Definition = A->GetParameterDefinition();
 	Definition.Value.GetTexture().TextureFallback = EMaterialTextureFallback::FlatRGNormal;
 	ASSERT_TRUE(FMaterialGraphOperations::SetParameterValue(*Material, Id, Definition.Value, Transactions.Get()));
-	EXPECT_EQ(FindExpression<DMaterialExpressionTextureSampleParameter2D>(*Material, BId)->UV.ExpressionId, UV->Id);
+	EXPECT_EQ(FindExpression<DMaterialExpressionTextureSampleParameter2D>(*Material, BId)->UV.Connection.ExpressionId, UV->Id);
 	EXPECT_EQ(FindExpression<DMaterialExpressionTextureSampleParameter2D>(*Material, BId)->DefaultValue.TextureFallback, EMaterialTextureFallback::FlatRGNormal);
 	ASSERT_TRUE(Transactions->Undo());
 	ASSERT_TRUE(Transactions->Redo());
@@ -1571,7 +1571,7 @@ TEST(FMaterialGraphInteractionTests, SharedTextureParametersPreserveLocalSamplin
 	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Material));
 	ASSERT_EQ(Material->GetParameterDefinitions().size(), 1u);
 	EXPECT_EQ(Material->GetParameterDefinitions().front().Id, Id);
-	EXPECT_EQ(FindExpression<DMaterialExpressionTextureSampleParameter2D>(*Material, BId)->UV.ExpressionId, UV->Id);
+	EXPECT_EQ(FindExpression<DMaterialExpressionTextureSampleParameter2D>(*Material, BId)->UV.Connection.ExpressionId, UV->Id);
 	EXPECT_EQ(FindExpression<DMaterialExpressionTextureSampleParameter2D>(*Material, BId)->DefaultValue.TextureFallback, EMaterialTextureFallback::FlatRGNormal);
 	ASSERT_TRUE(UnloadPackage(Path)); CollectGarbage();
 }

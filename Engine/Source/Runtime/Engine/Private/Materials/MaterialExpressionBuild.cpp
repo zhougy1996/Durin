@@ -1,3 +1,5 @@
+#include "DObject/Class.h"
+#include "DObject/DurinPropertyTypes.h"
 #include "MaterialExpressionGraphBuilder.h"
 #include <unordered_set>
 
@@ -72,6 +74,19 @@ namespace Durin::MIR
 				Fail(EMaterialExpressionError::CollectionContainsNullOwnerInvalidGUIDDuplicateGUID);
 				return;
 			}
+			const auto HashInput = [&](const FMaterialNumericInput& Input) {
+				AuthoringCodeHash.UpdateValue(Input.UseConstant);
+				AuthoringCodeHash.UpdateValue(static_cast<uint32>(Input.Constant.size()));
+				for (float Value : Input.Constant) AuthoringCodeHash.UpdateValue(Value);
+			};
+			Expression->GetClass()->ForEachProperty([&](FProperty* Property) {
+				if (Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Struct
+					&& static_cast<FStructProperty*>(Property)->GetStruct() == FMaterialNumericInput::StaticStruct())
+					HashInput(*static_cast<const FMaterialNumericInput*>(Property->GetValuePtr(Expression)));
+			});
+			if (const auto* Surface = Cast<DMaterialExpressionSetSurfaceAttributes>(Expression))
+				for (const auto& Attribute : Surface->Attributes) HashInput(Attribute.Source);
+
 			if (const auto* Parameter = Cast<DMaterialExpressionParameter>(Expression);
 				Parameter && (Signature || !Parameter->Metadata.Id.IsValid()))
 			{
@@ -319,11 +334,11 @@ namespace Durin::MIR
 	}
 
 	auto FGraphBuilderImpl::Numeric(EMaterialProgramOpcode Opcode, EMaterialProgramValueType Type,
-		std::span<const FMaterialExpressionInput* const> Inputs,
-		std::span<const std::vector<float>* const> Defaults, std::span<const uint8> Swizzle) -> uint32
+		std::span<const FMaterialNumericInput* const> Inputs,
+		std::span<const uint8> Swizzle) -> uint32
 	{
 		const auto Signature = GetMaterialProgramNodeSignature(Opcode, Type);
-		if (!Signature || Inputs.size() != Signature->InputCount || Defaults.size() != Inputs.size())
+		if (!Signature || Inputs.size() != Signature->InputCount)
 			return Fail(EMaterialExpressionError::NumericSignatureMismatch);
 		FNode Node{.Opcode = Opcode, .ResultType = Type};
 		if (Opcode == EMaterialProgramOpcode::Swizzle)
@@ -338,9 +353,10 @@ namespace Durin::MIR
 			const bool bScalarDefault = IsMaterialAdaptiveNumeric(Opcode)
 				&& Type > EMaterialProgramValueType::Float && Type <= EMaterialProgramValueType::Float4
 				&& !(Opcode == EMaterialProgramOpcode::Lerp && Slot == 2);
-			const bool bBroadcast = bScalarDefault && (Inputs.size() > 1 || !Inputs[Slot]->ExpressionId.IsValid());
-			const auto& Default = *Defaults[Slot];
-			if (!Default.empty())
+			const bool bBroadcast = bScalarDefault && (Inputs.size() > 1 || !Inputs[Slot]->Connection.ExpressionId.IsValid());
+			const auto& Stored = *Inputs[Slot];
+			const auto& Default = Stored.Constant;
+			if (Default.empty()) return Fail(EMaterialExpressionError::RetainedNumericDefaultInvalidWidthNonFiniteComponent);
 			{
 				const auto Accepted = Signature->Inputs[Slot];
 				if (Default.size() > 4 || (std::ranges::find(Accepted,
@@ -348,10 +364,10 @@ namespace Durin::MIR
 					|| !std::ranges::all_of(Default, [](float Value) { return std::isfinite(Value); }))
 					return Fail(EMaterialExpressionError::RetainedNumericDefaultInvalidWidthNonFiniteComponent);
 			}
-			const auto& Input = *Inputs[Slot];
+			const auto& Input = Stored.Connection;
 			if (!Input.ExpressionId.IsValid() && (Input.OutputIndex != 0 || Input.OutputId.IsValid()))
 				return Fail(EMaterialExpressionError::DisconnectedNumericInputOutputSelector);
-			auto Index = Input.ExpressionId.IsValid() ? ResolveIndex(Input) : Literal(Default);
+			auto Index = Input.ExpressionId.IsValid() ? ResolveIndex(Input) : Literal(Stored.UseConstant ? Default : GetMaterialNumericInputFallback(Opcode, Type, Slot));
 			if (bBroadcast && Index != InvalidIndex && GetNode(Index).ResultType == EMaterialProgramValueType::Float)
 				Index = Emit({.Opcode = static_cast<EMaterialProgramOpcode>(static_cast<uint8>(EMaterialProgramOpcode::Splat2)
 					+ static_cast<uint8>(Type) - 1), .ResultType = Type, .Inputs = {Index}});

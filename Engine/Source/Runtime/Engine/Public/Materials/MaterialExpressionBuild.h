@@ -94,8 +94,8 @@ namespace Durin
 			ENGINE_API auto Literal(std::span<const float> Components) -> uint32;
 			ENGINE_API auto Parameter(FGuid Id, EMaterialParameterType Type) -> uint32;
 			ENGINE_API auto Numeric(EMaterialProgramOpcode Opcode, EMaterialProgramValueType Type,
-				std::span<const FMaterialExpressionInput* const> Inputs,
-				std::span<const std::vector<float>* const> Defaults, std::span<const uint8> Swizzle = {}) -> uint32;
+				std::span<const FMaterialNumericInput* const> Inputs,
+				std::span<const uint8> Swizzle = {}) -> uint32;
 			ENGINE_API auto Coordinates() -> uint32;
 			ENGINE_API auto IsNormalTexture(FValue Value) const -> bool;
 			ENGINE_API auto Fail(FMaterialError Error, FGuid PortId = {},

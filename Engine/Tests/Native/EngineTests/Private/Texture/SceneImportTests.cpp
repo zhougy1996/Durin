@@ -450,11 +450,11 @@ TEST(FSceneImportTests, PackedSourceChannelsPublishOneLinearSampleOwner)
 	EXPECT_EQ(std::ranges::count_if(Parent->GetExpressionCollection().Expressions,
 		[](const auto& Expression) { return Cast<DMaterialExpressionTextureSampleParameter2D>(Expression.Get()) != nullptr; }), 1);
 	const auto& Outputs = Parent->GetExpressionOutputs();
-	EXPECT_EQ(Outputs.Metallic.ExpressionId, Outputs.Roughness.ExpressionId);
-	EXPECT_EQ(Outputs.Metallic.ExpressionId, Outputs.AmbientOcclusion.ExpressionId);
-	EXPECT_EQ(Outputs.Metallic.OutputIndex, 4);
-	EXPECT_EQ(Outputs.Roughness.OutputIndex, 3);
-	EXPECT_EQ(Outputs.AmbientOcclusion.OutputIndex, 2);
+	EXPECT_EQ(Outputs.Metallic.Connection.ExpressionId, Outputs.Roughness.Connection.ExpressionId);
+	EXPECT_EQ(Outputs.Metallic.Connection.ExpressionId, Outputs.AmbientOcclusion.Connection.ExpressionId);
+	EXPECT_EQ(Outputs.Metallic.Connection.OutputIndex, 4);
+	EXPECT_EQ(Outputs.Roughness.Connection.OutputIndex, 3);
+	EXPECT_EQ(Outputs.AmbientOcclusion.Connection.OutputIndex, 2);
 	EXPECT_EQ(Instance->GetParameterDefinitions().size(), 2u);
 	EXPECT_EQ(Instance->GetLocalParameterValueCount(), 2u);
 	EXPECT_FALSE(Instance->GetImportProvenance().OutputIdentity.empty());
@@ -498,7 +498,7 @@ TEST(FSceneImportTests, StructuralParentsReuseAcrossDestinationsAndRejectAuthore
 		return Parent->SetMaterialExpressions(Expressions, Outputs);
 	};
 	auto Changed = Original;
-	Changed.AmbientOcclusionDefault = .3f;
+	Changed.AmbientOcclusion.SetConstant({.3f});
 	ASSERT_TRUE(ApplyOutputs(Changed));
 	FSceneImportResult Rejected;
 	EXPECT_FALSE(ImportSceneAssets(Fixture.Source, MakeAssetPath("/SceneImportTests/Rejected"),
@@ -588,7 +588,7 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 	EXPECT_FALSE(Material->GetExpressionOutputs().Surface.ExpressionId.IsValid());
 	const auto& Outputs = Material->GetExpressionOutputs();
 	for (const auto& Link : {Outputs.BaseColor, Outputs.Normal, Outputs.Metallic, Outputs.Roughness,
-		Outputs.AmbientOcclusion, Outputs.Emissive, Outputs.Opacity, Outputs.OpacityMask}) EXPECT_TRUE(Link.ExpressionId.IsValid());
+		Outputs.AmbientOcclusion, Outputs.Emissive, Outputs.Opacity, Outputs.OpacityMask}) EXPECT_TRUE(Link.Connection.ExpressionId.IsValid());
 	FMaterialCompilerEnvironment Environment;
 	const auto EnvironmentResult = BuildDefaultMaterialCompilerEnvironment(Environment);
 	ASSERT_TRUE(EnvironmentResult) << FormatMaterialError(EnvironmentResult.Error);
@@ -638,7 +638,7 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 	for (const auto& Expression : Edited)
 		if (auto* Lerp = Cast<DMaterialExpressionLerp>(Expression.Get())) { NormalBlend = Lerp; break; }
 	ASSERT_NE(NormalBlend, nullptr);
-	NormalBlend->ADefault = {0, .1f, 1};
+	NormalBlend->A.SetConstant({0, .1f, 1});
 	ASSERT_TRUE(Apply(Edited, Signature));
 	ASSERT_TRUE(SavePackage(Functions.SampleNormal->GetPackage()));
 	ASSERT_TRUE(LoadStandardMaterialFunctions(Functions, Error)) << Error;

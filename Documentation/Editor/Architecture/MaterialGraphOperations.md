@@ -433,7 +433,7 @@ changes stable input indices or function port GUIDs. Material instances retain t
 parameter-only editor and expose Open Parent Material for explicit graph navigation.
 
 
-The shared document commands SetInputDefault, ExtractInputDefault,
+The shared document commands SetInputDefault, SetInputConstantEnabled, ExtractInputDefault,
 and InlineInputNode operate on independent concrete-expression
 snapshots for roots and function documents. Numeric defaults use their actual
 component widths; the coordinate channel default is scalar, and
@@ -441,6 +441,15 @@ function calls select inputs by port GUID. Extraction retains literal fallbacks 
 constants and removes a source only after its last consumer is gone. Parameters stay
 visible owners: sharing uses explicit links. Each operation commits one validated
 Undo/Redo transaction. Function paste rejects all root parameter payloads.
+
+Numeric pin access traverses `FMaterialNumericInput.Connection` explicitly.
+Definition defaults are queried rather than copied into every newly created pin.
+Editing a literal enables `UseConstant`, including when it equals the inherited
+value. Reset clears that flag without changing the connection or retained
+constant; re-enabling restores the retained value. Details distinguishes inherited
+and explicit values. Connecting, disconnecting and deleting an upstream node
+preserve the flag and constant. Transactions and clipboard copies carry the
+complete reflected input state; clipboard schema 9 rejects older payloads.
 
 Texture Object Parameter owns a Texture2D resource. Texture Sample Parameter 2D
 owns a resource and exposes raw RGBA/R/G/B/A, RGB and Texture2D slot 7.
@@ -469,8 +478,8 @@ updates preserve sampling expressions and their UV connections. Class replacemen
 preserves the node GUID and publishes after storage checks. Type changes
 which invalidate links remain editable with compiler diagnostics. Resource assignment is undoable.
 
-Texture Sample UV inputs accept Float2 or a scalar broadcast to both coordinates,
-and show Mesh UV0 when disconnected.
+Texture Sample UV inputs accept Float2 or a scalar broadcast to both coordinates.
+Disconnected UVs inherit Mesh UV0 unless an explicit constant is enabled.
 TextureCoordinates selects a mesh channel and outputs Float2. Scale, offset and
 rotation use upstream math expressions or material functions, shared through
 explicit connections. Function graphs expose literals and interface ports without

@@ -24,8 +24,8 @@ TEST(FMaterialFunctionTests, StandardRecipesOwnTypedExpressionsAndPublishIndepen
 			EXPECT_FALSE(Expression->IsA<DMaterialExpressionScalarConstant>());
 			if (const auto* Lerp = Cast<DMaterialExpressionLerp>(Expression.Get()))
 			{
-				EXPECT_FALSE(Lerp->A.ExpressionId.IsValid());
-				EXPECT_EQ(Lerp->ADefault, (std::vector<float>{0, 0, 1}));
+				EXPECT_FALSE(Lerp->A.Connection.ExpressionId.IsValid());
+				EXPECT_EQ(Lerp->A.Constant, (std::vector<float>{0, 0, 1}));
 			}
 		}
 		Owners.emplace_back(NewObject<DMaterialFunction>(nullptr, NAME_None));
@@ -71,7 +71,7 @@ TEST(FMaterialFunctionTests, ExplicitMRTemplateRetainsIndependentInstanceParamet
 	EXPECT_FALSE(Recipe.Outputs.Surface.ExpressionId.IsValid());
 	for (const auto* Output : {&Recipe.Outputs.BaseColor, &Recipe.Outputs.Normal, &Recipe.Outputs.Metallic,
 		&Recipe.Outputs.Roughness, &Recipe.Outputs.AmbientOcclusion, &Recipe.Outputs.Emissive,
-		&Recipe.Outputs.Opacity, &Recipe.Outputs.OpacityMask}) EXPECT_TRUE(Output->ExpressionId.IsValid());
+		&Recipe.Outputs.Opacity, &Recipe.Outputs.OpacityMask}) EXPECT_TRUE(Output->Connection.ExpressionId.IsValid());
 	CollectGarbage();
 	EXPECT_TRUE(Recipe.MatchesGraph(*Material));
 	for (size_t I = 0; I < Recipe.Expressions.size(); ++I)
@@ -89,7 +89,7 @@ TEST(FMaterialFunctionTests, ExplicitMRTemplateRetainsIndependentInstanceParamet
 			return Parameter && Parameter->Metadata.Id == Id;
 		});
 		ASSERT_NE(Sample, Recipe.Expressions.end());
-		EXPECT_TRUE(Cast<DMaterialExpressionTextureSampleParameter2D>(Sample->Get())->UV.ExpressionId.IsValid());
+		EXPECT_TRUE(Cast<DMaterialExpressionTextureSampleParameter2D>(Sample->Get())->UV.Connection.ExpressionId.IsValid());
 	}
 	auto InputCapture = SnapshotMaterialCompilerInput(*Material, {.CompilerIdentity = "ExplicitMRTemplate"});
 	ASSERT_TRUE(InputCapture);
@@ -152,12 +152,12 @@ TEST(FMaterialFunctionTests, StructuralImportRecipesExposeOnlyRequiredOwners)
 	Roles[3].Sample = FImportedSurfaceSample{.ResourceIdentity = "packed", .Usage = ETextureUsage::DataMask, .OutputIndex = 3};
 	const auto Packed = MakeImportedSurfaceRecipe(Roles);
 	EXPECT_EQ(Packed.Graph.Expressions.size(), 9u);
-	EXPECT_EQ(Packed.Graph.Outputs.Metallic.ExpressionId, Packed.Graph.Outputs.Roughness.ExpressionId);
+	EXPECT_EQ(Packed.Graph.Outputs.Metallic.Connection.ExpressionId, Packed.Graph.Outputs.Roughness.Connection.ExpressionId);
 	ASSERT_TRUE(Packed.Graph.Apply(*Material));
 	Roles[3].Sample->UVChannel = {1};
 	const auto Split = MakeImportedSurfaceRecipe(Roles);
 	EXPECT_NE(Packed.CanonicalKey, Split.CanonicalKey);
-	EXPECT_NE(Split.Graph.Outputs.Metallic.ExpressionId, Split.Graph.Outputs.Roughness.ExpressionId);
+	EXPECT_NE(Split.Graph.Outputs.Metallic.Connection.ExpressionId, Split.Graph.Outputs.Roughness.Connection.ExpressionId);
 	ASSERT_TRUE(Split.Graph.Apply(*Material));
 	Roles[1].Sample = FImportedSurfaceSample{.ResourceIdentity = "normal", .Usage = ETextureUsage::Normal,
 		.OutputIndex = 1};
@@ -194,7 +194,7 @@ TEST(FMaterialFunctionTests, ExpandedAndFunctionRecipesPreserveCompilationAndInd
 	const auto& Outputs = Current->GetExpressionOutputs();
 	for (const auto& Output : {Outputs.BaseColor, Outputs.Normal, Outputs.Metallic, Outputs.Roughness,
 		Outputs.AmbientOcclusion, Outputs.Emissive, Outputs.Opacity, Outputs.OpacityMask})
-		EXPECT_TRUE(Output.ExpressionId.IsValid());
+		EXPECT_TRUE(Output.Connection.ExpressionId.IsValid());
 	const FMaterialCompilerEnvironment Environment{.CompilerIdentity = "FunctionFixtureParity"};
 	auto FrozenInputCapture = SnapshotMaterialCompilerInput(*Frozen, Environment);
 	ASSERT_TRUE(FrozenInputCapture);
@@ -270,7 +270,7 @@ TEST(FMaterialFunctionTests, LiteralDefaultsMatchExplicitConstantsAndValidateTyp
 	auto* Product = NewObject<DMaterialExpressionMultiply>(nullptr, NAME_None);
 	auto* Value = NewObject<DMaterialExpressionScalarConstant>(nullptr, NAME_None);
 	Constant->Id = FGuid::NewGuid(); Constant->Value = .5f;
-	Product->Id = FGuid::NewGuid(); Product->A = {Constant->Id}; Product->BDefault = {.25f};
+	Product->Id = FGuid::NewGuid(); Product->A = {Constant->Id}; Product->B.SetConstant({.25f});
 	Value->Id = FGuid::NewGuid(); Value->Value = .25f;
 	std::vector<DMaterialExpression*> Expressions{Constant, Product};
 	FMaterialExpressionSurfaceOutputs Outputs;
@@ -279,14 +279,14 @@ TEST(FMaterialFunctionTests, LiteralDefaultsMatchExplicitConstantsAndValidateTyp
 	ASSERT_TRUE(Baseline);
 	EXPECT_TRUE(Baseline.ActiveParameters.empty());
 	Expressions.push_back(Value);
-	Product->B = {Value->Id}; Product->BDefault.clear();
+	Product->B = {Value->Id}; Product->B.UseConstant = false;
 	const auto Expanded = NormalizeTypedExpressions(Expressions, Outputs);
 	ASSERT_TRUE(Expanded);
 	EXPECT_EQ(Baseline.CanonicalBytes, Expanded.CanonicalBytes);
 	EXPECT_EQ(Baseline.Layout, Expanded.Layout);
-	Product->B = {}; Product->BDefault = {.25f, .5f};
+	Product->B.Connection = {}; Product->B.SetConstant({.25f, .5f});
 	EXPECT_FALSE(NormalizeTypedExpressions(Expressions, Outputs));
-	Product->BDefault = {std::numeric_limits<float>::infinity()};
+	Product->B.SetConstant({std::numeric_limits<float>::infinity()});
 	EXPECT_FALSE(NormalizeTypedExpressions(Expressions, Outputs));
 	for (auto* Expression : Expressions) MarkAsGarbage(Expression);
 	CollectGarbage();
@@ -307,12 +307,12 @@ TEST(FMaterialFunctionTests, SamplingDefaultsToMeshUV0AndAcceptsSharedFloat2)
 	auto* WrongType = NewObject<DMaterialExpressionVector3Constant>(nullptr, NAME_None);
 	WrongType->Id = FGuid::NewGuid();
 	const std::array<DMaterialExpression*, 5> Expressions{Owner, Sample, UV, Constant, WrongType};
-	const FMaterialExpressionSurfaceOutputs Outputs{.BaseColor = {Owner->Id, 1}, .Emissive = {Sample->Id, 1}};
+	const FMaterialExpressionSurfaceOutputs Outputs{.BaseColor = Durin::FMaterialNumericInput(Durin::FMaterialExpressionInput{Owner->Id, 1}, 3), .Emissive = Durin::FMaterialNumericInput(Durin::FMaterialExpressionInput{Sample->Id, 1}, 3)};
 	const auto Implicit = NormalizeTypedExpressions(Expressions, Outputs);
 	ASSERT_TRUE(Implicit);
 	EXPECT_EQ(std::ranges::count(Implicit.IR.Nodes, EMaterialProgramOpcode::UVChannel, &MIR::FNode::Opcode), 2);
 	EXPECT_EQ(std::ranges::count(Implicit.IR.Nodes, EMaterialProgramOpcode::Multiply, &MIR::FNode::Opcode), 0);
-	const FMaterialExpressionSurfaceOutputs SingleOutput{.BaseColor = {Owner->Id, 1}};
+	const FMaterialExpressionSurfaceOutputs SingleOutput{.BaseColor = Durin::FMaterialNumericInput(Durin::FMaterialExpressionInput{Owner->Id, 1}, 3)};
 	const auto ImplicitSingle = NormalizeTypedExpressions(Expressions, SingleOutput);
 	ASSERT_TRUE(ImplicitSingle);
 	Owner->UV = Sample->UV = {UV->Id};
@@ -322,7 +322,7 @@ TEST(FMaterialFunctionTests, SamplingDefaultsToMeshUV0AndAcceptsSharedFloat2)
 	const auto ExplicitSingle = NormalizeTypedExpressions(Expressions, SingleOutput);
 	ASSERT_TRUE(ExplicitSingle);
 	EXPECT_EQ(ImplicitSingle.CanonicalBytes, ExplicitSingle.CanonicalBytes);
-	UV->ChannelDefault = {1};
+	UV->Channel.SetConstant({1});
 	const auto ChannelOne = NormalizeTypedExpressions(Expressions, Outputs);
 	ASSERT_TRUE(ChannelOne);
 	EXPECT_NE(Implicit.CanonicalBytes, ChannelOne.CanonicalBytes);
@@ -373,7 +373,7 @@ TEST(FMaterialFunctionTests, CompactSamplingSharesFetchAndPreservesUVParameterRe
 	EXPECT_EQ(Connected.ActiveParameters.size(), 1u);
 	Sample->UV = {UV->Id};
 	EXPECT_EQ(NormalizeTypedExpressions(Expressions, Outputs).CanonicalBytes, Baseline.CanonicalBytes);
-	Outputs.Metallic.OutputIndex = 7;
+	Outputs.Metallic.Connection.OutputIndex = 7;
 	EXPECT_FALSE(NormalizeTypedExpressions(Expressions, Outputs));
 	for (auto* Expression : Expressions) MarkAsGarbage(Expression);
 	MarkAsGarbage(Texture); MarkAsGarbage(ExplicitSample);
@@ -446,7 +446,7 @@ TEST(FMaterialFunctionTests, ResourceOutputSkipsOwnerUVAndPreservesIndependentSa
 	Sample1->Texture = {Owner->Id, 7}; Sample1->UV = {UV1->Id};
 	Sample2->Texture = {Owner->Id, 7}; Sample2->UV = {UV2->Id};
 	ASSERT_TRUE(Material->SetMaterialExpressions(std::array<DMaterialExpression*, 7>{Channel.Get(), Coordinates.Get(), Owner.Get(), UV1.Get(), UV2.Get(), Sample1.Get(), Sample2.Get()},
-		{.BaseColor = {Sample1->Id, 1}, .Emissive = {Sample2->Id, 1}}));
+		{.BaseColor = Durin::FMaterialNumericInput(Durin::FMaterialExpressionInput{Sample1->Id, 1}, 3), .Emissive = Durin::FMaterialNumericInput(Durin::FMaterialExpressionInput{Sample2->Id, 1}, 3)}));
 	EXPECT_EQ(Material->GetParameterDefinitions().size(), 2u);
 	auto SnapshotCapture = SnapshotMaterialCompilerInput(*Material, {.CompilerIdentity = "ResourceFanOut"});
 	ASSERT_TRUE(SnapshotCapture);
@@ -1116,7 +1116,7 @@ TEST(FMaterialFunctionTests, TypedFieldsRoundtripAndRejectInvalidCoordinateDefau
 	auto Invalid = Testing::MakeGraphExpression<DMaterialExpressionTextureSampleParameter2D>();
 	Invalid->Metadata.Id = TextureId;
 	Invalid->Metadata.Name = "InvalidUV";
-	Invalid->UV.OutputIndex = 1;
+	Invalid->UV.Connection.OutputIndex = 1;
 	const std::array<DMaterialExpression*, 1> InvalidExpressions{Invalid.Get()};
 	const auto Rejected = Material->SetMaterialExpressions(InvalidExpressions, {});
 	EXPECT_FALSE(Rejected);
@@ -1236,9 +1236,9 @@ TEST(FMaterialFunctionTests, SurfaceOverridesSupportAllEightAttributesAndRejectI
 	auto* Base = NewObject<DMaterialExpressionMakeSurface>(nullptr, NAME_None);
 	auto* Set = NewObject<DMaterialExpressionSetSurfaceAttributes>(nullptr, NAME_None);
 	Base->Id = FGuid::NewGuid(); Set->Id = FGuid::NewGuid(); Set->Surface = {Base->Id};
-	const std::array<FMaterialExpressionInput*, 8> Inputs{&Base->BaseColor, &Base->Normal,
-		&Base->Metallic, &Base->Roughness, &Base->AmbientOcclusion, &Base->Emissive,
-		&Base->Opacity, &Base->OpacityMask};
+	const std::array<FMaterialExpressionInput*, 8> Inputs{&Base->BaseColor.Connection, &Base->Normal.Connection,
+		&Base->Metallic.Connection, &Base->Roughness.Connection, &Base->AmbientOcclusion.Connection, &Base->Emissive.Connection,
+		&Base->Opacity.Connection, &Base->OpacityMask.Connection};
 	std::vector<DMaterialExpression*> Expressions{Base, Set};
 	for (uint8 Index = 0; Index < 8; ++Index)
 	{

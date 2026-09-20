@@ -63,10 +63,10 @@ namespace Durin::MIR
 	}
 
 	auto FEmitter::Numeric(EMaterialProgramOpcode Opcode, EMaterialProgramValueType Type,
-		std::span<const FMaterialExpressionInput* const> Inputs,
-		std::span<const std::vector<float>* const> Defaults, std::span<const uint8> Swizzle) -> uint32
+		std::span<const FMaterialNumericInput* const> Inputs,
+		std::span<const uint8> Swizzle) -> uint32
 	{
-		return Builder.Numeric(Opcode, Type, Inputs, Defaults, Swizzle);
+		return Builder.Numeric(Opcode, Type, Inputs, Swizzle);
 	}
 
 	auto FEmitter::Coordinates() -> uint32

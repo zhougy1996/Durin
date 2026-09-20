@@ -45,185 +45,161 @@ namespace Durin
 	auto DMaterialExpressionAdd::Build(MIR::FEmitter& Emitter) const -> void
 	{
 		const std::array Inputs{&A, &B};
-		const std::array Defaults{&ADefault, &BDefault};
-		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Add, ResultType, Inputs, Defaults));
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Add, ResultType, Inputs));
 	}
 
 	auto DMaterialExpressionSubtract::Build(MIR::FEmitter& Emitter) const -> void
 	{
 		const std::array Inputs{&A, &B};
-		const std::array Defaults{&ADefault, &BDefault};
-		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Subtract, ResultType, Inputs, Defaults));
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Subtract, ResultType, Inputs));
 	}
 
 	auto DMaterialExpressionMultiply::Build(MIR::FEmitter& Emitter) const -> void
 	{
 		const std::array Inputs{&A, &B};
-		const std::array Defaults{&ADefault, &BDefault};
-		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Multiply, ResultType, Inputs, Defaults));
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Multiply, ResultType, Inputs));
 	}
 
 	auto DMaterialExpressionDivide::Build(MIR::FEmitter& Emitter) const -> void
 	{
 		const std::array Inputs{&A, &B};
-		const std::array Defaults{&ADefault, &BDefault};
-		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Divide, ResultType, Inputs, Defaults));
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Divide, ResultType, Inputs));
 	}
 
 	auto DMaterialExpressionMinimum::Build(MIR::FEmitter& Emitter) const -> void
 	{
 		const std::array Inputs{&A, &B};
-		const std::array Defaults{&ADefault, &BDefault};
-		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Minimum, ResultType, Inputs, Defaults));
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Minimum, ResultType, Inputs));
 	}
 
 	auto DMaterialExpressionMaximum::Build(MIR::FEmitter& Emitter) const -> void
 	{
 		const std::array Inputs{&A, &B};
-		const std::array Defaults{&ADefault, &BDefault};
-		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Maximum, ResultType, Inputs, Defaults));
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Maximum, ResultType, Inputs));
 	}
 
 	auto DMaterialExpressionNegate::Build(MIR::FEmitter& Emitter) const -> void
 	{
 		const std::array Inputs{&Input};
-		const std::array Defaults{&InputDefault};
-		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Negate, ResultType, Inputs, Defaults));
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Negate, ResultType, Inputs));
 	}
 
 	auto DMaterialExpressionOneMinus::Build(MIR::FEmitter& Emitter) const -> void
 	{
 		const std::array Inputs{&Input};
-		const std::array Defaults{&InputDefault};
-		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::OneMinus, ResultType, Inputs, Defaults));
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::OneMinus, ResultType, Inputs));
 	}
 
 	auto DMaterialExpressionAbsolute::Build(MIR::FEmitter& Emitter) const -> void
 	{
 		const std::array Inputs{&Input};
-		const std::array Defaults{&InputDefault};
-		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Absolute, ResultType, Inputs, Defaults));
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Absolute, ResultType, Inputs));
 	}
 
 	auto DMaterialExpressionSaturate::Build(MIR::FEmitter& Emitter) const -> void
 	{
 		const std::array Inputs{&Input};
-		const std::array Defaults{&InputDefault};
-		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Saturate, ResultType, Inputs, Defaults));
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Saturate, ResultType, Inputs));
 	}
 
 	auto DMaterialExpressionNormalize::Build(MIR::FEmitter& Emitter) const -> void
 	{
 		const std::array Inputs{&Input};
-		const std::array Defaults{&InputDefault};
-		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Normalize, ResultType, Inputs, Defaults));
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Normalize, ResultType, Inputs));
 	}
 
 	auto DMaterialExpressionSine::Build(MIR::FEmitter& Emitter) const -> void
 	{
 		const std::array Inputs{&Input};
-		const std::array Defaults{&InputDefault};
-		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Sine, ResultType, Inputs, Defaults));
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Sine, ResultType, Inputs));
 	}
 
 	auto DMaterialExpressionCosine::Build(MIR::FEmitter& Emitter) const -> void
 	{
 		const std::array Inputs{&Input};
-		const std::array Defaults{&InputDefault};
-		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Cosine, ResultType, Inputs, Defaults));
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Cosine, ResultType, Inputs));
 	}
 
 	auto DMaterialExpressionClamp::Build(MIR::FEmitter& Emitter) const -> void
 	{
 		const std::array Inputs{&Input, &Minimum, &Maximum};
-		const std::array Defaults{&InputDefault, &MinimumDefault, &MaximumDefault};
-		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Clamp, ResultType, Inputs, Defaults));
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Clamp, ResultType, Inputs));
 	}
 
 	auto DMaterialExpressionLerp::Build(MIR::FEmitter& Emitter) const -> void
 	{
 		const std::array Inputs{&A, &B, &Alpha};
-		const std::array Defaults{&ADefault, &BDefault, &AlphaDefault};
-		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Lerp, ResultType, Inputs, Defaults));
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Lerp, ResultType, Inputs));
 	}
 
 	auto DMaterialExpressionMakeVector2::Build(MIR::FEmitter& Emitter) const -> void
 	{
 		const std::array Inputs{&X, &Y};
-		const std::array Defaults{&XDefault, &YDefault};
-		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::MakeFloat2, EMaterialProgramValueType::Float2, Inputs, Defaults));
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::MakeFloat2, EMaterialProgramValueType::Float2, Inputs));
 	}
 
 	auto DMaterialExpressionMakeVector3::Build(MIR::FEmitter& Emitter) const -> void
 	{
 		const std::array Inputs{&X, &Y, &Z};
-		const std::array Defaults{&XDefault, &YDefault, &ZDefault};
-		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::MakeFloat3, EMaterialProgramValueType::Float3, Inputs, Defaults));
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::MakeFloat3, EMaterialProgramValueType::Float3, Inputs));
 	}
 
 	auto DMaterialExpressionMakeVector4::Build(MIR::FEmitter& Emitter) const -> void
 	{
 		const std::array Inputs{&X, &Y, &Z, &W};
-		const std::array Defaults{&XDefault, &YDefault, &ZDefault, &WDefault};
-		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::MakeFloat4, EMaterialProgramValueType::Float4, Inputs, Defaults));
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::MakeFloat4, EMaterialProgramValueType::Float4, Inputs));
 	}
 
 	auto DMaterialExpressionSplat2::Build(MIR::FEmitter& Emitter) const -> void
 	{
 		const std::array Inputs{&Input};
-		const std::array Defaults{&InputDefault};
-		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Splat2, EMaterialProgramValueType::Float2, Inputs, Defaults));
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Splat2, EMaterialProgramValueType::Float2, Inputs));
 	}
 
 	auto DMaterialExpressionSplat3::Build(MIR::FEmitter& Emitter) const -> void
 	{
 		const std::array Inputs{&Input};
-		const std::array Defaults{&InputDefault};
-		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Splat3, EMaterialProgramValueType::Float3, Inputs, Defaults));
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Splat3, EMaterialProgramValueType::Float3, Inputs));
 	}
 
 	auto DMaterialExpressionSplat4::Build(MIR::FEmitter& Emitter) const -> void
 	{
 		const std::array Inputs{&Input};
-		const std::array Defaults{&InputDefault};
-		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Splat4, EMaterialProgramValueType::Float4, Inputs, Defaults));
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Splat4, EMaterialProgramValueType::Float4, Inputs));
 	}
 
 	auto DMaterialExpressionBlendNormalsRNM::Build(MIR::FEmitter& Emitter) const -> void
 	{
 		const std::array Inputs{&Base, &Detail};
-		const std::array Defaults{&BaseDefault, &DetailDefault};
-		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::BlendNormalsRNM, EMaterialProgramValueType::Float3, Inputs, Defaults));
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::BlendNormalsRNM, EMaterialProgramValueType::Float3, Inputs));
 	}
 
 	auto DMaterialExpressionUVChannel::Build(MIR::FEmitter& Emitter) const -> void
 	{
 		const std::array Inputs{&Channel};
-		const std::array Defaults{&ChannelDefault};
-		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::UVChannel, EMaterialProgramValueType::Float2, Inputs, Defaults));
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::UVChannel, EMaterialProgramValueType::Float2, Inputs));
 	}
 
 	auto DMaterialExpressionMakeSurface::Build(MIR::FEmitter& Emitter) const -> void
 	{
 		const std::array Inputs{&BaseColor, &Normal, &Metallic, &Roughness, &AmbientOcclusion, &Emissive, &Opacity, &OpacityMask};
-		const std::array Defaults{&BaseColorDefault, &NormalDefault, &MetallicDefault, &RoughnessDefault, &AmbientOcclusionDefault, &EmissiveDefault, &OpacityDefault, &OpacityMaskDefault};
-		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::MakeSurface, EMaterialProgramValueType::Surface, Inputs, Defaults));
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::MakeSurface, EMaterialProgramValueType::Surface, Inputs));
 	}
 
 	auto DMaterialExpressionAppendVector::Build(MIR::FEmitter& Emitter) const -> void
 	{
 		std::vector<uint32> Scalars;
 		const std::array Inputs{&A, &B};
-		const std::array Defaults{&ADefault, &BDefault};
 		for (size_t Slot = 0; Slot < Inputs.size(); ++Slot)
 		{
-			const auto& Input = *Inputs[Slot];
+			const auto& Input = Inputs[Slot]->Connection;
+			const auto& Default = Inputs[Slot]->Constant;
 			if (!Input.ExpressionId.IsValid() && (Input.OutputIndex != 0 || Input.OutputId.IsValid()))
 				return Emitter.Fail(EMaterialExpressionError::DisconnectedAppendInputOutputSelector);
-			if (!Defaults[Slot]->empty() && (Defaults[Slot]->size() > 3
-				|| !std::ranges::all_of(*Defaults[Slot], [](float Value) { return std::isfinite(Value); })))
+			if (Default.empty() || Default.size() > 3
+				|| !std::ranges::all_of(Default, [](float Value) { return std::isfinite(Value); }))
 				return Emitter.Fail(EMaterialExpressionError::AppendVectorDefaultContainOneThreeFiniteComponents);
-			const auto Index = Input.ExpressionId.IsValid() ? Emitter.ResolveIndex(Input) : Emitter.Literal(*Defaults[Slot]);
+			const auto Index = Input.ExpressionId.IsValid() ? Emitter.ResolveIndex(Input) : Emitter.Literal(Inputs[Slot]->UseConstant ? Default : std::vector<float>{0.f});
 			if (Index == MIR::InvalidIndex) return;
 			const auto Type = Emitter.GetNode(Index).ResultType;
 			if (Type > EMaterialProgramValueType::Float3) return Emitter.Fail(EMaterialExpressionError::AppendVectorRequiresNumericInputsTotalingAtMostFourComponents);
@@ -243,9 +219,8 @@ namespace Durin
 	{
 		if (Components.empty() || Components.size() > 4) return Emitter.Fail(EMaterialExpressionError::SwizzleSelectOneFourComponents);
 		const std::array Inputs{&Input};
-		const std::array Defaults{&InputDefault};
 		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::Swizzle,
-			static_cast<EMaterialProgramValueType>(Components.size() - 1), Inputs, Defaults, Components));
+			static_cast<EMaterialProgramValueType>(Components.size() - 1), Inputs, Components));
 	}
 
 	auto DMaterialExpressionWorldPosition::Build(MIR::FEmitter& Emitter) const -> void
@@ -261,12 +236,32 @@ namespace Durin
 	auto DMaterialExpressionTextureCoordinates::Build(MIR::FEmitter& Emitter) const -> void
 	{
 		const std::array Inputs{&Channel};
-		const std::array Defaults{&ChannelDefault};
-		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::UVChannel, EMaterialProgramValueType::Float2, Inputs, Defaults));
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::UVChannel, EMaterialProgramValueType::Float2, Inputs));
 	}
 
 	namespace
 	{
+		auto ResolveUV(MIR::FEmitter& Emitter, const FMaterialNumericInput& UV) -> uint32
+		{
+			const auto& Input = UV.Connection;
+			if (!Input.ExpressionId.IsValid() && (Input.OutputIndex != 0 || Input.OutputId.IsValid()))
+			{
+				Emitter.Fail(EMaterialExpressionError::DisconnectedUVInputOutputSelector);
+				return MIR::InvalidIndex;
+			}
+			if (UV.Constant.empty() || UV.Constant.size() > 2
+				|| !std::ranges::all_of(UV.Constant, [](float V) { return std::isfinite(V); }))
+			{
+				Emitter.Fail(EMaterialExpressionError::RetainedNumericDefaultInvalidWidthNonFiniteComponent);
+				return MIR::InvalidIndex;
+			}
+			auto Index = Input.ExpressionId.IsValid() ? Emitter.ResolveIndex(Input)
+				: UV.UseConstant ? Emitter.Literal(UV.Constant) : Emitter.Coordinates();
+			if (Index != MIR::InvalidIndex && Emitter.GetNode(Index).ResultType == EMaterialProgramValueType::Float)
+				Index = Emitter.Emit({.Opcode = EMaterialProgramOpcode::Splat2,
+					.ResultType = EMaterialProgramValueType::Float2, .Inputs = {Index}});
+			return Index;
+		}
 		// Node-specific lowering: publish all sampled channels from one sample instruction.
 		auto EmitSampleOutputs(MIR::FEmitter& Emitter, uint32 Sample, bool bDecodeNormal) -> void
 		{
@@ -290,8 +285,7 @@ namespace Durin
 
 	auto DMaterialExpressionTextureSample2D::Build(MIR::FEmitter& Emitter) const -> void
 	{
-		if (!UV.ExpressionId.IsValid() && (UV.OutputIndex != 0 || UV.OutputId.IsValid())) return Emitter.Fail(EMaterialExpressionError::DisconnectedUVInputOutputSelector);
-		const auto Coordinates = UV.ExpressionId.IsValid() ? Emitter.ResolveIndex(UV) : Emitter.Coordinates();
+		const auto Coordinates = ResolveUV(Emitter, UV);
 		const auto ResourceValue = Emitter.Resolve(Texture);
 		uint32 Sample;
 		if (const auto* Default = ResourceValue.GetTexture())
@@ -310,10 +304,9 @@ namespace Durin
 
 	auto DMaterialExpressionTextureSampleParameter2D::Build(MIR::FEmitter& Emitter) const -> void
 	{
-		if (!UV.ExpressionId.IsValid() && (UV.OutputIndex != 0 || UV.OutputId.IsValid())) return Emitter.Fail(EMaterialExpressionError::DisconnectedUVInputOutputSelector);
 		const auto Resource = Emitter.Parameter(Metadata.Id, EMaterialParameterType::Texture);
 		Emitter.Output(static_cast<uint8>(EMaterialSampleOutput::Texture), Resource);
-		const auto Coordinates = UV.ExpressionId.IsValid() ? Emitter.ResolveIndex(UV) : Emitter.Coordinates();
+		const auto Coordinates = ResolveUV(Emitter, UV);
 		const auto Sample = Emitter.Emit({.Opcode = EMaterialProgramOpcode::TextureSample2D,
 			.ResultType = EMaterialProgramValueType::Float4, .Inputs = {Resource, Coordinates}});
 		EmitSampleOutputs(Emitter, Sample, TextureUsage == ETextureUsage::Normal);
@@ -346,7 +339,19 @@ namespace Durin
 			const auto Slot = static_cast<uint8>(Attribute.Attribute);
 			if (Slot >= 8 || (Seen & (1u << Slot))) return Emitter.Fail(EMaterialExpressionError::SurfaceOverrideContainsInvalidDuplicateAttribute);
 			Seen |= static_cast<uint8>(1u << Slot);
-			Node.Inputs[Slot] = Emitter.ResolveIndex(Attribute.Source);
+			const auto& Input = Attribute.Source;
+			const auto Width = static_cast<uint32>(GetMaterialSurfaceOutputType(Attribute.Attribute)) + 1;
+			if (Input.Constant.empty() || (Input.Constant.size() != 1 && Input.Constant.size() != Width)
+				|| !std::ranges::all_of(Input.Constant, [](float V) { return std::isfinite(V); }))
+				return Emitter.Fail(EMaterialExpressionError::RetainedNumericDefaultInvalidWidthNonFiniteComponent);
+			if (Input.Connection.ExpressionId.IsValid()) Node.Inputs[Slot] = Emitter.ResolveIndex(Input.Connection);
+			else if (Input.Connection.OutputIndex != 0 || Input.Connection.OutputId.IsValid())
+				return Emitter.Fail(EMaterialExpressionError::DisconnectedNumericInputOutputSelector);
+			else if (Input.UseConstant) Node.Inputs[Slot] = Emitter.Literal(Input.Constant);
+			const auto Selected = Node.Inputs[Slot];
+			if (Selected != MIR::InvalidIndex && Width == 3 && Emitter.GetNode(Selected).ResultType == EMaterialProgramValueType::Float)
+				Node.Inputs[Slot] = Emitter.Emit({.Opcode = EMaterialProgramOpcode::Splat3,
+					.ResultType = EMaterialProgramValueType::Float3, .Inputs = {Selected}});
 		}
 		return Emitter.Output(0, Emitter.Emit(std::move(Node)));
 	}

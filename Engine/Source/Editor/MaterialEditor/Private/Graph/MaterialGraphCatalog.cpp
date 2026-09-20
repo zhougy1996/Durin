@@ -434,6 +434,11 @@ namespace Durin::Editor::Material
 					if (Definition.Type > EMaterialProgramValueType::Float && Definition.Type <= EMaterialProgramValueType::Float4)
 						Pin.AcceptedTypes.push_back(EMaterialProgramValueType::Float);
 					Pin.InlineDefault = DefaultView(ReadMaterialOutputDefault(Terminal->Outputs, Definition.Id));
+					if (const auto* Numeric = GetMaterialOutputNumericInput(const_cast<FMaterialExpressionSurfaceOutputs&>(Terminal->Outputs), Definition.Id))
+					{
+						Pin.bSupportsConstant = true; Pin.bUseConstant = Numeric->UseConstant;
+						Pin.RetainedConstant = DefaultView(Numeric->Constant);
+					}
 					Pin.bActive = bAttributes || IsMaterialSurfaceOutputActive(
 						static_cast<EMaterialSurfaceOutput>(Definition.Id), Material->GetStaticProperties());
 					View.Inputs.push_back(std::move(Pin));
@@ -477,13 +482,14 @@ namespace Durin::Editor::Material
 							if (Type != Node.ResultType && !(Node.Opcode == EMaterialProgramOpcode::Normalize && Type == EMaterialProgramValueType::Float))
 								Pin.AcceptedTypes.push_back(Type);
 					}
-					Expression->GetClass()->ForEachProperty([&](FProperty* Property) {
-						if (Property->GetValuePtr(Expression) != &Input) return;
-						auto* Default = Expression->GetClass()->FindPropertyByName(FName(Property->NamePrivate.ToString() + "Default"));
-						if (Default && Default->GetKind() == DurinCodeGen::EPropertyGenFlags::Array
-							&& static_cast<FArrayProperty*>(Default)->GetInner()->GetKind() == DurinCodeGen::EPropertyGenFlags::Float)
-							Pin.InlineDefault = DefaultView(*static_cast<const std::vector<float>*>(Default->GetValuePtr(Expression)));
-					});
+					if (const auto* Numeric = FindMaterialNumericInput(*Expression, Input))
+					{
+						Pin.bUseConstant = Numeric->UseConstant;
+						Pin.bSupportsConstant = true;
+						Pin.RetainedConstant = DefaultView(Numeric->Constant);
+						Pin.InlineDefault = DefaultView(Numeric->UseConstant ? Numeric->Constant
+							: GetMaterialNumericInputFallback(Node.Opcode, Node.ResultType, InputIndex));
+					}
 					if (!Input.ExpressionId.IsValid() && Pin.InlineDefault.Kind != EMaterialInputDefaultKind::None) Pin.SourceType = Pin.InlineDefault.Type;
 					else if (!Input.ExpressionId.IsValid() && !Pin.AcceptedTypes.empty()) Pin.SourceType = Pin.AcceptedTypes.front();
 					View.Inputs.push_back(std::move(Pin));
@@ -558,8 +564,12 @@ namespace Durin::Editor::Material
 				{
 					const auto Index = static_cast<uint32>(Attribute.Attribute);
 					if (Index < 8) View.Inputs.push_back({.InputIndex = Index + 1, .Name = AttributeNames[Index],
-						.Link = LinkView(Attribute.Source), .SourceType = SourceType(LinkView(Attribute.Source)),
-						.AcceptedTypes = {GetMaterialSurfaceOutputType(Attribute.Attribute)}});
+						.Link = LinkView(Attribute.Source), .SourceType = Attribute.Source.Connection.ExpressionId.IsValid()
+							? SourceType(LinkView(Attribute.Source)) : GetMaterialSurfaceOutputType(Attribute.Attribute),
+						.AcceptedTypes = {GetMaterialSurfaceOutputType(Attribute.Attribute)},
+						.InlineDefault = Attribute.Source.UseConstant ? DefaultView(Attribute.Source.Constant) : FMaterialInputDefault{},
+						.RetainedConstant = DefaultView(Attribute.Source.Constant), .bSupportsConstant = true,
+						.bUseConstant = Attribute.Source.UseConstant});
 				}
 			for (auto& Pin : View.Inputs)
 				if (Node.Opcode != EMaterialProgramOpcode::Normalize && Pin.AcceptedTypes.size() == 1
@@ -583,14 +593,14 @@ namespace Durin::Editor::Material
 			Result.Outputs.Surface = LinkView(Outputs.Surface);
 			const std::array Links{Outputs.BaseColor, Outputs.Normal, Outputs.Metallic, Outputs.Roughness,
 				Outputs.AmbientOcclusion, Outputs.Emissive, Outputs.Opacity, Outputs.OpacityMask};
-			const auto VectorLiteral = [](const FVector3& Value) -> FMaterialProgramLiteral { return {static_cast<float>(Value.x), static_cast<float>(Value.y), static_cast<float>(Value.z)}; };
-			const std::array<FMaterialProgramLiteral, 8> Defaults{VectorLiteral(Outputs.BaseColorDefault), VectorLiteral(Outputs.NormalDefault),
-				FMaterialProgramLiteral{Outputs.MetallicDefault}, FMaterialProgramLiteral{Outputs.RoughnessDefault}, FMaterialProgramLiteral{Outputs.AmbientOcclusionDefault},
-				VectorLiteral(Outputs.EmissiveDefault), FMaterialProgramLiteral{Outputs.OpacityDefault}, FMaterialProgramLiteral{Outputs.OpacityMaskDefault}};
+
 			for (uint32 Index = 0; Index < 8; ++Index)
 			{
 				GetMaterialSurfaceOutputLink(Result.Outputs, static_cast<EMaterialSurfaceOutput>(Index)) = LinkView(Links[Index]);
-				GetMaterialSurfaceOutputDefault(Result.Outputs, static_cast<EMaterialSurfaceOutput>(Index)) = Defaults[Index];
+				GetMaterialSurfaceOutputDefault(Result.Outputs, static_cast<EMaterialSurfaceOutput>(Index)) = [&] {
+					const auto V = ReadMaterialOutputDefault(Outputs, static_cast<EMaterialOutputPin>(Index));
+					return FMaterialProgramLiteral{V[0], V.size() > 1 ? V[1] : 0.f, V.size() > 2 ? V[2] : 0.f};
+				}();
 			}
 		}
 		Result.bFunction = Function != nullptr;

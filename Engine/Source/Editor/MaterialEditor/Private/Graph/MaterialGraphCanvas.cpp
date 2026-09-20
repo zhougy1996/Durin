@@ -62,7 +62,7 @@ namespace Durin::Editor::Material
 		auto InputLabel(const FMaterialGraphNodeView& Node, const FMaterialGraphPinView& Pin, const DMaterial* Material = nullptr) -> std::string
 		{
 			if (Pin.Link.SourceNodeId.IsValid() || IsCompactGraphOperation(Node)) return Pin.Name;
-			if (Node.Node.IsSampleUVInput(Pin.InputIndex))
+			if (Node.Node.IsSampleUVInput(Pin.InputIndex) && !Pin.bUseConstant)
 			{
 				return "Mesh UV0";
 			}

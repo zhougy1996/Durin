@@ -49,7 +49,7 @@ namespace
 		auto Edit(DMaterial& Material, float Roughness) -> void
 		{
 			auto Outputs = Material.GetExpressionOutputs();
-			Outputs.RoughnessDefault = Roughness;
+			Outputs.Roughness.SetConstant({Roughness});
 			std::vector<DMaterialExpression*> Expressions;
 			for (const auto& Expression : Material.GetExpressionCollection().Expressions) Expressions.push_back(Expression.Get());
 			ASSERT_TRUE(Material.SetMaterialExpressions(Expressions, Outputs));
@@ -70,7 +70,7 @@ TEST_F(FMaterialEditingSessionTests, TypedExpressionCopiesStayIndependentAcrossA
 	Parameter->DefaultValue = 0.23f;
 	DMaterialExpression* Inputs[] = {Parameter.Get()};
 	auto Outputs = Source->GetExpressionOutputs();
-	Outputs.Roughness.ExpressionId = Parameter->Id;
+	Outputs.Roughness.Connection.ExpressionId = Parameter->Id;
 	ASSERT_TRUE(Source->SetMaterialExpressions(Inputs, Outputs));
 	Package->ClearDirty();
 	TObjectPtr<DMaterialExpression> RetiredDraftExpression;
@@ -155,7 +155,7 @@ TEST_F(FMaterialEditingSessionTests, PreviewCompilationIsIsolatedAndApplyPreserv
 	EXPECT_EQ(Source->GetMaterialCompileStatus().RequestGeneration, AppliedGeneration);
 	Edit(*Draft, 0.62f);
 	EXPECT_TRUE(Session.HasUnappliedChanges());
-	EXPECT_FLOAT_EQ(Source->GetExpressionOutputs().RoughnessDefault, 0.37f);
+	EXPECT_FLOAT_EQ(Source->GetExpressionOutputs().Roughness.Constant[0], 0.37f);
 	MarkAsGarbage(Child);
 }
 
@@ -259,8 +259,8 @@ TEST_F(FMaterialEditingSessionTests, ExternalSourceChangeRejectsApplyWithoutOver
 	Edit(*Source, 0.72f);
 	EXPECT_FALSE(Session.FinishAndApply(Error));
 	EXPECT_NE(Error.find("outside"), std::string::npos);
-	EXPECT_FLOAT_EQ(Source->GetExpressionOutputs().RoughnessDefault, 0.72f);
-	EXPECT_FLOAT_EQ(Session.GetWorkingMaterial()->GetExpressionOutputs().RoughnessDefault, 0.31f);
+	EXPECT_FLOAT_EQ(Source->GetExpressionOutputs().Roughness.Constant[0], 0.72f);
+	EXPECT_FLOAT_EQ(Session.GetWorkingMaterial()->GetExpressionOutputs().Roughness.Constant[0], 0.31f);
 	EXPECT_TRUE(Session.HasUnappliedChanges());
 }
 
@@ -294,7 +294,7 @@ TEST_F(FMaterialEditingSessionTests, DiscardRetiresDraftAndItsHistoryWithoutChan
 	EXPECT_FALSE(RetiredDraft.IsValid());
 	EXPECT_FALSE(Transactions->CanUndo());
 	EXPECT_FALSE(Transactions->CanRedo());
-	EXPECT_FLOAT_EQ(Source->GetExpressionOutputs().RoughnessDefault, 0.21f);
+	EXPECT_FLOAT_EQ(Source->GetExpressionOutputs().Roughness.Constant[0], 0.21f);
 }
 
 TEST_F(FMaterialEditingSessionTests, DiscardWithoutApplyLeavesSourceClean)
@@ -321,5 +321,5 @@ TEST_F(FMaterialEditingSessionTests, RelocationDoesNotInvalidateAnUnchangedSourc
 		FGuid::NewGuid().ToString()), Destination));
 	ASSERT_TRUE(Package->RelocateAssetPackage(Destination));
 	ASSERT_TRUE(Session.FinishAndApply(Error)) << Error;
-	EXPECT_FLOAT_EQ(Source->GetExpressionOutputs().RoughnessDefault, 0.46f);
+	EXPECT_FLOAT_EQ(Source->GetExpressionOutputs().Roughness.Constant[0], 0.46f);
 }

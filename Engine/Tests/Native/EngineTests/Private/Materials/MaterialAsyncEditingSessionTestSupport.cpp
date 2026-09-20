@@ -48,7 +48,7 @@ auto QualifyMaterialEditingSessionAsync() -> void
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Draft);
 	const auto Original = Source->GetExpressionOutputs();
 	auto Outputs = Original;
-	Outputs.RoughnessDefault = 0.132711f;
+	Outputs.Roughness.SetConstant({0.132711f});
 	ASSERT_TRUE(Draft->SetMaterialExpressions({}, Outputs));
 	ASSERT_TRUE(Session.RequestApply(Error)) << Error;
 	ASSERT_TRUE(Session.IsApplyPending());
@@ -73,11 +73,11 @@ auto QualifyMaterialEditingSessionAsync() -> void
 	EXPECT_FALSE(Package->IsDirty());
 
 	Error.clear();
-	Outputs.RoughnessDefault = 0.242713f;
+	Outputs.Roughness.SetConstant({0.242713f});
 	ASSERT_TRUE(Draft->SetMaterialExpressions({}, Outputs));
 	ASSERT_TRUE(Session.RequestApply(Error)) << Error;
 	ASSERT_TRUE(Session.IsApplyPending());
-	Outputs.RoughnessDefault = 0.352717f;
+	Outputs.Roughness.SetConstant({0.352717f});
 	ASSERT_TRUE(Draft->SetMaterialExpressions({}, Outputs));
 	Session.Tick(Error);
 	EXPECT_FALSE(Error.empty());
@@ -96,7 +96,7 @@ auto QualifyMaterialEditingSessionAsync() -> void
 	// Automatic deadlines must be serviced for transient drafts even when their
 	// document is hidden; the source must remain unchanged after completion.
 	Draft->SetEditCompileMode(EMaterialEditCompileMode::Automatic);
-	Outputs.RoughnessDefault = 0.452719f;
+	Outputs.Roughness.SetConstant({0.452719f});
 	ASSERT_TRUE(Draft->SetMaterialExpressions({}, Outputs));
 	std::this_thread::sleep_for(std::chrono::milliseconds(450));
 	FAssetCompilingManager::Get().ProcessAsyncTasks();

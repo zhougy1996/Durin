@@ -115,7 +115,7 @@ namespace Durin::AssetForge::Builtins
 				// Strength acts on decoded normals; RNM safely normalizes the result.
 				auto* Detail = B.Add<DMaterialExpressionLerp>();
 				Detail->ResultType = Type::Float3;
-				Detail->ADefault = {0, 0, 1};
+				Detail->A.SetConstant({0, 0, 1});
 				Detail->B = Decoded;
 				Detail->Alpha = Strength;
 				B.Output(100, B.Node<DMaterialExpressionBlendNormalsRNM>(Type::Float3, {Normal, {Detail->Id}}));

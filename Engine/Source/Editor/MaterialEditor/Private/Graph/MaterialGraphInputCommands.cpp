@@ -17,13 +17,21 @@ namespace Durin::Editor::Material
 			FMaterialExpressionSurfaceOutputs* MaterialOutputs = nullptr;
 			EMaterialOutputPin OutputPin = EMaterialOutputPin::Surface;
 			std::string Message;
+			FMaterialNumericInput* Numeric = nullptr;
+			std::vector<float> Inherited;
 
 			auto SupportsDefault() const -> bool { return Default != nullptr || (MaterialOutputs && OutputPin != EMaterialOutputPin::Surface); }
-			auto Read() const -> std::vector<float> { return MaterialOutputs ? ReadMaterialOutputDefault(*MaterialOutputs, OutputPin) : Default ? *Default : std::vector<float>{}; }
+			auto Read() const -> std::vector<float> { return MaterialOutputs ? ReadMaterialOutputDefault(*MaterialOutputs, OutputPin) : Numeric ? (Numeric->UseConstant ? Numeric->Constant : Inherited) : Default ? *Default : std::vector<float>{}; }
 			auto Write(const std::vector<float>& Value) const -> bool
 			{
 				if (MaterialOutputs) return WriteMaterialOutputDefault(*MaterialOutputs, OutputPin, Value);
 				if (!Default) return false;
+				if (Numeric)
+				{
+					if (Value.empty()) Numeric->UseConstant = false;
+					else Numeric->SetConstant(Value);
+					return true;
+				}
 				*Default = Value;
 				return true;
 			}
@@ -44,7 +52,8 @@ namespace Durin::Editor::Material
 			{
 				if (PortId.IsValid() || Index > static_cast<uint32>(EMaterialOutputPin::Surface)) return {.Message = "The material output input address is invalid."};
 				return {.Source = GetMaterialOutputInput(Output->Outputs, static_cast<EMaterialOutputPin>(Index)),
-					.MaterialOutputs = &Output->Outputs, .OutputPin = static_cast<EMaterialOutputPin>(Index)};
+					.MaterialOutputs = &Output->Outputs, .OutputPin = static_cast<EMaterialOutputPin>(Index),
+					.Numeric = GetMaterialOutputNumericInput(Output->Outputs, static_cast<EMaterialOutputPin>(Index))};
 			}
 			if (PortId.IsValid())
 			{
@@ -71,7 +80,20 @@ namespace Durin::Editor::Material
 			});
 			if (!Result.Source) return {.Message = "The expression input is unavailable."};
 			if (Cast<DMaterialExpressionFunctionCall>(Expression)) return {.Message = "A function input requires a port identity."};
-			Result.Default = FindMaterialExpressionInputDefault(*Expression, *Result.Source);
+			Result.Numeric = FindMaterialNumericInput(*Expression, *Result.Source);
+			Result.Default = Result.Numeric ? &Result.Numeric->Constant : nullptr;
+			if (Result.Numeric)
+			{
+				const auto Catalog = FMaterialGraphOperations::EnumerateCatalog();
+				const auto Shape = std::ranges::find(Catalog, Expression->GetClass(), &FMaterialGraphCatalogEntry::ExpressionClass);
+				if (Shape != Catalog.end())
+				{
+					const auto* TypeProperty = Expression->GetClass()->FindPropertyByName("ResultType");
+					auto Type = TypeProperty ? *static_cast<const EMaterialProgramValueType*>(TypeProperty->GetValuePtr(Expression)) : Shape->ResultType;
+					if (const auto* Swizzle = Cast<DMaterialExpressionSwizzle>(Expression)) Type = static_cast<EMaterialProgramValueType>(Swizzle->Components.size() - 1);
+					Result.Inherited = GetMaterialNumericInputFallback(Shape->Opcode, Type, Index);
+				}
+			}
 			return Result;
 		}
 
@@ -104,6 +126,19 @@ namespace Durin::Editor::Material
 		}
 	}
 
+	auto FMaterialGraphDocument::SetInputConstantEnabled(const FGuid& NodeId, uint32 InputIndex,
+		bool Enabled, DTransactor* Transactions) const -> FMaterialGraphCommandResult
+	{
+		if (!Owner.IsValid()) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
+		FGraphEditSession State(*Owner.Get());
+		const auto Input = FindInput(State, NodeId, InputIndex, {});
+		if (!Input.Message.empty()) return RejectCommand(Input.Message);
+		if (!Input.Numeric) return RejectCommand("This input has no retained numeric constant.");
+		if (Input.Numeric->UseConstant == Enabled) return {.Status = EMaterialGraphCommandStatus::NoChange};
+		Input.Numeric->UseConstant = Enabled;
+		return State.Commit(Enabled ? "Enable Input Constant" : "Use Definition Default", Transactions);
+	}
+
 	auto FMaterialGraphDocument::SetInputDefault(const FGuid& NodeId, uint32 InputIndex,
 		FMaterialInputDefault Value, FGuid PortId, DTransactor* Transactions) const -> FMaterialGraphCommandResult
 	{
@@ -119,7 +154,8 @@ namespace Durin::Editor::Material
 			Components.assign(Values.begin(), Values.begin() + static_cast<uint32>(Value.Type) + 1);
 		}
 		else if (Value.Kind != EMaterialInputDefaultKind::None) return RejectCommand("The input default is not numeric.");
-		if (Input.Read() == Components) return {.Status = EMaterialGraphCommandStatus::NoChange};
+		if (Input.Numeric && Components.empty() && !Input.Numeric->UseConstant) return {.Status = EMaterialGraphCommandStatus::NoChange};
+		if (Input.Read() == Components && (!Input.Numeric || Input.Numeric->UseConstant == !Components.empty())) return {.Status = EMaterialGraphCommandStatus::NoChange};
 		if (!Input.Write(Components)) return RejectCommand("The input default has an incompatible width.");
 		return State.Commit("Edit Input Default", Transactions);
 	}
@@ -132,7 +168,7 @@ namespace Durin::Editor::Material
 		const auto Input = FindInput(State, NodeId, InputIndex, PortId);
 		if (!Input.Message.empty()) return RejectCommand(Input.Message);
 		if (!Input.SupportsDefault() || Input.Source->ExpressionId.IsValid() || Input.Read().empty())
-			return RejectCommand("Only an unconnected explicit numeric binding can be extracted.");
+			return RejectCommand("Only an unconnected numeric literal can be extracted.");
 		auto Constant = MakeConstant(Input.Read());
 		if (!Constant) return RejectCommand("The input default has an unsupported width.");
 		*Input.Source = {Constant->Id};

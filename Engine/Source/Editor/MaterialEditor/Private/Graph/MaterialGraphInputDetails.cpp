@@ -266,17 +266,28 @@ namespace Durin::Editor::Material
 			{
 				const auto Attribute = static_cast<EMaterialSurfaceOutput>(Index);
 				const auto Binding = std::ranges::find(Surface->Attributes, Attribute, &FMaterialExpressionSurfaceAttributeBinding::Attribute);
+				const bool bKeepBase = Binding == Surface->Attributes.end()
+					|| (!Binding->Source.Connection.ExpressionId.IsValid() && !Binding->Source.UseConstant);
 				const auto SetSource = [&](FMaterialProgramLink Link) {
 					const auto Edited = BeginSelectedEdit();
 					if (Edited == Session->Expressions.end()) return;
 					auto& Bindings = Cast<DMaterialExpressionSetSurfaceAttributes>(Edited->Get())->Attributes;
-					std::erase_if(Bindings, [&](const auto& Value) { return Value.Attribute == Attribute; });
-					if (Link.SourceNodeId.IsValid()) Bindings.push_back({Attribute, {Link.SourceNodeId, Link.SourceOutputIndex, Link.SourceOutputId}});
+					auto Existing = std::ranges::find(Bindings, Attribute, &FMaterialExpressionSurfaceAttributeBinding::Attribute);
+					if (Existing == Bindings.end() && Link.SourceNodeId.IsValid())
+					{
+						Bindings.emplace_back(Attribute, FMaterialExpressionInput{});
+						Existing = std::prev(Bindings.end());
+					}
+					if (Existing != Bindings.end())
+					{
+						Existing->Source.Connection = {Link.SourceNodeId, Link.SourceOutputIndex, Link.SourceOutputId};
+						if (!Link.SourceNodeId.IsValid()) Existing->Source.UseConstant = false;
+					}
 					Submit(Session->Commit("Edit Surface Input", &Transactions));
 				};
 				DetailsStyle::EditRow(MaterialSurfaceNames[Index], [&] {
-					if (!ImGui::BeginCombo("##Value", Binding == Surface->Attributes.end() ? "Keep base value" : "Connected")) return false;
-					if (ImGui::Selectable("Keep base value", Binding == Surface->Attributes.end())) SetSource({});
+					if (!ImGui::BeginCombo("##Value", bKeepBase ? "Keep base value" : Binding->Source.Connection.ExpressionId.IsValid() ? "Connected" : "Constant")) return false;
+					if (ImGui::Selectable("Keep base value", bKeepBase)) SetSource({});
 					for (const auto& Source : View.Nodes)
 					{
 						if (Source.Node.Id == Expression->Id || Changed) continue;
@@ -294,7 +305,7 @@ namespace Durin::Editor::Material
 		for (const auto& Pin : Selected->Inputs)
 		{
 			if (Changed) break;
-			if (Selected->Node.IsSampleUVInput(Pin.InputIndex) || Pin.SourceType > EMaterialProgramValueType::Float4) continue;
+			if (Pin.SourceType > EMaterialProgramValueType::Float4) continue;
 			ImGui::PushID(static_cast<int>(Pin.InputIndex));
 			auto Value = Pin.InlineDefault;
 			if (Value.Kind == EMaterialInputDefaultKind::None)
@@ -309,7 +320,15 @@ namespace Durin::Editor::Material
 			const bool bInheritedDynamic = Pin.PortId.IsValid() && !Pin.bRequired
 				&& Value.Kind == EMaterialInputDefaultKind::None && Pin.Default.Kind != EMaterialFunctionDefaultKind::None;
 			const bool bConnected = Pin.Link.SourceNodeId.IsValid();
+			const bool bInheritedContext = Pin.bSupportsConstant && !Pin.bUseConstant
+				&& (Selected->Node.IsSampleUVInput(Pin.InputIndex)
+					|| (Selected->Node.Opcode == EMaterialProgramOpcode::SetSurfaceAttributes && Pin.InputIndex != 0));
 			const auto EditValue = [&]() {
+				if (bInheritedContext)
+				{
+					ImGui::TextUnformatted(Selected->Node.IsSampleUVInput(Pin.InputIndex) ? "Mesh UV0" : "Base Surface value");
+					return;
+				}
 				if (bInheritedDynamic)
 				{
 					ImGui::TextWrapped("%s", DescribeFunctionDefault(Pin.Default).c_str());
@@ -321,7 +340,8 @@ namespace Durin::Editor::Material
 					Submit(Document.SetInputDefault(Selected->Node.Id, Pin.InputIndex, Value, Pin.PortId, &Transactions));
 				}
 			};
-			MonaImGui::PropertyEdit::BeginRow(Pin.Name.c_str());
+			const auto Label = Pin.bSupportsConstant ? Pin.Name + (Pin.bUseConstant ? " (constant)" : " (inherited)") : Pin.Name;
+			MonaImGui::PropertyEdit::BeginRow(Label.c_str());
 			const float MenuWidth = ImGui::GetFrameHeight();
 			const float ValueWidth = std::max(1.0f, ImGui::GetContentRegionAvail().x - MenuWidth - ImGui::GetStyle().ItemSpacing.x);
 			ImGui::SetNextItemWidth(ValueWidth);
@@ -398,6 +418,8 @@ namespace Durin::Editor::Material
 						}
 					}
 				}
+				if (!Changed && Pin.bSupportsConstant && ImGui::MenuItem(Pin.bUseConstant ? "Use definition default" : "Use retained constant"))
+					Submit(Document.SetInputConstantEnabled(Selected->Node.Id, Pin.InputIndex, !Pin.bUseConstant, &Transactions));
 				if (!Changed && bInheritedDynamic && ImGui::MenuItem("Override with constant"))
 				{
 					Value.Kind = EMaterialInputDefaultKind::Literal;

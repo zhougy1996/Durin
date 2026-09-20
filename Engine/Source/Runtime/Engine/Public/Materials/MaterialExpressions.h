@@ -228,6 +228,32 @@ namespace Durin
 		auto operator==(const FMaterialExpressionInput&) const -> bool = default;
 	};
 
+	// Numeric pins retain an explicit value independently of their connection.
+	DSTRUCT()
+	struct FMaterialNumericInput
+	{
+		GENERATED_BODY()
+		FMaterialNumericInput() = default;
+		explicit FMaterialNumericInput(uint32 Width) : Constant(Width, 0.f) {}
+		FMaterialNumericInput(FMaterialExpressionInput InConnection, uint32 Width)
+			: Connection(InConnection), Constant(Width, 0.f) {}
+		DPROPERTY()
+		FMaterialExpressionInput Connection;
+		DPROPERTY()
+		bool UseConstant = false;
+		DPROPERTY()
+		std::vector<float> Constant{0.f};
+
+		auto SetConstant(std::vector<float> Value) -> void { Constant = std::move(Value); UseConstant = true; }
+		auto operator=(const FMaterialExpressionInput& Value) -> FMaterialNumericInput& { Connection = Value; return *this; }
+		operator FMaterialExpressionInput&() { return Connection; }
+		operator const FMaterialExpressionInput&() const { return Connection; }
+		auto operator==(const FMaterialNumericInput&) const -> bool = default;
+	};
+
+	ENGINE_API auto GetMaterialNumericInputFallback(EMaterialProgramOpcode Opcode,
+		EMaterialProgramValueType Type, uint32 Slot) -> std::vector<float>;
+
 	// Material terminal pins retain concrete defaults independently of connections.
 	DSTRUCT()
 	struct FMaterialExpressionSurfaceOutputs
@@ -238,58 +264,35 @@ namespace Durin
 		FMaterialExpressionInput Surface;
 
 		DPROPERTY()
-		FMaterialExpressionInput BaseColor;
+		FMaterialNumericInput BaseColor{3};
 
 		DPROPERTY()
-		FMaterialExpressionInput Normal;
+		FMaterialNumericInput Normal{3};
 
 		DPROPERTY()
-		FMaterialExpressionInput Metallic;
+		FMaterialNumericInput Metallic;
 
 		DPROPERTY()
-		FMaterialExpressionInput Roughness;
+		FMaterialNumericInput Roughness;
 
 		DPROPERTY()
-		FMaterialExpressionInput AmbientOcclusion;
+		FMaterialNumericInput AmbientOcclusion;
 
 		DPROPERTY()
-		FMaterialExpressionInput Emissive;
+		FMaterialNumericInput Emissive{3};
 
 		DPROPERTY()
-		FMaterialExpressionInput Opacity;
+		FMaterialNumericInput Opacity;
 
 		DPROPERTY()
-		FMaterialExpressionInput OpacityMask;
-
-		DPROPERTY()
-		FVector3 BaseColorDefault{0.5};
-
-		DPROPERTY()
-		FVector3 NormalDefault{0.0, 0.0, 1.0};
-
-		DPROPERTY()
-		float MetallicDefault = 0.0f;
-
-		DPROPERTY()
-		float RoughnessDefault = 0.5f;
-
-		DPROPERTY()
-		float AmbientOcclusionDefault = 1.0f;
-
-		DPROPERTY()
-		FVector3 EmissiveDefault{0.0};
-
-		DPROPERTY()
-		float OpacityDefault = 1.0f;
-
-		DPROPERTY()
-		float OpacityMaskDefault = 1.0f;
+		FMaterialNumericInput OpacityMask;
 
 		// Both connection sets are retained; only the selected set drives the output.
 		DPROPERTY()
 		bool bUseMaterialAttributes = false;
 
 		auto operator==(const FMaterialExpressionSurfaceOutputs&) const -> bool = default;
+
 	};
 
 	DENUM()
@@ -310,6 +313,7 @@ namespace Durin
 	ENGINE_API auto GetMaterialDomainOutputPins(EMaterialDomain Domain) -> std::span<const FMaterialOutputPinDefinition>;
 	ENGINE_API auto GetMaterialOutputInput(FMaterialExpressionSurfaceOutputs& Outputs, EMaterialOutputPin Pin) -> FMaterialExpressionInput*;
 
+	ENGINE_API auto GetMaterialOutputNumericInput(FMaterialExpressionSurfaceOutputs& Outputs, EMaterialOutputPin Pin) -> FMaterialNumericInput*;
 	ENGINE_API auto ReadMaterialOutputDefault(const FMaterialExpressionSurfaceOutputs& Outputs, EMaterialOutputPin Pin) -> std::vector<float>;
 	ENGINE_API auto WriteMaterialOutputDefault(FMaterialExpressionSurfaceOutputs& Outputs, EMaterialOutputPin Pin, std::span<const float> Value) -> bool;
 
@@ -348,16 +352,10 @@ namespace Durin
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
 
 		DPROPERTY()
-		FMaterialExpressionInput A;
+		FMaterialNumericInput A;
 
 		DPROPERTY()
-		std::vector<float> ADefault;
-
-		DPROPERTY()
-		FMaterialExpressionInput B;
-
-		DPROPERTY()
-		std::vector<float> BDefault;
+		FMaterialNumericInput B;
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 2; }
 
@@ -377,16 +375,10 @@ namespace Durin
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
 
 		DPROPERTY()
-		FMaterialExpressionInput A;
+		FMaterialNumericInput A;
 
 		DPROPERTY()
-		std::vector<float> ADefault;
-
-		DPROPERTY()
-		FMaterialExpressionInput B;
-
-		DPROPERTY()
-		std::vector<float> BDefault;
+		FMaterialNumericInput B;
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 2; }
 
@@ -406,16 +398,10 @@ namespace Durin
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
 
 		DPROPERTY()
-		FMaterialExpressionInput A;
+		FMaterialNumericInput A;
 
 		DPROPERTY()
-		std::vector<float> ADefault;
-
-		DPROPERTY()
-		FMaterialExpressionInput B;
-
-		DPROPERTY()
-		std::vector<float> BDefault;
+		FMaterialNumericInput B;
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 2; }
 
@@ -435,16 +421,10 @@ namespace Durin
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
 
 		DPROPERTY()
-		FMaterialExpressionInput A;
+		FMaterialNumericInput A;
 
 		DPROPERTY()
-		std::vector<float> ADefault;
-
-		DPROPERTY()
-		FMaterialExpressionInput B;
-
-		DPROPERTY()
-		std::vector<float> BDefault;
+		FMaterialNumericInput B;
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 2; }
 
@@ -464,16 +444,10 @@ namespace Durin
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
 
 		DPROPERTY()
-		FMaterialExpressionInput A;
+		FMaterialNumericInput A;
 
 		DPROPERTY()
-		std::vector<float> ADefault;
-
-		DPROPERTY()
-		FMaterialExpressionInput B;
-
-		DPROPERTY()
-		std::vector<float> BDefault;
+		FMaterialNumericInput B;
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 2; }
 
@@ -493,16 +467,10 @@ namespace Durin
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
 
 		DPROPERTY()
-		FMaterialExpressionInput A;
+		FMaterialNumericInput A;
 
 		DPROPERTY()
-		std::vector<float> ADefault;
-
-		DPROPERTY()
-		FMaterialExpressionInput B;
-
-		DPROPERTY()
-		std::vector<float> BDefault;
+		FMaterialNumericInput B;
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 2; }
 
@@ -522,10 +490,7 @@ namespace Durin
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
 
 		DPROPERTY()
-		FMaterialExpressionInput Input;
-
-		DPROPERTY()
-		std::vector<float> InputDefault;
+		FMaterialNumericInput Input;
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
 
@@ -545,10 +510,7 @@ namespace Durin
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
 
 		DPROPERTY()
-		FMaterialExpressionInput Input;
-
-		DPROPERTY()
-		std::vector<float> InputDefault;
+		FMaterialNumericInput Input;
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
 
@@ -568,10 +530,7 @@ namespace Durin
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
 
 		DPROPERTY()
-		FMaterialExpressionInput Input;
-
-		DPROPERTY()
-		std::vector<float> InputDefault;
+		FMaterialNumericInput Input;
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
 
@@ -591,10 +550,7 @@ namespace Durin
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
 
 		DPROPERTY()
-		FMaterialExpressionInput Input;
-
-		DPROPERTY()
-		std::vector<float> InputDefault;
+		FMaterialNumericInput Input;
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
 
@@ -614,10 +570,7 @@ namespace Durin
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
 
 		DPROPERTY()
-		FMaterialExpressionInput Input;
-
-		DPROPERTY()
-		std::vector<float> InputDefault;
+		FMaterialNumericInput Input;
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
 
@@ -637,10 +590,7 @@ namespace Durin
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
 
 		DPROPERTY()
-		FMaterialExpressionInput Input;
-
-		DPROPERTY()
-		std::vector<float> InputDefault;
+		FMaterialNumericInput Input;
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
 
@@ -660,10 +610,7 @@ namespace Durin
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
 
 		DPROPERTY()
-		FMaterialExpressionInput Input;
-
-		DPROPERTY()
-		std::vector<float> InputDefault;
+		FMaterialNumericInput Input;
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
 
@@ -683,22 +630,13 @@ namespace Durin
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
 
 		DPROPERTY()
-		FMaterialExpressionInput Input;
+		FMaterialNumericInput Input;
 
 		DPROPERTY()
-		std::vector<float> InputDefault;
+		FMaterialNumericInput Minimum;
 
 		DPROPERTY()
-		FMaterialExpressionInput Minimum;
-
-		DPROPERTY()
-		std::vector<float> MinimumDefault;
-
-		DPROPERTY()
-		FMaterialExpressionInput Maximum;
-
-		DPROPERTY()
-		std::vector<float> MaximumDefault;
+		FMaterialNumericInput Maximum;
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 3; }
 
@@ -718,22 +656,13 @@ namespace Durin
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float;
 
 		DPROPERTY()
-		FMaterialExpressionInput A;
+		FMaterialNumericInput A;
 
 		DPROPERTY()
-		std::vector<float> ADefault;
+		FMaterialNumericInput B;
 
 		DPROPERTY()
-		FMaterialExpressionInput B;
-
-		DPROPERTY()
-		std::vector<float> BDefault;
-
-		DPROPERTY()
-		FMaterialExpressionInput Alpha;
-
-		DPROPERTY()
-		std::vector<float> AlphaDefault;
+		FMaterialNumericInput Alpha;
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 3; }
 
@@ -750,16 +679,10 @@ namespace Durin
 		explicit DMaterialExpressionMakeVector2(const FObjectInitializer& Initializer) : Super(Initializer) {}
 
 		DPROPERTY()
-		FMaterialExpressionInput X;
+		FMaterialNumericInput X;
 
 		DPROPERTY()
-		std::vector<float> XDefault;
-
-		DPROPERTY()
-		FMaterialExpressionInput Y;
-
-		DPROPERTY()
-		std::vector<float> YDefault;
+		FMaterialNumericInput Y;
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 2; }
 
@@ -776,22 +699,13 @@ namespace Durin
 		explicit DMaterialExpressionMakeVector3(const FObjectInitializer& Initializer) : Super(Initializer) {}
 
 		DPROPERTY()
-		FMaterialExpressionInput X;
+		FMaterialNumericInput X;
 
 		DPROPERTY()
-		std::vector<float> XDefault;
+		FMaterialNumericInput Y;
 
 		DPROPERTY()
-		FMaterialExpressionInput Y;
-
-		DPROPERTY()
-		std::vector<float> YDefault;
-
-		DPROPERTY()
-		FMaterialExpressionInput Z;
-
-		DPROPERTY()
-		std::vector<float> ZDefault;
+		FMaterialNumericInput Z;
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 3; }
 
@@ -808,28 +722,16 @@ namespace Durin
 		explicit DMaterialExpressionMakeVector4(const FObjectInitializer& Initializer) : Super(Initializer) {}
 
 		DPROPERTY()
-		FMaterialExpressionInput X;
+		FMaterialNumericInput X;
 
 		DPROPERTY()
-		std::vector<float> XDefault;
+		FMaterialNumericInput Y;
 
 		DPROPERTY()
-		FMaterialExpressionInput Y;
+		FMaterialNumericInput Z;
 
 		DPROPERTY()
-		std::vector<float> YDefault;
-
-		DPROPERTY()
-		FMaterialExpressionInput Z;
-
-		DPROPERTY()
-		std::vector<float> ZDefault;
-
-		DPROPERTY()
-		FMaterialExpressionInput W;
-
-		DPROPERTY()
-		std::vector<float> WDefault;
+		FMaterialNumericInput W;
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 4; }
 
@@ -846,10 +748,7 @@ namespace Durin
 		explicit DMaterialExpressionSplat2(const FObjectInitializer& Initializer) : Super(Initializer) {}
 
 		DPROPERTY()
-		FMaterialExpressionInput Input;
-
-		DPROPERTY()
-		std::vector<float> InputDefault;
+		FMaterialNumericInput Input;
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
 
@@ -866,10 +765,7 @@ namespace Durin
 		explicit DMaterialExpressionSplat3(const FObjectInitializer& Initializer) : Super(Initializer) {}
 
 		DPROPERTY()
-		FMaterialExpressionInput Input;
-
-		DPROPERTY()
-		std::vector<float> InputDefault;
+		FMaterialNumericInput Input;
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
 
@@ -886,10 +782,7 @@ namespace Durin
 		explicit DMaterialExpressionSplat4(const FObjectInitializer& Initializer) : Super(Initializer) {}
 
 		DPROPERTY()
-		FMaterialExpressionInput Input;
-
-		DPROPERTY()
-		std::vector<float> InputDefault;
+		FMaterialNumericInput Input;
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
 
@@ -906,16 +799,10 @@ namespace Durin
 		explicit DMaterialExpressionBlendNormalsRNM(const FObjectInitializer& Initializer) : Super(Initializer) {}
 
 		DPROPERTY()
-		FMaterialExpressionInput Base;
+		FMaterialNumericInput Base{3};
 
 		DPROPERTY()
-		std::vector<float> BaseDefault;
-
-		DPROPERTY()
-		FMaterialExpressionInput Detail;
-
-		DPROPERTY()
-		std::vector<float> DetailDefault;
+		FMaterialNumericInput Detail{3};
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 2; }
 
@@ -932,10 +819,7 @@ namespace Durin
 		explicit DMaterialExpressionUVChannel(const FObjectInitializer& Initializer) : Super(Initializer) {}
 
 		DPROPERTY()
-		FMaterialExpressionInput Channel;
-
-		DPROPERTY()
-		std::vector<float> ChannelDefault;
+		FMaterialNumericInput Channel;
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
 
@@ -951,17 +835,14 @@ namespace Durin
 	public:
 		explicit DMaterialExpressionAppendVector(const FObjectInitializer& Initializer) : Super(Initializer) {}
 		DPROPERTY()
-		FMaterialExpressionInput A;
+		FMaterialNumericInput A;
 		DPROPERTY()
-		std::vector<float> ADefault{0.f};
-		DPROPERTY()
-		FMaterialExpressionInput B;
-		DPROPERTY()
-		std::vector<float> BDefault{0.f};
+		FMaterialNumericInput B;
 		DPROPERTY()
 		EMaterialProgramValueType ResultType = EMaterialProgramValueType::Float2;
 		auto GetAuthoredInputCount() const -> uint32 override { return 2; }
 		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
+
 	};
 
 	// Component selection supplies the swizzle's output width.
@@ -973,10 +854,7 @@ namespace Durin
 		explicit DMaterialExpressionSwizzle(const FObjectInitializer& Initializer) : Super(Initializer) {}
 
 		DPROPERTY()
-		FMaterialExpressionInput Input;
-
-		DPROPERTY()
-		std::vector<float> InputDefault;
+		FMaterialNumericInput Input;
 
 		DPROPERTY()
 		std::vector<uint8> Components{0};
@@ -1018,7 +896,7 @@ namespace Durin
 		FMaterialExpressionInput Texture;
 
 		DPROPERTY()
-		FMaterialExpressionInput UV;
+		FMaterialNumericInput UV{2};
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 2; }
 
@@ -1035,7 +913,7 @@ namespace Durin
 		explicit DMaterialExpressionTextureSampleParameter2D(const FObjectInitializer& Initializer) : Super(Initializer) {}
 
 		DPROPERTY()
-		FMaterialExpressionInput UV;
+		FMaterialNumericInput UV{2};
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
 
@@ -1070,10 +948,7 @@ namespace Durin
 		explicit DMaterialExpressionTextureCoordinates(const FObjectInitializer& Initializer) : Super(Initializer) {}
 
 		DPROPERTY()
-		FMaterialExpressionInput Channel;
-
-		DPROPERTY()
-		std::vector<float> ChannelDefault{0.f};
+		FMaterialNumericInput Channel;
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
 
@@ -1090,52 +965,28 @@ namespace Durin
 		explicit DMaterialExpressionMakeSurface(const FObjectInitializer& Initializer) : Super(Initializer) {}
 
 		DPROPERTY()
-		FMaterialExpressionInput BaseColor;
+		FMaterialNumericInput BaseColor{3};
 
 		DPROPERTY()
-		std::vector<float> BaseColorDefault;
+		FMaterialNumericInput Normal{3};
 
 		DPROPERTY()
-		FMaterialExpressionInput Normal;
+		FMaterialNumericInput Metallic;
 
 		DPROPERTY()
-		std::vector<float> NormalDefault;
+		FMaterialNumericInput Roughness;
 
 		DPROPERTY()
-		FMaterialExpressionInput Metallic;
+		FMaterialNumericInput AmbientOcclusion;
 
 		DPROPERTY()
-		std::vector<float> MetallicDefault;
+		FMaterialNumericInput Emissive{3};
 
 		DPROPERTY()
-		FMaterialExpressionInput Roughness;
+		FMaterialNumericInput Opacity;
 
 		DPROPERTY()
-		std::vector<float> RoughnessDefault;
-
-		DPROPERTY()
-		FMaterialExpressionInput AmbientOcclusion;
-
-		DPROPERTY()
-		std::vector<float> AmbientOcclusionDefault;
-
-		DPROPERTY()
-		FMaterialExpressionInput Emissive;
-
-		DPROPERTY()
-		std::vector<float> EmissiveDefault;
-
-		DPROPERTY()
-		FMaterialExpressionInput Opacity;
-
-		DPROPERTY()
-		std::vector<float> OpacityDefault;
-
-		DPROPERTY()
-		FMaterialExpressionInput OpacityMask;
-
-		DPROPERTY()
-		std::vector<float> OpacityMaskDefault;
+		FMaterialNumericInput OpacityMask;
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 8; }
 
@@ -1167,12 +1018,19 @@ namespace Durin
 	struct FMaterialExpressionSurfaceAttributeBinding
 	{
 		GENERATED_BODY()
+		FMaterialExpressionSurfaceAttributeBinding() = default;
+		FMaterialExpressionSurfaceAttributeBinding(EMaterialSurfaceOutput InAttribute, FMaterialExpressionInput InSource)
+			: Attribute(InAttribute)
+		{
+			Source.Connection = InSource;
+			Source.Constant.resize(static_cast<uint32>(GetMaterialSurfaceOutputType(Attribute)) + 1, 0.f);
+		}
 
 		DPROPERTY()
 		EMaterialSurfaceOutput Attribute = EMaterialSurfaceOutput::BaseColor;
 
 		DPROPERTY()
-		FMaterialExpressionInput Source;
+		FMaterialNumericInput Source;
 
 		auto operator==(const FMaterialExpressionSurfaceAttributeBinding&) const -> bool = default;
 	};

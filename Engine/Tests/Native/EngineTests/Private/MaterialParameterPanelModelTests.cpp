@@ -529,7 +529,7 @@ TEST(FMaterialParameterPanelModelTests, TypedResourceOutputsSkipUnusedUVDependen
 	ASSERT_TRUE(Base->SetMaterialExpressions(Expressions, Outputs));
 	EXPECT_TRUE(Model.Refresh());
 	EXPECT_NE(FindEntry(Model, UV->Metadata.Id), nullptr);
-	Outputs.Normal = {};
+	Outputs.Normal.Connection = {};
 	ASSERT_TRUE(Base->SetMaterialExpressions(Expressions, Outputs));
 	EXPECT_TRUE(Model.Refresh());
 	EXPECT_EQ(FindEntry(Model, UV->Metadata.Id), nullptr);
@@ -713,7 +713,7 @@ TEST(FMaterialParameterPanelModelTests, ParentPackageReplacementInvalidatesRetai
 	auto Opacity = Testing::MakeGraphExpression<DMaterialExpressionScalarParameter>();
 	Opacity->Metadata.Id = Id; Opacity->Metadata.Name = Durin::AssetForge::Builtins::MaterialParameters::OpacityName();
 	Opacity->DefaultValue = 1.f;
-	ASSERT_TRUE(Base->SetMaterialExpressions(std::array<DMaterialExpression*, 1>{Opacity.Get()}, {.Opacity = {Opacity->Id}}));
+	ASSERT_TRUE(Base->SetMaterialExpressions(std::array<DMaterialExpression*, 1>{Opacity.Get()}, {.Opacity = Durin::FMaterialNumericInput(Durin::FMaterialExpressionInput{Opacity->Id}, 1)}));
 	ASSERT_TRUE(SavePackage(Base->GetPackage()));
 	TStrongObjectPtr<DMaterialInstance> Instance(NewObject<DMaterialInstance>(nullptr, "ReloadedParentInstance"));
 	ASSERT_TRUE(Instance->SetParent(Base));

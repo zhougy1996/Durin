@@ -11,6 +11,32 @@
 
 namespace Durin
 {
+	auto GetMaterialNumericInputFallback(EMaterialProgramOpcode Opcode,
+		EMaterialProgramValueType Type, uint32 Slot) -> std::vector<float>
+	{
+		if (Opcode == EMaterialProgramOpcode::TextureCoordinates) Opcode = EMaterialProgramOpcode::UVChannel;
+		if (Opcode == EMaterialProgramOpcode::AppendVector) return {0.f};
+		const auto Signature = GetMaterialProgramNodeSignature(Opcode, Type);
+		if (!Signature || Slot >= Signature->InputCount) return {};
+		if (Opcode == EMaterialProgramOpcode::MakeSurface)
+		{
+			const FMaterialSurfaceOutputs Defaults;
+			const auto Value = GetMaterialSurfaceOutputDefault(Defaults, static_cast<EMaterialSurfaceOutput>(Slot));
+			const std::array Components{Value.X, Value.Y, Value.Z, Value.W};
+			return {Components.begin(), Components.begin() + static_cast<uint32>(GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(Slot))) + 1};
+		}
+		const auto& Accepted = Signature->Inputs[Slot];
+		if (Accepted.empty() || Accepted.front() > EMaterialProgramValueType::Float4) return {};
+		if (Opcode == EMaterialProgramOpcode::Swizzle) return std::vector<float>(static_cast<uint32>(Type) + 1, 0.f);
+		const auto Width = IsMaterialAdaptiveNumeric(Opcode) && !(Opcode == EMaterialProgramOpcode::Lerp && Slot == 2)
+			? static_cast<uint32>(Type) + 1 : static_cast<uint32>(Accepted.front()) + 1;
+		float Value = 0.f;
+		if (((Opcode == EMaterialProgramOpcode::Multiply || Opcode == EMaterialProgramOpcode::Divide) && Slot == 1)
+			|| (Opcode == EMaterialProgramOpcode::Clamp && Slot == 2) || Opcode == EMaterialProgramOpcode::Normalize) Value = 1.f;
+		if (Opcode == EMaterialProgramOpcode::Lerp) Value = Slot == 1 ? 1.f : Slot == 2 ? .5f : 0.f;
+		return std::vector<float>(Width, Value);
+	}
+
 	auto DMaterialExpressionMaterialOutput::Serialize(FArchive& Ar) -> void
 	{
 		if (!FMaterialOutputVersion::Serialize(Ar)) return;
@@ -34,7 +60,7 @@ namespace Durin
 		return Domain == EMaterialDomain::Surface ? std::span<const FMaterialOutputPinDefinition>(Pins) : std::span<const FMaterialOutputPinDefinition>{};
 	}
 
-	auto GetMaterialOutputInput(FMaterialExpressionSurfaceOutputs& Outputs, EMaterialOutputPin Pin) -> FMaterialExpressionInput*
+	auto GetMaterialOutputNumericInput(FMaterialExpressionSurfaceOutputs& Outputs, EMaterialOutputPin Pin) -> FMaterialNumericInput*
 	{
 		switch (Pin)
 		{
@@ -46,42 +72,34 @@ namespace Durin
 		case EMaterialOutputPin::Emissive: return &Outputs.Emissive;
 		case EMaterialOutputPin::Opacity: return &Outputs.Opacity;
 		case EMaterialOutputPin::OpacityMask: return &Outputs.OpacityMask;
-		case EMaterialOutputPin::Surface: return &Outputs.Surface;
 		default: return nullptr;
 		}
 	}
 
+	auto GetMaterialOutputInput(FMaterialExpressionSurfaceOutputs& Outputs, EMaterialOutputPin Pin) -> FMaterialExpressionInput*
+	{
+		if (Pin == EMaterialOutputPin::Surface) return &Outputs.Surface;
+		auto* Numeric = GetMaterialOutputNumericInput(Outputs, Pin);
+		return Numeric ? &Numeric->Connection : nullptr;
+	}
+
 	auto ReadMaterialOutputDefault(const FMaterialExpressionSurfaceOutputs& Outputs, EMaterialOutputPin Pin) -> std::vector<float>
 	{
-		switch (Pin)
-		{
-		case EMaterialOutputPin::BaseColor: return {static_cast<float>(Outputs.BaseColorDefault.x), static_cast<float>(Outputs.BaseColorDefault.y), static_cast<float>(Outputs.BaseColorDefault.z)};
-		case EMaterialOutputPin::Normal: return {static_cast<float>(Outputs.NormalDefault.x), static_cast<float>(Outputs.NormalDefault.y), static_cast<float>(Outputs.NormalDefault.z)};
-		case EMaterialOutputPin::Metallic: return {Outputs.MetallicDefault};
-		case EMaterialOutputPin::Roughness: return {Outputs.RoughnessDefault};
-		case EMaterialOutputPin::AmbientOcclusion: return {Outputs.AmbientOcclusionDefault};
-		case EMaterialOutputPin::Emissive: return {static_cast<float>(Outputs.EmissiveDefault.x), static_cast<float>(Outputs.EmissiveDefault.y), static_cast<float>(Outputs.EmissiveDefault.z)};
-		case EMaterialOutputPin::Opacity: return {Outputs.OpacityDefault};
-		case EMaterialOutputPin::OpacityMask: return {Outputs.OpacityMaskDefault};
-		default: return {};
-		}
+		const auto* Numeric = GetMaterialOutputNumericInput(const_cast<FMaterialExpressionSurfaceOutputs&>(Outputs), Pin);
+		if (!Numeric) return {};
+		return Numeric->UseConstant ? Numeric->Constant : GetMaterialNumericInputFallback(
+			EMaterialProgramOpcode::MakeSurface, EMaterialProgramValueType::Surface, static_cast<uint32>(Pin));
 	}
 
 	auto WriteMaterialOutputDefault(FMaterialExpressionSurfaceOutputs& Outputs, EMaterialOutputPin Pin, std::span<const float> Value) -> bool
 	{
-		if (Value.size() != ReadMaterialOutputDefault(Outputs, Pin).size() || Value.empty()) return false;
-		switch (Pin)
-		{
-		case EMaterialOutputPin::BaseColor: Outputs.BaseColorDefault = FVector3(Value[0], Value[1], Value[2]); return true;
-		case EMaterialOutputPin::Normal: Outputs.NormalDefault = FVector3(Value[0], Value[1], Value[2]); return true;
-		case EMaterialOutputPin::Metallic: Outputs.MetallicDefault = Value[0]; return true;
-		case EMaterialOutputPin::Roughness: Outputs.RoughnessDefault = Value[0]; return true;
-		case EMaterialOutputPin::AmbientOcclusion: Outputs.AmbientOcclusionDefault = Value[0]; return true;
-		case EMaterialOutputPin::Emissive: Outputs.EmissiveDefault = FVector3(Value[0], Value[1], Value[2]); return true;
-		case EMaterialOutputPin::Opacity: Outputs.OpacityDefault = Value[0]; return true;
-		case EMaterialOutputPin::OpacityMask: Outputs.OpacityMaskDefault = Value[0]; return true;
-		default: return false;
-		}
+		auto* Numeric = GetMaterialOutputNumericInput(Outputs, Pin);
+		if (!Numeric) return false;
+		if (Value.empty()) { Numeric->UseConstant = false; return true; }
+		const auto Width = static_cast<uint32>(GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(Pin))) + 1;
+		if (Value.size() != Width) return false;
+		Numeric->SetConstant({Value.begin(), Value.end()});
+		return true;
 	}
 
 	auto DMaterialExpressionMaterialOutput::Build(MIR::FEmitter& Emitter) const -> void

@@ -104,10 +104,6 @@ namespace Durin::Editor::Material
 					case Type::Surface:
 					{
 						auto* Surface = Add.operator()<DMaterialExpressionMakeSurface>();
-						Surface->BaseColorDefault = {.5f, .5f, .5f}; Surface->NormalDefault = {0, 0, 1};
-						Surface->MetallicDefault = {0}; Surface->RoughnessDefault = {.5f};
-						Surface->AmbientOcclusionDefault = {1}; Surface->EmissiveDefault = {0, 0, 0};
-						Surface->OpacityDefault = {1}; Surface->OpacityMaskDefault = {1};
 						Source = {Surface->Id}; break;
 					}
 					default: return RejectCommand("The preview input type is unsupported.");
@@ -136,7 +132,7 @@ namespace Durin::Editor::Material
 				auto* X = Add.operator()<DMaterialExpressionSwizzle>(); X->Input = Value; X->Components = {0};
 				auto* Y = Add.operator()<DMaterialExpressionSwizzle>(); Y->Input = Value; Y->Components = {1};
 				auto* Vector = Add.operator()<DMaterialExpressionMakeVector3>();
-				Vector->X = {X->Id}; Vector->Y = {Y->Id}; Vector->ZDefault = {0}; Value = {Vector->Id};
+				Vector->X = {X->Id}; Vector->Y = {Y->Id}; Vector->Z.SetConstant({0}); Value = {Vector->Id};
 			}
 			else if (Output->Type != Type::Float3)
 			{

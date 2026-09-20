@@ -11,7 +11,7 @@ namespace Durin
 	struct FMaterialGraphVersion
 	{
 		static constexpr FGuid Guid{0x60f2b514, 0xb4f546a1, 0x890d2268, 0xceb304f7};
-		static constexpr int32 CurrentVersion = 2;
+		static constexpr int32 CurrentVersion = 4;
 		// Declares package writes and checks package reads; in-memory copies do not need a file version.
 		ENGINE_API static auto Serialize(FArchive& Ar) -> bool;
 	};
@@ -19,7 +19,7 @@ namespace Durin
 	struct FMaterialOutputVersion
 	{
 		static constexpr FGuid Guid{0x92e65c3f, 0xbd864756, 0xb3e9d2ac, 0x843a7b10};
-		static constexpr int32 CurrentVersion = 2; // Explicit material-attributes input mode.
+		static constexpr int32 CurrentVersion = 3; // Grouped numeric terminal inputs.
 		ENGINE_API static auto Serialize(FArchive& Ar) -> bool;
 	};
 

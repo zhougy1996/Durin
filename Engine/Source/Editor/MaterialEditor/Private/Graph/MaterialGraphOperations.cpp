@@ -254,7 +254,7 @@ namespace Durin::Editor::Material
 	auto FMaterialGraphOperations::ResetSurfaceDefault(DMaterial& Material,
 		EMaterialSurfaceOutput Output, DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
-		return SetSurfaceDefault(Material, {.Output = Output, .Value = GetSurfaceDefault({}, Output)}, Transactions);
+		return FMaterialGraphDocument(Material).SetInputConstantEnabled(Material.GetOutputNode()->Id, static_cast<uint32>(Output), false, Transactions);
 	}
 
 	auto FMaterialGraphOperations::SetParameterValue(

@@ -26,6 +26,34 @@ texture RGB outputs decode RG normal data; RGBA and scalar outputs remain raw.
 Surface extraction registers every enabled attribute. Function calls register
 all declared GUID outputs after validating their bindings and building the body.
 
+## Numeric input ownership
+
+`FMaterialExpressionInput` contains only upstream identity. Reflected
+`FMaterialNumericInput` groups that `Connection` with `UseConstant` and a retained
+float-array `Constant`. Numeric expressions, terminal properties, sampling UVs
+and individual Surface attribute overrides use this storage. Resources and
+aggregate Surface links remain identity-only; function port defaults and material
+parameter defaults retain their separate ownership.
+
+A connection takes precedence over either flag state. Broken or incompatible
+connections report diagnostics. A disconnected input uses its constant when
+enabled, otherwise its definition fallback. `GetMaterialNumericInputFallback`
+owns numeric node fallbacks; standard Surface values come from
+`FMaterialSurfaceOutputs`. Sampling UVs inherit mesh UV0 and attribute overrides
+inherit their base Surface value. Inputs without a fallback remain required.
+
+Retained constants are validated even behind connections or while disabled.
+Adaptive inputs retain their component widths and scalar broadcasting rules.
+Canonical inactive storage is finite zero with an appropriate input width; it
+does not define the fallback. Authored fingerprints include the flag and retained
+components, while shader identity still uses the resolved compiler representation.
+
+Authored graph custom version 4 and terminal output version 3 are required.
+Older packages are rejected. The repository's two materials and three standard
+functions were converted with a temporary reader and canonical resave; no
+historical reader remains in the runtime. Existing explicit values, including
+those behind connections, were preserved as enabled constants.
+
 ## Traversal and invocation state
 
 `MIR::FGraphBuilder` exposes only build-session lifecycle and local

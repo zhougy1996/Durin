@@ -190,8 +190,8 @@ namespace Durin::Editor::Material
 						const auto Value = Resolve(Operand);
 						return Value <= Type::Float4 ? static_cast<size_t>(Value) + 1 : 5;
 					};
-					const auto AWidth = Width(Append->A, Append->ADefault);
-					const auto BWidth = Width(Append->B, Append->BDefault);
+					const auto AWidth = Width(Append->A, Append->A.UseConstant ? Append->A.Constant : std::vector<float>{0.f});
+					const auto BWidth = Width(Append->B, Append->B.UseConstant ? Append->B.Constant : std::vector<float>{0.f});
 					if (!AWidth || !BWidth || AWidth + BWidth > 4) bValid = false;
 					else
 					{
@@ -212,9 +212,9 @@ namespace Durin::Editor::Material
 					VisitMaterialExpressionInputs(*E, [&](uint32 Slot, FMaterialExpressionInput& Operand) {
 						if (Opcode == EMaterialProgramOpcode::Lerp && Slot == 2) return;
 						if (Operand.ExpressionId.IsValid()) Merge(Resolve(Operand));
-						else if (const auto* Default = FindMaterialExpressionInputDefault(*E, Operand))
+						else if (const auto* Numeric = FindMaterialNumericInput(*E, Operand); Numeric && Numeric->UseConstant)
 						{
-							const auto& Values = *Default;
+							const auto& Values = Numeric->Constant;
 							// Uniform defaults are width-independent; retain authored components otherwise.
 							if (Values.size() > 1 && !std::ranges::all_of(Values, [&](float V) { return V == Values.front(); }))
 								Merge(static_cast<Type>(Values.size() - 1));
@@ -409,32 +409,10 @@ namespace Durin::Editor::Material
 				Input = FirstInput;
 				if (!IsMaterialAdaptiveNumeric(Entry.Opcode)) return;
 			}
-			if (const auto* Sample = Cast<DMaterialExpressionTextureSample2D>(Expression.Get()); Sample && &Input == &Sample->UV) return;
-			if (const auto* Sample = Cast<DMaterialExpressionTextureSampleParameter2D>(Expression.Get()); Sample && &Input == &Sample->UV) return;
-			std::vector<float>* Default = nullptr;
-			Expression->GetClass()->ForEachProperty([&](FProperty* Property) {
-				if (Property->GetValuePtr(Expression.Get()) != &Input) return;
-				auto* Value = Expression->GetClass()->FindPropertyByName(FName(Property->NamePrivate.ToString() + "Default"));
-				if (Value && Value->GetKind() == DurinCodeGen::EPropertyGenFlags::Array
-					&& static_cast<FArrayProperty*>(Value)->GetInner()->GetKind() == DurinCodeGen::EPropertyGenFlags::Float)
-					Default = static_cast<std::vector<float>*>(Value->GetValuePtr(Expression.Get()));
-			});
-			const auto& Types = Entry.AcceptedInputTypes[Index];
-			const auto Type = std::ranges::find_if(Types, [](auto T) { return T < EMaterialProgramValueType::Texture2D; });
-			if (!Default || Type == Types.end()) { if (!InvalidInput) InvalidInput = Index; return; }
-			const auto Width = static_cast<uint32>(Cast<DMaterialExpressionSwizzle>(Expression.Get()) ? Entry.ResultType : *Type) + 1;
-			float Value = 0;
-			if (((Entry.Opcode == EMaterialProgramOpcode::Multiply || Entry.Opcode == EMaterialProgramOpcode::Divide) && Index == 1)
-				|| (Entry.Opcode == EMaterialProgramOpcode::Clamp && Index == 2) || Entry.Opcode == EMaterialProgramOpcode::Normalize) Value = 1;
-			else if (Entry.Opcode == EMaterialProgramOpcode::Lerp) Value = Index == 1 ? 1.f : Index == 2 ? .5f : 0.f;
-			Default->assign(Width, Value);
-			if (Cast<DMaterialExpressionMakeSurface>(Expression.Get()))
-			{
-				if (Index == 0) *Default = {.5f, .5f, .5f};
-				if (Index == 1) *Default = {0, 0, 1};
-				if (Index == 3) *Default = {.5f};
-				if (Index == 4 || Index == 6 || Index == 7) *Default = {1};
-			}
+			if (const auto* Sample = Cast<DMaterialExpressionTextureSample2D>(Expression.Get()); Sample && &Input == &Sample->UV.Connection) return;
+			if (const auto* Sample = Cast<DMaterialExpressionTextureSampleParameter2D>(Expression.Get()); Sample && &Input == &Sample->UV.Connection) return;
+			if (!FindMaterialNumericInput(*Expression, Input) && !Input.ExpressionId.IsValid())
+				if (!InvalidInput) InvalidInput = Index;
 		});
 		if (InvalidInput) return RejectCommand("Create this node from a compatible texture or Surface output.");
 		IncludeCallOutput(State, FirstInput);
@@ -591,9 +569,7 @@ namespace Durin::Editor::Material
 		std::erase_if(State.Presentation.Nodes, [&](const auto& Position) { return Removed.contains(Position.NodeId); });
 		for (auto& Expression : State.Expressions)
 		{
-			if (auto* Surface = Cast<DMaterialExpressionSetSurfaceAttributes>(Expression.Get()); Surface
-				&& std::ranges::any_of(Surface->Attributes, [&](const auto& A) { return Removed.contains(A.Source.ExpressionId); }))
-			{ State.Modify(*Surface); std::erase_if(Surface->Attributes, [&](const auto& A) { return Removed.contains(A.Source.ExpressionId); }); }
+
 			VisitMaterialExpressionInputs(*Expression, [&](uint32, FMaterialExpressionInput& Input) {
 				if (Removed.contains(Input.ExpressionId)) { State.Modify(*Expression); Input = {}; }
 			});

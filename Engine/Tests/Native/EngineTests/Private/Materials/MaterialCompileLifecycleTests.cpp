@@ -46,7 +46,7 @@ namespace
 	auto EditRoughnessDefault(Durin::DMaterial& Material, float Delta) -> Durin::FMaterialProgramValidationResult
 	{
 		auto Outputs = Material.GetExpressionOutputs();
-		Outputs.RoughnessDefault += Delta;
+		Outputs.Roughness.SetConstant({ReadMaterialOutputDefault(Outputs, Durin::EMaterialOutputPin::Roughness)[0] + Delta});
 		std::vector<Durin::DMaterialExpression*> Expressions;
 		for (const auto& Expression : Material.GetExpressionCollection().Expressions) Expressions.push_back(Expression.Get());
 		return Material.SetMaterialExpressions(Expressions, Outputs);
@@ -149,7 +149,7 @@ auto QualifyEditScheduling() -> void
 		.MemberProperty = Root->GetClass()->FindPropertyByName("ExpressionCollection")});
 	EXPECT_EQ(Root->GetMaterialCompileStatus().AuthoredRevision, Revision);
 	auto Invalid = Root->GetExpressionOutputs();
-	Invalid.Roughness.ExpressionId = FGuid::NewGuid();
+	Invalid.Roughness.Connection.ExpressionId = FGuid::NewGuid();
 	Expressions.clear();
 	for (const auto& Expression : Root->GetExpressionCollection().Expressions) Expressions.push_back(Expression.Get());
 	EXPECT_FALSE(Root->SetMaterialExpressions(Expressions, Invalid));
