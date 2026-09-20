@@ -367,6 +367,7 @@ namespace Durin::Editor::Material
 			if (!Material) return false;
 			if (!Material->GetPackage()->IsDirty())
 			{
+				CaptureCanvasViewport(Document);
 				MaterialPreviews.erase(Document.Id.Value);
 				MaterialGraphCanvases.erase(Document.Id.Value);
 				return ResetEditingSession(Document.ResourceId);
@@ -395,6 +396,7 @@ namespace Durin::Editor::Material
 				&& ReboundResources.contains(Document.ResourceId))
 			{
 				CancelCanvasInteraction(Document.Id.Value);
+				CaptureCanvasViewport(Document);
 				MaterialPreviews.erase(Document.Id.Value);
 				MaterialGraphCanvases.erase(Document.Id.Value);
 				ResetEditingSession(Document.ResourceId);
@@ -764,7 +766,7 @@ namespace Durin::Editor::Material
 			return;
 		}
 		FMaterialGraphCanvas& Canvas = GetOrCreateCanvas(Document);
-		Canvas.Draw(*Base, *GEditor->GetTransactor(), Height,
+		Canvas.Draw(*GEditor->GetTransactor(), Height,
 			[this](std::string Message) { SetError(std::move(Message)); });
 		const auto [Zoom, Pan] = Canvas.GetViewport();
 		SessionSettings->SetViewport(Document.ResourceId, {.Zoom = Zoom, .Pan = Pan});
@@ -998,7 +1000,7 @@ namespace Durin::Editor::Material
 							}
 						}
 					}
-					if (!bSubmitted) Canvas.DrawParameterValue(*Base, Parameter, *GEditor->GetTransactor(),
+					if (!bSubmitted) Canvas.DrawParameterValue(Parameter, *GEditor->GetTransactor(),
 						[this](std::string Error) { SetError(std::move(Error)); });
 					MonaImGui::PropertyEdit::EndTable();
 				}
@@ -1090,7 +1092,7 @@ namespace Durin::Editor::Material
 			if (GEditor && GEditor->GetTransactor())
 			{
 				DrawSelectedFunction(Document, BaseMaterial);
-				GetOrCreateCanvas(Document).DrawSelectionDetails(*BaseMaterial, *GEditor->GetTransactor(),
+				GetOrCreateCanvas(Document).DrawSelectionDetails(*GEditor->GetTransactor(),
 					[this](std::string Message) { SetError(std::move(Message)); });
 			}
 		}
@@ -1518,7 +1520,7 @@ namespace Durin::Editor::Material
 			MaterialGraphCanvases[Document.Id.Value];
 		if (!Canvas)
 		{
-			Canvas = std::make_unique<FMaterialGraphCanvas>();
+			Canvas = std::make_unique<FMaterialGraphCanvas>(FMaterialGraphDocument(*FindOpenMaterial(Document.ResourceId)));
 			if (const FMaterialGraphViewportState* State =
 				SessionSettings->FindViewport(Document.ResourceId))
 				Canvas->SetViewport(State->Zoom, State->Pan);

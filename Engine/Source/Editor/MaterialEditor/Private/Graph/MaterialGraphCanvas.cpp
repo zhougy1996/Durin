@@ -209,7 +209,8 @@ namespace Durin::Editor::Material
 		std::unordered_map<FGuid, size_t> Indices;
 	};
 
-	FMaterialGraphCanvas::FMaterialGraphCanvas() = default;
+	FMaterialGraphCanvas::FMaterialGraphCanvas(FMaterialGraphDocument InDocument)
+		: GraphDocument(std::move(InDocument)) {}
 	FMaterialGraphCanvas::~FMaterialGraphCanvas() = default;
 
 	auto FMaterialGraphCanvas::ClearSharedClipboard() -> void { GraphClipboard.reset(); }
@@ -498,7 +499,7 @@ namespace Durin::Editor::Material
 		if (NodeIds.empty()) return;
 		FMaterialGraphClipboardPayload Payload;
 		const FMaterialGraphCommandResult Copied =
-			FMaterialGraphDocument(Owner).CopySelection(NodeIds, Payload);
+			GraphDocument.CopySelection(NodeIds, Payload);
 		ReportCommand(Copied, ReportError);
 		if (Copied) GraphClipboard = std::move(Payload);
 	}
@@ -511,7 +512,7 @@ namespace Durin::Editor::Material
 	{
 		if (NodeIds.empty()) return;
 		FMaterialGraphClipboardPayload Payload;
-		const FMaterialGraphCommandResult Cut = FMaterialGraphDocument(Owner).CutSelection(NodeIds, Payload, &Transactions);
+		const FMaterialGraphCommandResult Cut = GraphDocument.CutSelection(NodeIds, Payload, &Transactions);
 		ReportCommand(Cut, ReportError);
 		if (!Cut) return;
 		GraphClipboard = std::move(Payload);
@@ -525,7 +526,7 @@ namespace Durin::Editor::Material
 		const FReportError& ReportError) -> void
 	{
 		if (NodeIds.empty()) return;
-		FMaterialGraphDocument Document(Owner);
+		const auto& Document = GraphDocument;
 		const auto Duplicated = Document.DuplicateNodes(NodeIds, 40, 40, &Transactions);
 		ReportCommand(Duplicated, ReportError);
 		if (!Duplicated) return;
@@ -543,7 +544,7 @@ namespace Durin::Editor::Material
 		if (!GraphClipboard) return;
 		const bool bRepeated = LastPasteAnchor && LastPasteAnchor->x == GraphPosition.x && LastPasteAnchor->y == GraphPosition.y;
 		const uint32 Offset = bRepeated ? RepeatedPasteCount + 1 : 0;
-		const FMaterialGraphCommandResult Pasted = FMaterialGraphDocument(Owner).Paste(*GraphClipboard,
+		const FMaterialGraphCommandResult Pasted = GraphDocument.Paste(*GraphClipboard,
 			static_cast<int32>(std::round(GraphPosition.x)) + 24 * Offset,
 			static_cast<int32>(std::round(GraphPosition.y)) + 24 * Offset, &Transactions);
 		ReportCommand(Pasted, ReportError);
@@ -564,7 +565,7 @@ namespace Durin::Editor::Material
 	{
 		if (NodeIds.empty()) return;
 		const FMaterialGraphCommandResult Removed =
-			FMaterialGraphDocument(Owner).RemoveNodes(NodeIds, &Transactions);
+			GraphDocument.RemoveNodes(NodeIds, &Transactions);
 		ReportCommand(Removed, ReportError);
 		if (Removed) SelectedNodes.clear();
 	}
@@ -611,7 +612,7 @@ namespace Durin::Editor::Material
 				{
 					if (ImGui::MenuItem(GetProgramTypeName(Type), nullptr, Edited.ResultType == Type))
 					{
-						ReportCommand(FMaterialGraphDocument(Owner).SetConstantValue(
+						ReportCommand(GraphDocument.SetConstantValue(
 							Edited.Id, MakeParameterValue(Type, Edited.GetConstantLiteral()), &Transactions), ReportError);
 					}
 				}
@@ -736,7 +737,7 @@ namespace Durin::Editor::Material
 				return Candidate.Opcode == Shortcut.Opcode && Candidate.ResultType == Shortcut.Type;
 			});
 			if (Entry == Catalog.end()) continue;
-			const auto Created = FMaterialGraphDocument(Owner).Create({MakeCreationAction(*Entry),
+			const auto Created = GraphDocument.Create({MakeCreationAction(*Entry),
 				static_cast<int32>(std::round(Position.x)), static_cast<int32>(std::round(Position.y))}, &Transactions);
 			ReportCommand(Created, ReportError);
 			if (Created)
@@ -813,7 +814,7 @@ namespace Durin::Editor::Material
 					&& FTopLevelAssetPath::TryCreate(Data.AssetPath.data(), Path))
 				{
 					const auto Position = Multiply(Subtract(Subtract(Mouse, CanvasMinimum), Pan), 1.0f / Zoom);
-					const auto Created = FMaterialGraphDocument(Owner).Create({MakeFunctionCreationAction(Path.ToString()),
+					const auto Created = GraphDocument.Create({MakeFunctionCreationAction(Path.ToString()),
 						static_cast<int32>(std::round(Position.x)), static_cast<int32>(std::round(Position.y))}, &Transactions);
 					ReportCommand(Created, ReportError);
 					if (Created)
@@ -842,7 +843,7 @@ namespace Durin::Editor::Material
 			if (Node == View.Nodes.end() || PinIndex >= Node->Inputs.size())
 				return GraphEditInternals::RejectCommand("The graph input is unavailable.");
 			const auto& Pin = Node->Inputs[PinIndex];
-			FMaterialGraphDocument Document(Owner);
+			const auto& Document = GraphDocument;
 			return Document.Connect(Node->InputAddress(Pin),
 				FMaterialGraphPinAddress::Output(Source), bReplace, &Transactions);
 		};
@@ -1045,7 +1046,7 @@ namespace Durin::Editor::Material
 				{
 					const auto& Pin = HoveredOutput->View->Outputs[HoveredOutputIndex];
 					const FMaterialProgramLink Source{HoveredOutput->View->Node.Id, Pin.OutputIndex, Pin.PortId};
-					FMaterialGraphDocument Document(Owner);
+					const auto& Document = GraphDocument;
 					ReportCommand(Document.Connect(Address,
 						FMaterialGraphPinAddress::Output(Source), true, &Transactions), ReportError);
 				}
@@ -1084,26 +1085,12 @@ namespace Durin::Editor::Material
 		}
 	}
 
-	auto FMaterialGraphCanvas::DrawFunction(DMaterialFunction& Function, DTransactor& Transactions,
+	auto FMaterialGraphCanvas::Draw(DTransactor& Transactions,
 		float Height, const FReportError& ReportError,
 		const std::function<void(std::string_view)>& OpenFunction) -> void
 	{
-		DrawOwner(Function, Transactions, Height, ReportError, OpenFunction);
-	}
-
-	auto FMaterialGraphCanvas::Draw(
-		DMaterial& Material,
-		DTransactor& Transactions,
-		float Height,
-		const FReportError& ReportError) -> void
-	{
-		DrawOwner(Material, Transactions, Height, ReportError, {});
-	}
-
-	auto FMaterialGraphCanvas::DrawOwner(DObject& Owner, DTransactor& Transactions,
-		float Height, const FReportError& ReportError,
-		const std::function<void(std::string_view)>& OpenFunction) -> void
-	{
+		if (!GraphDocument.GetOwner()) { CancelInteraction(); return; }
+		auto& Owner = *GraphDocument.GetOwner();
 		auto* Material = Cast<DMaterial>(&Owner);
 		ImGui::PushID(this);
 		if (ImGui::BeginChild("MaterialGraph", ImVec2(0.0f, Height),
@@ -1122,7 +1109,7 @@ namespace Durin::Editor::Material
 			ImGui::SameLine();
 			if (ImGui::Button("Auto Layout"))
 			{
-				const FMaterialGraphCommandResult Layout = FMaterialGraphDocument(Owner).Layout({}, &Transactions);
+				const FMaterialGraphCommandResult Layout = GraphDocument.Layout({}, &Transactions);
 				ReportCommand(Layout, ReportError);
 			}
 			ImGui::SameLine();

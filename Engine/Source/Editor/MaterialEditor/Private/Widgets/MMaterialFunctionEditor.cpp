@@ -26,7 +26,7 @@ namespace Durin::Editor::Material
 		TObjectPtr<DMaterialFunction> Owner;
 		FStrongObjectPtr PreviewPackage;
 		FStrongObjectPtr PreviewMaterial;
-		FMaterialGraphCanvas Canvas;
+		std::unique_ptr<FMaterialGraphCanvas> Canvas;
 		std::unique_ptr<FMaterialPreview> Preview;
 		FGuid Output;
 		FMaterialFunctionPreviewInvalidation PreviewInvalidation;
@@ -58,7 +58,7 @@ namespace Durin::Editor::Material
 	{
 		for (const auto& [Resource, Document] : Open)
 		{
-			const auto [Zoom, Pan] = Document->Canvas.GetViewport();
+			const auto [Zoom, Pan] = Document->Canvas->GetViewport();
 			SessionSettings->SetViewport(Resource, {.Zoom = Zoom, .Pan = Pan});
 		}
 		SessionSettings->Save();
@@ -79,8 +79,9 @@ namespace Durin::Editor::Material
 		if (!Loaded || !Function) { Error = Loaded ? "The asset is not an editable function." : Loaded.Message; return EDocumentOpenResult::Rejected; }
 		auto Document = std::make_unique<FDocument>();
 		Document->Owner = Function;
+		Document->Canvas = std::make_unique<FMaterialGraphCanvas>(FMaterialGraphDocument(*Function));
 		if (const auto* State = SessionSettings->FindViewport(Tab.ResourceId))
-			Document->Canvas.SetViewport(State->Zoom, State->Pan);
+			Document->Canvas->SetViewport(State->Zoom, State->Pan);
 		Document->PreviewInvalidation.SetFunction(Function);
 		const auto Mount = FMountPaths::FindMountForVirtualPath(Function->GetPackage()->GetPackagePath());
 		if (!Mount) { Error = Mount.Message; return EDocumentOpenResult::Rejected; }
@@ -109,7 +110,7 @@ namespace Durin::Editor::Material
 	}
 	auto MMaterialFunctionEditor::RequestDeactivate() -> bool
 	{
-		for (auto& [Resource, Document] : Open) Document->Canvas.CancelInteraction();
+		for (auto& [Resource, Document] : Open) Document->Canvas->CancelInteraction();
 		return true;
 	}
 	auto MMaterialFunctionEditor::RequestCloseDocument(const FDocumentTab& Tab) -> EDocumentCloseResult
@@ -117,7 +118,7 @@ namespace Durin::Editor::Material
 		if (IsDocumentDirty(Tab)) return EDocumentCloseResult::PendingConfirmation;
 		if (const auto* Document = Find(Tab.ResourceId))
 		{
-			const auto [Zoom, Pan] = Document->Canvas.GetViewport();
+			const auto [Zoom, Pan] = Document->Canvas->GetViewport();
 			SessionSettings->SetViewport(Tab.ResourceId, {.Zoom = Zoom, .Pan = Pan});
 			SessionSettings->Save();
 		}
@@ -156,8 +157,15 @@ namespace Durin::Editor::Material
 		for (auto& [Resource, Document] : Open)
 			if (auto* Function = Document->Function(); Function && Function->GetPackage() == Previous)
 			{
+				const auto [Zoom, Pan] = Document->Canvas->GetViewport();
+				Document->Canvas->CancelInteraction();
 				Document->Owner = Cast<DMaterialFunction>(Replacement->FindTopLevelAsset(Function->GetFName()));
-				Document->Canvas.CancelInteraction(); Document->PreviewInvalidation.RequestRefresh(); Document->EditingPort = {}; Document->SelectedPortNode = {};
+				if (Document->Function())
+				{
+					Document->Canvas = std::make_unique<FMaterialGraphCanvas>(FMaterialGraphDocument(*Document->Function()));
+					Document->Canvas->SetViewport(Zoom, Pan);
+				}
+				Document->PreviewInvalidation.RequestRefresh(); Document->EditingPort = {}; Document->SelectedPortNode = {};
 			}
 	}
 	auto MMaterialFunctionEditor::OnAssetsRelocated(std::span<const FAssetRelocationMapping> Mappings) -> void
@@ -183,7 +191,7 @@ namespace Durin::Editor::Material
 		auto* Document = Find(Resource);
 		if (!Document || !Document->Function()) return false;
 		const auto& Nodes = Document->Function()->GetExpressionCollection().Expressions;
-		return std::ranges::any_of(Nodes, [&](const auto& Node) { return Node->Id == NodeId; }) && Document->Canvas.SelectAndFrame(NodeId);
+		return std::ranges::any_of(Nodes, [&](const auto& Node) { return Node->Id == NodeId; }) && Document->Canvas->SelectAndFrame(NodeId);
 	}
 	auto MMaterialFunctionEditor::DrawWorkspace(bool bActive) -> bool
 	{
@@ -225,7 +233,7 @@ namespace Durin::Editor::Material
 			const auto Result = Graph.AddPort(false, Port, {}, 0,
 				static_cast<int32>(Signature.Inputs.size()) * 120, GEditor->GetTransactor());
 			if (!Result) Error = FormatMaterialGraphCommandResult(Result);
-			else if (!Result.GeneratedNodeIds.empty()) Document.Canvas.SelectAndFrame(Result.GeneratedNodeIds.front());
+			else if (!Result.GeneratedNodeIds.empty()) Document.Canvas->SelectAndFrame(Result.GeneratedNodeIds.front());
 		}
 		if (Signature.Inputs.empty()) ImGui::TextDisabled("No function inputs.");
 		for (const auto& Port : Signature.Inputs)
@@ -234,8 +242,8 @@ namespace Durin::Editor::Material
 			for (const auto& Expression : Function.GetExpressionCollection().Expressions)
 				if (const auto* Input = Cast<DMaterialExpressionFunctionInput>(Expression.Get()); Input && Input->Port.Id == Port.Id)
 				{
-					if (ImGui::Selectable(Label.c_str(), Document.Canvas.GetSelection().contains(Input->Id)))
-						Document.Canvas.SelectAndFrame(Input->Id);
+					if (ImGui::Selectable(Label.c_str(), Document.Canvas->GetSelection().contains(Input->Id)))
+						Document.Canvas->SelectAndFrame(Input->Id);
 					if (ImGui::IsItemHovered())
 						ImGui::SetTooltip("%s", Port.bRequired ? "Required input" : DescribeFunctionDefault(Port.Default).c_str());
 					break;
@@ -248,12 +256,12 @@ namespace Durin::Editor::Material
 		auto& Function = *Document.Function();
 		FMaterialGraphDocument Graph(Function);
 		const auto Apply = [&](FMaterialGraphCommandResult Result) { if (!Result) Error = FormatMaterialGraphCommandResult(Result); };
-		if (Document.Canvas.GetSelection().size() != 1)
+		if (Document.Canvas->GetSelection().size() != 1)
 		{
 			Document.SelectedPortNode = {};
 			return;
 		}
-		const auto* Id = std::get_if<FGuid>(&*Document.Canvas.GetSelection().begin());
+		const auto* Id = std::get_if<FGuid>(&*Document.Canvas->GetSelection().begin());
 		if (!Id) return;
 		const auto& Expressions = Function.GetExpressionCollection().Expressions;
 		const auto Selected = std::ranges::find(Expressions, *Id, [](const auto& Node) { return Node->Id; });
@@ -400,14 +408,14 @@ namespace Durin::Editor::Material
 			return Visible;
 		};
 		if (BeginPanel("Material Graph", "Graph"))
-			Document.Canvas.DrawFunction(Function, *GEditor->GetTransactor(), 0, [this](std::string Message) { Error = std::move(Message); },
+			Document.Canvas->Draw(*GEditor->GetTransactor(), 0, [this](std::string Message) { Error = std::move(Message); },
 				[this](std::string_view Path) { Manager.OpenAsset(std::string(Path), DMaterialFunction::StaticClass()->GetQualifiedName().ToString()); });
 		ImGui::End();
 		if (SessionSettings->bDetailsVisible)
 		{
 			if (BeginPanel("Details", "Details", &SessionSettings->bDetailsVisible))
 			{
-				Document.Canvas.DrawSelectionDetails(Function, *GEditor->GetTransactor(),
+				Document.Canvas->DrawSelectionDetails(*GEditor->GetTransactor(),
 					[this](std::string Message) { Error = std::move(Message); });
 				DrawInterface(Document);
 			}
@@ -427,9 +435,9 @@ namespace Durin::Editor::Material
 			const auto DrawDiagnostic = [&](const FMaterialProgramDiagnostic& Diagnostic) {
 				if (ImGui::Selectable(FormatMaterialError(Diagnostic.Error).c_str()))
 				{
-					if (Diagnostic.FunctionAssetPath.empty() || Diagnostic.FunctionAssetPath == Function.GetObjectPath()) Document.Canvas.SelectAndFrame(Diagnostic.NodeId);
+					if (Diagnostic.FunctionAssetPath.empty() || Diagnostic.FunctionAssetPath == Function.GetObjectPath()) Document.Canvas->SelectAndFrame(Diagnostic.NodeId);
 					else if (Manager.OpenAsset(Diagnostic.FunctionAssetPath, DMaterialFunction::StaticClass()->GetQualifiedName().ToString()))
-						if (auto* Nested = Find(Diagnostic.FunctionAssetPath)) Nested->Canvas.SelectAndFrame(Diagnostic.NodeId);
+						if (auto* Nested = Find(Diagnostic.FunctionAssetPath)) Nested->Canvas->SelectAndFrame(Diagnostic.NodeId);
 				}
 			};
 			for (const auto& Diagnostic : Document.Diagnostics) DrawDiagnostic(Diagnostic);

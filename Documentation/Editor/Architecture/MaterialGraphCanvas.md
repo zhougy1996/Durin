@@ -106,7 +106,12 @@ Numeric controls and parameter/literal type conversions are shared by graph
 editing paths so each supported vector dimension has one conversion contract.
 
 Material and function graphs use one canvas renderer, toolbar, interaction handler
-and hit test. Both show the same grid, selection styling, pin compatibility hints,
+and hit test. Each canvas is constructed with a fixed `FMaterialGraphDocument`
+binding and exposes one `Draw` entry point; drawing and selection details do not
+accept an asset to switch the canvas to. Graph commands reuse that document
+boundary. Replacing a document's underlying asset recreates its canvas while
+preserving the viewport; changing tabs does not rebind a canvas.
+Both show the same grid, selection styling, pin compatibility hints,
 Frame All / Frame Selection controls, and detail-level indicator. Function interface
 ports and output preview selection remain function-specific. Both editors persist
 per-asset zoom and pan using the shared session-settings implementation, with separate

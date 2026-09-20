@@ -11,10 +11,13 @@
 
 namespace Durin::Editor::Material
 {
-	auto FMaterialGraphCanvas::DrawParameterValue(DMaterial& Material,
+	auto FMaterialGraphCanvas::DrawParameterValue(
 		const FMaterialParameterDefinition& Parameter, DTransactor& Transactions,
 		const FReportError& ReportError) -> void
 	{
+		auto* MaterialOwner = Cast<DMaterial>(GraphDocument.GetOwner());
+		if (!MaterialOwner) { CancelInteraction(); return; }
+		auto& Material = *MaterialOwner;
 		if (Parameter.Type == EMaterialParameterType::Texture) return;
 		ImGui::PushID(Parameter.Id.ToString().c_str());
 		MonaImGui::PropertyEdit::BeginRow("Default value");
@@ -86,12 +89,14 @@ namespace Durin::Editor::Material
 		return ReadModel.GetView();
 	}
 
-	auto FMaterialGraphCanvas::DrawSelectionDetails(DObject& Owner, DTransactor& Transactions,
+	auto FMaterialGraphCanvas::DrawSelectionDetails(DTransactor& Transactions,
 		const FReportError& ReportError) -> void
 	{
+		if (!GraphDocument.GetOwner()) { CancelInteraction(); return; }
+		auto& Owner = *GraphDocument.GetOwner();
 		const auto Selection = GetSelectedProgramNodes();
 		if (Selection.size() != 1) return;
-		FMaterialGraphDocument Document(Owner);
+		const auto& Document = GraphDocument;
 		const FMaterialExpressionCollection* Collection = nullptr;
 		if (const auto* Material = Cast<DMaterial>(&Owner)) Collection = &Material->GetExpressionCollection();
 		if (const auto* Function = Cast<DMaterialFunction>(&Owner)) Collection = &Function->GetExpressionCollection();
@@ -205,7 +210,7 @@ namespace Durin::Editor::Material
 					MonaImGui::PropertyEdit::EndGroup();
 				}
 			}
-			else if (!Changed) DrawParameterValue(*Material, Parameter, Transactions, ReportError);
+			else if (!Changed) DrawParameterValue(Parameter, Transactions, ReportError);
 		}
 		else
 		{

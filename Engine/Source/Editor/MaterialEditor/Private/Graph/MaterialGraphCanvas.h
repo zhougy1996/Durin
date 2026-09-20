@@ -2,6 +2,7 @@
 
 #include "MaterialGraphOperations.h"
 #include "MaterialGraphReadModel.h"
+#include "MaterialGraphDocument.h"
 #include "MonaImGui.h"
 
 #include <variant>
@@ -22,25 +23,23 @@ namespace Durin::Editor::Material
 	{
 	public:
 		using FReportError = std::function<void(std::string)>;
-		FMaterialGraphCanvas();
+		// One immutable document binding for the canvas lifetime; never rebound on tab activation.
+		explicit FMaterialGraphCanvas(FMaterialGraphDocument Document);
 		~FMaterialGraphCanvas();
 		// Release shared clipboard object references before the object system shuts down.
 		static auto ClearSharedClipboard() -> void;
 
 		auto Draw(
-			DMaterial& Material,
 			::Durin::DTransactor& Transactions,
 			float Height,
-			const FReportError& ReportError) -> void;
+			const FReportError& ReportError,
+			const std::function<void(std::string_view)>& OpenFunction = {}) -> void;
 		auto SelectAndFrame(const FGuid& NodeId) -> bool;
-		auto DrawSelectionDetails(DObject& Owner, DTransactor& Transactions,
+		auto DrawSelectionDetails(DTransactor& Transactions,
 			const FReportError& ReportError) -> void;
-		auto DrawParameterValue(DMaterial& Material, const FMaterialParameterDefinition& Parameter,
+		auto DrawParameterValue( const FMaterialParameterDefinition& Parameter,
 			DTransactor& Transactions, const FReportError& ReportError) -> void;
 		auto EndParameterFrame() -> void;
-		auto DrawFunction(DMaterialFunction& Function, ::Durin::DTransactor& Transactions,
-			float Height, const FReportError& ReportError,
-			const std::function<void(std::string_view)>& OpenFunction) -> void;
 		auto SelectAndFrameDiagnostic(
 			const FMaterialProgramDiagnostic& Diagnostic) -> bool;
 		auto CancelInteraction() -> void;
@@ -65,9 +64,7 @@ namespace Durin::Editor::Material
 
 	private:
 		friend struct FMaterialGraphCanvasTestAccess;
-		auto DrawOwner(DObject& Owner, DTransactor& Transactions, float Height,
-			const FReportError& ReportError,
-			const std::function<void(std::string_view)>& OpenFunction) -> void;
+		const FMaterialGraphDocument GraphDocument;
 		struct FVisualNode;
 		struct FVisualGraph;
 		struct FPointerHit

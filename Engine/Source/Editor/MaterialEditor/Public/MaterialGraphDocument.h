@@ -11,6 +11,7 @@ namespace Durin::Editor::Material
 	{
 	public:
 		MATERIALEDITOR_API explicit FMaterialGraphDocument(DObject& Owner);
+		auto GetOwner() const -> DObject* { return Owner.Get(); }
 		MATERIALEDITOR_API auto Create(const FMaterialGraphCreationRequest& Request,
 			DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto CanCreate(const FMaterialGraphCreationAction& Action,

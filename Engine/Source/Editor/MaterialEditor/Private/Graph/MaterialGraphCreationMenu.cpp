@@ -108,7 +108,7 @@ namespace Durin::Editor::Material
 		if (bCreationMenuResultsStale)
 		{
 			CachedCreationActions.clear();
-			FMaterialGraphDocument Document(Owner);
+			const auto& Document = GraphDocument;
 			for (const auto Index : FMaterialGraphOperations::SearchCatalogIndices(Catalog, "", SourceType))
 				CachedCreationActions.push_back(MakeCreationAction(Catalog[Index]));
 			for (bool bOutput : {false, true})
@@ -242,7 +242,7 @@ namespace Durin::Editor::Material
 				static_cast<int32>(std::round(CreationMenu->GraphPosition.x)), static_cast<int32>(std::round(CreationMenu->GraphPosition.y))};
 			if (CreationMenu->SourceNode.IsValid()) Request.Source = FMaterialGraphPinAddress::Output(
 				{CreationMenu->SourceNode, CreationMenu->SourceOutputIndex, CreationMenu->SourceOutputId});
-			const auto Created = FMaterialGraphDocument(Owner).Create(Request, &Transactions);
+			const auto Created = GraphDocument.Create(Request, &Transactions);
 			ReportCommand(Created, ReportError);
 			if (Created)
 			{
