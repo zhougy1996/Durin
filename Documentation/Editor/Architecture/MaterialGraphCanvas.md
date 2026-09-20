@@ -111,6 +111,9 @@ binding and exposes one `Draw` entry point; drawing and selection details do not
 accept an asset to switch the canvas to. Graph commands reuse that document
 boundary. Replacing a document's underlying asset recreates its canvas while
 preserving the viewport; changing tabs does not rebind a canvas.
+Error reporting and function-asset navigation are editor services supplied once
+when constructing the canvas, not arguments to each draw or Details call. Both
+material and function editors provide function navigation for double-clicks.
 Both show the same grid, selection styling, pin compatibility hints,
 Frame All / Frame Selection controls, and detail-level indicator. Function interface
 ports and output preview selection remain function-specific. Both editors persist

@@ -17,6 +17,11 @@ namespace Durin::Editor::Material
 {
 	// All canvas selections refer to authored expression identities.
 	using FMaterialGraphCanvasNodeId = std::variant<FGuid>;
+	struct FMaterialGraphEditorServices
+	{
+		std::function<void(std::string)> ReportError = [](std::string) {};
+		std::function<void(std::string_view)> OpenFunction;
+	};
 
 	// Owns one document's transient material graph viewport and interaction state.
 	class FMaterialGraphCanvas
@@ -24,21 +29,18 @@ namespace Durin::Editor::Material
 	public:
 		using FReportError = std::function<void(std::string)>;
 		// One immutable document binding for the canvas lifetime; never rebound on tab activation.
-		explicit FMaterialGraphCanvas(FMaterialGraphDocument Document);
+		explicit FMaterialGraphCanvas(FMaterialGraphDocument Document, FMaterialGraphEditorServices Services = {});
 		~FMaterialGraphCanvas();
 		// Release shared clipboard object references before the object system shuts down.
 		static auto ClearSharedClipboard() -> void;
 
 		auto Draw(
 			::Durin::DTransactor& Transactions,
-			float Height,
-			const FReportError& ReportError,
-			const std::function<void(std::string_view)>& OpenFunction = {}) -> void;
+			float Height) -> void;
 		auto SelectAndFrame(const FGuid& NodeId) -> bool;
-		auto DrawSelectionDetails(DTransactor& Transactions,
-			const FReportError& ReportError) -> void;
-		auto DrawParameterValue( const FMaterialParameterDefinition& Parameter,
-			DTransactor& Transactions, const FReportError& ReportError) -> void;
+		auto DrawSelectionDetails(DTransactor& Transactions) -> void;
+		auto DrawParameterValue(const FMaterialParameterDefinition& Parameter,
+			DTransactor& Transactions) -> void;
 		auto EndParameterFrame() -> void;
 		auto SelectAndFrameDiagnostic(
 			const FMaterialProgramDiagnostic& Diagnostic) -> bool;
@@ -65,6 +67,7 @@ namespace Durin::Editor::Material
 	private:
 		friend struct FMaterialGraphCanvasTestAccess;
 		const FMaterialGraphDocument GraphDocument;
+		const FMaterialGraphEditorServices Services;
 		struct FVisualNode;
 		struct FVisualGraph;
 		struct FPointerHit

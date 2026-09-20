@@ -4,7 +4,7 @@ Summary: Define shared MaterialEditor expression ownership, inspection, commands
 
 Modules: MaterialEditor, Engine, DurinEd
 
-Last reviewed: 2026-09-19
+Last reviewed: 2026-09-20
 
 ## Task routing
 
@@ -24,6 +24,17 @@ Read the relevant section and its required dependencies; these documents are not
 an ordered reading sequence.
 
 ## Ownership
+
+Each `FMaterialGraphDocument` has a fixed, stateless `FMaterialGraphSchema` for
+its graph kind. Schema owns creation eligibility, function-port and parameter
+capabilities, material-output deletion protection, source-address validity,
+connection replacement rules, and type compatibility hints. Menus and commands
+consume these policies; direct expression creation and paste also check the
+graph-kind restrictions. Document retains asset resolution and transactions.
+Type compatibility is advisory during editing: structurally valid links may be
+retained for compiler diagnostics. Hidden output pins remain command-addressable;
+the visible read model is not the authority for connection admission. Schema
+contains no ImGui or workspace navigation services.
 
 `DMaterial` and `DMaterialFunction` own concrete `DMaterialExpression` children.
 Expression connections use stable GUIDs and output indices; presentation stores

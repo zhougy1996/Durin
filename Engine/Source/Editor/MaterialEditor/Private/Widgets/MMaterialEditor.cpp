@@ -766,8 +766,7 @@ namespace Durin::Editor::Material
 			return;
 		}
 		FMaterialGraphCanvas& Canvas = GetOrCreateCanvas(Document);
-		Canvas.Draw(*GEditor->GetTransactor(), Height,
-			[this](std::string Message) { SetError(std::move(Message)); });
+		Canvas.Draw(*GEditor->GetTransactor(), Height);
 		const auto [Zoom, Pan] = Canvas.GetViewport();
 		SessionSettings->SetViewport(Document.ResourceId, {.Zoom = Zoom, .Pan = Pan});
 	}
@@ -1000,8 +999,7 @@ namespace Durin::Editor::Material
 							}
 						}
 					}
-					if (!bSubmitted) Canvas.DrawParameterValue(Parameter, *GEditor->GetTransactor(),
-						[this](std::string Error) { SetError(std::move(Error)); });
+					if (!bSubmitted) Canvas.DrawParameterValue(Parameter, *GEditor->GetTransactor());
 					MonaImGui::PropertyEdit::EndTable();
 				}
 				if (NodeIds.size() > 1)
@@ -1092,8 +1090,7 @@ namespace Durin::Editor::Material
 			if (GEditor && GEditor->GetTransactor())
 			{
 				DrawSelectedFunction(Document, BaseMaterial);
-				GetOrCreateCanvas(Document).DrawSelectionDetails(*GEditor->GetTransactor(),
-					[this](std::string Message) { SetError(std::move(Message)); });
+				GetOrCreateCanvas(Document).DrawSelectionDetails(*GEditor->GetTransactor());
 			}
 		}
 	}
@@ -1520,7 +1517,10 @@ namespace Durin::Editor::Material
 			MaterialGraphCanvases[Document.Id.Value];
 		if (!Canvas)
 		{
-			Canvas = std::make_unique<FMaterialGraphCanvas>(FMaterialGraphDocument(*FindOpenMaterial(Document.ResourceId)));
+			Canvas = std::make_unique<FMaterialGraphCanvas>(FMaterialGraphDocument(*FindOpenMaterial(Document.ResourceId)),
+				FMaterialGraphEditorServices{
+					.ReportError = [this](std::string Message) { SetError(std::move(Message)); },
+					.OpenFunction = [this](std::string_view Path) { WorkspaceManager.OpenAsset(std::string(Path), DMaterialFunction::StaticClass()->GetQualifiedName().ToString()); }});
 			if (const FMaterialGraphViewportState* State =
 				SessionSettings->FindViewport(Document.ResourceId))
 				Canvas->SetViewport(State->Zoom, State->Pan);

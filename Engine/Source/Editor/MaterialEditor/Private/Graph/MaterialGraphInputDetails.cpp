@@ -12,9 +12,9 @@
 namespace Durin::Editor::Material
 {
 	auto FMaterialGraphCanvas::DrawParameterValue(
-		const FMaterialParameterDefinition& Parameter, DTransactor& Transactions,
-		const FReportError& ReportError) -> void
+		const FMaterialParameterDefinition& Parameter, DTransactor& Transactions) -> void
 	{
+		const auto& ReportError = Services.ReportError;
 		auto* MaterialOwner = Cast<DMaterial>(GraphDocument.GetOwner());
 		if (!MaterialOwner) { CancelInteraction(); return; }
 		auto& Material = *MaterialOwner;
@@ -89,9 +89,9 @@ namespace Durin::Editor::Material
 		return ReadModel.GetView();
 	}
 
-	auto FMaterialGraphCanvas::DrawSelectionDetails(DTransactor& Transactions,
-		const FReportError& ReportError) -> void
+	auto FMaterialGraphCanvas::DrawSelectionDetails(DTransactor& Transactions) -> void
 	{
+		const auto& ReportError = Services.ReportError;
 		if (!GraphDocument.GetOwner()) { CancelInteraction(); return; }
 		auto& Owner = *GraphDocument.GetOwner();
 		const auto Selection = GetSelectedProgramNodes();
@@ -210,7 +210,7 @@ namespace Durin::Editor::Material
 					MonaImGui::PropertyEdit::EndGroup();
 				}
 			}
-			else if (!Changed) DrawParameterValue(Parameter, Transactions, ReportError);
+			else if (!Changed) DrawParameterValue(Parameter, Transactions);
 		}
 		else
 		{

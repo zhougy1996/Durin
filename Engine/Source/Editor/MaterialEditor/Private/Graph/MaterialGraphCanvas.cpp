@@ -209,8 +209,8 @@ namespace Durin::Editor::Material
 		std::unordered_map<FGuid, size_t> Indices;
 	};
 
-	FMaterialGraphCanvas::FMaterialGraphCanvas(FMaterialGraphDocument InDocument)
-		: GraphDocument(std::move(InDocument)) {}
+	FMaterialGraphCanvas::FMaterialGraphCanvas(FMaterialGraphDocument InDocument, FMaterialGraphEditorServices InServices)
+		: GraphDocument(std::move(InDocument)), Services(std::move(InServices)) {}
 	FMaterialGraphCanvas::~FMaterialGraphCanvas() = default;
 
 	auto FMaterialGraphCanvas::ClearSharedClipboard() -> void { GraphClipboard.reset(); }
@@ -618,7 +618,7 @@ namespace Durin::Editor::Material
 				}
 				ImGui::EndMenu();
 			}
-			if (SurfaceMaterial && !Edited.bMaterialOutput && Edited.Opcode == EMaterialProgramOpcode::Constant && ImGui::BeginMenu("Promote to Parameter"))
+			if (GraphDocument.GetSchema().CanOwnParameters() && SurfaceMaterial && !Edited.bMaterialOutput && Edited.Opcode == EMaterialProgramOpcode::Constant && ImGui::BeginMenu("Promote to Parameter"))
 			{
 				ImGui::InputTextWithHint("##ParameterName", "Parameter name", PromotionNameDraft.data(), PromotionNameDraft.size());
 				if (ImGui::MenuItem("Create / Reuse"))
@@ -632,7 +632,11 @@ namespace Durin::Editor::Material
 				DuplicateNodes(Owner, Transactions, ContextSelection, ReportError);
 			if (ImGui::MenuItem("Cut"))
 				CutNodes(Owner, Transactions, ContextSelection, ReportError);
-			if (ImGui::MenuItem("Delete"))
+			const bool CanRemoveSelection = std::ranges::none_of(View.Nodes, [&](const auto& Node) {
+				return std::ranges::find(ContextSelection, Node.Node.Id) != ContextSelection.end()
+					&& !GraphDocument.GetSchema().CanRemove(Node.Node.bMaterialOutput);
+			});
+			if (ImGui::MenuItem("Delete", nullptr, false, CanRemoveSelection))
 				RemoveNodes(Owner, Transactions, ContextSelection, ReportError);
 		}
 		else if (SurfaceMaterial && ContextSurfaceOutput)
@@ -1086,9 +1090,10 @@ namespace Durin::Editor::Material
 	}
 
 	auto FMaterialGraphCanvas::Draw(DTransactor& Transactions,
-		float Height, const FReportError& ReportError,
-		const std::function<void(std::string_view)>& OpenFunction) -> void
+		float Height) -> void
 	{
+		const auto& ReportError = Services.ReportError;
+		const auto& OpenFunction = Services.OpenFunction;
 		if (!GraphDocument.GetOwner()) { CancelInteraction(); return; }
 		auto& Owner = *GraphDocument.GetOwner();
 		auto* Material = Cast<DMaterial>(&Owner);
@@ -1261,7 +1266,7 @@ namespace Durin::Editor::Material
 									* ImGui::GetFontSize() / GraphBodyFontSize).c_str());
 					if (LinkSourceType)
 					{
-						const bool bAccepted = IsGraphInputCompatible(Visual.View->Inputs[Index].AcceptedTypes,
+						const bool bAccepted = GraphDocument.GetSchema().IsConnectionTypeCompatible(Visual.View->Inputs[Index],
 							*LinkSourceType);
 						DrawList->AddCircle(Visual.InputPins[Index], 8.0f,
 							bAccepted ? IM_COL32(90, 220, 125, 230)

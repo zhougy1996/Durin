@@ -9,7 +9,7 @@ namespace Durin::Editor::Material
 	auto IsGraphInputCompatible(std::span<const EMaterialProgramValueType> Accepted,
 		EMaterialProgramValueType Source) -> bool
 	{
-		return std::ranges::find(Accepted, Source) != Accepted.end();
+		return FMaterialGraphSchema::Accepts(Accepted, Source);
 	}
 
 	auto MakeCreationAction(const FMaterialGraphCatalogEntry& Entry) -> FMaterialGraphCreationAction

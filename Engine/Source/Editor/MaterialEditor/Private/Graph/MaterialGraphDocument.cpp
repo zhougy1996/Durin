@@ -31,29 +31,18 @@ namespace Durin::Editor::Material
 				return {.Message = "Unable to load the material function. " + Loaded.Message};
 			return {.Function = Function};
 		}
-		auto AcceptsPortType(EMaterialProgramValueType Type, EMaterialProgramValueType Source) -> bool
-		{
-			const std::array Types{Type, Type > EMaterialProgramValueType::Float && Type <= EMaterialProgramValueType::Float4
-				? EMaterialProgramValueType::Float : Type};
-			return IsGraphInputCompatible(Types, Source);
-		}
+
 	}
 	auto FMaterialGraphDocument::CanCreate(const FMaterialGraphCreationAction& Action,
 		std::optional<EMaterialProgramValueType> SourceType) const -> bool
 	{
 		if (!Owner.IsValid()) return false;
-		const bool bFunction = Cast<DMaterialFunction>(Owner.Get()) != nullptr;
-		if (bFunction ? !Action.bFunction : !Action.bMaterial) return false;
-		if (const auto* Entry = std::get_if<FMaterialGraphCatalogEntry>(&Action.Payload))
-			return !SourceType || (!Entry->AcceptedInputTypes.empty()
-				&& IsGraphInputCompatible(Entry->AcceptedInputTypes.front(), *SourceType));
-		if (const auto* Port = std::get_if<FMaterialGraphPortCreation>(&Action.Payload))
-			return bFunction && Port->Type <= EMaterialProgramValueType::Surface
-				&& (!SourceType || (Port->bOutput && AcceptsPortType(Port->Type, *SourceType)));
+		if (!Schema.CanCreate(Action, SourceType)) return false;
+		if (!std::holds_alternative<std::string>(Action.Payload)) return true;
 		if (!SourceType) return true;
 		const auto Loaded = LoadCreationFunction(std::get<std::string>(Action.Payload));
 		return Loaded && std::ranges::any_of(Loaded.Function->GetFunctionSignature().Inputs,
-			[&](const auto& Port) { return AcceptsPortType(Port.Type, *SourceType); });
+			[&](const auto& Port) { return FMaterialGraphSchema::AcceptsPort(Port.Type, *SourceType); });
 	}
 	auto FMaterialGraphDocument::Create(const FMaterialGraphCreationRequest& Request,
 		DTransactor* Transactions) const -> FMaterialGraphCommandResult
@@ -76,9 +65,8 @@ namespace Durin::Editor::Material
 			if (!SourceType) return RejectCommand("The source output no longer exists.");
 			Source = {Address.NodeId, static_cast<uint8>(Address.Index), Address.PortId};
 		}
-		const bool bFunctionOwner = Cast<DMaterialFunction>(Owner.Get()) != nullptr;
-		if ((bFunctionOwner ? !Request.Action.bFunction : !Request.Action.bMaterial)
-			|| (!std::holds_alternative<std::string>(Request.Action.Payload) && !CanCreate(Request.Action, SourceType)))
+
+		if (!Schema.CanCreate(Request.Action, SourceType))
 			return RejectCommand("This action is not compatible with the graph or source output.");
 		if (const auto* Entry = std::get_if<FMaterialGraphCatalogEntry>(&Request.Action.Payload))
 			return CreateCatalogNode(*Entry, Request.X, Request.Y,
@@ -112,7 +100,7 @@ namespace Durin::Editor::Material
 		if (SourceType)
 		{
 			for (const auto& Port : Function->GetFunctionSignature().Inputs)
-				if (AcceptsPortType(Port.Type, *SourceType)) { Inputs.push_back({Port.Id, Port.Type, Source}); break; }
+				if (FMaterialGraphSchema::AcceptsPort(Port.Type, *SourceType)) { Inputs.push_back({Port.Id, Port.Type, Source}); break; }
 			if (Inputs.empty()) return RejectCommand("This function has no compatible input.");
 		}
 		return InsertFunctionCall(*Function, Request.X, Request.Y, Inputs, Transactions);
@@ -290,7 +278,9 @@ namespace Durin::Editor::Material
 
 	}
 
-	FMaterialGraphDocument::FMaterialGraphDocument(DObject& InOwner) : Owner(&InOwner) {}
+	FMaterialGraphDocument::FMaterialGraphDocument(DObject& InOwner)
+		: Owner(&InOwner), Schema(Cast<DMaterialFunction>(&InOwner) ? EMaterialGraphKind::Function
+			: Cast<DMaterial>(&InOwner) ? EMaterialGraphKind::Material : EMaterialGraphKind::Unsupported) {}
 
 	auto FMaterialGraphDocument::SetPort(bool bOutput, FMaterialFunctionPort Port,
 		DTransactor* Transactions) const -> FMaterialGraphCommandResult
@@ -392,7 +382,7 @@ namespace Durin::Editor::Material
 		std::string DisplayName;
 		if (auto* Parameter = Cast<DMaterialExpressionParameter>(Expression.Get()))
 		{
-			if (State.bFunction) return RejectCommand("Functions cannot own root parameters.");
+			if (!Schema.CanOwnParameters()) return RejectCommand("Functions cannot own root parameters.");
 			ParameterId = Parameter->Metadata.Id = FGuid::NewGuid();
 			const bool bTexture = Cast<DMaterialExpressionTextureParameter>(Expression.Get()) != nullptr;
 			const auto BaseName = bTexture ? std::string("TextureParameter") : std::string(GetProgramTypeName(Entry.ResultType)) + "Parameter";
@@ -456,6 +446,7 @@ namespace Durin::Editor::Material
 		DTransactor* Transactions) const -> FMaterialGraphCommandResult
 	{
 		if (!Owner.IsValid()) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
+		if (!Schema.CanCreateExpression(Expression)) return RejectCommand("This expression is not supported by the graph.");
 		FGraphEditSession State(*Owner.Get());
 		if (std::ranges::any_of(State.Expressions, [&](const auto& Value) { return Value->Id == Expression.Id; }))
 			return RejectCommand("The expression GUID already exists.");
@@ -583,7 +574,7 @@ namespace Durin::Editor::Material
 		if (!Owner.IsValid()) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
 		FGraphEditSession State(*Owner.Get());
 		const std::unordered_set<FGuid> Removed(NodeIds.begin(), NodeIds.end());
-		const auto Output = std::ranges::find_if(State.Expressions, [&](const auto& E) { return Removed.contains(E->Id) && Cast<DMaterialExpressionMaterialOutput>(E.Get()); });
+		const auto Output = std::ranges::find_if(State.Expressions, [&](const auto& E) { return Removed.contains(E->Id) && !Schema.CanRemove(*E.Get()); });
 		if (Output != State.Expressions.end())
 			return RejectCommand("The material output node cannot be removed.");
 		if (std::ranges::none_of(State.Expressions, [&](const auto& Expression) { return Removed.contains(Expression->Id); }))
@@ -612,11 +603,9 @@ namespace Durin::Editor::Material
 		const FMaterialGraphPinAddress& SourceAddress, bool bReplaceExisting, DTransactor* Transactions) const -> FMaterialGraphCommandResult
 	{
 		if (!Owner.IsValid()) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
-		if ((SourceAddress.Kind != EMaterialGraphPinKind::Output && SourceAddress.Kind != EMaterialGraphPinKind::FunctionOutput)
-			|| SourceAddress.Index > 255
-			|| (!SourceAddress.NodeId.IsValid() && (SourceAddress.Index != 0 || SourceAddress.PortId.IsValid())))
+		if (!Schema.IsSourceAddressValid(SourceAddress))
 			return RejectCommand("The source must be an output pin.");
-		if ((SourceAddress.Kind == EMaterialGraphPinKind::FunctionOutput) != SourceAddress.PortId.IsValid())
+		if (!Schema.IsSourceKeyValid(SourceAddress))
 			return RejectCommand("The source pin key is invalid.");
 		FGraphEditSession State(*Owner.Get());
 		const auto Node = std::ranges::find(State.Expressions, TargetAddress.NodeId, [](const auto& E) { return E->Id; });
@@ -664,7 +653,7 @@ namespace Durin::Editor::Material
 		const FMaterialExpressionInput Connection{SourceAddress.NodeId, static_cast<uint8>(SourceAddress.Index), SourceAddress.PortId};
 		if (!IsSourceAvailable(State, Connection)) return RejectCommand("The source output no longer exists.");
 		const auto Previous = Target ? *Target : FMaterialExpressionInput{};
-		if (Previous.ExpressionId.IsValid() && Previous != Connection && !bReplaceExisting)
+		if (!Schema.CanReplaceConnection(Previous, Connection, bReplaceExisting))
 			return RejectCommand("The graph input is already connected.");
 		if (Previous == Connection && !bRemoveBinding) return {.Status = EMaterialGraphCommandStatus::NoChange};
 		State.Modify(**Node);

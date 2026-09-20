@@ -79,7 +79,10 @@ namespace Durin::Editor::Material
 		if (!Loaded || !Function) { Error = Loaded ? "The asset is not an editable function." : Loaded.Message; return EDocumentOpenResult::Rejected; }
 		auto Document = std::make_unique<FDocument>();
 		Document->Owner = Function;
-		Document->Canvas = std::make_unique<FMaterialGraphCanvas>(FMaterialGraphDocument(*Function));
+		Document->Canvas = std::make_unique<FMaterialGraphCanvas>(FMaterialGraphDocument(*Function),
+			FMaterialGraphEditorServices{
+				.ReportError = [this](std::string Message) { Error = std::move(Message); },
+				.OpenFunction = [this](std::string_view Path) { Manager.OpenAsset(std::string(Path), DMaterialFunction::StaticClass()->GetQualifiedName().ToString()); }});
 		if (const auto* State = SessionSettings->FindViewport(Tab.ResourceId))
 			Document->Canvas->SetViewport(State->Zoom, State->Pan);
 		Document->PreviewInvalidation.SetFunction(Function);
@@ -162,7 +165,10 @@ namespace Durin::Editor::Material
 				Document->Owner = Cast<DMaterialFunction>(Replacement->FindTopLevelAsset(Function->GetFName()));
 				if (Document->Function())
 				{
-					Document->Canvas = std::make_unique<FMaterialGraphCanvas>(FMaterialGraphDocument(*Document->Function()));
+					Document->Canvas = std::make_unique<FMaterialGraphCanvas>(FMaterialGraphDocument(*Document->Function()),
+						FMaterialGraphEditorServices{
+							.ReportError = [this](std::string Message) { Error = std::move(Message); },
+							.OpenFunction = [this](std::string_view Path) { Manager.OpenAsset(std::string(Path), DMaterialFunction::StaticClass()->GetQualifiedName().ToString()); }});
 					Document->Canvas->SetViewport(Zoom, Pan);
 				}
 				Document->PreviewInvalidation.RequestRefresh(); Document->EditingPort = {}; Document->SelectedPortNode = {};
@@ -408,15 +414,13 @@ namespace Durin::Editor::Material
 			return Visible;
 		};
 		if (BeginPanel("Material Graph", "Graph"))
-			Document.Canvas->Draw(*GEditor->GetTransactor(), 0, [this](std::string Message) { Error = std::move(Message); },
-				[this](std::string_view Path) { Manager.OpenAsset(std::string(Path), DMaterialFunction::StaticClass()->GetQualifiedName().ToString()); });
+			Document.Canvas->Draw(*GEditor->GetTransactor(), 0);
 		ImGui::End();
 		if (SessionSettings->bDetailsVisible)
 		{
 			if (BeginPanel("Details", "Details", &SessionSettings->bDetailsVisible))
 			{
-				Document.Canvas->DrawSelectionDetails(*GEditor->GetTransactor(),
-					[this](std::string Message) { Error = std::move(Message); });
+				Document.Canvas->DrawSelectionDetails(*GEditor->GetTransactor());
 				DrawInterface(Document);
 			}
 			ImGui::End();

@@ -20,13 +20,14 @@ TEST(FMaterialGraphInteractionTests, ParameterValueControlsPreviewCoalesceAndCan
 		const auto Original = Material->FindParameterDefinition(Definition.Id)->Value;
 		const auto Generation = Material->GetMaterialCompileStatus().RequestGeneration;
 		Durin::Tests::FTestTransactorOwner Transactions;
-		FMaterialGraphCanvas Canvas{FMaterialGraphDocument(*Material)};
+		int Errors = 0;
+		FMaterialGraphCanvas Canvas{FMaterialGraphDocument(*Material), {.ReportError = [&](std::string Error) { ++Errors; ADD_FAILURE() << Error; }}};
 		auto* Context = ImGui::CreateContext();
 		auto& IO = ImGui::GetIO();
 		IO.DisplaySize = {900, 500}; IO.DeltaTime = 1.f / 60; IO.IniFilename = nullptr;
 		IO.Fonts->AddFontDefault(); IO.Fonts->Build();
 		ImVec2 Start;
-		int Errors = 0;
+
 		const auto Frame = [&](ImVec2 Mouse, bool Down, bool Visible = true) {
 			IO.AddMousePosEvent(Mouse.x, Mouse.y); IO.AddMouseButtonEvent(ImGuiMouseButton_Left, Down);
 			ImGui::NewFrame();
@@ -34,8 +35,7 @@ TEST(FMaterialGraphInteractionTests, ParameterValueControlsPreviewCoalesceAndCan
 			ImGui::Begin("Parameter value", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize);
 			if (Visible && MonaImGui::PropertyEdit::BeginTable("Values", DetailsStyle::MakeTableConfig()))
 			{
-				Canvas.DrawParameterValue(*Material->FindParameterDefinition(Definition.Id), *Transactions.Get(),
-					[&](std::string Error) { ++Errors; ADD_FAILURE() << Error; });
+				Canvas.DrawParameterValue(*Material->FindParameterDefinition(Definition.Id), *Transactions.Get());
 				Start = {ImGui::GetItemRectMin().x + 30, (ImGui::GetItemRectMin().y + ImGui::GetItemRectMax().y) / 2};
 				MonaImGui::PropertyEdit::EndTable();
 			}
@@ -249,18 +249,18 @@ TEST(FMaterialGraphInteractionTests, FunctionNodesCanBeCreatedFromSearchBeforeWi
 	auto* Function = NewObject<DMaterialFunction>(nullptr, "MenuFunctionOutput");
 	const auto Original = Function->GetFunctionSignature();
 	Durin::Tests::FTestTransactorOwner Transactions;
-	FMaterialGraphCanvas Canvas{FMaterialGraphDocument(*Function)};
+	std::vector<std::string> Errors;
+	FMaterialGraphCanvas Canvas{FMaterialGraphDocument(*Function), {.ReportError = [&](std::string Error) { Errors.push_back(std::move(Error)); }}};
 	auto* Context = ImGui::CreateContext();
 	auto& IO = ImGui::GetIO();
 	IO.IniFilename = nullptr; IO.DisplaySize = {1200, 900}; IO.DeltaTime = 1.0f / 60.0f;
 	IO.Fonts->AddFontDefault(); IO.Fonts->Build();
-	std::vector<std::string> Errors;
+
 	const auto Frame = [&] {
 		ImGui::NewFrame();
 		ImGui::SetNextWindowPos({0, 0}); ImGui::SetNextWindowSize({1200, 900});
 		ImGui::Begin("Function creation", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize);
-		Canvas.Draw(*Transactions.Get(), 820,
-			[&](std::string Error) { Errors.push_back(std::move(Error)); }, [](std::string_view) {});
+		Canvas.Draw(*Transactions.Get(), 820);
 		ImGui::End(); ImGui::Render();
 	};
 	Frame(); Frame();
@@ -620,16 +620,17 @@ TEST(FMaterialGraphInteractionTests, FunctionCanvasConnectsAndMovesNodesWithUndo
 	IO.DisplaySize = {1200, 1000}; IO.DeltaTime = 1.0f / 60.0f; IO.IniFilename = nullptr;
 	IO.Fonts->AddFontDefault(); IO.Fonts->Build();
 	Durin::Tests::FTestTransactorOwner Transactions;
-	FMaterialGraphCanvas Canvas{FMaterialGraphDocument(*Function)};
+	int Errors = 0;
+	FMaterialGraphCanvas Canvas{FMaterialGraphDocument(*Function), {.ReportError = [&](std::string) { ++Errors; }}};
 	Canvas.SetViewport(1, {40, 40});
 	ImVec2 Origin;
-	int Errors = 0;
+
 	const auto Frame = [&](ImVec2 Mouse, bool Down) {
 		IO.AddMousePosEvent(Mouse.x, Mouse.y); IO.AddMouseButtonEvent(ImGuiMouseButton_Left, Down);
 		ImGui::NewFrame();
 		ImGui::SetNextWindowPos({0, 0}); ImGui::SetNextWindowSize({1200, 1000});
 		ImGui::Begin("Function Canvas", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize);
-		Canvas.Draw(*Transactions.Get(), 900, [&](std::string) { ++Errors; }, [](std::string_view) {});
+		Canvas.Draw(*Transactions.Get(), 900);
 		const auto* Child = ImGui::GetCurrentWindow()->DC.ChildWindows.back();
 		Origin = {Child->Pos.x + Child->WindowPadding.x + 40, Child->Pos.y + Child->WindowPadding.y + 40 + ImGui::GetFrameHeightWithSpacing()};
 		ImGui::End(); ImGui::Render();
@@ -739,16 +740,17 @@ TEST(FMaterialGraphInteractionTests, CanvasConnectsASecondFunctionOutputAndRefre
 	IO.DisplaySize = {1200, 720}; IO.DeltaTime = 1.0f / 60.0f; IO.IniFilename = nullptr;
 	IO.Fonts->AddFontDefault(); IO.Fonts->Build();
 	Durin::Tests::FTestTransactorOwner Transactions;
-	FMaterialGraphCanvas Canvas{FMaterialGraphDocument(*Material)};
+	int Errors = 0;
+	FMaterialGraphCanvas Canvas{FMaterialGraphDocument(*Material), {.ReportError = [&](std::string) { ++Errors; }}};
 	Canvas.SetViewport(1.0f, {40, 40});
 	ImVec2 Origin;
-	int Errors = 0;
+
 	const auto Frame = [&](ImVec2 Mouse, bool Down) {
 		IO.AddMousePosEvent(Mouse.x, Mouse.y); IO.AddMouseButtonEvent(ImGuiMouseButton_Left, Down);
 		ImGui::NewFrame();
 		ImGui::SetNextWindowPos({0, 0}); ImGui::SetNextWindowSize({1200, 720});
 		ImGui::Begin("Function Links", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize);
-		Canvas.Draw(*Transactions.Get(), 660, [&](std::string) { ++Errors; });
+		Canvas.Draw(*Transactions.Get(), 660);
 		const auto* Window = ImGui::GetCurrentWindow()->DC.ChildWindows.back();
 		Origin = {Window->Pos.x + Window->WindowPadding.x + 40,
 			Window->Pos.y + Window->WindowPadding.y + ImGui::GetFrameHeightWithSpacing() + 40};
@@ -805,16 +807,17 @@ TEST(FMaterialGraphInteractionTests, ParameterCanvasDragMovesNodeWithoutEditingI
 		IO.DisplaySize = {1200, 720}; IO.DeltaTime = 1.0f / 60.0f; IO.IniFilename = nullptr;
 		IO.Fonts->AddFontDefault(); IO.Fonts->Build();
 		Durin::Tests::FTestTransactorOwner Transactions;
-		FMaterialGraphCanvas Canvas{FMaterialGraphDocument(*Material)};
+		int Errors = 0;
+		FMaterialGraphCanvas Canvas{FMaterialGraphDocument(*Material), {.ReportError = [&](std::string) { ++Errors; }}};
 		Canvas.SetViewport(1.0f, {40, 40});
 		ImVec2 Origin;
-		int Errors = 0;
+
 		const auto Frame = [&](ImVec2 Mouse, bool Down) {
 			IO.AddMousePosEvent(Mouse.x, Mouse.y); IO.AddMouseButtonEvent(ImGuiMouseButton_Left, Down);
 			ImGui::NewFrame();
 			ImGui::SetNextWindowPos({0, 0}); ImGui::SetNextWindowSize({1200, 720});
 			ImGui::Begin("Parameter Drag", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize);
-			Canvas.Draw(*Transactions.Get(), 660, [&](std::string) { ++Errors; });
+			Canvas.Draw(*Transactions.Get(), 660);
 			const auto* Window = ImGui::GetCurrentWindow()->DC.ChildWindows.back();
 			Origin = {Window->Pos.x + Window->WindowPadding.x + 40,
 				Window->Pos.y + Window->WindowPadding.y + ImGui::GetFrameHeightWithSpacing() + 40};
@@ -877,10 +880,11 @@ TEST(FMaterialGraphInteractionTests, CanvasLinkReleaseEndsGestureAcrossFrames)
 	IO.Fonts->AddFontDefault();
 	IO.Fonts->Build();
 	Durin::Tests::FTestTransactorOwner Transactions;
-	FMaterialGraphCanvas Canvas{FMaterialGraphDocument(*Material)};
+	int Errors = 0;
+	FMaterialGraphCanvas Canvas{FMaterialGraphDocument(*Material), {.ReportError = [&](std::string) { ++Errors; }}};
 	Canvas.SetViewport(1.0f, {40, 40});
 	ImVec2 Origin;
-	int Errors = 0;
+
 	const auto Frame = [&](ImVec2 Mouse, bool Down) {
 		IO.AddMousePosEvent(Mouse.x, Mouse.y);
 		IO.AddMouseButtonEvent(ImGuiMouseButton_Left, Down);
@@ -888,8 +892,7 @@ TEST(FMaterialGraphInteractionTests, CanvasLinkReleaseEndsGestureAcrossFrames)
 		ImGui::SetNextWindowPos({0, 0});
 		ImGui::SetNextWindowSize({1200, 720});
 		ImGui::Begin("Link Release", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize);
-		Canvas.Draw(*Transactions.Get(), 660,
-			[&](std::string) { ++Errors; });
+		Canvas.Draw(*Transactions.Get(), 660);
 		const ImGuiWindow* GraphWindow = ImGui::GetCurrentWindow()->DC.ChildWindows.back();
 		Origin = {GraphWindow->Pos.x + GraphWindow->WindowPadding.x + 40,
 			GraphWindow->Pos.y + GraphWindow->WindowPadding.y
@@ -996,10 +999,11 @@ TEST(FMaterialGraphInteractionTests, CanvasCreationShortcutsRespectGesturesAndUn
 	IO.Fonts->AddFontDefault();
 	IO.Fonts->Build();
 	Durin::Tests::FTestTransactorOwner Transactions;
-	FMaterialGraphCanvas Canvas{FMaterialGraphDocument(*Material)};
+	int Errors = 0;
+	FMaterialGraphCanvas Canvas{FMaterialGraphDocument(*Material), {.ReportError = [&](std::string) { ++Errors; }}};
 	Canvas.SetViewport(0.75f, {40, 40});
 	ImVec2 Origin;
-	int Errors = 0;
+
 	const auto Frame = [&](ImVec2 Mouse, bool Down, bool TextInput = false) {
 		IO.AddMousePosEvent(Mouse.x, Mouse.y);
 		IO.AddMouseButtonEvent(ImGuiMouseButton_Left, Down);
@@ -1007,7 +1011,7 @@ TEST(FMaterialGraphInteractionTests, CanvasCreationShortcutsRespectGesturesAndUn
 		IO.WantTextInput = TextInput;
 		ImGui::SetNextWindowPos({0, 0}); ImGui::SetNextWindowSize({1200, 720});
 		ImGui::Begin("Creation Shortcuts", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize);
-		Canvas.Draw(*Transactions.Get(), 660, [&](std::string) { ++Errors; });
+		Canvas.Draw(*Transactions.Get(), 660);
 		const auto* Window = ImGui::GetCurrentWindow()->DC.ChildWindows.back();
 		Origin = {Window->Pos.x + Window->WindowPadding.x + 40,
 			Window->Pos.y + Window->WindowPadding.y + ImGui::GetFrameHeightWithSpacing() + 40};
@@ -1085,15 +1089,16 @@ TEST(FMaterialGraphInteractionTests, CanvasMenusDoNotInterruptMoveAndKeepSearchR
 	IO.DisplaySize = {1200, 900}; IO.DeltaTime = 1.0f / 60.0f; IO.IniFilename = nullptr;
 	IO.Fonts->AddFontDefault(); IO.Fonts->Build();
 	Durin::Tests::FTestTransactorOwner Transactions;
-	FMaterialGraphCanvas Canvas{FMaterialGraphDocument(*Material)};
-	ImVec2 Origin;
 	int Errors = 0;
+	FMaterialGraphCanvas Canvas{FMaterialGraphDocument(*Material), {.ReportError = [&](std::string) { ++Errors; }}};
+	ImVec2 Origin;
+
 	const auto Frame = [&](ImVec2 Mouse, bool Down) {
 		IO.AddMousePosEvent(Mouse.x, Mouse.y); IO.AddMouseButtonEvent(ImGuiMouseButton_Left, Down);
 		ImGui::NewFrame();
 		ImGui::SetNextWindowPos({0, 0}); ImGui::SetNextWindowSize({1200, 900});
 		ImGui::Begin("Move Menu", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize);
-		Canvas.Draw(*Transactions.Get(), 820, [&](std::string) { ++Errors; });
+		Canvas.Draw(*Transactions.Get(), 820);
 		const auto* Child = ImGui::GetCurrentWindow()->DC.ChildWindows.back();
 		Origin = {Child->Pos.x + Child->WindowPadding.x + 40,
 			Child->Pos.y + Child->WindowPadding.y + ImGui::GetFrameHeightWithSpacing() + 40};
@@ -1185,7 +1190,7 @@ TEST(FMaterialGraphInteractionTests, CanvasProducesValidDrawDataAcrossZoomAndGra
 	IO.Fonts->AddFontDefault();
 	IO.Fonts->Build();
 	Durin::Tests::FTestTransactorOwner Transactions;
-	FMaterialGraphCanvas Canvas{FMaterialGraphDocument(*Material)};
+	FMaterialGraphCanvas Canvas{FMaterialGraphDocument(*Material), {.ReportError = [](std::string Message) { FAIL() << Message; }}};
 
 	const auto DrawAtZoom = [&](float Zoom) {
 		Canvas.SetViewport(Zoom, {40.0f, 40.0f});
@@ -1194,8 +1199,7 @@ TEST(FMaterialGraphInteractionTests, CanvasProducesValidDrawDataAcrossZoomAndGra
 		ImGui::SetNextWindowSize({1200.0f, 720.0f});
 		ImGui::Begin("Material Graph Render Test", nullptr,
 			ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize);
-		Canvas.Draw(*Transactions.Get(), 660.0f,
-			[](std::string Message) { FAIL() << Message; });
+		Canvas.Draw(*Transactions.Get(), 660.0f);
 		ImGui::End();
 		ImGui::Render();
 		const ImDrawData* DrawData = ImGui::GetDrawData();
@@ -1297,15 +1301,16 @@ TEST(FMaterialGraphInteractionTests, SurfaceTexturesUseCompactSamplesAndPreserve
 	IO.DisplaySize = {1200, 850}; IO.DeltaTime = 1.f / 60; IO.IniFilename = nullptr;
 	IO.Fonts->AddFontDefault(); IO.Fonts->Build();
 	{
-		FMaterialGraphCanvas Canvas{FMaterialGraphDocument(*Material)};
-		Canvas.SetViewport(.85f, {30, 50});
 		int Errors = 0;
+		FMaterialGraphCanvas Canvas{FMaterialGraphDocument(*Material), {.ReportError = [&](std::string) { ++Errors; }}};
+		Canvas.SetViewport(.85f, {30, 50});
+
 		for (int Frame = 0; Frame < 2; ++Frame)
 		{
 			ImGui::NewFrame();
 			ImGui::SetNextWindowPos({0, 0}); ImGui::SetNextWindowSize(IO.DisplaySize);
 			ImGui::Begin("Compact Texture Authoring", nullptr, ImGuiWindowFlags_NoResize);
-			Canvas.Draw(*Transactions.Get(), 780, [&](std::string) { ++Errors; });
+			Canvas.Draw(*Transactions.Get(), 780);
 			ImGui::End(); ImGui::Render();
 		}
 		EXPECT_EQ(Errors, 0);
@@ -1469,17 +1474,18 @@ TEST_P(FMaterialGraphCanvasInteractionTests, SelectionReconnectionCreationAndKey
 	IO.DisplaySize = {1200, 760}; IO.DeltaTime = 1.0f / 60.0f; IO.IniFilename = nullptr;
 	IO.Fonts->AddFontDefault(); IO.Fonts->Build();
 	Durin::Tests::FTestTransactorOwner Transactions;
-	FMaterialGraphCanvas Canvas{FMaterialGraphDocument(*Owner)};
+	int Errors = 0;
+	FMaterialGraphCanvas Canvas{FMaterialGraphDocument(*Owner), {.ReportError = [&](std::string) { ++Errors; }}};
 	Canvas.SetViewport(1.0f, {40, 40});
 	ImVec2 Origin;
-	int Errors = 0;
+
 	const auto Frame = [&](ImVec2 Mouse, bool Down) {
 		IO.AddMousePosEvent(Mouse.x, Mouse.y);
 		IO.AddMouseButtonEvent(ImGuiMouseButton_Left, Down);
 		ImGui::NewFrame();
 		ImGui::SetNextWindowPos({0, 0}); ImGui::SetNextWindowSize({1200, 760});
 		ImGui::Begin("Shared gestures", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize);
-		Canvas.Draw(*Transactions.Get(), 660, [&](std::string) { ++Errors; });
+		Canvas.Draw(*Transactions.Get(), 660);
 		const auto* Child = ImGui::GetCurrentWindow()->DC.ChildWindows.back();
 		Origin = {Child->Pos.x + Child->WindowPadding.x + 40,
 			Child->Pos.y + Child->WindowPadding.y + 40 + ImGui::GetFrameHeightWithSpacing()};
@@ -1611,7 +1617,7 @@ TEST_P(FMaterialGraphCanvasInteractionTests, SurfaceDetailsCommitImmediatelyAndU
 	Surface->AttributeMask = 3;
 	ASSERT_TRUE(Document.CreateExpression(*Surface.Get(), 0, 0));
 	Durin::Tests::FTestTransactorOwner Transactions;
-	FMaterialGraphCanvas Canvas{FMaterialGraphDocument(*Owner)};
+	FMaterialGraphCanvas Canvas{FMaterialGraphDocument(*Owner), {.ReportError = [](std::string Error) { ADD_FAILURE() << Error; }}};
 	FMaterialGraphCanvasTestAccess::Select(Canvas, {Surface->Id});
 	auto* Context = ImGui::CreateContext();
 	auto& IO = ImGui::GetIO();
@@ -1626,7 +1632,7 @@ TEST_P(FMaterialGraphCanvasInteractionTests, SurfaceDetailsCommitImmediatelyAndU
 		ImGui::PushID(Surface->Id.ToString().c_str());
 		const auto TableId = ImGui::GetID("NodeProperties");
 		ImGui::PopID();
-		Canvas.DrawSelectionDetails(*Transactions.Get(), [](std::string Error) { ADD_FAILURE() << Error; });
+		Canvas.DrawSelectionDetails(*Transactions.Get());
 		const auto* Table = Context->Tables.GetByKey(TableId);
 		if (!Table) ADD_FAILURE() << "Missing Details table";
 		if (Table) Checkbox = {Table->Columns[1].WorkMinX + ImGui::GetFrameHeight() / 2,

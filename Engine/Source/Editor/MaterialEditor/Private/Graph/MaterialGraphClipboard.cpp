@@ -72,10 +72,10 @@ namespace Durin::Editor::Material
 			|| State.Expressions.size() + Payload.Nodes.size() > MaterialProgramMaxNodeCount)
 			return RejectCommand("Pasting would exceed the material graph node bounds.");
 		const bool bSameRoot = Payload.SourceRoot.Get() == Owner.Get();
-		if (!State.bFunction && std::ranges::any_of(Payload.Nodes, [](const auto& Node) {
-			return Cast<DMaterialExpressionFunctionInput>(Node.Expression.Get()) || Cast<DMaterialExpressionFunctionOutput>(Node.Expression.Get());
+		if (std::ranges::any_of(Payload.Nodes, [&](const auto& Node) {
+			return Node.Expression.IsValid() && !Schema.CanCreateExpression(*Node.Expression.Get());
 		}))
-			return RejectCommand("Function interface terminals can only be pasted into a function.");
+			return RejectCommand("The clipboard contains expressions unsupported by this graph.");
 		std::unordered_map<FGuid, FGuid> Remap;
 		std::unordered_set<FGuid> UsedIds;
 		for (const auto& Expression : State.Expressions)
@@ -104,7 +104,7 @@ namespace Durin::Editor::Material
 		}
 		const auto Validation = ValidateMaterialParameterDefinitions(Definitions);
 		if (!Validation) return RejectCommand(std::string(GetMaterialParameterErrorText((Validation).Error)));
-		if (State.bFunction && !Definitions.empty()) return RejectCommand("Functions cannot own root parameters.");
+		if (!Schema.CanOwnParameters() && !Definitions.empty()) return RejectCommand("Functions cannot own root parameters.");
 		if (Payload.bConnectAggregateSurface && !Remap.contains(Payload.AggregateSourceNodeId))
 			return RejectCommand("The aggregate Surface clipboard source is missing from the selection.");
 		std::unordered_map<FGuid, FMaterialFunctionPort> PortRemap;

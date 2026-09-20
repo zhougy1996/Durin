@@ -1,6 +1,7 @@
 #pragma once
 
 #include "MaterialGraphOperations.h"
+#include "MaterialGraphSchema.h"
 #include <unordered_set>
 #include "Materials/MaterialFunction.h"
 
@@ -12,6 +13,7 @@ namespace Durin::Editor::Material
 	public:
 		MATERIALEDITOR_API explicit FMaterialGraphDocument(DObject& Owner);
 		auto GetOwner() const -> DObject* { return Owner.Get(); }
+		auto GetSchema() const -> const FMaterialGraphSchema& { return Schema; }
 		MATERIALEDITOR_API auto Create(const FMaterialGraphCreationRequest& Request,
 			DTransactor* Transactions = nullptr) const -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto CanCreate(const FMaterialGraphCreationAction& Action,
@@ -78,5 +80,6 @@ namespace Durin::Editor::Material
 		auto InspectSelection(std::span<const FMaterialGraphCatalogEntry> Catalog,
 			const std::unordered_set<FGuid>* Selection) const -> FMaterialGraphView;
 		TWeakObjectPtr<DObject> Owner;
+		const FMaterialGraphSchema Schema;
 	};
 }
