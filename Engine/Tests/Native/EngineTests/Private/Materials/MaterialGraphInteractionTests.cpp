@@ -104,10 +104,10 @@ namespace Durin::Editor::Material
 		}
 		static auto ProgramSelection(const FMaterialGraphCanvas& Canvas) -> std::vector<FGuid>
 		{ return Canvas.GetSelectedProgramNodes(); }
-		static auto ShowAdvanced(FMaterialGraphCanvas& Canvas) -> void
-		{ Canvas.bShowAdvancedInputs = true; Canvas.bViewStale = true; }
-		static auto HideAdvanced(FMaterialGraphCanvas& Canvas) -> void
-		{ Canvas.bShowAdvancedInputs = false; Canvas.bViewStale = true; }
+		static auto TogglePins(FMaterialGraphCanvas& Canvas, const FGuid& NodeId) -> void
+		{ Canvas.ToggleNodePins(NodeId); }
+		static auto CanTogglePins(const FMaterialGraphCanvas& Canvas, const FGuid& NodeId) -> bool
+		{ return Canvas.CollapsiblePinNodes.contains(NodeId); }
 		static auto Prepare(FMaterialGraphCanvas& Canvas, DMaterial& Material)
 			-> const FMaterialGraphView& { return Canvas.PrepareView(Material); }
 		static auto Details(FMaterialGraphCanvas& Canvas, DObject& Owner)
@@ -368,7 +368,6 @@ TEST(FMaterialGraphInteractionTests, HiddenAdvancedPinsRetainStableIdentitiesAnd
 	ASSERT_TRUE(Call);
 	EXPECT_TRUE(std::ranges::find(Function->GetFunctionSignature().Inputs, Advanced, &FMaterialFunctionPort::Id)->bAdvanced);
 	FMaterialGraphCanvas Canvas{FMaterialGraphDocument(*Material)};
-	FMaterialGraphCanvasTestAccess::HideAdvanced(Canvas);
 	const auto& Hidden = FMaterialGraphCanvasTestAccess::Prepare(Canvas, *Material);
 	const auto* CallView = FindViewNode(Hidden, Call.GeneratedNodeIds[0]);
 	ASSERT_NE(CallView, nullptr);
@@ -395,6 +394,63 @@ TEST(FMaterialGraphInteractionTests, HiddenAdvancedPinsRetainStableIdentitiesAnd
 	CollectGarbage();
 }
 
+TEST(FMaterialGraphInteractionTests, NodePinChevronExpandsOnlyClickedNodeWithoutEditing)
+{
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, "NodePinChevron"));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	TStrongObjectPtr<DMaterialFunction> Function(NewObject<DMaterialFunction>(nullptr, "OptionalInput"));
+	FMaterialGraphDocument FunctionDocument(*Function), Document(*Material);
+	const FGuid Advanced = FGuid::NewGuid();
+	ASSERT_TRUE(FunctionDocument.AddPort(false, {.Id = Advanced, .Name = "Extra", .bAdvanced = true,
+		.Default = {.Kind = EMaterialFunctionDefaultKind::Numeric}}));
+	const auto First = Document.InsertFunctionCall(*Function, 0, 250);
+	const auto Second = Document.InsertFunctionCall(*Function, 400, 250);
+	ASSERT_TRUE(First); ASSERT_TRUE(Second);
+	const auto FirstId = First.GeneratedNodeIds.front(), SecondId = Second.GeneratedNodeIds.front();
+	FMaterialGraphCanvas Canvas{FMaterialGraphDocument(*Material)};
+	const auto& Initial = FMaterialGraphCanvasTestAccess::Prepare(Canvas, *Material);
+	const auto CollapsedCount = FindViewNode(Initial, FirstId)->Inputs.size();
+	EXPECT_TRUE(FMaterialGraphCanvasTestAccess::CanTogglePins(Canvas, FirstId));
+	EXPECT_FALSE(FMaterialGraphCanvasTestAccess::CanTogglePins(Canvas, Material->GetOutputNode()->Id));
+	const auto Presentation = Material->GetMaterialGraphPresentation();
+	const auto Generation = Material->GetMaterialCompileStatus().RequestGeneration;
+	Durin::Tests::FTestTransactorOwner Transactions;
+	auto* Context = ImGui::CreateContext();
+	auto& IO = ImGui::GetIO();
+	IO.DisplaySize = {1200, 1000}; IO.DeltaTime = 1.f / 60; IO.IniFilename = nullptr;
+	IO.Fonts->AddFontDefault(); IO.Fonts->Build();
+	Canvas.SetViewport(1, {40, 40});
+	ImVec2 Arrow;
+	const auto Frame = [&](ImVec2 Mouse, bool Down) {
+		IO.AddMousePosEvent(Mouse.x, Mouse.y); IO.AddMouseButtonEvent(ImGuiMouseButton_Left, Down);
+		ImGui::NewFrame();
+		ImGui::SetNextWindowPos({0, 0}); ImGui::SetNextWindowSize({1200, 1000});
+		ImGui::Begin("Pin Chevron", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize);
+		Canvas.Draw(*Transactions.Get(), 900);
+		const auto* Child = ImGui::GetCurrentWindow()->DC.ChildWindows.back();
+		const ImVec2 Origin{Child->Pos.x + Child->WindowPadding.x + 40,
+			Child->Pos.y + Child->WindowPadding.y + 40 + ImGui::GetFrameHeightWithSpacing()};
+		const auto* Node = FindViewNode(FMaterialGraphCanvasTestAccess::Prepare(Canvas, *Material), FirstId);
+		Arrow = {Origin.x + GraphNodeWidth(*Node) * .5f, Origin.y + 250 + GraphNodeHeight(*Node) + 10};
+		ImGui::End(); ImGui::Render();
+	};
+	Frame({1100, 950}, false); Frame({1100, 950}, false);
+	Frame(Arrow, false); Frame(Arrow, true); Frame(Arrow, false);
+	const auto& Expanded = FMaterialGraphCanvasTestAccess::Prepare(Canvas, *Material);
+	EXPECT_EQ(FindViewNode(Expanded, FirstId)->Inputs.size(), CollapsedCount + 1);
+	EXPECT_EQ(FindViewNode(Expanded, SecondId)->Inputs.size(), CollapsedCount);
+	EXPECT_TRUE(FMaterialGraphCanvasTestAccess::Idle(Canvas));
+	Frame(Arrow, false); Frame(Arrow, true); Frame(Arrow, false);
+	EXPECT_EQ(FindViewNode(FMaterialGraphCanvasTestAccess::Prepare(Canvas, *Material), FirstId)->Inputs.size(), CollapsedCount);
+	EXPECT_EQ(Material->GetMaterialGraphPresentation(), Presentation);
+	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestGeneration, Generation);
+	EXPECT_EQ(Transactions->GetUndoCount(), 0u);
+	EXPECT_TRUE(Canvas.GetSelection().empty());
+	Canvas.CancelInteraction();
+	ImGui::DestroyContext(Context);
+}
+
 TEST(FMaterialGraphInteractionTests, TextureOutputsHideUnusedAdvancedPinsWithoutChangingLinks)
 {
 	InitializeDObjectSystem();
@@ -414,12 +470,12 @@ TEST(FMaterialGraphInteractionTests, TextureOutputsHideUnusedAdvancedPinsWithout
 		EXPECT_EQ(Sample->Outputs[Index].Name, Names[Index]);
 		EXPECT_EQ(Sample->Outputs[Index].OutputIndex, Indices[Index]);
 	}
-	FMaterialGraphCanvasTestAccess::ShowAdvanced(Canvas);
+	FMaterialGraphCanvasTestAccess::TogglePins(Canvas, SampleId);
 	Sample = FindViewNode(FMaterialGraphCanvasTestAccess::Prepare(Canvas, *Material), SampleId);
 	ASSERT_EQ(Sample->Outputs.size(), 7u);
 	EXPECT_EQ(Sample->Outputs[6].OutputIndex, 7u);
 	EXPECT_FALSE(std::ranges::any_of(Sample->Outputs, [](const auto& Pin) { return Pin.Name == "Normal"; }));
-	FMaterialGraphCanvasTestAccess::HideAdvanced(Canvas);
+	FMaterialGraphCanvasTestAccess::TogglePins(Canvas, SampleId);
 	FMaterialGraphDocument Document(*Material);
 	const auto SecondSample = Testing::CreateGraphCatalogNode(Document, EMaterialProgramOpcode::TextureSample2D, EMaterialProgramValueType::Float4, {SampleId, 7});
 	ASSERT_TRUE(SecondSample);
@@ -456,6 +512,8 @@ TEST(FMaterialGraphInteractionTests, TextureOutputsHideUnusedAdvancedPinsWithout
 
 TEST(FMaterialGraphInteractionTests, CanvasFramesExplicitScopeWithMaterialOutputIdentity)
 {
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, "FrameScope"));
 	FMaterialGraphView View;
 	FMaterialGraphNodeView Node;
 	Node.Node.Id = FGuid::NewGuid();
@@ -503,8 +561,11 @@ TEST(FMaterialGraphInteractionTests, DiagnosticNavigationIsLocatedAndDocumentLoc
 {
 	const FGuid FirstNode = FGuid::NewGuid();
 	const FGuid SecondNode = FGuid::NewGuid();
-	FMaterialGraphCanvas FirstCanvas;
-	FMaterialGraphCanvas SecondCanvas;
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterial> FirstMaterial(NewObject<DMaterial>(nullptr, "FirstDiagnostic"));
+	TStrongObjectPtr<DMaterial> SecondMaterial(NewObject<DMaterial>(nullptr, "SecondDiagnostic"));
+	FMaterialGraphCanvas FirstCanvas{FMaterialGraphDocument(*FirstMaterial)};
+	FMaterialGraphCanvas SecondCanvas{FMaterialGraphDocument(*SecondMaterial)};
 	EXPECT_TRUE(FirstCanvas.SelectAndFrameDiagnostic({
 		.LocationKind = EMaterialProgramDiagnosticLocationKind::Input,
 		.NodeId = FirstNode,

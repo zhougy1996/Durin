@@ -77,6 +77,7 @@ namespace Durin::Editor::Material
 			const FVisualNode* OutputNode = nullptr;
 			uint32 InputIndex = 0;
 			size_t OutputIndex = 0;
+			bool bPinExpansion = false;
 		};
 
 		auto HandleViewportInput(const ImVec2& Minimum, const ImVec2& Mouse, bool bHovered) -> void;
@@ -170,6 +171,7 @@ namespace Durin::Editor::Material
 			::Durin::DTransactor& Transactions, const FMaterialGraphView& View,
 			const FReportError& ReportError) -> void;
 		auto ResetInteraction() -> void;
+		auto ToggleNodePins(const FGuid& NodeId) -> void;
 		auto PrepareFunctionView(DMaterialFunction& Function) -> void;
 		auto PrepareDocumentView(DObject& Owner) -> void;
 		auto PrepareDetailsView(DObject& Owner) -> const FMaterialGraphView&;
@@ -204,7 +206,8 @@ namespace Durin::Editor::Material
 		std::unique_ptr<FVisualGraph> CachedVisualGraph;
 		std::shared_ptr<FTexturePreviewState> TexturePreviews;
 		bool bVisualGraphTopologyStale = true;
-		bool bShowAdvancedInputs = false;
+		std::unordered_set<FGuid> ExpandedPinNodes;
+		std::unordered_set<FGuid> CollapsiblePinNodes;
 		std::array<char, 129> PromotionNameDraft{};
 		std::array<char, 256> NodeTextureSearch{};
 		FInteraction Interaction = FIdleInteraction{};

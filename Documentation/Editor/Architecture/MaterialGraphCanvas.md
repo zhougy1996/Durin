@@ -285,8 +285,11 @@ branch and connection form one candidate-validated
 Undo/Redo transaction. Connect a TextureCoordinates or other Float2 expression
 for custom UVs; texture objects remain available for function inputs and independent
 sampling. Sampling nodes show RGB, R, G, B, A, and RGBA in that
-order by default. The Advanced pins toggle reveals the Texture resource output;
-connected outputs remain visible even when advanced pins are hidden. Display order
+order by default. Nodes with unused optional advanced inputs or an unused Texture
+resource output show a bottom chevron that expands or collapses those pins for that
+node only. Expanded state belongs to the canvas and does not edit the material.
+Connected pins, required inputs, and inputs with explicit overrides remain visible;
+nodes without collapsible pins have no chevron. Display order
 and visibility never change serialized output indices. RG selection uses an explicit
 Component Mask node. Sample output 6 is invalid; there is no legacy RG migration or
 compatibility path. Texture keeps index 7. The separate Normal pin is retired;

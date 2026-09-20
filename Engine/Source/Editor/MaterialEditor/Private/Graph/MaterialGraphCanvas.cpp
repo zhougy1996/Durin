@@ -25,30 +25,38 @@ namespace Durin::Editor::Material
 				&& std::ranges::find(Pin.AcceptedTypes, EMaterialProgramValueType::Float) != Pin.AcceptedTypes.end()
 				? "\nScalar inputs are copied to every component." : "";
 		}
-		auto HideUnusedAdvancedPins(FMaterialGraphView& View) -> void
+		constexpr float PinExpansionHeight = 20.0f;
+
+		auto HideUnusedAdvancedPins(FMaterialGraphView& View,
+			const std::unordered_set<FGuid>& ExpandedNodes,
+			std::unordered_set<FGuid>& CollapsibleNodes) -> void
 		{
+			CollapsibleNodes.clear();
 			std::unordered_map<FGuid, uint16> UsedSampleOutputs;
-			const auto MarkOutput = [&](const FMaterialProgramLink& Link) {
-				if (Link.SourceNodeId.IsValid() && !Link.SourceOutputId.IsValid()
-					&& FindMaterialSampleOutput(EMaterialProgramOpcode::TextureSampleParameter2D, Link.SourceOutputIndex))
-					UsedSampleOutputs[Link.SourceNodeId] |= static_cast<uint16>(1u << Link.SourceOutputIndex);
-			};
 			for (const auto& Node : View.Nodes)
-				for (const auto& Pin : Node.Inputs) MarkOutput(Pin.Link);
-			for (const auto& Node : View.Nodes)
-				for (const auto& Input : Node.Inputs) MarkOutput(Input.Link);
+				for (const auto& Pin : Node.Inputs)
+				{
+					const auto& Link = Pin.Link;
+					if (Link.SourceNodeId.IsValid() && !Link.SourceOutputId.IsValid()
+						&& FindMaterialSampleOutput(EMaterialProgramOpcode::TextureSampleParameter2D, Link.SourceOutputIndex))
+						UsedSampleOutputs[Link.SourceNodeId] |= static_cast<uint16>(1u << Link.SourceOutputIndex);
+				}
 			for (auto& Node : View.Nodes)
+			{
+				const auto Hide = [&](bool bCollapsible) {
+					if (bCollapsible) CollapsibleNodes.insert(Node.Node.Id);
+					return bCollapsible && !ExpandedNodes.contains(Node.Node.Id);
+				};
 				if (IsMaterialSamplingNode(Node.Node.Opcode))
 					std::erase_if(Node.Outputs, [&](const auto& Pin) {
-						return Pin.Type == EMaterialProgramValueType::Texture2D
-							&& !(UsedSampleOutputs[Node.Node.Id] & (1u << Pin.OutputIndex));
+						return Hide(Pin.Type == EMaterialProgramValueType::Texture2D
+							&& !(UsedSampleOutputs[Node.Node.Id] & (1u << Pin.OutputIndex)));
 					});
-
-			for (auto& Node : View.Nodes)
-				std::erase_if(Node.Inputs, [](const auto& Pin) {
-					return Pin.bAdvanced && !Pin.bRequired && !Pin.Link.SourceNodeId.IsValid()
-						&& Pin.InlineDefault.Kind == EMaterialInputDefaultKind::None;
+				std::erase_if(Node.Inputs, [&](const auto& Pin) {
+					return Hide(Pin.bAdvanced && !Pin.bRequired && !Pin.Link.SourceNodeId.IsValid()
+						&& Pin.InlineDefault.Kind == EMaterialInputDefaultKind::None);
 				});
+			}
 		}
 
 		auto InputLabel(const FMaterialGraphNodeView& Node, const FMaterialGraphPinView& Pin, const DMaterial* Material = nullptr) -> std::string
@@ -264,6 +272,13 @@ namespace Durin::Editor::Material
 		CancelInteraction();
 	}
 
+	auto FMaterialGraphCanvas::ToggleNodePins(const FGuid& NodeId) -> void
+	{
+		if (!CollapsiblePinNodes.contains(NodeId)) return;
+		if (!ExpandedPinNodes.erase(NodeId)) ExpandedPinNodes.insert(NodeId);
+		bViewStale = true;
+	}
+
 	auto FMaterialGraphCanvas::PrepareDocumentView(DObject& Owner) -> void
 	{
 		if (MoveSession.IsActive() && !MoveSession.IsCurrent(Owner)) CancelInteraction();
@@ -280,11 +295,11 @@ namespace Durin::Editor::Material
 		using N = EMaterialGraphNodeChange;
 		if (bViewStale || Changes.Has(EMaterialGraphChange::Reset)
 			|| std::ranges::any_of(Changes.Nodes, [](const auto& Node) {
-				return (Node.Flags & (N::Added | N::Removed | N::Interface | N::Inputs)) != N::None;
+				return (Node.Flags & (N::Added | N::Removed | N::Interface | N::Inputs | N::Content)) != N::None;
 			}))
 		{
 			CachedView = Inspection;
-			if (!bShowAdvancedInputs) HideUnusedAdvancedPins(CachedView);
+			HideUnusedAdvancedPins(CachedView, ExpandedPinNodes, CollapsiblePinNodes);
 			CachedNodeIndices.clear();
 			for (size_t Index = 0; Index < CachedView.Nodes.size(); ++Index)
 				CachedNodeIndices.emplace(CachedView.Nodes[Index].Node.Id, Index);
@@ -298,14 +313,8 @@ namespace Durin::Editor::Material
 				const auto It = CachedNodeIndices.find(Change.NodeId);
 				if (It == CachedNodeIndices.end()) continue;
 				const auto& Node = Inspection.Nodes[It->second];
-				if ((Change.Flags & N::Content) != N::None)
-				{
-					CachedView.Nodes[It->second] = Node;
-					bVisualGraphTopologyStale = true;
-				}
-				else CachedView.Nodes[It->second].Presentation = Node.Presentation;
+				CachedView.Nodes[It->second].Presentation = Node.Presentation;
 			}
-			if (!bShowAdvancedInputs) HideUnusedAdvancedPins(CachedView);
 		}
 		for (const auto& Position : MoveSession.GetPositions())
 			if (const auto It = CachedNodeIndices.find(Position.NodeId); It != CachedNodeIndices.end())
@@ -352,7 +361,8 @@ namespace Durin::Editor::Material
 			const ImVec2 GraphPosition(
 				static_cast<float>(Node.Presentation.X),
 				static_cast<float>(Node.Presentation.Y));
-			const float NodeHeight = GraphNodeHeight(Node);
+			const float NodeHeight = GraphNodeHeight(Node)
+				+ (CollapsiblePinNodes.contains(Node.Node.Id) ? PinExpansionHeight : 0.0f);
 			Visual.Minimum = Add(CanvasMinimum, Add(Pan, Multiply(GraphPosition, Zoom)));
 			Visual.Maximum = Add(Visual.Minimum,
 				Multiply({GraphNodeWidth(Node), NodeHeight}, Zoom));
@@ -391,7 +401,8 @@ namespace Durin::Editor::Material
 			const ImVec2 Position(
 				static_cast<float>(Node.Presentation.X),
 				static_cast<float>(Node.Presentation.Y));
-			const float Height = GraphNodeHeight(Node);
+			const float Height = GraphNodeHeight(Node)
+				+ (CollapsiblePinNodes.contains(Node.Node.Id) ? PinExpansionHeight : 0.0f);
 			if (!bFound)
 			{
 				Minimum = Position;
@@ -781,6 +792,14 @@ namespace Durin::Editor::Material
 					if (std::hypot(Mouse.x - Visual.OutputPins[Index].x, Mouse.y - Visual.OutputPins[Index].y) <= 8.0f)
 					{ Hit.OutputNode = &Visual; Hit.OutputIndex = Index; break; }
 			}
+			if (Hit.Node && !Hit.InputNode && !Hit.OutputNode
+				&& CollapsiblePinNodes.contains(Visual.View->Node.Id)
+				&& DetailLevel != EMaterialGraphDetailLevel::Overview)
+			{
+				const float CenterX = (Visual.Minimum.x + Visual.Maximum.x) * 0.5f;
+				Hit.bPinExpansion = Contains({CenterX - 16.0f * Zoom, Visual.Maximum.y - PinExpansionHeight * Zoom},
+					{CenterX + 16.0f * Zoom, Visual.Maximum.y}, Mouse);
+			}
 			if (Hit.Node || Hit.InputNode || Hit.OutputNode) return Hit;
 		}
 		return {};
@@ -807,6 +826,13 @@ namespace Durin::Editor::Material
 		const FReportError& ReportError) -> void
 	{
 		const auto Hit = HitTest(VisualGraph, CanvasMinimum, CanvasMaximum, Mouse);
+		if (Hit.bPinExpansion && bPointerAvailable
+			&& std::holds_alternative<FIdleInteraction>(Interaction)
+			&& ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+		{
+			ToggleNodePins(Hit.Node->View->Node.Id);
+			return;
+		}
 		if (ImGui::BeginDragDropTargetCustom(ImRect(CanvasMinimum, CanvasMaximum), ImGui::GetID("MaterialFunctionDrop")))
 		{
 			if (const auto* Payload = ImGui::AcceptDragDropPayload(AssetDragDropPayloadType);
@@ -1104,12 +1130,6 @@ namespace Durin::Editor::Material
 		{
 			const bool bFrameAllRequested = ImGui::Button("Frame All");
 			ImGui::SameLine();
-			if (ImGui::Checkbox("Advanced pins", &bShowAdvancedInputs))
-			{
-				bViewStale = true;
-				ResetInteraction();
-			}
-			ImGui::SameLine();
 			const bool bFrameSelectionRequested = ImGui::Button("Frame Selection");
 			ImGui::SameLine();
 			if (ImGui::Button("Auto Layout"))
@@ -1230,6 +1250,24 @@ namespace Durin::Editor::Material
 					bSelected ? IM_COL32(90, 170, 245, 255) : IM_COL32(78, 84, 96, 255),
 					6.0f, 0, bSelected ? 2.5f : 1.0f);
 				DrawNodeHeading(Visual, *DrawList, Material);
+				if (CollapsiblePinNodes.contains(Visual.View->Node.Id)
+					&& DetailLevel != EMaterialGraphDetailLevel::Overview)
+				{
+					const bool bExpanded = ExpandedPinNodes.contains(Visual.View->Node.Id);
+					const bool bArrowHovered = bHovered && Hit.Node == &Visual && Hit.bPinExpansion;
+					const ImVec2 Center{(Visual.Minimum.x + Visual.Maximum.x) * 0.5f,
+						Visual.Maximum.y - PinExpansionHeight * 0.5f * Zoom};
+					const float Direction = bExpanded ? -1.0f : 1.0f;
+					const ImU32 Color = bArrowHovered ? IM_COL32(235, 240, 250, 255) : IM_COL32(155, 165, 180, 255);
+					const ImVec2 Tip{Center.x, Center.y + 2.5f * Zoom * Direction};
+					DrawList->AddLine({Center.x - 5.0f * Zoom, Center.y - 2.5f * Zoom * Direction}, Tip, Color, 1.5f);
+					DrawList->AddLine(Tip, {Center.x + 5.0f * Zoom, Center.y - 2.5f * Zoom * Direction}, Color, 1.5f);
+					if (bArrowHovered)
+					{
+						ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+						ImGui::SetTooltip(bExpanded ? "Collapse extra pins" : "Expand extra pins");
+					}
+				}
 				const float PinRadius = std::max(2.0f, 5.0f * Zoom);
 				if (DetailLevel != EMaterialGraphDetailLevel::Overview
 					&& (Visual.View->Node.Opcode == EMaterialProgramOpcode::TextureParameter
@@ -1289,7 +1327,7 @@ namespace Durin::Editor::Material
 				const auto& Pin = Hit.OutputNode->View->Outputs[Hit.OutputIndex];
 				ImGui::SetTooltip("%s (%s)", Pin.Name.c_str(), GetProgramTypeName(Pin.Type));
 			}
-			if (HoveredNode && !Hit.InputNode && !Hit.OutputNode && DetailLevel != EMaterialGraphDetailLevel::Overview)
+			if (HoveredNode && !Hit.bPinExpansion && !Hit.InputNode && !Hit.OutputNode && DetailLevel != EMaterialGraphDetailLevel::Overview)
 			{
 				ImGui::BeginTooltip();
 				const auto Display = MakeGraphNodeDisplay(*HoveredNode->View, Material);
@@ -1300,7 +1338,7 @@ namespace Durin::Editor::Material
 				ImGui::TextDisabled("Output: %s", GetProgramTypeName(HoveredNode->View->Node.ResultType));
 				ImGui::EndTooltip();
 			}
-			if (OpenFunction && bHovered && HoveredNode && !Hit.InputNode && !Hit.OutputNode
+			if (OpenFunction && bHovered && HoveredNode && !Hit.bPinExpansion && !Hit.InputNode && !Hit.OutputNode
 				&& std::holds_alternative<FIdleInteraction>(Interaction)
 				&& ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)
 				&& !HoveredNode->View->FunctionPath.empty())
