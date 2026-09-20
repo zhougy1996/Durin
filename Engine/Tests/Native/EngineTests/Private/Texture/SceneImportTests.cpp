@@ -558,9 +558,8 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 	EXPECT_NE(Error.find("Missing standard function"), std::string::npos);
 	EXPECT_FALSE(FindAssetExact(MakeAssetPath("/Engine/Materials/Functions/UVTransform")));
 	EXPECT_EQ(FindResidentPackage(MakeAssetPath("/Engine/Materials/Functions/UVTransform")), nullptr);
-	const std::array Names{"UVTransform", "SampleNormal", "SampleORM", "StandardPBR", "StandardPBR_ORM"};
-	const std::array Slots{&Functions.UVTransform, &Functions.SampleNormal, &Functions.SampleORM,
-		&Functions.StandardPBR, &Functions.StandardPBR_ORM};
+	const std::array Names{"UVTransform", "SampleNormal", "SampleORM"};
+	const std::array Slots{&Functions.UVTransform, &Functions.SampleNormal, &Functions.SampleORM};
 	for (uint32 Index = 0; Index < Slots.size(); ++Index)
 	{
 		const auto Path = MakeAssetPath(std::format("/Engine/Materials/Functions/{}", Names[Index]));
@@ -571,7 +570,7 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 		auto* Function = Cast<DMaterialFunction>(Created.Asset);
 		ASSERT_NE(Function, nullptr);
 		ASSERT_TRUE(MakeStandardMaterialFunctionExpressions(
-			static_cast<EStandardMaterialFunction>(Index + 1), Functions).Apply(*Function));
+			static_cast<EStandardMaterialFunction>(Index + 1)).Apply(*Function));
 		ASSERT_TRUE(SavePackage(Function->GetPackage()));
 		*Slots[Index] = Function;
 	}
@@ -607,70 +606,24 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 		++NormalizedSamples;
 	EXPECT_EQ(NormalizedSamples, 6u);
 
-	auto Packed = Testing::MakeStandardMaterialExpressionsForTest(Functions);
-	TStrongObjectPtr<DMaterialExpressionFunctionCall> PackedCall(NewObject<DMaterialExpressionFunctionCall>(nullptr, NAME_None));
-	PackedCall->Id = FGuid::NewGuid(); PackedCall->Function = Functions.StandardPBR_ORM.Get();
-	const auto PortId = [](uint32 Slot) { return StandardMaterialPortId(EStandardMaterialFunction::StandardPBR, Slot); };
-	for (uint32 Role = 0; Role < 8; ++Role)
-	{
-		const auto Owner = [&](Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterKind Kind) -> DMaterialExpressionParameter* {
-			const auto Id = Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(static_cast<EMaterialSurfaceOutput>(Role), Kind);
-			for (const auto& E : Packed.Expressions)
-				if (auto* P = Cast<DMaterialExpressionParameter>(E.Get()); P && P->Metadata.Id == Id) return P;
-			return nullptr;
-		};
-		const auto* Factor = Owner(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterKind::Value);
-		ASSERT_NE(Factor, nullptr);
-		const auto Type = Cast<DMaterialExpressionScalarParameter>(Factor) ? EMaterialProgramValueType::Float : EMaterialProgramValueType::Float3;
-		FMaterialExpressionInput FactorInput{Factor->Id};
-		if (Type == EMaterialProgramValueType::Float3)
-		{
-			TStrongObjectPtr<DMaterialExpressionSwizzle> Mask(NewObject<DMaterialExpressionSwizzle>(nullptr, NAME_None));
-			Mask->Id = FGuid::NewGuid(); Mask->Input = FactorInput; Mask->Components = {0, 1, 2};
-			FactorInput = {Mask->Id}; Packed.Expressions.emplace_back(Mask.Get());
-		}
-		PackedCall->Inputs.push_back({PortId(10 + Role), Type, FactorInput});
-		if (Role == 3 || Role == 4) continue;
-		const auto* Sample = Cast<DMaterialExpressionTextureSampleParameter2D>(Owner(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterKind::Texture));
-		ASSERT_NE(Sample, nullptr);
-		PackedCall->Inputs.push_back({PortId(Role == 2 ? 40 : 20 + Role), EMaterialProgramValueType::Texture2D, {Sample->Id, 7}});
-		PackedCall->Inputs.push_back({PortId(Role == 2 ? 41 : 30 + Role), EMaterialProgramValueType::Float2, Sample->UV});
-	}
-	PackedCall->Outputs = {{StandardMaterialPortId(EStandardMaterialFunction::StandardPBR_ORM, 100), EMaterialProgramValueType::Surface}};
-	Packed.Outputs = {}; Packed.Outputs.Surface = {.ExpressionId = PackedCall->Id, .OutputId = PackedCall->Outputs[0].OutputId}; Packed.Outputs.bUseMaterialAttributes = true;
-	Packed.Expressions.emplace_back(PackedCall.Get());
-	ASSERT_TRUE(Packed.Apply(*Material));
-	const auto PackedCapture = SnapshotMaterialCompilerInput(*Material, Environment);
-	ASSERT_TRUE(PackedCapture);
-	const auto PackedNormalized = MIR::Normalize(PackedCapture.Snapshot->Input);
-	ASSERT_TRUE(PackedNormalized) << (PackedNormalized.Diagnostics.empty() ? "no diagnostic" : Durin::FormatMaterialError(PackedNormalized.Diagnostics.front().Error));
-	EXPECT_EQ(PackedNormalized.Layout.ResourceFieldCount, 4u);
-	EXPECT_EQ(std::ranges::count(PackedNormalized.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &MIR::FNode::Opcode), 4);
-	const auto PackedNormalizedSource = GenerateMaterialProgramSlang(PackedNormalized.IR, PackedNormalized.Layout);
-	ASSERT_TRUE(PackedNormalizedSource);
-	size_t PackedNormalizedSamples = 0;
-	for (size_t Offset = 0; (Offset = PackedNormalizedSource.Source.find(".Sample(", Offset)) != std::string::npos; ++Offset)
-		++PackedNormalizedSamples;
-	EXPECT_EQ(PackedNormalizedSamples, 4u);
-
 	ASSERT_TRUE(Compact.Apply(*Material));
 	const auto Clone = [](const auto& Expressions) {
 		std::vector<TStrongObjectPtr<DMaterialExpression>> Result;
 		for (const auto& Expression : Expressions) Result.emplace_back(DuplicateObject(Expression.Get(), nullptr, NAME_None).Object);
 		return Result;
 	};
-	const auto Original = Clone(Functions.StandardPBR->GetExpressionCollection().Expressions);
-	const auto OriginalSignature = Functions.StandardPBR->GetFunctionSignature();
+	const auto Original = Clone(Functions.SampleNormal->GetExpressionCollection().Expressions);
+	const auto OriginalSignature = Functions.SampleNormal->GetFunctionSignature();
 	auto Edited = Clone(Original);
 	auto Signature = OriginalSignature;
 	const auto Apply = [&](const auto& Expressions, const FMaterialFunctionSignature& CandidateSignature) {
 		std::vector<DMaterialExpression*> Values;
 		for (const auto& Expression : Expressions) Values.push_back(Expression.Get());
-		return Functions.StandardPBR->SetFunctionExpressions(Durin::Testing::WithFunctionPorts(CandidateSignature, Values));
+		return Functions.SampleNormal->SetFunctionExpressions(Durin::Testing::WithFunctionPorts(CandidateSignature, Values));
 	};
 	const auto Matches = [&](const auto& Expressions, const FMaterialFunctionSignature& ExpectedSignature) {
-		const auto& Actual = Functions.StandardPBR->GetExpressionCollection().Expressions;
-		if (Functions.StandardPBR->GetFunctionSignature() != ExpectedSignature || Actual.size() != Expressions.size()) return false;
+		const auto& Actual = Functions.SampleNormal->GetExpressionCollection().Expressions;
+		if (Functions.SampleNormal->GetFunctionSignature() != ExpectedSignature || Actual.size() != Expressions.size()) return false;
 		bool Equal = true;
 		for (size_t Index = 0; Index < Actual.size(); ++Index)
 		{
@@ -681,13 +634,13 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 		}
 		return Equal;
 	};
-	DMaterialExpressionClamp* Roughness = nullptr;
+	DMaterialExpressionLerp* NormalBlend = nullptr;
 	for (const auto& Expression : Edited)
-		if (auto* Clamp = Cast<DMaterialExpressionClamp>(Expression.Get())) { Roughness = Clamp; break; }
-	ASSERT_NE(Roughness, nullptr);
-	Roughness->MinimumDefault = {.08f};
+		if (auto* Lerp = Cast<DMaterialExpressionLerp>(Expression.Get())) { NormalBlend = Lerp; break; }
+	ASSERT_NE(NormalBlend, nullptr);
+	NormalBlend->ADefault = {0, .1f, 1};
 	ASSERT_TRUE(Apply(Edited, Signature));
-	ASSERT_TRUE(SavePackage(Functions.StandardPBR->GetPackage()));
+	ASSERT_TRUE(SavePackage(Functions.SampleNormal->GetPackage()));
 	ASSERT_TRUE(LoadStandardMaterialFunctions(Functions, Error)) << Error;
 	EXPECT_TRUE(Matches(Edited, Signature));
 	Signature.Inputs.front().Id = FGuid::NewGuid();
@@ -702,8 +655,8 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 	EXPECT_NE(Error.find("interface"), std::string::npos);
 	EXPECT_TRUE(Matches(Edited, Signature));
 	ASSERT_TRUE(Apply(Original, OriginalSignature));
-	ASSERT_TRUE(SavePackage(Functions.StandardPBR->GetPackage()));
-	auto Reload = ReloadPackages({.Packages = {Functions.StandardPBR->GetPackage()}});
+	ASSERT_TRUE(SavePackage(Functions.SampleNormal->GetPackage()));
+	auto Reload = ReloadPackages({.Packages = {Functions.SampleNormal->GetPackage()}});
 	const auto Reloaded = Reload.Wait();
 	ASSERT_TRUE(Reloaded) << (Reloaded.Diagnostics.empty() ? "no diagnostic" : FormatPackageReloadDiagnostic(Reloaded.Diagnostics.front()));
 	ASSERT_TRUE(LoadStandardMaterialFunctions(Functions, Error)) << Error;

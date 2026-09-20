@@ -9,8 +9,8 @@ namespace Durin::AssetForge::Builtins
 	// Values and slot numbers are persistent identities. Never derive them from labels.
 	enum class EStandardMaterialFunction : uint32
 	{
-		UVTransform = 1, SampleNormal = 2, SampleORM = 3, StandardPBR = 4, StandardPBR_ORM = 5,
-		// Value 6 is retired; do not reuse persistent function identities.
+		UVTransform = 1, SampleNormal = 2, SampleORM = 3,
+		// Values 4, 5 and 6 are retired; do not reuse persistent function identities.
 	};
 	constexpr auto StandardMaterialPortId(EStandardMaterialFunction Function, uint32 Slot) -> FGuid
 	{
@@ -18,7 +18,7 @@ namespace Durin::AssetForge::Builtins
 	}
 	struct FStandardMaterialFunctions
 	{
-		TObjectPtr<DMaterialFunction> UVTransform, SampleNormal, SampleORM, StandardPBR, StandardPBR_ORM;
+		TObjectPtr<DMaterialFunction> UVTransform, SampleNormal, SampleORM;
 	};
 	// Explicit shipped-asset interface contract. Creates no expression objects and
 	// is shared by authoring recipes and asset admission.
@@ -33,7 +33,7 @@ namespace Durin::AssetForge::Builtins
 		ASSETFORGEBUILTINS_API auto Matches(const DMaterialFunction& Function) const -> bool;
 	};
 	ASSETFORGEBUILTINS_API auto MakeStandardMaterialFunctionExpressions(
-		EStandardMaterialFunction Function, const FStandardMaterialFunctions& Dependencies)
+		EStandardMaterialFunction Function)
 		-> FStandardMaterialFunctionExpressions;
 	// Loads the shipped Engine assets without creating or saving packages.
 	// Existing implementations are preserved; missing assets or incompatible interfaces fail.

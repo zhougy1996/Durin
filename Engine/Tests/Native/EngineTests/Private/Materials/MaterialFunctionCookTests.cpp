@@ -241,7 +241,7 @@ TEST_F(FMaterialFunctionCookTests, StandardMaterialFixtureCooksAndLoadsWithoutAu
 	DMaterialFunction* Function = nullptr;
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(FunctionPath, Function));
 	ASSERT_TRUE(AssetForge::Builtins::MakeStandardMaterialFunctionExpressions(
-		AssetForge::Builtins::EStandardMaterialFunction::SampleNormal, Functions).Apply(*Function));
+		AssetForge::Builtins::EStandardMaterialFunction::SampleNormal).Apply(*Function));
 	Functions.SampleNormal = Function;
 	ASSERT_TRUE(SavePackage(Function->GetPackage()));
 	ASSERT_TRUE(Testing::MakeStandardMaterialExpressionsForTest(Functions).Apply(*Material));

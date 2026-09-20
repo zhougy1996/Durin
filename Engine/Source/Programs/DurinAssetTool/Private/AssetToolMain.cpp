@@ -1117,9 +1117,8 @@ int main(int ArgC, char** ArgV)
 		auto Assets = Root.AddArray("assets");
 		bool bInventoryValid = true;
 		Durin::AssetForge::Builtins::FStandardMaterialFunctions Functions;
-		const std::array FunctionNames{"UVTransform", "SampleNormal", "SampleORM", "StandardPBR", "StandardPBR_ORM"};
-		const std::array FunctionSlots{&Functions.UVTransform, &Functions.SampleNormal, &Functions.SampleORM, &Functions.StandardPBR,
-			&Functions.StandardPBR_ORM};
+		const std::array FunctionNames{"UVTransform", "SampleNormal", "SampleORM"};
+		const std::array FunctionSlots{&Functions.UVTransform, &Functions.SampleNormal, &Functions.SampleORM};
 		bool bExactDependencies = true;
 		for (uint32 Index = 0; Index < FunctionSlots.size(); ++Index)
 		{
@@ -1137,9 +1136,8 @@ int main(int ArgC, char** ArgV)
 			Durin::DMaterialFunction* Function = nullptr;
 			if (!Durin::LoadObject(Path, Function) || !Function) { bInventoryValid = false; continue; }
 			*FunctionSlots[Index] = Function;
-			if ((Index == 3 || Index == 4) && (!Functions.SampleNormal.IsValid() || !Functions.SampleORM.IsValid())) { bInventoryValid = false; continue; }
 			bExactDependencies &= Durin::AssetForge::Builtins::MakeStandardMaterialFunctionExpressions(
-				static_cast<Durin::AssetForge::Builtins::EStandardMaterialFunction>(Index + 1), Functions).Matches(*Function);
+				static_cast<Durin::AssetForge::Builtins::EStandardMaterialFunction>(Index + 1)).Matches(*Function);
 		}
 		Root.SetChildValue("existingBuiltinDependenciesMatch", bExactDependencies);
 		for (const auto& Package : Inventory.Packages)

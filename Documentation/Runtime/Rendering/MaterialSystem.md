@@ -368,15 +368,14 @@ incrementally reusable. Explicit function runtime roots are rejected; Cook emits
 no runtime function packages. DMAT contains the expanded compiled stages; cooked
 loading needs no function graph, function source package or compiler.
 
-AssetForgeBuiltins owns five ordinary source assets under
-`/Engine/Materials/Functions`: `UVTransform`, `SampleNormal`, `SampleORM`,
-`StandardPBR` and `StandardPBR_ORM`. UVTransform computes rotation of scaled UV
-plus offset. SampleNormal consumes decoded sampling results and provides strength and RNM composition.
-SampleORM samples once and exposes R occlusion, G roughness and B metallic.
-StandardPBR accepts independent maps and per-map UVs; its ORM variant shares one
-map/UV binding for those three channels. Missing maps retain existing PBR defaults
-and import-derived channel layouts remain unchanged. Normal strength and emissive
-factors already baked during import are not applied a second time.
+AssetForgeBuiltins ships three focused material functions under
+`/Engine/Materials/Functions`: `UVTransform`, `SampleNormal`, and `SampleORM`.
+UVTransform rotates scaled UVs and adds an offset. SampleNormal consumes decoded
+sampling results and provides strength and RNM composition. SampleORM samples once
+and exposes R occlusion, G roughness and B metallic. Whole-surface StandardPBR
+recipes are not shipped; authors can connect properties directly or create a
+project-specific function when shared processing is needed. Scene import does not
+depend on the shipped function library.
 
 New scene imports select a structural parent under the destination mount's
 `Materials/ImportedParents/Surface_v1_<digest>` directory. The key records sample
@@ -406,10 +405,9 @@ Engine's shared root evaluates numerical output policy. Reusable functions can
 return aggregate Surface values; resource-output sharing never implicitly merges
 separate UV operations. Function GUIDs have no special lowering rules.
 
-Library assets record editor-only authoring source/version 2. Bootstrap preserves
-compatible function implementation edits and rejects incompatible interfaces or
-provenance. The material-functions maintenance command initializes missing standard
-functions and DefaultMaterial from current recipes. The obsolete ImportedSurface
+The material-functions maintenance command loads the shipped functions, preserves
+compatible implementation edits, and rejects missing assets or incompatible
+interfaces. It initializes DefaultMaterial only when missing. The obsolete ImportedSurface
 template and its initializer are removed. The explicit `asset material-template`
 command can create a new PBRSurfaceMaterial_MR parent with independent parameter
 IDs and no function dependencies at an unused destination. It does not overwrite

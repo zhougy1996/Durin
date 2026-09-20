@@ -96,13 +96,12 @@ namespace Durin::Testing
 	{
 		using namespace AssetForge::Builtins;
 		FStandardMaterialFunctions Functions;
-		const std::array Slots{&Functions.UVTransform, &Functions.SampleNormal, &Functions.SampleORM,
-			&Functions.StandardPBR, &Functions.StandardPBR_ORM};
+		const std::array Slots{&Functions.UVTransform, &Functions.SampleNormal, &Functions.SampleORM};
 		for (uint32 I = 0; I < Slots.size(); ++I)
 		{
 			auto* Function = NewObject<DMaterialFunction>(&Material, FName(std::format("StandardFunction{}", I + 1)));
 			if (!Function || !MakeStandardMaterialFunctionExpressions(
-				static_cast<EStandardMaterialFunction>(I + 1), Functions).Apply(*Function)) return false;
+				static_cast<EStandardMaterialFunction>(I + 1)).Apply(*Function)) return false;
 			*Slots[I] = Function;
 		}
 		return static_cast<bool>(MakeStandardMaterialExpressionsForTest(Functions).Apply(Material));

@@ -145,8 +145,8 @@ instance overrides before changing shared material content:
 .\DevTool.bat asset material-functions --project Sandbox/Sandbox.dproject --apply
 ```
 
-Apply repeats the inventory before writing. It loads the shipped standard
-functions and initializes missing DefaultMaterial.
+Apply repeats the inventory before writing. It loads the shipped `UVTransform`,
+`SampleNormal`, and `SampleORM` functions and initializes missing DefaultMaterial.
 Existing functions retain compatible implementation edits; missing assets
 or incompatible interfaces fail. Use canonical resave to save function packages.
 Modified or unsupported graphs require explicit reconstruction and are not converted.

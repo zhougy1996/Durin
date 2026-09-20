@@ -15,7 +15,7 @@ namespace Durin::AssetForge::Builtins
 		using Type = EMaterialProgramValueType;
 		using Entry = EStandardMaterialFunction;
 		using Link = FMaterialExpressionInput;
-		constexpr std::array EntryNames{"UVTransform", "SampleNormal", "SampleORM", "StandardPBR", "StandardPBR_ORM"};
+		constexpr std::array EntryNames{"UVTransform", "SampleNormal", "SampleORM"};
 		constexpr auto Id(Entry Function, uint32 Slot) -> FGuid { return StandardMaterialPortId(Function, Slot); }
 
 		struct FBuilder
@@ -43,24 +43,16 @@ namespace Durin::AssetForge::Builtins
 					{ N->Base = Inputs[0]; N->Detail = Inputs[1]; }
 				if constexpr (std::is_same_v<T, DMaterialExpressionLerp>) N->Alpha = Inputs[2];
 				if constexpr (requires { N->Input; }) N->Input = Inputs[0];
-				if constexpr (std::is_same_v<T, DMaterialExpressionClamp>)
-					{ N->Minimum = Inputs[1]; N->Maximum = Inputs[2]; }
 				if constexpr (std::is_same_v<T, DMaterialExpressionMakeVector2>)
 					{ N->X = Inputs[0]; N->Y = Inputs[1]; }
 				if constexpr (std::is_same_v<T, DMaterialExpressionTextureSample2D>)
 					{ N->Texture = Inputs[0]; N->UV = Inputs[1]; }
-				if constexpr (std::is_same_v<T, DMaterialExpressionMakeSurface>)
-				{
-					N->BaseColor = Inputs[0]; N->Normal = Inputs[1]; N->Metallic = Inputs[2];
-					N->Roughness = Inputs[3]; N->AmbientOcclusion = Inputs[4]; N->Emissive = Inputs[5];
-					N->Opacity = Inputs[6]; N->OpacityMask = Inputs[7];
-				}
 				return {N->Id};
 			}
 			auto Input(uint32 Slot) -> Link
 			{
 				auto* N = Add<DMaterialExpressionFunctionInput>();
-				const auto Port = Id(Family == Entry::StandardPBR_ORM ? Entry::StandardPBR : Family, Slot);
+				const auto Port = Id(Family, Slot);
 				const auto It = std::ranges::find(Interface.Inputs, Port, &FMaterialFunctionPort::Id);
 				check(It != Interface.Inputs.end());
 				N->Port = *It;
@@ -83,45 +75,10 @@ namespace Durin::AssetForge::Builtins
 				if (ValueType == Type::Float3) N->Components.push_back(Z);
 				return {N->Id};
 			}
-			auto Call(DMaterialFunction* Function, std::vector<FMaterialExpressionFunctionInputBinding> Inputs) -> Link
-			{
-				auto* N = Add<DMaterialExpressionFunctionCall>();
-				N->Function = Function; N->Inputs = std::move(Inputs);
-				for (const auto& Output : Function->GetFunctionSignature().Outputs)
-					N->Outputs.push_back({Output.Id, Output.Type});
-				return {N->Id, 0, N->Outputs.front().OutputId};
-			}
 		};
-
-		auto ComposeSurfaceValue(FBuilder& B, uint32 Role, Link Factor, Link Sample) -> Link
-		{
-			const auto ValueType = GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(Role));
-			if (Role == 1) return B.Node<DMaterialExpressionBlendNormalsRNM>(Type::Float3, {Factor, Sample});
-			if (Role == 5)
-			{
-				// Share the zero between both bounds instead of emitting duplicate inline constants.
-				auto* Zero = B.Add<DMaterialExpressionVector3Constant>();
-				Zero->Value = {0, 0, 0};
-				Factor = B.Node<DMaterialExpressionMaximum>(Type::Float3, {Factor, {Zero->Id}});
-				Sample = B.Node<DMaterialExpressionMaximum>(Type::Float3, {Sample, {Zero->Id}});
-				return B.Node<DMaterialExpressionAdd>(Type::Float3, {Factor, Sample});
-			}
-			Factor = B.Node<DMaterialExpressionSaturate>(ValueType, {Factor});
-			if (Role != 0) Sample = B.Node<DMaterialExpressionSaturate>(ValueType, {Sample});
-			auto Value = B.Node<DMaterialExpressionMultiply>(ValueType, {Factor, Sample});
-			if (Role == 3)
-			{
-				auto* N = B.Add<DMaterialExpressionClamp>();
-				N->Input = Value;
-				N->MinimumDefault = {.045f};
-				N->MaximumDefault = {1};
-				Value = {N->Id};
-			}
-			return Value;
-		}
 	}
 
-	auto MakeStandardMaterialFunctionExpressions(Entry Function, const FStandardMaterialFunctions& Dependencies)
+	auto MakeStandardMaterialFunctionExpressions(Entry Function)
 		-> FStandardMaterialFunctionExpressions
 	{
 		FBuilder B{Function};
@@ -170,53 +127,6 @@ namespace Durin::AssetForge::Builtins
 				B.Output(102, {Sample.ExpressionId, 4});
 			}
 		}
-		else
-		{
-			const bool bPacked = Function == Entry::StandardPBR_ORM;
-			B.Input(1);
-			std::array<Link, 8> Factors, Textures, UVs, Values;
-			for (uint32 I = 0; I < 8; ++I)
-			{
-				Factors[I] = B.Input(10 + I);
-				if (bPacked && I >= 2 && I <= 4) continue;
-				Textures[I] = B.Input(20 + I);
-				UVs[I] = B.Input(30 + I);
-			}
-			Link ORM;
-			if (bPacked)
-			{
-				const auto Tex = B.Input(40);
-				const auto UV = B.Input(41);
-				ORM = B.Call(Dependencies.SampleORM.Get(), {{Id(Entry::SampleORM, 1), Type::Texture2D, Tex},
-					{Id(Entry::SampleORM, 2), Type::Float2, UV}});
-			}
-			constexpr std::array<uint8, 8> Channels{0, 0, 2, 1, 0, 0, 3, 0};
-			for (uint32 I = 0; I < 8; ++I)
-			{
-				if (I == 1)
-				{
-					Values[I] = B.Call(Dependencies.SampleNormal.Get(), {
-						{Id(Entry::SampleNormal, 1), Type::Texture2D, Textures[I]},
-						{Id(Entry::SampleNormal, 2), Type::Float2, UVs[I]},
-						{Id(Entry::SampleNormal, 4), Type::Float3, Factors[I]}});
-					continue;
-				}
-				const auto ValueType = GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(I));
-				Link Channel;
-				if (bPacked && I >= 2 && I <= 4)
-					Channel = {.ExpressionId = ORM.ExpressionId, .OutputId = Id(Entry::SampleORM, 100 + Channels[I])};
-				else
-				{
-					const auto Sample = B.Node<DMaterialExpressionTextureSample2D>(Type::Float4, {Textures[I], UVs[I]});
-					// Color roles read raw RGB even if a caller supplies a Normal-usage texture.
-					// The sampler's RGB output decodes normals, so only scalar masks are redundant here.
-					Channel = ValueType == Type::Float3 ? B.Swizzle(Sample, ValueType, Channels[I], 1, 2)
-						: Link{Sample.ExpressionId, static_cast<uint8>(Channels[I] + 2)};
-				}
-				Values[I] = ComposeSurfaceValue(B, I, Factors[I], Channel);
-			}
-			B.Output(100, B.Node<DMaterialExpressionMakeSurface>(Type::Surface, {Values.begin(), Values.end()}));
-		}
 		return std::move(B.Recipe);
 	}
 
@@ -255,8 +165,7 @@ namespace Durin::AssetForge::Builtins
 	auto LoadStandardMaterialFunctions(FStandardMaterialFunctions& OutFunctions, std::string& OutError) -> bool
 	{
 		FStandardMaterialFunctions Result;
-		const std::array Slots{&Result.UVTransform, &Result.SampleNormal, &Result.SampleORM,
-			&Result.StandardPBR, &Result.StandardPBR_ORM};
+		const std::array Slots{&Result.UVTransform, &Result.SampleNormal, &Result.SampleORM};
 		for (uint32 I = 0; I < Slots.size(); ++I)
 		{
 			const auto EntryKind = static_cast<Entry>(I + 1);

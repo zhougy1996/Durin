@@ -183,23 +183,20 @@ persistent GUIDs, surface-to-parameter mapping, and default parameter recipes in
 expressions, and surface properties; importing a built-in recipe is an explicit
 editor dependency. Existing parameter identities remain stable for saved instances.
 
-`GetStandardMaterialFunctionInterface` declares the five shipped function interfaces
+`GetStandardMaterialFunctionInterface` declares the three shipped function interfaces
 without constructing expression objects. Both the authoring recipes and
 `LoadStandardMaterialFunctions` use this contract. Loading compares the asset's
 signature directly, preserves implementation edits, and fails on missing assets
 or incompatible interfaces without synthesizing a reference graph.
 
-`MakeStandardMaterialFunctionExpressions` constructs the five built-in recipes as
+`MakeStandardMaterialFunctionExpressions` constructs the three built-in recipes as
 strongly retained concrete expressions whose terminal nodes own port definitions.
 Publication duplicates these children through `SetFunctionExpressions`; recipe
 objects and published functions never share mutable children. Recipe comparison
 uses reflected expression fields and stable port identities, excluding presentation.
-Recipes use the sampler's scalar channel outputs directly and inline single-use
-roughness bounds and the flat-normal blend value. The emissive zero remains shared.
-Color branches retain raw RGBA-to-RGB masks: the sampler's RGB output can decode
-Normal-usage resources and is not equivalent for arbitrary caller textures.
-The shipped five function graphs have automatic layout applied; function port GUIDs
-and numeric policies remain unchanged.
+SampleORM uses the sampler's scalar channel outputs directly; SampleNormal keeps
+the flat-normal blend value inline. The three shipped function graphs have
+automatic layout applied, and their function port GUIDs remain unchanged.
 
 The shipped library lives in `/Engine/Materials/Functions` and uses the same
 function workspace, typed calls and transactions as user assets. New scene imports
@@ -223,18 +220,16 @@ defaults such as UV0 and another input are shown as descriptions until explicitl
 overridden. Numeric edits preserve untouched components, and Use function default
 removes the local value override.
 
-`StandardPBR` keeps independent map and UV inputs. Choose `StandardPBR_ORM` only
-when occlusion, roughness and metallic deliberately share one texture and sampling
-policy. Its nested SampleORM call exposes three outputs from one fetch. Imported
-source channels converted into independent derived textures continue to use the
-independent form. Numeric parameters remain declarations of the calling material;
-functions never create hidden root declarations.
+The shipped library contains `UVTransform`, `SampleNormal`, and `SampleORM`.
+SampleORM is useful when occlusion, roughness and metallic share one texture and
+sampling policy. Whole-surface functions are authored as needed within a project;
+the engine no longer ships StandardPBR or StandardPBR_ORM assets or recipes.
+Numeric parameters remain declarations of the calling material; functions never
+create hidden root declarations.
 
-The maintenance command preserves compatible edits to the library implementation
-and refuses incompatible standard signatures or modified historical parent graphs.
-Its provenance fields identify the authoring recipe, not a runtime opcode or a
-special canvas behavior. Source asset migration is explicit; normal Save/Apply
-continues to use the document lifecycle above.
+The maintenance command preserves compatible library implementation edits and
+refuses missing assets or incompatible standard signatures. Source asset migration
+is explicit; normal Save/Apply continues to use the document lifecycle above.
 
 ## Inspection and commands
 

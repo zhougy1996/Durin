@@ -10,41 +10,22 @@ TEST(FMaterialFunctionTests, StandardRecipesOwnTypedExpressionsAndPublishIndepen
 	FScopedOfflinePreparation Offline;
 	FStandardMaterialFunctions Functions;
 	std::vector<TStrongObjectPtr<DMaterialFunction>> Owners;
-	const std::array Slots{&Functions.UVTransform, &Functions.SampleNormal, &Functions.SampleORM,
-		&Functions.StandardPBR, &Functions.StandardPBR_ORM};
+	const std::array Slots{&Functions.UVTransform, &Functions.SampleNormal, &Functions.SampleORM};
 	for (uint32 Index = 0; Index < Slots.size(); ++Index)
 	{
-		auto Recipe = MakeStandardMaterialFunctionExpressions(static_cast<EStandardMaterialFunction>(Index + 1), Functions);
+		auto Recipe = MakeStandardMaterialFunctionExpressions(static_cast<EStandardMaterialFunction>(Index + 1));
 		ASSERT_FALSE(Recipe.Expressions.empty());
 		const auto Interface = GetStandardMaterialFunctionInterface(static_cast<EStandardMaterialFunction>(Index + 1));
 		EXPECT_TRUE(ValidateMaterialFunctionSignature(Interface));
 		EXPECT_EQ(Recipe.GetSignature(), Interface);
-		// Keep single-use bounds and flat normals inline. Shared emissive zero and
-		// raw RGB masks remain meaningful; scalar sampling outputs need no mask.
+		// Focused sampling recipes use channel outputs and an inline flat normal.
 		for (const auto& Expression : Recipe.Expressions)
 		{
 			EXPECT_FALSE(Expression->IsA<DMaterialExpressionScalarConstant>());
-			if (const auto* Clamp = Cast<DMaterialExpressionClamp>(Expression.Get()))
-			{
-				EXPECT_FALSE(Clamp->Minimum.ExpressionId.IsValid());
-				EXPECT_FALSE(Clamp->Maximum.ExpressionId.IsValid());
-				EXPECT_EQ(Clamp->MinimumDefault, std::vector<float>{.045f});
-				EXPECT_EQ(Clamp->MaximumDefault, std::vector<float>{1});
-			}
 			if (const auto* Lerp = Cast<DMaterialExpressionLerp>(Expression.Get()))
 			{
 				EXPECT_FALSE(Lerp->A.ExpressionId.IsValid());
 				EXPECT_EQ(Lerp->ADefault, (std::vector<float>{0, 0, 1}));
-			}
-			if (const auto* Mask = Cast<DMaterialExpressionSwizzle>(Expression.Get()))
-			{
-				const auto Source = std::ranges::find_if(Recipe.Expressions, [&](const auto& N) { return N->Id == Mask->Input.ExpressionId; });
-				ASSERT_NE(Source, Recipe.Expressions.end());
-				if ((*Source)->IsA<DMaterialExpressionTextureSample2D>())
-				{
-					EXPECT_EQ(Mask->Input.OutputIndex, 0u);
-					EXPECT_EQ(Mask->Components, (std::vector<uint8>{0, 1, 2}));
-				}
 			}
 		}
 		Owners.emplace_back(NewObject<DMaterialFunction>(nullptr, NAME_None));
