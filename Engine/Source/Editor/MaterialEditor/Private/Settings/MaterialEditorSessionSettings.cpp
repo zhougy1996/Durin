@@ -5,15 +5,10 @@
 
 namespace Durin::Editor::Material
 {
-	namespace
-	{
-		constexpr const char* SessionSettingsFileName = "MaterialEditorSession.yaml";
-	}
-
 	auto FMaterialEditorSessionSettings::Load() -> bool
 	{
 		Viewports.clear();
-		const std::string FilePath = FPaths::LaunchConfigsDir() + SessionSettingsFileName;
+		const std::string FilePath = FPaths::LaunchConfigsDir() + FileName;
 		if (!std::filesystem::exists(FilePath)) return true;
 		FYamlDocument Document;
 		FYamlParseError Error;
@@ -77,7 +72,7 @@ namespace Durin::Editor::Material
 			Entry.SetChildValue("PanX", static_cast<double>(State.Pan.x));
 			Entry.SetChildValue("PanY", static_cast<double>(State.Pan.y));
 		}
-		if (!Document.SaveToFile(FPaths::LaunchConfigsDir() + SessionSettingsFileName))
+		if (!Document.SaveToFile(FPaths::LaunchConfigsDir() + FileName))
 		{
 			DURIN_WARN("Failed to save material editor session settings.");
 			return false;

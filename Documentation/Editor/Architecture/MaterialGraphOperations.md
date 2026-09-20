@@ -118,8 +118,8 @@ and reload rebinds the open resource. Native document references do not pin the
 old asset generation against package replacement.
 
 Function Details edits named typed ports, order, advanced/required flags, typed
-defaults, constants, swizzles and Surface attributes. Port and node drafts commit
-on Apply as one validated transaction. The canvas supports typed link dragging,
+defaults, constants, swizzles and Surface attributes. Port drafts commit on Apply
+as one validated transaction; ordinary node properties use the shared Details editor. The canvas supports typed link dragging,
 Shift replacement, node movement, copy/cut/paste and function navigation. Numeric
 node creation supplies typed inline literal defaults; texture and Surface operations
 can be created by dragging a compatible output into the node menu. Movement commits
@@ -300,8 +300,9 @@ Semantic commands record participating objects before changing their live fields
 and publish through the owner after storage checks. `ReplaceExpression()` copies
 fields into the existing object when the class matches; a class change creates
 one replacement object with the same node GUID. Constant value/type and swizzle
-edits use typed commands. Function node drafts own a concrete expression
-and retain unapplied fields while refreshing shared input edits. Function graph
+edits use typed commands. Material and function nodes share the selection Details
+editor and submit ordinary properties directly through transactions; there is no
+separate function-node draft or Apply Node step. Function graph
 publication validates dependency closure, including recursive replacement targets.
 `CreateExpression()` publishes a concrete candidate with a stable GUID and position.
 The former CreateNode, ReplaceNode and ReplaceProgram editor APIs are removed.

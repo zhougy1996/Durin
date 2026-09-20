@@ -242,6 +242,50 @@ namespace Durin::Editor::Material
 				return false;
 			});
 		}
+		if (const auto* Surface = Cast<DMaterialExpressionGetSurfaceAttributes>(Expression.Get()); Surface && !Changed)
+		{
+			for (uint32 Index = 0; Index < 8 && !Changed; ++Index)
+			{
+				bool Enabled = (Surface->AttributeMask & (1 << Index)) != 0;
+				if (!DetailsStyle::EditRow(MaterialSurfaceNames[Index], [&] { return ImGui::Checkbox("##Value", &Enabled); })) continue;
+				const auto Edited = BeginSelectedEdit();
+				if (Edited == Session->Expressions.end()) continue;
+				auto* Draft = Cast<DMaterialExpressionGetSurfaceAttributes>(Edited->Get());
+				Draft->AttributeMask = Enabled ? Draft->AttributeMask | (1 << Index) : Draft->AttributeMask & ~(1 << Index);
+				Submit(Session->Commit("Edit Surface Outputs", &Transactions));
+			}
+		}
+		if (const auto* Surface = Cast<DMaterialExpressionSetSurfaceAttributes>(Expression.Get()); Surface && !Changed)
+		{
+			for (uint32 Index = 0; Index < 8 && !Changed; ++Index)
+			{
+				const auto Attribute = static_cast<EMaterialSurfaceOutput>(Index);
+				const auto Binding = std::ranges::find(Surface->Attributes, Attribute, &FMaterialExpressionSurfaceAttributeBinding::Attribute);
+				const auto SetSource = [&](FMaterialProgramLink Link) {
+					const auto Edited = BeginSelectedEdit();
+					if (Edited == Session->Expressions.end()) return;
+					auto& Bindings = Cast<DMaterialExpressionSetSurfaceAttributes>(Edited->Get())->Attributes;
+					std::erase_if(Bindings, [&](const auto& Value) { return Value.Attribute == Attribute; });
+					if (Link.SourceNodeId.IsValid()) Bindings.push_back({Attribute, {Link.SourceNodeId, Link.SourceOutputIndex, Link.SourceOutputId}});
+					Submit(Session->Commit("Edit Surface Input", &Transactions));
+				};
+				DetailsStyle::EditRow(MaterialSurfaceNames[Index], [&] {
+					if (!ImGui::BeginCombo("##Value", Binding == Surface->Attributes.end() ? "Keep base value" : "Connected")) return false;
+					if (ImGui::Selectable("Keep base value", Binding == Surface->Attributes.end())) SetSource({});
+					for (const auto& Source : View.Nodes)
+					{
+						if (Source.Node.Id == Expression->Id || Changed) continue;
+						for (const auto& Pin : Source.Outputs)
+							if (!Changed && Pin.Type == GetMaterialSurfaceOutputType(Attribute)
+								&& ImGui::Selectable(std::format("{}: {}##{}{}", Source.PrimaryLabel, Pin.Name,
+									Source.Node.Id.ToString(), Pin.PortId.ToString()).c_str()))
+								SetSource({Source.Node.Id, Pin.OutputIndex, Pin.PortId});
+					}
+					ImGui::EndCombo();
+					return Changed;
+				});
+			}
+		}
 		for (const auto& Pin : Selected->Inputs)
 		{
 			if (Changed) break;

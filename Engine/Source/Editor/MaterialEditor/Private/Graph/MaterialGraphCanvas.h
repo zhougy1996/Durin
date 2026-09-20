@@ -65,6 +65,9 @@ namespace Durin::Editor::Material
 
 	private:
 		friend struct FMaterialGraphCanvasTestAccess;
+		auto DrawOwner(DObject& Owner, DTransactor& Transactions, float Height,
+			const FReportError& ReportError,
+			const std::function<void(std::string_view)>& OpenFunction) -> void;
 		struct FVisualNode;
 		struct FVisualGraph;
 		struct FPointerHit

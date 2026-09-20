@@ -631,7 +631,7 @@ TEST(FMaterialGraphInteractionTests, FunctionCanvasConnectsAndMovesNodesWithUndo
 		ImGui::Begin("Function Canvas", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize);
 		Canvas.DrawFunction(*Function, *Transactions.Get(), 900, [&](std::string) { ++Errors; }, [](std::string_view) {});
 		const auto* Child = ImGui::GetCurrentWindow()->DC.ChildWindows.back();
-		Origin = {Child->Pos.x + Child->WindowPadding.x + 40, Child->Pos.y + Child->WindowPadding.y + 40};
+		Origin = {Child->Pos.x + Child->WindowPadding.x + 40, Child->Pos.y + Child->WindowPadding.y + 40 + ImGui::GetFrameHeightWithSpacing()};
 		ImGui::End(); ImGui::Render();
 	};
 	Frame({1100, 950}, false); Frame({1100, 950}, false);
@@ -1484,7 +1484,7 @@ TEST_P(FMaterialGraphCanvasInteractionTests, SelectionReconnectionCreationAndKey
 		else Canvas.Draw(*Cast<DMaterial>(Owner), *Transactions.Get(), 660, [&](std::string) { ++Errors; });
 		const auto* Child = ImGui::GetCurrentWindow()->DC.ChildWindows.back();
 		Origin = {Child->Pos.x + Child->WindowPadding.x + 40,
-			Child->Pos.y + Child->WindowPadding.y + 40 + (bFunction ? 0 : ImGui::GetFrameHeightWithSpacing())};
+			Child->Pos.y + Child->WindowPadding.y + 40 + ImGui::GetFrameHeightWithSpacing()};
 		ImGui::End(); ImGui::Render();
 	};
 	const auto Click = [&](ImVec2 At) { Frame(At, false); Frame(At, true); Frame(At, false); };
@@ -1601,6 +1601,57 @@ TEST_P(FMaterialGraphCanvasInteractionTests, SelectionReconnectionCreationAndKey
 	EXPECT_TRUE(Transactions->Reset());
 	ImGui::DestroyContext(Context);
 	MarkAsGarbage(Owner); MarkAsGarbage(Dependency); CollectGarbage();
+}
+
+TEST_P(FMaterialGraphCanvasInteractionTests, SurfaceDetailsCommitImmediatelyAndUndo)
+{
+	InitializeDObjectSystem();
+	DObject* Owner = GetParam() ? static_cast<DObject*>(NewObject<DMaterialFunction>(nullptr, "FunctionDetails"))
+		: static_cast<DObject*>(NewObject<DMaterial>(nullptr, "MaterialDetails"));
+	FMaterialGraphDocument Document(*Owner);
+	auto Surface = Testing::MakeGraphExpression<DMaterialExpressionGetSurfaceAttributes>();
+	Surface->AttributeMask = 3;
+	ASSERT_TRUE(Document.CreateExpression(*Surface.Get(), 0, 0));
+	Durin::Tests::FTestTransactorOwner Transactions;
+	FMaterialGraphCanvas Canvas;
+	FMaterialGraphCanvasTestAccess::Select(Canvas, {Surface->Id});
+	auto* Context = ImGui::CreateContext();
+	auto& IO = ImGui::GetIO();
+	IO.DisplaySize = {800, 600}; IO.DeltaTime = 1.f / 60; IO.IniFilename = nullptr;
+	IO.Fonts->AddFontDefault(); IO.Fonts->Build();
+	ImVec2 Checkbox;
+	const auto Frame = [&](ImVec2 Mouse, bool Down) {
+		IO.AddMousePosEvent(Mouse.x, Mouse.y); IO.AddMouseButtonEvent(ImGuiMouseButton_Left, Down);
+		ImGui::NewFrame();
+		ImGui::SetNextWindowPos({0, 0}); ImGui::SetNextWindowSize({600, 500});
+		ImGui::Begin("Shared Details", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize);
+		ImGui::PushID(Surface->Id.ToString().c_str());
+		const auto TableId = ImGui::GetID("NodeProperties");
+		ImGui::PopID();
+		Canvas.DrawSelectionDetails(*Owner, *Transactions.Get(), [](std::string Error) { ADD_FAILURE() << Error; });
+		const auto* Table = Context->Tables.GetByKey(TableId);
+		if (!Table) ADD_FAILURE() << "Missing Details table";
+		if (Table) Checkbox = {Table->Columns[1].WorkMinX + ImGui::GetFrameHeight() / 2,
+			Table->OuterRect.Min.y + DetailsStyle::MakeTableConfig().CellPadding.y + ImGui::GetFrameHeight() / 2};
+		ImGui::End(); ImGui::Render();
+	};
+	Frame({750, 550}, false); Frame({750, 550}, false);
+	Frame(Checkbox, false); Frame(Checkbox, true); Frame(Checkbox, false);
+	const auto& Expressions = GetParam() ? Cast<DMaterialFunction>(Owner)->GetExpressionCollection().Expressions
+		: Cast<DMaterial>(Owner)->GetExpressionCollection().Expressions;
+	const auto Node = std::ranges::find(Expressions, Surface->Id, [](const auto& E) { return E->Id; });
+	ASSERT_NE(Node, Expressions.end());
+	const auto* Edited = Cast<DMaterialExpressionGetSurfaceAttributes>(Node->Get());
+	ASSERT_NE(Edited, nullptr);
+	EXPECT_EQ(Edited->AttributeMask, 2);
+	EXPECT_EQ(Transactions->GetUndoCount(), 1u);
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(Edited->AttributeMask, 3);
+	ASSERT_TRUE(Transactions->Redo());
+	EXPECT_EQ(Edited->AttributeMask, 2);
+	ImGui::DestroyContext(Context);
+	EXPECT_TRUE(Transactions->Reset());
+	MarkAsGarbage(Owner); CollectGarbage();
 }
 
 INSTANTIATE_TEST_SUITE_P(MaterialAndFunction, FMaterialGraphCanvasInteractionTests,

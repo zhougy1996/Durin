@@ -8,6 +8,7 @@
 namespace Durin::Editor::Material
 {
 	inline const FWorkspaceTypeId MaterialFunctionWorkspaceType("MaterialFunctionEditor");
+	class FMaterialEditorSessionSettings;
 	class MMaterialFunctionEditor final : public IWorkspace, public IAssetMoveObserver
 	{
 	public:
@@ -40,6 +41,7 @@ namespace Durin::Editor::Material
 		auto DrawDocument(const FDocumentTab& Tab, FDocument& Document) -> void;
 		auto DrawInterface(FDocument& Document) -> void;
 		auto OnAssetsRelocated(std::span<const FAssetRelocationMapping> Mappings) -> void override;
+		std::unique_ptr<FMaterialEditorSessionSettings> SessionSettings;
 		FWorkspaceManager& Manager;
 		FEditableAssetDocumentModel Documents;
 		std::unordered_map<std::string, std::unique_ptr<FDocument>> Open;

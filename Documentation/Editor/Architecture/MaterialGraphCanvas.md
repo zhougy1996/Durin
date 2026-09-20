@@ -96,7 +96,12 @@ Creation-menu rendering is isolated from canvas rendering and pointer gestures.
 Numeric controls and parameter/literal type conversions are shared by graph
 editing paths so each supported vector dimension has one conversion contract.
 
-Material and function graphs use one canvas interaction handler and hit test.
+Material and function graphs use one canvas renderer, toolbar, interaction handler
+and hit test. Both show the same grid, selection styling, pin compatibility hints,
+Frame All / Frame Selection controls, and detail-level indicator. Function interface
+ports and output preview selection remain function-specific. Both editors persist
+per-asset zoom and pan using the shared session-settings implementation, with separate
+settings files to avoid overwriting each other.
 Ctrl-click toggles node selection; dragging a selected node moves its selection;
 blank-space dragging replaces selection and Shift adds a marquee region. Both
 paths share pan/zoom, keyboard selection/clipboard/framing, node context menus,
@@ -224,8 +229,8 @@ node, pin, and material-output clicks retain their existing gestures.
 The function canvas shares the creation menu and shortcut dispatch, excluding
 parameter nodes that functions cannot own. Both canvases share paste placement:
 keyboard paste uses the pointer in graph coordinates, repeated pastes at the same
-anchor add a 24-unit offset and select the generated nodes. Function toolbar
-paste and Add Node use the viewport center.
+anchor add a 24-unit offset and select the generated nodes. Node creation and
+clipboard commands use the shared canvas menus and keyboard shortcuts.
 Menu requests and editing keyboard commands do not replace an active drag.
 Resetting an interaction cancels any remaining move or parameter edit session.
 Material and function canvases share the event-driven document read model described

@@ -14,6 +14,8 @@ namespace Durin::Editor::Material
 	class FMaterialEditorSessionSettings
 	{
 	public:
+		explicit FMaterialEditorSessionSettings(std::string InFileName = "MaterialEditorSession.yaml")
+			: FileName(std::move(InFileName)) {}
 		auto Load() -> bool;
 		auto Save() const -> bool;
 
@@ -31,6 +33,7 @@ namespace Durin::Editor::Material
 		bool bDiagnosticsVisible = false;
 
 	private:
+		std::string FileName;
 		std::unordered_map<std::string, FMaterialGraphViewportState> Viewports;
 	};
 }

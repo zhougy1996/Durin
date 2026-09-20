@@ -1088,111 +1088,7 @@ namespace Durin::Editor::Material
 		float Height, const FReportError& ReportError,
 		const std::function<void(std::string_view)>& OpenFunction) -> void
 	{
-		ImGui::PushID(this);
-		if (ImGui::Checkbox("Advanced pins", &bShowAdvancedInputs)) ResetInteraction();
-		PrepareFunctionView(Function);
-		if (ImGui::Button("Auto Layout"))
-			ReportCommand(FMaterialGraphDocument(Function).Layout({}, &Transactions), ReportError);
-		ImGui::SameLine();
-		const auto Selection = GetSelectedProgramNodes();
-		if (ImGui::Button("Frame All")) FrameNodes(CachedView, ImGui::GetContentRegionAvail(), EFrameScope::All);
-		ImGui::SameLine();
-		const bool bAddRequested = ImGui::Button("Add Node");
-		ImGui::SameLine();
-		if (ImGui::Button("Copy")) CopyNodes(Function, Selection, ReportError);
-		ImGui::SameLine();
-		if (ImGui::Button("Cut")) CutNodes(Function, Transactions, Selection, ReportError);
-		ImGui::SameLine();
-		const bool bPasteRequested = ImGui::Button("Paste");
-		ImGui::SameLine();
-		if (ImGui::Button("Delete")) RemoveNodes(Function, Transactions, Selection, ReportError);
-		if (!ImGui::BeginChild("FunctionGraph", {0, Height}, ImGuiChildFlags_Borders,
-			ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) { ImGui::EndChild(); ImGui::PopID(); return; }
-		const auto Minimum = ImGui::GetCursorScreenPos();
-		const auto Size = ImGui::GetContentRegionAvail();
-		const auto Maximum = Add(Minimum, Size);
-		const auto Mouse = ImGui::GetIO().MousePos;
-		ImGui::InvisibleButton("FunctionGraphInput", Size, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonMiddle | ImGuiButtonFlags_MouseButtonRight);
-		const bool Hovered = ImGui::IsItemHovered();
-		const auto Center = Multiply(Subtract(Multiply(Size, 0.5f), Pan), 1.0f / Zoom);
-		if (std::holds_alternative<FIdleInteraction>(Interaction))
-		{
-			if (bAddRequested) Interaction = FNodeCreationMenuInteraction{.GraphPosition = Center};
-			if (bPasteRequested) PasteNodes(Function, Transactions, Center, ReportError);
-		}
-		HandleViewportInput(Minimum, Mouse, Hovered);
-		if (PendingFrameNode.IsValid())
-		{
-			FrameNodes(CachedView, Size, EFrameScope::Selection);
-			PendingFrameNode = {};
-		}
-		DetailLevel = FMaterialGraphGeometry::SelectDetailLevel(Zoom, DetailLevel);
-		const auto& Visual = PrepareVisualGraph(CachedView, Minimum);
-		auto& DrawList = *ImGui::GetWindowDrawList();
-		DrawList.PushClipRect(Minimum, Maximum, true);
-		DrawLinks(Visual, Minimum, Maximum, DrawList);
-		const auto Hit = HitTest(Visual, Minimum, Maximum, Mouse);
-		const auto* HoveredNode = Hit.Node;
-		const bool Output = Hit.OutputNode != nullptr;
-		const bool Input = Hit.InputNode != nullptr;
-		for (const auto& Node : Visual.Nodes)
-		{
-			if (!Intersects(Node.Minimum, Node.Maximum, Minimum, Maximum)) continue;
-			DrawList.AddRectFilled(Node.Minimum, Node.Maximum,
-				IM_COL32(40, 44, 52, SelectedNodes.contains(Node.View->Node.Id)
-					? GraphSelectedNodeBodyAlpha : GraphNodeBodyAlpha), 5);
-			DrawList.AddRectFilled(Node.Minimum,
-				{Node.Maximum.x, Node.Minimum.y + NodeHeaderHeight * Zoom},
-				NodeTitleColor(Node.View->Node.Opcode), 5, ImDrawFlags_RoundCornersTop);
-			DrawList.AddRect(Node.Minimum, Node.Maximum, SelectedNodes.contains(Node.View->Node.Id)
-				? IM_COL32(220, 170, 70, 255) : IM_COL32(80, 86, 100, 255), 5);
-			DrawNodeHeading(Node, DrawList);
-			for (size_t Index = 0; Index < Node.OutputPins.size(); ++Index)
-			{
-				const auto& Pin = Node.View->Outputs[Index];
-				DrawList.AddCircleFilled(Node.OutputPins[Index], std::max(2.0f, 5 * Zoom), TypeColor(Pin.Type));
-				const auto Label = DetailLevel == EMaterialGraphDetailLevel::Editing ? Ellipsize(GraphOutputLabel(*Node.View, Index), GraphNodeWidth(*Node.View) * 0.45f) : std::string{};
-				DrawList.AddText(ImGui::GetFont(), ImGui::GetFontSize() * Zoom, Add(Node.OutputPins[Index], {(-8 - ImGui::CalcTextSize(Label.c_str()).x) * Zoom, -7 * Zoom}), IM_COL32(200, 205, 210, 255), Label.c_str());
-			}
-			for (size_t Index = 0; Index < Node.InputPins.size(); ++Index)
-			{
-				const auto& Pin = Node.View->Inputs[Index];
-				DrawList.AddCircleFilled(Node.InputPins[Index], std::max(2.0f, 5 * Zoom), TypeColor(Pin.AcceptedTypes.empty() ? Pin.SourceType : Pin.AcceptedTypes[0]));
-				const auto Label = DetailLevel == EMaterialGraphDetailLevel::Editing ? Ellipsize(Pin.Name, GraphNodeWidth(*Node.View) * 0.45f) : std::string{};
-				DrawList.AddText(ImGui::GetFont(), ImGui::GetFontSize() * Zoom, Add(Node.InputPins[Index], {8 * Zoom, -7 * Zoom}), IM_COL32(200, 205, 210, 255), Label.c_str());
-				if (Hit.InputNode == &Node && Hit.InputIndex == Index)
-				{
-					ImGui::SetTooltip("%s%s%s\n%s%s", Pin.Name.c_str(), Pin.bRequired ? " (required)" : "", Pin.bMissing ? " (missing port)" : "",
-						(Pin.InlineDefault.Kind == EMaterialInputDefaultKind::Literal
-							? FormatGraphNumericValue(Pin.InlineDefault.Type, Pin.InlineDefault.Literal, 9)
-							: DescribeFunctionDefault(Pin.Default)).c_str(), BroadcastHint(Pin));
-				}
-			}
-		}
-		if (Output && Hovered)
-		{
-			const auto& Pin = Hit.OutputNode->View->Outputs[Hit.OutputIndex];
-			ImGui::SetTooltip("%s (%s)", Pin.Name.c_str(), GetProgramTypeName(Pin.Type));
-		}
-		if (HoveredNode && !Input && !Output && Hovered)
-		{
-			const auto Display = MakeGraphNodeDisplay(*HoveredNode->View);
-			ImGui::SetTooltip("%s\n%s\nOutput: %s", Display.Title.c_str(), Display.Value
-				? FormatGraphNumericValue(HoveredNode->View->Node.ResultType, *Display.Value, 9).c_str() : Display.Subtitle.c_str(),
-				GetProgramTypeName(HoveredNode->View->Node.ResultType));
-		}
-		if (Hovered && HoveredNode && !Input && !Output
-			&& std::holds_alternative<FIdleInteraction>(Interaction)
-			&& ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)
-			&& !HoveredNode->View->FunctionPath.empty())
-			OpenFunction(HoveredNode->View->FunctionPath);
-		HandlePointerInput(Function, Transactions, CachedView, Visual, Minimum, Maximum,
-			Size, Mouse, Hovered, ReportError);
-		DrawList.PopClipRect();
-		DrawContextMenu(Function, Transactions, CachedView, ReportError);
-		DrawCreationMenu(Function, Transactions, CachedView, ReportError);
-		ImGui::EndChild();
-		ImGui::PopID();
+		DrawOwner(Function, Transactions, Height, ReportError, OpenFunction);
 	}
 
 	auto FMaterialGraphCanvas::Draw(
@@ -1201,6 +1097,14 @@ namespace Durin::Editor::Material
 		float Height,
 		const FReportError& ReportError) -> void
 	{
+		DrawOwner(Material, Transactions, Height, ReportError, {});
+	}
+
+	auto FMaterialGraphCanvas::DrawOwner(DObject& Owner, DTransactor& Transactions,
+		float Height, const FReportError& ReportError,
+		const std::function<void(std::string_view)>& OpenFunction) -> void
+	{
+		auto* Material = Cast<DMaterial>(&Owner);
 		ImGui::PushID(this);
 		if (ImGui::BeginChild("MaterialGraph", ImVec2(0.0f, Height),
 			ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar
@@ -1218,7 +1122,7 @@ namespace Durin::Editor::Material
 			ImGui::SameLine();
 			if (ImGui::Button("Auto Layout"))
 			{
-				const FMaterialGraphCommandResult Layout = FMaterialGraphDocument(Material).Layout({}, &Transactions);
+				const FMaterialGraphCommandResult Layout = FMaterialGraphDocument(Owner).Layout({}, &Transactions);
 				ReportCommand(Layout, ReportError);
 			}
 			ImGui::SameLine();
@@ -1231,46 +1135,53 @@ namespace Durin::Editor::Material
 			if (ImGui::IsItemHovered())
 				ImGui::SetTooltip("Wheel: zoom\nMMB: pan\nLMB: select / drag\nCtrl-click: toggle selection\nShift: add marquee selection / replace link");
 
-			const FMaterialGraphView& View = PrepareView(Material);
+			if (Material) PrepareView(*Material);
+			else PrepareDocumentView(Owner);
+			const FMaterialGraphView& View = CachedView;
 			const ImVec2 CanvasMinimum = ImGui::GetCursorScreenPos();
 			ImVec2 CanvasSize = ImGui::GetContentRegionAvail();
 			CanvasSize.x = std::max(CanvasSize.x, 64.0f);
 			CanvasSize.y = std::max(CanvasSize.y, 64.0f);
 			const ImVec2 CanvasMaximum = Add(CanvasMinimum, CanvasSize);
-			ImGui::SetNextItemAllowOverlap();
 			ImGui::InvisibleButton("##Canvas", CanvasSize,
 				ImGuiButtonFlags_MouseButtonLeft
 					| ImGuiButtonFlags_MouseButtonMiddle
 					| ImGuiButtonFlags_MouseButtonRight);
 			const bool bHovered = ImGui::IsItemHovered();
-			AcceptTextureDrop(Material, Transactions, CanvasMinimum, ReportError);
-			UpdateTexturePreviews(Material);
+			if (Material)
+			{
+				AcceptTextureDrop(*Material, Transactions, CanvasMinimum, ReportError);
+				UpdateTexturePreviews(*Material);
+			}
 			ImDrawList* DrawList = ImGui::GetWindowDrawList();
 			DrawList->PushClipRect(CanvasMinimum, CanvasMaximum, true);
 			DrawList->AddRectFilled(CanvasMinimum, CanvasMaximum,
 				IM_COL32(24, 27, 32, 255));
-			const FMaterialCompileStatus& CompileStatus = Material.GetMaterialCompileStatus();
-			if (CompileStatus.HasUnsubmittedEdits()
-				|| CompileStatus.State == EMaterialCompileState::Deferred
-				|| CompileStatus.State == EMaterialCompileState::Pending
-				|| CompileStatus.State == EMaterialCompileState::Running
-				|| CompileStatus.State == EMaterialCompileState::Failed
-				|| CompileStatus.State == EMaterialCompileState::Rejected)
+			if (Material)
 			{
-				const bool bFailed = CompileStatus.State == EMaterialCompileState::Failed
-					|| CompileStatus.State == EMaterialCompileState::Rejected;
-				const char* Label = CompileStatus.HasUnsubmittedEdits()
-					? (Material.GetAcceptedCompiledProgram()
-						? "Needs compile - preview is last known good"
-						: "Needs compile - preview uses fallback")
-					: bFailed
-					? "Compile failed - preview uses error material"
-					: (Material.GetAcceptedCompiledProgram()
-						? "Compiling - preview is last known good"
-						: "Compiling material graph");
-				DrawList->AddText(Add(CanvasMinimum, {12.0f, 10.0f}),
-					bFailed ? IM_COL32(245, 110, 105, 255)
-						: IM_COL32(235, 190, 85, 255), Label);
+				const FMaterialCompileStatus& CompileStatus = Material->GetMaterialCompileStatus();
+				if (CompileStatus.HasUnsubmittedEdits()
+					|| CompileStatus.State == EMaterialCompileState::Deferred
+					|| CompileStatus.State == EMaterialCompileState::Pending
+					|| CompileStatus.State == EMaterialCompileState::Running
+					|| CompileStatus.State == EMaterialCompileState::Failed
+					|| CompileStatus.State == EMaterialCompileState::Rejected)
+				{
+					const bool bFailed = CompileStatus.State == EMaterialCompileState::Failed
+						|| CompileStatus.State == EMaterialCompileState::Rejected;
+					const char* Label = CompileStatus.HasUnsubmittedEdits()
+						? (Material->GetAcceptedCompiledProgram()
+							? "Needs compile - preview is last known good"
+							: "Needs compile - preview uses fallback")
+						: bFailed
+						? "Compile failed - preview uses error material"
+						: (Material->GetAcceptedCompiledProgram()
+							? "Compiling - preview is last known good"
+							: "Compiling material graph");
+					DrawList->AddText(Add(CanvasMinimum, {12.0f, 10.0f}),
+						bFailed ? IM_COL32(245, 110, 105, 255)
+							: IM_COL32(235, 190, 85, 255), Label);
+				}
 			}
 
 			const ImVec2 Mouse = ImGui::GetIO().MousePos;
@@ -1325,7 +1236,7 @@ namespace Durin::Editor::Material
 				DrawList->AddRectFilled(Visual.Minimum,
 					{Visual.Maximum.x, Visual.Minimum.y + NodeHeaderHeight * Zoom},
 					NodeTitleColor(Visual.View->Node.Opcode), 6.0f, ImDrawFlags_RoundCornersTop);
-				DrawNodeHeading(Visual, *DrawList, &Material);
+				DrawNodeHeading(Visual, *DrawList, Material);
 				const float PinRadius = std::max(2.0f, 5.0f * Zoom);
 				if (DetailLevel != EMaterialGraphDetailLevel::Overview
 					&& (Visual.View->Node.Opcode == EMaterialProgramOpcode::TextureParameter
@@ -1357,7 +1268,7 @@ namespace Durin::Editor::Material
 							Add(Visual.InputPins[Index],
 								{9.0f * Zoom, -GraphBodyFontSize * 0.5f}),
 							Visual.View->Inputs[Index].bActive ? IM_COL32(205, 210, 220, 255) : IM_COL32(100, 105, 115, 255),
-							Ellipsize(InputLabel(*Visual.View, Visual.View->Inputs[Index], &Material),
+							Ellipsize(InputLabel(*Visual.View, Visual.View->Inputs[Index], Material),
 								(GraphNodeWidth(*Visual.View) - (Index < Visual.OutputPins.size() && !GraphOutputLabel(*Visual.View, Index).empty() ? 85.f : 20.f)) * Zoom
 									* ImGui::GetFontSize() / GraphBodyFontSize).c_str());
 					if (LinkSourceType)
@@ -1388,7 +1299,7 @@ namespace Durin::Editor::Material
 			if (HoveredNode && !Hit.InputNode && !Hit.OutputNode && DetailLevel != EMaterialGraphDetailLevel::Overview)
 			{
 				ImGui::BeginTooltip();
-				const auto Display = MakeGraphNodeDisplay(*HoveredNode->View, &Material);
+				const auto Display = MakeGraphNodeDisplay(*HoveredNode->View, Material);
 				ImGui::TextUnformatted(Display.Title.c_str());
 				if (Display.Value) ImGui::TextUnformatted(FormatGraphNumericValue(HoveredNode->View->Node.ResultType, *Display.Value, 9).c_str());
 				if (!Display.Subtitle.empty())
@@ -1396,7 +1307,12 @@ namespace Durin::Editor::Material
 				ImGui::TextDisabled("Output: %s", GetProgramTypeName(HoveredNode->View->Node.ResultType));
 				ImGui::EndTooltip();
 			}
-			HandlePointerInput(Material, Transactions, View, VisualGraph, CanvasMinimum,
+			if (OpenFunction && bHovered && HoveredNode && !Hit.InputNode && !Hit.OutputNode
+				&& std::holds_alternative<FIdleInteraction>(Interaction)
+				&& ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)
+				&& !HoveredNode->View->FunctionPath.empty())
+				OpenFunction(HoveredNode->View->FunctionPath);
+			HandlePointerInput(Owner, Transactions, View, VisualGraph, CanvasMinimum,
 				CanvasMaximum, CanvasSize, Mouse, bHovered,
 				ReportError);
 			if (bFrameSelectionRequested)
@@ -1412,8 +1328,8 @@ namespace Durin::Editor::Material
 
 			DetailLevel = FMaterialGraphGeometry::SelectDetailLevel(Zoom, DetailLevel);
 
-			DrawContextMenu(Material, Transactions, View, ReportError);
-			DrawCreationMenu(Material, Transactions, View, ReportError);
+			DrawContextMenu(Owner, Transactions, View, ReportError);
+			DrawCreationMenu(Owner, Transactions, View, ReportError);
 
 			DrawList->PopClipRect();
 		}

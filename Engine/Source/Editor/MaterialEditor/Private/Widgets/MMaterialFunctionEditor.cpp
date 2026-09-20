@@ -1,7 +1,7 @@
 #include "Widgets/MMaterialFunctionEditor.h"
 #include "DObject/Class.h"
 #include "DObject/Archive.h"
-#include "DObject/Property.h"
+#include "Settings/MaterialEditorSessionSettings.h"
 #include "Materials/MaterialExpressions.h"
 #include "Widgets/MaterialPreview.h"
 #include "Widgets/MaterialFunctionCallPicker.h"
@@ -38,8 +38,6 @@ namespace Durin::Editor::Material
 		FMaterialFunctionPort PortDraft;
 		std::array<char, 129> PortName{};
 		std::vector<FMaterialProgramDiagnostic> Diagnostics;
-		FGuid EditingNode;
-		TStrongObjectPtr<DMaterialExpression> NodeDraft;
 		auto Function() const -> DMaterialFunction* { return Cast<DMaterialFunction>(Owner.Get()); }
 		auto Material() const -> DMaterial* { return Cast<DMaterial>(PreviewMaterial.Get()); }
 		~FDocument()
@@ -50,11 +48,22 @@ namespace Durin::Editor::Material
 		}
 	};
 
-	MMaterialFunctionEditor::MMaterialFunctionEditor(FWorkspaceManager& InManager) : Manager(InManager)
+	MMaterialFunctionEditor::MMaterialFunctionEditor(FWorkspaceManager& InManager)
+		: SessionSettings(std::make_unique<FMaterialEditorSessionSettings>("MaterialFunctionEditorSession.yaml")), Manager(InManager)
 	{
+		SessionSettings->Load();
 		MoveObserver = RegisterAssetMoveObserver(this);
 	}
-	MMaterialFunctionEditor::~MMaterialFunctionEditor() { UnregisterAssetMoveObserver(MoveObserver); }
+	MMaterialFunctionEditor::~MMaterialFunctionEditor()
+	{
+		for (const auto& [Resource, Document] : Open)
+		{
+			const auto [Zoom, Pan] = Document->Canvas.GetViewport();
+			SessionSettings->SetViewport(Resource, {.Zoom = Zoom, .Pan = Pan});
+		}
+		SessionSettings->Save();
+		UnregisterAssetMoveObserver(MoveObserver);
+	}
 	auto MMaterialFunctionEditor::Find(std::string_view Resource) const -> FDocument*
 	{
 		const auto It = Open.find(std::string(Resource));
@@ -70,6 +79,8 @@ namespace Durin::Editor::Material
 		if (!Loaded || !Function) { Error = Loaded ? "The asset is not an editable function." : Loaded.Message; return EDocumentOpenResult::Rejected; }
 		auto Document = std::make_unique<FDocument>();
 		Document->Owner = Function;
+		if (const auto* State = SessionSettings->FindViewport(Tab.ResourceId))
+			Document->Canvas.SetViewport(State->Zoom, State->Pan);
 		Document->PreviewInvalidation.SetFunction(Function);
 		const auto Mount = FMountPaths::FindMountForVirtualPath(Function->GetPackage()->GetPackagePath());
 		if (!Mount) { Error = Mount.Message; return EDocumentOpenResult::Rejected; }
@@ -104,6 +115,12 @@ namespace Durin::Editor::Material
 	auto MMaterialFunctionEditor::RequestCloseDocument(const FDocumentTab& Tab) -> EDocumentCloseResult
 	{
 		if (IsDocumentDirty(Tab)) return EDocumentCloseResult::PendingConfirmation;
+		if (const auto* Document = Find(Tab.ResourceId))
+		{
+			const auto [Zoom, Pan] = Document->Canvas.GetViewport();
+			SessionSettings->SetViewport(Tab.ResourceId, {.Zoom = Zoom, .Pan = Pan});
+			SessionSettings->Save();
+		}
 		Open.erase(Tab.ResourceId); Documents.Close(Tab.ResourceId);
 		return EDocumentCloseResult::Closed;
 	}
@@ -140,7 +157,7 @@ namespace Durin::Editor::Material
 			if (auto* Function = Document->Function(); Function && Function->GetPackage() == Previous)
 			{
 				Document->Owner = Cast<DMaterialFunction>(Replacement->FindTopLevelAsset(Function->GetFName()));
-				Document->Canvas.CancelInteraction(); Document->PreviewInvalidation.RequestRefresh(); Document->EditingPort = {}; Document->SelectedPortNode = {}; Document->EditingNode = {};
+				Document->Canvas.CancelInteraction(); Document->PreviewInvalidation.RequestRefresh(); Document->EditingPort = {}; Document->SelectedPortNode = {};
 			}
 	}
 	auto MMaterialFunctionEditor::OnAssetsRelocated(std::span<const FAssetRelocationMapping> Mappings) -> void
@@ -148,6 +165,7 @@ namespace Durin::Editor::Material
 		for (const auto& Mapping : Mappings)
 			if (auto Node = Open.extract(Mapping.SourcePath.ToString()); !Node.empty())
 			{
+				SessionSettings->MoveViewport(Mapping.SourcePath.ToString(), Mapping.DestinationPath.ToString());
 				Node.key() = Mapping.DestinationPath.ToString(); Open.insert(std::move(Node));
 				Manager.RemapResourceId(Mapping.SourcePath.ToString(), Mapping.DestinationPath.ToString());
 			}
@@ -180,6 +198,22 @@ namespace Durin::Editor::Material
 		auto& Function = *Document.Function();
 		FMaterialGraphDocument Graph(Function);
 		const auto Apply = [&](FMaterialGraphCommandResult Result) { if (!Result) Error = FormatMaterialGraphCommandResult(Result); };
+		if (!Document.Canvas.GetSelection().empty())
+		{
+			if (Document.Canvas.GetSelection().size() != 1) return;
+			const auto Id = std::get<FGuid>(*Document.Canvas.GetSelection().begin());
+			const auto& Expressions = Function.GetExpressionCollection().Expressions;
+			const auto Selected = std::ranges::find(Expressions, Id, [](const auto& Node) { return Node->Id; });
+			if (Selected == Expressions.end()) return;
+			if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(Selected->Get()); Call && Call->Function.IsValid())
+			{
+				if (ImGui::Button("Open Function")) Manager.OpenAsset(Call->Function->GetObjectPath(),
+					Call->Function->GetClass()->GetQualifiedName().ToString());
+				DrawMaterialFunctionCallInputs(Function, Id, *GEditor->GetTransactor(), Error);
+			}
+			if (!Cast<DMaterialExpressionFunctionInput>(Selected->Get())
+				&& !Cast<DMaterialExpressionFunctionOutput>(Selected->Get())) return;
+		}
 		ImGui::SeparatorText("Interface");
 		if (Document.Canvas.GetSelection().size() != 1) Document.SelectedPortNode = {};
 		for (const auto& Selection : Document.Canvas.GetSelection())
@@ -292,81 +326,6 @@ namespace Durin::Editor::Material
 			ImGui::SameLine();
 			if (ImGui::Button("Remove Port")) Apply(Graph.RemovePort(Document.bOutputPort, Document.EditingPort, GEditor->GetTransactor()));
 		}
-		ImGui::Spacing();
-		for (const auto& Selection : Document.Canvas.GetSelection())
-			if (const auto* Id = std::get_if<FGuid>(&Selection))
-			{
-				const auto& Nodes = Function.GetExpressionCollection().Expressions;
-				const auto Node = std::ranges::find_if(Nodes, [&](const auto& Expression) { return Expression->Id == *Id; });
-				if (Node == Nodes.end()) continue;
-				if (Document.EditingNode != *Id || !Document.NodeDraft.Get() || Document.NodeDraft->GetClass() != (*Node)->GetClass())
-				{
-					Document.EditingNode = *Id;
-					Document.NodeDraft = TStrongObjectPtr<DMaterialExpression>(DuplicateObject(Node->Get(), nullptr, NAME_None).Object);
-				}
-				if (!Document.NodeDraft.Get()) continue;
-				auto* Draft = Document.NodeDraft.Get();
-				// Preserve unapplied fields while refreshing links/defaults changed by shared commands.
-				Draft->GetClass()->ForEachProperty([&](FProperty* Property) {
-					if (Property->NamePrivate == FName("Value") || Property->NamePrivate == FName("Components")
-						|| Property->NamePrivate == FName("AttributeMask") || Property->NamePrivate == FName("Attributes")) return;
-					for (uint32 Element = 0; Element < Property->GetArrayDim(); ++Element)
-						Property->CopyAssignValue(Property->GetValuePtr(Draft, Element), Property->GetValuePtr(Node->Get(), Element));
-				});
-				if (auto* Constant = Cast<DMaterialExpressionScalarConstant>(Draft)) ImGui::InputFloat("Value", &Constant->Value);
-				else if (auto* Constant = Cast<DMaterialExpressionVector2Constant>(Draft))
-				{
-					std::array<float, 2> Value{static_cast<float>(Constant->Value.x), static_cast<float>(Constant->Value.y)};
-					if (ImGui::InputFloat2("Value", Value.data())) Constant->Value = {Value[0], Value[1]};
-				}
-				else if (auto* Constant = Cast<DMaterialExpressionVector3Constant>(Draft))
-				{
-					std::array<float, 3> Value{static_cast<float>(Constant->Value.x), static_cast<float>(Constant->Value.y), static_cast<float>(Constant->Value.z)};
-					if (ImGui::InputFloat3("Value", Value.data())) Constant->Value = {Value[0], Value[1], Value[2]};
-				}
-				else if (auto* Constant = Cast<DMaterialExpressionVector4Constant>(Draft))
-				{
-					std::array<float, 4> Value{static_cast<float>(Constant->Value.x), static_cast<float>(Constant->Value.y), static_cast<float>(Constant->Value.z), static_cast<float>(Constant->Value.w)};
-					if (ImGui::InputFloat4("Value", Value.data())) Constant->Value = {Value[0], Value[1], Value[2], Value[3]};
-				}
-				if (auto* Swizzle = Cast<DMaterialExpressionSwizzle>(Draft))
-					for (size_t Index = 0; Index < Swizzle->Components.size(); ++Index)
-					{
-						ImGui::PushID(static_cast<int>(Index));
-						int Component = Swizzle->Components[Index];
-						if (ImGui::Combo("Channel", &Component, "R\0G\0B\0A\0")) Swizzle->Components[Index] = static_cast<uint8>(std::clamp(Component, 0, 3));
-						ImGui::PopID();
-					}
-				DrawMaterialFunctionCallInputs(Function, *Id, *GEditor->GetTransactor(), Error);
-				if (auto* GetSurface = Cast<DMaterialExpressionGetSurfaceAttributes>(Draft))
-					for (uint32 Index = 0; Index < 8; ++Index)
-					{
-						bool Enabled = (GetSurface->AttributeMask & (1 << Index)) != 0;
-						if (ImGui::Checkbox(MaterialSurfaceNames[Index], &Enabled))
-							GetSurface->AttributeMask = Enabled ? GetSurface->AttributeMask | (1 << Index) : GetSurface->AttributeMask & ~(1 << Index);
-					}
-				if (auto* SetSurface = Cast<DMaterialExpressionSetSurfaceAttributes>(Draft))
-					for (uint32 Index = 0; Index < 8; ++Index)
-					{
-						const auto Attribute = static_cast<EMaterialSurfaceOutput>(Index);
-						ImGui::PushID(static_cast<int>(Index));
-						if (ImGui::BeginCombo(MaterialSurfaceNames[Index], "Override source"))
-						{
-							if (ImGui::Selectable("Keep base value")) std::erase_if(SetSurface->Attributes, [&](const auto& Binding) { return Binding.Attribute == Attribute; });
-							for (const auto& Source : Graph.Inspect().Nodes)
-								for (const auto& Pin : Source.Outputs)
-									if (Pin.Type == GetMaterialSurfaceOutputType(Attribute) && ImGui::Selectable(std::format("{}: {}##{}{}", Source.PrimaryLabel, Pin.Name, Source.Node.Id.ToString(), Pin.PortId.ToString()).c_str()))
-									{
-										std::erase_if(SetSurface->Attributes, [&](const auto& Binding) { return Binding.Attribute == Attribute; });
-										SetSurface->Attributes.push_back({Attribute, {Source.Node.Id, Pin.OutputIndex, Pin.PortId}});
-									}
-							ImGui::EndCombo();
-						}
-						ImGui::PopID();
-					}
-				if (ImGui::Button("Apply Node")) Apply(Graph.ReplaceExpression(*Draft, GEditor->GetTransactor()));
-				break;
-			}
 	}
 
 	auto MMaterialFunctionEditor::DrawDocument(const FDocumentTab& Tab, FDocument& Document) -> void
