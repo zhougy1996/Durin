@@ -311,7 +311,9 @@ namespace Durin::Editor::Material
 					Document.PortDraft.Default.Kind = static_cast<EMaterialFunctionDefaultKind>(Kind);
 				if (Document.PortDraft.Default.Kind == EMaterialFunctionDefaultKind::Numeric)
 				{
-					ImGui::InputFloat4("Default", &Document.PortDraft.Default.Numeric.X);
+					const int Components = static_cast<int>(Document.PortDraft.Type) + 1;
+					if (Components >= 1 && Components <= 4)
+						ImGui::InputScalarN("Default", ImGuiDataType_Float, &Document.PortDraft.Default.Numeric.X, Components);
 				}
 				else if (Document.PortDraft.Default.Kind == EMaterialFunctionDefaultKind::Input)
 				{
@@ -340,7 +342,8 @@ namespace Durin::Editor::Material
 					{
 						ImGui::PushID(static_cast<int>(Index));
 						auto& Value = GetMaterialSurfaceOutputDefault(Document.PortDraft.Default.Surface, static_cast<EMaterialSurfaceOutput>(Index));
-						ImGui::InputFloat4(MaterialSurfaceNames[Index], &Value.X);
+						ImGui::InputScalarN(MaterialSurfaceNames[Index], ImGuiDataType_Float, &Value.X,
+							static_cast<int>(GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(Index))) + 1);
 						ImGui::PopID();
 					}
 			}

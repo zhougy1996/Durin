@@ -54,25 +54,17 @@ namespace Durin::AssetForge::Builtins
 			break;
 		case Entry::StandardPBR:
 		case Entry::StandardPBR_ORM:
-		case Entry::ImportedSurfaceValues:
 		{
 			constexpr std::array RoleNames{"BaseColor", "Normal", "Metallic", "Roughness",
 				"AmbientOcclusion", "Emissive", "Opacity", "OpacityMask"};
 			const bool bPacked = Function == Entry::StandardPBR_ORM;
-			const bool bValues = Function == Entry::ImportedSurfaceValues;
-			if (!bValues) Input(1, "UV", Type::Float2, {.Kind = Kind::UV0});
+			Input(1, "UV", Type::Float2, {.Kind = Kind::UV0});
 			for (uint32 I = 0; I < RoleNames.size(); ++I)
 			{
 				const auto ValueType = GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(I));
 				const auto Default = I == 0 ? Numeric(.5f, .5f, .5f) : I == 1 ? Numeric(0, 0, 1)
 					: I == 3 ? Numeric(.5f) : I == 4 || I >= 6 ? Numeric(1) : Numeric(0);
 				Input(10 + I, RoleNames[I], ValueType, Default, I == 1 || I >= 4);
-				if (bValues)
-				{
-					Input(20 + I, std::string(RoleNames[I]) + "Sample", ValueType,
-						I == 1 ? Numeric(0, 0, 1) : I == 5 ? Numeric(0, 0, 0) : Numeric(1, 1, 1));
-					continue;
-				}
 				if (bPacked && I >= 2 && I <= 4) continue;
 				Input(20 + I, std::string(RoleNames[I]) + "Texture", Type::Texture2D,
 					Texture(I == 1 ? EMaterialTextureFallback::FlatRGNormal : I == 5

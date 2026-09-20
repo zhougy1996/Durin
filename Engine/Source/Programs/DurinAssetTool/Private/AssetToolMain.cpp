@@ -1117,9 +1117,9 @@ int main(int ArgC, char** ArgV)
 		auto Assets = Root.AddArray("assets");
 		bool bInventoryValid = true;
 		Durin::AssetForge::Builtins::FStandardMaterialFunctions Functions;
-		const std::array FunctionNames{"UVTransform", "SampleNormal", "SampleORM", "StandardPBR", "StandardPBR_ORM", "ImportedSurfaceValues"};
+		const std::array FunctionNames{"UVTransform", "SampleNormal", "SampleORM", "StandardPBR", "StandardPBR_ORM"};
 		const std::array FunctionSlots{&Functions.UVTransform, &Functions.SampleNormal, &Functions.SampleORM, &Functions.StandardPBR,
-			&Functions.StandardPBR_ORM, &Functions.ImportedSurfaceValues};
+			&Functions.StandardPBR_ORM};
 		bool bExactDependencies = true;
 		for (uint32 Index = 0; Index < FunctionSlots.size(); ++Index)
 		{

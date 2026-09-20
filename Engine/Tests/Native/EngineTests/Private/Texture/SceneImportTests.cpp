@@ -558,9 +558,9 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 	EXPECT_NE(Error.find("Missing standard function"), std::string::npos);
 	EXPECT_FALSE(FindAssetExact(MakeAssetPath("/Engine/Materials/Functions/UVTransform")));
 	EXPECT_EQ(FindResidentPackage(MakeAssetPath("/Engine/Materials/Functions/UVTransform")), nullptr);
-	const std::array Names{"UVTransform", "SampleNormal", "SampleORM", "StandardPBR", "StandardPBR_ORM", "ImportedSurfaceValues"};
+	const std::array Names{"UVTransform", "SampleNormal", "SampleORM", "StandardPBR", "StandardPBR_ORM"};
 	const std::array Slots{&Functions.UVTransform, &Functions.SampleNormal, &Functions.SampleORM,
-		&Functions.StandardPBR, &Functions.StandardPBR_ORM, &Functions.ImportedSurfaceValues};
+		&Functions.StandardPBR, &Functions.StandardPBR_ORM};
 	for (uint32 Index = 0; Index < Slots.size(); ++Index)
 	{
 		const auto Path = MakeAssetPath(std::format("/Engine/Materials/Functions/{}", Names[Index]));
@@ -681,11 +681,11 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 		}
 		return Equal;
 	};
-	DMaterialExpressionScalarConstant* Constant = nullptr;
+	DMaterialExpressionClamp* Roughness = nullptr;
 	for (const auto& Expression : Edited)
-		if (auto* Scalar = Cast<DMaterialExpressionScalarConstant>(Expression.Get())) { Constant = Scalar; break; }
-	ASSERT_NE(Constant, nullptr);
-	Constant->Value = .08f;
+		if (auto* Clamp = Cast<DMaterialExpressionClamp>(Expression.Get())) { Roughness = Clamp; break; }
+	ASSERT_NE(Roughness, nullptr);
+	Roughness->MinimumDefault = {.08f};
 	ASSERT_TRUE(Apply(Edited, Signature));
 	ASSERT_TRUE(SavePackage(Functions.StandardPBR->GetPackage()));
 	ASSERT_TRUE(LoadStandardMaterialFunctions(Functions, Error)) << Error;

@@ -10,7 +10,7 @@ namespace Durin::AssetForge::Builtins
 	enum class EStandardMaterialFunction : uint32
 	{
 		UVTransform = 1, SampleNormal = 2, SampleORM = 3, StandardPBR = 4, StandardPBR_ORM = 5,
-		ImportedSurfaceValues = 6,
+		// Value 6 is retired; do not reuse persistent function identities.
 	};
 	constexpr auto StandardMaterialPortId(EStandardMaterialFunction Function, uint32 Slot) -> FGuid
 	{
@@ -19,7 +19,6 @@ namespace Durin::AssetForge::Builtins
 	struct FStandardMaterialFunctions
 	{
 		TObjectPtr<DMaterialFunction> UVTransform, SampleNormal, SampleORM, StandardPBR, StandardPBR_ORM;
-		TObjectPtr<DMaterialFunction> ImportedSurfaceValues;
 	};
 	// Explicit shipped-asset interface contract. Creates no expression objects and
 	// is shared by authoring recipes and asset admission.

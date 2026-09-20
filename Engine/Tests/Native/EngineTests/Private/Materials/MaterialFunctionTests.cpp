@@ -11,7 +11,7 @@ TEST(FMaterialFunctionTests, StandardRecipesOwnTypedExpressionsAndPublishIndepen
 	FStandardMaterialFunctions Functions;
 	std::vector<TStrongObjectPtr<DMaterialFunction>> Owners;
 	const std::array Slots{&Functions.UVTransform, &Functions.SampleNormal, &Functions.SampleORM,
-		&Functions.StandardPBR, &Functions.StandardPBR_ORM, &Functions.ImportedSurfaceValues};
+		&Functions.StandardPBR, &Functions.StandardPBR_ORM};
 	for (uint32 Index = 0; Index < Slots.size(); ++Index)
 	{
 		auto Recipe = MakeStandardMaterialFunctionExpressions(static_cast<EStandardMaterialFunction>(Index + 1), Functions);

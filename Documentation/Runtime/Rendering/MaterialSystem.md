@@ -368,9 +368,9 @@ incrementally reusable. Explicit function runtime roots are rejected; Cook emits
 no runtime function packages. DMAT contains the expanded compiled stages; cooked
 loading needs no function graph, function source package or compiler.
 
-AssetForgeBuiltins owns six ordinary source assets under
+AssetForgeBuiltins owns five ordinary source assets under
 `/Engine/Materials/Functions`: `UVTransform`, `SampleNormal`, `SampleORM`,
-`StandardPBR`, `StandardPBR_ORM` and `ImportedSurfaceValues`. UVTransform computes rotation of scaled UV
+`StandardPBR` and `StandardPBR_ORM`. UVTransform computes rotation of scaled UV
 plus offset. SampleNormal consumes decoded sampling results and provides strength and RNM composition.
 SampleORM samples once and exposes R occlusion, G roughness and B metallic.
 StandardPBR accepts independent maps and per-map UVs; its ORM variant shares one

@@ -297,9 +297,24 @@ namespace Durin::Editor::Material
 			if (Selected->Node.IsSampleUVInput(Pin.InputIndex) || Pin.SourceType > EMaterialProgramValueType::Float4) continue;
 			ImGui::PushID(static_cast<int>(Pin.InputIndex));
 			auto Value = Pin.InlineDefault;
-			if (Value.Kind == EMaterialInputDefaultKind::None) Value.Type = Pin.SourceType;
+			if (Value.Kind == EMaterialInputDefaultKind::None)
+			{
+				Value.Type = Pin.SourceType;
+				if (Pin.PortId.IsValid() && !Pin.bRequired && Pin.Default.Kind == EMaterialFunctionDefaultKind::Numeric)
+				{
+					Value.Kind = EMaterialInputDefaultKind::Literal;
+					Value.Literal = Pin.Default.Numeric;
+				}
+			}
+			const bool bInheritedDynamic = Pin.PortId.IsValid() && !Pin.bRequired
+				&& Value.Kind == EMaterialInputDefaultKind::None && Pin.Default.Kind != EMaterialFunctionDefaultKind::None;
 			const bool bConnected = Pin.Link.SourceNodeId.IsValid();
 			const auto EditValue = [&]() {
+				if (bInheritedDynamic)
+				{
+					ImGui::TextWrapped("%s", DescribeFunctionDefault(Pin.Default).c_str());
+					return;
+				}
 				if (EditLiteralValue(Value.Type, Value.Literal))
 				{
 					Value.Kind = EMaterialInputDefaultKind::Literal;
@@ -342,8 +357,8 @@ namespace Durin::Editor::Material
 				}
 				else if (!Changed)
 				{
-					if (ImGui::MenuItem("Extract constant")) Submit(Document.ExtractInputDefault(Selected->Node.Id, Pin.InputIndex, Pin.PortId, &Transactions));
-					if (!Changed && Material && ImGui::MenuItem("Promote to parameter"))
+					if (ImGui::MenuItem("Extract constant", nullptr, false, Pin.InlineDefault.Kind == EMaterialInputDefaultKind::Literal)) Submit(Document.ExtractInputDefault(Selected->Node.Id, Pin.InputIndex, Pin.PortId, &Transactions));
+					if (!Changed && Material && ImGui::MenuItem("Promote to parameter", nullptr, false, !bInheritedDynamic))
 					{
 						FMaterialParameterDefinition Definition;
 						Definition.Id = FGuid::NewGuid(); Definition.Type = *GetParameterType(Value.Type);
@@ -383,6 +398,14 @@ namespace Durin::Editor::Material
 						}
 					}
 				}
+				if (!Changed && bInheritedDynamic && ImGui::MenuItem("Override with constant"))
+				{
+					Value.Kind = EMaterialInputDefaultKind::Literal;
+					Submit(Document.SetInputDefault(Selected->Node.Id, Pin.InputIndex, Value, Pin.PortId, &Transactions));
+				}
+				if (!Changed && Pin.PortId.IsValid() && !Pin.bRequired
+					&& Pin.InlineDefault.Kind != EMaterialInputDefaultKind::None && ImGui::MenuItem("Use function default"))
+					Submit(Document.SetInputDefault(Selected->Node.Id, Pin.InputIndex, {}, Pin.PortId, &Transactions));
 				if (!Changed && bConnected && ImGui::BeginMenu("When disconnected"))
 				{
 					ImGui::TextUnformatted("Value used after disconnecting");

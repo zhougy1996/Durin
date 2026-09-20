@@ -183,13 +183,13 @@ persistent GUIDs, surface-to-parameter mapping, and default parameter recipes in
 expressions, and surface properties; importing a built-in recipe is an explicit
 editor dependency. Existing parameter identities remain stable for saved instances.
 
-`GetStandardMaterialFunctionInterface` declares the six shipped function interfaces
+`GetStandardMaterialFunctionInterface` declares the five shipped function interfaces
 without constructing expression objects. Both the authoring recipes and
 `LoadStandardMaterialFunctions` use this contract. Loading compares the asset's
 signature directly, preserves implementation edits, and fails on missing assets
 or incompatible interfaces without synthesizing a reference graph.
 
-`MakeStandardMaterialFunctionExpressions` constructs the six built-in recipes as
+`MakeStandardMaterialFunctionExpressions` constructs the five built-in recipes as
 strongly retained concrete expressions whose terminal nodes own port definitions.
 Publication duplicates these children through `SetFunctionExpressions`; recipe
 objects and published functions never share mutable children. Recipe comparison
@@ -198,7 +198,7 @@ Recipes use the sampler's scalar channel outputs directly and inline single-use
 roughness bounds and the flat-normal blend value. The emissive zero remains shared.
 Color branches retain raw RGBA-to-RGB masks: the sampler's RGB output can decode
 Normal-usage resources and is not equivalent for arbitrary caller textures.
-The shipped six function graphs have automatic layout applied; function port GUIDs
+The shipped five function graphs have automatic layout applied; function port GUIDs
 and numeric policies remain unchanged.
 
 The shipped library lives in `/Engine/Materials/Functions` and uses the same
@@ -218,6 +218,10 @@ Open a call to edit its function; shared semantic edits update loaded callers an
 previews through the ordinary dependency lifecycle. Preserve port GUIDs when
 renaming or reordering interfaces. Required inputs are collected during insertion;
 optional defaults can remain hidden until needed.
+Call Details display inherited numeric defaults without creating overrides. Dynamic
+defaults such as UV0 and another input are shown as descriptions until explicitly
+overridden. Numeric edits preserve untouched components, and Use function default
+removes the local value override.
 
 `StandardPBR` keeps independent map and UV inputs. Choose `StandardPBR_ORM` only
 when occlusion, roughness and metallic deliberately share one texture and sampling

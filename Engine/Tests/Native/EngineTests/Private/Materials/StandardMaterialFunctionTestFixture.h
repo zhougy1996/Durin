@@ -97,7 +97,7 @@ namespace Durin::Testing
 		using namespace AssetForge::Builtins;
 		FStandardMaterialFunctions Functions;
 		const std::array Slots{&Functions.UVTransform, &Functions.SampleNormal, &Functions.SampleORM,
-			&Functions.StandardPBR, &Functions.StandardPBR_ORM, &Functions.ImportedSurfaceValues};
+			&Functions.StandardPBR, &Functions.StandardPBR_ORM};
 		for (uint32 I = 0; I < Slots.size(); ++I)
 		{
 			auto* Function = NewObject<DMaterialFunction>(&Material, FName(std::format("StandardFunction{}", I + 1)));

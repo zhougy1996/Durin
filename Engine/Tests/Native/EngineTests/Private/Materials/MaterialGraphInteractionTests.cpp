@@ -352,6 +352,77 @@ TEST(FMaterialGraphInteractionTests, CanvasGeometryUsesStableMetricsAndZoomHyste
 		EMaterialGraphDetailLevel::Readable);
 }
 
+TEST(FMaterialGraphInteractionTests, FunctionDefaultControlsPreserveInheritedComponentsAndUndo)
+{
+	InitializeDObjectSystem();
+	struct FCase { const char* Name; EMaterialProgramValueType Type; FMaterialProgramLiteral Default; };
+	const std::array Cases{
+		FCase{"Scale", EMaterialProgramValueType::Float2, {1, 1}},
+		FCase{"Strength", EMaterialProgramValueType::Float, {1}},
+		FCase{"Normal", EMaterialProgramValueType::Float3, {0, 0, 1}},
+		FCase{"Roughness", EMaterialProgramValueType::Float, {.5f}},
+		FCase{"BaseColor", EMaterialProgramValueType::Float3, {.5f, .5f, .5f}}};
+	for (const auto& Case : Cases)
+	{
+		SCOPED_TRACE(Case.Name);
+		TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, "DefaultControls"));
+		Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+		TStrongObjectPtr<DMaterialFunction> Function(NewObject<DMaterialFunction>(nullptr, Case.Name));
+		const FGuid PortId = FGuid::NewGuid();
+		ASSERT_TRUE(FMaterialGraphDocument(*Function).AddPort(false, {.Id = PortId, .Type = Case.Type, .Name = Case.Name,
+			.Default = {.Kind = EMaterialFunctionDefaultKind::Numeric, .Numeric = Case.Default}}));
+		FMaterialGraphDocument Document(*Material);
+		const auto Added = Document.InsertFunctionCall(*Function, 0, 0);
+		ASSERT_TRUE(Added) << FormatMaterialGraphCommandResult(Added);
+		const auto CallId = Added.GeneratedNodeIds.front();
+		Durin::Tests::FTestTransactorOwner Transactions;
+		FMaterialGraphCanvas Canvas{Document, {.ReportError = [](std::string Error) { ADD_FAILURE() << Error; }}};
+		FMaterialGraphCanvasTestAccess::Select(Canvas, {CallId});
+		auto* Context = ImGui::CreateContext();
+		auto& IO = ImGui::GetIO();
+		IO.DisplaySize = {800, 600}; IO.DeltaTime = 1.f / 60; IO.IniFilename = nullptr;
+		IO.Fonts->AddFontDefault(); IO.Fonts->Build();
+		ImVec2 Field;
+		const auto Frame = [&](bool Down = false) {
+			IO.AddMousePosEvent(Field.x, Field.y); IO.AddMouseButtonEvent(ImGuiMouseButton_Left, Down);
+			ImGui::NewFrame();
+			ImGui::SetNextWindowPos({0, 0}); ImGui::SetNextWindowSize({600, 500});
+			ImGui::Begin("Function defaults", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize);
+			ImGui::PushID(CallId.ToString().c_str());
+			const auto TableId = ImGui::GetID("NodeProperties");
+			ImGui::PopID();
+			Canvas.DrawSelectionDetails(*Transactions.Get());
+			const auto* Table = Context->Tables.GetByKey(TableId);
+			if (Table) Field = {Table->Columns[1].WorkMinX + 15,
+				Table->OuterRect.Min.y + DetailsStyle::MakeTableConfig().CellPadding.y + ImGui::GetFrameHeight() / 2};
+			else ADD_FAILURE() << "Missing Details table";
+			ImGui::End(); ImGui::Render();
+		};
+		Frame(); Frame();
+		EXPECT_EQ(Transactions->GetUndoCount(), 0u);
+		const auto* Call = FindExpression<DMaterialExpressionFunctionCall>(*Material, CallId);
+		ASSERT_NE(Call, nullptr);
+		EXPECT_TRUE(std::ranges::all_of(Call->Inputs, [](const auto& Input) { return Input.InputDefault.empty(); }));
+		Frame(true); Frame();
+		IO.AddKeyEvent(ImGuiMod_Ctrl, true); IO.AddKeyEvent(ImGuiKey_A, true); Frame();
+		IO.AddKeyEvent(ImGuiKey_A, false); IO.AddKeyEvent(ImGuiMod_Ctrl, false); Frame();
+		IO.AddInputCharactersUTF8("2"); Frame();
+		IO.AddKeyEvent(ImGuiKey_Enter, true); Frame();
+		IO.AddKeyEvent(ImGuiKey_Enter, false); Frame();
+		const auto Binding = std::ranges::find(Call->Inputs, PortId, &FMaterialExpressionFunctionInputBinding::InputId);
+		ASSERT_NE(Binding, Call->Inputs.end());
+		const std::array Expected{2.f, Case.Default.Y, Case.Default.Z, Case.Default.W};
+		EXPECT_EQ(Binding->InputDefault, (std::vector<float>(Expected.begin(), Expected.begin() + static_cast<int>(Case.Type) + 1)));
+		EXPECT_EQ(Transactions->GetUndoCount(), 1u);
+		ASSERT_TRUE(Transactions->Undo());
+		EXPECT_TRUE(std::ranges::all_of(Call->Inputs, [](const auto& Input) { return Input.InputDefault.empty(); }));
+		Frame();
+		EXPECT_EQ(Transactions->GetUndoCount(), 0u);
+		Canvas.CancelInteraction();
+		ImGui::DestroyContext(Context);
+	}
+}
+
 TEST(FMaterialGraphInteractionTests, HiddenAdvancedPinsRetainStableIdentitiesAndRevealBindings)
 {
 	InitializeDObjectSystem();

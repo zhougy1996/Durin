@@ -15,7 +15,7 @@ namespace Durin::AssetForge::Builtins
 		using Type = EMaterialProgramValueType;
 		using Entry = EStandardMaterialFunction;
 		using Link = FMaterialExpressionInput;
-		constexpr std::array EntryNames{"UVTransform", "SampleNormal", "SampleORM", "StandardPBR", "StandardPBR_ORM", "ImportedSurfaceValues"};
+		constexpr std::array EntryNames{"UVTransform", "SampleNormal", "SampleORM", "StandardPBR", "StandardPBR_ORM"};
 		constexpr auto Id(Entry Function, uint32 Slot) -> FGuid { return StandardMaterialPortId(Function, Slot); }
 
 		struct FBuilder
@@ -173,17 +173,11 @@ namespace Durin::AssetForge::Builtins
 		else
 		{
 			const bool bPacked = Function == Entry::StandardPBR_ORM;
-			const bool bValues = Function == Entry::ImportedSurfaceValues;
-			if (!bValues) B.Input(1);
+			B.Input(1);
 			std::array<Link, 8> Factors, Textures, UVs, Values;
 			for (uint32 I = 0; I < 8; ++I)
 			{
 				Factors[I] = B.Input(10 + I);
-				if (bValues)
-				{
-					Textures[I] = B.Input(20 + I);
-					continue;
-				}
 				if (bPacked && I >= 2 && I <= 4) continue;
 				Textures[I] = B.Input(20 + I);
 				UVs[I] = B.Input(30 + I);
@@ -201,11 +195,6 @@ namespace Durin::AssetForge::Builtins
 			{
 				if (I == 1)
 				{
-					if (bValues)
-					{
-						Values[I] = ComposeSurfaceValue(B, I, Factors[I], Textures[I]);
-						continue;
-					}
 					Values[I] = B.Call(Dependencies.SampleNormal.Get(), {
 						{Id(Entry::SampleNormal, 1), Type::Texture2D, Textures[I]},
 						{Id(Entry::SampleNormal, 2), Type::Float2, UVs[I]},
@@ -214,8 +203,7 @@ namespace Durin::AssetForge::Builtins
 				}
 				const auto ValueType = GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(I));
 				Link Channel;
-				if (bValues) Channel = Textures[I];
-				else if (bPacked && I >= 2 && I <= 4)
+				if (bPacked && I >= 2 && I <= 4)
 					Channel = {.ExpressionId = ORM.ExpressionId, .OutputId = Id(Entry::SampleORM, 100 + Channels[I])};
 				else
 				{
@@ -268,7 +256,7 @@ namespace Durin::AssetForge::Builtins
 	{
 		FStandardMaterialFunctions Result;
 		const std::array Slots{&Result.UVTransform, &Result.SampleNormal, &Result.SampleORM,
-			&Result.StandardPBR, &Result.StandardPBR_ORM, &Result.ImportedSurfaceValues};
+			&Result.StandardPBR, &Result.StandardPBR_ORM};
 		for (uint32 I = 0; I < Slots.size(); ++I)
 		{
 			const auto EntryKind = static_cast<Entry>(I + 1);
