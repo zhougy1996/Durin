@@ -584,7 +584,8 @@ namespace Durin::Editor::Material
 		ImGui::Spacing();
 
 		DrawDockLayout(Document, Material);
-		GetOrCreateCanvas(Document).EndParameterFrame();
+		if (const auto Canvas = MaterialGraphCanvases.find(Document.Id.Value); Canvas != MaterialGraphCanvases.end())
+			Canvas->second->EndParameterFrame();
 
 		if (Documents.GetActiveResourceId() != Document.ResourceId) return;
 		MonaImGui::ErrorDialog("Material Editor Error", ErrorMessage);

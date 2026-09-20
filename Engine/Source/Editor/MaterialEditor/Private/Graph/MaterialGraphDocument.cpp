@@ -15,6 +15,15 @@ namespace Durin::Editor::Material
 
 	namespace
 	{
+		auto SelectGraphSchema(const DObject& Owner) -> const FMaterialGraphSchema&
+		{
+			static const FMaterialSchema Material;
+			static const FMaterialFunctionSchema Function;
+			if (Cast<DMaterialFunction>(&Owner)) return Function;
+			if (Cast<DMaterial>(&Owner)) return Material;
+			check(false); std::terminate();
+		}
+
 		struct FCreationFunctionResult
 		{
 			DMaterialFunctionInterface* Function = nullptr;
@@ -279,8 +288,7 @@ namespace Durin::Editor::Material
 	}
 
 	FMaterialGraphDocument::FMaterialGraphDocument(DObject& InOwner)
-		: Owner(&InOwner), Schema(Cast<DMaterialFunction>(&InOwner) ? EMaterialGraphKind::Function
-			: Cast<DMaterial>(&InOwner) ? EMaterialGraphKind::Material : EMaterialGraphKind::Unsupported) {}
+		: Owner(&InOwner), Schema(SelectGraphSchema(InOwner)) {}
 
 	auto FMaterialGraphDocument::SetPort(bool bOutput, FMaterialFunctionPort Port,
 		DTransactor* Transactions) const -> FMaterialGraphCommandResult

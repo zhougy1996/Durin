@@ -26,7 +26,11 @@ an ordered reading sequence.
 ## Ownership
 
 Each `FMaterialGraphDocument` has a fixed, stateless `FMaterialGraphSchema` for
-its graph kind. Schema owns creation eligibility, function-port and parameter
+its graph kind. `FMaterialGraphSchema` is an abstract interface;
+`FMaterialSchema` and `FMaterialFunctionSchema` override graph-specific capabilities
+and creation eligibility. Documents select a shared immutable implementation at
+construction and retain a base-class reference. Common connection and compatibility
+rules remain nonvirtual. Schema owns creation eligibility, function-port and parameter
 capabilities, material-output deletion protection, source-address validity,
 connection replacement rules, and type compatibility hints. Menus and commands
 consume these policies; direct expression creation and paste also check the

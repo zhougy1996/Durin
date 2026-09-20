@@ -11,6 +11,7 @@ namespace Durin::Editor::Material
 	class FMaterialGraphDocument
 	{
 	public:
+		// Owner must be a DMaterial or DMaterialFunction; instances do not own graphs.
 		MATERIALEDITOR_API explicit FMaterialGraphDocument(DObject& Owner);
 		auto GetOwner() const -> DObject* { return Owner.Get(); }
 		auto GetSchema() const -> const FMaterialGraphSchema& { return Schema; }
@@ -80,6 +81,6 @@ namespace Durin::Editor::Material
 		auto InspectSelection(std::span<const FMaterialGraphCatalogEntry> Catalog,
 			const std::unordered_set<FGuid>* Selection) const -> FMaterialGraphView;
 		TWeakObjectPtr<DObject> Owner;
-		const FMaterialGraphSchema Schema;
+		const FMaterialGraphSchema& Schema;
 	};
 }

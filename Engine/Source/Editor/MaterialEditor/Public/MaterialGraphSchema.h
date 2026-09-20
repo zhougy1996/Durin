@@ -4,18 +4,15 @@
 
 namespace Durin::Editor::Material
 {
-	enum class EMaterialGraphKind : uint8 { Material, Function, Unsupported };
-
 	// Stateless graph policy. Asset loading, transactions and editor services belong to callers.
 	class FMaterialGraphSchema
 	{
 	public:
-		explicit FMaterialGraphSchema(EMaterialGraphKind InKind) : Kind(InKind) {}
-		auto HasFunctionPorts() const -> bool { return Kind == EMaterialGraphKind::Function; }
-		auto CanOwnParameters() const -> bool { return Kind == EMaterialGraphKind::Material; }
-		auto CanCreateExpression(const DMaterialExpression& Expression) const -> bool
+		virtual ~FMaterialGraphSchema() = default;
+		virtual auto HasFunctionPorts() const -> bool = 0;
+		virtual auto CanOwnParameters() const -> bool = 0;
+		virtual auto CanCreateExpression(const DMaterialExpression& Expression) const -> bool
 		{
-			if (Kind == EMaterialGraphKind::Unsupported) return false;
 			if (Cast<DMaterialExpressionFunctionInput>(&Expression) || Cast<DMaterialExpressionFunctionOutput>(&Expression)) return HasFunctionPorts();
 			if (Cast<DMaterialExpressionMaterialOutput>(&Expression) || Cast<DMaterialExpressionParameter>(&Expression)) return CanOwnParameters();
 			return true;
@@ -23,7 +20,7 @@ namespace Durin::Editor::Material
 		auto CanCreate(const FMaterialGraphCreationAction& Action,
 			std::optional<EMaterialProgramValueType> Source = {}) const -> bool
 		{
-			if (Kind == EMaterialGraphKind::Unsupported || (HasFunctionPorts() ? !Action.bFunction : !Action.bMaterial)) return false;
+			if (!AllowsAction(Action)) return false;
 			if (const auto* Entry = std::get_if<FMaterialGraphCatalogEntry>(&Action.Payload))
 				return !Source || (!Entry->AcceptedInputTypes.empty() && Accepts(Entry->AcceptedInputTypes.front(), *Source));
 			if (const auto* Port = std::get_if<FMaterialGraphPortCreation>(&Action.Payload))
@@ -67,7 +64,25 @@ namespace Durin::Editor::Material
 		{
 			return CanRemove(Cast<DMaterialExpressionMaterialOutput>(&Expression) != nullptr);
 		}
-	private:
-		EMaterialGraphKind Kind;
+	protected:
+		virtual auto AllowsAction(const FMaterialGraphCreationAction& Action) const -> bool = 0;
+	};
+
+	class FMaterialSchema final : public FMaterialGraphSchema
+	{
+	public:
+		auto HasFunctionPorts() const -> bool override { return false; }
+		auto CanOwnParameters() const -> bool override { return true; }
+	protected:
+		auto AllowsAction(const FMaterialGraphCreationAction& Action) const -> bool override { return Action.bMaterial; }
+	};
+
+	class FMaterialFunctionSchema final : public FMaterialGraphSchema
+	{
+	public:
+		auto HasFunctionPorts() const -> bool override { return true; }
+		auto CanOwnParameters() const -> bool override { return false; }
+	protected:
+		auto AllowsAction(const FMaterialGraphCreationAction& Action) const -> bool override { return Action.bFunction; }
 	};
 }
