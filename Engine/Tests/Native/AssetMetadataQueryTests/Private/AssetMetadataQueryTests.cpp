@@ -67,17 +67,6 @@ namespace
 		Publication.bReferenceIndexComplete = true;
 	}
 
-	TEST(FAssetMetadataQueryTests, RegistryErrorsExposeStructuredDiagnostics)
-	{
-		const FAssetRegistryResult Result{
-			EAssetRegistryError::StaleData, {.Reason = EAssetRegistryFailure::PublicationRevision, .Actual = 2, .Expected = 1}};
-		const Durin::FDiagnostic Diagnostic = Result.GetDiagnostic();
-		EXPECT_EQ(Diagnostic.Domain, "AssetRegistry");
-		EXPECT_EQ(Diagnostic.Code, "StaleData");
-		EXPECT_TRUE(Diagnostic.IsError());
-		EXPECT_EQ(Diagnostic.Message, FormatAssetRegistryError(Result));
-	}
-
 	TEST(FAssetMetadataQueryTests, SnapshotOwnsExactMetadataWithoutEngine)
 	{
 		Durin::Testing::InitializeDObjectSystemForTests();

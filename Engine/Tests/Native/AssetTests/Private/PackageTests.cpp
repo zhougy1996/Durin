@@ -2081,18 +2081,6 @@ TEST(FPackageAssetTests, RemovedFieldsDoNotRelaxWireOrCookedConsumptionValidatio
 	EXPECT_EQ(Loaded, nullptr);
 }
 
-TEST(FPackageAssetTests, EngineAssetErrorsExposeStructuredDiagnostics)
-{
-	const Durin::FAssetResult Result{
-		Durin::EAssetError::InvalidObjectGraph,
-		"The live object graph is invalid."};
-	const Durin::FDiagnostic Diagnostic = Result.GetDiagnostic();
-	EXPECT_EQ(Diagnostic.Domain, "Asset");
-	EXPECT_EQ(Diagnostic.Code, "InvalidObjectGraph");
-	EXPECT_TRUE(Diagnostic.IsError());
-	EXPECT_EQ(Diagnostic.Message, Result.Message);
-}
-
 TEST(FPackageAssetTests, ByteToolRawScalarKindsMatchThePayloadContract)
 {
 	using enum Durin::DurinCodeGen::EPropertyGenFlags;

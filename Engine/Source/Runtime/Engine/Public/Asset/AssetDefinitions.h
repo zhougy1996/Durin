@@ -3,7 +3,6 @@
 #include "EngineAPI.h"
 #include "Asset/PackageResourceError.h"
 #include "Asset/EditorBulkDataStorageError.h"
-#include "Diagnostics/Diagnostic.h"
 #include "DObject/ObjectValidation.h"
 #include "AssetRegistry/RegistryResult.h"
 
@@ -61,6 +60,5 @@ namespace Durin
 
 		auto Succeeded() const -> bool { return Error == EAssetError::None; }
 		explicit operator bool() const { return Succeeded(); }
-		ENGINE_API auto GetDiagnostic() const -> FDiagnostic;
 	};
 }

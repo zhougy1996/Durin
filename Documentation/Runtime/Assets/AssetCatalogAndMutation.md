@@ -89,10 +89,7 @@ details use `Durin::AssetPrivate` when they require a shared internal scope.
 
 ## Result And Diagnostic Boundary
 
-Core's `FDiagnostic` is the domain-neutral owning value for logs, tools, and UI.
-It carries domain, code, severity, message, and optional context, but never owns
-AssetRegistry or Engine control-flow semantics. Typed domain errors remain the
-authoritative values used by program logic.
+Typed domain errors are the authoritative values used by program logic.
 
 AssetRegistry exports `EAssetRegistryError` and `FAssetRegistryResult` for
 discovery, bounded header projection, snapshot, and publication failures. Results
@@ -104,8 +101,8 @@ Engine exports `EAssetError` and `FAssetResult` for loading, storage, Cook, and
 mutation operations. Engine translates Registry results explicitly at its
 publication and package-header boundaries and retains `RegistryCause`;
 AssetRegistry never includes or
-returns the Engine result contract. Both result values can produce an
-`FDiagnostic` for common presentation without erasing their typed error.
+returns the Engine result contract. Engine asset results expose their
+presentation text through `Message`.
 
 ## Reference Projection
 

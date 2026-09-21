@@ -1,7 +1,6 @@
 #pragma once
 
 #include "AssetRegistryAPI.h"
-#include "Diagnostics/Diagnostic.h"
 #include "DObject/PackageFormat.h"
 
 namespace Durin
@@ -41,7 +40,6 @@ namespace Durin
 
 		auto Succeeded() const -> bool { return Error == EAssetRegistryError::None; }
 		explicit operator bool() const { return Succeeded(); }
-		ASSETREGISTRY_API auto GetDiagnostic() const -> FDiagnostic;
 	};
 	ASSETREGISTRY_API auto FormatAssetRegistryError(const FAssetRegistryResult& Result) -> std::string;
 }
