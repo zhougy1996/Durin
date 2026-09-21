@@ -1,6 +1,6 @@
 #include "FileSystemCacheBackend.h"
 
-#include "Misc/FileHelper.h"
+#include "Misc/FileIO.h"
 #include "Misc/Paths.h"
 #include "Serialization/BinaryFormat.h"
 
@@ -15,15 +15,15 @@ namespace Durin::DerivedData
 	}
 
 	auto FFileSystemCacheBackend::GetBucketDirectory(const FCacheBucket& Bucket) const
-		-> std::filesystem::path
+		-> FFilePath
 	{
-		return (std::filesystem::path(FPaths::DerivedDataCacheDir())
+		return (FFilePath(FPaths::DerivedDataCacheDir())
 			/ std::string(Bucket.ToString())).lexically_normal();
 	}
 
 	auto FFileSystemCacheBackend::GetEntryPath(
 		const FCacheKey& Key,
-		std::filesystem::path& OutPath, std::string& OutError) const -> bool
+		FFilePath& OutPath, std::string& OutError) const -> bool
 	{
 		if (!Key.IsValid())
 		{
@@ -31,9 +31,9 @@ namespace Durin::DerivedData
 			return false;
 		}
 		const FCacheBucket& Bucket = Key.GetBucket();
-		const std::filesystem::path Directory = GetBucketDirectory(Bucket);
+		const FFilePath Directory = GetBucketDirectory(Bucket);
 		const std::string KeyText = Key.ToString();
-		const std::filesystem::path Candidate =
+		const FFilePath Candidate =
 			(Directory / KeyText.substr(0, 2) / (KeyText + ".bin")).lexically_normal();
 		if (!FPaths::IsLexicalDescendantPath(Candidate, Directory, true))
 		{
@@ -50,7 +50,7 @@ namespace Durin::DerivedData
 	{
 		if (!Request.Key.IsValid() || Request.MaximumValueBytes == 0)
 			return {ECacheGetStatus::InvalidRequest, {}, "Cache get request is invalid."};
-		std::filesystem::path Path;
+		FFilePath Path;
 		std::string Error;
 		if (!GetEntryPath(Request.Key, Path, Error))
 			return {ECacheGetStatus::InvalidRequest, {}, std::move(Error)};
@@ -61,7 +61,7 @@ namespace Durin::DerivedData
 		{
 			if (ErrorCode == std::errc::no_such_file_or_directory)
 			{
-				for (std::filesystem::path Ancestor = Path.parent_path(); !Ancestor.empty();
+				for (FFilePath Ancestor = Path.parent_path(); !Ancestor.empty();
 					Ancestor = Ancestor.parent_path())
 				{
 					std::error_code AncestorError;
@@ -86,7 +86,7 @@ namespace Durin::DerivedData
 			return {ECacheGetStatus::Miss, {}, "Cache entry is missing."};
 		if (!std::filesystem::is_regular_file(Status))
 			return {ECacheGetStatus::StorageFailure, {}, "Cache entry is not a regular file."};
-		std::filesystem::path ResolvedPath;
+		FFilePath ResolvedPath;
 		if (!FPaths::TryResolveContainedPath(
 			Path, GetBucketDirectory(Request.Key.GetBucket()), ResolvedPath, ErrorCode))
 			return {ECacheGetStatus::StorageFailure, {},
@@ -99,10 +99,11 @@ namespace Durin::DerivedData
 			|| FileSize > Request.MaximumValueBytes + CacheEntryHeaderBytes)
 			return {ECacheGetStatus::ValueTooLarge, {}, "Cache entry exceeds its configured size limit."};
 
-		FByteBuffer Bytes;
-		if (!FFileHelper::LoadFileToArray(Bytes, ResolvedPath))
-			return {ECacheGetStatus::StorageFailure, {}, "Failed to read cache entry."};
-		FBinaryReader Reader(Bytes, {
+		auto Bytes = FFileIO::LoadFileToArray(ResolvedPath);
+		if (!Bytes)
+			return {ECacheGetStatus::StorageFailure, {},
+				std::format("Failed to read cache entry: {}", Bytes.error().ToString())};
+		FBinaryReader Reader(*Bytes, {
 			.MaximumTotalBytes = Request.MaximumValueBytes + CacheEntryHeaderBytes,
 			.MaximumFieldBytes = std::max<uint64>(Request.MaximumValueBytes, 16)});
 		uint64 ValueSize = 0;
@@ -120,7 +121,7 @@ namespace Durin::DerivedData
 		if (ExpectedHash.IsZero() || FXxHash128::HashBuffer(Value) != ExpectedHash)
 			return {ECacheGetStatus::Corrupt, {},
 				"Cache entry content hash validation failed."};
-		FSharedByteBuffer StoredBytes = FSharedByteBuffer::Take(std::move(Bytes));
+		FSharedByteBuffer StoredBytes = FSharedByteBuffer::Take(std::move(*Bytes));
 		return {ECacheGetStatus::Hit,
 			StoredBytes.MakeView(CacheEntryHeaderBytes, ValueSize), {}};
 	}
@@ -136,14 +137,14 @@ namespace Durin::DerivedData
 				"Cache put request size limit is invalid."};
 		if (Request.Value.size() > Request.MaximumValueBytes)
 			return {ECachePutStatus::ValueTooLarge, "Cache entry exceeds its configured size limit."};
-		std::filesystem::path Path;
+		FFilePath Path;
 		std::string Error;
 		if (!GetEntryPath(Request.Key, Path, Error))
 			return {ECachePutStatus::InvalidRequest, std::move(Error)};
 
 		std::error_code ErrorCode;
-		std::filesystem::path ResolvedPath;
-		const std::filesystem::path BucketDirectory =
+		FFilePath ResolvedPath;
+		const FFilePath BucketDirectory =
 			GetBucketDirectory(Request.Key.GetBucket());
 		if (!FPaths::TryResolveContainedPath(Path, BucketDirectory, ResolvedPath, ErrorCode))
 			return {ECachePutStatus::StorageFailure, ErrorCode
@@ -168,10 +169,10 @@ namespace Durin::DerivedData
 		if (Writer.HasError())
 			return {ECachePutStatus::StorageFailure,
 				"Failed to encode the cache entry envelope."};
-		FFileHelper::FAtomicFileError FileError;
-		if (!FFileHelper::SaveArrayToFileAtomically(
-			Writer.GetBytes(), ResolvedPath, &FileError))
-			return {ECachePutStatus::StorageFailure, FileError.ToString()};
+		auto Saved = FFileIO::SaveArrayToFileAtomically(Writer.GetBytes(), ResolvedPath);
+		if (!Saved)
+			return {ECachePutStatus::StorageFailure,
+				std::format("Failed to write cache entry: {}", Saved.error().ToString())};
 		return {ECachePutStatus::Stored, {}};
 	}
 

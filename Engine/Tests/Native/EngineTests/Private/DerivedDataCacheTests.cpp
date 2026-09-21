@@ -7,6 +7,9 @@
 #include "NativeTestSupport.h"
 
 #include <latch>
+#if defined(_WIN32)
+#include "Windows/WindowsPlatform.h"
+#endif
 
 namespace
 {
@@ -269,6 +272,39 @@ TEST(FDerivedDataCacheTests, BlockedStorageReturnsFailuresWithoutEscapingRoot)
 	EXPECT_EQ(Cache.Get({MakeKey(Bucket, '1'), 1024}).Status,
 		ECacheGetStatus::StorageFailure);
 }
+
+#if defined(_WIN32)
+TEST(FDerivedDataCacheTests, LockedEntryPreservesReadAndPublicationDiagnostics)
+{
+	FScopedCacheDirectory Directory("CacheLockedEntry");
+	FDerivedDataCache& Cache = DerivedData::GetCache();
+	const FCacheBucket Bucket = FCacheBucket::FromString("Test/Objects");
+	const FCacheKey Key = MakeKey(Bucket, 'a');
+	const Durin::FByteBuffer Value = Bytes({1, 2, 3});
+	EXPECT_EQ(Cache.Get({Key, 1024}).Status, ECacheGetStatus::Miss);
+	ASSERT_TRUE(Cache.Put({Key, Value, 1024}));
+	const Durin::FFilePath Path = Directory.Root / "Test" / "Objects"
+		/ "aa" / (std::string(32, 'a') + ".bin");
+	const HANDLE File = CreateFileW(Path.c_str(), GENERIC_READ, 0, nullptr,
+		OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+	ASSERT_NE(File, INVALID_HANDLE_VALUE);
+	{
+		std::unique_ptr<void, decltype(&CloseHandle)> LockedFile(File, &CloseHandle);
+		const auto Get = Cache.Get({Key, 1024});
+		EXPECT_EQ(Get.Status, ECacheGetStatus::StorageFailure);
+		EXPECT_NE(Get.Diagnostic.find("open for reading"), std::string::npos);
+		EXPECT_NE(Get.Diagnostic.find(Path.generic_string()), std::string::npos);
+		EXPECT_NE(Get.Diagnostic.find(std::format(":{}:", ERROR_SHARING_VIOLATION)), std::string::npos);
+		const auto Put = Cache.Put({Key, Bytes({4, 5}), 1024});
+		EXPECT_EQ(Put.Status, ECachePutStatus::StorageFailure);
+		EXPECT_NE(Put.Diagnostic.find("replace destination"), std::string::npos);
+		EXPECT_NE(Put.Diagnostic.find(Path.generic_string()), std::string::npos);
+	}
+	const auto Get = Cache.Get({Key, 1024});
+	ASSERT_EQ(Get.Status, ECacheGetStatus::Hit);
+	EXPECT_TRUE(std::ranges::equal(Get.Value.GetBytes(), Value));
+}
+#endif
 
 TEST(FDerivedDataCacheTests, SymlinkEntriesAreNeverRead)
 {

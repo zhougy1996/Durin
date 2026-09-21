@@ -1,6 +1,7 @@
 #pragma once
 
 #include "DerivedDataCache/DerivedDataCache.h"
+#include "Misc/FilePath.h"
 
 namespace Durin::DerivedData
 {
@@ -11,8 +12,8 @@ namespace Durin::DerivedData
 		auto Put(const FCachePutRequest& Request) const -> FCachePutResult;
 
 	private:
-		auto GetBucketDirectory(const FCacheBucket& Bucket) const -> std::filesystem::path;
+		auto GetBucketDirectory(const FCacheBucket& Bucket) const -> FFilePath;
 		auto GetEntryPath(const FCacheKey& Key,
-			std::filesystem::path& OutPath, std::string& OutError) const -> bool;
+			FFilePath& OutPath, std::string& OutError) const -> bool;
 	};
 }
