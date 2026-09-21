@@ -48,10 +48,11 @@ namespace Durin
 			DURIN_PROFILE_CPU_ZONE_NAMED("EngineLoop.RenderFrame");
 			if (GDynamicRHI == nullptr)
 			{
-				RecordEngineFrameSyncWait(0.0f);
+				RecordEngineFrameRenderTimings(0.0f, 0.0f);
 				return;
 			}
 
+			const double SubmissionStarted = FTime::Seconds();
 			const uint64 LogicFrameCounter = GFrameCounter;
 			const uint64 RenderFrameCounter = GRenderFrameCounter;
 			auto* Renderer = GEngine ? GEngine->GetRendererModule() : nullptr;
@@ -75,8 +76,9 @@ namespace Durin
 				});
 			const double SyncStarted = FTime::Seconds();
 			FFrameSync::Sync(FFrameSync::EFlushMode::EndFrame);
-			RecordEngineFrameSyncWait(static_cast<float>(
-				(FTime::Seconds() - SyncStarted) * 1000.0));
+			RecordEngineFrameRenderTimings(
+				static_cast<float>((SyncStarted - SubmissionStarted) * 1000.0),
+				static_cast<float>((FTime::Seconds() - SyncStarted) * 1000.0));
 			GRenderFrameCounter++;
 		}
 	}

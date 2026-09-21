@@ -212,10 +212,19 @@ namespace Durin::Editor::Level
 			DrawValueRow("Frame interval", std::format("{:.2f} ms",
 				Timing.FrameIntervalMilliseconds),
 				"Wall-clock interval between completed engine frames, including work and waits.");
-			DrawValueRow("Frame excl. render sync", std::format("{:.2f} ms",
-				Timing.GameThreadWorkMilliseconds),
-				"Frame interval minus the measured end-of-frame render synchronization wait. "
-				"Includes other waits and scheduling delays; not measured game-thread CPU work.");
+			DrawValueRow("Engine tick", std::format("{:.2f} ms",
+				Timing.EngineTickMilliseconds),
+				"Main-thread elapsed time inside the engine tick, including world and editor updates. "
+				"Excludes the following deferred work, UI tick, and render submission.");
+			DrawValueRow("UI tick", std::format("{:.2f} ms",
+				Timing.UITickMilliseconds),
+				"Main-thread elapsed time updating application time and ticking/drawing window widgets. "
+				"UI backend frame construction and render submission are measured separately.");
+			DrawValueRow("Render submission", std::format("{:.2f} ms",
+				Timing.RenderSubmissionMilliseconds),
+				"Main-thread elapsed time from render-frame command submission through UI backend frame "
+				"construction, viewport redraw, and UI rendering, ending before frame sync. "
+				"Includes waits within these calls; not render-thread or GPU execution time.");
 			DrawValueRow("Render sync wait", std::format("{:.2f} ms",
 				Timing.RenderSyncWaitMilliseconds),
 				"Time blocked on render-thread pacing; may include RHI, GPU, Present, and VSync backlog.");

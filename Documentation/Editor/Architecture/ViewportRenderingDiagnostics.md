@@ -49,13 +49,28 @@ Expansion is an editor session preference under `SceneViewport.ShowStatistics`;
 it defaults to collapsed and never dirties level or asset packages.
 
 Rendering Diagnostics separates Overview, Scene, and Render Graph inspection.
-Overview labels the smoothed wall-clock frame interval minus the measured
-end-of-frame render synchronization wait as `Frame excl. render sync`. This
-remainder includes other waits and scheduling delays; it does not measure
-game-thread CPU work. The separate `Render sync wait` metric is a
+Overview reports the smoothed wall-clock frame interval and directly measured
+main-thread elapsed times for three non-overlapping call ranges:
+
+- `Engine tick`: `GEngine->Tick`, including editor/play world updates, before
+  diagnostics, deferred work, async save polling, and asset compilation processing.
+- `UI tick`: `Application.TickUI`, including application time updates and window
+  widget tick/draw traversal.
+- `Render submission`: the render-frame submission range from before the begin
+  command through `Mona::NewFrame`, viewport redraw, `Mona::Render`, and the end
+  command, stopping before `FFrameSync::Sync`.
+
+These are elapsed times, including any waits or scheduling delays inside their
+boundaries, not CPU utilization or render-thread/GPU execution times. They do
+not partition the entire frame: event processing, deferred work, garbage
+collection, and other loop overhead are outside these three ranges. Skipped
+phases contribute zero to the next smoothed sample rather than reusing an old
+measurement. No frame-interval-minus-wait remainder is displayed.
+
+The separate `Render sync wait` metric measures the end-of-frame sync call, a
 pacing boundary that may include render-thread, RHI, GPU, Present, or VSync
 backlog; it is not presented as pure VSync time. Overview also reports
-graph-budget values. The three frame-timing values publish one synchronized
+graph-budget values. All frame-timing values publish one synchronized
 snapshot every half second while their underlying accumulators continue to
 sample every frame. Scene owns feature breakdowns, and Render Graph provides
 pass filtering, pass/resource inspection, dependency visualization, resource

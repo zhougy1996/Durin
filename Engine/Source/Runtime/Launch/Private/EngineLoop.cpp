@@ -328,10 +328,13 @@ namespace Durin
 		const double CurrentTime = FTime::Seconds();
 		const float DeltaSeconds = static_cast<float>(std::clamp(CurrentTime - LastTickTime, 0.0, 0.1));
 		LastTickTime = CurrentTime;
+		const double EngineTickStarted = FTime::Seconds();
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("EngineLoop.GameLogic");
 			GEngine->Tick(DeltaSeconds, false);
 		}
+		const float EngineTickMilliseconds = static_cast<float>(
+			(FTime::Seconds() - EngineTickStarted) * 1000.0);
 		Diagnostics.Tick();
 		PumpGameThreadDeferredWork();
 		PackageSavePrivate::PollAsyncSaves();
@@ -339,10 +342,13 @@ namespace Durin
 		GFrameCounter++;
 
 		auto& Application = Mona::FMonaApplication::Get();
+		const double UITickStarted = FTime::Seconds();
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("EngineLoop.ApplicationUI");
 			Application.TickUI();
 		}
+		RecordEngineFrameTickTimings(EngineTickMilliseconds,
+			static_cast<float>((FTime::Seconds() - UITickStarted) * 1000.0));
 		if (GIsRequestingExit) return;
 
 		const bool bAllWindowsMinimized = Application.AreAllWindowsMinimized();

@@ -1,3 +1,11 @@
+durin_add_native_test(EngineFrameTimingTests
+	KIND contract
+	DOMAINS launch
+	MODULES engine launch
+	SOURCES Private/Launch/EngineFrameTimingTests.cpp
+	LIBRARIES Engine
+)
+
 durin_add_native_test(LaunchStorageTests
 	KIND contract
 	DOMAINS launch
