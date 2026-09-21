@@ -123,21 +123,21 @@ namespace Durin::VulkanRHI
 	}
 
 	auto SelectVulkanSwapchainConfiguration(
-		const FVulkanSwapchainSelectionInput& Input) -> std::expected<FVulkanSwapchainConfiguration, EVulkanSwapchainSelectionError>
+		const FVulkanSwapchainSelectionInput& Input) -> std::expected<FVulkanSwapchainConfiguration, std::string>
 	{
 		if (Input.Formats.empty())
-			return std::unexpected(EVulkanSwapchainSelectionError::NoSurfaceFormats);
+			return std::unexpected("The surface reported no formats.");
 		if (Input.PresentModes.empty())
-			return std::unexpected(EVulkanSwapchainSelectionError::NoPresentModes);
+			return std::unexpected("The surface reported no present modes.");
 		if ((Input.Capabilities.supportedUsageFlags & RequiredSwapchainImageUsage)
 			!= RequiredSwapchainImageUsage)
-			return std::unexpected(EVulkanSwapchainSelectionError::UnsupportedImageUsage);
+			return std::unexpected("Required backbuffer image usage is unsupported.");
 		if (Input.Capabilities.minImageExtent.width > Input.Capabilities.maxImageExtent.width
 			|| Input.Capabilities.minImageExtent.height > Input.Capabilities.maxImageExtent.height)
-			return std::unexpected(EVulkanSwapchainSelectionError::InvalidExtentRange);
+			return std::unexpected("The surface extent range is invalid.");
 		if (Input.Capabilities.maxImageCount > 0
 			&& Input.Capabilities.maxImageCount < Input.Capabilities.minImageCount)
-			return std::unexpected(EVulkanSwapchainSelectionError::InvalidImageCountRange);
+			return std::unexpected("The surface image-count range is invalid.");
 
 		FVulkanSwapchainConfiguration Configuration;
 		Configuration.SurfaceFormat = ChooseSwapSurfaceFormat(Input.Formats);
@@ -145,11 +145,11 @@ namespace Durin::VulkanRHI
 			Input.PresentModes, Input.PresentationPolicy);
 		if (std::ranges::find(Input.PresentModes, Configuration.PresentMode)
 			== Input.PresentModes.end())
-			return std::unexpected(EVulkanSwapchainSelectionError::UnsupportedPresentPolicy);
+			return std::unexpected("No policy-compatible present mode is supported.");
 		Configuration.Extent = ChooseSwapExtent(Input.Capabilities,
 			Input.RequestedWidth, Input.RequestedHeight);
 		if (Configuration.Extent.width == 0 || Configuration.Extent.height == 0)
-			return std::unexpected(EVulkanSwapchainSelectionError::EmptyExtent);
+			return std::unexpected("The selected extent is empty.");
 		Configuration.ImageCount = FMath::Max(
 			GetMinImageCountForPresentMode(Configuration.PresentMode),
 			Input.Capabilities.minImageCount);
@@ -157,7 +157,7 @@ namespace Durin::VulkanRHI
 			Configuration.ImageCount = FMath::Min(
 				Configuration.ImageCount, Input.Capabilities.maxImageCount);
 		if (Configuration.ImageCount < FrameInFlight)
-			return std::unexpected(EVulkanSwapchainSelectionError::InsufficientImageCount);
+			return std::unexpected("The supported image count is below the frames-in-flight requirement.");
 		Configuration.ImageUsage = RequiredSwapchainImageUsage;
 		Configuration.PreTransform = Input.Capabilities.currentTransform;
 		for (const vk::CompositeAlphaFlagBitsKHR Candidate : {
@@ -172,7 +172,7 @@ namespace Durin::VulkanRHI
 				return Configuration;
 			}
 		}
-		return std::unexpected(EVulkanSwapchainSelectionError::UnsupportedCompositeAlpha);
+		return std::unexpected("The surface reported no supported composite-alpha mode.");
 	}
 
 	FVulkanSwapchain::FVulkanSwapchain(FVulkanDevice& InDevice, vk::SurfaceKHR InSurface, uint32 Width, uint32 Height, bool bIsFullScreen, EViewportPresentationPolicy InPresentationPolicy, vk::SwapchainKHR InOldSwapchain, bool& bOutNativeSwapchainCreated)
@@ -204,7 +204,7 @@ namespace Durin::VulkanRHI
 				.PresentationPolicy = PresentationPolicy});
 		if (!Selection)
 			throw std::runtime_error(std::format("Vulkan swapchain selection failed: {}",
-				ToString(Selection.error())));
+				Selection.error()));
 		const auto& Configuration = *Selection;
 		Extent = Configuration.Extent;
 		ImageFormat = Configuration.SurfaceFormat.format;

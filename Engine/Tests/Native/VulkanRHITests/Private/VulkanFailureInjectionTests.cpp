@@ -343,18 +343,15 @@ namespace Durin::VulkanRHI
 		Input.LoaderApiVersion = VK_API_VERSION_1_0;
 		FVulkanInstanceNegotiationResult Result = NegotiateVulkanInstance(Input);
 		EXPECT_FALSE(Result.IsSuccess());
-		ASSERT_EQ(Result.Errors.size(), 1u);
-		EXPECT_EQ(Result.Errors[0].Code, EVulkanInstanceNegotiationError::LoaderVersionTooOld);
-		EXPECT_EQ(Result.Errors[0].Actual, VK_API_VERSION_1_0);
-		EXPECT_EQ(Result.Errors[0].Required, VK_API_VERSION_1_1);
+		ASSERT_EQ(Result.RejectionReasons.size(), 1u);
+		EXPECT_FALSE(Result.RejectionReasons.front().empty());
 
 		Input = MakeInstanceNegotiationInput();
 		Input.AvailableExtensions.pop_back();
 		Result = NegotiateVulkanInstance(Input);
 		EXPECT_FALSE(Result.IsSuccess());
-		ASSERT_EQ(Result.Errors.size(), 1u);
-		EXPECT_EQ(Result.Errors[0].Requirement, PlatformSurfaceExtension);
-		EXPECT_EQ(Result.Errors[0].Code, EVulkanInstanceNegotiationError::MissingInstanceExtension);
+		ASSERT_EQ(Result.RejectionReasons.size(), 1u);
+		EXPECT_FALSE(Result.RejectionReasons.front().empty());
 	}
 
 	TEST(FVulkanInstanceNegotiationTests, PromotedAndOptionalRequirementsAreDeduplicated)
@@ -366,7 +363,7 @@ namespace Durin::VulkanRHI
 			VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME,
 			VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME});
 		const FVulkanInstanceNegotiationResult Result = NegotiateVulkanInstance(Input);
-		ASSERT_TRUE(Result.IsSuccess()) << FormatVulkanInstanceNegotiationErrors(Result.Errors);
+		ASSERT_TRUE(Result.IsSuccess()) << ::testing::PrintToString(Result.RejectionReasons);
 		EXPECT_EQ(std::ranges::count(Result.EnabledExtensions,
 			std::string(VK_KHR_SURFACE_EXTENSION_NAME)), 1);
 		EXPECT_EQ(std::ranges::count(Result.EnabledExtensions,
@@ -385,7 +382,7 @@ namespace Durin::VulkanRHI
 			VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME,
 			VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME});
 		const auto Result = NegotiateVulkanInstance(Input);
-		ASSERT_TRUE(Result.IsSuccess()) << FormatVulkanInstanceNegotiationErrors(Result.Errors);
+		ASSERT_TRUE(Result.IsSuccess()) << ::testing::PrintToString(Result.RejectionReasons);
 		EXPECT_TRUE(Result.EnabledExtensions.empty());
 	}
 
@@ -394,7 +391,7 @@ namespace Durin::VulkanRHI
 		FVulkanInstanceNegotiationInput Input = MakeInstanceNegotiationInput();
 		Input.bRequestDiagnostics = true;
 		FVulkanInstanceNegotiationResult Result = NegotiateVulkanInstance(Input);
-		ASSERT_TRUE(Result.IsSuccess()) << FormatVulkanInstanceNegotiationErrors(Result.Errors);
+		ASSERT_TRUE(Result.IsSuccess()) << ::testing::PrintToString(Result.RejectionReasons);
 		EXPECT_TRUE(Result.EnabledExtensions.empty()
 			|| std::ranges::find(Result.EnabledExtensions, VK_EXT_DEBUG_UTILS_EXTENSION_NAME)
 				== Result.EnabledExtensions.end());
@@ -420,7 +417,7 @@ namespace Durin::VulkanRHI
 		EXPECT_FALSE(NegotiateVulkanInstance(Input).IsSuccess());
 		Input = MakeInstanceNegotiationInput();
 		const FVulkanInstanceNegotiationResult Result = NegotiateVulkanInstance(Input);
-		EXPECT_TRUE(Result.IsSuccess()) << FormatVulkanInstanceNegotiationErrors(Result.Errors);
+		EXPECT_TRUE(Result.IsSuccess()) << ::testing::PrintToString(Result.RejectionReasons);
 		EXPECT_EQ(Result.EnabledExtensions.size(), 2u);
 	}
 

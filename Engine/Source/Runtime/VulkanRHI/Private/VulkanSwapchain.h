@@ -1,7 +1,6 @@
 #pragma once
 
 #include <string>
-#include <string_view>
 #include <expected>
 
 #include "VulkanRHIAPI.h"
@@ -46,23 +45,9 @@ namespace Durin::VulkanRHI
 		vk::CompositeAlphaFlagBitsKHR CompositeAlpha = vk::CompositeAlphaFlagBitsKHR::eOpaque;
 	};
 
-	enum class EVulkanSwapchainSelectionError : uint8
-	{
-		NoSurfaceFormats,
-		NoPresentModes,
-		UnsupportedImageUsage,
-		InvalidExtentRange,
-		InvalidImageCountRange,
-		UnsupportedPresentPolicy,
-		EmptyExtent,
-		InsufficientImageCount,
-		UnsupportedCompositeAlpha,
-	};
-
-	VULKANRHI_API auto ToString(EVulkanSwapchainSelectionError Error) -> std::string_view;
-
+	// Failure text is diagnostic only; the expected state determines success.
 	VULKANRHI_API auto SelectVulkanSwapchainConfiguration(
-		const FVulkanSwapchainSelectionInput& Input) -> std::expected<FVulkanSwapchainConfiguration, EVulkanSwapchainSelectionError>;
+		const FVulkanSwapchainSelectionInput& Input) -> std::expected<FVulkanSwapchainConfiguration, std::string>;
 
 	// Reports whether presentation succeeded and whether the swapchain must be recreated.
 	struct FVulkanPresentOutcome

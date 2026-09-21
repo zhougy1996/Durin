@@ -33,9 +33,9 @@ namespace Durin::VulkanRHI
 	TEST(FVulkanSwapchainSelectionTests, SelectsCompleteSupportedConfiguration)
 	{
 		auto Input = MakeInput();
-		std::expected<FVulkanSwapchainConfiguration, EVulkanSwapchainSelectionError> Result;
+		std::expected<FVulkanSwapchainConfiguration, std::string> Result;
 		ASSERT_TRUE((Result = SelectVulkanSwapchainConfiguration(Input)))
-			<< ToString(Result.error());
+			<< Result.error();
 		EXPECT_EQ(Result->SurfaceFormat.format, vk::Format::eR8G8B8A8Srgb);
 		EXPECT_EQ(Result->PresentMode, vk::PresentModeKHR::eFifo);
 		EXPECT_EQ(Result->Extent, (vk::Extent2D{1920, 64}));
@@ -53,9 +53,9 @@ namespace Durin::VulkanRHI
 		Input.Capabilities.maxImageCount = 3;
 		Input.PresentationPolicy = EViewportPresentationPolicy::BestEffort;
 		Input.PresentModes = {vk::PresentModeKHR::eMailbox};
-		std::expected<FVulkanSwapchainConfiguration, EVulkanSwapchainSelectionError> Result;
+		std::expected<FVulkanSwapchainConfiguration, std::string> Result;
 		ASSERT_TRUE((Result = SelectVulkanSwapchainConfiguration(Input)))
-			<< ToString(Result.error());
+			<< Result.error();
 		EXPECT_EQ(Result->Extent, (vk::Extent2D{800, 600}));
 		EXPECT_EQ(Result->ImageCount, 3u);
 		EXPECT_EQ(Result->PresentMode, vk::PresentModeKHR::eMailbox);
@@ -82,9 +82,9 @@ namespace Durin::VulkanRHI
 		{
 			auto Input = MakeInput();
 			Input.Capabilities.supportedCompositeAlpha = Expected;
-			std::expected<FVulkanSwapchainConfiguration, EVulkanSwapchainSelectionError> Result;
+			std::expected<FVulkanSwapchainConfiguration, std::string> Result;
 			ASSERT_TRUE((Result = SelectVulkanSwapchainConfiguration(Input)))
-				<< ToString(Result.error());
+				<< Result.error();
 			EXPECT_EQ(Result->CompositeAlpha, Expected);
 		}
 	}
@@ -97,9 +97,9 @@ namespace Durin::VulkanRHI
 		Input.PresentationPolicy = EViewportPresentationPolicy::BestEffort;
 		Input.PresentModes = {vk::PresentModeKHR::eImmediate,
 			vk::PresentModeKHR::eFifo};
-		std::expected<FVulkanSwapchainConfiguration, EVulkanSwapchainSelectionError> Result;
+		std::expected<FVulkanSwapchainConfiguration, std::string> Result;
 		ASSERT_TRUE((Result = SelectVulkanSwapchainConfiguration(Input)))
-			<< ToString(Result.error());
+			<< Result.error();
 		EXPECT_EQ(Result->SurfaceFormat.format, vk::Format::eR8G8B8A8Srgb);
 		EXPECT_EQ(Result->PresentMode, vk::PresentModeKHR::eImmediate);
 	}
@@ -112,8 +112,8 @@ namespace Durin::VulkanRHI
 				vk::ColorSpaceKHR::eSrgbNonlinear},
 			{vk::Format::eB8G8R8A8Srgb,
 				vk::ColorSpaceKHR::eSrgbNonlinear}};
-		std::expected<FVulkanSwapchainConfiguration, EVulkanSwapchainSelectionError> Result;
-		ASSERT_TRUE((Result = SelectVulkanSwapchainConfiguration(Input))) << ToString(Result.error());
+		std::expected<FVulkanSwapchainConfiguration, std::string> Result;
+		ASSERT_TRUE((Result = SelectVulkanSwapchainConfiguration(Input))) << Result.error();
 		EXPECT_EQ(Result->SurfaceFormat.format,
 			vk::Format::eB8G8R8A8Srgb);
 	}
@@ -122,15 +122,16 @@ namespace Durin::VulkanRHI
 	{
 		for (uint32 Case = 0; Case < 4; ++Case)
 		{
+			SCOPED_TRACE(Case);
 			auto Input = MakeInput();
 			if (Case == 0) Input.Formats.clear();
 			if (Case == 1) Input.PresentModes.clear();
 			if (Case == 2) Input.Capabilities.supportedUsageFlags =
 				vk::ImageUsageFlagBits::eColorAttachment;
 			if (Case == 3) Input.Capabilities.supportedCompositeAlpha = {};
-			std::expected<FVulkanSwapchainConfiguration, EVulkanSwapchainSelectionError> Result;
+			std::expected<FVulkanSwapchainConfiguration, std::string> Result;
 			ASSERT_FALSE((Result = SelectVulkanSwapchainConfiguration(Input)));
-			EXPECT_EQ(Result.error(), (std::array{EVulkanSwapchainSelectionError::NoSurfaceFormats, EVulkanSwapchainSelectionError::NoPresentModes, EVulkanSwapchainSelectionError::UnsupportedImageUsage, EVulkanSwapchainSelectionError::UnsupportedCompositeAlpha})[Case]);
+			EXPECT_FALSE(Result.error().empty());
 		}
 	}
 
@@ -138,6 +139,7 @@ namespace Durin::VulkanRHI
 	{
 		for (uint32 Case = 0; Case < 3; ++Case)
 		{
+			SCOPED_TRACE(Case);
 			auto Input = MakeInput();
 			if (Case == 0) Input.PresentModes = {vk::PresentModeKHR::eImmediate};
 			if (Case == 1)
@@ -146,9 +148,9 @@ namespace Durin::VulkanRHI
 				Input.Capabilities.maxImageCount = 2;
 			}
 			if (Case == 2) Input.Capabilities.currentExtent = vk::Extent2D{0, 0};
-			std::expected<FVulkanSwapchainConfiguration, EVulkanSwapchainSelectionError> Result;
+			std::expected<FVulkanSwapchainConfiguration, std::string> Result;
 			ASSERT_FALSE((Result = SelectVulkanSwapchainConfiguration(Input)));
-			EXPECT_EQ(Result.error(), (std::array{EVulkanSwapchainSelectionError::UnsupportedPresentPolicy, EVulkanSwapchainSelectionError::InvalidImageCountRange, EVulkanSwapchainSelectionError::EmptyExtent})[Case]);
+			EXPECT_FALSE(Result.error().empty());
 		}
 	}
 } // namespace Durin::VulkanRHI

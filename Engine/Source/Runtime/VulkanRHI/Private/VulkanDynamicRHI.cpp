@@ -522,7 +522,12 @@ namespace Durin::VulkanRHI
 		}
 		NegotiationInput.bRequestDiagnostics = ValidationPolicy.bRequestDiagnostics;
 		FVulkanInstanceNegotiationResult Negotiation = NegotiateVulkanInstance(NegotiationInput);
-		if (!Negotiation.IsSuccess()) throw std::runtime_error(FormatVulkanInstanceNegotiationErrors(Negotiation.Errors));
+		if (!Negotiation.IsSuccess())
+		{
+			for (const std::string& Reason : Negotiation.RejectionReasons)
+				DURIN_ERROR("Vulkan instance: {}", Reason);
+			throw std::runtime_error("Vulkan instance negotiation failed. See the rejection reasons in the log.");
+		}
 		for (const FVulkanRequirementState& Requirement : Negotiation.Requirements)
 		{
 			if (!Requirement.bRequested || Requirement.bActivated

@@ -66,24 +66,23 @@ initialization error. Validation-layer callback messages remain external diagnos
 
 ## Vulkan configuration
 
-Instance negotiation retains `FVulkanInstanceNegotiationError` in
-`VulkanExtensions.h`, with an operation-specific code, requirement identifier,
-and numeric version context. Physical-device evaluation in `VulkanDevice.h`
-retains human-readable rejection reasons instead of structured error codes.
-An empty rejection list means a candidate is suitable; callers never parse the
-text. Evaluation does not log, since rejecting one candidate can be normal.
-If all candidates are unsuitable, the startup boundary logs each device and
-reason directly, then throws a short initialization failure. There is no
-aggregate device-report formatter or duplicated candidate arrays.
+Instance negotiation in `VulkanExtensions.h` and physical-device evaluation in
+`VulkanDevice.h` retain human-readable rejection reasons. An empty rejection
+list means success or suitability; callers never parse individual reason text.
+Evaluation does not log. The startup boundary logs each instance rejection, or
+each device and reason if all candidates are unsuitable, then throws a short
+initialization failure. There is no aggregate diagnostic formatter or duplicated
+candidate arrays.
 
-Swapchain selection uses `EVulkanSwapchainSelectionError` in `VulkanSwapchain.h`
-and returns `std::expected<FVulkanSwapchainConfiguration, EVulkanSwapchainSelectionError>`.
-It publishes a configuration only on success. There is no universal Vulkan
-error type or result alias. The infallible instance extension request builder
-returns data directly.
+Swapchain selection returns `std::expected<FVulkanSwapchainConfiguration, std::string>`
+and publishes a configuration only on success. The error string explains the
+failed configuration constraint; callers use the expected state, not the text,
+to determine success. The constructor propagates selection failures as exceptions.
+Viewport preparation already defers zero requested extents, and native creation
+retry policy remains based on `vk::Result`, not configuration diagnostic text.
 
-`ToString` declarations live beside their error types; implementations are
-centralized in `VulkanErrorStrings.cpp`. Enum conversions return static
-`std::string_view` descriptions and context conversions return `std::string`.
-`FormatVulkanInstanceNegotiationErrors` joins instance rejection diagnostics at
-the startup exception boundary. Formatted text is not a success indicator.
+There is no universal Vulkan error type or result alias. Startup and swapchain
+configuration diagnostics are produced beside the checks that need them; no
+separate error-code-to-text layer is required. The infallible instance extension
+request builder returns data directly. RHI errors consumed as structured results
+retain their operation-specific types and centralized `ToString` implementations.
