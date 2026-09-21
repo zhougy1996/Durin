@@ -10,17 +10,16 @@ namespace Durin
 		UnsupportedVersion, InUse, StaleData, ReadOnlyMode, ShuttingDown, Cancelled,
 		ProjectionPending
 	};
-	enum class EAssetWriteDisposition : uint8
+	enum class EAssetWriteEffect : uint8
 	{
-		Default, ForwardPending, ContentCommittedProjectionPending,
-		RecoveryRequired, PartiallyWritten
+		None, ContentCommittedProjectionPending, PartiallyWritten, ContentUncertain
 	};
-	// Only write operations can report durable progress and recovery metadata.
+	// Describes observed write effects, never whether an owning job can retry.
 	struct FAssetWriteResult
 	{
 		EAssetWriteError Error = EAssetWriteError::None;
 		std::string Message;
-		EAssetWriteDisposition Disposition = EAssetWriteDisposition::Default;
+		EAssetWriteEffect Effect = EAssetWriteEffect::None;
 		std::string FailedParticipant;
 		// Retained backup/staging data for manual repair, never a replay locator.
 		std::filesystem::path RecoveryLocation;

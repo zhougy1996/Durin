@@ -1467,7 +1467,7 @@ TEST(FMaterialFunctionTests, RelocationRefreshesNestedCallersAndDeletionHonorsRe
 	FAssetRelocationSummary Summary;
 	FAssetMutationJob Job;
 	ASSERT_TRUE(PrepareAssetRelocationJob(Mappings, Summary, Job));
-	ASSERT_TRUE(Job.ResumeForward());
+	ASSERT_TRUE(Job.Execute());
 	EXPECT_EQ(Wrapper->GetFunctionDependencies()[0].Get(), Leaf);
 	EXPECT_GT(Material->GetMaterialCompileStatus().AuthoredRevision, Revision);
 	EXPECT_EQ(Material->GetMaterialCompileStatus().State, EMaterialCompileState::NeedsCompile);

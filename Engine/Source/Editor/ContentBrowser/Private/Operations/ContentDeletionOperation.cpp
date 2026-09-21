@@ -44,13 +44,6 @@ namespace Durin::Editor::ContentBrowser::Private
 			const std::filesystem::path Path = Normalize(Entry.PhysicalPath);
 			ExpectedPaths.insert(Path.generic_string());
 			std::error_code Error;
-			if (RemovedPaths.contains(Path.generic_string()))
-			{
-				const auto Status = std::filesystem::symlink_status(Path, Error);
-				if ((!Error || Error == std::errc::no_such_file_or_directory)
-					&& Status.type() == std::filesystem::file_type::not_found) continue;
-				return Fail(std::format("Deleted path was replaced: {}.", Path.generic_string()));
-			}
 			const auto Status = std::filesystem::symlink_status(Path, Error);
 			if (Error || std::filesystem::is_symlink(Status))
 				return Fail(std::format(
@@ -79,8 +72,7 @@ namespace Durin::Editor::ContentBrowser::Private
 				if (OutIdentities) VerifiedFiles.emplace(Path.generic_string(), Identity);
 			}
 			const auto WriteTime = std::filesystem::last_write_time(Path, Error);
-			if (Error || (!(bStarted && bDirectory)
-				&& static_cast<int64>(WriteTime.time_since_epoch().count()) != Entry.LastWriteTimeTicks))
+			if (Error || static_cast<int64>(WriteTime.time_since_epoch().count()) != Entry.LastWriteTimeTicks)
 				return Fail(std::format(
 					"Deletion source changed: {}.", Path.generic_string()));
 		}
@@ -108,24 +100,26 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentDeletionOperation::DeletePhysicalRoots() -> FAssetWriteResult
 	{
+		std::vector<std::filesystem::path> RemovedPaths;
 		for (const FContentDeletionRoot& Root : Plan->MaximalRoots)
 		{
 			const std::filesystem::path Path = Normalize(Root.OriginalPath);
-			if (RemovedPaths.contains(Path.generic_string())) continue;
 			bStarted = true;
 			const std::error_code Error = Hooks.RemoveAll(Path);
+			RemovedPaths.clear();
 			for (const auto& Entry : Plan->Entries)
 			{
 				std::error_code ProbeError;
 				const auto Status = std::filesystem::symlink_status(Entry.PhysicalPath, ProbeError);
 				if ((!ProbeError || ProbeError == std::errc::no_such_file_or_directory)
 					&& Status.type() == std::filesystem::file_type::not_found)
-					RemovedPaths.insert(Normalize(Entry.PhysicalPath).generic_string());
+					RemovedPaths.push_back(Normalize(Entry.PhysicalPath));
 			}
 			if (Error)
-				return {EAssetWriteError::IoError, std::format(
+				return {.Error = EAssetWriteError::IoError, .Message = std::format(
 					"Could not permanently delete {}: {}",
-					Path.generic_string(), Error.message())};
+					Path.generic_string(), Error.message()),
+					.Effect = EAssetWriteEffect::PartiallyWritten, .AffectedFiles = std::move(RemovedPaths)};
 		}
 		return {};
 	}
@@ -140,7 +134,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 		if (InHooks.RemoveAll) Hooks = std::move(InHooks);
 		Details.clear();
-		if (!Plan || !Plan->CanExecute())
+		if (bStarted || !Plan || !Plan->CanExecute())
 			return {.Kind = EAssetOperationKind::Delete, .State = EAssetOperationTerminalState::Rejected, .Message = "Deletion is blocked or unavailable."};
 		Result = AssetOperation.Delete({
 			.Delete = [this] { return DeletePhysicalRoots(); },

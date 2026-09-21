@@ -27,7 +27,6 @@ namespace Durin
 	{
 		Rejected,
 		Completed,
-		ForwardPending,
 		ContentCommittedProjectionPending,
 		RecoveryRequired,
 		PartiallyWritten,

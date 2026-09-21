@@ -58,7 +58,6 @@ namespace Durin
 
 	using AssetPrivate::FAssetReferenceStoreRegistry;
 	using AssetPrivate::GetAssetReferenceStoreRegistry;
-	using AssetPrivate::EAssetMutationState;
 	using AssetPrivate::FAssetMutationStaging;
 	using AssetPrivate::FAssetMutationStagingEntry;
 	using AssetPrivate::FingerprintRelocationFile;
@@ -709,10 +708,10 @@ namespace Durin
 			Out.Message = std::move(Result.Message);
 			Out.AffectedFiles = std::move(Result.AffectedFiles);
 			if (Result.State == EPackageWriteState::PartiallyWritten)
-				Out.Disposition = EAssetWriteDisposition::PartiallyWritten;
+				Out.Effect = EAssetWriteEffect::PartiallyWritten;
 			if (Result.State == EPackageWriteState::RecoveryRequired
 				|| (!Result && Result.State == EPackageWriteState::Committed))
-				Out.Disposition = EAssetWriteDisposition::RecoveryRequired;
+				Out.Effect = EAssetWriteEffect::ContentUncertain;
 			if (!Result.RecoveryFiles.empty()) Out.RecoveryLocation = Result.RecoveryFiles.front();
 			return Out;
 		}
@@ -807,7 +806,7 @@ namespace Durin
 			auto Rollback = ToAssetWriteResult(Restored);
 			if (Restored.State == EPackageWriteState::RecoveryRequired)
 			{
-				Failure.Disposition = Rollback.Disposition;
+				Failure.Effect = Rollback.Effect;
 				Failure.Message += "; rollback: " + Rollback.Message;
 				Failure.RecoveryLocation = Rollback.RecoveryLocation;
 			}
@@ -846,7 +845,7 @@ namespace Durin
 			if (!RegistryResult)
 			{
 				FenceAssetRegistryProjection(std::span(&Path, 1));
-				RegistryResult.Disposition = EAssetWriteDisposition::ContentCommittedProjectionPending;
+				RegistryResult.Effect = EAssetWriteEffect::ContentCommittedProjectionPending;
 				RegistryResult.Message = "ContentCommittedProjectionPending: " + RegistryResult.Message;
 				if (!Finalized) { RegistryResult.Message += "; " + Finalized.Message; RegistryResult.RecoveryLocation = Finalized.RecoveryLocation; }
 				return RegistryResult;
@@ -1023,7 +1022,7 @@ namespace Durin
 				if (!bSucceeded)
 				{
 					Result = Error(EAssetWriteError::IoError, "Direct write task failed; the closure requires reconciliation.");
-					Result.Disposition = Data->bStarted ? EAssetWriteDisposition::PartiallyWritten : EAssetWriteDisposition::Default;
+					Result.Effect = Data->bStarted ? EAssetWriteEffect::PartiallyWritten : EAssetWriteEffect::None;
 					auto Bulk = Prepared.Destination; Bulk.replace_extension(".dbulk");
 					Result.AffectedFiles = {Bulk, Prepared.Destination};
 				}
@@ -1039,14 +1038,14 @@ namespace Durin
 						Result = bFailPublication ? Error(EAssetWriteError::StaleData, "Injected Registry publication failure.")
 							: AssetPrivate::ToAssetResult(AssetsSaved({BuildSavedAssetMetadata(Prepared.File,
 							Path, Prepared.Destination, Stamp.Size, Stamp.Time)}, CaptureAssetRegistryPublication()));
-					if (!Result) Result.Disposition = EAssetWriteDisposition::ContentCommittedProjectionPending;
+					if (!Result) Result.Effect = EAssetWriteEffect::ContentCommittedProjectionPending;
 					else
 					{
 						Data->Package->MarkAsPublished();
 						if (Data->Package->GetEditRevision() == Prepared.Revision) Data->Package->ClearDirty();
 					}
 				}
-				if (!Result && Result.Disposition != EAssetWriteDisposition::Default)
+				if (!Result && Result.Effect != EAssetWriteEffect::None)
 				{
 					if (!Data->Package->IsDirty()) Data->Package->MarkDirty();
 					FenceAssetRegistryProjection(std::span(&Path, 1));
@@ -1145,7 +1144,7 @@ namespace Durin
 		{
 			std::vector<FPackagePath> Fenced(Paths.begin(), Paths.end());
 			FenceAssetRegistryProjection(Fenced);
-			RegistryResult.Disposition = EAssetWriteDisposition::ContentCommittedProjectionPending;
+			RegistryResult.Effect = EAssetWriteEffect::ContentCommittedProjectionPending;
 			RegistryResult.Message = "ContentCommittedProjectionPending: " + RegistryResult.Message;
 			if (!Finalized) { RegistryResult.Message += "; " + Finalized.Message; RegistryResult.RecoveryLocation = Finalized.RecoveryLocation; }
 			return RegistryResult;

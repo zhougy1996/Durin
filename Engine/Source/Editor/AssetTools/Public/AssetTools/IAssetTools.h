@@ -96,10 +96,10 @@ namespace Durin
 		// Persists loaded dirty packages or executes canonical resave policy.
 		virtual auto SaveAssets(const FAssetSaveRequest& Request)
 			-> FAssetOperationResult = 0;
-		// Executes one forward-recoverable authored relocation job.
+		// Executes one authored relocation job once.
 		virtual auto RelocateAssets(const FAssetRelocationRequest& Request)
 			-> FAssetOperationResult = 0;
-		// Executes or resumes a redirect-reference canonicalization job.
+		// Executes one redirect-reference canonicalization job.
 		virtual auto FixUpRedirectors(
 			const FAssetRedirectorFixupRequest& Request)
 			-> FAssetOperationResult = 0;

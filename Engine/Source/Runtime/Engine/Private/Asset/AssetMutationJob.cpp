@@ -16,7 +16,7 @@ namespace Durin
 	auto FAssetMutationJob::GetState() const
 		-> EAssetMutationJobState
 	{
-		return State ? State->State : EAssetMutationJobState::Empty;
+		return State ? State->ExecutionState : EAssetMutationJobState::Empty;
 	}
 
 	auto FAssetMutationJob::GetLastResultDetails() const
@@ -25,40 +25,25 @@ namespace Durin
 		return State ? State->LastResult : FAssetMutationResultDetails{};
 	}
 
-	auto FAssetMutationJob::ResumeForward() -> FAssetWriteResult
+	auto FAssetMutationJob::Execute() -> FAssetWriteResult
 	{
 		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("mutation", ""); !Guard) return Guard;
 		if (!State)
 			return Error(EAssetWriteError::StaleData,
 				"The asset mutation job is empty.");
-		if (State->State != EAssetMutationJobState::Prepared)
-		{
-			FAssetWriteResult Result = Error(EAssetWriteError::StaleData,
-				"Only a prepared asset mutation job can resume forward.");
-			State->LastResult = {
-				.Result = Result,
-				.State = State->State,
-				.RegistryRevision = GetAssetCatalogRevision(),
-				.bForwardResumable = false,
-			};
-			return Result;
-		}
-
-		if (!State->ResumeOperation)
+		if (GetState() != EAssetMutationJobState::Prepared)
 			return Error(EAssetWriteError::StaleData,
-				"The asset mutation job has no forward operation.");
-		FAssetWriteResult Result = State->ResumeOperation();
-		const bool bRecoveryRequired = State->IsRecoveryRequired
-			&& State->IsRecoveryRequired();
-		if (Result)
-			State->State = EAssetMutationJobState::Completed;
-		else if (bRecoveryRequired)
-			State->State = EAssetMutationJobState::RecoveryRequired;
+				"An asset mutation job can execute only once.");
+
+		if (!State->ExecuteOperation)
+			return Error(EAssetWriteError::StaleData,
+				"The asset mutation job has no execution operation.");
+		State->ExecutionState = EAssetMutationJobState::Executing;
+		FAssetWriteResult Result = State->ExecuteOperation();
+		State->ExecutionState = Result ? EAssetMutationJobState::Completed : EAssetMutationJobState::Failed;
 		State->LastResult = {
 			.Result = Result,
-			.State = State->State,
 			.RegistryRevision = GetAssetCatalogRevision(),
-			.bForwardResumable = !Result && !bRecoveryRequired,
 		};
 		if (State->PopulateResultDetails)
 			State->PopulateResultDetails(State->LastResult);

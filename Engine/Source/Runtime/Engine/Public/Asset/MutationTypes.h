@@ -11,17 +11,15 @@ namespace Durin
 	{
 		Empty,
 		Prepared,
+		Executing,
 		Completed,
-		RecoveryRequired,
+		Failed,
 	};
 
 	struct FAssetMutationResultDetails
 	{
 		FAssetWriteResult Result;
-		EAssetMutationJobState State = EAssetMutationJobState::Empty;
 		uint64 RegistryRevision = 0;
-		bool bForwardResumable = false;
-		auto IsRecoveryRequired() const -> bool { return State == EAssetMutationJobState::RecoveryRequired; }
 		std::vector<FPackagePath> RewrittenPaths;
 		std::vector<FPackagePath> RetainedPaths;
 		std::vector<FPackagePath> DeletedPaths;
@@ -35,8 +33,8 @@ namespace Durin
 		ENGINE_API auto GetState() const -> EAssetMutationJobState;
 		ENGINE_API auto GetLastResultDetails() const
 			-> FAssetMutationResultDetails;
-		// Retries only this live job; no state is persisted or replayed after restart.
-		ENGINE_API auto ResumeForward() -> FAssetWriteResult;
+		// Executes once. A failed or completed job must be replaced by a newly prepared job.
+		ENGINE_API auto Execute() -> FAssetWriteResult;
 
 	private:
 		struct FState;

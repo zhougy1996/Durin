@@ -499,7 +499,7 @@ TEST_F(FTextureImportQueueTests, DirectSaveFailureFencesOnlyDestructiveOutputAnd
 		ASSERT_TRUE(DPackage::DrainAsyncSaves());
 		ASSERT_EQ(Results->size(), 1u);
 		EXPECT_FALSE(Results->front());
-		EXPECT_EQ(Results->front().Disposition, FailIndex == 0 ? EAssetWriteDisposition::Default : EAssetWriteDisposition::PartiallyWritten);
+		EXPECT_EQ(Results->front().Effect, FailIndex == 0 ? EAssetWriteEffect::None : EAssetWriteEffect::PartiallyWritten);
 		EXPECT_EQ(Results->front().AffectedFiles.size(), FailIndex);
 		EXPECT_EQ(IsAssetRegistryProjectionFenced(Path), FailIndex != 0);
 		EXPECT_TRUE(Package->IsDirty());
@@ -524,7 +524,7 @@ TEST_F(FTextureImportQueueTests, DirectSaveProjectionFailureCanReconcileAndShutd
 	ASSERT_TRUE(SavePackage(Package, SAVE_Async));
 	ASSERT_TRUE(DPackage::DrainAsyncSaves());
 	ASSERT_EQ(Results->size(), 1u);
-	EXPECT_EQ(Results->front().Disposition, EAssetWriteDisposition::ContentCommittedProjectionPending);
+	EXPECT_EQ(Results->front().Effect, EAssetWriteEffect::ContentCommittedProjectionPending);
 	EXPECT_TRUE(IsAssetRegistryProjectionFenced(Path));
 	EXPECT_TRUE(Package->IsDirty());
 	AssetPrivate::SetAsyncSavePublicationFailureForTests(false);

@@ -10,10 +10,9 @@ namespace Durin
 	// publication result without owning workflow-specific state.
 	struct FAssetMutationJob::FState
 	{
-		std::function<FAssetWriteResult()> ResumeOperation;
-		std::function<bool()> IsRecoveryRequired;
+		std::function<FAssetWriteResult()> ExecuteOperation;
+		EAssetMutationJobState ExecutionState = EAssetMutationJobState::Prepared;
 		std::function<void(FAssetMutationResultDetails&)> PopulateResultDetails;
-		EAssetMutationJobState State = EAssetMutationJobState::Prepared;
 		FAssetMutationResultDetails LastResult;
 	};
 }

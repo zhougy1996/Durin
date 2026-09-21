@@ -132,7 +132,6 @@ namespace Durin::Editor::ContentBrowser::Private
 		FAssetDeletionOperation AssetOperation;
 		FAssetOperationResult Result{.Kind = EAssetOperationKind::Delete};
 		bool bStarted = false;
-		std::unordered_set<std::string> RemovedPaths;
 		FContentDeletionHooks Hooks;
 		std::string Details;
 	};
@@ -232,7 +231,6 @@ namespace Durin::Editor::ContentBrowser::Private
 		auto ExecuteDeletion(FContentDeletionPlanPtr Confirmation, FContentDeletionHooks Hooks = {})
 			-> FContentBrowserOperationResult;
 		auto DismissDeletion(FContentDeletionPlanPtr Confirmation) -> void;
-		auto GetPendingDeletion() const -> FContentDeletionPlanPtr;
 		auto IsDeletionPlanCurrent(const FContentDeletionPlan& Plan) const -> bool;
 
 
@@ -244,7 +242,6 @@ namespace Durin::Editor::ContentBrowser::Private
 			FContentDeletionPlanPtr Confirmation;
 			std::vector<FContentBrowserItem> Request;
 			std::unique_ptr<FContentDeletionOperation> Execution;
-			bool bPublished = false;
 		};
 		uint64 NextDeletionSession = 0;
 		std::unordered_map<uint64, FDeletionSession> DeletionSessions;

@@ -45,7 +45,7 @@ namespace
 		Durin::FAssetMutationJob Transaction;
 		Durin::FAssetWriteResult Result = Durin::PrepareAssetRelocationJob(
 				std::span{&Mapping, 1}, Summary, Transaction);
-		if (Result) Result = Transaction.ResumeForward();
+		if (Result) Result = Transaction.Execute();
 		return Result;
 	}
 }

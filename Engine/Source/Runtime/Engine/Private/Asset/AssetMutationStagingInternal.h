@@ -8,14 +8,6 @@
 
 namespace Durin::AssetPrivate
 {
-	enum class EAssetMutationState : uint8
-	{
-		Planned,
-		Prepared,
-		Publishing,
-		Committed,
-		RecoveryRequired,
-	};
 	enum class EAssetMutationPublicationRole : uint8
 	{
 		RealAsset,
@@ -55,13 +47,11 @@ namespace Durin::AssetPrivate
 			EAssetMutationPublicationRole::RealAsset;
 		bool bPreExists = false;
 		bool bPostExists = false;
-		bool bCompleted = false;
 		std::filesystem::path StagedPrePath;
 		std::filesystem::path StagedPostPath;
 		FXxHash128 StagedPreHash;
 		FXxHash128 StagedPostHash;
 		FAssetPackageFingerprint ExpectedPreFingerprint;
-		FAssetPackageFingerprint ExpectedPostFingerprint;
 	};
 
 	// Retains staged inputs and in-process progress for one authored mutation.
@@ -73,14 +63,14 @@ namespace Durin::AssetPrivate
 		std::vector<FAssetMutationStagingEntry> Entries;
 		// Normalized-path index for duplicate participant checks.
 		std::unordered_map<std::string, size_t> EntryIndices;
-		EAssetMutationState State = EAssetMutationState::Planned;
+		bool bRetainBackups = false;
+		std::vector<std::filesystem::path> PublishedFiles;
 
 		FAssetMutationStaging() = default;
 		FAssetMutationStaging(const FAssetMutationStaging&) = delete;
 		auto operator=(const FAssetMutationStaging&)
 			-> FAssetMutationStaging& = delete;
 		~FAssetMutationStaging();
-		auto GetPublishedFiles() const -> std::vector<std::filesystem::path>;
 	};
 
 	auto InitializeMutationStaging(
@@ -110,12 +100,6 @@ namespace Durin::AssetPrivate
 		const std::filesystem::path& Path,
 		const FMountPoint*& OutMount,
 		std::string& OutError) -> bool;
-	auto RequireMutationRepair(
-		FAssetMutationStaging& Staging,
-		std::string FailedParticipant,
-		std::string_view Message) -> FAssetWriteResult;
-	auto RequiresMutationRepair(
-		const FAssetMutationStaging& Staging) -> bool;
 	auto PublishRelocationFile(const FAssetMutationStagingEntry& Entry)
 		-> FAssetWriteResult;
 }

@@ -550,12 +550,6 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserPanel::RequestDeleteSelection() -> void
 	{
-		if (const auto Pending = Operations.GetPendingDeletion())
-		{
-			PendingDeletionPlan = Pending;
-			bDeletePopupRequested = true;
-			return;
-		}
 		if (SelectionState.Selected.empty()) return;
 		Operations.DismissDeletion(PendingDeletionPlan);
 		PendingDeletionPlan = Operations.BuildDeletionPlan(
@@ -582,6 +576,10 @@ namespace Durin::Editor::ContentBrowser::Private
 			EAssetOperationTerminalState::ContentCommittedProjectionPending))
 		{
 			SetError(Result.Status.Message);
+			Operations.DismissDeletion(PendingDeletionPlan);
+			PendingDeletionPlan.reset();
+			bDeletionPlanRefreshed = false;
+			SynchronizeMountedContentMutation();
 			return;
 		}
 		if (!Result.Status.Message.empty()) SetWarning(Result.Status.Message);

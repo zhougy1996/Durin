@@ -227,7 +227,7 @@ namespace
 		Durin::FAssetMutationJob Job;
 		Durin::FAssetWriteResult Result = Durin::PrepareAssetRelocationJob(
 				Mappings, Summary, Job);
-		if (Result) Result = Job.ResumeForward();
+		if (Result) Result = Job.Execute();
 		return Result;
 	}
 
@@ -253,7 +253,7 @@ namespace
 		Durin::FAssetMutationJob Job;
 		Durin::FAssetWriteResult Result = Durin::PrepareRedirectorFixupJob(
 				Redirectors, Mode, Summary, Job);
-		return Result ? Job.ResumeForward() : Result;
+		return Result ? Job.Execute() : Result;
 	}
 
 	// Runtime fixture cleanup uses only the package removal primitives.
@@ -1725,13 +1725,11 @@ namespace
 
 	auto RunRedirectorFixupRewritesHardSoftAndExternalOccurrencesBeforeDeletionTest()
 		-> void;
-	auto RunRedirectorFixupVerificationFailureResumesRemainingParticipantsTest()
-		-> void;
 	auto RunRedirectorFixupRejectsUnavailableProviderWithoutMutationTest()
 		-> void;
 	auto RunRedirectorFixupRejectsReadOnlyAndChangedPackageInputsTest()
 		-> void;
-	auto RunRedirectorFixupPublicationFailuresResumeForwardTest()
+	auto RunRedirectorFixupPublicationFailuresAreTerminalTest()
 		-> void;
 
 	auto RewriteSchemaTestPackage(const Durin::FPackagePath& Path,
@@ -3572,7 +3570,7 @@ TEST(FPackageAssetTests, DirectSaveRetiresLazyResourcesButRetainsAuthoredBytesFo
 	EXPECT_TRUE(Asset->Payload.IsMemoryResident());
 	ASSERT_TRUE(DPackage::DrainAsyncSaves());
 	ASSERT_EQ(Results->size(), 1u);
-	EXPECT_EQ(Results->front().Disposition, EAssetWriteDisposition::PartiallyWritten);
+	EXPECT_EQ(Results->front().Effect, EAssetWriteEffect::PartiallyWritten);
 	const auto Resident = Asset->Payload.GetPayload().Wait();
 	ASSERT_TRUE(Resident);
 	EXPECT_TRUE(std::ranges::equal(Resident.Buffer.GetBytes(), Payload));
@@ -3730,7 +3728,7 @@ TEST(FPackageAssetTests, TransactionalRegistryFailureRestoresOldAndNewClosures)
 		.ShouldFail = [](EAssetBundleSavePhase Phase, size_t) { return Phase == EAssetBundleSavePhase::PublishRegistry; },
 		.bRollbackOnRegistryFailure = true});
 	EXPECT_FALSE(Failed);
-	EXPECT_NE(Failed.Disposition, EAssetWriteDisposition::ContentCommittedProjectionPending);
+	EXPECT_NE(Failed.Effect, EAssetWriteEffect::ContentCommittedProjectionPending);
 	FByteBuffer AfterMain, AfterBulk;
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(AfterMain, Root / "TransactionalExisting.dasset"));
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(AfterBulk, Root / "TransactionalExisting.dbulk"));
@@ -3767,8 +3765,8 @@ TEST(FPackageAssetTests, RegistryFailureKeepsCommittedStableClosure)
 				return Phase == Durin::EAssetBundleSavePhase::PublishRegistry;
 			}});
 	EXPECT_EQ(Result.Error, Durin::EAssetWriteError::StaleData);
-	EXPECT_EQ(Result.Disposition,
-		Durin::EAssetWriteDisposition::ContentCommittedProjectionPending);
+	EXPECT_EQ(Result.Effect,
+		Durin::EAssetWriteEffect::ContentCommittedProjectionPending);
 	EXPECT_NE(Result.Message.find("ContentCommittedProjectionPending"),
 		std::string::npos);
 	const std::filesystem::path Root =
@@ -4108,19 +4106,14 @@ TEST(FPackageAssetTests, RelocationAndDeletionOwnStableAuthoredCompanion)
 	EXPECT_FALSE(std::filesystem::exists(DestinationCompanion));
 }
 
-TEST(FPackageAssetTests, RedirectorFixupVerificationFailureRestoresPackagesStoresAndAlias)
-{
-	RunRedirectorFixupVerificationFailureResumesRemainingParticipantsTest();
-}
-
 TEST(FPackageAssetTests, RedirectorFixupRejectsUnavailableProviderWithoutMutation)
 {
 	RunRedirectorFixupRejectsUnavailableProviderWithoutMutationTest();
 }
 
-TEST(FPackageAssetTests, RedirectorFixupPublicationFailuresRestoreAllParticipants)
+TEST(FPackageAssetTests, RedirectorFixupPublicationFailuresAreTerminal)
 {
-	RunRedirectorFixupPublicationFailuresResumeForwardTest();
+	RunRedirectorFixupPublicationFailuresAreTerminalTest();
 }
 
 TEST(FPackageAssetTests, RedirectorFixupRewriteOnlyReportsRetainedAlias)
@@ -4152,8 +4145,8 @@ TEST(FPackageAssetTests, RedirectorFixupRewriteOnlyReportsRetainedAlias)
 		Summary,
 		Job));
 	EXPECT_TRUE(Summary.GetDeletableRedirectors().empty());
-	const auto Resumed = Job.ResumeForward();
-	ASSERT_TRUE(Resumed) << Resumed.Message;
+	const auto Executed = Job.Execute();
+	ASSERT_TRUE(Executed) << Executed.Message;
 	const Durin::FAssetMutationResultDetails Details =
 		Job.GetLastResultDetails();
 	EXPECT_EQ(Details.RewrittenPaths, std::vector{OwnerPath});
@@ -6963,10 +6956,10 @@ TEST(FPackageAssetTests, RelocationPublicationFailureRestoresAuthoredState)
 	Durin::SetAssetRelocationFailurePointForTesting(
 		Durin::EAssetRelocationFailurePoint::PublishRedirector
 	);
-	const auto Result = Job.ResumeForward();
+	const auto Result = Job.Execute();
 	EXPECT_EQ(Result.Error, Durin::EAssetWriteError::IoError);
-	EXPECT_EQ(Result.Disposition,
-		Durin::EAssetWriteDisposition::ForwardPending);
+	EXPECT_EQ(Result.Effect,
+		Durin::EAssetWriteEffect::PartiallyWritten);
 	EXPECT_FALSE(Result.RecoveryLocation.empty());
 	EXPECT_EQ(ExternalSetting.GetPath().GetPackagePath(), OldPath);
 	ASSERT_NE(Durin::FindAssetExact(OldPath), nullptr);
@@ -7001,8 +6994,8 @@ TEST(FPackageAssetTests, RestartDoesNotReplayInterruptedRelocation)
 	Durin::SetAssetRelocationFailurePointForTesting(
 		Durin::EAssetRelocationFailurePoint::PublishRedirector
 	);
-	const auto Interrupted = Job.ResumeForward();
-	ASSERT_EQ(Interrupted.Disposition, Durin::EAssetWriteDisposition::ForwardPending);
+	const auto Interrupted = Job.Execute();
+	ASSERT_EQ(Interrupted.Effect, Durin::EAssetWriteEffect::PartiallyWritten);
 	ASSERT_FALSE(Interrupted.AffectedFiles.empty());
 	ASSERT_TRUE(std::filesystem::is_directory(Interrupted.RecoveryLocation));
 	EXPECT_FALSE(std::filesystem::exists(Interrupted.RecoveryLocation / "journal"));
@@ -7177,7 +7170,7 @@ TEST(FPackageAssetTests, RelocationFailureSeamsPreserveEveryOrdinaryBoundary)
 		ASSERT_TRUE(Durin::PrepareAssetRelocationJob(
 			std::span{&Mapping, 1}, Summary, Job));
 		Durin::SetAssetRelocationFailurePointForTesting(Points[Index]);
-		EXPECT_EQ(Job.ResumeForward().Error, Durin::EAssetWriteError::IoError);
+		EXPECT_EQ(Job.Execute().Error, Durin::EAssetWriteError::IoError);
 		ASSERT_NE(Durin::FindAssetExact(SourcePath), nullptr);
 		EXPECT_EQ(Durin::FindAssetExact(SourcePath)->EntryKind, Durin::EAssetRegistryEntryKind::Asset);
 		EXPECT_EQ(Durin::FindAssetExact(DestinationPath), nullptr);
@@ -7209,7 +7202,7 @@ TEST(FPackageAssetTests, RelocationFailureSeamsPreserveEveryOrdinaryBoundary)
 	EXPECT_EQ(Durin::FindAssetExact(PrepareDestination), nullptr);
 }
 
-TEST(FPackageAssetTests, RelocationFailureRetainsForwardProgressAndResumes)
+TEST(FPackageAssetTests, RelocationFailureRetainsEffectsAndRejectsSecondExecution)
 {
 	InitializeAssetTests();
 	Durin::FPackagePath SourcePath;
@@ -7233,15 +7226,15 @@ TEST(FPackageAssetTests, RelocationFailureRetainsForwardProgressAndResumes)
 	Durin::SetAssetRelocationFailurePointForTesting(
 		Durin::EAssetRelocationFailurePoint::PublishRedirector
 	);
-	const auto Result = Job.ResumeForward();
+	const auto Result = Job.Execute();
 	EXPECT_EQ(Result.Error, Durin::EAssetWriteError::IoError);
-	EXPECT_NE(Result.Message.find("AssetMutationForwardResumable"), std::string::npos);
+	EXPECT_NE(Result.Message.find("AssetMutationFailed"), std::string::npos);
 	EXPECT_EQ(Job.GetState(),
-		Durin::EAssetMutationJobState::Prepared);
+		Durin::EAssetMutationJobState::Failed);
 	const Durin::FAssetMutationResultDetails Details =
 		Job.GetLastResultDetails();
-	EXPECT_TRUE(Details.bForwardResumable);
-	EXPECT_FALSE(Details.IsRecoveryRequired());
+	EXPECT_EQ(Job.GetState(), Durin::EAssetMutationJobState::Failed);
+	EXPECT_EQ(Details.Result.Error, Result.Error);
 	const std::filesystem::path ContentRoot =
 		Durin::Testing::GetTestWorkDirectory() / "Assets";
 	const std::filesystem::path RecoveryRoot =
@@ -7262,15 +7255,16 @@ TEST(FPackageAssetTests, RelocationFailureRetainsForwardProgressAndResumes)
 
 	Durin::SetAssetRelocationFailurePointForTesting(
 		Durin::EAssetRelocationFailurePoint::None);
-	const auto Resumed = Job.ResumeForward();
-	ASSERT_TRUE(Resumed) << Resumed.Message;
-	EXPECT_EQ(Job.GetState(),
-		Durin::EAssetMutationJobState::Completed);
-	EXPECT_EQ(Durin::FindAssetExact(SourcePath)->EntryKind,
-		Durin::EAssetRegistryEntryKind::Redirector);
-	EXPECT_NE(Durin::FindAssetExact(DestinationPath), nullptr);
+	const auto SharedJob = Job;
+	const auto Rejected = Job.Execute();
+	EXPECT_EQ(Rejected.Error, Durin::EAssetWriteError::StaleData);
+	EXPECT_EQ(Job.GetState(), Durin::EAssetMutationJobState::Failed);
+	EXPECT_EQ(SharedJob.GetState(), Durin::EAssetMutationJobState::Failed);
+	EXPECT_EQ(Job.GetLastResultDetails().Result.AffectedFiles, Result.AffectedFiles);
+	EXPECT_TRUE(std::filesystem::is_directory(OperationRoot));
 	Job = {};
-	ASSERT_TRUE(DeleteAssetClosureForTest({SourcePath, DestinationPath}));
+	EXPECT_TRUE(std::filesystem::is_directory(OperationRoot));
+
 }
 
 namespace
@@ -7331,8 +7325,8 @@ namespace
 		EXPECT_EQ(Summary.GetStoreOccurrences().size(), 1u);
 		EXPECT_EQ(Summary.GetDeletableRedirectors().size(), 1u);
 		const uint64 ConstructionCount = GSoftPackageConstructionCount;
-		const auto Resumed = Job.ResumeForward();
-		ASSERT_TRUE(Resumed) << Resumed.Message;
+		const auto Executed = Job.Execute();
+		ASSERT_TRUE(Executed) << Executed.Message;
 		const Durin::FAssetMutationResultDetails Details =
 			Job.GetLastResultDetails();
 		EXPECT_EQ(Details.DeletedPaths, std::vector{OldPath});
@@ -7362,62 +7356,6 @@ namespace
 		EXPECT_EQ(ReloadedOwner->ExternalReference.Get(), Target);
 	}
 
-	auto RunRedirectorFixupVerificationFailureResumesRemainingParticipantsTest()
-		-> void
-	{
-		InitializeAssetTests();
-		Durin::FPackagePath OldPath;
-		Durin::FPackagePath NewPath;
-		Durin::FPackagePath OwnerPath;
-		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/FixupFailureOld", OldPath));
-		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/FixupFailureNew", NewPath));
-		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/FixupFailureOwner", OwnerPath));
-		DPackageAssetForTest* Target = nullptr;
-		ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(OldPath, Target));
-		ASSERT_TRUE(Durin::SavePackage(Target->GetPackage()));
-		DSoftPackageAssetForTest* Owner = nullptr;
-		ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(OwnerPath, Owner));
-		Owner->ExternalReference = Target;
-		Owner->Direct.SetPath(MakeFormerMainObjectPath(OldPath));
-		ASSERT_TRUE(Durin::SavePackage(Owner->GetPackage()));
-		const std::string OwnerFile = Durin::FindAssetExact(OwnerPath)
-										  ->PhysicalPath;
-		ASSERT_TRUE(Durin::UnloadPackage(OwnerPath));
-		ASSERT_TRUE(RelocateAssetForTest(OldPath, NewPath));
-		ASSERT_TRUE(Durin::RefreshAssetRegistry(
-			Durin::EAssetRegistryScanMode::FullValidation));
-		Durin::FByteBuffer BeforeBytes;
-		ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(BeforeBytes, OwnerFile));
-
-		FMemoryAssetReferenceStore Store(OldPath);
-		FScopedReferenceStoreRegistration StoreRegistration(&Store);
-		Durin::SetAssetRedirectorFixupFailurePointForTesting(
-			Durin::EAssetRedirectorFixupFailurePoint::Verify
-		);
-		Durin::FAssetRedirectorFixupSummary Summary;
-		Durin::FAssetMutationJob Job;
-		ASSERT_TRUE(Durin::PrepareRedirectorFixupJob(
-			std::span{&OldPath, 1},
-			Durin::EAssetRedirectorFixupMode::RewriteAndDelete,
-			Summary, Job));
-		const auto FixupResult = Job.ResumeForward();
-		EXPECT_EQ(FixupResult.Error, Durin::EAssetWriteError::IoError)
-			<< FixupResult.Message;
-		Durin::SetAssetRedirectorFixupFailurePointForTesting(
-			Durin::EAssetRedirectorFixupFailurePoint::None
-		);
-		const auto Resumed = Job.ResumeForward();
-		ASSERT_TRUE(Resumed) << Resumed.Message;
-		Durin::FByteBuffer AfterBytes;
-		ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(AfterBytes, OwnerFile));
-		EXPECT_NE(AfterBytes, BeforeBytes);
-		EXPECT_EQ(Store.Path, NewPath);
-		EXPECT_EQ(Durin::FindAssetExact(OldPath), nullptr);
-		EXPECT_TRUE(Durin::CaptureAssetReferenceIndex().FindReferencers(OldPath).empty());
-		StoreRegistration.Reset();
-		ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(OwnerPath));
-		ASSERT_TRUE(DeleteAssetClosureForTest({NewPath}));
-	}
 } // namespace
 
 namespace
@@ -7452,7 +7390,7 @@ namespace
 			Job
 		));
 		Durin::UnregisterAssetReferenceStore(Handle);
-		const auto Result = Job.ResumeForward();
+		const auto Result = Job.Execute();
 		EXPECT_EQ(Result.Error, Durin::EAssetWriteError::StaleData);
 		EXPECT_EQ(Job.GetLastResultDetails().FailedPaths,
 			std::vector{OldPath});
@@ -7540,7 +7478,7 @@ namespace
 					ChangedBytes, "Label", "Ghost"
 				));
 				WriteTestBytes(OwnerFile, ChangedBytes);
-				Result = Job.ResumeForward();
+				Result = Job.Execute();
 				EXPECT_EQ(Result.Error, Durin::EAssetWriteError::StaleData)
 					<< Result.Message;
 				WriteTestBytes(OwnerFile, PreBytes);
@@ -7555,12 +7493,13 @@ namespace
 		RunCase("Changed", false);
 	}
 
-	auto RunRedirectorFixupPublicationFailuresResumeForwardTest() -> void
+	auto RunRedirectorFixupPublicationFailuresAreTerminalTest() -> void
 	{
 		InitializeAssetTests();
 		constexpr std::array FailurePoints{
 			Durin::EAssetRedirectorFixupFailurePoint::PublishPackage,
 			Durin::EAssetRedirectorFixupFailurePoint::ApplyStore,
+			Durin::EAssetRedirectorFixupFailurePoint::Verify,
 			Durin::EAssetRedirectorFixupFailurePoint::DeleteRedirector,
 			Durin::EAssetRedirectorFixupFailurePoint::PublishRegistry
 		};
@@ -7605,22 +7544,40 @@ namespace
 				std::span{&OldPath, 1},
 				Durin::EAssetRedirectorFixupMode::RewriteAndDelete,
 				Summary, Job));
-			const auto Result = Job.ResumeForward();
+			const auto Result = Job.Execute();
 			Durin::SetAssetRedirectorFixupFailurePointForTesting(
 				Durin::EAssetRedirectorFixupFailurePoint::None
 			);
 			EXPECT_EQ(Result.Error, Durin::EAssetWriteError::IoError)
 				<< Result.Message;
-			const auto Resumed = Job.ResumeForward();
-			ASSERT_TRUE(Resumed) << Resumed.Message;
 			Durin::FByteBuffer AfterBytes;
 			ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(AfterBytes, OwnerFile));
-			EXPECT_NE(AfterBytes, BeforeBytes);
-			EXPECT_EQ(Store.Path, NewPath);
-			EXPECT_EQ(Durin::FindAssetExact(OldPath), nullptr);
+			const auto StorePathAfterFailure = Store.Path;
+			const auto Effects = Job.GetLastResultDetails().Result.AffectedFiles;
+			if (FailurePoints[Index] == Durin::EAssetRedirectorFixupFailurePoint::PublishPackage)
+			{
+				EXPECT_EQ(AfterBytes, BeforeBytes);
+				EXPECT_TRUE(Effects.empty());
+			}
+			else
+			{
+				EXPECT_NE(AfterBytes, BeforeBytes);
+				EXPECT_FALSE(Effects.empty());
+			}
+			const auto Rejected = Job.Execute();
+			EXPECT_EQ(Rejected.Error, Durin::EAssetWriteError::StaleData);
+			EXPECT_EQ(Job.GetState(), Durin::EAssetMutationJobState::Failed);
+			Durin::FByteBuffer AfterRejectedBytes;
+			ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(AfterRejectedBytes, OwnerFile));
+			EXPECT_EQ(AfterRejectedBytes, AfterBytes);
+			EXPECT_EQ(Store.Path, StorePathAfterFailure);
+			EXPECT_EQ(Job.GetLastResultDetails().Result.AffectedFiles, Effects);
+			ASSERT_TRUE(Durin::RefreshAssetRegistry(Durin::EAssetRegistryScanMode::FullValidation));
 			StoreRegistration.Reset();
 			ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(OwnerPath));
-			ASSERT_TRUE(DeleteAssetClosureForTest({NewPath}));
+			const auto Cleanup = Durin::FindAssetExact(OldPath)
+				? DeleteAssetClosureForTest({OldPath, NewPath}) : DeleteAssetClosureForTest({NewPath});
+			ASSERT_TRUE(Cleanup) << Cleanup.Message;
 		}
 	}
 } // namespace
@@ -8216,8 +8173,8 @@ TEST(FPackageAssetTests, AtomicBundleRegistryFailureKeepsCommittedContent)
 		 }}
 	);
 	EXPECT_EQ(Result.Error, Durin::EAssetWriteError::StaleData);
-	EXPECT_EQ(Result.Disposition,
-		Durin::EAssetWriteDisposition::ContentCommittedProjectionPending);
+	EXPECT_EQ(Result.Effect,
+		Durin::EAssetWriteEffect::ContentCommittedProjectionPending);
 	EXPECT_NE(Result.Message.find("ContentCommittedProjectionPending"),
 		std::string::npos);
 
@@ -8363,7 +8320,7 @@ TEST(FPackageAssetTests, RejectsTruncatedPackagesWithoutCachingPartialObjects)
 	EXPECT_EQ(Durin::FindResidentPackage(Path), nullptr);
 }
 
-TEST(FPackageAssetTests, RelocationJobIsForwardOnlyAndCompletesOnce)
+TEST(FPackageAssetTests, RelocationJobExecutesOnlyOnce)
 {
 	InitializeAssetTests();
 	Durin::FPackagePath First;
@@ -8395,10 +8352,10 @@ TEST(FPackageAssetTests, RelocationJobIsForwardOnlyAndCompletesOnce)
 		Durin::EAssetMutationJobState::Prepared);
 	const uint64 BeforeRevision =
 		Durin::GetAssetCatalogRevision();
-	ASSERT_TRUE(Job.ResumeForward());
+	ASSERT_TRUE(Job.Execute());
 	EXPECT_EQ(Job.GetState(),
 		Durin::EAssetMutationJobState::Completed);
-	EXPECT_EQ(Job.ResumeForward().Error, Durin::EAssetWriteError::StaleData);
+	EXPECT_EQ(Job.Execute().Error, Durin::EAssetWriteError::StaleData);
 	EXPECT_EQ(Durin::GetAssetCatalogRevision(), BeforeRevision + 1);
 	EXPECT_EQ(Durin::FindAssetExact(First)->EntryKind, Durin::EAssetRegistryEntryKind::Redirector);
 	EXPECT_EQ(Durin::FindAssetExact(Second)->EntryKind, Durin::EAssetRegistryEntryKind::Redirector);
@@ -8432,13 +8389,13 @@ TEST(FPackageAssetTests, RelocationJobRejectsStaleCommitWithoutMutatingState)
 	DPackageAssetForTest* UnrelatedAsset = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(Unrelated, UnrelatedAsset));
 	ASSERT_TRUE(Durin::SavePackage(UnrelatedAsset->GetPackage()));
-	EXPECT_EQ(Job.ResumeForward().Error, Durin::EAssetWriteError::StaleData);
+	EXPECT_EQ(Job.Execute().Error, Durin::EAssetWriteError::StaleData);
 	EXPECT_EQ(Job.GetState(),
-		Durin::EAssetMutationJobState::Prepared);
+		Durin::EAssetMutationJobState::Failed);
 	const Durin::FAssetMutationResultDetails Details =
 		Job.GetLastResultDetails();
-	EXPECT_TRUE(Details.bForwardResumable);
-	EXPECT_FALSE(Details.IsRecoveryRequired());
+	EXPECT_EQ(Details.Result.Error, Durin::EAssetWriteError::StaleData);
+	EXPECT_EQ(Job.Execute().Error, Durin::EAssetWriteError::StaleData);
 	EXPECT_NE(Durin::FindAssetExact(Source), nullptr);
 	EXPECT_EQ(Durin::FindAssetExact(Destination), nullptr);
 }
@@ -9780,7 +9737,7 @@ TEST(FPackageAssetTests, CancelledProtectedSaveDoesNotPublishAndAllowsRetry)
 	ASSERT_TRUE(DPackage::DrainAsyncSaves());
 	const auto& Result = Save.GetResult();
 	EXPECT_EQ(Result.Error, EAssetWriteError::Cancelled);
-	EXPECT_EQ(Result.Disposition, EAssetWriteDisposition::Default);
+	EXPECT_EQ(Result.Effect, EAssetWriteEffect::None);
 	EXPECT_TRUE(Result.RecoveryLocation.empty());
 	EXPECT_TRUE(Package->IsDirty());
 	EXPECT_EQ(FindAssetExact(Path).Data, Metadata);

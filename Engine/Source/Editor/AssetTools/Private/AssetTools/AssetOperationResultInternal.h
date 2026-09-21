@@ -13,16 +13,13 @@ namespace Durin::AssetToolsPrivate
 		EAssetOperationTerminalState State = Result
 			? EAssetOperationTerminalState::Completed
 			: EAssetOperationTerminalState::Rejected;
-		if (Result.Disposition ==
-			EAssetWriteDisposition::ContentCommittedProjectionPending)
+		if (Result.Effect ==
+			EAssetWriteEffect::ContentCommittedProjectionPending)
 			State = EAssetOperationTerminalState::ContentCommittedProjectionPending;
-		else if (Result.Disposition ==
-			EAssetWriteDisposition::RecoveryRequired)
+		else if (Result.Effect ==
+			EAssetWriteEffect::ContentUncertain)
 			State = EAssetOperationTerminalState::RecoveryRequired;
-		else if (Result.Disposition ==
-			EAssetWriteDisposition::ForwardPending)
-			State = EAssetOperationTerminalState::ForwardPending;
-		else if (Result.Disposition == EAssetWriteDisposition::PartiallyWritten)
+		else if (Result.Effect == EAssetWriteEffect::PartiallyWritten)
 			State = EAssetOperationTerminalState::PartiallyWritten;
 		FAssetOperationResult Operation{
 			.Kind = Kind,

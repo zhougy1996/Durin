@@ -46,7 +46,7 @@ namespace Durin
 			EAssetOperationKind Kind,
 			std::span<const FPackagePath> Affected) -> FAssetOperationResult
 		{
-			const FAssetWriteResult Committed = Job.ResumeForward();
+			const FAssetWriteResult Committed = Job.Execute();
 			if (!Committed) return AssetToolsPrivate::FromEngineResult(Kind, Committed, Affected);
 			FAssetOperationResult Result{
 				.Kind = Kind,

@@ -1361,7 +1361,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			}
 			Result.bContentChanged |= !Asset.AffectedAssets.empty()
 				&& (Asset.State == EAssetOperationTerminalState::Completed
-					|| Asset.State == EAssetOperationTerminalState::ForwardPending
+					|| Asset.State == EAssetOperationTerminalState::PartiallyWritten
 					|| Asset.Persistence == EAssetOperationPersistenceState::PartiallyPersisted
 					|| Asset.State == EAssetOperationTerminalState::ContentCommittedProjectionPending);
 		}
@@ -1410,15 +1410,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 		if (!Confirmation) return;
 		const auto Found = DeletionSessions.find(Confirmation->SessionId);
-		if (Found != DeletionSessions.end() && Found->second.Confirmation == Confirmation
-			&& !Found->second.Execution->HasStarted()) DeletionSessions.erase(Found);
-	}
-
-	auto FContentBrowserOperationService::GetPendingDeletion() const -> FContentDeletionPlanPtr
-	{
-		for (const auto& [Id, Session] : DeletionSessions)
-			if (Session.Execution->HasStarted()) return Session.Confirmation;
-		return {};
+		if (Found != DeletionSessions.end() && Found->second.Confirmation == Confirmation) DeletionSessions.erase(Found);
 	}
 
 	auto FContentBrowserOperationService::ExecuteDeletion(
@@ -1459,19 +1451,21 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (State == EAssetOperationTerminalState::Completed
 			|| State == EAssetOperationTerminalState::ContentCommittedProjectionPending)
 		{
-			if (!Session.bPublished)
-			{
-				for (const auto& Entry : Confirmation->Entries)
-					Result.Changes.Changes.push_back({EContentChangeKind::Removed, Entry.PhysicalPath, {}, {}, {},
-						Entry.Kind == EContentDeletionEntryKind::Directory});
-				Result.bContentChanged = true;
-				Result = Publish(std::move(Result));
-				Session.bPublished = true;
-			}
+			for (const auto& Entry : Confirmation->Entries)
+				Result.Changes.Changes.push_back({EContentChangeKind::Removed, Entry.PhysicalPath, {}, {}, {},
+					Entry.Kind == EContentDeletionEntryKind::Directory});
+			Result.bContentChanged = true;
+			Result = Publish(std::move(Result));
 			DeletionSessions.erase(Found);
 		}
-		// Forward-pending content remains fenced. Do not reconcile away the original
-		// asset safety snapshot until the same session finishes destructive work.
+		else
+		{
+			// Retire failed destructive attempts. Partial changes need a fresh analysis.
+			DeletionSessions.erase(Found);
+			Result.bContentChanged = true;
+			Result.Changes.bFullRefresh = true;
+			Result = Publish(std::move(Result));
+		}
 		return Result;
 	}
 }

@@ -1221,12 +1221,6 @@ namespace Durin::Editor::ContentBrowser::Private
 					Directory = Model.GetCurrentVirtualPath()] {
 					FixUpFolder(Directory);
 				});
-			if (const auto Pending = Operations.GetPendingDeletion(); Pending
-				&& ImGui::MenuItem("Retry Pending Deletion"))
-			{
-				PendingDeletionPlan = Pending;
-				bDeletePopupRequested = true;
-			}
 			if (ImGui::MenuItem("Fix Up All Redirectors"))
 				QueueContentAction([this] { FixUpProject(); });
 			ImGui::EndDisabled();
@@ -1329,7 +1323,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			const bool bBlocked = !bAllowAssetMutation || !Plan || !Plan->CanExecute();
 			const bool bDeletesFolder = Plan && Plan->Summary.FolderCount != 0;
 			ImGui::BeginDisabled(bBlocked);
-			if (MonaImGui::DialogButton(Operations.GetPendingDeletion() == PendingDeletionPlan ? "Retry Deletion" : bDeletesFolder ? "Delete Folder" : "Delete"))
+			if (MonaImGui::DialogButton(bDeletesFolder ? "Delete Folder" : "Delete"))
 			{
 				DeleteSelection();
 				if (!PendingDeletionPlan) ImGui::CloseCurrentPopup();

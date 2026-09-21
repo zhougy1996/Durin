@@ -102,7 +102,7 @@ saving and mutation return `FAssetWriteResult` with `EAssetWriteError`.
 Read cancellation and pending Registry projection have explicit classifications.
 Write preparation failures retain their full diagnostic text; object/field
 validation failures use `InvalidData` at the write boundary. Only write results
-carry durable disposition and recovery metadata. AssetRegistry owns its own
+carry observed write effects and retained backup locations. AssetRegistry owns its own
 result contract; Engine formats its diagnostic at the adaptation boundary.
 Both read and write results expose their presentation text through `Message`.
 Cook inputs and contributor callbacks use their Cook-owned result types.
@@ -243,9 +243,8 @@ retain their existing coordination contracts.
 Relocation is batched even for one mapping. Preparation captures the catalog
 revision, exact participant fingerprints, resident finalizers, destination
 artifacts, source redirectors, and owned payload moves behind an opaque job.
-`ResumeForward` is the only execution direction. It publishes destinations and
-owned payloads before source redirectors, records progress in the live job,
-and is idempotent across ordinary retry. Relocation neither opens nor rewrites
+`Execute()` publishes destinations and owned payloads before source redirectors.
+Each job executes once; success and failure are terminal. Relocation neither opens nor rewrites
 unrelated referencer packages: their authored paths continue to target the
 source alias until an explicit Fix Up operation canonicalizes those paths.
 
@@ -265,15 +264,14 @@ does not silently sever call bindings.
 
 Owned authored payload closure is metadata-derived, not suffix-guessed. A DAST
 v9 package contributes its validated raw `.dbulk` only when Registry and Bulk
-Directory bind a nonempty external segment. Relocation, duplication, Save, and
-in-process retries publish that companion with the `.dasset`. Atomic
+Directory bind a nonempty external segment. Relocation, duplication, and Save publish that companion with the `.dasset`. Atomic
 temporaries and `.durin-backup` files are recovery state and never mutation
 participants.
 
 Stale jobs, read-only participants, collisions, and preparation failures leave
-authority unchanged. After the first authoritative publication, failures retain
-in-process forward progress; `RecoveryRequired` is reserved for uncertain authored
-artifacts or independent stores. Registry-only lag returns
+authority unchanged. Failures after publication report the affected files and
+retain staging backups for manual repair. Jobs never resume partially completed
+work; a new operation must analyze the current content. Registry-only lag returns
 `ContentCommittedProjectionPending`, fences affected paths, and never rolls back
 valid package bytes.
 
@@ -284,18 +282,20 @@ No locator directory or persistent journal is written. Runtime initialization
 neither scans `Saved/AssetMutationRecovery` nor replays interrupted operations.
 Legacy records are left untouched and do not block startup.
 
-`ResumeForward()` retries only while the original job remains alive. Fix Up
-keeps external provider callbacks in that live job and verifies reference
-rewrites before deleting redirectors. After process exit there is no automatic
-continuation or multi-file crash-atomicity guarantee; partial changes require
-manual repair or version-control restoration.
+`FAssetMutationJob` owns execution state: Empty, Prepared, Executing, Completed,
+or Failed. Copies share the same single execution. Result details carry errors
+and observed effects, without a second job state or resumability flag. Rejected
+second executions preserve the original result details.
 
-`FAssetWriteResult` carries mutation disposition separately from its diagnostic
-error code. Forward-pending means the live job can retry; recovery-required means
-manual intervention may be needed. A recovery location identifies retained
-staging or backup data, not a replayable operation record. Operation ids and
-recovery directions are not part of public results. Registry projection lag
-remains separately classified; diagnostic messages remain presentation data.
+Fix Up verifies reference rewrites before deleting redirectors. There is no
+in-process continuation, startup replay, or multi-file crash-atomicity guarantee;
+partial changes require inspection and possibly manual repair or version-control
+restoration before preparing a new operation.
+
+`FAssetWriteResult::Effect` describes observed effects independently of its error
+code: partial writes, uncertain content, or committed content with Registry
+projection lag. It does not indicate retryability. A recovery location identifies
+retained staging or backup data, never a replayable operation record.
 
 ## Deletion And Fix-Up
 
@@ -328,26 +328,26 @@ broken aliases, incomplete alias closure, dirty/loading packages, unsafe paths,
 and changed fingerprints are blocked. After confirmation, maximal roots are
 permanently removed and no Engine recovery copy, Undo record, Restore command,
 or reverse callback is retained. Recovery belongs to version control. A partial
-I/O failure remains forward-only and fences stale Registry paths for retry.
+I/O failure stops the operation and fences stale Registry paths. The destructive
+callback cannot run again on the same operation.
 AssetTools calls Engine's `ReleasePackagesForRemoval` only after editor policy
 revalidation. Confirmation retains one AssetTools plan and its outside companion
 snapshot. Execution checks current participant files, residency, reference-store
 fingerprints, and catalog/contributor revisions without rebuilding that plan;
-recovery reuses the same confirmed ownership scope. ContentBrowser validates its
+ContentBrowser retires failed destructive confirmations and validates its
 physical selection once during execution and prepares a replacement confirmation
 only after rejection before destructive work begins. Engine checks the complete batch before retiring any resident
 graph, allowing internal hard references while rejecting outside hard
 referencers, dirty/loading packages, and stale catalog state. After the physical
 callback, `PublishPackageRemoval` removes matching catalog entries only when
-their package files are absent. An empty, moved-from, blocked, or completed
-AssetTools operation cannot invoke the callback.
+their package files are absent. An empty, moved-from, blocked, or previously
+executed AssetTools operation cannot invoke the callback.
 
 ContentBrowser hashes each surviving confirmed file once per execution attempt,
 after asset policy validation, and shares those freshly verified identities through
 `FAssetDeletionCommit::ValidateFiles`. AssetTools requires complete participant
-coverage and retains the same identities for forward retry instead of rehashing
-the files. Retry compares fresh identities with the retained values and rejects
-replaced removed files. Hosts without this callback use AssetTools' own hashing.
+coverage without rehashing the files. A later deletion requires a new plan and
+fresh confirmation. Hosts without this callback use AssetTools' own hashing.
 Neither size/timestamp matches nor cached hashes replace the final byte check.
 
 Fix Up is the only path-canonicalizing asset-mutation job. It rewrites
@@ -357,7 +357,7 @@ and may then delete proven aliases. Exact occurrences remain transient Engine
 tooling data throughout the job.
 Dirty, incompatible, read-only, incomplete, or stale participants block before
 mutation. Later participant failures retain verified rewrites and valid
-redirectors; a later invocation resumes remaining forward work.
+redirectors; the failed job cannot execute again.
 
 Owned-payload relocators, deletion companions, persistent external reference
 stores, and committed-only observers register through exact handles and reject

@@ -38,7 +38,7 @@ namespace
 		Durin::FAssetMutationJob Transaction;
 		Durin::FAssetWriteResult Result = Durin::PrepareAssetRelocationJob(
 				std::span{&Mapping, 1}, Summary, Transaction);
-		if (Result) Result = Transaction.ResumeForward();
+		if (Result) Result = Transaction.Execute();
 		return Result;
 	}
 
@@ -154,7 +154,7 @@ TEST(FProjectDefaultLevelReferenceStoreTests, FixUpRewritesYamlAndPreservesOther
 		Durin::EAssetRedirectorFixupMode::RewriteAndDelete,
 		Summary,
 		Transaction));
-	ASSERT_TRUE(Transaction.ResumeForward());
+	ASSERT_TRUE(Transaction.Execute());
 	EXPECT_EQ(NotifiedPath, Scenario.NewPath);
 	EXPECT_EQ(Durin::FindAssetExact(
 		Scenario.OldPath), nullptr);
@@ -166,7 +166,7 @@ TEST(FProjectDefaultLevelReferenceStoreTests, FixUpRewritesYamlAndPreservesOther
 	EXPECT_EQ(Settings.GetRootView().GetView("RootValue").GetInt(), 17);
 }
 
-TEST(FProjectDefaultLevelReferenceStoreTests, VerificationFailureRetainsForwardProgress)
+TEST(FProjectDefaultLevelReferenceStoreTests, VerificationFailureRetainsPublishedSettings)
 {
 	FDefaultLevelScenario Scenario = BuildScenario("Restore");
 	auto MountFixture = ConfigureAssets(Scenario);
@@ -184,7 +184,7 @@ TEST(FProjectDefaultLevelReferenceStoreTests, VerificationFailureRetainsForwardP
 			Durin::EAssetRedirectorFixupMode::RewriteAndDelete,
 			Summary,
 			Transaction);
-	if (Result) Result = Transaction.ResumeForward();
+	if (Result) Result = Transaction.Execute();
 	Durin::SetAssetRedirectorFixupFailurePointForTesting(
 		Durin::EAssetRedirectorFixupFailurePoint::None);
 	EXPECT_EQ(Result.Error, Durin::EAssetWriteError::IoError);
@@ -197,8 +197,7 @@ TEST(FProjectDefaultLevelReferenceStoreTests, VerificationFailureRetainsForwardP
 	const Durin::FYamlDocument Settings = LoadSettings(Scenario);
 	EXPECT_EQ(Settings.GetRootView().GetView("Game")
 		.GetView("DefaultLevel").GetString(), Scenario.NewPath.ToString());
-	ASSERT_TRUE(Transaction.ResumeForward());
-	EXPECT_EQ(Durin::FindAssetExact(Scenario.OldPath), nullptr);
+	EXPECT_EQ(Transaction.GetState(), Durin::EAssetMutationJobState::Failed);
 }
 
 TEST(FProjectDefaultLevelReferenceStoreTests, CookContributesCanonicalRootWithoutEditingYaml)

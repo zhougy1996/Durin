@@ -68,7 +68,6 @@ namespace Durin::AssetPrivate
 namespace Durin
 {
 	using AssetPrivate::AssetReferenceLess;
-	using AssetPrivate::EAssetMutationState;
 	using AssetPrivate::FAssetMutationStaging;
 	using AssetPrivate::FAssetMutationStagingEntry;
 	using AssetPrivate::FAssetReferenceStoreRegistry;

@@ -52,8 +52,7 @@ namespace Durin::AssetPrivate
 
 	FAssetMutationStaging::~FAssetMutationStaging()
 	{
-		if (State == EAssetMutationState::Publishing
-			|| State == EAssetMutationState::RecoveryRequired) return;
+		if (bRetainBackups) return;
 		const std::string ExpectedOwner =
 			MakeMutationStagingOwnerMarker(OperationId);
 		for (const std::filesystem::path& Root : Roots)
@@ -73,14 +72,6 @@ namespace Durin::AssetPrivate
 				continue;
 			std::filesystem::remove_all(Root, ErrorCode);
 		}
-	}
-
-	auto FAssetMutationStaging::GetPublishedFiles() const -> std::vector<std::filesystem::path>
-	{
-		std::vector<std::filesystem::path> Files;
-		for (const auto& Entry : Entries)
-			if (Entry.bCompleted) Files.push_back(Entry.PhysicalPath);
-		return Files;
 	}
 
 	auto MakePackageFingerprint(
@@ -223,8 +214,6 @@ namespace Durin::AssetPrivate
 		if (Request.bPostExists)
 		{
 			Entry.StagedPostHash = FXxHash128::HashBuffer(Request.PostBytes);
-			Entry.ExpectedPostFingerprint.FileSize = Request.PostBytes.size();
-			Entry.ExpectedPostFingerprint.ContentHash = Entry.StagedPostHash;
 		}
 
 		if (const auto Existing = Staging.EntryIndices.find(Key);
@@ -332,26 +321,6 @@ namespace Durin::AssetPrivate
 		Staging.EntryIndices.emplace(Key, Index);
 		OutEntryIndex = Index;
 		return {};
-	}
-
-	auto RequireMutationRepair(
-		FAssetMutationStaging& Staging,
-		std::string FailedParticipant,
-		std::string_view Message) -> FAssetWriteResult
-	{
-		Staging.State = EAssetMutationState::RecoveryRequired;
-		return {
-			.Error = EAssetWriteError::IoError,
-			.Message = std::format("Asset mutation needs manual repair: {}", Message),
-			.Disposition = EAssetWriteDisposition::RecoveryRequired,
-			.FailedParticipant = std::move(FailedParticipant),
-			.RecoveryLocation = Staging.Roots.empty() ? std::filesystem::path{} : Staging.Roots.front(),
-			.AffectedFiles = Staging.GetPublishedFiles()};
-	}
-
-	auto RequiresMutationRepair(const FAssetMutationStaging& Staging) -> bool
-	{
-		return Staging.State == EAssetMutationState::RecoveryRequired;
 	}
 
 	auto PublishRelocationFile(

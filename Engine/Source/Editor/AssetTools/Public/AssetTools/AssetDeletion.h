@@ -106,7 +106,7 @@ namespace Durin
 		// Delete repeats this check at execution; a successful query is not a lease.
 		ASSETTOOLS_API auto Validate() const -> FAssetWriteResult;
 		// Rejects empty, moved-from, blocked, stale, and completed operations before I/O.
-		// A callback failure is irreversible and returns ForwardPending with fenced paths.
+		// The destructive callback runs once; failure reports partial effects with fenced paths.
 		ASSETTOOLS_API auto Delete(const FAssetDeletionCommit& Commit) -> FAssetOperationResult;
 
 	private:
