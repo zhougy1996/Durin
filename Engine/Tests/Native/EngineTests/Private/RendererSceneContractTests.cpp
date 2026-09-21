@@ -1410,8 +1410,8 @@ TEST(FRendererSceneContractTests, SceneRenderGraphInspectionPublishesCompileFail
 	ASSERT_EQ(Captures.size(), 1u);
 	EXPECT_FALSE(Captures[0].bCompiled);
 	EXPECT_EQ(Captures[0].ExecutionResult.Status, Durin::ERDGExecutionStatus::CompileFailed);
-	EXPECT_EQ(Captures[0].ExecutionResult.Result.Error, Durin::ERDGError::PassNameEmpty);
-	EXPECT_EQ(ExplicitCapture.ExecutionResult.Result.Error, Captures[0].ExecutionResult.Result.Error);
+	EXPECT_EQ(Captures[0].ExecutionResult.Result.error().Code, Durin::ERDGError::PassNameEmpty);
+	EXPECT_EQ(ExplicitCapture.ExecutionResult.Result.error().Code, Captures[0].ExecutionResult.Result.error().Code);
 }
 
 TEST(FRendererSceneContractTests, TelemetryPublishesOnlyAfterSuccessfulCommit)
@@ -2523,8 +2523,8 @@ namespace Durin::Tests
 							ERHIAccess::ComputeShaderReadWrite);
 				}
 			}
-			FRDGExecutionContext Context{Allocator};
-			const auto Result = Builder.Execute(Executor.GetImmediateCommandList(), &Context);
+
+			const auto Result = Builder.Execute(Executor.GetImmediateCommandList(), &Allocator);
 			EXPECT_NE(Result.Status, ERDGExecutionStatus::CompileFailed) << FormatRDGError(Result.Result);
 			return Builder.Capture();
 		}
@@ -2553,18 +2553,18 @@ namespace Durin::Tests
 				const auto Pass = FRDGBuilderTestAccessor::AddPass(Builder, "Write", ERDGPassType::Compute);
 				FRDGBuilderTestAccessor::UseBuffer(Builder, Pass, Buffer, 0, 64, ERDGUse::Write,
 					ERHIAccess::ComputeShaderReadWrite, true);
-				FRDGExecutionContext Context{Allocator};
-				return Builder.Execute(CommandList, &Context).Result;
+
+				return Builder.Execute(CommandList, &Allocator).Result;
 			};
 			const auto First = Execute();
 			const auto Retry = Execute();
-			EXPECT_EQ(First.Error, ERDGError::PhysicalAllocationFailed);
-			EXPECT_EQ(Retry.Error, ERDGError::AllocationRetrySuppressed);
+			EXPECT_EQ(First.error().Code, ERDGError::PhysicalAllocationFailed);
+			EXPECT_EQ(Retry.error().Code, ERDGError::AllocationRetrySuppressed);
 			EXPECT_EQ(RHI.Creates, 1u);
 			for (const auto* Result : {&First, &Retry})
 			{
-				EXPECT_EQ(Result->GetCategory(), ERDGErrorCategory::AllocationFailed);
-				const auto* Cause = std::get_if<FRHICreationError>(&Result->Cause);
+				EXPECT_EQ(Result->error().GetCategory(), ERDGErrorCategory::AllocationFailed);
+				const auto* Cause = std::get_if<FRHICreationError>(&Result->error().Cause);
 				ASSERT_NE(Cause, nullptr);
 				EXPECT_EQ(Cause->Failure, ERHIResourceCreationFailure::UnsupportedDescriptor);
 				EXPECT_EQ(Cause->Source, ERHICreationFailureSource::NativeBackend);

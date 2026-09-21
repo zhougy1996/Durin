@@ -11,7 +11,7 @@ namespace Durin
 		struct FEvidence
 		{
 			FRDGResult Result;
-			auto IsSuccess() const -> bool { return Result.IsSuccess(); }
+			auto IsSuccess() const -> bool { return Result.has_value(); }
 		};
 		static auto GetSubmissionSyncPoints(const FRDGBuilder& Builder)
 			-> std::span<const FRHIGPUSyncPointRef>

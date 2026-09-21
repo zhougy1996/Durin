@@ -270,9 +270,9 @@ namespace Durin
             AddPass(Prefiltered,2,Face,Mip,std::max(128u>>Mip,1u),128,float(Mip)/7);
         Graph.QueueTextureExtraction(Irradiance,&Candidate->Irradiance,ERHIAccess::GraphicsShaderRead);
         Graph.QueueTextureExtraction(Prefiltered,&Candidate->Prefiltered,ERHIAccess::GraphicsShaderRead);
-        FRDGExecutionContext Context{Allocator};
+
         Commands.BeginGPUTimingQuery(Query);
-        const auto Result=Graph.Execute(Commands,&Context);
+        const auto Result=Graph.Execute(Commands,&Allocator);
         Commands.EndGPUTimingQuery(Query);
         Commands.SwitchPipeline(ERHIPipeline::Graphics);
         if (!Result.IsSuccess()) { Light->UpdateStatus->State.store(ESkyLightUpdateState::Failed); return; }

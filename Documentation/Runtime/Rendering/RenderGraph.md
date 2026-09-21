@@ -25,9 +25,9 @@ payloads without modifying the compiled plan.
 
 Graph-created textures and buffers use description-first `CreateTexture`/`CreateBuffer` declarations.
 
-Non-const `Execute(CommandList, ExecutionContext)` compiles, prepares retained
+Non-const `Execute(CommandList, Allocator)` compiles, prepares retained
 resources, records passes, and publishes extraction outputs. The optional
-context pointer supplies `FRDGAllocator`; omitting it is valid only when no
+`FRDGAllocator*` supplies resource allocation; omitting it is valid only when no
 retained logical RHI resource requires allocation. The allocator receives one
 name-free batch of exact retained descriptors. The builder holds the complete
 returned reference table through its own lifetime; allocator borrowing and RHI
@@ -37,9 +37,10 @@ The thread-confined lifecycle is Building -> Compiling -> Preparing -> Recording
 -> Recorded, with terminal Failed on supported failures or C++ unwinding. Every
 execution attempt consumes Building, including compile and preparation failure.
 `FRDGExecutionResult` distinguishes CompileFailed, PreparationFailed, Recorded,
-and InvalidState. Its `Result` contains an `FRDGResult`: `ERDGError` identifies
-success (`None`) or one specific failure. `GetCategory()` derives the broader
-`ERDGErrorCategory` from that code; no independent category or reason is stored.
+and InvalidState. Its `Result` is an `FRDGResult` (`std::expected<void, FRDGError>`).
+Success has no error payload; failure owns an `FRDGError` whose `Code` identifies
+one specific failure. `GetCategory()` derives `ERDGErrorCategory` from that code;
+no independent category or reason is stored.
 Internal validation, compilation, dependency insertion, recording, and allocation
 propagate this same typed result and its owned context. Success never depends on
 diagnostic text.
@@ -379,9 +380,13 @@ path. Uncomposed and manual uses retain their previous capture form.
 
 ## Diagnostics and Budgets
 
-`FRDGResult::Error` is the single stored error code and success discriminator.
-`GetCategory()` derives classification; default layout/execution wrappers use
-`ParameterLayoutNotBuilt` and `ExecutionNotStarted` instead of unspecified reasons.
+`FRDGResult` uses `std::expected` to distinguish success from an owned error.
+`FRDGError::Code` identifies failure and `GetCategory()` derives classification;
+there is no success error code. Parameter layout construction returns
+`std::expected<std::unique_ptr<const FRDGParameterLayout>, FRDGError>` and caches
+either the completed immutable layout or its validation error. The execution
+report retains its phase status and starts with `ExecutionNotStarted`, so a
+builder that has not executed is never reported as successful.
 Failures carry owned context alternatives for metadata, pass/resource uses,
 identities, dependencies, limits, external contracts, and allocations. Context
 retains names, indices, byte/subresource ranges, and expected/actual descriptions;
@@ -390,7 +395,9 @@ no diagnostic borrows builder metadata or physical resource pointers.
 A retained result remains usable after graph reset or destruction.
 
 `FRDGAllocator::Allocate` returns an `FRDGResult` with typed resource or RHI
-causes. Preparation forwards it without formatting or replacing the error code.
+causes. Its output table also carries allocation statistics on failure; this
+output parameter is retained for that diagnostic contract. Preparation forwards
+the result without formatting or replacing the error code.
 Renderer allocation retains native status even when a later attempt is suppressed,
 and publishes a complete allocation batch only after all resources validate.
 The existing retry, rollback, resource-retirement and execution-state rules apply.

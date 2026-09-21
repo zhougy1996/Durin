@@ -183,15 +183,15 @@ float4 FragmentMain() : SV_Target
 						});
 					Graph.SetPassAsyncComputeEligible(Pass);
 					FRDGBuilderTestAccessor::UseBuffer(Graph, Pass, Buffer, 0, 64, ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
-					FRDGExecutionContext Context{Allocator};
+
 					if (bFailRecording)
 					{
-						EXPECT_THROW(Graph.Execute(Commands, &Context), std::runtime_error);
+						EXPECT_THROW(Graph.Execute(Commands, &Allocator), std::runtime_error);
 						EXPECT_EQ(Graph.GetState(), ERDGBuilderState::Failed);
 					}
 					else
 					{
-						const auto Result = Graph.Execute(Commands, &Context);
+						const auto Result = Graph.Execute(Commands, &Allocator);
 						EXPECT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
 						if (!Result.IsSuccess()) return std::pair{uint64(0), FRHIGPUSyncPointRef{}};
 					}

@@ -5,12 +5,13 @@
 #include "RHICompletion.h"
 #include "RenderResourceCreation.h"
 
+#include <expected>
+
 namespace Durin
 {
 	// Stable failure categories; diagnostic text is never a success indicator.
 	enum class ERDGErrorCategory : uint8
 	{
-		None,
 		InvalidState,
 		InvalidDeclaration,
 		InvalidParameterMetadata,
@@ -24,8 +25,6 @@ namespace Durin
 
 	enum class ERDGError : uint8
 	{
-		None,
-		ParameterLayoutNotBuilt,
 		ExecutionNotStarted,
 		MetadataNull,
 		MetadataNameEmpty,
@@ -171,15 +170,21 @@ namespace Durin
 		FRDGTextureAllocationErrorContext, FRDGBufferAllocationErrorContext>;
 	using FRDGErrorCause = std::variant<std::monostate, FRenderResourceCreateError, FRHICreationError>;
 
-	struct [[nodiscard]] FRDGResult final
+	struct FRDGError final
 	{
-		ERDGError Error = ERDGError::None;
+		FRDGError(ERDGError InCode, FRDGErrorContext InContext = {}, FRDGErrorCause InCause = {})
+			: Code(InCode), Context(std::move(InContext)), Cause(std::move(InCause)) {}
+
+		ERDGError Code;
 		FRDGErrorContext Context;
 		FRDGErrorCause Cause;
-		auto IsSuccess() const -> bool { return Error == ERDGError::None; }
 		RENDERCORE_API auto GetCategory() const -> ERDGErrorCategory;
 	};
-	RENDERCORE_API auto FormatRDGError(const FRDGResult& Result) -> std::string;
+	using FRDGResult = std::expected<void, FRDGError>;
+	RENDERCORE_API auto FormatRDGError(const FRDGError& Error) -> std::string;
+
+	inline auto FormatRDGError(const FRDGResult& Result) -> std::string
+	{ return Result ? std::string{} : FormatRDGError(Result.error()); }
 
 	class FRHICommandListImmediate;
 	class FRDGBuilder;
@@ -495,11 +500,8 @@ namespace Durin
 	};
 
 	// Caches either the immutable layout or its deterministic validation error.
-	struct FRDGParameterLayoutBuildResult final
-	{
-		std::unique_ptr<const FRDGParameterLayout> Layout;
-		FRDGResult Result{ERDGError::ParameterLayoutNotBuilt};
-	};
+	using FRDGParameterLayoutBuildResult =
+		std::expected<std::unique_ptr<const FRDGParameterLayout>, FRDGError>;
 
 	RENDERCORE_API auto BuildRDGParameterLayout(
 		const FRDGParametersMetadata* Metadata,
@@ -541,7 +543,8 @@ namespace Durin
 	template<CRDGParameters ParameterStruct>
 	auto GetRDGParameterLayout() -> const FRDGParameterLayout*
 	{
-		return GetRDGParameterLayoutBuildResult<ParameterStruct>().Layout.get();
+		const auto& Result = GetRDGParameterLayoutBuildResult<ParameterStruct>();
+		return Result ? Result->get() : nullptr;
 	}
 
 	template<typename MemberType>
@@ -1119,11 +1122,6 @@ namespace Durin
 			-> FRDGResult = 0;
 	};
 
-	struct FRDGExecutionContext final
-	{
-		FRDGAllocator& Allocator;
-	};
-
 	// Records one immutable dependency edge in compiler diagnostics.
 	struct FRDGDependency final
 	{
@@ -1392,7 +1390,7 @@ namespace Durin
 	struct FRDGExecutionResult final
 	{
 		ERDGExecutionStatus Status = ERDGExecutionStatus::InvalidState;
-		FRDGResult Result{ERDGError::ExecutionNotStarted};
+		FRDGResult Result = std::unexpected(FRDGError{ERDGError::ExecutionNotStarted});
 		auto IsSuccess() const -> bool { return Status == ERDGExecutionStatus::Recorded; }
 	};
 
@@ -1606,13 +1604,13 @@ namespace Durin
 			auto* Parameters = std::construct_at(
 				static_cast<ParameterStruct*>(Storage));
 			MarkParameterStorageConstructed(AllocationIndex);
-			return {Parameters, std::move(Lifetime), LayoutResult.Layout.get(), AllocationIndex};
+			return {Parameters, std::move(Lifetime), LayoutResult->get(), AllocationIndex};
 		}
 
 
 		// Consumes this builder even on failure. Retrying requires a newly authored graph.
 		RENDERCORE_API auto Execute(FRHICommandListImmediate& CommandList,
-			FRDGExecutionContext* Context = nullptr) -> FRDGExecutionResult;
+			FRDGAllocator* Allocator = nullptr) -> FRDGExecutionResult;
 		RENDERCORE_API auto GetState() const -> ERDGBuilderState;
 		// Duplicate execution leaves this original report unchanged.
 		RENDERCORE_API auto GetExecutionResult() const -> const FRDGExecutionResult&;
@@ -1705,7 +1703,7 @@ namespace Durin
 		auto EnsureDiagnostics() const -> void;
 		RENDERCORE_API auto CompileForTesting() -> FRDGResult;
 		auto Record(FRHICommandListImmediate& CommandList,
-			FRDGExecutionContext* Context) -> FRDGResult;
+			FRDGAllocator* Allocator) -> FRDGResult;
 		struct FCompiledState;
 		std::unique_ptr<FCompiledState> Compiled;
 		struct FDiagnostics;

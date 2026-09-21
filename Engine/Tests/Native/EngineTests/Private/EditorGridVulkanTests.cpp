@@ -626,8 +626,8 @@ namespace Durin
 						Builder.QueueBufferExtraction(Buffer, &ExportedBuffer,
 							ERHIAccess::ComputeShaderReadWrite);
 					}
-					FRDGExecutionContext Context{Allocator};
-					const auto Result = Builder.Execute(CommandList, &Context);
+
+					const auto Result = Builder.Execute(CommandList, &Allocator);
 					ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
 					(*Captures)[Index] = Builder.Capture();
 				}

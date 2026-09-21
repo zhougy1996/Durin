@@ -23,9 +23,9 @@ namespace Durin
 		}
 	}
 
-	auto FRDGResult::GetCategory() const -> ERDGErrorCategory
+	auto FRDGError::GetCategory() const -> ERDGErrorCategory
 	{
-		switch (Error)
+		switch (Code)
 		{
 		case ERDGError::AllocatorFailure:
 		case ERDGError::AllocationPublicationFailed:
@@ -64,7 +64,6 @@ namespace Durin
 		case ERDGError::ShaderBindingAuthorityMissing:
 		case ERDGError::NestedShaderBindingDuplicate:
 		case ERDGError::ParameterLayoutMismatch:
-		case ERDGError::ParameterLayoutNotBuilt:
 			return ERDGErrorCategory::InvalidParameterMetadata;
 		case ERDGError::ResourceHandleInvalid:
 		case ERDGError::FinalAccessInvalid:
@@ -116,20 +115,15 @@ namespace Durin
 		case ERDGError::RecordingIncomplete:
 		case ERDGError::ExecutionNotStarted:
 			return ERDGErrorCategory::InvalidState;
-		case ERDGError::None:
-			return ERDGErrorCategory::None;
 		}
 		return ERDGErrorCategory::InvalidState;
 	}
 
-	auto FormatRDGError(const FRDGResult& Result) -> std::string
+	auto FormatRDGError(const FRDGError& Result) -> std::string
 	{
-		if (Result.IsSuccess()) return {};
 		std::string Text;
-		switch (Result.Error)
+		switch (Result.Code)
 		{
-		case ERDGError::None: return {};
-		case ERDGError::ParameterLayoutNotBuilt: Text = "parameter layout not built"; break;
 		case ERDGError::ExecutionNotStarted: Text = "graph execution not started"; break;
 		case ERDGError::MetadataNull: Text = "metadata null"; break;
 		case ERDGError::MetadataNameEmpty: Text = "metadata name empty"; break;

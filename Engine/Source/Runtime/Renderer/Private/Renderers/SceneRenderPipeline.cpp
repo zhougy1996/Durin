@@ -365,11 +365,11 @@ namespace Durin
 		FSceneFrameContext::FObservation& Observation
 	) -> bool
 	{
-		FRDGExecutionContext ExecutionContext{Renderer.RDGAllocator};
+
 		FGPUTimingQueryRHIRef Timing;
 		if (Renderer.ViewGPUTimingSink) Timing=GDynamicRHI->RHICreateGPUTimingQuery();
 		if (Timing) CommandList.BeginGPUTimingQuery(Timing);
-		const auto Result = Graph.Execute(CommandList, &ExecutionContext);
+		const auto Result = Graph.Execute(CommandList, &Renderer.RDGAllocator);
 		if (Timing)
 		{
 			CommandList.EndGPUTimingQuery(Timing);

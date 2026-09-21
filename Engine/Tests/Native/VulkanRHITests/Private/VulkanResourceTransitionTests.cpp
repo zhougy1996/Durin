@@ -37,7 +37,7 @@ namespace Durin::VulkanRHI
 			{
 				if (bFail)
 				{
-					return {ERDGError::AllocatorFailure};
+					return std::unexpected(FRDGError{ERDGError::AllocatorFailure});
 				}
 				for (const FRDGAllocationRequest& Request : Requests)
 				{
@@ -49,7 +49,7 @@ namespace Durin::VulkanRHI
 							Request.ResourceId + 1);
 					if (!bPublished)
 					{
-						return {ERDGError::AllocationPublicationFailed};
+						return std::unexpected(FRDGError{ERDGError::AllocationPublicationFailed});
 					}
 				}
 
@@ -478,15 +478,15 @@ namespace Durin::VulkanRHI
 			FRDGResult AllocationError;
 			{
 				FTransitionTestRDGAllocator RejectedAllocator(Buffer, Texture, true);
-				FRDGExecutionContext RejectedContext{RejectedAllocator};
-				const auto Rejected = RejectedBuilder.Execute(Commands, &RejectedContext);
+
+				const auto Rejected = RejectedBuilder.Execute(Commands, &RejectedAllocator);
 				EXPECT_EQ(Rejected.Status, ERDGExecutionStatus::PreparationFailed);
 				AllocationError = Rejected.Result;
 			}
 			EXPECT_FALSE(bExecuted);
 			EXPECT_TRUE(FRDGBuilderTestAccessor::GetSubmissionSyncPoints(RejectedBuilder).empty());
-			EXPECT_EQ(AllocationError.GetCategory(), ERDGErrorCategory::AllocationFailed);
-			EXPECT_EQ(AllocationError.Error, ERDGError::AllocatorFailure);
+			EXPECT_EQ(AllocationError.error().GetCategory(), ERDGErrorCategory::AllocationFailed);
+			EXPECT_EQ(AllocationError.error().Code, ERDGError::AllocatorFailure);
 
 			FRDGBuilder Builder;
 			const auto GraphBuffer = Builder.CreateBuffer(
@@ -510,10 +510,10 @@ namespace Durin::VulkanRHI
 				ERHIAccess::GraphicsShaderRead);
 			{
 				FTransitionTestRDGAllocator Allocator(Buffer, Texture);
-				FRDGExecutionContext Context{Allocator};
-				const auto Result = Builder.Execute(Commands, &Context);
+
+				const auto Result = Builder.Execute(Commands, &Allocator);
 				ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
-				EXPECT_EQ(Builder.Execute(Commands, &Context).Status, ERDGExecutionStatus::InvalidState);
+				EXPECT_EQ(Builder.Execute(Commands, &Allocator).Status, ERDGExecutionStatus::InvalidState);
 			}
 			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread,
 				ERHISubmitFlags::SubmitToGPU);

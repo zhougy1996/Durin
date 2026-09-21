@@ -340,8 +340,8 @@ namespace Durin
 		{
 			++State->Failures;
 			PublishStatistics(0, 0);
-			return {ERDGError::AllocationBudgetExceeded,
-				FRDGLimitErrorContext{ERDGLimit::AllocationBytes, RequestedBytes, FRendererRDGAllocationPolicy::MaximumRetainedBytes}};
+			return std::unexpected(FRDGError{ERDGError::AllocationBudgetExceeded,
+				FRDGLimitErrorContext{ERDGLimit::AllocationBytes, RequestedBytes, FRendererRDGAllocationPolicy::MaximumRetainedBytes}});
 		}
 
 		struct FCandidate final
@@ -386,7 +386,7 @@ namespace Durin
 			Rollback(PreserveSequence);
 			++State->Failures;
 			PublishStatistics(0, 0);
-			return {Reason, std::move(Context), std::move(Cause)};
+			return std::unexpected(FRDGError{Reason, std::move(Context), std::move(Cause)});
 		};
 
 		// Reserve the entire reusable set before eviction, including later requests
@@ -450,7 +450,7 @@ namespace Durin
 						Request.BufferDesc.Usage}, LogicalBytes, Request.ResourceId);
 			else return Fail(ERDGError::AllocationKindInvalid,
 				FRDGAllocationErrorContext{.ResourceId = Request.ResourceId});
-			if (!PlanResult.IsSuccess()) return PlanResult;
+			if (!PlanResult.has_value()) return PlanResult;
 		}
 		if (MissingBytes != 0 && Now < State->NextRetryTime)
 			return Fail(ERDGError::AllocationRetryDeferred);
@@ -603,7 +603,7 @@ namespace Durin
 			}
 			else return Fail(ERDGError::AllocationKindInvalid,
 				FRDGAllocationErrorContext{.ResourceId = Request.ResourceId});
-			if (!ReserveResult.IsSuccess())
+			if (!ReserveResult.has_value())
 			{
 				// Pressure may come from outside this pool even below its ceiling.
 				// Drop idle cache now and collect retirement before the next attempt.
