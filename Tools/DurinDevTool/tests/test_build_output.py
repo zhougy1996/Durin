@@ -5,10 +5,45 @@ import os
 from pathlib import Path
 from unittest import mock
 from rich.cells import cell_len
+from rich.text import Text
 from durin_dev_tool.build import build_context, errors, models, requests
 from durin_dev_tool.build.output import BuildOutput
 
 class TestOutput:
+
+    @pytest.mark.parametrize('error', [False, True])
+    def test_rules_fit_output_stream_after_terminal_resize(self, error: bool) -> None:
+        stdout, stderr = io.StringIO(), io.StringIO()
+        stream = stderr if error else stdout
+        descriptor = 78 if error else 77
+        with mock.patch.dict(os.environ, {'COLUMNS': '160'}, clear=True):
+            output = BuildOutput(stdout=stdout, stderr=stderr, force_terminal=True)
+            with mock.patch.object(stdout, 'fileno', return_value=77), mock.patch.object(
+                stderr, 'fileno', return_value=78,
+            ), mock.patch('os.get_terminal_size') as terminal_size:
+                for columns in (100, 40, 10, 2):
+                    terminal_size.return_value = os.terminal_size((columns, 30))
+                    stream.seek(0)
+                    stream.truncate()
+                    output.key_values('DurinDevTool', {}, error=error)
+                    terminal_size.assert_any_call(descriptor)
+                    lines = Text.from_ansi(stream.getvalue()).plain.splitlines()
+                    assert len(lines) == 1
+                    assert cell_len(lines[0]) == columns - 1
+
+    def test_stage_rule_fits_actual_terminal_despite_inherited_columns(self) -> None:
+        stdout = io.StringIO()
+        with mock.patch.dict(os.environ, {'COLUMNS': '160'}, clear=True):
+            output = BuildOutput(stdout=stdout, force_terminal=True)
+            with mock.patch.object(stdout, 'fileno', return_value=77), mock.patch(
+                'os.get_terminal_size', return_value=os.terminal_size((40, 30)),
+            ):
+                with output.stage('Build'):
+                    pass
+        lines = Text.from_ansi(stdout.getvalue()).plain.splitlines()
+        assert len(lines) == 2
+        assert cell_len(lines[0]) == 39
+        assert 'Build' in lines[0]
 
     def test_styled_context_has_no_side_borders_or_truncated_values(self) -> None:
         stdout = io.StringIO()

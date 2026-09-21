@@ -11,6 +11,7 @@ from typing import Iterator, Mapping, Sequence, TextIO
 from rich.cells import cell_len, set_cell_size
 from rich.console import Console
 from rich.control import Control
+from rich.rule import Rule
 from rich.segment import ControlType
 from rich.text import Text
 
@@ -124,17 +125,18 @@ class BuildOutput:
         with self._output_lock:
             self._finish_progress()
 
-    def _progress_columns(self) -> int:
+    @staticmethod
+    def _terminal_columns(console: Console) -> int:
         # Rich honors COLUMNS, which may have been inherited from another window.
         # Query this stream on every update so resizing cannot leave a stale width.
         try:
-            columns = os.get_terminal_size(self.console.file.fileno()).columns
+            columns = os.get_terminal_size(console.file.fileno()).columns
         except (AttributeError, OSError, ValueError):
             columns = 0
-        return max(1, columns or self.console.width)
+        return max(1, columns or console.width)
 
     def _write_progress(self, text: str) -> None:
-        columns = self._progress_columns()
+        columns = self._terminal_columns(self.console)
         # Keep the cursor off the final column, including for wide Unicode text.
         maximum_width = columns - 1
         visible = text.expandtabs(4)
@@ -203,9 +205,16 @@ class BuildOutput:
             self.console.print(f"[dim]$ {command}[/dim]")
             self.flush()
 
-    @staticmethod
-    def _print_rule(console: Console, title: str, color: str) -> None:
-        console.rule(Text(title, style=f"bold {color}"), style=color)
+    @classmethod
+    def _print_rule(
+        cls, console: Console, title: str, color: str, *, rule_style: str | None = None,
+    ) -> None:
+        # Leave the final column unused to avoid terminal auto-wrap.
+        width = max(1, cls._terminal_columns(console) - 1)
+        console.print(
+            Rule(Text(title, style=f"bold {color}"), style=rule_style or color),
+            width=width,
+        )
 
     @staticmethod
     def _print_key_value_lines(
@@ -338,7 +347,7 @@ class BuildOutput:
         if self.plain:
             self.console.print(f"== {title} ==")
         else:
-            self.console.rule(f"[bold cyan]{title}[/bold cyan]")
+            self._print_rule(self.console, title, "cyan", rule_style="rule.line")
         self.flush()
         try:
             yield
