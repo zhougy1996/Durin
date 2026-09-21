@@ -2563,7 +2563,6 @@ namespace Durin::Tests
 			EXPECT_EQ(RHI.Creates, 1u);
 			for (const auto* Result : {&First, &Retry})
 			{
-				EXPECT_EQ(Result->error().GetCategory(), ERDGErrorCategory::AllocationFailed);
 				const auto* Cause = FindRDGTestDetail<FRHICreationError>(Result->error());
 				ASSERT_NE(Cause, nullptr);
 				EXPECT_EQ(Cause->Failure, ERHIResourceCreationFailure::UnsupportedDescriptor);

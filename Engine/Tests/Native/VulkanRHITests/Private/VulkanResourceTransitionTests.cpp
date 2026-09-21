@@ -485,7 +485,6 @@ namespace Durin::VulkanRHI
 			}
 			EXPECT_FALSE(bExecuted);
 			EXPECT_TRUE(FRDGBuilderTestAccessor::GetSubmissionSyncPoints(RejectedBuilder).empty());
-			EXPECT_EQ(AllocationError.error().GetCategory(), ERDGErrorCategory::AllocationFailed);
 			EXPECT_TRUE(HasRDGTestReason(AllocationError.error(), ERDGAllocationError::AllocatorFailure));
 
 			FRDGBuilder Builder;

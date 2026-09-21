@@ -9,20 +9,6 @@
 
 namespace Durin
 {
-	// Stable failure categories; diagnostic text is never a success indicator.
-	enum class ERDGErrorCategory : uint8
-	{
-		InvalidState,
-		InvalidDeclaration,
-		InvalidParameterMetadata,
-		InvalidDependency,
-		MissingProducer,
-		SafetyLimitExceeded,
-		AllocationFailed,
-		MissingAllocation,
-		IncompatibleAllocation
-	};
-
 	enum class ERDGMetadataError : uint8
 	{
 		MetadataNull,
@@ -166,36 +152,25 @@ namespace Durin
 		ERHIAccess InitialAccess = ERHIAccess::None, FinalAccess = ERHIAccess::None;
 	};
 	// Each reason enum belongs to one diagnostic domain.
-	RENDERCORE_API auto GetRDGErrorCategory(ERDGMetadataError Reason) -> ERDGErrorCategory;
-	RENDERCORE_API auto GetRDGErrorCategory(ERDGUseError Reason) -> ERDGErrorCategory;
-	RENDERCORE_API auto GetRDGErrorCategory(ERDGIdentityError Reason) -> ERDGErrorCategory;
-	RENDERCORE_API auto GetRDGErrorCategory(ERDGDependencyError Reason) -> ERDGErrorCategory;
-	RENDERCORE_API auto GetRDGErrorCategory(ERDGStateError Reason) -> ERDGErrorCategory;
-	RENDERCORE_API auto GetRDGErrorCategory(ERDGPreparationError Reason) -> ERDGErrorCategory;
-	RENDERCORE_API auto GetRDGErrorCategory(ERDGAllocationError Reason) -> ERDGErrorCategory;
 	struct FRDGMetadataError
 	{
 		ERDGMetadataError Reason;
 		FRDGMetadataErrorContext Context{};
-		auto GetCategory() const -> ERDGErrorCategory { return GetRDGErrorCategory(Reason); }
 	};
 	struct FRDGUseError
 	{
 		ERDGUseError Reason;
 		FRDGUseErrorContext Context{};
-		auto GetCategory() const -> ERDGErrorCategory { return GetRDGErrorCategory(Reason); }
 	};
 	struct FRDGIdentityError
 	{
 		ERDGIdentityError Reason;
 		FRDGIdentityErrorContext Context{};
-		auto GetCategory() const -> ERDGErrorCategory { return GetRDGErrorCategory(Reason); }
 	};
 	struct FRDGDependencyError
 	{
 		ERDGDependencyError Reason;
 		uint32 Producer = UINT32_MAX, Consumer = UINT32_MAX;
-		auto GetCategory() const -> ERDGErrorCategory { return GetRDGErrorCategory(Reason); }
 	};
 	using FRDGMetadataResult = std::expected<void, FRDGMetadataError>;
 
@@ -203,34 +178,28 @@ namespace Durin
 	{
 		ERDGLimit Dimension;
 		uint64 Actual = 0, Limit = 0;
-		auto GetCategory() const -> ERDGErrorCategory { return ERDGErrorCategory::SafetyLimitExceeded; }
 	};
 	struct FRDGExternalConflictError
 	{
 		FRDGResourceContractContext Canonical, Requested;
-		auto GetCategory() const -> ERDGErrorCategory { return ERDGErrorCategory::InvalidDeclaration; }
 	};
 	struct FRDGMissingAllocationError
 	{
 		uint32 ResourceId = UINT32_MAX;
-		auto GetCategory() const -> ERDGErrorCategory { return ERDGErrorCategory::MissingAllocation; }
 	};
 	struct FRDGTextureAllocationError
 	{
 		uint32 ResourceId = UINT32_MAX;
 		FRHITextureDesc Expected, Actual;
-		auto GetCategory() const -> ERDGErrorCategory { return ERDGErrorCategory::IncompatibleAllocation; }
 	};
 	struct FRDGBufferAllocationError
 	{
 		uint32 ResourceId = UINT32_MAX;
 		FRHIBufferDesc Expected, Actual;
-		auto GetCategory() const -> ERDGErrorCategory { return ERDGErrorCategory::IncompatibleAllocation; }
 	};
 	struct FRDGAllocationBudgetError
 	{
 		uint64 Actual = 0, Limit = 0;
-		auto GetCategory() const -> ERDGErrorCategory { return ERDGErrorCategory::AllocationFailed; }
 	};
 	using FRDGLimitResult = std::expected<void, FRDGLimitError>;
 
@@ -239,7 +208,6 @@ namespace Durin
 		ERDGAllocationError Reason;
 		uint32 ResourceId = UINT32_MAX;
 		FRHICreationError Cause;
-		auto GetCategory() const -> ERDGErrorCategory { return GetRDGErrorCategory(Reason); }
 	};
 	// Aggregate complete errors only at the operation that can produce them.
 	struct FRDGCompileError
@@ -251,13 +219,6 @@ namespace Durin
 		FRDGCompileError(T Error) : Detail(std::move(Error)) {}
 		FRDGCompileError(std::variant<FRDGDependencyError, FRDGLimitError> Error)
 			: Detail(std::visit([](auto&& Value) -> FDetail { return std::move(Value); }, std::move(Error))) {}
-		auto GetCategory() const -> ERDGErrorCategory
-		{
-			return std::visit([](const auto& Error) {
-				if constexpr (std::is_enum_v<std::decay_t<decltype(Error)>>) return GetRDGErrorCategory(Error);
-				else return Error.GetCategory();
-			}, Detail);
-		}
 	};
 	using FRDGCompileResult = std::expected<void, FRDGCompileError>;
 
@@ -267,12 +228,6 @@ namespace Durin
 		FDetail Detail;
 		template<typename T> requires std::constructible_from<FDetail, T>
 		FRDGAllocationError(T Error) : Detail(std::move(Error)) {}
-		auto GetCategory() const -> ERDGErrorCategory
-		{
-			return std::visit([](const auto& Error) {
-				return Error.GetCategory();
-			}, Detail);
-		}
 	};
 	using FRDGAllocationResult = std::expected<void, FRDGAllocationError>;
 
@@ -283,13 +238,6 @@ namespace Durin
 		FDetail Detail;
 		template<typename T> requires std::constructible_from<FDetail, T>
 		FRDGPreparationError(T Error) : Detail(std::move(Error)) {}
-		auto GetCategory() const -> ERDGErrorCategory
-		{
-			return std::visit([](const auto& Error) {
-				if constexpr (std::is_enum_v<std::decay_t<decltype(Error)>>) return GetRDGErrorCategory(Error);
-				else return Error.GetCategory();
-			}, Detail);
-		}
 	};
 	using FRDGPreparationResult = std::expected<void, FRDGPreparationError>;
 
@@ -1525,13 +1473,6 @@ namespace Durin
 		FDetail Detail;
 		template<typename T> requires std::constructible_from<FDetail, T>
 		FRDGExecutionError(T Error) : Detail(std::move(Error)) {}
-		auto GetCategory() const -> ERDGErrorCategory
-		{
-			return std::visit([](const auto& Error) {
-				if constexpr (std::same_as<std::decay_t<decltype(Error)>, ERDGStateError>) return GetRDGErrorCategory(Error);
-				else return Error.GetCategory();
-			}, Detail);
-		}
 		auto GetStatus() const -> ERDGExecutionStatus
 		{
 			if (std::holds_alternative<FRDGCompileError>(Detail)) return ERDGExecutionStatus::CompileFailed;

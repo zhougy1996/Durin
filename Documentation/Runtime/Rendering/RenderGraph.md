@@ -390,7 +390,9 @@ reason enums with fixed context types. Single-meaning failures (limits, external
 contract conflicts, missing backing, and incompatible backing) are concrete
 error types without an additional code. Aggregation variants contain complete
 errors rather than an independently selected code and context. Callers inspect
-the relevant alternative or domain reason; categories and text are derived.
+the relevant alternative or domain reason. There is no global error-category
+classification or `GetCategory()` interface; diagnostic text is derived from
+the concrete error at presentation boundaries.
 Structural budget errors contain only the exceeded dimension,
 actual count, and limit; helpers that construct them return an error value,
 not a potentially successful result. Tracking-layout construction returns its

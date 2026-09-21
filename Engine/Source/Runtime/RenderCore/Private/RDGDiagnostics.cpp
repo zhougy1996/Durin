@@ -23,9 +23,6 @@ namespace Durin
 		}
 	}
 
-	auto GetRDGErrorCategory(ERDGMetadataError) -> ERDGErrorCategory
-	{ return ERDGErrorCategory::InvalidParameterMetadata; }
-
 	auto FormatRDGError(ERDGMetadataError Reason) -> std::string
 	{
 		switch (Reason)
@@ -53,26 +50,6 @@ namespace Durin
 		return "unknown RDG error";
 	}
 
-	auto GetRDGErrorCategory(ERDGUseError Reason) -> ERDGErrorCategory
-	{
-		switch (Reason)
-		{
-		case ERDGUseError::ResourceHandleInvalid: return ERDGErrorCategory::InvalidDeclaration;
-		case ERDGUseError::FinalAccessInvalid: return ERDGErrorCategory::InvalidDeclaration;
-		case ERDGUseError::RequiredAccessInvalid: return ERDGErrorCategory::InvalidDeclaration;
-		case ERDGUseError::PassAccessIncompatible: return ERDGErrorCategory::InvalidDeclaration;
-		case ERDGUseError::UseAccessMismatch: return ERDGErrorCategory::InvalidDeclaration;
-		case ERDGUseError::ReadDiscardInvalid: return ERDGErrorCategory::InvalidDeclaration;
-		case ERDGUseError::ManagedResultAccessInvalid: return ERDGErrorCategory::InvalidDeclaration;
-		case ERDGUseError::BufferRangeInvalid: return ERDGErrorCategory::InvalidDeclaration;
-		case ERDGUseError::TextureRangeInvalid: return ERDGErrorCategory::InvalidDeclaration;
-		case ERDGUseError::UsesOverlap: return ERDGErrorCategory::InvalidDeclaration;
-		case ERDGUseError::BufferProducerMissing: return ERDGErrorCategory::MissingProducer;
-		case ERDGUseError::ResourceProducerMissing: return ERDGErrorCategory::MissingProducer;
-		}
-		return ERDGErrorCategory::InvalidState;
-	}
-
 	auto FormatRDGError(ERDGUseError Reason) -> std::string
 	{
 		switch (Reason)
@@ -92,9 +69,6 @@ namespace Durin
 		}
 		return "unknown RDG error";
 	}
-
-	auto GetRDGErrorCategory(ERDGIdentityError) -> ERDGErrorCategory
-	{ return ERDGErrorCategory::InvalidDeclaration; }
 
 	auto FormatRDGError(ERDGIdentityError Reason) -> std::string
 	{
@@ -129,17 +103,6 @@ namespace Durin
 		return "unknown RDG error";
 	}
 
-	auto GetRDGErrorCategory(ERDGDependencyError Reason) -> ERDGErrorCategory
-	{
-		switch (Reason)
-		{
-		case ERDGDependencyError::DependencyNotForward: return ERDGErrorCategory::InvalidDependency;
-		case ERDGDependencyError::ProducerHandleInvalid: return ERDGErrorCategory::InvalidDeclaration;
-		case ERDGDependencyError::ConsumerHandleInvalid: return ERDGErrorCategory::InvalidDependency;
-		}
-		return ERDGErrorCategory::InvalidState;
-	}
-
 	auto FormatRDGError(ERDGDependencyError Reason) -> std::string
 	{
 		switch (Reason)
@@ -150,9 +113,6 @@ namespace Durin
 		}
 		return "unknown RDG error";
 	}
-
-	auto GetRDGErrorCategory(ERDGStateError) -> ERDGErrorCategory
-	{ return ERDGErrorCategory::InvalidState; }
 
 	auto FormatRDGError(ERDGStateError Reason) -> std::string
 	{
@@ -167,9 +127,6 @@ namespace Durin
 		return "unknown RDG error";
 	}
 
-	auto GetRDGErrorCategory(ERDGPreparationError) -> ERDGErrorCategory
-	{ return ERDGErrorCategory::AllocationFailed; }
-
 	auto FormatRDGError(ERDGPreparationError Reason) -> std::string
 	{
 		switch (Reason)
@@ -179,9 +136,6 @@ namespace Durin
 		}
 		return "unknown RDG error";
 	}
-
-	auto GetRDGErrorCategory(ERDGAllocationError) -> ERDGErrorCategory
-	{ return ERDGErrorCategory::AllocationFailed; }
 
 	auto FormatRDGError(ERDGAllocationError Reason) -> std::string
 	{
@@ -226,7 +180,9 @@ namespace Durin
 			else if constexpr (std::is_same_v<T, FRDGLimitError>)
 				Text += std::format(": {} actual={} limit={}", LimitName(Context.Dimension), Context.Actual, Context.Limit);
 			else if constexpr (std::is_same_v<T, FRDGMissingAllocationError> || std::is_same_v<T, FRDGAllocationFailure>)
+			{
 				if (Context.ResourceId != UINT32_MAX) Text += std::format(": resource={}", Context.ResourceId);
+			}
 			else if constexpr (std::is_same_v<T, FRDGBufferAllocationError>)
 			{
 				if (Context.ResourceId != UINT32_MAX) Text += std::format(": resource={}", Context.ResourceId);
