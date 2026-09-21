@@ -6,18 +6,8 @@
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
 
-namespace Durin
-{
-}
-
 namespace Durin::AssetPrivate
 {
-	enum class EAssetMutationJournalKind : uint8
-	{
-		Relocation,
-		RedirectorFixup,
-	};
-
 	enum class EAssetMutationState : uint8
 	{
 		Planned,
@@ -26,7 +16,6 @@ namespace Durin::AssetPrivate
 		Committed,
 		RecoveryRequired,
 	};
-
 	enum class EAssetMutationPublicationRole : uint8
 	{
 		RealAsset,
@@ -36,7 +25,7 @@ namespace Durin::AssetPrivate
 
 	// Selects whether an already-staged physical participant is a conflict or
 	// may reuse an identical byte-image plan.
-	enum class EMutationJournalDuplicatePolicy : uint8
+	enum class EMutationStagingDuplicatePolicy : uint8
 	{
 		Reject,
 		ReuseEquivalent,
@@ -44,7 +33,7 @@ namespace Durin::AssetPrivate
 
 	// Describes the complete before/after byte images for one physical mutation
 	// participant without transferring their ownership.
-	struct FMutationJournalStageRequest
+	struct FMutationStageRequest
 	{
 		std::filesystem::path PhysicalPath;
 		FPackagePath RegistryPath;
@@ -54,17 +43,16 @@ namespace Durin::AssetPrivate
 		bool bPostExists = false;
 		FByteView PreBytes;
 		FByteView PostBytes;
-		EMutationJournalDuplicatePolicy DuplicatePolicy =
-			EMutationJournalDuplicatePolicy::Reject;
+		EMutationStagingDuplicatePolicy DuplicatePolicy =
+			EMutationStagingDuplicatePolicy::Reject;
 	};
 
-	struct FAssetMutationJournalEntry
+	struct FAssetMutationStagingEntry
 	{
 		std::filesystem::path PhysicalPath;
 		FPackagePath RegistryPath;
 		EAssetMutationPublicationRole Role =
 			EAssetMutationPublicationRole::RealAsset;
-		uint64 PublicationOrder = std::numeric_limits<uint64>::max();
 		bool bPreExists = false;
 		bool bPostExists = false;
 		bool bCompleted = false;
@@ -76,43 +64,32 @@ namespace Durin::AssetPrivate
 		FAssetPackageFingerprint ExpectedPostFingerprint;
 	};
 
-	struct FAssetMutationExternalParticipant
-	{
-		std::string ProviderId;
-		std::string ExpectedFingerprint;
-		std::vector<FAssetReferenceRewrite> Rewrites;
-		bool bCompleted = false;
-	};
-
-	// Retains materialized inputs and durable forward progress for one authored
-	// mutation. Recovery-required roots deliberately outlive tokens.
-	struct FAssetMutationJournal
+	// Retains staged inputs and in-process progress for one authored mutation.
+	// Partially published operations retain backup roots for manual repair only.
+	struct FAssetMutationStaging
 	{
 		std::string OperationId;
-		std::string OperationType;
 		std::vector<std::filesystem::path> Roots;
-		std::filesystem::path LocatorPath;
-		std::vector<FAssetMutationJournalEntry> Entries;
-		std::vector<FAssetMutationExternalParticipant> ExternalParticipants;
-		// Transient normalized-path index; recovery records remain Entries-based.
+		std::vector<FAssetMutationStagingEntry> Entries;
+		// Normalized-path index for duplicate participant checks.
 		std::unordered_map<std::string, size_t> EntryIndices;
 		EAssetMutationState State = EAssetMutationState::Planned;
 
-		FAssetMutationJournal() = default;
-		FAssetMutationJournal(const FAssetMutationJournal&) = delete;
-		auto operator=(const FAssetMutationJournal&)
-			-> FAssetMutationJournal& = delete;
-		~FAssetMutationJournal();
+		FAssetMutationStaging() = default;
+		FAssetMutationStaging(const FAssetMutationStaging&) = delete;
+		auto operator=(const FAssetMutationStaging&)
+			-> FAssetMutationStaging& = delete;
+		~FAssetMutationStaging();
+		auto GetPublishedFiles() const -> std::vector<std::filesystem::path>;
 	};
 
-	auto InitializeMutationJournal(
-		FAssetMutationJournal& Journal,
-		EAssetMutationJournalKind OperationKind) -> void;
+	auto InitializeMutationStaging(
+		FAssetMutationStaging& Staging) -> void;
 	// On success, publishes one complete entry or reuses an equivalent entry;
 	// on failure, leaves no partial entry or unowned staging root.
-	auto StageMutationJournalEntry(
-		FAssetMutationJournal& Journal,
-		const FMutationJournalStageRequest& Request,
+	auto StageMutationEntry(
+		FAssetMutationStaging& Staging,
+		const FMutationStageRequest& Request,
 		size_t& OutEntryIndex) -> FAssetWriteResult;
 	auto NormalizePhysicalPath(const std::filesystem::path& Path)
 		-> std::filesystem::path;
@@ -133,20 +110,12 @@ namespace Durin::AssetPrivate
 		const std::filesystem::path& Path,
 		const FMountPoint*& OutMount,
 		std::string& OutError) -> bool;
-	auto WriteMutationJournalState(FAssetMutationJournal& Journal) -> FAssetWriteResult;
-	// Makes a state visible only after every recovery record accepts it.
-	auto TransitionMutationJournalState(
-		FAssetMutationJournal& Journal,
-		EAssetMutationState State) -> FAssetWriteResult;
-	// Attempts to persist recovery-required state and reports a forward recovery
-	// failure even if persistence fails, retaining both failure diagnostics.
-	auto EnterMutationJournalRecovery(
-		FAssetMutationJournal& Journal,
+	auto RequireMutationRepair(
+		FAssetMutationStaging& Staging,
 		std::string FailedParticipant,
 		std::string_view Message) -> FAssetWriteResult;
-	auto IsMutationJournalRecoveryRequired(
-		const FAssetMutationJournal& Journal) -> bool;
-	auto RecoverPendingMutationJournals() -> FAssetWriteResult;
-	auto PublishRelocationFile(const FAssetMutationJournalEntry& Entry)
+	auto RequiresMutationRepair(
+		const FAssetMutationStaging& Staging) -> bool;
+	auto PublishRelocationFile(const FAssetMutationStagingEntry& Entry)
 		-> FAssetWriteResult;
 }

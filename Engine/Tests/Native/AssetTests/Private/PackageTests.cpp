@@ -1475,13 +1475,8 @@ namespace
 		}();
 		(void)Initialized;
 
-		const std::filesystem::path RecoveryRoot =
-			Durin::Testing::GetTestWorkDirectory()
-			/ "AssetMutationRecovery";
-		Durin::SetAssetMutationRecoveryDirectoryForTesting(RecoveryRoot);
 		Durin::ShutdownAssetManager();
 		Durin::CollectGarbage();
-		Durin::Testing::RemoveTestWorkDirectory(RecoveryRoot);
 		const std::filesystem::path Root =
 			Durin::Testing::GetTestWorkDirectory() / "Assets";
 		Durin::Testing::RemoveTestWorkDirectory(Root);
@@ -1496,9 +1491,6 @@ namespace
 			Durin::EAssetRelocationFailurePoint::None);
 		Durin::SetAssetRedirectorFixupFailurePointForTesting(
 			Durin::EAssetRedirectorFixupFailurePoint::None);
-		Durin::SetAssetMutationRecoveryFailurePointForTesting(
-			Durin::EAssetMutationRecoveryFailurePoint::None
-		);
 		Durin::InitializeAssetManager();
 		if (!Durin::RefreshAssetRegistry(
 			Durin::EAssetRegistryScanMode::FullValidation))
@@ -6975,8 +6967,6 @@ TEST(FPackageAssetTests, RelocationPublicationFailureRestoresAuthoredState)
 	EXPECT_EQ(Result.Error, Durin::EAssetWriteError::IoError);
 	EXPECT_EQ(Result.Disposition,
 		Durin::EAssetWriteDisposition::ForwardPending);
-	EXPECT_FALSE(Result.OperationId.empty());
-	EXPECT_EQ(Result.DesiredDirection, "Forward");
 	EXPECT_FALSE(Result.RecoveryLocation.empty());
 	EXPECT_EQ(ExternalSetting.GetPath().GetPackagePath(), OldPath);
 	ASSERT_NE(Durin::FindAssetExact(OldPath), nullptr);
@@ -6985,68 +6975,7 @@ TEST(FPackageAssetTests, RelocationPublicationFailureRestoresAuthoredState)
 	EXPECT_EQ(Durin::CaptureAssetReferenceIndex().FindTargets(OwnerPath), (std::vector<Durin::FPackagePath>{OldPath}));
 }
 
-TEST(FPackageAssetTests, RelocationDoesNotPublishWhenJournalStateCannotPersist)
-{
-	InitializeAssetTests();
-	Durin::FPackagePath SourcePath;
-	Durin::FPackagePath DestinationPath;
-	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
-		"/TestAssets/JournalFailureSource", SourcePath));
-	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
-		"/TestAssets/JournalFailureDestination", DestinationPath));
-	DPackageAssetForTest* Asset = nullptr;
-	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(SourcePath, Asset));
-	ASSERT_TRUE(Durin::SavePackage(Asset->GetPackage()));
-
-	const std::filesystem::path RecoveryRoot =
-		Durin::Testing::GetTestWorkDirectory()
-		/ "Assets" / ".durin-asset-mutation";
-	std::unordered_set<std::string> ExistingOperations;
-	if (std::filesystem::is_directory(RecoveryRoot))
-		for (const std::filesystem::directory_entry& Entry :
-			std::filesystem::directory_iterator(RecoveryRoot))
-			ExistingOperations.insert(Entry.path().filename().generic_string());
-
-	const Durin::FAssetRelocationMapping Mapping{
-		SourcePath, DestinationPath};
-	Durin::FAssetRelocationSummary Summary;
-	Durin::FAssetMutationJob Job;
-	ASSERT_TRUE(Durin::PrepareAssetRelocationJob(
-		std::span{&Mapping, 1}, Summary, Job));
-	std::filesystem::path OperationRoot;
-	for (const std::filesystem::directory_entry& Entry :
-		std::filesystem::directory_iterator(RecoveryRoot))
-		if (!ExistingOperations.contains(
-				Entry.path().filename().generic_string()))
-		{
-			OperationRoot = Entry.path();
-			break;
-		}
-	ASSERT_FALSE(OperationRoot.empty());
-	std::error_code ErrorCode;
-	ASSERT_TRUE(std::filesystem::remove(OperationRoot / "journal", ErrorCode));
-	ASSERT_FALSE(ErrorCode);
-	ASSERT_TRUE(std::filesystem::create_directory(
-		OperationRoot / "journal", ErrorCode));
-	ASSERT_FALSE(ErrorCode);
-
-	const auto Result = Job.ResumeForward();
-	EXPECT_EQ(Result.Error, Durin::EAssetWriteError::IoError);
-	EXPECT_NE(Result.Message.find("persist asset mutation journal"),
-		std::string::npos);
-	ASSERT_NE(Durin::FindAssetExact(SourcePath), nullptr);
-	EXPECT_EQ(Durin::FindAssetExact(SourcePath)->EntryKind,
-		Durin::EAssetRegistryEntryKind::Asset);
-	EXPECT_EQ(Durin::FindAssetExact(DestinationPath), nullptr);
-	EXPECT_EQ(Job.GetState(),
-		Durin::EAssetMutationJobState::Prepared);
-
-	ASSERT_TRUE(std::filesystem::remove(OperationRoot / "journal", ErrorCode));
-	ASSERT_FALSE(ErrorCode);
-	Job = {};
-}
-
-TEST(FPackageAssetTests, RelocationRecoveryReplaysAcrossRepeatedRestartInterruptions)
+TEST(FPackageAssetTests, RestartDoesNotReplayInterruptedRelocation)
 {
 	InitializeAssetTests();
 	Durin::FPackagePath SourcePath;
@@ -7074,99 +7003,21 @@ TEST(FPackageAssetTests, RelocationRecoveryReplaysAcrossRepeatedRestartInterrupt
 	);
 	const auto Interrupted = Job.ResumeForward();
 	ASSERT_EQ(Interrupted.Disposition, Durin::EAssetWriteDisposition::ForwardPending);
-	ASSERT_TRUE(std::filesystem::is_regular_file(
-		Interrupted.RecoveryLocation
-	));
+	ASSERT_FALSE(Interrupted.AffectedFiles.empty());
+	ASSERT_TRUE(std::filesystem::is_directory(Interrupted.RecoveryLocation));
+	EXPECT_FALSE(std::filesystem::exists(Interrupted.RecoveryLocation / "journal"));
+	const auto SourceFile = Durin::FindAssetExact(SourcePath)->PhysicalPath;
+	Durin::FByteBuffer BeforeRestart;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(BeforeRestart, SourceFile));
 	Job = {};
-	ASSERT_TRUE(std::filesystem::is_regular_file(
-		Interrupted.RecoveryLocation
-	));
-
+	EXPECT_TRUE(std::filesystem::is_directory(Interrupted.RecoveryLocation));
 	Durin::ShutdownAssetManager();
 	Durin::CollectGarbage();
-	Durin::SetAssetMutationRecoveryFailurePointForTesting(
-		Durin::EAssetMutationRecoveryFailurePoint::AfterParticipantPublication
-	);
-	const Durin::FAssetWriteResult FirstRestart = Durin::InitializeAssetManager();
-	ASSERT_EQ(FirstRestart.Disposition, Durin::EAssetWriteDisposition::ForwardPending)
-		<< FirstRestart.Message;
-
-	Durin::SetAssetMutationRecoveryFailurePointForTesting(
-		Durin::EAssetMutationRecoveryFailurePoint::AfterProgressPersistence
-	);
-	const Durin::FAssetWriteResult SecondRestart = Durin::InitializeAssetManager();
-	ASSERT_EQ(SecondRestart.Disposition, Durin::EAssetWriteDisposition::ForwardPending);
-
 	ASSERT_TRUE(Durin::InitializeAssetManager());
-	ASSERT_NE(Durin::FindAssetExact(SourcePath), nullptr);
-	EXPECT_EQ(Durin::FindAssetExact(SourcePath)->EntryKind, Durin::EAssetRegistryEntryKind::Redirector);
-	EXPECT_NE(Durin::FindAssetExact(DestinationPath), nullptr);
-	ASSERT_TRUE(DeleteAssetClosureForTest({SourcePath, DestinationPath}));
-}
-
-TEST(FPackageAssetTests, FixupRecoveryReacquiresExternalProviderAcrossRepeatedInterruptions)
-{
-	InitializeAssetTests();
-	Durin::FPackagePath SourcePath;
-	Durin::FPackagePath DestinationPath;
-	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
-		"/TestAssets/RestartFixupSource", SourcePath
-	));
-	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
-		"/TestAssets/RestartFixupDestination", DestinationPath
-	));
-	DPackageAssetForTest* Asset = nullptr;
-	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(SourcePath, Asset));
-	ASSERT_TRUE(Durin::SavePackage(Asset->GetPackage()));
-	ASSERT_TRUE(RelocateAssetForTest(SourcePath, DestinationPath));
-	ASSERT_TRUE(Durin::RefreshAssetRegistry(
-		Durin::EAssetRegistryScanMode::FullValidation
-	));
-
-	FMemoryAssetReferenceStore Store(SourcePath);
-	FScopedReferenceStoreRegistration StoreRegistration(&Store);
-	Durin::FAssetRedirectorFixupSummary Summary;
-	Durin::FAssetMutationJob Job;
-	ASSERT_TRUE(Durin::PrepareRedirectorFixupJob(
-		std::span{&SourcePath, 1},
-		Durin::EAssetRedirectorFixupMode::RewriteAndDelete,
-		Summary, Job
-	));
-	Durin::SetAssetRedirectorFixupFailurePointForTesting(
-		Durin::EAssetRedirectorFixupFailurePoint::ApplyStore
-	);
-	const auto Interrupted = Job.ResumeForward();
-	ASSERT_EQ(Interrupted.Disposition, Durin::EAssetWriteDisposition::ForwardPending);
-	ASSERT_TRUE(std::filesystem::is_regular_file(
-		Interrupted.RecoveryLocation
-	));
-	Job = {};
-	ASSERT_TRUE(std::filesystem::is_regular_file(
-		Interrupted.RecoveryLocation
-	));
-
-	Durin::ShutdownAssetManager();
-	Durin::CollectGarbage();
-	Durin::SetAssetMutationRecoveryFailurePointForTesting(
-		Durin::EAssetMutationRecoveryFailurePoint::AfterParticipantPublication
-	);
-	const Durin::FAssetWriteResult FirstRestart = Durin::InitializeAssetManager();
-	ASSERT_EQ(FirstRestart.Disposition, Durin::EAssetWriteDisposition::ForwardPending)
-		<< FirstRestart.Message;
-	EXPECT_EQ(Store.Path, DestinationPath);
-
-	Durin::SetAssetMutationRecoveryFailurePointForTesting(
-		Durin::EAssetMutationRecoveryFailurePoint::AfterProgressPersistence
-	);
-	const Durin::FAssetWriteResult SecondRestart = Durin::InitializeAssetManager();
-	ASSERT_EQ(SecondRestart.Disposition, Durin::EAssetWriteDisposition::ForwardPending);
-
-	ASSERT_TRUE(Durin::InitializeAssetManager());
-	EXPECT_EQ(Store.Path, DestinationPath);
-	EXPECT_EQ(Durin::FindAssetExact(SourcePath), nullptr);
-	EXPECT_NE(Durin::FindAssetExact(DestinationPath), nullptr);
-	StoreRegistration.Reset();
-	ASSERT_TRUE(DeleteAssetClosureForTest({DestinationPath}));
+	Durin::FByteBuffer AfterRestart;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(AfterRestart, SourceFile));
+	EXPECT_EQ(AfterRestart, BeforeRestart);
+	EXPECT_TRUE(std::filesystem::is_directory(Interrupted.RecoveryLocation));
 }
 
 TEST(FPackageAssetTests, RelocationPreservesExternalAuthoredPathsAndRejectsRealCollision)
@@ -7405,18 +7256,9 @@ TEST(FPackageAssetTests, RelocationFailureRetainsForwardProgressAndResumes)
 			break;
 		}
 	ASSERT_FALSE(OperationRoot.empty());
-	Durin::FByteBuffer JournalBytes;
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
-		JournalBytes, (OperationRoot / "journal")
-	));
-	const std::string Journal(
-		reinterpret_cast<const char*>(JournalBytes.data()), JournalBytes.size()
-	);
-	EXPECT_NE(Journal.find("type=relocation"), std::string::npos);
-	EXPECT_NE(Journal.find("original="), std::string::npos);
-	EXPECT_NE(Journal.find("staged_pre="), std::string::npos);
-	EXPECT_NE(Journal.find("pre_fingerprint="), std::string::npos);
-	EXPECT_NE(Journal.find("completed=true"), std::string::npos);
+	EXPECT_FALSE(std::filesystem::exists(OperationRoot / "journal"));
+	EXPECT_TRUE(std::ranges::any_of(std::filesystem::directory_iterator(OperationRoot),
+		[](const auto& Entry) { return Entry.path().filename().generic_string().starts_with("pre-"); }));
 
 	Durin::SetAssetRelocationFailurePointForTesting(
 		Durin::EAssetRelocationFailurePoint::None);

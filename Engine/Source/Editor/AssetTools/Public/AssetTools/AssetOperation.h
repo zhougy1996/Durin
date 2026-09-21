@@ -70,8 +70,6 @@ namespace Durin
 		DObject* Asset = nullptr;
 		DPackage* Package = nullptr;
 		std::string PhysicalPath;
-		std::string OperationId;
-		std::string DesiredDirection;
 		std::string FailedParticipant;
 		std::filesystem::path RecoveryLocation;
 		std::vector<std::filesystem::path> AffectedFiles;

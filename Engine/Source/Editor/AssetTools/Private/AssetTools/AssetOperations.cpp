@@ -298,9 +298,7 @@ namespace Durin
 				Result.State = Item.State;
 				Result.Message = Saved.Message;
 				Result.FailedParticipant = Path.ToString();
-				Result.OperationId = Item.OperationId;
 				Result.AffectedFiles = Item.AffectedFiles;
-				Result.DesiredDirection = Item.DesiredDirection;
 				Result.RecoveryLocation = Item.RecoveryLocation;
 			}
 			bFailed = true;

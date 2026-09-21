@@ -23,21 +23,18 @@
 namespace Durin
 {
 	using AssetPrivate::EAssetMutationState;
-	using AssetPrivate::EAssetMutationJournalKind;
-	using AssetPrivate::EMutationJournalDuplicatePolicy;
+	using AssetPrivate::EMutationStagingDuplicatePolicy;
 	using AssetPrivate::EAssetMutationPublicationRole;
-	using AssetPrivate::FAssetMutationJournal;
-	using AssetPrivate::FAssetMutationJournalEntry;
-	using AssetPrivate::EnterMutationJournalRecovery;
+	using AssetPrivate::FAssetMutationStaging;
+	using AssetPrivate::FAssetMutationStagingEntry;
+	using AssetPrivate::RequireMutationRepair;
 	using AssetPrivate::FingerprintRelocationFile;
-	using AssetPrivate::InitializeMutationJournal;
-	using AssetPrivate::IsMutationJournalRecoveryRequired;
+	using AssetPrivate::InitializeMutationStaging;
+	using AssetPrivate::RequiresMutationRepair;
 	using AssetPrivate::LoadRelocationBytes;
 	using AssetPrivate::NormalizePhysicalPath;
 	using AssetPrivate::PublishRelocationFile;
-	using AssetPrivate::StageMutationJournalEntry;
-	using AssetPrivate::TransitionMutationJournalState;
-	using AssetPrivate::WriteMutationJournalState;
+	using AssetPrivate::StageMutationEntry;
 
 	namespace
 	{
@@ -138,7 +135,7 @@ namespace Durin
 	{
 		uint64 ExpectedRegistryRevision = 0;
 		std::vector<FAssetRelocationMapping> Mappings;
-		FAssetMutationJournal Journal;
+		FAssetMutationStaging Staging;
 		std::vector<FLoadedRelocationState> LoadedPackages;
 		std::vector<FAssetOwnedPayloadRelocation> OwnedPayloads;
 		size_t FinalizedLoadedCount = 0;
@@ -176,8 +173,8 @@ namespace Durin
 				const FAssetRelocationMapping& B) {
 				return A.SourcePath.GetView() < B.SourcePath.GetView();
 			});
-		InitializeMutationJournal(
-			State->Journal, EAssetMutationJournalKind::Relocation);
+		InitializeMutationStaging(
+			State->Staging);
 
 		std::unordered_set<FPackagePath> Sources;
 		std::unordered_set<FPackagePath> Destinations;
@@ -191,7 +188,7 @@ namespace Durin
 				return Error(EAssetWriteError::IoError,
 					"Injected relocation output-preparation failure.");
 			size_t IgnoredIndex = 0;
-			return StageMutationJournalEntry(State->Journal, {
+			return StageMutationEntry(State->Staging, {
 				.PhysicalPath = PhysicalPath,
 				.RegistryPath = RegistryPath,
 				.Role = Role,
@@ -204,7 +201,7 @@ namespace Durin
 					? FByteView(*PostBytes)
 					: FByteView{},
 				.DuplicatePolicy =
-					EMutationJournalDuplicatePolicy::Reject}, IgnoredIndex);
+					EMutationStagingDuplicatePolicy::Reject}, IgnoredIndex);
 		};
 
 		for (const FAssetRelocationMapping& Mapping : State->Mappings)
@@ -433,9 +430,7 @@ namespace Durin
 			}
 		}
 
-		FAssetWriteResult JournalResult = TransitionMutationJournalState(
-			State->Journal, EAssetMutationState::Prepared);
-		if (!JournalResult) return JournalResult;
+		State->Staging.State = EAssetMutationState::Prepared;
 		OutState = std::move(State);
 		return {};
 	}
@@ -466,7 +461,7 @@ namespace Durin
 			return FAssetRuntimeState::Get().GetMutationCoordinator().ApplyAssetRelocation(Relocation);
 		};
 		JobState->IsRecoveryRequired = [Relocation] {
-			return IsMutationJournalRecoveryRequired(Relocation->Journal);
+			return RequiresMutationRepair(Relocation->Staging);
 		};
 		JobState->LastResult.State =
 			EAssetMutationJobState::Prepared;
@@ -484,18 +479,17 @@ namespace Durin
 			return Error(EAssetWriteError::StaleData,
 				"The relocation job state is empty.");
 		const auto& State = *Relocation;
-		if (State.Journal.State == EAssetMutationState::RecoveryRequired)
+		if (State.Staging.State == EAssetMutationState::RecoveryRequired)
 			return {
 				.Error = EAssetWriteError::IoError,
-				.Message = "AssetMutationRecoveryRequired: the relocation journal requires recovery.",
+				.Message = "AssetMutationRecoveryRequired: the relocation requires manual repair.",
 				.Disposition = EAssetWriteDisposition::RecoveryRequired,
-				.OperationId = State.Journal.OperationId,
-				.DesiredDirection = "Forward",
-				.FailedParticipant = "MutationJournal",
-				.RecoveryLocation = State.Journal.LocatorPath};
-		if (State.Journal.State != EAssetMutationState::Prepared
-			&& State.Journal.State != EAssetMutationState::Committed
-			&& State.Journal.State != EAssetMutationState::Publishing)
+				.FailedParticipant = "MutationStaging",
+				.RecoveryLocation = State.Staging.Roots.empty() ? std::filesystem::path{} : State.Staging.Roots.front(),
+				.AffectedFiles = State.Staging.GetPublishedFiles()};
+		if (State.Staging.State != EAssetMutationState::Prepared
+			&& State.Staging.State != EAssetMutationState::Committed
+			&& State.Staging.State != EAssetMutationState::Publishing)
 			return Error(EAssetWriteError::StaleData,
 				"The relocation token is not in a revalidatable state.");
 		if (!State.bProjectionPublished
@@ -503,11 +497,11 @@ namespace Durin
 			return Error(EAssetWriteError::StaleData,
 				"The asset registry changed after relocation analysis.");
 		const bool bExpectAllPost =
-			State.Journal.State == EAssetMutationState::Committed;
-		for (const FAssetMutationJournalEntry& Entry : State.Journal.Entries)
+			State.Staging.State == EAssetMutationState::Committed;
+		for (const FAssetMutationStagingEntry& Entry : State.Staging.Entries)
 		{
 			const bool bExpectPost = bExpectAllPost
-				|| (State.Journal.State == EAssetMutationState::Publishing
+				|| (State.Staging.State == EAssetMutationState::Publishing
 					&& Entry.bCompleted);
 			const bool bExpectedExists = bExpectPost
 				? Entry.bPostExists : Entry.bPreExists;
@@ -551,7 +545,7 @@ namespace Durin
 		{
 			const FLoadedRelocationState& Loaded = State.LoadedPackages[Index];
 			const bool bLoadedPost = bExpectAllPost
-				|| (State.Journal.State == EAssetMutationState::Publishing
+				|| (State.Staging.State == EAssetMutationState::Publishing
 					&& Index < State.FinalizedLoadedCount);
 			const FPackagePath& ExpectedPath = bLoadedPost
 				? Loaded.Mapping.DestinationPath
@@ -590,8 +584,8 @@ namespace Durin
 			return Error(EAssetWriteError::StaleData,
 				"The relocation job state is empty.");
 		auto& State = *Relocation;
-		if (State.Journal.State != EAssetMutationState::Prepared
-			&& State.Journal.State != EAssetMutationState::Publishing)
+		if (State.Staging.State != EAssetMutationState::Prepared
+			&& State.Staging.State != EAssetMutationState::Publishing)
 			return Error(EAssetWriteError::StaleData,
 				"Only a prepared or publishing relocation can resume forward.");
 		FAssetWriteResult Result = RevalidateAssetRelocation(Relocation);
@@ -601,19 +595,18 @@ namespace Durin
 			return Error(EAssetWriteError::IoError,
 				"Injected relocation original-staging failure.");
 
-		std::vector<size_t> Order(State.Journal.Entries.size());
+		std::vector<size_t> Order(State.Staging.Entries.size());
 		for (size_t Index = 0; Index < Order.size(); ++Index)
 			Order[Index] = Index;
 		std::ranges::stable_sort(Order, [&](size_t A, size_t B) {
-			return State.Journal.Entries[A].Role
-				< State.Journal.Entries[B].Role;
+			return State.Staging.Entries[A].Role
+				< State.Staging.Entries[B].Role;
 		});
-		const bool bResuming = State.Journal.State == EAssetMutationState::Publishing;
+		const bool bResuming = State.Staging.State == EAssetMutationState::Publishing;
 		for (size_t OrderIndex = 0; OrderIndex < Order.size(); ++OrderIndex)
 		{
-			FAssetMutationJournalEntry& Entry =
-				State.Journal.Entries[Order[OrderIndex]];
-			Entry.PublicationOrder = static_cast<uint64>(OrderIndex);
+			FAssetMutationStagingEntry& Entry =
+				State.Staging.Entries[Order[OrderIndex]];
 			if (!bResuming)
 			{
 				Entry.bCompleted = false;
@@ -621,9 +614,7 @@ namespace Durin
 		}
 		if (!bResuming)
 		{
-			Result = TransitionMutationJournalState(
-				State.Journal, EAssetMutationState::Publishing);
-			if (!Result) return Result;
+			State.Staging.State = EAssetMutationState::Publishing;
 		}
 		auto ForwardPending = [&](std::string Message) -> FAssetWriteResult {
 			std::vector<FPackagePath> Paths;
@@ -636,34 +627,30 @@ namespace Durin
 			return {
 				.Error = EAssetWriteError::IoError,
 				.Message = std::format(
-					"AssetMutationForwardResumable: operation {} will resume forward. {}",
-					State.Journal.OperationId, Message),
+					"AssetMutationForwardResumable: operation {} can resume with this live job only. {}",
+					State.Staging.OperationId, Message),
 				.Disposition = EAssetWriteDisposition::ForwardPending,
-				.OperationId = State.Journal.OperationId,
-				.DesiredDirection = "Forward",
-				.RecoveryLocation = State.Journal.LocatorPath};
+				.RecoveryLocation = State.Staging.Roots.empty() ? std::filesystem::path{} : State.Staging.Roots.front(),
+				.AffectedFiles = State.Staging.GetPublishedFiles()};
 		};
 
 		for (size_t Index : Order)
 		{
-			FAssetMutationJournalEntry& Entry = State.Journal.Entries[Index];
+			FAssetMutationStagingEntry& Entry = State.Staging.Entries[Index];
 			if (Entry.bCompleted) continue;
 			if (AssetPrivate::ConsumeAssetRelocationFailure(
 					FailurePointForRole(Entry.Role)))
 				return ForwardPending("Injected relocation publication failure.");
 			Result = PublishRelocationFile(Entry);
 			if (!Result) return ForwardPending(Result.Message);
+			Entry.bCompleted = true;
 			if (Entry.bPostExists)
 			{
 				Result = FingerprintRelocationFile(
 					Entry.PhysicalPath, Entry.ExpectedPostFingerprint);
-				if (!Result) return EnterMutationJournalRecovery(State.Journal,
+				if (!Result) return RequireMutationRepair(State.Staging,
 					"ArtifactFingerprint", Result.Message);
 			}
-			Entry.bCompleted = true;
-			Result = WriteMutationJournalState(State.Journal);
-			if (!Result) return EnterMutationJournalRecovery(State.Journal,
-				"MutationJournal", Result.Message);
 		}
 
 		for (; State.FinalizedLoadedCount < State.LoadedPackages.size();
@@ -702,9 +689,7 @@ namespace Durin
 		if (!Result) return ForwardPending(Result.Message);
 		State.bProjectionPublished = true;
 		State.ExpectedRegistryRevision = GetAssetCatalogRevision();
-		Result = TransitionMutationJournalState(
-			State.Journal, EAssetMutationState::Committed);
-		if (!Result) return Result;
+		State.Staging.State = EAssetMutationState::Committed;
 		for (const auto& Loaded : State.LoadedPackages)
 			for (DObject* Object : Loaded.Package->GetTopLevelAssets())
 				if (auto* Function = Cast<DMaterialFunctionInterface>(Object))

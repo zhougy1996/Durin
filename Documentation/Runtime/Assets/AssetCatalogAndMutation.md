@@ -244,7 +244,7 @@ Relocation is batched even for one mapping. Preparation captures the catalog
 revision, exact participant fingerprints, resident finalizers, destination
 artifacts, source redirectors, and owned payload moves behind an opaque job.
 `ResumeForward` is the only execution direction. It publishes destinations and
-owned payloads before source redirectors, persists progress at each boundary,
+owned payloads before source redirectors, records progress in the live job,
 and is idempotent across ordinary retry. Relocation neither opens nor rewrites
 unrelated referencer packages: their authored paths continue to target the
 source alias until an explicit Fix Up operation canonicalizes those paths.
@@ -266,35 +266,36 @@ does not silently sever call bindings.
 Owned authored payload closure is metadata-derived, not suffix-guessed. A DAST
 v9 package contributes its validated raw `.dbulk` only when Registry and Bulk
 Directory bind a nonempty external segment. Relocation, duplication, Save, and
-forward recovery publish that companion with the `.dasset`. Atomic
+in-process retries publish that companion with the `.dasset`. Atomic
 temporaries and `.durin-backup` files are recovery state and never mutation
 participants.
 
 Stale jobs, read-only participants, collisions, and preparation failures leave
 authority unchanged. After the first authoritative publication, failures retain
-durable forward progress; `RecoveryRequired` is reserved for uncertain authored
+in-process forward progress; `RecoveryRequired` is reserved for uncertain authored
 artifacts or independent stores. Registry-only lag returns
 `ContentCommittedProjectionPending`, fences affected paths, and never rolls back
 valid package bytes.
 
-Authored runtime initialization scans `Saved/AssetMutationRecovery` before it
-accepts requests. Each owned locator resolves replicated versioned journals
-beside the affected content mounts. Recovery verifies every completed artifact,
-recognizes publication that became visible before its progress write, and
-continues remaining package and payload participants in their recorded forward
-order. Fix Up journals also persist provider ids, stable rewrite ids, and source
-and destination paths; restart reacquires the registered provider, recognizes
-already-applied rewrites, and replays only pending occurrences before deleting
-redirectors. Projection reconciliation and journal cleanup happen only after all
-authoritative participants converge. Missing providers remain forward-pending;
-unsafe paths, divergent replicas, or bytes matching neither recorded image
-require explicit recovery instead of automatic publication.
+Asset mutation jobs keep progress in memory and stage before/after images beside
+owned content in `.durin-asset-mutation`. Prepared and completed jobs clean up
+those owned stages; interrupted publication retains backups for manual repair.
+No locator directory or persistent journal is written. Runtime initialization
+neither scans `Saved/AssetMutationRecovery` nor replays interrupted operations.
+Legacy records are left untouched and do not block startup.
 
-`FAssetWriteResult` carries mutation disposition separately from its diagnostic error
-code. Forward-pending, projection-pending, and recovery-required results are
-therefore consumed structurally rather than inferred from message text. Durable
-jobs also return their operation id, desired direction, and recovery location
-when those values exist; diagnostic messages remain presentation data.
+`ResumeForward()` retries only while the original job remains alive. Fix Up
+keeps external provider callbacks in that live job and verifies reference
+rewrites before deleting redirectors. After process exit there is no automatic
+continuation or multi-file crash-atomicity guarantee; partial changes require
+manual repair or version-control restoration.
+
+`FAssetWriteResult` carries mutation disposition separately from its diagnostic
+error code. Forward-pending means the live job can retry; recovery-required means
+manual intervention may be needed. A recovery location identifies retained
+staging or backup data, not a replayable operation record. Operation ids and
+recovery directions are not part of public results. Registry projection lag
+remains separately classified; diagnostic messages remain presentation data.
 
 ## Deletion And Fix-Up
 

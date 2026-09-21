@@ -2,7 +2,7 @@
 #include "Asset/RegistryOperations.h"
 #include "AssetRuntimeStateInternal.h"
 #include "AssetMutationRegistryInternal.h"
-#include "AssetMutationJournalInternal.h"
+#include "AssetMutationStagingInternal.h"
 #include "AssetMutationReferenceInternal.h"
 #include "AssetRelocationExtensionsInternal.h"
 #include "AssetRegistryResultAdapter.h"
@@ -59,15 +59,14 @@ namespace Durin
 	using AssetPrivate::FAssetReferenceStoreRegistry;
 	using AssetPrivate::GetAssetReferenceStoreRegistry;
 	using AssetPrivate::EAssetMutationState;
-	using AssetPrivate::FAssetMutationJournal;
-	using AssetPrivate::FAssetMutationJournalEntry;
+	using AssetPrivate::FAssetMutationStaging;
+	using AssetPrivate::FAssetMutationStagingEntry;
 	using AssetPrivate::FingerprintRelocationFile;
 	using AssetPrivate::LoadRelocationBytes;
 	using AssetPrivate::MakePackageFingerprint;
 	using AssetPrivate::NormalizePhysicalPath;
 	using AssetPrivate::PublishRelocationFile;
 	using AssetPrivate::SaveRelocationBytes;
-	using AssetPrivate::WriteMutationJournalState;
 
 	namespace
 	{

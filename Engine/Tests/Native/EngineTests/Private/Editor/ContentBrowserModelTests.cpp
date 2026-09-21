@@ -2993,8 +2993,7 @@ TEST_F(FContentBrowserModelTests, ServiceRetainsStructuredAssetFailureAndFixUpSc
 				.Kind = EAssetOperationKind::FixUpRedirectors,
 				.State = EAssetOperationTerminalState::ForwardPending,
 				.Persistence = EAssetOperationPersistenceState::PartiallyPersisted,
-				.AffectedAssets = {Path},
-				.OperationId = "retained-job"};
+				.AffectedAssets = {Path}};
 		}, [&] { ++Publications; });
 	EXPECT_FALSE(Service.FixUpRedirectorsInFolder(""));
 	EXPECT_EQ(Calls, 0);
@@ -3002,7 +3001,7 @@ TEST_F(FContentBrowserModelTests, ServiceRetainsStructuredAssetFailureAndFixUpSc
 	const auto Result = Service.FixUpRedirectors(Paths);
 	ASSERT_TRUE(Result.AssetResult);
 	EXPECT_EQ(Result.AssetResult->State, EAssetOperationTerminalState::ForwardPending);
-	EXPECT_EQ(Result.AssetResult->OperationId, "retained-job");
+	EXPECT_EQ(Result.AssetResult->AffectedAssets, (std::vector<FPackagePath>{Path}));
 	EXPECT_EQ(Result.AssetResult->Persistence, EAssetOperationPersistenceState::PartiallyPersisted);
 	EXPECT_FALSE(Result);
 	EXPECT_EQ(Publications, 1);

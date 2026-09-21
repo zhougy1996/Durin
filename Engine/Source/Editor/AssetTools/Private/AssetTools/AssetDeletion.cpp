@@ -163,8 +163,7 @@ namespace Durin
 				.Message = std::format(
 					"AssetDeletionForwardPending: deletion is irreversible; retry the remaining paths. {}",
 					DeleteResult.Message),
-				.Disposition = EAssetWriteDisposition::ForwardPending,
-				.DesiredDirection = "DeleteRemaining"};
+				.Disposition = EAssetWriteDisposition::ForwardPending};
 		}
 		Result = PublishPackageRemoval(Packages, RegistryRevision);
 		if (!Result)

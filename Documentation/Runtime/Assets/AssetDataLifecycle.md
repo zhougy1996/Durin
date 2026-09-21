@@ -70,8 +70,8 @@ Engine's DAST adapters classify and format CoreDObject failures at the boundary.
 nested Capture, reader, writer, Registry, resource, or Cook causes. The owning
 Core operations keep their classification and context; failed encoding keeps the
 caller's output closure unchanged. Saves, serialization and mutations return
-`FAssetWriteResult`. Its write-only disposition, operation id, direction, failed
-participant, recovery location and affected files cannot propagate through a
+`FAssetWriteResult`. Its write-only disposition, failed participant, retained backup
+location and affected files cannot propagate through a
 read result. A read failure may reject write preparation; that adaptation never
 claims that content was committed or written.
 

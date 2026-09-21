@@ -28,8 +28,6 @@ namespace Durin::AssetToolsPrivate
 			.Kind = Kind,
 			.State = State,
 			.Message = Result.Message,
-			.OperationId = Result.OperationId,
-			.DesiredDirection = Result.DesiredDirection,
 			.FailedParticipant = Result.FailedParticipant,
 			.RecoveryLocation = Result.RecoveryLocation,
 			.AffectedFiles = Result.AffectedFiles};

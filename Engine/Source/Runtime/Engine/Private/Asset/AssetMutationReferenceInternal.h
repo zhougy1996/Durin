@@ -1,7 +1,7 @@
 #pragma once
 #include "DObject/PackageValueCodec.h"
 
-#include "AssetMutationJournalInternal.h"
+#include "AssetMutationStagingInternal.h"
 
 namespace Durin::AssetPrivate
 {

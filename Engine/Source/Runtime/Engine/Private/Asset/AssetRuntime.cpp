@@ -5,7 +5,7 @@
 #include "AssetRegistry/Scan.h"
 #include "AssetMutationRegistryInternal.h"
 #include "AssetRegistry/Publication.h"
-#include "AssetMutationJournalInternal.h"
+#include "AssetMutationStagingInternal.h"
 #include "AssetMutationReferenceInternal.h"
 #include "AssetRelocationExtensionsInternal.h"
 #include "Asset/PackageResource.h"
@@ -69,8 +69,8 @@ namespace Durin
 {
 	using AssetPrivate::AssetReferenceLess;
 	using AssetPrivate::EAssetMutationState;
-	using AssetPrivate::FAssetMutationJournal;
-	using AssetPrivate::FAssetMutationJournalEntry;
+	using AssetPrivate::FAssetMutationStaging;
+	using AssetPrivate::FAssetMutationStagingEntry;
 	using AssetPrivate::FAssetReferenceStoreRegistry;
 	using AssetPrivate::FingerprintRelocationFile;
 	using AssetPrivate::GetAssetReferenceStoreRegistry;
@@ -78,9 +78,7 @@ namespace Durin
 	using AssetPrivate::MakePackageFingerprint;
 	using AssetPrivate::NormalizePhysicalPath;
 	using AssetPrivate::PublishRelocationFile;
-	using AssetPrivate::RecoverPendingMutationJournals;
 	using AssetPrivate::SaveRelocationBytes;
-	using AssetPrivate::WriteMutationJournalState;
 
 	namespace
 	{
@@ -893,11 +891,6 @@ namespace Durin
 		check(GetResidentAssetPackages().empty());
 		check(Loader.IsIdle());
 		RuntimeConfiguration = std::move(Configuration);
-		if (!RuntimeConfiguration.IsCooked())
-		{
-			FAssetWriteResult RecoveryResult = RecoverPendingMutationJournals();
-			if (!RecoveryResult) return RecoveryResult;
-		}
 		PackageSavePrivate::SetAsyncSaveAdmission(true);
 		bAcceptingRequests = true;
 		return {};

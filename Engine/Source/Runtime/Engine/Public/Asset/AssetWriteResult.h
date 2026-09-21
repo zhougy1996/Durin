@@ -21,9 +21,8 @@ namespace Durin
 		EAssetWriteError Error = EAssetWriteError::None;
 		std::string Message;
 		EAssetWriteDisposition Disposition = EAssetWriteDisposition::Default;
-		std::string OperationId;
-		std::string DesiredDirection;
 		std::string FailedParticipant;
+		// Retained backup/staging data for manual repair, never a replay locator.
 		std::filesystem::path RecoveryLocation;
 		std::vector<std::filesystem::path> AffectedFiles;
 		auto Succeeded() const -> bool { return Error == EAssetWriteError::None; }

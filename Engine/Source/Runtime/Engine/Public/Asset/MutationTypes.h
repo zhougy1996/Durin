@@ -35,6 +35,7 @@ namespace Durin
 		ENGINE_API auto GetState() const -> EAssetMutationJobState;
 		ENGINE_API auto GetLastResultDetails() const
 			-> FAssetMutationResultDetails;
+		// Retries only this live job; no state is persisted or replayed after restart.
 		ENGINE_API auto ResumeForward() -> FAssetWriteResult;
 
 	private:

@@ -152,7 +152,9 @@ final Engine publication.
 Two file renames are not crash-atomic. These primitives offer in-process rollback,
 not persistent multi-file crash recovery. Cross-process writers require external
 coordination; destination stamps provide optimistic conflict detection. Engine
-retains its asset-specific recovery and projection-pending dispositions.
+retains its manual-repair and projection-pending dispositions. Asset mutation
+jobs may retry in process, but Engine does not persist journals or replay
+interrupted jobs at startup.
 
 ## Detached Direct Writer Primitives
 
