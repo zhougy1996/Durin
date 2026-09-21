@@ -1,5 +1,5 @@
 #include "Misc/PackageWriter.h"
-#include "Misc/FileHelper.h"
+#include "Misc/FileIO.h"
 #include <cwctype>
 
 namespace Durin
@@ -82,13 +82,14 @@ namespace Durin
 				{
 					std::error_code Ec;
 					std::filesystem::create_directories(File.Replacement.Destination.parent_path(), Ec);
-					FFileHelper::FAtomicFileError Error;
-					if (Ec || (!File.Replacement.Staged.empty()
-						&& !FFileHelper::SaveArrayToNewFile(File.Bytes, File.Replacement.Staged, &Error)))
+					std::expected<void, FFileIO::FFileError> Saved;
+					if (!Ec && !File.Replacement.Staged.empty())
+						Saved = FFileIO::SaveArrayToNewFile(File.Bytes, File.Replacement.Staged);
+					if (Ec || !Saved)
 					{
 						bTerminal = true;
 						Cleanup();
-						return Result = {EPackageWriteError::IoError, Ec ? Ec.message() : Error.ToString()};
+						return Result = {EPackageWriteError::IoError, Ec ? Ec.message() : Saved.error().ToString()};
 					}
 					if (!File.Replacement.Staged.empty()) OwnedStages.push_back(File.Replacement.Staged);
 					FFilePublicationStamp Stamp;

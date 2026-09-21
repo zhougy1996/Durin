@@ -1,6 +1,6 @@
 #include "Json/Json.h"
 
-#include "Misc/FileHelper.h"
+#include "Misc/FileIO.h"
 
 #include "yyjson.h"
 
@@ -902,18 +902,18 @@ namespace Durin
 
 	auto FJsonDocument::LoadFromFile(std::string_view FileName, FJsonParseError* OutError) -> bool
 	{
-		std::string JsonText;
-		if (!FFileHelper::LoadFileToString(JsonText, FileName))
+		auto JsonText = FFileIO::LoadFileToString(FFilePath(FileName));
+		if (!JsonText)
 		{
 			if (OutError)
 			{
 				*OutError = {};
-				OutError->Message = std::format("Failed to load JSON file: {}", FileName);
+				OutError->Message = std::format("Failed to load JSON file: {}", JsonText.error().ToString());
 			}
 			return false;
 		}
 
-		return Parse(JsonText, OutError);
+		return Parse(*JsonText, OutError);
 	}
 
 	auto FJsonDocument::Reset() -> void

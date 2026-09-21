@@ -3,6 +3,7 @@
 #include "CoreAPI.h"
 #include "HAL/Platform.h"
 #include "Image/Image.h"
+#include "Misc/FileIO.h"
 
 namespace Durin::Image
 {
@@ -26,6 +27,7 @@ namespace Durin::Image
 		FImageDecodeLimits Limits;
 		std::string Filename;
 		std::error_code SystemError;
+		std::optional<FFileIO::FFileError> FileError;
 	};
 	struct FImageDecodeResult
 	{

@@ -28,7 +28,7 @@
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
-#include "Misc/FileHelper.h"
+#include "Misc/FileIO.h"
 #include "DObject/PackagePersistence.h"
 #include "Misc/FileTime.h"
 #include "Misc/Paths.h"
@@ -170,9 +170,9 @@ namespace Durin
 						"Failed to inspect the package bulk companion.");
 				return {};
 			}
-			if (!FFileHelper::LoadFileToArray(OutBytes, BulkPath))
-				return Error(EAssetReadError::IoError,
-					"Failed to read the package bulk companion.");
+			auto Loaded = FFileIO::LoadFileToArray(BulkPath);
+			if (!Loaded) return Error(EAssetReadError::IoError, Loaded.error().ToString());
+			OutBytes = std::move(*Loaded);
 			return {};
 		}
 
@@ -1138,10 +1138,10 @@ namespace Durin
 			return AssetWriteResultFromRead(AssetPrivate::ToAssetResult(std::move(Result)));
 		auto ReadAccess = FPackageFileAccess::TryReadPackage(std::filesystem::path(PhysicalPath));
 		if (!ReadAccess) return Error(EAssetWriteError::InUse, "Package output is being written.");
-		FByteBuffer Bytes;
-		if (!FFileHelper::LoadFileToArray(Bytes, PhysicalPath))
-			return Error(EAssetWriteError::IoError,
-				"The asset package could not be read for admission validation.");
+		auto Loaded = FFileIO::LoadFileToArray(PhysicalPath);
+		if (!Loaded) return Error(EAssetWriteError::IoError,
+			std::format("Package admission read failed: {}", Loaded.error().ToString()));
+		FByteBuffer Bytes = std::move(*Loaded);
 		FByteBuffer BulkBytes;
 		if (FAssetWriteResult Result = AssetWriteResultFromRead(LoadPackageBulkBytes(PhysicalPath, BulkBytes)); !Result)
 			return Result;
@@ -1411,10 +1411,9 @@ namespace Durin
 		OutInspection = {};
 		auto ReadAccess = FPackageFileAccess::TryReadPackage(std::filesystem::path(PhysicalPath));
 		if (!ReadAccess) return Error(EAssetReadError::InUse, "Package output is being written.");
-		FByteBuffer Bytes;
-		if (!FFileHelper::LoadFileToArray(Bytes, PhysicalPath))
-			return Error(EAssetReadError::IoError, std::format("Failed to open asset package {}.", PhysicalPath));
-		return InspectAssetPackageBytes(PhysicalPath, Bytes, PackagePath, OutInspection);
+		auto Bytes = FFileIO::LoadFileToArray(PhysicalPath);
+		if (!Bytes) return Error(EAssetReadError::IoError, Bytes.error().ToString());
+		return InspectAssetPackageBytes(PhysicalPath, *Bytes, PackagePath, OutInspection);
 	}
 
 

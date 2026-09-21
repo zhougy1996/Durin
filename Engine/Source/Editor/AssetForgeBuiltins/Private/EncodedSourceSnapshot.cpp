@@ -1,7 +1,7 @@
 #include "EncodedSourceSnapshot.h"
 
 #include "Misc/FileTime.h"
-#include "Misc/FileHelper.h"
+#include "Misc/FileIO.h"
 #include "Misc/Paths.h"
 
 namespace Durin::AssetForge::Builtins
@@ -15,7 +15,8 @@ namespace Durin::AssetForge::Builtins
 		case EEncodedSourceError::FileSize:
 		case EEncodedSourceError::Timestamp: return Error.SystemError.message();
 		case EEncodedSourceError::Limit: return "Encoded source exceeds the configured limit.";
-		case EEncodedSourceError::Read: return std::format("Failed to read source file '{}'.", Error.Filename);
+		case EEncodedSourceError::Read: return Error.FileError ? Error.FileError->ToString()
+			: std::format("Failed to read source file '{}'.", Error.Filename);
 		case EEncodedSourceError::Changed: return "Source file changed while its snapshot was captured.";
 		}
 		return {};
@@ -40,8 +41,13 @@ namespace Durin::AssetForge::Builtins
 			return Fail(EEncodedSourceError::Limit);
 		const auto LastWriteTime = std::filesystem::last_write_time(PhysicalPath, Error);
 		if (Error) return Fail(EEncodedSourceError::Timestamp, Error);
-		auto Bytes = std::make_shared<FByteBuffer>();
-		if (!FFileHelper::LoadFileToArray(*Bytes, PhysicalPath)) return Fail(EEncodedSourceError::Read);
+		auto Loaded = FFileIO::LoadFileToArray(PhysicalPath);
+		if (!Loaded)
+		{
+			Context.FileError = std::move(Loaded.error());
+			return Fail(EEncodedSourceError::Read, Context.FileError->NativeError);
+		}
+		auto Bytes = std::make_shared<FByteBuffer>(std::move(*Loaded));
 		Context.BytesRead = Bytes->size();
 		Context.SizeAfter = std::filesystem::file_size(PhysicalPath, Error);
 		if (Error) return Fail(EEncodedSourceError::Changed, Error);

@@ -10,7 +10,7 @@
 #include "DObject/CanonicalMapKey.h"
 #include "DObject/PackageFormat.h"
 #include "Hash/XxHash.h"
-#include "Misc/FileHelper.h"
+#include "Misc/FileIO.h"
 #include "Misc/MountPaths.h"
 
 namespace Durin::AssetPrivate::TaggedPackage
@@ -575,9 +575,12 @@ namespace Durin::AssetPrivate::TaggedPackage
 				std::filesystem::path BulkPath = Resolved.PhysicalPath;
 				BulkPath.replace_extension(".dbulk");
 				std::error_code Ec;
-				if (std::filesystem::is_regular_file(BulkPath, Ec)
-					&& !FFileHelper::LoadFileToArray(Bulk, BulkPath))
-					return Error(EAssetReadError::IoError, "DAST bulk companion is unreadable.");
+				if (std::filesystem::is_regular_file(BulkPath, Ec))
+				{
+					auto Loaded = FFileIO::LoadFileToArray(BulkPath);
+					if (!Loaded) return Error(EAssetReadError::IoError, Loaded.error().ToString());
+					Bulk = std::move(*Loaded);
+				}
 			}
 			ObjectPackage::FLinkerTables Linker;
 			if (auto Result = ReadLinker({Main, Bulk, Path, Main.size()}, Linker); !Result)

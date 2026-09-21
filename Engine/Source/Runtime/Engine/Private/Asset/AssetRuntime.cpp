@@ -26,7 +26,7 @@
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
-#include "Misc/FileHelper.h"
+#include "Misc/FileIO.h"
 
 #include "Misc/Paths.h"
 #include "Threading/RunnableThread.h"
@@ -632,7 +632,11 @@ namespace Durin
 		}
 		else
 		{
-			if (!FFileHelper::LoadFileToArray(FileBytes, PhysicalPath)) return Error(EAssetReadError::NotFound, std::format("Asset {} was not found.", Path.ToString()));
+			auto Loaded = FFileIO::LoadFileToArray(PhysicalPath);
+			if (!Loaded) return Error(Loaded.error().NativeError == std::errc::no_such_file_or_directory
+				? EAssetReadError::NotFound : EAssetReadError::IoError,
+				std::format("Failed to read asset {}: {}", Path.ToString(), Loaded.error().ToString()));
+			FileBytes = std::move(*Loaded);
 			Bytes = FileBytes;
 			std::filesystem::path BulkPath(PhysicalPath);
 			BulkPath.replace_extension(".dbulk");

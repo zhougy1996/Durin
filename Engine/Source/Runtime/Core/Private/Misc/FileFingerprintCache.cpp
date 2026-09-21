@@ -1,6 +1,6 @@
 #include "Misc/FileFingerprintCache.h"
 
-#include "Misc/FileHelper.h"
+#include "Misc/FileIO.h"
 
 namespace Durin
 {
@@ -61,17 +61,17 @@ namespace Durin
 			}
 		}
 
-		FByteBuffer FileBytes;
-		if (!FFileHelper::LoadFileToArray(FileBytes, NormalizedPath))
+		auto FileBytes = FFileIO::LoadFileToArray(NormalizedPath);
+		if (!FileBytes)
 		{
-			OutErrorMessage = std::format("Failed to read file: {}", NormalizedPath);
+			OutErrorMessage = FileBytes.error().ToString();
 			return false;
 		}
 
 		FEntry NewEntry;
 		NewEntry.LastWriteTime = LastWriteTime;
 		NewEntry.FileSize = FileSize;
-		NewEntry.ContentHash = FXxHash64::HashBuffer(FByteView(FileBytes));
+		NewEntry.ContentHash = FXxHash64::HashBuffer(FByteView(*FileBytes));
 
 		{
 			std::lock_guard Lock(Mutex);

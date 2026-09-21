@@ -7,7 +7,7 @@
 #include "CoreGlobals.h"
 #include "DObject/Class.h"
 #include "DObject/Package.h"
-#include "Misc/FileHelper.h"
+#include "Misc/FileIO.h"
 #include "Threading/RunnableThread.h"
 #include "Threading/TaskComposition.h"
 
@@ -49,12 +49,14 @@ namespace Durin
 						? EAssetReadError::NotFound : EAssetReadError::IoError, Error.message()};
 				else if (Size > MaximumClosureBytes - RetainedBytes)
 					Input.Result = {EAssetReadError::InUse, "Async package closure exceeds the 256 MiB read budget."};
-				else if (!FFileHelper::LoadFileToArray(Input.Bytes, Input.PhysicalPath))
-					Input.Result = {EAssetReadError::IoError, "Failed to read async package input."};
-				else if (Input.Bytes.size() > MaximumClosureBytes - RetainedBytes)
+				else
 				{
-					Input.Bytes = {};
-					Input.Result = {EAssetReadError::StaleData, "Package size changed during async read."};
+					auto Loaded = FFileIO::LoadFileToArray(Input.PhysicalPath);
+					if (!Loaded)
+						Input.Result = {EAssetReadError::IoError, Loaded.error().ToString()};
+					else if (Loaded->size() > MaximumClosureBytes - RetainedBytes)
+						Input.Result = {EAssetReadError::StaleData, "Package size changed during async read."};
+					else Input.Bytes = std::move(*Loaded);
 				}
 				RetainedBytes += Input.Bytes.size();
 				if (!Input.Result) continue;

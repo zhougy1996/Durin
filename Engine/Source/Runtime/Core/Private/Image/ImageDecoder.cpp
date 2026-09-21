@@ -1,6 +1,6 @@
 #include "Image/ImageDecoder.h"
 
-#include "Misc/FileHelper.h"
+#include "Misc/FileIO.h"
 #include "Misc/StringHelper.h"
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -213,7 +213,7 @@ namespace Durin::Image
 		case EImageDecodeError::PixelLimit: return "The decoded image is too large.";
 		case EImageDecodeError::FileStat: return "Unable to open the image file.";
 		case EImageDecodeError::FileSize: return "The image file is empty or too large.";
-		case EImageDecodeError::FileRead: return "Unable to read the image file.";
+		case EImageDecodeError::FileRead: return Error.FileError ? Error.FileError->ToString() : "Unable to read the image file.";
 		}
 		return {};
 	}
@@ -292,13 +292,14 @@ namespace Durin::Image
 				.Limits = Limits, .Filename = std::string(FilePath)}};
 		}
 
-		FByteBuffer EncodedBytes;
-		if (!FFileHelper::LoadFileToArray(EncodedBytes, FilePath))
+		auto EncodedBytes = FFileIO::LoadFileToArray(FFilePath(FilePath));
+		if (!EncodedBytes)
 		{
 			return {.Error = {.Code = EImageDecodeError::FileRead, .EncodedBytes = FileSize,
-				.Limits = Limits, .Filename = std::string(FilePath)}};
+				.Limits = Limits, .Filename = std::string(FilePath),
+				.SystemError = EncodedBytes.error().NativeError, .FileError = std::move(EncodedBytes.error())}};
 		}
-		auto Result = DecodeImageFromMemory(EncodedBytes, OutImage, Limits);
+		auto Result = DecodeImageFromMemory(*EncodedBytes, OutImage, Limits);
 		if (!Result) Result.Error.Filename = FilePath;
 		return Result;
 	}
@@ -392,13 +393,13 @@ namespace Durin::Image
 			OutError = "The grayscale16 PNG file is unavailable, empty, or too large.";
 			return false;
 		}
-		FByteBuffer EncodedBytes;
-		if (!FFileHelper::LoadFileToArray(EncodedBytes, FilePath))
+		auto EncodedBytes = FFileIO::LoadFileToArray(FFilePath(FilePath));
+		if (!EncodedBytes)
 		{
-			OutError = "Unable to read the grayscale16 PNG file.";
+			OutError = EncodedBytes.error().ToString();
 			return false;
 		}
-		return DecodeGrayscale16PngFromMemory(EncodedBytes, OutImage, OutError, Limits);
+		return DecodeGrayscale16PngFromMemory(*EncodedBytes, OutImage, OutError, Limits);
 	}
 
 	auto DecodeRadianceHDRFromMemory(FByteView EncodedBytes, FDecodedFloatImage& OutImage,
@@ -538,12 +539,12 @@ namespace Durin::Image
 			OutError = "The Radiance HDR file is empty or too large.";
 			return false;
 		}
-		FByteBuffer EncodedBytes;
-		if (!FFileHelper::LoadFileToArray(EncodedBytes, FilePath))
+		auto EncodedBytes = FFileIO::LoadFileToArray(FFilePath(FilePath));
+		if (!EncodedBytes)
 		{
-			OutError = "Unable to read the Radiance HDR file.";
+			OutError = EncodedBytes.error().ToString();
 			return false;
 		}
-		return DecodeRadianceHDRFromMemory(EncodedBytes, OutImage, OutError, Limits);
+		return DecodeRadianceHDRFromMemory(*EncodedBytes, OutImage, OutError, Limits);
 	}
 } // namespace Durin::Image

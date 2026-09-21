@@ -3,6 +3,7 @@
 #include "SceneSourceSnapshot.h"
 #include "AssetForgeBuiltinsAPI.h"
 #include "Hash/XxHash.h"
+#include "Misc/FileIO.h"
 
 namespace Durin::AssetForge::Builtins
 {
@@ -33,6 +34,7 @@ namespace Durin::AssetForge::Builtins
 		uint64 SizeAfter = 0;
 		uint64 BytesRead = 0;
 		std::error_code SystemError;
+		std::optional<FFileIO::FFileError> FileError;
 	};
 	struct FEncodedSourceResult
 	{

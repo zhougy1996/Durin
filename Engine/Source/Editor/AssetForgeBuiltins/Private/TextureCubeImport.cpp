@@ -9,7 +9,7 @@
 #include "DObject/DObjectGlobals.h"
 #include "EncodedSourceSnapshot.h"
 #include "Image/ImageDecoder.h"
-#include "Misc/FileHelper.h"
+#include "Misc/FileIO.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
 #include "Texture/TextureDerivedData.h"
@@ -481,9 +481,10 @@ namespace Durin::AssetForge::Builtins
 			if (!IsTextureCubeFaceSourceExtension(
 				std::filesystem::path(FaceFiles[Index]).extension().generic_string()))
 				return {false, std::format("{} face source format is unsupported.", FaceNames[Index])};
-			if (!FFileHelper::LoadFileToArray(Bytes[Index], FaceFiles[Index]))
-				return {false, std::format("{} face decode failed: {}", FaceNames[Index],
-					Error.empty() ? "source is unavailable" : Error)};
+			auto Loaded = FFileIO::LoadFileToArray(FaceFiles[Index]);
+			if (!Loaded)
+				return {false, std::format("{} face read failed: {}", FaceNames[Index], Loaded.error().ToString())};
+			Bytes[Index] = std::move(*Loaded);
 			EncodedFaces[Index] = Bytes[Index];
 		}
 		if (!TranslateTextureCubeFaceSources(EncodedFaces, SourceData, Error))
@@ -506,9 +507,9 @@ namespace Durin::AssetForge::Builtins
 		if (!IsTextureCubePanoramaSourceExtension(
 			std::filesystem::path(PanoramaFile).extension().generic_string()))
 			return {false, "Panorama source format is unsupported."};
-		FByteBuffer Bytes;
-		if (!FFileHelper::LoadFileToArray(Bytes, PanoramaFile))
-			return {false, "Panorama source is unavailable."};
+		auto Loaded = FFileIO::LoadFileToArray(PanoramaFile);
+		if (!Loaded) return {false, std::format("Panorama source read failed: {}", Loaded.error().ToString())};
+		FByteBuffer Bytes = std::move(*Loaded);
 		std::string Error;
 		FTextureCubeCanonicalBuildInput CanonicalInput;
 		FTextureCubeBuildProduct Product;

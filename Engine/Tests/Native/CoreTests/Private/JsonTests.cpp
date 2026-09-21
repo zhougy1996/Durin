@@ -15,6 +15,17 @@ namespace
 		return std::filesystem::path{DURIN_TEST_DATA_DIR} / std::string(FileName);
 	}
 
+	TEST(FJsonDocumentTests, MissingFilePreservesIoDiagnostic)
+	{
+		Durin::FJsonDocument Document;
+		Durin::FJsonParseError Error;
+		const auto Path = MakeJsonTestPath("MissingFileDiagnostic.json");
+		ASSERT_FALSE(std::filesystem::exists(Path));
+		ASSERT_FALSE(Document.LoadFromFile(Path.string(), &Error));
+		EXPECT_NE(Error.Message.find("open for reading"), std::string::npos);
+		EXPECT_NE(Error.Message.find(Path.filename().string()), std::string::npos);
+	}
+
 	TEST(FJsonDocumentTests, ParseObjectFromString)
 	{
 		Durin::FJsonDocument Document;

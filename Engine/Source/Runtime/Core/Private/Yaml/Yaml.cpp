@@ -1,6 +1,6 @@
 #include "Yaml/Yaml.h"
 
-#include "Misc/FileHelper.h"
+#include "Misc/FileIO.h"
 #include "Misc/StringHelper.h"
 
 #include <c4/yml/emit.hpp>
@@ -331,7 +331,7 @@ namespace Durin
 			*OutError = InException.Error;
 		}
 
-		auto PopulateLoadError(FYamlParseError* OutError, std::string_view InFilePath) -> void
+		auto PopulateLoadError(FYamlParseError* OutError, const FFileIO::FFileError& Error) -> void
 		{
 			if (!OutError)
 			{
@@ -339,7 +339,7 @@ namespace Durin
 			}
 
 			*OutError = {};
-			OutError->Message = std::format("Failed to load YAML file: {}", InFilePath);
+			OutError->Message = std::format("Failed to load YAML file: {}", Error.ToString());
 		}
 
 		auto PopulateUnhandledError(FYamlParseError* OutError, const std::exception& InException) -> void
@@ -841,10 +841,10 @@ namespace Durin
 
 	auto FYamlDocument::LoadFromFile(std::string_view FilePath, FYamlParseError* OutError) -> bool
 	{
-		std::string YamlText;
-		if (!FFileHelper::LoadFileToString(YamlText, FilePath))
+		auto YamlText = FFileIO::LoadFileToString(FFilePath(FilePath));
+		if (!YamlText)
 		{
-			PopulateLoadError(OutError, FilePath);
+			PopulateLoadError(OutError, YamlText.error());
 			return false;
 		}
 
@@ -855,7 +855,7 @@ namespace Durin
 			*OutError = {};
 		}
 
-		Impl->SourceText = std::move(YamlText);
+		Impl->SourceText = std::move(*YamlText);
 		Impl->SourceName.assign(FilePath);
 
 		try

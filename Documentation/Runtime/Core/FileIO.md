@@ -29,9 +29,12 @@ conversion means the query succeeded, not that the path exists.
 Ordinary writes create parent directories and truncate existing files; failures
 may leave partial bytes. Exclusive and atomic operations currently adapt the
 existing publication machinery, retaining its cleanup and bounded retry policy.
-This additive stage does not migrate legacy callers, publication transactions,
-or change the legacy helper logging and retry behavior. Allocation failures can
-still throw. No disk-durability guarantee is added to ordinary writes.
+Legacy helpers remain available with their existing logging and retry behavior.
+DDC, JSON/YAML loading, file fingerprints, image/source reads, and package staging
+and whole-file asset reads use the result-based interfaces. Their business result
+types retain file diagnostics without adding lower-layer logging. Publication
+transaction coordination remains unchanged. Allocation failures can still throw.
+No disk-durability guarantee is added to ordinary writes.
 
 ## Synchronous Random Reads
 

@@ -16,6 +16,17 @@ namespace
 		return std::filesystem::path{DURIN_TEST_DATA_DIR} / std::string(FileName);
 	}
 
+	TEST(FYamlDocumentTests, MissingFilePreservesIoDiagnostic)
+	{
+		Durin::FYamlDocument Document;
+		Durin::FYamlParseError Error;
+		const auto Path = MakeYamlTestPath("MissingFileDiagnostic.yaml");
+		ASSERT_FALSE(std::filesystem::exists(Path));
+		ASSERT_FALSE(Document.LoadFromFile(Path.string(), &Error));
+		EXPECT_NE(Error.Message.find("open for reading"), std::string::npos);
+		EXPECT_NE(Error.Message.find(Path.filename().string()), std::string::npos);
+	}
+
 	TEST(FYamlDocumentTests, ParseObjectAndDefaults)
 	{
 		Durin::FYamlDocument Document;

@@ -8,7 +8,7 @@
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
 #include "Materials/MaterialTypes.h"
-#include "Misc/FileHelper.h"
+#include "Misc/FileIO.h"
 #include "Misc/Paths.h"
 #include "Misc/StringHelper.h"
 #include "SceneImportInternal.h"
@@ -253,13 +253,11 @@ namespace Durin::AssetForge::Builtins
 						return false;
 					}
 					const std::filesystem::path Target = Root / Relative;
-					std::error_code Error;
-					std::filesystem::create_directories(Target.parent_path(), Error);
-					if (Error || !FFileHelper::SaveArrayToFile(
-						std::as_bytes(Source.GetBytes()), Target))
+					auto Saved = FFileIO::SaveArrayToFile(std::as_bytes(Source.GetBytes()), Target);
+					if (!Saved)
 					{
-						OutError = std::format("Failed to stage captured Scene source {}.",
-							Source.StableIdentity);
+						OutError = std::format("Failed to stage captured Scene source {}: {}",
+							Source.StableIdentity, Saved.error().ToString());
 						return false;
 					}
 					if (Source.StableIdentity == "root") PhysicalRoot = Target;

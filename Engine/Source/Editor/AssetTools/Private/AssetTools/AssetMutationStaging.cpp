@@ -3,7 +3,7 @@
 #include "Asset/PackageEditing.h"
 
 #include "Misc/FileTime.h"
-#include "Misc/FileHelper.h"
+#include "Misc/FileIO.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
 
@@ -63,12 +63,11 @@ namespace Durin::AssetToolsPrivate
 			std::error_code ErrorCode;
 			if (!std::filesystem::is_regular_file(Root / "owner", ErrorCode))
 				continue;
-			FByteBuffer OwnerBytes;
-			if (!FFileHelper::LoadFileToArray(
-					OwnerBytes, (Root / "owner"))
+			auto OwnerBytes = FFileIO::LoadFileToArray(Root / "owner");
+			if (!OwnerBytes
 				|| std::string_view(
-					reinterpret_cast<const char*>(OwnerBytes.data()),
-					OwnerBytes.size()) != ExpectedOwner)
+					reinterpret_cast<const char*>(OwnerBytes->data()),
+					OwnerBytes->size()) != ExpectedOwner)
 				continue;
 			std::filesystem::remove_all(Root, ErrorCode);
 		}
@@ -90,9 +89,9 @@ namespace Durin::AssetToolsPrivate
 		FByteBuffer& OutBytes) -> FAssetReadResult
 	{
 		OutBytes.clear();
-		if (!FFileHelper::LoadFileToArray(OutBytes, Path))
-			return Error(EAssetReadError::IoError, std::format(
-				"Could not read relocation input {}.", Path.generic_string()));
+		auto Loaded = FFileIO::LoadFileToArray(Path);
+		if (!Loaded) return Error(EAssetReadError::IoError, Loaded.error().ToString());
+		OutBytes = std::move(*Loaded);
 		return {};
 	}
 
@@ -100,13 +99,8 @@ namespace Durin::AssetToolsPrivate
 		const std::filesystem::path& Path,
 		FByteView Bytes) -> FAssetWriteResult
 	{
-		FFileHelper::FAtomicFileError PublicationError;
-		if (!FFileHelper::SaveArrayToFileAtomically(
-				std::span{reinterpret_cast<const std::byte*>(Bytes.data()),
-					Bytes.size()},
-				Path,
-				&PublicationError))
-			return Error(EAssetWriteError::IoError, PublicationError.ToString());
+		auto Saved = FFileIO::SaveArrayToFileAtomically(Bytes, Path);
+		if (!Saved) return Error(EAssetWriteError::IoError, Saved.error().ToString());
 		return {};
 	}
 
