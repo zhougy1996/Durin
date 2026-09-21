@@ -1,4 +1,4 @@
-#include "AssetRelocationExtensionsInternal.h"
+#include "Asset/MutationExtensions.h"
 
 #include "DObject/Class.h"
 
@@ -41,16 +41,7 @@ namespace Durin
 			return Handle;
 		}
 
-		struct FRelocationFailureInjection
-		{
-			std::map<EAssetRelocationFailurePoint, uint32> RemainingOccurrences;
-		};
 
-		auto GetRelocationFailureInjection() -> FRelocationFailureInjection&
-		{
-			static FRelocationFailureInjection Injection;
-			return Injection;
-		}
 	}
 
 	auto RegisterAssetOwnedPayloadRelocator(
@@ -98,58 +89,30 @@ namespace Durin
 		if (Handle != 0) GetMoveObservers().erase(Handle);
 	}
 
-	auto SetAssetRelocationFailurePointForTesting(
-		EAssetRelocationFailurePoint Point,
-		uint32 Occurrence) -> void
+
+	auto FindAssetOwnedPayloadRelocator(DClass* AssetClass)
+		-> FAssetOwnedPayloadRelocator
 	{
-		auto& Injection = GetRelocationFailureInjection();
-		if (Point == EAssetRelocationFailurePoint::None)
+		auto& Relocators = GetOwnedPayloadRelocators();
+		for (DClass* Class = AssetClass; Class; Class = Class->GetSuperClass())
 		{
-			Injection.RemainingOccurrences.clear();
-			return;
+			auto Found = Relocators.find(Class);
+			if (Found == Relocators.end()) continue;
+
+			return Found->second.Relocator;
 		}
-		Injection.RemainingOccurrences.insert_or_assign(
-			Point, std::max(Occurrence, 1u));
+		return {};
 	}
 
-	namespace AssetPrivate
+	auto NotifyAssetMoveObservers(
+		std::span<const FAssetRelocationMapping> Mappings) -> void
 	{
-		auto FindAssetOwnedPayloadRelocator(DClass* AssetClass)
-			-> FAssetOwnedPayloadRelocator
+		for (const auto& [Handle, Observer] : GetMoveObservers())
 		{
-			auto& Relocators = GetOwnedPayloadRelocators();
-			for (DClass* Class = AssetClass; Class; Class = Class->GetSuperClass())
-			{
-				auto Found = Relocators.find(Class);
-				if (Found == Relocators.end()) continue;
-
-				return Found->second.Relocator;
-			}
-			return {};
-		}
-
-		auto NotifyAssetMoveObservers(
-			std::span<const FAssetRelocationMapping> Mappings) -> void
-		{
-			for (const auto& [Handle, Observer] : GetMoveObservers())
-			{
-				(void)Handle;
-				Observer->OnAssetsRelocated(Mappings);
-			}
-		}
-
-		auto ConsumeAssetRelocationFailure(
-			EAssetRelocationFailurePoint Point) -> bool
-		{
-			FRelocationFailureInjection& Injection =
-				GetRelocationFailureInjection();
-			auto Injected = Injection.RemainingOccurrences.find(Point);
-			if (Injected == Injection.RemainingOccurrences.end()
-				|| Injected->second == 0)
-				return false;
-			if (--Injected->second != 0) return false;
-			Injection.RemainingOccurrences.erase(Injected);
-			return true;
+			(void)Handle;
+			Observer->OnAssetsRelocated(Mappings);
 		}
 	}
+
+
 }

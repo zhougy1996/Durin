@@ -1,6 +1,6 @@
 #include "Asset/AssetWriteResult.h"
 #include "AssetMutationStagingInternal.h"
-#include "AssetPackageCodec.h"
+#include "Asset/PackageEditing.h"
 
 #include "Misc/FileTime.h"
 #include "Misc/FileHelper.h"
@@ -8,7 +8,7 @@
 #include "Misc/MountPaths.h"
 
 
-namespace Durin::AssetPrivate
+namespace Durin::AssetToolsPrivate
 {
 	namespace
 	{
@@ -74,33 +74,6 @@ namespace Durin::AssetPrivate
 		}
 	}
 
-	auto MakePackageFingerprint(
-		std::string_view PhysicalPath,
-		FByteView Bytes,
-		FAssetPackageFingerprint& OutFingerprint) -> FAssetReadResult
-	{
-		std::error_code ErrorCode;
-		const std::filesystem::path Path(PhysicalPath);
-		const auto LastWriteTime = std::filesystem::last_write_time(Path, ErrorCode);
-		if (ErrorCode)
-			return Error(EAssetReadError::IoError, std::format(
-				"Failed to read the last-write time for asset package {}.", PhysicalPath));
-		uint32 ReaderVersion = 0;
-		if (Path.extension() == ".dasset")
-		{
-			const FAssetPackageCodec* Codec = nullptr;
-			const auto ResolveResult = ResolveAssetPackageReader(
-				Bytes, Codec, &ReaderVersion);
-			if (!ResolveResult) return ResolveResult;
-		}
-		OutFingerprint = {
-			.FileSize = Bytes.size(),
-			.LastWriteTimeTicks = FileTime::ToStableTicks(LastWriteTime),
-			.ContentHash = FXxHash128::HashBuffer(Bytes),
-			.ReaderVersion = ReaderVersion};
-		return {};
-	}
-
 	auto InitializeMutationStaging(FAssetMutationStaging& Staging) -> void
 	{
 		Staging.OperationId = MakeMutationOperationId();
@@ -144,7 +117,7 @@ namespace Durin::AssetPrivate
 		FByteBuffer Bytes;
 		auto Result = LoadRelocationBytes(Path, Bytes);
 		if (!Result) return Result;
-		return MakePackageFingerprint(
+		return FingerprintAssetPackageBytes(
 			Path.generic_string(), Bytes, OutFingerprint);
 	}
 
@@ -223,7 +196,7 @@ namespace Durin::AssetPrivate
 				"Asset mutation input is read-only: {}.", Key));
 		if (Request.bPreExists)
 		{
-			FAssetWriteResult Result = AssetWriteResultFromRead(MakePackageFingerprint(
+			FAssetWriteResult Result = AssetWriteResultFromRead(FingerprintAssetPackageBytes(
 				Key, Request.PreBytes, Entry.ExpectedPreFingerprint));
 			if (!Result) return Result;
 		}

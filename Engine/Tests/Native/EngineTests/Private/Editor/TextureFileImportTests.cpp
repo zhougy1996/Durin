@@ -10,6 +10,7 @@
 #include "Misc/FileHelper.h"
 #include "Misc/MountPathTestSupport.h"
 #include "NativeTestSupport.h"
+#include "Threading/RunnableThread.h"
 #include "Texture/TexturePlatformDataTestFixtures.h"
 #include "Threading/RunnableThread.h"
 

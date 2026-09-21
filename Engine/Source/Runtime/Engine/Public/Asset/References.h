@@ -9,6 +9,10 @@
 
 namespace Durin
 {
+	struct FAssetReferenceEdge;
+	ENGINE_API auto AssetReferenceLess(const FAssetReferenceEdge& Left,
+		const FAssetReferenceEdge& Right) -> bool;
+
 	struct FAssetReferenceStoreCapture;
 	enum class EAssetReferenceRouteKind : uint8
 	{

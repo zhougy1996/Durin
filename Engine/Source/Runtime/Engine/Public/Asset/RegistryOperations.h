@@ -8,6 +8,9 @@ namespace Durin
 {
 	class DClass;
 
+	// Reconcile exactly these authored packages after external byte publication.
+	ENGINE_API auto RefreshSavedPackages(std::span<const FPackagePath> Paths) -> FAssetReadResult;
+
 	struct FAssetPathResolveOptions
 	{
 		const DClass* ExpectedClass = nullptr;

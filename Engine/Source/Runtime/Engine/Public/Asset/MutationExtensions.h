@@ -4,7 +4,7 @@
 #include "Asset/AssetReadResult.h"
 
 #include "EngineAPI.h"
-#include "Asset/Relocation.h"
+#include "AssetRegistry/Catalog.h"
 
 namespace Durin
 {
@@ -14,6 +14,14 @@ namespace Durin
 
 namespace Durin
 {
+	struct FAssetRelocationMapping
+	{
+		FPackagePath SourcePath;
+		FPackagePath DestinationPath;
+
+		auto operator==(const FAssetRelocationMapping&) const -> bool = default;
+	};
+
 	struct FAssetReferenceStoreOccurrence
 	{
 		std::string ProviderId;
@@ -92,6 +100,16 @@ namespace Durin
 	};
 
 	using FAssetReferenceStoreHandle = uint64;
+	struct FAssetReferenceStoreRegistrations
+	{
+		uint64 Revision = 0;
+		std::map<FAssetReferenceStoreHandle, IAssetReferenceStore*> Stores;
+	};
+	// Borrowed providers: verify the revision after callbacks and before reuse.
+	// The caller must keep provider objects/code alive for the operation.
+	ENGINE_API auto CaptureAssetReferenceStoreRegistrations() -> FAssetReferenceStoreRegistrations;
+	ENGINE_API auto GetAssetReferenceStoreRevision() -> uint64;
+
 	// Owner-thread registration. Unregister and finish active capture/mutation/
 	// fix-up callbacks before destroying the store or unloading provider code.
 	ENGINE_API auto RegisterAssetReferenceStore(
@@ -128,6 +146,11 @@ namespace Durin
 		FAssetOwnedPayloadRelocatorHandle Handle
 	) -> void;
 
+	// Copies the extension for this class or its nearest registered superclass.
+	// Release the callback before unloading its provider code.
+	ENGINE_API auto FindAssetOwnedPayloadRelocator(DClass* AssetClass)
+		-> FAssetOwnedPayloadRelocator;
+
 	class IAssetMoveObserver
 	{
 	public:
@@ -144,4 +167,6 @@ namespace Durin
 	ENGINE_API auto UnregisterAssetMoveObserver(
 		FAssetMoveObserverHandle Handle
 	) -> void;
+	ENGINE_API auto NotifyAssetMoveObservers(
+		std::span<const FAssetRelocationMapping> Mappings) -> void;
 } // namespace Durin

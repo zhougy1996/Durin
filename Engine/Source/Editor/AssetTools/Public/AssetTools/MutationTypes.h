@@ -2,7 +2,6 @@
 
 #include "Asset/AssetWriteResult.h"
 
-#include "EngineAPI.h"
 #include "AssetRegistry/Catalog.h"
 
 namespace Durin

@@ -72,9 +72,12 @@ Public headers remain split by responsibility: `AssetRegistry/Catalog.h` owns
 discovery values and immutable queries, `AssetRegistry/References.h` owns the
 reference projection, `AssetRegistry/Scan.h` owns reconciliation and cache
 lifecycle, `Asset/Load.h` owns runtime resolution and residency,
-`Asset/Mutation.h` owns synchronous relocation/fix-up operations and package mutation
-mechanisms, `AssetTools/AssetDeletion.h` owns editor deletion operations, and `Asset/Testing.h` owns
-Engine's deterministic failure seams.
+`Asset/Mutation.h` aggregates Engine package persistence mechanisms and shared
+reference-provider contracts. `Asset/PackageEditing.h` exposes bounded package-byte
+transformations used by authoring tools and Cook. `AssetTools/Relocation.h` and
+`AssetTools/RedirectorFixup.h` own the synchronous editor operations;
+`AssetTools/AssetDeletion.h` owns editor deletion. Operation failure seams live in
+`AssetTools/MutationTesting.h`; Engine catalog testing remains in `Asset/Testing.h`.
 Runtime and offline consumers include these capability headers directly; the
 former ambiguous root `AssetTools.h` aggregate no longer exists. The supported
 aggregate entry points are defined by
@@ -158,8 +161,9 @@ immutable package metadata and dependency snapshots, their revisions, and the
 single rebuildable registry cache. CoreDObject owns object/package construction
 and graph copying, reflected capture and package persistence. Engine owns asset
 publication transactions, package residency, exact
-on-demand package inspection, Cook, bounded artifact publication, and
-synchronous relocation/fix-up operations. `Asset/PackageRemoval.h` supplies bounded
+on-demand package inspection, Cook, bounded package-byte transformations, and
+catalog reconciliation. AssetTools owns relocation/fix-up preparation, validation,
+multifile staging, publication ordering, and retained-backup policy. `Asset/PackageRemoval.h` supplies bounded
 batch residency release and catalog removal against expected package metadata
 and revision. It owns no selection, warning, companion-provider, or physical
 deletion policy. `IAssetTools` owns asset creation, duplication,
@@ -241,6 +245,8 @@ retain their existing coordination contracts.
 
 ## Synchronous Relocation
 
+Relocation and redirector Fix Up are AssetTools operations and are unavailable
+in runtime-only builds. Engine retains redirector resolution and package codecs.
 Relocation is batched even for one mapping. Preparation captures the catalog
 revision, exact participant fingerprints, resident finalizers, destination
 artifacts, source redirectors, and owned payload moves in private operation state.
@@ -292,7 +298,7 @@ validation. The fingerprint also supplies the original byte hash; no second
 original hash or post-publication fingerprint is stored. Original backup paths
 are local to preparation, while before images remain on disk for manual repair.
 
-`RelocateAssets()` and `FixUpRedirectors()` return `FAssetMutationResultDetails`
+`RelocateAssets()` and `FixUpRedirectors()` in AssetTools return `FAssetMutationResultDetails`
 directly, including the write result, observed catalog revision, affected files,
 retained backup locations, and path outcomes. Callers receive the complete result
 when the synchronous call returns; no public job, execution state machine, or
@@ -323,7 +329,10 @@ standard packages by whether their fixed `.dbulk` sibling intersects the selecte
 physical roots or confirmed companion paths before any package I/O. Custom
 contributors remain conservative candidates. Cached zero bulk extent never
 excludes a candidate, since external edits may add a segment. External reference-store registration stays
-in Engine for shared Cook/fix-up use. `CaptureAssetReferenceStores` returns owned
+in Engine for shared Cook/fix-up use. Fix Up reads a value copy of provider
+registrations through `CaptureAssetReferenceStoreRegistrations` and checks its
+revision after preparation callbacks and before commit; it never receives the
+mutable Engine registry. `CaptureAssetReferenceStores` returns owned
 snapshots under provider gates; AssetTools interprets them as deletion warnings
 and revalidates their fingerprints and registration revision before execution.
 Capture and registration run on the object owner thread. Capture copies the
@@ -365,8 +374,8 @@ Neither size/timestamp matches nor cached hashes replace the final byte check.
 Fix Up is the only path-canonicalizing asset-mutation operation. It rewrites
 tagged hard and soft package fields plus registered external stores, reopens
 package-level candidates to verify that no exact incoming occurrence remains,
-and may then delete proven aliases. Exact occurrences remain transient Engine
-tooling data throughout the synchronous call.
+and may then delete proven aliases. AssetTools retains exact Engine reference
+occurrences only for the synchronous operation.
 Dirty, incompatible, read-only, incomplete, or stale participants block before
 mutation. Later participant failures retain verified rewrites and valid
 redirectors; a subsequent call prepares a new operation from current content.

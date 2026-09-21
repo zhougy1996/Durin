@@ -1,7 +1,10 @@
 #pragma once
 #include "DObject/PackageValueCodec.h"
 
-#include "AssetMutationStagingInternal.h"
+#include "Asset/Mutation.h"
+#include "Asset/PackageEditing.h"
+#include "Asset/References.h"
+#include "AssetPackageFingerprintInternal.h"
 
 namespace Durin::AssetPrivate
 {
@@ -21,7 +24,7 @@ namespace Durin::AssetPrivate
 		FByteView Bytes,
 		FByteView BulkBytes,
 		const FPackagePath& PackagePath,
-		std::span<const FAssetRedirectorFixupMapping> Mappings,
+		std::span<const FAssetPackageReferenceMapping> Mappings,
 		uint64 ExpectedRewriteCount,
 		FByteBuffer& OutBytes) -> FAssetWriteResult;
 	auto ReadMutationPackageMetadata(
@@ -37,9 +40,6 @@ namespace Durin::AssetPrivate
 		DPackage* Package,
 		const FPackagePath& TargetPath,
 		std::vector<FSoftObjectPtr*>& OutValues) -> FAssetReadResult;
-	auto AssetReferenceLess(
-		const FAssetReferenceEdge& Left,
-		const FAssetReferenceEdge& Right) -> bool;
 	auto DecodeReferenceByteToolValue(
 		FProperty* Property,
 		void* Container,

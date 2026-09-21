@@ -10,10 +10,7 @@
 
 namespace Durin
 {
-	struct FAssetRelocationState;
-	struct FAssetRedirectorFixupState;
 	class FAssetLoadService;
 	class FAssetMutationCoordinator;
 
-	auto RefreshSavedPackages(std::span<const FPackagePath> Paths) -> FAssetReadResult;
 }

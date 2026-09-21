@@ -49,33 +49,6 @@ namespace Durin
 		return FAssetRuntimeState::Get().GetMutationCoordinator().SavePackage(Package, Mode);
 	}
 
-	auto RelocateAssets(std::span<const FAssetRelocationMapping> Mappings)
-		-> FAssetMutationResultDetails
-	{
-		return FAssetRuntimeState::Get().GetMutationCoordinator().RelocateAssets(Mappings);
-	}
-
-	auto FixUpRedirectors(std::span<const FPackagePath> Redirectors,
-		EAssetRedirectorFixupMode Mode) -> FAssetMutationResultDetails
-	{
-		return FAssetRuntimeState::Get().GetMutationCoordinator().FixUpRedirectors(Redirectors, Mode);
-	}
-
-	auto RelocateAssetsWithBeforeCommitForTesting(
-		std::span<const FAssetRelocationMapping> Mappings,
-		const std::function<void()>& BeforeCommit) -> FAssetMutationResultDetails
-	{
-		return FAssetRuntimeState::Get().GetMutationCoordinator().RelocateAssets(Mappings, BeforeCommit);
-	}
-
-	auto FixUpRedirectorsWithBeforeCommitForTesting(
-		std::span<const FPackagePath> Redirectors,
-		EAssetRedirectorFixupMode Mode,
-		const std::function<void()>& BeforeCommit) -> FAssetMutationResultDetails
-	{
-		return FAssetRuntimeState::Get().GetMutationCoordinator().FixUpRedirectors(Redirectors, Mode, BeforeCommit);
-	}
-
 	auto IsPackageLoading(const FPackagePath& Path) -> bool
 	{
 		return FAssetRuntimeState::Get().GetLoadService().IsPackageLoading(Path);

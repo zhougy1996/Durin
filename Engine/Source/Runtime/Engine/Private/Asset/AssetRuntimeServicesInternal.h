@@ -126,28 +126,6 @@ namespace Durin
 			std::span<DPackage* const> Packages,
 			const FAssetBundleSaveOptions& Options) -> FAssetWriteResult;
 		auto AdmitAssetPackageToCatalog(const FPackagePath& Path) -> FAssetWriteResult;
-		auto RelocateAssets(
-			std::span<const FAssetRelocationMapping> Mappings,
-			const std::function<void()>& BeforeCommit = {}) -> FAssetMutationResultDetails;
-		auto PrepareAssetRelocationState(
-			std::span<const FAssetRelocationMapping> Mappings,
-			std::shared_ptr<FAssetRelocationState>& OutState) -> FAssetWriteResult;
-		auto RevalidateAssetRelocation(
-			const std::shared_ptr<FAssetRelocationState>& State) -> FAssetWriteResult;
-		auto ApplyAssetRelocation(
-			const std::shared_ptr<FAssetRelocationState>& State) -> FAssetWriteResult;
-		auto FixUpRedirectors(
-			std::span<const FPackagePath> Redirectors,
-			EAssetRedirectorFixupMode Mode,
-			const std::function<void()>& BeforeCommit = {}) -> FAssetMutationResultDetails;
-		auto PrepareRedirectorFixupState(
-			std::span<const FPackagePath> Redirectors,
-			EAssetRedirectorFixupMode Mode,
-			std::shared_ptr<FAssetRedirectorFixupState>& OutState) -> FAssetWriteResult;
-		auto ValidateRedirectorFixupCommit(
-			const std::shared_ptr<FAssetRedirectorFixupState>& State) -> FAssetWriteResult;
-		auto CommitRedirectorFixup(
-			const std::shared_ptr<FAssetRedirectorFixupState>& State) -> FAssetWriteResult;
 		auto ReleasePackagesForRemoval(
 			std::span<const FAssetData> Entries, uint64 ExpectedRevision) -> FAssetWriteResult;
 		auto PublishPackageRemoval(

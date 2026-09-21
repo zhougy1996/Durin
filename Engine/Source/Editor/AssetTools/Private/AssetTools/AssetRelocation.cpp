@@ -1,11 +1,10 @@
+#include "AssetTools/MutationTesting.h"
+#include "AssetMutationStagingInternal.h"
+#include "Asset/PackageEditing.h"
+#include "Asset/Load.h"
+#include "AssetRegistry/Publication.h"
 #include "Asset/AssetWriteResult.h"
-#include "AssetLiveLoadGuard.h"
 #include "Asset/RegistryOperations.h"
-#include "AssetRuntimeStateInternal.h"
-#include "AssetMutationReferenceInternal.h"
-#include "AssetPackageCodec.h"
-#include "Asset/PackageVersionPolicy.h"
-#include "AssetRelocationExtensionsInternal.h"
 #include "Asset/EditorBulkDataStorage.h"
 
 #include "CoreGlobals.h"
@@ -21,16 +20,16 @@
 
 namespace Durin
 {
-	using AssetPrivate::EMutationStagingDuplicatePolicy;
-	using AssetPrivate::EAssetMutationPublicationRole;
-	using AssetPrivate::FAssetMutationStaging;
-	using AssetPrivate::FAssetMutationStagingEntry;
-	using AssetPrivate::FingerprintRelocationFile;
-	using AssetPrivate::InitializeMutationStaging;
-	using AssetPrivate::LoadRelocationBytes;
-	using AssetPrivate::NormalizePhysicalPath;
-	using AssetPrivate::PublishRelocationFile;
-	using AssetPrivate::StageMutationEntry;
+	using AssetToolsPrivate::EMutationStagingDuplicatePolicy;
+	using AssetToolsPrivate::EAssetMutationPublicationRole;
+	using AssetToolsPrivate::FAssetMutationStaging;
+	using AssetToolsPrivate::FAssetMutationStagingEntry;
+	using AssetToolsPrivate::FingerprintRelocationFile;
+	using AssetToolsPrivate::InitializeMutationStaging;
+	using AssetToolsPrivate::LoadRelocationBytes;
+	using AssetToolsPrivate::NormalizePhysicalPath;
+	using AssetToolsPrivate::PublishRelocationFile;
+	using AssetToolsPrivate::StageMutationEntry;
 
 	namespace
 	{
@@ -44,15 +43,6 @@ namespace Durin
 
 		auto GetRelocationPhysicalPath(const FPackagePath& Path) -> std::string
 		{
-			const FAssetRuntimeConfiguration& Context =
-				FAssetRuntimeState::Get().GetRuntimeConfiguration();
-			if (Context.IsCooked())
-			{
-				std::filesystem::path CookedPath;
-				if (!ResolveCookedPackagePath(
-					Context.GetCookRoot(), Path.GetView(), CookedPath)) return {};
-				return CookedPath.generic_string();
-			}
 			const FAssetPathResult Resolved =
 				FMountPaths::ResolveAssetPath(
 					Path.GetView(), EMountPathExistence::AllowMissing);
@@ -74,58 +64,18 @@ namespace Durin
 			std::string PrePackageName;
 		};
 
-		auto BuildMovedPackageBytes(
-			FByteView SourceBytes,
-			const FPackagePath& SourcePath,
-			FByteView SourceBulkBytes,
-			const FPackagePath& DestinationPath,
-			FByteBuffer& OutBytes) -> FAssetWriteResult
-		{
-			const AssetPrivate::FAssetPackageCodec* Codec = nullptr;
-			if (FAssetWriteResult Result = AssetWriteResultFromRead(AssetPrivate::ResolveAssetPackageReader(
-				SourceBytes, Codec)); !Result)
-				return Result;
-			if (!Codec->bCanMutate)
-				return Error(EAssetWriteError::UnsupportedVersion,
-					"Relocation requires package mutation capability.");
-			AssetPrivate::FAssetPackageEncodedClosure Closure;
-			if (FAssetWriteResult Result = AssetWriteResultFromEncoding(Codec->Relocate(
-				{.PackageBytes = SourceBytes,
-					.BulkBytes = SourceBulkBytes,
-					.PackagePath = SourcePath,
-					.PhysicalPackageBytes = SourceBytes.size()},
-				DestinationPath, Closure)); !Result)
-				return Result;
-			FAssetWriteResult Result = AssetWriteResultFromRead(Codec->Validate({
-				.PackageBytes = Closure.PackageBytes,
-				.BulkBytes = Closure.BulkBytes,
-				.PackagePath = DestinationPath,
-				.PhysicalPackageBytes = Closure.PackageBytes.size()}));
-			if (!Result) return Result;
-			OutBytes = std::move(Closure.PackageBytes);
-			return {};
-		}
 
-		auto BuildRedirectorPackageBytes(
-			const FPackagePath& SourcePath,
-			std::span<const AssetPrivate::FAssetRedirectorWriteMapping> Mappings,
-			uint32 FormatVersion,
-			FByteBuffer& OutBytes) -> FAssetWriteResult
-		{
-			const AssetPrivate::FAssetPackageCodec* Codec =
-				AssetPrivate::FindAssetPackageWriter(FormatVersion);
-			if (!Codec || !Codec->bCanMutate)
-				return Error(EAssetWriteError::UnsupportedVersion,
-					"Redirector creation requires package mutation capability.");
-			AssetPrivate::FAssetPackageEncodedClosure Closure;
-			FAssetWriteResult Result = AssetWriteResultFromEncoding(Codec->WriteRedirector(
-				SourcePath, Mappings, Closure));
-			if (!Result) return Result;
-			OutBytes = std::move(Closure.PackageBytes);
-			return {};
-		}
 	}
 
+
+	struct FAssetRelocationState;
+	static auto PrepareAssetRelocationState(
+		std::span<const FAssetRelocationMapping> Mappings,
+		std::shared_ptr<FAssetRelocationState>& OutState) -> FAssetWriteResult;
+	static auto RevalidateAssetRelocation(
+		const std::shared_ptr<FAssetRelocationState>& Relocation) -> FAssetWriteResult;
+	static auto ApplyAssetRelocation(
+		const std::shared_ptr<FAssetRelocationState>& Relocation) -> FAssetWriteResult;
 
 	struct FAssetRelocationState
 	{
@@ -136,19 +86,13 @@ namespace Durin
 		std::vector<FAssetOwnedPayloadRelocation> OwnedPayloads;
 	};
 
-	auto FAssetMutationCoordinator::PrepareAssetRelocationState(
+	static auto PrepareAssetRelocationState(
 		std::span<const FAssetRelocationMapping> Mappings,
 		std::shared_ptr<FAssetRelocationState>& OutState) -> FAssetWriteResult
 	{
-		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("mutation", ""); !Guard) return AssetWriteResultFromRead(Guard);
+		if (auto Guard = CheckAssetPackageMutationAllowed(); !Guard) return Guard;
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 		OutState.reset();
-		if (!bAcceptingRequests)
-			return Error(EAssetWriteError::ShuttingDown,
-				"Asset relocation is closed while the asset manager is shutting down.");
-		if (RuntimeConfiguration.IsCooked())
-			return Error(EAssetWriteError::ReadOnlyMode,
-				"Cooked runtime package mode does not permit asset relocation.");
 		if (Mappings.empty())
 			return Error(EAssetWriteError::InvalidPath,
 				"An asset relocation batch must not be empty.");
@@ -176,7 +120,7 @@ namespace Durin
 			EAssetMutationPublicationRole Role,
 			std::optional<FByteBuffer> PreBytes,
 			std::optional<FByteBuffer> PostBytes) -> FAssetWriteResult {
-			if (AssetPrivate::ConsumeAssetRelocationFailure(
+			if (AssetToolsPrivate::ConsumeAssetRelocationFailure(
 					EAssetRelocationFailurePoint::PrepareOutput))
 				return Error(EAssetWriteError::IoError,
 					"Injected relocation output-preparation failure.");
@@ -219,7 +163,7 @@ namespace Durin
 			if (SourceData->EntryKind != EAssetRegistryEntryKind::Asset)
 				return Error(EAssetWriteError::InvalidData,
 					"Redirectors cannot be used as relocation sources.");
-			if (Loader.IsPackageLoading(Mapping.SourcePath))
+			if (IsPackageLoading(Mapping.SourcePath))
 				return Error(EAssetWriteError::InUse,
 					"A relocation source is currently loading.");
 			if (DPackage* Loaded = FindResidentPackage(Mapping.SourcePath))
@@ -283,12 +227,12 @@ namespace Durin
 				&& !FFileHelper::LoadFileToArray(SourceBulkBytes, SourceBulkFile))
 				return Error(EAssetWriteError::IoError,
 					"Relocation source bulk companion is unreadable.");
-			Result = BuildMovedPackageBytes(
+			Result = BuildRelocatedAssetPackageBytes(
 				SourceBytes, Mapping.SourcePath, SourceBulkBytes,
 				Mapping.DestinationPath, MovedBytes);
 			if (!Result) return Result;
 			FByteBuffer SourceRedirectorBytes;
-			std::vector<AssetPrivate::FAssetRedirectorWriteMapping> RedirectMappings;
+			std::vector<FAssetRedirectorWriteMapping> RedirectMappings;
 			RedirectMappings.reserve(SourceData->TopLevelAssets.size());
 			for (const FTopLevelAssetData& Asset : SourceData->TopLevelAssets)
 			{
@@ -302,7 +246,7 @@ namespace Durin
 						"Relocation could not preserve a top-level asset identity in its redirector.");
 				RedirectMappings.push_back({Asset.AssetPath, std::move(DestinationObject)});
 			}
-			Result = BuildRedirectorPackageBytes(
+			Result = BuildAssetRedirectorPackageBytes(
 				Mapping.SourcePath, RedirectMappings,
 				SourceData->FormatVersion,
 				SourceRedirectorBytes);
@@ -357,7 +301,7 @@ namespace Durin
 
 			DClass* AssetClass = FindClassByQualifiedName(
 				FName(SourceData->AssetClassName));
-			const auto Relocator = AssetPrivate::FindAssetOwnedPayloadRelocator(AssetClass);
+			const auto Relocator = FindAssetOwnedPayloadRelocator(AssetClass);
 			if (Relocator)
 			{
 				const auto AssetRecord = std::ranges::find(
@@ -427,7 +371,7 @@ namespace Durin
 		return {};
 	}
 
-	auto FAssetMutationCoordinator::RelocateAssets(
+	static auto RelocateAssetsImpl(
 		std::span<const FAssetRelocationMapping> Mappings,
 		const std::function<void()>& BeforeCommit) -> FAssetMutationResultDetails
 	{
@@ -446,7 +390,7 @@ namespace Durin
 		return Details;
 	}
 
-	auto FAssetMutationCoordinator::RevalidateAssetRelocation(
+	static auto RevalidateAssetRelocation(
 		const std::shared_ptr<FAssetRelocationState>& Relocation) -> FAssetWriteResult
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
@@ -520,10 +464,10 @@ namespace Durin
 		}
 	}
 
-	auto FAssetMutationCoordinator::ApplyAssetRelocation(
+	static auto ApplyAssetRelocation(
 		const std::shared_ptr<FAssetRelocationState>& Relocation) -> FAssetWriteResult
 	{
-		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("mutation", ""); !Guard) return AssetWriteResultFromRead(Guard);
+		if (auto Guard = CheckAssetPackageMutationAllowed(); !Guard) return Guard;
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 		if (!Relocation)
 			return Error(EAssetWriteError::StaleData,
@@ -531,7 +475,7 @@ namespace Durin
 		auto& State = *Relocation;
 		FAssetWriteResult Result = RevalidateAssetRelocation(Relocation);
 		if (!Result) return Result;
-		if (AssetPrivate::ConsumeAssetRelocationFailure(
+		if (AssetToolsPrivate::ConsumeAssetRelocationFailure(
 				EAssetRelocationFailurePoint::StageOriginal))
 			return Error(EAssetWriteError::IoError,
 				"Injected relocation original-staging failure.");
@@ -563,7 +507,7 @@ namespace Durin
 		for (size_t Index : Order)
 		{
 			FAssetMutationStagingEntry& Entry = State.Staging.Entries[Index];
-			if (AssetPrivate::ConsumeAssetRelocationFailure(
+			if (AssetToolsPrivate::ConsumeAssetRelocationFailure(
 					FailurePointForRole(Entry.Role)))
 				return PublicationFailed("Injected relocation publication failure.");
 			Result = PublishRelocationFile(Entry);
@@ -573,7 +517,7 @@ namespace Durin
 
 		for (FLoadedRelocationState& Loaded : State.LoadedPackages)
 		{
-			if (AssetPrivate::ConsumeAssetRelocationFailure(
+			if (AssetToolsPrivate::ConsumeAssetRelocationFailure(
 					EAssetRelocationFailurePoint::UpdateLoadedPackage))
 				return PublicationFailed("Injected loaded-package relocation failure.");
 			if (!Loaded.Package->RelocateAssetPackage(
@@ -587,7 +531,7 @@ namespace Durin
 		{
 			if (Payload.Apply) Payload.Apply();
 		}
-		if (AssetPrivate::ConsumeAssetRelocationFailure(
+		if (AssetToolsPrivate::ConsumeAssetRelocationFailure(
 				EAssetRelocationFailurePoint::PublishRegistry))
 			return PublicationFailed("Injected relocation Registry-publication failure.");
 
@@ -604,8 +548,17 @@ namespace Durin
 			for (DObject* Object : Loaded.Package->GetTopLevelAssets())
 				if (auto* Function = Cast<DMaterialFunctionInterface>(Object))
 					NotifyMaterialFunctionChanged(*Function);
-		AssetPrivate::NotifyAssetMoveObservers(State.Mappings);
+		NotifyAssetMoveObservers(State.Mappings);
 		return {};
 	}
 
+
+	auto RelocateAssets(std::span<const FAssetRelocationMapping> Mappings)
+		-> FAssetMutationResultDetails
+	{ return RelocateAssetsImpl(Mappings, {}); }
+
+	auto RelocateAssetsWithBeforeCommitForTesting(
+		std::span<const FAssetRelocationMapping> Mappings,
+		const std::function<void()>& BeforeCommit) -> FAssetMutationResultDetails
+	{ return RelocateAssetsImpl(Mappings, BeforeCommit); }
 }

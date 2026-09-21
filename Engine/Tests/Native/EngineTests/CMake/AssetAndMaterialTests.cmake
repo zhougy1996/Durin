@@ -216,7 +216,7 @@ durin_add_native_test(AssetReferenceStoreTests
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
 	HEAVY_RUNTIME_RATIONALE "Exercises production external asset-reference stores."
-	LIBRARIES Core CoreDObject Engine
+	LIBRARIES Core CoreDObject Engine AssetTools
 )
 
 durin_add_native_test(EditorHierarchyTests

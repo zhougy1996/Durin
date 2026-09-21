@@ -1,13 +1,15 @@
 #pragma once
 
-#define DURIN_ENGINE_ASSET_INTERNAL 1
-#include "Asset/Mutation.h"
-#undef DURIN_ENGINE_ASSET_INTERNAL
+#include "Asset/PackageInspection.h"
+#include "AssetTools/MutationTypes.h"
+#include "AssetTools/MutationTesting.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
 
-namespace Durin::AssetPrivate
+namespace Durin::AssetToolsPrivate
 {
+	auto ConsumeAssetRelocationFailure(EAssetRelocationFailurePoint Point) -> bool;
+
 	enum class EAssetMutationPublicationRole : uint8
 	{
 		RealAsset,
@@ -89,10 +91,6 @@ namespace Durin::AssetPrivate
 		FByteView Bytes) -> FAssetWriteResult;
 	auto FingerprintRelocationFile(
 		const std::filesystem::path& Path,
-		FAssetPackageFingerprint& OutFingerprint) -> FAssetReadResult;
-	auto MakePackageFingerprint(
-		std::string_view PhysicalPath,
-		FByteView Bytes,
 		FAssetPackageFingerprint& OutFingerprint) -> FAssetReadResult;
 	auto IsWritableRelocationPath(
 		const std::filesystem::path& Path,

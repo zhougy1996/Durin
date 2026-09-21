@@ -7,6 +7,7 @@
 #include "Asset/AssetReadResult.h"
 #include "DObject/PackageFormat.h"
 #include "Asset/PackageResource.h"
+#include "Asset/PackageEditing.h"
 
 namespace Durin
 {
@@ -41,12 +42,6 @@ namespace Durin::AssetPrivate
 		FByteBuffer BulkBytes;
 	};
 
-	struct FAssetRedirectorWriteMapping
-	{
-		FTopLevelAssetPath Source;
-		FObjectPath Destination;
-	};
-
 	// Defines the complete engine-owned capability set for one immutable package format.
 	struct FAssetPackageCodec
 	{
@@ -76,7 +71,7 @@ namespace Durin::AssetPrivate
 		auto (*Write)(DPackage*, FAssetPackageEncodedClosure&, EDefaultDeltaMode,
 			const FAssetPackageSerializationOptions&) -> ObjectPackage::FPackageWriterResult = nullptr;
 		auto (*RewriteReferences)(
-			const FAssetPackageReadContext&, std::span<const FAssetRedirectorFixupMapping>,
+			const FAssetPackageReadContext&, std::span<const FAssetPackageReferenceMapping>,
 			uint64, FAssetPackageEncodedClosure&) -> ObjectPackage::FPackageWriterResult = nullptr;
 		auto (*Relocate)(
 			const FAssetPackageReadContext&, const FPackagePath&, FAssetPackageEncodedClosure&)

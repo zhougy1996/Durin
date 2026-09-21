@@ -2,9 +2,8 @@
 #include "Asset/RegistryOperations.h"
 #include "AssetRuntimeStateInternal.h"
 #include "AssetMutationRegistryInternal.h"
-#include "AssetMutationStagingInternal.h"
+#include "AssetPackageFingerprintInternal.h"
 #include "AssetMutationReferenceInternal.h"
-#include "AssetRelocationExtensionsInternal.h"
 #include "AssetRegistryResultAdapter.h"
 #include "Asset/PackageSerialization.h"
 #include "DObject/ObjectGraphReplacement.h"
@@ -58,14 +57,7 @@ namespace Durin
 
 	using AssetPrivate::FAssetReferenceStoreRegistry;
 	using AssetPrivate::GetAssetReferenceStoreRegistry;
-	using AssetPrivate::FAssetMutationStaging;
-	using AssetPrivate::FAssetMutationStagingEntry;
-	using AssetPrivate::FingerprintRelocationFile;
-	using AssetPrivate::LoadRelocationBytes;
 	using AssetPrivate::MakePackageFingerprint;
-	using AssetPrivate::NormalizePhysicalPath;
-	using AssetPrivate::PublishRelocationFile;
-	using AssetPrivate::SaveRelocationBytes;
 
 	namespace
 	{
@@ -1516,7 +1508,7 @@ namespace Durin
 		Result = Codec->ExtractReferences(Context, References);
 		if (!Result) return AssetWriteResultFromRead(Result);
 
-		std::vector<FAssetRedirectorFixupMapping> Mappings;
+		std::vector<FAssetPackageReferenceMapping> Mappings;
 		auto ResolveReference = [&](const FPackagePath& Path,
 			std::string_view ExpectedClassName, std::string_view Route) -> FAssetReadResult {
 			DClass* ExpectedClass = nullptr;
@@ -1544,10 +1536,10 @@ namespace Durin
 					"Cook canonicalization resolved a reference to a non-asset package.");
 			if (Resolution.FinalPath == Path) return {};
 			const auto Existing = std::ranges::find(
-				Mappings, Path, &FAssetRedirectorFixupMapping::RedirectorPath);
+				Mappings, Path, &FAssetPackageReferenceMapping::SourcePath);
 			if (Existing == Mappings.end())
-				Mappings.push_back({.RedirectorPath = Path, .FinalPath = Resolution.FinalPath});
-			else if (Existing->FinalPath != Resolution.FinalPath)
+				Mappings.push_back({.SourcePath = Path, .DestinationPath = Resolution.FinalPath});
+			else if (Existing->DestinationPath != Resolution.FinalPath)
 				return Error(EAssetReadError::StaleData,
 					"Cook canonicalization observed inconsistent redirect resolution.");
 			return {};

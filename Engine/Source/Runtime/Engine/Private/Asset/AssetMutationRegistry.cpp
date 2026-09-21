@@ -18,6 +18,17 @@ namespace Durin
 
 	}
 
+	auto CaptureAssetReferenceStoreRegistrations() -> FAssetReferenceStoreRegistrations
+	{
+		const auto& Registry = AssetPrivate::GetAssetReferenceStoreRegistry();
+		return {.Revision = Registry.Revision, .Stores = Registry.Stores};
+	}
+
+	auto GetAssetReferenceStoreRevision() -> uint64
+	{
+		return AssetPrivate::GetAssetReferenceStoreRevision();
+	}
+
 	auto CaptureAssetReferenceStores(FAssetReferenceStoreCapture& OutCapture)
 		-> FAssetReadResult
 	{

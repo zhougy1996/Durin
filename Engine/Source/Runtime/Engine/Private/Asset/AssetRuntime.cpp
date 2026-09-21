@@ -5,9 +5,8 @@
 #include "AssetRegistry/Scan.h"
 #include "AssetMutationRegistryInternal.h"
 #include "AssetRegistry/Publication.h"
-#include "AssetMutationStagingInternal.h"
+#include "AssetPackageFingerprintInternal.h"
 #include "AssetMutationReferenceInternal.h"
-#include "AssetRelocationExtensionsInternal.h"
 #include "Asset/PackageResource.h"
 #include "Asset/EditorBulkDataStorage.h"
 #include "AssetPackageCodec.h"
@@ -67,17 +66,9 @@ namespace Durin::AssetPrivate
 
 namespace Durin
 {
-	using AssetPrivate::AssetReferenceLess;
-	using AssetPrivate::FAssetMutationStaging;
-	using AssetPrivate::FAssetMutationStagingEntry;
 	using AssetPrivate::FAssetReferenceStoreRegistry;
-	using AssetPrivate::FingerprintRelocationFile;
 	using AssetPrivate::GetAssetReferenceStoreRegistry;
-	using AssetPrivate::LoadRelocationBytes;
 	using AssetPrivate::MakePackageFingerprint;
-	using AssetPrivate::NormalizePhysicalPath;
-	using AssetPrivate::PublishRelocationFile;
-	using AssetPrivate::SaveRelocationBytes;
 
 	namespace
 	{

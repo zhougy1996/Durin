@@ -1,3 +1,6 @@
+#include "AssetTools/Relocation.h"
+#include "AssetTools/RedirectorFixup.h"
+#include "AssetTools/MutationTesting.h"
 #include <gtest/gtest.h>
 
 #include "Asset/Load.h"

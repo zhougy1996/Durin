@@ -1,3 +1,6 @@
+#include "AssetTools/Relocation.h"
+#include "AssetTools/RedirectorFixup.h"
+#include "AssetTools/MutationTesting.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "FunctionPortTestFixture.h"
 #include "MaterialFunctionTestSupport.h"

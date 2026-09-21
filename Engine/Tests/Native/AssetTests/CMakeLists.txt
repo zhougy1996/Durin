@@ -1,8 +1,8 @@
 set(_durin_asset_package_modules engine)
 set(_durin_asset_package_libraries)
 if(DURIN_WITH_EDITOR)
-	list(APPEND _durin_asset_package_modules asset-maintenance)
-	list(APPEND _durin_asset_package_libraries AssetMaintenance)
+	list(APPEND _durin_asset_package_modules asset-maintenance asset-tools)
+	list(APPEND _durin_asset_package_libraries AssetMaintenance AssetTools)
 endif()
 
 durin_add_native_test(AssetPackageTests

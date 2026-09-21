@@ -10,7 +10,6 @@
 
 namespace Durin
 {
-	using AssetPrivate::AssetReferenceLess;
 	using AssetPrivate::DecodeReferenceByteToolValue;
 
 	namespace
@@ -628,25 +627,25 @@ namespace Durin
 
 	auto FindFixupDestination(
 		const FPackagePath& Source,
-		std::span<const FAssetRedirectorFixupMapping> Mappings) -> const FPackagePath*
+		std::span<const FAssetPackageReferenceMapping> Mappings) -> const FPackagePath*
 	{
 		const auto It = std::ranges::find(Mappings, Source,
-			&FAssetRedirectorFixupMapping::RedirectorPath);
-		return It == Mappings.end() ? nullptr : &It->FinalPath;
+			&FAssetPackageReferenceMapping::SourcePath);
+		return It == Mappings.end() ? nullptr : &It->DestinationPath;
 	}
 
 	auto RewriteSerializedReferenceValue(
 		FProperty* Property,
 		Durin::PackagePrivate::FByteReader& Reader,
 		Durin::PackagePrivate::FByteWriter& Writer,
-		std::span<const FAssetRedirectorFixupMapping> Mappings,
+		std::span<const FAssetPackageReferenceMapping> Mappings,
 		uint64& RewriteCount,
 		uint32 ContainerDepth) -> FAssetReadResult;
 
 	auto RewriteSerializedReferenceProperty(
 		FProperty* Property,
 		FByteView Payload,
-		std::span<const FAssetRedirectorFixupMapping> Mappings,
+		std::span<const FAssetPackageReferenceMapping> Mappings,
 		FByteBuffer& OutPayload,
 		uint64& RewriteCount,
 		uint32 ContainerDepth = 0) -> FAssetReadResult
@@ -671,7 +670,7 @@ namespace Durin
 		FProperty* Property,
 		Durin::PackagePrivate::FByteReader& Reader,
 		Durin::PackagePrivate::FByteWriter& Writer,
-		std::span<const FAssetRedirectorFixupMapping> Mappings,
+		std::span<const FAssetPackageReferenceMapping> Mappings,
 		uint64& RewriteCount,
 		uint32 ContainerDepth) -> FAssetReadResult
 	{
@@ -861,7 +860,7 @@ namespace Durin
 		FByteView Bytes,
 		FByteView BulkBytes,
 		const FPackagePath& PackagePath,
-		std::span<const FAssetRedirectorFixupMapping> Mappings,
+		std::span<const FAssetPackageReferenceMapping> Mappings,
 		uint64 ExpectedRewriteCount,
 		FByteBuffer& OutBytes) -> FAssetWriteResult
 	{
@@ -918,7 +917,7 @@ namespace Durin
 			FByteView Bytes,
 			FByteView BulkBytes,
 			const FPackagePath& PackagePath,
-			std::span<const FAssetRedirectorFixupMapping> Mappings,
+			std::span<const FAssetPackageReferenceMapping> Mappings,
 			uint64 ExpectedRewriteCount,
 			FByteBuffer& OutBytes) -> FAssetWriteResult
 		{
@@ -957,13 +956,12 @@ namespace Durin
 				Package, TargetPath, OutValues);
 		}
 
-		auto AssetReferenceLess(
-			const FAssetReferenceEdge& Left,
-			const FAssetReferenceEdge& Right) -> bool
-		{
-			return AssetReferenceLessImpl(Left, Right);
-		}
 
+	}
+
+	auto AssetReferenceLess(const FAssetReferenceEdge& Left, const FAssetReferenceEdge& Right) -> bool
+	{
+		return AssetReferenceLessImpl(Left, Right);
 	}
 
 	namespace

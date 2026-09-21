@@ -4,7 +4,7 @@
 #include "AssetRegistryResultAdapter.h"
 
 #include "Asset/PackageInspection.h"
-#include "Asset/RedirectorFixup.h"
+#include "Asset/PackageEditing.h"
 #include "Asset/References.h"
 #include "AssetRegistry/PackageHeader.h"
 #include "DObject/CanonicalMapKey.h"
@@ -734,16 +734,16 @@ namespace Durin::AssetPrivate::TaggedPackage
 		}
 
 		auto RewriteReferences(const FAssetPackageReadContext& Context,
-			std::span<const FAssetRedirectorFixupMapping> Mappings,
+			std::span<const FAssetPackageReferenceMapping> Mappings,
 			uint64 ExpectedCount, FAssetPackageEncodedClosure& OutClosure) -> ObjectPackage::FPackageWriterResult
 		{
 			ObjectPackage::FLinkerTables Linker;
 			if (auto Result = ReadLinker(Context, Linker); !Result) return EncodingError(Result.Message);
 			auto FindDestination = [&](std::string_view Source) -> const FPackagePath* {
 				const auto It = std::ranges::find_if(Mappings, [&](const auto& Mapping) {
-					return Mapping.RedirectorPath.GetView() == Source;
+					return Mapping.SourcePath.GetView() == Source;
 				});
-				return It == Mappings.end() ? nullptr : &It->FinalPath;
+				return It == Mappings.end() ? nullptr : &It->DestinationPath;
 			};
 			auto RemapObjectPath = [&](const FObjectPath& Source,
 				std::string_view DestinationAssetName, FObjectPath& Out) -> bool {

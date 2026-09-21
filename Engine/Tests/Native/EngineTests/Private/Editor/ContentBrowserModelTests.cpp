@@ -1,3 +1,6 @@
+#include "AssetTools/Relocation.h"
+#include "AssetTools/RedirectorFixup.h"
+#include "AssetTools/MutationTesting.h"
 #include "Asset/RegistryOperations.h"
 #include "NativeAssetTestSupport.h"
 #include "Panels/ContentBrowserModel.h"
@@ -6,7 +9,7 @@
 #include "Editor/EditorTransactionTestSupport.h"
 #include "Operations/ContentBrowserOperationService.h"
 
-#include "Asset/Relocation.h"
+#include "AssetTools/Relocation.h"
 #include "Asset/AssetCompilingManager.h"
 #include "AssetRegistry/Publication.h"
 #include "AssetTools/IAssetTools.h"
