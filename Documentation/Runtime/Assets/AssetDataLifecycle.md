@@ -67,7 +67,8 @@ boundaries. `FAssetReadResult` carries a read classification and owned diagnosti
 text. Package capture keeps `FPackageCaptureResult`; codec encoding and
 `SerializeAssetPackageBytes/Closure` return the existing
 `ObjectPackage::FPackageWriterResult`. Failed encoding leaves the caller's output
-closure unchanged.
+closure unchanged. Live capture and linker mutation share one encode-and-read-back
+validation path; relocation consumers do not repeat that validation.
 
 Saves and mutations use `FAssetWriteResult` for error, message and observed write
 effect only. Mutation file ledgers and backup roots belong to

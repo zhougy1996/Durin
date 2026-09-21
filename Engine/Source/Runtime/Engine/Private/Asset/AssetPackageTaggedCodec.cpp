@@ -688,19 +688,9 @@ namespace Durin::AssetPrivate::TaggedPackage
 					.DeferCompletion = Context.DeferCompletion});
 		}
 
-		auto Write(DPackage* Package, FAssetPackageEncodedClosure& OutClosure,
-			EDefaultDeltaMode DeltaMode,
-			const FAssetPackageSerializationOptions& Options) -> ObjectPackage::FPackageWriterResult
+		auto EncodeLinker(const ObjectPackage::FLinkerTables& Linker,
+			FAssetPackageEncodedClosure& OutClosure) -> ObjectPackage::FPackageWriterResult
 		{
-			ObjectPackage::FLinkerTables Linker;
-			if (auto Result = CaptureLivePackageLinker(Package, DeltaMode,
-				Options, Linker); !Result)
-			{
-				auto Failure = EncodingError(FormatPackageCaptureError(Result.Error));
-				if (GetPackageCaptureSaveError(Result.Error) == EPackageSaveError::UnsupportedVersion)
-					Failure.Reason = ObjectPackage::EPackageWriterReason::UnsupportedVersion;
-				return Failure;
-			}
 			FAssetPackageEncodedClosure Closure;
 			ObjectPackage::FPackageWriterResult Diagnostic;
 			if (!(Diagnostic = ObjectPackage::WritePackage(Linker, Closure.PackageBytes,
@@ -715,22 +705,27 @@ namespace Durin::AssetPrivate::TaggedPackage
 			return {};
 		}
 
+		auto Write(DPackage* Package, FAssetPackageEncodedClosure& OutClosure,
+			EDefaultDeltaMode DeltaMode,
+			const FAssetPackageSerializationOptions& Options) -> ObjectPackage::FPackageWriterResult
+		{
+			ObjectPackage::FLinkerTables Linker;
+			if (auto Result = CaptureLivePackageLinker(Package, DeltaMode,
+				Options, Linker); !Result)
+			{
+				auto Failure = EncodingError(FormatPackageCaptureError(Result.Error));
+				if (GetPackageCaptureSaveError(Result.Error) == EPackageSaveError::UnsupportedVersion)
+					Failure.Reason = ObjectPackage::EPackageWriterReason::UnsupportedVersion;
+				return Failure;
+			}
+			return EncodeLinker(Linker, OutClosure);
+		}
+
 		auto WriteLinker(ObjectPackage::FLinkerTables Linker,
 			FAssetPackageEncodedClosure& OutClosure) -> ObjectPackage::FPackageWriterResult
 		{
 			Linker.Names.clear();
-			FAssetPackageEncodedClosure Closure;
-			ObjectPackage::FPackageWriterResult Diagnostic;
-			if (!(Diagnostic = ObjectPackage::WritePackage(Linker, Closure.PackageBytes,
-				Closure.BulkBytes)))
-				return Diagnostic;
-			ObjectPackage::FLinkerTables Verified;
-			ObjectPackage::FPackageReaderResult ReaderDiagnostic;
-			if (!(ReaderDiagnostic = ObjectPackage::ReadPackage(Closure.PackageBytes, Closure.BulkBytes,
-				Linker.Summary.PackagePath, Verified)))
-				return EncodingError(ObjectPackage::FormatPackageError(ReaderDiagnostic));
-			OutClosure = std::move(Closure);
-			return {};
+			return EncodeLinker(Linker, OutClosure);
 		}
 
 		auto RewriteReferences(const FAssetPackageReadContext& Context,

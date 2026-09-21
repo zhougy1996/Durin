@@ -75,7 +75,6 @@ namespace Durin::Editor::Texture
 			return Imported;
 		}
 		Imported.Persistence = Saved.Persistence;
-		Imported.bPublished = Saved.bPublished;
 		return Imported;
 	}
 

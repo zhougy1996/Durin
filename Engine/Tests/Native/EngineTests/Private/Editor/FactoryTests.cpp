@@ -699,7 +699,6 @@ TEST(DFactoryTests, AssetToolsSaveAndDuplicatePublishStructuredCompletionOnce)
 		}});
 	ASSERT_TRUE(Saved) << Saved.Message;
 	EXPECT_EQ(SaveNotifications, 1);
-	EXPECT_TRUE(Saved.bPublished);
 
 	uint32 DuplicateNotifications = 0;
 	const std::filesystem::path Root =
@@ -761,7 +760,6 @@ TEST(DFactoryTests, BatchSaveContinuesAfterFailureAndPublishesOnlySavedPackages)
 	ASSERT_EQ(Result.Warnings.size(), 1u);
 	EXPECT_EQ(Result.Warnings.front().AssetPath, Paths[1]);
 	EXPECT_EQ(Notifications, 1);
-	EXPECT_TRUE(Result.bPublished);
 	EXPECT_FALSE(Packages[0]->IsDirty());
 	EXPECT_TRUE(Packages[1]->IsDirty());
 	EXPECT_FALSE(Packages[2]->IsDirty());

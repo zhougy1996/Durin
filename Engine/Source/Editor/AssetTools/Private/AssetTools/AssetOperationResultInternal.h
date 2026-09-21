@@ -18,7 +18,7 @@ namespace Durin::AssetToolsPrivate
 			State = EAssetOperationTerminalState::ContentCommittedProjectionPending;
 		else if (Result.Effect ==
 			EAssetWriteEffect::ContentUncertain)
-			State = EAssetOperationTerminalState::RecoveryRequired;
+			State = EAssetOperationTerminalState::ContentUncertain;
 		else if (Result.Effect == EAssetWriteEffect::PartiallyWritten)
 			State = EAssetOperationTerminalState::PartiallyWritten;
 		FAssetOperationResult Operation{

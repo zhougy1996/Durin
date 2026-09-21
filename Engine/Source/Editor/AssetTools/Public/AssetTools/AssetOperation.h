@@ -22,13 +22,13 @@ namespace Durin
 		Delete,
 	};
 
-	// Distinguishes rejection, committed state, and failures that require recovery.
+	// Distinguishes rejection, committed state, and uncertain content.
 	enum class EAssetOperationTerminalState : uint8
 	{
 		Rejected,
 		Completed,
 		ContentCommittedProjectionPending,
-		RecoveryRequired,
+		ContentUncertain,
 		PartiallyWritten,
 	};
 
@@ -70,9 +70,8 @@ namespace Durin
 		DPackage* Package = nullptr;
 		std::string PhysicalPath;
 		std::string FailedParticipant;
-		std::filesystem::path RecoveryLocation;
+		std::vector<std::filesystem::path> BackupLocations;
 		std::vector<std::filesystem::path> AffectedFiles;
-		bool bPublished = false;
 		std::shared_ptr<const FAssetImportValidation> ImportCause;
 		std::optional<FAssetCreationError> CreationCause;
 		std::shared_ptr<const FFactoryDiagnostics> FactoryCause;

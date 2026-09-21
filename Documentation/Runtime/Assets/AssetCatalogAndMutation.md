@@ -321,7 +321,12 @@ restoration before preparing a new operation.
 `FAssetWriteResult::Effect` describes observed effects independently of its error
 code: partial writes, uncertain content, or committed content with Registry
 projection lag. It does not indicate retryability. Mutation details expose
-`AffectedFiles` and all retained `BackupLocations`, never a replayable record.
+`AffectedFiles` and all retained `BackupLocations`, never a replayable record. Editor
+operation results preserve the complete backup list and report `ContentUncertain`
+when the remaining content state cannot be established. Their terminal `State`
+and `Persistence` are separate: creation can succeed with dirty, unsaved content,
+and a batch save can fail after persisting some packages. Notification delivery
+is owned by the publish callback and is not duplicated as a result flag.
 
 ## Deletion And Fix-Up
 

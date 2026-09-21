@@ -68,6 +68,7 @@ namespace Durin::AssetPrivate
 			const FAssetPackageReadContext&, DPackage*&, FAssetLoadReport*,
 			const std::function<FAssetReadResult(DPackage*)>&,
 			const std::function<void(DPackage*)>&) -> FAssetReadResult = nullptr;
+		// Encoding callbacks return a validated closure and leave output unchanged on failure.
 		auto (*Write)(DPackage*, FAssetPackageEncodedClosure&, EDefaultDeltaMode,
 			const FAssetPackageSerializationOptions&) -> ObjectPackage::FPackageWriterResult = nullptr;
 		auto (*RewriteReferences)(

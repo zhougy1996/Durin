@@ -29,7 +29,7 @@ namespace Durin
 	{
 		auto Publish(
 			const FPublishAssetOperation& Callback,
-			FAssetOperationResult& Result) -> void
+			const FAssetOperationResult& Result) -> void
 		{
 			if (!Callback || (!Result
 				&& Result.Persistence != EAssetOperationPersistenceState::PartiallyPersisted)) return;
@@ -38,7 +38,6 @@ namespace Durin
 				.Persistence = Result.Persistence,
 				.AffectedAssets = Result.AffectedAssets,
 				.Warnings = Result.Warnings});
-			Result.bPublished = true;
 		}
 
 		auto FromMutationResult(
@@ -46,19 +45,10 @@ namespace Durin
 			EAssetOperationKind Kind,
 			std::span<const FPackagePath> Affected) -> FAssetOperationResult
 		{
-			const FAssetWriteResult& Committed = Details.Result;
-			if (!Committed)
-			{
-				auto Result = AssetToolsPrivate::FromEngineResult(Kind, Committed, Affected);
-				Result.AffectedFiles = Details.AffectedFiles;
-				if (!Details.BackupLocations.empty()) Result.RecoveryLocation = Details.BackupLocations.front();
-				return Result;
-			}
-			FAssetOperationResult Result{
-				.Kind = Kind,
-				.Persistence = EAssetOperationPersistenceState::Persisted,
-				.bPublished = true};
-			Result.AffectedAssets.assign(Affected.begin(), Affected.end());
+			auto Result = AssetToolsPrivate::FromEngineResult(Kind, Details.Result, Affected);
+			Result.AffectedFiles = Details.AffectedFiles;
+			Result.BackupLocations = Details.BackupLocations;
+			if (Result) Result.Persistence = EAssetOperationPersistenceState::Persisted;
 			return Result;
 		}
 	}
@@ -98,7 +88,7 @@ namespace Durin
 		auto Result = AssetToolsPrivate::FromEngineResult(EAssetOperationKind::Save,
 			State->Save.GetState() == ETaskState::Succeeded ? State->Save.GetResult()
 				: FAssetWriteResult{EAssetWriteError::IoError, "Save task failed or was canceled."}, State->Request.AssetPaths);
-		Result.Persistence = Result || Result.State == EAssetOperationTerminalState::ContentCommittedProjectionPending
+		Result.Persistence = Result
 			? EAssetOperationPersistenceState::Persisted
 			: Result.State == EAssetOperationTerminalState::PartiallyWritten
 				? EAssetOperationPersistenceState::PartiallyPersisted : EAssetOperationPersistenceState::Dirty;
@@ -200,7 +190,7 @@ namespace Durin
 					EAssetPackageUnloadPolicy::DiscardUnsaved));
 				if (!Cleanup)
 				{
-					Failure.State = EAssetOperationTerminalState::RecoveryRequired;
+					Failure.State = EAssetOperationTerminalState::ContentUncertain;
 					Failure.Message += std::format(
 						" The unsaved duplicate could not be discarded: {}", Cleanup.Message);
 				}
@@ -296,16 +286,14 @@ namespace Durin
 				}
 				continue;
 			}
-			// Keep the first failure, preferring a recovery-required result, while
+			// Keep the first failure, preferring a content-uncertain result, while
 			// continuing independent packages and retaining every path diagnostic.
-			if (!bFailed || (Item.State == EAssetOperationTerminalState::RecoveryRequired
-				&& Result.State != EAssetOperationTerminalState::RecoveryRequired))
+			if (!bFailed || (Item.State == EAssetOperationTerminalState::ContentUncertain
+				&& Result.State != EAssetOperationTerminalState::ContentUncertain))
 			{
 				Result.State = Item.State;
 				Result.Message = Saved.Message;
 				Result.FailedParticipant = Path.ToString();
-				Result.AffectedFiles = Item.AffectedFiles;
-				Result.RecoveryLocation = Item.RecoveryLocation;
 			}
 			bFailed = true;
 			Result.Warnings.push_back({Path, std::format("{}: {}", Path.ToString(), Saved.Message)});

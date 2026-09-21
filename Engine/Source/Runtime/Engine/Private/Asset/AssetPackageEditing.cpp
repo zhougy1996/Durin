@@ -51,12 +51,6 @@ namespace Durin
 				.PhysicalPackageBytes = SourceBytes.size()},
 			DestinationPath, Closure)); !Result)
 			return Result;
-		FAssetWriteResult Result = AssetWriteResultFromRead(Codec->Validate({
-			.PackageBytes = Closure.PackageBytes,
-			.BulkBytes = Closure.BulkBytes,
-			.PackagePath = DestinationPath,
-			.PhysicalPackageBytes = Closure.PackageBytes.size()}));
-		if (!Result) return Result;
 		OutBytes = std::move(Closure.PackageBytes);
 		return {};
 	}
