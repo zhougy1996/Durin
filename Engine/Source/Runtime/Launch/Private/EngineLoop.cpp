@@ -277,17 +277,11 @@ namespace Durin
 			RenderEngineStartupFrame();
 			return !IsEngineExitRequested();
 		};
-		const FEngineInitializationResult EngineInitResult =
-			GEngine->Init(EngineInitContext);
-		if (!EngineInitResult)
+		if (!GEngine->Init(EngineInitContext))
 		{
-			bInitializationCancelled = EngineInitResult.Status
-				== EEngineInitializationStatus::Cancelled;
+			bInitializationCancelled = IsEngineExitRequested();
 			if (bInitializationCancelled)
-				DURIN_INFO("{}", EngineInitResult.Message.empty()
-					? "Engine initialization was cancelled." : EngineInitResult.Message);
-			else
-				DURIN_ERROR("Engine initialization failed: {}", EngineInitResult.Message);
+				DURIN_INFO("Engine initialization was cancelled.");
 			Exit();
 			return false;
 		}

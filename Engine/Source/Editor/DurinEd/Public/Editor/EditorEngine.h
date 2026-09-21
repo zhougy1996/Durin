@@ -84,7 +84,7 @@ namespace Durin
 		DURINED_API ~DEditorEngine() override;
 		auto GetInitialWorldType() const -> EWorldType override { return EWorldType::Editor; }
 		DURINED_API auto Init(const FEngineInitContext& Context)
-			-> FEngineInitializationResult override;
+			-> bool override;
 		DURINED_API auto Tick(float DeltaSeconds, bool bIdleMode) -> void override;
 		DURINED_API auto PrepareForShutdown() -> void override;
 		DURINED_API auto BeginDestroy() -> void override;
@@ -136,7 +136,7 @@ namespace Durin
 		DURINED_API auto InitializePlayWindowViewportClient(
 			const FViewportClient* SourceClient) -> void;
 
-		auto InitEditorInternal(const FEngineInitContext& Context) -> FEngineInitializationResult;
+		auto InitEditorInternal(const FEngineInitContext& Context) -> bool;
 		DURINED_API auto CloseSubsystemWork() -> void override;
 		DURINED_API auto RetireHostConsumers() -> void override;
 		DURINED_API auto AreHostConsumersIdle() -> bool override;

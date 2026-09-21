@@ -1,7 +1,6 @@
 #include "gtest/gtest.h"
 
 #include "Editor/EditorHost.h"
-#include "Engine/Engine.h"
 #include "Runtime/Launch/Private/EngineFrame.h"
 
 namespace Durin::Editor::Host
@@ -66,24 +65,6 @@ namespace Durin::Editor::Host
 				EXPECT_EQ(IsValidBootstrapTransition(From, To), bExpected);
 			}
 		}
-	}
-
-	TEST(FEditorBootstrapStateTests, EngineInitializationResultsRemainDistinct)
-	{
-		const FEngineInitializationResult Success =
-			FEngineInitializationResult::Success();
-		const FEngineInitializationResult Cancelled =
-			FEngineInitializationResult::Cancelled("closed");
-		const FEngineInitializationResult Failed =
-			FEngineInitializationResult::Failure("load failed");
-
-		EXPECT_TRUE(Success);
-		EXPECT_FALSE(Cancelled);
-		EXPECT_FALSE(Failed);
-		EXPECT_EQ(Cancelled.Status, EEngineInitializationStatus::Cancelled);
-		EXPECT_EQ(Cancelled.Message, "closed");
-		EXPECT_EQ(Failed.Status, EEngineInitializationStatus::Failed);
-		EXPECT_EQ(Failed.Message, "load failed");
 	}
 
 	TEST(FEditorBootstrapStateTests, MapsEveryStateToTruthfulPhaseAndStatus)

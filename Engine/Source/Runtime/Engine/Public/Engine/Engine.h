@@ -14,34 +14,6 @@ namespace Durin
 {
 	class MWindow;
 
-	enum class EEngineInitializationStatus : uint8
-	{
-		Succeeded,
-		Cancelled,
-		Failed,
-	};
-
-	struct FEngineInitializationResult
-	{
-		EEngineInitializationStatus Status = EEngineInitializationStatus::Succeeded;
-		std::string Message;
-
-		explicit operator bool() const
-		{
-			return Status == EEngineInitializationStatus::Succeeded;
-		}
-
-		static auto Success() -> FEngineInitializationResult { return {}; }
-		static auto Cancelled(std::string InMessage = {}) -> FEngineInitializationResult
-		{
-			return {EEngineInitializationStatus::Cancelled, std::move(InMessage)};
-		}
-		static auto Failure(std::string InMessage) -> FEngineInitializationResult
-		{
-			return {EEngineInitializationStatus::Failed, std::move(InMessage)};
-		}
-	};
-
 	// Narrow Launch-owned capability available while a concrete engine initializes.
 	struct FEngineInitContext
 	{
@@ -72,8 +44,9 @@ namespace Durin
 		ENGINE_API ~DEngine() override;
 
 		virtual auto GetInitialWorldType() const -> EWorldType { return EWorldType::Game; }
+		// Logs initialization errors locally; Launch owns cancellation and process teardown.
 		ENGINE_API virtual auto Init(const FEngineInitContext& Context)
-			-> FEngineInitializationResult;
+			-> bool;
 
 		ENGINE_API virtual auto Tick(float DeltaSeconds, bool bIdleMode) -> void;
 		// Detaches host-owned consumers while the task system and objects are still alive.
@@ -141,7 +114,7 @@ namespace Durin
 		};
 		std::vector<DWorld*> InitializingWorlds;
 		friend class DWorld;
-		auto InitInternal(const FEngineInitContext& Context) -> FEngineInitializationResult;
+		auto InitInternal(const FEngineInitContext& Context) -> bool;
 		uint32 HostOperationDepth = 0;
 		bool bPreparingShutdown = false;
 		bool bInitStarted = false;

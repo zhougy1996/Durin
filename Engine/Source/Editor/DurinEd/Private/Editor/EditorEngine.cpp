@@ -58,53 +58,70 @@ namespace Durin
 		return EditorSubsystems.Initialize();
 	}
 
-	auto DEditorEngine::Init(const FEngineInitContext& Context) -> FEngineInitializationResult
+	auto DEditorEngine::Init(const FEngineInitContext& Context) -> bool
 	{
-		if (bEditorInitStarted || bShutdownRequested) return FEngineInitializationResult::Failure("Editor initialization is one-shot.");
+		if (bEditorInitStarted || bShutdownRequested)
+		{
+			DURIN_ERROR("Editor initialization is one-shot.");
+			return false;
+		}
 		bEditorInitStarted = true;
 		FHostOperationScope Operation(*this);
-		FEngineInitializationResult Result;
-		try { Result = InitEditorInternal(Context); }
-		catch (...) { Result = FEngineInitializationResult::Failure("Editor initialization threw an exception."); }
-		if (bShutdownRequested && Result) Result = FEngineInitializationResult::Failure("Editor retired during initialization.");
-		if (!Result) PrepareForShutdown();
-		return Result;
+		bool bInitialized = false;
+		try { bInitialized = InitEditorInternal(Context); }
+		catch (...) { DURIN_ERROR("Editor initialization threw an exception."); }
+		if (bShutdownRequested && bInitialized)
+		{
+			DURIN_ERROR("Editor retired during initialization.");
+			bInitialized = false;
+		}
+		if (!bInitialized) PrepareForShutdown();
+		return bInitialized;
 	}
 
 	auto DEditorEngine::InitEditorInternal(const FEngineInitContext& InitContext)
-		-> FEngineInitializationResult
+		-> bool
 	{
 		if (const FProjectInfo* Project = GetCurrentProject())
 		{
 			for (const std::string& ModuleName : Project->EnabledRootModules)
 			{
 				if (!FModuleManager::Get().LoadModule(FName(ModuleName)))
-					return FEngineInitializationResult::Failure(std::format(
-						"Editor initialization could not load project module '{}'.", ModuleName));
+				{
+					DURIN_ERROR("Editor initialization could not load project module '{}'.", ModuleName);
+					return false;
+				}
 			}
 		}
 		// The registry extracts references before MainFrame activates the full
 		// editor stack. Publish editor-authored package classes first so import
 		// records participate in that initial, atomic catalog revision.
 		if (!FModuleManager::Get().LoadModule("AssetForgeBuiltins"))
-			return FEngineInitializationResult::Failure(
-				"Editor initialization requires AssetForgeBuiltins before the asset catalog scan.");
-		if (FEngineInitializationResult Result = DEngine::Init(InitContext); !Result)
-			return Result;
+		{
+			DURIN_ERROR("Editor initialization requires AssetForgeBuiltins before the asset catalog scan.");
+			return false;
+		}
+		if (!DEngine::Init(InitContext))
+			return false;
 		EditorWorld = GetWorld();
 
 
 		EditorHost =
 			&FModuleManager::LoadModuleChecked<IEditorHost>("MainFrame");
 		if (auto Result = InitializeEditorSubsystems(); !Result)
-			return FEngineInitializationResult::Failure(Result.Message);
+		{
+			DURIN_ERROR("{}", Result.Message);
+			return false;
+		}
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.PreviewMeshes");
 			// Bootstrap previously activated this provider only after shell creation.
 			// Mesh PostLoad needs it before the eager acquisition below.
 			if (!FModuleManager::Get().LoadModule("StaticMeshBuild"))
-				return FEngineInitializationResult::Failure(
-					"Editor initialization requires StaticMeshBuild for preview mesh warmup.");
+			{
+				DURIN_ERROR("Editor initialization requires StaticMeshBuild for preview mesh warmup.");
+				return false;
+			}
 			PreviewMeshResources = std::make_unique<Editor::FPreviewMeshResources>();
 			std::string Error;
 			if (!PreviewMeshResources->Initialize(Error))
@@ -119,13 +136,14 @@ namespace Durin
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::EditorShellComplete);
 
 		if (!InitContext.PumpStartupFrame)
-			return FEngineInitializationResult::Failure(
-				"Editor initialization requires a startup-frame pump.");
+		{
+			DURIN_ERROR("Editor initialization requires a startup-frame pump.");
+			return false;
+		}
 		while (true)
 		{
 			if (!InitContext.PumpStartupFrame())
-				return FEngineInitializationResult::Cancelled(
-					"Editor initialization was cancelled by a close request.");
+				return false;
 			const bool bFirstPresentAvailable = InitContext.bHeadless
 				|| Profiling::GetStartupMilestoneMilliseconds(
 					Profiling::EStartupMilestone::FirstPresent) >= 0.0;
@@ -137,7 +155,8 @@ namespace Durin
 			{
 				// Keep the actionable failure visible for one final safe frame.
 				InitContext.PumpStartupFrame();
-				return FEngineInitializationResult::Failure(Progress.Message);
+				DURIN_ERROR("{}", Progress.Message);
+				return false;
 			}
 		}
 		Profiling::TryLogStartupTimingSummary();
@@ -195,7 +214,7 @@ namespace Durin
 			return FConsoleCommandResult::Success(GEditor->IsPlaySessionPaused() ? "Paused" : "Playing");
 		}});
 		DURIN_DEBUG("Editor initialized successfully");
-		return FEngineInitializationResult::Success();
+		return true;
 	}
 
 	auto DEditorEngine::Tick(float DeltaSeconds, bool bIdleMode) -> void

@@ -21,23 +21,27 @@ namespace Durin
 	}
 
 	auto DGameEngine::Init(const FEngineInitContext& Context)
-		-> FEngineInitializationResult
+		-> bool
 	{
-		if (FEngineInitializationResult Result = DEngine::Init(Context); !Result)
-			return Result;
+		if (!DEngine::Init(Context))
+			return false;
 		StartupError.clear();
 		if (const FProjectInfo* Project = GetCurrentProject())
 		{
 			for (const std::string& ModuleName : Project->EnabledRootModules)
 				if (!FModuleManager::Get().LoadModule(FName(ModuleName)))
-					return FEngineInitializationResult::Failure(std::format(
-						"Game initialization could not load project module '{}'.", ModuleName));
+				{
+					DURIN_ERROR("Game initialization could not load project module '{}'.", ModuleName);
+					return false;
+				}
 		}
 
 		std::shared_ptr<MWindow> GameWindow = Context.StartupWindow;
 		if (!GameWindow || !GameWindow->GetNativeWindow())
-			return FEngineInitializationResult::Failure(
-				"Game initialization requires a native startup window.");
+		{
+			DURIN_ERROR("Game initialization requires a native startup window.");
+			return false;
+		}
 		const FProjectInfo* Project = GetCurrentProject();
 		GameWindow->SetTitle(Project ? Project->Name : "DurinGame");
 		GameWindow->ReshapeWindow({100.0f, 100.0f}, {1280.0f, 720.0f});
@@ -61,14 +65,14 @@ namespace Durin
 			{
 				StartupError = SettingsResult.Message;
 				DURIN_ERROR("Could not load project game settings: {}", StartupError);
-				return FEngineInitializationResult::Success();
+				return true;
 			}
 			const FNativeGameModeResolution GameMode = ResolveNativeGameMode(Settings);
 			if (!GameMode)
 			{
 				StartupError = GameMode.Result.Message;
 				DURIN_ERROR("Could not resolve native gameplay bootstrap: {}", StartupError);
-				return FEngineInitializationResult::Success();
+				return true;
 			}
 			if (!Settings.DefaultLevel.empty())
 			{
@@ -105,7 +109,7 @@ namespace Durin
 				}
 			}
 		}
-		return FEngineInitializationResult::Success();
+		return true;
 	}
 
 	auto DGameEngine::BeginDestroy() -> void

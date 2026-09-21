@@ -14,7 +14,7 @@ namespace Durin
 	public:
 		ENGINE_API explicit DGameEngine(const FObjectInitializer& ObjectInitializer);
 		ENGINE_API auto Init(const FEngineInitContext& Context)
-			-> FEngineInitializationResult override;
+			-> bool override;
 		ENGINE_API auto BeginDestroy() -> void override;
 		ENGINE_API auto RequestGameMouseCapture(const std::shared_ptr<FGenericWindow>& Window) -> bool;
 		ENGINE_API auto ReleaseGameMouseCapture() -> void;

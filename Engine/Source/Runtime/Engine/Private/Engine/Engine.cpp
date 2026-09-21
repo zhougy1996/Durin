@@ -166,26 +166,39 @@ namespace Durin
 		}
 	}
 
-	auto DEngine::Init(const FEngineInitContext& Context) -> FEngineInitializationResult
+	auto DEngine::Init(const FEngineInitContext& Context) -> bool
 	{
-		if (bInitStarted || bShutdownRequested) return FEngineInitializationResult::Failure("Engine initialization is one-shot.");
+		if (bInitStarted || bShutdownRequested)
+		{
+			DURIN_ERROR("Engine initialization is one-shot.");
+			return false;
+		}
 		bInitStarted = true;
 		FHostOperationScope Operation(*this);
-		FEngineInitializationResult Result;
-		try { Result = InitInternal(Context); }
-		catch (...) { Result = FEngineInitializationResult::Failure("Engine initialization threw an exception."); }
-		if (bShutdownRequested && Result) Result = FEngineInitializationResult::Failure("Engine retired during initialization.");
-		if (!Result) PrepareForShutdown();
-		return Result;
+		bool bInitialized = false;
+		try { bInitialized = InitInternal(Context); }
+		catch (...) { DURIN_ERROR("Engine initialization threw an exception."); }
+		if (bShutdownRequested && bInitialized)
+		{
+			DURIN_ERROR("Engine retired during initialization.");
+			bInitialized = false;
+		}
+		if (!bInitialized) PrepareForShutdown();
+		return bInitialized;
 	}
 
-	auto DEngine::InitInternal(const FEngineInitContext&) -> FEngineInitializationResult
+	auto DEngine::InitInternal(const FEngineInitContext&) -> bool
 	{
 		if (!FModuleManager::Get().LoadModule("Engine"))
-			return FEngineInitializationResult::Failure("Engine subsystem providers could not start.");
+		{
+			DURIN_ERROR("Engine subsystem providers could not start.");
+			return false;
+		}
 		if (!InitializeCookedMeshLoadManager())
-			return FEngineInitializationResult::Failure(
-				"Cooked mesh load manager could not start.");
+		{
+			DURIN_ERROR("Cooked mesh load manager could not start.");
+			return false;
+		}
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::RegistryScanBegin);
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.RegistryScan");
@@ -224,7 +237,10 @@ namespace Durin
 		}
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::RendererReady);
 		if (auto Result = InitializeEngineSubsystems(); !Result)
-			return FEngineInitializationResult::Failure(Result.Message);
+		{
+			DURIN_ERROR("{}", Result.Message);
+			return false;
+		}
 		auto* World = NewObject<DWorld>(this, "MainWorld");
 		World->SetWorldType(GetInitialWorldType());
 		World->SetRenderScene(MainScene.get());
@@ -232,11 +248,12 @@ namespace Durin
 		{
 			World->Shutdown();
 			MarkObjectHierarchyAsGarbage(World);
-			return FEngineInitializationResult::Failure(Result.Message);
+			DURIN_ERROR("{}", Result.Message);
+			return false;
 		}
 		SetWorld(World);
 		Mona::FMonaApplication::Get().SetGameEventHandler(std::make_unique<FEngineInputEventHandler>());
-		return FEngineInitializationResult::Success();
+		return true;
 	}
 
 	auto DEngine::BeginDestroy() -> void
