@@ -269,7 +269,7 @@ namespace Durin
 	auto FormatRDGError(const FRDGAllocationFailure& Error) -> std::string
 	{
 		auto Text = FormatDetail(Error);
-		if (Error.Cause.HasError()) Text += ": " + FormatRHICreationError(Error.Cause);
+		if (Error.Cause.HasError()) Text += ": " + ToString(Error.Cause);
 		return Text;
 	}
 	auto FormatRDGError(const FRDGCompileError& Error) -> std::string

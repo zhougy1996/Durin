@@ -447,7 +447,7 @@ namespace Durin::VulkanRHI
 		else CreationResult = ExecuteFallibleRHICreationOperation(CreationOperation);
 		if (CreationResult.HasError())
 		{
-			DURIN_ERROR("Failed to create Vulkan texture view: {}", FormatRHICreationError(CreationResult));
+			DURIN_ERROR("Failed to create Vulkan texture view: {}", ToString(CreationResult));
 			return nullptr;
 		}
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION

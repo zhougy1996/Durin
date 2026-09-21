@@ -4291,7 +4291,7 @@ namespace Durin
 			.Source = ERHICreationFailureSource::NativeBackend, .NativeCode = -7};
 		const FRDGAllocationFailure Error{ERDGAllocationError::PhysicalAllocationFailed,
 			3, Native};
-		EXPECT_NE(FormatRDGError(Error).find(FormatRHICreationError(Native)), std::string::npos);
+		EXPECT_NE(FormatRDGError(Error).find(ToString(Native)), std::string::npos);
 	}
 
 	TEST_F(FRDGTests, EnforcesDeterministicStructuralBudgets)

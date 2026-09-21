@@ -1,5 +1,4 @@
 #pragma once
-#include "RHICreationError.h"
 
 #include "RHIResources.h"
 #include "Threading/TaskComposition.h"

@@ -32,7 +32,7 @@ namespace Durin::VulkanRHI
 		if (!Result)
 		{
 			DURIN_ERROR("Failed to create Vulkan {} '{}': {}", Kind,
-				DebugName.empty() ? "<unnamed>" : DebugName, FormatRHICreationError(Result.error()));
+				DebugName.empty() ? "<unnamed>" : DebugName, ToString(Result.error()));
 			return {};
 		}
 		return std::move(*Result);

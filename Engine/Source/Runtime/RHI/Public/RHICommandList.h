@@ -1,5 +1,4 @@
 #pragma once
-#include "RHICreationError.h"
 
 #include "RHIAPI.h"
 #include "DynamicRHI.h"

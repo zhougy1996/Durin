@@ -38,9 +38,12 @@ descriptions as `std::string_view`; context overloads return an owning
 
 ## Creation and executor failures
 
-`FRHICreationError` retains the recovery classification, failure source, and
-optional native status. Both synchronous operation results and asynchronous
-pipeline publications preserve it. `RHITryCreateTexture` and `RHITryCreateBuffer`
+`FRHICreationError` is declared in `RHIResources.h` alongside its creation
+failure source and `ToString` overload. It retains the recovery classification,
+failure source, and optional native status. Its diagnostic implementation lives
+in `RHIErrorStrings.cpp`; semantic fingerprinting lives in `RHIResources.cpp`.
+Both synchronous operation results and asynchronous pipeline publications
+preserve it. `RHITryCreateTexture` and `RHITryCreateBuffer`
 return `std::expected<ResourceRef, FRHICreationError>` without logging recoverable
 failures. Success contains a non-null resource. RDG consumes these results for
 rollback and retry suppression, retaining the complete native status.

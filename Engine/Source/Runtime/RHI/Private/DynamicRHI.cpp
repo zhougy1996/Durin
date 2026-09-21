@@ -12,7 +12,7 @@ namespace Durin
 		if (!Result)
 		{
 			DURIN_ERROR("Failed to create RHI texture '{}': {}",
-				CreateDesc.DebugName ? CreateDesc.DebugName : "<unnamed>", FormatRHICreationError(Result.error()));
+				CreateDesc.DebugName ? CreateDesc.DebugName : "<unnamed>", ToString(Result.error()));
 			return {};
 		}
 		check(*Result);
@@ -26,7 +26,7 @@ namespace Durin
 		if (!Result)
 		{
 			DURIN_ERROR("Failed to create RHI buffer '{}': {}",
-				CreateDesc.DebugName ? CreateDesc.DebugName : "<unnamed>", FormatRHICreationError(Result.error()));
+				CreateDesc.DebugName ? CreateDesc.DebugName : "<unnamed>", ToString(Result.error()));
 			return {};
 		}
 		check(*Result);

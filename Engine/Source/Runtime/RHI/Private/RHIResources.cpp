@@ -10,6 +10,16 @@
 
 namespace Durin
 {
+	auto FRHICreationError::GetSemanticFingerprint() const -> size_t
+	{
+		size_t Fingerprint = 0;
+		auto Add = [&]<typename T>(const T& Value) {
+			Fingerprint ^= std::hash<T>{}(Value) + 0x9e3779b9 + (Fingerprint << 6) + (Fingerprint >> 2);
+		};
+		Add(Failure); Add(Source); Add(NativeCode);
+		return Fingerprint;
+	}
+
 	std::atomic<uint64> FRHIGPUTimingQuery::InvalidRecordingCount = 0;
 
 	FRHIGPUTimingQuery::FRHIGPUTimingQuery()
