@@ -1283,9 +1283,9 @@ namespace Durin
 				const auto Result = Graph.Execute(Commands);
 				ASSERT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
 				Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::None);
-				ASSERT_EQ(Graph.GetSubmissionSyncPoints().size(), 4u);
+				ASSERT_EQ(FRDGBuilderTestAccessor::GetSubmissionSyncPoints(Graph).size(), 4u);
 				for (uint32 Index = 0; Index < 3; ++Index)
-					EXPECT_EQ(FRHIGPUSyncPointBackend::GetPoint(Graph.GetSubmissionSyncPoints()[Index]).Queue, Queues.Compute);
+					EXPECT_EQ(FRHIGPUSyncPointBackend::GetPoint(FRDGBuilderTestAccessor::GetSubmissionSyncPoints(Graph)[Index]).Queue, Queues.Compute);
 			}
 			if (!*QueuePolicy)
 			{

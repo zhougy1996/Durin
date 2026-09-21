@@ -1376,9 +1376,31 @@ namespace Durin
 		uint32 TextureTransitions = 0;
 	};
 
+	// CPU recording outcome; Recorded does not imply GPU completion.
+	enum class ERDGExecutionStatus : uint8
+	{
+		CompileFailed, PreparationFailed, Recorded, InvalidState
+	};
+
+	// Thread-confined, single-use graph lifecycle; failure is terminal.
+	enum class ERDGBuilderState : uint8
+	{
+		Building, Compiling, Preparing, Recording, Recorded, Failed
+	};
+
+	// Owns the recoverable result of one execution attempt.
+	struct FRDGExecutionResult final
+	{
+		ERDGExecutionStatus Status = ERDGExecutionStatus::InvalidState;
+		FRDGResult Result{ERDGError::ExecutionNotStarted};
+		auto IsSuccess() const -> bool { return Status == ERDGExecutionStatus::Recorded; }
+	};
+
 	// Owns an immutable diagnostic snapshot independent of graph/RHI lifetimes.
 	struct FRDGCapture final
 	{
+		// Original execution report; rejected repeated attempts do not replace it.
+		FRDGExecutionResult ExecutionResult;
 		// False before execution or after compilation failure; compiled arrays are empty.
 		bool bCompiled = false;
 		FRDGBudget Budget;
@@ -1453,26 +1475,6 @@ namespace Durin
 		uint32 DeclarationIndex = 0;
 		std::string ParameterStructName;
 		FRDGBarrierBatch Barriers;
-	};
-
-	// CPU recording outcome; Recorded does not imply GPU completion.
-	enum class ERDGExecutionStatus : uint8
-	{
-		CompileFailed, PreparationFailed, Recorded, InvalidState
-	};
-
-	// Thread-confined, single-use graph lifecycle; failure is terminal.
-	enum class ERDGBuilderState : uint8
-	{
-		Building, Compiling, Preparing, Recording, Recorded, Failed
-	};
-
-	// Owns the recoverable result of one execution attempt.
-	struct FRDGExecutionResult final
-	{
-		ERDGExecutionStatus Status = ERDGExecutionStatus::InvalidState;
-		FRDGResult Result{ERDGError::ExecutionNotStarted};
-		auto IsSuccess() const -> bool { return Status == ERDGExecutionStatus::Recorded; }
 	};
 
 	// Owns declarations, storage and private compilation records for one graph execution.
@@ -1623,9 +1625,6 @@ namespace Durin
 			-> std::span<const FRDGCullingDecision>;
 		RENDERCORE_API auto GetFinalBarriers() const -> const FRDGBarrierBatch&;
 		RENDERCORE_API auto GetExecutionPlan() const -> const FRDGExecutionPlan&;
-		// Runtime sync points follow logical batch order; they are not graph-success proofs.
-		RENDERCORE_API auto GetSubmissionSyncPoints() const -> std::span<const FRHIGPUSyncPointRef>;
-		RENDERCORE_API auto GetCompileMicroseconds() const -> uint64;
 		RENDERCORE_API auto GetBudget() const -> const FRDGBudget&;
 		RENDERCORE_API auto GetStatistics() const -> FRDGStatistics;
 		// Detailed evidence is materialized on first inspection and cached outside the execution plan.
@@ -1700,6 +1699,8 @@ namespace Durin
 		friend class FRDGBuilderTestAccessor;
 		friend class FRDGPassResources;
 		RENDERCORE_API auto RequireBuilding() const -> void;
+		// Test-only runtime evidence in logical batch order, never a graph-success proof.
+		RENDERCORE_API auto GetSubmissionSyncPoints() const -> std::span<const FRHIGPUSyncPointRef>;
 		auto Compile() -> FRDGResult;
 		auto EnsureDiagnostics() const -> void;
 		RENDERCORE_API auto CompileForTesting() -> FRDGResult;

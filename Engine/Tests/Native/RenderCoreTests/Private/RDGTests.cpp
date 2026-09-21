@@ -898,11 +898,38 @@ namespace Durin
 			const auto Capture = Builder.Capture();
 			EXPECT_EQ(Builder.Execute(GetCommandList()).Status, ERDGExecutionStatus::InvalidState);
 			EXPECT_EQ(Calls, Shape == 0 ? 0 : 1);
+			EXPECT_EQ(Builder.Capture().ExecutionResult.Status, ERDGExecutionStatus::Recorded);
+			EXPECT_TRUE(Builder.Capture().ExecutionResult.Result.IsSuccess());
 			EXPECT_EQ(Builder.GetExecutionResult().Status, Result.Status);
 			EXPECT_EQ(Builder.GetExecutionResult().Result.Error, Result.Result.Error);
 			EXPECT_EQ(Builder.Capture().Dump, Capture.Dump);
 			EXPECT_EQ(Builder.GetStatistics().ExecuteMicroseconds, Capture.Statistics.ExecuteMicroseconds);
 		}
+	}
+
+	TEST_F(FRDGTests, CaptureOwnsFailedExecutionReportAfterBuilderDestruction)
+	{
+		FRDGCapture Capture;
+		{
+			FRDGBuilder Builder;
+			EXPECT_EQ(Builder.Capture().ExecutionResult.Result.Error, ERDGError::ExecutionNotStarted);
+			FRDGBuilderTestAccessor::AddPass(Builder, "Duplicate", ERDGPassType::Copy);
+			FRDGBuilderTestAccessor::AddPass(Builder, "Duplicate", ERDGPassType::Copy);
+			const auto Result = Builder.Execute(GetCommandList());
+			ASSERT_EQ(Result.Status, ERDGExecutionStatus::CompileFailed);
+			ASSERT_EQ(Result.Result.Error, ERDGError::PassNameDuplicate);
+			EXPECT_EQ(Builder.Execute(GetCommandList()).Status, ERDGExecutionStatus::InvalidState);
+			Capture = Builder.Capture();
+		}
+		EXPECT_FALSE(Capture.bCompiled);
+		EXPECT_TRUE(Capture.Passes.empty());
+		EXPECT_EQ(Capture.ExecutionResult.Status, ERDGExecutionStatus::CompileFailed);
+		EXPECT_EQ(Capture.ExecutionResult.Result.Error, ERDGError::PassNameDuplicate);
+		const auto* Context = std::get_if<FRDGIdentityErrorContext>(&Capture.ExecutionResult.Result.Context);
+		ASSERT_NE(Context, nullptr);
+		EXPECT_EQ(Context->Name, "Duplicate");
+		EXPECT_EQ(Context->Index, 1u);
+		EXPECT_NE(FormatRDGError(Capture.ExecutionResult.Result).find("Duplicate"), std::string::npos);
 	}
 
 	TEST_F(FRDGTests, PhaseTimingsSeparatePreparationRecordingAndFailedCompilation)
@@ -1138,6 +1165,9 @@ namespace Durin
 			}
 			EXPECT_EQ(Destructions, 1);
 			EXPECT_FALSE(Capture.Passes.empty());
+			EXPECT_EQ(Capture.ExecutionResult.Status, ERDGExecutionStatus::PreparationFailed);
+			EXPECT_FALSE(Capture.ExecutionResult.IsSuccess());
+			EXPECT_FALSE(FormatRDGError(Capture.ExecutionResult.Result).empty());
 		}
 	}
 

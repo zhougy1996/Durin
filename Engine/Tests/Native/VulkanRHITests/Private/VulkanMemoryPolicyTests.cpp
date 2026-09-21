@@ -102,17 +102,17 @@ namespace Durin::VulkanRHI
 				const auto Recorded = Graph.Execute(Commands);
 				ASSERT_TRUE(Recorded.IsSuccess()) << FormatRDGError(Recorded.Result);
 				Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::None);
-				ASSERT_EQ(Graph.GetSubmissionSyncPoints().size(), 4u);
+				ASSERT_EQ(FRDGBuilderTestAccessor::GetSubmissionSyncPoints(Graph).size(), 4u);
 				for (uint32 Index = 0; Index < 4; ++Index)
 				{
-					EXPECT_EQ(Graph.GetSubmissionSyncPoints()[Index].GetState(), ERHIGPUSubmissionState::Pending);
-					EXPECT_EQ(FRHIGPUSyncPointBackend::GetPoint(Graph.GetSubmissionSyncPoints()[Index]).Queue,
+					EXPECT_EQ(FRDGBuilderTestAccessor::GetSubmissionSyncPoints(Graph)[Index].GetState(), ERHIGPUSubmissionState::Pending);
+					EXPECT_EQ(FRHIGPUSyncPointBackend::GetPoint(FRDGBuilderTestAccessor::GetSubmissionSyncPoints(Graph)[Index]).Queue,
 						Index % 2 == 0 ? Queues.Compute : Queues.Graphics);
 				}
 				Actual.clear();
 				ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(Commands, Texture, 0, 0, Actual));
 				EXPECT_EQ(Actual, (FByteBuffer(Bytes.begin(), Bytes.end())));
-				for (const auto& LogicalSignal : Graph.GetSubmissionSyncPoints())
+				for (const auto& LogicalSignal : FRDGBuilderTestAccessor::GetSubmissionSyncPoints(Graph))
 					EXPECT_EQ(LogicalSignal.GetState(), ERHIGPUSubmissionState::Complete);
 				return;
 			}

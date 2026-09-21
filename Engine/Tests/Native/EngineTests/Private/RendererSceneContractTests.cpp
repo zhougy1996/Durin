@@ -1380,6 +1380,8 @@ TEST(FRendererSceneContractTests, SceneRenderGraphInspectionPublishesOwningSnaps
 	GObservedRenderGraphCaptures = nullptr;
 	ASSERT_EQ(Captures.size(), 1u);
 	EXPECT_EQ(ExplicitCapture.Dump, Captures[0].Dump);
+	EXPECT_TRUE(ExplicitCapture.ExecutionResult.IsSuccess());
+	EXPECT_TRUE(Captures[0].ExecutionResult.IsSuccess());
 	ASSERT_EQ(Captures[0].Passes.size(), 1u);
 	EXPECT_EQ(Captures[0].Passes[0].Name, "Scene.FinalOutput");
 	EXPECT_EQ(Captures[0].Passes[0].ParameterStructName, "FInspectionOutputParameters");
@@ -1387,6 +1389,29 @@ TEST(FRendererSceneContractTests, SceneRenderGraphInspectionPublishesOwningSnaps
 	EXPECT_EQ(Captures[0].Parameters[0].FieldPath, "FInspectionOutputParameters.Output");
 	EXPECT_EQ(Captures[0].CullingDecisions[0].Reason, "offscreen-output");
 	EXPECT_NE(Captures[0].Dump.find("Scene.FinalOutput"), std::string::npos);
+}
+
+TEST(FRendererSceneContractTests, SceneRenderGraphInspectionPublishesCompileFailure)
+{
+	std::vector<Durin::FRDGCapture> Captures;
+	Durin::FRDGCapture ExplicitCapture;
+	GObservedRenderGraphCaptures = &Captures;
+	Durin::SetSceneRenderGraphCaptureSink(ObserveRenderGraphCapture);
+	{
+		Durin::FRDGBuilder Builder;
+		Durin::FRDGBuilderTestAccessor::AddPass(Builder, "", Durin::ERDGPassType::Copy);
+		Durin::FRHICommandListExecutor Executor;
+		const auto Result = Builder.Execute(Executor.GetImmediateCommandList());
+		EXPECT_EQ(Result.Status, Durin::ERDGExecutionStatus::CompileFailed);
+		Durin::PublishSceneRenderGraphCapture(Builder, &ExplicitCapture);
+	}
+	Durin::SetSceneRenderGraphCaptureSink(nullptr);
+	GObservedRenderGraphCaptures = nullptr;
+	ASSERT_EQ(Captures.size(), 1u);
+	EXPECT_FALSE(Captures[0].bCompiled);
+	EXPECT_EQ(Captures[0].ExecutionResult.Status, Durin::ERDGExecutionStatus::CompileFailed);
+	EXPECT_EQ(Captures[0].ExecutionResult.Result.Error, Durin::ERDGError::PassNameEmpty);
+	EXPECT_EQ(ExplicitCapture.ExecutionResult.Result.Error, Captures[0].ExecutionResult.Result.Error);
 }
 
 TEST(FRendererSceneContractTests, TelemetryPublishesOnlyAfterSuccessfulCommit)

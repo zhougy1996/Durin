@@ -484,7 +484,7 @@ namespace Durin::VulkanRHI
 				AllocationError = Rejected.Result;
 			}
 			EXPECT_FALSE(bExecuted);
-			EXPECT_TRUE(RejectedBuilder.GetSubmissionSyncPoints().empty());
+			EXPECT_TRUE(FRDGBuilderTestAccessor::GetSubmissionSyncPoints(RejectedBuilder).empty());
 			EXPECT_EQ(AllocationError.GetCategory(), ERDGErrorCategory::AllocationFailed);
 			EXPECT_EQ(AllocationError.Error, ERDGError::AllocatorFailure);
 
@@ -519,11 +519,11 @@ namespace Durin::VulkanRHI
 				ERHISubmitFlags::SubmitToGPU);
 
 			auto* VulkanBuffer = static_cast<FVulkanBuffer*>(Buffer.GetReference());
-			ASSERT_EQ(Builder.GetSubmissionSyncPoints().size(), Builder.GetExecutionPlan().Batches.size());
-			for (const auto& LogicalSignal : Builder.GetSubmissionSyncPoints())
+			ASSERT_EQ(FRDGBuilderTestAccessor::GetSubmissionSyncPoints(Builder).size(), Builder.GetExecutionPlan().Batches.size());
+			for (const auto& LogicalSignal : FRDGBuilderTestAccessor::GetSubmissionSyncPoints(Builder))
 			{
 				EXPECT_EQ(LogicalSignal.GetState(), ERHIGPUSubmissionState::Submitted);
-				EXPECT_EQ(FRHIGPUSyncPointBackend::GetPoint(LogicalSignal), FRHIGPUSyncPointBackend::GetPoint(Builder.GetSubmissionSyncPoints().back()));
+				EXPECT_EQ(FRHIGPUSyncPointBackend::GetPoint(LogicalSignal), FRHIGPUSyncPointBackend::GetPoint(FRDGBuilderTestAccessor::GetSubmissionSyncPoints(Builder).back()));
 			}
 			auto* VulkanTexture = static_cast<FVulkanTexture*>(Texture.GetReference());
 			EXPECT_EQ(VulkanBuffer->GetStateTracker().GetIntervals(),

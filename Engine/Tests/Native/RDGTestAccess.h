@@ -13,6 +13,9 @@ namespace Durin
 			FRDGResult Result;
 			auto IsSuccess() const -> bool { return Result.IsSuccess(); }
 		};
+		static auto GetSubmissionSyncPoints(const FRDGBuilder& Builder)
+			-> std::span<const FRHIGPUSyncPointRef>
+		{ return Builder.GetSubmissionSyncPoints(); }
 		static auto HasDiagnostics(const FRDGBuilder& Builder) -> bool
 		{ return Builder.Diagnostics != nullptr; }
 		static auto Compile(FRDGBuilder& Builder) -> FEvidence

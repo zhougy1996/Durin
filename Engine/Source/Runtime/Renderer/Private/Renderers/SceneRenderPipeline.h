@@ -110,12 +110,12 @@ namespace Durin
 			uint32 Height,
 			const FRendererQualificationPolicy& Qualification
 		) const -> FSceneFrameFeaturePlan;
-		auto CompileAndExecuteGraph_RenderThread(
+		auto ExecuteGraph_RenderThread(
 			FRDGBuilder& Graph,
 			FRHICommandListImmediate& CommandList,
 			FRDGCapture* OutRenderGraphCapture,
 			FSceneFrameContext::FObservation& Observation
-		) -> ESceneRenderGraphExecutionStatus;
+		) -> bool;
 
 		FSceneRenderer& Renderer;
 	};

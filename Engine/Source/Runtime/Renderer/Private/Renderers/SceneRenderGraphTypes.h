@@ -108,11 +108,4 @@ namespace Durin
 		FPostProcessPassResult PostProcessPublication;
 	};
 
-	enum class ESceneRenderGraphExecutionStatus : uint8
-	{
-		CompileFailed,
-		ExecutionFailed,
-		Executed,
-	};
-
 } // namespace Durin

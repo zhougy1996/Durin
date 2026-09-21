@@ -4,7 +4,7 @@ Summary: Define the deterministic frame-local graph compiler and its boundary wi
 
 Modules: RenderCore, RHI
 
-Last reviewed: 2026-09-17
+Last reviewed: 2026-09-21
 
 ## Ownership Boundary
 
@@ -447,9 +447,9 @@ producer; only affected consumers wait its sync point. Transfer creation failure
 fails preparation before callbacks or graph commands are recorded.
 The current single-queue Vulkan mapping coalesces same-queue batches into
 native payloads and satisfies their dependencies through FIFO execution and
-resource barriers, without a CPU wait between passes. `GetSubmissionSyncPoints()`
-exposes runtime signals in batch order; these are separate from the immutable
-plan and do not certify graph success or extraction publication.
+resource barriers, without a CPU wait between passes. The native test accessor
+exposes runtime submission signals in batch order; these are separate from the
+immutable plan and do not certify graph success or extraction publication.
 `FRDGCapture::ExecutionPlan` owns a copy, and the dump includes stable
 batch identities, queue roles, dependency causes and handoff locations. No
 native completion values or physical queue-family indices enter this data.
@@ -461,8 +461,13 @@ preparation disposition, and final-batch counts. The dump omits builder
 identities, addresses, timestamps, and measured duration so equal declarations
 produce equal text. `Capture()` copies that dump plus pointer-free
 pass/resource/parameter/use/transition records, dependencies, lifetimes,
-culling decisions, and statistics into an owning value that remains valid after
-graph destruction.
+culling decisions, statistics, and the original `ExecutionResult` into an owning
+value that remains valid after graph destruction. Rejected repeated execution
+attempts do not replace this report. Before execution it reports
+`ExecutionNotStarted`; compile and preparation failures retain their typed error
+and owned context. Renderer capture publication includes compile failures as
+well as preparation failures and successful recordings. Compile timing is
+available through `GetStatistics().CompileMicroseconds`.
 
 `AllocationStatistics` records active/retained resource counts and logical
 bytes, peak active bytes, cumulative reuse hits/misses, evictions, and failures.

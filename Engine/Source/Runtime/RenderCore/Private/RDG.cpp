@@ -2952,11 +2952,6 @@ namespace Durin
 	auto FRDGBuilder::GetSubmissionSyncPoints() const -> std::span<const FRHIGPUSyncPointRef>
 	{ return State->SubmissionSyncPoints; }
 
-	auto FRDGBuilder::GetCompileMicroseconds() const -> uint64
-	{
-		return State->CompileMicroseconds;
-	}
-
 	auto FRDGBuilder::GetBudget() const -> const FRDGBudget&
 	{
 		return State->Budget;
@@ -3007,6 +3002,7 @@ namespace Durin
 	{
 		EnsureDiagnostics();
 		FRDGCapture Result;
+		Result.ExecutionResult = State->ExecutionResult;
 		Result.bCompiled = State->bCompiled;
 		Result.Budget = State->Budget;
 		Result.Statistics = GetStatistics();

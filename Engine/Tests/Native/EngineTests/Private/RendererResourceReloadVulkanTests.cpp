@@ -195,7 +195,7 @@ float4 FragmentMain() : SV_Target
 						EXPECT_TRUE(Result.IsSuccess()) << FormatRDGError(Result.Result);
 						if (!Result.IsSuccess()) return std::pair{uint64(0), FRHIGPUSyncPointRef{}};
 					}
-					return std::pair{Graph.Capture().Resources[0].PhysicalAllocationId, Graph.GetSubmissionSyncPoints().back()};
+					return std::pair{Graph.Capture().Resources[0].PhysicalAllocationId, FRDGBuilderTestAccessor::GetSubmissionSyncPoints(Graph).back()};
 				};
 				const auto First = Record();
 				const auto Second = Record();

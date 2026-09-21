@@ -344,13 +344,8 @@ namespace Durin
 		FSceneRenderGraphComposition& Composition =
 			Context.Transaction.Composition;
 		FSceneRenderGraphComposer::Compose(Graph, Renderer, Context);
-		const ESceneRenderGraphExecutionStatus GraphStatus =
-			CompileAndExecuteGraph_RenderThread(
-				Graph, CommandList, OutRenderGraphCapture,
-				Context.Observation);
-		if (GraphStatus == ESceneRenderGraphExecutionStatus::CompileFailed)
-			return ERenderViewResult::RendererResourcesUnavailable;
-		if (GraphStatus == ESceneRenderGraphExecutionStatus::ExecutionFailed)
+		if (!ExecuteGraph_RenderThread(
+			Graph, CommandList, OutRenderGraphCapture, Context.Observation))
 			return ERenderViewResult::RendererResourcesUnavailable;
 		if (!Composition.SceneColorPublication.IsSuccess())
 			return Composition.SceneColorPublication.Result;
@@ -363,12 +358,12 @@ namespace Durin
 		return Composition.PostProcessPublication.Result;
 	}
 
-	auto FSceneRenderPipeline::CompileAndExecuteGraph_RenderThread(
+	auto FSceneRenderPipeline::ExecuteGraph_RenderThread(
 		FRDGBuilder& Graph,
 		FRHICommandListImmediate& CommandList,
 		FRDGCapture* OutRenderGraphCapture,
 		FSceneFrameContext::FObservation& Observation
-	) -> ESceneRenderGraphExecutionStatus
+	) -> bool
 	{
 		FRDGExecutionContext ExecutionContext{Renderer.RDGAllocator};
 		FGPUTimingQueryRHIRef Timing;
@@ -379,12 +374,6 @@ namespace Durin
 		{
 			CommandList.EndGPUTimingQuery(Timing);
 			Renderer.ViewGPUTimingSink(std::move(Timing));
-		}
-		if (Result.Status == ERDGExecutionStatus::CompileFailed)
-		{
-			DURIN_WARN("Scene render graph compilation failed: {}",
-				FormatRDGError(Result.Result));
-			return ESceneRenderGraphExecutionStatus::CompileFailed;
 		}
 		const FRDGStatistics Statistics = Graph.GetStatistics();
 		if (Statistics.IsStructuralRegressionBudgetExceeded()
@@ -407,12 +396,12 @@ namespace Durin
 		if (!Executed
 			&& !std::exchange(Observation.bReportedExecutionFailure, true))
 		{
-			DURIN_WARN("Scene render graph execution failed: {}",
+			DURIN_WARN("Scene render graph {} failed: {}",
+				Result.Status == ERDGExecutionStatus::CompileFailed ? "compilation" : "execution",
 				FormatRDGError(Result.Result));
 		}
 		PublishSceneRenderGraphCapture(
 			Graph, OutRenderGraphCapture);
-		return Executed ? ESceneRenderGraphExecutionStatus::Executed
-			: ESceneRenderGraphExecutionStatus::ExecutionFailed;
+		return Executed;
 	}
 } // namespace Durin
