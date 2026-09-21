@@ -80,7 +80,6 @@ namespace Durin
 		uint64 ActiveTaskCount = 0;
 		uint64 RetainedResultCount = 0;
 		uint32 RetainedDeferredCallableCount = 0;
-		uint64 RetainedDeferredCallableBytes = 0;
 		bool bWorkerCallablesRetained = false;
 	};
 
@@ -93,7 +92,6 @@ namespace Durin
 		uint64 ActiveTaskCount = 0;
 		uint64 RetainedResultCount = 0;
 		uint32 RetainedDeferredCallableCount = 0;
-		uint64 RetainedDeferredCallableBytes = 0;
 		uint32 GroupsWithWorkerCallables = 0;
 		std::vector<FAsyncOperationGroupSnapshot> Groups;
 	};

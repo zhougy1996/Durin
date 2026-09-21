@@ -31,7 +31,7 @@ namespace Durin
 	static_assert(noexcept(Profiling::TaskEnqueued(1, 3, 2, 2, 0)));
 	static_assert(noexcept(Profiling::TaskExecution(1, 3, 2, 2, 0)));
 	static_assert(noexcept(Profiling::TaskTerminal(1, 3, 2, 2, 0, 0)));
-	static_assert(noexcept(Profiling::TaskAggregatePlots(2, 2, 0, 0, 0, 0, 0, 0, 0)));
+	static_assert(noexcept(Profiling::TaskAggregatePlots(2, 2, 0, 0, 0, 0, 0, 0)));
 
 	namespace
 	{
@@ -2239,7 +2239,6 @@ namespace Durin
 		using FMoveOnlyVoidFunction = Private::TMoveOnlyFunction<void()>;
 		FMoveOnlyVoidFunction Empty;
 		EXPECT_FALSE(static_cast<bool>(Empty));
-		EXPECT_EQ(0u, Empty.GetStorageBytes());
 
 		auto InlineValue = std::make_unique<int>(7);
 		int* InlineAddress = InlineValue.get();
@@ -2248,8 +2247,6 @@ namespace Durin
 		});
 		FMoveOnlyVoidFunction MovedInline(std::move(Inline));
 		EXPECT_FALSE(static_cast<bool>(Inline));
-		EXPECT_EQ(0u, Inline.GetStorageBytes());
-		EXPECT_EQ(sizeof(void*) * 3, MovedInline.GetStorageBytes());
 		ASSERT_TRUE(static_cast<bool>(MovedInline));
 		MovedInline();
 
@@ -2258,8 +2255,6 @@ namespace Durin
 			FMoveOnlyVoidFunction Heap{FTrackedCallable(DestructionCount)};
 			FMoveOnlyVoidFunction MovedHeap(std::move(Heap));
 			EXPECT_FALSE(static_cast<bool>(Heap));
-			EXPECT_EQ(0u, Heap.GetStorageBytes());
-			EXPECT_EQ(sizeof(FTrackedCallable), MovedHeap.GetStorageBytes());
 			MovedHeap();
 		}
 		EXPECT_EQ(1u, DestructionCount->load(std::memory_order::acquire));

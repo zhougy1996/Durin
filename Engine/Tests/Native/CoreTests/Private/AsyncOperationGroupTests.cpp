@@ -170,17 +170,22 @@ namespace Durin::Tests
 		FTaskHandle FirstTask = Tasks::Then(Tasks::FTaskCompletion(FirstRoot), Tasks::ETaskExecutor::GameThreadDeferred, MakeDeferredOptions(First), [&]() { ++FirstRuns; }).GetCompletion().GetTaskHandle();
 		FTaskHandle SecondTask = Tasks::Then(Tasks::FTaskCompletion(SecondRoot), Tasks::ETaskExecutor::GameThreadDeferred, MakeDeferredOptions(Second), [&]() { ++SecondRuns; }).GetCompletion().GetTaskHandle();
 
+		EXPECT_EQ(1u, First.GetSnapshot().RetainedDeferredCallableCount);
+		EXPECT_EQ(1u, Second.GetSnapshot().RetainedDeferredCallableCount);
 		First.Close(EAsyncOperationCloseMode::Drain);
 		ASSERT_TRUE(First.Drain(std::chrono::seconds(1)).Succeeded());
 		EXPECT_EQ(1u, FirstRuns.load());
 		EXPECT_EQ(0u, SecondRuns.load());
 		EXPECT_EQ(ETaskState::Queued, SecondTask.GetState());
+		EXPECT_EQ(0u, First.GetSnapshot().RetainedDeferredCallableCount);
+		EXPECT_EQ(1u, Second.GetSnapshot().RetainedDeferredCallableCount);
 
 		Second.Close(EAsyncOperationCloseMode::Drain);
 		ASSERT_TRUE(Second.Drain(std::chrono::seconds(1)).Succeeded());
 		EXPECT_EQ(1u, SecondRuns.load());
 		EXPECT_EQ(ETaskState::Succeeded, FirstTask.GetState());
 		EXPECT_EQ(ETaskState::Succeeded, SecondTask.GetState());
+		EXPECT_EQ(0u, Second.GetSnapshot().RetainedDeferredCallableCount);
 
 		auto Canceled = Context.CreateAsyncOperationGroup("Canceled");
 		FTaskHandle CanceledRoot = Tasks::LaunchTask("CanceledRoot", []() {}, MakeOptions(Canceled)).GetCompletion().GetTaskHandle();

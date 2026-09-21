@@ -32,7 +32,6 @@ namespace Durin
 			Result.ActiveTaskCount = Group.ActiveTaskCount;
 			Result.RetainedResultCount = Group.RetainedResultCount;
 			Result.RetainedDeferredCallableCount = Group.RetainedDeferredCallableCount;
-			Result.RetainedDeferredCallableBytes = Group.RetainedDeferredCallableBytes;
 			Result.GroupsWithWorkerCallables = Group.bWorkerCallablesRetained ? 1u : 0u;
 			Result.Groups.emplace_back(std::move(Group));
 			return Result;
@@ -125,7 +124,6 @@ namespace Durin
 			const Private::FTaskScopeDeferredWorkSnapshot Deferred =
 				Private::GetGameThreadDeferredScopeSnapshot(ScopeToken);
 			Result.RetainedDeferredCallableCount = Deferred.RetainedCallableCount;
-			Result.RetainedDeferredCallableBytes = Deferred.RetainedCallableBytes;
 			Result.bWorkerCallablesRetained = Private::GetTaskScopeWorkerCallableCount(ScopeToken) != 0;
 			return Result;
 		}
@@ -337,7 +335,6 @@ namespace Durin
 			Result.ActiveTaskCount += Snapshot.ActiveTaskCount;
 			Result.RetainedResultCount += Snapshot.RetainedResultCount;
 			Result.RetainedDeferredCallableCount += Snapshot.RetainedDeferredCallableCount;
-			Result.RetainedDeferredCallableBytes += Snapshot.RetainedDeferredCallableBytes;
 			Result.GroupsWithWorkerCallables += Snapshot.bWorkerCallablesRetained ? 1u : 0u;
 			Result.Groups.emplace_back(std::move(Snapshot));
 		}

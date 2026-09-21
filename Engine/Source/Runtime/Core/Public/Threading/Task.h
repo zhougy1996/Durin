@@ -236,7 +236,6 @@ namespace Durin
 		uint16 AttributionCategoryId = 0;
 		std::string AttributionOwner;
 		std::string AttributionCategory;
-		uint64 CallableStorageBytes = 0;
 		uint64 ExecutionNanoseconds = 0;
 	};
 
@@ -282,8 +281,6 @@ namespace Durin
 		uint64 CurrentRunningCount = 0;
 		uint64 CurrentNonterminalCount = 0;
 		uint64 ParallelForOperationCount = 0;
-		uint64 CurrentCallableBytes = 0;
-		uint64 PeakCallableBytes = 0;
 		uint64 CurrentPayloadBytes = 0;
 		uint64 PeakPayloadBytes = 0;
 		uint64 CurrentResultBytes = 0;
@@ -292,7 +289,6 @@ namespace Durin
 		uint64 PeakRetainedUniqueResultBytes = 0;
 		std::array<uint64, 32> QueueResidencyHistogram{};
 		std::array<uint64, 32> ExecutionHistogram{};
-		std::array<uint64, 32> CallableBytesHistogram{};
 		std::array<uint64, 32> PayloadBytesHistogram{};
 		std::array<uint64, 32> ResultBytesHistogram{};
 	};
@@ -528,11 +524,10 @@ namespace Durin
 
 	namespace Private
 	{
-		// Reports callable storage retained by GameThreadDeferred for one task scope.
+		// Reports the number of callables retained by GameThreadDeferred for one task scope.
 		struct FTaskScopeDeferredWorkSnapshot
 		{
 			uint32 RetainedCallableCount = 0;
-			uint64 RetainedCallableBytes = 0;
 		};
 
 		// Reports one bounded selected-scope Game Thread pump or cancellation pass.

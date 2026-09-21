@@ -239,7 +239,6 @@ namespace Durin
 			Queued,
 			Running,
 			Nonterminal,
-			CallableBytes,
 			PayloadBytes,
 			ResultBytes,
 			RetainedUniqueResultBytes,
@@ -250,7 +249,6 @@ namespace Durin
 		{
 			QueueResidency,
 			Execution,
-			CallableBytes,
 			PayloadBytes,
 			ResultBytes,
 			Count,
@@ -319,8 +317,6 @@ namespace Durin
 				Out.CurrentQueuedCount = Gauge(ETaskAggregateGauge::Queued);
 				Out.CurrentRunningCount = Gauge(ETaskAggregateGauge::Running);
 				Out.CurrentNonterminalCount = Gauge(ETaskAggregateGauge::Nonterminal);
-				Out.CurrentCallableBytes = Gauge(ETaskAggregateGauge::CallableBytes);
-				Out.PeakCallableBytes = GaugePeak(ETaskAggregateGauge::CallableBytes);
 				Out.CurrentPayloadBytes = Gauge(ETaskAggregateGauge::PayloadBytes);
 				Out.PeakPayloadBytes = GaugePeak(ETaskAggregateGauge::PayloadBytes);
 				Out.CurrentResultBytes = Gauge(ETaskAggregateGauge::ResultBytes);
@@ -331,7 +327,6 @@ namespace Durin
 				{
 					Out.QueueResidencyHistogram[Bucket] = Histograms[AggregateIndex(ETaskAggregateHistogram::QueueResidency)][Bucket].load(std::memory_order::acquire);
 					Out.ExecutionHistogram[Bucket] = Histograms[AggregateIndex(ETaskAggregateHistogram::Execution)][Bucket].load(std::memory_order::acquire);
-					Out.CallableBytesHistogram[Bucket] = Histograms[AggregateIndex(ETaskAggregateHistogram::CallableBytes)][Bucket].load(std::memory_order::acquire);
 					Out.PayloadBytesHistogram[Bucket] = Histograms[AggregateIndex(ETaskAggregateHistogram::PayloadBytes)][Bucket].load(std::memory_order::acquire);
 					Out.ResultBytesHistogram[Bucket] = Histograms[AggregateIndex(ETaskAggregateHistogram::ResultBytes)][Bucket].load(std::memory_order::acquire);
 				}
@@ -349,7 +344,6 @@ namespace Durin
 			ETaskState State = ETaskState::Invalid;
 			ETaskState StateBeforeTerminal = ETaskState::Invalid;
 			ETaskTerminalReason TerminalReason = ETaskTerminalReason::None;
-			uint64 CallableBytes = 0;
 			uint64 PayloadBytes = 0;
 			uint64 ResultBytes = 0;
 			uint64 RetainedResultBytes = 0;
@@ -620,7 +614,6 @@ namespace Durin
 			, EstimatedResultBytes(InEstimatedResultBytes)
 			, Attribution(InAttribution)
 			, Scope(std::move(InScope))
-			, CallableStorageBytes(PendingFunction ? PendingFunction->GetStorageBytes() : 0)
 			, GenerationToken(std::move(InGenerationToken))
 			, CoalescingKey(std::move(InCoalescingKey))
 			, EnqueueTimeNanoseconds(MonotonicNanoseconds())
@@ -657,7 +650,6 @@ namespace Durin
 			std::lock_guard Lock(Mutex);
 			PendingFunction = std::move(Function);
 			CompletionFunction = std::move(Completion);
-			CallableStorageBytes = PendingFunction ? PendingFunction->GetStorageBytes() : 0;
 			bHasResultStorage = static_cast<bool>(CompletionFunction) && EstimatedResultBytes != 0;
 		}
 		auto ActivateAdmission() -> void
@@ -731,10 +723,10 @@ namespace Durin
 		}
 
 		auto OnPrerequisiteTerminal(ETaskState PrerequisiteState, uint64 PrerequisiteTaskId) -> void;
-		auto GetPendingFunctionStorageBytes() const -> uint64
+		auto HasPendingFunction() const -> bool
 		{
 			std::lock_guard Lock(Mutex);
-			return PendingFunction ? PendingFunction->GetStorageBytes() : 0;
+			return PendingFunction && static_cast<bool>(*PendingFunction);
 		}
 
 		auto PrepareForQueue() -> bool
@@ -935,7 +927,6 @@ namespace Durin
 				Snapshot.EstimatedPayloadBytes = EstimatedPayloadBytes;
 				Snapshot.EstimatedResultBytes = EstimatedResultBytes;
 				Snapshot.RetainedResultBytes = bTerminalVisible ? RetainedResultBytes : 0;
-				Snapshot.CallableStorageBytes = CallableStorageBytes;
 				Snapshot.AttributionOwnerId = Private::FTaskAttributionAccess::GetOwnerId(Attribution);
 				Snapshot.AttributionCategoryId = Private::FTaskAttributionAccess::GetCategoryId(Attribution);
 				if (CoalescingKey)
@@ -960,7 +951,6 @@ namespace Durin
 				.State = State,
 				.StateBeforeTerminal = StateBeforeTerminal,
 				.TerminalReason = TerminalReason,
-				.CallableBytes = CallableStorageBytes,
 				.PayloadBytes = EstimatedPayloadBytes,
 				.ResultBytes = EstimatedResultBytes,
 				.RetainedResultBytes = RetainedResultBytes,
@@ -1031,7 +1021,6 @@ namespace Durin
 		uint64 RetainedResultBytes = 0;
 		FTaskAttribution Attribution;
 		std::shared_ptr<FTaskScopeState> Scope;
-		uint64 CallableStorageBytes = 0;
 		FTaskGenerationToken GenerationToken;
 		std::optional<FTaskCoalescingKey> CoalescingKey;
 		std::atomic<bool> bCancellationRequested = false;
@@ -1285,10 +1274,8 @@ namespace Durin
 			Aggregate.Increment(ETaskAggregateCounter::Accepted);
 			Aggregate.Add(ETaskAggregateGauge::Nonterminal, 1);
 			Aggregate.Add(Task.State == ETaskState::Waiting ? ETaskAggregateGauge::Waiting : ETaskAggregateGauge::Queued, 1);
-			Aggregate.Add(ETaskAggregateGauge::CallableBytes, Task.CallableBytes);
 			Aggregate.Add(ETaskAggregateGauge::PayloadBytes, Task.PayloadBytes);
 			Aggregate.Add(ETaskAggregateGauge::ResultBytes, Task.ResultBytes);
-			Aggregate.Record(ETaskAggregateHistogram::CallableBytes, Task.CallableBytes);
 			Aggregate.Record(ETaskAggregateHistogram::PayloadBytes, Task.PayloadBytes);
 			Aggregate.Record(ETaskAggregateHistogram::ResultBytes, Task.ResultBytes);
 		}
@@ -1418,7 +1405,7 @@ namespace Durin
 				std::lock_guard Lock(Mutex);
 				if (!bAcceptingTasks)
 				{
-					RecordRejectedTask(Options.Attribution, FunctionOwner ? FunctionOwner->GetStorageBytes() : 0);
+					RecordRejectedTask(Options.Attribution);
 					if (AdmissionError) *AdmissionError = {Tasks::ETaskAdmissionErrorCode::LifetimeClosed, 0};
 					return {};
 				}
@@ -1427,7 +1414,7 @@ namespace Durin
 				{
 					if (!Prerequisite.State || Prerequisite.State->PinScheduler().get() != this)
 					{
-						RecordRejectedTask(Options.Attribution, FunctionOwner ? FunctionOwner->GetStorageBytes() : 0);
+						RecordRejectedTask(Options.Attribution);
 						if (AdmissionError) *AdmissionError = {Tasks::ETaskAdmissionErrorCode::InvalidPrerequisite, Prerequisite.GetTaskId()};
 						return {};
 					}
@@ -1441,7 +1428,7 @@ namespace Durin
 					{
 						SelectedScope->RecordRejected();
 						ScopeAccounting->RejectedTaskCount.fetch_add(1, std::memory_order::acq_rel);
-						RecordRejectedTask(Options.Attribution, FunctionOwner ? FunctionOwner->GetStorageBytes() : 0);
+						RecordRejectedTask(Options.Attribution);
 						if (AdmissionError) *AdmissionError = {Tasks::ETaskAdmissionErrorCode::GroupClosed, GCurrentTaskState->GetTaskId()};
 						return {};
 					}
@@ -1453,13 +1440,13 @@ namespace Durin
 				if (Options.ExpectedParentTaskId != 0 && !bCountedChild)
 				{
 					if (AdmissionError) *AdmissionError = {Tasks::ETaskAdmissionErrorCode::GroupClosed};
-					RecordRejectedTask(Options.Attribution, FunctionOwner ? FunctionOwner->GetStorageBytes() : 0);
+					RecordRejectedTask(Options.Attribution);
 					return {};
 				}
 				if (!Options.bQueueOnSaturation && (CurrentTaskReservationCount.load(std::memory_order::acquire) >= TaskReservationCapacity
 					|| (Target == ETaskTarget::BlockingIO && BlockingIOReservations >= BlockingIOCapacity)))
 				{
-					RecordCapacityRejectedTask(Options.Attribution, FunctionOwner ? FunctionOwner->GetStorageBytes() : 0);
+					RecordCapacityRejectedTask(Options.Attribution);
 					if (AdmissionError) *AdmissionError = {Tasks::ETaskAdmissionErrorCode::CapacityExhausted, 0};
 					return {};
 				}
@@ -1469,7 +1456,7 @@ namespace Durin
 					ScopeAccounting->RejectedTaskCount.fetch_add(1, std::memory_order::acq_rel);
 					const uint64 PreviousReservationCount = CurrentTaskReservationCount.fetch_sub(1, std::memory_order::acq_rel);
 					require(PreviousReservationCount > 0);
-					RecordRejectedTask(Options.Attribution, FunctionOwner ? FunctionOwner->GetStorageBytes() : 0);
+					RecordRejectedTask(Options.Attribution);
 					if (AdmissionError) *AdmissionError = {Tasks::ETaskAdmissionErrorCode::GroupClosed, 0};
 					return {};
 				}
@@ -1514,7 +1501,6 @@ namespace Durin
 					ActiveTasks.emplace(State->GetTaskId(), State);
 					CheckTaskAdmissionAllocation(5);
 					State->SetSchedulerStorageBytes(sizeof(FTaskStateData) + sizeof(Private::FMoveOnlyTaskFunction)
-						+ (FunctionOwner ? FunctionOwner->GetStorageBytes() : 0)
 						+ PrerequisiteStates.capacity() * sizeof(std::shared_ptr<FTaskStateData>) + EstimatedResultBytes);
 					State->InitializeOwnership(FunctionOwner, CompletionFunction);
 					if (Options.bExternalCompletion) State->ConfigureExternal(Options.bUnknownExecutionRequirement);
@@ -1788,7 +1774,6 @@ namespace Durin
 			if (Task.StateBeforeTerminal == ETaskState::Waiting) Aggregate.Subtract(ETaskAggregateGauge::Waiting, 1);
 			else if (Task.StateBeforeTerminal == ETaskState::Queued) Aggregate.Subtract(ETaskAggregateGauge::Queued, 1);
 			else if (Task.StateBeforeTerminal == ETaskState::Running) Aggregate.Subtract(ETaskAggregateGauge::Running, 1);
-			Aggregate.Subtract(ETaskAggregateGauge::CallableBytes, Task.CallableBytes);
 			Aggregate.Subtract(ETaskAggregateGauge::PayloadBytes, Task.PayloadBytes);
 			Aggregate.Subtract(ETaskAggregateGauge::ResultBytes, Task.ResultBytes);
 			if (Task.State == ETaskState::Succeeded) Aggregate.Increment(ETaskAggregateCounter::Succeeded);
@@ -1870,12 +1855,11 @@ namespace Durin
 			LongWaitCount.fetch_add(1, std::memory_order::acq_rel);
 		}
 
-		auto RecordRejectedTask(FTaskAttribution Attribution = {}, std::optional<uint64> CallableBytes = {}) -> void
+		auto RecordRejectedTask(FTaskAttribution Attribution = {}) -> void
 		{
 			RejectedTaskCount.fetch_add(1, std::memory_order::acq_rel);
 			FTaskOwnerCategoryAggregate& Aggregate = GetAggregate(Attribution);
 			Aggregate.Increment(ETaskAggregateCounter::Rejected);
-			if (CallableBytes) Aggregate.Record(ETaskAggregateHistogram::CallableBytes, *CallableBytes);
 		}
 
 		auto RecordScopeRejectedTask() -> void
@@ -1883,9 +1867,9 @@ namespace Durin
 			ScopeAccounting->RejectedTaskCount.fetch_add(1, std::memory_order::acq_rel);
 		}
 
-		auto RecordCapacityRejectedTask(FTaskAttribution Attribution, std::optional<uint64> CallableBytes = {}) -> void
+		auto RecordCapacityRejectedTask(FTaskAttribution Attribution) -> void
 		{
-			RecordRejectedTask(Attribution, CallableBytes);
+			RecordRejectedTask(Attribution);
 			CapacityRejectedTaskCount.fetch_add(1, std::memory_order::acq_rel);
 			GetAggregate(Attribution).Increment(ETaskAggregateCounter::CapacityExhausted);
 		}
@@ -1925,7 +1909,6 @@ namespace Durin
 					Entry.CurrentWaitingCount + Entry.CurrentQueuedCount,
 					Entry.CurrentRunningCount,
 					Entry.RejectedCount,
-					Entry.CurrentCallableBytes,
 					Entry.CurrentPayloadBytes,
 					Entry.CurrentResultBytes,
 					Entry.CurrentRetainedUniqueResultBytes);
@@ -2439,11 +2422,9 @@ namespace Durin
 				for (const std::shared_ptr<FEntry>& Entry : Queue)
 				{
 					if (!Entry->bReserved || Entry->State->GetScope() != Scope) continue;
-					const uint64 Bytes = Entry->State->GetPendingFunctionStorageBytes();
-					if (Bytes > 0)
+					if (Entry->State->HasPendingFunction())
 					{
 						++Result.RetainedCallableCount;
-						Result.RetainedCallableBytes += Bytes;
 					}
 				}
 			}
@@ -3515,7 +3496,7 @@ namespace Durin
 				std::lock_guard Lock(GTaskSchedulerMutex);
 				if (GTaskScheduler)
 				{
-					GTaskScheduler->RecordRejectedTask(ResolvedOptions.Attribution, 0);
+					GTaskScheduler->RecordRejectedTask(ResolvedOptions.Attribution);
 				}
 				DURIN_WARN("Task launch failed because the task function is empty. (task: {})", Name ? Name : "");
 				return FAdmission::Failure({Tasks::ETaskAdmissionErrorCode::InvalidCallable});
@@ -3529,7 +3510,7 @@ namespace Durin
 			{
 				if (GTaskScheduler)
 				{
-					GTaskScheduler->RecordRejectedTask(ResolvedOptions.Attribution, FunctionOwner->GetStorageBytes());
+					GTaskScheduler->RecordRejectedTask(ResolvedOptions.Attribution);
 				}
 				DURIN_WARN("Task launch failed because the task scheduler is not running. (task: {})", Name ? Name : "");
 				return FAdmission::Failure({Tasks::ETaskAdmissionErrorCode::LifetimeClosed});
@@ -3582,7 +3563,7 @@ namespace Durin
 				if (auto Error = ValidateTaskExecution(Options.Target, Options.Priority, Options.EstimatedPayloadBytes, Options.bQueueOnSaturation))
 				{
 					std::lock_guard Lock(GTaskSchedulerMutex);
-					if (GTaskScheduler) GTaskScheduler->RecordRejectedTask(ResolvedAttribution, Function.GetStorageBytes());
+					if (GTaskScheduler) GTaskScheduler->RecordRejectedTask(ResolvedAttribution);
 					return FAdmission::Failure(*Error);
 				}
 			}
@@ -3596,7 +3577,7 @@ namespace Durin
 				std::lock_guard Lock(GTaskSchedulerMutex);
 				if (GTaskScheduler)
 				{
-					GTaskScheduler->RecordRejectedTask(ResolvedAttribution, 0);
+					GTaskScheduler->RecordRejectedTask(ResolvedAttribution);
 					GTaskScheduler->RecordScopeRejectedTask();
 				}
 				return FAdmission::Failure({Tasks::ETaskAdmissionErrorCode::GroupClosed});
@@ -3604,7 +3585,7 @@ namespace Durin
 			if (!Function)
 			{
 				std::lock_guard Lock(GTaskSchedulerMutex);
-				if (GTaskScheduler) GTaskScheduler->RecordRejectedTask(ResolvedAttribution, 0);
+				if (GTaskScheduler) GTaskScheduler->RecordRejectedTask(ResolvedAttribution);
 				return FAdmission::Failure({Tasks::ETaskAdmissionErrorCode::InvalidCallable});
 			}
 			FSubmissionGuard Submission;
@@ -3634,7 +3615,7 @@ namespace Durin
 			std::lock_guard Lock(GTaskSchedulerMutex);
 			if (GTaskSchedulerLifetime != ETaskSchedulerLifetime::Running)
 			{
-				if (GTaskScheduler) GTaskScheduler->RecordRejectedTask(ResolvedAttribution, FunctionOwner->GetStorageBytes());
+				if (GTaskScheduler) GTaskScheduler->RecordRejectedTask(ResolvedAttribution);
 				return FAdmission::Failure({Tasks::ETaskAdmissionErrorCode::LifetimeClosed});
 			}
 			Submission.Scheduler = GTaskScheduler;

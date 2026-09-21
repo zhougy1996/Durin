@@ -4,7 +4,7 @@ Summary: Define accepted CPU work, typed ownership, dependencies, cancellation, 
 
 Modules: Core
 
-Last reviewed: 2026-09-10
+Last reviewed: 2026-09-21
 
 ## Construction And Acceptance
 
@@ -75,15 +75,16 @@ records or mailboxes with independent payload budgets. Deferred shutdown and
 selected module drain see the entire accepted queue.
 
 `FTaskSchedulerDiagnostics::ExecutorStorage` is indexed by native `ETaskTarget`.
-It reports current/peak node count, logical scheduler-owned node/callable/
-prerequisite/result storage bytes, current/peak pending nodes and bytes,
+It reports current/peak node count, logical scheduler-owned node, callable-wrapper,
+prerequisite and result storage bytes, current/peak pending nodes and bytes,
 current/peak running bodies, and node-threshold crossings. Pending includes
 external sources awaiting acknowledgement; running bodies exclude them and
 include suspended parents while helping a child. Threshold transitions emit
 power-of-two rate-limited warnings outside internal locks. This accounting
-excludes allocator overhead and separately allocated domain payloads and is
-not process RSS. Existing attribution gauges distinguish waiting, queued,
-running and nonterminal nodes and report callable/result storage peaks.
+excludes callable target heap allocations, allocator overhead and separately
+allocated domain payloads and is not process RSS. No separate callable-byte
+gauges or histograms are maintained. Existing attribution gauges distinguish waiting, queued,
+running and nonterminal nodes and report payload/result storage peaks.
 Deferred diagnostics include current/peak retained queue storage, queue depth
 and crossings of configured count/byte thresholds.
 Terminal publication releases scheduler reservations exactly once; retained
