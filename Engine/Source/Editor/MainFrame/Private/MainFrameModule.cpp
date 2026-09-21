@@ -65,8 +65,6 @@ namespace Durin::Editor::MainFrame
 		}
 
 		EBootstrapState State = EBootstrapState::ConstructingShell;
-		EDefaultDocumentState DefaultDocumentState =
-			EDefaultDocumentState::NotApplicable;
 		bool bHasProject = false;
 		bool bProjectBrowserOpen = false;
 		bool bExitRequested = false;
@@ -385,16 +383,24 @@ namespace Durin::Editor::MainFrame
 			return true;
 		}
 
-		auto MakeBootstrapProgress(const FBootstrapContext& Context)
-			-> FBootstrapProgress
+		constexpr auto GetBootstrapPhaseIndex(EBootstrapState State)
+			-> uint8
 		{
-			FBootstrapProgress Progress;
-			Progress.State = Context.State;
-			Progress.DefaultDocumentState = Context.DefaultDocumentState;
-			Progress.Status = GetBootstrapStepStatus(Context.State);
-			Progress.PhaseIndex = GetBootstrapPhaseIndex(Context.State);
-			Progress.Message = Context.FailureMessage;
-			return Progress;
+			switch (State)
+			{
+			case EBootstrapState::ConstructingShell:
+			case EBootstrapState::WaitingForFirstPresent:
+				return 1;
+			case EBootstrapState::LoadingWorkspace:
+			case EBootstrapState::WorkspaceReady:
+				return 2;
+			case EBootstrapState::LoadingDefaultDocument:
+			case EBootstrapState::Ready:
+				return 3;
+			case EBootstrapState::Failed:
+				return 0;
+			}
+			return 0;
 		}
 
 		auto DrawExitConfirmation(FBootstrapContext& Context) -> void
@@ -456,7 +462,8 @@ namespace Durin::Editor::MainFrame
 				Message = "Preparing editor...";
 			else if (Context.State == EBootstrapState::LoadingDefaultDocument)
 				Message = "Opening default level...";
-			const FBootstrapProgress Progress = MakeBootstrapProgress(Context);
+			const uint8 PhaseIndex = GetBootstrapPhaseIndex(Context.State);
+			constexpr uint8 PhaseCount = 3;
 			const ImVec2 MessageSize = ImGui::CalcTextSize(Message);
 			const ImVec2 ContentOrigin = ImGui::GetCursorPos();
 			const ImVec2 Available = ImGui::GetContentRegionAvail();
@@ -473,11 +480,11 @@ namespace Durin::Editor::MainFrame
 			ImGui::Spacing();
 			ImGui::SetCursorPosX(ContentLeft);
 			ImGui::ProgressBar(
-				static_cast<float>(Progress.PhaseIndex) / Progress.PhaseCount,
+				static_cast<float>(PhaseIndex) / PhaseCount,
 				{ContentWidth, MonaImGui::ScaleUI(8.0f)}, "");
 			ImGui::SetCursorPosX(
 				ContentLeft + ContentWidth - MonaImGui::ScaleUI(70.0f));
-			ImGui::TextDisabled("Phase %u/%u", Progress.PhaseIndex, Progress.PhaseCount);
+			ImGui::TextDisabled("Phase %u/%u", PhaseIndex, PhaseCount);
 			ImGui::End();
 		}
 
@@ -1279,9 +1286,6 @@ namespace Durin
 		BootstrapContext = std::make_shared<FBootstrapContext>();
 		FBootstrapContext& Context = *BootstrapContext;
 		Context.bHasProject = HasCurrentProject();
-		Context.DefaultDocumentState = Context.bHasProject
-			? EDefaultDocumentState::Pending
-			: EDefaultDocumentState::NotApplicable;
 		Context.HostSettings = std::make_shared<FHostSettings>();
 		Context.HostSettings->Load();
 		MonaImGui::SetColorTheme(Context.HostSettings->GetColorTheme());
@@ -1436,19 +1440,21 @@ namespace Durin
 	}
 
 	auto FMainFrameModule::AdvanceBootstrap(
-		bool bFirstPresentAvailable) -> FBootstrapProgress
+		bool bFirstPresentAvailable) -> EBootstrapStepStatus
 	{
 		if (!BootstrapContext)
-			return {.Status = EBootstrapStepStatus::Failed,
-				.Message = "The editor main frame is unavailable."};
+		{
+			DURIN_ERROR("The editor main frame is unavailable.");
+			return EBootstrapStepStatus::Failed;
+		}
 		FBootstrapContext& Context = *BootstrapContext;
 		if (Context.State == EBootstrapState::Ready
 			|| Context.State == EBootstrapState::Failed)
-			return MakeBootstrapProgress(Context);
+			return GetBootstrapStepStatus(Context.State);
 		if (Context.State == EBootstrapState::WaitingForFirstPresent)
 		{
 			if (!bFirstPresentAvailable)
-				return MakeBootstrapProgress(Context);
+				return GetBootstrapStepStatus(Context.State);
 			if (!Context.bHasProject)
 			{
 				Profiling::RecordStartupMilestone(
@@ -1459,11 +1465,11 @@ namespace Durin
 					Profiling::EStartupMilestone::DefaultWorkspaceReady);
 				TransitionBootstrap(Context, EBootstrapState::Ready);
 				Profiling::TryLogStartupTimingSummary();
-				return MakeBootstrapProgress(Context);
+				return GetBootstrapStepStatus(Context.State);
 			}
 			TransitionBootstrap(
 				Context, EBootstrapState::LoadingWorkspace);
-			return MakeBootstrapProgress(Context);
+			return GetBootstrapStepStatus(Context.State);
 		}
 		if (Context.State == EBootstrapState::LoadingWorkspace)
 		{
@@ -1473,57 +1479,32 @@ namespace Durin
 					? EBootstrapState::WorkspaceReady
 					: EBootstrapState::Failed);
 			if (Context.State == EBootstrapState::Failed)
+			{
 				Context.FailureMessage = "Could not initialize the editor workspaces.";
-			return MakeBootstrapProgress(Context);
+				DURIN_ERROR("{}", Context.FailureMessage);
+			}
+			return GetBootstrapStepStatus(Context.State);
 		}
 		if (Context.State == EBootstrapState::WorkspaceReady)
 		{
-			Context.DefaultDocumentState =
-				EDefaultDocumentState::Loading;
 			TransitionBootstrap(
 				Context, EBootstrapState::LoadingDefaultDocument);
-			return MakeBootstrapProgress(Context);
+			return GetBootstrapStepStatus(Context.State);
 		}
 		if (Context.State != EBootstrapState::LoadingDefaultDocument)
-			return MakeBootstrapProgress(Context);
+			return GetBootstrapStepStatus(Context.State);
 
-		Context.DefaultDocumentState = Context.LevelEditorModule
-			&& Context.LevelEditorModule->OpenDefaultDocument()
-			? EDefaultDocumentState::Ready
-			: EDefaultDocumentState::Failed;
-		if (Context.DefaultDocumentState == EDefaultDocumentState::Ready)
+		if (Context.LevelEditorModule && Context.LevelEditorModule->OpenDefaultDocument())
 			TransitionBootstrap(Context, EBootstrapState::Ready);
 		else
 		{
 			Context.FailureMessage = "Could not open the configured default Level document.";
+			DURIN_ERROR("{}", Context.FailureMessage);
 			Context.ProjectBrowser->SetError(Context.FailureMessage);
 			TransitionBootstrap(Context, EBootstrapState::Failed);
 		}
 		Profiling::TryLogStartupTimingSummary();
-		return MakeBootstrapProgress(Context);
+		return GetBootstrapStepStatus(Context.State);
 	}
 
-	auto FMainFrameModule::GetBootstrapProgress() const
-		-> FBootstrapProgress
-	{
-		return BootstrapContext
-			? MakeBootstrapProgress(*BootstrapContext)
-			: FBootstrapProgress{};
-	}
-
-	auto FMainFrameModule::GetBootstrapState() const
-		-> EBootstrapState
-	{
-		return BootstrapContext
-			? BootstrapContext->State
-			: EBootstrapState::ConstructingShell;
-	}
-
-	auto FMainFrameModule::GetDefaultDocumentState() const
-		-> EDefaultDocumentState
-	{
-		return BootstrapContext
-			? BootstrapContext->DefaultDocumentState
-			: EDefaultDocumentState::NotApplicable;
-	}
 } // namespace Durin

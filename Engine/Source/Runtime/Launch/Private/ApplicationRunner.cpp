@@ -28,15 +28,6 @@ namespace Durin
 				Error.Option.c_str(), Error.Message.c_str());
 		}
 
-		auto MakeStartupParams(const FLaunchHostRequest& Host) -> FEngineStartupParams
-		{
-			FEngineStartupParams Params;
-			Params.bSuppressWindowDisplay = Host.bSuppressWindowDisplay;
-			Params.Project.bOpenProjectBrowser = Host.bOpenProjectBrowser;
-			Params.Project.RequestedProjectFile = Host.ProjectFile.value_or("");
-			return Params;
-		}
-
 		auto IsProcessEntryCrash(const FLaunchDiagnosticsRequest& Diagnostics) -> bool
 		{
 			return Diagnostics.NativeCrashFixture
@@ -106,8 +97,7 @@ namespace Durin
 		}
 
 		FEngineLoop EngineLoop(std::move(Request.Diagnostics));
-		const FEngineStartupParams StartupParams = MakeStartupParams(Request.Host);
-		if (!EngineLoop.PreInit(StartupParams) || !EngineLoop.Init())
+		if (!EngineLoop.PreInit(Request.Host) || !EngineLoop.Init())
 		{
 			const int InitResult = EngineLoop.WasInitializationCancelled() ? 0 : 1;
 			EngineLoop.Exit();

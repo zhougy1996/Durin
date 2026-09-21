@@ -14,16 +14,6 @@ namespace Durin::Editor::Host
 		Failed,
 	};
 
-	// Publishes default-document readiness separately from workspace readiness.
-	enum class EDefaultDocumentState : uint8
-	{
-		NotApplicable,
-		Pending,
-		Loading,
-		Ready,
-		Failed,
-	};
-
 	// Summarizes whether the host bootstrap should continue, exit, or fail.
 	enum class EBootstrapStepStatus : uint8
 	{
@@ -31,38 +21,6 @@ namespace Durin::Editor::Host
 		Ready,
 		Failed,
 	};
-
-	// Carries the observable state of one editor-host bootstrap step.
-	struct FBootstrapProgress
-	{
-		EBootstrapState State = EBootstrapState::ConstructingShell;
-		EDefaultDocumentState DefaultDocumentState =
-			EDefaultDocumentState::NotApplicable;
-		EBootstrapStepStatus Status = EBootstrapStepStatus::Pending;
-		uint8 PhaseIndex = 0;
-		uint8 PhaseCount = 3;
-		std::string Message;
-	};
-
-	constexpr auto GetBootstrapPhaseIndex(EBootstrapState State)
-		-> uint8
-	{
-		switch (State)
-		{
-		case EBootstrapState::ConstructingShell:
-		case EBootstrapState::WaitingForFirstPresent:
-			return 1;
-		case EBootstrapState::LoadingWorkspace:
-		case EBootstrapState::WorkspaceReady:
-			return 2;
-		case EBootstrapState::LoadingDefaultDocument:
-		case EBootstrapState::Ready:
-			return 3;
-		case EBootstrapState::Failed:
-			return 0;
-		}
-		return 0;
-	}
 
 	constexpr auto GetBootstrapStepStatus(EBootstrapState State)
 		-> EBootstrapStepStatus
@@ -113,12 +71,6 @@ namespace Durin
 			std::shared_ptr<MWindow> StartupWindow) -> void = 0;
 		virtual auto DestroyEditorHost() -> void = 0;
 		virtual auto AdvanceBootstrap(bool bFirstPresentAvailable)
-			-> Editor::Host::FBootstrapProgress = 0;
-		virtual auto GetBootstrapProgress() const
-			-> Editor::Host::FBootstrapProgress = 0;
-		virtual auto GetBootstrapState() const
-			-> Editor::Host::EBootstrapState = 0;
-		virtual auto GetDefaultDocumentState() const
-			-> Editor::Host::EDefaultDocumentState = 0;
+			-> Editor::Host::EBootstrapStepStatus = 0;
 	};
 }

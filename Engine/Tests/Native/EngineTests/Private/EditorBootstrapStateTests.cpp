@@ -67,22 +67,8 @@ namespace Durin::Editor::Host
 		}
 	}
 
-	TEST(FEditorBootstrapStateTests, MapsEveryStateToTruthfulPhaseAndStatus)
+	TEST(FEditorBootstrapStateTests, MapsTerminalAndPendingStatesToStepStatus)
 	{
-		EXPECT_EQ(GetBootstrapPhaseIndex(
-			EBootstrapState::ConstructingShell), 1);
-		EXPECT_EQ(GetBootstrapPhaseIndex(
-			EBootstrapState::WaitingForFirstPresent), 1);
-		EXPECT_EQ(GetBootstrapPhaseIndex(
-			EBootstrapState::LoadingWorkspace), 2);
-		EXPECT_EQ(GetBootstrapPhaseIndex(
-			EBootstrapState::WorkspaceReady), 2);
-		EXPECT_EQ(GetBootstrapPhaseIndex(
-			EBootstrapState::LoadingDefaultDocument), 3);
-		EXPECT_EQ(GetBootstrapPhaseIndex(
-			EBootstrapState::Ready), 3);
-		EXPECT_EQ(GetBootstrapPhaseIndex(
-			EBootstrapState::Failed), 0);
 		EXPECT_EQ(GetBootstrapStepStatus(EBootstrapState::Ready),
 			EBootstrapStepStatus::Ready);
 		EXPECT_EQ(GetBootstrapStepStatus(EBootstrapState::Failed),

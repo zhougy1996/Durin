@@ -21,13 +21,7 @@ namespace Durin
 			std::shared_ptr<MWindow> StartupWindow) -> void override;
 		auto DestroyEditorHost() -> void override;
 		auto AdvanceBootstrap(bool bFirstPresentAvailable)
-			-> Editor::Host::FBootstrapProgress override;
-		auto GetBootstrapProgress() const
-			-> Editor::Host::FBootstrapProgress override;
-		auto GetBootstrapState() const
-			-> Editor::Host::EBootstrapState override;
-		auto GetDefaultDocumentState() const
-			-> Editor::Host::EDefaultDocumentState override;
+			-> Editor::Host::EBootstrapStepStatus override;
 
 	private:
 		std::shared_ptr<Editor::MainFrame::FBootstrapContext> BootstrapContext;

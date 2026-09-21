@@ -83,13 +83,14 @@ namespace Durin
 		DURIN_DEBUG(STR("Launch directory: {}"), FPaths::LaunchDir());
 		DURIN_DEBUG(STR("Engine directory: {}"), FPaths::EngineDir());
 		std::string ProjectError;
-		if (!InitializeCurrentProject(Params.Project, &ProjectError) && !ProjectError.empty()) DURIN_WARN("{}", ProjectError);
+		if (!InitializeCurrentProject({
+			.bOpenProjectBrowser = Params.bOpenProjectBrowser,
+			.RequestedProjectFile = Params.ProjectFile.value_or("")}, &ProjectError) && !ProjectError.empty()) DURIN_WARN("{}", ProjectError);
 #if DURIN_WITH_EDITOR
 		if (HasCurrentProject()
 			&& !AcquireProjectEditOwnership(&ProjectError))
 		{
 			DURIN_ERROR("Editor project ownership failed: {}", ProjectError);
-			Exit();
 			return false;
 		}
 #endif
@@ -107,20 +108,17 @@ namespace Durin
         if (!FMountPaths::InitDefaultMountPoints(&MountError,true,CookedMountRoot))
 		{
 			DURIN_ERROR("Failed to initialize mount registry: {}", MountError);
-			Exit();
 			return false;
 		}
 		if (!InitializeTaskScheduler())
 		{
 			DURIN_ERROR("Engine pre-initialization failed because the task scheduler could not start.");
-			Exit();
 			return false;
 		}
 		bTaskSchedulerStarted = true;
 		if (!InitializeGameThreadDeferredExecutor())
 		{
 			DURIN_ERROR("Engine pre-initialization failed because the GameThread deferred executor could not start.");
-			Exit();
 			return false;
 		}
 		bGameThreadDeferredExecutorStarted = true;
@@ -128,14 +126,12 @@ namespace Durin
 		if (!FModuleManager::Get().LoadModule("RenderCore"))
 		{
 			DURIN_ERROR("Engine pre-initialization failed because RenderCore could not start.");
-			Exit();
 			return false;
 		}
 #if DURIN_WITH_EDITOR
 		if (!FModuleManager::Get().LoadModule("ShaderBuild"))
 		{
 			DURIN_ERROR("Engine pre-initialization failed because ShaderBuild could not start.");
-			Exit();
 			return false;
 		}
 #else
@@ -144,14 +140,12 @@ namespace Durin
 				std::filesystem::path(FPaths::LaunchDir()).lexically_normal()))))
 		{
 			DURIN_ERROR("Engine pre-initialization failed because Cooked Shader data could not start: {}", FormatShaderError(ShaderDataError.Error));
-			Exit();
 			return false;
 		}
 #endif
 		if (!InitializeAssetCompilingManager())
 		{
 			DURIN_ERROR("Engine pre-initialization failed because the asset compiling manager could not start.");
-			Exit();
 			return false;
 		}
 		DObjectInit();
@@ -163,14 +157,14 @@ namespace Durin
         if (!ConfigurationResult)
         {
             DURIN_ERROR("Cooked asset configuration failed: {}",ConfigurationResult.Message);
-            Exit(); return false;
+            return false;
         }
         ShutdownAssetManager();
         const auto AssetResult=InitializeAssetManager(std::move(AssetConfiguration));
         if (!AssetResult)
         {
             DURIN_ERROR("Cooked asset initialization failed: {}",AssetResult.Message);
-            Exit(); return false;
+            return false;
         }
 #endif
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::PreInitComplete);
@@ -193,14 +187,12 @@ namespace Durin
 		if (!InitializeApplicationCore())
 		{
 			DURIN_ERROR("Engine initialization stopped because ApplicationCore could not start.");
-			Exit();
 			return false;
 		}
 
 		if (!FModuleManager::Get().LoadModule("Mona"))
 		{
 			DURIN_ERROR("Engine initialization stopped because Mona platform services could not start.");
-			Exit();
 			return false;
 		}
 		StartupWindow = std::make_shared<MWindow>();
@@ -221,7 +213,6 @@ namespace Durin
 			|| !StartupNativeWindow->GetOSNativeWindowHandle())
 		{
 			DURIN_ERROR("Engine initialization stopped because the primary native window could not be created.");
-			Exit();
 			return false;
 		}
 		const FRHIPresentationTarget PresentationTarget{
@@ -234,7 +225,6 @@ namespace Durin
 			{
 				DURIN_ERROR(
 					"Engine initialization stopped because the dynamic RHI could not start.");
-				Exit();
 				return false;
 			}
 		}
@@ -245,7 +235,6 @@ namespace Durin
 		if (!Mona::InitializeRendering(true))
 		{
 			DURIN_ERROR("Engine initialization stopped because Mona rendering services could not start.");
-			Exit();
 			return false;
 		}
 #if DURIN_WITH_EDITOR
@@ -253,9 +242,6 @@ namespace Durin
 			|| Mona::GetActiveUIBackend() == nullptr)
 		{
 			DURIN_ERROR("Engine initialization stopped because the MonaImGui editor backend could not start.");
-			if (FModuleManager::Get().IsModuleLoaded("MonaImGui"))
-				FModuleManager::Get().UnloadModule("MonaImGui");
-			Exit();
 			return false;
 		}
 #endif
@@ -282,7 +268,6 @@ namespace Durin
 			bInitializationCancelled = IsEngineExitRequested();
 			if (bInitializationCancelled)
 				DURIN_INFO("Engine initialization was cancelled.");
-			Exit();
 			return false;
 		}
 		LastTickTime = FTime::Seconds();

@@ -15,7 +15,7 @@ namespace Durin
 	};
 
 	// Owns normal host choices that are safe to pass into engine startup.
-	struct FLaunchHostRequest
+	struct FEngineStartupParams
 	{
 		std::optional<std::string> ProjectFile;
 		bool bOpenProjectBrowser = false;
@@ -63,7 +63,7 @@ namespace Durin
 	struct FLaunchRequest
 	{
 		FLaunchProcessCoordinationRequest ProcessCoordination;
-		FLaunchHostRequest Host;
+		FEngineStartupParams Host;
 		FLaunchAutomationRequest Automation;
 		FLaunchDiagnosticsRequest Diagnostics;
 	};

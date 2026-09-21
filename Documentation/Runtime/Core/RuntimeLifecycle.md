@@ -124,15 +124,26 @@ Current engine selection is semantic:
 
 Host-specific startup then lives in the concrete engine overrides.
 
-Concrete engine initialization returns an owning
-`FEngineInitializationResult` that distinguishes success, user cancellation,
-and failure. Launch supplies an `FEngineInitContext` with the primary startup
-window, a startup-frame pump, and the headless policy; editor modules do not
-depend on Launch internals. Editor and Game adopt that same window rather than
-creating a replacement after RHI initialization.
-A failed result enters the partial-startup unwind before the normal main loop.
-A close request while the editor is initializing is cancellation, uses the same
-exact-once unwind, and maps to a clean process result.
+Concrete engine initialization returns `bool` and logs errors where they occur.
+Launch supplies an `FEngineInitContext` with the primary startup window, a
+startup-frame pump, and the headless policy; editor modules do not depend on
+Launch internals. Editor and Game adopt that same window rather than creating
+a replacement after RHI initialization. The parsed `FEngineStartupParams` is
+passed directly to `FEngineLoop::PreInit()` without an intermediate conversion.
+
+`PreInit()` and `Init()` return false on failure; the process runner calls
+`Exit()` once to unwind partially initialized process services before returning.
+Concrete engines retain their local host-retirement guards. Launch treats an
+exit request present when concrete initialization returns false as cancellation
+and selects a clean process result; otherwise it selects failure. A concurrent
+close request therefore takes precedence over an initialization error for exit
+code selection, while the error remains logged.
+
+MainFrame keeps one bootstrap state, including default-document loading and its
+terminal outcome. `AdvanceBootstrap()` returns only pending, ready, or failed;
+it logs failures locally and retains the message for the loading UI. Phase
+indices and counts are MainFrame presentation details, not cross-module progress
+payloads. Each step still yields to the startup pump before the next phase.
 
 `DEngine::Init()` places the default-material service after Engine Content,
 Engine, RHI, and render-command admission but before scene proxies can be

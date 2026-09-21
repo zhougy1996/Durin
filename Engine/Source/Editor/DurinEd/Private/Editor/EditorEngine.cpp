@@ -147,15 +147,14 @@ namespace Durin
 			const bool bFirstPresentAvailable = InitContext.bHeadless
 				|| Profiling::GetStartupMilestoneMilliseconds(
 					Profiling::EStartupMilestone::FirstPresent) >= 0.0;
-			const Editor::Host::FBootstrapProgress Progress =
+			const Editor::Host::EBootstrapStepStatus Status =
 				EditorHost->AdvanceBootstrap(
 					bFirstPresentAvailable);
-			if (Progress.Status == Editor::Host::EBootstrapStepStatus::Ready) break;
-			if (Progress.Status == Editor::Host::EBootstrapStepStatus::Failed)
+			if (Status == Editor::Host::EBootstrapStepStatus::Ready) break;
+			if (Status == Editor::Host::EBootstrapStepStatus::Failed)
 			{
 				// Keep the actionable failure visible for one final safe frame.
 				InitContext.PumpStartupFrame();
-				DURIN_ERROR("{}", Progress.Message);
 				return false;
 			}
 		}

@@ -2,19 +2,12 @@
 
 #include "CoreMinimal.h"
 #include "Diagnostics/ApplicationDiagnostics.h"
-#include "Misc/Project.h"
+#include "LaunchArguments.h"
 #include "EngineFramePhases.h"
 
 namespace Durin
 {
 	class MWindow;
-
-	// Carries semantic process startup choices into the engine loop.
-	struct FEngineStartupParams
-	{
-		bool bSuppressWindowDisplay = false;
-		FProjectInitializationParams Project;
-	};
 
 	// Identifies how far process-wide engine ownership has advanced.
 	enum class EEngineLoopState : uint8
@@ -36,7 +29,7 @@ namespace Durin
 
 		// Returns false when mandatory process services cannot be initialized safely.
 		auto PreInit(const FEngineStartupParams& Params) -> bool;
-		// Returns false after unwinding when mandatory runtime initialization fails.
+		// Returns false on failure; the process runner owns partial-startup teardown.
 		auto Init() -> bool;
 		auto Tick() -> void;
 		auto Exit() -> void;
