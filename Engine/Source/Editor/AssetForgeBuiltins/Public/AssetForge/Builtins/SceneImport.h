@@ -20,6 +20,8 @@ namespace Durin::AssetForge::Builtins
 	{
 		bool bSucceeded = false;
 		bool bPersisted = false;
+		// Includes committed generated parents and outputs, even when a later package fails.
+		std::vector<FPackagePath> SavedPackages;
 		std::vector<FImportOutputSummary> Outputs;
 		std::vector<FImportDiagnostic> Diagnostics;
 		std::string Message;

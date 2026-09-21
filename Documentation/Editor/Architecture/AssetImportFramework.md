@@ -47,7 +47,7 @@ The intended dependency direction is:
 - Editor hosts and feature modules own file selection, destinations, and
   presentation diagnostics; they query and invoke reimport through the manager.
 - Engine owns package identities, resident publication state, dirty state,
-  persistence, atomic package-bundle saves, and cooked data.
+  persistence, per-package batch saves, and cooked data.
 
 Third-party import providers, hot-unloadable importer registration, runtime
 import, and user-composed translation/planning stacks are not supported.
@@ -259,8 +259,7 @@ to use their single-asset workflows.
 
 ## Scene Import
 
-Scene import is the one supported multi-output importer. It is creation-only
-and owns a private transient dependency model for textures, materials, and static
+Scene import is the one supported multi-output importer. It owns a private transient dependency model for textures, materials, and static
 meshes. Sources with skins or animation channels fail before staging outputs. The private model is not
 a public AssetForge graph and is never persisted for replay.
 
@@ -272,7 +271,7 @@ The importer:
 - preflights every destination collision;
 - constructs and validates all peer candidates before publication;
 - binds material and texture relationships in dependency order;
-- saves the complete output package set atomically.
+- commits packages in dependency order, preserving successful packages when a later package fails.
 
 Scene materials share the imported-surface root graph. The importer applies only
 source blend mode, cutoff and two-sided overrides through
@@ -281,21 +280,26 @@ Every numeric and texture parameter application is checked. The importer finishe
 all prepared material owners as one selected batch and rejects non-current or
 failed variants through candidate abandonment before publication. A failed root
 default variant does not itself reject an independently valid child variant.
-Scene remains creation-only; this material integration does not add a reimport
-or reconciliation mechanism.
+Reimport replaces outputs with matching source/output identities and preserves
+unrelated assets and shared structural parents.
 
 Scene constructs private candidate packages from CoreDObject package/object
 primitives. It does not call single-object `IAssetTools`: doing so would assign
 independent acceptance semantics before the complete dependency-ordered peer
-set is bound, validated, and ready for one atomic bundle save. Static-mesh and
+set is bound, validated, and ready for per-package publication. Static-mesh and
 texture preparation still reuse their family build adapters below that
-transaction boundary. Engine exposes no generic `CreateAsset` materialization
+publication boundary. Engine exposes no generic `CreateAsset` materialization
 seam.
+
+A persistence failure stops publication and discards only unpublished candidates.
+`FSceneImportResult::SavedPackages` identifies the committed generated parents
+and outputs even on failure; `bPersisted` is true only for a completely saved
+scene. A retry can reuse the successful parents and replace matching outputs.
 
 Every generated output is an ordinary independent asset. There is no aggregate
 Scene asset, primary output, generated-output ownership record, reconciliation
-identity, tombstone, repair action, or whole-scene reimport. Importing a revised
-scene requires a fresh destination.
+tombstone, or repair action. Matching source/output identities allow reimport
+and retry after partial persistence; unrelated destination collisions still fail.
 
 FBX remains static-only. The selected glTF 2.0 subset supports contained
 external buffers, data URIs, GLB BIN data, static geometry, materials and

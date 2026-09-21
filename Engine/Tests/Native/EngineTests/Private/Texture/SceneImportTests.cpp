@@ -266,6 +266,16 @@ TEST(FSceneImportTests, SceneReimportResetsEditsAndRollsBackSavedAndLiveOutputs)
 		EXPECT_EQ(Dependent->GetParent(), Previous);
 		for (const auto& [Path, Bytes] : SavedBytes) EXPECT_EQ(Read(FindAssetExact(Path)->PhysicalPath), Bytes);
 	}
+	FSceneImportResult Partial;
+	ASSERT_FALSE(ImportSceneAssets(Fixture.Source, Fixture.DestinationDirectory,
+		FStaticMeshImportSettings::MakeDurin(), Partial, {}, {.ShouldFail = [](EAssetBundleSavePhase Phase, size_t) {
+			return Phase == EAssetBundleSavePhase::PublishRootPackage;
+		}}));
+	ASSERT_FALSE(Partial.SavedPackages.empty());
+	EXPECT_EQ(Consumer->GetStaticMesh(), PreviousMesh);
+	EXPECT_NE(Dependent->GetParent(), Previous);
+	EXPECT_EQ(Consumer->GetMaterial(), Dependent->GetParent());
+	EXPECT_TRUE(Dependent->GetMaterialCompileStatus().IsCurrent());
 	const auto Changed = RunScene(Fixture);
 	ASSERT_TRUE(Changed) << Changed.Message;
 	DMaterialInstance* Material = nullptr;
@@ -330,7 +340,7 @@ TEST(FSceneImportTests, FailedPublicationDiscardsGeneratedParentAndRetrySucceeds
 	ASSERT_FALSE(FindAssetExact(ParentPath));
 	ASSERT_EQ(FindResidentPackage(ParentPath), nullptr);
 	for (const auto Failure : {EAssetBundleSavePhase::CreateDirectories, EAssetBundleSavePhase::StagePackage,
-		EAssetBundleSavePhase::PublishPackage, EAssetBundleSavePhase::PublishRootPackage, EAssetBundleSavePhase::PublishRegistry})
+		EAssetBundleSavePhase::PublishPackage, EAssetBundleSavePhase::PublishRegistry})
 	{
 		FSceneImportResult Failed;
 		bool bInjected = false;
@@ -353,6 +363,31 @@ TEST(FSceneImportTests, FailedPublicationDiscardsGeneratedParentAndRetrySucceeds
 			EXPECT_FALSE(FindAssetExact(Output.AssetPath));
 		}
 	}
+	FSceneImportResult Partial;
+	ASSERT_FALSE(ImportSceneAssets(Fixture.Source, Fixture.DestinationDirectory,
+		FStaticMeshImportSettings::MakeDurin(), Partial, {}, {.ShouldFail = [](EAssetBundleSavePhase Phase, size_t) {
+			return Phase == EAssetBundleSavePhase::PublishRootPackage;
+		}}));
+	ASSERT_FALSE(Partial.SavedPackages.empty());
+	EXPECT_FALSE(Partial.bPersisted);
+	EXPECT_TRUE(FindAssetExact(ParentPath));
+	EXPECT_NE(FindResidentPackage(ParentPath), nullptr);
+	for (const auto& Path : Partial.SavedPackages)
+	{
+		ASSERT_TRUE(FindAssetExact(Path));
+		ASSERT_NE(FindResidentPackage(Path), nullptr);
+		EXPECT_FALSE(FindResidentPackage(Path)->IsDirty());
+		EXPECT_FALSE(FindResidentPackage(Path)->IsGraphPrivate());
+	}
+	bool bFoundUnsaved = false;
+	for (const auto& Output : Partial.Outputs)
+		if (std::ranges::find(Partial.SavedPackages, Output.AssetPath) == Partial.SavedPackages.end())
+		{
+			bFoundUnsaved = true;
+			EXPECT_FALSE(FindAssetExact(Output.AssetPath));
+			EXPECT_EQ(FindResidentPackage(Output.AssetPath), nullptr);
+		}
+	EXPECT_TRUE(bFoundUnsaved);
 	const auto Retried = RunScene(Fixture);
 	ASSERT_TRUE(Retried) << Retried.Message;
 	EXPECT_TRUE(Retried.bPersisted);

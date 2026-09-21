@@ -152,6 +152,8 @@ namespace Durin::Editor::Level
 		if (!AssetForge::Builtins::ImportSceneAssets(SourcePathBuffer.data(), OutputDirectory,
 			Coordinates.GetSettings(), Result))
 		{
+			if (!Result.SavedPackages.empty())
+				Callbacks.NotifyImportedDirectory(DestinationDirectory.GetPath());
 			SetError(Result.Message.empty() ? "Scene import failed." : std::move(Result.Message));
 			return false;
 		}

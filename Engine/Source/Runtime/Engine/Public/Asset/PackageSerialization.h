@@ -61,7 +61,7 @@ namespace Durin
 	{
 		DPackage* RootPackage = nullptr;
 		std::function<bool(EAssetBundleSavePhase, size_t)> ShouldFail;
-		// Transactions that also own live candidates can reject the entire closure.
+		// Applies only to the current package; earlier successful saves are final.
 		// Ordinary saves retain the existing committed-content/projection-pending policy.
 		bool bRollbackOnRegistryFailure = false;
 		// Admits only private packages owned by this prepared publication operation.
@@ -91,10 +91,21 @@ namespace Durin
 		FByteBuffer& OutBulkBytes,
 		const FAssetPackageSerializationOptions& Options = {}
 	) -> ObjectPackage::FPackageWriterResult;
-	ENGINE_API auto SavePackagesAtomically(
+	struct FAssetBatchSaveResult
+	{
+		FAssetWriteResult Result;
+		std::vector<FPackagePath> SavedPackages;
+		FPackagePath FailedPackage;
+		auto Succeeded() const -> bool { return Result.Succeeded(); }
+		explicit operator bool() const { return Succeeded(); }
+	};
+	// Saves in input order, with RootPackage last. Stops at the first failure;
+	// SavedPackages stay committed. FailedPackage may have Result.Effect on disk.
+	// PreparedPublication is restricted to a single-package call.
+	ENGINE_API auto SavePackages(
 		std::span<DPackage* const> Packages,
 		const FAssetBundleSaveOptions& Options = {}
-	) -> FAssetWriteResult;
+	) -> FAssetBatchSaveResult;
 	ENGINE_API auto SavePackage(DPackage* Package, EAssetPackageSaveMode Mode = EAssetPackageSaveMode::Delta) -> FAssetWriteResult;
 	ENGINE_API auto SavePackage(DPackage* Package, EPackageSaveFlags Flags,
 		EAssetPackageSaveMode Mode = EAssetPackageSaveMode::Delta) -> FAssetWriteResult;

@@ -180,7 +180,7 @@ namespace Durin::AssetForge::Builtins
 						Result->Status = EStaticMeshCompilationStatus::Failed;
 						Result->Error = {.Code = EStaticMeshCompletionError::PackageUnavailable, .Owner = Owner};
 					}
-					else if (const auto Saved = SavePackagesAtomically(std::span<DPackage* const>(&Package, 1), *Save); !Saved)
+					else if (const auto Saved = SavePackages(std::span<DPackage* const>(&Package, 1), *Save).Result; !Saved)
 					{
 						Result->Status = EStaticMeshCompilationStatus::Failed;
 						Result->Error = {.Code = EStaticMeshCompletionError::Save, .Owner = Owner, .SaveCause = std::make_shared<FAssetWriteResult>(Saved)};

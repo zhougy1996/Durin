@@ -96,7 +96,7 @@ namespace Durin::AssetForge::Builtins
 			{
 				if (!bRetain)
 					for (auto It = Packages.rbegin(); It != Packages.rend(); ++It)
-						if (IsValid(*It)) MarkObjectHierarchyAsGarbage(*It);
+						if (IsValid(*It) && (*It)->IsGraphPrivate()) MarkObjectHierarchyAsGarbage(*It);
 			}
 		};
 
@@ -187,12 +187,13 @@ namespace Durin::AssetForge::Builtins
 		auto Abandon(std::vector<FPreparedSceneOutput>& Outputs) -> void
 		{
 			std::vector<DObject*> Objects;
-			for (const auto& Output : Outputs) if (Output.Candidate) Objects.push_back(Output.Candidate);
+			for (const auto& Output : Outputs)
+				if (Output.Candidate && Output.Package->IsGraphPrivate()) Objects.push_back(Output.Candidate);
 			FAssetCompilingManager::Get().MarkCompilationAsCanceled(Objects);
 			FAssetCompilingManager::Get().FinishCompilationForObjects(Objects);
 			for (FPreparedSceneOutput& Output : Outputs)
 			{
-				if (Output.Package && IsValid(Output.Package)) MarkObjectHierarchyAsGarbage(Output.Package);
+				if (Output.Package && IsValid(Output.Package) && Output.Package->IsGraphPrivate()) MarkObjectHierarchyAsGarbage(Output.Package);
 				Output.Candidate = nullptr;
 				Output.Package = nullptr;
 			}
@@ -232,7 +233,7 @@ namespace Durin::AssetForge::Builtins
 		}
 
 		// Scene candidates stay private until the complete peer set is
-		// dependency-bound, validated, and ready for one atomic bundle save.
+		// dependency-bound, validated, and ready for per-package publication.
 		auto CreateCandidate(FPreparedSceneOutput& Output, std::string& OutError) -> bool
 		{
 			bool bCreated = false;
@@ -780,68 +781,80 @@ namespace Durin::AssetForge::Builtins
 			return AddError(OutResult, EImportDiagnosticCategory::Canceled,
 				"scene-publication", "Scene import was canceled before persistence.");
 		}
-		FAssetBundleSaveOptions SaveOptions{.ShouldFail = PublicationOptions.ShouldFail,
-			.bRollbackOnRegistryFailure = true};
-		if (!Packages.empty()) SaveOptions.RootPackage = Packages.back();
-		FObjectGraphReplacement Publication;
 		std::vector<FObjectReplacementPackagePair> Pairs;
 		for (auto* Package : GeneratedParents.Packages) Pairs.push_back({nullptr, Package});
 		for (const auto& Output : Prepared)
 			Pairs.push_back({Output.Previous ? Output.Previous->GetPackage() : nullptr, Output.Package});
-		std::vector<DObject*> ExternalConsumers;
-		std::vector<DObject*> DependentMaterials;
-		for (auto* Object : GDObjectArray.GetAll(EObjectQueryScope::LiveOnly))
-			if (std::ranges::none_of(Pairs, [&](const auto& Pair) { return Pair.Current && Object->GetPackage() == Pair.Current; }))
+		for (size_t Index = 0; Index < Pairs.size(); ++Index)
+		{
+			const auto& Pair = Pairs[Index];
+			std::vector<DObject*> ExternalConsumers;
+			std::vector<DObject*> DependentMaterials;
+			for (auto* Object : GDObjectArray.GetAll(EObjectQueryScope::LiveOnly))
+				if (Object->GetPackage() != Pair.Current)
+				{
+					ExternalConsumers.push_back(Object);
+					if (auto* Material = Cast<DMaterialInstance>(Object))
+						for (auto* Parent = Material->GetParent(); Parent; Parent = Parent->GetParent())
+							if (Pair.Current && Parent->GetPackage() == Pair.Current)
+							{
+								DependentMaterials.push_back(Material);
+								break;
+							}
+				}
+			auto PreviousCompilations = DependentMaterials;
+			for (const auto& Output : Prepared)
+				if (Output.Previous && Output.Previous->GetPackage() == Pair.Current) PreviousCompilations.push_back(Output.Previous);
+			FAssetCompilingManager::Get().FinishCompilationForObjects(PreviousCompilations);
+			FObjectGraphReplacement Publication;
+			FAssetWriteResult PersistenceResult;
+			auto Published = Publication.Prepare(std::span(&Pair, 1));
+			if (Published)
 			{
-				ExternalConsumers.push_back(Object);
-				if (auto* Material = Cast<DMaterialInstance>(Object))
-					for (auto* Parent = Material->GetParent(); Parent; Parent = Parent->GetParent())
-						if (std::ranges::any_of(Prepared, [&](const auto& Output) { return Output.Previous == Parent; }))
-						{
-							DependentMaterials.push_back(Material);
-							break;
-						}
+				FAssetBundleSaveOptions SaveOptions{
+					.RootPackage = Index + 1 == Pairs.size() ? Pair.Prepared : nullptr,
+					.ShouldFail = [&](EAssetBundleSavePhase Phase, size_t) {
+						return PublicationOptions.ShouldFail && PublicationOptions.ShouldFail(Phase, Index);
+					},
+					.bRollbackOnRegistryFailure = true,
+					.PreparedPublication = &Publication};
+				Published = Publication.TryCommit([&]() -> FObjectReplacementResult {
+					PersistenceResult = SavePackages(std::span(&Pair.Prepared, 1), SaveOptions).Result;
+					if (!PersistenceResult) return {{.Code = EObjectReplacementError::ParticipantRejected,
+						.Reason = EObjectReplacementReason::PersistenceRejected}};
+					return {};
+				});
 			}
-		auto PreviousCompilations = DependentMaterials;
-		for (const auto& Output : Prepared) if (Output.Previous) PreviousCompilations.push_back(Output.Previous);
-		FAssetCompilingManager::Get().FinishCompilationForObjects(PreviousCompilations);
-		FAssetWriteResult PersistenceResult;
-		auto Published = Publication.Prepare(Pairs, {}, {.MaximumPackages = 4096});
-		if (Published)
-		{
-			SaveOptions.PreparedPublication = &Publication;
-			Published = Publication.TryCommit([&]() -> FObjectReplacementResult {
-				PersistenceResult = SavePackagesAtomically(Packages, SaveOptions);
-				if (!PersistenceResult) return {{.Code = EObjectReplacementError::ParticipantRejected,
-					.Reason = EObjectReplacementReason::PersistenceRejected}};
-				return {};
-			});
-		}
-		if (!Published)
-		{
-			Publication.Abort();
-			Abandon(Prepared);
-			return AddError(OutResult, EImportDiagnosticCategory::PersistenceFailure,
-				"scene-persistence", !PersistenceResult ? PersistenceResult.Message : FormatObjectReplacementError(Published.Error));
-		}
-		for (auto* Package : Packages) Package->MarkAsPublished();
-		if (std::ranges::any_of(Prepared, [](const auto& Output) { return Output.Previous != nullptr; }))
-		{
-			// External instance variants must follow their newly bound parent graph.
-			for (auto* Object : DependentMaterials) RequestMaterialRecompile(*Cast<DMaterialInterface>(Object));
-			FAssetCompilingManager::Get().FinishCompilationForObjects(DependentMaterials);
-			for (auto* Object : ExternalConsumers)
+			if (!Published)
 			{
-				if (auto* Material = Cast<DMaterialInterface>(Object)) Material->RefreshReloadedAssetBindings();
-				if (auto* Cloud = Cast<DVolumetricCloudComponent>(Object)) Cloud->RefreshReloadedAssetBindings();
-				if (auto* Sky = Cast<DSkyLightComponent>(Object)) Sky->RefreshReloadedAssetBindings();
-				if (auto* Mesh = Cast<DStaticMeshComponent>(Object)) Mesh->RefreshReloadedAssetBindings();
-				else if (auto* Primitive = Cast<DPrimitiveComponent>(Object))
-					Primitive->MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags::MaterialBinding);
+				Publication.Abort();
+				Abandon(Prepared);
+				return AddError(OutResult, EImportDiagnosticCategory::PersistenceFailure,
+					"scene-persistence", std::format("Saved {} of {} packages; {}: {}",
+						OutResult.SavedPackages.size(), Pairs.size(), Pair.Prepared->GetPackagePath(),
+						!PersistenceResult ? PersistenceResult.Message : FormatObjectReplacementError(Published.Error)));
 			}
-			FlushRenderingCommands();
+			Pair.Prepared->MarkAsPublished();
+			OutResult.SavedPackages.push_back(Pair.Prepared->GetPackagePathIdentity());
+			if (Pair.Current)
+			{
+				// Refresh consumers after each publication, including on partial imports.
+				for (auto* Object : DependentMaterials) RequestMaterialRecompile(*Cast<DMaterialInterface>(Object));
+				FAssetCompilingManager::Get().FinishCompilationForObjects(DependentMaterials);
+				for (auto* Object : ExternalConsumers)
+				{
+					if (auto* Material = Cast<DMaterialInterface>(Object)) Material->RefreshReloadedAssetBindings();
+					if (auto* Cloud = Cast<DVolumetricCloudComponent>(Object)) Cloud->RefreshReloadedAssetBindings();
+					if (auto* Sky = Cast<DSkyLightComponent>(Object)) Sky->RefreshReloadedAssetBindings();
+					if (auto* Mesh = Cast<DStaticMeshComponent>(Object)) Mesh->RefreshReloadedAssetBindings();
+					else if (auto* Primitive = Cast<DPrimitiveComponent>(Object))
+						Primitive->MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags::MaterialBinding);
+				}
+				FlushRenderingCommands();
+			}
+			require(Publication.Retire());
 		}
-		require(Publication.Retire());
+
 		GeneratedParents.bRetain = true;
 		OutResult.bSucceeded = true;
 		OutResult.bPersisted = true;

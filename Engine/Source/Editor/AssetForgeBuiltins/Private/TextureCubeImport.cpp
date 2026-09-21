@@ -119,8 +119,8 @@ namespace Durin::AssetForge::Builtins
 		{
 			if (!SaveOptions) return true;
 			DPackage* Package = Texture.GetPackage();
-			const FAssetWriteResult Saved = SavePackagesAtomically(
-				std::span<DPackage* const>(&Package, 1), *SaveOptions);
+			const FAssetWriteResult Saved = SavePackages(
+				std::span<DPackage* const>(&Package, 1), *SaveOptions).Result;
 			if (Saved) return true;
 			OutError = Saved.Message;
 			return false;

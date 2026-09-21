@@ -331,10 +331,11 @@ explicit. Owned per-save overrides may omit objects/properties or supply copied
 replacement values without mutating live state; validation rejects foreign or
 conflicting entries and hard references to omitted objects.
 
-Synchronous, asynchronous, and atomic bundle saves share destination admission,
+Synchronous, asynchronous, and batch saves share destination admission,
 version validation, destination stamp capture, closure encoding,
-and writer preparation. Synchronous and protected task saves use their shared commit path; bundles
-retain coordinated publication and rollback. Saving validates the complete new
+and writer preparation. Synchronous, protected task, and batch saves use the
+same per-package commit path. Batches stop at the first failure and never roll
+back earlier successful packages. Saving validates the complete new
 v10 closure, publishes owned payloads before the main image that binds them,
 verifies the stable closure, publishes a revisioned Registry delta, then clears
 Dirty/NewlyCreated for the saved revision. Failure before authored commit
@@ -354,13 +355,16 @@ in-process rollback and are released by finalization. Save preparation does not
 recover or delete files abandoned by earlier saves; those files do not reserve
 paths for a new save. This is not persistent crash recovery across files.
 
-Transactions owning a complete candidate set can opt into
+A save owning a private package candidate can opt into
 `bRollbackOnRegistryFailure`, restoring prior package/bulk bytes instead of
 committing a projection-pending result. A `PreparedPublication` token admits only
-private packages owned by that active object-graph operation. Scene import uses
-both options inside the operation's final persistence callback: successful disk
-and Registry publication is immediately followed by the non-failing memory
-commit. Other save callers retain the ordinary policy above.
+one private package owned by that active object-graph operation; multi-package
+saves with this token are rejected before writing. Scene import publishes one
+package at a time in dependency order. Each package uses both options inside
+its final persistence callback: successful disk and Registry publication is
+immediately followed by the non-failing memory commit. Later failures preserve
+previously published disk content and live objects. Other save callers retain
+the ordinary policy above.
 
 Load resolves the source-version policy, validates the main/bulk closure and
 obtains detached linker tables. It constructs package/export skeletons, follows
@@ -573,7 +577,7 @@ inputs. Planning captures exact package identity, main/bulk fingerprint,
 format, entry kind, residency, Dirty conflicts, compatibility, and evidence.
 Apply revalidates the fingerprint, loads through the ordinary version-dispatched reader when
 required, waits for family-owned save-readiness recovery, and publishes through
-`SavePackagesAtomically`. Verification rereads the exact v10 closure and
+`SavePackages`. Verification rereads the exact v10 closure and
 requires compatible current-format output with no remaining selected evidence;
 failure restores the prior closure and Registry state. Project batches stop at
 cancellation but do not claim project-wide atomicity.

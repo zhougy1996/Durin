@@ -3655,6 +3655,77 @@ TEST(FPackageAssetTests, AsyncSaveRejectsChangedDestinationAndStagedClosureFiles
 	}
 }
 
+TEST(FPackageAssetTests, BatchFailureKeepsEarlierCommitAndDoesNotAttemptLaterPackages)
+{
+	using namespace Durin;
+	for (const auto Failure : {EAssetBundleSavePhase::StagePackage,
+		EAssetBundleSavePhase::PublishPackage, EAssetBundleSavePhase::PublishRegistry})
+	{
+		InitializeAssetTests();
+		std::array<FPackagePath, 3> Paths;
+		std::array<DPackage*, 3> Packages;
+		std::array<DBulkPackageAssetForTest*, 3> Assets{};
+		const FByteBuffer Original(EditorBulkDataExternalThreshold + 1, std::byte{0x51});
+		const FByteBuffer Edited(Original.size(), std::byte{0x73});
+		const auto Root = Testing::GetTestWorkDirectory() / "Assets";
+		for (size_t Index = 0; Index < 3; ++Index)
+		{
+			ASSERT_TRUE(FPackagePath::TryCreate(std::format("/TestAssets/Sequential{}", Index), Paths[Index]));
+			ASSERT_TRUE(CreatePackageLeafAssetForTesting(Paths[Index], Assets[Index]));
+			Packages[Index] = Assets[Index]->GetPackage();
+			ASSERT_TRUE(Assets[Index]->Payload.UpdatePayload(Original));
+			ASSERT_TRUE(SavePackage(Packages[Index]));
+			ASSERT_TRUE(Assets[Index]->Payload.UpdatePayload(Edited));
+			Packages[Index]->MarkDirty();
+		}
+		// Put the root first in the input; it must still be attempted last.
+		const std::array Input{Packages[2], Packages[0], Packages[1]};
+		bool bAttemptedRoot = false;
+		const auto Batch = SavePackages(Input, {.RootPackage = Packages[2],
+			.ShouldFail = [&](EAssetBundleSavePhase Phase, size_t Index) {
+				bAttemptedRoot |= Index == 2;
+				return Phase == Failure && Index == 1;
+			}, .bRollbackOnRegistryFailure = true});
+		EXPECT_FALSE(Batch);
+		EXPECT_EQ(Batch.SavedPackages, std::vector{Paths[0]});
+		EXPECT_EQ(Batch.FailedPackage, Paths[1]);
+		EXPECT_FALSE(bAttemptedRoot);
+		EXPECT_FALSE(Packages[0]->IsDirty());
+		EXPECT_TRUE(Packages[1]->IsDirty());
+		EXPECT_TRUE(Packages[2]->IsDirty());
+		for (size_t Index = 0; Index < 3; ++Index)
+		{
+			FByteBuffer Bytes;
+			ASSERT_TRUE(FFileHelper::LoadFileToArray(Bytes, Root / std::format("Sequential{}.dbulk", Index)));
+			EXPECT_EQ(Bytes, Index == 0 ? Edited : Original);
+			EXPECT_TRUE(FindAssetExact(Paths[Index]));
+			EXPECT_FALSE(IsAssetRegistryProjectionFenced(Paths[Index]));
+		}
+		const auto Retry = SavePackages(std::span(Packages).subspan(1));
+		ASSERT_TRUE(Retry) << Retry.Result.Message;
+		EXPECT_EQ(Retry.SavedPackages, (std::vector{Paths[1], Paths[2]}));
+		for (const auto& Path : Paths) ASSERT_TRUE(Testing::RemoveAssetPackageForTests(Path));
+	}
+}
+
+TEST(FPackageAssetTests, BatchInvalidLaterPackageKeepsNewlyCreatedFirstPackage)
+{
+	using namespace Durin;
+	InitializeAssetTests();
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/SequentialNew", Path));
+	DPackageAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
+	const std::array<DPackage*, 2> Packages{Asset->GetPackage(), nullptr};
+	const auto Batch = SavePackages(Packages);
+	EXPECT_EQ(Batch.Result.Error, EAssetWriteError::InvalidData);
+	EXPECT_EQ(Batch.SavedPackages, std::vector{Path});
+	EXPECT_FALSE(Asset->GetPackage()->IsDirty());
+	EXPECT_FALSE(Asset->GetPackage()->IsNewlyCreated());
+	EXPECT_TRUE(FindAssetExact(Path));
+	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(Path));
+}
+
 TEST(FPackageAssetTests, TransactionalRegistryFailureRestoresOldAndNewClosures)
 {
 	using namespace Durin;
@@ -3680,9 +3751,9 @@ TEST(FPackageAssetTests, TransactionalRegistryFailureRestoresOldAndNewClosures)
 	Added->GetPackage()->MarkDirty();
 	const auto Projection = CaptureAssetRegistryPublication();
 	DPackage* Packages[]{Existing->GetPackage(), Added->GetPackage()};
-	const auto Failed = SavePackagesAtomically(Packages, {.RootPackage = Added->GetPackage(),
+	const auto Failed = SavePackages(Packages, {.RootPackage = Added->GetPackage(),
 		.ShouldFail = [](EAssetBundleSavePhase Phase, size_t) { return Phase == EAssetBundleSavePhase::PublishRegistry; },
-		.bRollbackOnRegistryFailure = true});
+		.bRollbackOnRegistryFailure = true}).Result;
 	EXPECT_FALSE(Failed);
 	EXPECT_NE(Failed.Effect, EAssetWriteEffect::ContentCommittedProjectionPending);
 	FByteBuffer AfterMain, AfterBulk;
@@ -3697,7 +3768,7 @@ TEST(FPackageAssetTests, TransactionalRegistryFailureRestoresOldAndNewClosures)
 	EXPECT_EQ(CaptureAssetRegistryPublication().ExpectedRevision, Projection.ExpectedRevision);
 	EXPECT_FALSE(IsAssetRegistryProjectionFenced(ExistingPath));
 	EXPECT_FALSE(IsAssetRegistryProjectionFenced(NewPath));
-	ASSERT_TRUE(SavePackagesAtomically(Packages, {.bRollbackOnRegistryFailure = true}));
+	ASSERT_TRUE(SavePackages(Packages, {.bRollbackOnRegistryFailure = true}).Result);
 	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(NewPath));
 	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(ExistingPath));
 }
@@ -3714,12 +3785,12 @@ TEST(FPackageAssetTests, RegistryFailureKeepsCommittedStableClosure)
 		std::byte{0x51});
 	ASSERT_TRUE(Asset->Payload.UpdatePayload(Payload));
 	Durin::DPackage* Packages[] = {Asset->GetPackage()};
-	const Durin::FAssetWriteResult Result = Durin::SavePackagesAtomically(
+	const Durin::FAssetWriteResult Result = Durin::SavePackages(
 		Packages,
 		{.RootPackage = Asset->GetPackage(),
 			.ShouldFail = [](Durin::EAssetBundleSavePhase Phase, size_t) {
 				return Phase == Durin::EAssetBundleSavePhase::PublishRegistry;
-			}});
+			}}).Result;
 	EXPECT_EQ(Result.Error, Durin::EAssetWriteError::StaleData);
 	EXPECT_EQ(Result.Effect,
 		Durin::EAssetWriteEffect::ContentCommittedProjectionPending);
@@ -3812,11 +3883,11 @@ TEST(FPackageAssetTests, OrdinaryV8PublishesLoadsAndRollsBackExternalClosure)
 	std::ranges::fill(Payload, std::byte{0x63});
 	ASSERT_TRUE(Asset->Payload.UpdatePayload(Payload));
 	Durin::DPackage* ReplacementUnit[] = {Asset->GetPackage()};
-	const Durin::FAssetWriteResult FailedReplacement = Durin::SavePackagesAtomically(ReplacementUnit,
+	const Durin::FAssetWriteResult FailedReplacement = Durin::SavePackages(ReplacementUnit,
 			{.RootPackage = Asset->GetPackage(),
 				.ShouldFail = [](Durin::EAssetBundleSavePhase Phase, size_t) {
 					return Phase == Durin::EAssetBundleSavePhase::PublishRegistry;
-				}});
+				}}).Result;
 	EXPECT_EQ(FailedReplacement.Error, Durin::EAssetWriteError::StaleData);
 	Durin::FByteBuffer AfterFailedReplacement;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
@@ -3884,18 +3955,18 @@ TEST(FPackageAssetTests, InlineSaveRemovesObsoleteCompanionAndRollbackRestoresIt
 		ASSERT_TRUE(Asset->Payload.UpdatePayload(Payload));
 		Asset->GetPackage()->MarkDirty();
 		DPackage* Unit[] = {Asset->GetPackage()};
-		const auto Failed = SavePackagesAtomically(Unit, {
+		const auto Failed = SavePackages(Unit, {
 			.ShouldFail = [](EAssetBundleSavePhase Phase, size_t) {
 				return Phase == EAssetBundleSavePhase::PublishRegistry;
 			},
-			.bRollbackOnRegistryFailure = true});
+			.bRollbackOnRegistryFailure = true}).Result;
 		EXPECT_FALSE(Failed);
 		EXPECT_TRUE(Asset->GetPackage()->IsDirty());
 		ASSERT_TRUE(FFileHelper::LoadFileToArray(MainAfter, Main));
 		ASSERT_TRUE(FFileHelper::LoadFileToArray(BulkAfter, Bulk));
 		EXPECT_EQ(MainAfter, MainBefore);
 		EXPECT_EQ(BulkAfter, BulkBefore);
-		const auto Saved = bBundle ? SavePackagesAtomically(Unit) : SavePackage(Asset->GetPackage());
+		const auto Saved = bBundle ? SavePackages(Unit).Result : SavePackage(Asset->GetPackage());
 		ASSERT_TRUE(Saved) << Saved.Message;
 		EXPECT_FALSE(std::filesystem::exists(Bulk));
 		for (const auto& Entry : std::filesystem::directory_iterator(Bulk.parent_path()))
@@ -3984,8 +4055,8 @@ TEST(FPackageAssetTests, V8BundleAndRelocationPreserveCurrentFormat)
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(SourcePath, Asset));
 	Asset->Value = 91;
 	Durin::DPackage* Packages[] = {Asset->GetPackage()};
-	ASSERT_TRUE(Durin::SavePackagesAtomically(Packages,
-		{.RootPackage = Asset->GetPackage()}));
+	ASSERT_TRUE(Durin::SavePackages(Packages,
+		{.RootPackage = Asset->GetPackage()}).Result);
 	ASSERT_EQ(Durin::FindAssetExact(SourcePath)->FormatVersion,
 		Durin::ObjectPackage::DastV10FormatVersion);
 
@@ -7813,10 +7884,10 @@ TEST(FPackageAssetTests, PackageSavesRejectReadOnlyContentMounts)
 	DPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(Path, Asset));
 	Durin::DPackage* Package = Asset->GetPackage();
-	const Durin::FAssetWriteResult BundleSaved = Durin::SavePackagesAtomically(
-			std::span<Durin::DPackage* const>(&Package, 1), {});
+	const Durin::FAssetWriteResult BundleSaved = Durin::SavePackages(
+			std::span<Durin::DPackage* const>(&Package, 1), {}).Result;
 	EXPECT_EQ(BundleSaved.Error, Durin::EAssetWriteError::ReadOnlyMode);
-	EXPECT_EQ(BundleSaved.Message, "Content mount /ReadOnly/ is read-only.");
+	EXPECT_NE(BundleSaved.Message.find("Content mount /ReadOnly/ is read-only."), std::string::npos);
 	const Durin::FAssetWriteResult Saved = Durin::SavePackage(Package);
 	EXPECT_EQ(Saved.Error, Durin::EAssetWriteError::ReadOnlyMode);
 	EXPECT_EQ(Saved.Message, "Content mount /ReadOnly/ is read-only.");
@@ -8070,7 +8141,7 @@ TEST(FPackageAssetTests, SequentialPackageSavesPublishEarlierPackagesBeforeLater
 	EXPECT_TRUE(Durin::FindAssetExact(BlockedPath));
 }
 
-TEST(FPackageAssetTests, AtomicBundleRegistryFailureKeepsCommittedContent)
+TEST(FPackageAssetTests, BatchRegistryFailureKeepsEarlierSuccessAndCurrentContent)
 {
 	InitializeAssetTests();
 	Durin::FPackagePath ExistingPath;
@@ -8098,13 +8169,16 @@ TEST(FPackageAssetTests, AtomicBundleRegistryFailureKeepsCommittedContent)
 		Existing->GetPackage(),
 		Added->GetPackage()
 	};
-	const Durin::FAssetWriteResult Result = Durin::SavePackagesAtomically(
+	const auto Batch = Durin::SavePackages(
 		Packages,
 		{.RootPackage = Added->GetPackage(),
-		 .ShouldFail = [](Durin::EAssetBundleSavePhase Phase, size_t) {
-			 return Phase == Durin::EAssetBundleSavePhase::PublishRegistry;
+		 .ShouldFail = [](Durin::EAssetBundleSavePhase Phase, size_t Index) {
+			 return Index == 1 && Phase == Durin::EAssetBundleSavePhase::PublishRegistry;
 		 }}
 	);
+	EXPECT_EQ(Batch.SavedPackages, std::vector{ExistingPath});
+	EXPECT_EQ(Batch.FailedPackage, NewPath);
+	const auto& Result = Batch.Result;
 	EXPECT_EQ(Result.Error, Durin::EAssetWriteError::StaleData);
 	EXPECT_EQ(Result.Effect,
 		Durin::EAssetWriteEffect::ContentCommittedProjectionPending);
@@ -8116,7 +8190,9 @@ TEST(FPackageAssetTests, AtomicBundleRegistryFailureKeepsCommittedContent)
 		CommittedBytes, ExistingRegistry.PhysicalPath
 	));
 	EXPECT_NE(CommittedBytes, ExistingBytes);
-	EXPECT_EQ(*Durin::FindAssetExact(ExistingPath), ExistingRegistry);
+	EXPECT_NE(*Durin::FindAssetExact(ExistingPath), ExistingRegistry);
+	EXPECT_FALSE(Durin::IsAssetRegistryProjectionFenced(ExistingPath));
+	EXPECT_TRUE(Durin::IsAssetRegistryProjectionFenced(NewPath));
 	EXPECT_EQ(Durin::FindAssetExact(NewPath), nullptr);
 	EXPECT_TRUE(std::filesystem::exists(
 		Durin::Testing::GetTestWorkDirectory() / "Assets" / "AtomicBundleNew.dasset"

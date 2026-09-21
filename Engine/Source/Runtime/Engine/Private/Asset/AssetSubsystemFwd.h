@@ -10,6 +10,7 @@ namespace Durin
 {
 	struct FPackageSchemaReadStats;
 	struct FAssetBundleSaveOptions;
+	struct FAssetBatchSaveResult;
 	struct FAssetLoadReport;
 	struct FPackageSchemaInspection;
 	struct FAssetPackageHeader;

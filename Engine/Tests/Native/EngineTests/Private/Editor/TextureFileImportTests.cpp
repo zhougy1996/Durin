@@ -260,7 +260,7 @@ TEST_F(FTextureImportQueueTests, SavePathsRejectUnsupportedVersionBeforeStaging)
 	std::filesystem::rename(Bulk, Backup);
 	EXPECT_EQ(SavePackage(Package).Error, EAssetWriteError::UnsupportedVersion);
 	DPackage* Packages[] = {Package};
-	EXPECT_EQ(SavePackagesAtomically(Packages, {}).Error, EAssetWriteError::UnsupportedVersion);
+	EXPECT_EQ(SavePackages(Packages, {}).Result.Error, EAssetWriteError::UnsupportedVersion);
 	FAssetWriteResult Admission;
 	auto Save = (Package)->SaveAsync(Admission, FAssetPackageSaveContext{});
 	EXPECT_FALSE(Save.IsValid());
@@ -299,7 +299,7 @@ TEST_F(FTextureImportQueueTests, SaveTransactionsIgnoreUnownedStagingAndBackups)
 		else if (Mode == 1)
 		{
 			DPackage* Packages[] = {Package};
-			Result = SavePackagesAtomically(Packages);
+			Result = SavePackages(Packages).Result;
 		}
 		else
 		{

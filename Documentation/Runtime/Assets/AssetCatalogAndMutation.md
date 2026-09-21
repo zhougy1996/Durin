@@ -199,8 +199,13 @@ content metadata changes do not invalidate that identity snapshot. Soft referenc
 and unrelated catalog changes are not commit participants. Protected saves reject
 changed root revisions, destinations and staged files before commit, then use the
 commit-time Registry revision. Ordinary sync and protected saves share their
-commit policy; explicit bundles retain coordinated root-last publication and
-Registry-failure rollback.
+commit policy. `SavePackages` commits each package independently in input order,
+with an optional root moved last. It stops at the first failure; earlier packages
+remain committed and clean. `FAssetBatchSaveResult` reports `SavedPackages`,
+`FailedPackage`, and the current failure in `Result`. `Result.Effect` describes
+only the failed package, including projection-pending content; it does not undo
+or reclassify earlier successes. Failure injection uses the zero-based commit
+index for every phase, including Registry publication.
 
 Direct async saves capture validated detached bytes, retire and drain the old
 loose resource generation, and exclusively reserve the physical main/bulk closure
@@ -240,8 +245,9 @@ packages; path-associated `Warnings` report failures and projection-pending save
 A mixed batch returns a failed terminal state with `PartiallyPersisted`, retains
 the successful files, and emits one completion notification for those successes.
 Content Browser refreshes after partial persistence even when the aggregate result
-is unsuccessful. Explicit `SavePackagesAtomically` callers and canonical resaves
-retain their existing coordination contracts.
+is unsuccessful. `SavePackages` stops at the first failure instead of continuing,
+but also preserves earlier successes. Canonical resaves retain per-package
+verification and recovery; they do not roll back earlier successful packages.
 
 ## Synchronous Relocation
 

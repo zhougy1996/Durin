@@ -1056,95 +1056,62 @@ namespace Durin
 		return Submitted ? FAssetWriteResult{} : Error(EAssetWriteError::InUse, Submitted.Message);
 	}
 
-	auto SavePackagesAtomically(
+	auto SavePackages(
 		std::span<DPackage* const> Packages,
-		const FAssetBundleSaveOptions& Options) -> FAssetWriteResult
+		const FAssetBundleSaveOptions& Options) -> FAssetBatchSaveResult
 	{
-		if (auto Result = AssetPrivate::FAssetLiveLoadGuard::Check("save", ""); !Result) return AssetWriteResultFromRead(Result);
-		return FAssetRuntimeState::Get().GetMutationCoordinator()
-			.SavePackagesAtomically(Packages, Options);
+		return FAssetRuntimeState::Get().GetMutationCoordinator().SavePackages(Packages, Options);
 	}
 
-	auto FAssetMutationCoordinator::SavePackagesAtomically(
-		std::span<DPackage* const> Packages, const FAssetBundleSaveOptions& Options) -> FAssetWriteResult
+	auto FAssetMutationCoordinator::SavePackages(
+		std::span<DPackage* const> Packages, const FAssetBundleSaveOptions& Options) -> FAssetBatchSaveResult
 	{
-		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("mutation", ""); !Guard) return AssetWriteResultFromRead(Guard);
-		if (Packages.empty()) return Error(EAssetWriteError::InvalidData, "An asset bundle must contain at least one package.");
-		if (Options.PreparedPublication && !Options.bRollbackOnRegistryFailure)
-			return Error(EAssetWriteError::InvalidData, "Prepared publication requires rollback on Registry failure.");
-		if (RuntimeConfiguration.IsCooked()) return Error(EAssetWriteError::ReadOnlyMode, "Cooked packages cannot be saved.");
-		if (Options.RootPackage && std::ranges::find(Packages, Options.RootPackage) == Packages.end())
-			return Error(EAssetWriteError::InvalidData, "The root package is not part of the asset bundle.");
-		const auto Expected = CaptureAssetRegistryPublication();
-		if (Options.PreparedPublication && (!Expected.bReferenceIndexComplete || !Expected.ReferenceErrors.empty()))
-			return Error(EAssetWriteError::StaleData, "Prepared publication requires a complete Registry projection.");
-		std::vector<FPreparedPackageSave> StagedPackages;
-		StagedPackages.reserve(Packages.size());
-		std::unordered_set<FPackagePath> Paths;
-		auto Rollback = [&](FAssetWriteResult Failure) {
-			for (auto It = StagedPackages.rbegin(); It != StagedPackages.rend(); ++It)
-				if (It->Write) Failure = RollbackAssetWrite(*It->Write, std::move(Failure));
-			return Failure;
+		FAssetBatchSaveResult Batch;
+		auto Fail = [&](FAssetWriteResult Result, const FPackagePath& Path = {}) {
+			Batch.FailedPackage = Path;
+			Result.Message = std::format("Saved {} of {} packages; {}: {}",
+				Batch.SavedPackages.size(), Packages.size(), Path.IsValid() ? Path.ToString() : "batch admission", Result.Message);
+			Batch.Result = std::move(Result);
+			return Batch;
 		};
-		for (DPackage* Package : Packages)
+		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("save", ""); !Guard) return Fail(AssetWriteResultFromRead(Guard));
+		if (Packages.empty()) return Fail(Error(EAssetWriteError::InvalidData, "A save batch must contain at least one package."));
+		if (Options.PreparedPublication && (Packages.size() != 1 || !Options.bRollbackOnRegistryFailure))
+			return Fail(Error(EAssetWriteError::InvalidData, "Prepared publication requires one package and rollback on Registry failure."));
+		if (RuntimeConfiguration.IsCooked()) return Fail(Error(EAssetWriteError::ReadOnlyMode, "Cooked packages cannot be saved."));
+		if (Options.RootPackage && std::ranges::find(Packages, Options.RootPackage) == Packages.end())
+			return Fail(Error(EAssetWriteError::InvalidData, "The root package is not part of the save batch."));
+		std::vector<DPackage*> Ordered(Packages.begin(), Packages.end());
+		std::stable_sort(Ordered.begin(), Ordered.end(), [&](DPackage* A, DPackage* B) {
+			return Options.RootPackage && A != Options.RootPackage && B == Options.RootPackage;
+		});
+		std::unordered_set<FPackagePath> Paths;
+		for (size_t Index = 0; Index < Ordered.size(); ++Index)
 		{
+			DPackage* Package = Ordered[Index];
 			FPackagePath Path;
 			const bool Owned = Package && Options.PreparedPublication && Options.PreparedPublication->OwnsPreparedPackage(*Package);
 			if (!Package || !Package->IsAssetPackage() || (Package->IsGraphPrivate() && !Owned)
 				|| !FPackagePath::TryCreate(Package->GetPackagePath(), Path))
-				return Error(EAssetWriteError::InvalidData, "The asset bundle contains an invalid package.");
-			if (!Paths.insert(Path).second) return Error(EAssetWriteError::AlreadyExists, "The asset bundle contains a duplicate package.");
-			if (auto Result = PreparePackageSave(Package, Path, Options.Mode, StagedPackages.emplace_back()); !Result) return Result;
+				return Fail(Error(EAssetWriteError::InvalidData, "The save batch contains an invalid package."));
+			if (!Paths.insert(Path).second) return Fail(Error(EAssetWriteError::AlreadyExists, "The save batch contains a duplicate package."), Path);
+			const auto Expected = CaptureAssetRegistryPublication();
+			if (Options.PreparedPublication && (!Expected.bReferenceIndexComplete || !Expected.ReferenceErrors.empty()))
+				return Fail(Error(EAssetWriteError::StaleData, "Prepared publication requires a complete Registry projection."), Path);
+			FPreparedPackageSave Staged;
+			if (auto Result = PreparePackageSave(Package, Path, Options.Mode, Staged); !Result) return Fail(Result, Path);
+			if (auto Result = ToAssetWriteResult(Staged.Write->Stage()); !Result) return Fail(Result, Path);
+			auto PackageOptions = Options;
+			PackageOptions.RootPackage = Package == Options.RootPackage ? Package : nullptr;
+			PackageOptions.ShouldFail = [&](EAssetBundleSavePhase Phase, size_t) {
+				return Options.ShouldFail && (Phase != EAssetBundleSavePhase::PublishCompanion || Staged.File.BulkSegmentExtent)
+					&& Options.ShouldFail(Phase, Index);
+			};
+			if (auto Result = FinishOrdinarySave(Package, Path, Staged.Revision, Staged.File,
+				Staged.Destination, *Staged.Write, PackageOptions, Expected); !Result) return Fail(Result, Path);
+			Batch.SavedPackages.push_back(Path);
 		}
-		for (size_t Index = 0; Index < StagedPackages.size(); ++Index)
-		{
-			auto& Staged = StagedPackages[Index];
-			if (Options.ShouldFail)
-				for (auto Phase : {EAssetBundleSavePhase::CreateDirectories, EAssetBundleSavePhase::PublishCompanion, EAssetBundleSavePhase::StagePackage})
-					if ((Phase != EAssetBundleSavePhase::PublishCompanion || Staged.File.BulkSegmentExtent)
-						&& Options.ShouldFail(Phase, Index)) return Rollback(Error(EAssetWriteError::IoError, "Injected bundle staging failure."));
-			if (auto Result = ToAssetWriteResult(Staged.Write->Stage()); !Result) return Rollback(Result);
-		}
-		std::stable_sort(StagedPackages.begin(), StagedPackages.end(), [&](const auto& A, const auto& B) {
-			return A.Package != Options.RootPackage && B.Package == Options.RootPackage;
-		});
-		std::vector<FAssetData> Metadata;
-		for (auto& Staged : StagedPackages)
-			if (auto Result = ToAssetWriteResult(Staged.Write->ReserveCommit()); !Result) return Rollback(Result);
-		for (size_t Index = 0; Index < StagedPackages.size(); ++Index)
-		{
-			auto& Staged = StagedPackages[Index];
-			if (Staged.Package->GetEditRevision() != Staged.Revision || Staged.Package->GetPackagePathIdentity() != Staged.Path)
-				return Rollback(Error(EAssetWriteError::StaleData, "Package changed during bundle capture."));
-			const auto Phase = Staged.Package == Options.RootPackage ? EAssetBundleSavePhase::PublishRootPackage : EAssetBundleSavePhase::PublishPackage;
-			if (Options.ShouldFail && Options.ShouldFail(Phase, Index)) return Rollback(Error(EAssetWriteError::IoError, "Injected bundle publication failure."));
-			if (auto Result = ToAssetWriteResult(Staged.Write->Commit()); !Result) return Rollback(Result);
-			FFilePublicationStamp Stamp;
-			if (!FFilePublicationStamp::Inspect(Staged.Destination, Stamp) || !Stamp.Exists)
-				return Rollback(Error(EAssetWriteError::IoError, "Cannot inspect committed package."));
-			Metadata.push_back(BuildSavedAssetMetadata(Staged.File, Staged.Path, Staged.Destination, Stamp.Size, Stamp.Time));
-		}
-		const bool Inject = Options.ShouldFail && Options.ShouldFail(EAssetBundleSavePhase::PublishRegistry, StagedPackages.size());
-		auto RegistryResult = Inject ? Error(EAssetWriteError::StaleData, "Injected Registry publication failure.")
-			: AssetWriteResultFromRead(AssetPrivate::ToAssetResult(AssetsSaved(std::move(Metadata), Expected)));
-		if (!RegistryResult && Options.bRollbackOnRegistryFailure) return Rollback(RegistryResult);
-		FAssetWriteResult Finalized;
-		for (auto& Staged : StagedPackages)
-		{
-			if (FindResidentPackage(Staged.Path) == Staged.Package) Staged.Package->MarkAsPublished();
-			if (Staged.Package->GetEditRevision() == Staged.Revision) Staged.Package->ClearDirty();
-			if (auto Result = ToAssetWriteResult(Staged.Write->Finalize()); !Result) Finalized = Result;
-		}
-		if (!RegistryResult)
-		{
-			std::vector<FPackagePath> Fenced(Paths.begin(), Paths.end());
-			FenceAssetRegistryProjection(Fenced);
-			RegistryResult.Effect = EAssetWriteEffect::ContentCommittedProjectionPending;
-			RegistryResult.Message = "ContentCommittedProjectionPending: " + RegistryResult.Message;
-			if (!Finalized) { RegistryResult.Message += "; " + Finalized.Message; }
-			return RegistryResult;
-		}
-		return Finalized;
+		return Batch;
 	}
 
 	auto AdmitAssetPackageToCatalog(const FPackagePath& Path) -> FAssetWriteResult

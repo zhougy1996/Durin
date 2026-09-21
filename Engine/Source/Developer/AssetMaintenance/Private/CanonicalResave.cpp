@@ -504,7 +504,7 @@ namespace Durin
 					return Options.ShouldFail(EAssetCanonicalResaveApplyPhase::PublishRegistry, Index);
 				return false;
 			};
-			FAssetWriteResult Save = SavePackagesAtomically(Unit, SaveOptions);
+			FAssetWriteResult Save = SavePackages(Unit, SaveOptions).Result;
 			if (!Save)
 			{
 				(void)ReleaseLoaded();

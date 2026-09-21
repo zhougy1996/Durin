@@ -122,9 +122,9 @@ namespace Durin
 		}
 
 		auto SavePackage(DPackage* Package, EAssetPackageSaveMode Mode) -> FAssetWriteResult;
-		auto SavePackagesAtomically(
+		auto SavePackages(
 			std::span<DPackage* const> Packages,
-			const FAssetBundleSaveOptions& Options) -> FAssetWriteResult;
+			const FAssetBundleSaveOptions& Options) -> FAssetBatchSaveResult;
 		auto AdmitAssetPackageToCatalog(const FPackagePath& Path) -> FAssetWriteResult;
 		auto ReleasePackagesForRemoval(
 			std::span<const FAssetData> Entries, uint64 ExpectedRevision) -> FAssetWriteResult;
