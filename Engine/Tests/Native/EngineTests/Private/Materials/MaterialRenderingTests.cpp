@@ -249,7 +249,7 @@ TEST(FMaterialRenderingTests, StaticPropertyChangesUpdatePlanningPassIdentityWit
 	const FMaterialSlotsSnapshot Updated = CaptureMaterialSlots(Harness.Scene);
 	ASSERT_EQ(Updated.Materials.size(), 1u);
 	EXPECT_EQ(Updated.Proxy, Initial.Proxy);
-	EXPECT_EQ(Updated.ComponentRevision, Initial.ComponentRevision);
+
 	EXPECT_EQ(Updated.MaterialProxies, Initial.MaterialProxies);
 	EXPECT_NE(
 		Updated.Materials[0].PlanningPassIdentity,
@@ -372,7 +372,7 @@ TEST(FMaterialRenderingTests, StaticMeshProxyResolvesPrecedenceAndUpdatesEverySh
 	Shared->SetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(0.4, 0.5, 0.6));
 	const FMaterialSlotsSnapshot Updated = CaptureMaterialSlots(Harness.Scene);
 	EXPECT_EQ(Updated.Proxy, Initial.Proxy);
-	EXPECT_EQ(Updated.ComponentRevision, Initial.ComponentRevision);
+
 	EXPECT_EQ(Updated.MaterialProxies, Initial.MaterialProxies);
 	ExpectColorNear(GetMaterialBinding(Updated.Materials[0]).BaseColor, Durin::FVector4f(0.4f, 0.5f, 0.6f, 1.0f));
 	ExpectColorNear(GetMaterialBinding(Updated.Materials[1]).BaseColor, Durin::FVector4f(0.8f, 0.7f, 0.6f, 1.0f));
@@ -411,7 +411,7 @@ TEST(FMaterialRenderingTests, StaticMeshProxyResolvesPrecedenceAndUpdatesEverySh
 	Durin::CollectGarbage();
 }
 
-TEST(FMaterialRenderingTests, StaticMeshProxyOrdersRapidBindingChangesAndRejectsStaleRevisions)
+TEST(FMaterialRenderingTests, StaticMeshProxyOrdersBindingChangesAcrossProxyLifetimes)
 {
 	FRenderSceneHarness Harness;
 	auto* First = MakeExpandedMaterial(nullptr, "RapidFirstMaterial");
@@ -432,7 +432,6 @@ TEST(FMaterialRenderingTests, StaticMeshProxyOrdersRapidBindingChangesAndRejects
 	ASSERT_EQ(Rapid.Materials.size(), 2u);
 	ExpectColorNear(GetMaterialBinding(Rapid.Materials[0]).BaseColor, Durin::FVector4f(0.2f, 0.3f, 0.4f, 1.0f));
 	ExpectColorNear(GetMaterialBinding(Rapid.Materials[1]).BaseColor, Durin::FVector4f(0.7f, 0.6f, 0.5f, 1.0f));
-	EXPECT_EQ(Rapid.ComponentRevision, Initial.ComponentRevision);
 
 	Replacement->SetVectorParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(),
@@ -440,31 +439,30 @@ TEST(FMaterialRenderingTests, StaticMeshProxyOrdersRapidBindingChangesAndRejects
 	Component->SetMaterial(0, Replacement);
 	const FMaterialSlotsSnapshot Rebound = CaptureMaterialSlots(Harness.Scene);
 	EXPECT_EQ(Rebound.Proxy, Initial.Proxy);
-	EXPECT_GT(Rebound.ComponentRevision, Rapid.ComponentRevision);
+
 	EXPECT_NE(Rebound.MaterialProxies[0], Rapid.MaterialProxies[0]);
 	EXPECT_EQ(Rebound.MaterialProxies[1], Rapid.MaterialProxies[1]);
 	ExpectColorNear(
 		GetMaterialBinding(Rebound.Materials[0]).BaseColor,
 		Durin::FVector4f(0.9f, 0.8f, 0.7f, 1.0f));
 
-	Durin::FMaterialRenderProxyBindingUpdate Stale;
-	Stale.SlotIndex = 0;
-	Stale.ComponentRevision = Rapid.ComponentRevision;
-	Stale.MaterialProxy = First->GetMaterialRenderProxy();
-	struct FApplyStaleMaterialBindingCommand
-	{
-		static constexpr const char* GetName() { return "ApplyStaleMaterialBinding"; }
-	};
-	Durin::EnqueueRenderCommand<FApplyStaleMaterialBindingCommand>(
-		[Proxy = Rebound.Proxy, Stale](Durin::FRHICommandListImmediate&) {
-			Proxy->UpdateMaterialRenderProxyBinding(Stale);
-		});
+	// Bindings and proxy lifecycle commands share the game-thread ordered queue.
+	// Do not flush between mutations: an old publication must retire before the new one.
+	Component->SetMaterial(0, First);
+	Component->SetMaterial(1, Replacement);
+	Component->UnregisterComponent();
+	Component->SetMaterial(0, Replacement);
+	Component->SetMaterial(1, First);
+	Component->RegisterComponent();
+	Component->SetMaterial(1, Second);
 	const FMaterialSlotsSnapshot Ordered = CaptureMaterialSlots(Harness.Scene);
-	ExpectColorNear(
-		GetMaterialBinding(Ordered.Materials[0]).BaseColor,
-		GetMaterialBinding(Rebound.Materials[0]).BaseColor);
-	EXPECT_EQ(Ordered.ComponentRevision, Rebound.ComponentRevision);
-	EXPECT_EQ(Ordered.MaterialProxies[0], Rebound.MaterialProxies[0]);
+	ASSERT_EQ(Ordered.MaterialProxies.size(), 2u);
+	EXPECT_EQ(Ordered.MaterialProxies[0], Replacement->GetMaterialRenderProxy().GetReference());
+	EXPECT_EQ(Ordered.MaterialProxies[1], Second->GetMaterialRenderProxy().GetReference());
+	ExpectColorNear(GetMaterialBinding(Ordered.Materials[0]).BaseColor,
+		Durin::FVector4f(0.9f, 0.8f, 0.7f, 1.0f));
+	ExpectColorNear(GetMaterialBinding(Ordered.Materials[1]).BaseColor,
+		Durin::FVector4f(0.7f, 0.6f, 0.5f, 1.0f));
 
 	Component->UnregisterComponent();
 	WaitForRenderingThread();

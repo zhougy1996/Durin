@@ -535,7 +535,7 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 	auto Translate = [](double X, double Y) {
 		return Durin::Math::TranslationMatrix(Durin::FVector3{X, Y, 0.0});
 	};
-	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(1), std::make_unique<Durin::FStaticMeshSceneProxy>(StaticQuad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Material}, 1), Translate(-1.0, -1.0));
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(1), std::make_unique<Durin::FStaticMeshSceneProxy>(StaticQuad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Material}), Translate(-1.0, -1.0));
 	Durin::FSplineMeshRenderDynamicData SplineData{
 		.Params = {},
 		.LocalBounds = Durin::FBox({0.0, 0.0, 0.0}, {1.0, 1.0, 0.0}),
@@ -546,7 +546,7 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 	SplineData.Params.EndTangent = {1.0, 0.0, 0.0};
 	SplineData.Params.SourceForwardMin = 0.0;
 	SplineData.Params.SourceForwardMax = 1.0;
-	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(2), std::make_unique<Durin::FSplineMeshSceneProxy>(StaticQuad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Material}, 1, SplineData), Translate(0.0, -1.0));
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(2), std::make_unique<Durin::FSplineMeshSceneProxy>(StaticQuad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Material}, SplineData), Translate(0.0, -1.0));
 	Durin::FDirectionalLightSceneData Directional;
 	Directional.Direction = {0.35, 0.2, -1.0};
 	Directional.Color = {1.0f, 1.0f, 1.0f};
@@ -605,7 +605,7 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 		Durin::FPrimitiveComponentId(200),
 		std::make_unique<Durin::FStaticMeshSceneProxy>(
 			SpecularAAQuad.get(),
-			std::vector<Durin::FMaterialRenderProxyRef>{SpecularAAMaterial}, 1),
+			std::vector<Durin::FMaterialRenderProxyRef>{SpecularAAMaterial}),
 		Durin::FMatrix(1.0));
 	Durin::FDirectionalLightSceneData SpecularAADirectional;
 	SpecularAADirectional.Direction = {0.25, 0.0, -1.0};
@@ -1255,7 +1255,7 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 	);
 	RaisedTransform = Durin::Math::Scale(
 		RaisedTransform, Durin::FVector3{0.5, 0.5, 1.0});
-	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(7), std::make_unique<Durin::FStaticMeshSceneProxy>(StaticQuad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Material}, 1), RaisedTransform);
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(7), std::make_unique<Durin::FStaticMeshSceneProxy>(StaticQuad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Material}), RaisedTransform);
 	Durin::FlushRenderingCommands();
 	Durin::FByteBuffer RaisedContactVisibility;
 	Durin::FByteBuffer RaisedContactFilteredVisibility;
@@ -1301,8 +1301,8 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 	auto TranslucentMaterial =
 		TranslucentMaterialObject->GetMaterialRenderProxy();
 	Durin::FlushRenderingCommands();
-	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(5), std::make_unique<Durin::FStaticMeshSceneProxy>(StaticQuad.get(), std::vector<Durin::FMaterialRenderProxyRef>{UnlitMaterial}, 1), Translate(-0.55, -0.45));
-	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(6), std::make_unique<Durin::FStaticMeshSceneProxy>(StaticQuad.get(), std::vector<Durin::FMaterialRenderProxyRef>{TranslucentMaterial}, 1), Translate(-0.35, -0.25));
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(5), std::make_unique<Durin::FStaticMeshSceneProxy>(StaticQuad.get(), std::vector<Durin::FMaterialRenderProxyRef>{UnlitMaterial}), Translate(-0.55, -0.45));
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(6), std::make_unique<Durin::FStaticMeshSceneProxy>(StaticQuad.get(), std::vector<Durin::FMaterialRenderProxyRef>{TranslucentMaterial}), Translate(-0.35, -0.25));
 	Durin::FlushRenderingCommands();
 
 	std::vector<Durin::FGPUTimingQueryRHIRef> ProductionGBufferQueries;

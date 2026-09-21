@@ -27,7 +27,7 @@ namespace Durin
 
 		StaticMesh = InStaticMesh;
 		if (StaticMesh) StaticMesh->RequestRenderDataAndResources();
-		AdvanceMaterialBindingRevision();
+
 		MarkPackageDirty();
 		MarkRenderStateDirty();
 		RecreatePhysicsState();
@@ -41,7 +41,7 @@ namespace Durin
 	auto DStaticMeshComponent::RefreshReloadedAssetBindings() -> void
 	{
 		if (StaticMesh) StaticMesh->RequestRenderDataAndResources();
-		AdvanceMaterialBindingRevision();
+
 		MarkRenderStateDirty();
 		RecreatePhysicsState();
 	}
@@ -123,7 +123,6 @@ namespace Durin
 		const FName Name = Event.MemberProperty->NamePrivate;
 		if (Name == FName("StaticMesh"))
 		{
-			AdvanceMaterialBindingRevision();
 			MarkRenderStateDirty();
 			RecreatePhysicsState();
 			return;
@@ -155,8 +154,7 @@ namespace Durin
 		}
 		return std::make_unique<FStaticMeshSceneProxy>(
 			RenderData,
-			std::move(MaterialProxies),
-			GetMaterialBindingRevision());
+			std::move(MaterialProxies));
 	}
 
 	auto DStaticMeshComponent::OnRegister() -> void
@@ -180,7 +178,7 @@ namespace Durin
 	auto DStaticMeshComponent::HandleStaticMeshRenderDataChanged(DStaticMesh* ChangedMesh) -> void
 	{
 		if (ChangedMesh == nullptr || ChangedMesh != StaticMesh.Get()) return;
-		AdvanceMaterialBindingRevision();
+
 		MarkRenderStateDirty();
 		RecreatePhysicsState();
 	}

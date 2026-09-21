@@ -33,7 +33,7 @@ namespace Durin
 	{
 		const auto Result = ComponentMaterialOverride::Set(
 			OverrideMaterials, SlotIndex, SlotIndex < GetNumMaterials(),
-			InMaterial, MaterialComponentRevision, PendingMaterialSlotIndex);
+			InMaterial, PendingMaterialSlotIndex);
 		if (Result == ComponentMaterialOverride::EMutationResult::InvalidSlot) return false;
 		if (Result == ComponentMaterialOverride::EMutationResult::Unchanged) return true;
 		MarkPackageDirty();
@@ -68,7 +68,7 @@ namespace Durin
 	{
 		const auto Result = ComponentMaterialOverride::Set(
 			OverrideMaterials, SlotIndex, SlotIndex < GetNumMaterials(),
-			nullptr, MaterialComponentRevision, PendingMaterialSlotIndex);
+			nullptr, PendingMaterialSlotIndex);
 		if (Result != ComponentMaterialOverride::EMutationResult::Changed) return false;
 		MarkPackageDirty();
 		MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags::MaterialBinding);
@@ -78,7 +78,7 @@ namespace Durin
 	auto DMeshComponent::ClearMaterialOverrides() -> bool
 	{
 		if (!ComponentMaterialOverride::Clear(
-			OverrideMaterials, MaterialComponentRevision, PendingMaterialSlotIndex)) return false;
+			OverrideMaterials, PendingMaterialSlotIndex)) return false;
 		MarkPackageDirty();
 		MarkRenderStateDirty();
 		return true;
@@ -118,7 +118,7 @@ namespace Durin
 	{
 		ComponentMaterialOverride::BuildRenderProxyBindingUpdate(
 			PendingMaterialSlotIndex, GetMaterial(PendingMaterialSlotIndex),
-			MaterialComponentRevision, OutUpdate);
+			OutUpdate);
 		return true;
 	}
 
@@ -165,7 +165,7 @@ namespace Durin
 		const FName Name = Event.MemberProperty->NamePrivate;
 		if (Name != FName("OverrideMaterials")) return;
 		ComponentMaterialOverride::TrimTrailingNulls(OverrideMaterials);
-		++MaterialComponentRevision;
+
 		MarkRenderStateDirty();
 	}
 

@@ -577,7 +577,11 @@ result; neither operation reinterprets the authored program.
 - `DMeshComponent` persists a positional `OverrideMaterials` array shared by
   StaticMesh and SplineMesh components. Geometry owners supply slot count,
   name-to-index lookup, and default-material queries; the base owns indexed and
-  named mutation, reset, validation, property replay, and binding revisions.
+  named mutation, reset, validation, property replay, and binding updates.
+  Binding updates are submitted immediately on the game thread through the scene.
+  Proxy creation, slot updates, and removal share the ordered render command queue;
+  updates carry material references and slot indices, not component revisions.
+  Asynchronous work must resolve current component state before submitting a binding.
   Resolution for each current index is non-null component override, mesh
   default, then the Engine-owned `/Engine/Materials/DefaultMaterial` proxy.
   Empty assignments remain null in serialized component and mesh state; the

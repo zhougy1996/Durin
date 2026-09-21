@@ -41,11 +41,6 @@ namespace Durin
 		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal) -> FObjectValidationResult override;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 
-	protected:
-		// Geometry owners advance this when replacing the slot layout or rebuilding their proxy.
-		auto AdvanceMaterialBindingRevision() -> void { ++MaterialComponentRevision; }
-		auto GetMaterialBindingRevision() const -> uint64 { return MaterialComponentRevision; }
-
 	private:
 		ENGINE_API auto BuildMaterialRenderProxyBindingUpdate(
 			FMaterialRenderProxyBindingUpdate& OutUpdate) -> bool override;
@@ -55,7 +50,6 @@ namespace Durin
 		DPROPERTY()
 		std::vector<TObjectPtr<DMaterialInterface>> OverrideMaterials;
 
-		uint64 MaterialComponentRevision = 1;
 		uint32 PendingMaterialSlotIndex = 0;
 	};
 }

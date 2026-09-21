@@ -10,7 +10,6 @@ namespace Durin::ComponentMaterialOverride
 		uint32 SlotIndex,
 		bool bSlotExists,
 		DMaterialInterface* Material,
-		uint64& Revision,
 		uint32& PendingSlotIndex) -> EMutationResult
 	{
 		if (!bSlotExists) return EMutationResult::InvalidSlot;
@@ -25,19 +24,16 @@ namespace Durin::ComponentMaterialOverride
 			Overrides[SlotIndex] = nullptr;
 			TrimTrailingNulls(Overrides);
 		}
-		++Revision;
 		PendingSlotIndex = SlotIndex;
 		return EMutationResult::Changed;
 	}
 
 	auto Clear(
 		std::vector<TObjectPtr<DMaterialInterface>>& Overrides,
-		uint64& Revision,
 		uint32& PendingSlotIndex) -> bool
 	{
 		if (Overrides.empty()) return false;
 		Overrides.clear();
-		++Revision;
 		PendingSlotIndex = 0;
 		return true;
 	}
@@ -73,11 +69,9 @@ namespace Durin::ComponentMaterialOverride
 	auto BuildRenderProxyBindingUpdate(
 		uint32 SlotIndex,
 		DMaterialInterface* Material,
-		uint64 Revision,
 		FMaterialRenderProxyBindingUpdate& OutUpdate) -> void
 	{
 		OutUpdate.SlotIndex = SlotIndex;
 		OutUpdate.MaterialProxy = ResolveRenderProxy(Material);
-		OutUpdate.ComponentRevision = Revision;
 	}
 }

@@ -289,8 +289,7 @@ TEST(FErrorMaterialTests, MissingStructuralProxyUsesErrorWithoutAssetLookup)
 	Durin::FStaticMeshSceneProxy Proxy(
 		nullptr,
 		std::vector<Durin::FMaterialRenderProxyRef>{
-			Durin::FMaterialRenderProxyRef{}},
-		1);
+			Durin::FMaterialRenderProxyRef{}});
 	Durin::FMaterialRenderData Resolved;
 	struct FCaptureMissingProxyErrorCommand
 	{

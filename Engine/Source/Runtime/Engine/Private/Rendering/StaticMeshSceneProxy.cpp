@@ -8,11 +8,9 @@ namespace Durin
 {
 	FStaticMeshSceneProxy::FStaticMeshSceneProxy(
 		const FStaticMeshRenderData* InRenderData,
-		std::vector<FMaterialRenderProxyRef> InMaterialProxies,
-		uint64 InMaterialComponentRevision)
+		std::vector<FMaterialRenderProxyRef> InMaterialProxies)
 		: RenderData(InRenderData)
 		, Materials(std::move(InMaterialProxies))
-		, MaterialComponentRevision(InMaterialComponentRevision)
 	{
 	}
 
@@ -42,21 +40,13 @@ namespace Durin
 		return SlotIndex < Materials.size() ? Materials[SlotIndex] : EmptyProxy;
 	}
 
-	auto FStaticMeshSceneProxy::UpdateMaterialRenderProxyBinding(
-		const FMaterialRenderProxyBindingUpdate& Update) -> void
-	{
-		CheckRenderingThread();
-		if (Update.ComponentRevision <= MaterialComponentRevision) return;
-		if (Update.SlotIndex >= Materials.size()) return;
-		Materials[Update.SlotIndex] = Update.MaterialProxy;
-		MaterialComponentRevision = Update.ComponentRevision;
-		RecordMaterialBindingUpdate();
-	}
-
 	auto FStaticMeshSceneProxy::UpdateMaterialBinding_RenderThread(
 		const FMaterialRenderProxyBindingUpdate& Update) -> bool
 	{
-		UpdateMaterialRenderProxyBinding(Update);
+		CheckRenderingThread();
+		if (Update.SlotIndex >= Materials.size()) return false;
+		Materials[Update.SlotIndex] = Update.MaterialProxy;
+		RecordMaterialBindingUpdate();
 		return true;
 	}
 

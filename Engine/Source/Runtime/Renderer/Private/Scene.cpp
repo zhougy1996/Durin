@@ -479,7 +479,10 @@ namespace Durin
 
 	auto FScene::UpdatePrimitiveMaterialBinding(FPrimitiveComponentId PrimitiveId, const FMaterialRenderProxyBindingUpdate& Update) -> void
 	{
+		requiref(IsInGameThread(), "Material bindings must be submitted on the game thread.");
 		RequireActive("UpdatePrimitiveMaterialBinding");
+		// Add/remove and binding commands execute in submission order. A binding
+		// targets the publication alive at this point in that ordered lifecycle.
 		if (PrimitiveId == InvalidPrimitiveComponentId) return;
 		const bool bAccepted = TryEnqueueRenderCommand("UpdatePrimitiveMaterialBinding", [this, PrimitiveId, Update](FRHICommandListImmediate&) {
 			CheckRenderingThread();

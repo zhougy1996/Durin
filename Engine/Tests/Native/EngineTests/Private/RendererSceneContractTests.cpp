@@ -851,7 +851,7 @@ namespace
 			std::shared_ptr<std::atomic<bool>> InDestroyed,
 			std::shared_ptr<std::atomic<bool>> InDestroyedOnRenderingThread
 		)
-			: FStaticMeshSceneProxy(RenderData, {}, 0)
+			: FStaticMeshSceneProxy(RenderData, {})
 			, Destroyed(std::move(InDestroyed))
 			, DestroyedOnRenderingThread(
 				  std::move(InDestroyedOnRenderingThread)
@@ -1709,7 +1709,7 @@ TEST(FRendererSceneContractTests, DirectionalShadowCandidatesStartFromSceneAndKe
 		Durin::FVector3(-0.25), Durin::FVector3(0.25)
 	);
 	auto Add = [&](uint64 Id, const Durin::FVector3& Position) {
-		Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(Id), std::make_unique<Durin::FStaticMeshSceneProxy>(&RenderData, std::vector<Durin::FMaterialRenderProxyRef>{}, 0), Durin::Math::TranslationMatrix(Position));
+		Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(Id), std::make_unique<Durin::FStaticMeshSceneProxy>(&RenderData, std::vector<Durin::FMaterialRenderProxyRef>{}), Durin::Math::TranslationMatrix(Position));
 	};
 	Add(1, {3.0, 0.0, 0.0});
 	Add(2, {3.0, 10.0, 0.0});
@@ -1769,7 +1769,7 @@ TEST(FRendererSceneContractTests, DirectionalShadowCasterTableBuildsZeroThroughA
 			 std::pair<uint64, double>{4u, 10.0}
 		 })
 	{
-		Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(Id), std::make_unique<Durin::FStaticMeshSceneProxy>(&RenderData, std::vector<Durin::FMaterialRenderProxyRef>{}, 0), Durin::Math::TranslationMatrix(Durin::FVector3(X, 0.0, 0.0)));
+		Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(Id), std::make_unique<Durin::FStaticMeshSceneProxy>(&RenderData, std::vector<Durin::FMaterialRenderProxyRef>{}), Durin::Math::TranslationMatrix(Durin::FVector3(X, 0.0, 0.0)));
 	}
 	Durin::FlushRenderingCommands();
 
@@ -1824,7 +1824,7 @@ TEST(FRendererSceneContractTests, PrimitiveMembershipOwnsClassificationBoundsAnd
 		Durin::FVector3(10.0, 20.0, 30.0)
 	);
 
-	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Id, std::make_unique<Durin::FStaticMeshSceneProxy>(&RenderData, std::vector<Durin::FMaterialRenderProxyRef>{}, 0), InitialTransform);
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Id, std::make_unique<Durin::FStaticMeshSceneProxy>(&RenderData, std::vector<Durin::FMaterialRenderProxyRef>{}), InitialTransform);
 	Durin::FlushRenderingCommands();
 	ASSERT_EQ(Scene.GetPrimitiveSceneInfos().size(), 1u);
 	ASSERT_EQ(Scene.GetPrimitiveSceneInfos().size(), 1u);
@@ -1856,7 +1856,7 @@ TEST(FRendererSceneContractTests, PrimitiveMembershipOwnsClassificationBoundsAnd
 	Durin::FlushRenderingCommands();
 	EXPECT_TRUE(Scene.GetPrimitiveSceneInfos().empty());
 
-	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Id, std::make_unique<Durin::FStaticMeshSceneProxy>(&RenderData, std::vector<Durin::FMaterialRenderProxyRef>{}, 0), Durin::FMatrix(1.0));
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Id, std::make_unique<Durin::FStaticMeshSceneProxy>(&RenderData, std::vector<Durin::FMaterialRenderProxyRef>{}), Durin::FMatrix(1.0));
 	Durin::FlushRenderingCommands();
 	EXPECT_EQ(Scene.GetPrimitiveSceneInfos().size(), 1u);
 }
@@ -1874,7 +1874,7 @@ TEST(FRendererSceneContractTests, VisibilityClassifiesOnceAndKeepsFallbacksVisib
 
 	auto AddStaticMesh = [&](uint64 Id, const Durin::FVector3& Location,
 							 bool bVisible, const Durin::FStaticMeshRenderData* RenderData) {
-		Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(Id), std::make_unique<Durin::FStaticMeshSceneProxy>(RenderData, std::vector<Durin::FMaterialRenderProxyRef>{}, 0), Durin::Math::TranslationMatrix(Location), bVisible);
+		Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(Id), std::make_unique<Durin::FStaticMeshSceneProxy>(RenderData, std::vector<Durin::FMaterialRenderProxyRef>{}), Durin::Math::TranslationMatrix(Location), bVisible);
 	};
 	AddStaticMesh(1, {3.0, 0.0, 0.0}, true, &ValidRenderData);
 	AddStaticMesh(2, {3.0, 0.0, 0.0}, false, &ValidRenderData);
@@ -1942,7 +1942,7 @@ TEST(FRendererSceneContractTests, VisibilityPolicyAndSequentialViewsAreIndepende
 	RenderData.LocalBounds = Durin::FBox(
 		Durin::FVector3(-0.5), Durin::FVector3(0.5)
 	);
-	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(9), std::make_unique<Durin::FStaticMeshSceneProxy>(&RenderData, std::vector<Durin::FMaterialRenderProxyRef>{}, 0), Durin::Math::TranslationMatrix(Durin::FVector3(3.0, 0.0, 0.0)));
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(9), std::make_unique<Durin::FStaticMeshSceneProxy>(&RenderData, std::vector<Durin::FMaterialRenderProxyRef>{}), Durin::Math::TranslationMatrix(Durin::FVector3(3.0, 0.0, 0.0)));
 	Durin::FlushRenderingCommands();
 
 	Durin::FSceneView MainView;
@@ -2220,7 +2220,7 @@ TEST(FRendererSceneContractTests, SplineDeformationAndBoundsUpdateAtomicallyInTy
 		.Revision = 1
 	};
 	const Durin::FPrimitiveComponentId Id(92);
-	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Id, std::make_unique<Durin::FSplineMeshSceneProxy>(&RenderData, std::vector<Durin::FMaterialRenderProxyRef>{}, 1, First), Durin::Math::TranslationMatrix(Durin::FVector3(2.0, 0.0, 0.0)));
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Id, std::make_unique<Durin::FSplineMeshSceneProxy>(&RenderData, std::vector<Durin::FMaterialRenderProxyRef>{}, First), Durin::Math::TranslationMatrix(Durin::FVector3(2.0, 0.0, 0.0)));
 	Durin::FlushRenderingCommands();
 	ASSERT_EQ(Scene.GetPrimitiveSceneInfos().size(), 1u);
 	const Durin::FPrimitiveSceneInfo* Info = Scene.GetPrimitiveSceneInfos().front();

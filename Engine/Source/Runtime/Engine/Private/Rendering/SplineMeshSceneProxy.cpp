@@ -9,10 +9,9 @@ namespace Durin
 	FSplineMeshSceneProxy::FSplineMeshSceneProxy(
 		const FStaticMeshRenderData* InRenderData,
 		std::vector<FMaterialRenderProxyRef> InMaterialProxies,
-		uint64 InMaterialComponentRevision,
 		FSplineMeshRenderDynamicData InDynamicData)
 		: RenderData(InRenderData), Materials(std::move(InMaterialProxies)),
-		  MaterialComponentRevision(InMaterialComponentRevision), DynamicData(std::move(InDynamicData))
+		  DynamicData(std::move(InDynamicData))
 	{
 	}
 
@@ -36,10 +35,8 @@ namespace Durin
 		const FMaterialRenderProxyBindingUpdate& Update) -> bool
 	{
 		CheckRenderingThread();
-		if (Update.ComponentRevision <= MaterialComponentRevision
-			|| Update.SlotIndex >= Materials.size()) return false;
+		if (Update.SlotIndex >= Materials.size()) return false;
 		Materials[Update.SlotIndex] = Update.MaterialProxy;
-		MaterialComponentRevision = Update.ComponentRevision;
 		RecordMaterialBindingUpdate();
 		return true;
 	}

@@ -105,7 +105,6 @@ namespace Durin
 		bRecreateRenderState |= !Previous || !Current || Previous->IsValid() != Current->IsValid();
 		if (bRecreateRenderState)
 		{
-			AdvanceMaterialBindingRevision();
 			MarkRenderStateDirty();
 		}
 		else if (bRebuildDeformation)
@@ -338,8 +337,7 @@ namespace Durin
 			DMaterialInterface* SlotMaterial = GetMaterial(SlotIndex);
 			MaterialProxies.push_back(ComponentMaterialOverride::ResolveRenderProxy(SlotMaterial));
 		}
-		return std::make_unique<FSplineMeshSceneProxy>(RenderData, std::move(MaterialProxies),
-			GetMaterialBindingRevision(), FSplineMeshRenderDynamicData{
+		return std::make_unique<FSplineMeshSceneProxy>(RenderData, std::move(MaterialProxies), FSplineMeshRenderDynamicData{
 				.Params = State->Params,
 				.LocalBounds = State->ConservativeLocalBounds,
 				.Revision = State->DeformationRevision});

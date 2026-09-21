@@ -6,14 +6,13 @@ namespace Durin
 {
 	struct FStaticMeshRenderData;
 
-	// Couples static-mesh render resources with revisioned per-slot material bindings.
+	// Couples static-mesh render resources with ordered per-slot material bindings.
 	class FStaticMeshSceneProxy : public FPrimitiveSceneProxy
 	{
 	public:
 		ENGINE_API explicit FStaticMeshSceneProxy(
 			const FStaticMeshRenderData* InRenderData,
-			std::vector<FMaterialRenderProxyRef> InMaterialProxies,
-			uint64 InMaterialComponentRevision);
+			std::vector<FMaterialRenderProxyRef> InMaterialProxies);
 
 		ENGINE_API auto GetRenderData() const -> const FStaticMeshRenderData*;
 		auto GetKind() const -> EPrimitiveSceneProxyKind override { return EPrimitiveSceneProxyKind::StaticMesh; }
@@ -25,11 +24,9 @@ namespace Durin
 		{
 			return ResolveMaterialRenderData_RenderThread(0);
 		}
-		auto GetMaterialComponentRevision() const -> uint64 { return MaterialComponentRevision; }
+
 		ENGINE_API auto GetMaterialRenderProxy(uint32 SlotIndex) const
 			-> const FMaterialRenderProxyRef&;
-		ENGINE_API auto UpdateMaterialRenderProxyBinding(
-			const FMaterialRenderProxyBindingUpdate& Update) -> void;
 		ENGINE_API auto UpdateMaterialBinding_RenderThread(
 			const FMaterialRenderProxyBindingUpdate& Update) -> bool override;
 
@@ -41,6 +38,6 @@ namespace Durin
 		// component removes this proxy before the asset retires the render data.
 		const FStaticMeshRenderData* RenderData = nullptr;
 		std::vector<FMaterialRenderProxyRef> Materials;
-		uint64 MaterialComponentRevision = 0;
+
 	};
 }

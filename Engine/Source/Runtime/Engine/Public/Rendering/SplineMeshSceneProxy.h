@@ -21,7 +21,6 @@ namespace Durin
 	public:
 		ENGINE_API FSplineMeshSceneProxy(const FStaticMeshRenderData* InRenderData,
 			std::vector<FMaterialRenderProxyRef> InMaterialProxies,
-			uint64 InMaterialComponentRevision,
 			FSplineMeshRenderDynamicData InDynamicData);
 		auto GetKind() const -> EPrimitiveSceneProxyKind override { return EPrimitiveSceneProxyKind::SplineMesh; }
 		auto GetRenderData() const -> const FStaticMeshRenderData* { return RenderData; }
@@ -39,7 +38,7 @@ namespace Durin
 	private:
 		const FStaticMeshRenderData* RenderData = nullptr;
 		std::vector<FMaterialRenderProxyRef> Materials;
-		uint64 MaterialComponentRevision = 0;
+
 		FSplineMeshRenderDynamicData DynamicData;
 		uint64 AcceptedDynamicUpdateCount = 0;
 	};

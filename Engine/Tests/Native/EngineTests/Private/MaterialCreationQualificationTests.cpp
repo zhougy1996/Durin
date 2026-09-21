@@ -182,8 +182,8 @@ namespace Durin
 				ASSERT_EQ(FrozenShaders[Index], *Program->CompiledShaders[Index].Code);
 			Life.Proxy = Life.Material->GetMaterialRenderProxy();
 			Life.Scene = std::make_unique<FSceneTestOwner>();
-			ASSERT_TRUE(FSceneInterfaceTestAccess::TryAddPrimitiveProxy(**Life.Scene, FPrimitiveSceneId(1),
-				std::make_unique<FStaticMeshSceneProxy>(Life.Mesh.get(), std::vector<FMaterialRenderProxyRef>{Life.Proxy}, 1),
+			ASSERT_TRUE(FSceneInterfaceTestAccess::TryAddPrimitiveProxy(**Life.Scene, FPrimitiveComponentId(1),
+				std::make_unique<FStaticMeshSceneProxy>(Life.Mesh.get(), std::vector<FMaterialRenderProxyRef>{Life.Proxy}),
 				Math::TranslationMatrix(FVector3(0,0,-0.5)) * Math::ScaleMatrix(FVector3(0.75,0.75,1))));
 			FlushRenderingCommands();
 			const auto PrewarmTrigger = VulkanCreationTimestamp();

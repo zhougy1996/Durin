@@ -344,15 +344,14 @@ TEST(FMaterialPropertyEditingTests, ReflectedPositionalMaterialOverrideUsesShare
 	EXPECT_EQ(EditSession.Commit().GetStatus(), Durin::Editor::EPropertyEditResult::Changed);
 	const FSceneSnapshot After = CaptureScene(Harness.Scene);
 
-	EXPECT_GT(After.ComponentRevision, Before.ComponentRevision);
 	ExpectColorNear(GetMaterialBinding(After.Material).BaseColor, Durin::FVector4f(0.7f, 0.6f, 0.5f, 1.0f));
 	ASSERT_TRUE(Transactions->Undo());
 	const FSceneSnapshot Undone = CaptureScene(Harness.Scene);
-	EXPECT_GT(Undone.ComponentRevision, After.ComponentRevision);
+
 	ExpectColorNear(GetMaterialBinding(Undone.Material).BaseColor, Durin::FVector4f(0.1f, 0.2f, 0.3f, 1.0f));
 	ASSERT_TRUE(Transactions->Redo());
 	const FSceneSnapshot Redone = CaptureScene(Harness.Scene);
-	EXPECT_GT(Redone.ComponentRevision, Undone.ComponentRevision);
+
 	ExpectColorNear(GetMaterialBinding(Redone.Material).BaseColor, Durin::FVector4f(0.7f, 0.6f, 0.5f, 1.0f));
 	EXPECT_TRUE(Transactions->Reset());
 
@@ -753,12 +752,12 @@ TEST(FMaterialPropertyEditingTests, ParentTransactionsRenderFromCurrentCanonical
 	FirstParent->SetVectorParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(0.9, 0.1, 0.2));
 	const FSceneSnapshot PreviousParentChanged = CaptureScene(Harness.Scene);
-	EXPECT_EQ(PreviousParentChanged.ComponentRevision, Redone.ComponentRevision);
+
 	ExpectColorNear(GetMaterialBinding(PreviousParentChanged.Material).BaseColor, Durin::FVector4f(0.7f, 0.6f, 0.5f, 1.0f));
 	SecondParent->SetVectorParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(0.2, 0.8, 0.4));
 	const FSceneSnapshot CurrentParentChanged = CaptureScene(Harness.Scene);
-	EXPECT_EQ(CurrentParentChanged.ComponentRevision, PreviousParentChanged.ComponentRevision);
+
 	ExpectColorNear(GetMaterialBinding(CurrentParentChanged.Material).BaseColor, Durin::FVector4f(0.2f, 0.8f, 0.4f, 1.0f));
 	EXPECT_TRUE(Transactions->Reset());
 

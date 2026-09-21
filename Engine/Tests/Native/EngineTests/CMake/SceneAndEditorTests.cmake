@@ -525,7 +525,7 @@ endif()
 durin_add_native_test(MaterialCreationQualificationTests
 	KIND qualification
 	DOMAINS material renderer rhi-creation
-	MODULES engine renderer vulkan-rhi
+	MODULES asset-forge-builtins engine renderer vulkan-rhi
 	BACKENDS vulkan
 	STACKS renderer
 	TIMEOUT 900
@@ -535,6 +535,7 @@ durin_add_native_test(MaterialCreationQualificationTests
 		Core
 		CoreDObject
 		Engine
+		AssetForgeBuiltins
 		ApplicationCore
 		RenderCore
 		Renderer

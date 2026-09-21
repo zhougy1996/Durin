@@ -38,11 +38,13 @@ namespace Durin
 	using FMaterialRenderProxyRef = TRefCountPtr<FMaterialRenderProxy>;
 
 	// Rebinds one stable primitive slot without copying material content.
+	// Submit immediately on the game thread through the scene, in proxy lifecycle order;
+	// this value is not a deferred/asynchronous result or a replayable command.
 	struct FMaterialRenderProxyBindingUpdate
 	{
 		uint32 SlotIndex = 0;
 		FMaterialRenderProxyRef MaterialProxy;
-		uint64 ComponentRevision = 0;
+
 	};
 
 	struct FMaterialRenderProxyPublication

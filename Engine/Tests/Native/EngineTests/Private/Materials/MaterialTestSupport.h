@@ -307,7 +307,7 @@ namespace
 		Durin::FStaticMeshSceneProxy* Proxy = nullptr;
 		Durin::FMaterialRenderData Material;
 		Durin::FMatrix Transform{1.0};
-		uint64 ComponentRevision = 0;
+
 		uint64 ProxyCount = 0;
 	};
 
@@ -317,7 +317,7 @@ namespace
 		const Durin::FStaticMeshRenderData* RenderData = nullptr;
 		std::vector<Durin::FMaterialRenderData> Materials;
 		std::vector<const Durin::FMaterialRenderProxy*> MaterialProxies;
-		uint64 ComponentRevision = 0;
+
 	};
 
 	auto CaptureScene(Durin::FScene* Scene) -> FSceneSnapshot
@@ -336,7 +336,6 @@ namespace
 			Snapshot.Material =
 				Snapshot.Proxy->ResolveMaterialRenderData_RenderThread();
 			Snapshot.Transform = Info->GetTransform();
-			Snapshot.ComponentRevision = Snapshot.Proxy->GetMaterialComponentRevision();
 		});
 		WaitForRenderingThread();
 		return Snapshot;
@@ -354,7 +353,6 @@ namespace
 			Snapshot.Proxy = dynamic_cast<Durin::FStaticMeshSceneProxy*>(&Scene->GetPrimitiveSceneInfos().front()->GetProxy());
 			if (Snapshot.Proxy == nullptr) return;
 			Snapshot.RenderData = Snapshot.Proxy->GetRenderData();
-			Snapshot.ComponentRevision = Snapshot.Proxy->GetMaterialComponentRevision();
 			for (uint32 SlotIndex = 0; SlotIndex < Snapshot.Proxy->GetNumMaterials(); ++SlotIndex)
 			{
 				Snapshot.Materials.push_back(

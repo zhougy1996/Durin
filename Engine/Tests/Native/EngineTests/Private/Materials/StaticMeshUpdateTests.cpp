@@ -174,9 +174,7 @@ TEST(FStaticMeshUpdateTests, CurrentAssignmentsAndDefaultsDriveLoadedComponentSc
 
 	FirstMesh->SetMaterialSlotDefaultMaterial(0, Second);
 	const FMaterialSlotsSnapshot DefaultUpdate = CaptureMaterialSlots(Harness.Scene);
-	EXPECT_GT(
-		DefaultUpdate.ComponentRevision,
-		Initial.ComponentRevision);
+
 	ExpectColorNear(GetMaterialBinding(DefaultUpdate.Materials[0]).BaseColor, Durin::FVector4f(0.7f, 0.6f, 0.5f, 1.0f));
 
 	Component->SetStaticMesh(SecondMesh);
@@ -185,11 +183,13 @@ TEST(FStaticMeshUpdateTests, CurrentAssignmentsAndDefaultsDriveLoadedComponentSc
 	RecreateStaticMeshState(FirstMesh);
 	const FMaterialSlotsSnapshot PreviousMeshUpdate = CaptureMaterialSlots(Harness.Scene);
 	EXPECT_EQ(PreviousMeshUpdate.Proxy, Reassigned.Proxy);
-	RecreateStaticMeshState(SecondMesh);
+	{
+		Durin::FStaticMeshRenderStateRecreateContext Context(SecondMesh);
+		EXPECT_EQ(CapturePrimitiveCount(Harness.Scene), 0u);
+	}
 	const FMaterialSlotsSnapshot CurrentMeshUpdate = CaptureMaterialSlots(Harness.Scene);
-	EXPECT_GT(
-		CurrentMeshUpdate.ComponentRevision,
-		Reassigned.ComponentRevision);
+	EXPECT_EQ(CapturePrimitiveCount(Harness.Scene), 1u);
+	EXPECT_EQ(CurrentMeshUpdate.RenderData, SecondMesh->GetRenderData());
 
 	Component->UnregisterComponent();
 	WaitForRenderingThread();
@@ -248,11 +248,13 @@ TEST(FStaticMeshUpdateTests, LaterScansResolveReusedObjectSlotsByGenerationAndCu
 	RecreateStaticMeshState(FirstMesh);
 	const FMaterialSlotsSnapshot PreviousMeshUpdate = CaptureMaterialSlots(Harness.Scene);
 	EXPECT_EQ(PreviousMeshUpdate.Proxy, Initial.Proxy);
-	RecreateStaticMeshState(SecondMesh);
+	{
+		Durin::FStaticMeshRenderStateRecreateContext Context(SecondMesh);
+		EXPECT_EQ(CapturePrimitiveCount(Harness.Scene), 0u);
+	}
 	const FMaterialSlotsSnapshot CurrentMeshUpdate = CaptureMaterialSlots(Harness.Scene);
-	EXPECT_GT(
-		CurrentMeshUpdate.ComponentRevision,
-		Initial.ComponentRevision);
+	EXPECT_EQ(CapturePrimitiveCount(Harness.Scene), 1u);
+	EXPECT_EQ(CurrentMeshUpdate.RenderData, SecondMesh->GetRenderData());
 
 	Replacement->UnregisterComponent();
 	WaitForRenderingThread();

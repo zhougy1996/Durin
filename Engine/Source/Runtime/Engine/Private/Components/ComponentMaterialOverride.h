@@ -17,17 +17,15 @@ namespace Durin
 			Changed
 		};
 
-		// Mutates positional overrides and their render-binding revision without owning component lifecycle effects.
+		// Mutates positional overrides without owning component lifecycle effects.
 		auto Set(
 			std::vector<TObjectPtr<DMaterialInterface>>& Overrides,
 			uint32 SlotIndex,
 			bool bSlotExists,
 			DMaterialInterface* Material,
-			uint64& Revision,
 			uint32& PendingSlotIndex) -> EMutationResult;
 		auto Clear(
 			std::vector<TObjectPtr<DMaterialInterface>>& Overrides,
-			uint64& Revision,
 			uint32& PendingSlotIndex) -> bool;
 		auto Get(
 			std::span<const TObjectPtr<DMaterialInterface>> Overrides,
@@ -42,7 +40,6 @@ namespace Durin
 		auto BuildRenderProxyBindingUpdate(
 			uint32 SlotIndex,
 			DMaterialInterface* Material,
-			uint64 Revision,
 			FMaterialRenderProxyBindingUpdate& OutUpdate) -> void;
 	}
 }
