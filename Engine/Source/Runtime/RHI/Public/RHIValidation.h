@@ -1,5 +1,7 @@
 #pragma once
 
+#include <expected>
+
 #include "RHIAPI.h"
 
 namespace Durin
@@ -260,7 +262,7 @@ namespace Durin
 	// Engine-owned failures carry semantic codes and locations, never prose.
 	struct FRHIError
 	{
-		using FCode = std::variant<std::monostate,
+		using FCode = std::variant<
 			ERHIAccessError,
 			ERHIShaderBindingError,
 			ERHIGraphicsPipelineError,
@@ -285,19 +287,11 @@ namespace Durin
 		std::optional<uint32> ArrayElement;
 		std::optional<ERHIBindingType> ExpectedBindingType;
 		std::optional<ERHIBindingType> ActualBindingType;
-		auto HasError() const -> bool { return Code.index() != 0; }
 	};
 
-	struct FRHIOperationResult
-	{
-		FRHIError Error;
-		FRHIOperationResult() = default;
-		template<typename T> requires std::is_constructible_v<FRHIError::FCode, T>
-		FRHIOperationResult(T Code, std::optional<uint32> Index = {}, std::optional<uint32> Other = {})
-			: Error{.Code = Code, .Index = Index, .OtherIndex = Other} {}
-		auto IsSuccess() const -> bool { return !Error.HasError(); }
-		explicit operator bool() const { return IsSuccess(); }
-	};
+	template<typename T = void>
+	using TRHIResult = std::expected<T, FRHIError>;
+	using FRHIOperationResult = TRHIResult<>;
 
 	// Presentation boundary only: logging, assertions and user interfaces.
 	RHI_API auto FormatRHIError(const FRHIError& Error) -> std::string;

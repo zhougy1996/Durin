@@ -5,16 +5,15 @@ Modules: RHI, VulkanRHI, RenderCore
 
 ## Validation results
 
-`FRHIOperationResult` returns success or an `FRHIError`. The error code is a
-discriminated union of validation domains: access, bindings, pipelines,
-transitions, views, copies, texture creation, and uploads. `std::monostate`
-means success. Results do not carry message strings or an independent success
-flag. Batch and binding validation retain numeric locations where available.
+`TRHIResult<T>` is an alias for `std::expected<T, FRHIError>`;
+`FRHIOperationResult` names its `void` specialization for validation without a
+value. Success is represented by the expected value, not an error sentinel.
+`FRHIError` retains a discriminated union of validation domains and numeric
+locations for batch and binding failures. Read `error()` only after failure.
 
-Data output parameters retain their operation-specific publication behavior;
-the result replaces the error output parameter, not the data outputs. In
-particular, pipeline keys and swapchain configurations publish only validated
-candidates. Binding visitors can have visited a valid prefix before failure.
+Pipeline key builders return the validated key as the expected value. Other
+data output parameters retain their operation-specific publication behavior;
+for example, binding visitors can have visited a valid prefix before failure.
 
 `FormatRHIError` formats errors at assertions, logs, and other presentation
 boundaries. Semantic tests assert codes and context, not English substrings.
@@ -43,7 +42,9 @@ initialization error. Validation-layer callback messages remain external diagnos
 
 Instance negotiation and device evaluation retain structured rejection lists,
 including requirement identifiers and numeric version or limit context.
-Swapchain selection returns `FVulkanOperationResult`. The infallible instance
+Swapchain selection returns `TVulkanResult<FVulkanSwapchainConfiguration>`,
+an alias of `std::expected<T, FVulkanError>`, and publishes a configuration only
+on success. The infallible instance
 extension request builder returns data directly. `FormatVulkanError` and
 `FormatVulkanErrors` are presentation adapters, including the existing startup
 exception boundary; text emptiness does not determine operation success.

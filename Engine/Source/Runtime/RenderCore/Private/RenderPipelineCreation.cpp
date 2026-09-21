@@ -36,11 +36,11 @@ namespace Durin
 			using TKey = std::conditional_t<Graphics, FGraphicsPipelineStateKey, FComputePipelineStateKey>;
 			if (!IsPipelineCreationPayloadBounded(Initializer, Name.ToString()))
 				return FRHIPipelineCreationRequest::Rejected(ERHIPipelineRequestRejection::CapacityExceeded);
-			TKey Key;
-			FRHIOperationResult Valid;
-			if constexpr (Graphics) Valid = BuildGraphicsPipelineStateKey(Initializer, GDynamicRHI->RHIGetCapabilities(), Key);
-			else Valid = BuildComputePipelineStateKey(Initializer, GDynamicRHI->RHIGetCapabilities(), Key);
+			TRHIResult<TKey> Valid;
+			if constexpr (Graphics) Valid = BuildGraphicsPipelineStateKey(Initializer, GDynamicRHI->RHIGetCapabilities());
+			else Valid = BuildComputePipelineStateKey(Initializer, GDynamicRHI->RHIGetCapabilities());
 			if (!Valid) return FRHIPipelineCreationRequest::Rejected(ERHIPipelineRequestRejection::InvalidDescription);
+			auto& Key = *Valid;
 			for (const auto& Entry : Entries)
 				if (const auto* Existing = std::get_if<TKey>(&Entry.Key); Existing && *Existing == Key) return Entry.Request;
 			uint64 Bytes = sizeof(FEntry);

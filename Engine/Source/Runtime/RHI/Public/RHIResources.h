@@ -1469,8 +1469,7 @@ namespace Durin
 	// Validates and canonicalizes one complete graphics initializer.
 	RHI_API auto BuildGraphicsPipelineStateKey(
 		const FGraphicsPipelineStateInitializer& Initializer,
-		const FRHICapabilities* Capabilities,
-		FGraphicsPipelineStateKey& OutKey) -> FRHIOperationResult;
+		const FRHICapabilities* Capabilities) -> TRHIResult<FGraphicsPipelineStateKey>;
 
 	// Canonical immutable identity used by compute-pipeline caches.
 	struct FComputePipelineStateKey
@@ -1489,8 +1488,7 @@ namespace Durin
 	// Validates and canonicalizes one complete compute initializer.
 	RHI_API auto BuildComputePipelineStateKey(
 		const FComputePipelineStateInitializer& Initializer,
-		const FRHICapabilities* Capabilities,
-		FComputePipelineStateKey& OutKey) -> FRHIOperationResult;
+		const FRHICapabilities* Capabilities) -> TRHIResult<FComputePipelineStateKey>;
 
 	// Describes the byte size, element stride, and allowed usages of a buffer.
 	struct FRHIBufferDesc

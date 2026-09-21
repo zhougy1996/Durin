@@ -265,11 +265,11 @@ namespace Durin
 			try
 			{
 				using TKey = std::conditional_t<Graphics, FGraphicsPipelineStateKey, FComputePipelineStateKey>;
-				TKey NativeKey;
-				FRHIOperationResult Valid;
-				if constexpr (Graphics) Valid = BuildGraphicsPipelineStateKey(Initializer, &Capabilities, NativeKey);
-				else Valid = BuildComputePipelineStateKey(Initializer, &Capabilities, NativeKey);
+				TRHIResult<TKey> Valid;
+				if constexpr (Graphics) Valid = BuildGraphicsPipelineStateKey(Initializer, &Capabilities);
+				else Valid = BuildComputePipelineStateKey(Initializer, &Capabilities);
 				if (!Valid) return Reject(ERHIPipelineRequestRejection::InvalidDescription);
+				auto& NativeKey = *Valid;
 				FRHIPipelineCreationResult Ready;
 				if constexpr (Graphics) Ready.Graphics = Backend.FindGraphics(NativeKey);
 				else Ready.Compute = Backend.FindCompute(NativeKey);

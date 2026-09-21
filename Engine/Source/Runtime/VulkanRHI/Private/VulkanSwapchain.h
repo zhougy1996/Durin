@@ -44,8 +44,7 @@ namespace Durin::VulkanRHI
 	};
 
 	VULKANRHI_API auto SelectVulkanSwapchainConfiguration(
-		const FVulkanSwapchainSelectionInput& Input,
-		FVulkanSwapchainConfiguration& OutConfiguration) -> FVulkanOperationResult;
+		const FVulkanSwapchainSelectionInput& Input) -> TVulkanResult<FVulkanSwapchainConfiguration>;
 
 	// Reports whether presentation succeeded and whether the swapchain must be recreated.
 	struct FVulkanPresentOutcome

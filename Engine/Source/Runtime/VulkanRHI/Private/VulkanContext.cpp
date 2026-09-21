@@ -379,7 +379,7 @@ namespace Durin::VulkanRHI
 #if DO_CHECK
 		const auto ValidationResult = ValidateBufferCopies(SourceRHI, DestinationRHI, Regions);
 		checkf(ValidationResult,
-			"Invalid Vulkan buffer copy replay: {}", FormatRHIError(ValidationResult.Error));
+			"Invalid Vulkan buffer copy replay: {}", FormatRHIError(ValidationResult.error()));
 #endif
 		auto* Source = static_cast<FVulkanBuffer*>(SourceRHI);
 		auto* Destination = static_cast<FVulkanBuffer*>(DestinationRHI);
@@ -408,7 +408,7 @@ namespace Durin::VulkanRHI
 #if DO_CHECK
 		const auto ValidationResult = ValidateBufferToTextureCopies(SourceRHI, DestinationRHI, Regions);
 		checkf(ValidationResult,
-			"Invalid Vulkan buffer-to-texture replay: {}", FormatRHIError(ValidationResult.Error));
+			"Invalid Vulkan buffer-to-texture replay: {}", FormatRHIError(ValidationResult.error()));
 #endif
 		auto* Source = static_cast<FVulkanBuffer*>(SourceRHI);
 		auto* Destination = static_cast<FVulkanTexture*>(DestinationRHI);
@@ -446,7 +446,7 @@ namespace Durin::VulkanRHI
 #if DO_CHECK
 		const auto ValidationResult = ValidateTextureToBufferCopies(SourceRHI, DestinationRHI, Regions);
 		checkf(ValidationResult,
-			"Invalid Vulkan texture-to-buffer replay: {}", FormatRHIError(ValidationResult.Error));
+			"Invalid Vulkan texture-to-buffer replay: {}", FormatRHIError(ValidationResult.error()));
 #endif
 		auto* Source = static_cast<FVulkanTexture*>(SourceRHI);
 		auto* Destination = static_cast<FVulkanBuffer*>(DestinationRHI);
@@ -484,7 +484,7 @@ namespace Durin::VulkanRHI
 #if DO_CHECK
 		const auto ValidationResult = ValidateTextureCopies(SourceRHI, DestinationRHI, Regions);
 		checkf(ValidationResult,
-			"Invalid Vulkan texture copy replay: {}", FormatRHIError(ValidationResult.Error));
+			"Invalid Vulkan texture copy replay: {}", FormatRHIError(ValidationResult.error()));
 #endif
 		auto* Source = static_cast<FVulkanTexture*>(SourceRHI);
 		auto* Destination = static_cast<FVulkanTexture*>(DestinationRHI);

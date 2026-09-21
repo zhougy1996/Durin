@@ -399,9 +399,8 @@ namespace Durin::VulkanRHI
 					G.PipelineLayout.BindingLayouts.emplace_back().BindingLayouts.emplace_back(EShaderStageFlags::Vertex, Index + 1, ERHIBindingType::Texture);
 					C.PipelineLayout.BindingLayouts.emplace_back().BindingLayouts.emplace_back(EShaderStageFlags::Compute, Index + 1, ERHIBindingType::Texture);
 				}
-				FRHIOperationResult Error;
-				if (ComputeKind) { FComputePipelineStateKey Key; EXPECT_TRUE((Error = BuildComputePipelineStateKey(C, GDynamicRHI->RHIGetCapabilities(), Key))); Records[Index].Key = FComputePipelineStateKeyHasher{}(Key); }
-				else { FGraphicsPipelineStateKey Key; EXPECT_TRUE((Error = BuildGraphicsPipelineStateKey(G, GDynamicRHI->RHIGetCapabilities(), Key))); Records[Index].Key = FGraphicsPipelineStateKeyHasher{}(Key); }
+				if (ComputeKind) { auto Key = BuildComputePipelineStateKey(C, GDynamicRHI->RHIGetCapabilities()); ASSERT_TRUE(Key) << FormatRHIError(Key.error()); Records[Index].Key = FComputePipelineStateKeyHasher{}(*Key); }
+				else { auto Key = BuildGraphicsPipelineStateKey(G, GDynamicRHI->RHIGetCapabilities()); ASSERT_TRUE(Key) << FormatRHIError(Key.error()); Records[Index].Key = FGraphicsPipelineStateKeyHasher{}(*Key); }
 				Records[Index].Entry = VulkanCreationTimestamp();
 				Records[Index].Request = ComputeKind ? GDynamicRHI->RHIRequestComputePipelineState(C, "AsyncMeasured") : GDynamicRHI->RHIRequestGraphicsPipelineState(G, "AsyncMeasured");
 				Records[Index].Returned = VulkanCreationTimestamp();

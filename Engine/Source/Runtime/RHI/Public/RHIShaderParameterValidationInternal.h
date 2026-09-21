@@ -52,16 +52,16 @@ namespace Durin::RHIShaderParameterValidationInternal
 							? ERHIShaderBindingError::MissingBinding
 							: !Resources[ResourceIndex].Resource ? ERHIShaderBindingError::NullResource
 							: ERHIShaderBindingError::TypeMismatch;
-						FRHIOperationResult Result{Code, static_cast<uint32>(ResourceIndex)};
-						Result.Error.SetIndex = SetIndex;
-						Result.Error.BindingIndex = Binding.Slot;
-						Result.Error.ArrayElement = ArrayElement;
+						FRHIError Error{Code, static_cast<uint32>(ResourceIndex)};
+						Error.SetIndex = SetIndex;
+						Error.BindingIndex = Binding.Slot;
+						Error.ArrayElement = ArrayElement;
 						if (Code == ERHIShaderBindingError::TypeMismatch)
 						{
-							Result.Error.ExpectedBindingType = Binding.Type;
-							Result.Error.ActualBindingType = Resources[ResourceIndex].Type;
+							Error.ExpectedBindingType = Binding.Type;
+							Error.ActualBindingType = Resources[ResourceIndex].Type;
 						}
-						return Result;
+						return std::unexpected(std::move(Error));
 					}
 					Visitor(Expected, Resources[ResourceIndex]);
 					++ResourceIndex;
@@ -71,11 +71,11 @@ namespace Durin::RHIShaderParameterValidationInternal
 		if (ResourceIndex != Resources.size())
 		{
 			if (ValidationVisits) ++*ValidationVisits;
-			FRHIOperationResult Result{ERHIShaderBindingError::UnexpectedBinding, static_cast<uint32>(ResourceIndex)};
-			Result.Error.SetIndex = Resources[ResourceIndex].SetIndex;
-			Result.Error.BindingIndex = Resources[ResourceIndex].BindingIndex;
-			Result.Error.ArrayElement = Resources[ResourceIndex].ArrayElement;
-			return Result;
+			FRHIError Error{ERHIShaderBindingError::UnexpectedBinding, static_cast<uint32>(ResourceIndex)};
+			Error.SetIndex = Resources[ResourceIndex].SetIndex;
+			Error.BindingIndex = Resources[ResourceIndex].BindingIndex;
+			Error.ArrayElement = Resources[ResourceIndex].ArrayElement;
+			return std::unexpected(std::move(Error));
 		}
 		return {};
 	}

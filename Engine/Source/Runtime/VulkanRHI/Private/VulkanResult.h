@@ -1,5 +1,7 @@
 #pragma once
 
+#include <expected>
+
 #include "VulkanRHIAPI.h"
 
 namespace Durin::VulkanRHI
@@ -39,12 +41,9 @@ namespace Durin::VulkanRHI
 		uint32 Actual = 0;
 		uint32 Required = 0;
 	};
-	struct FVulkanOperationResult
-	{
-		FVulkanError Error;
-		auto IsSuccess() const -> bool { return Error.Code == EVulkanError::None; }
-		explicit operator bool() const { return IsSuccess(); }
-	};
+	template<typename T = void>
+	using TVulkanResult = std::expected<T, FVulkanError>;
+
 	VULKANRHI_API auto FormatVulkanError(const FVulkanError& Error) -> std::string;
 	VULKANRHI_API auto FormatVulkanErrors(std::span<const FVulkanError> Errors) -> std::string;
 }

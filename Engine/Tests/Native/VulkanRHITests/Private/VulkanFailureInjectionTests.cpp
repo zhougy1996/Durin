@@ -1613,7 +1613,7 @@ namespace Durin::VulkanRHI
 		FRHITextureCreateDesc Oversized = Texture2D;
 		Oversized.SetExtent(static_cast<int32>(Capabilities->MaxTextureDimension2D + 1), 1);
 		FRHIOperationResult ValidationError;
-		ASSERT_TRUE((ValidationError = ValidateTextureCreateDesc(Oversized))) << FormatRHIError(ValidationError.Error);
+		ASSERT_TRUE((ValidationError = ValidateTextureCreateDesc(Oversized))) << FormatRHIError(ValidationError.error());
 		EXPECT_FALSE(GDynamicRHI->RHIIsTextureSupported(Oversized));
 
 		FTextureRHIRef Created2D = GDynamicRHI->RHICreateTexture(RHICmdList, Texture2D);
@@ -1810,22 +1810,21 @@ namespace Durin::VulkanRHI
 				Layout.BindingLayouts.emplace_back().BindingLayouts.emplace_back(
 					bCompute ? EShaderStageFlags::Compute : EShaderStageFlags::Vertex,
 					Variant, ERHIBindingType::UniformBuffer);
-				FRHIOperationResult Error;
 				TRefCountPtr<FRHIResource> Result;
 				const auto Outcome = ExecuteFallibleRHICreationOperation(MakeVulkanCreationOperation([&] {
 					if (bCompute)
 					{
-						FComputePipelineStateKey Key;
-						if (!(Error = BuildComputePipelineStateKey(C, GDynamicRHI->RHIGetCapabilities(), Key)))
-							throw std::runtime_error(FormatRHIError(Error.Error));
-						Result = Device->GetPipelineManager().GetOrCreateComputePipelineState(C, std::move(Key), "BackgroundCompute");
+						auto Key = BuildComputePipelineStateKey(C, GDynamicRHI->RHIGetCapabilities());
+						if (!Key)
+							throw std::runtime_error(FormatRHIError(Key.error()));
+						Result = Device->GetPipelineManager().GetOrCreateComputePipelineState(C, std::move(*Key), "BackgroundCompute");
 					}
 					else
 					{
-						FGraphicsPipelineStateKey Key;
-						if (!(Error = BuildGraphicsPipelineStateKey(G, GDynamicRHI->RHIGetCapabilities(), Key)))
-							throw std::runtime_error(FormatRHIError(Error.Error));
-						Result = Device->GetPipelineManager().GetOrCreateGraphicsPipelineState(G, std::move(Key), "BackgroundGraphics");
+						auto Key = BuildGraphicsPipelineStateKey(G, GDynamicRHI->RHIGetCapabilities());
+						if (!Key)
+							throw std::runtime_error(FormatRHIError(Key.error()));
+						Result = Device->GetPipelineManager().GetOrCreateGraphicsPipelineState(G, std::move(*Key), "BackgroundGraphics");
 					}
 				}));
 				return !Outcome.HasError() ? Result : nullptr;

@@ -1200,13 +1200,13 @@ namespace Durin::VulkanRHI
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 		FVulkanCreationTimingScope TimingScope(false);
 #endif
-		FGraphicsPipelineStateKey Key;
-		const auto ValidationResult = BuildGraphicsPipelineStateKey(Initializer, RHIGetCapabilities(), Key);
+		auto ValidationResult = BuildGraphicsPipelineStateKey(Initializer, RHIGetCapabilities());
 		if (!ValidationResult)
 		{
-			DURIN_ERROR("Invalid graphics pipeline '{}': {}", DebugName.ToString(), FormatRHIError(ValidationResult.Error));
+			DURIN_ERROR("Invalid graphics pipeline '{}': {}", DebugName.ToString(), FormatRHIError(ValidationResult.error()));
 			return nullptr;
 		}
+		auto& Key = *ValidationResult;
 		if (auto Ready = Device->GetPipelineManager().FindGraphicsPipelineState(Key))
 		{
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
@@ -1243,13 +1243,13 @@ namespace Durin::VulkanRHI
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 		FVulkanCreationTimingScope TimingScope(true);
 #endif
-		FComputePipelineStateKey Key;
-		const auto ValidationResult = BuildComputePipelineStateKey(Initializer, RHIGetCapabilities(), Key);
+		auto ValidationResult = BuildComputePipelineStateKey(Initializer, RHIGetCapabilities());
 		if (!ValidationResult)
 		{
-			DURIN_ERROR("Invalid compute pipeline '{}': {}", DebugName.ToString(), FormatRHIError(ValidationResult.Error));
+			DURIN_ERROR("Invalid compute pipeline '{}': {}", DebugName.ToString(), FormatRHIError(ValidationResult.error()));
 			return nullptr;
 		}
+		auto& Key = *ValidationResult;
 		if (auto Ready = Device->GetPipelineManager().FindComputePipelineState(Key))
 		{
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION

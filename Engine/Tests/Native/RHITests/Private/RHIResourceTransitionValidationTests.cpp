@@ -36,24 +36,24 @@ namespace Durin
 		EXPECT_EQ(Whole.Offset, 0u);
 		EXPECT_EQ(Whole.Size, 256u);
 		FRHIOperationResult Error;
-		EXPECT_TRUE((Error = ValidateBufferTransition(Whole))) << FormatRHIError(Error.Error);
+		EXPECT_TRUE((Error = ValidateBufferTransition(Whole))) << FormatRHIError(Error.error());
 
 		FRHIBufferTransition Invalid = Whole;
 		Invalid.Size = 0;
-		EXPECT_FALSE((Error = ValidateBufferTransition(Invalid)));
+		ASSERT_FALSE((Error = ValidateBufferTransition(Invalid)));
 		Invalid = Whole;
 		Invalid.Offset = std::numeric_limits<uint64>::max();
 		Invalid.Size = 2;
-		EXPECT_FALSE((Error = ValidateBufferTransition(Invalid)));
+		ASSERT_FALSE((Error = ValidateBufferTransition(Invalid)));
 		Invalid = Whole;
 		Invalid.RequiredAfter = ERHIAccess::Discard;
-		EXPECT_FALSE((Error = ValidateBufferTransition(Invalid)));
+		ASSERT_FALSE((Error = ValidateBufferTransition(Invalid)));
 		Invalid = Whole;
 		Invalid.RequiredAfter = ERHIAccess::VertexBufferRead | ERHIAccess::TransferWrite;
-		EXPECT_FALSE((Error = ValidateBufferTransition(Invalid)));
+		ASSERT_FALSE((Error = ValidateBufferTransition(Invalid)));
 		Invalid = Whole;
 		Invalid.RequiredAfter = ERHIAccess::ComputeShaderRead;
-		EXPECT_FALSE((Error = ValidateBufferTransition(Invalid)));
+		ASSERT_FALSE((Error = ValidateBufferTransition(Invalid)));
 	}
 
 	TEST(FRHIResourceTransitionValidationTests, RejectsBufferOverlapButAllowsAdjacency)
@@ -63,16 +63,16 @@ namespace Durin
 			FRHIBufferTransition{&Buffer, 0, 16, ERHIAccess::Discard, ERHIAccess::VertexBufferRead},
 			FRHIBufferTransition{&Buffer, 16, 16, ERHIAccess::Discard, ERHIAccess::VertexBufferRead}};
 		FRHIOperationResult Error;
-		EXPECT_TRUE((Error = ValidateBufferTransitions(Transitions))) << FormatRHIError(Error.Error);
+		EXPECT_TRUE((Error = ValidateBufferTransitions(Transitions))) << FormatRHIError(Error.error());
 		Transitions[1].Offset = 15;
-		EXPECT_FALSE((Error = ValidateBufferTransitions(Transitions)));
-		EXPECT_EQ(Error.Error.Code, FRHIError::FCode{ERHIBufferTransitionError::OverlappingRanges});
-		EXPECT_EQ(Error.Error.Index, 1u);
-		EXPECT_EQ(Error.Error.OtherIndex, 0u);
+		ASSERT_FALSE((Error = ValidateBufferTransitions(Transitions)));
+		EXPECT_EQ(Error.error().Code, FRHIError::FCode{ERHIBufferTransitionError::OverlappingRanges});
+		EXPECT_EQ(Error.error().Index, 1u);
+		EXPECT_EQ(Error.error().OtherIndex, 0u);
 		Transitions[1].Size = 0;
 		Error = ValidateBufferTransitions(Transitions);
-		EXPECT_EQ(Error.Error.Code, FRHIError::FCode{ERHIBufferTransitionError::EmptyRange});
-		EXPECT_EQ(Error.Error.Index, 1u);
+		EXPECT_EQ(Error.error().Code, FRHIError::FCode{ERHIBufferTransitionError::EmptyRange});
+		EXPECT_EQ(Error.error().Index, 1u);
 	}
 
 	TEST(FRHIResourceTransitionValidationTests, ValidatesTextureAspectsEdgesAndWholeHelper)
@@ -89,19 +89,19 @@ namespace Durin
 		EXPECT_EQ(Whole.Range, (FRHITextureSubresourceRange{
 			ERHITextureAspect::Color, 0, 4, 0, 4}));
 		FRHIOperationResult Error;
-		EXPECT_TRUE((Error = ValidateTextureTransition(Whole))) << FormatRHIError(Error.Error);
+		EXPECT_TRUE((Error = ValidateTextureTransition(Whole))) << FormatRHIError(Error.error());
 
 		FRHITextureTransition Edge = Whole;
 		Edge.Range = {ERHITextureAspect::Color, 3, 1, 3, 1};
-		EXPECT_TRUE((Error = ValidateTextureTransition(Edge))) << FormatRHIError(Error.Error);
+		EXPECT_TRUE((Error = ValidateTextureTransition(Edge))) << FormatRHIError(Error.error());
 		Edge.Range.NumMips = 2;
-		EXPECT_FALSE((Error = ValidateTextureTransition(Edge)));
+		ASSERT_FALSE((Error = ValidateTextureTransition(Edge)));
 		Edge = Whole;
 		Edge.Range.Aspects = ERHITextureAspect::Depth;
-		EXPECT_FALSE((Error = ValidateTextureTransition(Edge)));
+		ASSERT_FALSE((Error = ValidateTextureTransition(Edge)));
 		Edge = Whole;
 		Edge.RequiredAfter = ERHIAccess::GraphicsUniformRead;
-		EXPECT_FALSE((Error = ValidateTextureTransition(Edge)));
+		ASSERT_FALSE((Error = ValidateTextureTransition(Edge)));
 	}
 
 	TEST(FRHIResourceTransitionValidationTests, SeparatesDepthAndStencilSubresources)
@@ -118,17 +118,17 @@ namespace Durin
 			FRHITextureTransition{&Texture, {ERHITextureAspect::Stencil, 0, 1, 0, 1},
 				ERHIAccess::Discard, ERHIAccess::DepthStencilReadWrite}};
 		FRHIOperationResult Error;
-		EXPECT_TRUE((Error = ValidateTextureTransitions(Transitions))) << FormatRHIError(Error.Error);
+		EXPECT_TRUE((Error = ValidateTextureTransitions(Transitions))) << FormatRHIError(Error.error());
 		Transitions[1].Range.Aspects = ERHITextureAspect::Depth | ERHITextureAspect::Stencil;
-		EXPECT_FALSE((Error = ValidateTextureTransitions(Transitions)));
+		ASSERT_FALSE((Error = ValidateTextureTransitions(Transitions)));
 	}
 
 	TEST(FRHIResourceTransitionValidationTests, RejectsNullResourcesAndEmptyRanges)
 	{
 		FRHIOperationResult Error;
-		EXPECT_FALSE((Error = ValidateBufferTransition(
+		ASSERT_FALSE((Error = ValidateBufferTransition(
 			FRHIBufferTransition::Whole(nullptr, ERHIAccess::Discard, ERHIAccess::TransferWrite))));
-		EXPECT_FALSE((Error = ValidateTextureTransition(
+		ASSERT_FALSE((Error = ValidateTextureTransition(
 			FRHITextureTransition::Whole(nullptr, ERHIAccess::Discard, ERHIAccess::TransferWrite))));
 	}
 
@@ -153,14 +153,14 @@ namespace Durin
 			&Shadow, {ERHITextureAspect::Depth, 0, 1, 2, 1},
 			ERHIAccess::GraphicsShaderRead,
 			ERHIAccess::DepthStencilReadWrite};
-		EXPECT_TRUE((Error = ValidateTextureTransition(FirstWrite))) << FormatRHIError(Error.Error);
-		EXPECT_TRUE((Error = ValidateTextureTransition(FirstRead))) << FormatRHIError(Error.Error);
-		EXPECT_TRUE((Error = ValidateTextureTransition(Rewrite))) << FormatRHIError(Error.Error);
+		EXPECT_TRUE((Error = ValidateTextureTransition(FirstWrite))) << FormatRHIError(Error.error());
+		EXPECT_TRUE((Error = ValidateTextureTransition(FirstRead))) << FormatRHIError(Error.error());
+		EXPECT_TRUE((Error = ValidateTextureTransition(Rewrite))) << FormatRHIError(Error.error());
 
 		FRHITexture Invalid(FRHITextureCreateDesc::Create2D(
 			"InvalidShadow", 16, 16, EPixelFormat::D32)
 			.SetFlags(ETextureCreateFlags::DepthStencilTargetable));
-		EXPECT_FALSE((Error = ValidateTextureTransition(
+		ASSERT_FALSE((Error = ValidateTextureTransition(
 			FRHITextureTransition::Whole(
 				&Invalid, ERHIAccess::DepthStencilReadWrite,
 				ERHIAccess::GraphicsShaderRead))));

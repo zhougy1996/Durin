@@ -123,22 +123,21 @@ namespace Durin::VulkanRHI
 	}
 
 	auto SelectVulkanSwapchainConfiguration(
-		const FVulkanSwapchainSelectionInput& Input,
-		FVulkanSwapchainConfiguration& OutConfiguration) -> FVulkanOperationResult
+		const FVulkanSwapchainSelectionInput& Input) -> TVulkanResult<FVulkanSwapchainConfiguration>
 	{
 		if (Input.Formats.empty())
-			return FVulkanOperationResult{EVulkanError::NoSurfaceFormats};
+			return std::unexpected(FVulkanError{EVulkanError::NoSurfaceFormats});
 		if (Input.PresentModes.empty())
-			return FVulkanOperationResult{EVulkanError::NoPresentModes};
+			return std::unexpected(FVulkanError{EVulkanError::NoPresentModes});
 		if ((Input.Capabilities.supportedUsageFlags & RequiredSwapchainImageUsage)
 			!= RequiredSwapchainImageUsage)
-			return FVulkanOperationResult{EVulkanError::UnsupportedImageUsage};
+			return std::unexpected(FVulkanError{EVulkanError::UnsupportedImageUsage});
 		if (Input.Capabilities.minImageExtent.width > Input.Capabilities.maxImageExtent.width
 			|| Input.Capabilities.minImageExtent.height > Input.Capabilities.maxImageExtent.height)
-			return FVulkanOperationResult{EVulkanError::InvalidExtentRange};
+			return std::unexpected(FVulkanError{EVulkanError::InvalidExtentRange});
 		if (Input.Capabilities.maxImageCount > 0
 			&& Input.Capabilities.maxImageCount < Input.Capabilities.minImageCount)
-			return FVulkanOperationResult{EVulkanError::InvalidImageCountRange};
+			return std::unexpected(FVulkanError{EVulkanError::InvalidImageCountRange});
 
 		FVulkanSwapchainConfiguration Configuration;
 		Configuration.SurfaceFormat = ChooseSwapSurfaceFormat(Input.Formats);
@@ -146,11 +145,11 @@ namespace Durin::VulkanRHI
 			Input.PresentModes, Input.PresentationPolicy);
 		if (std::ranges::find(Input.PresentModes, Configuration.PresentMode)
 			== Input.PresentModes.end())
-			return FVulkanOperationResult{EVulkanError::UnsupportedPresentPolicy};
+			return std::unexpected(FVulkanError{EVulkanError::UnsupportedPresentPolicy});
 		Configuration.Extent = ChooseSwapExtent(Input.Capabilities,
 			Input.RequestedWidth, Input.RequestedHeight);
 		if (Configuration.Extent.width == 0 || Configuration.Extent.height == 0)
-			return FVulkanOperationResult{EVulkanError::EmptyExtent};
+			return std::unexpected(FVulkanError{EVulkanError::EmptyExtent});
 		Configuration.ImageCount = FMath::Max(
 			GetMinImageCountForPresentMode(Configuration.PresentMode),
 			Input.Capabilities.minImageCount);
@@ -158,7 +157,7 @@ namespace Durin::VulkanRHI
 			Configuration.ImageCount = FMath::Min(
 				Configuration.ImageCount, Input.Capabilities.maxImageCount);
 		if (Configuration.ImageCount < FrameInFlight)
-			return FVulkanOperationResult{EVulkanError::InsufficientImageCount};
+			return std::unexpected(FVulkanError{EVulkanError::InsufficientImageCount});
 		Configuration.ImageUsage = RequiredSwapchainImageUsage;
 		Configuration.PreTransform = Input.Capabilities.currentTransform;
 		for (const vk::CompositeAlphaFlagBitsKHR Candidate : {
@@ -170,11 +169,10 @@ namespace Durin::VulkanRHI
 			if (Input.Capabilities.supportedCompositeAlpha & Candidate)
 			{
 				Configuration.CompositeAlpha = Candidate;
-				OutConfiguration = Configuration;
-				return {};
+				return Configuration;
 			}
 		}
-		return FVulkanOperationResult{EVulkanError::UnsupportedCompositeAlpha};
+		return std::unexpected(FVulkanError{EVulkanError::UnsupportedCompositeAlpha});
 	}
 
 	FVulkanSwapchain::FVulkanSwapchain(FVulkanDevice& InDevice, vk::SurfaceKHR InSurface, uint32 Width, uint32 Height, bool bIsFullScreen, EViewportPresentationPolicy InPresentationPolicy, vk::SwapchainKHR InOldSwapchain, bool& bOutNativeSwapchainCreated)
@@ -197,17 +195,17 @@ namespace Durin::VulkanRHI
 		// close as possible to native swapchain creation.
 		vk::SurfaceCapabilitiesKHR Capabilities = Gpu.getSurfaceCapabilitiesKHR(Surface);
 
-		FVulkanSwapchainConfiguration Configuration;
-		FVulkanOperationResult Selection;
-		if (!(Selection = SelectVulkanSwapchainConfiguration({
+		const auto Selection = SelectVulkanSwapchainConfiguration({
 				.Capabilities = Capabilities,
 				.Formats = std::move(Formats),
 				.PresentModes = std::move(PresentModes),
 				.RequestedWidth = Width,
 				.RequestedHeight = Height,
-				.PresentationPolicy = PresentationPolicy}, Configuration)))
+				.PresentationPolicy = PresentationPolicy});
+		if (!Selection)
 			throw std::runtime_error(std::format("Vulkan swapchain selection failed: {}",
-				FormatVulkanError(Selection.Error)));
+				FormatVulkanError(Selection.error())));
+		const auto& Configuration = *Selection;
 		Extent = Configuration.Extent;
 		ImageFormat = Configuration.SurfaceFormat.format;
 

@@ -92,9 +92,9 @@ namespace Durin::VulkanRHI
 		require(Source != Destination && Device.FindQueue(Source) && Device.FindQueue(Destination));
 		require(!Buffers.empty() || !Textures.empty());
 		const auto BufferResult = ValidateBufferTransitions(Buffers);
-		requiref(BufferResult, "{}", FormatRHIError(BufferResult.Error));
+		requiref(BufferResult, "{}", FormatRHIError(BufferResult.error()));
 		const auto TextureResult = ValidateTextureTransitions(Textures);
-		requiref(TextureResult, "{}", FormatRHIError(TextureResult.Error));
+		requiref(TextureResult, "{}", FormatRHIError(TextureResult.error()));
 		State->Buffers.assign(Buffers.begin(), Buffers.end());
 		State->Textures.assign(Textures.begin(), Textures.end());
 		static std::atomic<uint64> NextId = 1;

@@ -126,7 +126,7 @@ namespace Durin::VulkanRHI
 		const auto ValidationResult = ValidateShaderParameterUpdate(Key.PipelineLayout,
 			EShaderStageFlags::Compute, InResourceParameters);
 		checkf(ValidationResult,
-			"Invalid compute shader parameter update: {}", FormatRHIError(ValidationResult.Error));
+			"Invalid compute shader parameter update: {}", FormatRHIError(ValidationResult.error()));
 #endif
 		for (const FRHIShaderParameterResource& Parameter : InResourceParameters)
 		{
@@ -210,7 +210,7 @@ namespace Durin::VulkanRHI
 		const auto ValidationResult = ValidateShaderBindingCompleteness(
 			CurrentPipelineState->GetKey().PipelineLayout, PendingResources);
 		checkf(ValidationResult,
-			"Invalid compute shader binding snapshot: {}", FormatRHIError(ValidationResult.Error));
+			"Invalid compute shader binding snapshot: {}", FormatRHIError(ValidationResult.error()));
 #endif
 		const auto ResourcesEqual = [](const auto& A, const auto& B) {
 			if (A.size() != B.size()) return false;
@@ -374,7 +374,7 @@ namespace Durin::VulkanRHI
 		const auto ValidationResult = ValidateShaderParameterUpdate(Key.PipelineLayout, ShaderStage,
 			InResourceParameters);
 		checkf(ValidationResult,
-			"Invalid shader parameter update: {}", FormatRHIError(ValidationResult.Error));
+			"Invalid shader parameter update: {}", FormatRHIError(ValidationResult.error()));
 #endif
 		CurrentDescriptorState->SetShaderParameters(InShader, InResourceParameters);
 	}
@@ -637,7 +637,7 @@ namespace Durin::VulkanRHI
 		GVulkanBindingValidationVisitCount.fetch_add(
 			BindingValidationVisits, std::memory_order_relaxed);
 #endif
-		checkf(CompletenessResult, "Invalid shader binding snapshot: {}", FormatRHIError(CompletenessResult.Error));
+		checkf(CompletenessResult, "Invalid shader binding snapshot: {}", FormatRHIError(CompletenessResult.error()));
 		const uint64 DescriptorHash = CalculatePendingDescriptorHash();
 
 		// Hash is a fast reject only; resource equality is still checked before cache reuse.

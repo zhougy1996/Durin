@@ -5,7 +5,6 @@ namespace Durin
 {
 	namespace
 	{
-		auto DescribeError(std::monostate) -> std::string_view { return {}; }
 
 		auto DescribeError(ERHIAccessError Code) -> std::string_view
 		{
